@@ -5,8 +5,8 @@
 #ifndef CONTENT_PUBLIC_BROWSER_ANDROID_SYNCHRONOUS_COMPOSITOR_CLIENT_H_
 #define CONTENT_PUBLIC_BROWSER_ANDROID_SYNCHRONOUS_COMPOSITOR_CLIENT_H_
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "ui/gfx/geometry/size_f.h"
 #include "ui/gfx/geometry/vector2d_f.h"
@@ -26,6 +26,11 @@ class SynchronousCompositorClient {
   // NOTE if the client goes away before the compositor it must call
   // SynchronousCompositor::SetClient(nullptr) to release the back pointer.
   virtual void DidDestroyCompositor(SynchronousCompositor* compositor) = 0;
+
+  // Indication to the client that |compositor| just became the current one.
+  // The compositor has to be initialized first. An initialized compositor may
+  // not become current immediately.
+  virtual void DidBecomeCurrent(SynchronousCompositor* compositor) = 0;
 
   // See LayerScrollOffsetDelegate for details.
   virtual void UpdateRootLayerState(const gfx::Vector2dF& total_scroll_offset,

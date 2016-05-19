@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_FRAME_HOST_RENDER_FRAME_MESSAGE_FILTER_H_
 #define CONTENT_BROWSER_FRAME_HOST_RENDER_FRAME_MESSAGE_FILTER_H_
 
+#include <stdint.h>
+
 #include <set>
 
 #include "content/common/frame_replication_state.h"
@@ -18,6 +20,7 @@
 #include "content/common/pepper_renderer_instance_data.h"
 #endif
 
+struct FrameHostMsg_CreateChildFrame_Params;
 class GURL;
 
 namespace net {
@@ -59,13 +62,8 @@ class RenderFrameMessageFilter : public BrowserMessageFilter {
 
   ~RenderFrameMessageFilter() override;
 
-  void OnCreateChildFrame(
-      int parent_routing_id,
-      blink::WebTreeScopeType scope,
-      const std::string& frame_name,
-      blink::WebSandboxFlags sandbox_flags,
-      const blink::WebFrameOwnerProperties& frame_owner_properties,
-      int* new_render_frame_id);
+  void OnCreateChildFrame(const FrameHostMsg_CreateChildFrame_Params& params,
+                          int* new_render_frame_id);
   void OnSetCookie(int render_frame_id,
                    const GURL& url,
                    const GURL& first_party_for_cookies,
@@ -99,6 +97,8 @@ class RenderFrameMessageFilter : public BrowserMessageFilter {
                           ThreeDAPIType context_type,
                           int arb_robustness_status_code);
 
+  void OnRenderProcessGone();
+
 #if defined(ENABLE_PLUGINS)
   void OnGetPlugins(bool refresh, IPC::Message* reply_msg);
   void GetPluginsCallback(IPC::Message* reply_msg,
@@ -121,16 +121,16 @@ class RenderFrameMessageFilter : public BrowserMessageFilter {
                                    IPC::Message* reply_msg);
   void OnDidCreateOutOfProcessPepperInstance(
       int plugin_child_id,
-      int32 pp_instance,
+      int32_t pp_instance,
       PepperRendererInstanceData instance_data,
       bool is_external);
   void OnDidDeleteOutOfProcessPepperInstance(int plugin_child_id,
-                                             int32 pp_instance,
+                                             int32_t pp_instance,
                                              bool is_external);
   void OnOpenChannelToPpapiBroker(int routing_id,
                                   const base::FilePath& path);
   void OnPluginInstanceThrottleStateChange(int plugin_child_id,
-                                           int32 pp_instance,
+                                           int32_t pp_instance,
                                            bool is_throttled);
 #endif  // ENABLE_PLUGINS
 

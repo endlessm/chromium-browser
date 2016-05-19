@@ -4,7 +4,8 @@
 
 #include "net/socket/socks5_client_socket.h"
 
-#include "base/basictypes.h"
+#include <utility>
+
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
@@ -12,7 +13,6 @@
 #include "base/sys_byteorder.h"
 #include "base/trace_event/trace_event.h"
 #include "net/base/io_buffer.h"
-#include "net/base/net_util.h"
 #include "net/log/net_log.h"
 #include "net/socket/client_socket_handle.h"
 
@@ -21,9 +21,9 @@ namespace net {
 const unsigned int SOCKS5ClientSocket::kGreetReadHeaderSize = 2;
 const unsigned int SOCKS5ClientSocket::kWriteHeaderSize = 10;
 const unsigned int SOCKS5ClientSocket::kReadHeaderSize = 5;
-const uint8 SOCKS5ClientSocket::kSOCKS5Version = 0x05;
-const uint8 SOCKS5ClientSocket::kTunnelCommand = 0x01;
-const uint8 SOCKS5ClientSocket::kNullByte = 0x00;
+const uint8_t SOCKS5ClientSocket::kSOCKS5Version = 0x05;
+const uint8_t SOCKS5ClientSocket::kTunnelCommand = 0x01;
+const uint8_t SOCKS5ClientSocket::kNullByte = 0x00;
 
 static_assert(sizeof(struct in_addr) == 4, "incorrect system size of IPv4");
 static_assert(sizeof(struct in6_addr) == 16, "incorrect system size of IPv6");
@@ -33,7 +33,7 @@ SOCKS5ClientSocket::SOCKS5ClientSocket(
     const HostResolver::RequestInfo& req_info)
     : io_callback_(base::Bind(&SOCKS5ClientSocket::OnIOComplete,
                               base::Unretained(this))),
-      transport_(transport_socket.Pass()),
+      transport_(std::move(transport_socket)),
       next_state_(STATE_NONE),
       completed_handshake_(false),
       bytes_sent_(0),
@@ -41,8 +41,7 @@ SOCKS5ClientSocket::SOCKS5ClientSocket(
       read_header_size(kReadHeaderSize),
       was_ever_used_(false),
       host_request_info_(req_info),
-      net_log_(transport_->socket()->NetLog()) {
-}
+      net_log_(transport_->socket()->NetLog()) {}
 
 SOCKS5ClientSocket::~SOCKS5ClientSocket() {
   Disconnect();
@@ -190,11 +189,11 @@ int SOCKS5ClientSocket::Write(IOBuffer* buf, int buf_len,
   return rv;
 }
 
-int SOCKS5ClientSocket::SetReceiveBufferSize(int32 size) {
+int SOCKS5ClientSocket::SetReceiveBufferSize(int32_t size) {
   return transport_->socket()->SetReceiveBufferSize(size);
 }
 
-int SOCKS5ClientSocket::SetSendBufferSize(int32 size) {
+int SOCKS5ClientSocket::SetSendBufferSize(int32_t size) {
   return transport_->socket()->SetSendBufferSize(size);
 }
 
@@ -378,7 +377,7 @@ int SOCKS5ClientSocket::BuildHandshakeWriteBuffer(std::string* handshake)
       host_request_info_.hostname().size()));
   handshake->append(host_request_info_.hostname());
 
-  uint16 nw_port = base::HostToNet16(host_request_info_.port());
+  uint16_t nw_port = base::HostToNet16(host_request_info_.port());
   handshake->append(reinterpret_cast<char*>(&nw_port), sizeof(nw_port));
   return OK;
 }
@@ -472,7 +471,7 @@ int SOCKS5ClientSocket::DoHandshakeReadComplete(int result) {
     SocksEndPointAddressType address_type =
         static_cast<SocksEndPointAddressType>(buffer_[3]);
     if (address_type == kEndPointDomain)
-      read_header_size += static_cast<uint8>(buffer_[4]);
+      read_header_size += static_cast<uint8_t>(buffer_[4]);
     else if (address_type == kEndPointResolvedIPv4)
       read_header_size += sizeof(struct in_addr) - 1;
     else if (address_type == kEndPointResolvedIPv6)

@@ -1,6 +1,55 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+/**
+ * Section IDs use for metrics.  The integer values should match up with the
+ * |SettingsSections| in histograms.xml.
+ * @type {Object<string, number>}
+ */
+var SettingsSections = {
+  'None': 0,
+  'Unknown': 1,
+  'network-section-cros': 2,
+  'proxy-section': 3,
+  'appearance-section': 4,
+  'device-section': 5,
+  'search-section': 6,
+  'sync-users-section': 7,
+  'set-default-browser-section': 8,
+  'date-time-section': 9,
+  'device-control-section': 10,
+  'privacy-section': 11,
+  'bluetooth-devices': 12,
+  'passwords-and-autofill-section': 13,
+  'easy-unlock-section': 14,
+  'web-content-section': 15,
+  'network-section': 16,
+  'languages-section': 17,
+  'downloads-section': 18,
+  'certificates-section': 19,
+  'cloudprint-options-mdns': 20,
+  'a11y-section': 21,
+  'factory-reset-section': 22,
+  'system-section': 23,
+  'reset-profile-settings-section': 24,
+  'sync-section': 25,
+  'startup-section': 26,
+  'mouselock-section': 27,
+  'page-zoom-levels': 28,
+  'status-section': 29,
+  'main-section': 30,
+  'pointer-section-touchpad': 31,
+  'pointer-section-mouse': 32,
+  'prefs-blocked-languages': 33,
+  'prefs-language-blacklist': 34,
+  'prefs-site-blacklist': 35,
+  'prefs-whitelists': 36,
+  'prefs-supported-languages': 37,
+  'prefs-cld-version': 38,
+  'prefs-cld-data-source': 39,
+  'prefs-dump': 40,
+};
 
 cr.define('options', function() {
   /** @const */ var Page = cr.ui.pageManager.Page;
@@ -147,6 +196,20 @@ cr.define('options', function() {
     __proto__: Page.prototype,
 
     /**
+     * Wait a bit to see if the user is still entering search text.
+     * @type {number|undefined}
+     * @private
+     */
+    delayedSearchMetric_: undefined,
+
+    /**
+     * Only send the time of first search once.
+     * @type {boolean}
+     * @private
+     */
+    hasSentFirstSearchTime_: false,
+
+    /**
      * A boolean to prevent recursion. Used by setSearchText_().
      * @type {boolean}
      * @private
@@ -156,6 +219,9 @@ cr.define('options', function() {
     /** @override */
     initializePage: function() {
       Page.prototype.initializePage.call(this);
+
+      // Record the start time for use in reporting metrics.
+      this.createdTimestamp_ = Date.now();
 
       this.searchField = $('search-field');
 
@@ -303,6 +369,12 @@ cr.define('options', function() {
         return;
       }
 
+      if (!this.hasSentFirstSearchTime_) {
+        this.hasSentFirstSearchTime_ = true;
+        chrome.metricsPrivate.recordMediumTime('Settings.TimeToFirstSearch',
+            Date.now() - this.createdTimestamp_);
+      }
+
       // Toggle the search page if necessary. Otherwise, update the hash.
       var hash = '#' + encodeURIComponent(text);
       if (this.searchActive_) {
@@ -328,6 +400,9 @@ cr.define('options', function() {
       }
 
       var bubbleControls = [];
+      var pageMatchesForMetrics = 0;
+      var subpageMatchesForMetrics = 0;
+      var sectionMatchesForMetrics = {};
 
       // Generate search text by applying lowercase and escaping any characters
       // that would be problematic for regular expressions.
@@ -345,8 +420,13 @@ cr.define('options', function() {
           for (var i = 0, node; node = elements[i]; i++) {
             if (this.highlightMatches_(regExp, node)) {
               node.classList.remove('search-hidden');
-              if (!node.hidden)
+              if (!node.hidden) {
                 foundMatches = true;
+                pageMatchesForMetrics += 1;
+                var section = SettingsSections[node.id] ||
+                    SettingsSections['Unknown'];
+                sectionMatchesForMetrics[section] = section;
+              }
             }
           }
         }
@@ -364,6 +444,7 @@ cr.define('options', function() {
                 bubbleControls.concat(this.getAssociatedControls_(page));
 
             foundMatches = true;
+            subpageMatchesForMetrics += 1;
           }
         }
       }
@@ -372,9 +453,35 @@ cr.define('options', function() {
       $('searchPageNoMatches').hidden = foundMatches;
 
       // Create search balloons for sub-page results.
-      var length = bubbleControls.length;
-      for (var i = 0; i < length; i++)
+      var bubbleCount = bubbleControls.length;
+      for (var i = 0; i < bubbleCount; i++)
         this.createSearchBubble_(bubbleControls[i], text);
+
+      // If the search doesn't change for one second, send some metrics.
+      clearTimeout(this.delayedSearchMetric_);
+      this.delayedSearchMetric_ = setTimeout(function() {
+        if (!foundMatches) {
+          chrome.metricsPrivate.recordSmallCount(
+            'Settings.SearchLengthNoMatch', text.length);
+          chrome.metricsPrivate.recordSmallCount(
+            'Settings.SearchSections', SettingsSections['None']);
+        } else {
+          for (var section in sectionMatchesForMetrics) {
+            var sectionId = sectionMatchesForMetrics[section];
+            assert(sectionId !== undefined);
+            chrome.metricsPrivate.recordSmallCount(
+              'Settings.SearchSections', sectionId);
+          }
+        }
+
+        chrome.metricsPrivate.recordUserAction('Settings.Searching');
+        chrome.metricsPrivate.recordSmallCount(
+            'Settings.SearchLength', text.length);
+        chrome.metricsPrivate.recordSmallCount(
+            'Settings.SearchPageMatchCount', pageMatchesForMetrics);
+        chrome.metricsPrivate.recordSmallCount(
+            'Settings.SearchSubpageMatchCount', subpageMatchesForMetrics);
+      }, 1000);
 
       // Cleanup the recursion-prevention variable.
       this.insideSetSearchText_ = false;

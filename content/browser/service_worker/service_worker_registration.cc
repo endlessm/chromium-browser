@@ -4,10 +4,13 @@
 
 #include "content/browser/service_worker/service_worker_registration.h"
 
+#include <vector>
+
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_info.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/browser/service_worker/service_worker_register_job.h"
+#include "content/common/service_worker/service_worker_messages.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -25,7 +28,7 @@ ServiceWorkerVersionInfo GetVersionInfo(ServiceWorkerVersion* version) {
 
 ServiceWorkerRegistration::ServiceWorkerRegistration(
     const GURL& pattern,
-    int64 registration_id,
+    int64_t registration_id,
     base::WeakPtr<ServiceWorkerContextCore> context)
     : pattern_(pattern),
       registration_id_(registration_id),
@@ -236,29 +239,6 @@ void ServiceWorkerRegistration::AbortPendingClear(
                  most_recent_version));
 }
 
-void ServiceWorkerRegistration::GetUserData(
-    const std::string& key,
-    const GetUserDataCallback& callback) {
-  DCHECK(context_);
-  context_->storage()->GetUserData(registration_id_, key, callback);
-}
-
-void ServiceWorkerRegistration::StoreUserData(
-    const std::string& key,
-    const std::string& data,
-    const StatusCallback& callback) {
-  DCHECK(context_);
-  context_->storage()->StoreUserData(
-      registration_id_, pattern().GetOrigin(), key, data, callback);
-}
-
-void ServiceWorkerRegistration::ClearUserData(
-    const std::string& key,
-    const StatusCallback& callback) {
-  DCHECK(context_);
-  context_->storage()->ClearUserData(registration_id_, key, callback);
-}
-
 void ServiceWorkerRegistration::OnNoControllees(ServiceWorkerVersion* version) {
   if (!context_)
     return;
@@ -306,9 +286,11 @@ void ServiceWorkerRegistration::ActivateWaitingVersion() {
     FOR_EACH_OBSERVER(Listener, listeners_, OnSkippedWaiting(this));
 
   // "10. Queue a task to fire an event named activate..."
-  activating_version->DispatchActivateEvent(
-      base::Bind(&ServiceWorkerRegistration::OnActivateEventFinished,
-                 this, activating_version));
+  activating_version->RunAfterStartWorker(
+      base::Bind(&ServiceWorkerRegistration::DispatchActivateEvent, this,
+                 activating_version),
+      base::Bind(&ServiceWorkerRegistration::OnActivateEventFinished, this,
+                 activating_version));
 }
 
 void ServiceWorkerRegistration::DeleteVersion(
@@ -359,8 +341,27 @@ void ServiceWorkerRegistration::RegisterRegistrationFinishedCallback(
   registration_finished_callbacks_.push_back(callback);
 }
 
+void ServiceWorkerRegistration::DispatchActivateEvent(
+    const scoped_refptr<ServiceWorkerVersion>& activating_version) {
+  if (activating_version != active_version()) {
+    OnActivateEventFinished(activating_version, SERVICE_WORKER_ERROR_FAILED);
+    return;
+  }
+
+  DCHECK_EQ(ServiceWorkerVersion::ACTIVATING, activating_version->status());
+  DCHECK_EQ(ServiceWorkerVersion::RUNNING, activating_version->running_status())
+      << "Worker stopped too soon after it was started.";
+  int request_id = activating_version->StartRequest(
+      ServiceWorkerMetrics::EventType::ACTIVATE,
+      base::Bind(&ServiceWorkerRegistration::OnActivateEventFinished, this,
+                 activating_version));
+  activating_version
+      ->DispatchSimpleEvent<ServiceWorkerHostMsg_ActivateEventFinished>(
+          request_id, ServiceWorkerMsg_ActivateEvent(request_id));
+}
+
 void ServiceWorkerRegistration::OnActivateEventFinished(
-    ServiceWorkerVersion* activating_version,
+    const scoped_refptr<ServiceWorkerVersion>& activating_version,
     ServiceWorkerStatusCode status) {
   if (!context_ || activating_version != active_version() ||
       activating_version->status() != ServiceWorkerVersion::ACTIVATING)
@@ -389,25 +390,34 @@ void ServiceWorkerRegistration::Clear() {
   if (context_)
     context_->storage()->NotifyDoneUninstallingRegistration(this);
 
+  std::vector<scoped_refptr<ServiceWorkerVersion>> versions_to_doom;
   ChangedVersionAttributesMask mask;
   if (installing_version_.get()) {
-    installing_version_->Doom();
-    installing_version_ = NULL;
+    versions_to_doom.push_back(installing_version_);
+    installing_version_ = nullptr;
     mask.add(ChangedVersionAttributesMask::INSTALLING_VERSION);
   }
   if (waiting_version_.get()) {
-    waiting_version_->Doom();
-    waiting_version_ = NULL;
+    versions_to_doom.push_back(waiting_version_);
+    waiting_version_ = nullptr;
     mask.add(ChangedVersionAttributesMask::WAITING_VERSION);
   }
   if (active_version_.get()) {
-    active_version_->Doom();
+    versions_to_doom.push_back(active_version_);
     active_version_->RemoveListener(this);
-    active_version_ = NULL;
+    active_version_ = nullptr;
     mask.add(ChangedVersionAttributesMask::ACTIVE_VERSION);
   }
-  if (mask.changed())
+
+  if (mask.changed()) {
     NotifyVersionAttributesChanged(mask);
+
+    // Doom only after notifying attributes changed, because the spec requires
+    // the attributes to be cleared by the time the statechange event is
+    // dispatched.
+    for (const auto& version : versions_to_doom)
+      version->Doom();
+  }
 
   FOR_EACH_OBSERVER(
       Listener, listeners_, OnRegistrationFinishedUninstalling(this));

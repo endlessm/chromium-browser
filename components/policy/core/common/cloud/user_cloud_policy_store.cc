@@ -4,6 +4,9 @@
 
 #include "components/policy/core/common/cloud/user_cloud_policy_store.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
@@ -83,7 +86,8 @@ policy::PolicyLoadResult LoadPolicyFromDisk(
   }
   std::string data;
 
-  if (!base::ReadFileToString(policy_path, &data, kPolicySizeLimit) ||
+  if (!base::ReadFileToStringWithMaxSize(policy_path, &data,
+                                         kPolicySizeLimit) ||
       !result.policy.ParseFromString(data)) {
     LOG(WARNING) << "Failed to read or parse policy data from "
                  << policy_path.value();
@@ -91,7 +95,7 @@ policy::PolicyLoadResult LoadPolicyFromDisk(
     return result;
   }
 
-  if (!base::ReadFileToString(key_path, &data, kKeySizeLimit) ||
+  if (!base::ReadFileToStringWithMaxSize(key_path, &data, kKeySizeLimit) ||
       !result.key.ParseFromString(data)) {
     // Log an error on missing key data, but do not trigger a load failure
     // for now since there are still old unsigned cached policy blobs in the
@@ -268,16 +272,13 @@ void UserCloudPolicyStore::PolicyLoaded(bool validate_in_background,
         // we've done our first key rotation).
       }
 
-      Validate(cloud_policy.Pass(),
-               key.Pass(),
-               verification_key,
-               validate_in_background,
-               base::Bind(
-                   &UserCloudPolicyStore::InstallLoadedPolicyAfterValidation,
-                   weak_factory_.GetWeakPtr(),
-                   doing_key_rotation,
-                   result.key.has_signing_key() ?
-                       result.key.signing_key() : std::string()));
+      Validate(
+          std::move(cloud_policy), std::move(key), verification_key,
+          validate_in_background,
+          base::Bind(&UserCloudPolicyStore::InstallLoadedPolicyAfterValidation,
+                     weak_factory_.GetWeakPtr(), doing_key_rotation,
+                     result.key.has_signing_key() ? result.key.signing_key()
+                                                  : std::string()));
       break;
     }
     default:
@@ -315,7 +316,8 @@ void UserCloudPolicyStore::InstallLoadedPolicyAfterValidation(
     policy_key_ = signing_key;
   }
 
-  InstallPolicy(validator->policy_data().Pass(), validator->payload().Pass());
+  InstallPolicy(std::move(validator->policy_data()),
+                std::move(validator->payload()));
   status_ = STATUS_OK;
   NotifyStoreLoaded();
 }
@@ -326,10 +328,8 @@ void UserCloudPolicyStore::Store(const em::PolicyFetchResponse& policy) {
   weak_factory_.InvalidateWeakPtrs();
   scoped_ptr<em::PolicyFetchResponse> policy_copy(
       new em::PolicyFetchResponse(policy));
-  Validate(policy_copy.Pass(),
-           scoped_ptr<em::PolicySigningKey>(),
-           verification_key_,
-           true,
+  Validate(std::move(policy_copy), scoped_ptr<em::PolicySigningKey>(),
+           verification_key_, true,
            base::Bind(&UserCloudPolicyStore::StorePolicyAfterValidation,
                       weak_factory_.GetWeakPtr()));
 }
@@ -342,8 +342,7 @@ void UserCloudPolicyStore::Validate(
     const UserCloudPolicyValidator::CompletionCallback& callback) {
   // Configure the validator.
   scoped_ptr<UserCloudPolicyValidator> validator = CreateValidator(
-      policy.Pass(),
-      CloudPolicyValidatorBase::TIMESTAMP_NOT_BEFORE);
+      std::move(policy), CloudPolicyValidatorBase::TIMESTAMP_NOT_BEFORE);
 
   // Extract the owning domain from the signed-in user (if any is set yet).
   // If there's no owning domain, then the code just ensures that the policy
@@ -449,7 +448,8 @@ void UserCloudPolicyStore::StorePolicyAfterValidation(
       base::Bind(&StorePolicyToDiskOnBackgroundThread,
                  policy_path_, key_path_, verification_key_,
                  *validator->policy()));
-  InstallPolicy(validator->policy_data().Pass(), validator->payload().Pass());
+  InstallPolicy(std::move(validator->policy_data()),
+                std::move(validator->payload()));
 
   // If the key was rotated, update our local cache of the key.
   if (validator->policy()->has_new_public_key())

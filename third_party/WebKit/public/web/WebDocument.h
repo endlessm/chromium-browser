@@ -53,7 +53,6 @@ namespace blink {
 class Document;
 class DocumentType;
 class WebAXObject;
-class WebDocumentType;
 class WebElement;
 class WebFormElement;
 class WebElementCollection;
@@ -108,7 +107,6 @@ public:
     BLINK_EXPORT WebURL completeURL(const WebString&) const;
     BLINK_EXPORT WebElement getElementById(const WebString&) const;
     BLINK_EXPORT WebElement focusedElement() const;
-    BLINK_EXPORT WebDocumentType doctype() const;
     BLINK_EXPORT void cancelFullScreen();
     BLINK_EXPORT WebElement fullScreenElement() const;
     BLINK_EXPORT WebReferrerPolicy referrerPolicy() const;
@@ -123,6 +121,10 @@ public:
 
     // Gets the accessibility object for an object on this page by ID.
     BLINK_EXPORT WebAXObject accessibilityObjectFromID(int axID) const;
+
+    // Gets the accessibility object that has focus.
+    BLINK_EXPORT WebAXObject focusedAccessibilityObject() const;
+
     // Inserts the given CSS source code as a stylesheet in the document.
     BLINK_EXPORT void insertStyleSheet(const WebString& sourceCode);
 

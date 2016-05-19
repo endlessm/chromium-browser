@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/metrics/field_trial.h"
+#include "build/build_config.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "components/search_engines/template_url_service.h"
@@ -25,7 +26,7 @@ class InstantUnitTestBase : public BrowserWithTestWindowTest {
   void SetUp() override;
   void TearDown() override;
 
-#if !defined(OS_IOS) && !defined(OS_ANDROID)
+#if !defined(OS_ANDROID)
   // Query extraction is always enabled on Android and iOS.
   void SetUpWithoutQueryExtraction();
 #endif

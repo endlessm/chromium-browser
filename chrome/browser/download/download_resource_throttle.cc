@@ -4,7 +4,10 @@
 
 #include "chrome/browser/download/download_resource_throttle.h"
 
+#include <utility>
+
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/download_stats.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_controller.h"
@@ -30,9 +33,8 @@ void OnCanDownloadDecided(base::WeakPtr<DownloadResourceThrottle> throttle,
 void CanDownload(
     scoped_ptr<DownloadResourceThrottle::DownloadRequestInfo> info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  info->limiter->CanDownload(info->render_process_id, info->render_view_id,
-                             info->url, info->request_method,
-                             info->continue_callback);
+  info->limiter->CanDownload(info->web_contents_getter, info->url,
+                             info->request_method, info->continue_callback);
 }
 
 #if defined(OS_ANDROID)
@@ -41,7 +43,7 @@ void OnAcquireFileAccessPermissionDone(
     bool granted) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (granted)
-    CanDownload(info.Pass());
+    CanDownload(std::move(info));
   else
     info->continue_callback.Run(false);
 }
@@ -51,13 +53,16 @@ void CanDownloadOnUIThread(
     scoped_ptr<DownloadResourceThrottle::DownloadRequestInfo> info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 #if defined(OS_ANDROID)
-  int process_id = info->render_process_id;
-  int render_view_id = info->render_view_id;
-  content::DownloadControllerAndroid::Get()->AcquireFileAccessPermission(
-      process_id, render_view_id, base::Bind(&OnAcquireFileAccessPermissionDone,
-                                             base::Passed(info.Pass())));
+  content::WebContents* contents = info->web_contents_getter.Run();
+  if (contents) {
+    content::DownloadControllerAndroid::Get()->AcquireFileAccessPermission(
+        contents, base::Bind(&OnAcquireFileAccessPermissionDone,
+                             base::Passed(std::move(info))));
+  } else {
+    OnAcquireFileAccessPermissionDone(std::move(info), false);
+  }
 #else
-  CanDownload(info.Pass());
+  CanDownload(std::move(info));
 #endif
 }
 
@@ -65,14 +70,12 @@ void CanDownloadOnUIThread(
 
 DownloadResourceThrottle::DownloadRequestInfo::DownloadRequestInfo(
     scoped_refptr<DownloadRequestLimiter> limiter,
-    int render_process_id,
-    int render_view_id,
+    const content::ResourceRequestInfo::WebContentsGetter& web_contents_getter,
     const GURL& url,
     const std::string& request_method,
     const DownloadRequestLimiter::Callback& continue_callback)
     : limiter(limiter),
-      render_process_id(render_process_id),
-      render_view_id(render_view_id),
+      web_contents_getter(web_contents_getter),
       url(url),
       request_method(request_method),
       continue_callback(continue_callback) {}
@@ -81,8 +84,7 @@ DownloadResourceThrottle::DownloadRequestInfo::~DownloadRequestInfo() {}
 
 DownloadResourceThrottle::DownloadResourceThrottle(
     scoped_refptr<DownloadRequestLimiter> limiter,
-    int render_process_id,
-    int render_view_id,
+    const content::ResourceRequestInfo::WebContentsGetter& web_contents_getter,
     const GURL& url,
     const std::string& request_method)
     : querying_limiter_(true),
@@ -94,7 +96,7 @@ DownloadResourceThrottle::DownloadResourceThrottle(
       base::Bind(
           &CanDownloadOnUIThread,
           base::Passed(scoped_ptr<DownloadRequestInfo>(new DownloadRequestInfo(
-              limiter, render_process_id, render_view_id, url, request_method,
+              limiter, web_contents_getter, url, request_method,
               base::Bind(&OnCanDownloadDecided, AsWeakPtr()))))));
 }
 

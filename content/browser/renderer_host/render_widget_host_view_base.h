@@ -5,14 +5,20 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_BASE_H_
 #define CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_BASE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/process/kill.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "cc/output/compositor_frame.h"
+#include "cc/surfaces/surface_id.h"
 #include "content/browser/renderer_host/event_with_latency_info.h"
 #include "content/common/content_export.h"
 #include "content/common/input/input_event_ack_state.h"
@@ -46,6 +52,14 @@ class WebMouseEvent;
 class WebMouseWheelEvent;
 }
 
+namespace cc {
+class SurfaceHittestDelegate;
+}
+
+namespace ui {
+class LatencyInfo;
+}
+
 namespace content {
 class BrowserAccessibilityDelegate;
 class BrowserAccessibilityManager;
@@ -61,6 +75,10 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
                                                 public IPC::Listener {
  public:
   ~RenderWidgetHostViewBase() override;
+
+  float current_device_scale_factor() const {
+    return current_device_scale_factor_;
+  }
 
   // RenderWidgetHostView implementation.
   void SetBackgroundColor(SkColor color) override;
@@ -79,6 +97,12 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
       scoped_ptr<RenderWidgetHostViewFrameSubscriber> subscriber) override;
   void EndFrameSubscription() override;
 
+  // This only needs to be overridden by RenderWidgetHostViewBase subclasses
+  // that handle content embedded within other RenderWidgetHostViews.
+  gfx::Point TransformPointToRootCoordSpace(const gfx::Point& point) override;
+  gfx::PointF TransformPointToRootCoordSpaceF(
+      const gfx::PointF& point) override;
+
   // IPC::Listener implementation:
   bool OnMessageReceived(const IPC::Message& msg) override;
 
@@ -88,7 +112,7 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
 
   // Return a value that is incremented each time the renderer swaps a new frame
   // to the view.
-  uint32 RendererFrameNumber();
+  uint32_t RendererFrameNumber();
 
   // Called each time the RenderWidgetHost receives a new frame for display from
   // the renderer.
@@ -158,7 +182,7 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
   // Informs that the focused DOM node has changed.
   virtual void FocusedNodeChanged(bool is_editable_node) {}
 
-  virtual void OnSwapCompositorFrame(uint32 output_surface_id,
+  virtual void OnSwapCompositorFrame(uint32_t output_surface_id,
                                      scoped_ptr<cc::CompositorFrame> frame) {}
 
   // This method exists to allow removing of displayed graphics, after a new
@@ -187,11 +211,26 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
   // methods are invoked on the RenderWidgetHostView that should be able to
   // properly handle the event (i.e. it has focus for keyboard events, or has
   // been identified by hit testing mouse, touch or gesture events).
-  virtual uint32_t SurfaceIdNamespaceAtPoint(const gfx::Point& point,
-                                             gfx::Point* transformed_point);
+  virtual uint32_t SurfaceIdNamespaceAtPoint(
+      cc::SurfaceHittestDelegate* delegate,
+      const gfx::Point& point,
+      gfx::Point* transformed_point);
   virtual void ProcessKeyboardEvent(const NativeWebKeyboardEvent& event) {}
   virtual void ProcessMouseEvent(const blink::WebMouseEvent& event) {}
   virtual void ProcessMouseWheelEvent(const blink::WebMouseWheelEvent& event) {}
+  virtual void ProcessTouchEvent(const blink::WebTouchEvent& event,
+                         const ui::LatencyInfo& latency) {}
+
+  // Transform a point that is in the coordinate space of a Surface that is
+  // embedded within the RenderWidgetHostViewBase's Surface to the
+  // coordinate space of the embedding Surface. Typically this means that a
+  // point was received from an out-of-process iframe's RenderWidget and needs
+  // to be translated to viewport coordinates for the root RWHV, in which case
+  // this method is called on the root RWHV with the out-of-process iframe's
+  // SurfaceId.
+  virtual void TransformPointToLocalCoordSpace(const gfx::Point& point,
+                                               cc::SurfaceId original_surface,
+                                               gfx::Point* transformed_point);
 
   //----------------------------------------------------------------------------
   // The following static methods are implemented by each platform.
@@ -233,13 +272,6 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
   // Notifies the View that the renderer has ceased to exist.
   virtual void RenderProcessGone(base::TerminationStatus status,
                                  int error_code) = 0;
-
-  // Notifies the View that the renderer's host has ceased to exist.
-  // The default implementation of this is a no-op. This hack exists to fix
-  // a crash on the branch.
-  // TODO(ccameron): Clean this up.
-  // http://crbug.com/404828
-  virtual void RenderWidgetHostGone() {}
 
   // Tells the View to destroy itself.
   virtual void Destroy() = 0;
@@ -357,6 +389,9 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
   static void DetachPluginWindowsCallback(HWND window);
 #endif
 
+  // Exposed for testing.
+  virtual cc::SurfaceId SurfaceIdForTesting() const;
+
  protected:
   // Interface class only, do not construct.
   RenderWidgetHostViewBase();
@@ -419,7 +454,7 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView,
 
   gfx::Rect current_display_area_;
 
-  uint32 renderer_frame_number_;
+  uint32_t renderer_frame_number_;
 
   base::OneShotTimer flush_input_timer_;
 

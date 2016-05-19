@@ -96,7 +96,7 @@ void ResourceTracker::DidCreateInstance(PP_Instance instance) {
   // instead.
   if (instance_map_.find(instance) != instance_map_.end())
     return;
-  instance_map_[instance] = linked_ptr<InstanceData>(new InstanceData);
+  instance_map_[instance] = make_scoped_ptr(new InstanceData);
 }
 
 void ResourceTracker::DidDeleteInstance(PP_Instance instance) {
@@ -233,7 +233,7 @@ void ResourceTracker::LastPluginRefWasDeleted(Resource* object) {
   object->NotifyLastPluginRefWasDeleted();
 }
 
-int32 ResourceTracker::GetNextResourceValue() {
+int32_t ResourceTracker::GetNextResourceValue() {
 #if defined(NDEBUG)
   return ++last_resource_value_;
 #else

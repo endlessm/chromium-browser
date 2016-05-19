@@ -4,6 +4,9 @@
 
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <set>
 #include <string>
 #include <vector>
@@ -13,16 +16,19 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "build/build_config.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
+#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "chrome/browser/browsing_data/browsing_data_remover_test_util.h"
+#include "chrome/browser/browsing_data/origin_filter_builder.h"
 #include "chrome/browser/domain_reliability/service_factory.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
@@ -48,6 +54,7 @@
 #include "components/password_manager/core/browser/mock_password_store.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
+#include "components/prefs/testing_pref_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/browser/dom_storage_context.h"
@@ -142,8 +149,8 @@ void FakeDBusCall(const chromeos::BoolDBusMethodCallback& callback) {
 #endif
 
 struct StoragePartitionRemovalData {
-  uint32 remove_mask = 0;
-  uint32 quota_storage_remove_mask = 0;
+  uint32_t remove_mask = 0;
+  uint32_t quota_storage_remove_mask = 0;
   GURL remove_origin;
   base::Time remove_begin;
   base::Time remove_end;
@@ -202,8 +209,8 @@ class TestStoragePartition : public StoragePartition {
     return nullptr;
   }
 
-  void ClearDataForOrigin(uint32 remove_mask,
-                          uint32 quota_storage_remove_mask,
+  void ClearDataForOrigin(uint32_t remove_mask,
+                          uint32_t quota_storage_remove_mask,
                           const GURL& storage_origin,
                           net::URLRequestContextGetter* rq_context,
                           const base::Closure& callback) override {
@@ -214,8 +221,8 @@ class TestStoragePartition : public StoragePartition {
                                        callback));
   }
 
-  void ClearData(uint32 remove_mask,
-                 uint32 quota_storage_remove_mask,
+  void ClearData(uint32_t remove_mask,
+                 uint32_t quota_storage_remove_mask,
                  const GURL& storage_origin,
                  const OriginMatcherFunction& origin_matcher,
                  const base::Time begin,
@@ -257,6 +264,9 @@ class TestStoragePartition : public StoragePartition {
 // origin.
 // (We cannot use equality-based matching because operator== is not defined for
 // Origin, and we in fact want to rely on IsSameOrigin for matching purposes.)
+// TODO(msramek): This is only used for backends that take url::Origin instead
+// of an url filter predicate to match URLs. Remove this when we fully switch
+// to url filter predicates.
 class SameOriginMatcher : public MatcherInterface<const url::Origin&> {
  public:
   explicit SameOriginMatcher(const url::Origin& reference)
@@ -281,6 +291,55 @@ class SameOriginMatcher : public MatcherInterface<const url::Origin&> {
 
 inline Matcher<const url::Origin&> SameOrigin(const url::Origin& reference) {
   return MakeMatcher(new SameOriginMatcher(reference));
+}
+
+// Custom matcher to test the equivalence of two URL filters. Since those are
+// blackbox predicates, we can only approximate the equivalence by testing
+// whether the filter give the same answer for several URLs. This is currently
+// good enough for our testing purposes, to distinguish whitelists
+// and blacklists, empty and non-empty filters and such.
+// TODO(msramek): BrowsingDataRemover and some of its backends support URL
+// filters, but its constructor currently only takes a single URL and constructs
+// its own url filter. If an url filter was directly passed to
+// BrowsingDataRemover (what should eventually be the case), we can use the same
+// instance in the test as well, and thus simply test base::Callback::Equals()
+// in this matcher.
+class ProbablySameFilterMatcher
+    : public MatcherInterface<const base::Callback<bool(const GURL&)>&> {
+ public:
+  explicit ProbablySameFilterMatcher(
+      const base::Callback<bool(const GURL&)>& filter)
+      : to_match_(filter) {
+  }
+
+  virtual bool MatchAndExplain(const base::Callback<bool(const GURL&)>& filter,
+                               MatchResultListener* listener) const {
+    const GURL urls_to_test_[] =
+        {kOrigin1, kOrigin2, kOrigin3, GURL("invalid spec")};
+    for (GURL url : urls_to_test_) {
+      if (filter.Run(url) != to_match_.Run(url)) {
+        *listener << "The filters differ on the URL " << url;
+        return false;
+      }
+    }
+    return true;
+  }
+
+  virtual void DescribeTo(::std::ostream* os) const {
+    *os << "is probably the same url filter as " << &to_match_;
+  }
+
+  virtual void DescribeNegationTo(::std::ostream* os) const {
+    *os << "is definitely NOT the same url filter as " << &to_match_;
+  }
+
+ private:
+  const base::Callback<bool(const GURL&)>& to_match_;
+};
+
+inline Matcher<const base::Callback<bool(const GURL&)>&> ProbablySameFilter(
+    const base::Callback<bool(const GURL&)>& filter) {
+  return MakeMatcher(new ProbablySameFilterMatcher(filter));
 }
 
 }  // namespace
@@ -872,6 +931,29 @@ class RemoveDownloadsTester {
   DISALLOW_COPY_AND_ASSIGN(RemoveDownloadsTester);
 };
 
+class RemovePasswordsTester {
+ public:
+  explicit RemovePasswordsTester(TestingProfile* testing_profile) {
+    PasswordStoreFactory::GetInstance()->SetTestingFactoryAndUse(
+        testing_profile,
+        password_manager::BuildPasswordStore<
+            content::BrowserContext,
+            testing::NiceMock<password_manager::MockPasswordStore>>);
+
+    store_ = static_cast<password_manager::MockPasswordStore*>(
+        PasswordStoreFactory::GetInstance()
+            ->GetForProfile(testing_profile, ServiceAccessType::EXPLICIT_ACCESS)
+            .get());
+  }
+
+  password_manager::MockPasswordStore* store() { return store_; }
+
+ private:
+  password_manager::MockPasswordStore* store_;
+
+  DISALLOW_COPY_AND_ASSIGN(RemovePasswordsTester);
+};
+
 // Test Class ----------------------------------------------------------------
 
 class BrowsingDataRemoverTest : public testing::Test {
@@ -906,21 +988,21 @@ class BrowsingDataRemoverTest : public testing::Test {
   void BlockUntilBrowsingDataRemoved(BrowsingDataRemover::TimePeriod period,
                                      int remove_mask,
                                      bool include_protected_origins) {
-    BrowsingDataRemover* remover = BrowsingDataRemover::CreateForPeriod(
-        profile_.get(), period);
+    BrowsingDataRemover* remover =
+        BrowsingDataRemoverFactory::GetForBrowserContext(profile_.get());
 
     TestStoragePartition storage_partition;
     remover->OverrideStoragePartitionForTesting(&storage_partition);
 
     called_with_details_.reset(new BrowsingDataRemover::NotificationDetails());
 
-    // BrowsingDataRemover deletes itself when it completes.
     int origin_type_mask = BrowsingDataHelper::UNPROTECTED_WEB;
     if (include_protected_origins)
       origin_type_mask |= BrowsingDataHelper::PROTECTED_WEB;
 
     BrowsingDataRemoverCompletionObserver completion_observer(remover);
-    remover->Remove(remove_mask, origin_type_mask);
+    remover->Remove(BrowsingDataRemover::Period(period), remove_mask,
+                    origin_type_mask);
     completion_observer.BlockUntilCompletion();
 
     // Save so we can verify later.
@@ -931,17 +1013,16 @@ class BrowsingDataRemoverTest : public testing::Test {
   void BlockUntilOriginDataRemoved(BrowsingDataRemover::TimePeriod period,
                                    int remove_mask,
                                    const GURL& remove_origin) {
-    BrowsingDataRemover* remover = BrowsingDataRemover::CreateForPeriod(
-        profile_.get(), period);
+    BrowsingDataRemover* remover =
+        BrowsingDataRemoverFactory::GetForBrowserContext(profile_.get());
     TestStoragePartition storage_partition;
     remover->OverrideStoragePartitionForTesting(&storage_partition);
 
     called_with_details_.reset(new BrowsingDataRemover::NotificationDetails());
 
-    // BrowsingDataRemover deletes itself when it completes.
     BrowsingDataRemoverCompletionObserver completion_observer(remover);
-    remover->RemoveImpl(remove_mask, remove_origin,
-        BrowsingDataHelper::UNPROTECTED_WEB);
+    remover->RemoveImpl(BrowsingDataRemover::Period(period), remove_mask,
+                        remove_origin, BrowsingDataHelper::UNPROTECTED_WEB);
     completion_observer.BlockUntilCompletion();
 
     // Save so we can verify later.
@@ -952,6 +1033,8 @@ class BrowsingDataRemoverTest : public testing::Test {
   TestingProfile* GetProfile() {
     return profile_.get();
   }
+
+  void DestroyProfile() { profile_.reset(); }
 
   base::Time GetBeginTime() {
     return called_with_details_->removal_begin;
@@ -1636,7 +1719,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForLastHour) {
 
   // Persistent data would be left out since we are not removing from
   // beginning of time.
-  uint32 expected_quota_mask =
+  uint32_t expected_quota_mask =
       ~StoragePartition::QUOTA_MANAGED_STORAGE_MASK_PERSISTENT;
   EXPECT_EQ(removal_data.quota_storage_remove_mask, expected_quota_mask);
   EXPECT_TRUE(removal_data.remove_origin.is_empty());
@@ -1677,7 +1760,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForLastWeek) {
 
   // Persistent data would be left out since we are not removing from
   // beginning of time.
-  uint32 expected_quota_mask =
+  uint32_t expected_quota_mask =
       ~StoragePartition::QUOTA_MANAGED_STORAGE_MASK_PERSISTENT;
   EXPECT_EQ(removal_data.quota_storage_remove_mask, expected_quota_mask);
   EXPECT_TRUE(removal_data.remove_origin.is_empty());
@@ -1977,10 +2060,10 @@ TEST_F(BrowsingDataRemoverTest, CompletionInhibition) {
 
   called_with_details_.reset(new BrowsingDataRemover::NotificationDetails());
 
-  // BrowsingDataRemover deletes itself when it completes.
-  BrowsingDataRemover* remover = BrowsingDataRemover::CreateForPeriod(
-      GetProfile(), BrowsingDataRemover::EVERYTHING);
-  remover->Remove(BrowsingDataRemover::REMOVE_HISTORY,
+  BrowsingDataRemover* remover =
+      BrowsingDataRemoverFactory::GetForBrowserContext(GetProfile());
+  remover->Remove(BrowsingDataRemover::Unbounded(),
+                  BrowsingDataRemover::REMOVE_HISTORY,
                   BrowsingDataHelper::UNPROTECTED_WEB);
 
   // Process messages until the inhibitor is notified, and then some, to make
@@ -2001,6 +2084,34 @@ TEST_F(BrowsingDataRemoverTest, CompletionInhibition) {
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
   EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
+}
+
+TEST_F(BrowsingDataRemoverTest, EarlyShutdown) {
+  called_with_details_.reset(new BrowsingDataRemover::NotificationDetails());
+
+  BrowsingDataRemover* remover =
+      BrowsingDataRemoverFactory::GetForBrowserContext(GetProfile());
+  BrowsingDataRemoverCompletionObserver completion_observer(remover);
+  BrowsingDataRemoverCompletionInhibitor completion_inhibitor;
+  remover->Remove(BrowsingDataRemover::Unbounded(),
+                  BrowsingDataRemover::REMOVE_HISTORY,
+                  BrowsingDataHelper::UNPROTECTED_WEB);
+
+  completion_inhibitor.BlockUntilNearCompletion();
+
+  // Verify that the completion notification has not yet been broadcasted.
+  EXPECT_EQ(-1, GetRemovalMask());
+  EXPECT_EQ(-1, GetOriginTypeMask());
+
+  // Destroying the profile should trigger the notification.
+  DestroyProfile();
+
+  EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
+
+  // Finishing after shutdown shouldn't break anything.
+  completion_inhibitor.ContinueToCompletion();
+  completion_observer.BlockUntilCompletion();
 }
 
 TEST_F(BrowsingDataRemoverTest, ZeroSuggestCacheClear) {
@@ -2110,30 +2221,83 @@ TEST_F(BrowsingDataRemoverTest, DISABLED_DomainReliability_NoMonitor) {
       BrowsingDataRemover::REMOVE_COOKIES, false);
 }
 
-TEST_F(BrowsingDataRemoverTest, RemoveSameOriginDownloads) {
+TEST_F(BrowsingDataRemoverTest, RemoveDownloadsByTimeOnly) {
   RemoveDownloadsTester tester(GetProfile());
-  const url::Origin expectedOrigin(kOrigin1);
+  base::Callback<bool(const GURL&)> filter =
+      OriginFilterBuilder::BuildNoopFilter();
 
-  EXPECT_CALL(*tester.download_manager(),
-              RemoveDownloadsByOriginAndTime(SameOrigin(expectedOrigin), _, _));
+  EXPECT_CALL(
+      *tester.download_manager(),
+      RemoveDownloadsByURLAndTime(ProbablySameFilter(filter), _, _));
+
+  BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
+                                BrowsingDataRemover::REMOVE_DOWNLOADS, false);
+}
+
+TEST_F(BrowsingDataRemoverTest, RemoveDownloadsByOrigin) {
+  RemoveDownloadsTester tester(GetProfile());
+  OriginFilterBuilder builder(OriginFilterBuilder::WHITELIST);
+  builder.AddOrigin(url::Origin(kOrigin1));
+  base::Callback<bool(const GURL&)> filter = builder.BuildSameOriginFilter();
+
+  EXPECT_CALL(
+      *tester.download_manager(),
+      RemoveDownloadsByURLAndTime(ProbablySameFilter(filter), _, _));
 
   BlockUntilOriginDataRemoved(BrowsingDataRemover::EVERYTHING,
                               BrowsingDataRemover::REMOVE_DOWNLOADS, kOrigin1);
 }
 
 TEST_F(BrowsingDataRemoverTest, RemovePasswordStatistics) {
-  PasswordStoreFactory::GetInstance()->SetTestingFactoryAndUse(
-      GetProfile(),
-      password_manager::BuildPasswordStoreService<
-          content::BrowserContext, password_manager::MockPasswordStore>);
-  password_manager::MockPasswordStore* store =
-      static_cast<password_manager::MockPasswordStore*>(
-          PasswordStoreFactory::GetInstance()
-              ->GetForProfile(GetProfile(), ServiceAccessType::EXPLICIT_ACCESS)
-              .get());
-  EXPECT_CALL(*store, RemoveStatisticsCreatedBetweenImpl(base::Time(),
-                                                         base::Time::Max()));
+  RemovePasswordsTester tester(GetProfile());
+
+  EXPECT_CALL(*tester.store(), RemoveStatisticsCreatedBetweenImpl(
+                                   base::Time(), base::Time::Max()));
   BlockUntilBrowsingDataRemoved(
       BrowsingDataRemover::EVERYTHING,
       BrowsingDataRemover::REMOVE_HISTORY, false);
+}
+
+TEST_F(BrowsingDataRemoverTest, RemovePasswordsByTimeOnly) {
+  RemovePasswordsTester tester(GetProfile());
+
+  EXPECT_CALL(*tester.store(), RemoveLoginsCreatedBetweenImpl(_, _))
+      .WillOnce(Return(password_manager::PasswordStoreChangeList()));
+  BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
+                                BrowsingDataRemover::REMOVE_PASSWORDS, false);
+}
+
+TEST_F(BrowsingDataRemoverTest, RemovePasswordsByOrigin) {
+  RemovePasswordsTester tester(GetProfile());
+  const url::Origin expectedOrigin(kOrigin1);
+
+  EXPECT_CALL(*tester.store(),
+              RemoveLoginsByOriginAndTimeImpl(SameOrigin(expectedOrigin), _, _))
+      .WillOnce(Return(password_manager::PasswordStoreChangeList()));
+  BlockUntilOriginDataRemoved(BrowsingDataRemover::EVERYTHING,
+                              BrowsingDataRemover::REMOVE_PASSWORDS, kOrigin1);
+}
+
+TEST_F(BrowsingDataRemoverTest, DisableAutoSignIn) {
+  RemovePasswordsTester tester(GetProfile());
+
+  EXPECT_CALL(*tester.store(), DisableAutoSignInForAllLoginsImpl())
+      .WillOnce(Return(password_manager::PasswordStoreChangeList()));
+
+  BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
+                                BrowsingDataRemover::REMOVE_COOKIES, false);
+}
+
+TEST_F(BrowsingDataRemoverTest, DisableAutoSignInAfterRemovingPasswords) {
+  RemovePasswordsTester tester(GetProfile());
+
+  EXPECT_CALL(*tester.store(), RemoveLoginsCreatedBetweenImpl(_, _))
+      .WillOnce(Return(password_manager::PasswordStoreChangeList()));
+  EXPECT_CALL(*tester.store(), DisableAutoSignInForAllLoginsImpl())
+      .WillOnce(Return(password_manager::PasswordStoreChangeList()));
+
+  BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
+                                BrowsingDataRemover::REMOVE_COOKIES |
+                                    BrowsingDataRemover::REMOVE_PASSWORDS,
+                                false);
 }

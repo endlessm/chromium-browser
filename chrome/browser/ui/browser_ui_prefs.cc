@@ -4,13 +4,14 @@
 
 #include "chrome/browser/ui/browser_ui_prefs.h"
 
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
+#include "build/build_config.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/translate/core/common/translate_pref_names.h"
 #include "content/public/common/webrtc_ip_handling_policy.h"
 
@@ -36,17 +37,6 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
       prefs::kShowHomeButton,
       false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-#if defined(OS_MACOSX)
-  // This really belongs in platform code, but there's no good place to
-  // initialize it between the time when the AppController is created
-  // (where there's no profile) and the time the controller gets another
-  // crack at the start of the main event loop. By that time,
-  // StartupBrowserCreator has already created the browser window, and it's too
-  // late: we need the pref to be already initialized. Doing it here also saves
-  // us from having to hard-code pref registration in the several unit tests
-  // that use this preference.
-  registry->RegisterBooleanPref(prefs::kShowUpdatePromotionInfoBar, true);
-#endif
   registry->RegisterBooleanPref(
       prefs::kDeleteBrowsingHistory,
       true,
@@ -134,7 +124,21 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kPluginsAlwaysAuthorize, false);
   registry->RegisterBooleanPref(prefs::kClearPluginLSODataEnabled, true);
   registry->RegisterBooleanPref(prefs::kHideWebStoreIcon, false);
-#if !defined(OS_MACOSX)
+#if defined(OS_MACOSX)
+  // This really belongs in platform code, but there's no good place to
+  // initialize it between the time when the AppController is created
+  // (where there's no profile) and the time the controller gets another
+  // crack at the start of the main event loop. By that time,
+  // StartupBrowserCreator has already created the browser window, and it's too
+  // late: we need the pref to be already initialized. Doing it here also saves
+  // us from having to hard-code pref registration in the several unit tests
+  // that use this preference.
+  registry->RegisterBooleanPref(prefs::kShowUpdatePromotionInfoBar, true);
+  registry->RegisterBooleanPref(
+      prefs::kHideFullscreenToolbar,
+      false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+#else
   registry->RegisterBooleanPref(prefs::kFullscreenAllowed, true);
 #endif
 }

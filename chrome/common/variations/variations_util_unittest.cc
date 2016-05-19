@@ -4,7 +4,10 @@
 
 #include "chrome/common/variations/variations_util.h"
 
+#include <utility>
+
 #include "base/feature_list.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "chrome/common/variations/fieldtrial_testing_config.h"
 #include "components/variations/variations_associated_data.h"
@@ -44,6 +47,13 @@ TEST_F(VariationsUtilTest, AssociateParamsFromString) {
   EXPECT_TRUE(variations::GetVariationParams(kTrialName, &params));
   EXPECT_EQ(1U, params.size());
   EXPECT_EQ("/", params["a"]);
+}
+
+TEST_F(VariationsUtilTest, AssociateParamsFromStringWithSameStudy) {
+  const std::string kTrialName = "AssociateVariationParams";
+  const std::string kVariationsString =
+      "AssociateVariationParams.A:a/10/b/test,AssociateVariationParams.A:a/x";
+  ASSERT_FALSE(AssociateParamsFromString(kVariationsString));
 }
 
 TEST_F(VariationsUtilTest, AssociateParamsFromFieldTrialConfig) {
@@ -95,7 +105,7 @@ TEST_F(VariationsUtilTest, AssociateFeaturesFromFieldTrialConfig) {
   base::FeatureList::ClearInstanceForTesting();
   scoped_ptr<base::FeatureList> feature_list(new base::FeatureList);
   AssociateParamsFromFieldTrialConfig(kConfig, feature_list.get());
-  base::FeatureList::SetInstance(feature_list.Pass());
+  base::FeatureList::SetInstance(std::move(feature_list));
 
   // Check the resulting feature and field trial states. Trials should not be
   // active until their associated features are queried.

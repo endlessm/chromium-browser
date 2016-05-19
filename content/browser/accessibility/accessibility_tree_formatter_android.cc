@@ -10,6 +10,7 @@
 #include "base/android/jni_string.h"
 #include "base/files/file_path.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -67,10 +68,33 @@ const char* INT_ATTRIBUTES[] = {
 };
 }
 
-void AccessibilityTreeFormatter::Initialize() {
+class AccessibilityTreeFormatterAndroid : public AccessibilityTreeFormatter {
+ public:
+  explicit AccessibilityTreeFormatterAndroid();
+  ~AccessibilityTreeFormatterAndroid() override;
+
+ private:
+  const base::FilePath::StringType GetExpectedFileSuffix() override;
+  const std::string GetAllowEmptyString() override;
+  const std::string GetAllowString() override;
+  const std::string GetDenyString() override;
+  void AddProperties(const BrowserAccessibility& node,
+                     base::DictionaryValue* dict) override;
+  base::string16 ToString(const base::DictionaryValue& node) override;
+};
+
+// static
+AccessibilityTreeFormatter* AccessibilityTreeFormatter::Create() {
+  return new AccessibilityTreeFormatterAndroid();
 }
 
-void AccessibilityTreeFormatter::AddProperties(
+AccessibilityTreeFormatterAndroid::AccessibilityTreeFormatterAndroid() {
+}
+
+AccessibilityTreeFormatterAndroid::~AccessibilityTreeFormatterAndroid() {
+}
+
+void AccessibilityTreeFormatterAndroid::AddProperties(
     const BrowserAccessibility& node, base::DictionaryValue* dict) {
   dict->SetInteger("id", node.GetId());
 
@@ -103,6 +127,7 @@ void AccessibilityTreeFormatter::AddProperties(
 
   // String attributes.
   dict->SetString("name", android_node->GetText());
+  dict->SetString("role_description", android_node->GetRoleDescription());
 
   // Int attributes.
   dict->SetInteger("item_index", android_node->GetItemIndex());
@@ -133,11 +158,11 @@ void AccessibilityTreeFormatter::AddProperties(
   dict->SetBoolean("action_scroll_right", android_node->CanScrollRight());
 }
 
-base::string16 AccessibilityTreeFormatter::ToString(
+base::string16 AccessibilityTreeFormatterAndroid::ToString(
     const base::DictionaryValue& dict) {
   base::string16 line;
 
-  if (show_ids_) {
+  if (show_ids()) {
     int id_value;
     dict.GetInteger("id", &id_value);
     WriteAttribute(true, base::IntToString16(id_value), &line);
@@ -146,6 +171,15 @@ base::string16 AccessibilityTreeFormatter::ToString(
   base::string16 class_value;
   dict.GetString("class", &class_value);
   WriteAttribute(true, base::UTF16ToUTF8(class_value), &line);
+
+  std::string role_description;
+  dict.GetString("role_description", &role_description);
+  if (!role_description.empty()) {
+    WriteAttribute(
+        true,
+        StringPrintf("role_description='%s'", role_description.c_str()),
+        &line);
+  }
 
   for (unsigned i = 0; i < arraysize(BOOL_ATTRIBUTES); i++) {
     const char* attribute_name = BOOL_ATTRIBUTES[i];
@@ -177,30 +211,20 @@ base::string16 AccessibilityTreeFormatter::ToString(
   return line;
 }
 
-// static
 const base::FilePath::StringType
-AccessibilityTreeFormatter::GetActualFileSuffix() {
-  return FILE_PATH_LITERAL("-actual-android.txt");
-}
-
-// static
-const base::FilePath::StringType
-AccessibilityTreeFormatter::GetExpectedFileSuffix() {
+AccessibilityTreeFormatterAndroid::GetExpectedFileSuffix() {
   return FILE_PATH_LITERAL("-expected-android.txt");
 }
 
-// static
-const std::string AccessibilityTreeFormatter::GetAllowEmptyString() {
+const std::string AccessibilityTreeFormatterAndroid::GetAllowEmptyString() {
   return "@ANDROID-ALLOW-EMPTY:";
 }
 
-// static
-const std::string AccessibilityTreeFormatter::GetAllowString() {
+const std::string AccessibilityTreeFormatterAndroid::GetAllowString() {
   return "@ANDROID-ALLOW:";
 }
 
-// static
-const std::string AccessibilityTreeFormatter::GetDenyString() {
+const std::string AccessibilityTreeFormatterAndroid::GetDenyString() {
   return "@ANDROID-DENY:";
 }
 

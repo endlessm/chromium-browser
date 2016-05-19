@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/xml/parser/XMLDocumentParserScope.h"
 
 namespace blink {
@@ -59,4 +58,4 @@ XMLDocumentParserScope::~XMLDocumentParserScope()
     xmlSetStructuredErrorFunc(m_oldErrorContext, m_oldStructuredErrorFunc);
 }
 
-}
+} // namespace blink

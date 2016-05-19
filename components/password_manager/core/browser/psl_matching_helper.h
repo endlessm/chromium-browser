@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 
 class GURL;
 
@@ -44,6 +43,10 @@ bool IsPublicSuffixDomainMatch(const std::string& url1,
 // Two hosts are considered to belong to the same website when they share the
 // registry-controlled domain part.
 std::string GetRegistryControlledDomain(const GURL& signon_realm);
+
+// Returns true iff |signon_realm| designates a federated credential for the
+// |origin|.
+bool IsFederatedMatch(const std::string& signon_realm, const GURL& origin);
 
 }  // namespace password_manager
 

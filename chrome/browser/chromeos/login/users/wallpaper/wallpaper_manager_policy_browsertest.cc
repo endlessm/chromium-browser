@@ -2,30 +2,33 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
 #include "ash/desktop_background/desktop_background_controller.h"
 #include "ash/desktop_background/desktop_background_controller_observer.h"
 #include "ash/shell.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/policy/cloud_external_data_manager_base_test_util.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_factory_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/common/chrome_paths.h"
 #include "chromeos/chromeos_paths.h"
 #include "chromeos/chromeos_switches.h"
@@ -89,7 +92,7 @@ SkColor ComputeAverageColor(const SkBitmap& bitmap) {
     ADD_FAILURE() << "Bitmap has not been configured.";
     return SkColorSetARGB(0, 0, 0, 0);
   }
-  uint64 a = 0, r = 0, g = 0, b = 0;
+  uint64_t a = 0, r = 0, g = 0, b = 0;
   bitmap.lockPixels();
   for (int x = 0; x < bitmap.width(); ++x) {
     for (int y = 0; y < bitmap.height(); ++y) {
@@ -101,7 +104,7 @@ SkColor ComputeAverageColor(const SkBitmap& bitmap) {
     }
   }
   bitmap.unlockPixels();
-  uint64 pixel_number = bitmap.width() * bitmap.height();
+  uint64_t pixel_number = bitmap.width() * bitmap.height();
   return SkColorSetARGB((a + pixel_number / 2) / pixel_number,
                         (r + pixel_number / 2) / pixel_number,
                         (g + pixel_number / 2) / pixel_number,
@@ -134,22 +137,24 @@ class WallpaperManagerPolicyTest
       : LoginManagerTest(true),
         wallpaper_change_count_(0),
         fake_session_manager_client_(new FakeSessionManagerClient) {
-    testUsers_[0] = LoginManagerTest::kEnterpriseUser1;
-    testUsers_[1] = LoginManagerTest::kEnterpriseUser2;
+    testUsers_.push_back(
+        AccountId::FromUserEmail(LoginManagerTest::kEnterpriseUser1));
+    testUsers_.push_back(
+        AccountId::FromUserEmail(LoginManagerTest::kEnterpriseUser2));
   }
 
   scoped_ptr<policy::UserPolicyBuilder> GetUserPolicyBuilder(
-      const std::string& user_id) {
+      const AccountId& account_id) {
     scoped_ptr<policy::UserPolicyBuilder>
         user_policy_builder(new policy::UserPolicyBuilder());
     base::FilePath user_keys_dir;
     EXPECT_TRUE(PathService::Get(DIR_USER_POLICY_KEYS, &user_keys_dir));
     const std::string sanitized_user_id =
-        CryptohomeClient::GetStubSanitizedUsername(user_id);
+        CryptohomeClient::GetStubSanitizedUsername(account_id.GetUserEmail());
     const base::FilePath user_key_file =
         user_keys_dir.AppendASCII(sanitized_user_id)
                      .AppendASCII("policy.pub");
-    std::vector<uint8> user_key_bits;
+    std::vector<uint8_t> user_key_bits;
     EXPECT_TRUE(user_policy_builder->GetSigningKey()->
                 ExportPublicKey(&user_key_bits));
     EXPECT_TRUE(base::CreateDirectory(user_key_file.DirName()));
@@ -158,8 +163,8 @@ class WallpaperManagerPolicyTest
                   reinterpret_cast<const char*>(user_key_bits.data()),
                   user_key_bits.size()),
               static_cast<int>(user_key_bits.size()));
-    user_policy_builder->policy_data().set_username(user_id);
-    return user_policy_builder.Pass();
+    user_policy_builder->policy_data().set_username(account_id.GetUserEmail());
+    return user_policy_builder;
   }
 
   // LoginManagerTest:
@@ -178,6 +183,10 @@ class WallpaperManagerPolicyTest
     // start-up of user profiles.
     command_line->AppendSwitch(switches::kLoginManager);
     command_line->AppendSwitch(switches::kForceLoginManagerInTests);
+
+    // Allow policy fetches to fail - these tests instead invoke InjectPolicy()
+    // to directly inject and modify policy dynamically.
+    command_line->AppendSwitch(switches::kAllowFailedPolicyFetchForTest);
 
     LoginManagerTest::SetUpCommandLine(command_line);
   }
@@ -233,7 +242,7 @@ class WallpaperManagerPolicyTest
   // empty |filename| to clear policy.
   void InjectPolicy(int user_number, const std::string& filename) {
     ASSERT_TRUE(user_number == 0 || user_number == 1);
-    const std::string user_id = testUsers_[user_number];
+    const AccountId& account_id = testUsers_[user_number];
     policy::UserPolicyBuilder* builder =
         user_policy_builders_[user_number].get();
     if (!filename.empty()) {
@@ -243,9 +252,10 @@ class WallpaperManagerPolicyTest
       builder->payload().Clear();
     }
     builder->Build();
-    fake_session_manager_client_->set_user_policy(user_id, builder->GetBlob());
-    const user_manager::User* user = user_manager::UserManager::Get()->FindUser(
-        AccountId::FromUserEmail(user_id));
+    fake_session_manager_client_->set_user_policy(account_id.GetUserEmail(),
+                                                  builder->GetBlob());
+    const user_manager::User* user =
+        user_manager::UserManager::Get()->FindUser(account_id);
     ASSERT_TRUE(user);
     policy::CloudPolicyStore* store = GetStoreForUser(user);
     ASSERT_TRUE(store);
@@ -267,15 +277,15 @@ class WallpaperManagerPolicyTest
   int wallpaper_change_count_;
   scoped_ptr<policy::UserPolicyBuilder> user_policy_builders_[2];
   FakeSessionManagerClient* fake_session_manager_client_;
-  const char* testUsers_[2];
+  std::vector<AccountId> testUsers_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(WallpaperManagerPolicyTest);
 };
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, PRE_SetResetClear) {
-  RegisterUser(testUsers_[0]);
-  RegisterUser(testUsers_[1]);
+  RegisterUser(testUsers_[0].GetUserEmail());
+  RegisterUser(testUsers_[1].GetUserEmail());
   StartupUtils::MarkOobeCompleted();
 }
 
@@ -285,7 +295,7 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, PRE_SetResetClear) {
 // reverts to default.
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, SetResetClear) {
   wallpaper::WallpaperInfo info;
-  LoginUser(testUsers_[0]);
+  LoginUser(testUsers_[0].GetUserEmail());
   base::RunLoop().RunUntilIdle();
 
   // First user: Wait until default wallpaper has been loaded (happens
@@ -326,14 +336,14 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, SetResetClear) {
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest,
                        DISABLED_PRE_PRE_PRE_WallpaperOnLoginScreen) {
-  RegisterUser(testUsers_[0]);
-  RegisterUser(testUsers_[1]);
+  RegisterUser(testUsers_[0].GetUserEmail());
+  RegisterUser(testUsers_[1].GetUserEmail());
   StartupUtils::MarkOobeCompleted();
 }
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest,
                        DISABLED_PRE_PRE_WallpaperOnLoginScreen) {
-  LoginUser(testUsers_[0]);
+  LoginUser(testUsers_[0].GetUserEmail());
 
   // Wait until default wallpaper has been loaded.
   RunUntilWallpaperChangeCount(1);
@@ -348,7 +358,7 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest,
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest,
                        DISABLED_PRE_WallpaperOnLoginScreen) {
-  LoginUser(testUsers_[1]);
+  LoginUser(testUsers_[1].GetUserEmail());
 
   // Wait until default wallpaper has been loaded.
   RunUntilWallpaperChangeCount(1);
@@ -370,21 +380,19 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest,
 
   // Select the second pod (belonging to user 1).
   ASSERT_TRUE(content::ExecuteScript(
-      static_cast<chromeos::LoginDisplayHostImpl*>(
-          chromeos::LoginDisplayHostImpl::default_host())->GetOobeUI()->
-              web_ui()->GetWebContents(),
+      LoginDisplayHost::default_host()->GetOobeUI()->web_ui()->GetWebContents(),
       "document.getElementsByClassName('pod')[1].focus();"));
   RunUntilWallpaperChangeCount(2);
   ASSERT_EQ(kRedImageColor, GetAverageBackgroundColor());
 }
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, PRE_PRE_PersistOverLogout) {
-  RegisterUser(testUsers_[0]);
+  RegisterUser(testUsers_[0].GetUserEmail());
   StartupUtils::MarkOobeCompleted();
 }
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, PRE_PersistOverLogout) {
-  LoginUser(testUsers_[0]);
+  LoginUser(testUsers_[0].GetUserEmail());
 
   // Wait until default wallpaper has been loaded.
   RunUntilWallpaperChangeCount(1);
@@ -398,7 +406,7 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, PRE_PersistOverLogout) {
 }
 
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, PersistOverLogout) {
-  LoginUser(testUsers_[0]);
+  LoginUser(testUsers_[0].GetUserEmail());
 
   // Wait until wallpaper has been loaded.
   RunUntilWallpaperChangeCount(1);

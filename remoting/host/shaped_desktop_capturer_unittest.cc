@@ -4,8 +4,10 @@
 
 #include "remoting/host/shaped_desktop_capturer.h"
 
+#include <stddef.h>
+
 #include "remoting/host/desktop_shape_tracker.h"
-#include "remoting/host/fake_desktop_capturer.h"
+#include "remoting/protocol/fake_desktop_capturer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
@@ -41,10 +43,6 @@ class ShapedDesktopCapturerTest : public testing::Test,
                                  public webrtc::DesktopCapturer::Callback {
  public:
   // webrtc::DesktopCapturer::Callback interface
-  webrtc::SharedMemory* CreateSharedMemory(size_t size) override {
-    return nullptr;
-  }
-
   void OnCaptureCompleted(webrtc::DesktopFrame* frame) override {
     last_frame_.reset(frame);
   }
@@ -55,7 +53,7 @@ class ShapedDesktopCapturerTest : public testing::Test,
 // Verify that captured frame have shape.
 TEST_F(ShapedDesktopCapturerTest, Basic) {
   ShapedDesktopCapturer capturer(
-      make_scoped_ptr(new FakeDesktopCapturer()),
+      make_scoped_ptr(new protocol::FakeDesktopCapturer()),
       make_scoped_ptr(new FakeDesktopShapeTracker()));
   capturer.Start(this);
   capturer.Capture(webrtc::DesktopRegion());

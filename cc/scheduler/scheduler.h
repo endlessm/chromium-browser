@@ -8,8 +8,8 @@
 #include <deque>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "cc/base/cc_export.h"
@@ -20,6 +20,7 @@
 #include "cc/scheduler/draw_result.h"
 #include "cc/scheduler/scheduler_settings.h"
 #include "cc/scheduler/scheduler_state_machine.h"
+#include "cc/tiles/tile_priority.h"
 
 namespace base {
 namespace trace_event {
@@ -39,7 +40,6 @@ class SchedulerClient {
       const BeginFrameArgs& args) = 0;
   virtual DrawResult ScheduledActionDrawAndSwapIfPossible() = 0;
   virtual DrawResult ScheduledActionDrawAndSwapForced() = 0;
-  virtual void ScheduledActionAnimate() = 0;
   virtual void ScheduledActionCommit() = 0;
   virtual void ScheduledActionActivateSyncTree() = 0;
   virtual void ScheduledActionBeginOutputSurfaceCreation() = 0;
@@ -66,9 +66,10 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
   ~Scheduler() override;
 
   // BeginFrameObserverBase
+  void OnBeginFrameSourcePausedChanged(bool paused) override;
   bool OnBeginFrameDerivedImpl(const BeginFrameArgs& args) override;
 
-  void OnDrawForOutputSurface();
+  void OnDrawForOutputSurface(bool resourceless_software_draw);
 
   const SchedulerSettings& settings() const { return settings_; }
 
@@ -78,7 +79,6 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
 
   void SetVisible(bool visible);
   bool visible() { return state_machine_.visible(); }
-  void SetResourcelessSoftareDraw(bool resourceless_draw);
   void SetCanDraw(bool can_draw);
   void NotifyReadyToActivate();
   void NotifyReadyToDraw();
@@ -91,15 +91,13 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
 
   void SetNeedsRedraw();
 
-  void SetNeedsAnimate();
-
   void SetNeedsPrepareTiles();
 
-  void SetMaxSwapsPending(int max);
   void DidSwapBuffers();
   void DidSwapBuffersComplete();
 
-  void SetImplLatencyTakesPriority(bool impl_latency_takes_priority);
+  void SetTreePrioritiesAndScrollState(TreePriority tree_priority,
+                                       ScrollHandlerState scroll_handler_state);
 
   void NotifyReadyToCommit();
   void BeginMainFrameAborted(CommitEarlyOutReason reason);
@@ -126,7 +124,7 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
     return !begin_impl_frame_deadline_task_.IsCancelled();
   }
   bool ImplLatencyTakesPriority() const {
-    return state_machine_.impl_latency_takes_priority();
+    return state_machine_.ImplLatencyTakesPriority();
   }
 
   // Pass in a main_thread_start_time of base::TimeTicks() if it is not
@@ -169,6 +167,7 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
   scoped_ptr<BackToBackBeginFrameSource> unthrottled_frame_source_;
 
   scoped_ptr<BeginFrameSourceMultiplexer> frame_source_;
+  bool observing_frame_source_;
   bool throttle_frame_production_;
 
   base::TimeDelta authoritative_vsync_interval_;
@@ -195,15 +194,20 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
  private:
   void ScheduleBeginImplFrameDeadline();
   void ScheduleBeginImplFrameDeadlineIfNeeded();
+  void BeginImplFrameNotExpectedSoon();
   void SetupNextBeginFrameIfNeeded();
   void PostBeginRetroFrameIfNeeded();
   void DrawAndSwapIfPossible();
   void DrawAndSwapForced();
   void ProcessScheduledActions();
   void UpdateCompositorTimingHistoryRecordingEnabled();
-  bool ShouldRecoverMainLatency(const BeginFrameArgs& args) const;
-  bool ShouldRecoverImplLatency(const BeginFrameArgs& args) const;
-  bool CanCommitAndActivateBeforeDeadline(const BeginFrameArgs& args) const;
+  bool ShouldRecoverMainLatency(const BeginFrameArgs& args,
+                                bool can_activate_before_deadline) const;
+  bool ShouldRecoverImplLatency(const BeginFrameArgs& args,
+                                bool can_activate_before_deadline) const;
+  bool CanBeginMainFrameAndActivateBeforeDeadline(
+      const BeginFrameArgs& args,
+      base::TimeDelta bmf_to_activate_estimate) const;
   void AdvanceCommitStateIfPossible();
   bool IsBeginMainFrameSentOrStarted() const;
   void BeginRetroFrame();

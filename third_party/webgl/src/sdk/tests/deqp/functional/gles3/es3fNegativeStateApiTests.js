@@ -41,7 +41,7 @@ goog.scope(function() {
     var uniformTestVertSource = '#version 300 es\n' +
     'uniform mediump vec4 vUnif_vec4;\n' +
     'in mediump vec4 attr;\n' +
-    'layout(shared) uniform Block { mediump vec4 blockVar; };\n' +
+    'layout(std140) uniform Block { mediump vec4 blockVar; };\n' +
     'void main (void)\n' +
     '{\n' +
     ' gl_Position = vUnif_vec4 + blockVar + attr;\n' +
@@ -274,10 +274,6 @@ goog.scope(function() {
             gl.getActiveUniform(program.getProgram(), numActiveUniforms);
             this.expectError(gl.INVALID_VALUE);
 
-            bufferedLogToConsole('gl.INVALID_VALUE is generated if bufSize is less than 0.');
-            gl.getActiveUniform(program.getProgram(), 0);
-            this.expectError(gl.INVALID_VALUE);
-
             gl.useProgram(null);
             gl.deleteShader(shader);
         }));
@@ -377,10 +373,6 @@ goog.scope(function() {
 
             bufferedLogToConsole('gl.INVALID_VALUE is generated if index is greater than or equal to gl.ACTIVE_ATTRIBUTES.');
             activeInfo = gl.getActiveAttrib(program.getProgram(), numActiveAttributes);
-            this.expectError(gl.INVALID_VALUE);
-
-            bufferedLogToConsole('gl.INVALID_VALUE is generated if bufSize is less than 0.');
-            activeInfo = gl.getActiveAttrib(program.getProgram(), 0);
             this.expectError(gl.INVALID_VALUE);
 
             gl.useProgram(null);

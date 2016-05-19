@@ -10,8 +10,8 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/supports_user_data.h"
+#include "base/time/time.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 
@@ -42,9 +42,12 @@ class TabStripModelStatsRecorder::TabInfo
     return info;
   }
 
+  base::TimeTicks creation_time() const { return creation_time_; }
+
  private:
   TabState current_state_ = TabState::INITIAL;
   base::TimeTicks last_state_modified_;
+  base::TimeTicks creation_time_ = base::TimeTicks::Now();
 
   static const char kKey[];
 };
@@ -102,6 +105,13 @@ void TabStripModelStatsRecorder::TabInfo::UpdateState(TabState new_state) {
       NOTREACHED();
       break;
   }
+
+  if (new_state == TabState::CLOSED) {
+    UMA_HISTOGRAM_MEDIUM_TIMES(
+        "Tabs.FineTiming.TimeBetweenTabCreatedAndSameTabClosed",
+        now - creation_time_);
+  }
+
   last_state_modified_ = now;
   current_state_ = new_state;
 }
@@ -110,6 +120,7 @@ void TabStripModelStatsRecorder::TabClosingAt(TabStripModel*,
                                               content::WebContents* contents,
                                               int index) {
   TabInfo::Get(contents)->UpdateState(TabState::CLOSED);
+  last_close_time_ = base::TimeTicks::Now();
 
   // Avoid having stale pointer in active_tab_history_
   std::replace(active_tab_history_.begin(), active_tab_history_.end(), contents,
@@ -132,20 +143,39 @@ void TabStripModelStatsRecorder::ActiveTabChanged(
   DCHECK(new_contents);
   TabInfo* tab_info = TabInfo::Get(new_contents);
 
+  if (tab_info->state() == TabState::INITIAL) {
+    // A new tab has been created: log the time since the last one was created.
+    if (!last_creation_time_.is_null()) {
+      UMA_HISTOGRAM_MEDIUM_TIMES(
+          "Tabs.FineTiming.TimeBetweenTabCreatedAndNextTabCreated",
+          tab_info->creation_time() - last_creation_time_);
+    }
+    last_creation_time_ = tab_info->creation_time();
+
+    // Also log the time since a tab was closed, but only if this is the first
+    // tab that was opened since the closing.
+    if (!last_close_time_.is_null()) {
+      UMA_HISTOGRAM_MEDIUM_TIMES(
+          "Tabs.FineTiming.TimeBetweenTabClosedAndNextTabCreated",
+          tab_info->creation_time() - last_close_time_);
+      last_close_time_ = base::TimeTicks();
+    }
+  }
+
   bool was_inactive = tab_info->state() == TabState::INACTIVE;
   tab_info->UpdateState(TabState::ACTIVE);
 
   // A UMA Histogram must be bounded by some number.
   // We chose 64 as our bound as 99.5% of the users open <64 tabs.
   const int kMaxTabHistory = 64;
-  auto it = std::find(active_tab_history_.begin(), active_tab_history_.end(),
+  auto it = std::find(active_tab_history_.cbegin(), active_tab_history_.cend(),
                       new_contents);
-  int age = it != active_tab_history_.end() ? (it - active_tab_history_.begin())
-                                            : (kMaxTabHistory - 1);
+  int age = (it != active_tab_history_.cend()) ?
+      (it - active_tab_history_.cbegin()) : (kMaxTabHistory - 1);
   if (was_inactive) {
     UMA_HISTOGRAM_ENUMERATION(
         "Tabs.StateTransfer.NumberOfOtherTabsActivatedBeforeMadeActive",
-        std::min(age, kMaxTabHistory), kMaxTabHistory);
+        std::min(age, kMaxTabHistory - 1), kMaxTabHistory);
   }
 
   active_tab_history_.insert(active_tab_history_.begin(), new_contents);

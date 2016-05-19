@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableImage.h"
 
 #include "core/css/CSSImageValue.h"
@@ -63,4 +62,4 @@ bool AnimatableImage::equalTo(const AnimatableValue* value) const
     return m_value->equals(*toAnimatableImage(value)->m_value.get());
 }
 
-}
+} // namespace blink

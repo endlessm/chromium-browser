@@ -101,13 +101,25 @@ TEST_F(HyperlinkButtonCellTest, MouseHoverWhenDisabled) {
 
 // Test underline on hover.
 TEST_F(HyperlinkButtonCellTest, UnderlineOnHover) {
+  // Default is for no underline.
+  EXPECT_FALSE(HasUnderlineAttribute([cell_ linkAttributes]));
+  [cell_ mouseEntered:cocoa_test_event_utils::EnterEvent()];
+  EXPECT_FALSE(HasUnderlineAttribute([cell_ linkAttributes]));
+  [cell_ mouseExited:cocoa_test_event_utils::ExitEvent()];
+  EXPECT_FALSE(HasUnderlineAttribute([cell_ linkAttributes]));
+
+  // Setting behavior to ALWAYS will result in always having an underline.
+  [cell_ setUnderlineBehavior:hyperlink_button_cell::UnderlineBehavior::ALWAYS];
   EXPECT_TRUE(HasUnderlineAttribute([cell_ linkAttributes]));
   [cell_ mouseEntered:cocoa_test_event_utils::EnterEvent()];
   EXPECT_TRUE(HasUnderlineAttribute([cell_ linkAttributes]));
   [cell_ mouseExited:cocoa_test_event_utils::ExitEvent()];
   EXPECT_TRUE(HasUnderlineAttribute([cell_ linkAttributes]));
 
-  [cell_ setUnderlineOnHover:YES];
+  // Setting behavior to ON_HOVER will result in only underlining when the
+  // mouse is hovering over the link.
+  [cell_ setUnderlineBehavior:
+      hyperlink_button_cell::UnderlineBehavior::ON_HOVER];
   EXPECT_FALSE(HasUnderlineAttribute([cell_ linkAttributes]));
   [cell_ mouseEntered:cocoa_test_event_utils::EnterEvent()];
   EXPECT_TRUE(HasUnderlineAttribute([cell_ linkAttributes]));

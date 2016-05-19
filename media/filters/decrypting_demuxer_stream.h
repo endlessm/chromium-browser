@@ -6,6 +6,7 @@
 #define MEDIA_FILTERS_DECRYPTING_DEMUXER_STREAM_H_
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "media/base/audio_decoder_config.h"
@@ -33,13 +34,15 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   DecryptingDemuxerStream(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
       const scoped_refptr<MediaLog>& media_log,
-      const SetCdmReadyCB& set_cdm_ready_cb,
       const base::Closure& waiting_for_decryption_key_cb);
 
   // Cancels all pending operations immediately and fires all pending callbacks.
   ~DecryptingDemuxerStream() override;
 
-  void Initialize(DemuxerStream* stream, const PipelineStatusCB& status_cb);
+  // |steram| must be encrypted and |cdm_context| must be non-null.
+  void Initialize(DemuxerStream* stream,
+                  CdmContext* cdm_context,
+                  const PipelineStatusCB& status_cb);
 
   // Cancels all pending operations and fires all pending callbacks. If in
   // kPendingDemuxerRead or kPendingDecrypt state, waits for the pending
@@ -67,16 +70,11 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   // TODO(xhwang): Update this diagram for DecryptingDemuxerStream.
   enum State {
     kUninitialized = 0,
-    kDecryptorRequested,
     kIdle,
     kPendingDemuxerRead,
     kPendingDecrypt,
     kWaitingForKey
   };
-
-  // Callback to set CDM. |cdm_attached_cb| is called when the decryptor in the
-  // CDM has been completely attached to the pipeline.
-  void SetCdm(CdmContext* cdm_context, const CdmAttachedCB& cdm_attached_cb);
 
   // Callback for DemuxerStream::Read().
   void DecryptBuffer(DemuxerStream::Status status,
@@ -118,9 +116,6 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
 
   AudioDecoderConfig audio_config_;
   VideoDecoderConfig video_config_;
-
-  // Callback to request/cancel CDM ready notification.
-  SetCdmReadyCB set_cdm_ready_cb_;
 
   Decryptor* decryptor_;
 

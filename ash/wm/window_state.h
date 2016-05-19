@@ -8,8 +8,8 @@
 #include "ash/ash_export.h"
 #include "ash/wm/drag_details.h"
 #include "ash/wm/wm_types.h"
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "ui/aura/window_observer.h"
@@ -231,9 +231,7 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   void RemoveObserver(WindowStateObserver* observer);
 
   // Whether the window is being dragged.
-  bool is_dragged() const {
-    return drag_details_;
-  }
+  bool is_dragged() const { return !!drag_details_; }
 
   // Whether or not the window's position can be managed by the
   // auto management logic.

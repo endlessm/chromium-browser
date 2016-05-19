@@ -4,10 +4,13 @@
 
 #include "content/public/app/content_main_runner.h"
 
+#include <stddef.h>
 #include <stdlib.h>
-
+#include <string.h>
 #include <string>
+#include <utility>
 
+#include "base/allocator/allocator_check.h"
 #include "base/allocator/allocator_extension.h"
 #include "base/at_exit.h"
 #include "base/command_line.h"
@@ -17,6 +20,7 @@
 #include "base/i18n/icu_util.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/statistics_recorder.h"
@@ -24,13 +28,14 @@
 #include "base/process/launch.h"
 #include "base/process/memory.h"
 #include "base/process/process_handle.h"
-#include "base/profiler/alternate_timer.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "components/tracing/trace_config_file.h"
+#include "components/tracing/trace_to_console.h"
 #include "components/tracing/tracing_switches.h"
 #include "content/browser/browser_main.h"
 #include "content/common/set_process_title.h"
@@ -58,15 +63,12 @@
 #include "gin/v8_initializer.h"
 #endif
 
-#if defined(USE_TCMALLOC)
-#include "third_party/tcmalloc/chromium/src/gperftools/malloc_extension.h"
-#endif
-
 #if !defined(OS_IOS)
 #include "content/app/mojo/mojo_init.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/utility_process_host_impl.h"
+#include "content/public/gpu/content_gpu_client.h"
 #include "content/public/plugin/content_plugin_client.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/public/utility/content_utility_client.h"
@@ -85,9 +87,7 @@
 #if !defined(OS_IOS)
 #include "base/power_monitor/power_monitor_device_source.h"
 #include "content/app/mac/mac_init.h"
-#include "content/browser/browser_io_surface_manager_mac.h"
 #include "content/browser/mach_broker_mac.h"
-#include "content/child/child_io_surface_manager_mac.h"
 #include "content/common/sandbox_init_mac.h"
 #endif  // !OS_IOS
 #endif  // OS_WIN
@@ -111,12 +111,6 @@
 #include "crypto/nss_util.h"
 #endif
 
-#if !defined(OS_MACOSX) && defined(USE_TCMALLOC)
-extern "C" {
-int tc_set_new_mode(int mode);
-}
-#endif
-
 namespace content {
 extern int GpuMain(const content::MainFunctionParams&);
 #if defined(ENABLE_PLUGINS)
@@ -128,6 +122,9 @@ extern int PpapiBrokerMain(const MainFunctionParams&);
 #endif
 extern int RendererMain(const content::MainFunctionParams&);
 extern int UtilityMain(const MainFunctionParams&);
+#if defined(OS_ANDROID)
+extern int DownloadMain(const MainFunctionParams&);
+#endif
 }  // namespace content
 
 namespace content {
@@ -138,6 +135,8 @@ base::LazyInstance<ContentBrowserClient>
 #endif  //  !CHROME_MULTIPLE_DLL_CHILD
 
 #if !defined(OS_IOS) && !defined(CHROME_MULTIPLE_DLL_BROWSER)
+base::LazyInstance<ContentGpuClient>
+    g_empty_content_gpu_client = LAZY_INSTANCE_INITIALIZER;
 base::LazyInstance<ContentPluginClient>
     g_empty_content_plugin_client = LAZY_INSTANCE_INITIALIZER;
 base::LazyInstance<ContentRendererClient>
@@ -146,9 +145,15 @@ base::LazyInstance<ContentUtilityClient>
     g_empty_content_utility_client = LAZY_INSTANCE_INITIALIZER;
 #endif  // !OS_IOS && !CHROME_MULTIPLE_DLL_BROWSER
 
-#if defined(OS_WIN)
-
-#endif  // defined(OS_WIN)
+#if defined(V8_USE_EXTERNAL_STARTUP_DATA) && defined(OS_ANDROID)
+#if defined __LP64__
+#define kV8NativesDataDescriptor kV8NativesDataDescriptor64
+#define kV8SnapshotDataDescriptor kV8SnapshotDataDescriptor64
+#else
+#define kV8NativesDataDescriptor kV8NativesDataDescriptor32
+#define kV8SnapshotDataDescriptor kV8SnapshotDataDescriptor32
+#endif
+#endif
 
 #if defined(OS_POSIX) && !defined(OS_IOS)
 
@@ -223,6 +228,15 @@ class ContentClientInitializer {
 #endif  // !CHROME_MULTIPLE_DLL_CHILD
 
 #if !defined(OS_IOS) && !defined(CHROME_MULTIPLE_DLL_BROWSER)
+    if (process_type == switches::kGpuProcess ||
+        base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kSingleProcess)) {
+      if (delegate)
+        content_client->gpu_ = delegate->CreateContentGpuClient();
+      if (!content_client->gpu_)
+        content_client->gpu_ = &g_empty_content_gpu_client.Get();
+    }
+
     if (process_type == switches::kPluginProcess ||
         process_type == switches::kPpapiPluginProcess) {
       if (delegate)
@@ -281,7 +295,7 @@ int RunZygote(const MainFunctionParams& main_function_params,
   }
 
   // This function call can return multiple times, once per fork().
-  if (!ZygoteMain(main_function_params, zygote_fork_delegates.Pass()))
+  if (!ZygoteMain(main_function_params, std::move(zygote_fork_delegates)))
     return 1;
 
   if (delegate) delegate->ZygoteForked();
@@ -354,6 +368,9 @@ int RunNamedProcessTypeMain(
     { switches::kUtilityProcess,     UtilityMain },
     { switches::kRendererProcess,    RendererMain },
     { switches::kGpuProcess,         GpuMain },
+#if defined(OS_ANDROID)
+    { switches::kDownloadProcess,    DownloadMain},
+#endif
 #endif  // !CHROME_MULTIPLE_DLL_BROWSER
   };
 
@@ -413,35 +430,6 @@ class ContentMainRunnerImpl : public ContentMainRunner {
       Shutdown();
   }
 
-#if defined(USE_TCMALLOC)
-  static bool GetAllocatorWasteSizeThunk(size_t* size) {
-    size_t heap_size, allocated_bytes, unmapped_bytes;
-    MallocExtension* ext = MallocExtension::instance();
-    if (ext->GetNumericProperty("generic.heap_size", &heap_size) &&
-        ext->GetNumericProperty("generic.current_allocated_bytes",
-                                &allocated_bytes) &&
-        ext->GetNumericProperty("tcmalloc.pageheap_unmapped_bytes",
-                                &unmapped_bytes)) {
-      *size = heap_size - allocated_bytes - unmapped_bytes;
-      return true;
-    }
-    DCHECK(false);
-    return false;
-  }
-
-  static void GetStatsThunk(char* buffer, int buffer_length) {
-    MallocExtension::instance()->GetStats(buffer, buffer_length);
-  }
-
-  static bool GetNumericPropertyThunk(const char* name, size_t* value) {
-    return MallocExtension::instance()->GetNumericProperty(name, value);
-  }
-
-  static void ReleaseFreeMemoryThunk() {
-    MallocExtension::instance()->ReleaseFreeMemory();
-  }
-#endif
-
   int Initialize(const ContentMainParams& params) override {
     ui_task_ = params.ui_task;
 
@@ -459,35 +447,6 @@ class ContentMainRunnerImpl : public ContentMainRunner {
     // TRACE_EVENT right away.
     TRACE_EVENT0("startup,benchmark", "ContentMainRunnerImpl::Initialize");
 #endif  // OS_ANDROID
-
-    // NOTE(willchan): One might ask why these TCMalloc-related calls are done
-    // here rather than in process_util_linux.cc with the definition of
-    // EnableTerminationOnOutOfMemory().  That's because base shouldn't have a
-    // dependency on TCMalloc.  Really, we ought to have our allocator shim code
-    // implement this EnableTerminationOnOutOfMemory() function.  Whateverz.
-    // This works for now.
-#if !defined(OS_MACOSX) && defined(USE_TCMALLOC)
-    // For tcmalloc, we need to tell it to behave like new.
-    tc_set_new_mode(1);
-
-    // On windows, we've already set these thunks up in _heap_init()
-    base::allocator::SetGetAllocatorWasteSizeFunction(
-        GetAllocatorWasteSizeThunk);
-    base::allocator::SetGetStatsFunction(GetStatsThunk);
-    base::allocator::SetGetNumericPropertyFunction(GetNumericPropertyThunk);
-    base::allocator::SetReleaseFreeMemoryFunction(ReleaseFreeMemoryThunk);
-
-    // Provide optional hook for monitoring allocation quantities on a
-    // per-thread basis.  Only set the hook if the environment indicates this
-    // needs to be enabled.
-    const char* profiling = getenv(tracked_objects::kAlternateProfilerTime);
-    if (profiling &&
-        (atoi(profiling) == tracked_objects::TIME_SOURCE_TYPE_TCMALLOC)) {
-      tracked_objects::SetAlternateTimeSource(
-          MallocExtension::GetBytesAllocatedOnCurrentThread,
-          tracked_objects::TIME_SOURCE_TYPE_TCMALLOC);
-    }
-#endif  // !OS_MACOSX && USE_TCMALLOC
 
 #if !defined(OS_IOS)
     base::GlobalDescriptors* g_fds = base::GlobalDescriptors::GetInstance();
@@ -591,18 +550,13 @@ class ContentMainRunnerImpl : public ContentMainRunner {
 #endif
 
 #if defined(OS_WIN)
-    bool init_device_scale_factor = true;
     if (command_line.HasSwitch(switches::kDeviceScaleFactor)) {
       std::string scale_factor_string = command_line.GetSwitchValueASCII(
           switches::kDeviceScaleFactor);
       double scale_factor = 0;
-      if (base::StringToDouble(scale_factor_string, &scale_factor)) {
-        init_device_scale_factor = false;
-        gfx::InitDeviceScaleFactor(scale_factor);
-      }
+      if (base::StringToDouble(scale_factor_string, &scale_factor))
+        gfx::SetDefaultDeviceScaleFactor(scale_factor);
     }
-    if (init_device_scale_factor)
-      gfx::InitDeviceScaleFactor(gfx::GetDPIScale());
 #endif
 
     if (!GetContentClient())
@@ -623,6 +577,15 @@ class ContentMainRunnerImpl : public ContentMainRunner {
       base::trace_event::TraceConfig trace_config(
           command_line.GetSwitchValueASCII(switches::kTraceStartup),
           base::trace_event::RECORD_UNTIL_FULL);
+      base::trace_event::TraceLog::GetInstance()->SetEnabled(
+          trace_config,
+          base::trace_event::TraceLog::RECORDING_MODE);
+    } else if (command_line.HasSwitch(switches::kTraceToConsole)) {
+      base::trace_event::TraceConfig trace_config =
+          tracing::GetConfigForTraceToConsole();
+      LOG(ERROR) << "Start " << switches::kTraceToConsole
+                 << " with CategoryFilter '"
+                 << trace_config.ToCategoryFilterString() << "'.";
       base::trace_event::TraceLog::GetInstance()->SetEnabled(
           trace_config,
           base::trace_event::TraceLog::RECORDING_MODE);
@@ -665,22 +628,15 @@ class ContentMainRunnerImpl : public ContentMainRunner {
         (!delegate_ || delegate_->ShouldSendMachPort(process_type))) {
       MachBroker::ChildSendTaskPortToParent();
     }
-
-    if (!command_line.HasSwitch(switches::kSingleProcess) &&
-        !process_type.empty() && (process_type == switches::kRendererProcess ||
-                                  process_type == switches::kGpuProcess)) {
-      base::mac::ScopedMachSendRight service_port =
-          BrowserIOSurfaceManager::LookupServicePort(getppid());
-      if (service_port.is_valid()) {
-        ChildIOSurfaceManager::GetInstance()->set_service_port(
-            service_port.release());
-        gfx::IOSurfaceManager::SetInstance(
-            ChildIOSurfaceManager::GetInstance());
-      }
-    }
 #elif defined(OS_WIN)
     base::win::SetupCRT(command_line);
 #endif
+
+    // If we are on a platform where the default allocator is overridden (shim
+    // layer on windows, tcmalloc on Linux Desktop) smoke-tests that the
+    // overriding logic is working correctly. If not causes a hard crash, as its
+    // unexpected absence has security implications.
+    CHECK(base::allocator::IsAllocatorInitialized());
 
 #if defined(OS_POSIX)
     if (!process_type.empty()) {

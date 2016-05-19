@@ -5,8 +5,8 @@
 #ifndef MEDIA_AUDIO_AUDIO_OUTPUT_PROXY_H_
 #define MEDIA_AUDIO_AUDIO_OUTPUT_PROXY_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/non_thread_safe.h"
 #include "media/audio/audio_io.h"

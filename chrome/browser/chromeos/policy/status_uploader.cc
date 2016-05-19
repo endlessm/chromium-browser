@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/policy/status_uploader.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -27,7 +28,7 @@ const int kMinUploadDelayMs = 60 * 1000;  // 60 seconds
 
 namespace policy {
 
-const int64 StatusUploader::kDefaultUploadDelayMs =
+const int64_t StatusUploader::kDefaultUploadDelayMs =
     3 * 60 * 60 * 1000;  // 3 hours
 
 StatusUploader::StatusUploader(
@@ -35,7 +36,7 @@ StatusUploader::StatusUploader(
     scoped_ptr<DeviceStatusCollector> collector,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner)
     : client_(client),
-      collector_(collector.Pass()),
+      collector_(std::move(collector)),
       task_runner_(task_runner),
       upload_frequency_(
           base::TimeDelta::FromMilliseconds(kDefaultUploadDelayMs)),
@@ -103,8 +104,11 @@ void StatusUploader::RefreshUploadFrequency() {
   // want to use the last trusted value).
   int frequency;
   if (settings->GetInteger(chromeos::kReportUploadFrequency, &frequency)) {
-      upload_frequency_ = base::TimeDelta::FromMilliseconds(
-          std::max(kMinUploadDelayMs, frequency));
+    LOG(WARNING) << "Changing status upload frequency from "
+                 << upload_frequency_ << " to "
+                 << base::TimeDelta::FromMilliseconds(frequency);
+    upload_frequency_ = base::TimeDelta::FromMilliseconds(
+        std::max(kMinUploadDelayMs, frequency));
   }
 
   // Schedule a new upload with the new frequency - only do this if we've
@@ -150,12 +154,15 @@ void StatusUploader::UploadStatus() {
   bool have_session_status = collector_->GetDeviceSessionStatus(
       &session_status);
   if (!have_device_status && !have_session_status) {
+    LOG(WARNING) << "Skipping status upload because no data to upload";
     // Don't have any status to upload - just set our timer for next time.
     last_upload_ = base::Time::NowFromSystemTime();
     ScheduleNextStatusUpload();
     return;
   }
 
+  LOG(WARNING) << "Starting status upload: have_device_status = "
+               << have_device_status;
   client_->UploadDeviceStatus(
       have_device_status ? &device_status : nullptr,
       have_session_status ? &session_status : nullptr,
@@ -168,6 +175,8 @@ void StatusUploader::OnUploadCompleted(bool success) {
   // or not (we don't change the time of the next upload based on whether this
   // upload succeeded or not - if a status upload fails, we just skip it and
   // wait until it's time to try again.
+  LOG_IF(ERROR, !success) << "Error uploading status: " << client_->status();
+  LOG_IF(WARNING, success) << "Status upload successful";
   last_upload_ = base::Time::NowFromSystemTime();
 
   // If the upload was successful, tell the collector so it can clear its cache

@@ -5,8 +5,12 @@
 #ifndef UI_OZONE_PLATFORM_DRM_GPU_GBM_SURFACE_FACTORY_H_
 #define UI_OZONE_PLATFORM_DRM_GPU_GBM_SURFACE_FACTORY_H_
 
-#include <map>
+#include <stdint.h>
 
+#include <map>
+#include <vector>
+
+#include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
 
@@ -18,7 +22,7 @@ class GbmSurfaceless;
 
 class GbmSurfaceFactory : public SurfaceFactoryOzone {
  public:
-  GbmSurfaceFactory(DrmThreadProxy* drm_thread);
+  explicit GbmSurfaceFactory(DrmThreadProxy* drm_thread);
   ~GbmSurfaceFactory() override;
 
   void RegisterSurface(gfx::AcceleratedWidget widget, GbmSurfaceless* surface);
@@ -27,7 +31,8 @@ class GbmSurfaceFactory : public SurfaceFactoryOzone {
 
   // SurfaceFactoryOzone:
   intptr_t GetNativeDisplay() override;
-  const int32_t* GetEGLSurfaceProperties(const int32_t* desired_list) override;
+  std::vector<gfx::BufferFormat> GetScanoutFormats(
+      gfx::AcceleratedWidget widget) override;
   bool LoadEGLGLES2Bindings(
       AddGLLibraryCallback add_gl_library,
       SetGLGetProcAddressProcCallback set_gl_get_proc_address) override;

@@ -84,6 +84,7 @@ public class OAuth2TokenServiceTest extends InstrumentationTestCase {
         assertEquals("There should be zero registered account", 0, accounts.length);
     }
 
+    @DisabledTest // http://crbug.com/568620
     @SmallTest
     @Feature({"Sync"})
     public void testGetOAuth2AccessTokenWithTimeoutOnSuccess() {
@@ -115,9 +116,8 @@ public class OAuth2TokenServiceTest extends InstrumentationTestCase {
                         .authToken(oauth2Scope, expectedToken).build();
         mAccountManager.addAccountHolderExplicitly(accountHolder);
 
-        String accessToken =
-                OAuth2TokenService.getOAuth2AccessTokenWithTimeout(
-                        mContext, null, account, scope, 5, TimeUnit.SECONDS);
+        String accessToken = OAuth2TokenService.getOAuth2AccessTokenWithTimeout(
+                mContext, account, scope, 5, TimeUnit.SECONDS);
         assertEquals(expectedToken, accessToken);
     }
 }

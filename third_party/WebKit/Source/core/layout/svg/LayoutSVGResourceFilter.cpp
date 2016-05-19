@@ -21,7 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGResourceFilter.h"
 
 #include "core/svg/SVGFilterPrimitiveStandardAttributes.h"
@@ -125,7 +124,7 @@ void LayoutSVGResourceFilter::primitiveAttributeChanged(LayoutObject* object, co
         // Issue paint invalidations for the image on the screen.
         markClientForInvalidation(filter.key, PaintInvalidation);
     }
-    markAllClientLayersForInvalidation();
+    markAllResourceClientsForInvalidation();
 }
 
 } // namespace blink

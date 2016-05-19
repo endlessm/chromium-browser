@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.partnercustomizations;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -17,9 +18,9 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.test.partnercustomizations.TestPartnerBrowserCustomizationsProvider;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.net.test.EmbeddedTestServer;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -29,12 +30,6 @@ import java.util.concurrent.ExecutionException;
  */
 public class PartnerDisableIncognitoModeIntegrationTest extends
         BasePartnerBrowserCustomizationIntegrationTest {
-
-    private static final String TEST_URLS[] = {
-            TestHttpServerClient.getUrl("chrome/test/data/android/about.html"),
-            TestHttpServerClient.getUrl("chrome/test/data/android/ok.txt"),
-            TestHttpServerClient.getUrl("chrome/test/data/android/test.html")
-    };
 
     @Override
     public void startMainActivity() throws InterruptedException {
@@ -73,9 +68,9 @@ public class PartnerDisableIncognitoModeIntegrationTest extends
         }
     }
 
-    private boolean waitForParentalControlsEnabledState(final boolean parentalControlsEnabled)
+    private void waitForParentalControlsEnabledState(final boolean parentalControlsEnabled)
             throws InterruptedException {
-        return CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 // areParentalControlsEnabled is updated on a background thread, so we
@@ -122,7 +117,7 @@ public class PartnerDisableIncognitoModeIntegrationTest extends
     public void testIncognitoEnabledIfNoParentalControls() throws InterruptedException {
         setParentalControlsEnabled(false);
         startMainActivityOnBlankPage();
-        assertTrue(waitForParentalControlsEnabledState(false));
+        waitForParentalControlsEnabledState(false);
         newIncognitoTabFromMenu();
     }
 
@@ -132,37 +127,50 @@ public class PartnerDisableIncognitoModeIntegrationTest extends
             throws InterruptedException, ExecutionException {
         setParentalControlsEnabled(true);
         startMainActivityOnBlankPage();
-        assertTrue(waitForParentalControlsEnabledState(true));
+        waitForParentalControlsEnabledState(true);
         assertIncognitoMenuItemEnabled(false);
 
         setParentalControlsEnabled(false);
         toggleActivityForegroundState();
-        assertTrue(waitForParentalControlsEnabledState(false));
+        waitForParentalControlsEnabledState(false);
         assertIncognitoMenuItemEnabled(true);
     }
 
     @MediumTest
     @Feature({"DisableIncognitoMode"})
     public void testEnabledParentalControlsClosesIncognitoTabs() throws InterruptedException {
-        setParentalControlsEnabled(false);
-        startMainActivityOnBlankPage();
-        assertTrue(waitForParentalControlsEnabledState(false));
+        EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
 
-        loadUrlInNewTab(TEST_URLS[0], true);
-        loadUrlInNewTab(TEST_URLS[1], true);
-        loadUrlInNewTab(TEST_URLS[2], true);
-        loadUrlInNewTab(TEST_URLS[0], false);
+        try {
+            String[] testUrls = {
+                testServer.getURL("/chrome/test/data/android/about.html"),
+                testServer.getURL("/chrome/test/data/android/ok.txt"),
+                testServer.getURL("/chrome/test/data/android/test.html")
+            };
 
-        setParentalControlsEnabled(true);
-        toggleActivityForegroundState();
-        assertTrue(waitForParentalControlsEnabledState(true));
+            setParentalControlsEnabled(false);
+            startMainActivityOnBlankPage();
+            waitForParentalControlsEnabledState(false);
 
-        assertTrue("Incognito tabs did not close as expected",
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return incognitoTabsCount() == 0;
-                    }
-                }));
+            loadUrlInNewTab(testUrls[0], true);
+            loadUrlInNewTab(testUrls[1], true);
+            loadUrlInNewTab(testUrls[2], true);
+            loadUrlInNewTab(testUrls[0], false);
+
+            setParentalControlsEnabled(true);
+            toggleActivityForegroundState();
+            waitForParentalControlsEnabledState(true);
+
+            CriteriaHelper.pollForCriteria(
+                    new Criteria("Incognito tabs did not close as expected") {
+                        @Override
+                        public boolean isSatisfied() {
+                            return incognitoTabsCount() == 0;
+                        }
+                    });
+        } finally {
+            testServer.stopAndDestroyServer();
+        }
     }
 }

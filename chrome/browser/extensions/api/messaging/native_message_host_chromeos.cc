@@ -5,6 +5,7 @@
 #include "extensions/browser/api/messaging/native_message_host.h"
 
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -17,6 +18,7 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/extensions/api/messaging/arc_support_host.h"
 #include "chrome/browser/extensions/api/messaging/native_messaging_test_util.h"
 #include "components/policy/core/common/policy_service.h"
 #include "content/public/browser/browser_thread.h"
@@ -106,8 +108,8 @@ scoped_ptr<NativeMessageHost> CreateIt2MeHost() {
           content::BrowserThread::GetMessageLoopProxyForThread(
               content::BrowserThread::FILE));
   scoped_ptr<NativeMessageHost> host(new remoting::It2MeNativeMessagingHost(
-      context.Pass(), host_factory.Pass()));
-  return host.Pass();
+      std::move(context), std::move(host_factory)));
+  return host;
 }
 
 // If you modify the list of allowed_origins, don't forget to update
@@ -134,6 +136,10 @@ static const BuiltInHost kBuiltInHost[] = {
      kRemotingIt2MeOrigins,
      arraysize(kRemotingIt2MeOrigins),
      &CreateIt2MeHost},
+     {ArcSupportHost::kHostName,
+     ArcSupportHost::kHostOrigin,
+     1,
+     &ArcSupportHost::Create},
 };
 
 bool MatchesSecurityOrigin(const BuiltInHost& host,

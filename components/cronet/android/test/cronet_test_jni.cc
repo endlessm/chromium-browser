@@ -7,7 +7,10 @@
 #include "base/android/base_jni_registrar.h"
 #include "base/android/jni_android.h"
 #include "base/android/jni_registrar.h"
+#include "base/macros.h"
 #include "components/cronet/android/cronet_library_loader.h"
+#include "cronet_test_util.h"
+#include "cronet_url_request_context_config_test.h"
 #include "mock_cert_verifier.h"
 #include "mock_url_request_job_factory.h"
 #include "native_test_server.h"
@@ -27,6 +30,9 @@ const base::android::RegistrationMethod kCronetTestsRegisteredMethods[] = {
     {"SdchTestUtil", cronet::RegisterSdchTestUtil},
     {"TestUploadDataStreamHandlerRegisterJni",
      cronet::TestUploadDataStreamHandlerRegisterJni},
+    {"CronetUrlRequestContextConfigTest",
+     cronet::RegisterCronetUrlRequestContextConfigTest},
+    {"CronetTestUtil", cronet::RegisterCronetTestUtil},
 };
 
 }  // namespace

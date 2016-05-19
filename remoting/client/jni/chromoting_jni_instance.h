@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -14,6 +15,8 @@
 #include "remoting/client/chromoting_client.h"
 #include "remoting/client/client_context.h"
 #include "remoting/client/client_user_interface.h"
+#include "remoting/proto/control.pb.h"
+#include "remoting/proto/event.pb.h"
 #include "remoting/protocol/clipboard_stub.h"
 #include "remoting/protocol/cursor_shape_stub.h"
 #include "remoting/signaling/xmpp_signal_strategy.h"
@@ -24,13 +27,13 @@ namespace protocol {
 class ClipboardEvent;
 class CursorShapeInfo;
 class PerformanceTracker;
+class VideoRenderer;
 }  // namespace protocol
 
 class ChromotingJniRuntime;
 class ClientStatusLogger;
 class JniFrameConsumer;
 class TokenFetcherProxy;
-class VideoRenderer;
 
 // ClientUserInterface that indirectly makes and receives JNI calls.
 class ChromotingJniInstance
@@ -43,14 +46,15 @@ class ChromotingJniInstance
   // The instance does not take ownership of |jni_runtime|. To connect with an
   // unpaired host, pass in |pairing_id| and |pairing_secret| as empty strings.
   ChromotingJniInstance(ChromotingJniRuntime* jni_runtime,
-                        const char* username,
-                        const char* auth_token,
-                        const char* host_jid,
-                        const char* host_id,
-                        const char* host_pubkey,
-                        const char* pairing_id,
-                        const char* pairing_secret,
-                        const char* capabilities);
+                        const std::string& username,
+                        const std::string& auth_token,
+                        const std::string& host_jid,
+                        const std::string& host_id,
+                        const std::string& host_pubkey,
+                        const std::string& pairing_id,
+                        const std::string& pairing_secret,
+                        const std::string& capabilities,
+                        const std::string& flags);
 
   // Terminates the current connection (if it hasn't already failed) and cleans
   // up. Must be called before destruction.
@@ -147,11 +151,13 @@ class ChromotingJniInstance
   std::string host_id_;
   std::string host_jid_;
 
+  std::string flags_;
+
   // This group of variables is to be used on the network thread.
   scoped_ptr<ClientContext> client_context_;
   scoped_ptr<protocol::PerformanceTracker> perf_tracker_;
   scoped_ptr<JniFrameConsumer> view_;
-  scoped_ptr<VideoRenderer> video_renderer_;
+  scoped_ptr<protocol::VideoRenderer> video_renderer_;
   scoped_ptr<protocol::Authenticator> authenticator_;
   scoped_ptr<ChromotingClient> client_;
   XmppSignalStrategy::XmppServerConfig xmpp_config_;

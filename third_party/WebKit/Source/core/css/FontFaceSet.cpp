@@ -23,7 +23,6 @@
  * DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/FontFaceSet.h"
 
 #include "bindings/core/v8/Dictionary.h"
@@ -41,7 +40,7 @@
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/style/StyleInheritedData.h"
-#include "public/platform/Platform.h"
+#include "platform/Histogram.h"
 
 namespace blink {
 
@@ -119,13 +118,16 @@ FontFaceSet::FontFaceSet(Document& document)
     , m_shouldFireLoadingEvent(false)
     , m_isLoading(false)
     , m_ready(new ReadyProperty(executionContext(), this, ReadyProperty::Ready))
-    , m_asyncRunner(this, &FontFaceSet::handlePendingEventsAndPromises)
+    , m_asyncRunner(AsyncMethodRunner<FontFaceSet>::create(this, &FontFaceSet::handlePendingEventsAndPromises))
 {
     suspendIfNeeded();
 }
 
 FontFaceSet::~FontFaceSet()
 {
+#if !ENABLE(OILPAN)
+    stop();
+#endif
 }
 
 Document* FontFaceSet::document() const
@@ -165,7 +167,7 @@ AtomicString FontFaceSet::status() const
 void FontFaceSet::handlePendingEventsAndPromisesSoon()
 {
     // m_asyncRunner will be automatically stopped on destruction.
-    m_asyncRunner.runAsync();
+    m_asyncRunner->runAsync();
 }
 
 void FontFaceSet::didLayout()
@@ -200,17 +202,17 @@ void FontFaceSet::fireLoadingEvent()
 
 void FontFaceSet::suspend()
 {
-    m_asyncRunner.suspend();
+    m_asyncRunner->suspend();
 }
 
 void FontFaceSet::resume()
 {
-    m_asyncRunner.resume();
+    m_asyncRunner->resume();
 }
 
 void FontFaceSet::stop()
 {
-    m_asyncRunner.stop();
+    m_asyncRunner->stop();
 }
 
 void FontFaceSet::beginFontLoading(FontFace* fontFace)
@@ -257,14 +259,11 @@ ScriptPromise FontFaceSet::ready(ScriptState* scriptState)
     return m_ready->promise(scriptState->world());
 }
 
-PassRefPtrWillBeRawPtr<FontFaceSet> FontFaceSet::addForBinding(ScriptState*, FontFace* fontFace, ExceptionState& exceptionState)
+PassRefPtrWillBeRawPtr<FontFaceSet> FontFaceSet::addForBinding(ScriptState*, FontFace* fontFace, ExceptionState&)
 {
+    ASSERT(fontFace);
     if (!inActiveDocumentContext())
         return this;
-    if (!fontFace) {
-        exceptionState.throwTypeError("The argument is not a FontFace.");
-        return this;
-    }
     if (m_nonCSSConnectedFaces.contains(fontFace))
         return this;
     if (isCSSConnectedFontFace(fontFace))
@@ -293,14 +292,11 @@ void FontFaceSet::clearForBinding(ScriptState*, ExceptionState&)
     fontSelector->fontFaceInvalidated();
 }
 
-bool FontFaceSet::deleteForBinding(ScriptState*, FontFace* fontFace, ExceptionState& exceptionState)
+bool FontFaceSet::deleteForBinding(ScriptState*, FontFace* fontFace, ExceptionState&)
 {
+    ASSERT(fontFace);
     if (!inActiveDocumentContext())
         return false;
-    if (!fontFace) {
-        exceptionState.throwTypeError("The argument is not a FontFace.");
-        return false;
-    }
     WillBeHeapListHashSet<RefPtrWillBeMember<FontFace>>::iterator it = m_nonCSSConnectedFaces.find(fontFace);
     if (it != m_nonCSSConnectedFaces.end()) {
         m_nonCSSConnectedFaces.remove(it);
@@ -314,14 +310,11 @@ bool FontFaceSet::deleteForBinding(ScriptState*, FontFace* fontFace, ExceptionSt
     return false;
 }
 
-bool FontFaceSet::hasForBinding(ScriptState*, FontFace* fontFace, ExceptionState& exceptionState) const
+bool FontFaceSet::hasForBinding(ScriptState*, FontFace* fontFace, ExceptionState&) const
 {
+    ASSERT(fontFace);
     if (!inActiveDocumentContext())
         return false;
-    if (!fontFace) {
-        exceptionState.throwTypeError("The argument is not a FontFace.");
-        return false;
-    }
     return m_nonCSSConnectedFaces.contains(fontFace) || isCSSConnectedFontFace(fontFace);
 }
 
@@ -486,10 +479,12 @@ void FontFaceSet::FontLoadHistogram::record()
 {
     if (!m_recorded) {
         m_recorded = true;
-        Platform::current()->histogramCustomCounts("WebFont.WebFontsInPage", m_count, 1, 100, 50);
+        DEFINE_STATIC_LOCAL(CustomCountHistogram, webFontsInPageHistogram, ("WebFont.WebFontsInPage", 1, 100, 50));
+        webFontsInPageHistogram.count(m_count);
     }
     if (m_status == HadBlankText || m_status == DidNotHaveBlankText) {
-        Platform::current()->histogramEnumeration("WebFont.HadBlankText", m_status == HadBlankText ? 1 : 0, 2);
+        DEFINE_STATIC_LOCAL(EnumerationHistogram, hadBlankTextHistogram, ("WebFont.HadBlankText", 2));
+        hadBlankTextHistogram.count(m_status == HadBlankText ? 1 : 0);
         m_status = Reported;
     }
 }
@@ -549,6 +544,7 @@ DEFINE_TRACE(FontFaceSet)
     visitor->trace(m_loadedFonts);
     visitor->trace(m_failedFonts);
     visitor->trace(m_nonCSSConnectedFaces);
+    visitor->trace(m_asyncRunner);
     HeapSupplement<Document>::trace(visitor);
 #endif
     EventTargetWithInlineData::trace(visitor);

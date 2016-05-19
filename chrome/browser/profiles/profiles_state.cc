@@ -4,13 +4,15 @@
 
 #include "chrome/browser/profiles/profiles_state.h"
 
+#include <stddef.h>
+
 #include "base/files/file_path.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
+#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "chrome/browser/profiles/gaia_info_update_service.h"
 #include "chrome/browser/profiles/gaia_info_update_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -22,6 +24,8 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/signin/core/common/signin_pref_names.h"
@@ -228,13 +232,13 @@ void RemoveBrowsingDataForProfile(const base::FilePath& profile_path) {
   if (!profile)
     return;
 
-  // For guest the browsing data is in the OTR profile.
+  // For guest profiles the browsing data is in the OTR profile.
   if (profile->IsGuestSession())
     profile = profile->GetOffTheRecordProfile();
 
-  BrowsingDataRemover::CreateForUnboundedRange(profile)->Remove(
+  BrowsingDataRemoverFactory::GetForBrowserContext(profile)->Remove(
+      BrowsingDataRemover::Unbounded(),
       BrowsingDataRemover::REMOVE_WIPE_PROFILE, BrowsingDataHelper::ALL);
-  // BrowsingDataRemover deletes itself.
 }
 
 void SetLastUsedProfile(const std::string& profile_dir) {

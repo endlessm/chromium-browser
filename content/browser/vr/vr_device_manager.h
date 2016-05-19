@@ -5,10 +5,12 @@
 #ifndef CONTENT_BROWSER_VR_VR_DEVICE_MANAGER_H
 #define CONTENT_BROWSER_VR_VR_DEVICE_MANAGER_H
 
+#include <stdint.h>
+
 #include <map>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/thread_checker.h"
@@ -16,7 +18,7 @@
 #include "content/browser/vr/vr_device_provider.h"
 #include "content/common/content_export.h"
 #include "content/common/vr_service.mojom.h"
-#include "mojo/common/weak_binding_set.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
 
 namespace content {
 
@@ -63,7 +65,7 @@ class VRDeviceManager : public VRService {
 
   bool vr_initialized_;
 
-  mojo::WeakBindingSet<VRService> bindings_;
+  mojo::BindingSet<VRService> bindings_;
 
   // For testing. If true will not delete self when consumer count reaches 0.
   bool keep_alive_;

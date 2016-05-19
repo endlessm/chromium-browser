@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableValue.h"
 
 #include "core/animation/animatable/AnimatableNeutral.h"
@@ -37,7 +36,7 @@
 
 namespace blink {
 
-const AnimatableValue* AnimatableValue::neutralValue()
+PassRefPtr<AnimatableValue> AnimatableValue::neutralValue()
 {
     DEFINE_STATIC_REF(AnimatableNeutral, neutralSentinelValue, (AnimatableNeutral::create()));
     return neutralSentinelValue;

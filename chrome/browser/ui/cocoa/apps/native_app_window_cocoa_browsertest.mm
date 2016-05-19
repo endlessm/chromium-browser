@@ -11,6 +11,7 @@
 #import "base/mac/scoped_cftyperef.h"
 #import "base/mac/scoped_nsobject.h"
 #import "base/mac/sdk_forward_declarations.h"
+#include "base/macros.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
 #include "chrome/browser/apps/app_shim/extension_app_shim_handler_mac.h"
 #include "chrome/browser/apps/app_shim/test/app_shim_host_manager_test_api_mac.h"
@@ -459,6 +460,10 @@ IN_PROC_BROWSER_TEST_P(NativeAppWindowCocoaBrowserTest, MaximizeFullscreen) {
   if (base::mac::IsOSSnowLeopard())
     return;
 
+  // This test is flaky on 10.11. Disable it as per http://crbug.com/560602.
+  if (base::mac::IsOSElCapitan())
+    return;
+
   ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 
   SetUpAppWithWindows(1);
@@ -638,7 +643,7 @@ namespace {
 
 // Convert a color constant to an NSColor that can be compared with |bitmap|.
 NSColor* ColorInBitmapColorSpace(SkColor color, NSBitmapImageRep* bitmap) {
-  return [gfx::SkColorToSRGBNSColor(color)
+  return [skia::SkColorToSRGBNSColor(color)
       colorUsingColorSpace:[bitmap colorSpace]];
 }
 

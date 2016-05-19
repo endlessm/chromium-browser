@@ -19,10 +19,9 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGZoomAndPan.h"
 
-#include "core/svg/SVGParserUtilities.h"
+#include "platform/text/ParserUtilities.h"
 
 namespace blink {
 
@@ -68,4 +67,4 @@ bool SVGZoomAndPan::parseZoomAndPan(const UChar*& start, const UChar* end)
     return parseZoomAndPanInternal(start, end, m_zoomAndPan);
 }
 
-}
+} // namespace blink

@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGHiddenContainer.h"
 
 #include "core/layout/LayoutAnalyzer.h"
@@ -54,4 +53,4 @@ bool LayoutSVGHiddenContainer::nodeAtFloatPoint(HitTestResult&, const FloatPoint
     return false;
 }
 
-}
+} // namespace blink

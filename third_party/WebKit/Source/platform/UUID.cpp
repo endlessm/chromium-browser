@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/UUID.h"
 
 #include "wtf/CryptographicallyRandomNumber.h"
@@ -83,4 +82,4 @@ bool isValidUUID(const String& uuid)
     return true;
 }
 
-}
+} // namespace blink

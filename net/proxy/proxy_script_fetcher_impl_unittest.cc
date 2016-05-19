@@ -5,9 +5,11 @@
 #include "net/proxy/proxy_script_fetcher_impl.h"
 
 #include <string>
+#include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
@@ -88,7 +90,7 @@ class RequestContext : public URLRequestContext {
                                     make_scoped_ptr(new FileProtocolHandler(
                                         base::ThreadTaskRunnerHandle::Get())));
 #endif
-    storage_.set_job_factory(job_factory.Pass());
+    storage_.set_job_factory(std::move(job_factory));
   }
 
   ~RequestContext() override { AssertNoURLRequests(); }

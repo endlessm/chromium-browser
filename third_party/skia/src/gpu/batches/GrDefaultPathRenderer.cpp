@@ -20,6 +20,7 @@
 #include "SkTLazy.h"
 #include "SkTraceEvent.h"
 
+#include "batches/GrRectBatchFactory.h"
 #include "batches/GrVertexBatch.h"
 
 GrDefaultPathRenderer::GrDefaultPathRenderer(bool separateStencilSupport,
@@ -227,30 +228,30 @@ public:
 
     const char* name() const override { return "DefaultPathBatch"; }
 
-    void getInvariantOutputColor(GrInitInvariantOutput* out) const override {
+    void computePipelineOptimizations(GrInitInvariantOutput* color, 
+                                      GrInitInvariantOutput* coverage,
+                                      GrBatchToXPOverrides* overrides) const override {
         // When this is called on a batch, there is only one geometry bundle
-        out->setKnownFourComponents(fGeoData[0].fColor);
-    }
-    void getInvariantOutputCoverage(GrInitInvariantOutput* out) const override {
-        out->setKnownSingleComponent(this->coverage());
+        color->setKnownFourComponents(fGeoData[0].fColor);
+        coverage->setKnownSingleComponent(this->coverage());
     }
 
 private:
-    void initBatchTracker(const GrPipelineOptimizations& opt) override {
+    void initBatchTracker(const GrXPOverridesForBatch& overrides) override {
         // Handle any color overrides
-        if (!opt.readsColor()) {
+        if (!overrides.readsColor()) {
             fGeoData[0].fColor = GrColor_ILLEGAL;
         }
-        opt.getOverrideColorIfSet(&fGeoData[0].fColor);
+        overrides.getOverrideColorIfSet(&fGeoData[0].fColor);
 
         // setup batch properties
-        fBatch.fColorIgnored = !opt.readsColor();
+        fBatch.fColorIgnored = !overrides.readsColor();
         fBatch.fColor = fGeoData[0].fColor;
-        fBatch.fUsesLocalCoords = opt.readsLocalCoords();
-        fBatch.fCoverageIgnored = !opt.readsCoverage();
+        fBatch.fUsesLocalCoords = overrides.readsLocalCoords();
+        fBatch.fCoverageIgnored = !overrides.readsCoverage();
     }
 
-    void onPrepareDraws(Target* target) override {
+    void onPrepareDraws(Target* target) const override {
         SkAutoTUnref<const GrGeometryProcessor> gp;
         {
             using namespace GrDefaultGeoProcFactory;
@@ -278,7 +279,7 @@ private:
         // We will use index buffers if we have multiple paths or one path with multiple contours
         bool isIndexed = instanceCount > 1;
         for (int i = 0; i < instanceCount; i++) {
-            Geometry& args = fGeoData[i];
+            const Geometry& args = fGeoData[i];
 
             int contourCount;
             maxVertices += GrPathUtils::worstCasePointCount(args.fPath, &contourCount,
@@ -288,7 +289,7 @@ private:
         }
 
         if (maxVertices == 0 || maxVertices > ((int)SK_MaxU16 + 1)) {
-            SkDebugf("Cannot render path (%d)\n", maxVertices);
+            //SkDebugf("Cannot render path (%d)\n", maxVertices);
             return;
         }
 
@@ -340,7 +341,7 @@ private:
         int vertexOffset = 0;
         int indexOffset = 0;
         for (int i = 0; i < instanceCount; i++) {
-            Geometry& args = fGeoData[i];
+            const Geometry& args = fGeoData[i];
 
             int vertexCnt = 0;
             int indexCnt = 0;
@@ -430,7 +431,7 @@ private:
                     int* indexCnt,
                     const SkPath& path,
                     SkScalar srcSpaceTol,
-                    bool isIndexed)  {
+                    bool isIndexed) const {
         {
             SkScalar srcSpaceTolSqd = SkScalarMul(srcSpaceTol, srcSpaceTol);
 
@@ -564,7 +565,8 @@ bool GrDefaultPathRenderer::internalDrawPath(GrDrawTarget* target,
     const bool isHairline = stroke->isHairlineStyle();
 
     // Save the current xp on the draw state so we can reset it if needed
-    SkAutoTUnref<const GrXPFactory> backupXPFactory(SkRef(pipelineBuilder->getXPFactory()));
+    const GrXPFactory* xpFactory = pipelineBuilder->getXPFactory();
+    SkAutoTUnref<const GrXPFactory> backupXPFactory(SkSafeRef(xpFactory));
     // face culling doesn't make sense here
     SkASSERT(GrPipelineBuilder::kBoth_DrawFace == pipelineBuilder->getDrawFace());
 
@@ -695,7 +697,10 @@ bool GrDefaultPathRenderer::internalDrawPath(GrDrawTarget* target,
             }
             const SkMatrix& viewM = (reverse && viewMatrix.hasPerspective()) ? SkMatrix::I() :
                                                                                viewMatrix;
-            target->drawNonAARect(*pipelineBuilder, color, viewM, bounds, localMatrix);
+            SkAutoTUnref<GrDrawBatch> batch(
+                    GrRectBatchFactory::CreateNonAAFill(color, viewM, bounds, nullptr,
+                                                        &localMatrix));
+            target->drawBatch(*pipelineBuilder, batch);
         } else {
             if (passCount > 1) {
                 pipelineBuilder->setDisableColorXPFactory();
@@ -724,6 +729,7 @@ bool GrDefaultPathRenderer::onCanDrawPath(const CanDrawPathArgs& args) const {
 }
 
 bool GrDefaultPathRenderer::onDrawPath(const DrawPathArgs& args) {
+    GR_AUDIT_TRAIL_AUTO_FRAME(args.fTarget->getAuditTrail(), "GrDefaultPathRenderer::onDrawPath");
     return this->internalDrawPath(args.fTarget,
                                   args.fPipelineBuilder,
                                   args.fColor,
@@ -734,6 +740,7 @@ bool GrDefaultPathRenderer::onDrawPath(const DrawPathArgs& args) {
 }
 
 void GrDefaultPathRenderer::onStencilPath(const StencilPathArgs& args) {
+    GR_AUDIT_TRAIL_AUTO_FRAME(args.fTarget->getAuditTrail(),"GrDefaultPathRenderer::onStencilPath");
     SkASSERT(SkPath::kInverseEvenOdd_FillType != args.fPath->getFillType());
     SkASSERT(SkPath::kInverseWinding_FillType != args.fPath->getFillType());
     this->internalDrawPath(args.fTarget, args.fPipelineBuilder, GrColor_WHITE, *args.fViewMatrix,

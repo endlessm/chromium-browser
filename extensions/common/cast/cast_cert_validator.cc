@@ -8,6 +8,9 @@
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
 
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
@@ -29,7 +32,7 @@ class CertVerificationContextImpl : public CertVerificationContext {
  public:
   // Takes ownership of the passed-in x509 object
   explicit CertVerificationContextImpl(net::ScopedX509 x509)
-      : x509_(x509.Pass()) {}
+      : x509_(std::move(x509)) {}
 
   VerificationResult VerifySignatureOverData(
       const base::StringPiece& signature,
@@ -148,7 +151,8 @@ VerificationResult VerifyDeviceCert(
   }
 
   if (context)
-    context->reset(new CertVerificationContextImpl(device_cert_x509.Pass()));
+    context->reset(
+        new CertVerificationContextImpl(std::move(device_cert_x509)));
 
   return VerificationResult();
 }

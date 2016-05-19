@@ -6,12 +6,12 @@
 
 #include "base/base64.h"
 #include "base/logging.h"
-#include "base/prefs/pref_member.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_member.h"
+#include "components/prefs/pref_service.h"
 #include "components/sync_driver/pref_names.h"
 
 namespace sync_driver {
@@ -36,7 +36,7 @@ SyncPrefs::~SyncPrefs() { DCHECK(CalledOnValidThread()); }
 // static
 void SyncPrefs::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(prefs::kSyncHasSetupCompleted, false);
+  registry->RegisterBooleanPref(prefs::kSyncFirstSetupComplete, false);
   registry->RegisterBooleanPref(prefs::kSyncSuppressStart, false);
   registry->RegisterInt64Pref(prefs::kSyncLastSyncedTime, 0);
   registry->RegisterInt64Pref(prefs::kSyncLastPollTime, 0);
@@ -79,7 +79,6 @@ void SyncPrefs::RegisterProfilePrefs(
 
   registry->RegisterBooleanPref(prefs::kSyncHasAuthError, false);
   registry->RegisterStringPref(prefs::kSyncSessionsGUID, std::string());
-  registry->RegisterIntegerPref(prefs::kSyncRemainingRollbackTries, 0);
   registry->RegisterBooleanPref(prefs::kSyncPassphrasePrompted, false);
   registry->RegisterIntegerPref(prefs::kSyncMemoryPressureWarningCount, -1);
   registry->RegisterBooleanPref(prefs::kSyncShutdownCleanly, false);
@@ -105,7 +104,7 @@ void SyncPrefs::ClearPreferences() {
   DCHECK(CalledOnValidThread());
   pref_service_->ClearPref(prefs::kSyncLastSyncedTime);
   pref_service_->ClearPref(prefs::kSyncLastPollTime);
-  pref_service_->ClearPref(prefs::kSyncHasSetupCompleted);
+  pref_service_->ClearPref(prefs::kSyncFirstSetupComplete);
   pref_service_->ClearPref(prefs::kSyncEncryptionBootstrapToken);
   pref_service_->ClearPref(prefs::kSyncKeystoreEncryptionBootstrapToken);
   pref_service_->ClearPref(prefs::kSyncPassphrasePrompted);
@@ -121,15 +120,14 @@ void SyncPrefs::ClearPreferences() {
   // e.g. prefs::kSyncBookmarks.  Is that really what we want?
 }
 
-bool SyncPrefs::HasSyncSetupCompleted() const {
+bool SyncPrefs::IsFirstSetupComplete() const {
   DCHECK(CalledOnValidThread());
-  return pref_service_->GetBoolean(prefs::kSyncHasSetupCompleted);
+  return pref_service_->GetBoolean(prefs::kSyncFirstSetupComplete);
 }
 
-void SyncPrefs::SetSyncSetupCompleted() {
+void SyncPrefs::SetFirstSetupComplete() {
   DCHECK(CalledOnValidThread());
-  pref_service_->SetBoolean(prefs::kSyncHasSetupCompleted, true);
-  SetSyncRequested(true);
+  pref_service_->SetBoolean(prefs::kSyncFirstSetupComplete, true);
 }
 
 bool SyncPrefs::SyncHasAuthError() const {
@@ -338,14 +336,6 @@ void SyncPrefs::SetSpareBootstrapToken(const std::string& token) {
 }
 #endif
 
-int SyncPrefs::GetRemainingRollbackTries() const {
-  return pref_service_->GetInteger(prefs::kSyncRemainingRollbackTries);
-}
-
-void SyncPrefs::SetRemainingRollbackTries(int times) {
-  pref_service_->SetInteger(prefs::kSyncRemainingRollbackTries, times);
-}
-
 void SyncPrefs::OnSyncManagedPrefChanged() {
   DCHECK(CalledOnValidThread());
   FOR_EACH_OBSERVER(SyncPrefObserver,
@@ -490,7 +480,7 @@ void SyncPrefs::SetCleanShutdown(bool value) {
 }
 
 void SyncPrefs::GetInvalidationVersions(
-    std::map<syncer::ModelType, int64>* invalidation_versions) const {
+    std::map<syncer::ModelType, int64_t>* invalidation_versions) const {
   const base::DictionaryValue* invalidation_dictionary =
       pref_service_->GetDictionary(prefs::kSyncInvalidationVersions);
   syncer::ModelTypeSet protocol_types = syncer::ProtocolTypes();
@@ -499,7 +489,7 @@ void SyncPrefs::GetInvalidationVersions(
     std::string version_str;
     if (!invalidation_dictionary->GetString(key, &version_str))
       continue;
-    int64 version = 0;
+    int64_t version = 0;
     if (!base::StringToInt64(version_str, &version))
       continue;
     (*invalidation_versions)[iter.Get()] = version;
@@ -507,7 +497,7 @@ void SyncPrefs::GetInvalidationVersions(
 }
 
 void SyncPrefs::UpdateInvalidationVersions(
-    const std::map<syncer::ModelType, int64>& invalidation_versions) {
+    const std::map<syncer::ModelType, int64_t>& invalidation_versions) {
   scoped_ptr<base::DictionaryValue> invalidation_dictionary(
       new base::DictionaryValue());
   for (const auto& map_iter : invalidation_versions) {

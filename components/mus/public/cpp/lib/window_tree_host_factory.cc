@@ -6,38 +6,29 @@
 
 #include "components/mus/public/cpp/window_tree_connection.h"
 #include "components/mus/public/cpp/window_tree_delegate.h"
-#include "mojo/application/public/cpp/application_impl.h"
+#include "mojo/shell/public/cpp/connector.h"
 
 namespace mus {
 
 void CreateWindowTreeHost(mojom::WindowTreeHostFactory* factory,
-                          mojom::WindowTreeHostClientPtr host_client,
                           WindowTreeDelegate* delegate,
                           mojom::WindowTreeHostPtr* host,
-                          mojom::WindowManagerPtr window_manager,
                           WindowManagerDelegate* window_manager_delegate) {
   mojom::WindowTreeClientPtr tree_client;
   WindowTreeConnection::CreateForWindowManager(
       delegate, GetProxy(&tree_client),
       WindowTreeConnection::CreateType::DONT_WAIT_FOR_EMBED,
       window_manager_delegate);
-  factory->CreateWindowTreeHost(GetProxy(host), host_client.Pass(),
-                                tree_client.Pass(), window_manager.Pass());
+  factory->CreateWindowTreeHost(GetProxy(host), std::move(tree_client));
 }
 
-void CreateSingleWindowTreeHost(
-    mojo::ApplicationImpl* app,
-    WindowTreeDelegate* delegate,
-    mojom::WindowTreeHostPtr* host,
-    mojom::WindowManagerPtr window_manager,
-    WindowManagerDelegate* window_manager_delegate) {
+void CreateWindowTreeHost(mojo::Connector* connector,
+                          WindowTreeDelegate* delegate,
+                          mojom::WindowTreeHostPtr* host,
+                          WindowManagerDelegate* window_manager_delegate) {
   mojom::WindowTreeHostFactoryPtr factory;
-  mojo::URLRequestPtr request(mojo::URLRequest::New());
-  request->url = "mojo:mus";
-  app->ConnectToService(request.Pass(), &factory);
-  CreateWindowTreeHost(factory.get(), mojom::WindowTreeHostClientPtr(),
-                       delegate, host, window_manager.Pass(),
-                       window_manager_delegate);
+  connector->ConnectToInterface("mojo:mus", &factory);
+  CreateWindowTreeHost(factory.get(), delegate, host, window_manager_delegate);
 }
 
 }  // namespace mus

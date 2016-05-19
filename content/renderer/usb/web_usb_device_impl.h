@@ -5,12 +5,15 @@
 #ifndef CONTENT_RENDERER_USB_WEB_USB_DEVICE_IMPL_H_
 #define CONTENT_RENDERER_USB_WEB_USB_DEVICE_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "device/devices_app/usb/public/interfaces/device.mojom.h"
-#include "device/devices_app/usb/public/interfaces/device_manager.mojom.h"
-#include "mojo/application/public/interfaces/service_provider.mojom.h"
+#include "device/usb/public/interfaces/device.mojom.h"
+#include "device/usb/public/interfaces/device_manager.mojom.h"
+#include "mojo/shell/public/interfaces/interface_provider.mojom.h"
 #include "third_party/WebKit/public/platform/modules/webusb/WebUSBDevice.h"
 #include "third_party/WebKit/public/platform/modules/webusb/WebUSBDeviceInfo.h"
 #include "third_party/WebKit/public/platform/modules/webusb/WebUSBError.h"
@@ -54,13 +57,21 @@ class WebUSBDeviceImpl : public blink::WebUSBDevice {
       uint8_t* data,
       size_t data_size,
       unsigned int timeout,
-      blink::WebUSBDeviceControlTransferCallbacks* callbacks) override;
+      blink::WebUSBDeviceTransferCallbacks* callbacks) override;
   void transfer(blink::WebUSBDevice::TransferDirection direction,
                 uint8_t endpoint_number,
                 uint8_t* data,
                 size_t data_size,
                 unsigned int timeout,
-                blink::WebUSBDeviceBulkTransferCallbacks* callbacks) override;
+                blink::WebUSBDeviceTransferCallbacks* callbacks) override;
+  void isochronousTransfer(
+      blink::WebUSBDevice::TransferDirection direction,
+      uint8_t endpoint_number,
+      uint8_t* data,
+      size_t data_size,
+      blink::WebVector<uint32_t> packet_lengths,
+      unsigned int timeout,
+      blink::WebUSBDeviceTransferCallbacks* callbacks) override;
   void reset(blink::WebUSBDeviceResetCallbacks* callbacks) override;
 
   device::usb::DevicePtr device_;

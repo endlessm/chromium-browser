@@ -32,7 +32,10 @@
 #include <string>
 #include <vector>
 
+#include <stdint.h>
+
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/interstitials/chrome_metrics_helper.h"
 #include "chrome/browser/interstitials/security_interstitial_page.h"
@@ -65,6 +68,7 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   static SafeBrowsingBlockingPage* CreateBlockingPage(
       SafeBrowsingUIManager* ui_manager,
       content::WebContents* web_contents,
+      const GURL& main_frame_url,
       const UnsafeResource& unsafe_resource);
 
   // Shows a blocking page warning the user about phishing/malware for a
@@ -95,29 +99,47 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   friend class SafeBrowsingBlockingPageTest;
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
                            ProceedThenDontProceed);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
+                           MalwareReportsDisabled);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
+                           MalwareReportsToggling);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
+                           ExtendedReportingNotShownOnSecurePage);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingBlockingPageTest,
+      ExtendedReportingNotShownOnSecurePageWithSecureSubresource);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingBlockingPageTest,
+      ExtendedReportingNotShownOnSecurePageWithInsecureSubresource);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingBlockingPageTest,
+      ExtendedReportingOnInsecurePageWithSecureSubresource);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingBlockingPageTest,
+      ExtendedReportingNotShownOnSecurePageWithPendingInsecureLoad);
 
   void UpdateReportingPref();  // Used for the transition from old to new pref.
 
   // Don't instantiate this class directly, use ShowBlockingPage instead.
   SafeBrowsingBlockingPage(SafeBrowsingUIManager* ui_manager,
                            content::WebContents* web_contents,
+                           const GURL& main_frame_url,
                            const UnsafeResourceList& unsafe_resources);
 
   // SecurityInterstitialPage methods:
   bool ShouldCreateNewNavigation() const override;
   void PopulateInterstitialStrings(
       base::DictionaryValue* load_time_data) override;
+  void AfterShow() override {}
 
   // After a safe browsing interstitial where the user opted-in to the
   // report but clicked "proceed anyway", we delay the call to
   // ThreatDetails::FinishCollection() by this much time (in
   // milliseconds), in order to get data from the blocked resource itself.
-  int64 malware_details_proceed_delay_ms_;
+  int64_t threat_details_proceed_delay_ms_;
 
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
-      MalwareReportsTransitionDisabled);
-  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
-      MalwareReportsToggling);
+                           MalwareReportsTransitionDisabled);
 
   // Checks if we should even show the threat details option. For example, we
   // don't show it in incognito mode.
@@ -127,18 +149,12 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   // pending threat details object, we look at the user's
   // preferences, and if the option to send threat details is
   // enabled, the report is scheduled to be sent on the |ui_manager_|.
-  void FinishThreatDetails(int64 delay_ms, bool did_proceed, int num_visits);
+  void FinishThreatDetails(int64_t delay_ms, bool did_proceed, int num_visits);
 
   // A list of SafeBrowsingUIManager::UnsafeResource for a tab that the user
   // should be warned about.  They are queued when displaying more than one
   // interstitial at a time.
   static UnsafeResourceMap* GetUnsafeResourcesMap();
-
-  // Notifies the SafeBrowsingUIManager on the IO thread whether to proceed
-  // or not for the |resources|.
-  static void NotifySafeBrowsingUIManager(
-      SafeBrowsingUIManager* ui_manager,
-      const UnsafeResourceList& resources, bool proceed);
 
   // Returns true if the passed |unsafe_resources| is blocking the load of
   // the main page.
@@ -155,6 +171,9 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   // client-side detection where the interstitial is shown after page load
   // finishes.
   bool is_main_frame_load_blocked_;
+
+  // The URL of the main frame that caused the warning.
+  GURL main_frame_url_;
 
   // The index of a navigation entry that should be removed when DontProceed()
   // is invoked, -1 if not entry should be removed.
@@ -206,6 +225,7 @@ class SafeBrowsingBlockingPageFactory {
   virtual SafeBrowsingBlockingPage* CreateSafeBrowsingPage(
       SafeBrowsingUIManager* ui_manager,
       content::WebContents* web_contents,
+      const GURL& main_frame_url,
       const SafeBrowsingBlockingPage::UnsafeResourceList& unsafe_resources) = 0;
 };
 

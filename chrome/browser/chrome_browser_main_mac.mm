@@ -24,7 +24,7 @@
 #include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/crash/content/app/crashpad_mac.h"
+#include "components/crash/content/app/crashpad.h"
 #include "components/metrics/metrics_service.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/common/result_codes.h"
@@ -109,7 +109,8 @@ void ChromeBrowserMainPartsMac::PreMainMessageLoopStart() {
   // to enforce the application locale.
   const std::string loaded_locale =
       ui::ResourceBundle::InitSharedInstanceWithLocale(
-          std::string(), NULL, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+          std::string(), &resource_delegate_,
+          ui::ResourceBundle::LOAD_COMMON_RESOURCES);
   CHECK(!loaded_locale.empty()) << "Default locale could not be found";
 
   base::FilePath resources_pack_path;

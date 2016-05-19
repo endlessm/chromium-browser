@@ -5,17 +5,25 @@
 #ifndef CONTENT_PUBLIC_COMMON_CONTENT_DESCRIPTORS_H_
 #define CONTENT_PUBLIC_COMMON_CONTENT_DESCRIPTORS_H_
 
+#include "build/build_config.h"
 #include "ipc/ipc_descriptors.h"
 
 // This is a list of global descriptor keys to be used with the
 // base::GlobalDescriptors object (see base/posix/global_descriptors.h)
 enum {
   kCrashDumpSignal = kIPCDescriptorMax,
-  kSandboxIPCChannel,  // http://code.google.com/p/chromium/LinuxSandboxIPC
+  kSandboxIPCChannel,  // https://chromium.googlesource.com/chromium/src/+/master/docs/linux_sandbox_ipc.md
 
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA)
+#if defined(OS_ANDROID)
+  kV8NativesDataDescriptor32,
+  kV8SnapshotDataDescriptor32,
+  kV8NativesDataDescriptor64,
+  kV8SnapshotDataDescriptor64,
+#else
   kV8NativesDataDescriptor,
   kV8SnapshotDataDescriptor,
+#endif
 #endif
 
 #if defined(OS_ANDROID)

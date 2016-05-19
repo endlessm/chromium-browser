@@ -10,10 +10,6 @@ if (is_nacl) {
     deps = [
       "//ppapi/native_client/src/untrusted/irt_stub:ppapi_stub_lib",
     ]
-    if (!is_nacl_glibc) {
-      # Glibc has its version of pthread library.
-      deps += [ "//native_client/src/untrusted/pthread" ]
-    }
   }
 
   executable("nacl_irt") {
@@ -21,17 +17,16 @@ if (is_nacl) {
       "//base",
       "//components/tracing",
       "//gpu/command_buffer/client",
-      "//gpu/command_buffer/common",
       "//gpu/command_buffer/client:gles2_implementation",
+      "//gpu/command_buffer/common",
       "//gpu/ipc",
       "//ipc",
       "//media:shared_memory_support",
-      "//native_client/src/untrusted/irt:irt_core_lib",
-      "//native_client/src/shared/srpc",
+      "//native_client/src/shared/gio",
       "//native_client/src/shared/platform",
       "//native_client/src/tools/tls_edit($host_toolchain)",
+      "//native_client/src/untrusted/irt:irt_core_lib",
       "//native_client/src/untrusted/nacl:imc_syscalls",
-      "//native_client/src/shared/gio",
       "//ppapi/native_client/src/untrusted/pnacl_irt_shim:irt",
       "//ppapi/proxy",
       "//ppapi/proxy:ipc",
@@ -100,16 +95,24 @@ if (is_nacl) {
 }
 
 group("irt") {
-  public_deps = [
-    ":nacl_irt_debuglink(//build/toolchain/nacl:irt_${target_cpu})",
+  # The nacl_irt needs to be marked as data dependency so that it's
+  # properly resolved as runtime dependency. However, some target
+  # use nacl_irt as input for actions which require it to be marked
+  # as public dependency as well.
+  irt_deps = [
     ":nacl_irt_debug(//build/toolchain/nacl:irt_${target_cpu})",
+    ":nacl_irt_debuglink(//build/toolchain/nacl:irt_${target_cpu})",
   ]
+  public_deps = irt_deps
+  data_deps = irt_deps
 
   # On 32-bit Windows, we also ship the 64-bit IRT.
   if (is_win && target_cpu == "x86") {
-    public_deps += [
-      ":nacl_irt_debuglink(//build/toolchain/nacl:irt_x64)",
+    irt_x64_deps = [
       ":nacl_irt_debug(//build/toolchain/nacl:irt_x64)",
+      ":nacl_irt_debuglink(//build/toolchain/nacl:irt_x64)",
     ]
+    public_deps += irt_x64_deps
+    data_deps += irt_x64_deps
   }
 }

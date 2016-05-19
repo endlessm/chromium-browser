@@ -11,6 +11,9 @@ namespace syncer {
 
 SingleObjectInvalidationSet::SingleObjectInvalidationSet() {}
 
+SingleObjectInvalidationSet::SingleObjectInvalidationSet(
+    const SingleObjectInvalidationSet& other) = default;
+
 SingleObjectInvalidationSet::~SingleObjectInvalidationSet() {}
 
 void SingleObjectInvalidationSet::Insert(const Invalidation& invalidation) {
@@ -91,7 +94,7 @@ scoped_ptr<base::ListValue> SingleObjectInvalidationSet::ToValue() const {
        it != invalidations_.end(); ++it) {
     value->Append(it->ToValue().release());
   }
-  return value.Pass();
+  return value;
 }
 
 bool SingleObjectInvalidationSet::ResetFromValue(

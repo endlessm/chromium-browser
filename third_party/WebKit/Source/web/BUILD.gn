@@ -16,21 +16,19 @@ web_gypi = exec_script("//build/gypi_to_gn.py",
                        "scope",
                        [ "web.gypi" ])
 web_unittest_files = web_gypi.web_unittest_files
-if (!is_mac) {
-  web_unittest_files += [ "tests/ScrollAnimatorTest.cpp" ]
-}
 
 component("web") {
   output_name = "blink_web"
 
   deps = [
+    "//skia",
     "//third_party/WebKit/Source/core",
     "//third_party/WebKit/Source/modules",
     "//third_party/WebKit/Source/platform",
-    "//skia",
-    "//third_party/icu",
-    "//v8",
     "//third_party/angle:translator",
+    "//third_party/icu",
+    "//ui/gfx/geometry",
+    "//v8",
   ]
 
   include_dirs = [ "//third_party/skia/include/utils" ]
@@ -64,7 +62,6 @@ component("web") {
     sources += bindings_unittest_files
     sources += core_unittest_files
     sources += modules_unittest_files
-    sources += platform_unittest_support_files
     sources += platform_web_unittest_files
 
     sources += [ "WebTestingSupport.cpp" ]
@@ -75,6 +72,11 @@ component("web") {
     set_sources_assignment_filter([])
     sources += [ "linux/WebFontRendering.cpp" ]
     set_sources_assignment_filter(sources_assignment_filter)
+  }
+
+  if (remove_webcore_debug_symbols) {
+    configs -= [ "//build/config/compiler:default_symbols" ]
+    configs += [ "//build/config/compiler:no_symbols" ]
   }
 }
 
@@ -99,6 +101,20 @@ source_set("test_support") {
   }
 }
 
+group("webkit_unit_tests_data") {
+  data = [
+    "tests/data/",
+    "../core/paint/test_data/",
+
+    # Required by some image decoder tests.
+    "../platform/image-decoders/testing/",
+    "../../LayoutTests/fast/images/resources/",
+
+    # Required by some font tests.
+    "../platform/testing/data/",
+  ]
+}
+
 # GYP version: WebKit/Source/web/web_tests.gyp:webkit_unit_tests
 test("webkit_unit_tests") {
   visibility = []  # Allow re-assignment of list.
@@ -108,17 +124,23 @@ test("webkit_unit_tests") {
     ":test_support",
     ":web",
     "//base",
-    "//base/test:test_support",
     "//base:i18n",
+    "//base/test:test_support",
     "//content/test:test_support",
     "//testing/gmock",
     "//testing/gtest",
     "//third_party/WebKit/Source/platform:test_support",
+    "//third_party/WebKit/Source/wtf",
     "//third_party/WebKit/Source/wtf:test_support",
     "//third_party/libwebp",
     "//third_party/zlib",
     "//url",
     "//v8",
+  ]
+
+  data_deps = [
+    "//content/shell:pak",
+    ":webkit_unit_tests_data",
   ]
 
   sources = [
@@ -136,13 +158,13 @@ test("webkit_unit_tests") {
     sources += bindings_unittest_files
     sources += core_unittest_files
     sources += modules_unittest_files
-    sources += platform_unittest_support_files
     sources += platform_web_unittest_files
   }
 
   if (is_android) {
-    apk_deps = [
+    deps += [
       "//base:base_java",
+      "//content/public/android:content_java",
       "//content/shell/android:content_shell_assets",
       "//net/android:net_java",
     ]

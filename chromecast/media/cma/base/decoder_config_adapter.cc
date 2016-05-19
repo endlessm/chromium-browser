@@ -30,6 +30,10 @@ AudioCodec ToAudioCodec(const ::media::AudioCodec audio_codec) {
       return kCodecOpus;
     case ::media::kCodecFLAC:
       return kCodecFLAC;
+    case ::media::kCodecEAC3:
+      return kCodecEAC3;
+    case ::media::kCodecAC3:
+      return kCodecAC3;
     default:
       LOG(ERROR) << "Unsupported audio codec " << audio_codec;
   }
@@ -44,6 +48,8 @@ SampleFormat ToSampleFormat(const ::media::SampleFormat sample_format) {
       return kSampleFormatU8;
     case ::media::kSampleFormatS16:
       return kSampleFormatS16;
+    case ::media::kSampleFormatS24:
+      return kSampleFormatS24;
     case ::media::kSampleFormatS32:
       return kSampleFormatS32;
     case ::media::kSampleFormatF32:
@@ -131,6 +137,8 @@ VideoProfile ToVideoProfile(const ::media::VideoCodecProfile codec_profile) {
       return ::media::kSampleFormatU8;
     case kSampleFormatS16:
       return ::media::kSampleFormatS16;
+    case kSampleFormatS24:
+      return ::media::kSampleFormatS24;
     case kSampleFormatS32:
       return ::media::kSampleFormatS32;
     case kSampleFormatF32:
@@ -166,6 +174,10 @@ VideoProfile ToVideoProfile(const ::media::VideoCodecProfile codec_profile) {
       return ::media::kCodecOpus;
     case kCodecFLAC:
       return ::media::kCodecFLAC;
+    case kCodecEAC3:
+      return ::media::kCodecEAC3;
+    case kCodecAC3:
+      return ::media::kCodecAC3;
     default:
       return ::media::kUnknownAudioCodec;
   }

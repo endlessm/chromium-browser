@@ -28,6 +28,7 @@ source_set("heap") {
     "InlinedGlobalMarkingVisitor.h",
     "MarkingVisitor.h",
     "MarkingVisitorImpl.h",
+    "PageMemory.cpp",
     "PageMemory.h",
     "PagePool.cpp",
     "PagePool.h",
@@ -41,6 +42,7 @@ source_set("heap") {
     "ThreadState.h",
     "ThreadingTraits.h",
     "TraceTraits.h",
+    "Visitor.cpp",
     "Visitor.h",
   ]
 
@@ -49,11 +51,14 @@ source_set("heap") {
   configs += [
     "//third_party/WebKit/Source:config",
     "//third_party/WebKit/Source:inside_blink",
+    "//third_party/WebKit/Source:features",
     "//build/config/compiler:no_size_t_to_int_warning",
   ]
 
   deps = [
+    "//base",
     "//third_party/WebKit/Source/platform/heap/asm",
     "//third_party/icu",
+    "//v8",
   ]
 }

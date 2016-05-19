@@ -29,6 +29,7 @@
       },
       'targets': [
         {
+          # GN version: //win8/metro_driver:version_resources
           'target_name': 'metro_driver_version_resources',
           'type': 'none',
           'variables': {
@@ -44,6 +45,7 @@
           ],
         },
         {
+          # GN version: //win8/metro_driver
           'target_name': 'metro_driver',
           'type': 'shared_library',
           'dependencies': [
@@ -63,9 +65,6 @@
           'sources': [
             'display_properties.cc',
             'display_properties.h',
-            'metro_driver.cc',
-            'metro_driver.h',
-            'metro_driver_win7.cc',
             'stdafx.h',
             'winrt_utils.cc',
             'winrt_utils.h',
@@ -73,16 +72,9 @@
           ],
           'conditions': [
             ['use_aura==1', {
-              'dependencies': [
-                '../win8.gyp:metro_viewer_constants',
-              ],
               'sources': [
-                'chrome_app_view_ash.cc',
-                'chrome_app_view_ash.h',
                 'direct3d_helper.cc',
                 'direct3d_helper.h',
-                'file_picker_ash.cc',
-                'file_picker_ash.h',
               ],
               'includes': [
                 'ime/ime.gypi',
@@ -95,8 +87,6 @@
                 'chrome_url_launch_handler.h',
                 'devices_handler.cc',
                 'devices_handler.h',
-                'file_picker.cc',
-                'file_picker.h',
                 'metro_dialog_box.cc',
                 'metro_dialog_box.h',
                 'print_document_source.cc',
@@ -112,19 +102,9 @@
               ],
             }],
           ],
-          'copies': [
-            {
-              'destination': '<(PRODUCT_DIR)',
-              'files': [
-                'resources/Logo.png',
-                'resources/SecondaryTile.png',
-                'resources/SmallLogo.png',
-                'resources/chrome.VisualElementsManifest.xml',
-              ],
-            },
-          ],
         },
         {
+          # GN version: //win8/metro_driver:metro_driver_unittests
           'target_name': 'metro_driver_unittests',
           'type': 'executable',
           'dependencies': [

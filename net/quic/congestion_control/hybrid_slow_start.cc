@@ -13,14 +13,14 @@ namespace net {
 
 // Note(pwestin): the magic clamping numbers come from the original code in
 // tcp_cubic.c.
-const int64 kHybridStartLowWindow = 16;
+const int64_t kHybridStartLowWindow = 16;
 // Number of delay samples for detecting the increase of delay.
-const uint32 kHybridStartMinSamples = 8;
+const uint32_t kHybridStartMinSamples = 8;
 // Exit slow start if the min rtt has increased by more than 1/8th.
 const int kHybridStartDelayFactorExp = 3;  // 2^3 = 8
 // The original paper specifies 2 and 8ms, but those have changed over time.
-const int64 kHybridStartDelayMinThresholdUs = 4000;
-const int64 kHybridStartDelayMaxThresholdUs = 16000;
+const int64_t kHybridStartDelayMinThresholdUs = 4000;
+const int64_t kHybridStartDelayMaxThresholdUs = 16000;
 
 HybridSlowStart::HybridSlowStart()
     : started_(false),
@@ -30,12 +30,11 @@ HybridSlowStart::HybridSlowStart()
       rtt_sample_count_(0),
       current_min_rtt_(QuicTime::Delta::Zero()) {}
 
-void HybridSlowStart::OnPacketAcked(QuicPacketNumber acked_packet_number,
-                                    bool in_slow_start) {
+void HybridSlowStart::OnPacketAcked(QuicPacketNumber acked_packet_number) {
   // OnPacketAcked gets invoked after ShouldExitSlowStart, so it's best to end
   // the round when the final packet of the burst is received and start it on
   // the next incoming ack.
-  if (in_slow_start && IsEndOfRound(acked_packet_number)) {
+  if (IsEndOfRound(acked_packet_number)) {
     started_ = false;
   }
 }
@@ -86,23 +85,23 @@ bool HybridSlowStart::ShouldExitSlowStart(QuicTime::Delta latest_rtt,
   // We only need to check this once per round.
   if (rtt_sample_count_ == kHybridStartMinSamples) {
     // Divide min_rtt by 8 to get a rtt increase threshold for exiting.
-    int64 min_rtt_increase_threshold_us = min_rtt.ToMicroseconds() >>
-        kHybridStartDelayFactorExp;
+    int64_t min_rtt_increase_threshold_us =
+        min_rtt.ToMicroseconds() >> kHybridStartDelayFactorExp;
     // Ensure the rtt threshold is never less than 2ms or more than 16ms.
-    min_rtt_increase_threshold_us = min(min_rtt_increase_threshold_us,
-                                        kHybridStartDelayMaxThresholdUs);
+    min_rtt_increase_threshold_us =
+        min(min_rtt_increase_threshold_us, kHybridStartDelayMaxThresholdUs);
     QuicTime::Delta min_rtt_increase_threshold =
         QuicTime::Delta::FromMicroseconds(max(min_rtt_increase_threshold_us,
                                               kHybridStartDelayMinThresholdUs));
 
     if (current_min_rtt_ > min_rtt.Add(min_rtt_increase_threshold)) {
-      hystart_found_= DELAY;
+      hystart_found_ = DELAY;
     }
   }
   // Exit from slow start if the cwnd is greater than 16 and
   // increasing delay is found.
   return congestion_window >= kHybridStartLowWindow &&
-      hystart_found_ != NOT_FOUND;
+         hystart_found_ != NOT_FOUND;
 }
 
 }  // namespace net

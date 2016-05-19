@@ -5,7 +5,8 @@
 #ifndef NET_BASE_LOAD_TIMING_INFO_H_
 #define NET_BASE_LOAD_TIMING_INFO_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/time/time.h"
 #include "net/base/net_export.h"
 
@@ -92,6 +93,7 @@ struct NET_EXPORT LoadTimingInfo {
   };
 
   LoadTimingInfo();
+  LoadTimingInfo(const LoadTimingInfo& other);
   ~LoadTimingInfo();
 
   // True if the socket was reused.  When true, DNS, connect, and SSL times

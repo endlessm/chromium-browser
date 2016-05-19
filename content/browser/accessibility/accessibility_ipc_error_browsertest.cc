@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/ax_event_notification_details.h"
@@ -128,7 +132,6 @@ IN_PROC_BROWSER_TEST_F(AccessibilityIpcErrorBrowserTest,
 
   const ui::AXNode* button = button_container->ChildAtIndex(0);
   EXPECT_EQ(ui::AX_ROLE_BUTTON, button->data().role);
-  EXPECT_TRUE(button->data().state >> ui::AX_STATE_FOCUSED & 1);
 }
 
 #if defined(OS_ANDROID)

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/signin_specifics.h"
@@ -91,7 +92,7 @@ class LoginDisplay {
     virtual void ResetPublicSessionAutoLoginTimer() = 0;
 
     // Returns true if user is allowed to log in by domain policy.
-    virtual bool IsUserWhitelisted(const std::string& user_id) = 0;
+    virtual bool IsUserWhitelisted(const AccountId& account_id) = 0;
 
    protected:
     virtual ~Delegate();
@@ -139,6 +140,9 @@ class LoginDisplay {
   // Show whitelist check failed error. Happens after user completes online
   // signin but whitelist check fails.
   virtual void ShowWhitelistCheckFailedError() = 0;
+
+  // Show unrecoverable cryptohome error dialog.
+  virtual void ShowUnrecoverableCrypthomeErrorDialog() = 0;
 
   gfx::Rect background_bounds() const { return background_bounds_; }
   void set_background_bounds(const gfx::Rect& background_bounds) {

@@ -4,19 +4,22 @@
 
 #include "chrome/browser/ui/webui/options/content_settings_handler.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <map>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -25,10 +28,15 @@
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
 #include "chrome/browser/notifications/desktop_notification_profile_util.h"
+#include "chrome/browser/permissions/chooser_context_base.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
+#include "chrome/browser/usb/usb_chooser_context.h"
+#include "chrome/browser/usb/usb_chooser_context_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -42,6 +50,7 @@
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/notification_service.h"
@@ -69,6 +78,16 @@ using content_settings::ContentSettingToString;
 using content_settings::ContentSettingFromString;
 using extensions::APIPermission;
 
+namespace options {
+
+// This struct is declared early so that it can used by functions below.
+struct ContentSettingsHandler::ChooserTypeNameEntry {
+  ContentSettingsType type;
+  ChooserContextBase* (*get_context)(Profile*);
+  const char* name;
+  const char* ui_name_key;
+};
+
 namespace {
 
 struct ContentSettingWithExceptions {
@@ -92,6 +111,15 @@ typedef std::map<std::pair<ContentSettingsPattern, std::string>,
                  OnePatternSettings>
     AllPatternsSettings;
 
+// Maps from the UI string to the object it represents (for sorting purposes).
+typedef std::multimap<std::string, const base::DictionaryValue*> SortedObjects;
+// Maps from a secondary URL to the set of objects it has permission to access.
+typedef std::map<GURL, SortedObjects> OneOriginObjects;
+// Maps from a primary URL/source pair to a OneOriginObjects. All the mappings
+// in OneOriginObjects share the given primary URL and source.
+typedef std::map<std::pair<GURL, std::string>, OneOriginObjects>
+    AllOriginObjects;
+
 // The AppFilter is used in AddExceptionsGrantedByHostedApps() to choose
 // extensions which should have their extent displayed.
 typedef bool (*AppFilter)(const extensions::Extension& app,
@@ -109,6 +137,8 @@ const char kAppId[] = "appId";
 const char kEmbeddingOrigin[] = "embeddingOrigin";
 const char kPreferencesSource[] = "preference";
 const char kZoom[] = "zoom";
+const char kObject[] = "object";
+const char kObjectName[] = "objectName";
 
 const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
   {CONTENT_SETTINGS_TYPE_COOKIES, "cookies"},
@@ -132,6 +162,16 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
 #if defined(OS_CHROMEOS)
   {CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER, "protectedContent"},
 #endif
+  {CONTENT_SETTINGS_TYPE_KEYGEN, "keygen"},
+};
+
+ChooserContextBase* GetUsbChooserContext(Profile* profile) {
+  return UsbChooserContextFactory::GetForProfile(profile);
+}
+
+const ContentSettingsHandler::ChooserTypeNameEntry kChooserTypeGroupNames[] = {
+    {CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA, &GetUsbChooserContext,
+     "usb-devices", "name"},
 };
 
 // A pseudo content type. We use it to display data like a content setting even
@@ -196,6 +236,10 @@ const ExceptionsInfoMap& GetExceptionsInfoMap() {
             UserMetricsAction(
                 "Options_DefaultProtectedMediaIdentifierSettingChanged"))));
 #endif
+    exceptions_info_map.insert(std::make_pair(
+        CONTENT_SETTINGS_TYPE_KEYGEN,
+        ContentSettingWithExceptions(
+            true, UserMetricsAction("Options_DefaultKeygenSettingChanged"))));
 
     // Without OTR exceptions.
     exceptions_info_map.insert(std::make_pair(
@@ -245,6 +289,15 @@ ContentSettingsType ContentSettingsTypeFromGroupName(const std::string& name) {
 
   NOTREACHED() << name << " is not a recognized content settings type.";
   return CONTENT_SETTINGS_TYPE_DEFAULT;
+}
+
+const ContentSettingsHandler::ChooserTypeNameEntry* ChooserTypeFromGroupName(
+    const std::string& name) {
+  for (const auto& chooser_type : kChooserTypeGroupNames) {
+    if (chooser_type.name == name)
+      return &chooser_type;
+  }
+  return nullptr;
 }
 
 // Create a DictionaryValue* that will act as a data source for a single row
@@ -312,6 +365,31 @@ scoped_ptr<base::DictionaryValue> GetNotificationExceptionForPage(
   return make_scoped_ptr(exception);
 }
 
+// Create a DictionaryValue* that will act as a data source for a single row
+// in a chooser permission exceptions table.
+scoped_ptr<base::DictionaryValue> GetChooserExceptionForPage(
+    const GURL& requesting_origin,
+    const GURL& embedding_origin,
+    const std::string& provider_name,
+    const std::string& name,
+    const base::DictionaryValue* object) {
+  scoped_ptr<base::DictionaryValue> exception(new base::DictionaryValue());
+
+  std::string setting_string =
+      content_settings::ContentSettingToString(CONTENT_SETTING_DEFAULT);
+  DCHECK(!setting_string.empty());
+
+  exception->SetString(kSetting, setting_string);
+  exception->SetString(kOrigin, requesting_origin.spec());
+  exception->SetString(kEmbeddingOrigin, embedding_origin.spec());
+  exception->SetString(kSource, provider_name);
+  if (object) {
+    exception->SetString(kObjectName, name);
+    exception->Set(kObject, object->CreateDeepCopy());
+  }
+  return exception;
+}
+
 // Returns true whenever the |extension| is hosted and has |permission|.
 // Must have the AppFilter signature.
 template <APIPermission::ID permission>
@@ -370,8 +448,6 @@ void AddExceptionsGrantedByHostedApps(content::BrowserContext* context,
 }
 
 }  // namespace
-
-namespace options {
 
 ContentSettingsHandler::MediaSettingsInfo::MediaSettingsInfo() {
 }
@@ -439,6 +515,7 @@ void ContentSettingsHandler::GetLocalizedValues(
     {"manageHandlers", IDS_HANDLERS_MANAGE},
     {"exceptionPatternHeader", IDS_EXCEPTIONS_PATTERN_HEADER},
     {"exceptionBehaviorHeader", IDS_EXCEPTIONS_ACTION_HEADER},
+    {"exceptionUsbDeviceHeader", IDS_EXCEPTIONS_USB_DEVICE_HEADER},
     {"exceptionZoomHeader", IDS_EXCEPTIONS_ZOOM_HEADER},
     {"embeddedOnHost", IDS_EXCEPTIONS_GEOLOCATION_EMBEDDED_ON_HOST},
     // Cookies filter.
@@ -451,7 +528,7 @@ void ContentSettingsHandler::GetLocalizedValues(
     {"cookiesShowCookies", IDS_COOKIES_SHOW_COOKIES_BUTTON},
     {"flashStorageSettings", IDS_FLASH_STORAGE_SETTINGS},
     {"flashStorageUrl", IDS_FLASH_STORAGE_URL},
-#if defined(ENABLE_GOOGLE_NOW)
+#if BUILDFLAG(ENABLE_GOOGLE_NOW)
     {"googleGeolocationAccessEnable",
      IDS_GEOLOCATION_GOOGLE_ACCESS_ENABLE_CHKBOX},
 #endif
@@ -493,9 +570,11 @@ void ContentSettingsHandler::GetLocalizedValues(
     // Fullscreen filter.
     {"fullscreenTabLabel", IDS_FULLSCREEN_TAB_LABEL},
     {"fullscreenHeader", IDS_FULLSCREEN_HEADER},
+    {"fullscreenDeprecated", IDS_EXCLUSIVE_ACCESS_DEPRECATED},
     // Mouse Lock filter.
     {"mouselockTabLabel", IDS_MOUSE_LOCK_TAB_LABEL},
     {"mouselockHeader", IDS_MOUSE_LOCK_HEADER},
+    {"mouselockDeprecated", IDS_EXCLUSIVE_ACCESS_DEPRECATED},
     {"mouselockAllow", IDS_MOUSE_LOCK_ALLOW_RADIO},
     {"mouselockAsk", IDS_MOUSE_LOCK_ASK_RADIO},
     {"mouselockBlock", IDS_MOUSE_LOCK_BLOCK_RADIO},
@@ -550,8 +629,15 @@ void ContentSettingsHandler::GetLocalizedValues(
     {"pushMessagingAllow", IDS_PUSH_MESSSAGING_ALLOW_RADIO},
     {"pushMessagingAsk", IDS_PUSH_MESSSAGING_ASK_RADIO},
     {"pushMessagingBlock", IDS_PUSH_MESSSAGING_BLOCK_RADIO},
+    {"usbDevicesHeader", IDS_USB_DEVICES_HEADER_AND_TAB_LABEL},
+    {"usbDevicesManage", IDS_USB_DEVICES_MANAGE_BUTTON},
     {"zoomlevelsHeader", IDS_ZOOMLEVELS_HEADER_AND_TAB_LABEL},
     {"zoomLevelsManage", IDS_ZOOMLEVELS_MANAGE_BUTTON},
+    // Keygen filter.
+    {"keygenTabLabel", IDS_KEYGEN_TAB_LABEL},
+    {"keygenHeader", IDS_KEYGEN_HEADER},
+    {"keygenAllow", IDS_KEYGEN_ALLOW_RADIO},
+    {"keygenBlock", IDS_KEYGEN_DONOTALLOW_RADIO},
   };
 
   RegisterStrings(localized_strings, resources, arraysize(resources));
@@ -604,8 +690,11 @@ void ContentSettingsHandler::GetLocalizedValues(
                 IDS_AUTOMATIC_DOWNLOADS_TAB_LABEL);
   RegisterTitle(localized_strings, "midi-sysex",
                 IDS_MIDI_SYSEX_TAB_LABEL);
+  RegisterTitle(localized_strings, "usb-devices",
+                IDS_USB_DEVICES_HEADER_AND_TAB_LABEL);
   RegisterTitle(localized_strings, "zoomlevels",
                 IDS_ZOOMLEVELS_HEADER_AND_TAB_LABEL);
+  RegisterTitle(localized_strings, "keygen", IDS_KEYGEN_TAB_LABEL);
 
   localized_strings->SetString("exceptionsLearnMoreUrl",
                                kExceptionsLearnMoreUrl);
@@ -666,21 +755,6 @@ void ContentSettingsHandler::InitializeHandler() {
               base::Bind(&ContentSettingsHandler::OnZoomLevelChanged,
                          base::Unretained(this)));
 
-  if (!switches::IsEnableWebviewBasedSignin()) {
-    // The legacy signin page uses a different storage partition, so we need to
-    // add a subscription for its HostZoomMap separately.
-    GURL signin_url(chrome::kChromeUIChromeSigninURL);
-    content::StoragePartition* signin_partition =
-        content::BrowserContext::GetStoragePartitionForSite(
-            GetBrowserContext(web_ui()), signin_url);
-    content::HostZoomMap* signin_host_zoom_map =
-        signin_partition->GetHostZoomMap();
-    signin_host_zoom_map_subscription_ =
-        signin_host_zoom_map->AddZoomLevelChangedCallback(
-            base::Bind(&ContentSettingsHandler::OnZoomLevelChanged,
-                       base::Unretained(this)));
-  }
-
   flash_settings_manager_.reset(new PepperFlashSettingsManager(this, context));
 
   Profile* profile = Profile::FromWebUI(web_ui());
@@ -699,7 +773,17 @@ void ContentSettingsHandler::InitializePage() {
 
   UpdateHandlersEnabledRadios();
   UpdateAllExceptionsViewsFromModel();
+  UpdateAllChooserExceptionsViewsFromModel();
   UpdateProtectedContentExceptionsButton();
+
+  // In simplified fullscreen mode, fullscreen and mouselock settings are
+  // ignored. Still, always show these settings (to give users the ability to
+  // view and delete exceptions), but hide the global settings.
+  bool hide_settings =
+      ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled();
+  web_ui()->CallJavascriptFunction("ContentSettings.setExclusiveAccessVisible",
+                                   base::FundamentalValue(hide_settings),
+                                   base::FundamentalValue(!hide_settings));
 }
 
 void ContentSettingsHandler::OnContentSettingChanged(
@@ -712,6 +796,7 @@ void ContentSettingsHandler::OnContentSettingChanged(
   // TODO(estade): we pretend update_all() is always true.
   if (details.update_all_types()) {
     UpdateAllExceptionsViewsFromModel();
+    UpdateAllChooserExceptionsViewsFromModel();
   } else {
     if (ContainsKey(GetExceptionsInfoMap(), details.type()))
       UpdateExceptionsViewFromModel(details.type());
@@ -740,6 +825,7 @@ void ContentSettingsHandler::Observe(
       Profile* profile = content::Source<Profile>(source).ptr();
       if (profile->IsOffTheRecord()) {
         UpdateAllOTRExceptionsViewsFromModel();
+        UpdateAllOTRChooserExceptionsViewsFromModel();
         observer_.Add(HostContentSettingsMapFactory::GetForProfile(profile));
       }
       break;
@@ -753,7 +839,7 @@ void ContentSettingsHandler::Observe(
 }
 
 void ContentSettingsHandler::OnGetPermissionSettingsCompleted(
-    uint32 request_id,
+    uint32_t request_id,
     bool success,
     PP_Flash_BrowserOperations_Permission default_permission,
     const ppapi::FlashSiteSettings& sites) {
@@ -1032,40 +1118,37 @@ void ContentSettingsHandler::UpdateMIDISysExExceptionsView() {
       CONTENT_SETTINGS_TYPE_MIDI_SYSEX);
 }
 
-void ContentSettingsHandler::AdjustZoomLevelsListForSigninPageIfNecessary(
-    content::HostZoomMap::ZoomLevelVector* zoom_levels) {
-  if (switches::IsEnableWebviewBasedSignin())
+void ContentSettingsHandler::UpdateAllChooserExceptionsViewsFromModel() {
+  for (const ChooserTypeNameEntry& chooser_type : kChooserTypeGroupNames)
+    UpdateChooserExceptionsViewFromModel(chooser_type);
+}
+
+void ContentSettingsHandler::UpdateAllOTRChooserExceptionsViewsFromModel() {
+  for (const ChooserTypeNameEntry& chooser_type : kChooserTypeGroupNames)
+    UpdateOTRChooserExceptionsViewFromModel(chooser_type);
+}
+
+void ContentSettingsHandler::UpdateChooserExceptionsViewFromModel(
+    const ChooserTypeNameEntry& chooser_type) {
+  base::ListValue exceptions;
+  GetChooserExceptionsFromProfile(false, chooser_type, &exceptions);
+  base::StringValue type_string(chooser_type.name);
+  web_ui()->CallJavascriptFunction("ContentSettings.setExceptions", type_string,
+                                   exceptions);
+
+  UpdateOTRChooserExceptionsViewFromModel(chooser_type);
+}
+
+void ContentSettingsHandler::UpdateOTRChooserExceptionsViewFromModel(
+    const ChooserTypeNameEntry& chooser_type) {
+  if (!Profile::FromWebUI(web_ui())->HasOffTheRecordProfile())
     return;
 
-  GURL signin_url(chrome::kChromeUIChromeSigninURL);
-  content::HostZoomMap* signin_host_zoom_map =
-      content::BrowserContext::GetStoragePartitionForSite(
-          GetBrowserContext(web_ui()), signin_url)->GetHostZoomMap();
-
-  // Since zoom levels set for scheme + host are not persisted, and since the
-  // signin page zoom levels need to be persisted, they are stored without
-  // a scheme. We use an empty scheme string to indicate this.
-  std::string scheme;
-  std::string host = signin_url.host();
-
-  // If there's a WebView signin zoom level, remove it.
-  content::HostZoomMap::ZoomLevelVector::iterator it =
-      std::find_if(zoom_levels->begin(), zoom_levels->end(),
-                   [&host](content::HostZoomMap::ZoomLevelChange change) {
-                     return change.host == host;
-                   });
-  if (it != zoom_levels->end())
-    zoom_levels->erase(it);
-
-  // If there's a non-WebView signin zoom level, add it.
-  if (signin_host_zoom_map->HasZoomLevel(scheme, host)) {
-    content::HostZoomMap::ZoomLevelChange change = {
-        content::HostZoomMap::ZOOM_CHANGED_FOR_HOST,
-        host,
-        scheme,
-        signin_host_zoom_map->GetZoomLevelForHostAndScheme(scheme, host)};
-    zoom_levels->push_back(change);
-  }
+  base::ListValue exceptions;
+  GetChooserExceptionsFromProfile(true, chooser_type, &exceptions);
+  base::StringValue type_string(chooser_type.name);
+  web_ui()->CallJavascriptFunction("ContentSettings.setOTRExceptions",
+                                   type_string, exceptions);
 }
 
 void ContentSettingsHandler::UpdateZoomLevelsExceptionsView() {
@@ -1076,8 +1159,6 @@ void ContentSettingsHandler::UpdateZoomLevelsExceptionsView() {
           GetBrowserContext(web_ui()));
   content::HostZoomMap::ZoomLevelVector zoom_levels(
       host_zoom_map->GetAllZoomLevels());
-
-  AdjustZoomLevelsListForSigninPageIfNecessary(&zoom_levels);
 
   // Sort ZoomLevelChanges by host and scheme
   // (a.com < http://a.com < https://a.com < b.com).
@@ -1176,8 +1257,9 @@ void ContentSettingsHandler::UpdateExceptionsViewFromOTRHostContentSettingsMap(
                                    type_string, exceptions);
 }
 
-scoped_ptr<base::ListValue> ContentSettingsHandler::GetPolicyAllowedUrls(
-    ContentSettingsType type) {
+void ContentSettingsHandler::GetPolicyAllowedUrls(
+    ContentSettingsType type,
+    std::vector<scoped_ptr<base::DictionaryValue>>* exceptions) {
   DCHECK(type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC ||
          type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
 
@@ -1207,16 +1289,11 @@ scoped_ptr<base::ListValue> ContentSettingsHandler::GetPolicyAllowedUrls(
   std::sort(
       patterns.begin(), patterns.end(), std::greater<ContentSettingsPattern>());
 
-  scoped_ptr<base::ListValue> exceptions(new base::ListValue());
   for (const ContentSettingsPattern& pattern : patterns) {
-    exceptions->Append(GetExceptionForPage(
-        pattern,
-        ContentSettingsPattern(),
-        CONTENT_SETTING_ALLOW,
-        kPolicyProviderId));
+    exceptions->push_back(GetExceptionForPage(pattern, ContentSettingsPattern(),
+                                              CONTENT_SETTING_ALLOW,
+                                              kPolicyProviderId));
   }
-
-  return exceptions.Pass();
 }
 
 void ContentSettingsHandler::GetExceptionsFromHostContentSettingsMap(
@@ -1248,10 +1325,8 @@ void ContentSettingsHandler::GetExceptionsFromHostContentSettingsMap(
 
   // Keep the exceptions sorted by provider so they will be displayed in
   // precedence order.
-  ScopedVector<base::ListValue> all_provider_exceptions;
-  all_provider_exceptions.resize(HostContentSettingsMap::NUM_PROVIDER_TYPES);
-  for (auto& one_provider_exceptions : all_provider_exceptions)
-    one_provider_exceptions = new base::ListValue();
+  std::vector<scoped_ptr<base::DictionaryValue>>
+      all_provider_exceptions[HostContentSettingsMap::NUM_PROVIDER_TYPES];
 
   // |all_patterns_settings| is sorted from the lowest precedence pattern to
   // the highest (see operator< in ContentSettingsPattern), so traverse it in
@@ -1272,19 +1347,16 @@ void ContentSettingsHandler::GetExceptionsFromHostContentSettingsMap(
       parent = one_settings.find(ContentSettingsPattern::Wildcard());
 
     const std::string& source = i->first.second;
-    base::ListValue* this_provider_exceptions =
-        all_provider_exceptions[
-            HostContentSettingsMap::GetProviderTypeFromSource(source)];
+    auto& this_provider_exceptions = all_provider_exceptions
+        [HostContentSettingsMap::GetProviderTypeFromSource(source)];
 
     // Add the "parent" entry for the non-embedded setting.
     ContentSetting parent_setting =
         parent == one_settings.end() ? CONTENT_SETTING_DEFAULT : parent->second;
     const ContentSettingsPattern& secondary_pattern =
         parent == one_settings.end() ? primary_pattern : parent->first;
-    this_provider_exceptions->Append(GetExceptionForPage(primary_pattern,
-                                                         secondary_pattern,
-                                                         parent_setting,
-                                                         source));
+    this_provider_exceptions.push_back(GetExceptionForPage(
+        primary_pattern, secondary_pattern, parent_setting, source));
 
     // Add the "children" for any embedded settings.
     for (OnePatternSettings::const_iterator j = one_settings.begin();
@@ -1294,11 +1366,8 @@ void ContentSettingsHandler::GetExceptionsFromHostContentSettingsMap(
         continue;
 
       ContentSetting content_setting = j->second;
-      this_provider_exceptions->Append(GetExceptionForPage(
-          primary_pattern,
-          j->first,
-          content_setting,
-          source));
+      this_provider_exceptions.push_back(GetExceptionForPage(
+          primary_pattern, j->first, content_setting, source));
     }
   }
 
@@ -1306,29 +1375,106 @@ void ContentSettingsHandler::GetExceptionsFromHostContentSettingsMap(
   // the policy-set allowed URLs, which should be displayed in the same manner.
   if (type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC ||
       type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA) {
-    base::ListValue* policy_exceptions = all_provider_exceptions[
-         HostContentSettingsMap::GetProviderTypeFromSource(kPolicyProviderId)];
-    DCHECK(policy_exceptions->empty());
-    policy_exceptions->Swap(GetPolicyAllowedUrls(type).get());
+    auto& policy_exceptions = all_provider_exceptions
+        [HostContentSettingsMap::GetProviderTypeFromSource(kPolicyProviderId)];
+    DCHECK(policy_exceptions.empty());
+    GetPolicyAllowedUrls(type, &policy_exceptions);
   }
 
-  for (const auto& one_provider_exceptions : all_provider_exceptions) {
-    // Append |one_provider_exceptions| at the end of |exceptions|. ListValue
-    // does not support concatenation, so we must append one item at a time.
-    // Furthermore, ListValue::Remove is O(size) if we remove an item from the
-    // beginning, so we need to remove them in the reverse order.
-    ScopedVector<base::Value> reverse_helper;
-    while (!one_provider_exceptions->empty()) {
-      scoped_ptr<base::Value> exception;
-      one_provider_exceptions->Remove(
-          one_provider_exceptions->GetSize() - 1, &exception);
-      reverse_helper.push_back(exception.Pass());
+  for (auto& one_provider_exceptions : all_provider_exceptions) {
+    for (auto& exception : one_provider_exceptions)
+      exceptions->Append(std::move(exception));
+  }
+}
+
+void ContentSettingsHandler::GetChooserExceptionsFromProfile(
+    bool incognito,
+    const ChooserTypeNameEntry& chooser_type,
+    base::ListValue* exceptions) {
+  Profile* profile = Profile::FromWebUI(web_ui());
+  if (incognito) {
+    if (profile->HasOffTheRecordProfile())
+      profile = profile->GetOffTheRecordProfile();
+    else
+      return;
+  }
+
+  ChooserContextBase* chooser_context = chooser_type.get_context(profile);
+  std::vector<scoped_ptr<ChooserContextBase::Object>> objects =
+      chooser_context->GetAllGrantedObjects();
+  AllOriginObjects all_origin_objects;
+  for (const auto& object : objects) {
+    std::string name;
+    bool found = object->object.GetString(chooser_type.ui_name_key, &name);
+    DCHECK(found);
+    // It is safe for this structure to hold references into |objects| because
+    // they are both destroyed at the end of this function.
+    all_origin_objects[make_pair(object->requesting_origin,
+                                 object->source)][object->embedding_origin]
+        .insert(make_pair(name, &object->object));
+  }
+
+  // Keep the exceptions sorted by provider so they will be displayed in
+  // precedence order.
+  std::vector<scoped_ptr<base::DictionaryValue>>
+      all_provider_exceptions[HostContentSettingsMap::NUM_PROVIDER_TYPES];
+
+  for (const auto& all_origin_objects_entry : all_origin_objects) {
+    const GURL& requesting_origin = all_origin_objects_entry.first.first;
+    const std::string& source = all_origin_objects_entry.first.second;
+    const OneOriginObjects& one_origin_objects =
+        all_origin_objects_entry.second;
+
+    auto& this_provider_exceptions = all_provider_exceptions
+        [HostContentSettingsMap::GetProviderTypeFromSource(source)];
+
+    // Add entries for any non-embedded origins.
+    bool has_embedded_entries = false;
+    for (const auto& one_origin_objects_entry : one_origin_objects) {
+      const GURL& embedding_origin = one_origin_objects_entry.first;
+      const SortedObjects& sorted_objects = one_origin_objects_entry.second;
+
+      // Skip the embedded settings which will be added below.
+      if (requesting_origin != embedding_origin) {
+        has_embedded_entries = true;
+        continue;
+      }
+
+      for (const auto& sorted_objects_entry : sorted_objects) {
+        this_provider_exceptions.push_back(GetChooserExceptionForPage(
+            requesting_origin, embedding_origin, source,
+            sorted_objects_entry.first, sorted_objects_entry.second));
+      }
     }
-    while (!reverse_helper.empty()) {
-      ScopedVector<base::Value>::iterator back = reverse_helper.end() - 1;
-      exceptions->Append(make_scoped_ptr(*back));
-      reverse_helper.weak_erase(back);
+
+    if (has_embedded_entries) {
+      // Add a "parent" entry that simply acts as a heading for all entries
+      // where |requesting_origin| has been embedded.
+      this_provider_exceptions.push_back(
+          GetChooserExceptionForPage(requesting_origin, requesting_origin,
+                                     source, std::string(), nullptr));
+
+      // Add the "children" for any embedded settings.
+      for (const auto& one_origin_objects_entry : one_origin_objects) {
+        const GURL& embedding_origin = one_origin_objects_entry.first;
+        const SortedObjects& sorted_objects = one_origin_objects_entry.second;
+
+        // Skip the non-embedded setting which we already added above.
+        if (requesting_origin == embedding_origin)
+          continue;
+
+        for (const auto& sorted_objects_entry : sorted_objects) {
+          this_provider_exceptions.push_back(GetChooserExceptionForPage(
+              requesting_origin, embedding_origin, source,
+              sorted_objects_entry.first, sorted_objects_entry.second));
+        }
+      }
     }
+  }
+
+  for (auto& one_provider_exceptions : all_provider_exceptions) {
+    for (auto& exception : one_provider_exceptions)
+      exceptions->Append(std::move(exception));
   }
 }
 
@@ -1354,14 +1500,12 @@ void ContentSettingsHandler::RemoveExceptionFromHostContentSettingsMap(
       mode == "normal" ? GetContentSettingsMap() :
                          GetOTRContentSettingsMap();
   if (settings_map) {
-    settings_map->SetWebsiteSetting(
+    settings_map->SetContentSetting(
         ContentSettingsPattern::FromString(pattern),
-        secondary_pattern.empty() ?
-            ContentSettingsPattern::Wildcard() :
-            ContentSettingsPattern::FromString(secondary_pattern),
-        type,
-        std::string(),
-        NULL);
+        secondary_pattern.empty()
+            ? ContentSettingsPattern::Wildcard()
+            : ContentSettingsPattern::FromString(secondary_pattern),
+        type, std::string(), CONTENT_SETTING_DEFAULT);
   }
 }
 
@@ -1381,19 +1525,45 @@ void ContentSettingsHandler::RemoveZoomLevelException(
   }
 
   content::HostZoomMap* host_zoom_map;
-  if (switches::IsEnableWebviewBasedSignin() ||
-      pattern != chrome::kChromeUIChromeSigninHost) {
-    host_zoom_map =
-      content::HostZoomMap::GetDefaultForBrowserContext(
-          GetBrowserContext(web_ui()));
-  } else {
-    host_zoom_map =
-        content::BrowserContext::GetStoragePartitionForSite(
-            GetBrowserContext(web_ui()), GURL(chrome::kChromeUIChromeSigninURL))
-            ->GetHostZoomMap();
-  }
+  host_zoom_map =
+    content::HostZoomMap::GetDefaultForBrowserContext(
+        GetBrowserContext(web_ui()));
   double default_level = host_zoom_map->GetDefaultZoomLevel();
   host_zoom_map->SetZoomLevelForHost(pattern, default_level);
+}
+
+void ContentSettingsHandler::RemoveChooserException(
+    const ChooserTypeNameEntry* chooser_type,
+    const base::ListValue* args) {
+  std::string mode;
+  bool rv = args->GetString(1, &mode);
+  DCHECK(rv);
+
+  std::string requesting_origin_string;
+  rv = args->GetString(2, &requesting_origin_string);
+  DCHECK(rv);
+  GURL requesting_origin(requesting_origin_string);
+  DCHECK(requesting_origin.is_valid());
+
+  std::string embedding_origin_string;
+  rv = args->GetString(3, &embedding_origin_string);
+  DCHECK(rv);
+  GURL embedding_origin(embedding_origin_string);
+  DCHECK(embedding_origin.is_valid());
+
+  const base::DictionaryValue* object = nullptr;
+  rv = args->GetDictionary(4, &object);
+  DCHECK(rv);
+
+  Profile* profile = Profile::FromWebUI(web_ui());
+  if (mode != "normal")
+    profile = profile->GetOffTheRecordProfile();
+
+  ChooserContextBase* chooser_context = chooser_type->get_context(profile);
+  chooser_context->RevokeObjectPermission(requesting_origin, embedding_origin,
+                                          *object);
+  UpdateChooserExceptionsViewFromModel(*chooser_type);
+  // TODO(reillyg): Create metrics for revocations. crbug.com/556845
 }
 
 void ContentSettingsHandler::RegisterMessages() {
@@ -1437,9 +1607,6 @@ void ContentSettingsHandler::SetContentFilter(const base::ListValue* args) {
 
   HostContentSettingsMap* map =
       HostContentSettingsMapFactory::GetForProfile(profile);
-
-  // The MEDIASTREAM setting is deprecated and has no UI.
-  DCHECK_NE(CONTENT_SETTINGS_TYPE_MEDIASTREAM, content_type);
   map->SetDefaultContentSetting(content_type, default_setting);
 
   const ExceptionsInfoMap& exceptions_info_map = GetExceptionsInfoMap();
@@ -1457,6 +1624,13 @@ void ContentSettingsHandler::RemoveException(const base::ListValue* args) {
   // ContentSettingsTypeFromGroupName.
   if (type_string == kZoomContentType) {
     RemoveZoomLevelException(args);
+    return;
+  }
+
+  const ChooserTypeNameEntry* chooser_type =
+      ChooserTypeFromGroupName(type_string);
+  if (chooser_type) {
+    RemoveChooserException(chooser_type, args);
     return;
   }
 
@@ -1478,9 +1652,6 @@ void ContentSettingsHandler::SetException(const base::ListValue* args) {
   CHECK(args->GetString(3, &setting));
 
   ContentSettingsType type = ContentSettingsTypeFromGroupName(type_string);
-
-  // The MEDIASTREAM setting is deprecated and has no UI.
-  DCHECK_NE(CONTENT_SETTINGS_TYPE_MEDIASTREAM, type);
 
   if (type == CONTENT_SETTINGS_TYPE_GEOLOCATION ||
       type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC ||
@@ -1506,6 +1677,7 @@ void ContentSettingsHandler::SetException(const base::ListValue* args) {
                                     type,
                                     std::string(),
                                     setting_type);
+    WebSiteSettingsUmaUtil::LogPermissionChange(type, setting_type);
   }
 }
 

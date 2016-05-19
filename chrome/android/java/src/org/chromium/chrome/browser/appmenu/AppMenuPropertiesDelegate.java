@@ -10,11 +10,11 @@ import android.view.MenuItem;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeBrowserProviderClient;
 import org.chromium.chrome.browser.ShortcutHelper;
 import org.chromium.chrome.browser.UrlConstants;
-import org.chromium.chrome.browser.bookmark.BookmarksBridge;
-import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
+import org.chromium.chrome.browser.bookmarks.BookmarkBridge;
+import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
+import org.chromium.chrome.browser.omaha.UpdateMenuItemHelper;
 import org.chromium.chrome.browser.preferences.ManagedPreferencesUtils;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.share.ShareHelper;
@@ -37,7 +37,7 @@ public class AppMenuPropertiesDelegate {
 
     protected final ChromeActivity mActivity;
 
-    protected BookmarksBridge mBookmarksBridge;
+    protected BookmarkBridge mBookmarkBridge;
 
     public AppMenuPropertiesDelegate(ChromeActivity activity) {
         mActivity = activity;
@@ -98,28 +98,20 @@ public class AppMenuPropertiesDelegate {
                 loadingStateChanged(currentTab.isLoading());
 
                 MenuItem bookmarkMenuItem = menu.findItem(R.id.bookmark_this_page_id);
-                bookmarkMenuItem.setEnabled(mBookmarksBridge.isEditBookmarksEnabled());
-                if (currentTab.getBookmarkId() != ChromeBrowserProviderClient.INVALID_BOOKMARK_ID) {
-                    bookmarkMenuItem.setIcon(R.drawable.btn_star_filled);
-                    bookmarkMenuItem.setChecked(true);
-                    bookmarkMenuItem.setTitleCondensed(mActivity.getString(R.string.edit_bookmark));
-                } else {
-                    bookmarkMenuItem.setIcon(R.drawable.btn_star);
-                    bookmarkMenuItem.setChecked(false);
-                    bookmarkMenuItem.setTitleCondensed(null);
-                }
+                updateBookmarkMenuItem(bookmarkMenuItem, currentTab);
             }
+
+            menu.findItem(R.id.update_menu_id).setVisible(
+                    UpdateMenuItemHelper.getInstance().shouldShowMenuItem(mActivity));
 
             // Hide "Recent tabs" in incognito mode or when sync can't be enabled.
             MenuItem recentTabsMenuItem = menu.findItem(R.id.recent_tabs_menu_id);
             recentTabsMenuItem.setVisible(!isIncognito && FeatureUtilities.canAllowSync(mActivity));
             recentTabsMenuItem.setTitle(R.string.menu_recent_tabs);
 
-            if (OfflinePageBridge.isEnabled()) {
-                MenuItem allBookmarksMenuItem = menu.findItem(R.id.all_bookmarks_menu_id);
-                allBookmarksMenuItem.setTitle(mActivity.getString(
-                        R.string.menu_bookmarks_offline_pages));
-            }
+            MenuItem allBookmarksMenuItem = menu.findItem(R.id.all_bookmarks_menu_id);
+            allBookmarksMenuItem.setTitle(
+                    mActivity.getString(OfflinePageUtils.getStringId(R.string.menu_bookmarks)));
 
             // Don't allow "chrome://" pages to be shared.
             menu.findItem(R.id.share_row_menu_id).setVisible(!isChromeScheme);
@@ -242,9 +234,28 @@ public class AppMenuPropertiesDelegate {
     /**
      * Updates the bookmarks bridge.
      *
-     * @param bookmarksBridge The bookmarks bridge.
+     * @param bookmarkBridge The bookmarks bridge.
      */
-    public void setBookmarksBridge(BookmarksBridge bookmarksBridge) {
-        mBookmarksBridge = bookmarksBridge;
+    public void setBookmarkBridge(BookmarkBridge bookmarkBridge) {
+        mBookmarkBridge = bookmarkBridge;
+    }
+
+    /**
+     * Updates the bookmark item's visibility.
+     *
+     * @param bookmarkMenuItem {@link MenuItem} for adding/editing the bookmark.
+     * @param currentTab        Current tab being displayed.
+     */
+    protected void updateBookmarkMenuItem(MenuItem bookmarkMenuItem, Tab currentTab) {
+        bookmarkMenuItem.setEnabled(mBookmarkBridge.isEditBookmarksEnabled());
+        if (currentTab.getBookmarkId() != Tab.INVALID_BOOKMARK_ID) {
+            bookmarkMenuItem.setIcon(R.drawable.btn_star_filled);
+            bookmarkMenuItem.setChecked(true);
+            bookmarkMenuItem.setTitleCondensed(mActivity.getString(R.string.edit_bookmark));
+        } else {
+            bookmarkMenuItem.setIcon(R.drawable.btn_star);
+            bookmarkMenuItem.setChecked(false);
+            bookmarkMenuItem.setTitleCondensed(null);
+        }
     }
 }

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/permissions/permission_uma_util.h"
 
+#include <utility>
+
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/browser_process.h"
@@ -51,7 +53,7 @@ enum PermissionAction {
 
 // Deprecated. This method is used for the single-dimensional RAPPOR metrics
 // that are being replaced by the multi-dimensional ones.
-const std::string GetRapporMetric(ContentSettingsType permission,
+const std::string GetRapporMetric(PermissionType permission,
                                   PermissionAction action) {
   std::string action_str;
   switch (action) {
@@ -67,15 +69,12 @@ const std::string GetRapporMetric(ContentSettingsType permission,
     case IGNORED:
       action_str = "Ignored";
       break;
+    case REVOKED:
+      action_str = "Revoked";
+      break;
     default:
       NOTREACHED();
       break;
-  }
-
-  // Do not record the deprecated RAPPOR metrics for media permissions.
-  if (permission == CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA ||
-      permission == CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC) {
-    return "";
   }
 
   std::string permission_str =
@@ -86,73 +85,75 @@ const std::string GetRapporMetric(ContentSettingsType permission,
                             permission_str.c_str(), action_str.c_str());
 }
 
-void RecordPermissionAction(ContentSettingsType permission,
+void RecordPermissionAction(PermissionType permission,
                             PermissionAction action,
                             const GURL& requesting_origin) {
   bool secure_origin = content::IsOriginSecure(requesting_origin);
 
   switch (permission) {
-      case CONTENT_SETTINGS_TYPE_GEOLOCATION:
+    case PermissionType::GEOLOCATION:
         PERMISSION_ACTION_UMA(
             secure_origin,
-            "ContentSettings.PermissionActions_Geolocation",
-            "ContentSettings.PermissionActionsSecureOrigin_Geolocation",
-            "ContentSettings.PermissionActionsInsecureOrigin_Geolocation",
+            "Permissions.Action.Geolocation",
+            "Permissions.Action.SecureOrigin.Geolocation",
+            "Permissions.Action.InsecureOrigin.Geolocation",
             action);
         break;
-      case CONTENT_SETTINGS_TYPE_NOTIFICATIONS:
+    case PermissionType::NOTIFICATIONS:
         PERMISSION_ACTION_UMA(
             secure_origin,
-            "ContentSettings.PermissionActions_Notifications",
-            "ContentSettings.PermissionActionsSecureOrigin_Notifications",
-            "ContentSettings.PermissionActionsInsecureOrigin_Notifications",
+            "Permissions.Action.Notifications",
+            "Permissions.Action.SecureOrigin.Notifications",
+            "Permissions.Action.InsecureOrigin.Notifications",
             action);
         break;
-      case CONTENT_SETTINGS_TYPE_MIDI_SYSEX:
+    case PermissionType::MIDI_SYSEX:
         PERMISSION_ACTION_UMA(
             secure_origin,
-            "ContentSettings.PermissionActions_MidiSysEx",
-            "ContentSettings.PermissionActionsSecureOrigin_MidiSysEx",
-            "ContentSettings.PermissionActionsInsecureOrigin_MidiSysEx",
+            "Permissions.Action.MidiSysEx",
+            "Permissions.Action.SecureOrigin.MidiSysEx",
+            "Permissions.Action.InsecureOrigin.MidiSysEx",
             action);
         break;
-      case CONTENT_SETTINGS_TYPE_PUSH_MESSAGING:
+    case PermissionType::PUSH_MESSAGING:
         PERMISSION_ACTION_UMA(
             secure_origin,
-            "ContentSettings.PermissionActions_PushMessaging",
-            "ContentSettings.PermissionActionsSecureOrigin_PushMessaging",
-            "ContentSettings.PermissionActionsInsecureOrigin_PushMessaging",
+            "Permissions.Action.PushMessaging",
+            "Permissions.Action.SecureOrigin.PushMessaging",
+            "Permissions.Action.InsecureOrigin.PushMessaging",
             action);
         break;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-      case CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER:
+    case PermissionType::PROTECTED_MEDIA_IDENTIFIER:
         PERMISSION_ACTION_UMA(
             secure_origin,
-            "ContentSettings.PermissionActions_ProtectedMedia",
-            "ContentSettings.PermissionActionsSecureOrigin_ProtectedMedia",
-            "ContentSettings.PermissionActionsInsecureOrigin_ProtectedMedia",
+            "Permissions.Action.ProtectedMedia",
+            "Permissions.Action.SecureOrigin.ProtectedMedia",
+            "Permissions.Action.InsecureOrigin.ProtectedMedia",
             action);
         break;
-#endif
-      case CONTENT_SETTINGS_TYPE_DURABLE_STORAGE:
+    case PermissionType::DURABLE_STORAGE:
         PERMISSION_ACTION_UMA(
-            secure_origin, "ContentSettings.PermissionActions_DurableStorage",
-            "ContentSettings.PermissionActionsSecureOrigin_DurableStorage",
-            "ContentSettings.PermissionActionsInsecureOrigin_DurableStorage",
+            secure_origin,
+            "Permissions.Action.DurableStorage",
+            "Permissions.Action.SecureOrigin.DurableStorage",
+            "Permissions.Action.InsecureOrigin.DurableStorage",
             action);
         break;
-      case CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
+    case PermissionType::AUDIO_CAPTURE:
         // Media permissions are disabled on insecure origins, so there's no
         // need to record metrics for secure/insecue.
         UMA_HISTOGRAM_ENUMERATION("Permissions.Action.AudioCapture", action,
                                   PERMISSION_ACTION_NUM);
         break;
-      case CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
+    case PermissionType::VIDEO_CAPTURE:
         UMA_HISTOGRAM_ENUMERATION("Permissions.Action.VideoCapture", action,
                                   PERMISSION_ACTION_NUM);
         break;
-      default:
-        NOTREACHED() << "PERMISSION " << permission << " not accounted for";
+    case PermissionType::MIDI:
+    case PermissionType::NUM:
+      NOTREACHED() << "PERMISSION "
+                   << PermissionUtil::GetPermissionString(permission)
+                   << " not accounted for";
   }
 
   // There are two sets of semi-redundant RAPPOR metrics being reported:
@@ -180,89 +181,39 @@ void RecordPermissionAction(ContentSettingsType permission,
   sample->SetFlagsField("Actions",
                         1 << action,
                         PermissionAction::PERMISSION_ACTION_NUM);
-  rappor_service->RecordSampleObj("Permissions.Action." +
-      permission_str, sample.Pass());
+  rappor_service->RecordSampleObj("Permissions.Action." + permission_str,
+                                  std::move(sample));
 }
 
-std::string PermissionTypeToString(PermissionType permission_type) {
-  switch (permission_type) {
-    case PermissionType::MIDI_SYSEX:
-      return "MidiSysex";
-    case PermissionType::PUSH_MESSAGING:
-      return "PushMessaging";
-    case PermissionType::NOTIFICATIONS:
-      return "Notifications";
-    case PermissionType::GEOLOCATION:
-      return "Geolocation";
-    case PermissionType::PROTECTED_MEDIA_IDENTIFIER:
-      return "ProtectedMediaIdentifier";
-    case PermissionType::DURABLE_STORAGE:
-      return "DurableStorage";
-    case PermissionType::MIDI:
-      return "Midi";
-    case PermissionType::AUDIO_CAPTURE:
-      return "AudioRecording";
-    case PermissionType::VIDEO_CAPTURE:
-      return "VideoRecording";
-    case PermissionType::NUM:
-      break;
-  }
-  NOTREACHED();
-  return std::string();
-}
-
-void RecordPermissionRequest(ContentSettingsType permission,
+void RecordPermissionRequest(PermissionType permission,
                              const GURL& requesting_origin,
                              const GURL& embedding_origin,
                              Profile* profile) {
   bool secure_origin = content::IsOriginSecure(requesting_origin);
-  PermissionType type;
-  switch (permission) {
-    case CONTENT_SETTINGS_TYPE_GEOLOCATION:
-      type = PermissionType::GEOLOCATION;
+  if (permission == PermissionType::GEOLOCATION) {
       rappor::SampleDomainAndRegistryFromGURL(
           g_browser_process->rappor_service(),
           "ContentSettings.PermissionRequested.Geolocation.Url",
           requesting_origin);
-      break;
-    case CONTENT_SETTINGS_TYPE_NOTIFICATIONS:
-      type = PermissionType::NOTIFICATIONS;
+  } else if (permission == PermissionType::NOTIFICATIONS) {
       rappor::SampleDomainAndRegistryFromGURL(
           g_browser_process->rappor_service(),
           "ContentSettings.PermissionRequested.Notifications.Url",
           requesting_origin);
-      break;
-    case CONTENT_SETTINGS_TYPE_MIDI_SYSEX:
-      type = PermissionType::MIDI_SYSEX;
-      break;
-    case CONTENT_SETTINGS_TYPE_PUSH_MESSAGING:
-      type = PermissionType::PUSH_MESSAGING;
-      break;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-    case CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER:
-      type = PermissionType::PROTECTED_MEDIA_IDENTIFIER;
-      break;
-#endif
-    case CONTENT_SETTINGS_TYPE_DURABLE_STORAGE:
-      type = content::PermissionType::DURABLE_STORAGE;
-      break;
-    default:
-      NOTREACHED() << "PERMISSION " << permission << " not accounted for";
-      return;
   }
   UMA_HISTOGRAM_ENUMERATION(
       "ContentSettings.PermissionRequested",
-      static_cast<base::HistogramBase::Sample>(type),
+      static_cast<base::HistogramBase::Sample>(permission),
       static_cast<base::HistogramBase::Sample>(PermissionType::NUM));
   if (secure_origin) {
     UMA_HISTOGRAM_ENUMERATION(
         "ContentSettings.PermissionRequested_SecureOrigin",
-        static_cast<base::HistogramBase::Sample>(type),
+        static_cast<base::HistogramBase::Sample>(permission),
         static_cast<base::HistogramBase::Sample>(PermissionType::NUM));
   } else {
     UMA_HISTOGRAM_ENUMERATION(
         "ContentSettings.PermissionRequested_InsecureOrigin",
-        static_cast<base::HistogramBase::Sample>(type),
+        static_cast<base::HistogramBase::Sample>(permission),
         static_cast<base::HistogramBase::Sample>(PermissionType::NUM));
   }
 
@@ -276,17 +227,20 @@ void RecordPermissionRequest(ContentSettingsType permission,
     if (!manager)
       return;
     content::PermissionStatus embedding_permission_status =
-        manager->GetPermissionStatus(type, embedding_origin, embedding_origin);
+        manager->GetPermissionStatus(permission, embedding_origin,
+                                     embedding_origin);
 
     base::HistogramBase* histogram = base::LinearHistogram::FactoryGet(
-        "Permissions.Requested.CrossOrigin_" + PermissionTypeToString(type), 1,
-        content::PERMISSION_STATUS_LAST, content::PERMISSION_STATUS_LAST + 1,
+        "Permissions.Requested.CrossOrigin_" +
+            PermissionUtil::GetPermissionString(permission),
+        1, static_cast<int>(content::PermissionStatus::LAST),
+        static_cast<int>(content::PermissionStatus::LAST) + 1,
         base::HistogramBase::kUmaTargetedHistogramFlag);
-    histogram->Add(embedding_permission_status);
+    histogram->Add(static_cast<int>(embedding_permission_status));
   } else {
     UMA_HISTOGRAM_ENUMERATION(
         "Permissions.Requested.SameOrigin",
-        static_cast<base::HistogramBase::Sample>(type),
+        static_cast<base::HistogramBase::Sample>(permission),
         static_cast<base::HistogramBase::Sample>(PermissionType::NUM));
   }
 }
@@ -295,31 +249,42 @@ void RecordPermissionRequest(ContentSettingsType permission,
 
 // Make sure you update histograms.xml permission histogram_suffix if you
 // add new permission
-void PermissionUmaUtil::PermissionRequested(
-    ContentSettingsType permission,
-    const GURL& requesting_origin,
-    const GURL& embedding_origin,
-    Profile* profile) {
+void PermissionUmaUtil::PermissionRequested(PermissionType permission,
+                                            const GURL& requesting_origin,
+                                            const GURL& embedding_origin,
+                                            Profile* profile) {
   RecordPermissionRequest(permission, requesting_origin, embedding_origin,
                           profile);
 }
 
-void PermissionUmaUtil::PermissionGranted(
-    ContentSettingsType permission, const GURL& requesting_origin) {
+void PermissionUmaUtil::PermissionGranted(PermissionType permission,
+                                          const GURL& requesting_origin) {
   RecordPermissionAction(permission, GRANTED, requesting_origin);
 }
 
-void PermissionUmaUtil::PermissionDenied(
-    ContentSettingsType permission, const GURL& requesting_origin) {
+void PermissionUmaUtil::PermissionDenied(PermissionType permission,
+                                         const GURL& requesting_origin) {
   RecordPermissionAction(permission, DENIED, requesting_origin);
 }
 
-void PermissionUmaUtil::PermissionDismissed(
-    ContentSettingsType permission, const GURL& requesting_origin) {
+void PermissionUmaUtil::PermissionDismissed(PermissionType permission,
+                                            const GURL& requesting_origin) {
   RecordPermissionAction(permission, DISMISSED, requesting_origin);
 }
 
-void PermissionUmaUtil::PermissionIgnored(
-    ContentSettingsType permission, const GURL& requesting_origin) {
+void PermissionUmaUtil::PermissionIgnored(PermissionType permission,
+                                          const GURL& requesting_origin) {
   RecordPermissionAction(permission, IGNORED, requesting_origin);
+}
+
+void PermissionUmaUtil::PermissionRevoked(PermissionType permission,
+                                          const GURL& revoked_origin) {
+  // TODO(tsergeant): Expand metrics definitions for revocation to include all
+  // permissions.
+  if (permission == PermissionType::NOTIFICATIONS ||
+      permission == PermissionType::GEOLOCATION ||
+      permission == PermissionType::AUDIO_CAPTURE ||
+      permission == PermissionType::VIDEO_CAPTURE) {
+    RecordPermissionAction(permission, REVOKED, revoked_origin);
+  }
 }

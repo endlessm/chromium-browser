@@ -341,7 +341,7 @@ RUNTIME_FUNCTION(Runtime_StringMatch) {
 
   RUNTIME_ASSERT(regexp_info->HasFastObjectElements());
 
-  RegExpImpl::GlobalCache global_cache(regexp, subject, true, isolate);
+  RegExpImpl::GlobalCache global_cache(regexp, subject, isolate);
   if (global_cache.HasException()) return isolate->heap()->exception();
 
   int capture_count = regexp->CaptureCount();
@@ -1245,12 +1245,5 @@ RUNTIME_FUNCTION(Runtime_StringCharCodeAt) {
   return __RT_impl_Runtime_StringCharCodeAtRT(args, isolate);
 }
 
-
-RUNTIME_FUNCTION(Runtime_StringGetLength) {
-  HandleScope scope(isolate);
-  DCHECK(args.length() == 1);
-  CONVERT_ARG_HANDLE_CHECKED(String, s, 0);
-  return Smi::FromInt(s->length());
-}
 }  // namespace internal
 }  // namespace v8

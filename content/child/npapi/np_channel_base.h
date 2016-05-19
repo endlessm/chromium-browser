@@ -5,17 +5,19 @@
 #ifndef CONTENT_CHILD_NPAPI_NP_CHANNEL_BASE_H_
 #define CONTENT_CHILD_NPAPI_NP_CHANNEL_BASE_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/process/process.h"
 #include "content/child/npapi/npobject_base.h"
-#include "content/common/message_router.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_sync_channel.h"
+#include "ipc/message_router.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -120,7 +122,7 @@ class NPChannelBase : public IPC::Listener,
 
   // IPC::Listener implementation:
   bool OnMessageReceived(const IPC::Message& msg) override;
-  void OnChannelConnected(int32 peer_pid) override;
+  void OnChannelConnected(int32_t peer_pid) override;
   void OnChannelError() override;
 
   void set_send_unblocking_only_during_unblock_dispatch() {
@@ -168,7 +170,7 @@ class NPChannelBase : public IPC::Listener,
 
   // Used to implement message routing functionality to WebPlugin[Delegate]
   // objects
-  MessageRouter router_;
+  IPC::MessageRouter router_;
 
   // A channel is invalid if it is disconnected as a result of a channel
   // error. This flag is used to indicate the same.

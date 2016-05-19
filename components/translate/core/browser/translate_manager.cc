@@ -8,10 +8,10 @@
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "components/prefs/pref_service.h"
 #include "components/translate/core/browser/language_state.h"
 #include "components/translate/core/browser/page_translated_details.h"
 #include "components/translate/core/browser/translate_accept_languages.h"
@@ -20,6 +20,7 @@
 #include "components/translate/core/browser/translate_download_manager.h"
 #include "components/translate/core/browser/translate_driver.h"
 #include "components/translate/core/browser/translate_error_details.h"
+#include "components/translate/core/browser/translate_experiment.h"
 #include "components/translate/core/browser/translate_language_list.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #include "components/translate/core/browser/translate_script.h"
@@ -143,12 +144,10 @@ void TranslateManager::InitiateTranslation(const std::string& page_lang) {
     return;
   }
 
-  // Get the accepted languages list.
-  std::vector<std::string> accept_languages_list = base::SplitString(
-      prefs->GetString(accept_languages_pref_name_), ",",
-      base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+  scoped_ptr<TranslatePrefs> translate_prefs(
+      translate_client_->GetTranslatePrefs());
 
-  std::string target_lang = GetTargetLanguage(accept_languages_list);
+  std::string target_lang = GetTargetLanguage(translate_prefs.get());
   std::string language_code =
       TranslateDownloadManager::GetLanguageCode(page_lang);
 
@@ -169,9 +168,6 @@ void TranslateManager::InitiateTranslation(const std::string& page_lang) {
         language_code);
     return;
   }
-
-  scoped_ptr<TranslatePrefs> translate_prefs(
-      translate_client_->GetTranslatePrefs());
 
   TranslateAcceptLanguages* accept_languages =
       translate_client_->GetTranslateAcceptLanguages();
@@ -360,21 +356,22 @@ void TranslateManager::OnTranslateScriptFetchComplete(
 }
 
 // static
-std::string TranslateManager::GetTargetLanguage(
-    const std::vector<std::string>& accept_languages_list) {
+std::string TranslateManager::GetTargetLanguage(const TranslatePrefs* prefs) {
   std::string ui_lang = TranslateDownloadManager::GetLanguageCode(
       TranslateDownloadManager::GetInstance()->application_locale());
   translate::ToTranslateLanguageSynonym(&ui_lang);
+
+  TranslateExperiment::OverrideUiLanguage(prefs->GetCountry(), &ui_lang);
 
   if (TranslateDownloadManager::IsSupportedLanguage(ui_lang))
     return ui_lang;
 
   // Will translate to the first supported language on the Accepted Language
-  // list or not at all if no such candidate exists
-  std::vector<std::string>::const_iterator iter;
-  for (iter = accept_languages_list.begin();
-       iter != accept_languages_list.end(); ++iter) {
-    std::string lang_code = TranslateDownloadManager::GetLanguageCode(*iter);
+  // list or not at all if no such candidate exists.
+  std::vector<std::string> accept_languages_list;
+  prefs->GetLanguageList(&accept_languages_list);
+  for (const auto& lang : accept_languages_list) {
+    std::string lang_code = TranslateDownloadManager::GetLanguageCode(lang);
     if (TranslateDownloadManager::IsSupportedLanguage(lang_code))
       return lang_code;
   }

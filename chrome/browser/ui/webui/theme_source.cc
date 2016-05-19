@@ -68,8 +68,9 @@ void ProcessResourceOnUIThread(int resource_id,
 
 ThemeSource::ThemeSource(Profile* profile)
     : profile_(profile->GetOriginalProfile()) {
+  // NB: it's important that this is |profile| and not |profile_|.
   NTPResourceCache::WindowType win_type = NTPResourceCache::GetWindowType(
-      profile_, NULL);
+      profile, NULL);
   css_bytes_ =
       NTPResourceCacheFactory::GetForProfile(profile)->GetNewTabCSS(win_type);
 }
@@ -205,11 +206,11 @@ void ThemeSource::SendThemeBitmap(
       ui::GetSupportedScaleFactor(scale_factor);
   if (BrowserThemePack::IsPersistentImageID(resource_id)) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    ui::ThemeProvider* tp = ThemeServiceFactory::GetForProfile(profile_);
-    DCHECK(tp);
+    const ui::ThemeProvider& tp =
+        ThemeService::GetThemeProviderForProfile(profile_);
 
     scoped_refptr<base::RefCountedMemory> image_data(
-        tp->GetRawData(resource_id, resource_scale_factor));
+        tp.GetRawData(resource_id, resource_scale_factor));
     callback.Run(image_data.get());
   } else {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -239,10 +240,9 @@ void ThemeSource::SendThemeImage(
   scoped_refptr<base::RefCountedBytes> data(new base::RefCountedBytes());
   if (BrowserThemePack::IsPersistentImageID(resource_id)) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    ui::ThemeProvider* tp = ThemeServiceFactory::GetForProfile(profile_);
-    DCHECK(tp);
-
-    ProcessImageOnUIThread(*tp->GetImageSkiaNamed(resource_id), scale_factor,
+    const ui::ThemeProvider& tp =
+        ThemeService::GetThemeProviderForProfile(profile_);
+    ProcessImageOnUIThread(*tp.GetImageSkiaNamed(resource_id), scale_factor,
                            data);
     callback.Run(data.get());
   } else {

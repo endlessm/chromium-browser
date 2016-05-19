@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/blob/BlobRegistry.h"
 
 #include "platform/ThreadSafeFunctional.h"
@@ -68,10 +67,10 @@ typedef HashMap<String, RefPtr<SecurityOrigin>> BlobURLOriginMap;
 static ThreadSpecific<BlobURLOriginMap>& originMap()
 {
     // We want to create the BlobOriginCache exactly once because it is shared by all the threads.
-    AtomicallyInitializedStaticReference(BlobOriginCache, cache, new BlobOriginCache);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(BlobOriginCache, cache, new BlobOriginCache);
     (void)cache; // BlobOriginCache's constructor does the interesting work.
 
-    AtomicallyInitializedStaticReference(ThreadSpecific<BlobURLOriginMap>, map, new ThreadSpecific<BlobURLOriginMap>);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<BlobURLOriginMap>, map, new ThreadSpecific<BlobURLOriginMap>);
     return map;
 }
 
@@ -92,7 +91,7 @@ static void removeFromOriginMap(const KURL& url)
 
 void BlobRegistry::registerBlobData(const String& uuid, PassOwnPtr<BlobData> data)
 {
-    blobRegistry()->registerBlobData(uuid, WebBlobData(data));
+    blobRegistry()->registerBlobData(uuid, WebBlobData(std::move(data)));
 }
 
 void BlobRegistry::addBlobDataRef(const String& uuid)

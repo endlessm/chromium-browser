@@ -5,9 +5,13 @@
 #ifndef EXTENSIONS_BROWSER_API_USB_USB_API_H_
 #define EXTENSIONS_BROWSER_API_USB_USB_API_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "device/usb/usb_device.h"
@@ -241,7 +245,7 @@ class UsbClaimInterfaceFunction : public UsbConnectionFunction {
 
   UsbClaimInterfaceFunction();
 
- protected:
+ private:
   ~UsbClaimInterfaceFunction() override;
 
   // ExtensionFunction:
@@ -263,6 +267,8 @@ class UsbReleaseInterfaceFunction : public UsbConnectionFunction {
 
   // ExtensionFunction:
   ResponseAction Run() override;
+
+  void OnComplete(bool success);
 
   DISALLOW_COPY_AND_ASSIGN(UsbReleaseInterfaceFunction);
 };
@@ -330,7 +336,7 @@ class UsbInterruptTransferFunction : public UsbTransferFunction {
   DISALLOW_COPY_AND_ASSIGN(UsbInterruptTransferFunction);
 };
 
-class UsbIsochronousTransferFunction : public UsbTransferFunction {
+class UsbIsochronousTransferFunction : public UsbConnectionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("usb.isochronousTransfer", USB_ISOCHRONOUSTRANSFER)
 
@@ -341,6 +347,10 @@ class UsbIsochronousTransferFunction : public UsbTransferFunction {
 
   // ExtensionFunction:
   ResponseAction Run() override;
+
+  void OnCompleted(
+      scoped_refptr<net::IOBuffer> data,
+      const std::vector<device::UsbDeviceHandle::IsochronousPacket>& packets);
 
   DISALLOW_COPY_AND_ASSIGN(UsbIsochronousTransferFunction);
 };

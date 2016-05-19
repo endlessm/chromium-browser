@@ -11,21 +11,18 @@
 // -------------------------------------------------------------------
 // Imports
 
-var GlobalObject = global.Object;
 var GlobalSymbol = global.Symbol;
 var hasInstanceSymbol = utils.ImportNow("has_instance_symbol");
 var isConcatSpreadableSymbol =
     utils.ImportNow("is_concat_spreadable_symbol");
 var iteratorSymbol = utils.ImportNow("iterator_symbol");
 var MakeTypeError;
-var ObjectGetOwnPropertyKeys;
 var toPrimitiveSymbol = utils.ImportNow("to_primitive_symbol");
 var toStringTagSymbol = utils.ImportNow("to_string_tag_symbol");
 var unscopablesSymbol = utils.ImportNow("unscopables_symbol");
 
 utils.Import(function(from) {
   MakeTypeError = from.MakeTypeError;
-  ObjectGetOwnPropertyKeys = from.ObjectGetOwnPropertyKeys;
 });
 
 // -------------------------------------------------------------------
@@ -75,24 +72,11 @@ function SymbolKeyFor(symbol) {
   return %SymbolRegistry().keyFor[symbol];
 }
 
-
-// ES6 19.1.2.8
-function ObjectGetOwnPropertySymbols(obj) {
-  obj = TO_OBJECT(obj);
-
-  // TODO(arv): Proxies use a shared trap for String and Symbol keys.
-
-  return ObjectGetOwnPropertyKeys(obj, PROPERTY_ATTRIBUTES_STRING);
-}
-
 // -------------------------------------------------------------------
 
-%FunctionSetPrototype(GlobalSymbol, new GlobalObject());
-
 utils.InstallConstants(GlobalSymbol, [
-  // TODO(rossberg): expose when implemented.
-  // "hasInstance", hasInstanceSymbol,
-  // "isConcatSpreadable", isConcatSpreadableSymbol,
+  "hasInstance", hasInstanceSymbol,
+  "isConcatSpreadable", isConcatSpreadableSymbol,
   "iterator", iteratorSymbol,
   // TODO(yangguo): expose when implemented.
   // "match", matchSymbol,
@@ -112,8 +96,6 @@ utils.InstallFunctions(GlobalSymbol, DONT_ENUM, [
 ]);
 
 %AddNamedProperty(
-    GlobalSymbol.prototype, "constructor", GlobalSymbol, DONT_ENUM);
-%AddNamedProperty(
     GlobalSymbol.prototype, toStringTagSymbol, "Symbol", DONT_ENUM | READ_ONLY);
 
 utils.InstallFunctions(GlobalSymbol.prototype, DONT_ENUM | READ_ONLY, [
@@ -123,10 +105,6 @@ utils.InstallFunctions(GlobalSymbol.prototype, DONT_ENUM | READ_ONLY, [
 utils.InstallFunctions(GlobalSymbol.prototype, DONT_ENUM, [
   "toString", SymbolToString,
   "valueOf", SymbolValueOf
-]);
-
-utils.InstallFunctions(GlobalObject, DONT_ENUM, [
-  "getOwnPropertySymbols", ObjectGetOwnPropertySymbols
 ]);
 
 // -------------------------------------------------------------------

@@ -6,8 +6,10 @@
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/webstore_private/webstore_private_api.h"
 #include "chrome/browser/extensions/bundle_installer.h"
@@ -32,6 +34,7 @@
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/gl/gl_switches.h"
 
 using gpu::GpuFeatureType;
@@ -101,7 +104,7 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         switches::kAppsGalleryURL,
-        "http://www.example.com/files/extensions/api_test");
+        "http://www.example.com/extensions/api_test");
   }
 
   void SetUpInProcessBrowserTestFixture() override {
@@ -110,7 +113,7 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
     // Start up the test server and get us ready for calling the install
     // API functions.
     host_resolver()->AddRule("www.example.com", "127.0.0.1");
-    ASSERT_TRUE(StartSpawnedTestServer());
+    ASSERT_TRUE(StartEmbeddedTestServer());
     extensions::ExtensionInstallUI::set_disable_failure_ui_for_tests();
   }
 
@@ -130,7 +133,7 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
   // Returns a test server URL, but with host 'www.example.com' so it matches
   // the web store app's extent that we set up via command line flags.
   GURL DoGetTestServerURL(const std::string& path) {
-    GURL url = test_server()->GetURL(path);
+    GURL url = embedded_test_server()->GetURL(path);
 
     // Replace the host with 'www.example.com' so it matches the web store
     // app's extent.
@@ -142,7 +145,7 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
 
   virtual GURL GetTestServerURL(const std::string& path) {
     return DoGetTestServerURL(
-        std::string("files/extensions/api_test/webstore_private/") + path);
+        std::string("/extensions/api_test/webstore_private/") + path);
   }
 
   // Navigates to |page| and runs the Extension API test there. Any downloads
@@ -189,8 +192,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateApiTest,
   base::string16 failure_title = base::UTF8ToUTF16("FAIL");
   content::TitleWatcher watcher(GetWebContents(), expected_title);
   watcher.AlsoWaitForTitle(failure_title);
-  GURL url = test_server()->GetURL(
-      "files/extensions/api_test/webstore_private/noframe.html");
+  GURL url = embedded_test_server()->GetURL(
+      "/extensions/api_test/webstore_private/noframe.html");
   ui_test_utils::NavigateToURL(browser(), url);
   base::string16 final_title = watcher.WaitAndGetTitle();
   EXPECT_EQ(expected_title, final_title);
@@ -204,8 +207,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateApiTest,
   base::string16 failure_title = base::UTF8ToUTF16("FAIL");
   content::TitleWatcher watcher(GetWebContents(), expected_title);
   watcher.AlsoWaitForTitle(failure_title);
-  GURL url = test_server()->GetURL(
-      "files/extensions/api_test/webstore_private/noframe2.html");
+  GURL url = embedded_test_server()->GetURL(
+      "/extensions/api_test/webstore_private/noframe2.html");
   ui_test_utils::NavigateToURL(browser(), url);
   base::string16 final_title = watcher.WaitAndGetTitle();
   EXPECT_EQ(expected_title, final_title);

@@ -8,8 +8,8 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
-#include "base/prefs/pref_change_registrar.h"
+#include "base/macros.h"
+#include "components/prefs/pref_change_registrar.h"
 
 class PrefService;
 

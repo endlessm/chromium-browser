@@ -4,10 +4,13 @@
 
 #include "chrome/test/base/chrome_unit_test_suite.h"
 
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
 #include "chrome/browser/update_client/chrome_update_query_params_delegate.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
@@ -22,14 +25,10 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/resource/resource_handle.h"
 #include "ui/base/ui_base_paths.h"
+#include "ui/gl/test/gl_surface_test_support.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/chromeos_paths.h"
-#endif
-
-#if !defined(OS_IOS)
-#include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
-#include "ui/gl/test/gl_surface_test_support.h"
 #endif
 
 #if defined(ENABLE_EXTENSIONS)
@@ -48,23 +47,17 @@ class ChromeUnitTestSuiteInitializer : public testing::EmptyTestEventListener {
   void OnTestStart(const testing::TestInfo& test_info) override {
     content_client_.reset(new ChromeContentClient);
     content::SetContentClient(content_client_.get());
-    // TODO(ios): Bring this back once ChromeContentBrowserClient is building.
-#if !defined(OS_IOS)
     browser_content_client_.reset(new ChromeContentBrowserClient());
     content::SetBrowserClientForTesting(browser_content_client_.get());
     utility_content_client_.reset(new ChromeContentUtilityClient());
     content::SetUtilityClientForTesting(utility_content_client_.get());
-#endif
 
     TestingBrowserProcess::CreateInstance();
   }
 
   void OnTestEnd(const testing::TestInfo& test_info) override {
-    // TODO(ios): Bring this back once ChromeContentBrowserClient is building.
-#if !defined(OS_IOS)
     browser_content_client_.reset();
     utility_content_client_.reset();
-#endif
     content_client_.reset();
     content::SetContentClient(NULL);
 
@@ -74,11 +67,8 @@ class ChromeUnitTestSuiteInitializer : public testing::EmptyTestEventListener {
  private:
   // Client implementations for the content module.
   scoped_ptr<ChromeContentClient> content_client_;
-  // TODO(ios): Bring this back once ChromeContentBrowserClient is building.
-#if !defined(OS_IOS)
   scoped_ptr<ChromeContentBrowserClient> browser_content_client_;
   scoped_ptr<ChromeContentUtilityClient> utility_content_client_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(ChromeUnitTestSuiteInitializer);
 };
@@ -141,7 +131,6 @@ void ChromeUnitTestSuite::InitializeProviders() {
       extensions::ChromeExtensionsClient::GetInstance());
 #endif
 
-#if !defined(OS_IOS)
   content::WebUIControllerFactory::RegisterFactory(
       ChromeWebUIControllerFactory::GetInstance());
 
@@ -149,7 +138,6 @@ void ChromeUnitTestSuite::InitializeProviders() {
 
   update_client::UpdateQueryParams::SetDelegate(
       ChromeUpdateQueryParamsDelegate::GetInstance());
-#endif
 }
 
 void ChromeUnitTestSuite::InitializeResourceBundle() {
@@ -158,7 +146,7 @@ void ChromeUnitTestSuite::InitializeResourceBundle() {
   ui::ResourceBundle::InitSharedInstanceWithLocale(
       "en-US", NULL, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
   base::FilePath resources_pack_path;
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   PathService::Get(base::DIR_MODULE, &resources_pack_path);
   resources_pack_path =
       resources_pack_path.Append(FILE_PATH_LITERAL("resources.pak"));

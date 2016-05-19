@@ -9,16 +9,16 @@
 {
   'target_conditions': [
     ['OS!="win" or >(nacl_untrusted_build)==1', {
-      'sources/': [ ['exclude', '_win(_browsertest|_unittest)?\\.(h|cc)$'],
+      'sources/': [ ['exclude', '_win(_browsertest|_unittest|_test)?\\.(h|cc)$'],
                     ['exclude', '(^|/)win/'],
                     ['exclude', '(^|/)win_[^/]*\\.(h|cc)$'] ],
     }],
     ['OS!="mac" or >(nacl_untrusted_build)==1', {
-      'sources/': [ ['exclude', '_(cocoa|mac|mach)(_unittest)?\\.(h|cc|c|mm?)$'],
+      'sources/': [ ['exclude', '_(cocoa|mac|mach)(_unittest|_test)?\\.(h|cc|c|mm?)$'],
                     ['exclude', '(^|/)(cocoa|mac|mach)/'] ],
     }],
     ['OS!="ios" or >(nacl_untrusted_build)==1', {
-      'sources/': [ ['exclude', '_ios(_unittest)?\\.(h|cc|mm?)$'],
+      'sources/': [ ['exclude', '_ios(_unittest|_test)?\\.(h|cc|mm?)$'],
                     ['exclude', '(^|/)ios/'] ],
     }],
     ['(OS!="mac" and OS!="ios") or >(nacl_untrusted_build)==1', {
@@ -31,25 +31,25 @@
     # files on non-linux.
     ['OS!="linux" and OS!="openbsd" and OS!="freebsd" or >(nacl_untrusted_build)==1', {
       'sources/': [
-        ['exclude', '_linux(_unittest)?\\.(h|cc)$'],
+        ['exclude', '_linux(_unittest|_test)?\\.(h|cc)$'],
         ['exclude', '(^|/)linux/'],
       ],
     }],
     ['OS!="android" or _toolset=="host" or >(nacl_untrusted_build)==1', {
       'sources/': [
-        ['exclude', '_android(_unittest)?\\.(h|cc)$'],
+        ['exclude', '_android(_unittest|_test)?\\.(h|cc)$'],
         ['exclude', '(^|/)android/'],
       ],
     }],
     ['OS=="win" and >(nacl_untrusted_build)==0', {
       'sources/': [
-        ['exclude', '_posix(_unittest)?\\.(h|cc)$'],
+        ['exclude', '_posix(_unittest|_test)?\\.(h|cc)$'],
         ['exclude', '(^|/)posix/'],
       ],
     }],
     ['<(chromeos)!=1 or >(nacl_untrusted_build)==1', {
       'sources/': [
-        ['exclude', '_chromeos(_unittest)?\\.(h|cc)$'],
+        ['exclude', '_chromeos(_unittest|_test)?\\.(h|cc)$'],
         ['exclude', '(^|/)chromeos/'],
       ],
     }],
@@ -77,24 +77,20 @@
     ['<(use_aura)==0 or >(nacl_untrusted_build)==1', {
       'sources/': [ ['exclude', '_aura(_browsertest|_unittest)?\\.(h|cc)$'],
                     ['exclude', '(^|/)aura/'],
+                    ['exclude', '_ash(_browsertest|_unittest)?\\.(h|cc)$'],
+                    ['exclude', '(^|/)ash/'],
       ]
     }],
     ['<(use_aura)==0 or <(use_x11)==0 or >(nacl_untrusted_build)==1', {
       'sources/': [ ['exclude', '_aurax11(_browsertest|_unittest)?\\.(h|cc)$'] ]
     }],
     ['<(use_aura)==0 or OS!="win" or >(nacl_untrusted_build)==1', {
-      'sources/': [ ['exclude', '_aurawin\\.(h|cc)$'] ]
+      'sources/': [ ['exclude', '_aurawin\\.(h|cc)$'],
+                    ['exclude', '_ashwin\\.(h|cc)$']
+      ]
     }],
     ['<(use_aura)==0 or OS!="linux" or >(nacl_untrusted_build)==1', {
       'sources/': [ ['exclude', '_auralinux\\.(h|cc)$'] ]
-    }],
-    ['<(use_ash)==0 or >(nacl_untrusted_build)==1', {
-      'sources/': [ ['exclude', '_ash(_browsertest|_unittest)?\\.(h|cc)$'],
-                    ['exclude', '(^|/)ash/'],
-      ]
-    }],
-    ['<(use_ash)==0 or OS!="win" or >(nacl_untrusted_build)==1', {
-      'sources/': [ ['exclude', '_ashwin\\.(h|cc)$'] ]
     }],
     ['<(use_ozone)==0 or >(nacl_untrusted_build)==1', {
       'sources/': [ ['exclude', '_ozone(_browsertest|_unittest)?\\.(h|cc)$'] ]

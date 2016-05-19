@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/process/launch.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -38,6 +39,8 @@ LaunchOptions::LaunchOptions()
 #endif  // !defined(OS_WIN)
     {
 }
+
+LaunchOptions::LaunchOptions(const LaunchOptions& other) = default;
 
 LaunchOptions::~LaunchOptions() {
 }

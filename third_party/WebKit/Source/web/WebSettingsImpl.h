@@ -31,6 +31,7 @@
 #ifndef WebSettingsImpl_h
 #define WebSettingsImpl_h
 
+#include "platform/heap/Handle.h"
 #include "public/web/WebSettings.h"
 
 namespace blink {
@@ -57,12 +58,12 @@ public:
     void setAllowDisplayOfInsecureContent(bool) override;
     void setAllowFileAccessFromFileURLs(bool) override;
     void setAllowCustomScrollbarInMainFrame(bool) override;
+    void setAllowGeolocationOnInsecureOrigins(bool) override;
     void setAllowRunningOfInsecureContent(bool) override;
     void setAllowScriptsToCloseWindows(bool) override;
     void setAllowUniversalAccessFromFileURLs(bool) override;
     void setAntialiased2dCanvasEnabled(bool) override;
     void setAntialiasedClips2dCanvasEnabled(bool) override;
-    void setAsynchronousSpellCheckingEnabled(bool) override;
     void setAutoplayExperimentMode(const WebString&) override;
     void setAutoZoomFocusedNodeToLegibleScale(bool) override;
     void setCaretBrowsingEnabled(bool) override;
@@ -71,6 +72,7 @@ public:
     void setNavigateOnDragDrop(bool) override;
     void setCursiveFontFamily(const WebString&, UScriptCode = USCRIPT_COMMON) override;
     void setDNSPrefetchingEnabled(bool) override;
+    void setDataSaverEnabled(bool) override;
     void setDOMPasteAllowed(bool) override;
     void setDefaultFixedFontSize(int) override;
     void setDefaultFontSize(int) override;
@@ -101,7 +103,7 @@ public:
     void setImageAnimationPolicy(ImageAnimationPolicy) override;
     void setImagesEnabled(bool) override;
     void setInlineTextBoxAccessibilityEnabled(bool) override;
-    void setInvertViewportScrollOrder(bool) override;
+    void setInertVisualViewport(bool) override;
     void setJavaScriptCanAccessClipboard(bool) override;
     void setJavaScriptCanOpenWindowsAutomatically(bool) override;
     void setJavaScriptEnabled(bool) override;
@@ -113,6 +115,7 @@ public:
     void setMaxTouchPoints(int) override;
     void setMediaControlsOverlayPlayButtonEnabled(bool) override;
     void setMediaPlaybackRequiresUserGesture(bool) override;
+    void setPresentationRequiresUserGesture(bool) override;
     void setMinimumAccelerated2dCanvasSize(int) override;
     void setMinimumFontSize(int) override;
     void setMinimumLogicalFontSize(int) override;
@@ -184,7 +187,6 @@ public:
     void setViewportMetaMergeContentQuirk(bool) override;
     void setViewportMetaNonUserScalableQuirk(bool) override;
     void setViewportMetaZeroValuesQuirk(bool) override;
-    void setWebAudioEnabled(bool) override;
     void setWebGLErrorsToConsoleEnabled(bool) override;
     void setWebSecurityEnabled(bool) override;
     void setWideViewportQuirkEnabled(bool) override;
@@ -207,7 +209,7 @@ public:
 
 private:
     Settings* m_settings;
-    DevToolsEmulator* m_devToolsEmulator;
+    RawPtrWillBeUntracedMember<DevToolsEmulator> m_devToolsEmulator;
     bool m_showFPSCounter;
     bool m_showPaintRects;
     bool m_renderVSyncNotificationEnabled;
@@ -227,7 +229,6 @@ private:
     // the Android SDK prior to and including version 18. Presumably, this
     // can be removed any time after 2015. See http://crbug.com/313754.
     bool m_clobberUserAgentInitialScaleQuirk;
-    bool m_mainFrameResizesAreOrientationChanges;
 };
 
 } // namespace blink

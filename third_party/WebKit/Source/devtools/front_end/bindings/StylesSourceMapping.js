@@ -44,10 +44,13 @@ WebInspector.StylesSourceMapping = function(cssModel, workspace, networkMapping)
     this._workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeRemoved, this._uiSourceCodeRemoved, this);
     this._networkMapping = networkMapping;
 
-    cssModel.target().resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.MainFrameNavigated, this._mainFrameNavigated, this);
+    cssModel.target().resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.MainFrameNavigated, this._unbindAllUISourceCodes, this);
 
     this._cssModel.addEventListener(WebInspector.CSSStyleModel.Events.StyleSheetChanged, this._styleSheetChanged, this);
-    this._initialize();
+    /** @type {!Map<string, !Map<string, !Map<string, !WebInspector.CSSStyleSheetHeader>>>} */
+    this._urlToHeadersByFrameId = new Map();
+    /** @type {!Map.<!WebInspector.UISourceCode, !WebInspector.StyleFile>} */
+    this._styleFiles = new Map();
 }
 
 WebInspector.StylesSourceMapping.ChangeUpdateTimeoutMs = 200;
@@ -60,7 +63,7 @@ WebInspector.StylesSourceMapping.prototype = {
      */
     rawLocationToUILocation: function(rawLocation)
     {
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(rawLocation.url, rawLocation.target());
+        var uiSourceCode = this._networkMapping.uiSourceCodeForStyleURL(rawLocation.url, rawLocation.header());
         if (!uiSourceCode)
             return null;
         var lineNumber = rawLocation.lineNumber;
@@ -123,10 +126,10 @@ WebInspector.StylesSourceMapping.prototype = {
             return;
 
         WebInspector.cssWorkspaceBinding.pushSourceMapping(header, this);
-        var map = this._urlToHeadersByFrameId[url];
+        var map = this._urlToHeadersByFrameId.get(url);
         if (!map) {
             map = /** @type {!Map.<string, !Map.<string, !WebInspector.CSSStyleSheetHeader>>} */ (new Map());
-            this._urlToHeadersByFrameId[url] = map;
+            this._urlToHeadersByFrameId.set(url, map);
         }
         var headersById = map.get(header.frameId);
         if (!headersById) {
@@ -134,7 +137,7 @@ WebInspector.StylesSourceMapping.prototype = {
             map.set(header.frameId, headersById);
         }
         headersById.set(header.id, header);
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(url, header.target());
+        var uiSourceCode = this._networkMapping.uiSourceCodeForStyleURL(url, header);
         if (uiSourceCode)
             this._bindUISourceCode(uiSourceCode, header);
     },
@@ -148,17 +151,17 @@ WebInspector.StylesSourceMapping.prototype = {
         if (!url)
             return;
 
-        var map = this._urlToHeadersByFrameId[url];
+        var map = this._urlToHeadersByFrameId.get(url);
         console.assert(map);
         var headersById = map.get(header.frameId);
         console.assert(headersById);
-        headersById.remove(header.id);
+        headersById.delete(header.id);
 
         if (!headersById.size) {
-            map.remove(header.frameId);
+            map.delete(header.frameId);
             if (!map.size) {
-                delete this._urlToHeadersByFrameId[url];
-                var uiSourceCode = this._networkMapping.uiSourceCodeForURL(url, header.target());
+                this._urlToHeadersByFrameId.delete(url);
+                var uiSourceCode = this._networkMapping.uiSourceCodeForStyleURL(url, header);
                 if (uiSourceCode)
                     this._unbindUISourceCode(uiSourceCode);
             }
@@ -174,7 +177,15 @@ WebInspector.StylesSourceMapping.prototype = {
         if (!styleFile)
             return;
         styleFile.dispose();
-        this._styleFiles.remove(uiSourceCode);
+        this._styleFiles.delete(uiSourceCode);
+    },
+
+    _unbindAllUISourceCodes: function()
+    {
+        for (var styleFile of this._styleFiles.keys())
+            styleFile.dispose();
+        this._styleFiles.clear();
+        this._urlToHeadersByFrameId = new Map();
     },
 
     /**
@@ -184,9 +195,9 @@ WebInspector.StylesSourceMapping.prototype = {
     {
         var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
         var networkURL = this._networkMapping.networkURL(uiSourceCode);
-        if (!networkURL || !this._urlToHeadersByFrameId[networkURL])
+        if (!networkURL || !this._urlToHeadersByFrameId.has(networkURL))
             return;
-        this._bindUISourceCode(uiSourceCode, this._urlToHeadersByFrameId[networkURL].valuesArray()[0].valuesArray()[0]);
+        this._bindUISourceCode(uiSourceCode, this._urlToHeadersByFrameId.get(networkURL).valuesArray()[0].valuesArray()[0]);
     },
 
     /**
@@ -223,24 +234,6 @@ WebInspector.StylesSourceMapping.prototype = {
 
     _initialize: function()
     {
-        /** @type {!Object.<string, !Map.<string, !Map.<string, !WebInspector.CSSStyleSheetHeader>>>} */
-        this._urlToHeadersByFrameId = {};
-        /** @type {!Map.<!WebInspector.UISourceCode, !WebInspector.StyleFile>} */
-        this._styleFiles = new Map();
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _mainFrameNavigated: function(event)
-    {
-        for (var url in this._urlToHeadersByFrameId) {
-            var uiSourceCode = this._networkMapping.uiSourceCodeForURL(url, this._cssModel.target());
-            if (!uiSourceCode)
-                continue;
-            this._unbindUISourceCode(uiSourceCode);
-        }
-        this._initialize();
     },
 
     /**
@@ -314,10 +307,10 @@ WebInspector.StylesSourceMapping.prototype = {
         var styleSheetURL = header.resourceURL();
         if (!styleSheetURL)
             return;
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(styleSheetURL, header.target());
+        var uiSourceCode = this._networkMapping.uiSourceCodeForStyleURL(styleSheetURL, header);
         if (!uiSourceCode)
             return;
-        header.requestContent(callback.bind(this, uiSourceCode));
+        header.requestContent().then(callback.bind(this, uiSourceCode));
 
         /**
          * @param {!WebInspector.UISourceCode} uiSourceCode

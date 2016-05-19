@@ -5,6 +5,7 @@
 #include "chromeos/network/host_resolver_impl_chromeos.h"
 
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/sys_info.h"
 #include "base/thread_task_runner_handle.h"
@@ -16,7 +17,6 @@
 #include "chromeos/network/network_state_handler_observer.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
@@ -25,7 +25,7 @@ namespace chromeos {
 //
 // An instance of this class is created on the NetworkHandler (UI) thread and
 // manages its own lifetime, destroying itself when NetworkStateHandlerObserver
-// ::IsShuttingDown() gets called.
+// ::OnShuttingDown() gets called.
 
 class HostResolverImplChromeOS::NetworkObserver
     : public chromeos::NetworkStateHandlerObserver {
@@ -95,7 +95,7 @@ class HostResolverImplChromeOS::NetworkObserver
     CallResolverSetIpAddress(ipv4_address, ipv6_address);
   }
 
-  void IsShuttingDown() override { delete this; }
+  void OnShuttingDown() override { delete this; }
 
   void CallResolverSetIpAddress(const std::string& ipv4_address,
                                 const std::string& ipv6_address) {

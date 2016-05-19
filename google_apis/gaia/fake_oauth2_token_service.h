@@ -5,6 +5,7 @@
 #ifndef GOOGLE_APIS_GAIA_FAKE_OAUTH2_TOKEN_SERVICE_H_
 #define GOOGLE_APIS_GAIA_FAKE_OAUTH2_TOKEN_SERVICE_H_
 
+#include "base/macros.h"
 #include "google_apis/gaia/fake_oauth2_token_service_delegate.h"
 #include "google_apis/gaia/oauth2_token_service.h"
 
@@ -49,6 +50,7 @@ class FakeOAuth2TokenService : public OAuth2TokenService {
  private:
   struct PendingRequest {
     PendingRequest();
+    PendingRequest(const PendingRequest& other);
     ~PendingRequest();
 
     std::string account_id;

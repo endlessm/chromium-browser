@@ -17,7 +17,7 @@ WebInspector.BlockedURLsPane = function()
     this._blockedURLsSetting = WebInspector.moduleSetting("blockedURLs");
     this._blockedURLsSetting.addChangeListener(this._update, this);
 
-    this._toolbar = new WebInspector.Toolbar(this.contentElement);
+    this._toolbar = new WebInspector.Toolbar("", this.contentElement);
     this._toolbar.element.addEventListener("click", consumeEvent);
     var addButton = new WebInspector.ToolbarButton(WebInspector.UIString("Add pattern"), "add-toolbar-item");
     addButton.addEventListener("click", this._addButtonClicked.bind(this));
@@ -61,7 +61,7 @@ WebInspector.BlockedURLsPane.prototype = {
         this._emptyElement.classList.add("hidden");
         var element = this._createElement("", this._blockedURLsSetting.get().length);
         this._listElement.appendChild(element);
-        element.scrollIntoView();
+        element.scrollIntoViewIfNeeded();
         this._edit("", element, this._addBlockedURL.bind(this));
     },
 

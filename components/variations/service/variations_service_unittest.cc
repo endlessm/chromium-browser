@@ -4,19 +4,22 @@
 
 #include "components/variations/service/variations_service.h"
 
+#include <stddef.h>
+#include <utility>
 #include <vector>
 
 #include "base/base64.h"
 #include "base/feature_list.h"
 #include "base/json/json_string_value_serializer.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/test/histogram_tester.h"
 #include "base/version.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/variations/pref_names.h"
 #include "components/variations/proto/study.pb.h"
 #include "components/variations/proto/variations_seed.pb.h"
@@ -77,7 +80,7 @@ class TestVariationsService : public VariationsService {
       scoped_ptr<web_resource::TestRequestAllowedNotifier> test_notifier,
       PrefService* local_state)
       : VariationsService(make_scoped_ptr(new TestVariationsServiceClient()),
-                          test_notifier.Pass(),
+                          std::move(test_notifier),
                           local_state,
                           NULL,
                           UIStringOverrider()),
@@ -273,6 +276,7 @@ TEST_F(VariationsServiceTest, CreateTrialsFromSeed) {
   TestVariationsService service(
       make_scoped_ptr(new web_resource::TestRequestAllowedNotifier(&prefs)),
       &prefs);
+  service.SetCreateTrialsFromSeedCalledForTesting(false);
 
   // Store a seed.
   service.StoreSeed(SerializeSeed(CreateTestSeed()), std::string(),
@@ -303,6 +307,7 @@ TEST_F(VariationsServiceTest, CreateTrialsFromSeedNoLastFetchTime) {
   TestVariationsService service(
       make_scoped_ptr(new web_resource::TestRequestAllowedNotifier(&prefs)),
       &prefs);
+  service.SetCreateTrialsFromSeedCalledForTesting(false);
 
   // Store a seed. To simulate a first run, |prefs::kVariationsLastFetchTime|
   // is left empty.
@@ -333,6 +338,7 @@ TEST_F(VariationsServiceTest, CreateTrialsFromOutdatedSeed) {
   TestVariationsService service(
       make_scoped_ptr(new web_resource::TestRequestAllowedNotifier(&prefs)),
       &prefs);
+  service.SetCreateTrialsFromSeedCalledForTesting(false);
 
   // Store a seed, with a fetch time 31 days in the past.
   const base::Time seed_date =
@@ -357,7 +363,7 @@ TEST_F(VariationsServiceTest, GetVariationsServerURL) {
       make_scoped_ptr(new TestVariationsServiceClient());
   TestVariationsServiceClient* raw_client = client.get();
   VariationsService service(
-      client.Pass(),
+      std::move(client),
       make_scoped_ptr(new web_resource::TestRequestAllowedNotifier(&prefs)),
       &prefs, NULL, UIStringOverrider());
   GURL url = service.GetVariationsServerURL(&prefs, std::string());
@@ -411,7 +417,7 @@ TEST_F(VariationsServiceTest, RequestsInitiallyNotAllowed) {
   scoped_ptr<web_resource::TestRequestAllowedNotifier> test_notifier =
       make_scoped_ptr(new web_resource::TestRequestAllowedNotifier(&prefs));
   web_resource::TestRequestAllowedNotifier* raw_notifier = test_notifier.get();
-  TestVariationsService test_service(test_notifier.Pass(), &prefs);
+  TestVariationsService test_service(std::move(test_notifier), &prefs);
 
   // Force the notifier to initially disallow requests.
   raw_notifier->SetRequestsAllowedOverride(false);
@@ -431,7 +437,7 @@ TEST_F(VariationsServiceTest, RequestsInitiallyAllowed) {
   scoped_ptr<web_resource::TestRequestAllowedNotifier> test_notifier =
       make_scoped_ptr(new web_resource::TestRequestAllowedNotifier(&prefs));
   web_resource::TestRequestAllowedNotifier* raw_notifier = test_notifier.get();
-  TestVariationsService test_service(test_notifier.Pass(), &prefs);
+  TestVariationsService test_service(std::move(test_notifier), &prefs);
 
   raw_notifier->SetRequestsAllowedOverride(true);
   test_service.StartRepeatedVariationsSeedFetch();

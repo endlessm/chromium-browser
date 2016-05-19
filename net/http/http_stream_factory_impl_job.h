@@ -5,6 +5,7 @@
 #ifndef NET_HTTP_HTTP_STREAM_FACTORY_IMPL_JOB_H_
 #define NET_HTTP_HTTP_STREAM_FACTORY_IMPL_JOB_H_
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -16,6 +17,7 @@
 #include "net/http/http_request_info.h"
 #include "net/http/http_stream_factory_impl.h"
 #include "net/log/net_log.h"
+#include "net/net_features.h"
 #include "net/proxy/proxy_service.h"
 #include "net/quic/quic_stream_factory.h"
 #include "net/socket/client_socket_handle.h"
@@ -26,6 +28,7 @@
 
 namespace net {
 
+class BidirectionalStreamJob;
 class ClientSocketHandle;
 class HttpAuthController;
 class HttpNetworkSession;
@@ -44,6 +47,8 @@ class HttpStreamFactoryImpl::Job {
       RequestPriority priority,
       const SSLConfig& server_ssl_config,
       const SSLConfig& proxy_ssl_config,
+      HostPortPair server,
+      GURL origin_url,
       NetLog* net_log);
   // Constructor for alternative Job.
   Job(HttpStreamFactoryImpl* stream_factory,
@@ -52,6 +57,8 @@ class HttpStreamFactoryImpl::Job {
       RequestPriority priority,
       const SSLConfig& server_ssl_config,
       const SSLConfig& proxy_ssl_config,
+      HostPortPair server,
+      GURL origin_url,
       AlternativeService alternative_service,
       NetLog* net_log);
   ~Job();
@@ -86,6 +93,7 @@ class HttpStreamFactoryImpl::Job {
   NextProto protocol_negotiated() const;
   bool using_spdy() const;
   const BoundNetLog& net_log() const { return net_log_; }
+  bool for_bidirectional() const { return for_bidirectional_; }
 
   const SSLConfig& server_ssl_config() const;
   const SSLConfig& proxy_ssl_config() const;
@@ -105,6 +113,8 @@ class HttpStreamFactoryImpl::Job {
   void MarkOtherJobComplete(const Job& job);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(HttpStreamFactoryImplRequestTest, DelayMainJob);
+
   enum State {
     STATE_START,
     STATE_RESOLVE_PROXY,
@@ -125,6 +135,8 @@ class HttpStreamFactoryImpl::Job {
     // The npn-spdy job will Resume() the http job if, in
     // STATE_INIT_CONNECTION_COMPLETE, it detects an error or does not find an
     // existing SpdySession. In that case, the http and npn-spdy jobs will race.
+    // When QUIC protocol is used by the npn-spdy job, then http job will wait
+    // for |wait_time_| when the http job was resumed.
     STATE_WAIT_FOR_JOB,
     STATE_WAIT_FOR_JOB_COMPLETE,
 
@@ -193,7 +205,11 @@ class HttpStreamFactoryImpl::Job {
     const bool is_spdy_alternative_;
   };
 
+  // Resume the |this| job after the specified |wait_time_|.
+  void ResumeAfterDelay();
+
   void OnStreamReadyCallback();
+  void OnBidirectionalStreamJobReadyCallback();
   void OnWebSocketHandshakeStreamReadyCallback();
   // This callback function is called when a new SPDY session is created.
   void OnNewSpdySessionReadyCallback();
@@ -228,9 +244,12 @@ class HttpStreamFactoryImpl::Job {
   int DoRestartTunnelAuth();
   int DoRestartTunnelAuthComplete(int result);
 
-  // Creates a SpdyHttpStream from the given values and sets to |stream_|. Does
+  // Creates a SpdyHttpStream or a BidirectionalStreamJob from the given values
+  // and sets to |stream_| or |bidirectional_stream_job_| respectively. Does
   // nothing if |stream_factory_| is for WebSockets.
-  int SetSpdyHttpStream(base::WeakPtr<SpdySession> session, bool direct);
+  int SetSpdyHttpStreamOrBidirectionalStreamJob(
+      base::WeakPtr<SpdySession> session,
+      bool direct);
 
   // Returns to STATE_INIT_CONNECTION and resets some state.
   void ReturnToStateInitConnection(bool close_connection);
@@ -340,6 +359,8 @@ class HttpStreamFactoryImpl::Job {
   // proceed and then race the two Jobs.
   Job* waiting_job_;
 
+  base::TimeDelta wait_time_;
+
   // True if handling a HTTPS request, or using SPDY with SSL
   bool using_ssl_;
 
@@ -368,6 +389,9 @@ class HttpStreamFactoryImpl::Job {
 
   scoped_ptr<HttpStream> stream_;
   scoped_ptr<WebSocketHandshakeStreamBase> websocket_stream_;
+#if BUILDFLAG(ENABLE_BIDIRECTIONAL_STREAM)
+  scoped_ptr<BidirectionalStreamJob> bidirectional_stream_job_;
+#endif
 
   // True if we negotiated NPN.
   bool was_npn_negotiated_;
@@ -392,6 +416,10 @@ class HttpStreamFactoryImpl::Job {
 
   JobStatus job_status_;
   JobStatus other_job_status_;
+  base::TimeTicks job_stream_ready_start_time_;
+
+  // True if BidirectionalStreamJob is requested.
+  bool for_bidirectional_;
 
   base::WeakPtrFactory<Job> ptr_factory_;
 

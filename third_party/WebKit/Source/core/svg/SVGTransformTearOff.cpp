@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/SVGTransformTearOff.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -127,4 +126,4 @@ void SVGTransformTearOff::setSkewY(float y, ExceptionState& exceptionState)
     commitChange();
 }
 
-}
+} // namespace blink

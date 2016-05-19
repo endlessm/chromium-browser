@@ -23,8 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/loader/TextTrackLoader.h"
 
 #include "core/dom/Document.h"
@@ -58,11 +56,11 @@ void TextTrackLoader::cueLoadTimerFired(Timer<TextTrackLoader>* timer)
 
     if (m_newCuesAvailable) {
         m_newCuesAvailable = false;
-        m_client.newCuesAvailable(this);
+        m_client->newCuesAvailable(this);
     }
 
     if (m_state >= Finished)
-        m_client.cueLoadingCompleted(this, m_state == Failed);
+        m_client->cueLoadingCompleted(this, m_state == Failed);
 }
 
 void TextTrackLoader::cancelLoad()
@@ -70,7 +68,7 @@ void TextTrackLoader::cancelLoad()
     clearResource();
 }
 
-void TextTrackLoader::dataReceived(Resource* resource, const char* data, unsigned length)
+void TextTrackLoader::dataReceived(Resource* resource, const char* data, size_t length)
 {
     ASSERT(this->resource() == resource);
 
@@ -105,14 +103,14 @@ void TextTrackLoader::notifyFinished(Resource* resource)
     cancelLoad();
 }
 
-bool TextTrackLoader::load(const KURL& url, const AtomicString& crossOriginMode)
+bool TextTrackLoader::load(const KURL& url, CrossOriginAttributeValue crossOrigin)
 {
     cancelLoad();
 
     FetchRequest cueRequest(ResourceRequest(document().completeURL(url)), FetchInitiatorTypeNames::texttrack);
 
-    if (!crossOriginMode.isNull()) {
-        cueRequest.setCrossOriginAccessControl(document().securityOrigin(), crossOriginMode);
+    if (crossOrigin != CrossOriginAttributeNotSet) {
+        cueRequest.setCrossOriginAccessControl(document().securityOrigin(), crossOrigin);
     } else if (!document().securityOrigin()->canRequestNoSuborigin(url)) {
         // Text track elements without 'crossorigin' set on the parent are "No CORS"; report error if not same-origin.
         corsPolicyPreventedLoad(document().securityOrigin(), url);
@@ -135,7 +133,7 @@ void TextTrackLoader::newCuesParsed()
 
 void TextTrackLoader::newRegionsParsed()
 {
-    m_client.newRegionsAvailable(this);
+    m_client->newRegionsAvailable(this);
 }
 
 void TextTrackLoader::fileFailedToParse()
@@ -166,8 +164,10 @@ void TextTrackLoader::getNewRegions(HeapVector<Member<VTTRegion>>& outputRegions
 
 DEFINE_TRACE(TextTrackLoader)
 {
+    visitor->trace(m_client);
     visitor->trace(m_cueParser);
     visitor->trace(m_document);
+    ResourceOwner<RawResource>::trace(visitor);
 }
 
-}
+} // namespace blink

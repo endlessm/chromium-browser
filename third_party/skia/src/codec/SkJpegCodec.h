@@ -10,13 +10,11 @@
 
 #include "SkCodec.h"
 #include "SkImageInfo.h"
-#include "SkJpegDecoderMgr.h"
-#include "SkJpegUtility_codec.h"
+#include "SkSwizzler.h"
 #include "SkStream.h"
+#include "SkTemplates.h"
 
-extern "C" {
-    #include "jpeglib.h"
-}
+class JpegDecoderMgr;
 
 /*
  *
@@ -25,12 +23,7 @@ extern "C" {
  */
 class SkJpegCodec : public SkCodec {
 public:
-
-    /*
-     * Checks the start of the stream to see if the image is a jpeg
-     * Does not take ownership of the stream
-     */
-    static bool IsJpeg(SkStream*);
+    static bool IsJpeg(const void*, size_t);
 
     /*
      * Assumes IsJpeg was called and returned true
@@ -51,6 +44,10 @@ protected:
      */
     Result onGetPixels(const SkImageInfo& dstInfo, void* dst, size_t dstRowBytes, const Options&,
             SkPMColor*, int*, int*) override;
+
+    bool onQueryYUV8(YUVSizeInfo* sizeInfo, SkYUVColorSpace* colorSpace) const override;
+
+    Result onGetYUV8Planes(const YUVSizeInfo& sizeInfo, void* pixels[3]) override;
 
     SkEncodedFormat onGetEncodedFormat() const override {
         return kJPEG_SkEncodedFormat;
@@ -116,8 +113,12 @@ private:
     const int                     fReadyState;
 
     // scanline decoding
-    SkAutoMalloc               fStorage;    // Only used if sampling is needed
+    SkAutoTMalloc<uint8_t>     fStorage;    // Only used if sampling is needed
     uint8_t*                   fSrcRow;     // Only used if sampling is needed
+    // libjpeg-turbo provides some subsetting.  In the case that libjpeg-turbo
+    // cannot take the exact the subset that we need, we will use the swizzler
+    // to further subset the output from libjpeg-turbo.
+    SkIRect                    fSwizzlerSubset;
     SkAutoTDelete<SkSwizzler>  fSwizzler;
     
     typedef SkCodec INHERITED;

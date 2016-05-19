@@ -7,6 +7,8 @@
 
   <link rel="import" href="/dashboard/elements/select-menu.html">
   <link rel="import" href="/dashboard/elements/alerts-table.html">
+  <link rel="import" href="/dashboard/elements/nav-bar.html">
+  <link rel="import" href="/dashboard/elements/load-analytics.html">
   <link rel="import" href="/dashboard/elements/overlay-message.html">
   <link rel="import" href="/dashboard/elements/quick-log.html">
   <link rel="import" href="/dashboard/static/alerts.html">
@@ -68,7 +70,7 @@
   </style>
 </head>
 <body>
-  {% include 'nav.html' %}
+  <nav-bar></nav-bar>
   <h1>Chrome Performance Alerts</h1>
   <overlay-message id="message-bar"></overlay-message>
   <div id="content">
@@ -79,6 +81,7 @@
       <paper-button raised noink id="triaged-toggle"
                     class="alert-togglebutton">Show triaged</paper-button>
     </div>
+    {% if error %}<div class="error">{{error}}</div>{% endif %}
     {% if have_anomalies %}
       <h2>Performance alerts</h2>
       <p id='num-alerts'></p>
@@ -98,13 +101,13 @@
       <alerts-table id="stoppage-alert-table" xsrfToken="{{xsrf_token | safe}}">
       </alerts-table>
     {% endif %}
-    {% if not have_anomalies and not have_stoppage_alerts %}
+    {% if not have_anomalies and not have_stoppage_alerts and not error %}
       <h2 class="center">All alerts triaged!</h2>
       <img class="center" src="http://thecatapi.com/api/images/get?api_key=MjUzMDQ&category=space&size=small">
     {% endif %}
     <quick-log id="auto-triage-log" xsrfToken="{{xsrf_token | safe}}"
                style="width:100%; display:block;"></quick-log>
   </div>
-  {% include 'analytics.html' %}
+  <load-analytics></load-analytics>
 </body>
 </html>

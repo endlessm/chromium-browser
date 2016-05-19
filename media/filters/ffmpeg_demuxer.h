@@ -22,11 +22,15 @@
 #ifndef MEDIA_FILTERS_FFMPEG_DEMUXER_H_
 #define MEDIA_FILTERS_FFMPEG_DEMUXER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/threading/thread.h"
@@ -34,7 +38,7 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/decoder_buffer_queue.h"
 #include "media/base/demuxer.h"
-#include "media/base/pipeline.h"
+#include "media/base/pipeline_status.h"
 #include "media/base/text_track_config.h"
 #include "media/base/video_decoder_config.h"
 #include "media/ffmpeg/ffmpeg_deleters.h"
@@ -61,8 +65,10 @@ class FFmpegDemuxerStream : public DemuxerStream {
   //
   // FFmpegDemuxerStream keeps a copy of |demuxer| and initializes itself using
   // information inside |stream|. Both parameters must outlive |this|.
-  static scoped_ptr<FFmpegDemuxerStream> Create(FFmpegDemuxer* demuxer,
-                                                AVStream* stream);
+  static scoped_ptr<FFmpegDemuxerStream> Create(
+      FFmpegDemuxer* demuxer,
+      AVStream* stream,
+      const scoped_refptr<MediaLog>& media_log);
 
   ~FFmpegDemuxerStream() override;
 
@@ -144,7 +150,7 @@ class FFmpegDemuxerStream : public DemuxerStream {
 
   // Converts an FFmpeg stream timestamp into a base::TimeDelta.
   static base::TimeDelta ConvertStreamTimestamp(const AVRational& time_base,
-                                                int64 timestamp);
+                                                int64_t timestamp);
 
   // Resets any currently active bitstream converter.
   void ResetBitstreamConverter();
@@ -233,9 +239,8 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   // go over capacity depending on how the file is muxed.
   bool StreamsHaveAvailableCapacity();
 
-  // Updates |stream_memory_usage_| to the memory usage in bytes of all
-  // FFmpegDemuxerStreams.  Returns the current memory usage.
-  int64_t UpdateMemoryUsage();
+  // Returns true if the maximum allowed memory usage has been reached.
+  bool IsMaxMemoryUsageReached() const;
 
   // Signal all FFmpegDemuxerStreams that the stream has ended.
   void StreamHasEnded();
@@ -323,10 +328,6 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   scoped_ptr<FFmpegGlue> glue_;
 
   const EncryptedMediaInitDataCB encrypted_media_init_data_cb_;
-
-  // Last stream size as calculated by UpdateMemoryUsage().
-  mutable base::Lock stream_memory_usage_lock_;
-  int64_t stream_memory_usage_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<FFmpegDemuxer> weak_factory_;

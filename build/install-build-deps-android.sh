@@ -6,18 +6,13 @@
 
 # Script to install everything needed to build chromium on android, including
 # items requiring sudo privileges.
-# See http://code.google.com/p/chromium/wiki/AndroidBuildInstructions
+# See https://www.chromium.org/developers/how-tos/android-build-instructions
 
 # This script installs the sun-java6 packages (bin, jre and jdk). Sun requires
 # a license agreement, so upon installation it will prompt the user. To get
 # past the curses-based dialog press TAB <ret> TAB <ret> to agree.
 
 args="$@"
-
-# TODO(dgn) remove this this argument from calls (http://crbug.com/541727)
-if test "$1" = "--skip-sdk-packages"; then
-  args="${@:2}"
-fi
 
 if ! uname -m | egrep -q "i686|x86_64"; then
   echo "Only x86 architectures are currently supported" >&2

@@ -80,6 +80,7 @@ LOCAL_SRC_FILES := \
 	framework/delibs/debase/deMemory.c \
 	framework/delibs/debase/deRandom.c \
 	framework/delibs/debase/deString.c \
+	framework/delibs/debase/deSha1.c \
 	framework/delibs/decpp/deArrayBuffer.cpp \
 	framework/delibs/decpp/deArrayUtil.cpp \
 	framework/delibs/decpp/deBlockBuffer.cpp \
@@ -106,6 +107,7 @@ LOCAL_SRC_FILES := \
 	framework/delibs/decpp/deThreadLocal.cpp \
 	framework/delibs/decpp/deThreadSafeRingBuffer.cpp \
 	framework/delibs/decpp/deUniquePtr.cpp \
+	framework/delibs/decpp/deSha1.cpp \
 	framework/delibs/deimage/deImage.c \
 	framework/delibs/deimage/deTarga.c \
 	framework/delibs/depool/deMemPool.c \
@@ -170,6 +172,7 @@ LOCAL_SRC_FILES := \
 	framework/opengl/gluProgramInterfaceQuery.cpp \
 	framework/opengl/gluRenderConfig.cpp \
 	framework/opengl/gluRenderContext.cpp \
+	framework/opengl/gluShaderLibrary.cpp \
 	framework/opengl/gluShaderProgram.cpp \
 	framework/opengl/gluShaderUtil.cpp \
 	framework/opengl/gluStateReset.cpp \
@@ -246,6 +249,7 @@ LOCAL_SRC_FILES := \
 	framework/referencerenderer/rrVertexPacket.cpp \
 	modules/egl/teglAndroidUtil.cpp \
 	modules/egl/teglApiCase.cpp \
+	modules/egl/teglBufferAgeTests.cpp \
 	modules/egl/teglChooseConfigReference.cpp \
 	modules/egl/teglChooseConfigTests.cpp \
 	modules/egl/teglClientExtensionTests.cpp \
@@ -271,7 +275,9 @@ LOCAL_SRC_FILES := \
 	modules/egl/teglNativeColorMappingTests.cpp \
 	modules/egl/teglNativeCoordMappingTests.cpp \
 	modules/egl/teglNegativeApiTests.cpp \
+	modules/egl/teglNegativePartialUpdateTests.cpp \
 	modules/egl/teglPreservingSwapTests.cpp \
+	modules/egl/teglPartialUpdateTests.cpp \
 	modules/egl/teglQueryConfigTests.cpp \
 	modules/egl/teglQueryContextTests.cpp \
 	modules/egl/teglQuerySurfaceTests.cpp \
@@ -281,6 +287,7 @@ LOCAL_SRC_FILES := \
 	modules/egl/teglSimpleConfigCase.cpp \
 	modules/egl/teglSurfacelessContextTests.cpp \
 	modules/egl/teglSwapBuffersTests.cpp \
+	modules/egl/teglSwapBuffersWithDamageTests.cpp \
 	modules/egl/teglSyncTests.cpp \
 	modules/egl/teglTestCase.cpp \
 	modules/egl/teglTestPackage.cpp \
@@ -654,6 +661,7 @@ LOCAL_SRC_FILES := \
 	modules/glshared/glsUniformBlockCase.cpp \
 	modules/glshared/glsVertexArrayTests.cpp \
 	modules/internal/ditBuildInfoTests.cpp \
+	modules/internal/ditSRGB8ConversionTest.cpp \
 	modules/internal/ditDelibsTests.cpp \
 	modules/internal/ditFrameworkTests.cpp \
 	modules/internal/ditImageCompareTests.cpp \
@@ -662,7 +670,8 @@ LOCAL_SRC_FILES := \
 	modules/internal/ditTestLogTests.cpp \
 	modules/internal/ditTestPackage.cpp \
 	modules/internal/ditSeedBuilderTests.cpp \
-	modules/internal/ditTestPackageEntry.cpp
+	modules/internal/ditTestPackageEntry.cpp \
+	modules/internal/ditTextureFormatTests.cpp
 
 LOCAL_C_INCLUDES := \
 	frameworks/native/opengl/include \
@@ -713,7 +722,9 @@ deqp_compile_flags := \
 	-DDEQP_TARGET_NAME=\"android\" \
 	-DDEQP_GLES3_RUNTIME_LOAD=1 \
 	-DDEQP_GLES2_RUNTIME_LOAD=1 \
-	-DQP_SUPPORT_PNG=1
+	-DQP_SUPPORT_PNG=1 \
+	-Wconversion \
+	-Wno-sign-conversion
 
 LOCAL_SHARED_LIBRARIES := \
 		libEGL \
@@ -735,11 +746,10 @@ LOCAL_NDK_STL_VARIANT := gnustl_static
 LOCAL_RTTI_FLAG := -frtti -fexceptions
 LOCAL_MULTILIB := both
 
-# b/18934246, failed to link libtestercore for clang mips.
-ifeq ($(TARGET_ARCH),mips)
-  LOCAL_CLANG := false
-endif
-
 include $(BUILD_SHARED_LIBRARY)
 
-include $(LOCAL_PATH)/android/package/Android.mk
+
+# Build the test APKs using their own makefiles
+# include $(call all-makefiles-under,$(LOCAL_PATH)/android)
+
+include $(LOCAL_PATH)/android/package/Android.mk $(LOCAL_PATH)/android/cts/Android.mk

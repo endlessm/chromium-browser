@@ -4,13 +4,14 @@
 
 #include "chrome/browser/extensions/test_extension_prefs.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/json_pref_store.h"
-#include "base/prefs/pref_value_store.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/waitable_event.h"
@@ -22,6 +23,8 @@
 #include "chrome/common/chrome_constants.h"
 #include "components/crx_file/id_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/json_pref_store.h"
+#include "components/prefs/pref_value_store.h"
 #include "components/syncable_prefs/pref_service_mock_factory.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/browser/browser_thread.h"
@@ -119,7 +122,7 @@ void TestExtensionPrefs::RecreateExtensionPrefs() {
   factory.SetUserPrefsFile(preferences_file_, task_runner_.get());
   factory.set_extension_prefs(
       new ExtensionPrefStore(extension_pref_value_map_.get(), false));
-  pref_service_ = factory.CreateSyncable(pref_registry_.get()).Pass();
+  pref_service_ = factory.CreateSyncable(pref_registry_.get());
   scoped_ptr<ExtensionPrefs> prefs(ExtensionPrefs::Create(
       &profile_,
       pref_service_.get(),
@@ -131,7 +134,7 @@ void TestExtensionPrefs::RecreateExtensionPrefs() {
       // stamp and we can reliably assert the installation order in the tests.
       scoped_ptr<ExtensionPrefs::TimeProvider>(new IncrementalTimeProvider())));
   ExtensionPrefsFactory::GetInstance()->SetInstanceForTesting(&profile_,
-                                                              prefs.Pass());
+                                                              std::move(prefs));
   // Hack: After recreating ExtensionPrefs, the AppSorting also needs to be
   // recreated. (ExtensionPrefs is never recreated in non-test code.)
   static_cast<TestExtensionSystem*>(ExtensionSystem::Get(&profile_))

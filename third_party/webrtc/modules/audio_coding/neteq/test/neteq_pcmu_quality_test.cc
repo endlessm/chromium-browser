@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
+
 #include "webrtc/base/checks.h"
 #include "webrtc/base/safe_conversions.h"
-#include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/audio_coding/codecs/g711/include/audio_encoder_pcm.h"
+#include "webrtc/modules/audio_coding/codecs/g711/audio_encoder_pcm.h"
 #include "webrtc/modules/audio_coding/neteq/tools/neteq_quality_test.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
@@ -50,7 +51,7 @@ class NetEqPcmuQualityTest : public NetEqQualityTest {
                          NetEqDecoder::kDecoderPCMu) {}
 
   void SetUp() override {
-    ASSERT_EQ(1, channels_) << "PCMu supports only mono audio.";
+    ASSERT_EQ(1u, channels_) << "PCMu supports only mono audio.";
     AudioEncoderPcmU::Config config;
     config.frame_size_ms = FLAGS_frame_size_ms;
     encoder_.reset(new AudioEncoderPcmU(config));
@@ -76,7 +77,7 @@ class NetEqPcmuQualityTest : public NetEqQualityTest {
   }
 
  private:
-  rtc::scoped_ptr<AudioEncoderPcmU> encoder_;
+  std::unique_ptr<AudioEncoderPcmU> encoder_;
 };
 
 TEST_F(NetEqPcmuQualityTest, Test) {

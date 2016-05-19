@@ -5,6 +5,8 @@
 #ifndef MOJO_SERVICES_NETWORK_NETWORK_CONTEXT_H_
 #define MOJO_SERVICES_NETWORK_NETWORK_CONTEXT_H_
 
+#include <stddef.h>
+
 #include <set>
 
 #include "base/macros.h"
@@ -31,7 +33,6 @@ class NetworkContext {
       scoped_ptr<net::URLRequestContext> url_request_context);
   NetworkContext(
       const base::FilePath& base_path,
-      const scoped_refptr<base::SequencedTaskRunner>& background_task_runner,
       NetworkServiceDelegate* delegate);
   ~NetworkContext();
 
@@ -50,7 +51,6 @@ class NetworkContext {
 
   static scoped_ptr<net::URLRequestContext> MakeURLRequestContext(
       const base::FilePath& base_path,
-      const scoped_refptr<base::SequencedTaskRunner>& background_task_runner,
       NetworkServiceDelegate* delegate);
 
   class MojoNetLog;

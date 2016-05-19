@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "dbus/bus.h"
+#include "dbus/object_proxy.h"
+
+#include <stddef.h>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/logging.h"
@@ -13,10 +16,10 @@
 #include "base/task_runner_util.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
+#include "dbus/bus.h"
 #include "dbus/dbus_statistics.h"
 #include "dbus/message.h"
 #include "dbus/object_path.h"
-#include "dbus/object_proxy.h"
 #include "dbus/scoped_dbus_error.h"
 #include "dbus/util.h"
 
@@ -474,7 +477,7 @@ DBusHandlerResult ObjectProxy::HandleMessage(
     if (path.value() == kDBusSystemObjectPath &&
         signal->GetMember() == kNameOwnerChangedMember) {
       // Handle NameOwnerChanged separately
-      return HandleNameOwnerChanged(signal.Pass());
+      return HandleNameOwnerChanged(std::move(signal));
     }
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
   }
@@ -562,17 +565,19 @@ void ObjectProxy::LogMethodCallFailure(
   if (ignore_service_unknown_errors_ &&
       (error_name == kErrorServiceUnknown || error_name == kErrorObjectUnknown))
     return;
-  logging::LogSeverity severity = logging::LOG_ERROR;
-  // "UnknownObject" indicates that an object or service is no longer available,
-  // e.g. a Shill network service has gone out of range. Treat these as warnings
-  // not errors.
-  if (error_name == kErrorObjectUnknown)
-    severity = logging::LOG_WARNING;
+
   std::ostringstream msg;
   msg << "Failed to call method: " << interface_name << "." << method_name
       << ": object_path= " << object_path_.value()
       << ": " << error_name << ": " << error_message;
-  logging::LogAtLevel(severity, msg.str());
+
+  // "UnknownObject" indicates that an object or service is no longer available,
+  // e.g. a Shill network service has gone out of range. Treat these as warnings
+  // not errors.
+  if (error_name == kErrorObjectUnknown)
+    LOG(WARNING) << msg.str();
+  else
+    LOG(ERROR) << msg.str();
 }
 
 void ObjectProxy::OnCallMethodError(const std::string& interface_name,

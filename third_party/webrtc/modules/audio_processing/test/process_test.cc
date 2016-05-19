@@ -16,8 +16,9 @@
 #endif
 
 #include <algorithm>
+#include <memory>
 
-#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/format_macros.h"
 #include "webrtc/common.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
 #include "webrtc/modules/audio_processing/test/protobuf_utils.h"
@@ -32,7 +33,7 @@
 #include "external/webrtc/webrtc/modules/audio_processing/debug.pb.h"
 #else
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/audio_processing/debug.pb.h"
+#include "webrtc/modules/audio_processing/debug.pb.h"
 #endif
 
 namespace webrtc {
@@ -80,6 +81,7 @@ void usage() {
   printf("  --aec_suppression_level LEVEL  [0 - 2]\n");
   printf("  --extended_filter\n");
   printf("  --no_reported_delay\n");
+  printf("  --next_generation_aec\n");
   printf("\n  -aecm    Echo control mobile\n");
   printf("  --aecm_echo_path_in_file FILE\n");
   printf("  --aecm_echo_path_out_file FILE\n");
@@ -145,7 +147,7 @@ void void_main(int argc, char* argv[]) {
     printf("Try `process_test --help' for more information.\n\n");
   }
 
-  rtc::scoped_ptr<AudioProcessing> apm(AudioProcessing::Create());
+  std::unique_ptr<AudioProcessing> apm(AudioProcessing::Create());
   ASSERT_TRUE(apm.get() != NULL);
 
   const char* pb_filename = NULL;
@@ -159,9 +161,9 @@ void void_main(int argc, char* argv[]) {
 
   int32_t sample_rate_hz = 16000;
 
-  int num_capture_input_channels = 1;
-  int num_capture_output_channels = 1;
-  int num_render_channels = 1;
+  size_t num_capture_input_channels = 1;
+  size_t num_capture_output_channels = 1;
+  size_t num_render_channels = 1;
 
   int samples_per_channel = sample_rate_hz / 100;
 
@@ -207,14 +209,14 @@ void void_main(int argc, char* argv[]) {
     } else if (strcmp(argv[i], "-ch") == 0) {
       i++;
       ASSERT_LT(i + 1, argc) << "Specify number of channels after -ch";
-      ASSERT_EQ(1, sscanf(argv[i], "%d", &num_capture_input_channels));
+      ASSERT_EQ(1, sscanf(argv[i], "%" PRIuS, &num_capture_input_channels));
       i++;
-      ASSERT_EQ(1, sscanf(argv[i], "%d", &num_capture_output_channels));
+      ASSERT_EQ(1, sscanf(argv[i], "%" PRIuS, &num_capture_output_channels));
 
     } else if (strcmp(argv[i], "-rch") == 0) {
       i++;
       ASSERT_LT(i, argc) << "Specify number of channels after -rch";
-      ASSERT_EQ(1, sscanf(argv[i], "%d", &num_render_channels));
+      ASSERT_EQ(1, sscanf(argv[i], "%" PRIuS, &num_render_channels));
 
     } else if (strcmp(argv[i], "-aec") == 0) {
       ASSERT_EQ(apm->kNoError, apm->echo_cancellation()->Enable(true));
@@ -265,6 +267,9 @@ void void_main(int argc, char* argv[]) {
 
     } else if (strcmp(argv[i], "--delay_agnostic") == 0) {
       config.Set<DelayAgnostic>(new DelayAgnostic(true));
+
+    } else if (strcmp(argv[i], "--next_generation_aec") == 0) {
+      config.Set<NextGenerationAec>(new NextGenerationAec(true));
 
     } else if (strcmp(argv[i], "-aecm") == 0) {
       ASSERT_EQ(apm->kNoError, apm->echo_control_mobile()->Enable(true));
@@ -434,7 +439,7 @@ void void_main(int argc, char* argv[]) {
     } else if (strcmp(argv[i], "--debug_file") == 0) {
       i++;
       ASSERT_LT(i, argc) << "Specify filename after --debug_file";
-      ASSERT_EQ(apm->kNoError, apm->StartDebugRecording(argv[i]));
+      ASSERT_EQ(apm->kNoError, apm->StartDebugRecording(argv[i], -1));
     } else {
       FAIL() << "Unrecognized argument " << argv[i];
     }
@@ -447,10 +452,10 @@ void void_main(int argc, char* argv[]) {
 
   if (verbose) {
     printf("Sample rate: %d Hz\n", sample_rate_hz);
-    printf("Primary channels: %d (in), %d (out)\n",
+    printf("Primary channels: %" PRIuS " (in), %" PRIuS " (out)\n",
            num_capture_input_channels,
            num_capture_output_channels);
-    printf("Reverse channels: %d \n", num_render_channels);
+    printf("Reverse channels: %" PRIuS "\n", num_render_channels);
   }
 
   const std::string out_path = webrtc::test::OutputPath();
@@ -490,8 +495,8 @@ void void_main(int argc, char* argv[]) {
   FILE* aecm_echo_path_in_file = NULL;
   FILE* aecm_echo_path_out_file = NULL;
 
-  rtc::scoped_ptr<WavWriter> output_wav_file;
-  rtc::scoped_ptr<RawFile> output_raw_file;
+  std::unique_ptr<WavWriter> output_wav_file;
+  std::unique_ptr<RawFile> output_raw_file;
 
   if (pb_filename) {
     pb_file = OpenFile(pb_filename, "rb");
@@ -533,7 +538,7 @@ void void_main(int argc, char* argv[]) {
 
     const size_t path_size =
         apm->echo_control_mobile()->echo_path_size_bytes();
-    rtc::scoped_ptr<char[]> echo_path(new char[path_size]);
+    std::unique_ptr<char[]> echo_path(new char[path_size]);
     ASSERT_EQ(path_size, fread(echo_path.get(),
                                sizeof(char),
                                path_size,
@@ -575,8 +580,8 @@ void void_main(int argc, char* argv[]) {
   //            but for now we want to share the variables.
   if (pb_file) {
     Event event_msg;
-    rtc::scoped_ptr<ChannelBuffer<float> > reverse_cb;
-    rtc::scoped_ptr<ChannelBuffer<float> > primary_cb;
+    std::unique_ptr<ChannelBuffer<float> > reverse_cb;
+    std::unique_ptr<ChannelBuffer<float> > primary_cb;
     int output_sample_rate = 32000;
     AudioProcessing::ChannelLayout output_layout = AudioProcessing::kMono;
     while (ReadMessageFromFile(pb_file, &event_msg)) {
@@ -601,14 +606,18 @@ void void_main(int argc, char* argv[]) {
         if (msg.has_output_sample_rate()) {
           output_sample_rate = msg.output_sample_rate();
         }
-        output_layout = LayoutFromChannels(msg.num_output_channels());
-        ASSERT_EQ(kNoErr, apm->Initialize(
-                              msg.sample_rate(),
-                              output_sample_rate,
-                              reverse_sample_rate,
-                              LayoutFromChannels(msg.num_input_channels()),
-                              output_layout,
-                              LayoutFromChannels(msg.num_reverse_channels())));
+        output_layout =
+            LayoutFromChannels(static_cast<size_t>(msg.num_output_channels()));
+        ASSERT_EQ(kNoErr,
+                  apm->Initialize(
+                      msg.sample_rate(),
+                      output_sample_rate,
+                      reverse_sample_rate,
+                      LayoutFromChannels(
+                          static_cast<size_t>(msg.num_input_channels())),
+                      output_layout,
+                      LayoutFromChannels(
+                          static_cast<size_t>(msg.num_reverse_channels()))));
 
         samples_per_channel = msg.sample_rate() / 100;
         far_frame.sample_rate_hz_ = reverse_sample_rate;
@@ -636,11 +645,11 @@ void void_main(int argc, char* argv[]) {
         }
 
         if (!raw_output) {
-          // The WAV file needs to be reset every time, because it cant change
-          // it's sample rate or number of channels.
-          output_wav_file.reset(new WavWriter(out_filename + ".wav",
-                                              output_sample_rate,
-                                              msg.num_output_channels()));
+          // The WAV file needs to be reset every time, because it can't change
+          // its sample rate or number of channels.
+          output_wav_file.reset(new WavWriter(
+              out_filename + ".wav", output_sample_rate,
+              static_cast<size_t>(msg.num_output_channels())));
         }
 
       } else if (event_msg.type() == Event::REVERSE_STREAM) {
@@ -835,11 +844,7 @@ void void_main(int argc, char* argv[]) {
         if (far_file == NULL) {
           event = kCaptureEvent;
         } else {
-          if (event == kRenderEvent) {
-            event = kCaptureEvent;
-          } else {
-            event = kRenderEvent;
-          }
+          event = (event == kCaptureEvent) ? kRenderEvent : kCaptureEvent;
         }
       } else {
         read_count = fread(&event, sizeof(event), 1, event_file);
@@ -1056,7 +1061,7 @@ void void_main(int argc, char* argv[]) {
   if (aecm_echo_path_out_file != NULL) {
     const size_t path_size =
         apm->echo_control_mobile()->echo_path_size_bytes();
-    rtc::scoped_ptr<char[]> echo_path(new char[path_size]);
+    std::unique_ptr<char[]> echo_path(new char[path_size]);
     apm->echo_control_mobile()->GetEchoPath(echo_path.get(), path_size);
     ASSERT_EQ(path_size, fwrite(echo_path.get(),
                                 sizeof(char),

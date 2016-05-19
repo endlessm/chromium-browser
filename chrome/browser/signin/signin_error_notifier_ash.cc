@@ -8,8 +8,10 @@
 #include "ash/shell_delegate.h"
 #include "ash/system/system_notifier.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/notifications/notification.h"
@@ -101,8 +103,7 @@ void SigninNotificationDelegate::FixSignIn() {
   }
 
   // Find a browser instance or create one.
-  chrome::ScopedTabbedBrowserDisplayer browser_displayer(
-      profile_, chrome::HOST_DESKTOP_TYPE_ASH);
+  chrome::ScopedTabbedBrowserDisplayer browser_displayer(profile_);
 
   // Navigate to the sync setup subpage, which will launch a login page.
   chrome::ShowSettingsSubPage(browser_displayer.browser(),
@@ -186,6 +187,7 @@ void SigninErrorNotifier::OnErrorChanged() {
       notifier_id,
       base::string16(),  // display_source
       GURL(notification_id_), notification_id_, data, delegate);
+  notification.SetSystemPriority();
 
   // Update or add the notification.
   if (notification_ui_manager->FindById(

@@ -122,7 +122,6 @@ TEST(DeviceLocalAccountManagementPolicyProviderTest, PublicSession) {
   EXPECT_NE(base::string16(), error);
   error.clear();
 
-#if 0
   // Verify that a minimal platform app can be installed from location
   // EXTERNAL_POLICY.
   {
@@ -209,6 +208,24 @@ TEST(DeviceLocalAccountManagementPolicyProviderTest, PublicSession) {
     error.clear();
   }
 
+  // Verify that a platform app with an unsafe manifest entry cannot be
+  // installed.  Since the program logic is based entirely on whitelists, there
+  // is no significant advantage in testing all unsafe manifest entries
+  // individually.
+  {
+    base::DictionaryValue values;
+    values.Set("commands", new base::DictionaryValue());
+    extension = CreatePlatformAppWithExtraValues(
+        &values,
+        extensions::Manifest::EXTERNAL_POLICY,
+        extensions::Extension::NO_FLAGS);
+    ASSERT_TRUE(extension);
+
+    EXPECT_FALSE(provider.UserMayLoad(extension.get(), &error));
+    EXPECT_NE(base::string16(), error);
+    error.clear();
+  }
+
   // Verify that a platform app with an unknown manifest entry under "app"
   // cannot be installed.
   {
@@ -225,8 +242,28 @@ TEST(DeviceLocalAccountManagementPolicyProviderTest, PublicSession) {
     error.clear();
   }
 
-  // Verify that a platform app with an unsafe permission entry cannot be
+  // Verify that a platform app with an unknown permission entry cannot be
   // installed.
+  {
+    base::ListValue* const permissions = new base::ListValue();
+    permissions->AppendString("not_whitelisted_permission");
+    base::DictionaryValue values;
+    values.Set(extensions::manifest_keys::kPermissions, permissions);
+
+    extension = CreatePlatformAppWithExtraValues(
+        &values,
+        extensions::Manifest::EXTERNAL_POLICY,
+        extensions::Extension::NO_FLAGS);
+    ASSERT_TRUE(extension);
+
+    EXPECT_FALSE(provider.UserMayLoad(extension.get(), &error));
+    EXPECT_NE(base::string16(), error);
+    error.clear();
+  }
+
+  // Verify that a platform app with an unsafe permission entry cannot be
+  // installed.  Since the program logic is based entirely on whitelists, there
+  // is no significant advantage in testing all unsafe permissions individually.
   {
     base::ListValue* const permissions = new base::ListValue();
     permissions->AppendString("audioCapture");
@@ -302,7 +339,90 @@ TEST(DeviceLocalAccountManagementPolicyProviderTest, PublicSession) {
     EXPECT_EQ(base::string16(), error);
     error.clear();
   }
-#endif
+
+  // Verify that a platform app with remote URL permissions can be installed.
+  {
+    base::ListValue* const permissions = new base::ListValue();
+    permissions->AppendString("https://example.com/");
+    permissions->AppendString("http://example.com/");
+    permissions->AppendString("ftp://example.com/");
+    base::DictionaryValue values;
+    values.Set(extensions::manifest_keys::kPermissions, permissions);
+
+    extension = CreatePlatformAppWithExtraValues(
+        &values,
+        extensions::Manifest::EXTERNAL_POLICY,
+        extensions::Extension::NO_FLAGS);
+    ASSERT_TRUE(extension);
+
+    EXPECT_TRUE(provider.UserMayLoad(extension.get(), &error));
+    EXPECT_EQ(base::string16(), error);
+    error.clear();
+  }
+
+  // Verify that a platform app with a local URL permission cannot be installed.
+  {
+    base::ListValue* const permissions = new base::ListValue();
+    permissions->AppendString("file:///some/where");
+    base::DictionaryValue values;
+    values.Set(extensions::manifest_keys::kPermissions, permissions);
+
+    extension = CreatePlatformAppWithExtraValues(
+        &values,
+        extensions::Manifest::EXTERNAL_POLICY,
+        extensions::Extension::NO_FLAGS);
+    ASSERT_TRUE(extension);
+
+    EXPECT_FALSE(provider.UserMayLoad(extension.get(), &error));
+    EXPECT_NE(base::string16(), error);
+    error.clear();
+  }
+
+  // Verify that a platform app with socket dictionary permission can be
+  // installed.
+  {
+    base::DictionaryValue* const socket = new base::DictionaryValue();
+    base::ListValue* const tcp_list = new base::ListValue();
+    tcp_list->AppendString("tcp-connect");
+    socket->Set("socket", tcp_list);
+    base::ListValue* const permissions = new base::ListValue();
+    permissions->Append(socket);
+    base::DictionaryValue values;
+    values.Set(extensions::manifest_keys::kPermissions, permissions);
+
+    extension = CreatePlatformAppWithExtraValues(
+        &values,
+        extensions::Manifest::EXTERNAL_POLICY,
+        extensions::Extension::NO_FLAGS);
+    ASSERT_TRUE(extension);
+
+    EXPECT_TRUE(provider.UserMayLoad(extension.get(), &error));
+    EXPECT_EQ(base::string16(), error);
+    error.clear();
+  }
+
+  // Verify that a platform app with unknown dictionary permission cannot be
+  // installed.
+  {
+    base::DictionaryValue* const socket = new base::DictionaryValue();
+    base::ListValue* const tcp_list = new base::ListValue();
+    tcp_list->AppendString("unknown_value");
+    socket->Set("unknown_key", tcp_list);
+    base::ListValue* const permissions = new base::ListValue();
+    permissions->Append(socket);
+    base::DictionaryValue values;
+    values.Set(extensions::manifest_keys::kPermissions, permissions);
+
+    extension = CreatePlatformAppWithExtraValues(
+        &values,
+        extensions::Manifest::EXTERNAL_POLICY,
+        extensions::Extension::NO_FLAGS);
+    ASSERT_TRUE(extension);
+
+    EXPECT_FALSE(provider.UserMayLoad(extension.get(), &error));
+    EXPECT_NE(base::string16(), error);
+    error.clear();
+  }
 }
 
 TEST(DeviceLocalAccountManagementPolicyProviderTest, KioskAppSession) {

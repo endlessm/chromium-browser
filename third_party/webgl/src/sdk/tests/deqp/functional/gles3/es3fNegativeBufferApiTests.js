@@ -419,35 +419,38 @@ goog.scope(function() {
                 var data = new Float32Array(32 * 32);
 
                 var texture = gl.createTexture();
-                gl.bindTexture(gl.TEXTURE_2D, texture);
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 32, 32, 0, gl.RGBA, gl.FLOAT, null);
+                // Float type texture isn't color-renderable without EXT_color_buffer_float extension.
+                if (gl.getExtension('EXT_color_buffer_float')) {
+                    gl.bindTexture(gl.TEXTURE_2D, texture);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 32, 32, 0, gl.RGBA, gl.FLOAT, null);
 
-                var fbo = gl.createFramebuffer();
-                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-                gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-                this.expectError(gl.NO_ERROR);
+                    var fbo = gl.createFramebuffer();
+                    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+                    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+                    gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+                    this.expectError(gl.NO_ERROR);
 
-                bufferedLogToConsole('gl.INVALID_ENUM is generated if buffer is not an accepted value.');
-                gl.clearBufferfv(-1, 0, data);
-                this.expectError(gl.INVALID_ENUM);
-                gl.clearBufferfv(gl.FRAMEBUFFER, 0, data);
-                this.expectError(gl.INVALID_ENUM);
+                    bufferedLogToConsole('gl.INVALID_ENUM is generated if buffer is not an accepted value.');
+                    gl.clearBufferfv(-1, 0, data);
+                    this.expectError(gl.INVALID_ENUM);
+                    gl.clearBufferfv(gl.FRAMEBUFFER, 0, data);
+                    this.expectError(gl.INVALID_ENUM);
 
-                bufferedLogToConsole('gl.INVALID_VALUE is generated if buffer is gl.COLOR, gl.FRONT, gl.BACK, gl.LEFT, gl.RIGHT, or gl.FRONT_AND_BACK and drawBuffer is greater than or equal to gl.MAX_DRAW_BUFFERS.');
-                var maxDrawBuffers = /** @type {number} */ (gl.getParameter(gl.MAX_DRAW_BUFFERS));
-                gl.clearBufferfv(gl.COLOR, maxDrawBuffers, data);
-                this.expectError(gl.INVALID_VALUE);
+                    bufferedLogToConsole('gl.INVALID_VALUE is generated if buffer is gl.COLOR, gl.FRONT, gl.BACK, gl.LEFT, gl.RIGHT, or gl.FRONT_AND_BACK and drawBuffer is greater than or equal to gl.MAX_DRAW_BUFFERS.');
+                    var maxDrawBuffers = /** @type {number} */ (gl.getParameter(gl.MAX_DRAW_BUFFERS));
+                    gl.clearBufferfv(gl.COLOR, maxDrawBuffers, data);
+                    this.expectError(gl.INVALID_VALUE);
 
-                bufferedLogToConsole('gl.INVALID_ENUM is generated if buffer is gl.STENCIL or gl.DEPTH_STENCIL.');
-                gl.clearBufferfv(gl.STENCIL, 1, data);
-                this.expectError(gl.INVALID_ENUM);
-                gl.clearBufferfv(gl.DEPTH_STENCIL, 1, data);
-                this.expectError(gl.INVALID_ENUM);
+                    bufferedLogToConsole('gl.INVALID_ENUM is generated if buffer is gl.STENCIL or gl.DEPTH_STENCIL.');
+                    gl.clearBufferfv(gl.STENCIL, 1, data);
+                    this.expectError(gl.INVALID_ENUM);
+                    gl.clearBufferfv(gl.DEPTH_STENCIL, 1, data);
+                    this.expectError(gl.INVALID_ENUM);
 
-                bufferedLogToConsole('gl.INVALID_VALUE is generated if buffer is gl.DEPTH and drawBuffer is not zero.');
-                gl.clearBufferfv(gl.DEPTH, 1, data);
-                this.expectError(gl.INVALID_VALUE);
+                    bufferedLogToConsole('gl.INVALID_VALUE is generated if buffer is gl.DEPTH and drawBuffer is not zero.');
+                    gl.clearBufferfv(gl.DEPTH, 1, data);
+                    this.expectError(gl.INVALID_VALUE);
+                }
 
                 gl.deleteFramebuffer(fbo);
                 gl.deleteTexture(texture);
@@ -481,16 +484,15 @@ goog.scope(function() {
         testGroup.addChild(new es3fApiCase.ApiCaseCallback(
             'copy_buffer_sub_data', 'Invalid gl.copyBufferSubData() usage', gl,
             function() {
-                var data = new Float32Array(32 * 32);
                 var buf = {
                     r: gl.createBuffer(),
                     w: gl.createBuffer()
                 };
 
                 gl.bindBuffer(gl.COPY_READ_BUFFER, buf.r);
-                gl.bufferData(gl.COPY_READ_BUFFER, data, gl.DYNAMIC_COPY);
+                gl.bufferData(gl.COPY_READ_BUFFER, 32, gl.DYNAMIC_COPY);
                 gl.bindBuffer(gl.COPY_WRITE_BUFFER, buf.w);
-                gl.bufferData(gl.COPY_WRITE_BUFFER, data, gl.DYNAMIC_COPY);
+                gl.bufferData(gl.COPY_WRITE_BUFFER, 32, gl.DYNAMIC_COPY);
                 this.expectError(gl.NO_ERROR);
 
                 bufferedLogToConsole('gl.INVALID_VALUE is generated if any of readoffset, writeoffset or size is negative.');
@@ -565,21 +567,22 @@ goog.scope(function() {
                 this.expectError(gl.NO_ERROR);
 
                 bufferedLogToConsole('gl.INVALID_ENUM is generated if one of the values in bufs is not an accepted value.');
-                gl.drawBuffers(values.splice(2, 2));
+                gl.drawBuffers(values.slice(2, 4));
                 this.expectError(gl.INVALID_ENUM);
 
-                bufferedLogToConsole('gl.INVALID_OPERATION is generated if the GL is bound to the default framebuffer and n is not 1.');
-                gl.drawBuffers(values.splice(0, 2));
+                bufferedLogToConsole('gl.INVALID_OPERATION is generated if the GL is bound to the default framebuffer and the number of queried buffers is not 1.');
+                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+                gl.drawBuffers(values.slice(0, 2));
                 this.expectError(gl.INVALID_OPERATION);
 
                 bufferedLogToConsole('gl.INVALID_OPERATION is generated if the GL is bound to the default framebuffer and the value in bufs is one of the gl.COLOR_ATTACHMENTn tokens.');
                 gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-                gl.drawBuffers(values.splice(1, 2));
+                gl.drawBuffers(values.slice(2, 3));
                 this.expectError(gl.INVALID_OPERATION);
 
                 bufferedLogToConsole('gl.INVALID_OPERATION is generated if the GL is bound to a framebuffer object and the ith buffer listed in bufs is anything other than gl.NONE or gl.COLOR_ATTACHMENTSi.');
                 gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-                gl.drawBuffers(values.splice(1, 1));
+                gl.drawBuffers(values.slice(1, 2));
                 this.expectError(gl.INVALID_OPERATION);
 
                 gl.deleteTexture(texture);
@@ -818,9 +821,10 @@ goog.scope(function() {
                 gl.bindTexture(gl.TEXTURE_2D, texture[0]);
                 gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, 32, 32, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
                 gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture[0], 0);
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 32, 32, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+                gl.bindTexture(gl.TEXTURE_2D, texture[1]);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, 32, 32, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
                 gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture[1], 0);
-                bufferedLogToConsole('// Read buffer: gl.RGBA32I, draw buffer: gl.RGBA8');
+                bufferedLogToConsole('// Read buffer: gl.RGBA32UI, filter: gl.LINEAR');
                 gl.blitFramebuffer(0, 0, 16, 16, 0, 0, 16, 16, gl.COLOR_BUFFER_BIT, gl.LINEAR);
                 this.expectError(gl.INVALID_OPERATION);
 
@@ -863,7 +867,7 @@ goog.scope(function() {
                 gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER);
 
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rbo[1]);
-                gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo[1]);
+                gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo[1]);
                 this.expectError(gl.NO_ERROR);
 
                 bufferedLogToConsole('gl.INVALID_OPERATION is generated if the value of gl.SAMPLE_BUFFERS for the draw buffer is greater than zero.');
@@ -1024,7 +1028,9 @@ goog.scope(function() {
 
                 var rbo = gl.createRenderbuffer();
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
-                var maxSamplesSupportedRGBA4 = /** @type {number} */ (gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA4, gl.SAMPLES));
+                /** @type {Int32Array} */ var samplesSupportedRGBA4 = /** @type {Int32Array} */ gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA4, gl.SAMPLES);
+                // supported samples are written in descending numeric order, so the first one is the max samples
+                var maxSamplesSupportedRGBA4 = samplesSupportedRGBA4[0];
 
                 bufferedLogToConsole('gl.INVALID_ENUM is generated if target is not gl.RENDERBUFFER.');
                 gl.renderbufferStorageMultisample(-1, 2, gl.RGBA4, 1, 1);

@@ -4,8 +4,9 @@
 
 #include "components/web_resource/eula_accepted_notifier.h"
 
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/web_resource/web_resource_pref_names.h"
 #include "testing/gtest/include/gtest/gtest.h"
 

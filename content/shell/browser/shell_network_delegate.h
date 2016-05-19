@@ -5,8 +5,8 @@
 #ifndef CONTENT_SHELL_BROWSER_SHELL_NETWORK_DELEGATE_H_
 #define CONTENT_SHELL_BROWSER_SHELL_NETWORK_DELEGATE_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "net/base/network_delegate_impl.h"
 
 namespace content {
@@ -53,6 +53,7 @@ class ShellNetworkDelegate : public net::NetworkDelegateImpl {
   bool OnCanAccessFile(const net::URLRequest& request,
                        const base::FilePath& path) const override;
   bool OnAreExperimentalCookieFeaturesEnabled() const override;
+  bool OnAreStrictSecureCookiesEnabled() const override;
 
   DISALLOW_COPY_AND_ASSIGN(ShellNetworkDelegate);
 };

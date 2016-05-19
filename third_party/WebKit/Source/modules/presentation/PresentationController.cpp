@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/presentation/PresentationController.h"
 
 #include "core/frame/LocalFrame.h"
@@ -77,6 +76,16 @@ void PresentationController::didChangeSessionState(WebPresentationConnectionClie
     if (!connection)
         return;
     connection->didChangeState(state);
+}
+
+void PresentationController::didCloseConnection(WebPresentationConnectionClient* connectionClient, WebPresentationConnectionCloseReason reason, const WebString& message)
+{
+    OwnPtr<WebPresentationConnectionClient> client = adoptPtr(connectionClient);
+
+    PresentationConnection* connection = findConnection(client.get());
+    if (!connection)
+        return;
+    connection->didClose(reason, message);
 }
 
 void PresentationController::didReceiveSessionTextMessage(WebPresentationConnectionClient* connectionClient, const WebString& message)

@@ -5,9 +5,11 @@
 #ifndef MEDIA_BASE_SERIAL_RUNNER_H_
 #define MEDIA_BASE_SERIAL_RUNNER_H_
 
+#include <memory>
 #include <queue>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -32,6 +34,7 @@ class MEDIA_EXPORT SerialRunner {
   class MEDIA_EXPORT Queue {
    public:
     Queue();
+    Queue(const Queue& other);
     ~Queue();
 
     void Push(const base::Closure& closure);
@@ -65,7 +68,7 @@ class MEDIA_EXPORT SerialRunner {
       const Queue& bound_fns, const PipelineStatusCB& done_cb);
 
  private:
-  friend struct base::DefaultDeleter<SerialRunner>;
+  friend std::default_delete<SerialRunner>;
 
   SerialRunner(const Queue& bound_fns, const PipelineStatusCB& done_cb);
   ~SerialRunner();

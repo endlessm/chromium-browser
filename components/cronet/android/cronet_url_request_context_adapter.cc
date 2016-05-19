@@ -4,33 +4,40 @@
 
 #include "components/cronet/android/cronet_url_request_context_adapter.h"
 
+#include <limits.h>
+#include <stddef.h>
 #include <map>
+#include <utility>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/prefs/pref_filter.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/pref_service_factory.h"
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/cronet/histogram_manager.h"
 #include "components/cronet/url_request_context_config.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_filter.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/pref_service_factory.h"
 #include "jni/CronetUrlRequestContext_jni.h"
 #include "net/base/external_estimate_provider.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/network_delegate_impl.h"
+#include "net/base/url_util.h"
+#include "net/cert/cert_verifier.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_server_properties_manager.h"
 #include "net/log/write_to_file_net_log_observer.h"
@@ -48,6 +55,143 @@
 namespace {
 
 const char kHttpServerProperties[] = "net.http_server_properties";
+
+// Connects the HttpServerPropertiesManager's storage to the prefs.
+class PrefServiceAdapter
+    : public net::HttpServerPropertiesManager::PrefDelegate {
+ public:
+  explicit PrefServiceAdapter(PrefService* pref_service)
+      : pref_service_(pref_service), path_(kHttpServerProperties) {
+    pref_change_registrar_.Init(pref_service_);
+  }
+
+  ~PrefServiceAdapter() override {}
+
+  // PrefDelegate implementation.
+  bool HasServerProperties() override {
+    return pref_service_->HasPrefPath(path_);
+  }
+  const base::DictionaryValue& GetServerProperties() const override {
+    // Guaranteed not to return null when the pref is registered
+    // (RegisterProfilePrefs was called).
+    return *pref_service_->GetDictionary(path_);
+  }
+  void SetServerProperties(const base::DictionaryValue& value) override {
+    return pref_service_->Set(path_, value);
+  }
+  void StartListeningForUpdates(const base::Closure& callback) override {
+    pref_change_registrar_.Add(path_, callback);
+  }
+  void StopListeningForUpdates() override {
+    pref_change_registrar_.RemoveAll();
+  }
+
+ private:
+  PrefService* pref_service_;
+  std::string path_;
+  PrefChangeRegistrar pref_change_registrar_;
+
+  DISALLOW_COPY_AND_ASSIGN(PrefServiceAdapter);
+};
+
+// Connects the SdchOwner's storage to the prefs.
+class SdchOwnerPrefStorage : public net::SdchOwner::PrefStorage,
+                             public PrefStore::Observer {
+ public:
+  explicit SdchOwnerPrefStorage(PersistentPrefStore* storage)
+      : storage_(storage), storage_key_("SDCH"), init_observer_(nullptr) {}
+  ~SdchOwnerPrefStorage() override {
+    if (init_observer_)
+      storage_->RemoveObserver(this);
+  }
+
+  ReadError GetReadError() const override {
+    PersistentPrefStore::PrefReadError error = storage_->GetReadError();
+
+    DCHECK_NE(
+        error,
+        PersistentPrefStore::PREF_READ_ERROR_ASYNCHRONOUS_TASK_INCOMPLETE);
+    DCHECK_NE(error, PersistentPrefStore::PREF_READ_ERROR_MAX_ENUM);
+
+    switch (error) {
+      case PersistentPrefStore::PREF_READ_ERROR_NONE:
+        return PERSISTENCE_FAILURE_NONE;
+
+      case PersistentPrefStore::PREF_READ_ERROR_NO_FILE:
+        return PERSISTENCE_FAILURE_REASON_NO_FILE;
+
+      case PersistentPrefStore::PREF_READ_ERROR_JSON_PARSE:
+      case PersistentPrefStore::PREF_READ_ERROR_JSON_TYPE:
+      case PersistentPrefStore::PREF_READ_ERROR_FILE_OTHER:
+      case PersistentPrefStore::PREF_READ_ERROR_FILE_LOCKED:
+      case PersistentPrefStore::PREF_READ_ERROR_JSON_REPEAT:
+        return PERSISTENCE_FAILURE_REASON_READ_FAILED;
+
+      case PersistentPrefStore::PREF_READ_ERROR_ACCESS_DENIED:
+      case PersistentPrefStore::PREF_READ_ERROR_FILE_NOT_SPECIFIED:
+      case PersistentPrefStore::PREF_READ_ERROR_ASYNCHRONOUS_TASK_INCOMPLETE:
+      case PersistentPrefStore::PREF_READ_ERROR_MAX_ENUM:
+      default:
+        // We don't expect these other failures given our usage of prefs.
+        NOTREACHED();
+        return PERSISTENCE_FAILURE_REASON_OTHER;
+    }
+  }
+
+  bool GetValue(const base::DictionaryValue** result) const override {
+    const base::Value* result_value = nullptr;
+    if (!storage_->GetValue(storage_key_, &result_value))
+      return false;
+    return result_value->GetAsDictionary(result);
+  }
+
+  bool GetMutableValue(base::DictionaryValue** result) override {
+    base::Value* result_value = nullptr;
+    if (!storage_->GetMutableValue(storage_key_, &result_value))
+      return false;
+    return result_value->GetAsDictionary(result);
+  }
+
+  void SetValue(scoped_ptr<base::DictionaryValue> value) override {
+    storage_->SetValue(storage_key_, std::move(value),
+                       WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
+  }
+
+  void ReportValueChanged() override {
+    storage_->ReportValueChanged(storage_key_,
+                                 WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
+  }
+
+  bool IsInitializationComplete() override {
+    return storage_->IsInitializationComplete();
+  }
+
+  void StartObservingInit(net::SdchOwner* observer) override {
+    DCHECK(!init_observer_);
+    init_observer_ = observer;
+    storage_->AddObserver(this);
+  }
+
+  void StopObservingInit() override {
+    DCHECK(init_observer_);
+    init_observer_ = nullptr;
+    storage_->RemoveObserver(this);
+  }
+
+ private:
+  // PrefStore::Observer implementation.
+  void OnPrefValueChanged(const std::string& key) override {}
+  void OnInitializationCompleted(bool succeeded) override {
+    init_observer_->OnPrefStorageInitializationComplete(succeeded);
+  }
+
+  PersistentPrefStore* storage_;  // Non-owning.
+  const std::string storage_key_;
+
+  net::SdchOwner* init_observer_;  // Non-owning.
+
+  DISALLOW_COPY_AND_ASSIGN(SdchOwnerPrefStorage);
+};
 
 class BasicNetworkDelegate : public net::NetworkDelegateImpl {
  public:
@@ -132,7 +276,7 @@ CronetURLRequestContextAdapter::CronetURLRequestContextAdapter(
     scoped_ptr<URLRequestContextConfig> context_config)
     : network_thread_(new base::Thread("network")),
       http_server_properties_manager_(nullptr),
-      context_config_(context_config.Pass()),
+      context_config_(std::move(context_config)),
       is_context_initialized_(false),
       default_load_flags_(net::LOAD_NORMAL) {
   base::Thread::Options options;
@@ -156,7 +300,7 @@ CronetURLRequestContextAdapter::~CronetURLRequestContextAdapter() {
 
 void CronetURLRequestContextAdapter::InitRequestContextOnMainThread(
     JNIEnv* env,
-    jobject jcaller) {
+    const JavaParamRef<jobject>& jcaller) {
   base::android::ScopedJavaGlobalRef<jobject> jcaller_ref;
   jcaller_ref.Reset(env, jcaller);
   proxy_config_service_ = net::ProxyService::CreateSystemProxyConfigService(
@@ -171,7 +315,7 @@ void CronetURLRequestContextAdapter::InitRequestContextOnMainThread(
   GetNetworkTaskRunner()->PostTask(
       FROM_HERE,
       base::Bind(&CronetURLRequestContextAdapter::InitializeOnNetworkThread,
-                 base::Unretained(this), Passed(&context_config_),
+                 base::Unretained(this), base::Passed(&context_config_),
                  jcaller_ref));
 }
 
@@ -189,7 +333,7 @@ void CronetURLRequestContextAdapter::
 
 void CronetURLRequestContextAdapter::EnableNetworkQualityEstimator(
     JNIEnv* env,
-    jobject jcaller,
+    const JavaParamRef<jobject>& jcaller,
     jboolean use_local_host_requests,
     jboolean use_smaller_responses) {
   PostTaskToNetworkThread(
@@ -211,9 +355,10 @@ void CronetURLRequestContextAdapter::ProvideRTTObservationsOnNetworkThread(
   }
 }
 
-void CronetURLRequestContextAdapter::ProvideRTTObservations(JNIEnv* env,
-                                                            jobject jcaller,
-                                                            bool should) {
+void CronetURLRequestContextAdapter::ProvideRTTObservations(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jcaller,
+    bool should) {
   PostTaskToNetworkThread(FROM_HERE,
                           base::Bind(&CronetURLRequestContextAdapter::
                                          ProvideRTTObservationsOnNetworkThread,
@@ -234,7 +379,7 @@ void CronetURLRequestContextAdapter::
 
 void CronetURLRequestContextAdapter::ProvideThroughputObservations(
     JNIEnv* env,
-    jobject jcaller,
+    const JavaParamRef<jobject>& jcaller,
     bool should) {
   PostTaskToNetworkThread(
       FROM_HERE, base::Bind(&CronetURLRequestContextAdapter::
@@ -255,7 +400,7 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
   // TODO(mef): Remove this work around for crbug.com/543366 once it is fixed.
   net::URLRequestContextBuilder::HttpNetworkSessionParams
       custom_http_network_session_params;
-  custom_http_network_session_params.use_alternative_services = false;
+  custom_http_network_session_params.parse_alternative_services = false;
   context_builder.set_http_network_session_params(
       custom_http_network_session_params);
 
@@ -271,14 +416,14 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
         config->data_reduction_fallback_proxy,
         config->data_reduction_secure_proxy_check_url, config->user_agent,
         GetNetworkTaskRunner(), net_log_.get()));
-    network_delegate =
-        data_reduction_proxy_->CreateNetworkDelegate(network_delegate.Pass());
-    ScopedVector<net::URLRequestInterceptor> interceptors;
+    network_delegate = data_reduction_proxy_->CreateNetworkDelegate(
+        std::move(network_delegate));
+    std::vector<scoped_ptr<net::URLRequestInterceptor>> interceptors;
     interceptors.push_back(data_reduction_proxy_->CreateInterceptor());
-    context_builder.SetInterceptors(interceptors.Pass());
+    context_builder.SetInterceptors(std::move(interceptors));
   }
 #endif  // defined(DATA_REDUCTION_PROXY_SUPPORT)
-  context_builder.set_network_delegate(network_delegate.Pass());
+  context_builder.set_network_delegate(std::move(network_delegate));
   context_builder.set_net_log(net_log_.get());
 
   // Android provides a local HTTP proxy server that handles proxying when a PAC
@@ -286,8 +431,8 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
   // local HTTP proxy. See: crbug.com/432539.
   context_builder.set_proxy_service(
       net::ProxyService::CreateWithoutProxyResolver(
-          proxy_config_service_.Pass(), net_log_.get()));
-  config->ConfigureURLRequestContextBuilder(&context_builder);
+          std::move(proxy_config_service_), net_log_.get()));
+  config->ConfigureURLRequestContextBuilder(&context_builder, net_log_.get());
 
   // Set up pref file if storage path is specified.
   if (!config->storage_path.empty()) {
@@ -298,24 +443,29 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
     context_builder.SetFileTaskRunner(GetFileThread()->task_runner());
 
     // Set up HttpServerPropertiesManager.
-    base::PrefServiceFactory factory;
+    PrefServiceFactory factory;
     factory.set_user_prefs(json_pref_store_);
     scoped_refptr<PrefRegistrySimple> registry(new PrefRegistrySimple());
     registry->RegisterDictionaryPref(kHttpServerProperties,
                                      new base::DictionaryValue());
-    pref_service_ = factory.Create(registry.get()).Pass();
+    pref_service_ = factory.Create(registry.get());
 
     scoped_ptr<net::HttpServerPropertiesManager> http_server_properties_manager(
-        new net::HttpServerPropertiesManager(pref_service_.get(),
-                                             kHttpServerProperties,
-                                             GetNetworkTaskRunner()));
+        new net::HttpServerPropertiesManager(
+            new PrefServiceAdapter(pref_service_.get()),
+            GetNetworkTaskRunner()));
     http_server_properties_manager->InitializeOnNetworkThread();
     http_server_properties_manager_ = http_server_properties_manager.get();
     context_builder.SetHttpServerProperties(
-        http_server_properties_manager.Pass());
+        std::move(http_server_properties_manager));
   }
 
-  context_ = context_builder.Build().Pass();
+  // Explicitly disable the persister for Cronet to avoid persistence of dynamic
+  // HPKP. This is a safety measure ensuring that nobody enables the persistence
+  // of HPKP by specifying transport_security_persister_path in the future.
+  context_builder.set_transport_security_persister_path(base::FilePath());
+
+  context_ = context_builder.Build();
 
   default_load_flags_ = net::LOAD_DO_NOT_SAVE_COOKIES |
                         net::LOAD_DO_NOT_SEND_COOKIES;
@@ -326,8 +476,10 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
     DCHECK(context_->sdch_manager());
     sdch_owner_.reset(
         new net::SdchOwner(context_->sdch_manager(), context_.get()));
-    if (json_pref_store_)
-      sdch_owner_->EnablePersistentStorage(json_pref_store_.get());
+    if (json_pref_store_) {
+      sdch_owner_->EnablePersistentStorage(
+          make_scoped_ptr(new SdchOwnerPrefStorage(json_pref_store_.get())));
+    }
   }
 
   // Currently (circa M39) enabling QUIC requires setting probability threshold.
@@ -350,15 +502,15 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
         continue;
       }
 
-      if (quic_hint.port <= std::numeric_limits<uint16>::min() ||
-          quic_hint.port > std::numeric_limits<uint16>::max()) {
+      if (quic_hint.port <= std::numeric_limits<uint16_t>::min() ||
+          quic_hint.port > std::numeric_limits<uint16_t>::max()) {
         LOG(ERROR) << "Invalid QUIC hint port: "
                    << quic_hint.port;
         continue;
       }
 
-      if (quic_hint.alternate_port <= std::numeric_limits<uint16>::min() ||
-          quic_hint.alternate_port > std::numeric_limits<uint16>::max()) {
+      if (quic_hint.alternate_port <= std::numeric_limits<uint16_t>::min() ||
+          quic_hint.alternate_port > std::numeric_limits<uint16_t>::max()) {
         LOG(ERROR) << "Invalid QUIC hint alternate port: "
                    << quic_hint.alternate_port;
         continue;
@@ -368,11 +520,19 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
                                                  quic_hint.port);
       net::AlternativeService alternative_service(
           net::AlternateProtocol::QUIC, "",
-          static_cast<uint16>(quic_hint.alternate_port));
+          static_cast<uint16_t>(quic_hint.alternate_port));
       context_->http_server_properties()->SetAlternativeService(
           quic_hint_host_port_pair, alternative_service, 1.0f,
           base::Time::Max());
     }
+  }
+
+  // Iterate through PKP configuration for every host.
+  for (const auto& pkp : config->pkp_list) {
+    // Add the host pinning.
+    context_->transport_security_state()->AddHPKP(
+        pkp->host, pkp->expiration_date, pkp->include_subdomains,
+        pkp->pin_hashes, GURL::EmptyGURL());
   }
 
   JNIEnv* env = base::android::AttachCurrentThread();
@@ -391,7 +551,9 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
   }
 }
 
-void CronetURLRequestContextAdapter::Destroy(JNIEnv* env, jobject jcaller) {
+void CronetURLRequestContextAdapter::Destroy(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jcaller) {
   DCHECK(!GetNetworkTaskRunner()->BelongsToCurrentThread());
   // Stick network_thread_ in a local, as |this| may be destroyed from the
   // network thread before delete network_thread is called.
@@ -437,10 +599,11 @@ CronetURLRequestContextAdapter::GetNetworkTaskRunner() const {
   return network_thread_->task_runner();
 }
 
-void CronetURLRequestContextAdapter::StartNetLogToFile(JNIEnv* env,
-                                                       jobject jcaller,
-                                                       jstring jfile_name,
-                                                       jboolean jlog_all) {
+void CronetURLRequestContextAdapter::StartNetLogToFile(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jcaller,
+    const JavaParamRef<jstring>& jfile_name,
+    jboolean jlog_all) {
   PostTaskToNetworkThread(
       FROM_HERE,
       base::Bind(
@@ -449,7 +612,9 @@ void CronetURLRequestContextAdapter::StartNetLogToFile(JNIEnv* env,
           base::android::ConvertJavaStringToUTF8(env, jfile_name), jlog_all));
 }
 
-void CronetURLRequestContextAdapter::StopNetLog(JNIEnv* env, jobject jcaller) {
+void CronetURLRequestContextAdapter::StopNetLog(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jcaller) {
   PostTaskToNetworkThread(
       FROM_HERE,
       base::Bind(&CronetURLRequestContextAdapter::StopNetLogOnNetworkThread,
@@ -474,8 +639,8 @@ void CronetURLRequestContextAdapter::StartNetLogToFileOnNetworkThread(
     write_to_file_observer_->set_capture_mode(
         net::NetLogCaptureMode::IncludeSocketBytes());
   }
-  write_to_file_observer_->StartObserving(context_->net_log(), file.Pass(),
-                                  nullptr, context_.get());
+  write_to_file_observer_->StartObserving(context_->net_log(), std::move(file),
+                                          nullptr, context_.get());
 }
 
 void CronetURLRequestContextAdapter::StopNetLogOnNetworkThread() {
@@ -515,20 +680,111 @@ void CronetURLRequestContextAdapter::OnThroughputObservation(
       (timestamp - base::TimeTicks::UnixEpoch()).InMilliseconds(), source);
 }
 
+// Create a URLRequestContextConfig from the given parameters.
+static jlong CreateRequestContextConfig(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& jcaller,
+    const JavaParamRef<jstring>& juser_agent,
+    const JavaParamRef<jstring>& jstorage_path,
+    jboolean jquic_enabled,
+    const JavaParamRef<jstring>& jquic_default_user_agent_id,
+    jboolean jhttp2_enabled,
+    jboolean jsdch_enabled,
+    const JavaParamRef<jstring>& jdata_reduction_proxy_key,
+    const JavaParamRef<jstring>& jdata_reduction_proxy_primary_proxy,
+    const JavaParamRef<jstring>& jdata_reduction_proxy_fallback_proxy,
+    const JavaParamRef<jstring>& jdata_reduction_proxy_secure_proxy_check_url,
+    jboolean jdisable_cache,
+    jint jhttp_cache_mode,
+    jlong jhttp_cache_max_size,
+    const JavaParamRef<jstring>& jexperimental_quic_connection_options,
+    jlong jmock_cert_verifier) {
+  return reinterpret_cast<jlong>(new URLRequestContextConfig(
+      jquic_enabled,
+      base::android::ConvertJavaStringToUTF8(env, jquic_default_user_agent_id),
+      jhttp2_enabled, jsdch_enabled,
+      static_cast<URLRequestContextConfig::HttpCacheType>(jhttp_cache_mode),
+      jhttp_cache_max_size, jdisable_cache,
+      base::android::ConvertJavaStringToUTF8(env, jstorage_path),
+      base::android::ConvertJavaStringToUTF8(env, juser_agent),
+      base::android::ConvertJavaStringToUTF8(
+          env, jexperimental_quic_connection_options),
+      base::android::ConvertJavaStringToUTF8(env, jdata_reduction_proxy_key),
+      base::android::ConvertJavaStringToUTF8(
+          env, jdata_reduction_proxy_primary_proxy),
+      base::android::ConvertJavaStringToUTF8(
+          env, jdata_reduction_proxy_fallback_proxy),
+      base::android::ConvertJavaStringToUTF8(
+          env, jdata_reduction_proxy_secure_proxy_check_url),
+      make_scoped_ptr(
+          reinterpret_cast<net::CertVerifier*>(jmock_cert_verifier))));
+}
+
+// Add a QUIC hint to a URLRequestContextConfig.
+static void AddQuicHint(JNIEnv* env,
+                        const JavaParamRef<jclass>& jcaller,
+                        jlong jurl_request_context_config,
+                        const JavaParamRef<jstring>& jhost,
+                        jint jport,
+                        jint jalternate_port) {
+  URLRequestContextConfig* config =
+      reinterpret_cast<URLRequestContextConfig*>(jurl_request_context_config);
+  config->quic_hints.push_back(
+      make_scoped_ptr(new URLRequestContextConfig::QuicHint(
+          base::android::ConvertJavaStringToUTF8(env, jhost), jport,
+          jalternate_port)));
+}
+
+// Add a public key pin to URLRequestContextConfig.
+// |jhost| is the host to apply the pin to.
+// |jhashes| is an array of jbyte[32] representing SHA256 key hashes.
+// |jinclude_subdomains| indicates if pin should be applied to subdomains.
+// |jexpiration_time| is the time that the pin expires, in milliseconds since
+// Jan. 1, 1970, midnight GMT.
+static void AddPkp(JNIEnv* env,
+                   const JavaParamRef<jclass>& jcaller,
+                   jlong jurl_request_context_config,
+                   const JavaParamRef<jstring>& jhost,
+                   const JavaParamRef<jobjectArray>& jhashes,
+                   jboolean jinclude_subdomains,
+                   jlong jexpiration_time) {
+  URLRequestContextConfig* config =
+      reinterpret_cast<URLRequestContextConfig*>(jurl_request_context_config);
+  scoped_ptr<URLRequestContextConfig::Pkp> pkp(new URLRequestContextConfig::Pkp(
+      base::android::ConvertJavaStringToUTF8(env, jhost), jinclude_subdomains,
+      base::Time::UnixEpoch() +
+          base::TimeDelta::FromMilliseconds(jexpiration_time)));
+  size_t hash_count = env->GetArrayLength(jhashes);
+  for (size_t i = 0; i < hash_count; ++i) {
+    ScopedJavaLocalRef<jbyteArray> bytes_array(
+        env, static_cast<jbyteArray>(env->GetObjectArrayElement(jhashes, i)));
+    static_assert(std::is_pod<net::SHA256HashValue>::value,
+                  "net::SHA256HashValue is not POD");
+    static_assert(sizeof(net::SHA256HashValue) * CHAR_BIT == 256,
+                  "net::SHA256HashValue contains overhead");
+    if (env->GetArrayLength(bytes_array.obj()) !=
+        sizeof(net::SHA256HashValue)) {
+      LOG(ERROR) << "Unable to add public key hash value.";
+      continue;
+    }
+    jbyte* bytes = env->GetByteArrayElements(bytes_array.obj(), nullptr);
+    net::HashValue hash(*reinterpret_cast<net::SHA256HashValue*>(bytes));
+    pkp->pin_hashes.push_back(hash);
+    env->ReleaseByteArrayElements(bytes_array.obj(), bytes, JNI_ABORT);
+  }
+  config->pkp_list.push_back(std::move(pkp));
+}
+
 // Creates RequestContextAdater if config is valid URLRequestContextConfig,
 // returns 0 otherwise.
 static jlong CreateRequestContextAdapter(JNIEnv* env,
                                          const JavaParamRef<jclass>& jcaller,
-                                         const JavaParamRef<jstring>& jconfig) {
-  std::string config_string =
-      base::android::ConvertJavaStringToUTF8(env, jconfig);
+                                         jlong jconfig) {
   scoped_ptr<URLRequestContextConfig> context_config(
-      new URLRequestContextConfig());
-  if (!context_config->LoadFromJSON(config_string))
-    return 0;
+      reinterpret_cast<URLRequestContextConfig*>(jconfig));
 
   CronetURLRequestContextAdapter* context_adapter =
-      new CronetURLRequestContextAdapter(context_config.Pass());
+      new CronetURLRequestContextAdapter(std::move(context_config));
   return reinterpret_cast<jlong>(context_adapter);
 }
 
@@ -545,7 +801,7 @@ static ScopedJavaLocalRef<jbyteArray> GetHistogramDeltas(
     JNIEnv* env,
     const JavaParamRef<jclass>& jcaller) {
   base::StatisticsRecorder::Initialize();
-  std::vector<uint8> data;
+  std::vector<uint8_t> data;
   if (!HistogramManager::GetInstance()->GetDeltas(&data))
     return ScopedJavaLocalRef<jbyteArray>();
   return base::android::ToJavaByteArray(env, &data[0], data.size());

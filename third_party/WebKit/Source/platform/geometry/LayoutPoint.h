@@ -34,15 +34,19 @@
 #include "platform/geometry/DoublePoint.h"
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/LayoutSize.h"
+#include "wtf/Allocator.h"
+#include "wtf/Forward.h"
 #include "wtf/MathExtras.h"
 #include <algorithm>
 
 namespace blink {
 
 class LayoutPoint {
+    DISALLOW_NEW();
 public:
     LayoutPoint() { }
     LayoutPoint(LayoutUnit x, LayoutUnit y) : m_x(x), m_y(y) { }
+    LayoutPoint(int x, int y) : m_x(LayoutUnit(x)), m_y(LayoutUnit(y)) { }
     LayoutPoint(const IntPoint& point) : m_x(point.x()), m_y(point.y()) { }
     explicit LayoutPoint(const FloatPoint& point) : m_x(point.x()), m_y(point.y()) { }
     explicit LayoutPoint(const DoublePoint& point) : m_x(point.x()), m_y(point.y()) { }
@@ -59,6 +63,7 @@ public:
     void move(const LayoutSize& s) { move(s.width(), s.height()); }
     void move(const IntSize& s) { move(s.width(), s.height()); }
     void moveBy(const LayoutPoint& offset) { move(offset.x(), offset.y()); }
+    void move(int dx, int dy) { move(LayoutUnit(dx), LayoutUnit(dy)); }
     void move(LayoutUnit dx, LayoutUnit dy) { m_x += dx; m_y += dy; }
     void scale(float sx, float sy)
     {
@@ -85,6 +90,10 @@ public:
     {
         return LayoutPoint(m_y, m_x);
     }
+
+#ifndef NDEBUG
+    String toString() const;
+#endif
 
 private:
     LayoutUnit m_x, m_y;
@@ -234,7 +243,6 @@ inline LayoutPoint flooredLayoutPoint(const FloatSize& s)
 {
     return flooredLayoutPoint(FloatPoint(s));
 }
-
 
 } // namespace blink
 

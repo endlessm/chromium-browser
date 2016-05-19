@@ -4,8 +4,9 @@
 
 #include "chrome/browser/extensions/test_extension_system.h"
 
+#include <utility>
+
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/extensions/blacklist.h"
 #include "chrome/browser/extensions/chrome_app_sorting.h"
 #include "chrome/browser/extensions/extension_management.h"
@@ -13,6 +14,7 @@
 #include "chrome/browser/extensions/shared_module_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
@@ -53,7 +55,7 @@ ExtensionService* TestExtensionSystem::CreateExtensionService(
   // but we keep a naked pointer to the TestingValueStore.
   scoped_ptr<TestingValueStore> value_store(new TestingValueStore());
   value_store_ = value_store.get();
-  state_store_.reset(new StateStore(profile_, value_store.Pass()));
+  state_store_.reset(new StateStore(profile_, std::move(value_store)));
   management_policy_.reset(new ManagementPolicy());
   management_policy_->RegisterProviders(
       ExtensionManagementFactory::GetForBrowserContext(profile_)

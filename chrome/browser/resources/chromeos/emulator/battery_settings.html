@@ -1,83 +1,85 @@
 <link rel="import" href="chrome://resources/polymer/v1_0/polymer/polymer.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-collapse/iron-collapse.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/classes/iron-flex-layout.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icons/device-icons.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-dropdown-menu/paper-dropdown-menu.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-input/paper-input.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-toggle-button/paper-toggle-button.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-slider/paper-slider.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-item/paper-item.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-menu/paper-menu.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-radio-group/paper-radio-group.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-radio-button/paper-radio-button.html">
 
 <dom-module id="battery-settings">
-  <link rel="import" type="css" href="battery_settings.css">
+  <link rel="import" type="css" href="shared_styles.css">
   <template>
     <div class="layout vertical">
       <div class="element-label">
         <paper-icon-button icon="device:battery-charging-full">
         </paper-icon-button>
-        <span>{{title}}</span>
+        <span>[[title]]</span>
       </div>
-      <form id="power-settings-form">
-        <div>
-          <p>
-            <label>
-              <span class="form-label">Battery Percentage</span>
-              <paper-input value="{{batteryPercent}}"
-                  id="battery-percent-text" type="number">
-              </paper-input>
-            </label>
-          </p>
+      <label>
+        <span class="form-label">Battery state</span>
+        <paper-radio-group selected="{{batteryState}}">
+          <template is="dom-repeat" items="[[batteryStateOptions]]">
+            <paper-radio-button name="[[item]]">[[item]]</paper-radio-button>
+          </template>
+        </paper-radio-group>
+      </label>
+      <iron-collapse opened="[[isBatteryPresent(batteryState)]]">
+        <div class="layout vertical">
+          <paper-input label="Battery percentage" value="[[batteryPercent]]"
+              on-change="onBatteryPercentChange" type="number">
+          </paper-input>
+  
+          <paper-input label="Seconds until empty" value="[[timeUntilEmpty]]"
+              on-change="onTimeUntilEmptyChange" type="number">
+          </paper-input>
+
+          <paper-input label="Seconds until full" value="[[timeUntilFull]]"
+              on-change="onTimeUntilFullChange" type="number">
+          </paper-input>
         </div>
+      </iron-collapse>
 
-        <div>
-          <p>
-            <label>
-              <span class="form-label">Battery State</span>
-              <paper-radio-group selected="{{batteryState}}"
-                  id="battery-state-radio-group">
-                <template is="dom-repeat" items="{{batteryStateOptions}}">
-                  <paper-radio-button
-                      name="{{item}}">{{item}}</paper-radio-button>
-                </template>
-              </paper-radio-group>
-            </label>
-          </p>
-        </div>
-
-        <div>
-          <p>
-            <label>
-              <span class="form-label">External Power</span>
-              <paper-radio-group selected="{{externalPower}}"
-                  id="external-power-radio-group">
-                <template is="dom-repeat" items="{{externalPowerOptions}}">
-                  <paper-radio-button
-                      name="{{item}}">{{item}}</paper-radio-button>
-                </template>
-              </paper-radio-group>
-            </label>
-          </p>
-        </div>
-
-        <div>
-          <p>
-            <label>
-              <span class="form-label">Time Until Battery Empty</span>
-              <paper-input value="{{timeUntilEmpty}}"
-                   id="time-until-empty-text">
-             </paper-input>
-            </label>
-          </p>
-
-          <p>
-            <label>
-              <span class="form-label">Time Until Battery Full</span>
-              <paper-input value="{{timeUntilFull}}" id="time-until-full-text">
-              </paper-input>
-            </label>
-          </p>
-        </div>
-
-      </form>
+      <table class="devices-table">
+        <tbody>
+          <tr class="table-section-header">
+            <td>Power sources</td>
+            <td class="centered-cell-label">Connected</td>
+            <td class="centered-cell-label">Role</td>
+            <td class="centered-cell-label">Amps</td>
+          </tr>
+          <template is="dom-repeat" items="{{powerSourceOptions}}">
+            <tr>
+              <td class="alias-cell">[[item.name]]</td>
+              <td class="control-cell">
+                <paper-checkbox checked="{{item.connected}}"></paper-checkbox>
+              </td>
+              <td class="control-cell">
+                <paper-button on-tap="onSetAsSourceTap"
+                    hidden$="[[!isDualRole(item)]]"
+                    raised="[[!isSelectedSource(item, selectedPowerSourceId)]]"
+                    disabled="[[!canBecomeSource(item, selectedPowerSourceId, powerSourceOptions.*)]]">
+                  Set as source
+                </paper-button>
+                <div hidden$="[[isDualRole(item)]]">Source</div>
+              </td>
+              <td class="control-cell">
+                <paper-dropdown-menu class="device-class-group"
+                    disabled="[[!item.variablePower]]">
+                  <paper-menu selected="{{item.power}}"
+                      class="dropdown-content" attr-for-selected="data-value">
+                    <paper-item data-value="high">High</paper-item>
+                    <paper-item data-value="low">Low</paper-item>
+                  </paper-menu>
+                </paper-dropdown-menu>
+              </td>
+          </template>
+        </tbody>
+      </table>
     </div>
   </template>
   <script src="battery_settings.js"></script>

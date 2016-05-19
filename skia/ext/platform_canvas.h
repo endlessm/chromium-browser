@@ -5,19 +5,26 @@
 #ifndef SKIA_EXT_PLATFORM_CANVAS_H_
 #define SKIA_EXT_PLATFORM_CANVAS_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 // The platform-specific device will include the necessary platform headers
 // to get the surface type.
-#include "base/basictypes.h"
-#include "skia/ext/platform_device.h"
+#include "build/build_config.h"
+#include "skia/ext/platform_surface.h"
 #include "skia/ext/refptr.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPixelRef.h"
 #include "third_party/skia/include/core/SkPixmap.h"
 
-namespace skia {
+class SkBaseDevice;
 
-typedef SkCanvas PlatformCanvas;
+// A PlatformCanvas is a software-rasterized SkCanvas which is *also*
+// addressable by the platform-specific drawing API (GDI, Core Graphics,
+// Cairo...).
+
+namespace skia {
 
 //
 //  Note about error handling.
@@ -46,7 +53,7 @@ enum OnFailureType {
                                         OnFailureType failure_type);
 
   // Draws the top layer of the canvas into the specified HDC. Only works
-  // with a PlatformCanvas with a BitmapPlatformDevice.
+  // with a SkCanvas with a BitmapPlatformDevice.
   SK_API void DrawToNativeContext(SkCanvas* canvas,
                                   HDC hdc,
                                   int x,
@@ -138,9 +145,6 @@ SK_API bool GetWritablePixels(SkCanvas* canvas, SkPixmap* pixmap);
 // return NULL PlatformSurface.
 SK_API bool SupportsPlatformPaint(const SkCanvas* canvas);
 
-// Sets the opacity of each pixel in the specified region to be opaque.
-SK_API void MakeOpaque(SkCanvas* canvas, int x, int y, int width, int height);
-
 // These calls should surround calls to platform drawing routines, the
 // surface returned here can be used with the native platform routines.
 //
@@ -170,6 +174,19 @@ class SK_API ScopedPlatformPaint {
   ScopedPlatformPaint(const ScopedPlatformPaint&);
   ScopedPlatformPaint& operator=(const ScopedPlatformPaint&);
 };
+
+// Following routines are used in print preview workflow to mark the
+// preview metafile.
+SK_API SkMetaData& GetMetaData(const SkCanvas& canvas);
+
+#if defined(OS_MACOSX)
+SK_API void SetIsPreviewMetafile(const SkCanvas& canvas, bool is_preview);
+SK_API bool IsPreviewMetafile(const SkCanvas& canvas);
+
+// Returns the CGContext that backing the SkCanvas.
+// Returns NULL if none is bound.
+SK_API CGContextRef GetBitmapContext(const SkCanvas& canvas);
+#endif
 
 }  // namespace skia
 

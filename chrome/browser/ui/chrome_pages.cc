@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/chrome_pages.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -42,7 +45,7 @@
 #include "extensions/browser/extension_registry.h"
 #endif
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !defined(OS_ANDROID)
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "components/signin/core/browser/signin_manager.h"
 #endif
@@ -56,7 +59,7 @@ const char kHashMark[] = "#";
 
 void OpenBookmarkManagerWithHash(Browser* browser,
                                  const std::string& action,
-                                 int64 node_id) {
+                                 int64_t node_id) {
   content::RecordAction(UserMetricsAction("ShowBookmarkManager"));
   content::RecordAction(UserMetricsAction("ShowBookmarks"));
   NavigateParams params(GetSingletonTabNavigateParams(
@@ -121,8 +124,7 @@ void ShowHelpImpl(Browser* browser,
   }
   scoped_ptr<ScopedTabbedBrowserDisplayer> displayer;
   if (!browser) {
-    displayer.reset(
-        new ScopedTabbedBrowserDisplayer(profile, host_desktop_type));
+    displayer.reset(new ScopedTabbedBrowserDisplayer(profile));
     browser = displayer->browser();
   }
   ShowSingletonTab(browser, url);
@@ -144,7 +146,7 @@ void ShowBookmarkManager(Browser* browser) {
       GetSingletonTabNavigateParams(browser, GURL(kChromeUIBookmarksURL)));
 }
 
-void ShowBookmarkManagerForNode(Browser* browser, int64 node_id) {
+void ShowBookmarkManagerForNode(Browser* browser, int64_t node_id) {
   OpenBookmarkManagerWithHash(browser, std::string(), node_id);
 }
 
@@ -158,12 +160,9 @@ void ShowHistory(Browser* browser) {
 
 void ShowDownloads(Browser* browser) {
   content::RecordAction(UserMetricsAction("ShowDownloads"));
-  if (browser->window()) {
-    DownloadShelf* shelf = browser->window()->GetDownloadShelf();
-    // The downloads page is always shown in response to a user action.
-    if (shelf->IsShowing())
-      shelf->Close(DownloadShelf::USER_ACTION);
-  }
+  if (browser->window() && browser->window()->IsDownloadShelfVisible())
+    browser->window()->GetDownloadShelf()->Close(DownloadShelf::USER_ACTION);
+
   ShowSingletonTabOverwritingNTP(
       browser,
       GetSingletonTabNavigateParams(browser, GURL(kChromeUIDownloadsURL)));
@@ -282,11 +281,9 @@ void ShowSettingsSubPageForProfile(Profile* profile,
         profile, GetSettingsUrl(sub_page));
     return;
   }
-  Browser* browser =
-      chrome::FindTabbedBrowser(profile, false, HOST_DESKTOP_TYPE_NATIVE);
+  Browser* browser = chrome::FindTabbedBrowser(profile, false);
   if (!browser) {
-    browser = new Browser(
-        Browser::CreateParams(profile, chrome::HOST_DESKTOP_TYPE_NATIVE));
+    browser = new Browser(Browser::CreateParams(profile));
   }
   ShowSettingsSubPageInTabbedBrowser(browser, sub_page);
 }
@@ -356,8 +353,9 @@ void ShowSearchEngineSettings(Browser* browser) {
   ShowSettingsSubPage(browser, kSearchEnginesSubPage);
 }
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
-void ShowBrowserSignin(Browser* browser, signin_metrics::Source source) {
+#if !defined(OS_ANDROID)
+void ShowBrowserSignin(Browser* browser,
+                       signin_metrics::AccessPoint access_point) {
   Profile* original_profile = browser->profile()->GetOriginalProfile();
   SigninManagerBase* manager =
       SigninManagerFactory::GetForProfile(original_profile);
@@ -369,19 +367,17 @@ void ShowBrowserSignin(Browser* browser, signin_metrics::Source source) {
   scoped_ptr<ScopedTabbedBrowserDisplayer> displayer;
   if (browser->profile()->IsOffTheRecord()) {
     switched_browser = true;
-    displayer.reset(new ScopedTabbedBrowserDisplayer(
-        original_profile, chrome::HOST_DESKTOP_TYPE_NATIVE));
+    displayer.reset(new ScopedTabbedBrowserDisplayer(original_profile));
     browser = displayer->browser();
   }
 
-  signin_metrics::LogSigninSource(source);
-
-  // Since the app launcher is a separate application, it might steal focus
+  // Since the extension is a separate application, it might steal focus
   // away from Chrome, and accidentally close the avatar bubble. The same will
   // happen if we had to switch browser windows to show the sign in page. In
   // this case, fallback to the full-tab signin page.
   bool show_avatar_bubble =
-      source != signin_metrics::SOURCE_APP_LAUNCHER && !switched_browser;
+      access_point != signin_metrics::AccessPoint::ACCESS_POINT_EXTENSIONS &&
+      !switched_browser;
 #if defined(OS_CHROMEOS)
   // ChromeOS doesn't have the avatar bubble.
   show_avatar_bubble = false;
@@ -390,16 +386,19 @@ void ShowBrowserSignin(Browser* browser, signin_metrics::Source source) {
   if (show_avatar_bubble) {
     browser->window()->ShowAvatarBubbleFromAvatarButton(
         BrowserWindow::AVATAR_BUBBLE_MODE_SIGNIN,
-        signin::ManageAccountsParams());
+        signin::ManageAccountsParams(), access_point);
   } else {
-    NavigateToSingletonTab(browser, GURL(signin::GetPromoURL(source, false)));
+    NavigateToSingletonTab(
+        browser,
+        signin::GetPromoURL(
+            access_point, signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT,
+            false));
     DCHECK_GT(browser->tab_strip_model()->count(), 0);
   }
 }
 
-void ShowBrowserSigninOrSettings(
-    Browser* browser,
-    signin_metrics::Source source) {
+void ShowBrowserSigninOrSettings(Browser* browser,
+                                 signin_metrics::AccessPoint access_point) {
   Profile* original_profile = browser->profile()->GetOriginalProfile();
   SigninManagerBase* manager =
       SigninManagerFactory::GetForProfile(original_profile);
@@ -407,7 +406,7 @@ void ShowBrowserSigninOrSettings(
   if (manager->IsAuthenticated())
     ShowSettings(browser);
   else
-    ShowBrowserSignin(browser, source);
+    ShowBrowserSignin(browser, access_point);
 }
 #endif
 

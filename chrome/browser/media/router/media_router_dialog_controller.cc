@@ -4,12 +4,15 @@
 
 #include "chrome/browser/media/router/media_router_dialog_controller.h"
 
+#include <utility>
+
 #include "chrome/browser/media/router/media_router_metrics.h"
+#include "chrome/common/features.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/media/android/router/media_router_dialog_controller_android.h"
 #else
 #include "chrome/browser/ui/webui/media_router/media_router_dialog_controller_impl.h"
@@ -21,7 +24,7 @@ namespace media_router {
 MediaRouterDialogController*
 MediaRouterDialogController::GetOrCreateForWebContents(
     content::WebContents* contents) {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   return MediaRouterDialogControllerAndroid::GetOrCreateForWebContents(
       contents);
 #else
@@ -65,7 +68,6 @@ MediaRouterDialogController::MediaRouterDialogController(
     : initiator_(initiator) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(initiator_);
-  initiator_observer_.reset(new InitiatorWebContentsObserver(initiator_, this));
 }
 
 MediaRouterDialogController::~MediaRouterDialogController() {
@@ -80,14 +82,15 @@ bool MediaRouterDialogController::ShowMediaRouterDialogForPresentation(
   if (IsShowingMediaRouterDialog())
     return false;
 
-  create_connection_request_ = request.Pass();
+  create_connection_request_ = std::move(request);
+  initiator_observer_.reset(new InitiatorWebContentsObserver(initiator_, this));
   CreateMediaRouterDialog();
 
   // Show the initiator holding the existing media router dialog.
   ActivateInitiatorWebContents();
 
   media_router::MediaRouterMetrics::RecordMediaRouterDialogOrigin(
-      media_router::PAGE);
+      MediaRouterDialogOpenOrigin::PAGE);
 
   return true;
 }
@@ -97,8 +100,11 @@ bool MediaRouterDialogController::ShowMediaRouterDialog() {
 
   // Don't create dialog if it already exists.
   bool dialog_needs_creation = !IsShowingMediaRouterDialog();
-  if (dialog_needs_creation)
+  if (dialog_needs_creation) {
+    initiator_observer_.reset(
+        new InitiatorWebContentsObserver(initiator_, this));
     CreateMediaRouterDialog();
+  }
 
   ActivateInitiatorWebContents();
   return dialog_needs_creation;
@@ -116,7 +122,7 @@ void MediaRouterDialogController::ActivateInitiatorWebContents() {
 
 scoped_ptr<CreatePresentationConnectionRequest>
 MediaRouterDialogController::TakeCreateConnectionRequest() {
-  return create_connection_request_.Pass();
+  return std::move(create_connection_request_);
 }
 
 void MediaRouterDialogController::Reset() {

@@ -4,7 +4,10 @@
 
 #include "ui/aura/window_tree_host_platform.h"
 
+#include <utility>
+
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/compositor/compositor.h"
 #include "ui/events/event.h"
@@ -49,11 +52,13 @@ WindowTreeHostPlatform::WindowTreeHostPlatform(const gfx::Rect& bounds)
 
 WindowTreeHostPlatform::WindowTreeHostPlatform()
     : widget_(gfx::kNullAcceleratedWidget),
-      current_cursor_(ui::kCursorNull) {}
+      current_cursor_(ui::kCursorNull) {
+  CreateCompositor();
+}
 
 void WindowTreeHostPlatform::SetPlatformWindow(
     scoped_ptr<ui::PlatformWindow> window) {
-  window_ = window.Pass();
+  window_ = std::move(window);
 }
 
 WindowTreeHostPlatform::~WindowTreeHostPlatform() {
@@ -78,7 +83,7 @@ void WindowTreeHostPlatform::HideImpl() {
 }
 
 gfx::Rect WindowTreeHostPlatform::GetBounds() const {
-  return window_->GetBounds();
+  return window_ ? window_->GetBounds() : gfx::Rect();
 }
 
 void WindowTreeHostPlatform::SetBounds(const gfx::Rect& bounds) {
@@ -120,7 +125,7 @@ void WindowTreeHostPlatform::OnCursorVisibilityChangedNative(bool show) {
 
 void WindowTreeHostPlatform::OnBoundsChanged(const gfx::Rect& new_bounds) {
   float current_scale = compositor()->device_scale_factor();
-  float new_scale = gfx::Screen::GetScreenFor(window())
+  float new_scale = gfx::Screen::GetScreen()
                         ->GetDisplayNearestWindow(window())
                         .device_scale_factor();
   gfx::Rect old_bounds = bounds_;
@@ -166,7 +171,6 @@ void WindowTreeHostPlatform::OnAcceleratedWidgetAvailable(
     gfx::AcceleratedWidget widget,
     float device_pixel_ratio) {
   widget_ = widget;
-  CreateCompositor();
   WindowTreeHost::OnAcceleratedWidgetAvailable();
 }
 

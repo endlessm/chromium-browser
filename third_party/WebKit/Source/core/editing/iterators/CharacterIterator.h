@@ -50,13 +50,14 @@ public:
     bool atEnd() const { return m_textIterator.atEnd(); }
 
     int length() const { return m_textIterator.length() - m_runOffset; }
-    UChar characterAt(unsigned index) const { return m_textIterator.text().characterAt(m_runOffset + index); }
+    UChar characterAt(unsigned index) const { return m_textIterator.characterAt(m_runOffset + index); }
 
-    template<typename BufferType>
-    void appendTextTo(BufferType& output) { m_textIterator.text().appendTextTo(output, m_runOffset); }
+    void copyTextTo(ForwardsTextBuffer* output);
 
     int characterOffset() const { return m_offset; }
     EphemeralRangeTemplate<Strategy> range() const;
+
+    bool isInTextSecurityMode() const { return m_textIterator.isInTextSecurityMode(); }
 
     Document* ownerDocument() const;
     Node* currentContainer() const;
@@ -80,7 +81,7 @@ private:
 extern template class CORE_EXTERN_TEMPLATE_EXPORT CharacterIteratorAlgorithm<EditingStrategy>;
 using CharacterIterator = CharacterIteratorAlgorithm<EditingStrategy>;
 
-extern template class CORE_EXTERN_TEMPLATE_EXPORT CharacterIteratorAlgorithm<EditingInComposedTreeStrategy>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT CharacterIteratorAlgorithm<EditingInFlatTreeStrategy>;
 
 CORE_EXPORT EphemeralRange calculateCharacterSubrange(const EphemeralRange&, int characterOffset, int characterCount);
 

@@ -4,6 +4,9 @@
 
 #include "content/browser/accessibility/browser_accessibility_auralinux.h"
 
+#include <stdint.h>
+#include <string.h>
+
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/accessibility/browser_accessibility_manager_auralinux.h"
 #include "content/common/accessibility_messages.h"
@@ -174,7 +177,7 @@ static gboolean browser_accessibility_grab_focus(AtkComponent* atk_component) {
   if (!obj)
     return false;
 
-  obj->manager()->SetFocus(obj, true);
+  obj->manager()->SetFocus(*obj);
   return true;
 }
 
@@ -532,11 +535,11 @@ static AtkStateSet* browser_accessibility_ref_state_set(AtkObject* atk_object) {
     return NULL;
   AtkStateSet* state_set = ATK_OBJECT_CLASS(browser_accessibility_parent_class)
                                ->ref_state_set(atk_object);
-  int32 state = obj->GetState();
+  int32_t state = obj->GetState();
 
   if (state & (1 << ui::AX_STATE_FOCUSABLE))
     atk_state_set_add_state(state_set, ATK_STATE_FOCUSABLE);
-  if (obj->manager()->GetFocus(NULL) == obj)
+  if (obj->manager()->GetFocus() == obj)
     atk_state_set_add_state(state_set, ATK_STATE_FOCUSED);
   if (state & (1 << ui::AX_STATE_ENABLED))
     atk_state_set_add_state(state_set, ATK_STATE_ENABLED);
@@ -707,6 +710,14 @@ static GType GetAccessibilityTypeFromObject(
 
 BrowserAccessibilityAtk* browser_accessibility_new(
     BrowserAccessibilityAuraLinux* obj) {
+  #if !GLIB_CHECK_VERSION(2, 36, 0)
+  static bool first_time = true;
+  if (first_time) {
+    g_type_init();
+    first_time = false;
+  }
+  #endif
+
   GType type = GetAccessibilityTypeFromObject(obj);
   AtkObject* atk_object = static_cast<AtkObject*>(g_object_new(type, 0));
 

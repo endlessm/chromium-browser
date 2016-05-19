@@ -1,7 +1,7 @@
 gconf-service
 libasound2 (>= 1.0.23)
 libatk1.0-0 (>= 1.12.4)
-libc6 (>= 2.11)
+libc6 (>= 2.12)
 libcairo2 (>= 1.6.0)
 libcups2 (>= 1.4.0)
 libdbus-1-3 (>= 1.2.14)
@@ -22,7 +22,7 @@ libxcomposite1 (>= 1:0.3-1)
 libxcursor1 (>> 1.1.2)
 libxdamage1 (>= 1:1.1)
 libxext6
-libxfixes3 (>= 1:5.0)
+libxfixes3
 libxi6 (>= 2:1.2.99.4)
 libxrandr2 (>= 2:1.2.99.2)
 libxrender1

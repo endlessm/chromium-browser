@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/webmidi/NavigatorWebMIDI.h"
 
 #include "bindings/core/v8/ScriptPromise.h"
@@ -37,6 +36,7 @@
 #include "core/dom/Document.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Navigator.h"
+#include "core/frame/UseCounter.h"
 #include "modules/webmidi/MIDIAccessInitializer.h"
 #include "modules/webmidi/MIDIOptions.h"
 
@@ -83,6 +83,7 @@ ScriptPromise NavigatorWebMIDI::requestMIDIAccess(ScriptState* scriptState, cons
         return ScriptPromise::rejectWithDOMException(scriptState, DOMException::create(AbortError, "The frame is not working."));
     }
 
+    UseCounter::countCrossOriginIframe(*frame()->document(), UseCounter::RequestMIDIAccessIframe);
     return MIDIAccessInitializer::start(scriptState, options);
 }
 

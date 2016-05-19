@@ -6,13 +6,13 @@
 
 #include <algorithm>
 
-#include "base/basictypes.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_auth_challenge_tokenizer.h"
 #include "net/http/http_auth_handler.h"
 #include "net/http/http_auth_handler_factory.h"
+#include "net/http/http_auth_scheme.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
@@ -37,7 +37,7 @@ void HttpAuth::ChooseBestChallenge(
   scoped_ptr<HttpAuthHandler> best;
   const std::string header_name = GetChallengeHeaderName(target);
   std::string cur_challenge;
-  void* iter = NULL;
+  size_t iter = 0;
   while (headers->EnumerateHeader(&iter, header_name, &cur_challenge)) {
     scoped_ptr<HttpAuthHandler> cur;
     int rv = http_auth_handler_factory->CreateAuthHandlerFromString(
@@ -70,7 +70,7 @@ HttpAuth::AuthorizationResult HttpAuth::HandleChallengeResponse(
     return HttpAuth::AUTHORIZATION_RESULT_REJECT;
   std::string current_scheme_name = SchemeToString(current_scheme);
   const std::string header_name = GetChallengeHeaderName(target);
-  void* iter = NULL;
+  size_t iter = 0;
   std::string challenge;
   HttpAuth::AuthorizationResult authorization_result =
       HttpAuth::AUTHORIZATION_RESULT_INVALID;
@@ -131,13 +131,8 @@ std::string HttpAuth::GetAuthTargetString(Target target) {
 // static
 const char* HttpAuth::SchemeToString(Scheme scheme) {
   static const char* const kSchemeNames[] = {
-    "basic",
-    "digest",
-    "ntlm",
-    "negotiate",
-    "spdyproxy",
-    "mock",
-  };
+      kBasicAuthScheme,     kDigestAuthScheme,    kNtlmAuthScheme,
+      kNegotiateAuthScheme, kSpdyProxyAuthScheme, kMockAuthScheme};
   static_assert(arraysize(kSchemeNames) == AUTH_SCHEME_MAX,
                 "http auth scheme names incorrect size");
   if (scheme < AUTH_SCHEME_BASIC || scheme >= AUTH_SCHEME_MAX) {

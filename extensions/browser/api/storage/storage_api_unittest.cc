@@ -67,7 +67,8 @@ class StorageApiUnittest : public ApiUnitTest {
       return testing::AssertionFailure() << "No result";
     base::DictionaryValue* dict = NULL;
     if (!result->GetAsDictionary(&dict))
-      return testing::AssertionFailure() << result << " was not a dictionary.";
+      return testing::AssertionFailure() << result.get()
+                                         << " was not a dictionary.";
     if (!dict->GetString(key, value)) {
       return testing::AssertionFailure() << " could not retrieve a string from"
           << dict << " at " << key;
@@ -111,7 +112,7 @@ TEST_F(StorageApiUnittest, RestoreCorruptedStorage) {
   leveldb::WriteBatch batch;
   batch.Put(kKey, "[{(.*+\"\'\\");
   EXPECT_TRUE(leveldb_store->WriteToDbForTest(&batch));
-  EXPECT_TRUE(leveldb_store->Get(kKey)->IsCorrupted());
+  EXPECT_TRUE(leveldb_store->Get(kKey)->status().IsCorrupted());
 
   // Running another set should end up working (even though it will restore the
   // store behind the scenes).

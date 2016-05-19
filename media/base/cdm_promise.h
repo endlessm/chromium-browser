@@ -5,10 +5,12 @@
 #ifndef MEDIA_BASE_CDM_PROMISE_H_
 #define MEDIA_BASE_CDM_PROMISE_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "media/base/media_export.h"
 #include "media/base/media_keys.h"
 
@@ -45,7 +47,7 @@ class MEDIA_EXPORT CdmPromise {
   // that occurred, or 0 if there is no associated status code or such status
   // codes are not supported by the Key System. |error_message| is optional.
   virtual void reject(MediaKeys::Exception exception_code,
-                      uint32 system_code,
+                      uint32_t system_code,
                       const std::string& error_message) = 0;
 
   // Used to determine the template type of CdmPromiseTemplate<T> so that
@@ -89,7 +91,7 @@ class MEDIA_EXPORT CdmPromiseTemplate : public CdmPromise {
 
   // CdmPromise implementation.
   virtual void reject(MediaKeys::Exception exception_code,
-                      uint32 system_code,
+                      uint32_t system_code,
                       const std::string& error_message) = 0;
 
   ResolveParameterType GetResolveParameterType() const override {

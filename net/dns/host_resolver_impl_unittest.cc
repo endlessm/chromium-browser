@@ -6,12 +6,15 @@
 
 #include <algorithm>
 #include <string>
+#include <tuple>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_vector.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -24,7 +27,6 @@
 #include "base/time/time.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/dns/dns_client.h"
 #include "net/dns/dns_test_util.h"
 #include "net/dns/mock_host_resolver.h"
@@ -61,8 +63,8 @@ class MockHostResolverProc : public HostResolverProc {
     ResolveKey(const std::string& hostname, AddressFamily address_family)
         : hostname(hostname), address_family(address_family) {}
     bool operator<(const ResolveKey& other) const {
-      return address_family < other.address_family ||
-          (address_family == other.address_family && hostname < other.hostname);
+      return std::tie(address_family, hostname) <
+             std::tie(other.address_family, other.hostname);
     }
     std::string hostname;
     AddressFamily address_family;
@@ -184,8 +186,9 @@ class MockHostResolverProc : public HostResolverProc {
   DISALLOW_COPY_AND_ASSIGN(MockHostResolverProc);
 };
 
-bool AddressListContains(const AddressList& list, const std::string& address,
-                         uint16 port) {
+bool AddressListContains(const AddressList& list,
+                         const std::string& address,
+                         uint16_t port) {
   IPAddressNumber ip;
   bool rv = ParseIPLiteralToNumber(address, &ip);
   DCHECK(rv);
@@ -253,7 +256,7 @@ class Request {
   bool completed() const { return result_ != ERR_IO_PENDING; }
   bool pending() const { return handle_ != NULL; }
 
-  bool HasAddress(const std::string& address, uint16 port) const {
+  bool HasAddress(const std::string& address, uint16_t port) const {
     return AddressListContains(list_, address, port);
   }
 
@@ -262,7 +265,7 @@ class Request {
     return list_.size();
   }
 
-  bool HasOneAddress(const std::string& address, uint16 port) const {
+  bool HasOneAddress(const std::string& address, uint16_t port) const {
     return HasAddress(address, port) && (NumberOfAddresses() == 1u);
   }
 
@@ -443,6 +446,48 @@ class TestHostResolverImpl : public HostResolverImpl {
   }
 };
 
+const unsigned char kLocalhostIPv4[] = {127, 0, 0, 1};
+const unsigned char kLocalhostIPv6[] =
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+const uint16_t kLocalhostLookupPort = 80;
+
+bool HasEndpoint(const IPEndPoint& endpoint, const AddressList& addresses) {
+  for (const auto& address : addresses) {
+    if (endpoint == address)
+      return true;
+  }
+  return false;
+}
+
+void TestBothLoopbackIPs(const std::string& host) {
+  IPEndPoint localhost_ipv4(
+      IPAddressNumber(kLocalhostIPv4,
+                      kLocalhostIPv4 + arraysize(kLocalhostIPv4)),
+      kLocalhostLookupPort);
+  IPEndPoint localhost_ipv6(
+      IPAddressNumber(kLocalhostIPv6,
+                      kLocalhostIPv6 + arraysize(kLocalhostIPv6)),
+      kLocalhostLookupPort);
+
+  AddressList addresses;
+  EXPECT_TRUE(ResolveLocalHostname(host, kLocalhostLookupPort, &addresses));
+  EXPECT_EQ(2u, addresses.size());
+  EXPECT_TRUE(HasEndpoint(localhost_ipv4, addresses));
+  EXPECT_TRUE(HasEndpoint(localhost_ipv6, addresses));
+}
+
+void TestIPv6LoopbackOnly(const std::string& host) {
+  IPEndPoint localhost_ipv6(
+      IPAddressNumber(kLocalhostIPv6,
+                      kLocalhostIPv6 + arraysize(kLocalhostIPv6)),
+      kLocalhostLookupPort);
+
+  AddressList addresses;
+  EXPECT_TRUE(ResolveLocalHostname(host, kLocalhostLookupPort, &addresses));
+  EXPECT_EQ(1u, addresses.size());
+  EXPECT_TRUE(HasEndpoint(localhost_ipv6, addresses));
+}
+
 }  // namespace
 
 class HostResolverImplTest : public testing::Test {
@@ -480,7 +525,7 @@ class HostResolverImplTest : public testing::Test {
     Request* CreateRequest(const std::string& hostname) {
       return test->CreateRequest(hostname);
     }
-    ScopedVector<Request>& requests() { return test->requests_; }
+    std::vector<scoped_ptr<Request>>& requests() { return test->requests_; }
 
     void DeleteResolver() { test->resolver_.reset(); }
 
@@ -509,10 +554,9 @@ class HostResolverImplTest : public testing::Test {
   // not start until released by |proc_->SignalXXX|.
   Request* CreateRequest(const HostResolver::RequestInfo& info,
                          RequestPriority priority) {
-    Request* req = new Request(
-        info, priority, requests_.size(), resolver_.get(), handler_.get());
-    requests_.push_back(req);
-    return req;
+    requests_.push_back(make_scoped_ptr(new Request(
+        info, priority, requests_.size(), resolver_.get(), handler_.get())));
+    return requests_.back().get();
   }
 
   Request* CreateRequest(const std::string& hostname,
@@ -564,7 +608,7 @@ class HostResolverImplTest : public testing::Test {
 
   scoped_refptr<MockHostResolverProc> proc_;
   scoped_ptr<HostResolverImpl> resolver_;
-  ScopedVector<Request> requests_;
+  std::vector<scoped_ptr<Request>> requests_;
 
   scoped_ptr<Handler> handler_;
 };
@@ -1473,7 +1517,7 @@ class HostResolverImplDnsTest : public HostResolverImplTest {
 
   // Adds a rule to |dns_rules_|. Must be followed by |CreateResolver| to apply.
   void AddDnsRule(const std::string& prefix,
-                  uint16 qtype,
+                  uint16_t qtype,
                   MockDnsClientRule::Result result,
                   bool delay) {
     dns_rules_.push_back(MockDnsClientRule(prefix, qtype, result, delay));
@@ -2173,6 +2217,64 @@ TEST_F(HostResolverImplDnsTest, ManuallyDisableDnsClientWithPendingRequests) {
   EXPECT_TRUE(requests_[1]->HasOneAddress("192.168.0.2", 80));
   EXPECT_EQ(OK, requests_[2]->WaitForResult());
   EXPECT_TRUE(requests_[2]->HasOneAddress("192.168.0.3", 80));
+}
+
+TEST_F(HostResolverImplTest, ResolveLocalHostname) {
+  AddressList addresses;
+
+  TestBothLoopbackIPs("localhost");
+  TestBothLoopbackIPs("localhoST");
+  TestBothLoopbackIPs("localhost.");
+  TestBothLoopbackIPs("localhoST.");
+  TestBothLoopbackIPs("localhost.localdomain");
+  TestBothLoopbackIPs("localhost.localdomAIn");
+  TestBothLoopbackIPs("localhost.localdomain.");
+  TestBothLoopbackIPs("localhost.localdomAIn.");
+  TestBothLoopbackIPs("foo.localhost");
+  TestBothLoopbackIPs("foo.localhOSt");
+  TestBothLoopbackIPs("foo.localhost.");
+  TestBothLoopbackIPs("foo.localhOSt.");
+
+  TestIPv6LoopbackOnly("localhost6");
+  TestIPv6LoopbackOnly("localhoST6");
+  TestIPv6LoopbackOnly("localhost6.");
+  TestIPv6LoopbackOnly("localhost6.localdomain6");
+  TestIPv6LoopbackOnly("localhost6.localdomain6.");
+
+  EXPECT_FALSE(
+      ResolveLocalHostname("127.0.0.1", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("::1", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("0:0:0:0:0:0:0:1", kLocalhostLookupPort,
+                                    &addresses));
+  EXPECT_FALSE(
+      ResolveLocalHostname("localhostx", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(
+      ResolveLocalHostname("localhost.x", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("foo.localdomain", kLocalhostLookupPort,
+                                    &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("foo.localdomain.x", kLocalhostLookupPort,
+                                    &addresses));
+  EXPECT_FALSE(
+      ResolveLocalHostname("localhost6x", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("localhost.localdomain6",
+                                    kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("localhost6.localdomain",
+                                    kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(
+      ResolveLocalHostname("127.0.0.1.1", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(
+      ResolveLocalHostname(".127.0.0.255", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("::2", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("::1:1", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("0:0:0:0:1:0:0:1", kLocalhostLookupPort,
+                                    &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("::1:1", kLocalhostLookupPort, &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("0:0:0:0:0:0:0:0:1", kLocalhostLookupPort,
+                                    &addresses));
+  EXPECT_FALSE(ResolveLocalHostname("foo.localhost.com", kLocalhostLookupPort,
+                                    &addresses));
+  EXPECT_FALSE(
+      ResolveLocalHostname("foo.localhoste", kLocalhostLookupPort, &addresses));
 }
 
 }  // namespace net

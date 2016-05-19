@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/imports/HTMLImportsController.h"
 
 #include "core/dom/Document.h"
@@ -125,11 +124,8 @@ HTMLImportChild* HTMLImportsController::load(HTMLImport* parent, HTMLImportChild
         return child;
     }
 
-    bool sameOriginRequest = master()->securityOrigin()->canRequestNoSuborigin(request.url());
-    request.setCrossOriginAccessControl(
-        master()->securityOrigin(), sameOriginRequest ? AllowStoredCredentials : DoNotAllowStoredCredentials,
-        ClientDidNotRequestCredentials);
-    ResourcePtr<RawResource> resource = RawResource::fetchImport(request, parent->document()->fetcher());
+    request.setCrossOriginAccessControl(master()->securityOrigin(), CrossOriginAttributeAnonymous);
+    RefPtrWillBeRawPtr<RawResource> resource = RawResource::fetchImport(request, parent->document()->fetcher());
     if (!resource)
         return nullptr;
 

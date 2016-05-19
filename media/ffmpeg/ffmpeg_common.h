@@ -5,6 +5,8 @@
 #ifndef MEDIA_FFMPEG_FFMPEG_COMMON_H_
 #define MEDIA_FFMPEG_FFMPEG_COMMON_H_
 
+#include <stdint.h>
+
 // Used for FFmpeg error codes.
 #include <cerrno>
 
@@ -75,19 +77,19 @@ inline void ScopedPtrAVFreeFrame::operator()(void* x) const {
   av_frame_free(&frame);
 }
 
-// Converts an int64 timestamp in |time_base| units to a base::TimeDelta.
+// Converts an int64_t timestamp in |time_base| units to a base::TimeDelta.
 // For example if |timestamp| equals 11025 and |time_base| equals {1, 44100}
 // then the return value will be a base::TimeDelta for 0.25 seconds since that
 // is how much time 11025/44100ths of a second represents.
 MEDIA_EXPORT base::TimeDelta ConvertFromTimeBase(const AVRational& time_base,
-                                                 int64 timestamp);
+                                                 int64_t timestamp);
 
-// Converts a base::TimeDelta into an int64 timestamp in |time_base| units.
+// Converts a base::TimeDelta into an int64_t timestamp in |time_base| units.
 // For example if |timestamp| is 0.5 seconds and |time_base| is {1, 44100}, then
 // the return value will be 22050 since that is how many 1/44100ths of a second
 // represent 0.5 seconds.
-MEDIA_EXPORT int64 ConvertToTimeBase(const AVRational& time_base,
-                                     const base::TimeDelta& timestamp);
+MEDIA_EXPORT int64_t ConvertToTimeBase(const AVRational& time_base,
+                                       const base::TimeDelta& timestamp);
 
 // Returns true if AVStream is successfully converted to a AudioDecoderConfig.
 // Returns false if conversion fails, in which case |config| is not modified.
@@ -123,7 +125,7 @@ MEDIA_EXPORT AVCodecID VideoCodecToCodecID(VideoCodec video_codec);
 
 // Converts FFmpeg's audio sample format to Chrome's SampleFormat.
 MEDIA_EXPORT SampleFormat
-AVSampleFormatToSampleFormat(AVSampleFormat sample_format);
+AVSampleFormatToSampleFormat(AVSampleFormat sample_format, AVCodecID codec_id);
 
 // Converts FFmpeg's pixel formats to its corresponding supported video format.
 MEDIA_EXPORT VideoPixelFormat

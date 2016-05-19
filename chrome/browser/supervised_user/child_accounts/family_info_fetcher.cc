@@ -4,7 +4,10 @@
 
 #include "chrome/browser/supervised_user/child_accounts/family_info_fetcher.h"
 
+#include <stddef.h>
+
 #include "base/json/json_reader.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "net/base/load_flags.h"
@@ -68,6 +71,9 @@ FamilyInfoFetcher::FamilyMember::FamilyMember(
       profile_url(profile_url),
       profile_image_url(profile_image_url) {
 }
+
+FamilyInfoFetcher::FamilyMember::FamilyMember(const FamilyMember& other) =
+    default;
 
 FamilyInfoFetcher::FamilyMember::~FamilyMember() {
 }

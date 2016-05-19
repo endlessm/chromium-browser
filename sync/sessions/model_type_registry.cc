@@ -4,6 +4,9 @@
 
 #include "sync/sessions/model_type_registry.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/observer_list.h"
 #include "base/thread_task_runner_handle.h"
@@ -144,16 +147,15 @@ void ModelTypeRegistry::ConnectSyncTypeToWorker(
     cryptographer_copy.reset(new Cryptographer(*cryptographer_));
 
   scoped_ptr<syncer_v2::ModelTypeWorker> worker(new syncer_v2::ModelTypeWorker(
-      type, activation_context->data_type_state,
-      activation_context->saved_pending_updates, cryptographer_copy.Pass(),
-      nudge_handler_, activation_context->type_processor.Pass()));
+      type, activation_context->data_type_state, std::move(cryptographer_copy),
+      nudge_handler_, std::move(activation_context->type_processor)));
 
   // Initialize Processor -> Worker communication channel.
   scoped_ptr<syncer_v2::CommitQueue> commit_queue_proxy(new CommitQueueProxy(
       worker->AsWeakPtr(), scoped_refptr<base::SequencedTaskRunner>(
                                base::ThreadTaskRunnerHandle::Get())));
 
-  type_processor->OnConnect(commit_queue_proxy.Pass());
+  type_processor->ConnectSync(std::move(commit_queue_proxy));
 
   DCHECK(update_handler_map_.find(type) == update_handler_map_.end());
   DCHECK(commit_contributor_map_.find(type) == commit_contributor_map_.end());
@@ -162,7 +164,7 @@ void ModelTypeRegistry::ConnectSyncTypeToWorker(
   commit_contributor_map_.insert(std::make_pair(type, worker.get()));
 
   // The container takes ownership.
-  model_type_workers_.push_back(worker.Pass());
+  model_type_workers_.push_back(std::move(worker));
 
   DCHECK(Intersection(GetEnabledDirectoryTypes(),
                       GetEnabledNonBlockingTypes()).Empty());

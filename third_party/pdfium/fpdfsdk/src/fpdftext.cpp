@@ -6,21 +6,32 @@
 
 #include "public/fpdf_text.h"
 
-#include "../include/fsdk_define.h"
 #include "core/include/fpdfdoc/fpdf_doc.h"
 #include "core/include/fpdftext/fpdf_text.h"
+#include "fpdfsdk/include/fsdk_define.h"
+
+#ifdef PDF_ENABLE_XFA
+#include "fpdfsdk/include/fpdfxfa/fpdfxfa_doc.h"
+#include "fpdfsdk/include/fpdfxfa/fpdfxfa_page.h"
+#endif  // PDF_ENABLE_XFA
 
 #ifdef _WIN32
 #include <tchar.h>
 #endif
 
 DLLEXPORT FPDF_TEXTPAGE STDCALL FPDFText_LoadPage(FPDF_PAGE page) {
-  CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
-  if (!pPage)
+  CPDF_Page* pPDFPage = CPDFPageFromFPDFPage(page);
+  if (!pPDFPage)
     return nullptr;
-  CPDF_ViewerPreferences viewRef(pPage->m_pDocument);
+#ifdef PDF_ENABLE_XFA
+  CPDFXFA_Page* pPage = (CPDFXFA_Page*)page;
+  CPDFXFA_Document* pDoc = pPage->GetDocument();
+  CPDF_ViewerPreferences viewRef(pDoc->GetPDFDoc());
+#else  // PDF_ENABLE_XFA
+  CPDF_ViewerPreferences viewRef(pPDFPage->m_pDocument);
+#endif  // PDF_ENABLE_XFA
   IPDF_TextPage* textpage =
-      IPDF_TextPage::CreateTextPage(pPage, viewRef.IsDirectionR2L());
+      IPDF_TextPage::CreateTextPage(pPDFPage, viewRef.IsDirectionR2L());
   textpage->ParseTextPage();
   return textpage;
 }
@@ -33,6 +44,7 @@ DLLEXPORT int STDCALL FPDFText_CountChars(FPDF_TEXTPAGE text_page) {
   IPDF_TextPage* textpage = (IPDF_TextPage*)text_page;
   return textpage->CountChars();
 }
+
 DLLEXPORT unsigned int STDCALL FPDFText_GetUnicode(FPDF_TEXTPAGE text_page,
                                                    int index) {
   if (!text_page)
@@ -43,9 +55,10 @@ DLLEXPORT unsigned int STDCALL FPDFText_GetUnicode(FPDF_TEXTPAGE text_page,
     return 0;
 
   FPDF_CHAR_INFO charinfo;
-  textpage->GetCharInfo(index, charinfo);
+  textpage->GetCharInfo(index, &charinfo);
   return charinfo.m_Unicode;
 }
+
 DLLEXPORT double STDCALL FPDFText_GetFontSize(FPDF_TEXTPAGE text_page,
                                               int index) {
   if (!text_page)
@@ -56,7 +69,7 @@ DLLEXPORT double STDCALL FPDFText_GetFontSize(FPDF_TEXTPAGE text_page,
     return 0;
 
   FPDF_CHAR_INFO charinfo;
-  textpage->GetCharInfo(index, charinfo);
+  textpage->GetCharInfo(index, &charinfo);
   return charinfo.m_FontSize;
 }
 
@@ -73,7 +86,7 @@ DLLEXPORT void STDCALL FPDFText_GetCharBox(FPDF_TEXTPAGE text_page,
   if (index < 0 || index >= textpage->CountChars())
     return;
   FPDF_CHAR_INFO charinfo;
-  textpage->GetCharInfo(index, charinfo);
+  textpage->GetCharInfo(index, &charinfo);
   *left = charinfo.m_CharBox.left;
   *right = charinfo.m_CharBox.right;
   *bottom = charinfo.m_CharBox.bottom;
@@ -155,7 +168,7 @@ DLLEXPORT int STDCALL FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page,
                      (FX_FLOAT)top);
   CFX_WideString str = textpage->GetTextByRect(rect);
 
-  if (buflen <= 0 || buffer == NULL) {
+  if (buflen <= 0 || !buffer) {
     return str.GetLength();
   }
 
@@ -170,7 +183,7 @@ DLLEXPORT int STDCALL FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page,
 }
 
 // Search
-//-1 for end
+// -1 for end
 DLLEXPORT FPDF_SCHHANDLE STDCALL FPDFText_FindStart(FPDF_TEXTPAGE text_page,
                                                     FPDF_WIDESTRING findwhat,
                                                     unsigned long flags,
@@ -242,7 +255,7 @@ DLLEXPORT int STDCALL FPDFLink_GetURL(FPDF_PAGELINK link_page,
 
   CFX_ByteString cbUTF16URL = url.UTF16LE_Encode();
   int len = cbUTF16URL.GetLength() / sizeof(unsigned short);
-  if (buffer == NULL || buflen <= 0)
+  if (!buffer || buflen <= 0)
     return len;
   int size = len < buflen ? len : buflen;
   if (size > 0) {

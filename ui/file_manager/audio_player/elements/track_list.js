@@ -7,7 +7,7 @@
  *   url: string,
  *   title: string,
  *   artist: string,
- *   artwork: Object,
+ *   artworkUrl: string,
  *   active: boolean
  * }}
  */
@@ -48,32 +48,16 @@ var TrackInfo;
         type: Boolean,
         value: false,
         observer: 'shuffleChanged'
+      },
+
+      /**
+       * Whether playlist is expanded or not.
+       */
+      expanded: {
+        type: Boolean,
+        value: false,
+        observer: 'expandedChanged'
       }
-    },
-
-    /**
-     * Initializes an element. This method is called automatically when the
-     * element is ready.
-     */
-    ready: function() {
-      this.observeTrackList();
-
-      window.addEventListener('resize', this.onWindowResize_.bind(this));
-    },
-
-    observeTrackList: function() {
-      // Unobserve the previous track list.
-      if (this.unobserveTrackList_)
-        this.unobserveTrackList_();
-
-      // Observe the new track list.
-      var observer = this.tracksValueChanged_.bind(this);
-      Array.observe(this.tracks, observer);
-
-      // Set the function to unobserve it.
-      this.unobserveTrackList_ = function(tracks, observer) {
-        Array.unobserve(tracks, observer);
-      }.bind(null, this.tracks, observer);
     },
 
     /**
@@ -81,6 +65,15 @@ var TrackInfo;
      * @type {Array<number>}
      */
     playOrder: [],
+
+    /**
+     * Invoked when 'expanded' property is changed.
+     * @param {boolean} newValue New value.
+     * @param {boolean} oldValue Old value.
+     */
+    expandedChanged: function(newValue, oldValue) {
+      this.ensureTrackInViewport_(this.currentTrackIndex);
+    },
 
     /**
      * Invoked when 'shuffle' property is changed.
@@ -130,9 +123,6 @@ var TrackInfo;
       // Note: Sometimes both oldValue and newValue are null though the actual
       // values are not null. Maybe it's a bug of Polymer.
 
-      // Re-register the observer of 'this.tracks'.
-      this.observeTrackList();
-
       if (this.tracks.length !== 0) {
         // Restore the active track.
         if (this.currentTrackIndex !== -1 &&
@@ -149,17 +139,6 @@ var TrackInfo;
     },
 
     /**
-     * Invoked when the value in the 'tracks' is changed.
-     * @param {Array<Object>} changes The detail of the change.
-     */
-    tracksValueChanged_: function(changes) {
-      if (this.tracks.length === 0)
-        this.currentTrackIndex = -1;
-      else
-        this.set('tracks.' + this.currentTrackIndex + '.active', true);
-    },
-
-    /**
      * Invoked when the track element is clicked.
      * @param {Event} event Click event.
      */
@@ -171,36 +150,27 @@ var TrackInfo;
     },
 
     /**
-     * Invoked when the window is resized.
-     * @private
-     */
-    onWindowResize_: function() {
-      this.ensureTrackInViewport_(this.currentTrackIndex);
-    },
-
-    /**
      * Scrolls the track list to ensure the given track in the viewport.
      * @param {number} trackIndex The index of the track to be in the viewport.
      * @private
      */
     ensureTrackInViewport_: function(trackIndex) {
-      var trackSelector = '::shadow .track[index="' + trackIndex + '"]';
-      var trackElement = this.querySelector(trackSelector);
+      var trackElement = this.$$('.track[index="' + trackIndex + '"]');
       if (trackElement) {
         var viewTop = this.scrollTop;
         var viewHeight = this.clientHeight;
-        var elementTop = trackElement.offsetTop;
+        var elementTop = trackElement.offsetTop - this.offsetTop;
         var elementHeight = trackElement.offsetHeight;
 
-        if (elementTop < viewTop) {
+        if (elementTop <= viewTop) {
           // Adjust the tops.
           this.scrollTop = elementTop;
-        } else if (elementTop + elementHeight <= viewTop + viewHeight) {
-          // The entire element is in the viewport. Do nothing.
-        } else {
+        } else if (elementTop + elementHeight >= viewTop + viewHeight) {
           // Adjust the bottoms.
           this.scrollTop = Math.max(0,
                                     (elementTop + elementHeight - viewHeight));
+        } else {
+          // The entire element is in the viewport. Do nothing.
         }
       }
     },
@@ -260,19 +230,13 @@ var TrackInfo;
         }
       }
       if (index >= 0) {
-        // TODO(yoshiki): Clean up the flow and the code around here.
-        if (this.currentTrackIndex == index)
-          this.replayCurrentTrack();
-        else
+        if (this.currentTrackIndex === index) {
+          this.fire('replay');
+        } else {
           this.currentTrackIndex = index;
+          this.fire('play');
+        }
       }
-    },
-
-    /**
-     * Request to replay the current music.
-     */
-    replayCurrentTrack: function() {
-      this.fire('replay');
     },
 
     /**

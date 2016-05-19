@@ -13,6 +13,10 @@
 
 #include "SkSurface.h"
 
+// This should be safe to include even in no-gpu builds. Include by relative path so it
+// can be found in non-gpu builds.
+#include "../include/gpu/GrContextOptions.h"
+
 #if SK_SUPPORT_GPU
 
 // Ganesh is available.  Yippee!
@@ -26,13 +30,13 @@ static const bool kGPUDisabled = false;
 
 static inline SkSurface* NewGpuSurface(GrContextFactory* grFactory,
                                        GrContextFactory::GLContextType type,
-                                       GrGLStandard gpuAPI,
+                                       GrContextFactory::GLContextOptions options,
                                        SkImageInfo info,
                                        int samples,
                                        bool useDIText) {
     uint32_t flags = useDIText ? SkSurfaceProps::kUseDeviceIndependentFonts_Flag : 0;
     SkSurfaceProps props(flags, SkSurfaceProps::kLegacyFontHost_InitType);
-    return SkSurface::NewRenderTarget(grFactory->get(type, gpuAPI), SkSurface::kNo_Budgeted,
+    return SkSurface::NewRenderTarget(grFactory->get(type, options), SkBudgeted::kNo,
                                       info, samples, &props);
 }
 
@@ -55,10 +59,6 @@ public:
     void dumpGpuStats(SkString*) const {}
 };
 
-struct GrContextOptions {
-    bool fImmediateMode;
-};
-
 class GrContextFactory {
 public:
     GrContextFactory() {};
@@ -68,13 +68,18 @@ public:
 
     static const GLContextType kANGLE_GLContextType         = 0,
                                kANGLE_GL_GLContextType      = 0,
-                               kCommandBuffer_GLContextType = 0,
+                               kCommandBufferES2_GLContextType = 0,
+                               kCommandBufferES3_GLContextType = 0,
                                kDebug_GLContextType         = 0,
                                kMESA_GLContextType          = 0,
                                kNVPR_GLContextType          = 0,
                                kNative_GLContextType        = 0,
                                kNull_GLContextType          = 0;
     static const int kGLContextTypeCnt = 1;
+    enum GLContextOptions {
+        kNone_GLContextOptions = 0,
+        kEnableNVPR_GLContextOptions = 0x1,
+    };
     void destroyContexts() {}
 
     void abandonContexts() {}
@@ -86,7 +91,7 @@ static const bool kGPUDisabled = true;
 
 static inline SkSurface* NewGpuSurface(GrContextFactory*,
                                        GrContextFactory::GLContextType,
-                                       GrGLStandard,
+                                       GrContextFactory::GLContextOptions,
                                        SkImageInfo,
                                        int,
                                        bool) {

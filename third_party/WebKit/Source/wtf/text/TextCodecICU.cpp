@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "wtf/text/TextCodecICU.h"
 
 #include "wtf/Assertions.h"
@@ -306,7 +305,8 @@ int TextCodecICU::decodeToBuffer(UChar* target, UChar* targetLimit, const char*&
     return target - targetStart;
 }
 
-class ErrorCallbackSetter {
+class ErrorCallbackSetter final {
+    STACK_ALLOCATED();
 public:
     ErrorCallbackSetter(UConverter* converter, bool stopOnError)
         : m_converter(converter)
@@ -474,7 +474,8 @@ static void gbkCallbackSubstitute(const void* context, UConverterFromUnicodeArgs
 }
 #endif // USING_SYSTEM_ICU
 
-class TextCodecInput {
+class TextCodecInput final {
+    STACK_ALLOCATED();
 public:
     TextCodecInput(const TextEncoding& encoding, const UChar* characters, size_t length)
         : m_begin(characters)

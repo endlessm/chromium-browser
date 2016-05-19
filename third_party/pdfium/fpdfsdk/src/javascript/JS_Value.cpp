@@ -4,22 +4,21 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "JS_Value.h"
+#include "fpdfsdk/src/javascript/JS_Value.h"
 
 #include <time.h>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
-#include "Document.h"
-#include "JS_Define.h"
-#include "JS_Object.h"
+#include "fpdfsdk/src/javascript/Document.h"
+#include "fpdfsdk/src/javascript/JS_Define.h"
+#include "fpdfsdk/src/javascript/JS_Object.h"
 
 static const FX_DWORD g_nan[2] = {0, 0x7FF80000};
 static double GetNan() {
   return *(double*)g_nan;
 }
-
-/* ---------------------------- CJS_Value ---------------------------- */
 
 CJS_Value::CJS_Value(CJS_Runtime* pRuntime)
     : m_eType(VT_unknown), m_pJSRuntime(pRuntime) {
@@ -98,9 +97,6 @@ void CJS_Value::Detach() {
   m_eType = VT_unknown;
 }
 
-/* ----------------------------------------------------------------------------------------
- */
-
 int CJS_Value::ToInt() const {
   return FXJS_ToInt32(m_pJSRuntime->GetIsolate(), m_pValue);
 }
@@ -146,8 +142,26 @@ v8::Local<v8::Array> CJS_Value::ToV8Array() const {
   return v8::Local<v8::Array>();
 }
 
-/* ----------------------------------------------------------------------------------------
- */
+void CJS_Value::MaybeCoerceToNumber() {
+  bool bAllowNaN = false;
+  if (m_eType == VT_string) {
+    CFX_ByteString bstr = ToCFXByteString();
+    if (bstr.GetLength() == 0)
+      return;
+    if (bstr == "NaN")
+      bAllowNaN = true;
+  }
+  v8::TryCatch(m_pJSRuntime->GetIsolate());
+  v8::MaybeLocal<v8::Number> maybeNum =
+      m_pValue->ToNumber(m_pJSRuntime->GetIsolate()->GetCurrentContext());
+  if (maybeNum.IsEmpty())
+    return;
+  v8::Local<v8::Number> num = maybeNum.ToLocalChecked();
+  if (std::isnan(num->Value()) && !bAllowNaN)
+    return;
+  m_pValue = num;
+  m_eType = VT_number;
+}
 
 void CJS_Value::operator=(int iValue) {
   m_pValue = FXJS_NewNumber(m_pJSRuntime->GetIsolate(), iValue);
@@ -217,9 +231,6 @@ void CJS_Value::operator=(CJS_Value value) {
   m_pJSRuntime = value.m_pJSRuntime;
 }
 
-/* ----------------------------------------------------------------------------------------
- */
-
 CJS_Value::Type CJS_Value::GetType() const {
   if (m_pValue.IsEmpty())
     return VT_unknown;
@@ -263,12 +274,6 @@ FX_BOOL CJS_Value::ConvertToArray(CJS_Array& array) const {
 }
 
 FX_BOOL CJS_Value::ConvertToDate(CJS_Date& date) const {
-  // 	if (GetType() == VT_date)
-  // 	{
-  // 		date = (double)(*this);
-  // 		return TRUE;
-  // 	}
-
   if (IsDateObject()) {
     date.Attach(m_pValue);
     return TRUE;
@@ -611,7 +616,7 @@ int _getDaylightSavingTA(double d) {
     return 0;
   time_t t = (time_t)(d / 1000);
   struct tm* tmp = localtime(&t);
-  if (tmp == NULL)
+  if (!tmp)
     return 0;
   if (tmp->tm_isdst > 0)
     // One hour.
@@ -649,7 +654,7 @@ int _DayFromYear(int y) {
 }
 
 double _TimeFromYear(int y) {
-  return ((double)86400000) * _DayFromYear(y);
+  return 86400000.0 * _DayFromYear(y);
 }
 
 double _TimeFromYearMonth(int y, int m) {
@@ -669,12 +674,12 @@ int _Day(double t) {
 
 int _YearFromTime(double t) {
   // estimate the time.
-  int y = 1970 + (int)(t / (365.0 * 86400000));
+  int y = 1970 + static_cast<int>(t / (365.2425 * 86400000));
   if (_TimeFromYear(y) <= t) {
     while (_TimeFromYear(y + 1) <= t)
       y++;
   } else
-    while (_TimeFromYear(y - 1) > t)
+    while (_TimeFromYear(y) > t)
       y--;
   return y;
 }
@@ -868,4 +873,36 @@ bool JS_PortIsNan(double d) {
 
 double JS_LocalTime(double d) {
   return JS_GetDateTime() + _getDaylightSavingTA(d);
+}
+
+std::vector<CJS_Value> JS_ExpandKeywordParams(
+    CJS_Runtime* pRuntime,
+    const std::vector<CJS_Value>& originals,
+    size_t nKeywords,
+    ...) {
+  ASSERT(nKeywords);
+
+  std::vector<CJS_Value> result(nKeywords, CJS_Value(pRuntime));
+  size_t size = std::min(originals.size(), nKeywords);
+  for (size_t i = 0; i < size; ++i)
+    result[i] = originals[i];
+
+  if (originals.size() != 1 || originals[0].GetType() != CJS_Value::VT_object ||
+      originals[0].IsArrayObject()) {
+    return result;
+  }
+  v8::Local<v8::Object> pObj = originals[0].ToV8Object();
+  result[0] = CJS_Value(pRuntime);  // Make unknown.
+
+  va_list ap;
+  va_start(ap, nKeywords);
+  for (int i = 0; i < nKeywords; ++i) {
+    const wchar_t* property = va_arg(ap, const wchar_t*);
+    v8::Local<v8::Value> v8Value =
+        FXJS_GetObjectElement(pRuntime->GetIsolate(), pObj, property);
+    if (!v8Value->IsUndefined())
+      result[i] = CJS_Value(pRuntime, v8Value, CJS_Value::VT_unknown);
+  }
+  va_end(ap);
+  return result;
 }

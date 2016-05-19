@@ -28,20 +28,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/fetch/FetchContext.h"
 #include "core/fetch/ImageResource.h"
 #include "core/fetch/MemoryCache.h"
 #include "core/fetch/RawResource.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
-#include "core/fetch/ResourcePtr.h"
 #include "platform/network/ResourceRequest.h"
-#include "public/platform/Platform.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/RefPtr.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -54,8 +50,6 @@ const double kOriginalRequestDateAsDouble = 233433000.;
 
 const char kOneDayBeforeOriginalRequest[] = "Wed, 24 May 1977 18:30:00 GMT";
 const char kOneDayAfterOriginalRequest[] = "Fri, 26 May 1977 18:30:00 GMT";
-
-const unsigned char kAConstUnsignedCharZero = 0;
 
 class MockFetchContext : public FetchContext {
 public:
@@ -75,42 +69,52 @@ private:
 
 class CachingCorrectnessTest : public ::testing::Test {
 protected:
-    void advanceClock(double seconds)
+    static void advanceClock(double seconds)
     {
-        m_proxyPlatform.advanceClock(seconds);
+        s_timeElapsed += seconds;
     }
 
-    ResourcePtr<Resource> resourceFromResourceResponse(ResourceResponse response, Resource::Type type = Resource::Raw)
+    PassRefPtrWillBeRawPtr<Resource> resourceFromResourceResponse(ResourceResponse response, Resource::Type type = Resource::Raw)
     {
         if (response.url().isNull())
             response.setURL(KURL(ParsedURLString, kResourceURL));
-        ResourcePtr<Resource> resource =
-            new Resource(ResourceRequest(response.url()), type);
+        RefPtrWillBeRawPtr<Resource> resource = nullptr;
+        switch (type) {
+        case Resource::Raw:
+            resource = Resource::create(ResourceRequest(response.url()), type);
+            break;
+        case Resource::Image:
+            resource = ImageResource::create(ResourceRequest(response.url()), nullptr);
+            break;
+        default:
+            EXPECT_TRUE(false) << "'Unreachable' code was reached";
+            return nullptr;
+        }
         resource->setResponse(response);
         memoryCache()->add(resource.get());
 
         return resource;
     }
 
-    ResourcePtr<Resource> resourceFromResourceRequest(ResourceRequest request, Resource::Type type = Resource::Raw)
+    PassRefPtrWillBeRawPtr<Resource> resourceFromResourceRequest(ResourceRequest request, Resource::Type type = Resource::Raw)
     {
         if (request.url().isNull())
             request.setURL(KURL(ParsedURLString, kResourceURL));
-        ResourcePtr<Resource> resource =
-            new Resource(request, type);
+        RefPtrWillBeRawPtr<Resource> resource =
+            Resource::create(request, type);
         resource->setResponse(ResourceResponse(KURL(ParsedURLString, kResourceURL), "text/html", 0, nullAtom, String()));
         memoryCache()->add(resource.get());
 
         return resource;
     }
 
-    ResourcePtr<Resource> fetch()
+    PassRefPtrWillBeRawPtr<Resource> fetch()
     {
         FetchRequest fetchRequest(ResourceRequest(KURL(ParsedURLString, kResourceURL)), FetchInitiatorInfo());
         return RawResource::fetchSynchronously(fetchRequest, fetcher());
     }
 
-    ResourcePtr<Resource> fetchImage()
+    PassRefPtrWillBeRawPtr<Resource> fetchImage()
     {
         FetchRequest fetchRequest(ResourceRequest(KURL(ParsedURLString, kResourceURL)), FetchInitiatorInfo());
         return ImageResource::fetch(fetchRequest, fetcher());
@@ -119,55 +123,20 @@ protected:
     ResourceFetcher* fetcher() const { return m_fetcher.get(); }
 
 private:
-    // A simple platform that mocks out the clock, for cache freshness testing.
-    class ProxyPlatform : public blink::Platform {
-    public:
-        ProxyPlatform() : m_platform(blink::Platform::current()), m_elapsedSeconds(0.) { }
-
-        ~ProxyPlatform()
-        {
-            blink::Platform::initialize(m_platform);
-        }
-
-        void advanceClock(double seconds)
-        {
-            m_elapsedSeconds += seconds;
-        }
-
-        WebThread* currentThread() override
-        {
-            return m_platform->currentThread();
-        }
-
-    private:
-        // From blink::Platform:
-        double currentTimeSeconds() override
-        {
-            return kOriginalRequestDateAsDouble + m_elapsedSeconds;
-        }
-
-        // These blink::Platform methods must be overriden to make a usable object.
-        virtual void cryptographicallyRandomValues(unsigned char* buffer, size_t length)
-        {
-            RELEASE_ASSERT_NOT_REACHED();
-        }
-        virtual const unsigned char* getTraceCategoryEnabledFlag(const char* categoryName)
-        {
-            return &kAConstUnsignedCharZero;
-        }
-
-        blink::Platform* m_platform; // Not owned.
-        double m_elapsedSeconds;
-    };
+    static double returnMockTime()
+    {
+        return kOriginalRequestDateAsDouble + s_timeElapsed;
+    }
 
     virtual void SetUp()
     {
-        blink::Platform::initialize(&m_proxyPlatform);
-
         // Save the global memory cache to restore it upon teardown.
         m_globalMemoryCache = replaceMemoryCacheForTesting(MemoryCache::create());
 
         m_fetcher = ResourceFetcher::create(MockFetchContext::create());
+
+        s_timeElapsed = 0.0;
+        m_originalTimeFunction = setTimeFunctionsForTesting(returnMockTime);
     }
 
     virtual void TearDown()
@@ -176,13 +145,17 @@ private:
 
         // Yield the ownership of the global memory cache back.
         replaceMemoryCacheForTesting(m_globalMemoryCache.release());
-    }
 
-    ProxyPlatform m_proxyPlatform;
+        setTimeFunctionsForTesting(m_originalTimeFunction);
+    }
 
     Persistent<MemoryCache> m_globalMemoryCache;
     Persistent<ResourceFetcher> m_fetcher;
+    TimeFunction m_originalTimeFunction;
+    static double s_timeElapsed;
 };
+
+double CachingCorrectnessTest::s_timeElapsed;
 
 TEST_F(CachingCorrectnessTest, FreshFromLastModified)
 {
@@ -191,12 +164,12 @@ TEST_F(CachingCorrectnessTest, FreshFromLastModified)
     fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     fresh200Response.setHTTPHeaderField("Last-Modified", kOneDayBeforeOriginalRequest);
 
-    ResourcePtr<Resource> fresh200 = resourceFromResourceResponse(fresh200Response);
+    RefPtrWillBeRawPtr<Resource> fresh200 = resourceFromResourceResponse(fresh200Response);
 
     // Advance the clock within the implicit freshness period of this resource before we make a request.
     advanceClock(600.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_EQ(fresh200, fetched);
 }
 
@@ -207,12 +180,12 @@ TEST_F(CachingCorrectnessTest, FreshFromExpires)
     fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     fresh200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
 
-    ResourcePtr<Resource> fresh200 = resourceFromResourceResponse(fresh200Response);
+    RefPtrWillBeRawPtr<Resource> fresh200 = resourceFromResourceResponse(fresh200Response);
 
     // Advance the clock within the freshness period of this resource before we make a request.
     advanceClock(24. * 60. * 60. - 15.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_EQ(fresh200, fetched);
 }
 
@@ -223,12 +196,12 @@ TEST_F(CachingCorrectnessTest, FreshFromMaxAge)
     fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     fresh200Response.setHTTPHeaderField("Cache-Control", "max-age=600");
 
-    ResourcePtr<Resource> fresh200 = resourceFromResourceResponse(fresh200Response);
+    RefPtrWillBeRawPtr<Resource> fresh200 = resourceFromResourceResponse(fresh200Response);
 
     // Advance the clock within the freshness period of this resource before we make a request.
     advanceClock(500.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_EQ(fresh200, fetched);
 }
 
@@ -240,12 +213,12 @@ TEST_F(CachingCorrectnessTest, DISABLED_ExpiredFromLastModified)
     expired200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     expired200Response.setHTTPHeaderField("Last-Modified", kOneDayBeforeOriginalRequest);
 
-    ResourcePtr<Resource> expired200 = resourceFromResourceResponse(expired200Response);
+    RefPtrWillBeRawPtr<Resource> expired200 = resourceFromResourceResponse(expired200Response);
 
     // Advance the clock beyond the implicit freshness period.
     advanceClock(24. * 60. * 60. * 0.2);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(expired200, fetched);
 }
 
@@ -256,12 +229,12 @@ TEST_F(CachingCorrectnessTest, ExpiredFromExpires)
     expired200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     expired200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
 
-    ResourcePtr<Resource> expired200 = resourceFromResourceResponse(expired200Response);
+    RefPtrWillBeRawPtr<Resource> expired200 = resourceFromResourceResponse(expired200Response);
 
     // Advance the clock within the expiredness period of this resource before we make a request.
     advanceClock(24. * 60. * 60. + 15.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(expired200, fetched);
 }
 
@@ -273,12 +246,12 @@ TEST_F(CachingCorrectnessTest, NewImageExpiredFromExpires)
     expired200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     expired200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
 
-    ResourcePtr<Resource> expired200 = resourceFromResourceResponse(expired200Response, Resource::Image);
+    RefPtrWillBeRawPtr<Resource> expired200 = resourceFromResourceResponse(expired200Response, Resource::Image);
 
     // Advance the clock within the expiredness period of this resource before we make a request.
     advanceClock(24. * 60. * 60. + 15.);
 
-    ResourcePtr<Resource> fetched = fetchImage();
+    RefPtrWillBeRawPtr<Resource> fetched = fetchImage();
     EXPECT_NE(expired200, fetched);
 }
 
@@ -291,17 +264,17 @@ TEST_F(CachingCorrectnessTest, ReuseImageExpiredFromExpires)
     expired200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     expired200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
 
-    ResourcePtr<Resource> expired200 = resourceFromResourceResponse(expired200Response, Resource::Image);
+    RefPtrWillBeRawPtr<Resource> expired200 = resourceFromResourceResponse(expired200Response, Resource::Image);
 
     // Advance the clock within the freshness period, and make a request to add this image to the document resources.
     advanceClock(15.);
-    ResourcePtr<Resource> firstFetched = fetchImage();
+    RefPtrWillBeRawPtr<Resource> firstFetched = fetchImage();
     EXPECT_EQ(expired200, firstFetched);
 
     // Advance the clock within the expiredness period of this resource before we make a request.
     advanceClock(24. * 60. * 60. + 15.);
 
-    ResourcePtr<Resource> fetched = fetchImage();
+    RefPtrWillBeRawPtr<Resource> fetched = fetchImage();
     EXPECT_EQ(expired200, fetched);
 }
 
@@ -312,12 +285,12 @@ TEST_F(CachingCorrectnessTest, ExpiredFromMaxAge)
     expired200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
     expired200Response.setHTTPHeaderField("Cache-Control", "max-age=600");
 
-    ResourcePtr<Resource> expired200 = resourceFromResourceResponse(expired200Response);
+    RefPtrWillBeRawPtr<Resource> expired200 = resourceFromResourceResponse(expired200Response);
 
     // Advance the clock within the expiredness period of this resource before we make a request.
     advanceClock(700.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(expired200, fetched);
 }
 
@@ -325,25 +298,25 @@ TEST_F(CachingCorrectnessTest, FreshButNoCache)
 {
     ResourceResponse fresh200NocacheResponse;
     fresh200NocacheResponse.setHTTPStatusCode(200);
-    fresh200NocacheResponse.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200NocacheResponse.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
-    fresh200NocacheResponse.setHTTPHeaderField("Cache-Control", "no-cache");
+    fresh200NocacheResponse.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200NocacheResponse.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
+    fresh200NocacheResponse.setHTTPHeaderField(HTTPNames::Cache_Control, "no-cache");
 
-    ResourcePtr<Resource> fresh200Nocache = resourceFromResourceResponse(fresh200NocacheResponse);
+    RefPtrWillBeRawPtr<Resource> fresh200Nocache = resourceFromResourceResponse(fresh200NocacheResponse);
 
     // Advance the clock within the freshness period of this resource before we make a request.
     advanceClock(24. * 60. * 60. - 15.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(fresh200Nocache, fetched);
 }
 
 TEST_F(CachingCorrectnessTest, RequestWithNoCahe)
 {
     ResourceRequest noCacheRequest;
-    noCacheRequest.setHTTPHeaderField("Cache-Control", "no-cache");
-    ResourcePtr<Resource> noCacheResource = resourceFromResourceRequest(noCacheRequest);
-    ResourcePtr<Resource> fetched = fetch();
+    noCacheRequest.setHTTPHeaderField(HTTPNames::Cache_Control, "no-cache");
+    RefPtrWillBeRawPtr<Resource> noCacheResource = resourceFromResourceRequest(noCacheRequest);
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(noCacheResource, fetched);
 }
 
@@ -351,25 +324,25 @@ TEST_F(CachingCorrectnessTest, FreshButNoStore)
 {
     ResourceResponse fresh200NostoreResponse;
     fresh200NostoreResponse.setHTTPStatusCode(200);
-    fresh200NostoreResponse.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200NostoreResponse.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
-    fresh200NostoreResponse.setHTTPHeaderField("Cache-Control", "no-store");
+    fresh200NostoreResponse.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200NostoreResponse.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
+    fresh200NostoreResponse.setHTTPHeaderField(HTTPNames::Cache_Control, "no-store");
 
-    ResourcePtr<Resource> fresh200Nostore = resourceFromResourceResponse(fresh200NostoreResponse);
+    RefPtrWillBeRawPtr<Resource> fresh200Nostore = resourceFromResourceResponse(fresh200NostoreResponse);
 
     // Advance the clock within the freshness period of this resource before we make a request.
     advanceClock(24. * 60. * 60. - 15.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(fresh200Nostore, fetched);
 }
 
 TEST_F(CachingCorrectnessTest, RequestWithNoStore)
 {
     ResourceRequest noStoreRequest;
-    noStoreRequest.setHTTPHeaderField("Cache-Control", "no-store");
-    ResourcePtr<Resource> noStoreResource = resourceFromResourceRequest(noStoreRequest);
-    ResourcePtr<Resource> fetched = fetch();
+    noStoreRequest.setHTTPHeaderField(HTTPNames::Cache_Control, "no-store");
+    RefPtrWillBeRawPtr<Resource> noStoreResource = resourceFromResourceRequest(noStoreRequest);
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(noStoreResource, fetched);
 }
 
@@ -379,16 +352,16 @@ TEST_F(CachingCorrectnessTest, DISABLED_FreshButMustRevalidate)
 {
     ResourceResponse fresh200MustRevalidateResponse;
     fresh200MustRevalidateResponse.setHTTPStatusCode(200);
-    fresh200MustRevalidateResponse.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200MustRevalidateResponse.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
-    fresh200MustRevalidateResponse.setHTTPHeaderField("Cache-Control", "must-revalidate");
+    fresh200MustRevalidateResponse.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200MustRevalidateResponse.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
+    fresh200MustRevalidateResponse.setHTTPHeaderField(HTTPNames::Cache_Control, "must-revalidate");
 
-    ResourcePtr<Resource> fresh200MustRevalidate = resourceFromResourceResponse(fresh200MustRevalidateResponse);
+    RefPtrWillBeRawPtr<Resource> fresh200MustRevalidate = resourceFromResourceResponse(fresh200MustRevalidateResponse);
 
     // Advance the clock within the freshness period of this resource before we make a request.
     advanceClock(24. * 60. * 60. - 15.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(fresh200MustRevalidate, fetched);
 }
 
@@ -398,14 +371,14 @@ TEST_F(CachingCorrectnessTest, FreshWithFreshRedirect)
     const char redirectTargetUrlString[] = "http://redirect-target.com";
     KURL redirectTargetUrl(ParsedURLString, redirectTargetUrlString);
 
-    ResourcePtr<Resource> firstResource = new Resource(ResourceRequest(redirectUrl), Resource::Raw);
+    RefPtrWillBeRawPtr<Resource> firstResource = Resource::create(ResourceRequest(redirectUrl), Resource::Raw);
 
     ResourceResponse fresh301Response;
     fresh301Response.setURL(redirectUrl);
     fresh301Response.setHTTPStatusCode(301);
-    fresh301Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh301Response.setHTTPHeaderField("Location", redirectTargetUrlString);
-    fresh301Response.setHTTPHeaderField("Cache-Control", "max-age=600");
+    fresh301Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh301Response.setHTTPHeaderField(HTTPNames::Location, redirectTargetUrlString);
+    fresh301Response.setHTTPHeaderField(HTTPNames::Cache_Control, "max-age=600");
 
     // Add the redirect to our request.
     ResourceRequest redirectRequest = ResourceRequest(redirectTargetUrl);
@@ -415,15 +388,15 @@ TEST_F(CachingCorrectnessTest, FreshWithFreshRedirect)
     ResourceResponse fresh200Response;
     fresh200Response.setURL(redirectTargetUrl);
     fresh200Response.setHTTPStatusCode(200);
-    fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
 
     firstResource->setResponse(fresh200Response);
     memoryCache()->add(firstResource.get());
 
     advanceClock(500.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_EQ(firstResource, fetched);
 }
 
@@ -433,13 +406,13 @@ TEST_F(CachingCorrectnessTest, FreshWithStaleRedirect)
     const char redirectTargetUrlString[] = "http://redirect-target.com";
     KURL redirectTargetUrl(ParsedURLString, redirectTargetUrlString);
 
-    ResourcePtr<Resource> firstResource = new Resource(ResourceRequest(redirectUrl), Resource::Raw);
+    RefPtrWillBeRawPtr<Resource> firstResource = Resource::create(ResourceRequest(redirectUrl), Resource::Raw);
 
     ResourceResponse stale301Response;
     stale301Response.setURL(redirectUrl);
     stale301Response.setHTTPStatusCode(301);
-    stale301Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    stale301Response.setHTTPHeaderField("Location", redirectTargetUrlString);
+    stale301Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    stale301Response.setHTTPHeaderField(HTTPNames::Location, redirectTargetUrlString);
 
     // Add the redirect to our request.
     ResourceRequest redirectRequest = ResourceRequest(redirectTargetUrl);
@@ -449,30 +422,30 @@ TEST_F(CachingCorrectnessTest, FreshWithStaleRedirect)
     ResourceResponse fresh200Response;
     fresh200Response.setURL(redirectTargetUrl);
     fresh200Response.setHTTPStatusCode(200);
-    fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
 
     firstResource->setResponse(fresh200Response);
     memoryCache()->add(firstResource.get());
 
     advanceClock(500.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(firstResource, fetched);
 }
 
 TEST_F(CachingCorrectnessTest, PostToSameURLTwice)
 {
     ResourceRequest request1(KURL(ParsedURLString, kResourceURL));
-    request1.setHTTPMethod("POST");
-    ResourcePtr<Resource> resource1 = new Resource(ResourceRequest(request1.url()), Resource::Raw);
+    request1.setHTTPMethod(HTTPNames::POST);
+    RefPtrWillBeRawPtr<Resource> resource1 = Resource::create(ResourceRequest(request1.url()), Resource::Raw);
     resource1->setLoading(true);
     memoryCache()->add(resource1.get());
 
     ResourceRequest request2(KURL(ParsedURLString, kResourceURL));
-    request2.setHTTPMethod("POST");
+    request2.setHTTPMethod(HTTPNames::POST);
     FetchRequest fetch2(request2, FetchInitiatorInfo());
-    ResourcePtr<Resource> resource2 = RawResource::fetchSynchronously(fetch2, fetcher());
+    RefPtrWillBeRawPtr<Resource> resource2 = RawResource::fetchSynchronously(fetch2, fetcher());
 
     EXPECT_EQ(resource2, memoryCache()->resourceForURL(request2.url()));
     EXPECT_NE(resource1, resource2);
@@ -484,14 +457,14 @@ TEST_F(CachingCorrectnessTest, 302RedirectNotImplicitlyFresh)
     const char redirectTargetUrlString[] = "http://redirect-target.com";
     KURL redirectTargetUrl(ParsedURLString, redirectTargetUrlString);
 
-    ResourcePtr<Resource> firstResource = new Resource(ResourceRequest(redirectUrl), Resource::Raw);
+    RefPtrWillBeRawPtr<Resource> firstResource = Resource::create(ResourceRequest(redirectUrl), Resource::Raw);
 
     ResourceResponse fresh302Response;
     fresh302Response.setURL(redirectUrl);
     fresh302Response.setHTTPStatusCode(302);
-    fresh302Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh302Response.setHTTPHeaderField("Last-Modified", kOneDayBeforeOriginalRequest);
-    fresh302Response.setHTTPHeaderField("Location", redirectTargetUrlString);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Last_Modified, kOneDayBeforeOriginalRequest);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Location, redirectTargetUrlString);
 
     // Add the redirect to our request.
     ResourceRequest redirectRequest = ResourceRequest(redirectTargetUrl);
@@ -501,15 +474,15 @@ TEST_F(CachingCorrectnessTest, 302RedirectNotImplicitlyFresh)
     ResourceResponse fresh200Response;
     fresh200Response.setURL(redirectTargetUrl);
     fresh200Response.setHTTPStatusCode(200);
-    fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
 
     firstResource->setResponse(fresh200Response);
     memoryCache()->add(firstResource.get());
 
     advanceClock(500.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_NE(firstResource, fetched);
 }
 
@@ -519,14 +492,14 @@ TEST_F(CachingCorrectnessTest, 302RedirectExplicitlyFreshMaxAge)
     const char redirectTargetUrlString[] = "http://redirect-target.com";
     KURL redirectTargetUrl(ParsedURLString, redirectTargetUrlString);
 
-    ResourcePtr<Resource> firstResource = new Resource(ResourceRequest(redirectUrl), Resource::Raw);
+    RefPtrWillBeRawPtr<Resource> firstResource = Resource::create(ResourceRequest(redirectUrl), Resource::Raw);
 
     ResourceResponse fresh302Response;
     fresh302Response.setURL(redirectUrl);
     fresh302Response.setHTTPStatusCode(302);
-    fresh302Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh302Response.setHTTPHeaderField("Cache-Control", "max-age=600");
-    fresh302Response.setHTTPHeaderField("Location", redirectTargetUrlString);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Cache_Control, "max-age=600");
+    fresh302Response.setHTTPHeaderField(HTTPNames::Location, redirectTargetUrlString);
 
     // Add the redirect to our request.
     ResourceRequest redirectRequest = ResourceRequest(redirectTargetUrl);
@@ -536,15 +509,15 @@ TEST_F(CachingCorrectnessTest, 302RedirectExplicitlyFreshMaxAge)
     ResourceResponse fresh200Response;
     fresh200Response.setURL(redirectTargetUrl);
     fresh200Response.setHTTPStatusCode(200);
-    fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
 
     firstResource->setResponse(fresh200Response);
     memoryCache()->add(firstResource.get());
 
     advanceClock(500.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_EQ(firstResource, fetched);
 }
 
@@ -554,14 +527,14 @@ TEST_F(CachingCorrectnessTest, 302RedirectExplicitlyFreshExpires)
     const char redirectTargetUrlString[] = "http://redirect-target.com";
     KURL redirectTargetUrl(ParsedURLString, redirectTargetUrlString);
 
-    ResourcePtr<Resource> firstResource = new Resource(ResourceRequest(redirectUrl), Resource::Raw);
+    RefPtrWillBeRawPtr<Resource> firstResource = Resource::create(ResourceRequest(redirectUrl), Resource::Raw);
 
     ResourceResponse fresh302Response;
     fresh302Response.setURL(redirectUrl);
     fresh302Response.setHTTPStatusCode(302);
-    fresh302Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh302Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
-    fresh302Response.setHTTPHeaderField("Location", redirectTargetUrlString);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
+    fresh302Response.setHTTPHeaderField(HTTPNames::Location, redirectTargetUrlString);
 
     // Add the redirect to our request.
     ResourceRequest redirectRequest = ResourceRequest(redirectTargetUrl);
@@ -571,15 +544,15 @@ TEST_F(CachingCorrectnessTest, 302RedirectExplicitlyFreshExpires)
     ResourceResponse fresh200Response;
     fresh200Response.setURL(redirectTargetUrl);
     fresh200Response.setHTTPStatusCode(200);
-    fresh200Response.setHTTPHeaderField("Date", kOriginalRequestDateAsString);
-    fresh200Response.setHTTPHeaderField("Expires", kOneDayAfterOriginalRequest);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Date, kOriginalRequestDateAsString);
+    fresh200Response.setHTTPHeaderField(HTTPNames::Expires, kOneDayAfterOriginalRequest);
 
     firstResource->setResponse(fresh200Response);
     memoryCache()->add(firstResource.get());
 
     advanceClock(500.);
 
-    ResourcePtr<Resource> fetched = fetch();
+    RefPtrWillBeRawPtr<Resource> fetched = fetch();
     EXPECT_EQ(firstResource, fetched);
 }
 

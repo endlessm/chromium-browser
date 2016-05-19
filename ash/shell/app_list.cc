@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ash/session/session_state_delegate.h"
@@ -10,7 +11,6 @@
 #include "ash/shell/example_factory.h"
 #include "ash/shell/toplevel_window.h"
 #include "ash/shell_delegate.h"
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/i18n/case_conversion.h"
@@ -219,7 +219,7 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
       std::string id = base::IntToString(i);
       scoped_ptr<WindowTypeShelfItem> shelf_item(
           new WindowTypeShelfItem(id, type));
-      model_->AddItem(shelf_item.Pass());
+      model_->AddItem(std::move(shelf_item));
     }
   }
 

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -95,7 +97,7 @@ class WebSocketTest : public testing::Test {
                                          base::TimeDelta::FromSeconds(10));
     run_loop.Run();
     if (error == net::OK)
-      return sock.Pass();
+      return sock;
     return scoped_ptr<WebSocket>();
   }
 

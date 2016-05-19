@@ -4,11 +4,17 @@
 
 #include "remoting/host/desktop_session_proxy.h"
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/process/process_handle.h"
+#include "base/macros.h"
 #include "base/memory/shared_memory.h"
+#include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
+#include "build/build_config.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "ipc/ipc_message_macros.h"
 #include "remoting/base/capabilities.h"
@@ -43,23 +49,12 @@ class DesktopSessionProxy::IpcSharedBufferCore
  public:
   IpcSharedBufferCore(int id,
                       base::SharedMemoryHandle handle,
-                      base::ProcessHandle process,
                       size_t size)
       : id_(id),
-#if defined(OS_WIN)
-        shared_memory_(handle, kReadOnly, process),
-#else  // !defined(OS_WIN)
         shared_memory_(handle, kReadOnly),
-#endif  // !defined(OS_WIN)
         size_(size) {
     if (!shared_memory_.Map(size)) {
       LOG(ERROR) << "Failed to map a shared buffer: id=" << id
-#if defined(OS_WIN)
-                 << ", handle=" << handle.GetHandle()
-#else
-                 << ", handle.fd="
-                 << base::SharedMemory::GetFdFromSharedMemoryHandle(handle)
-#endif
                  << ", size=" << size;
     }
   }
@@ -67,14 +62,6 @@ class DesktopSessionProxy::IpcSharedBufferCore
   int id() { return id_; }
   size_t size() { return size_; }
   void* memory() { return shared_memory_.memory(); }
-  webrtc::SharedMemory::Handle handle() {
-#if defined(OS_WIN)
-    return shared_memory_.handle().GetHandle();
-#else
-    return base::SharedMemory::GetFdFromSharedMemoryHandle(
-        shared_memory_.handle());
-#endif
-  }
 
  private:
   virtual ~IpcSharedBufferCore() {}
@@ -90,10 +77,8 @@ class DesktopSessionProxy::IpcSharedBufferCore
 class DesktopSessionProxy::IpcSharedBuffer : public webrtc::SharedMemory {
  public:
   IpcSharedBuffer(scoped_refptr<IpcSharedBufferCore> core)
-      : SharedMemory(core->memory(), core->size(),
-                     core->handle(), core->id()),
-        core_(core) {
-  }
+      : SharedMemory(core->memory(), core->size(), 0, core->id()),
+        core_(core) {}
 
  private:
   scoped_refptr<IpcSharedBufferCore> core_;
@@ -105,7 +90,6 @@ DesktopSessionProxy::DesktopSessionProxy(
     scoped_refptr<base::SingleThreadTaskRunner> audio_capture_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
     base::WeakPtr<ClientSessionControl> client_session_control,
     base::WeakPtr<DesktopSessionConnector> desktop_session_connector,
     bool virtual_terminal,
@@ -113,7 +97,6 @@ DesktopSessionProxy::DesktopSessionProxy(
     : audio_capture_task_runner_(audio_capture_task_runner),
       caller_task_runner_(caller_task_runner),
       io_task_runner_(io_task_runner),
-      video_capture_task_runner_(video_capture_task_runner),
       client_session_control_(client_session_control),
       desktop_session_connector_(desktop_session_connector),
       pending_capture_frame_requests_(0),
@@ -211,7 +194,7 @@ bool DesktopSessionProxy::OnMessageReceived(const IPC::Message& message) {
   return handled;
 }
 
-void DesktopSessionProxy::OnChannelConnected(int32 peer_pid) {
+void DesktopSessionProxy::OnChannelConnected(int32_t peer_pid) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   VLOG(1) << "IPC: network <- desktop (" << peer_pid << ")";
@@ -235,7 +218,7 @@ bool DesktopSessionProxy::AttachToDesktop(
   if (!client_session_control_.get())
     return false;
 
-  desktop_process_ = desktop_process.Pass();
+  desktop_process_ = std::move(desktop_process);
 
 #if defined(OS_WIN)
   // On Windows: |desktop_process| is a valid handle, but |desktop_pipe| needs
@@ -291,7 +274,7 @@ void DesktopSessionProxy::DetachFromDesktop() {
   // Generate fake responses to keep the video capturer in sync.
   while (pending_capture_frame_requests_) {
     --pending_capture_frame_requests_;
-    PostCaptureCompleted(nullptr);
+    video_capturer_->OnCaptureCompleted(nullptr);
   }
 }
 
@@ -303,30 +286,26 @@ void DesktopSessionProxy::SetAudioCapturer(
 }
 
 void DesktopSessionProxy::CaptureFrame() {
-  if (!caller_task_runner_->BelongsToCurrentThread()) {
-    caller_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&DesktopSessionProxy::CaptureFrame, this));
-    return;
-  }
+  DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   if (desktop_channel_) {
     ++pending_capture_frame_requests_;
     SendToDesktop(new ChromotingNetworkDesktopMsg_CaptureFrame());
   } else {
-    PostCaptureCompleted(nullptr);
+    video_capturer_->OnCaptureCompleted(nullptr);
   }
 }
 
 void DesktopSessionProxy::SetVideoCapturer(
     const base::WeakPtr<IpcVideoFrameCapturer> video_capturer) {
-  DCHECK(video_capture_task_runner_->BelongsToCurrentThread());
+  DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   video_capturer_ = video_capturer;
 }
 
 void DesktopSessionProxy::SetMouseCursorMonitor(
     const base::WeakPtr<IpcMouseCursorMonitor>& mouse_cursor_monitor) {
-  DCHECK(video_capture_task_runner_->BelongsToCurrentThread());
+  DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   mouse_cursor_monitor_ = mouse_cursor_monitor;
 }
@@ -409,7 +388,7 @@ void DesktopSessionProxy::StartInputInjector(
     scoped_ptr<protocol::ClipboardStub> client_clipboard) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-  client_clipboard_ = client_clipboard.Pass();
+  client_clipboard_ = std::move(client_clipboard);
 }
 
 void DesktopSessionProxy::SetScreenResolution(
@@ -480,18 +459,12 @@ void DesktopSessionProxy::OnAudioPacket(const std::string& serialized_packet) {
 
 void DesktopSessionProxy::OnCreateSharedBuffer(
     int id,
-    IPC::PlatformFileForTransit handle,
-    uint32 size) {
+    base::SharedMemoryHandle handle,
+    uint32_t size) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-#if defined(OS_WIN)
-  base::SharedMemoryHandle shm_handle =
-      base::SharedMemoryHandle(handle, base::GetCurrentProcId());
-#else
-  base::SharedMemoryHandle shm_handle = base::SharedMemoryHandle(handle);
-#endif
   scoped_refptr<IpcSharedBufferCore> shared_buffer =
-      new IpcSharedBufferCore(id, shm_handle, desktop_process_.Handle(), size);
+      new IpcSharedBufferCore(id, handle, size);
 
   if (shared_buffer->memory() != nullptr &&
       !shared_buffers_.insert(std::make_pair(id, shared_buffer)).second) {
@@ -528,13 +501,17 @@ void DesktopSessionProxy::OnCaptureCompleted(
   }
 
   --pending_capture_frame_requests_;
-  PostCaptureCompleted(frame.Pass());
+  video_capturer_->OnCaptureCompleted(std::move(frame));
 }
 
 void DesktopSessionProxy::OnMouseCursor(
     const webrtc::MouseCursor& mouse_cursor) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
-  PostMouseCursor(make_scoped_ptr(webrtc::MouseCursor::CopyOf(mouse_cursor)));
+
+  if (mouse_cursor_monitor_) {
+    mouse_cursor_monitor_->OnMouseCursor(
+        make_scoped_ptr(webrtc::MouseCursor::CopyOf(mouse_cursor)));
+  }
 }
 
 void DesktopSessionProxy::OnInjectClipboardEvent(
@@ -550,26 +527,6 @@ void DesktopSessionProxy::OnInjectClipboardEvent(
 
     client_clipboard_->InjectClipboardEvent(event);
   }
-}
-
-void DesktopSessionProxy::PostCaptureCompleted(
-    scoped_ptr<webrtc::DesktopFrame> frame) {
-  DCHECK(caller_task_runner_->BelongsToCurrentThread());
-
-  video_capture_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&IpcVideoFrameCapturer::OnCaptureCompleted, video_capturer_,
-                 base::Passed(&frame)));
-}
-
-void DesktopSessionProxy::PostMouseCursor(
-    scoped_ptr<webrtc::MouseCursor> mouse_cursor) {
-  DCHECK(caller_task_runner_->BelongsToCurrentThread());
-
-  video_capture_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&IpcMouseCursorMonitor::OnMouseCursor, mouse_cursor_monitor_,
-                 base::Passed(&mouse_cursor)));
 }
 
 void DesktopSessionProxy::SendToDesktop(IPC::Message* message) {

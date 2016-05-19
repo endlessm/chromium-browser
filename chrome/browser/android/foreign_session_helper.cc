@@ -5,10 +5,9 @@
 #include "chrome/browser/android/foreign_session_helper.h"
 
 #include <jni.h>
+#include <stddef.h>
 
 #include "base/android/jni_string.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile_android.h"
@@ -19,7 +18,9 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
-#include "components/sync_driver/open_tabs_ui_delegate.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
+#include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -163,17 +164,22 @@ ForeignSessionHelper::ForeignSessionHelper(Profile* profile)
 ForeignSessionHelper::~ForeignSessionHelper() {
 }
 
-void ForeignSessionHelper::Destroy(JNIEnv* env, jobject obj) {
+void ForeignSessionHelper::Destroy(JNIEnv* env,
+                                   const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-jboolean ForeignSessionHelper::IsTabSyncEnabled(JNIEnv* env, jobject obj) {
+jboolean ForeignSessionHelper::IsTabSyncEnabled(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   ProfileSyncService* service = ProfileSyncServiceFactory::GetInstance()->
       GetForProfile(profile_);
   return service && service->GetActiveDataTypes().Has(syncer::PROXY_TABS);
 }
 
-void ForeignSessionHelper::TriggerSessionSync(JNIEnv* env, jobject obj) {
+void ForeignSessionHelper::TriggerSessionSync(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   ProfileSyncService* service = ProfileSyncServiceFactory::GetInstance()->
       GetForProfile(profile_);
   if (!service)
@@ -183,9 +189,10 @@ void ForeignSessionHelper::TriggerSessionSync(JNIEnv* env, jobject obj) {
   service->TriggerRefresh(types);
 }
 
-void ForeignSessionHelper::SetOnForeignSessionCallback(JNIEnv* env,
-                                                       jobject obj,
-                                                       jobject callback) {
+void ForeignSessionHelper::SetOnForeignSessionCallback(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& callback) {
   callback_.Reset(env, callback);
 }
 
@@ -205,9 +212,10 @@ void ForeignSessionHelper::OnForeignSessionUpdated() {
   FireForeignSessionCallback();
 }
 
-jboolean ForeignSessionHelper::GetForeignSessions(JNIEnv* env,
-                                                  jobject obj,
-                                                  jobject result) {
+jboolean ForeignSessionHelper::GetForeignSessions(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& result) {
   OpenTabsUIDelegate* open_tabs = GetOpenTabsUIDelegate(profile_);
   if (!open_tabs)
     return false;
@@ -273,12 +281,13 @@ jboolean ForeignSessionHelper::GetForeignSessions(JNIEnv* env,
   return true;
 }
 
-jboolean ForeignSessionHelper::OpenForeignSessionTab(JNIEnv* env,
-                                                     jobject obj,
-                                                     jobject j_tab,
-                                                     jstring session_tag,
-                                                     jint session_tab_id,
-                                                     jint j_disposition) {
+jboolean ForeignSessionHelper::OpenForeignSessionTab(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& j_tab,
+    const JavaParamRef<jstring>& session_tag,
+    jint session_tab_id,
+    jint j_disposition) {
   OpenTabsUIDelegate* open_tabs = GetOpenTabsUIDelegate(profile_);
   if (!open_tabs) {
     LOG(ERROR) << "Null OpenTabsUIDelegate returned.";
@@ -315,8 +324,10 @@ jboolean ForeignSessionHelper::OpenForeignSessionTab(JNIEnv* env,
   return true;
 }
 
-void ForeignSessionHelper::DeleteForeignSession(JNIEnv* env, jobject obj,
-                                                jstring session_tag) {
+void ForeignSessionHelper::DeleteForeignSession(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& session_tag) {
   OpenTabsUIDelegate* open_tabs = GetOpenTabsUIDelegate(profile_);
   if (open_tabs)
     open_tabs->DeleteForeignSession(ConvertJavaStringToUTF8(env, session_tag));

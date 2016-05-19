@@ -4,6 +4,8 @@
 
 #include "content/browser/tracing/background_tracing_manager_impl.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
@@ -159,7 +161,7 @@ bool BackgroundTracingManagerImpl::SetActiveScenario(
     }
   }
 
-  config_ = config_impl.Pass();
+  config_ = std::move(config_impl);
   receive_callback_ = receive_callback;
   requires_anonymized_data_ = requires_anonymized_data;
 
@@ -186,7 +188,7 @@ bool BackgroundTracingManagerImpl::SetActiveScenario(
 }
 
 bool BackgroundTracingManagerImpl::HasActiveScenario() {
-  return config_;
+  return !!config_;
 }
 
 bool BackgroundTracingManagerImpl::IsTracingForTesting() {
@@ -408,7 +410,7 @@ void BackgroundTracingManagerImpl::OnFinalizeStarted(
 
   if (!receive_callback_.is_null()) {
     receive_callback_.Run(
-        file_contents, metadata.Pass(),
+        file_contents, std::move(metadata),
         base::Bind(&BackgroundTracingManagerImpl::OnFinalizeComplete,
                    base::Unretained(this)));
   }
@@ -430,11 +432,14 @@ void BackgroundTracingManagerImpl::OnFinalizeComplete() {
   if (!idle_callback_.is_null())
     idle_callback_.Run();
 
+  bool is_allowed_begin =
+      !delegate_ || (config_ &&
+                     delegate_->IsAllowedToBeginBackgroundScenario(
+                         *config_.get(), requires_anonymized_data_));
+
   // Now that a trace has completed, we may need to enable recording again.
   // TODO(oysteine): Retry later if IsAllowedToBeginBackgroundScenario fails.
-  if (!delegate_ ||
-      delegate_->IsAllowedToBeginBackgroundScenario(
-          *config_.get(), requires_anonymized_data_)) {
+  if (is_allowed_begin) {
     StartTracingIfConfigNeedsIt();
   } else {
     AbortScenario();
@@ -449,7 +454,7 @@ void BackgroundTracingManagerImpl::AddCustomMetadata(
 
   scoped_ptr<base::DictionaryValue> config_dict(new base::DictionaryValue());
   config_->IntoDict(config_dict.get());
-  metadata_dict.Set("config", config_dict.Pass());
+  metadata_dict.Set("config", std::move(config_dict));
 
   trace_data_sink->AddMetadata(metadata_dict);
 }

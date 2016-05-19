@@ -18,6 +18,7 @@ class AutofillManager;
 struct FormData;
 struct FormFieldData;
 struct PasswordForm;
+struct PasswordFormGenerationData;
 struct PasswordFormFillData;
 }  // namespace autofill
 
@@ -43,9 +44,10 @@ class PasswordManagerDriver
   virtual void AllowPasswordGenerationForForm(
       const autofill::PasswordForm& form) = 0;
 
-  // Notifies the driver that account creation |forms| were found.
-  virtual void AccountCreationFormsFound(
-      const std::vector<autofill::FormData>& forms) = 0;
+  // Notifies the driver that |forms| were found on which password can be
+  // generated.
+  virtual void FormsEligibleForGenerationFound(
+      const std::vector<autofill::PasswordFormGenerationData>& forms) = 0;
 
   // Notifies the driver that username and password predictions from autofill
   // have been received.
@@ -72,6 +74,10 @@ class PasswordManagerDriver
   // the corresponding password form, so that it can be saved.
   virtual void ForceSavePassword() {}
 
+  // Tells the driver to find the focused password field and to show generation
+  // popup at it.
+  virtual void GeneratePassword() {}
+
   // Returns the PasswordGenerationManager associated with this instance.
   virtual PasswordGenerationManager* GetPasswordGenerationManager() = 0;
 
@@ -80,6 +86,10 @@ class PasswordManagerDriver
 
   // Returns the PasswordAutofillManager associated with this instance.
   virtual PasswordAutofillManager* GetPasswordAutofillManager() = 0;
+
+  // Sends a message to the renderer whether logging to
+  // chrome://password-manager-internals is available.
+  virtual void SendLoggingAvailability() {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PasswordManagerDriver);

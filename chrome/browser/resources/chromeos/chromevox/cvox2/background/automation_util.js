@@ -7,31 +7,19 @@
  */
 
 goog.provide('AutomationUtil');
-goog.provide('AutomationUtil.Dir');
 
 goog.require('AutomationPredicate');
+goog.require('AutomationTreeWalker');
+goog.require('constants');
 
 /**
  * @constructor
  */
 AutomationUtil = function() {};
 
-/**
- * Possible directions to perform tree traversals.
- * @enum {string}
- */
-AutomationUtil.Dir = {
-  // Search from left to right.
-  FORWARD: 'forward',
-
-  // Search from right to left.
-  BACKWARD: 'backward'
-};
-
-
 goog.scope(function() {
 var AutomationNode = chrome.automation.AutomationNode;
-var Dir = AutomationUtil.Dir;
+var Dir = constants.Dir;
 var RoleType = chrome.automation.RoleType;
 
 /**
@@ -43,6 +31,9 @@ var RoleType = chrome.automation.RoleType;
  * @return {AutomationNode}
  */
 AutomationUtil.findNodePre = function(cur, dir, pred) {
+  if (!cur)
+    return null;
+
   if (pred(cur))
     return cur;
 
@@ -54,6 +45,7 @@ AutomationUtil.findNodePre = function(cur, dir, pred) {
     child = dir == Dir.BACKWARD ?
         child.previousSibling : child.nextSibling;
   }
+  return null;
 };
 
 /**
@@ -65,6 +57,9 @@ AutomationUtil.findNodePre = function(cur, dir, pred) {
  * @return {AutomationNode}
  */
 AutomationUtil.findNodePost = function(cur, dir, pred) {
+  if (!cur)
+    return null;
+
   var child = dir == Dir.BACKWARD ? cur.lastChild : cur.firstChild;
   while (child) {
     var ret = AutomationUtil.findNodePost(child, dir, pred);
@@ -76,93 +71,69 @@ AutomationUtil.findNodePost = function(cur, dir, pred) {
 
   if (pred(cur))
     return cur;
-};
 
-/**
- * Find the next node in the given direction that is either an immediate sibling
- * or a sibling of an ancestor.
- * @param {AutomationNode} cur Node to start search from.
- * @param {Dir} dir
- * @return {AutomationNode}
- */
-AutomationUtil.findNextSubtree = function(cur, dir) {
-  while (cur) {
-    var next = dir == Dir.BACKWARD ?
-        cur.previousSibling : cur.nextSibling;
-    if (!AutomationUtil.isInSameTree(cur, next))
-      return null;
-    if (next)
-      return next;
-    if (!AutomationUtil.isInSameTree(cur, cur.parent))
-      return null;
-    cur = cur.parent;
-    if (AutomationUtil.isTraversalRoot(cur))
-      return null;
-  }
+  return null;
 };
 
 /**
  * Find the next node in the given direction in depth first order.
- * @param {AutomationNode} cur Node to begin the search from.
+ * @param {!AutomationNode} cur Node to begin the search from.
  * @param {Dir} dir
  * @param {AutomationPredicate.Unary} pred A predicate to apply
  *     to a candidate node.
+ * @param {AutomationTreeWalkerRestriction=} opt_restrictions |leaf|, |root|,
+ *     and |skipInitialSubtree| are valid restrictions used when finding the
+ *     next node. If not supplied, the leaf predicate returns true for nodes
+ *     matched by |pred| or |AutomationPredicate.container|. This is typically
+ *     desirable in most situations.
+ *     If not supplied, the root predicate gets set to
+ *     |AutomationUtil.isTraversalRoot|.
  * @return {AutomationNode}
  */
-AutomationUtil.findNextNode = function(cur, dir, pred) {
-  var next = cur;
-  do {
-    if (!(next = AutomationUtil.findNextSubtree(cur, dir)))
-      return null;
-    cur = next;
-    next = AutomationUtil.findNodePre(next, dir, pred);
-    if (next && AutomationPredicate.shouldIgnoreLeaf(next)) {
-      cur = next;
-      next = null;
-    }
-  } while (!next);
-  return next;
+AutomationUtil.findNextNode = function(cur, dir, pred, opt_restrictions) {
+  var restrictions = {};
+  opt_restrictions = opt_restrictions || {leaf: undefined,
+      root: undefined,
+      visit: undefined,
+      skipInitialSubtree: !AutomationPredicate.container(cur)};
+  restrictions.leaf = opt_restrictions.leaf || function(node) {
+    // Treat nodes matched by |pred| as leaves except for containers.
+    return !AutomationPredicate.container(node) && pred(node);
+  };
+
+  restrictions.root = opt_restrictions.root || AutomationUtil.isTraversalRoot;
+  restrictions.skipInitialSubtree = opt_restrictions.skipInitialSubtree;
+
+  restrictions.visit = function(node) {
+    if (pred(node) && !AutomationPredicate.shouldIgnoreLeaf(node))
+      return true;
+    if (AutomationPredicate.container(node))
+      return true;
+  };
+
+  var walker = new AutomationTreeWalker(cur, dir, restrictions);
+  return walker.next().node;
 };
 
 /**
  * Given nodes a_1, ..., a_n starting at |cur| in pre order traversal, apply
  * |pred| to a_i and a_(i - 1) until |pred| is satisfied.  Returns a_(i - 1) or
- * a_i (depending on opt_options.before) or null if no match was found.
- * @param {AutomationNode} cur
+ * a_i (depending on opt_before) or null if no match was found.
+ * @param {!AutomationNode} cur
  * @param {Dir} dir
  * @param {AutomationPredicate.Binary} pred
- * @param {{filter: (AutomationPredicate.Unary|undefined),
- *      before: boolean?}=} opt_options
- *     filter - Filters which candidate nodes to consider. Defaults to leaf
- *         only.
- *     before - True to return a_(i - 1); a_i otherwise. Defaults to false.
+ * @param {boolean=} opt_before True to return a_(i - 1); a_i otherwise.
+ *                              Defaults to false.
  * @return {AutomationNode}
  */
-AutomationUtil.findNodeUntil = function(cur, dir, pred, opt_options) {
-  opt_options =
-      opt_options || {filter: AutomationPredicate.leaf, before: false};
-  if (!opt_options.filter)
-    opt_options.filter = AutomationPredicate.leaf;
-
-  var before = null;
-  var after = null;
-  var prev = cur;
-  AutomationUtil.findNextNode(cur,
-      dir,
-      function(candidate) {
-        if (!opt_options.filter(candidate))
-          return false;
-
-        var satisfied = pred(prev, candidate);
-
-        prev = candidate;
-        if (!satisfied)
-          before = candidate;
-        else
-          after = candidate;
-        return satisfied;
-    });
-  return opt_options.before ? before : after;
+AutomationUtil.findNodeUntil = function(cur, dir, pred, opt_before) {
+  var before = cur;
+  var after = before;
+  do {
+    before = after;
+    after = AutomationUtil.findNextNode(before, dir, AutomationPredicate.leaf);
+  } while (after && !pred(before, after));
+  return opt_before ? before : after;
 };
 
 /**
@@ -219,7 +190,7 @@ AutomationUtil.getUniqueAncestors = function(prevNode, node) {
  * document.
  * @param {!AutomationNode} nodeA
  * @param {!AutomationNode} nodeB
- * @return {AutomationUtil.Dir}
+ * @return {Dir}
  */
 AutomationUtil.getDirection = function(nodeA, nodeB) {
   var ancestorsA = AutomationUtil.getAncestors(nodeA);
@@ -270,10 +241,31 @@ AutomationUtil.isTraversalRoot = function(node) {
     case RoleType.toolbar:
       return node.root.role == RoleType.desktop;
     case RoleType.rootWebArea:
-      return !!(node.parent && node.parent.root.role == RoleType.desktop);
+      return !node.parent || node.parent.root.role == RoleType.desktop;
     default:
       return false;
   }
+};
+
+/**
+ * Determines whether the two given nodes come from the same webpage.
+ * @param {AutomationNode} a
+ * @param {AutomationNode} b
+ * @return {boolean}
+ */
+AutomationUtil.isInSameWebpage = function(a, b) {
+  if (!a || !b)
+    return false;
+
+  a = a.root;
+  while (a && a.parent && AutomationUtil.isInSameTree(a.parent, a))
+    a = a.parent.root;
+
+  b = b.root;
+  while (b && b.parent && AutomationUtil.isInSameTree(b.parent, b))
+    b = b.parent.root;
+
+  return a == b;
 };
 
 });  // goog.scope

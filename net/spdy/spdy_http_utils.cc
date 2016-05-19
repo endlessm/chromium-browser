@@ -11,7 +11,7 @@
 #include "base/time/time.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
-#include "net/base/net_util.h"
+#include "net/base/url_util.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_request_info.h"
 #include "net/http/http_response_headers.h"
@@ -84,7 +84,7 @@ bool SpdyHeadersToHttpResponse(const SpdyHeaderBlock& headers,
         tval = value.substr(start, (end - start));
       else
         tval = value.substr(start);
-      if (protocol_version >= 3 && it->first[0] == ':')
+      if (it->first[0] == ':')
         raw_headers.append(it->first.as_string().substr(1));
       else
         raw_headers.append(it->first.as_string());
@@ -107,19 +107,6 @@ void CreateSpdyHeadersFromHttpRequest(const HttpRequestInfo& info,
                                       SpdyHeaderBlock* headers) {
   static const char kHttpProtocolVersion[] = "HTTP/1.1";
   switch (protocol_version) {
-    case SPDY2:
-      // TODO(bnc): Remove this code now that SPDY/2 is deprecated.
-      (*headers)["version"] = kHttpProtocolVersion;
-      (*headers)["method"] = info.method;
-      (*headers)["host"] = GetHostAndOptionalPort(info.url);
-      if (info.method == "CONNECT") {
-        (*headers)["url"] = GetHostAndPort(info.url);
-      } else {
-        (*headers)["scheme"] = info.url.scheme();
-        (*headers)["url"] = direct ? info.url.PathForRequest()
-                                   : HttpUtil::SpecForRequest(info.url);
-      }
-      break;
     case SPDY3:
       (*headers)[":version"] = kHttpProtocolVersion;
       (*headers)[":method"] = info.method;
@@ -171,9 +158,13 @@ void CreateSpdyHeadersFromHttpResponse(
   if (protocol_version < HTTP2) {
     (*headers)[version_key] = std::string(status_line.begin(), after_version);
   }
-  (*headers)[status_key] = std::string(after_version + 1, status_line.end());
 
-  void* iter = NULL;
+  // Get status code only.
+  std::string::const_iterator after_status =
+      std::find(after_version + 1, status_line.end(), ' ');
+  (*headers)[status_key] = std::string(after_version + 1, after_status);
+
+  size_t iter = 0;
   std::string raw_name, value;
   while (response_headers.EnumerateHeaderLines(&iter, &raw_name, &value)) {
     std::string name = base::ToLowerASCII(raw_name);
@@ -202,9 +193,7 @@ NET_EXPORT_PRIVATE RequestPriority ConvertSpdyPriorityToRequestPriority(
 }
 
 GURL GetUrlFromHeaderBlock(const SpdyHeaderBlock& headers,
-                           SpdyMajorVersion protocol_version,
-                           bool pushed) {
-  DCHECK_LE(SPDY3, protocol_version);
+                           SpdyMajorVersion protocol_version) {
   SpdyHeaderBlock::const_iterator it = headers.find(":scheme");
   if (it == headers.end())
     return GURL();

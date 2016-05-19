@@ -4,6 +4,10 @@
 
 #include "chrome/browser/ui/search/search_tab_helper.h"
 
+#include <stdint.h>
+
+#include <string>
+
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/field_trial.h"
@@ -17,9 +21,10 @@
 #include "chrome/browser/signin/fake_signin_manager_builder.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/profile_sync_service_mock.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/browser/ui/search/search_ipc_router.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/webui/ntp/ntp_user_data_logger.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/ntp_logging_events.h"
 #include "chrome/common/render_messages.h"
@@ -31,6 +36,7 @@
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/omnibox/common/omnibox_focus_state.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -55,7 +61,7 @@ class MockSearchIPCRouterDelegate : public SearchIPCRouter::Delegate {
 
   MOCK_METHOD1(OnInstantSupportDetermined, void(bool supports_instant));
   MOCK_METHOD1(FocusOmnibox, void(OmniboxFocusState state));
-  MOCK_METHOD3(NavigateToURL, void(const GURL&, WindowOpenDisposition, bool));
+  MOCK_METHOD2(NavigateToURL, void(const GURL&, WindowOpenDisposition));
   MOCK_METHOD1(OnDeleteMostVisitedItem, void(const GURL& url));
   MOCK_METHOD1(OnUndoMostVisitedDeletion, void(const GURL& url));
   MOCK_METHOD0(OnUndoAllMostVisitedDeletions, void());
@@ -83,9 +89,8 @@ class SearchTabHelperTest : public ChromeRenderViewHostTestHarness {
     TestingProfile::Builder builder;
     builder.AddTestingFactory(SigninManagerFactory::GetInstance(),
                               BuildFakeSigninManagerBase);
-    builder.AddTestingFactory(
-        ProfileSyncServiceFactory::GetInstance(),
-        ProfileSyncServiceMock::BuildMockProfileSyncService);
+    builder.AddTestingFactory(ProfileSyncServiceFactory::GetInstance(),
+                              BuildMockProfileSyncService);
     return builder.Build().release();
   }
 
@@ -114,7 +119,7 @@ class SearchTabHelperTest : public ChromeRenderViewHostTestHarness {
         .WillRepeatedly(Return(result));
   }
 
-  bool MessageWasSent(uint32 id) {
+  bool MessageWasSent(uint32_t id) {
     return process()->sink().GetFirstMessageMatching(id) != NULL;
   }
 
@@ -313,6 +318,46 @@ TEST_F(SearchTabHelperTest, OnHistorySyncCheckNotSyncing) {
   ChromeViewMsg_HistorySyncCheckResult::Param params;
   ChromeViewMsg_HistorySyncCheckResult::Read(message, &params);
   ASSERT_FALSE(base::get<0>(params));
+}
+
+TEST_F(SearchTabHelperTest, OnMostVisitedItemsChangedFromServer) {
+  InstantMostVisitedItem item;
+  item.is_server_side_suggestion = true;
+  std::vector<InstantMostVisitedItem> items;
+  items.push_back(item);
+
+  SearchTabHelper* search_tab_helper =
+      SearchTabHelper::FromWebContents(web_contents());
+  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
+
+  auto logger = NTPUserDataLogger::GetOrCreateFromWebContents(web_contents());
+  ASSERT_FALSE(logger->has_server_side_suggestions_);
+  ASSERT_FALSE(logger->has_client_side_suggestions_);
+
+  search_tab_helper->MostVisitedItemsChanged(items);
+
+  ASSERT_TRUE(logger->has_server_side_suggestions_);
+  ASSERT_FALSE(logger->has_client_side_suggestions_);
+}
+
+TEST_F(SearchTabHelperTest, OnMostVisitedItemsChangedFromClient) {
+  InstantMostVisitedItem item;
+  item.is_server_side_suggestion = false;
+  std::vector<InstantMostVisitedItem> items;
+  items.push_back(item);
+
+  SearchTabHelper* search_tab_helper =
+      SearchTabHelper::FromWebContents(web_contents());
+  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
+
+  auto logger = NTPUserDataLogger::GetOrCreateFromWebContents(web_contents());
+  ASSERT_FALSE(logger->has_server_side_suggestions_);
+  ASSERT_FALSE(logger->has_client_side_suggestions_);
+
+  search_tab_helper->MostVisitedItemsChanged(items);
+
+  ASSERT_FALSE(logger->has_server_side_suggestions_);
+  ASSERT_TRUE(logger->has_client_side_suggestions_);
 }
 
 class TabTitleObserver : public content::WebContentsObserver {

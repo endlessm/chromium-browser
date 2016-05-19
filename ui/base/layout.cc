@@ -4,13 +4,15 @@
 
 #include "ui/base/layout.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "build/build_config.h"
 #include "ui/base/touch/touch_device.h"
 #include "ui/base/ui_base_switches.h"
@@ -18,22 +20,11 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/screen.h"
 
-#if defined(OS_WIN)
-#include "base/win/metro.h"
-#include "ui/gfx/win/dpi.h"
-#include <Windows.h>
-#endif  // defined(OS_WIN)
-
 namespace ui {
 
 namespace {
 
 std::vector<ScaleFactor>* g_supported_scale_factors = NULL;
-
-const float kScaleFactorScales[] = {1.0f, 1.0f, 1.25f, 1.33f, 1.4f, 1.5f, 1.8f,
-                                    2.0f, 2.5f, 3.0f};
-static_assert(NUM_SCALE_FACTORS == arraysize(kScaleFactorScales),
-              "kScaleFactorScales has incorrect size");
 
 }  // namespace
 
@@ -54,7 +45,7 @@ void SetSupportedScaleFactors(
   for (std::vector<ScaleFactor>::const_iterator it =
           g_supported_scale_factors->begin();
        it != g_supported_scale_factors->end(); ++it) {
-    scales.push_back(kScaleFactorScales[*it]);
+    scales.push_back(GetScaleForScaleFactor(*it));
   }
   gfx::ImageSkia::SetSupportedScales(scales);
 }
@@ -70,7 +61,7 @@ ScaleFactor GetSupportedScaleFactor(float scale) {
   float smallest_diff =  std::numeric_limits<float>::max();
   for (size_t i = 0; i < g_supported_scale_factors->size(); ++i) {
     ScaleFactor scale_factor = (*g_supported_scale_factors)[i];
-    float diff = std::abs(kScaleFactorScales[scale_factor] - scale);
+    float diff = std::abs(GetScaleForScaleFactor(scale_factor) - scale);
     if (diff < smallest_diff) {
       closest_match = scale_factor;
       smallest_diff = diff;
@@ -80,21 +71,9 @@ ScaleFactor GetSupportedScaleFactor(float scale) {
   return closest_match;
 }
 
-float GetImageScale(ScaleFactor scale_factor) {
-#if defined(OS_WIN)
-  return gfx::GetDPIScale();
-#else
-  return GetScaleForScaleFactor(scale_factor);
-#endif
-}
-
-float GetScaleForScaleFactor(ScaleFactor scale_factor) {
-  return kScaleFactorScales[scale_factor];
-}
-
 bool IsSupportedScale(float scale) {
   for (auto scale_factor_idx : *g_supported_scale_factors) {
-    if (kScaleFactorScales[scale_factor_idx] == scale)
+    if (GetScaleForScaleFactor(scale_factor_idx) == scale)
       return true;
   }
   return false;
@@ -127,9 +106,9 @@ ScopedSetSupportedScaleFactors::~ScopedSetSupportedScaleFactors() {
 
 #if !defined(OS_MACOSX)
 float GetScaleFactorForNativeView(gfx::NativeView view) {
-  gfx::Screen* screen = gfx::Screen::GetScreenFor(view);
-  gfx::Display display = screen->GetDisplayNearestWindow(view);
-  return display.device_scale_factor();
+  return gfx::Screen::GetScreen()
+      ->GetDisplayNearestWindow(view)
+      .device_scale_factor();
 }
 #endif  // !defined(OS_MACOSX)
 

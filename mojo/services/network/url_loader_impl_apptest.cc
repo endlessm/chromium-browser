@@ -2,16 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "mojo/application/public/cpp/application_test_base.h"
 #include "mojo/message_pump/message_pump_mojo.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/services/network/network_context.h"
 #include "mojo/services/network/url_loader_impl.h"
+#include "mojo/shell/public/cpp/application_test_base.h"
+#include "mojo/shell/public/cpp/message_loop_ref.h"
 #include "net/base/net_errors.h"
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_factory_impl.h"
@@ -27,7 +30,7 @@ TestURLRequestJob* g_current_job = nullptr;
 
 template <class A>
 void PassA(A* destination, A value) {
-  *destination = value.Pass();
+  *destination = std::move(value);
 }
 
 class TestURLRequestJob : public net::URLRequestJob {
@@ -49,32 +52,28 @@ class TestURLRequestJob : public net::URLRequestJob {
 
   void Start() override { status_ = STARTED; }
 
-  bool ReadRawData(net::IOBuffer* buf, int buf_size, int* bytes_read) override {
+  int ReadRawData(net::IOBuffer* buf, int buf_size) override {
     status_ = READING;
     buf_size_ = buf_size;
-    SetStatus(net::URLRequestStatus(net::URLRequestStatus::IO_PENDING, 0));
-    return false;
+    return net::ERR_IO_PENDING;
   }
 
   void NotifyHeadersComplete() { net::URLRequestJob::NotifyHeadersComplete(); }
 
   void NotifyReadComplete(int bytes_read) {
     if (bytes_read < 0) {
-      NotifyDone(net::URLRequestStatus(
-          net::URLRequestStatus::FromError(net::ERR_FAILED)));
-      net::URLRequestJob::NotifyReadComplete(0);
+      // Map errors to net::ERR_FAILED.
+      ReadRawDataComplete(net::ERR_FAILED);
       // Set this after calling ReadRawDataComplete since that ends up calling
       // ReadRawData.
       status_ = COMPLETED;
     } else if (bytes_read == 0) {
-      NotifyDone(net::URLRequestStatus());
-      net::URLRequestJob::NotifyReadComplete(bytes_read);
+      ReadRawDataComplete(bytes_read);
       // Set this after calling ReadRawDataComplete since that ends up calling
       // ReadRawData.
       status_ = COMPLETED;
     } else {
-      SetStatus(net::URLRequestStatus());
-      net::URLRequestJob::NotifyReadComplete(bytes_read);
+      ReadRawDataComplete(bytes_read);
       // Set this after calling ReadRawDataComplete since that ends up calling
       // ReadRawData.
       status_ = STARTED;
@@ -127,11 +126,11 @@ class UrlLoaderImplTest : public test::ApplicationTestBase {
             wait_for_request_.QuitClosure()))));
     url_request_context->set_job_factory(&url_request_job_factory_);
     url_request_context->Init();
-    network_context_.reset(new NetworkContext(url_request_context.Pass()));
+    network_context_.reset(new NetworkContext(std::move(url_request_context)));
     MessagePipe pipe;
     new URLLoaderImpl(network_context_.get(),
                       GetProxy(&url_loader_proxy_),
-                      make_scoped_ptr<mojo::AppRefCount>(nullptr));
+                      make_scoped_ptr<mojo::MessageLoopRef>(nullptr));
     EXPECT_TRUE(IsUrlLoaderValid());
   }
 
@@ -159,7 +158,7 @@ TEST_F(UrlLoaderImplTest, ClosedWhileWaitingOnTheNetwork) {
   request->url = "http://example.com";
 
   URLResponsePtr response;
-  url_loader_proxy_->Start(request.Pass(),
+  url_loader_proxy_->Start(std::move(request),
                            base::Bind(&PassA<URLResponsePtr>, &response));
   wait_for_request_.Run();
 
@@ -190,7 +189,7 @@ TEST_F(UrlLoaderImplTest, ClosedWhileWaitingOnThePipeToBeWriteable) {
   request->url = "http://example.com";
 
   URLResponsePtr response;
-  url_loader_proxy_->Start(request.Pass(),
+  url_loader_proxy_->Start(std::move(request),
                            base::Bind(&PassA<URLResponsePtr>, &response));
   wait_for_request_.Run();
 
@@ -231,7 +230,7 @@ TEST_F(UrlLoaderImplTest, RequestCompleted) {
   request->url = "http://example.com";
 
   URLResponsePtr response;
-  url_loader_proxy_->Start(request.Pass(),
+  url_loader_proxy_->Start(std::move(request),
                            base::Bind(&PassA<URLResponsePtr>, &response));
   wait_for_request_.Run();
 
@@ -262,7 +261,7 @@ TEST_F(UrlLoaderImplTest, RequestFailed) {
   request->url = "http://example.com";
 
   URLResponsePtr response;
-  url_loader_proxy_->Start(request.Pass(),
+  url_loader_proxy_->Start(std::move(request),
                            base::Bind(&PassA<URLResponsePtr>, &response));
   wait_for_request_.Run();
 

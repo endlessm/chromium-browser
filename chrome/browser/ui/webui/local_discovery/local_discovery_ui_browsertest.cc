@@ -2,14 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "chrome/browser/local_discovery/test_service_discovery_client.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
@@ -31,9 +34,9 @@
 #include "net/url_request/url_request_test_util.h"
 
 #if defined(OS_CHROMEOS)
-#include "base/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/prefs/pref_service.h"
 #endif
 
 using testing::InvokeWithoutArgs;
@@ -53,7 +56,7 @@ namespace local_discovery {
 
 namespace {
 
-const uint8 kQueryData[] = {
+const uint8_t kQueryData[] = {
   // Header
   0x00, 0x00,
   0x00, 0x00,               // Flags not set.
@@ -73,7 +76,7 @@ const uint8 kQueryData[] = {
   0x00, 0x01,               // QCLASS: IN class. Unicast bit not set.
 };
 
-const uint8 kAnnouncePacket[] = {
+const uint8_t kAnnouncePacket[] = {
   // Header
   0x00, 0x00,               // ID is zeroed out
   0x80, 0x00,               // Standard query response, no error
@@ -148,7 +151,7 @@ const uint8 kAnnouncePacket[] = {
 };
 
 
-const uint8 kGoodbyePacket[] = {
+const uint8_t kGoodbyePacket[] = {
   // Header
   0x00, 0x00,               // ID is zeroed out
   0x80, 0x00,               // Standard query response, RA, no error
@@ -185,7 +188,7 @@ const uint8 kGoodbyePacket[] = {
   0x00,
 };
 
-const uint8 kAnnouncePacketRegistered[] = {
+const uint8_t kAnnouncePacketRegistered[] = {
   // Header
   0x00, 0x00,               // ID is zeroed out
   0x80, 0x00,               // Standard query response, RA, no error
@@ -223,19 +226,19 @@ const char kResponseInfoWithID[] = "{"
 
 const char kResponseRegisterStart[] = "{"
     "     \"action\": \"start\","
-    "     \"user\": \"user@host.com\""
+    "     \"user\": \"user@consumer.example.com\""
     "}";
 
 const char kResponseRegisterClaimTokenNoConfirm[] = "{"
     "    \"action\": \"getClaimToken\","
-    "    \"user\": \"user@host.com\","
+    "    \"user\": \"user@consumer.example.com\","
     "    \"error\": \"pending_user_action\","
     "    \"timeout\": 1"
     "}";
 
 const char kResponseRegisterClaimTokenConfirm[] = "{"
     "    \"action\": \"getClaimToken\","
-    "    \"user\": \"user@host.com\","
+    "    \"user\": \"user@consumer.example.com\","
     "    \"token\": \"MySampleToken\","
     "    \"claim_url\": \"http://someurl.com/\""
     "}";
@@ -244,7 +247,7 @@ const char kResponseCloudPrintConfirm[] = "{ \"success\": true }";
 
 const char kResponseRegisterComplete[] = "{"
     "    \"action\": \"complete\","
-    "    \"user\": \"user@host.com\","
+    "    \"user\": \"user@consumer.example.com\","
     "    \"device_id\": \"my_id\""
     "}";
 
@@ -261,20 +264,22 @@ const char kResponseGaiaId[] = "{"
 const char kURLInfo[] = "http://1.2.3.4:8888/privet/info";
 
 const char kURLRegisterStart[] =
-    "http://1.2.3.4:8888/privet/register?action=start&user=user%40host.com";
+    "http://1.2.3.4:8888/privet/register?action=start&"
+    "user=user%40consumer.example.com";
 
 const char kURLRegisterClaimToken[] =
     "http://1.2.3.4:8888/privet/register?action=getClaimToken&"
-    "user=user%40host.com";
+    "user=user%40consumer.example.com";
 
 const char kURLCloudPrintConfirm[] =
     "https://www.google.com/cloudprint/confirm?token=MySampleToken";
 
 const char kURLRegisterComplete[] =
-    "http://1.2.3.4:8888/privet/register?action=complete&user=user%40host.com";
+    "http://1.2.3.4:8888/privet/register?action=complete&"
+    "user=user%40consumer.example.com";
 
 const char kSampleGaiaId[] = "12345";
-const char kSampleUser[] = "user@host.com";
+const char kSampleUser[] = "user@consumer.example.com";
 
 class TestMessageLoopCondition {
  public:

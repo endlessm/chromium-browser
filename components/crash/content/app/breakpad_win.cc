@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <stddef.h>
 #include <tchar.h>
 #include <userenv.h>
 #include <winnt.h>
@@ -15,11 +16,12 @@
 #include <vector>
 
 #include "base/base_switches.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/environment.h"
+#include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string16.h"
@@ -28,7 +30,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
-#include "base/win/metro.h"
 #include "base/win/pe_image.h"
 #include "base/win/registry.h"
 #include "base/win/win_util.h"
@@ -353,10 +354,6 @@ static bool WrapMessageBoxWithSEH(const wchar_t* text, const wchar_t* caption,
 // spawned and basically just shows the 'chrome has crashed' dialog if
 // the CHROME_CRASHED environment variable is present.
 bool ShowRestartDialogIfCrashed(bool* exit_now) {
-  // If we are being launched in metro mode don't try to show the dialog.
-  if (base::win::IsMetroProcess())
-    return false;
-
   base::string16 message;
   base::string16 title;
   bool is_rtl_locale;

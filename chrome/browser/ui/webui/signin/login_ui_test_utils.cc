@@ -6,7 +6,7 @@
 #include "chrome/browser/signin/signin_tracker_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/webui/signin/inline_login_ui.h"
+#include "chrome/browser/ui/webui/signin/get_auth_frame.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -139,8 +139,7 @@ void WaitUntilElementExistsInSigninFrame(Browser* browser,
   content::WebContents* web_contents =
       browser->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(content::ExecuteScriptAndExtractString(
-      InlineLoginUI::GetAuthFrame(web_contents, GURL(), "signin-frame"),
-      js, &message));
+      signin::GetAuthFrame(web_contents, "signin-frame"), js, &message));
 
   ASSERT_EQ("found", message) <<
       "Failed to find element with id " << element_id;
@@ -152,9 +151,10 @@ bool ElementExistsInSigninFrame(Browser* browser,
       browser->tab_strip_model()->GetActiveWebContents();
   bool result = false;
   EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      InlineLoginUI::GetAuthFrame(web_contents, GURL(), "signin-frame"),
+      signin::GetAuthFrame(web_contents, "signin-frame"),
       "window.domAutomationController.send("
-      "  document.getElementById('" + element_id + "') != null);",
+      "  document.getElementById('" +
+          element_id + "') != null);",
       &result));
   return result;
 }
@@ -167,15 +167,15 @@ void SigninInNewGaiaFlow(Browser* browser,
 
   content::WebContents* web_contents =
       browser->tab_strip_model()->GetActiveWebContents();
-  ASSERT_TRUE(content::ExecuteScript(InlineLoginUI::GetAuthFrame(
-      web_contents, GURL(), "signin-frame"), js));
+  ASSERT_TRUE(content::ExecuteScript(
+      signin::GetAuthFrame(web_contents, "signin-frame"), js));
 
   WaitUntilElementExistsInSigninFrame(browser, "Passwd");
   js = "document.getElementById('Passwd').value = '" + password + "';"
        "document.getElementById('signIn').click();";
 
-  ASSERT_TRUE(content::ExecuteScript(InlineLoginUI::GetAuthFrame(
-      web_contents, GURL(), "signin-frame"), js));
+  ASSERT_TRUE(content::ExecuteScript(
+      signin::GetAuthFrame(web_contents, "signin-frame"), js));
 }
 
 void SigninInOldGaiaFlow(Browser* browser,
@@ -188,8 +188,8 @@ void SigninInOldGaiaFlow(Browser* browser,
 
   content::WebContents* web_contents =
       browser->tab_strip_model()->GetActiveWebContents();
-  ASSERT_TRUE(content::ExecuteScript(InlineLoginUI::GetAuthFrame(
-      web_contents, GURL(), "signin-frame"), js));
+  ASSERT_TRUE(content::ExecuteScript(
+      signin::GetAuthFrame(web_contents, "signin-frame"), js));
 }
 
 void ExecuteJsToSigninInSigninFrame(Browser* browser,
@@ -206,13 +206,14 @@ bool SignInWithUI(Browser* browser,
                   const std::string& username,
                   const std::string& password,
                   bool wait_for_account_cookies,
-                  signin_metrics::Source signin_source) {
+                  signin_metrics::AccessPoint access_point,
+                  signin_metrics::Reason signin_reason) {
   SignInObserver signin_observer(wait_for_account_cookies);
   scoped_ptr<SigninTracker> tracker =
       SigninTrackerFactory::CreateForProfile(browser->profile(),
                                              &signin_observer);
 
-  GURL signin_url = signin::GetPromoURL(signin_source, false);
+  GURL signin_url = signin::GetPromoURL(access_point, signin_reason, false);
   DVLOG(1) << "Navigating to " << signin_url;
   // For some tests, the window is not shown yet and this might be the first tab
   // navigation, so GetActiveWebContents() for CURRENT_TAB is NULL. That's why
@@ -236,8 +237,9 @@ bool SignInWithUI(Browser* browser,
                   const std::string& username,
                   const std::string& password) {
   return SignInWithUI(browser, username, password,
-                      false  /* wait_for_account_cookies */,
-                      signin_metrics::SOURCE_START_PAGE);
+                      false /* wait_for_account_cookies */,
+                      signin_metrics::AccessPoint::ACCESS_POINT_START_PAGE,
+                      signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT);
 }
 
 }  // namespace login_ui_test_utils

@@ -14,6 +14,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "content/browser/gpu/browser_gpu_memory_buffer_manager.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "content/browser/gpu/gpu_process_host.h"
@@ -32,19 +33,6 @@
 namespace content {
 
 BrowserGpuChannelHostFactory* BrowserGpuChannelHostFactory::instance_ = NULL;
-
-struct BrowserGpuChannelHostFactory::CreateRequest {
-  CreateRequest(int32 route_id)
-      : event(true, false),
-        gpu_host_id(0),
-        route_id(route_id),
-        result(CREATE_COMMAND_BUFFER_FAILED) {}
-  ~CreateRequest() {}
-  base::WaitableEvent event;
-  int gpu_host_id;
-  int32 route_id;
-  CreateCommandBufferResult result;
-};
 
 class BrowserGpuChannelHostFactory::EstablishRequest
     : public base::RefCountedThreadSafe<EstablishRequest> {
@@ -149,12 +137,11 @@ void BrowserGpuChannelHostFactory::EstablishRequest::EstablishOnIO() {
   }
 
   bool preempts = true;
-  bool preempted = false;
-  bool allow_future_sync_points = true;
+  bool allow_view_command_buffers = true;
   bool allow_real_time_streams = true;
   host->EstablishGpuChannel(
-      gpu_client_id_, gpu_client_tracing_id_, preempts, preempted,
-      allow_future_sync_points, allow_real_time_streams,
+      gpu_client_id_, gpu_client_tracing_id_, preempts,
+      allow_view_command_buffers, allow_real_time_streams,
       base::Bind(
           &BrowserGpuChannelHostFactory::EstablishRequest::OnEstablishedOnIO,
           this));
@@ -287,61 +274,12 @@ BrowserGpuChannelHostFactory::AllocateSharedMemory(size_t size) {
   scoped_ptr<base::SharedMemory> shm(new base::SharedMemory());
   if (!shm->CreateAnonymous(size))
     return scoped_ptr<base::SharedMemory>();
-  return shm.Pass();
+  return shm;
 }
 
-void BrowserGpuChannelHostFactory::CreateViewCommandBufferOnIO(
-    CreateRequest* request,
-    int32 surface_id,
-    const GPUCreateCommandBufferConfig& init_params) {
-  GpuProcessHost* host = GpuProcessHost::FromID(gpu_host_id_);
-  if (!host) {
-    request->event.Signal();
-    return;
-  }
-
-  gfx::GLSurfaceHandle surface =
-      GpuSurfaceTracker::Get()->GetSurfaceHandle(surface_id);
-
-  host->CreateViewCommandBuffer(
-      surface,
-      gpu_client_id_,
-      init_params,
-      request->route_id,
-      base::Bind(&BrowserGpuChannelHostFactory::CommandBufferCreatedOnIO,
-                 request));
-}
-
-// static
-void BrowserGpuChannelHostFactory::CommandBufferCreatedOnIO(
-    CreateRequest* request, CreateCommandBufferResult result) {
-  request->result = result;
-  request->event.Signal();
-}
-
-CreateCommandBufferResult BrowserGpuChannelHostFactory::CreateViewCommandBuffer(
-      int32 surface_id,
-      const GPUCreateCommandBufferConfig& init_params,
-      int32 route_id) {
-  CreateRequest request(route_id);
-  GetIOThreadTaskRunner()->PostTask(
-      FROM_HERE,
-      base::Bind(&BrowserGpuChannelHostFactory::CreateViewCommandBufferOnIO,
-                 base::Unretained(this), &request, surface_id, init_params));
-  // TODO(vadimt): Remove ScopedTracker below once crbug.com/125248 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "125248 BrowserGpuChannelHostFactory::CreateViewCommandBuffer"));
-
-  // We're blocking the UI thread, which is generally undesirable.
-  // In this case we need to wait for this before we can show any UI /anyway/,
-  // so it won't cause additional jank.
-  // TODO(piman): Make this asynchronous (http://crbug.com/125248).
-  TRACE_EVENT0("browser",
-               "BrowserGpuChannelHostFactory::CreateViewCommandBuffer");
-  base::ThreadRestrictions::ScopedAllowWait allow_wait;
-  request.event.Wait();
-  return request.result;
+gfx::GLSurfaceHandle BrowserGpuChannelHostFactory::GetSurfaceHandle(
+    int32_t surface_id) {
+  return GpuSurfaceTracker::Get()->GetSurfaceHandle(surface_id);
 }
 
 // Blocking the UI thread to open a GPU channel is not supported on Android.

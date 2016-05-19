@@ -4,6 +4,9 @@
 
 #include "chrome/test/chromedriver/chrome/chrome_desktop_impl.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
@@ -11,6 +14,7 @@
 #include "base/sys_info.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/test/chromedriver/chrome/automation_extension.h"
 #include "chrome/test/chromedriver/chrome/devtools_client.h"
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
@@ -70,11 +74,11 @@ ChromeDesktopImpl::ChromeDesktopImpl(
     const base::CommandLine& command,
     base::ScopedTempDir* user_data_dir,
     base::ScopedTempDir* extension_dir)
-    : ChromeImpl(http_client.Pass(),
-                 websocket_client.Pass(),
+    : ChromeImpl(std::move(http_client),
+                 std::move(websocket_client),
                  devtools_event_listeners,
-                 port_reservation.Pass()),
-      process_(process.Pass()),
+                 std::move(port_reservation)),
+      process_(std::move(process)),
       command_(command) {
   if (user_data_dir->IsValid())
     CHECK(user_data_dir_.Set(user_data_dir->Take()));
@@ -144,7 +148,7 @@ Status ChromeDesktopImpl::WaitForPageToLoad(const std::string& url,
   status = web_view_tmp->WaitForPendingNavigations(
       std::string(), deadline - base::TimeTicks::Now(), false);
   if (status.IsOk())
-    *web_view = web_view_tmp.Pass();
+    *web_view = std::move(web_view_tmp);
   return status;
 }
 
@@ -160,7 +164,7 @@ Status ChromeDesktopImpl::GetAutomationExtension(
     if (status.IsError())
       return Status(kUnknownError, "cannot get automation extension", status);
 
-    automation_extension_.reset(new AutomationExtension(web_view.Pass()));
+    automation_extension_.reset(new AutomationExtension(std::move(web_view)));
   }
   *extension = automation_extension_.get();
   return Status(kOk);

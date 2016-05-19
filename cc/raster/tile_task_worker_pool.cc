@@ -4,76 +4,21 @@
 
 #include "cc/raster/tile_task_worker_pool.h"
 
-#include <algorithm>
+#include <stddef.h>
 
 #include "base/trace_event/trace_event.h"
 #include "cc/playback/display_list_raster_source.h"
+#include "cc/raster/texture_compressor.h"
 #include "skia/ext/refptr.h"
 #include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkDrawFilter.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/utils/SkPaintFilterCanvas.h"
 
 namespace cc {
-namespace {
 
-class TaskSetFinishedTaskImpl : public TileTask {
- public:
-  explicit TaskSetFinishedTaskImpl(
-      base::SequencedTaskRunner* task_runner,
-      const base::Closure& on_task_set_finished_callback)
-      : task_runner_(task_runner),
-        on_task_set_finished_callback_(on_task_set_finished_callback) {}
+TileTaskWorkerPool::TileTaskWorkerPool() {}
 
-  // Overridden from Task:
-  void RunOnWorkerThread() override {
-    TRACE_EVENT0("cc", "TaskSetFinishedTaskImpl::RunOnWorkerThread");
-    TaskSetFinished();
-  }
-
-  // Overridden from TileTask:
-  void ScheduleOnOriginThread(TileTaskClient* client) override {}
-  void CompleteOnOriginThread(TileTaskClient* client) override {}
-
- protected:
-  ~TaskSetFinishedTaskImpl() override {}
-
-  void TaskSetFinished() {
-    task_runner_->PostTask(FROM_HERE, on_task_set_finished_callback_);
-  }
-
- private:
-  scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  const base::Closure on_task_set_finished_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(TaskSetFinishedTaskImpl);
-};
-
-}  // namespace
-
-// This allows a micro benchmark system to run tasks with highest priority,
-// since it should finish as quickly as possible.
-size_t TileTaskWorkerPool::kBenchmarkTaskPriority = 0u;
-// Task priorities that make sure task set finished tasks run before any
-// other remaining tasks. This is combined with the task set type to ensure
-// proper prioritization ordering between task set types.
-size_t TileTaskWorkerPool::kTaskSetFinishedTaskPriorityBase = 1u;
-// For correctness, |kTileTaskPriorityBase| must be greater than
-// |kTaskSetFinishedTaskPriorityBase + kNumberOfTaskSets|.
-size_t TileTaskWorkerPool::kTileTaskPriorityBase = 10u;
-
-TileTaskWorkerPool::TileTaskWorkerPool() {
-}
-
-TileTaskWorkerPool::~TileTaskWorkerPool() {
-}
-
-// static
-scoped_refptr<TileTask> TileTaskWorkerPool::CreateTaskSetFinishedTask(
-    base::SequencedTaskRunner* task_runner,
-    const base::Closure& on_task_set_finished_callback) {
-  return make_scoped_refptr(
-      new TaskSetFinishedTaskImpl(task_runner, on_task_set_finished_callback));
-}
+TileTaskWorkerPool::~TileTaskWorkerPool() {}
 
 // static
 void TileTaskWorkerPool::ScheduleTasksOnOriginThread(TileTaskClient* client,
@@ -93,76 +38,66 @@ void TileTaskWorkerPool::ScheduleTasksOnOriginThread(TileTaskClient* client,
   }
 }
 
-// static
-void TileTaskWorkerPool::InsertNodeForTask(TaskGraph* graph,
-                                           TileTask* task,
-                                           size_t priority,
-                                           size_t dependencies) {
-  DCHECK(std::find_if(graph->nodes.begin(), graph->nodes.end(),
-                      TaskGraph::Node::TaskComparator(task)) ==
-         graph->nodes.end());
-  graph->nodes.push_back(TaskGraph::Node(task, priority, dependencies));
-}
+namespace {
 
-// static
-void TileTaskWorkerPool::InsertNodesForRasterTask(
-    TaskGraph* graph,
-    RasterTask* raster_task,
-    const ImageDecodeTask::Vector& decode_tasks,
-    size_t priority) {
-  size_t dependencies = 0u;
-
-  // Insert image decode tasks.
-  for (ImageDecodeTask::Vector::const_iterator it = decode_tasks.begin();
-       it != decode_tasks.end(); ++it) {
-    ImageDecodeTask* decode_task = it->get();
-
-    // Skip if already decoded.
-    if (decode_task->HasCompleted())
-      continue;
-
-    dependencies++;
-
-    // Add decode task if it doesn't already exists in graph.
-    TaskGraph::Node::Vector::iterator decode_it =
-        std::find_if(graph->nodes.begin(), graph->nodes.end(),
-                     TaskGraph::Node::TaskComparator(decode_task));
-    if (decode_it == graph->nodes.end())
-      InsertNodeForTask(graph, decode_task, priority, 0u);
-
-    graph->edges.push_back(TaskGraph::Edge(decode_task, raster_task));
-  }
-
-  InsertNodeForTask(graph, raster_task, priority, dependencies);
-}
-
-static bool IsSupportedPlaybackToMemoryFormat(ResourceFormat format) {
+bool IsSupportedPlaybackToMemoryFormat(ResourceFormat format) {
   switch (format) {
     case RGBA_4444:
     case RGBA_8888:
     case BGRA_8888:
+    case ETC1:
       return true;
     case ALPHA_8:
     case LUMINANCE_8:
     case RGB_565:
-    case ETC1:
     case RED_8:
+    case LUMINANCE_F16:
       return false;
   }
   NOTREACHED();
   return false;
 }
 
-class SkipImageFilter : public SkDrawFilter {
+class SkipImageCanvas : public SkPaintFilterCanvas {
  public:
-  bool filter(SkPaint* paint, Type type) override {
+  explicit SkipImageCanvas(SkCanvas* canvas) : SkPaintFilterCanvas(canvas) {}
+
+  bool onFilter(SkTCopyOnFirstWrite<SkPaint>* paint, Type type) const override {
     if (type == kBitmap_Type)
       return false;
 
-    SkShader* shader = paint->getShader();
+    SkShader* shader = (*paint) ? (*paint)->getShader() : nullptr;
     return !shader || !shader->isABitmap();
   }
+
+  void onDrawPicture(const SkPicture* picture,
+                     const SkMatrix* matrix,
+                     const SkPaint* paint) override {
+    SkTCopyOnFirstWrite<SkPaint> filteredPaint(paint);
+
+    // To filter nested draws, we must unfurl pictures at this stage.
+    if (onFilter(&filteredPaint, kPicture_Type))
+      SkCanvas::onDrawPicture(picture, matrix, filteredPaint);
+  }
 };
+
+class AutoSkipImageCanvas {
+ public:
+  AutoSkipImageCanvas(SkCanvas* canvas, bool include_images) : canvas_(canvas) {
+    if (!include_images) {
+      skip_image_canvas_ = skia::AdoptRef(new SkipImageCanvas(canvas));
+      canvas_ = skip_image_canvas_.get();
+    }
+  }
+
+  operator SkCanvas*() { return canvas_; }
+
+ private:
+  skia::RefPtr<SkCanvas> skip_image_canvas_;
+  SkCanvas* canvas_;
+};
+
+}  // anonymous namespace
 
 // static
 void TileTaskWorkerPool::PlaybackToMemory(
@@ -182,8 +117,6 @@ void TileTaskWorkerPool::PlaybackToMemory(
   // Uses kPremul_SkAlphaType since the result is not known to be opaque.
   SkImageInfo info =
       SkImageInfo::MakeN32(size.width(), size.height(), kPremul_SkAlphaType);
-  SkColorType buffer_color_type = ResourceFormatToSkColorType(format);
-  bool needs_copy = buffer_color_type != info.colorType();
 
   // Use unknown pixel geometry to disable LCD text.
   SkSurfaceProps surface_props(0, kUnknown_SkPixelGeometry);
@@ -196,43 +129,60 @@ void TileTaskWorkerPool::PlaybackToMemory(
     stride = info.minRowBytes();
   DCHECK_GT(stride, 0u);
 
-  skia::RefPtr<SkDrawFilter> image_filter;
-  if (!include_images)
-    image_filter = skia::AdoptRef(new SkipImageFilter);
+  switch (format) {
+    case RGBA_8888:
+    case BGRA_8888: {
+      skia::RefPtr<SkSurface> surface = skia::AdoptRef(
+          SkSurface::NewRasterDirect(info, memory, stride, &surface_props));
+      AutoSkipImageCanvas canvas(surface->getCanvas(), include_images);
+      raster_source->PlaybackToCanvas(canvas, canvas_bitmap_rect,
+                                      canvas_playback_rect, scale);
+      return;
+    }
+    case RGBA_4444:
+    case ETC1: {
+      skia::RefPtr<SkSurface> surface =
+          skia::AdoptRef(SkSurface::NewRaster(info, &surface_props));
+      AutoSkipImageCanvas canvas(surface->getCanvas(), include_images);
+      // TODO(reveman): Improve partial raster support by reducing the size of
+      // playback rect passed to PlaybackToCanvas. crbug.com/519070
+      raster_source->PlaybackToCanvas(canvas, canvas_bitmap_rect,
+                                      canvas_bitmap_rect, scale);
 
-  if (!needs_copy) {
-    skia::RefPtr<SkSurface> surface = skia::AdoptRef(
-        SkSurface::NewRasterDirect(info, memory, stride, &surface_props));
-    skia::RefPtr<SkCanvas> canvas = skia::SharePtr(surface->getCanvas());
-    canvas->setDrawFilter(image_filter.get());
-    raster_source->PlaybackToCanvas(canvas.get(), canvas_bitmap_rect,
-                                    canvas_playback_rect, scale);
-    return;
+      if (format == ETC1) {
+        TRACE_EVENT0("cc",
+                     "TileTaskWorkerPool::PlaybackToMemory::CompressETC1");
+        DCHECK_EQ(size.width() % 4, 0);
+        DCHECK_EQ(size.height() % 4, 0);
+        scoped_ptr<TextureCompressor> texture_compressor =
+            TextureCompressor::Create(TextureCompressor::kFormatETC1);
+        texture_compressor->Compress(reinterpret_cast<const uint8_t*>(
+                                         surface->peekPixels(nullptr, nullptr)),
+                                     reinterpret_cast<uint8_t*>(memory),
+                                     size.width(), size.height(),
+                                     TextureCompressor::kQualityHigh);
+      } else {
+        TRACE_EVENT0("cc",
+                     "TileTaskWorkerPool::PlaybackToMemory::ConvertRGBA4444");
+        SkImageInfo dst_info = SkImageInfo::Make(
+            info.width(), info.height(), ResourceFormatToSkColorType(format),
+            info.alphaType(), info.profileType());
+        bool rv =
+            surface->getCanvas()->readPixels(dst_info, memory, stride, 0, 0);
+        DCHECK(rv);
+      }
+      return;
+    }
+    case ALPHA_8:
+    case LUMINANCE_8:
+    case RGB_565:
+    case RED_8:
+    case LUMINANCE_F16:
+      NOTREACHED();
+      return;
   }
 
-  skia::RefPtr<SkSurface> surface =
-      skia::AdoptRef(SkSurface::NewRaster(info, &surface_props));
-  skia::RefPtr<SkCanvas> canvas = skia::SharePtr(surface->getCanvas());
-  canvas->setDrawFilter(image_filter.get());
-  // TODO(reveman): Improve partial raster support by reducing the size of
-  // playback rect passed to PlaybackToCanvas. crbug.com/519070
-  raster_source->PlaybackToCanvas(canvas.get(), canvas_bitmap_rect,
-                                  canvas_bitmap_rect, scale);
-
-  {
-    TRACE_EVENT0("cc", "TileTaskWorkerPool::PlaybackToMemory::ConvertPixels");
-
-    SkImageInfo dst_info =
-        SkImageInfo::Make(info.width(), info.height(), buffer_color_type,
-                          info.alphaType(), info.profileType());
-    // TODO(kaanb): The GL pipeline assumes a 4-byte alignment for the
-    // bitmap data. There will be no need to call SkAlign4 once crbug.com/293728
-    // is fixed.
-    const size_t dst_row_bytes = SkAlign4(dst_info.minRowBytes());
-    DCHECK_EQ(0u, dst_row_bytes % 4);
-    bool success = canvas->readPixels(dst_info, memory, dst_row_bytes, 0, 0);
-    DCHECK_EQ(true, success);
-  }
+  NOTREACHED();
 }
 
 }  // namespace cc

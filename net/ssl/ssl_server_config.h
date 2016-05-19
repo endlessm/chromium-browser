@@ -6,18 +6,27 @@
 #define NET_SSL_SSL_SERVER_CONFIG_H_
 
 #include <stdint.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
 #include "net/base/net_export.h"
 #include "net/ssl/ssl_config.h"
 
 namespace net {
 
+class ClientCertVerifier;
+
 // A collection of server-side SSL-related configuration settings.
 struct NET_EXPORT SSLServerConfig {
+  enum ClientCertType {
+    NO_CLIENT_CERT,
+    OPTIONAL_CLIENT_CERT,
+    REQUIRE_CLIENT_CERT,
+  };
+
   // Defaults
   SSLServerConfig();
+  SSLServerConfig(const SSLServerConfig& other);
   ~SSLServerConfig();
 
   // The minimum and maximum protocol versions that are enabled.
@@ -43,9 +52,9 @@ struct NET_EXPORT SSLServerConfig {
   // The ciphers listed in |disabled_cipher_suites| will be removed in addition
   // to the above list.
   //
-  // Though cipher suites are sent in TLS as "uint8 CipherSuite[2]", in
+  // Though cipher suites are sent in TLS as "uint8_t CipherSuite[2]", in
   // big-endian form, they should be declared in host byte order, with the
-  // first uint8 occupying the most significant byte.
+  // first uint8_t occupying the most significant byte.
   // Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
   std::vector<uint16_t> disabled_cipher_suites;
@@ -53,9 +62,21 @@ struct NET_EXPORT SSLServerConfig {
   // If true, causes only ECDHE cipher suites to be enabled.
   bool require_ecdhe;
 
-  // Requires a client certificate for client authentication from the client.
-  // This doesn't currently enforce certificate validity.
-  bool require_client_cert;
+  // Sets the requirement for client certificates during handshake.
+  ClientCertType client_cert_type;
+
+  // List of DER-encoded X.509 DistinguishedName of certificate authorities
+  // to be included in the CertificateRequest handshake message,
+  // if client certificates are required.
+  std::vector<std::string> cert_authorities_;
+
+  // Provides the ClientCertVerifier that is to be used to verify
+  // client certificates during the handshake.
+  // The |client_cert_verifier| continues to be owned by the caller,
+  // and must outlive any sockets using this SSLServerConfig.
+  // This field is meaningful only if client certificates are requested.
+  // If a verifier is not provided then all certificates are accepted.
+  ClientCertVerifier* client_cert_verifier;
 };
 
 }  // namespace net

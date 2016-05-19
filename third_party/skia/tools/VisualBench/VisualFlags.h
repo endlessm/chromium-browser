@@ -12,6 +12,8 @@
 
 DECLARE_string(config);
 DECLARE_int32(msaa);
+DECLARE_bool(offscreen);
 DECLARE_bool(nvpr);
+DECLARE_bool(cpu);
 
 #endif

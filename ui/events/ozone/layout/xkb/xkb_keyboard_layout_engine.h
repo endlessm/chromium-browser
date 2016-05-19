@@ -5,6 +5,7 @@
 #ifndef UI_EVENTS_OZONE_LAYOUT_XKB_XKB_KEYBOARD_LAYOUT_ENGINE_H_
 #define UI_EVENTS_OZONE_LAYOUT_XKB_XKB_KEYBOARD_LAYOUT_ENGINE_H_
 
+#include <stdint.h>
 #include <xkbcommon/xkbcommon.h>
 #include <vector>
 
@@ -14,9 +15,9 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/task_runner.h"
+#include "ui/events/keycodes/scoped_xkb.h"
 #include "ui/events/ozone/layout/events_ozone_layout_export.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine.h"
-#include "ui/events/ozone/layout/xkb/scoped_xkb.h"
 #include "ui/events/ozone/layout/xkb/xkb_key_code_converter.h"
 
 namespace ui {

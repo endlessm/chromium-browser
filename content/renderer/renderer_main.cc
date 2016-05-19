@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
@@ -18,9 +21,11 @@
 #include "base/threading/platform_thread.h"
 #include "base/timer/hi_res_timer_manager.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "components/scheduler/renderer/renderer_scheduler.h"
 #include "content/child/child_process.h"
 #include "content/common/content_constants_internal.h"
+#include "content/common/mojo/mojo_shell_connection_impl.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/renderer/content_renderer_client.h"
@@ -88,6 +93,8 @@ int RendererMain(const MainFunctionParams& parameters) {
 
   const base::CommandLine& parsed_command_line = parameters.command_line;
 
+  MojoShellConnectionImpl::Create();
+
 #if defined(OS_MACOSX)
   base::mac::ScopedNSAutoreleasePool* pool = parameters.autorelease_pool;
 #endif  // OS_MACOSX
@@ -130,15 +137,13 @@ int RendererMain(const MainFunctionParams& parameters) {
   // http://crbug.com/306348#c24 for details.
   scoped_ptr<base::MessagePump> pump(new base::MessagePumpNSRunLoop());
   scoped_ptr<base::MessageLoop> main_message_loop(
-      new base::MessageLoop(pump.Pass()));
+      new base::MessageLoop(std::move(pump)));
 #else
   // The main message loop of the renderer services doesn't have IO or UI tasks.
   scoped_ptr<base::MessageLoop> main_message_loop(new base::MessageLoop());
 #endif
 
   base::PlatformThread::SetName("CrRendererMain");
-  scoped_ptr<scheduler::RendererScheduler> renderer_scheduler(
-      scheduler::RendererScheduler::Create());
 
   bool no_sandbox = parsed_command_line.HasSwitch(switches::kNoSandbox);
 
@@ -158,7 +163,6 @@ int RendererMain(const MainFunctionParams& parameters) {
   if (parsed_command_line.HasSwitch(switches::kForceFieldTrials)) {
     bool result = base::FieldTrialList::CreateTrialsFromString(
         parsed_command_line.GetSwitchValueASCII(switches::kForceFieldTrials),
-        base::FieldTrialList::DONT_ACTIVATE_TRIALS,
         std::set<std::string>());
     DCHECK(result);
   }
@@ -167,7 +171,10 @@ int RendererMain(const MainFunctionParams& parameters) {
   feature_list->InitializeFromCommandLine(
       parsed_command_line.GetSwitchValueASCII(switches::kEnableFeatures),
       parsed_command_line.GetSwitchValueASCII(switches::kDisableFeatures));
-  base::FeatureList::SetInstance(feature_list.Pass());
+  base::FeatureList::SetInstance(std::move(feature_list));
+
+  scoped_ptr<scheduler::RendererScheduler> renderer_scheduler(
+      scheduler::RendererScheduler::Create());
 
   // PlatformInitialize uses FieldTrials, so this must happen later.
   platform.PlatformInitialize();
@@ -189,17 +196,18 @@ int RendererMain(const MainFunctionParams& parameters) {
     // TODO(markus): Check if it is OK to unconditionally move this
     // instruction down.
     RenderProcessImpl render_process;
-    RenderThreadImpl::Create(main_message_loop.Pass(),
-                             renderer_scheduler.Pass());
+    RenderThreadImpl::Create(std::move(main_message_loop),
+                             std::move(renderer_scheduler));
 #endif
     bool run_loop = true;
     if (!no_sandbox)
       run_loop = platform.EnableSandbox();
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
     RenderProcessImpl render_process;
-    RenderThreadImpl::Create(main_message_loop.Pass(),
-                             renderer_scheduler.Pass());
+    RenderThreadImpl::Create(std::move(main_message_loop),
+                             std::move(renderer_scheduler));
 #endif
+
     base::HighResolutionTimerManager hi_res_timer_manager;
 
     if (run_loop) {
@@ -211,6 +219,9 @@ int RendererMain(const MainFunctionParams& parameters) {
       base::MessageLoop::current()->Run();
       TRACE_EVENT_ASYNC_END0("toplevel", "RendererMain.START_MSG_LOOP", 0);
     }
+
+    MojoShellConnectionImpl::Destroy();
+
 #if defined(LEAK_SANITIZER)
     // Run leak detection before RenderProcessImpl goes out of scope. This helps
     // ignore shutdown-only leaks.

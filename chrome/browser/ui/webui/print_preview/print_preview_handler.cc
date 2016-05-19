@@ -5,9 +5,10 @@
 #include "chrome/browser/ui/webui/print_preview/print_preview_handler.h"
 
 #include <ctype.h>
-
+#include <stddef.h>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "base/base64.h"
 #include "base/bind.h"
@@ -17,17 +18,18 @@
 #include "base/i18n/number_formatting.h"
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
-#include "base/memory/linked_ptr.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/dom_distiller/tab_utils.h"
@@ -60,6 +62,7 @@
 #include "components/cloud_devices/common/printer_description.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
 #include "components/dom_distiller/core/url_utils.h"
+#include "components/prefs/pref_service.h"
 #include "components/printing/common/print_messages.h"
 #include "components/signin/core/browser/gaia_cookie_manager_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
@@ -91,7 +94,7 @@
 #endif
 
 #if defined(ENABLE_SERVICE_DISCOVERY)
-#include "chrome/browser/local_discovery/privet_constants.h"
+#include "chrome/browser/printing/cloud_print/privet_constants.h"
 #endif
 
 using content::BrowserThread;
@@ -288,7 +291,6 @@ void ReportPrintSettingsStats(const base::DictionaryValue& settings) {
                           &distill_page) && distill_page) {
     ReportPrintSettingHistogram(DISTILL_PAGE);
   }
-
 }
 
 // Callback that stores a PDF file on disk.
@@ -366,10 +368,14 @@ scoped_ptr<base::DictionaryValue> GetPdfCapabilitiesOnFileThread(
   color.SaveTo(&description);
 
   static const cloud_devices::printer::MediaType kPdfMedia[] = {
-    ISO_A4,
+    ISO_A0,
+    ISO_A1,
+    ISO_A2,
     ISO_A3,
-    NA_LETTER,
+    ISO_A4,
+    ISO_A5,
     NA_LEGAL,
+    NA_LETTER,
     NA_LEDGER
   };
   const gfx::Size default_media_size = GetDefaultPdfMediaSizeMicrons();
@@ -421,7 +427,7 @@ scoped_ptr<base::DictionaryValue> GetLocalPrinterCapabilitiesOnFileThread(
     return scoped_ptr<base::DictionaryValue>();
   }
 
-  return description.Pass();
+  return description;
 }
 
 void EnumeratePrintersOnFileThread(base::ListValue* printers) {
@@ -584,7 +590,7 @@ class PrintPreviewHandler::AccessTokenService
   void OnServiceResponce(const OAuth2TokenService::Request* request,
                          const std::string& access_token) {
     for (Requests::iterator i = requests_.begin(); i != requests_.end(); ++i) {
-      if (i->second == request) {
+      if (i->second.get() == request) {
         handler_->SendAccessToken(i->first, access_token);
         requests_.erase(i);
         return;
@@ -593,8 +599,8 @@ class PrintPreviewHandler::AccessTokenService
     NOTREACHED();
   }
 
-  typedef std::map<std::string,
-                   linked_ptr<OAuth2TokenService::Request> > Requests;
+  using Requests =
+      std::map<std::string, scoped_ptr<OAuth2TokenService::Request>>;
   Requests requests_;
   PrintPreviewHandler* handler_;
 
@@ -870,7 +876,7 @@ void PrintPreviewHandler::HandleGetPreview(const base::ListValue* args) {
     print_preview_distiller_.reset(new PrintPreviewDistiller(
         initiator, base::Bind(&PrintPreviewUI::OnPrintPreviewFailed,
                               print_preview_ui()->GetWeakPtr()),
-        settings.Pass()));
+        std::move(settings)));
   } else {
     RenderViewHost* rvh = initiator->GetRenderViewHost();
     rvh->Send(new PrintMsg_PrintPreview(rvh->GetRoutingID(), *settings));
@@ -1001,6 +1007,7 @@ void PrintPreviewHandler::HandlePrint(const base::ListValue* args) {
     ReportUserActionHistogram(PRINT_WITH_CLOUD_PRINT);
     SendCloudPrintJob(data.get());
   } else {
+#if defined(ENABLE_BASIC_PRINTING)
     bool system_dialog = false;
     settings->GetBoolean(printing::kSettingShowSystemDialog, &system_dialog);
     if (system_dialog) {
@@ -1051,6 +1058,9 @@ void PrintPreviewHandler::HandlePrint(const base::ListValue* args) {
           printing::PrintViewManager::FromWebContents(initiator);
       print_view_manager->PrintPreviewDone();
     }
+#else
+    NOTREACHED();
+#endif   // defined(ENABLE_BASIC_PRINTING)
   }
 }
 
@@ -1136,8 +1146,7 @@ void PrintPreviewHandler::HandleSignin(const base::ListValue* args) {
 
   Profile* profile = Profile::FromBrowserContext(
       preview_web_contents()->GetBrowserContext());
-  chrome::ScopedTabbedBrowserDisplayer displayer(
-      profile, chrome::GetActiveDesktop());
+  chrome::ScopedTabbedBrowserDisplayer displayer(profile);
   print_dialog_cloud::CreateCloudPrintSigninTab(
       displayer.browser(),
       add_account,
@@ -1183,8 +1192,9 @@ void PrintPreviewHandler::HandleShowSystemDialog(
 
   printing::PrintViewManager* print_view_manager =
       printing::PrintViewManager::FromWebContents(initiator);
-  print_view_manager->set_observer(this);
-  print_view_manager->PrintForSystemDialogNow();
+  print_view_manager->PrintForSystemDialogNow(
+      base::Bind(&PrintPreviewHandler::ClosePreviewDialog,
+                 weak_factory_.GetWeakPtr()));
 
   // Cancel the pending preview request if exists.
   print_preview_ui()->OnCancelPendingPreviewRequest();
@@ -1222,7 +1232,10 @@ void PrintPreviewHandler::GetNumberFormatAndMeasurementSystem(
   UErrorCode errorCode = U_ZERO_ERROR;
   const char* locale = g_browser_process->GetApplicationLocale().c_str();
   UMeasurementSystem system = ulocdata_getMeasurementSystem(locale, &errorCode);
-  if (errorCode > U_ZERO_ERROR || system == UMS_LIMIT)
+  // On error, assume the units are SI.
+  // Since the only measurement units print preview's WebUI cares about are
+  // those for measuring distance, assume anything non-US is SI.
+  if (errorCode > U_ZERO_ERROR || system != UMS_US)
     system = UMS_SI;
 
   // Getting the number formatting based on the locale and writing to
@@ -1374,10 +1387,6 @@ WebContents* PrintPreviewHandler::GetInitiator() const {
   return dialog_controller->GetInitiator(preview_web_contents());
 }
 
-void PrintPreviewHandler::OnPrintDialogShown() {
-  ClosePreviewDialog();
-}
-
 void PrintPreviewHandler::OnAddAccountToCookieCompleted(
     const std::string& account_id,
     const GoogleServiceAuthError& error) {
@@ -1441,16 +1450,6 @@ void PrintPreviewHandler::SelectFile(const base::FilePath& default_filename,
 
 void PrintPreviewHandler::OnGotUniqueFileName(const base::FilePath& path) {
   FileSelected(path, 0, nullptr);
-}
-
-void PrintPreviewHandler::OnPrintPreviewDialogDestroyed() {
-  WebContents* initiator = GetInitiator();
-  if (!initiator)
-    return;
-
-  printing::PrintViewManager* print_view_manager =
-      printing::PrintViewManager::FromWebContents(initiator);
-  print_view_manager->set_observer(NULL);
 }
 
 void PrintPreviewHandler::OnPrintPreviewFailed() {
@@ -1543,7 +1542,7 @@ void PrintPreviewHandler::StartPrivetLister(const scoped_refptr<
   DCHECK(!service_discovery_client_.get() ||
          service_discovery_client_.get() == client.get());
   service_discovery_client_ = client;
-  printer_lister_.reset(new local_discovery::PrivetLocalPrinterLister(
+  printer_lister_.reset(new cloud_print::PrivetLocalPrinterLister(
       service_discovery_client_.get(), profile->GetRequestContext(), this));
   printer_lister_->Start();
 }
@@ -1552,7 +1551,7 @@ void PrintPreviewHandler::LocalPrinterChanged(
     bool added,
     const std::string& name,
     bool has_local_printing,
-    const local_discovery::DeviceDescription& description) {
+    const cloud_print::DeviceDescription& description) {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (has_local_printing ||
       command_line->HasSwitch(switches::kEnablePrintPreviewRegisterPromos)) {
@@ -1569,8 +1568,8 @@ void PrintPreviewHandler::LocalPrinterCacheFlushed() {
 }
 
 void PrintPreviewHandler::PrivetCapabilitiesUpdateClient(
-    scoped_ptr<local_discovery::PrivetHTTPClient> http_client) {
-  if (!PrivetUpdateClient(http_client.Pass()))
+    scoped_ptr<cloud_print::PrivetHTTPClient> http_client) {
+  if (!PrivetUpdateClient(std::move(http_client)))
     return;
 
   privet_capabilities_operation_ =
@@ -1581,7 +1580,7 @@ void PrintPreviewHandler::PrivetCapabilitiesUpdateClient(
 }
 
 bool PrintPreviewHandler::PrivetUpdateClient(
-    scoped_ptr<local_discovery::PrivetHTTPClient> http_client) {
+    scoped_ptr<cloud_print::PrivetHTTPClient> http_client) {
   if (!http_client) {
     SendPrivetCapabilitiesError(privet_http_resolution_->GetName());
     privet_http_resolution_.reset();
@@ -1590,8 +1589,8 @@ bool PrintPreviewHandler::PrivetUpdateClient(
 
   privet_local_print_operation_.reset();
   privet_capabilities_operation_.reset();
-  privet_http_client_ =
-      local_discovery::PrivetV1HTTPClient::CreateDefault(http_client.Pass());
+  privet_http_client_ = cloud_print::PrivetV1HTTPClient::CreateDefault(
+      std::move(http_client));
 
   privet_http_resolution_.reset();
 
@@ -1602,8 +1601,8 @@ void PrintPreviewHandler::PrivetLocalPrintUpdateClient(
     std::string print_ticket,
     std::string capabilities,
     gfx::Size page_size,
-    scoped_ptr<local_discovery::PrivetHTTPClient> http_client) {
-  if (!PrivetUpdateClient(http_client.Pass()))
+    scoped_ptr<cloud_print::PrivetHTTPClient> http_client) {
+  if (!PrivetUpdateClient(std::move(http_client)))
     return;
 
   StartPrivetLocalPrint(print_ticket, capabilities, page_size);
@@ -1648,14 +1647,14 @@ void PrintPreviewHandler::OnPrivetCapabilities(
     const base::DictionaryValue* capabilities) {
   std::string name = privet_capabilities_operation_->GetHTTPClient()->GetName();
 
-  if (!capabilities || capabilities->HasKey(local_discovery::kPrivetKeyError) ||
+  if (!capabilities || capabilities->HasKey(cloud_print::kPrivetKeyError) ||
       !printer_lister_) {
     SendPrivetCapabilitiesError(name);
     return;
   }
 
   base::DictionaryValue printer_info;
-  const local_discovery::DeviceDescription* description =
+  const cloud_print::DeviceDescription* description =
       printer_lister_->GetDeviceDescription(name);
 
   if (!description) {
@@ -1696,9 +1695,9 @@ void PrintPreviewHandler::PrintToPrivetPrinter(const std::string& device_name,
 
 bool PrintPreviewHandler::CreatePrivetHTTP(
     const std::string& name,
-    const local_discovery::PrivetHTTPAsynchronousFactory::ResultCallback&
+    const cloud_print::PrivetHTTPAsynchronousFactory::ResultCallback&
         callback) {
-  const local_discovery::DeviceDescription* device_description =
+  const cloud_print::DeviceDescription* device_description =
       printer_lister_ ? printer_lister_->GetDeviceDescription(name) : NULL;
 
   if (!device_description) {
@@ -1707,7 +1706,7 @@ bool PrintPreviewHandler::CreatePrivetHTTP(
   }
 
   privet_http_factory_ =
-      local_discovery::PrivetHTTPAsynchronousFactory::CreateInstance(
+      cloud_print::PrivetHTTPAsynchronousFactory::CreateInstance(
           Profile::FromWebUI(web_ui())->GetRequestContext());
   privet_http_resolution_ = privet_http_factory_->CreatePrivetHTTP(name);
   privet_http_resolution_->Start(device_description->address, callback);
@@ -1716,12 +1715,12 @@ bool PrintPreviewHandler::CreatePrivetHTTP(
 }
 
 void PrintPreviewHandler::OnPrivetPrintingDone(
-    const local_discovery::PrivetLocalPrintOperation* print_operation) {
+    const cloud_print::PrivetLocalPrintOperation* print_operation) {
   ClosePreviewDialog();
 }
 
 void PrintPreviewHandler::OnPrivetPrintingError(
-    const local_discovery::PrivetLocalPrintOperation* print_operation,
+    const cloud_print::PrivetLocalPrintOperation* print_operation,
     int http_code) {
   base::FundamentalValue http_code_value(http_code);
   web_ui()->CallJavascriptFunction("onPrivetPrintFailed", http_code_value);
@@ -1729,7 +1728,7 @@ void PrintPreviewHandler::OnPrivetPrintingError(
 
 void PrintPreviewHandler::FillPrinterDescription(
     const std::string& name,
-    const local_discovery::DeviceDescription& description,
+    const cloud_print::DeviceDescription& description,
     bool has_local_printing,
     base::DictionaryValue* printer_value) {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();

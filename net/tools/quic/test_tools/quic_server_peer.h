@@ -5,11 +5,10 @@
 #ifndef NET_TOOLS_QUIC_TEST_TOOLS_QUIC_SERVER_PEER_H_
 #define NET_TOOLS_QUIC_TEST_TOOLS_QUIC_SERVER_PEER_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 
 namespace net {
 
-namespace tools {
 
 class QuicDispatcher;
 class QuicServer;
@@ -29,7 +28,6 @@ class QuicServerPeer {
 };
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_TEST_TOOLS_QUIC_SERVER_PEER_H_

@@ -43,14 +43,18 @@ enum ProcessingUserGestureState {
 };
 
 class PLATFORM_EXPORT UserGestureToken : public RefCounted<UserGestureToken> {
+    WTF_MAKE_NONCOPYABLE(UserGestureToken);
 public:
+    UserGestureToken() { }
     virtual ~UserGestureToken() { }
     virtual bool hasGestures() const = 0;
     virtual void setOutOfProcess() = 0;
     virtual void setJavascriptPrompt() = 0;
+    virtual void setPauseInDebugger() = 0;
 };
 
-class PLATFORM_EXPORT UserGestureIndicator {
+class PLATFORM_EXPORT UserGestureIndicator final {
+    USING_FAST_MALLOC(UserGestureIndicator);
     WTF_MAKE_NONCOPYABLE(UserGestureIndicator);
 public:
     static bool processingUserGesture();
@@ -71,6 +75,6 @@ private:
     RefPtr<UserGestureToken> m_token;
 };
 
-}
+} // namespace blink
 
 #endif

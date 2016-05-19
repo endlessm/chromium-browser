@@ -31,6 +31,7 @@
 
 #include "platform/PlatformExport.h"
 #include "platform/audio/AudioArray.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
@@ -38,6 +39,7 @@
 namespace blink {
 
 class PLATFORM_EXPORT DynamicsCompressorKernel {
+    DISALLOW_NEW();
     WTF_MAKE_NONCOPYABLE(DynamicsCompressorKernel);
 public:
     DynamicsCompressorKernel(float sampleRate, unsigned numberOfChannels);
@@ -123,7 +125,7 @@ protected:
     float m_ykneeThresholdDb;
 
     // Internal parameter for the knee portion of the curve.
-    float m_K;
+    float m_knee;
 };
 
 } // namespace blink

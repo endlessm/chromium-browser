@@ -27,7 +27,6 @@
  */
 
 
-#include "config.h"
 #include "core/frame/Screen.h"
 
 #include "core/frame/FrameHost.h"
@@ -52,8 +51,10 @@ int Screen::height() const
     FrameHost* host = m_frame->host();
     if (!host)
         return 0;
-    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk())
-        return lroundf(host->chromeClient().screenInfo().rect.height * host->deviceScaleFactor());
+    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk()) {
+        WebScreenInfo screenInfo = host->chromeClient().screenInfo();
+        return lroundf(screenInfo.rect.height * screenInfo.deviceScaleFactor);
+    }
     return host->chromeClient().screenInfo().rect.height;
 }
 
@@ -64,8 +65,10 @@ int Screen::width() const
     FrameHost* host = m_frame->host();
     if (!host)
         return 0;
-    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk())
-        return lroundf(host->chromeClient().screenInfo().rect.width * host->deviceScaleFactor());
+    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk()) {
+        WebScreenInfo screenInfo = host->chromeClient().screenInfo();
+        return lroundf(screenInfo.rect.width * screenInfo.deviceScaleFactor);
+    }
     return host->chromeClient().screenInfo().rect.width;
 }
 
@@ -90,8 +93,10 @@ int Screen::availLeft() const
     FrameHost* host = m_frame->host();
     if (!host)
         return 0;
-    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk())
-        return lroundf(host->chromeClient().screenInfo().availableRect.x * host->deviceScaleFactor());
+    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk()) {
+        WebScreenInfo screenInfo = host->chromeClient().screenInfo();
+        return lroundf(screenInfo.availableRect.x * screenInfo.deviceScaleFactor);
+    }
     return static_cast<int>(host->chromeClient().screenInfo().availableRect.x);
 }
 
@@ -102,8 +107,10 @@ int Screen::availTop() const
     FrameHost* host = m_frame->host();
     if (!host)
         return 0;
-    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk())
-        return lroundf(host->chromeClient().screenInfo().availableRect.y * host->deviceScaleFactor());
+    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk()) {
+        WebScreenInfo screenInfo = host->chromeClient().screenInfo();
+        return lroundf(screenInfo.availableRect.y * screenInfo.deviceScaleFactor);
+    }
     return static_cast<int>(host->chromeClient().screenInfo().availableRect.y);
 }
 
@@ -114,8 +121,10 @@ int Screen::availHeight() const
     FrameHost* host = m_frame->host();
     if (!host)
         return 0;
-    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk())
-        return lroundf(host->chromeClient().screenInfo().availableRect.height * host->deviceScaleFactor());
+    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk()) {
+        WebScreenInfo screenInfo = host->chromeClient().screenInfo();
+        return lroundf(screenInfo.availableRect.height * screenInfo.deviceScaleFactor);
+    }
     return host->chromeClient().screenInfo().availableRect.height;
 }
 
@@ -126,8 +135,10 @@ int Screen::availWidth() const
     FrameHost* host = m_frame->host();
     if (!host)
         return 0;
-    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk())
-        return lroundf(host->chromeClient().screenInfo().availableRect.width * host->deviceScaleFactor());
+    if (host->settings().reportScreenSizeInPhysicalPixelsQuirk()) {
+        WebScreenInfo screenInfo = host->chromeClient().screenInfo();
+        return lroundf(screenInfo.availableRect.width * screenInfo.deviceScaleFactor);
+    }
     return host->chromeClient().screenInfo().availableRect.width;
 }
 

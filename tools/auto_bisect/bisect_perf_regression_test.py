@@ -12,6 +12,8 @@ SRC = os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir)
 sys.path.append(os.path.join(SRC, 'third_party', 'pymock'))
 
 import bisect_perf_regression
+import bisect_results
+import bisect_state
 import bisect_utils
 import fetch_build
 import mock
@@ -131,19 +133,63 @@ def _FakeTestResult(values, bisect_mode_is_return_code):
   return (result_dict, success_code)
 
 
+def _SampleBisecResult(opts):
+  revisions = [
+      'ae7ef14ba2d9b5ef0d2c1c092ec98a417e44740d'
+      'ab55ead638496b061c9de61685b982f7cea38ca7',
+      '89aa0c99e4b977b9a4f992ac14da0d6624f7316e']
+  state = bisect_state.BisectState(depot='chromium', revisions=revisions)
+  depot_registry = bisect_perf_regression.DepotDirectoryRegistry('/mock/src')
+  results = bisect_results.BisectResults(
+      bisect_state=state, depot_registry=depot_registry, opts=opts,
+      runtime_warnings=[])
+  results.confidence = 99.9
+  results.culprit_revisions = [(
+      'ab55ead638496b061c9de61685b982f7cea38ca7',
+      {
+          'date': 'Thu, 26 Jun 2014 14:29:49 +0000',
+          'body': 'Fix',
+          'author': 'author@chromium.org',
+          'subject': 'Fix',
+          'email': 'author@chromium.org',
+      },
+      'chromium')]
+  return results
+
+
+def _GetMockCallArg(function_mock, call_index):
+  """Gets the list of called arguments for call at |call_index|.
+
+  Args:
+    function_mock: A Mock object.
+    call_index: The index at which the mocked function was called.
+
+  Returns:
+    The called argument list.
+  """
+  call_args_list = function_mock.call_args_list
+  if not call_args_list or len(call_args_list) <= call_index:
+    return None
+  args, _ = call_args_list[call_index]
+  return args
+
+
 def _GetBisectPerformanceMetricsInstance(options_dict):
   """Returns an instance of the BisectPerformanceMetrics class."""
   opts = bisect_perf_regression.BisectOptions.FromDict(options_dict)
   return bisect_perf_regression.BisectPerformanceMetrics(opts, os.getcwd())
 
 
-def _GetExtendedOptions(improvement_dir, fake_first, ignore_confidence=True):
+def _GetExtendedOptions(improvement_dir, fake_first, ignore_confidence=True,
+                        **extra_opts):
   """Returns the a copy of the default options dict plus some options."""
   result = dict(DEFAULT_OPTIONS)
   result.update({
       'improvement_direction': improvement_dir,
       'debug_fake_first_test_mean': fake_first,
-      'debug_ignore_regression_confidence': ignore_confidence})
+      'debug_ignore_regression_confidence': ignore_confidence
+  })
+  result.update(extra_opts)
   return result
 
 
@@ -316,7 +362,22 @@ class BisectPerfRegressionTest(unittest.TestCase):
     results = _GenericDryRun(_GetExtendedOptions(1, -100))
     self.assertIsNone(results.error)
 
-  def _CheckAbortsEarly(self, results):
+  @mock.patch('urllib2.urlopen')
+  def testBisectResultsPosted(self, mock_urlopen):
+    options_dict = dict(DEFAULT_OPTIONS)
+    options_dict.update({
+        'bisect_mode': bisect_utils.BISECT_MODE_MEAN,
+        'try_job_id': 1234,
+    })
+    opts = bisect_perf_regression.BisectOptions.FromDict(options_dict)
+    results = _SampleBisecResult(opts)
+    bisect_perf_regression._PostBisectResults(results, opts, os.getcwd())
+
+    call_args = _GetMockCallArg(mock_urlopen, 0)
+    self.assertIsNotNone(call_args)
+    self.assertIn('"try_job_id": 1234', call_args[1])
+
+  def _CheckAbortsEarly(self, results, **extra_opts):
     """Returns True if the bisect job would abort early."""
     global _MockResultsGenerator
     _MockResultsGenerator = (r for r in results)
@@ -325,7 +386,9 @@ class BisectPerfRegressionTest(unittest.TestCase):
     bisect_class.RunPerformanceTestAndParseResults = _MakeMockRunTests()
 
     try:
-      dry_run_results = _GenericDryRun(_GetExtendedOptions(0, 0, False))
+      dry_run_results = _GenericDryRun(_GetExtendedOptions(
+          improvement_dir=0, fake_first=0, ignore_confidence=False,
+          **extra_opts))
     except StopIteration:
       # If StopIteration was raised, that means that the next value after
       # the first two values was requested, so the job was not aborted.
@@ -353,6 +416,10 @@ class BisectPerfRegressionTest(unittest.TestCase):
 
   def testBisectNotAborted_MultipleValues(self):
     self.assertFalse(self._CheckAbortsEarly(MULTIPLE_VALUES))
+
+  def testBisectNotAbortedWhenRequiredConfidenceIsZero(self):
+    self.assertFalse(self._CheckAbortsEarly(
+        CLEAR_NON_REGRESSION, required_initial_confidence=0))
 
   def _CheckAbortsEarlyForReturnCode(self, results):
     """Returns True if the bisect job would abort early in return code mode."""

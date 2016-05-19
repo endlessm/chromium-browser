@@ -5,15 +5,17 @@
 #ifndef CHROME_BROWSER_SAFE_BROWSING_CLIENT_SIDE_DETECTION_HOST_H_
 #define CHROME_BROWSER_SAFE_BROWSING_CLIENT_SIDE_DETECTION_HOST_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/safe_browsing/browser_feature_extractor.h"
-#include "chrome/browser/safe_browsing/database_manager.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
+#include "components/safe_browsing_db/database_manager.h"
 #include "content/public/browser/resource_request_details.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "url/gurl.h"
@@ -36,7 +38,8 @@ class ClientSideDetectionHost : public content::WebContentsObserver,
   ~ClientSideDetectionHost() override;
 
   // From content::WebContentsObserver.
-  bool OnMessageReceived(const IPC::Message& message) override;
+  bool OnMessageReceived(const IPC::Message& message,
+                         content::RenderFrameHost* render_frame_host) override;
   void DidGetResourceResponseStart(
       const content::ResourceRequestDetails& details) override;
 
@@ -52,16 +55,7 @@ class ClientSideDetectionHost : public content::WebContentsObserver,
   void OnSafeBrowsingHit(
       const SafeBrowsingUIManager::UnsafeResource& resource) override;
 
-  // Called when the SafeBrowsingService finds a match on the SB lists.
-  // Called on the UI thread. Called even if the resource is whitelisted.
-  void OnSafeBrowsingMatch(
-      const SafeBrowsingUIManager::UnsafeResource& resource) override;
-
   virtual scoped_refptr<SafeBrowsingDatabaseManager> database_manager();
-
-  // Returns whether the current page contains a malware or phishing safe
-  // browsing match.
-  bool DidPageReceiveSafeBrowsingMatch() const;
 
  protected:
   explicit ClientSideDetectionHost(content::WebContents* tab);

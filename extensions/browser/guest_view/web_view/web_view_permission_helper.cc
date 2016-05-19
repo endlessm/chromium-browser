@@ -4,6 +4,8 @@
 
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 
+#include <utility>
+
 #include "components/guest_view/browser/guest_view_event.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -80,6 +82,7 @@ void RecordUserInitiatedUMA(
       case WEB_VIEW_PERMISSION_TYPE_LOAD_PLUGIN:
         content::RecordAction(
             UserMetricsAction("WebView.Guest.PermissionAllow.PluginLoad"));
+        break;
       case WEB_VIEW_PERMISSION_TYPE_MEDIA:
         content::RecordAction(
             UserMetricsAction("WebView.PermissionAllow.Media"));
@@ -264,10 +267,9 @@ void WebViewPermissionHelper::RequestPointerLockPermission(
 void WebViewPermissionHelper::RequestGeolocationPermission(
     int bridge_id,
     const GURL& requesting_frame,
-    bool user_gesture,
     const base::Callback<void(bool)>& callback) {
   web_view_permission_helper_delegate_->RequestGeolocationPermission(
-      bridge_id, requesting_frame, user_gesture, callback);
+      bridge_id, requesting_frame, callback);
 }
 
 void WebViewPermissionHelper::CancelGeolocationPermissionRequest(
@@ -331,20 +333,20 @@ int WebViewPermissionHelper::RequestPermission(
   args->SetInteger(webview::kRequestId, request_id);
   switch (permission_type) {
     case WEB_VIEW_PERMISSION_TYPE_NEW_WINDOW: {
-      web_view_guest_->DispatchEventToView(
-          new GuestViewEvent(webview::kEventNewWindow, args.Pass()));
+      web_view_guest_->DispatchEventToView(make_scoped_ptr(
+          new GuestViewEvent(webview::kEventNewWindow, std::move(args))));
       break;
     }
     case WEB_VIEW_PERMISSION_TYPE_JAVASCRIPT_DIALOG: {
-      web_view_guest_->DispatchEventToView(
-          new GuestViewEvent(webview::kEventDialog, args.Pass()));
+      web_view_guest_->DispatchEventToView(make_scoped_ptr(
+          new GuestViewEvent(webview::kEventDialog, std::move(args))));
       break;
     }
     default: {
       args->SetString(webview::kPermission,
                       PermissionTypeToString(permission_type));
-      web_view_guest_->DispatchEventToView(new GuestViewEvent(
-          webview::kEventPermissionRequest, args.Pass()));
+      web_view_guest_->DispatchEventToView(make_scoped_ptr(new GuestViewEvent(
+          webview::kEventPermissionRequest, std::move(args))));
       break;
     }
   }
@@ -400,6 +402,9 @@ WebViewPermissionHelper::PermissionResponseInfo::PermissionResponseInfo(
       permission_type(permission_type),
       allowed_by_default(allowed_by_default) {
 }
+
+WebViewPermissionHelper::PermissionResponseInfo::PermissionResponseInfo(
+    const PermissionResponseInfo& other) = default;
 
 WebViewPermissionHelper::PermissionResponseInfo::~PermissionResponseInfo() {
 }

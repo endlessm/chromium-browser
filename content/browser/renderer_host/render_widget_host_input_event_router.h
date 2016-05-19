@@ -6,17 +6,29 @@
 #define CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_INPUT_EVENT_ROUTER_H_
 
 #include <stdint.h>
+#include <unordered_map>
 
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
+#include "base/memory/weak_ptr.h"
+#include "cc/surfaces/surface_hittest_delegate.h"
+#include "cc/surfaces/surface_id.h"
 #include "content/common/content_export.h"
+
+struct FrameHostMsg_HittestData_Params;
 
 namespace blink {
 class WebMouseEvent;
 class WebMouseWheelEvent;
+class WebTouchEvent;
 }
 
 namespace gfx {
 class Point;
+}
+
+namespace ui {
+class LatencyInfo;
 }
 
 namespace content {
@@ -38,18 +50,51 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter {
                        blink::WebMouseEvent* event);
   void RouteMouseWheelEvent(RenderWidgetHostViewBase* root_view,
                             blink::WebMouseWheelEvent* event);
+  void RouteTouchEvent(RenderWidgetHostViewBase* root_view,
+                       blink::WebTouchEvent *event,
+                       const ui::LatencyInfo& latency);
 
   void AddSurfaceIdNamespaceOwner(uint32_t id, RenderWidgetHostViewBase* owner);
   void RemoveSurfaceIdNamespaceOwner(uint32_t id);
 
+  bool is_registered(uint32_t id) {
+    return owner_map_.find(id) != owner_map_.end();
+  }
+
+  void OnHittestData(const FrameHostMsg_HittestData_Params& params);
+
  private:
+  struct HittestData {
+    bool ignored_for_hittest;
+  };
+
+  class HittestDelegate : public cc::SurfaceHittestDelegate {
+   public:
+    HittestDelegate(
+        const std::unordered_map<cc::SurfaceId, HittestData, cc::SurfaceIdHash>&
+            hittest_data);
+    bool RejectHitTarget(const cc::SurfaceDrawQuad* surface_quad,
+                         const gfx::Point& point_in_quad_space) override;
+    bool AcceptHitTarget(const cc::SurfaceDrawQuad* surface_quad,
+                         const gfx::Point& point_in_quad_space) override;
+
+    const std::unordered_map<cc::SurfaceId, HittestData, cc::SurfaceIdHash>&
+        hittest_data_;
+  };
+
+  using WeakTarget = base::WeakPtr<RenderWidgetHostViewBase>;
+  using SurfaceIdNamespaceOwnerMap =
+      base::hash_map<uint32_t, base::WeakPtr<RenderWidgetHostViewBase>>;
+
   RenderWidgetHostViewBase* FindEventTarget(RenderWidgetHostViewBase* root_view,
                                             const gfx::Point& point,
                                             gfx::Point* transformed_point);
 
-  typedef base::hash_map<uint32_t, RenderWidgetHostViewBase*>
-      SurfaceIdNamespaceOwnerMap;
   SurfaceIdNamespaceOwnerMap owner_map_;
+  WeakTarget current_touch_target_;
+  int active_touches_;
+  std::unordered_map<cc::SurfaceId, HittestData, cc::SurfaceIdHash>
+      hittest_data_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostInputEventRouter);
 };

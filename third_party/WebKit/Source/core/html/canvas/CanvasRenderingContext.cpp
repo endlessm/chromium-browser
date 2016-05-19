@@ -23,19 +23,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/canvas/CanvasRenderingContext.h"
 
 #include "core/html/canvas/CanvasImageSource.h"
+#include "platform/RuntimeEnabledFeatures.h"
 #include "platform/weborigin/SecurityOrigin.h"
 
 namespace blink {
 
 CanvasRenderingContext::CanvasRenderingContext(HTMLCanvasElement* canvas)
-    : ActiveDOMObject(&canvas->document())
-    , m_canvas(canvas)
+    : m_canvas(canvas)
 {
-    suspendIfNeeded();
 }
 
 CanvasRenderingContext::ContextType CanvasRenderingContext::contextTypeFromId(const String& id)
@@ -48,7 +46,9 @@ CanvasRenderingContext::ContextType CanvasRenderingContext::contextTypeFromId(co
         return ContextWebgl;
     if (id == "webgl2")
         return ContextWebgl2;
-
+    if (id == "imagebitmap" && RuntimeEnabledFeatures::experimentalCanvasFeaturesEnabled()) {
+        return ContextImageBitmap;
+    }
     return ContextTypeCount;
 }
 
@@ -85,17 +85,6 @@ bool CanvasRenderingContext::wouldTaintOrigin(CanvasImageSource* imageSource)
 DEFINE_TRACE(CanvasRenderingContext)
 {
     visitor->trace(m_canvas);
-    ActiveDOMObject::trace(visitor);
-}
-
-bool CanvasRenderingContext::hasPendingActivity() const
-{
-    return false;
-}
-
-void CanvasRenderingContext::didMoveToNewDocument(Document* document)
-{
-    ActiveDOMObject::didMoveToNewExecutionContext(document);
 }
 
 } // namespace blink

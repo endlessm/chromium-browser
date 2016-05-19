@@ -4,6 +4,7 @@
 
 #include <map>
 
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -13,7 +14,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_iterator.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -33,10 +34,10 @@ namespace {
 // Find a browser other than |browser|.
 Browser* FindOtherBrowser(Browser* browser) {
   Browser* found = NULL;
-  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
-    if (*it == browser)
+  for (auto* b : *BrowserList::GetInstance()) {
+    if (b == browser)
       continue;
-    found = *it;
+    found = b;
   }
   return found;
 }
@@ -110,6 +111,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, Basics) {
                         Manifest::EXTERNAL_PREF);
   InstallNamedExtension(basedir, "admin_extension",
                         Manifest::EXTERNAL_POLICY_DOWNLOAD);
+  InstallNamedExtension(basedir, "version_name", Manifest::INTERNAL);
 
   ASSERT_TRUE(RunExtensionSubtest("management/test", "basics.html"));
 }
@@ -222,8 +224,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, DISABLED_LaunchPanelApp) {
   ASSERT_FALSE(HasFatalFailure());  // Stop the test if any ASSERT failed.
 
   // Find the app's browser.  Check that it is a popup.
-  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
   Browser* app_browser = FindOtherBrowser(browser());
   ASSERT_TRUE(app_browser->is_type_popup());
   ASSERT_TRUE(app_browser->is_app());
@@ -238,8 +239,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, DISABLED_LaunchPanelApp) {
 
   // Unload the extension.
   UninstallExtension(app_id);
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
   ASSERT_FALSE(service->GetExtensionById(app_id, true));
 
   // Set a pref indicating that the user wants to launch in a regular tab.
@@ -257,8 +257,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, DISABLED_LaunchPanelApp) {
 
   // Find the app's browser.  Apps that should load in a panel ignore
   // prefs, so we should still see the launch in a popup.
-  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
   app_browser = FindOtherBrowser(browser());
   ASSERT_TRUE(app_browser->is_type_popup());
   ASSERT_TRUE(app_browser->is_app());
@@ -283,8 +282,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_LaunchTabApp) {
 
   // Code below assumes that the test starts with a single browser window
   // hosting one tab.
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
   ASSERT_EQ(1, browser()->tab_strip_model()->count());
 
   // Load an app with app.launch.container = "tab".
@@ -293,14 +291,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_LaunchTabApp) {
   ASSERT_FALSE(HasFatalFailure());
 
   // Check that the app opened in a new tab of the existing browser.
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
 
   // Unload the extension.
   UninstallExtension(app_id);
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
   ASSERT_FALSE(service->GetExtensionById(app_id, true));
 
   // Set a pref indicating that the user wants to launch in a window.
@@ -316,10 +312,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_LaunchTabApp) {
 
   unsigned expected_browser_count = 2;
 #if defined(OS_MACOSX)
-  // Without hosted apps being allowed to open in windows, Mac has no way of
-  // making standalone browser windows for apps, so it will add to the
-  // tabstrip instead.
-  EXPECT_TRUE(extensions::util::IsNewBookmarkAppsEnabled());
+  // Without the new Bookmark Apps, Mac has no way of making standalone browser
+  // windows for apps, so it will add to the tabstrip instead.
+  EXPECT_FALSE(extensions::util::IsNewBookmarkAppsEnabled());
   EXPECT_FALSE(extensions::util::CanHostedAppsOpenInWindows());
   expected_browser_count = 1;
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
@@ -327,8 +322,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_LaunchTabApp) {
   // Find the app's browser.  Opening in a new window will create
   // a new browser.
   ASSERT_EQ(expected_browser_count,
-            chrome::GetBrowserCount(browser()->profile(),
-                                    browser()->host_desktop_type()));
+            chrome::GetBrowserCount(browser()->profile()));
   if (expected_browser_count == 2) {
     Browser* app_browser = FindOtherBrowser(browser());
     ASSERT_TRUE(app_browser->is_app());

@@ -5,9 +5,12 @@
 #ifndef UI_COMPOSITOR_COMPOSITOR_H_
 #define UI_COMPOSITOR_COMPOSITOR_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -33,6 +36,7 @@ class SingleThreadTaskRunner;
 }
 
 namespace cc {
+class AnimationTimeline;
 class ContextProvider;
 class Layer;
 class LayerTreeDebugState;
@@ -95,8 +99,8 @@ class COMPOSITOR_EXPORT ContextFactory {
   virtual bool DoesCreateTestContexts() = 0;
 
   // Returns the OpenGL target to use for image textures.
-  virtual uint32 GetImageTextureTarget(gfx::BufferFormat format,
-                                       gfx::BufferUsage usage) = 0;
+  virtual uint32_t GetImageTextureTarget(gfx::BufferFormat format,
+                                         gfx::BufferUsage usage) = 0;
 
   // Gets the shared bitmap manager for software mode.
   virtual cc::SharedBitmapManager* GetSharedBitmapManager() = 0;
@@ -176,6 +180,8 @@ class COMPOSITOR_EXPORT Compositor
   const Layer* root_layer() const { return root_layer_; }
   Layer* root_layer() { return root_layer_; }
   void SetRootLayer(Layer* root_layer);
+
+  cc::AnimationTimeline* GetAnimationTimeline() const;
 
   // Called when we need the compositor to preserve the alpha channel in the
   // output for situations when we want to render transparently atop something
@@ -368,6 +374,7 @@ class COMPOSITOR_EXPORT Compositor
   CompositorLock* compositor_lock_;
 
   LayerAnimatorCollection layer_animator_collection_;
+  scoped_refptr<cc::AnimationTimeline> animation_timeline_;
 
   // Used to send to any new CompositorBeginFrameObserver immediately.
   cc::BeginFrameArgs missed_begin_frame_args_;

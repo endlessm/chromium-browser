@@ -5,6 +5,9 @@
 #ifndef CONTENT_BROWSER_FILEAPI_FILEAPI_MESSAGE_FILTER_H_
 #define CONTENT_BROWSER_FILEAPI_FILEAPI_MESSAGE_FILTER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <string>
@@ -12,6 +15,7 @@
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
 #include "base/files/file_util_proxy.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/shared_memory.h"
 #include "content/browser/streams/stream.h"
@@ -73,7 +77,7 @@ class CONTENT_EXPORT FileAPIMessageFilter : public BrowserMessageFilter {
                        StreamContext* stream_context);
 
   // BrowserMessageFilter implementation.
-  void OnChannelConnected(int32 peer_pid) override;
+  void OnChannelConnected(int32_t peer_pid) override;
   void OnChannelClosing() override;
   base::TaskRunner* OverrideTaskRunnerForMessage(
       const IPC::Message& message) override;
@@ -111,8 +115,8 @@ class CONTENT_EXPORT FileAPIMessageFilter : public BrowserMessageFilter {
   void OnWrite(int request_id,
                const GURL& path,
                const std::string& blob_uuid,
-               int64 offset);
-  void OnTruncate(int request_id, const GURL& path, int64 length);
+               int64_t offset);
+  void OnTruncate(int request_id, const GURL& path, int64_t length);
   void OnTouchFile(int request_id,
                    const GURL& path,
                    const base::Time& last_access_time,
@@ -131,7 +135,7 @@ class CONTENT_EXPORT FileAPIMessageFilter : public BrowserMessageFilter {
                                   const storage::DataElement& item);
   void OnAppendSharedMemoryToBlob(const std::string& uuid,
                                   base::SharedMemoryHandle handle,
-                                  size_t buffer_size);
+                                  uint32_t buffer_size);
   void OnFinishBuildingBlob(const std::string& uuid,
                              const std::string& content_type);
   void OnIncrementBlobRefCount(const std::string& uuid);
@@ -151,7 +155,7 @@ class CONTENT_EXPORT FileAPIMessageFilter : public BrowserMessageFilter {
   void OnAppendBlobDataItemToStream(const GURL& url,
                                     const storage::DataElement& item);
   void OnAppendSharedMemoryToStream(
-      const GURL& url, base::SharedMemoryHandle handle, size_t buffer_size);
+      const GURL& url, base::SharedMemoryHandle handle, uint32_t buffer_size);
   void OnFlushStream(const GURL& url);
   void OnFinishBuildingStream(const GURL& url);
   void OnAbortBuildingStream(const GURL& url);
@@ -172,7 +176,7 @@ class CONTENT_EXPORT FileAPIMessageFilter : public BrowserMessageFilter {
                         bool has_more);
   void DidWrite(int request_id,
                 base::File::Error result,
-                int64 bytes,
+                int64_t bytes,
                 bool complete);
   void DidOpenFileSystem(int request_id,
                          const GURL& root,

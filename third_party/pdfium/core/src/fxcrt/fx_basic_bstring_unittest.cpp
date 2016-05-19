@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "../../../testing/fx_string_testhelpers.h"
 #include "core/include/fxcrt/fx_string.h"
+#include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 TEST(fxcrt, ByteStringOperatorSubscript) {
@@ -678,4 +678,12 @@ TEST(fxcrt, ByteStringFormatPrecision) {
     str.Format("%.1048576f", 1.2);
     EXPECT_EQ("Bad precision", str);
   }
+}
+
+TEST(fxcrt, EmptyByteString) {
+  CFX_ByteString empty_str;
+  EXPECT_TRUE(empty_str.IsEmpty());
+  EXPECT_EQ(0, empty_str.GetLength());
+  const FX_CHAR* cstr = empty_str.c_str();
+  EXPECT_EQ(0, FXSYS_strlen(cstr));
 }

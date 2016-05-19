@@ -5,6 +5,7 @@
 #ifndef DEVICE_HID_INPUT_SERVICE_LINUX_H_
 #define DEVICE_HID_INPUT_SERVICE_LINUX_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,7 @@ class InputServiceLinux : public base::MessageLoop::DestructionObserver {
     enum Type { TYPE_BLUETOOTH, TYPE_USB, TYPE_SERIO, TYPE_UNKNOWN };
 
     InputDeviceInfo();
+    InputDeviceInfo(const InputDeviceInfo& other);
 
     std::string id;
     std::string name;
@@ -66,7 +68,7 @@ class InputServiceLinux : public base::MessageLoop::DestructionObserver {
   void RemoveObserver(Observer* observer);
 
   // Returns list of all currently connected input/hid devices.
-  void GetDevices(std::vector<InputDeviceInfo>* devices);
+  virtual void GetDevices(std::vector<InputDeviceInfo>* devices);
 
   // Returns an info about input device identified by |id|. When there're
   // no input or hid device with such id, returns false and doesn't
@@ -87,7 +89,7 @@ class InputServiceLinux : public base::MessageLoop::DestructionObserver {
   base::ObserverList<Observer> observers_;
 
  private:
-  friend struct base::DefaultDeleter<InputServiceLinux>;
+  friend std::default_delete<InputServiceLinux>;
 
   base::ThreadChecker thread_checker_;
 

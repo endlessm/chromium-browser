@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/policy/cloud/user_cloud_policy_manager_factory.h"
@@ -31,6 +33,7 @@
 #include "components/policy/core/common/cloud/mock_user_cloud_policy_store.h"
 #include "components/policy/core/common/cloud/user_cloud_policy_manager.h"
 #include "components/policy/core/common/schema_registry.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/fake_account_fetcher_service.h"
 #include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
@@ -167,7 +170,7 @@ class UserPolicySigninServiceTest : public testing::Test {
         BuildCloudPolicyManager);
     TestingProfile::Builder builder;
     builder.SetPrefService(
-        scoped_ptr<syncable_prefs::PrefServiceSyncable>(prefs.Pass()));
+        scoped_ptr<syncable_prefs::PrefServiceSyncable>(std::move(prefs)));
     builder.AddTestingFactory(SigninManagerFactory::GetInstance(),
                               BuildFakeSigninManagerBase);
     builder.AddTestingFactory(ProfileOAuth2TokenServiceFactory::GetInstance(),
@@ -177,7 +180,7 @@ class UserPolicySigninServiceTest : public testing::Test {
     builder.AddTestingFactory(ChromeSigninClientFactory::GetInstance(),
                               signin::BuildTestSigninClient);
 
-    profile_ = builder.Build().Pass();
+    profile_ = builder.Build();
     url_factory_.set_remove_fetcher_on_delete(true);
 
     signin_manager_ = static_cast<FakeSigninManager*>(
@@ -581,8 +584,9 @@ TEST_F(UserPolicySigninServiceSignedInTest, SignOutAfterInit) {
   EXPECT_CALL(*mock_store_, Clear());
 
   // Now sign out.
-  SigninManagerFactory::GetForProfile(profile_.get())->SignOut(
-      signin_metrics::SIGNOUT_TEST);
+  SigninManagerFactory::GetForProfile(profile_.get())
+      ->SignOut(signin_metrics::SIGNOUT_TEST,
+                signin_metrics::SignoutDelete::IGNORE_METRIC);
 
   // UserCloudPolicyManager should be shut down.
   ASSERT_FALSE(manager_->core()->service());

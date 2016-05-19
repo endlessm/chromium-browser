@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
-
 #include "core/dom/Document.h"
 #include "core/dom/Range.h"
 #include "core/dom/Text.h"
@@ -88,7 +86,7 @@ std::ostream& operator<<(std::ostream& ostream, const Position& position)
     return printPosition(ostream, position);
 }
 
-std::ostream& operator<<(std::ostream& ostream, const PositionInComposedTree& position)
+std::ostream& operator<<(std::ostream& ostream, const PositionInFlatTree& position)
 {
     return printPosition(ostream, position);
 }

@@ -22,10 +22,8 @@ namespace {
 
 // Returns the path to the registry key holding profile-specific state values.
 base::string16 GetStateStoreKeyName() {
-  base::string16 key_name(L"Software\\");
-  return key_name.append(
-                     BrowserDistribution::GetDistribution()->GetInstallSubDir())
-      .append(L"\\IncidentsSent");
+  return BrowserDistribution::GetDistribution()->GetRegistryPath().append(
+      L"\\IncidentsSent");
 }
 
 // Returns the name of the registry value for |profile|'s state.
@@ -66,7 +64,7 @@ PlatformStateStoreLoadResult ReadStoreData(Profile* profile,
                KEY_QUERY_VALUE | KEY_WOW64_32KEY) == ERROR_SUCCESS) {
     while (true) {
       void* buffer = data->empty() ? nullptr : &(*data)[0];
-      DWORD buffer_size = base::saturated_cast<DWORD, size_t>(data->size());
+      DWORD buffer_size = base::saturated_cast<DWORD>(data->size());
       LONG result =
           key.ReadValue(value_name.c_str(), buffer, &buffer_size, nullptr);
       // Trim the output string and return if all data was read.
@@ -93,7 +91,7 @@ void WriteStoreData(Profile* profile, const std::string& data) {
       key.DeleteValue(GetValueNameForProfile(profile).c_str());
     } else {
       key.WriteValue(GetValueNameForProfile(profile).c_str(), &data[0],
-                     base::saturated_cast<DWORD, size_t>(data.size()),
+                     base::saturated_cast<DWORD>(data.size()),
                      REG_BINARY);
     }
   }

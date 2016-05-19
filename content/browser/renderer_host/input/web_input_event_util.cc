@@ -14,7 +14,6 @@
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/gesture_detection/gesture_event_data.h"
-#include "ui/events/gesture_detection/motion_event.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/gfx/geometry/safe_integer_conversions.h"
 
@@ -22,7 +21,6 @@ using blink::WebGestureEvent;
 using blink::WebInputEvent;
 using blink::WebTouchEvent;
 using blink::WebTouchPoint;
-using ui::MotionEvent;
 
 namespace content {
 
@@ -37,19 +35,18 @@ int WebEventModifiersToEventFlags(int modifiers) {
     flags |= ui::EF_ALT_DOWN;
   if (modifiers & blink::WebInputEvent::MetaKey)
     flags |= ui::EF_COMMAND_DOWN;
-
+  if (modifiers & blink::WebInputEvent::CapsLockOn)
+    flags |= ui::EF_CAPS_LOCK_ON;
+  if (modifiers & blink::WebInputEvent::NumLockOn)
+    flags |= ui::EF_NUM_LOCK_ON;
+  if (modifiers & blink::WebInputEvent::ScrollLockOn)
+    flags |= ui::EF_SCROLL_LOCK_ON;
   if (modifiers & blink::WebInputEvent::LeftButtonDown)
     flags |= ui::EF_LEFT_MOUSE_BUTTON;
   if (modifiers & blink::WebInputEvent::MiddleButtonDown)
     flags |= ui::EF_MIDDLE_MOUSE_BUTTON;
   if (modifiers & blink::WebInputEvent::RightButtonDown)
     flags |= ui::EF_RIGHT_MOUSE_BUTTON;
-  if (modifiers & blink::WebInputEvent::CapsLockOn)
-    flags |= ui::EF_CAPS_LOCK_DOWN;
-  if (modifiers & blink::WebInputEvent::NumLockOn)
-    flags |= ui::EF_NUM_LOCK_DOWN;
-  if (modifiers & blink::WebInputEvent::ScrollLockOn)
-    flags |= ui::EF_SCROLL_LOCK_DOWN;
   if (modifiers & blink::WebInputEvent::IsAutoRepeat)
     flags |= ui::EF_IS_REPEAT;
 

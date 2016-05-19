@@ -5,10 +5,13 @@
 #ifndef CHROMEOS_PROCESS_PROXY_PROCESS_OUTPUT_WATCHER_H_
 #define CHROMEOS_PROCESS_PROXY_PROCESS_OUTPUT_WATCHER_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/callback.h"
 #include "base/files/file.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "chromeos/chromeos_export.h"
@@ -20,8 +23,9 @@ enum ProcessOutputType {
   PROCESS_OUTPUT_TYPE_EXIT
 };
 
-typedef base::Callback<void(ProcessOutputType, const std::string&)>
-      ProcessOutputCallback;
+typedef base::Callback<void(ProcessOutputType,
+                            const std::string&,
+                            const base::Closure&)> ProcessOutputCallback;
 
 // Observes output on |out_fd| and invokes |callback| when some output is
 // detected. It assumes UTF8 output.
@@ -50,9 +54,11 @@ class CHROMEOS_EXPORT ProcessOutputWatcher
 
   // Processes new |read_buffer_| state and notifies observer about new process
   // output.
-  void ReportOutput(ProcessOutputType type, size_t new_bytes_count);
+  void ReportOutput(ProcessOutputType type,
+                    size_t new_bytes_count,
+                    const base::Closure& callback);
 
-  char read_buffer_[256];
+  char read_buffer_[4096];
   // Maximum read buffer content size.
   size_t read_buffer_capacity_;
   // Current read bufferi content size.

@@ -30,6 +30,11 @@ static void accumulate_rd_opt(ThreadData *td, ThreadData *td_t) {
             for (n = 0; n < ENTROPY_TOKENS; n++)
               td->rd_counts.coef_counts[i][j][k][l][m][n] +=
                   td_t->rd_counts.coef_counts[i][j][k][l][m][n];
+
+
+  // Counts of all motion searches and exhuastive mesh searches.
+  td->rd_counts.m_search_count += td_t->rd_counts.m_search_count;
+  td->rd_counts.ex_search_count += td_t->rd_counts.ex_search_count;
 }
 
 static int enc_worker_hook(EncWorkerData *const thread_data, void *unused) {
@@ -127,13 +132,6 @@ void vp10_encode_tiles_mt(VP10_COMP *cpi) {
     if (thread_data->td->counts != &cpi->common.counts) {
       memcpy(thread_data->td->counts, &cpi->common.counts,
              sizeof(cpi->common.counts));
-    }
-
-    // Allocate buffers used by palette coding mode.
-    if (cpi->common.allow_screen_content_tools && i < num_workers - 1) {
-        MACROBLOCK *x = &thread_data->td->mb;
-        CHECK_MEM_ERROR(cm, x->palette_buffer,
-                        vpx_memalign(16, sizeof(*x->palette_buffer)));
     }
   }
 

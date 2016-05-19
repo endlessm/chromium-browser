@@ -105,6 +105,7 @@
 <translation id="337167041784729019">통계 보기</translation>
 <translation id="3385242214819933234">호스트 소유자가 잘못되었습니다.</translation>
 <translation id="3403830762023901068">정책 설정에서 이 컴퓨터를 Chromoting 호스트로 공유하는 것을 허용하지 않습니다. 도움이 필요하면 시스템 관리자에게 문의하세요.</translation>
+<translation id="3423542133075182604">보안 키 원격 설정 프로세스</translation>
 <translation id="3581045510967524389">네트워크에 연결할 수 없습니다. 기기가 온라인 상태인지 확인하시기 바랍니다.</translation>
 <translation id="3596628256176442606">이 서비스를 이용하면 Chromoting 클라이언트로부터의 연결을 수신할 수 있습니다.</translation>
 <translation id="3606997049964069799">Chromium에 로그인하지 않았습니다. 로그인 후 다시 시도하세요.</translation>
@@ -153,6 +154,7 @@
 데스크톱 호스트</translation>
 <translation id="4619978527973181021">동의 및 설치</translation>
 <translation id="4647791084836149355">Cardboard 보기 표시</translation>
+<translation id="4703302905453407178">필수 구성 요소가 작동이 중지되었습니다. 개발자에게 문제를 신고해 주세요.</translation>
 <translation id="4703799847237267011">Chromoting 세션이 종료되었습니다.</translation>
 <translation id="4736223761657662401">연결 기록</translation>
 <translation id="4741792197137897469">인증에 실패했습니다. Chrome에 다시 로그인하세요.</translation>

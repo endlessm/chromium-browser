@@ -19,7 +19,7 @@
 namespace sync_file_system {
 namespace drive_backend {
 
-void PutVersionToDB(int64 version, LevelDBWrapper* db) {
+void PutVersionToDB(int64_t version, LevelDBWrapper* db) {
   DCHECK(db);
   db->Put(kDatabaseVersionKey, base::Int64ToString(version));
 }
@@ -59,7 +59,7 @@ void PutFileMetadataDeletionToDB(const std::string& file_id,
   db->Delete(kFileMetadataKeyPrefix + file_id);
 }
 
-void PutFileTrackerDeletionToDB(int64 tracker_id, LevelDBWrapper* db) {
+void PutFileTrackerDeletionToDB(int64_t tracker_id, LevelDBWrapper* db) {
   DCHECK(db);
   db->Delete(kFileTrackerKeyPrefix + base::Int64ToString(tracker_id));
 }
@@ -171,7 +171,7 @@ scoped_ptr<ServiceMetadata> InitializeServiceMetadata(LevelDBWrapper* db) {
     service_metadata->set_next_tracker_id(1);
   }
 
-  return service_metadata.Pass();
+  return service_metadata;
 }
 
 }  // namespace drive_backend

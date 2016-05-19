@@ -50,7 +50,9 @@ void vp9_subtract_plane(MACROBLOCK *x, BLOCK_SIZE bsize, int plane) {
                      pd->dst.buf, pd->dst.stride);
 }
 
-#define RDTRUNC(RM, DM, R, D) ((128 + (R) * (RM)) & 0xFF)
+#define RDTRUNC(RM, DM, R, D)                        \
+  (((1 << (VP9_PROB_COST_SHIFT - 1)) + (R) * (RM)) & \
+   ((1 << VP9_PROB_COST_SHIFT) - 1))
 
 typedef struct vp9_token_state {
   int           rate;
@@ -91,7 +93,7 @@ static int optimize_b(MACROBLOCK *mb, int plane, int block,
   MACROBLOCKD *const xd = &mb->e_mbd;
   struct macroblock_plane *const p = &mb->plane[plane];
   struct macroblockd_plane *const pd = &xd->plane[plane];
-  const int ref = is_inter_block(&xd->mi[0]->mbmi);
+  const int ref = is_inter_block(xd->mi[0]);
   vp9_token_state tokens[1025][2];
   unsigned best_index[1025][2];
   uint8_t token_cache[1024];
@@ -115,9 +117,9 @@ static int optimize_b(MACROBLOCK *mb, int plane, int block,
   EXTRABIT e0;
   int best, band, pt, i, final_eob;
 #if CONFIG_VP9_HIGHBITDEPTH
-  const int16_t *cat6_high_cost = vp9_get_high_cost_table(xd->bd);
+  const int *cat6_high_cost = vp9_get_high_cost_table(xd->bd);
 #else
-  const int16_t *cat6_high_cost = vp9_get_high_cost_table(8);
+  const int *cat6_high_cost = vp9_get_high_cost_table(8);
 #endif
 
   assert((!type && !plane) || (type && plane));
@@ -736,11 +738,11 @@ void vp9_encode_sby_pass1(MACROBLOCK *x, BLOCK_SIZE bsize) {
 void vp9_encode_sb(MACROBLOCK *x, BLOCK_SIZE bsize) {
   MACROBLOCKD *const xd = &x->e_mbd;
   struct optimize_ctx ctx;
-  MB_MODE_INFO *mbmi = &xd->mi[0]->mbmi;
-  struct encode_b_args arg = {x, &ctx, &mbmi->skip};
+  MODE_INFO *mi = xd->mi[0];
+  struct encode_b_args arg = {x, &ctx, &mi->skip};
   int plane;
 
-  mbmi->skip = 1;
+  mi->skip = 1;
 
   if (x->skip)
     return;
@@ -751,7 +753,7 @@ void vp9_encode_sb(MACROBLOCK *x, BLOCK_SIZE bsize) {
 
     if (x->optimize && (!x->skip_recode || !x->skip_optimize)) {
       const struct macroblockd_plane* const pd = &xd->plane[plane];
-      const TX_SIZE tx_size = plane ? get_uv_tx_size(mbmi, pd) : mbmi->tx_size;
+      const TX_SIZE tx_size = plane ? get_uv_tx_size(mi, pd) : mi->tx_size;
       vp9_get_entropy_contexts(bsize, tx_size, pd,
                                ctx.ta[plane], ctx.tl[plane]);
     }
@@ -766,7 +768,7 @@ void vp9_encode_block_intra(int plane, int block, BLOCK_SIZE plane_bsize,
   struct encode_b_args* const args = arg;
   MACROBLOCK *const x = args->x;
   MACROBLOCKD *const xd = &x->e_mbd;
-  MB_MODE_INFO *mbmi = &xd->mi[0]->mbmi;
+  MODE_INFO *mi = xd->mi[0];
   struct macroblock_plane *const p = &x->plane[plane];
   struct macroblockd_plane *const pd = &xd->plane[plane];
   tran_low_t *coeff = BLOCK_OFFSET(p->coeff, block);
@@ -791,9 +793,9 @@ void vp9_encode_block_intra(int plane, int block, BLOCK_SIZE plane_bsize,
   if (tx_size == TX_4X4) {
     tx_type = get_tx_type_4x4(get_plane_type(plane), xd, block);
     scan_order = &vp9_scan_orders[TX_4X4][tx_type];
-    mode = plane == 0 ? get_y_mode(xd->mi[0], block) : mbmi->uv_mode;
+    mode = plane == 0 ? get_y_mode(xd->mi[0], block) : mi->uv_mode;
   } else {
-    mode = plane == 0 ? mbmi->mode : mbmi->uv_mode;
+    mode = plane == 0 ? mi->mode : mi->uv_mode;
     if (tx_size == TX_32X32) {
       scan_order = &vp9_default_scan_orders[TX_32X32];
     } else {
@@ -968,7 +970,7 @@ void vp9_encode_block_intra(int plane, int block, BLOCK_SIZE plane_bsize,
 
 void vp9_encode_intra_block_plane(MACROBLOCK *x, BLOCK_SIZE bsize, int plane) {
   const MACROBLOCKD *const xd = &x->e_mbd;
-  struct encode_b_args arg = {x, NULL, &xd->mi[0]->mbmi.skip};
+  struct encode_b_args arg = {x, NULL, &xd->mi[0]->skip};
 
   vp9_foreach_transformed_block_in_plane(xd, bsize, plane,
                                          vp9_encode_block_intra, &arg);

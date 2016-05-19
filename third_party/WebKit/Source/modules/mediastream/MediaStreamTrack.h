@@ -41,7 +41,7 @@ class ExceptionState;
 class MediaStreamComponent;
 class MediaStreamTrackSourcesCallback;
 
-class MODULES_EXPORT MediaStreamTrack final
+class MODULES_EXPORT MediaStreamTrack
     : public RefCountedGarbageCollectedEventTargetWithInlineData<MediaStreamTrack>
     , public ActiveDOMObject
     , public MediaStreamSource::Observer {
@@ -67,7 +67,7 @@ public:
 
     static void getSources(ExecutionContext*, MediaStreamTrackSourcesCallback*, ExceptionState&);
     void stopTrack(ExceptionState&);
-    MediaStreamTrack* clone(ExecutionContext*);
+    virtual MediaStreamTrack* clone(ExecutionContext*);
 
     DEFINE_ATTRIBUTE_EVENT_LISTENER(mute);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(unmute);
@@ -84,6 +84,7 @@ public:
     ExecutionContext* executionContext() const override;
 
     // ActiveDOMObject
+    bool hasPendingActivity() const override;
     void stop() override;
 
     PassOwnPtr<AudioSourceProvider> createWebAudioSource();
@@ -91,6 +92,8 @@ public:
     DECLARE_VIRTUAL_TRACE();
 
 private:
+    friend class CanvasCaptureMediaStreamTrack;
+
     MediaStreamTrack(ExecutionContext*, MediaStreamComponent*);
 
     // MediaStreamSourceObserver

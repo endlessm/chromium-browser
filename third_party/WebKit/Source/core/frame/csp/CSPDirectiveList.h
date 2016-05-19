@@ -9,6 +9,7 @@
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/frame/csp/MediaListDirective.h"
 #include "core/frame/csp/SourceListDirective.h"
+#include "platform/heap/Handle.h"
 #include "platform/network/ContentSecurityPolicyParsers.h"
 #include "platform/network/HTTPParsers.h"
 #include "platform/weborigin/KURL.h"
@@ -63,10 +64,11 @@ public:
     bool allowStyleNonce(const String&) const;
     bool allowScriptHash(const CSPHashValue&) const;
     bool allowStyleHash(const CSPHashValue&) const;
+    bool allowDynamic() const;
 
     const String& evalDisabledErrorMessage() const { return m_evalDisabledErrorMessage; }
-    ReflectedXSSDisposition reflectedXSSDisposition() const { return m_reflectedXSSDisposition; }
-    ReferrerPolicy referrerPolicy() const { return m_referrerPolicy; }
+    ReflectedXSSDisposition getReflectedXSSDisposition() const { return m_reflectedXSSDisposition; }
+    ReferrerPolicy getReferrerPolicy() const { return m_referrerPolicy; }
     bool didSetReferrerPolicy() const { return m_didSetReferrerPolicy; }
     bool isReportOnly() const { return m_reportOnly; }
     const Vector<String>& reportEndpoints() const { return m_reportEndpoints; }
@@ -106,6 +108,7 @@ private:
 
     bool checkEval(SourceListDirective*) const;
     bool checkInline(SourceListDirective*) const;
+    bool checkDynamic(SourceListDirective*) const;
     bool checkNonce(SourceListDirective*, const String&) const;
     bool checkHash(SourceListDirective*, const CSPHashValue&) const;
     bool checkSource(SourceListDirective*, const KURL&, ContentSecurityPolicy::RedirectStatus) const;
@@ -123,7 +126,8 @@ private:
 
     bool denyIfEnforcingPolicy() const { return m_reportOnly; }
 
-    ContentSecurityPolicy* m_policy;
+    // TODO(Oilpan): consider moving ContentSecurityPolicy auxilliary objects to the heap.
+    RawPtrWillBeUntracedMember<ContentSecurityPolicy> m_policy;
 
     String m_header;
     ContentSecurityPolicyHeaderType m_headerType;
@@ -162,7 +166,6 @@ private:
     String m_evalDisabledErrorMessage;
 };
 
-
-} // namespace
+} // namespace blink
 
 #endif

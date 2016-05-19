@@ -364,6 +364,7 @@ exif_data_load_data_content (ExifData *data, ExifIfd ifd,
 	ExifEntry *entry;
 	unsigned int i;
 	ExifTag tag;
+	const unsigned int original_offset = offset;
 
 	if (!data || !data->priv) 
 		return;
@@ -416,14 +417,20 @@ exif_data_load_data_content (ExifData *data, ExifIfd ifd,
 			switch (tag) {
 			case EXIF_TAG_EXIF_IFD_POINTER:
 				CHECK_REC (EXIF_IFD_EXIF);
+				if (o == original_offset)
+					return;
 				exif_data_load_data_content (data, EXIF_IFD_EXIF, d, ds, o, recursion_depth + 1);
 				break;
 			case EXIF_TAG_GPS_INFO_IFD_POINTER:
 				CHECK_REC (EXIF_IFD_GPS);
+				if (o == original_offset)
+					return;
 				exif_data_load_data_content (data, EXIF_IFD_GPS, d, ds, o, recursion_depth + 1);
 				break;
 			case EXIF_TAG_INTEROPERABILITY_IFD_POINTER:
 				CHECK_REC (EXIF_IFD_INTEROPERABILITY);
+				if (o == original_offset)
+					return;
 				exif_data_load_data_content (data, EXIF_IFD_INTEROPERABILITY, d, ds, o, recursion_depth + 1);
 				break;
 			case EXIF_TAG_JPEG_INTERCHANGE_FORMAT:

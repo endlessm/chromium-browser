@@ -4,6 +4,7 @@
 
 #include "base/callback.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -169,8 +170,8 @@ class MenuModelAdapterTest : public ViewEventTestBase,
   // ViewEventTestBase implementation.
 
   void SetUp() override {
-    button_ = new views::MenuButton(
-        NULL, base::ASCIIToUTF16("Menu Adapter Test"), this, true);
+    button_ = new views::MenuButton(base::ASCIIToUTF16("Menu Adapter Test"),
+                                    this, true);
 
     menu_ = menu_model_adapter_.CreateMenu();
     menu_runner_.reset(
@@ -192,8 +193,9 @@ class MenuModelAdapterTest : public ViewEventTestBase,
   }
 
   // views::MenuButtonListener implementation.
-  void OnMenuButtonClicked(views::View* source,
-                           const gfx::Point& point) override {
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override {
     gfx::Point screen_location;
     views::View::ConvertPointToScreen(source, &screen_location);
     gfx::Rect bounds(screen_location, source->size());

@@ -4,6 +4,8 @@
 
 #include "chrome/installer/util/shell_util.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/base_paths.h"
@@ -13,6 +15,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/md5.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
@@ -99,7 +102,6 @@ class ShellUtilShortcutTest : public testing::Test {
     test_properties_.set_description(L"Makes polar bears dance.");
     test_properties_.set_icon(icon_path, 7);
     test_properties_.set_app_id(L"Polar.Bear");
-    test_properties_.set_dual_mode(true);
   }
 
   // Returns the expected path of a test shortcut. Returns an empty FilePath on
@@ -183,11 +185,6 @@ class ShellUtilShortcutTest : public testing::Test {
       // Tests are always seen as user-level installs in ShellUtil.
       expected_properties.set_app_id(ShellUtil::GetBrowserModelId(dist, true));
     }
-
-    if (properties.has_dual_mode())
-      expected_properties.set_dual_mode(properties.dual_mode);
-    else
-      expected_properties.set_dual_mode(false);
 
     base::win::ValidateShortcut(expected_path, expected_properties);
   }
@@ -324,7 +321,6 @@ TEST_F(ShellUtilShortcutTest, ReplaceSystemLevelDesktopShortcut) {
   // properties that don't have a default value to be set back to their default
   // (as validated in ValidateChromeShortcut()) or unset if they don't .
   ShellUtil::ShortcutProperties expected_properties(new_properties);
-  expected_properties.set_dual_mode(false);
 
   ValidateChromeShortcut(ShellUtil::SHORTCUT_LOCATION_DESKTOP, dist_,
                          expected_properties);
@@ -351,29 +347,6 @@ TEST_F(ShellUtilShortcutTest, UpdateQuickLaunchShortcutArguments) {
 
   ValidateChromeShortcut(ShellUtil::SHORTCUT_LOCATION_QUICK_LAUNCH, dist_,
                          expected_properties);
-}
-
-TEST_F(ShellUtilShortcutTest, UpdateAddDualModeToStartMenuShortcut) {
-  ShellUtil::ShortcutProperties properties(ShellUtil::CURRENT_USER);
-  product_->AddDefaultShortcutProperties(chrome_exe_, &properties);
-  ASSERT_TRUE(
-      ShellUtil::CreateOrUpdateShortcut(
-          ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_DIR_DEPRECATED, dist_,
-          properties, ShellUtil::SHELL_SHORTCUT_CREATE_ALWAYS));
-
-  ShellUtil::ShortcutProperties added_properties(ShellUtil::CURRENT_USER);
-  added_properties.set_dual_mode(true);
-  ASSERT_TRUE(
-      ShellUtil::CreateOrUpdateShortcut(
-          ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_DIR_DEPRECATED, dist_,
-          added_properties, ShellUtil::SHELL_SHORTCUT_UPDATE_EXISTING));
-
-  ShellUtil::ShortcutProperties expected_properties(properties);
-  expected_properties.set_dual_mode(true);
-
-  ValidateChromeShortcut(
-      ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_DIR_DEPRECATED,
-      dist_, expected_properties);
 }
 
 TEST_F(ShellUtilShortcutTest, CreateIfNoSystemLevel) {
@@ -1023,7 +996,7 @@ TEST(ShellUtilTest, GetUserSpecificRegistrySuffix) {
   base::string16 suffix;
   ASSERT_TRUE(ShellUtil::GetUserSpecificRegistrySuffix(&suffix));
   ASSERT_TRUE(base::StartsWith(suffix, L".", base::CompareCase::SENSITIVE));
-  ASSERT_EQ(27, suffix.length());
+  ASSERT_EQ(27u, suffix.length());
   ASSERT_TRUE(base::ContainsOnlyChars(suffix.substr(1),
                                       L"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"));
 }
@@ -1048,7 +1021,7 @@ TEST(ShellUtilTest, ByteArrayToBase32) {
                                 L"MZXW6YTB", L"MZXW6YTBOI"};
 
   // Run the tests, with one more letter in the input every pass.
-  for (int i = 0; i < arraysize(expected); ++i) {
+  for (size_t i = 0; i < arraysize(expected); ++i) {
     ASSERT_EQ(expected[i],
               ShellUtil::ByteArrayToBase32(test_array, i));
   }

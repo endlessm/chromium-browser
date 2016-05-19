@@ -136,6 +136,7 @@ public:
     void dispatchDidClearWindowObjectInMainWorld();
     void dispatchDidClearDocumentOfWindowObject();
     void dispatchDocumentElementAvailable();
+    void runScriptsAtDocumentElementAvailable();
 
     // The following sandbox flags will be forced, regardless of changes to
     // the sandbox attribute of any parent frames.
@@ -144,7 +145,7 @@ public:
 
     bool shouldEnforceStrictMixedContentChecking() const;
 
-    SecurityContext::InsecureRequestsPolicy insecureRequestsPolicy() const;
+    SecurityContext::InsecureRequestsPolicy getInsecureRequestsPolicy() const;
     SecurityContext::InsecureNavigationsSet* insecureNavigationsToUpgrade() const;
 
     Frame* opener();
@@ -185,7 +186,7 @@ public:
     void restoreScrollPositionAndViewState();
 
     bool shouldContinueForNavigationPolicy(const ResourceRequest&, const SubstituteData&, DocumentLoader*, ContentSecurityPolicyDisposition,
-        NavigationType, NavigationPolicy, bool shouldReplaceCurrentEntry);
+        NavigationType, NavigationPolicy, bool shouldReplaceCurrentEntry, bool isClientRedirect);
 
     DECLARE_TRACE();
 
@@ -211,7 +212,7 @@ private:
     };
     void setHistoryItemStateForCommit(HistoryCommitType, HistoryNavigationType);
 
-    void loadInSameDocument(const KURL&, PassRefPtr<SerializedScriptValue> stateObject, FrameLoadType, ClientRedirectPolicy);
+    void loadInSameDocument(const KURL&, PassRefPtr<SerializedScriptValue> stateObject, FrameLoadType, HistoryLoadType, ClientRedirectPolicy);
 
     void scheduleCheckCompleted();
 
@@ -239,7 +240,7 @@ private:
     RefPtrWillBeMember<HistoryItem> m_provisionalItem;
 
     class DeferredHistoryLoad : public NoBaseWillBeGarbageCollectedFinalized<DeferredHistoryLoad> {
-        DISALLOW_COPY(DeferredHistoryLoad);
+        WTF_MAKE_NONCOPYABLE(DeferredHistoryLoad);
     public:
         static PassOwnPtrWillBeRawPtr<DeferredHistoryLoad> create(ResourceRequest request, HistoryItem* item, FrameLoadType loadType, HistoryLoadType historyLoadType)
         {
@@ -278,6 +279,7 @@ private:
     SandboxFlags m_forcedSandboxFlags;
 
     bool m_dispatchingDidClearWindowObjectInMainWorld;
+    bool m_protectProvisionalLoader;
 };
 
 } // namespace blink

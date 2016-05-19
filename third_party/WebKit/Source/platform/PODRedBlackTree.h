@@ -45,7 +45,7 @@
 // enabled. This requires the template specialization to be available:
 //
 //   template<> struct ValueToString<T> {
-//       static String string(const T& t);
+//       static String toString(const T& t);
 //   };
 //
 // Note that when complex types are stored in this red/black tree, it
@@ -73,6 +73,7 @@
 #define PODRedBlackTree_h
 
 #include "platform/PODFreeListArena.h"
+#include "wtf/Allocator.h"
 #include "wtf/Assertions.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/RefPtr.h"
@@ -95,6 +96,7 @@ enum UninitializedTreeEnum {
 
 template<class T>
 class PODRedBlackTree {
+    DISALLOW_NEW();
 public:
     class Node;
 
@@ -252,6 +254,7 @@ public:
     // an internal concept; users of the tree deal only with the data
     // they store in it.
     class Node {
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
         WTF_MAKE_NONCOPYABLE(Node);
     public:
         // Constructor. Newly-created nodes are colored red.
@@ -729,7 +732,8 @@ private:
     // Helper class for size()
 
     // A Visitor which simply counts the number of visited elements.
-    class Counter : public Visitor {
+    class Counter final : public Visitor {
+        DISALLOW_NEW();
         WTF_MAKE_NONCOPYABLE(Counter);
     public:
         Counter()

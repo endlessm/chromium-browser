@@ -4,10 +4,15 @@
 
 #include "content/browser/web_contents/web_contents_view_aura.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/browser/browser_plugin/browser_plugin_guest.h"
 #include "content/browser/download/drag_download_util.h"
 #include "content/browser/frame_host/interstitial_page_impl.h"
@@ -86,8 +91,10 @@ bool IsScrollEndEffectEnabled() {
 
 RenderWidgetHostViewAura* ToRenderWidgetHostViewAura(
     RenderWidgetHostView* view) {
-  if (!view || RenderViewHostFactory::has_factory())
+  if (!view || (RenderViewHostFactory::has_factory() &&
+      !RenderViewHostFactory::is_real_render_view_host())) {
     return NULL;  // Can't cast to RenderWidgetHostViewAura in unit tests.
+  }
 
   RenderViewHost* rvh = RenderViewHost::From(view->GetRenderWidgetHost());
   WebContentsImpl* web_contents = static_cast<WebContentsImpl*>(
@@ -231,7 +238,7 @@ const ui::Clipboard::FormatType& GetFileSystemFileFormatType() {
 void WriteFileSystemFilesToPickle(
     const std::vector<DropData::FileSystemFileInfo>& file_system_files,
     base::Pickle* pickle) {
-  pickle->WriteSizeT(file_system_files.size());
+  pickle->WriteUInt32(file_system_files.size());
   for (size_t i = 0; i < file_system_files.size(); ++i) {
     pickle->WriteString(file_system_files[i].url.spec());
     pickle->WriteInt64(file_system_files[i].size);
@@ -244,14 +251,14 @@ bool ReadFileSystemFilesFromPickle(
     std::vector<DropData::FileSystemFileInfo>* file_system_files) {
   base::PickleIterator iter(pickle);
 
-  size_t num_files = 0;
-  if (!iter.ReadSizeT(&num_files))
+  uint32_t num_files = 0;
+  if (!iter.ReadUInt32(&num_files))
     return false;
   file_system_files->resize(num_files);
 
-  for (size_t i = 0; i < num_files; ++i) {
+  for (uint32_t i = 0; i < num_files; ++i) {
     std::string url_string;
-    int64 size = 0;
+    int64_t size = 0;
     if (!iter.ReadString(&url_string) || !iter.ReadInt64(&size))
       return false;
 
@@ -455,7 +462,7 @@ class WebContentsViewAura::WindowObserver
   }
 
   void OnWillRemoveWindow(aura::Window* window) override {
-    if (window == view_->window_)
+    if (window == view_->window_.get())
       return;
 
     window->RemoveObserver(this);
@@ -463,8 +470,7 @@ class WebContentsViewAura::WindowObserver
   }
 
   void OnWindowVisibilityChanged(aura::Window* window, bool visible) override {
-    if (window == view_->window_ ||
-        window->parent() == host_window_ ||
+    if (window == view_->window_.get() || window->parent() == host_window_ ||
         window->parent() == view_->window_->GetRootWindow()) {
       UpdateConstrainedWindows(NULL);
     }
@@ -473,7 +479,7 @@ class WebContentsViewAura::WindowObserver
 
   void OnWindowParentChanged(aura::Window* window,
                              aura::Window* parent) override {
-    if (window != view_->window_)
+    if (window != view_->window_.get())
       return;
 
     aura::Window* host_window =
@@ -529,7 +535,7 @@ class WebContentsViewAura::WindowObserver
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
                              const gfx::Rect& new_bounds) override {
-    if (window == host_window_ || window == view_->window_) {
+    if (window == host_window_ || window == view_->window_.get()) {
       SendScreenRects();
       if (old_bounds.origin() != new_bounds.origin()) {
         TouchSelectionControllerClientAura* selection_controller_client =
@@ -552,7 +558,7 @@ class WebContentsViewAura::WindowObserver
   }
 
   void OnWindowAddedToRootWindow(aura::Window* window) override {
-    if (window == view_->window_) {
+    if (window == view_->window_.get()) {
       window->GetHost()->AddObserver(this);
 #if defined(OS_WIN)
       if (!window->GetRootWindow()->HasObserver(this))
@@ -563,7 +569,7 @@ class WebContentsViewAura::WindowObserver
 
   void OnWindowRemovingFromRootWindow(aura::Window* window,
                                       aura::Window* new_root) override {
-    if (window == view_->window_) {
+    if (window == view_->window_.get()) {
       window->GetHost()->RemoveObserver(this);
 #if defined(OS_WIN)
       window->GetRootWindow()->RemoveObserver(this);
@@ -571,7 +577,7 @@ class WebContentsViewAura::WindowObserver
       const aura::Window::Windows& root_children =
           window->GetRootWindow()->children();
       for (size_t i = 0; i < root_children.size(); ++i) {
-        if (root_children[i] != view_->window_ &&
+        if (root_children[i] != view_->window_.get() &&
             root_children[i] != host_window_) {
           root_children[i]->RemoveObserver(this);
         }
@@ -658,6 +664,11 @@ WebContentsViewAura::WebContentsViewAura(WebContentsImpl* web_contents,
       is_or_was_visible_(false) {
 }
 
+void WebContentsViewAura::SetDelegateForTesting(
+    WebContentsViewDelegate* delegate) {
+  delegate_.reset(delegate);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // WebContentsViewAura, private:
 
@@ -684,8 +695,7 @@ void WebContentsViewAura::SizeChangedCommon(const gfx::Size& size) {
 
 void WebContentsViewAura::EndDrag(blink::WebDragOperationsMask ops) {
   aura::Window* root_window = GetNativeView()->GetRootWindow();
-  gfx::Point screen_loc =
-      gfx::Screen::GetScreenFor(GetNativeView())->GetCursorScreenPoint();
+  gfx::Point screen_loc = gfx::Screen::GetScreen()->GetCursorScreenPoint();
   gfx::Point client_loc = screen_loc;
   RenderViewHost* rvh = web_contents_->GetRenderViewHost();
   aura::Window* window = rvh->GetWidget()->GetView()->GetNativeView();
@@ -848,10 +858,8 @@ void WebContentsViewAura::CreateView(
     // It should be OK to not set a default parent since such users will
     // explicitly add this WebContentsViewAura to their tree after they create
     // us.
-    if (root_window) {
-      aura::client::ParentWindowWithContext(
-          window_.get(), root_window, root_window->GetBoundsInScreen());
-    }
+    aura::client::ParentWindowWithContext(window_.get(), root_window,
+                                          root_window->GetBoundsInScreen());
   }
   window_->layer()->SetMasksToBounds(true);
   window_->SetName("WebContentsViewAura");
@@ -949,11 +957,12 @@ void WebContentsViewAura::ShowContextMenu(RenderFrameHost* render_frame_host,
       selection_controller_client->HandleContextMenu(params)) {
     return;
   }
+
   if (delegate_) {
     RenderWidgetHostViewAura* view = ToRenderWidgetHostViewAura(
         web_contents_->GetRenderWidgetHostView());
-    if (view)
-      view->OnShowContextMenu();
+    if (view && !view->OnShowContextMenu(params))
+      return;
 
     delegate_->ShowContextMenu(render_frame_host, params);
     // WARNING: we may have been deleted during the call to ShowContextMenu().
@@ -1190,20 +1199,13 @@ void WebContentsViewAura::OnMouseEvent(ui::MouseEvent* event) {
   if (!web_contents_->GetDelegate())
     return;
 
-  switch (event->type()) {
-    case ui::ET_MOUSE_PRESSED:
+  ui::EventType type = event->type();
+  if (type == ui::ET_MOUSE_PRESSED)
       web_contents_->GetDelegate()->ActivateContents(web_contents_);
-      break;
-    case ui::ET_MOUSE_MOVED:
-    case ui::ET_MOUSE_EXITED:
-      web_contents_->GetDelegate()->ContentsMouseEvent(
-          web_contents_,
-          gfx::Screen::GetScreenFor(GetNativeView())->GetCursorScreenPoint(),
-          event->type() == ui::ET_MOUSE_MOVED);
-      break;
-    default:
-      break;
-  }
+
+  web_contents_->GetDelegate()->ContentsMouseEvent(
+      web_contents_, gfx::Screen::GetScreen()->GetCursorScreenPoint(),
+      type == ui::ET_MOUSE_MOVED, type == ui::ET_MOUSE_EXITED);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1227,8 +1229,7 @@ void WebContentsViewAura::OnDragEntered(const ui::DropTargetEvent& event) {
   if (drag_dest_delegate_)
     drag_dest_delegate_->DragInitialize(web_contents_);
 
-  gfx::Point screen_pt =
-      gfx::Screen::GetScreenFor(GetNativeView())->GetCursorScreenPoint();
+  gfx::Point screen_pt = gfx::Screen::GetScreen()->GetCursorScreenPoint();
   web_contents_->GetRenderViewHost()->DragTargetDragEnter(
       *current_drop_data_.get(), event.location(), screen_pt, op,
       ConvertAuraEventFlagsToWebInputEventModifiers(event.flags()));
@@ -1248,8 +1249,7 @@ int WebContentsViewAura::OnDragUpdated(const ui::DropTargetEvent& event) {
     return ui::DragDropTypes::DRAG_NONE;
 
   blink::WebDragOperationsMask op = ConvertToWeb(event.source_operations());
-  gfx::Point screen_pt =
-      gfx::Screen::GetScreenFor(GetNativeView())->GetCursorScreenPoint();
+  gfx::Point screen_pt = gfx::Screen::GetScreen()->GetCursorScreenPoint();
   web_contents_->GetRenderViewHost()->DragTargetDragOver(
       event.location(), screen_pt, op,
       ConvertAuraEventFlagsToWebInputEventModifiers(event.flags()));
@@ -1284,8 +1284,7 @@ int WebContentsViewAura::OnPerformDrop(const ui::DropTargetEvent& event) {
     return ui::DragDropTypes::DRAG_NONE;
 
   web_contents_->GetRenderViewHost()->DragTargetDrop(
-      event.location(),
-      gfx::Screen::GetScreenFor(GetNativeView())->GetCursorScreenPoint(),
+      event.location(), gfx::Screen::GetScreen()->GetCursorScreenPoint(),
       ConvertAuraEventFlagsToWebInputEventModifiers(event.flags()));
   if (drag_dest_delegate_)
     drag_dest_delegate_->OnDrop();

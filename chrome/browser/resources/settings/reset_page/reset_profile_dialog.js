@@ -23,16 +23,18 @@ Polymer({
         doneResetting: function() {
           this.$.resetSpinner.active = false;
           this.$.dialog.close();
+          this.dispatchResetDoneEvent();
         }.bind(this),
 
         setFeedbackInfo: function(data) {
           this.set('feedbackInfo_', data.feedbackInfo);
-          this.async(function() {
-            this.$.dialog.center();
-          });
         }.bind(this),
       };
     }.bind(this));
+  },
+
+  dispatchResetDoneEvent: function() {
+    this.dispatchEvent(new CustomEvent('reset-done'));
   },
 
   open: function() {
@@ -50,11 +52,6 @@ Polymer({
   onResetTap_: function() {
     this.$.resetSpinner.active = true;
     chrome.send('performResetProfileSettings', [this.$.sendSettings.checked]);
-  },
-
-  /** @private */
-  onLearnMoreTap_: function() {
-    window.open(loadTimeData.getString('resetPageLearnMoreUrl'));
   },
 
   /** @private */

@@ -4,13 +4,13 @@
 
 #include "ui/events/devices/x11/touch_factory_x11.h"
 
+#include <stddef.h>
 #include <X11/Xatom.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XInput.h>
 #include <X11/extensions/XInput2.h>
 #include <X11/extensions/XIproto.h>
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
@@ -19,6 +19,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/sys_info.h"
+#include "build/build_config.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/devices/x11/device_data_manager_x11.h"
 #include "ui/events/devices/x11/device_list_cache_x11.h"
@@ -220,6 +221,10 @@ void TouchFactory::SetupXI2ForXWindow(Window window) {
   XISetMask(mask, XI_ButtonPress);
   XISetMask(mask, XI_ButtonRelease);
   XISetMask(mask, XI_Motion);
+  // HierarchyChanged and DeviceChanged allow X11EventSource to still pick up
+  // these events.
+  XISetMask(mask, XI_HierarchyChanged);
+  XISetMask(mask, XI_DeviceChanged);
 #if defined(OS_CHROMEOS)
   // XGrabKey() must be replaced with XI2 keyboard grab if XI2 key events are
   // enabled on desktop Linux.
@@ -268,18 +273,18 @@ bool TouchFactory::IsMultiTouchDevice(int deviceid) const {
              : false;
 }
 
-bool TouchFactory::QuerySlotForTrackingID(uint32 tracking_id, int* slot) {
+bool TouchFactory::QuerySlotForTrackingID(uint32_t tracking_id, int* slot) {
   if (!id_generator_.HasGeneratedIDFor(tracking_id))
     return false;
   *slot = static_cast<int>(id_generator_.GetGeneratedID(tracking_id));
   return true;
 }
 
-int TouchFactory::GetSlotForTrackingID(uint32 tracking_id) {
+int TouchFactory::GetSlotForTrackingID(uint32_t tracking_id) {
   return id_generator_.GetGeneratedID(tracking_id);
 }
 
-void TouchFactory::ReleaseSlotForTrackingID(uint32 tracking_id) {
+void TouchFactory::ReleaseSlotForTrackingID(uint32_t tracking_id) {
   id_generator_.ReleaseNumber(tracking_id);
 }
 

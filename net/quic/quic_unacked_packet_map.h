@@ -5,8 +5,11 @@
 #ifndef NET_QUIC_QUIC_UNACKED_PACKET_MAP_H_
 #define NET_QUIC_QUIC_UNACKED_PACKET_MAP_H_
 
+#include <stddef.h>
+
 #include <deque>
 
+#include "base/macros.h"
 #include "net/quic/quic_protocol.h"
 
 namespace net {
@@ -34,21 +37,28 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
                      QuicPacketNumber old_packet_number,
                      TransmissionType transmission_type,
                      QuicTime sent_time,
-                     QuicByteCount bytes_sent,
                      bool set_in_flight);
 
   // Returns true if the packet |packet_number| is unacked.
   bool IsUnacked(QuicPacketNumber packet_number) const;
 
   // Sets the nack count to the max of the current nack count and |min_nacks|.
-  void NackPacket(QuicPacketNumber packet_number, uint16 min_nacks);
+  void NackPacket(QuicPacketNumber packet_number, uint16_t min_nacks);
 
-  // Notifies all the AckListeners attached to the packet of an ack and
+  // Notifies all the AckListeners attached to the |info| and
   // clears them to ensure they're not notified again.
+  void NotifyAndClearListeners(std::list<AckListenerWrapper>* ack_listeners,
+                               QuicTime::Delta delta_largest_observed);
+
+  // Notifies all the AckListeners attached to |newest_transmission|.
   void NotifyAndClearListeners(QuicPacketNumber newest_transmission,
                                QuicTime::Delta delta_largest_observed);
 
+  // Marks |info| as no longer in flight.
+  void RemoveFromInFlight(TransmissionInfo* info);
+
   // Marks |packet_number| as no longer in flight.
+  // TODO(ianswett): Remove this test-only method.
   void RemoveFromInFlight(QuicPacketNumber packet_number);
 
   // No longer retransmit data for |stream_id|.
@@ -75,9 +85,7 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
   QuicPacketNumber largest_observed() const { return largest_observed_; }
 
   // Returns the sum of bytes from all packets in flight.
-  QuicByteCount bytes_in_flight() const {
-    return bytes_in_flight_;
-  }
+  QuicByteCount bytes_in_flight() const { return bytes_in_flight_; }
 
   // Returns the smallest packet number of a serialized packet which has not
   // been acked by the peer.  If there are no unacked packets, returns 0.
@@ -86,9 +94,12 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
   typedef std::deque<TransmissionInfo> UnackedPacketMap;
 
   typedef UnackedPacketMap::const_iterator const_iterator;
+  typedef UnackedPacketMap::iterator iterator;
 
   const_iterator begin() const { return unacked_packets_.begin(); }
   const_iterator end() const { return unacked_packets_.end(); }
+  iterator begin() { return unacked_packets_.begin(); }
+  iterator end() { return unacked_packets_.end(); }
 
   // Returns true if there are unacked packets that are in flight.
   bool HasInFlightPackets() const;
@@ -97,6 +108,10 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
   // must be unacked.
   const TransmissionInfo& GetTransmissionInfo(
       QuicPacketNumber packet_number) const;
+
+  // Returns mutable TransmissionInfo associated with |packet_number|, which
+  // must be unacked.
+  TransmissionInfo* GetMutableTransmissionInfo(QuicPacketNumber packet_number);
 
   // Returns the time that the last unacked packet was sent.
   QuicTime GetLastPacketSentTime() const;
@@ -113,6 +128,10 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
   // Removes any retransmittable frames from this transmission or an associated
   // transmission.  It removes now useless transmissions, and disconnects any
   // other packets from other transmissions.
+  void RemoveRetransmittability(TransmissionInfo* info);
+
+  // Looks up the TransmissionInfo by |packet_number| and calls
+  // RemoveRetransmittability.
   void RemoveRetransmittability(QuicPacketNumber packet_number);
 
   // Removes any other retransmissions and marks all transmissions unackable.

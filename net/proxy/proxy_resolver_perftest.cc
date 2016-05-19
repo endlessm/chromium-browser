@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/base_paths.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
@@ -226,7 +229,7 @@ class ProxyResolverV8Wrapper : public ProxyResolver {
  public:
   ProxyResolverV8Wrapper(scoped_ptr<ProxyResolverV8> resolver,
                          scoped_ptr<MockJSBindings> bindings)
-      : resolver_(resolver.Pass()), bindings_(bindings.Pass()) {}
+      : resolver_(std::move(resolver)), bindings_(std::move(bindings)) {}
 
   int GetProxyForURL(const GURL& url,
                      ProxyInfo* results,
@@ -263,8 +266,8 @@ class ProxyResolverV8Factory : public ProxyResolverFactory {
     int result =
         ProxyResolverV8::Create(pac_script, js_bindings_.get(), &v8_resolver);
     if (result == OK) {
-      resolver->reset(
-          new ProxyResolverV8Wrapper(v8_resolver.Pass(), js_bindings_.Pass()));
+      resolver->reset(new ProxyResolverV8Wrapper(std::move(v8_resolver),
+                                                 std::move(js_bindings_)));
     }
     return result;
   }

@@ -31,7 +31,7 @@
 #ifndef SVGNumber_h
 #define SVGNumber_h
 
-#include "bindings/core/v8/ExceptionMessages.h"
+#include "core/svg/SVGParsingError.h"
 #include "core/svg/properties/SVGPropertyHelper.h"
 
 namespace blink {
@@ -55,7 +55,7 @@ public:
     void setValue(float value) { m_value = value; }
 
     String valueAsString() const override;
-    virtual void setValueAsString(const String&, ExceptionState&);
+    virtual SVGParsingError setValueAsString(const String&);
 
     void add(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement*) override;
     void calculateAnimatedValue(SVGAnimationElement*, float percentage, unsigned repeatCount, PassRefPtrWillBeRawPtr<SVGPropertyBase> from, PassRefPtrWillBeRawPtr<SVGPropertyBase> to, PassRefPtrWillBeRawPtr<SVGPropertyBase> toAtEndOfDurationValue, SVGElement* contextElement) override;
@@ -67,7 +67,7 @@ protected:
     explicit SVGNumber(float);
 
     template<typename CharType>
-    bool parse(const CharType*& ptr, const CharType* end);
+    SVGParsingError parse(const CharType*& ptr, const CharType* end);
 
     float m_value;
 };
@@ -86,7 +86,7 @@ public:
     }
 
     PassRefPtrWillBeRawPtr<SVGNumber> clone() const override;
-    void setValueAsString(const String&, ExceptionState&) override;
+    SVGParsingError setValueAsString(const String&) override;
 
 private:
     explicit SVGNumberAcceptPercentage(float);

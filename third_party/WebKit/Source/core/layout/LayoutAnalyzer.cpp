@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/layout/LayoutAnalyzer.h"
 
 #include "core/frame/FrameView.h"
@@ -105,9 +104,9 @@ void LayoutAnalyzer::pop(const LayoutObject& o)
     --m_depth;
 }
 
-PassRefPtr<TracedValue> LayoutAnalyzer::toTracedValue()
+PassOwnPtr<TracedValue> LayoutAnalyzer::toTracedValue()
 {
-    RefPtr<TracedValue> tracedValue(TracedValue::create());
+    OwnPtr<TracedValue> tracedValue(TracedValue::create());
     for (size_t i = 0; i < NumCounters; ++i) {
         if (m_counters[i] > 0)
             tracedValue->setInteger(nameForCounter(static_cast<Counter>(i)), m_counters[i]);

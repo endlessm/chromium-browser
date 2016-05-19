@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/serializers/MarkupFormatter.h"
 
 #include "core/HTMLNames.h"
@@ -78,6 +77,9 @@ void MarkupFormatter::appendCharactersReplacingEntities(StringBuilder& result, c
     DEFINE_STATIC_LOCAL(const CString, gtReference, ("&gt;"));
     DEFINE_STATIC_LOCAL(const CString, quotReference, ("&quot;"));
     DEFINE_STATIC_LOCAL(const CString, nbspReference, ("&nbsp;"));
+    DEFINE_STATIC_LOCAL(const CString, tabReference, ("&#9;"));
+    DEFINE_STATIC_LOCAL(const CString, lineFeedReference, ("&#10;"));
+    DEFINE_STATIC_LOCAL(const CString, carriageReturnReference, ("&#13;"));
 
     static const EntityDescription entityMaps[] = {
         { '&', ampReference, EntityAmp },
@@ -85,6 +87,9 @@ void MarkupFormatter::appendCharactersReplacingEntities(StringBuilder& result, c
         { '>', gtReference, EntityGt },
         { '"', quotReference, EntityQuot },
         { noBreakSpaceCharacter, nbspReference, EntityNbsp },
+        { '\t', tabReference, EntityTab },
+        { '\n', lineFeedReference, EntityLineFeed },
+        { '\r', carriageReturnReference, EntityCarriageReturn },
     };
 
     if (!(offset + length))
@@ -126,7 +131,7 @@ String MarkupFormatter::resolveURLIfNeeded(const Element& element, const String&
 
 void MarkupFormatter::appendStartMarkup(StringBuilder& result, const Node& node, Namespaces* namespaces)
 {
-    switch (node.nodeType()) {
+    switch (node.getNodeType()) {
     case Node::TEXT_NODE:
         ASSERT_NOT_REACHED();
         break;
@@ -466,4 +471,4 @@ bool MarkupFormatter::serializeAsHTMLDocument(const Node& node) const
     return node.document().isHTMLDocument();
 }
 
-}
+} // namespace blink

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/IconURL.h"
 
 namespace blink {
@@ -58,5 +57,4 @@ bool operator==(const IconURL& lhs, const IconURL& rhs)
         && lhs.m_mimeType == rhs.m_mimeType;
 }
 
-}
-
+} // namespace blink

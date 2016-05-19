@@ -24,13 +24,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/serializers/MarkupAccumulator.h"
 
 #include "core/HTMLNames.h"
 #include "core/XLinkNames.h"
 #include "core/XMLNSNames.h"
 #include "core/XMLNames.h"
+#include "core/dom/Attr.h"
 #include "core/dom/CDATASection.h"
 #include "core/dom/Comment.h"
 #include "core/dom/Document.h"
@@ -73,12 +73,17 @@ void MarkupAccumulator::appendEndTag(const Element& element)
 
 void MarkupAccumulator::appendStartMarkup(StringBuilder& result, Node& node, Namespaces* namespaces)
 {
-    switch (node.nodeType()) {
+    switch (node.getNodeType()) {
     case Node::TEXT_NODE:
         appendText(result, toText(node));
         break;
     case Node::ELEMENT_NODE:
         appendElement(result, toElement(node), namespaces);
+        break;
+    case Node::ATTRIBUTE_NODE:
+        // Only XMLSerializer can pass an Attr.  So, |documentIsHTML| flag is
+        // false.
+        m_formatter.appendAttributeValue(result, toAttr(node).value(), false);
         break;
     default:
         m_formatter.appendStartMarkup(result, node, namespaces);
@@ -195,4 +200,4 @@ String serializeNodes(MarkupAccumulator& accumulator, Node& targetNode, EChildre
 
 template String serializeNodes<EditingStrategy>(MarkupAccumulator&, Node&, EChildrenOnly);
 
-}
+} // namespace blink

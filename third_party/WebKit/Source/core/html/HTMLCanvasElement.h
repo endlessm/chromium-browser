@@ -34,9 +34,11 @@
 #include "core/dom/DOMTypedArray.h"
 #include "core/dom/Document.h"
 #include "core/dom/DocumentVisibilityObserver.h"
-#include "core/fileapi/FileCallback.h"
+#include "core/fileapi/BlobCallback.h"
 #include "core/html/HTMLElement.h"
+#include "core/html/canvas/CanvasDrawListener.h"
 #include "core/html/canvas/CanvasImageSource.h"
+#include "core/imagebitmap/ImageBitmapSource.h"
 #include "platform/geometry/FloatRect.h"
 #include "platform/geometry/IntSize.h"
 #include "platform/graphics/GraphicsTypes.h"
@@ -55,12 +57,13 @@ class CanvasRenderingContextFactory;
 class GraphicsContext;
 class HTMLCanvasElement;
 class Image;
+class ImageBitmapOptions;
 class ImageBuffer;
 class ImageBufferSurface;
 class ImageData;
 class IntSize;
 
-class CORE_EXPORT HTMLCanvasElement final : public HTMLElement, public DocumentVisibilityObserver, public CanvasImageSource, public ImageBufferClient {
+class CORE_EXPORT HTMLCanvasElement final : public HTMLElement, public DocumentVisibilityObserver, public CanvasImageSource, public ImageBufferClient, public ImageBitmapSource {
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLCanvasElement);
 public:
@@ -98,16 +101,20 @@ public:
     String toDataURL(const String& mimeType, const ScriptValue& qualityArgument, ExceptionState&) const;
     String toDataURL(const String& mimeType, ExceptionState& exceptionState) const { return toDataURL(mimeType, ScriptValue(), exceptionState); }
 
-    void toBlob(FileCallback*, const String& mimeType, const ScriptValue& qualityArgument, ExceptionState&);
-    void toBlob(FileCallback* callback, const String& mimeType, ExceptionState& exceptionState) { return toBlob(callback, mimeType, ScriptValue(), exceptionState); }
+    void toBlob(BlobCallback*, const String& mimeType, const ScriptValue& qualityArgument, ExceptionState&);
+    void toBlob(BlobCallback* callback, const String& mimeType, ExceptionState& exceptionState) { return toBlob(callback, mimeType, ScriptValue(), exceptionState); }
+
+    // Used for canvas capture.
+    void addListener(CanvasDrawListener*);
+    void removeListener(CanvasDrawListener*);
 
     // Used for rendering
     void didDraw(const FloatRect&);
 
-    void paint(GraphicsContext*, const LayoutRect&);
+    void paint(GraphicsContext&, const LayoutRect&);
 
     SkCanvas* drawingCanvas() const;
-    void disableDeferral() const;
+    void disableDeferral(DisableDeferralReason) const;
     SkCanvas* existingDrawingCanvas() const;
 
     void setRenderingContext(PassOwnPtrWillBeRawPtr<CanvasRenderingContext>);
@@ -142,9 +149,10 @@ public:
 
     // DocumentVisibilityObserver implementation
     void didChangeVisibilityState(PageVisibilityState) override;
+    void willDetachDocument() override;
 
     // CanvasImageSource implementation
-    PassRefPtr<Image> getSourceImageForCanvas(SourceImageStatus*, AccelerationHint) const override;
+    PassRefPtr<Image> getSourceImageForCanvas(SourceImageStatus*, AccelerationHint, SnapshotReason) const override;
     bool wouldTaintOrigin(SecurityOrigin*) const override;
     FloatSize elementSize() const override;
     bool isCanvasElement() const override { return true; }
@@ -158,6 +166,10 @@ public:
 
     void doDeferredPaintInvalidation();
 
+    // ImageBitmapSource implementation
+    IntSize bitmapSourceSize() const override;
+    ScriptPromise createImageBitmap(ScriptState*, EventTarget&, int sx, int sy, int sw, int sh, const ImageBitmapOptions&, ExceptionState&) override;
+
     DECLARE_VIRTUAL_TRACE();
 
     void createImageBufferUsingSurfaceForTesting(PassOwnPtr<ImageBufferSurface>);
@@ -166,6 +178,10 @@ public:
     void updateExternallyAllocatedMemory() const;
 
     void styleDidChange(const ComputedStyle* oldStyle, const ComputedStyle& newStyle);
+
+    void notifyListenersCanvasChanged();
+
+    bool isSupportedInteractiveCanvasFallback(const Element&);
 
 protected:
     void didMoveToNewDocument(Document& oldDocument) override;
@@ -177,9 +193,8 @@ private:
     static ContextFactoryVector& renderingContextFactories();
     static CanvasRenderingContextFactory* getRenderingContextFactory(int);
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     LayoutObject* createLayoutObject(const ComputedStyle&) override;
-    void didRecalcStyle(StyleRecalcChange) override;
     bool areAuthorShadowsAllowed() const override { return false; }
 
     void reset();
@@ -193,8 +208,11 @@ private:
 
     bool paintsIntoCanvasBuffer() const;
 
-    ImageData* toImageData(SourceDrawingBuffer) const;
+    ImageData* toImageData(SourceDrawingBuffer, SnapshotReason) const;
+
     String toDataURLInternal(const String& mimeType, const double& quality, SourceDrawingBuffer) const;
+
+    PersistentHeapHashSetWillBeHeapHashSet<WeakMember<CanvasDrawListener>> m_listeners;
 
     IntSize m_size;
 

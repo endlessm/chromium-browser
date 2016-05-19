@@ -75,7 +75,7 @@ class CSSSelectorList;
 // in case of selectors like [attr="value"].
 //
 class CORE_EXPORT CSSSelector {
-    USING_FAST_MALLOC(CSSSelector);
+    USING_FAST_MALLOC_WITH_TYPE_NAME(blink::CSSSelector);
 public:
     CSSSelector();
     CSSSelector(const CSSSelector&);
@@ -92,7 +92,7 @@ public:
     unsigned specificity() const;
 
     /* how the attribute value has to match.... Default is Exact */
-    enum Match {
+    enum MatchType {
         Unknown,
         Tag, // Example: div
         Id, // Example: #id
@@ -110,14 +110,15 @@ public:
         FirstAttributeSelectorMatch = AttributeExact,
     };
 
-    enum Relation {
+    enum RelationType {
         SubSelector, // No combinator
         Descendant, // "Space" combinator
         Child, // > combinator
         DirectAdjacent, // + combinator
         IndirectAdjacent, // ~ combinator
         ShadowPseudo, // Special case of shadow DOM pseudo elements / shadow pseudo element
-        ShadowDeep // /deep/ combinator
+        ShadowDeep, // /deep/ combinator
+        ShadowSlot // slotted to <slot> element
     };
 
     enum PseudoType {
@@ -201,7 +202,8 @@ public:
         PseudoHostContext,
         PseudoShadow,
         PseudoSpatialNavigationFocus,
-        PseudoListBox
+        PseudoListBox,
+        PseudoSlotted
     };
 
     enum AttributeMatchType {
@@ -209,7 +211,7 @@ public:
         CaseInsensitive,
     };
 
-    PseudoType pseudoType() const { return static_cast<PseudoType>(m_pseudoType); }
+    PseudoType getPseudoType() const { return static_cast<PseudoType>(m_pseudoType); }
     void updatePseudoType(const AtomicString&, bool hasArguments);
 
     static PseudoType parsePseudoType(const AtomicString&, bool hasArguments);
@@ -221,6 +223,7 @@ public:
 
     const QualifiedName& tagQName() const;
     const AtomicString& value() const;
+    const AtomicString& serializingValue() const;
 
     // WARNING: Use of QualifiedName by attribute() is a lie.
     // attribute() will return a QualifiedName with prefix and namespaceURI
@@ -228,7 +231,7 @@ public:
     // how you use the returned QualifiedName.
     // http://www.w3.org/TR/css3-selectors/#attrnmsp
     const QualifiedName& attribute() const;
-    AttributeMatchType attributeMatchType() const;
+    AttributeMatchType attributeMatch() const;
     // Returns the argument of a parameterized selector. For example, :lang(en-US) would have an argument of en-US.
     // Note that :nth-* selectors don't store an argument and just store the numbers.
     const AtomicString& argument() const { return m_hasRareData ? m_data.m_rareData->m_argument : nullAtom; }
@@ -239,7 +242,8 @@ public:
     void show(int indent) const;
 #endif
 
-    void setValue(const AtomicString&);
+    bool isASCIILower(const AtomicString& value);
+    void setValue(const AtomicString&, bool matchLowerCase);
     void setAttribute(const QualifiedName&, AttributeMatchType);
     void setArgument(const AtomicString&);
     void setSelectorList(PassOwnPtr<CSSSelectorList>);
@@ -249,23 +253,22 @@ public:
 
     bool isAdjacentSelector() const { return m_relation == DirectAdjacent || m_relation == IndirectAdjacent; }
     bool isShadowSelector() const { return m_relation == ShadowPseudo || m_relation == ShadowDeep; }
-    bool isSiblingSelector() const;
     bool isAttributeSelector() const { return m_match >= FirstAttributeSelectorMatch; }
     bool isHostPseudoClass() const { return m_pseudoType == PseudoHost || m_pseudoType == PseudoHostContext; }
     bool isInsertionPointCrossing() const { return m_pseudoType == PseudoHostContext || m_pseudoType == PseudoContent; }
 
-    Relation relation() const { return static_cast<Relation>(m_relation); }
-    void setRelation(Relation relation)
+    RelationType relation() const { return static_cast<RelationType>(m_relation); }
+    void setRelation(RelationType relation)
     {
         m_relation = relation;
-        ASSERT(static_cast<Relation>(m_relation) == relation); // using a bitfield.
+        ASSERT(static_cast<RelationType>(m_relation) == relation); // using a bitfield.
     }
 
-    Match match() const { return static_cast<Match>(m_match); }
-    void setMatch(Match match)
+    MatchType match() const { return static_cast<MatchType>(m_match); }
+    void setMatch(MatchType match)
     {
         m_match = match;
-        ASSERT(static_cast<Match>(m_match) == match); // using a bitfield.
+        ASSERT(static_cast<MatchType>(m_match) == match); // using a bitfield.
     }
 
     bool isLastInSelectorList() const { return m_isLastInSelectorList; }
@@ -285,16 +288,18 @@ public:
     bool relationIsAffectedByPseudoContent() const { return m_relationIsAffectedByPseudoContent; }
     void setRelationIsAffectedByPseudoContent() { m_relationIsAffectedByPseudoContent = true; }
 
+    bool matchesPseudoElement() const;
+
 private:
-    unsigned m_relation               : 3; // enum Relation
-    unsigned m_match                  : 4; // enum Match
+    unsigned m_relation               : 3; // enum RelationType
+    unsigned m_match                  : 4; // enum MatchType
     unsigned m_pseudoType             : 8; // enum PseudoType
     unsigned m_isLastInSelectorList   : 1;
     unsigned m_isLastInTagHistory     : 1;
     unsigned m_hasRareData            : 1;
     unsigned m_isForPage              : 1;
     unsigned m_tagIsImplicit          : 1;
-    unsigned m_relationIsAffectedByPseudoContent  : 1;
+    unsigned m_relationIsAffectedByPseudoContent : 1;
 
     void setPseudoType(PseudoType pseudoType)
     {
@@ -316,13 +321,14 @@ private:
         int nthAValue() const { return m_bits.m_nth.m_a; }
         int nthBValue() const { return m_bits.m_nth.m_b; }
 
-        AtomicString m_value;
+        AtomicString m_matchingValue;
+        AtomicString m_serializingValue;
         union {
             struct {
                 int m_a; // Used for :nth-*
                 int m_b; // Used for :nth-*
             } m_nth;
-            AttributeMatchType m_attributeMatchType; // used for attribute selector (with value)
+            AttributeMatchType m_attributeMatch; // used for attribute selector (with value)
         } m_bits;
         QualifiedName m_attribute; // used for attribute selector
         AtomicString m_argument; // Used for :contains, :lang, :nth-*
@@ -351,43 +357,38 @@ inline const QualifiedName& CSSSelector::attribute() const
     return m_data.m_rareData->m_attribute;
 }
 
-inline CSSSelector::AttributeMatchType CSSSelector::attributeMatchType() const
+inline CSSSelector::AttributeMatchType CSSSelector::attributeMatch() const
 {
     ASSERT(isAttributeSelector());
     ASSERT(m_hasRareData);
-    return m_data.m_rareData->m_bits.m_attributeMatchType;
+    return m_data.m_rareData->m_bits.m_attributeMatch;
 }
 
-inline bool CSSSelector::isSiblingSelector() const
+inline bool CSSSelector::isASCIILower(const AtomicString& value)
 {
-    PseudoType type = pseudoType();
-    return m_relation == DirectAdjacent
-        || m_relation == IndirectAdjacent
-        || type == PseudoEmpty
-        || type == PseudoFirstChild
-        || type == PseudoFirstOfType
-        || type == PseudoLastChild
-        || type == PseudoLastOfType
-        || type == PseudoOnlyChild
-        || type == PseudoOnlyOfType
-        || type == PseudoNthChild
-        || type == PseudoNthOfType
-        || type == PseudoNthLastChild
-        || type == PseudoNthLastOfType;
+    for (size_t i = 0; i < value.length(); ++i) {
+        if (isASCIIUpper(value[i]))
+            return false;
+    }
+    return true;
 }
 
-inline void CSSSelector::setValue(const AtomicString& value)
+inline void CSSSelector::setValue(const AtomicString& value, bool matchLowerCase = false)
 {
     ASSERT(m_match != Tag);
+    if (matchLowerCase && !m_hasRareData && !isASCIILower(value)) {
+        createRareData();
+    }
     // Need to do ref counting manually for the union.
-    if (m_hasRareData) {
-        m_data.m_rareData->m_value = value;
+    if (!m_hasRareData) {
+        if (m_data.m_value)
+            m_data.m_value->deref();
+        m_data.m_value = value.impl();
+        m_data.m_value->ref();
         return;
     }
-    if (m_data.m_value)
-        m_data.m_value->deref();
-    m_data.m_value = value.impl();
-    m_data.m_value->ref();
+    m_data.m_rareData->m_matchingValue = matchLowerCase ? value.lowerASCII() : value;
+    m_data.m_rareData->m_serializingValue = value;
 }
 
 inline CSSSelector::CSSSelector()
@@ -461,7 +462,17 @@ inline const AtomicString& CSSSelector::value() const
 {
     ASSERT(m_match != Tag);
     if (m_hasRareData)
-        return m_data.m_rareData->m_value;
+        return m_data.m_rareData->m_matchingValue;
+    // AtomicString is really just a StringImpl* so the cast below is safe.
+    // FIXME: Perhaps call sites could be changed to accept StringImpl?
+    return *reinterpret_cast<const AtomicString*>(&m_data.m_value);
+}
+
+inline const AtomicString& CSSSelector::serializingValue() const
+{
+    ASSERT(m_match != Tag);
+    if (m_hasRareData)
+        return m_data.m_rareData->m_serializingValue;
     // AtomicString is really just a StringImpl* so the cast below is safe.
     // FIXME: Perhaps call sites could be changed to accept StringImpl?
     return *reinterpret_cast<const AtomicString*>(&m_data.m_value);

@@ -5,9 +5,11 @@
 #ifndef CHROME_BROWSER_DEVTOOLS_REMOTE_DEBUGGING_SERVER_H_
 #define CHROME_BROWSER_DEVTOOLS_REMOTE_DEBUGGING_SERVER_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/host_desktop.h"
 
@@ -19,9 +21,7 @@ class RemoteDebuggingServer {
  public:
   static void EnableTetheringForDebug();
 
-  RemoteDebuggingServer(chrome::HostDesktopType host_desktop_type,
-                        const std::string& ip,
-                        uint16 port);
+  RemoteDebuggingServer(const std::string& ip, uint16_t port);
 
   virtual ~RemoteDebuggingServer();
 

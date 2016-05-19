@@ -12,6 +12,8 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.os.Binder;
+import android.os.StrictMode;
+import android.os.SystemClock;
 import android.text.TextUtils;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -24,6 +26,7 @@ import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.ChromeApplication;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -34,7 +37,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ExternalAuthUtils {
     public static final int FLAG_SHOULD_BE_GOOGLE_SIGNED = 1 << 0;
     public static final int FLAG_SHOULD_BE_SYSTEM = 1 << 1;
-    private static final String TAG = "cr.ExternalAuthUtils";
+    private static final String TAG = "ExternalAuthUtils";
     private static final String CONNECTION_RESULT_HISTOGRAM_NAME =
             "GooglePlayServices.ConnectionResult";
 
@@ -231,6 +234,21 @@ public class ExternalAuthUtils {
     }
 
     /**
+     * Records the time it took to check for Google Play Services if native is loaded.
+     * @param time The time it took to read state.
+     */
+    private void recordGooglePlayServicesRegistrationTime(long time) {
+        try {
+            RecordHistogram.recordTimesHistogram("Android.StrictMode.CheckGooglePlayServicesTime",
+                    time, TimeUnit.MILLISECONDS);
+        } catch (UnsatisfiedLinkError error) {
+            // Usually native is loaded when this check is called, but it is not guaranteed. Since
+            // most of the data is better than none of the data and we don't want this to crash in
+            // the case of native not being loaded, intentionally catch and ignore the linker error.
+        }
+    }
+
+    /**
      * Invokes whatever external code is necessary to check if Google Play Services is available
      * and returns the code produced by the attempt. Subclasses can override to force the behavior
      * one way or another, or to change the way that the check is performed.
@@ -238,7 +256,18 @@ public class ExternalAuthUtils {
      * @return The code produced by calling the external code
      */
     protected int checkGooglePlayServicesAvailable(final Context context) {
-        return GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context);
+        // Temporarily allowing disk access. TODO: Fix. See http://crbug.com/577190
+        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+        StrictMode.allowThreadDiskWrites();
+        try {
+            long time = SystemClock.elapsedRealtime();
+            int isAvailable =
+                    GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context);
+            recordGooglePlayServicesRegistrationTime(SystemClock.elapsedRealtime() - time);
+            return isAvailable;
+        } finally {
+            StrictMode.setThreadPolicy(oldPolicy);
+        }
     }
 
     /**

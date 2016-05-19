@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "gpu/command_buffer/common/sync_token.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/gpu_service_test.h"
@@ -19,7 +20,8 @@ namespace gles2 {
 using namespace ::testing;
 
 static const SyncToken g_sync_token(gpu::CommandBufferNamespace::GPU_IO,
-                                    123,
+                                    0,
+                                    gpu::CommandBufferId::FromUnsafeValue(123),
                                     0);
 
 class MailboxManagerTest : public GpuServiceTest {
@@ -49,7 +51,7 @@ class MailboxManagerTest : public GpuServiceTest {
   }
 
   void SetTarget(Texture* texture, GLenum target, GLuint max_level) {
-    texture->SetTarget(NULL, target, max_level);
+    texture->SetTarget(target, max_level);
   }
 
   void SetLevelInfo(Texture* texture,
@@ -63,8 +65,8 @@ class MailboxManagerTest : public GpuServiceTest {
                     GLenum format,
                     GLenum type,
                     const gfx::Rect& cleared_rect) {
-    texture->SetLevelInfo(NULL, target, level, internal_format, width, height,
-                          depth, border, format, type, cleared_rect);
+    texture->SetLevelInfo(target, level, internal_format, width, height, depth,
+                          border, format, type, cleared_rect);
   }
 
   void SetLevelCleared(Texture* texture,

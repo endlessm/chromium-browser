@@ -8,6 +8,7 @@
 #define CORE_SRC_FPDFAPI_FPDF_FONT_FONT_INT_H_
 
 #include <map>
+#include <memory>
 
 #include "core/include/fpdfapi/fpdf_resource.h"
 #include "core/include/fxcrt/fx_basic.h"
@@ -39,14 +40,31 @@ class CPDF_CMapManager {
   std::map<CFX_ByteString, CPDF_CMap*> m_CMaps;
   CPDF_CID2UnicodeMap* m_CID2UnicodeMaps[6];
 };
+
+class CFX_StockFontArray {
+ public:
+  CFX_StockFontArray();
+  ~CFX_StockFontArray();
+
+  // Takes ownership of |pFont|.
+  void SetFont(int index, CPDF_Font* pFont);
+  CPDF_Font* GetFont(int index) const;
+
+ private:
+  std::unique_ptr<CPDF_Font> m_StockFonts[14];
+};
+
 class CPDF_FontGlobals {
  public:
   CPDF_FontGlobals();
   ~CPDF_FontGlobals();
-  void ClearAll();
-  void Clear(void* key);
-  CPDF_Font* Find(void* key, int index);
-  void Set(void* key, int index, CPDF_Font* pFont);
+
+  void Clear(CPDF_Document* pDoc);
+  CPDF_Font* Find(CPDF_Document* pDoc, int index);
+
+  // Takes ownership of |pFont|.
+  void Set(CPDF_Document* key, int index, CPDF_Font* pFont);
+
   CPDF_CMapManager m_CMapManager;
   struct {
     const struct FXCMAP_CMap* m_pMapList;
@@ -58,8 +76,7 @@ class CPDF_FontGlobals {
   } m_EmbeddedToUnicodes[CIDSET_NUM_SETS];
 
  private:
-  CFX_MapPtrToPtr m_pStockMap;
-  uint8_t* m_pContrastRamps;
+  std::map<CPDF_Document*, std::unique_ptr<CFX_StockFontArray>> m_StockMap;
 };
 
 struct CMap_CodeRange {
@@ -145,18 +162,6 @@ class CPDF_CMap {
   CPDF_CMap* m_pUseMap;
 };
 
-typedef struct _FileHeader {
-  uint8_t btTag[4];
-  uint8_t btVersion;
-  uint8_t btFormat;
-  uint8_t btReserved1[2];
-  FX_DWORD dwStartIndex;
-  FX_DWORD dwEndIndex;
-  FX_DWORD dwDataSize;
-  FX_DWORD dwDataOffset;
-  FX_DWORD dwRecordSize;
-} FXMP_FILEHEADER;
-
 class CPDF_CID2UnicodeMap {
  public:
   CPDF_CID2UnicodeMap();
@@ -189,11 +194,6 @@ class CPDF_ToUnicodeMap {
 
   static FX_DWORD StringToCode(const CFX_ByteStringC& str);
   static CFX_WideString StringToWideString(const CFX_ByteStringC& str);
-};
-class CPDF_FontCharMap : public CFX_CharMap {
- public:
-  CPDF_FontCharMap(CPDF_Font* pFont);
-  CPDF_Font* m_pFont;
 };
 
 void FPDFAPI_LoadCID2UnicodeMap(CIDSet charset,

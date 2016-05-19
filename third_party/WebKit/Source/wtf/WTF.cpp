@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "WTF.h"
+#include "wtf/WTF.h"
 
 #include "wtf/ArrayBufferContents.h"
 #include "wtf/Assertions.h"
@@ -42,17 +41,13 @@ extern void initializeThreading();
 bool s_initialized;
 bool s_shutdown;
 
-void initialize(TimeFunction currentTimeFunction, TimeFunction monotonicallyIncreasingTimeFunction, TimeFunction systemTraceTimeFunction, HistogramEnumerationFunction histogramEnumerationFunction, AdjustAmountOfExternalAllocatedMemoryFunction adjustAmountOfExternalAllocatedMemoryFunction)
+void initialize(AdjustAmountOfExternalAllocatedMemoryFunction adjustAmountOfExternalAllocatedMemoryFunction)
 {
     // WTF, and Blink in general, cannot handle being re-initialized, even if shutdown first.
     // Make that explicit here.
     RELEASE_ASSERT(!s_initialized);
     RELEASE_ASSERT(!s_shutdown);
     s_initialized = true;
-    setCurrentTimeFunction(currentTimeFunction);
-    setMonotonicallyIncreasingTimeFunction(monotonicallyIncreasingTimeFunction);
-    setSystemTraceTimeFunction(systemTraceTimeFunction);
-    Partitions::initialize(histogramEnumerationFunction);
     ArrayBufferContents::setAdjustAmoutOfExternalAllocatedMemoryFunction(adjustAmountOfExternalAllocatedMemoryFunction);
     initializeThreading();
 }
@@ -62,7 +57,6 @@ void shutdown()
     RELEASE_ASSERT(s_initialized);
     RELEASE_ASSERT(!s_shutdown);
     s_shutdown = true;
-    Partitions::shutdown();
 }
 
 bool isShutdown()

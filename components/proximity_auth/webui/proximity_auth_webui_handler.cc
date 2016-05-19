@@ -5,17 +5,18 @@
 #include "components/proximity_auth/webui/proximity_auth_webui_handler.h"
 
 #include <algorithm>
+#include <utility>
 
+#include "base/base64url.h"
 #include "base/bind.h"
 #include "base/i18n/time_formatting.h"
-#include "base/prefs/pref_service.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
 #include "base/values.h"
+#include "components/prefs/pref_service.h"
 #include "components/proximity_auth/ble/pref_names.h"
 #include "components/proximity_auth/bluetooth_connection_finder.h"
-#include "components/proximity_auth/cryptauth/base64url.h"
 #include "components/proximity_auth/cryptauth/cryptauth_enrollment_manager.h"
 #include "components/proximity_auth/cryptauth/proto/cryptauth_api.pb.h"
 #include "components/proximity_auth/cryptauth/secure_message_delegate.h"
@@ -61,7 +62,7 @@ scoped_ptr<base::DictionaryValue> LogMessageToDictionary(
   dictionary->SetInteger(kLogMessageLineKey, log_message.line);
   dictionary->SetInteger(kLogMessageSeverityKey,
                          static_cast<int>(log_message.severity));
-  return dictionary.Pass();
+  return dictionary;
 }
 
 // Keys in the JSON representation of an ExternalDeviceInfo proto.
@@ -249,7 +250,9 @@ void ProximityAuthWebUIHandler::ToggleUnlockKey(const base::ListValue* args) {
   bool make_unlock_key;
   if (args->GetSize() != 2 || !args->GetString(0, &public_key_b64) ||
       !args->GetBoolean(1, &make_unlock_key) ||
-      !Base64UrlDecode(public_key_b64, &public_key)) {
+      !base::Base64UrlDecode(public_key_b64,
+                             base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+                             &public_key)) {
     PA_LOG(ERROR) << "Invalid arguments to toggleUnlockKey";
     return;
   }
@@ -327,7 +330,9 @@ void ProximityAuthWebUIHandler::ToggleConnection(const base::ListValue* args) {
   std::string public_key;
   if (!enrollment_manager || !device_manager || !args->GetSize() ||
       !args->GetString(0, &b64_public_key) ||
-      !Base64UrlDecode(b64_public_key, &public_key)) {
+      !base::Base64UrlDecode(b64_public_key,
+                             base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+                             &public_key)) {
     return;
   }
 
@@ -474,7 +479,9 @@ scoped_ptr<base::DictionaryValue>
 ProximityAuthWebUIHandler::ExternalDeviceInfoToDictionary(
     const cryptauth::ExternalDeviceInfo& device_info) {
   std::string base64_public_key;
-  Base64UrlEncode(device_info.public_key(), &base64_public_key);
+  base::Base64UrlEncode(device_info.public_key(),
+                        base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                        &base64_public_key);
 
   // Set the fields in the ExternalDeviceInfo proto.
   scoped_ptr<base::DictionaryValue> dictionary(new base::DictionaryValue());
@@ -529,7 +536,7 @@ ProximityAuthWebUIHandler::ExternalDeviceInfoToDictionary(
         last_remote_status_update_->secure_screen_lock_state);
     status_dictionary->SetInteger(
         "trustAgent", last_remote_status_update_->trust_agent_state);
-    dictionary->Set(kExternalDeviceRemoteState, status_dictionary.Pass());
+    dictionary->Set(kExternalDeviceRemoteState, std::move(status_dictionary));
   }
 
   return dictionary;
@@ -546,7 +553,7 @@ ProximityAuthWebUIHandler::IneligibleDeviceToDictionary(
   scoped_ptr<base::DictionaryValue> device_dictionary =
       ExternalDeviceInfoToDictionary(ineligible_device.device());
   device_dictionary->Set(kIneligibleDeviceReasons,
-                         ineligibility_reasons.Pass());
+                         std::move(ineligibility_reasons));
   return device_dictionary;
 }
 

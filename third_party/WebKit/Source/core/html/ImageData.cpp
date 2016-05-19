@@ -26,12 +26,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/ImageData.h"
 
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/V8Uint8ClampedArray.h"
 #include "core/dom/ExceptionCode.h"
+#include "core/frame/ImageBitmap.h"
+#include "core/imagebitmap/ImageBitmapOptions.h"
 #include "platform/RuntimeEnabledFeatures.h"
 
 namespace blink {
@@ -146,6 +147,19 @@ ImageData* ImageData::create(DOMUint8ClampedArray* data, unsigned width, unsigne
     return new ImageData(IntSize(width, height), data);
 }
 
+ScriptPromise ImageData::createImageBitmap(ScriptState* scriptState, EventTarget& eventTarget, int sx, int sy, int sw, int sh, const ImageBitmapOptions& options, ExceptionState& exceptionState)
+{
+    if (!sw || !sh) {
+        exceptionState.throwDOMException(IndexSizeError, String::format("The source %s provided is 0.", sw ? "height" : "width"));
+        return ScriptPromise();
+    }
+    if (data()->bufferBase()->isNeutered()) {
+        exceptionState.throwDOMException(InvalidStateError, "The source data has been neutered.");
+        return ScriptPromise();
+    }
+    return ImageBitmapSource::fulfillImageBitmap(scriptState, ImageBitmap::create(this, IntRect(sx, sy, sw, sh), options));
+}
+
 v8::Local<v8::Object> ImageData::associateWithWrapper(v8::Isolate* isolate, const WrapperTypeInfo* wrapperType, v8::Local<v8::Object> wrapper)
 {
     wrapper = ScriptWrappable::associateWithWrapper(isolate, wrapperType, wrapper);
@@ -165,6 +179,7 @@ ImageData::ImageData(const IntSize& size, PassRefPtr<DOMUint8ClampedArray> byteA
     : m_size(size)
     , m_data(byteArray)
 {
+    ASSERT(size.width() >= 0 && size.height() >= 0);
     ASSERT_WITH_SECURITY_IMPLICATION(static_cast<unsigned>(size.width() * size.height() * 4) <= m_data->length());
 }
 

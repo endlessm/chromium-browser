@@ -29,14 +29,22 @@ const uint8_t kTestP256Key[] = {
 static_assert(sizeof(kTestP256Key) == 65,
               "The fake public key must be a valid P-256 uncompressed point.");
 
+// 92-bit (12 byte) authentication key associated with a subscription.
+const uint8_t kAuthentication[] = {
+  0xA5, 0xD9, 0x3C, 0x43, 0x0C, 0x00, 0xA9, 0xE3, 0x1E, 0x65, 0xBF, 0xA1
+};
+
+static_assert(sizeof(kAuthentication) == 12,
+              "The fake authentication key must be at least 12 bytes in size.");
+
 blink::WebPushPermissionStatus ToWebPushPermissionStatus(
     PermissionStatus status) {
   switch (status) {
-    case PERMISSION_STATUS_GRANTED:
+    case PermissionStatus::GRANTED:
       return blink::WebPushPermissionStatusGranted;
-    case PERMISSION_STATUS_DENIED:
+    case PermissionStatus::DENIED:
       return blink::WebPushPermissionStatusDenied;
-    case PERMISSION_STATUS_ASK:
+    case PermissionStatus::ASK:
       return blink::WebPushPermissionStatusPrompt;
   }
 
@@ -58,7 +66,7 @@ GURL LayoutTestPushMessagingService::GetPushEndpoint() {
 
 void LayoutTestPushMessagingService::SubscribeFromDocument(
     const GURL& requesting_origin,
-    int64 service_worker_registration_id,
+    int64_t service_worker_registration_id,
     const std::string& sender_id,
     int renderer_id,
     int render_frame_id,
@@ -70,44 +78,45 @@ void LayoutTestPushMessagingService::SubscribeFromDocument(
 
 void LayoutTestPushMessagingService::SubscribeFromWorker(
     const GURL& requesting_origin,
-    int64 service_worker_registration_id,
+    int64_t service_worker_registration_id,
     const std::string& sender_id,
     bool user_visible,
     const PushMessagingService::RegisterCallback& callback) {
-  if (GetPermissionStatus(requesting_origin, requesting_origin, user_visible) ==
+  if (GetPermissionStatus(requesting_origin, user_visible) ==
       blink::WebPushPermissionStatusGranted) {
     std::vector<uint8_t> p256dh(
         kTestP256Key, kTestP256Key + arraysize(kTestP256Key));
+    std::vector<uint8_t> auth(
+        kAuthentication, kAuthentication + arraysize(kAuthentication));
 
-    callback.Run("layoutTestRegistrationId", p256dh,
+    callback.Run("layoutTestRegistrationId", p256dh, auth,
                  PUSH_REGISTRATION_STATUS_SUCCESS_FROM_PUSH_SERVICE);
   } else {
-    callback.Run("registration_id", std::vector<uint8_t>(),
+    callback.Run("registration_id", std::vector<uint8_t>() /* p256dh */,
+                 std::vector<uint8_t>() /* auth */,
                  PUSH_REGISTRATION_STATUS_PERMISSION_DENIED);
   }
 }
 
-void LayoutTestPushMessagingService::GetPublicEncryptionKey(
+void LayoutTestPushMessagingService::GetEncryptionInfo(
     const GURL& origin,
     int64_t service_worker_registration_id,
-    const PublicKeyCallback& callback) {
+    const EncryptionInfoCallback& callback) {
   std::vector<uint8_t> p256dh(
         kTestP256Key, kTestP256Key + arraysize(kTestP256Key));
+  std::vector<uint8_t> auth(
+        kAuthentication, kAuthentication + arraysize(kAuthentication));
 
-  callback.Run(true /* success */, p256dh);
+  callback.Run(true /* success */, p256dh, auth);
 }
 
 blink::WebPushPermissionStatus
-LayoutTestPushMessagingService::GetPermissionStatus(
-    const GURL& requesting_origin,
-    const GURL& embedding_origin,
-    bool user_visible) {
+LayoutTestPushMessagingService::GetPermissionStatus(const GURL& origin,
+                                                    bool user_visible) {
   return ToWebPushPermissionStatus(LayoutTestContentBrowserClient::Get()
-      ->GetLayoutTestBrowserContext()
-      ->GetLayoutTestPermissionManager()
-      ->GetPermissionStatus(PermissionType::PUSH_MESSAGING,
-                            requesting_origin,
-                            embedding_origin));
+      ->browser_context()
+      ->GetPermissionManager()
+      ->GetPermissionStatus(PermissionType::PUSH_MESSAGING, origin, origin));
 }
 
 bool LayoutTestPushMessagingService::SupportNonVisibleMessages() {
@@ -116,7 +125,7 @@ bool LayoutTestPushMessagingService::SupportNonVisibleMessages() {
 
 void LayoutTestPushMessagingService::Unsubscribe(
     const GURL& requesting_origin,
-    int64 service_worker_registration_id,
+    int64_t service_worker_registration_id,
     const std::string& sender_id,
     const UnregisterCallback& callback) {
   callback.Run(PUSH_UNREGISTRATION_STATUS_SUCCESS_UNREGISTERED);

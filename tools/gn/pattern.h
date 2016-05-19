@@ -5,6 +5,8 @@
 #ifndef TOOLS_GN_PATTERN_H_
 #define TOOLS_GN_PATTERN_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -45,6 +47,7 @@ class Pattern {
   };
 
   explicit Pattern(const std::string& s);
+  Pattern(const Pattern& other);
   ~Pattern();
 
   // Returns true if the current pattern matches the given string.
@@ -68,6 +71,7 @@ class Pattern {
 class PatternList {
  public:
   PatternList();
+  PatternList(const PatternList& other);
   ~PatternList();
 
   bool is_empty() const { return patterns_.empty(); }

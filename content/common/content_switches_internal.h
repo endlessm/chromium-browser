@@ -5,6 +5,8 @@
 #ifndef CONTENT_COMMON_CONTENT_SWITCHES_INTERNAL_H_
 #define CONTENT_COMMON_CONTENT_SWITCHES_INTERNAL_H_
 
+#include "build/build_config.h"
+#include "content/common/content_export.h"
 #include "content/public/common/web_preferences.h"
 
 namespace content {
@@ -16,12 +18,10 @@ void DisableWin32kRendererLockdown();
 
 // Returns whether Win32k Renderer lockdown is enabled or not.
 bool IsWin32kRendererLockdownEnabled();
-// Returns whether Win32k PPAPI lockdown is enabled for a specific mime type.
-bool IsWin32kLockdownEnabledForMimeType(const std::string& mime_type);
 #endif
 V8CacheOptions GetV8CacheOptions();
 
-bool IsUseZoomForDSFEnabled();
+CONTENT_EXPORT bool IsUseZoomForDSFEnabled();
 
 } // namespace content
 

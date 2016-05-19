@@ -14,6 +14,7 @@
 #include "base/callback.h"
 #include "base/callback_list.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -41,8 +42,8 @@ class DownloadManager;
 }
 
 namespace net {
+class CookieStore;
 class URLRequest;
-class URLRequestContext;
 class URLRequestContextGetter;
 }
 
@@ -57,6 +58,7 @@ class SafeBrowsingProtocolManagerDelegate;
 class SafeBrowsingServiceFactory;
 class SafeBrowsingUIManager;
 class SafeBrowsingURLRequestContextGetter;
+struct V4ProtocolConfig;
 
 #if defined(FULL_SAFE_BROWSING)
 class IncidentReportingService;
@@ -101,6 +103,12 @@ class SafeBrowsingService
 
   // Create a protocol config struct.
   virtual SafeBrowsingProtocolConfig GetProtocolConfig() const;
+
+  // Create a v4 protocol config struct.
+  virtual V4ProtocolConfig GetV4ProtocolConfig() const;
+
+  // Returns the client_name field for both V3 and V4 protocol manager configs.
+  std::string GetProtocolConfigClientName() const;
 
   // Get current enabled status. Must be called on IO thread.
   bool enabled() const {
@@ -147,6 +155,8 @@ class SafeBrowsingService
   // |callback| will be dropped if the service is not applicable for the
   // process.
   void RegisterDelayedAnalysisCallback(const DelayedAnalysisCallback& callback);
+  void RegisterExtendedReportingOnlyDelayedAnalysisCallback(
+      const DelayedAnalysisCallback& callback);
 #endif
 
   // Adds |download_manager| to the set monitored by safe browsing.
@@ -165,8 +175,8 @@ class SafeBrowsingService
   scoped_ptr<StateSubscription> RegisterStateCallback(
       const base::Callback<void(void)>& callback);
 
-  // Sends serialized download recovery report to backend.
-  virtual void SendDownloadRecoveryReport(const std::string& report);
+  // Sends serialized download report to backend.
+  virtual void SendSerializedDownloadReport(const std::string& report);
 
  protected:
   // Creates the safe browsing service.  Need to initialize before using.
@@ -179,6 +189,9 @@ class SafeBrowsingService
   virtual SafeBrowsingUIManager* CreateUIManager();
 
 #if defined(FULL_SAFE_BROWSING)
+  virtual DownloadProtectionService* CreateDownloadProtectionService(
+      net::URLRequestContextGetter* request_context_getter);
+
   virtual IncidentReportingService* CreateIncidentReportingService();
 #endif
 
@@ -197,14 +210,6 @@ class SafeBrowsingService
   friend class SafeBrowsingServerTest;
   friend class SafeBrowsingServiceTest;
   friend class SafeBrowsingURLRequestContextGetter;
-
-  void InitURLRequestContextOnIOThread(
-      net::URLRequestContextGetter* system_url_request_context_getter);
-
-  // Destroys the URLRequest and shuts down the provided getter on the
-  // IO thread.
-  void DestroyURLRequestContextOnIOThread(
-      scoped_refptr<SafeBrowsingURLRequestContextGetter> context_getter);
 
   // Called to initialize objects that are used on the io_thread.  This may be
   // called multiple times during the life of the SafeBrowsingService.
@@ -242,7 +247,7 @@ class SafeBrowsingService
   // starts or stops the service accordingly.
   void RefreshState();
 
-  void OnSendDownloadRecoveryReport(const std::string& report);
+  void OnSendSerializedDownloadReport(const std::string& report);
 
   // The factory used to instanciate a SafeBrowsingService object.
   // Useful for tests, so they can provide their own implementation of
@@ -253,9 +258,6 @@ class SafeBrowsingService
   // |url_request_context_|. Accessed on UI thread.
   scoped_refptr<SafeBrowsingURLRequestContextGetter>
       url_request_context_getter_;
-
-  // The SafeBrowsingURLRequestContext. Accessed on IO thread.
-  scoped_ptr<net::URLRequestContext> url_request_context_;
 
   // Handles interaction with SafeBrowsing servers. Accessed on IO thread.
   SafeBrowsingProtocolManager* protocol_manager_;
@@ -307,8 +309,6 @@ class SafeBrowsingService
   scoped_refptr<SafeBrowsingDatabaseManager> database_manager_;
 
 #if defined(FULL_SAFE_BROWSING)
-  scoped_ptr<OffDomainInclusionDetector> off_domain_inclusion_detector_;
-
   scoped_ptr<ResourceRequestDetector> resource_request_detector_;
 #endif
 

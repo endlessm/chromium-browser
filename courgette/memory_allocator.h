@@ -5,9 +5,10 @@
 #ifndef COURGETTE_MEMORY_ALLOCATOR_H_
 #define COURGETTE_MEMORY_ALLOCATOR_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
@@ -194,12 +195,12 @@ class MemoryAllocator {
   }
 
   void deallocate(pointer ptr, size_type size) {
-    uint8* mem = reinterpret_cast<uint8*>(ptr);
+    uint8_t* mem = reinterpret_cast<uint8_t*>(ptr);
     mem -= sizeof(T);
     if (mem[0] == HEAP_ALLOCATION) {
       free(mem);
     } else {
-      DCHECK_EQ(static_cast<uint8>(FILE_ALLOCATION), mem[0]);
+      DCHECK_EQ(static_cast<uint8_t>(FILE_ALLOCATION), mem[0]);
       UncheckedDelete(TempMapping::GetMappingFromPtr(mem));
     }
   }
@@ -215,20 +216,20 @@ class MemoryAllocator {
       return NULL;
 
     size_type bytes = count * sizeof(T);
-    uint8* mem = NULL;
+    uint8_t* mem = NULL;
 
     // First see if we can do this allocation on the heap.
     if (count < kMaxHeapAllocationSize &&
         base::UncheckedMalloc(bytes, reinterpret_cast<void**>(&mem))) {
-      mem[0] = static_cast<uint8>(HEAP_ALLOCATION);
+      mem[0] = static_cast<uint8_t>(HEAP_ALLOCATION);
     } else {
       // Back the allocation with a temp file if either the request exceeds the
       // max heap allocation threshold or the heap allocation failed.
       TempMapping* mapping = UncheckedNew<TempMapping>();
       if (mapping) {
         if (mapping->Initialize(bytes)) {
-          mem = reinterpret_cast<uint8*>(mapping->memory());
-          mem[0] = static_cast<uint8>(FILE_ALLOCATION);
+          mem = reinterpret_cast<uint8_t*>(mapping->memory());
+          mem[0] = static_cast<uint8_t>(FILE_ALLOCATION);
         } else {
           UncheckedDelete(mapping);
         }
@@ -363,12 +364,6 @@ class NoThrowBuffer {
     if (size < kStartSize)
       size = kStartSize;
 
-    // Use a size 1% higher than requested. In practice, this makes Courgette as
-    // much as 5x faster on typical Chrome update payloads as a lot of future
-    // reserve() calls will become no-ops instead of costly resizes that copy
-    // all the data. Note that doing this here instead of outside the function
-    // is more efficient, since it's after the no-op early return checks above.
-    size *= 1.01;
     T* new_buffer = alloc_.allocate(size);
     if (!new_buffer) {
       clear();
@@ -483,6 +478,10 @@ class NoThrowBuffer {
 
   size_t size() const {
     return size_;
+  }
+
+  size_t capacity() const {
+    return alloc_size_;
   }
 
   T* data() const {

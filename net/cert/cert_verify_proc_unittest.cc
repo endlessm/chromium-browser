@@ -10,6 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
 #include "crypto/sha2.h"
@@ -106,6 +107,22 @@ bool SupportsDetectingKnownRoots() {
   return true;
 }
 
+// Template helper to load a series of certificate files into a CertificateList.
+// Like CertTestUtil's CreateCertificateListFromFile, except it can load a
+// series of individual certificates (to make the tests clearer).
+template <size_t N>
+void LoadCertificateFiles(const char* const (&cert_files)[N],
+                          CertificateList* certs) {
+  certs->clear();
+  for (size_t i = 0; i < N; ++i) {
+    SCOPED_TRACE(cert_files[i]);
+    scoped_refptr<X509Certificate> cert = CreateCertificateChainFromFile(
+        GetTestCertsDirectory(), cert_files[i], X509Certificate::FORMAT_AUTO);
+    ASSERT_TRUE(cert);
+    certs->push_back(cert);
+  }
+}
+
 }  // namespace
 
 class CertVerifyProcTest : public testing::Test {
@@ -118,6 +135,19 @@ class CertVerifyProcTest : public testing::Test {
  protected:
   bool SupportsAdditionalTrustAnchors() {
     return verify_proc_->SupportsAdditionalTrustAnchors();
+  }
+
+  // Returns true if the underlying CertVerifyProc supports integrating CRLSets
+  // into path building logic, such as allowing the selection of alternatively
+  // valid paths when one or more are revoked. As the goal is to integrate this
+  // into all platforms, this is a temporary, test-only flag to centralize the
+  // conditionals in tests.
+  bool SupportsCRLSetsInPathBuilding() {
+#if defined(OS_WIN)
+    return true;
+#else
+    return false;
+#endif
   }
 
   int Verify(X509Certificate* cert,
@@ -515,6 +545,18 @@ TEST_F(CertVerifyProcTest, GoogleDigiNotarTest) {
   EXPECT_NE(OK, error);
 }
 
+// Ensures the CertVerifyProc blacklist remains in sorted order, so that it
+// can be binary-searched.
+TEST_F(CertVerifyProcTest, BlacklistIsSorted) {
+// Defines kBlacklistedSPKIs.
+#include "net/cert/cert_verify_proc_blacklist.inc"
+  for (size_t i = 0; i < arraysize(kBlacklistedSPKIs) - 1; ++i) {
+    EXPECT_GT(0, memcmp(kBlacklistedSPKIs[i], kBlacklistedSPKIs[i + 1],
+                        crypto::kSHA256Length))
+        << " at index " << i;
+  }
+}
+
 TEST_F(CertVerifyProcTest, DigiNotarCerts) {
   static const char* const kDigiNotarFilenames[] = {
     "diginotar_root_ca.pem",
@@ -537,12 +579,12 @@ TEST_F(CertVerifyProcTest, DigiNotarCerts) {
     base::StringPiece spki;
     ASSERT_TRUE(asn1::ExtractSPKIFromDERCert(der_bytes, &spki));
 
-    std::string spki_sha1 = base::SHA1HashString(spki.as_string());
+    std::string spki_sha256 = crypto::SHA256HashString(spki.as_string());
 
     HashValueVector public_keys;
-    HashValue hash(HASH_VALUE_SHA1);
-    ASSERT_EQ(hash.size(), spki_sha1.size());
-    memcpy(hash.data(), spki_sha1.data(), spki_sha1.size());
+    HashValue hash(HASH_VALUE_SHA256);
+    ASSERT_EQ(hash.size(), spki_sha256.size());
+    memcpy(hash.data(), spki_sha256.data(), spki_sha256.size());
     public_keys.push_back(hash);
 
     EXPECT_TRUE(CertVerifyProc::IsPublicKeyBlacklisted(public_keys)) <<
@@ -651,7 +693,8 @@ TEST_F(CertVerifyProcTest, TestHasTooLongValidity) {
   }
 }
 
-TEST_F(CertVerifyProcTest, TestKnownRoot) {
+// TODO(crbug.com/610546): Fix and re-enable this test.
+TEST_F(CertVerifyProcTest, DISABLED_TestKnownRoot) {
   if (!SupportsDetectingKnownRoots()) {
     LOG(INFO) << "Skipping this test on this platform.";
     return;
@@ -679,7 +722,8 @@ TEST_F(CertVerifyProcTest, TestKnownRoot) {
   EXPECT_TRUE(verify_result.is_issued_by_known_root);
 }
 
-TEST_F(CertVerifyProcTest, PublicKeyHashes) {
+// TODO(crbug.com/610546): Fix and re-enable this test.
+TEST_F(CertVerifyProcTest, DISABLED_PublicKeyHashes) {
   if (!SupportsReturningVerifiedChain()) {
     LOG(INFO) << "Skipping this test in this platform.";
     return;
@@ -1126,129 +1170,6 @@ TEST_F(CertVerifyProcTest, IsIssuedByKnownRootIgnoresTestRoots) {
   EXPECT_FALSE(verify_result.is_issued_by_known_root);
 }
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-// Tests that, on OS X, issues with a cross-certified Baltimore CyberTrust
-// Root can be successfully worked around once Apple completes removing the
-// older GTE CyberTrust Root from its trusted root store.
-//
-// The issue is caused by servers supplying the cross-certified intermediate
-// (necessary for certain mobile platforms), which OS X does not recognize
-// as already existing within its trust store.
-TEST_F(CertVerifyProcTest, CybertrustGTERoot) {
-  CertificateList certs = CreateCertificateListFromFile(
-      GetTestCertsDirectory(),
-      "cybertrust_omniroot_chain.pem",
-      X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
-  ASSERT_EQ(2U, certs.size());
-
-  X509Certificate::OSCertHandles intermediates;
-  intermediates.push_back(certs[1]->os_cert_handle());
-
-  scoped_refptr<X509Certificate> cybertrust_basic =
-      X509Certificate::CreateFromHandle(certs[0]->os_cert_handle(),
-                                        intermediates);
-  ASSERT_TRUE(cybertrust_basic.get());
-
-  scoped_refptr<X509Certificate> baltimore_root =
-      ImportCertFromFile(GetTestCertsDirectory(),
-                         "cybertrust_baltimore_root.pem");
-  ASSERT_TRUE(baltimore_root.get());
-
-  ScopedTestRoot scoped_root(baltimore_root.get());
-
-  // Ensure that ONLY the Baltimore CyberTrust Root is trusted. This
-  // simulates Keychain removing support for the GTE CyberTrust Root.
-  TestRootCerts::GetInstance()->SetAllowSystemTrust(false);
-  base::ScopedClosureRunner reset_system_trust(
-      base::Bind(&TestRootCerts::SetAllowSystemTrust,
-                 base::Unretained(TestRootCerts::GetInstance()),
-                 true));
-
-  // First, make sure a simple certificate chain from
-  //   EE -> Public SureServer SV -> Baltimore CyberTrust
-  // works. Only the first two certificates are included in the chain.
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error = Verify(cybertrust_basic.get(),
-                     "cacert.omniroot.com",
-                     flags,
-                     NULL,
-                     empty_cert_list_,
-                     &verify_result);
-  EXPECT_EQ(OK, error);
-  EXPECT_EQ(CERT_STATUS_SHA1_SIGNATURE_PRESENT, verify_result.cert_status);
-
-  // Attempt to verify with the first known cross-certified intermediate
-  // provided.
-  scoped_refptr<X509Certificate> baltimore_intermediate_1 =
-      ImportCertFromFile(GetTestCertsDirectory(),
-                         "cybertrust_baltimore_cross_certified_1.pem");
-  ASSERT_TRUE(baltimore_intermediate_1.get());
-
-  X509Certificate::OSCertHandles intermediate_chain_1 =
-      cybertrust_basic->GetIntermediateCertificates();
-  intermediate_chain_1.push_back(baltimore_intermediate_1->os_cert_handle());
-
-  scoped_refptr<X509Certificate> baltimore_chain_1 =
-      X509Certificate::CreateFromHandle(cybertrust_basic->os_cert_handle(),
-                                        intermediate_chain_1);
-  error = Verify(baltimore_chain_1.get(),
-                 "cacert.omniroot.com",
-                 flags,
-                 NULL,
-                 empty_cert_list_,
-                 &verify_result);
-  EXPECT_EQ(OK, error);
-  EXPECT_EQ(CERT_STATUS_SHA1_SIGNATURE_PRESENT, verify_result.cert_status);
-
-  // Attempt to verify with the second known cross-certified intermediate
-  // provided.
-  scoped_refptr<X509Certificate> baltimore_intermediate_2 =
-      ImportCertFromFile(GetTestCertsDirectory(),
-                         "cybertrust_baltimore_cross_certified_2.pem");
-  ASSERT_TRUE(baltimore_intermediate_2.get());
-
-  X509Certificate::OSCertHandles intermediate_chain_2 =
-      cybertrust_basic->GetIntermediateCertificates();
-  intermediate_chain_2.push_back(baltimore_intermediate_2->os_cert_handle());
-
-  scoped_refptr<X509Certificate> baltimore_chain_2 =
-      X509Certificate::CreateFromHandle(cybertrust_basic->os_cert_handle(),
-                                        intermediate_chain_2);
-  error = Verify(baltimore_chain_2.get(),
-                 "cacert.omniroot.com",
-                 flags,
-                 NULL,
-                 empty_cert_list_,
-                 &verify_result);
-  EXPECT_EQ(OK, error);
-  EXPECT_EQ(CERT_STATUS_SHA1_SIGNATURE_PRESENT, verify_result.cert_status);
-
-  // Attempt to verify when both a cross-certified intermediate AND
-  // the legacy GTE root are provided.
-  scoped_refptr<X509Certificate> cybertrust_root =
-      ImportCertFromFile(GetTestCertsDirectory(),
-                         "cybertrust_gte_root.pem");
-  ASSERT_TRUE(cybertrust_root.get());
-
-  intermediate_chain_2.push_back(cybertrust_root->os_cert_handle());
-  scoped_refptr<X509Certificate> baltimore_chain_with_root =
-      X509Certificate::CreateFromHandle(cybertrust_basic->os_cert_handle(),
-                                        intermediate_chain_2);
-  error = Verify(baltimore_chain_with_root.get(),
-                 "cacert.omniroot.com",
-                 flags,
-                 NULL,
-                 empty_cert_list_,
-                 &verify_result);
-  EXPECT_EQ(OK, error);
-  EXPECT_EQ(CERT_STATUS_SHA1_SIGNATURE_PRESENT, verify_result.cert_status);
-
-  TestRootCerts::GetInstance()->Clear();
-  EXPECT_TRUE(TestRootCerts::GetInstance()->IsEmpty());
-}
-#endif
-
 #if defined(USE_NSS_CERTS) || defined(OS_IOS) || defined(OS_WIN) || \
     defined(OS_MACOSX)
 // Test that CRLSets are effective in making a certificate appear to be
@@ -1359,6 +1280,213 @@ TEST_F(CertVerifyProcTest, CRLSetLeafSerial) {
                  &verify_result);
   EXPECT_EQ(ERR_CERT_REVOKED, error);
 }
+
+// Tests that revocation by CRLSet functions properly with the certificate
+// immediately before the trust anchor is revoked by that trust anchor, but
+// another version to a different trust anchor exists.
+//
+// The two possible paths are:
+// 1. A(B) -> B(C) -> C(D) -> D(D)
+// 2. A(B) -> B(C) -> C(E) -> E(E)
+//
+// In this test, C(E) is revoked by CRLSet. It is configured to be the more
+// preferable version compared to C(D), once revoked, it should be ignored.
+TEST_F(CertVerifyProcTest, CRLSetRevokedIntermediateSameName) {
+  if (!SupportsCRLSetsInPathBuilding()) {
+    LOG(INFO) << "Skipping this test on this platform.";
+    return;
+  }
+
+  const char* const kCertificatesToLoad[] = {
+      "multi-root-A-by-B.pem", "multi-root-B-by-C.pem", "multi-root-C-by-D.pem",
+      "multi-root-D-by-D.pem", "multi-root-C-by-E.pem", "multi-root-E-by-E.pem",
+  };
+  CertificateList certs;
+  ASSERT_NO_FATAL_FAILURE(LoadCertificateFiles(kCertificatesToLoad, &certs));
+
+  // Add D and E as trust anchors
+  ScopedTestRoot test_root_D(certs[3].get());  // D-by-D
+  ScopedTestRoot test_root_F(certs[5].get());  // E-by-E
+
+  // Create a chain that sends A(B), B(C), C(E), C(D). The reason that
+  // both C(E) and C(D) are sent are to ensure both certificates are available
+  // for path building. The test
+  // CertVerifyProcTest.VerifyReturnChainFiltersUnrelatedCerts ensures this is
+  // safe to do.
+  X509Certificate::OSCertHandles intermediates;
+  intermediates.push_back(certs[1]->os_cert_handle());  // B-by-C
+  intermediates.push_back(certs[4]->os_cert_handle());  // C-by-E
+  intermediates.push_back(certs[2]->os_cert_handle());  // C-by-D
+  scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromHandle(
+      certs[0]->os_cert_handle(), intermediates);
+  ASSERT_TRUE(cert);
+
+  // Sanity check: Ensure that, without any revocation status, the to-be-revoked
+  // path is preferred.
+  int flags = 0;
+  CertVerifyResult verify_result;
+  int error = Verify(cert.get(), "127.0.0.1", flags, nullptr, empty_cert_list_,
+                     &verify_result);
+  ASSERT_EQ(OK, error);
+  ASSERT_EQ(0U, verify_result.cert_status);
+  ASSERT_TRUE(verify_result.verified_cert.get());
+
+  // The expected path is A(B) -> B(C) -> C(E) -> E(E).
+  const X509Certificate::OSCertHandles& verified_intermediates =
+      verify_result.verified_cert->GetIntermediateCertificates();
+  ASSERT_EQ(3U, verified_intermediates.size());
+  scoped_refptr<X509Certificate> verified_root =
+      X509Certificate::CreateFromHandle(verified_intermediates[2],
+                                        X509Certificate::OSCertHandles());
+  ASSERT_TRUE(verified_root.get());
+  EXPECT_EQ("E Root CA", verified_root->subject().common_name);
+
+  // Load a CRLSet that blocks C-by-E.
+  scoped_refptr<CRLSet> crl_set;
+  std::string crl_set_bytes;
+  EXPECT_TRUE(base::ReadFileToString(
+      GetTestCertsDirectory().AppendASCII("multi-root-crlset-C-by-E.raw"),
+      &crl_set_bytes));
+  ASSERT_TRUE(CRLSetStorage::Parse(crl_set_bytes, &crl_set));
+
+  // Verify with the CRLSet. Because C-by-E is revoked, the expected path is
+  // A(B) -> B(C) -> C(D) -> D(D).
+  error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
+                 empty_cert_list_, &verify_result);
+  ASSERT_EQ(OK, error);
+  ASSERT_EQ(0U, verify_result.cert_status);
+  ASSERT_TRUE(verify_result.verified_cert.get());
+
+  const X509Certificate::OSCertHandles& new_verified_intermediates =
+      verify_result.verified_cert->GetIntermediateCertificates();
+  ASSERT_EQ(3U, new_verified_intermediates.size());
+  verified_root = X509Certificate::CreateFromHandle(
+      new_verified_intermediates[2], X509Certificate::OSCertHandles());
+  ASSERT_TRUE(verified_root.get());
+  EXPECT_EQ("D Root CA", verified_root->subject().common_name);
+
+  // Reverify without the CRLSet, to ensure that CRLSets do not persist between
+  // separate calls. As in the first verification, the expected path is
+  // A(B) -> B(C) -> C(E) -> E(E).
+  error = Verify(cert.get(), "127.0.0.1", flags, nullptr, empty_cert_list_,
+                 &verify_result);
+  ASSERT_EQ(OK, error);
+  ASSERT_EQ(0U, verify_result.cert_status);
+  ASSERT_TRUE(verify_result.verified_cert.get());
+
+  const X509Certificate::OSCertHandles& final_verified_intermediates =
+      verify_result.verified_cert->GetIntermediateCertificates();
+  ASSERT_EQ(3U, final_verified_intermediates.size());
+  verified_root = X509Certificate::CreateFromHandle(
+      final_verified_intermediates[2], X509Certificate::OSCertHandles());
+  ASSERT_TRUE(verified_root.get());
+  EXPECT_EQ("E Root CA", verified_root->subject().common_name);
+}
+
+// Tests that revocation by CRLSet functions properly when an intermediate is
+// revoked by SPKI. In this case, path building should ignore all certificates
+// with that SPKI, and search for alternatively keyed versions.
+//
+// The two possible paths are:
+// 1. A(B) -> B(C) -> C(D) -> D(D)
+// 2. A(B) -> B(F) -> F(E) -> E(E)
+//
+// The path building algorithm needs to explore B(C) once it discovers that
+// F(E) is revoked, and that there are no valid paths with B(F).
+TEST_F(CertVerifyProcTest, CRLSetRevokedIntermediateCrossIntermediates) {
+  if (!SupportsCRLSetsInPathBuilding()) {
+    LOG(INFO) << "Skipping this test on this platform.";
+    return;
+  }
+
+  const char* const kCertificatesToLoad[] = {
+      "multi-root-A-by-B.pem", "multi-root-B-by-C.pem", "multi-root-C-by-D.pem",
+      "multi-root-D-by-D.pem", "multi-root-B-by-F.pem", "multi-root-F-by-E.pem",
+      "multi-root-E-by-E.pem",
+  };
+  CertificateList certs;
+  ASSERT_NO_FATAL_FAILURE(LoadCertificateFiles(kCertificatesToLoad, &certs));
+
+  // Add D and E as trust anchors
+  ScopedTestRoot test_root_D(certs[3].get());  // D-by-D
+  ScopedTestRoot test_root_F(certs[6].get());  // E-by-E
+
+  // Create a chain that sends A(B), B(F), F(E), B(C), C(D). The reason that
+  // both B(C) and C(D) are sent are to ensure both certificates are available
+  // for path building. The test
+  // CertVerifyProcTest.VerifyReturnChainFiltersUnrelatedCerts ensures this is
+  // safe to do.
+  X509Certificate::OSCertHandles intermediates;
+  intermediates.push_back(certs[4]->os_cert_handle());  // B-by-F
+  intermediates.push_back(certs[5]->os_cert_handle());  // F-by-E
+  intermediates.push_back(certs[1]->os_cert_handle());  // B-by-C
+  intermediates.push_back(certs[2]->os_cert_handle());  // C-by-D
+  scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromHandle(
+      certs[0]->os_cert_handle(), intermediates);
+  ASSERT_TRUE(cert);
+
+  // Sanity check: Ensure that, without any revocation status, the to-be-revoked
+  // path is preferred.
+  int flags = 0;
+  CertVerifyResult verify_result;
+  int error = Verify(cert.get(), "127.0.0.1", flags, nullptr, empty_cert_list_,
+                     &verify_result);
+  ASSERT_EQ(OK, error);
+  ASSERT_EQ(0U, verify_result.cert_status);
+  ASSERT_TRUE(verify_result.verified_cert.get());
+
+  // The expected path is A(B) -> B(F) -> F(E) -> E(E).
+  const X509Certificate::OSCertHandles& verified_intermediates =
+      verify_result.verified_cert->GetIntermediateCertificates();
+  ASSERT_EQ(3U, verified_intermediates.size());
+  scoped_refptr<X509Certificate> verified_root =
+      X509Certificate::CreateFromHandle(verified_intermediates[2],
+                                        X509Certificate::OSCertHandles());
+  ASSERT_TRUE(verified_root.get());
+  EXPECT_EQ("E Root CA", verified_root->subject().common_name);
+
+  // Load a CRLSet that blocks F.
+  scoped_refptr<CRLSet> crl_set;
+  std::string crl_set_bytes;
+  EXPECT_TRUE(base::ReadFileToString(
+      GetTestCertsDirectory().AppendASCII("multi-root-crlset-F.raw"),
+      &crl_set_bytes));
+  ASSERT_TRUE(CRLSetStorage::Parse(crl_set_bytes, &crl_set));
+
+  // Verify with the CRLSet. Because F is revoked, the expected path is
+  // A(B) -> B(C) -> C(D) -> D(D).
+  error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
+                 empty_cert_list_, &verify_result);
+  ASSERT_EQ(OK, error);
+  ASSERT_EQ(0U, verify_result.cert_status);
+  ASSERT_TRUE(verify_result.verified_cert.get());
+
+  const X509Certificate::OSCertHandles& new_verified_intermediates =
+      verify_result.verified_cert->GetIntermediateCertificates();
+  ASSERT_EQ(3U, new_verified_intermediates.size());
+  verified_root = X509Certificate::CreateFromHandle(
+      new_verified_intermediates[2], X509Certificate::OSCertHandles());
+  ASSERT_TRUE(verified_root.get());
+  EXPECT_EQ("D Root CA", verified_root->subject().common_name);
+
+  // Reverify without the CRLSet, to ensure that CRLSets do not persist between
+  // separate calls. As in the first verification, the expected path is
+  // A(B) -> B(F) -> F(E) -> E(E).
+  error = Verify(cert.get(), "127.0.0.1", flags, nullptr, empty_cert_list_,
+                 &verify_result);
+  ASSERT_EQ(OK, error);
+  ASSERT_EQ(0U, verify_result.cert_status);
+  ASSERT_TRUE(verify_result.verified_cert.get());
+
+  const X509Certificate::OSCertHandles& final_verified_intermediates =
+      verify_result.verified_cert->GetIntermediateCertificates();
+  ASSERT_EQ(3U, final_verified_intermediates.size());
+  verified_root = X509Certificate::CreateFromHandle(
+      final_verified_intermediates[2], X509Certificate::OSCertHandles());
+  ASSERT_TRUE(verified_root.get());
+  EXPECT_EQ("E Root CA", verified_root->subject().common_name);
+}
+
 #endif
 
 enum ExpectedAlgorithms {

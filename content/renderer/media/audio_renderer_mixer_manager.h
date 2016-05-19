@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 
+#include "base/macros.h"
 #include "base/synchronization/lock.h"
 #include "content/common/content_export.h"
 #include "media/audio/audio_parameters.h"
@@ -79,6 +80,7 @@ class CONTENT_EXPORT AudioRendererMixerManager {
              const media::AudioParameters& params,
              const std::string& device_id,
              const url::Origin& security_origin);
+    MixerKey(const MixerKey& other);
     int source_render_frame_id;
     media::AudioParameters params;
     std::string device_id;
@@ -91,8 +93,6 @@ class CONTENT_EXPORT AudioRendererMixerManager {
     bool operator()(const MixerKey& a, const MixerKey& b) const {
       if (a.source_render_frame_id != b.source_render_frame_id)
         return a.source_render_frame_id < b.source_render_frame_id;
-      if (a.params.sample_rate() != b.params.sample_rate())
-        return a.params.sample_rate() < b.params.sample_rate();
       if (a.params.channels() != b.params.channels())
         return a.params.channels() < b.params.channels();
 
@@ -121,6 +121,14 @@ class CONTENT_EXPORT AudioRendererMixerManager {
 
   // Overrides the AudioRendererSink implementation for unit testing.
   void SetAudioRendererSinkForTesting(media::AudioRendererSink* sink);
+
+  // A helper to get hardware output parameters in the absence of
+  // AudioOutputDevice.
+  static media::AudioParameters GetHardwareOutputParams(
+      int render_frame_id,
+      int session_id,
+      const std::string& device_id,
+      const url::Origin& security_origin);
 
   // Active mixers.
   AudioRendererMixerMap mixers_;

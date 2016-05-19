@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <algorithm>
 
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "components/safe_browsing_db/util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -276,6 +279,48 @@ TEST(SafeBrowsingDbUtilTest, CanonicalizeUrl) {
     EXPECT_EQ(tests[i].expected_canonicalized_path, canonicalized_path);
     EXPECT_EQ(tests[i].expected_canonicalized_query, canonicalized_query);
   }
+}
+
+TEST(SafeBrowsingDbUtilTest, UrlToFullHashes) {
+  std::vector<SBFullHash> results;
+  GURL url("http://www.evil.com/evil1/evilness.html");
+  UrlToFullHashes(url, false, &results);
+
+  EXPECT_EQ(6UL, results.size());
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("evil.com/"),
+                                                  results[0]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("evil.com/evil1/"),
+                                                  results[1]));
+  EXPECT_TRUE(SBFullHashEqual(
+      SBFullHashForString("evil.com/evil1/evilness.html"), results[2]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("www.evil.com/"),
+                                                  results[3]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("www.evil.com/evil1/"),
+                                                  results[4]));
+  EXPECT_TRUE(SBFullHashEqual(
+      SBFullHashForString("www.evil.com/evil1/evilness.html"), results[5]));
+
+  results.clear();
+  GURL url2("http://www.evil.com/evil1/evilness.html");
+  UrlToFullHashes(url2, true, &results);
+
+  EXPECT_EQ(8UL, results.size());
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("evil.com/"),
+                                                  results[0]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("evil.com/evil1/"),
+                                                  results[1]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("evil.com/evil1"),
+                                                  results[2]));
+  EXPECT_TRUE(SBFullHashEqual(
+      SBFullHashForString("evil.com/evil1/evilness.html"), results[3]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("www.evil.com/"),
+                                                  results[4]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("www.evil.com/evil1/"),
+                                                  results[5]));
+  EXPECT_TRUE(SBFullHashEqual(SBFullHashForString("www.evil.com/evil1"),
+                                                  results[6]));
+  EXPECT_TRUE(SBFullHashEqual(
+      SBFullHashForString("www.evil.com/evil1/evilness.html"), results[7]));
 }
 
 TEST(SafeBrowsingDbUtilTest, ListIdListNameConversion) {

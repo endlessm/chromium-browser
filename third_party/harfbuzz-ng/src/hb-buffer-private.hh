@@ -56,8 +56,7 @@ enum hb_buffer_scratch_flags_t {
   HB_BUFFER_SCRATCH_FLAG_HAS_NON_ASCII			= 0x00000001u,
   HB_BUFFER_SCRATCH_FLAG_HAS_DEFAULT_IGNORABLES		= 0x00000002u,
   HB_BUFFER_SCRATCH_FLAG_HAS_SPACE_FALLBACK		= 0x00000004u,
-  HB_BUFFER_SCRATCH_FLAG_HAS_GPOS_CURSIVE		= 0x00000008u,
-  HB_BUFFER_SCRATCH_FLAG_HAS_GPOS_ATTACHMENT		= 0x00000010u,
+  HB_BUFFER_SCRATCH_FLAG_HAS_GPOS_ATTACHMENT		= 0x00000008u,
   /* Reserved for complex shapers' internal use. */
   HB_BUFFER_SCRATCH_FLAG_COMPLEX0			= 0x01000000u,
   HB_BUFFER_SCRATCH_FLAG_COMPLEX1			= 0x02000000u,
@@ -123,6 +122,11 @@ struct hb_buffer_t {
   static const unsigned int CONTEXT_LENGTH = 5;
   hb_codepoint_t context[2][CONTEXT_LENGTH];
   unsigned int context_len[2];
+
+  /* Debugging */
+  hb_buffer_message_func_t message_func;
+  void *message_data;
+  hb_destroy_func_t message_destroy;
 
 
   /* Methods */
@@ -233,6 +237,19 @@ struct hb_buffer_t {
   inline void clear_context (unsigned int side) { context_len[side] = 0; }
 
   HB_INTERNAL void sort (unsigned int start, unsigned int end, int(*compar)(const hb_glyph_info_t *, const hb_glyph_info_t *));
+
+  inline bool messaging (void) { return unlikely (message_func); }
+  inline bool message (hb_font_t *font, const char *fmt, ...) HB_PRINTF_FUNC(3, 4)
+  {
+    if (!messaging ())
+      return true;
+    va_list ap;
+    va_start (ap, fmt);
+    bool ret = message_impl (font, fmt, ap);
+    va_end (ap);
+    return ret;
+  }
+  HB_INTERNAL bool message_impl (hb_font_t *font, const char *fmt, va_list ap) HB_PRINTF_FUNC(3, 0);
 };
 
 

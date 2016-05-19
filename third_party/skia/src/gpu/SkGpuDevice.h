@@ -15,14 +15,13 @@
 #include "SkPicture.h"
 #include "SkRegion.h"
 #include "SkSurface.h"
+#include "GrDrawContext.h"
 #include "GrContext.h"
 #include "GrSurfacePriv.h"
-
-struct SkDrawProcs;
-struct GrSkDrawProcs;
+#include "GrTypes.h"
 
 class GrAccelData;
-class GrTextureAdjuster;
+class GrTextureProducer;
 struct GrCachedLayer;
 
 /**
@@ -53,10 +52,11 @@ public:
      * sampleCount. The Budgeted param controls whether the device's backing store counts against
      * the resource cache budget. On failure, returns nullptr.
      */
-    static SkGpuDevice* Create(GrContext*, SkSurface::Budgeted, const SkImageInfo&,
-                               int sampleCount, const SkSurfaceProps*, InitContents);
+    static SkGpuDevice* Create(GrContext*, SkBudgeted, const SkImageInfo&,
+                               int sampleCount, const SkSurfaceProps*,
+                               InitContents, GrTextureStorageAllocator = GrTextureStorageAllocator());
 
-    virtual ~SkGpuDevice();
+    ~SkGpuDevice() override {}
 
     SkGpuDevice* cloneDevice(const SkSurfaceProps& props) {
         SkBaseDevice* dev = this->onCreateDevice(CreateInfo(this->imageInfo(), kPossible_TileUsage,
@@ -119,6 +119,11 @@ public:
     void drawImageRect(const SkDraw&, const SkImage*, const SkRect* src, const SkRect& dst,
                        const SkPaint&, SkCanvas::SrcRectConstraint) override;
 
+    void drawImageNine(const SkDraw& draw, const SkImage* image, const SkIRect& center,
+                       const SkRect& dst, const SkPaint& paint) override;
+    void drawBitmapNine(const SkDraw& draw, const SkBitmap& bitmap, const SkIRect& center,
+                        const SkRect& dst, const SkPaint& paint) override;
+
     void flush() override;
 
     void onAttachToCanvas(SkCanvas* canvas) override;
@@ -138,6 +143,9 @@ public:
 
     static SkImageFilter::Cache* NewImageFilterCache();
 
+    // for debugging purposes only
+    void drawTexture(GrTexture*, const SkRect& dst, const SkPaint&);
+
 protected:
     bool onReadPixels(const SkImageInfo&, void*, size_t, int, int) override;
     bool onWritePixels(const SkImageInfo&, const void*, size_t, int, int) override;
@@ -148,16 +156,16 @@ protected:
                                           const SkMatrix*, const SkPaint*) override;
 
 private:
-    GrContext*                      fContext;
-    GrSkDrawProcs*                  fDrawProcs;
+    // We want these unreffed in DrawContext, RenderTarget, GrContext order.
+    SkAutoTUnref<GrContext>         fContext;
+    SkAutoTUnref<GrRenderTarget>    fRenderTarget;
+    SkAutoTUnref<GrDrawContext>     fDrawContext;
+
     SkAutoTUnref<const SkClipStack> fClipStack;
     SkIPoint                        fClipOrigin;
-    GrClip                          fClip;
-    SkAutoTUnref<GrDrawContext>     fDrawContext;
-    GrRenderTarget*                 fRenderTarget;
+    GrClip                          fClip;;
     // remove when our clients don't rely on accessBitmap()
     SkBitmap                        fLegacyBitmap;
-    bool                            fNeedClear;
     bool                            fOpaque;
 
     enum Flags {
@@ -180,16 +188,6 @@ private:
 
     // sets the render target and clip on context
     void prepareDraw(const SkDraw&);
-
-    /**
-     * Implementation for both drawBitmap and drawBitmapRect.
-     */
-    void drawBitmapCommon(const SkDraw&,
-                          const SkBitmap& bitmap,
-                          const SkRect* srcRectPtr,
-                          const SkSize* dstSizePtr,      // ignored iff srcRectPtr == nullptr
-                          const SkPaint&,
-                          SkCanvas::SrcRectConstraint);
 
     /**
      * Helper functions called by drawBitmapCommon. By the time these are called the SkDraw's
@@ -236,29 +234,33 @@ private:
                          int tileSize,
                          bool bicubic);
 
-    void drawTextureAdjuster(GrTextureAdjuster* adjuster,
-                             bool alphaOnly,
+    void drawTextureProducer(GrTextureProducer*,
                              const SkRect* srcRect,
                              const SkRect* dstRect,
-                             SkCanvas::SrcRectConstraint constraint,
+                             SkCanvas::SrcRectConstraint,
                              const SkMatrix& viewMatrix,
-                             const GrClip& clip,
-                             const SkPaint& paint);
+                             const GrClip&,
+                             const SkPaint&);
 
-    void drawTextureAdjusterImpl(GrTextureAdjuster*,
-                                 bool alphaOnly,
+    void drawTextureProducerImpl(GrTextureProducer*,
                                  const SkRect& clippedSrcRect,
                                  const SkRect& clippedDstRect,
-                                 SkCanvas::SrcRectConstraint constraint,
+                                 SkCanvas::SrcRectConstraint,
                                  const SkMatrix& viewMatrix,
                                  const SkMatrix& srcToDstMatrix,
-                                 const GrClip& clip,
-                                 const SkPaint& paint);
+                                 const GrClip&,
+                                 const SkPaint&);
+
+    bool drawFilledDRRect(const SkMatrix& viewMatrix, const SkRRect& outer,
+                          const SkRRect& inner, const SkPaint& paint);
+
+    void drawProducerNine(const SkDraw&, GrTextureProducer*, const SkIRect& center,
+                          const SkRect& dst, const SkPaint&);
 
     bool drawDashLine(const SkPoint pts[2], const SkPaint& paint);
 
-    static GrRenderTarget* CreateRenderTarget(GrContext*, SkSurface::Budgeted, const SkImageInfo&,
-                                              int sampleCount);
+    static GrRenderTarget* CreateRenderTarget(GrContext*, SkBudgeted, const SkImageInfo&,
+                                              int sampleCount, GrTextureStorageAllocator);
 
     friend class GrAtlasTextContext;
     friend class SkSurface_Gpu;      // for access to surfaceProps

@@ -5,15 +5,18 @@
 #ifndef CHROME_BROWSER_NOTIFICATIONS_MESSAGE_CENTER_SETTINGS_CONTROLLER_H_
 #define CHROME_BROWSER_NOTIFICATIONS_MESSAGE_CENTER_SETTINGS_CONTROLLER_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "chrome/browser/extensions/app_icon_loader.h"
-#include "chrome/browser/profiles/profile_info_cache_observer.h"
+#include "build/build_config.h"
+#include "chrome/browser/profiles/profile_attributes_storage.h"
+#include "chrome/browser/ui/app_icon_loader.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/favicon_base/favicon_types.h"
 #include "content/public/browser/notification_details.h"
@@ -27,7 +30,6 @@
 #endif
 
 class Profile;
-class ProfileInfoCache;
 
 namespace base {
 class CancelableTaskTracker;
@@ -46,14 +48,14 @@ class ProfileNotifierGroup;
 class MessageCenterSettingsController
     : public message_center::NotifierSettingsProvider,
       public content::NotificationObserver,
-      public ProfileInfoCacheObserver,
+      public ProfileAttributesStorage::Observer,
 #if defined(OS_CHROMEOS)
       public user_manager::UserManager::UserSessionStateObserver,
 #endif
-      public extensions::AppIconLoader::Delegate {
+      public AppIconLoaderDelegate {
  public:
   explicit MessageCenterSettingsController(
-      ProfileInfoCache* profile_info_cache);
+      ProfileAttributesStorage& profile_attributes_storage);
   ~MessageCenterSettingsController() override;
 
   // Overridden from message_center::NotifierSettingsProvider.
@@ -82,8 +84,9 @@ class MessageCenterSettingsController
   void ActiveUserChanged(const user_manager::User* active_user) override;
 #endif
 
-  // Overridden from extensions::AppIconLoader::Delegate.
-  void SetAppImage(const std::string& id, const gfx::ImageSkia& image) override;
+  // Overridden from AppIconLoaderDelegate.
+  void OnAppImageUpdated(const std::string& id,
+                         const gfx::ImageSkia& image) override;
 
  private:
   // Overridden from content::NotificationObserver.
@@ -91,7 +94,7 @@ class MessageCenterSettingsController
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-  // ProfileInfoCacheObserver:
+  // ProfileAttributesStorage::Observer:
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
       const base::string16& profile_name) override;
@@ -120,12 +123,13 @@ class MessageCenterSettingsController
   // The task tracker for loading favicons.
   scoped_ptr<base::CancelableTaskTracker> favicon_tracker_;
 
-  scoped_ptr<extensions::AppIconLoader> app_icon_loader_;
+  scoped_ptr<AppIconLoader> app_icon_loader_;
 
   std::map<base::string16, ContentSettingsPattern> patterns_;
 
   // The list of all configurable notifier groups. This is each profile that is
-  // loaded (and in the ProfileInfoCache - so no incognito profiles go here).
+  // loaded (and in the ProfileAttributesStorage - so no incognito profiles go
+  // here).
   std::vector<scoped_ptr<message_center::ProfileNotifierGroup>>
       notifier_groups_;
 
@@ -133,7 +137,7 @@ class MessageCenterSettingsController
 
   content::NotificationRegistrar registrar_;
 
-  ProfileInfoCache* profile_info_cache_;
+  ProfileAttributesStorage& profile_attributes_storage_;
 
   base::WeakPtrFactory<MessageCenterSettingsController> weak_factory_;
 

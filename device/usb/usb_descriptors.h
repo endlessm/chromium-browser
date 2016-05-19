@@ -6,12 +6,21 @@
 #define DEVICE_USB_USB_DESCRIPTORS_H_
 
 #include <stdint.h>
+
+#include <map>
 #include <vector>
 
+#include "base/callback_forward.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 
 namespace device {
 
+class UsbDeviceHandle;
+
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.device.usb
 enum UsbTransferType {
   USB_TRANSFER_CONTROL = 0,
   USB_TRANSFER_ISOCHRONOUS,
@@ -19,6 +28,8 @@ enum UsbTransferType {
   USB_TRANSFER_INTERRUPT,
 };
 
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.device.usb
 enum UsbEndpointDirection {
   USB_DIRECTION_INBOUND = 0,
   USB_DIRECTION_OUTBOUND,
@@ -38,7 +49,15 @@ enum UsbUsageType {
 };
 
 struct UsbEndpointDescriptor {
-  UsbEndpointDescriptor();
+  UsbEndpointDescriptor(uint8_t address,
+                        UsbEndpointDirection direction,
+                        uint16_t maximum_packet_size,
+                        UsbSynchronizationType synchronization_type,
+                        UsbTransferType transfer_type,
+                        UsbUsageType usage_type,
+                        uint16_t polling_interval);
+  UsbEndpointDescriptor() = delete;
+  UsbEndpointDescriptor(const UsbEndpointDescriptor& other);
   ~UsbEndpointDescriptor();
 
   uint8_t address;
@@ -52,7 +71,13 @@ struct UsbEndpointDescriptor {
 };
 
 struct UsbInterfaceDescriptor {
-  UsbInterfaceDescriptor();
+  UsbInterfaceDescriptor(uint8_t interface_number,
+                         uint8_t alternate_setting,
+                         uint8_t interface_class,
+                         uint8_t interface_subclass,
+                         uint8_t interface_protocol);
+  UsbInterfaceDescriptor() = delete;
+  UsbInterfaceDescriptor(const UsbInterfaceDescriptor& other);
   ~UsbInterfaceDescriptor();
 
   uint8_t interface_number;
@@ -65,7 +90,12 @@ struct UsbInterfaceDescriptor {
 };
 
 struct UsbConfigDescriptor {
-  UsbConfigDescriptor();
+  UsbConfigDescriptor(uint8_t configuration_value,
+                      bool self_powered,
+                      bool remote_wakeup,
+                      uint16_t maximum_power);
+  UsbConfigDescriptor() = delete;
+  UsbConfigDescriptor(const UsbConfigDescriptor& other);
   ~UsbConfigDescriptor();
 
   uint8_t configuration_value;
@@ -78,6 +108,12 @@ struct UsbConfigDescriptor {
 
 bool ParseUsbStringDescriptor(const std::vector<uint8_t>& descriptor,
                               base::string16* output);
+
+void ReadUsbStringDescriptors(
+    scoped_refptr<UsbDeviceHandle> device_handle,
+    scoped_ptr<std::map<uint8_t, base::string16>> index_map,
+    const base::Callback<void(scoped_ptr<std::map<uint8_t, base::string16>>)>&
+        callback);
 
 }  // namespace device
 

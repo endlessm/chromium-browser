@@ -163,6 +163,18 @@ class Chromium_ycmExtraConfTest(unittest.TestCase):
         '-I[OUT]/tag-one'
         ])
 
+  def testOutDirNames(self):
+    out_root = os.path.join(self.chrome_root, 'out_with_underscore')
+    out_dir = os.path.join(out_root, 'Debug')
+    shutil.move(os.path.join(self.chrome_root, 'out'),
+        out_root)
+
+    clang_options = \
+        self.ycm_extra_conf.GetClangOptionsFromNinjaForFilename(
+            self.chrome_root, os.path.join(self.chrome_root, 'one.cpp'))
+    self.assertIn('-I%s/a' % out_dir, clang_options)
+    self.assertIn('-I%s/tag-one' % out_dir, clang_options)
+
   def testGetFlagsForFileForKnownCppFile(self):
     result = self.ycm_extra_conf.FlagsForFile(
         os.path.join(self.chrome_root, 'one.cpp'))
@@ -288,6 +300,40 @@ class Chromium_ycmExtraConfTest(unittest.TestCase):
         '-isysroot',
         '/mac.sdk',
         '-I[OUT]/tag-default'
+        ])
+
+  def testGetFlagsForSysrootAbsPath(self):
+    result = self.ycm_extra_conf.FlagsForFile(
+        os.path.join(self.chrome_root, 'six.cc'))
+    self.assertTrue(result)
+    self.assertTrue('do_cache' in result)
+    self.assertTrue(result['do_cache'])
+    self.assertTrue('flags' in result)
+    self.assertEquals(self.NormalizeStringsInList(result['flags']), [
+        '-DUSE_CLANG_COMPLETER',
+        '-std=c++11',
+        '-x', 'c++',
+        '-I[SRC]',
+        '-Wno-unknown-warning-option',
+        '-I[OUT]/a',
+        '--sysroot=/usr/lib/sysroot-image',
+        ])
+
+  def testGetFlagsForSysrootRelPath(self):
+    result = self.ycm_extra_conf.FlagsForFile(
+        os.path.join(self.chrome_root, 'seven.cc'))
+    self.assertTrue(result)
+    self.assertTrue('do_cache' in result)
+    self.assertTrue(result['do_cache'])
+    self.assertTrue('flags' in result)
+    self.assertEquals(self.NormalizeStringsInList(result['flags']), [
+        '-DUSE_CLANG_COMPLETER',
+        '-std=c++11',
+        '-x', 'c++',
+        '-I[SRC]',
+        '-Wno-unknown-warning-option',
+        '-I[OUT]/a',
+        '--sysroot=[SRC]/build/sysroot-image',
         ])
 
 if __name__ == '__main__':

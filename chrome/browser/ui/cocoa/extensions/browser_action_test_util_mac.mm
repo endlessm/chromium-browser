@@ -4,8 +4,11 @@
 
 #include "chrome/browser/extensions/browser_action_test_util.h"
 
+#include <stddef.h>
+
 #include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
@@ -188,6 +191,12 @@ void BrowserActionTestUtil::SetWidth(int width) {
   NSRect frame = [containerView frame];
   frame.size.width = width;
   [containerView setFrame:frame];
+}
+
+bool BrowserActionTestUtil::IsHighlightingForSurfacingBubble() {
+  BrowserActionsContainerView* containerView =
+      [GetController(browser_, test_helper_.get()) containerView];
+  return [containerView trackingEnabled] && [containerView isHighlighting];
 }
 
 ToolbarActionsBar* BrowserActionTestUtil::GetToolbarActionsBar() {

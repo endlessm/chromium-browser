@@ -5,6 +5,8 @@
 #ifndef GPU_BLINK_WEBGRAPHICSCONTEXT3D_IMPL_H_
 #define GPU_BLINK_WEBGRAPHICSCONTEXT3D_IMPL_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -37,8 +39,10 @@ class GPU_BLINK_EXPORT WebGraphicsContext3DImpl
 
   uint32_t lastFlushID() override;
 
-  bool insertSyncPoint(blink::WGC3Dbyte* sync_token) override;
-  void waitSyncToken(const blink::WGC3Dbyte* sync_token) override;
+  blink::WGC3Duint64 insertFenceSyncCHROMIUM() override;
+  bool genSyncTokenCHROMIUM(blink::WGC3Duint64 fenceSync,
+                            blink::WGC3Dbyte* syncToken) override;
+  void waitSyncTokenCHROMIUM(const blink::WGC3Dbyte* syncToken) override;
 
   void loseContextCHROMIUM(blink::WGC3Denum current,
                            blink::WGC3Denum other) override;
@@ -226,6 +230,12 @@ class GPU_BLINK_EXPORT WebGraphicsContext3DImpl
 
   blink::WebString getShaderSource(blink::WebGLId shader) override;
   blink::WebString getString(blink::WGC3Denum name) override;
+
+  void getSynciv(blink::WGC3Dsync sync,
+                 blink::WGC3Denum pname,
+                 blink::WGC3Dsizei bufSize,
+                 blink::WGC3Dsizei *length,
+                 blink::WGC3Dint *params) override;
 
   void getTexParameterfv(blink::WGC3Denum target,
                          blink::WGC3Denum pname,
@@ -534,7 +544,6 @@ class GPU_BLINK_EXPORT WebGraphicsContext3DImpl
                               blink::WGC3Duint64* params) override;
 
   void copyTextureCHROMIUM(
-      blink::WGC3Denum target,
       blink::WebGLId source_id,
       blink::WebGLId dest_id,
       blink::WGC3Denum internal_format,
@@ -544,7 +553,6 @@ class GPU_BLINK_EXPORT WebGraphicsContext3DImpl
       blink::WGC3Dboolean unpack_unmultiply_alpha) override;
 
   void copySubTextureCHROMIUM(
-      blink::WGC3Denum target,
       blink::WebGLId source_id,
       blink::WebGLId dest_id,
       blink::WGC3Dint xoffset,

@@ -9,16 +9,16 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/time/time.h"
+#include "components/sync_driver/sync_api_component_factory.h"
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/engine/model_safe_worker.h"
+#include "sync/internal_api/public/shared_model_type_processor.h"
 #include "sync/util/extensions_activity.h"
 
 class BookmarkUndoService;
 class PrefService;
 
 namespace autofill {
-class AutofillWebDataService;
 class AutocompleteSyncableService;
 class PersonalDataManager;
 }  // namespace autofill
@@ -39,10 +39,6 @@ namespace invalidation {
 class InvalidationService;
 }  // namespace invalidation
 
-namespace password_manager {
-class PasswordStore;
-}  // namespace password_manager
-
 namespace syncer {
 class SyncableService;
 }  // namespace syncer
@@ -53,10 +49,7 @@ class SyncSessionsClient;
 
 namespace sync_driver {
 
-class SyncApiComponentFactory;
 class SyncService;
-
-typedef base::Callback<void(base::Time, base::Time)> ClearBrowsingDataCallback;
 
 // Interface for clients of the Sync API to plumb through necessary dependent
 // components. This interface is purely for abstracting dependencies, and
@@ -69,10 +62,8 @@ class SyncClient {
   SyncClient();
   virtual ~SyncClient();
 
-  // Initializes the sync client with the specified sync service. This will also
-  // register data type controllers with |service| (via
-  // SyncApiComponentFactory::RegisterDataTypes).
-  virtual void Initialize(SyncService* service) = 0;
+  // Initializes the sync client with the specified sync service.
+  virtual void Initialize() = 0;
 
   // Returns the current SyncService instance.
   virtual SyncService* GetSyncService() = 0;
@@ -84,19 +75,17 @@ class SyncClient {
   virtual bookmarks::BookmarkModel* GetBookmarkModel() = 0;
   virtual favicon::FaviconService* GetFaviconService() = 0;
   virtual history::HistoryService* GetHistoryService() = 0;
-  virtual scoped_refptr<password_manager::PasswordStore> GetPasswordStore() = 0;
 
-  // Returns a callback that will be invoked when the sync service wishes to
-  // have browsing data cleared.
-  virtual ClearBrowsingDataCallback GetClearBrowsingDataCallback() = 0;
+  // Returns a callback that will register the types specific to the current
+  // platform.
+  virtual sync_driver::SyncApiComponentFactory::RegisterDataTypesMethod
+  GetRegisterPlatformTypesCallback() = 0;
 
   // Returns a callback that will be invoked when password sync state has
   // potentially been changed.
   virtual base::Closure GetPasswordStateChangedCallback() = 0;
 
   virtual autofill::PersonalDataManager* GetPersonalDataManager() = 0;
-  virtual scoped_refptr<autofill::AutofillWebDataService>
-  GetWebDataService() = 0;
   virtual BookmarkUndoService* GetBookmarkUndoServiceIfExists() = 0;
   virtual invalidation::InvalidationService* GetInvalidationService() = 0;
   virtual scoped_refptr<syncer::ExtensionsActivity> GetExtensionsActivity() = 0;
@@ -106,6 +95,13 @@ class SyncClient {
   // Weak pointer may be unset if service is already destroyed.
   // Note: Should only be called from the model type thread.
   virtual base::WeakPtr<syncer::SyncableService> GetSyncableServiceForType(
+      syncer::ModelType type) = 0;
+
+  // Returns a weak pointer to the model type service specified by |type|.
+  // Weak pointer may be unset if service is already destroyed.
+  // Note: Should only be called from the model type thread.
+  // Note: should only be called by USS.
+  virtual base::WeakPtr<syncer_v2::ModelTypeService> GetModelTypeServiceForType(
       syncer::ModelType type) = 0;
 
   // Creates and returns a new ModelSafeWorker for the group, or null if one

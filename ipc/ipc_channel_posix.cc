@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -39,6 +40,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
+#include "build/build_config.h"
 #include "ipc/attachment_broker.h"
 #include "ipc/ipc_descriptors.h"
 #include "ipc/ipc_listener.h"
@@ -544,7 +546,7 @@ base::ScopedFD ChannelPosix::TakeClientFileDescriptor() {
   if (!client_pipe_.is_valid())
     return base::ScopedFD();
   PipeMap::GetInstance()->Remove(pipe_name_);
-  return client_pipe_.Pass();
+  return std::move(client_pipe_);
 }
 
 void ChannelPosix::CloseClientFileDescriptor() {

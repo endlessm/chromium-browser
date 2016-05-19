@@ -4,9 +4,7 @@
 
 #include "chrome/test/base/ui_test_utils.h"
 
-#if defined(OS_WIN)
-#include <windows.h>
-#endif
+#include <stddef.h>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -14,14 +12,15 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_timeouts.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -29,7 +28,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
@@ -48,6 +46,7 @@
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/omnibox_view.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/geolocation_provider.h"
@@ -70,6 +69,10 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "ui/gfx/geometry/rect.h"
+
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
 
 #if defined(USE_AURA)
 #include "ash/shell.h"
@@ -174,8 +177,8 @@ void NavigateToURLWithDispositionBlockUntilNavigationsComplete(
       number_of_navigations);
 
   std::set<Browser*> initial_browsers;
-  for (chrome::BrowserIterator it; !it.done(); it.Next())
-    initial_browsers.insert(*it);
+  for (auto* browser : *BrowserList::GetInstance())
+    initial_browsers.insert(browser);
 
   content::WindowedNotificationObserver tab_added_observer(
       chrome::NOTIFICATION_TAB_ADDED,
@@ -356,9 +359,9 @@ void SendToOmniboxAndSubmit(LocationBar* location_bar,
 }
 
 Browser* GetBrowserNotInSet(const std::set<Browser*>& excluded_browsers) {
-  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
-    if (excluded_browsers.find(*it) == excluded_browsers.end())
-      return *it;
+  for (auto* browser : *BrowserList::GetInstance()) {
+    if (excluded_browsers.find(browser) == excluded_browsers.end())
+      return browser;
   }
   return nullptr;
 }
@@ -443,8 +446,8 @@ BrowserAddedObserver::BrowserAddedObserver()
     : notification_observer_(
           chrome::NOTIFICATION_BROWSER_OPENED,
           content::NotificationService::AllSources()) {
-  for (chrome::BrowserIterator it; !it.done(); it.Next())
-    original_browsers_.insert(*it);
+  for (auto* browser : *BrowserList::GetInstance())
+    original_browsers_.insert(browser);
 }
 
 BrowserAddedObserver::~BrowserAddedObserver() {

@@ -19,8 +19,8 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/time/time.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
@@ -107,11 +107,14 @@ class NativeBackendGnome : public PasswordStoreX::NativeBackend,
       base::Time delete_begin,
       base::Time delete_end,
       password_manager::PasswordStoreChangeList* changes) override;
+  bool DisableAutoSignInForAllLogins(
+      password_manager::PasswordStoreChangeList* changes) override;
   bool GetLogins(const autofill::PasswordForm& form,
                  ScopedVector<autofill::PasswordForm>* forms) override;
   bool GetAutofillableLogins(
       ScopedVector<autofill::PasswordForm>* forms) override;
   bool GetBlacklistLogins(ScopedVector<autofill::PasswordForm>* forms) override;
+  bool GetAllLogins(ScopedVector<autofill::PasswordForm>* forms) override;
 
  private:
   enum TimestampToCompare {
@@ -129,10 +132,6 @@ class NativeBackendGnome : public PasswordStoreX::NativeBackend,
                      ScopedVector<autofill::PasswordForm>* forms)
       WARN_UNUSED_RESULT;
 
-  // Helper for GetLoginsCreatedBetween().
-  bool GetAllLogins(ScopedVector<autofill::PasswordForm>* forms)
-      WARN_UNUSED_RESULT;
-
   // Retrieves password created/synced in the time interval. Returns |true| if
   // the operation succeeded.
   bool GetLoginsBetween(base::Time get_begin,
@@ -147,9 +146,6 @@ class NativeBackendGnome : public PasswordStoreX::NativeBackend,
                            base::Time get_end,
                            TimestampToCompare date_to_compare,
                            password_manager::PasswordStoreChangeList* changes);
-
-  // The local profile id, used to generate the app string.
-  const LocalProfileId profile_id_;
 
   // The app string, possibly based on the local profile id.
   std::string app_string_;

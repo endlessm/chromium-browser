@@ -4,11 +4,14 @@
 
 #include "components/gcm_driver/crypto/gcm_key_store.h"
 
+#include <stddef.h>
+
 #include <utility>
 
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
+#include "components/gcm_driver/crypto/p256_key_util.h"
 #include "components/leveldb_proto/proto_database_impl.h"
-#include "crypto/curve25519.h"
 #include "crypto/random.h"
 
 namespace gcm {
@@ -18,6 +21,10 @@ namespace gcm {
 // synchronize with histograms.xml, AND will also become incompatible with older
 // browsers still reporting the previous values.
 const char kDatabaseUMAClientName[] = "GCMKeyStore";
+
+// Number of cryptographically secure random bytes to generate as a key pair's
+// authentication secret. Must be at least 16 bytes.
+const size_t kAuthSecretBytes = 16;
 
 enum class GCMKeyStore::State {
    UNINITIALIZED,
@@ -47,13 +54,20 @@ void GCMKeyStore::GetKeys(const std::string& app_id,
 void GCMKeyStore::GetKeysAfterInitialize(const std::string& app_id,
                                          const KeysCallback& callback) {
   DCHECK(state_ == State::INITIALIZED || state_ == State::FAILED);
-  const auto iter = key_pairs_.find(app_id);
-  if (iter == key_pairs_.end() || state_ != State::INITIALIZED) {
-    callback.Run(KeyPair());
+  const auto& iter = key_pairs_.find(app_id);
+
+  const bool success = state_ == State::INITIALIZED && iter != key_pairs_.end();
+  UMA_HISTOGRAM_BOOLEAN("GCM.Crypto.GetKeySuccessRate", success);
+
+  if (!success) {
+    callback.Run(KeyPair(), std::string() /* auth_secret */);
     return;
   }
 
-  callback.Run(iter->second);
+  const auto& auth_secret_iter = auth_secrets_.find(app_id);
+  DCHECK(auth_secret_iter != auth_secrets_.end());
+
+  callback.Run(iter->second, auth_secret_iter->second);
 }
 
 void GCMKeyStore::CreateKeys(const std::string& app_id,
@@ -66,30 +80,38 @@ void GCMKeyStore::CreateKeysAfterInitialize(const std::string& app_id,
                                             const KeysCallback& callback) {
   DCHECK(state_ == State::INITIALIZED || state_ == State::FAILED);
   if (state_ != State::INITIALIZED) {
-    callback.Run(KeyPair());
+    callback.Run(KeyPair(), std::string() /* auth_secret */);
     return;
   }
 
   // Only allow creating new keys if no keys currently exist.
   DCHECK_EQ(0u, key_pairs_.count(app_id));
 
-  // Create a Curve25519 private/public key-pair.
-  uint8_t private_key[crypto::curve25519::kScalarBytes];
-  uint8_t public_key[crypto::curve25519::kBytes];
+  std::string private_key, public_key_x509, public_key;
+  if (!CreateP256KeyPair(&private_key, &public_key_x509, &public_key)) {
+    NOTREACHED() << "Unable to initialize a P-256 key pair.";
 
-  crypto::RandBytes(private_key, sizeof(private_key));
+    callback.Run(KeyPair(), std::string() /* auth_secret */);
+    return;
+  }
 
-  // Compute the |public_key| based on the |private_key|.
-  crypto::curve25519::ScalarBaseMult(private_key, public_key);
+  std::string auth_secret;
+
+  // Create the authentication secret, which has to be a cryptographically
+  // secure random number of at least 128 bits (16 bytes).
+  crypto::RandBytes(base::WriteInto(&auth_secret, kAuthSecretBytes + 1),
+                    kAuthSecretBytes);
 
   // Store the keys in a new EncryptionData object.
   EncryptionData encryption_data;
   encryption_data.set_app_id(app_id);
+  encryption_data.set_auth_secret(auth_secret);
 
   KeyPair* pair = encryption_data.add_keys();
-  pair->set_type(KeyPair::ECDH_CURVE_25519);
-  pair->set_private_key(private_key, sizeof(private_key));
-  pair->set_public_key(public_key, sizeof(public_key));
+  pair->set_type(KeyPair::ECDH_P256);
+  pair->set_private_key(private_key);
+  pair->set_public_key_x509(public_key_x509);
+  pair->set_public_key(public_key);
 
   using EntryVectorType =
       leveldb_proto::ProtoDatabase<EncryptionData>::KeyEntryVector;
@@ -101,40 +123,43 @@ void GCMKeyStore::CreateKeysAfterInitialize(const std::string& app_id,
   entries_to_save->push_back(std::make_pair(app_id, encryption_data));
 
   database_->UpdateEntries(
-      entries_to_save.Pass(), keys_to_remove.Pass(),
+      std::move(entries_to_save), std::move(keys_to_remove),
       base::Bind(&GCMKeyStore::DidStoreKeys, weak_factory_.GetWeakPtr(), app_id,
-                 *pair, callback));
+                 *pair, auth_secret, callback));
 }
 
 void GCMKeyStore::DidStoreKeys(const std::string& app_id,
                                const KeyPair& pair,
+                               const std::string& auth_secret,
                                const KeysCallback& callback,
                                bool success) {
+  UMA_HISTOGRAM_BOOLEAN("GCM.Crypto.CreateKeySuccessRate", success);
   DCHECK_EQ(0u, key_pairs_.count(app_id));
 
   if (!success) {
     DVLOG(1) << "Unable to store the created key in the GCM Key Store.";
-    callback.Run(KeyPair());
+    callback.Run(KeyPair(), std::string() /* auth_secret */);
     return;
   }
 
   key_pairs_[app_id] = pair;
+  auth_secrets_[app_id] = auth_secret;
 
-  callback.Run(key_pairs_[app_id]);
+  callback.Run(key_pairs_[app_id], auth_secret);
 }
 
-void GCMKeyStore::DeleteKeys(const std::string& app_id,
-                             const DeleteCallback& callback) {
-  LazyInitialize(base::Bind(&GCMKeyStore::DeleteKeysAfterInitialize,
+void GCMKeyStore::RemoveKeys(const std::string& app_id,
+                             const base::Closure& callback) {
+  LazyInitialize(base::Bind(&GCMKeyStore::RemoveKeysAfterInitialize,
                             weak_factory_.GetWeakPtr(), app_id, callback));
 }
 
-void GCMKeyStore::DeleteKeysAfterInitialize(const std::string& app_id,
-                                            const DeleteCallback& callback) {
+void GCMKeyStore::RemoveKeysAfterInitialize(const std::string& app_id,
+                                            const base::Closure& callback) {
   DCHECK(state_ == State::INITIALIZED || state_ == State::FAILED);
   const auto iter = key_pairs_.find(app_id);
   if (iter == key_pairs_.end() || state_ != State::INITIALIZED) {
-    callback.Run(true /* success */);
+    callback.Run();
     return;
   }
 
@@ -146,23 +171,24 @@ void GCMKeyStore::DeleteKeysAfterInitialize(const std::string& app_id,
       new std::vector<std::string>(1, app_id));
 
   database_->UpdateEntries(
-      entries_to_save.Pass(), keys_to_remove.Pass(),
-      base::Bind(&GCMKeyStore::DidDeleteKeys, weak_factory_.GetWeakPtr(),
+      std::move(entries_to_save), std::move(keys_to_remove),
+      base::Bind(&GCMKeyStore::DidRemoveKeys, weak_factory_.GetWeakPtr(),
                  app_id, callback));
 }
 
-void GCMKeyStore::DidDeleteKeys(const std::string& app_id,
-                                const DeleteCallback& callback,
+void GCMKeyStore::DidRemoveKeys(const std::string& app_id,
+                                const base::Closure& callback,
                                 bool success) {
-  if (!success) {
+  UMA_HISTOGRAM_BOOLEAN("GCM.Crypto.RemoveKeySuccessRate", success);
+
+  if (success) {
+    key_pairs_.erase(app_id);
+    auth_secrets_.erase(app_id);
+  } else {
     DVLOG(1) << "Unable to delete a key from the GCM Key Store.";
-    callback.Run(false /* success */);
-    return;
   }
 
-  key_pairs_.erase(app_id);
-
-  callback.Run(true /* success */);
+  callback.Run();
 }
 
 void GCMKeyStore::LazyInitialize(const base::Closure& done_closure) {
@@ -186,6 +212,7 @@ void GCMKeyStore::LazyInitialize(const base::Closure& done_closure) {
 }
 
 void GCMKeyStore::DidInitialize(bool success) {
+  UMA_HISTOGRAM_BOOLEAN("GCM.Crypto.InitKeyStoreSuccessRate", success);
   if (!success) {
     DVLOG(1) << "Unable to initialize the GCM Key Store.";
     state_ = State::FAILED;
@@ -200,6 +227,7 @@ void GCMKeyStore::DidInitialize(bool success) {
 
 void GCMKeyStore::DidLoadKeys(bool success,
                               scoped_ptr<std::vector<EncryptionData>> entries) {
+  UMA_HISTOGRAM_BOOLEAN("GCM.Crypto.LoadKeyStoreSuccessRate", success);
   if (!success) {
     DVLOG(1) << "Unable to load entries into the GCM Key Store.";
     state_ = State::FAILED;
@@ -210,7 +238,9 @@ void GCMKeyStore::DidLoadKeys(bool success,
 
   for (const EncryptionData& entry : *entries) {
     DCHECK_EQ(1, entry.keys_size());
+
     key_pairs_[entry.app_id()] = entry.keys(0);
+    auth_secrets_[entry.app_id()] = entry.auth_secret();
   }
 
   state_ = State::INITIALIZED;

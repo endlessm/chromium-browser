@@ -5,6 +5,7 @@
 #ifndef CC_BLINK_WEB_DISPLAY_ITEM_LIST_IMPL_H_
 #define CC_BLINK_WEB_DISPLAY_ITEM_LIST_IMPL_H_
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "cc/blink/cc_blink_export.h"
 #include "cc/playback/display_item_list.h"
@@ -22,13 +23,13 @@ class SkPicture;
 class SkRRect;
 
 namespace blink {
-class WebFilterOperations;
 struct WebFloatRect;
 struct WebRect;
 }
 
 namespace cc {
 class DisplayItemListSettings;
+class FilterOperations;
 }
 
 namespace cc_blink {
@@ -65,7 +66,7 @@ class WebDisplayItemListImpl : public blink::WebDisplayItemList {
                              SkColorFilter*) override;
   void appendEndCompositingItem(const blink::WebRect& visual_rect) override;
   void appendFilterItem(const blink::WebRect& visual_rect,
-                        const blink::WebFilterOperations& filters,
+                        const cc::FilterOperations& filters,
                         const blink::WebFloatRect& bounds) override;
   void appendEndFilterItem(const blink::WebRect& visual_rect) override;
   void appendScrollItem(const blink::WebRect& visual_rect,

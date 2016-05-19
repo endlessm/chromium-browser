@@ -4,14 +4,19 @@
 
 #include "cc/raster/one_copy_tile_task_worker_pool.h"
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <limits>
+#include <utility>
 
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_argument.h"
+#include "cc/base/container_util.h"
 #include "cc/base/math_util.h"
 #include "cc/debug/traced_value.h"
 #include "cc/raster/raster_buffer.h"
@@ -158,7 +163,7 @@ void OneCopyTileTaskWorkerPool::StagingBuffer::OnMemoryDump(
                          in_free_list ? buffer_size_in_bytes : 0);
 
   // Emit an ownership edge towards a global allocator dump node.
-  const uint64 tracing_process_id =
+  const uint64_t tracing_process_id =
       base::trace_event::MemoryDumpManager::GetInstance()
           ->GetTracingProcessId();
   base::trace_event::MemoryAllocatorDumpGuid shared_buffer_guid =
@@ -180,11 +185,11 @@ scoped_ptr<TileTaskWorkerPool> OneCopyTileTaskWorkerPool::Create(
     int max_copy_texture_chromium_size,
     bool use_partial_raster,
     int max_staging_buffer_usage_in_bytes,
-    bool use_rgba_4444_texture_format) {
+    ResourceFormat preferred_tile_format) {
   return make_scoped_ptr<TileTaskWorkerPool>(new OneCopyTileTaskWorkerPool(
       task_runner, task_graph_runner, resource_provider,
       max_copy_texture_chromium_size, use_partial_raster,
-      max_staging_buffer_usage_in_bytes, use_rgba_4444_texture_format));
+      max_staging_buffer_usage_in_bytes, preferred_tile_format));
 }
 
 OneCopyTileTaskWorkerPool::OneCopyTileTaskWorkerPool(
@@ -194,7 +199,7 @@ OneCopyTileTaskWorkerPool::OneCopyTileTaskWorkerPool(
     int max_copy_texture_chromium_size,
     bool use_partial_raster,
     int max_staging_buffer_usage_in_bytes,
-    bool use_rgba_4444_texture_format)
+    ResourceFormat preferred_tile_format)
     : task_runner_(task_runner),
       task_graph_runner_(task_graph_runner),
       namespace_token_(task_graph_runner->GetNamespaceToken()),
@@ -207,14 +212,13 @@ OneCopyTileTaskWorkerPool::OneCopyTileTaskWorkerPool(
       use_partial_raster_(use_partial_raster),
       bytes_scheduled_since_last_flush_(0),
       max_staging_buffer_usage_in_bytes_(max_staging_buffer_usage_in_bytes),
-      use_rgba_4444_texture_format_(use_rgba_4444_texture_format),
+      preferred_tile_format_(preferred_tile_format),
       staging_buffer_usage_in_bytes_(0),
       free_staging_buffer_usage_in_bytes_(0),
       staging_buffer_expiration_delay_(
           base::TimeDelta::FromMilliseconds(kStagingBufferExpirationDelayMs)),
       reduce_memory_usage_pending_(false),
-      weak_ptr_factory_(this),
-      task_set_finished_weak_ptr_factory_(this) {
+      weak_ptr_factory_(this) {
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "OneCopyTileTaskWorkerPool", base::ThreadTaskRunnerHandle::Get());
   reduce_memory_usage_callback_ =
@@ -229,10 +233,6 @@ OneCopyTileTaskWorkerPool::~OneCopyTileTaskWorkerPool() {
 
 TileTaskRunner* OneCopyTileTaskWorkerPool::AsTileTaskRunner() {
   return this;
-}
-
-void OneCopyTileTaskWorkerPool::SetClient(TileTaskRunnerClient* client) {
-  client_ = client;
 }
 
 void OneCopyTileTaskWorkerPool::Shutdown() {
@@ -252,59 +252,10 @@ void OneCopyTileTaskWorkerPool::Shutdown() {
   DCHECK_EQ(free_staging_buffer_usage_in_bytes_, 0);
 }
 
-void OneCopyTileTaskWorkerPool::ScheduleTasks(TileTaskQueue* queue) {
+void OneCopyTileTaskWorkerPool::ScheduleTasks(TaskGraph* graph) {
   TRACE_EVENT0("cc", "OneCopyTileTaskWorkerPool::ScheduleTasks");
 
-  if (tasks_pending_.none())
-    TRACE_EVENT_ASYNC_BEGIN0("cc", "ScheduledTasks", this);
-
-  // Mark all task sets as pending.
-  tasks_pending_.set();
-
-  size_t priority = kTileTaskPriorityBase;
-
-  graph_.Reset();
-
-  // Cancel existing OnTaskSetFinished callbacks.
-  task_set_finished_weak_ptr_factory_.InvalidateWeakPtrs();
-
-  scoped_refptr<TileTask> new_task_set_finished_tasks[kNumberOfTaskSets];
-
-  size_t task_count[kNumberOfTaskSets] = {0};
-
-  for (TaskSet task_set = 0; task_set < kNumberOfTaskSets; ++task_set) {
-    new_task_set_finished_tasks[task_set] = CreateTaskSetFinishedTask(
-        task_runner_.get(),
-        base::Bind(&OneCopyTileTaskWorkerPool::OnTaskSetFinished,
-                   task_set_finished_weak_ptr_factory_.GetWeakPtr(), task_set));
-  }
-
-  for (TileTaskQueue::Item::Vector::const_iterator it = queue->items.begin();
-       it != queue->items.end(); ++it) {
-    const TileTaskQueue::Item& item = *it;
-    RasterTask* task = item.task;
-    DCHECK(!task->HasCompleted());
-
-    for (TaskSet task_set = 0; task_set < kNumberOfTaskSets; ++task_set) {
-      if (!item.task_sets[task_set])
-        continue;
-
-      ++task_count[task_set];
-
-      graph_.edges.push_back(
-          TaskGraph::Edge(task, new_task_set_finished_tasks[task_set].get()));
-    }
-
-    InsertNodesForRasterTask(&graph_, task, task->dependencies(), priority++);
-  }
-
-  for (TaskSet task_set = 0; task_set < kNumberOfTaskSets; ++task_set) {
-    InsertNodeForTask(&graph_, new_task_set_finished_tasks[task_set].get(),
-                      kTaskSetFinishedTaskPriorityBase + task_set,
-                      task_count[task_set]);
-  }
-
-  ScheduleTasksOnOriginThread(this, &graph_);
+  ScheduleTasksOnOriginThread(this, graph);
 
   // Barrier to sync any new resources to the worker context.
   resource_provider_->output_surface()
@@ -312,14 +263,7 @@ void OneCopyTileTaskWorkerPool::ScheduleTasks(TileTaskQueue* queue) {
       ->ContextGL()
       ->OrderingBarrierCHROMIUM();
 
-  task_graph_runner_->ScheduleTasks(namespace_token_, &graph_);
-
-  std::copy(new_task_set_finished_tasks,
-            new_task_set_finished_tasks + kNumberOfTaskSets,
-            task_set_finished_tasks_);
-
-  TRACE_EVENT_ASYNC_STEP_INTO1("cc", "ScheduledTasks", this, "running", "state",
-                               StateAsValue());
+  task_graph_runner_->ScheduleTasks(namespace_token_, graph);
 }
 
 void OneCopyTileTaskWorkerPool::CheckForCompletedTasks() {
@@ -341,9 +285,13 @@ void OneCopyTileTaskWorkerPool::CheckForCompletedTasks() {
 
 ResourceFormat OneCopyTileTaskWorkerPool::GetResourceFormat(
     bool must_support_alpha) const {
-  return use_rgba_4444_texture_format_
-             ? RGBA_4444
-             : resource_provider_->best_texture_format();
+  if (resource_provider_->IsResourceFormatSupported(preferred_tile_format_) &&
+      (DoesResourceFormatSupportAlpha(preferred_tile_format_) ||
+       !must_support_alpha)) {
+    return preferred_tile_format_;
+  }
+
+  return resource_provider_->best_texture_format();
 }
 
 bool OneCopyTileTaskWorkerPool::GetResourceRequiresSwizzle(
@@ -370,7 +318,7 @@ void OneCopyTileTaskWorkerPool::ReleaseBufferForRaster(
 
 void OneCopyTileTaskWorkerPool::PlaybackAndCopyOnWorkerThread(
     const Resource* resource,
-    const ResourceProvider::ScopedWriteLockGL* resource_lock,
+    ResourceProvider::ScopedWriteLockGL* resource_lock,
     const DisplayListRasterSource* raster_source,
     const gfx::Rect& raster_full_rect,
     const gfx::Rect& raster_dirty_rect,
@@ -397,9 +345,6 @@ void OneCopyTileTaskWorkerPool::PlaybackAndCopyOnWorkerThread(
                   use_partial_raster_
                       ? gfx::BufferUsage::GPU_READ_CPU_READ_WRITE_PERSISTENT
                       : gfx::BufferUsage::GPU_READ_CPU_READ_WRITE);
-      DCHECK_EQ(gfx::NumberOfPlanesForBufferFormat(
-                    staging_buffer->gpu_memory_buffer->GetFormat()),
-                1u);
     }
 
     gfx::Rect playback_rect = raster_full_rect;
@@ -476,10 +421,9 @@ void OneCopyTileTaskWorkerPool::PlaybackAndCopyOnWorkerThread(
       if (!staging_buffer->query_id)
         gl->GenQueriesEXT(1, &staging_buffer->query_id);
 
-#if defined(OS_CHROMEOS)
-      // TODO(reveman): This avoids a performance problem on some ChromeOS
-      // devices. This needs to be removed to support native GpuMemoryBuffer
-      // implementations. crbug.com/436314
+#if defined(OS_CHROMEOS) && defined(ARCH_CPU_ARM_FAMILY)
+      // TODO(reveman): This avoids a performance problem on ARM ChromeOS
+      // devices. crbug.com/580166
       gl->BeginQueryEXT(GL_COMMANDS_ISSUED_CHROMIUM, staging_buffer->query_id);
 #else
       gl->BeginQueryEXT(GL_COMMANDS_COMPLETED_CHROMIUM,
@@ -487,49 +431,63 @@ void OneCopyTileTaskWorkerPool::PlaybackAndCopyOnWorkerThread(
 #endif
     }
 
-    int bytes_per_row =
-        (BitsPerPixel(resource->format()) * resource->size().width()) / 8;
-    int chunk_size_in_rows =
-        std::max(1, max_bytes_per_copy_operation_ / bytes_per_row);
-    // Align chunk size to 4. Required to support compressed texture formats.
-    chunk_size_in_rows = MathUtil::UncheckedRoundUp(chunk_size_in_rows, 4);
-    int y = 0;
-    int height = resource->size().height();
-    while (y < height) {
-      // Copy at most |chunk_size_in_rows|.
-      int rows_to_copy = std::min(chunk_size_in_rows, height - y);
-      DCHECK_GT(rows_to_copy, 0);
+    // Since compressed texture's cannot be pre-allocated we might have an
+    // unallocated resource in which case we need to perform a full size copy.
+    if (IsResourceFormatCompressed(resource->format())) {
+      gl->CompressedCopyTextureCHROMIUM(staging_buffer->texture_id,
+                                        resource_lock->texture_id());
+    } else {
+      int bytes_per_row =
+          (BitsPerPixel(resource->format()) * resource->size().width()) / 8;
+      int chunk_size_in_rows =
+          std::max(1, max_bytes_per_copy_operation_ / bytes_per_row);
+      // Align chunk size to 4. Required to support compressed texture formats.
+      chunk_size_in_rows = MathUtil::UncheckedRoundUp(chunk_size_in_rows, 4);
+      int y = 0;
+      int height = resource->size().height();
+      while (y < height) {
+        // Copy at most |chunk_size_in_rows|.
+        int rows_to_copy = std::min(chunk_size_in_rows, height - y);
+        DCHECK_GT(rows_to_copy, 0);
 
-      gl->CopySubTextureCHROMIUM(GL_TEXTURE_2D, staging_buffer->texture_id,
-                                 resource_lock->texture_id(), 0, y, 0, y,
-                                 resource->size().width(), rows_to_copy, false,
-                                 false, false);
-      y += rows_to_copy;
+        gl->CopySubTextureCHROMIUM(
+            staging_buffer->texture_id, resource_lock->texture_id(), 0, y, 0, y,
+            resource->size().width(), rows_to_copy, false, false, false);
+        y += rows_to_copy;
 
-      // Increment |bytes_scheduled_since_last_flush_| by the amount of memory
-      // used for this copy operation.
-      bytes_scheduled_since_last_flush_ += rows_to_copy * bytes_per_row;
+        // Increment |bytes_scheduled_since_last_flush_| by the amount of memory
+        // used for this copy operation.
+        bytes_scheduled_since_last_flush_ += rows_to_copy * bytes_per_row;
 
-      if (bytes_scheduled_since_last_flush_ >= max_bytes_per_copy_operation_) {
-        gl->ShallowFlushCHROMIUM();
-        bytes_scheduled_since_last_flush_ = 0;
+        if (bytes_scheduled_since_last_flush_ >=
+            max_bytes_per_copy_operation_) {
+          gl->ShallowFlushCHROMIUM();
+          bytes_scheduled_since_last_flush_ = 0;
+        }
       }
     }
 
     if (resource_provider_->use_sync_query()) {
-#if defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS) && defined(ARCH_CPU_ARM_FAMILY)
       gl->EndQueryEXT(GL_COMMANDS_ISSUED_CHROMIUM);
 #else
       gl->EndQueryEXT(GL_COMMANDS_COMPLETED_CHROMIUM);
 #endif
     }
 
+    const uint64_t fence_sync = gl->InsertFenceSyncCHROMIUM();
+
     // Barrier to sync worker context output to cc context.
     gl->OrderingBarrierCHROMIUM();
+
+    // Generate sync token after the barrier for cross context synchronization.
+    gpu::SyncToken sync_token;
+    gl->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+    resource_lock->UpdateResourceSyncToken(sync_token);
   }
 
   staging_buffer->last_usage = base::TimeTicks::Now();
-  busy_buffers_.push_back(staging_buffer.Pass());
+  busy_buffers_.push_back(std::move(staging_buffer));
 
   ScheduleReduceMemoryUsage();
 }
@@ -539,10 +497,14 @@ bool OneCopyTileTaskWorkerPool::OnMemoryDump(
     base::trace_event::ProcessMemoryDump* pmd) {
   base::AutoLock lock(lock_);
 
-  for (const auto& buffer : buffers_) {
+  for (const auto* buffer : buffers_) {
+    auto in_free_buffers =
+        std::find_if(free_buffers_.begin(), free_buffers_.end(),
+                     [buffer](const scoped_ptr<StagingBuffer>& b) {
+                       return b.get() == buffer;
+                     });
     buffer->OnMemoryDump(pmd, buffer->format,
-                         std::find(free_buffers_.begin(), free_buffers_.end(),
-                                   buffer) != free_buffers_.end());
+                         in_free_buffers != free_buffers_.end());
   }
 
   return true;
@@ -613,8 +575,8 @@ OneCopyTileTaskWorkerPool::AcquireStagingBuffer(const Resource* resource,
       if (!CheckForQueryResult(gl, busy_buffers_.front()->query_id))
         break;
 
-      MarkStagingBufferAsFree(busy_buffers_.front());
-      free_buffers_.push_back(busy_buffers_.take_front());
+      MarkStagingBufferAsFree(busy_buffers_.front().get());
+      free_buffers_.push_back(PopFront(&busy_buffers_));
     }
   }
 
@@ -628,14 +590,14 @@ OneCopyTileTaskWorkerPool::AcquireStagingBuffer(const Resource* resource,
 
     if (resource_provider_->use_sync_query()) {
       WaitForQueryResult(gl, busy_buffers_.front()->query_id);
-      MarkStagingBufferAsFree(busy_buffers_.front());
-      free_buffers_.push_back(busy_buffers_.take_front());
+      MarkStagingBufferAsFree(busy_buffers_.front().get());
+      free_buffers_.push_back(PopFront(&busy_buffers_));
     } else {
       // Fall-back to glFinish if CHROMIUM_sync_query is not available.
       gl->Finish();
       while (!busy_buffers_.empty()) {
-        MarkStagingBufferAsFree(busy_buffers_.front());
-        free_buffers_.push_back(busy_buffers_.take_front());
+        MarkStagingBufferAsFree(busy_buffers_.front().get());
+        free_buffers_.push_back(PopFront(&busy_buffers_));
       }
     }
   }
@@ -643,13 +605,14 @@ OneCopyTileTaskWorkerPool::AcquireStagingBuffer(const Resource* resource,
   // Find a staging buffer that allows us to perform partial raster when
   // using persistent GpuMemoryBuffers.
   if (use_partial_raster_ && previous_content_id) {
-    StagingBufferDeque::iterator it =
-        std::find_if(free_buffers_.begin(), free_buffers_.end(),
-                     [previous_content_id](const StagingBuffer* buffer) {
-                       return buffer->content_id == previous_content_id;
-                     });
+    StagingBufferDeque::iterator it = std::find_if(
+        free_buffers_.begin(), free_buffers_.end(),
+        [previous_content_id](const scoped_ptr<StagingBuffer>& buffer) {
+          return buffer->content_id == previous_content_id;
+        });
     if (it != free_buffers_.end()) {
-      staging_buffer = free_buffers_.take(it);
+      staging_buffer = std::move(*it);
+      free_buffers_.erase(it);
       MarkStagingBufferAsBusy(staging_buffer.get());
     }
   }
@@ -658,12 +621,13 @@ OneCopyTileTaskWorkerPool::AcquireStagingBuffer(const Resource* resource,
   if (!staging_buffer) {
     StagingBufferDeque::iterator it =
         std::find_if(free_buffers_.begin(), free_buffers_.end(),
-                     [resource](const StagingBuffer* buffer) {
+                     [resource](const scoped_ptr<StagingBuffer>& buffer) {
                        return buffer->size == resource->size() &&
                               buffer->format == resource->format();
                      });
     if (it != free_buffers_.end()) {
-      staging_buffer = free_buffers_.take(it);
+      staging_buffer = std::move(*it);
+      free_buffers_.erase(it);
       MarkStagingBufferAsBusy(staging_buffer.get());
     }
   }
@@ -681,12 +645,12 @@ OneCopyTileTaskWorkerPool::AcquireStagingBuffer(const Resource* resource,
       break;
 
     free_buffers_.front()->DestroyGLResources(gl);
-    MarkStagingBufferAsBusy(free_buffers_.front());
-    RemoveStagingBuffer(free_buffers_.front());
-    free_buffers_.take_front();
+    MarkStagingBufferAsBusy(free_buffers_.front().get());
+    RemoveStagingBuffer(free_buffers_.front().get());
+    free_buffers_.pop_front();
   }
 
-  return staging_buffer.Pass();
+  return staging_buffer;
 }
 
 base::TimeTicks OneCopyTileTaskWorkerPool::GetUsageTimeForLRUBuffer() {
@@ -763,9 +727,9 @@ void OneCopyTileTaskWorkerPool::ReleaseBuffersNotUsedSince(
         return;
 
       free_buffers_.front()->DestroyGLResources(gl);
-      MarkStagingBufferAsBusy(free_buffers_.front());
-      RemoveStagingBuffer(free_buffers_.front());
-      free_buffers_.take_front();
+      MarkStagingBufferAsBusy(free_buffers_.front().get());
+      RemoveStagingBuffer(free_buffers_.front().get());
+      free_buffers_.pop_front();
     }
 
     while (!busy_buffers_.empty()) {
@@ -773,53 +737,10 @@ void OneCopyTileTaskWorkerPool::ReleaseBuffersNotUsedSince(
         return;
 
       busy_buffers_.front()->DestroyGLResources(gl);
-      RemoveStagingBuffer(busy_buffers_.front());
-      busy_buffers_.take_front();
+      RemoveStagingBuffer(busy_buffers_.front().get());
+      busy_buffers_.pop_front();
     }
   }
-}
-
-void OneCopyTileTaskWorkerPool::OnTaskSetFinished(TaskSet task_set) {
-  TRACE_EVENT1("cc", "OneCopyTileTaskWorkerPool::OnTaskSetFinished", "task_set",
-               task_set);
-
-  DCHECK(tasks_pending_[task_set]);
-  tasks_pending_[task_set] = false;
-  if (tasks_pending_.any()) {
-    TRACE_EVENT_ASYNC_STEP_INTO1("cc", "ScheduledTasks", this, "running",
-                                 "state", StateAsValue());
-  } else {
-    TRACE_EVENT_ASYNC_END0("cc", "ScheduledTasks", this);
-  }
-  client_->DidFinishRunningTileTasks(task_set);
-}
-
-scoped_refptr<base::trace_event::ConvertableToTraceFormat>
-OneCopyTileTaskWorkerPool::StateAsValue() const {
-  scoped_refptr<base::trace_event::TracedValue> state =
-      new base::trace_event::TracedValue();
-
-  state->BeginArray("tasks_pending");
-  for (TaskSet task_set = 0; task_set < kNumberOfTaskSets; ++task_set)
-    state->AppendBoolean(tasks_pending_[task_set]);
-  state->EndArray();
-  state->BeginDictionary("staging_state");
-  StagingStateAsValueInto(state.get());
-  state->EndDictionary();
-
-  return state;
-}
-
-void OneCopyTileTaskWorkerPool::StagingStateAsValueInto(
-    base::trace_event::TracedValue* staging_state) const {
-  base::AutoLock lock(lock_);
-
-  staging_state->SetInteger("staging_buffer_count",
-                            static_cast<int>(buffers_.size()));
-  staging_state->SetInteger("busy_count",
-                            static_cast<int>(busy_buffers_.size()));
-  staging_state->SetInteger("free_count",
-                            static_cast<int>(free_buffers_.size()));
 }
 
 }  // namespace cc

@@ -4,17 +4,35 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_FontMap.h"
+#include "fpdfsdk/include/pdfwindow/PWL_FontMap.h"
 
-#define DEFAULT_FONT_NAME "Helvetica"
+#include "core/include/fpdfapi/fpdf_module.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
-/* ------------------------------ CPWL_FontMap ------------------------------ */
+namespace {
+
+const char kDefaultFontName[] = "Helvetica";
+
+const char* const g_sDEStandardFontName[] = {"Courier",
+                                             "Courier-Bold",
+                                             "Courier-BoldOblique",
+                                             "Courier-Oblique",
+                                             "Helvetica",
+                                             "Helvetica-Bold",
+                                             "Helvetica-BoldOblique",
+                                             "Helvetica-Oblique",
+                                             "Times-Roman",
+                                             "Times-Bold",
+                                             "Times-Italic",
+                                             "Times-BoldItalic",
+                                             "Symbol",
+                                             "ZapfDingbats"};
+
+}  // namespace
 
 CPWL_FontMap::CPWL_FontMap(IFX_SystemHandler* pSystemHandler)
     : m_pPDFDoc(NULL), m_pSystemHandler(pSystemHandler) {
-  ASSERT(m_pSystemHandler != NULL);
+  ASSERT(m_pSystemHandler);
 }
 
 CPWL_FontMap::~CPWL_FontMap() {
@@ -151,40 +169,12 @@ void CPWL_FontMap::Empty() {
   }
 }
 
-void CPWL_FontMap::Initial(const FX_CHAR* fontname) {
-  CFX_ByteString sFontName = fontname;
-
-  if (sFontName.IsEmpty())
-    sFontName = DEFAULT_FONT_NAME;
-
-  GetFontIndex(sFontName, ANSI_CHARSET, FALSE);
+void CPWL_FontMap::Initialize() {
+  GetFontIndex(kDefaultFontName, ANSI_CHARSET, FALSE);
 }
 
-/*
-List of currently supported standard fonts:
-Courier, Courier-Bold, Courier-BoldOblique, Courier-Oblique
-Helvetica, Helvetica-Bold, Helvetica-BoldOblique, Helvetica-Oblique
-Times-Roman, Times-Bold, Times-Italic, Times-BoldItalic
-Symbol, ZapfDingbats
-*/
-
-const char* g_sDEStandardFontName[] = {"Courier",
-                                       "Courier-Bold",
-                                       "Courier-BoldOblique",
-                                       "Courier-Oblique",
-                                       "Helvetica",
-                                       "Helvetica-Bold",
-                                       "Helvetica-BoldOblique",
-                                       "Helvetica-Oblique",
-                                       "Times-Roman",
-                                       "Times-Bold",
-                                       "Times-Italic",
-                                       "Times-BoldItalic",
-                                       "Symbol",
-                                       "ZapfDingbats"};
-
 FX_BOOL CPWL_FontMap::IsStandardFont(const CFX_ByteString& sFontName) {
-  for (int32_t i = 0; i < 14; i++) {
+  for (int32_t i = 0; i < FX_ArraySize(g_sDEStandardFontName); ++i) {
     if (sFontName == g_sDEStandardFontName[i])
       return TRUE;
   }
@@ -243,13 +233,6 @@ int32_t CPWL_FontMap::GetPWLFontIndex(FX_WORD word, int32_t nCharset) {
 
   if (!pNewFont)
     return -1;
-
-  /*
-  if (CPDF_Font* pFont = GetPDFFont(nFind))
-  {
-      PWLFont.AddWordToFontDict(pFontDict, word);
-  }
-  */
 
   CFX_ByteString sAlias = EncodeFontAlias("Arial_Chrome", nCharset);
   AddedFont(pNewFont, sAlias);
@@ -318,9 +301,9 @@ CPDF_Font* CPWL_FontMap::AddStandardFont(CPDF_Document* pDoc,
 
   CPDF_Font* pFont = NULL;
 
-  if (sFontName == "ZapfDingbats")
+  if (sFontName == "ZapfDingbats") {
     pFont = pDoc->AddStandardFont(sFontName, NULL);
-  else {
+  } else {
     CPDF_FontEncoding fe(PDFFONT_ENCODING_WINANSI);
     pFont = pDoc->AddStandardFont(sFontName, &fe);
   }
@@ -503,8 +486,6 @@ int32_t CPWL_FontMap::CharSetFromUnicode(FX_WORD word, int32_t nOldCharset) {
 
   return ANSI_CHARSET;
 }
-
-/* ------------------------ CPWL_DocFontMap ------------------------ */
 
 CPWL_DocFontMap::CPWL_DocFontMap(IFX_SystemHandler* pSystemHandler,
                                  CPDF_Document* pAttachedDoc)

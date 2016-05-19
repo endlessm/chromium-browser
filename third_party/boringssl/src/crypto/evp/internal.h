@@ -86,18 +86,36 @@ typedef enum {
 
 struct evp_pkey_asn1_method_st {
   int pkey_id;
-  int pkey_base_id;
   unsigned long pkey_flags;
 
   const char *pem_str;
 
-  int (*pub_decode)(EVP_PKEY *pk, X509_PUBKEY *pub);
-  int (*pub_encode)(X509_PUBKEY *pub, const EVP_PKEY *pk);
+  /* pub_decode decodes |params| and |key| as a SubjectPublicKeyInfo
+   * and writes the result into |out|. It returns one on success and zero on
+   * error. |params| is the AlgorithmIdentifier after the OBJECT IDENTIFIER
+   * type field, and |key| is the contents of the subjectPublicKey with the
+   * leading padding byte checked and removed. Although X.509 uses BIT STRINGs
+   * to represent SubjectPublicKeyInfo, every key type defined encodes the key
+   * as a byte string with the same conversion to BIT STRING. */
+  int (*pub_decode)(EVP_PKEY *out, CBS *params, CBS *key);
+
+  /* pub_encode encodes |key| as a SubjectPublicKeyInfo and appends the result
+   * to |out|. It returns one on success and zero on error. */
+  int (*pub_encode)(CBB *out, const EVP_PKEY *key);
+
   int (*pub_cmp)(const EVP_PKEY *a, const EVP_PKEY *b);
   int (*pub_print)(BIO *out, const EVP_PKEY *pkey, int indent, ASN1_PCTX *pctx);
 
-  int (*priv_decode)(EVP_PKEY *pk, PKCS8_PRIV_KEY_INFO *p8inf);
-  int (*priv_encode)(PKCS8_PRIV_KEY_INFO *p8, const EVP_PKEY *pk);
+  /* priv_decode decodes |params| and |key| as a PrivateKeyInfo and writes the
+   * result into |out|. It returns one on success and zero on error. |params| is
+   * the AlgorithmIdentifier after the OBJECT IDENTIFIER type field, and |key|
+   * is the contents of the OCTET STRING privateKey field. */
+  int (*priv_decode)(EVP_PKEY *out, CBS *params, CBS *key);
+
+  /* priv_encode encodes |key| as a PrivateKeyInfo and appends the result to
+   * |out|. It returns one on success and zero on error. */
+  int (*priv_encode)(CBB *out, const EVP_PKEY *key);
+
   int (*priv_print)(BIO *out, const EVP_PKEY *pkey, int indent,
                     ASN1_PCTX *pctx);
 
@@ -114,8 +132,6 @@ struct evp_pkey_asn1_method_st {
   int (*pkey_size)(const EVP_PKEY *pk);
   int (*pkey_bits)(const EVP_PKEY *pk);
 
-  int (*param_decode)(EVP_PKEY *pkey, const uint8_t **pder, int derlen);
-  int (*param_encode)(const EVP_PKEY *pkey, uint8_t **pder);
   int (*param_missing)(const EVP_PKEY *pk);
   int (*param_copy)(EVP_PKEY *to, const EVP_PKEY *from);
   int (*param_cmp)(const EVP_PKEY *a, const EVP_PKEY *b);
@@ -131,7 +147,6 @@ struct evp_pkey_asn1_method_st {
 
   int (*old_priv_decode)(EVP_PKEY *pkey, const uint8_t **pder,
                          int derlen);
-  int (*old_priv_encode)(const EVP_PKEY *pkey, uint8_t **pder);
 
   /* Converting parameters to/from AlgorithmIdentifier (X509_ALGOR). */
   int (*digest_verify_init_from_algorithm)(EVP_MD_CTX *ctx,
@@ -144,10 +159,7 @@ struct evp_pkey_asn1_method_st {
 } /* EVP_PKEY_ASN1_METHOD */;
 
 
-typedef int EVP_PKEY_gen_cb(EVP_PKEY_CTX *ctx);
-
 #define EVP_PKEY_OP_UNDEFINED 0
-#define EVP_PKEY_OP_PARAMGEN (1 << 1)
 #define EVP_PKEY_OP_KEYGEN (1 << 2)
 #define EVP_PKEY_OP_SIGN (1 << 3)
 #define EVP_PKEY_OP_VERIFY (1 << 4)
@@ -156,7 +168,7 @@ typedef int EVP_PKEY_gen_cb(EVP_PKEY_CTX *ctx);
 #define EVP_PKEY_OP_DECRYPT (1 << 7)
 #define EVP_PKEY_OP_DERIVE (1 << 8)
 
-#define EVP_PKEY_OP_TYPE_SIG                                           \
+#define EVP_PKEY_OP_TYPE_SIG \
   (EVP_PKEY_OP_SIGN | EVP_PKEY_OP_VERIFY | EVP_PKEY_OP_VERIFYRECOVER)
 
 #define EVP_PKEY_OP_TYPE_CRYPT (EVP_PKEY_OP_ENCRYPT | EVP_PKEY_OP_DECRYPT)
@@ -164,7 +176,7 @@ typedef int EVP_PKEY_gen_cb(EVP_PKEY_CTX *ctx);
 #define EVP_PKEY_OP_TYPE_NOGEN \
   (EVP_PKEY_OP_SIG | EVP_PKEY_OP_CRYPT | EVP_PKEY_OP_DERIVE)
 
-#define EVP_PKEY_OP_TYPE_GEN (EVP_PKEY_OP_PARAMGEN | EVP_PKEY_OP_KEYGEN)
+#define EVP_PKEY_OP_TYPE_GEN EVP_PKEY_OP_KEYGEN
 
 /* EVP_PKEY_CTX_ctrl performs |cmd| on |ctx|. The |keytype| and |optype|
  * arguments can be -1 to specify that any type and operation are acceptable,
@@ -208,8 +220,6 @@ OPENSSL_EXPORT int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype,
 #define EVP_PKEY_CTRL_RSA_OAEP_LABEL (EVP_PKEY_ALG_CTRL + 11)
 #define EVP_PKEY_CTRL_GET_RSA_OAEP_LABEL (EVP_PKEY_ALG_CTRL + 12)
 
-#define EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID (EVP_PKEY_ALG_CTRL + 1)
-
 struct evp_pkey_ctx_st {
   /* Method associated with this operation */
   const EVP_PKEY_METHOD *pmeth;
@@ -223,45 +233,43 @@ struct evp_pkey_ctx_st {
   int operation;
   /* Algorithm specific data */
   void *data;
-  /* Application specific data */
-  void *app_data;
 } /* EVP_PKEY_CTX */;
 
 struct evp_pkey_method_st {
   int pkey_id;
-  int flags;
 
   int (*init)(EVP_PKEY_CTX *ctx);
   int (*copy)(EVP_PKEY_CTX *dst, EVP_PKEY_CTX *src);
   void (*cleanup)(EVP_PKEY_CTX *ctx);
 
-  int (*paramgen_init)(EVP_PKEY_CTX *ctx);
-  int (*paramgen)(EVP_PKEY_CTX *ctx, EVP_PKEY *pkey);
-
-  int (*keygen_init)(EVP_PKEY_CTX *ctx);
   int (*keygen)(EVP_PKEY_CTX *ctx, EVP_PKEY *pkey);
 
-  int (*sign_init)(EVP_PKEY_CTX *ctx);
   int (*sign)(EVP_PKEY_CTX *ctx, uint8_t *sig, size_t *siglen,
               const uint8_t *tbs, size_t tbslen);
 
-  int (*verify_init)(EVP_PKEY_CTX *ctx);
   int (*verify)(EVP_PKEY_CTX *ctx, const uint8_t *sig, size_t siglen,
                 const uint8_t *tbs, size_t tbslen);
 
-  int (*encrypt_init)(EVP_PKEY_CTX *ctx);
+  int (*verify_recover)(EVP_PKEY_CTX *ctx, uint8_t *out, size_t *out_len,
+                        const uint8_t *sig, size_t sig_len);
+
   int (*encrypt)(EVP_PKEY_CTX *ctx, uint8_t *out, size_t *outlen,
                  const uint8_t *in, size_t inlen);
 
-  int (*decrypt_init)(EVP_PKEY_CTX *ctx);
   int (*decrypt)(EVP_PKEY_CTX *ctx, uint8_t *out, size_t *outlen,
                  const uint8_t *in, size_t inlen);
 
-  int (*derive_init)(EVP_PKEY_CTX *ctx);
   int (*derive)(EVP_PKEY_CTX *ctx, uint8_t *key, size_t *keylen);
 
   int (*ctrl)(EVP_PKEY_CTX *ctx, int type, int p1, void *p2);
 } /* EVP_PKEY_METHOD */;
+
+extern const EVP_PKEY_ASN1_METHOD dsa_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD ec_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD rsa_asn1_meth;
+
+extern const EVP_PKEY_METHOD rsa_pkey_meth;
+extern const EVP_PKEY_METHOD ec_pkey_meth;
 
 
 #if defined(__cplusplus)

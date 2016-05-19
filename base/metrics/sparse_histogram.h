@@ -5,13 +5,16 @@
 #ifndef BASE_METRICS_SPARSE_HISTOGRAM_H_
 #define BASE_METRICS_SPARSE_HISTOGRAM_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <string>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/sample_map.h"
@@ -19,6 +22,27 @@
 
 namespace base {
 
+// Sparse histograms are well suited for recording counts of exact sample values
+// that are sparsely distributed over a large range.
+//
+// The implementation uses a lock and a map, whereas other histogram types use a
+// vector and no lock. It is thus more costly to add values to, and each value
+// stored has more overhead, compared to the other histogram types. However it
+// may be more efficient in memory if the total number of sample values is small
+// compared to the range of their values.
+//
+// UMA_HISTOGRAM_ENUMERATION would be better suited for a smaller range of
+// enumerations that are (nearly) contiguous. Also for code that is expected to
+// run often or in a tight loop.
+//
+// UMA_HISTOGRAM_SPARSE_SLOWLY is good for sparsely distributed and or
+// infrequently recorded values.
+//
+// For instance, Sqlite.Version.* are SPARSE because for any given database,
+// there's going to be exactly one version logged, meaning no gain to having a
+// pre-allocated vector of slots once the fleet gets to version 4 or 5 or 10.
+// Likewise Sqlite.Error.* are SPARSE, because most databases generate few or no
+// errors and there are large gaps in the set of possible errors.
 #define UMA_HISTOGRAM_SPARSE_SLOWLY(name, sample) \
     do { \
       base::HistogramBase* histogram = base::SparseHistogram::FactoryGet( \
@@ -32,20 +56,22 @@ class BASE_EXPORT SparseHistogram : public HistogramBase {
  public:
   // If there's one with same name, return the existing one. If not, create a
   // new one.
-  static HistogramBase* FactoryGet(const std::string& name, int32 flags);
+  static HistogramBase* FactoryGet(const std::string& name, int32_t flags);
 
   ~SparseHistogram() override;
 
   // HistogramBase implementation:
+  uint64_t name_hash() const override;
   HistogramType GetHistogramType() const override;
   bool HasConstructionArguments(Sample expected_minimum,
                                 Sample expected_maximum,
-                                size_t expected_bucket_count) const override;
+                                uint32_t expected_bucket_count) const override;
   void Add(Sample value) override;
   void AddCount(Sample value, int count) override;
   void AddSamples(const HistogramSamples& samples) override;
   bool AddSamplesFromPickle(base::PickleIterator* iter) override;
   scoped_ptr<HistogramSamples> SnapshotSamples() const override;
+  scoped_ptr<HistogramSamples> SnapshotDelta() override;
   void WriteHTMLGraph(std::string* output) const override;
   void WriteAscii(std::string* output) const override;
 
@@ -63,7 +89,7 @@ class BASE_EXPORT SparseHistogram : public HistogramBase {
 
   void GetParameters(DictionaryValue* params) const override;
   void GetCountAndBucketData(Count* count,
-                             int64* sum,
+                             int64_t* sum,
                              ListValue* buckets) const override;
 
   // Helpers for emitting Ascii graphic.  Each method appends data to output.
@@ -82,6 +108,7 @@ class BASE_EXPORT SparseHistogram : public HistogramBase {
   mutable base::Lock lock_;
 
   SampleMap samples_;
+  SampleMap logged_samples_;
 
   DISALLOW_COPY_AND_ASSIGN(SparseHistogram);
 };

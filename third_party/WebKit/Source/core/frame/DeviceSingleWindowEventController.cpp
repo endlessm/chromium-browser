@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/DeviceSingleWindowEventController.h"
 
 #include "core/dom/Document.h"
@@ -50,7 +49,7 @@ void DeviceSingleWindowEventController::didAddEventListener(LocalDOMWindow* wind
     if (eventType != eventTypeName())
         return;
 
-    if (page() && page()->visibilityState() == PageVisibilityStateVisible)
+    if (page() && page()->isPageVisible())
         startUpdating();
 
     m_hasEventListener = true;

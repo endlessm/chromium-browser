@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "platform/testing/URLTestHelpers.h"
 #include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
@@ -44,10 +42,10 @@
 #include "public/web/WebFrame.h"
 #include "public/web/WebURLLoaderOptions.h"
 #include "public/web/WebView.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/tests/FrameTestHelpers.h"
 #include "wtf/text/CString.h"
 #include "wtf/text/WTFString.h"
-#include <gtest/gtest.h>
 
 using blink::URLTestHelpers::toKURL;
 using blink::testing::runPendingTasks;
@@ -67,7 +65,7 @@ public:
         ,  m_didFail(false)
     {
         // Reuse one of the test files from WebFrameTest.
-        m_baseFilePath = Platform::current()->unitTestSupport()->webKitRootDir();
+        m_baseFilePath = testing::blinkRootDir();
         m_baseFilePath.append("/Source/web/tests/data/");
         m_frameFilePath = m_baseFilePath;
         m_frameFilePath.append("iframes_test.html");
@@ -96,7 +94,7 @@ public:
             "visible_iframe.html",
             "zero_sized_iframe.html",
         };
-        for (size_t i = 0; i < arraysize(iframeSupportFiles); ++i) {
+        for (size_t i = 0; i < WTF_ARRAY_LENGTH(iframeSupportFiles); ++i) {
             RegisterMockedUrl(urlRoot, iframeSupportFiles[i]);
         }
 

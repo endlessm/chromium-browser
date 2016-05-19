@@ -4,9 +4,11 @@
 
 #include "chrome/browser/safe_browsing/protocol_manager.h"
 
+#include <utility>
+
 #include "base/environment.h"
 #include "base/logging.h"
-#include "base/memory/scoped_vector.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/profiler/scoped_tracker.h"
@@ -88,7 +90,8 @@ static const int kSbMaxUpdateWaitSec = 30;
 // Maximum back off multiplier.
 static const size_t kSbMaxBackOff = 8;
 
-const char kUmaHashResponseMetricName[] = "SB2.GetHashResponseOrErrorCode";
+const char kGetHashUmaResponseMetricName[] = "SB2.GetHashResponseOrErrorCode";
+const char kGetChunkUmaResponseMetricName[] = "SB2.GetChunkResponseOrErrorCode";
 
 // The default SBProtocolManagerFactory.
 class SBProtocolManagerFactoryImpl : public SBProtocolManagerFactory {
@@ -148,8 +151,7 @@ SafeBrowsingProtocolManager::SafeBrowsingProtocolManager(
       url_prefix_(config.url_prefix),
       backup_update_reason_(BACKUP_UPDATE_REASON_MAX),
       disable_auto_update_(config.disable_auto_update),
-      url_fetcher_id_(0),
-      app_in_foreground_(true) {
+      url_fetcher_id_(0) {
   DCHECK(!url_prefix_.empty());
 
   backup_url_prefixes_[BACKUP_UPDATE_REASON_CONNECT] =
@@ -255,11 +257,13 @@ void SafeBrowsingProtocolManager::OnURLFetchComplete(
   HashRequests::iterator it = hash_requests_.find(source);
   int response_code = source->GetResponseCode();
   net::URLRequestStatus status = source->GetStatus();
-  RecordHttpResponseOrErrorCode(kUmaHashResponseMetricName, status,
-                                response_code);
+
   if (it != hash_requests_.end()) {
     // GetHash response.
+    // Reset the scoped pointer so the fetcher gets destroyed properly.
     fetcher.reset(it->first);
+    RecordHttpResponseOrErrorCode(kGetHashUmaResponseMetricName, status,
+                                  response_code);
     const FullHashDetails& details = it->second;
     std::vector<SBFullHashResult> full_hashes;
     base::TimeDelta cache_lifetime;
@@ -304,6 +308,8 @@ void SafeBrowsingProtocolManager::OnURLFetchComplete(
     hash_requests_.erase(it);
   } else {
     // Update or chunk response.
+    RecordHttpResponseOrErrorCode(kGetChunkUmaResponseMetricName, status,
+                                  response_code);
     fetcher.reset(request_.release());
 
     if (request_type_ == UPDATE_REQUEST ||
@@ -394,10 +400,10 @@ void SafeBrowsingProtocolManager::OnURLFetchComplete(
       }
       UpdateFinished(false);
     }
-  }
 
-  // Get the next chunk if available.
-  IssueChunkRequest();
+    // Get the next chunk if available.
+    IssueChunkRequest();
+  }
 }
 
 bool SafeBrowsingProtocolManager::HandleServiceResponse(const GURL& url,
@@ -448,7 +454,7 @@ bool SafeBrowsingProtocolManager::HandleServiceResponse(const GURL& url,
 
       // Chunks to delete from our storage.
       if (!chunk_deletes->empty())
-        delegate_->DeleteChunks(chunk_deletes.Pass());
+        delegate_->DeleteChunks(std::move(chunk_deletes));
 
       break;
     }
@@ -457,8 +463,8 @@ bool SafeBrowsingProtocolManager::HandleServiceResponse(const GURL& url,
                           base::Time::Now() - chunk_request_start_);
 
       const ChunkUrl chunk_url = chunk_request_urls_.front();
-      scoped_ptr<ScopedVector<SBChunkData>> chunks(
-          new ScopedVector<SBChunkData>);
+      scoped_ptr<std::vector<scoped_ptr<SBChunkData>>> chunks(
+          new std::vector<scoped_ptr<SBChunkData>>);
       UMA_HISTOGRAM_COUNTS("SB2.ChunkSize", length);
       update_size_ += length;
       if (!ParseChunk(data, length, chunks.get()))
@@ -468,7 +474,7 @@ bool SafeBrowsingProtocolManager::HandleServiceResponse(const GURL& url,
       if (!chunks->empty()) {
         chunk_pending_to_write_ = true;
         delegate_->AddChunks(
-            chunk_url.list_name, chunks.Pass(),
+            chunk_url.list_name, std::move(chunks),
             base::Bind(&SafeBrowsingProtocolManager::OnAddChunksComplete,
                        base::Unretained(this)));
       }
@@ -793,6 +799,9 @@ SafeBrowsingProtocolManager::FullHashDetails::FullHashDetails(
     FullHashCallback callback,
     bool is_download)
     : callback(callback), is_download(is_download) {}
+
+SafeBrowsingProtocolManager::FullHashDetails::FullHashDetails(
+    const FullHashDetails& other) = default;
 
 SafeBrowsingProtocolManager::FullHashDetails::~FullHashDetails() {}
 

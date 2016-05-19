@@ -7,11 +7,12 @@
 
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_vector.h"
 #include "base/scoped_observer.h"
 #include "extensions/browser/api/declarative/rules_registry.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
@@ -43,9 +44,8 @@ class RulesRegistryService : public BrowserContextKeyedAPI,
     RulesRegistryKey(const std::string& event_name, int rules_registry_id)
         : event_name(event_name), rules_registry_id(rules_registry_id) {}
     bool operator<(const RulesRegistryKey& other) const {
-      return (event_name < other.event_name) ||
-             ((event_name == other.event_name) &&
-              (rules_registry_id < other.rules_registry_id));
+      return std::tie(event_name, rules_registry_id) <
+             std::tie(other.event_name, other.rules_registry_id);
     }
   };
 
@@ -133,7 +133,7 @@ class RulesRegistryService : public BrowserContextKeyedAPI,
   RulesRegistryMap rule_registries_;
 
   // We own the parts of the registries which need to run on the UI thread.
-  ScopedVector<RulesCacheDelegate> cache_delegates_;
+  std::vector<scoped_ptr<RulesCacheDelegate>> cache_delegates_;
 
   // Weak pointer into rule_registries_ to make it easier to handle content rule
   // conditions.

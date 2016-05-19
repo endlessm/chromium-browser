@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSFontSelector.h"
 
 #include "core/css/CSSFontSelectorClient.h"
@@ -84,8 +83,8 @@ void CSSFontSelector::dispatchInvalidationCallbacks()
 
     WillBeHeapVector<RawPtrWillBeMember<CSSFontSelectorClient>> clients;
     copyToVector(m_clients, clients);
-    for (size_t i = 0; i < clients.size(); ++i)
-        clients[i]->fontsNeedUpdate(this);
+    for (auto& client : clients)
+        client->fontsNeedUpdate(this);
 }
 
 void CSSFontSelector::fontFaceInvalidated()
@@ -192,4 +191,4 @@ DEFINE_TRACE(CSSFontSelector)
     FontSelector::trace(visitor);
 }
 
-}
+} // namespace blink

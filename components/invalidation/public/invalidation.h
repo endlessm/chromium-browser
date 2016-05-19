@@ -5,9 +5,10 @@
 #ifndef COMPONENTS_INVALIDATION_PUBLIC_INVALIDATION_H_
 #define COMPONENTS_INVALIDATION_PUBLIC_INVALIDATION_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
@@ -28,13 +29,14 @@ class INVALIDATION_EXPORT Invalidation {
  public:
   // Factory functions.
   static Invalidation Init(const invalidation::ObjectId& id,
-                           int64 version,
+                           int64_t version,
                            const std::string& payload);
   static Invalidation InitUnknownVersion(const invalidation::ObjectId& id);
   static Invalidation InitFromDroppedInvalidation(const Invalidation& dropped);
   static scoped_ptr<Invalidation> InitFromValue(
       const base::DictionaryValue& value);
 
+  Invalidation(const Invalidation& other);
   ~Invalidation();
 
   // Compares two invalidations.  The comparison ignores ack-tracking state.
@@ -44,7 +46,7 @@ class INVALIDATION_EXPORT Invalidation {
   bool is_unknown_version() const;
 
   // Safe to call only if is_unknown_version() returns false.
-  int64 version() const;
+  int64_t version() const;
 
   // Safe to call only if is_unknown_version() returns false.
   const std::string& payload() const;
@@ -96,7 +98,7 @@ class INVALIDATION_EXPORT Invalidation {
  private:
   Invalidation(const invalidation::ObjectId& id,
                bool is_unknown_version,
-               int64 version,
+               int64_t version,
                const std::string& payload,
                AckHandle ack_handle);
 
@@ -108,7 +110,7 @@ class INVALIDATION_EXPORT Invalidation {
 
   // The version number of this invalidation.  Should not be accessed if this is
   // an unkown version invalidation.
-  int64 version_;
+  int64_t version_;
 
   // The payaload associated with this invalidation.  Should not be accessed if
   // this is an unknown version invalidation.

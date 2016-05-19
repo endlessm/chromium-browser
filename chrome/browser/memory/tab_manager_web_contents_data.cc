@@ -52,14 +52,22 @@ bool TabManager::WebContentsData::IsDiscarded() {
 void TabManager::WebContentsData::SetDiscardState(bool state) {
   if (tab_data_.is_discarded_ && !state) {
     static int reload_count = 0;
+    tab_data_.last_reload_time_ = NowTicks();
     UMA_HISTOGRAM_CUSTOM_COUNTS("TabManager.Discarding.ReloadCount",
                                 ++reload_count, 1, 1000, 50);
-    auto delta = NowTicks() - tab_data_.last_discard_time_;
+    auto delta = tab_data_.last_reload_time_ - tab_data_.last_discard_time_;
     // Capped to one day for now, will adjust if necessary.
     UMA_HISTOGRAM_CUSTOM_TIMES("TabManager.Discarding.DiscardToReloadTime",
                                delta, base::TimeDelta::FromSeconds(1),
                                base::TimeDelta::FromDays(1), 100);
-    tab_data_.last_reload_time_ = NowTicks();
+
+    if (tab_data_.last_inactive_time_ != base::TimeTicks::UnixEpoch()) {
+      delta = tab_data_.last_reload_time_ - tab_data_.last_inactive_time_;
+      UMA_HISTOGRAM_CUSTOM_TIMES("TabManager.Discarding.InactiveToReloadTime",
+                                 delta, base::TimeDelta::FromSeconds(1),
+                                 base::TimeDelta::FromDays(1), 100);
+    }
+
   } else if (!tab_data_.is_discarded_ && state) {
     static int discard_count = 0;
     UMA_HISTOGRAM_CUSTOM_COUNTS("TabManager.Discarding.DiscardCount",
@@ -94,6 +102,14 @@ void TabManager::WebContentsData::SetLastAudioChangeTime(TimeTicks timestamp) {
   tab_data_.last_audio_change_time_ = timestamp;
 }
 
+TimeTicks TabManager::WebContentsData::LastInactiveTime() {
+  return tab_data_.last_inactive_time_;
+}
+
+void TabManager::WebContentsData::SetLastInactiveTime(TimeTicks timestamp) {
+  tab_data_.last_inactive_time_ = timestamp;
+}
+
 // static
 void TabManager::WebContentsData::CopyState(
     content::WebContents* old_contents,
@@ -113,7 +129,7 @@ void TabManager::WebContentsData::set_test_tick_clock(
   test_tick_clock_ = test_tick_clock;
 }
 
-TimeTicks TabManager::WebContentsData::NowTicks() {
+TimeTicks TabManager::WebContentsData::NowTicks() const {
   if (!test_tick_clock_)
     return TimeTicks::Now();
 
@@ -126,14 +142,16 @@ TabManager::WebContentsData::Data::Data()
       is_recently_audible_(false),
       last_audio_change_time_(TimeTicks::UnixEpoch()),
       last_discard_time_(TimeTicks::UnixEpoch()),
-      last_reload_time_(TimeTicks::UnixEpoch()) {}
+      last_reload_time_(TimeTicks::UnixEpoch()),
+      last_inactive_time_(TimeTicks::UnixEpoch()) {}
 
 bool TabManager::WebContentsData::Data::operator==(const Data& right) const {
   return is_discarded_ == right.is_discarded_ &&
          is_recently_audible_ == right.is_recently_audible_ &&
          last_audio_change_time_ == right.last_audio_change_time_ &&
          last_discard_time_ == right.last_discard_time_ &&
-         last_reload_time_ == right.last_reload_time_;
+         last_reload_time_ == right.last_reload_time_ &&
+         last_inactive_time_ == right.last_inactive_time_;
 }
 
 bool TabManager::WebContentsData::Data::operator!=(const Data& right) const {

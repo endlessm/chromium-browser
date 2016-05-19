@@ -14,7 +14,6 @@ import android.widget.CheckBox;
 import android.widget.EditText;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
@@ -170,9 +169,8 @@ public class ModalDialogTest extends ChromeActivityTestCaseBase<ChromeActivity> 
      * Verifies beforeunload dialogs are shown and they block/allow navigation
      * as appropriate.
      */
-    //@MediumTest
-    //@Feature({"Browser", "Main"})
-    @DisabledTest //crbug/270593
+    @MediumTest
+    @Feature({"Browser", "Main"})
     public void testBeforeUnloadDialog()
             throws InterruptedException, TimeoutException, ExecutionException {
         loadUrl(BEFORE_UNLOAD_URL);
@@ -282,10 +280,8 @@ public class ModalDialogTest extends ChromeActivityTestCaseBase<ChromeActivity> 
         });
 
         // Closing the tab should have dismissed the dialog.
-        boolean criteriaSatisfied = CriteriaHelper.pollForCriteria(
-                new JavascriptAppModalDialogShownCriteria(false));
-        assertTrue("The dialog should have been dismissed when its tab was closed.",
-                criteriaSatisfied);
+        CriteriaHelper.pollForCriteria(new JavascriptAppModalDialogShownCriteria(
+                "The dialog should have been dismissed when its tab was closed.", false));
     }
 
     /**
@@ -307,9 +303,8 @@ public class ModalDialogTest extends ChromeActivityTestCaseBase<ChromeActivity> 
         helper.evaluateJavaScriptForTests(
                 getActivity().getCurrentContentViewCore().getWebContents(),
                 script);
-        boolean criteriaSatisfied = CriteriaHelper.pollForCriteria(
-                new JavascriptAppModalDialogShownCriteria(true));
-        assertTrue("Could not spawn or locate a modal dialog.", criteriaSatisfied);
+        CriteriaHelper.pollForCriteria(new JavascriptAppModalDialogShownCriteria(
+                "Could not spawn or locate a modal dialog.", true));
         return helper;
     }
 
@@ -344,10 +339,11 @@ public class ModalDialogTest extends ChromeActivityTestCaseBase<ChromeActivity> 
         });
     }
 
-    private static class JavascriptAppModalDialogShownCriteria implements Criteria {
+    private static class JavascriptAppModalDialogShownCriteria extends Criteria {
         private final boolean mShouldBeShown;
 
-        public JavascriptAppModalDialogShownCriteria(boolean shouldBeShown) {
+        public JavascriptAppModalDialogShownCriteria(String error, boolean shouldBeShown) {
+            super(error);
             mShouldBeShown = shouldBeShown;
         }
 

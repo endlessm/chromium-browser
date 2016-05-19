@@ -9,39 +9,27 @@
 
 #include <string>
 
+#include "base/logging.h"
 #include "components/nacl/renderer/plugin/nacl_subprocess.h"
 #include "components/nacl/renderer/plugin/plugin_error.h"
 #include "components/nacl/renderer/plugin/service_runtime.h"
-#include "components/nacl/renderer/plugin/utility.h"
 #include "components/nacl/renderer/ppb_nacl_private.h"
-#include "native_client/src/include/nacl_base.h"
-#include "native_client/src/include/nacl_macros.h"
-#include "native_client/src/include/nacl_scoped_ptr.h"
-#include "native_client/src/include/portability.h"
-#include "native_client/src/include/portability_io.h"
-#include "native_client/src/shared/platform/nacl_check.h"
-#include "native_client/src/trusted/desc/nacl_desc_wrapper.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/cpp/module.h"
+
+namespace {
+
+void NoOpCallback(void* user_data, int32_t result) {
+}
+
+}
 
 namespace plugin {
 
 void Plugin::ShutDownSubprocesses() {
-  PLUGIN_PRINTF(("Plugin::ShutDownSubprocesses (this=%p)\n",
-                 static_cast<void*>(this)));
-
   // Shut down service runtime. This must be done before all other calls so
   // they don't block forever when waiting for the upcall thread to exit.
   main_subprocess_.Shutdown();
-
-  PLUGIN_PRINTF(("Plugin::ShutDownSubprocess (this=%p, return)\n",
-                 static_cast<void*>(this)));
-}
-
-void Plugin::StartSelLdr(ServiceRuntime* service_runtime,
-                         const SelLdrStartParams& params,
-                         pp::CompletionCallback callback) {
-  service_runtime->StartSelLdr(params, callback);
 }
 
 void Plugin::LoadNaClModule(PP_NaClFileInfo file_info,
@@ -54,7 +42,8 @@ void Plugin::LoadNaClModule(PP_NaClFileInfo file_info,
   // outlive the Plugin object, they will not be memory safe.
   ShutDownSubprocesses();
   pp::Var manifest_base_url =
-      pp::Var(pp::PASS_REF, nacl_interface_->GetManifestBaseURL(pp_instance()));
+      pp::Var(pp::PASS_REF,
+              nacl::PPBNaClPrivate::GetManifestBaseURL(pp_instance()));
   std::string manifest_base_url_str = manifest_base_url.AsString();
 
   SelLdrStartParams params(manifest_base_url_str,
@@ -64,26 +53,9 @@ void Plugin::LoadNaClModule(PP_NaClFileInfo file_info,
   ServiceRuntime* service_runtime = new ServiceRuntime(
       this, pp_instance(), true, uses_nonsfi_mode);
   main_subprocess_.set_service_runtime(service_runtime);
-  if (NULL == service_runtime) {
-    error_info.SetReport(
-        PP_NACL_ERROR_SEL_LDR_INIT,
-        "sel_ldr init failure " + main_subprocess_.description());
-    ReportLoadError(error_info);
-    return;
-  }
 
-  // We don't take any action once nexe loading has completed, so pass an empty
-  // callback here for |callback|.
-  pp::CompletionCallback callback = callback_factory_.NewCallback(
-      &Plugin::StartNexe, service_runtime);
-  StartSelLdr(service_runtime, params, callback);
-}
-
-void Plugin::StartNexe(int32_t pp_error, ServiceRuntime* service_runtime) {
-  CHECK(pp::Module::Get()->core()->IsMainThread());
-  if (pp_error != PP_OK)
-    return;
-  service_runtime->StartNexe();
+  service_runtime->StartSelLdr(params,
+                               pp::CompletionCallback(NoOpCallback, NULL));
 }
 
 void Plugin::LoadHelperNaClModule(const std::string& helper_url,
@@ -101,57 +73,30 @@ void Plugin::LoadHelperNaClModule(const std::string& helper_url,
                          false,   // Not main_service_runtime.
                          false);  // No non-SFI mode (i.e. in SFI-mode).
   subprocess_to_init->set_service_runtime(service_runtime);
-  pp::CompletionCallback sel_ldr_callback = callback_factory_.NewCallback(
-      &Plugin::StartHelperNexe, subprocess_to_init, callback);
-  StartSelLdr(service_runtime, params, sel_ldr_callback);
-}
-
-void Plugin::StartHelperNexe(int32_t pp_error,
-                             NaClSubprocess* subprocess_to_init,
-                             pp::CompletionCallback callback) {
-  CHECK(pp::Module::Get()->core()->IsMainThread());
-  if (pp_error != PP_OK) {
-    callback.RunAndClear(pp_error);
-    return;
-  }
-  // TODO(jvoung): This operation blocks. That's bad because this is the
-  // main thread. However, we could make it so that StartHelperNexe isn't
-  // called until the blocking is minimized. There is a hook in
-  // sel_main_chrome which indicates when the nexe load is done. If we hook
-  // up that hook to StartSelLdr's callback, then we'll only
-  // call StartNexe once the nexe load is done instead of blocking here
-  // until the nexe load is done.
-  subprocess_to_init->service_runtime()->StartNexe();
-  callback.RunAndClear(PP_OK);
+  service_runtime->StartSelLdr(params, callback);
 }
 
 // All failures of this function will show up as "Missing Plugin-in", so
 // there is no need to log to JS console that there was an initialization
 // failure. Note that module loading functions will log their own errors.
 bool Plugin::Init(uint32_t argc, const char* argn[], const char* argv[]) {
-  nacl_interface_->InitializePlugin(pp_instance(), argc, argn, argv);
-  wrapper_factory_ = new nacl::DescWrapperFactory();
+  nacl::PPBNaClPrivate::InitializePlugin(pp_instance(), argc, argn, argv);
   pp::CompletionCallback open_cb =
       callback_factory_.NewCallback(&Plugin::NaClManifestFileDidOpen);
-  nacl_interface_->RequestNaClManifest(pp_instance(),
-                                       open_cb.pp_completion_callback());
+  nacl::PPBNaClPrivate::RequestNaClManifest(pp_instance(),
+                                            open_cb.pp_completion_callback());
   return true;
 }
 
 Plugin::Plugin(PP_Instance pp_instance)
     : pp::Instance(pp_instance),
-      main_subprocess_("main subprocess", NULL, NULL),
       uses_nonsfi_mode_(false),
-      wrapper_factory_(NULL),
-      nacl_interface_(NULL),
       uma_interface_(this) {
   callback_factory_.Initialize(this);
-  nacl_interface_ = GetNaClInterface();
-  CHECK(nacl_interface_ != NULL);
 
-  // Notify PPB_NaCl_Private that the instance is created before altering any
+  // Notify PPBNaClPrivate that the instance is created before altering any
   // state that it tracks.
-  nacl_interface_->InstanceCreated(pp_instance);
+  nacl::PPBNaClPrivate::InstanceCreated(pp_instance);
   nexe_file_info_ = kInvalidNaClFileInfo;
 }
 
@@ -159,7 +104,7 @@ Plugin::~Plugin() {
   // Destroy the coordinator while the rest of the data is still there
   pnacl_coordinator_.reset(NULL);
 
-  nacl_interface_->InstanceDestroyed(pp_instance());
+  nacl::PPBNaClPrivate::InstanceDestroyed(pp_instance());
 
   // ShutDownSubprocesses shuts down the main subprocess, which shuts
   // down the main ServiceRuntime object, which kills the subprocess.
@@ -186,8 +131,6 @@ Plugin::~Plugin() {
   // though the Shutdown method may have been called, during the
   // lifetime of the service threads.
   ShutDownSubprocesses();
-
-  delete wrapper_factory_;
 }
 
 bool Plugin::HandleDocumentLoad(const pp::URLLoader& url_loader) {
@@ -206,8 +149,6 @@ void Plugin::NexeFileDidOpen(int32_t pp_error) {
 }
 
 void Plugin::BitcodeDidTranslate(int32_t pp_error) {
-  PLUGIN_PRINTF(("Plugin::BitcodeDidTranslate (pp_error=%" NACL_PRId32 ")\n",
-                 pp_error));
   if (pp_error != PP_OK) {
     // Error should have been reported by pnacl. Just return.
     return;
@@ -227,20 +168,19 @@ void Plugin::BitcodeDidTranslate(int32_t pp_error) {
 }
 
 void Plugin::NaClManifestFileDidOpen(int32_t pp_error) {
-  PLUGIN_PRINTF(("Plugin::NaClManifestFileDidOpen (pp_error=%"
-                 NACL_PRId32 ")\n", pp_error));
   if (pp_error != PP_OK)
     return;
 
   PP_Var pp_program_url;
   PP_PNaClOptions pnacl_options = {PP_FALSE, PP_FALSE, PP_FALSE, 2};
   PP_Bool uses_nonsfi_mode;
-  if (nacl_interface_->GetManifestProgramURL(
+  if (nacl::PPBNaClPrivate::GetManifestProgramURL(
           pp_instance(), &pp_program_url, &pnacl_options, &uses_nonsfi_mode)) {
     std::string program_url = pp::Var(pp::PASS_REF, pp_program_url).AsString();
     // TODO(teravest): Make ProcessNaClManifest take responsibility for more of
     // this function.
-    nacl_interface_->ProcessNaClManifest(pp_instance(), program_url.c_str());
+    nacl::PPBNaClPrivate::ProcessNaClManifest(pp_instance(),
+                                              program_url.c_str());
     uses_nonsfi_mode_ = PP_ToBool(uses_nonsfi_mode);
     if (pnacl_options.translate) {
       pp::CompletionCallback translate_callback =
@@ -255,19 +195,20 @@ void Plugin::NaClManifestFileDidOpen(int32_t pp_error) {
       pp::CompletionCallback open_callback =
           callback_factory_.NewCallback(&Plugin::NexeFileDidOpen);
       // Will always call the callback on success or failure.
-      nacl_interface_->DownloadNexe(pp_instance(),
-                                    program_url.c_str(),
-                                    &nexe_file_info_,
-                                    open_callback.pp_completion_callback());
+      nacl::PPBNaClPrivate::DownloadNexe(
+          pp_instance(),
+          program_url.c_str(),
+          &nexe_file_info_,
+          open_callback.pp_completion_callback());
       return;
     }
   }
 }
 
 void Plugin::ReportLoadError(const ErrorInfo& error_info) {
-  nacl_interface_->ReportLoadError(pp_instance(),
-                                   error_info.error_code(),
-                                   error_info.message().c_str());
+  nacl::PPBNaClPrivate::ReportLoadError(pp_instance(),
+                                        error_info.error_code(),
+                                        error_info.message().c_str());
 }
 
 }  // namespace plugin

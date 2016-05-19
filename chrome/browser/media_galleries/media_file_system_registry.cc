@@ -4,13 +4,15 @@
 
 #include "chrome/browser/media_galleries/media_file_system_registry.h"
 
+#include <stddef.h>
+
 #include <set>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "chrome/browser/media_galleries/fileapi/media_file_system_backend.h"
 #include "chrome/browser/media_galleries/fileapi/mtp_device_map_service.h"
@@ -25,6 +27,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
+#include "components/prefs/pref_service.h"
 #include "components/storage_monitor/media_storage_util.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "content/public/browser/browser_thread.h"
@@ -272,6 +275,8 @@ MediaFileSystemInfo::MediaFileSystemInfo(const base::string16& fs_name,
 }
 
 MediaFileSystemInfo::MediaFileSystemInfo() {}
+MediaFileSystemInfo::MediaFileSystemInfo(const MediaFileSystemInfo& other) =
+    default;
 MediaFileSystemInfo::~MediaFileSystemInfo() {}
 
 // The main owner of this class is
@@ -580,11 +585,10 @@ MediaGalleriesPreferences* MediaFileSystemRegistry::GetPreferences(
   if (!ContainsKey(extension_hosts_map_, profile)) {
     extension_hosts_map_[profile] = ExtensionHostMap();
     DCHECK(!ContainsKey(profile_subscription_map_, profile));
-    profile_subscription_map_.set(
-        profile,
+    profile_subscription_map_[profile] =
         ShutdownNotifierFactory::GetInstance()->Get(profile)->Subscribe(
             base::Bind(&MediaFileSystemRegistry::OnProfileShutdown,
-                       base::Unretained(this), profile)));
+                       base::Unretained(this), profile));
     media_galleries::UsageCount(media_galleries::PROFILES_WITH_USAGE);
   }
 

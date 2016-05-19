@@ -22,13 +22,14 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/graphics/filters/FEComponentTransfer.h"
 
 #include "SkColorFilterImageFilter.h"
 #include "SkTableColorFilter.h"
 #include "platform/graphics/filters/SkiaImageFilterBuilder.h"
 #include "platform/text/TextStream.h"
+#include "wtf/MathExtras.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -66,7 +67,7 @@ static void table(unsigned char* values, const ComponentTransferFunction& transf
         double v1 = tableValues[k];
         double v2 = tableValues[std::min((k + 1), (n - 1))];
         double val = 255.0 * (v1 + (c * (n - 1) - k) * (v2 - v1));
-        val = std::max(0.0, std::min(255.0, val));
+        val = clampTo(val, 0.0, 255.0);
         values[i] = static_cast<unsigned char>(val);
     }
 }
@@ -81,7 +82,7 @@ static void discrete(unsigned char* values, const ComponentTransferFunction& tra
         unsigned k = static_cast<unsigned>((i * n) / 255.0);
         k = std::min(k, n - 1);
         double val = 255 * tableValues[k];
-        val = std::max(0.0, std::min(255.0, val));
+        val = clampTo(val, 0.0, 255.0);
         values[i] = static_cast<unsigned char>(val);
     }
 }
@@ -90,7 +91,7 @@ static void linear(unsigned char* values, const ComponentTransferFunction& trans
 {
     for (unsigned i = 0; i < 256; ++i) {
         double val = transferFunction.slope * i + 255 * transferFunction.intercept;
-        val = std::max(0.0, std::min(255.0, val));
+        val = clampTo(val, 0.0, 255.0);
         values[i] = static_cast<unsigned char>(val);
     }
 }
@@ -100,7 +101,7 @@ static void gamma(unsigned char* values, const ComponentTransferFunction& transf
     for (unsigned i = 0; i < 256; ++i) {
         double exponent = transferFunction.exponent; // RCVT doesn't like passing a double and a float to pow, so promote this to double
         double val = 255.0 * (transferFunction.amplitude * pow((i / 255.0), exponent) + transferFunction.offset);
-        val = std::max(0.0, std::min(255.0, val));
+        val = clampTo(val, 0.0, 255.0);
         values[i] = static_cast<unsigned char>(val);
     }
 }
@@ -136,7 +137,7 @@ PassRefPtr<SkImageFilter> FEComponentTransfer::createImageFilter(SkiaImageFilter
 
     SkAutoTUnref<SkColorFilter> colorFilter(SkTableColorFilter::CreateARGB(aValues, rValues, gValues, bValues));
 
-    SkImageFilter::CropRect cropRect = getCropRect(builder.cropOffset());
+    SkImageFilter::CropRect cropRect = getCropRect();
     return adoptRef(SkColorFilterImageFilter::Create(colorFilter, input.get(), &cropRect));
 }
 

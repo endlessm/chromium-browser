@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/search/search.h"
@@ -12,7 +11,9 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/resource/resource_bundle.h"
 
 class LocalNTPTest : public InProcessBrowserTest,
@@ -23,10 +24,10 @@ class LocalNTPTest : public InProcessBrowserTest,
  protected:
   void SetUpInProcessBrowserTestFixture() override {
     ASSERT_TRUE(https_test_server().Start());
-    GURL instant_url = https_test_server().GetURL(
-        "files/instant_extended.html?strk=1&");
-    GURL ntp_url = https_test_server().GetURL(
-        "files/local_ntp_browsertest.html?strk=1&");
+    GURL instant_url =
+        https_test_server().GetURL("/instant_extended.html?strk=1&");
+    GURL ntp_url =
+        https_test_server().GetURL("/local_ntp_browsertest.html?strk=1&");
     InstantTestBase::Init(instant_url, ntp_url, false);
   }
 };

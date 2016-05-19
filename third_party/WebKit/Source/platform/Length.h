@@ -51,6 +51,7 @@ enum ValueRange {
 };
 
 struct PixelsAndPercent {
+    DISALLOW_NEW();
     PixelsAndPercent(float pixels, float percent)
         : pixels(pixels)
         , percent(percent)
@@ -63,7 +64,7 @@ struct PixelsAndPercent {
 class CalculationValue;
 
 class PLATFORM_EXPORT Length {
-    USING_FAST_MALLOC(Length);
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     Length()
         :  m_intValue(0), m_quirk(false), m_type(Auto), m_isFloat(false)
@@ -146,6 +147,7 @@ public:
     // FIXME: Make this private (if possible) or at least rename it (http://crbug.com/432707).
     inline float value() const
     {
+        ASSERT(!isCalculated());
         return getFloatValue();
     }
 
@@ -158,11 +160,18 @@ public:
         return getIntValue();
     }
 
+    float pixels() const
+    {
+        ASSERT(type() == Fixed);
+        return getFloatValue();
+    }
+
     float percent() const
     {
         ASSERT(type() == Percent);
         return getFloatValue();
     }
+
     PixelsAndPercent pixelsAndPercent() const;
 
     CalculationValue& calculationValue() const;
@@ -320,8 +329,6 @@ private:
     unsigned char m_type;
     bool m_isFloat;
 };
-
-PLATFORM_EXPORT Vector<Length> parseHTMLAreaElementCoords(const String&);
 
 } // namespace blink
 

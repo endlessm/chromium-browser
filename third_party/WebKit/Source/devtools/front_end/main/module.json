@@ -2,12 +2,6 @@
     "extensions": [
         {
             "type": "@WebInspector.AppProvider",
-            "condition": "can_dock",
-            "className": "WebInspector.AdvancedAppProvider",
-            "order": 0
-        },
-        {
-            "type": "@WebInspector.AppProvider",
             "className": "WebInspector.SimpleAppProvider",
             "order": 10
         },
@@ -177,13 +171,6 @@
         },
         {
             "type": "@WebInspector.ActionDelegate",
-            "actionId": "main.inspect-devices",
-            "title": "Inspect devices\u2026",
-            "className": "WebInspector.Main.InspectDevicesActionDelegate",
-            "experiment": "!inspectDevicesDialog"
-        },
-        {
-            "type": "@WebInspector.ActionDelegate",
             "actionId": "main.show-rendering-options",
             "title": "Rendering settings",
             "className": "WebInspector.RenderingOptionsView.ShowActionDelegate"
@@ -224,13 +211,8 @@
             "title": "Disable cache (while DevTools is open)",
             "settingName": "cacheDisabled",
             "settingType": "boolean",
+            "order": 0,
             "defaultValue": false
-        },
-        {
-            "type": "setting",
-            "settingName": "networkConditions",
-            "settingType": "object",
-            "defaultValue": { "throughput": -1, "latency": 0 }
         },
         {
             "type": "setting",
@@ -238,7 +220,29 @@
             "title": "Disable JavaScript",
             "settingName": "javaScriptDisabled",
             "settingType": "boolean",
+            "order": 1,
             "defaultValue": false
+        },
+        {
+            "type": "setting",
+            "category": "",
+            "title": "Auto-open DevTools for popups",
+            "settingName": "autoAttachToCreatedPages",
+            "settingType": "boolean",
+            "order": 2,
+            "defaultValue": false
+        },
+        {
+            "type": "setting",
+            "category": "Appearance",
+            "title": "Theme:",
+            "settingName": "uiTheme",
+            "settingType": "enum",
+            "defaultValue": "default",
+            "options": [
+                ["Default", "default"],
+                ["Dark", "dark"]
+            ]
         },
         {
             "type": "setting",
@@ -265,14 +269,6 @@
         {
             "type": "setting",
             "category": "Appearance",
-            "title": "Don't show emulation warnings",
-            "settingName": "disableOverridesWarning",
-            "settingType": "boolean",
-            "defaultValue": false
-        },
-        {
-            "type": "setting",
-            "category": "Appearance",
             "title": "Don't show Chrome Data Saver warning",
             "settingName": "disableDataSaverInfobar",
             "settingType": "boolean",
@@ -292,11 +288,10 @@
             "className": "WebInspector.HandlerRegistry.OpenAnchorLocationSettingUI"
         },
         {
-            "type": "context-menu-item",
-            "location": "mainMenu/tools/open",
-            "order": 50,
-            "actionId": "main.inspect-devices",
-            "experiment": "!inspectDevicesDialog"
+            "type": "@WebInspector.SettingUI",
+            "category": "Elements",
+            "order": 3,
+            "className": "WebInspector.ShowMetricsRulersSettingUI"
         },
         {
             "type": "context-menu-item",
@@ -324,22 +319,22 @@
         "extensions",
         "host",
         "platform",
-        "sdk",
-        "emulation"
+        "sdk"
     ],
     "scripts": [
-        "AdvancedApp.js",
         "FrontendWebSocketAPI.js",
         "RenderingOptions.js",
         "SimpleApp.js",
         "Tests.js",
         "OverlayController.js",
+        "Connections.js",
         "Main.js"
     ],
     "skip_compilation": [
         "Tests.js"
     ],
     "resources": [
+        "errorWarningCounter.css",
         "remoteDebuggingTerminatedScreen.css",
         "renderingOptions.css",
         "targetCrashedScreen.css"

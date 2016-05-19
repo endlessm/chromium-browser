@@ -133,10 +133,10 @@ uint32_t GrPathUtils::generateCubicPoints(const SkPoint& p0,
     if (pointsLeft < 2 ||
         (p1.distanceToLineSegmentBetweenSqd(p0, p3) < tolSqd &&
          p2.distanceToLineSegmentBetweenSqd(p0, p3) < tolSqd)) {
-            (*points)[0] = p3;
-            *points += 1;
-            return 1;
-        }
+        (*points)[0] = p3;
+        *points += 1;
+        return 1;
+    }
     SkPoint q[] = {
         { SkScalarAve(p0.fX, p1.fX), SkScalarAve(p0.fY, p1.fY) },
         { SkScalarAve(p1.fX, p2.fX), SkScalarAve(p1.fY, p2.fY) },
@@ -408,8 +408,8 @@ void convert_noninflect_cubic_to_quads(const SkPoint p[4],
     SkVector ab = p[1] - p[0];
     SkVector dc = p[2] - p[3];
 
-    if (ab.isZero()) {
-        if (dc.isZero()) {
+    if (ab.lengthSqd() < SK_ScalarNearlyZero) {
+        if (dc.lengthSqd() < SK_ScalarNearlyZero) {
             SkPoint* degQuad = quads->push_back_n(3);
             degQuad[0] = p[0];
             degQuad[1] = p[0];
@@ -418,7 +418,7 @@ void convert_noninflect_cubic_to_quads(const SkPoint p[4],
         }
         ab = p[2] - p[0];
     }
-    if (dc.isZero()) {
+    if (dc.lengthSqd() < SK_ScalarNearlyZero) {
         dc = p[1] - p[3];
     }
 
@@ -545,21 +545,33 @@ void convert_noninflect_cubic_to_quads(const SkPoint p[4],
 
 void GrPathUtils::convertCubicToQuads(const SkPoint p[4],
                                       SkScalar tolScale,
-                                      bool constrainWithinTangents,
-                                      SkPathPriv::FirstDirection dir,
                                       SkTArray<SkPoint, true>* quads) {
     SkPoint chopped[10];
     int count = SkChopCubicAtInflections(p, chopped);
 
-    // base tolerance is 1 pixel.
-    static const SkScalar kTolerance = SK_Scalar1;
-    const SkScalar tolSqd = SkScalarSquare(SkScalarMul(tolScale, kTolerance));
+    const SkScalar tolSqd = SkScalarSquare(tolScale);
 
     for (int i = 0; i < count; ++i) {
         SkPoint* cubic = chopped + 3*i;
-        convert_noninflect_cubic_to_quads(cubic, tolSqd, constrainWithinTangents, dir, quads);
+        // The direction param is ignored if the third param is false.
+        convert_noninflect_cubic_to_quads(cubic, tolSqd, false,
+                                          SkPathPriv::kCCW_FirstDirection, quads);
     }
+}
 
+void GrPathUtils::convertCubicToQuadsConstrainToTangents(const SkPoint p[4],
+                                                         SkScalar tolScale,
+                                                         SkPathPriv::FirstDirection dir,
+                                                         SkTArray<SkPoint, true>* quads) {
+    SkPoint chopped[10];
+    int count = SkChopCubicAtInflections(p, chopped);
+
+    const SkScalar tolSqd = SkScalarSquare(tolScale);
+
+    for (int i = 0; i < count; ++i) {
+        SkPoint* cubic = chopped + 3*i;
+        convert_noninflect_cubic_to_quads(cubic, tolSqd, true, dir, quads);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

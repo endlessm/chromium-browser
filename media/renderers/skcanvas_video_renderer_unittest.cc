@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface_stub.h"
@@ -10,6 +13,7 @@
 #include "media/base/video_util.h"
 #include "media/renderers/skcanvas_video_renderer.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/gpu/GrContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
@@ -155,7 +159,7 @@ SkCanvasVideoRendererTest::SkCanvasVideoRendererTest()
   // Each color region in the cropped frame is on a 2x2 block granularity, to
   // avoid sharing UV samples between regions.
 
-  static const uint8 cropped_y_plane[] = {
+  static const uint8_t cropped_y_plane[] = {
       0,   0,   0,   0,   0,   0,   0,   0,   76, 76, 76, 76, 76, 76, 76, 76,
       0,   0,   0,   0,   0,   0,   0,   0,   76, 76, 76, 76, 76, 76, 76, 76,
       0,   0,   0,   0,   0,   0,   0,   0,   76, 76, 76, 76, 76, 76, 76, 76,
@@ -174,14 +178,14 @@ SkCanvasVideoRendererTest::SkCanvasVideoRendererTest()
       149, 149, 149, 149, 149, 149, 149, 149, 29, 29, 29, 29, 29, 29, 29, 29,
   };
 
-  static const uint8 cropped_u_plane[] = {
+  static const uint8_t cropped_u_plane[] = {
       128, 128, 128, 128, 84,  84,  84,  84,  128, 128, 128, 128, 84,
       84,  84,  84,  128, 128, 128, 128, 84,  84,  84,  84,  128, 128,
       128, 128, 84,  84,  84,  84,  43,  43,  43,  43,  255, 255, 255,
       255, 43,  43,  43,  43,  255, 255, 255, 255, 43,  43,  43,  43,
       255, 255, 255, 255, 43,  43,  43,  43,  255, 255, 255, 255,
   };
-  static const uint8 cropped_v_plane[] = {
+  static const uint8_t cropped_v_plane[] = {
       128, 128, 128, 128, 255, 255, 255, 255, 128, 128, 128, 128, 255,
       255, 255, 255, 128, 128, 128, 128, 255, 255, 255, 255, 128, 128,
       128, 128, 255, 255, 255, 255, 21,  21,  21,  21,  107, 107, 107,
@@ -189,9 +193,13 @@ SkCanvasVideoRendererTest::SkCanvasVideoRendererTest()
       107, 107, 107, 107, 21,  21,  21,  21,  107, 107, 107, 107,
   };
 
-  media::CopyYPlane(cropped_y_plane, 16, 16, cropped_frame().get());
-  media::CopyUPlane(cropped_u_plane, 8, 8, cropped_frame().get());
-  media::CopyVPlane(cropped_v_plane, 8, 8, cropped_frame().get());
+  libyuv::I420Copy(cropped_y_plane, 16, cropped_u_plane, 8, cropped_v_plane, 8,
+                   cropped_frame()->data(VideoFrame::kYPlane),
+                   cropped_frame()->stride(VideoFrame::kYPlane),
+                   cropped_frame()->data(VideoFrame::kUPlane),
+                   cropped_frame()->stride(VideoFrame::kUPlane),
+                   cropped_frame()->data(VideoFrame::kVPlane),
+                   cropped_frame()->stride(VideoFrame::kVPlane), 16, 16);
 }
 
 SkCanvasVideoRendererTest::~SkCanvasVideoRendererTest() {}
@@ -457,6 +465,44 @@ TEST_F(SkCanvasVideoRendererTest, Video_Translate_Rotation_270) {
   EXPECT_EQ(SK_ColorBLUE, GetColorAt(&canvas, kWidth - 1, kHeight / 2));
   EXPECT_EQ(SK_ColorGREEN, GetColorAt(&canvas, kWidth - 1, kHeight - 1));
   EXPECT_EQ(SK_ColorBLACK, GetColorAt(&canvas, kWidth / 2, kHeight - 1));
+}
+
+TEST_F(SkCanvasVideoRendererTest, HighBits) {
+  // Copy cropped_frame into a highbit frame.
+  scoped_refptr<VideoFrame> frame(VideoFrame::CreateFrame(
+      PIXEL_FORMAT_YUV420P10, cropped_frame()->coded_size(),
+      cropped_frame()->visible_rect(), cropped_frame()->natural_size(),
+      cropped_frame()->timestamp()));
+  for (int plane = VideoFrame::kYPlane; plane <= VideoFrame::kVPlane; ++plane) {
+    int width = cropped_frame()->row_bytes(plane);
+    uint16_t* dst = reinterpret_cast<uint16_t*>(frame->data(plane));
+    uint8_t* src = cropped_frame()->data(plane);
+    for (int row = 0; row < cropped_frame()->rows(plane); row++) {
+      for (int col = 0; col < width; col++) {
+        dst[col] = src[col] << 2;
+      }
+      src += cropped_frame()->stride(plane);
+      dst += frame->stride(plane) / 2;
+    }
+  }
+
+  Paint(frame, target_canvas(), kNone);
+  // Check the corners.
+  EXPECT_EQ(SK_ColorBLACK, GetColorAt(target_canvas(), 0, 0));
+  EXPECT_EQ(SK_ColorRED, GetColorAt(target_canvas(), kWidth - 1, 0));
+  EXPECT_EQ(SK_ColorGREEN, GetColorAt(target_canvas(), 0, kHeight - 1));
+  EXPECT_EQ(SK_ColorBLUE, GetColorAt(target_canvas(), kWidth - 1, kHeight - 1));
+  // Check the interior along the border between color regions.  Note that we're
+  // bilinearly upscaling, so we'll need to take care to pick sample points that
+  // are just outside the "zone of resampling".
+  EXPECT_EQ(SK_ColorBLACK, GetColorAt(target_canvas(), kWidth * 1 / 8 - 1,
+                                      kHeight * 1 / 6 - 1));
+  EXPECT_EQ(SK_ColorRED,
+            GetColorAt(target_canvas(), kWidth * 3 / 8, kHeight * 1 / 6 - 1));
+  EXPECT_EQ(SK_ColorGREEN,
+            GetColorAt(target_canvas(), kWidth * 1 / 8 - 1, kHeight * 3 / 6));
+  EXPECT_EQ(SK_ColorBLUE,
+            GetColorAt(target_canvas(), kWidth * 3 / 8, kHeight * 3 / 6));
 }
 
 namespace {

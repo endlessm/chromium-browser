@@ -5,7 +5,6 @@
 package org.chromium.chrome.browser.contextualsearch;
 
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
-import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_PHONE;
 import static org.chromium.content.browser.test.util.CriteriaHelper.DEFAULT_POLLING_INTERVAL;
 
 import android.app.Activity;
@@ -14,9 +13,10 @@ import android.app.Instrumentation.ActivityMonitor;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ActivityInfo;
 import android.graphics.Point;
+import android.os.Environment;
 import android.os.SystemClock;
+import android.preference.PreferenceManager;
 import android.test.FlakyTest;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.text.TextUtils;
@@ -36,7 +36,9 @@ import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayContentDelegate;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayContentProgressObserver;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel.PanelState;
+import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel.StateChangeReason;
 import org.chromium.chrome.browser.compositor.bottombar.contextualsearch.ContextualSearchPanel;
+import org.chromium.chrome.browser.contextualsearch.ContextualSearchFakeServer.FakeSlowResolveSearch;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler;
 import org.chromium.chrome.browser.gsa.GSAContextDisplaySelection;
 import org.chromium.chrome.browser.omnibox.UrlBar;
@@ -46,9 +48,10 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
+import org.chromium.chrome.test.util.ChromeRestriction;
 import org.chromium.chrome.test.util.ChromeTabUtils;
+import org.chromium.chrome.test.util.FullscreenTestUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.components.navigation_interception.NavigationParams;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.test.util.CallbackHelper;
@@ -56,6 +59,7 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content.browser.test.util.TouchCommon;
+import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.touch_selection.SelectionEventType;
 
@@ -75,8 +79,9 @@ import java.util.concurrent.TimeoutException;
 public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<ChromeActivity> {
 
     private static final String TEST_PAGE =
-            TestHttpServerClient.getUrl("chrome/test/data/android/contextualsearch/tap_test.html");
+            "/chrome/test/data/android/contextualsearch/tap_test.html";
     private static final int TEST_TIMEOUT = 15000;
+    private static final int TEST_EXPECTED_FAILURE_TIMEOUT = 1000;
 
     // TODO(donnd): get these from TemplateURL once the low-priority or Contextual Search API
     // is fully supported.
@@ -84,12 +89,16 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     private static final String LOW_PRIORITY_SEARCH_ENDPOINT = "/s?";
     private static final String CONTEXTUAL_SEARCH_PREFETCH_PARAM = "&pf=c";
 
-    private ContextualSearchManager mManager;
-    private ContextualSearchFakeServer mFakeServer;
-    private ContextualSearchPanel mPanel;
-    private ContextualSearchSelectionController mSelectionController;
-    private ContextualSearchPolicy mPolicy;
     private ActivityMonitor mActivityMonitor;
+    private ContextualSearchFakeServer mFakeServer;
+    private ContextualSearchManager mManager;
+    private ContextualSearchPanel mPanel;
+    private ContextualSearchPolicy mPolicy;
+    private ContextualSearchSelectionController mSelectionController;
+    private EmbeddedTestServer mTestServer;
+
+    // State for an individual test.
+    FakeSlowResolveSearch mLatestSlowResolveSearch;
 
     public ContextualSearchManagerTest() {
         super(ChromeActivity.class);
@@ -97,37 +106,42 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
     @Override
     protected void setUp() throws Exception {
+        // We have to set up the test server before starting the activity.
+        mTestServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+
         super.setUp();
 
         mManager = getActivity().getContextualSearchManager();
 
-        if (mManager != null) {
-            mPanel = mManager.getContextualSearchPanel();
+        assertNotNull(mManager);
+        mPanel = mManager.getContextualSearchPanel();
 
-            mSelectionController = mManager.getSelectionController();
-            mPolicy = ContextualSearchPolicy.getInstance(getActivity());
-            mPolicy.overrideDecidedStateForTesting(true);
-            resetCounters();
+        mSelectionController = mManager.getSelectionController();
+        mPolicy = mManager.getContextualSearchPolicy();
+        mPolicy.overrideDecidedStateForTesting(true);
+        resetCounters();
 
-            mFakeServer = new ContextualSearchFakeServer(
-                    mPolicy,
-                    this,
-                    mManager,
-                    mManager.getOverlayContentDelegate(),
-                    new OverlayContentProgressObserver(),
-                    getActivity());
+        mFakeServer = new ContextualSearchFakeServer(mPolicy, this, mManager,
+                mManager.getOverlayContentDelegate(), new OverlayContentProgressObserver(),
+                getActivity());
 
-            mPanel.setOverlayPanelContentFactory(mFakeServer);
-            mManager.setNetworkCommunicator(mFakeServer);
+        mPanel.setOverlayPanelContentFactory(mFakeServer);
+        mManager.setNetworkCommunicator(mFakeServer);
 
-            registerFakeSearches();
-        }
+        registerFakeSearches();
 
         IntentFilter filter = new IntentFilter(Intent.ACTION_VIEW);
         filter.addCategory(Intent.CATEGORY_BROWSABLE);
         filter.addDataScheme("market");
         mActivityMonitor = getInstrumentation().addMonitor(
                 filter, new Instrumentation.ActivityResult(Activity.RESULT_OK, null), true);
+    }
+
+    @Override
+    protected void tearDown() throws Exception {
+        mTestServer.stopAndDestroyServer();
+        super.tearDown();
     }
 
     //============================================================================================
@@ -141,7 +155,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     public void longPressNode(String nodeId) throws InterruptedException, TimeoutException {
         Tab tab = getActivity().getActivityTab();
         DOMUtils.longPressNode(this, tab.getContentViewCore(), nodeId);
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
     }
 
     /**
@@ -158,13 +172,12 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * @param text The string to wait for the selection to become.
      */
     public void waitForSelectionToBe(final String text) throws InterruptedException {
-        assertTrue("Bar never showed desired text.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return TextUtils.equals(text, getSelectedText());
-                    }
-                }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL));
+        CriteriaHelper.pollForCriteria(new Criteria("Bar never showed desired text.") {
+            @Override
+            public boolean isSatisfied() {
+                return TextUtils.equals(text, getSelectedText());
+            }
+        }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
     }
 
     /**
@@ -173,13 +186,12 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     public void waitForSearchTermResolutionToStart(
             final ContextualSearchFakeServer.FakeTapSearch search) throws InterruptedException {
-        assertTrue("Fake Search Term Resolution never started.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return search.didStartSearchTermResolution();
-                    }
-                }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL));
+        CriteriaHelper.pollForCriteria(new Criteria("Fake Search Term Resolution never started.") {
+            @Override
+            public boolean isSatisfied() {
+                return search.didStartSearchTermResolution();
+            }
+        }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
     }
 
     /**
@@ -188,13 +200,12 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     public void waitForSearchTermResolutionToFinish(
             final ContextualSearchFakeServer.FakeTapSearch search) throws InterruptedException {
-        assertTrue("Fake Search was never ready.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return search.didFinishSearchTermResolution();
-                    }
-                }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL));
+        CriteriaHelper.pollForCriteria(new Criteria("Fake Search was never ready.") {
+            @Override
+            public boolean isSatisfied() {
+                return search.didFinishSearchTermResolution();
+            }
+        }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
     }
 
     /**
@@ -207,7 +218,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
     @Override
     public void startMainActivity() throws InterruptedException {
-        startMainActivityWithURL(TEST_PAGE);
+        startMainActivityWithURL(mTestServer.getURL(TEST_PAGE));
     }
 
     //============================================================================================
@@ -226,11 +237,11 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         ContextualSearchFakeServer.FakeLongPressSearch search =
                 mFakeServer.getFakeLongPressSearch(nodeId);
         search.simulate();
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
     }
 
     /**
-     * Simulates a tap triggered search.
+     * Simulates a tap-triggered search.
      *
      * @param nodeId The id of the node to be tapped.
      * @throws InterruptedException
@@ -240,7 +251,49 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         ContextualSearchFakeServer.FakeTapSearch search = mFakeServer.getFakeTapSearch(nodeId);
         search.simulate();
         assertLoadedSearchTermMatches(search.getSearchTerm());
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
+    }
+
+    /**
+     * Simulates a tap-triggered search that has been limited by tap-limits.
+     *
+     * @param nodeId The id of the node to be tapped.
+     * @throws InterruptedException
+     * @throws TimeoutException
+     */
+    private void simulateLimitedTapSearch(String nodeId)
+            throws InterruptedException, TimeoutException {
+        ContextualSearchFakeServer.FakeTapSearch search = mFakeServer.getFakeTapSearch(nodeId);
+        search.simulate();
+        assertLoadedNoUrl();
+        // Tap-limited behavior is to not resolve or preload, but will still do a literal search.
+        waitForPanelToPeek();
+    }
+
+    /**
+     * Simulates a tap-triggered search with slow server response.
+     *
+     * @param nodeId The id of the node to be tapped.
+     * @throws InterruptedException
+     * @throws TimeoutException
+     */
+    private void simulateSlowResolveSearch(String nodeId)
+            throws InterruptedException, TimeoutException {
+        mLatestSlowResolveSearch = mFakeServer.getFakeSlowResolveSearch(nodeId);
+        mLatestSlowResolveSearch.simulate();
+        waitForPanelToPeek();
+    }
+
+    /**
+     * Simulates a slow response for the most recent {@link FakeSlowResolveSearch} set up
+     * by calling simulateSlowResolveSearch.
+     * @throws TimeoutException
+     * @throws InterruptedException
+     */
+    private void simulateSlowResolveFinished() throws InterruptedException, TimeoutException {
+        // Allow the slow Resolution to finish, waiting for it to complete.
+        mLatestSlowResolveSearch.finishResolve();
+        assertLoadedSearchTermMatches(mLatestSlowResolveSearch.getSearchTerm());
     }
 
     /**
@@ -420,7 +473,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     private void clickWordNode(String nodeId) throws InterruptedException, TimeoutException {
         clickNode(nodeId);
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
     }
 
     /**
@@ -452,22 +505,21 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     private void assertLoadedSearchTermMatches(String searchTerm) {
         boolean doesMatch = false;
-        String message = "but there was no loaded URL!";
-        if (mFakeServer != null) {
-            doesMatch = mFakeServer.getLoadedUrl().contains("q=" + searchTerm);
-            message = "in URL: " + mFakeServer.getLoadedUrl();
-        }
-        assertTrue("Expected to find searchTerm " + searchTerm + ", " + message, doesMatch);
+        String loadedUrl = mFakeServer.getLoadedUrl();
+        doesMatch = loadedUrl != null && loadedUrl.contains("q=" + searchTerm);
+        String message = loadedUrl == null ? "but there was no loaded URL!"
+                                           : "in URL: " + loadedUrl;
+        assertTrue("Expected to find searchTerm '" + searchTerm + "', " + message, doesMatch);
     }
 
     private void assertContainsParameters(String searchTerm, String alternateTerm) {
-        assertTrue(mFakeServer == null || mFakeServer.getSearchTermRequested() == null
+        assertTrue(mFakeServer.getSearchTermRequested() == null
                 || mFakeServer.getLoadedUrl().contains(searchTerm)
-                && mFakeServer.getLoadedUrl().contains(alternateTerm));
+                        && mFakeServer.getLoadedUrl().contains(alternateTerm));
     }
 
     private void assertContainsNoParameters() {
-        assertTrue(mFakeServer == null || mFakeServer.getLoadedUrl() == null);
+        assertTrue(mFakeServer.getLoadedUrl() == null);
     }
 
     private void assertSearchTermRequested() {
@@ -491,11 +543,10 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
     private void assertLoadedNoUrl() {
         assertTrue("Requested a search or preload when none was expected!",
-                (mFakeServer == null || mFakeServer.getLoadedUrl() == null));
+                mFakeServer.getLoadedUrl() == null);
     }
 
     private void assertLoadedLowPriorityUrl() {
-        if (mFakeServer == null) return;
         String message = "Expected a low priority search request URL, but got "
                 + (mFakeServer.getLoadedUrl() != null ? mFakeServer.getLoadedUrl() : "null");
         assertTrue(message, mFakeServer.getLoadedUrl() != null
@@ -506,7 +557,6 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     }
 
     private void assertLoadedNormalPriorityUrl() {
-        if (mFakeServer == null) return;
         String message = "Expected a normal priority search request URL, but got "
                 + (mFakeServer.getLoadedUrl() != null ? mFakeServer.getLoadedUrl() : "null");
         assertTrue(message, mFakeServer.getLoadedUrl() != null
@@ -542,73 +592,74 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * did peek.
      * @throws InterruptedException
      */
-    private void waitForPanelToPeekAndAssert() throws InterruptedException {
-        waitForPanelToEnterStateAndAssert(PanelState.PEEKED);
+    private void waitForPanelToPeek() throws InterruptedException {
+        waitForPanelToEnterState(PanelState.PEEKED);
     }
 
     /**
      * Waits for the Search Panel to expand, and asserts that it did expand.
      * @throws InterruptedException
      */
-    private void waitForPanelToExpandAndAssert() throws InterruptedException {
-        waitForPanelToEnterStateAndAssert(PanelState.EXPANDED);
+    private void waitForPanelToExpand() throws InterruptedException {
+        waitForPanelToEnterState(PanelState.EXPANDED);
     }
 
     /**
      * Waits for the Search Panel to maximize, and asserts that it did maximize.
      * @throws InterruptedException
      */
-    private void waitForPanelToMaximizeAndAssert() throws InterruptedException {
-        waitForPanelToEnterStateAndAssert(PanelState.MAXIMIZED);
+    private void waitForPanelToMaximize() throws InterruptedException {
+        waitForPanelToEnterState(PanelState.MAXIMIZED);
     }
 
     /**
      * Waits for the Search Panel to close, and asserts that it did close.
      * @throws InterruptedException
      */
-    private void waitForPanelToCloseAndAssert() throws InterruptedException {
-        waitForPanelToEnterStateAndAssert(PanelState.CLOSED);
+    private void waitForPanelToClose() throws InterruptedException {
+        waitForPanelToEnterState(PanelState.CLOSED);
     }
 
     /**
-     * Asserts that the panel was never opened.
+     * Waits for the Search Panel to enter the given {@code PanelState} and assert.
+     * @param state The {@link PanelState} to wait for.
      * @throws InterruptedException
      */
-    private void assertPanelNeverOpened() throws InterruptedException {
-        assertTrue(
-                "Search Panel actually did open.", waitForPanelToEnterState(PanelState.UNDEFINED));
-    }
-
-    /**
-     * Waits for the Search Panel to enter the given {@code PanelState}.
-     * @throws InterruptedException
-     */
-    private boolean waitForPanelToEnterState(final PanelState state) throws InterruptedException {
-        return CriteriaHelper.pollForCriteria(new Criteria() {
+    private void waitForPanelToEnterState(final PanelState state)
+            throws InterruptedException {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
-                return mPanel != null
-                        && mPanel.getPanelState() == state;
+                if (mPanel == null) return false;
+                updateFailureReason("Panel did not enter " + state + " state. "
+                        + "Instead, the current state is " + mPanel.getPanelState() + ".");
+                return mPanel.getPanelState() == state;
             }
         }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
     }
 
     /**
-     * Waits for the Search Panel to enter the given {@code PanelState} and assert.
+     * Asserts that the panel is still in the given state and continues to stay that way
+     * for a while.
+     * Waits for a reasonable amount of time for the panel to change to a different state,
+     * and verifies that it did not change state while this method is executing.
+     * Note that it's quite possible for the panel to transition through some other state and
+     * back to the initial state before this method is called without that being detected,
+     * because this method only monitors state during its own execution.
+     * @param initialState The initial state of the panel at the beginning of an operation that
+     *        should not change the panel state.
      * @throws InterruptedException
      */
-    private void waitForPanelToEnterStateAndAssert(final PanelState state)
+    private void assertPanelStillInState(final PanelState initialState)
             throws InterruptedException {
-        boolean success =
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return mPanel != null
-                                && mPanel.getPanelState() == state;
-                    }
-                }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
-        assertTrue("Panel did not enter " + state + " state. "
-                + "Instead, the current state is " + mPanel.getPanelState() + ".", success);
+        boolean didChangeState = false;
+        long startTime = SystemClock.uptimeMillis();
+        while (!didChangeState
+                && SystemClock.uptimeMillis() - startTime < TEST_EXPECTED_FAILURE_TIMEOUT) {
+            Thread.sleep(DEFAULT_POLLING_INTERVAL);
+            didChangeState = mPanel.getPanelState() != initialState;
+        }
+        assertFalse(didChangeState);
     }
 
     /**
@@ -616,14 +667,13 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * Tells the manager that a gesture has started, and then waits for it to complete.
      * @throws InterruptedException
      */
-    private void waitForGestureProcessingAndAssert() throws InterruptedException {
-        assertTrue("Gesture processing did not complete.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return !mSelectionController.wasAnyTapGestureDetected();
-                    }
-                }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL));
+    private void waitForGestureProcessing() throws InterruptedException {
+        CriteriaHelper.pollForCriteria(new Criteria("Gesture processing did not complete.") {
+            @Override
+            public boolean isSatisfied() {
+                return !mSelectionController.wasAnyTapGestureDetected();
+            }
+        }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
     }
 
     /**
@@ -634,8 +684,8 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * @throws InterruptedException
      */
     private void waitForGestureToClosePanelAndAssertNoSelection() throws InterruptedException {
-        waitForGestureProcessingAndAssert();
-        waitForPanelToCloseAndAssert();
+        waitForGestureProcessing();
+        waitForPanelToClose();
         assertPanelClosedOrUndefined();
         assertNull(getSelectedText());
     }
@@ -648,19 +698,19 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * and a subsequent tap may think there's a current selection until it has been dissolved.
      */
     private void waitForSelectionDissolved() throws InterruptedException {
-        assertTrue("Selection never dissolved.", CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria("Selection never dissolved.") {
             @Override
             public boolean isSatisfied() {
                 return !mSelectionController.isSelectionEstablished();
             }
-        }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL));
+        }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
     }
 
     /**
      * Waits for the panel to close and then waits for the selection to dissolve.
      */
     private void waitForPanelToCloseAndSelectionDissolved() throws InterruptedException {
-        waitForPanelToCloseAndAssert();
+        waitForPanelToClose();
         waitForSelectionDissolved();
     }
 
@@ -755,7 +805,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         // long press and trying to close with the bar peeking, with a long press selection
         // established).
         tapBasePage(0.9f, 0.35f);
-        waitForPanelToCloseAndAssert();
+        waitForPanelToClose();
     }
 
     /**
@@ -787,6 +837,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
     /**
      * Generate a click in the panel's bar.
+     * TODO(donnd): Replace this method with panelBarClick since this appears to be unreliable.
      * @barHeight The vertical position where the click should take place as a percentage
      *            of the screen size.
      */
@@ -794,9 +845,8 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         View root = getActivity().getWindow().getDecorView().getRootView();
         float w = root.getWidth();
         float h = root.getHeight();
-        boolean landscape = w > h;
-        float tapX = landscape ? w * barPositionVertical : w / 2f;
-        float tapY = landscape ? h / 2f : h * barPositionVertical;
+        float tapX = w / 2f;
+        float tapY = h * barPositionVertical;
 
         TouchCommon.singleClickView(root, (int) tapX, (int) tapY);
     }
@@ -806,36 +856,35 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     private void tapPeekingBarToExpandAndAssert() throws InterruptedException {
         clickPanelBar(0.95f);
-        waitForPanelToExpandAndAssert();
-    }
-
-    /**
-     * Simple sequence useful for checking if a Search Term Resolution request is sent.
-     * Resets the fake server and clicks near to cause a search, then clicks far to let the panel
-     * drop down (taking us back to the same state).
-     */
-    private void clickToTriggerSearchTermResolution()
-            throws InterruptedException, TimeoutException {
-        mFakeServer.reset();
-        clickWordNode("states");
-        clickNode("states-far");
-        waitForPanelToCloseAndSelectionDissolved();
+        waitForPanelToExpand();
     }
 
     /**
      * Simple sequence useful for checking if a Search Request is prefetched.
-     * Resets the fake server and clicks near to cause a search, fakes a server response to
-     * trigger a prefetch, then clicks far to let the panel drop down
-     * which takes us back to the starting state except the the fake server knows
+     * Resets the fake server and clicks near to cause a search, then closes the panel,
+     * which takes us back to the starting state except that the fake server knows
      * if a prefetch occurred.
      */
     private void clickToTriggerPrefetch() throws InterruptedException, TimeoutException {
         mFakeServer.reset();
-        clickWordNode("states");
-        assertSearchTermRequested();
-        fakeResponse(false, 200, "States", "display-text", "alternate-term", false);
-        waitForPanelToPeekAndAssert();
-        clickNode("states-far");
+        simulateTapSearch("search");
+        waitForPanelToPeek();
+        closePanel();
+        waitForPanelToCloseAndSelectionDissolved();
+    }
+
+    /**
+     * Simple sequence useful for checking that a search is not prefetched because it has
+     * hit the tap limit.
+     * Resets the fake server and clicks near to cause a search, then closes the panel,
+     * which takes us back to the starting state except that the fake server knows
+     * if a prefetch occurred.
+     */
+    private void clickToTriggerLimitedPrefetch() throws InterruptedException, TimeoutException {
+        mFakeServer.reset();
+        simulateLimitedTapSearch("search");
+        waitForPanelToPeek();
+        closePanel();
         waitForPanelToCloseAndSelectionDissolved();
     }
 
@@ -848,33 +897,48 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertSearchTermRequested();
 
         fakeResponse(false, 200, "states", "United States Intelligence", "alternate-term", false);
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedLowPriorityUrl();
         assertContainsParameters("states", "alternate-term");
     }
 
     /**
-     * Resets the tap counters on the UI thread.
+     * Resets all the counters used, by resetting all shared preferences.
      */
-    private void resetCounters() throws InterruptedException {
-        ThreadUtils.runOnUiThread(new Runnable() {
+    private void resetCounters() {
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                // The "Promo" tap counter is never reset outside of testing because it
-                // is used to persistently count the number of peeks *ever* seen by the user
-                // before the first open, and is then frozen in a disabled state to record that
-                // value rather than being reset.
-                // We reset it here to simulate a new user for our feature.
-                mPolicy.getPromoTapCounter().reset();
-                mPolicy.resetCounters();
+                PreferenceManager.getDefaultSharedPreferences(getActivity()).edit().clear().apply();
             }
         });
-        CriteriaHelper.pollForCriteria(new Criteria() {
+    }
+
+    /**
+     * Force the Panel to handle a click in the Bar.
+     * @throws InterruptedException
+     */
+    private void forcePanelToHandleBarClick() throws InterruptedException {
+        getInstrumentation().runOnMainSync(new Runnable() {
             @Override
-            public boolean isSatisfied() {
-                return mPolicy.didResetCounters();
+            public void run() {
+                // TODO(donnd): provide better time and x,y data to make this more broadly useful.
+                mPanel.handleBarClick(0, 0, 0);
             }
-        }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
+        });
+    }
+
+    /**
+     * Force the Panel to close.
+     * @throws InterruptedException
+     */
+    private void closePanel() throws InterruptedException {
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                mPanel.closePanel(StateChangeReason.UNKNOWN, false);
+            }
+        });
     }
 
     //============================================================================================
@@ -893,7 +957,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertEquals("Intelligence", mFakeServer.getSearchTermRequested());
         fakeResponse(false, 200, "Intelligence", "display-text", "alternate-term", false);
         assertContainsParameters("Intelligence", "alternate-term");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
 
         OmniboxTestUtils.toggleUrlBarFocus((UrlBar) getActivity().findViewById(R.id.url_bar), true);
 
@@ -955,7 +1019,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertEquals("Intelligence", mFakeServer.getSearchTermRequested());
         fakeResponse(false, 200, "Intelligence", "display-text", "alternate-term", false);
         assertContainsParameters("Intelligence", "alternate-term");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedLowPriorityUrl();
     }
 
@@ -969,7 +1033,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         longPressNode("states");
 
         assertNull(mFakeServer.getSearchTermRequested());
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedNoUrl();
         assertNoContentViewCore();
     }
@@ -979,7 +1043,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testSwipeExpand() throws InterruptedException, TimeoutException {
         assertNoSearchesLoaded();
         clickWordNode("intelligence");
@@ -992,9 +1056,9 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertEquals(1, mFakeServer.getLoadedUrlCount());
         assertLoadedLowPriorityUrl();
 
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         flingPanelUp();
-        waitForPanelToExpandAndAssert();
+        waitForPanelToExpand();
         assertEquals(1, mFakeServer.getLoadedUrlCount());
         assertLoadedLowPriorityUrl();
     }
@@ -1005,7 +1069,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testLongPressSwipeExpand() throws InterruptedException, TimeoutException {
         longPressNode("intelligence");
         assertNoContentViewCore();
@@ -1019,57 +1083,13 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
                 false);
         assertContainsParameters("Intelligence", "alternate-term");
 
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedNoUrl();
         assertNoContentViewCore();
         flingPanelUp();
-        waitForPanelToExpandAndAssert();
+        waitForPanelToExpand();
         assertContentViewCoreCreated();
         assertLoadedNormalPriorityUrl();
-        assertEquals(1, mFakeServer.getLoadedUrlCount());
-
-        // tap the base page to close.
-        tapBasePageToClosePanel();
-        assertEquals(1, mFakeServer.getLoadedUrlCount());
-        assertNoContentViewCore();
-    }
-
-    /**
-     * Tests a sequence in landscape orientation: swiping the overlay open, after an
-     * initial tap that activates the peeking card.
-     */
-    @DisabledTest // https://crbug.com/543733
-    @SmallTest
-    @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    public void testSwipeExpandLandscape() throws InterruptedException, TimeoutException {
-        getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        testSwipeExpand();
-        getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-    }
-
-    /**
-     * Tests tap to expand, after an initial tap to activate the peeking card.
-     *
-     * @SmallTest
-     * @Feature({"ContextualSearch"})
-     */
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @FlakyTest
-    public void testTapExpand() throws InterruptedException, TimeoutException {
-        assertNoSearchesLoaded();
-        clickWordNode("states");
-        assertNoContentViewCore();
-        assertNoSearchesLoaded();
-
-        // Fake a search term resolution response.
-        fakeResponse(false, 200, "states", "United States Intelligence", "alternate-term", false);
-        assertContainsParameters("states", "alternate-term");
-        assertEquals(1, mFakeServer.getLoadedUrlCount());
-        assertLoadedLowPriorityUrl();
-        assertContentViewCoreCreated();
-        tapPeekingBarToExpandAndAssert();
-        assertLoadedLowPriorityUrl();
         assertEquals(1, mFakeServer.getLoadedUrlCount());
 
         // tap the base page to close.
@@ -1083,7 +1103,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testTapCausesOneLowPriorityRequest() throws InterruptedException, TimeoutException {
         mFakeServer.reset();
         clickWordNode("states");
@@ -1112,7 +1132,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testPrefetchFailoverRequestMadeAfterOpen()
             throws InterruptedException, TimeoutException {
         mFakeServer.reset();
@@ -1148,7 +1168,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertSearchTermRequested();
         fakeResponse(false, 200, "Intelligence", "display-text", "alternate-term", true);
         assertContainsNoParameters();
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedNoUrl();
     }
 
@@ -1163,12 +1183,12 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertEquals("Intelligence", getSelectedText());
         fakeResponse(false, 200, "Intelligence", "Intelligence", "alternate-term", false);
         assertContainsParameters("Intelligence", "alternate-term");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedNoUrl();  // No load after long-press until opening panel.
         clickNode("question-mark");
-        waitForGestureProcessingAndAssert();
+        waitForGestureProcessing();
+        waitForPanelToCloseAndSelectionDissolved();
         assertNull(getSelectedText());
-        assertPanelClosedOrUndefined();
         assertLoadedNoUrl();
     }
 
@@ -1183,10 +1203,10 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertEquals("Intelligence", getSelectedText());
         fakeResponse(false, 200, "Intelligence", "Intelligence", "alternate-term", false);
         assertContainsParameters("Intelligence", "alternate-term");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedLowPriorityUrl();
         clickNode("question-mark");
-        waitForGestureProcessingAndAssert();
+        waitForGestureProcessing();
         assertNull(getSelectedText());
     }
 
@@ -1199,7 +1219,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     public void testTapGestureOnSpecialCharacterDoesntSelect()
             throws InterruptedException, TimeoutException {
         clickNode("question-mark");
-        waitForGestureProcessingAndAssert();
+        waitForGestureProcessing();
         assertNull(getSelectedText());
         assertPanelClosedOrUndefined();
         assertLoadedNoUrl();
@@ -1216,7 +1236,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         clickWordNode("intelligence");
         fakeResponse(false, 200, "Intelligence", "Intelligence", "alternate-term", false);
         assertContainsParameters("Intelligence", "alternate-term");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertLoadedLowPriorityUrl();
         scrollBasePage();
         assertPanelClosedOrUndefined();
@@ -1232,9 +1252,9 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     public void testTapGestureFollowedByInvalidTextTapCloses()
             throws InterruptedException, TimeoutException {
         clickWordNode("states-far");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         clickNode("question-mark");
-        waitForGestureProcessingAndAssert();
+        waitForGestureProcessing();
         assertPanelClosedOrUndefined();
         assertNull(mSelectionController.getSelectedText());
     }
@@ -1242,18 +1262,15 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     /**
      * Tests that a Tap gesture followed by tapping a non-text character doesn't select.
      */
-    @DisabledTest // https://crbug.com/552107
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testTapGestureFollowedByNonTextTap()
             throws InterruptedException, TimeoutException {
         clickWordNode("states-far");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         clickNode("button");
-        waitForGestureProcessingAndAssert();
-        assertPanelClosedOrUndefined();
-        assertNull(mSelectionController.getSelectedText());
+        waitForPanelToCloseAndSelectionDissolved();
     }
 
     /**
@@ -1266,14 +1283,14 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
             throws InterruptedException, TimeoutException {
         clickWordNode("states");
         assertEquals("States", getSelectedText());
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         clickNode("states-far");
-        waitForGestureProcessingAndAssert();
+        waitForGestureProcessing();
         assertNull(getSelectedText());
         assertPanelClosedOrUndefined();
         clickNode("states-far");
-        waitForGestureProcessingAndAssert();
-        waitForPanelToPeekAndAssert();
+        waitForGestureProcessing();
+        waitForPanelToPeek();
         assertEquals("States", getSelectedText());
     }
 
@@ -1287,7 +1304,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
             throws InterruptedException, TimeoutException {
         clickWordNode("states");
         assertEquals("States", getSelectedText());
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         // Avoid issues with double-tap detection by ensuring sequential taps
         // aren't treated as such. Double-tapping can also select words much as
         // longpress, in turn showing the pins and preventing contextual tap
@@ -1313,7 +1330,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     public void testLongPressGestureFollowedByScrollMaintainsSelection()
             throws InterruptedException, TimeoutException {
         longPressNode("intelligence");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         scrollBasePage();
         assertPanelClosedOrUndefined();
         assertEquals("Intelligence", getSelectedText());
@@ -1329,7 +1346,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     public void testLongPressGestureFollowedByTapDoesntSelect()
             throws InterruptedException, TimeoutException {
         longPressNode("intelligence");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         clickWordNode("states-far");
         waitForGestureToClosePanelAndAssertNoSelection();
         assertLoadedNoUrl();
@@ -1345,7 +1362,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
             throws InterruptedException, TimeoutException {
         clickWordNode("states");
         assertEquals("States", getSelectedText());
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
 
         ThreadUtils.runOnUiThread(new Runnable() {
             @Override
@@ -1379,6 +1396,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
                 (ChromeTabbedActivity) getActivity());
         final Tab tab2 = TabModelUtils.getCurrentTab(getActivity().getCurrentTabModel());
 
+        // TODO(donnd): consider using runOnUiThreadBlocking, won't need to waitForIdleSync?
         ThreadUtils.runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -1389,7 +1407,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         clickWordNode("states");
         assertEquals("States", getSelectedText());
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
 
         ThreadUtils.runOnUiThread(new Runnable() {
             @Override
@@ -1398,41 +1416,20 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
             }
         });
 
-        // Give the panelState time to change
-        CriteriaHelper.pollForCriteria(new Criteria(){
-            @Override
-            public boolean isSatisfied() {
-                PanelState panelState = mPanel.getPanelState();
-                return panelState != PanelState.PEEKED;
-            }
-        });
-
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
     }
 
     /*
      * Test that tapping on the Search Bar before having a resolved search term does not
      * promote to a tab, and that after the resolution it does promote to a tab.
-     *
-     * @SmallTest
-     * @Feature({"ContextualSearch"})
      */
-    @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @CommandLineFlags.Add(ChromeSwitches.DISABLE_DOCUMENT_MODE)
-    @FlakyTest
     public void testTapSearchBarPromotesToTab() throws InterruptedException, TimeoutException {
-        // Tap on a word.
-        clickWordNode("intelligence");
-        assertSearchTermRequested();
-
-        // Wait for the panel to peek.
-        waitForPanelToPeekAndAssert();
-
-        // Swipe Panel up and wait for it to maximize.
-        flingPanelUpToTop();
-        waitForPanelToMaximizeAndAssert();
-
-        // Create an observer to track that a new tab is created.
+        // -------- SET UP ---------
+        // Track Tab creation with this helper.
         final CallbackHelper tabCreatedHelper = new CallbackHelper();
         int tabCreatedHelperCallCount = tabCreatedHelper.getCallCount();
         TabModelSelectorObserver observer = new EmptyTabModelSelectorObserver() {
@@ -1442,30 +1439,34 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
             }
         };
         getActivity().getTabModelSelector().addObserver(observer);
+        // This tab tracking requires document mode be disabled.
+        assertFalse(FeatureUtilities.isDocumentMode(getInstrumentation().getTargetContext()));
 
-        // Tap the Search Bar.
-        clickPanelBar(0.05f);
+        // -------- TEST ---------
+        // Start a slow-resolve search and maximize the Panel.
+        simulateSlowResolveSearch("search");
+        flingPanelUpToTop();
+        waitForPanelToMaximize();
 
-        // The Search Term Resolution response hasn't arrived yet, so the Panel should not
-        // be promoted. Therefore, we are asserting that the Panel is still maximized.
-        waitForPanelToMaximizeAndAssert();
+        // A click in the Bar should not promote since we are still waiting to Resolve.
+        forcePanelToHandleBarClick();
 
-        // Get a Search Term Resolution response.
-        fakeResponse(false, 200, "Intelligence", "display-text", "alternate-term", false);
-        assertContainsParameters("Intelligence", "alternate-term");
+        // Assert that the Panel is still maximized.
+        waitForPanelToMaximize();
 
-        // Tap the Search Bar again.
-        clickPanelBar(0.05f);
+        // Let the Search Term Resolution finish.
+        simulateSlowResolveFinished();
 
-        // Now that the response has arrived, tapping on the Search Panel should promote it
-        // to a Tab. Therefore, we are asserting that the Panel got closed.
-        waitForPanelToCloseAndAssert();
+        // Now a click in the Bar should promote to a separate tab.
+        forcePanelToHandleBarClick();
 
-        // Finally, make sure a tab was created.
-        if (!FeatureUtilities.isDocumentMode(getInstrumentation().getContext())) {
-            // TODO(donnd): figure out how to check for tab creation in Document mode.
-            tabCreatedHelper.waitForCallback(tabCreatedHelperCallCount);
-        }
+        // The Panel should now be closed.
+        waitForPanelToClose();
+
+        // Make sure a tab was created.
+        tabCreatedHelper.waitForCallback(tabCreatedHelperCallCount);
+
+        // -------- CLEAN UP ---------
         getActivity().getTabModelSelector().removeObserver(observer);
     }
 
@@ -1476,21 +1477,22 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testTapOnRoleIgnored() throws InterruptedException, TimeoutException {
+        PanelState initialState = mPanel.getPanelState();
         clickNode("role");
-        assertPanelNeverOpened();
+        assertPanelStillInState(initialState);
     }
 
     /**
      * Tests that a Tap gesture on an element with an ARIA attribute does not trigger.
      * http://crbug.com/542874
+     */
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    */
-    @DisabledTest
     public void testTapOnARIAIgnored() throws InterruptedException, TimeoutException {
+        PanelState initialState = mPanel.getPanelState();
         clickNode("aria");
-        assertPanelNeverOpened();
+        assertPanelStillInState(initialState);
     }
 
     /**
@@ -1500,32 +1502,37 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testTapOnFocusableIgnored() throws InterruptedException, TimeoutException {
+        PanelState initialState = mPanel.getPanelState();
         clickNode("focusable");
-        assertPanelNeverOpened();
+        assertPanelStillInState(initialState);
     }
 
     /**
-     * Tests that taps can be resolve-limited for decided users.
+     * Tests that taps can be resolve and prefetch limited for decided users.
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    public void testTapResolveLimitForDecided() throws InterruptedException, TimeoutException {
-        mPolicy.setTapResolveLimitForDecidedForTesting(2);
-        clickToTriggerSearchTermResolution();
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    public void testTapLimitForDecided() throws InterruptedException, TimeoutException {
+        mPolicy.setTapLimitForDecidedForTesting(2);
+        clickToTriggerPrefetch();
         assertSearchTermRequested();
-        clickToTriggerSearchTermResolution();
+        assertLoadedLowPriorityUrl();
+        clickToTriggerPrefetch();
         assertSearchTermRequested();
-        // 3rd click should not resolve.
-        clickToTriggerSearchTermResolution();
+        assertLoadedLowPriorityUrl();
+        // 3rd click should not resolve or prefetch.
+        clickToTriggerLimitedPrefetch();
         assertSearchTermNotRequested();
+        assertLoadedNoUrl();
 
         // Expanding the panel should reset the limit.
         clickToExpandAndClosePanel();
 
-        // Click should resolve again.
-        clickToTriggerSearchTermResolution();
+        // Click should resolve and prefetch again.
+        clickToTriggerPrefetch();
         assertSearchTermRequested();
+        assertLoadedLowPriorityUrl();
     }
 
     /**
@@ -1533,148 +1540,28 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    public void testTapResolveLimitForUndecided() throws InterruptedException, TimeoutException {
-        mPolicy.setTapResolveLimitForUndecidedForTesting(2);
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    public void testTapLimitForUndecided() throws InterruptedException, TimeoutException {
+        mPolicy.setTapLimitForUndecidedForTesting(2);
         mPolicy.overrideDecidedStateForTesting(false);
 
-        clickToTriggerSearchTermResolution();
+        clickToTriggerPrefetch();
         assertSearchTermRequested();
-        clickToTriggerSearchTermResolution();
+        assertLoadedLowPriorityUrl();
+        clickToTriggerPrefetch();
         assertSearchTermRequested();
-        // 3rd click should not resolve.
-        clickToTriggerSearchTermResolution();
+        assertLoadedLowPriorityUrl();
+        // 3rd click should not resolve or prefetch.
+        clickToTriggerLimitedPrefetch();
         assertSearchTermNotRequested();
+        assertLoadedNoUrl();
 
         // Expanding the panel should reset the limit.
         clickToExpandAndClosePanel();
 
-        // Click should resolve again.
-        clickToTriggerSearchTermResolution();
+        // Click should resolve and prefetch again.
+        clickToTriggerPrefetch();
         assertSearchTermRequested();
-    }
-
-    /**
-     * Tests that taps can be preload-limited for decided users.
-     */
-    @SmallTest
-    @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    public void testTapPrefetchLimitForDecided() throws InterruptedException, TimeoutException {
-        mPolicy.setTapPrefetchLimitForDecidedForTesting(2);
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-        // 3rd click should not preload.
-        clickToTriggerPrefetch();
-        assertLoadedNoUrl();
-
-        // Expanding the panel should reset the limit.
-        clickToExpandAndClosePanel();
-
-        // Click should preload again.
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-    }
-
-    /**
-     * Tests that taps can be preload-limited for undecided users.
-     */
-    @SmallTest
-    @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    public void testTapPrefetchLimitForUndecided() throws InterruptedException, TimeoutException {
-        mPolicy.setTapPrefetchLimitForUndecidedForTesting(2);
-        mPolicy.overrideDecidedStateForTesting(false);
-
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-        // 3rd click should not preload.
-        clickToTriggerPrefetch();
-        assertLoadedNoUrl();
-
-        // Expanding the panel should reset the limit.
-        clickToExpandAndClosePanel();
-
-        // Click should preload again.
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-    }
-
-    /**
-     * Tests the tap triggered promo limit for opt-out.
-     * @SmallTest
-     * @Feature({"ContextualSearch"})
-     */
-    @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @FlakyTest
-    public void testTapTriggeredPromoLimitForOptOut()
-            throws InterruptedException, TimeoutException {
-        mPolicy.setPromoTapTriggeredLimitForTesting(2);
-        mPolicy.overrideDecidedStateForTesting(false);
-
-        clickWordNode("states");
-        clickNode("states-far");
-        waitForPanelToCloseAndSelectionDissolved();
-        clickWordNode("states");
-        clickNode("states-far");
-        waitForPanelToCloseAndSelectionDissolved();
-
-        // 3rd click won't peek the panel.
-        clickNode("states");
-        assertPanelClosedOrUndefined();
-        // The Tap should not select any text either!
-        assertNull(getSelectedText());
-
-        // A long-press should still show the promo bar.
-        longPressNode("states");
-        waitForPanelToPeekAndAssert();
-
-        // Expanding the panel should deactivate the limit.
-        tapBarToExpandAndClosePanel();
-        // Clear the long-press selection.
-        clickNode("states-far");
-
-        // Three taps should work now.
-        clickWordNode("states");
-        clickNode("states-far");
-        waitForPanelToCloseAndSelectionDissolved();
-        clickWordNode("states");
-        clickNode("states-far");
-        waitForPanelToCloseAndSelectionDissolved();
-        clickWordNode("states");
-        clickNode("states-far");
-        waitForPanelToCloseAndSelectionDissolved();
-    }
-
-    /**
-     * This is a test that happens to create a separate bar without any content area!
-     *
-     * @SmallTest
-     * @Feature({"ContextualSearch"})
-     */
-    @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @FlakyTest
-    public void testDisembodiedBar() throws InterruptedException, TimeoutException {
-        mPolicy.setTapPrefetchLimitForDecidedForTesting(2);
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-        clickToTriggerPrefetch();
-        assertLoadedLowPriorityUrl();
-        // 3rd click should not preload.
-        clickToTriggerPrefetch();
-        assertLoadedNoUrl();
-
-        // Expanding the panel should reset the limit.
-        flingPanelUp();
-        tapBasePageToClosePanel();
-        waitForPanelToCloseAndSelectionDissolved();
-
-        // Click should preload again.
-        clickToTriggerPrefetch();
         assertLoadedLowPriorityUrl();
     }
 
@@ -1684,7 +1571,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testExpandBeforeSearchTermResolution()
             throws InterruptedException, TimeoutException {
         clickWordNode("states");
@@ -1708,7 +1595,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testSearchTermResolutionError() throws InterruptedException, TimeoutException {
         clickWordNode("states");
         assertSearchTermRequested();
@@ -1789,14 +1676,14 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * Asserts whether the App Menu is visible.
      */
     private void assertAppMenuVisibility(final boolean isVisible) throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 if (getActivity()
                         .getAppMenuHandler().isAppMenuShowing() == isVisible) return true;
                 return false;
             }
-        }));
+        });
     }
 
     /**
@@ -1804,7 +1691,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testAppMenuSuppressedWhenExpanded() throws InterruptedException, TimeoutException {
         clickWordNode("states");
         tapPeekingBarToExpandAndAssert();
@@ -1827,13 +1714,13 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     public void testAppMenuSuppressedWhenMaximized() throws InterruptedException, TimeoutException {
         clickWordNode("states");
         flingPanelUpToTop();
-        waitForPanelToMaximizeAndAssert();
+        waitForPanelToMaximize();
 
         pressAppMenuKey();
         assertAppMenuVisibility(false);
 
         pressBackButton();
-        waitForPanelToCloseAndAssert();
+        waitForPanelToClose();
 
         pressAppMenuKey();
         assertAppMenuVisibility(true);
@@ -1847,20 +1734,12 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * Tests the TapN-promo-limit feature, which disables the promo on tap after N taps if
      * the user has never ever opened the panel.  Once the panel is opened, this limiting-feature
      * is permanently disabled.
-     *
-     * This test is very similar to an existing test for this same feature, so I'm proactively
-     * marking this as a FlakyTest too (since we're landing right before upstreaming).
-     *
-     * @SmallTest
-     * @Feature({"ContextualSearch"})
      */
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @FlakyTest
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testPromoTapCount() throws InterruptedException, TimeoutException {
         mPolicy.setPromoTapTriggeredLimitForTesting(2);
-        // Note that this tests the basic underlying counter used by
-        // testTapTriggeredPromoLimitForOptOut.
-        // TODO(donnd): consider removing either this test or testTapTriggeredPromoLimitForOptOut.
         mPolicy.overrideDecidedStateForTesting(false);
         assertTapPromoCounterEnabledAt(0);
 
@@ -1880,7 +1759,8 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         // An open should disable the counter, but we need to use long-press (tap is now disabled).
         longPressNode("states-far");
         tapPeekingBarToExpandAndAssert();
-        tapBasePageToClosePanel();
+        pressBackButton();
+        waitForPanelToClose();
         assertTapPromoCounterDisabledAt(2);
 
         // Even though we closed the panel, the long-press selection is still there.
@@ -1902,7 +1782,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testPromoOpenCountForUndecided() throws InterruptedException, TimeoutException {
         mPolicy.overrideDecidedStateForTesting(false);
 
@@ -1929,7 +1809,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testPromoOpenCountForDecided() throws InterruptedException, TimeoutException {
         mPolicy.overrideDecidedStateForTesting(true);
 
@@ -1985,7 +1865,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testNotifyObserverHideAfterLongPress()
             throws InterruptedException, TimeoutException {
         TestContextualSearchObserver observer = new TestContextualSearchObserver();
@@ -2003,7 +1883,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testNotifyObserverHideAfterTap() throws InterruptedException, TimeoutException {
         TestContextualSearchObserver observer = new TestContextualSearchObserver();
         mManager.addObserver(observer);
@@ -2016,13 +1896,13 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
     private void assertWaitForSelectActionBarVisible(final boolean visible)
             throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return visible == getActivity().getActivityTab().getContentViewCore()
                         .isSelectActionBarShowing();
             }
-        }));
+        });
     }
 
     /**
@@ -2050,7 +1930,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         });
         assertWaitForSelectActionBarVisible(false);
 
-        waitForPanelToCloseAndAssert();
+        waitForPanelToClose();
         assertEquals(1, observer.hideCount);
     }
 
@@ -2065,7 +1945,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     public void testPreventHandlingCurrentSelectionModification()
             throws InterruptedException, TimeoutException {
         longPressNode("intelligence");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
 
         // Dismiss the Contextual Search panel.
         scrollBasePage();
@@ -2079,7 +1959,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         // Select a different word and assert that the panel has appeared.
         longPressNode("states-far");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
     }
 
     /**
@@ -2087,14 +1967,14 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      * We've had reliability problems with a sequence of simple taps, due to async dissolving
      * of selection bounds, so this helps prevent a regression with that.
      */
+    @SmallTest
+    @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testTapALot() throws InterruptedException, TimeoutException {
-        mPolicy.setTapPrefetchLimitForDecidedForTesting(200);
-        mPolicy.setTapResolveLimitForDecidedForTesting(200);
-        mPolicy.setTapPrefetchLimitForUndecidedForTesting(200);
-        mPolicy.setTapResolveLimitForUndecidedForTesting(200);
+        mPolicy.setTapLimitForDecidedForTesting(200);
+        mPolicy.setTapLimitForUndecidedForTesting(200);
         for (int i = 0; i < 50; i++) {
-            clickToTriggerSearchTermResolution();
+            clickToTriggerPrefetch();
             waitForSelectionDissolved();
             assertSearchTermRequested();
         }
@@ -2109,7 +1989,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testExternalNavigationWithUserGesture() {
         final ExternalNavigationHandler externalNavHandler =
-                new ExternalNavigationHandler(getActivity());
+                new ExternalNavigationHandler(getActivity().getActivityTab());
         final NavigationParams navigationParams = new NavigationParams(
                 "intent://test/#Intent;scheme=test;package=com.chrome.test;end", "",
                 false /* isPost */, true /* hasUserGesture */, PageTransition.LINK,
@@ -2135,7 +2015,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testRedirectedExternalNavigationWithUserGesture() {
         final ExternalNavigationHandler externalNavHandler =
-                new ExternalNavigationHandler(getActivity());
+                new ExternalNavigationHandler(getActivity().getActivityTab());
 
         final NavigationParams initialNavigationParams = new NavigationParams("http://test.com", "",
                 false /* isPost */, true /* hasUserGesture */, PageTransition.LINK,
@@ -2169,7 +2049,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testExternalNavigationWithoutUserGesture() {
         final ExternalNavigationHandler externalNavHandler =
-                new ExternalNavigationHandler(getActivity());
+                new ExternalNavigationHandler(getActivity().getActivityTab());
         final NavigationParams navigationParams = new NavigationParams(
                 "intent://test/#Intent;scheme=test;package=com.chrome.test;end", "",
                 false /* isPost */, false /* hasUserGesture */, PageTransition.LINK,
@@ -2193,7 +2073,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
             throws InterruptedException, TimeoutException {
         mFakeServer.reset();
         clickWordNode("intelligence");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
 
         fakeResponse(false, 200, "Intelligence", "United States Intelligence", "alternate-term",
                 false, -14, 0, "");
@@ -2202,13 +2082,10 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
     /**
      * Tests that long-press triggers the Peek Promo, and expanding the Panel dismisses it.
-     *
-     * Re-enable the test after fixing http://crbug.com/540820.
-     * @SmallTest
-     * @Feature({"ContextualSearch"})
      */
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @FlakyTest
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @CommandLineFlags.Add(ContextualSearchFieldTrial.PEEK_PROMO_ENABLED + "=true")
     public void testLongPressShowsPeekPromo() throws InterruptedException, TimeoutException {
         // Must be in undecided state in order to trigger the Peek Promo.
@@ -2218,12 +2095,12 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         // Long press and make sure the Promo shows.
         longPressNode("intelligence");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertTrue(mPanel.isPeekPromoVisible());
 
         // After expanding the Panel the Promo should be invisible.
         flingPanelUp();
-        waitForPanelToExpandAndAssert();
+        waitForPanelToExpand();
         assertFalse(mPanel.isPeekPromoVisible());
 
         // After closing the Panel the Promo should still be invisible.
@@ -2236,7 +2113,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         // Now that the Panel was opened at least once, the Promo should not show again.
         longPressNode("intelligence");
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertFalse(mPanel.isPeekPromoVisible());
     }
 
@@ -2249,7 +2126,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testTapContentVisibility() throws InterruptedException, TimeoutException {
         // Simulate a tap and make sure Content is not visible.
         simulateTapSearch("search");
@@ -2270,7 +2147,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testLongPressContentVisibility() throws InterruptedException, TimeoutException {
         // Simulate a long press and make sure no Content is created.
         simulateLongPressSearch("search");
@@ -2292,7 +2169,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testTapMultipleSwipeOnlyLoadsContentOnce()
             throws InterruptedException, TimeoutException {
         // Simulate a tap and make sure Content is not visible.
@@ -2307,7 +2184,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         // Swiping the Panel down should not change the visibility or load content again.
         swipePanelDown();
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertContentViewCoreVisible();
         assertEquals(1, mFakeServer.getLoadedUrlCount());
 
@@ -2327,7 +2204,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testLongPressMultipleSwipeOnlyLoadsContentOnce()
             throws InterruptedException, TimeoutException {
         // Simulate a long press and make sure no Content is created.
@@ -2343,7 +2220,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         // Swiping the Panel down should not change the visibility or load content again.
         swipePanelDown();
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertContentViewCoreVisible();
         assertEquals(1, mFakeServer.getLoadedUrlCount());
 
@@ -2402,7 +2279,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @DisabledTest // https://crbug.com/551711
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testChainedSearchLoadsCorrectSearchTerm()
             throws InterruptedException, TimeoutException {
         // Simulate a tap and make sure Content is not visible.
@@ -2418,7 +2295,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         // Swiping the Panel down should not change the visibility or load content again.
         swipePanelDown();
-        waitForPanelToPeekAndAssert();
+        waitForPanelToPeek();
         assertContentViewCoreVisible();
         assertEquals(1, mFakeServer.getLoadedUrlCount());
 
@@ -2447,7 +2324,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testChainedSearchContentVisibility() throws InterruptedException, TimeoutException {
         // Simulate a tap and make sure Content is not visible.
         simulateTapSearch("search");
@@ -2501,7 +2378,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
      */
     @SmallTest
     @Feature({"ContextualSearch"})
-    @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     public void testTapExpandNotRemovedFromHistory()
             throws InterruptedException, TimeoutException {
         // Simulate a tap and make sure a URL was loaded.
@@ -2556,13 +2433,17 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
         assertTrue(mFakeServer.hasRemovedUrl(url3));
     }
 
+    //============================================================================================
+    // Translate Tests
+    //============================================================================================
+
     /**
      * Tests that a simple Tap with language determination triggers translation.
      */
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @CommandLineFlags.Add(ContextualSearchFieldTrial.ENABLE_TRANSLATION_FOR_TESTING + "=true")
+    @CommandLineFlags.Add(ContextualSearchFieldTrial.ENABLE_TRANSLATION + "=true")
     public void testTapWithLanguage() throws InterruptedException, TimeoutException {
         // Tapping a German word should trigger translation.
         simulateTapSearch("german");
@@ -2579,7 +2460,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @CommandLineFlags.Add(ContextualSearchFieldTrial.ENABLE_TRANSLATION_FOR_TESTING + "=true")
+    @CommandLineFlags.Add(ContextualSearchFieldTrial.ENABLE_TRANSLATION + "=true")
     public void testTapWithoutLanguage() throws InterruptedException, TimeoutException {
         // Tapping an English word should NOT trigger translation.
         simulateTapSearch("search");
@@ -2589,12 +2470,29 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     }
 
     /**
+     * Tests that the server-controlled-onebox flag can override behavior on a simple Tap
+     * without language determination.
+     */
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
+    @CommandLineFlags.Add({ContextualSearchFieldTrial.ENABLE_TRANSLATION + "=true",
+            ContextualSearchFieldTrial.ENABLE_SERVER_CONTROLLED_ONEBOX + "=true"})
+    public void testTapWithoutLanguageCanBeForced() throws InterruptedException, TimeoutException {
+        // Tapping an English word should trigger translation.
+        simulateTapSearch("search");
+
+        // Make sure we did try to trigger translate.
+        assertTrue(mManager.getRequest().isTranslationForced());
+    }
+
+    /**
      * Tests that a long-press does trigger translation.
      */
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @CommandLineFlags.Add(ContextualSearchFieldTrial.ENABLE_TRANSLATION_FOR_TESTING + "=true")
+    @CommandLineFlags.Add(ContextualSearchFieldTrial.ENABLE_TRANSLATION + "=true")
     public void testLongpressTranslates() throws InterruptedException, TimeoutException {
         // LongPress on any word should trigger translation.
         simulateLongPressSearch("search");
@@ -2609,7 +2507,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @CommandLineFlags.Add({ContextualSearchFieldTrial.ENABLE_TRANSLATION_FOR_TESTING + "=true",
+    @CommandLineFlags.Add({ContextualSearchFieldTrial.ENABLE_TRANSLATION + "=true",
             ContextualSearchFieldTrial.DISABLE_AUTO_DETECT_TRANSLATION_ONEBOX + "=true"})
     public void testLongpressAutoDetectDisabledDoesNotTranslate()
             throws InterruptedException, TimeoutException {
@@ -2626,7 +2524,7 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @CommandLineFlags.Add({ContextualSearchFieldTrial.ENABLE_TRANSLATION_FOR_TESTING + "=true",
+    @CommandLineFlags.Add({ContextualSearchFieldTrial.ENABLE_TRANSLATION + "=true",
             ContextualSearchFieldTrial.DISABLE_FORCE_TRANSLATION_ONEBOX + "=true"})
     public void testLongpressTranslateDisabledDoesNotTranslate()
             throws InterruptedException, TimeoutException {
@@ -2635,5 +2533,59 @@ public class ContextualSearchManagerTest extends ChromeActivityTestCaseBase<Chro
 
         // Make sure we did not try to trigger translate.
         assertFalse(mManager.getRequest().isTranslationForced());
+    }
+
+    /**
+     * Tests that Contextual Search works in fullscreen. Specifically, tests that tapping a word
+     * peeks the panel, expanding the bar results in the bar ending at the correct spot in the page
+     * and tapping the base page closes the panel.
+     */
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @Restriction({ChromeRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    public void testTapContentAndExpandPanelInFullscreen()
+            throws InterruptedException, TimeoutException {
+        // Toggle tab to fulllscreen.
+        FullscreenTestUtils.togglePersistentFullscreenAndAssert(getActivity().getActivityTab(),
+                true, getActivity());
+
+        // Simulate a tap and assert that the panel peeks.
+        simulateTapSearch("search");
+
+        // Expand the panel and assert that it ends up in the right place.
+        tapPeekingBarToExpandAndAssert();
+        assertEquals(mManager.getContextualSearchPanel().getHeight(),
+                mManager.getContextualSearchPanel().getPanelHeightFromState(PanelState.EXPANDED));
+
+        // Tap the base page and assert that the panel is closed.
+        tapBasePageToClosePanel();
+    }
+
+    /**
+     * Tests that the Contextual Search panel is dismissed when entering or exiting fullscreen.
+     */
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @Restriction({RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    public void testPanelDismissedOnToggleFullscreen()
+            throws InterruptedException, TimeoutException {
+        // Simulate a tap and assert that the panel peeks.
+        simulateTapSearch("search");
+
+        // Toggle tab to fullscreen.
+        Tab tab = getActivity().getActivityTab();
+        FullscreenTestUtils.togglePersistentFullscreenAndAssert(tab, true, getActivity());
+
+        // Assert that the panel is closed.
+        waitForPanelToClose();
+
+        // Simulate a tap and assert that the panel peeks.
+        simulateTapSearch("search");
+
+        // Toggle tab to non-fullscreen.
+        FullscreenTestUtils.togglePersistentFullscreenAndAssert(tab, false, getActivity());
+
+        // Assert that the panel is closed.
+        waitForPanelToClose();
     }
 }

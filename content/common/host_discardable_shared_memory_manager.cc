@@ -5,14 +5,17 @@
 #include "content/common/host_discardable_shared_memory_manager.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/atomic_sequence_num.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/debug/crash_logging.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/memory/discardable_memory.h"
 #include "base/numerics/safe_math.h"
+#include "base/process/memory.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
@@ -21,9 +24,16 @@
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/common/discardable_shared_memory_heap.h"
 #include "content/public/common/child_process_host.h"
+
+#if defined(OS_LINUX)
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
+#include "base/metrics/histogram.h"
+#endif
 
 namespace content {
 namespace {
@@ -32,7 +42,7 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
  public:
   DiscardableMemoryImpl(scoped_ptr<base::DiscardableSharedMemory> shared_memory,
                         const base::Closure& deleted_callback)
-      : shared_memory_(shared_memory.Pass()),
+      : shared_memory_(std::move(shared_memory)),
         deleted_callback_(deleted_callback),
         is_locked_(true) {}
 
@@ -85,15 +95,56 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
   DISALLOW_COPY_AND_ASSIGN(DiscardableMemoryImpl);
 };
 
-base::LazyInstance<HostDiscardableSharedMemoryManager>
-    g_discardable_shared_memory_manager = LAZY_INSTANCE_INITIALIZER;
+// Returns the default memory limit to use for discardable memory, taking
+// the amount physical memory available and other platform specific constraints
+// into account.
+int64_t GetDefaultMemoryLimit() {
+  const int kMegabyte = 1024 * 1024;
 
 #if defined(OS_ANDROID)
-// Limits the number of FDs used to 32, assuming a 4MB allocation size.
-const int64_t kMaxDefaultMemoryLimit = 128 * 1024 * 1024;
+  // Limits the number of FDs used to 32, assuming a 4MB allocation size.
+  int64_t max_default_memory_limit = 128 * kMegabyte;
 #else
-const int64_t kMaxDefaultMemoryLimit = 512 * 1024 * 1024;
+  int64_t max_default_memory_limit = 512 * kMegabyte;
 #endif
+
+  // Use 1/8th of discardable memory on low-end devices.
+  if (base::SysInfo::IsLowEndDevice())
+    max_default_memory_limit /= 8;
+
+#if defined(OS_LINUX)
+  base::FilePath shmem_dir;
+  if (base::GetShmemTempDir(false, &shmem_dir)) {
+    int64_t shmem_dir_amount_of_free_space =
+        base::SysInfo::AmountOfFreeDiskSpace(shmem_dir);
+    DCHECK_GT(shmem_dir_amount_of_free_space, 0);
+    int64_t shmem_dir_amount_of_free_space_mb =
+        shmem_dir_amount_of_free_space / kMegabyte;
+
+    UMA_HISTOGRAM_CUSTOM_COUNTS("Memory.ShmemDir.AmountOfFreeSpace",
+                                shmem_dir_amount_of_free_space_mb, 1,
+                                4 * 1024,  // 4 GB
+                                50);
+
+    if (shmem_dir_amount_of_free_space_mb < 64) {
+      LOG(WARNING) << "Less than 64MB of free space in temporary directory for "
+                      "shared memory files: "
+                   << shmem_dir_amount_of_free_space_mb;
+    }
+
+    // Allow 1/2 of available shmem dir space to be used for discardable memory.
+    max_default_memory_limit =
+        std::min(max_default_memory_limit, shmem_dir_amount_of_free_space / 2);
+  }
+#endif
+
+  // Allow 25% of physical memory to be used for discardable memory.
+  return std::min(max_default_memory_limit,
+                  base::SysInfo::AmountOfPhysicalMemory() / 4);
+}
+
+base::LazyInstance<HostDiscardableSharedMemoryManager>
+    g_discardable_shared_memory_manager = LAZY_INSTANCE_INITIALIZER;
 
 const int kEnforceMemoryPolicyDelayMs = 1000;
 
@@ -104,21 +155,13 @@ base::StaticAtomicSequenceNumber g_next_discardable_shared_memory_id;
 
 HostDiscardableSharedMemoryManager::MemorySegment::MemorySegment(
     scoped_ptr<base::DiscardableSharedMemory> memory)
-    : memory_(memory.Pass()) {
-}
+    : memory_(std::move(memory)) {}
 
 HostDiscardableSharedMemoryManager::MemorySegment::~MemorySegment() {
 }
 
 HostDiscardableSharedMemoryManager::HostDiscardableSharedMemoryManager()
-    : memory_limit_(
-          // Allow 25% of physical memory to be used for discardable memory.
-          std::min(base::SysInfo::AmountOfPhysicalMemory() / 4,
-                   base::SysInfo::IsLowEndDevice()
-                       ?
-                       // Use 1/8th of discardable memory on low-end devices.
-                       kMaxDefaultMemoryLimit / 8
-                       : kMaxDefaultMemoryLimit)),
+    : memory_limit_(GetDefaultMemoryLimit()),
       bytes_allocated_(0),
       memory_pressure_listener_(new base::MemoryPressureListener(
           base::Bind(&HostDiscardableSharedMemoryManager::OnMemoryPressure,
@@ -148,6 +191,9 @@ HostDiscardableSharedMemoryManager::current() {
 scoped_ptr<base::DiscardableMemory>
 HostDiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(
     size_t size) {
+  // TODO(reveman): Temporary diagnostics for http://crbug.com/577786.
+  CHECK_NE(size, 0u);
+
   DiscardableSharedMemoryId new_id =
       g_next_discardable_shared_memory_id.GetNext();
   base::ProcessHandle current_process_handle = base::GetCurrentProcessHandle();
@@ -158,14 +204,14 @@ HostDiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(
   AllocateLockedDiscardableSharedMemory(current_process_handle,
                                         ChildProcessHost::kInvalidUniqueID,
                                         size, new_id, &handle);
-  CHECK(base::SharedMemory::IsHandleValid(handle));
   scoped_ptr<base::DiscardableSharedMemory> memory(
       new base::DiscardableSharedMemory(handle));
-  CHECK(memory->Map(size));
+  if (!memory->Map(size))
+    base::TerminateBecauseOutOfMemory(size);
   // Close file descriptor to avoid running out.
   memory->Close();
   return make_scoped_ptr(new DiscardableMemoryImpl(
-      memory.Pass(),
+      std::move(memory),
       base::Bind(
           &HostDiscardableSharedMemoryManager::DeletedDiscardableSharedMemory,
           base::Unretained(this), new_id, ChildProcessHost::kInvalidUniqueID)));
@@ -184,12 +230,13 @@ bool HostDiscardableSharedMemoryManager::OnMemoryDump(
       if (!segment->memory()->mapped_size())
         continue;
 
+      // The "size" will be inherited form the shared global dump.
       std::string dump_name = base::StringPrintf(
           "discardable/process_%x/segment_%d", child_process_id, segment_id);
       base::trace_event::MemoryAllocatorDump* dump =
           pmd->CreateAllocatorDump(dump_name);
 
-      dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+      dump->AddScalar("virtual_size",
                       base::trace_event::MemoryAllocatorDump::kUnitsBytes,
                       segment->memory()->mapped_size());
 
@@ -203,7 +250,7 @@ bool HostDiscardableSharedMemoryManager::OnMemoryDump(
       // corresponding dump for the same segment, this will avoid to
       // double-count them in tracing. If, instead, no other process will emit a
       // dump with the same guid, the segment will be accounted to the browser.
-      const uint64 child_tracing_process_id =
+      const uint64_t child_tracing_process_id =
           ChildProcessHostImpl::ChildProcessUniqueIdToTracingProcessId(
               child_process_id);
       base::trace_event::MemoryAllocatorDumpGuid shared_segment_guid =
@@ -224,7 +271,7 @@ bool HostDiscardableSharedMemoryManager::OnMemoryDump(
         pmd->GetSharedGlobalAllocatorDump(shared_segment_guid)
             ->AddScalar("resident_size",
                         base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-                        static_cast<uint64>(resident_size));
+                        static_cast<uint64_t>(resident_size));
       }
 #endif  // defined(COUNT_RESIDENT_BYTES_SUPPORTED)
     }
@@ -343,7 +390,7 @@ void HostDiscardableSharedMemoryManager::AllocateLockedDiscardableSharedMemory(
   bytes_allocated_ = checked_bytes_allocated.ValueOrDie();
   BytesAllocatedChanged(bytes_allocated_);
 
-  scoped_refptr<MemorySegment> segment(new MemorySegment(memory.Pass()));
+  scoped_refptr<MemorySegment> segment(new MemorySegment(std::move(memory)));
   process_segments[id] = segment.get();
   segments_.push_back(segment.get());
   std::push_heap(segments_.begin(), segments_.end(), CompareMemoryUsageTime);

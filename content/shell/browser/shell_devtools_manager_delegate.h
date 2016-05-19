@@ -5,8 +5,8 @@
 #ifndef CONTENT_SHELL_BROWSER_SHELL_DEVTOOLS_MANAGER_DELEGATE_H_
 #define CONTENT_SHELL_BROWSER_SHELL_DEVTOOLS_MANAGER_DELEGATE_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "components/devtools_http_handler/devtools_http_handler_delegate.h"
 #include "content/public/browser/devtools_manager_delegate.h"
 
@@ -23,7 +23,7 @@ class ShellDevToolsManagerDelegate : public DevToolsManagerDelegate {
   static devtools_http_handler::DevToolsHttpHandler* CreateHttpHandler(
       BrowserContext* browser_context);
 
-  explicit ShellDevToolsManagerDelegate(BrowserContext* browser_context);
+  ShellDevToolsManagerDelegate();
   ~ShellDevToolsManagerDelegate() override;
 
   // DevToolsManagerDelegate implementation.
@@ -35,8 +35,6 @@ class ShellDevToolsManagerDelegate : public DevToolsManagerDelegate {
                                        base::DictionaryValue* command) override;
 
  private:
-  BrowserContext* browser_context_;
-
   DISALLOW_COPY_AND_ASSIGN(ShellDevToolsManagerDelegate);
 };
 

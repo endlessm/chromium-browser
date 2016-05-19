@@ -4,6 +4,7 @@
 
 #include "cc/layers/picture_layer_impl.h"
 
+#include "base/macros.h"
 #include "base/thread_task_runner_handle.h"
 #include "cc/debug/lap_timer.h"
 #include "cc/test/fake_display_list_raster_source.h"
@@ -66,8 +67,9 @@ class PictureLayerImplPerfTest : public testing::Test {
         FakePictureLayerImpl::CreateWithRasterSource(pending_tree, 7,
                                                      raster_source);
     pending_layer->SetDrawsContent(true);
-    pending_layer->SetHasRenderSurface(true);
-    pending_tree->SetRootLayer(pending_layer.Pass());
+    pending_layer->SetForceRenderSurface(true);
+    pending_tree->SetRootLayer(std::move(pending_layer));
+    pending_tree->BuildPropertyTreesForTesting();
 
     pending_layer_ = static_cast<FakePictureLayerImpl*>(
         host_impl_.pending_tree()->LayerById(7));

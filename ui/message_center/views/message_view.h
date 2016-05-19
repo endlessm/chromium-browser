@@ -5,6 +5,7 @@
 #ifndef UI_MESSAGE_CENTER_VIEWS_MESSAGE_VIEW_H_
 #define UI_MESSAGE_CENTER_VIEWS_MESSAGE_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -45,8 +46,8 @@ const int kPaddingHorizontal = 18;
 const int kWebNotificationButtonWidth = 32;
 const int kWebNotificationIconSize = 40;
 
-// An base class for a notification entry. Contains background, close button
-// and other elements shared by derived notification views.
+// An base class for a notification entry. Contains background and other
+// elements shared by derived notification views.
 class MESSAGE_CENTER_EXPORT MessageView : public views::SlideOutView,
                                           public views::ButtonListener {
  public:
@@ -66,8 +67,9 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::SlideOutView,
   // Creates a shadow around the notification.
   void CreateShadowBorder();
 
-  bool IsCloseButtonFocused();
-  void RequestFocusOnCloseButton();
+  virtual bool IsCloseButtonFocused();
+  virtual void RequestFocusOnCloseButton();
+  virtual bool IsPinned();
 
   void set_accessible_name(const base::string16& accessible_name) {
     accessible_name_ = accessible_name;
@@ -99,7 +101,6 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::SlideOutView,
   void OnSlideOut() override;
 
   views::ImageView* small_image() { return small_image_view_.get(); }
-  views::ImageButton* close_button() { return close_button_.get(); }
   views::ScrollView* scroller() { return scroller_; }
 
  private:
@@ -107,7 +108,6 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::SlideOutView,
   std::string notification_id_;
   NotifierId notifier_id_;
   views::View* background_view_;  // Owned by views hierarchy.
-  scoped_ptr<views::ImageButton> close_button_;
   scoped_ptr<views::ImageView> small_image_view_;
   views::ScrollView* scroller_;
 

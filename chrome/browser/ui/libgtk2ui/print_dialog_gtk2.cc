@@ -16,6 +16,7 @@
 #include "base/files/file_util_proxy.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/ui/libgtk2ui/gtk2_util.h"
@@ -327,6 +328,7 @@ void PrintDialogGtk2::ShowDialog(
     bool has_selection,
     const PrintingContextLinux::PrintSettingsCallback& callback) {
   callback_ = callback;
+  DCHECK(!callback_.is_null());
 
   dialog_ = gtk_print_unix_dialog_new(NULL, NULL);
   libgtk2ui::SetGtkTransientForAura(dialog_, parent_view);
@@ -549,5 +551,8 @@ void PrintDialogGtk2::OnWindowDestroying(aura::Window* window) {
 
   libgtk2ui::ClearAuraTransientParent(dialog_);
   window->RemoveObserver(this);
-  Release();
+  if (!callback_.is_null()) {
+    callback_.Run(PrintingContextLinux::CANCEL);
+    callback_.Reset();
+  }
 }

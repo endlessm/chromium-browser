@@ -33,31 +33,22 @@ const int kVideoPayloadTypeFrequency = 90000;
 // Minimum RTP header size in bytes.
 const uint8_t kRtpHeaderSize = 12;
 
-struct AudioPayload
-{
+struct AudioPayload {
     uint32_t    frequency;
-    uint8_t     channels;
+    size_t      channels;
     uint32_t    rate;
 };
 
-struct VideoPayload
-{
+struct VideoPayload {
     RtpVideoCodecTypes   videoCodecType;
-    uint32_t       maxRate;
 };
 
-union PayloadUnion
-{
+union PayloadUnion {
     AudioPayload Audio;
     VideoPayload Video;
 };
 
-enum RTPAliveType
-{
-    kRtpDead   = 0,
-    kRtpNoRtp = 1,
-    kRtpAlive  = 2
-};
+enum RTPAliveType { kRtpDead = 0, kRtpNoRtp = 1, kRtpAlive = 2 };
 
 enum ProtectionType {
   kUnprotectedPacket,
@@ -78,10 +69,7 @@ enum RTPExtensionType {
   kRtpExtensionTransportSequenceNumber,
 };
 
-enum RTCPAppSubTypes
-{
-    kAppSubtypeBwe     = 0x00
-};
+enum RTCPAppSubTypes { kAppSubtypeBwe = 0x00 };
 
 // TODO(sprang): Make this an enum class once rtcp_receiver has been cleaned up.
 enum RTCPPacketType : uint32_t {
@@ -109,17 +97,9 @@ enum RTCPPacketType : uint32_t {
 
 enum KeyFrameRequestMethod { kKeyFrameReqPliRtcp, kKeyFrameReqFirRtcp };
 
-enum RtpRtcpPacketType
-{
-    kPacketRtp        = 0,
-    kPacketKeepAlive = 1
-};
+enum RtpRtcpPacketType { kPacketRtp = 0, kPacketKeepAlive = 1 };
 
-enum NACKMethod
-{
-    kNackOff      = 0,
-    kNackRtcp     = 2
-};
+enum NACKMethod { kNackOff = 0, kNackRtcp = 2 };
 
 enum RetransmissionMode : uint8_t {
   kRetransmitOff = 0x0,
@@ -138,8 +118,7 @@ enum RtxMode {
 
 const size_t kRtxHeaderSize = 2;
 
-struct RTCPSenderInfo
-{
+struct RTCPSenderInfo {
     uint32_t NTPseconds;
     uint32_t NTPfraction;
     uint32_t RTPtimeStamp;
@@ -206,40 +185,36 @@ struct RtpState {
   bool media_has_been_sent;
 };
 
-class RtpData
-{
-public:
-    virtual ~RtpData() {}
+class RtpData {
+ public:
+  virtual ~RtpData() {}
 
-    virtual int32_t OnReceivedPayloadData(
-        const uint8_t* payloadData,
-        const size_t payloadSize,
-        const WebRtcRTPHeader* rtpHeader) = 0;
+  virtual int32_t OnReceivedPayloadData(const uint8_t* payloadData,
+                                        const size_t payloadSize,
+                                        const WebRtcRTPHeader* rtpHeader) = 0;
 
-    virtual bool OnRecoveredPacket(const uint8_t* packet,
-                                   size_t packet_length) = 0;
+  virtual bool OnRecoveredPacket(const uint8_t* packet,
+                                 size_t packet_length) = 0;
 };
 
-class RtpFeedback
-{
-public:
-    virtual ~RtpFeedback() {}
+class RtpFeedback {
+ public:
+  virtual ~RtpFeedback() {}
 
-    // Receiving payload change or SSRC change. (return success!)
-    /*
-    *   channels    - number of channels in codec (1 = mono, 2 = stereo)
-    */
-    virtual int32_t OnInitializeDecoder(
-        const int8_t payloadType,
-        const char payloadName[RTP_PAYLOAD_NAME_SIZE],
-        const int frequency,
-        const uint8_t channels,
-        const uint32_t rate) = 0;
+  // Receiving payload change or SSRC change. (return success!)
+  /*
+  *   channels    - number of channels in codec (1 = mono, 2 = stereo)
+  */
+  virtual int32_t OnInitializeDecoder(
+      const int8_t payloadType,
+      const char payloadName[RTP_PAYLOAD_NAME_SIZE],
+      const int frequency,
+      const size_t channels,
+      const uint32_t rate) = 0;
 
-    virtual void OnIncomingSSRCChanged(const uint32_t ssrc) = 0;
+  virtual void OnIncomingSSRCChanged(const uint32_t ssrc) = 0;
 
-    virtual void OnIncomingCSRCChanged(const uint32_t CSRC,
-                                       const bool added) = 0;
+  virtual void OnIncomingCSRCChanged(const uint32_t CSRC, const bool added) = 0;
 };
 
 class RtpAudioFeedback {
@@ -346,7 +321,7 @@ class RtcpRttStats {
 
   virtual int64_t LastProcessedRtt() const = 0;
 
-  virtual ~RtcpRttStats() {};
+  virtual ~RtcpRttStats() {}
 };
 
 // Null object version of RtpFeedback.
@@ -357,7 +332,7 @@ class NullRtpFeedback : public RtpFeedback {
   int32_t OnInitializeDecoder(const int8_t payloadType,
                               const char payloadName[RTP_PAYLOAD_NAME_SIZE],
                               const int frequency,
-                              const uint8_t channels,
+                              const size_t channels,
                               const uint32_t rate) override {
     return 0;
   }
@@ -437,4 +412,4 @@ class TransportSequenceNumberAllocator {
 };
 
 }  // namespace webrtc
-#endif // WEBRTC_MODULES_RTP_RTCP_INCLUDE_RTP_RTCP_DEFINES_H_
+#endif  // WEBRTC_MODULES_RTP_RTCP_INCLUDE_RTP_RTCP_DEFINES_H_

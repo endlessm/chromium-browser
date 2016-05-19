@@ -1,5 +1,5 @@
 /**
-Use `Polymer.PaperDialogBehavior` and `paper-dialog-common.css` to implement a Material Design
+Use `Polymer.PaperDialogBehavior` and `paper-dialog-shared-styles.html` to implement a Material Design
 dialog.
 
 For example, if `<paper-dialog-impl>` implements this behavior:
@@ -13,7 +13,7 @@ For example, if `<paper-dialog-impl>` implements this behavior:
         </div>
     </paper-dialog-impl>
 
-`paper-dialog-common.css` provide styles for a header, content area, and an action area for buttons.
+`paper-dialog-shared-styles.html` provide styles for a header, content area, and an action area for buttons.
 Use the `<h2>` tag for the header and the `buttons` class for the action area. You can use the
 `paper-dialog-scrollable` element (in its own repository) if you need a scrolling content area.
 
@@ -94,25 +94,13 @@ The `aria-labelledby` attribute will be set to the header element, if one exists
     },
 
     attached: function() {
-      this._observer = this._observe(this);
+      // this._observer is used by iron-overlay-behavior
+      this._ariaObserver = Polymer.dom(this).observeNodes(this._updateAriaLabelledBy);
       this._updateAriaLabelledBy();
     },
 
     detached: function() {
-      if (this._observer) {
-        this._observer.disconnect();
-      }
-    },
-
-    _observe: function(node) {
-      var observer = new MutationObserver(function() {
-        this._updateAriaLabelledBy();
-      }.bind(this));
-      observer.observe(node, {
-        childList: true,
-        subtree: true
-      });
-      return observer;
+      Polymer.dom(this).unobserveNodes(this._ariaObserver);
     },
 
     _modalChanged: function() {
@@ -156,57 +144,52 @@ The `aria-labelledby` attribute will be set to the header element, if one exists
     },
 
     _onDialogClick: function(event) {
-      var target = event.target;
+      var target = Polymer.dom(event).rootTarget;
       while (target && target !== this) {
         if (target.hasAttribute) {
           if (target.hasAttribute('dialog-dismiss')) {
             this._updateClosingReasonConfirmed(false);
             this.close();
+            event.stopPropagation();
             break;
           } else if (target.hasAttribute('dialog-confirm')) {
             this._updateClosingReasonConfirmed(true);
             this.close();
+            event.stopPropagation();
             break;
           }
         }
-        target = target.parentNode;
+        target = Polymer.dom(target).parentNode;
       }
     },
 
     _onIronOverlayOpened: function() {
       if (this.modal) {
         document.body.addEventListener('focus', this._boundOnFocus, true);
-        this.backdropElement.addEventListener('click', this._boundOnBackdropClick);
+        document.body.addEventListener('click', this._boundOnBackdropClick, true);
       }
     },
 
     _onIronOverlayClosed: function() {
+      this._lastFocusedElement = null;
       document.body.removeEventListener('focus', this._boundOnFocus, true);
-      this.backdropElement.removeEventListener('click', this._boundOnBackdropClick);
+      document.body.removeEventListener('click', this._boundOnBackdropClick, true);
     },
 
     _onFocus: function(event) {
-      if (this.modal) {
-        var target = event.target;
-        while (target && target !== this && target !== document.body) {
-          target = target.parentNode;
-        }
-        if (target) {
-          if (target === document.body) {
-            if (this._lastFocusedElement) {
-              this._lastFocusedElement.focus();
-            } else {
-              this._focusNode.focus();
-            }
-          } else {
-            this._lastFocusedElement = event.target;
-          }
+      if (this.modal && this._manager.currentOverlay() === this) {
+        if (Polymer.dom(event).path.indexOf(this) !== -1) {
+          this._lastFocusedElement = event.target;
+        } else if (this._lastFocusedElement) {
+          this._lastFocusedElement.focus();
+        } else {
+          this._focusNode.focus();
         }
       }
     },
 
-    _onBackdropClick: function() {
-      if (this.modal) {
+    _onBackdropClick: function(event) {
+      if (this.modal && this._manager.currentOverlay() === this && Polymer.dom(event).path.indexOf(this) === -1) {
         if (this._lastFocusedElement) {
           this._lastFocusedElement.focus();
         } else {

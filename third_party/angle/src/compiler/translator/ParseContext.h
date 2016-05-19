@@ -36,7 +36,7 @@ class TParseContext : angle::NonCopyable
                   int options,
                   bool checksPrecErrors,
                   TInfoSink &is,
-                  bool debugShaderPrecisionSupported)
+                  const ShBuiltInResources &resources)
         : intermediate(interm),
           symbolTable(symt),
           mDeferredSingleDeclarationErrorCheck(false),
@@ -54,12 +54,18 @@ class TParseContext : angle::NonCopyable
           mDefaultMatrixPacking(EmpColumnMajor),
           mDefaultBlockStorage(EbsShared),
           mDiagnostics(is),
-          mDirectiveHandler(ext, mDiagnostics, mShaderVersion, debugShaderPrecisionSupported),
+          mDirectiveHandler(ext,
+                            mDiagnostics,
+                            mShaderVersion,
+                            mShaderType,
+                            resources.WEBGL_debug_shader_precision == 1),
           mPreprocessor(&mDiagnostics, &mDirectiveHandler),
           mScanner(nullptr),
           mUsesFragData(false),
           mUsesFragColor(false),
-          mUsesSecondaryOutputs(false)
+          mUsesSecondaryOutputs(false),
+          mMinProgramTexelOffset(resources.MinProgramTexelOffset),
+          mMaxProgramTexelOffset(resources.MaxProgramTexelOffset)
     {
     }
 
@@ -77,6 +83,13 @@ class TParseContext : angle::NonCopyable
     void warning(const TSourceLoc &loc, const char *reason, const char *token,
                  const char *extraInfo="");
 
+    // If isError is false, a warning will be reported instead.
+    void outOfRangeError(bool isError,
+                         const TSourceLoc &loc,
+                         const char *reason,
+                         const char *token,
+                         const char *extraInfo = "");
+
     void recover();
     TIntermNode *getTreeRoot() const { return mTreeRoot; }
     void setTreeRoot(TIntermNode *treeRoot) { mTreeRoot = treeRoot; }
@@ -90,21 +103,9 @@ class TParseContext : angle::NonCopyable
         mFragmentPrecisionHighOnESSL1 = fragmentPrecisionHigh;
     }
 
-    bool getFunctionReturnsValue() const { return mFunctionReturnsValue; }
-    void setFunctionReturnsValue(bool functionReturnsValue)
-    {
-        mFunctionReturnsValue = functionReturnsValue;
-    }
-
     void setLoopNestingLevel(int loopNestintLevel)
     {
         mLoopNestingLevel = loopNestintLevel;
-    }
-
-    const TType *getCurrentFunctionType() const { return mCurrentFunctionType; }
-    void setCurrentFunctionType(const TType *currentFunctionType)
-    {
-        mCurrentFunctionType = currentFunctionType;
     }
 
     void incrLoopNestingLevel() { ++mLoopNestingLevel; }
@@ -130,7 +131,11 @@ class TParseContext : angle::NonCopyable
     bool constErrorCheck(TIntermTyped *node);
     bool integerErrorCheck(TIntermTyped *node, const char *token);
     bool globalErrorCheck(const TSourceLoc &line, bool global, const char *token);
-    bool constructorErrorCheck(const TSourceLoc &line, TIntermNode*, TFunction&, TOperator, TType*);
+    bool constructorErrorCheck(const TSourceLoc &line,
+                               TIntermNode *argumentsNode,
+                               TFunction &function,
+                               TOperator op,
+                               TType *type);
     bool arraySizeErrorCheck(const TSourceLoc &line, TIntermTyped *expr, int &size);
     bool arrayQualifierErrorCheck(const TSourceLoc &line, const TPublicType &type);
     bool arrayTypeErrorCheck(const TSourceLoc &line, const TPublicType &type);
@@ -158,7 +163,6 @@ class TParseContext : angle::NonCopyable
     void handlePragmaDirective(const TSourceLoc &loc, const char *name, const char *value, bool stdgl);
 
     bool containsSampler(const TType &type);
-    bool areAllChildConst(TIntermAggregate *aggrNode);
     const TFunction* findFunction(
         const TSourceLoc &line, TFunction *pfnCall, int inputShaderVersion, bool *builtIn = 0);
     bool executeInitializer(const TSourceLoc &line,
@@ -229,6 +233,12 @@ class TParseContext : angle::NonCopyable
                                                TIntermTyped *initializer);
 
     void parseGlobalLayoutQualifier(const TPublicType &typeQualifier);
+    TIntermAggregate *addFunctionPrototypeDeclaration(const TFunction &function,
+                                                      const TSourceLoc &location);
+    TIntermAggregate *addFunctionDefinition(const TFunction &function,
+                                            TIntermAggregate *functionPrototype,
+                                            TIntermAggregate *functionBody,
+                                            const TSourceLoc &location);
     void parseFunctionPrototype(const TSourceLoc &location,
                                 TFunction *function,
                                 TIntermAggregate **aggregateOut);
@@ -240,10 +250,18 @@ class TParseContext : angle::NonCopyable
                                  TOperator op,
                                  TFunction *fnCall,
                                  const TSourceLoc &line);
-    TIntermTyped *foldConstConstructor(TIntermAggregate *aggrNode, const TType &type);
-    TIntermTyped *addConstVectorNode(TVectorFields&, TIntermTyped*, const TSourceLoc&);
-    TIntermTyped *addConstMatrixNode(int, TIntermTyped*, const TSourceLoc&);
-    TIntermTyped *addConstArrayNode(int index, TIntermTyped *node, const TSourceLoc &line);
+    TIntermTyped *addConstVectorNode(TVectorFields &fields,
+                                     TIntermConstantUnion *node,
+                                     const TSourceLoc &line,
+                                     bool outOfRangeIndexIsError);
+    TIntermTyped *addConstMatrixNode(int index,
+                                     TIntermConstantUnion *node,
+                                     const TSourceLoc &line,
+                                     bool outOfRangeIndexIsError);
+    TIntermTyped *addConstArrayNode(int index,
+                                    TIntermConstantUnion *node,
+                                    const TSourceLoc &line,
+                                    bool outOfRangeIndexIsError);
     TIntermTyped *addConstStruct(
         const TString &identifier, TIntermTyped *node, const TSourceLoc& line);
     TIntermTyped *addIndexExpression(TIntermTyped *baseExpression,
@@ -306,6 +324,7 @@ class TParseContext : angle::NonCopyable
     TIntermBranch *addBranch(TOperator op, const TSourceLoc &loc);
     TIntermBranch *addBranch(TOperator op, TIntermTyped *returnValue, const TSourceLoc &loc);
 
+    void checkTextureOffsetConst(TIntermAggregate *functionCall);
     TIntermTyped *addFunctionCallOrMethod(TFunction *fnCall,
                                           TIntermNode *paramNode,
                                           TIntermNode *thisNode,
@@ -363,6 +382,8 @@ class TParseContext : angle::NonCopyable
     bool mUsesFragColor;
     bool mUsesSecondaryOutputs;  // Track if we are using either gl_SecondaryFragData or
                                  // gl_Secondary FragColor or both.
+    int mMinProgramTexelOffset;
+    int mMaxProgramTexelOffset;
 };
 
 int PaParseStrings(

@@ -27,7 +27,6 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/line/LineWidth.h"
 
 #include "core/layout/api/LineLayoutRubyRun.h"
@@ -35,7 +34,7 @@
 
 namespace blink {
 
-LineWidth::LineWidth(LineLayoutBlockFlow block, bool isFirstLine, IndentTextOrNot shouldIndentText)
+LineWidth::LineWidth(LineLayoutBlockFlow block, bool isFirstLine, IndentTextOrNot indentText)
     : m_block(block)
     , m_uncommittedWidth(0)
     , m_committedWidth(0)
@@ -45,7 +44,7 @@ LineWidth::LineWidth(LineLayoutBlockFlow block, bool isFirstLine, IndentTextOrNo
     , m_right(0)
     , m_availableWidth(0)
     , m_isFirstLine(isFirstLine)
-    , m_shouldIndentText(shouldIndentText)
+    , m_indentText(indentText)
 {
     updateAvailableWidth();
 }
@@ -54,8 +53,8 @@ void LineWidth::updateAvailableWidth(LayoutUnit replacedHeight)
 {
     LayoutUnit height = m_block.logicalHeight();
     LayoutUnit logicalHeight = m_block.minLineHeightForReplacedObject(m_isFirstLine, replacedHeight);
-    m_left = m_block.logicalLeftOffsetForLine(height, shouldIndentText(), logicalHeight).toFloat();
-    m_right = m_block.logicalRightOffsetForLine(height, shouldIndentText(), logicalHeight).toFloat();
+    m_left = m_block.logicalLeftOffsetForLine(height, indentText(), logicalHeight).toFloat();
+    m_right = m_block.logicalRightOffsetForLine(height, indentText(), logicalHeight).toFloat();
 
     computeAvailableWidthFromLeftAndRight();
 }
@@ -72,7 +71,7 @@ void LineWidth::shrinkAvailableWidthForNewFloatIfNeeded(const FloatingObject& ne
         shapeDeltas = shapeOutsideInfo->computeDeltasForContainingBlockLine(m_block, newFloat, m_block.logicalHeight(), lineHeight);
     }
 
-    if (newFloat.type() == FloatingObject::FloatLeft) {
+    if (newFloat.getType() == FloatingObject::FloatLeft) {
         float newLeft = m_block.logicalRightForFloat(newFloat).toFloat();
         if (shapeDeltas.isValid()) {
             if (shapeDeltas.lineOverlapsShape())
@@ -80,7 +79,7 @@ void LineWidth::shrinkAvailableWidthForNewFloatIfNeeded(const FloatingObject& ne
             else // Per the CSS Shapes spec, If the line doesn't overlap the shape, then ignore this shape for this line.
                 newLeft = m_left;
         }
-        if (shouldIndentText() && m_block.style()->isLeftToRightDirection())
+        if (indentText() == IndentText && m_block.style()->isLeftToRightDirection())
             newLeft += floorToInt(m_block.textIndentOffset());
         m_left = std::max<float>(m_left, newLeft);
     } else {
@@ -91,7 +90,7 @@ void LineWidth::shrinkAvailableWidthForNewFloatIfNeeded(const FloatingObject& ne
             else // Per the CSS Shapes spec, If the line doesn't overlap the shape, then ignore this shape for this line.
                 newRight = m_right;
         }
-        if (shouldIndentText() && !m_block.style()->isLeftToRightDirection())
+        if (indentText() == IndentText && !m_block.style()->isLeftToRightDirection())
             newRight -= floorToInt(m_block.textIndentOffset());
         m_right = std::min<float>(m_right, newRight);
     }
@@ -119,11 +118,11 @@ void LineWidth::applyOverhang(LineLayoutRubyRun rubyRun, LineLayoutItem startLay
     m_overhangWidth += startOverhang + endOverhang;
 }
 
-inline static float availableWidthAtOffset(LineLayoutBlockFlow block, const LayoutUnit& offset, bool shouldIndentText, float& newLineLeft,
-    float& newLineRight, const LayoutUnit& lineHeight = 0)
+inline static float availableWidthAtOffset(LineLayoutBlockFlow block, const LayoutUnit& offset, IndentTextOrNot indentText, float& newLineLeft,
+    float& newLineRight, const LayoutUnit& lineHeight = LayoutUnit())
 {
-    newLineLeft = block.logicalLeftOffsetForLine(offset, shouldIndentText, lineHeight).toFloat();
-    newLineRight = block.logicalRightOffsetForLine(offset, shouldIndentText, lineHeight).toFloat();
+    newLineLeft = block.logicalLeftOffsetForLine(offset, indentText, lineHeight).toFloat();
+    newLineRight = block.logicalRightOffsetForLine(offset, indentText, lineHeight).toFloat();
     return std::max(0.0f, newLineRight - newLineLeft);
 }
 
@@ -149,7 +148,7 @@ void LineWidth::wrapNextToShapeOutside(bool isFirstLine)
     float newLineLeft = m_left;
     float newLineRight = m_right;
     while (true) {
-        newLineWidth = availableWidthAtOffset(m_block, newLineTop, shouldIndentText(), newLineLeft, newLineRight, lineHeight);
+        newLineWidth = availableWidthAtOffset(m_block, newLineTop, indentText(), newLineLeft, newLineRight, lineHeight);
         if (newLineWidth >= m_uncommittedWidth)
             break;
 
@@ -158,7 +157,7 @@ void LineWidth::wrapNextToShapeOutside(bool isFirstLine)
 
         newLineTop++;
     }
-    updateLineDimension(newLineTop, newLineWidth, newLineLeft, newLineRight);
+    updateLineDimension(newLineTop, LayoutUnit(newLineWidth), newLineLeft, newLineRight);
 }
 
 void LineWidth::fitBelowFloats(bool isFirstLine)
@@ -178,17 +177,17 @@ void LineWidth::fitBelowFloats(bool isFirstLine)
             return wrapNextToShapeOutside(isFirstLine);
 
     while (true) {
-        floatLogicalBottom = m_block.nextFloatLogicalBottomBelow(lastFloatLogicalBottom, ShapeOutsideFloatShapeOffset);
+        floatLogicalBottom = m_block.nextFloatLogicalBottomBelow(lastFloatLogicalBottom);
         if (floatLogicalBottom <= lastFloatLogicalBottom)
             break;
 
-        newLineWidth = availableWidthAtOffset(m_block, floatLogicalBottom, shouldIndentText(), newLineLeft, newLineRight);
+        newLineWidth = availableWidthAtOffset(m_block, floatLogicalBottom, indentText(), newLineLeft, newLineRight);
         lastFloatLogicalBottom = floatLogicalBottom;
 
         if (newLineWidth >= m_uncommittedWidth)
             break;
     }
-    updateLineDimension(lastFloatLogicalBottom, newLineWidth, newLineLeft, newLineRight);
+    updateLineDimension(lastFloatLogicalBottom, LayoutUnit(newLineWidth), newLineLeft, newLineRight);
 }
 
 void LineWidth::computeAvailableWidthFromLeftAndRight()
@@ -196,4 +195,4 @@ void LineWidth::computeAvailableWidthFromLeftAndRight()
     m_availableWidth = max(0.0f, m_right - m_left) + m_overhangWidth;
 }
 
-}
+} // namespace blink

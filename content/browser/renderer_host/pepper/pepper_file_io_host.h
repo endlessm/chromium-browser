@@ -5,12 +5,14 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_PEPPER_PEPPER_FILE_IO_HOST_H_
 #define CONTENT_BROWSER_RENDERER_HOST_PEPPER_PEPPER_FILE_IO_HOST_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/files/file.h"
 #include "base/files/file_proxy.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/renderer_host/pepper/browser_ppapi_host_impl.h"
 #include "ipc/ipc_listener.h"
@@ -47,6 +49,7 @@ class PepperFileIOHost : public ppapi::host::ResourceHost,
 
   struct UIThreadStuff {
     UIThreadStuff();
+    UIThreadStuff(const UIThreadStuff& other);
     ~UIThreadStuff();
     base::ProcessId resolved_render_process_id;
     scoped_refptr<storage::FileSystemContext> file_system_context;

@@ -5,15 +5,15 @@
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 
 #include <keyhi.h>
-
+#include <stdint.h>
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "base/threading/thread_checker.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
@@ -26,6 +26,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/tpm/tpm_token_loader.h"
 #include "components/ownership/owner_key_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_details.h"
@@ -101,7 +102,7 @@ void LoadPrivateKey(
     const base::Callback<void(const scoped_refptr<PublicKey>& public_key,
                               const scoped_refptr<PrivateKey>& private_key)>&
         callback) {
-  std::vector<uint8> public_key_data;
+  std::vector<uint8_t> public_key_data;
   scoped_refptr<PublicKey> public_key;
   if (!owner_key_util->ImportPublicKey(&public_key_data)) {
     scoped_refptr<PrivateKey> private_key;
@@ -129,7 +130,7 @@ void LoadPrivateKey(
 
 bool DoesPrivateKeyExistAsyncHelper(
     const scoped_refptr<OwnerKeyUtil>& owner_key_util) {
-  std::vector<uint8> public_key;
+  std::vector<uint8_t> public_key;
   if (!owner_key_util->ImportPublicKey(&public_key))
     return false;
   crypto::ScopedSECKEYPrivateKey key =
@@ -473,7 +474,7 @@ scoped_ptr<em::PolicyData> OwnerSettingsServiceChromeOS::AssemblePolicy(
   if (!settings->SerializeToString(policy->mutable_policy_value()))
     return scoped_ptr<em::PolicyData>();
 
-  return policy.Pass();
+  return policy;
 }
 
 // static
@@ -778,7 +779,7 @@ void OwnerSettingsServiceChromeOS::StorePendingChanges() {
   has_pending_management_settings_ = false;
 
   bool rv = AssembleAndSignPolicyAsync(
-      content::BrowserThread::GetBlockingPool(), policy.Pass(),
+      content::BrowserThread::GetBlockingPool(), std::move(policy),
       base::Bind(&OwnerSettingsServiceChromeOS::OnPolicyAssembledAndSigned,
                  store_settings_factory_.GetWeakPtr()));
   if (!rv)
@@ -792,10 +793,9 @@ void OwnerSettingsServiceChromeOS::OnPolicyAssembledAndSigned(
     return;
   }
   device_settings_service_->Store(
-      policy_response.Pass(),
+      std::move(policy_response),
       base::Bind(&OwnerSettingsServiceChromeOS::OnSignedPolicyStored,
-                 store_settings_factory_.GetWeakPtr(),
-                 true /* success */));
+                 store_settings_factory_.GetWeakPtr(), true /* success */));
 }
 
 void OwnerSettingsServiceChromeOS::OnSignedPolicyStored(bool success) {

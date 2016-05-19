@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_PROXY_OVERRIDDEN_BUBBLE_DELEGATE_H_
 #define CHROME_BROWSER_EXTENSIONS_PROXY_OVERRIDDEN_BUBBLE_DELEGATE_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/macros.h"
@@ -40,6 +42,7 @@ class ProxyOverriddenBubbleDelegate
   bool ShouldLimitToEnabledExtensions() const override;
   void LogExtensionCount(size_t count) override;
   void LogAction(ExtensionMessageBubbleController::BubbleAction) override;
+  const char* GetKey() override;
 
  private:
   // The ID of the extension we are showing the bubble for.

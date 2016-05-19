@@ -437,38 +437,46 @@ class Generator(generator.Generator):
       'package': GetPackage(self.module),
     }
 
+  @staticmethod
+  def GetTemplatePrefix():
+    return "java_templates"
+
+  @classmethod
+  def GetFilters(cls):
+    return cls.java_filters
+
   def GetJinjaExportsForInterface(self, interface):
     exports = self.GetJinjaExports()
     exports.update({'interface': interface})
     return exports
 
-  @UseJinja('java_templates/enum.java.tmpl', filters=java_filters)
+  @UseJinja('enum.java.tmpl')
   def GenerateEnumSource(self, enum):
     exports = self.GetJinjaExports()
     exports.update({'enum': enum})
     return exports
 
-  @UseJinja('java_templates/struct.java.tmpl', filters=java_filters)
+  @UseJinja('struct.java.tmpl')
   def GenerateStructSource(self, struct):
     exports = self.GetJinjaExports()
     exports.update({'struct': struct})
     return exports
 
-  @UseJinja('java_templates/union.java.tmpl', filters=java_filters)
+  @UseJinja('union.java.tmpl')
   def GenerateUnionSource(self, union):
     exports = self.GetJinjaExports()
     exports.update({'union': union})
     return exports
 
-  @UseJinja('java_templates/interface.java.tmpl', filters=java_filters)
+  @UseJinja('interface.java.tmpl')
   def GenerateInterfaceSource(self, interface):
     return self.GetJinjaExportsForInterface(interface)
 
-  @UseJinja('java_templates/interface_internal.java.tmpl', filters=java_filters)
+  @UseJinja('interface_internal.java.tmpl')
   def GenerateInterfaceInternalSource(self, interface):
     return self.GetJinjaExportsForInterface(interface)
 
-  @UseJinja('java_templates/constants.java.tmpl', filters=java_filters)
+  @UseJinja('constants.java.tmpl')
   def GenerateConstantsSource(self, module):
     exports = self.GetJinjaExports()
     exports.update({'main_entity': GetConstantsMainEntityName(module),
@@ -503,6 +511,10 @@ class Generator(generator.Generator):
                  '%s.java' % GetConstantsMainEntityName(self.module))
 
   def GenerateFiles(self, unparsed_args):
+    # TODO(rockot): Support variant output for Java.
+    if self.variant:
+      raise Exception("Variants not supported in Java bindings.")
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--java_output_directory', dest='java_output_directory')
     args = parser.parse_args(unparsed_args)

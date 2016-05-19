@@ -5,15 +5,12 @@
 package org.chromium.content.browser;
 
 import android.content.res.Configuration;
-import android.graphics.Canvas;
 import android.os.SystemClock;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.View;
 
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.ContentViewCore.InternalAccessDelegate;
@@ -41,13 +38,6 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
 
         private boolean mScrollChanged;
         private final Object mLock = new Object();
-
-
-
-        @Override
-        public boolean drawChild(Canvas canvas, View child, long drawingTime) {
-            return false;
-        }
 
         @Override
         public boolean super_onKeyUp(int keyCode, KeyEvent event) {
@@ -102,7 +92,7 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
 
     private void assertWaitForScroll(final boolean hugLeft, final boolean hugTop)
             throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 // Scrolling and flinging don't result in exact coordinates.
@@ -117,7 +107,7 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
                         : getContentViewCore().getNativeScrollYForTest() > maxThreshold;
                 return xCorrect && yCorrect;
             }
-        }));
+        });
     }
 
     private void fling(final int vx, final int vy) throws Throwable {
@@ -169,7 +159,7 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
         super.setUp();
 
         launchContentShellWithUrl(LARGE_PAGE);
-        assertTrue("Page failed to load", waitForActiveShellToBeDoneLoading());
+        waitForActiveShellToBeDoneLoading();
         assertWaitForPageScaleFactorMatch(2.0f);
 
         assertEquals(0, getContentViewCore().getNativeScrollXForTest());
@@ -263,55 +253,32 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
         assertWaitForScroll(false, false);
     }
 
-    /*
     @SmallTest
-    @RerunWithUpdatedContainerView
     @Feature({"Main"})
-    crbug.com/538781
-    */
-    @DisabledTest
     public void testJoystickScroll() throws Throwable {
         scrollTo(0, 0);
         assertWaitForScroll(true, true);
 
-        // No scroll
-        scrollWithJoystick(0f, 0f);
-        assertWaitForScroll(true, true);
-
-        // Verify no scrolling when X axis motion falls in deadzone.
-        // TODO(jdduke): Make the deadzone scroll checks non-racy.
-        scrollWithJoystick(0.2f, 0f);
-        assertWaitForScroll(true, true);
-
-        // Verify no scrolling when Y axis motion falls in deadzone.
-        scrollWithJoystick(0f, 0.2f);
-        assertWaitForScroll(true, true);
-
-        // Vertical scroll to lower-left.
-        scrollWithJoystick(0, 0.5f);
+        // Scroll with X axis in deadzone and the Y axis active.
+        // Only the Y axis should have an effect, arriving at lower-left.
+        scrollWithJoystick(0.1f, 1f);
         assertWaitForScroll(true, false);
-        // Send joystick event at origin to stop scrolling.
-        scrollWithJoystick(0f, 0f);
 
-        // Horizontal scroll to lower-right.
-        scrollWithJoystick(0.5f, 0);
+        // Scroll with Y axis in deadzone and the X axis active.
+        scrollWithJoystick(1f, -0.1f);
         assertWaitForScroll(false, false);
-        scrollWithJoystick(0f, 0f);
 
         // Vertical scroll to upper-right.
         scrollWithJoystick(0, -0.75f);
         assertWaitForScroll(false, true);
-        scrollWithJoystick(0f, 0f);
 
         // Horizontal scroll to top-left.
         scrollWithJoystick(-0.75f, 0);
         assertWaitForScroll(true, true);
-        scrollWithJoystick(0f, 0f);
 
         // Diagonal scroll to bottom-right.
         scrollWithJoystick(1f, 1f);
         assertWaitForScroll(false, false);
-        scrollWithJoystick(0f, 0f);
     }
 
     /**
@@ -362,11 +329,11 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
         });
         scrollTo(scrollToX, scrollToY);
         assertWaitForScroll(false, false);
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return containerViewInternals.isScrollChanged();
             }
-        }));
+        });
     }
 }

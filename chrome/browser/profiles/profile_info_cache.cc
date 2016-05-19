@@ -4,14 +4,16 @@
 
 #include "chrome/browser/profiles/profile_info_cache.h"
 
+#include <algorithm>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/i18n/case_conversion.h"
+#include "base/i18n/string_compare.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
@@ -19,14 +21,19 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_avatar_downloader.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/icu/source/i18n/unicode/coll.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
@@ -60,6 +67,10 @@ const char kSupervisedUserId[] = "managed_user_id";
 const char kProfileIsEphemeral[] = "is_ephemeral";
 const char kActiveTimeKey[] = "active_time";
 const char kIsAuthErrorKey[] = "is_auth_error";
+const char kStatsBrowsingHistoryKey[] = "stats_browsing_history";
+const char kStatsPasswordsKey[] = "stats_passwords";
+const char kStatsBookmarksKey[] = "stats_bookmarks";
+const char kStatsSettingsKey[] = "stats_settings";
 
 // First eight are generic icons, which use IDS_NUMBERED_PROFILE_NAME.
 const int kDefaultNames[] = {
@@ -147,6 +158,32 @@ void RunCallbackIfFileMissing(const base::FilePath& file_path,
 void DeleteBitmap(const base::FilePath& image_path) {
   DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   base::DeleteFile(image_path, false);
+}
+
+// Compares two ProfileAttributesEntry using locale-sensitive comparison of
+// their names. For ties, the profile path is compared next.
+class ProfileAttributesSortComparator {
+ public:
+  explicit ProfileAttributesSortComparator(icu::Collator* collator);
+  bool operator()(const ProfileAttributesEntry* const a,
+                  const ProfileAttributesEntry* const b) const;
+ private:
+  icu::Collator* collator_;
+};
+
+ProfileAttributesSortComparator::ProfileAttributesSortComparator(
+    icu::Collator* collator) : collator_(collator) {}
+
+bool ProfileAttributesSortComparator::operator()(
+    const ProfileAttributesEntry* const a,
+    const ProfileAttributesEntry* const b) const {
+  UCollationResult result = base::i18n::CompareString16WithCollator(
+      *collator_, a->GetName(), b->GetName());
+  if (result != UCOL_EQUAL)
+    return result == UCOL_LESS;
+
+  // If the names are the same, then compare the paths, which must be unique.
+  return a->GetPath().value() < b->GetPath().value();
 }
 
 }  // namespace
@@ -331,7 +368,7 @@ const gfx::Image& ProfileInfoCache::GetAvatarIconOfProfileAtIndex(
       return *image;
   }
 
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
   // Use the high resolution version of the avatar if it exists. Mobile and
   // ChromeOS don't need the high resolution version so no need to fetch it.
   const gfx::Image* image = GetHighResAvatarOfProfileAtIndex(index);
@@ -497,6 +534,55 @@ size_t ProfileInfoCache::GetAvatarIconIndexOfProfileAtIndex(size_t index)
     DLOG(WARNING) << "Unknown avatar icon: " << icon_url;
 
   return icon_index;
+}
+
+bool ProfileInfoCache::HasStatsBrowsingHistoryOfProfileAtIndex(size_t index)
+    const {
+  int value = 0;
+  return GetInfoForProfileAtIndex(index)->GetInteger(kStatsBrowsingHistoryKey,
+                                                     &value);
+}
+
+int ProfileInfoCache::GetStatsBrowsingHistoryOfProfileAtIndex(size_t index)
+    const {
+  int value = 0;
+  GetInfoForProfileAtIndex(index)->GetInteger(kStatsBrowsingHistoryKey, &value);
+  return value;
+}
+
+bool ProfileInfoCache::HasStatsPasswordsOfProfileAtIndex(size_t index) const {
+  int value = 0;
+  return GetInfoForProfileAtIndex(index)->GetInteger(kStatsPasswordsKey,
+                                                     &value);
+}
+
+int ProfileInfoCache::GetStatsPasswordsOfProfileAtIndex(size_t index) const {
+  int value = 0;
+  GetInfoForProfileAtIndex(index)->GetInteger(kStatsPasswordsKey, &value);
+  return value;
+}
+
+bool ProfileInfoCache::HasStatsBookmarksOfProfileAtIndex(size_t index) const {
+  int value = 0;
+  return GetInfoForProfileAtIndex(index)->GetInteger(kStatsBookmarksKey,
+                                                     &value);
+}
+
+int ProfileInfoCache::GetStatsBookmarksOfProfileAtIndex(size_t index) const {
+  int value = 0;
+  GetInfoForProfileAtIndex(index)->GetInteger(kStatsBookmarksKey, &value);
+  return value;
+}
+
+bool ProfileInfoCache::HasStatsSettingsOfProfileAtIndex(size_t index) const {
+  int value = 0;
+  return GetInfoForProfileAtIndex(index)->GetInteger(kStatsSettingsKey, &value);
+}
+
+int ProfileInfoCache::GetStatsSettingsOfProfileAtIndex(size_t index) const {
+  int value = 0;
+  GetInfoForProfileAtIndex(index)->GetInteger(kStatsSettingsKey, &value);
+  return value;
 }
 
 void ProfileInfoCache::SetProfileActiveTimeAtIndex(size_t index) {
@@ -865,7 +951,7 @@ base::string16 ProfileInfoCache::ChooseNameForNewProfile(
     size_t icon_index) const {
   base::string16 name;
   for (int name_index = 1; ; ++name_index) {
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
     name = l10n_util::GetStringFUTF16Int(IDS_NEW_NUMBERED_PROFILE_NAME,
                                          name_index);
 #else
@@ -909,6 +995,42 @@ size_t ProfileInfoCache::ChooseAvatarIconIndexForNewProfile() const {
   return 0;
 }
 
+void ProfileInfoCache::SetStatsBrowsingHistoryOfProfileAtIndex(size_t index,
+                                                               int value) {
+  scoped_ptr<base::DictionaryValue> info(
+      GetInfoForProfileAtIndex(index)->DeepCopy());
+  info->SetInteger(kStatsBrowsingHistoryKey, value);
+  // This takes ownership of |info|.
+  SetInfoForProfileAtIndex(index, info.release());
+}
+
+void ProfileInfoCache::SetStatsPasswordsOfProfileAtIndex(size_t index,
+                                                         int value) {
+  scoped_ptr<base::DictionaryValue> info(
+      GetInfoForProfileAtIndex(index)->DeepCopy());
+  info->SetInteger(kStatsPasswordsKey, value);
+  // This takes ownership of |info|.
+  SetInfoForProfileAtIndex(index, info.release());
+}
+
+void ProfileInfoCache::SetStatsBookmarksOfProfileAtIndex(size_t index,
+                                                         int value) {
+  scoped_ptr<base::DictionaryValue> info(
+      GetInfoForProfileAtIndex(index)->DeepCopy());
+  info->SetInteger(kStatsBookmarksKey, value);
+  // This takes ownership of |info|.
+  SetInfoForProfileAtIndex(index, info.release());
+}
+
+void ProfileInfoCache::SetStatsSettingsOfProfileAtIndex(size_t index,
+                                                        int value) {
+  scoped_ptr<base::DictionaryValue> info(
+      GetInfoForProfileAtIndex(index)->DeepCopy());
+  info->SetInteger(kStatsSettingsKey, value);
+  // This takes ownership of |info|.
+  SetInfoForProfileAtIndex(index, info.release());
+}
+
 const base::FilePath& ProfileInfoCache::GetUserDataDir() const {
   return user_data_dir_;
 }
@@ -922,7 +1044,7 @@ void ProfileInfoCache::DownloadHighResAvatarIfNeeded(
     size_t icon_index,
     const base::FilePath& profile_path) {
   // Downloading is only supported on desktop.
-#if defined(OS_ANDROID) || defined(OS_IOS) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
   return;
 #endif
   DCHECK(!disable_avatar_download_for_testing_);
@@ -1030,7 +1152,7 @@ bool ProfileInfoCache::ChooseAvatarIconIndexForNewProfile(
     bool allow_generic_icon,
     bool must_be_unique,
     size_t* out_icon_index) const {
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
   // Always allow the generic icon when displaying the new avatar menu.
   allow_generic_icon = true;
 #endif
@@ -1085,7 +1207,7 @@ void ProfileInfoCache::DownloadHighResAvatar(
     size_t icon_index,
     const base::FilePath& profile_path) {
   // Downloading is only supported on desktop.
-#if defined(OS_ANDROID) || defined(OS_IOS) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
   return;
 #endif
   // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/461175
@@ -1204,7 +1326,7 @@ void ProfileInfoCache::OnAvatarPictureSaved(
 
 void ProfileInfoCache::MigrateLegacyProfileNamesAndDownloadAvatars() {
   // Only do this on desktop platforms.
-#if !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   // Migrate any legacy profile names ("First user", "Default Profile") to
   // new style default names ("Person 1"). The problem here is that every
   // time you rename a profile, the ProfileInfoCache sorts itself, so
@@ -1268,6 +1390,20 @@ ProfileInfoCache::GetAllProfilesAttributes() {
   return ret;
 }
 
+std::vector<ProfileAttributesEntry*>
+ProfileInfoCache::GetAllProfilesAttributesSortedByName() {
+  UErrorCode error_code = U_ZERO_ERROR;
+  // Use the default collator. The default locale should have been properly
+  // set by the time this constructor is called.
+  scoped_ptr<icu::Collator> collator(icu::Collator::createInstance(error_code));
+  DCHECK(U_SUCCESS(error_code));
+
+  std::vector<ProfileAttributesEntry*> ret = GetAllProfilesAttributes();
+  std::sort(ret.begin(), ret.end(),
+      ProfileAttributesSortComparator(collator.get()));
+  return ret;
+}
+
 bool ProfileInfoCache::GetProfileAttributesWithPath(
     const base::FilePath& path, ProfileAttributesEntry** entry) {
   if (GetNumberOfProfiles() == 0)
@@ -1281,7 +1417,7 @@ bool ProfileInfoCache::GetProfileAttributesWithPath(
     // The profile info is in the cache but its entry isn't created yet, insert
     // it in the map.
     scoped_ptr<ProfileAttributesEntry> new_entry(new ProfileAttributesEntry());
-    profile_attributes_entries_.add(path, new_entry.Pass());
+    profile_attributes_entries_.add(path, std::move(new_entry));
     profile_attributes_entries_.get(path)->Initialize(this, path);
   }
 

@@ -4,6 +4,9 @@
 
 #include "ios/web/web_state/web_state_impl.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/strings/sys_string_conversions.h"
 #include "ios/web/interstitials/web_interstitial_impl.h"
 #import "ios/web/navigation/crw_session_controller.h"
@@ -35,7 +38,8 @@ WebStateImpl::WebStateImpl(BrowserState* browser_state)
       web_controller_(nil),
       navigation_manager_(this, browser_state),
       interstitial_(nullptr),
-      cache_mode_(net::RequestTracker::CACHE_NORMAL) {
+      cache_mode_(net::RequestTracker::CACHE_NORMAL),
+      weak_factory_(this) {
   GlobalWebStateEventTracker::GetInstance()->OnWebStateCreated(this);
 }
 
@@ -191,11 +195,11 @@ void WebStateImpl::OnFaviconUrlUpdated(
 void WebStateImpl::OnCredentialsRequested(
     int request_id,
     const GURL& source_url,
-    bool suppress_ui,
+    bool unmediated,
     const std::vector<std::string>& federations,
     bool user_interaction) {
   FOR_EACH_OBSERVER(WebStateObserver, observers_,
-                    CredentialsRequested(request_id, source_url, suppress_ui,
+                    CredentialsRequested(request_id, source_url, unmediated,
                                          federations, user_interaction));
 }
 
@@ -247,29 +251,21 @@ const NavigationManagerImpl& WebStateImpl::GetNavigationManagerImpl() const {
 // it as the first, and then fall back to the latter if necessary.
 void WebStateImpl::CreateWebUI(const GURL& url) {
   web_ui_.reset(CreateWebUIIOS(url));
-  if (!web_ui_ && facade_delegate_)
-    facade_delegate_->CreateLegacyWebUI(url);
 }
 
 void WebStateImpl::ClearWebUI() {
-  if (facade_delegate_)
-    facade_delegate_->ClearLegacyWebUI();
   web_ui_.reset();
 }
 
 bool WebStateImpl::HasWebUI() {
-  return web_ui_ || (facade_delegate_ && facade_delegate_->HasLegacyWebUI());
+  return web_ui_;
 }
 
 void WebStateImpl::ProcessWebUIMessage(const GURL& source_url,
                                        const std::string& message,
                                        const base::ListValue& args) {
-  if (web_ui_) {
-    DCHECK(!facade_delegate_ || !facade_delegate_->HasLegacyWebUI());
+  if (web_ui_)
     web_ui_->ProcessWebUIIOSMessage(source_url, message, args);
-  } else if (facade_delegate_) {
-    facade_delegate_->ProcessLegacyWebUIMessage(source_url, message, args);
-  }
 }
 
 void WebStateImpl::LoadWebUIHtml(const base::string16& html, const GURL& url) {
@@ -471,6 +467,10 @@ int WebStateImpl::DownloadImage(
   return [[web_controller_ delegate] downloadImageAtUrl:url
                                           maxBitmapSize:max_bitmap_size
                                               callback:callback];
+}
+
+base::WeakPtr<WebState> WebStateImpl::AsWeakPtr() {
+  return weak_factory_.GetWeakPtr();
 }
 
 #pragma mark - WebState implementation

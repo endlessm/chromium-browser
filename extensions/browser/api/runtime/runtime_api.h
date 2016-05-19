@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -75,7 +76,6 @@ class RuntimeAPI : public BrowserContextKeyedAPI,
   void OnExtensionWillBeInstalled(content::BrowserContext* browser_context,
                                   const Extension* extension,
                                   bool is_update,
-                                  bool from_ephemeral,
                                   const std::string& old_name) override;
   void OnExtensionUninstalled(content::BrowserContext* browser_context,
                               const Extension* extension,
@@ -93,6 +93,14 @@ class RuntimeAPI : public BrowserContextKeyedAPI,
 
   // ProcessManagerObserver implementation:
   void OnBackgroundHostStartup(const Extension* extension) override;
+
+  // Pref related functions that deals with info about installed extensions that
+  // has not been loaded yet.
+  // Used to send chrome.runtime.onInstalled event upon loading the extensions.
+  bool ReadPendingOnInstallInfoFromPref(const ExtensionId& extension_id,
+                                        base::Version* previous_version);
+  void RemovePendingOnInstallInfoFromPref(const ExtensionId& extension_id);
+  void StorePendingOnInstallInfoToPref(const Extension* extension);
 
   scoped_ptr<RuntimeAPIDelegate> delegate_;
 

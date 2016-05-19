@@ -4,6 +4,8 @@
 
 #include "chrome/browser/manifest/manifest_icon_selector.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -164,12 +166,11 @@ std::vector<Manifest::Icon> ManifestIconSelector::FilterIconsByType(
 GURL ManifestIconSelector::FindBestMatchingIcon(
     const std::vector<Manifest::Icon>& unfiltered_icons,
     const int ideal_icon_size_in_dp,
-    const int minimum_icon_size_in_dp,
-    const gfx::Screen* screen) {
+    const int minimum_icon_size_in_dp) {
   DCHECK(minimum_icon_size_in_dp <= ideal_icon_size_in_dp);
 
   const float device_scale_factor =
-      screen->GetPrimaryDisplay().device_scale_factor();
+      gfx::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor();
   const int ideal_icon_size_in_px =
       static_cast<int>(round(ideal_icon_size_in_dp * device_scale_factor));
   const int minimum_icon_size_in_px =

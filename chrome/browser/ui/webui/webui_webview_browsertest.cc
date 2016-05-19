@@ -4,8 +4,10 @@
 
 #include "base/macros.h"
 #include "base/path_service.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
+#include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
@@ -29,7 +31,7 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
     base::FilePath test_data_dir;
     PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
     embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
   }
 
   GURL GetTestUrl(const std::string& path) const {
@@ -37,7 +39,13 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
   }
 
   GURL GetWebViewEnabledWebUIURL() const {
-    return GURL(chrome::kChromeUIChromeSigninURL);
+#if defined(OS_CHROMEOS)
+    return GURL(chrome::kChromeUIOobeURL).Resolve("/login");
+#else
+    return GURL(signin::GetPromoURL(
+        signin_metrics::AccessPoint::ACCESS_POINT_START_PAGE,
+        signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT, false));
+#endif
   }
 
  private:

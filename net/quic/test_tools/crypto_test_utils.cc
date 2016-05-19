@@ -35,9 +35,7 @@ namespace {
 // CryptoFramerVisitor is a framer visitor that records handshake messages.
 class CryptoFramerVisitor : public CryptoFramerVisitorInterface {
  public:
-  CryptoFramerVisitor()
-      : error_(false) {
-  }
+  CryptoFramerVisitor() : error_(false) {}
 
   void OnError(CryptoFramer* framer) override { error_ = true; }
 
@@ -45,13 +43,9 @@ class CryptoFramerVisitor : public CryptoFramerVisitorInterface {
     messages_.push_back(message);
   }
 
-  bool error() const {
-    return error_;
-  }
+  bool error() const { return error_; }
 
-  const vector<CryptoHandshakeMessage>& messages() const {
-    return messages_;
-  }
+  const vector<CryptoHandshakeMessage>& messages() const { return messages_; }
 
  private:
   bool error_;
@@ -60,7 +54,7 @@ class CryptoFramerVisitor : public CryptoFramerVisitorInterface {
 
 // HexChar parses |c| as a hex character. If valid, it sets |*value| to the
 // value of the hex character and returns true. Otherwise it returns false.
-bool HexChar(char c, uint8* value) {
+bool HexChar(char c, uint8_t* value) {
   if (c >= '0' && c <= '9') {
     *value = c - '0';
     return true;
@@ -173,7 +167,6 @@ int CryptoTestUtils::HandshakeWithFakeClient(
   QuicCryptoClientConfig crypto_config(ProofVerifierForTesting());
   AsyncTestChannelIDSource* async_channel_id_source = nullptr;
   if (options.channel_id_enabled) {
-
     ChannelIDSource* source = ChannelIDSourceForTesting();
     if (options.channel_id_source_async) {
       async_channel_id_source = new AsyncTestChannelIDSource(source);
@@ -295,18 +288,15 @@ string CryptoTestUtils::GetValueForTag(const CryptoHandshakeMessage& message,
 
 class MockCommonCertSets : public CommonCertSets {
  public:
-  MockCommonCertSets(StringPiece cert, uint64 hash, uint32 index)
-      : cert_(cert.as_string()),
-        hash_(hash),
-        index_(index) {
-  }
+  MockCommonCertSets(StringPiece cert, uint64_t hash, uint32_t index)
+      : cert_(cert.as_string()), hash_(hash), index_(index) {}
 
   StringPiece GetCommonHashes() const override {
     CHECK(false) << "not implemented";
     return StringPiece();
   }
 
-  StringPiece GetCert(uint64 hash, uint32 index) const override {
+  StringPiece GetCert(uint64_t hash, uint32_t index) const override {
     if (hash == hash_ && index == index_) {
       return cert_;
     }
@@ -315,18 +305,18 @@ class MockCommonCertSets : public CommonCertSets {
 
   bool MatchCert(StringPiece cert,
                  StringPiece common_set_hashes,
-                 uint64* out_hash,
-                 uint32* out_index) const override {
+                 uint64_t* out_hash,
+                 uint32_t* out_index) const override {
     if (cert != cert_) {
       return false;
     }
 
-    if (common_set_hashes.size() % sizeof(uint64) != 0) {
+    if (common_set_hashes.size() % sizeof(uint64_t) != 0) {
       return false;
     }
     bool client_has_set = false;
-    for (size_t i = 0; i < common_set_hashes.size(); i += sizeof(uint64)) {
-      uint64 hash;
+    for (size_t i = 0; i < common_set_hashes.size(); i += sizeof(uint64_t)) {
+      uint64_t hash;
       memcpy(&hash, common_set_hashes.data() + i, sizeof(hash));
       if (hash == hash_) {
         client_has_set = true;
@@ -345,13 +335,13 @@ class MockCommonCertSets : public CommonCertSets {
 
  private:
   const string cert_;
-  const uint64 hash_;
-  const uint32 index_;
+  const uint64_t hash_;
+  const uint32_t index_;
 };
 
 CommonCertSets* CryptoTestUtils::MockCommonCertSets(StringPiece cert,
-                                                    uint64 hash,
-                                                    uint32 index) {
+                                                    uint64_t hash,
+                                                    uint32_t index) {
   return new class MockCommonCertSets(cert, hash, index);
 }
 
@@ -443,38 +433,37 @@ void CryptoTestUtils::CompareClientAndServerKeys(
   StringPiece server_subkey_secret =
       server->crypto_negotiated_params().subkey_secret;
 
-
   const char kSampleLabel[] = "label";
   const char kSampleContext[] = "context";
   const size_t kSampleOutputLength = 32;
   string client_key_extraction;
   string server_key_extraction;
-  EXPECT_TRUE(client->ExportKeyingMaterial(kSampleLabel,
-                                           kSampleContext,
+  string client_tb_ekm;
+  string server_tb_ekm;
+  EXPECT_TRUE(client->ExportKeyingMaterial(kSampleLabel, kSampleContext,
                                            kSampleOutputLength,
                                            &client_key_extraction));
-  EXPECT_TRUE(server->ExportKeyingMaterial(kSampleLabel,
-                                           kSampleContext,
+  EXPECT_TRUE(server->ExportKeyingMaterial(kSampleLabel, kSampleContext,
                                            kSampleOutputLength,
                                            &server_key_extraction));
+  if (FLAGS_quic_save_initial_subkey_secret) {
+    EXPECT_TRUE(client->ExportTokenBindingKeyingMaterial(&client_tb_ekm));
+    EXPECT_TRUE(server->ExportTokenBindingKeyingMaterial(&server_tb_ekm));
+  }
 
-  CompareCharArraysWithHexError("client write key",
-                                client_encrypter_key.data(),
+  CompareCharArraysWithHexError("client write key", client_encrypter_key.data(),
                                 client_encrypter_key.length(),
                                 server_decrypter_key.data(),
                                 server_decrypter_key.length());
-  CompareCharArraysWithHexError("client write IV",
-                                client_encrypter_iv.data(),
+  CompareCharArraysWithHexError("client write IV", client_encrypter_iv.data(),
                                 client_encrypter_iv.length(),
                                 server_decrypter_iv.data(),
                                 server_decrypter_iv.length());
-  CompareCharArraysWithHexError("server write key",
-                                server_encrypter_key.data(),
+  CompareCharArraysWithHexError("server write key", server_encrypter_key.data(),
                                 server_encrypter_key.length(),
                                 client_decrypter_key.data(),
                                 client_decrypter_key.length());
-  CompareCharArraysWithHexError("server write IV",
-                                server_encrypter_iv.data(),
+  CompareCharArraysWithHexError("server write IV", server_encrypter_iv.data(),
                                 server_encrypter_iv.length(),
                                 client_decrypter_iv.data(),
                                 client_decrypter_iv.length());
@@ -498,16 +487,20 @@ void CryptoTestUtils::CompareClientAndServerKeys(
                                 server_forward_secure_encrypter_iv.length(),
                                 client_forward_secure_decrypter_iv.data(),
                                 client_forward_secure_decrypter_iv.length());
-  CompareCharArraysWithHexError("subkey secret",
-                                client_subkey_secret.data(),
+  CompareCharArraysWithHexError("subkey secret", client_subkey_secret.data(),
                                 client_subkey_secret.length(),
                                 server_subkey_secret.data(),
                                 server_subkey_secret.length());
-  CompareCharArraysWithHexError("sample key extraction",
-                                client_key_extraction.data(),
-                                client_key_extraction.length(),
-                                server_key_extraction.data(),
-                                server_key_extraction.length());
+  CompareCharArraysWithHexError(
+      "sample key extraction", client_key_extraction.data(),
+      client_key_extraction.length(), server_key_extraction.data(),
+      server_key_extraction.length());
+
+  if (FLAGS_quic_save_initial_subkey_secret) {
+    CompareCharArraysWithHexError("token binding key extraction",
+                                  client_tb_ekm.data(), client_tb_ekm.length(),
+                                  server_tb_ekm.data(), server_tb_ekm.length());
+  }
 }
 
 // static
@@ -518,13 +511,13 @@ QuicTag CryptoTestUtils::ParseTag(const char* tagstr) {
   QuicTag tag = 0;
 
   if (tagstr[0] == '#') {
-    CHECK_EQ(static_cast<size_t>(1 + 2*4), len);
+    CHECK_EQ(static_cast<size_t>(1 + 2 * 4), len);
     tagstr++;
 
     for (size_t i = 0; i < 8; i++) {
       tag <<= 4;
 
-      uint8 v = 0;
+      uint8_t v = 0;
       CHECK(HexChar(tagstr[i], &v));
       tag |= v;
     }
@@ -536,7 +529,7 @@ QuicTag CryptoTestUtils::ParseTag(const char* tagstr) {
   for (size_t i = 0; i < 4; i++) {
     tag >>= 8;
     if (i < len) {
-      tag |= static_cast<uint32>(tagstr[i]) << 24;
+      tag |= static_cast<uint32_t>(tagstr[i]) << 24;
     }
   }
 
@@ -579,18 +572,18 @@ CryptoHandshakeMessage CryptoTestUtils::Message(const char* message_tag, ...) {
       len--;
 
       CHECK_EQ(0u, len % 2);
-      scoped_ptr<uint8[]> buf(new uint8[len/2]);
+      scoped_ptr<uint8_t[]> buf(new uint8_t[len / 2]);
 
-      for (size_t i = 0; i < len/2; i++) {
-        uint8 v = 0;
-        CHECK(HexChar(valuestr[i*2], &v));
+      for (size_t i = 0; i < len / 2; i++) {
+        uint8_t v = 0;
+        CHECK(HexChar(valuestr[i * 2], &v));
         buf[i] = v << 4;
-        CHECK(HexChar(valuestr[i*2 + 1], &v));
+        CHECK(HexChar(valuestr[i * 2 + 1], &v));
         buf[i] |= v;
       }
 
       msg.SetStringPiece(
-          tag, StringPiece(reinterpret_cast<char*>(buf.get()), len/2));
+          tag, StringPiece(reinterpret_cast<char*>(buf.get()), len / 2));
       continue;
     }
 
@@ -634,8 +627,9 @@ void CryptoTestUtils::MovePackets(PacketSavingConnection* source_conn,
       break;
     }
 
-    for (const QuicStreamFrame& stream_frame : framer.stream_frames()) {
-      ASSERT_TRUE(crypto_framer.ProcessInput(stream_frame.data));
+    for (const QuicStreamFrame* stream_frame : framer.stream_frames()) {
+      ASSERT_TRUE(crypto_framer.ProcessInput(
+          StringPiece(stream_frame->frame_buffer, stream_frame->frame_length)));
       ASSERT_FALSE(crypto_visitor.error());
     }
   }

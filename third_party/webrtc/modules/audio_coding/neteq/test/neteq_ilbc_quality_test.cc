@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
+
 #include "webrtc/base/checks.h"
 #include "webrtc/base/safe_conversions.h"
-#include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/audio_coding/codecs/ilbc/include/audio_encoder_ilbc.h"
+#include "webrtc/modules/audio_coding/codecs/ilbc/audio_encoder_ilbc.h"
 #include "webrtc/modules/audio_coding/neteq/tools/neteq_quality_test.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
@@ -50,7 +51,7 @@ class NetEqIlbcQualityTest : public NetEqQualityTest {
                          NetEqDecoder::kDecoderILBC) {}
 
   void SetUp() override {
-    ASSERT_EQ(1, channels_) << "iLBC supports only mono audio.";
+    ASSERT_EQ(1u, channels_) << "iLBC supports only mono audio.";
     AudioEncoderIlbc::Config config;
     config.frame_size_ms = FLAGS_frame_size_ms;
     encoder_.reset(new AudioEncoderIlbc(config));
@@ -76,7 +77,7 @@ class NetEqIlbcQualityTest : public NetEqQualityTest {
   }
 
  private:
-  rtc::scoped_ptr<AudioEncoderIlbc> encoder_;
+  std::unique_ptr<AudioEncoderIlbc> encoder_;
 };
 
 TEST_F(NetEqIlbcQualityTest, Test) {

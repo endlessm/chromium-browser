@@ -4,8 +4,11 @@
 
 #include "chrome/browser/extensions/api/automation_internal/automation_internal_api.h"
 
+#include <stdint.h>
+
 #include <vector>
 
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -24,7 +27,6 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_plugin_guest_manager.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -145,11 +147,9 @@ bool CanRequestAutomation(const Extension* extension,
     return true;
 
   int tab_id = ExtensionTabUtil::GetTabId(contents);
-  content::RenderProcessHost* process = contents->GetRenderProcessHost();
-  int process_id = process ? process->GetID() : -1;
   std::string unused_error;
-  return extension->permissions_data()->CanAccessPage(
-      extension, url, tab_id, process_id, &unused_error);
+  return extension->permissions_data()->CanAccessPage(extension, url, tab_id,
+                                                      &unused_error);
 }
 
 // Helper class that implements an action adapter for a |RenderFrameHost|.
@@ -161,23 +161,25 @@ class RenderFrameHostActionAdapter : public AutomationActionAdapter {
   virtual ~RenderFrameHostActionAdapter() {}
 
   // AutomationActionAdapter implementation.
-  void DoDefault(int32 id) override { rfh_->AccessibilityDoDefaultAction(id); }
+  void DoDefault(int32_t id) override {
+    rfh_->AccessibilityDoDefaultAction(id);
+  }
 
-  void Focus(int32 id) override { rfh_->AccessibilitySetFocus(id); }
+  void Focus(int32_t id) override { rfh_->AccessibilitySetFocus(id); }
 
-  void MakeVisible(int32 id) override {
+  void MakeVisible(int32_t id) override {
     rfh_->AccessibilityScrollToMakeVisible(id, gfx::Rect());
   }
 
-  void SetSelection(int32 anchor_id,
-                    int32 anchor_offset,
-                    int32 focus_id,
-                    int32 focus_offset) override {
+  void SetSelection(int32_t anchor_id,
+                    int32_t anchor_offset,
+                    int32_t focus_id,
+                    int32_t focus_offset) override {
     rfh_->AccessibilitySetSelection(anchor_id, anchor_offset, focus_id,
                                     focus_offset);
   }
 
-  void ShowContextMenu(int32 id) override {
+  void ShowContextMenu(int32_t id) override {
     rfh_->AccessibilityShowContextMenu(id);
   }
 
@@ -348,7 +350,7 @@ ExtensionFunction::ResponseAction
 AutomationInternalPerformActionFunction::RouteActionToAdapter(
     api::automation_internal::PerformAction::Params* params,
     AutomationActionAdapter* adapter) {
-  int32 automation_id = params->args.automation_node_id;
+  int32_t automation_id = params->args.automation_node_id;
   switch (params->args.action_type) {
     case api::automation_internal::ACTION_TYPE_DODEFAULT:
       adapter->DoDefault(automation_id);

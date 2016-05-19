@@ -18,17 +18,13 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGLengthList.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/svg/SVGAnimationElement.h"
 #include "core/svg/SVGParserUtilities.h"
 #include "wtf/text/StringBuilder.h"
 
 namespace blink {
-
-DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGLengthList);
 
 SVGLengthList::SVGLengthList(SVGLengthMode mode)
     : m_mode(mode)
@@ -49,7 +45,7 @@ PassRefPtrWillBeRawPtr<SVGLengthList> SVGLengthList::clone()
 PassRefPtrWillBeRawPtr<SVGPropertyBase> SVGLengthList::cloneForAnimation(const String& value) const
 {
     RefPtrWillBeRawPtr<SVGLengthList> ret = SVGLengthList::create(m_mode);
-    ret->setValueAsString(value, IGNORE_EXCEPTION);
+    ret->setValueAsString(value);
     return ret.release();
 }
 
@@ -73,43 +69,44 @@ String SVGLengthList::valueAsString() const
 }
 
 template <typename CharType>
-void SVGLengthList::parseInternal(const CharType*& ptr, const CharType* end, ExceptionState& exceptionState)
+SVGParsingError SVGLengthList::parseInternal(const CharType*& ptr, const CharType* end)
 {
-    clear();
+    const CharType* listStart = ptr;
     while (ptr < end) {
         const CharType* start = ptr;
         while (ptr < end && *ptr != ',' && !isHTMLSpace<CharType>(*ptr))
             ptr++;
         if (ptr == start)
             break;
-
-        RefPtrWillBeRawPtr<SVGLength> length = SVGLength::create(m_mode);
         String valueString(start, ptr - start);
         if (valueString.isEmpty())
-            return;
-        length->setValueAsString(valueString, exceptionState);
-        if (exceptionState.hadException())
-            return;
+            break;
+
+        RefPtrWillBeRawPtr<SVGLength> length = SVGLength::create(m_mode);
+        SVGParsingError lengthParseStatus = length->setValueAsString(valueString);
+        if (lengthParseStatus != SVGParseStatus::NoError)
+            return lengthParseStatus.offsetWith(start - listStart);
         append(length);
         skipOptionalSVGSpacesOrDelimiter(ptr, end);
     }
+    return SVGParseStatus::NoError;
 }
 
-void SVGLengthList::setValueAsString(const String& value, ExceptionState& exceptionState)
+SVGParsingError SVGLengthList::setValueAsString(const String& value)
 {
-    if (value.isEmpty()) {
-        clear();
-        return;
-    }
+    clear();
+
+    if (value.isEmpty())
+        return SVGParseStatus::NoError;
+
     if (value.is8Bit()) {
         const LChar* ptr = value.characters8();
         const LChar* end = ptr + value.length();
-        parseInternal(ptr, end, exceptionState);
-    } else {
-        const UChar* ptr = value.characters16();
-        const UChar* end = ptr + value.length();
-        parseInternal(ptr, end, exceptionState);
+        return parseInternal(ptr, end);
     }
+    const UChar* ptr = value.characters16();
+    const UChar* end = ptr + value.length();
+    return parseInternal(ptr, end);
 }
 
 void SVGLengthList::add(PassRefPtrWillBeRawPtr<SVGPropertyBase> other, SVGElement* contextElement)
@@ -168,4 +165,4 @@ float SVGLengthList::calculateDistance(PassRefPtrWillBeRawPtr<SVGPropertyBase> t
     // FIXME: Distance calculation is not possible for SVGLengthList right now. We need the distance for every single value.
     return -1;
 }
-}
+} // namespace blink

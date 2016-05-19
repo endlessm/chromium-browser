@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/network/ParsedContentType.h"
 
 #include "wtf/text/CString.h"
@@ -37,7 +36,8 @@
 
 namespace blink {
 
-class DummyParsedContentType {
+class DummyParsedContentType final {
+    STACK_ALLOCATED();
 public:
     void setContentType(const SubstringRange&) const { }
     void setContentTypeParameter(const SubstringRange&, const SubstringRange&) const { }
@@ -224,4 +224,4 @@ void ParsedContentType::setContentTypeParameter(const SubstringRange& key, const
     m_parameters.set(substringForRange(m_contentType, key), substringForRange(m_contentType, value));
 }
 
-}
+} // namespace blink

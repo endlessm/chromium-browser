@@ -20,7 +20,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLPreElement.h"
 
 #include "core/CSSPropertyNames.h"
@@ -54,4 +53,4 @@ void HTMLPreElement::collectStyleForPresentationAttribute(const QualifiedName& n
         HTMLElement::collectStyleForPresentationAttribute(name, value, style);
 }
 
-}
+} // namespace blink

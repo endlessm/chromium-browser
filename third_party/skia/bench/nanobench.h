@@ -22,16 +22,18 @@ class SkBitmap;
 class SkCanvas;
 
 struct Config {
-    const char* name;
+    SkString name;
     Benchmark::Backend backend;
     SkColorType color;
     SkAlphaType alpha;
     int samples;
 #if SK_SUPPORT_GPU
     GrContextFactory::GLContextType ctxType;
+    GrContextFactory::GLContextOptions ctxOptions;
     bool useDFText;
 #else
     int bogusInt;
+    int bogusIntOption;
     bool bogusBool;
 #endif
 };

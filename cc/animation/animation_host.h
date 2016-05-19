@@ -5,15 +5,18 @@
 #ifndef CC_ANIMATION_ANIMATION_HOST_H_
 #define CC_ANIMATION_ANIMATION_HOST_H_
 
+#include <unordered_map>
 #include <vector>
 
-#include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
-#include "cc/animation/animation_events.h"
+#include "cc/animation/animation.h"
 #include "cc/base/cc_export.h"
 #include "cc/trees/mutator_host_client.h"
+#include "ui/gfx/geometry/box_f.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace gfx {
 class ScrollOffset;
@@ -21,6 +24,7 @@ class ScrollOffset;
 
 namespace cc {
 
+class AnimationEvents;
 class AnimationPlayer;
 class AnimationRegistrar;
 class AnimationTimeline;
@@ -87,10 +91,10 @@ class CC_EXPORT AnimationHost {
   bool ActivateAnimations();
   bool AnimateLayers(base::TimeTicks monotonic_time);
   bool UpdateAnimationState(bool start_ready_animations,
-                            AnimationEventsVector* events);
+                            AnimationEvents* events);
 
-  scoped_ptr<AnimationEventsVector> CreateEvents();
-  void SetAnimationEvents(scoped_ptr<AnimationEventsVector> events);
+  scoped_ptr<AnimationEvents> CreateEvents();
+  void SetAnimationEvents(scoped_ptr<AnimationEvents> events);
 
   bool ScrollOffsetAnimationWasInterrupted(int layer_id) const;
 
@@ -106,12 +110,12 @@ class CC_EXPORT AnimationHost {
   bool HasPotentiallyRunningTransformAnimation(int layer_id,
                                                LayerTreeType tree_type) const;
 
-  bool HasAnyAnimationTargetingProperty(
-      int layer_id,
-      Animation::TargetProperty property) const;
+  bool HasAnyAnimationTargetingProperty(int layer_id,
+                                        TargetProperty::Type property) const;
 
   bool FilterIsAnimatingOnImplOnly(int layer_id) const;
   bool OpacityIsAnimatingOnImplOnly(int layer_id) const;
+  bool ScrollOffsetIsAnimatingOnImplOnly(int layer_id) const;
   bool TransformIsAnimatingOnImplOnly(int layer_id) const;
 
   bool HasFilterAnimationThatInflatesBounds(int layer_id) const;
@@ -148,6 +152,8 @@ class CC_EXPORT AnimationHost {
       const gfx::ScrollOffset& max_scroll_offset,
       base::TimeTicks frame_monotonic_time);
 
+  void ScrollAnimationAbort(bool needs_completion);
+
  private:
   explicit AnimationHost(ThreadInstance thread_instance);
 
@@ -161,8 +167,8 @@ class CC_EXPORT AnimationHost {
   // TODO(loyso): For now AnimationPlayers share LayerAnimationController object
   // if they are attached to the same element(layer). Note that Element can
   // contain many Layers.
-  typedef base::ScopedPtrHashMap<int, scoped_ptr<ElementAnimations>>
-      LayerToElementAnimationsMap;
+  using LayerToElementAnimationsMap =
+      std::unordered_map<int, scoped_ptr<ElementAnimations>>;
   LayerToElementAnimationsMap layer_to_element_animations_map_;
 
   AnimationTimelineList timelines_;

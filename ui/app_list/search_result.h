@@ -5,10 +5,12 @@
 #ifndef UI_APP_LIST_SEARCH_RESULT_H_
 #define UI_APP_LIST_SEARCH_RESULT_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
 #include "ui/app_list/app_list_export.h"
@@ -55,8 +57,7 @@ class APP_LIST_EXPORT SearchResult {
 
     Tag(int styles, size_t start, size_t end)
         : styles(styles),
-          range(start, end) {
-    }
+          range(static_cast<uint32_t>(start), static_cast<uint32_t>(end)) {}
 
     int styles;
     gfx::Range range;
@@ -74,6 +75,7 @@ class APP_LIST_EXPORT SearchResult {
            const base::string16& tooltip_text);
     Action(const base::string16& label_text,
            const base::string16& tooltip_text);
+    Action(const Action& other);
     ~Action();
 
     gfx::ImageSkia base_image;

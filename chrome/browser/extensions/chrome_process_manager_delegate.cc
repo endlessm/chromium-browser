@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -69,7 +70,7 @@ bool ChromeProcessManagerDelegate::DeferCreatingStartupBackgroundHosts(
   // There are no browser windows open and the browser process was
   // started to show the app launcher. Background hosts will be loaded later
   // via NOTIFICATION_BROWSER_WINDOW_READY. http://crbug.com/178260
-  return chrome::GetTotalBrowserCountForProfile(profile) == 0 &&
+  return chrome::GetBrowserCount(profile) == 0 &&
          base::CommandLine::ForCurrentProcess()->HasSwitch(
              switches::kShowAppList);
 }

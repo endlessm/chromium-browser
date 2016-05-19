@@ -41,8 +41,6 @@
 #include "native_client/src/shared/platform/nacl_log.h"
 #include "native_client/src/shared/platform/nacl_threads.h"
 
-#include "native_client/src/shared/srpc/nacl_srpc.h"
-
 #include "native_client/src/trusted/interval_multiset/nacl_interval_multiset.h"
 #include "native_client/src/trusted/interval_multiset/nacl_interval_range_tree.h"
 
@@ -50,7 +48,6 @@
 #include "native_client/src/trusted/service_runtime/include/bits/nacl_syscalls.h"
 #include "native_client/src/trusted/service_runtime/nacl_error_code.h"
 #include "native_client/src/trusted/service_runtime/nacl_resource.h"
-#include "native_client/src/trusted/service_runtime/nacl_secure_service.h"
 #include "native_client/src/trusted/service_runtime/nacl_syscall_handlers.h"
 #include "native_client/src/trusted/service_runtime/sel_addrspace.h"
 #include "native_client/src/trusted/service_runtime/sel_mem.h"
@@ -62,16 +59,12 @@
 
 EXTERN_C_BEGIN
 
-#define NACL_SERVICE_PORT_DESCRIPTOR    3
-#define NACL_SERVICE_ADDRESS_DESCRIPTOR 4
-
 #define NACL_DEFAULT_STACK_MAX  (16 << 20)  /* main thread stack */
 
 struct NaClAppThread;
 struct NaClDesc;  /* see native_client/src/trusted/desc/nacl_desc_base.h */
 struct NaClDynamicRegion;
 struct NaClSignalContext;
-struct NaClThreadInterface;  /* see sel_ldr_thread_interface.h */
 struct NaClValidationCache;
 struct NaClValidationMetadata;
 
@@ -190,19 +183,6 @@ struct NaClApp {
 #endif
 
   /*
-   * The socket at which the app should be accepting connections.  The
-   * corresponding socket address are made available by the JavaScript
-   * bridge to other NaCl modules.
-   */
-  struct NaClDesc           *service_port;
-  struct NaClDesc           *service_address;
-
-  struct NaClDesc           *secure_service_port;
-  struct NaClDesc           *secure_service_address;
-
-  struct NaClDesc           *bootstrap_channel;
-
-  /*
    * The main NaCl executable may already be validated during ELF
    * loading, where after a validation cache hit the code gets mmapped
    * into memory if the file descriptor is "blessed" as referring to a
@@ -235,8 +215,6 @@ struct NaClApp {
 
   /* Array of NaCl syscall handlers. */
   struct NaClSyscallTableEntry syscall_table[NACL_MAX_SYSCALLS];
-
-  struct NaClSecureService          *secure_service;
 
   struct NaClResourceNaClApp        resources;
 
@@ -624,13 +602,6 @@ struct NaClAppThread *NaClGetThreadMu(struct NaClApp  *nap,
 
 void NaClAppInitialDescriptorHookup(struct NaClApp  *nap);
 
-void NaClCreateServiceSocket(struct NaClApp *nap);
-
-void NaClSetUpBootstrapChannel(struct NaClApp  *nap,
-                               NaClHandle      inherited_desc);
-
-void NaClSecureCommandChannel(struct NaClApp  *nap);
-
 /*
  * Loads the |nexe| as a NaCl app module.
  * The |load_cb| callback is invoked before the the |nexe| is loaded to allow
@@ -651,33 +622,7 @@ void NaClAppStartModule(struct NaClApp  *self,
                                                     NaClErrorCode status),
                         void            *instance_data);
 
-void NaClAppShutdown(struct NaClApp     *self,
-                     int                exit_status);
-
-NaClErrorCode NaClWaitForLoadModuleCommand(struct NaClApp *nap) NACL_WUR;
-
 NaClErrorCode NaClGetLoadStatus(struct NaClApp *nap) NACL_WUR;
-
-NaClErrorCode NaClWaitForStartModuleCommand(struct NaClApp *nap) NACL_WUR;
-
-/*
- * NaClBlockIfCommandChannelExists is used during error exit.  If
- * there is a secure command channel, we sent an RPC reply with the
- * reason that the nexe was rejected.  If we exit immediately, that
- * reply may still be in-flight and the various channel closure (esp
- * reverse channels, if those were set up) may be detected first by
- * the controlling process on the other end of the command channel or
- * reverse channel.  When channel closure wins the race against the
- * RPC reply, it would result in a crash being reported, rather than
- * the error code carried in the RPC reply.  We want to ensure that
- * the RPC reply to get processed.  Instead of allowing the service
- * runtime process to exit, we block the main thread and wait for the
- * hard-shutdown on the command channel or command channel closure.
- *
- * If there is no command channel, NaClBlockIfCommandChannelExists
- * just returns immediately.
- */
-void NaClBlockIfCommandChannelExists(struct NaClApp *nap);
 
 void NaClFillMemoryRegionWithHalt(void *start, size_t size);
 

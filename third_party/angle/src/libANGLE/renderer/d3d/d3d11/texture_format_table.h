@@ -15,6 +15,7 @@
 #include "common/platform.h"
 #include "libANGLE/renderer/d3d/formatutilsD3D.h"
 #include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
+#include "libANGLE/renderer/d3d/d3d11/texture_format_table_autogen.h"
 
 namespace rx
 {
@@ -22,25 +23,50 @@ namespace rx
 namespace d3d11
 {
 
-struct TextureFormat
+struct LoadImageFunctionInfo
 {
-    TextureFormat();
+    LoadImageFunctionInfo() : loadFunction(nullptr), requiresConversion(false) {}
+    LoadImageFunctionInfo(LoadImageFunction loadFunction, bool requiresConversion)
+        : loadFunction(loadFunction), requiresConversion(requiresConversion)
+    {
+    }
+
+    LoadImageFunction loadFunction;
+    bool requiresConversion;
+};
+
+struct DXGIFormatSet
+{
+    DXGIFormatSet();
+    DXGIFormatSet(DXGI_FORMAT texFormat,
+                  DXGI_FORMAT srvFormat,
+                  DXGI_FORMAT rtvFormat,
+                  DXGI_FORMAT dsvFormat);
+    DXGIFormatSet(const DXGIFormatSet &) = default;
+    DXGIFormatSet &operator=(const DXGIFormatSet &) = default;
 
     DXGI_FORMAT texFormat;
     DXGI_FORMAT srvFormat;
     DXGI_FORMAT rtvFormat;
     DXGI_FORMAT dsvFormat;
-    DXGI_FORMAT renderFormat;
+};
 
-    DXGI_FORMAT swizzleTexFormat;
-    DXGI_FORMAT swizzleSRVFormat;
-    DXGI_FORMAT swizzleRTVFormat;
+struct TextureFormat : public angle::NonCopyable
+{
+    TextureFormat(GLenum internalFormat,
+                  const DXGIFormatSet &formatSet,
+                  InitializeTextureDataFunction internalFormatInitializer);
+
+    DXGIFormatSet formatSet;
+    DXGIFormatSet swizzleFormatSet;
 
     InitializeTextureDataFunction dataInitializerFunction;
-    typedef std::map<GLenum, LoadImageFunction> LoadFunctionMap;
+    typedef std::map<GLenum, LoadImageFunctionInfo> LoadFunctionMap;
 
     LoadFunctionMap loadFunctions;
 };
+
+const DXGIFormatSet &GetANGLEFormatSet(ANGLEFormat angleFormat);
 
 const TextureFormat &GetTextureFormatInfo(GLenum internalformat,
                                           const Renderer11DeviceCaps &renderer11DeviceCaps);

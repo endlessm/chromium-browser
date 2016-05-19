@@ -41,9 +41,20 @@ WebInspector.DefaultScriptMapping = function(debuggerModel, workspace, debuggerW
     this._debuggerWorkspaceBinding = debuggerWorkspaceBinding;
     this._workspace = workspace;
     this._projectId = WebInspector.DefaultScriptMapping.projectIdForTarget(debuggerModel.target());
-    this._projectDelegate = new WebInspector.DebuggerProjectDelegate(this._workspace, this._projectId, WebInspector.projectTypes.Debugger);
+    this._project = new WebInspector.ContentProviderBasedProject(this._workspace, this._projectId, WebInspector.projectTypes.Debugger, "");
     debuggerModel.addEventListener(WebInspector.DebuggerModel.Events.GlobalObjectCleared, this._debuggerReset, this);
     this._debuggerReset();
+}
+
+WebInspector.DefaultScriptMapping._scriptSymbol = Symbol("symbol");
+
+/**
+ * @param {!WebInspector.UISourceCode} uiSourceCode
+ * @return {?WebInspector.Script}
+ */
+WebInspector.DefaultScriptMapping.scriptForUISourceCode = function(uiSourceCode)
+{
+    return uiSourceCode[WebInspector.DefaultScriptMapping._scriptSymbol] || null;
 }
 
 WebInspector.DefaultScriptMapping.prototype = {
@@ -85,13 +96,17 @@ WebInspector.DefaultScriptMapping.prototype = {
      */
     addScript: function(script)
     {
-        var path = this._projectDelegate.addScript(script);
-        var uiSourceCode = this._workspace.uiSourceCode(this._projectId, path);
-        console.assert(uiSourceCode);
-        uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (uiSourceCode);
 
+        var splitURL = WebInspector.ParsedURL.splitURLIntoPathComponents(script.sourceURL);
+        var url = splitURL[splitURL.length - 1];
+        url = "debugger:///VM" + script.scriptId + (url ? " " + url: "");
+
+        var uiSourceCode = this._project.createUISourceCode(url, WebInspector.resourceTypes.Script);
+        uiSourceCode[WebInspector.DefaultScriptMapping._scriptSymbol] = script;
         this._uiSourceCodeForScriptId.set(script.scriptId, uiSourceCode);
         this._scriptIdForUISourceCode.set(uiSourceCode, script.scriptId);
+        this._project.addUISourceCodeWithProvider(uiSourceCode, script);
+
         this._debuggerWorkspaceBinding.setSourceMapping(this._debuggerModel.target(), uiSourceCode, this);
         this._debuggerWorkspaceBinding.pushSourceMapping(script, this);
     },
@@ -121,12 +136,12 @@ WebInspector.DefaultScriptMapping.prototype = {
         /** @type {!Map.<string, !WebInspector.UISourceCode>} */
         this._uiSourceCodeForScriptId = new Map();
         this._scriptIdForUISourceCode = new Map();
-        this._projectDelegate.reset();
+        this._project.reset();
     },
 
     dispose: function()
     {
-        this._workspace.removeProject(this._projectId);
+        this._project.dispose();
     }
 }
 
@@ -137,50 +152,4 @@ WebInspector.DefaultScriptMapping.prototype = {
 WebInspector.DefaultScriptMapping.projectIdForTarget = function(target)
 {
     return "debugger:" + target.id();
-}
-
-/**
- * @constructor
- * @param {!WebInspector.Workspace} workspace
- * @param {string} id
- * @param {!WebInspector.projectTypes} type
- * @extends {WebInspector.ContentProviderBasedProjectDelegate}
- */
-WebInspector.DebuggerProjectDelegate = function(workspace, id, type)
-{
-    WebInspector.ContentProviderBasedProjectDelegate.call(this, workspace, id, type);
-}
-
-WebInspector.DebuggerProjectDelegate.prototype = {
-    /**
-     * @override
-     * @return {string}
-     */
-    displayName: function()
-    {
-        return "";
-    },
-
-    /**
-     * @override
-     * @return {string}
-     */
-    url: function()
-    {
-        return "debugger:";
-    },
-
-    /**
-     * @param {!WebInspector.Script} script
-     * @return {string}
-     */
-    addScript: function(script)
-    {
-        var splitURL = WebInspector.ParsedURL.splitURLIntoPathComponents(script.sourceURL);
-        var name = splitURL[splitURL.length - 1];
-        name = "VM" + script.scriptId + (name ? " " + name : "");
-        return this.addContentProvider("", name, script.sourceURL, script);
-    },
-
-    __proto__: WebInspector.ContentProviderBasedProjectDelegate.prototype
 }

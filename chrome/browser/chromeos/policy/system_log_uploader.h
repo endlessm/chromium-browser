@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_CHROMEOS_POLICY_SYSTEM_LOG_UPLOADER_H_
 #define CHROME_BROWSER_CHROMEOS_POLICY_SYSTEM_LOG_UPLOADER_H_
 
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
@@ -19,6 +21,10 @@ namespace base {
 class SequencedTaskRunner;
 }
 
+namespace feedback {
+class AnonymizerTool;
+}
+
 namespace policy {
 
 // Class responsible for periodically uploading system logs, it handles the
@@ -30,8 +36,8 @@ class SystemLogUploader : public UploadJob::Delegate {
   typedef std::vector<std::pair<std::string, std::string>> SystemLogs;
 
   // Refresh constants.
-  static const int64 kDefaultUploadDelayMs;
-  static const int64 kErrorUploadDelayMs;
+  static const int64_t kDefaultUploadDelayMs;
+  static const int64_t kErrorUploadDelayMs;
 
   // Http header constants to upload.
   static const char* const kNameFieldTemplate;
@@ -76,9 +82,11 @@ class SystemLogUploader : public UploadJob::Delegate {
   void OnSuccess() override;
   void OnFailure(UploadJob::ErrorCode error_code) override;
 
-  // Remove lines from |data| that contain common PII (IP addresses, SSIDs, URLs
-  // e-mail addresses).
-  static std::string RemoveSensitiveData(const std::string& data);
+  // Remove lines from |data| that contain common PII (IP addresses, BSSIDs,
+  // SSIDs, URLs, e-mail addresses).
+  static std::string RemoveSensitiveData(
+      feedback::AnonymizerTool* const anonymizer,
+      const std::string& data);
 
  private:
   // Updates the system log upload enabled field from settings.

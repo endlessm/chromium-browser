@@ -140,14 +140,26 @@ TEST_F(ByteIoTest, Test24SBitBigEndian) {
   TestWrite<int32_t, ByteWriter<int32_t, 3>::WriteBigEndian, 3>(true);
 }
 
-TEST_F(ByteIoTest, Test32SBitBigEndian) {
+// Disabled for UBSan: https://bugs.chromium.org/p/webrtc/issues/detail?id=5490
+#ifdef UNDEFINED_SANITIZER
+#define MAYBE_Test32SBitBigEndian DISABLED_Test32SBitBigEndian
+#else
+#define MAYBE_Test32SBitBigEndian Test32SBitBigEndian
+#endif
+TEST_F(ByteIoTest, MAYBE_Test32SBitBigEndian) {
   TestRead<int32_t, ByteReader<int32_t>::ReadBigEndian,
       sizeof(int32_t)>(true);
   TestWrite<int32_t, ByteWriter<int32_t>::WriteBigEndian,
       sizeof(int32_t)>(true);
 }
 
-TEST_F(ByteIoTest, Test64SBitBigEndian) {
+// Disabled for UBSan: https://bugs.chromium.org/p/webrtc/issues/detail?id=5490
+#ifdef UNDEFINED_SANITIZER
+#define MAYBE_Test64SBitBigEndian DISABLED_Test64SBitBigEndian
+#else
+#define MAYBE_Test64SBitBigEndian Test64SBitBigEndian
+#endif
+TEST_F(ByteIoTest, MAYBE_Test64SBitBigEndian) {
   TestRead<int64_t, ByteReader<int64_t>::ReadBigEndian,
       sizeof(int64_t)>(true);
   TestWrite<int64_t, ByteWriter<int64_t>::WriteBigEndian,
@@ -192,19 +204,69 @@ TEST_F(ByteIoTest, Test24SBitLittleEndian) {
   TestWrite<int32_t, ByteWriter<int32_t, 3>::WriteLittleEndian, 3>(false);
 }
 
-TEST_F(ByteIoTest, Test32SBitLittleEndian) {
+// Disabled for UBSan: https://bugs.chromium.org/p/webrtc/issues/detail?id=5490
+#ifdef UNDEFINED_SANITIZER
+#define MAYBE_Test32SBitLittleEndian DISABLED_Test32SBitLittleEndian
+#else
+#define MAYBE_Test32SBitLittleEndian Test32SBitLittleEndian
+#endif
+TEST_F(ByteIoTest, MAYBE_Test32SBitLittleEndian) {
   TestRead<int32_t, ByteReader<int32_t>::ReadLittleEndian,
       sizeof(int32_t)>(false);
   TestWrite<int32_t, ByteWriter<int32_t>::WriteLittleEndian,
       sizeof(int32_t)>(false);
 }
 
-TEST_F(ByteIoTest, Test64SBitLittleEndian) {
+// Disabled for UBSan: https://bugs.chromium.org/p/webrtc/issues/detail?id=5490
+#ifdef UNDEFINED_SANITIZER
+#define MAYBE_Test64SBitLittleEndian DISABLED_Test64SBitLittleEndian
+#else
+#define MAYBE_Test64SBitLittleEndian Test64SBitLittleEndian
+#endif
+TEST_F(ByteIoTest, MAYBE_Test64SBitLittleEndian) {
   TestRead<int64_t, ByteReader<int64_t>::ReadLittleEndian,
       sizeof(int64_t)>(false);
   TestWrite<int64_t, ByteWriter<int64_t>::WriteLittleEndian,
       sizeof(int64_t)>(false);
 }
 
+// Sets up a fixed byte array and converts N bytes from the array into a
+// uint64_t. Verifies the value with hard-coded reference.
+TEST(ByteIo, SanityCheckFixedByteArrayUnsignedReadBigEndian) {
+  uint8_t data[8] = {0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88};
+  uint64_t value = ByteReader<uint64_t, 2>::ReadBigEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xFFEE), value);
+  value = ByteReader<uint64_t, 3>::ReadBigEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xFFEEDD), value);
+  value = ByteReader<uint64_t, 4>::ReadBigEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xFFEEDDCC), value);
+  value = ByteReader<uint64_t, 5>::ReadBigEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xFFEEDDCCBB), value);
+  value = ByteReader<uint64_t, 6>::ReadBigEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xFFEEDDCCBBAA), value);
+  value = ByteReader<uint64_t, 7>::ReadBigEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xFFEEDDCCBBAA99), value);
+  value = ByteReader<uint64_t, 8>::ReadBigEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xFFEEDDCCBBAA9988), value);
+}
+
+// Same as above, but for little-endian reading.
+TEST(ByteIo, SanityCheckFixedByteArrayUnsignedReadLittleEndian) {
+  uint8_t data[8] = {0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88};
+  uint64_t value = ByteReader<uint64_t, 2>::ReadLittleEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xEEFF), value);
+  value = ByteReader<uint64_t, 3>::ReadLittleEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xDDEEFF), value);
+  value = ByteReader<uint64_t, 4>::ReadLittleEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xCCDDEEFF), value);
+  value = ByteReader<uint64_t, 5>::ReadLittleEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xBBCCDDEEFF), value);
+  value = ByteReader<uint64_t, 6>::ReadLittleEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0xAABBCCDDEEFF), value);
+  value = ByteReader<uint64_t, 7>::ReadLittleEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0x99AABBCCDDEEFF), value);
+  value = ByteReader<uint64_t, 8>::ReadLittleEndian(data);
+  EXPECT_EQ(static_cast<uint64_t>(0x8899AABBCCDDEEFF), value);
+}
 }  // namespace
 }  // namespace webrtc

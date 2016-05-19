@@ -5,6 +5,8 @@
 #ifndef CONTENT_RENDERER_GPU_RENDER_WIDGET_COMPOSITOR_H_
 #define CONTENT_RENDERER_GPU_RENDER_WIDGET_COMPOSITOR_H_
 
+#include <stdint.h>
+
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -15,6 +17,7 @@
 #include "cc/trees/layer_tree_host_client.h"
 #include "cc/trees/layer_tree_host_single_thread_client.h"
 #include "cc/trees/layer_tree_settings.h"
+#include "cc/trees/remote_proto_channel.h"
 #include "cc/trees/swap_promise_monitor.h"
 #include "content/common/content_export.h"
 #include "content/renderer/gpu/compositor_dependencies.h"
@@ -31,20 +34,28 @@ class CopyOutputRequest;
 class InputHandler;
 class Layer;
 class LayerTreeHost;
+
+namespace proto {
+class CompositorMessage;
+}
+
 }
 
 namespace content {
-class RenderWidget;
+
+class RenderWidgetCompositorDelegate;
 
 class CONTENT_EXPORT RenderWidgetCompositor
     : NON_EXPORTED_BASE(public blink::WebLayerTreeView),
       NON_EXPORTED_BASE(public cc::LayerTreeHostClient),
-      NON_EXPORTED_BASE(public cc::LayerTreeHostSingleThreadClient) {
+      NON_EXPORTED_BASE(public cc::LayerTreeHostSingleThreadClient),
+      NON_EXPORTED_BASE(public cc::RemoteProtoChannel) {
  public:
   // Attempt to construct and initialize a compositor instance for the widget
   // with the given settings. Returns NULL if initialization fails.
   static scoped_ptr<RenderWidgetCompositor> Create(
-      RenderWidget* widget,
+      RenderWidgetCompositorDelegate* delegate,
+      float device_scale_factor,
       CompositorDependencies* compositor_deps);
 
   ~RenderWidgetCompositor() override;
@@ -79,6 +90,7 @@ class CONTENT_EXPORT RenderWidgetCompositor
       const base::Callback<void(scoped_ptr<base::Value>)>& callback);
   bool SendMessageToMicroBenchmark(int id, scoped_ptr<base::Value> value);
   void SetSurfaceIdNamespace(uint32_t surface_id_namespace);
+  void OnHandleCompositorProto(const std::vector<uint8_t>& proto);
   cc::ManagedMemoryPolicy GetGpuMemoryPolicy(
       const cc::ManagedMemoryPolicy& policy);
   void SetPaintedDeviceScaleFactor(float device_scale);
@@ -87,9 +99,9 @@ class CONTENT_EXPORT RenderWidgetCompositor
   void setRootLayer(const blink::WebLayer& layer) override;
   void clearRootLayer() override;
   void attachCompositorAnimationTimeline(
-      blink::WebCompositorAnimationTimeline* compositor_timeline) override;
+      cc::AnimationTimeline* compositor_timeline) override;
   void detachCompositorAnimationTimeline(
-      blink::WebCompositorAnimationTimeline* compositor_timeline) override;
+      cc::AnimationTimeline* compositor_timeline) override;
   void setViewportSize(const blink::WebSize& device_viewport_size) override;
   virtual blink::WebFloatPoint adjustEventPointForPinchZoom(
       const blink::WebFloatPoint& point) const;
@@ -123,6 +135,13 @@ class CONTENT_EXPORT RenderWidgetCompositor
   void clearViewportLayers() override;
   void registerSelection(const blink::WebSelection& selection) override;
   void clearSelection() override;
+  void setEventListenerProperties(
+      blink::WebEventListenerClass eventClass,
+      blink::WebEventListenerProperties properties) override;
+  blink::WebEventListenerProperties eventListenerProperties(
+      blink::WebEventListenerClass eventClass) const override;
+  void setHaveScrollEventHandlers(bool) override;
+  bool haveScrollEventHandlers() const override;
   int layerTreeId() const override;
   void setShowFPSCounter(bool show) override;
   void setShowPaintRects(bool show) override;
@@ -164,16 +183,22 @@ class CONTENT_EXPORT RenderWidgetCompositor
   void DidPostSwapBuffers() override;
   void DidAbortSwapBuffers() override;
 
+  // cc::RemoteProtoChannel implementation.
+  void SetProtoReceiver(ProtoReceiver* receiver) override;
+  void SendCompositorProto(const cc::proto::CompositorMessage& proto) override;
+
   enum {
     OUTPUT_SURFACE_RETRIES_BEFORE_FALLBACK = 4,
     MAX_OUTPUT_SURFACE_RETRIES = 5,
   };
 
  protected:
-  RenderWidgetCompositor(RenderWidget* widget,
+  friend class RenderViewImplScaleFactorTest;
+
+  RenderWidgetCompositor(RenderWidgetCompositorDelegate* delegate,
                          CompositorDependencies* compositor_deps);
 
-  void Initialize();
+  void Initialize(float device_scale_factor);
   cc::LayerTreeHost* layer_tree_host() { return layer_tree_host_.get(); }
 
  private:
@@ -183,13 +208,15 @@ class CONTENT_EXPORT RenderWidgetCompositor
   void SynchronouslyComposite();
 
   int num_failed_recreate_attempts_;
-  RenderWidget* widget_;
-  CompositorDependencies* compositor_deps_;
+  RenderWidgetCompositorDelegate* const delegate_;
+  CompositorDependencies* const compositor_deps_;
   scoped_ptr<cc::LayerTreeHost> layer_tree_host_;
   bool never_visible_;
 
   blink::WebLayoutAndPaintAsyncCallback* layout_and_paint_async_callback_;
   scoped_ptr<cc::CopyOutputRequest> temporary_copy_output_request_;
+
+  cc::RemoteProtoChannel::ProtoReceiver* remote_proto_channel_receiver_;
 
   base::WeakPtrFactory<RenderWidgetCompositor> weak_factory_;
 };

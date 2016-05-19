@@ -52,6 +52,7 @@ public:
     void send(PassRefPtr<DOMArrayBuffer>, ExceptionState&);
     void send(PassRefPtr<DOMArrayBufferView>, ExceptionState&);
     void send(Blob*, ExceptionState&);
+    void close();
     void terminate();
 
     String binaryType() const;
@@ -59,12 +60,18 @@ public:
 
     DEFINE_ATTRIBUTE_EVENT_LISTENER(message);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(statechange);
+    DEFINE_ATTRIBUTE_EVENT_LISTENER(connect);
+    DEFINE_ATTRIBUTE_EVENT_LISTENER(close);
+    DEFINE_ATTRIBUTE_EVENT_LISTENER(terminate);
 
     // Returns true if and only if the WebPresentationConnectionClient represents this connection.
     bool matches(WebPresentationConnectionClient*) const;
 
     // Notifies the connection about its state change.
     void didChangeState(WebPresentationConnectionState);
+
+    // Notifies the connection about its state change to 'closed'.
+    void didClose(WebPresentationConnectionCloseReason, const String& message);
 
     // Notifies the presentation about new message.
     void didReceiveTextMessage(const String& message);
@@ -116,8 +123,8 @@ private:
     void didFinishLoadingBlob(PassRefPtr<DOMArrayBuffer>);
     void didFailLoadingBlob(FileError::ErrorCode);
 
-    // Returns true iff current state is closed or terminated.
-    bool isDisconnected() const;
+    // Cancel loads and pending messages when the connection is closed.
+    void tearDown();
 
     String m_id;
     String m_url;

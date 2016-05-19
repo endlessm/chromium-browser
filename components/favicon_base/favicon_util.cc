@@ -4,8 +4,12 @@
 
 #include "components/favicon_base/favicon_util.h"
 
+#include <stddef.h>
+
+#include <algorithm>
 #include <cmath>
 
+#include "build/build_config.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/favicon_base/select_favicon_frames.h"
 #include "skia/ext/image_operations.h"

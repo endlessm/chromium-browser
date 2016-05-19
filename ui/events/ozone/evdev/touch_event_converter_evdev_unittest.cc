@@ -3,14 +3,16 @@
 // found in the LICENSE file.
 
 #include <errno.h>
-#include <fcntl.h>
 #include <linux/input.h>
+#include <stddef.h>
 #include <unistd.h>
 
 #include <vector>
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/run_loop.h"
@@ -30,13 +32,6 @@
 namespace ui {
 
 namespace {
-
-static int SetNonBlocking(int fd) {
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags == -1)
-    flags = 0;
-  return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-}
 
 const char kTestDevicePath[] = "/dev/input/test-device";
 
@@ -135,7 +130,7 @@ MockTouchEventConverterEvdev::MockTouchEventConverterEvdev(
   if (pipe(fds))
     PLOG(FATAL) << "failed pipe";
 
-  EXPECT_FALSE(SetNonBlocking(fds[0]) || SetNonBlocking(fds[1]))
+  EXPECT_TRUE(base::SetNonBlocking(fds[0]) || base::SetNonBlocking(fds[1]))
     << "failed to set non-blocking: " << strerror(errno);
 
   read_pipe_ = fds[0];
@@ -282,8 +277,10 @@ TEST_F(TouchEventConverterEvdevTest, TouchMove) {
   EXPECT_EQ(295, event.location.x());
   EXPECT_EQ(421, event.location.y());
   EXPECT_EQ(0, event.slot);
-  EXPECT_FLOAT_EQ(58.f, event.radii.x());
-  EXPECT_FLOAT_EQ(0.13333334f, event.pressure);
+  EXPECT_EQ(EventPointerType::POINTER_TYPE_TOUCH,
+            event.pointer_details.pointer_type);
+  EXPECT_FLOAT_EQ(58.f, event.pointer_details.radius_x);
+  EXPECT_FLOAT_EQ(0.13333334f, event.pointer_details.force);
 
   // Move.
   dev->ConfigureReadMock(mock_kernel_queue_move,
@@ -297,8 +294,10 @@ TEST_F(TouchEventConverterEvdevTest, TouchMove) {
   EXPECT_EQ(312, event.location.x());
   EXPECT_EQ(432, event.location.y());
   EXPECT_EQ(0, event.slot);
-  EXPECT_FLOAT_EQ(50.f, event.radii.x());
-  EXPECT_FLOAT_EQ(0.16862745f, event.pressure);
+  EXPECT_EQ(EventPointerType::POINTER_TYPE_TOUCH,
+            event.pointer_details.pointer_type);
+  EXPECT_FLOAT_EQ(50.f, event.pointer_details.radius_x);
+  EXPECT_FLOAT_EQ(0.16862745f, event.pointer_details.force);
 
   // Release.
   dev->ConfigureReadMock(mock_kernel_queue_release,
@@ -312,8 +311,10 @@ TEST_F(TouchEventConverterEvdevTest, TouchMove) {
   EXPECT_EQ(312, event.location.x());
   EXPECT_EQ(432, event.location.y());
   EXPECT_EQ(0, event.slot);
-  EXPECT_FLOAT_EQ(50.f, event.radii.x());
-  EXPECT_FLOAT_EQ(0.16862745f, event.pressure);
+  EXPECT_EQ(EventPointerType::POINTER_TYPE_TOUCH,
+            event.pointer_details.pointer_type);
+  EXPECT_FLOAT_EQ(50.f, event.pointer_details.radius_x);
+  EXPECT_FLOAT_EQ(0.16862745f, event.pointer_details.force);
 }
 
 TEST_F(TouchEventConverterEvdevTest, TwoFingerGesture) {
@@ -362,7 +363,7 @@ TEST_F(TouchEventConverterEvdevTest, TwoFingerGesture) {
   EXPECT_EQ(40, ev0.location.x());
   EXPECT_EQ(51, ev0.location.y());
   EXPECT_EQ(0, ev0.slot);
-  EXPECT_FLOAT_EQ(0.17647059f, ev0.pressure);
+  EXPECT_FLOAT_EQ(0.17647059f, ev0.pointer_details.force);
 
   // Press
   EXPECT_EQ(ui::ET_TOUCH_PRESSED, ev1.type);
@@ -370,7 +371,7 @@ TEST_F(TouchEventConverterEvdevTest, TwoFingerGesture) {
   EXPECT_EQ(101, ev1.location.x());
   EXPECT_EQ(102, ev1.location.y());
   EXPECT_EQ(1, ev1.slot);
-  EXPECT_FLOAT_EQ(0.17647059f, ev1.pressure);
+  EXPECT_FLOAT_EQ(0.17647059f, ev1.pointer_details.force);
 
   // Stationary 0, Moves 1.
   struct input_event mock_kernel_queue_stationary0_move1[] = {
@@ -386,7 +387,7 @@ TEST_F(TouchEventConverterEvdevTest, TwoFingerGesture) {
   EXPECT_EQ(40, ev1.location.x());
   EXPECT_EQ(102, ev1.location.y());
   EXPECT_EQ(1, ev1.slot);
-  EXPECT_FLOAT_EQ(0.17647059f, ev1.pressure);
+  EXPECT_FLOAT_EQ(0.17647059f, ev1.pointer_details.force);
 
   // Move 0, stationary 1.
   struct input_event mock_kernel_queue_move0_stationary1[] = {
@@ -403,7 +404,7 @@ TEST_F(TouchEventConverterEvdevTest, TwoFingerGesture) {
   EXPECT_EQ(39, ev0.location.x());
   EXPECT_EQ(51, ev0.location.y());
   EXPECT_EQ(0, ev0.slot);
-  EXPECT_FLOAT_EQ(0.17647059f, ev0.pressure);
+  EXPECT_FLOAT_EQ(0.17647059f, ev0.pointer_details.force);
 
   // Release 0, move 1.
   struct input_event mock_kernel_queue_release0_move1[] = {
@@ -421,14 +422,14 @@ TEST_F(TouchEventConverterEvdevTest, TwoFingerGesture) {
   EXPECT_EQ(39, ev0.location.x());
   EXPECT_EQ(51, ev0.location.y());
   EXPECT_EQ(0, ev0.slot);
-  EXPECT_FLOAT_EQ(0.17647059f, ev0.pressure);
+  EXPECT_FLOAT_EQ(0.17647059f, ev0.pointer_details.force);
 
   EXPECT_EQ(ui::ET_TOUCH_MOVED, ev1.type);
   EXPECT_EQ(base::TimeDelta::FromMicroseconds(0), ev1.timestamp);
   EXPECT_EQ(38, ev1.location.x());
   EXPECT_EQ(102, ev1.location.y());
   EXPECT_EQ(1, ev1.slot);
-  EXPECT_FLOAT_EQ(0.17647059f, ev1.pressure);
+  EXPECT_FLOAT_EQ(0.17647059f, ev1.pointer_details.force);
 
   // Release 1.
   struct input_event mock_kernel_queue_release1[] = {
@@ -444,7 +445,7 @@ TEST_F(TouchEventConverterEvdevTest, TwoFingerGesture) {
   EXPECT_EQ(38, ev1.location.x());
   EXPECT_EQ(102, ev1.location.y());
   EXPECT_EQ(1, ev1.slot);
-  EXPECT_FLOAT_EQ(0.17647059f, ev1.pressure);
+  EXPECT_FLOAT_EQ(0.17647059f, ev1.pointer_details.force);
 }
 
 TEST_F(TouchEventConverterEvdevTest, Unsync) {
@@ -514,9 +515,9 @@ TEST_F(TouchEventConverterEvdevTest, ShouldResumeExistingContactsOnStart) {
   ui::TouchEventParams ev = dispatched_event(0);
   EXPECT_EQ(ET_TOUCH_PRESSED, ev.type);
   EXPECT_EQ(0, ev.slot);
-  EXPECT_FLOAT_EQ(50.f, ev.radii.x());
-  EXPECT_FLOAT_EQ(0.f, ev.radii.y());
-  EXPECT_FLOAT_EQ(0.50196081f, ev.pressure);
+  EXPECT_FLOAT_EQ(50.f, ev.pointer_details.radius_x);
+  EXPECT_FLOAT_EQ(50.f, ev.pointer_details.radius_y);
+  EXPECT_FLOAT_EQ(0.50196081f, ev.pointer_details.force);
 }
 
 TEST_F(TouchEventConverterEvdevTest, ShouldReleaseContactsOnStop) {
@@ -668,8 +669,8 @@ TEST_F(TouchEventConverterEvdevTest, ShouldUseLeftButtonIfNoTouchButton) {
   EXPECT_EQ(3654, event.location.x());
   EXPECT_EQ(1055, event.location.y());
   EXPECT_EQ(0, event.slot);
-  EXPECT_FLOAT_EQ(0.f, event.radii.x());
-  EXPECT_FLOAT_EQ(0.f, event.pressure);
+  EXPECT_FLOAT_EQ(0.f, event.pointer_details.radius_x);
+  EXPECT_FLOAT_EQ(0.f, event.pointer_details.force);
 
   // Move.
   dev->ConfigureReadMock(mock_kernel_queue_move,
@@ -683,8 +684,8 @@ TEST_F(TouchEventConverterEvdevTest, ShouldUseLeftButtonIfNoTouchButton) {
   EXPECT_EQ(3644, event.location.x());
   EXPECT_EQ(1059, event.location.y());
   EXPECT_EQ(0, event.slot);
-  EXPECT_FLOAT_EQ(0.f, event.radii.x());
-  EXPECT_FLOAT_EQ(0.f, event.pressure);
+  EXPECT_FLOAT_EQ(0.f, event.pointer_details.radius_x);
+  EXPECT_FLOAT_EQ(0.f, event.pointer_details.force);
 
   // Release.
   dev->ConfigureReadMock(mock_kernel_queue_release,
@@ -698,8 +699,8 @@ TEST_F(TouchEventConverterEvdevTest, ShouldUseLeftButtonIfNoTouchButton) {
   EXPECT_EQ(3644, event.location.x());
   EXPECT_EQ(1059, event.location.y());
   EXPECT_EQ(0, event.slot);
-  EXPECT_FLOAT_EQ(0.f, event.radii.x());
-  EXPECT_FLOAT_EQ(0.f, event.pressure);
+  EXPECT_FLOAT_EQ(0.f, event.pointer_details.radius_x);
+  EXPECT_FLOAT_EQ(0.f, event.pointer_details.force);
 
   // No dispatch on destruction.
   DestroyDevice();
@@ -745,12 +746,12 @@ TEST_F(TouchEventConverterEvdevTest,
   EXPECT_EQ(0, ev0.slot);
   EXPECT_EQ(999, ev0.location.x());
   EXPECT_EQ(888, ev0.location.y());
-  EXPECT_FLOAT_EQ(0.21568628f, ev0.pressure);
+  EXPECT_FLOAT_EQ(0.21568628f, ev0.pointer_details.force);
 
   EXPECT_EQ(1, ev1.slot);
   EXPECT_EQ(777, ev1.location.x());
   EXPECT_EQ(666, ev1.location.y());
-  EXPECT_FLOAT_EQ(0.17254902f, ev1.pressure);
+  EXPECT_FLOAT_EQ(0.17254902f, ev1.pointer_details.force);
 }
 
 // crbug.com/446939
@@ -971,13 +972,13 @@ TEST_F(TouchEventConverterEvdevTest, ActiveStylusTouchAndRelease) {
   EXPECT_EQ(ui::ET_TOUCH_PRESSED, event.type);
   EXPECT_EQ(9170, event.location.x());
   EXPECT_EQ(3658, event.location.y());
-  EXPECT_EQ(60.f / 1024, event.pressure);
+  EXPECT_EQ(60.f / 1024, event.pointer_details.force);
 
   event = dispatched_event(1);
   EXPECT_EQ(ui::ET_TOUCH_RELEASED, event.type);
   EXPECT_EQ(9173, event.location.x());
   EXPECT_EQ(3906, event.location.y());
-  EXPECT_EQ(0.f / 1024, event.pressure);
+  EXPECT_EQ(0.f / 1024, event.pointer_details.force);
 }
 
 TEST_F(TouchEventConverterEvdevTest, ActiveStylusMotion) {
@@ -1017,25 +1018,33 @@ TEST_F(TouchEventConverterEvdevTest, ActiveStylusMotion) {
   EXPECT_EQ(ui::ET_TOUCH_PRESSED, event.type);
   EXPECT_EQ(8921, event.location.x());
   EXPECT_EQ(1072, event.location.y());
-  EXPECT_EQ(35.f / 1024, event.pressure);
+  EXPECT_EQ(EventPointerType::POINTER_TYPE_PEN,
+            event.pointer_details.pointer_type);
+  EXPECT_EQ(35.f / 1024, event.pointer_details.force);
 
   event = dispatched_event(1);
   EXPECT_EQ(ui::ET_TOUCH_MOVED, event.type);
   EXPECT_EQ(8934, event.location.x());
   EXPECT_EQ(981, event.location.y());
-  EXPECT_EQ(184.f / 1024, event.pressure);
+  EXPECT_EQ(EventPointerType::POINTER_TYPE_PEN,
+            event.pointer_details.pointer_type);
+  EXPECT_EQ(184.f / 1024, event.pointer_details.force);
 
   event = dispatched_event(2);
   EXPECT_EQ(ui::ET_TOUCH_MOVED, event.type);
   EXPECT_EQ(8930, event.location.x());
   EXPECT_EQ(980, event.location.y());
-  EXPECT_EQ(348.f / 1024, event.pressure);
+  EXPECT_EQ(EventPointerType::POINTER_TYPE_PEN,
+            event.pointer_details.pointer_type);
+  EXPECT_EQ(348.f / 1024, event.pointer_details.force);
 
   event = dispatched_event(3);
   EXPECT_EQ(ui::ET_TOUCH_RELEASED, event.type);
   EXPECT_EQ(8930, event.location.x());
   EXPECT_EQ(980, event.location.y());
-  EXPECT_EQ(0.f / 1024, event.pressure);
+  EXPECT_EQ(EventPointerType::POINTER_TYPE_PEN,
+            event.pointer_details.pointer_type);
+  EXPECT_EQ(0.f / 1024, event.pointer_details.force);
 }
 
 }  // namespace ui

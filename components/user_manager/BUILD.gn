@@ -24,11 +24,11 @@ component("user_manager") {
 
   if (is_chromeos) {
     sources += [
+      "known_user.cc",
+      "known_user.h",
       "remove_user_delegate.h",
       "user.cc",
       "user.h",
-      "user_image/default_user_images.cc",
-      "user_image/default_user_images.h",
       "user_image/user_image.cc",
       "user_image/user_image.h",
       "user_manager.cc",
@@ -38,21 +38,17 @@ component("user_manager") {
       "user_type.h",
     ]
     deps += [
-      "//base:prefs",
-      "//chromeos:chromeos",
+      "//components/prefs",
       "//components/session_manager/core",
       "//google_apis",
-      "//ui/base",
-      "//ui/chromeos/resources",
-      "//ui/chromeos/strings",
       "//url",
     ]
   }
 }
 
-source_set("test_support") {
-  testonly = true
-  if (is_chromeos) {
+if (is_chromeos) {
+  source_set("test_support") {
+    testonly = true
     sources = [
       "fake_user_manager.cc",
       "fake_user_manager.h",
@@ -60,9 +56,24 @@ source_set("test_support") {
     deps = [
       ":user_manager",
       "//base",
+      "//chromeos:chromeos",
       "//components/signin/core/account_id",
       "//skia",
       "//ui/base",
+    ]
+  }
+
+  source_set("unit_tests") {
+    testonly = true
+    sources = [
+      "user_unittest.cc",
+    ]
+    deps = [
+      ":user_manager",
+      "//components/signin/core/account_id",
+      "//skia",
+      "//testing/gtest",
+      "//ui/gfx",
     ]
   }
 }

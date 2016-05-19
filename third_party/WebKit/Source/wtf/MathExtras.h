@@ -26,6 +26,7 @@
 #ifndef WTF_MathExtras_h
 #define WTF_MathExtras_h
 
+#include "wtf/Allocator.h"
 #include "wtf/Assertions.h"
 #include "wtf/CPU.h"
 #include <cmath>
@@ -33,6 +34,11 @@
 #include <limits>
 
 #if COMPILER(MSVC)
+// Make math.h behave like other platforms.
+#define _USE_MATH_DEFINES
+// Even if math.h was already inlcuded, including math.h again with
+// _USE_MATH_DEFINES adds the extra defines.
+#include <math.h>
 #include <stdint.h>
 #endif
 
@@ -159,6 +165,7 @@ template<typename LimitType, typename ValueType> inline LimitType clampToDirectC
 // about unsafe code (even though we wouldn't actually be executing that code).
 template<bool canUseDirectComparison, typename LimitType, typename ValueType> class ClampToNonLongLongHelper;
 template<typename LimitType, typename ValueType> class ClampToNonLongLongHelper<true, LimitType, ValueType> {
+    STATIC_ONLY(ClampToNonLongLongHelper);
 public:
     static inline LimitType clampTo(ValueType value, LimitType min, LimitType max)
     {
@@ -167,6 +174,7 @@ public:
 };
 
 template<typename LimitType, typename ValueType> class ClampToNonLongLongHelper<false, LimitType, ValueType> {
+    STATIC_ONLY(ClampToNonLongLongHelper);
 public:
     static inline LimitType clampTo(ValueType value, LimitType min, LimitType max)
     {
@@ -212,6 +220,7 @@ public:
 // outside the representable range of the limit type, so we also have to check
 // for that case explicitly.
 template<typename ValueType> class ClampToHelper<long long int, ValueType> {
+    STATIC_ONLY(ClampToHelper);
 public:
     static inline long long int clampTo(ValueType value, long long int min, long long int max)
     {
@@ -233,6 +242,7 @@ public:
 // This specialization handles the case where the above partial specialization
 // would be potentially incorrect.
 template<> class ClampToHelper<long long int, unsigned long long int> {
+    STATIC_ONLY(ClampToHelper);
 public:
     static inline long long int clampTo(unsigned long long int value, long long int min, long long int max)
     {
@@ -247,6 +257,7 @@ public:
 // but because the lower-bound check is done for integer value types as well, we
 // don't need a <unsigned long long int, long long int> full specialization.
 template<typename ValueType> class ClampToHelper<unsigned long long int, ValueType> {
+    STATIC_ONLY(ClampToHelper);
 public:
     static inline unsigned long long int clampTo(ValueType value, unsigned long long int min, unsigned long long int max)
     {

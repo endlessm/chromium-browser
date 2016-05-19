@@ -8,6 +8,7 @@
 #include "platform/heap/Heap.h"
 #include "platform/heap/ThreadState.h"
 #include "platform/heap/Visitor.h"
+#include "wtf/Allocator.h"
 #include "wtf/Functional.h"
 #include "wtf/HashFunctions.h"
 #include "wtf/Locker.h"
@@ -19,6 +20,7 @@ namespace blink {
 
 template <typename Derived>
 class MarkingVisitorImpl {
+    USING_FAST_MALLOC(MarkingVisitorImpl);
 protected:
     inline void markHeader(HeapObjectHeader* header, const void* objectPointer, TraceCallback callback)
     {
@@ -38,11 +40,9 @@ protected:
         if (header->isMarked())
             return;
 
-#if ENABLE(ASSERT)
         ASSERT(ThreadState::current()->isInGC());
-        ASSERT(Heap::findPageFromAddress(header));
         ASSERT(toDerived()->markingMode() != Visitor::WeakProcessing);
-#endif
+
         header->mark();
 
         if (callback)

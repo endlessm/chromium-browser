@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <list>
 
+#include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_variant.h"
@@ -447,12 +448,11 @@ void VideoCaptureDeviceWin::StopAndDeAllocate() {
 }
 
 // Implements SinkFilterObserver::SinkFilterObserver.
-void VideoCaptureDeviceWin::FrameReceived(
-    const uint8* buffer,
-    int length,
-    base::TimeTicks timestamp) {
+void VideoCaptureDeviceWin::FrameReceived(const uint8_t* buffer,
+                                          int length,
+                                          base::TimeTicks timestamp) {
   client_->OnIncomingCapturedData(buffer, length, capture_format_, 0,
-                                  timestamp);
+                                  base::TimeTicks::Now());
 }
 
 bool VideoCaptureDeviceWin::CreateCapabilityMap() {

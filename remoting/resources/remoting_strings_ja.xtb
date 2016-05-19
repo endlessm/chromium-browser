@@ -105,6 +105,7 @@ US英語以外のキーボードを使用しているリモートパソコンで
 <translation id="337167041784729019">統計情報を表示</translation>
 <translation id="3385242214819933234">ホストの所有者が無効です。</translation>
 <translation id="3403830762023901068">ポリシー設定により、Chromoting のホストとしてこのパソコンを共有することはできません。詳しくはシステム管理者にお問い合わせください。</translation>
+<translation id="3423542133075182604">セキュリティ キーのリモーティング プロセス</translation>
 <translation id="3581045510967524389">ネットワークに接続できませんでした。デバイスがインターネットに接続されているか確認してください。</translation>
 <translation id="3596628256176442606">このサービスにより、Chromoting クライアントからの着信接続が有効になります。</translation>
 <translation id="3606997049964069799">Chromium にログインしていません。ログインしてもう一度お試しください。</translation>
@@ -153,6 +154,7 @@ US英語以外のキーボードを使用しているリモートパソコンで
 デスクトップ ホスト</translation>
 <translation id="4619978527973181021">同意してインストール</translation>
 <translation id="4647791084836149355">Cardboard ビューを表示</translation>
+<translation id="4703302905453407178">必須コンポーネントが停止しました。デベロッパーにこの問題を報告してください。</translation>
 <translation id="4703799847237267011">Chromoting セッションが終了しました。</translation>
 <translation id="4736223761657662401">接続履歴</translation>
 <translation id="4741792197137897469">認証できませんでした。Chrome にもう一度ログインしてください。</translation>

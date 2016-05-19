@@ -4,6 +4,7 @@
 
 #include "ui/ozone/platform/caca/ozone_platform_caca.h"
 
+#include "base/macros.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/ozone/layout/no/no_keyboard_layout_engine.h"
 #include "ui/ozone/common/native_display_delegate_ozone.h"
@@ -56,7 +57,7 @@ class OzonePlatformCaca : public OzonePlatform {
         delegate, window_manager_.get(), event_source_.get(), bounds));
     if (!caca_window->Initialize())
       return nullptr;
-    return caca_window.Pass();
+    return std::move(caca_window);
   }
   scoped_ptr<NativeDisplayDelegate> CreateNativeDisplayDelegate() override {
     return make_scoped_ptr(new NativeDisplayDelegateOzone());

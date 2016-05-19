@@ -76,25 +76,6 @@
 #include "internal.h"
 
 
-const EC_METHOD *EC_GFp_simple_method(void) {
-  static const EC_METHOD ret = {ec_GFp_simple_group_init,
-                                ec_GFp_simple_group_finish,
-                                ec_GFp_simple_group_clear_finish,
-                                ec_GFp_simple_group_copy,
-                                ec_GFp_simple_group_set_curve,
-                                ec_GFp_simple_point_get_affine_coordinates,
-                                0 /* mul */,
-                                0 /* precompute_mult */,
-                                ec_GFp_simple_field_mul,
-                                ec_GFp_simple_field_sqr,
-                                0 /* field_encode */,
-                                0 /* field_decode */,
-                                0 /* field_set_to_one */};
-
-  return &ret;
-}
-
-
 /* Most method functions in this file are designed to work with non-trivial
  * representations of field elements if necessary (see ecp_mont.c): while
  * standard modular addition and subtraction are used, the field_mul and
@@ -119,12 +100,6 @@ void ec_GFp_simple_group_finish(EC_GROUP *group) {
   BN_free(&group->field);
   BN_free(&group->a);
   BN_free(&group->b);
-}
-
-void ec_GFp_simple_group_clear_finish(EC_GROUP *group) {
-  BN_clear_free(&group->field);
-  BN_clear_free(&group->a);
-  BN_clear_free(&group->b);
 }
 
 int ec_GFp_simple_group_copy(EC_GROUP *dest, const EC_GROUP *src) {
@@ -247,76 +222,6 @@ err:
 
 unsigned ec_GFp_simple_group_get_degree(const EC_GROUP *group) {
   return BN_num_bits(&group->field);
-}
-
-int ec_GFp_simple_group_check_discriminant(const EC_GROUP *group, BN_CTX *ctx) {
-  int ret = 0;
-  BIGNUM *a, *b, *order, *tmp_1, *tmp_2;
-  const BIGNUM *p = &group->field;
-  BN_CTX *new_ctx = NULL;
-
-  if (ctx == NULL) {
-    ctx = new_ctx = BN_CTX_new();
-    if (ctx == NULL) {
-      OPENSSL_PUT_ERROR(EC, ERR_R_MALLOC_FAILURE);
-      goto err;
-    }
-  }
-  BN_CTX_start(ctx);
-  a = BN_CTX_get(ctx);
-  b = BN_CTX_get(ctx);
-  tmp_1 = BN_CTX_get(ctx);
-  tmp_2 = BN_CTX_get(ctx);
-  order = BN_CTX_get(ctx);
-  if (order == NULL) {
-    goto err;
-  }
-
-  if (group->meth->field_decode) {
-    if (!group->meth->field_decode(group, a, &group->a, ctx) ||
-        !group->meth->field_decode(group, b, &group->b, ctx)) {
-      goto err;
-    }
-  } else {
-    if (!BN_copy(a, &group->a) || !BN_copy(b, &group->b)) {
-      goto err;
-    }
-  }
-
-  /* check the discriminant:
-   * y^2 = x^3 + a*x + b is an elliptic curve <=> 4*a^3 + 27*b^2 != 0 (mod p)
-   * 0 =< a, b < p */
-  if (BN_is_zero(a)) {
-    if (BN_is_zero(b)) {
-      goto err;
-    }
-  } else if (!BN_is_zero(b)) {
-    if (!BN_mod_sqr(tmp_1, a, p, ctx) ||
-        !BN_mod_mul(tmp_2, tmp_1, a, p, ctx) ||
-        !BN_lshift(tmp_1, tmp_2, 2)) {
-      goto err;
-    }
-    /* tmp_1 = 4*a^3 */
-
-    if (!BN_mod_sqr(tmp_2, b, p, ctx) ||
-        !BN_mul_word(tmp_2, 27)) {
-      goto err;
-    }
-    /* tmp_2 = 27*b^2 */
-
-    if (!BN_mod_add(a, tmp_1, tmp_2, p, ctx) ||
-        BN_is_zero(a)) {
-      goto err;
-    }
-  }
-  ret = 1;
-
-err:
-  if (ctx != NULL) {
-    BN_CTX_end(ctx);
-  }
-  BN_CTX_free(new_ctx);
-  return ret;
 }
 
 int ec_GFp_simple_point_init(EC_POINT *point) {

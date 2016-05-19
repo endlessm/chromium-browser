@@ -5,11 +5,14 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_LOCK_WEBUI_SCREEN_LOCKER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_LOCK_WEBUI_SCREEN_LOCKER_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "ash/shell_delegate.h"
 #include "ash/wm/lock_state_observer.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -93,7 +96,7 @@ class WebUIScreenLocker : public WebUILoginView,
   void ResyncUserData() override;
   void SetDisplayEmail(const std::string& email) override;
   void Signout() override;
-  bool IsUserWhitelisted(const std::string& user_id) override;
+  bool IsUserWhitelisted(const AccountId& account_id) override;
 
   // LockWindow::Observer:
   void OnLockWindowReady() override;
@@ -111,6 +114,14 @@ class WebUIScreenLocker : public WebUILoginView,
 
   // content::WebContentsObserver:
   void RenderProcessGone(base::TerminationStatus status) override;
+  // TODO(jdufault): Remove PluginCrashed, PluginHungStatusChanged,
+  // WebContentsDestroyed overrides once crbug.com/452599 is resolved.
+  void PluginCrashed(const base::FilePath& plugin_path,
+                     base::ProcessId plugin_pid) override;
+  void PluginHungStatusChanged(int plugin_child_id,
+                               const base::FilePath& plugin_path,
+                               bool is_hung) override;
+  void WebContentsDestroyed() override;
 
   // ash::KeyboardStateObserver:
   void OnVirtualKeyboardStateChanged(bool activated) override;

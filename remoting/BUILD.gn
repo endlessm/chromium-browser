@@ -43,9 +43,8 @@ group("remoting_all") {
 
   if (is_android) {
     deps += [
-      #"//remoting:remoting_apk",
-      #"//remoting:remoting_test_apk",
-      #"//remoting:remoting_unittests_apk",
+      "//remoting/android:remoting_apk",
+      "//remoting/android:remoting_test_apk",
     ]
   }
 
@@ -53,7 +52,6 @@ group("remoting_all") {
     deps += [
       "//remoting:remoting_perftests",
       "//remoting/host",
-
       "//remoting/host:remoting_native_messaging_manifests",
     ]
 
@@ -72,8 +70,22 @@ group("remoting_all") {
     }
   }
 
-  if (enable_pnacl) {
+  if (enable_nacl) {
     deps += [ "//remoting/tools/javascript_key_tester" ]
+  }
+}
+
+if (is_win) {
+  # GYP version: remoting/remoting_host_win.gypi:remoting_breakpad_tester
+  executable("remoting_breakpad_tester") {
+    deps = [
+      "//base",
+      "//remoting/host",
+    ]
+
+    sources = [
+      "tools/breakpad_tester_win.cc",
+    ]
   }
 }
 
@@ -106,15 +118,6 @@ source_set("test_support") {
 
 # TODO(GYP) remoting_unittests on Mac. Needs to be tested.
 if (!is_mac) {
-  # TODO(GYP): Delete this after we've converted everything to GN.
-  # The _run targets exist only for compatibility w/ GYP.
-  group("remoting_unittests_run") {
-    testonly = true
-    deps = [
-      ":remoting_unittests",
-    ]
-  }
-
   test("remoting_unittests") {
     configs += [
       ":version",
@@ -131,7 +134,6 @@ if (!is_mac) {
 
     deps = [
       ":test_support",
-      "//base/allocator",
       "//google_apis",
       "//remoting/base:unit_tests",
       "//remoting/client:unit_tests",
@@ -142,10 +144,6 @@ if (!is_mac) {
       "//testing/gtest",
       "//third_party/webrtc",
     ]
-
-    if (is_android) {
-      deps += [ "//testing/android/native_test:native_test_native_code" ]
-    }
 
     if (enable_remoting_host) {
       deps += [
@@ -161,14 +159,16 @@ if (!is_mac) {
         "//third_party/libjingle:libpeerconnection",
       ]
     }
+
+    if (is_android) {
+      deps += [ "//net/android:net_java" ]
+    }
   }
 
   if (enable_remoting_host) {
     test("remoting_perftests") {
       sources = [
-        "codec/codec_test.cc",
-        "codec/codec_test.h",
-        "codec/video_encoder_vpx_perftest.cc",
+        "test/codec_perftest.cc",
         "test/protocol_perftest.cc",
       ]
 
@@ -182,8 +182,8 @@ if (!is_mac) {
         "//net:test_support",
         "//remoting/base",
         "//testing/gtest",
-        "//third_party/webrtc/modules/desktop_capture",
         "//third_party/libjingle",
+        "//third_party/webrtc/modules/desktop_capture",
       ]
 
       if (enable_webrtc) {

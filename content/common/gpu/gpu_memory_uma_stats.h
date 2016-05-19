@@ -5,38 +5,29 @@
 #ifndef CONTENT_COMMON_GPU_GPU_MEMORY_UMA_STATS_H_
 #define CONTENT_COMMON_GPU_GPU_MEMORY_UMA_STATS_H_
 
-#include "base/basictypes.h"
+#include <stddef.h>
 
 namespace content {
 
 // Memory usage statistics send periodically to the browser process to report
 // in UMA histograms if the GPU process crashes.
+// Note: we use uint64_t instead of size_t for byte count because this struct
+// is sent over IPC which could span 32 & 64 bit processes.
 struct GPUMemoryUmaStats {
   GPUMemoryUmaStats()
       : bytes_allocated_current(0),
         bytes_allocated_max(0),
-        bytes_limit(0),
-        client_count(0),
         context_group_count(0) {
   }
 
   // The number of bytes currently allocated.
-  size_t bytes_allocated_current;
+  uint64_t bytes_allocated_current;
 
   // The maximum number of bytes ever allocated at once.
-  size_t bytes_allocated_max;
-
-  // The memory limit being imposed by the memory manager.
-  size_t bytes_limit;
-
-  // The number of managed memory clients.
-  size_t client_count;
+  uint64_t bytes_allocated_max;
 
   // The number of context groups.
-  size_t context_group_count;
-
-  // The number of visible windows.
-  uint32 window_count;
+  uint32_t context_group_count;
 };
 
 }  // namespace content

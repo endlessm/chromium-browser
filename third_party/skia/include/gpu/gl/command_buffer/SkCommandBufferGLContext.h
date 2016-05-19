@@ -16,11 +16,16 @@ class SkCommandBufferGLContext : public SkGLContext {
 public:
     ~SkCommandBufferGLContext() override;
 
-    static SkCommandBufferGLContext* Create(GrGLStandard forcedGpuAPI) {
-        if (kGL_GrGLStandard == forcedGpuAPI) {
+    static SkCommandBufferGLContext* CreateES2() {
+        SkCommandBufferGLContext* ctx = new SkCommandBufferGLContext(kGLES2_ContextVersion);
+        if (!ctx->isValid()) {
+            delete ctx;
             return nullptr;
         }
-        SkCommandBufferGLContext* ctx = new SkCommandBufferGLContext;
+        return ctx;
+    }
+    static SkCommandBufferGLContext* CreateES3() {
+        SkCommandBufferGLContext* ctx = new SkCommandBufferGLContext(kGLES3_ContextVersion);
         if (!ctx->isValid()) {
             delete ctx;
             return nullptr;
@@ -45,10 +50,14 @@ public:
     int getSampleCount();
 
 private:
-    SkCommandBufferGLContext();
+    enum ContextVersion {
+        kGLES2_ContextVersion,
+        kGLES3_ContextVersion
+    };
+    SkCommandBufferGLContext(ContextVersion minContextVersion);
     SkCommandBufferGLContext(void* nativeWindow, int msaaSampleCount);
-    void initializeGLContext(void* nativeWindow, const int* configAttribs,
-                             const int* surfaceAttribs);
+    void initializeGLContext(ContextVersion minContextVersion, void* nativeWindow,
+                             const int* configAttribs, const int* surfaceAttribs);
     void destroyGLContext();
 
     void onPlatformMakeCurrent() const override;

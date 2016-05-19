@@ -7,7 +7,7 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_SCROLLBAR_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_SCROLLBAR_H_
 
-#include "PWL_Wnd.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 class CPWL_SBButton;
 class CPWL_ScrollBar;
@@ -42,7 +42,7 @@ class CPWL_SBButton : public CPWL_Wnd {
   void OnCreate(PWL_CREATEPARAM& cp) override;
   void GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag) override;
   FX_BOOL OnLButtonUp(const CPDF_Point& point, FX_DWORD nFlag) override;
   FX_BOOL OnMouseMove(const CPDF_Point& point, FX_DWORD nFlag) override;
@@ -100,7 +100,7 @@ class CPWL_ScrollBar : public CPWL_Wnd {
   void RePosChildWnd() override;
   void GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag) override;
   FX_BOOL OnLButtonUp(const CPDF_Point& point, FX_DWORD nFlag) override;
   void OnNotify(CPWL_Wnd* pWnd,

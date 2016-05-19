@@ -21,7 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLHeadElement.h"
 
 #include "core/HTMLNames.h"
@@ -37,4 +36,4 @@ inline HTMLHeadElement::HTMLHeadElement(Document& document)
 
 DEFINE_NODE_FACTORY(HTMLHeadElement)
 
-}
+} // namespace blink

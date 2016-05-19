@@ -21,9 +21,6 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
     'imc': [
         'platform',
         ],
-    'nonnacl_util': [
-        'serialization',
-        ],
     'platform': [
         'gio',
         ],
@@ -41,9 +38,6 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
     'sel': [
         'nacl_error_code',
         'env_cleanser',
-        'simple_service',
-        'thread_interface',
-        'nonnacl_srpc',
         'nrd_xfer',
         'nacl_perf_counter',
         'nacl_base',
@@ -75,8 +69,14 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
         'platform',
         ],
     'irt_support_private': [
-        'srpc',
         'platform',
+        ],
+    'pnacl_dynloader': [
+        'platform',
+        ],
+    'pll_loader': [
+        'platform',
+        'pnacl_dynloader',
         ],
     }
 
@@ -85,10 +85,6 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
 UNTRUSTED_LIBRARY_DEPENDENCIES = {
     'ppapi_cpp': [
         'ppapi',
-        ],
-    'srpc': [
-        'platform',
-        'imc_syscalls',
         ],
     }
 

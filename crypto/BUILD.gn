@@ -19,8 +19,9 @@ component("crypto") {
     "cssm_init.cc",
     "cssm_init.h",
     "curve25519-donna.c",
-    "curve25519.cc",
     "curve25519.h",
+    "curve25519_nss.cc",
+    "curve25519_openssl.cc",
     "ec_private_key.h",
     "ec_private_key_nss.cc",
     "ec_private_key_openssl.cc",
@@ -33,8 +34,6 @@ component("crypto") {
     "encryptor.h",
     "encryptor_nss.cc",
     "encryptor_openssl.cc",
-    "ghash.cc",
-    "ghash.h",
     "hkdf.cc",
     "hkdf.h",
     "hmac.cc",
@@ -136,6 +135,8 @@ component("crypto") {
   if (use_openssl) {
     # Remove NSS files when using OpenSSL
     sources -= [
+      "curve25519-donna.c",
+      "curve25519_nss.cc",
       "ec_private_key_nss.cc",
       "ec_signature_creator_nss.cc",
       "encryptor_nss.cc",
@@ -157,6 +158,7 @@ component("crypto") {
     sources -= [
       "aead_openssl.cc",
       "aead_openssl.h",
+      "curve25519_openssl.cc",
       "ec_private_key_openssl.cc",
       "ec_signature_creator_openssl.cc",
       "encryptor_openssl.cc",
@@ -224,15 +226,6 @@ if (false && is_win) {
   }
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("crypto_unittests_run") {
-  testonly = true
-  deps = [
-    ":crypto_unittests",
-  ]
-}
-
 test("crypto_unittests") {
   sources = [
     "aead_openssl_unittest.cc",
@@ -240,7 +233,6 @@ test("crypto_unittests") {
     "ec_private_key_unittest.cc",
     "ec_signature_creator_unittest.cc",
     "encryptor_unittest.cc",
-    "ghash_unittest.cc",
     "hkdf_unittest.cc",
     "hmac_unittest.cc",
     "nss_key_util_unittest.cc",

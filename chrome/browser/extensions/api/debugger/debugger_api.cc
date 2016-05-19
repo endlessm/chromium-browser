@@ -6,14 +6,17 @@
 
 #include "chrome/browser/extensions/api/debugger/debugger_api.h"
 
+#include <stddef.h>
 #include <map>
 #include <set>
+#include <utility>
 
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/scoped_observer.h"
@@ -98,6 +101,7 @@ class ExtensionDevToolsInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   // ConfirmInfoBarDelegate:
   Type GetInfoBarType() const override;
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   bool ShouldExpire(const NavigationDetails& details) const override;
   void InfoBarDismissed() override;
   base::string16 GetMessageText() const override;
@@ -125,6 +129,11 @@ ExtensionDevToolsInfoBarDelegate::GetInfoBarType() const {
   return WARNING_TYPE;
 }
 
+infobars::InfoBarDelegate::InfoBarIdentifier
+ExtensionDevToolsInfoBarDelegate::GetIdentifier() const {
+  return EXTENSION_DEV_TOOLS_INFOBAR_DELEGATE;
+}
+
 bool ExtensionDevToolsInfoBarDelegate::ShouldExpire(
     const NavigationDetails& details) const {
   return false;
@@ -149,6 +158,85 @@ bool ExtensionDevToolsInfoBarDelegate::Cancel() {
   InfoBarDismissed();
   // InfoBarDismissed() will have closed us already.
   return false;
+}
+
+// ExtensionDevToolsInfoBar ---------------------------------------------------
+
+class ExtensionDevToolsInfoBar;
+using ExtensionInfoBars =
+    std::map<std::string, ExtensionDevToolsInfoBar*>;
+base::LazyInstance<ExtensionInfoBars>::Leaky g_extension_info_bars =
+    LAZY_INSTANCE_INITIALIZER;
+
+class ExtensionDevToolsInfoBar {
+ public:
+  static ExtensionDevToolsInfoBar* Create(
+      const std::string& extension_id,
+      const std::string& extension_name,
+      ExtensionDevToolsClientHost* client_host,
+      const base::Closure& dismissed_callback);
+  void Remove(ExtensionDevToolsClientHost* client_host);
+
+ private:
+  ExtensionDevToolsInfoBar(const std::string& extension_id,
+                           const std::string& extension_name);
+  ~ExtensionDevToolsInfoBar();
+  void InfoBarDismissed();
+
+  std::string extension_id_;
+  std::map<ExtensionDevToolsClientHost*, base::Closure> callbacks_;
+  base::WeakPtr<GlobalConfirmInfoBar> infobar_;
+};
+
+// static
+ExtensionDevToolsInfoBar* ExtensionDevToolsInfoBar::Create(
+      const std::string& extension_id,
+      const std::string& extension_name,
+      ExtensionDevToolsClientHost* client_host,
+      const base::Closure& dismissed_callback) {
+  ExtensionInfoBars::iterator it =
+      g_extension_info_bars.Get().find(extension_id);
+  ExtensionDevToolsInfoBar* infobar = nullptr;
+  if (it != g_extension_info_bars.Get().end())
+    infobar = it->second;
+  else
+    infobar = new ExtensionDevToolsInfoBar(extension_id, extension_name);
+  infobar->callbacks_[client_host] = dismissed_callback;
+  return infobar;
+}
+
+ExtensionDevToolsInfoBar::ExtensionDevToolsInfoBar(
+    const std::string& extension_id,
+    const std::string& extension_name)
+    : extension_id_(extension_id) {
+  g_extension_info_bars.Get()[extension_id] = this;
+
+  // This class closes the |infobar_|, so it's safe to pass Unretained(this).
+  scoped_ptr<ExtensionDevToolsInfoBarDelegate> delegate(
+      new ExtensionDevToolsInfoBarDelegate(
+          base::Bind(&ExtensionDevToolsInfoBar::InfoBarDismissed,
+                     base::Unretained(this)),
+          extension_name));
+  infobar_ = GlobalConfirmInfoBar::Show(std::move(delegate));
+}
+
+ExtensionDevToolsInfoBar::~ExtensionDevToolsInfoBar() {
+  g_extension_info_bars.Get().erase(extension_id_);
+  if (infobar_)
+    infobar_->Close();
+}
+
+void ExtensionDevToolsInfoBar::Remove(
+    ExtensionDevToolsClientHost* client_host) {
+  callbacks_.erase(client_host);
+  if (!callbacks_.size())
+    delete this;
+}
+
+void ExtensionDevToolsInfoBar::InfoBarDismissed() {
+  std::map<ExtensionDevToolsClientHost*, base::Closure> copy = callbacks_;
+  for (const auto& pair: copy)
+    pair.second.Run();
 }
 
 }  // namespace
@@ -210,7 +298,7 @@ class ExtensionDevToolsClientHost : public content::DevToolsAgentHostClient,
   content::NotificationRegistrar registrar_;
   int last_request_id_;
   PendingRequests pending_requests_;
-  base::WeakPtr<GlobalConfirmInfoBar> infobar_;
+  ExtensionDevToolsInfoBar* infobar_;
   api::debugger::DetachReason detach_reason_;
 
   // Listen to extension unloaded notification.
@@ -232,6 +320,7 @@ ExtensionDevToolsClientHost::ExtensionDevToolsClientHost(
       agent_host_(agent_host),
       extension_id_(extension_id),
       last_request_id_(0),
+      infobar_(nullptr),
       detach_reason_(api::debugger::DETACH_REASON_TARGET_CLOSED),
       extension_registry_observer_(this) {
   CopyDebuggee(&debuggee_, debuggee);
@@ -253,19 +342,16 @@ ExtensionDevToolsClientHost::ExtensionDevToolsClientHost(
 
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           ::switches::kSilentDebuggerExtensionAPI)) {
-    // This class closes the |infobar_|, so it's safe to pass Unretained(this).
-    scoped_ptr<ExtensionDevToolsInfoBarDelegate> delegate(
-        new ExtensionDevToolsInfoBarDelegate(
-            base::Bind(&ExtensionDevToolsClientHost::InfoBarDismissed,
-                       base::Unretained(this)),
-            extension_name));
-    infobar_ = GlobalConfirmInfoBar::Show(delegate.Pass());
+    infobar_ = ExtensionDevToolsInfoBar::Create(
+        extension_id, extension_name, this,
+        base::Bind(&ExtensionDevToolsClientHost::InfoBarDismissed,
+                   base::Unretained(this)));
   }
 }
 
 ExtensionDevToolsClientHost::~ExtensionDevToolsClientHost() {
   if (infobar_)
-    infobar_->Close();
+    infobar_->Remove(this);
   g_attached_client_hosts.Get().erase(this);
 }
 
@@ -315,11 +401,11 @@ void ExtensionDevToolsClientHost::SendDetachedEvent() {
 
   scoped_ptr<base::ListValue> args(OnDetach::Create(debuggee_,
                                                     detach_reason_));
-  scoped_ptr<Event> event(
-      new Event(events::DEBUGGER_ON_DETACH, OnDetach::kEventName, args.Pass()));
+  scoped_ptr<Event> event(new Event(events::DEBUGGER_ON_DETACH,
+                                    OnDetach::kEventName, std::move(args)));
   event->restrict_to_browser_context = profile_;
   EventRouter::Get(profile_)
-      ->DispatchEventToExtension(extension_id_, event.Pass());
+      ->DispatchEventToExtension(extension_id_, std::move(event));
 }
 
 void ExtensionDevToolsClientHost::OnExtensionUnloaded(
@@ -363,11 +449,11 @@ void ExtensionDevToolsClientHost::DispatchProtocolMessage(
 
     scoped_ptr<base::ListValue> args(
         OnEvent::Create(debuggee_, method_name, params));
-    scoped_ptr<Event> event(
-        new Event(events::DEBUGGER_ON_EVENT, OnEvent::kEventName, args.Pass()));
+    scoped_ptr<Event> event(new Event(events::DEBUGGER_ON_EVENT,
+                                      OnEvent::kEventName, std::move(args)));
     event->restrict_to_browser_context = profile_;
     EventRouter::Get(profile_)
-        ->DispatchEventToExtension(extension_id_, event.Pass());
+        ->DispatchEventToExtension(extension_id_, std::move(event));
   } else {
     DebuggerSendCommandFunction* function = pending_requests_[id].get();
     if (!function)

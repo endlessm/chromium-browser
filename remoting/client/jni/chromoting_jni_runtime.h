@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
+#include "base/macros.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "remoting/base/auto_thread.h"
 #include "remoting/client/jni/chromoting_jni_instance.h"
@@ -52,14 +53,15 @@ class ChromotingJniRuntime {
   // connection is active (i.e. between a call to Connect() and the
   // corresponding call to Disconnect()). To skip the attempt at pair-based
   // authentication, leave |pairing_id| and |pairing_secret| as empty strings.
-  void ConnectToHost(const char* username,
-                     const char* auth_token,
-                     const char* host_jid,
-                     const char* host_id,
-                     const char* host_pubkey,
-                     const char* pairing_id,
-                     const char* pairing_secret,
-                     const char* capabilities);
+  void ConnectToHost(const std::string& username,
+                     const std::string& auth_token,
+                     const std::string& host_jid,
+                     const std::string& host_id,
+                     const std::string& host_pubkey,
+                     const std::string& pairing_id,
+                     const std::string& pairing_secret,
+                     const std::string& capabilities,
+                     const std::string& flags);
 
   // Terminates any ongoing connection attempt and cleans up by nullifying
   // |session_|. This is a no-op unless |session| is currently non-null.

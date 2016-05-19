@@ -4,15 +4,16 @@
 
 package org.chromium.chromoting;
 
-import org.chromium.chromoting.jni.JniInterface;
+import org.chromium.chromoting.jni.Client;
+import org.chromium.chromoting.jni.ConnectionListener;
 
 /**
  * This class manages making a connection to a host, with logic for reloading the host list and
  * retrying the connection in the case of a stale host JID.
  */
-public class SessionConnector implements JniInterface.ConnectionListener,
-        HostListLoader.Callback {
-    private JniInterface.ConnectionListener mConnectionCallback;
+public class SessionConnector implements ConnectionListener, HostListLoader.Callback {
+    private Client mClient;
+    private ConnectionListener mConnectionListener;
     private HostListLoader.Callback mHostListCallback;
     private HostListLoader mHostListLoader;
     private SessionAuthenticator mAuthenticator;
@@ -20,37 +21,39 @@ public class SessionConnector implements JniInterface.ConnectionListener,
     private String mAccountName;
     private String mAuthToken;
 
-    /** Used to find the HostInfo from the returned array after the host list is reloaded. */
-    private String mHostId;
+    /* HostInfo for the host we are connecting to. */
+    private HostInfo mHost;
 
-    private String mHostJabberId;
+    private String mFlags;
 
     /**
      * Tracks whether the connection has been established. Auto-reloading and reconnecting should
      * only happen if connection has not yet occurred.
      */
-    private boolean mConnected;
+    private boolean mWasConnected;
+    private boolean mTriedReloadingHostList;
 
     /**
-     * @param connectionCallback Object to be notified on connection success/failure.
+     * @param connectionListener Object to be notified on connection success/failure.
      * @param hostListCallback Object to be notified whenever the host list is reloaded.
      * @param hostListLoader The object used for reloading the host list.
      */
-    public SessionConnector(JniInterface.ConnectionListener connectionCallback,
+    public SessionConnector(Client client, ConnectionListener connectionListener,
             HostListLoader.Callback hostListCallback, HostListLoader hostListLoader) {
-        mConnectionCallback = connectionCallback;
+        mClient = client;
+        mConnectionListener = connectionListener;
         mHostListCallback = hostListCallback;
         mHostListLoader = hostListLoader;
     }
 
     /** Initiates a connection to the host. */
     public void connectToHost(String accountName, String authToken, HostInfo host,
-            SessionAuthenticator authenticator) {
+            SessionAuthenticator authenticator, String flags) {
         mAccountName = accountName;
         mAuthToken = authToken;
-        mHostId = host.id;
-        mHostJabberId = host.jabberId;
+        mHost = host;
         mAuthenticator = authenticator;
+        mFlags = flags;
 
         if (hostIncomplete(host)) {
             // These keys might not be present in a newly-registered host, so treat this as a
@@ -59,8 +62,12 @@ public class SessionConnector implements JniInterface.ConnectionListener,
             return;
         }
 
-        JniInterface.connectToHost(accountName, authToken, host.jabberId, host.id, host.publicKey,
-                this, mAuthenticator);
+        doConnect();
+    }
+
+    private void doConnect() {
+        mClient.connectToHost(mAccountName, mAuthToken, mHost.jabberId, mHost.id,
+                mHost.publicKey, mAuthenticator, mFlags, this);
     }
 
     private static boolean hostIncomplete(HostInfo host) {
@@ -68,24 +75,29 @@ public class SessionConnector implements JniInterface.ConnectionListener,
     }
 
     private void reloadHostListAndConnect() {
+        mTriedReloadingHostList = true;
         mHostListLoader.retrieveHostList(mAuthToken, this);
     }
 
     @Override
-    public void onConnectionState(JniInterface.ConnectionListener.State state,
-            JniInterface.ConnectionListener.Error error) {
-        boolean connected = mConnected;
-        mConnected = (state == JniInterface.ConnectionListener.State.CONNECTED);
-
-        if (!connected && state == JniInterface.ConnectionListener.State.FAILED
-                && error == JniInterface.ConnectionListener.Error.PEER_IS_OFFLINE) {
-            // The host is offline, which may mean the JID is out of date, so refresh the host list
-            // and try to connect again.
-            reloadHostListAndConnect();
-        } else {
-            // Pass the state/error back to the caller.
-            mConnectionCallback.onConnectionState(state, error);
+    public void onConnectionState(ConnectionListener.State state, ConnectionListener.Error error) {
+        switch (state) {
+            case CONNECTED:
+                mWasConnected = true;
+                break;
+            case FAILED:
+                // The host is offline, which may mean the JID is out of date, so refresh the host
+                // list and try to connect again.
+                if (error == ConnectionListener.Error.PEER_IS_OFFLINE && !mWasConnected
+                        && !mTriedReloadingHostList) {
+                    reloadHostListAndConnect();
+                    return;
+                }
+                break;
         }
+
+         // Pass the state/error back to the caller.
+        mConnectionListener.onConnectionState(state, error);
     }
 
     @Override
@@ -95,23 +107,21 @@ public class SessionConnector implements JniInterface.ConnectionListener,
 
         HostInfo foundHost = null;
         for (HostInfo host : hosts) {
-            if (host.id.equals(mHostId)) {
+            if (host.id.equals(mHost.id)) {
                 foundHost = host;
                 break;
             }
         }
 
-        if (foundHost == null || foundHost.jabberId.equals(mHostJabberId)
+        if (foundHost == null || foundHost.jabberId.equals(mHost.jabberId)
                 || hostIncomplete(foundHost)) {
             // Cannot reconnect to this host, or there's no point in trying because the JID is
-            // unchanged, so report the original failure to the client.
-            mConnectionCallback.onConnectionState(JniInterface.ConnectionListener.State.FAILED,
-                    JniInterface.ConnectionListener.Error.PEER_IS_OFFLINE);
+            // unchanged, so report connection error to the client.
+            mConnectionListener.onConnectionState(ConnectionListener.State.FAILED,
+                    ConnectionListener.Error.PEER_IS_OFFLINE);
         } else {
-            // Reconnect to the host, but use the original callback directly, instead of this
-            // wrapper object, so the host list is not loaded again.
-            JniInterface.connectToHost(mAccountName, mAuthToken, foundHost.jabberId,
-                    foundHost.id, foundHost.publicKey, mConnectionCallback, mAuthenticator);
+            mHost = foundHost;
+            doConnect();
         }
     }
 
@@ -119,8 +129,8 @@ public class SessionConnector implements JniInterface.ConnectionListener,
     public void onError(HostListLoader.Error error) {
         // Connection failed and reloading the host list also failed, so report the connection
         // error.
-        mConnectionCallback.onConnectionState(JniInterface.ConnectionListener.State.FAILED,
-                JniInterface.ConnectionListener.Error.PEER_IS_OFFLINE);
+        mConnectionListener.onConnectionState(ConnectionListener.State.FAILED,
+                ConnectionListener.Error.PEER_IS_OFFLINE);
 
         // Notify the caller that the host list failed to load, so the UI is updated accordingly.
         // The currently-displayed host list is not likely to be valid any more.

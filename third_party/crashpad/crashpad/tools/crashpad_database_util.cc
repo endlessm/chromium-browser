@@ -22,11 +22,12 @@
 #include <time.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -552,7 +553,7 @@ int DatabaseUtilMain(int argc, char* argv[]) {
         return EXIT_FAILURE;
       }
 
-      file_reader = file_path_reader.Pass();
+      file_reader = std::move(file_path_reader);
     }
 
     CrashReportDatabase::NewReport* new_report;

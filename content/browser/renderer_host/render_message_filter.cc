@@ -6,22 +6,25 @@
 
 #include <errno.h>
 #include <string.h>
-
 #include <map>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/debug/alias.h"
+#include "base/macros.h"
 #include "base/numerics/safe_math.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread.h"
 #include "base/threading/worker_pool.h"
+#include "build/build_config.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
 #include "content/browser/dom_storage/session_storage_namespace_impl.h"
 #include "content/browser/download/download_stats.h"
+#include "content/browser/fileapi/chrome_blob_storage_context.h"
 #include "content/browser/gpu/browser_gpu_memory_buffer_manager.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
 #include "content/browser/media/media_internals.h"
@@ -29,6 +32,7 @@
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_helper.h"
+#include "content/browser/resource_context_impl.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/common/child_process_messages.h"
 #include "content/common/content_constants_internal.h"
@@ -40,7 +44,8 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/download_save_info.h"
+#include "content/public/browser/download_manager.h"
+#include "content/public/browser/download_url_parameters.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/common/content_switches.h"
@@ -60,6 +65,7 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "ppapi/shared_impl/file_type_conversion.h"
+#include "storage/browser/blob/blob_storage_context.h"
 #include "ui/gfx/color_profile.h"
 #include "url/gurl.h"
 
@@ -77,7 +83,6 @@
 
 #if defined(OS_ANDROID)
 #include "content/browser/media/android/media_throttler.h"
-#include "media/base/android/webaudio_media_codec_bridge.h"
 #endif
 
 #if defined(OS_MACOSX)
@@ -87,10 +92,8 @@
 namespace content {
 namespace {
 
-const uint32 kFilteredMessageClasses[] = {
-  ChildProcessMsgStart,
-  RenderProcessMsgStart,
-  ViewMsgStart,
+const uint32_t kFilteredMessageClasses[] = {
+    ChildProcessMsgStart, RenderProcessMsgStart, ViewMsgStart,
 };
 
 #if defined(OS_WIN)
@@ -101,12 +104,20 @@ base::LazyInstance<gfx::ColorProfile>::Leaky g_color_profile =
     LAZY_INSTANCE_INITIALIZER;
 #endif
 
-#if defined(OS_ANDROID)
-void CloseWebAudioFileDescriptor(int fd) {
-  if (close(fd))
-    VLOG(1) << "Couldn't close output webaudio fd: " << strerror(errno);
+void DownloadUrlOnUIThread(scoped_ptr<DownloadUrlParameters> parameters) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  RenderProcessHost* render_process_host =
+      RenderProcessHost::FromID(parameters->render_process_host_id());
+  if (!render_process_host)
+    return;
+
+  BrowserContext* browser_context = render_process_host->GetBrowserContext();
+  DownloadManager* download_manager =
+      BrowserContext::GetDownloadManager(browser_context);
+  RecordDownloadSource(INITIATED_BY_RENDERER);
+  download_manager->DownloadUrl(std::move(parameters));
 }
-#endif
 
 }  // namespace
 
@@ -149,8 +160,6 @@ RenderMessageFilter::~RenderMessageFilter() {
 bool RenderMessageFilter::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(RenderMessageFilter, message)
-    IPC_MESSAGE_HANDLER(RenderProcessHostMsg_GetProcessMemorySizes,
-                        OnGetProcessMemorySizes)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GenerateRoutingID, OnGenerateRoutingID)
     IPC_MESSAGE_HANDLER(ViewHostMsg_CreateWindow, OnCreateWindow)
     IPC_MESSAGE_HANDLER(ViewHostMsg_CreateWidget, OnCreateWidget)
@@ -204,9 +213,6 @@ bool RenderMessageFilter::OnMessageReceived(const IPC::Message& message) {
                         OnGetMonitorColorProfile)
 #endif
     IPC_MESSAGE_HANDLER(ViewHostMsg_MediaLogEvents, OnMediaLogEvents)
-#if defined(OS_ANDROID)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_RunWebAudioMediaCodec, OnWebAudioMediaCodec)
-#endif
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -290,24 +296,6 @@ void RenderMessageFilter::OnCreateFullscreenWidget(int opener_id,
                                                    int* route_id) {
   render_widget_helper_->CreateNewFullscreenWidget(opener_id, route_id);
 }
-
-void RenderMessageFilter::OnGetProcessMemorySizes(size_t* private_bytes,
-                                                  size_t* shared_bytes) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  using base::ProcessMetrics;
-#if !defined(OS_MACOSX) || defined(OS_IOS)
-  scoped_ptr<ProcessMetrics> metrics(ProcessMetrics::CreateProcessMetrics(
-      PeerHandle()));
-#else
-  scoped_ptr<ProcessMetrics> metrics(ProcessMetrics::CreateProcessMetrics(
-      PeerHandle(), BrowserChildProcessHost::GetPortProvider()));
-#endif
-  if (!metrics->GetMemoryBytes(private_bytes, shared_bytes)) {
-    *private_bytes = 0;
-    *shared_bytes = 0;
-  }
-}
-
 
 void RenderMessageFilter::OnGenerateRoutingID(int* route_id) {
   *route_id = render_widget_helper_->GetNextRoutingID();
@@ -403,26 +391,26 @@ void RenderMessageFilter::DownloadUrl(int render_view_id,
   if (!resource_context_)
     return;
 
-  scoped_ptr<DownloadSaveInfo> save_info(new DownloadSaveInfo());
-  save_info->suggested_name = suggested_name;
-  save_info->prompt_for_save_location = use_prompt;
-  scoped_ptr<net::URLRequest> request(
-      resource_context_->GetRequestContext()->CreateRequest(
-          url, net::DEFAULT_PRIORITY, NULL));
-  RecordDownloadSource(INITIATED_BY_RENDERER);
-  resource_dispatcher_host_->BeginDownload(
-      request.Pass(),
-      referrer,
-      true,  // is_content_initiated
-      resource_context_,
-      render_process_id_,
-      render_view_id,
-      render_frame_id,
-      false,
-      false,
-      save_info.Pass(),
-      DownloadItem::kInvalidId,
-      ResourceDispatcherHostImpl::DownloadStartedCallback());
+  scoped_ptr<DownloadUrlParameters> parameters(
+      new DownloadUrlParameters(url, render_process_id_, render_view_id,
+                                render_frame_id, resource_context_));
+  parameters->set_content_initiated(true);
+  parameters->set_suggested_name(suggested_name);
+  parameters->set_prompt(use_prompt);
+  parameters->set_referrer(referrer);
+
+  if (url.SchemeIsBlob()) {
+    ChromeBlobStorageContext* blob_context =
+        GetChromeBlobStorageContextForResourceContext(resource_context_);
+    parameters->set_blob_data_handle(
+        blob_context->context()->GetBlobDataFromPublicURL(url));
+    // Don't care if the above fails. We are going to let the download go
+    // through and allow it to be interrupted so that the embedder can deal.
+  }
+
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      base::Bind(&DownloadUrlOnUIThread, base::Passed(&parameters)));
 }
 
 void RenderMessageFilter::OnDownloadUrl(int render_view_id,
@@ -450,7 +438,7 @@ void RenderMessageFilter::OnSaveImageFromDataURL(int render_view_id,
 }
 
 void RenderMessageFilter::AllocateSharedMemoryOnFileThread(
-    uint32 buffer_size,
+    uint32_t buffer_size,
     IPC::Message* reply_msg) {
   base::SharedMemoryHandle handle;
   ChildProcessHostImpl::AllocateSharedMemory(buffer_size, PeerHandle(),
@@ -460,7 +448,7 @@ void RenderMessageFilter::AllocateSharedMemoryOnFileThread(
   Send(reply_msg);
 }
 
-void RenderMessageFilter::OnAllocateSharedMemory(uint32 buffer_size,
+void RenderMessageFilter::OnAllocateSharedMemory(uint32_t buffer_size,
                                                  IPC::Message* reply_msg) {
   BrowserThread::PostTask(
       BrowserThread::FILE_USER_BLOCKING, FROM_HERE,
@@ -469,7 +457,7 @@ void RenderMessageFilter::OnAllocateSharedMemory(uint32 buffer_size,
 }
 
 void RenderMessageFilter::AllocateSharedBitmapOnFileThread(
-    uint32 buffer_size,
+    uint32_t buffer_size,
     const cc::SharedBitmapId& id,
     IPC::Message* reply_msg) {
   base::SharedMemoryHandle handle;
@@ -480,7 +468,7 @@ void RenderMessageFilter::AllocateSharedBitmapOnFileThread(
   Send(reply_msg);
 }
 
-void RenderMessageFilter::OnAllocateSharedBitmap(uint32 buffer_size,
+void RenderMessageFilter::OnAllocateSharedBitmap(uint32_t buffer_size,
                                                  const cc::SharedBitmapId& id,
                                                  IPC::Message* reply_msg) {
   BrowserThread::PostTask(
@@ -506,7 +494,7 @@ void RenderMessageFilter::OnDeletedSharedBitmap(const cc::SharedBitmapId& id) {
 }
 
 void RenderMessageFilter::AllocateLockedDiscardableSharedMemoryOnFileThread(
-    uint32 size,
+    uint32_t size,
     DiscardableSharedMemoryId id,
     IPC::Message* reply_msg) {
   base::SharedMemoryHandle handle;
@@ -519,7 +507,7 @@ void RenderMessageFilter::AllocateLockedDiscardableSharedMemoryOnFileThread(
 }
 
 void RenderMessageFilter::OnAllocateLockedDiscardableSharedMemory(
-    uint32 size,
+    uint32_t size,
     DiscardableSharedMemoryId id,
     IPC::Message* reply_msg) {
   BrowserThread::PostTask(
@@ -566,9 +554,10 @@ void RenderMessageFilter::OnCacheableMetadataAvailable(
                        data.size());
 }
 
-void RenderMessageFilter::OnKeygen(uint32 key_size_index,
+void RenderMessageFilter::OnKeygen(uint32_t key_size_index,
                                    const std::string& challenge_string,
                                    const GURL& url,
+                                   const GURL& top_origin,
                                    IPC::Message* reply_msg) {
   if (!resource_context_)
     return;
@@ -588,6 +577,13 @@ void RenderMessageFilter::OnKeygen(uint32 key_size_index,
       RenderProcessHostMsg_Keygen::WriteReplyParams(reply_msg, std::string());
       Send(reply_msg);
       return;
+  }
+
+  if (!GetContentClient()->browser()->AllowKeygen(top_origin,
+                                                  resource_context_)) {
+    RenderProcessHostMsg_Keygen::WriteReplyParams(reply_msg, std::string());
+    Send(reply_msg);
+    return;
   }
 
   resource_context_->CreateKeygenHandler(
@@ -637,35 +633,9 @@ void RenderMessageFilter::OnMediaLogEvents(
     media_internals_->OnMediaEvents(render_process_id_, events);
 }
 
-#if defined(OS_ANDROID)
-void RenderMessageFilter::OnWebAudioMediaCodec(
-    base::SharedMemoryHandle encoded_data_handle,
-    base::FileDescriptor pcm_output,
-    uint32_t data_size) {
-  if (!MediaThrottler::GetInstance()->RequestDecoderResources()) {
-    base::WorkerPool::PostTask(
-        FROM_HERE,
-        base::Bind(&CloseWebAudioFileDescriptor, pcm_output.fd),
-        true);
-    VLOG(1) << "Cannot decode audio data due to throttling";
-  } else {
-    // Let a WorkerPool handle this request since the WebAudio
-    // MediaCodec bridge is slow and can block while sending the data to
-    // the renderer.
-    base::WorkerPool::PostTask(
-        FROM_HERE,
-        base::Bind(&media::WebAudioMediaCodecBridge::RunWebAudioMediaCodec,
-                   encoded_data_handle, pcm_output, data_size,
-                   base::Bind(&MediaThrottler::OnDecodeRequestFinished,
-                              base::Unretained(MediaThrottler::GetInstance()))),
-        true);
-  }
-}
-#endif
-
 void RenderMessageFilter::OnAllocateGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
-                                                    uint32 width,
-                                                    uint32 height,
+                                                    uint32_t width,
+                                                    uint32_t height,
                                                     gfx::BufferFormat format,
                                                     gfx::BufferUsage usage,
                                                     IPC::Message* reply) {

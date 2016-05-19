@@ -2,13 +2,12 @@
   <header>
     <h1 i18n-content="settingsTitle"></h1>
   </header>
-  <include src="reset_profile_settings_banner.html">
   <include src="automatic_settings_reset_banner.html">
 <if expr="chromeos">
   <link rel="import" href="chrome://resources/cr_elements/network/cr_network_icon.html">
   <link rel="import" href="chrome://resources/cr_elements/network/cr_onc_types.html">
   <include src="secondary_user_banner.html">
-  <section>
+  <section id="network-section-cros">
     <div id="network-section-header" class="section-header">
       <h3 i18n-content="sectionTitleInternet"></h3>
       <span class="controlled-setting-indicator" plural></span>
@@ -103,7 +102,7 @@
 </if>
   </section>
 <if expr="chromeos">
-  <section>
+  <section id="device-section">
     <h3 i18n-content="sectionTitleDevice"></h3>
     <div>
       <span i18n-content="deviceGroupDescription"></span>
@@ -138,7 +137,7 @@
     </div>
   </section>
 </if>
-  <section>
+  <section id="search-section">
     <h3 i18n-content="sectionTitleSearch"></h3>
       <div id="search-section-content">
         <span id="default-search-engine-label"
@@ -222,6 +221,20 @@
         </div>
       </div>
   </section>
+<if expr="chromeos">
+  <section id="andorid-apps-section" hidden>
+    <h3 i18n-content="androidAppsTitle"></h3>
+    <div class="checkbox controlled-setting-with-label">
+      <label>
+        <input id="android-apps-enabled" pref="arc.enabled"
+            metric="Options_AndroidApps" type="checkbox">
+        <span>
+          <span i18n-content="androidAppsEnabled"></span>
+        </span>
+      </label>
+    </div>
+  </section>
+</if>
   <section id="sync-users-section" guest-visibility="hidden">
     <h3 i18n-content="sectionTitleUsers"></h3>
 <if expr="chromeos">
@@ -284,7 +297,7 @@
 <div id="advanced-settings" hidden>
 <div id="advanced-settings-container">
 <if expr="chromeos">
-  <section>
+  <section id="date-time-section">
     <h3 i18n-content="datetimeTitle"></h3>
     <div class="option-control-table">
       <div guest-visibility="disabled">
@@ -426,18 +439,6 @@
 <if expr="_google_chrome">
       <div id="metrics-reporting-setting"
           class="checkbox controlled-setting-with-label">
-<if expr="chromeos">
-        <label>
-          <input id="metrics-reporting-enabled"
-              pref="cros.metrics.reportingEnabled" type="checkbox">
-          <span>
-            <span i18n-content="enableLogging"></span>
-            <span class="controlled-setting-indicator"
-                pref="cros.metrics.reportingEnabled"></span>
-          </span>
-        </label>
-</if>
-<if expr="not chromeos">
         <label>
           <input id="metrics-reporting-enabled" type="checkbox">
           <span>
@@ -446,12 +447,13 @@
                 class="controlled-setting-indicator"></span>
           </span>
         </label>
+<if expr="not chromeos">
         <span id="metrics-reporting-reset-restart" hidden>
           <!-- Text filled by JavaScript -->
           <span></span><a is="action-link" role="button"
               class="standalone-action-link"></a><span></span>
         </span>
-</if>
+</if>  <!-- not chromeos -->
       </div>
 </if>  <!-- _google_chrome -->
       <div class="checkbox">
@@ -537,7 +539,7 @@
       </div>
     </div>
   </section>
-</if>  <!-- chromeos -->
+</if>
   <section id="passwords-and-autofill-section">
     <h3 i18n-content="passwordsAndAutofillGroupName"></h3>
     <div class="checkbox controlled-setting-with-label">
@@ -739,7 +741,7 @@
       </div>
     </div>
   </section>
-  <section>
+  <section id="certificates-section">
       <h3 i18n-content="advancedSectionTitleCertificates"></h3>
       <div>
 <if expr="use_nss_certs or is_win or is_macosx">
@@ -784,7 +786,7 @@
   <include src="startup_section.html">
 </if>
 
-<section>
+<section id="a11y-section">
   <h3 i18n-content="accessibilityTitle"></h3>
 
   <div>

@@ -5,6 +5,8 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_LIB_VALIDATION_ERRORS_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_LIB_VALIDATION_ERRORS_H_
 
+#include "base/logging.h"
+#include "mojo/public/cpp/bindings/callback.h"
 #include "mojo/public/cpp/system/macros.h"
 
 namespace mojo {
@@ -39,6 +41,10 @@ enum ValidationError {
   VALIDATION_ERROR_ILLEGAL_POINTER,
   // A non-nullable pointer field is set to null.
   VALIDATION_ERROR_UNEXPECTED_NULL_POINTER,
+  // An interface ID is illegal.
+  VALIDATION_ERROR_ILLEGAL_INTERFACE_ID,
+  // A non-nullable interface ID field is set to invalid.
+  VALIDATION_ERROR_UNEXPECTED_INVALID_INTERFACE_ID,
   // |flags| in the message header is invalid. The flags are either
   // inconsistent with one another, inconsistent with other parts of the
   // message, or unexpected for the message receiver.  For example the
@@ -54,7 +60,9 @@ enum ValidationError {
   // lengths.
   VALIDATION_ERROR_DIFFERENT_SIZED_ARRAYS_IN_MAP,
   // Attempted to deserialize a tagged union with an unknown tag.
-  VALIDATION_ERROR_UNKNOWN_UNION_TAG
+  VALIDATION_ERROR_UNKNOWN_UNION_TAG,
+  // A value of a non-extensible enum type is unknown.
+  VALIDATION_ERROR_UNKNOWN_ENUM_VALUE
 };
 
 const char* ValidationErrorToString(ValidationError error);
@@ -66,14 +74,18 @@ void ReportValidationError(ValidationError error,
 // validation.
 class ValidationErrorObserverForTesting {
  public:
-  ValidationErrorObserverForTesting();
+  explicit ValidationErrorObserverForTesting(const Callback<void()>& callback);
   ~ValidationErrorObserverForTesting();
 
   ValidationError last_error() const { return last_error_; }
-  void set_last_error(ValidationError error) { last_error_ = error; }
+  void set_last_error(ValidationError error) {
+    last_error_ = error;
+    callback_.Run();
+  }
 
  private:
   ValidationError last_error_;
+  Callback<void()> callback_;
 
   MOJO_DISALLOW_COPY_AND_ASSIGN(ValidationErrorObserverForTesting);
 };
@@ -112,11 +124,11 @@ class SerializationWarningObserverForTesting {
 // of the serialzation result.
 //
 // In non-debug build, does nothing (not even compiling |condition|).
-#define MOJO_INTERNAL_DLOG_SERIALIZATION_WARNING(                        \
-    condition, error, description)                                       \
-  MOJO_DLOG_IF(FATAL, (condition) && !ReportSerializationWarning(error)) \
-      << "The outgoing message will trigger "                            \
-      << ValidationErrorToString(error) << " at the receiving side ("    \
+#define MOJO_INTERNAL_DLOG_SERIALIZATION_WARNING(condition, error,    \
+                                                 description)         \
+  DLOG_IF(FATAL, (condition) && !ReportSerializationWarning(error))   \
+      << "The outgoing message will trigger "                         \
+      << ValidationErrorToString(error) << " at the receiving side (" \
       << description << ").";
 
 #endif  // MOJO_PUBLIC_CPP_BINDINGS_LIB_VALIDATION_ERRORS_H_

@@ -33,6 +33,7 @@
 
 namespace blink {
 class IntRect;
+class Widget;
 struct WebScreenInfo;
 
 class PLATFORM_EXPORT HostWindow : public NoBaseWillBeGarbageCollectedFinalized<HostWindow> {
@@ -46,10 +47,13 @@ public:
     // Requests the host invalidate the contents.
     virtual void invalidateRect(const IntRect& updateRect) = 0;
 
-    // Converts from the window coordinates to screen coordinates.
+    // Converts the rect from the viewport coordinates to screen coordinates.
     virtual IntRect viewportToScreen(const IntRect&) const = 0;
 
-    virtual void scheduleAnimation() = 0;
+    // Converts the scalar value from the window coordinates to the viewport scale.
+    virtual float windowToViewportScalar(const float) const = 0;
+
+    virtual void scheduleAnimation(Widget*) = 0;
 };
 
 } // namespace blink

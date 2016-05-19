@@ -12,7 +12,6 @@
 #include "base/mac/scoped_block.h"
 #import "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
-#include "ios/chrome/browser/experimental_flags.h"
 #include "ios/chrome/browser/signin/gaia_auth_fetcher_ios_private.h"
 #include "ios/web/public/browser_state.h"
 #import "ios/web/public/web_view_creation_util.h"
@@ -324,7 +323,7 @@ GaiaAuthFetcherIOS::GaiaAuthFetcherIOS(GaiaAuthConsumer* consumer,
   // Account Consistency needs to be disabled for the Logout call. There is a
   // race with the cookie clearing request (handled by
   // AccountConsistencyService), so we invalidate the cookie for the call.
-  SetLogoutHeaders("Cookie: X-CHROME-CONNECTED=EXPIRED;");
+  SetLogoutHeaders("Cookie: CHROME_CONNECTED=EXPIRED;");
 }
 
 GaiaAuthFetcherIOS::~GaiaAuthFetcherIOS() {
@@ -380,6 +379,5 @@ void GaiaAuthFetcherIOS::SetShouldUseGaiaAuthFetcherIOSForTesting(
 }
 
 bool GaiaAuthFetcherIOS::ShouldUseGaiaAuthFetcherIOS() {
-  return experimental_flags::IsWKWebViewEnabled() &&
-         g_should_use_gaia_auth_fetcher_ios;
+  return g_should_use_gaia_auth_fetcher_ios;
 }

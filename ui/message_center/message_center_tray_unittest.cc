@@ -4,6 +4,9 @@
 
 #include "ui/message_center/message_center_tray.h"
 
+#include <utility>
+
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/models/menu_model.h"
@@ -83,7 +86,7 @@ class MessageCenterTrayTest : public testing::Test {
         ASCIIToUTF16("Notification message body."), gfx::Image(),
         ASCIIToUTF16("www.test.org"), GURL(), notifier_id,
         message_center::RichNotificationData(), NULL /* delegate */));
-    message_center_->AddNotification(notification.Pass());
+    message_center_->AddNotification(std::move(notification));
   }
   scoped_ptr<MockDelegate> delegate_;
   scoped_ptr<MessageCenterTray> message_center_tray_;
@@ -226,7 +229,7 @@ TEST_F(MessageCenterTrayTest, MessageCenterReopenPopupsForSystemPriority) {
       ASCIIToUTF16("www.test.org"), GURL(), DummyNotifierId(),
       message_center::RichNotificationData(), NULL /* delegate */));
   notification->SetSystemPriority();
-  message_center_->AddNotification(notification.Pass());
+  message_center_->AddNotification(std::move(notification));
 
   ASSERT_TRUE(message_center_tray_->popups_visible());
   ASSERT_FALSE(message_center_tray_->message_center_visible());
@@ -297,7 +300,7 @@ TEST_F(MessageCenterTrayTest, ContextMenuTestWithMessageCenter) {
       ASCIIToUTF16("Notification message body."), gfx::Image(),
       base::string16() /* empty display source */, GURL(), notifier_id2,
       message_center::RichNotificationData(), NULL /* delegate */));
-  message_center_->AddNotification(notification.Pass());
+  message_center_->AddNotification(std::move(notification));
 
   AddNotification(id3);
 
@@ -355,7 +358,7 @@ TEST_F(MessageCenterTrayTest, ContextMenuTestPopupsOnly) {
       ASCIIToUTF16("Notification message body."), gfx::Image(),
       base::string16() /* empty display source */, GURL(), notifier_id2,
       message_center::RichNotificationData(), NULL /* delegate */));
-  message_center_->AddNotification(notification.Pass());
+  message_center_->AddNotification(std::move(notification));
 
   AddNotification(id3, notifier_id);
 

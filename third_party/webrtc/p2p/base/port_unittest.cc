@@ -58,6 +58,7 @@ static const SocketAddress kRelayTcpExtAddr("99.99.99.3", 5003);
 static const SocketAddress kRelaySslTcpIntAddr("99.99.99.2", 5004);
 static const SocketAddress kRelaySslTcpExtAddr("99.99.99.3", 5005);
 static const SocketAddress kTurnUdpIntAddr("99.99.99.4", STUN_SERVER_PORT);
+static const SocketAddress kTurnTcpIntAddr("99.99.99.4", 5010);
 static const SocketAddress kTurnUdpExtAddr("99.99.99.5", 0);
 static const RelayCredentials kRelayCredentials("test", "test");
 
@@ -141,6 +142,10 @@ class TestPort : public Port {
                ICE_TYPE_PREFERENCE_HOST, 0, true);
   }
 
+  virtual bool SupportsProtocol(const std::string& protocol) const {
+    return true;
+  }
+
   // Exposed for testing candidate building.
   void AddCandidateAddress(const rtc::SocketAddress& addr) {
     AddAddress(addr, addr, rtc::SocketAddress(), "udp", "", "", Type(),
@@ -200,9 +205,13 @@ class TestPort : public Port {
   }
 
  private:
+  void OnSentPacket(rtc::AsyncPacketSocket* socket,
+                    const rtc::SentPacket& sent_packet) {
+    PortInterface::SignalSentPacket(sent_packet);
+  }
   rtc::scoped_ptr<ByteBuffer> last_stun_buf_;
   rtc::scoped_ptr<IceMessage> last_stun_msg_;
-  int type_preference_;
+  int type_preference_ = 0;
 };
 
 class TestChannel : public sigslot::has_slots<> {
@@ -489,19 +498,19 @@ class PortTest : public testing::Test, public sigslot::has_slots<> {
   TurnPort* CreateTurnPort(const SocketAddress& addr,
                            PacketSocketFactory* socket_factory,
                            ProtocolType int_proto, ProtocolType ext_proto) {
-    return CreateTurnPort(addr, socket_factory,
-                          int_proto, ext_proto, kTurnUdpIntAddr);
+    SocketAddress server_addr =
+        int_proto == PROTO_TCP ? kTurnTcpIntAddr : kTurnUdpIntAddr;
+    return CreateTurnPort(addr, socket_factory, int_proto, ext_proto,
+                          server_addr);
   }
   TurnPort* CreateTurnPort(const SocketAddress& addr,
                            PacketSocketFactory* socket_factory,
                            ProtocolType int_proto, ProtocolType ext_proto,
                            const rtc::SocketAddress& server_addr) {
-    return TurnPort::Create(main_, socket_factory, &network_,
-                            addr.ipaddr(), 0, 0,
-                            username_, password_, ProtocolAddress(
-                                server_addr, PROTO_UDP),
-                            kRelayCredentials, 0,
-                            std::string());
+    return TurnPort::Create(main_, socket_factory, &network_, addr.ipaddr(), 0,
+                            0, username_, password_,
+                            ProtocolAddress(server_addr, int_proto),
+                            kRelayCredentials, 0, std::string());
   }
   RelayPort* CreateGturnPort(const SocketAddress& addr,
                              ProtocolType int_proto, ProtocolType ext_proto) {
@@ -1234,6 +1243,58 @@ TEST_F(PortTest, TestSslTcpToSslTcpRelay) {
   TestSslTcpToRelay(PROTO_SSLTCP);
 }
 */
+
+// Test that a connection will be dead and deleted if
+// i) it has never received anything for MIN_CONNECTION_LIFETIME milliseconds
+//    since it was created, or
+// ii) it has not received anything for DEAD_CONNECTION_RECEIVE_TIMEOUT
+//     milliseconds since last receiving.
+TEST_F(PortTest, TestConnectionDead) {
+  UDPPort* port1 = CreateUdpPort(kLocalAddr1);
+  UDPPort* port2 = CreateUdpPort(kLocalAddr2);
+  TestChannel ch1(port1);
+  TestChannel ch2(port2);
+  // Acquire address.
+  ch1.Start();
+  ch2.Start();
+  ASSERT_EQ_WAIT(1, ch1.complete_count(), kTimeout);
+  ASSERT_EQ_WAIT(1, ch2.complete_count(), kTimeout);
+
+  // Test case that the connection has never received anything.
+  uint32_t before_created = rtc::Time();
+  ch1.CreateConnection(GetCandidate(port2));
+  uint32_t after_created = rtc::Time();
+  Connection* conn = ch1.conn();
+  ASSERT(conn != nullptr);
+  // It is not dead if it is after MIN_CONNECTION_LIFETIME but not pruned.
+  conn->UpdateState(after_created + MIN_CONNECTION_LIFETIME + 1);
+  rtc::Thread::Current()->ProcessMessages(0);
+  EXPECT_TRUE(ch1.conn() != nullptr);
+  // It is not dead if it is before MIN_CONNECTION_LIFETIME and pruned.
+  conn->UpdateState(before_created + MIN_CONNECTION_LIFETIME - 1);
+  conn->Prune();
+  rtc::Thread::Current()->ProcessMessages(0);
+  EXPECT_TRUE(ch1.conn() != nullptr);
+  // It will be dead after MIN_CONNECTION_LIFETIME and pruned.
+  conn->UpdateState(after_created + MIN_CONNECTION_LIFETIME + 1);
+  EXPECT_TRUE_WAIT(ch1.conn() == nullptr, kTimeout);
+
+  // Test case that the connection has received something.
+  // Create a connection again and receive a ping.
+  ch1.CreateConnection(GetCandidate(port2));
+  conn = ch1.conn();
+  ASSERT(conn != nullptr);
+  uint32_t before_last_receiving = rtc::Time();
+  conn->ReceivedPing();
+  uint32_t after_last_receiving = rtc::Time();
+  // The connection will be dead after DEAD_CONNECTION_RECEIVE_TIMEOUT
+  conn->UpdateState(
+      before_last_receiving + DEAD_CONNECTION_RECEIVE_TIMEOUT - 1);
+  rtc::Thread::Current()->ProcessMessages(100);
+  EXPECT_TRUE(ch1.conn() != nullptr);
+  conn->UpdateState(after_last_receiving + DEAD_CONNECTION_RECEIVE_TIMEOUT + 1);
+  EXPECT_TRUE_WAIT(ch1.conn() == nullptr, kTimeout);
+}
 
 // This test case verifies standard ICE features in STUN messages. Currently it
 // verifies Message Integrity attribute in STUN messages and username in STUN
@@ -2102,6 +2163,17 @@ TEST_F(PortTest, TestCandidateFoundation) {
   ASSERT_EQ_WAIT(1U, turnport3->Candidates().size(), kTimeout);
   EXPECT_NE(turnport3->Candidates()[0].foundation(),
             turnport2->Candidates()[0].foundation());
+
+  // Start a TCP turn server, and check that two turn candidates have
+  // different foundations if their relay protocols are different.
+  TestTurnServer turn_server3(rtc::Thread::Current(), kTurnTcpIntAddr,
+                              kTurnUdpExtAddr, PROTO_TCP);
+  rtc::scoped_ptr<Port> turnport4(
+      CreateTurnPort(kLocalAddr1, nat_socket_factory1(), PROTO_TCP, PROTO_UDP));
+  turnport4->PrepareAddress();
+  ASSERT_EQ_WAIT(1U, turnport4->Candidates().size(), kTimeout);
+  EXPECT_NE(turnport2->Candidates()[0].foundation(),
+            turnport4->Candidates()[0].foundation());
 }
 
 // This test verifies the related addresses of different types of
@@ -2449,4 +2521,25 @@ TEST_F(PortTest, TestControlledToControllingNotDestroyed) {
   // After the connection is destroyed, the port should not be destroyed.
   rtc::Thread::Current()->ProcessMessages(kTimeout);
   EXPECT_FALSE(destroyed());
+}
+
+TEST_F(PortTest, TestSupportsProtocol) {
+  rtc::scoped_ptr<Port> udp_port(CreateUdpPort(kLocalAddr1));
+  EXPECT_TRUE(udp_port->SupportsProtocol(UDP_PROTOCOL_NAME));
+  EXPECT_FALSE(udp_port->SupportsProtocol(TCP_PROTOCOL_NAME));
+
+  rtc::scoped_ptr<Port> stun_port(
+      CreateStunPort(kLocalAddr1, nat_socket_factory1()));
+  EXPECT_TRUE(stun_port->SupportsProtocol(UDP_PROTOCOL_NAME));
+  EXPECT_FALSE(stun_port->SupportsProtocol(TCP_PROTOCOL_NAME));
+
+  rtc::scoped_ptr<Port> tcp_port(CreateTcpPort(kLocalAddr1));
+  EXPECT_TRUE(tcp_port->SupportsProtocol(TCP_PROTOCOL_NAME));
+  EXPECT_TRUE(tcp_port->SupportsProtocol(SSLTCP_PROTOCOL_NAME));
+  EXPECT_FALSE(tcp_port->SupportsProtocol(UDP_PROTOCOL_NAME));
+
+  rtc::scoped_ptr<Port> turn_port(
+      CreateTurnPort(kLocalAddr1, nat_socket_factory1(), PROTO_UDP, PROTO_UDP));
+  EXPECT_TRUE(turn_port->SupportsProtocol(UDP_PROTOCOL_NAME));
+  EXPECT_FALSE(turn_port->SupportsProtocol(TCP_PROTOCOL_NAME));
 }

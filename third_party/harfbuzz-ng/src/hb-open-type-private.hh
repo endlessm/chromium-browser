@@ -103,9 +103,6 @@ static inline Type& StructAfter(TObject &X)
   static const unsigned int static_size = (size); \
   static const unsigned int min_size = (size)
 
-/* Size signifying variable-sized array */
-#define VAR 1
-
 #define DEFINE_SIZE_UNION(size, _member) \
   DEFINE_INSTANCE_ASSERTION (this->u._member.static_size == (size)); \
   static const unsigned int min_size = (size)
@@ -185,7 +182,7 @@ struct hb_dispatch_context_t
 
 /* This limits sanitizing time on really broken fonts. */
 #ifndef HB_SANITIZE_MAX_EDITS
-#define HB_SANITIZE_MAX_EDITS 8
+#define HB_SANITIZE_MAX_EDITS 32
 #endif
 
 struct hb_sanitize_context_t :
@@ -742,9 +739,10 @@ struct CheckSum : ULONG
  * Version Numbers
  */
 
+template <typename FixedType=USHORT>
 struct FixedVersion
 {
-  inline uint32_t to_int (void) const { return (major << 16) + minor; }
+  inline uint32_t to_int (void) const { return (major << (sizeof(FixedType) * 8)) + minor; }
 
   inline bool sanitize (hb_sanitize_context_t *c) const
   {
@@ -752,10 +750,10 @@ struct FixedVersion
     return_trace (c->check_struct (this));
   }
 
-  USHORT major;
-  USHORT minor;
+  FixedType major;
+  FixedType minor;
   public:
-  DEFINE_SIZE_STATIC (4);
+  DEFINE_SIZE_STATIC (2 * sizeof(FixedType));
 };
 
 

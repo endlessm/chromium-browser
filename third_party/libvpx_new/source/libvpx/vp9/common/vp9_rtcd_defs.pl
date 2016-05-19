@@ -194,42 +194,6 @@ if (vpx_config("CONFIG_VP9_HIGHBITDEPTH") eq "yes") {
 #
 if (vpx_config("CONFIG_VP9_ENCODER") eq "yes") {
 
-add_proto qw/unsigned int vp9_avg_8x8/, "const uint8_t *, int p";
-specialize qw/vp9_avg_8x8 sse2 neon msa/;
-
-add_proto qw/unsigned int vp9_avg_4x4/, "const uint8_t *, int p";
-specialize qw/vp9_avg_4x4 sse2 msa/;
-
-add_proto qw/void vp9_minmax_8x8/, "const uint8_t *s, int p, const uint8_t *d, int dp, int *min, int *max";
-specialize qw/vp9_minmax_8x8 sse2/;
-
-add_proto qw/void vp9_hadamard_8x8/, "int16_t const *src_diff, int src_stride, int16_t *coeff";
-specialize qw/vp9_hadamard_8x8 sse2/, "$ssse3_x86_64_x86inc";
-
-add_proto qw/void vp9_hadamard_16x16/, "int16_t const *src_diff, int src_stride, int16_t *coeff";
-specialize qw/vp9_hadamard_16x16 sse2/;
-
-add_proto qw/int16_t vp9_satd/, "const int16_t *coeff, int length";
-specialize qw/vp9_satd sse2/;
-
-add_proto qw/void vp9_int_pro_row/, "int16_t *hbuf, uint8_t const *ref, const int ref_stride, const int height";
-specialize qw/vp9_int_pro_row sse2 neon/;
-
-add_proto qw/int16_t vp9_int_pro_col/, "uint8_t const *ref, const int width";
-specialize qw/vp9_int_pro_col sse2 neon/;
-
-add_proto qw/int vp9_vector_var/, "int16_t const *ref, int16_t const *src, const int bwl";
-specialize qw/vp9_vector_var neon sse2/;
-
-if (vpx_config("CONFIG_VP9_HIGHBITDEPTH") eq "yes") {
-  add_proto qw/unsigned int vp9_highbd_avg_8x8/, "const uint8_t *, int p";
-  specialize qw/vp9_highbd_avg_8x8/;
-  add_proto qw/unsigned int vp9_highbd_avg_4x4/, "const uint8_t *, int p";
-  specialize qw/vp9_highbd_avg_4x4/;
-  add_proto qw/void vp9_highbd_minmax_8x8/, "const uint8_t *s, int p, const uint8_t *d, int dp, int *min, int *max";
-  specialize qw/vp9_highbd_minmax_8x8/;
-}
-
 # ENCODEMB INVOKE
 
 #
@@ -312,10 +276,7 @@ $vp9_full_search_sad_sse3=vp9_full_search_sadx3;
 $vp9_full_search_sad_sse4_1=vp9_full_search_sadx8;
 
 add_proto qw/int vp9_diamond_search_sad/, "const struct macroblock *x, const struct search_site_config *cfg,  struct mv *ref_mv, struct mv *best_mv, int search_param, int sad_per_bit, int *num00, const struct vp9_variance_vtable *fn_ptr, const struct mv *center_mv";
-specialize qw/vp9_diamond_search_sad/;
-
-add_proto qw/int vp9_full_range_search/, "const struct macroblock *x, const struct search_site_config *cfg, struct mv *ref_mv, struct mv *best_mv, int search_param, int sad_per_bit, int *num00, const struct vp9_variance_vtable *fn_ptr, const struct mv *center_mv";
-specialize qw/vp9_full_range_search/;
+specialize qw/vp9_diamond_search_sad avx/;
 
 add_proto qw/void vp9_temporal_filter_apply/, "uint8_t *frame1, unsigned int stride, uint8_t *frame2, unsigned int block_width, unsigned int block_height, int strength, int filter_weight, unsigned int *accumulator, uint16_t *count";
 specialize qw/vp9_temporal_filter_apply sse2 msa/;
@@ -348,6 +309,15 @@ if (vpx_config("CONFIG_VP9_HIGHBITDEPTH") eq "yes") {
 
 }
 # End vp9_high encoder functions
+
+#
+# frame based scale
+#
+if (vpx_config("CONFIG_VP9_HIGHBITDEPTH") eq "yes") {
+} else {
+  add_proto qw/void vp9_scale_and_extend_frame/, "const struct yv12_buffer_config *src, struct yv12_buffer_config *dst";
+  specialize qw/vp9_scale_and_extend_frame ssse3/;
+}
 
 }
 # end encoder functions

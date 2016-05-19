@@ -2,8 +2,13 @@
   'variables': {
     'variables': {
       'webrtc_root%': '<(DEPTH)/webrtc',
+      # Override the default (10.6) in Chromium's build/common.gypi.
+      # Needed for ARC and libc++.
+      'mac_deployment_target%': '10.7',
     },
     'webrtc_root%': '<(webrtc_root)',
+    'mac_deployment_target%': '<(mac_deployment_target)',
+    'use_sysroot%': '<(use_sysroot)',
     'build_with_chromium': 0,
     'conditions': [
       ['OS=="ios"', {

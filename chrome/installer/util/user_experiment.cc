@@ -6,11 +6,14 @@
 
 #include <windows.h>
 #include <sddl.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <wtsapi32.h>
 #include <vector>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/rand_util.h"
@@ -350,7 +353,7 @@ bool CreateExperimentDetails(int flavor, ExperimentDetails* experiment) {
   if (!GoogleUpdateSettings::GetBrand(&brand))
     brand.clear();  // Could still be viable for catch-all rules
 
-  for (int i = 0; i < arraysize(kExperiments); ++i) {
+  for (size_t i = 0; i < arraysize(kExperiments); ++i) {
     base::string16 experiment_locale = kExperiments[i].locale;
     if (experiment_locale != locale && experiment_locale != L"*")
       continue;
@@ -499,7 +502,7 @@ void InactiveUserToastExperiment(int flavor,
             options.GetCommandLineString().find(L" -- " + url));
 
   // Launch chrome now. It will show the toast UI.
-  int32 exit_code = 0;
+  int32_t exit_code = 0;
   if (!product.LaunchChromeAndWait(application_path, options, &exit_code))
     return;
 

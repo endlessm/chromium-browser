@@ -5,8 +5,8 @@
 #ifndef COMPONENTS_OMNIBOX_BROWSER_AUTOCOMPLETE_CLASSIFIER_H_
 #define COMPONENTS_OMNIBOX_BROWSER_AUTOCOMPLETE_CLASSIFIER_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -28,6 +28,9 @@ class AutocompleteClassifier : public KeyedService {
       scoped_ptr<AutocompleteController> controller_,
       scoped_ptr<AutocompleteSchemeClassifier> scheme_classifier);
   ~AutocompleteClassifier() override;
+
+  // KeyedService:
+  void Shutdown() override;
 
   // Given some string |text| that the user wants to use for navigation,
   // determines how it should be interpreted.
@@ -54,9 +57,6 @@ class AutocompleteClassifier : public KeyedService {
                 GURL* alternate_nav_url);
 
  private:
-  // KeyedService:
-  void Shutdown() override;
-
   scoped_ptr<AutocompleteController> controller_;
   scoped_ptr<AutocompleteSchemeClassifier> scheme_classifier_;
 

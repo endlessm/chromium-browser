@@ -9,11 +9,13 @@ source_set("webusb") {
     "webusb_detector.h",
   ]
 
-  deps = [
+  public_deps = [
     "//base",
     "//components/webusb/public/interfaces",
-    "//device/core",
     "//device/usb",
+  ]
+  deps = [
+    "//device/core",
   ]
 }
 
@@ -27,6 +29,7 @@ source_set("unit_tests") {
     ":webusb",
     "//base",
     "//device/core",
+    "//device/core:mocks",
     "//device/usb",
     "//device/usb:mocks",
     "//testing/gmock",

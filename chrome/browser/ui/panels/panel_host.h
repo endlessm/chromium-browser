@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_PANELS_PANEL_HOST_H_
 #define CHROME_BROWSER_UI_PANELS_PANEL_HOST_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -18,6 +19,7 @@ class PrefsTabHelper;
 class Profile;
 
 namespace content {
+class SiteInstance;
 class WebContents;
 }
 
@@ -39,7 +41,7 @@ class PanelHost : public content::WebContentsDelegate,
   PanelHost(Panel* panel, Profile* profile);
   ~PanelHost() override;
 
-  void Init(const GURL& url);
+  void Init(const GURL& url, content::SiteInstance* source_site_instance);
   content::WebContents* web_contents() { return web_contents_.get(); }
   void DestroyWebContents();
 

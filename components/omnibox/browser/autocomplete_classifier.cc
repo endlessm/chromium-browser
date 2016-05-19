@@ -4,6 +4,8 @@
 
 #include "components/omnibox/browser/autocomplete_classifier.h"
 
+#include <utility>
+
 #include "base/auto_reset.h"
 #include "build/build_config.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
@@ -36,14 +38,17 @@ const int AutocompleteClassifier::kDefaultOmniboxProviders =
 AutocompleteClassifier::AutocompleteClassifier(
     scoped_ptr<AutocompleteController> controller,
     scoped_ptr<AutocompleteSchemeClassifier> scheme_classifier)
-    : controller_(controller.Pass()),
-      scheme_classifier_(scheme_classifier.Pass()),
-      inside_classify_(false) {
-}
+    : controller_(std::move(controller)),
+      scheme_classifier_(std::move(scheme_classifier)),
+      inside_classify_(false) {}
 
 AutocompleteClassifier::~AutocompleteClassifier() {
   // We should only reach here after Shutdown() has been called.
   DCHECK(!controller_.get());
+}
+
+void AutocompleteClassifier::Shutdown() {
+  controller_.reset();
 }
 
 void AutocompleteClassifier::Classify(
@@ -71,8 +76,4 @@ void AutocompleteClassifier::Classify(
   *match = *result.default_match();
   if (alternate_nav_url)
     *alternate_nav_url = result.alternate_nav_url();
-}
-
-void AutocompleteClassifier::Shutdown() {
-  controller_.reset();
 }

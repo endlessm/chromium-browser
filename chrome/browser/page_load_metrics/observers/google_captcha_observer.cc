@@ -6,7 +6,7 @@
 
 #include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
-#include "components/page_load_metrics/browser/page_load_metrics_macros.h"
+#include "components/page_load_metrics/browser/page_load_metrics_util.h"
 #include "components/page_load_metrics/common/page_load_timing.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 
@@ -34,36 +34,30 @@ void RecordGoogleCaptchaEvent(GoogleCaptchaEvent event) {
 }  // namespace
 
 bool IsGoogleCaptcha(const GURL& url) {
-  return (base::StartsWith(url.host(), "ipv4.google.",
+  return (base::StartsWith(url.host_piece(), "ipv4.google.",
                            base::CompareCase::SENSITIVE)
-          || base::StartsWith(url.host(), "ipv6.google.",
+          || base::StartsWith(url.host_piece(), "ipv6.google.",
                               base::CompareCase::SENSITIVE))
-      && base::StartsWith(url.path(), "/sorry", base::CompareCase::SENSITIVE);
+      && base::StartsWith(url.path_piece(), "/sorry",
+                          base::CompareCase::SENSITIVE);
 }
 
-GoogleCaptchaObserver::GoogleCaptchaObserver(
-    page_load_metrics::PageLoadMetricsObservable* metrics)
-    : saw_solution_(false), metrics_(metrics) {}
+GoogleCaptchaObserver::GoogleCaptchaObserver() : saw_solution_(false) {}
 
 void GoogleCaptchaObserver::OnCommit(
     content::NavigationHandle* navigation_handle) {
-  if (IsGoogleCaptcha(navigation_handle->GetURL()))
+  if (!navigation_handle->IsSamePage()
+      && IsGoogleCaptcha(navigation_handle->GetURL())) {
     RecordGoogleCaptchaEvent(GOOGLE_CAPTCHA_SHOWN);
-  if (saw_solution_) {
-    RecordGoogleCaptchaEvent(GOOGLE_CAPTCHA_SOLVED);
-    saw_solution_ = false;
   }
 }
 
 void GoogleCaptchaObserver::OnRedirect(
     content::NavigationHandle* navigation_handle) {
-  if (IsGoogleCaptcha(navigation_handle->GetReferrer().url))
+  if (IsGoogleCaptcha(navigation_handle->GetReferrer().url) && !saw_solution_) {
+    RecordGoogleCaptchaEvent(GOOGLE_CAPTCHA_SOLVED);
     saw_solution_ = true;
-}
-
-void GoogleCaptchaObserver::OnPageLoadMetricsGoingAway() {
-  metrics_->RemoveObserver(this);
-  delete this;
+  }
 }
 
 }  // namespace google_captcha_observer

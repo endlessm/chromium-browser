@@ -4,10 +4,13 @@
 
 #include "ui/views/widget/desktop_aura/x11_whole_screen_move_loop.h"
 
+#include <stddef.h>
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
+#include <utility>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "ui/aura/client/capture_client.h"
@@ -19,6 +22,7 @@
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"
+#include "ui/events/platform/platform_event_source.h"
 #include "ui/events/platform/scoped_event_dispatcher.h"
 #include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/views/widget/desktop_aura/x11_pointer_grab.h"
@@ -156,7 +160,7 @@ bool X11WholeScreenMoveLoop::RunMoveLoop(aura::Window* source,
   GrabEscKey();
 
   scoped_ptr<ui::ScopedEventDispatcher> old_dispatcher =
-      nested_dispatcher_.Pass();
+      std::move(nested_dispatcher_);
   nested_dispatcher_ =
          ui::PlatformEventSource::GetInstance()->OverrideDispatcher(this);
 
@@ -182,7 +186,7 @@ bool X11WholeScreenMoveLoop::RunMoveLoop(aura::Window* source,
   if (!alive)
     return false;
 
-  nested_dispatcher_ = old_dispatcher.Pass();
+  nested_dispatcher_ = std::move(old_dispatcher);
   return !canceled_;
 }
 

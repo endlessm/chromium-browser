@@ -2,10 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <cstdlib>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/native_library.h"
@@ -272,7 +276,7 @@ NativeLibrary LoadOtherLibrary() {
                           << ": " << load_error.ToString();
   };
 
-  NativeLibrary library;
+  NativeLibrary library = nullptr;
   load(&library);
   return library;
 }
@@ -374,7 +378,7 @@ const void* MaybeFixupFunctionAddressForILT(const void* function_address) {
   if (*opcode == 0xe9) {
     // This is a relative jump instruction. Assume we're in the ILT and compute
     // the function start address from the instruction offset.
-    const int32* offset = reinterpret_cast<const int32*>(opcode + 1);
+    const int32_t* offset = reinterpret_cast<const int32_t*>(opcode + 1);
     const unsigned char* next_instruction =
         reinterpret_cast<const unsigned char*>(offset + 1);
     return next_instruction + *offset;
@@ -515,15 +519,14 @@ void TestLibraryUnload(bool wait_until_unloaded) {
       << FormatSampleForDiagnosticOutput(sample, profile.modules);
 
   if (wait_until_unloaded) {
-    // The stack should look like this, resulting in two frames between
-    // SignalAndWaitUntilSignaled and the last frame, which should be the one in
-    // the now-unloaded library:
+    // The stack should look like this, resulting one frame after
+    // SignalAndWaitUntilSignaled. The frame in the now-unloaded library is not
+    // recorded since we can't get module information.
     //
     // ... WaitableEvent and system frames ...
     // TargetThread::SignalAndWaitUntilSignaled
     // TargetThread::OtherLibraryCallback
-    // InvokeCallbackFunction (in other library, now unloaded)
-    EXPECT_EQ(2, (sample.end() - 1) - end_frame)
+    EXPECT_EQ(2, sample.end() - end_frame)
         << "Stack:\n"
         << FormatSampleForDiagnosticOutput(sample, profile.modules);
   } else {

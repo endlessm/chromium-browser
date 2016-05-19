@@ -5,6 +5,7 @@
 #import "chrome/browser/ui/cocoa/profiles/avatar_base_controller.h"
 
 #include "base/mac/foundation_util.h"
+#include "base/macros.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
@@ -145,7 +146,8 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
 
 - (void)showAvatarBubbleAnchoredAt:(NSView*)anchor
                           withMode:(BrowserWindow::AvatarBubbleMode)mode
-                   withServiceType:(signin::GAIAServiceType)serviceType {
+                   withServiceType:(signin::GAIAServiceType)serviceType
+                   fromAccessPoint:(signin_metrics::AccessPoint)accessPoint {
   if (menuController_) {
     profiles::BubbleViewMode viewMode;
     profiles::TutorialMode tutorialMode;
@@ -196,7 +198,8 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
                                              anchoredAt:point
                                                viewMode:viewMode
                                            tutorialMode:tutorialMode
-                                            serviceType:serviceType];
+                                            serviceType:serviceType
+                                            accessPoint:accessPoint];
 
   [[NSNotificationCenter defaultCenter]
       addObserver:self
@@ -220,7 +223,9 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
 
   [self showAvatarBubbleAnchoredAt:button_
                           withMode:mode
-                   withServiceType:signin::GAIA_SERVICE_TYPE_NONE];
+                   withServiceType:signin::GAIA_SERVICE_TYPE_NONE
+                   fromAccessPoint:signin_metrics::AccessPoint::
+                                       ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN];
 }
 
 - (IBAction)buttonRightClicked:(id)sender {
@@ -229,7 +234,9 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
 
   [self showAvatarBubbleAnchoredAt:button_
                           withMode:mode
-                   withServiceType:signin::GAIA_SERVICE_TYPE_NONE];
+                   withServiceType:signin::GAIA_SERVICE_TYPE_NONE
+                   fromAccessPoint:signin_metrics::AccessPoint::
+                                       ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN];
 }
 
 - (void)bubbleWillClose:(NSNotification*)notif {

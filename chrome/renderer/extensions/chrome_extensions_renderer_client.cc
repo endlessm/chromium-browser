@@ -4,6 +4,8 @@
 
 #include "chrome/renderer/extensions/chrome_extensions_renderer_client.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
@@ -72,18 +74,12 @@ bool CrossesExtensionExtents(blink::WebLocalFrame* frame,
   if (is_initial_navigation && old_url.is_empty() && frame->opener()) {
     blink::WebLocalFrame* opener_frame = frame->opener()->toWebLocalFrame();
 
-    // We usually want to compare against the URL that determines the type of
-    // process.  In default Chrome, that's the URL of the opener's top frame and
-    // not the opener frame itself.  In --site-per-process, we can use the
-    // opener frame itself.
-    // TODO(nick): Either wire this up to SiteIsolationPolicy, or to state on
-    // |opener_frame|/its ancestors.
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kSitePerProcess) ||
-        extensions::IsIsolateExtensionsEnabled())
-      old_url = opener_frame->document().url();
-    else
-      old_url = opener_frame->top()->document().url();
+    // We want to compare against the URL that determines the type of
+    // process.  Use the URL of the opener's local frame root, which will
+    // correctly handle any site isolation modes (--site-per-process and
+    // --isolate-extensions).
+    blink::WebLocalFrame* local_root = opener_frame->localRoot();
+    old_url = local_root->document().url();
 
     // If we're about to open a normal web page from a same-origin opener stuck
     // in an extension process (other than the Chrome Web Store), we want to
@@ -233,7 +229,7 @@ bool ChromeExtensionsRendererClient::WillSendRequest(
 
 void ChromeExtensionsRendererClient::SetExtensionDispatcherForTest(
     scoped_ptr<extensions::Dispatcher> extension_dispatcher) {
-  extension_dispatcher_ = extension_dispatcher.Pass();
+  extension_dispatcher_ = std::move(extension_dispatcher);
   permissions_policy_delegate_.reset(
       new extensions::RendererPermissionsPolicyDelegate(
           extension_dispatcher_.get()));
@@ -306,4 +302,14 @@ ChromeExtensionsRendererClient::CreateBrowserPluginDelegate(
     return new extensions::ExtensionsGuestViewContainer(render_frame);
   return new extensions::MimeHandlerViewContainer(render_frame, mime_type,
                                                   original_url);
+}
+
+void ChromeExtensionsRendererClient::RunScriptsAtDocumentStart(
+    content::RenderFrame* render_frame) {
+  extension_dispatcher_->RunScriptsAtDocumentStart(render_frame);
+}
+
+void ChromeExtensionsRendererClient::RunScriptsAtDocumentEnd(
+    content::RenderFrame* render_frame) {
+  extension_dispatcher_->RunScriptsAtDocumentEnd(render_frame);
 }

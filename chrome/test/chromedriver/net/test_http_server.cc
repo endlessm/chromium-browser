@@ -4,7 +4,10 @@
 
 #include "chrome/test/chromedriver/net/test_http_server.h"
 
+#include <utility>
+
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -68,6 +71,11 @@ void TestHttpServer::SetMessageAction(WebSocketMessageAction action) {
   message_action_ = action;
 }
 
+void TestHttpServer::SetMessageCallback(const base::Closure& callback) {
+  base::AutoLock lock(action_lock_);
+  message_callback_ = callback;
+}
+
 GURL TestHttpServer::web_socket_url() const {
   base::AutoLock lock(url_lock_);
   return web_socket_url_;
@@ -105,10 +113,14 @@ void TestHttpServer::OnWebSocketRequest(
 void TestHttpServer::OnWebSocketMessage(int connection_id,
                                         const std::string& data) {
   WebSocketMessageAction action;
+  base::Closure callback;
   {
     base::AutoLock lock(action_lock_);
     action = message_action_;
+    callback = base::ResetAndReturn(&message_callback_);
   }
+  if (!callback.is_null())
+    callback.Run();
   switch (action) {
     case kEchoMessage:
       server_->SendOverWebSocket(connection_id, data);
@@ -130,7 +142,7 @@ void TestHttpServer::StartOnServerThread(bool* success,
   scoped_ptr<net::ServerSocket> server_socket(
       new net::TCPServerSocket(NULL, net::NetLog::Source()));
   server_socket->ListenWithAddressAndPort("127.0.0.1", 0, 1);
-  server_.reset(new net::HttpServer(server_socket.Pass(), this));
+  server_.reset(new net::HttpServer(std::move(server_socket), this));
 
   net::IPEndPoint address;
   int error = server_->GetLocalAddress(&address);

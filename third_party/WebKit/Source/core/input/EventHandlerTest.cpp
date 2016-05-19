@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/input/EventHandler.h"
 
 #include "core/dom/Document.h"
@@ -16,7 +15,7 @@
 #include "core/page/Page.h"
 #include "core/testing/DummyPageHolder.h"
 #include "platform/PlatformMouseEvent.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -40,7 +39,7 @@ public:
             position,
             position,
             IntSize(5, 5),
-            WTF::currentTime(),
+            WTF::monotonicallyIncreasingTime(),
             static_cast<PlatformEvent::Modifiers>(0),
             PlatformGestureSourceTouchscreen)
     {
@@ -78,8 +77,8 @@ TEST_F(EventHandlerTest, dragSelectionAfterScroll)
         LeftButton,
         PlatformEvent::MousePressed,
         1,
-        static_cast<PlatformEvent::Modifiers>(0),
-        WTF::currentTime());
+        PlatformEvent::Modifiers::LeftButtonDown,
+        WTF::monotonicallyIncreasingTime());
     document().frame()->eventHandler().handleMousePressEvent(mouseDownEvent);
 
     PlatformMouseEvent mouseMoveEvent(
@@ -88,12 +87,12 @@ TEST_F(EventHandlerTest, dragSelectionAfterScroll)
         LeftButton,
         PlatformEvent::MouseMoved,
         1,
-        static_cast<PlatformEvent::Modifiers>(0),
-        WTF::currentTime());
+        PlatformEvent::Modifiers::LeftButtonDown,
+        WTF::monotonicallyIncreasingTime());
     document().frame()->eventHandler().handleMouseMoveEvent(mouseMoveEvent);
 
-    page().autoscrollController().animate(WTF::currentTime());
-    page().animator().serviceScriptedAnimations(WTF::currentTime());
+    page().autoscrollController().animate(WTF::monotonicallyIncreasingTime());
+    page().animator().serviceScriptedAnimations(WTF::monotonicallyIncreasingTime());
 
     PlatformMouseEvent mouseUpEvent(
         IntPoint(100, 50),
@@ -102,7 +101,7 @@ TEST_F(EventHandlerTest, dragSelectionAfterScroll)
         PlatformEvent::MouseReleased,
         1,
         static_cast<PlatformEvent::Modifiers>(0),
-        WTF::currentTime());
+        WTF::monotonicallyIncreasingTime());
     document().frame()->eventHandler().handleMouseReleaseEvent(mouseUpEvent);
 
     FrameSelection& selection = document().frame()->selection();
@@ -170,6 +169,75 @@ TEST_F(EventHandlerTest, multiClickSelectionFromTapDisabledIfNotEditable)
     document().frame()->eventHandler().handleGestureEvent(tripleTapEvent);
     ASSERT_TRUE(selection.isCaret());
     EXPECT_EQ(Position(line, 0), selection.start());
+}
+
+TEST_F(EventHandlerTest, draggedInlinePositionTest)
+{
+    setHtmlInnerHTML(
+        "<style>"
+        "body { margin: 0px; }"
+        ".line { font-family: sans-serif; background: blue; width: 300px; height: 30px; font-size: 40px; margin-left: 250px; }"
+        "</style>"
+        "<div style='width: 300px; height: 100px;'>"
+        "<span class='line' draggable='true'>abcd</span>"
+        "</div>");
+    PlatformMouseEvent mouseDownEvent(
+        IntPoint(262, 29),
+        IntPoint(329, 67),
+        LeftButton,
+        PlatformEvent::MousePressed,
+        1,
+        PlatformEvent::Modifiers::LeftButtonDown,
+        WTF::monotonicallyIncreasingTime());
+    document().frame()->eventHandler().handleMousePressEvent(mouseDownEvent);
+
+    PlatformMouseEvent mouseMoveEvent(
+        IntPoint(618, 298),
+        IntPoint(685, 436),
+        LeftButton,
+        PlatformEvent::MouseMoved,
+        1,
+        PlatformEvent::Modifiers::LeftButtonDown,
+        WTF::monotonicallyIncreasingTime());
+    document().frame()->eventHandler().handleMouseMoveEvent(mouseMoveEvent);
+
+    EXPECT_EQ(IntPoint(12, 29), document().frame()->eventHandler().dragDataTransferLocationForTesting());
+}
+
+TEST_F(EventHandlerTest, draggedSVGImagePositionTest)
+{
+    setHtmlInnerHTML(
+        "<style>"
+        "body { margin: 0px; }"
+        "[draggable] {"
+        "-webkit-user-select: none; user-select: none; -webkit-user-drag: element; }"
+        "</style>"
+        "<div style='width: 300px; height: 100px;'>"
+        "<svg width='500' height='500'>"
+        "<rect x='100' y='100' width='100px' height='100px' fill='blue' draggable='true'/>"
+        "</svg>"
+        "</div>");
+    PlatformMouseEvent mouseDownEvent(
+        IntPoint(145, 144),
+        IntPoint(212, 282),
+        LeftButton,
+        PlatformEvent::MousePressed,
+        1,
+        PlatformEvent::Modifiers::LeftButtonDown,
+        WTF::monotonicallyIncreasingTime());
+    document().frame()->eventHandler().handleMousePressEvent(mouseDownEvent);
+
+    PlatformMouseEvent mouseMoveEvent(
+        IntPoint(618, 298),
+        IntPoint(685, 436),
+        LeftButton,
+        PlatformEvent::MouseMoved,
+        1,
+        PlatformEvent::Modifiers::LeftButtonDown,
+        WTF::monotonicallyIncreasingTime());
+    document().frame()->eventHandler().handleMouseMoveEvent(mouseMoveEvent);
+
+    EXPECT_EQ(IntPoint(45, 44), document().frame()->eventHandler().dragDataTransferLocationForTesting());
 }
 
 } // namespace blink

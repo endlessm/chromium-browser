@@ -6,35 +6,21 @@
 
 namespace syncer_v2 {
 
-DataTypeState::DataTypeState() : initial_sync_done(false) {
-}
+CommitRequestData::CommitRequestData() {}
 
-DataTypeState::~DataTypeState() {
-}
+CommitRequestData::CommitRequestData(const CommitRequestData& other) = default;
 
-CommitRequestData::CommitRequestData()
-    : sequence_number(0),
-      base_version(0),
-      deleted(false) {
-}
+CommitRequestData::~CommitRequestData() {}
 
-CommitRequestData::~CommitRequestData() {
-}
+CommitResponseData::CommitResponseData() {}
 
-CommitResponseData::CommitResponseData()
-    : sequence_number(0),
-      response_version(0) {
-}
+CommitResponseData::~CommitResponseData() {}
 
-CommitResponseData::~CommitResponseData() {
-}
+UpdateResponseData::UpdateResponseData() {}
 
-UpdateResponseData::UpdateResponseData()
-    : response_version(0),
-      deleted(false) {
-}
+UpdateResponseData::UpdateResponseData(const UpdateResponseData& other) =
+    default;
 
-UpdateResponseData::~UpdateResponseData() {
-}
+UpdateResponseData::~UpdateResponseData() {}
 
-}  // namespace syncer
+}  // namespace syncer_v2

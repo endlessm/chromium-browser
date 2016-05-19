@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/SplitElementCommand.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -69,7 +68,7 @@ void SplitElementCommand::executeApply()
         m_element1->appendChild(child, exceptionState);
 }
 
-void SplitElementCommand::doApply()
+void SplitElementCommand::doApply(EditingState*)
 {
     m_element1 = m_element2->cloneElementWithoutChildren();
 

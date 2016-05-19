@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ui/panels/panel_mouse_watcher.h"
@@ -65,8 +66,7 @@ bool PanelMouseWatcherTimer::IsActive() const {
 }
 
 gfx::Point PanelMouseWatcherTimer::GetMousePosition() const {
-  // TODO(scottmg): NativeScreen is wrong. http://crbug.com/133312
-  return gfx::Screen::GetNativeScreen()->GetCursorScreenPoint();
+  return gfx::Screen::GetScreen()->GetCursorScreenPoint();
 }
 
 void PanelMouseWatcherTimer::DoWork() {

@@ -5,9 +5,11 @@
 #ifndef ANDROID_WEBVIEW_LIB_AW_CONTENT_BROWSER_CLIENT_H_
 #define ANDROID_WEBVIEW_LIB_AW_CONTENT_BROWSER_CLIENT_H_
 
+#include <stddef.h>
+
 #include "android_webview/browser/aw_web_preferences_populater.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/content_browser_client.h"
 
@@ -71,12 +73,11 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
                       content::ResourceContext* context,
                       int render_process_id,
                       int render_frame_id,
-                      net::CookieOptions* options) override;
+                      const net::CookieOptions& options) override;
   bool AllowWorkerDatabase(
       const GURL& url,
       const base::string16& name,
       const base::string16& display_name,
-      unsigned long estimated_size,
       content::ResourceContext* context,
       const std::vector<std::pair<int, int>>& render_frames) override;
   void AllowWorkerFileSystem(
@@ -91,8 +92,7 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       const std::vector<std::pair<int, int>>& render_frames) override;
   content::QuotaPermissionContext* CreateQuotaPermissionContext() override;
   void AllowCertificateError(
-      int render_process_id,
-      int render_frame_id,
+      content::WebContents* web_contents,
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,

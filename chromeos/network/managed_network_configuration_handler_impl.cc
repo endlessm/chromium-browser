@@ -4,6 +4,7 @@
 
 #include "chromeos/network/managed_network_configuration_handler_impl.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -339,7 +340,7 @@ void ManagedNetworkConfigurationHandlerImpl::SetProperties(
     }
   }
 
-  SetShillProperties(service_path, shill_dictionary.Pass(), callback,
+  SetShillProperties(service_path, std::move(shill_dictionary), callback,
                      error_callback);
 }
 
@@ -422,7 +423,7 @@ void ManagedNetworkConfigurationHandlerImpl::SetPolicy(
     policies = policies_by_user_[userhash].get();
   } else {
     policies = new Policies;
-    policies_by_user_[userhash] = make_linked_ptr(policies);
+    policies_by_user_[userhash] = make_scoped_ptr(policies);
   }
 
   policies->global_network_config.MergeDictionary(&global_network_config);
@@ -515,7 +516,7 @@ bool ManagedNetworkConfigurationHandlerImpl::ApplyOrQueuePolicies(
                            policies->global_network_config,
                            this,
                            modified_policies);
-  policy_applicators_[userhash] = make_linked_ptr(applicator);
+  policy_applicators_[userhash] = make_scoped_ptr(applicator);
   applicator->Run();
   return true;
 }
@@ -818,7 +819,7 @@ void ManagedNetworkConfigurationHandlerImpl::GetPropertiesCallback(
       !shill_properties_copy->GetStringWithoutPathExpansion(
           shill::kDeviceProperty, &device_path) ||
       device_path.empty()) {
-    send_callback.Run(service_path, shill_properties_copy.Pass());
+    send_callback.Run(service_path, std::move(shill_properties_copy));
     return;
   }
 
@@ -851,7 +852,7 @@ void ManagedNetworkConfigurationHandlerImpl::GetDevicePropertiesSuccess(
   // Create a "Device" dictionary in |network_properties|.
   network_properties->SetWithoutPathExpansion(
       shill::kDeviceProperty, device_properties.DeepCopy());
-  send_callback.Run(service_path, network_properties.Pass());
+  send_callback.Run(service_path, std::move(network_properties));
 }
 
 void ManagedNetworkConfigurationHandlerImpl::GetDevicePropertiesFailure(
@@ -861,7 +862,7 @@ void ManagedNetworkConfigurationHandlerImpl::GetDevicePropertiesFailure(
     const std::string& error_name,
     scoped_ptr<base::DictionaryValue> error_data) {
   NET_LOG_ERROR("Error getting device properties", service_path);
-  send_callback.Run(service_path, network_properties.Pass());
+  send_callback.Run(service_path, std::move(network_properties));
 }
 
 

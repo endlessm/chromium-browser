@@ -6,17 +6,20 @@
 
 #include "chrome/browser/media_galleries/media_galleries_preferences.h"
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/media_galleries/media_file_system_registry.h"
 #include "chrome/browser/media_galleries/media_galleries_test_util.h"
@@ -24,6 +27,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/storage_monitor/media_storage_util.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "components/storage_monitor/test_storage_monitor.h"
@@ -260,9 +264,7 @@ class MediaGalleriesPreferencesTest : public testing::Test {
     return gallery_prefs_.get();
   }
 
-  uint64 default_galleries_count() {
-    return default_galleries_count_;
-  }
+  uint64_t default_galleries_count() { return default_galleries_count_; }
 
   void AddGalleryExpectation(MediaGalleryPrefId id, base::string16 display_name,
                              std::string device_id,
@@ -377,7 +379,7 @@ class MediaGalleriesPreferencesTest : public testing::Test {
   scoped_ptr<TestingProfile> profile_;
   scoped_ptr<MediaGalleriesPreferences> gallery_prefs_;
 
-  uint64 default_galleries_count_;
+  uint64_t default_galleries_count_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaGalleriesPreferencesTest);
 };

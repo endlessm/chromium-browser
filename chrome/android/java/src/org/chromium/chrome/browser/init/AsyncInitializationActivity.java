@@ -5,7 +5,9 @@
 package org.chromium.chrome.browser.init;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -26,7 +28,7 @@ import org.chromium.base.library_loader.LoaderErrors;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.WarmupManager;
-import org.chromium.chrome.browser.metrics.LaunchHistogram;
+import org.chromium.chrome.browser.metrics.LaunchMetrics;
 import org.chromium.chrome.browser.metrics.MemoryUma;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.ui.base.DeviceFormFactor;
@@ -39,8 +41,8 @@ import java.lang.reflect.Field;
 public abstract class AsyncInitializationActivity extends AppCompatActivity implements
         ChromeActivityNativeDelegate, BrowserParts {
 
-    private static final LaunchHistogram sBadIntentMetric =
-            new LaunchHistogram("Launch.InvalidIntent");
+    private static final LaunchMetrics.BooleanEvent sBadIntentMetric =
+            new LaunchMetrics.BooleanEvent("Launch.InvalidIntent");
 
     protected final Handler mHandler;
 
@@ -65,6 +67,25 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
     protected void onDestroy() {
         mDestroyed = true;
         super.onDestroy();
+    }
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(newBase);
+
+        // On N, Chrome should always retain the tab strip layout on tablets. Normally in
+        // multi-window, if Chrome is launched into a smaller screen Android will load the tab
+        // switcher resources. Overriding the smallestScreenWidthDp in the Configuration ensures
+        // Android will load the tab strip resources. See crbug.com/588838.
+        if (Build.VERSION.CODENAME.equals("N")) {
+            int smallestDeviceWidthDp = DeviceFormFactor.getSmallestDeviceWidthDp(this);
+
+            if (smallestDeviceWidthDp >= DeviceFormFactor.MINIMUM_TABLET_WIDTH_DP) {
+                Configuration overrideConfiguration = new Configuration();
+                overrideConfiguration.smallestScreenWidthDp = smallestDeviceWidthDp;
+                applyOverrideConfiguration(overrideConfiguration);
+            }
+        }
     }
 
     @Override
@@ -259,16 +280,18 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
 
     @Override
     public final void onCreateWithNative() {
-        ChromeBrowserInitializer.getInstance(this).handlePostNativeStartup(this);
+        try {
+            ChromeBrowserInitializer.getInstance(this).handlePostNativeStartup(true, this);
+        } catch (ProcessInitException e) {
+            ChromeApplication.reportStartupErrorAndExit(e);
+        }
     }
 
     @Override
     public void onStartWithNative() { }
 
     @Override
-    public void onResumeWithNative() {
-        sBadIntentMetric.commitHistogram();
-    }
+    public void onResumeWithNative() { }
 
     @Override
     public void onPauseWithNative() { }

@@ -142,7 +142,6 @@ public class LayoutManagerDocument extends LayoutManager
 
         // Initialize Contextual Search Panel
         mContextualSearchPanel.setManagementDelegate(contextualSearchDelegate);
-        mContextualSearchPanel.setDynamicResourceLoader(dynamicResourceLoader);
 
         // Set back flow communication
         if (contextualSearchDelegate != null) {
@@ -150,12 +149,12 @@ public class LayoutManagerDocument extends LayoutManager
         }
 
         mReaderModePanel.setManagerDelegate(readerModeDelegate);
-        // TODO(mdjones): The manager should be responsible for passing the resource loader to all
-        // panels.
-        mReaderModePanel.setDynamicResourceLoader(dynamicResourceLoader);
         if (readerModeDelegate != null) {
             readerModeDelegate.setReaderModePanel(mReaderModePanel);
         }
+
+        // Set the dynamic resource loader for all overlay panels.
+        mOverlayPanelManager.setDynamicResourceLoader(dynamicResourceLoader);
 
         mTabModelSelectorTabObserver = new TabModelSelectorTabObserver(selector) {
             @Override
@@ -338,8 +337,19 @@ public class LayoutManagerDocument extends LayoutManager
     }
 
     private void showContextualSearchLayout(boolean animate) {
-        mContextualSearchDelegate.preserveBasePageSelectionOnNextLossOfFocus();
+        ContentViewCore cvc = getCurrentTabContentViewCore();
+        if (cvc != null) {
+            cvc.preserveSelectionOnNextLossOfFocus();
+        }
         startShowing(mContextualSearchLayout, animate);
+    }
+
+    private ContentViewCore getCurrentTabContentViewCore() {
+        if (getTabModelSelector() == null) return null;
+        Tab tab = getTabModelSelector().getCurrentTab();
+        if (tab == null) return null;
+        ContentViewCore cvc = tab.getContentViewCore();
+        return cvc;
     }
 
     private class StaticEdgeSwipeHandler extends EmptyEdgeSwipeHandler {

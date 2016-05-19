@@ -22,6 +22,7 @@
 
 #include "core/svg/SVGElement.h"
 #include "platform/heap/Handle.h"
+#include "platform/transforms/AffineTransform.h"
 #include "wtf/HashSet.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/StdLibExtras.h"
@@ -46,6 +47,7 @@ public:
         , m_instancesUpdatesBlocked(false)
         , m_useOverrideComputedStyle(false)
         , m_needsOverrideComputedStyleUpdate(false)
+        , m_webAnimatedAttributesDirty(false)
     {
     }
 
@@ -68,6 +70,11 @@ public:
 
     CSSCursorImageValue* cursorImageValue() const { return m_cursorImageValue; }
     void setCursorImageValue(CSSCursorImageValue* cursorImageValue) { m_cursorImageValue = cursorImageValue; }
+
+    void setWebAnimatedAttributesDirty(bool dirty) { m_webAnimatedAttributesDirty = dirty; }
+    bool webAnimatedAttributesDirty() const { return m_webAnimatedAttributesDirty; }
+
+    HashSet<const QualifiedName*>& webAnimatedAttributes() { return m_webAnimatedAttributes; }
 
     MutableStylePropertySet* animatedSMILStyleProperties() const { return m_animatedSMILStyleProperties.get(); }
     MutableStylePropertySet* ensureAnimatedSMILStyleProperties();
@@ -96,12 +103,14 @@ private:
     bool m_instancesUpdatesBlocked : 1;
     bool m_useOverrideComputedStyle : 1;
     bool m_needsOverrideComputedStyleUpdate : 1;
+    bool m_webAnimatedAttributesDirty : 1;
+    HashSet<const QualifiedName*> m_webAnimatedAttributes;
     RefPtrWillBeMember<MutableStylePropertySet> m_animatedSMILStyleProperties;
     RefPtr<ComputedStyle> m_overrideComputedStyle;
     // Used by <animateMotion>
-    OwnPtr<AffineTransform> m_animateMotionTransform;
+    AffineTransform m_animateMotionTransform;
 };
 
-}
+} // namespace blink
 
 #endif

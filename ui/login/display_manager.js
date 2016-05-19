@@ -31,6 +31,8 @@
 /** @const */ var SCREEN_TERMS_OF_SERVICE = 'terms-of-service';
 /** @const */ var SCREEN_WRONG_HWID = 'wrong-hwid';
 /** @const */ var SCREEN_DEVICE_DISABLED = 'device-disabled';
+/** @const */ var SCREEN_UNRECOVERABLE_CRYPTOHOME_ERROR =
+    'unrecoverable-cryptohome-error';
 
 /* Accelerator identifiers. Must be kept in sync with webui_login_view.cc. */
 /** @const */ var ACCELERATOR_CANCEL = 'cancel';
@@ -59,10 +61,9 @@
   WRONG_HWID_WARNING: 3,
   SUPERVISED_USER_CREATION_FLOW: 4,
   SAML_PASSWORD_CONFIRM: 5,
-  CONSUMER_MANAGEMENT_ENROLLMENT: 6,
-  PASSWORD_CHANGED: 7,
-  ENROLLMENT: 8,
-  ERROR: 9
+  PASSWORD_CHANGED: 6,
+  ENROLLMENT: 7,
+  ERROR: 8
 };
 
 /* Possible UI states of the error screen. */

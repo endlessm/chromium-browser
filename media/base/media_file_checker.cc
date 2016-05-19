@@ -4,7 +4,10 @@
 
 #include "media/base/media_file_checker.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <map>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/time/time.h"
@@ -15,20 +18,19 @@
 
 namespace media {
 
-static const int64 kMaxCheckTimeInSeconds = 5;
+static const int64_t kMaxCheckTimeInSeconds = 5;
 
 static void OnError(bool* called) {
   *called = false;
 }
 
-MediaFileChecker::MediaFileChecker(base::File file) : file_(file.Pass()) {
-}
+MediaFileChecker::MediaFileChecker(base::File file) : file_(std::move(file)) {}
 
 MediaFileChecker::~MediaFileChecker() {
 }
 
 bool MediaFileChecker::Start(base::TimeDelta check_time) {
-  media::FileDataSource source(file_.Pass());
+  media::FileDataSource source(std::move(file_));
   bool read_ok = true;
   media::BlockingUrlProtocol protocol(&source, base::Bind(&OnError, &read_ok));
   media::FFmpegGlue glue(&protocol);

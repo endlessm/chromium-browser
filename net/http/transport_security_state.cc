@@ -4,18 +4,8 @@
 
 #include "net/http/transport_security_state.h"
 
-#if defined(USE_OPENSSL)
-#include <openssl/ecdsa.h>
-#include <openssl/ssl.h>
-#else  // !defined(USE_OPENSSL)
-#include <cryptohi.h>
-#include <hasht.h>
-#include <keyhi.h>
-#include <nspr.h>
-#include <pk11pub.h>
-#endif
-
 #include <algorithm>
+#include <utility>
 
 #include "base/base64.h"
 #include "base/build_time.h"
@@ -38,10 +28,6 @@
 #include "net/http/http_security_headers.h"
 #include "net/ssl/ssl_info.h"
 #include "url/gurl.h"
-
-#if defined(USE_OPENSSL)
-#include "crypto/openssl_util.h"
-#endif
 
 namespace net {
 
@@ -73,7 +59,7 @@ scoped_ptr<base::ListValue> GetPEMEncodedChainAsList(
   for (const std::string& cert : pem_encoded_chain)
     result->Append(make_scoped_ptr(new base::StringValue(cert)));
 
-  return result.Pass();
+  return result;
 }
 
 bool HashReportForCache(const base::DictionaryValue& report,
@@ -111,9 +97,10 @@ bool GetHPKPReport(const HostPortPair& host_port_pair,
       GetPEMEncodedChainAsList(served_certificate_chain);
   scoped_ptr<base::ListValue> validated_certificate_chain_list =
       GetPEMEncodedChainAsList(validated_certificate_chain);
-  report.Set("served-certificate-chain", served_certificate_chain_list.Pass());
+  report.Set("served-certificate-chain",
+             std::move(served_certificate_chain_list));
   report.Set("validated-certificate-chain",
-             validated_certificate_chain_list.Pass());
+             std::move(validated_certificate_chain_list));
 
   scoped_ptr<base::ListValue> known_pin_list(new base::ListValue());
   for (const auto& hash_value : pkp_state.spki_hashes) {
@@ -139,7 +126,7 @@ bool GetHPKPReport(const HostPortPair& host_port_pair,
         scoped_ptr<base::Value>(new base::StringValue(known_pin)));
   }
 
-  report.Set("known-pins", known_pin_list.Pass());
+  report.Set("known-pins", std::move(known_pin_list));
 
   // For the sent reports cache, do not include the effective expiration
   // date. The expiration date will likely change every time the user
@@ -200,10 +187,9 @@ bool HashesIntersect(const HashValueVector& a,
   return false;
 }
 
-bool AddHash(const char* sha1_hash,
-             HashValueVector* out) {
-  HashValue hash(HASH_VALUE_SHA1);
-  memcpy(hash.data(), sha1_hash, hash.size());
+bool AddHash(const char* sha256_hash, HashValueVector* out) {
+  HashValue hash(HASH_VALUE_SHA256);
+  memcpy(hash.data(), sha256_hash, hash.size());
   out->push_back(hash);
   return true;
 }
@@ -238,7 +224,7 @@ std::string CanonicalizeHost(const std::string& host) {
 // BitReader is a class that allows a bytestring to be read bit-by-bit.
 class BitReader {
  public:
-  BitReader(const uint8* bytes, size_t num_bits)
+  BitReader(const uint8_t* bytes, size_t num_bits)
       : bytes_(bytes),
         num_bits_(num_bits),
         num_bytes_((num_bits + 7) / 8),
@@ -264,16 +250,16 @@ class BitReader {
   // Read sets the |num_bits| least-significant bits of |*out| to the value of
   // the next |num_bits| bits from the input. It returns false if there are
   // insufficient bits in the input or true otherwise.
-  bool Read(unsigned num_bits, uint32* out) {
+  bool Read(unsigned num_bits, uint32_t* out) {
     DCHECK_LE(num_bits, 32u);
 
-    uint32 ret = 0;
+    uint32_t ret = 0;
     for (unsigned i = 0; i < num_bits; ++i) {
       bool bit;
       if (!Next(&bit)) {
         return false;
       }
-      ret |= static_cast<uint32>(bit) << (num_bits - 1 - i);
+      ret |= static_cast<uint32_t>(bit) << (num_bits - 1 - i);
     }
 
     *out = ret;
@@ -315,13 +301,13 @@ class BitReader {
   }
 
  private:
-  const uint8* const bytes_;
+  const uint8_t* const bytes_;
   const size_t num_bits_;
   const size_t num_bytes_;
   // current_byte_index_ contains the current byte offset in |bytes_|.
   size_t current_byte_index_;
   // current_byte_ contains the current byte of the input.
-  uint8 current_byte_;
+  uint8_t current_byte_;
   // num_bits_used_ contains the number of bits of |current_byte_| that have
   // been read.
   unsigned num_bits_used_;
@@ -336,11 +322,11 @@ class BitReader {
 // The tree is decoded by walking rather than a table-driven approach.
 class HuffmanDecoder {
  public:
-  HuffmanDecoder(const uint8* tree, size_t tree_bytes)
+  HuffmanDecoder(const uint8_t* tree, size_t tree_bytes)
       : tree_(tree), tree_bytes_(tree_bytes) {}
 
   bool Decode(BitReader* reader, char* out) {
-    const uint8* current = &tree_[tree_bytes_ - 2];
+    const uint8_t* current = &tree_[tree_bytes_ - 2];
 
     for (;;) {
       bool bit;
@@ -348,7 +334,7 @@ class HuffmanDecoder {
         return false;
       }
 
-      uint8 b = current[bit];
+      uint8_t b = current[bit];
       if (b & 0x80) {
         *out = static_cast<char>(b & 0x7f);
         return true;
@@ -365,15 +351,15 @@ class HuffmanDecoder {
   }
 
  private:
-  const uint8* const tree_;
+  const uint8_t* const tree_;
   const size_t tree_bytes_;
 };
 
 // PreloadResult is the result of resolving a specific name in the preloaded
 // data.
 struct PreloadResult {
-  uint32 pinset_id;
-  uint32 domain_id;
+  uint32_t pinset_id;
+  uint32_t domain_id;
   // hostname_offset contains the number of bytes from the start of the given
   // hostname where the name of the matching entry starts.
   size_t hostname_offset;
@@ -381,6 +367,8 @@ struct PreloadResult {
   bool pkp_include_subdomains;
   bool force_https;
   bool has_pins;
+  bool expect_ct;
+  uint32_t expect_ct_report_uri_id;
 };
 
 // DecodeHSTSPreloadRaw resolves |hostname| in the preloaded data. It returns
@@ -508,6 +496,14 @@ bool DecodeHSTSPreloadRaw(const std::string& search_hostname,
           }
         }
 
+        if (!reader.Next(&tmp.expect_ct))
+          return false;
+
+        if (tmp.expect_ct) {
+          if (!reader.Read(4, &tmp.expect_ct_report_uri_id))
+            return false;
+        }
+
         tmp.hostname_offset = hostname_offset;
 
         if (hostname_offset == 0 || hostname[hostname_offset - 1] == '.') {
@@ -533,8 +529,8 @@ bool DecodeHSTSPreloadRaw(const std::string& search_hostname,
 
       if (is_first_offset) {
         // The first offset is backwards from the current position.
-        uint32 jump_delta_bits;
-        uint32 jump_delta;
+        uint32_t jump_delta_bits;
+        uint32_t jump_delta;
         if (!reader.Read(5, &jump_delta_bits) ||
             !reader.Read(jump_delta_bits, &jump_delta)) {
           return false;
@@ -548,18 +544,18 @@ bool DecodeHSTSPreloadRaw(const std::string& search_hostname,
         is_first_offset = false;
       } else {
         // Subsequent offsets are forward from the target of the first offset.
-        uint32 is_long_jump;
+        uint32_t is_long_jump;
         if (!reader.Read(1, &is_long_jump)) {
           return false;
         }
 
-        uint32 jump_delta;
+        uint32_t jump_delta;
         if (!is_long_jump) {
           if (!reader.Read(7, &jump_delta)) {
             return false;
           }
         } else {
-          uint32 jump_delta_bits;
+          uint32_t jump_delta_bits;
           if (!reader.Read(4, &jump_delta_bits) ||
               !reader.Read(jump_delta_bits + 8, &jump_delta)) {
             return false;
@@ -599,11 +595,13 @@ TransportSecurityState::TransportSecurityState()
     : delegate_(nullptr),
       report_sender_(nullptr),
       enable_static_pins_(true),
+      enable_static_expect_ct_(true),
       sent_reports_cache_(kMaxHPKPReportCacheEntries) {
 // Static pinning is only enabled for official builds to make sure that
 // others don't end up with pins that cannot be easily updated.
 #if !defined(OFFICIAL_BUILD) || defined(OS_ANDROID) || defined(OS_IOS)
   enable_static_pins_ = false;
+  enable_static_expect_ct_ = false;
 #endif
   DCHECK(CalledOnValidThread());
 }
@@ -1011,18 +1009,9 @@ void TransportSecurityState::ReportUMAOnPinFailure(const std::string& host) {
 
 // static
 bool TransportSecurityState::IsBuildTimely() {
-  // If the build metadata aren't embedded in the binary then we can't use the
-  // build time to determine if the build is timely, return true by default. If
-  // we're building an official build then keep using the build time, even if
-  // it's invalid it'd be a date in the past and this function will return
-  // false.
-#if defined(DONT_EMBED_BUILD_METADATA) && !defined(OFFICIAL_BUILD)
-  return true;
-#else
   const base::Time build_time = base::GetBuildTime();
   // We consider built-in information to be timely for 10 weeks.
   return (base::Time::Now() - build_time).InDays() < 70 /* 10 weeks */;
-#endif
 }
 
 bool TransportSecurityState::CheckPublicKeyPinsImpl(
@@ -1084,21 +1073,61 @@ bool TransportSecurityState::GetStaticDomainState(const std::string& host,
       pkp_state->report_uri = GURL(pinset->report_uri);
 
     if (pinset->accepted_pins) {
-      const char* const* sha1_hash = pinset->accepted_pins;
-      while (*sha1_hash) {
-        AddHash(*sha1_hash, &pkp_state->spki_hashes);
-        sha1_hash++;
+      const char* const* sha256_hash = pinset->accepted_pins;
+      while (*sha256_hash) {
+        AddHash(*sha256_hash, &pkp_state->spki_hashes);
+        sha256_hash++;
       }
     }
     if (pinset->rejected_pins) {
-      const char* const* sha1_hash = pinset->rejected_pins;
-      while (*sha1_hash) {
-        AddHash(*sha1_hash, &pkp_state->bad_spki_hashes);
-        sha1_hash++;
+      const char* const* sha256_hash = pinset->rejected_pins;
+      while (*sha256_hash) {
+        AddHash(*sha256_hash, &pkp_state->bad_spki_hashes);
+        sha256_hash++;
       }
     }
   }
 
+  return true;
+}
+
+bool TransportSecurityState::IsGooglePinnedHost(const std::string& host) const {
+  DCHECK(CalledOnValidThread());
+
+  if (!IsBuildTimely())
+    return false;
+
+  PreloadResult result;
+  if (!DecodeHSTSPreload(host, &result))
+    return false;
+
+  if (!result.has_pins)
+    return false;
+
+  if (result.pinset_id >= arraysize(kPinsets))
+    return false;
+
+  return kPinsets[result.pinset_id].accepted_pins == kGoogleAcceptableCerts;
+}
+
+bool TransportSecurityState::GetStaticExpectCTState(
+    const std::string& host,
+    ExpectCTState* expect_ct_state) const {
+  DCHECK(CalledOnValidThread());
+
+  if (!IsBuildTimely())
+    return false;
+
+  PreloadResult result;
+  if (!DecodeHSTSPreload(host, &result))
+    return false;
+
+  if (!enable_static_expect_ct_ || !result.expect_ct)
+    return false;
+
+  expect_ct_state->domain = host.substr(result.hostname_offset);
+  expect_ct_state->report_uri =
+      GURL(kExpectCTReportURIs[result.expect_ct_report_uri_id]);
   return true;
 }
 
@@ -1227,8 +1256,14 @@ TransportSecurityState::STSStateIterator::~STSStateIterator() {
 TransportSecurityState::PKPState::PKPState() : include_subdomains(false) {
 }
 
+TransportSecurityState::PKPState::PKPState(const PKPState& other) = default;
+
 TransportSecurityState::PKPState::~PKPState() {
 }
+
+TransportSecurityState::ExpectCTState::ExpectCTState() {}
+
+TransportSecurityState::ExpectCTState::~ExpectCTState() {}
 
 bool TransportSecurityState::PKPState::CheckPublicKeyPins(
     const HashValueVector& hashes,

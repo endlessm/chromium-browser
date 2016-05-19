@@ -12,6 +12,8 @@
 #include "SkDrawFilter.h"
 #include "SkPaint.h"
 
+#ifdef SK_SUPPORT_LEGACY_DRAWFILTER
+
 /**
  * Initial test coverage for SkDrawFilter.
  * Draws two rectangles; if draw filters are broken, they will match.
@@ -68,6 +70,6 @@ private:
     typedef GM INHERITED;
 };
 
-static skiagm::GM* MyFactory(void*) { return new DrawFilterGM; }
-static skiagm::GMRegistry reg(MyFactory);
+DEF_GM( return new DrawFilterGM; )
 
+#endif

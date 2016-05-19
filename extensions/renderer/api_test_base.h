@@ -19,7 +19,6 @@
 #include "gin/wrappable.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/system/core.h"
-#include "third_party/mojo/src/mojo/edk/js/handle.h"
 
 namespace extensions {
 
@@ -62,7 +61,7 @@ class TestServiceProvider : public gin::Wrappable<TestServiceProvider> {
       const base::Callback<void(mojo::InterfaceRequest<Interface>)>
           service_factory,
       mojo::ScopedMessagePipeHandle handle) {
-    service_factory.Run(mojo::MakeRequest<Interface>(handle.Pass()));
+    service_factory.Run(mojo::MakeRequest<Interface>(std::move(handle)));
   }
 
   static void IgnoreHandle(mojo::ScopedMessagePipeHandle handle);

@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/strings/string_number_conversions.h"
@@ -424,7 +425,8 @@ void ResourcePrefetchPredictor::FinishedPrefetchForNavigation(
 
   scoped_ptr<Result> result(new Result(key_type, requests));
   // Add the results to the results map.
-  if (!results_map_.insert(navigation_id, result.Pass()).second)
+  if (!results_map_.insert(std::make_pair(navigation_id, std::move(result)))
+           .second)
     DLOG(FATAL) << "Returning results for existing navigation.";
 }
 

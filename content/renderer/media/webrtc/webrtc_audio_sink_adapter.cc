@@ -5,7 +5,7 @@
 #include "base/logging.h"
 #include "content/renderer/media/webrtc/webrtc_audio_sink_adapter.h"
 #include "media/base/audio_bus.h"
-#include "third_party/libjingle/source/talk/app/webrtc/mediastreaminterface.h"
+#include "third_party/webrtc/api/mediastreaminterface.h"
 
 namespace content {
 
@@ -45,7 +45,7 @@ void WebRtcAudioSinkAdapter::OnSetFormat(
   params_ = params;
   const int num_pcm16_data_elements =
       params_.frames_per_buffer() * params_.channels();
-  interleaved_data_.reset(new int16[num_pcm16_data_elements]);
+  interleaved_data_.reset(new int16_t[num_pcm16_data_elements]);
 }
 
 }  // namespace content

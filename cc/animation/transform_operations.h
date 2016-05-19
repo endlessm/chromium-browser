@@ -7,6 +7,8 @@
 
 #include <vector>
 
+#include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "cc/animation/transform_operation.h"
 #include "cc/base/cc_export.h"
@@ -88,6 +90,13 @@ class CC_EXPORT TransformOperations {
   void AppendMatrix(const gfx::Transform& matrix);
   void AppendIdentity();
   bool IsIdentity() const;
+
+  size_t size() const { return operations_.size(); }
+
+  const TransformOperation& at(size_t index) const {
+    DCHECK_LT(index, size());
+    return operations_[index];
+  }
 
  private:
   bool BlendInternal(const TransformOperations& from,

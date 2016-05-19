@@ -5,13 +5,15 @@
 #ifndef GPU_COMMAND_BUFFER_SERVICE_SYNC_POINT_MANAGER_H_
 #define GPU_COMMAND_BUFFER_SERVICE_SYNC_POINT_MANAGER_H_
 
+#include <stdint.h>
+
 #include <functional>
 #include <queue>
+#include <unordered_map>
 #include <vector>
 
 #include "base/atomic_sequence_num.h"
 #include "base/callback.h"
-#include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -19,6 +21,7 @@
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
+#include "gpu/command_buffer/common/command_buffer_id.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/gpu_export.h"
 
@@ -40,6 +43,7 @@ class GPU_EXPORT SyncPointOrderData
 
   uint32_t GenerateUnprocessedOrderNumber(SyncPointManager* sync_point_manager);
   void BeginProcessingOrderNumber(uint32_t order_num);
+  void PauseProcessingOrderNumber(uint32_t order_num);
   void FinishProcessingOrderNumber(uint32_t order_num);
 
   uint32_t processed_order_num() const {
@@ -55,6 +59,11 @@ class GPU_EXPORT SyncPointOrderData
   uint32_t current_order_num() const {
     DCHECK(processing_thread_checker_.CalledOnValidThread());
     return current_order_num_;
+  }
+
+  bool IsProcessingOrderNumber() {
+    DCHECK(processing_thread_checker_.CalledOnValidThread());
+    return !paused_ && current_order_num_ > processed_order_num();
   }
 
  private:
@@ -94,6 +103,9 @@ class GPU_EXPORT SyncPointOrderData
 
   // Current IPC order number being processed (only used on processing thread).
   uint32_t current_order_num_;
+
+  // Whether or not the current order number is being processed or paused.
+  bool paused_;
 
   // This lock protects destroyed_, processed_order_num_,
   // unprocessed_order_num_, and order_fence_queue_. All order numbers (n) in
@@ -138,7 +150,6 @@ class GPU_EXPORT SyncPointClientState
  private:
   friend class base::RefCountedThreadSafe<SyncPointClientState>;
   friend class SyncPointClient;
-  friend class SyncPointClientWaiter;
   friend class SyncPointOrderData;
 
   struct ReleaseCallback {
@@ -211,15 +222,34 @@ class GPU_EXPORT SyncPointClient {
                          scoped_refptr<base::SingleThreadTaskRunner> runner,
                          const base::Closure& wait_complete_callback);
 
+  // Unordered waits are waits which do not occur within the global order number
+  // processing order (IE. Not between the corresponding
+  // SyncPointOrderData::BeginProcessingOrderNumber() and
+  // SyncPointOrderData::FinishProcessingOrderNumber() calls). Because fence
+  // sync releases must occur within a corresponding order number, these waits
+  // cannot deadlock because they can never depend on any fence sync releases.
+  // This is useful for IPC messages that may be processed out of order with
+  // respect to regular command buffer processing.
+  bool WaitOutOfOrder(SyncPointClientState* release_state,
+                      uint64_t release_count,
+                      const base::Closure& wait_complete_callback);
+
+  bool WaitOutOfOrderNonThreadSafe(
+      SyncPointClientState* release_state,
+      uint64_t release_count,
+      scoped_refptr<base::SingleThreadTaskRunner> runner,
+      const base::Closure& wait_complete_callback);
+
   void ReleaseFenceSync(uint64_t release);
 
  private:
   friend class SyncPointManager;
 
+  SyncPointClient();
   SyncPointClient(SyncPointManager* sync_point_manager,
                   scoped_refptr<SyncPointOrderData> order_data,
                   CommandBufferNamespace namespace_id,
-                  uint64_t client_id);
+                  CommandBufferId client_id);
 
   // Sync point manager is guaranteed to exist in the lifetime of the client.
   SyncPointManager* sync_point_manager_;
@@ -229,35 +259,9 @@ class GPU_EXPORT SyncPointClient {
 
   // Unique namespace/client id pair for this sync point client.
   const CommandBufferNamespace namespace_id_;
-  const uint64_t client_id_;
+  const CommandBufferId client_id_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncPointClient);
-};
-
-// A SyncPointClientWaiter is a Sync Point Client which can only wait and on
-// fence syncs and not release any fence syncs itself. Because they cannot
-// release any fence syncs they do not need an associated order number since
-// deadlocks cannot happen. Note that it is important that this class does
-// not exist in the same execution context as a SyncPointClient, or else a
-// deadlock could occur. Basically, SyncPointClientWaiter::Wait() should never
-// be called between SyncPointOrderData::BeginProcessingOrderNumber() and
-// SyncPointOrderData::FinishProcessingOrderNumber() on the same thread.
-class GPU_EXPORT SyncPointClientWaiter {
- public:
-  SyncPointClientWaiter() {}
-  ~SyncPointClientWaiter() {}
-
-  bool Wait(SyncPointClientState* release_state,
-            uint64_t release_count,
-            const base::Closure& wait_complete_callback);
-
-  bool WaitNonThreadSafe(SyncPointClientState* release_state,
-                         uint64_t release_count,
-                         scoped_refptr<base::SingleThreadTaskRunner> runner,
-                         const base::Closure& wait_complete_callback);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SyncPointClientWaiter);
 };
 
 // This class manages the sync points, which allow cross-channel
@@ -271,46 +275,28 @@ class GPU_EXPORT SyncPointManager {
   scoped_ptr<SyncPointClient> CreateSyncPointClient(
       scoped_refptr<SyncPointOrderData> order_data,
       CommandBufferNamespace namespace_id,
-      uint64_t client_id);
+      CommandBufferId client_id);
+
+  // Creates a sync point client which cannot process order numbers but can only
+  // Wait out of order.
+  scoped_ptr<SyncPointClient> CreateSyncPointClientWaiter();
 
   // Finds the state of an already created sync point client.
   scoped_refptr<SyncPointClientState> GetSyncPointClientState(
-    CommandBufferNamespace namespace_id, uint64_t client_id);
-
-  // Generates a sync point, returning its ID. This can me called on any thread.
-  // IDs start at a random number. Never return 0.
-  uint32 GenerateSyncPoint();
-
-  // Retires a sync point. This will call all the registered callbacks for this
-  // sync point. This can only be called on the main thread.
-  void RetireSyncPoint(uint32 sync_point);
-
-  // Adds a callback to the sync point. The callback will be called when the
-  // sync point is retired, or immediately (from within that function) if the
-  // sync point was already retired (or not created yet). This can only be
-  // called on the main thread.
-  void AddSyncPointCallback(uint32 sync_point, const base::Closure& callback);
-
-  bool IsSyncPointRetired(uint32 sync_point);
-
-  // Block and wait until a sync point is signaled. This is only useful when
-  // the sync point is signaled on another thread.
-  void WaitSyncPoint(uint32 sync_point);
+      CommandBufferNamespace namespace_id,
+      CommandBufferId client_id);
 
  private:
   friend class SyncPointClient;
   friend class SyncPointOrderData;
 
-  typedef std::vector<base::Closure> ClosureList;
-  typedef base::hash_map<uint32, ClosureList> SyncPointMap;
-  typedef base::hash_map<uint64_t, SyncPointClient*> ClientMap;
+  using ClientMap = std::unordered_map<CommandBufferId,
+                                       SyncPointClient*,
+                                       CommandBufferId::Hasher>;
 
-  bool IsSyncPointRetiredLocked(uint32 sync_point);
   uint32_t GenerateOrderNumber();
   void DestroySyncPointClient(CommandBufferNamespace namespace_id,
-                              uint64_t client_id);
-
-  const bool allow_threaded_wait_;
+                              CommandBufferId client_id);
 
   // Order number is global for all clients.
   base::AtomicSequenceNumber global_order_num_;
@@ -318,13 +304,6 @@ class GPU_EXPORT SyncPointManager {
   // Client map holds a map of clients id to client for each namespace.
   base::Lock client_maps_lock_;
   ClientMap client_maps_[NUM_COMMAND_BUFFER_NAMESPACES];
-
-  // Protects the 2 fields below. Note: callbacks shouldn't be called with this
-  // held.
-  base::Lock lock_;
-  SyncPointMap sync_point_map_;
-  uint32 next_sync_point_;
-  base::ConditionVariable retire_cond_var_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncPointManager);
 };

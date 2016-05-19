@@ -5,6 +5,7 @@
 #include "device/bluetooth/bluetooth_low_energy_device_mac.h"
 
 #import <CoreFoundation/CoreFoundation.h>
+#include <stddef.h>
 
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
@@ -80,7 +81,7 @@ std::string BluetoothLowEnergyDeviceMac::GetIdentifier() const {
   return identifier_;
 }
 
-uint32 BluetoothLowEnergyDeviceMac::GetBluetoothClass() const {
+uint32_t BluetoothLowEnergyDeviceMac::GetBluetoothClass() const {
   return 0x1F00;  // Unspecified Device Class
 }
 
@@ -93,15 +94,22 @@ BluetoothDevice::VendorIDSource BluetoothLowEnergyDeviceMac::GetVendorIDSource()
   return VENDOR_ID_UNKNOWN;
 }
 
-uint16 BluetoothLowEnergyDeviceMac::GetVendorID() const {
+uint16_t BluetoothLowEnergyDeviceMac::GetVendorID() const {
   return 0;
 }
 
-uint16 BluetoothLowEnergyDeviceMac::GetProductID() const {
+uint16_t BluetoothLowEnergyDeviceMac::GetProductID() const {
   return 0;
 }
 
-uint16 BluetoothLowEnergyDeviceMac::GetDeviceID() const {
+uint16_t BluetoothLowEnergyDeviceMac::GetDeviceID() const {
+  return 0;
+}
+
+uint16_t BluetoothLowEnergyDeviceMac::GetAppearance() const {
+  // TODO(crbug.com/588083): Implementing GetAppearance()
+  // on mac, win, and android platforms for chrome
+  NOTIMPLEMENTED();
   return 0;
 }
 
@@ -118,7 +126,7 @@ bool BluetoothLowEnergyDeviceMac::IsConnected() const {
 }
 
 bool BluetoothLowEnergyDeviceMac::IsGattConnected() const {
-  return (GetPeripheralState() == CBPeripheralStateConnected);
+  return ([peripheral_ state] == CBPeripheralStateConnected);
 }
 
 bool BluetoothLowEnergyDeviceMac::IsConnectable() const {
@@ -134,11 +142,11 @@ BluetoothDevice::UUIDList BluetoothLowEnergyDeviceMac::GetUUIDs() const {
                                    advertised_uuids_.end());
 }
 
-int16 BluetoothLowEnergyDeviceMac::GetInquiryRSSI() const {
+int16_t BluetoothLowEnergyDeviceMac::GetInquiryRSSI() const {
   return kUnknownPower;
 }
 
-int16 BluetoothLowEnergyDeviceMac::GetInquiryTxPower() const {
+int16_t BluetoothLowEnergyDeviceMac::GetInquiryTxPower() const {
   NOTIMPLEMENTED();
   return kUnknownPower;
 }
@@ -171,7 +179,7 @@ void BluetoothLowEnergyDeviceMac::SetPinCode(const std::string& pincode) {
   NOTIMPLEMENTED();
 }
 
-void BluetoothLowEnergyDeviceMac::SetPasskey(uint32 passkey) {
+void BluetoothLowEnergyDeviceMac::SetPasskey(uint32_t passkey) {
   NOTIMPLEMENTED();
 }
 
@@ -256,18 +264,4 @@ std::string BluetoothLowEnergyDeviceMac::GetPeripheralHashAddress(
                            sizeof(raw));
   std::string hash = base::HexEncode(raw, sizeof(raw));
   return BluetoothDevice::CanonicalizeAddress(hash);
-}
-
-CBPeripheralState BluetoothLowEnergyDeviceMac::GetPeripheralState() const {
-  Class peripheral_class = NSClassFromString(@"CBPeripheral");
-  base::scoped_nsobject<NSMethodSignature> signature([[peripheral_class
-      instanceMethodSignatureForSelector:@selector(state)] retain]);
-  base::scoped_nsobject<NSInvocation> invocation(
-      [[NSInvocation invocationWithMethodSignature:signature] retain]);
-  [invocation setTarget:peripheral_];
-  [invocation setSelector:@selector(state)];
-  [invocation invoke];
-  CBPeripheralState state = CBPeripheralStateDisconnected;
-  [invocation getReturnValue:&state];
-  return state;
 }

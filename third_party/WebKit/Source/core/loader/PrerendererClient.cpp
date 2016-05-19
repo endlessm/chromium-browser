@@ -29,7 +29,6 @@
  *
  */
 
-#include "config.h"
 #include "core/loader/PrerendererClient.h"
 
 #include "core/page/Page.h"
@@ -54,4 +53,4 @@ void providePrerendererClientTo(Page& page, PrerendererClient* client)
     PrerendererClient::provideTo(page, PrerendererClient::supplementName(), adoptPtrWillBeNoop(client));
 }
 
-}
+} // namespace blink

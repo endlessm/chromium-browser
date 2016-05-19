@@ -260,7 +260,7 @@ TIntermNode *TIntermediate::addSelection(
     // test now.
     //
 
-    if (cond->getAsTyped() && cond->getAsTyped()->getAsConstantUnion())
+    if (cond->getAsConstantUnion())
     {
         if (cond->getAsConstantUnion()->getBConst(0) == true)
         {
@@ -325,19 +325,20 @@ TIntermTyped *TIntermediate::addSelection(TIntermTyped *cond, TIntermTyped *true
     {
         resultQualifier = EvqConst;
     }
-    // Right now it's safe to fold ternary operators only when all operands
-    // are constant. If only the condition is constant, it's theoretically
-    // possible to fold the ternary operator, but that requires making sure
-    // that the node returned from here won't be treated as a constant
-    // expression in case the node that gets eliminated was not a constant
-    // expression.
-    if (resultQualifier == EvqConst && cond->getAsConstantUnion() &&
-        trueBlock->getAsConstantUnion() && falseBlock->getAsConstantUnion())
+    // Note that the node resulting from here can be a constant union without being qualified as
+    // constant.
+    if (cond->getAsConstantUnion())
     {
         if (cond->getAsConstantUnion()->getBConst(0))
+        {
+            trueBlock->getTypePointer()->setQualifier(resultQualifier);
             return trueBlock;
+        }
         else
+        {
+            falseBlock->getTypePointer()->setQualifier(resultQualifier);
             return falseBlock;
+        }
     }
 
     //
@@ -374,8 +375,9 @@ TIntermCase *TIntermediate::addCase(
 // Returns the constant union node created.
 //
 
-TIntermConstantUnion *TIntermediate::addConstantUnion(
-    TConstantUnion *constantUnion, const TType &type, const TSourceLoc &line)
+TIntermConstantUnion *TIntermediate::addConstantUnion(const TConstantUnion *constantUnion,
+                                                      const TType &type,
+                                                      const TSourceLoc &line)
 {
     TIntermConstantUnion *node = new TIntermConstantUnion(constantUnion, type);
     node->setLine(line);
@@ -468,33 +470,38 @@ TIntermTyped *TIntermediate::foldAggregateBuiltIn(TIntermAggregate *aggregate)
 {
     switch (aggregate->getOp())
     {
-      case EOpAtan:
-      case EOpPow:
-      case EOpMod:
-      case EOpMin:
-      case EOpMax:
-      case EOpClamp:
-      case EOpMix:
-      case EOpStep:
-      case EOpSmoothStep:
-      case EOpMul:
-      case EOpOuterProduct:
-      case EOpLessThan:
-      case EOpLessThanEqual:
-      case EOpGreaterThan:
-      case EOpGreaterThanEqual:
-      case EOpVectorEqual:
-      case EOpVectorNotEqual:
-      case EOpDistance:
-      case EOpDot:
-      case EOpCross:
-      case EOpFaceForward:
-      case EOpReflect:
-      case EOpRefract:
-        return aggregate->fold(mInfoSink);
-      default:
-        // Constant folding not supported for the built-in.
-        return nullptr;
+        case EOpAtan:
+        case EOpPow:
+        case EOpMod:
+        case EOpMin:
+        case EOpMax:
+        case EOpClamp:
+        case EOpMix:
+        case EOpStep:
+        case EOpSmoothStep:
+        case EOpMul:
+        case EOpOuterProduct:
+        case EOpLessThan:
+        case EOpLessThanEqual:
+        case EOpGreaterThan:
+        case EOpGreaterThanEqual:
+        case EOpVectorEqual:
+        case EOpVectorNotEqual:
+        case EOpDistance:
+        case EOpDot:
+        case EOpCross:
+        case EOpFaceForward:
+        case EOpReflect:
+        case EOpRefract:
+            return aggregate->fold(mInfoSink);
+        default:
+            // TODO: Add support for folding array constructors
+            if (aggregate->isConstructor() && !aggregate->isArray())
+            {
+                return aggregate->fold(mInfoSink);
+            }
+            // Constant folding not supported for the built-in.
+            return nullptr;
     }
 
     return nullptr;

@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "public/platform/WebMediaStreamSource.h"
 
 #include "platform/audio/AudioBus.h"
@@ -47,7 +45,7 @@ namespace {
 
 class ExtraDataContainer : public MediaStreamSource::ExtraData {
 public:
-    ExtraDataContainer(PassOwnPtr<WebMediaStreamSource::ExtraData> extraData) : m_extraData(extraData) { }
+    ExtraDataContainer(PassOwnPtr<WebMediaStreamSource::ExtraData> extraData) : m_extraData(std::move(extraData)) { }
 
     WebMediaStreamSource::ExtraData* extraData() { return m_extraData.get(); }
 

@@ -4,8 +4,11 @@
 
 #include "chrome/browser/extensions/component_extensions_whitelist/whitelist.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/common/constants.h"
 #include "grit/browser_resources.h"
@@ -85,6 +88,7 @@ bool IsComponentExtensionWhitelisted(int manifest_resource_id) {
     IDR_IMAGE_LOADER_MANIFEST,
 #endif
 #if defined(OS_CHROMEOS)
+    IDR_ARC_SUPPORT_MANIFEST,
     IDR_AUDIO_PLAYER_MANIFEST,
     IDR_CHROME_APPS_WEBSTORE_WIDGET_MANIFEST,
     IDR_CONNECTIVITY_DIAGNOSTICS_LAUNCHER_MANIFEST,

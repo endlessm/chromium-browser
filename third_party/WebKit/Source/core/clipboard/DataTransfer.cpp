@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/clipboard/DataTransfer.h"
 
 #include "core/HTMLNames.h"
@@ -212,15 +211,13 @@ FileList* DataTransfer::files() const
     return files;
 }
 
-void DataTransfer::setDragImage(Element* image, int x, int y, ExceptionState& exceptionState)
+void DataTransfer::setDragImage(Element* image, int x, int y)
 {
+    ASSERT(image);
+
     if (!isForDragAndDrop())
         return;
 
-    if (!image) {
-        exceptionState.throwTypeError("setDragImage: Invalid first argument");
-        return;
-    }
     IntPoint location(x, y);
     if (isHTMLImageElement(*image) && !image->inDocument())
         setDragImageResource(toHTMLImageElement(*image).cachedImage(), location);
@@ -233,7 +230,7 @@ void DataTransfer::clearDragImage()
     if (!canSetDragImage())
         return;
 
-    m_dragImage = 0;
+    m_dragImage = nullptr;
     m_dragLoc = IntPoint();
     m_dragImageElement = nullptr;
 }
@@ -281,10 +278,10 @@ static void writeImageToDataObject(DataObject* dataObject, Element* element, con
 {
     // Shove image data into a DataObject for use as a file
     ImageResource* cachedImage = getImageResource(element);
-    if (!cachedImage || !cachedImage->imageForLayoutObject(element->layoutObject()) || !cachedImage->isLoaded())
+    if (!cachedImage || !cachedImage->image() || !cachedImage->isLoaded())
         return;
 
-    SharedBuffer* imageBuffer = cachedImage->imageForLayoutObject(element->layoutObject())->data();
+    SharedBuffer* imageBuffer = cachedImage->image()->data();
     if (!imageBuffer || !imageBuffer->size())
         return;
 
@@ -516,6 +513,7 @@ String convertDragOperationToDropZoneOperation(DragOperation operation)
 DEFINE_TRACE(DataTransfer)
 {
     visitor->trace(m_dataObject);
+    visitor->trace(m_dragImage);
 #if ENABLE(OILPAN)
     visitor->trace(m_dragImageElement);
 #endif

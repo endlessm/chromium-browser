@@ -29,6 +29,7 @@
 #include "tcuImageCompare.hpp"
 #include "tcuRenderTarget.hpp"
 #include "tcuTestLog.hpp"
+#include "tcuTextureUtil.hpp"
 #include "deRandom.hpp"
 #include "rrFragmentOperations.hpp"
 #include "sglrReferenceUtils.hpp"
@@ -210,6 +211,7 @@ BlendCase::IterateResult BlendCase::iterate (void)
 	int								viewportX		= rnd.getInt(0, m_context.getRenderTarget().getWidth() - m_viewportW);
 	int								viewportY		= rnd.getInt(0, m_context.getRenderTarget().getHeight() - m_viewportH);
 	tcu::Surface					renderedImg		(m_viewportW, m_viewportH);
+	tcu::Surface					referenceImg	(m_viewportH, m_viewportH);
 	TestLog&						log				(m_testCtx.getLog());
 	const BlendParams&				paramSet		= m_paramSets[m_curParamSetNdx];
 	rr::FragmentOperationState		referenceState;
@@ -251,12 +253,15 @@ BlendCase::IterateResult BlendCase::iterate (void)
 
 	// Render reference.
 
-	const tcu::PixelBufferAccess nullAccess(TextureFormat(), 0, 0, 0, DE_NULL);
+	const tcu::PixelBufferAccess nullAccess = tcu::PixelBufferAccess();
 
 	referenceState.blendMode = rr::BLENDMODE_NONE;
 	m_referenceRenderer->render(gls::FragmentOpUtil::getMultisampleAccess(m_refColorBuffer->getAccess()), nullAccess /* no depth */, nullAccess /* no stencil */, m_firstQuadInt, referenceState);
 	referenceState.blendMode = rr::BLENDMODE_STANDARD;
 	m_referenceRenderer->render(gls::FragmentOpUtil::getMultisampleAccess(m_refColorBuffer->getAccess()), nullAccess /* no depth */, nullAccess /* no stencil */, m_secondQuadInt, referenceState);
+
+	// Expand reference color buffer to RGBA8
+	copy(referenceImg.getAccess(), m_refColorBuffer->getAccess());
 
 	// Read GL image.
 
@@ -267,7 +272,7 @@ BlendCase::IterateResult BlendCase::iterate (void)
 	UVec4 compareThreshold = m_context.getRenderTarget().getPixelFormat().getColorThreshold().toIVec().asUint()
 							 * UVec4(5) / UVec4(2) + UVec4(3); // \note Non-scientific ad hoc formula. Need big threshold when few color bits; blending brings extra inaccuracy.
 
-	bool comparePass = tcu::intThresholdCompare(m_testCtx.getLog(), "CompareResult", "Image Comparison Result", m_refColorBuffer->getAccess(), renderedImg.getAccess(), compareThreshold, tcu::COMPARE_LOG_RESULT);
+	bool comparePass = tcu::intThresholdCompare(m_testCtx.getLog(), "CompareResult", "Image Comparison Result", referenceImg.getAccess(), renderedImg.getAccess(), compareThreshold, tcu::COMPARE_LOG_RESULT);
 
 	// Fail now if images don't match.
 

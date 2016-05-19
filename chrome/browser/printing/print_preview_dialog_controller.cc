@@ -4,13 +4,17 @@
 
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <string>
 #include <vector>
 
 #include "base/auto_reset.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
@@ -255,7 +259,7 @@ bool PrintPreviewDialogController::IsPrintPreviewDialog(WebContents* contents) {
 // static
 bool PrintPreviewDialogController::IsPrintPreviewURL(const GURL& url) {
   return (url.SchemeIs(content::kChromeUIScheme) &&
-          url.host() == chrome::kChromeUIPrintHost);
+          url.host_piece() == chrome::kChromeUIPrintHost);
 }
 
 void PrintPreviewDialogController::EraseInitiatorInfo(
@@ -481,15 +485,6 @@ void PrintPreviewDialogController::RemovePreviewDialog(
   if (initiator) {
     RemoveObservers(initiator);
     PrintViewManager::FromWebContents(initiator)->PrintPreviewDone();
-  }
-
-  // Print preview WebContents is destroyed. Notify |PrintPreviewUI| to abort
-  // the initiator preview request.
-  if (content::WebUI* web_ui = preview_dialog->GetWebUI()) {
-    PrintPreviewUI* print_preview_ui =
-        static_cast<PrintPreviewUI*>(web_ui->GetController());
-    if (print_preview_ui)
-      print_preview_ui->OnPrintPreviewDialogDestroyed();
   }
 
   preview_dialog_map_.erase(preview_dialog);

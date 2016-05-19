@@ -4,23 +4,22 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_ListBox.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
-#include "../../include/pdfwindow/PWL_ScrollBar.h"
-#include "../../include/pdfwindow/PWL_EditCtrl.h"
-#include "../../include/pdfwindow/PWL_Edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ListBox.h"
+
+#include "fpdfsdk/include/pdfwindow/PWL_Edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_EditCtrl.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ScrollBar.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
+#include "public/fpdf_fwlevent.h"
 
 #define IsFloatZero(f) ((f) < 0.0001 && (f) > -0.0001)
 #define IsFloatBigger(fa, fb) ((fa) > (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatSmaller(fa, fb) ((fa) < (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatEqual(fa, fb) IsFloatZero((fa) - (fb))
 
-/* ------------------------ CPWL_List_Notify ----------------------- */
-
 CPWL_List_Notify::CPWL_List_Notify(CPWL_ListBox* pList) : m_pList(pList) {
-  ASSERT(m_pList != NULL);
+  ASSERT(m_pList);
 }
 
 CPWL_List_Notify::~CPWL_List_Notify() {}
@@ -65,8 +64,6 @@ void CPWL_List_Notify::IOnInvalidateRect(CPDF_Rect* pRect) {
   m_pList->InvalidateRect(pRect);
 }
 
-/* --------------------------- CPWL_ListBox ---------------------------- */
-
 CPWL_ListBox::CPWL_ListBox()
     : m_pList(NULL),
       m_pListNotify(NULL),
@@ -74,8 +71,6 @@ CPWL_ListBox::CPWL_ListBox()
       m_bHoverSel(FALSE),
       m_pFillerNotify(NULL) {
   m_pList = IFX_List::NewList();
-
-  ASSERT(m_pList != NULL);
 }
 
 CPWL_ListBox::~CPWL_ListBox() {
@@ -159,7 +154,7 @@ void CPWL_ListBox::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {
 }
 
 void CPWL_ListBox::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                      CPDF_Matrix* pUser2Device) {
+                                      CFX_Matrix* pUser2Device) {
   CPWL_Wnd::DrawThisAppearance(pDevice, pUser2Device);
 
   if (m_pList) {
@@ -182,8 +177,6 @@ void CPWL_ListBox::DrawThisAppearance(CFX_RenderDevice* pDevice,
       }
 
       if (m_pList->IsItemSelected(i)) {
-        //	CPWL_Utils::DrawFillRect(pDevice, pUser2Device, rcItem,
-        // ArgbEncode(255,0,51,113));
         IFX_SystemHandler* pSysHandler = GetSystemHandler();
         if (pSysHandler && pSysHandler->IsSelectionImplemented()) {
           IFX_Edit::DrawEdit(

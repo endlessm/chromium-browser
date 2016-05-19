@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AudioBufferSourceNode.h"
-
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/ExceptionCode.h"
@@ -82,7 +79,6 @@ PassRefPtr<AudioBufferSourceHandler> AudioBufferSourceHandler::create(AudioNode&
 
 AudioBufferSourceHandler::~AudioBufferSourceHandler()
 {
-    clearPannerNode();
     uninitialize();
 }
 
@@ -510,10 +506,6 @@ void AudioBufferSourceHandler::startSource(double when, double grainOffset, doub
 
 double AudioBufferSourceHandler::computePlaybackRate()
 {
-    double dopplerRate = 1;
-    if (m_pannerNode)
-        dopplerRate = m_pannerNode->dopplerRate();
-
     // Incorporate buffer's sample-rate versus AbstractAudioContext's sample-rate.
     // Normally it's not an issue because buffers are loaded at the
     // AbstractAudioContext's sample-rate, but we can handle it in any case.
@@ -527,7 +519,7 @@ double AudioBufferSourceHandler::computePlaybackRate()
     // AudioSummingJunction from m_playbackRate AudioParam.
     double basePlaybackRate = m_playbackRate->finalValue();
 
-    double finalPlaybackRate = dopplerRate * sampleRateFactor * basePlaybackRate;
+    double finalPlaybackRate = sampleRateFactor * basePlaybackRate;
 
     // Take the detune value into account for the final playback rate.
     finalPlaybackRate *= pow(2, m_detune->finalValue() / 1200);
@@ -551,26 +543,6 @@ double AudioBufferSourceHandler::computePlaybackRate()
 bool AudioBufferSourceHandler::propagatesSilence() const
 {
     return !isPlayingOrScheduled() || hasFinished() || !m_buffer;
-}
-
-void AudioBufferSourceHandler::setPannerNode(PannerHandler* pannerNode)
-{
-    if (m_pannerNode != pannerNode && !hasFinished()) {
-        RefPtr<PannerHandler> oldPannerNode(m_pannerNode.release());
-        m_pannerNode = pannerNode;
-        if (pannerNode)
-            pannerNode->makeConnection();
-        if (oldPannerNode)
-            oldPannerNode->breakConnection();
-    }
-}
-
-void AudioBufferSourceHandler::clearPannerNode()
-{
-    if (m_pannerNode) {
-        m_pannerNode->breakConnection();
-        m_pannerNode.clear();
-    }
 }
 
 void AudioBufferSourceHandler::handleStoppableSourceNode()
@@ -607,13 +579,6 @@ void AudioBufferSourceHandler::handleStoppableSourceNode()
             finishWithoutOnEnded();
         }
     }
-}
-
-void AudioBufferSourceHandler::finish()
-{
-    clearPannerNode();
-    ASSERT(!m_pannerNode);
-    AudioScheduledSourceHandler::finish();
 }
 
 // ----------------------------------------------------------------
@@ -713,5 +678,3 @@ void AudioBufferSourceNode::start(double when, double grainOffset, double grainD
 }
 
 } // namespace blink
-
-#endif // ENABLE(WEB_AUDIO)

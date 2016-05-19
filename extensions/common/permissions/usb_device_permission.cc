@@ -25,10 +25,25 @@ UsbDevicePermission::UsbDevicePermission(const APIPermissionInfo* info)
 
 UsbDevicePermission::~UsbDevicePermission() {}
 
+bool UsbDevicePermission::FromValue(
+    const base::Value* value,
+    std::string* error,
+    std::vector<std::string>* unhandled_permissions) {
+  bool parsed_ok =
+      SetDisjunctionPermission<UsbDevicePermissionData, UsbDevicePermission>::
+          FromValue(value, error, unhandled_permissions);
+  if (parsed_ok && data_set_.empty()) {
+    if (error)
+      *error = "NULL or empty permission list";
+    return false;
+  }
+  return parsed_ok;
+}
+
 PermissionIDSet UsbDevicePermission::GetPermissions() const {
   PermissionIDSet ids;
 
-  std::set<uint16> unknown_product_vendors;
+  std::set<uint16_t> unknown_product_vendors;
   bool found_unknown_vendor = false;
 
   for (const UsbDevicePermissionData& data : data_set_) {
@@ -49,7 +64,7 @@ PermissionIDSet UsbDevicePermission::GetPermissions() const {
     }
   }
 
-  for (uint16 vendor_id : unknown_product_vendors) {
+  for (uint16_t vendor_id : unknown_product_vendors) {
     const char* vendor = device::UsbIds::GetVendorName(vendor_id);
     DCHECK(vendor);
     ids.insert(APIPermission::kUsbDeviceUnknownProduct,

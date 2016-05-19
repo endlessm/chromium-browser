@@ -5,8 +5,11 @@
 #ifndef CC_TEST_TEST_CONTEXT_SUPPORT_H_
 #define CC_TEST_TEST_CONTEXT_SUPPORT_H_
 
+#include <stdint.h>
+
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "gpu/command_buffer/client/context_support.h"
 
@@ -23,17 +26,13 @@ class TestContextSupport : public gpu::ContextSupport {
   ~TestContextSupport() override;
 
   // gpu::ContextSupport implementation.
-  void SignalSyncPoint(uint32 sync_point,
-                       const base::Closure& callback) override;
   void SignalSyncToken(const gpu::SyncToken& sync_token,
                        const base::Closure& callback) override;
-  void SignalQuery(uint32 query, const base::Closure& callback) override;
-  void SetSurfaceVisible(bool visible) override;
+  void SignalQuery(uint32_t query, const base::Closure& callback) override;
   void SetAggressivelyFreeResources(bool aggressively_free_resources) override;
   void Swap() override;
   void PartialSwapBuffers(const gfx::Rect& sub_buffer) override;
-  uint32 InsertFutureSyncPointCHROMIUM() override;
-  void RetireSyncPointCHROMIUM(uint32 sync_point) override;
+  void CommitOverlayPlanes() override;
   void ScheduleOverlayPlane(int plane_z_order,
                             gfx::OverlayTransform plane_transform,
                             unsigned overlay_texture_id,
@@ -42,10 +41,6 @@ class TestContextSupport : public gpu::ContextSupport {
   uint64_t ShareGroupTracingGUID() const override;
 
   void CallAllSyncPointCallbacks();
-
-  typedef base::Callback<void(bool visible)> SurfaceVisibleCallback;
-  void SetSurfaceVisibleCallback(
-      const SurfaceVisibleCallback& set_visible_callback);
 
   typedef base::Callback<void(int plane_z_order,
                               gfx::OverlayTransform plane_transform,
@@ -64,7 +59,6 @@ class TestContextSupport : public gpu::ContextSupport {
 
  private:
   std::vector<base::Closure> sync_point_callbacks_;
-  SurfaceVisibleCallback set_visible_callback_;
   ScheduleOverlayPlaneCallback schedule_overlay_plane_callback_;
   bool out_of_order_callbacks_;
 

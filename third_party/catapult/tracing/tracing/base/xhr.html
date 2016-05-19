@@ -11,16 +11,25 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.b', function() {
+  var fs;
+  if (tr.isNode)
+    fs = require('fs');
+
   function guessBinary(url) {
     return /[.]gz$/.test(url) || /[.]zip$/.test(url);
   }
-  function xhr(method, url, async, opt_data) {
+  function xhr(method, url, async, opt_data, force_binary) {
     var req = new XMLHttpRequest();
     req.overrideMimeType('text/plain; charset=x-user-defined');
     req.open(method, url, async);
-    var isBinary = guessBinary(url);
-    if (isBinary && async)
-      req.responseType = 'arraybuffer';
+
+    var isBinary = force_binary;
+
+    if (isBinary === undefined) {
+      guessBinary(url);
+      if (isBinary && async)
+        req.responseType = 'arraybuffer';
+    }
 
     var data = opt_data !== undefined ? opt_data : null;
 
@@ -53,14 +62,33 @@ tr.exportTo('tr.b', function() {
   }
 
   function getAsync(url) {
+    // Browser.
     if (!tr.isHeadless)
       return xhr('GET', url, true);
+
+    // Node or vinn prep.
     var filename;
     if (url.startsWith('file:///'))
       filename = url.substring(7);
     else
-      filename = global.hrefToAbsolutePath(url);
+      filename = global.HTMLImportsLoader.hrefToAbsolutePath(url);
     var isBinary = guessBinary(url);
+
+    // Node.
+    if (tr.isNode) {
+      var encoding = isBinary ? undefined : 'utf8';
+      return new Promise(function(resolve, reject) {
+        fs.readFile(filename, encoding, function(err, data) {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(data);
+        });
+      });
+    }
+
+    // Vinn.
     return Promise.resolve().then(function() {
       if (isBinary)
         return readbuffer(filename);
@@ -69,14 +97,27 @@ tr.exportTo('tr.b', function() {
   }
 
   function getSync(url) {
+    // Browser.
     if (!tr.isHeadless)
       return xhr('GET', url, false);
+
+    // Node or vinn prep.
     var filename;
-    if (url.startsWith('file:///'))
+    if (url.startsWith('file:///'))  // posix
+      filename = url.substring(7);
+    else if (url.startsWith('file://') && url[8] === ':')  // win
       filename = url.substring(7);
     else
-      filename = global.hrefToAbsolutePath(url);
+      filename = global.HTMLImportsLoader.hrefToAbsolutePath(url);
     var isBinary = guessBinary(url);
+
+    // Node.
+    if (tr.isNode) {
+      var encoding = isBinary ? undefined : 'utf8';
+      return fs.readFileSync(filename, encoding);
+    }
+
+    // Vinn.
     if (isBinary)
       return readbuffer(filename);
     return read(filename);
@@ -86,6 +127,12 @@ tr.exportTo('tr.b', function() {
     if (tr.isHeadless)
       throw new Error('Only supported inside a browser');
     return xhr('POST', url, true, data);
+  }
+
+  function postTextAsync(url, data) {
+    if (tr.isHeadless)
+      throw new Error('Only supported inside a browser');
+    return xhr('POST', url, true, data, false);
   }
 
   return {

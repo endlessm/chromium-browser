@@ -2,15 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/extensions/updater/extension_updater.h"
+
+#include <stddef.h>
+#include <stdint.h>
 #include <list>
 #include <map>
 #include <set>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
@@ -24,6 +30,7 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/version.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
@@ -32,7 +39,6 @@
 #include "chrome/browser/extensions/test_extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/extensions/updater/chrome_extension_downloader_factory.h"
-#include "chrome/browser/extensions/updater/extension_updater.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -376,7 +382,7 @@ class MockService : public TestExtensionService {
                                           : delegate);
     if (enable_metrics_)
       downloader->set_enable_extra_update_metrics(true);
-    return downloader.Pass();
+    return downloader;
   }
 
   scoped_ptr<ExtensionDownloader> CreateExtensionDownloaderWithIdentity(
@@ -390,8 +396,8 @@ class MockService : public TestExtensionService {
 
     scoped_ptr<ExtensionDownloader> downloader(
         CreateExtensionDownloader(delegate));
-    downloader->SetWebstoreIdentityProvider(fake_identity_provider.Pass());
-    return downloader.Pass();
+    downloader->SetWebstoreIdentityProvider(std::move(fake_identity_provider));
+    return downloader;
   }
 
   scoped_ptr<FakeOAuth2TokenService> fake_token_service_;
@@ -955,10 +961,10 @@ class ExtensionUpdaterTest : public testing::Test {
     GURL fetch2_url = fetch2->full_url();
     GURL fetch3_url = fetch3->full_url();
     GURL fetch4_url = fetch4->full_url();
-    downloader.StartUpdateCheck(fetch1.Pass());
-    downloader.StartUpdateCheck(fetch2.Pass());
-    downloader.StartUpdateCheck(fetch3.Pass());
-    downloader.StartUpdateCheck(fetch4.Pass());
+    downloader.StartUpdateCheck(std::move(fetch1));
+    downloader.StartUpdateCheck(std::move(fetch2));
+    downloader.StartUpdateCheck(std::move(fetch3));
+    downloader.StartUpdateCheck(std::move(fetch4));
     RunUntilIdle();
 
     for (int i = 0; i < 4; ++i) {
@@ -1080,7 +1086,7 @@ class ExtensionUpdaterTest : public testing::Test {
                         std::string());
 
     // This will start the first fetcher.
-    downloader.StartUpdateCheck(fetch.Pass());
+    downloader.StartUpdateCheck(std::move(fetch));
     RunUntilIdle();
 
     // ExtensionDownloader should retry kMaxRetries times and then fail.
@@ -1108,7 +1114,7 @@ class ExtensionUpdaterTest : public testing::Test {
                         std::string());
 
     // This will start the first fetcher.
-    downloader.StartUpdateCheck(fetch.Pass());
+    downloader.StartUpdateCheck(std::move(fetch));
     RunUntilIdle();
 
     EXPECT_CALL(delegate, OnExtensionDownloadFailed(
@@ -1167,7 +1173,7 @@ class ExtensionUpdaterTest : public testing::Test {
     scoped_ptr<ExtensionDownloader::ExtensionFetch> fetch(
         new ExtensionDownloader::ExtensionFetch(
             id, test_url, hash, version.GetString(), requests));
-    updater.downloader_->FetchUpdatedExtension(fetch.Pass());
+    updater.downloader_->FetchUpdatedExtension(std::move(fetch));
 
     if (pending) {
       const bool kIsFromSync = true;
@@ -1277,7 +1283,7 @@ class ExtensionUpdaterTest : public testing::Test {
     scoped_ptr<ExtensionDownloader::ExtensionFetch> fetch(
         new ExtensionDownloader::ExtensionFetch(
             id, test_url, hash, version.GetString(), requests));
-    updater.downloader_->FetchUpdatedExtension(fetch.Pass());
+    updater.downloader_->FetchUpdatedExtension(std::move(fetch));
 
     fetcher = factory.GetFetcherByID(ExtensionDownloader::kExtensionFetcherId);
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
@@ -1470,8 +1476,8 @@ class ExtensionUpdaterTest : public testing::Test {
     scoped_ptr<ExtensionDownloader::ExtensionFetch> fetch2(
         new ExtensionDownloader::ExtensionFetch(
             id2, url2, hash2, version2, requests));
-    updater.downloader_->FetchUpdatedExtension(fetch1.Pass());
-    updater.downloader_->FetchUpdatedExtension(fetch2.Pass());
+    updater.downloader_->FetchUpdatedExtension(std::move(fetch1));
+    updater.downloader_->FetchUpdatedExtension(std::move(fetch2));
 
     // Make the first fetch complete.
     base::FilePath extension_file_path(FILE_PATH_LITERAL("/whatever"));
@@ -1776,7 +1782,7 @@ class ExtensionUpdaterTest : public testing::Test {
     Time last_ping_day =
         service.extension_prefs()->LastPingDay(extension->id());
     EXPECT_FALSE(last_ping_day.is_null());
-    int64 seconds_diff = (Time::Now() - last_ping_day).InSeconds();
+    int64_t seconds_diff = (Time::Now() - last_ping_day).InSeconds();
     EXPECT_LT(seconds_diff - results.daystart_elapsed_seconds, 5);
   }
 

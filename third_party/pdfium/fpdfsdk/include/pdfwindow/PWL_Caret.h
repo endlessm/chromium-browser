@@ -7,7 +7,7 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_CARET_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_CARET_H_
 
-#include "PWL_Wnd.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 struct PWL_CARET_INFO {
  public:
@@ -27,7 +27,7 @@ class CPWL_Caret : public CPWL_Wnd {
   CFX_ByteString GetClassName() const override;
   void GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   void InvalidateRect(CPDF_Rect* pRect = NULL) override;
   void SetVisible(FX_BOOL bVisible) override {}
   void TimerProc() override;

@@ -8,28 +8,23 @@
 #include "GrSimpleTextureEffect.h"
 #include "GrInvariantOutput.h"
 #include "GrTexture.h"
-#include "gl/GrGLCaps.h"
-#include "gl/GrGLFragmentProcessor.h"
-#include "gl/GrGLTexture.h"
+#include "glsl/GrGLSLFragmentProcessor.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramBuilder.h"
 
-class GrGLSimpleTextureEffect : public GrGLFragmentProcessor {
+class GrGLSimpleTextureEffect : public GrGLSLFragmentProcessor {
 public:
-    GrGLSimpleTextureEffect(const GrProcessor&) {}
-
-    virtual void emitCode(EmitArgs& args) override {
-        GrGLSLFragmentBuilder* fsBuilder = args.fBuilder->getFragmentShaderBuilder();
-        fsBuilder->codeAppendf("\t%s = ", args.fOutputColor);
-        fsBuilder->appendTextureLookupAndModulate(args.fInputColor,
+    void emitCode(EmitArgs& args) override {
+        GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
+        fragBuilder->codeAppendf("%s = ", args.fOutputColor);
+        fragBuilder->appendTextureLookupAndModulate(args.fInputColor,
                                                   args.fSamplers[0],
                                                   args.fCoords[0].c_str(),
                                                   args.fCoords[0].getType());
-        fsBuilder->codeAppend(";\n");
+        fragBuilder->codeAppend(";");
     }
 
 private:
-    typedef GrGLFragmentProcessor INHERITED;
+    typedef GrGLSLFragmentProcessor INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -38,13 +33,13 @@ void GrSimpleTextureEffect::onComputeInvariantOutput(GrInvariantOutput* inout) c
     this->updateInvariantOutputForModulation(inout);
 }
 
-void GrSimpleTextureEffect::onGetGLProcessorKey(const GrGLSLCaps& caps,
-                                                GrProcessorKeyBuilder* b) const {
+void GrSimpleTextureEffect::onGetGLSLProcessorKey(const GrGLSLCaps& caps,
+                                                  GrProcessorKeyBuilder* b) const {
     GrGLSimpleTextureEffect::GenKey(*this, caps, b);
 }
 
-GrGLFragmentProcessor* GrSimpleTextureEffect::onCreateGLInstance() const  {
-    return new GrGLSimpleTextureEffect(*this);
+GrGLSLFragmentProcessor* GrSimpleTextureEffect::onCreateGLSLInstance() const  {
+    return new GrGLSimpleTextureEffect;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

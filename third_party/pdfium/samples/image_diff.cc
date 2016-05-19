@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-#include "image_diff_png.h"
+#include "samples/image_diff_png.h"
 #include "third_party/base/logging.h"
 #include "third_party/base/numerics/safe_conversions.h"
 
@@ -80,8 +80,8 @@ class Image {
 
     fclose(f);
 
-    if (!image_diff_png::DecodePNG(&compressed[0], compressed.size(),
-                                   &data_, &w_, &h_)) {
+    if (!image_diff_png::DecodePNG(compressed.data(), compressed.size(), &data_,
+                                   &w_, &h_)) {
       Clear();
       return false;
     }

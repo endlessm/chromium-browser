@@ -8,8 +8,8 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread.h"
@@ -31,8 +31,10 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/page_usage_data.h"
 #include "components/history/core/browser/top_sites.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/sessions/core/session_types.h"
 #include "components/sessions/core/tab_restore_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_source.h"
@@ -209,7 +211,8 @@ JumpList::JumpList(Profile* profile)
   if (!tab_restore_service)
     return;
 
-  app_id_ = ShellIntegration::GetChromiumModelIdForProfile(profile_->GetPath());
+  app_id_ =
+      shell_integration::GetChromiumModelIdForProfile(profile_->GetPath());
   icon_dir_ = profile_->GetPath().Append(chrome::kJumpListIconDirname);
 
   scoped_refptr<history::TopSites> top_sites =

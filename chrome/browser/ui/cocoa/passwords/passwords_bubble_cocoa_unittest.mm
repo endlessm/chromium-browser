@@ -8,6 +8,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/mac/foundation_util.h"
+#include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -21,12 +22,17 @@
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller_mock.h"
 #include "chrome/browser/ui/tab_dialogs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "components/password_manager/core/browser/mock_password_store.h"
+#include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/web_contents_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
+
+using testing::Return;
+using testing::ReturnRef;
 
 class ManagePasswordsBubbleCocoaTest : public CocoaProfileTest {
  public:
@@ -41,15 +47,15 @@ class ManagePasswordsBubbleCocoaTest : public CocoaProfileTest {
     // |test_web_contents_| and therefore accessible to the model. It should be
     // done before AppendWebContents() so the real ManagePasswordsUIController
     // isn't created.
-    ManagePasswordsUIControllerMock* ui_controller =
-        new ManagePasswordsUIControllerMock(test_web_contents_);
+    new testing::NiceMock<ManagePasswordsUIControllerMock>(test_web_contents_);
+    EXPECT_CALL(*UIController(), GetState())
+        .WillOnce(Return(password_manager::ui::INACTIVE_STATE));
     browser()->tab_strip_model()->AppendWebContents(
         test_web_contents_, /*foreground=*/true);
-    // Set the initial state.
-    ScopedVector<autofill::PasswordForm> forms;
-    forms.push_back(new autofill::PasswordForm);
-    forms.back()->origin = GURL("http://example.com");
-    ui_controller->PretendSubmittedPassword(forms.Pass());
+    PasswordStoreFactory::GetInstance()->SetTestingFactoryAndUse(
+        profile(), password_manager::BuildPasswordStore<
+                       content::BrowserContext,
+                       testing::NiceMock<password_manager::MockPasswordStore>>);
   }
 
   content::WebContents* CreateWebContents() {
@@ -58,6 +64,17 @@ class ManagePasswordsBubbleCocoaTest : public CocoaProfileTest {
   }
 
   void ShowBubble(bool user_action) {
+    ManagePasswordsUIControllerMock* mock = UIController();
+    ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(mock));
+    autofill::PasswordForm form;
+    EXPECT_CALL(*mock, GetPendingPassword()).WillOnce(ReturnRef(form));
+    std::vector<const autofill::PasswordForm*> forms;
+    EXPECT_CALL(*mock, GetCurrentForms()).WillOnce(ReturnRef(forms));
+    GURL origin;
+    EXPECT_CALL(*mock, GetOrigin()).WillOnce(ReturnRef(origin));
+    EXPECT_CALL(*mock, GetState())
+        .WillOnce(Return(password_manager::ui::PENDING_PASSWORD_STATE));
+
     TabDialogs::FromWebContents(test_web_contents_)
         ->ShowManagePasswordsBubble(user_action);
     if (ManagePasswordsBubbleCocoa::instance()) {
@@ -66,6 +83,7 @@ class ManagePasswordsBubbleCocoaTest : public CocoaProfileTest {
           [ManagePasswordsBubbleCocoa::instance()->controller_ window]);
       [bubbleWindow setAllowedAnimations:info_bubble::kAnimateNone];
     }
+    ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(mock));
   }
 
   void CloseBubble() {
@@ -77,6 +95,11 @@ class ManagePasswordsBubbleCocoaTest : public CocoaProfileTest {
     return bubble ? [bubble->controller_ window] : nil;
   }
 
+  ManagePasswordsUIControllerMock* UIController() {
+    return static_cast<ManagePasswordsUIControllerMock*>(
+        PasswordsModelDelegateFromWebContents(test_web_contents_));
+  }
+
   ManagePasswordsBubbleController* controller() {
     ManagePasswordsBubbleCocoa* bubble = ManagePasswordsBubbleCocoa::instance();
     return bubble ? bubble->controller_ : nil;
@@ -84,7 +107,7 @@ class ManagePasswordsBubbleCocoaTest : public CocoaProfileTest {
 
   ManagePasswordsIconCocoa* icon() {
     return static_cast<ManagePasswordsIconCocoa*>(
-      ManagePasswordsBubbleCocoa::instance()->icon_);
+        ManagePasswordsBubbleCocoa::instance()->icon_);
   }
 
  private:
@@ -124,15 +147,22 @@ TEST_F(ManagePasswordsBubbleCocoaTest, ShowBubbleOnInactiveTabShouldDoNothing) {
   TabStripModel* tabStripModel = browser()->tab_strip_model();
   EXPECT_EQ(0, tabStripModel->active_index());
 
-  // Open a second tab and make it active.
+  // Open a second tab as inactive.
   content::WebContents* webContents2 = CreateWebContents();
-  tabStripModel->AppendWebContents(webContents2, /*foreground=*/true);
-  EXPECT_EQ(1, tabStripModel->active_index());
+  new testing::StrictMock<ManagePasswordsUIControllerMock>(webContents2);
+  tabStripModel->AppendWebContents(webContents2, /*foreground=*/false);
+  EXPECT_EQ(0, tabStripModel->active_index());
   EXPECT_EQ(2, tabStripModel->count());
 
   // Try to show the bubble on the inactive tab. Nothing should happen.
-  ShowBubble(false);
+  TabDialogs::FromWebContents(tabStripModel->GetWebContentsAt(1))
+      ->ShowManagePasswordsBubble(false);
   EXPECT_FALSE(ManagePasswordsBubbleCocoa::instance());
+
+  // Show the bubble for the active tab.
+  ShowBubble(false);
+  EXPECT_TRUE(ManagePasswordsBubbleCocoa::instance());
+  EXPECT_TRUE([bubbleWindow() isVisible]);
 }
 
 TEST_F(ManagePasswordsBubbleCocoaTest, HideBubbleOnChangedState) {
@@ -150,10 +180,12 @@ TEST_F(ManagePasswordsBubbleCocoaTest, OpenWithoutFocus) {
   ShowBubble(false);
   EXPECT_TRUE(ManagePasswordsBubbleCocoa::instance());
   EXPECT_FALSE([controller() shouldOpenAsKeyWindow]);
+  EXPECT_FALSE([bubbleWindow() defaultButtonCell]);
 }
 
 TEST_F(ManagePasswordsBubbleCocoaTest, OpenWithFocus) {
   ShowBubble(true);
   EXPECT_TRUE(ManagePasswordsBubbleCocoa::instance());
   EXPECT_TRUE([controller() shouldOpenAsKeyWindow]);
+  EXPECT_TRUE([bubbleWindow() defaultButtonCell]);
 }

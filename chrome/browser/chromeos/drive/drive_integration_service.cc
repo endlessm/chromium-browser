@@ -6,8 +6,7 @@
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/browser_process.h"
@@ -39,6 +38,8 @@
 #include "components/drive/resource_metadata_storage.h"
 #include "components/drive/service/drive_api_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/version_info/version_info.h"
@@ -234,11 +235,11 @@ DriveIntegrationService::DriveIntegrationService(
     drive_service_.reset(test_drive_service);
   } else {
     drive_service_.reset(new DriveAPIService(
-        oauth_service,
-        g_browser_process->system_request_context(),
+        oauth_service, g_browser_process->system_request_context(),
         blocking_task_runner_.get(),
         GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction),
         GURL(google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction),
+        GURL(google_apis::DriveApiUrlGenerator::kBaseThumbnailUrlForProduction),
         GetDriveUserAgent()));
   }
   scheduler_.reset(new JobScheduler(

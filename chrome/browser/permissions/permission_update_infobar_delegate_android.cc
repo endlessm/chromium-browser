@@ -44,17 +44,15 @@ infobars::InfoBar* PermissionUpdateInfoBarDelegate::Create(
         !window_android->HasPermission(android_permission)) {
       permissions.push_back(android_permission);
 
-      switch (content_settings_type) {
-        case CONTENT_SETTINGS_TYPE_GEOLOCATION:
+      if (content_settings_type == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
           message_id = IDS_INFOBAR_MISSING_LOCATION_PERMISSION_TEXT;
-          break;
-        case CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
+      } else if (content_settings_type ==
+                 CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC) {
           message_id = IDS_INFOBAR_MISSING_MICROPHONE_PERMISSION_TEXT;
-          break;
-        case CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
+      } else if (content_settings_type ==
+                 CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA) {
           message_id = IDS_INFOBAR_MISSING_CAMERA_PERMISSION_TEXT;
-          break;
-        default:
+      } else {
           NOTREACHED();
           message_id = IDS_INFOBAR_MISSING_MULTIPLE_PERMISSIONS_TEXT;
       }
@@ -119,7 +117,9 @@ bool PermissionUpdateInfoBarDelegate::RegisterPermissionUpdateInfoBarDelegate(
 }
 
 void PermissionUpdateInfoBarDelegate::OnPermissionResult(
-    JNIEnv* env, jobject obj, jboolean all_permissions_granted) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jboolean all_permissions_granted) {
   base::ResetAndReturn(&callback_).Run(all_permissions_granted);
   infobar()->RemoveSelf();
 }
@@ -144,6 +144,11 @@ PermissionUpdateInfoBarDelegate::PermissionUpdateInfoBarDelegate(
 PermissionUpdateInfoBarDelegate::~PermissionUpdateInfoBarDelegate() {
   Java_PermissionUpdateInfoBarDelegate_onNativeDestroyed(
       base::android::AttachCurrentThread(), java_delegate_.obj());
+}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+PermissionUpdateInfoBarDelegate::GetIdentifier() const {
+  return PERMISSION_UPDATE_INFOBAR_DELEGATE;
 }
 
 int PermissionUpdateInfoBarDelegate::GetIconId() const {

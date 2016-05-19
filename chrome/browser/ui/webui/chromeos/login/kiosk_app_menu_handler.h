@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
@@ -50,6 +51,7 @@ class KioskAppMenuHandler
   // KioskAppManagerObserver overrides:
   void OnKioskAppsSettingsChanged() override;
   void OnKioskAppDataChanged(const std::string& app_id) override;
+  void OnKioskAppDataLoadFailure(const std::string& app_id) override;
 
   // NetworkStateInformer::NetworkStateInformerObserver overrides:
   void UpdateState(NetworkError::ErrorReason reason) override;

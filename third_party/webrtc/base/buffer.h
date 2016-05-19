@@ -11,11 +11,15 @@
 #ifndef WEBRTC_BASE_BUFFER_H_
 #define WEBRTC_BASE_BUFFER_H_
 
-#include <algorithm>  // std::swap (pre-C++11)
 #include <cassert>
 #include <cstring>
-#include <utility>  // std::swap (C++11 and later)
-#include "webrtc/base/scoped_ptr.h"
+#include <memory>
+#include <utility>
+
+#include "webrtc/base/array_view.h"
+#include "webrtc/base/checks.h"
+#include "webrtc/base/constructormagic.h"
+#include "webrtc/base/deprecation.h"
 
 namespace rtc {
 
@@ -59,6 +63,7 @@ class Buffer {
   template <typename T, typename internal::ByteType<T>::t = 0>
   Buffer(const T* data, size_t size)
       : Buffer(data, size, size) {}
+
   template <typename T, typename internal::ByteType<T>::t = 0>
   Buffer(const T* data, size_t size, size_t capacity)
       : Buffer(size, capacity) {
@@ -79,6 +84,7 @@ class Buffer {
     assert(IsConsistent());
     return reinterpret_cast<T*>(data_.get());
   }
+
   template <typename T = uint8_t, typename internal::ByteType<T>::t = 0>
   T* data() {
     assert(IsConsistent());
@@ -89,6 +95,7 @@ class Buffer {
     assert(IsConsistent());
     return size_;
   }
+
   size_t capacity() const {
     assert(IsConsistent());
     return capacity_;
@@ -99,12 +106,13 @@ class Buffer {
       SetData(buf.data(), buf.size());
     return *this;
   }
+
   Buffer& operator=(Buffer&& buf) {
     assert(IsConsistent());
     assert(buf.IsConsistent());
     size_ = buf.size_;
     capacity_ = buf.capacity_;
-    data_ = buf.data_.Pass();
+    data_ = std::move(buf.data_);
     buf.OnMovedFrom();
     return *this;
   }
@@ -116,21 +124,39 @@ class Buffer {
 
   bool operator!=(const Buffer& buf) const { return !(*this == buf); }
 
-  // Replace the contents of the buffer. Accepts the same types as the
-  // constructors.
+  // The SetData functions replace the contents of the buffer. They accept the
+  // same input types as the constructors.
   template <typename T, typename internal::ByteType<T>::t = 0>
   void SetData(const T* data, size_t size) {
     assert(IsConsistent());
     size_ = 0;
     AppendData(data, size);
   }
+
   template <typename T, size_t N, typename internal::ByteType<T>::t = 0>
   void SetData(const T(&array)[N]) {
     SetData(array, N);
   }
+
   void SetData(const Buffer& buf) { SetData(buf.data(), buf.size()); }
 
-  // Append data to the buffer. Accepts the same types as the constructors.
+  // Replace the data in the buffer with at most |max_bytes| of data, using the
+  // function |setter|, which should have the following signature:
+  //   size_t setter(ArrayView<T> view)
+  // |setter| is given an appropriately typed ArrayView of the area in which to
+  // write the data (i.e. starting at the beginning of the buffer) and should
+  // return the number of bytes actually written. This number must be <=
+  // |max_bytes|.
+  template <typename T = uint8_t, typename F,
+            typename internal::ByteType<T>::t = 0>
+  size_t SetData(size_t max_bytes, F&& setter) {
+    RTC_DCHECK(IsConsistent());
+    size_ = 0;
+    return AppendData<T>(max_bytes, std::forward<F>(setter));
+  }
+
+  // The AppendData functions adds data to the end of the buffer. They accept
+  // the same input types as the constructors.
   template <typename T, typename internal::ByteType<T>::t = 0>
   void AppendData(const T* data, size_t size) {
     assert(IsConsistent());
@@ -140,11 +166,36 @@ class Buffer {
     size_ = new_size;
     assert(IsConsistent());
   }
+
   template <typename T, size_t N, typename internal::ByteType<T>::t = 0>
   void AppendData(const T(&array)[N]) {
     AppendData(array, N);
   }
+
   void AppendData(const Buffer& buf) { AppendData(buf.data(), buf.size()); }
+
+  // Append at most |max_bytes| of data to the end of the buffer, using the
+  // function |setter|, which should have the following signature:
+  //   size_t setter(ArrayView<T> view)
+  // |setter| is given an appropriately typed ArrayView of the area in which to
+  // write the data (i.e. starting at the former end of the buffer) and should
+  // return the number of bytes actually written. This number must be <=
+  // |max_bytes|.
+  template <typename T = uint8_t, typename F,
+            typename internal::ByteType<T>::t = 0>
+  size_t AppendData(size_t max_bytes, F&& setter) {
+    RTC_DCHECK(IsConsistent());
+    const size_t old_size = size_;
+    SetSize(old_size + max_bytes);
+    T *base_ptr = data<T>() + old_size;
+    size_t written_bytes =
+        setter(rtc::ArrayView<T>(base_ptr, max_bytes));
+
+    RTC_CHECK_LE(written_bytes, max_bytes);
+    size_ = old_size + written_bytes;
+    RTC_DCHECK(IsConsistent());
+    return written_bytes;
+  }
 
   // Sets the size of the buffer. If the new size is smaller than the old, the
   // buffer contents will be kept but truncated; if the new size is greater,
@@ -162,25 +213,26 @@ class Buffer {
     assert(IsConsistent());
     if (capacity <= capacity_)
       return;
-    scoped_ptr<uint8_t[]> new_data(new uint8_t[capacity]);
+    std::unique_ptr<uint8_t[]> new_data(new uint8_t[capacity]);
     std::memcpy(new_data.get(), data_.get(), size_);
-    data_ = new_data.Pass();
+    data_ = std::move(new_data);
     capacity_ = capacity;
     assert(IsConsistent());
   }
 
-  // We can't call std::move(b), so call b.Pass() instead to do the same job.
-  Buffer&& Pass() {
+  // b.Pass() does the same thing as std::move(b).
+  // Deprecated; remove in March 2016 (bug 5373).
+  RTC_DEPRECATED Buffer&& Pass() { return DEPRECATED_Pass(); }
+
+  Buffer&& DEPRECATED_Pass() {
     assert(IsConsistent());
-    return static_cast<Buffer&&>(*this);
+    return std::move(*this);
   }
 
-  // Resets the buffer to zero size and capacity. Works even if the buffer has
-  // been moved from.
+  // Resets the buffer to zero size without altering capacity. Works even if the
+  // buffer has been moved from.
   void Clear() {
-    data_.reset();
     size_ = 0;
-    capacity_ = 0;
     assert(IsConsistent());
   }
 
@@ -218,7 +270,7 @@ class Buffer {
 
   size_t size_;
   size_t capacity_;
-  scoped_ptr<uint8_t[]> data_;
+  std::unique_ptr<uint8_t[]> data_;
 };
 
 }  // namespace rtc

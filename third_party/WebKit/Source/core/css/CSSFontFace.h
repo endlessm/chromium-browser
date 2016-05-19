@@ -70,7 +70,7 @@ public:
 
     void didBeginLoad();
     void fontLoaded(RemoteFontFaceSource*);
-    void fontLoadWaitLimitExceeded(RemoteFontFaceSource*);
+    void didBecomeVisibleFallback(RemoteFontFaceSource*);
 
     PassRefPtr<SimpleFontData> getFontData(const FontDescription&);
 
@@ -108,7 +108,7 @@ public:
         Vector<UnicodeRange> m_ranges; // If empty, represents the whole code space.
     };
 
-    FontFace::LoadStatus loadStatus() const { return m_fontFace->loadStatus(); }
+    FontFace::LoadStatusType loadStatus() const { return m_fontFace->loadStatus(); }
     bool maybeScheduleFontLoad(const FontDescription&, UChar32);
     bool maybeScheduleFontLoad(const FontDescription&, const FontDataRange&);
     void load();
@@ -119,7 +119,7 @@ public:
     DECLARE_TRACE();
 
 private:
-    void setLoadStatus(FontFace::LoadStatus);
+    void setLoadStatus(FontFace::LoadStatusType);
 
     UnicodeRangeSet m_ranges;
     RawPtrWillBeMember<CSSSegmentedFontFace> m_segmentedFontFace;
@@ -127,6 +127,6 @@ private:
     RawPtrWillBeMember<FontFace> m_fontFace;
 };
 
-}
+} // namespace blink
 
 #endif

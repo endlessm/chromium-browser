@@ -30,6 +30,8 @@
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/FloatRectOutsets.h"
 #include "third_party/skia/include/core/SkRect.h"
+#include "wtf/Allocator.h"
+#include "wtf/Forward.h"
 #include "wtf/Vector.h"
 #include <iosfwd>
 
@@ -41,6 +43,10 @@ typedef struct CGRect CGRect;
 #endif
 #endif
 
+namespace gfx {
+class RectF;
+}
+
 namespace blink {
 
 class IntRect;
@@ -48,6 +54,7 @@ class LayoutRect;
 class LayoutSize;
 
 class PLATFORM_EXPORT FloatRect {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     enum ContainsMode {
         InsideOrOnStroke,
@@ -167,6 +174,8 @@ public:
 
     FloatRect transposedRect() const { return FloatRect(m_location.transposedPoint(), m_size.transposedSize()); }
 
+    float squaredDistanceTo(const FloatPoint&) const;
+
 #if OS(MACOSX)
     FloatRect(const CGRect&);
     operator CGRect() const;
@@ -177,11 +186,16 @@ public:
 #endif
 
     operator SkRect() const { return SkRect::MakeXYWH(x(), y(), width(), height()); }
+    operator gfx::RectF() const;
 
 #if ENABLE(ASSERT)
     // Prints the rect to the screen.
     void show() const;
     bool mayNotHaveExactIntRectRepresentation() const;
+#endif
+
+#ifndef NDEBUG
+    String toString() const;
 #endif
 
 private:

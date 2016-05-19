@@ -13,6 +13,7 @@ import android.support.v7.app.AlertDialog;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.CheckBox;
+import android.widget.TextView;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
@@ -20,6 +21,7 @@ import org.chromium.chrome.browser.EmbedContentViewActivity;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.sessions.SessionTabHelper;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.components.variations.VariationsAssociatedData;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.common.Referrer;
 
@@ -29,12 +31,21 @@ import org.chromium.content_public.common.Referrer;
 public class DataUseTabUIManager {
 
     private static final String SHARED_PREF_DATA_USE_DIALOG_OPT_OUT = "data_use_dialog_opt_out";
+    private static final String FIELD_TRIAL_NAME = "ExternalDataUseObserver";
+
+    /**
+     * Data use ended dialog will not be shown if {@link DISABLE_DATA_USE_ENDED_DIALOG_PARAM}
+     * fieldtrial parameter is set to {@value DISABLE_DATA_USE_ENDED_DIALOG_PARAM_VALUE}.
+     */
+    private static final String DISABLE_DATA_USE_ENDED_DIALOG_PARAM =
+            "disable_data_use_ended_dialog";
+    private static final String DISABLE_DATA_USE_ENDED_DIALOG_PARAM_VALUE = "true";
 
     /**
      * Represents the possible user actions with the data use snackbars and dialog. This must
-     * remain in sync with DataUse.UIAction in tools/metrics/histograms/histograms.xml.
+     * remain in sync with DataUsage.UIAction in tools/metrics/histograms/histograms.xml.
      */
-    public static class DataUseUIActions {
+    public static class DataUsageUIAction {
         public static final int STARTED_SNACKBAR_SHOWN = 0;
         public static final int STARTED_SNACKBAR_MORE_CLICKED = 1;
         public static final int ENDED_SNACKBAR_SHOWN = 2;
@@ -54,9 +65,35 @@ public class DataUseTabUIManager {
      * @param tab The tab that may have started tracking data use.
      * @return true If data use tracking has indeed started.
      */
-    public static boolean checkDataUseTrackingStarted(Tab tab) {
-        return nativeCheckDataUseTrackingStarted(
+    public static boolean checkAndResetDataUseTrackingStarted(Tab tab) {
+        return nativeCheckAndResetDataUseTrackingStarted(
                 SessionTabHelper.sessionIdForTab(tab.getWebContents()), tab.getProfile());
+    }
+
+    /**
+     * Notifies that the user clicked "Continue" when the dialog box warning about exiting data use
+     * was shown.
+     *
+     * @param tab The tab on which the dialog box was shown.
+     */
+    public static void userClickedContinueOnDialogBox(Tab tab) {
+        nativeUserClickedContinueOnDialogBox(
+                SessionTabHelper.sessionIdForTab(tab.getWebContents()), tab.getProfile());
+    }
+
+    /**
+     * Returns true if data use tracking is currently active on {@link tab} but will stop if the
+     * navigation continues. Should only be called before the navigation starts.
+     *
+     * @param tab The tab that is being queried for data use tracking.
+     * @param pageTransitionType transition type of the navigation
+     * @param packageName package name of the app package that started this navigation.
+     * @return true If {@link tab} is currently tracked but would stop if the navigation were to
+     * continue.
+     */
+    public static boolean wouldDataUseTrackingEnd(Tab tab, String url, int pageTransitionType) {
+        return nativeWouldDataUseTrackingEnd(SessionTabHelper.sessionIdForTab(tab.getWebContents()),
+                url, pageTransitionType, tab.getProfile());
     }
 
     /**
@@ -66,8 +103,8 @@ public class DataUseTabUIManager {
      * @param tab The tab that may have ended tracking data use.
      * @return true If data use tracking has indeed ended.
      */
-    public static boolean checkDataUseTrackingEnded(Tab tab) {
-        return nativeCheckDataUseTrackingEnded(
+    public static boolean checkAndResetDataUseTrackingEnded(Tab tab) {
+        return nativeCheckAndResetDataUseTrackingEnded(
                 SessionTabHelper.sessionIdForTab(tab.getWebContents()), tab.getProfile());
     }
 
@@ -99,7 +136,8 @@ public class DataUseTabUIManager {
     public static boolean shouldOverrideUrlLoading(Activity activity,
             final Tab tab, final String url, final int pageTransitionType,
             final String referrerUrl) {
-        if (!getOptedOutOfDataUseDialog(activity) && checkDataUseTrackingEnded(tab)) {
+        if (!shouldShowDataUseEndedSnackbar(activity)
+                && wouldDataUseTrackingEnd(tab, url, pageTransitionType)) {
             startDataUseDialog(activity, tab, url, pageTransitionType, referrerUrl);
             return true;
         }
@@ -120,20 +158,26 @@ public class DataUseTabUIManager {
     private static void startDataUseDialog(final Activity activity, final Tab tab,
             final String url, final int pageTransitionType, final String referrerUrl) {
         View dataUseDialogView = View.inflate(activity, R.layout.data_use_dialog, null);
+        final TextView textView = (TextView) dataUseDialogView.findViewById(R.id.data_use_message);
+        textView.setText(getDataUseUIString(DataUseUIMessage.DATA_USE_TRACKING_ENDED_MESSAGE));
         final CheckBox checkBox = (CheckBox) dataUseDialogView.findViewById(R.id.data_use_checkbox);
+        checkBox.setText(
+                getDataUseUIString(DataUseUIMessage.DATA_USE_TRACKING_ENDED_CHECKBOX_MESSAGE));
         View learnMore = dataUseDialogView.findViewById(R.id.learn_more);
         learnMore.setOnClickListener(new android.view.View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                EmbedContentViewActivity.show(activity, R.string.data_use_learn_more_title,
-                        R.string.data_use_learn_more_link_url);
-                recordDataUseUIAction(DataUseUIActions.DIALOG_LEARN_MORE_CLICKED);
+                EmbedContentViewActivity.show(activity,
+                        getDataUseUIString(DataUseUIMessage.DATA_USE_LEARN_MORE_TITLE),
+                        getDataUseUIString(DataUseUIMessage.DATA_USE_LEARN_MORE_LINK_URL));
+                recordDataUseUIAction(DataUsageUIAction.DIALOG_LEARN_MORE_CLICKED);
             }
         });
         new AlertDialog.Builder(activity, R.style.AlertDialogTheme)
-                .setTitle(R.string.data_use_tracking_ended_title)
+                .setTitle(getDataUseUIString(DataUseUIMessage.DATA_USE_TRACKING_ENDED_TITLE))
                 .setView(dataUseDialogView)
-                .setPositiveButton(R.string.data_use_tracking_ended_continue,
+                .setPositiveButton(
+                        getDataUseUIString(DataUseUIMessage.DATA_USE_TRACKING_ENDED_CONTINUE),
                         new OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
@@ -146,29 +190,36 @@ public class DataUseTabUIManager {
                                     loadUrlParams.setReferrer(referrer);
                                 }
                                 tab.loadUrl(loadUrlParams);
-                                recordDataUseUIAction(DataUseUIActions.DIALOG_CONTINUE_CLICKED);
+                                recordDataUseUIAction(DataUsageUIAction.DIALOG_CONTINUE_CLICKED);
+                                userClickedContinueOnDialogBox(tab);
                             }
                         })
-                .setNegativeButton(R.string.cancel, new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        setOptedOutOfDataUseDialog(activity, checkBox.isChecked());
-                        recordDataUseUIAction(DataUseUIActions.DIALOG_CANCEL_CLICKED);
-                    }
-                })
+                .setNegativeButton(R.string.cancel,
+                        new OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                setOptedOutOfDataUseDialog(activity, checkBox.isChecked());
+                                recordDataUseUIAction(DataUsageUIAction.DIALOG_CANCEL_CLICKED);
+                            }
+                        })
                 .show();
-        recordDataUseUIAction(DataUseUIActions.DIALOG_SHOWN);
+        recordDataUseUIAction(DataUsageUIAction.DIALOG_SHOWN);
     }
 
     /**
-     * Returns true if the user has opted out of seeing the data use dialog.
+     * Returns true if the data use ended snackbar should be shown instead of the dialog. The
+     * snackbar will be shown if the user has opted out of seeing the data use ended dialog or if
+     * the dialog is diabled by the fieldtrial.
      *
      * @param context An Android context.
-     * @return true If the user has opted out of seeing the data use dialog.
+     * @return true If the data use ended snackbar should be shown.
      */
-    public static boolean getOptedOutOfDataUseDialog(Context context) {
+    public static boolean shouldShowDataUseEndedSnackbar(Context context) {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(
-                SHARED_PREF_DATA_USE_DIALOG_OPT_OUT, false);
+                       SHARED_PREF_DATA_USE_DIALOG_OPT_OUT, false)
+                || DISABLE_DATA_USE_ENDED_DIALOG_PARAM_VALUE.equals(
+                           VariationsAssociatedData.getVariationParamValue(
+                                   FIELD_TRIAL_NAME, DISABLE_DATA_USE_ENDED_DIALOG_PARAM));
     }
 
     /**
@@ -182,23 +233,37 @@ public class DataUseTabUIManager {
                 .putBoolean(SHARED_PREF_DATA_USE_DIALOG_OPT_OUT, optedOut)
                 .apply();
         if (optedOut) {
-            recordDataUseUIAction(DataUseUIActions.DIALOG_OPTED_OUT);
+            recordDataUseUIAction(DataUsageUIAction.DIALOG_OPTED_OUT);
         }
     }
 
     /**
-     * Record the DataUse.UIAction histogram.
+     * Record the DataUsage.UIAction histogram.
      * @param action Action with the data use tracking snackbar or dialog.
      */
     public static void recordDataUseUIAction(int action) {
-        assert action >= 0 && action < DataUseUIActions.INDEX_BOUNDARY;
+        assert action >= 0 && action < DataUsageUIAction.INDEX_BOUNDARY;
         RecordHistogram.recordEnumeratedHistogram(
-                "DataReductionProxy.UIAction", action,
-                DataUseUIActions.INDEX_BOUNDARY);
+                "DataUsage.UIAction", action,
+                DataUsageUIAction.INDEX_BOUNDARY);
     }
 
-    private static native boolean nativeCheckDataUseTrackingStarted(int tabId, Profile profile);
-    private static native boolean nativeCheckDataUseTrackingEnded(int tabId, Profile profile);
+    /**
+     * Gets native strings which may be overridden by Finch.
+     */
+    public static String getDataUseUIString(int messageID) {
+        assert messageID >= 0 && messageID < DataUseUIMessage.DATA_USE_UI_MESSAGE_MAX;
+        return nativeGetDataUseUIString(messageID);
+    }
+
+    private static native boolean nativeCheckAndResetDataUseTrackingStarted(
+            int tabId, Profile profile);
+    private static native boolean nativeCheckAndResetDataUseTrackingEnded(
+            int tabId, Profile profile);
+    private static native void nativeUserClickedContinueOnDialogBox(int tabId, Profile profile);
+    private static native boolean nativeWouldDataUseTrackingEnd(
+            int tabId, String url, int pageTransitionType, Profile jprofile);
     private static native void nativeOnCustomTabInitialNavigation(int tabID, String packageName,
             String url, Profile profile);
+    private static native String nativeGetDataUseUIString(int messageID);
 }

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/mac/WebScrollbarTheme.h"
 
 #import <AppKit/AppKit.h>
@@ -45,16 +44,16 @@ static_assert(static_cast<NSScrollerStyle>(ScrollerStyleOverlay) == NSScrollerSt
 
 void WebScrollbarTheme::updateScrollbarsWithNSDefaults(
     float initialButtonDelay, float autoscrollButtonDelay,
-    ScrollerStyle preferredScrollerStyle, bool redraw, bool scrollAnimationEnabled, ScrollbarButtonsPlacement buttonPlacement)
+    ScrollerStyle preferredScrollerStyle, bool redraw, WebScrollbarButtonsPlacement buttonPlacement)
 {
-    ScrollbarTheme* theme = ScrollbarTheme::theme();
-    if (theme->isMockTheme())
+    ScrollbarTheme& theme = ScrollbarTheme::theme();
+    if (theme.isMockTheme())
         return;
 
-    static_cast<ScrollbarThemeMacCommon*>(ScrollbarTheme::theme())->preferencesChanged(
+    static_cast<ScrollbarThemeMacCommon&>(theme).preferencesChanged(
         initialButtonDelay, autoscrollButtonDelay,
         static_cast<NSScrollerStyle>(preferredScrollerStyle),
-        redraw, scrollAnimationEnabled, buttonPlacement);
+        redraw, buttonPlacement);
 }
 
 } // namespace blink

@@ -6,6 +6,7 @@
 #define MEDIA_FILTERS_DECRYPTING_AUDIO_DECODER_H_
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -35,13 +36,13 @@ class MEDIA_EXPORT DecryptingAudioDecoder : public AudioDecoder {
   DecryptingAudioDecoder(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
       const scoped_refptr<MediaLog>& media_log,
-      const SetCdmReadyCB& set_cdm_ready_cb,
       const base::Closure& waiting_for_decryption_key_cb);
   ~DecryptingAudioDecoder() override;
 
   // AudioDecoder implementation.
   std::string GetDisplayName() const override;
   void Initialize(const AudioDecoderConfig& config,
+                  CdmContext* cdm_context,
                   const InitCB& init_cb,
                   const OutputCB& output_cb) override;
   void Decode(const scoped_refptr<DecoderBuffer>& buffer,
@@ -55,7 +56,6 @@ class MEDIA_EXPORT DecryptingAudioDecoder : public AudioDecoder {
   // TODO(xhwang): Update this diagram for DecryptingAudioDecoder.
   enum State {
     kUninitialized = 0,
-    kDecryptorRequested,
     kPendingDecoderInit,
     kIdle,
     kPendingDecode,
@@ -63,10 +63,6 @@ class MEDIA_EXPORT DecryptingAudioDecoder : public AudioDecoder {
     kDecodeFinished,
     kError
   };
-
-  // Callback to set CDM. |cdm_attached_cb| is called when the decryptor in the
-  // CDM has been completely attached to the pipeline.
-  void SetCdm(CdmContext* cdm_context, const CdmAttachedCB& cdm_attached_cb);
 
   // Initializes the audio decoder on the |decryptor_| with |config_|.
   void InitializeDecoder();
@@ -105,9 +101,6 @@ class MEDIA_EXPORT DecryptingAudioDecoder : public AudioDecoder {
 
   // The current decoder configuration.
   AudioDecoderConfig config_;
-
-  // Callback to request/cancel CDM ready notification.
-  SetCdmReadyCB set_cdm_ready_cb_;
 
   Decryptor* decryptor_;
 

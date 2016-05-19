@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -123,7 +126,7 @@ class GeolocationNetworkProviderTest : public testing::Test {
         access_token_store_.get(),
         NULL,  // No URLContextGetter needed, as using test urlfecther factory.
         test_server_url_,
-        access_token_store_->access_token_set_[test_server_url_]);
+        access_token_store_->access_token_map_[test_server_url_]);
     if (set_permission_granted)
       provider->OnPermissionGranted();
     return provider;
@@ -412,7 +415,7 @@ TEST_F(GeolocationNetworkProviderTest, MultipleWifiScansComplete) {
 
   // Token should be in the store.
   EXPECT_EQ(base::UTF8ToUTF16(REFERENCE_ACCESS_TOKEN),
-            access_token_store_->access_token_set_[test_server_url_]);
+            access_token_store_->access_token_map_[test_server_url_]);
 
   // Wifi updated again, with one less AP. This is 'close enough' to the
   // previous scan, so no new request made.
@@ -505,7 +508,7 @@ TEST_F(GeolocationNetworkProviderTest, NetworkRequestDeferredForPermission) {
 
 TEST_F(GeolocationNetworkProviderTest,
        NetworkRequestWithWifiDataDeferredForPermission) {
-  access_token_store_->access_token_set_[test_server_url_] =
+  access_token_store_->access_token_map_[test_server_url_] =
       base::UTF8ToUTF16(REFERENCE_ACCESS_TOKEN);
   scoped_ptr<LocationProvider> provider(CreateProvider(false));
   EXPECT_TRUE(provider->StartProvider(false));

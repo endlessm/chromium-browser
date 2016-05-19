@@ -13,13 +13,14 @@
 #include <utility>
 #include <vector>
 
-#include "../testing/test_support.h"
-#include "image_diff_png.h"
 #include "public/fpdf_dataavail.h"
+#include "public/fpdf_edit.h"
 #include "public/fpdf_ext.h"
 #include "public/fpdf_formfill.h"
 #include "public/fpdf_text.h"
 #include "public/fpdfview.h"
+#include "samples/image_diff_png.h"
+#include "testing/test_support.h"
 
 #ifdef PDF_ENABLE_V8
 #include "v8/include/libplatform/libplatform.h"
@@ -41,8 +42,9 @@ enum OutputFormat {
 };
 
 struct Options {
-  Options() : output_format(OUTPUT_NONE) { }
+  Options() : show_config(false), output_format(OUTPUT_NONE) {}
 
+  bool show_config;
   OutputFormat output_format;
   std::string scale_factor_as_string;
   std::string exe_path;
@@ -135,10 +137,9 @@ static void WritePng(const char* pdf_name, int num, const void* buffer_void,
 #ifdef _WIN32
 static void WriteBmp(const char* pdf_name, int num, const void* buffer,
                      int stride, int width, int height) {
-  if (stride < 0 || width < 0 || height < 0)
+  if (!CheckDimensions(stride, width, height))
     return;
-  if (height > 0 && width > INT_MAX / height)
-    return;
+
   int out_len = stride * height;
   if (out_len > INT_MAX / 3)
     return;
@@ -194,15 +195,61 @@ void WriteEmf(FPDF_PAGE page, const char* pdf_name, int num) {
 }
 #endif
 
-int ExampleAppAlert(IPDF_JSPLATFORM*, FPDF_WIDESTRING msg, FPDF_WIDESTRING,
-                    int, int) {
-  std::wstring platform_string = GetWideString(msg);
-  printf("Alert: %ls\n", platform_string.c_str());
+// These example JS platform callback handlers are entirely optional,
+// and exist here to show the flow of information from a document back
+// to the embedder.
+int ExampleAppAlert(IPDF_JSPLATFORM*,
+                    FPDF_WIDESTRING msg,
+                    FPDF_WIDESTRING title,
+                    int nType,
+                    int nIcon) {
+  printf("%ls", GetPlatformWString(title).c_str());
+  if (nIcon || nType)
+    printf("[icon=%d,type=%d]", nIcon, nType);
+  printf(": %ls\n", GetPlatformWString(msg).c_str());
   return 0;
+}
+
+int ExampleAppResponse(IPDF_JSPLATFORM*,
+                       FPDF_WIDESTRING question,
+                       FPDF_WIDESTRING title,
+                       FPDF_WIDESTRING defaultValue,
+                       FPDF_WIDESTRING label,
+                       FPDF_BOOL isPassword,
+                       void* response,
+                       int length) {
+  printf("%ls: %ls, defaultValue=%ls, label=%ls, isPassword=%d, length=%d\n",
+         GetPlatformWString(title).c_str(),
+         GetPlatformWString(question).c_str(),
+         GetPlatformWString(defaultValue).c_str(),
+         GetPlatformWString(label).c_str(), isPassword, length);
+
+  // UTF-16, always LE regardless of platform.
+  uint8_t* ptr = static_cast<uint8_t*>(response);
+  ptr[0] = 'N';
+  ptr[1] = 0;
+  ptr[2] = 'o';
+  ptr[3] = 0;
+  return 4;
 }
 
 void ExampleDocGotoPage(IPDF_JSPLATFORM*, int pageNumber) {
   printf("Goto Page: %d\n", pageNumber);
+}
+
+void ExampleDocMail(IPDF_JSPLATFORM*,
+                    void* mailData,
+                    int length,
+                    FPDF_BOOL bUI,
+                    FPDF_WIDESTRING To,
+                    FPDF_WIDESTRING Subject,
+                    FPDF_WIDESTRING CC,
+                    FPDF_WIDESTRING BCC,
+                    FPDF_WIDESTRING Msg) {
+  printf("Mail Msg: %d, to=%ls, cc=%ls, bcc=%ls, subject=%ls, body=%ls\n", bUI,
+         GetPlatformWString(To).c_str(), GetPlatformWString(CC).c_str(),
+         GetPlatformWString(BCC).c_str(), GetPlatformWString(Subject).c_str(),
+         GetPlatformWString(Msg).c_str());
 }
 
 void ExampleUnsupportedHandler(UNSUPPORT_INFO*, int type) {
@@ -258,7 +305,9 @@ bool ParseCommandLine(const std::vector<std::string>& args,
   size_t cur_idx = 1;
   for (; cur_idx < args.size(); ++cur_idx) {
     const std::string& cur_arg = args[cur_idx];
-    if (cur_arg == "--ppm") {
+    if (cur_arg == "--show-config") {
+      options->show_config = true;
+    } else if (cur_arg == "--ppm") {
       if (options->output_format != OUTPUT_NONE) {
         fprintf(stderr, "Duplicate or conflicting --ppm argument\n");
         return false;
@@ -278,7 +327,6 @@ bool ParseCommandLine(const std::vector<std::string>& args,
       }
       options->font_directory = cur_arg.substr(11);
     }
-
 #ifdef _WIN32
     else if (cur_arg == "--emf") {
       if (options->output_format != OUTPUT_NONE) {
@@ -286,8 +334,7 @@ bool ParseCommandLine(const std::vector<std::string>& args,
         return false;
       }
       options->output_format = OUTPUT_EMF;
-    }
-    else if (cur_arg == "--bmp") {
+    } else if (cur_arg == "--bmp") {
       if (options->output_format != OUTPUT_NONE) {
         fprintf(stderr, "Duplicate or conflicting --bmp argument\n");
         return false;
@@ -312,13 +359,11 @@ bool ParseCommandLine(const std::vector<std::string>& args,
         return false;
       }
       options->scale_factor_as_string = cur_arg.substr(8);
-    }
-    else
+    } else if (cur_arg.size() >= 2 && cur_arg[0] == '-' && cur_arg[1] == '-') {
+      fprintf(stderr, "Unrecognized argument %s\n", cur_arg.c_str());
+      return false;
+    } else
       break;
-  }
-  if (cur_idx >= args.size()) {
-    fprintf(stderr, "No input files.\n");
-    return false;
   }
   for (size_t i = cur_idx; i < args.size(); i++) {
     files->push_back(args[i]);
@@ -352,14 +397,14 @@ bool RenderPage(const std::string& name,
   }
   int width = static_cast<int>(FPDF_GetPageWidth(page) * scale);
   int height = static_cast<int>(FPDF_GetPageHeight(page) * scale);
-
-  FPDF_BITMAP bitmap = FPDFBitmap_Create(width, height, 0);
+  int alpha = FPDFPage_HasTransparency(page) ? 1 : 0;
+  FPDF_BITMAP bitmap = FPDFBitmap_Create(width, height, alpha);
   if (!bitmap) {
     fprintf(stderr, "Page was too large to be rendered.\n");
     return false;
   }
-
-  FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
+  FPDF_DWORD fill_color = alpha ? 0x00000000 : 0xFFFFFFFF;
+  FPDFBitmap_FillRect(bitmap, 0, 0, width, height, fill_color);
   FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, 0, 0);
 
   FPDF_FFLDraw(form, bitmap, page, 0, 0, width, height, 0, 0);
@@ -405,11 +450,17 @@ void RenderPdf(const std::string& name, const char* pBuf, size_t len,
   memset(&platform_callbacks, '\0', sizeof(platform_callbacks));
   platform_callbacks.version = 3;
   platform_callbacks.app_alert = ExampleAppAlert;
+  platform_callbacks.app_response = ExampleAppResponse;
   platform_callbacks.Doc_gotoPage = ExampleDocGotoPage;
+  platform_callbacks.Doc_mail = ExampleDocMail;
 
   FPDF_FORMFILLINFO form_callbacks;
   memset(&form_callbacks, '\0', sizeof(form_callbacks));
+#ifdef PDF_ENABLE_XFA
+  form_callbacks.version = 2;
+#else   // PDF_ENABLE_XFA
   form_callbacks.version = 1;
+#endif  // PDF_ENABLE_XFA
   form_callbacks.m_pJsPlatform = &platform_callbacks;
 
   TestLoader loader(pBuf, len);
@@ -496,6 +547,13 @@ void RenderPdf(const std::string& name, const char* pBuf, size_t len,
   (void)FPDF_GetDocPermissions(doc);
 
   FPDF_FORMHANDLE form = FPDFDOC_InitFormFillEnvironment(doc, &form_callbacks);
+#ifdef PDF_ENABLE_XFA
+  int docType = DOCTYPE_PDF;
+  if (FPDF_HasXFAField(doc, &docType) && docType != DOCTYPE_PDF &&
+      !FPDF_LoadXFA(doc)) {
+    fprintf(stderr, "LoadXFA unsuccessful, continuing anyway.\n");
+  }
+#endif  // PDF_ENABLE_XFA
   FPDF_SetFormFieldHighlightColor(form, 0, 0xFFE4DD);
   FPDF_SetFormFieldHighlightAlpha(form, 100);
 
@@ -525,23 +583,55 @@ void RenderPdf(const std::string& name, const char* pBuf, size_t len,
   }
 
   FORM_DoDocumentAAction(form, FPDFDOC_AACTION_WC);
+
+#ifdef PDF_ENABLE_XFA
+  // Note: The shut down order here is the reverse of the non-XFA branch order.
+  // Need to work out if this is required, and if it is, the lifetimes of
+  // objects owned by |doc| that |form| reference.
+  FPDF_CloseDocument(doc);
+  FPDFDOC_ExitFormFillEnvironment(form);
+#else  // PDF_ENABLE_XFA
   FPDFDOC_ExitFormFillEnvironment(form);
   FPDF_CloseDocument(doc);
+#endif  // PDF_ENABLE_XFA
+
   FPDFAvail_Destroy(pdf_avail);
 
   fprintf(stderr, "Rendered %d pages.\n", rendered_pages);
   fprintf(stderr, "Skipped %d bad pages.\n", bad_pages);
 }
 
+static void ShowConfig() {
+  std::string config;
+  std::string maybe_comma;
+#if PDF_ENABLE_V8
+  config.append(maybe_comma);
+  config.append("V8");
+  maybe_comma = ",";
+#endif  // PDF_ENABLE_V8
+#ifdef V8_USE_EXTERNAL_STARTUP_DATA
+  config.append(maybe_comma);
+  config.append("V8_EXTERNAL");
+  maybe_comma = ",";
+#endif  // V8_USE_EXTERNAL_STARTUP_DATA
+#ifdef PDF_ENABLE_XFA
+  config.append(maybe_comma);
+  config.append("XFA");
+  maybe_comma = ",";
+#endif  // PDF_ENABLE_XFA
+  printf("%s\n", config.c_str());
+}
+
 static const char usage_string[] =
     "Usage: pdfium_test [OPTION] [FILE]...\n"
+    "  --show-config     - print build options and exit\n"
     "  --bin-dir=<path>  - override path to v8 external data\n"
     "  --font-dir=<path> - override path to external fonts\n"
     "  --scale=<number>  - scale output size by number (e.g. 0.5)\n"
 #ifdef _WIN32
     "  --bmp - write page images <pdf-name>.<page-number>.bmp\n"
     "  --emf - write page meta files <pdf-name>.<page-number>.emf\n"
-#endif
+#endif  // _WIN32
     "  --png - write page images <pdf-name>.<page-number>.png\n"
     "  --ppm - write page images <pdf-name>.<page-number>.ppm\n";
 
@@ -551,6 +641,16 @@ int main(int argc, const char* argv[]) {
   std::list<std::string> files;
   if (!ParseCommandLine(args, &options, &files)) {
     fprintf(stderr, "%s", usage_string);
+    return 1;
+  }
+
+  if (options.show_config) {
+    ShowConfig();
+    return 0;
+  }
+
+  if (files.empty()) {
+    fprintf(stderr, "No input files.\n");
     return 1;
   }
 
@@ -591,11 +691,10 @@ int main(int argc, const char* argv[]) {
     std::string filename = files.front();
     files.pop_front();
     size_t file_length = 0;
-    char* file_contents = GetFileContents(filename.c_str(), &file_length);
-    if (!file_contents)
-      continue;
-    RenderPdf(filename, file_contents, file_length, options);
-    free(file_contents);
+    std::unique_ptr<char, pdfium::FreeDeleter> file_contents =
+        GetFileContents(filename.c_str(), &file_length);
+    if (file_contents)
+      RenderPdf(filename, file_contents.get(), file_length, options);
   }
 
   FPDF_DestroyLibrary();

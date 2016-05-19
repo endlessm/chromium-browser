@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_SERVICE_TEST_BASE_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_SERVICE_TEST_BASE_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/at_exit.h"
@@ -12,6 +14,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
@@ -55,6 +58,7 @@ class ExtensionServiceTestBase : public testing::Test {
     // Though you could use this constructor, you probably want to use
     // CreateDefaultInitParams(), and then make a change or two.
     ExtensionServiceInitParams();
+    ExtensionServiceInitParams(const ExtensionServiceInitParams& other);
   };
 
   // Public because parameterized test cases need it to be, or else the compiler
@@ -122,9 +126,14 @@ class ExtensionServiceTestBase : public testing::Test {
   const base::ScopedTempDir& temp_dir() const { return temp_dir_; }
 
  private:
+  // Must be declared before anything that may make use of the
+  // directory so as to ensure files are closed before cleanup.
+  base::ScopedTempDir temp_dir_;
+
   // Destroying at_exit_manager_ will delete all LazyInstances, so it must come
   // after thread_bundle_ in the destruction order.
   base::ShadowingAtExitManager at_exit_manager_;
+
   scoped_ptr<content::TestBrowserThreadBundle> thread_bundle_;
 
  protected:
@@ -142,10 +151,6 @@ class ExtensionServiceTestBase : public testing::Test {
 
  private:
   void CreateExtensionService(const ExtensionServiceInitParams& params);
-
-  // Destroy temp_dir_ after thread_bundle_ so clean-up tasks can still use the
-  // directory.
-  base::ScopedTempDir temp_dir_;
 
   // Whether or not the thread bundle was reset in the test.
   bool did_reset_thread_bundle_;

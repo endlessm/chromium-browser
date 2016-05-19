@@ -39,7 +39,7 @@ WebInspector.TabbedPane = function()
     this.element.classList.add("tabbed-pane");
     this.contentElement.classList.add("tabbed-pane-shadow");
     this.contentElement.tabIndex = -1;
-    this._headerElement = this.contentElement.createChild("div", "tabbed-pane-header toolbar-colors");
+    this._headerElement = this.contentElement.createChild("div", "tabbed-pane-header");
     this._headerElement.createChild("content").select = ".tabbed-pane-header-before";
     this._headerContentsElement = this._headerElement.createChild("div", "tabbed-pane-header-contents");
     this._tabSlider = createElementWithClass("div", "tabbed-pane-tab-slider");
@@ -191,7 +191,7 @@ WebInspector.TabbedPane.prototype = {
     appendTab: function(id, tabTitle, view, tabTooltip, userGesture, isCloseable, index)
     {
         isCloseable = typeof isCloseable === "boolean" ? isCloseable : this._closeableTabs;
-        var tab = new WebInspector.TabbedPaneTab(this, id, tabTitle, isCloseable, view, tabTooltip, this._dragDelay);
+        var tab = new WebInspector.TabbedPaneTab(this, id, tabTitle, isCloseable, view, tabTooltip);
         tab.setDelegate(this._delegate);
         this._tabsById[id] = tab;
         if (index !== undefined)
@@ -822,13 +822,11 @@ WebInspector.TabbedPane.prototype = {
     /**
      * @param {boolean} allow
      * @param {boolean=} automatic
-     * @param {number=} dragDelay
      */
-    setAllowTabReorder: function(allow, automatic, dragDelay)
+    setAllowTabReorder: function(allow, automatic)
     {
         this._allowTabReorder = allow;
         this._automaticReorder = automatic;
-        this._dragDelay = dragDelay;
     },
 
     __proto__: WebInspector.VBox.prototype
@@ -842,9 +840,8 @@ WebInspector.TabbedPane.prototype = {
  * @param {boolean} closeable
  * @param {!WebInspector.Widget} view
  * @param {string=} tooltip
- * @param {number=} dragDelay
  */
-WebInspector.TabbedPaneTab = function(tabbedPane, id, title, closeable, view, tooltip, dragDelay)
+WebInspector.TabbedPaneTab = function(tabbedPane, id, title, closeable, view, tooltip)
 {
     this._closeable = closeable;
     this._tabbedPane = tabbedPane;
@@ -852,7 +849,6 @@ WebInspector.TabbedPaneTab = function(tabbedPane, id, title, closeable, view, to
     this._title = title;
     this._tooltip = tooltip;
     this._view = view;
-    this._dragDelay = dragDelay;
     this._shown = false;
     /** @type {number} */ this._measuredWidth;
     /** @type {!Element|undefined} */ this._tabElement;
@@ -1039,7 +1035,7 @@ WebInspector.TabbedPaneTab.prototype = {
 
             tabElement.addEventListener("contextmenu", this._tabContextMenu.bind(this), false);
             if (this._tabbedPane._allowTabReorder)
-                WebInspector.installDragHandle(tabElement, this._startTabDragging.bind(this), this._tabDragging.bind(this), this._endTabDragging.bind(this), "-webkit-grabbing", "pointer", this._dragDelay);
+                WebInspector.installDragHandle(tabElement, this._startTabDragging.bind(this), this._tabDragging.bind(this), this._endTabDragging.bind(this), "-webkit-grabbing", "pointer", 200);
         }
 
         return tabElement;
@@ -1290,10 +1286,8 @@ WebInspector.ExtensibleTabbedPaneController.prototype = {
 
     enableMoreTabsButton: function()
     {
-        var toolbar = new WebInspector.Toolbar();
-        toolbar.element.classList.add("drawer-toolbar");
-        this._moreTabsButton = new WebInspector.ToolbarMenuButton("", "menu-toolbar-item", this._appendTabsToMenu.bind(this));
-        toolbar.appendToolbarItem(this._moreTabsButton);
+        var toolbar = new WebInspector.Toolbar("drawer-toolbar");
+        toolbar.appendToolbarItem(new WebInspector.ToolbarMenuButton(this._appendTabsToMenu.bind(this)));
         this._tabbedPane.insertBeforeTabStrip(toolbar.element);
         this._tabbedPane.disableOverflowMenu();
     },

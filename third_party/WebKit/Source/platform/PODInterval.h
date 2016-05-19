@@ -62,14 +62,16 @@ namespace blink {
 // available:
 //
 //   template<> struct ValueToString<T> {
-//       static String string(const T& t);
+//       static String toString(const T& t);
 //   };
 //   template<> struct ValueToString<UserData> {
-//       static String string(const UserData& t);
+//       static String toString(const UserData& t);
 //   };
 //
 // Note that this class requires a copy constructor and assignment
 // operator in order to be stored in the red-black tree.
+
+#include "wtf/Allocator.h"
 
 #ifndef NDEBUG
 template<class T>
@@ -78,6 +80,7 @@ struct ValueToString;
 
 template<class T, class UserData = void*>
 class PODInterval {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     // Constructor from endpoints. This constructor only works when the
     // UserData type is a pointer or other type which can be initialized
@@ -140,13 +143,13 @@ public:
     {
         StringBuilder builder;
         builder.appendLiteral("[PODInterval (");
-        builder.append(ValueToString<T>::string(low()));
+        builder.append(ValueToString<T>::toString(low()));
         builder.appendLiteral(", ");
-        builder.append(ValueToString<T>::string(high()));
+        builder.append(ValueToString<T>::toString(high()));
         builder.appendLiteral("), data=");
-        builder.append(ValueToString<UserData>::string(data()));
+        builder.append(ValueToString<UserData>::toString(data()));
         builder.appendLiteral(", maxHigh=");
-        builder.append(ValueToString<T>::string(maxHigh()));
+        builder.append(ValueToString<T>::toString(maxHigh()));
         builder.append(']');
         return builder.toString();
     }

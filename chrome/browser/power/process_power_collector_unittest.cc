@@ -4,7 +4,7 @@
 
 #include "chrome/browser/power/process_power_collector.h"
 
-#include "chrome/browser/apps/scoped_keep_alive.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/apps/chrome_app_delegate.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -81,7 +81,7 @@ class BrowserProcessPowerTest : public BrowserWithTestWindowTest {
         process_id)
 #endif
                                                 );
-    return proc_handle.Pass();
+    return proc_handle;
   }
 
   scoped_ptr<ProcessPowerCollector> collector;
@@ -102,7 +102,7 @@ TEST_F(BrowserProcessPowerTest, OneSite) {
   EXPECT_EQ(1u, metrics_map->size());
 
   // Create fake process numbers.
-  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1).Pass());
+  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1));
 
   OriginPowerMap* origin_power_map =
       OriginPowerMapFactory::GetForBrowserContext(profile());
@@ -117,8 +117,7 @@ TEST_F(BrowserProcessPowerTest, OneSite) {
 }
 
 TEST_F(BrowserProcessPowerTest, MultipleSites) {
-  Browser::CreateParams native_params(profile(),
-                                      chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser::CreateParams native_params(profile());
   GURL url1("http://www.google.com");
   GURL url2("http://www.example.com");
   GURL url3("https://www.google.com");
@@ -131,9 +130,9 @@ TEST_F(BrowserProcessPowerTest, MultipleSites) {
   AddTab(browser3.get(), url3);
 
   // Create fake process numbers.
-  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1).Pass());
-  GetProcess(browser2.get())->SetProcessHandle(MakeProcessHandle(2).Pass());
-  GetProcess(browser3.get())->SetProcessHandle(MakeProcessHandle(3).Pass());
+  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1));
+  GetProcess(browser2.get())->SetProcessHandle(MakeProcessHandle(2));
+  GetProcess(browser3.get())->SetProcessHandle(MakeProcessHandle(3));
 
   collector->UpdatePowerConsumptionForTesting();
   ProcessPowerCollector::ProcessMetricsMap* metrics_map =
@@ -166,8 +165,7 @@ TEST_F(BrowserProcessPowerTest, MultipleSites) {
 }
 
 TEST_F(BrowserProcessPowerTest, IncognitoDoesntRecordPowerUsage) {
-  Browser::CreateParams native_params(profile()->GetOffTheRecordProfile(),
-                                      chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser::CreateParams native_params(profile()->GetOffTheRecordProfile());
   scoped_ptr<Browser> incognito_browser(
       chrome::CreateBrowserWithTestWindowForParams(&native_params));
   GURL url("http://www.google.com");
@@ -177,9 +175,8 @@ TEST_F(BrowserProcessPowerTest, IncognitoDoesntRecordPowerUsage) {
   AddTab(incognito_browser.get(), hidden_url);
 
   // Create fake process numbers.
-  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1).Pass());
-  GetProcess(incognito_browser.get())
-      ->SetProcessHandle(MakeProcessHandle(2).Pass());
+  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1));
+  GetProcess(incognito_browser.get())->SetProcessHandle(MakeProcessHandle(2));
 
   EXPECT_DOUBLE_EQ(0, collector->UpdatePowerConsumptionForTesting());
   ProcessPowerCollector::ProcessMetricsMap* metrics_map =
@@ -205,8 +202,7 @@ TEST_F(BrowserProcessPowerTest, IncognitoDoesntRecordPowerUsage) {
 
 TEST_F(BrowserProcessPowerTest, MultipleProfilesRecordSeparately) {
   scoped_ptr<Profile> other_profile(CreateProfile());
-  Browser::CreateParams native_params(other_profile.get(),
-                                      chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser::CreateParams native_params(other_profile.get());
   scoped_ptr<Browser> other_user(
       chrome::CreateBrowserWithTestWindowForParams(&native_params));
 
@@ -217,8 +213,8 @@ TEST_F(BrowserProcessPowerTest, MultipleProfilesRecordSeparately) {
   AddTab(other_user.get(), hidden_url);
 
   // Create fake process numbers.
-  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1).Pass());
-  GetProcess(other_user.get())->SetProcessHandle(MakeProcessHandle(2).Pass());
+  GetProcess(browser())->SetProcessHandle(MakeProcessHandle(1));
+  GetProcess(other_user.get())->SetProcessHandle(MakeProcessHandle(2));
 
   EXPECT_DOUBLE_EQ(0, collector->UpdatePowerConsumptionForTesting());
   EXPECT_EQ(2u, collector->metrics_map_for_testing()->size());
@@ -270,8 +266,7 @@ TEST_F(BrowserProcessPowerTest, AppsRecordPowerUsage) {
       profile_manager_->CreateTestingProfile("Test user");
   GURL url("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   extensions::AppWindow* window = new extensions::AppWindow(
-      current_profile, new ChromeAppDelegate(scoped_ptr<ScopedKeepAlive>()),
-      extension.get());
+      current_profile, new ChromeAppDelegate(false), extension.get());
   content::WebContents* web_contents(
       content::WebContents::Create(content::WebContents::CreateParams(
           current_profile,

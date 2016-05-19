@@ -4,6 +4,9 @@
 
 #include "content/browser/renderer_host/p2p/socket_host_tcp.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/sys_byteorder.h"
@@ -13,18 +16,17 @@
 #include "jingle/glue/proxy_resolving_client_socket.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/tcp_client_socket.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "third_party/webrtc/base/asyncpacketsocket.h"
+#include "third_party/webrtc/media/base/rtputils.h"
 
 namespace {
 
-typedef uint16 PacketLength;
+typedef uint16_t PacketLength;
 const int kPacketHeaderSize = sizeof(PacketLength);
 const int kReadBufferSize = 4096;
 const int kPacketLengthOffset = 2;
@@ -154,9 +156,9 @@ void P2PSocketHostTcpBase::OnConnected(int result) {
     state_ = STATE_TLS_CONNECTING;
     StartTls();
   } else if (IsPseudoTlsClientSocket(type_)) {
-    scoped_ptr<net::StreamSocket> transport_socket = socket_.Pass();
+    scoped_ptr<net::StreamSocket> transport_socket = std::move(socket_);
     socket_.reset(
-        new jingle_glue::FakeSSLClientSocket(transport_socket.Pass()));
+        new jingle_glue::FakeSSLClientSocket(std::move(transport_socket)));
     state_ = STATE_TLS_CONNECTING;
     int status = socket_->Connect(
         base::Bind(&P2PSocketHostTcpBase::ProcessTlsSslConnectDone,
@@ -167,7 +169,7 @@ void P2PSocketHostTcpBase::OnConnected(int result) {
   } else {
     // If we are not doing TLS, we are ready to send data now.
     // In case of TLS, SignalConnect will be sent only after TLS handshake is
-    // successfull. So no buffering will be done at socket handlers if any
+    // successful. So no buffering will be done at socket handlers if any
     // packets sent before that by the application.
     OnOpen();
   }
@@ -179,7 +181,7 @@ void P2PSocketHostTcpBase::StartTls() {
 
   scoped_ptr<net::ClientSocketHandle> socket_handle(
       new net::ClientSocketHandle());
-  socket_handle->SetSocket(socket_.Pass());
+  socket_handle->SetSocket(std::move(socket_));
 
   net::SSLClientSocketContext context;
   context.cert_verifier = url_context_->GetURLRequestContext()->cert_verifier();
@@ -206,7 +208,7 @@ void P2PSocketHostTcpBase::StartTls() {
   DCHECK(socket_factory);
 
   socket_ = socket_factory->CreateSSLClientSocket(
-      socket_handle.Pass(), dest_host_port_pair, ssl_config, context);
+      std::move(socket_handle), dest_host_port_pair, ssl_config, context);
   int status = socket_->Connect(
       base::Bind(&P2PSocketHostTcpBase::ProcessTlsSslConnectDone,
                  base::Unretained(this)));
@@ -349,7 +351,7 @@ void P2PSocketHostTcpBase::OnPacket(const std::vector<char>& data) {
 void P2PSocketHostTcpBase::Send(const net::IPEndPoint& to,
                                 const std::vector<char>& data,
                                 const rtc::PacketOptions& options,
-                                uint64 packet_id) {
+                                uint64_t packet_id) {
   if (!socket_) {
     // The Send message may be sent after the an OnError message was
     // sent by hasn't been processed the renderer.
@@ -504,7 +506,7 @@ P2PSocketHostTcp::~P2PSocketHostTcp() {
 int P2PSocketHostTcp::ProcessInput(char* input, int input_len) {
   if (input_len < kPacketHeaderSize)
     return 0;
-  int packet_size = base::NetToHost16(*reinterpret_cast<uint16*>(input));
+  int packet_size = base::NetToHost16(*reinterpret_cast<uint16_t*>(input));
   if (input_len < packet_size + kPacketHeaderSize)
     return 0;
 
@@ -522,13 +524,13 @@ void P2PSocketHostTcp::DoSend(const net::IPEndPoint& to,
   int size = kPacketHeaderSize + data.size();
   scoped_refptr<net::DrainableIOBuffer> buffer =
       new net::DrainableIOBuffer(new net::IOBuffer(size), size);
-  *reinterpret_cast<uint16*>(buffer->data()) = base::HostToNet16(data.size());
+  *reinterpret_cast<uint16_t*>(buffer->data()) = base::HostToNet16(data.size());
   memcpy(buffer->data() + kPacketHeaderSize, &data[0], data.size());
 
-  packet_processing_helpers::ApplyPacketOptions(
-      buffer->data() + kPacketHeaderSize,
-      buffer->BytesRemaining() - kPacketHeaderSize,
-      options, 0);
+  cricket::ApplyPacketOptions(
+      reinterpret_cast<uint8_t*>(buffer->data()) + kPacketHeaderSize,
+      buffer->BytesRemaining() - kPacketHeaderSize, options.packet_time_params,
+      (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds());
 
   WriteOrQueue(buffer);
 }
@@ -598,8 +600,10 @@ void P2PSocketHostStunTcp::DoSend(const net::IPEndPoint& to,
       new net::DrainableIOBuffer(new net::IOBuffer(size), size);
   memcpy(buffer->data(), &data[0], data.size());
 
-  packet_processing_helpers::ApplyPacketOptions(
-      buffer->data(), data.size(), options, 0);
+  cricket::ApplyPacketOptions(
+      reinterpret_cast<uint8_t*>(buffer->data()), data.size(),
+      options.packet_time_params,
+      (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds());
 
   if (pad_bytes) {
     char padding[4] = {0};
@@ -616,11 +620,12 @@ int P2PSocketHostStunTcp::GetExpectedPacketSize(
     const char* data, int len, int* pad_bytes) {
   DCHECK_LE(kTurnChannelDataHeaderSize, len);
   // Both stun and turn had length at offset 2.
-  int packet_size = base::NetToHost16(*reinterpret_cast<const uint16*>(
-      data + kPacketLengthOffset));
+  int packet_size = base::NetToHost16(
+      *reinterpret_cast<const uint16_t*>(data + kPacketLengthOffset));
 
   // Get packet type (STUN or TURN).
-  uint16 msg_type = base::NetToHost16(*reinterpret_cast<const uint16*>(data));
+  uint16_t msg_type =
+      base::NetToHost16(*reinterpret_cast<const uint16_t*>(data));
 
   *pad_bytes = 0;
   // Add heder length to packet length.

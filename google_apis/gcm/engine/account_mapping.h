@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/time/time.h"
 #include "google_apis/gcm/base/gcm_export.h"
 
@@ -28,6 +27,7 @@ struct GCM_EXPORT AccountMapping {
   };
 
   AccountMapping();
+  AccountMapping(const AccountMapping& other);
   ~AccountMapping();
 
   // Serializes account mapping to string without |account_id|, |status| or

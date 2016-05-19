@@ -27,7 +27,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include "config.h"
 #include "modules/serviceworkers/ServiceWorkerContainer.h"
 
 #include "bindings/core/v8/ScriptPromise.h"
@@ -210,7 +209,7 @@ ScriptPromise ServiceWorkerContainer::registerServiceWorker(ScriptState* scriptS
     String errorMessage;
     // Restrict to secure origins: https://w3c.github.io/webappsec/specs/powerfulfeatures/#settings-privileged
     if (!executionContext->isSecureContext(errorMessage)) {
-        resolver->reject(DOMException::create(NotSupportedError, errorMessage));
+        resolver->reject(DOMException::create(SecurityError, errorMessage));
         return promise;
     }
 
@@ -220,7 +219,7 @@ ScriptPromise ServiceWorkerContainer::registerServiceWorker(ScriptState* scriptS
         return promise;
     }
 
-    KURL scriptURL = callingExecutionContext(scriptState->isolate())->completeURL(url);
+    KURL scriptURL = enteredExecutionContext(scriptState->isolate())->completeURL(url);
     scriptURL.removeFragmentIdentifier();
     if (!documentOrigin->canRequest(scriptURL)) {
         RefPtr<SecurityOrigin> scriptOrigin = SecurityOrigin::create(scriptURL);
@@ -236,7 +235,7 @@ ScriptPromise ServiceWorkerContainer::registerServiceWorker(ScriptState* scriptS
     if (options.scope().isNull())
         patternURL = KURL(scriptURL, "./");
     else
-        patternURL = callingExecutionContext(scriptState->isolate())->completeURL(options.scope());
+        patternURL = enteredExecutionContext(scriptState->isolate())->completeURL(options.scope());
     patternURL.removeFragmentIdentifier();
 
     if (!documentOrigin->canRequest(patternURL)) {
@@ -278,7 +277,7 @@ ScriptPromise ServiceWorkerContainer::getRegistration(ScriptState* scriptState, 
     RefPtr<SecurityOrigin> documentOrigin = executionContext->securityOrigin();
     String errorMessage;
     if (!executionContext->isSecureContext(errorMessage)) {
-        resolver->reject(DOMException::create(NotSupportedError, errorMessage));
+        resolver->reject(DOMException::create(SecurityError, errorMessage));
         return promise;
     }
 
@@ -288,7 +287,7 @@ ScriptPromise ServiceWorkerContainer::getRegistration(ScriptState* scriptState, 
         return promise;
     }
 
-    KURL completedURL = callingExecutionContext(scriptState->isolate())->completeURL(documentURL);
+    KURL completedURL = enteredExecutionContext(scriptState->isolate())->completeURL(documentURL);
     completedURL.removeFragmentIdentifier();
     if (!documentOrigin->canRequest(completedURL)) {
         RefPtr<SecurityOrigin> documentURLOrigin = SecurityOrigin::create(completedURL);
@@ -314,7 +313,7 @@ ScriptPromise ServiceWorkerContainer::getRegistrations(ScriptState* scriptState)
     RefPtr<SecurityOrigin> documentOrigin = executionContext->securityOrigin();
     String errorMessage;
     if (!executionContext->isSecureContext(errorMessage)) {
-        resolver->reject(DOMException::create(NotSupportedError, errorMessage));
+        resolver->reject(DOMException::create(SecurityError, errorMessage));
         return promise;
     }
 

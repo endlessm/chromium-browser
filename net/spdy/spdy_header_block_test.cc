@@ -19,7 +19,8 @@ using ::testing::ElementsAre;
 
 namespace net {
 
-std::pair<StringPiece, StringPiece> Pair(StringPiece k, StringPiece v) {
+std::pair<base::StringPiece, base::StringPiece> Pair(base::StringPiece k,
+                                                     base::StringPiece v) {
   return make_pair(k, v);
 }
 
@@ -81,6 +82,21 @@ TEST(SpdyHeaderBlockTest, ToNetLogParamAndBackAgain) {
   SpdyHeaderBlock headers2;
   ASSERT_TRUE(SpdyHeaderBlockFromNetLogParam(event_param.get(), &headers2));
   EXPECT_EQ(headers, headers2);
+}
+
+TEST(SpdyHeaderBlockTest, Equality) {
+  // Test equality and inequality operators.
+  SpdyHeaderBlock block1;
+  block1["foo"] = "bar";
+
+  SpdyHeaderBlock block2;
+  block2["foo"] = "bar";
+
+  SpdyHeaderBlock block3;
+  block3["baz"] = "qux";
+
+  EXPECT_EQ(block1, block2);
+  EXPECT_NE(block1, block3);
 }
 
 }  // namespace net

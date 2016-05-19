@@ -15,13 +15,13 @@
 
 #include "core/include/fpdfdoc/fpdf_doc.h"
 #include "core/include/fxcrt/fx_basic.h"
-#include "fx_systemhandler.h"
+#include "fpdfsdk/include/fsdk_define.h"
+#include "fpdfsdk/include/fx_systemhandler.h"
 
 class CPDFSDK_PageView;
 class CPDF_Annot;
 class CPDF_Page;
-class CPDF_Rect;
-class CPDF_Matrix;
+class CFX_Matrix;
 class CPDF_RenderOptions;
 class CFX_RenderDevice;
 
@@ -71,12 +71,20 @@ class CPDFSDK_Annot {
   explicit CPDFSDK_Annot(CPDFSDK_PageView* pPageView);
   virtual ~CPDFSDK_Annot() {}
 
+#ifdef PDF_ENABLE_XFA
+  virtual FX_BOOL IsXFAField() { return FALSE; }
+#endif  // PDF_ENABLE_XFA
+
   virtual FX_FLOAT GetMinWidth() const;
   virtual FX_FLOAT GetMinHeight() const;
   // define layout order to 5.
   virtual int GetLayoutOrder() const { return 5; }
 
   virtual CPDF_Annot* GetPDFAnnot() const { return nullptr; }
+
+#ifdef PDF_ENABLE_XFA
+  virtual IXFA_Widget* GetXFAWidget() const { return nullptr; }
+#endif  // PDF_ENABLE_XFA
 
   virtual CFX_ByteString GetType() const { return ""; }
   virtual CFX_ByteString GetSubType() const { return ""; }
@@ -85,10 +93,14 @@ class CPDFSDK_Annot {
   virtual CPDF_Rect GetRect() const { return CPDF_Rect(); }
 
   virtual void Annot_OnDraw(CFX_RenderDevice* pDevice,
-                            CPDF_Matrix* pUser2Device,
+                            CFX_Matrix* pUser2Device,
                             CPDF_RenderOptions* pOptions) {}
 
+  UnderlyingPageType* GetUnderlyingPage();
   CPDF_Page* GetPDFPage();
+#ifdef PDF_ENABLE_XFA
+  CPDFXFA_Page* GetPDFXFAPage();
+#endif  // PDF_ENABLE_XFA
 
   void SetPage(CPDFSDK_PageView* pPageView) { m_pPageView = pPageView; }
   CPDFSDK_PageView* GetPageView() const { return m_pPageView; }
@@ -110,19 +122,20 @@ class CPDFSDK_Annot {
 class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
  public:
   CPDFSDK_BAAnnot(CPDF_Annot* pAnnot, CPDFSDK_PageView* pPageView);
-  virtual ~CPDFSDK_BAAnnot() {}
+  ~CPDFSDK_BAAnnot() override {}
 
-  virtual CFX_ByteString GetType() const;
-  virtual CFX_ByteString GetSubType() const;
+#ifdef PDF_ENABLE_XFA
+  FX_BOOL IsXFAField() override;
+#endif  // PDF_ENABLE_XFA
 
-  virtual void SetRect(const CPDF_Rect& rect);
-  virtual CPDF_Rect GetRect() const;
-
-  virtual CPDF_Annot* GetPDFAnnot() const;
-
-  virtual void Annot_OnDraw(CFX_RenderDevice* pDevice,
-                            CPDF_Matrix* pUser2Device,
-                            CPDF_RenderOptions* pOptions);
+  CFX_ByteString GetType() const override;
+  CFX_ByteString GetSubType() const override;
+  void SetRect(const CPDF_Rect& rect) override;
+  CPDF_Rect GetRect() const override;
+  CPDF_Annot* GetPDFAnnot() const override;
+  void Annot_OnDraw(CFX_RenderDevice* pDevice,
+                    CFX_Matrix* pUser2Device,
+                    CPDF_RenderOptions* pOptions) override;
 
   CPDF_Dictionary* GetAnnotDict() const;
 
@@ -184,18 +197,18 @@ class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
   virtual FX_BOOL IsAppearanceValid();
   virtual FX_BOOL IsAppearanceValid(CPDF_Annot::AppearanceMode mode);
   virtual void DrawAppearance(CFX_RenderDevice* pDevice,
-                              const CPDF_Matrix* pUser2Device,
+                              const CFX_Matrix* pUser2Device,
                               CPDF_Annot::AppearanceMode mode,
                               const CPDF_RenderOptions* pOptions);
   void DrawBorder(CFX_RenderDevice* pDevice,
-                  const CPDF_Matrix* pUser2Device,
+                  const CFX_Matrix* pUser2Device,
                   const CPDF_RenderOptions* pOptions);
 
   void ClearCachedAP();
 
   void WriteAppearance(const CFX_ByteString& sAPType,
                        const CPDF_Rect& rcBBox,
-                       const CPDF_Matrix& matrix,
+                       const CFX_Matrix& matrix,
                        const CFX_ByteString& sContents,
                        const CFX_ByteString& sAPState = "");
 

@@ -4,7 +4,9 @@
 
 #include "content/renderer/pepper/pepper_compositor_host.h"
 
+#include <stddef.h>
 #include <limits>
+#include <utility>
 
 #include "base/logging.h"
 #include "base/memory/shared_memory.h"
@@ -142,6 +144,8 @@ int32_t VerifyCommittedLayer(
 PepperCompositorHost::LayerData::LayerData(
     const scoped_refptr<cc::Layer>& cc,
     const ppapi::CompositorLayerData& pp) : cc_layer(cc), pp_layer(pp) {}
+
+PepperCompositorHost::LayerData::LayerData(const LayerData& other) = default;
 
 PepperCompositorHost::LayerData::~LayerData() {}
 
@@ -390,7 +394,7 @@ int32_t PepperCompositorHost::OnHostMsgCommitLayers(
       layer_->AddChild(cc_layer);
     }
 
-    UpdateLayer(cc_layer, old_layer, pp_layer, image_shms[i].Pass());
+    UpdateLayer(cc_layer, old_layer, pp_layer, std::move(image_shms[i]));
 
     if (old_layer)
       *old_layer = *pp_layer;

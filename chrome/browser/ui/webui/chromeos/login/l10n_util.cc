@@ -4,13 +4,14 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <iterator>
 #include <map>
 #include <set>
 #include <utility>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/location.h"
@@ -54,7 +55,7 @@ scoped_ptr<base::DictionaryValue> CreateInputMethodsEntry(
   input_method->SetString(
       "title", util->GetInputMethodLongNameStripped(method));
   input_method->SetBoolean("selected", ime_id == selected);
-  return input_method.Pass();
+  return input_method;
 }
 
 // Returns true if element was inserted.
@@ -283,7 +284,7 @@ scoped_ptr<base::ListValue> GetLanguageList(
         CreateLanguageEntry(pair.first, out_display_names[i], pair.second));
   }
 
-  return language_list.Pass();
+  return language_list;
 }
 
 // Invokes |callback| with a list of keyboard layouts that can be used for
@@ -320,7 +321,7 @@ void GetKeyboardLayoutsForResolvedLocale(
         CreateInputMethodsEntry(*ime, selected).release());
   }
 
-  callback.Run(input_methods_list.Pass());
+  callback.Run(std::move(input_methods_list));
 }
 
 // For "UI Language" drop-down menu at OOBE screen we need to decide which
@@ -438,7 +439,7 @@ scoped_ptr<base::ListValue> GetMinimalUILanguageList() {
                                             language_native_display_name,
                                             language_native_display_name));
   AdjustUILanguageList(std::string(), language_list.get());
-  return language_list.Pass();
+  return language_list;
 }
 
 scoped_ptr<base::ListValue> GetUILanguageList(
@@ -457,7 +458,7 @@ scoped_ptr<base::ListValue> GetUILanguageList(
           : StartupCustomizationDocument::GetInstance()->configured_locales(),
       true));
   AdjustUILanguageList(selected, languages_list.get());
-  return languages_list.Pass();
+  return languages_list;
 }
 
 std::string FindMostRelevantLocale(
@@ -566,7 +567,7 @@ scoped_ptr<base::ListValue> GetAndActivateLoginKeyboardLayouts(
                                                        selected).release());
     manager->GetActiveIMEState()->EnableInputMethod(us_keyboard_id);
   }
-  return input_methods_list.Pass();
+  return input_methods_list;
 }
 
 void GetKeyboardLayoutsForLocale(

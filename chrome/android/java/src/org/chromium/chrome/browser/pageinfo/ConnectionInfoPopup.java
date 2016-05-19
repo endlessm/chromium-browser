@@ -148,7 +148,7 @@ public class ConnectionInfoPopup implements OnClickListener {
                 mContext.getResources(), R.color.website_settings_popup_text_link));
         mCertificateViewer.setTextSize(DESCRIPTION_TEXT_SIZE_SP);
         mCertificateViewer.setOnClickListener(this);
-        mCertificateViewer.setPadding(0, mPaddingThin, 0, mPaddingThin);
+        mCertificateViewer.setPadding(0, mPaddingThin, 0, 0);
         mCertificateLayout.addView(mCertificateViewer);
     }
 
@@ -182,7 +182,7 @@ public class ConnectionInfoPopup implements OnClickListener {
         mMoreInfoLink.setTextColor(ApiCompatibilityUtils.getColor(
                 mContext.getResources(), R.color.website_settings_popup_text_link));
         mMoreInfoLink.setTextSize(DESCRIPTION_TEXT_SIZE_SP);
-        mMoreInfoLink.setPadding(0, mPaddingThin, 0, mPaddingThin);
+        mMoreInfoLink.setPadding(0, mPaddingThin, 0, 0);
         mMoreInfoLink.setOnClickListener(this);
         mDescriptionLayout.addView(mMoreInfoLink);
     }
@@ -223,7 +223,7 @@ public class ConnectionInfoPopup implements OnClickListener {
                 mContext.startActivity(i);
             } catch (Exception ex) {
                 // Do nothing intentionally.
-                Log.w(TAG, "Bad URI " + mLinkUrl, ex);
+                Log.w(TAG, "Bad URI %s", mLinkUrl, ex);
             }
         }
     }

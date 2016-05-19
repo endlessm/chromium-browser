@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_FAVICON_LARGE_ICON_SERVICE_FACTORY_H_
 #define CHROME_BROWSER_FAVICON_LARGE_ICON_SERVICE_FACTORY_H_
 
+#include "base/macros.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 namespace base {
@@ -35,6 +36,8 @@ class LargeIconServiceFactory : public BrowserContextKeyedServiceFactory {
   ~LargeIconServiceFactory() override;
 
   // BrowserContextKeyedServiceFactory:
+  content::BrowserContext* GetBrowserContextToUse(
+      content::BrowserContext* context) const override;
   KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const override;
   bool ServiceIsNULLWhileTesting() const override;

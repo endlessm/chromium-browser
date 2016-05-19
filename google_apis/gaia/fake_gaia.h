@@ -9,8 +9,8 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "url/gurl.h"
 
@@ -37,6 +37,7 @@ class FakeGaia {
   // Access token details used for token minting and the token info endpoint.
   struct AccessTokenInfo {
     AccessTokenInfo();
+    AccessTokenInfo(const AccessTokenInfo& other);
     ~AccessTokenInfo();
 
     std::string token;

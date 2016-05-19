@@ -6,6 +6,7 @@
 #define NET_CERT_NSS_CERT_DATABASE_H_
 
 #include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -64,6 +65,7 @@ class NET_EXPORT NSSCertDatabase {
   struct NET_EXPORT ImportCertFailure {
    public:
     ImportCertFailure(const scoped_refptr<X509Certificate>& cert, int err);
+    ImportCertFailure(const ImportCertFailure& other);
     ~ImportCertFailure();
 
     scoped_refptr<X509Certificate> certificate;
@@ -191,6 +193,11 @@ class NET_EXPORT NSSCertDatabase {
   // the first or last element.
   // TODO(mattm): improve this to handle any order.
   X509Certificate* FindRootInList(const CertificateList& certificates) const;
+
+  // Import a user certificate. The private key for the user certificate must
+  // already be installed, otherwise we return ERR_NO_PRIVATE_KEY_FOR_CERT.
+  // Returns OK or a network error code.
+  int ImportUserCert(const std::string& data);
 
   // Import CA certificates.
   // Tries to import all the certificates given.  The root will be trusted

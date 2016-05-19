@@ -49,7 +49,8 @@ content::WebContents* SessionRestore::RestoreForeignSessionTab(
   } else {
     DCHECK(disposition == NEW_FOREGROUND_TAB ||
         disposition == NEW_BACKGROUND_TAB);
-    tab_model->CreateTab(new_web_contents, current_tab->GetAndroidId());
+    tab_model->CreateTab(current_tab, new_web_contents,
+                         current_tab->GetAndroidId());
   }
   return new_web_contents;
 }
@@ -57,7 +58,6 @@ content::WebContents* SessionRestore::RestoreForeignSessionTab(
 // static
 std::vector<Browser*> SessionRestore::RestoreForeignSessionWindows(
     Profile* profile,
-    chrome::HostDesktopType host_desktop_type,
     std::vector<const sessions::SessionWindow*>::const_iterator begin,
     std::vector<const sessions::SessionWindow*>::const_iterator end) {
   NOTREACHED();

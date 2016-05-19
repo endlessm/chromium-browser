@@ -5,11 +5,12 @@
 #include "chrome/browser/chromeos/system/automatic_reboot_manager.h"
 
 #include <fcntl.h>
+#include <stddef.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -23,8 +24,6 @@
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -37,6 +36,8 @@
 #include "chromeos/chromeos_paths.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_details.h"
@@ -150,7 +151,7 @@ AutomaticRebootManager::SystemEventTimes::SystemEventTimes(
 
 AutomaticRebootManager::AutomaticRebootManager(
     scoped_ptr<base::TickClock> clock)
-    : clock_(clock.Pass()),
+    : clock_(std::move(clock)),
       have_boot_time_(false),
       have_update_reboot_needed_time_(false),
       reboot_reason_(AutomaticRebootManagerObserver::REBOOT_REASON_UNKNOWN),

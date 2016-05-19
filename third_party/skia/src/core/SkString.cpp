@@ -275,6 +275,13 @@ SkString::SkString(const SkString& src) {
     fRec = RefRec(src.fRec);
 }
 
+SkString::SkString(SkString&& src) {
+    src.validate();
+
+    fRec = src.fRec;
+    src.fRec = const_cast<Rec*>(&gEmptyRec);
+}
+
 SkString::~SkString() {
     this->validate();
 
@@ -306,6 +313,15 @@ SkString& SkString::operator=(const SkString& src) {
     if (fRec != src.fRec) {
         SkString    tmp(src);
         this->swap(tmp);
+    }
+    return *this;
+}
+
+SkString& SkString::operator=(SkString&& src) {
+    this->validate();
+
+    if (fRec != src.fRec) {
+        this->swap(src);
     }
     return *this;
 }
@@ -624,15 +640,34 @@ SkString SkStringPrintf(const char* format, ...) {
     return formattedOutput;
 }
 
-void SkStrSplit(const char* str, const char* delimiters, SkTArray<SkString>* out) {
-    const char* end = str + strlen(str);
-    while (str != end) {
-        // Find a token.
-        const size_t len = strcspn(str, delimiters);
-        out->push_back().set(str, len);
-        str += len;
+void SkStrSplit(const char* str, const char* delimiters, SkStrSplitMode splitMode,
+                SkTArray<SkString>* out) {
+    if (splitMode == kCoalesce_SkStrSplitMode) {
         // Skip any delimiters.
         str += strspn(str, delimiters);
+    }
+    if (!*str) {
+        return;
+    }
+
+    while (true) {
+        // Find a token.
+        const size_t len = strcspn(str, delimiters);
+        if (splitMode == kStrict_SkStrSplitMode || len > 0) {
+            out->push_back().set(str, len);
+            str += len;
+        }
+
+        if (!*str) {
+            return;
+        }
+        if (splitMode == kCoalesce_SkStrSplitMode) {
+            // Skip any delimiters.
+            str += strspn(str, delimiters);
+        } else {
+            // Skip one delimiter.
+            str += 1;
+        }
     }
 }
 

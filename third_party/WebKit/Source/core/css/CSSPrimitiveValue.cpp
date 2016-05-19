@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/CSSPrimitiveValue.h"
 
 #include "core/css/CSSCalculationValue.h"
@@ -31,8 +30,6 @@
 #include "platform/LayoutUnit.h"
 #include "platform/fonts/FontMetrics.h"
 #include "wtf/StdLibExtras.h"
-#include "wtf/ThreadSpecific.h"
-#include "wtf/Threading.h"
 #include "wtf/text/StringBuffer.h"
 #include "wtf/text/StringBuilder.h"
 
@@ -147,7 +144,7 @@ bool CSSPrimitiveValue::colorIsDerivedFromElement() const
 {
     int valueID = getValueID();
     switch (valueID) {
-    case CSSValueWebkitText:
+    case CSSValueInternalQuirkInherit:
     case CSSValueWebkitLink:
     case CSSValueWebkitActivelink:
     case CSSValueCurrentcolor:
@@ -158,10 +155,11 @@ bool CSSPrimitiveValue::colorIsDerivedFromElement() const
 }
 
 using CSSTextCache = WillBePersistentHeapHashMap<RawPtrWillBeWeakMember<const CSSPrimitiveValue>, String>;
+
 static CSSTextCache& cssTextCache()
 {
-    AtomicallyInitializedStaticReference(ThreadSpecific<CSSTextCache>, cache, new ThreadSpecific<CSSTextCache>());
-    return *cache;
+    DEFINE_STATIC_LOCAL(CSSTextCache, cache, ());
+    return cache;
 }
 
 CSSPrimitiveValue::UnitType CSSPrimitiveValue::typeWithCalcResolved() const
@@ -300,17 +298,11 @@ void CSSPrimitiveValue::init(PassRefPtrWillBeRawPtr<CSSCalcValue> c)
 
 CSSPrimitiveValue::~CSSPrimitiveValue()
 {
-    cleanup();
-}
-
-void CSSPrimitiveValue::cleanup()
-{
+#if !ENABLE(OILPAN)
     switch (type()) {
     case UnitType::Calc:
         // We must not call deref() when oilpan is enabled because m_value.calc is traced.
-#if !ENABLE(OILPAN)
         m_value.calc->deref();
-#endif
         break;
     case UnitType::CalcPercentageWithNumber:
     case UnitType::CalcPercentageWithLength:
@@ -355,6 +347,7 @@ void CSSPrimitiveValue::cleanup()
         cssTextCache().remove(this);
         m_hasCachedCSSText = false;
     }
+#endif
 }
 
 double CSSPrimitiveValue::computeSeconds() const
@@ -440,10 +433,10 @@ void CSSPrimitiveValue::accumulateLengthArray(CSSLengthArray& lengthArray, CSSLe
     }
 
     LengthUnitType lengthType;
-    if (unitTypeToLengthUnitType(type(), lengthType)) {
-        lengthArray.at(lengthType) += m_value.num * conversionToCanonicalUnitsScaleFactor(type()) * multiplier;
-        lengthTypeArray.set(lengthType);
-    }
+    bool conversionSuccess = unitTypeToLengthUnitType(type(), lengthType);
+    ASSERT_UNUSED(conversionSuccess, conversionSuccess);
+    lengthArray.at(lengthType) += m_value.num * conversionToCanonicalUnitsScaleFactor(type()) * multiplier;
+    lengthTypeArray.set(lengthType);
 }
 
 void CSSPrimitiveValue::accumulateLengthArray(CSSLengthArray& lengthArray, double multiplier) const
@@ -556,6 +549,7 @@ bool CSSPrimitiveValue::unitTypeToLengthUnitType(UnitType unitType, LengthUnitTy
     case CSSPrimitiveValue::UnitType::Inches:
     case CSSPrimitiveValue::UnitType::Points:
     case CSSPrimitiveValue::UnitType::Picas:
+    case CSSPrimitiveValue::UnitType::UserUnits:
         lengthType = UnitTypePixels;
         return true;
     case CSSPrimitiveValue::UnitType::Ems:

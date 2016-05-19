@@ -5,17 +5,19 @@
 #ifndef CHROME_BROWSER_UI_APP_LIST_APP_LIST_VIEW_DELEGATE_H_
 #define CHROME_BROWSER_UI_APP_LIST_APP_LIST_VIEW_DELEGATE_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
 #include "base/scoped_observer.h"
-#include "chrome/browser/profiles/profile_info_cache_observer.h"
+#include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/search/hotword_client.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/app_list/start_page_observer.h"
@@ -59,7 +61,7 @@ class AppSyncUIStateWatcher;
 class AppListViewDelegate : public app_list::AppListViewDelegate,
                             public app_list::StartPageObserver,
                             public HotwordClient,
-                            public ProfileInfoCacheObserver,
+                            public ProfileAttributesStorage::Observer,
                             public SigninManagerBase::Observer,
                             public SigninManagerFactory::Observer,
                             public content::NotificationObserver,
@@ -134,7 +136,7 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
 
   // Overridden from app_list::StartPageObserver:
   void OnSpeechResult(const base::string16& result, bool is_final) override;
-  void OnSpeechSoundLevelChanged(int16 level) override;
+  void OnSpeechSoundLevelChanged(int16_t level) override;
   void OnSpeechRecognitionStateChanged(
       app_list::SpeechRecognitionState new_state) override;
 
@@ -156,7 +158,7 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
   void GoogleSignedOut(const std::string& account_id,
                        const std::string& username) override;
 
-  // Overridden from ProfileInfoCacheObserver:
+  // Overridden from ProfileAttributesStorage::Observer:
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
                            const base::string16& profile_name) override;

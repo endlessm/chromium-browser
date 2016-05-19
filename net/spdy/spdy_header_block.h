@@ -5,6 +5,8 @@
 #ifndef NET_SPDY_SPDY_HEADER_BLOCK_H_
 #define NET_SPDY_SPDY_HEADER_BLOCK_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -33,7 +35,9 @@ using ::operator<<;
 // It's expected that keys are rarely deleted from a SpdyHeaderBlock.
 class NET_EXPORT SpdyHeaderBlock {
  private:
-  using MapType = linked_hash_map<base::StringPiece, base::StringPiece>;
+  using MapType = linked_hash_map<base::StringPiece,
+                                  base::StringPiece,
+                                  base::StringPieceHash>;
   class Storage;
 
  public:
@@ -51,6 +55,10 @@ class NET_EXPORT SpdyHeaderBlock {
   SpdyHeaderBlock& operator=(const SpdyHeaderBlock& other);
   bool operator==(const SpdyHeaderBlock& other) const;
   bool operator!=(const SpdyHeaderBlock& other) const;
+
+  // Provides a human readable multi-line representation of the stored header
+  // keys and values.
+  std::string DebugString() const;
 
   // These methods delegate to our MapType member.
   iterator begin() { return block_.begin(); }
@@ -81,6 +89,7 @@ class NET_EXPORT SpdyHeaderBlock {
   class NET_EXPORT StringPieceProxy {
    public:
     ~StringPieceProxy();
+    StringPieceProxy(const StringPieceProxy& other);
 
     // Assignment modifies the underlying SpdyHeaderBlock.
     StringPieceProxy& operator=(const base::StringPiece other);

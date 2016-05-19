@@ -4,9 +4,10 @@
 
 #include "chrome/browser/ui/browser_window_state.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile.h"
@@ -16,6 +17,8 @@
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 
 namespace chrome {
 namespace {
@@ -110,6 +113,13 @@ bool ShouldSaveWindowPlacement(const Browser* browser) {
   // source (v1 app, devtools, or system window).
   return (browser->type() == Browser::TYPE_TABBED) ||
     ((browser->type() == Browser::TYPE_POPUP) && browser->is_trusted_source());
+}
+
+bool SavedBoundsAreContentBounds(const Browser* browser) {
+  // Pop ups such as devtools or bookmark app windows should behave as per other
+  // windows with persisted sizes - treating the saved bounds as window bounds.
+  return browser->is_type_popup() && !browser->is_app() &&
+         !browser->is_trusted_source();
 }
 
 void SaveWindowPlacement(const Browser* browser,

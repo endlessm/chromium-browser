@@ -5,9 +5,9 @@
 #include "tools/gn/setup.h"
 
 #include <stdlib.h>
-
 #include <algorithm>
 #include <sstream>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -16,6 +16,7 @@
 #include "base/process/launch.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "tools/gn/commands.h"
@@ -30,6 +31,7 @@
 #include "tools/gn/tokenizer.h"
 #include "tools/gn/trace.h"
 #include "tools/gn/value.h"
+#include "tools/gn/value_extractors.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -146,6 +148,97 @@ void ItemDefinedCallback(base::MessageLoop* main_loop,
 
 void DecrementWorkCount() {
   g_scheduler->DecrementWorkCount();
+}
+
+#if defined(OS_WIN)
+
+// Given the path to a batch file that runs Python, extracts the name of the
+// executable actually implementing Python. Generally people write a batch file
+// to put something named "python" on the path, which then just redirects to
+// a python.exe somewhere else. This step decodes that setup. On failure,
+// returns empty path.
+base::FilePath PythonBatToExe(const base::FilePath& bat_path) {
+  // Note exciting double-quoting to allow spaces. The /c switch seems to check
+  // for quotes around the whole thing and then deletes them. If you want to
+  // quote the first argument in addition (to allow for spaces in the Python
+  // path, you need *another* set of quotes around that, likewise, we need
+  // two quotes at the end.
+  base::string16 command = L"cmd.exe /c \"\"";
+  command.append(bat_path.value());
+  command.append(L"\" -c \"import sys; print sys.executable\"\"");
+
+  std::string python_path;
+  if (base::GetAppOutput(command, &python_path)) {
+    base::TrimWhitespaceASCII(python_path, base::TRIM_ALL, &python_path);
+
+    // Python uses the system multibyte code page for sys.executable.
+    base::FilePath exe_path(base::SysNativeMBToWide(python_path));
+
+    // Check for reasonable output, cmd may have output an error message.
+    if (base::PathExists(exe_path))
+      return exe_path;
+  }
+  return base::FilePath();
+}
+
+const base::char16 kPythonExeName[] = L"python.exe";
+const base::char16 kPythonBatName[] = L"python.bat";
+
+base::FilePath FindWindowsPython() {
+  base::char16 current_directory[MAX_PATH];
+  ::GetCurrentDirectory(MAX_PATH, current_directory);
+
+  // First search for python.exe in the current directory.
+  base::FilePath cur_dir_candidate_exe =
+      base::FilePath(current_directory).Append(kPythonExeName);
+  if (base::PathExists(cur_dir_candidate_exe))
+    return cur_dir_candidate_exe;
+
+  // Get the path.
+  const base::char16 kPathEnvVarName[] = L"Path";
+  DWORD path_length = ::GetEnvironmentVariable(kPathEnvVarName, nullptr, 0);
+  if (path_length == 0)
+    return base::FilePath();
+  scoped_ptr<base::char16[]> full_path(new base::char16[path_length]);
+  DWORD actual_path_length =
+      ::GetEnvironmentVariable(kPathEnvVarName, full_path.get(), path_length);
+  CHECK_EQ(path_length, actual_path_length + 1);
+
+  // Search for python.exe in the path.
+  for (const auto& component : base::SplitStringPiece(
+           base::StringPiece16(full_path.get(), path_length), L";",
+           base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
+    base::FilePath candidate_exe =
+        base::FilePath(component).Append(kPythonExeName);
+    if (base::PathExists(candidate_exe))
+      return candidate_exe;
+
+    // Also allow python.bat, but convert into the .exe.
+    base::FilePath candidate_bat =
+        base::FilePath(component).Append(kPythonBatName);
+    if (base::PathExists(candidate_bat)) {
+      base::FilePath python_exe = PythonBatToExe(candidate_bat);
+      if (!python_exe.empty())
+        return python_exe;
+    }
+  }
+  return base::FilePath();
+}
+#endif
+
+// Expands all ./, ../, and symbolic links in the given path.
+bool GetRealPath(const base::FilePath& path, base::FilePath* out) {
+#if defined(OS_POSIX)
+  char buf[PATH_MAX];
+  if (!realpath(path.value().c_str(), buf)) {
+    return false;
+  }
+  *out = base::FilePath(buf);
+#else
+  // Do nothing on a non-POSIX system.
+  *out = path;
+#endif
+  return true;
 }
 
 }  // namespace
@@ -435,9 +528,16 @@ bool Setup::FillSourceDir(const base::CommandLine& cmdline) {
     root_path = dotfile_name_.DirName();
   }
 
+  base::FilePath root_realpath;
+  if (!GetRealPath(root_path, &root_realpath)) {
+    Err(Location(), "Can't get the real root path.",
+        "I could not get the real path of \"" + FilePathToUTF8(root_path) +
+        "\".").PrintToStdout();
+    return false;
+  }
   if (scheduler_.verbose_logging())
-    scheduler_.Log("Using source root", FilePathToUTF8(root_path));
-  build_settings_.SetRootPath(root_path);
+    scheduler_.Log("Using source root", FilePathToUTF8(root_realpath));
+  build_settings_.SetRootPath(root_realpath);
 
   return true;
 }
@@ -453,11 +553,27 @@ bool Setup::FillBuildDir(const std::string& build_dir, bool require_exists) {
     return false;
   }
 
+  base::FilePath build_dir_path = build_settings_.GetFullPath(resolved);
+  if (!base::CreateDirectory(build_dir_path)) {
+    Err(Location(), "Can't create the build dir.",
+        "I could not create the build dir \"" + FilePathToUTF8(build_dir_path) +
+        "\".").PrintToStdout();
+    return false;
+  }
+  base::FilePath build_dir_realpath;
+  if (!GetRealPath(build_dir_path, &build_dir_realpath)) {
+    Err(Location(), "Can't get the real build dir path.",
+        "I could not get the real path of \"" + FilePathToUTF8(build_dir_path) +
+        "\".").PrintToStdout();
+    return false;
+  }
+  resolved = SourceDirForPath(build_settings_.root_path(),
+                              build_dir_realpath);
+
   if (scheduler_.verbose_logging())
     scheduler_.Log("Using build dir", resolved.value());
 
   if (require_exists) {
-    base::FilePath build_dir_path = build_settings_.GetFullPath(resolved);
     if (!base::PathExists(build_dir_path.Append(
             FILE_PATH_LITERAL("build.ninja")))) {
       Err(Location(), "Not a build directory.",
@@ -478,21 +594,13 @@ void Setup::FillPythonPath() {
   // Trace this since it tends to be a bit slow on Windows.
   ScopedTrace setup_trace(TraceItem::TRACE_SETUP, "Fill Python Path");
 #if defined(OS_WIN)
-  // Find Python on the path so we can use the absolute path in the build.
-  const base::char16 kGetPython[] =
-      L"cmd.exe /c python -c \"import sys; print sys.executable\"";
-  std::string python_path;
-  if (base::GetAppOutput(kGetPython, &python_path)) {
-    base::TrimWhitespaceASCII(python_path, base::TRIM_ALL, &python_path);
-    if (scheduler_.verbose_logging())
-      scheduler_.Log("Found python", python_path);
-  } else {
+  base::FilePath python_path = FindWindowsPython();
+  if (python_path.empty()) {
     scheduler_.Log("WARNING", "Could not find python on path, using "
         "just \"python.exe\"");
-    python_path = "python.exe";
+    python_path = base::FilePath(kPythonExeName);
   }
-  build_settings_.set_python_path(base::FilePath(base::UTF8ToUTF16(python_path))
-                                      .NormalizePathSeparatorsTo('/'));
+  build_settings_.set_python_path(python_path.NormalizePathSeparatorsTo('/'));
 #else
   build_settings_.set_python_path(base::FilePath("python"));
 #endif
@@ -586,20 +694,12 @@ bool Setup::FillOtherConfig(const base::CommandLine& cmdline) {
   const Value* check_targets_value =
       dotfile_scope_.GetValue("check_targets", true);
   if (check_targets_value) {
-    // Fill the list of targets to check.
-    if (!check_targets_value->VerifyTypeIs(Value::LIST, &err)) {
+    check_patterns_.reset(new std::vector<LabelPattern>);
+    ExtractListOfLabelPatterns(*check_targets_value, current_dir,
+                               check_patterns_.get(), &err);
+    if (err.has_error()) {
       err.PrintToStdout();
       return false;
-    }
-
-    check_patterns_.reset(new std::vector<LabelPattern>);
-    for (const auto& item : check_targets_value->list_value()) {
-      check_patterns_->push_back(
-          LabelPattern::GetPattern(current_dir, item, &err));
-      if (err.has_error()) {
-        err.PrintToStdout();
-        return false;
-      }
     }
   }
 
@@ -624,7 +724,7 @@ bool Setup::FillOtherConfig(const base::CommandLine& cmdline) {
         return false;
       }
     }
-    build_settings_.set_exec_script_whitelist(whitelist.Pass());
+    build_settings_.set_exec_script_whitelist(std::move(whitelist));
   }
 
   return true;

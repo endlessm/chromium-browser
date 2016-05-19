@@ -4,8 +4,11 @@
 
 #include "content/browser/presentation/presentation_service_impl.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
@@ -44,8 +47,7 @@ presentation::SessionMessagePtr ToMojoSessionMessage(
   if (input->is_binary()) {
     // binary data
     DCHECK(input->data);
-    output->type = presentation::PresentationMessageType::
-        PRESENTATION_MESSAGE_TYPE_ARRAY_BUFFER;
+    output->type = presentation::PresentationMessageType::ARRAY_BUFFER;
     if (pass_ownership) {
       output->data.Swap(input->data.get());
     } else {
@@ -53,15 +55,14 @@ presentation::SessionMessagePtr ToMojoSessionMessage(
     }
   } else {
     // string message
-    output->type =
-        presentation::PresentationMessageType::PRESENTATION_MESSAGE_TYPE_TEXT;
+    output->type = presentation::PresentationMessageType::TEXT;
     if (pass_ownership) {
       output->message.Swap(&input->message);
     } else {
       output->message = input->message;
     }
   }
-  return output.Pass();
+  return output;
 }
 
 scoped_ptr<PresentationSessionMessage> GetPresentationSessionMessage(
@@ -69,46 +70,46 @@ scoped_ptr<PresentationSessionMessage> GetPresentationSessionMessage(
   DCHECK(!input.is_null());
   scoped_ptr<content::PresentationSessionMessage> output;
   switch (input->type) {
-    case presentation::PRESENTATION_MESSAGE_TYPE_TEXT: {
+    case presentation::PresentationMessageType::TEXT: {
       DCHECK(!input->message.is_null());
       DCHECK(input->data.is_null());
       // Return null PresentationSessionMessage if size exceeds.
       if (input->message.size() > content::kMaxPresentationSessionMessageSize)
-        return output.Pass();
+        return output;
 
       output.reset(
           new PresentationSessionMessage(PresentationMessageType::TEXT));
       input->message.Swap(&output->message);
-      return output.Pass();
+      return output;
     }
-    case presentation::PRESENTATION_MESSAGE_TYPE_ARRAY_BUFFER: {
+    case presentation::PresentationMessageType::ARRAY_BUFFER: {
       DCHECK(!input->data.is_null());
       DCHECK(input->message.is_null());
       if (input->data.size() > content::kMaxPresentationSessionMessageSize)
-        return output.Pass();
+        return output;
 
       output.reset(new PresentationSessionMessage(
           PresentationMessageType::ARRAY_BUFFER));
       output->data.reset(new std::vector<uint8_t>);
       input->data.Swap(output->data.get());
-      return output.Pass();
+      return output;
     }
-    case presentation::PRESENTATION_MESSAGE_TYPE_BLOB: {
+    case presentation::PresentationMessageType::BLOB: {
       DCHECK(!input->data.is_null());
       DCHECK(input->message.is_null());
       if (input->data.size() > content::kMaxPresentationSessionMessageSize)
-        return output.Pass();
+        return output;
 
       output.reset(
           new PresentationSessionMessage(PresentationMessageType::BLOB));
       output->data.reset(new std::vector<uint8_t>);
       input->data.Swap(output->data.get());
-      return output.Pass();
+      return output;
     }
   }
 
   NOTREACHED() << "Invalid presentation message type " << input->type;
-  return output.Pass();
+  return output;
 }
 
 void InvokeNewSessionMojoCallbackWithError(
@@ -162,13 +163,13 @@ void PresentationServiceImpl::CreateMojoService(
       web_contents,
       GetContentClient()->browser()->GetPresentationServiceDelegate(
           web_contents));
-  impl->Bind(request.Pass());
+  impl->Bind(std::move(request));
 }
 
 void PresentationServiceImpl::Bind(
     mojo::InterfaceRequest<presentation::PresentationService> request) {
   binding_.reset(new mojo::Binding<presentation::PresentationService>(
-      this, request.Pass()));
+      this, std::move(request)));
   binding_->set_connection_error_handler([this]() {
     DVLOG(1) << "Connection error";
     delete this;
@@ -179,7 +180,7 @@ void PresentationServiceImpl::SetClient(
     presentation::PresentationServiceClientPtr client) {
   DCHECK(!client_.get());
   // TODO(imcheng): Set ErrorHandler to listen for errors.
-  client_ = client.Pass();
+  client_ = std::move(client);
 }
 
 void PresentationServiceImpl::ListenForScreenAvailability(
@@ -200,7 +201,7 @@ void PresentationServiceImpl::ListenForScreenAvailability(
       render_process_id_,
       render_frame_id_,
       listener.get())) {
-    screen_availability_listeners_.set(availability_url, listener.Pass());
+    screen_availability_listeners_[availability_url] = std::move(listener);
   } else {
     DVLOG(1) << "AddScreenAvailabilityListener failed. Ignoring request.";
   }
@@ -218,9 +219,7 @@ void PresentationServiceImpl::StopListeningForScreenAvailability(
     return;
 
   delegate_->RemoveScreenAvailabilityListener(
-      render_process_id_,
-      render_frame_id_,
-      listener_it->second);
+      render_process_id_, render_frame_id_, listener_it->second.get());
   screen_availability_listeners_.erase(listener_it);
 }
 
@@ -295,39 +294,53 @@ int PresentationServiceImpl::RegisterJoinSessionCallback(
   return request_id;
 }
 
+void PresentationServiceImpl::ListenForConnectionStateChange(
+    const PresentationSessionInfo& connection) {
+  if (delegate_) {
+    delegate_->ListenForConnectionStateChange(
+        render_process_id_, render_frame_id_, connection,
+        base::Bind(&PresentationServiceImpl::OnConnectionStateChanged,
+                   weak_factory_.GetWeakPtr(), connection));
+  }
+}
+
 void PresentationServiceImpl::OnStartSessionSucceeded(
     int request_session_id,
     const PresentationSessionInfo& session_info) {
-  if (request_session_id == start_session_request_id_) {
-    CHECK(pending_start_session_cb_.get());
-    pending_start_session_cb_->Run(
-        presentation::PresentationSessionInfo::From(session_info),
-        presentation::PresentationErrorPtr());
-    pending_start_session_cb_.reset();
-    start_session_request_id_ = kInvalidRequestSessionId;
-  }
+  if (request_session_id != start_session_request_id_)
+    return;
+
+  CHECK(pending_start_session_cb_.get());
+  pending_start_session_cb_->Run(
+      presentation::PresentationSessionInfo::From(session_info),
+      presentation::PresentationErrorPtr());
+  ListenForConnectionStateChange(session_info);
+  pending_start_session_cb_.reset();
+  start_session_request_id_ = kInvalidRequestSessionId;
 }
 
 void PresentationServiceImpl::OnStartSessionError(
     int request_session_id,
     const PresentationError& error) {
-  if (request_session_id == start_session_request_id_) {
-    CHECK(pending_start_session_cb_.get());
-    pending_start_session_cb_->Run(
-        presentation::PresentationSessionInfoPtr(),
-        presentation::PresentationError::From(error));
-    pending_start_session_cb_.reset();
-    start_session_request_id_ = kInvalidRequestSessionId;
-  }
+  if (request_session_id != start_session_request_id_)
+    return;
+
+  CHECK(pending_start_session_cb_.get());
+  pending_start_session_cb_->Run(presentation::PresentationSessionInfoPtr(),
+                                 presentation::PresentationError::From(error));
+  pending_start_session_cb_.reset();
+  start_session_request_id_ = kInvalidRequestSessionId;
 }
 
 void PresentationServiceImpl::OnJoinSessionSucceeded(
     int request_session_id,
     const PresentationSessionInfo& session_info) {
-  RunAndEraseJoinSessionMojoCallback(
-      request_session_id,
-      presentation::PresentationSessionInfo::From(session_info),
-      presentation::PresentationErrorPtr());
+  if (RunAndEraseJoinSessionMojoCallback(
+          request_session_id,
+          presentation::PresentationSessionInfo::From(session_info),
+          presentation::PresentationErrorPtr())) {
+    ListenForConnectionStateChange(session_info);
+  }
 }
 
 void PresentationServiceImpl::OnJoinSessionError(
@@ -339,17 +352,18 @@ void PresentationServiceImpl::OnJoinSessionError(
       presentation::PresentationError::From(error));
 }
 
-void PresentationServiceImpl::RunAndEraseJoinSessionMojoCallback(
+bool PresentationServiceImpl::RunAndEraseJoinSessionMojoCallback(
     int request_session_id,
     presentation::PresentationSessionInfoPtr session,
     presentation::PresentationErrorPtr error) {
   auto it = pending_join_session_cbs_.find(request_session_id);
   if (it == pending_join_session_cbs_.end())
-    return;
+    return false;
 
   DCHECK(it->second.get());
-  it->second->Run(session.Pass(), error.Pass());
+  it->second->Run(std::move(session), std::move(error));
   pending_join_session_cbs_.erase(it);
+  return true;
 }
 
 void PresentationServiceImpl::SetDefaultPresentationURL(
@@ -386,7 +400,7 @@ void PresentationServiceImpl::SendSessionMessage(
   delegate_->SendMessage(
       render_process_id_, render_frame_id_,
       session.To<PresentationSessionInfo>(),
-      GetPresentationSessionMessage(session_message.Pass()),
+      GetPresentationSessionMessage(std::move(session_message)),
       base::Bind(&PresentationServiceImpl::OnSendMessageCallback,
                  weak_factory_.GetWeakPtr()));
 }
@@ -400,32 +414,36 @@ void PresentationServiceImpl::OnSendMessageCallback(bool sent) {
   }
 }
 
-void PresentationServiceImpl::CloseSession(
+void PresentationServiceImpl::CloseConnection(
     const mojo::String& presentation_url,
     const mojo::String& presentation_id) {
-  DVLOG(2) << "CloseSession " << presentation_id;
+  DVLOG(2) << "CloseConnection " << presentation_id;
   if (delegate_)
-    delegate_->CloseSession(render_process_id_, render_frame_id_,
-                            presentation_id);
+    delegate_->CloseConnection(render_process_id_, render_frame_id_,
+                               presentation_id);
 }
 
-void PresentationServiceImpl::ListenForSessionStateChange() {
-  if (!delegate_)
-    return;
-
-  delegate_->ListenForSessionStateChange(
-      render_process_id_, render_frame_id_,
-      base::Bind(&PresentationServiceImpl::OnSessionStateChanged,
-                 weak_factory_.GetWeakPtr()));
+void PresentationServiceImpl::Terminate(const mojo::String& presentation_url,
+                                        const mojo::String& presentation_id) {
+  DVLOG(2) << "Terminate " << presentation_id;
+  if (delegate_)
+    delegate_->Terminate(render_process_id_, render_frame_id_, presentation_id);
 }
 
-void PresentationServiceImpl::OnSessionStateChanged(
-    const PresentationSessionInfo& session_info,
-    PresentationConnectionState session_state) {
+void PresentationServiceImpl::OnConnectionStateChanged(
+    const PresentationSessionInfo& connection,
+    const PresentationConnectionStateChangeInfo& info) {
   DCHECK(client_.get());
-  client_->OnSessionStateChanged(
-      presentation::PresentationSessionInfo::From(session_info),
-      PresentationConnectionStateToMojo(session_state));
+  if (info.state == PRESENTATION_CONNECTION_STATE_CLOSED) {
+    client_->OnConnectionClosed(
+        presentation::PresentationSessionInfo::From(connection),
+        PresentationConnectionCloseReasonToMojo(info.close_reason),
+        info.message);
+  } else {
+    client_->OnConnectionStateChanged(
+        presentation::PresentationSessionInfo::From(connection),
+        PresentationConnectionStateToMojo(info.state));
+  }
 }
 
 bool PresentationServiceImpl::FrameMatches(
@@ -463,7 +481,7 @@ void PresentationServiceImpl::OnSessionMessages(
 
   client_->OnSessionMessagesReceived(
       presentation::PresentationSessionInfo::From(session),
-      mojoMessages.Pass());
+      std::move(mojoMessages));
 }
 
 void PresentationServiceImpl::DidNavigateAnyFrame(
@@ -536,10 +554,11 @@ void PresentationServiceImpl::OnDelegateDestroyed() {
 }
 
 void PresentationServiceImpl::OnDefaultPresentationStarted(
-    const PresentationSessionInfo& session_info) {
+    const PresentationSessionInfo& connection) {
   DCHECK(client_.get());
   client_->OnDefaultSessionStarted(
-      presentation::PresentationSessionInfo::From(session_info));
+      presentation::PresentationSessionInfo::From(connection));
+  ListenForConnectionStateChange(connection);
 }
 
 PresentationServiceImpl::ScreenAvailabilityListenerImpl
@@ -586,7 +605,7 @@ void PresentationServiceImpl::NewSessionMojoCallbackWrapper::Run(
     presentation::PresentationSessionInfoPtr session,
     presentation::PresentationErrorPtr error) {
   DCHECK(!callback_.is_null());
-  callback_.Run(session.Pass(), error.Pass());
+  callback_.Run(std::move(session), std::move(error));
   callback_.reset();
 }
 

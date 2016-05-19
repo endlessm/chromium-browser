@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebTestingSupport.h"
 
 #include "bindings/modules/v8/V8InternalsPartial.h"
@@ -52,4 +51,4 @@ void WebTestingSupport::resetInternalsObject(WebLocalFrame* frame)
     WebCoreTestSupport::resetInternalsObject(frame->mainWorldScriptContext());
 }
 
-}
+} // namespace blink

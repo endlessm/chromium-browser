@@ -40,9 +40,7 @@
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
-#include "ui/aura/remote_window_tree_host_win.h"
 #include "ui/platform_window/win/win_window.h"
-#include "win8/test/test_registrar_constants.h"
 #endif
 
 #if defined(USE_X11)
@@ -62,7 +60,7 @@ class AshEventGeneratorDelegate
   // aura::test::EventGeneratorDelegateAura overrides:
   aura::WindowTreeHost* GetHostAt(
       const gfx::Point& point_in_screen) const override {
-    gfx::Screen* screen = Shell::GetScreen();
+    gfx::Screen* screen = gfx::Screen::GetScreen();
     gfx::Display display = screen->GetDisplayNearestPoint(point_in_screen);
     return Shell::GetInstance()
         ->window_tree_host_manager()
@@ -73,6 +71,12 @@ class AshEventGeneratorDelegate
   aura::client::ScreenPositionClient* GetScreenPositionClient(
       const aura::Window* window) const override {
     return aura::client::GetScreenPositionClient(window->GetRootWindow());
+  }
+
+  void DispatchKeyEventToIME(ui::EventTarget* target,
+                             ui::KeyEvent* event) override {
+    // In Ash environment, the key event will be processed by event rewriters
+    // first.
   }
 
  private:
@@ -174,7 +178,7 @@ ui::test::EventGenerator& AshTestBase::GetEventGenerator() {
   return *event_generator_.get();
 }
 
-gfx::Display::Rotation AshTestBase::GetActiveDisplayRotation(int64 id) {
+gfx::Display::Rotation AshTestBase::GetActiveDisplayRotation(int64_t id) {
   return Shell::GetInstance()
       ->display_manager()
       ->GetDisplayInfo(id)
@@ -239,8 +243,7 @@ aura::Window* AshTestBase::CreateTestWindowInShellWithDelegateAndType(
   if (bounds.IsEmpty()) {
     ParentWindowInPrimaryRootWindow(window);
   } else {
-    gfx::Display display =
-        Shell::GetScreen()->GetDisplayMatching(bounds);
+    gfx::Display display = gfx::Screen::GetScreen()->GetDisplayMatching(bounds);
     aura::Window* root = ash::Shell::GetInstance()
                              ->window_tree_host_manager()
                              ->GetRootWindowForDisplayId(display.id());

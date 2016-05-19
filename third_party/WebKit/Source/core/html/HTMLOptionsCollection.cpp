@@ -19,7 +19,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLOptionsCollection.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -122,5 +121,4 @@ bool HTMLOptionsCollection::anonymousIndexedSetter(unsigned index, PassRefPtrWil
     return true;
 }
 
-} // namespace
-
+} // namespace blink

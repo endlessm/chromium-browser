@@ -5,9 +5,13 @@
 #ifndef COMPONENTS_OFFLINE_PAGES_OFFLINE_PAGE_METADATA_STORE_IMPL_H_
 #define COMPONENTS_OFFLINE_PAGES_OFFLINE_PAGE_METADATA_STORE_IMPL_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "components/leveldb_proto/proto_database.h"
@@ -21,7 +25,7 @@ namespace offline_pages {
 
 class OfflinePageEntry;
 
-// Implements OfflinePageMetadataStore using leveldb_proto::ProtoDatabase
+// Implements OfflinePageMetadataStore using leveldb_proto::Protoatabase
 // component. Stores metadata of offline pages as serialized protobufs in a
 // LevelDB key/value pairs.
 // Underlying implementation guarantees that all of the method calls will be
@@ -38,7 +42,7 @@ class OfflinePageMetadataStoreImpl : public OfflinePageMetadataStore {
   void Load(const LoadCallback& callback) override;
   void AddOrUpdateOfflinePage(const OfflinePageItem& offline_page_record,
                               const UpdateCallback& callback) override;
-  void RemoveOfflinePages(const std::vector<int64>& bookmark_ids,
+  void RemoveOfflinePages(const std::vector<int64_t>& bookmark_ids,
                           const UpdateCallback& callback) override;
   void Reset(const ResetCallback& callback) override;
 
@@ -57,6 +61,7 @@ class OfflinePageMetadataStoreImpl : public OfflinePageMetadataStore {
           entries_to_save,
       scoped_ptr<std::vector<std::string>> keys_to_remove,
       const UpdateCallback& callback);
+
   void UpdateDone(const OfflinePageMetadataStore::UpdateCallback& callback,
                   bool success);
 
@@ -67,6 +72,11 @@ class OfflinePageMetadataStoreImpl : public OfflinePageMetadataStore {
   scoped_ptr<leveldb_proto::ProtoDatabase<OfflinePageEntry>> database_;
 
   base::WeakPtrFactory<OfflinePageMetadataStoreImpl> weak_ptr_factory_;
+
+  FRIEND_TEST_ALL_PREFIXES(OfflinePageMetadataStoreImplTest,
+                           LoadCorruptedStore);
+  FRIEND_TEST_ALL_PREFIXES(OfflinePageMetadataStoreImplTest,
+                           LoadTotallyCorruptedStore);
 
   DISALLOW_COPY_AND_ASSIGN(OfflinePageMetadataStoreImpl);
 };

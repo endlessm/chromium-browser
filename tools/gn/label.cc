@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "tools/gn/err.h"
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/parse_tree.h"
@@ -212,6 +213,8 @@ Label::Label(const SourceDir& dir, const base::StringPiece& name)
     : dir_(dir) {
   name_.assign(name.data(), name.size());
 }
+
+Label::Label(const Label& other) = default;
 
 Label::~Label() {
 }

@@ -28,12 +28,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGPoint.h"
 
-#include "bindings/core/v8/ExceptionState.h"
-#include "core/dom/ExceptionCode.h"
 #include "core/svg/SVGAnimationElement.h"
 #include "core/svg/SVGParserUtilities.h"
 #include "platform/transforms/AffineTransform.h"
@@ -57,28 +53,21 @@ PassRefPtrWillBeRawPtr<SVGPoint> SVGPoint::clone() const
 }
 
 template<typename CharType>
-void SVGPoint::parse(const CharType*& ptr, const CharType* end, ExceptionState& exceptionState)
+SVGParsingError SVGPoint::parse(const CharType*& ptr, const CharType* end)
 {
-    const CharType* start = ptr;
+    float x = 0;
+    float y = 0;
+    if (!parseNumber(ptr, end, x)
+        || !parseNumber(ptr, end, y, DisallowWhitespace))
+        return SVGParseStatus::ExpectedNumber;
 
-    skipOptionalSVGSpaces(ptr, end);
-
-    float x = 0.0f;
-    float y = 0.0f;
-    bool valid = parseNumber(ptr, end, x) && parseNumber(ptr, end, y, DisallowWhitespace);
-
-    if (!valid) {
-        exceptionState.throwDOMException(SyntaxError, "Problem parsing point \"" + String(start, end - start) + "\"");
-        return;
-    }
-
-    skipOptionalSVGSpaces(ptr, end);
-    if (ptr < end) { // nothing should come after the last, fourth number
-        exceptionState.throwDOMException(SyntaxError, "Problem parsing point \"" + String(start, end - start) + "\"");
-        return;
+    if (skipOptionalSVGSpaces(ptr, end)) {
+        // Nothing should come after the second number.
+        return SVGParseStatus::TrailingGarbage;
     }
 
     m_value = FloatPoint(x, y);
+    return SVGParseStatus::NoError;
 }
 
 FloatPoint SVGPoint::matrixTransform(const AffineTransform& transform) const
@@ -88,23 +77,21 @@ FloatPoint SVGPoint::matrixTransform(const AffineTransform& transform) const
     return FloatPoint::narrowPrecision(newX, newY);
 }
 
-void SVGPoint::setValueAsString(const String& string, ExceptionState& exceptionState)
+SVGParsingError SVGPoint::setValueAsString(const String& string)
 {
     if (string.isEmpty()) {
         m_value = FloatPoint(0.0f, 0.0f);
-        return;
+        return SVGParseStatus::NoError;
     }
 
     if (string.is8Bit()) {
         const LChar* ptr = string.characters8();
         const LChar* end = ptr + string.length();
-        parse(ptr, end, exceptionState);
-        return;
+        return parse(ptr, end);
     }
-
     const UChar* ptr = string.characters16();
     const UChar* end = ptr + string.length();
-    parse(ptr, end, exceptionState);
+    return parse(ptr, end);
 }
 
 String SVGPoint::valueAsString() const
@@ -135,4 +122,4 @@ float SVGPoint::calculateDistance(PassRefPtrWillBeRawPtr<SVGPropertyBase> to, SV
     return 0.0f;
 }
 
-}
+} // namespace blink

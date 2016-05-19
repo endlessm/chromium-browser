@@ -8,6 +8,7 @@
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_sync_service.h"
 #include "chrome/browser/extensions/permissions_updater.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/sync_helper.h"
+#include "components/variations/variations_associated_data.h"
 #include "content/public/browser/site_instance.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
@@ -275,7 +277,6 @@ bool IsAppLaunchableWithoutEnabling(const std::string& extension_id,
 bool ShouldSync(const Extension* extension,
                 content::BrowserContext* context) {
   return sync_helper::IsSyncable(extension) &&
-         !util::IsEphemeralApp(extension->id(), context) &&
          !ExtensionPrefs::Get(context)->DoNotSync(extension->id());
 }
 
@@ -344,7 +345,7 @@ scoped_ptr<base::DictionaryValue> GetExtensionInfo(const Extension* extension) {
       NULL);  // Don't set bool if exists.
   dict->SetString("icon", icon.spec());
 
-  return dict.Pass();
+  return dict;
 }
 
 const gfx::ImageSkia& GetDefaultAppIcon() {
@@ -358,8 +359,13 @@ const gfx::ImageSkia& GetDefaultExtensionIcon() {
 }
 
 bool IsNewBookmarkAppsEnabled() {
+#if defined(OS_MACOSX)
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableNewBookmarkApps);
+#else
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableNewBookmarkApps);
+#endif
 }
 
 bool CanHostedAppsOpenInWindows() {
@@ -371,14 +377,20 @@ bool CanHostedAppsOpenInWindows() {
 #endif
 }
 
-bool IsExtensionSupervised(const Extension* extension, Profile* profile) {
+bool IsExtensionSupervised(const Extension* extension, const Profile* profile) {
   return extension->was_installed_by_custodian() && profile->IsSupervised();
 }
 
-bool NeedCustodianApprovalForPermissionIncrease() {
-  const std::string group_name = base::FieldTrialList::FindFullName(
+bool NeedCustodianApprovalForPermissionIncrease(const Profile* profile) {
+  if (!profile->IsSupervised())
+    return false;
+  // Query the trial group name first, to make sure it's properly initialized.
+  base::FieldTrialList::FindFullName(
       kSupervisedUserExtensionPermissionIncreaseFieldTrialName);
-  return group_name == "NeedCustodianApproval";
+  std::string value = variations::GetVariationParamValue(
+      kSupervisedUserExtensionPermissionIncreaseFieldTrialName,
+      profile->IsChild() ? "child_account" : "legacy_supervised_user");
+  return value == "true";
 }
 
 }  // namespace util

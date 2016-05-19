@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/ui/card_unmask_prompt_controller_impl.h"
@@ -25,6 +26,10 @@ class ChromeBrowserState;
 
 namespace password_manager {
 class PasswordGenerationManager;
+}
+
+namespace sync_driver {
+class SyncService;
 }
 
 namespace autofill {
@@ -47,6 +52,7 @@ class AutofillClientIOS : public AutofillClient {
   // AutofillClient implementation.
   PersonalDataManager* GetPersonalDataManager() override;
   PrefService* GetPrefs() override;
+  sync_driver::SyncService* GetSyncService() override;
   IdentityProvider* GetIdentityProvider() override;
   rappor::RapporService* GetRapporService() override;
   void HideRequestAutocompleteDialog() override;
@@ -54,10 +60,12 @@ class AutofillClientIOS : public AutofillClient {
   void ShowUnmaskPrompt(const CreditCard& card,
                         base::WeakPtr<CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
-  void ConfirmSaveCreditCardLocally(const base::Closure& callback) override;
+  void ConfirmSaveCreditCardLocally(const CreditCard& card,
+                                    const base::Closure& callback) override;
   void ConfirmSaveCreditCardToCloud(
-      const base::Closure& callback,
-      scoped_ptr<base::DictionaryValue> legal_message) override;
+      const CreditCard& card,
+      scoped_ptr<base::DictionaryValue> legal_message,
+      const base::Closure& callback) override;
   void LoadRiskData(
       const base::Callback<void(const std::string&)>& callback) override;
   bool HasCreditCardScanFeature() override;

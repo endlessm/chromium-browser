@@ -9,7 +9,7 @@
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
@@ -19,6 +19,7 @@
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
@@ -69,7 +70,7 @@ scoped_ptr<ui::MenuModel> CreateMultiUserContextMenu(aura::Window* window) {
   ash::SessionStateDelegate* delegate =
       ash::Shell::GetInstance()->session_state_delegate();
   if (!delegate)
-    return model.Pass();
+    return model;
 
   int logged_in_users = delegate->NumberOfLoggedInUsers();
   if (logged_in_users > 1) {
@@ -78,7 +79,7 @@ scoped_ptr<ui::MenuModel> CreateMultiUserContextMenu(aura::Window* window) {
         chrome::MultiUserWindowManager::GetInstance();
     const AccountId& account_id = manager->GetWindowOwner(window);
     if (!account_id.is_valid() || !window)
-      return model.Pass();
+      return model;
     chromeos::MultiUserContextMenuChromeos* menu =
         new chromeos::MultiUserContextMenuChromeos(window);
     model.reset(menu);
@@ -93,7 +94,7 @@ scoped_ptr<ui::MenuModel> CreateMultiUserContextMenu(aura::Window* window) {
                         base::ASCIIToUTF16(user_info->GetEmail())));
     }
   }
-  return model.Pass();
+  return model;
 }
 
 void OnAcceptTeleportWarning(const AccountId& account_id,

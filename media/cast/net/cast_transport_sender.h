@@ -18,12 +18,14 @@
 #ifndef MEDIA_CAST_NET_CAST_TRANSPORT_SENDER_H_
 #define MEDIA_CAST_NET_CAST_TRANSPORT_SENDER_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/callback.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/tick_clock.h"
+#include "base/values.h"
 #include "media/cast/logging/logging_defines.h"
 #include "media/cast/net/cast_transport_config.h"
 #include "media/cast/net/cast_transport_defines.h"
@@ -41,6 +43,7 @@ class NetLog;
 
 namespace media {
 namespace cast {
+
 struct RtpReceiverStatistics;
 struct RtcpTimeData;
 
@@ -53,19 +56,36 @@ typedef base::Callback<void(scoped_ptr<std::vector<FrameEvent>>,
                             scoped_ptr<std::vector<PacketEvent>>)>
     BulkRawEventsCallback;
 
+// TODO(xjz): Rename CastTransportSender as it also deals with receiving
+// packets. http://crbug.com/589157.
 // The application should only trigger this class from the transport thread.
 class CastTransportSender : public base::NonThreadSafe {
  public:
+  // Interface used for receiving status updates, raw events, and RTP packets
+  // from CastTransportSender.
+  class Client {
+   public:
+    virtual ~Client(){};
+
+    // Audio and Video transport status change is reported on this callback.
+    virtual void OnStatusChanged(CastTransportStatus status) = 0;
+
+    // Raw events will be invoked on this callback periodically, according to
+    // the configured logging flush interval passed to
+    // CastTransportSender::Create().
+    virtual void OnLoggingEventsReceived(
+        scoped_ptr<std::vector<FrameEvent>> frame_events,
+        scoped_ptr<std::vector<PacketEvent>> packet_events) = 0;
+
+    // Called to pass RTP packets to the Client.
+    virtual void ProcessRtpPacket(scoped_ptr<Packet> packet) = 0;
+  };
+
   static scoped_ptr<CastTransportSender> Create(
-      net::NetLog* net_log,
-      base::TickClock* clock,
-      const net::IPEndPoint& local_end_point,
-      const net::IPEndPoint& remote_end_point,
-      scoped_ptr<base::DictionaryValue> options,
-      const CastTransportStatusCallback& status_callback,
-      const BulkRawEventsCallback& raw_events_callback,
-      base::TimeDelta raw_events_callback_interval,
-      const PacketReceiverCallback& packet_callback,
+      base::TickClock* clock,  // Owned by the caller.
+      base::TimeDelta logging_flush_interval,
+      scoped_ptr<Client> client,
+      scoped_ptr<PacketSender> transport,
       const scoped_refptr<base::SingleThreadTaskRunner>& transport_task_runner);
 
   virtual ~CastTransportSender() {}
@@ -82,26 +102,25 @@ class CastTransportSender : public base::NonThreadSafe {
 
   // Encrypt, packetize and transmit |frame|. |ssrc| must refer to a
   // a channel already established with InitializeAudio / InitializeVideo.
-  virtual void InsertFrame(uint32 ssrc, const EncodedFrame& frame) = 0;
+  virtual void InsertFrame(uint32_t ssrc, const EncodedFrame& frame) = 0;
 
   // Sends a RTCP sender report to the receiver.
   // |ssrc| is the SSRC for this report.
   // |current_time| is the current time reported by a tick clock.
   // |current_time_as_rtp_timestamp| is the corresponding RTP timestamp.
-  virtual void SendSenderReport(
-      uint32 ssrc,
-      base::TimeTicks current_time,
-      uint32 current_time_as_rtp_timestamp) = 0;
+  virtual void SendSenderReport(uint32_t ssrc,
+                                base::TimeTicks current_time,
+                                RtpTimeTicks current_time_as_rtp_timestamp) = 0;
 
   // Cancels sending packets for the frames in the set.
   // |ssrc| is the SSRC for the stream.
   // |frame_ids| contains the IDs of the frames that will be cancelled.
-  virtual void CancelSendingFrames(uint32 ssrc,
-                                   const std::vector<uint32>& frame_ids) = 0;
+  virtual void CancelSendingFrames(uint32_t ssrc,
+                                   const std::vector<uint32_t>& frame_ids) = 0;
 
   // Resends a frame or part of a frame to kickstart. This is used when the
   // stream appears to be stalled.
-  virtual void ResendFrameForKickstart(uint32 ssrc, uint32 frame_id) = 0;
+  virtual void ResendFrameForKickstart(uint32_t ssrc, uint32_t frame_id) = 0;
 
   // Returns a callback for receiving packets for testing purposes.
   virtual PacketReceiverCallback PacketReceiverForTesting();
@@ -111,17 +130,20 @@ class CastTransportSender : public base::NonThreadSafe {
   // Add a valid SSRC. This is used to verify that incoming packets
   // come from the right sender. Without valid SSRCs, the return address cannot
   // be automatically established.
-  virtual void AddValidSsrc(uint32 ssrc) = 0;
+  virtual void AddValidSsrc(uint32_t ssrc) = 0;
 
   // Send an RTCP message from receiver to sender.
   virtual void SendRtcpFromRtpReceiver(
-      uint32 ssrc,
-      uint32 sender_ssrc,
+      uint32_t ssrc,
+      uint32_t sender_ssrc,
       const RtcpTimeData& time_data,
       const RtcpCastMessage* cast_message,
       base::TimeDelta target_delay,
       const ReceiverRtcpEventSubscriber::RtcpEvents* rtcp_events,
       const RtpReceiverStatistics* rtp_receiver_statistics) = 0;
+
+  // Set options for the PacedSender and Wifi.
+  virtual void SetOptions(const base::DictionaryValue& options) = 0;
 };
 
 }  // namespace cast

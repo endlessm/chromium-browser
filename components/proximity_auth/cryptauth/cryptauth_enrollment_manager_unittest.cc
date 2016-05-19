@@ -4,12 +4,15 @@
 
 #include "components/proximity_auth/cryptauth/cryptauth_enrollment_manager.h"
 
+#include <utility>
+
+#include "base/base64url.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/test/simple_test_clock.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
-#include "components/proximity_auth/cryptauth/base64url.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/proximity_auth/cryptauth/cryptauth_enroller.h"
 #include "components/proximity_auth/cryptauth/fake_cryptauth_gcm_manager.h"
 #include "components/proximity_auth/cryptauth/fake_secure_message_delegate.h"
@@ -74,9 +77,9 @@ class MockCryptAuthEnrollerFactory : public CryptAuthEnrollerFactory {
 
   // CryptAuthEnrollerFactory:
   scoped_ptr<CryptAuthEnroller> CreateInstance() override {
-    auto passed_cryptauth_enroller = next_cryptauth_enroller_.Pass();
+    auto passed_cryptauth_enroller = std::move(next_cryptauth_enroller_);
     next_cryptauth_enroller_.reset(new NiceMock<MockCryptAuthEnroller>());
-    return passed_cryptauth_enroller.Pass();
+    return std::move(passed_cryptauth_enroller);
   }
 
   MockCryptAuthEnroller* next_cryptauth_enroller() {
@@ -101,9 +104,9 @@ class TestCryptAuthEnrollmentManager : public CryptAuthEnrollmentManager {
       const cryptauth::GcmDeviceInfo& device_info,
       CryptAuthGCMManager* gcm_manager,
       PrefService* pref_service)
-      : CryptAuthEnrollmentManager(clock.Pass(),
-                                   enroller_factory.Pass(),
-                                   secure_message_delegate.Pass(),
+      : CryptAuthEnrollmentManager(std::move(clock),
+                                   std::move(enroller_factory),
+                                   std::move(secure_message_delegate),
                                    device_info,
                                    gcm_manager,
                                    pref_service),
@@ -114,7 +117,7 @@ class TestCryptAuthEnrollmentManager : public CryptAuthEnrollmentManager {
 
   scoped_ptr<SyncScheduler> CreateSyncScheduler() override {
     EXPECT_TRUE(scoped_sync_scheduler_);
-    return scoped_sync_scheduler_.Pass();
+    return std::move(scoped_sync_scheduler_);
   }
 
   base::WeakPtr<MockSyncScheduler> GetSyncScheduler() {
@@ -175,8 +178,12 @@ class ProximityAuthCryptAuthEnrollmentManagerTest
         new base::FundamentalValue(cryptauth::INVOCATION_REASON_UNKNOWN));
 
     std::string public_key_b64, private_key_b64;
-    Base64UrlEncode(public_key_, &public_key_b64);
-    Base64UrlEncode(private_key_, &private_key_b64);
+    base::Base64UrlEncode(public_key_,
+                          base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                          &public_key_b64);
+    base::Base64UrlEncode(private_key_,
+                          base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                          &private_key_b64);
     pref_service_.SetString(prefs::kCryptAuthEnrollmentUserPublicKey,
                             public_key_b64);
     pref_service_.SetString(prefs::kCryptAuthEnrollmentUserPrivateKey,
@@ -219,7 +226,7 @@ class ProximityAuthCryptAuthEnrollmentManagerTest
 
     SyncScheduler::Delegate* delegate =
         static_cast<SyncScheduler::Delegate*>(&enrollment_manager_);
-    delegate->OnSyncRequested(sync_request.Pass());
+    delegate->OnSyncRequested(std::move(sync_request));
 
     return completion_callback;
   }
@@ -300,7 +307,7 @@ TEST_F(ProximityAuthCryptAuthEnrollmentManagerTest, InitWithDefaultPrefs) {
   CryptAuthEnrollmentManager::RegisterPrefs(pref_service.registry());
 
   TestCryptAuthEnrollmentManager enrollment_manager(
-      clock.Pass(), make_scoped_ptr(new MockCryptAuthEnrollerFactory()),
+      std::move(clock), make_scoped_ptr(new MockCryptAuthEnrollerFactory()),
       make_scoped_ptr(new FakeSecureMessageDelegate()), device_info_,
       &gcm_manager_, &pref_service);
 
@@ -404,7 +411,7 @@ TEST_F(ProximityAuthCryptAuthEnrollmentManagerTest,
   auto sync_request = make_scoped_ptr(
       new SyncScheduler::SyncRequest(enrollment_manager_.GetSyncScheduler()));
   static_cast<SyncScheduler::Delegate*>(&enrollment_manager_)
-      ->OnSyncRequested(sync_request.Pass());
+      ->OnSyncRequested(std::move(sync_request));
 
   // Complete GCM registration successfully, and expect an enrollment.
   CryptAuthEnroller::EnrollmentFinishedCallback enrollment_callback;
@@ -440,7 +447,7 @@ TEST_F(ProximityAuthCryptAuthEnrollmentManagerTest, GCMRegistrationFails) {
   auto sync_request = make_scoped_ptr(
       new SyncScheduler::SyncRequest(enrollment_manager_.GetSyncScheduler()));
   static_cast<SyncScheduler::Delegate*>(&enrollment_manager_)
-      ->OnSyncRequested(sync_request.Pass());
+      ->OnSyncRequested(std::move(sync_request));
 
   // Complete GCM registration with failure.
   EXPECT_CALL(*this, OnEnrollmentFinishedProxy(false));

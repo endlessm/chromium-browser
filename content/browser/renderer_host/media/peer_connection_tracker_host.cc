@@ -4,7 +4,7 @@
 #include "content/browser/renderer_host/media/peer_connection_tracker_host.h"
 
 #include "base/power_monitor/power_monitor.h"
-#include "content/browser/media/webrtc_internals.h"
+#include "content/browser/media/webrtc/webrtc_internals.h"
 #include "content/common/media/peer_connection_tracker_messages.h"
 #include "content/public/browser/render_process_host.h"
 
@@ -41,7 +41,7 @@ void PeerConnectionTrackerHost::OverrideThreadForMessage(
 PeerConnectionTrackerHost::~PeerConnectionTrackerHost() {
 }
 
-void PeerConnectionTrackerHost::OnChannelConnected(int32 peer_pid) {
+void PeerConnectionTrackerHost::OnChannelConnected(int32_t peer_pid) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   // Add PowerMonitor when connected to channel rather than in constructor due
   // to thread safety concerns. Observers of PowerMonitor must be added and

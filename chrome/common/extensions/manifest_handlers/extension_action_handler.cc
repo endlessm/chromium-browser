@@ -63,6 +63,8 @@ bool ExtensionActionHandler::Parse(Extension* extension,
       return true;  // Do nothing if the switch is off.
     if (Manifest::IsComponentLocation(extension->location()))
       return true;  // Don't synthesize actions for component extensions.
+    if (extension->was_installed_by_default())
+      return true;  // Don't synthesize actions for default extensions.
     if (extension->manifest()->HasKey(
             manifest_keys::kSynthesizeExtensionAction)) {
       *error = base::ASCIIToUTF16(base::StringPrintf(
@@ -72,7 +74,9 @@ bool ExtensionActionHandler::Parse(Extension* extension,
 
     // Set an empty page action. We use a page action (instead of a browser
     // action) because the action should not be seen as enabled on every page.
-    ActionInfo::SetPageActionInfo(extension, new ActionInfo());
+    scoped_ptr<ActionInfo> action_info(new ActionInfo());
+    action_info->synthesized = true;
+    ActionInfo::SetPageActionInfo(extension, action_info.release());
   }
 
   return true;

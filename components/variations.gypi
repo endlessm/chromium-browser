@@ -15,12 +15,12 @@
         # List of dependencies is intentionally very minimal. Please avoid
         # adding extra dependencies without first checking with OWNERS.
         '../base/base.gyp:base',
-        '../base/base.gyp:base_prefs',
         '../crypto/crypto.gyp:crypto',
         '../third_party/mt19937ar/mt19937ar.gyp:mt19937ar',
         '../third_party/protobuf/protobuf.gyp:protobuf_lite',
-        'compression',
+        '../third_party/zlib/google/zip.gyp:compression_utils',
         'crash_core_common',
+        'prefs/prefs.gyp:prefs',
       ],
       'sources': [
         # Note: sources list duplicated in GN build.
@@ -50,10 +50,14 @@
         'variations/proto/variations_seed.proto',
         'variations/study_filtering.cc',
         'variations/study_filtering.h',
+        "variations/synthetic_trials.cc",
+        "variations/synthetic_trials.h",
         'variations/variations_associated_data.cc',
         'variations/variations_associated_data.h',
         'variations/variations_experiment_util.cc',
         'variations/variations_experiment_util.h',
+        'variations/variations_http_header_provider.cc',
+        'variations/variations_http_header_provider.h',
         'variations/variations_request_scheduler.cc',
         'variations/variations_request_scheduler.h',
         'variations/variations_request_scheduler_mobile.cc',
@@ -98,13 +102,13 @@
       ],
       'dependencies': [
         '../base/base.gyp:base',
-        '../base/base.gyp:base_prefs',
         '../net/net.gyp:net',
         '../ui/base/ui_base.gyp:ui_base',
         'data_use_measurement_core',
         'metrics',
         'network_time',
         'pref_registry',
+        'prefs/prefs.gyp:prefs',
         'variations',
         'version_info',
         'web_resource',
@@ -115,12 +119,11 @@
         'variations/service/variations_service.cc',
         'variations/service/variations_service.h',
         'variations/service/variations_service_client.h',
-        'variations/service/variations_service_client.cc',
       ],
     },
     {
       # GN version: //components/variations/net:net
-      'target_name': 'variations_http_provider',
+      'target_name': 'variations_net',
       'type': 'static_library',
       'include_dirs': [
         '..',
@@ -137,8 +140,8 @@
         'components.gyp:metrics',
       ],
       'sources': [
-        'variations/net/variations_http_header_provider.cc',
-        'variations/net/variations_http_header_provider.h',
+        'variations/net/variations_http_headers.cc',
+        'variations/net/variations_http_headers.h',
       ],
     },
   ],

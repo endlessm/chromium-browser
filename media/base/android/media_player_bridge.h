@@ -6,11 +6,13 @@
 #define MEDIA_BASE_ANDROID_MEDIA_PLAYER_BRIDGE_H_
 
 #include <jni.h>
+#include <stdint.h>
 #include <map>
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -62,7 +64,8 @@ class MEDIA_EXPORT MediaPlayerBridge : public MediaPlayerAndroid {
   void Pause(bool is_media_related_action) override;
   void SeekTo(base::TimeDelta timestamp) override;
   void Release() override;
-  void SetVolume(double volume) override;
+  bool HasVideo() const override;
+  bool HasAudio() const override;
   int GetVideoWidth() override;
   int GetVideoHeight() override;
   base::TimeDelta GetCurrentTime() override;
@@ -75,7 +78,10 @@ class MEDIA_EXPORT MediaPlayerBridge : public MediaPlayerAndroid {
   GURL GetUrl() override;
   GURL GetFirstPartyForCookies() override;
 
-  void OnDidSetDataUriDataSource(JNIEnv* env, jobject obj, jboolean success);
+  void OnDidSetDataUriDataSource(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jboolean success);
 
  protected:
   void SetDuration(base::TimeDelta time);
@@ -89,6 +95,7 @@ class MEDIA_EXPORT MediaPlayerBridge : public MediaPlayerAndroid {
 
   // MediaPlayerAndroid implementation.
   void OnVideoSizeChanged(int width, int height) override;
+  void OnMediaError(int error_type) override;
   void OnPlaybackComplete() override;
   void OnMediaInterrupted() override;
   void OnMediaPrepared() override;
@@ -101,6 +108,9 @@ class MEDIA_EXPORT MediaPlayerBridge : public MediaPlayerAndroid {
 
  private:
   friend class MediaPlayerBridgeTest;
+
+  // MediaPlayerAndroid implementation
+  void UpdateEffectiveVolumeInternal(double effective_volume) override;
 
   // Set the data source for the media player.
   void SetDataSource(const std::string& url);
@@ -135,8 +145,10 @@ class MEDIA_EXPORT MediaPlayerBridge : public MediaPlayerAndroid {
 
   // Returns true if a MediaUrlInterceptor registered by the embedder has
   // intercepted the url.
-  bool InterceptMediaUrl(
-      const std::string& url, int* fd, int64* offset, int64* size);
+  bool InterceptMediaUrl(const std::string& url,
+                         int* fd,
+                         int64_t* offset,
+                         int64_t* size);
 
   // Whether the player is prepared for playback.
   bool prepared_;
@@ -183,11 +195,23 @@ class MEDIA_EXPORT MediaPlayerBridge : public MediaPlayerAndroid {
 
   base::RepeatingTimer time_update_timer_;
 
-  // Volume of playback.
-  double volume_;
+  base::TimeDelta last_time_update_timestamp_;
 
   // Whether user credentials are allowed to be passed.
   bool allow_credentials_;
+
+  // Helper variables for UMA reporting.
+
+  // Whether the preparation for playback or the playback is currently going on.
+  // This flag is set in Start() and cleared in Pause() and Release(). Used for
+  // UMA reporting only.
+  bool is_active_;
+
+  // Whether there has been any errors in the active state.
+  bool has_error_;
+
+  // The flag is set if Start() has been called at least once.
+  bool has_ever_started_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<MediaPlayerBridge> weak_factory_;

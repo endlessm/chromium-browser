@@ -58,6 +58,7 @@ WebInspector.ResourceTreeModel.EventTypes = {
     FrameNavigated: "FrameNavigated",
     FrameDetached: "FrameDetached",
     FrameResized: "FrameResized",
+    FrameWillNavigate: "FrameWillNavigate",
     MainFrameNavigated: "MainFrameNavigated",
     ResourceAdded: "ResourceAdded",
     WillLoadCachedResources: "WillLoadCachedResources",
@@ -114,6 +115,7 @@ WebInspector.ResourceTreeModel.prototype = {
     {
         if (error) {
             this._cachedResourcesProcessed = true;
+            this.dispatchEventToListeners(WebInspector.ResourceTreeModel.EventTypes.CachedResourcesLoaded);
             return;
         }
 
@@ -270,6 +272,9 @@ WebInspector.ResourceTreeModel.prototype = {
             frame = this._frameAttached(framePayload.id, framePayload.parentId || "");
             console.assert(frame);
         }
+
+        this.dispatchEventToListeners(WebInspector.ResourceTreeModel.EventTypes.FrameWillNavigate, frame);
+
         this._removeSecurityOrigin(frame.securityOrigin);
         frame._navigate(framePayload);
         var addedOrigin = frame.securityOrigin;
@@ -495,6 +500,36 @@ WebInspector.ResourceTreeFrame = function(model, parentFrame, frameId, payload)
         this._parentFrame._childFrames.push(this);
 }
 
+/**
+ * @param {!WebInspector.Script} script
+ * @return {?WebInspector.ResourceTreeFrame}
+ */
+WebInspector.ResourceTreeFrame.fromScript = function(script)
+{
+    var executionContext = script.executionContext();
+    if (!executionContext || !executionContext.frameId)
+        return null;
+    return script.target().resourceTreeModel.frameForId(executionContext.frameId);
+}
+
+/**
+ * @param {!WebInspector.CSSStyleSheetHeader} header
+ * @return {?WebInspector.ResourceTreeFrame}
+ */
+WebInspector.ResourceTreeFrame.fromStyleSheet = function(header)
+{
+    return header.target().resourceTreeModel.frameForId(header.frameId);
+}
+
+/**
+ * @param {!WebInspector.Resource} resource
+ * @return {?WebInspector.ResourceTreeFrame}
+ */
+WebInspector.ResourceTreeFrame.fromResource = function(resource)
+{
+    return resource.target().resourceTreeModel.frameForId(resource.frameId);
+}
+
 WebInspector.ResourceTreeFrame.prototype = {
     /**
      * @return {!WebInspector.Target}
@@ -701,12 +736,12 @@ WebInspector.ResourceTreeFrame.prototype = {
     displayName: function()
     {
         if (!this._parentFrame)
-            return WebInspector.UIString("<top frame>");
+            return WebInspector.UIString("top");
         var subtitle = new WebInspector.ParsedURL(this._url).displayName;
         if (subtitle) {
             if (!this._name)
                 return subtitle;
-            return this._name + "( " + subtitle + " )";
+            return this._name + " (" + subtitle + ")";
         }
         return WebInspector.UIString("<iframe>");
     }
@@ -830,11 +865,12 @@ WebInspector.PageDispatcher.prototype = {
      * @override
      * @param {string} data
      * @param {!PageAgent.ScreencastFrameMetadata=} metadata
-     * @param {number=} frameNumber
+     * @param {number=} sessionId
      */
-    screencastFrame: function(data, metadata, frameNumber)
+    screencastFrame: function(data, metadata, sessionId)
     {
-        this._resourceTreeModel.dispatchEventToListeners(WebInspector.ResourceTreeModel.EventTypes.ScreencastFrame, {data:data, metadata:metadata, frameNumber:frameNumber});
+        this._resourceTreeModel._agent.screencastFrameAck(sessionId);
+        this._resourceTreeModel.dispatchEventToListeners(WebInspector.ResourceTreeModel.EventTypes.ScreencastFrame, { data: data, metadata: metadata });
     },
 
     /**
@@ -843,7 +879,7 @@ WebInspector.PageDispatcher.prototype = {
      */
     screencastVisibilityChanged: function(visible)
     {
-        this._resourceTreeModel.dispatchEventToListeners(WebInspector.ResourceTreeModel.EventTypes.ScreencastVisibilityChanged, {visible:visible});
+        this._resourceTreeModel.dispatchEventToListeners(WebInspector.ResourceTreeModel.EventTypes.ScreencastVisibilityChanged, { visible: visible });
     },
 
     /**

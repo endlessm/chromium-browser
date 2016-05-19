@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/CSSSelectorWatch.h"
 
 #include "core/css/StylePropertySet.h"
@@ -148,9 +147,8 @@ void CSSSelectorWatch::watchCSSSelectors(const Vector<String>& selectors)
 
     const RefPtrWillBeRawPtr<StylePropertySet> callbackPropertySet = ImmutableStylePropertySet::create(nullptr, 0, UASheetMode);
 
-    CSSSelectorList selectorList;
     for (unsigned i = 0; i < selectors.size(); ++i) {
-        CSSParser::parseSelector(CSSParserContext(UASheetMode, 0), selectors[i], selectorList);
+        CSSSelectorList selectorList = CSSParser::parseSelector(CSSParserContext(UASheetMode, 0), nullptr, selectors[i]);
         if (!selectorList.isValid())
             continue;
 
@@ -158,7 +156,7 @@ void CSSSelectorWatch::watchCSSSelectors(const Vector<String>& selectors)
         if (!allCompound(selectorList))
             continue;
 
-        m_watchedCallbackSelectors.append(StyleRule::create(selectorList, callbackPropertySet));
+        m_watchedCallbackSelectors.append(StyleRule::create(std::move(selectorList), callbackPropertySet));
     }
     document().changedSelectorWatch();
 }

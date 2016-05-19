@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/declarative_content/content_action.h"
 
+#include <stdint.h>
+
 #include "base/base64.h"
 #include "base/run_loop.h"
 #include "base/test/values_test_util.h"
@@ -165,9 +167,10 @@ TEST(DeclarativeContentActionTest, SetIcon) {
   base::Base64Encode(binary_data, &data64);
 
   scoped_ptr<base::DictionaryValue> dict =
-      DictionaryBuilder().Set("instanceType", "declarativeContent.SetIcon")
-                         .Set("imageData",
-                              DictionaryBuilder().Set("19", data64)).Build();
+      DictionaryBuilder()
+          .Set("instanceType", "declarativeContent.SetIcon")
+          .Set("imageData", std::move(DictionaryBuilder().Set("19", data64)))
+          .Build();
 
   const Extension* extension = env.MakeExtension(
       *ParseJson("{\"page_action\": { \"default_title\": \"Extension\" } }"));

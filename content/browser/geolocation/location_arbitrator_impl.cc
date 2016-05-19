@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "build/build_config.h"
 #include "content/browser/geolocation/network_location_provider.h"
 #include "content/public/browser/access_token_store.h"
 #include "content/public/browser/content_browser_client.h"
@@ -23,7 +24,7 @@ const char* kDefaultNetworkProviderUrl =
 
 // To avoid oscillations, set this to twice the expected update interval of a
 // a GPS-type location provider (in case it misses a beat) plus a little.
-const int64 LocationArbitratorImpl::kFixStaleTimeoutMilliseconds =
+const int64_t LocationArbitratorImpl::kFixStaleTimeoutMilliseconds =
     11 * base::Time::kMillisecondsPerSecond;
 
 LocationArbitratorImpl::LocationArbitratorImpl(
@@ -46,10 +47,8 @@ GURL LocationArbitratorImpl::DefaultNetworkProviderURL() {
 
 void LocationArbitratorImpl::OnPermissionGranted() {
   is_permission_granted_ = true;
-  for (ScopedVector<LocationProvider>::iterator i = providers_.begin();
-      i != providers_.end(); ++i) {
-    (*i)->OnPermissionGranted();
-  }
+  for (const auto& provider : providers_)
+    provider->OnPermissionGranted();
 }
 
 void LocationArbitratorImpl::StartProviders(bool use_high_accuracy) {
@@ -78,10 +77,8 @@ void LocationArbitratorImpl::StartProviders(bool use_high_accuracy) {
 }
 
 void LocationArbitratorImpl::DoStartProviders() {
-  for (ScopedVector<LocationProvider>::iterator i = providers_.begin();
-       i != providers_.end(); ++i) {
-    (*i)->StartProvider(use_high_accuracy_);
-  }
+  for (const auto& provider : providers_)
+    provider->StartProvider(use_high_accuracy_);
 }
 
 void LocationArbitratorImpl::StopProviders() {
@@ -96,7 +93,7 @@ void LocationArbitratorImpl::StopProviders() {
 }
 
 void LocationArbitratorImpl::OnAccessTokenStoresLoaded(
-    AccessTokenStore::AccessTokenSet access_token_set,
+    AccessTokenStore::AccessTokenMap access_token_map,
     net::URLRequestContextGetter* context_getter) {
   if (!is_running_ || !providers_.empty()) {
     // A second StartProviders() call may have arrived before the first
@@ -104,15 +101,11 @@ void LocationArbitratorImpl::OnAccessTokenStoresLoaded(
     return;
   }
   // If there are no access tokens, boot strap it with the default server URL.
-  if (access_token_set.empty())
-    access_token_set[DefaultNetworkProviderURL()];
-  for (AccessTokenStore::AccessTokenSet::iterator i =
-           access_token_set.begin();
-      i != access_token_set.end(); ++i) {
-    RegisterProvider(
-        NewNetworkLocationProvider(
-            GetAccessTokenStore(), context_getter,
-            i->first, i->second));
+  if (access_token_map.empty())
+    access_token_map[DefaultNetworkProviderURL()];
+  for (const auto& entry : access_token_map) {
+    RegisterProvider(NewNetworkLocationProvider(
+        GetAccessTokenStore(), context_getter, entry.first, entry.second));
   }
 
   LocationProvider* provider =

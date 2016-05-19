@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/platform/WebURLResponse.h"
 
 #include "platform/exported/WebURLResponsePrivate.h"
@@ -39,6 +38,7 @@
 #include "public/platform/WebString.h"
 #include "public/platform/WebURL.h"
 #include "public/platform/WebURLLoadTiming.h"
+#include "wtf/Allocator.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
@@ -66,7 +66,8 @@ private:
 
 // The standard implementation of WebURLResponsePrivate, which maintains
 // ownership of a ResourceResponse instance.
-class WebURLResponsePrivateImpl : public WebURLResponsePrivate {
+class WebURLResponsePrivateImpl final : public WebURLResponsePrivate {
+    USING_FAST_MALLOC(WebURLResponsePrivateImpl);
 public:
     WebURLResponsePrivateImpl()
     {
@@ -161,7 +162,7 @@ void WebURLResponse::setHTTPLoadInfo(const WebHTTPLoadInfo& value)
 
 void WebURLResponse::setResponseTime(long long responseTime)
 {
-    m_private->m_resourceResponse->setResponseTime(static_cast<int64>(responseTime));
+    m_private->m_resourceResponse->setResponseTime(static_cast<int64_t>(responseTime));
 }
 
 WebString WebURLResponse::mimeType() const
@@ -305,6 +306,11 @@ void WebURLResponse::setSecurityInfo(const WebCString& securityInfo)
     m_private->m_resourceResponse->setSecurityInfo(securityInfo);
 }
 
+void WebURLResponse::setHasMajorCertificateErrors(bool value)
+{
+    m_private->m_resourceResponse->setHasMajorCertificateErrors(value);
+}
+
 WebURLResponse::SecurityStyle WebURLResponse::securityStyle() const
 {
     return static_cast<SecurityStyle>(m_private->m_resourceResponse->securityStyle());
@@ -315,9 +321,17 @@ void WebURLResponse::setSecurityStyle(SecurityStyle securityStyle)
     m_private->m_resourceResponse->setSecurityStyle(static_cast<ResourceResponse::SecurityStyle>(securityStyle));
 }
 
-void WebURLResponse::setSecurityDetails(const WebString& protocol, const WebString& keyExchange, const WebString& cipher, const WebString& mac, int certId)
+void WebURLResponse::setSecurityDetails(const WebSecurityDetails& webSecurityDetails)
 {
-    m_private->m_resourceResponse->setSecurityDetails(protocol, keyExchange, cipher, mac, certId);
+    m_private->m_resourceResponse->setSecurityDetails(
+        webSecurityDetails.protocol,
+        webSecurityDetails.keyExchange,
+        webSecurityDetails.cipher,
+        webSecurityDetails.mac,
+        webSecurityDetails.certId,
+        webSecurityDetails.numUnknownScts,
+        webSecurityDetails.numInvalidScts,
+        webSecurityDetails.numValidScts);
 }
 
 ResourceResponse& WebURLResponse::toMutableResourceResponse()

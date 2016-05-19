@@ -6,13 +6,12 @@
 
 #include <algorithm>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -30,6 +29,7 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/scored_history_match.h"
 #include "components/omnibox/browser/url_prefix.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_fixer.h"
@@ -277,10 +277,8 @@ class SearchTermsDataSnapshot : public SearchTermsData {
   std::string GetApplicationLocale() const override;
   base::string16 GetRlzParameterValue(bool from_app_list) const override;
   std::string GetSearchClient() const override;
-  bool IsShowingSearchTermsOnSearchResultsPages() const override;
   std::string InstantExtendedEnabledParam(bool for_search) const override;
   std::string ForceInstantResultsParam(bool for_prerender) const override;
-  std::string NTPIsThemedParam() const override;
   std::string GoogleImageSearchSource() const override;
 
  private:
@@ -288,12 +286,10 @@ class SearchTermsDataSnapshot : public SearchTermsData {
   std::string application_locale_;
   base::string16 rlz_parameter_value_;
   std::string search_client_;
-  bool is_showing_search_terms_on_search_results_pages_;
   std::string instant_extended_enabled_param_;
   std::string instant_extended_enabled_param_for_search_;
   std::string force_instant_results_param_;
   std::string force_instant_results_param_for_prerender_;
-  std::string ntp_is_themed_param_;
   std::string google_image_search_source_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchTermsDataSnapshot);
@@ -305,8 +301,6 @@ SearchTermsDataSnapshot::SearchTermsDataSnapshot(
       application_locale_(search_terms_data.GetApplicationLocale()),
       rlz_parameter_value_(search_terms_data.GetRlzParameterValue(false)),
       search_client_(search_terms_data.GetSearchClient()),
-      is_showing_search_terms_on_search_results_pages_(
-          search_terms_data.IsShowingSearchTermsOnSearchResultsPages()),
       instant_extended_enabled_param_(
           search_terms_data.InstantExtendedEnabledParam(false)),
       instant_extended_enabled_param_for_search_(
@@ -315,7 +309,6 @@ SearchTermsDataSnapshot::SearchTermsDataSnapshot(
           search_terms_data.ForceInstantResultsParam(false)),
       force_instant_results_param_for_prerender_(
           search_terms_data.ForceInstantResultsParam(true)),
-      ntp_is_themed_param_(search_terms_data.NTPIsThemedParam()),
       google_image_search_source_(search_terms_data.GoogleImageSearchSource()) {
 }
 
@@ -339,10 +332,6 @@ std::string SearchTermsDataSnapshot::GetSearchClient() const {
   return search_client_;
 }
 
-bool SearchTermsDataSnapshot::IsShowingSearchTermsOnSearchResultsPages() const {
-  return is_showing_search_terms_on_search_results_pages_;
-}
-
 std::string SearchTermsDataSnapshot::InstantExtendedEnabledParam(
     bool for_search) const {
   return for_search ? instant_extended_enabled_param_ :
@@ -353,10 +342,6 @@ std::string SearchTermsDataSnapshot::ForceInstantResultsParam(
     bool for_prerender) const {
   return for_prerender ? force_instant_results_param_ :
       force_instant_results_param_for_prerender_;
-}
-
-std::string SearchTermsDataSnapshot::NTPIsThemedParam() const {
-  return ntp_is_themed_param_;
 }
 
 std::string SearchTermsDataSnapshot::GoogleImageSearchSource() const {
@@ -461,7 +446,8 @@ HistoryURLProvider::HistoryURLProvider(AutocompleteProviderClient* client,
                                        AutocompleteProviderListener* listener)
     : HistoryProvider(AutocompleteProvider::TYPE_HISTORY_URL, client),
       listener_(listener),
-      params_(NULL) {
+      params_(NULL),
+      search_url_database_(OmniboxFieldTrial::HUPSearchDatabase()) {
   // Initialize the default HUP scoring params.
   OmniboxFieldTrial::GetDefaultHUPScoringParams(&scoring_params_);
   // Initialize HUP scoring params based on the current experiment.
@@ -557,7 +543,7 @@ void HistoryURLProvider::Start(const AutocompleteInput& input,
 
   // Pass 2: Ask the history service to call us back on the history thread,
   // where we can read the full on-disk DB.
-  if (input.want_asynchronous_matches()) {
+  if (search_url_database_ && input.want_asynchronous_matches()) {
     done_ = false;
     params_ = params.release();  // This object will be destroyed in
                                  // QueryComplete() once we're done with it.
@@ -712,35 +698,38 @@ void HistoryURLProvider::DoAutocomplete(history::HistoryBackend* backend,
   // Get the matching URLs from the DB.
   params->matches.clear();
   history::URLRows url_matches;
-  const URLPrefixes& prefixes = URLPrefix::GetURLPrefixes();
-  for (URLPrefixes::const_iterator i(prefixes.begin()); i != prefixes.end();
-       ++i) {
-    if (params->cancel_flag.IsSet())
-      return;  // Canceled in the middle of a query, give up.
 
-    // We only need kMaxMatches results in the end, but before we get there we
-    // need to promote lower-quality matches that are prefixes of higher-quality
-    // matches, and remove lower-quality redirects.  So we ask for more results
-    // than we need, of every prefix type, in hopes this will give us far more
-    // than enough to work with.  CullRedirects() will then reduce the list to
-    // the best kMaxMatches results.
-    db->AutocompleteForPrefix(
-        base::UTF16ToUTF8(i->prefix + params->input.text()), kMaxMatches * 2,
-        !backend, &url_matches);
-    for (history::URLRows::const_iterator j(url_matches.begin());
-          j != url_matches.end(); ++j) {
-      const URLPrefix* best_prefix = URLPrefix::BestURLPrefix(
-          base::UTF8ToUTF16(j->url().spec()), base::string16());
-      DCHECK(best_prefix);
-      params->matches.push_back(history::HistoryMatch(
-          *j, i->prefix.length(), !i->num_components,
-          i->num_components >= best_prefix->num_components));
+  if (search_url_database_) {
+    const URLPrefixes& prefixes = URLPrefix::GetURLPrefixes();
+    for (URLPrefixes::const_iterator i(prefixes.begin()); i != prefixes.end();
+         ++i) {
+      if (params->cancel_flag.IsSet())
+        return;  // Canceled in the middle of a query, give up.
+
+      // We only need kMaxMatches results in the end, but before we get there we
+      // need to promote lower-quality matches that are prefixes of higher-
+      // quality matches, and remove lower-quality redirects.  So we ask for
+      // more results than we need, of every prefix type, in hopes this will
+      // give us far more than enough to work with.  CullRedirects() will then
+      // reduce the list to the best kMaxMatches results.
+      db->AutocompleteForPrefix(
+          base::UTF16ToUTF8(i->prefix + params->input.text()), kMaxMatches * 2,
+          !backend, &url_matches);
+      for (history::URLRows::const_iterator j(url_matches.begin());
+           j != url_matches.end(); ++j) {
+        const URLPrefix* best_prefix = URLPrefix::BestURLPrefix(
+            base::UTF8ToUTF16(j->url().spec()), base::string16());
+        DCHECK(best_prefix);
+        params->matches.push_back(history::HistoryMatch(
+            *j, i->prefix.length(), !i->num_components,
+            i->num_components >= best_prefix->num_components));
+      }
     }
-  }
 
-  // Create sorted list of suggestions.
-  CullPoorMatches(params);
-  SortAndDedupMatches(&params->matches);
+    // Create sorted list of suggestions.
+    CullPoorMatches(params);
+    SortAndDedupMatches(&params->matches);
+  }
 
   // Try to create a shorter suggestion from the best match.
   // We consider the what you typed match eligible for display when it's
@@ -1173,24 +1162,30 @@ AutocompleteMatch HistoryURLProvider::HistoryMatchToACMatch(
                                    net::UnescapeRule::SPACES, nullptr, nullptr,
                                    &inline_autocomplete_offset),
           client()->GetSchemeClassifier());
-  if (!params.prevent_inline_autocomplete &&
-      (inline_autocomplete_offset != base::string16::npos)) {
+  // |inline_autocomplete_offset| was guaranteed not to be npos before the call
+  // to FormatUrl().  If it is npos now, that means the represented location no
+  // longer exists as such in the formatted string, e.g. if the offset pointed
+  // into the middle of a punycode sequence fixed up to Unicode.  In this case,
+  // there can be no inline autocompletion, and the match must not be allowed to
+  // be default.
+  const bool autocomplete_offset_valid =
+      inline_autocomplete_offset != base::string16::npos;
+  if (!params.prevent_inline_autocomplete && autocomplete_offset_valid) {
     DCHECK(inline_autocomplete_offset <= match.fill_into_edit.length());
     match.inline_autocompletion =
         match.fill_into_edit.substr(inline_autocomplete_offset);
   }
   // The latter part of the test effectively asks "is the inline completion
   // empty?" (i.e., is this match effectively the what-you-typed match?).
-  match.allowed_to_be_default_match = !params.prevent_inline_autocomplete ||
-      ((inline_autocomplete_offset != base::string16::npos) &&
+  match.allowed_to_be_default_match = autocomplete_offset_valid &&
+      (!params.prevent_inline_autocomplete ||
        (inline_autocomplete_offset >= match.fill_into_edit.length()));
 
   size_t match_start = history_match.input_location;
   match.contents = url_formatter::FormatUrl(info.url(), languages, format_types,
                                             net::UnescapeRule::SPACES, nullptr,
                                             nullptr, &match_start);
-  if ((match_start != base::string16::npos) &&
-      (inline_autocomplete_offset != base::string16::npos) &&
+  if ((match_start != base::string16::npos) && autocomplete_offset_valid &&
       (inline_autocomplete_offset != match_start)) {
     DCHECK(inline_autocomplete_offset > match_start);
     AutocompleteMatch::ClassifyLocationInString(match_start,

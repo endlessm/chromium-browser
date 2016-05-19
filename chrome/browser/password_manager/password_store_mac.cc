@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/password_manager/password_store_mac.h"
-#include "chrome/browser/password_manager/password_store_mac_internal.h"
 
 #include <CoreServices/CoreServices.h>
+#include <stddef.h>
 #include <set>
 #include <string>
 #include <utility>
@@ -15,18 +15,21 @@
 #include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/mac/security_wrappers.h"
+#include "chrome/browser/password_manager/password_store_mac_internal.h"
 #include "components/os_crypt/os_crypt.h"
 #include "components/password_manager/core/browser/affiliation_utils.h"
 #include "components/password_manager/core/browser/login_database.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "content/public/browser/browser_thread.h"
 #include "crypto/apple_keychain.h"
+#include "url/origin.h"
 
 using autofill::PasswordForm;
 using crypto::AppleKeychain;
@@ -222,7 +225,7 @@ const PasswordForm* BestKeychainFormForForm(
 }
 
 // Iterates over all elements in |forms|, passes the pointed to objects to
-// |move_form|, and clears |forms| efficiently. FormMover needs to be a callable
+// |mover|, and clears |forms| efficiently. FormMover needs to be a callable
 // entity, accepting scoped_ptr<autofill::PasswordForm> as its sole argument.
 template <typename FormMover>
 inline void MoveAllFormsOut(ScopedVector<autofill::PasswordForm>* forms,
@@ -240,7 +243,7 @@ inline void MoveAllFormsOut(ScopedVector<autofill::PasswordForm>* forms,
 
 // True if the form has no password to be stored in Keychain.
 bool IsLoginDatabaseOnlyForm(const autofill::PasswordForm& form) {
-  return form.blacklisted_by_user || !form.federation_url.is_empty() ||
+  return form.blacklisted_by_user || !form.federation_origin.unique() ||
          form.scheme == autofill::PasswordForm::SCHEME_USERNAME_ONLY;
 }
 
@@ -331,7 +334,7 @@ bool FillPasswordFormFromKeychainItem(const AppleKeychain& keychain,
   attrInfo.tag = tags;
   attrInfo.format = NULL;
 
-  SecKeychainAttributeList *attrList;
+  SecKeychainAttributeList* attrList;
   UInt32 password_length;
 
   // If |extract_password_data| is false, do not pass in a reference to
@@ -497,9 +500,9 @@ void ExtractNonKeychainForms(ScopedVector<autofill::PasswordForm>* forms,
   MoveAllFormsOut(
       forms, [&remaining, extracted](scoped_ptr<autofill::PasswordForm> form) {
         if (IsLoginDatabaseOnlyForm(*form))
-          extracted->push_back(form.Pass());
+          extracted->push_back(std::move(form));
         else
-          remaining.push_back(form.Pass());
+          remaining.push_back(std::move(form));
       });
   forms->swap(remaining);
 }
@@ -536,9 +539,9 @@ void MergePasswordForms(ScopedVector<autofill::PasswordForm>* keychain_forms,
     if (best_match) {
       used_keychain_forms.insert(best_match);
       form->password_value = best_match->password_value;
-      merged_forms->push_back(form.Pass());
+      merged_forms->push_back(std::move(form));
     } else {
-      unused_database_forms.push_back(form.Pass());
+      unused_database_forms.push_back(std::move(form));
     }
   });
   database_forms->swap(unused_database_forms);
@@ -604,7 +607,7 @@ void GetPasswordsForForms(const AppleKeychain& keychain,
         ExtractPasswordsMergeableWithForm(keychain, item_form_pairs, *form);
 
     ScopedVector<autofill::PasswordForm> db_form_container;
-    db_form_container.push_back(form.Pass());
+    db_form_container.push_back(std::move(form));
     MergePasswordForms(&keychain_matches, &db_form_container, passwords);
     AppendSecondToFirst(&unused_db_forms, &db_form_container);
   });
@@ -688,10 +691,10 @@ ScopedVector<autofill::PasswordForm> ExtractPasswordsMergeableWithForm(
           true);  // Load password attributes and data.
       // Do not include blacklisted items found in the keychain.
       if (!form_with_password->blacklisted_by_user)
-        matches.push_back(form_with_password.Pass());
+        matches.push_back(std::move(form_with_password));
     }
   }
-  return matches.Pass();
+  return matches;
 }
 
 }  // namespace internal_keychain_helpers
@@ -838,12 +841,12 @@ MacKeychainPasswordFormAdapter::ConvertKeychainItemsToForms(
     scoped_ptr<PasswordForm> form(new PasswordForm());
     if (internal_keychain_helpers::FillPasswordFormFromKeychainItem(
             *keychain_, item, form.get(), true)) {
-      forms.push_back(form.Pass());
+      forms.push_back(std::move(form));
     }
     keychain_->Free(item);
   }
   items->clear();
-  return forms.Pass();
+  return forms;
 }
 
 SecKeychainItemRef MacKeychainPasswordFormAdapter::KeychainItemForForm(
@@ -955,7 +958,7 @@ PasswordStoreMac::PasswordStoreMac(
     scoped_refptr<base::SingleThreadTaskRunner> db_thread_runner,
     scoped_ptr<AppleKeychain> keychain)
     : password_manager::PasswordStore(main_thread_runner, db_thread_runner),
-      keychain_(keychain.Pass()),
+      keychain_(std::move(keychain)),
       login_metadata_db_(nullptr) {
   DCHECK(keychain_);
 }
@@ -1132,6 +1135,34 @@ PasswordStoreChangeList PasswordStoreMac::RemoveLoginImpl(
   return changes;
 }
 
+PasswordStoreChangeList PasswordStoreMac::RemoveLoginsByOriginAndTimeImpl(
+    const url::Origin& origin,
+    base::Time delete_begin,
+    base::Time delete_end) {
+  PasswordStoreChangeList changes;
+  ScopedVector<PasswordForm> forms_to_consider;
+  ScopedVector<PasswordForm> forms_to_remove;
+  if (login_metadata_db_ &&
+      login_metadata_db_->GetLoginsCreatedBetween(delete_begin, delete_end,
+                                                  &forms_to_consider)) {
+    MoveAllFormsOut(
+        &forms_to_consider,
+        [this, &origin, &forms_to_remove](
+            scoped_ptr<autofill::PasswordForm> form_to_consider) {
+          if (origin.IsSameOriginWith(url::Origin(form_to_consider->origin)) &&
+              login_metadata_db_->RemoveLogin(*form_to_consider))
+            forms_to_remove.push_back(std::move(form_to_consider));
+        });
+    if (!forms_to_remove.empty()) {
+      RemoveKeychainForms(forms_to_remove.get());
+      CleanOrphanedForms(&forms_to_remove);  // Add the orphaned forms.
+      changes = FormsToRemoveChangeList(forms_to_remove.get());
+      LogStatsForBulkDeletion(changes.size());
+    }
+  }
+  return changes;
+}
+
 PasswordStoreChangeList PasswordStoreMac::RemoveLoginsCreatedBetweenImpl(
     base::Time delete_begin,
     base::Time delete_end) {
@@ -1167,6 +1198,18 @@ PasswordStoreChangeList PasswordStoreMac::RemoveLoginsSyncedBetweenImpl(
   return changes;
 }
 
+PasswordStoreChangeList PasswordStoreMac::DisableAutoSignInForAllLoginsImpl() {
+  ScopedVector<PasswordForm> forms;
+  PasswordStoreChangeList list;
+  if (login_metadata_db_ && login_metadata_db_->GetAutoSignInLogins(&forms) &&
+      login_metadata_db_->DisableAutoSignInForAllLogins()) {
+    for (const auto& form : forms)
+      list.push_back(PasswordStoreChange(PasswordStoreChange::UPDATE, *form));
+  }
+
+  return list;
+}
+
 bool PasswordStoreMac::RemoveStatisticsCreatedBetweenImpl(
     base::Time delete_begin,
     base::Time delete_end) {
@@ -1176,10 +1219,9 @@ bool PasswordStoreMac::RemoveStatisticsCreatedBetweenImpl(
 }
 
 ScopedVector<autofill::PasswordForm> PasswordStoreMac::FillMatchingLogins(
-    const autofill::PasswordForm& form,
-    AuthorizationPromptPolicy prompt_policy) {
+    const autofill::PasswordForm& form) {
   chrome::ScopedSecKeychainSetUserInteractionAllowed user_interaction_allowed(
-      prompt_policy == ALLOW_PROMPT);
+      false);
 
   ScopedVector<PasswordForm> database_forms;
   if (!login_metadata_db_ ||
@@ -1223,7 +1265,7 @@ ScopedVector<autofill::PasswordForm> PasswordStoreMac::FillMatchingLogins(
     NotifyLoginsChanged(FormsToRemoveChangeList(database_forms.get()));
   }
 
-  return matched_forms.Pass();
+  return matched_forms;
 }
 
 bool PasswordStoreMac::FillAutofillableLogins(
@@ -1265,12 +1307,12 @@ void PasswordStoreMac::RemoveSiteStatsImpl(const GURL& origin_domain) {
     login_metadata_db_->stats_table().RemoveRow(origin_domain);
 }
 
-ScopedVector<password_manager::InteractionsStats>
+std::vector<scoped_ptr<password_manager::InteractionsStats>>
 PasswordStoreMac::GetSiteStatsImpl(const GURL& origin_domain) {
   DCHECK(GetBackgroundTaskRunner()->BelongsToCurrentThread());
   return login_metadata_db_
              ? login_metadata_db_->stats_table().GetRows(origin_domain)
-             : ScopedVector<password_manager::InteractionsStats>();
+             : std::vector<scoped_ptr<password_manager::InteractionsStats>>();
 }
 
 bool PasswordStoreMac::AddToKeychainIfNecessary(const PasswordForm& form) {
@@ -1308,7 +1350,7 @@ void PasswordStoreMac::RemoveDatabaseForms(
   MoveAllFormsOut(forms, [this, &removed_forms](
                              scoped_ptr<autofill::PasswordForm> form) {
     if (login_metadata_db_->RemoveLogin(*form))
-      removed_forms.push_back(form.Pass());
+      removed_forms.push_back(std::move(form));
   });
   removed_forms.swap(*forms);
 }

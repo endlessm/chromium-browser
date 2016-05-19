@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/exclusive_access/exclusive_access_bubble.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
@@ -31,6 +32,7 @@ const int ExclusiveAccessBubble::kSlideInRegionHeightPx = 4;
 const int ExclusiveAccessBubble::kSlideInDurationMs = 350;
 const int ExclusiveAccessBubble::kSlideOutDurationMs = 700;
 const int ExclusiveAccessBubble::kPopupTopPx = 45;
+const int ExclusiveAccessBubble::kSimplifiedPopupTopPx = 45;
 
 ExclusiveAccessBubble::ExclusiveAccessBubble(
     ExclusiveAccessManager* manager,
@@ -43,6 +45,29 @@ ExclusiveAccessBubble::ExclusiveAccessBubble(
 ExclusiveAccessBubble::~ExclusiveAccessBubble() {
 }
 
+void ExclusiveAccessBubble::OnUserInput() {
+  if (!ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled())
+    return;
+
+  // We got some user input; reset the idle timer.
+  idle_timeout_.Stop();  // If the timer isn't running, this is a no-op.
+  idle_timeout_.Start(FROM_HERE,
+                      base::TimeDelta::FromMilliseconds(kIdleTimeMs), this,
+                      &ExclusiveAccessBubble::CheckMousePosition);
+
+  // If the notification suppression timer has elapsed, re-show it.
+  if (!suppress_notify_timeout_.IsRunning()) {
+    manager_->RecordBubbleReshownUMA(bubble_type_);
+
+    ShowAndStartTimers();
+    return;
+  }
+
+  // The timer has not elapsed, but the user provided some input. Reset the
+  // timer. (We only want to re-show the message after a period of inactivity.)
+  suppress_notify_timeout_.Reset();
+}
+
 void ExclusiveAccessBubble::StartWatchingMouse() {
   // Start the initial delay timer and begin watching the mouse.
   if (ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()) {
@@ -51,9 +76,9 @@ void ExclusiveAccessBubble::StartWatchingMouse() {
     hide_timeout_.Start(FROM_HERE,
                         base::TimeDelta::FromMilliseconds(kInitialDelayMs),
                         this, &ExclusiveAccessBubble::CheckMousePosition);
+
+    last_mouse_pos_ = GetCursorScreenPoint();
   }
-  gfx::Point cursor_pos = GetCursorScreenPoint();
-  last_mouse_pos_ = cursor_pos;
   mouse_position_checker_.Start(
       FROM_HERE, base::TimeDelta::FromMilliseconds(1000 / kPositionCheckHz),
       this, &ExclusiveAccessBubble::CheckMousePosition);
@@ -93,31 +118,21 @@ void ExclusiveAccessBubble::CheckMousePosition() {
   // With the "simplified" flag, we ignore all this and just show and hide based
   // on timers (not mouse position).
 
-  gfx::Point cursor_pos = GetCursorScreenPoint();
+  gfx::Point cursor_pos;
+  if (!ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()) {
+    cursor_pos = GetCursorScreenPoint();
 
-  // Check to see whether the mouse is idle.
-  if (cursor_pos != last_mouse_pos_) {
-    // The mouse moved; reset the idle timer.
-    idle_timeout_.Stop();  // If the timer isn't running, this is a no-op.
-    idle_timeout_.Start(FROM_HERE,
-                        base::TimeDelta::FromMilliseconds(kIdleTimeMs), this,
-                        &ExclusiveAccessBubble::CheckMousePosition);
-
-    if (ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()) {
-      // If the notification suppression timer has elapsed, show the
-      // notification regardless of where the mouse is on the screen.
-      if (!suppress_notify_timeout_.IsRunning()) {
-        ShowAndStartTimers();
-        return;
-      } else {
-        // The timer has not elapsed, but the user moved the mouse. Reset the
-        // timer. (We only want to re-show the message after a period of
-        // inactivity.)
-        suppress_notify_timeout_.Reset();
-      }
+    // Check to see whether the mouse is idle.
+    if (cursor_pos != last_mouse_pos_) {
+      // OnUserInput() will reset the idle timer in simplified mode. In classic
+      // mode, we need to do this here.
+      idle_timeout_.Stop();  // If the timer isn't running, this is a no-op.
+      idle_timeout_.Start(FROM_HERE,
+                          base::TimeDelta::FromMilliseconds(kIdleTimeMs), this,
+                          &ExclusiveAccessBubble::CheckMousePosition);
     }
+    last_mouse_pos_ = cursor_pos;
   }
-  last_mouse_pos_ = cursor_pos;
 
   if (ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled() ||
       !IsWindowActive() || !WindowContainsPoint(cursor_pos) ||
@@ -164,15 +179,15 @@ base::string16 ExclusiveAccessBubble::GetCurrentAllowButtonText() const {
   return exclusive_access_bubble::GetAllowButtonTextForType(bubble_type_, url_);
 }
 
-base::string16 ExclusiveAccessBubble::GetInstructionText() const {
+base::string16 ExclusiveAccessBubble::GetInstructionText(
+    const base::string16& accelerator) const {
   if (!ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()) {
-    return l10n_util::GetStringFUTF16(
-        IDS_FULLSCREEN_PRESS_ESC_TO_EXIT_SENTENCE,
-        l10n_util::GetStringUTF16(IDS_APP_ESC_KEY));
+    return l10n_util::GetStringFUTF16(IDS_FULLSCREEN_PRESS_ESC_TO_EXIT_SENTENCE,
+                                      accelerator);
   }
 
-  return l10n_util::GetStringFUTF16(IDS_FULLSCREEN_PRESS_ESC_TO_EXIT,
-                                    l10n_util::GetStringUTF16(IDS_APP_ESC_KEY));
+  return exclusive_access_bubble::GetInstructionTextForType(bubble_type_,
+                                                            accelerator);
 }
 
 void ExclusiveAccessBubble::ShowAndStartTimers() {

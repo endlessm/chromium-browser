@@ -8,12 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_audio/vad/mock/mock_vad.h"
-#include "webrtc/modules/audio_coding/codecs/cng/include/audio_encoder_cng.h"
+#include "webrtc/modules/audio_coding/codecs/cng/audio_encoder_cng.h"
 #include "webrtc/modules/audio_coding/codecs/mock/mock_audio_encoder.h"
 
 using ::testing::Return;
@@ -185,7 +185,7 @@ class AudioEncoderCngTest : public ::testing::Test {
   }
 
   AudioEncoderCng::Config config_;
-  rtc::scoped_ptr<AudioEncoderCng> cng_;
+  std::unique_ptr<AudioEncoderCng> cng_;
   MockAudioEncoder mock_encoder_;
   MockVad* mock_vad_;  // Ownership is transferred to |cng_|.
   uint32_t timestamp_;

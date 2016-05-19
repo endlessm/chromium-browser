@@ -46,6 +46,7 @@ std::string FakeVideoDecoder::GetDisplayName() const {
 
 void FakeVideoDecoder::Initialize(const VideoDecoderConfig& config,
                                   bool low_delay,
+                                  CdmContext* /* cdm_context */,
                                   const InitCB& init_cb,
                                   const OutputCB& output_cb) {
   DCHECK(thread_checker_.CalledOnValidThread());

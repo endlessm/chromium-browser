@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/notifications/NotificationData.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -10,9 +9,10 @@
 #include "core/testing/NullExecutionContext.h"
 #include "modules/notifications/Notification.h"
 #include "modules/notifications/NotificationOptions.h"
+#include "testing/gtest/include/gtest/gtest.h"
+#include "wtf/CurrentTime.h"
 #include "wtf/HashMap.h"
 #include "wtf/Vector.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 namespace {
@@ -23,13 +23,18 @@ const char kNotificationDir[] = "rtl";
 const char kNotificationLang[] = "nl";
 const char kNotificationBody[] = "Hello, world";
 const char kNotificationTag[] = "my_tag";
+const char kNotificationEmptyTag[] = "";
 const char kNotificationIcon[] = "https://example.com/icon.png";
+const char kNotificationIconInvalid[] = "https://invalid:icon:url";
 const unsigned kNotificationVibration[] = { 42, 10, 20, 30, 40 };
+const unsigned long long kNotificationTimestamp = 621046800ull;
+const bool kNotificationRenotify = true;
 const bool kNotificationSilent = false;
 const bool kNotificationRequireInteraction = true;
 
 const char kNotificationActionAction[] = "my_action";
 const char kNotificationActionTitle[] = "My Action";
+const char kNotificationActionIcon[] = "https://example.com/action_icon.png";
 
 const unsigned kNotificationVibrationUnnormalized[] = { 10, 1000000, 50, 42 };
 const int kNotificationVibrationNormalized[] = { 10, 10000, 50 };
@@ -50,7 +55,7 @@ private:
 TEST_F(NotificationDataTest, ReflectProperties)
 {
     Vector<unsigned> vibrationPattern;
-    for (size_t i = 0; i < arraysize(kNotificationVibration); ++i)
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(kNotificationVibration); ++i)
         vibrationPattern.append(kNotificationVibration[i]);
 
     UnsignedLongOrUnsignedLongSequence vibrationSequence;
@@ -61,6 +66,7 @@ TEST_F(NotificationDataTest, ReflectProperties)
         NotificationAction action;
         action.setAction(kNotificationActionAction);
         action.setTitle(kNotificationActionTitle);
+        action.setIcon(kNotificationActionIcon);
 
         actions.append(action);
     }
@@ -72,6 +78,8 @@ TEST_F(NotificationDataTest, ReflectProperties)
     options.setTag(kNotificationTag);
     options.setIcon(kNotificationIcon);
     options.setVibrate(vibrationSequence);
+    options.setTimestamp(kNotificationTimestamp);
+    options.setRenotify(kNotificationRenotify);
     options.setSilent(kNotificationSilent);
     options.setRequireInteraction(kNotificationRequireInteraction);
     options.setActions(actions);
@@ -89,21 +97,27 @@ TEST_F(NotificationDataTest, ReflectProperties)
     EXPECT_EQ(kNotificationBody, notificationData.body);
     EXPECT_EQ(kNotificationTag, notificationData.tag);
 
-    // TODO(peter): Test notificationData.icon when ExecutionContext::completeURL() works in this test.
+    // TODO(peter): Test WebNotificationData.icon and WebNotificationAction.icon when ExecutionContext::completeURL() works in this test.
 
     ASSERT_EQ(vibrationPattern.size(), notificationData.vibrate.size());
     for (size_t i = 0; i < vibrationPattern.size(); ++i)
         EXPECT_EQ(vibrationPattern[i], static_cast<unsigned>(notificationData.vibrate[i]));
 
+    EXPECT_EQ(kNotificationTimestamp, notificationData.timestamp);
+    EXPECT_EQ(kNotificationRenotify, notificationData.renotify);
     EXPECT_EQ(kNotificationSilent, notificationData.silent);
     EXPECT_EQ(kNotificationRequireInteraction, notificationData.requireInteraction);
     EXPECT_EQ(actions.size(), notificationData.actions.size());
+    for (const auto& action : notificationData.actions) {
+        EXPECT_EQ(kNotificationActionAction, action.action);
+        EXPECT_EQ(kNotificationActionTitle, action.title);
+    }
 }
 
 TEST_F(NotificationDataTest, SilentNotificationWithVibration)
 {
     Vector<unsigned> vibrationPattern;
-    for (size_t i = 0; i < arraysize(kNotificationVibration); ++i)
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(kNotificationVibration); ++i)
         vibrationPattern.append(kNotificationVibration[i]);
 
     UnsignedLongOrUnsignedLongSequence vibrationSequence;
@@ -120,22 +134,47 @@ TEST_F(NotificationDataTest, SilentNotificationWithVibration)
     EXPECT_EQ("Silent notifications must not specify vibration patterns.", exceptionState.message());
 }
 
-TEST_F(NotificationDataTest, InvalidIconUrl)
+TEST_F(NotificationDataTest, RenotifyWithEmptyTag)
 {
     NotificationOptions options;
-    options.setIcon("https://invalid:icon:url");
+    options.setTag(kNotificationEmptyTag);
+    options.setRenotify(true);
+
+    TrackExceptionState exceptionState;
+    WebNotificationData notificationData = createWebNotificationData(executionContext(), kNotificationTitle, options, exceptionState);
+    ASSERT_TRUE(exceptionState.hadException());
+
+    EXPECT_EQ("Notifications which set the renotify flag must specify a non-empty tag.", exceptionState.message());
+}
+
+TEST_F(NotificationDataTest, InvalidIconUrls)
+{
+    HeapVector<NotificationAction> actions;
+    for (size_t i = 0; i < Notification::maxActions(); ++i) {
+        NotificationAction action;
+        action.setAction(kNotificationActionAction);
+        action.setTitle(kNotificationActionTitle);
+        action.setIcon(kNotificationIconInvalid);
+        actions.append(action);
+    }
+
+    NotificationOptions options;
+    options.setIcon(kNotificationIconInvalid);
+    options.setActions(actions);
 
     TrackExceptionState exceptionState;
     WebNotificationData notificationData = createWebNotificationData(executionContext(), kNotificationTitle, options, exceptionState);
     ASSERT_FALSE(exceptionState.hadException());
 
     EXPECT_TRUE(notificationData.icon.isEmpty());
+    for (const auto& action : notificationData.actions)
+        EXPECT_TRUE(action.icon.isEmpty());
 }
 
 TEST_F(NotificationDataTest, VibrationNormalization)
 {
     Vector<unsigned> unnormalizedPattern;
-    for (size_t i = 0; i < arraysize(kNotificationVibrationUnnormalized); ++i)
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(kNotificationVibrationUnnormalized); ++i)
         unnormalizedPattern.append(kNotificationVibrationUnnormalized[i]);
 
     UnsignedLongOrUnsignedLongSequence vibrationSequence;
@@ -149,12 +188,25 @@ TEST_F(NotificationDataTest, VibrationNormalization)
     EXPECT_FALSE(exceptionState.hadException());
 
     Vector<int> normalizedPattern;
-    for (size_t i = 0; i < arraysize(kNotificationVibrationNormalized); ++i)
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(kNotificationVibrationNormalized); ++i)
         normalizedPattern.append(kNotificationVibrationNormalized[i]);
 
     ASSERT_EQ(normalizedPattern.size(), notificationData.vibrate.size());
     for (size_t i = 0; i < normalizedPattern.size(); ++i)
         EXPECT_EQ(normalizedPattern[i], notificationData.vibrate[i]);
+}
+
+TEST_F(NotificationDataTest, DefaultTimestampValue)
+{
+    NotificationOptions options;
+
+    TrackExceptionState exceptionState;
+    WebNotificationData notificationData = createWebNotificationData(executionContext(), kNotificationTitle, options, exceptionState);
+    EXPECT_FALSE(exceptionState.hadException());
+
+    // The timestamp should be set to the current time since the epoch if it wasn't supplied by the developer.
+    // "32" has no significance, but an equal comparison of the value could lead to flaky failures.
+    EXPECT_NEAR(notificationData.timestamp, WTF::currentTimeMS(), 32);
 }
 
 TEST_F(NotificationDataTest, DirectionValues)

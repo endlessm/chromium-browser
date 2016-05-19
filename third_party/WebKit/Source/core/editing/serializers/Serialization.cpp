@@ -26,7 +26,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/serializers/Serialization.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -246,7 +245,7 @@ String CreateMarkupAlgorithm<Strategy>::createMarkup(const PositionTemplate<Stra
     if (startPosition.isNull() || endPosition.isNull())
         return emptyString();
 
-    ASSERT(startPosition.compareTo(endPosition) <= 0);
+    RELEASE_ASSERT(startPosition.compareTo(endPosition) <= 0);
 
     bool collapsed = startPosition == endPosition;
     if (collapsed)
@@ -268,9 +267,9 @@ String createMarkup(const Position& startPosition, const Position& endPosition, 
     return CreateMarkupAlgorithm<EditingStrategy>::createMarkup(startPosition, endPosition, shouldAnnotate, convertBlocksToInlines, shouldResolveURLs, constrainingAncestor);
 }
 
-String createMarkup(const PositionInComposedTree& startPosition, const PositionInComposedTree& endPosition, EAnnotateForInterchange shouldAnnotate, ConvertBlocksToInlines convertBlocksToInlines, EAbsoluteURLs shouldResolveURLs, Node* constrainingAncestor)
+String createMarkup(const PositionInFlatTree& startPosition, const PositionInFlatTree& endPosition, EAnnotateForInterchange shouldAnnotate, ConvertBlocksToInlines convertBlocksToInlines, EAbsoluteURLs shouldResolveURLs, Node* constrainingAncestor)
 {
-    return CreateMarkupAlgorithm<EditingInComposedTreeStrategy>::createMarkup(startPosition, endPosition, shouldAnnotate, convertBlocksToInlines, shouldResolveURLs, constrainingAncestor);
+    return CreateMarkupAlgorithm<EditingInFlatTreeStrategy>::createMarkup(startPosition, endPosition, shouldAnnotate, convertBlocksToInlines, shouldResolveURLs, constrainingAncestor);
 }
 
 PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromMarkup(Document& document, const String& markup, const String& baseURL, ParserContentPolicy parserContentPolicy)
@@ -292,7 +291,7 @@ static const char fragmentMarkerTag[] = "webkit-fragment-marker";
 static bool findNodesSurroundingContext(DocumentFragment* fragment, RefPtrWillBeRawPtr<Comment>& nodeBeforeContext, RefPtrWillBeRawPtr<Comment>& nodeAfterContext)
 {
     for (Node& node : NodeTraversal::startsAt(fragment->firstChild())) {
-        if (node.nodeType() == Node::COMMENT_NODE && toComment(node).data() == fragmentMarkerTag) {
+        if (node.getNodeType() == Node::COMMENT_NODE && toComment(node).data() == fragmentMarkerTag) {
             if (!nodeBeforeContext) {
                 nodeBeforeContext = &toComment(node);
             } else {
@@ -387,7 +386,7 @@ static void fillContainerFromString(ContainerNode* paragraph, const String& stri
     Document& document = paragraph->document();
 
     if (string.isEmpty()) {
-        paragraph->appendChild(createBlockPlaceholderElement(document));
+        paragraph->appendChild(HTMLBRElement::create(document));
         return;
     }
 
@@ -471,7 +470,7 @@ PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromText(const EphemeralR
     if (shouldPreserveNewline(context)) {
         fragment->appendChild(document.createTextNode(string));
         if (string.endsWith('\n')) {
-            RefPtrWillBeRawPtr<HTMLBRElement> element = createBreakElement(document);
+            RefPtrWillBeRawPtr<HTMLBRElement> element = HTMLBRElement::create(document);
             element->setAttribute(classAttr, AppleInterchangeNewline);
             fragment->appendChild(element.release());
         }
@@ -489,7 +488,7 @@ PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromText(const EphemeralR
     bool useClonesOfEnclosingBlock = block
         && !isHTMLBodyElement(*block)
         && !isHTMLHtmlElement(*block)
-        && block != editableRootForPosition(context.startPosition());
+        && block != rootEditableElementOf(context.startPosition());
     bool useLineBreak = enclosingTextFormControl(context.startPosition());
 
     Vector<String> list;
@@ -501,10 +500,10 @@ PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromText(const EphemeralR
         RefPtrWillBeRawPtr<Element> element = nullptr;
         if (s.isEmpty() && i + 1 == numLines) {
             // For last line, use the "magic BR" rather than a P.
-            element = createBreakElement(document);
+            element = HTMLBRElement::create(document);
             element->setAttribute(classAttr, AppleInterchangeNewline);
         } else if (useLineBreak) {
-            element = createBreakElement(document);
+            element = HTMLBRElement::create(document);
             fillContainerFromString(fragment.get(), s);
         } else {
             if (useClonesOfEnclosingBlock)
@@ -703,6 +702,6 @@ void mergeWithNextTextNode(Text* textNode, ExceptionState& exceptionState)
 }
 
 template class CORE_TEMPLATE_EXPORT CreateMarkupAlgorithm<EditingStrategy>;
-template class CORE_TEMPLATE_EXPORT CreateMarkupAlgorithm<EditingInComposedTreeStrategy>;
+template class CORE_TEMPLATE_EXPORT CreateMarkupAlgorithm<EditingInFlatTreeStrategy>;
 
-}
+} // namespace blink

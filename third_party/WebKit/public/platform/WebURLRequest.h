@@ -114,7 +114,8 @@ public:
         FetchRequestModeSameOrigin,
         FetchRequestModeNoCORS,
         FetchRequestModeCORS,
-        FetchRequestModeCORSWithForcedPreflight
+        FetchRequestModeCORSWithForcedPreflight,
+        FetchRequestModeNavigate
     };
 
     enum FetchCredentialsMode {
@@ -189,7 +190,7 @@ public:
     BLINK_PLATFORM_EXPORT bool allowStoredCredentials() const;
     BLINK_PLATFORM_EXPORT void setAllowStoredCredentials(bool);
 
-    BLINK_PLATFORM_EXPORT CachePolicy cachePolicy() const;
+    BLINK_PLATFORM_EXPORT CachePolicy getCachePolicy() const;
     BLINK_PLATFORM_EXPORT void setCachePolicy(CachePolicy);
 
     BLINK_PLATFORM_EXPORT WebString httpMethod() const;

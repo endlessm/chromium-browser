@@ -23,6 +23,7 @@
 #ifndef WTF_RefPtr_h
 #define WTF_RefPtr_h
 
+#include "wtf/Allocator.h"
 #include "wtf/HashTableDeletedValueType.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RawPtr.h"
@@ -32,8 +33,10 @@
 namespace WTF {
 
 template <typename T> class PassRefPtr;
+template <typename T> class RefPtrValuePeeker;
 
 template <typename T> class RefPtr {
+    USING_FAST_MALLOC(RefPtr);
 public:
     ALWAYS_INLINE RefPtr() : m_ptr(nullptr) {}
     ALWAYS_INLINE RefPtr(std::nullptr_t) : m_ptr(nullptr) {}
@@ -42,9 +45,7 @@ public:
     ALWAYS_INLINE explicit RefPtr(T& ref) : m_ptr(&ref) { m_ptr->ref(); }
     ALWAYS_INLINE RefPtr(const RefPtr& o) : m_ptr(o.m_ptr) { refIfNotNull(m_ptr); }
     template <typename U> RefPtr(const RefPtr<U>& o, EnsurePtrConvertibleArgDecl(U, T)) : m_ptr(o.get()) { refIfNotNull(m_ptr); }
-
     RefPtr(RefPtr&& o) : m_ptr(o.m_ptr) { o.m_ptr = nullptr; }
-    RefPtr& operator=(RefPtr&&);
 
     // See comments in PassRefPtr.h for an explanation of why this takes a const
     // reference.
@@ -77,14 +78,10 @@ public:
     typedef T* (RefPtr::*UnspecifiedBoolType);
     operator UnspecifiedBoolType() const { return m_ptr ? &RefPtr::m_ptr : 0; }
 
-    RefPtr& operator=(const RefPtr&);
-    RefPtr& operator=(T*);
-    RefPtr& operator=(const PassRefPtr<T>&);
+    RefPtr& operator=(RefPtr o) { swap(o); return *this; }
     RefPtr& operator=(std::nullptr_t) { clear(); return *this; }
-
-    template <typename U> RefPtr<T>& operator=(const RefPtr<U>&);
-    template <typename U> RefPtr<T>& operator=(const PassRefPtr<U>&);
-    template <typename U> RefPtr<T>& operator=(const RawPtr<U>&);
+    // This is required by HashMap<RefPtr>>.
+    template <typename U> RefPtr& operator=(RefPtrValuePeeker<U>);
 
     void swap(RefPtr&);
 
@@ -107,57 +104,10 @@ template <typename T> inline void RefPtr<T>::clear()
     derefIfNotNull(ptr);
 }
 
-template <typename T> inline RefPtr<T>& RefPtr<T>::operator=(const RefPtr& o)
-{
-    RefPtr ptr = o;
-    swap(ptr);
-    return *this;
-}
-
-template <typename T> inline RefPtr<T>& RefPtr<T>::operator=(RefPtr&& o)
-{
-    // FIXME: Instead of explicitly casting to RefPtr&& here, we should use
-    // std::move, but that requires us to have a standard library that supports
-    // move semantics.
-    RefPtr ptr = static_cast<RefPtr&&>(o);
-    swap(ptr);
-    return *this;
-}
-
 template <typename T>
-template <typename U> inline RefPtr<T>& RefPtr<T>::operator=(const RefPtr<U>& o)
+template <typename U> inline RefPtr<T>& RefPtr<T>::operator=(RefPtrValuePeeker<U> optr)
 {
-    RefPtr ptr = o;
-    swap(ptr);
-    return *this;
-}
-
-template <typename T> inline RefPtr<T>& RefPtr<T>::operator=(T* optr)
-{
-    RefPtr ptr = optr;
-    swap(ptr);
-    return *this;
-}
-
-template <typename T> inline RefPtr<T>& RefPtr<T>::operator=(const PassRefPtr<T>& o)
-{
-    RefPtr ptr = o;
-    swap(ptr);
-    return *this;
-}
-
-template <typename T>
-template <typename U> inline RefPtr<T>& RefPtr<T>::operator=(const PassRefPtr<U>& o)
-{
-    RefPtr ptr = o;
-    swap(ptr);
-    return *this;
-}
-
-template <typename T>
-template <typename U> inline RefPtr<T>& RefPtr<T>::operator=(const RawPtr<U>& o)
-{
-    RefPtr ptr = o.get();
+    RefPtr ptr = static_cast<U*>(optr);
     swap(ptr);
     return *this;
 }
@@ -213,6 +163,7 @@ template <typename T> inline T* getPtr(const RefPtr<T>& p)
 }
 
 template <typename T> class RefPtrValuePeeker {
+    DISALLOW_NEW();
 public:
     ALWAYS_INLINE RefPtrValuePeeker(T* p): m_ptr(p) {}
     ALWAYS_INLINE RefPtrValuePeeker(std::nullptr_t): m_ptr(nullptr) {}

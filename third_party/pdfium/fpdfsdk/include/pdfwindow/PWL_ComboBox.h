@@ -7,9 +7,9 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_COMBOBOX_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_COMBOBOX_H_
 
-#include "PWL_Edit.h"
-#include "PWL_ListBox.h"
-#include "PWL_Wnd.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ListBox.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 class CPWL_CBEdit : public CPWL_Edit {
  public:
@@ -39,7 +39,7 @@ class CPWL_CBButton : public CPWL_Wnd {
   // CPWL_Wnd
   void GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag) override;
   FX_BOOL OnLButtonUp(const CPDF_Point& point, FX_DWORD nFlag) override;
 };
@@ -47,11 +47,11 @@ class CPWL_CBButton : public CPWL_Wnd {
 class CPWL_ComboBox : public CPWL_Wnd {
  public:
   CPWL_ComboBox();
-  ~CPWL_ComboBox() {}
+  ~CPWL_ComboBox() override {}
 
-  operator CPWL_Edit*() { return m_pEdit; }
+  CPWL_Edit* GetEdit() const { return m_pEdit; }
 
-  // CPWL_Wnd
+  // CPWL_Wnd:
   CFX_ByteString GetClassName() const override;
   void OnCreate(PWL_CREATEPARAM& cp) override;
   FX_BOOL OnKeyDown(FX_WORD nChar, FX_DWORD nFlag) override;
@@ -65,7 +65,6 @@ class CPWL_ComboBox : public CPWL_Wnd {
   CPDF_Rect GetFocusRect() const override;
   void SetFocus() override;
   void KillFocus() override;
-  FX_BOOL IsModified() const override;
 
   void SetFillerNotify(IPWL_Filler_Notify* pNotify);
 

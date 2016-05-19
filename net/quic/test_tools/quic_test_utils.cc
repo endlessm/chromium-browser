@@ -30,21 +30,8 @@ using testing::Invoke;
 using testing::_;
 
 namespace net {
+
 namespace test {
-namespace {
-
-// No-op alarm implementation used by MockConnectionHelper.
-class TestAlarm : public QuicAlarm {
- public:
-  explicit TestAlarm(QuicAlarm::Delegate* delegate)
-      : QuicAlarm(delegate) {
-  }
-
-  void SetImpl() override {}
-  void CancelImpl() override {}
-};
-
-}  // namespace
 
 QuicAckFrame MakeAckFrame(QuicPacketNumber largest_observed) {
   QuicAckFrame ack;
@@ -92,10 +79,11 @@ QuicPacket* BuildUnsizedDataPacket(QuicFramer* framer,
   return new QuicPacket(buffer, length, /* owns_buffer */ true,
                         header.public_header.connection_id_length,
                         header.public_header.version_flag,
+                        header.public_header.multipath_flag,
                         header.public_header.packet_number_length);
 }
 
-uint64 SimpleRandom::RandUint64() {
+uint64_t SimpleRandom::RandUint64() {
   unsigned char hash[base::kSHA1Length];
   base::SHA1HashBytes(reinterpret_cast<unsigned char*>(&seed_), sizeof(seed_),
                       hash);
@@ -115,29 +103,22 @@ MockFramerVisitor::MockFramerVisitor() {
   ON_CALL(*this, OnUnauthenticatedPublicHeader(_))
       .WillByDefault(testing::Return(true));
 
-  ON_CALL(*this, OnPacketHeader(_))
-      .WillByDefault(testing::Return(true));
+  ON_CALL(*this, OnPacketHeader(_)).WillByDefault(testing::Return(true));
 
-  ON_CALL(*this, OnStreamFrame(_))
-      .WillByDefault(testing::Return(true));
+  ON_CALL(*this, OnStreamFrame(_)).WillByDefault(testing::Return(true));
 
-  ON_CALL(*this, OnAckFrame(_))
-      .WillByDefault(testing::Return(true));
+  ON_CALL(*this, OnAckFrame(_)).WillByDefault(testing::Return(true));
 
-  ON_CALL(*this, OnStopWaitingFrame(_))
-      .WillByDefault(testing::Return(true));
+  ON_CALL(*this, OnStopWaitingFrame(_)).WillByDefault(testing::Return(true));
 
-  ON_CALL(*this, OnPingFrame(_))
-      .WillByDefault(testing::Return(true));
+  ON_CALL(*this, OnPingFrame(_)).WillByDefault(testing::Return(true));
 
-  ON_CALL(*this, OnRstStreamFrame(_))
-      .WillByDefault(testing::Return(true));
+  ON_CALL(*this, OnRstStreamFrame(_)).WillByDefault(testing::Return(true));
 
   ON_CALL(*this, OnConnectionCloseFrame(_))
       .WillByDefault(testing::Return(true));
 
-  ON_CALL(*this, OnGoAwayFrame(_))
-      .WillByDefault(testing::Return(true));
+  ON_CALL(*this, OnGoAwayFrame(_)).WillByDefault(testing::Return(true));
 }
 
 MockFramerVisitor::~MockFramerVisitor() {}
@@ -168,8 +149,7 @@ bool NoOpFramerVisitor::OnAckFrame(const QuicAckFrame& frame) {
   return true;
 }
 
-bool NoOpFramerVisitor::OnStopWaitingFrame(
-    const QuicStopWaitingFrame& frame) {
+bool NoOpFramerVisitor::OnStopWaitingFrame(const QuicStopWaitingFrame& frame) {
   return true;
 }
 
@@ -177,8 +157,7 @@ bool NoOpFramerVisitor::OnPingFrame(const QuicPingFrame& frame) {
   return true;
 }
 
-bool NoOpFramerVisitor::OnRstStreamFrame(
-    const QuicRstStreamFrame& frame) {
+bool NoOpFramerVisitor::OnRstStreamFrame(const QuicRstStreamFrame& frame) {
   return true;
 }
 
@@ -200,6 +179,10 @@ bool NoOpFramerVisitor::OnBlockedFrame(const QuicBlockedFrame& frame) {
   return true;
 }
 
+bool NoOpFramerVisitor::OnPathCloseFrame(const QuicPathCloseFrame& frame) {
+  return true;
+}
+
 MockConnectionVisitor::MockConnectionVisitor() {}
 
 MockConnectionVisitor::~MockConnectionVisitor() {}
@@ -217,16 +200,27 @@ QuicRandom* MockConnectionHelper::GetRandomGenerator() {
 }
 
 QuicAlarm* MockConnectionHelper::CreateAlarm(QuicAlarm::Delegate* delegate) {
-  return new TestAlarm(delegate);
+  return new MockConnectionHelper::TestAlarm(
+      QuicArenaScopedPtr<QuicAlarm::Delegate>(delegate));
+}
+
+QuicArenaScopedPtr<QuicAlarm> MockConnectionHelper::CreateAlarm(
+    QuicArenaScopedPtr<QuicAlarm::Delegate> delegate,
+    QuicConnectionArena* arena) {
+  if (arena != nullptr) {
+    return arena->New<MockConnectionHelper::TestAlarm>(std::move(delegate));
+  } else {
+    return QuicArenaScopedPtr<MockConnectionHelper::TestAlarm>(
+        new TestAlarm(std::move(delegate)));
+  }
+}
+
+QuicBufferAllocator* MockConnectionHelper::GetBufferAllocator() {
+  return &buffer_allocator_;
 }
 
 void MockConnectionHelper::AdvanceTime(QuicTime::Delta delta) {
   clock_.AdvanceTime(delta);
-}
-
-QuicPacketWriter* NiceMockPacketWriterFactory::Create(
-    QuicConnection* /*connection*/) const {
-  return new testing::NiceMock<MockPacketWriter>();
 }
 
 MockConnection::MockConnection(MockConnectionHelper* helper,
@@ -272,7 +266,7 @@ MockConnection::MockConnection(QuicConnectionId connection_id,
     : QuicConnection(connection_id,
                      address,
                      helper,
-                     NiceMockPacketWriterFactory(),
+                     new testing::NiceMock<MockPacketWriter>(),
                      /* owns_writer= */ true,
                      perspective,
                      supported_versions) {
@@ -301,18 +295,14 @@ PacketSavingConnection::~PacketSavingConnection() {
   STLDeleteElements(&encrypted_packets_);
 }
 
-void PacketSavingConnection::SendOrQueuePacket(QueuedPacket packet) {
-  if (!packet.serialized_packet.packet->owns_buffer()) {
-    scoped_ptr<QuicEncryptedPacket> encrypted_deleter(
-        packet.serialized_packet.packet);
-    packet.serialized_packet.packet = packet.serialized_packet.packet->Clone();
-  }
-  encrypted_packets_.push_back(packet.serialized_packet.packet);
+void PacketSavingConnection::SendOrQueuePacket(SerializedPacket* packet) {
+  encrypted_packets_.push_back(new QuicEncryptedPacket(
+      QuicUtils::CopyBuffer(*packet), packet->encrypted_length, true));
   // Transfer ownership of the packet to the SentPacketManager and the
   // ack notifier to the AckNotifierManager.
-  sent_packet_manager_.OnPacketSent(
-      &packet.serialized_packet, 0, QuicTime::Zero(), 1000,
-      NOT_RETRANSMISSION, HAS_RETRANSMITTABLE_DATA);
+  sent_packet_manager_.OnPacketSent(packet, 0, QuicTime::Zero(),
+                                    NOT_RETRANSMISSION,
+                                    HAS_RETRANSMITTABLE_DATA);
 }
 
 MockQuicSpdySession::MockQuicSpdySession(QuicConnection* connection)
@@ -325,19 +315,36 @@ MockQuicSpdySession::MockQuicSpdySession(QuicConnection* connection)
 
 MockQuicSpdySession::~MockQuicSpdySession() {}
 
+// static
+QuicConsumedData MockQuicSpdySession::ConsumeAllData(
+    QuicStreamId /*id*/,
+    const QuicIOVector& data,
+    QuicStreamOffset /*offset*/,
+    bool fin,
+    FecProtection /*fec_protection*/,
+    QuicAckListenerInterface* /*ack_notifier_delegate*/) {
+  return QuicConsumedData(data.total_length, fin);
+}
+
 TestQuicSpdyServerSession::TestQuicSpdyServerSession(
     QuicConnection* connection,
     const QuicConfig& config,
     const QuicCryptoServerConfig* crypto_config)
-    : QuicSpdySession(connection, config) {
-  crypto_stream_.reset(new QuicCryptoServerStream(crypto_config, this));
+    : QuicServerSessionBase(config, connection, &visitor_, crypto_config) {
   Initialize();
 }
 
 TestQuicSpdyServerSession::~TestQuicSpdyServerSession() {}
 
+QuicCryptoServerStreamBase*
+TestQuicSpdyServerSession::CreateQuicCryptoServerStream(
+    const QuicCryptoServerConfig* crypto_config) {
+  return new QuicCryptoServerStream(crypto_config, this);
+}
+
 QuicCryptoServerStream* TestQuicSpdyServerSession::GetCryptoStream() {
-  return crypto_stream_.get();
+  return static_cast<QuicCryptoServerStream*>(
+      QuicServerSessionBase::GetCryptoStream());
 }
 
 TestQuicSpdyClientSession::TestQuicSpdyClientSession(
@@ -345,14 +352,18 @@ TestQuicSpdyClientSession::TestQuicSpdyClientSession(
     const QuicConfig& config,
     const QuicServerId& server_id,
     QuicCryptoClientConfig* crypto_config)
-    : QuicClientSessionBase(connection, config) {
+    : QuicClientSessionBase(connection, &push_promise_index_, config) {
   crypto_stream_.reset(new QuicCryptoClientStream(
       server_id, this, CryptoTestUtils::ProofVerifyContextForTesting(),
-      crypto_config));
+      crypto_config, this));
   Initialize();
 }
 
 TestQuicSpdyClientSession::~TestQuicSpdyClientSession() {}
+
+bool TestQuicSpdyClientSession::IsAuthorized(const string& authority) {
+  return true;
+}
 
 QuicCryptoClientStream* TestQuicSpdyClientSession::GetCryptoStream() {
   return crypto_stream_.get();
@@ -383,8 +394,10 @@ MockNetworkChangeVisitor::~MockNetworkChangeVisitor() {}
 
 namespace {
 
-string HexDumpWithMarks(const char* data, int length,
-                        const bool* marks, int mark_length) {
+string HexDumpWithMarks(const char* data,
+                        int length,
+                        const bool* marks,
+                        int mark_length) {
   static const char kHexChars[] = "0123456789abcdef";
   static const int kColumns = 4;
 
@@ -396,9 +409,9 @@ string HexDumpWithMarks(const char* data, int length,
   }
 
   string hex;
-  for (const char* row = data; length > 0;
+  for (const char *row = data; length > 0;
        row += kColumns, length -= kColumns) {
-    for (const char *p = row; p < row + 4; ++p) {
+    for (const char* p = row; p < row + 4; ++p) {
       if (p < row + length) {
         const bool mark =
             (marks && (p - data) < mark_length && marks[p - data]);
@@ -423,28 +436,30 @@ string HexDumpWithMarks(const char* data, int length,
 
 }  // namespace
 
-IPAddressNumber TestPeerIPAddress() { return Loopback4(); }
+IPAddress TestPeerIPAddress() {
+  return Loopback4();
+}
 
-QuicVersion QuicVersionMax() { return QuicSupportedVersions().front(); }
+QuicVersion QuicVersionMax() {
+  return QuicSupportedVersions().front();
+}
 
-QuicVersion QuicVersionMin() { return QuicSupportedVersions().back(); }
+QuicVersion QuicVersionMin() {
+  return QuicSupportedVersions().back();
+}
 
-IPAddressNumber Loopback4() {
-  IPAddressNumber addr;
-  CHECK(ParseIPLiteralToNumber("127.0.0.1", &addr));
+IPAddress Loopback4() {
+  return IPAddress(127, 0, 0, 1);
+}
+
+IPAddress Loopback6() {
+  IPAddress addr;
+  CHECK(addr.AssignFromIPLiteral("::1"));
   return addr;
 }
 
-IPAddressNumber Loopback6() {
-  IPAddressNumber addr;
-  CHECK(ParseIPLiteralToNumber("::1", &addr));
-  return addr;
-}
-
-IPAddressNumber Any4() {
-  IPAddressNumber any4;
-  CHECK(net::ParseIPLiteralToNumber("0.0.0.0", &any4));
-  return any4;
+IPAddress Any4() {
+  return IPAddress(0, 0, 0, 0);
 }
 
 void GenerateBody(string* body, int length) {
@@ -457,31 +472,38 @@ void GenerateBody(string* body, int length) {
 
 QuicEncryptedPacket* ConstructEncryptedPacket(QuicConnectionId connection_id,
                                               bool version_flag,
+                                              bool multipath_flag,
                                               bool reset_flag,
+                                              QuicPathId path_id,
                                               QuicPacketNumber packet_number,
                                               const string& data) {
-  return ConstructEncryptedPacket(
-      connection_id, version_flag, reset_flag, packet_number, data,
-      PACKET_8BYTE_CONNECTION_ID, PACKET_6BYTE_PACKET_NUMBER);
+  return ConstructEncryptedPacket(connection_id, version_flag, multipath_flag,
+                                  reset_flag, path_id, packet_number, data,
+                                  PACKET_8BYTE_CONNECTION_ID,
+                                  PACKET_6BYTE_PACKET_NUMBER);
 }
 
 QuicEncryptedPacket* ConstructEncryptedPacket(
     QuicConnectionId connection_id,
     bool version_flag,
+    bool multipath_flag,
     bool reset_flag,
+    QuicPathId path_id,
     QuicPacketNumber packet_number,
     const string& data,
     QuicConnectionIdLength connection_id_length,
     QuicPacketNumberLength packet_number_length) {
-  return ConstructEncryptedPacket(connection_id, version_flag, reset_flag,
-                                  packet_number, data, connection_id_length,
-                                  packet_number_length, nullptr);
+  return ConstructEncryptedPacket(
+      connection_id, version_flag, multipath_flag, reset_flag, path_id,
+      packet_number, data, connection_id_length, packet_number_length, nullptr);
 }
 
 QuicEncryptedPacket* ConstructEncryptedPacket(
     QuicConnectionId connection_id,
     bool version_flag,
+    bool multipath_flag,
     bool reset_flag,
+    QuicPathId path_id,
     QuicPacketNumber packet_number,
     const string& data,
     QuicConnectionIdLength connection_id_length,
@@ -491,8 +513,10 @@ QuicEncryptedPacket* ConstructEncryptedPacket(
   header.public_header.connection_id = connection_id;
   header.public_header.connection_id_length = connection_id_length;
   header.public_header.version_flag = version_flag;
+  header.public_header.multipath_flag = multipath_flag;
   header.public_header.reset_flag = reset_flag;
   header.public_header.packet_number_length = packet_number_length;
+  header.path_id = path_id;
   header.packet_number = packet_number;
   header.entropy_flag = false;
   header.entropy_hash = 0;
@@ -511,7 +535,7 @@ QuicEncryptedPacket* ConstructEncryptedPacket(
   EXPECT_TRUE(packet != nullptr);
   char* buffer = new char[kMaxPacketSize];
   size_t encrypted_length = framer.EncryptPayload(
-      ENCRYPTION_NONE, packet_number, *packet, buffer, kMaxPacketSize);
+      ENCRYPTION_NONE, path_id, packet_number, *packet, buffer, kMaxPacketSize);
   EXPECT_NE(0u, encrypted_length);
   return new QuicEncryptedPacket(buffer, encrypted_length, true);
 }
@@ -519,7 +543,9 @@ QuicEncryptedPacket* ConstructEncryptedPacket(
 QuicEncryptedPacket* ConstructMisFramedEncryptedPacket(
     QuicConnectionId connection_id,
     bool version_flag,
+    bool multipath_flag,
     bool reset_flag,
+    QuicPathId path_id,
     QuicPacketNumber packet_number,
     const string& data,
     QuicConnectionIdLength connection_id_length,
@@ -529,8 +555,10 @@ QuicEncryptedPacket* ConstructMisFramedEncryptedPacket(
   header.public_header.connection_id = connection_id;
   header.public_header.connection_id_length = connection_id_length;
   header.public_header.version_flag = version_flag;
+  header.public_header.multipath_flag = multipath_flag;
   header.public_header.reset_flag = reset_flag;
   header.public_header.packet_number_length = packet_number_length;
+  header.path_id = path_id;
   header.packet_number = packet_number;
   header.entropy_flag = false;
   header.entropy_hash = 0;
@@ -551,21 +579,21 @@ QuicEncryptedPacket* ConstructMisFramedEncryptedPacket(
   // Now set the packet's private flags byte to 0xFF, which is an invalid value.
   reinterpret_cast<unsigned char*>(
       packet->mutable_data())[GetStartOfEncryptedData(
-      connection_id_length, version_flag, packet_number_length)] = 0xFF;
+      connection_id_length, version_flag, multipath_flag,
+      packet_number_length)] = 0xFF;
 
   char* buffer = new char[kMaxPacketSize];
   size_t encrypted_length = framer.EncryptPayload(
-      ENCRYPTION_NONE, packet_number, *packet, buffer, kMaxPacketSize);
+      ENCRYPTION_NONE, path_id, packet_number, *packet, buffer, kMaxPacketSize);
   EXPECT_NE(0u, encrypted_length);
   return new QuicEncryptedPacket(buffer, encrypted_length, true);
 }
 
-void CompareCharArraysWithHexError(
-    const string& description,
-    const char* actual,
-    const int actual_len,
-    const char* expected,
-    const int expected_len) {
+void CompareCharArraysWithHexError(const string& description,
+                                   const char* actual,
+                                   const int actual_len,
+                                   const char* expected,
+                                   const int expected_len) {
   EXPECT_EQ(actual_len, expected_len);
   const int min_len = min(actual_len, expected_len);
   const int max_len = max(actual_len, expected_len);
@@ -582,21 +610,21 @@ void CompareCharArraysWithHexError(
   for (int i = min_len; i < max_len; ++i) {
     marks[i] = true;
   }
-  if (identical) return;
-  ADD_FAILURE()
-      << "Description:\n"
-      << description
-      << "\n\nExpected:\n"
-      << HexDumpWithMarks(expected, expected_len, marks.get(), max_len)
-      << "\nActual:\n"
-      << HexDumpWithMarks(actual, actual_len, marks.get(), max_len);
+  if (identical)
+    return;
+  ADD_FAILURE() << "Description:\n"
+                << description << "\n\nExpected:\n"
+                << HexDumpWithMarks(expected, expected_len, marks.get(),
+                                    max_len)
+                << "\nActual:\n"
+                << HexDumpWithMarks(actual, actual_len, marks.get(), max_len);
 }
 
 bool DecodeHexString(const base::StringPiece& hex, std::string* bytes) {
   bytes->clear();
   if (hex.empty())
     return true;
-  std::vector<uint8> v;
+  std::vector<uint8_t> v;
   if (!base::HexStringToBytes(hex.as_string(), &v))
     return false;
   if (!v.empty())
@@ -641,6 +669,7 @@ QuicPacket* ConstructHandshakePacket(QuicConnectionId connection_id,
 
 size_t GetPacketLengthForOneStream(QuicVersion version,
                                    bool include_version,
+                                   bool include_path_id,
                                    QuicConnectionIdLength connection_id_length,
                                    QuicPacketNumberLength packet_number_length,
                                    InFecGroup is_in_fec_group,
@@ -649,21 +678,22 @@ size_t GetPacketLengthForOneStream(QuicVersion version,
   const size_t stream_length =
       NullEncrypter().GetCiphertextSize(*payload_length) +
       QuicPacketCreator::StreamFramePacketOverhead(
-          PACKET_8BYTE_CONNECTION_ID, include_version, packet_number_length, 0u,
-          is_in_fec_group);
+          PACKET_8BYTE_CONNECTION_ID, include_version, include_path_id,
+          packet_number_length, 0u, is_in_fec_group);
   const size_t ack_length =
       NullEncrypter().GetCiphertextSize(
           QuicFramer::GetMinAckFrameSize(PACKET_1BYTE_PACKET_NUMBER)) +
       GetPacketHeaderSize(connection_id_length, include_version,
-                          packet_number_length, is_in_fec_group);
+                          include_path_id, packet_number_length,
+                          is_in_fec_group);
   if (stream_length < ack_length) {
     *payload_length = 1 + ack_length - stream_length;
   }
 
   return NullEncrypter().GetCiphertextSize(*payload_length) +
          QuicPacketCreator::StreamFramePacketOverhead(
-             connection_id_length, include_version, packet_number_length, 0u,
-             is_in_fec_group);
+             connection_id_length, include_version, include_path_id,
+             packet_number_length, 0u, is_in_fec_group);
 }
 
 TestEntropyCalculator::TestEntropyCalculator() {}
@@ -702,60 +732,19 @@ QuicVersionVector SupportedVersions(QuicVersion version) {
   return versions;
 }
 
-TestWriterFactory::TestWriterFactory() : current_writer_(nullptr) {}
-TestWriterFactory::~TestWriterFactory() {}
-
-QuicPacketWriter* TestWriterFactory::Create(QuicPacketWriter* writer,
-                                            QuicConnection* connection) {
-  return new PerConnectionPacketWriter(this, writer, connection);
-}
-
-void TestWriterFactory::OnPacketSent(WriteResult result) {
-  if (current_writer_ != nullptr && result.status == WRITE_STATUS_ERROR) {
-    current_writer_->connection()->OnWriteError(result.error_code);
-    current_writer_ = nullptr;
-  }
-}
-
-void TestWriterFactory::Unregister(PerConnectionPacketWriter* writer) {
-  if (current_writer_ == writer) {
-    current_writer_ = nullptr;
-  }
-}
-
-TestWriterFactory::PerConnectionPacketWriter::PerConnectionPacketWriter(
-    TestWriterFactory* factory,
-    QuicPacketWriter* writer,
-    QuicConnection* connection)
-    : QuicPerConnectionPacketWriter(writer, connection),
-      factory_(factory) {
-}
-
-TestWriterFactory::PerConnectionPacketWriter::~PerConnectionPacketWriter() {
-  factory_->Unregister(this);
-}
-
-WriteResult TestWriterFactory::PerConnectionPacketWriter::WritePacket(
-    const char* buffer,
-    size_t buf_len,
-    const IPAddressNumber& self_address,
-    const IPEndPoint& peer_address) {
-  // A DCHECK(factory_current_writer_ == nullptr) would be wrong here -- this
-  // class may be used in a setting where connection()->OnPacketSent() is called
-  // in a different way, so TestWriterFactory::OnPacketSent might never be
-  // called.
-  factory_->current_writer_ = this;
-  return tools::QuicPerConnectionPacketWriter::WritePacket(
-      buffer, buf_len, self_address, peer_address);
-}
-
 MockQuicConnectionDebugVisitor::MockQuicConnectionDebugVisitor() {}
 
 MockQuicConnectionDebugVisitor::~MockQuicConnectionDebugVisitor() {}
 
+MockReceivedPacketManager::MockReceivedPacketManager(QuicConnectionStats* stats)
+    : QuicReceivedPacketManager(stats) {}
+
+MockReceivedPacketManager::~MockReceivedPacketManager() {}
+
 void CreateClientSessionForTest(QuicServerId server_id,
                                 bool supports_stateless_rejects,
                                 QuicTime::Delta connection_start_time,
+                                QuicVersionVector supported_versions,
                                 MockConnectionHelper* helper,
                                 QuicCryptoClientConfig* crypto_client_config,
                                 PacketSavingConnection** client_connection,
@@ -770,8 +759,8 @@ void CreateClientSessionForTest(QuicServerId server_id,
   QuicConfig config = supports_stateless_rejects
                           ? DefaultQuicConfigStatelessRejects()
                           : DefaultQuicConfig();
-  *client_connection =
-      new PacketSavingConnection(helper, Perspective::IS_CLIENT);
+  *client_connection = new PacketSavingConnection(
+      helper, Perspective::IS_CLIENT, supported_versions);
   *client_session = new TestQuicSpdyClientSession(
       *client_connection, config, server_id, crypto_client_config);
   (*client_connection)->AdvanceTime(connection_start_time);
@@ -779,6 +768,7 @@ void CreateClientSessionForTest(QuicServerId server_id,
 
 void CreateServerSessionForTest(QuicServerId server_id,
                                 QuicTime::Delta connection_start_time,
+                                QuicVersionVector supported_versions,
                                 MockConnectionHelper* helper,
                                 QuicCryptoServerConfig* server_crypto_config,
                                 PacketSavingConnection** server_connection,
@@ -790,13 +780,13 @@ void CreateServerSessionForTest(QuicServerId server_id,
       << "Connections must start at non-zero times, otherwise the "
       << "strike-register will be unhappy.";
 
-  *server_connection =
-      new PacketSavingConnection(helper, Perspective::IS_SERVER);
+  *server_connection = new PacketSavingConnection(
+      helper, Perspective::IS_SERVER, supported_versions);
   *server_session = new TestQuicSpdyServerSession(
       *server_connection, DefaultQuicConfig(), server_crypto_config);
 
   // We advance the clock initially because the default time is zero and the
-  // strike register worries that we've just overflowed a uint32 time.
+  // strike register worries that we've just overflowed a uint32_t time.
   (*server_connection)->AdvanceTime(connection_start_time);
 }
 

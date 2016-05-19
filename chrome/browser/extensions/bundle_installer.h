@@ -5,18 +5,21 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_BUNDLE_INSTALLER_H_
 #define CHROME_BROWSER_EXTENSIONS_BUNDLE_INSTALLER_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/webstore_install_helper.h"
 #include "chrome/browser/extensions/webstore_installer.h"
 #include "chrome/browser/ui/browser_list_observer.h"
-#include "chrome/browser/ui/host_desktop.h"
 #include "extensions/common/extension.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "url/gurl.h"
@@ -41,7 +44,6 @@ namespace extensions {
 //  2) CompleteInstall: install the CRXs and show confirmation bubble
 //
 class BundleInstaller : public WebstoreInstallHelper::Delegate,
-                        public ExtensionInstallPrompt::Delegate,
                         public WebstoreInstaller::Delegate,
                         public chrome::BrowserListObserver {
  public:
@@ -59,6 +61,7 @@ class BundleInstaller : public WebstoreInstallHelper::Delegate,
     };
 
     Item();
+    Item(const Item& other);
     ~Item();
 
     // Gets the localized name, formatted for display in the bubble.
@@ -155,10 +158,6 @@ class BundleInstaller : public WebstoreInstallHelper::Delegate,
                               InstallHelperResultCode result_code,
                               const std::string& error_message) override;
 
-  // ExtensionInstallPrompt::Delegate implementation:
-  void InstallUIProceed() override;
-  void InstallUIAbort(bool user_initiated) override;
-
   // WebstoreInstaller::Delegate implementation:
   void OnExtensionInstallSuccess(const std::string& id) override;
   void OnExtensionInstallFailure(
@@ -168,6 +167,8 @@ class BundleInstaller : public WebstoreInstallHelper::Delegate,
 
   // chrome::BrowserListObserver implementation:
   void OnBrowserRemoved(Browser* browser) override;
+
+  void OnInstallPromptDone(ExtensionInstallPrompt::Result result);
 
   // Holds the Extensions used to generate the permission warnings.
   ExtensionList dummy_extensions_;
@@ -198,9 +199,6 @@ class BundleInstaller : public WebstoreInstallHelper::Delegate,
   // of delegated installs. Empty for regular installs.
   std::string delegated_username_;
 
-  // The desktop type of the browser.
-  chrome::HostDesktopType host_desktop_type_;
-
   // The profile that the bundle should be installed in.
   Profile* profile_;
 
@@ -209,6 +207,8 @@ class BundleInstaller : public WebstoreInstallHelper::Delegate,
 
   ApprovalCallback approval_callback_;
   base::Closure install_callback_;
+
+  base::WeakPtrFactory<BundleInstaller> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(BundleInstaller);
 };

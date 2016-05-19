@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/html/HTMLPictureElement.h"
 
 #include "core/HTMLNames.h"
@@ -35,4 +34,4 @@ Node::InsertionNotificationRequest HTMLPictureElement::insertedInto(ContainerNod
     return HTMLElement::insertedInto(insertionPoint);
 }
 
-} // namespace
+} // namespace blink

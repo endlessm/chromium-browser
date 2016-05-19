@@ -8,8 +8,8 @@
 
 namespace content {
 
-uint32 AXStateFromBlink(const blink::WebAXObject& o) {
-  uint32 state = 0;
+uint32_t AXStateFromBlink(const blink::WebAXObject& o) {
+  uint32_t state = 0;
   if (o.isChecked())
     state |= (1 << ui::AX_STATE_CHECKED);
 
@@ -23,9 +23,6 @@ uint32 AXStateFromBlink(const blink::WebAXObject& o) {
 
   if (o.canSetFocusAttribute())
     state |= (1 << ui::AX_STATE_FOCUSABLE);
-
-  if (o.isFocused())
-    state |= (1 << ui::AX_STATE_FOCUSED);
 
   if (o.role() == blink::WebAXRolePopUpButton ||
       o.ariaHasPopup())
@@ -92,6 +89,8 @@ uint32 AXStateFromBlink(const blink::WebAXObject& o) {
 
 ui::AXRole AXRoleFromBlink(blink::WebAXRole role) {
   switch (role) {
+    case blink::WebAXRoleAbbr:
+      return ui::AX_ROLE_ABBR;
     case blink::WebAXRoleAlert:
       return ui::AX_ROLE_ALERT;
     case blink::WebAXRoleAlertDialog:
@@ -355,6 +354,8 @@ ui::AXEvent AXEventFromBlink(blink::WebAXEvent event) {
       return ui::AX_EVENT_CHECKED_STATE_CHANGED;
     case blink::WebAXEventChildrenChanged:
       return ui::AX_EVENT_CHILDREN_CHANGED;
+    case blink::WebAXEventClicked:
+      return ui::AX_EVENT_CLICKED;
     case blink::WebAXEventDocumentSelectionChanged:
       return ui::AX_EVENT_DOCUMENT_SELECTION_CHANGED;
     case blink::WebAXEventFocus:
@@ -475,4 +476,49 @@ ui::AXSortDirection AXSortDirectionFromBlink(
   return ui::AX_SORT_DIRECTION_NONE;
 }
 
-}  // Namespace content.
+ui::AXNameFrom AXNameFromFromBlink(blink::WebAXNameFrom name_from) {
+  switch (name_from) {
+    case blink::WebAXNameFromUninitialized:
+      return ui::AX_NAME_FROM_UNINITIALIZED;
+    case blink::WebAXNameFromAttribute:
+      return ui::AX_NAME_FROM_ATTRIBUTE;
+    case blink::WebAXNameFromCaption:
+      return ui::AX_NAME_FROM_RELATED_ELEMENT;
+    case blink::WebAXNameFromContents:
+      return ui::AX_NAME_FROM_CONTENTS;
+    case blink::WebAXNameFromPlaceholder:
+      return ui::AX_NAME_FROM_PLACEHOLDER;
+    case blink::WebAXNameFromRelatedElement:
+      return ui::AX_NAME_FROM_RELATED_ELEMENT;
+    case blink::WebAXNameFromValue:
+      return ui::AX_NAME_FROM_VALUE;
+    case blink::WebAXNameFromTitle:
+      return ui::AX_NAME_FROM_ATTRIBUTE;
+    default:
+      NOTREACHED();
+  }
+
+  return ui::AX_NAME_FROM_UNINITIALIZED;
+}
+
+ui::AXDescriptionFrom AXDescriptionFromFromBlink(
+    blink::WebAXDescriptionFrom description_from) {
+  switch (description_from) {
+    case blink::WebAXDescriptionFromUninitialized:
+      return ui::AX_DESCRIPTION_FROM_UNINITIALIZED;
+    case blink::WebAXDescriptionFromAttribute:
+      return ui::AX_DESCRIPTION_FROM_ATTRIBUTE;
+    case blink::WebAXDescriptionFromContents:
+      return ui::AX_DESCRIPTION_FROM_CONTENTS;
+    case blink::WebAXDescriptionFromPlaceholder:
+      return ui::AX_DESCRIPTION_FROM_PLACEHOLDER;
+    case blink::WebAXDescriptionFromRelatedElement:
+      return ui::AX_DESCRIPTION_FROM_RELATED_ELEMENT;
+    default:
+      NOTREACHED();
+  }
+
+  return ui::AX_DESCRIPTION_FROM_UNINITIALIZED;
+}
+
+}  // namespace content.

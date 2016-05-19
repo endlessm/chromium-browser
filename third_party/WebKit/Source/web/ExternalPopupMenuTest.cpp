@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "web/ExternalPopupMenu.h"
 
 #include "core/HTMLNames.h"
@@ -20,9 +19,9 @@
 #include "public/web/WebExternalPopupMenu.h"
 #include "public/web/WebPopupMenuInfo.h"
 #include "public/web/WebSettings.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 

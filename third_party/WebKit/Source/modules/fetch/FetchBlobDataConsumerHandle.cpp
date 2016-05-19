@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/fetch/FetchBlobDataConsumerHandle.h"
 
 #include "core/dom/ExecutionContext.h"
@@ -84,24 +83,25 @@ public:
         ASSERT(executionContext->isContextThread());
         ASSERT(!m_loader);
 
-        m_loader = createLoader(executionContext, this);
-        if (!m_loader)
+        KURL url = BlobURL::createPublicURL(executionContext->securityOrigin());
+        if (url.isEmpty()) {
             m_updater->update(createUnexpectedErrorDataConsumerHandle());
+            return;
+        }
+        BlobRegistry::registerPublicBlobURL(executionContext->securityOrigin(), url, m_blobDataHandle);
+
+        m_loader = createLoader(executionContext, this);
+        ASSERT(m_loader);
+
+        ResourceRequest request(url);
+        request.setRequestContext(WebURLRequest::RequestContextInternal);
+        request.setUseStreamOnResponse(true);
+        m_loader->start(request);
     }
 
 private:
     PassRefPtr<ThreadableLoader> createLoader(ExecutionContext* executionContext, ThreadableLoaderClient* client) const
     {
-        KURL url = BlobURL::createPublicURL(executionContext->securityOrigin());
-        if (url.isEmpty()) {
-            return nullptr;
-        }
-        BlobRegistry::registerPublicBlobURL(executionContext->securityOrigin(), url, m_blobDataHandle);
-
-        ResourceRequest request(url);
-        request.setRequestContext(WebURLRequest::RequestContextInternal);
-        request.setUseStreamOnResponse(true);
-
         ThreadableLoaderOptions options;
         options.preflightPolicy = ConsiderPreflight;
         options.crossOriginRequestPolicy = DenyCrossOriginRequests;
@@ -111,7 +111,7 @@ private:
         ResourceLoaderOptions resourceLoaderOptions;
         resourceLoaderOptions.dataBufferingPolicy = DoNotBufferData;
 
-        return m_loaderFactory->create(*executionContext, client, request, options, resourceLoaderOptions);
+        return m_loaderFactory->create(*executionContext, client, options, resourceLoaderOptions);
     }
 
     // ThreadableLoaderClient
@@ -161,11 +161,10 @@ public:
     PassRefPtr<ThreadableLoader> create(
         ExecutionContext& executionContext,
         ThreadableLoaderClient* client,
-        const ResourceRequest& request,
         const ThreadableLoaderOptions& options,
         const ResourceLoaderOptions& resourceLoaderOptions) override
     {
-        return ThreadableLoader::create(executionContext, client, request, options, resourceLoaderOptions);
+        return ThreadableLoader::create(executionContext, client, options, resourceLoaderOptions);
     }
 };
 
@@ -217,7 +216,7 @@ public:
         {
             if (!m_readerContext->m_blobDataHandleForDrain)
                 return nullptr;
-            if (blobSizePolicy == DisallowBlobWithInvalidSize && m_readerContext->m_blobDataHandleForDrain->size() == kuint64max)
+            if (blobSizePolicy == DisallowBlobWithInvalidSize && m_readerContext->m_blobDataHandleForDrain->size() == UINT64_MAX)
                 return nullptr;
             RefPtr<BlobDataHandle> blobDataHandle = m_readerContext->m_blobDataHandleForDrain;
             m_readerContext->setDrained();

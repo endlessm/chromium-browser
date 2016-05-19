@@ -4,6 +4,8 @@
 
 #include "sync/internal_api/public/write_node.h"
 
+#include <stdint.h>
+
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -127,7 +129,7 @@ void WriteNode::SetPasswordSpecifics(
   // We have to do the idempotency check here (vs in UpdateEntryWithEncryption)
   // because Passwords have their encrypted data within the PasswordSpecifics,
   // vs within the EntitySpecifics like all the other types.
-  const sync_pb::EntitySpecifics& old_specifics = GetEntry()->GetSpecifics();
+  const sync_pb::EntitySpecifics& old_specifics = GetEntitySpecifics();
   sync_pb::EntitySpecifics entity_specifics;
   // Copy over the old specifics if they exist.
   if (GetModelTypeFromSpecifics(old_specifics) == PASSWORDS) {
@@ -193,7 +195,7 @@ void WriteNode::SetTypedUrlSpecifics(
   SetEntitySpecifics(entity_specifics);
 }
 
-void WriteNode::SetExternalId(int64 id) {
+void WriteNode::SetExternalId(int64_t id) {
   if (GetExternalId() != id)
     entry_->PutLocalExternalId(id);
 }
@@ -209,7 +211,7 @@ WriteNode::~WriteNode() {
 
 // Find an existing node matching the ID |id|, and bind this WriteNode to it.
 // Return true on success.
-BaseNode::InitByLookupResult WriteNode::InitByIdLookup(int64 id) {
+BaseNode::InitByLookupResult WriteNode::InitByIdLookup(int64_t id) {
   DCHECK(!entry_) << "Init called twice";
   DCHECK_NE(id, kInvalidId);
   entry_ = new syncable::MutableEntry(transaction_->GetWrappedWriteTrans(),
@@ -268,7 +270,7 @@ bool WriteNode::InitBookmarkByCreation(const BaseNode& parent,
     return false;
   }
 
-  syncable::Id parent_id = parent.GetEntry()->GetId();
+  syncable::Id parent_id = parent.GetSyncId();
   DCHECK(!parent_id.IsNull());
 
   // Start out with a dummy name.  We expect
@@ -298,7 +300,7 @@ WriteNode::InitUniqueByCreationResult WriteNode::InitUniqueByCreation(
     ModelType model_type,
     const BaseNode& parent,
     const std::string& tag) {
-  return InitUniqueByCreationImpl(model_type, parent.GetEntry()->GetId(), tag);
+  return InitUniqueByCreationImpl(model_type, parent.GetSyncId(), tag);
 }
 
 WriteNode::InitUniqueByCreationResult WriteNode::InitUniqueByCreation(
@@ -406,14 +408,14 @@ bool WriteNode::SetPosition(const BaseNode& new_parent,
     return false;
   }
 
-  syncable::Id new_parent_id = new_parent.GetEntry()->GetId();
+  syncable::Id new_parent_id = new_parent.GetSyncId();
   DCHECK(!new_parent_id.IsNull());
 
   // Filter out redundant changes if both the parent and the predecessor match.
   if (new_parent_id == entry_->GetParentId()) {
     const syncable::Id& old = entry_->GetPredecessorId();
     if ((!predecessor && old.IsNull()) ||
-        (predecessor && (old == predecessor->GetEntry()->GetId()))) {
+        (predecessor && (old == predecessor->GetSyncId()))) {
       return true;
     }
   }
@@ -462,8 +464,8 @@ void WriteNode::Drop() {
 
 bool WriteNode::PutPredecessor(const BaseNode* predecessor) {
   DCHECK(!entry_->GetParentId().IsNull());
-  syncable::Id predecessor_id = predecessor ?
-      predecessor->GetEntry()->GetId() : syncable::Id();
+  syncable::Id predecessor_id =
+      predecessor ? predecessor->GetSyncId() : syncable::Id();
   return entry_->PutPredecessor(predecessor_id);
 }
 

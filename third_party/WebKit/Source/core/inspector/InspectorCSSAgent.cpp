@@ -22,13 +22,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/inspector/InspectorCSSAgent.h"
 
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/CSSPropertyNames.h"
-#include "core/InspectorTypeBuilder.h"
 #include "core/StylePropertyShorthand.h"
 #include "core/css/CSSColorValue.h"
 #include "core/css/CSSComputedStyleDeclaration.h"
@@ -64,7 +62,6 @@
 #include "core/inspector/InspectorHistory.h"
 #include "core/inspector/InspectorResourceAgent.h"
 #include "core/inspector/InspectorResourceContentLoader.h"
-#include "core/inspector/InspectorState.h"
 #include "core/inspector/InstrumentingAgents.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutObject.h"
@@ -77,11 +74,13 @@
 #include "core/page/Page.h"
 #include "core/style/StyleGeneratedImage.h"
 #include "core/style/StyleImage.h"
+#include "core/style/StyleVariableData.h"
 #include "core/svg/SVGElement.h"
 #include "platform/fonts/Font.h"
 #include "platform/fonts/FontCache.h"
 #include "platform/fonts/GlyphBuffer.h"
 #include "platform/fonts/shaping/SimpleShaper.h"
+#include "platform/inspector_protocol/TypeBuilder.h"
 #include "platform/text/TextRun.h"
 #include "wtf/CurrentTime.h"
 #include "wtf/text/CString.h"
@@ -113,29 +112,19 @@ String createShorthandValue(Document* document, const String& shorthand, const S
     return style->getPropertyValue(shorthand);
 }
 
-PassRefPtrWillBeRawPtr<CSSRuleList> filterDuplicateRules(RefPtrWillBeRawPtr<CSSRuleList> ruleList)
+WillBeHeapVector<RefPtrWillBeMember<CSSStyleRule>> filterDuplicateRules(RefPtrWillBeRawPtr<CSSRuleList> ruleList)
 {
-    RefPtrWillBeRawPtr<StaticCSSRuleList> uniqRuleList = StaticCSSRuleList::create();
-    if (!ruleList)
-        return uniqRuleList.release();
-
-    WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleRule>> uniqRulesSet;
-    WillBeHeapVector<RefPtrWillBeMember<CSSRule>> uniqRules;
-    for (unsigned i = ruleList->length(); i > 0; --i) {
+    WillBeHeapVector<RefPtrWillBeMember<CSSStyleRule>> uniqRules;
+    WillBeHeapHashSet<RawPtrWillBeMember<CSSRule>> uniqRulesSet;
+    for (unsigned i = ruleList ? ruleList->length() : 0; i > 0; --i) {
         CSSRule* rule = ruleList->item(i - 1);
-        if (!rule || rule->type() != CSSRule::STYLE_RULE)
+        if (!rule || rule->type() != CSSRule::STYLE_RULE || uniqRulesSet.contains(rule))
             continue;
-
-        CSSStyleRule* styleRule = toCSSStyleRule(rule);
-        if (uniqRulesSet.contains(styleRule))
-            continue;
-        uniqRulesSet.add(styleRule);
-        uniqRules.append(styleRule);
+        uniqRulesSet.add(rule);
+        uniqRules.append(toCSSStyleRule(rule));
     }
-
-    for (unsigned i = uniqRules.size(); i > 0; --i)
-        uniqRuleList->rules().append(uniqRules[i - 1]);
-    return uniqRuleList.release();
+    uniqRules.reverse();
+    return uniqRules;
 }
 
 // Get the elements which overlap the given rectangle.
@@ -185,6 +174,10 @@ void addColorsFromImageStyle(const ComputedStyle& style, WillBeHeapVector<Color>
         return;
 
     StyleImage* styleImage = backgroundLayers.image();
+    // hasImage() does not always indicate that this is non-null
+    if (!styleImage)
+        return;
+
     if (!styleImage->isGeneratedImage()) {
         // Make no assertions about the colors in non-generated images
         colors.clear();
@@ -214,7 +207,7 @@ bool getColorsFromRect(LayoutRect rect, Document& document, Element* topElement,
 
     for (auto e = elementsUnderRect.rbegin(); !foundTopElement && e != elementsUnderRect.rend(); ++e) {
         const Element* element = *e;
-        if (element->isSameNode(topElement))
+        if (element == topElement)
             foundTopElement = true;
 
         const LayoutObject* layoutObject = element->layoutObject();
@@ -270,7 +263,7 @@ namespace CSSAgentState {
 static const char cssAgentEnabled[] = "cssAgentEnabled";
 }
 
-typedef blink::InspectorBackendDispatcher::CSSCommandHandler::EnableCallback EnableCallback;
+typedef blink::protocol::Dispatcher::CSSCommandHandler::EnableCallback EnableCallback;
 
 namespace blink {
 
@@ -282,7 +275,7 @@ enum ForcePseudoClassFlags {
     PseudoVisited = 1 << 3
 };
 
-static unsigned computePseudoClassMask(JSONArray* pseudoClassArray)
+static unsigned computePseudoClassMask(PassOwnPtr<protocol::Array<String>> pseudoClassArray)
 {
     DEFINE_STATIC_LOCAL(String, active, ("active"));
     DEFINE_STATIC_LOCAL(String, hover, ("hover"));
@@ -293,11 +286,7 @@ static unsigned computePseudoClassMask(JSONArray* pseudoClassArray)
 
     unsigned result = PseudoNone;
     for (size_t i = 0; i < pseudoClassArray->length(); ++i) {
-        RefPtr<JSONValue> pseudoClassValue = pseudoClassArray->get(i);
-        String pseudoClass;
-        bool success = pseudoClassValue->asString(&pseudoClass);
-        if (!success)
-            continue;
+        String pseudoClass = pseudoClassArray->get(i);
         if (pseudoClass == active)
             result |= PseudoActive;
         else if (pseudoClass == hover)
@@ -317,6 +306,11 @@ public:
     StyleSheetAction(const String& name)
         : InspectorHistory::Action(name)
     {
+    }
+
+    virtual PassOwnPtr<protocol::CSS::CSSStyle> takeSerializedStyle()
+    {
+        return nullptr;
     }
 };
 
@@ -378,7 +372,8 @@ public:
     enum Type {
         SetRuleSelector,
         SetStyleText,
-        SetMediaRuleText
+        SetMediaRuleText,
+        SetKeyframeKey
     };
 
     ModifyRuleAction(Type type, InspectorStyleSheet* styleSheet, const SourceRange& range, const String& text)
@@ -405,6 +400,8 @@ public:
             return m_styleSheet->setStyleText(m_newRange, m_oldText, nullptr, nullptr, exceptionState);
         case SetMediaRuleText:
             return m_styleSheet->setMediaRuleText(m_newRange, m_oldText, nullptr, nullptr, exceptionState);
+        case SetKeyframeKey:
+            return m_styleSheet->setKeyframeKey(m_newRange, m_oldText, nullptr, nullptr, exceptionState);
         default:
             ASSERT_NOT_REACHED();
         }
@@ -423,6 +420,9 @@ public:
         case SetMediaRuleText:
             m_cssRule = m_styleSheet->setMediaRuleText(m_oldRange, m_newText, &m_newRange, &m_oldText, exceptionState);
             break;
+        case SetKeyframeKey:
+            m_cssRule = m_styleSheet->setKeyframeKey(m_oldRange, m_newText, &m_newRange, &m_oldText, exceptionState);
+            break;
         default:
             ASSERT_NOT_REACHED();
         }
@@ -434,6 +434,18 @@ public:
         RefPtrWillBeRawPtr<CSSRule> result = m_cssRule;
         m_cssRule = nullptr;
         return result;
+    }
+
+    PassOwnPtr<protocol::CSS::CSSStyle> takeSerializedStyle() override
+    {
+        if (m_type != SetStyleText)
+            return nullptr;
+        RefPtrWillBeRawPtr<CSSRule> rule = takeRule();
+        if (rule->type() == CSSRule::STYLE_RULE)
+            return m_styleSheet->buildObjectForStyle(toCSSStyleRule(rule.get())->style());
+        if (rule->type() == CSSRule::KEYFRAME_RULE)
+            return m_styleSheet->buildObjectForStyle(toCSSKeyframeRule(rule.get())->style());
+        return nullptr;
     }
 
     DEFINE_INLINE_VIRTUAL_TRACE()
@@ -508,6 +520,11 @@ public:
     String mergeId() override
     {
         return String::format("SetElementStyleAction:%s", m_styleSheet->id().utf8().data());
+    }
+
+    PassOwnPtr<protocol::CSS::CSSStyle> takeSerializedStyle() override
+    {
+        return m_styleSheet->buildObjectForStyle(m_styleSheet->inlineStyle());
     }
 
     void merge(PassRefPtrWillBeRawPtr<Action> action) override
@@ -593,7 +610,7 @@ CSSMediaRule* InspectorCSSAgent::asCSSMediaRule(CSSRule* rule)
 }
 
 InspectorCSSAgent::InspectorCSSAgent(InspectorDOMAgent* domAgent, InspectedFrames* inspectedFrames, InspectorResourceAgent* resourceAgent, InspectorResourceContentLoader* resourceContentLoader)
-    : InspectorBaseAgent<InspectorCSSAgent, InspectorFrontend::CSS>("CSS")
+    : InspectorBaseAgent<InspectorCSSAgent, protocol::Frontend::CSS>("CSS")
     , m_domAgent(domAgent)
     , m_inspectedFrames(inspectedFrames)
     , m_resourceAgent(resourceAgent)
@@ -620,7 +637,7 @@ void InspectorCSSAgent::discardAgent()
 
 void InspectorCSSAgent::restore()
 {
-    if (m_state->getBoolean(CSSAgentState::cssAgentEnabled))
+    if (m_state->booleanProperty(CSSAgentState::cssAgentEnabled, false))
         wasEnabled();
 }
 
@@ -651,17 +668,17 @@ void InspectorCSSAgent::resetNonPersistentData()
     resetPseudoStates();
 }
 
-void InspectorCSSAgent::enable(ErrorString* errorString, PassRefPtrWillBeRawPtr<EnableCallback> prpCallback)
+void InspectorCSSAgent::enable(ErrorString* errorString, PassRefPtr<EnableCallback> prpCallback)
 {
     if (!m_domAgent->enabled()) {
-        *errorString = "DOM agent needs to be enabled first.";
+        prpCallback->sendFailure("DOM agent needs to be enabled first.");
         return;
     }
     m_state->setBoolean(CSSAgentState::cssAgentEnabled, true);
     m_resourceContentLoader->ensureResourcesContentLoaded(bind(&InspectorCSSAgent::resourceContentLoaded, this, prpCallback));
 }
 
-void InspectorCSSAgent::resourceContentLoaded(PassRefPtrWillBeRawPtr<EnableCallback> callback)
+void InspectorCSSAgent::resourceContentLoaded(PassRefPtr<EnableCallback> callback)
 {
     if (!callback->isActive())
         return;
@@ -671,13 +688,13 @@ void InspectorCSSAgent::resourceContentLoaded(PassRefPtrWillBeRawPtr<EnableCallb
 
 void InspectorCSSAgent::wasEnabled()
 {
-    if (!m_state->getBoolean(CSSAgentState::cssAgentEnabled)) {
+    if (!m_state->booleanProperty(CSSAgentState::cssAgentEnabled, false)) {
         // We were disabled while fetching resources.
         return;
     }
 
     m_instrumentingAgents->setInspectorCSSAgent(this);
-    WillBeHeapVector<RawPtrWillBeMember<Document> > documents = m_domAgent->documents();
+    WillBeHeapVector<RawPtrWillBeMember<Document>> documents = m_domAgent->documents();
     for (Document* document : documents)
         updateActiveStyleSheets(document, InitialFrontendLoad);
 }
@@ -716,24 +733,24 @@ void InspectorCSSAgent::activeStyleSheetsUpdated(Document* document)
 
 void InspectorCSSAgent::updateActiveStyleSheets(Document* document, StyleSheetsUpdateType styleSheetsUpdateType)
 {
-    WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> > newSheetsVector;
+    WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>> newSheetsVector;
     InspectorCSSAgent::collectAllDocumentStyleSheets(document, newSheetsVector);
     setActiveStyleSheets(document, newSheetsVector, styleSheetsUpdateType);
 }
 
-void InspectorCSSAgent::setActiveStyleSheets(Document* document, const WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> >& allSheetsVector, StyleSheetsUpdateType styleSheetsUpdateType)
+void InspectorCSSAgent::setActiveStyleSheets(Document* document, const WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>>& allSheetsVector, StyleSheetsUpdateType styleSheetsUpdateType)
 {
     bool isInitialFrontendLoad = styleSheetsUpdateType == InitialFrontendLoad;
 
-    WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet> >* documentCSSStyleSheets = m_documentToCSSStyleSheets.get(document);
+    WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet>>* documentCSSStyleSheets = m_documentToCSSStyleSheets.get(document);
     if (!documentCSSStyleSheets) {
-        documentCSSStyleSheets = new WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet> >();
-        OwnPtrWillBeRawPtr<WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet> > > documentCSSStyleSheetsPtr = adoptPtrWillBeNoop(documentCSSStyleSheets);
+        documentCSSStyleSheets = new WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet>>();
+        OwnPtrWillBeRawPtr<WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet>>> documentCSSStyleSheetsPtr = adoptPtrWillBeNoop(documentCSSStyleSheets);
         m_documentToCSSStyleSheets.set(document, documentCSSStyleSheetsPtr.release());
     }
 
-    WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet> > removedSheets(*documentCSSStyleSheets);
-    WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> > addedSheets;
+    WillBeHeapHashSet<RawPtrWillBeMember<CSSStyleSheet>> removedSheets(*documentCSSStyleSheets);
+    WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>> addedSheets;
     for (CSSStyleSheet* cssStyleSheet : allSheetsVector) {
         if (removedSheets.contains(cssStyleSheet)) {
             removedSheets.remove(cssStyleSheet);
@@ -773,7 +790,7 @@ void InspectorCSSAgent::setActiveStyleSheets(Document* document, const WillBeHea
 void InspectorCSSAgent::documentDetached(Document* document)
 {
     m_invalidatedDocuments.remove(document);
-    setActiveStyleSheets(document, WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> >(), ExistingFrontendRefresh);
+    setActiveStyleSheets(document, WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>>(), ExistingFrontendRefresh);
 }
 
 void InspectorCSSAgent::addEditedStyleSheet(const String& url, const String& content)
@@ -830,22 +847,22 @@ bool InspectorCSSAgent::forcePseudoState(Element* element, CSSSelector::PseudoTy
     }
 }
 
-void InspectorCSSAgent::getMediaQueries(ErrorString* errorString, RefPtr<TypeBuilder::Array<TypeBuilder::CSS::CSSMedia> >& medias)
+void InspectorCSSAgent::getMediaQueries(ErrorString* errorString, OwnPtr<protocol::Array<protocol::CSS::CSSMedia>>* medias)
 {
-    medias = TypeBuilder::Array<TypeBuilder::CSS::CSSMedia>::create();
+    *medias = protocol::Array<protocol::CSS::CSSMedia>::create();
     for (auto& style : m_idToInspectorStyleSheet) {
         RefPtrWillBeRawPtr<InspectorStyleSheet> styleSheet = style.value;
-        collectMediaQueriesFromStyleSheet(styleSheet->pageStyleSheet(), medias.get());
+        collectMediaQueriesFromStyleSheet(styleSheet->pageStyleSheet(), medias->get());
         const CSSRuleVector& flatRules = styleSheet->flatRules();
         for (unsigned i = 0; i < flatRules.size(); ++i) {
             CSSRule* rule = flatRules.at(i).get();
             if (rule->type() == CSSRule::MEDIA_RULE || rule->type() == CSSRule::IMPORT_RULE)
-                collectMediaQueriesFromRule(rule, medias.get());
+                collectMediaQueriesFromRule(rule, medias->get());
         }
     }
 }
 
-void InspectorCSSAgent::getMatchedStylesForNode(ErrorString* errorString, int nodeId, RefPtr<TypeBuilder::CSS::CSSStyle>& inlineStyle, RefPtr<TypeBuilder::CSS::CSSStyle>& attributesStyle, RefPtr<TypeBuilder::Array<TypeBuilder::CSS::RuleMatch>>& matchedCSSRules, RefPtr<TypeBuilder::Array<TypeBuilder::CSS::PseudoElementMatches>>& pseudoIdMatches, RefPtr<TypeBuilder::Array<TypeBuilder::CSS::InheritedStyleEntry>>& inheritedEntries)
+void InspectorCSSAgent::getMatchedStylesForNode(ErrorString* errorString, int nodeId, Maybe<protocol::CSS::CSSStyle>* inlineStyle, Maybe<protocol::CSS::CSSStyle>* attributesStyle, Maybe<protocol::Array<protocol::CSS::RuleMatch>>* matchedCSSRules, Maybe<protocol::Array<protocol::CSS::PseudoElementMatches>>* pseudoIdMatches, Maybe<protocol::Array<protocol::CSS::InheritedStyleEntry>>* inheritedEntries, Maybe<protocol::Array<protocol::CSS::CSSKeyframesRule>>* cssKeyframesRules)
 {
     Element* element = elementForId(errorString, nodeId);
     if (!element) {
@@ -854,7 +871,7 @@ void InspectorCSSAgent::getMatchedStylesForNode(ErrorString* errorString, int no
     }
 
     Element* originalElement = element;
-    PseudoId elementPseudoId = element->pseudoId();
+    PseudoId elementPseudoId = element->getPseudoId();
     if (elementPseudoId) {
         element = element->parentOrShadowHostElement();
         if (!element) {
@@ -877,7 +894,7 @@ void InspectorCSSAgent::getMatchedStylesForNode(ErrorString* errorString, int no
 
     element->updateDistribution();
     RefPtrWillBeRawPtr<CSSRuleList> matchedRules = styleResolver.pseudoCSSRulesForElement(element, elementPseudoId, StyleResolver::AllCSSRules);
-    matchedCSSRules = buildArrayForMatchedRuleList(matchedRules.get(), originalElement, NOPSEUDO);
+    *matchedCSSRules = buildArrayForMatchedRuleList(matchedRules.get(), originalElement, NOPSEUDO);
 
     // Pseudo elements.
     if (elementPseudoId)
@@ -885,71 +902,71 @@ void InspectorCSSAgent::getMatchedStylesForNode(ErrorString* errorString, int no
 
     InspectorStyleSheetForInlineStyle* inlineStyleSheet = asInspectorStyleSheet(element);
     if (inlineStyleSheet) {
-        inlineStyle = inlineStyleSheet->buildObjectForStyle(element->style());
-        RefPtr<TypeBuilder::CSS::CSSStyle> attributes = buildObjectForAttributesStyle(element);
-        attributesStyle = attributes ? attributes.release() : nullptr;
+        *inlineStyle = inlineStyleSheet->buildObjectForStyle(element->style());
+        *attributesStyle = buildObjectForAttributesStyle(element);
     }
 
-    RefPtr<TypeBuilder::Array<TypeBuilder::CSS::PseudoElementMatches>> pseudoElements = TypeBuilder::Array<TypeBuilder::CSS::PseudoElementMatches>::create();
+    *pseudoIdMatches = protocol::Array<protocol::CSS::PseudoElementMatches>::create();
     for (PseudoId pseudoId = FIRST_PUBLIC_PSEUDOID; pseudoId < AFTER_LAST_INTERNAL_PSEUDOID; pseudoId = static_cast<PseudoId>(pseudoId + 1)) {
         RefPtrWillBeRawPtr<CSSRuleList> matchedRules = styleResolver.pseudoCSSRulesForElement(element, pseudoId, StyleResolver::AllCSSRules);
-        TypeBuilder::DOM::PseudoType::Enum pseudoType;
+        protocol::DOM::PseudoType pseudoType;
         if (matchedRules && matchedRules->length() && m_domAgent->getPseudoElementType(pseudoId, &pseudoType)) {
-            RefPtr<TypeBuilder::CSS::PseudoElementMatches> matches = TypeBuilder::CSS::PseudoElementMatches::create()
+            pseudoIdMatches->fromJust()->addItem(protocol::CSS::PseudoElementMatches::create()
                 .setPseudoType(pseudoType)
-                .setMatches(buildArrayForMatchedRuleList(matchedRules.get(), element, pseudoId));
-            pseudoElements->addItem(matches.release());
+                .setMatches(buildArrayForMatchedRuleList(matchedRules.get(), element, pseudoId)).build());
         }
     }
-    pseudoIdMatches = pseudoElements.release();
 
     // Inherited styles.
-    RefPtr<TypeBuilder::Array<TypeBuilder::CSS::InheritedStyleEntry>> entries = TypeBuilder::Array<TypeBuilder::CSS::InheritedStyleEntry>::create();
+    *inheritedEntries = protocol::Array<protocol::CSS::InheritedStyleEntry>::create();
     Element* parentElement = element->parentOrShadowHostElement();
     while (parentElement) {
         StyleResolver& parentStyleResolver = parentElement->ownerDocument()->ensureStyleResolver();
         RefPtrWillBeRawPtr<CSSRuleList> parentMatchedRules = parentStyleResolver.cssRulesForElement(parentElement, StyleResolver::AllCSSRules);
-        RefPtr<TypeBuilder::CSS::InheritedStyleEntry> entry = TypeBuilder::CSS::InheritedStyleEntry::create()
-            .setMatchedCSSRules(buildArrayForMatchedRuleList(parentMatchedRules.get(), parentElement, NOPSEUDO));
+        OwnPtr<protocol::CSS::InheritedStyleEntry> entry = protocol::CSS::InheritedStyleEntry::create()
+            .setMatchedCSSRules(buildArrayForMatchedRuleList(parentMatchedRules.get(), parentElement, NOPSEUDO)).build();
         if (parentElement->style() && parentElement->style()->length()) {
             InspectorStyleSheetForInlineStyle* styleSheet = asInspectorStyleSheet(parentElement);
             if (styleSheet)
                 entry->setInlineStyle(styleSheet->buildObjectForStyle(styleSheet->inlineStyle()));
         }
 
-        entries->addItem(entry.release());
+        inheritedEntries->fromJust()->addItem(entry.release());
         parentElement = parentElement->parentOrShadowHostElement();
     }
-    inheritedEntries = entries.release();
+
+    *cssKeyframesRules = animationsForNode(element);
 }
 
-void InspectorCSSAgent::getCSSAnimationsForNode(ErrorString* errorString, int nodeId, RefPtr<TypeBuilder::Array<TypeBuilder::CSS::CSSKeyframesRule>>& cssKeyframesRules)
+template<class CSSRuleCollection>
+static CSSKeyframesRule* findKeyframesRule(CSSRuleCollection* cssRules, StyleRuleKeyframes* keyframesRule)
 {
-    Element* element = elementForId(errorString, nodeId);
-    if (!element) {
-        *errorString = "Node not found";
-        return;
-    }
-
-    PseudoId elementPseudoId = element->pseudoId();
-    if (elementPseudoId) {
-        element = element->parentOrShadowHostElement();
-        if (!element) {
-            *errorString = "Pseudo element has no parent";
-            return;
+    CSSKeyframesRule* result = 0;
+    for (unsigned j = 0; cssRules && j < cssRules->length() && !result; ++j) {
+        CSSRule* cssRule = cssRules->item(j);
+        if (cssRule->type() == CSSRule::KEYFRAMES_RULE) {
+            CSSKeyframesRule* cssStyleRule = toCSSKeyframesRule(cssRule);
+            if (cssStyleRule->keyframes() == keyframesRule)
+                result = cssStyleRule;
+        } else if (cssRule->type() == CSSRule::IMPORT_RULE) {
+            CSSImportRule* cssImportRule = toCSSImportRule(cssRule);
+            result = findKeyframesRule(cssImportRule->styleSheet(), keyframesRule);
+        } else {
+            result = findKeyframesRule(cssRule->cssRules(), keyframesRule);
         }
     }
+    return result;
+}
 
+PassOwnPtr<protocol::Array<protocol::CSS::CSSKeyframesRule>> InspectorCSSAgent::animationsForNode(Element* element)
+{
+    OwnPtr<protocol::Array<protocol::CSS::CSSKeyframesRule>> cssKeyframesRules = protocol::Array<protocol::CSS::CSSKeyframesRule>::create();
     Document* ownerDocument = element->ownerDocument();
-    // A non-active document has no styles.
-    if (!ownerDocument->isActive())
-        return;
 
-    cssKeyframesRules = TypeBuilder::Array<TypeBuilder::CSS::CSSKeyframesRule>::create();
     StyleResolver& styleResolver = ownerDocument->ensureStyleResolver();
     RefPtr<ComputedStyle> style = styleResolver.styleForElement(element);
     if (!style)
-        return;
+        return cssKeyframesRules.release();
     const CSSAnimationData* animationData = style->animations();
     for (size_t i = 0; animationData && i < animationData->nameList().size(); ++i) {
         AtomicString animationName(animationData->nameList()[i]);
@@ -958,19 +975,36 @@ void InspectorCSSAgent::getCSSAnimationsForNode(ErrorString* errorString, int no
         StyleRuleKeyframes* keyframesRule = styleResolver.findKeyframesRule(element, animationName);
         if (!keyframesRule)
             continue;
-        RefPtrWillBeRawPtr<CSSKeyframesRule> cssKeyframesRule = CSSKeyframesRule::create(keyframesRule, nullptr);
 
-        RefPtr<TypeBuilder::Array<TypeBuilder::CSS::CSSKeyframeRule>> keyframes = TypeBuilder::Array<TypeBuilder::CSS::CSSKeyframeRule>::create();
-        for (unsigned j = 0; j < cssKeyframesRule->length(); ++j)
-            keyframes->addItem(buildObjectForKeyframeRule(cssKeyframesRule->item(j)));
-        RefPtr<TypeBuilder::CSS::CSSKeyframesRule> keyframesRuleObject = TypeBuilder::CSS::CSSKeyframesRule::create()
-            .setAnimationName(cssKeyframesRule->name())
-            .setKeyframes(keyframes);
-        cssKeyframesRules->addItem(keyframesRuleObject);
+        // Find CSSOM wrapper.
+        CSSKeyframesRule* cssKeyframesRule = nullptr;
+        for (CSSStyleSheet* styleSheet : *m_documentToCSSStyleSheets.get(ownerDocument)) {
+            cssKeyframesRule = findKeyframesRule(styleSheet, keyframesRule);
+            if (cssKeyframesRule)
+                break;
+        }
+        if (!cssKeyframesRule)
+            continue;
+
+        OwnPtr<protocol::Array<protocol::CSS::CSSKeyframeRule>> keyframes = protocol::Array<protocol::CSS::CSSKeyframeRule>::create();
+        for (unsigned j = 0; j < cssKeyframesRule->length(); ++j) {
+            InspectorStyleSheet* inspectorStyleSheet = bindStyleSheet(cssKeyframesRule->parentStyleSheet());
+            keyframes->addItem(inspectorStyleSheet->buildObjectForKeyframeRule(cssKeyframesRule->item(j)));
+        }
+
+        InspectorStyleSheet* inspectorStyleSheet = bindStyleSheet(cssKeyframesRule->parentStyleSheet());
+        RefPtrWillBeRawPtr<CSSRuleSourceData> sourceData = inspectorStyleSheet->sourceDataForRule(cssKeyframesRule);
+        OwnPtr<protocol::CSS::Value> name = protocol::CSS::Value::create().setText(cssKeyframesRule->name()).build();
+        if (sourceData)
+            name->setRange(inspectorStyleSheet->buildSourceRangeObject(sourceData->ruleHeaderRange));
+        cssKeyframesRules->addItem(protocol::CSS::CSSKeyframesRule::create()
+            .setAnimationName(name.release())
+            .setKeyframes(keyframes.release()).build());
     }
+    return cssKeyframesRules.release();
 }
 
-void InspectorCSSAgent::getInlineStylesForNode(ErrorString* errorString, int nodeId, RefPtr<TypeBuilder::CSS::CSSStyle>& inlineStyle, RefPtr<TypeBuilder::CSS::CSSStyle>& attributesStyle)
+void InspectorCSSAgent::getInlineStylesForNode(ErrorString* errorString, int nodeId, Maybe<protocol::CSS::CSSStyle>* inlineStyle, Maybe<protocol::CSS::CSSStyle>* attributesStyle)
 {
     Element* element = elementForId(errorString, nodeId);
     if (!element)
@@ -980,12 +1014,11 @@ void InspectorCSSAgent::getInlineStylesForNode(ErrorString* errorString, int nod
     if (!styleSheet)
         return;
 
-    inlineStyle = styleSheet->buildObjectForStyle(element->style());
-    RefPtr<TypeBuilder::CSS::CSSStyle> attributes = buildObjectForAttributesStyle(element);
-    attributesStyle = attributes ? attributes.release() : nullptr;
+    *inlineStyle = styleSheet->buildObjectForStyle(element->style());
+    *attributesStyle = buildObjectForAttributesStyle(element);
 }
 
-void InspectorCSSAgent::getComputedStyleForNode(ErrorString* errorString, int nodeId, RefPtr<TypeBuilder::Array<TypeBuilder::CSS::CSSComputedStyleProperty> >& style)
+void InspectorCSSAgent::getComputedStyleForNode(ErrorString* errorString, int nodeId, OwnPtr<protocol::Array<protocol::CSS::CSSComputedStyleProperty>>* style)
 {
     Node* node = m_domAgent->assertNode(errorString, nodeId);
     if (!node)
@@ -993,7 +1026,22 @@ void InspectorCSSAgent::getComputedStyleForNode(ErrorString* errorString, int no
 
     RefPtrWillBeRawPtr<CSSComputedStyleDeclaration> computedStyleInfo = CSSComputedStyleDeclaration::create(node, true);
     RefPtrWillBeRawPtr<InspectorStyle> inspectorStyle = InspectorStyle::create(computedStyleInfo, nullptr, nullptr);
-    style = inspectorStyle->buildArrayForComputedStyle();
+    *style = inspectorStyle->buildArrayForComputedStyle();
+
+    if (!RuntimeEnabledFeatures::cssVariablesEnabled())
+        return;
+
+    const HashMap<AtomicString, RefPtr<CSSVariableData>>* variables = computedStyleInfo->getVariables();
+
+    if (variables && !variables->isEmpty()) {
+        for (const auto& it : *variables) {
+            if (!it.value)
+                continue;
+            (*style)->addItem(protocol::CSS::CSSComputedStyleProperty::create()
+                .setName(it.key)
+                .setValue(it.value->tokenRange().serialize()).build());
+        }
+    }
 }
 
 void InspectorCSSAgent::collectPlatformFontsForLayoutObject(LayoutObject* layoutObject, HashCountedSet<String>* fontStats)
@@ -1020,7 +1068,7 @@ void InspectorCSSAgent::collectPlatformFontsForLayoutObject(LayoutObject* layout
 }
 
 void InspectorCSSAgent::getPlatformFontsForNode(ErrorString* errorString, int nodeId,
-    RefPtr<TypeBuilder::Array<TypeBuilder::CSS::PlatformFontUsage>>& platformFonts)
+    OwnPtr<protocol::Array<protocol::CSS::PlatformFontUsage>>* platformFonts)
 {
     Node* node = m_domAgent->assertNode(errorString, nodeId);
     if (!node)
@@ -1037,12 +1085,11 @@ void InspectorCSSAgent::getPlatformFontsForNode(ErrorString* errorString, int no
                 collectPlatformFontsForLayoutObject(child2, &fontStats);
         }
     }
-    platformFonts = TypeBuilder::Array<TypeBuilder::CSS::PlatformFontUsage>::create();
+    *platformFonts = protocol::Array<protocol::CSS::PlatformFontUsage>::create();
     for (auto& font : fontStats) {
-        RefPtr<TypeBuilder::CSS::PlatformFontUsage> platformFont = TypeBuilder::CSS::PlatformFontUsage::create()
+        (*platformFonts)->addItem(protocol::CSS::PlatformFontUsage::create()
             .setFamilyName(font.key)
-            .setGlyphCount(font.value);
-        platformFonts->addItem(platformFont);
+            .setGlyphCount(font.value).build());
     }
 }
 
@@ -1055,7 +1102,7 @@ void InspectorCSSAgent::getStyleSheetText(ErrorString* errorString, const String
     inspectorStyleSheet->getText(result);
 }
 
-void InspectorCSSAgent::setStyleSheetText(ErrorString* errorString, const String& styleSheetId, const String& text, TypeBuilder::OptOutput<String>* sourceMapURL)
+void InspectorCSSAgent::setStyleSheetText(ErrorString* errorString, const String& styleSheetId, const String& text, protocol::Maybe<String>* sourceMapURL)
 {
     FrontendOperationScope scope;
     InspectorStyleSheetBase* inspectorStyleSheet = assertStyleSheetForId(errorString, styleSheetId);
@@ -1071,33 +1118,25 @@ void InspectorCSSAgent::setStyleSheetText(ErrorString* errorString, const String
         *sourceMapURL = inspectorStyleSheet->sourceMapURL();
 }
 
-static bool extractRangeComponent(ErrorString* errorString, const RefPtr<JSONObject>& range, const String& component, unsigned& result)
+static bool verifyRangeComponent(ErrorString* errorString, bool valid, const String& component)
 {
-    int parsedValue = 0;
-    if (!range->getNumber(component, &parsedValue) || parsedValue < 0) {
+    if (!valid)
         *errorString = "range." + component + " must be a non-negative integer";
-        return false;
-    }
-    result = parsedValue;
-    return true;
+    return valid;
 }
 
-static bool jsonRangeToSourceRange(ErrorString* errorString, InspectorStyleSheetBase* inspectorStyleSheet, const RefPtr<JSONObject>& range, SourceRange* sourceRange)
+static bool jsonRangeToSourceRange(ErrorString* errorString, InspectorStyleSheetBase* inspectorStyleSheet, protocol::CSS::SourceRange* range, SourceRange* sourceRange)
 {
-    unsigned startLineNumber = 0;
-    unsigned startColumn = 0;
-    unsigned endLineNumber = 0;
-    unsigned endColumn = 0;
-    if (!extractRangeComponent(errorString, range, "startLine", startLineNumber)
-        || !extractRangeComponent(errorString, range, "startColumn", startColumn)
-        || !extractRangeComponent(errorString, range, "endLine", endLineNumber)
-        || !extractRangeComponent(errorString, range, "endColumn", endColumn))
+    if (!verifyRangeComponent(errorString, range->getStartLine() >= 0, "startLine")
+        || !verifyRangeComponent(errorString, range->getStartColumn() >= 0, "startColumn")
+        || !verifyRangeComponent(errorString, range->getEndLine() >= 0, "endLine")
+        || !verifyRangeComponent(errorString, range->getEndColumn() >= 0, "endColumn"))
         return false;
 
     unsigned startOffset = 0;
     unsigned endOffset = 0;
-    bool success = inspectorStyleSheet->lineNumberAndColumnToOffset(startLineNumber, startColumn, &startOffset)
-        && inspectorStyleSheet->lineNumberAndColumnToOffset(endLineNumber, endColumn, &endOffset);
+    bool success = inspectorStyleSheet->lineNumberAndColumnToOffset(range->getStartLine(), range->getStartColumn(), &startOffset)
+        && inspectorStyleSheet->lineNumberAndColumnToOffset(range->getEndLine(), range->getEndColumn(), &endOffset);
     if (!success) {
         *errorString = "Specified range is out of bounds";
         return false;
@@ -1112,7 +1151,7 @@ static bool jsonRangeToSourceRange(ErrorString* errorString, InspectorStyleSheet
     return true;
 }
 
-void InspectorCSSAgent::setRuleSelector(ErrorString* errorString, const String& styleSheetId, const RefPtr<JSONObject>& range, const String& selector, RefPtr<TypeBuilder::CSS::SelectorList>& result)
+void InspectorCSSAgent::setRuleSelector(ErrorString* errorString, const String& styleSheetId, PassOwnPtr<protocol::CSS::SourceRange> range, const String& selector, OwnPtr<protocol::CSS::SelectorList>* result)
 {
     FrontendOperationScope scope;
     InspectorStyleSheet* inspectorStyleSheet = assertInspectorStyleSheetForId(errorString, styleSheetId);
@@ -1121,7 +1160,7 @@ void InspectorCSSAgent::setRuleSelector(ErrorString* errorString, const String& 
         return;
     }
     SourceRange selectorRange;
-    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, range, &selectorRange))
+    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, range.get(), &selectorRange))
         return;
 
     TrackExceptionState exceptionState;
@@ -1134,26 +1173,107 @@ void InspectorCSSAgent::setRuleSelector(ErrorString* errorString, const String& 
             *errorString = "Failed to get inspector style sheet for rule.";
             return;
         }
-        result = inspectorStyleSheet->buildObjectForSelectorList(rule.get());
+        *result = inspectorStyleSheet->buildObjectForSelectorList(rule.get());
     }
     *errorString = InspectorDOMAgent::toErrorString(exceptionState);
 }
 
-void InspectorCSSAgent::setStyleText(ErrorString* errorString, const String& styleSheetId, const RefPtr<JSONObject>& range, const String& text, RefPtr<TypeBuilder::CSS::CSSStyle>& result)
+void InspectorCSSAgent::setKeyframeKey(ErrorString* errorString, const String& styleSheetId, PassOwnPtr<protocol::CSS::SourceRange> range, const String& keyText, OwnPtr<protocol::CSS::Value>* result)
 {
     FrontendOperationScope scope;
-    InspectorStyleSheetBase* inspectorStyleSheet = assertStyleSheetForId(errorString, styleSheetId);
+    InspectorStyleSheet* inspectorStyleSheet = assertInspectorStyleSheetForId(errorString, styleSheetId);
     if (!inspectorStyleSheet) {
         *errorString = "Stylesheet not found";
         return;
     }
-    SourceRange selectorRange;
-    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, range, &selectorRange))
+    SourceRange keyRange;
+    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, range.get(), &keyRange))
         return;
 
-    CSSStyleDeclaration* style = setStyleText(errorString, inspectorStyleSheet, selectorRange, text);
-    if (style)
-        result = inspectorStyleSheet->buildObjectForStyle(style);
+    TrackExceptionState exceptionState;
+    RefPtrWillBeRawPtr<ModifyRuleAction> action = adoptRefWillBeNoop(new ModifyRuleAction(ModifyRuleAction::SetKeyframeKey, inspectorStyleSheet, keyRange, keyText));
+    bool success = m_domAgent->history()->perform(action, exceptionState);
+    if (success) {
+        RefPtrWillBeRawPtr<CSSKeyframeRule> rule = toCSSKeyframeRule(action->takeRule().get());
+        InspectorStyleSheet* inspectorStyleSheet = bindStyleSheet(rule->parentStyleSheet());
+        if (!inspectorStyleSheet) {
+            *errorString = "Failed to get inspector style sheet for rule.";
+            return;
+        }
+
+        RefPtrWillBeRawPtr<CSSRuleSourceData> sourceData = inspectorStyleSheet->sourceDataForRule(rule);
+        *result = protocol::CSS::Value::create()
+            .setText(rule->keyText())
+            .setRange(inspectorStyleSheet->buildSourceRangeObject(sourceData->ruleHeaderRange))
+            .build();
+    }
+    *errorString = InspectorDOMAgent::toErrorString(exceptionState);
+}
+
+
+bool InspectorCSSAgent::multipleStyleTextsActions(ErrorString* errorString, PassOwnPtr<protocol::Array<protocol::CSS::StyleDeclarationEdit>> edits, HeapVector<RefPtrWillBeMember<StyleSheetAction>>* actions)
+{
+    int n = edits->length();
+    if (n == 0) {
+        *errorString = "Edits should not be empty";
+        return false;
+    }
+
+    for (int i = 0; i < n; ++i) {
+        protocol::CSS::StyleDeclarationEdit* edit = edits->get(i);
+        InspectorStyleSheetBase* inspectorStyleSheet = assertStyleSheetForId(errorString, edit->getStyleSheetId());
+        if (!inspectorStyleSheet) {
+            *errorString = String::format("StyleSheet not found for edit #%d of %d", i + 1 , n);
+            return false;
+        }
+
+        SourceRange range;
+        if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, edit->getRange(), &range))
+            return false;
+
+        if (inspectorStyleSheet->isInlineStyle()) {
+            InspectorStyleSheetForInlineStyle* inlineStyleSheet = static_cast<InspectorStyleSheetForInlineStyle*>(inspectorStyleSheet);
+            RefPtrWillBeRawPtr<SetElementStyleAction> action = adoptRefWillBeNoop(new SetElementStyleAction(inlineStyleSheet, edit->getText()));
+            actions->append(action);
+        } else {
+            RefPtrWillBeRawPtr<ModifyRuleAction> action = adoptRefWillBeNoop(new ModifyRuleAction(ModifyRuleAction::SetStyleText, static_cast<InspectorStyleSheet*>(inspectorStyleSheet), range, edit->getText()));
+            actions->append(action);
+        }
+    }
+    return true;
+}
+
+void InspectorCSSAgent::setStyleTexts(ErrorString* errorString, PassOwnPtr<protocol::Array<protocol::CSS::StyleDeclarationEdit>> edits, OwnPtr<protocol::Array<protocol::CSS::CSSStyle>>* result)
+{
+    FrontendOperationScope scope;
+    HeapVector<RefPtrWillBeMember<StyleSheetAction>> actions;
+    if (!multipleStyleTextsActions(errorString, edits, &actions))
+        return;
+
+    TrackExceptionState exceptionState;
+
+    int n = actions.size();
+    for (int i = 0; i < n; ++i) {
+        RefPtrWillBeMember<StyleSheetAction> action = actions.at(i);
+        bool success = action->perform(exceptionState);
+        if (!success) {
+            for (int j = i - 1; j >= 0; --j) {
+                RefPtrWillBeMember<StyleSheetAction> revert = actions.at(j);
+                TrackExceptionState undoExceptionState;
+                revert->undo(undoExceptionState);
+                ASSERT(!undoExceptionState.hadException());
+            }
+            *errorString = String::format("Failed applying edit #%d: %s", i, InspectorDOMAgent::toErrorString(exceptionState).utf8().data());
+            return;
+        }
+    }
+
+    *result = protocol::Array<protocol::CSS::CSSStyle>::create();
+    for (size_t i = 0; i < actions.size(); ++i) {
+        RefPtrWillBeMember<StyleSheetAction> action = actions.at(i);
+        (*result)->addItem(action->takeSerializedStyle());
+        m_domAgent->history()->appendPerformedAction(action);
+    }
 }
 
 CSSStyleDeclaration* InspectorCSSAgent::setStyleText(ErrorString* errorString, InspectorStyleSheetBase* inspectorStyleSheet, const SourceRange& range, const String& text)
@@ -1169,15 +1289,18 @@ CSSStyleDeclaration* InspectorCSSAgent::setStyleText(ErrorString* errorString, I
         RefPtrWillBeRawPtr<ModifyRuleAction> action = adoptRefWillBeNoop(new ModifyRuleAction(ModifyRuleAction::SetStyleText, static_cast<InspectorStyleSheet*>(inspectorStyleSheet), range, text));
         bool success = m_domAgent->history()->perform(action, exceptionState);
         if (success) {
-            RefPtrWillBeRawPtr<CSSStyleRule> rule = InspectorCSSAgent::asCSSStyleRule(action->takeRule().get());
-            return rule->style();
+            RefPtrWillBeRawPtr<CSSRule> rule = action->takeRule();
+            if (rule->type() == CSSRule::STYLE_RULE)
+                return toCSSStyleRule(rule.get())->style();
+            if (rule->type() == CSSRule::KEYFRAME_RULE)
+                return toCSSKeyframeRule(rule.get())->style();
         }
     }
     *errorString = InspectorDOMAgent::toErrorString(exceptionState);
     return nullptr;
 }
 
-void InspectorCSSAgent::setMediaText(ErrorString* errorString, const String& styleSheetId, const RefPtr<JSONObject>& range, const String& text, RefPtr<TypeBuilder::CSS::CSSMedia>& result)
+void InspectorCSSAgent::setMediaText(ErrorString* errorString, const String& styleSheetId, PassOwnPtr<protocol::CSS::SourceRange> range, const String& text, OwnPtr<protocol::CSS::CSSMedia>* result)
 {
     FrontendOperationScope scope;
     InspectorStyleSheet* inspectorStyleSheet = assertInspectorStyleSheetForId(errorString, styleSheetId);
@@ -1186,7 +1309,7 @@ void InspectorCSSAgent::setMediaText(ErrorString* errorString, const String& sty
         return;
     }
     SourceRange textRange;
-    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, range, &textRange))
+    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, range.get(), &textRange))
         return;
 
     TrackExceptionState exceptionState;
@@ -1197,12 +1320,12 @@ void InspectorCSSAgent::setMediaText(ErrorString* errorString, const String& sty
         String sourceURL = rule->parentStyleSheet()->contents()->baseURL();
         if (sourceURL.isEmpty())
             sourceURL = InspectorDOMAgent::documentURLString(rule->parentStyleSheet()->ownerDocument());
-        result = buildMediaObject(rule->media(), MediaListSourceMediaRule, sourceURL, rule->parentStyleSheet());
+        *result = buildMediaObject(rule->media(), MediaListSourceMediaRule, sourceURL, rule->parentStyleSheet());
     }
     *errorString = InspectorDOMAgent::toErrorString(exceptionState);
 }
 
-void InspectorCSSAgent::createStyleSheet(ErrorString* errorString, const String& frameId, TypeBuilder::CSS::StyleSheetId* outStyleSheetId)
+void InspectorCSSAgent::createStyleSheet(ErrorString* errorString, const String& frameId, protocol::CSS::StyleSheetId* outStyleSheetId)
 {
     LocalFrame* frame = IdentifiersFactory::frameById(m_inspectedFrames, frameId);
     if (!frame) {
@@ -1227,14 +1350,14 @@ void InspectorCSSAgent::createStyleSheet(ErrorString* errorString, const String&
     *outStyleSheetId = inspectorStyleSheet->id();
 }
 
-void InspectorCSSAgent::addRule(ErrorString* errorString, const String& styleSheetId, const String& ruleText, const RefPtr<JSONObject>& location, RefPtr<TypeBuilder::CSS::CSSRule>& result)
+void InspectorCSSAgent::addRule(ErrorString* errorString, const String& styleSheetId, const String& ruleText, PassOwnPtr<protocol::CSS::SourceRange> location, OwnPtr<protocol::CSS::CSSRule>* result)
 {
     FrontendOperationScope scope;
     InspectorStyleSheet* inspectorStyleSheet = assertInspectorStyleSheetForId(errorString, styleSheetId);
     if (!inspectorStyleSheet)
         return;
     SourceRange ruleLocation;
-    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, location, &ruleLocation))
+    if (!jsonRangeToSourceRange(errorString, inspectorStyleSheet, location.get(), &ruleLocation))
         return;
 
     TrackExceptionState exceptionState;
@@ -1246,16 +1369,16 @@ void InspectorCSSAgent::addRule(ErrorString* errorString, const String& styleShe
     }
 
     RefPtrWillBeRawPtr<CSSStyleRule> rule = action->takeRule();
-    result = buildObjectForRule(rule.get());
+    *result = buildObjectForRule(rule.get());
 }
 
-void InspectorCSSAgent::forcePseudoState(ErrorString* errorString, int nodeId, const RefPtr<JSONArray>& forcedPseudoClasses)
+void InspectorCSSAgent::forcePseudoState(ErrorString* errorString, int nodeId, PassOwnPtr<protocol::Array<String>> forcedPseudoClasses)
 {
     Element* element = m_domAgent->assertElement(errorString, nodeId);
     if (!element)
         return;
 
-    unsigned forcedPseudoState = computePseudoClassMask(forcedPseudoClasses.get());
+    unsigned forcedPseudoState = computePseudoClassMask(forcedPseudoClasses);
     NodeIdToForcedPseudoState::iterator it = m_nodeIdToForcedPseudoState.find(nodeId);
     unsigned currentForcedPseudoState = it == m_nodeIdToForcedPseudoState.end() ? 0 : it->value;
     bool needStyleRecalc = forcedPseudoState != currentForcedPseudoState;
@@ -1269,42 +1392,42 @@ void InspectorCSSAgent::forcePseudoState(ErrorString* errorString, int nodeId, c
     element->ownerDocument()->setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::Inspector));
 }
 
-PassRefPtr<TypeBuilder::CSS::CSSMedia> InspectorCSSAgent::buildMediaObject(const MediaList* media, MediaListSource mediaListSource, const String& sourceURL, CSSStyleSheet* parentStyleSheet)
+PassOwnPtr<protocol::CSS::CSSMedia> InspectorCSSAgent::buildMediaObject(const MediaList* media, MediaListSource mediaListSource, const String& sourceURL, CSSStyleSheet* parentStyleSheet)
 {
     // Make certain compilers happy by initializing |source| up-front.
-    TypeBuilder::CSS::CSSMedia::Source::Enum source = TypeBuilder::CSS::CSSMedia::Source::InlineSheet;
+    String source = protocol::CSS::CSSMedia::SourceEnum::InlineSheet;
     switch (mediaListSource) {
     case MediaListSourceMediaRule:
-        source = TypeBuilder::CSS::CSSMedia::Source::MediaRule;
+        source = protocol::CSS::CSSMedia::SourceEnum::MediaRule;
         break;
     case MediaListSourceImportRule:
-        source = TypeBuilder::CSS::CSSMedia::Source::ImportRule;
+        source = protocol::CSS::CSSMedia::SourceEnum::ImportRule;
         break;
     case MediaListSourceLinkedSheet:
-        source = TypeBuilder::CSS::CSSMedia::Source::LinkedSheet;
+        source = protocol::CSS::CSSMedia::SourceEnum::LinkedSheet;
         break;
     case MediaListSourceInlineSheet:
-        source = TypeBuilder::CSS::CSSMedia::Source::InlineSheet;
+        source = protocol::CSS::CSSMedia::SourceEnum::InlineSheet;
         break;
     }
 
     const MediaQuerySet* queries = media->queries();
-    const WillBeHeapVector<OwnPtrWillBeMember<MediaQuery> >& queryVector = queries->queryVector();
+    const WillBeHeapVector<OwnPtrWillBeMember<MediaQuery>>& queryVector = queries->queryVector();
     LocalFrame* frame = nullptr;
     if (parentStyleSheet) {
         if (Document* document = parentStyleSheet->ownerDocument())
             frame = document->frame();
     }
-    OwnPtr<MediaQueryEvaluator> mediaEvaluator = adoptPtr(new MediaQueryEvaluator(frame));
+    OwnPtrWillBeRawPtr<MediaQueryEvaluator> mediaEvaluator = adoptPtrWillBeNoop(new MediaQueryEvaluator(frame));
 
     InspectorStyleSheet* inspectorStyleSheet = parentStyleSheet ? m_cssStyleSheetToInspectorStyleSheet.get(parentStyleSheet) : nullptr;
-    RefPtr<TypeBuilder::Array<TypeBuilder::CSS::MediaQuery> > mediaListArray = TypeBuilder::Array<TypeBuilder::CSS::MediaQuery>::create();
+    OwnPtr<protocol::Array<protocol::CSS::MediaQuery>> mediaListArray = protocol::Array<protocol::CSS::MediaQuery>::create();
     RefPtrWillBeRawPtr<MediaValues> mediaValues = MediaValues::createDynamicIfFrameExists(frame);
     bool hasMediaQueryItems = false;
     for (size_t i = 0; i < queryVector.size(); ++i) {
         MediaQuery* query = queryVector.at(i).get();
         const ExpressionHeapVector& expressions = query->expressions();
-        RefPtr<TypeBuilder::Array<TypeBuilder::CSS::MediaQueryExpression> > expressionArray = TypeBuilder::Array<TypeBuilder::CSS::MediaQueryExpression>::create();
+        OwnPtr<protocol::Array<protocol::CSS::MediaQueryExpression>> expressionArray = protocol::Array<protocol::CSS::MediaQueryExpression>::create();
         bool hasExpressionItems = false;
         for (size_t j = 0; j < expressions.size(); ++j) {
             MediaQueryExp* mediaQueryExp = expressions.at(j).get();
@@ -1312,38 +1435,35 @@ PassRefPtr<TypeBuilder::CSS::CSSMedia> InspectorCSSAgent::buildMediaObject(const
             if (!expValue.isValue)
                 continue;
             const char* valueName = CSSPrimitiveValue::unitTypeToString(expValue.unit);
-            RefPtr<TypeBuilder::CSS::MediaQueryExpression> mediaQueryExpression = TypeBuilder::CSS::MediaQueryExpression::create()
+            OwnPtr<protocol::CSS::MediaQueryExpression> mediaQueryExpression = protocol::CSS::MediaQueryExpression::create()
                 .setValue(expValue.value)
                 .setUnit(String(valueName))
-                .setFeature(mediaQueryExp->mediaFeature());
+                .setFeature(mediaQueryExp->mediaFeature()).build();
 
-            if (inspectorStyleSheet && media->parentRule()) {
-                RefPtr<TypeBuilder::CSS::SourceRange> valueRange = inspectorStyleSheet->mediaQueryExpValueSourceRange(media->parentRule(), i, j);
-                if (valueRange)
-                    mediaQueryExpression->setValueRange(valueRange);
-            }
+            if (inspectorStyleSheet && media->parentRule())
+                mediaQueryExpression->setValueRange(inspectorStyleSheet->mediaQueryExpValueSourceRange(media->parentRule(), i, j));
 
             int computedLength;
             if (mediaValues->computeLength(expValue.value, expValue.unit, computedLength))
                 mediaQueryExpression->setComputedLength(computedLength);
 
-            expressionArray->addItem(mediaQueryExpression);
+            expressionArray->addItem(mediaQueryExpression.release());
             hasExpressionItems = true;
         }
         if (!hasExpressionItems)
             continue;
-        RefPtr<TypeBuilder::CSS::MediaQuery> mediaQuery = TypeBuilder::CSS::MediaQuery::create()
+        OwnPtr<protocol::CSS::MediaQuery> mediaQuery = protocol::CSS::MediaQuery::create()
             .setActive(mediaEvaluator->eval(query, nullptr))
-            .setExpressions(expressionArray);
-        mediaListArray->addItem(mediaQuery);
+            .setExpressions(expressionArray.release()).build();
+        mediaListArray->addItem(mediaQuery.release());
         hasMediaQueryItems = true;
     }
 
-    RefPtr<TypeBuilder::CSS::CSSMedia> mediaObject = TypeBuilder::CSS::CSSMedia::create()
+    OwnPtr<protocol::CSS::CSSMedia> mediaObject = protocol::CSS::CSSMedia::create()
         .setText(media->mediaText())
-        .setSource(source);
+        .setSource(source).build();
     if (hasMediaQueryItems)
-        mediaObject->setMediaList(mediaListArray);
+        mediaObject->setMediaList(mediaListArray.release());
 
     if (inspectorStyleSheet && mediaListSource != MediaListSourceLinkedSheet)
         mediaObject->setParentStyleSheetId(inspectorStyleSheet->id());
@@ -1355,14 +1475,12 @@ PassRefPtr<TypeBuilder::CSS::CSSMedia> InspectorCSSAgent::buildMediaObject(const
         if (!parentRule)
             return mediaObject.release();
         InspectorStyleSheet* inspectorStyleSheet = bindStyleSheet(parentRule->parentStyleSheet());
-        RefPtr<TypeBuilder::CSS::SourceRange> mediaRange = inspectorStyleSheet->ruleHeaderSourceRange(parentRule);
-        if (mediaRange)
-            mediaObject->setRange(mediaRange);
+        mediaObject->setRange(inspectorStyleSheet->ruleHeaderSourceRange(parentRule));
     }
     return mediaObject.release();
 }
 
-void InspectorCSSAgent::collectMediaQueriesFromStyleSheet(CSSStyleSheet* styleSheet, TypeBuilder::Array<TypeBuilder::CSS::CSSMedia>* mediaArray)
+void InspectorCSSAgent::collectMediaQueriesFromStyleSheet(CSSStyleSheet* styleSheet, protocol::Array<protocol::CSS::CSSMedia>* mediaArray)
 {
     MediaList* mediaList = styleSheet->media();
     String sourceURL;
@@ -1378,7 +1496,7 @@ void InspectorCSSAgent::collectMediaQueriesFromStyleSheet(CSSStyleSheet* styleSh
     }
 }
 
-void InspectorCSSAgent::collectMediaQueriesFromRule(CSSRule* rule, TypeBuilder::Array<TypeBuilder::CSS::CSSMedia>* mediaArray)
+void InspectorCSSAgent::collectMediaQueriesFromRule(CSSRule* rule, protocol::Array<protocol::CSS::CSSMedia>* mediaArray)
 {
     MediaList* mediaList;
     String sourceURL;
@@ -1409,11 +1527,11 @@ void InspectorCSSAgent::collectMediaQueriesFromRule(CSSRule* rule, TypeBuilder::
         mediaArray->addItem(buildMediaObject(mediaList, isMediaRule ? MediaListSourceMediaRule : MediaListSourceImportRule, sourceURL, parentStyleSheet));
 }
 
-PassRefPtr<TypeBuilder::Array<TypeBuilder::CSS::CSSMedia> > InspectorCSSAgent::buildMediaListChain(CSSRule* rule)
+PassOwnPtr<protocol::Array<protocol::CSS::CSSMedia>> InspectorCSSAgent::buildMediaListChain(CSSRule* rule)
 {
     if (!rule)
         return nullptr;
-    RefPtr<TypeBuilder::Array<TypeBuilder::CSS::CSSMedia> > mediaArray = TypeBuilder::Array<TypeBuilder::CSS::CSSMedia>::create();
+    OwnPtr<protocol::Array<protocol::CSS::CSSMedia>> mediaArray = protocol::Array<protocol::CSS::CSSMedia>::create();
     CSSRule* parentRule = rule;
     while (parentRule) {
         collectMediaQueriesFromRule(parentRule, mediaArray.get());
@@ -1430,7 +1548,7 @@ PassRefPtr<TypeBuilder::Array<TypeBuilder::CSS::CSSMedia> > InspectorCSSAgent::b
             }
         }
     }
-    return mediaArray;
+    return mediaArray.release();
 }
 
 InspectorStyleSheetForInlineStyle* InspectorCSSAgent::asInspectorStyleSheet(Element* element)
@@ -1464,7 +1582,7 @@ Element* InspectorCSSAgent::elementForId(ErrorString* errorString, int nodeId)
 }
 
 // static
-void InspectorCSSAgent::collectAllDocumentStyleSheets(Document* document, WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> >& result)
+void InspectorCSSAgent::collectAllDocumentStyleSheets(Document* document, WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>>& result)
 {
     const WillBeHeapVector<RefPtrWillBeMember<CSSStyleSheet>> activeStyleSheets = document->styleEngine().activeStyleSheetsForInspector();
     for (const auto& style : activeStyleSheets) {
@@ -1474,7 +1592,7 @@ void InspectorCSSAgent::collectAllDocumentStyleSheets(Document* document, WillBe
 }
 
 // static
-void InspectorCSSAgent::collectStyleSheets(CSSStyleSheet* styleSheet, WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> >& result)
+void InspectorCSSAgent::collectStyleSheets(CSSStyleSheet* styleSheet, WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>>& result)
 {
     result.append(styleSheet);
     for (unsigned i = 0, size = styleSheet->length(); i < size; ++i) {
@@ -1596,31 +1714,31 @@ InspectorStyleSheetBase* InspectorCSSAgent::assertStyleSheetForId(ErrorString* e
     return it->value.get();
 }
 
-TypeBuilder::CSS::StyleSheetOrigin::Enum InspectorCSSAgent::detectOrigin(CSSStyleSheet* pageStyleSheet, Document* ownerDocument)
+protocol::CSS::StyleSheetOrigin InspectorCSSAgent::detectOrigin(CSSStyleSheet* pageStyleSheet, Document* ownerDocument)
 {
     if (m_creatingViaInspectorStyleSheet)
-        return TypeBuilder::CSS::StyleSheetOrigin::Inspector;
+        return protocol::CSS::StyleSheetOriginEnum::Inspector;
 
-    TypeBuilder::CSS::StyleSheetOrigin::Enum origin = TypeBuilder::CSS::StyleSheetOrigin::Regular;
+    protocol::CSS::StyleSheetOrigin origin = protocol::CSS::StyleSheetOriginEnum::Regular;
     if (pageStyleSheet && !pageStyleSheet->ownerNode() && pageStyleSheet->href().isEmpty())
-        origin = TypeBuilder::CSS::StyleSheetOrigin::User_agent;
+        origin = protocol::CSS::StyleSheetOriginEnum::UserAgent;
     else if (pageStyleSheet && pageStyleSheet->ownerNode() && pageStyleSheet->ownerNode()->isDocumentNode())
-        origin = TypeBuilder::CSS::StyleSheetOrigin::Injected;
+        origin = protocol::CSS::StyleSheetOriginEnum::Injected;
     else {
         InspectorStyleSheet* viaInspectorStyleSheetForOwner = viaInspectorStyleSheet(ownerDocument, false);
         if (viaInspectorStyleSheetForOwner && pageStyleSheet == viaInspectorStyleSheetForOwner->pageStyleSheet())
-            origin = TypeBuilder::CSS::StyleSheetOrigin::Inspector;
+            origin = protocol::CSS::StyleSheetOriginEnum::Inspector;
     }
     return origin;
 }
 
-PassRefPtr<TypeBuilder::CSS::CSSRule> InspectorCSSAgent::buildObjectForRule(CSSStyleRule* rule)
+PassOwnPtr<protocol::CSS::CSSRule> InspectorCSSAgent::buildObjectForRule(CSSStyleRule* rule)
 {
     InspectorStyleSheet* inspectorStyleSheet = inspectorStyleSheetForRule(rule);
     if (!inspectorStyleSheet)
         return nullptr;
 
-    RefPtr<TypeBuilder::CSS::CSSRule> result = inspectorStyleSheet->buildObjectForRuleWithoutMedia(rule);
+    OwnPtr<protocol::CSS::CSSRule> result = inspectorStyleSheet->buildObjectForRuleWithoutMedia(rule);
     result->setMedia(buildMediaListChain(rule));
     return result.release();
 }
@@ -1630,30 +1748,29 @@ static inline bool matchesPseudoElement(const CSSSelector* selector, PseudoId el
     // According to http://www.w3.org/TR/css3-selectors/#pseudo-elements, "Only one pseudo-element may appear per selector."
     // As such, check the last selector in the tag history.
     for (; !selector->isLastInTagHistory(); ++selector) { }
-    PseudoId selectorPseudoId = CSSSelector::pseudoId(selector->pseudoType());
+    PseudoId selectorPseudoId = CSSSelector::pseudoId(selector->getPseudoType());
 
     // FIXME: This only covers the case of matching pseudo-element selectors against PseudoElements.
     // We should come up with a solution for matching pseudo-element selectors against ordinary Elements, too.
     return selectorPseudoId == elementPseudoId;
 }
 
-PassRefPtr<TypeBuilder::Array<TypeBuilder::CSS::RuleMatch> > InspectorCSSAgent::buildArrayForMatchedRuleList(CSSRuleList* ruleList, Element* element, PseudoId matchesForPseudoId)
+PassOwnPtr<protocol::Array<protocol::CSS::RuleMatch>> InspectorCSSAgent::buildArrayForMatchedRuleList(CSSRuleList* ruleList, Element* element, PseudoId matchesForPseudoId)
 {
-    RefPtr<TypeBuilder::Array<TypeBuilder::CSS::RuleMatch> > result = TypeBuilder::Array<TypeBuilder::CSS::RuleMatch>::create();
+    OwnPtr<protocol::Array<protocol::CSS::RuleMatch>> result = protocol::Array<protocol::CSS::RuleMatch>::create();
     if (!ruleList)
         return result.release();
 
-    RefPtrWillBeRawPtr<CSSRuleList> uniqRules = filterDuplicateRules(ruleList);
-
-    for (unsigned i = 0; i < uniqRules->length(); ++i) {
-        CSSStyleRule* rule = asCSSStyleRule(uniqRules->item(i));
-        RefPtr<TypeBuilder::CSS::CSSRule> ruleObject = buildObjectForRule(rule);
+    WillBeHeapVector<RefPtrWillBeMember<CSSStyleRule>> uniqRules = filterDuplicateRules(ruleList);
+    for (unsigned i = 0; i < uniqRules.size(); ++i) {
+        CSSStyleRule* rule = uniqRules.at(i).get();
+        OwnPtr<protocol::CSS::CSSRule> ruleObject = buildObjectForRule(rule);
         if (!ruleObject)
             continue;
-        RefPtr<TypeBuilder::Array<int> > matchingSelectors = TypeBuilder::Array<int>::create();
+        OwnPtr<protocol::Array<int>> matchingSelectors = protocol::Array<int>::create();
         const CSSSelectorList& selectorList = rule->styleRule()->selectorList();
         long index = 0;
-        PseudoId elementPseudoId = matchesForPseudoId ? matchesForPseudoId : element->pseudoId();
+        PseudoId elementPseudoId = matchesForPseudoId ? matchesForPseudoId : element->getPseudoId();
         for (const CSSSelector* selector = selectorList.first(); selector; selector = CSSSelectorList::next(*selector)) {
             const CSSSelector* firstTagHistorySelector = selector;
             bool matched = false;
@@ -1665,25 +1782,16 @@ PassRefPtr<TypeBuilder::Array<TypeBuilder::CSS::RuleMatch> > InspectorCSSAgent::
                 matchingSelectors->addItem(index);
             ++index;
         }
-        RefPtr<TypeBuilder::CSS::RuleMatch> match = TypeBuilder::CSS::RuleMatch::create()
+        result->addItem(protocol::CSS::RuleMatch::create()
             .setRule(ruleObject.release())
-            .setMatchingSelectors(matchingSelectors.release());
-        result->addItem(match);
+            .setMatchingSelectors(matchingSelectors.release())
+            .build());
     }
 
-    return result;
+    return result.release();
 }
 
-PassRefPtr<TypeBuilder::CSS::CSSKeyframeRule> InspectorCSSAgent::buildObjectForKeyframeRule(CSSKeyframeRule* keyframeRule)
-{
-    RefPtrWillBeRawPtr<InspectorStyle> inspectorStyle = InspectorStyle::create(keyframeRule->style(), nullptr, nullptr);
-    RefPtr<TypeBuilder::CSS::CSSKeyframeRule> object = TypeBuilder::CSS::CSSKeyframeRule::create()
-        .setKeyText(keyframeRule->keyText())
-        .setStyle(inspectorStyle->buildObjectForStyle());
-    return object;
-}
-
-PassRefPtr<TypeBuilder::CSS::CSSStyle> InspectorCSSAgent::buildObjectForAttributesStyle(Element* element)
+PassOwnPtr<protocol::CSS::CSSStyle> InspectorCSSAgent::buildObjectForAttributesStyle(Element* element)
 {
     if (!element->isStyledElement())
         return nullptr;
@@ -1756,7 +1864,7 @@ void InspectorCSSAgent::didReparseStyleSheet()
 
 void InspectorCSSAgent::resetPseudoStates()
 {
-    WillBeHeapHashSet<RawPtrWillBeMember<Document> > documentsToChange;
+    WillBeHeapHashSet<RawPtrWillBeMember<Document>> documentsToChange;
     for (auto& state : m_nodeIdToForcedPseudoState) {
         Element* element = toElement(m_domAgent->nodeForId(state.key));
         if (element && element->ownerDocument())
@@ -1768,66 +1876,49 @@ void InspectorCSSAgent::resetPseudoStates()
         document->setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::Inspector));
 }
 
-PassRefPtrWillBeRawPtr<CSSRuleList> InspectorCSSAgent::matchedRulesList(Element* element)
+WillBeHeapVector<RefPtrWillBeMember<CSSStyleDeclaration>> InspectorCSSAgent::matchingStyles(Element* element)
 {
-    PseudoId elementPseudoId = element->pseudoId();
-    if (elementPseudoId) {
-        element = element->parentOrShadowHostElement();
-        if (!element)
-            return nullptr;
-    }
-
-    Document* ownerDocument = element->ownerDocument();
-    // A non-active document has no styles.
-    if (!ownerDocument->isActive())
-        return nullptr;
-
-    StyleResolver& styleResolver = ownerDocument->ensureStyleResolver();
+    PseudoId pseudoId = element->getPseudoId();
+    if (pseudoId)
+        element = element->parentElement();
+    StyleResolver& styleResolver = element->ownerDocument()->ensureStyleResolver();
     element->updateDistribution();
-    return filterDuplicateRules(styleResolver.pseudoCSSRulesForElement(element, elementPseudoId, StyleResolver::AllCSSRules));
+
+    WillBeHeapVector<RefPtrWillBeMember<CSSStyleRule>> rules = filterDuplicateRules(styleResolver.pseudoCSSRulesForElement(element, pseudoId, StyleResolver::AllCSSRules));
+    WillBeHeapVector<RefPtrWillBeMember<CSSStyleDeclaration>> styles;
+    if (!pseudoId && element->style())
+        styles.append(element->style());
+    for (unsigned i = rules.size(); i > 0; --i) {
+        CSSStyleSheet* parentStyleSheet = rules.at(i - 1)->parentStyleSheet();
+        if (!parentStyleSheet || !parentStyleSheet->ownerNode())
+            continue; // User agent.
+        styles.append(rules.at(i - 1)->style());
+    }
+    return styles;
 }
 
-PassRefPtrWillBeRawPtr<CSSStyleDeclaration> InspectorCSSAgent::findEffectiveDeclaration(CSSPropertyID propertyId, CSSRuleList* ruleList, CSSStyleDeclaration* inlineStyle)
+PassRefPtrWillBeRawPtr<CSSStyleDeclaration> InspectorCSSAgent::findEffectiveDeclaration(CSSPropertyID propertyId, const WillBeHeapVector<RefPtrWillBeMember<CSSStyleDeclaration>>& styles)
 {
-    if (!ruleList && !inlineStyle)
+    if (!styles.size())
         return nullptr;
 
     String longhand = getPropertyNameString(propertyId);
     RefPtrWillBeRawPtr<CSSStyleDeclaration> foundStyle = nullptr;
-    bool isImportant = false;
 
-    if (inlineStyle && !inlineStyle->getPropertyValue(longhand).isEmpty()) {
-        foundStyle = inlineStyle;
-        isImportant = inlineStyle->getPropertyPriority(longhand) == "important";
-    }
-
-    for (unsigned i = 0, size = ruleList ? ruleList->length() : 0; i < size; ++i) {
-        if (isImportant)
-            break;
-
-        if (ruleList->item(size - i - 1)->type() != CSSRule::STYLE_RULE)
-            continue;
-
-        CSSStyleRule* rule = toCSSStyleRule(ruleList->item(size - i - 1));
-        if (!rule)
-            continue;
-
-        CSSStyleDeclaration* style = rule->style();
-        if (!style)
-            continue;
-
+    for (unsigned i = 0; i < styles.size(); ++i) {
+        CSSStyleDeclaration* style = styles.at(i).get();
         if (style->getPropertyValue(longhand).isEmpty())
             continue;
-
-        isImportant = style->getPropertyPriority(longhand) == "important";
-        if (isImportant || !foundStyle)
+        if (style->getPropertyPriority(longhand) == "important")
+            return style;
+        if (!foundStyle)
             foundStyle = style;
     }
 
-    return foundStyle.release();
+    return foundStyle ? foundStyle.get() : styles.at(0).get();
 }
 
-void InspectorCSSAgent::setCSSPropertyValue(ErrorString* errorString, Element* element, RefPtrWillBeRawPtr<CSSStyleDeclaration> style, CSSPropertyID propertyId, const String& value, bool forceImportant)
+void InspectorCSSAgent::setLayoutEditorValue(ErrorString* errorString, Element* element, RefPtrWillBeRawPtr<CSSStyleDeclaration> style, CSSPropertyID propertyId, const String& value, bool forceImportant)
 {
     InspectorStyleSheetBase* inspectorStyleSheet =  nullptr;
     RefPtrWillBeRawPtr<CSSRuleSourceData> sourceData = nullptr;
@@ -1897,17 +1988,33 @@ void InspectorCSSAgent::setCSSPropertyValue(ErrorString* errorString, Element* e
         changeRange.end = changeRange.start + newPropertyText.length();
     }
     CSSStyleDeclaration* resultStyle = setStyleText(errorString, inspectorStyleSheet, bodyRange, styleText);
-    if (resultStyle) {
+    if (resultStyle)
         frontend()->layoutEditorChange(inspectorStyleSheet->id(), inspectorStyleSheet->buildSourceRangeObject(changeRange));
-        frontend()->flush();
+}
+
+void InspectorCSSAgent::layoutEditorItemSelected(Element* element, RefPtrWillBeRawPtr<CSSStyleDeclaration> style)
+{
+    InspectorStyleSheetBase* inspectorStyleSheet =  nullptr;
+    RefPtrWillBeRawPtr<CSSRuleSourceData> sourceData = nullptr;
+    if (style->parentRule()) {
+        InspectorStyleSheet* styleSheet = bindStyleSheet(style->parentStyleSheet());
+        inspectorStyleSheet = styleSheet;
+        sourceData = styleSheet->sourceDataForRule(style->parentRule());
+    } else {
+        InspectorStyleSheetForInlineStyle* inlineStyleSheet = asInspectorStyleSheet(element);
+        inspectorStyleSheet = inlineStyleSheet;
+        sourceData = inlineStyleSheet->ruleSourceData();
     }
+
+    if (sourceData)
+        frontend()->layoutEditorChange(inspectorStyleSheet->id(), inspectorStyleSheet->buildSourceRangeObject(sourceData->ruleHeaderRange));
 }
 
 void InspectorCSSAgent::setEffectivePropertyValueForNode(ErrorString* errorString, int nodeId, const String& propertyName, const String& value)
 {
     // TODO: move testing from CSSAgent to layout editor.
     Element* element = elementForId(errorString, nodeId);
-    if (!element)
+    if (!element || element->getPseudoId())
         return;
 
     CSSPropertyID property = cssPropertyID(propertyName);
@@ -1923,21 +2030,16 @@ void InspectorCSSAgent::setEffectivePropertyValueForNode(ErrorString* errorStrin
     }
 
     CSSPropertyID propertyId = cssPropertyID(propertyName);
-    CSSStyleDeclaration* inlineStyle = element->style();
-    RefPtrWillBeRawPtr<CSSRuleList> ruleList = matchedRulesList(element);
-    RefPtrWillBeRawPtr<CSSStyleDeclaration> foundStyle = findEffectiveDeclaration(propertyId, ruleList.get(), inlineStyle);
-    if (!foundStyle || !foundStyle->parentStyleSheet())
-        foundStyle = inlineStyle;
-
-    if (!foundStyle) {
+    RefPtrWillBeRawPtr<CSSStyleDeclaration> style = findEffectiveDeclaration(propertyId, matchingStyles(element));
+    if (!style) {
         *errorString = "Can't find a style to edit";
         return;
     }
 
-    setCSSPropertyValue(errorString, element, foundStyle.get(), propertyId, value);
+    setLayoutEditorValue(errorString, element, style.get(), propertyId, value);
 }
 
-void InspectorCSSAgent::getBackgroundColors(ErrorString* errorString, int nodeId, RefPtr<TypeBuilder::Array<String>>& result)
+void InspectorCSSAgent::getBackgroundColors(ErrorString* errorString, int nodeId, Maybe<protocol::Array<String>>* result)
 {
     Element* element = elementForId(errorString, nodeId);
     if (!element) {
@@ -1984,14 +2086,15 @@ void InspectorCSSAgent::getBackgroundColors(ErrorString* errorString, int nodeId
         }
     }
 
-    result = TypeBuilder::Array<String>::create();
+    *result = protocol::Array<String>::create();
     for (auto color : colors)
-        result->addItem(color.serializedAsCSSComponentValue());
+        result->fromJust()->addItem(color.serializedAsCSSComponentValue());
 }
 
 DEFINE_TRACE(InspectorCSSAgent)
 {
     visitor->trace(m_domAgent);
+    visitor->trace(m_inspectedFrames);
     visitor->trace(m_resourceAgent);
     visitor->trace(m_resourceContentLoader);
 #if ENABLE(OILPAN)

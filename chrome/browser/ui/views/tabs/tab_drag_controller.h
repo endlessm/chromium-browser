@@ -5,8 +5,11 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TABS_TAB_DRAG_CONTROLLER_H_
 #define CHROME_BROWSER_UI_VIEWS_TABS_TAB_DRAG_CONTROLLER_H_
 
+#include <stddef.h>
+
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/timer/timer.h"
@@ -458,15 +461,6 @@ class TabDragController : public content::NotificationObserver,
   // The TabStrip the dragged Tab is currently attached to, or NULL if the
   // dragged Tab is detached.
   TabStrip* attached_tabstrip_;
-
-  // The screen that this drag is associated with. Cached, because other UI
-  // elements are NULLd at various points during the lifetime of this object.
-  gfx::Screen* screen_;
-
-  // The desktop type that this drag is associated with. Cached, because other
-  // UI elements are NULLd at various points during the lifetime of this
-  // object.
-  chrome::HostDesktopType host_desktop_type_;
 
   // Whether capture can be released during the drag. When false, capture should
   // not be released when transferring capture between widgets and when starting

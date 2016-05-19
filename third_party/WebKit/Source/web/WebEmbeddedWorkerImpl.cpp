@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/WebEmbeddedWorkerImpl.h"
 
 #include "core/dom/CrossThreadTask.h"
@@ -47,6 +46,7 @@
 #include "core/workers/WorkerThreadStartupData.h"
 #include "modules/serviceworkers/ServiceWorkerContainerClient.h"
 #include "modules/serviceworkers/ServiceWorkerThread.h"
+#include "platform/Histogram.h"
 #include "platform/SharedBuffer.h"
 #include "platform/heap/Handle.h"
 #include "platform/network/ContentSecurityPolicyParsers.h"
@@ -88,6 +88,7 @@ WebEmbeddedWorkerImpl::WebEmbeddedWorkerImpl(PassOwnPtr<WebServiceWorkerContextC
     , m_mainFrame(nullptr)
     , m_loadingShadowPage(false)
     , m_askedToTerminate(false)
+    , m_pauseAfterDownloadState(DontPauseAfterDownload)
     , m_waitingForDebuggerState(NotWaitingForDebugger)
 {
     runningWorkerInstances().add(this);
@@ -108,6 +109,11 @@ WebEmbeddedWorkerImpl::~WebEmbeddedWorkerImpl()
     // Detach the client before closing the view to avoid getting called back.
     m_mainFrame->setClient(0);
 
+    if (m_workerGlobalScopeProxy) {
+        m_workerGlobalScopeProxy->detach();
+        m_workerGlobalScopeProxy.clear();
+    }
+
     m_webView->close();
     m_mainFrame->close();
     if (m_loaderProxy)
@@ -119,7 +125,10 @@ void WebEmbeddedWorkerImpl::startWorkerContext(
 {
     ASSERT(!m_askedToTerminate);
     ASSERT(!m_mainScriptLoader);
+    ASSERT(m_pauseAfterDownloadState == DontPauseAfterDownload);
     m_workerStartData = data;
+    if (data.pauseAfterDownloadMode == WebEmbeddedWorkerStartData::PauseAfterDownload)
+        m_pauseAfterDownloadState = DoPauseAfterDownload;
     prepareShadowPageForLoader();
 }
 
@@ -142,8 +151,8 @@ void WebEmbeddedWorkerImpl::terminateWorkerContext()
     }
     if (!m_workerThread) {
         // The worker thread has not been created yet if the worker is asked to
-        // terminate during waiting for debugger.
-        ASSERT(m_workerStartData.waitForDebuggerMode == WebEmbeddedWorkerStartData::WaitForDebugger);
+        // terminate during waiting for debugger or paused after download.
+        ASSERT(m_workerStartData.waitForDebuggerMode == WebEmbeddedWorkerStartData::WaitForDebugger || m_pauseAfterDownloadState == IsPausedAfterDownload);
         // This deletes 'this'.
         m_workerContextClient->workerContextFailedToStart();
         return;
@@ -152,18 +161,27 @@ void WebEmbeddedWorkerImpl::terminateWorkerContext()
     m_workerInspectorProxy->workerThreadTerminated();
 }
 
-void WebEmbeddedWorkerImpl::attachDevTools(const WebString& hostId)
+void WebEmbeddedWorkerImpl::resumeAfterDownload()
 {
-    WebDevToolsAgent* devtoolsAgent = m_mainFrame->devToolsAgent();
-    if (devtoolsAgent)
-        devtoolsAgent->attach(hostId);
+    ASSERT(!m_askedToTerminate);
+    ASSERT(m_pauseAfterDownloadState == IsPausedAfterDownload);
+
+    m_pauseAfterDownloadState = DontPauseAfterDownload;
+    startWorkerThread();
 }
 
-void WebEmbeddedWorkerImpl::reattachDevTools(const WebString& hostId, const WebString& savedState)
+void WebEmbeddedWorkerImpl::attachDevTools(const WebString& hostId, int sessionId)
 {
     WebDevToolsAgent* devtoolsAgent = m_mainFrame->devToolsAgent();
     if (devtoolsAgent)
-        devtoolsAgent->reattach(hostId, savedState);
+        devtoolsAgent->attach(hostId, sessionId);
+}
+
+void WebEmbeddedWorkerImpl::reattachDevTools(const WebString& hostId, int sessionId, const WebString& savedState)
+{
+    WebDevToolsAgent* devtoolsAgent = m_mainFrame->devToolsAgent();
+    if (devtoolsAgent)
+        devtoolsAgent->reattach(hostId, sessionId, savedState);
     resumeStartup();
 }
 
@@ -174,13 +192,13 @@ void WebEmbeddedWorkerImpl::detachDevTools()
         devtoolsAgent->detach();
 }
 
-void WebEmbeddedWorkerImpl::dispatchDevToolsMessage(const WebString& message)
+void WebEmbeddedWorkerImpl::dispatchDevToolsMessage(int sessionId, const WebString& message)
 {
     if (m_askedToTerminate)
         return;
     WebDevToolsAgent* devtoolsAgent = m_mainFrame->devToolsAgent();
     if (devtoolsAgent)
-        devtoolsAgent->dispatchOnInspectorBackend(message);
+        devtoolsAgent->dispatchOnInspectorBackend(sessionId, message);
 }
 
 void WebEmbeddedWorkerImpl::postMessageToPageInspector(const String& message)
@@ -225,6 +243,7 @@ void WebEmbeddedWorkerImpl::prepareShadowPageForLoader()
     settings->setStrictMixedContentChecking(true);
     settings->setAllowDisplayOfInsecureContent(false);
     settings->setAllowRunningOfInsecureContent(false);
+    settings->setDataSaverEnabled(m_workerStartData.dataSaverEnabled);
     m_mainFrame = toWebLocalFrameImpl(WebLocalFrame::create(WebTreeScopeType::Document, this));
     m_webView->setMainFrame(m_mainFrame.get());
     m_mainFrame->setDevToolsAgentClient(this);
@@ -232,7 +251,7 @@ void WebEmbeddedWorkerImpl::prepareShadowPageForLoader()
     // If we were asked to wait for debugger then it is the good time to do that.
     m_workerContextClient->workerReadyForInspection();
     if (m_workerStartData.waitForDebuggerMode == WebEmbeddedWorkerStartData::WaitForDebugger) {
-        m_waitingForDebuggerState = WaitingForDebuggerBeforeLoadingScript;
+        m_waitingForDebuggerState = WaitingForDebugger;
         return;
     }
 
@@ -244,8 +263,7 @@ void WebEmbeddedWorkerImpl::loadShadowPage()
     // Construct substitute data source for the 'shadow page'. We only need it
     // to have same origin as the worker so the loading checks work correctly.
     CString content("");
-    int length = static_cast<int>(content.length());
-    RefPtr<SharedBuffer> buffer(SharedBuffer::create(content.data(), length));
+    RefPtr<SharedBuffer> buffer(SharedBuffer::create(content.data(), content.length()));
     m_loadingShadowPage = true;
     m_mainFrame->frame()->loader().load(FrameLoadRequest(0, ResourceRequest(m_workerStartData.scriptURL), SubstituteData(buffer, "text/html", "UTF-8", KURL())));
 }
@@ -258,7 +276,7 @@ void WebEmbeddedWorkerImpl::willSendRequest(
         m_networkProvider->willSendRequest(frame->dataSource(), request);
 }
 
-void WebEmbeddedWorkerImpl::didFinishDocumentLoad(WebLocalFrame* frame, bool)
+void WebEmbeddedWorkerImpl::didFinishDocumentLoad(WebLocalFrame* frame)
 {
     ASSERT(!m_mainScriptLoader);
     ASSERT(!m_networkProvider);
@@ -280,25 +298,22 @@ void WebEmbeddedWorkerImpl::didFinishDocumentLoad(WebLocalFrame* frame, bool)
     // invoked and |this| might have been deleted at this point.
 }
 
-void WebEmbeddedWorkerImpl::sendProtocolMessage(int callId, const WebString& message, const WebString& state)
+void WebEmbeddedWorkerImpl::sendProtocolMessage(int sessionId, int callId, const WebString& message, const WebString& state)
 {
-    m_workerContextClient->sendDevToolsMessage(callId, message, state);
+    m_workerContextClient->sendDevToolsMessage(sessionId, callId, message, state);
 }
 
 void WebEmbeddedWorkerImpl::resumeStartup()
 {
-    WaitingForDebuggerState waitingForDebuggerState = m_waitingForDebuggerState;
+    bool wasWaiting = (m_waitingForDebuggerState == WaitingForDebugger);
     m_waitingForDebuggerState = NotWaitingForDebugger;
-    if (waitingForDebuggerState == WaitingForDebuggerBeforeLoadingScript)
+    if (wasWaiting)
         loadShadowPage();
-    else if (waitingForDebuggerState == WaitingForDebuggerAfterScriptLoaded)
-        startWorkerThread();
 }
 
 void WebEmbeddedWorkerImpl::onScriptLoaderFinished()
 {
     ASSERT(m_mainScriptLoader);
-
     if (m_askedToTerminate)
         return;
 
@@ -310,15 +325,23 @@ void WebEmbeddedWorkerImpl::onScriptLoaderFinished()
     }
     m_workerContextClient->workerScriptLoaded();
 
-    Platform::current()->histogramCustomCounts("ServiceWorker.ScriptSize", m_mainScriptLoader->script().length(), 1000, 5000000, 50);
-    if (m_mainScriptLoader->cachedMetadata())
-        Platform::current()->histogramCustomCounts("ServiceWorker.ScriptCachedMetadataSize", m_mainScriptLoader->cachedMetadata()->size(), 1000, 50000000, 50);
+    DEFINE_STATIC_LOCAL(CustomCountHistogram, scriptSizeHistogram, ("ServiceWorker.ScriptSize", 1000, 5000000, 50));
+    scriptSizeHistogram.count(m_mainScriptLoader->script().length());
+    if (m_mainScriptLoader->cachedMetadata()) {
+        DEFINE_STATIC_LOCAL(CustomCountHistogram, scriptCachedMetadataSizeHistogram, ("ServiceWorker.ScriptCachedMetadataSize", 1000, 50000000, 50));
+        scriptCachedMetadataSizeHistogram.count(m_mainScriptLoader->cachedMetadata()->size());
+    }
 
+    if (m_pauseAfterDownloadState == DoPauseAfterDownload) {
+        m_pauseAfterDownloadState = IsPausedAfterDownload;
+        return;
+    }
     startWorkerThread();
 }
 
 void WebEmbeddedWorkerImpl::startWorkerThread()
 {
+    ASSERT(m_pauseAfterDownloadState == DontPauseAfterDownload);
     ASSERT(!m_askedToTerminate);
 
     Document* document = m_mainFrame->frame()->document();

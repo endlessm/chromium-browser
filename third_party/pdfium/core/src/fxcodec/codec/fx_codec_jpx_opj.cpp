@@ -8,9 +8,10 @@
 #include <limits>
 #include <vector>
 
-#include "codec_int.h"
+#include "core/include/fpdfapi/fpdf_resource.h"
 #include "core/include/fxcodec/fx_codec.h"
 #include "core/include/fxcrt/fx_safe_types.h"
+#include "core/src/fxcodec/codec/codec_int.h"
 #include "third_party/lcms2-2.6/include/lcms2.h"
 #include "third_party/libopenjpeg20/openjpeg.h"
 
@@ -200,14 +201,30 @@ static void sycc444_to_rgb(opj_image_t* img) {
   FX_Free(img->comps[2].data);
   img->comps[2].data = d2;
 }
+static bool sycc420_422_size_is_valid(opj_image_t* img) {
+  return (img && img->comps[0].w != std::numeric_limits<OPJ_UINT32>::max() &&
+          (img->comps[0].w + 1) / 2 == img->comps[1].w &&
+          img->comps[1].w == img->comps[2].w &&
+          img->comps[1].h == img->comps[2].h);
+}
+static bool sycc420_size_is_valid(opj_image_t* img) {
+  return (sycc420_422_size_is_valid(img) &&
+          img->comps[0].h != std::numeric_limits<OPJ_UINT32>::max() &&
+          (img->comps[0].h + 1) / 2 == img->comps[1].h);
+}
+static bool sycc422_size_is_valid(opj_image_t* img) {
+  return (sycc420_422_size_is_valid(img) && img->comps[0].h == img->comps[1].h);
+}
 static void sycc422_to_rgb(opj_image_t* img) {
+  if (!sycc422_size_is_valid(img))
+    return;
+
   int prec = img->comps[0].prec;
   int offset = 1 << (prec - 1);
   int upb = (1 << prec) - 1;
-  OPJ_UINT32 maxw =
-      std::min(std::min(img->comps[0].w, img->comps[1].w), img->comps[2].w);
-  OPJ_UINT32 maxh =
-      std::min(std::min(img->comps[0].h, img->comps[1].h), img->comps[2].h);
+
+  OPJ_UINT32 maxw = img->comps[0].w;
+  OPJ_UINT32 maxh = img->comps[0].h;
   FX_SAFE_SIZE_T max_size = maxw;
   max_size *= maxh;
   if (!max_size.IsValid())
@@ -261,16 +278,13 @@ static void sycc422_to_rgb(opj_image_t* img) {
   img->comps[1].dy = img->comps[0].dy;
   img->comps[2].dy = img->comps[0].dy;
 }
-static bool sycc420_size_is_valid(OPJ_UINT32 y, OPJ_UINT32 cbcr) {
-  if (!y || !cbcr)
-    return false;
-
-  return (cbcr == y / 2) || ((y & 1) && (cbcr == y / 2 + 1));
-}
 static bool sycc420_must_extend_cbcr(OPJ_UINT32 y, OPJ_UINT32 cbcr) {
   return (y & 1) && (cbcr == y / 2);
 }
 void sycc420_to_rgb(opj_image_t* img) {
+  if (!sycc420_size_is_valid(img))
+    return;
+
   OPJ_UINT32 prec = img->comps[0].prec;
   if (!prec)
     return;
@@ -281,11 +295,6 @@ void sycc420_to_rgb(opj_image_t* img) {
   OPJ_UINT32 cbw = img->comps[1].w;
   OPJ_UINT32 cbh = img->comps[1].h;
   OPJ_UINT32 crw = img->comps[2].w;
-  OPJ_UINT32 crh = img->comps[2].h;
-  if (cbw != crw || cbh != crh)
-    return;
-  if (!sycc420_size_is_valid(yw, cbw) || !sycc420_size_is_valid(yh, cbh))
-    return;
   bool extw = sycc420_must_extend_cbcr(yw, cbw);
   bool exth = sycc420_must_extend_cbcr(yh, cbh);
   FX_SAFE_DWORD safeSize = yw;
@@ -438,7 +447,7 @@ void color_apply_icc_profile(opj_image_t* image) {
   int max;
   cmsHPROFILE in_prof =
       cmsOpenProfileFromMem(image->icc_profile_buf, image->icc_profile_len);
-  if (in_prof == NULL) {
+  if (!in_prof) {
     return;
   }
   cmsColorSpaceSignature out_space = cmsGetColorSpace(in_prof);
@@ -479,7 +488,7 @@ void color_apply_icc_profile(opj_image_t* image) {
       cmsCreateTransform(in_prof, in_type, out_prof, out_type, intent, 0);
   cmsCloseProfile(in_prof);
   cmsCloseProfile(out_prof);
-  if (transform == NULL) {
+  if (!transform) {
     image->color_space = oldspace;
     return;
   }
@@ -597,7 +606,7 @@ void color_apply_conversion(opj_image_t* image) {
                                    INTENT_PERCEPTUAL, 0);
     cmsCloseProfile(in);
     cmsCloseProfile(out);
-    if (transform == NULL) {
+    if (!transform) {
       return;
     }
     prec0 = (double)image->comps[0].prec;
@@ -660,7 +669,7 @@ void color_apply_conversion(opj_image_t* image) {
 }
 class CJPX_Decoder {
  public:
-  explicit CJPX_Decoder(bool use_colorspace);
+  explicit CJPX_Decoder(CPDF_ColorSpace* cs);
   ~CJPX_Decoder();
   FX_BOOL Init(const unsigned char* src_data, FX_DWORD src_size);
   void GetInfo(FX_DWORD* width, FX_DWORD* height, FX_DWORD* components);
@@ -674,15 +683,11 @@ class CJPX_Decoder {
   opj_image_t* image;
   opj_codec_t* l_codec;
   opj_stream_t* l_stream;
-  const bool m_UseColorSpace;
+  const CPDF_ColorSpace* const m_ColorSpace;
 };
 
-CJPX_Decoder::CJPX_Decoder(bool use_colorspace)
-    : image(nullptr),
-      l_codec(nullptr),
-      l_stream(nullptr),
-      m_UseColorSpace(use_colorspace) {
-}
+CJPX_Decoder::CJPX_Decoder(CPDF_ColorSpace* cs)
+    : image(nullptr), l_codec(nullptr), l_stream(nullptr), m_ColorSpace(cs) {}
 
 CJPX_Decoder::~CJPX_Decoder() {
   if (l_codec) {
@@ -708,7 +713,7 @@ FX_BOOL CJPX_Decoder::Init(const unsigned char* src_data, FX_DWORD src_size) {
   DecodeData srcData(const_cast<unsigned char*>(src_data), src_size);
   l_stream = fx_opj_stream_create_memory_stream(&srcData,
                                                 OPJ_J2K_STREAM_CHUNK_SIZE, 1);
-  if (l_stream == NULL) {
+  if (!l_stream) {
     return FALSE;
   }
   opj_dparameters_t parameters;
@@ -724,6 +729,8 @@ FX_BOOL CJPX_Decoder::Init(const unsigned char* src_data, FX_DWORD src_size) {
   if (!l_codec) {
     return FALSE;
   }
+  if (m_ColorSpace && m_ColorSpace->GetFamily() == PDFCS_INDEXED)
+    parameters.flags |= OPJ_DPARAMETERS_IGNORE_PCLR_CMAP_CDEF_FLAG;
   opj_set_info_handler(l_codec, fx_info_callback, 00);
   opj_set_warning_handler(l_codec, fx_warning_callback, 00);
   opj_set_error_handler(l_codec, fx_error_callback, 00);
@@ -734,7 +741,7 @@ FX_BOOL CJPX_Decoder::Init(const unsigned char* src_data, FX_DWORD src_size) {
     image = NULL;
     return FALSE;
   }
-  image->pdfium_use_colorspace = m_UseColorSpace;
+  image->pdfium_use_colorspace = !!m_ColorSpace;
 
   if (!parameters.nb_tile_to_decode) {
     if (!opj_set_decode_area(l_codec, image, parameters.DA_x0, parameters.DA_y0,
@@ -865,8 +872,8 @@ CCodec_JpxModule::~CCodec_JpxModule() {
 
 CJPX_Decoder* CCodec_JpxModule::CreateDecoder(const uint8_t* src_buf,
                                               FX_DWORD src_size,
-                                              bool use_colorspace) {
-  nonstd::unique_ptr<CJPX_Decoder> decoder(new CJPX_Decoder(use_colorspace));
+                                              CPDF_ColorSpace* cs) {
+  std::unique_ptr<CJPX_Decoder> decoder(new CJPX_Decoder(cs));
   return decoder->Init(src_buf, src_size) ? decoder.release() : nullptr;
 }
 

@@ -16,16 +16,19 @@ import signal
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import devil_chromium
+from devil import devil_env
 from devil.android import battery_utils
 from devil.android import device_blacklist
 from devil.android import device_errors
 from devil.android import device_list
 from devil.android import device_utils
 from devil.android.sdk import adb_wrapper
+from devil.constants import exit_codes
 from devil.utils import lsusb
 from devil.utils import reset_usb
 from devil.utils import run_tests_helper
-from pylib import constants
+from pylib.constants import host_paths
 
 _RE_DEVICE_ID = re.compile(r'Device ID = (\d+)')
 
@@ -209,10 +212,10 @@ def RecoverDevices(devices, blacklist):
   should_restart_usb = set(
       status['serial'] for status in statuses
       if (not status['usb_status']
-          or status['adb_status'] == 'unknown'))
+          or status['adb_status'] in ('offline', 'unknown')))
   should_restart_adb = should_restart_usb.union(set(
       status['serial'] for status in statuses
-      if status['adb_status'] in ('offline', 'unauthorized')))
+      if status['adb_status'] == 'unauthorized'))
   should_reboot_device = should_restart_adb.union(set(
       status['serial'] for status in statuses
       if status['blacklisted']))
@@ -296,13 +299,18 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--out-dir',
                       help='Directory where the device path is stored',
-                      default=os.path.join(constants.DIR_SOURCE_ROOT, 'out'))
+                      default=os.path.join(host_paths.DIR_SOURCE_ROOT, 'out'))
   parser.add_argument('--restart-usb', action='store_true',
                       help='DEPRECATED. '
                            'This script now always tries to reset USB.')
   parser.add_argument('--json-output',
                       help='Output JSON information into a specified file.')
+  parser.add_argument('--adb-path',
+                      help='Absolute path to the adb binary to use.')
   parser.add_argument('--blacklist-file', help='Device blacklist JSON file.')
+  parser.add_argument('--known-devices-file', action='append', default=[],
+                      dest='known_devices_files',
+                      help='Path to known device lists.')
   parser.add_argument('-v', '--verbose', action='count', default=1,
                       help='Log more information.')
 
@@ -310,17 +318,35 @@ def main():
 
   run_tests_helper.SetLogLevel(args.verbose)
 
+  devil_custom_deps = None
+  if args.adb_path:
+    devil_custom_deps = {
+      'adb': {
+        devil_env.GetPlatform(): [args.adb_path],
+      },
+    }
+
+  devil_chromium.Initialize(custom_deps=devil_custom_deps)
+
   blacklist = (device_blacklist.Blacklist(args.blacklist_file)
                if args.blacklist_file
                else None)
 
   last_devices_path = os.path.join(
       args.out_dir, device_list.LAST_DEVICES_FILENAME)
+  args.known_devices_files.append(last_devices_path)
+
+  expected_devices = set()
   try:
-    expected_devices = set(
-        device_list.GetPersistentDeviceList(last_devices_path))
+    for path in args.known_devices_files:
+      if os.path.exists(path):
+        expected_devices.update(device_list.GetPersistentDeviceList(path))
   except IOError:
-    expected_devices = set()
+    logging.warning('Problem reading %s, skipping.', path)
+
+  logging.info('Expected devices:')
+  for device in expected_devices:
+    logging.info('  %s', device)
 
   usb_devices = set(lsusb.get_android_devices())
   devices = [device_utils.DeviceUtils(s)
@@ -349,10 +375,10 @@ def main():
       logging.info('  IMEI slice: %s', status.get('imei_slice'))
       logging.info('  WiFi IP: %s', status.get('wifi_ip'))
 
-  # Update the last devices file.
-  device_list.WritePersistentDeviceList(
-      last_devices_path,
-      [status['serial'] for status in statuses])
+  # Update the last devices file(s).
+  for path in args.known_devices_files:
+    device_list.WritePersistentDeviceList(
+        path, [status['serial'] for status in statuses])
 
   # Write device info to file for buildbot info display.
   if os.path.exists('/home/chrome-bot'):
@@ -387,7 +413,7 @@ def main():
                       and not _IsBlacklisted(status['serial'], blacklist))]
 
   # If all devices failed, or if there are no devices, it's an infra error.
-  return 0 if live_devices else constants.INFRA_EXIT_CODE
+  return 0 if live_devices else exit_codes.INFRA
 
 
 if __name__ == '__main__':

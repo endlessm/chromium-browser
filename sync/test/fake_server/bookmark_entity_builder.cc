@@ -4,6 +4,8 @@
 
 #include "sync/test/fake_server/bookmark_entity_builder.h"
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/guid.h"
@@ -24,10 +26,10 @@ using syncer::syncable::GenerateSyncableBookmarkHash;
 
 // A version must be passed when creating a FakeServerEntity, but this value
 // is overrideen immediately when saving the entity in FakeServer.
-const int64 kUnusedVersion = 0L;
+const int64_t kUnusedVersion = 0L;
 
 // Default time (creation and last modified) used when creating entities.
-const int64 kDefaultTime = 1234L;
+const int64_t kDefaultTime = 1234L;
 
 namespace fake_server {
 
@@ -39,6 +41,9 @@ BookmarkEntityBuilder::BookmarkEntityBuilder(
       originator_cache_guid_(originator_cache_guid),
       originator_client_item_id_(originator_client_item_id) {
 }
+
+BookmarkEntityBuilder::BookmarkEntityBuilder(
+    const BookmarkEntityBuilder& other) = default;
 
 BookmarkEntityBuilder::~BookmarkEntityBuilder() {
 }

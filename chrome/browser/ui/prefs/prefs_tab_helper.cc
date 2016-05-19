@@ -4,17 +4,20 @@
 
 #include "chrome/browser/ui/prefs/prefs_tab_helper.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <set>
 #include <string>
 
+#include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
-#include "base/prefs/overlay_user_pref_store.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
@@ -29,7 +32,11 @@
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/overlay_user_pref_store.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_service.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
+#include "components/strings/grit/components_locale_settings.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
@@ -62,6 +69,7 @@ const char* kPrefsToObserve[] = {
 #if defined(ENABLE_EXTENSIONS)
   prefs::kAnimationPolicy,
 #endif
+  prefs::kDataSaverEnabled,
   prefs::kDefaultCharset,
   prefs::kDisable3DAPIs,
   prefs::kEnableHyperlinkAuditing,
@@ -247,7 +255,7 @@ UScriptCode GetScriptOfFontPref(const char* pref_name) {
   size_t len = strlen(pref_name);
   DCHECK_GT(len, kScriptNameLength);
   const char* scriptName = &pref_name[len - kScriptNameLength];
-  int32 code = u_getPropertyValueEnum(UCHAR_SCRIPT, scriptName);
+  int32_t code = u_getPropertyValueEnum(UCHAR_SCRIPT, scriptName);
   DCHECK(code >= 0 && code < USCRIPT_CODE_LIMIT);
   return static_cast<UScriptCode>(code);
 }
@@ -544,6 +552,15 @@ void PrefsTabHelper::RegisterProfilePrefs(
       if (ShouldUseAlternateDefaultFixedFont(
               l10n_util::GetStringUTF8(pref.resource_id)))
         pref.resource_id = IDS_FIXED_FONT_FAMILY_ALT_WIN;
+    }
+
+    // The standard font (Meiryo) isn't installed by default as of Win 10.
+    if (base::win::GetVersion() >= base::win::VERSION_WIN10) {
+      if (pref.pref_name == prefs::kWebKitStandardFontFamilyJapanese) {
+        pref.resource_id = IDS_STANDARD_FONT_FAMILY_JAPANESE_ALT_WIN;
+      } else if (pref.pref_name == prefs::kWebKitSansSerifFontFamilyJapanese) {
+        pref.resource_id = IDS_SANS_SERIF_FONT_FAMILY_JAPANESE_ALT_WIN;
+      }
     }
 #endif
 

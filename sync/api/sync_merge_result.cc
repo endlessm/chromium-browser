@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "sync/api/sync_merge_result.h"
 
 namespace syncer {
@@ -15,6 +17,8 @@ SyncMergeResult::SyncMergeResult(ModelType type)
     num_items_modified_(0),
     pre_association_version_(0) {
 }
+
+SyncMergeResult::SyncMergeResult(const SyncMergeResult& other) = default;
 
 SyncMergeResult::~SyncMergeResult() {
 }
@@ -47,7 +51,7 @@ void SyncMergeResult::set_num_items_modified(int num_items_modified) {
   num_items_modified_ = num_items_modified;
 }
 
-void SyncMergeResult::set_pre_association_version(int64 version) {
+void SyncMergeResult::set_pre_association_version(int64_t version) {
   pre_association_version_ = version;
 }
 
@@ -79,7 +83,7 @@ int SyncMergeResult::num_items_modified() const {
   return num_items_modified_;
 }
 
-int64 SyncMergeResult::pre_association_version() const {
+int64_t SyncMergeResult::pre_association_version() const {
   return pre_association_version_;
 }
 

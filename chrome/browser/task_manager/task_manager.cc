@@ -8,8 +8,7 @@
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
 #include "base/location.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/process/process_metrics.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -18,6 +17,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/private_working_set_snapshot.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -39,6 +39,8 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/nacl/browser/nacl_browser.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/gpu_data_manager_observer.h"
@@ -210,6 +212,9 @@ TaskManagerModel::PerResourceValues::PerResourceValues()
       v8_memory_allocated(0),
       v8_memory_used(0) {}
 
+TaskManagerModel::PerResourceValues::PerResourceValues(
+    const PerResourceValues& other) = default;
+
 TaskManagerModel::PerResourceValues::~PerResourceValues() {}
 
 TaskManagerModel::PerProcessValues::PerProcessValues()
@@ -233,6 +238,9 @@ TaskManagerModel::PerProcessValues::PerProcessValues()
       user_handles_peak(0),
       is_nacl_debug_stub_port_valid(false),
       nacl_debug_stub_port(0) {}
+
+TaskManagerModel::PerProcessValues::PerProcessValues(
+    const PerProcessValues& other) = default;
 
 TaskManagerModel::PerProcessValues::~PerProcessValues() {}
 
@@ -308,7 +316,7 @@ int TaskManagerModel::GetNaClDebugStubPort(int index) const {
   return values.nacl_debug_stub_port;
 }
 
-int64 TaskManagerModel::GetNetworkUsage(int index) const {
+int64_t TaskManagerModel::GetNetworkUsage(int index) const {
   return GetNetworkUsage(GetResource(index));
 }
 
@@ -432,7 +440,7 @@ base::string16 TaskManagerModel::GetResourceNaClDebugStubPort(int index) const {
 }
 
 base::string16 TaskManagerModel::GetResourceNetworkUsage(int index) const {
-  int64 net_usage = GetNetworkUsage(index);
+  int64_t net_usage = GetNetworkUsage(index);
   if (net_usage == -1)
     return l10n_util::GetStringUTF16(IDS_TASK_MANAGER_NA_CELL_TEXT);
   if (net_usage == 0)
@@ -665,7 +673,9 @@ bool TaskManagerModel::GetVideoMemory(int index,
     if (i == video_memory_usage_stats_.process_map.end())
       return false;
     values.is_video_memory_valid = true;
-    values.video_memory = i->second.video_memory;
+    // If this checked_cast asserts, then need to change this code to use
+    // uint64_t instead of size_t.
+    values.video_memory = base::checked_cast<size_t>(i->second.video_memory);
     values.video_memory_has_duplicates = i->second.has_duplicates;
   }
   *video_memory = values.video_memory;
@@ -1331,7 +1341,7 @@ void TaskManagerModel::RefreshVideoMemoryUsageStats() {
   content::GpuDataManager::GetInstance()->RequestVideoMemoryUsageStatsUpdate();
 }
 
-int64 TaskManagerModel::GetNetworkUsageForResource(Resource* resource) const {
+int64_t TaskManagerModel::GetNetworkUsageForResource(Resource* resource) const {
   // Returns default of 0 if no network usage.
   return per_resource_cache_[resource].network_usage;
 }
@@ -1407,8 +1417,8 @@ void TaskManagerModel::SetUpdatingByteCount(bool is_updating) {
   is_updating_byte_count_ = is_updating;
 }
 
-int64 TaskManagerModel::GetNetworkUsage(Resource* resource) const {
-  int64 net_usage = GetNetworkUsageForResource(resource);
+int64_t TaskManagerModel::GetNetworkUsage(Resource* resource) const {
+  int64_t net_usage = GetNetworkUsageForResource(resource);
   if (net_usage == 0 && !resource->SupportNetworkUsage())
     return -1;
   return net_usage;
@@ -1426,7 +1436,7 @@ int TaskManagerModel::GetIdleWakeupsPerSecond(Resource* resource) const {
   return values.idle_wakeups;
 }
 
-base::string16 TaskManagerModel::GetMemCellText(int64 number) const {
+base::string16 TaskManagerModel::GetMemCellText(int64_t number) const {
 #if !defined(OS_MACOSX)
   base::string16 str = base::FormatNumber(number / 1024);
 
@@ -1553,7 +1563,7 @@ TaskManager* TaskManager::GetInstance() {
   return base::Singleton<TaskManager>::get();
 }
 
-void TaskManager::OpenAboutMemory(chrome::HostDesktopType desktop_type) {
+void TaskManager::OpenAboutMemory() {
   Profile* profile = ProfileManager::GetLastUsedProfileAllowedByPolicy();
   if (profile->IsGuestSession() && !g_browser_process->local_state()->
       GetBoolean(prefs::kBrowserGuestModeEnabled)) {
@@ -1566,7 +1576,6 @@ void TaskManager::OpenAboutMemory(chrome::HostDesktopType desktop_type) {
   chrome::NavigateParams params(
       profile, GURL(chrome::kChromeUIMemoryURL), ui::PAGE_TRANSITION_LINK);
   params.disposition = NEW_FOREGROUND_TAB;
-  params.host_desktop_type = desktop_type;
   chrome::Navigate(&params);
 }
 

@@ -5,6 +5,7 @@
 #include "net/http/http_proxy_client_socket_pool.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/time/time.h"
@@ -50,11 +51,6 @@ HttpProxySocketParams::HttpProxySocketParams(
       proxy_delegate_(proxy_delegate) {
   DCHECK((transport_params.get() == NULL && ssl_params.get() != NULL) ||
          (transport_params.get() != NULL && ssl_params.get() == NULL));
-  if (transport_params_.get()) {
-    ignore_limits_ = transport_params->ignore_limits();
-  } else {
-    ignore_limits_ = ssl_params->ignore_limits();
-  }
 }
 
 const HostResolver::RequestInfo& HttpProxySocketParams::destination() const {
@@ -80,6 +76,7 @@ static const int kHttpProxyConnectJobTimeoutInSeconds = 30;
 HttpProxyConnectJob::HttpProxyConnectJob(
     const std::string& group_name,
     RequestPriority priority,
+    ClientSocketPool::RespectLimits respect_limits,
     const scoped_refptr<HttpProxySocketParams>& params,
     const base::TimeDelta& timeout_duration,
     TransportClientSocketPool* transport_pool,
@@ -89,11 +86,13 @@ HttpProxyConnectJob::HttpProxyConnectJob(
     : ConnectJob(group_name,
                  base::TimeDelta() /* The socket takes care of timeouts */,
                  priority,
+                 respect_limits,
                  delegate,
                  BoundNetLog::Make(net_log, NetLog::SOURCE_CONNECT_JOB)),
       client_socket_(new HttpProxyClientSocketWrapper(
           group_name,
           priority,
+          respect_limits,
           timeout_duration,
           base::TimeDelta::FromSeconds(kHttpProxyConnectJobTimeoutInSeconds),
           transport_pool,
@@ -141,7 +140,7 @@ int HttpProxyConnectJob::HandleConnectResult(int result) {
 
   if (result == OK || result == ERR_PROXY_AUTH_REQUESTED ||
       result == ERR_HTTPS_PROXY_TUNNEL_RESPONSE) {
-    SetSocket(client_socket_.Pass());
+    SetSocket(std::move(client_socket_));
   }
   return result;
 }
@@ -176,14 +175,10 @@ HttpProxyClientSocketPool::HttpProxyConnectJobFactory::NewConnectJob(
     const std::string& group_name,
     const PoolBase::Request& request,
     ConnectJob::Delegate* delegate) const {
-  return scoped_ptr<ConnectJob>(new HttpProxyConnectJob(group_name,
-                                                        request.priority(),
-                                                        request.params(),
-                                                        ConnectionTimeout(),
-                                                        transport_pool_,
-                                                        ssl_pool_,
-                                                        delegate,
-                                                        net_log_));
+  return scoped_ptr<ConnectJob>(new HttpProxyConnectJob(
+      group_name, request.priority(), request.respect_limits(),
+      request.params(), ConnectionTimeout(), transport_pool_, ssl_pool_,
+      delegate, net_log_));
 }
 
 base::TimeDelta
@@ -216,15 +211,18 @@ HttpProxyClientSocketPool::HttpProxyClientSocketPool(
 HttpProxyClientSocketPool::~HttpProxyClientSocketPool() {
 }
 
-int HttpProxyClientSocketPool::RequestSocket(
-    const std::string& group_name, const void* socket_params,
-    RequestPriority priority, ClientSocketHandle* handle,
-    const CompletionCallback& callback, const BoundNetLog& net_log) {
+int HttpProxyClientSocketPool::RequestSocket(const std::string& group_name,
+                                             const void* socket_params,
+                                             RequestPriority priority,
+                                             RespectLimits respect_limits,
+                                             ClientSocketHandle* handle,
+                                             const CompletionCallback& callback,
+                                             const BoundNetLog& net_log) {
   const scoped_refptr<HttpProxySocketParams>* casted_socket_params =
       static_cast<const scoped_refptr<HttpProxySocketParams>*>(socket_params);
 
   return base_.RequestSocket(group_name, *casted_socket_params, priority,
-                             handle, callback, net_log);
+                             respect_limits, handle, callback, net_log);
 }
 
 void HttpProxyClientSocketPool::RequestSockets(
@@ -247,7 +245,7 @@ void HttpProxyClientSocketPool::CancelRequest(
 void HttpProxyClientSocketPool::ReleaseSocket(const std::string& group_name,
                                               scoped_ptr<StreamSocket> socket,
                                               int id) {
-  base_.ReleaseSocket(group_name, socket.Pass(), id);
+  base_.ReleaseSocket(group_name, std::move(socket), id);
 }
 
 void HttpProxyClientSocketPool::FlushWithError(int error) {
@@ -291,7 +289,7 @@ scoped_ptr<base::DictionaryValue> HttpProxyClientSocketPool::GetInfoAsValue(
     }
     dict->Set("nested_pools", list);
   }
-  return dict.Pass();
+  return dict;
 }
 
 base::TimeDelta HttpProxyClientSocketPool::ConnectionTimeout() const {

@@ -4,6 +4,8 @@
 
 #include "sync/internal_api/public/change_record.h"
 
+#include <string>
+
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "sync/internal_api/public/base_node.h"
@@ -14,6 +16,8 @@ namespace syncer {
 
 ChangeRecord::ChangeRecord()
     : id(kInvalidId), action(ACTION_ADD) {}
+
+ChangeRecord::ChangeRecord(const ChangeRecord& other) = default;
 
 ChangeRecord::~ChangeRecord() {}
 

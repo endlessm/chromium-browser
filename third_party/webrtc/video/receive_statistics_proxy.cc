@@ -13,21 +13,25 @@
 #include <cmath>
 
 #include "webrtc/base/checks.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
+#include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/system_wrappers/include/clock.h"
-#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 #include "webrtc/system_wrappers/include/metrics.h"
 
 namespace webrtc {
 
-ReceiveStatisticsProxy::ReceiveStatisticsProxy(uint32_t ssrc, Clock* clock)
+ReceiveStatisticsProxy::ReceiveStatisticsProxy(
+    const VideoReceiveStream::Config& config,
+    Clock* clock)
     : clock_(clock),
+      config_(config),
       // 1000ms window, scale 1000 for ms to s.
       decode_fps_estimator_(1000, 1000),
       renders_fps_estimator_(1000, 1000),
       render_fps_tracker_(100u, 10u),
       render_pixel_tracker_(100u, 10u) {
-  stats_.ssrc = ssrc;
+  stats_.ssrc = config.rtp.remote_ssrc;
+  for (auto it : config.rtp.rtx)
+    rtx_stats_[it.second.ssrc] = StreamDataCounters();
 }
 
 ReceiveStatisticsProxy::~ReceiveStatisticsProxy() {
@@ -38,14 +42,15 @@ void ReceiveStatisticsProxy::UpdateHistograms() {
   int fraction_lost = report_block_stats_.FractionLostInPercent();
   if (fraction_lost != -1) {
     RTC_HISTOGRAM_PERCENTAGE("WebRTC.Video.ReceivedPacketsLostInPercent",
-        fraction_lost);
+                             fraction_lost);
   }
   const int kMinRequiredSamples = 200;
   int samples = static_cast<int>(render_fps_tracker_.TotalSampleCount());
   if (samples > kMinRequiredSamples) {
     RTC_HISTOGRAM_COUNTS_100("WebRTC.Video.RenderFramesPerSecond",
-        round(render_fps_tracker_.ComputeTotalRate()));
-    RTC_HISTOGRAM_COUNTS_100000("WebRTC.Video.RenderSqrtPixelsPerSecond",
+                             round(render_fps_tracker_.ComputeTotalRate()));
+    RTC_HISTOGRAM_COUNTS_100000(
+        "WebRTC.Video.RenderSqrtPixelsPerSecond",
         round(render_pixel_tracker_.ComputeTotalRate()));
   }
   int width = render_width_counter_.Avg(kMinRequiredSamples);
@@ -68,6 +73,53 @@ void ReceiveStatisticsProxy::UpdateHistograms() {
   int delay_ms = delay_counter_.Avg(kMinRequiredDecodeSamples);
   if (delay_ms != -1)
     RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.OnewayDelayInMs", delay_ms);
+
+  StreamDataCounters rtp = stats_.rtp_stats;
+  StreamDataCounters rtx;
+  for (auto it : rtx_stats_)
+    rtx.Add(it.second);
+  StreamDataCounters rtp_rtx = rtp;
+  rtp_rtx.Add(rtx);
+  int64_t elapsed_sec =
+      rtp_rtx.TimeSinceFirstPacketInMs(clock_->TimeInMilliseconds()) / 1000;
+  if (elapsed_sec > metrics::kMinRunTimeInSeconds) {
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.BitrateReceivedInKbps",
+        static_cast<int>(rtp_rtx.transmitted.TotalBytes() * 8 / elapsed_sec /
+                         1000));
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.MediaBitrateReceivedInKbps",
+        static_cast<int>(rtp.MediaPayloadBytes() * 8 / elapsed_sec / 1000));
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.PaddingBitrateReceivedInKbps",
+        static_cast<int>(rtp_rtx.transmitted.padding_bytes * 8 / elapsed_sec /
+                         1000));
+    RTC_HISTOGRAM_COUNTS_10000(
+        "WebRTC.Video.RetransmittedBitrateReceivedInKbps",
+        static_cast<int>(rtp_rtx.retransmitted.TotalBytes() * 8 / elapsed_sec /
+                         1000));
+    if (!rtx_stats_.empty()) {
+      RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.RtxBitrateReceivedInKbps",
+                                 static_cast<int>(rtx.transmitted.TotalBytes() *
+                                                  8 / elapsed_sec / 1000));
+    }
+    if (config_.rtp.fec.ulpfec_payload_type != -1) {
+      RTC_HISTOGRAM_COUNTS_10000(
+          "WebRTC.Video.FecBitrateReceivedInKbps",
+          static_cast<int>(rtp_rtx.fec.TotalBytes() * 8 / elapsed_sec / 1000));
+    }
+    const RtcpPacketTypeCounter& counters = stats_.rtcp_packet_type_counts;
+    RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.NackPacketsSentPerMinute",
+                               counters.nack_packets * 60 / elapsed_sec);
+    RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.FirPacketsSentPerMinute",
+                               counters.fir_packets * 60 / elapsed_sec);
+    RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.PliPacketsSentPerMinute",
+                               counters.pli_packets * 60 / elapsed_sec);
+    if (counters.nack_requests > 0) {
+      RTC_HISTOGRAM_PERCENTAGE("WebRTC.Video.UniqueNackRequestsSentInPercent",
+                               counters.UniqueNackRequestsInPercent());
+    }
+  }
 }
 
 VideoReceiveStream::Stats ReceiveStatisticsProxy::GetStats() const {
@@ -80,6 +132,11 @@ void ReceiveStatisticsProxy::OnIncomingPayloadType(int payload_type) {
   stats_.current_payload_type = payload_type;
 }
 
+void ReceiveStatisticsProxy::OnDecoderImplementationName(
+    const char* implementation_name) {
+  rtc::CritScope lock(&crit_);
+  stats_.decoder_implementation_name = implementation_name;
+}
 void ReceiveStatisticsProxy::OnIncomingRate(unsigned int framerate,
                                             unsigned int bitrate_bps) {
   rtc::CritScope lock(&crit_);
@@ -143,9 +200,16 @@ void ReceiveStatisticsProxy::DataCountersUpdated(
     const webrtc::StreamDataCounters& counters,
     uint32_t ssrc) {
   rtc::CritScope lock(&crit_);
-  if (stats_.ssrc != ssrc)
-    return;
-  stats_.rtp_stats = counters;
+  if (ssrc == stats_.ssrc) {
+    stats_.rtp_stats = counters;
+  } else {
+    auto it = rtx_stats_.find(ssrc);
+    if (it != rtx_stats_.end()) {
+      it->second = counters;
+    } else {
+      RTC_NOTREACHED() << "Unexpected stream ssrc: " << ssrc;
+    }
+  }
 }
 
 void ReceiveStatisticsProxy::OnDecodedFrame() {

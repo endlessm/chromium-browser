@@ -77,13 +77,28 @@ WallpaperUtil.deleteWallpaperFromSyncFS = function(wallpaperFilename) {
                     function(fe) {
                       fe.remove(function() {}, null);
                     },
-                    WallpaperUtil.onFileSystemError);
+                    function(e) {
+                      // NotFoundError is expected under the following scenario:
+                      // The user uses a same account on device A and device B.
+                      // The current wallpaper is a third party wallpaper. Then
+                      // the user changes it to a ONLINE wallpaper on device A.
+                      // Sync file system change and local file system change
+                      // will then both be fired on device B, which makes the
+                      // third party wallpaper be deleted twice from the sync
+                      // file system. We should ignore this error.
+                      if (e.name != 'NotFoundError')
+                        WallpaperUtil.onFileSystemError(e);
+                    });
     fs.root.getFile(thumbnailFilename,
                     {create: false},
                     function(fe) {
                       fe.remove(function() {}, null);
                     },
-                    WallpaperUtil.onFileSystemError);
+                    function(e) {
+                      // Same as above.
+                      if (e.name != 'NotFoundError')
+                        WallpaperUtil.onFileSystemError(e);
+                    });
   };
   WallpaperUtil.requestSyncFS(success);
 };
@@ -244,10 +259,6 @@ WallpaperUtil.setCustomWallpaperFromSyncFS = function(
                   console.error(chrome.runtime.lastError.message);
                   return;
                 }
-                WallpaperUtil.storeWallpaperToLocalFS(wallpaperFilename,
-                    reader.result, Constants.WallpaperDirNameEnum.ORIGINAL);
-                WallpaperUtil.storeWallpaperToLocalFS(wallpaperFilename,
-                    reader.result, Constants.WallpaperDirNameEnum.THUMBNAIL);
                 if (onSuccess)
                   onSuccess();
               });
@@ -295,12 +306,15 @@ WallpaperUtil.saveToSyncStorage = function(key, value, opt_callback) {
  *     the file name.
  * @param {string} layout The wallpaper layout.
  * @param {string} source The wallpaper source.
+ * @param {string} appName The third party app name. If the current wallpaper is
+ *     set by the built-in wallpaper picker, it is set to an empty string.
  */
-WallpaperUtil.saveWallpaperInfo = function(url, layout, source) {
+WallpaperUtil.saveWallpaperInfo = function(url, layout, source, appName) {
   var wallpaperInfo = {
       url: url,
       layout: layout,
-      source: source
+      source: source,
+      appName: appName,
   };
   WallpaperUtil.saveToLocalStorage(Constants.AccessLocalWallpaperInfoKey,
                               wallpaperInfo, function() {
@@ -364,8 +378,8 @@ WallpaperUtil.setOnlineWallpaper = function(url, layout, onSuccess, onFailure) {
       if (xhr.response != null) {
         chrome.wallpaperPrivate.setWallpaper(xhr.response, layout, url,
                                              onSuccess);
-        self.saveWallpaperInfo(url, layout,
-                               Constants.WallpaperSourceEnum.Online);
+        self.saveWallpaperInfo(
+            url, layout, Constants.WallpaperSourceEnum.Online, '');
       } else {
         onFailure();
       }

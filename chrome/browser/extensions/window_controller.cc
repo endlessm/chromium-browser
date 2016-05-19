@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/window_controller.h"
 
+#include <stddef.h>
+
 #include "base/values.h"
 #include "chrome/browser/extensions/api/tabs/tabs_constants.h"
 #include "chrome/browser/extensions/window_controller_list.h"
@@ -21,8 +23,8 @@ namespace extensions {
 WindowController::TypeFilter WindowController::GetAllWindowFilter() {
   // This needs to be updated if there is a change to
   // extensions::api::windows:WindowType.
-  COMPILE_ASSERT(api::windows::WINDOW_TYPE_LAST == 5,
-                 Update_extensions_WindowController_to_match_WindowType);
+  static_assert(api::windows::WINDOW_TYPE_LAST == 5,
+                "Update extensions WindowController to match WindowType");
   return ((1 << api::windows::WINDOW_TYPE_NORMAL) |
           (1 << api::windows::WINDOW_TYPE_PANEL) |
           (1 << api::windows::WINDOW_TYPE_POPUP) |

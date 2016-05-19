@@ -32,14 +32,25 @@
         'tracing/child_trace_message_filter.h',
         'tracing/graphics_memory_dump_provider_android.cc',
         'tracing/graphics_memory_dump_provider_android.h',
+        'tracing/process_metrics_memory_dump_provider.cc',
+        'tracing/process_metrics_memory_dump_provider.h',
         'tracing/trace_config_file.cc',
         'tracing/trace_config_file.h',
+        'tracing/trace_to_console.cc',
+        'tracing/trace_to_console.h',
         'tracing/tracing_export.h',
         'tracing/tracing_messages.cc',
         'tracing/tracing_messages.h',
         'tracing/tracing_switches.cc',
         'tracing/tracing_switches.h',
       ],
+      'target_conditions': [
+        ['>(nacl_untrusted_build)==1', {
+          'sources!': [
+            'tracing/process_metrics_memory_dump_provider.cc',
+          ],
+        }],
+      ]
     },
   ],
 }

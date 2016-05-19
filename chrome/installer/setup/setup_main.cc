@@ -8,19 +8,20 @@
 #include <msi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <string>
 
 #include "base/at_exit.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
-#include "base/debug/crash_logging.h"
-#include "base/debug/leak_annotations.h"
 #include "base/file_version_info.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/process/memory.h"
@@ -29,6 +30,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "base/win/process_startup_helper.h"
@@ -44,7 +46,8 @@
 #include "chrome/installer/setup/archive_patch_helper.h"
 #include "chrome/installer/setup/install.h"
 #include "chrome/installer/setup/install_worker.h"
-#include "chrome/installer/setup/installer_crash_reporter_client.h"
+#include "chrome/installer/setup/installer_crash_reporting.h"
+#include "chrome/installer/setup/installer_metrics.h"
 #include "chrome/installer/setup/setup_constants.h"
 #include "chrome/installer/setup/setup_util.h"
 #include "chrome/installer/setup/uninstall.h"
@@ -69,8 +72,10 @@
 #include "chrome/installer/util/self_cleaning_temp_dir.h"
 #include "chrome/installer/util/shell_util.h"
 #include "chrome/installer/util/user_experiment.h"
-#include "components/crash/content/app/breakpad_win.h"
-#include "components/crash/content/app/crash_keys_win.h"
+#include "chrome/installer/util/util_constants.h"
+#include "components/crash/content/app/crash_switches.h"
+#include "components/crash/content/app/run_as_crashpad_handler_win.h"
+#include "content/public/common/content_switches.h"
 
 #if defined(GOOGLE_CHROME_BUILD)
 #include "chrome/installer/util/updating_app_registration_data.h"
@@ -248,6 +253,7 @@ bool UncompressAndPatchChromeArchive(
     installer::InstallStatus* install_status,
     const base::Version& previous_version) {
   installer_state.UpdateStage(installer::UNCOMPRESSING);
+  base::TimeTicks start_time = base::TimeTicks::Now();
   if (!archive_helper->Uncompress(NULL)) {
     *install_status = installer::UNCOMPRESSION_FAILED;
     installer_state.WriteInstallerResult(*install_status,
@@ -255,13 +261,24 @@ bool UncompressAndPatchChromeArchive(
                                          NULL);
     return false;
   }
+  base::TimeDelta elapsed_time = base::TimeTicks::Now() - start_time;
+
+  bool has_full_archive = base::PathExists(archive_helper->target());
+  UMA_HISTOGRAM_BOOLEAN("Setup.Install.HasArchivePatch", !has_full_archive);
 
   // Short-circuit if uncompression produced the uncompressed archive rather
   // than a patch file.
-  if (base::PathExists(archive_helper->target())) {
+  if (has_full_archive) {
     *archive_type = installer::FULL_ARCHIVE_TYPE;
+    // Uncompression alone hopefully takes less than 3 minutes even on slow
+    // machines.
+    UMA_HISTOGRAM_MEDIUM_TIMES("Setup.Install.UncompressFullArchiveTime",
+                               elapsed_time);
     return true;
   }
+
+  UMA_HISTOGRAM_MEDIUM_TIMES("Setup.Install.UncompressArchivePatchTime",
+                             elapsed_time);
 
   // Find the installed version's archive to serve as the source for patching.
   base::FilePath patch_source(installer::FindArchiveToPatch(original_state,
@@ -278,6 +295,9 @@ bool UncompressAndPatchChromeArchive(
   archive_helper->set_patch_source(patch_source);
 
   // Try courgette first. Failing that, try bspatch.
+  // Patch application sometimes takes a very long time, so use 100 buckets for
+  // up to an hour.
+  SCOPED_UMA_HISTOGRAM_LONG_TIMER("Setup.Install.ApplyArchivePatchTime");
   installer_state.UpdateStage(installer::ENSEMBLE_PATCHING);
   if (!archive_helper->EnsemblePatch()) {
     installer_state.UpdateStage(installer::BINARY_PATCHING);
@@ -358,9 +378,6 @@ installer::InstallStatus RenameChromeExecutables(
                                     temp_path.path().value(),
                                     WorkItem::ALWAYS_MOVE);
   install_list->AddDeleteTreeWorkItem(chrome_new_exe, temp_path.path());
-  // old_chrome.exe is still in use in most cases, so ignore failures here.
-  install_list->AddDeleteTreeWorkItem(chrome_old_exe, temp_path.path())->
-      set_ignore_failure(true);
 
   // Add work items to delete the "opv", "cpv", and "cmd" values from all
   // products we're operating on (which including the multi-install binaries).
@@ -384,6 +401,12 @@ installer::InstallStatus RenameChromeExecutables(
                                             KEY_WOW64_32KEY,
                                             google_update::kRegRenameCmdField);
   }
+  // old_chrome.exe is still in use in most cases, so ignore failures here.
+  // Make sure this is the last item in the list because it cannot be rolled
+  // back.
+  install_list->AddDeleteTreeWorkItem(chrome_old_exe, temp_path.path())->
+      set_ignore_failure(true);
+
   installer::InstallStatus ret = installer::RENAME_SUCCESSFUL;
   if (!install_list->Do()) {
     LOG(ERROR) << "Renaming of executables failed. Rolling back any changes.";
@@ -978,20 +1001,12 @@ installer::InstallStatus RegisterDevChrome(
     // Create the Start menu shortcut and pin it to the Win7+ taskbar.
     ShellUtil::ShortcutProperties shortcut_properties(ShellUtil::CURRENT_USER);
     chrome.AddDefaultShortcutProperties(chrome_exe, &shortcut_properties);
-    if (InstallUtil::ShouldInstallMetroProperties())
-      shortcut_properties.set_dual_mode(true);
     shortcut_properties.set_pin_to_taskbar(true);
     ShellUtil::CreateOrUpdateShortcut(
         ShellUtil::SHORTCUT_LOCATION_START_MENU_ROOT, chrome_dist,
         shortcut_properties, ShellUtil::SHELL_SHORTCUT_CREATE_ALWAYS);
 
     // Register Chrome at user-level and make it default.
-    scoped_ptr<WorkItemList> delegate_execute_list(
-        WorkItem::CreateWorkItemList());
-    installer::AddDelegateExecuteWorkItems(
-        installer_state, chrome_exe.DirName(), Version(), chrome,
-        delegate_execute_list.get());
-    delegate_execute_list->Do();
     if (ShellUtil::CanMakeChromeDefaultUnattended()) {
       ShellUtil::MakeChromeDefault(chrome_dist, ShellUtil::CURRENT_USER,
                                    chrome_exe, true);
@@ -1285,55 +1300,6 @@ bool HandleNonInstallCmdLineOptions(const InstallationState& original_state,
   return handled;
 }
 
-#if defined(COMPONENT_BUILD)
-// Installed via base::debug::SetCrashKeyReportingFunctions.
-void SetCrashKeyValue(const base::StringPiece& key,
-                      const base::StringPiece& value) {
-  DCHECK(breakpad::CrashKeysWin::keeper());
-  breakpad::CrashKeysWin::keeper()->SetCrashKeyValue(base::UTF8ToUTF16(key),
-                                                     base::UTF8ToUTF16(value));
-}
-
-// Installed via base::debug::SetCrashKeyReportingFunctions.
-void ClearCrashKey(const base::StringPiece& key) {
-  DCHECK(breakpad::CrashKeysWin::keeper());
-  breakpad::CrashKeysWin::keeper()->ClearCrashKeyValue(base::UTF8ToUTF16(key));
-}
-#endif  // COMPONENT_BUILD
-
-void ConfigureCrashReporting(const InstallerState& installer_state) {
-  // This is inspired by work done in various parts of Chrome startup to connect
-  // to the crash service. Since the installer does not split its work between
-  // a stub .exe and a main .dll, crash reporting can be configured in one place
-  // right here.
-
-  // Create the crash client and install it (a la MainDllLoader::Launch).
-  InstallerCrashReporterClient *crash_client =
-      new InstallerCrashReporterClient(!installer_state.system_install());
-  ANNOTATE_LEAKING_OBJECT_PTR(crash_client);
-  crash_reporter::SetCrashReporterClient(crash_client);
-
-  breakpad::InitCrashReporter("Chrome Installer");
-
-  // Set up crash keys and the client id (a la child_process_logging::Init()).
-#if defined(COMPONENT_BUILD)
-  // breakpad::InitCrashReporter takes care of this for static builds but not
-  // component builds due to intricacies of chrome.exe and chrome.dll sharing a
-  // copy of base.dll in that case (for details, see the comment in
-  // components/crash/content/app/breakpad_win.cc).
-  crash_client->RegisterCrashKeys();
-  base::debug::SetCrashKeyReportingFunctions(&SetCrashKeyValue, &ClearCrashKey);
-#endif // COMPONENT_BUILD
-
-  scoped_ptr<metrics::ClientInfo> client_info =
-      GoogleUpdateSettings::LoadMetricsClientInfo();
-  if (client_info)
-    crash_client->SetCrashReporterClientIdFromGUID(client_info->client_id);
-  // TODO(grt): A lack of a client_id at this point generally means that Chrome
-  // has yet to have been launched and picked one. Consider creating it and
-  // setting it here for Chrome to use.
-}
-
 // Uninstalls multi-install Chrome Frame if the current operation is a
 // multi-install install or update. The operation is performed directly rather
 // than delegated to the existing install since there is no facility in older
@@ -1474,6 +1440,7 @@ InstallStatus InstallProductsHelper(const InstallationState& original_state,
   }
 
   // Unpack the uncompressed archive.
+  base::TimeTicks start_time = base::TimeTicks::Now();
   if (LzmaUtil::UnPackArchive(uncompressed_archive.value(),
                               unpack_path.value(),
                               NULL)) {
@@ -1483,6 +1450,8 @@ InstallStatus InstallProductsHelper(const InstallationState& original_state,
         NULL);
     return UNPACKING_FAILED;
   }
+  UMA_HISTOGRAM_MEDIUM_TIMES("Setup.Install.UnpackFullArchiveTime",
+                             base::TimeTicks::Now() - start_time);
 
   VLOG(1) << "unpacked to " << unpack_path.value();
   base::FilePath src_path(
@@ -1498,10 +1467,9 @@ InstallStatus InstallProductsHelper(const InstallationState& original_state,
     VLOG(1) << "version to install: " << installer_version->GetString();
     bool proceed_with_installation = true;
 
-    uint32 higher_products = 0;
-    COMPILE_ASSERT(
-        sizeof(higher_products) * 8 > BrowserDistribution::NUM_TYPES,
-        too_many_distribution_types_);
+    uint32_t higher_products = 0;
+    static_assert(sizeof(higher_products) * 8 > BrowserDistribution::NUM_TYPES,
+                  "too many distribution types");
     const Products& products = installer_state.products();
     for (Products::const_iterator it = products.begin(); it < products.end();
          ++it) {
@@ -1519,8 +1487,8 @@ InstallStatus InstallProductsHelper(const InstallationState& original_state,
     }
 
     if (higher_products != 0) {
-      COMPILE_ASSERT(BrowserDistribution::NUM_TYPES == 3,
-                     add_support_for_new_products_here_);
+      static_assert(BrowserDistribution::NUM_TYPES == 3,
+                    "add support for new products here");
       int message_id = IDS_INSTALL_HIGHER_VERSION_BASE;
       proceed_with_installation = false;
       install_status = HIGHER_VERSION_EXISTS;
@@ -1681,9 +1649,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
   if (!installer::IsProcessorSupported())
     return installer::CPU_NOT_SUPPORTED;
 
+  // Persist histograms so they can be uploaded later.
+  installer::BeginPersistentHistogramStorage();
+
   // The exit manager is in charge of calling the dtors of singletons.
   base::AtExitManager exit_manager;
   base::CommandLine::Init(0, NULL);
+
+  std::string process_type =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kProcessType);
+
+  if (process_type == crash_reporter::switches::kCrashpadHandler) {
+    return crash_reporter::RunAsCrashpadHandler(
+        *base::CommandLine::ForCurrentProcess());
+  }
 
   // install_util uses chrome paths.
   chrome::RegisterPathProvider();
@@ -1705,7 +1685,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
   InstallerState installer_state;
   installer_state.Initialize(cmd_line, prefs, original_state);
 
-  ConfigureCrashReporting(installer_state);
+  installer::ConfigureCrashReporting(installer_state);
+  installer::SetInitialCrashKeys(installer_state);
+  installer::SetCrashKeysFromCommandLine(cmd_line);
 
   // Make sure the process exits cleanly on unexpected errors.
   base::EnableTerminationOnHeapCorruption();
@@ -1715,10 +1697,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
 
   const bool is_uninstall = cmd_line.HasSwitch(installer::switches::kUninstall);
 
-  // Check to make sure current system is WinXP or later. If not, log
+  // Check to make sure current system is Win7 or later. If not, log
   // error message and get out.
   if (!InstallUtil::IsOSSupported()) {
-    LOG(ERROR) << "Chrome only supports Windows XP or later.";
+    LOG(ERROR) << "Chrome only supports Windows 7 or later.";
     installer_state.WriteInstallerResult(
         installer::OS_NOT_SUPPORTED, IDS_INSTALL_OS_NOT_SUPPORTED_BASE, NULL);
     return installer::OS_NOT_SUPPORTED;
@@ -1828,6 +1810,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
     return_code = InstallUtil::GetInstallReturnCode(install_status);
   }
 
+  installer::EndPersistentHistogramStorage(installer_state.target_path());
   VLOG(1) << "Installation complete, returning: " << return_code;
 
   return return_code;

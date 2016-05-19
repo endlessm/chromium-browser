@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_VIDEO_ENGINE_TEST_COMMON_FAKE_ENCODER_H_
-#define WEBRTC_VIDEO_ENGINE_TEST_COMMON_FAKE_ENCODER_H_
+#ifndef WEBRTC_TEST_FAKE_ENCODER_H_
+#define WEBRTC_TEST_FAKE_ENCODER_H_
 
 #include <vector>
 
@@ -39,6 +39,9 @@ class FakeEncoder : public VideoEncoder {
   int32_t Release() override;
   int32_t SetChannelParameters(uint32_t packet_loss, int64_t rtt) override;
   int32_t SetRates(uint32_t new_target_bitrate, uint32_t framerate) override;
+  const char* ImplementationName() const override;
+
+  static const char* kImplementationName;
 
  protected:
   Clock* const clock_;
@@ -82,4 +85,4 @@ class DelayedEncoder : public test::FakeEncoder {
 }  // namespace test
 }  // namespace webrtc
 
-#endif  // WEBRTC_VIDEO_ENGINE_TEST_COMMON_FAKE_ENCODER_H_
+#endif  // WEBRTC_TEST_FAKE_ENCODER_H_

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/strings/string16.h"
@@ -23,7 +24,7 @@ class AddressFieldTest : public testing::Test {
  protected:
   ScopedVector<AutofillField> list_;
   scoped_ptr<AddressField> field_;
-  ServerFieldTypeMap field_type_map_;
+  FieldCandidatesMap field_candidates_map_;
 
   // Downcast for tests.
   static scoped_ptr<AddressField> Parse(AutofillScanner* scanner) {
@@ -59,10 +60,11 @@ TEST_F(AddressFieldTest, ParseOneLineAddress) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("addr1")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_LINE1, field_type_map_[ASCIIToUTF16("addr1")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("addr1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_LINE1,
+            field_candidates_map_[ASCIIToUTF16("addr1")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseTwoLineAddress) {
@@ -80,13 +82,15 @@ TEST_F(AddressFieldTest, ParseTwoLineAddress) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(field_type_map_.find(ASCIIToUTF16("addr1")) !=
-              field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_LINE1, field_type_map_[ASCIIToUTF16("addr1")]);
-  ASSERT_TRUE(field_type_map_.find(ASCIIToUTF16("addr2")) !=
-              field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_LINE2, field_type_map_[ASCIIToUTF16("addr2")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("addr1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_LINE1,
+            field_candidates_map_[ASCIIToUTF16("addr1")].BestHeuristicType());
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("addr2")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_LINE2,
+            field_candidates_map_[ASCIIToUTF16("addr2")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseThreeLineAddress) {
@@ -108,16 +112,19 @@ TEST_F(AddressFieldTest, ParseThreeLineAddress) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("addr1")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_LINE1, field_type_map_[ASCIIToUTF16("addr1")]);
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("addr2")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_LINE2, field_type_map_[ASCIIToUTF16("addr2")]);
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("addr3")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_LINE3, field_type_map_[ASCIIToUTF16("addr3")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("addr1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_LINE1,
+            field_candidates_map_[ASCIIToUTF16("addr1")].BestHeuristicType());
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("addr2")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_LINE2,
+            field_candidates_map_[ASCIIToUTF16("addr2")].BestHeuristicType());
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("addr3")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_LINE3,
+            field_candidates_map_[ASCIIToUTF16("addr3")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseStreetAddressFromTextArea) {
@@ -131,10 +138,11 @@ TEST_F(AddressFieldTest, ParseStreetAddressFromTextArea) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("addr")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_STREET_ADDRESS, field_type_map_[ASCIIToUTF16("addr")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("addr")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_STREET_ADDRESS,
+            field_candidates_map_[ASCIIToUTF16("addr")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseCity) {
@@ -148,10 +156,11 @@ TEST_F(AddressFieldTest, ParseCity) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("city1")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_CITY, field_type_map_[ASCIIToUTF16("city1")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("city1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_CITY,
+            field_candidates_map_[ASCIIToUTF16("city1")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseState) {
@@ -165,10 +174,11 @@ TEST_F(AddressFieldTest, ParseState) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("state1")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_STATE, field_type_map_[ASCIIToUTF16("state1")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("state1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_STATE,
+            field_candidates_map_[ASCIIToUTF16("state1")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseZip) {
@@ -182,10 +192,11 @@ TEST_F(AddressFieldTest, ParseZip) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("zip1")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_ZIP, field_type_map_[ASCIIToUTF16("zip1")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("zip1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_ZIP,
+            field_candidates_map_[ASCIIToUTF16("zip1")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseStateAndZipOneLabel) {
@@ -203,13 +214,15 @@ TEST_F(AddressFieldTest, ParseStateAndZipOneLabel) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("state")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_STATE, field_type_map_[ASCIIToUTF16("state")]);
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("zip")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_ZIP, field_type_map_[ASCIIToUTF16("zip")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("state")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_STATE,
+            field_candidates_map_[ASCIIToUTF16("state")].BestHeuristicType());
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("zip")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(ADDRESS_HOME_ZIP,
+            field_candidates_map_[ASCIIToUTF16("zip")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseCountry) {
@@ -223,10 +236,12 @@ TEST_F(AddressFieldTest, ParseCountry) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("country1")) != field_type_map_.end());
-  EXPECT_EQ(ADDRESS_HOME_COUNTRY, field_type_map_[ASCIIToUTF16("country1")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("country1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(
+      ADDRESS_HOME_COUNTRY,
+      field_candidates_map_[ASCIIToUTF16("country1")].BestHeuristicType());
 }
 
 TEST_F(AddressFieldTest, ParseCompany) {
@@ -240,10 +255,12 @@ TEST_F(AddressFieldTest, ParseCompany) {
   AutofillScanner scanner(list_.get());
   field_ = Parse(&scanner);
   ASSERT_NE(nullptr, field_.get());
-  ASSERT_TRUE(field_->ClassifyField(&field_type_map_));
-  ASSERT_TRUE(
-      field_type_map_.find(ASCIIToUTF16("company1")) != field_type_map_.end());
-  EXPECT_EQ(COMPANY_NAME, field_type_map_[ASCIIToUTF16("company1")]);
+  field_->AddClassifications(&field_candidates_map_);
+  ASSERT_TRUE(field_candidates_map_.find(ASCIIToUTF16("company1")) !=
+              field_candidates_map_.end());
+  EXPECT_EQ(
+      COMPANY_NAME,
+      field_candidates_map_[ASCIIToUTF16("company1")].BestHeuristicType());
 }
 
 }  // namespace autofill

@@ -6,7 +6,9 @@
 
 #include <map>
 #include <string>
+#include <utility>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/gcm_driver/fake_gcm_driver.h"
 #include "google_apis/gaia/fake_identity_provider.h"
@@ -201,7 +203,8 @@ GCMAccountTrackerTest::GCMAccountTrackerTest() {
           fake_identity_provider_.get(),
           new net::TestURLRequestContextGetter(message_loop_.task_runner())));
 
-  tracker_.reset(new GCMAccountTracker(gaia_account_tracker.Pass(), &driver_));
+  tracker_.reset(
+      new GCMAccountTracker(std::move(gaia_account_tracker), &driver_));
 }
 
 GCMAccountTrackerTest::~GCMAccountTrackerTest() {

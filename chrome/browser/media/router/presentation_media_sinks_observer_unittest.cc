@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/media/router/media_source_helper.h"
@@ -28,7 +29,8 @@ class PresentationMediaSinksObserverTest : public ::testing::Test {
     EXPECT_CALL(router_, RegisterMediaSinksObserver(_)).WillOnce(Return(true));
     observer_.reset(new PresentationMediaSinksObserver(
         &router_, &listener_,
-        MediaSourceForPresentationUrl("http://example.com/presentation.html")));
+        MediaSourceForPresentationUrl("http://example.com/presentation.html"),
+        GURL("https://google.com")));
     EXPECT_TRUE(observer_->Init());
   }
 

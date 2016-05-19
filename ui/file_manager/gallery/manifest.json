@@ -28,6 +28,7 @@
       "fileSystem": ["requestFileSystem", "write"]
     },
     "fullscreen",
+    "mediaGalleries",
     "metricsPrivate",
     "storage",
     "webview"

@@ -12,6 +12,11 @@
 
 namespace chromeos {
 namespace switches {
+// If this flag is passed, failed policy fetches will not cause profile
+// initialization to fail. This is useful for tests because it means that
+// tests don't have to mock out the policy infrastructure.
+const char kAllowFailedPolicyFetchForTest[] =
+    "allow-failed-policy-fetch-for-test";
 
 // Allows remote attestation (RA) in dev mode for testing purpose. Usually RA
 // is disabled in dev mode because it will always fail. However, there are cases
@@ -56,6 +61,9 @@ const char kDerelictDetectionTimeout[] = "derelict-detection-timeout";
 
 // Time before a derelict machines starts demo mode.
 const char kDerelictIdleTimeout[] = "derelict-idle-timeout";
+
+// Disables ARC Opt-in verification process and ARC is enabled by default.
+const char kDisableArcOptInVerification[] = "disable-arc-opt-in-verification";
 
 // Disables wallpaper boot animation (except of OOBE case).
 const char kDisableBootAnimation[] = "disable-boot-animation";
@@ -104,6 +112,9 @@ const char kDisableNetworkPortalNotification[] =
 const char kEafeUrl[] = "eafe-url";
 const char kEafePath[] = "eafe-path";
 
+// Enables starting the ARC instance upon session start.
+const char kEnableArc[] = "enable-arc";
+
 // Enables consumer management, which allows user to enroll, remotely lock and
 // locate the device.
 const char kEnableConsumerManagement[] = "enable-consumer-management";
@@ -146,6 +157,9 @@ const char kEnableScreenshotTestingWithMode[] =
 // Enable Kiosk mode for ChromeOS. Note this switch refers to retail mode rather
 // than the kiosk app mode.
 const char kEnableKioskMode[] = "enable-kiosk-mode";
+
+// Enable the multiple display layout UI.
+const char kEnableMultiDisplayLayout[] = "enable-multi-display-layout";
 
 // Enables request of tablet site (via user agent override).
 const char kEnableRequestTabletSite[] = "enable-request-tablet-site";
@@ -240,6 +254,9 @@ const char kOobeTimerInterval[] = "oobe-timer-interval";
 // Indicates that a guest session has been started before OOBE completion.
 const char kOobeGuestSession[] = "oobe-guest-session";
 
+// Indicates that if we should start bootstrapping Master OOBE.
+const char kOobeBootstrappingMaster[] = "oobe-bootstrapping-master";
+
 // Specifies power stub behavior:
 //  'cycle=2' - Cycles power states every 2 seconds.
 // See FakeDBusThreadManager::ParsePowerCommandLineSwitch for full details.
@@ -320,6 +337,16 @@ const char kCrosRegionsModeHide[] = "hide";
 // Forces CrOS region value.
 const char kCrosRegion[] = "cros-region";
 
+// Enables IME menu
+const char kEnableImeMenu[] = "enable-ime-menu";
+
+// Controls CrOS GaiaId migration for tests:
+// ""        - default,
+// "started" - migration started (i.e. all stored user keys will be converted
+//             to GaiaId).
+const char kTestCrosGaiaIdMigration[] = "test-cros-gaia-id-migration";
+const char kTestCrosGaiaIdMigrationStarted[] = "started";
+
 bool WakeOnWifiEnabled() {
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(kDisableWakeOnWifi);
 }
@@ -364,6 +391,19 @@ GetMemoryPressureThresholds() {
     return MemoryPressureMonitor::THRESHOLD_AGGRESSIVE;
 
   return MemoryPressureMonitor::THRESHOLD_DEFAULT;
+}
+
+bool IsImeMenuEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(kEnableImeMenu);
+}
+
+bool IsGaiaIdMigrationStarted() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (!command_line->HasSwitch(kTestCrosGaiaIdMigration))
+    return false;
+
+  return command_line->GetSwitchValueASCII(kTestCrosGaiaIdMigration) ==
+         kTestCrosGaiaIdMigrationStarted;
 }
 
 }  // namespace switches

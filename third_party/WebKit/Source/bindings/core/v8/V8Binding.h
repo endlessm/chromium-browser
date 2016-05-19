@@ -37,16 +37,18 @@
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/NativeValueTraits.h"
+#include "bindings/core/v8/ScriptState.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "bindings/core/v8/V8BindingMacros.h"
 #include "bindings/core/v8/V8PerIsolateData.h"
+#include "bindings/core/v8/V8ScriptRunner.h"
 #include "bindings/core/v8/V8StringResource.h"
 #include "bindings/core/v8/V8ThrowException.h"
 #include "bindings/core/v8/V8ValueCache.h"
 #include "core/CoreExport.h"
-#include "platform/JSONValues.h"
 #include "platform/heap/Handle.h"
+#include "platform/text/CompressibleString.h"
 #include "wtf/text/AtomicString.h"
 #include <v8.h>
 
@@ -62,7 +64,9 @@ class Frame;
 class LocalDOMWindow;
 class LocalFrame;
 class NodeFilter;
+class TracedValue;
 class WorkerGlobalScope;
+class WorkerOrWorkletGlobalScope;
 class XPathNSResolver;
 
 template <typename T>
@@ -73,10 +77,6 @@ struct V8TypeOf {
     // V8TypeOf for each wrapper class.
     typedef void Type;
 };
-
-namespace TraceEvent {
-class ConvertableToTraceFormat;
-}
 
 // Helpers for throwing JavaScript TypeErrors for arity mismatches.
 CORE_EXPORT void setArityTypeError(ExceptionState&, const char* valid, unsigned provided);
@@ -184,16 +184,6 @@ inline void v8SetReturnValueStringOrNull(const CallbackInfo& info, const String&
 }
 
 template<typename CallbackInfo>
-inline void v8SetReturnValueStringOrUndefined(const CallbackInfo& info, const String& string, v8::Isolate* isolate)
-{
-    if (string.isNull()) {
-        v8SetReturnValueUndefined(info);
-        return;
-    }
-    V8PerIsolateData::from(isolate)->stringCache()->setReturnValueFromString(info.GetReturnValue(), string.impl());
-}
-
-template<typename CallbackInfo>
 inline void v8SetReturnValue(const CallbackInfo& callbackInfo, ScriptWrappable* impl, v8::Local<v8::Object> creationContext)
 {
     if (UNLIKELY(!impl)) {
@@ -242,7 +232,7 @@ inline void v8SetReturnValue(const CallbackInfo& callbackInfo, EventTarget* impl
 template<typename CallbackInfo>
 inline void v8SetReturnValue(const CallbackInfo& callbackInfo, WorkerGlobalScope* impl)
 {
-    v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(), callbackInfo.GetIsolate()));
+    v8SetReturnValue(callbackInfo, toV8((WorkerOrWorkletGlobalScope*) impl, callbackInfo.Holder(), callbackInfo.GetIsolate()));
 }
 
 template<typename CallbackInfo, typename T>
@@ -312,7 +302,7 @@ inline void v8SetReturnValueForMainWorld(const CallbackInfo& callbackInfo, Event
 template<typename CallbackInfo>
 inline void v8SetReturnValueForMainWorld(const CallbackInfo& callbackInfo, WorkerGlobalScope* impl)
 {
-    v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(), callbackInfo.GetIsolate()));
+    v8SetReturnValue(callbackInfo, toV8((WorkerOrWorkletGlobalScope*) impl, callbackInfo.Holder(), callbackInfo.GetIsolate()));
 }
 
 template<typename CallbackInfo, typename T>
@@ -370,7 +360,7 @@ inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo, EventTarget* 
 template<typename CallbackInfo>
 inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo, WorkerGlobalScope* impl, const ScriptWrappable*)
 {
-    v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(), callbackInfo.GetIsolate()));
+    v8SetReturnValue(callbackInfo, toV8((WorkerOrWorkletGlobalScope*) impl, callbackInfo.Holder(), callbackInfo.GetIsolate()));
 }
 
 template<typename CallbackInfo, typename T, typename Wrappable>
@@ -431,6 +421,13 @@ inline v8::Local<v8::String> v8String(v8::Isolate* isolate, const String& string
     if (string.isNull())
         return v8::String::Empty(isolate);
     return V8PerIsolateData::from(isolate)->stringCache()->v8ExternalString(isolate, string.impl());
+}
+
+inline v8::Local<v8::String> v8String(v8::Isolate* isolate, const CompressibleString& string)
+{
+    if (string.isNull())
+        return v8::String::Empty(isolate);
+    return V8PerIsolateData::from(isolate)->stringCache()->v8ExternalString(isolate, string);
 }
 
 inline v8::Local<v8::String> v8AtomicString(v8::Isolate* isolate, const char* str, int length = -1)
@@ -608,7 +605,7 @@ Vector<RefPtr<T>> toRefPtrNativeArrayUnchecked(v8::Local<v8::Value> v8Value, uin
     Vector<RefPtr<T>> result;
     result.reserveInitialCapacity(length);
     v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(v8Value);
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     for (uint32_t i = 0; i < length; ++i) {
         v8::Local<v8::Value> element;
         if (!v8Call(object->Get(isolate->GetCurrentContext(), i), element, block)) {
@@ -672,7 +669,7 @@ WillBeHeapVector<RefPtrWillBeMember<T>> toRefPtrWillBeMemberNativeArray(v8::Loca
     WillBeHeapVector<RefPtrWillBeMember<T>> result;
     result.reserveInitialCapacity(length);
     v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(v8Value);
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     for (uint32_t i = 0; i < length; ++i) {
         v8::Local<v8::Value> element;
         if (!v8Call(object->Get(isolate->GetCurrentContext(), i), element, block)) {
@@ -706,7 +703,7 @@ WillBeHeapVector<RefPtrWillBeMember<T>> toRefPtrWillBeMemberNativeArray(v8::Loca
     WillBeHeapVector<RefPtrWillBeMember<T>> result;
     result.reserveInitialCapacity(length);
     v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(v8Value);
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     for (uint32_t i = 0; i < length; ++i) {
         v8::Local<v8::Value> element;
         if (!v8Call(object->Get(isolate->GetCurrentContext(), i), element, block)) {
@@ -740,7 +737,7 @@ HeapVector<Member<T>> toMemberNativeArray(v8::Local<v8::Value> value, int argume
     HeapVector<Member<T>> result;
     result.reserveInitialCapacity(length);
     v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(v8Value);
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     for (uint32_t i = 0; i < length; ++i) {
         v8::Local<v8::Value> element;
         if (!v8Call(object->Get(isolate->GetCurrentContext(), i), element, block)) {
@@ -783,7 +780,7 @@ VectorType toImplArray(v8::Local<v8::Value> value, int argumentIndex, v8::Isolat
     VectorType result;
     result.reserveInitialCapacity(length);
     v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(value);
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     for (uint32_t i = 0; i < length; ++i) {
         v8::Local<v8::Value> element;
         if (!v8Call(object->Get(isolate->GetCurrentContext(), i), element, block)) {
@@ -851,7 +848,7 @@ inline bool toV8Sequence(v8::Local<v8::Value> value, uint32_t& length, v8::Isola
     // FIXME: The specification states that the length property should be used as fallback, if value
     // is not a platform object that supports indexed properties. If it supports indexed properties,
     // length should actually be one greater than value's maximum indexed property index.
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     v8::Local<v8::Value> lengthValue;
     if (!v8Call(object->Get(isolate->GetCurrentContext(), lengthSymbol), lengthValue, block)) {
         exceptionState.rethrowV8Exception(block.Exception());
@@ -940,14 +937,6 @@ struct NativeValueTraits<Vector<T>> {
     }
 };
 
-using JSONValuePtr = PassRefPtr<JSONValue>;
-template <>
-struct NativeValueTraits<JSONValuePtr> {
-    CORE_EXPORT static JSONValuePtr nativeValue(v8::Isolate*, v8::Local<v8::Value>, ExceptionState&, int maxDepth = JSONValue::maxDepth);
-};
-
-JSONValuePtr toJSONValue(v8::Isolate*, v8::Local<v8::Value>, int maxDepth = JSONValue::maxDepth);
-
 CORE_EXPORT v8::Isolate* toIsolate(ExecutionContext*);
 CORE_EXPORT v8::Isolate* toIsolate(LocalFrame*);
 
@@ -957,8 +946,9 @@ LocalDOMWindow* enteredDOMWindow(v8::Isolate*);
 CORE_EXPORT LocalDOMWindow* currentDOMWindow(v8::Isolate*);
 CORE_EXPORT LocalDOMWindow* callingDOMWindow(v8::Isolate*);
 CORE_EXPORT ExecutionContext* toExecutionContext(v8::Local<v8::Context>);
+CORE_EXPORT void registerToExecutionContextForModules(ExecutionContext* (*toExecutionContextForModules)(v8::Local<v8::Context>));
 CORE_EXPORT ExecutionContext* currentExecutionContext(v8::Isolate*);
-CORE_EXPORT ExecutionContext* callingExecutionContext(v8::Isolate*);
+CORE_EXPORT ExecutionContext* enteredExecutionContext(v8::Isolate*);
 
 // Returns a V8 context associated with a ExecutionContext and a DOMWrapperWorld.
 // This method returns an empty context if there is no frame or the frame is already detached.
@@ -983,7 +973,7 @@ CORE_EXPORT void toFlexibleArrayBufferView(v8::Isolate*, v8::Local<v8::Value>, F
 // If the current context causes out of memory, JavaScript setting
 // is disabled and it returns true.
 bool handleOutOfMemory();
-void crashIfV8IsDead();
+void crashIfIsolateIsDead(v8::Isolate*);
 
 inline bool isUndefinedOrNull(v8::Local<v8::Value> value)
 {
@@ -1027,8 +1017,7 @@ enum DeleteResult {
     DeleteUnknownProperty
 };
 
-class V8IsolateInterruptor : public BlinkGCInterruptor {
-    USING_FAST_MALLOC(V8IsolateInterruptor);
+class V8IsolateInterruptor final : public BlinkGCInterruptor {
 public:
     explicit V8IsolateInterruptor(v8::Isolate* isolate)
         : m_isolate(isolate)
@@ -1081,7 +1070,7 @@ private:
     mutable v8::Local<v8::Function> m_function;
 };
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> devToolsTraceEventData(v8::Isolate*, ExecutionContext*, v8::Local<v8::Function>);
+PassOwnPtr<TracedValue> devToolsTraceEventData(v8::Isolate*, ExecutionContext*, v8::Local<v8::Function>);
 
 // Callback functions used by generated code.
 CORE_EXPORT void v8ConstructorAttributeGetter(v8::Local<v8::Name> propertyName, const v8::PropertyCallbackInfo<v8::Value>&);

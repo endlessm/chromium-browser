@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/HTMLWBRElement.h"
 
 #include "core/HTMLNames.h"
@@ -50,4 +49,4 @@ LayoutObject* HTMLWBRElement::createLayoutObject(const ComputedStyle& style)
     return new LayoutWordBreak(this);
 }
 
-}
+} // namespace blink

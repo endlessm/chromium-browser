@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/mac/bind_objc_block.h"
+#include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
@@ -30,6 +31,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/user_metrics.h"
+#include "grit/components_strings.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "ui/base/cocoa/controls/hyperlink_text_view.h"
 #import "ui/base/cocoa/menu_controller.h"
@@ -254,6 +256,10 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
 }
 
 - (void)windowWillClose:(NSNotification*)notification {
+  [[NSNotificationCenter defaultCenter]
+      removeObserver:self
+                name:NSWindowDidMoveNotification
+              object:nil];
   bridge_->OnBubbleClosing();
   [super windowWillClose:notification];
 }
@@ -334,8 +340,7 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
   }
 
   base::scoped_nsobject<NSView> titleView(
-      [[self titleWithHostname:requests[0]->GetRequestingHostname().host()]
-          retain]);
+      [[self titleWithHostname:requests[0]->GetOrigin().host()] retain]);
   [contentView addSubview:titleView];
   [titleView setFrameOrigin:NSMakePoint(kHorizontalPadding,
                                         kVerticalPadding + yOffset)];
@@ -535,7 +540,7 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
   DCHECK(request);
   DCHECK(delegate_);
   base::scoped_nsobject<AllowBlockMenuButton> button(
-      [[AllowBlockMenuButton alloc] initForURL:request->GetRequestingHostname()
+      [[AllowBlockMenuButton alloc] initForURL:request->GetOrigin()
                                        allowed:allow
                                          index:index
                                       delegate:delegate_]);

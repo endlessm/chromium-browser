@@ -55,7 +55,9 @@ WebInspector.UserMetrics.Action = {
     RevisionApplied: 12,
     FileSystemDirectoryContentReceived: 13,
     StyleRuleEdited: 14,
-    CommandEvaluatedInConsolePanel: 15
+    CommandEvaluatedInConsolePanel: 15,
+    DOMPropertiesExpanded: 16,
+    ResizedViewInResponsiveMode: 17
 }
 
 WebInspector.UserMetrics._PanelCodes = {
@@ -67,7 +69,13 @@ WebInspector.UserMetrics._PanelCodes = {
     profiles: 6,
     audits: 7,
     console: 8,
-    layers: 9
+    layers: 9,
+    "drawer-console": 10,
+    "drawer-animations": 11,
+    "drawer-network.config": 12,
+    "drawer-rendering": 13,
+    "drawer-sensors": 14,
+    "drawer-sources.search": 15
 }
 
 WebInspector.UserMetrics.prototype = {
@@ -79,6 +87,14 @@ WebInspector.UserMetrics.prototype = {
         var code = WebInspector.UserMetrics._PanelCodes[panelName] || 0;
         var size = Object.keys(WebInspector.UserMetrics._PanelCodes).length + 1;
         InspectorFrontendHost.recordEnumeratedHistogram("DevTools.PanelShown", code, size);
+    },
+
+    /**
+     * @param {string} drawerId
+     */
+    drawerShown: function(drawerId)
+    {
+        this.panelShown("drawer-" + drawerId);
     },
 
     /**

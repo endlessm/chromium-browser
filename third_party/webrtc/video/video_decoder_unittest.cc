@@ -12,7 +12,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/checks.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_error_codes.h"
+#include "webrtc/modules/video_coding/include/video_error_codes.h"
 
 namespace webrtc {
 
@@ -49,10 +49,10 @@ class VideoDecoderSoftwareFallbackWrapperTest : public ::testing::Test {
       return WEBRTC_VIDEO_CODEC_OK;
     }
 
-    int32_t Reset() override {
-      ++reset_count_;
-      return WEBRTC_VIDEO_CODEC_OK;
+    const char* ImplementationName() const override {
+      return "fake-decoder";
     }
+
     int init_decode_count_ = 0;
     int decode_count_ = 0;
     int32_t decode_return_code_ = WEBRTC_VIDEO_CODEC_OK;
@@ -129,22 +129,8 @@ TEST_F(VideoDecoderSoftwareFallbackWrapperTest, ForwardsReleaseCall) {
   EXPECT_EQ(2, fake_decoder_.release_count_);
 }
 
-TEST_F(VideoDecoderSoftwareFallbackWrapperTest, ForwardsResetCall) {
-  VideoCodec codec = {};
-  fallback_wrapper_.InitDecode(&codec, 2);
-  fallback_wrapper_.Reset();
-  EXPECT_EQ(1, fake_decoder_.reset_count_);
-
-  fake_decoder_.decode_return_code_ = WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
-  EncodedImage encoded_image;
-  fallback_wrapper_.Decode(encoded_image, false, nullptr, nullptr, -1);
-  fallback_wrapper_.Reset();
-  EXPECT_EQ(2, fake_decoder_.reset_count_)
-      << "Reset not forwarded during fallback.";
-}
-
 // TODO(pbos): Fake a VP8 frame well enough to actually receive a callback from
-// the software encoder.
+// the software decoder.
 TEST_F(VideoDecoderSoftwareFallbackWrapperTest,
        ForwardsRegisterDecodeCompleteCallback) {
   class FakeDecodedImageCallback : public DecodedImageCallback {
@@ -166,6 +152,21 @@ TEST_F(VideoDecoderSoftwareFallbackWrapperTest,
   fallback_wrapper_.Decode(encoded_image, false, nullptr, nullptr, -1);
   fallback_wrapper_.RegisterDecodeCompleteCallback(&callback2);
   EXPECT_EQ(&callback2, fake_decoder_.decode_complete_callback_);
+}
+
+TEST_F(VideoDecoderSoftwareFallbackWrapperTest,
+       ReportsFallbackImplementationName) {
+  VideoCodec codec = {};
+  fallback_wrapper_.InitDecode(&codec, 2);
+
+  fake_decoder_.decode_return_code_ = WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
+  EncodedImage encoded_image;
+  fallback_wrapper_.Decode(encoded_image, false, nullptr, nullptr, -1);
+  // Hard coded expected value since libvpx is the software implementation name
+  // for VP8. Change accordingly if the underlying implementation does.
+  EXPECT_STREQ("libvpx (fallback from: fake-decoder)",
+               fallback_wrapper_.ImplementationName());
+  fallback_wrapper_.Release();
 }
 
 }  // namespace webrtc

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/DOMWrapperWorld.h"
 
 #include "bindings/core/v8/DOMDataStore.h"
@@ -274,7 +273,7 @@ void DOMWrapperWorld::registerDOMObjectHolderInternal(PassOwnPtr<DOMObjectHolder
     ASSERT(!m_domObjectHolders.contains(holderBase.get()));
     holderBase->setWorld(this);
     holderBase->setWeak(&DOMWrapperWorld::weakCallbackForDOMObjectHolder);
-    m_domObjectHolders.add(holderBase);
+    m_domObjectHolders.add(std::move(holderBase));
 }
 
 void DOMWrapperWorld::unregisterDOMObjectHolder(DOMObjectHolderBase* holderBase)

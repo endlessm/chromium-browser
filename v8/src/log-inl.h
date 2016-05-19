@@ -8,6 +8,7 @@
 #include "src/log.h"
 #include "src/isolate.h"
 #include "src/objects-inl.h"
+#include "src/tracing/trace-event.h"
 
 namespace v8 {
 namespace internal {

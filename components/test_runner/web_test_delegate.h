@@ -18,7 +18,6 @@
 #define WEBTESTRUNNER_NEW_HISTORY_CAPTURE
 
 namespace blink {
-class WebBatteryStatus;
 class WebDeviceMotionData;
 class WebDeviceOrientationData;
 class WebFrame;
@@ -30,6 +29,7 @@ class WebLocalFrame;
 class WebMediaStream;
 class WebPlugin;
 struct WebPluginParams;
+struct WebPoint;
 struct WebRect;
 struct WebSize;
 struct WebURLError;
@@ -81,9 +81,8 @@ class WebTestDelegate {
   // Reset the screen orientation data used for testing.
   virtual void ResetScreenOrientation() = 0;
 
-  // Notifies blink about a change in battery status.
-  virtual void DidChangeBatteryStatus(
-      const blink::WebBatteryStatus& status) = 0;
+  // Disables screen orientation test-specific mock.
+  virtual void DisableMockScreenOrientation() = 0;
 
   // Add a message to the text dump for the layout test.
   virtual void PrintMessage(const std::string& message) = 0;
@@ -156,9 +155,14 @@ class WebTestDelegate {
   // Controls Web Notifications.
   virtual void SimulateWebNotificationClick(const std::string& title,
                                             int action_index) = 0;
+  virtual void SimulateWebNotificationClose(const std::string& title,
+                                            bool by_user) = 0;
 
   // Controls the device scale factor of the main WebView for hidpi tests.
   virtual void SetDeviceScaleFactor(float factor) = 0;
+
+  // Enable zoom-for-dsf option.
+  virtual void EnableUseZoomForDSF() = 0;
 
   // Change the device color profile while running a layout test.
   virtual void SetDeviceColorProfile(const std::string& name) = 0;
@@ -250,7 +254,10 @@ class WebTestDelegate {
   virtual void ResetPermissions() = 0;
 
   // Add content MediaStream classes to the Blink MediaStream ones.
-  virtual bool AddMediaStreamSourceAndTrack(blink::WebMediaStream* stream) = 0;
+  virtual bool AddMediaStreamVideoSourceAndTrack(
+      blink::WebMediaStream* stream) = 0;
+  virtual bool AddMediaStreamAudioSourceAndTrack(
+      blink::WebMediaStream* stream) = 0;
 
   virtual cc::SharedBitmapManager* GetSharedBitmapManager() = 0;
 
@@ -277,6 +284,10 @@ class WebTestDelegate {
     const blink::WebPluginParams& params) = 0;
 
   virtual void OnWebTestProxyBaseDestroy(WebTestProxyBase* proxy) = 0;
+
+  // Convert the position in DIP to native coordinates.
+  virtual blink::WebPoint ConvertDIPToNative(
+      const blink::WebPoint& point_in_dip) const = 0;
 };
 
 }  // namespace test_runner

@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/MediaElementAudioSourceNode.h"
-
 #include "core/dom/CrossThreadTask.h"
 #include "core/frame/ConsoleTypes.h"
 #include "core/html/HTMLMediaElement.h"
@@ -256,4 +253,3 @@ void MediaElementAudioSourceNode::unlock()
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

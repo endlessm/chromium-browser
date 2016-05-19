@@ -4,6 +4,7 @@
 
 #include <set>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/platform_util.h"
 #include "components/constrained_window/constrained_window_views.h"
@@ -87,7 +88,7 @@ class NativeWebContentsModalDialogManagerViews
 
     wm::SetModalParent(
         widget->GetNativeWindow(),
-        platform_util::GetParent(widget->GetNativeView()));
+        native_delegate_->GetWebContents()->GetNativeView());
 #endif
   }
 

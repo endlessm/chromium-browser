@@ -12,6 +12,7 @@
 
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
@@ -46,6 +47,7 @@ class PairingRegistry : public base::RefCountedThreadSafe<PairingRegistry> {
             const std::string& client_name,
             const std::string& client_id,
             const std::string& shared_secret);
+    Pairing(const Pairing& other);
     ~Pairing();
 
     static Pairing Create(const std::string& client_name);

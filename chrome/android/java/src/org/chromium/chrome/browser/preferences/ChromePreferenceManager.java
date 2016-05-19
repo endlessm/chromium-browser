@@ -9,7 +9,13 @@ import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 
 import org.chromium.base.annotations.SuppressFBWarnings;
+import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.crash.MinidumpUploadService.ProcessType;
 import org.chromium.chrome.browser.signin.SigninPromoUma;
+import org.chromium.chrome.browser.util.FeatureUtilities;
+
+import java.util.Locale;
+
 
 /**
  * ChromePreferenceManager stores and retrieves various values in Android shared preferences.
@@ -21,8 +27,8 @@ public class ChromePreferenceManager {
      */
     public static final String MIGRATION_ON_UPGRADE_ATTEMPTED = "migration_on_upgrade_attempted";
 
-    private static final String BREAKPAD_UPLOAD_SUCCESS = "breakpad_upload_success";
-    private static final String BREAKPAD_UPLOAD_FAIL = "breakpad_upload_fail";
+    private static final String TAG = "preferences";
+
     private static final String PROMOS_SKIPPED_ON_FIRST_START = "promos_skipped_on_first_start";
     private static final String SIGNIN_PROMO_LAST_SHOWN = "signin_promo_last_timestamp_key";
     private static final String SHOW_SIGNIN_PROMO = "show_signin_promo";
@@ -38,6 +44,10 @@ public class ChromePreferenceManager {
     private static final String CONTEXTUAL_SEARCH_LAST_ANIMATION_TIME =
             "contextual_search_last_animation_time";
     private static final String ENABLE_CUSTOM_TABS = "enable_custom_tabs";
+    private static final String HERB_FLAVOR_KEY = "herb_flavor";
+
+    private static final String SUCCESS_UPLOAD_SUFFIX = "_crash_success_upload";
+    private static final String FAILURE_UPLOAD_SUFFIX = "_crash_failure_upload";
 
     private static final int SIGNIN_PROMO_CYCLE_IN_DAYS = 120;
     private static final long MILLISECONDS_IN_DAY = 1000 * 60 * 60 * 24;
@@ -66,39 +76,51 @@ public class ChromePreferenceManager {
     }
 
     /**
-     * @return Number of times the upload intent service successfully uploaded
-     *         a minidump.
+     * @return Number of times of successful crash upload.
      */
-    public int getBreakpadUploadSuccessCount() {
-        return mSharedPreferences.getInt(BREAKPAD_UPLOAD_SUCCESS, 0);
+    public int getCrashSuccessUploadCount(@ProcessType String process) {
+        // Convention to keep all the key in preference lower case.
+        return mSharedPreferences.getInt(successUploadKey(process), 0);
     }
 
-    public void setBreakpadUploadSuccessCount(int count) {
-        SharedPreferences.Editor sharedPreferencesEditor = mSharedPreferences.edit();
-        sharedPreferencesEditor.putInt(BREAKPAD_UPLOAD_SUCCESS, count);
+    public void setCrashSuccessUploadCount(@ProcessType String process, int count) {
+        SharedPreferences.Editor sharedPreferencesEditor;
+
+        sharedPreferencesEditor = mSharedPreferences.edit();
+        // Convention to keep all the key in preference lower case.
+        sharedPreferencesEditor.putInt(successUploadKey(process), count);
         sharedPreferencesEditor.apply();
     }
 
-    public void incrementBreakpadUploadSuccessCount() {
-        setBreakpadUploadSuccessCount(getBreakpadUploadSuccessCount() + 1);
+    public void incrementCrashSuccessUploadCount(@ProcessType String process) {
+        setCrashSuccessUploadCount(process, getCrashSuccessUploadCount(process) + 1);
+    }
+
+    private String successUploadKey(@ProcessType String process) {
+        return process.toLowerCase(Locale.US) + SUCCESS_UPLOAD_SUFFIX;
     }
 
     /**
-     * @return Number of times the upload intent service gave up on uploading
-     *         minidump after a few tries.
+     * @return Number of times of failure crash upload after reaching the max number of tries.
      */
-    public int getBreakpadUploadFailCount() {
-        return mSharedPreferences.getInt(BREAKPAD_UPLOAD_FAIL, 0);
+    public int getCrashFailureUploadCount(@ProcessType String process) {
+        return mSharedPreferences.getInt(failureUploadKey(process), 0);
     }
 
-    public void setBreakpadUploadFailCount(int count) {
-        SharedPreferences.Editor sharedPreferencesEditor = mSharedPreferences.edit();
-        sharedPreferencesEditor.putInt(BREAKPAD_UPLOAD_FAIL, count);
+    public void setCrashFailureUploadCount(@ProcessType String process, int count) {
+        SharedPreferences.Editor sharedPreferencesEditor;
+
+        sharedPreferencesEditor = mSharedPreferences.edit();
+        sharedPreferencesEditor.putInt(failureUploadKey(process), count);
         sharedPreferencesEditor.apply();
     }
 
-    public void incrementBreakpadUploadFailCount() {
-        setBreakpadUploadFailCount(getBreakpadUploadFailCount() + 1);
+    public void incrementCrashFailureUploadCount(@ProcessType String process) {
+        setCrashFailureUploadCount(process, getCrashFailureUploadCount(process) + 1);
+    }
+
+    private String failureUploadKey(@ProcessType String process) {
+        return process.toLowerCase(Locale.US) + FAILURE_UPLOAD_SUFFIX;
     }
 
     /**
@@ -303,6 +325,21 @@ public class ChromePreferenceManager {
     }
 
     /**
+     * @return Which UI prototype the user is testing. This is cached from native via
+     *         {@link FeatureUtilities#cacheHerbFlavor}.
+     */
+    public String getCachedHerbFlavor() {
+        return mSharedPreferences.getString(HERB_FLAVOR_KEY, ChromeSwitches.HERB_FLAVOR_DISABLED);
+    }
+
+    /**
+     * Caches which UI prototype the user is testing.
+     */
+    public void setCachedHerbFlavor(String flavor) {
+        writeString(HERB_FLAVOR_KEY, flavor);
+    }
+
+    /**
      * Writes the given int value to the named shared preference.
      *
      * @param key The name of the preference to modify.
@@ -311,6 +348,18 @@ public class ChromePreferenceManager {
     private void writeInt(String key, int value) {
         SharedPreferences.Editor ed = mSharedPreferences.edit();
         ed.putInt(key, value);
+        ed.apply();
+    }
+
+    /**
+     * Writes the given String to the named shared preference.
+     *
+     * @param key The name of the preference to modify.
+     * @param value The new value for the preference.
+     */
+    private void writeString(String key, String value) {
+        SharedPreferences.Editor ed = mSharedPreferences.edit();
+        ed.putString(key, value);
         ed.apply();
     }
 }

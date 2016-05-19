@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/MediaQueryEvaluator.h"
 
 #include "core/MediaTypeNames.h"
@@ -10,10 +9,9 @@
 #include "core/css/MediaValuesCached.h"
 #include "core/frame/FrameView.h"
 #include "core/testing/DummyPageHolder.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/text/StringBuilder.h"
-
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -93,6 +91,30 @@ TestCase viewportTestCases[] = {
     {0, 0} // Do not remove the terminator line.
 };
 
+TestCase floatViewportTestCases[] = {
+    {"all and (min-width: 600.5px)", 1},
+    {"(min-width: 600px)", 1},
+    {"(min-width: 600.5px)", 1},
+    {"(min-width: 601px)", 0},
+    {"(max-width: 600px)", 0},
+    {"(max-width: 600.5px)", 1},
+    {"(max-width: 601px)", 1},
+    {"(width: 600.5px)", 1},
+    {"(width: 601px)", 0},
+    {"(min-height: 700px)", 1},
+    {"(min-height: 700.125px)", 1},
+    {"(min-height: 701px)", 0},
+    {"(min-height: 700.126px)", 0},
+    {"(max-height: 701px)", 1},
+    {"(max-height: 700.125px)", 1},
+    {"(max-height: 700px)", 0},
+    {"(height: 700.125px)", 1},
+    {"(height: 700.126px)", 0},
+    {"(height: 700.124px)", 0},
+    {"(height: 701px)", 0},
+    {0, 0} // Do not remove the terminator line.
+};
+
 TestCase printTestCases[] = {
     {"print and (min-resolution: 1dppx)", 1},
     {"print and (min-resolution: 118dpcm)", 1},
@@ -160,4 +182,15 @@ TEST(MediaQueryEvaluatorTest, DynamicNoView)
     EXPECT_FALSE(mediaQueryEvaluator.eval(querySet.get()));
 }
 
-} // namespace
+TEST(MediaQueryEvaluatorTest, CachedFloatViewport)
+{
+    MediaValuesCached::MediaValuesCachedData data;
+    data.viewportWidth = 600.5;
+    data.viewportHeight = 700.125;
+    RefPtrWillBeRawPtr<MediaValues> mediaValues = MediaValuesCached::create(data);
+
+    MediaQueryEvaluator mediaQueryEvaluator(*mediaValues);
+    testMQEvaluator(floatViewportTestCases, mediaQueryEvaluator);
+}
+
+} // namespace blink

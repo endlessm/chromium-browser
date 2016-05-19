@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/RootInlineBoxPainter.h"
 
+#include "core/layout/api/LineLayoutAPIShim.h"
 #include "core/layout/line/EllipsisBox.h"
 #include "core/layout/line/RootInlineBox.h"
 #include "core/paint/PaintInfo.h"
@@ -13,8 +13,7 @@ namespace blink {
 
 void RootInlineBoxPainter::paintEllipsisBox(const PaintInfo& paintInfo, const LayoutPoint& paintOffset, LayoutUnit lineTop, LayoutUnit lineBottom) const
 {
-    if (m_rootInlineBox.hasEllipsisBox() && paintInfo.shouldPaintWithinRoot(&m_rootInlineBox.layoutObject()) && m_rootInlineBox.lineLayoutItem().style()->visibility() == VISIBLE
-        && paintInfo.phase == PaintPhaseForeground)
+    if (m_rootInlineBox.hasEllipsisBox() && m_rootInlineBox.getLineLayoutItem().style()->visibility() == VISIBLE && paintInfo.phase == PaintPhaseForeground)
         m_rootInlineBox.ellipsisBox()->paint(paintInfo, paintOffset, lineTop, lineBottom);
 }
 

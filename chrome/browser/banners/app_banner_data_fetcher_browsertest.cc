@@ -9,8 +9,10 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner.h"
+#include "base/test/histogram_tester.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/banners/app_banner_data_fetcher_desktop.h"
+#include "chrome/browser/banners/app_banner_metrics.h"
 #include "chrome/browser/banners/app_banner_settings_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -65,13 +67,14 @@ class AppBannerDataFetcherBrowserTest : public InProcessBrowserTest,
   void SetUpOnMainThread() override {
     AppBannerSettingsHelper::SetEngagementWeights(1, 1);
     AppBannerSettingsHelper::SetTotalEngagementToTrigger(2);
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
     InProcessBrowserTest::SetUpOnMainThread();
   }
 
   bool HandleNonWebApp(const std::string& platform,
                        const GURL& url,
-                       const std::string& id) override {
+                       const std::string& id,
+                       bool is_debug_mode) override {
     base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, quit_closure_);
     non_web_platform_ = platform;
     return false;
@@ -93,10 +96,10 @@ class AppBannerDataFetcherBrowserTest : public InProcessBrowserTest,
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     scoped_refptr<AppBannerDataFetcherDesktop> fetcher(
-        new AppBannerDataFetcherDesktop(web_contents,
-                                        weak_factory_.GetWeakPtr(),
-                                        128, 128));
+        new AppBannerDataFetcherDesktop(
+            web_contents, weak_factory_.GetWeakPtr(), 128, 128, false));
 
+    base::HistogramTester histograms;
     base::RunLoop run_loop;
     quit_closure_ = run_loop.QuitClosure();
     scoped_ptr<TestObserver> observer(new TestObserver(fetcher.get(),
@@ -107,6 +110,10 @@ class AppBannerDataFetcherBrowserTest : public InProcessBrowserTest,
     EXPECT_EQ(expected_non_web_platform, non_web_platform_);
     EXPECT_EQ(expected_to_show, observer->will_show());
     ASSERT_FALSE(fetcher->is_active());
+
+    // If showing the banner, ensure that the minutes histogram is recorded.
+    histograms.ExpectTotalCount(banners::kMinutesHistogram,
+                                (observer->will_show() ? 1 : 0));
   }
 
   void RunBannerTest(const std::string& manifest_page,

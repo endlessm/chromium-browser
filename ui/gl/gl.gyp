@@ -18,6 +18,7 @@
         '<(DEPTH)/gpu/command_buffer/command_buffer.gyp:gles2_utils',
         '<(DEPTH)/skia/skia.gyp:skia',
         '<(DEPTH)/third_party/mesa/mesa.gyp:mesa_headers',
+        '<(DEPTH)/ui/base/ui_base.gyp:ui_base',
         '<(DEPTH)/ui/gfx/gfx.gyp:gfx',
         '<(DEPTH)/ui/gfx/gfx.gyp:gfx_geometry',
       ],
@@ -46,8 +47,6 @@
         'gl_bindings_autogen_gl.h',
         'gl_bindings_autogen_osmesa.cc',
         'gl_bindings_autogen_osmesa.h',
-        'gl_bindings_skia_in_process.cc',
-        'gl_bindings_skia_in_process.h',
         'gl_context.cc',
         'gl_context.h',
         'gl_context_android.cc',
@@ -73,6 +72,8 @@
         'gl_fence_nv.h',
         'gl_gl_api_implementation.cc',
         'gl_gl_api_implementation.h',
+        'gl_helper.cc',
+        'gl_helper.h',
         'gl_image.h',
         'gl_image_memory.cc',
         'gl_image_memory.h',
@@ -101,6 +102,8 @@
         'gl_surface_mac.cc',
         'gl_surface_osmesa.cc',
         'gl_surface_osmesa.h',
+        'gl_surface_overlay.cc',
+        'gl_surface_overlay.h',
         'gl_surface_ozone.cc',
         'gl_surface_stub.cc',
         'gl_surface_stub.h',
@@ -166,6 +169,8 @@
             'gl_glx_api_implementation.h',
             'gl_image_glx.cc',
             'gl_image_glx.h',
+            'gl_surface_egl_x11.cc',
+            'gl_surface_egl_x11.h',
             'gl_surface_glx.cc',
             'gl_surface_glx.h',
           ],
@@ -181,6 +186,14 @@
             '<(DEPTH)/ui/events/platform/events_platform.gyp:events_platform',
             '<(DEPTH)/ui/gfx/x/gfx_x11.gyp:gfx_x11',
           ],
+          'copies': [{
+            'destination': '<(PRODUCT_DIR)',
+            'files':
+            [
+              "<(PRODUCT_DIR)/lib/libEGL.so",
+              "<(PRODUCT_DIR)/lib/libGLESv2.so",
+            ],
+          }],
         }],
         ['OS=="win"', {
           'sources': [
@@ -196,6 +209,8 @@
             'gl_surface_wgl.h',
             'gl_wgl_api_implementation.cc',
             'gl_wgl_api_implementation.h',
+            'vsync_provider_win.cc',
+            'vsync_provider_win.h',
           ],
           'msvs_settings': {
             'VCLinkerTool': {

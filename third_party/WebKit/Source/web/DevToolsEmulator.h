@@ -5,8 +5,9 @@
 #ifndef DevToolsEmulator_h
 #define DevToolsEmulator_h
 
-#include "core/css/PointerProperties.h"
 #include "platform/heap/Handle.h"
+#include "public/platform/PointerProperties.h"
+#include "public/web/WebDeviceEmulationParams.h"
 #include "wtf/Forward.h"
 #include "wtf/OwnPtr.h"
 
@@ -17,16 +18,11 @@ class IntPoint;
 class WebInputEvent;
 class WebViewImpl;
 
-struct WebDeviceEmulationParams;
-
 class DevToolsEmulator final : public NoBaseWillBeGarbageCollectedFinalized<DevToolsEmulator> {
 public:
     ~DevToolsEmulator();
     static PassOwnPtrWillBeRawPtr<DevToolsEmulator> create(WebViewImpl*);
     DECLARE_TRACE();
-
-    void setEmulationAgent(InspectorEmulationAgent*);
-    void viewportChanged();
 
     // Settings overrides.
     void setTextAutosizingEnabled(bool);
@@ -41,11 +37,14 @@ public:
     void setPrimaryPointerType(PointerType);
     void setAvailableHoverTypes(int);
     void setPrimaryHoverType(HoverType);
+    void setMainFrameResizesAreOrientationChanges(bool);
+    bool mainFrameResizesAreOrientationChanges() const;
 
     // Emulation.
     void enableDeviceEmulation(const WebDeviceEmulationParams&);
     void disableDeviceEmulation();
     bool deviceEmulationEnabled() { return m_deviceMetricsEnabled; }
+    bool resizeIsDeviceSizeChange();
     void setTouchEventEmulationEnabled(bool);
     bool handleInputEvent(const WebInputEvent&);
     void setScriptExecutionDisabled(bool);
@@ -57,11 +56,14 @@ private:
     void disableMobileEmulation();
 
     WebViewImpl* m_webViewImpl;
-    RawPtrWillBeMember<InspectorEmulationAgent> m_emulationAgent;
 
     bool m_deviceMetricsEnabled;
     bool m_emulateMobileEnabled;
+    WebDeviceEmulationParams m_emulationParams;
+
     bool m_isOverlayScrollbarsEnabled;
+    bool m_isOrientationEventEnabled;
+    bool m_isMobileLayoutThemeEnabled;
     float m_originalDefaultMinimumPageScaleFactor;
     float m_originalDefaultMaximumPageScaleFactor;
     bool m_embedderTextAutosizingEnabled;
@@ -76,6 +78,7 @@ private:
 
     bool m_touchEventEmulationEnabled;
     bool m_doubleTapToZoomEnabled;
+    bool m_mainFrameResizesAreOrientationChanges;
     bool m_originalTouchEnabled;
     bool m_originalDeviceSupportsMouse;
     bool m_originalDeviceSupportsTouch;

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/extensions/extensions_ui.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/extensions/extension_loader_handler.h"
 #include "chrome/browser/ui/webui/extensions/extension_settings_handler.h"
@@ -16,6 +17,7 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "grit/browser_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
@@ -61,6 +63,13 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
   source->AddLocalizedString("itemDetails", IDS_MD_EXTENSIONS_ITEM_DETAILS);
   source->AddLocalizedString("itemEnabled", IDS_MD_EXTENSIONS_ITEM_ENABLED);
   source->AddLocalizedString("itemDisabled", IDS_MD_EXTENSIONS_ITEM_DISABLED);
+  source->AddLocalizedString("itemCorruptInstall",
+                             IDS_EXTENSIONS_CORRUPTED_EXTENSION);
+  source->AddString(
+      "itemSuspiciousInstall",
+      l10n_util::GetStringFUTF16(
+          IDS_EXTENSIONS_ADDED_WITHOUT_KNOWLEDGE,
+          l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE)));
   source->AddLocalizedString("viewBackgroundPage",
                              IDS_EXTENSIONS_BACKGROUND_PAGE);
   source->AddLocalizedString("viewIncognito",
@@ -77,6 +86,9 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
   source->AddResourcePath("item.css", IDR_MD_EXTENSIONS_ITEM_CSS);
   source->AddResourcePath("item.html", IDR_MD_EXTENSIONS_ITEM_HTML);
   source->AddResourcePath("item.js", IDR_MD_EXTENSIONS_ITEM_JS);
+  source->AddResourcePath("item_list.css", IDR_MD_EXTENSIONS_ITEM_LIST_CSS);
+  source->AddResourcePath("item_list.html", IDR_MD_EXTENSIONS_ITEM_LIST_HTML);
+  source->AddResourcePath("item_list.js", IDR_MD_EXTENSIONS_ITEM_LIST_JS);
   source->AddResourcePath("service.html", IDR_MD_EXTENSIONS_SERVICE_HTML);
   source->AddResourcePath("service.js", IDR_MD_EXTENSIONS_SERVICE_JS);
   source->AddResourcePath("sidebar.css", IDR_MD_EXTENSIONS_SIDEBAR_CSS);

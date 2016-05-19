@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/ui/panels/detached_panel_collection.h"
 #include "chrome/browser/ui/panels/docked_panel_collection.h"
@@ -105,6 +106,11 @@ void PanelManager::SetDisplaySettingsProviderForTesting(
 
 // static
 bool PanelManager::ShouldUsePanels(const std::string& extension_id) {
+  // If --disable-panels is on, never use panels.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisablePanels))
+    return false;
+
   // If --enable-panels is on, always use panels.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnablePanels))
@@ -215,6 +221,7 @@ int PanelManager::GetMaxPanelHeight(const gfx::Rect& work_area) const {
 Panel* PanelManager::CreatePanel(const std::string& app_name,
                                  Profile* profile,
                                  const GURL& url,
+                                 content::SiteInstance* source_site_instance,
                                  const gfx::Rect& requested_bounds,
                                  CreateMode mode) {
   // Need to sync the display area if no panel is present. This is because:
@@ -264,7 +271,8 @@ Panel* PanelManager::CreatePanel(const std::string& app_name,
       adjusted_requested_bounds);
   bounds.AdjustToFit(work_area);
 
-  panel->Initialize(url, bounds, collection->UsesAlwaysOnTopPanels());
+  panel->Initialize(url, source_site_instance, bounds,
+                    collection->UsesAlwaysOnTopPanels());
 
   // Auto resizable feature is enabled only if no initial size is requested.
   if (auto_sizing_enabled() && requested_bounds.width() == 0 &&

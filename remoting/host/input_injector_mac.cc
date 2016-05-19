@@ -7,13 +7,16 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <Carbon/Carbon.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
-#include <algorithm>
+#include <stdint.h>
 
-#include "base/basictypes.h"
+#include <algorithm>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
@@ -108,7 +111,7 @@ class InputInjectorMac : public InputInjector {
 
     scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
     webrtc::DesktopVector mouse_pos_;
-    uint32 mouse_button_state_;
+    uint32_t mouse_button_state_;
     scoped_ptr<Clipboard> clipboard_;
     uint64_t left_modifiers_;
     uint64_t right_modifiers_;
@@ -153,7 +156,7 @@ void InputInjectorMac::InjectTouchEvent(const TouchEvent& event) {
 
 void InputInjectorMac::Start(
     scoped_ptr<protocol::ClipboardStub> client_clipboard) {
-  core_->Start(client_clipboard.Pass());
+  core_->Start(std::move(client_clipboard));
 }
 
 InputInjectorMac::Core::Core(
@@ -340,7 +343,7 @@ void InputInjectorMac::Core::Start(
     return;
   }
 
-  clipboard_->Start(client_clipboard.Pass());
+  clipboard_->Start(std::move(client_clipboard));
 }
 
 void InputInjectorMac::Core::Stop() {

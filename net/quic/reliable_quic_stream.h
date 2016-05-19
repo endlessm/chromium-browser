@@ -17,12 +17,14 @@
 #ifndef NET_QUIC_RELIABLE_QUIC_STREAM_H_
 #define NET_QUIC_RELIABLE_QUIC_STREAM_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 #include <list>
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_piece.h"
 #include "net/base/iovec.h"
@@ -31,6 +33,8 @@
 #include "net/quic/quic_protocol.h"
 #include "net/quic/quic_stream_sequencer.h"
 #include "net/quic/quic_types.h"
+// TODO(alyssar) remove this after cleaning Priority logic from this class.
+#include "net/quic/quic_write_blocked_list.h"
 
 namespace net {
 
@@ -42,8 +46,7 @@ class QuicSession;
 
 class NET_EXPORT_PRIVATE ReliableQuicStream {
  public:
-  ReliableQuicStream(QuicStreamId id,
-                     QuicSession* session);
+  ReliableQuicStream(QuicStreamId id, QuicSession* session);
 
   virtual ~ReliableQuicStream();
 
@@ -70,7 +73,8 @@ class NET_EXPORT_PRIVATE ReliableQuicStream {
 
   // Called by the session when the endpoint receives or sends a connection
   // close, and should immediately close the stream.
-  virtual void OnConnectionClosed(QuicErrorCode error, bool from_peer);
+  virtual void OnConnectionClosed(QuicErrorCode error,
+                                  ConnectionCloseSource source);
 
   // Called by the stream subclass after it has consumed the final incoming
   // data.
@@ -87,13 +91,8 @@ class NET_EXPORT_PRIVATE ReliableQuicStream {
 
   // Called by the subclass or the sequencer to close the entire connection from
   // this end.
-  virtual void CloseConnection(QuicErrorCode error);
   virtual void CloseConnectionWithDetails(QuicErrorCode error,
                                           const std::string& details);
-
-  // Returns the effective priority for the stream.  This value may change
-  // during the life of the stream.
-  virtual QuicPriority EffectivePriority() const = 0;
 
   QuicStreamId id() const { return id_; }
 
@@ -110,8 +109,10 @@ class NET_EXPORT_PRIVATE ReliableQuicStream {
   bool fin_received() { return fin_received_; }
   bool fin_sent() { return fin_sent_; }
 
-  uint64 stream_bytes_read() const { return stream_bytes_read_; }
-  uint64 stream_bytes_written() const { return stream_bytes_written_; }
+  uint64_t queued_data_bytes() const { return queued_data_bytes_; }
+
+  uint64_t stream_bytes_read() const { return stream_bytes_read_; }
+  uint64_t stream_bytes_written() const { return stream_bytes_written_; }
 
   void set_fin_sent(bool fin_sent) { fin_sent_ = fin_sent; }
   void set_fin_received(bool fin_received) { fin_received_ = fin_received; }
@@ -243,6 +244,8 @@ class NET_EXPORT_PRIVATE ReliableQuicStream {
   void MaybeSendBlocked();
 
   std::list<PendingData> queued_data_;
+  // How many bytes are queued?
+  uint64_t queued_data_bytes_;
 
   QuicStreamSequencer sequencer_;
   QuicStreamId id_;
@@ -250,8 +253,8 @@ class NET_EXPORT_PRIVATE ReliableQuicStream {
   QuicSession* session_;
   // Bytes read and written refer to payload bytes only: they do not include
   // framing, encryption overhead etc.
-  uint64 stream_bytes_read_;
-  uint64 stream_bytes_written_;
+  uint64_t stream_bytes_read_;
+  uint64_t stream_bytes_written_;
 
   // Stream error code received from a RstStreamFrame or error code sent by the
   // visitor or sequencer in the RstStreamFrame.

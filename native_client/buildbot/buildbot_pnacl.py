@@ -60,7 +60,7 @@ def RunSconsTests(status, context):
           SCons(context, parallel=True, args=['run_hello_world_test'])
     with Step('build_all ' + arch, status):
       SCons(context, parallel=True, args=flags_build)
-    if arch == 'x86-32':
+    if arch in ('x86-32', 'x86-64'):
       with Step('build_all subzero ' + arch, status):
         SCons(context, parallel=True, args=flags_build + flags_subzero)
 
@@ -74,7 +74,7 @@ def RunSconsTests(status, context):
   # Run small_tests, medium_tests, and large_tests with Subzero.
   # TODO(stichnot): Move this to the sandboxed translator section
   # along with the translate_fast flag once pnacl-sz.nexe is ready.
-  if arch == 'x86-32':
+  if arch in ('x86-32', 'x86-64'):
     # Normal pexe-mode tests
     with Step('smoke_tests subzero ' + arch, status, halt_on_fail=False):
       SCons(context, parallel=True,
@@ -123,11 +123,9 @@ def RunSconsTests(status, context):
   # the batch script wrappers, so it can't run on Windows. Either add them to
   # the translator package or make SCons use the pnacl_newlib drivers except
   # on the ARM bots where we don't have the pnacl_newlib drivers.
-  # The mac standalone sandboxed translator is flaky.
-  # https://code.google.com/p/nativeclient/issues/detail?id=3856
   # TODO(sbc): Enable these tests for mips once we build the version of the
   # translator nexe
-  if not context.Windows() and not context.Mac() and arch != 'mips32':
+  if not context.Windows() and arch != 'mips32':
     flags_run_sbtc = ['use_sandboxed_translator=1']
     sbtc_tests = ['toolchain_tests_irt']
     if arch == 'arm':
@@ -205,12 +203,6 @@ def RunSconsTests(status, context):
     with Step('unsandboxed_tests ' + arch, status, halt_on_fail=False):
       SCons(context, parallel=True, mode=irt_mode,
             args=flags_run + ['pnacl_unsandboxed=1'] + tests)
-
-  # Test MinSFI.
-  if not context.Windows() and (arch == 'x86-32' or arch == 'x86-64'):
-    with Step('minsfi_tests ' + arch, status, halt_on_fail=False):
-      SCons(context, parallel=True,
-            args=flags_run + ['minsfi=1', 'minsfi_tests'])
 
 def Main():
   context = BuildContext()

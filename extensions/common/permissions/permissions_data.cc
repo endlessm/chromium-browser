@@ -4,7 +4,11 @@
 
 #include "extensions/common/permissions/permissions_data.h"
 
+#include <algorithm>
+#include <utility>
+
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
@@ -132,14 +136,14 @@ void PermissionsData::SetPermissions(
     scoped_ptr<const PermissionSet> active,
     scoped_ptr<const PermissionSet> withheld) const {
   AutoLockOnValidThread lock(runtime_lock_, thread_checker_.get());
-  active_permissions_unsafe_ = active.Pass();
-  withheld_permissions_unsafe_ = withheld.Pass();
+  active_permissions_unsafe_ = std::move(active);
+  withheld_permissions_unsafe_ = std::move(withheld);
 }
 
 void PermissionsData::SetActivePermissions(
     scoped_ptr<const PermissionSet> active) const {
   AutoLockOnValidThread lock(runtime_lock_, thread_checker_.get());
-  active_permissions_unsafe_ = active.Pass();
+  active_permissions_unsafe_ = std::move(active);
 }
 
 void PermissionsData::UpdateTabSpecificPermissions(
@@ -154,7 +158,7 @@ void PermissionsData::UpdateTabSpecificPermissions(
           ? static_cast<const PermissionSet&>(PermissionSet())
           : *iter->second,
       permissions);
-  tab_specific_permissions_[tab_id] = new_permissions.Pass();
+  tab_specific_permissions_[tab_id] = std::move(new_permissions);
 }
 
 void PermissionsData::ClearTabSpecificPermissions(int tab_id) const {
@@ -229,11 +233,10 @@ bool PermissionsData::HasWithheldImpliedAllHosts() const {
 bool PermissionsData::CanAccessPage(const Extension* extension,
                                     const GURL& document_url,
                                     int tab_id,
-                                    int process_id,
                                     std::string* error) const {
   base::AutoLock auto_lock(runtime_lock_);
   AccessType result =
-      CanRunOnPage(extension, document_url, tab_id, process_id,
+      CanRunOnPage(extension, document_url, tab_id,
                    active_permissions_unsafe_->explicit_hosts(),
                    withheld_permissions_unsafe_->explicit_hosts(), error);
   // TODO(rdevlin.cronin) Update callers so that they only need ACCESS_ALLOWED.
@@ -244,10 +247,9 @@ PermissionsData::AccessType PermissionsData::GetPageAccess(
     const Extension* extension,
     const GURL& document_url,
     int tab_id,
-    int process_id,
     std::string* error) const {
   base::AutoLock auto_lock(runtime_lock_);
-  return CanRunOnPage(extension, document_url, tab_id, process_id,
+  return CanRunOnPage(extension, document_url, tab_id,
                       active_permissions_unsafe_->explicit_hosts(),
                       withheld_permissions_unsafe_->explicit_hosts(), error);
 }
@@ -255,11 +257,10 @@ PermissionsData::AccessType PermissionsData::GetPageAccess(
 bool PermissionsData::CanRunContentScriptOnPage(const Extension* extension,
                                                 const GURL& document_url,
                                                 int tab_id,
-                                                int process_id,
                                                 std::string* error) const {
   base::AutoLock auto_lock(runtime_lock_);
   AccessType result =
-      CanRunOnPage(extension, document_url, tab_id, process_id,
+      CanRunOnPage(extension, document_url, tab_id,
                    active_permissions_unsafe_->scriptable_hosts(),
                    withheld_permissions_unsafe_->scriptable_hosts(), error);
   // TODO(rdevlin.cronin) Update callers so that they only need ACCESS_ALLOWED.
@@ -270,10 +271,9 @@ PermissionsData::AccessType PermissionsData::GetContentScriptAccess(
     const Extension* extension,
     const GURL& document_url,
     int tab_id,
-    int process_id,
     std::string* error) const {
   base::AutoLock auto_lock(runtime_lock_);
-  return CanRunOnPage(extension, document_url, tab_id, process_id,
+  return CanRunOnPage(extension, document_url, tab_id,
                       active_permissions_unsafe_->scriptable_hosts(),
                       withheld_permissions_unsafe_->scriptable_hosts(), error);
 }
@@ -330,14 +330,13 @@ PermissionsData::AccessType PermissionsData::CanRunOnPage(
     const Extension* extension,
     const GURL& document_url,
     int tab_id,
-    int process_id,
     const URLPatternSet& permitted_url_patterns,
     const URLPatternSet& withheld_url_patterns,
     std::string* error) const {
   runtime_lock_.AssertAcquired();
   if (g_policy_delegate &&
-      !g_policy_delegate->CanExecuteScriptOnPage(
-          extension, document_url, tab_id, process_id, error)) {
+      !g_policy_delegate->CanExecuteScriptOnPage(extension, document_url,
+                                                 tab_id, error)) {
     return ACCESS_DENIED;
   }
 

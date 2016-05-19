@@ -2,11 +2,18 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/ui.gni")
 import("//testing/test.gni")
 
-# Metatarget for all of Blimp's feature code.
+# Convenience meta-target for all of Blimp's production & test code.
 group("blimp") {
+  # In spite of the name, this really just means that non-test targets
+  # cannot depend on this one, and that it can depend on test targets,
+  # which fits how we intend to use it.
+  testonly = true
+
   deps = [
+    ":blimp_tests",
     "//blimp/client:blimp_client",
     "//blimp/common:blimp_common",
   ]
@@ -16,7 +23,14 @@ group("blimp") {
   }
 
   if (is_linux) {
-    deps += [ "//blimp/engine:blimp_engine" ]
+    deps += [
+      "//blimp/engine:blimp_engine",
+      "//blimp/engine:blimp_engine_bundle",
+    ]
+  }
+
+  if (is_linux && !is_chromeos && use_x11) {
+    deps += [ "//blimp/client:blimp_shell" ]
   }
 }
 
@@ -35,15 +49,14 @@ group("blimp_tests") {
 
 test("blimp_unittests") {
   deps = [
+    "//blimp/client:app_unit_tests",
+    "//blimp/client:blimp_client_unit_tests",
+    "//blimp/client:feature_unit_tests",
+    "//blimp/common:unit_tests",
     "//blimp/net:unit_tests",
   ]
-}
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("blimp_unittests_run") {
-  testonly = true
-  deps = [
-    ":blimp_unittests",
-  ]
+  if (is_linux) {
+    deps += [ "//blimp/engine:unit_tests" ]
+  }
 }

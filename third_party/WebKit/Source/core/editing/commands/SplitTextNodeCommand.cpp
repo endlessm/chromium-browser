@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/SplitTextNodeCommand.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -50,7 +49,7 @@ SplitTextNodeCommand::SplitTextNodeCommand(PassRefPtrWillBeRawPtr<Text> text, in
     ASSERT(m_offset < m_text2->length());
 }
 
-void SplitTextNodeCommand::doApply()
+void SplitTextNodeCommand::doApply(EditingState*)
 {
     ContainerNode* parent = m_text2->parentNode();
     if (!parent || !parent->hasEditableStyle())

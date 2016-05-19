@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
 #include <vector>
 
 #include "base/files/file.h"
@@ -26,11 +29,11 @@ TEST_F(FileImplTest, CreateWriteCloseRenameOpenRead) {
   {
     // Create my_file.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagWrite | kFlagCreate,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Write to it.
     std::vector<uint8_t> bytes_to_write;
@@ -39,42 +42,42 @@ TEST_F(FileImplTest, CreateWriteCloseRenameOpenRead) {
     bytes_to_write.push_back(static_cast<uint8_t>('l'));
     bytes_to_write.push_back(static_cast<uint8_t>('l'));
     bytes_to_write.push_back(static_cast<uint8_t>('o'));
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     uint32_t num_bytes_written = 0;
     file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+                Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
 
     // Close it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     file->Close(Capture(&error));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
   }
 
   // Rename it.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   directory->Rename("my_file", "your_file", Capture(&error));
   ASSERT_TRUE(directory.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   {
     // Open my_file again.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("your_file", GetProxy(&file), kFlagRead | kFlagOpen,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Read from it.
     mojo::Array<uint8_t> bytes_read;
-    error = FILE_ERROR_FAILED;
-    file->Read(3, 1, WHENCE_FROM_BEGIN, Capture(&error, &bytes_read));
+    error = FileError::FAILED;
+    file->Read(3, 1, Whence::FROM_BEGIN, Capture(&error, &bytes_read));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     ASSERT_EQ(3u, bytes_read.size());
     EXPECT_EQ(static_cast<uint8_t>('e'), bytes_read[0]);
     EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[1]);
@@ -99,52 +102,52 @@ TEST_F(FileImplTest, CantWriteInReadMode) {
   {
     // Create my_file.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagWrite | kFlagCreate,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Write to it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     uint32_t num_bytes_written = 0;
     file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+                Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
 
     // Close it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     file->Close(Capture(&error));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
   }
 
   {
     // Open my_file again, this time with read only mode.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagRead | kFlagOpen,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Try to write in read mode; it should fail.
-    error = FILE_ERROR_OK;
+    error = FileError::OK;
     uint32_t num_bytes_written = 0;
     file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+                Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
 
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_FAILED, error);
+    EXPECT_EQ(FileError::FAILED, error);
     EXPECT_EQ(0u, num_bytes_written);
 
     // Close it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     file->Close(Capture(&error));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
   }
 }
 
@@ -156,11 +159,11 @@ TEST_F(FileImplTest, OpenInAppendMode) {
   {
     // Create my_file.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagWrite | kFlagCreate,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Write to it.
     std::vector<uint8_t> bytes_to_write;
@@ -169,29 +172,29 @@ TEST_F(FileImplTest, OpenInAppendMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('l'));
     bytes_to_write.push_back(static_cast<uint8_t>('l'));
     bytes_to_write.push_back(static_cast<uint8_t>('o'));
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     uint32_t num_bytes_written = 0;
     file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+                Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
 
     // Close it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     file->Close(Capture(&error));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
   }
 
   {
     // Append to my_file.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagAppend | kFlagOpen,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Write to it.
     std::vector<uint8_t> bytes_to_write;
@@ -202,36 +205,36 @@ TEST_F(FileImplTest, OpenInAppendMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('b'));
     bytes_to_write.push_back(static_cast<uint8_t>('y'));
     bytes_to_write.push_back(static_cast<uint8_t>('e'));
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     uint32_t num_bytes_written = 0;
     file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+                Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
 
     // Close it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     file->Close(Capture(&error));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
   }
 
   {
     // Open my_file again.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagRead | kFlagOpen,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Read from it.
     mojo::Array<uint8_t> bytes_read;
-    error = FILE_ERROR_FAILED;
-    file->Read(12, 0, WHENCE_FROM_BEGIN, Capture(&error, &bytes_read));
+    error = FileError::FAILED;
+    file->Read(12, 0, Whence::FROM_BEGIN, Capture(&error, &bytes_read));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     ASSERT_EQ(12u, bytes_read.size());
     EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[3]);
     EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[4]);
@@ -248,11 +251,11 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
   {
     // Create my_file.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagWrite | kFlagCreate,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Write to it.
     std::vector<uint8_t> bytes_to_write;
@@ -261,29 +264,29 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('l'));
     bytes_to_write.push_back(static_cast<uint8_t>('l'));
     bytes_to_write.push_back(static_cast<uint8_t>('o'));
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     uint32_t num_bytes_written = 0;
     file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+                Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
 
     // Close it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     file->Close(Capture(&error));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
   }
 
   {
     // Append to my_file.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file),
                         kFlagWrite | kFlagOpenTruncated, Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Write to it.
     std::vector<uint8_t> bytes_to_write;
@@ -294,36 +297,36 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('b'));
     bytes_to_write.push_back(static_cast<uint8_t>('y'));
     bytes_to_write.push_back(static_cast<uint8_t>('e'));
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     uint32_t num_bytes_written = 0;
     file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+                Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
 
     // Close it.
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     file->Close(Capture(&error));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
   }
 
   {
     // Open my_file again.
     FilePtr file;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file), kFlagRead | kFlagOpen,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Read from it.
     mojo::Array<uint8_t> bytes_read;
-    error = FILE_ERROR_FAILED;
-    file->Read(7, 0, WHENCE_FROM_BEGIN, Capture(&error, &bytes_read));
+    error = FileError::FAILED;
+    file->Read(7, 0, Whence::FROM_BEGIN, Capture(&error, &bytes_read));
     ASSERT_TRUE(file.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     ASSERT_EQ(7u, bytes_read.size());
     EXPECT_EQ(static_cast<uint8_t>('g'), bytes_read[0]);
     EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[1]);
@@ -341,41 +344,41 @@ TEST_F(FileImplTest, StatTouch) {
 
   // Create my_file.
   FilePtr file;
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   directory->OpenFile("my_file", GetProxy(&file), kFlagWrite | kFlagCreate,
                       Capture(&error));
   ASSERT_TRUE(directory.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Stat it.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   FileInformationPtr file_info;
   file->Stat(Capture(&error, &file_info));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   ASSERT_FALSE(file_info.is_null());
-  EXPECT_EQ(FS_FILE_TYPE_REGULAR_FILE, file_info->type);
+  EXPECT_EQ(FsFileType::REGULAR_FILE, file_info->type);
   EXPECT_EQ(0, file_info->size);
   EXPECT_GT(file_info->atime, 0);  // Expect that it's not 1970-01-01.
   EXPECT_GT(file_info->mtime, 0);
   double first_mtime = file_info->mtime;
 
   // Touch only the atime.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   TimespecOrNowPtr t(TimespecOrNow::New());
   t->now = false;
   const int64_t kPartyTime1 = 1234567890;  // Party like it's 2009-02-13.
   t->seconds = kPartyTime1;
-  file->Touch(t.Pass(), nullptr, Capture(&error));
+  file->Touch(std::move(t), nullptr, Capture(&error));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Stat again.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   file_info.reset();
   file->Stat(Capture(&error, &file_info));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   ASSERT_FALSE(file_info.is_null());
   EXPECT_EQ(kPartyTime1, file_info->atime);
   EXPECT_EQ(first_mtime, file_info->mtime);
@@ -385,16 +388,16 @@ TEST_F(FileImplTest, StatTouch) {
   t->now = false;
   const int64_t kPartyTime2 = 1425059525;  // No time like the present.
   t->seconds = kPartyTime2;
-  file->Touch(nullptr, t.Pass(), Capture(&error));
+  file->Touch(nullptr, std::move(t), Capture(&error));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Stat again.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   file_info.reset();
   file->Stat(Capture(&error, &file_info));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   ASSERT_FALSE(file_info.is_null());
   EXPECT_EQ(kPartyTime1, file_info->atime);
   EXPECT_EQ(kPartyTime2, file_info->mtime);
@@ -411,78 +414,78 @@ TEST_F(FileImplTest, TellSeek) {
 
   // Create my_file.
   FilePtr file;
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   directory->OpenFile("my_file", GetProxy(&file), kFlagWrite | kFlagCreate,
                       Capture(&error));
   ASSERT_TRUE(directory.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Write to it.
   std::vector<uint8_t> bytes_to_write(1000, '!');
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   uint32_t num_bytes_written = 0;
   file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-              WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+              Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
   const int size = static_cast<int>(num_bytes_written);
 
   // Tell.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   int64_t position = -1;
   file->Tell(Capture(&error, &position));
   ASSERT_TRUE(file.WaitForIncomingResponse());
   // Should be at the end.
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(size, position);
 
   // Seek back 100.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   position = -1;
-  file->Seek(-100, WHENCE_FROM_CURRENT, Capture(&error, &position));
+  file->Seek(-100, Whence::FROM_CURRENT, Capture(&error, &position));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(size - 100, position);
 
   // Tell.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   position = -1;
   file->Tell(Capture(&error, &position));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(size - 100, position);
 
   // Seek to 123 from start.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   position = -1;
-  file->Seek(123, WHENCE_FROM_BEGIN, Capture(&error, &position));
+  file->Seek(123, Whence::FROM_BEGIN, Capture(&error, &position));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(123, position);
 
   // Tell.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   position = -1;
   file->Tell(Capture(&error, &position));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(123, position);
 
   // Seek to 123 back from end.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   position = -1;
-  file->Seek(-123, WHENCE_FROM_END, Capture(&error, &position));
+  file->Seek(-123, Whence::FROM_END, Capture(&error, &position));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(size - 123, position);
 
   // Tell.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   position = -1;
   file->Tell(Capture(&error, &position));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(size - 123, position);
 
   // TODO(vtl): Check that seeking actually affects reading/writing.
@@ -496,11 +499,11 @@ TEST_F(FileImplTest, Dup) {
 
   // Create my_file.
   FilePtr file1;
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   directory->OpenFile("my_file", GetProxy(&file1),
                       kFlagRead | kFlagWrite | kFlagCreate, Capture(&error));
   ASSERT_TRUE(directory.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Write to it.
   std::vector<uint8_t> bytes_to_write;
@@ -509,28 +512,28 @@ TEST_F(FileImplTest, Dup) {
   bytes_to_write.push_back(static_cast<uint8_t>('l'));
   bytes_to_write.push_back(static_cast<uint8_t>('l'));
   bytes_to_write.push_back(static_cast<uint8_t>('o'));
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   uint32_t num_bytes_written = 0;
   file1->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-               WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+               Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
   ASSERT_TRUE(file1.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
   const int end_hello_pos = static_cast<int>(num_bytes_written);
 
   // Dup it.
   FilePtr file2;
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   file1->Dup(GetProxy(&file2), Capture(&error));
   ASSERT_TRUE(file1.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // |file2| should have the same position.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   int64_t position = -1;
   file2->Tell(Capture(&error, &position));
   ASSERT_TRUE(file2.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(end_hello_pos, position);
 
   // Write using |file2|.
@@ -540,35 +543,35 @@ TEST_F(FileImplTest, Dup) {
   more_bytes_to_write.push_back(static_cast<uint8_t>('r'));
   more_bytes_to_write.push_back(static_cast<uint8_t>('l'));
   more_bytes_to_write.push_back(static_cast<uint8_t>('d'));
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   num_bytes_written = 0;
   file2->Write(mojo::Array<uint8_t>::From(more_bytes_to_write), 0,
-               WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+               Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
   ASSERT_TRUE(file2.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(more_bytes_to_write.size(), num_bytes_written);
   const int end_world_pos = end_hello_pos + static_cast<int>(num_bytes_written);
 
   // |file1| should have the same position.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   position = -1;
   file1->Tell(Capture(&error, &position));
   ASSERT_TRUE(file1.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(end_world_pos, position);
 
   // Close |file1|.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   file1->Close(Capture(&error));
   ASSERT_TRUE(file1.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Read everything using |file2|.
   mojo::Array<uint8_t> bytes_read;
-  error = FILE_ERROR_FAILED;
-  file2->Read(1000, 0, WHENCE_FROM_BEGIN, Capture(&error, &bytes_read));
+  error = FileError::FAILED;
+  file2->Read(1000, 0, Whence::FROM_BEGIN, Capture(&error, &bytes_read));
   ASSERT_TRUE(file2.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   ASSERT_EQ(static_cast<size_t>(end_world_pos), bytes_read.size());
   // Just check the first and last bytes.
   EXPECT_EQ(static_cast<uint8_t>('h'), bytes_read[0]);
@@ -587,43 +590,43 @@ TEST_F(FileImplTest, Truncate) {
 
   // Create my_file.
   FilePtr file;
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   directory->OpenFile("my_file", GetProxy(&file), kFlagWrite | kFlagCreate,
                       Capture(&error));
   ASSERT_TRUE(directory.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Write to it.
   std::vector<uint8_t> bytes_to_write(kInitialSize, '!');
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   uint32_t num_bytes_written = 0;
   file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-              WHENCE_FROM_CURRENT, Capture(&error, &num_bytes_written));
+              Whence::FROM_CURRENT, Capture(&error, &num_bytes_written));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   EXPECT_EQ(kInitialSize, num_bytes_written);
 
   // Stat it.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   FileInformationPtr file_info;
   file->Stat(Capture(&error, &file_info));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   ASSERT_FALSE(file_info.is_null());
   EXPECT_EQ(kInitialSize, file_info->size);
 
   // Truncate it.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   file->Truncate(kTruncatedSize, Capture(&error));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
 
   // Stat again.
-  error = FILE_ERROR_FAILED;
+  error = FileError::FAILED;
   file_info.reset();
   file->Stat(Capture(&error, &file_info));
   ASSERT_TRUE(file.WaitForIncomingResponse());
-  EXPECT_EQ(FILE_ERROR_OK, error);
+  EXPECT_EQ(FileError::OK, error);
   ASSERT_FALSE(file_info.is_null());
   EXPECT_EQ(kTruncatedSize, file_info->size);
 }
@@ -636,18 +639,18 @@ TEST_F(FileImplTest, AsHandle) {
   {
     // Create my_file.
     FilePtr file1;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file1),
                         kFlagRead | kFlagWrite | kFlagCreate, Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Fetch the handle
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     mojo::ScopedHandle handle;
     file1->AsHandle(Capture(&error, &handle));
     ASSERT_TRUE(file1.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Pull a file descriptor out of the scoped handle.
     MojoPlatformHandle platform_handle;
@@ -664,24 +667,116 @@ TEST_F(FileImplTest, AsHandle) {
   {
     // Reopen my_file.
     FilePtr file2;
-    error = FILE_ERROR_FAILED;
+    error = FileError::FAILED;
     directory->OpenFile("my_file", GetProxy(&file2), kFlagRead | kFlagOpen,
                         Capture(&error));
     ASSERT_TRUE(directory.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
 
     // Verify that we wrote data raw on the file descriptor.
     mojo::Array<uint8_t> bytes_read;
-    error = FILE_ERROR_FAILED;
-    file2->Read(5, 0, WHENCE_FROM_BEGIN, Capture(&error, &bytes_read));
+    error = FileError::FAILED;
+    file2->Read(5, 0, Whence::FROM_BEGIN, Capture(&error, &bytes_read));
     ASSERT_TRUE(file2.WaitForIncomingResponse());
-    EXPECT_EQ(FILE_ERROR_OK, error);
+    EXPECT_EQ(FileError::OK, error);
     ASSERT_EQ(5u, bytes_read.size());
     EXPECT_EQ(static_cast<uint8_t>('h'), bytes_read[0]);
     EXPECT_EQ(static_cast<uint8_t>('e'), bytes_read[1]);
     EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[2]);
     EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[3]);
     EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[4]);
+  }
+}
+
+TEST_F(FileImplTest, SimpleLockUnlock) {
+  DirectoryPtr directory;
+  GetTemporaryRoot(&directory);
+  FileError error;
+
+  // Create my_file.
+  FilePtr file;
+  error = FileError::FAILED;
+  directory->OpenFile("my_file", GetProxy(&file),
+                      kFlagRead | kFlagWrite | kFlagCreate, Capture(&error));
+  ASSERT_TRUE(directory.WaitForIncomingResponse());
+  EXPECT_EQ(FileError::OK, error);
+
+  // Lock the file.
+  error = FileError::FAILED;
+  file->Lock(Capture(&error));
+  ASSERT_TRUE(file.WaitForIncomingResponse());
+  EXPECT_EQ(FileError::OK, error);
+
+  // Unlock the file.
+  error = FileError::FAILED;
+  file->Unlock(Capture(&error));
+  ASSERT_TRUE(file.WaitForIncomingResponse());
+  EXPECT_EQ(FileError::OK, error);
+}
+
+TEST_F(FileImplTest, CantDoubleLock) {
+  DirectoryPtr directory;
+  GetTemporaryRoot(&directory);
+  FileError error;
+
+  // Create my_file.
+  FilePtr file;
+  error = FileError::FAILED;
+  directory->OpenFile("my_file", GetProxy(&file),
+                      kFlagRead | kFlagWrite | kFlagCreate, Capture(&error));
+  ASSERT_TRUE(directory.WaitForIncomingResponse());
+  EXPECT_EQ(FileError::OK, error);
+
+  // Lock the file.
+  error = FileError::FAILED;
+  file->Lock(Capture(&error));
+  ASSERT_TRUE(file.WaitForIncomingResponse());
+  EXPECT_EQ(FileError::OK, error);
+
+  // Lock the file again.
+  error = FileError::OK;
+  file->Lock(Capture(&error));
+  ASSERT_TRUE(file.WaitForIncomingResponse());
+  EXPECT_EQ(FileError::FAILED, error);
+}
+
+TEST_F(FileImplTest, ClosingFileClearsLock) {
+  DirectoryPtr directory;
+  GetTemporaryRoot(&directory);
+  FileError error;
+
+  {
+    // Create my_file.
+    FilePtr file;
+    error = FileError::FAILED;
+    directory->OpenFile("my_file", GetProxy(&file),
+                        kFlagRead | kFlagWrite | kFlagOpenAlways,
+                        Capture(&error));
+    ASSERT_TRUE(directory.WaitForIncomingResponse());
+    EXPECT_EQ(FileError::OK, error);
+
+    // Lock the file.
+    error = FileError::FAILED;
+    file->Lock(Capture(&error));
+    ASSERT_TRUE(file.WaitForIncomingResponse());
+    EXPECT_EQ(FileError::OK, error);
+  }
+
+  {
+    // Open the file again.
+    FilePtr file;
+    error = FileError::FAILED;
+    directory->OpenFile("my_file", GetProxy(&file),
+                        kFlagRead | kFlagWrite | kFlagOpenAlways,
+                        Capture(&error));
+    ASSERT_TRUE(directory.WaitForIncomingResponse());
+    EXPECT_EQ(FileError::OK, error);
+
+    // The file shouldn't be locked (and we check by trying to lock it).
+    error = FileError::FAILED;
+    file->Lock(Capture(&error));
+    ASSERT_TRUE(file.WaitForIncomingResponse());
+    EXPECT_EQ(FileError::OK, error);
   }
 }
 

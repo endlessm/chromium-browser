@@ -38,16 +38,16 @@ void SkLocalMatrixImageFilter::flatten(SkWriteBuffer& buffer) const {
     buffer.writeMatrix(fLocalM);
 }
 
-bool SkLocalMatrixImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& src, const Context& ctx,
-                                             SkBitmap* result, SkIPoint* offset) const {
-    Context localCtx(SkMatrix::Concat(ctx.ctm(), fLocalM), ctx.clipBounds(), ctx.cache(),
-                     ctx.sizeConstraint());
-    return this->filterInput(0, proxy, src, localCtx, result, offset, false);
+bool SkLocalMatrixImageFilter::onFilterImageDeprecated(Proxy* proxy, const SkBitmap& src,
+                                                       const Context& ctx,
+                                                       SkBitmap* result, SkIPoint* offset) const {
+    Context localCtx(SkMatrix::Concat(ctx.ctm(), fLocalM), ctx.clipBounds(), ctx.cache());
+    return this->filterInputDeprecated(0, proxy, src, localCtx, result, offset);
 }
 
 bool SkLocalMatrixImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& matrix,
-                                              SkIRect* dst) const {
-    return this->getInput(0)->filterBounds(src, SkMatrix::Concat(matrix, fLocalM), dst);
+                                              SkIRect* dst, MapDirection direction) const {
+    return this->getInput(0)->filterBounds(src, SkMatrix::Concat(matrix, fLocalM), dst, direction);
 }
 
 #ifndef SK_IGNORE_TO_STRING

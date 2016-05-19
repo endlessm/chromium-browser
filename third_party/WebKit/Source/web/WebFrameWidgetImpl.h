@@ -52,7 +52,7 @@ class LocalFrame;
 class Page;
 class PaintLayerCompositor;
 class UserGestureToken;
-class WebCompositorAnimationTimeline;
+class CompositorAnimationTimeline;
 class WebLayer;
 class WebLayerTreeView;
 class WebMouseEvent;
@@ -83,7 +83,7 @@ public:
     void layoutAndPaintAsync(WebLayoutAndPaintAsyncCallback*) override;
     void compositeAndReadbackAsync(WebCompositeAndReadbackAsyncCallback*) override;
     void themeChanged() override;
-    bool handleInputEvent(const WebInputEvent&) override;
+    WebInputEventResult handleInputEvent(const WebInputEvent&) override;
     void setCursorVisibilityState(bool isVisible) override;
     bool hasTouchEventHandlersAt(const WebPoint&) override;
 
@@ -115,6 +115,13 @@ public:
     void willCloseLayerTreeView() override;
     void didChangeWindowResizerRect() override;
 
+    // WebFrameWidget implementation.
+    void setVisibilityState(WebPageVisibilityState, bool) override;
+    bool isTransparent() const override;
+    void setIsTransparent(bool) override;
+    void setBaseBackgroundColor(WebColor) override;
+    void scheduleAnimation() override;
+
     WebWidgetClient* client() const { return m_client; }
 
     Frame* focusedCoreFrame() const;
@@ -122,14 +129,10 @@ public:
     // Returns the currently focused Element or null if no element has focus.
     Element* focusedElement() const;
 
-    void scheduleAnimation();
-
     PaintLayerCompositor* compositor() const;
     void setRootGraphicsLayer(GraphicsLayer*);
-    void attachCompositorAnimationTimeline(WebCompositorAnimationTimeline*);
-    void detachCompositorAnimationTimeline(WebCompositorAnimationTimeline*);
-
-    void setVisibilityState(WebPageVisibilityState, bool) override;
+    void attachCompositorAnimationTimeline(CompositorAnimationTimeline*);
+    void detachCompositorAnimationTimeline(CompositorAnimationTimeline*);
 
     // Exposed for the purpose of overriding device metrics.
     void sendResizeEventAndRepaint();
@@ -153,6 +156,8 @@ public:
         ScrollDirection*,
         ScrollGranularity*);
 
+    Color baseBackgroundColor() const { return m_baseBackgroundColor; }
+
     DECLARE_TRACE();
 
 private:
@@ -170,10 +175,10 @@ private:
     HitTestResult hitTestResultForRootFramePos(const IntPoint& posInRootFrame);
 
     // Returns true if the event was actually processed.
-    bool keyEventDefault(const WebKeyboardEvent&);
+    WebInputEventResult keyEventDefault(const WebKeyboardEvent&);
 
     // Returns true if the view was scrolled.
-    bool scrollViewWithKeyboard(int keyCode, int modifiers);
+    WebInputEventResult scrollViewWithKeyboard(int keyCode, int modifiers);
 
     void initializeLayerTreeView();
 
@@ -182,16 +187,14 @@ private:
     void updateLayerTreeBackgroundColor();
     void updateLayerTreeDeviceScaleFactor();
 
-    bool isTransparent() const;
-
     // PageWidgetEventHandler functions
     void handleMouseLeave(LocalFrame&, const WebMouseEvent&) override;
     void handleMouseDown(LocalFrame&, const WebMouseEvent&) override;
     void handleMouseUp(LocalFrame&, const WebMouseEvent&) override;
-    bool handleMouseWheel(LocalFrame&, const WebMouseWheelEvent&) override;
-    bool handleGestureEvent(const WebGestureEvent&) override;
-    bool handleKeyEvent(const WebKeyboardEvent&) override;
-    bool handleCharEvent(const WebKeyboardEvent&) override;
+    WebInputEventResult handleMouseWheel(LocalFrame&, const WebMouseWheelEvent&) override;
+    WebInputEventResult handleGestureEvent(const WebGestureEvent&) override;
+    WebInputEventResult handleKeyEvent(const WebKeyboardEvent&) override;
+    WebInputEventResult handleCharEvent(const WebKeyboardEvent&) override;
 
     WebViewImpl* view() const { return m_localRoot->viewImpl(); }
 
@@ -217,7 +220,12 @@ private:
 
     bool m_ignoreInputEvents;
 
+    // Whether the WebFrameWidget is rendering transparently.
+    bool m_isTransparent;
+
     static const WebInputEvent* m_currentInputEvent;
+
+    WebColor m_baseBackgroundColor;
 
 #if ENABLE(OILPAN)
     SelfKeepAlive<WebFrameWidgetImpl> m_selfKeepAlive;

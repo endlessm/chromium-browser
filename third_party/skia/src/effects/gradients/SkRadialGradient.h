@@ -15,14 +15,13 @@ class SkRadialGradient : public SkGradientShaderBase {
 public:
     SkRadialGradient(const SkPoint& center, SkScalar radius, const Descriptor&);
 
-    size_t contextSize() const override;
+    size_t contextSize(const ContextRec&) const override;
 
     class RadialGradientContext : public SkGradientShaderBase::GradientShaderBaseContext {
     public:
         RadialGradientContext(const SkRadialGradient&, const ContextRec&);
 
         void shadeSpan(int x, int y, SkPMColor dstC[], int count) override;
-        void shadeSpan16(int x, int y, uint16_t dstC[], int count) override;
 
     private:
         typedef SkGradientShaderBase::GradientShaderBaseContext INHERITED;

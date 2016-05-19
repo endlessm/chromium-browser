@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/non_thread_safe.h"
@@ -163,6 +164,7 @@ class CONTENT_EXPORT MediaStreamVideoSource
                     const VideoCaptureDeliverFrameCB& frame_callback,
                     const blink::WebMediaConstraints& constraints,
                     const ConstraintsCallback& callback);
+    TrackDescriptor(const TrackDescriptor& other);
     ~TrackDescriptor();
 
     MediaStreamVideoTrack* track;

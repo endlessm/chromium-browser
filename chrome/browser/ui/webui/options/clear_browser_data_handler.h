@@ -5,12 +5,13 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_OPTIONS_CLEAR_BROWSER_DATA_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_OPTIONS_CLEAR_BROWSER_DATA_HANDLER_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
-#include "base/prefs/pref_member.h"
 #include "chrome/browser/browsing_data/browsing_data_counter.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/prefs/pref_member.h"
 
 namespace options {
 
@@ -31,10 +32,6 @@ class ClearBrowserDataHandler : public OptionsPageUIHandler,
   void RegisterMessages() override;
 
   void UpdateInfoBannerVisibility();
-
-  // Constructs the text to be displayed by a counter from the given |result|.
-  static base::string16 GetCounterTextFromResult(
-      const BrowsingDataCounter::Result* result);
 
  private:
   // Javascript callback for when the CBD dialog is opened. The caller does
@@ -61,8 +58,7 @@ class ClearBrowserDataHandler : public OptionsPageUIHandler,
   // bottom of the dialog.
   void OnStateChanged() override;
 
-  // If non-null it means removal is in progress. BrowsingDataRemover takes care
-  // of deleting itself when done.
+  // If non-null it means removal is in progress.
   BrowsingDataRemover* remover_;
 
   // Keeps track of whether clearing LSO data is supported.

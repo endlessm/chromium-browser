@@ -4,12 +4,13 @@
 
 #include "components/omnibox/browser/zero_suggest_provider.h"
 
+#include <stddef.h>
+
 #include "base/callback.h"
 #include "base/i18n/case_conversion.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/user_metrics.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -28,9 +29,10 @@
 #include "components/omnibox/browser/search_provider.h"
 #include "components/omnibox/browser/verbatim_match.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_formatter.h"
-#include "components/variations/net/variations_http_header_provider.h"
+#include "components/variations/net/variations_http_headers.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
@@ -326,9 +328,9 @@ void ZeroSuggestProvider::Run(const GURL& suggest_url) {
     fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES);
     // Add Chrome experiment state to the request headers.
     net::HttpRequestHeaders headers;
-    variations::VariationsHttpHeaderProvider::GetInstance()->AppendHeaders(
-        fetcher_->GetOriginalURL(), client()->IsOffTheRecord(), false,
-        &headers);
+    variations::AppendVariationHeaders(fetcher_->GetOriginalURL(),
+                                       client()->IsOffTheRecord(), false,
+                                       &headers);
     fetcher_->SetExtraRequestHeaders(headers.ToString());
     fetcher_->Start();
     LogOmniboxZeroSuggestRequest(ZERO_SUGGEST_REQUEST_SENT);

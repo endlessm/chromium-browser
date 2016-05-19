@@ -20,7 +20,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLHRElement.h"
 
 #include "core/CSSPropertyNames.h"
@@ -91,4 +90,4 @@ void HTMLHRElement::collectStyleForPresentationAttribute(const QualifiedName& na
     }
 }
 
-}
+} // namespace blink

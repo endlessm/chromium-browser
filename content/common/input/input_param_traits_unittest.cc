@@ -4,6 +4,9 @@
 
 #include "content/common/input/input_param_traits.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "content/common/input/input_event.h"
 #include "content/common/input/synthetic_gesture_params.h"
 #include "content/common/input/synthetic_pinch_gesture_params.h"
@@ -213,7 +216,7 @@ TEST_F(InputParamTraitsTest, SyntheticSmoothScrollGestureParams) {
   ASSERT_EQ(SyntheticGestureParams::SMOOTH_SCROLL_GESTURE,
             gesture_params->GetGestureType());
   SyntheticGesturePacket packet_in;
-  packet_in.set_gesture_params(gesture_params.Pass());
+  packet_in.set_gesture_params(std::move(gesture_params));
 
   Verify(packet_in);
 }
@@ -228,7 +231,7 @@ TEST_F(InputParamTraitsTest, SyntheticPinchGestureParams) {
   ASSERT_EQ(SyntheticGestureParams::PINCH_GESTURE,
             gesture_params->GetGestureType());
   SyntheticGesturePacket packet_in;
-  packet_in.set_gesture_params(gesture_params.Pass());
+  packet_in.set_gesture_params(std::move(gesture_params));
 
   Verify(packet_in);
 }
@@ -242,7 +245,7 @@ TEST_F(InputParamTraitsTest, SyntheticTapGestureParams) {
   ASSERT_EQ(SyntheticGestureParams::TAP_GESTURE,
             gesture_params->GetGestureType());
   SyntheticGesturePacket packet_in;
-  packet_in.set_gesture_params(gesture_params.Pass());
+  packet_in.set_gesture_params(std::move(gesture_params));
 
   Verify(packet_in);
 }

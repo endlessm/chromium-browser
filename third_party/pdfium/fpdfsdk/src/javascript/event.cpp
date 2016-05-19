@@ -4,15 +4,15 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "event.h"
+#include "fpdfsdk/src/javascript/event.h"
 
-#include "../../include/javascript/IJavaScript.h"
-#include "JS_Define.h"
-#include "JS_Object.h"
-#include "JS_Value.h"
-#include "JS_EventHandler.h"
-#include "JS_Context.h"
-#include "Field.h"
+#include "fpdfsdk/include/javascript/IJavaScript.h"
+#include "fpdfsdk/src/javascript/Field.h"
+#include "fpdfsdk/src/javascript/JS_Context.h"
+#include "fpdfsdk/src/javascript/JS_Define.h"
+#include "fpdfsdk/src/javascript/JS_EventHandler.h"
+#include "fpdfsdk/src/javascript/JS_Object.h"
+#include "fpdfsdk/src/javascript/JS_Value.h"
 
 /* -------------------------- event -------------------------- */
 
@@ -56,10 +56,7 @@ FX_BOOL event::change(IJS_Context* cc,
                       CJS_PropValue& vp,
                       CFX_WideString& sError) {
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
-
   CFX_WideString& wChange = pEvent->Change();
   if (vp.IsSetting()) {
     if (vp.GetType() == CJS_Value::VT_string)
@@ -77,9 +74,7 @@ FX_BOOL event::changeEx(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   vp << pEvent->ChangeEx();
   return TRUE;
@@ -92,9 +87,7 @@ FX_BOOL event::commitKey(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   vp << pEvent->CommitKey();
   return TRUE;
@@ -104,9 +97,7 @@ FX_BOOL event::fieldFull(IJS_Context* cc,
                          CJS_PropValue& vp,
                          CFX_WideString& sError) {
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (!vp.IsGetting() &&
       wcscmp((const wchar_t*)pEvent->Name(), L"Keystroke") != 0)
@@ -126,9 +117,7 @@ FX_BOOL event::keyDown(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (pEvent->KeyDown())
     vp << TRUE;
@@ -144,9 +133,7 @@ FX_BOOL event::modifier(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (pEvent->Modifier())
     vp << TRUE;
@@ -162,9 +149,7 @@ FX_BOOL event::name(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   vp << pEvent->Name();
   return TRUE;
@@ -172,9 +157,7 @@ FX_BOOL event::name(IJS_Context* cc,
 
 FX_BOOL event::rc(IJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError) {
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   FX_BOOL& bRc = pEvent->Rc();
   if (vp.IsSetting()) {
@@ -189,21 +172,11 @@ FX_BOOL event::richChange(IJS_Context* cc,
                           CJS_PropValue& vp,
                           CFX_WideString& sError) {
   return TRUE;
-  if (vp.IsSetting()) {
-  } else {
-    ;
-  }
-  return TRUE;
 }
 
 FX_BOOL event::richChangeEx(IJS_Context* cc,
                             CJS_PropValue& vp,
                             CFX_WideString& sError) {
-  return TRUE;
-  if (vp.IsSetting()) {
-  } else {
-    ;
-  }
   return TRUE;
 }
 
@@ -211,20 +184,13 @@ FX_BOOL event::richValue(IJS_Context* cc,
                          CJS_PropValue& vp,
                          CFX_WideString& sError) {
   return TRUE;
-  if (vp.IsSetting()) {
-  } else {
-    ;
-  }
-  return TRUE;
 }
 
 FX_BOOL event::selEnd(IJS_Context* cc,
                       CJS_PropValue& vp,
                       CFX_WideString& sError) {
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (wcscmp((const wchar_t*)pEvent->Name(), L"Keystroke") != 0) {
     return TRUE;
@@ -243,9 +209,7 @@ FX_BOOL event::selStart(IJS_Context* cc,
                         CJS_PropValue& vp,
                         CFX_WideString& sError) {
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (wcscmp((const wchar_t*)pEvent->Name(), L"Keystroke") != 0) {
     return TRUE;
@@ -266,9 +230,7 @@ FX_BOOL event::shift(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (pEvent->Shift())
     vp << TRUE;
@@ -284,9 +246,7 @@ FX_BOOL event::source(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   vp << pEvent->Source()->GetJSObject();
   return TRUE;
@@ -299,9 +259,7 @@ FX_BOOL event::target(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   vp << pEvent->Target_Field()->GetJSObject();
   return TRUE;
@@ -314,9 +272,7 @@ FX_BOOL event::targetName(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   vp << pEvent->TargetName();
   return TRUE;
@@ -329,9 +285,7 @@ FX_BOOL event::type(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   vp << pEvent->Type();
   return TRUE;
@@ -341,9 +295,7 @@ FX_BOOL event::value(IJS_Context* cc,
                      CJS_PropValue& vp,
                      CFX_WideString& sError) {
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (wcscmp((const wchar_t*)pEvent->Type(), L"Field") != 0)
     return FALSE;
@@ -365,9 +317,7 @@ FX_BOOL event::willCommit(IJS_Context* cc,
     return FALSE;
 
   CJS_Context* pContext = (CJS_Context*)cc;
-  ASSERT(pContext != NULL);
   CJS_EventHandler* pEvent = pContext->GetEventHandler();
-  ASSERT(pEvent != NULL);
 
   if (pEvent->WillCommit())
     vp << TRUE;

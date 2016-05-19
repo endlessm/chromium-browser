@@ -2,20 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/heap/BlinkGCMemoryDumpProvider.h"
 
+#include "platform/web_process_memory_dump_impl.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebProcessMemoryDump.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/Threading.h"
-
-#include <gtest/gtest.h>
 
 namespace blink {
 
 TEST(BlinkGCDumpProviderTest, MemoryDump)
 {
-    OwnPtr<WebProcessMemoryDump> dump = adoptPtr(Platform::current()->createProcessMemoryDump());
+    OwnPtr<WebProcessMemoryDump> dump = adoptPtr(new WebProcessMemoryDumpImpl());
     ASSERT(dump);
     BlinkGCMemoryDumpProvider::instance()->onMemoryDump(WebMemoryDumpLevelOfDetail::Detailed, dump.get());
     ASSERT(dump->getMemoryAllocatorDump(String::format("blink_gc")));

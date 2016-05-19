@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.util.Log;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.library_loader.LibraryProcessType;
@@ -37,12 +38,12 @@ public class GCMDriver {
 
     private long mNativeGCMDriverAndroid;
     private final Context mContext;
-    private final GoogleCloudMessagingV2 mGcm;
+    private GoogleCloudMessagingSubscriber mSubscriber;
 
     private GCMDriver(long nativeGCMDriverAndroid, Context context) {
         mNativeGCMDriverAndroid = nativeGCMDriverAndroid;
         mContext = context;
-        mGcm = new GoogleCloudMessagingV2(context);
+        mSubscriber = new GoogleCloudMessagingV2(context);
     }
 
     /**
@@ -80,7 +81,7 @@ public class GCMDriver {
             protected String doInBackground(Void... voids) {
                 try {
                     String subtype = appId;
-                    String registrationId = mGcm.subscribe(senderId, subtype, null);
+                    String registrationId = mSubscriber.subscribe(senderId, subtype, null);
                     return registrationId;
                 } catch (IOException ex) {
                     Log.w(TAG, "GCM subscription failed for " + appId + ", " + senderId, ex);
@@ -102,7 +103,7 @@ public class GCMDriver {
             protected Boolean doInBackground(Void... voids) {
                 try {
                     String subtype = appId;
-                    mGcm.unsubscribe(senderId, subtype, null);
+                    mSubscriber.unsubscribe(senderId, subtype, null);
                     return true;
                 } catch (IOException ex) {
                     Log.w(TAG, "GCM unsubscription failed for " + appId + ", " + senderId, ex);
@@ -150,14 +151,11 @@ public class GCMDriver {
         });
     }
 
-    static void onMessagesDeleted(Context context, final String appId) {
-        // TODO(johnme): Store event and redeliver later if Chrome is killed before delivery.
-        ThreadUtils.assertOnUiThread();
-        launchNativeThen(context, new Runnable() {
-            @Override public void run() {
-                sInstance.nativeOnMessagesDeleted(sInstance.mNativeGCMDriverAndroid, appId);
-            }
-        });
+    @VisibleForTesting
+    public static void overrideSubscriberForTesting(GoogleCloudMessagingSubscriber subscriber) {
+        assert sInstance != null;
+        assert subscriber != null;
+        sInstance.mSubscriber = subscriber;
     }
 
     private native void nativeOnRegisterFinished(long nativeGCMDriverAndroid, String appId,
@@ -166,7 +164,6 @@ public class GCMDriver {
             boolean success);
     private native void nativeOnMessageReceived(long nativeGCMDriverAndroid, String appId,
             String senderId, String collapseKey, byte[] rawData, String[] dataKeysAndValues);
-    private native void nativeOnMessagesDeleted(long nativeGCMDriverAndroid, String appId);
 
     private static void launchNativeThen(Context context, Runnable task) {
         if (sInstance != null) {

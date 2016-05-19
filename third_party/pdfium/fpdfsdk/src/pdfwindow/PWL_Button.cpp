@@ -4,18 +4,13 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_Button.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
-
-/* ------------------------------- CPWL_Button
- * ---------------------------------- */
+#include "fpdfsdk/include/pdfwindow/PWL_Button.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 CPWL_Button::CPWL_Button() : m_bMouseDown(FALSE) {}
 
 CPWL_Button::~CPWL_Button() {
-  //	PWL_TRACE("~CPWL_Button\n");
 }
 
 CFX_ByteString CPWL_Button::GetClassName() const {

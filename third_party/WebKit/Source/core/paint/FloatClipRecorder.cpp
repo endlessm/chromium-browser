@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/FloatClipRecorder.h"
 
 #include "platform/graphics/GraphicsContext.h"
@@ -11,7 +10,7 @@
 
 namespace blink {
 
-FloatClipRecorder::FloatClipRecorder(GraphicsContext& context, const DisplayItemClientWrapper& client, PaintPhase paintPhase, const FloatRect& clipRect)
+FloatClipRecorder::FloatClipRecorder(GraphicsContext& context, const DisplayItemClient& client, PaintPhase paintPhase, const FloatRect& clipRect)
     : m_context(context)
     , m_client(client)
     , m_clipType(DisplayItem::paintPhaseToFloatClipType(paintPhase))

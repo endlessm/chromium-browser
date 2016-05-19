@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/RemoveFormatCommand.h"
 
 #include "core/CSSValueKeywords.h"
@@ -78,7 +77,7 @@ static bool isElementForRemoveFormatCommand(const Element* element)
     return elements.contains(element->tagQName());
 }
 
-void RemoveFormatCommand::doApply()
+void RemoveFormatCommand::doApply(EditingState* editingState)
 {
     LocalFrame* frame = document().frame();
 
@@ -94,7 +93,7 @@ void RemoveFormatCommand::doApply()
     // FIXME: We shouldn't access style().
     defaultStyle->style()->setProperty(CSSPropertyBackgroundColor, CSSValueTransparent);
 
-    applyCommandToComposite(ApplyStyleCommand::create(document(), defaultStyle.get(), isElementForRemoveFormatCommand, editingAction()));
+    applyCommandToComposite(ApplyStyleCommand::create(document(), defaultStyle.get(), isElementForRemoveFormatCommand, editingAction()), editingState);
 }
 
-}
+} // namespace blink

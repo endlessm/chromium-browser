@@ -27,7 +27,8 @@ class ListTestsTest(testing_common.TestCase):
     self.testapp = webtest.TestApp(app)
     datastore_hooks.InstallHooks()
     self.UnsetCurrentUser()
-    testing_common.SetInternalDomain('google.com')
+    testing_common.SetIsInternalUser('internal@chromium.org', True)
+    testing_common.SetIsInternalUser('foo@chromium.org', False)
 
   def _AddSampleData(self):
     testing_common.AddTests(
@@ -175,10 +176,9 @@ class ListTestsTest(testing_common.TestCase):
     }
     self.assertEqual(expected, json.loads(response.body))
 
-
   def testGetSubTests_InternalData_OnlyReturnedForAuthorizedUsers(self):
     # When the user has a an internal account, internal-only data is given.
-    self.SetCurrentUser('foo@google.com')
+    self.SetCurrentUser('internal@chromium.org')
     self._AddSampleData()
 
     # Set internal_only on a bot and top-level test.
@@ -212,12 +212,12 @@ class ListTestsTest(testing_common.TestCase):
     self.assertEqual(expected, json.loads(response.body))
 
     # After setting the user to another domain, an empty dict is returned.
-    self.SetCurrentUser('foo@yahoo.com')
+    self.SetCurrentUser('foo@chromium.org')
     response = self.testapp.post('/list_tests', {
         'type': 'sub_tests', 'suite': 'dromaeo', 'bots': 'Chromium/win7'})
     self.assertEqual({}, json.loads(response.body))
 
-  def test_MergeSubTestsDict(self):
+  def testMergeSubTestsDict(self):
     a = {
         'foo': {
             'has_rows': True,
@@ -300,7 +300,7 @@ class ListTestsTest(testing_common.TestCase):
     self.assertEqual(
         expected, list_tests._SubTestsDict(paths, False))
 
-  def test_GetTestsMatchingPattern(self):
+  def testPost_GetTestsMatchingPattern(self):
     """Tests the basic functionality of the GetTestsMatchingPattern function."""
     self._AddSampleData()
 
@@ -329,7 +329,7 @@ class ListTestsTest(testing_common.TestCase):
         'p': '*/mac/*/*/www*'})
     self.assertEqual(expected, json.loads(response.body))
 
-  def test_GetTestsMatchingPattern_OnlyWithRows(self):
+  def testPost_GetTestsMatchingPattern_OnlyWithRows(self):
     """Tests GetTestsMatchingPattern with the parameter only_with_rows set."""
     self._AddSampleData()
 

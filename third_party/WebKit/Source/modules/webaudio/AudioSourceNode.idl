@@ -28,6 +28,6 @@
 
 [
     NoInterfaceObject,
-    Conditional=WEB_AUDIO
+    DependentLifetime
 ] interface AudioSourceNode : AudioNode {
 };

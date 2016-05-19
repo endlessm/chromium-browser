@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <climits>
 #include <cstdarg>
@@ -40,7 +44,6 @@
 #include "media/cast/test/utility/in_process_receiver.h"
 #include "media/cast/test/utility/input_builder.h"
 #include "media/cast/test/utility/standalone_cast_environment.h"
-#include "net/base/net_util.h"
 
 #if defined(USE_X11)
 #include "media/cast/test/linux_output_window.h"
@@ -65,14 +68,14 @@ const char* kVideoWindowWidth = "1280";
 const char* kVideoWindowHeight = "720";
 #endif  // defined(USE_X11)
 
-void GetPorts(uint16* tx_port, uint16* rx_port) {
+void GetPorts(uint16_t* tx_port, uint16_t* rx_port) {
   test::InputBuilder tx_input(
       "Enter send port.", DEFAULT_SEND_PORT, 1, 65535);
-  *tx_port = static_cast<uint16>(tx_input.GetIntInput());
+  *tx_port = static_cast<uint16_t>(tx_input.GetIntInput());
 
   test::InputBuilder rx_input(
       "Enter receive port.", DEFAULT_RECEIVE_PORT, 1, 65535);
-  *rx_port = static_cast<uint16>(rx_input.GetIntInput());
+  *rx_port = static_cast<uint16_t>(rx_input.GetIntInput());
 }
 
 std::string GetIpAddress(const std::string& display_text) {
@@ -273,10 +276,10 @@ class NaivePlayer : public InProcessReceiver,
         << "Video: Discontinuity in received frames.";
     video_playout_queue_.push_back(std::make_pair(playout_time, video_frame));
     ScheduleVideoPlayout();
-    uint16 frame_no;
+    uint16_t frame_no;
     if (media::cast::test::DecodeBarcode(video_frame, &frame_no)) {
       video_play_times_.insert(
-          std::pair<uint16, base::TimeTicks>(frame_no, playout_time));
+          std::pair<uint16_t, base::TimeTicks>(frame_no, playout_time));
     } else {
       VLOG(2) << "Barcode decode failed!";
     }
@@ -289,7 +292,7 @@ class NaivePlayer : public InProcessReceiver,
     LOG_IF(WARNING, !is_continuous)
         << "Audio: Discontinuity in received frames.";
     base::AutoLock auto_lock(audio_lock_);
-    uint16 frame_no;
+    uint16_t frame_no;
     if (media::cast::DecodeTimestamp(audio_frame->channel(0),
                                      audio_frame->frames(),
                                      &frame_no)) {
@@ -299,7 +302,7 @@ class NaivePlayer : public InProcessReceiver,
       // that we already missed the first one.
       if (is_continuous && frame_no == last_audio_frame_no_ + 1) {
         audio_play_times_.insert(
-            std::pair<uint16, base::TimeTicks>(frame_no, playout_time));
+            std::pair<uint16_t, base::TimeTicks>(frame_no, playout_time));
       }
       last_audio_frame_no_ = frame_no;
     } else {
@@ -316,7 +319,9 @@ class NaivePlayer : public InProcessReceiver,
   ////////////////////////////////////////////////////////////////////
   // AudioSourceCallback implementation.
 
-  int OnMoreData(AudioBus* dest, uint32 total_bytes_delay) final {
+  int OnMoreData(AudioBus* dest,
+                 uint32_t total_bytes_delay,
+                 uint32_t frames_skipped) final {
     // Note: This method is being invoked by a separate thread unknown to us
     // (i.e., outside of CastEnvironment).
 
@@ -339,7 +344,7 @@ class NaivePlayer : public InProcessReceiver,
         if (audio_playout_queue_.empty())
           break;
 
-        currently_playing_audio_frame_ = PopOneAudioFrame(false).Pass();
+        currently_playing_audio_frame_ = PopOneAudioFrame(false);
         currently_playing_audio_frame_start_ = 0;
       }
 
@@ -466,7 +471,7 @@ class NaivePlayer : public InProcessReceiver,
     scoped_ptr<AudioBus> ret(audio_playout_queue_.front().second);
     audio_playout_queue_.pop_front();
     ++num_audio_frames_processed_;
-    return ret.Pass();
+    return ret;
   }
 
   void CheckAVSync() {
@@ -474,7 +479,7 @@ class NaivePlayer : public InProcessReceiver,
         audio_play_times_.size() > 30) {
       size_t num_events = 0;
       base::TimeDelta delta;
-      std::map<uint16, base::TimeTicks>::iterator audio_iter, video_iter;
+      std::map<uint16_t, base::TimeTicks>::iterator audio_iter, video_iter;
       for (video_iter = video_play_times_.begin();
            video_iter != video_play_times_.end();
            ++video_iter) {
@@ -515,7 +520,7 @@ class NaivePlayer : public InProcessReceiver,
       VideoQueueEntry;
   std::deque<VideoQueueEntry> video_playout_queue_;
   base::TimeTicks last_popped_video_playout_time_;
-  int64 num_video_frames_processed_;
+  int64_t num_video_frames_processed_;
 
   base::OneShotTimer video_playout_timer_;
 
@@ -524,15 +529,15 @@ class NaivePlayer : public InProcessReceiver,
   typedef std::pair<base::TimeTicks, AudioBus*> AudioQueueEntry;
   std::deque<AudioQueueEntry> audio_playout_queue_;
   base::TimeTicks last_popped_audio_playout_time_;
-  int64 num_audio_frames_processed_;
+  int64_t num_audio_frames_processed_;
 
   // These must only be used on the audio thread calling OnMoreData().
   scoped_ptr<AudioBus> currently_playing_audio_frame_;
   int currently_playing_audio_frame_start_;
 
-  std::map<uint16, base::TimeTicks> audio_play_times_;
-  std::map<uint16, base::TimeTicks> video_play_times_;
-  int32 last_audio_frame_no_;
+  std::map<uint16_t, base::TimeTicks> audio_play_times_;
+  std::map<uint16_t, base::TimeTicks> video_play_times_;
+  int32_t last_audio_frame_no_;
 };
 
 }  // namespace cast
@@ -558,7 +563,7 @@ int main(int argc, char** argv) {
       media::cast::GetVideoReceiverConfig();
 
   // Determine local and remote endpoints.
-  uint16 remote_port, local_port;
+  uint16_t remote_port, local_port;
   media::cast::GetPorts(&remote_port, &local_port);
   if (!local_port) {
     LOG(ERROR) << "Invalid local port.";

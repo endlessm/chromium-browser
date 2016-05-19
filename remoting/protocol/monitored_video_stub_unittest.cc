@@ -4,6 +4,10 @@
 
 #include "remoting/protocol/monitored_video_stub.h"
 
+#include <stdint.h>
+
+#include <utility>
+
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/test/test_timeouts.h"
@@ -19,7 +23,7 @@ using ::testing::InvokeWithoutArgs;
 namespace remoting {
 namespace protocol {
 
-static const int64 kTestOverrideDelayMilliseconds = 1;
+static const int64_t kTestOverrideDelayMilliseconds = 1;
 
 class MonitoredVideoStubTest : public testing::Test {
  protected:
@@ -50,13 +54,13 @@ TEST_F(MonitoredVideoStubTest, OnChannelConnected) {
   // finishes, so we expect to see at most one transition to not ready.
   EXPECT_CALL(*this, OnVideoChannelStatus(false)).Times(AtMost(1));
 
-  monitor_->ProcessVideoPacket(packet_.Pass(), base::Closure());
+  monitor_->ProcessVideoPacket(std::move(packet_), base::Closure());
   base::RunLoop().RunUntilIdle();
 }
 
 TEST_F(MonitoredVideoStubTest, OnChannelDisconnected) {
   EXPECT_CALL(*this, OnVideoChannelStatus(true));
-  monitor_->ProcessVideoPacket(packet_.Pass(), base::Closure());
+  monitor_->ProcessVideoPacket(std::move(packet_), base::Closure());
 
   EXPECT_CALL(*this, OnVideoChannelStatus(false))
       .WillOnce(
@@ -72,8 +76,8 @@ TEST_F(MonitoredVideoStubTest, OnChannelStayConnected) {
   // finishes, so we expect to see at most one transition to not ready.
   EXPECT_CALL(*this, OnVideoChannelStatus(false)).Times(AtMost(1));
 
-  monitor_->ProcessVideoPacket(packet_.Pass(), base::Closure());
-  monitor_->ProcessVideoPacket(packet_.Pass(), base::Closure());
+  monitor_->ProcessVideoPacket(std::move(packet_), base::Closure());
+  monitor_->ProcessVideoPacket(std::move(packet_), base::Closure());
   base::RunLoop().RunUntilIdle();
 }
 
@@ -82,7 +86,7 @@ TEST_F(MonitoredVideoStubTest, OnChannelStayDisconnected) {
   EXPECT_CALL(*this, OnVideoChannelStatus(true)).Times(1);
   EXPECT_CALL(*this, OnVideoChannelStatus(false)).Times(1);
 
-  monitor_->ProcessVideoPacket(packet_.Pass(), base::Closure());
+  monitor_->ProcessVideoPacket(std::move(packet_), base::Closure());
 
   message_loop_.PostDelayedTask(
       FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),

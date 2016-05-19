@@ -22,15 +22,18 @@
 #ifndef NET_SOCKET_CLIENT_SOCKET_POOL_BASE_H_
 #define NET_SOCKET_CLIENT_SOCKET_POOL_BASE_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <cstddef>
 #include <deque>
 #include <list>
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -78,6 +81,7 @@ class NET_EXPORT_PRIVATE ConnectJob {
   ConnectJob(const std::string& group_name,
              base::TimeDelta timeout_duration,
              RequestPriority priority,
+             ClientSocketPool::RespectLimits respect_limits,
              Delegate* delegate,
              const BoundNetLog& net_log);
   virtual ~ConnectJob();
@@ -114,6 +118,9 @@ class NET_EXPORT_PRIVATE ConnectJob {
 
  protected:
   RequestPriority priority() const { return priority_; }
+  ClientSocketPool::RespectLimits respect_limits() const {
+    return respect_limits_;
+  }
   void SetSocket(scoped_ptr<StreamSocket> socket);
   StreamSocket* socket() { return socket_.get(); }
   void NotifyDelegateOfCompletion(int rv);
@@ -135,6 +142,7 @@ class NET_EXPORT_PRIVATE ConnectJob {
   const base::TimeDelta timeout_duration_;
   // TODO(akalin): Support reprioritization.
   const RequestPriority priority_;
+  const ClientSocketPool::RespectLimits respect_limits_;
   // Timer to abort jobs that take too long.
   base::OneShotTimer timer_;
   Delegate* delegate_;
@@ -157,7 +165,7 @@ class NET_EXPORT_PRIVATE ClientSocketPoolBaseHelper
     : public ConnectJob::Delegate,
       public NetworkChangeNotifier::IPAddressObserver {
  public:
-  typedef uint32 Flags;
+  typedef uint32_t Flags;
 
   // Used to specify specific behavior for the ClientSocketPool.
   enum Flag {
@@ -170,7 +178,7 @@ class NET_EXPORT_PRIVATE ClientSocketPoolBaseHelper
     Request(ClientSocketHandle* handle,
             const CompletionCallback& callback,
             RequestPriority priority,
-            bool ignore_limits,
+            ClientSocketPool::RespectLimits respect_limits,
             Flags flags,
             const BoundNetLog& net_log);
 
@@ -179,7 +187,9 @@ class NET_EXPORT_PRIVATE ClientSocketPoolBaseHelper
     ClientSocketHandle* handle() const { return handle_; }
     const CompletionCallback& callback() const { return callback_; }
     RequestPriority priority() const { return priority_; }
-    bool ignore_limits() const { return ignore_limits_; }
+    ClientSocketPool::RespectLimits respect_limits() const {
+      return respect_limits_;
+    }
     Flags flags() const { return flags_; }
     const BoundNetLog& net_log() const { return net_log_; }
 
@@ -197,7 +207,7 @@ class NET_EXPORT_PRIVATE ClientSocketPoolBaseHelper
     const CompletionCallback callback_;
     // TODO(akalin): Support reprioritization.
     const RequestPriority priority_;
-    const bool ignore_limits_;
+    const ClientSocketPool::RespectLimits respect_limits_;
     const Flags flags_;
     const BoundNetLog net_log_;
 
@@ -403,8 +413,8 @@ class NET_EXPORT_PRIVATE ClientSocketPoolBaseHelper
 
     // Returns the priority of the top of the pending request queue
     // (which may be less than the maximum priority over the entire
-    // queue, due to how we prioritize requests with |ignore_limits|
-    // set over others).
+    // queue, due to how we prioritize requests with |respect_limits|
+    // DISABLED over others).
     RequestPriority TopPendingPriority() const {
       // NOTE: FirstMax().value()->priority() is not the same as
       // FirstMax().priority()!
@@ -504,6 +514,7 @@ class NET_EXPORT_PRIVATE ClientSocketPoolBaseHelper
   struct CallbackResultPair {
     CallbackResultPair();
     CallbackResultPair(const CompletionCallback& callback_in, int result_in);
+    CallbackResultPair(const CallbackResultPair& other);
     ~CallbackResultPair();
 
     CompletionCallback callback;
@@ -677,12 +688,16 @@ class ClientSocketPoolBase {
     Request(ClientSocketHandle* handle,
             const CompletionCallback& callback,
             RequestPriority priority,
+            ClientSocketPool::RespectLimits respect_limits,
             internal::ClientSocketPoolBaseHelper::Flags flags,
-            bool ignore_limits,
             const scoped_refptr<SocketParams>& params,
             const BoundNetLog& net_log)
-        : internal::ClientSocketPoolBaseHelper::Request(
-              handle, callback, priority, ignore_limits, flags, net_log),
+        : internal::ClientSocketPoolBaseHelper::Request(handle,
+                                                        callback,
+                                                        priority,
+                                                        respect_limits,
+                                                        flags,
+                                                        net_log),
           params_(params) {}
 
     const scoped_refptr<SocketParams>& params() const { return params_; }
@@ -746,15 +761,14 @@ class ClientSocketPoolBase {
   int RequestSocket(const std::string& group_name,
                     const scoped_refptr<SocketParams>& params,
                     RequestPriority priority,
+                    ClientSocketPool::RespectLimits respect_limits,
                     ClientSocketHandle* handle,
                     const CompletionCallback& callback,
                     const BoundNetLog& net_log) {
-    scoped_ptr<const Request> request(
-        new Request(handle, callback, priority,
-                    internal::ClientSocketPoolBaseHelper::NORMAL,
-                    params->ignore_limits(),
-                    params, net_log));
-    return helper_.RequestSocket(group_name, request.Pass());
+    scoped_ptr<const Request> request(new Request(
+        handle, callback, priority, respect_limits,
+        internal::ClientSocketPoolBaseHelper::NORMAL, params, net_log));
+    return helper_.RequestSocket(group_name, std::move(request));
   }
 
   // RequestSockets bundles up the parameters into a Request and then forwards
@@ -764,9 +778,10 @@ class ClientSocketPoolBase {
                       const scoped_refptr<SocketParams>& params,
                       int num_sockets,
                       const BoundNetLog& net_log) {
-    const Request request(NULL /* no handle */, CompletionCallback(), IDLE,
+    const Request request(nullptr /* no handle */, CompletionCallback(), IDLE,
+                          ClientSocketPool::RespectLimits::ENABLED,
                           internal::ClientSocketPoolBaseHelper::NO_IDLE_SOCKETS,
-                          params->ignore_limits(), params, net_log);
+                          params, net_log);
     helper_.RequestSockets(group_name, request, num_sockets);
   }
 
@@ -778,7 +793,7 @@ class ClientSocketPoolBase {
   void ReleaseSocket(const std::string& group_name,
                      scoped_ptr<StreamSocket> socket,
                      int id) {
-    return helper_.ReleaseSocket(group_name, socket.Pass(), id);
+    return helper_.ReleaseSocket(group_name, std::move(socket), id);
   }
 
   void FlushWithError(int error) { helper_.FlushWithError(error); }

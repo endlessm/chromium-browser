@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/DocumentParser.h"
 
 #include "core/dom/Document.h"
@@ -115,5 +114,4 @@ void DocumentParser::removeClient(DocumentParserClient* client)
     m_clients.remove(client);
 }
 
-};
-
+} // namespace blink

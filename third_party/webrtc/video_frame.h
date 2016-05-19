@@ -13,7 +13,7 @@
 
 #include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/common_types.h"
-#include "webrtc/common_video/interface/video_frame_buffer.h"
+#include "webrtc/common_video/include/video_frame_buffer.h"
 #include "webrtc/common_video/rotation.h"
 #include "webrtc/typedefs.h"
 
@@ -158,6 +158,8 @@ class VideoFrame {
   // called on a non-native-handle frame.
   VideoFrame ConvertNativeToI420Frame() const;
 
+  bool EqualsFrame(const VideoFrame& frame) const;
+
  private:
   // An opaque reference counted handle that stores the pixel data.
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> video_frame_buffer_;
@@ -171,6 +173,12 @@ class VideoFrame {
 // TODO(pbos): Rename EncodedFrame and reformat this class' members.
 class EncodedImage {
  public:
+  static const size_t kBufferPaddingBytesH264;
+
+  // Some decoders require encoded image buffers to be padded with a small
+  // number of additional bytes (due to over-reading byte readers).
+  static size_t GetBufferPaddingBytes(VideoCodecType codec_type);
+
   EncodedImage() : EncodedImage(nullptr, 0, 0) {}
   EncodedImage(uint8_t* buffer, size_t length, size_t size)
       : _buffer(buffer), _length(length), _size(size) {}

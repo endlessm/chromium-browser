@@ -5,12 +5,19 @@
 #ifndef CHROMECAST_MEDIA_CMA_BASE_DECODER_BUFFER_BASE_H_
 #define CHROMECAST_MEDIA_CMA_BASE_DECODER_BUFFER_BASE_H_
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "chromecast/public/media/cast_decoder_buffer.h"
 #include "chromecast/public/media/decrypt_context.h"
+
+namespace media {
+class DecoderBuffer;
+}
 
 namespace chromecast {
 namespace media {
@@ -25,7 +32,7 @@ class DecoderBufferBase : public CastDecoderBuffer,
   DecryptContext* decrypt_context() const override;
 
   void set_decrypt_context(scoped_ptr<DecryptContext> context) {
-    decrypt_context_ = context.Pass();
+    decrypt_context_ = std::move(context);
   }
 
   // Sets the PTS of the frame.
@@ -33,6 +40,8 @@ class DecoderBufferBase : public CastDecoderBuffer,
 
   // Gets a pointer to the frame data buffer.
   virtual uint8_t* writable_data() const = 0;
+
+  virtual scoped_refptr<::media::DecoderBuffer> ToMediaBuffer() const = 0;
 
  protected:
   friend class base::RefCountedThreadSafe<DecoderBufferBase>;

@@ -4,10 +4,10 @@
 
 package org.chromium.chrome.browser;
 
-import android.test.FlakyTest;
 import android.text.TextUtils;
 
 import org.chromium.base.BuildInfo;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 
@@ -33,10 +33,9 @@ public class ProcessIsolationTest extends ChromeActivityTestCaseBase<ChromeActiv
      * Verifies that process isolation works, i.e., that the browser and
      * renderer processes use different user IDs.
      * @throws InterruptedException
-     * BUG: 471122
      * @MediumTest
      */
-    @FlakyTest
+    @DisableIf.Build(sdk_is_greater_than = 22, message = "crbug.com/517611")
     @Feature({"Browser", "Security"})
     public void testProcessIsolationForRenderers() throws InterruptedException {
         int tabsCount = getActivity().getCurrentTabModel().getCount();

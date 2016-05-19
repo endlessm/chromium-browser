@@ -30,6 +30,8 @@
 #include "platform/geometry/FloatSize.h"
 #include "platform/geometry/IntPoint.h"
 #include "third_party/skia/include/core/SkPoint.h"
+#include "wtf/Allocator.h"
+#include "wtf/Forward.h"
 #include "wtf/MathExtras.h"
 #include <algorithm>
 #include <iosfwd>
@@ -51,10 +53,12 @@ class LayoutPoint;
 class LayoutSize;
 
 class PLATFORM_EXPORT FloatPoint {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     FloatPoint() : m_x(0), m_y(0) { }
     FloatPoint(float x, float y) : m_x(x), m_y(y) { }
     FloatPoint(const IntPoint&);
+    explicit FloatPoint(const SkPoint& point) : m_x(point.x()), m_y(point.y()) { }
     explicit FloatPoint(const DoublePoint&);
     explicit FloatPoint(const LayoutPoint&);
     explicit FloatPoint(const FloatSize& size) : m_x(size.width()), m_y(size.height()) { }
@@ -153,6 +157,10 @@ public:
     SkPoint data() const;
 
     operator SkPoint() const { return SkPoint::Make(m_x, m_y); }
+
+#ifndef NDEBUG
+    String toString() const;
+#endif
 
 private:
     float m_x, m_y;
@@ -275,6 +283,6 @@ PLATFORM_EXPORT bool findIntersection(const FloatPoint& p1, const FloatPoint& p2
 // See platform/testing/GeometryPrinters.h.
 void PrintTo(const FloatPoint&, std::ostream*);
 
-}
+} // namespace blink
 
 #endif

@@ -13,8 +13,8 @@
 
 class CFX_RenderDevice;
 class CPDF_Font;
-class CPDF_Matrix;
-class CPDF_PageObjects;
+class CFX_Matrix;
+class CPDF_PageObjectHolder;
 class CPDF_Point;
 class CPDF_TextObject;
 class IFX_Edit;
@@ -435,7 +435,7 @@ class IFX_Edit {
       const CPDF_Point& ptOffset,
       const CPVT_WordRange* pRange = NULL);
   static void DrawEdit(CFX_RenderDevice* pDevice,
-                       CPDF_Matrix* pUser2Device,
+                       CFX_Matrix* pUser2Device,
                        IFX_Edit* pEdit,
                        FX_COLORREF crTextFill,
                        FX_COLORREF crTextStroke,
@@ -445,32 +445,32 @@ class IFX_Edit {
                        IFX_SystemHandler* pSystemHandler,
                        void* pFFLData);
   static void DrawUnderline(CFX_RenderDevice* pDevice,
-                            CPDF_Matrix* pUser2Device,
+                            CFX_Matrix* pUser2Device,
                             IFX_Edit* pEdit,
                             FX_COLORREF color,
                             const CPDF_Rect& rcClip,
                             const CPDF_Point& ptOffset,
                             const CPVT_WordRange* pRange);
   static void DrawRichEdit(CFX_RenderDevice* pDevice,
-                           CPDF_Matrix* pUser2Device,
+                           CFX_Matrix* pUser2Device,
                            IFX_Edit* pEdit,
                            const CPDF_Rect& rcClip,
                            const CPDF_Point& ptOffset,
                            const CPVT_WordRange* pRange);
   static void GeneratePageObjects(
-      CPDF_PageObjects* pPageObjects,
+      CPDF_PageObjectHolder* pObjectHolder,
       IFX_Edit* pEdit,
       const CPDF_Point& ptOffset,
       const CPVT_WordRange* pRange,
       FX_COLORREF crText,
       CFX_ArrayTemplate<CPDF_TextObject*>& ObjArray);
   static void GenerateRichPageObjects(
-      CPDF_PageObjects* pPageObjects,
+      CPDF_PageObjectHolder* pObjectHolder,
       IFX_Edit* pEdit,
       const CPDF_Point& ptOffset,
       const CPVT_WordRange* pRange,
       CFX_ArrayTemplate<CPDF_TextObject*>& ObjArray);
-  static void GenerateUnderlineObjects(CPDF_PageObjects* pPageObjects,
+  static void GenerateUnderlineObjects(CPDF_PageObjectHolder* pObjectHolder,
                                        IFX_Edit* pEdit,
                                        const CPDF_Point& ptOffset,
                                        const CPVT_WordRange* pRange,

@@ -9,6 +9,7 @@
 #include <set>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
 #include "content/public/browser/resource_dispatcher_host_delegate.h"
@@ -55,12 +56,14 @@ class ChromeResourceDispatcherHostDelegate
   content::ResourceDispatcherHostLoginDelegate* CreateLoginDelegate(
       net::AuthChallengeInfo* auth_info,
       net::URLRequest* request) override;
-  bool HandleExternalProtocol(const GURL& url,
-                              int child_id,
-                              int route_id,
-                              bool is_main_frame,
-                              ui::PageTransition page_transition,
-                              bool has_user_gesture) override;
+  bool HandleExternalProtocol(
+      const GURL& url,
+      int child_id,
+      const content::ResourceRequestInfo::WebContentsGetter&
+          web_contents_getter,
+      bool is_main_frame,
+      ui::PageTransition page_transition,
+      bool has_user_gesture) override;
   bool ShouldForceDownloadResource(const GURL& url,
                                    const std::string& mime_type) override;
   bool ShouldInterceptResourceAsStream(net::URLRequest* request,

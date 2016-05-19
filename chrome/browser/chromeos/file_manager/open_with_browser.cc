@@ -4,9 +4,12 @@
 
 #include "chrome/browser/chromeos/file_manager/open_with_browser.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/browser_process.h"
@@ -111,8 +114,7 @@ void OpenNewTab(Profile* profile, const GURL& url) {
   if (!g_browser_process->profile_manager()->IsValidProfile(profile))
     return;
 
-  chrome::ScopedTabbedBrowserDisplayer displayer(
-      profile, chrome::HOST_DESKTOP_TYPE_ASH);
+  chrome::ScopedTabbedBrowserDisplayer displayer(profile);
   chrome::AddSelectedTabWithURL(displayer.browser(), url,
       ui::PAGE_TRANSITION_LINK);
 

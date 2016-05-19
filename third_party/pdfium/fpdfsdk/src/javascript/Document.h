@@ -7,7 +7,10 @@
 #ifndef FPDFSDK_SRC_JAVASCRIPT_DOCUMENT_H_
 #define FPDFSDK_SRC_JAVASCRIPT_DOCUMENT_H_
 
-#include "JS_Define.h"
+#include <list>
+#include <memory>
+
+#include "fpdfsdk/src/javascript/JS_Define.h"
 
 class PrintParamsObj : public CJS_EmbedObj {
  public:
@@ -37,29 +40,11 @@ class Icon;
 class Field;
 
 struct IconElement {
-  IconElement() : IconName(L""), NextIcon(NULL), IconStream(NULL) {}
-  virtual ~IconElement() {}
+  IconElement(const CFX_WideString& name, Icon* stream)
+      : IconName(name), IconStream(stream) {}
+
   CFX_WideString IconName;
-  IconElement* NextIcon;
   Icon* IconStream;
-};
-
-class IconTree {
- public:
-  IconTree() : m_pHead(NULL), m_pEnd(NULL), m_iLength(0) {}
-
-  virtual ~IconTree() {}
-
- public:
-  void InsertIconElement(IconElement* pNewIcon);
-  void DeleteIconTree();
-  int GetLength();
-  IconElement* operator[](int iIndex);
-
- private:
-  IconElement* m_pHead;
-  IconElement* m_pEnd;
-  int m_iLength;
 };
 
 struct CJS_DelayData;
@@ -71,7 +56,6 @@ class Document : public CJS_EmbedObj {
   Document(CJS_Object* pJSObject);
   ~Document() override;
 
- public:
   FX_BOOL ADBE(IJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
   FX_BOOL author(IJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
   FX_BOOL baseURL(IJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
@@ -273,34 +257,24 @@ class Document : public CJS_EmbedObj {
                      CJS_Value& vRet,
                      CFX_WideString& sError);
 
- public:
   void AttachDoc(CPDFSDK_Document* pDoc);
   CPDFSDK_Document* GetReaderDoc();
-  static FX_BOOL ExtractFileName(CPDFSDK_Document* pDoc,
-                                 CFX_ByteString& strFileName);
-  static FX_BOOL ExtractFolderName(CPDFSDK_Document* pDoc,
-                                   CFX_ByteString& strFolderName);
   void AddDelayData(CJS_DelayData* pData);
   void DoFieldDelay(const CFX_WideString& sFieldName, int nControlIndex);
-  void AddDelayAnnotData(CJS_AnnotObj* pData);
-  void DoAnnotDelay();
   void SetIsolate(v8::Isolate* isolate) { m_isolate = isolate; }
   CJS_Document* GetCJSDoc() const;
 
  private:
-  CFX_WideString ReversalStr(CFX_WideString cbFrom);
-  CFX_WideString CutString(CFX_WideString cbFrom);
   bool IsEnclosedInRect(CFX_FloatRect rect, CFX_FloatRect LinkRect);
   int CountWords(CPDF_TextObject* pTextObj);
   CFX_WideString GetObjWordStr(CPDF_TextObject* pTextObj, int nWordIndex);
 
   v8::Isolate* m_isolate;
-  IconTree* m_pIconTree;
+  std::list<std::unique_ptr<IconElement>> m_IconList;
   CPDFSDK_Document* m_pDocument;
   CFX_WideString m_cwBaseURL;
   bool m_bDelay;
   CFX_ArrayTemplate<CJS_DelayData*> m_DelayData;
-  CFX_ArrayTemplate<CJS_AnnotObj*> m_DelayAnnotData;
 };
 
 class CJS_Document : public CJS_Object {

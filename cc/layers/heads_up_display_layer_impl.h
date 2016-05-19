@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "cc/base/cc_export.h"
@@ -48,6 +49,11 @@ class CC_EXPORT HeadsUpDisplayLayerImpl : public LayerImpl {
   gfx::Rect GetEnclosingRectInTargetSpace() const override;
 
   bool IsAnimatingHUDContents() const { return fade_step_ > 0; }
+
+  void SetHUDTypeface(const skia::RefPtr<SkTypeface>& typeface);
+
+  // LayerImpl overrides.
+  void PushPropertiesTo(LayerImpl* layer) override;
 
  private:
   class Graph {
@@ -123,7 +129,7 @@ class CC_EXPORT HeadsUpDisplayLayerImpl : public LayerImpl {
   void AcquireResource(ResourceProvider* resource_provider);
   void ReleaseUnmatchedSizeResources(ResourceProvider* resource_provider);
 
-  ScopedPtrVector<ScopedResource> resources_;
+  std::vector<scoped_ptr<ScopedResource>> resources_;
   skia::RefPtr<SkSurface> hud_surface_;
 
   skia::RefPtr<SkTypeface> typeface_;

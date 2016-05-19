@@ -4,6 +4,9 @@
 
 #include "extensions/browser/event_router.h"
 
+#include <stddef.h>
+
+#include <tuple>
 #include <utility>
 
 #include "base/atomic_sequence_num.h"
@@ -76,7 +79,7 @@ void NotifyEventDispatched(void* browser_context_id,
   ApiActivityMonitor* monitor =
       ExtensionsBrowserClient::Get()->GetApiActivityMonitor(context);
   if (monitor)
-    monitor->OnApiEventDispatched(extension_id, event_name, args.Pass());
+    monitor->OnApiEventDispatched(extension_id, event_name, std::move(args));
 }
 
 // A global identifier used to distinguish extension events.
@@ -95,11 +98,8 @@ struct EventRouter::ListenerProcess {
       : process(process), extension_id(extension_id) {}
 
   bool operator<(const ListenerProcess& that) const {
-    if (process < that.process)
-      return true;
-    if (process == that.process && extension_id < that.extension_id)
-      return true;
-    return false;
+    return std::tie(process, extension_id) <
+           std::tie(that.process, that.extension_id);
   }
 };
 
@@ -482,7 +482,7 @@ void EventRouter::DispatchEventWithLazyListener(const std::string& extension_id,
   bool has_listener = ExtensionHasEventListener(extension_id, event_name);
   if (!has_listener)
     AddLazyEventListener(event_name, extension_id);
-  DispatchEventToExtension(extension_id, event.Pass());
+  DispatchEventToExtension(extension_id, std::move(event));
   if (!has_listener)
     RemoveLazyEventListener(event_name, extension_id);
 }
@@ -760,10 +760,12 @@ void EventRouter::ReportEvent(events::HistogramValue histogram_value,
   UMA_HISTOGRAM_ENUMERATION("Extensions.Events.Dispatch", histogram_value,
                             events::ENUM_BOUNDARY);
 
+  bool is_component = Manifest::IsComponentLocation(extension->location());
+
   // Record events for component extensions. These should be kept to a minimum,
   // especially if they wake its event page. Component extensions should use
   // declarative APIs as much as possible.
-  if (Manifest::IsComponentLocation(extension->location())) {
+  if (is_component) {
     UMA_HISTOGRAM_ENUMERATION("Extensions.Events.DispatchToComponent",
                               histogram_value, events::ENUM_BOUNDARY);
   }
@@ -788,6 +790,11 @@ void EventRouter::ReportEvent(events::HistogramValue histogram_value,
       UMA_HISTOGRAM_ENUMERATION(
           "Extensions.Events.DispatchWithSuspendedEventPage", histogram_value,
           events::ENUM_BOUNDARY);
+      if (is_component) {
+        UMA_HISTOGRAM_ENUMERATION(
+            "Extensions.Events.DispatchToComponentWithSuspendedEventPage",
+            histogram_value, events::ENUM_BOUNDARY);
+      }
     } else {
       UMA_HISTOGRAM_ENUMERATION(
           "Extensions.Events.DispatchWithRunningEventPage", histogram_value,
@@ -852,7 +859,7 @@ void EventRouter::OnExtensionUnloaded(content::BrowserContext* browser_context,
 Event::Event(events::HistogramValue histogram_value,
              const std::string& event_name,
              scoped_ptr<base::ListValue> event_args)
-    : Event(histogram_value, event_name, event_args.Pass(), nullptr) {}
+    : Event(histogram_value, event_name, std::move(event_args), nullptr) {}
 
 Event::Event(events::HistogramValue histogram_value,
              const std::string& event_name,
@@ -860,7 +867,7 @@ Event::Event(events::HistogramValue histogram_value,
              BrowserContext* restrict_to_browser_context)
     : Event(histogram_value,
             event_name,
-            event_args.Pass(),
+            std::move(event_args),
             restrict_to_browser_context,
             GURL(),
             EventRouter::USER_GESTURE_UNKNOWN,
@@ -875,7 +882,7 @@ Event::Event(events::HistogramValue histogram_value,
              const EventFilteringInfo& filter_info)
     : histogram_value(histogram_value),
       event_name(event_name),
-      event_args(event_args_tmp.Pass()),
+      event_args(std::move(event_args_tmp)),
       restrict_to_browser_context(restrict_to_browser_context),
       event_url(event_url),
       user_gesture(user_gesture),

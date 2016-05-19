@@ -40,12 +40,6 @@ MockDesktopEnvironment::CreateVideoCapturer() {
   return make_scoped_ptr(CreateVideoCapturerPtr());
 }
 
-scoped_ptr<GnubbyAuthHandler>
-MockDesktopEnvironment::CreateGnubbyAuthHandler(
-    protocol::ClientStub* client_stub) {
-  return make_scoped_ptr(CreateGnubbyAuthHandlerPtr(client_stub));
-}
-
 scoped_ptr<webrtc::MouseCursorMonitor>
 MockDesktopEnvironment::CreateMouseCursorMonitor() {
   return make_scoped_ptr(CreateMouseCursorMonitorPtr());
@@ -85,19 +79,18 @@ MockGnubbyAuthHandler::MockGnubbyAuthHandler() {}
 
 MockGnubbyAuthHandler::~MockGnubbyAuthHandler() {}
 
+void MockGnubbyAuthHandler::SetSendMessageCallback(
+    const GnubbyAuthHandler::SendMessageCallback& callback) {
+  callback_ = callback;
+}
+
+const GnubbyAuthHandler::SendMessageCallback&
+MockGnubbyAuthHandler::GetSendMessageCallback() {
+  return callback_;
+}
+
 MockMouseCursorMonitor::MockMouseCursorMonitor() {}
 
 MockMouseCursorMonitor::~MockMouseCursorMonitor() {}
-
-MockVideoEncoder::MockVideoEncoder() {
-}
-
-MockVideoEncoder::~MockVideoEncoder() {
-}
-
-scoped_ptr<VideoPacket> MockVideoEncoder::Encode(
-    const webrtc::DesktopFrame& frame) {
-  return make_scoped_ptr(EncodePtr(frame));
-}
 
 }  // namespace remoting

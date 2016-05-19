@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -17,7 +21,6 @@
 #include "components/search_engines/template_url_service.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
-#include "net/base/net_util.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -59,7 +62,7 @@ scoped_ptr<net::test_server::HttpResponse> SendResponse(
   scoped_ptr<net::test_server::BasicHttpResponse> response(
       new net::test_server::BasicHttpResponse);
   response->set_content(file_contents);
-  return response.Pass();
+  return std::move(response);
 }
 
 }  // namespace
@@ -67,7 +70,7 @@ scoped_ptr<net::test_server::HttpResponse> SendResponse(
 IN_PROC_BROWSER_TEST_F(TemplateURLScraperTest, ScrapeWithOnSubmit) {
   host_resolver()->AddRule("*.foo.com", "localhost");
   embedded_test_server()->RegisterRequestHandler(base::Bind(&SendResponse));
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   TemplateURLService* template_urls =
       TemplateURLServiceFactory::GetInstance()->GetForProfile(

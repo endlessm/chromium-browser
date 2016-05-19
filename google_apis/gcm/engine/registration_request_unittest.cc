@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/strings/string_number_conversions.h"
@@ -20,12 +22,12 @@
 namespace gcm {
 
 namespace {
-const uint64 kAndroidId = 42UL;
+const uint64_t kAndroidId = 42UL;
 const char kAppId[] = "TestAppId";
 const char kDeveloperId[] = "Project1";
 const char kLoginHeader[] = "AidLogin";
 const char kRegistrationURL[] = "http://foo.bar/register";
-const uint64 kSecurityToken = 77UL;
+const uint64_t kSecurityToken = 77UL;
 const int kGCMVersion = 40;
 const char kInstanceId[] = "IID1";
 const char kScope[] = "GCM";
@@ -99,16 +101,11 @@ void GCMRegistrationRequestTest::CreateRequest(const std::string& sender_ids) {
   scoped_ptr<GCMRegistrationRequestHandler> request_handler(
       new GCMRegistrationRequestHandler(sender_ids));
   request_.reset(new RegistrationRequest(
-      GURL(kRegistrationURL),
-      request_info,
-      request_handler.Pass(),
+      GURL(kRegistrationURL), request_info, std::move(request_handler),
       GetBackoffPolicy(),
       base::Bind(&RegistrationRequestTest::RegistrationCallback,
                  base::Unretained(this)),
-      max_retry_count_,
-      url_request_context_getter(),
-      &recorder_,
-      sender_ids));
+      max_retry_count_, url_request_context_getter(), &recorder_, sender_ids));
 }
 
 TEST_F(GCMRegistrationRequestTest, RequestSuccessful) {
@@ -422,15 +419,11 @@ void InstanceIDGetTokenRequestTest::CreateRequest(
       new InstanceIDGetTokenRequestHandler(
           instance_id, authorized_entity, scope, kGCMVersion, options));
   request_.reset(new RegistrationRequest(
-      GURL(kRegistrationURL),
-      request_info,
-      request_handler.Pass(),
+      GURL(kRegistrationURL), request_info, std::move(request_handler),
       GetBackoffPolicy(),
       base::Bind(&RegistrationRequestTest::RegistrationCallback,
                  base::Unretained(this)),
-      max_retry_count_,
-      url_request_context_getter(),
-      &recorder_,
+      max_retry_count_, url_request_context_getter(), &recorder_,
       authorized_entity));
 }
 

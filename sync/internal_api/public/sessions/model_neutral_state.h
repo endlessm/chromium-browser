@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef SYNC_SESSIONS_MODEL_NEUTRAL_STATE_H
-#define SYNC_SESSIONS_MODEL_NEUTRAL_STATE_H
+#ifndef SYNC_INTERNAL_API_PUBLIC_SESSIONS_MODEL_NEUTRAL_STATE_H_
+#define SYNC_INTERNAL_API_PUBLIC_SESSIONS_MODEL_NEUTRAL_STATE_H_
 
-#include "base/basictypes.h"
 #include "sync/base/sync_export.h"
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/util/syncer_error.h"
@@ -20,7 +19,11 @@ namespace sessions {
 // model types.
 struct SYNC_EXPORT ModelNeutralState {
   ModelNeutralState();
+  ModelNeutralState(const ModelNeutralState& other);
   ~ModelNeutralState();
+
+  // The set of types for which updates were requested from the server.
+  ModelTypeSet get_updates_request_types;
 
   // The set of types for which commits were sent to the server.
   ModelTypeSet commit_request_types;
@@ -55,9 +58,9 @@ struct SYNC_EXPORT ModelNeutralState {
   bool items_committed;
 };
 
-bool HasSyncerError(const ModelNeutralState& state);
+SYNC_EXPORT bool HasSyncerError(const ModelNeutralState& state);
 
 }  // namespace sessions
 }  // namespace syncer
 
-#endif  // SYNC_SESSIONS_MODEL_NEUTRAL_STATE_H_
+#endif  // SYNC_INTERNAL_API_PUBLIC_SESSIONS_MODEL_NEUTRAL_STATE_H_

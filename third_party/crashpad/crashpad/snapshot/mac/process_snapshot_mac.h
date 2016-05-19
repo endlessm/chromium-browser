@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "client/crashpad_info.h"
 #include "snapshot/crashpad_info_client_options.h"
@@ -38,6 +38,7 @@
 #include "snapshot/process_snapshot.h"
 #include "snapshot/system_snapshot.h"
 #include "snapshot/thread_snapshot.h"
+#include "snapshot/unloaded_module_snapshot.h"
 #include "util/mach/mach_extensions.h"
 #include "util/misc/initialization_state_dcheck.h"
 #include "util/misc/uuid.h"
@@ -126,6 +127,7 @@ class ProcessSnapshotMac final : public ProcessSnapshot {
   const SystemSnapshot* System() const override;
   std::vector<const ThreadSnapshot*> Threads() const override;
   std::vector<const ModuleSnapshot*> Modules() const override;
+  std::vector<UnloadedModuleSnapshot> UnloadedModules() const override;
   const ExceptionSnapshot* Exception() const override;
   std::vector<const MemoryMapRegionSnapshot*> MemoryMap() const override;
   std::vector<HandleSnapshot> Handles() const override;

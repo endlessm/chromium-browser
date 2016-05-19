@@ -36,12 +36,10 @@ public final class ApplicationData {
      * When this is invoked from tests, the target context from the instrumentation must be used.
      *
      * @param targetContext the target Context.
-     *
-     * @return Whether clearing the application data was successful.
      */
-    public static boolean clearAppData(Context targetContext) throws InterruptedException {
+    public static void clearAppData(Context targetContext) throws InterruptedException {
         final String appDir = getAppDirFromTargetContext(targetContext);
-        return CriteriaHelper.pollForCriteria(
+        CriteriaHelper.pollForCriteria(
                 new Criteria() {
                     private boolean mDataRemoved = false;
 
@@ -86,9 +84,10 @@ public final class ApplicationData {
         File[] files = new File(appDir).listFiles();
         if (files == null) return true;
         for (File file : files) {
-            if (!(file.getAbsolutePath().endsWith("/lib")
-                    || file.getAbsolutePath().endsWith("/etp_native") // Work Chrome
-                    || file.getAbsolutePath().endsWith("/sdk_dex")) // Work Chrome
+            if (!(file.getName().equals("lib")
+                    || file.getName().equals("etp_native") // Work Chrome
+                    || file.getName().equals("sdk_dex") // Work Chrome
+                    || file.getName().equals("incremental-install-files"))
                     && !removeFile(file)) {
                 return false;
             }

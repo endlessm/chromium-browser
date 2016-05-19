@@ -5,10 +5,13 @@
 #ifndef CHROME_TEST_CHROMEDRIVER_CHROME_DEVTOOLS_HTTP_CLIENT_H_
 #define CHROME_TEST_CHROMEDRIVER_CHROME_DEVTOOLS_HTTP_CLIENT_H_
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/test/chromedriver/chrome/browser_info.h"
@@ -40,9 +43,11 @@ struct WebViewInfo {
               const std::string& debugger_url,
               const std::string& url,
               Type type);
+  WebViewInfo(const WebViewInfo& other);
   ~WebViewInfo();
 
   bool IsFrontend() const;
+  bool IsInactiveBackgroundPage() const;
 
   std::string id;
   std::string debugger_url;
@@ -86,7 +91,7 @@ class DevToolsHttpClient {
 
   const BrowserInfo* browser_info();
   const DeviceMetrics* device_metrics();
-  bool IsBrowserWindow(WebViewInfo::Type window_type) const;
+  bool IsBrowserWindow(const WebViewInfo& view) const;
 
  private:
   Status CloseFrontends(const std::string& for_client_id);

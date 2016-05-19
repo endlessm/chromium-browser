@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/views/download/download_item_view.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <vector>
 
@@ -14,7 +16,6 @@
 #include "base/i18n/rtl.h"
 #include "base/location.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
@@ -36,6 +37,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/download_danger_type.h"
 #include "grit/theme_resources.h"
 #include "third_party/icu/source/common/unicode/uchar.h"
@@ -59,45 +61,44 @@
 using content::DownloadItem;
 using extensions::ExperienceSamplingEvent;
 
+namespace {
+
 // TODO(paulg): These may need to be adjusted when download progress
 //              animation is added, and also possibly to take into account
 //              different screen resolutions.
-static const int kTextWidth = 140;            // Pixels
-static const int kDangerousTextWidth = 200;   // Pixels
-static const int kVerticalPadding = 3;        // Pixels
-static const int kVerticalTextPadding = 2;    // Pixels
-static const int kTooltipMaxWidth = 800;      // Pixels
+const int kTextWidth = 140;            // Pixels
+const int kDangerousTextWidth = 200;   // Pixels
+const int kVerticalPadding = 3;        // Pixels
+const int kVerticalTextPadding = 2;    // Pixels
+const int kTooltipMaxWidth = 800;      // Pixels
 
 // Padding around progress indicator, on all sides.
-static const int kProgressPadding = 7;
+const int kProgressPadding = 7;
 
 // We add some padding before the left image so that the progress animation icon
 // hides the corners of the left image.
-static const int kLeftPadding = 0;  // Pixels.
+const int kLeftPadding = 0;  // Pixels.
 
 // The space between the Save and Discard buttons when prompting for a dangerous
 // download.
-static const int kButtonPadding = 5;  // Pixels.
+const int kButtonPadding = 5;  // Pixels.
 
 // The space on the left and right side of the dangerous download label.
-static const int kLabelPadding = 4;  // Pixels.
+const int kLabelPadding = 4;  // Pixels.
 
-static const SkColor kFileNameDisabledColor = SkColorSetRGB(171, 192, 212);
+const SkColor kFileNameDisabledColor = SkColorSetRGB(171, 192, 212);
 
 // How long the 'download complete' animation should last for.
-static const int kCompleteAnimationDurationMs = 2500;
+const int kCompleteAnimationDurationMs = 2500;
 
 // How long the 'download interrupted' animation should last for.
-static const int kInterruptedAnimationDurationMs = 2500;
+const int kInterruptedAnimationDurationMs = 2500;
 
 // How long we keep the item disabled after the user clicked it to open the
 // downloaded item.
-static const int kDisabledOnOpenDuration = 3000;
+const int kDisabledOnOpenDuration = 3000;
 
-// Darken light-on-dark download status text by 20% before drawing, thus
-// creating a "muted" version of title text for both dark-on-light and
-// light-on-dark themes.
-static const double kDownloadItemLuminanceMod = 0.8;
+}  // namespace
 
 DownloadItemView::DownloadItemView(DownloadItem* download_item,
     DownloadShelfView* parent)
@@ -239,10 +240,10 @@ void DownloadItemView::StartDownloadProgress() {
   if (progress_timer_.IsRunning())
     return;
   progress_start_time_ = base::TimeTicks::Now();
-  progress_timer_.Start(
-      FROM_HERE,
-      base::TimeDelta::FromMilliseconds(DownloadShelf::kProgressRateMs),
-      base::Bind(&DownloadItemView::SchedulePaint, base::Unretained(this)));
+  progress_timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(
+                                       DownloadShelf::kProgressRateMs),
+                        base::Bind(&DownloadItemView::ProgressTimerFired,
+                                   base::Unretained(this)));
 }
 
 void DownloadItemView::StopDownloadProgress() {
@@ -270,20 +271,13 @@ void DownloadItemView::OnDownloadUpdated(DownloadItem* download_item) {
     return;
   }
 
-  if (IsShowingWarningDialog() && !model_.IsDangerous()) {
-    // We have been approved.
-    ClearWarningDialog();
-  } else if (!IsShowingWarningDialog() && model_.IsDangerous()) {
-    ShowWarningDialog();
-    // Force the shelf to layout again as our size has changed.
-    shelf_->Layout();
-    SchedulePaint();
+  if (IsShowingWarningDialog() != model_.IsDangerous()) {
+    ToggleWarningDialog();
   } else {
-    base::string16 status_text = model_.GetStatusText();
     switch (download()->GetState()) {
       case DownloadItem::IN_PROGRESS:
-        download()->IsPaused() ?
-            StopDownloadProgress() : StartDownloadProgress();
+        download()->IsPaused() ? StopDownloadProgress()
+                               : StartDownloadProgress();
         LoadIconIfItemPathChanged();
         break;
       case DownloadItem::INTERRUPTED:
@@ -292,7 +286,6 @@ void DownloadItemView::OnDownloadUpdated(DownloadItem* download_item) {
         complete_animation_->SetSlideDuration(kInterruptedAnimationDurationMs);
         complete_animation_->SetTweenType(gfx::Tween::LINEAR);
         complete_animation_->Show();
-        SchedulePaint();
         LoadIcon();
         break;
       case DownloadItem::COMPLETE:
@@ -305,7 +298,6 @@ void DownloadItemView::OnDownloadUpdated(DownloadItem* download_item) {
         complete_animation_->SetSlideDuration(kCompleteAnimationDurationMs);
         complete_animation_->SetTweenType(gfx::Tween::LINEAR);
         complete_animation_->Show();
-        SchedulePaint();
         LoadIcon();
         break;
       case DownloadItem::CANCELLED:
@@ -317,7 +309,8 @@ void DownloadItemView::OnDownloadUpdated(DownloadItem* download_item) {
       default:
         NOTREACHED();
     }
-    status_text_ = status_text;
+    status_text_ = model_.GetStatusText();
+    SchedulePaint();
   }
 
   base::string16 new_tip = model_.GetTooltipText(font_list_, kTooltipMaxWidth);
@@ -327,11 +320,6 @@ void DownloadItemView::OnDownloadUpdated(DownloadItem* download_item) {
   }
 
   UpdateAccessibleName();
-
-  // We use the parent's (DownloadShelfView's) SchedulePaint, since there
-  // are spaces between each DownloadItemView that the parent is responsible
-  // for painting.
-  shelf_->SchedulePaint();
 }
 
 void DownloadItemView::OnDownloadDestroyed(DownloadItem* download) {
@@ -710,16 +698,12 @@ void DownloadItemView::OnPaintBackground(gfx::Canvas* canvas) {
               kVerticalTextPadding;
       SkColor file_name_color = GetThemeProvider()->GetColor(
           ThemeProperties::COLOR_BOOKMARK_TEXT);
-      // If text is light-on-dark, lightening it alone will do nothing.
-      // Therefore we mute luminance a wee bit before drawing in this case.
-      if (color_utils::RelativeLuminance(file_name_color) > 0.5)
-          file_name_color = SkColorSetRGB(
-              static_cast<int>(kDownloadItemLuminanceMod *
-                               SkColorGetR(file_name_color)),
-              static_cast<int>(kDownloadItemLuminanceMod *
-                               SkColorGetG(file_name_color)),
-              static_cast<int>(kDownloadItemLuminanceMod *
-                               SkColorGetB(file_name_color)));
+      // If text is light-on-dark, lightening it alone will do nothing.  In this
+      // case we multiply color components by 80% before drawing.
+      if (!color_utils::IsDark(file_name_color)) {
+        file_name_color =
+            color_utils::AlphaBlend(SK_ColorBLACK, file_name_color, 255 / 5);
+      }
       canvas->DrawStringRect(status_text_, font_list_, file_name_color,
                              gfx::Rect(mirrored_x, y, kTextWidth,
                                        font_list_.GetHeight()));
@@ -1135,6 +1119,19 @@ void DownloadItemView::SetState(State new_body_state, State new_drop_state) {
   SchedulePaint();
 }
 
+void DownloadItemView::ToggleWarningDialog() {
+  if (model_.IsDangerous())
+    ShowWarningDialog();
+  else
+    ClearWarningDialog();
+
+  UpdateDropDownButtonPosition();
+
+  // Force the shelf to layout again as our size has changed.
+  shelf_->Layout();
+  shelf_->SchedulePaint();
+}
+
 void DownloadItemView::ClearWarningDialog() {
   DCHECK(download()->GetDangerType() ==
          content::DOWNLOAD_DANGER_TYPE_USER_VALIDATED);
@@ -1162,21 +1159,9 @@ void DownloadItemView::ClearWarningDialog() {
   delete dangerous_download_label_;
   dangerous_download_label_ = NULL;
   dangerous_download_label_sized_ = false;
-  cached_button_size_.SetSize(0,0);
-
-  // Set the accessible name back to the status and filename instead of the
-  // download warning.
-  UpdateAccessibleName();
-  UpdateDropDownButtonPosition();
 
   // We need to load the icon now that the download has the real path.
   LoadIcon();
-
-  // Force the shelf to layout again as our size has changed.
-  shelf_->Layout();
-  shelf_->SchedulePaint();
-
-  TooltipTextChanged();
 }
 
 void DownloadItemView::ShowWarningDialog() {
@@ -1246,31 +1231,13 @@ void DownloadItemView::ShowWarningDialog() {
   dangerous_download_label_->SetAutoColorReadabilityEnabled(false);
   AddChildView(dangerous_download_label_);
   SizeLabelToMinWidth();
-  UpdateDropDownButtonPosition();
-  TooltipTextChanged();
 }
 
 gfx::Size DownloadItemView::GetButtonSize() const {
   DCHECK(discard_button_ && (mode_ == MALICIOUS_MODE || save_button_));
-  gfx::Size size;
-
-  // We cache the size when successfully retrieved, not for performance reasons
-  // but because if this DownloadItemView is being animated while the tab is
-  // not showing, the native buttons are not parented and their preferred size
-  // is 0, messing-up the layout.
-  if (cached_button_size_.width() != 0)
-    return cached_button_size_;
-
+  gfx::Size size = discard_button_->GetPreferredSize();
   if (save_button_)
-    size = save_button_->GetMinimumSize();
-  gfx::Size discard_size = discard_button_->GetMinimumSize();
-
-  size.SetSize(std::max(size.width(), discard_size.width()),
-               std::max(size.height(), discard_size.height()));
-
-  if (size.width() != 0)
-    cached_button_size_ = size;
-
+    size.SetToMax(save_button_->GetPreferredSize());
   return size;
 }
 
@@ -1395,4 +1362,11 @@ void DownloadItemView::AnimateStateTransition(State from, State to,
   } else if (from != to) {
     animation->Reset((to == HOT) ? 1.0 : 0.0);
   }
+}
+
+void DownloadItemView::ProgressTimerFired() {
+  // Only repaint for the indeterminate size case. Otherwise, we'll repaint only
+  // when there's an update notified via OnDownloadUpdated().
+  if (model_.PercentComplete() < 0)
+    SchedulePaint();
 }

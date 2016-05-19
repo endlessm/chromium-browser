@@ -4,7 +4,8 @@
 
 #include "net/quic/quic_flow_controller.h"
 
-#include "base/basictypes.h"
+#include "base/strings/stringprintf.h"
+#include "net/quic/quic_bug_tracker.h"
 #include "net/quic/quic_connection.h"
 #include "net/quic/quic_flags.h"
 #include "net/quic/quic_protocol.h"
@@ -67,13 +68,19 @@ bool QuicFlowController::UpdateHighestReceivedOffset(
 
 void QuicFlowController::AddBytesSent(QuicByteCount bytes_sent) {
   if (bytes_sent_ + bytes_sent > send_window_offset_) {
-    LOG(DFATAL) << ENDPOINT << "Stream " << id_ << " Trying to send an extra "
-                << bytes_sent << " bytes, when bytes_sent = " << bytes_sent_
-                << ", and send_window_offset_ = " << send_window_offset_;
+    QUIC_BUG << ENDPOINT << "Stream " << id_ << " Trying to send an extra "
+             << bytes_sent << " bytes, when bytes_sent = " << bytes_sent_
+             << ", and send_window_offset_ = " << send_window_offset_;
     bytes_sent_ = send_window_offset_;
 
     // This is an error on our side, close the connection as soon as possible.
-    connection_->SendConnectionClose(QUIC_FLOW_CONTROL_SENT_TOO_MUCH_DATA);
+    connection_->SendConnectionCloseWithDetails(
+        QUIC_FLOW_CONTROL_SENT_TOO_MUCH_DATA,
+        base::StringPrintf(
+            "%llu bytes over send window offset",
+            static_cast<unsigned long long>(send_window_offset_ -
+                                            (bytes_sent_ + bytes_sent)))
+            .c_str());
     return;
   }
 
@@ -83,9 +90,8 @@ void QuicFlowController::AddBytesSent(QuicByteCount bytes_sent) {
 
 bool QuicFlowController::FlowControlViolation() {
   if (highest_received_byte_offset_ > receive_window_offset_) {
-    LOG(ERROR) << ENDPOINT << "Flow control violation on stream "
-               << id_ << ", receive window offset: "
-               << receive_window_offset_
+    LOG(ERROR) << ENDPOINT << "Flow control violation on stream " << id_
+               << ", receive window offset: " << receive_window_offset_
                << ", highest received byte offset: "
                << highest_received_byte_offset_;
     return true;
@@ -229,7 +235,7 @@ bool QuicFlowController::IsBlocked() const {
   return SendWindowSize() == 0;
 }
 
-uint64 QuicFlowController::SendWindowSize() const {
+uint64_t QuicFlowController::SendWindowSize() const {
   if (bytes_sent_ > send_window_offset_) {
     return 0;
   }
@@ -240,8 +246,8 @@ void QuicFlowController::UpdateReceiveWindowSize(QuicStreamOffset size) {
   DVLOG(1) << ENDPOINT << "UpdateReceiveWindowSize for stream " << id_ << ": "
            << size;
   if (receive_window_size_ != receive_window_offset_) {
-    LOG(DFATAL) << "receive_window_size_:" << receive_window_size_
-                << " != receive_window_offset:" << receive_window_offset_;
+    QUIC_BUG << "receive_window_size_:" << receive_window_size_
+             << " != receive_window_offset:" << receive_window_offset_;
     return;
   }
   receive_window_size_ = size;

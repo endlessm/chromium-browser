@@ -4,8 +4,11 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_bypass_protocol.h"
 
+#include <stddef.h>
+
 #include <utility>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
@@ -26,6 +29,7 @@
 #include "net/base/load_flags.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/network_delegate.h"
+#include "net/base/proxy_delegate.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_transaction_test_util.h"
 #include "net/proxy/proxy_server.h"
@@ -74,7 +78,7 @@ class DataReductionProxyProtocolTest : public testing::Test {
   DataReductionProxyProtocolTest() : http_user_agent_settings_("", "") {
     simple_interceptor_.reset(new SimpleURLRequestInterceptor());
     net::URLRequestFilter::GetInstance()->AddHostnameInterceptor(
-        "http", "www.google.com", simple_interceptor_.Pass());
+        "http", "www.google.com", std::move(simple_interceptor_));
   }
 
   ~DataReductionProxyProtocolTest() override {
@@ -96,7 +100,7 @@ class DataReductionProxyProtocolTest : public testing::Test {
     // Create a context with delayed initialization.
     context_.reset(new TestURLRequestContext(true));
 
-    proxy_service_ = proxy_service.Pass();
+    proxy_service_ = std::move(proxy_service);
     context_->set_client_socket_factory(&mock_socket_factory_);
     context_->set_proxy_service(proxy_service_.get());
     network_delegate_.reset(new net::TestNetworkDelegate());
@@ -115,7 +119,7 @@ class DataReductionProxyProtocolTest : public testing::Test {
     scoped_ptr<net::URLRequestJobFactoryImpl> job_factory_impl(
         new net::URLRequestJobFactoryImpl());
     job_factory_.reset(new net::URLRequestInterceptingJobFactory(
-        job_factory_impl.Pass(), make_scoped_ptr(interceptor)));
+        std::move(job_factory_impl), make_scoped_ptr(interceptor)));
 
     context_->set_job_factory(job_factory_.get());
     context_->Init();
@@ -779,6 +783,8 @@ class DataReductionProxyBypassProtocolEndToEndTest : public testing::Test {
             .WithMockClientSocketFactory(mock_socket_factory_.get())
             .WithURLRequestContext(context_.get())
             .Build();
+    proxy_delegate_ = drp_test_context_->io_data()->CreateProxyDelegate();
+    context_->set_proxy_delegate(proxy_delegate_.get());
   }
 
   void AttachToContextAndInit() {
@@ -800,6 +806,7 @@ class DataReductionProxyBypassProtocolEndToEndTest : public testing::Test {
   scoped_ptr<net::TestURLRequestContext> context_;
   scoped_ptr<net::URLRequestContextStorage> storage_;
   scoped_ptr<net::MockClientSocketFactory> mock_socket_factory_;
+  scoped_ptr<net::ProxyDelegate> proxy_delegate_;
   scoped_ptr<DataReductionProxyTestContext> drp_test_context_;
 
   DISALLOW_COPY_AND_ASSIGN(DataReductionProxyBypassProtocolEndToEndTest);

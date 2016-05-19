@@ -29,6 +29,14 @@ extern const char kAllowHiddenMediaPlayback[];
 extern const char kLastLaunchedApp[];
 extern const char kPreviousApp[];
 
+// ALSA-based CMA switches. (Only valid for audio products.)
+extern const char kAlsaOutputBufferSize[];
+extern const char kAlsaOutputPeriodSize[];
+extern const char kAlsaOutputStartThreshold[];
+extern const char kAlsaOutputAvailMin[];
+extern const char kAlsaCheckCloseTimeout[];
+extern const char kAlsaNumOutputChannels[];
+
 }  // namespace switches
 
 #endif  // CHROMECAST_BASE_CHROMECAST_SWITCHES_H_

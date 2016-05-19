@@ -5,7 +5,7 @@
 
 """Client tool to trigger tasks or retrieve results from a Swarming server."""
 
-__version__ = '0.8.3'
+__version__ = '0.8.4'
 
 import collections
 import datetime
@@ -36,6 +36,7 @@ from utils import tools
 import auth
 import isolated_format
 import isolateserver
+import run_isolated
 
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -179,7 +180,7 @@ def namedtuple_to_dict(value):
 
 
 def task_request_to_raw_request(task_request):
-  """Returns the json dict expected by the Swarming server for new request.
+  """Returns the json-compatible dict expected by the server for new request.
 
   This is for the v1 client Swarming API.
   """
@@ -218,6 +219,20 @@ def swarming_trigger(swarming, raw_request):
       swarming + '/_ah/api/swarming/v1/tasks/new', data=raw_request)
   if not result:
     on_error.report('Failed to trigger task %s' % raw_request['name'])
+    return None
+  if result.get('error'):
+    # The reply is an error.
+    msg = 'Failed to trigger task %s' % raw_request['name']
+    if result['error'].get('errors'):
+      for err in result['error']['errors']:
+        if err.get('message'):
+          msg += '\nMessage: %s' % err['message']
+        if err.get('debugInfo'):
+          msg += '\nDebug info:\n%s' % err['debugInfo']
+    elif result['error'].get('message'):
+      msg += '\nMessage: %s' % result['error']['message']
+
+    on_error.report(msg)
     return None
   return result
 
@@ -488,7 +503,7 @@ def retrieve_results(
     <result dict> on success.
     None on failure.
   """
-  assert isinstance(timeout, float), timeout
+  assert timeout is None or isinstance(timeout, float), timeout
   result_url = '%s/_ah/api/swarming/v1/task/%s/result' % (base_url, task_id)
   output_url = '%s/_ah/api/swarming/v1/task/%s/stdout' % (base_url, task_id)
   started = now()
@@ -524,6 +539,18 @@ def retrieve_results(
     # request on GAE v2.
     result = net.url_read_json(result_url, retry_50x=False)
     if not result:
+      continue
+
+    if result.get('error'):
+      # An error occurred.
+      if result['error'].get('errors'):
+        for err in result['error']['errors']:
+          logging.warning(
+              'Error while reading task: %s; %s',
+              err.get('message'), err.get('debugInfo'))
+      elif result['error'].get('message'):
+        logging.warning(
+            'Error while reading task: %s', result['error']['message'])
       continue
 
     if result['state'] in State.STATES_NOT_RUNNING:
@@ -927,11 +954,9 @@ def process_trigger_options(parser, options, args):
 
 def add_collect_options(parser):
   parser.server_group.add_option(
-      '-t', '--timeout',
-      type='float',
-      default=80*60.,
-      help='Timeout to wait for result, set to 0 for no timeout; default: '
-           '%default s')
+      '-t', '--timeout', type='float',
+      help='Timeout to wait for result, set to 0 for no timeout; default to no '
+           'wait')
   parser.group_logging.add_option(
       '--decorate', action='store_true', help='Decorate output')
   parser.group_logging.add_option(
@@ -1026,7 +1051,7 @@ def CMDbots(parser, args):
 
     # If the user requested to filter on dimensions, ensure the bot has all the
     # dimensions requested.
-    dimensions = {i['key']: i['value'] for i in bot['dimensions']}
+    dimensions = {i['key']: i.get('value') for i in bot['dimensions']}
     for key, value in options.dimensions:
       if key not in dimensions:
         break
@@ -1069,11 +1094,19 @@ def CMDcollect(parser, args):
     options.json = unicode(os.path.abspath(options.json))
     try:
       with fs.open(options.json, 'rb') as f:
-        tasks = sorted(
-            json.load(f)['tasks'].itervalues(), key=lambda x: x['shard_index'])
-        args = [t['task_id'] for t in tasks]
-    except (KeyError, IOError, TypeError, ValueError):
-      parser.error('Failed to parse %s' % options.json)
+        data = json.load(f)
+    except (IOError, ValueError):
+      parser.error('Failed to open %s' % options.json)
+    try:
+      tasks = sorted(
+          data['tasks'].itervalues(), key=lambda x: x['shard_index'])
+      args = [t['task_id'] for t in tasks]
+    except (KeyError, TypeError):
+      parser.error('Failed to process %s' % options.json)
+    if options.timeout is None:
+      options.timeout = (
+          data['request']['properties']['execution_timeout_secs'] +
+          data['request']['expiration_secs'] + 10.)
   else:
     valid = frozenset('0123456789abcdef')
     if any(not valid.issuperset(task_id) for task_id in args):
@@ -1272,6 +1305,10 @@ def CMDrun(parser, args):
     t['task_id']
     for t in sorted(tasks.itervalues(), key=lambda x: x['shard_index'])
   ]
+  if options.timeout is None:
+    options.timeout = (
+        task_request.properties.execution_timeout_secs +
+        task_request.expiration_secs + 10.)
   try:
     return collect(
         options.swarming,
@@ -1286,17 +1323,30 @@ def CMDrun(parser, args):
     return 1
 
 
-@subcommand.usage('task_id')
+@subcommand.usage('task_id -- <extra_args>')
 def CMDreproduce(parser, args):
   """Runs a task locally that was triggered on the server.
 
   This running locally the same commands that have been run on the bot. The data
   downloaded will be in a subdirectory named 'work' of the current working
   directory.
+
+  You can pass further additional arguments to the target command by passing
+  them after --.
   """
+  parser.add_option(
+      '--output-dir', metavar='DIR', default='',
+      help='Directory that will have results stored into')
   options, args = parser.parse_args(args)
-  if len(args) != 1:
+  extra_args = []
+  if not args:
     parser.error('Must specify exactly one task id.')
+  if len(args) > 1:
+    if args[1] == '--':
+      if len(args) > 2:
+        extra_args = args[2:]
+    else:
+      extra_args = args[1:]
 
   url = options.swarming + '/_ah/api/swarming/v1/task/%s/request' % args[0]
   request = net.url_read_json(url)
@@ -1313,9 +1363,12 @@ def CMDreproduce(parser, args):
   if properties.get('env'):
     env = os.environ.copy()
     logging.info('env: %r', properties['env'])
-    env.update(
-        (i['key'].encode('utf-8'), i['value'].encode('utf-8'))
-        for i in properties['env'])
+    for i in properties['env']:
+      key = i['key'].encode('utf-8')
+      if not i['value']:
+        env.pop(key, None)
+      else:
+        env[key] = i['value'].encode('utf-8')
 
   if properties.get('inputs_ref'):
     # Create the tree.
@@ -1331,10 +1384,16 @@ def CMDreproduce(parser, args):
       command = bundle.command
       if bundle.relative_cwd:
         workdir = os.path.join(workdir, bundle.relative_cwd)
+      command.extend(properties.get('extra_args') or [])
+    # https://github.com/luci/luci-py/blob/master/appengine/swarming/doc/Magic-Values.md
+    new_command = run_isolated.process_command(command, options.output_dir)
+    if not options.output_dir and new_command != command:
+      parser.error('The task has outputs, you must use --output-dir')
+    command = new_command
   else:
     command = properties['command']
   try:
-    return subprocess.call(command, env=env, cwd=workdir)
+    return subprocess.call(command + extra_args, env=env, cwd=workdir)
   except OSError as e:
     print >> sys.stderr, 'Failed to run: %s' % ' '.join(command)
     print >> sys.stderr, str(e)
@@ -1395,6 +1454,7 @@ def CMDtrigger(parser, args):
         data = {
           'base_task_name': options.task_name,
           'tasks': tasks,
+          'request': task_request_to_raw_request(task_request),
         }
         tools.write_json(unicode(options.dump_json), data, True)
         print('To collect results, use:')

@@ -9,7 +9,7 @@ namespace content {
 IndexedDBIndexMetadata::IndexedDBIndexMetadata() = default;
 
 IndexedDBIndexMetadata::IndexedDBIndexMetadata(const base::string16& name,
-                                               int64 id,
+                                               int64_t id,
                                                const IndexedDBKeyPath& key_path,
                                                bool unique,
                                                bool multi_entry)
@@ -17,8 +17,7 @@ IndexedDBIndexMetadata::IndexedDBIndexMetadata(const base::string16& name,
       id(id),
       key_path(key_path),
       unique(unique),
-      multi_entry(multi_entry) {
-}
+      multi_entry(multi_entry) {}
 
 IndexedDBIndexMetadata::IndexedDBIndexMetadata(
     const IndexedDBIndexMetadata& other) = default;
@@ -30,10 +29,10 @@ IndexedDBIndexMetadata& IndexedDBIndexMetadata::operator=(
 
 IndexedDBObjectStoreMetadata::IndexedDBObjectStoreMetadata(
     const base::string16& name,
-    int64 id,
+    int64_t id,
     const IndexedDBKeyPath& key_path,
     bool auto_increment,
-    int64 max_index_id)
+    int64_t max_index_id)
     : name(name),
       id(id),
       key_path(key_path),
@@ -50,19 +49,16 @@ IndexedDBObjectStoreMetadata::~IndexedDBObjectStoreMetadata() = default;
 IndexedDBObjectStoreMetadata& IndexedDBObjectStoreMetadata::operator=(
     const IndexedDBObjectStoreMetadata& other) = default;
 
-IndexedDBDatabaseMetadata::IndexedDBDatabaseMetadata()
-    : int_version(NO_INT_VERSION) {}
+IndexedDBDatabaseMetadata::IndexedDBDatabaseMetadata() : version(NO_VERSION) {}
 
 IndexedDBDatabaseMetadata::IndexedDBDatabaseMetadata(
     const base::string16& name,
-    int64 id,
-    const base::string16& version,
-    int64 int_version,
-    int64 max_object_store_id)
+    int64_t id,
+    int64_t version,
+    int64_t max_object_store_id)
     : name(name),
       id(id),
       version(version),
-      int_version(int_version),
       max_object_store_id(max_object_store_id) {}
 
 IndexedDBDatabaseMetadata::IndexedDBDatabaseMetadata(

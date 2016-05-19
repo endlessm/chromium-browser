@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/message_loop/message_loop.h"
 #include "base/time/time.h"
@@ -34,11 +33,11 @@ using sessions::SyncSessionContext;
 
 class MockDelegate : public sessions::SyncSession::Delegate {
  public:
-   MockDelegate() {}
-   ~MockDelegate() {}
+  MockDelegate() {}
+  ~MockDelegate() {}
 
   MOCK_METHOD1(OnReceivedShortPollIntervalUpdate, void(const base::TimeDelta&));
-  MOCK_METHOD1(OnReceivedLongPollIntervalUpdate ,void(const base::TimeDelta&));
+  MOCK_METHOD1(OnReceivedLongPollIntervalUpdate, void(const base::TimeDelta&));
   MOCK_METHOD1(OnReceivedSessionsCommitDelay, void(const base::TimeDelta&));
   MOCK_METHOD1(OnReceivedClientInvalidationHintBufferSize, void(int));
   MOCK_METHOD1(OnSyncProtocolError, void(const SyncProtocolError&));
@@ -225,22 +224,17 @@ TEST_F(SyncerProtoUtilTest, AddRequestBirthday) {
 
 class DummyConnectionManager : public ServerConnectionManager {
  public:
-  DummyConnectionManager(CancelationSignal* signal)
+  explicit DummyConnectionManager(CancelationSignal* signal)
       : ServerConnectionManager("unused", 0, false, signal),
-        send_error_(false),
-        access_denied_(false) {}
+        send_error_(false) {}
 
   ~DummyConnectionManager() override {}
-  bool PostBufferWithCachedAuth(PostBufferParams* params,
-                                ScopedServerStatusWatcher* watcher) override {
+  bool PostBufferWithCachedAuth(PostBufferParams* params) override {
     if (send_error_) {
       return false;
     }
 
     sync_pb::ClientToServerResponse response;
-    if (access_denied_) {
-      response.set_error_code(sync_pb::SyncEnums::ACCESS_DENIED);
-    }
     response.SerializeToString(&params->buffer_out);
 
     return true;
@@ -250,13 +244,8 @@ class DummyConnectionManager : public ServerConnectionManager {
     send_error_ = send;
   }
 
-  void set_access_denied(bool denied) {
-    access_denied_ = denied;
-  }
-
  private:
   bool send_error_;
-  bool access_denied_;
 };
 
 TEST_F(SyncerProtoUtilTest, PostAndProcessHeaders) {
@@ -274,10 +263,6 @@ TEST_F(SyncerProtoUtilTest, PostAndProcessHeaders) {
 
   dcm.set_send_error(false);
   EXPECT_TRUE(SyncerProtoUtil::PostAndProcessHeaders(&dcm, NULL,
-      msg, &response));
-
-  dcm.set_access_denied(true);
-  EXPECT_FALSE(SyncerProtoUtil::PostAndProcessHeaders(&dcm, NULL,
       msg, &response));
 }
 

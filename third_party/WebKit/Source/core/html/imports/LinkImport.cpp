@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/imports/LinkImport.h"
 
 #include "core/dom/Document.h"
@@ -93,7 +92,7 @@ void LinkImport::process()
     HTMLImportsController* controller = m_owner->document().importsController();
     HTMLImportLoader* loader = m_owner->document().importLoader();
     HTMLImport* parent = loader ? static_cast<HTMLImport*>(loader->firstImport()) : static_cast<HTMLImport*>(controller->root());
-    m_child = controller->load(parent, this, builder.build(true));
+    m_child = controller->load(parent, this, builder.build(false));
     if (!m_child) {
         didFinish();
         return;

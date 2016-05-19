@@ -5,16 +5,18 @@
 #ifndef NET_HTTP_HTTP_SERVER_PROPERTIES_H_
 #define NET_HTTP_HTTP_SERVER_PROPERTIES_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/containers/mru_cache.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "net/base/host_port_pair.h"
-#include "net/base/ip_address_number.h"
 #include "net/base/net_export.h"
 #include "net/quic/quic_bandwidth.h"
 #include "net/quic/quic_server_id.h"
@@ -28,6 +30,7 @@ class Value;
 
 namespace net {
 
+class IPAddress;
 struct SSLConfig;
 
 enum AlternateProtocolUsage {
@@ -63,12 +66,10 @@ NET_EXPORT void HistogramBrokenAlternateProtocolLocation(
     BrokenAlternateProtocolLocation location);
 
 enum AlternateProtocol {
-  DEPRECATED_NPN_SPDY_2 = 0,
-  ALTERNATE_PROTOCOL_MINIMUM_VALID_VERSION = DEPRECATED_NPN_SPDY_2,
-  NPN_SPDY_MINIMUM_VERSION = DEPRECATED_NPN_SPDY_2,
-  NPN_SPDY_3,
   NPN_SPDY_3_1,
-  NPN_HTTP_2,     // HTTP/2
+  ALTERNATE_PROTOCOL_MINIMUM_VALID_VERSION = NPN_SPDY_3_1,
+  NPN_SPDY_MINIMUM_VERSION = NPN_SPDY_3_1,
+  NPN_HTTP_2,
   NPN_SPDY_MAXIMUM_VERSION = NPN_HTTP_2,
   QUIC,
   ALTERNATE_PROTOCOL_MAXIMUM_VALID_VERSION = QUIC,
@@ -100,7 +101,7 @@ struct NET_EXPORT AlternativeService {
 
   AlternativeService(AlternateProtocol protocol,
                      const std::string& host,
-                     uint16 port)
+                     uint16_t port)
       : protocol(protocol), host(host), port(port) {}
 
   AlternativeService(AlternateProtocol protocol,
@@ -125,18 +126,15 @@ struct NET_EXPORT AlternativeService {
   }
 
   bool operator<(const AlternativeService& other) const {
-    if (protocol != other.protocol)
-      return protocol < other.protocol;
-    if (host != other.host)
-      return host < other.host;
-    return port < other.port;
+    return std::tie(protocol, host, port) <
+           std::tie(other.protocol, other.host, other.port);
   }
 
   std::string ToString() const;
 
   AlternateProtocol protocol;
   std::string host;
-  uint16 port;
+  uint16_t port;
 };
 
 struct NET_EXPORT AlternativeServiceInfo {
@@ -151,7 +149,7 @@ struct NET_EXPORT AlternativeServiceInfo {
 
   AlternativeServiceInfo(AlternateProtocol protocol,
                          const std::string& host,
-                         uint16 port,
+                         uint16_t port,
                          double probability,
                          base::Time expiration)
       : alternative_service(protocol, host, port),
@@ -344,7 +342,7 @@ class NET_EXPORT HttpServerProperties {
   virtual bool SetSpdySetting(const HostPortPair& host_port_pair,
                               SpdySettingsIds id,
                               SpdySettingsFlags flags,
-                              uint32 value) = 0;
+                              uint32_t value) = 0;
 
   // Clears all SPDY settings for a host.
   virtual void ClearSpdySettings(const HostPortPair& host_port_pair) = 0;
@@ -355,10 +353,10 @@ class NET_EXPORT HttpServerProperties {
   // Returns all persistent SPDY settings.
   virtual const SpdySettingsMap& spdy_settings_map() const = 0;
 
-  virtual bool GetSupportsQuic(IPAddressNumber* last_address) const = 0;
+  virtual bool GetSupportsQuic(IPAddress* last_address) const = 0;
 
   virtual void SetSupportsQuic(bool used_quic,
-                               const IPAddressNumber& last_address) = 0;
+                               const IPAddress& last_address) = 0;
 
   // Sets |stats| for |host_port_pair|.
   virtual void SetServerNetworkStats(const HostPortPair& host_port_pair,
@@ -380,6 +378,13 @@ class NET_EXPORT HttpServerProperties {
 
   // Returns all persistent QuicServerInfo objects.
   virtual const QuicServerInfoMap& quic_server_info_map() const = 0;
+
+  // Returns the number of server configs (QuicServerInfo objects) persisted.
+  virtual size_t max_server_configs_stored_in_properties() const = 0;
+
+  // Sets the number of server configs (QuicServerInfo objects) to be persisted.
+  virtual void SetMaxServerConfigsStoredInProperties(
+      size_t max_server_configs_stored_in_properties) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HttpServerProperties);

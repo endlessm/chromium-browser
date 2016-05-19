@@ -5,6 +5,7 @@
 #include "chrome/browser/task_management/providers/web_contents/web_contents_task_provider.h"
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "chrome/browser/task_management/providers/web_contents/subframe_task.h"
 #include "chrome/browser/task_management/providers/web_contents/web_contents_tags_manager.h"
@@ -175,6 +176,7 @@ void WebContentsEntry::DidNavigateMainFrame(
   // RendererTask::OnFaviconUpdated() will update the current favicon once
   // FaviconDriver figures out the correct favicon for the page.
   itr->second->UpdateFavicon();
+  itr->second->UpdateRapporSampleName();
 }
 
 void WebContentsEntry::TitleWasSet(content::NavigationEntry* entry,

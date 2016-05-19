@@ -33,6 +33,7 @@
 
 #include "platform/SharedBufferChunkReader.h"
 #include "platform/heap/Handle.h"
+#include "platform/weborigin/KURL.h"
 #include "wtf/RefPtr.h"
 #include "wtf/Vector.h"
 
@@ -43,7 +44,6 @@ class String;
 namespace blink {
 
 class ArchiveResource;
-class MHTMLArchive;
 class MIMEHeader;
 class SharedBuffer;
 
@@ -52,25 +52,23 @@ class PLATFORM_EXPORT MHTMLParser final {
 public:
     explicit MHTMLParser(SharedBuffer*);
 
-    PassRefPtrWillBeRawPtr<MHTMLArchive> parseArchive();
+    WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>> parseArchive();
 
-    size_t frameCount() const;
-    MHTMLArchive* frameAt(size_t) const;
-
-    size_t subResourceCount() const;
-    ArchiveResource* subResourceAt(size_t) const;
+    // Translates |contentIDFromMimeHeader| (of the form "<foo@bar.com>")
+    // into a cid-scheme URI (of the form "cid:foo@bar.com").
+    //
+    // Returns KURL() - an invalid URL - if contentID is invalid.
+    //
+    // See rfc2557 - section 8.3 - "Use of the Content-ID header and CID URLs".
+    static KURL convertContentIDToURI(const String& contentID);
 
 private:
-    PassRefPtrWillBeRawPtr<MHTMLArchive> parseArchiveWithHeader(MIMEHeader*);
+    bool parseArchiveWithHeader(MIMEHeader*, WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>>&);
     PassRefPtrWillBeRawPtr<ArchiveResource> parseNextPart(const MIMEHeader&, const String& endOfPartBoundary, const String& endOfDocumentBoundary, bool& endOfArchiveReached);
 
-    void addResourceToArchive(ArchiveResource*, MHTMLArchive*);
-
     SharedBufferChunkReader m_lineReader;
-    WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>> m_resources;
-    WillBeHeapVector<RefPtrWillBeMember<MHTMLArchive>> m_frames;
 };
 
-}
+} // namespace blink
 
 #endif

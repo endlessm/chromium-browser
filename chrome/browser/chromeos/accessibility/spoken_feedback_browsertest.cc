@@ -9,6 +9,7 @@
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -17,7 +18,6 @@
 #include "chrome/browser/chromeos/accessibility/speech_monitor.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/api/braille_display_private/stub_braille_controller.h"
@@ -316,8 +316,30 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, FocusShelf) {
   EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "Button"));
 }
 
-IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateAppLauncher) {
+IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, DISABLED_NavigateAppLauncher) {
   EnableChromeVox();
+
+  EXPECT_TRUE(PerformAcceleratorAction(ash::FOCUS_SHELF));
+
+  // Wait for it to say "Launcher", "Button".
+  while (true) {
+    std::string utterance = speech_monitor_.GetNextUtterance();
+    if (base::MatchPattern(utterance, "Button"))
+      break;
+  }
+
+  // Click on the launcher, it brings up the app list UI.
+  SendKeyPress(ui::VKEY_SPACE);
+  EXPECT_EQ("Search or type URL", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Edit text", speech_monitor_.GetNextUtterance());
+
+  // Close it and open it again.
+  SendKeyPress(ui::VKEY_ESCAPE);
+  while (true) {
+    std::string utterance = speech_monitor_.GetNextUtterance();
+    if (base::MatchPattern(utterance, "*window*"))
+      break;
+  }
 
   EXPECT_TRUE(PerformAcceleratorAction(ash::FOCUS_SHELF));
   while (true) {
@@ -325,12 +347,19 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateAppLauncher) {
     if (base::MatchPattern(utterance, "Button"))
       break;
   }
+  SendKeyPress(ui::VKEY_SPACE);
 
-  SendKeyPress(ui::VKEY_RETURN);
+  // Now type a space into the text field and wait until we hear "space".
+  // This makes the test more robust as it allows us to skip over other
+  // speech along the way.
+  SendKeyPress(ui::VKEY_SPACE);
+  while (true) {
+    if ("space" == speech_monitor_.GetNextUtterance())
+      break;
+  }
 
-  EXPECT_EQ("Search or type URL", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("Edit text", speech_monitor_.GetNextUtterance());
-
+  // Now press the down arrow and we should be focused on an app button
+  // in a dialog.
   SendKeyPress(ui::VKEY_DOWN);
   EXPECT_EQ("Dialog", speech_monitor_.GetNextUtterance());
   EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
@@ -428,8 +457,6 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, VolumeSlider) {
   EXPECT_TRUE(PerformAcceleratorAction(ash::VOLUME_UP));
   EXPECT_TRUE(
       base::MatchPattern(speech_monitor_.GetNextUtterance(), "* percent*"));
-  EXPECT_EQ("Volume,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("slider", speech_monitor_.GetNextUtterance());
 }
 
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, OverviewMode) {
@@ -464,6 +491,7 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, MAYBE_ChromeVoxShiftSearch) {
   // Press Search+Shift+/ to enter ChromeVox's "find in page".
   SendKeyPressWithSearchAndShift(ui::VKEY_OEM_2);
   EXPECT_EQ("Find in page.", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ(",", speech_monitor_.GetNextUtterance());
   EXPECT_EQ("Enter a search query.", speech_monitor_.GetNextUtterance());
 }
 
@@ -488,6 +516,7 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, MAYBE_ChromeVoxPrefixKey) {
   SendKeyPressWithControl(ui::VKEY_OEM_1);
   SendKeyPress(ui::VKEY_OEM_2);
   EXPECT_EQ("Find in page.", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ(",", speech_monitor_.GetNextUtterance());
   EXPECT_EQ("Enter a search query.", speech_monitor_.GetNextUtterance());
 }
 
@@ -569,6 +598,28 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, DISABLED_ChromeVoxStickyMode) {
   EXPECT_EQ("One", speech_monitor_.GetNextUtterance());
 }
 
+IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, ChromeVoxNextStickyMode) {
+  LoadChromeVoxAndThenNavigateToURL(
+      GURL("data:text/html;charset=utf-8,<button autofocus>Click me</button>"
+           "<!-- chromevox_next_test -->"));
+  while ("Button" != speech_monitor_.GetNextUtterance()) {
+  }
+
+  // Press the sticky-key sequence: Search Search.
+  SendKeyPress(ui::VKEY_LWIN);
+  SendKeyPress(ui::VKEY_LWIN);
+  EXPECT_EQ("Sticky mode enabled", speech_monitor_.GetNextUtterance());
+
+  SendKeyPress(ui::VKEY_H);
+  while ("No next heading." != speech_monitor_.GetNextUtterance()) {
+  }
+
+  SendKeyPress(ui::VKEY_LWIN);
+  SendKeyPress(ui::VKEY_LWIN);
+  while ("Sticky mode disabled" != speech_monitor_.GetNextUtterance()) {
+  }
+}
+
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, TouchExploreStatusTray) {
   EnableChromeVox();
   SimulateTouchScreenInChromeVox();
@@ -646,7 +697,7 @@ IN_PROC_BROWSER_TEST_F(OobeSpokenFeedbackTest, DISABLED_SpokenFeedbackInOobe) {
   ui_controls::EnableUIControls();
   ASSERT_FALSE(AccessibilityManager::Get()->IsSpokenFeedbackEnabled());
 
-  LoginDisplayHost* login_display_host = LoginDisplayHostImpl::default_host();
+  LoginDisplayHost* login_display_host = LoginDisplayHost::default_host();
   WebUILoginView* web_ui_login_view = login_display_host->GetWebUILoginView();
   views::Widget* widget = web_ui_login_view->GetWidget();
   gfx::NativeWindow window = widget->GetNativeWindow();

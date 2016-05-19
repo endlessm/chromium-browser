@@ -22,7 +22,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLFieldSetElement.h"
 
 #include "core/HTMLNames.h"
@@ -156,4 +155,4 @@ const FormAssociatedElement::List& HTMLFieldSetElement::associatedElements() con
     return m_associatedElements;
 }
 
-} // namespace
+} // namespace blink

@@ -7,10 +7,9 @@
 
 #include <string>
 
-#include "base/basictypes.h"
-#include "base/bind.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "components/variations/service/variations_service_client.h"
-#include "components/variations/variations_seed_store.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/metrics/variations/variations_registry_syncer_win.h"
@@ -34,8 +33,6 @@ class ChromeVariationsServiceClient
   version_info::Channel GetChannel() override;
   bool OverridesRestrictParameter(std::string* parameter) override;
   void OnInitialStartup() override;
-  variations::VariationsFirstRunSeedCallback GetVariationsFirstRunSeedCallback()
-      override;
 
  private:
 #if defined(OS_WIN)

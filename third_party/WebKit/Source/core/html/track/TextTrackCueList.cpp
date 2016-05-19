@@ -23,10 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/track/TextTrackCueList.h"
 
 #include "wtf/StdLibExtras.h"
+#include <algorithm>
 
 namespace blink {
 

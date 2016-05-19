@@ -4,16 +4,18 @@
 
 #include "ui/views/widget/desktop_aura/x11_topmost_window_finder.h"
 
-#include <algorithm>
-#include <vector>
+#include <stddef.h>
 #include <X11/extensions/shape.h>
 #include <X11/Xlib.h>
 #include <X11/Xregion.h>
+#include <algorithm>
+#include <vector>
 
 // Get rid of X11 macros which conflict with gtest.
 #undef Bool
 #undef None
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "third_party/skia/include/core/SkRect.h"
@@ -53,11 +55,9 @@ class MinimizeWaiter : public X11PropertyChangeWaiter {
   bool ShouldKeepOnWaiting(const ui::PlatformEvent& event) override {
     std::vector<Atom> wm_states;
     if (ui::GetAtomArrayProperty(xwindow(), "_NET_WM_STATE", &wm_states)) {
-      std::vector<Atom>::iterator it = std::find(
-          wm_states.begin(),
-          wm_states.end(),
-          atom_cache_->GetAtom("_NET_WM_STATE_HIDDEN"));
-      return it == wm_states.end();
+      auto it = std::find(wm_states.cbegin(), wm_states.cend(),
+                          atom_cache_->GetAtom("_NET_WM_STATE_HIDDEN"));
+      return it == wm_states.cend();
     }
     return true;
   }
@@ -95,9 +95,8 @@ class StackingClientListWaiter : public X11PropertyChangeWaiter {
     std::vector<XID> stack;
     ui::GetXWindowStack(ui::GetX11RootWindow(), &stack);
     for (size_t i = 0; i < expected_windows_.size(); ++i) {
-      std::vector<XID>::iterator it = std::find(
-          stack.begin(), stack.end(), expected_windows_[i]);
-      if (it == stack.end())
+      auto it = std::find(stack.cbegin(), stack.cend(), expected_windows_[i]);
+      if (it == stack.cend())
         return true;
     }
     return false;
@@ -128,7 +127,7 @@ class X11TopmostWindowFinderTest : public ViewsTestBase {
     params.remove_standard_frame = true;
     toplevel->Init(params);
     toplevel->Show();
-    return toplevel.Pass();
+    return toplevel;
   }
 
   // Creates and shows an X window with |bounds|.

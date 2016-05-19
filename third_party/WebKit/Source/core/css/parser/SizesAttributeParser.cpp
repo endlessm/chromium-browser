@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/parser/SizesAttributeParser.h"
 
 #include "core/MediaTypeNames.h"
@@ -17,6 +16,7 @@ SizesAttributeParser::SizesAttributeParser(PassRefPtrWillBeRawPtr<MediaValues> m
     , m_length(0)
     , m_lengthWasSet(false)
 {
+    ASSERT(m_mediaValues.get());
     m_isValid = parse(CSSTokenizer::Scope(attribute).tokenRange());
 }
 
@@ -102,4 +102,4 @@ unsigned SizesAttributeParser::effectiveSizeDefaultValue()
     return m_mediaValues->viewportWidth();
 }
 
-} // namespace
+} // namespace blink

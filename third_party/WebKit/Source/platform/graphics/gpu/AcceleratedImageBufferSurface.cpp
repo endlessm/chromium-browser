@@ -28,15 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/graphics/gpu/AcceleratedImageBufferSurface.h"
 
 #include "public/platform/Platform.h"
 #include "public/platform/WebGraphicsContext3DProvider.h"
-#include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkDevice.h"
-#include "third_party/skia/include/gpu/GrRenderTarget.h"
-#include "third_party/skia/include/gpu/GrTexture.h"
+#include "third_party/skia/include/gpu/GrContext.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/RefPtr.h"
 
@@ -62,7 +58,7 @@ AcceleratedImageBufferSurface::AcceleratedImageBufferSurface(const IntSize& size
     clear();
 }
 
-PassRefPtr<SkImage> AcceleratedImageBufferSurface::newImageSnapshot(AccelerationHint)
+PassRefPtr<SkImage> AcceleratedImageBufferSurface::newImageSnapshot(AccelerationHint, SnapshotReason)
 {
     return adoptRef(m_surface->newImageSnapshot());
 }

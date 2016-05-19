@@ -4,32 +4,36 @@
 
 #include "ipc/mojo/ipc_mojo_message_helper.h"
 
+#include <utility>
+
 #include "ipc/mojo/ipc_mojo_handle_attachment.h"
 
 namespace IPC {
 
 // static
 bool MojoMessageHelper::WriteMessagePipeTo(
-    Message* message,
+    base::Pickle* message,
     mojo::ScopedMessagePipeHandle handle) {
   message->WriteAttachment(new internal::MojoHandleAttachment(
-      mojo::ScopedHandle::From(handle.Pass())));
+      mojo::ScopedHandle::From(std::move(handle))));
   return true;
 }
 
 // static
 bool MojoMessageHelper::ReadMessagePipeFrom(
-    const Message* message,
+    const base::Pickle* message,
     base::PickleIterator* iter,
     mojo::ScopedMessagePipeHandle* handle) {
-  scoped_refptr<MessageAttachment> attachment;
+  scoped_refptr<base::Pickle::Attachment> attachment;
   if (!message->ReadAttachment(iter, &attachment)) {
     LOG(ERROR) << "Failed to read attachment for message pipe.";
     return false;
   }
 
-  if (attachment->GetType() != MessageAttachment::TYPE_MOJO_HANDLE) {
-    LOG(ERROR) << "Unxpected attachment type:" << attachment->GetType();
+  MessageAttachment::Type type =
+      static_cast<MessageAttachment*>(attachment.get())->GetType();
+  if (type != MessageAttachment::TYPE_MOJO_HANDLE) {
+    LOG(ERROR) << "Unxpected attachment type:" << type;
     return false;
   }
 

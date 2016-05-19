@@ -4,9 +4,10 @@
 
 #include "cc/output/shader.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "cc/output/static_geometry_binding.h"
@@ -2105,15 +2106,8 @@ void FragmentShaderYUVAVideo::Init(GLES2Interface* context,
                                    unsigned program,
                                    int* base_uniform_index) {
   static const char* uniforms[] = {
-      "y_texture",
-      "u_texture",
-      "v_texture",
-      "a_texture",
-      "alpha",
-      "cc_matrix",
-      "yuv_adj",
-      "ya_clamp_rect",
-      "uv_clamp_rect",
+      "y_texture",  "u_texture", "v_texture",     "a_texture",     "alpha",
+      "yuv_matrix", "yuv_adj",   "ya_clamp_rect", "uv_clamp_rect",
   };
   int locations[arraysize(uniforms)];
 

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/media_galleries/media_scan_manager.h"
 
+#include <stddef.h>
+
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -461,6 +463,8 @@ MediaScanManager::FindContainerScanResults(
 }
 
 MediaScanManager::ScanObservers::ScanObservers() : observer(NULL) {}
+MediaScanManager::ScanObservers::ScanObservers(const ScanObservers& other) =
+    default;
 MediaScanManager::ScanObservers::~ScanObservers() {}
 
 void MediaScanManager::OnExtensionUnloaded(

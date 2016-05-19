@@ -9,8 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
 #include "components/suggestions/image_fetcher.h"
 #include "ui/gfx/image/image_skia.h"
@@ -50,6 +50,7 @@ class ImageFetcherImpl : public ImageFetcher,
     ImageRequest();
     // Struct takes ownership of |f|.
     explicit ImageRequest(chrome::BitmapFetcher* f);
+    ImageRequest(const ImageRequest& other);
     ~ImageRequest();
 
     void swap(ImageRequest* other) {

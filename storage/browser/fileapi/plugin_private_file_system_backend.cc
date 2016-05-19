@@ -4,13 +4,15 @@
 
 #include "storage/browser/fileapi/plugin_private_file_system_backend.h"
 
+#include <stdint.h>
 #include <map>
+#include <utility>
 
 #include "base/stl_util.h"
 #include "base/synchronization/lock.h"
 #include "base/task_runner_util.h"
 #include "base/thread_task_runner_handle.h"
-#include "net/base/net_util.h"
+#include "net/base/url_util.h"
 #include "storage/browser/fileapi/async_file_util_adapter.h"
 #include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_stream_writer.h"
@@ -180,7 +182,8 @@ FileSystemOperation* PluginPrivateFileSystemBackend::CreateFileSystemOperation(
     base::File::Error* error_code) const {
   scoped_ptr<FileSystemOperationContext> operation_context(
       new FileSystemOperationContext(context));
-  return FileSystemOperation::Create(url, context, operation_context.Pass());
+  return FileSystemOperation::Create(url, context,
+                                     std::move(operation_context));
 }
 
 bool PluginPrivateFileSystemBackend::SupportsStreaming(
@@ -196,8 +199,8 @@ bool PluginPrivateFileSystemBackend::HasInplaceCopyImplementation(
 scoped_ptr<storage::FileStreamReader>
 PluginPrivateFileSystemBackend::CreateFileStreamReader(
     const FileSystemURL& url,
-    int64 offset,
-    int64 max_bytes_to_read,
+    int64_t offset,
+    int64_t max_bytes_to_read,
     const base::Time& expected_modification_time,
     FileSystemContext* context) const {
   return scoped_ptr<storage::FileStreamReader>();
@@ -206,7 +209,7 @@ PluginPrivateFileSystemBackend::CreateFileStreamReader(
 scoped_ptr<FileStreamWriter>
 PluginPrivateFileSystemBackend::CreateFileStreamWriter(
     const FileSystemURL& url,
-    int64 offset,
+    int64_t offset,
     FileSystemContext* context) const {
   return scoped_ptr<FileStreamWriter>();
 }
@@ -257,7 +260,7 @@ void PluginPrivateFileSystemBackend::GetOriginsForHostOnFileTaskRunner(
   }
 }
 
-int64 PluginPrivateFileSystemBackend::GetOriginUsageOnFileTaskRunner(
+int64_t PluginPrivateFileSystemBackend::GetOriginUsageOnFileTaskRunner(
     FileSystemContext* context,
     const GURL& origin_url,
     FileSystemType type) {

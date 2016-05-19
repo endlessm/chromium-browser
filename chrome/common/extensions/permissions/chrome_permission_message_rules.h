@@ -8,6 +8,7 @@
 #include <set>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/api_permission_set.h"
@@ -53,6 +54,7 @@ class ChromePermissionMessageFormatter {
 // provider class and remove ownership from ChromePermissionMessageRule.
 class ChromePermissionMessageRule {
  public:
+  ChromePermissionMessageRule(const ChromePermissionMessageRule& other);
   virtual ~ChromePermissionMessageRule();
 
   // Returns all the rules used to generate permission messages for Chrome apps

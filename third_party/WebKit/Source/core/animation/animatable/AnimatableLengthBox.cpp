@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableLengthBox.h"
 
 namespace blink {
@@ -43,6 +42,15 @@ PassRefPtr<AnimatableValue> AnimatableLengthBox::interpolateTo(const AnimatableV
         AnimatableValue::interpolate(this->bottom(), lengthBox->bottom(), fraction));
 }
 
+bool AnimatableLengthBox::usesDefaultInterpolationWith(const AnimatableValue* other) const
+{
+    const AnimatableLengthBox& otherBox = toAnimatableLengthBox(*other);
+    return usesDefaultInterpolation(left(), otherBox.left())
+        || usesDefaultInterpolation(right(), otherBox.right())
+        || usesDefaultInterpolation(top(), otherBox.top())
+        || usesDefaultInterpolation(bottom(), otherBox.bottom());
+}
+
 bool AnimatableLengthBox::equalTo(const AnimatableValue* value) const
 {
     const AnimatableLengthBox* lengthBox = toAnimatableLengthBox(value);
@@ -52,4 +60,4 @@ bool AnimatableLengthBox::equalTo(const AnimatableValue* value) const
         && bottom()->equals(lengthBox->bottom());
 }
 
-}
+} // namespace blink

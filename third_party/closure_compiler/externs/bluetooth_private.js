@@ -7,7 +7,7 @@
 // NOTE: The format of types has changed. 'FooType' is now
 //   'chrome.bluetoothPrivate.FooType'.
 // Please run the closure compiler before committing changes.
-// See https://code.google.com/p/chromium/wiki/ClosureCompilation.
+// See https://chromium.googlesource.com/chromium/src/+/master/docs/closure_compilation.md
 
 // IMPORTANT:
 // s/chrome.bluetoothPrivate.bluetooth.Device/chrome.bluetooth.Device/
@@ -39,16 +39,23 @@ chrome.bluetoothPrivate.PairingEventType = {
  * @see https://developer.chrome.com/extensions/bluetoothPrivate#type-ConnectResultType
  */
 chrome.bluetoothPrivate.ConnectResultType = {
-  SUCCESS: 'success',
-  UNKNOWN_ERROR: 'unknownError',
-  IN_PROGRESS: 'inProgress',
   ALREADY_CONNECTED: 'alreadyConnected',
-  FAILED: 'failed',
-  AUTH_FAILED: 'authFailed',
+  ATTRIBUTE_LENGTH_INVALID: 'attributeLengthInvalid',
   AUTH_CANCELED: 'authCanceled',
+  AUTH_FAILED: 'authFailed',
   AUTH_REJECTED: 'authRejected',
   AUTH_TIMEOUT: 'authTimeout',
+  CONNECTION_CONGESTED: 'connectionCongested',
+  FAILED: 'failed',
+  IN_PROGRESS: 'inProgress',
+  INSUFFICIENT_ENCRYPTION: 'insufficientEncryption',
+  OFFSET_INVALID: 'offsetInvalid',
+  READ_NOT_PERMITTED: 'readNotPermitted',
+  REQUEST_NOT_SUPPORTED: 'requestNotSupported',
+  SUCCESS: 'success',
+  UNKNOWN_ERROR: 'unknownError',
   UNSUPPORTED_DEVICE: 'unsupportedDevice',
+  WRITE_NOT_PERMITTED: 'writeNotPermitted',
 };
 
 /**
@@ -96,7 +103,7 @@ chrome.bluetoothPrivate.NewAdapterState;
 /**
  * @typedef {{
  *   device: !chrome.bluetooth.Device,
- *   response: (!chrome.bluetoothPrivate.PairingResponse|undefined),
+ *   response: !chrome.bluetoothPrivate.PairingResponse,
  *   pincode: (string|undefined),
  *   passkey: (number|undefined)
  * }}

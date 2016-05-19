@@ -6,7 +6,9 @@
 
 #include "base/command_line.h"
 #include "base/i18n/timezone.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "media/base/media_switches.h"
 
 namespace media {
@@ -85,8 +87,6 @@ const char* VideoCaptureDevice::Name::GetCaptureApiTypeString() const {
   switch (capture_api_type()) {
     case V4L2_SINGLE_PLANE:
       return "V4L2 SPLANE";
-    case V4L2_MULTI_PLANE:
-      return "V4L2 MPLANE";
     default:
       NOTREACHED() << "Unknown Video Capture API type!";
       return "Unknown API";

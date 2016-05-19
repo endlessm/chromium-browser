@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/task_runner_util.h"
@@ -21,6 +24,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/background_sync_test_util.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -37,6 +41,8 @@ namespace content {
 namespace {
 
 const char kDefaultTestURL[] = "/background_sync/test.html";
+const char kEmptyURL[] = "/background_sync/empty.html";
+const char kRegisterSyncURL[] = "/background_sync/register_sync.html";
 
 const char kSuccessfulOperationPrefix[] = "ok - ";
 
@@ -51,7 +57,7 @@ std::string BuildExpectedResult(const std::string& tag,
                             action.c_str());
 }
 
-void OneShotPendingCallback(
+void RegistrationPendingCallback(
     const base::Closure& quit,
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
     bool* result_out,
@@ -60,38 +66,46 @@ void OneShotPendingCallback(
   task_runner->PostTask(FROM_HERE, quit);
 }
 
-void OneShotPendingDidGetSyncRegistration(
+void RegistrationPendingDidGetSyncRegistration(
+    const std::string& tag,
     const base::Callback<void(bool)>& callback,
     BackgroundSyncStatus error_type,
-    scoped_ptr<BackgroundSyncRegistrationHandle> registration_handle) {
+    scoped_ptr<ScopedVector<BackgroundSyncRegistrationHandle>>
+        registration_handles) {
   ASSERT_EQ(BACKGROUND_SYNC_STATUS_OK, error_type);
-  callback.Run(registration_handle->sync_state() ==
-               BACKGROUND_SYNC_STATE_PENDING);
+  // Find the right registration in the list and check its status.
+  for (const auto& handle : *registration_handles) {
+    if (handle->options()->tag == tag) {
+      callback.Run(handle->sync_state() == BackgroundSyncState::PENDING);
+      return;
+    }
+  }
+  ADD_FAILURE() << "Registration should exist";
 }
 
-void OneShotPendingDidGetSWRegistration(
+void RegistrationPendingDidGetSWRegistration(
     const scoped_refptr<BackgroundSyncContext> sync_context,
     const std::string& tag,
     const base::Callback<void(bool)>& callback,
     ServiceWorkerStatusCode status,
     const scoped_refptr<ServiceWorkerRegistration>& registration) {
   ASSERT_EQ(SERVICE_WORKER_OK, status);
-  int64 service_worker_id = registration->id();
+  int64_t service_worker_id = registration->id();
   BackgroundSyncManager* sync_manager = sync_context->background_sync_manager();
-  sync_manager->GetRegistration(
-      service_worker_id, tag, SYNC_ONE_SHOT,
-      base::Bind(&OneShotPendingDidGetSyncRegistration, callback));
+  sync_manager->GetRegistrations(
+      service_worker_id,
+      base::Bind(&RegistrationPendingDidGetSyncRegistration, tag, callback));
 }
 
-void OneShotPendingOnIOThread(
+void RegistrationPendingOnIOThread(
     const scoped_refptr<BackgroundSyncContext> sync_context,
     const scoped_refptr<ServiceWorkerContextWrapper> sw_context,
     const std::string& tag,
     const GURL& url,
     const base::Callback<void(bool)>& callback) {
-  sw_context->FindRegistrationForDocument(
-      url, base::Bind(&OneShotPendingDidGetSWRegistration, sync_context, tag,
-                      callback));
+  sw_context->FindReadyRegistrationForDocument(
+      url, base::Bind(&RegistrationPendingDidGetSWRegistration, sync_context,
+                      tag, callback));
 }
 
 void SetMaxSyncAttemptsOnIOThread(
@@ -99,7 +113,7 @@ void SetMaxSyncAttemptsOnIOThread(
     int max_sync_attempts) {
   BackgroundSyncManager* background_sync_manager =
       sync_context->background_sync_manager();
-  background_sync_manager->set_max_sync_attempts(max_sync_attempts);
+  background_sync_manager->SetMaxSyncAttemptsForTesting(max_sync_attempts);
 }
 
 }  // namespace
@@ -110,7 +124,8 @@ class BackgroundSyncBrowserTest : public ContentBrowserTest {
   ~BackgroundSyncBrowserTest() override {}
 
   void SetUp() override {
-    BackgroundSyncNetworkObserver::SetIgnoreNetworkChangeNotifierForTests(true);
+    background_sync_test_util::SetIgnoreNetworkChangeNotifier(true);
+
     ContentBrowserTest::SetUp();
   }
 
@@ -128,6 +143,8 @@ class BackgroundSyncBrowserTest : public ContentBrowserTest {
     return GetStorage()->GetBackgroundSyncContext();
   }
 
+  WebContents* web_contents() { return shell_->web_contents(); }
+
   void SetUpCommandLine(base::CommandLine* command_line) override {
     // TODO(jkarlin): Remove this once background sync is no longer
     // experimental.
@@ -143,7 +160,7 @@ class BackgroundSyncBrowserTest : public ContentBrowserTest {
 
     SetIncognitoMode(false);
     SetMaxSyncAttempts(1);
-    SetOnline(true);
+    background_sync_test_util::SetOnline(web_contents(), true);
     ASSERT_TRUE(LoadTestPage(kDefaultTestURL));
 
     ContentBrowserTest::SetUpOnMainThread();
@@ -156,21 +173,13 @@ class BackgroundSyncBrowserTest : public ContentBrowserTest {
   }
 
   bool RunScript(const std::string& script, std::string* result) {
-    return content::ExecuteScriptAndExtractString(shell_->web_contents(),
-                                                  script, result);
+    return content::ExecuteScriptAndExtractString(web_contents(), script,
+                                                  result);
   }
 
-  // This runs asynchronously on the IO thread, but we don't need to wait for it
-  // to complete before running a background sync operation, since those also
-  // run on the IO thread.
-  void SetOnline(bool online);
-  void SetOnlineOnIOThread(
-      const scoped_refptr<BackgroundSyncContext>& sync_context,
-      bool online);
-
-  // Returns true if the one-shot sync with tag is currently pending. Fails
+  // Returns true if the registration with tag |tag| is currently pending. Fails
   // (assertion failure) if the tag isn't registered.
-  bool OneShotPending(const std::string& tag);
+  bool RegistrationPending(const std::string& tag);
 
   // Sets the BackgroundSyncManager's max sync attempts per registration.
   void SetMaxSyncAttempts(int max_sync_attempts);
@@ -180,17 +189,18 @@ class BackgroundSyncBrowserTest : public ContentBrowserTest {
   std::string PopConsoleString();
   bool PopConsole(const std::string& expected_msg);
   bool RegisterServiceWorker();
-  bool RegisterOneShot(const std::string& tag);
-  bool RegisterOneShotFromServiceWorker(const std::string& tag);
-  bool GetRegistrationOneShot(const std::string& tag);
-  bool GetRegistrationOneShotFromServiceWorker(const std::string& tag);
-  bool MatchRegistrations(const std::string& script_result,
-                          const std::vector<std::string>& expected_tags);
-  bool GetRegistrationsOneShot(const std::vector<std::string>& expected_tags);
-  bool GetRegistrationsOneShotFromServiceWorker(
-      const std::vector<std::string>& expected_tags);
-  bool CompleteDelayedOneShot();
-  bool RejectDelayedOneShot();
+  bool Register(const std::string& tag);
+  bool RegisterFromServiceWorker(const std::string& tag);
+  bool HasTag(const std::string& tag);
+  bool HasTagFromServiceWorker(const std::string& tag);
+  bool MatchTags(const std::string& script_result,
+                 const std::vector<std::string>& expected_tags);
+  bool GetTags(const std::vector<std::string>& expected_tags);
+  bool GetTagsFromServiceWorker(const std::vector<std::string>& expected_tags);
+  bool CompleteDelayedSyncEvent();
+  bool RejectDelayedSyncEvent();
+
+  net::EmbeddedTestServer* https_server() { return https_server_.get(); }
 
  private:
   scoped_ptr<net::EmbeddedTestServer> https_server_;
@@ -199,32 +209,7 @@ class BackgroundSyncBrowserTest : public ContentBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(BackgroundSyncBrowserTest);
 };
 
-void BackgroundSyncBrowserTest::SetOnline(bool online) {
-  ASSERT_TRUE(shell_);
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&BackgroundSyncBrowserTest::SetOnlineOnIOThread,
-                 base::Unretained(this), base::Unretained(GetSyncContext()),
-                 online));
-  base::RunLoop().RunUntilIdle();
-}
-
-void BackgroundSyncBrowserTest::SetOnlineOnIOThread(
-    const scoped_refptr<BackgroundSyncContext>& sync_context,
-    bool online) {
-  BackgroundSyncManager* sync_manager = sync_context->background_sync_manager();
-  BackgroundSyncNetworkObserver* network_observer =
-      sync_manager->GetNetworkObserverForTesting();
-  if (online) {
-    network_observer->NotifyManagerIfNetworkChangedForTesting(
-        NetworkChangeNotifier::CONNECTION_WIFI);
-  } else {
-    network_observer->NotifyManagerIfNetworkChangedForTesting(
-        NetworkChangeNotifier::CONNECTION_NONE);
-  }
-}
-
-bool BackgroundSyncBrowserTest::OneShotPending(const std::string& tag) {
+bool BackgroundSyncBrowserTest::RegistrationPending(const std::string& tag) {
   bool is_pending;
   base::RunLoop run_loop;
 
@@ -235,12 +220,13 @@ bool BackgroundSyncBrowserTest::OneShotPending(const std::string& tag) {
           storage->GetServiceWorkerContext());
 
   base::Callback<void(bool)> callback =
-      base::Bind(&OneShotPendingCallback, run_loop.QuitClosure(),
+      base::Bind(&RegistrationPendingCallback, run_loop.QuitClosure(),
                  base::ThreadTaskRunnerHandle::Get(), &is_pending);
 
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      base::Bind(&OneShotPendingOnIOThread, make_scoped_refptr(sync_context),
+      base::Bind(&RegistrationPendingOnIOThread,
+                 make_scoped_refptr(sync_context),
                  make_scoped_refptr(service_worker_context), tag,
                  https_server_->GetURL(kDefaultTestURL), callback));
 
@@ -269,9 +255,10 @@ void BackgroundSyncBrowserTest::ClearStoragePartitionData() {
   // for service workers, for all origins, for an unbounded time range.
   StoragePartition* storage = GetStorage();
 
-  uint32 storage_partition_mask =
+  uint32_t storage_partition_mask =
       StoragePartition::REMOVE_DATA_MASK_SERVICE_WORKERS;
-  uint32 quota_storage_mask = StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL;
+  uint32_t quota_storage_mask =
+      StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL;
   const GURL& delete_origin = GURL();
   const base::Time delete_begin = base::Time();
   base::Time delete_end = base::Time::Max();
@@ -302,41 +289,37 @@ bool BackgroundSyncBrowserTest::RegisterServiceWorker() {
   return script_result == BuildExpectedResult("service worker", "registered");
 }
 
-bool BackgroundSyncBrowserTest::RegisterOneShot(const std::string& tag) {
+bool BackgroundSyncBrowserTest::Register(const std::string& tag) {
   std::string script_result;
-  EXPECT_TRUE(
-      RunScript(BuildScriptString("registerOneShot", tag), &script_result));
+  EXPECT_TRUE(RunScript(BuildScriptString("register", tag), &script_result));
   return script_result == BuildExpectedResult(tag, "registered");
 }
 
-bool BackgroundSyncBrowserTest::RegisterOneShotFromServiceWorker(
+bool BackgroundSyncBrowserTest::RegisterFromServiceWorker(
     const std::string& tag) {
   std::string script_result;
-  EXPECT_TRUE(
-      RunScript(BuildScriptString("registerOneShotFromServiceWorker", tag),
-                &script_result));
+  EXPECT_TRUE(RunScript(BuildScriptString("registerFromServiceWorker", tag),
+                        &script_result));
   return script_result == BuildExpectedResult(tag, "register sent to SW");
 }
 
-bool BackgroundSyncBrowserTest::GetRegistrationOneShot(const std::string& tag) {
+bool BackgroundSyncBrowserTest::HasTag(const std::string& tag) {
   std::string script_result;
-  EXPECT_TRUE(RunScript(BuildScriptString("getRegistrationOneShot", tag),
-                        &script_result));
+  EXPECT_TRUE(RunScript(BuildScriptString("hasTag", tag), &script_result));
   return script_result == BuildExpectedResult(tag, "found");
 }
 
-bool BackgroundSyncBrowserTest::GetRegistrationOneShotFromServiceWorker(
+bool BackgroundSyncBrowserTest::HasTagFromServiceWorker(
     const std::string& tag) {
   std::string script_result;
-  EXPECT_TRUE(RunScript(
-      BuildScriptString("getRegistrationOneShotFromServiceWorker", tag),
-      &script_result));
-  EXPECT_TRUE(script_result == "ok - getRegistration sent to SW");
+  EXPECT_TRUE(RunScript(BuildScriptString("hasTagFromServiceWorker", tag),
+                        &script_result));
+  EXPECT_TRUE(script_result == "ok - hasTag sent to SW");
 
   return PopConsole(BuildExpectedResult(tag, "found"));
 }
 
-bool BackgroundSyncBrowserTest::MatchRegistrations(
+bool BackgroundSyncBrowserTest::MatchTags(
     const std::string& script_result,
     const std::vector<std::string>& expected_tags) {
   EXPECT_TRUE(base::StartsWith(script_result, kSuccessfulOperationPrefix,
@@ -350,116 +333,125 @@ bool BackgroundSyncBrowserTest::MatchRegistrations(
          std::set<std::string>(result_tags.begin(), result_tags.end());
 }
 
-bool BackgroundSyncBrowserTest::GetRegistrationsOneShot(
+bool BackgroundSyncBrowserTest::GetTags(
     const std::vector<std::string>& expected_tags) {
   std::string script_result;
-  EXPECT_TRUE(RunScript("getRegistrationsOneShot()", &script_result));
+  EXPECT_TRUE(RunScript("getTags()", &script_result));
 
-  return MatchRegistrations(script_result, expected_tags);
+  return MatchTags(script_result, expected_tags);
 }
 
-bool BackgroundSyncBrowserTest::GetRegistrationsOneShotFromServiceWorker(
+bool BackgroundSyncBrowserTest::GetTagsFromServiceWorker(
     const std::vector<std::string>& expected_tags) {
   std::string script_result;
-  EXPECT_TRUE(
-      RunScript("getRegistrationsOneShotFromServiceWorker()", &script_result));
-  EXPECT_TRUE(script_result == "ok - getRegistrations sent to SW");
+  EXPECT_TRUE(RunScript("getTagsFromServiceWorker()", &script_result));
+  EXPECT_TRUE(script_result == "ok - getTags sent to SW");
 
-  return MatchRegistrations(PopConsoleString(), expected_tags);
+  return MatchTags(PopConsoleString(), expected_tags);
 }
 
-bool BackgroundSyncBrowserTest::CompleteDelayedOneShot() {
+bool BackgroundSyncBrowserTest::CompleteDelayedSyncEvent() {
   std::string script_result;
-  EXPECT_TRUE(RunScript("completeDelayedOneShot()", &script_result));
+  EXPECT_TRUE(RunScript("completeDelayedSyncEvent()", &script_result));
   return script_result == BuildExpectedResult("delay", "completing");
 }
 
-bool BackgroundSyncBrowserTest::RejectDelayedOneShot() {
+bool BackgroundSyncBrowserTest::RejectDelayedSyncEvent() {
   std::string script_result;
-  EXPECT_TRUE(RunScript("rejectDelayedOneShot()", &script_result));
+  EXPECT_TRUE(RunScript("rejectDelayedSyncEvent()", &script_result));
   return script_result == BuildExpectedResult("delay", "rejecting");
 }
 
-IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, OneShotFires) {
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
+                       RegisterFromControlledDocument) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
-  EXPECT_TRUE(RegisterOneShot("foo"));
+  EXPECT_TRUE(Register("foo"));
   EXPECT_TRUE(PopConsole("foo fired"));
-  EXPECT_FALSE(GetRegistrationOneShot("foo"));
+  EXPECT_FALSE(HasTag("foo"));
+}
+
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
+                       RegisterFromUncontrolledDocument) {
+  EXPECT_TRUE(RegisterServiceWorker());
+
+  EXPECT_TRUE(Register("foo"));
+  EXPECT_TRUE(PopConsole("foo fired"));
+  EXPECT_FALSE(HasTag("foo"));
 }
 
 // Verify that Register works in a service worker
-IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
-                       OneShotFromServiceWorkerFires) {
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, RegisterFromServiceWorker) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
-  EXPECT_TRUE(RegisterOneShotFromServiceWorker("foo_sw"));
+  EXPECT_TRUE(RegisterFromServiceWorker("foo_sw"));
   EXPECT_TRUE(PopConsole("ok - foo_sw registered in SW"));
   EXPECT_TRUE(PopConsole("foo_sw fired"));
-  EXPECT_FALSE(GetRegistrationOneShot("foo_sw"));
+  EXPECT_FALSE(HasTag("foo_sw"));
 }
 
-IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, OneShotDelaysForNetwork) {
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
+                       RegistrationDelaysForNetwork) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   // Prevent firing by going offline.
-  SetOnline(false);
-  EXPECT_TRUE(RegisterOneShot("foo"));
-  EXPECT_TRUE(GetRegistrationOneShot("foo"));
-  EXPECT_TRUE(OneShotPending("foo"));
+  background_sync_test_util::SetOnline(web_contents(), false);
+  EXPECT_TRUE(Register("foo"));
+  EXPECT_TRUE(HasTag("foo"));
+  EXPECT_TRUE(RegistrationPending("foo"));
 
   // Resume firing by going online.
-  SetOnline(true);
+  background_sync_test_util::SetOnline(web_contents(), true);
   EXPECT_TRUE(PopConsole("foo fired"));
-  EXPECT_FALSE(GetRegistrationOneShot("foo"));
+  EXPECT_FALSE(HasTag("foo"));
 }
 
 IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, WaitUntil) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
-  SetOnline(true);
-  EXPECT_TRUE(RegisterOneShot("delay"));
+  background_sync_test_util::SetOnline(web_contents(), true);
+  EXPECT_TRUE(Register("delay"));
 
   // Verify that it is firing.
-  EXPECT_TRUE(GetRegistrationOneShot("delay"));
-  EXPECT_FALSE(OneShotPending("delay"));
+  EXPECT_TRUE(HasTag("delay"));
+  EXPECT_FALSE(RegistrationPending("delay"));
 
   // Complete the task.
-  EXPECT_TRUE(CompleteDelayedOneShot());
+  EXPECT_TRUE(CompleteDelayedSyncEvent());
   EXPECT_TRUE(PopConsole("ok - delay completed"));
 
   // Verify that it finished firing.
-  EXPECT_FALSE(GetRegistrationOneShot("delay"));
+  EXPECT_FALSE(HasTag("delay"));
 }
 
 IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, WaitUntilReject) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
-  SetOnline(true);
-  EXPECT_TRUE(RegisterOneShot("delay"));
+  background_sync_test_util::SetOnline(web_contents(), true);
+  EXPECT_TRUE(Register("delay"));
 
   // Verify that it is firing.
-  EXPECT_TRUE(GetRegistrationOneShot("delay"));
-  EXPECT_FALSE(OneShotPending("delay"));
+  EXPECT_TRUE(HasTag("delay"));
+  EXPECT_FALSE(RegistrationPending("delay"));
 
   // Complete the task.
-  EXPECT_TRUE(RejectDelayedOneShot());
+  EXPECT_TRUE(RejectDelayedSyncEvent());
   EXPECT_TRUE(PopConsole("ok - delay rejected"));
-  EXPECT_FALSE(GetRegistrationOneShot("delay"));
+  EXPECT_FALSE(HasTag("delay"));
 }
 
 IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, Incognito) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
-  SetOnline(false);
-  EXPECT_TRUE(RegisterOneShot("normal"));
-  EXPECT_TRUE(OneShotPending("normal"));
+  background_sync_test_util::SetOnline(web_contents(), false);
+  EXPECT_TRUE(Register("normal"));
+  EXPECT_TRUE(RegistrationPending("normal"));
 
   // Go incognito and verify that incognito doesn't see the registration.
   SetIncognitoMode(true);
@@ -467,40 +459,39 @@ IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, Incognito) {
   // Tell the new network observer that we're offline (it initializes from
   // NetworkChangeNotifier::GetCurrentConnectionType() which is not mocked out
   // in this test).
-  SetOnline(false);
+  background_sync_test_util::SetOnline(web_contents(), false);
 
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));
   EXPECT_TRUE(RegisterServiceWorker());
-  EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
-  EXPECT_FALSE(GetRegistrationOneShot("normal"));
+  EXPECT_FALSE(HasTag("normal"));
 
-  EXPECT_TRUE(RegisterOneShot("incognito"));
-  EXPECT_TRUE(OneShotPending("incognito"));
+  EXPECT_TRUE(Register("incognito"));
+  EXPECT_TRUE(RegistrationPending("incognito"));
 
   // Switch back and make sure the registration is still there.
   SetIncognitoMode(false);
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Should be controlled.
 
-  EXPECT_TRUE(GetRegistrationOneShot("normal"));
-  EXPECT_FALSE(GetRegistrationOneShot("incognito"));
+  EXPECT_TRUE(HasTag("normal"));
+  EXPECT_FALSE(HasTag("incognito"));
 }
 
-IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, GetRegistrations) {
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, GetTags) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   std::vector<std::string> registered_tags;
-  EXPECT_TRUE(GetRegistrationsOneShot(registered_tags));
+  EXPECT_TRUE(GetTags(registered_tags));
 
-  SetOnline(false);
+  background_sync_test_util::SetOnline(web_contents(), false);
   registered_tags.push_back("foo");
   registered_tags.push_back("bar");
 
   for (const std::string& tag : registered_tags)
-    EXPECT_TRUE(RegisterOneShot(tag));
+    EXPECT_TRUE(Register(tag));
 
-  EXPECT_TRUE(GetRegistrationsOneShot(registered_tags));
+  EXPECT_TRUE(GetTags(registered_tags));
 }
 
 // Verify that GetRegistrations works in a service worker
@@ -510,34 +501,33 @@ IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   std::vector<std::string> registered_tags;
-  EXPECT_TRUE(GetRegistrationsOneShot(registered_tags));
+  EXPECT_TRUE(GetTags(registered_tags));
 
-  SetOnline(false);
+  background_sync_test_util::SetOnline(web_contents(), false);
   registered_tags.push_back("foo_sw");
   registered_tags.push_back("bar_sw");
 
   for (const std::string& tag : registered_tags) {
-    EXPECT_TRUE(RegisterOneShotFromServiceWorker(tag));
+    EXPECT_TRUE(RegisterFromServiceWorker(tag));
     EXPECT_TRUE(PopConsole(BuildExpectedResult(tag, "registered in SW")));
   }
 
-  EXPECT_TRUE(GetRegistrationsOneShotFromServiceWorker(registered_tags));
+  EXPECT_TRUE(GetTagsFromServiceWorker(registered_tags));
 }
 
 // Verify that GetRegistration works in a service worker
-IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
-                       GetRegistrationFromServiceWorker) {
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, HasTagFromServiceWorker) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   std::vector<std::string> registered_tags;
-  EXPECT_TRUE(GetRegistrationsOneShot(registered_tags));
+  EXPECT_TRUE(GetTags(registered_tags));
 
-  SetOnline(false);
+  background_sync_test_util::SetOnline(web_contents(), false);
 
-  EXPECT_TRUE(RegisterOneShotFromServiceWorker("foo_sw"));
+  EXPECT_TRUE(RegisterFromServiceWorker("foo_sw"));
   EXPECT_TRUE(PopConsole("ok - foo_sw registered in SW"));
-  EXPECT_TRUE(GetRegistrationOneShotFromServiceWorker("foo_sw"));
+  EXPECT_TRUE(HasTagFromServiceWorker("foo_sw"));
 }
 
 // Verify that a background sync registration is deleted when site data is
@@ -548,16 +538,16 @@ IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   // Prevent firing by going offline.
-  SetOnline(false);
-  EXPECT_TRUE(RegisterOneShot("foo"));
-  EXPECT_TRUE(GetRegistrationOneShot("foo"));
-  EXPECT_TRUE(OneShotPending("foo"));
+  background_sync_test_util::SetOnline(web_contents(), false);
+  EXPECT_TRUE(Register("foo"));
+  EXPECT_TRUE(HasTag("foo"));
+  EXPECT_TRUE(RegistrationPending("foo"));
 
   // Simulate a user clearing site data (including Service Workers, crucially),
   // by clearing data from the storage partition.
   ClearStoragePartitionData();
 
-  EXPECT_FALSE(GetRegistrationOneShot("foo"));
+  EXPECT_FALSE(HasTag("foo"));
 }
 
 // Verify that a background sync registration, from a service worker, is deleted
@@ -568,19 +558,19 @@ IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   std::vector<std::string> registered_tags;
-  EXPECT_TRUE(GetRegistrationsOneShot(registered_tags));
+  EXPECT_TRUE(GetTags(registered_tags));
 
-  SetOnline(false);
+  background_sync_test_util::SetOnline(web_contents(), false);
 
-  EXPECT_TRUE(RegisterOneShotFromServiceWorker("foo_sw"));
+  EXPECT_TRUE(RegisterFromServiceWorker("foo_sw"));
   EXPECT_TRUE(PopConsole("ok - foo_sw registered in SW"));
-  EXPECT_TRUE(GetRegistrationOneShotFromServiceWorker("foo_sw"));
+  EXPECT_TRUE(HasTagFromServiceWorker("foo_sw"));
 
   // Simulate a user clearing site data (including Service Workers, crucially),
   // by clearing data from the storage partition.
   ClearStoragePartitionData();
 
-  EXPECT_FALSE(GetRegistrationOneShotFromServiceWorker("foo"));
+  EXPECT_FALSE(HasTagFromServiceWorker("foo"));
 }
 
 // Verify that multiple background sync registrations are deleted when site
@@ -591,26 +581,26 @@ IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   std::vector<std::string> registered_tags;
-  EXPECT_TRUE(GetRegistrationsOneShot(registered_tags));
+  EXPECT_TRUE(GetTags(registered_tags));
 
-  SetOnline(false);
+  background_sync_test_util::SetOnline(web_contents(), false);
   registered_tags.push_back("foo");
   registered_tags.push_back("bar");
 
   for (const std::string& tag : registered_tags)
-    EXPECT_TRUE(RegisterOneShot(tag));
+    EXPECT_TRUE(Register(tag));
 
-  EXPECT_TRUE(GetRegistrationsOneShot(registered_tags));
+  EXPECT_TRUE(GetTags(registered_tags));
 
   for (const std::string& tag : registered_tags)
-    EXPECT_TRUE(OneShotPending(tag));
+    EXPECT_TRUE(RegistrationPending(tag));
 
   // Simulate a user clearing site data (including Service Workers, crucially),
   // by clearing data from the storage partition.
   ClearStoragePartitionData();
 
   for (const std::string& tag : registered_tags)
-    EXPECT_FALSE(GetRegistrationOneShot(tag));
+    EXPECT_FALSE(HasTag(tag));
 }
 
 // Verify that a sync event that is currently firing is deleted when site
@@ -620,33 +610,59 @@ IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
-  SetOnline(true);
-  EXPECT_TRUE(RegisterOneShot("delay"));
+  background_sync_test_util::SetOnline(web_contents(), true);
+  EXPECT_TRUE(Register("delay"));
 
   // Verify that it is firing.
-  EXPECT_TRUE(GetRegistrationOneShot("delay"));
-  EXPECT_FALSE(OneShotPending("delay"));
+  EXPECT_TRUE(HasTag("delay"));
+  EXPECT_FALSE(RegistrationPending("delay"));
 
   // Simulate a user clearing site data (including Service Workers, crucially),
   // by clearing data from the storage partition.
   ClearStoragePartitionData();
 
   // Verify that it was deleted.
-  EXPECT_FALSE(GetRegistrationOneShot("delay"));
+  EXPECT_FALSE(HasTag("delay"));
 }
 
-IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, VerifyRetry) {
+// Disabled due to flakiness. See https://crbug.com/578952.
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, DISABLED_VerifyRetry) {
   EXPECT_TRUE(RegisterServiceWorker());
   EXPECT_TRUE(LoadTestPage(kDefaultTestURL));  // Control the page.
 
   SetMaxSyncAttempts(2);
 
-  EXPECT_TRUE(RegisterOneShot("delay"));
-  EXPECT_TRUE(RejectDelayedOneShot());
+  EXPECT_TRUE(Register("delay"));
+  EXPECT_TRUE(RejectDelayedSyncEvent());
   EXPECT_TRUE(PopConsole("ok - delay rejected"));
 
-  // Verify that the oneshot is still around and waiting to try again.
-  EXPECT_TRUE(OneShotPending("delay"));
+  // Verify that the registration is still around and waiting to try again.
+  EXPECT_TRUE(RegistrationPending("delay"));
+}
+
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest, RegisterFromNonMainFrame) {
+  std::string script_result;
+  GURL url = https_server()->GetURL(kEmptyURL);
+  EXPECT_TRUE(RunScript(BuildScriptString("registerFromLocalFrame", url.spec()),
+                        &script_result));
+  EXPECT_EQ(BuildExpectedResult("iframe", "failed to register sync"),
+            script_result);
+}
+
+IN_PROC_BROWSER_TEST_F(BackgroundSyncBrowserTest,
+                       RegisterFromServiceWorkerWithoutMainFrameHost) {
+  // Start a second https server to use as a second origin.
+  net::EmbeddedTestServer alt_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  alt_server.ServeFilesFromSourceDirectory("content/test/data");
+  ASSERT_TRUE(alt_server.Start());
+
+  std::string script_result;
+  GURL url = alt_server.GetURL(kRegisterSyncURL);
+  EXPECT_TRUE(RunScript(
+      BuildScriptString("registerFromCrossOriginServiceWorker", url.spec()),
+      &script_result));
+  EXPECT_EQ(BuildExpectedResult("worker", "failed to register sync"),
+            script_result);
 }
 
 }  // namespace content

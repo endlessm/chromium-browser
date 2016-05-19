@@ -5,33 +5,29 @@
 package org.chromium.chrome.browser.offlinepages;
 
 import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
 import android.os.Environment;
 
+import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeBrowserProviderClient;
-import org.chromium.chrome.browser.enhancedbookmarks.EnhancedBookmarkUtils;
 import org.chromium.chrome.browser.snackbar.Snackbar;
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarController;
-import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.components.bookmarks.BookmarkId;
-import org.chromium.components.bookmarks.BookmarkType;
+import org.chromium.components.offlinepages.FeatureMode;
 import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.PageTransition;
 
 /**
  * A class holding static util functions for offline pages.
  */
 public class OfflinePageUtils {
+    private static final String TAG = "OfflinePageUtils";
     /** Snackbar button types */
-    private static final int NO_BUTTON = 0;
-    private static final int RELOAD_BUTTON = 1;
-    private static final int SAVE_BUTTON = 2;
-    private static final int EDIT_BUTTON = 3;
+    public static final int RELOAD_BUTTON = 0;
+
+    private static final int SNACKBAR_DURATION = 6 * 1000; // 6 second
 
     private static final long STORAGE_ALMOST_FULL_THRESHOLD_BYTES = 10L * (1 << 20); // 10M
 
@@ -39,14 +35,14 @@ public class OfflinePageUtils {
      * Returns the number of free bytes on the storage.
      */
     public static long getFreeSpaceInBytes() {
-        return Environment.getExternalStorageDirectory().getUsableSpace();
+        return Environment.getDataDirectory().getUsableSpace();
     }
 
     /**
      * Returns the number of total bytes on the storage.
      */
     public static long getTotalSpaceInBytes() {
-        return Environment.getExternalStorageDirectory().getTotalSpace();
+        return Environment.getDataDirectory().getTotalSpace();
     }
 
     /**
@@ -54,19 +50,106 @@ public class OfflinePageUtils {
      * free up some space.
      */
     public static boolean isStorageAlmostFull() {
-        return Environment.getExternalStorageDirectory().getUsableSpace()
-                < STORAGE_ALMOST_FULL_THRESHOLD_BYTES;
+        return getFreeSpaceInBytes() < STORAGE_ALMOST_FULL_THRESHOLD_BYTES;
     }
 
     /**
      * Returns true if the network is connected.
-     * @param context Context associated with the activity.
      */
-    public static boolean isConnected(Context context) {
-        ConnectivityManager connectivityManager =
-                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo networkInfo = connectivityManager.getActiveNetworkInfo();
-        return networkInfo != null && networkInfo.isConnected();
+    public static boolean isConnected() {
+        return NetworkChangeNotifier.isOnline();
+    }
+
+    /**
+     * Finds out the appropriate resource ID of UI string shown to the user.
+     * @param stringResId The resource ID of UI string used when 'bookmarks' name is used  in UI
+     *        strings.
+     * return The resource ID of UI string shown to the user, depending on the experiment.
+     */
+    public static int getStringId(int stringResId) {
+        if (!OfflinePageBridge.isEnabled()) {
+            return stringResId;
+        }
+        if (OfflinePageBridge.getFeatureMode() != FeatureMode.ENABLED_AS_SAVED_PAGES) {
+            return stringResId;
+        }
+        if (stringResId == R.string.bookmark_action_bar_delete) {
+            return R.string.offline_pages_action_bar_delete;
+        } else if (stringResId == R.string.bookmark_action_bar_move) {
+            return R.string.offline_pages_action_bar_move;
+        } else if (stringResId == R.string.bookmark_action_bar_search) {
+            return R.string.offline_pages_action_bar_search;
+        } else if (stringResId == R.string.edit_bookmark) {
+            return R.string.offline_pages_edit_item;
+        } else if (stringResId == R.string.bookmark_drawer_all_items) {
+            return R.string.offline_pages_all_items;
+        } else if (stringResId == R.string.bookmark_title_bar_all_items) {
+            return R.string.offline_pages_all_items;
+        } else if (stringResId == R.string.bookmarks) {
+            return R.string.offline_pages_saved_pages;
+        } else if (stringResId == R.string.menu_bookmarks) {
+            return R.string.menu_bookmarks_offline_pages;
+        } else if (stringResId == R.string.ntp_bookmarks) {
+            return R.string.offline_pages_ntp_button_name;
+        } else if (stringResId == R.string.accessibility_ntp_toolbar_btn_bookmarks) {
+            return R.string.offline_pages_ntp_button_accessibility;
+        } else if (stringResId == R.string.bookmarks_folder_empty) {
+            return R.string.offline_pages_folder_empty;
+        } else if (stringResId == R.string.new_tab_incognito_message) {
+            return R.string.offline_pages_new_tab_incognito_message;
+        } else if (stringResId == R.string.offline_pages_as_bookmarks_page_saved) {
+            return R.string.offline_pages_page_saved;
+        } else if (stringResId == R.string.offline_pages_as_bookmarks_page_saved_folder) {
+            return R.string.offline_pages_page_saved_folder;
+        } else if (stringResId == R.string.offline_pages_as_bookmarks_page_skipped) {
+            return R.string.offline_pages_page_skipped;
+        } else if (stringResId
+                == R.string.offline_pages_as_bookmarks_page_saved_storage_near_full) {
+            return R.string.offline_pages_page_saved_storage_near_full;
+        } else if (stringResId == R.string.offline_pages_as_bookmarks_page_failed_to_save) {
+            return R.string.offline_pages_page_failed_to_save;
+        } else if (stringResId
+                == R.string.offline_pages_as_bookmarks_page_failed_to_save_storage_near_full) {
+            return R.string.offline_pages_page_failed_to_save_storage_near_full;
+        } else if (stringResId == R.string.offline_pages_as_bookmarks_storage_space_message) {
+            return R.string.offline_pages_storage_space_message;
+        } else if (stringResId == R.string.offline_pages_as_bookmarks_viewing_offline_page) {
+            return R.string.offline_pages_viewing_offline_page;
+        } else if (stringResId == R.string.offline_pages_as_bookmarks_offline_page_size) {
+            return R.string.bookmark_offline_page_size;
+        } else {
+            return stringResId;
+        }
+    }
+
+    /**
+     * Whenever we reload an offline page, if we are online, load the online version of the page
+     * instead, on the theory that the user prefers the online version of the page.
+     */
+    public static void preferOnlineVersion(ChromeActivity activity, Tab tab, String newUrl) {
+        // If we are reloading an offline page, but are online, get the online version.
+        if (newUrl.equals(tab.getUrl()) && isConnected()) {
+            Log.i(TAG, "Refreshing to the online version of an offline page, since we are online");
+            LoadUrlParams params =
+                    new LoadUrlParams(tab.getOfflinePageOriginalUrl(), PageTransition.RELOAD);
+            tab.loadUrl(params);
+        }
+    }
+
+    /**
+     * Strips scheme from the original URL of the offline page. This is meant to be used by UI.
+     * @param onlineUrl an online URL to from which the scheme is removed
+     * @return onlineUrl without the scheme
+     */
+    public static String stripSchemeFromOnlineUrl(String onlineUrl) {
+        // Offline pages are only saved for https:// and http:// schemes.
+        if (onlineUrl.startsWith("https://")) {
+            return onlineUrl.substring(8);
+        } else if (onlineUrl.startsWith("http://")) {
+            return onlineUrl.substring(7);
+        } else {
+            return onlineUrl;
+        }
     }
 
     /**
@@ -74,136 +157,95 @@ public class OfflinePageUtils {
      * @param activity The activity owning the tab.
      * @param tab The current tab.
      */
-    public static void showOfflineSnackbarIfNecessary(final ChromeActivity activity, Tab tab) {
-        if (tab == null || tab.isFrozen()) {
-            return;
-        }
-
-        if (!OfflinePageBridge.isEnabled()) {
-            return;
-        }
-
-        boolean save;
-        final long bookmarkId = tab.getUserBookmarkId();
-        if (tab.isOfflinePage()) {
-            // If an offline page is being visited, prompt that an offline copy is being shown.
-            save = false;
-        } else if (tab.getUserBookmarkId() != ChromeBrowserProviderClient.INVALID_BOOKMARK_ID
-                && !tab.hasOfflineCopy() && !tab.isShowingErrorPage()
-                && OfflinePageBridge.canSavePage(tab.getUrl())) {
-            // If a bookmarked page without offline copy is being visited and can be saved, offer to
-            // save it.
-            save = true;
-        } else {
-            // Otherwise, no need to show the snackbar.
-            return;
-        }
-
-        if (tab.isHidden()) {
-            // Wait until the tab becomes visible.
-            final boolean finalSave = save;
-            tab.addObserver(new EmptyTabObserver() {
-                @Override
-                public void onShown(Tab visibleTab) {
-                    showOfflineSnackbar(activity, visibleTab.getId(), finalSave, bookmarkId);
-                }
-            });
-        } else {
-            showOfflineSnackbar(activity, tab.getId(), save, bookmarkId);
-        }
+    public static void showOfflineSnackbarIfNecessary(ChromeActivity activity, Tab tab) {
+        showOfflineSnackbarIfNecessary(activity, tab, null);
     }
 
     /**
-     * Shows the snackbar for the current tab to provide offline specific information.
+     * Shows the snackbar for the current tab to provide offline specific information if needed.
+     * This method is used by testing for dependency injecting a snackbar controller.
      * @param activity The activity owning the tab.
-     * @param tabId The ID of current tab.
-     * @param save Whether to offer saving the page.
-     * @param bookmarkId Bookmark ID related to the opened page.
+     * @param tab The current tab.
+     * @param snackbarController Class to show the snackbar.
      */
-    private static void showOfflineSnackbar(
-            final ChromeActivity activity, final int tabId, boolean save, final long bookmarkId) {
-        Context context = activity.getBaseContext();
+    public static void showOfflineSnackbarIfNecessary(
+            ChromeActivity activity, Tab tab, SnackbarController snackbarController) {
+        Log.d(TAG, "showOfflineSnackbarIfNecessary, controller is " + snackbarController);
+        if (tab == null || tab.isFrozen()) return;
 
-        int snackbarTextId = -1;
-        int actionTextId = -1;
-        int buttonType = NO_BUTTON;
-        if (save) {
-            buttonType = SAVE_BUTTON;
-            snackbarTextId = R.string.offline_pages_save_page_offline;
-            actionTextId = R.string.save;
-        } else {
-            snackbarTextId = R.string.offline_pages_viewing_offline_page;
+        if (!OfflinePageBridge.isEnabled()) return;
 
-            // Offer to reload the original page if there is network connection or edit if there is
-            // none.
-            if (isConnected(context)) {
-                buttonType = RELOAD_BUTTON;
-                actionTextId = R.string.reload;
-            } else {
-                buttonType = EDIT_BUTTON;
-                actionTextId = R.string.enhanced_bookmark_item_edit;
-            }
+        // We only show a snackbar if we are seeing an offline page.
+        if (!tab.isOfflinePage()) return;
+
+        // Get a snackbar controller if we need one.
+        if (snackbarController == null) {
+            snackbarController = getSnackbarController(activity, tab);
         }
 
-        SnackbarController snackbarController = new SnackbarController() {
+        final boolean connected = isConnected();
+
+        Log.d(TAG, "showOfflineSnackbarIfNecessary called, tabId " + tab.getId() + ", hidden "
+                        + tab.isHidden() + ", connected " + connected + ", controller "
+                        + snackbarController);
+
+        // If the tab is no longer hidden, and we have a connection while showing an offline
+        // page, offer to reload it now.
+        if (!tab.isHidden() && connected) {
+            Log.d(TAG, "Offering to reload page, controller " + snackbarController);
+            showReloadSnackbar(activity, snackbarController);
+            return;
+        }
+
+        // Set up the tab observer to watch for the tab being unhidden or connectivity.
+        OfflinePageTabObserver.addObserverForTab(activity, tab, connected, snackbarController);
+        return;
+    }
+
+    /**
+     * Shows the "reload" snackbar for the given tab.
+     * @param activity The activity owning the tab.
+     * @param snackbarController Class to show the snackbar.
+     */
+    public static void showReloadSnackbar(final ChromeActivity activity,
+            final SnackbarController snackbarController) {
+        Log.d(TAG, "showReloadSnackbar called with controller " + snackbarController);
+        Context context = activity.getBaseContext();
+        final int snackbarTextId = getStringId(R.string.offline_pages_viewing_offline_page);
+        Snackbar snackbar = Snackbar.make(context.getString(snackbarTextId), snackbarController,
+                                            Snackbar.TYPE_ACTION)
+                                    .setSingleLine(false)
+                                    .setAction(context.getString(R.string.reload), RELOAD_BUTTON);
+        Log.d(TAG, "made snackbar with controller " + snackbarController);
+        snackbar.setDuration(SNACKBAR_DURATION);
+        activity.getSnackbarManager().showSnackbar(snackbar);
+    }
+
+    /**
+     * Gets a snackbar controller that we can use to show our snackbar.
+     */
+    private static SnackbarController getSnackbarController(
+            final ChromeActivity activity, final Tab tab) {
+        final int tabId = tab.getId();
+        Log.d(TAG, "building snackbar controller");
+
+        return new SnackbarController() {
             @Override
             public void onAction(Object actionData) {
-                Tab tab = activity.getTabModelSelector().getTabById(tabId);
-                if (tab == null) {
-                    return;
-                }
-                int buttonType = (int) actionData;
-                switch (buttonType) {
-                    case RELOAD_BUTTON:
-                        RecordUserAction.record("OfflinePages.ReloadButtonClicked");
-                        tab.loadUrl(new LoadUrlParams(
-                                tab.getOfflinePageOriginalUrl(), PageTransition.RELOAD));
-                        break;
-                    case SAVE_BUTTON:
-                        RecordUserAction.record("OfflinePages.SaveButtonClicked");
-                        activity.saveBookmarkOffline(tab);
-                        break;
-                    case EDIT_BUTTON:
-                        RecordUserAction.record("OfflinePages.ViewingOffline.EditButtonClicked");
-                        EnhancedBookmarkUtils.startEditActivity(
-                                activity, new BookmarkId(bookmarkId, BookmarkType.NORMAL), null);
-                        break;
-                    default:
-                        assert false;
-                        break;
-                }
+                assert RELOAD_BUTTON == (int) actionData;
+                RecordUserAction.record("OfflinePages.ReloadButtonClicked");
+                Tab foundTab = activity.getTabModelSelector().getTabById(tabId);
+                if (foundTab == null) return;
+
+                LoadUrlParams params = new LoadUrlParams(
+                        foundTab.getOfflinePageOriginalUrl(), PageTransition.RELOAD);
+                foundTab.loadUrl(params);
             }
 
             @Override
             public void onDismissNoAction(Object actionData) {
-                if (actionData == null) return;
-                int buttonType = (int) actionData;
-                switch (buttonType) {
-                    case NO_BUTTON:
-                        // No recording is needed.
-                        break;
-                    case RELOAD_BUTTON:
-                        RecordUserAction.record("OfflinePages.ReloadButtonNotClicked");
-                        break;
-                    case SAVE_BUTTON:
-                        RecordUserAction.record("OfflinePages.SaveButtonNotClicked");
-                        break;
-                    case EDIT_BUTTON:
-                        RecordUserAction.record("OfflinePages.ViewingOffline.EditButtonNotClicked");
-                        break;
-                    default:
-                        assert false;
-                        break;
-                }
+                RecordUserAction.record("OfflinePages.ReloadButtonNotClicked");
             }
-
-            @Override
-            public void onDismissForEachType(boolean isTimeout) {}
         };
-        Snackbar snackbar = Snackbar.make(context.getString(snackbarTextId), snackbarController);
-        if (actionTextId != -1) {
-            snackbar.setAction(context.getString(actionTextId), buttonType);
-        }
-        activity.getSnackbarManager().showSnackbar(snackbar);
     }
 }

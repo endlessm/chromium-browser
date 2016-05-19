@@ -5,13 +5,13 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/utils.html">
-<link rel="import" href="/tracing/ui/side_panel/side_panel.html">
-<link rel="import" href="/tracing/ui/base/dom_helpers.html">
-<link rel="import" href="/tracing/ui/analysis/generic_object_view.html">
-<link rel="import" href="/perf_insights/results/results.html">
-<link rel="import" href="/perf_insights/value/value.html">
 <link rel="import" href="/perf_insights/function_handle.html">
+<link rel="import" href="/perf_insights/mre/mre_result.html">
+<link rel="import" href="/tracing/base/utils.html">
+<link rel="import" href="/tracing/ui/analysis/generic_object_view.html">
+<link rel="import" href="/tracing/ui/base/dom_helpers.html">
+<link rel="import" href="/tracing/ui/side_panel/side_panel.html">
+<link rel="import" href="/tracing/value/value.html">
 
 <polymer-element name="pi-ui-map-function-side-panel"
                  extends="tr-ui-side-panel">
@@ -126,21 +126,18 @@ found in the LICENSE file.
       var gov = document.createElement('tr-ui-a-generic-object-view');
       mapResultEl.appendChild(gov);
 
-      var results = new pi.r.Results();
-      var runInfo = new pi.v.RunInfo(document.location.toString());
+      var result = new pi.mre.MreResult();
+      var canonicalUrl = document.location.toString();
 
       try {
-        this.currentMapFunctionTypeInfo.constructor(results, runInfo,
-                                                    this.model_);
+        this.currentMapFunctionTypeInfo(result, this.model_);
       } catch (ex) {
         ex = tr.b.normalizeException(ex);
         gov.object = ex.stack;
         return;
       }
 
-      gov.object = results.allValues.map(function(v) {
-        return v.asDict();
-      });
+      gov.object = result;
     },
 
     get textLabel() {

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/editing/iterators/FullyClippedStateStack.h"
 
 #include "core/dom/ContainerNode.h"
@@ -89,6 +88,6 @@ void FullyClippedStateStackAlgorithm<Strategy>::setUpFullyClippedStack(Node* nod
 }
 
 template class CORE_TEMPLATE_EXPORT FullyClippedStateStackAlgorithm<EditingStrategy>;
-template class CORE_TEMPLATE_EXPORT FullyClippedStateStackAlgorithm<EditingInComposedTreeStrategy>;
+template class CORE_TEMPLATE_EXPORT FullyClippedStateStackAlgorithm<EditingInFlatTreeStrategy>;
 
 } // namespace blink

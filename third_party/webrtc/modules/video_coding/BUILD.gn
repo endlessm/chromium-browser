@@ -10,57 +10,59 @@ import("../../build/webrtc.gni")
 
 source_set("video_coding") {
   sources = [
-    "main/interface/video_coding.h",
-    "main/interface/video_coding_defines.h",
-    "main/source/codec_database.cc",
-    "main/source/codec_database.h",
-    "main/source/codec_timer.cc",
-    "main/source/codec_timer.h",
-    "main/source/content_metrics_processing.cc",
-    "main/source/content_metrics_processing.h",
-    "main/source/decoding_state.cc",
-    "main/source/decoding_state.h",
-    "main/source/encoded_frame.cc",
-    "main/source/encoded_frame.h",
-    "main/source/fec_tables_xor.h",
-    "main/source/frame_buffer.cc",
-    "main/source/frame_buffer.h",
-    "main/source/generic_decoder.cc",
-    "main/source/generic_decoder.h",
-    "main/source/generic_encoder.cc",
-    "main/source/generic_encoder.h",
-    "main/source/inter_frame_delay.cc",
-    "main/source/inter_frame_delay.h",
-    "main/source/internal_defines.h",
-    "main/source/jitter_buffer.cc",
-    "main/source/jitter_buffer.h",
-    "main/source/jitter_buffer_common.h",
-    "main/source/jitter_estimator.cc",
-    "main/source/jitter_estimator.h",
-    "main/source/media_opt_util.cc",
-    "main/source/media_opt_util.h",
-    "main/source/media_optimization.cc",
-    "main/source/media_optimization.h",
-    "main/source/nack_fec_tables.h",
-    "main/source/packet.cc",
-    "main/source/packet.h",
-    "main/source/qm_select.cc",
-    "main/source/qm_select.h",
-    "main/source/qm_select_data.h",
-    "main/source/receiver.cc",
-    "main/source/receiver.h",
-    "main/source/rtt_filter.cc",
-    "main/source/rtt_filter.h",
-    "main/source/session_info.cc",
-    "main/source/session_info.h",
-    "main/source/timestamp_map.cc",
-    "main/source/timestamp_map.h",
-    "main/source/timing.cc",
-    "main/source/timing.h",
-    "main/source/video_coding_impl.cc",
-    "main/source/video_coding_impl.h",
-    "main/source/video_receiver.cc",
-    "main/source/video_sender.cc",
+    "bitrate_adjuster.cc",
+    "bitrate_adjuster.h",
+    "codec_database.cc",
+    "codec_database.h",
+    "codec_timer.cc",
+    "codec_timer.h",
+    "content_metrics_processing.cc",
+    "content_metrics_processing.h",
+    "decoding_state.cc",
+    "decoding_state.h",
+    "encoded_frame.cc",
+    "encoded_frame.h",
+    "fec_tables_xor.h",
+    "frame_buffer.cc",
+    "frame_buffer.h",
+    "generic_decoder.cc",
+    "generic_decoder.h",
+    "generic_encoder.cc",
+    "generic_encoder.h",
+    "include/video_coding.h",
+    "include/video_coding_defines.h",
+    "inter_frame_delay.cc",
+    "inter_frame_delay.h",
+    "internal_defines.h",
+    "jitter_buffer.cc",
+    "jitter_buffer.h",
+    "jitter_buffer_common.h",
+    "jitter_estimator.cc",
+    "jitter_estimator.h",
+    "media_opt_util.cc",
+    "media_opt_util.h",
+    "media_optimization.cc",
+    "media_optimization.h",
+    "nack_fec_tables.h",
+    "packet.cc",
+    "packet.h",
+    "qm_select.cc",
+    "qm_select.h",
+    "qm_select_data.h",
+    "receiver.cc",
+    "receiver.h",
+    "rtt_filter.cc",
+    "rtt_filter.h",
+    "session_info.cc",
+    "session_info.h",
+    "timestamp_map.cc",
+    "timestamp_map.h",
+    "timing.cc",
+    "timing.h",
+    "video_coding_impl.cc",
+    "video_coding_impl.h",
+    "video_receiver.cc",
+    "video_sender.cc",
   ]
 
   configs += [ "../..:common_config" ]
@@ -94,14 +96,14 @@ source_set("video_coding") {
 source_set("video_coding_utility") {
   sources = [
     "utility/frame_dropper.cc",
-    "utility/include/frame_dropper.h",
-    "utility/include/moving_average.h",
-    "utility/include/qp_parser.h",
-    "utility/include/quality_scaler.h",
-    "utility/include/vp8_header_parser.h",
+    "utility/frame_dropper.h",
+    "utility/moving_average.h",
     "utility/qp_parser.cc",
+    "utility/qp_parser.h",
     "utility/quality_scaler.cc",
+    "utility/quality_scaler.h",
     "utility/vp8_header_parser.cc",
+    "utility/vp8_header_parser.h",
   ]
 
   configs += [ "../..:common_config" ]
@@ -133,9 +135,28 @@ source_set("webrtc_h264") {
     configs -= [ "//build/config/clang:find_bad_constructs" ]
   }
 
+  defines = []
   deps = [
     "../../system_wrappers",
   ]
+
+  if (rtc_use_h264) {
+    defines += [ "WEBRTC_USE_H264" ]
+    if (rtc_initialize_ffmpeg) {
+      defines += [ "WEBRTC_INITIALIZE_FFMPEG" ]
+    }
+    sources += [
+      "codecs/h264/h264_decoder_impl.cc",
+      "codecs/h264/h264_decoder_impl.h",
+      "codecs/h264/h264_encoder_impl.cc",
+      "codecs/h264/h264_encoder_impl.h",
+    ]
+    deps += [
+      "../../common_video",
+      "//third_party/ffmpeg:ffmpeg",
+      "//third_party/openh264:encoder",
+    ]
+  }
 }
 
 # TODO(tkchin): Source set for webrtc_h264_video_toolbox. Currently not
@@ -175,8 +196,6 @@ source_set("webrtc_vp8") {
     "codecs/vp8/simulcast_encoder_adapter.cc",
     "codecs/vp8/simulcast_encoder_adapter.h",
     "codecs/vp8/temporal_layers.h",
-    "codecs/vp8/vp8_factory.cc",
-    "codecs/vp8/vp8_factory.h",
     "codecs/vp8/vp8_impl.cc",
     "codecs/vp8/vp8_impl.h",
   ]
@@ -209,21 +228,15 @@ source_set("webrtc_vp8") {
 }
 
 source_set("webrtc_vp9") {
-  if (rtc_build_vp9) {
-    sources = [
-      "codecs/vp9/include/vp9.h",
-      "codecs/vp9/screenshare_layers.cc",
-      "codecs/vp9/screenshare_layers.h",
-      "codecs/vp9/vp9_frame_buffer_pool.cc",
-      "codecs/vp9/vp9_frame_buffer_pool.h",
-      "codecs/vp9/vp9_impl.cc",
-      "codecs/vp9/vp9_impl.h",
-    ]
-  } else {
-    sources = [
-      "codecs/vp9/vp9_dummy_impl.cc",
-    ]
-  }
+  sources = [
+    "codecs/vp9/include/vp9.h",
+    "codecs/vp9/screenshare_layers.cc",
+    "codecs/vp9/screenshare_layers.h",
+    "codecs/vp9/vp9_frame_buffer_pool.cc",
+    "codecs/vp9/vp9_frame_buffer_pool.h",
+    "codecs/vp9/vp9_impl.cc",
+    "codecs/vp9/vp9_impl.h",
+  ]
 
   configs += [ "../..:common_config" ]
   public_configs = [ "../..:common_inherited_config" ]

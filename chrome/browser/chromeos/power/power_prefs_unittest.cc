@@ -5,11 +5,12 @@
 #include "chrome/browser/chromeos/power/power_prefs.h"
 
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
@@ -27,6 +28,7 @@
 #include "chromeos/dbus/power_manager/policy.pb.h"
 #include "chromeos/dbus/power_policy_controller.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/notification_details.h"
@@ -178,7 +180,7 @@ TEST_F(PowerPrefsTest, LoginScreen) {
   TestingProfile::Builder builder;
   builder.SetPath(
       profile_manager_.profiles_dir().AppendASCII(chrome::kInitialProfile));
-  builder.SetPrefService(login_profile_prefs.Pass());
+  builder.SetPrefService(std::move(login_profile_prefs));
   TestingProfile* login_profile = builder.BuildIncognito(
       profile_manager_.CreateTestingProfile(chrome::kInitialProfile));
 

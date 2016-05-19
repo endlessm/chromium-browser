@@ -2,14 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -23,10 +25,11 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/history/core/browser/history_db_task.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_browser_thread.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "url/gurl.h"
 
 using content::BrowserThread;
@@ -67,10 +70,9 @@ class WaitForHistoryTask : public history::HistoryDBTask {
 
 class HistoryBrowserTest : public InProcessBrowserTest {
  protected:
-  HistoryBrowserTest()
-      : test_server_(net::SpawnedTestServer::TYPE_HTTP,
-                     net::SpawnedTestServer::kLocalhost,
-                     base::FilePath(kDocRoot)) {}
+  HistoryBrowserTest() : test_server_() {
+    test_server_.ServeFilesFromSourceDirectory(base::FilePath(kDocRoot));
+  }
 
   void SetUp() override {
     ASSERT_TRUE(test_server_.Start());
@@ -101,7 +103,7 @@ class HistoryBrowserTest : public InProcessBrowserTest {
     scoped_ptr<history::HistoryDBTask> task(new WaitForHistoryTask());
     history::HistoryService* history = HistoryServiceFactory::GetForProfile(
         GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
-    history->ScheduleDBTask(task.Pass(), &task_tracker);
+    history->ScheduleDBTask(std::move(task), &task_tracker);
     content::RunMessageLoop();
   }
 
@@ -120,11 +122,11 @@ class HistoryBrowserTest : public InProcessBrowserTest {
   }
 
   void LoadAndWaitForFile(const char* filename) {
-    GURL url = test_server_.GetURL(std::string("History") + filename);
+    GURL url = test_server_.GetURL(std::string("/History") + filename);
     LoadAndWaitForURL(url);
   }
 
-  net::SpawnedTestServer test_server_;
+  net::EmbeddedTestServer test_server_;
 };
 
 // Test that the browser history is saved (default setting).
@@ -326,6 +328,19 @@ IN_PROC_BROWSER_TEST_F(HistoryBrowserTest, InvalidURLNoHistory) {
       base::FilePath().AppendASCII("History"),
       base::FilePath().AppendASCII("non_existant_file.html"));
   ui_test_utils::NavigateToURL(browser(), non_existant);
+  ExpectEmptyHistory();
+}
+
+// URLs with special schemes should not go in history.
+IN_PROC_BROWSER_TEST_F(HistoryBrowserTest, InvalidSchemeNoHistory) {
+  GURL about_blank("about:blank");
+  ui_test_utils::NavigateToURL(browser(), about_blank);
+  ExpectEmptyHistory();
+  GURL view_source("view-source:about:blank");
+  ui_test_utils::NavigateToURL(browser(), view_source);
+  ExpectEmptyHistory();
+  GURL chrome("chrome://about");
+  ui_test_utils::NavigateToURL(browser(), chrome);
   ExpectEmptyHistory();
 }
 

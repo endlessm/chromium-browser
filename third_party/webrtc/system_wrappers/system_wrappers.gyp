@@ -21,7 +21,6 @@
         'include/aligned_malloc.h',
         'include/atomic32.h',
         'include/clock.h',
-        'include/condition_variable_wrapper.h',
         'include/cpu_info.h',
         'include/cpu_features_wrapper.h',
         'include/critical_section_wrapper.h',
@@ -35,6 +34,7 @@
         'include/logcat_trace_context.h',
         'include/logging.h',
         'include/metrics.h',
+        'include/ntp_time.h',
         'include/ref_count.h',
         'include/rtp_to_ntp.h',
         'include/rw_lock_wrapper.h',
@@ -44,7 +44,6 @@
         'include/static_instance.h',
         'include/stl_util.h',
         'include/stringize_macros.h',
-        'include/thread_wrapper.h',
         'include/tick_util.h',
         'include/timestamp_extrapolator.h',
         'include/trace.h',
@@ -54,20 +53,10 @@
         'source/atomic32_posix.cc',
         'source/atomic32_win.cc',
         'source/clock.cc',
-        'source/condition_variable.cc',
-        'source/condition_variable_posix.cc',
-        'source/condition_variable_posix.h',
         'source/condition_variable_event_win.cc',
         'source/condition_variable_event_win.h',
-        'source/condition_variable_native_win.cc',
-        'source/condition_variable_native_win.h',
         'source/cpu_info.cc',
         'source/cpu_features.cc',
-        'source/critical_section.cc',
-        'source/critical_section_posix.cc',
-        'source/critical_section_posix.h',
-        'source/critical_section_win.cc',
-        'source/critical_section_win.h',
         'source/data_log.cc',
         'source/data_log_c.cc',
         'source/data_log_no_op.cc',
@@ -82,20 +71,15 @@
         'source/logging.cc',
         'source/rtp_to_ntp.cc',
         'source/rw_lock.cc',
-        'source/rw_lock_generic.cc',
-        'source/rw_lock_generic.h',
         'source/rw_lock_posix.cc',
         'source/rw_lock_posix.h',
         'source/rw_lock_win.cc',
         'source/rw_lock_win.h',
+        'source/rw_lock_winxp_win.cc',
+        'source/rw_lock_winxp_win.h',
         'source/sleep.cc',
         'source/sort.cc',
         'source/tick_util.cc',
-        'source/thread.cc',
-        'source/thread_posix.cc',
-        'source/thread_posix.h',
-        'source/thread_win.cc',
-        'source/thread_win.h',
         'source/timestamp_extrapolator.cc',
         'source/trace_impl.cc',
         'source/trace_impl.h',
@@ -113,11 +97,6 @@
         ['OS=="android"', {
           'defines': [
             'WEBRTC_THREAD_RR',
-            # TODO(leozwang): Investigate CLOCK_REALTIME and CLOCK_MONOTONIC
-            # support on Android. Keep WEBRTC_CLOCK_TYPE_REALTIME for now,
-            # remove it after I verify that CLOCK_MONOTONIC is fully functional
-            # with condition and event functions in system_wrappers.
-            'WEBRTC_CLOCK_TYPE_REALTIME',
            ],
           'conditions': [
             ['build_with_chromium==1', {
@@ -144,9 +123,6 @@
         ['OS=="linux"', {
           'defines': [
             'WEBRTC_THREAD_RR',
-            # TODO(andrew): can we select this automatically?
-            # Define this if the Linux system does not support CLOCK_MONOTONIC.
-            #'WEBRTC_CLOCK_TYPE_REALTIME',
           ],
           'link_settings': {
             'libraries': [ '-lrt', ],
@@ -163,7 +139,6 @@
         ['OS=="ios" or OS=="mac"', {
           'defines': [
             'WEBRTC_THREAD_RR',
-            'WEBRTC_CLOCK_TYPE_REALTIME',
           ],
         }],
         ['OS=="win"', {

@@ -22,33 +22,37 @@ namespace protocol {
 class ChannelMultiplexer;
 class PseudoTcpChannelFactory;
 class SecureChannelFactory;
+class MessageChannelFactory;
 
 class IceTransport : public Transport,
                      public IceTransportChannel::Delegate,
                      public DatagramChannelFactory {
  public:
-  // |port_allocator| must outlive the session.
-  IceTransport(cricket::PortAllocator* port_allocator,
-               const NetworkSettings& network_settings,
-               TransportRole role);
+  class EventHandler {
+   public:
+    // Called when transport route changes.
+    virtual void OnIceTransportRouteChange(const std::string& channel_name,
+                                           const TransportRoute& route) = 0;
+
+    // Called when there is an error connecting the session.
+    virtual void OnIceTransportError(ErrorCode error) = 0;
+  };
+
+  // |transport_context| must outlive the session.
+  IceTransport(scoped_refptr<TransportContext> transport_context,
+               EventHandler* event_handler);
   ~IceTransport() override;
 
-  // Returns a closure that must be called before transport channels start
-  // connecting .
-  base::Closure GetCanStartClosure();
+  MessageChannelFactory* GetChannelFactory();
+  MessageChannelFactory* GetMultiplexedChannelFactory();
 
   // Transport interface.
-  void Start(EventHandler* event_handler,
-             Authenticator* authenticator) override;
+  void Start(Authenticator* authenticator,
+             SendTransportInfoCallback send_transport_info_callback) override;
   bool ProcessTransportInfo(buzz::XmlElement* transport_info) override;
-  DatagramChannelFactory* GetDatagramChannelFactory() override;
-  StreamChannelFactory* GetStreamChannelFactory() override;
-  StreamChannelFactory* GetMultiplexedChannelFactory() override;
 
  private:
   typedef std::map<std::string, IceTransportChannel*> ChannelsMap;
-
-  void OnCanStart();
 
   // DatagramChannelFactory interface.
   void CreateChannel(const std::string& name,
@@ -60,15 +64,15 @@ class IceTransport : public Transport,
   void AddPendingRemoteTransportInfo(IceTransportChannel* channel);
 
   // IceTransportChannel::Delegate interface.
-  void OnTransportIceCredentials(IceTransportChannel* transport,
-                                 const std::string& ufrag,
-                                 const std::string& password) override;
-  void OnTransportCandidate(IceTransportChannel* transport,
-                            const cricket::Candidate& candidate) override;
-  void OnTransportRouteChange(IceTransportChannel* transport,
-                              const TransportRoute& route) override;
-  void OnTransportFailed(IceTransportChannel* transport) override;
-  void OnTransportDeleted(IceTransportChannel* transport) override;
+  void OnChannelIceCredentials(IceTransportChannel* transport,
+                               const std::string& ufrag,
+                               const std::string& password) override;
+  void OnChannelCandidate(IceTransportChannel* transport,
+                          const cricket::Candidate& candidate) override;
+  void OnChannelRouteChange(IceTransportChannel* transport,
+                            const TransportRoute& route) override;
+  void OnChannelFailed(IceTransportChannel* transport) override;
+  void OnChannelDeleted(IceTransportChannel* transport) override;
 
   // Creates empty |pending_transport_info_message_| and schedules timer for
   // SentTransportInfo() to sent the message later.
@@ -77,18 +81,22 @@ class IceTransport : public Transport,
   // Sends transport-info message with candidates from |pending_candidates_|.
   void SendTransportInfo();
 
-  cricket::PortAllocator* port_allocator_;
-  NetworkSettings network_settings_;
-  TransportRole role_;
+  // Callback passed to StreamMessageChannelFactoryAdapter to handle read/write
+  // errors on the data channels.
+  void OnChannelError(int error);
 
-  bool can_start_ = false;
+  scoped_refptr<TransportContext> transport_context_;
+  EventHandler* event_handler_;
 
-  Transport::EventHandler* event_handler_ = nullptr;
+  SendTransportInfoCallback send_transport_info_callback_;
 
   ChannelsMap channels_;
   scoped_ptr<PseudoTcpChannelFactory> pseudotcp_channel_factory_;
   scoped_ptr<SecureChannelFactory> secure_channel_factory_;
+  scoped_ptr<MessageChannelFactory> message_channel_factory_;
+
   scoped_ptr<ChannelMultiplexer> channel_multiplexer_;
+  scoped_ptr<MessageChannelFactory> mux_channel_factory_;
 
   // Pending remote transport info received before the local channels were
   // created.

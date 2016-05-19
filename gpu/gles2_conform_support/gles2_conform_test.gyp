@@ -13,13 +13,27 @@
        '<(SHARED_INTERMEDIATE_DIR)/gles2_conform_test_embedded_data',
        '../../third_party/gles2_conform/GTF_ES/glsl/GTF/Source',
      ],
+     'variables': {
+       'clang_warning_flags': [
+         # Many struct initializers in the GTF_ES code are missing braces.
+         '-Wno-missing-braces',
+         # A few variables are unitialized if GLVersion != 2.0.
+         '-Wno-sometimes-uninitialized',
+         # GTFVecBase.h contains static no-inline functions in a header :-/
+         '-Wno-unused-function',
+         # There are some implicit conversions from "int" to "char" in
+         # GTFExtensionTestSurfacelessContext.c.
+         '-Wno-constant-conversion',
+       ],
+     },
   },
   'targets': [
     {
       'target_name': 'gles2_conform_test',
-      'type': 'executable',
+      'type': '<(gtest_target_type)',
       'dependencies': [
         '<(DEPTH)/base/base.gyp:base',
+        '<(DEPTH)/base/base.gyp:test_support_base',
         '<(DEPTH)/gpu/gpu.gyp:gpu',
         '<(DEPTH)/testing/gtest.gyp:gtest',
       ],

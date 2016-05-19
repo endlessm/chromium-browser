@@ -6,6 +6,7 @@
 #define BASE_ANDROID_JNI_ARRAY_H_
 
 #include <jni.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -32,7 +33,7 @@ BASE_EXPORT ScopedJavaLocalRef<jintArray> ToJavaIntArray(
 BASE_EXPORT ScopedJavaLocalRef<jintArray> ToJavaIntArray(
     JNIEnv* env, const std::vector<int>& ints);
 
-// Returns a new Java long array converted from the given int64 array.
+// Returns a new Java long array converted from the given int64_t array.
 BASE_EXPORT ScopedJavaLocalRef<jlongArray> ToJavaLongArray(JNIEnv* env,
                                                            const int64_t* longs,
                                                            size_t len);
@@ -40,6 +41,14 @@ BASE_EXPORT ScopedJavaLocalRef<jlongArray> ToJavaLongArray(JNIEnv* env,
 BASE_EXPORT ScopedJavaLocalRef<jlongArray> ToJavaLongArray(
     JNIEnv* env,
     const std::vector<int64_t>& longs);
+
+// Returns a new Java float array converted from the given C++ float array.
+BASE_EXPORT ScopedJavaLocalRef<jfloatArray> ToJavaFloatArray(
+    JNIEnv* env, const float* floats, size_t len);
+
+BASE_EXPORT ScopedJavaLocalRef<jfloatArray> ToJavaFloatArray(
+    JNIEnv* env,
+    const std::vector<float>& floats);
 
 // Returns a array of Java byte array converted from |v|.
 BASE_EXPORT ScopedJavaLocalRef<jobjectArray> ToJavaArrayOfByteArray(

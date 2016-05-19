@@ -19,7 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/CSSPageRule.h"
 
 #include "core/css/CSSSelector.h"
@@ -56,14 +55,11 @@ CSSStyleDeclaration* CSSPageRule::style() const
 String CSSPageRule::selectorText() const
 {
     StringBuilder text;
-    text.appendLiteral("@page");
     const CSSSelector* selector = m_pageRule->selector();
     if (selector) {
         String pageSpecification = selector->selectorText();
-        if (!pageSpecification.isEmpty() && pageSpecification != starAtom) {
-            text.append(' ');
+        if (!pageSpecification.isEmpty())
             text.append(pageSpecification);
-        }
     }
     return text.toString();
 }
@@ -71,21 +67,24 @@ String CSSPageRule::selectorText() const
 void CSSPageRule::setSelectorText(const String& selectorText)
 {
     CSSParserContext context(parserContext(), 0);
-    CSSSelectorList selectorList;
-    CSSParser::parseSelector(context, selectorText, selectorList);
+    CSSSelectorList selectorList = CSSParser::parsePageSelector(context, parentStyleSheet() ? parentStyleSheet()->contents() : nullptr, selectorText);
     if (!selectorList.isValid())
         return;
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_pageRule->wrapperAdoptSelectorList(selectorList);
+    m_pageRule->wrapperAdoptSelectorList(std::move(selectorList));
 }
 
 String CSSPageRule::cssText() const
 {
     StringBuilder result;
-    result.append(selectorText());
-    result.appendLiteral(" { ");
+    result.appendLiteral("@page ");
+    String pageSelectors = selectorText();
+    result.append(pageSelectors);
+    if (!pageSelectors.isEmpty())
+        result.appendLiteral(" ");
+    result.appendLiteral("{ ");
     String decls = m_pageRule->properties().asText();
     result.append(decls);
     if (!decls.isEmpty())

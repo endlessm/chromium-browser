@@ -30,6 +30,7 @@
 #include "platform/graphics/ColorSpace.h"
 #include "platform/heap/Handle.h"
 #include "third_party/skia/include/core/SkImageFilter.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/RefCounted.h"
 #include "wtf/RefPtr.h"
@@ -61,6 +62,7 @@ enum DetermineSubregionFlag {
 typedef int DetermineSubregionFlags;
 
 class PLATFORM_EXPORT FilterEffect : public RefCountedWillBeGarbageCollectedFinalized<FilterEffect> {
+    WTF_MAKE_NONCOPYABLE(FilterEffect);
 public:
     virtual ~FilterEffect();
     DECLARE_VIRTUAL_TRACE();
@@ -122,8 +124,9 @@ public:
     FloatRect filterPrimitiveSubregion() const { return m_filterPrimitiveSubregion; }
     void setFilterPrimitiveSubregion(const FloatRect& filterPrimitiveSubregion) { m_filterPrimitiveSubregion = filterPrimitiveSubregion; }
 
-    FloatRect effectBoundaries() const { return m_effectBoundaries; }
+    const FloatRect& effectBoundaries() const { return m_effectBoundaries; }
     void setEffectBoundaries(const FloatRect& effectBoundaries) { m_effectBoundaries = effectBoundaries; }
+    FloatRect applyEffectBoundaries(const FloatRect&) const;
 
     Filter* filter() { return m_filter; }
     const Filter* filter() const { return m_filter; }
@@ -153,7 +156,7 @@ protected:
 
     Color adaptColorToOperatingColorSpace(const Color& deviceColor);
 
-    SkImageFilter::CropRect getCropRect(const FloatSize& cropOffset) const;
+    SkImageFilter::CropRect getCropRect() const;
 
     void addAbsolutePaintRect(const FloatRect& absolutePaintRect);
 

@@ -276,7 +276,7 @@ void AdvancedBlendCase::init (void)
 		const int		numSamples	= m_rtType == RENDERTARGETTYPE_MSAA_FBO ? 4 : 0;
 
 		m_testCtx.getLog() << TestLog::Message << "Using FBO of size (" << m_renderWidth << ", " << m_renderHeight << ") with format "
-											   << glu::getPixelFormatStr(format) << " and " << numSamples << " samples"
+											   << glu::getTextureFormatStr(format) << " and " << numSamples << " samples"
 						   << TestLog::EndMessage;
 
 		gl.genRenderbuffers(1, &m_colorRbo);
@@ -486,7 +486,7 @@ AdvancedBlendCase::IterateResult AdvancedBlendCase::iterate (void)
 	{
 		rr::FragmentOperationState		referenceState;
 		const tcu::PixelBufferAccess	colorAccess		= gls::FragmentOpUtil::getMultisampleAccess(m_refColorBuffer->getAccess());
-		const tcu::PixelBufferAccess	nullAccess		(TextureFormat(), 0, 0, 0, DE_NULL);
+		const tcu::PixelBufferAccess	nullAccess		= tcu::PixelBufferAccess();
 		IntegerQuad						quad;
 
 		if (!useFbo && m_context.getRenderTarget().getPixelFormat().alphaBits == 0)

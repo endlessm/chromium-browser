@@ -4,6 +4,8 @@
 
 #include "ui/app_list/views/search_result_actions_view.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "ui/app_list/views/search_result_actions_view_delegate.h"
@@ -52,8 +54,8 @@ void SearchResultActionsView::SetSelectedAction(int action_index) {
   SchedulePaint();
 
   if (IsValidActionIndex(selected_action_)) {
-    child_at(selected_action_)->NotifyAccessibilityEvent(
-        ui::AX_EVENT_FOCUS, true);
+    child_at(selected_action_)
+        ->NotifyAccessibilityEvent(ui::AX_EVENT_HOVER, true);
   }
 }
 

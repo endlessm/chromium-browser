@@ -4,11 +4,14 @@
 
 #include "chrome/browser/chromeos/input_method/component_extension_ime_manager_impl.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/sys_info.h"
@@ -172,7 +175,7 @@ scoped_ptr<base::DictionaryValue> ComponentExtensionIMEManagerImpl::GetManifest(
     LOG(ERROR) << "Failed at getting manifest";
 
   return scoped_ptr<base::DictionaryValue>(
-             static_cast<base::DictionaryValue*>(manifest.release())).Pass();
+      static_cast<base::DictionaryValue*>(manifest.release()));
 }
 
 // static

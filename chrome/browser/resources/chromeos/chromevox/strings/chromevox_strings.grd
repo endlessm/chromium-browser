@@ -944,18 +944,6 @@
       <message desc='Brailled when describing an ARIA value maximum. For example "Distance, in meters: 6 min:2 max:10".' name="IDS_CHROMEVOX_ARIA_VALUE_MAX_BRL">
         max:<ph name="x">$1</ph>
       </message>
-      <message desc='Spoken when describing an ARIA value. For example "Distance, in meters textbox 6, min 2, max 10".' name="IDS_CHROMEVOX_ARIA_VALUE_NOW">
-        <ph name="x">$1</ph>
-      </message>
-      <message desc='Brailled when describing an ARIA value. For example "Distance, in meters: 6 min:2 max:10".' name="IDS_CHROMEVOX_ARIA_VALUE_NOW_BRL">
-        <ph name="x">$1</ph>
-      </message>
-      <message desc='Spoken when describing an ARIA value text. For example "Distance, short distance set"' name="IDS_CHROMEVOX_ARIA_VALUE_TEXT">
-        <ph name="x">$1</ph>
-      </message>
-      <message desc='Brailled when describing an ARIA value text. For example "Distance, short distance set"' name="IDS_CHROMEVOX_ARIA_VALUE_TEXT_BRL">
-        <ph name="x">$1</ph>
-      </message>
       <message desc="Describes an element with the ARIA role alert." name="IDS_CHROMEVOX_ROLE_ALERT">
         Alert
       </message>
@@ -2402,14 +2390,17 @@
       <message desc="Title of the ChromeVox panel, a window that displays the text ChromeVox is speaking and contains controls to manipulate ChromeVox." name="IDS_CHROMEVOX_PANEL_TITLE">
         ChromeVox Panel
       </message>
-      <message desc="Title of the button that opens up the ChromeVox menu." name="IDS_CHROMEVOX_MENU_TITLE">
-        ChromeVox Menu
+      <message desc="Title of the button that opens up the ChromeVox menus." name="IDS_CHROMEVOX_MENUS_TITLE">
+        ChromeVox Menus
       </message>
-      <message desc="Title of the button that opens up the ChromeVox menu." name="IDS_CHROMEVOX_OPTIONS">
+      <message desc="Title of the button that opens up ChromeVox options." name="IDS_CHROMEVOX_OPTIONS">
         ChromeVox Options
       </message>
       <message desc="Title of the button that disables ChromeVox." name="IDS_CHROMEVOX_DISABLE_CHROMEVOX">
         Disable ChromeVox
+      </message>
+      <message desc="Text in parentheses to be appended next to a tab that's currently active." name="IDS_CHROMEVOX_ACTIVE_TAB">
+        (active)
       </message>
     </messages>
   </release>

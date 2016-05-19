@@ -6,11 +6,18 @@
 
 #include <algorithm>  // For std::min.
 #include <cmath>      // For std::modf.
+#include <set>
+#include <utility>
 
 #include "base/location.h"
+#include "base/metrics/field_trial.h"
+#include "base/metrics/histogram_base.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time/default_tick_clock.h"
 #include "base/timer/timer.h"
 #include "components/data_usage/core/data_use.h"
+#include "components/variations/variations_associated_data.h"
 #include "net/android/traffic_stats.h"
 
 namespace data_usage {
@@ -23,20 +30,65 @@ typedef std::vector<std::pair<scoped_ptr<DataUse>,
                               DataUseAmortizer::AmortizationCompleteCallback>>
     DataUseBuffer;
 
+// Name of the field trial.
+const char kExternalDataUseObserverFieldTrial[] = "ExternalDataUseObserver";
+
 // The delay between receiving DataUse and querying TrafficStats byte counts for
 // amortization.
-// TODO(sclittle): Control this with a field trial parameter.
 const int64_t kDefaultTrafficStatsQueryDelayMs = 50;
 
 // The longest amount of time that an amortization run can be delayed for.
-// TODO(sclittle): Control this with a field trial parameter.
 const int64_t kDefaultMaxAmortizationDelayMs = 500;
 
 // The maximum allowed size of the DataUse buffer. If the buffer ever exceeds
 // this size, then DataUse will be amortized immediately and the buffer will be
 // flushed.
-// TODO(sclittle): Control this with a field trial parameter.
 const size_t kDefaultMaxDataUseBufferSize = 128;
+
+base::TimeDelta GetTrafficStatsQueryDelay() {
+  int64_t duration_ms = kDefaultTrafficStatsQueryDelayMs;
+  std::string variation_value = variations::GetVariationParamValue(
+      kExternalDataUseObserverFieldTrial, "traffic_stats_query_delay_ms");
+  if (!variation_value.empty() &&
+      base::StringToInt64(variation_value, &duration_ms) && duration_ms >= 0) {
+    return base::TimeDelta::FromMilliseconds(duration_ms);
+  }
+  return base::TimeDelta::FromMilliseconds(kDefaultTrafficStatsQueryDelayMs);
+}
+
+base::TimeDelta GetMaxAmortizationDelay() {
+  int64_t duration_ms = kDefaultMaxAmortizationDelayMs;
+  std::string variation_value = variations::GetVariationParamValue(
+      kExternalDataUseObserverFieldTrial, "max_amortization_delay_ms");
+  if (!variation_value.empty() &&
+      base::StringToInt64(variation_value, &duration_ms) && duration_ms >= 0) {
+    return base::TimeDelta::FromMilliseconds(duration_ms);
+  }
+  return base::TimeDelta::FromMilliseconds(kDefaultMaxAmortizationDelayMs);
+}
+
+size_t GetMaxDataUseBufferSize() {
+  size_t max_buffer_size = kDefaultMaxDataUseBufferSize;
+  std::string variation_value = variations::GetVariationParamValue(
+      kExternalDataUseObserverFieldTrial, "max_data_use_buffer_size");
+  if (!variation_value.empty() &&
+      base::StringToSizeT(variation_value, &max_buffer_size)) {
+    return max_buffer_size;
+  }
+  return kDefaultMaxDataUseBufferSize;
+}
+
+// Returns |byte_count| as a histogram sample capped at the maximum histogram
+// sample value that's suitable for being recorded without overflowing.
+base::HistogramBase::Sample GetByteCountAsHistogramSample(int64_t byte_count) {
+  DCHECK_GE(byte_count, 0);
+  if (byte_count >= base::HistogramBase::kSampleType_MAX) {
+    // Return kSampleType_MAX - 1 because it's invalid to record
+    // kSampleType_MAX, which would cause a CHECK to fail in the histogram code.
+    return base::HistogramBase::kSampleType_MAX - 1;
+  }
+  return static_cast<base::HistogramBase::Sample>(byte_count);
+}
 
 // Scales |bytes| by |ratio|, using |remainder| to hold the running rounding
 // error. |bytes| must be non-negative, and multiplying |bytes| by |ratio| must
@@ -86,7 +138,6 @@ void AmortizeByteCountSequence(DataUseBuffer* data_use_sequence,
   for (auto& data_use_buffer_pair : *data_use_sequence) {
     int64_t* byte_count = get_byte_count_fn(data_use_buffer_pair.first.get());
     *byte_count = ScaleByteCount(*byte_count, ratio, &remainder);
-    // TODO(sclittle): Record UMA about values before vs. after amortization.
   }
 }
 
@@ -97,15 +148,39 @@ int64_t* GetRxBytes(DataUse* data_use) {
   return &data_use->rx_bytes;
 }
 
+// Returns the total transmitted bytes contained in |data_use_sequence|.
+int64_t GetTotalTxBytes(const DataUseBuffer& data_use_sequence) {
+  int64_t sum = 0;
+  for (const auto& data_use_buffer_pair : data_use_sequence)
+    sum += data_use_buffer_pair.first->tx_bytes;
+  return sum;
+}
+
+// Returns the total received bytes contained in |data_use_sequence|.
+int64_t GetTotalRxBytes(const DataUseBuffer& data_use_sequence) {
+  int64_t sum = 0;
+  for (const auto& data_use_buffer_pair : data_use_sequence)
+    sum += data_use_buffer_pair.first->rx_bytes;
+  return sum;
+}
+
+void RecordConcurrentTabsHistogram(const DataUseBuffer& data_use_buffer) {
+  std::set<int32_t> unique_tabs;
+  for (const auto& data_use_buffer_pair : data_use_buffer)
+    unique_tabs.insert(data_use_buffer_pair.first->tab_id);
+  UMA_HISTOGRAM_COUNTS_100("TrafficStatsAmortizer.ConcurrentTabs",
+                           unique_tabs.size());
+}
+
 }  // namespace
 
 TrafficStatsAmortizer::TrafficStatsAmortizer()
     : TrafficStatsAmortizer(
           scoped_ptr<base::TickClock>(new base::DefaultTickClock()),
           scoped_ptr<base::Timer>(new base::Timer(false, false)),
-          base::TimeDelta::FromMilliseconds(kDefaultTrafficStatsQueryDelayMs),
-          base::TimeDelta::FromMilliseconds(kDefaultMaxAmortizationDelayMs),
-          kDefaultMaxDataUseBufferSize) {}
+          GetTrafficStatsQueryDelay(),
+          GetMaxAmortizationDelay(),
+          GetMaxDataUseBufferSize()) {}
 
 TrafficStatsAmortizer::~TrafficStatsAmortizer() {}
 
@@ -116,11 +191,18 @@ void TrafficStatsAmortizer::AmortizeDataUse(
   DCHECK(!callback.is_null());
   int64_t tx_bytes = data_use->tx_bytes, rx_bytes = data_use->rx_bytes;
 
-  // TODO(sclittle): Combine consecutive buffered DataUse objects that are
+  // As an optimization, combine consecutive buffered DataUse objects that are
   // identical except for byte counts and have the same callback.
-  buffered_data_use_.push_back(
-      std::pair<scoped_ptr<DataUse>, AmortizationCompleteCallback>(
-          data_use.Pass(), callback));
+  if (!buffered_data_use_.empty() &&
+      buffered_data_use_.back().first->CanCombineWith(*data_use) &&
+      buffered_data_use_.back().second.Equals(callback)) {
+    buffered_data_use_.back().first->tx_bytes += data_use->tx_bytes;
+    buffered_data_use_.back().first->rx_bytes += data_use->rx_bytes;
+  } else {
+    buffered_data_use_.push_back(
+        std::pair<scoped_ptr<DataUse>, AmortizationCompleteCallback>(
+            std::move(data_use), callback));
+  }
 
   AddPreAmortizationBytes(tx_bytes, rx_bytes);
 }
@@ -142,8 +224,8 @@ TrafficStatsAmortizer::TrafficStatsAmortizer(
     const base::TimeDelta& traffic_stats_query_delay,
     const base::TimeDelta& max_amortization_delay,
     size_t max_data_use_buffer_size)
-    : tick_clock_(tick_clock.Pass()),
-      traffic_stats_query_timer_(traffic_stats_query_timer.Pass()),
+    : tick_clock_(std::move(tick_clock)),
+      traffic_stats_query_timer_(std::move(traffic_stats_query_timer)),
       traffic_stats_query_delay_(traffic_stats_query_delay),
       max_amortization_delay_(max_amortization_delay),
       max_data_use_buffer_size_(max_data_use_buffer_size),
@@ -182,7 +264,6 @@ void TrafficStatsAmortizer::AddPreAmortizationBytes(int64_t tx_bytes,
     // hogging memory. Note that this will likely cause the post-amortization
     // byte counts calculated here to be less accurate than if the amortizer
     // waited to perform amortization.
-    // TODO(sclittle): Record UMA about how often this occurs.
     traffic_stats_query_timer_->Stop();
     AmortizeNow();
     return;
@@ -192,8 +273,6 @@ void TrafficStatsAmortizer::AddPreAmortizationBytes(int64_t tx_bytes,
   // |max_amortization_delay_| comes earlier, then this will likely cause the
   // post-amortization byte counts calculated here to be less accurate than if
   // the amortizer waited to perform amortization.
-  // TODO(sclittle): Record UMA about how often |max_amortization_delay_| comes
-  // earlier.
   base::TimeDelta query_delay = std::min(
       traffic_stats_query_delay_, current_amortization_run_start_time_ +
                                       max_amortization_delay_ - now_ticks);
@@ -208,6 +287,18 @@ void TrafficStatsAmortizer::AddPreAmortizationBytes(int64_t tx_bytes,
 
 void TrafficStatsAmortizer::AmortizeNow() {
   DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(is_amortization_in_progress_);
+
+  if (!buffered_data_use_.empty()) {
+    // Record histograms for the pre-amortization byte counts of the DataUse
+    // objects.
+    UMA_HISTOGRAM_COUNTS(
+        "TrafficStatsAmortizer.PreAmortizationRunDataUseBytes.Tx",
+        GetByteCountAsHistogramSample(GetTotalTxBytes(buffered_data_use_)));
+    UMA_HISTOGRAM_COUNTS(
+        "TrafficStatsAmortizer.PreAmortizationRunDataUseBytes.Rx",
+        GetByteCountAsHistogramSample(GetTotalRxBytes(buffered_data_use_)));
+  }
 
   int64_t current_traffic_stats_tx_bytes = -1;
   int64_t current_traffic_stats_rx_bytes = -1;
@@ -241,8 +332,24 @@ void TrafficStatsAmortizer::AmortizeNow() {
     }
   }
 
-  // TODO(sclittle): Record some UMA about the delay before amortizing and how
-  // big the buffer was before amortizing.
+  if (!buffered_data_use_.empty()) {
+    // Record histograms for the post-amortization byte counts of the DataUse
+    // objects.
+    UMA_HISTOGRAM_COUNTS(
+        "TrafficStatsAmortizer.PostAmortizationRunDataUseBytes.Tx",
+        GetByteCountAsHistogramSample(GetTotalTxBytes(buffered_data_use_)));
+    UMA_HISTOGRAM_COUNTS(
+        "TrafficStatsAmortizer.PostAmortizationRunDataUseBytes.Rx",
+        GetByteCountAsHistogramSample(GetTotalRxBytes(buffered_data_use_)));
+    RecordConcurrentTabsHistogram(buffered_data_use_);
+  }
+
+  UMA_HISTOGRAM_TIMES(
+      "TrafficStatsAmortizer.AmortizationDelay",
+      tick_clock_->NowTicks() - current_amortization_run_start_time_);
+
+  UMA_HISTOGRAM_COUNTS_1000("TrafficStatsAmortizer.BufferSizeOnFlush",
+                            buffered_data_use_.size());
 
   // Reset state now that the amortization run has finished.
   is_amortization_in_progress_ = false;
@@ -275,7 +382,7 @@ void TrafficStatsAmortizer::AmortizeNow() {
 
   // Pass post-amortization DataUse objects to their respective callbacks.
   for (auto& data_use_buffer_pair : data_use_sequence)
-    data_use_buffer_pair.second.Run(data_use_buffer_pair.first.Pass());
+    data_use_buffer_pair.second.Run(std::move(data_use_buffer_pair.first));
 }
 
 }  // namespace android

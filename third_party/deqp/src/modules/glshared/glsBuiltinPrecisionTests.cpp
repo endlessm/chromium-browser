@@ -2304,7 +2304,7 @@ protected:
 			else
 			{
 				// |x| * 2^-10, slightly larger than 2 ULP at x == pi
-				return deLdExp(deAbs(DE_PI_DOUBLE), -10);
+				return deLdExp(deAbs(arg), -10);
 			}
 		}
 		else
@@ -2346,6 +2346,31 @@ ExprP<float> cos (const ExprP<float>& x) { return app<Cos>(x); }
 
 DEFINE_DERIVED_FLOAT1(Tan, tan, x, sin(x) * (constant(1.0f) / cos(x)));
 
+class ASin : public CFloatFunc1
+{
+public:
+					ASin		(void) : CFloatFunc1("asin", deAsin) {}
+
+protected:
+	double			precision	(const EvalContext& ctx, double, double x) const
+	{
+		if (!de::inBounds(x, -1.0, 1.0))
+			return TCU_NAN;
+
+		if (ctx.floatPrecision == glu::PRECISION_HIGHP)
+		{
+			// Absolute error of 2^-11
+			return deLdExp(1.0, -11);
+		}
+		else
+		{
+			// Absolute error of 2^-8
+			return deLdExp(1.0, -8);
+		}
+
+	}
+};
+
 class ArcTrigFunc : public CFloatFunc1
 {
 public:
@@ -2383,14 +2408,6 @@ protected:
 	const double	m_precision;
 	const Interval	m_domain;
 	const Interval	m_codomain;
-};
-
-class ASin : public ArcTrigFunc
-{
-public:
-	ASin (void) : ArcTrigFunc("asin", deAsin, 4096.0,
-							  Interval(-1.0, 1.0),
-							  Interval(-DE_PI_DOUBLE * 0.5, DE_PI_DOUBLE * 0.5)) {}
 };
 
 class ACos : public ArcTrigFunc
@@ -2456,8 +2473,8 @@ DEFINE_DERIVED_FLOAT1(Tanh, tanh, x, sinh(x) / cosh(x));
 // These are not defined as derived forms in the GLSL ES spec, but
 // that gives us a reasonable precision.
 DEFINE_DERIVED_FLOAT1(ASinh, asinh, x, log(x + sqrt(x * x + constant(1.0f))));
-DEFINE_DERIVED_FLOAT1(ACosh, acosh, x, log(x + sqrt((x + constant(1.0f)) *
-													(x - constant(1.0f)))));
+DEFINE_DERIVED_FLOAT1(ACosh, acosh, x, log(x + sqrt(alternatives((x + constant(1.0f)) * (x - constant(1.0f)),
+																 (x*x - constant(1.0f))))));
 DEFINE_DERIVED_FLOAT1(ATanh, atanh, x, constant(0.5f) * log((constant(1.0f) + x) /
 															(constant(1.0f) - x)));
 
@@ -3198,7 +3215,7 @@ public:
 	}
 
 protected:
-	IRet	doApply				(const EvalContext& ctx, const IArgs& iargs) const
+	IRet	doApply				(const EvalContext&, const IArgs& iargs) const
 	{
 		Interval	fracIV;
 		Interval&	wholeIV		= const_cast<Interval&>(iargs.b);
@@ -3208,9 +3225,10 @@ protected:
 		TCU_INTERVAL_APPLY_MONOTONE1(wholeIV, x, iargs.a, whole,
 									 deModf(x, &intPart); whole = intPart);
 
-		if ((ctx.format.hasInf() != YES) && !iargs.a.isFinite())
+		if (!iargs.a.isFinite())
 		{
 			// Behavior on modf(Inf) not well-defined, allow anything as a fractional part
+			// See Khronos bug 13907
 			fracIV |= TCU_NAN;
 		}
 

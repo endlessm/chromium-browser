@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -20,6 +23,9 @@ class FakeAXTreeDelegate : public AXTreeDelegate {
       : tree_data_changed_(false),
         root_changed_(false) {}
 
+  void OnNodeDataWillChange(AXTree* tree,
+                            const AXNodeData& old_node_data,
+                            const AXNodeData& new_node_data) override {}
   void OnTreeDataChanged(AXTree* tree) override {
     tree_data_changed_ = true;
   }
@@ -63,31 +69,31 @@ class FakeAXTreeDelegate : public AXTreeDelegate {
 
   bool tree_data_changed() const { return tree_data_changed_; }
   bool root_changed() const { return root_changed_; }
-  const std::vector<int32>& deleted_ids() { return deleted_ids_; }
-  const std::vector<int32>& subtree_deleted_ids() {
+  const std::vector<int32_t>& deleted_ids() { return deleted_ids_; }
+  const std::vector<int32_t>& subtree_deleted_ids() {
     return subtree_deleted_ids_;
   }
-  const std::vector<int32>& created_ids() { return created_ids_; }
-  const std::vector<int32>& node_creation_finished_ids() {
+  const std::vector<int32_t>& created_ids() { return created_ids_; }
+  const std::vector<int32_t>& node_creation_finished_ids() {
     return node_creation_finished_ids_;
   }
-  const std::vector<int32>& subtree_creation_finished_ids() {
+  const std::vector<int32_t>& subtree_creation_finished_ids() {
     return subtree_creation_finished_ids_;
   }
-  const std::vector<int32>& change_finished_ids() {
+  const std::vector<int32_t>& change_finished_ids() {
     return change_finished_ids_;
   }
 
  private:
   bool tree_data_changed_;
   bool root_changed_;
-  std::vector<int32> deleted_ids_;
-  std::vector<int32> subtree_deleted_ids_;
-  std::vector<int32> created_ids_;
-  std::vector<int32> changed_ids_;
-  std::vector<int32> node_creation_finished_ids_;
-  std::vector<int32> subtree_creation_finished_ids_;
-  std::vector<int32> change_finished_ids_;
+  std::vector<int32_t> deleted_ids_;
+  std::vector<int32_t> subtree_deleted_ids_;
+  std::vector<int32_t> created_ids_;
+  std::vector<int32_t> changed_ids_;
+  std::vector<int32_t> node_creation_finished_ids_;
+  std::vector<int32_t> subtree_creation_finished_ids_;
+  std::vector<int32_t> change_finished_ids_;
 };
 
 }  // namespace
@@ -96,7 +102,7 @@ TEST(AXTreeTest, SerializeSimpleAXTree) {
   AXNodeData root;
   root.id = 1;
   root.role = AX_ROLE_ROOT_WEB_AREA;
-  root.state = (1 << AX_STATE_FOCUSABLE) | (1 << AX_STATE_FOCUSED);
+  root.state = 1 << AX_STATE_FOCUSABLE;
   root.location = gfx::Rect(0, 0, 800, 600);
   root.child_ids.push_back(2);
   root.child_ids.push_back(3);
@@ -148,7 +154,7 @@ TEST(AXTreeTest, SerializeSimpleAXTree) {
 
   EXPECT_EQ(
       "AXTree title=Title\n"
-      "id=1 rootWebArea FOCUSABLE FOCUSED (0, 0)-(800, 600) child_ids=2,3\n"
+      "id=1 rootWebArea FOCUSABLE (0, 0)-(800, 600) child_ids=2,3\n"
       "  id=2 button (20, 20)-(200, 30)\n"
       "  id=3 checkBox (20, 50)-(200, 30)\n",
       dst_tree.ToString());

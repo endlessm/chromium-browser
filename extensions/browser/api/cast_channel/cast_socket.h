@@ -5,12 +5,14 @@
 #ifndef EXTENSIONS_BROWSER_API_CAST_CHANNEL_CAST_SOCKET_H_
 #define EXTENSIONS_BROWSER_API_CAST_CHANNEL_CAST_SOCKET_H_
 
+#include <stdint.h>
+
 #include <queue>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/cancelable_callback.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
@@ -33,6 +35,7 @@ class SSLClientSocket;
 class StreamSocket;
 class TCPClientSocket;
 class TransportSecurityState;
+class X509Certificate;
 }
 
 namespace extensions {
@@ -148,7 +151,7 @@ class CastSocketImpl : public CastSocket {
                  const base::TimeDelta& connect_timeout,
                  bool keep_alive,
                  const scoped_refptr<Logger>& logger,
-                 uint64 device_capabilities);
+                 uint64_t device_capabilities);
 
   // Ensures that the socket is closed.
   ~CastSocketImpl() override;
@@ -228,8 +231,10 @@ class CastSocketImpl : public CastSocket {
       scoped_ptr<net::StreamSocket> socket);
   // Extracts peer certificate from SSLClientSocket instance when the socket
   // is in cert error state.
-  // Returns whether certificate is successfully extracted.
-  virtual bool ExtractPeerCert(std::string* cert);
+  // Returns null if the certificate could not be extracted.
+  // TODO(kmarshall): Use MockSSLClientSocket for tests instead of overriding
+  // this function.
+  virtual scoped_refptr<net::X509Certificate> ExtractPeerCert();
   // Verifies whether the challenge reply received from the peer is valid:
   // 1. Signature in the reply is valid.
   // 2. Certificate is rooted to a trusted CA.
@@ -310,7 +315,7 @@ class CastSocketImpl : public CastSocket {
 
   // Certificate of the peer. This field may be empty if the peer
   // certificate is not yet fetched.
-  std::string peer_cert_;
+  scoped_refptr<net::X509Certificate> peer_cert_;
 
   // Reply received from the receiver to a challenge request.
   scoped_ptr<CastMessage> challenge_reply_;
@@ -332,7 +337,7 @@ class CastSocketImpl : public CastSocket {
   bool is_canceled_;
 
   // Capabilities declared by the cast device.
-  uint64 device_capabilities_;
+  uint64_t device_capabilities_;
 
   // Whether the channel is audio only as identified by the device
   // certificate during channel authentication.

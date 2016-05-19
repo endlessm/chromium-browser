@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/text/TextEncodingDetector.h"
 
 #include "wtf/text/TextEncoding.h"
@@ -113,4 +112,4 @@ bool detectTextEncoding(const char* data, size_t length,
     return false;
 }
 
-}
+} // namespace blink

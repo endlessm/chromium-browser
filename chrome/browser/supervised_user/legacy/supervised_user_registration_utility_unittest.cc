@@ -4,9 +4,11 @@
 
 #include "chrome/browser/supervised_user/legacy/supervised_user_registration_utility.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -17,6 +19,7 @@
 #include "chrome/browser/supervised_user/legacy/supervised_user_sync_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
@@ -133,7 +136,7 @@ class SupervisedUserRegistrationUtilityTest : public ::testing::Test {
   MockChangeProcessor* change_processor_;
 
   // A unique ID for creating "remote" Sync data.
-  int64 sync_data_id_;
+  int64_t sync_data_id_;
 
   // Whether OnSupervisedUserRegistered has been called.
   bool received_callback_;
@@ -203,11 +206,8 @@ SupervisedUserRegistrationUtilityTest::GetRegistrationUtility() {
 
   scoped_ptr<SupervisedUserRefreshTokenFetcher> token_fetcher(
       new MockSupervisedUserRefreshTokenFetcher);
-  registration_utility_.reset(
-      SupervisedUserRegistrationUtility::CreateImpl(prefs(),
-                                                    token_fetcher.Pass(),
-                                                    service(),
-                                                    shared_settings_service()));
+  registration_utility_.reset(SupervisedUserRegistrationUtility::CreateImpl(
+      prefs(), std::move(token_fetcher), service(), shared_settings_service()));
   return registration_utility_.get();
 }
 

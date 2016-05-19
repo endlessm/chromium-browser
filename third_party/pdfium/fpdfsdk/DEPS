@@ -3,4 +3,5 @@ include_rules = [
   '+javascript/IJavaScript.h',
   '+public',
   '+v8',
+  '+xfa/include',
 ]

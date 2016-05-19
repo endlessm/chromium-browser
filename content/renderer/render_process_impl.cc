@@ -12,7 +12,6 @@
 #include <mlang.h>
 #endif
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/sys_info.h"
@@ -61,13 +60,6 @@ RenderProcessImpl::RenderProcessImpl()
     std::string flags(
         command_line.GetSwitchValueASCII(switches::kJavaScriptFlags));
     v8::V8::SetFlagsFromString(flags.c_str(), static_cast<int>(flags.size()));
-  }
-
-  if (command_line.HasSwitch(
-          switches::kEnableExperimentalWebPlatformFeatures)) {
-    std::string extras_flag("--experimental_extras");
-    v8::V8::SetFlagsFromString(extras_flag.c_str(),
-                               static_cast<int>(extras_flag.size()));
   }
 
   SiteIsolationStatsGatherer::SetEnabled(

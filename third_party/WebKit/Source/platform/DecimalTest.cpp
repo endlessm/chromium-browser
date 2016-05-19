@@ -28,13 +28,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/Decimal.h"
 
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/MathExtras.h"
 #include "wtf/text/CString.h"
 #include <float.h>
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -582,6 +581,9 @@ TEST_F(DecimalTest, Floor)
     EXPECT_EQ(Decimal(-2), encode(19, -1, Negative).floor());
     EXPECT_EQ(Decimal(-2), encode(193332, -5, Negative).floor());
     EXPECT_EQ(Decimal(-13), encode(12002, -3, Negative).floor());
+
+    // crbug.com/572769
+    EXPECT_EQ(Decimal(-1), encode(992971299197409433, -18, Negative).floor());
 }
 
 TEST_F(DecimalTest, FloorBigExponent)

@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/sanitizers/sanitizers.gni")
+import("//build_overrides/v8.gni")
 import("../pdfium.gni")
 
 group("samples") {
@@ -20,17 +22,22 @@ config("pdfium_samples_config") {
   ]
   include_dirs = [ ".." ]
   if (pdf_enable_v8) {
-    defines += [ "PDF_ENABLE_V8" ]
+    defines += [ "PDF_ENABLE_V8", ]
+  }
+  if (pdf_enable_xfa) {
+    defines += [ "PDF_ENABLE_XFA", ]
   }
 }
 
 executable("pdfium_test") {
   testonly = true
   sources = [
-    "image_diff_png.cc",
     "pdfium_test.cc",
+    "image_diff_png.cc",
+    "image_diff_png.h",
   ]
   deps = [
+    "//build/config/sanitizers:deps",
     "//third_party/pdfium:pdfium",
     "//third_party/pdfium:test_support",
 
@@ -38,14 +45,17 @@ executable("pdfium_test") {
     # always link this binary against the bundled one for consistency
     # of results across platforms.
     "//third_party/pdfium/third_party:fx_freetype",
-    ":fx_lpng",
   ]
+  if (!pdf_enable_xfa) {
+    deps += [ "../third_party:fx_lpng" ]
+  }
   if (pdf_enable_v8) {
     deps += [ "//v8:v8_libplatform" ]
     include_dirs = [
       "//v8",
       "//v8/include",
     ]
+    configs += [ "//v8:external_startup_data" ]
   }
   configs += [ ":pdfium_samples_config" ]
 }
@@ -58,36 +68,15 @@ executable("pdfium_diff") {
     "image_diff_png.h",
   ]
   deps = [
+    "//build/config/sanitizers:deps",
     "//third_party/pdfium",
-    ":fx_lpng",
   ]
+  if (!pdf_enable_xfa) {
+    deps += [ "../third_party:fx_lpng" ]
+  }
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     ":pdfium_samples_config",
     "//build/config/compiler:no_chromium_code",
   ]
-}
-
-static_library("fx_lpng") {
-  testonly = true
-  sources = [
-    "fx_lpng/include/fx_png.h",
-    "fx_lpng/src/fx_png.c",
-    "fx_lpng/src/fx_pngerror.c",
-    "fx_lpng/src/fx_pngget.c",
-    "fx_lpng/src/fx_pngmem.c",
-    "fx_lpng/src/fx_pngpread.c",
-    "fx_lpng/src/fx_pngread.c",
-    "fx_lpng/src/fx_pngrio.c",
-    "fx_lpng/src/fx_pngrtran.c",
-    "fx_lpng/src/fx_pngrutil.c",
-    "fx_lpng/src/fx_pngset.c",
-    "fx_lpng/src/fx_pngtrans.c",
-    "fx_lpng/src/fx_pngwio.c",
-    "fx_lpng/src/fx_pngwrite.c",
-    "fx_lpng/src/fx_pngwtran.c",
-    "fx_lpng/src/fx_pngwutil.c",
-  ]
-  include_dirs = [ "../core/src/fxcodec/fx_zlib/include/" ]
-  configs += [ ":pdfium_samples_config" ]
 }

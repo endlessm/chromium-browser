@@ -10,6 +10,7 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/test_runner/test_preferences.h"
 #include "components/test_runner/web_test_delegate.h"
@@ -24,7 +25,6 @@ class SkBitmap;
 class SkCanvas;
 
 namespace blink {
-class WebBatteryStatus;
 class WebDeviceMotionData;
 class WebDeviceOrientationData;
 struct WebRect;
@@ -40,6 +40,8 @@ class LeakDetector;
 struct LeakDetectionResult;
 
 // This is the renderer side of the webkit test runner.
+// TODO(lukasza): Rename to LayoutTestRenderViewObserver for consistency with
+// LayoutTestRenderFrameObserver.
 class BlinkTestRunner : public RenderViewObserver,
                         public RenderViewObserverTracker<BlinkTestRunner>,
                         public test_runner::WebTestDelegate {
@@ -67,8 +69,8 @@ class BlinkTestRunner : public RenderViewObserver,
       const blink::WebDeviceOrientationData& data) override;
   void SetScreenOrientation(
       const blink::WebScreenOrientationType& orientation) override;
+  void DisableMockScreenOrientation() override;
   void ResetScreenOrientation() override;
-  void DidChangeBatteryStatus(const blink::WebBatteryStatus& status) override;
   void PrintMessage(const std::string& message) override;
   void PostTask(test_runner::WebTask* task) override;
   void PostDelayedTask(test_runner::WebTask* task, long long ms) override;
@@ -96,8 +98,11 @@ class BlinkTestRunner : public RenderViewObserver,
   void SetDatabaseQuota(int quota) override;
   void SimulateWebNotificationClick(const std::string& title,
                                     int action_index) override;
+  void SimulateWebNotificationClose(const std::string& title,
+                                    bool by_user) override;
   void SetDeviceScaleFactor(float factor) override;
   void SetDeviceColorProfile(const std::string& name) override;
+  void EnableUseZoomForDSF() override;
   void SetBluetoothMockDataSet(const std::string& name) override;
   void SetBluetoothManualChooser() override;
   void GetBluetoothManualChooserEvents(
@@ -133,7 +138,10 @@ class BlinkTestRunner : public RenderViewObserver,
                      const GURL& origin,
                      const GURL& embedding_origin) override;
   void ResetPermissions() override;
-  bool AddMediaStreamSourceAndTrack(blink::WebMediaStream* stream) override;
+  bool AddMediaStreamVideoSourceAndTrack(
+      blink::WebMediaStream* stream) override;
+  bool AddMediaStreamAudioSourceAndTrack(
+      blink::WebMediaStream* stream) override;
   cc::SharedBitmapManager* GetSharedBitmapManager() override;
   void DispatchBeforeInstallPromptEvent(
       int request_id,
@@ -146,6 +154,8 @@ class BlinkTestRunner : public RenderViewObserver,
     blink::WebLocalFrame* frame,
     const blink::WebPluginParams& params) override;
   void OnWebTestProxyBaseDestroy(test_runner::WebTestProxyBase* proxy) override;
+  blink::WebPoint ConvertDIPToNative(
+      const blink::WebPoint& point_in_dip) const override;
 
   void Reset();
 
@@ -170,7 +180,9 @@ class BlinkTestRunner : public RenderViewObserver,
   // After finishing the test, retrieves the audio, text, and pixel dumps from
   // the TestRunner library and sends them to the browser process.
   void CaptureDump();
-  void CaptureDumpPixels(const SkBitmap& snapshot);
+  void OnLayoutDumpCompleted(std::string completed_layout_dump);
+  void CaptureDumpContinued();
+  void OnPixelsDumpCompleted(const SkBitmap& snapshot);
   void CaptureDumpComplete();
 
   test_runner::WebTestProxyBase* proxy_;
@@ -193,7 +205,6 @@ class BlinkTestRunner : public RenderViewObserver,
   bool focus_on_next_commit_;
 
   scoped_ptr<LeakDetector> leak_detector_;
-  bool needs_leak_detector_;
 
   DISALLOW_COPY_AND_ASSIGN(BlinkTestRunner);
 };

@@ -35,11 +35,6 @@ class SkShader;
 class SkSurfaceProps;
 class SkTypeface;
 
-typedef const SkGlyph& (*SkDrawCacheProc)(SkGlyphCache*, const char**,
-                                           SkFixed x, SkFixed y);
-
-typedef const SkGlyph& (*SkMeasureCacheProc)(SkGlyphCache*, const char**);
-
 #define kBicubicFilterBitmap_Flag kHighQualityFilterBitmap_Flag
 
 /** \class SkPaint
@@ -52,9 +47,11 @@ class SK_API SkPaint {
 public:
     SkPaint();
     SkPaint(const SkPaint& paint);
+    SkPaint(SkPaint&& paint);
     ~SkPaint();
 
     SkPaint& operator=(const SkPaint&);
+    SkPaint& operator=(SkPaint&&);
 
     /** operator== may give false negatives: two paints that draw equivalently
         may return false.  It will never give false positives: two paints that
@@ -632,13 +629,6 @@ public:
     SkAnnotation* setAnnotation(SkAnnotation*);
 
     /**
-     *  Returns true if there is an annotation installed on this paint, and
-     *  the annotation specifics no-drawing.
-     */
-    SK_ATTR_DEPRECATED("use getAnnotation and check for non-null")
-    bool isNoDrawAnnotation() const { return this->getAnnotation() != NULL; }
-
-    /**
      *  Return the paint's SkDrawLooper (if any). Does not affect the looper's
      *  reference count.
      */
@@ -890,14 +880,66 @@ public:
                       SkRect bounds[] = NULL) const;
 
     /** Return the path (outline) for the specified text.
-        Note: just like SkCanvas::drawText, this will respect the Align setting
-              in the paint.
-    */
+     *  Note: just like SkCanvas::drawText, this will respect the Align setting
+     *        in the paint.
+     *
+     *  @param text         the text
+     *  @param length       number of bytes of text
+     *  @param x            The x-coordinate of the origin of the text.
+     *  @param y            The y-coordinate of the origin of the text.
+     *  @param path         The outline of the text.
+     */
     void getTextPath(const void* text, size_t length, SkScalar x, SkScalar y,
                      SkPath* path) const;
 
+    /** Return the path (outline) for the specified text.
+     *  Note: just like SkCanvas::drawText, this will respect the Align setting
+     *        in the paint.
+     *
+     *  @param text         the text
+     *  @param length       number of bytes of text
+     *  @param pos          array of positions, used to position each character
+     *  @param path         The outline of the text.
+     */
     void getPosTextPath(const void* text, size_t length,
                         const SkPoint pos[], SkPath* path) const;
+
+    /** Return the number of intervals that intersect the intercept along the axis of the advance.
+     *  The return count is zero or a multiple of two, and is at most the number of glyphs * 2 in
+     *  the string. The caller may pass nullptr for intervals to determine the size of the interval
+     *  array, or may conservatively pre-allocate an array with length * 2 entries. The computed
+     *  intervals are cached by glyph to improve performance for multiple calls.
+     *  This permits constructing an underline that skips the descenders. 
+     *
+     *  @param text         the text
+     *  @param length       number of bytes of text
+     *  @param x            The x-coordinate of the origin of the text.
+     *  @param y            The y-coordinate of the origin of the text.
+     *  @param bounds       The lower and upper line parallel to the advance.
+     *  @param array        If not null, the found intersections.
+     *
+     *  @return             The number of intersections, which may be zero.
+     */
+    int getTextIntercepts(const void* text, size_t length, SkScalar x, SkScalar y,
+                          const SkScalar bounds[2], SkScalar* intervals) const;
+
+    /** Return the number of intervals that intersect the intercept along the axis of the advance.
+     *  The return count is zero or a multiple of two, and is at most the number of glyphs * 2 in
+     *  string. The caller may pass nullptr for intervals to determine the size of the interval
+     *  array, or may conservatively pre-allocate an array with length * 2 entries. The computed
+     *  intervals are cached by glyph to improve performance for multiple calls.
+     *  This permits constructing an underline that skips the descenders. 
+     *
+     *  @param text         the text
+     *  @param length       number of bytes of text
+     *  @param pos          array of positions, used to position each character
+     *  @param bounds       The lower and upper line parallel to the advance.
+     *  @param array        If not null, the glyph bounds contained by the advance parallel lines.
+     *
+     *  @return             The number of intersections, which may be zero.
+     */
+    int getPosTextIntercepts(const void* text, size_t length, const SkPoint pos[],
+                             const SkScalar bounds[2], SkScalar* intervals) const;
 
     /**
      *  Return a rectangle that represents the union of the bounds of all
@@ -983,6 +1025,8 @@ public:
         return SetTextMatrix(matrix, fTextSize, fTextScaleX, fTextSkewX);
     }
 
+    typedef const SkGlyph& (*GlyphCacheProc)(SkGlyphCache*, const char**);
+
     SK_TO_STRING_NONVIRT()
 
 private:
@@ -1019,25 +1063,29 @@ private:
         uint32_t fBitfieldsUInt;
     };
 
-    SkDrawCacheProc    getDrawCacheProc() const;
-    SkMeasureCacheProc getMeasureCacheProc(bool needFullMetrics) const;
+    GlyphCacheProc getGlyphCacheProc(bool needFullMetrics) const;
 
     SkScalar measure_text(SkGlyphCache*, const char* text, size_t length,
                           int* count, SkRect* bounds) const;
+
+    enum class FakeGamma {
+        Off = 0, On
+    };
 
     /*
      * Allocs an SkDescriptor on the heap and return it to the caller as a refcnted
      * SkData.  Caller is responsible for managing the lifetime of this object.
      */
     void getScalerContextDescriptor(SkAutoDescriptor*, const SkSurfaceProps& surfaceProps,
-                                    const SkMatrix*, bool ignoreGamma) const;
+                                    FakeGamma fakeGamma, const SkMatrix*) const;
 
-    SkGlyphCache* detachCache(const SkSurfaceProps* surfaceProps, const SkMatrix*,
-                              bool ignoreGamma) const;
+    SkGlyphCache* detachCache(const SkSurfaceProps* surfaceProps, FakeGamma fakeGamma,
+                              const SkMatrix*) const;
 
-    void descriptorProc(const SkSurfaceProps* surfaceProps, const SkMatrix* deviceMatrix,
+    void descriptorProc(const SkSurfaceProps* surfaceProps, FakeGamma fakeGamma,
+                        const SkMatrix* deviceMatrix,
                         void (*proc)(SkTypeface*, const SkDescriptor*, void*),
-                        void* context, bool ignoreGamma) const;
+                        void* context) const;
 
     /*
      * The luminance color is used to determine which Gamma Canonical color to map to.  This is
@@ -1089,15 +1137,14 @@ private:
     friend class SkCanvas;
     friend class SkDraw;
     friend class SkPDFDevice;
-    friend class GrBitmapTextContext;
+    friend class GrAtlasTextBlob;
     friend class GrAtlasTextContext;
-    friend class GrDistanceFieldTextContext;
     friend class GrStencilAndCoverTextContext;
     friend class GrPathRendering;
-    friend class GrTextContext;
+    friend class GrTextUtils;
     friend class GrGLPathRendering;
     friend class SkScalerContext;
-    friend class SkTextToPathIter;
+    friend class SkTextBaseIter;
     friend class SkCanonicalizePaint;
 };
 

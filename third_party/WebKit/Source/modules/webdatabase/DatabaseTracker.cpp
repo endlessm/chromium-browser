@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/webdatabase/DatabaseTracker.h"
 
 #include "core/dom/ExecutionContext.h"
@@ -60,7 +59,7 @@ static void databaseClosed(Database* database)
 
 DatabaseTracker& DatabaseTracker::tracker()
 {
-    AtomicallyInitializedStaticReference(DatabaseTracker, tracker, new DatabaseTracker);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(DatabaseTracker, tracker, new DatabaseTracker);
     return tracker;
 }
 

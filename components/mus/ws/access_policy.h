@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_MUS_WS_ACCESS_POLICY_H_
 #define COMPONENTS_MUS_WS_ACCESS_POLICY_H_
 
+#include <stdint.h>
+
 #include "components/mus/public/interfaces/mus_constants.mojom.h"
 #include "components/mus/public/interfaces/window_tree.mojom.h"
 #include "components/mus/ws/ids.h"
@@ -48,8 +50,12 @@ class AccessPolicy {
   virtual bool CanSetWindowBounds(const ServerWindow* window) const = 0;
   virtual bool CanSetWindowProperties(const ServerWindow* window) const = 0;
   virtual bool CanSetWindowTextInputState(const ServerWindow* window) const = 0;
+  virtual bool CanSetCapture(const ServerWindow* window) const = 0;
   virtual bool CanSetFocus(const ServerWindow* window) const = 0;
   virtual bool CanSetClientArea(const ServerWindow* window) const = 0;
+  // Used for all cursor properties; which cursor should be displayed,
+  // visibility, locking, etc.
+  virtual bool CanSetCursorProperties(const ServerWindow* window) const = 0;
 
   // Returns whether the connection should notify on a hierarchy change.
   // |new_parent| and |old_parent| are initially set to the new and old parents
@@ -58,6 +64,7 @@ class AccessPolicy {
       const ServerWindow* window,
       const ServerWindow** new_parent,
       const ServerWindow** old_parent) const = 0;
+  virtual bool CanSetWindowManager() const = 0;
 
   // Returns the window to supply to the client when focus changes to |focused|.
   virtual const ServerWindow* GetWindowForFocusChange(

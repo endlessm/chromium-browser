@@ -8,6 +8,8 @@
 #include <queue>
 #include <string>
 
+#include "base/macros.h"
+#include "net/quic/crypto/proof_verifier_chromium.h"
 #include "net/quic/quic_crypto_client_stream.h"
 #include "net/quic/quic_crypto_client_stream_factory.h"
 #include "net/quic/test_tools/mock_crypto_client_stream.h"
@@ -16,7 +18,7 @@ namespace net {
 
 class QuicServerId;
 
-class MockCryptoClientStreamFactory : public QuicCryptoClientStreamFactory  {
+class MockCryptoClientStreamFactory : public QuicCryptoClientStreamFactory {
  public:
   MockCryptoClientStreamFactory();
   ~MockCryptoClientStreamFactory() override;
@@ -24,6 +26,7 @@ class MockCryptoClientStreamFactory : public QuicCryptoClientStreamFactory  {
   QuicCryptoClientStream* CreateQuicCryptoClientStream(
       const QuicServerId& server_id,
       QuicChromiumClientSession* session,
+      scoped_ptr<ProofVerifyContext> proof_verify_context,
       QuicCryptoClientConfig* crypto_config) override;
 
   void set_handshake_mode(
@@ -32,18 +35,17 @@ class MockCryptoClientStreamFactory : public QuicCryptoClientStreamFactory  {
   }
 
   // The caller keeps ownership of |proof_verify_details|.
-  void AddProofVerifyDetails(const ProofVerifyDetails* proof_verify_details) {
+  void AddProofVerifyDetails(
+      const ProofVerifyDetailsChromium* proof_verify_details) {
     proof_verify_details_queue_.push(proof_verify_details);
   }
 
-  MockCryptoClientStream* last_stream() const {
-    return last_stream_;
-  }
+  MockCryptoClientStream* last_stream() const { return last_stream_; }
 
  private:
   MockCryptoClientStream::HandshakeMode handshake_mode_;
   MockCryptoClientStream* last_stream_;
-  std::queue<const ProofVerifyDetails*> proof_verify_details_queue_;
+  std::queue<const ProofVerifyDetailsChromium*> proof_verify_details_queue_;
 
   DISALLOW_COPY_AND_ASSIGN(MockCryptoClientStreamFactory);
 };

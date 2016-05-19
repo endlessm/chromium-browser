@@ -4,6 +4,8 @@
 
 #include "base/test/gtest_util.h"
 
+#include <stddef.h>
+
 #include "base/files/file_path.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/values.h"
@@ -13,6 +15,8 @@ namespace base {
 
 TestIdentifier::TestIdentifier() {
 }
+
+TestIdentifier::TestIdentifier(const TestIdentifier& other) = default;
 
 std::string FormatFullTestName(const std::string& test_case_name,
                                const std::string& test_name) {

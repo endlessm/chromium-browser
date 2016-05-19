@@ -4,7 +4,10 @@
 
 #include "content/renderer/text_input_client_observer.h"
 
+#include <stddef.h>
+
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "content/common/text_input_client_messages.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
 #include "content/renderer/render_view_impl.h"
@@ -62,7 +65,8 @@ void TextInputClientObserver::OnStringAtPoint(gfx::Point point) {
 
 void TextInputClientObserver::OnCharacterIndexForPoint(gfx::Point point) {
   blink::WebPoint web_point(point);
-  size_t index = webview()->focusedFrame()->characterIndexForPoint(web_point);
+  uint32_t index = static_cast<uint32_t>(
+      webview()->focusedFrame()->characterIndexForPoint(web_point));
   Send(new TextInputClientReplyMsg_GotCharacterIndexForPoint(routing_id(),
       index));
 }

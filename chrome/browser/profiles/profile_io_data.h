@@ -5,26 +5,30 @@
 #ifndef CHROME_BROWSER_PROFILES_PROFILE_IO_DATA_H_
 #define CHROME_BROWSER_PROFILES_PROFILE_IO_DATA_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_member.h"
 #include "base/synchronization/lock.h"
+#include "build/build_config.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/devtools/devtools_network_controller_handle.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/storage_partition_descriptor.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/prefs/pref_member.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/resource_context.h"
+#include "net/cert/ct_verifier.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_session.h"
@@ -328,8 +332,6 @@ class ProfileIOData {
 
   explicit ProfileIOData(Profile::ProfileType profile_type);
 
-  static std::string GetSSLSessionCacheShard();
-
   void InitializeOnUIThread(Profile* profile);
   void ApplyProfileParamsToContext(net::URLRequestContext* context) const;
 
@@ -410,7 +412,7 @@ class ProfileIOData {
     net::URLRequestContext* GetRequestContext() override;
     scoped_ptr<net::ClientCertStore> CreateClientCertStore() override;
     void CreateKeygenHandler(
-        uint32 key_size_in_bits,
+        uint32_t key_size_in_bits,
         const std::string& challenge_string,
         const GURL& url,
         const base::Callback<void(scoped_ptr<net::KeygenHandler>)>& callback)
@@ -523,14 +525,7 @@ class ProfileIOData {
   mutable BooleanPrefMember quick_check_enabled_;
   mutable IntegerPrefMember incognito_availibility_pref_;
 
-  // The state of metrics reporting in the browser that this profile runs on.
-  // Unfortunately, since ChromeOS has a separate representation of this state,
-  // we need to make one available based on the platform.
-#if defined(OS_CHROMEOS)
-  bool enable_metrics_;
-#else
   BooleanPrefMember enable_metrics_;
-#endif
 
 #if defined(ENABLE_CONFIGURATION_POLICY)
   // Pointed to by NetworkDelegate.
@@ -549,6 +544,7 @@ class ProfileIOData {
 
   mutable scoped_ptr<net::ProxyService> proxy_service_;
   mutable scoped_ptr<net::TransportSecurityState> transport_security_state_;
+  mutable scoped_ptr<net::CTVerifier> cert_transparency_verifier_;
   mutable scoped_ptr<net::HttpServerProperties>
       http_server_properties_;
 #if defined(OS_CHROMEOS)

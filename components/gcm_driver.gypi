@@ -81,8 +81,12 @@
         'gcm_driver/gcm_driver_desktop.h',
         'gcm_driver/gcm_internals_constants.cc',
         'gcm_driver/gcm_internals_constants.h',
+        'gcm_driver/gcm_internals_helper.cc',
+        'gcm_driver/gcm_internals_helper.h',
         'gcm_driver/gcm_profile_service.cc',
         'gcm_driver/gcm_profile_service.h',
+        'gcm_driver/gcm_stats_recorder_android.cc',
+        'gcm_driver/gcm_stats_recorder_android.h',
         'gcm_driver/gcm_stats_recorder_impl.cc',
         'gcm_driver/gcm_stats_recorder_impl.h',
         'gcm_driver/registration_info.cc',
@@ -233,11 +237,16 @@
         'gcm_driver/crypto/gcm_message_cryptographer.h',
         'gcm_driver/crypto/gcm_message_cryptographer_nss.cc',
         'gcm_driver/crypto/gcm_message_cryptographer_openssl.cc',
+        'gcm_driver/crypto/p256_key_util.cc',
+        'gcm_driver/crypto/p256_key_util.h',
+        'gcm_driver/crypto/p256_key_util_nss.cc',
+        'gcm_driver/crypto/p256_key_util_openssl.cc',
       ],
       'conditions': [
         ['use_openssl==1', {
           'sources!': [
             'gcm_driver/crypto/gcm_message_cryptographer_nss.cc',
+            'gcm_driver/crypto/p256_key_util_nss.cc',
           ],
           'dependencies': [
             '../third_party/boringssl/boringssl.gyp:boringssl',
@@ -245,6 +254,7 @@
         }, {
           'sources!': [
             'gcm_driver/crypto/gcm_message_cryptographer_openssl.cc',
+            'gcm_driver/crypto/p256_key_util_openssl.cc',
           ],
         }],
       ],
@@ -261,6 +271,25 @@
         'proto_out_dir': 'components/gcm_driver/crypto/proto',
       },
       'includes': [ '../build/protoc.gypi' ],
+    },
+    {
+      # GN version: //components/gcm_driver/crypto:test_support
+      'target_name': 'gcm_driver_crypto_test_support',
+      'type': 'static_library',
+      'dependencies': [
+        'gcm_driver_common',
+        'gcm_driver_crypto',
+        '../base/base.gyp:base',
+        '../crypto/crypto.gyp:crypto',
+      ],
+      'include_dirs': [
+        '..',
+      ],
+      'sources': [
+        # Note: file list duplicated in GN build.
+        'gcm_driver/crypto/gcm_crypto_test_helpers.cc',
+        'gcm_driver/crypto/gcm_crypto_test_helpers.h',
+      ],
     },
   ],
   'conditions': [

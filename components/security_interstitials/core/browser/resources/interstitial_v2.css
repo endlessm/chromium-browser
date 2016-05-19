@@ -24,7 +24,7 @@ body.safe-browsing {
 
 button {
   -webkit-user-select: none;
-  background: rgb(76, 142, 250);
+  background: rgb(66, 133, 244);
   border: 0;
   border-radius: 2px;
   box-sizing: border-box;
@@ -80,11 +80,12 @@ button:hover {
   float: none;
   margin: 0;
   padding: 10px 0;
-  text-decoration: underline;
+  text-transform: uppercase;
 }
 
 #details-button:hover {
   box-shadow: inherit;
+  text-decoration: underline;
 }
 
 .error-code {

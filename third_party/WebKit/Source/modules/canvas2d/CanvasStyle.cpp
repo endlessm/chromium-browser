@@ -26,7 +26,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/canvas2d/CanvasStyle.h"
 
 #include "core/CSSPropertyNames.h"
@@ -141,4 +140,4 @@ DEFINE_TRACE(CanvasStyle)
     visitor->trace(m_pattern);
 }
 
-}
+} // namespace blink

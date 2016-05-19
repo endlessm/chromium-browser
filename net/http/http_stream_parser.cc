@@ -4,6 +4,8 @@
 
 #include "net/http/http_stream_parser.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
@@ -22,6 +24,7 @@
 #include "net/http/http_util.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/ssl_client_socket.h"
+#include "net/ssl/token_binding.h"
 
 namespace net {
 
@@ -44,7 +47,7 @@ void RecordHeaderParserEvent(HttpHeaderParserEvent header_event) {
                             NUM_HEADER_EVENTS);
 }
 
-const uint64 kMaxMergedHeaderAndBodySize = 1400;
+const uint64_t kMaxMergedHeaderAndBodySize = 1400;
 const size_t kRequestBodyBufferSize = 1 << 14;  // 16KB
 
 std::string GetResponseHeaderLines(const HttpResponseHeaders& headers) {
@@ -64,7 +67,7 @@ std::string GetResponseHeaderLines(const HttpResponseHeaders& headers) {
 // values.
 bool HeadersContainMultipleCopiesOfField(const HttpResponseHeaders& headers,
                                          const std::string& field_name) {
-  void* it = NULL;
+  size_t it = 0;
   std::string field_value;
   if (!headers.EnumerateHeader(&it, field_name, &field_value))
     return false;
@@ -79,7 +82,7 @@ bool HeadersContainMultipleCopiesOfField(const HttpResponseHeaders& headers,
 }
 
 scoped_ptr<base::Value> NetLogSendRequestBodyCallback(
-    uint64 length,
+    uint64_t length,
     bool is_chunked,
     bool did_merge,
     NetLogCaptureMode /* capture_mode */) {
@@ -87,7 +90,7 @@ scoped_ptr<base::Value> NetLogSendRequestBodyCallback(
   dict->SetInteger("length", static_cast<int>(length));
   dict->SetBoolean("is_chunked", is_chunked);
   dict->SetBoolean("did_merge", did_merge);
-  return dict.Pass();
+  return std::move(dict);
 }
 
 // Returns true if |error_code| is an error for which we give the server a
@@ -287,7 +290,7 @@ int HttpStreamParser::SendRequest(const std::string& request_line,
     memcpy(request_headers_->data(), request.data(), request_headers_length_);
     request_headers_->DidConsume(request_headers_length_);
 
-    uint64 todo = request_->upload_data_stream->size();
+    uint64_t todo = request_->upload_data_stream->size();
     while (todo) {
       int consumed = request_->upload_data_stream->Read(
           request_headers_.get(), static_cast<int>(todo), CompletionCallback());
@@ -735,7 +738,7 @@ int HttpStreamParser::DoReadBodyComplete(int result) {
     if (chunked_decoder_.get()) {
       save_amount = chunked_decoder_->bytes_after_eof();
     } else if (response_body_length_ >= 0) {
-      int64 extra_data_read = response_body_read_ - response_body_length_;
+      int64_t extra_data_read = response_body_read_ - response_body_length_;
       if (extra_data_read > 0) {
         save_amount = static_cast<int>(extra_data_read);
         if (result > 0)
@@ -1098,6 +1101,17 @@ void HttpStreamParser::GetSSLCertRequestInfo(
   }
 }
 
+Error HttpStreamParser::GetSignedEKMForTokenBinding(crypto::ECPrivateKey* key,
+                                                    std::vector<uint8_t>* out) {
+  if (!request_->url.SchemeIsCryptographic() || !connection_->socket()) {
+    NOTREACHED();
+    return ERR_FAILED;
+  }
+  SSLClientSocket* ssl_socket =
+      static_cast<SSLClientSocket*>(connection_->socket());
+  return ssl_socket->GetSignedEKMForTokenBinding(key, out);
+}
+
 int HttpStreamParser::EncodeChunk(const base::StringPiece& payload,
                                   char* output,
                                   size_t output_size) {
@@ -1130,7 +1144,7 @@ bool HttpStreamParser::ShouldMergeRequestHeadersAndBody(
       // IsInMemory() ensures that the request body is not chunked.
       request_body->IsInMemory() &&
       request_body->size() > 0) {
-    uint64 merged_size = request_headers.size() + request_body->size();
+    uint64_t merged_size = request_headers.size() + request_body->size();
     if (merged_size <= kMaxMergedHeaderAndBodySize)
       return true;
   }

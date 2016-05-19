@@ -19,14 +19,14 @@ source_set("browser") {
 
   deps = [
     "//base",
-    "//base:prefs",
     "//base/third_party/dynamic_annotations",
     "//components/bookmarks/managed",
     "//components/keyed_service/core",
+    "//components/policy/core/common",
     "//components/pref_registry",
+    "//components/prefs",
     "//components/strings",
     "//components/url_matcher",
-    "//net",
     "//ui/base",
   ]
 
@@ -73,6 +73,8 @@ source_set("browser") {
       "//components/policy",
       "//components/policy/proto",
       "//components/proxy_config",
+      "//google_apis",
+      "//net",
       "//third_party/icu",
     ]
   }
@@ -93,8 +95,15 @@ if (enable_configuration_policy) {
       "url_blacklist_policy_handler_unittest.cc",
     ]
     deps = [
+      "//base",
+      "//components/autofill/core/common",
+      "//components/policy",
       "//components/policy:policy_component_test_support",
+      "//components/prefs:test_support",
+      "//components/proxy_config",
       "//components/url_formatter",
+      "//google_apis",
+      "//net",
       "//testing/gmock",
       "//testing/gtest",
     ]

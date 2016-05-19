@@ -4,6 +4,7 @@
 
 #include "chrome/browser/geolocation/geolocation_permission_context_android.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -11,6 +12,7 @@
 #include "chrome/browser/android/location_settings_impl.h"
 #include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/browser/permissions/permission_update_infobar_delegate_android.h"
+#include "components/infobars/core/infobar.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "url/gurl.h"
@@ -19,6 +21,7 @@ GeolocationPermissionContextAndroid::
     GeolocationPermissionContextAndroid(Profile* profile)
     : GeolocationPermissionContext(profile),
       location_settings_(new LocationSettingsImpl()),
+      permission_update_infobar_(nullptr),
       weak_factory_(this) {
 }
 
@@ -29,7 +32,6 @@ void GeolocationPermissionContextAndroid::RequestPermission(
     content::WebContents* web_contents,
     const PermissionRequestID& id,
     const GURL& requesting_frame_origin,
-    bool user_gesture,
     const BrowserPermissionCallback& callback) {
   if (!location_settings_->CanSitesRequestLocationPermission(web_contents)) {
     PermissionDecided(id, requesting_frame_origin,
@@ -47,18 +49,30 @@ void GeolocationPermissionContextAndroid::RequestPermission(
   if (content_setting == CONTENT_SETTING_ALLOW &&
       PermissionUpdateInfoBarDelegate::ShouldShowPermissionInfobar(
           web_contents, content_settings_types)) {
-    PermissionUpdateInfoBarDelegate::Create(
+    permission_update_infobar_ = PermissionUpdateInfoBarDelegate::Create(
         web_contents, content_settings_types,
         base::Bind(
             &GeolocationPermissionContextAndroid
                 ::HandleUpdateAndroidPermissions,
             weak_factory_.GetWeakPtr(), id, requesting_frame_origin,
             embedding_origin, callback));
+
     return;
   }
 
   GeolocationPermissionContext::RequestPermission(
-      web_contents, id, requesting_frame_origin, user_gesture, callback);
+      web_contents, id, requesting_frame_origin, callback);
+}
+
+void GeolocationPermissionContextAndroid::CancelPermissionRequest(
+    content::WebContents* web_contents,
+    const PermissionRequestID& id) {
+  if (permission_update_infobar_) {
+    permission_update_infobar_->RemoveSelf();
+    permission_update_infobar_ = nullptr;
+  }
+
+  GeolocationPermissionContext::CancelPermissionRequest(web_contents, id);
 }
 
 void GeolocationPermissionContextAndroid::HandleUpdateAndroidPermissions(
@@ -67,6 +81,8 @@ void GeolocationPermissionContextAndroid::HandleUpdateAndroidPermissions(
     const GURL& embedding_origin,
     const BrowserPermissionCallback& callback,
     bool permissions_updated) {
+  permission_update_infobar_ = nullptr;
+
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   ContentSetting new_setting = permissions_updated
       ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
@@ -77,5 +93,5 @@ void GeolocationPermissionContextAndroid::HandleUpdateAndroidPermissions(
 
 void GeolocationPermissionContextAndroid::SetLocationSettingsForTesting(
     scoped_ptr<LocationSettings> settings) {
-  location_settings_ = settings.Pass();
+  location_settings_ = std::move(settings);
 }

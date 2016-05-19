@@ -4,6 +4,8 @@
 
 #include "net/socket/tcp_client_socket.h"
 
+#include <utility>
+
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
@@ -12,7 +14,6 @@
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 
 namespace net {
 
@@ -28,7 +29,7 @@ TCPClientSocket::TCPClientSocket(const AddressList& addresses,
 
 TCPClientSocket::TCPClientSocket(scoped_ptr<TCPSocket> connected_socket,
                                  const IPEndPoint& peer_address)
-    : socket_(connected_socket.Pass()),
+    : socket_(std::move(connected_socket)),
       addresses_(AddressList(peer_address)),
       current_address_index_(0),
       next_connect_state_(CONNECT_STATE_NONE),
@@ -292,11 +293,11 @@ int TCPClientSocket::Write(IOBuffer* buf,
   return result;
 }
 
-int TCPClientSocket::SetReceiveBufferSize(int32 size) {
+int TCPClientSocket::SetReceiveBufferSize(int32_t size) {
   return socket_->SetReceiveBufferSize(size);
 }
 
-int TCPClientSocket::SetSendBufferSize(int32 size) {
+int TCPClientSocket::SetSendBufferSize(int32_t size) {
     return socket_->SetSendBufferSize(size);
 }
 

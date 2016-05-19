@@ -5,14 +5,16 @@
 #ifndef BASE_LOGGING_H_
 #define BASE_LOGGING_H_
 
+#include <stddef.h>
+
 #include <cassert>
-#include <string>
 #include <cstring>
 #include <sstream>
+#include <string>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 #include "base/debug/debugger.h"
+#include "base/macros.h"
 #include "build/build_config.h"
 
 //
@@ -238,6 +240,9 @@ BASE_EXPORT void SetMinLogLevel(int level);
 // Gets the current log level.
 BASE_EXPORT int GetMinLogLevel();
 
+// Used by LOG_IS_ON to lazy-evaluate stream arguments.
+BASE_EXPORT bool ShouldCreateLogMessage(int severity);
+
 // Gets the VLOG default verbosity level.
 BASE_EXPORT int GetVlogVerbosity();
 
@@ -340,7 +345,7 @@ const LogSeverity LOG_0 = LOG_ERROR;
 // LOG_IS_ON(DFATAL) always holds in debug mode. In particular, CHECK()s will
 // always fire if they fail.
 #define LOG_IS_ON(severity) \
-  ((::logging::LOG_ ## severity) >= ::logging::GetMinLogLevel())
+  (::logging::ShouldCreateLogMessage(::logging::LOG_##severity))
 
 // We can't do any caching tricks with VLOG_IS_ON() like the
 // google-glog version since it requires GCC extensions.  This means
@@ -367,9 +372,6 @@ const LogSeverity LOG_0 = LOG_ERROR;
 #define LOG(severity) LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity))
 #define LOG_IF(severity, condition) \
   LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity) && (condition))
-
-#define SYSLOG(severity) LOG(severity)
-#define SYSLOG_IF(severity, condition) LOG_IF(severity, condition)
 
 // The VLOG macros log with negative verbosities.
 #define VLOG_STREAM(verbose_level) \
@@ -403,8 +405,6 @@ const LogSeverity LOG_0 = LOG_ERROR;
 
 #define LOG_ASSERT(condition)  \
   LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
-#define SYSLOG_ASSERT(condition) \
-  SYSLOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
 
 #if defined(OS_WIN)
 #define PLOG_STREAM(severity) \
@@ -802,12 +802,6 @@ class BASE_EXPORT LogMessage {
   DISALLOW_COPY_AND_ASSIGN(LogMessage);
 };
 
-// A non-macro interface to the log facility; (useful
-// when the logging level is not a compile-time constant).
-inline void LogAtLevel(int log_level, const std::string& msg) {
-  LogMessage(__FILE__, __LINE__, log_level).stream() << msg;
-}
-
 // This class is used to explicitly ignore values in the conditional
 // logging macros.  This avoids compiler warnings like "value computed
 // is not used" and "statement has no effect".
@@ -952,9 +946,9 @@ inline std::ostream& operator<<(std::ostream& out, const std::wstring& wstr) {
 #define NOTIMPLEMENTED() EAT_STREAM_PARAMETERS
 #elif NOTIMPLEMENTED_POLICY == 1
 // TODO, figure out how to generate a warning
-#define NOTIMPLEMENTED() COMPILE_ASSERT(false, NOT_IMPLEMENTED)
+#define NOTIMPLEMENTED() static_assert(false, "NOT_IMPLEMENTED")
 #elif NOTIMPLEMENTED_POLICY == 2
-#define NOTIMPLEMENTED() COMPILE_ASSERT(false, NOT_IMPLEMENTED)
+#define NOTIMPLEMENTED() static_assert(false, "NOT_IMPLEMENTED")
 #elif NOTIMPLEMENTED_POLICY == 3
 #define NOTIMPLEMENTED() NOTREACHED()
 #elif NOTIMPLEMENTED_POLICY == 4

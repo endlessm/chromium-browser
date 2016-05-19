@@ -2,10 +2,11 @@ include_rules = [
   "+cc",
   "-cc/blink",
   "+components/font_service/public",
+  "+components/bitmap_uploader",
   "+components/gpu",
   "+components/mus",
   "+components/resource_provider",
-  "+mojo/application/public",
+  "+mojo/shell/public",
   "+mojo/cc",
   "+mojo/converters",
   "+mojo/public",
@@ -21,3 +22,9 @@ include_rules = [
   "+ui/platform_window",
   "+ui/wm",
 ]
+
+specific_include_rules = {
+  "platform_test_helper_mus.cc": [
+    "+mojo/shell/background",
+  ],
+}

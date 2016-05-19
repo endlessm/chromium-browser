@@ -4,6 +4,8 @@
 
 #include "device/serial/serial_connection.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "device/serial/buffer.h"
 #include "device/serial/data_sink_receiver.h"
@@ -18,14 +20,14 @@ SerialConnection::SerialConnection(
     mojo::InterfaceRequest<serial::DataSource> source,
     mojo::InterfacePtr<serial::DataSourceClient> source_client,
     mojo::InterfaceRequest<serial::Connection> request)
-    : io_handler_(io_handler), binding_(this, request.Pass()) {
+    : io_handler_(io_handler), binding_(this, std::move(request)) {
   receiver_ = new DataSinkReceiver(
-      sink.Pass(),
+      std::move(sink),
       base::Bind(&SerialConnection::OnSendPipeReady, base::Unretained(this)),
       base::Bind(&SerialConnection::OnSendCancelled, base::Unretained(this)),
       base::Bind(base::DoNothing));
   sender_ = new DataSourceSender(
-      source.Pass(), source_client.Pass(),
+      std::move(source), std::move(source_client),
       base::Bind(&SerialConnection::OnReceivePipeReady, base::Unretained(this)),
       base::Bind(base::DoNothing));
 }
@@ -33,8 +35,8 @@ SerialConnection::SerialConnection(
 SerialConnection::~SerialConnection() {
   receiver_->ShutDown();
   sender_->ShutDown();
-  io_handler_->CancelRead(serial::RECEIVE_ERROR_DISCONNECTED);
-  io_handler_->CancelWrite(serial::SEND_ERROR_DISCONNECTED);
+  io_handler_->CancelRead(serial::ReceiveError::DISCONNECTED);
+  io_handler_->CancelWrite(serial::SendError::DISCONNECTED);
 }
 
 void SerialConnection::GetInfo(
@@ -45,7 +47,7 @@ void SerialConnection::GetInfo(
 void SerialConnection::SetOptions(serial::ConnectionOptionsPtr options,
                                   const mojo::Callback<void(bool)>& callback) {
   callback.Run(io_handler_->ConfigurePort(*options));
-  io_handler_->CancelRead(device::serial::RECEIVE_ERROR_NONE);
+  io_handler_->CancelRead(device::serial::ReceiveError::NONE);
 }
 
 void SerialConnection::SetControlSignals(
@@ -68,11 +70,11 @@ void SerialConnection::OnSendCancelled(int32_t error) {
 }
 
 void SerialConnection::OnSendPipeReady(scoped_ptr<ReadOnlyBuffer> buffer) {
-  io_handler_->Write(buffer.Pass());
+  io_handler_->Write(std::move(buffer));
 }
 
 void SerialConnection::OnReceivePipeReady(scoped_ptr<WritableBuffer> buffer) {
-  io_handler_->Read(buffer.Pass());
+  io_handler_->Read(std::move(buffer));
 }
 
 }  // namespace device

@@ -4,8 +4,10 @@
 
 #include "net/quic/quic_headers_stream.h"
 
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
+#include "net/quic/quic_bug_tracker.h"
 #include "net/quic/quic_flags.h"
 #include "net/quic/quic_headers_stream.h"
 #include "net/quic/quic_spdy_session.h"
@@ -17,12 +19,6 @@ using net::SpdyFrameType;
 using std::string;
 
 namespace net {
-
-namespace {
-
-const QuicStreamId kInvalidStreamId = 0;
-
-}  // namespace
 
 // A SpdyFramer visitor which passed SYN_STREAM and SYN_REPLY frames to
 // the QuicSpdyStream, and closes the connection if any unexpected frames
@@ -100,7 +96,7 @@ class QuicHeadersStream::SpdyFramerVisitor
     CloseConnection("SPDY RST_STREAM frame received.");
   }
 
-  void OnSetting(SpdySettingsIds id, uint8 flags, uint32 value) override {
+  void OnSetting(SpdySettingsIds id, uint8_t flags, uint32_t value) override {
     CloseConnection("SPDY SETTINGS frame received.");
   }
 
@@ -131,11 +127,8 @@ class QuicHeadersStream::SpdyFramerVisitor
     if (!stream_->IsConnected()) {
       return;
     }
-    if (has_priority) {
-      stream_->OnSynStream(stream_id, priority, fin);
-    } else {
-      stream_->OnSynReply(stream_id, fin);
-    }
+
+    stream_->OnHeaders(stream_id, has_priority, priority, fin);
   }
 
   void OnWindowUpdate(SpdyStreamId stream_id, int delta_window_size) override {
@@ -145,11 +138,17 @@ class QuicHeadersStream::SpdyFramerVisitor
   void OnPushPromise(SpdyStreamId stream_id,
                      SpdyStreamId promised_stream_id,
                      bool end) override {
-    CloseConnection("SPDY PUSH_PROMISE frame received.");
+    if (!stream_->supports_push_promise()) {
+      CloseConnection("PUSH_PROMISE not supported.");
+      return;
+    }
+    if (!stream_->IsConnected()) {
+      return;
+    }
+    stream_->OnPushPromise(stream_id, promised_stream_id, end);
   }
 
-  void OnContinuation(SpdyStreamId stream_id, bool end) override {
-  }
+  void OnContinuation(SpdyStreamId stream_id, bool end) override {}
 
   bool OnUnknownFrame(SpdyStreamId stream_id, int frame_type) override {
     CloseConnection("Unknown frame type received.");
@@ -173,8 +172,8 @@ class QuicHeadersStream::SpdyFramerVisitor
  private:
   void CloseConnection(const string& details) {
     if (stream_->IsConnected()) {
-      stream_->CloseConnectionWithDetails(
-          QUIC_INVALID_HEADERS_STREAM_DATA, details);
+      stream_->CloseConnectionWithDetails(QUIC_INVALID_HEADERS_STREAM_DATA,
+                                          details);
     }
   }
 
@@ -188,10 +187,13 @@ QuicHeadersStream::QuicHeadersStream(QuicSpdySession* session)
     : ReliableQuicStream(kHeadersStreamId, session),
       spdy_session_(session),
       stream_id_(kInvalidStreamId),
+      promised_stream_id_(kInvalidStreamId),
       fin_(false),
       frame_len_(0),
       measure_headers_hol_blocking_time_(
           FLAGS_quic_measure_headers_hol_blocking_time),
+      supports_push_promise_(session->perspective() == Perspective::IS_CLIENT &&
+                             FLAGS_quic_supports_push_promise),
       cur_max_timestamp_(QuicTime::Zero()),
       prev_max_timestamp_(QuicTime::Zero()),
       spdy_framer_(HTTP2),
@@ -204,12 +206,11 @@ QuicHeadersStream::QuicHeadersStream(QuicSpdySession* session)
 
 QuicHeadersStream::~QuicHeadersStream() {}
 
-size_t QuicHeadersStream::WriteHeaders(
-    QuicStreamId stream_id,
-    const SpdyHeaderBlock& headers,
-    bool fin,
-    QuicPriority priority,
-    QuicAckListenerInterface* ack_notifier_delegate) {
+size_t QuicHeadersStream::WriteHeaders(QuicStreamId stream_id,
+                                       const SpdyHeaderBlock& headers,
+                                       bool fin,
+                                       SpdyPriority priority,
+                                       QuicAckListenerInterface* ack_listener) {
   SpdyHeadersIR headers_frame(stream_id);
   headers_frame.set_header_block(headers);
   headers_frame.set_fin(fin);
@@ -220,7 +221,30 @@ size_t QuicHeadersStream::WriteHeaders(
   scoped_ptr<SpdySerializedFrame> frame(
       spdy_framer_.SerializeFrame(headers_frame));
   WriteOrBufferData(StringPiece(frame->data(), frame->size()), false,
-                    ack_notifier_delegate);
+                    ack_listener);
+  return frame->size();
+}
+
+size_t QuicHeadersStream::WritePushPromise(
+    QuicStreamId original_stream_id,
+    QuicStreamId promised_stream_id,
+    const SpdyHeaderBlock& headers,
+    QuicAckListenerInterface* ack_listener) {
+  if (session()->perspective() == Perspective::IS_CLIENT) {
+    QUIC_BUG << "Client shouldn't send PUSH_PROMISE";
+    return 0;
+  }
+
+  SpdyPushPromiseIR push_promise(original_stream_id, promised_stream_id);
+  push_promise.set_header_block(headers);
+  // PUSH_PROMISE must not be the last frame sent out, at least followed by
+  // response headers.
+  push_promise.set_fin(false);
+
+  scoped_ptr<SpdySerializedFrame> frame(
+      spdy_framer_.SerializeFrame(push_promise));
+  WriteOrBufferData(StringPiece(frame->data(), frame->size()), false,
+                    ack_listener);
   return frame->size();
 }
 
@@ -253,33 +277,37 @@ void QuicHeadersStream::OnDataAvailable() {
   }
 }
 
-QuicPriority QuicHeadersStream::EffectivePriority() const { return 0; }
-
-void QuicHeadersStream::OnSynStream(SpdyStreamId stream_id,
-                                    SpdyPriority priority,
-                                    bool fin) {
-  if (session()->perspective() == Perspective::IS_CLIENT) {
-    CloseConnectionWithDetails(
-        QUIC_INVALID_HEADERS_STREAM_DATA,
-        "SPDY SYN_STREAM frame received at the client");
-    return;
+void QuicHeadersStream::OnHeaders(SpdyStreamId stream_id,
+                                  bool has_priority,
+                                  SpdyPriority priority,
+                                  bool fin) {
+  if (has_priority) {
+    if (session()->perspective() == Perspective::IS_CLIENT) {
+      CloseConnectionWithDetails(QUIC_INVALID_HEADERS_STREAM_DATA,
+                                 "Server must not send priorities.");
+      return;
+    }
+    spdy_session_->OnStreamHeadersPriority(stream_id, priority);
+  } else {
+    if (session()->perspective() == Perspective::IS_SERVER) {
+      CloseConnectionWithDetails(QUIC_INVALID_HEADERS_STREAM_DATA,
+                                 "Client must send priorities.");
+      return;
+    }
   }
   DCHECK_EQ(kInvalidStreamId, stream_id_);
+  DCHECK_EQ(kInvalidStreamId, promised_stream_id_);
   stream_id_ = stream_id;
   fin_ = fin;
-  spdy_session_->OnStreamHeadersPriority(stream_id, priority);
 }
 
-void QuicHeadersStream::OnSynReply(SpdyStreamId stream_id, bool fin) {
-  if (session()->perspective() == Perspective::IS_SERVER) {
-    CloseConnectionWithDetails(
-        QUIC_INVALID_HEADERS_STREAM_DATA,
-        "SPDY SYN_REPLY frame received at the server");
-    return;
-  }
+void QuicHeadersStream::OnPushPromise(SpdyStreamId stream_id,
+                                      SpdyStreamId promised_stream_id,
+                                      bool end) {
   DCHECK_EQ(kInvalidStreamId, stream_id_);
+  DCHECK_EQ(kInvalidStreamId, promised_stream_id_);
   stream_id_ = stream_id;
-  fin_ = fin;
+  promised_stream_id_ = promised_stream_id;
 }
 
 void QuicHeadersStream::OnControlFrameHeaderData(SpdyStreamId stream_id,
@@ -304,13 +332,24 @@ void QuicHeadersStream::OnControlFrameHeaderData(SpdyStreamId stream_id,
       prev_max_timestamp_ = std::max(prev_max_timestamp_, cur_max_timestamp_);
       cur_max_timestamp_ = QuicTime::Zero();
     }
-    spdy_session_->OnStreamHeadersComplete(stream_id_, fin_, frame_len_);
+    if (promised_stream_id_ == kInvalidStreamId) {
+      spdy_session_->OnStreamHeadersComplete(stream_id_, fin_, frame_len_);
+    } else {
+      spdy_session_->OnPromiseHeadersComplete(stream_id_, promised_stream_id_,
+                                              frame_len_);
+    }
     // Reset state for the next frame.
+    promised_stream_id_ = kInvalidStreamId;
     stream_id_ = kInvalidStreamId;
     fin_ = false;
     frame_len_ = 0;
   } else {
-    spdy_session_->OnStreamHeaders(stream_id_, StringPiece(header_data, len));
+    if (promised_stream_id_ == kInvalidStreamId) {
+      spdy_session_->OnStreamHeaders(stream_id_, StringPiece(header_data, len));
+    } else {
+      spdy_session_->OnPromiseHeaders(stream_id_,
+                                      StringPiece(header_data, len));
+    }
   }
 }
 

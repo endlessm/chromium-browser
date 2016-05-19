@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/webmidi/MIDIAccessInitializer.h"
 
 #include "bindings/core/v8/ScriptPromise.h"
@@ -22,12 +21,10 @@ using PortState = WebMIDIAccessorClient::MIDIPortState;
 
 MIDIAccessInitializer::MIDIAccessInitializer(ScriptState* scriptState, const MIDIOptions& options)
     : ScriptPromiseResolver(scriptState)
-    , m_requestSysex(false)
+    , m_options(options)
     , m_hasBeenDisposed(false)
-    , m_sysexPermissionResolved(false)
+    , m_permissionResolved(false)
 {
-    if (options.hasSysex())
-        m_requestSysex = options.sysex();
 }
 
 MIDIAccessInitializer::~MIDIAccessInitializer()
@@ -49,12 +46,12 @@ void MIDIAccessInitializer::dispose()
     if (!executionContext())
         return;
 
-    if (!m_sysexPermissionResolved) {
+    if (!m_permissionResolved) {
         Document* document = toDocument(executionContext());
         ASSERT(document);
         if (MIDIController* controller = MIDIController::from(document->frame()))
-            controller->cancelSysexPermissionRequest(this);
-        m_sysexPermissionResolved = true;
+            controller->cancelPermissionRequest(this);
+        m_permissionResolved = true;
     }
 
     m_hasBeenDisposed = true;
@@ -65,14 +62,10 @@ ScriptPromise MIDIAccessInitializer::start()
     ScriptPromise promise = this->promise();
     m_accessor = MIDIAccessor::create(this);
 
-    if (!m_requestSysex) {
-        m_accessor->startSession();
-        return promise;
-    }
     Document* document = toDocument(executionContext());
     ASSERT(document);
     if (MIDIController* controller = MIDIController::from(document->frame()))
-        controller->requestSysexPermission(this);
+        controller->requestPermission(this, m_options);
     else
         reject(DOMException::create(SecurityError));
 
@@ -109,7 +102,7 @@ void MIDIAccessInitializer::didStartSession(bool success, const String& error, c
 {
     ASSERT(m_accessor);
     if (success) {
-        resolve(MIDIAccess::create(m_accessor.release(), m_requestSysex, m_portDescriptors, executionContext()));
+        resolve(MIDIAccess::create(m_accessor.release(), m_options.hasSysex() && m_options.sysex(), m_portDescriptors, executionContext()));
     } else {
         // The spec says the name is one of
         //  - SecurityError
@@ -132,9 +125,9 @@ void MIDIAccessInitializer::didStartSession(bool success, const String& error, c
     }
 }
 
-void MIDIAccessInitializer::resolveSysexPermission(bool allowed)
+void MIDIAccessInitializer::resolvePermission(bool allowed)
 {
-    m_sysexPermissionResolved = true;
+    m_permissionResolved = true;
     if (allowed)
         m_accessor->startSession();
     else

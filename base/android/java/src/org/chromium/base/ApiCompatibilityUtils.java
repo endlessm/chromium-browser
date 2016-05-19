@@ -18,6 +18,8 @@ import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.PowerManager;
@@ -417,6 +419,20 @@ public class ApiCompatibilityUtils {
     }
 
     /**
+     * @see android.content.pm.PackageManager#getUserBadgedDrawableForDensity(Drawable drawable,
+     * UserHandle user, Rect badgeLocation, int badgeDensity).
+     */
+    public static Drawable getUserBadgedDrawableForDensity(
+            Context context, Drawable drawable, Rect badgeLocation, int density) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            PackageManager packageManager = context.getPackageManager();
+            return packageManager.getUserBadgedDrawableForDensity(
+                    drawable, Process.myUserHandle(), badgeLocation, density);
+        }
+        return drawable;
+    }
+
+    /**
      * @see android.content.res.Resources#getColor(int id).
      */
     @SuppressWarnings("deprecation")
@@ -425,6 +441,18 @@ public class ApiCompatibilityUtils {
             return res.getColor(id, null);
         } else {
             return res.getColor(id);
+        }
+    }
+
+    /**
+     * @see android.graphics.drawable.Drawable#getColorFilter().
+     */
+    @SuppressWarnings("NewApi")
+    public static ColorFilter getColorFilter(Drawable drawable) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return drawable.getColorFilter();
+        } else {
+            return null;
         }
     }
 

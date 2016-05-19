@@ -6,8 +6,8 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/extension_registry.html">
-<link rel="import" href="/tracing/base/units/time_stamp.html">
 <link rel="import" href="/tracing/model/timed_event.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <script>
 'use strict';
@@ -40,7 +40,7 @@ tr.exportTo('tr.model', function() {
     this.didNotFinish = false;
     this.important = false;
     this.subSlices = [];
-    this.parentContainer = undefined;
+    this.parentContainer_ = undefined;
 
     this.id = undefined;
     this.startThread = undefined;
@@ -75,13 +75,26 @@ tr.exportTo('tr.model', function() {
       return this.title;
     },
 
+    get parentContainer() {
+      return this.parentContainer_;
+    },
+
+    set parentContainer(parentContainer) {
+      this.parentContainer_ = parentContainer;
+      for (var i = 0; i < this.subSlices.length; i++) {
+        var subSlice = this.subSlices[i];
+        if (subSlice.parentContainer === undefined)
+          subSlice.parentContainer = parentContainer;
+      }
+    },
+
     get viewSubGroupTitle() {
       return this.title;
     },
 
     get userFriendlyName() {
       return 'Async slice ' + this.title + ' at ' +
-          tr.b.u.TimeStamp.format(this.start);
+          tr.v.Unit.byName.timeStampInMs.format(this.start);
     },
 
     get stableId() {

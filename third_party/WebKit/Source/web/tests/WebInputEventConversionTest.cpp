@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/WebInputEventConversion.h"
 
 #include "core/dom/Touch.h"
@@ -46,15 +45,15 @@
 #include "platform/testing/URLTestHelpers.h"
 #include "public/web/WebFrame.h"
 #include "public/web/WebSettings.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/WebViewImpl.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 
 PassRefPtrWillBeRawPtr<KeyboardEvent> createKeyboardEventWithLocation(KeyboardEvent::KeyLocationCode location)
 {
-    return KeyboardEvent::create("keydown", true, true, 0, "", "", "", location, PlatformEvent::NoModifiers);
+    return KeyboardEvent::create("keydown", true, true, 0, "", "", "", location, PlatformEvent::NoModifiers, 0);
 }
 
 int getModifiersForKeyLocationCode(KeyboardEvent::KeyLocationCode location)
@@ -126,7 +125,7 @@ TEST(WebInputEventConversionTest, WebTouchEventBuilder)
     {
         RefPtrWillBeRawPtr<TouchList> touchList = TouchList::create();
         touchList->append(touch0);
-        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(touchList.get(), touchList.get(), touchList.get(), EventTypeNames::touchstart, domWindow, PlatformEvent::NoModifiers, false, false);
+        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(touchList.get(), touchList.get(), touchList.get(), EventTypeNames::touchstart, domWindow, PlatformEvent::NoModifiers, false, false, 0);
 
         WebTouchEventBuilder webTouchBuilder(documentLayoutView, *touchEvent);
         ASSERT_EQ(1u, webTouchBuilder.touchesLength);
@@ -149,7 +148,7 @@ TEST(WebInputEventConversionTest, WebTouchEventBuilder)
         activeTouchList->append(touch0);
         activeTouchList->append(touch1);
         movedTouchList->append(touch0);
-        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), movedTouchList.get(), EventTypeNames::touchmove, domWindow, PlatformEvent::NoModifiers, false, false);
+        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), movedTouchList.get(), EventTypeNames::touchmove, domWindow, PlatformEvent::NoModifiers, false, false, 0);
 
         WebTouchEventBuilder webTouchBuilder(documentLayoutView, *touchEvent);
         ASSERT_EQ(2u, webTouchBuilder.touchesLength);
@@ -167,7 +166,7 @@ TEST(WebInputEventConversionTest, WebTouchEventBuilder)
         activeTouchList->append(touch0);
         activeTouchList->append(touch1);
         movedTouchList->append(touch1);
-        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), movedTouchList.get(), EventTypeNames::touchmove, domWindow, PlatformEvent::NoModifiers, false, false);
+        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), movedTouchList.get(), EventTypeNames::touchmove, domWindow, PlatformEvent::NoModifiers, false, false, 0);
 
         WebTouchEventBuilder webTouchBuilder(documentLayoutView, *touchEvent);
         ASSERT_EQ(2u, webTouchBuilder.touchesLength);
@@ -184,7 +183,7 @@ TEST(WebInputEventConversionTest, WebTouchEventBuilder)
         RefPtrWillBeRawPtr<TouchList> releasedTouchList = TouchList::create();
         activeTouchList->append(touch0);
         releasedTouchList->append(touch1);
-        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), releasedTouchList.get(), EventTypeNames::touchend, domWindow, PlatformEvent::NoModifiers, false, false);
+        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), releasedTouchList.get(), EventTypeNames::touchend, domWindow, PlatformEvent::NoModifiers, false, false, 0);
 
         WebTouchEventBuilder webTouchBuilder(documentLayoutView, *touchEvent);
         ASSERT_EQ(2u, webTouchBuilder.touchesLength);
@@ -201,7 +200,7 @@ TEST(WebInputEventConversionTest, WebTouchEventBuilder)
         RefPtrWillBeRawPtr<TouchList> cancelledTouchList = TouchList::create();
         cancelledTouchList->append(touch0);
         cancelledTouchList->append(touch1);
-        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), cancelledTouchList.get(), EventTypeNames::touchcancel, domWindow, PlatformEvent::NoModifiers, false, false);
+        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(activeTouchList.get(), activeTouchList.get(), cancelledTouchList.get(), EventTypeNames::touchcancel, domWindow, PlatformEvent::NoModifiers, false, false, 0);
 
         WebTouchEventBuilder webTouchBuilder(documentLayoutView, *touchEvent);
         ASSERT_EQ(2u, webTouchBuilder.touchesLength);
@@ -221,7 +220,7 @@ TEST(WebInputEventConversionTest, WebTouchEventBuilder)
             touchList->append(touch);
             changedTouchList->append(touch);
         }
-        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(touchList.get(), touchList.get(), touchList.get(), EventTypeNames::touchstart, domWindow, PlatformEvent::NoModifiers, false, false);
+        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(touchList.get(), touchList.get(), touchList.get(), EventTypeNames::touchstart, domWindow, PlatformEvent::NoModifiers, false, false, 0);
 
         WebTouchEventBuilder webTouchBuilder(documentLayoutView, *touchEvent);
         ASSERT_EQ(static_cast<unsigned>(WebTouchEvent::touchesLengthCap), webTouchBuilder.touchesLength);
@@ -442,7 +441,7 @@ TEST(WebInputEventConversionTest, InputEventsScaling)
     {
         PlatformGestureEvent platformGestureEvent(PlatformEvent::GestureScrollUpdate, IntPoint(10, 12), IntPoint(20, 22), IntSize(25, 27), 0,
             PlatformEvent::NoModifiers, PlatformGestureSourceTouchscreen);
-        platformGestureEvent.setScrollGestureData(30, 32, 40, 42, true, true, -1 /* null plugin id */);
+        platformGestureEvent.setScrollGestureData(30, 32, ScrollByPrecisePixel, 40, 42, true, true, -1 /* null plugin id */);
         // FIXME: GestureEvent does not preserve velocityX, velocityY,
         // or preventPropagation. It also fails to scale
         // coordinates (x, y, deltaX, deltaY) to the page scale. This
@@ -468,7 +467,7 @@ TEST(WebInputEventConversionTest, InputEventsScaling)
         RefPtrWillBeRawPtr<Touch> touch = Touch::create(toLocalFrame(webViewImpl->page()->mainFrame()), document.get(), 0, FloatPoint(10, 9.5), FloatPoint(3.5, 2), FloatSize(4, 4.5), 0, 0);
         RefPtrWillBeRawPtr<TouchList> touchList = TouchList::create();
         touchList->append(touch);
-        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(touchList.get(), touchList.get(), touchList.get(), EventTypeNames::touchmove, domWindow, PlatformEvent::NoModifiers, false, false);
+        RefPtrWillBeRawPtr<TouchEvent> touchEvent = TouchEvent::create(touchList.get(), touchList.get(), touchList.get(), EventTypeNames::touchmove, domWindow, PlatformEvent::NoModifiers, false, false, 0);
 
         WebTouchEventBuilder webTouchBuilder(documentLayoutView, *touchEvent);
         ASSERT_EQ(1u, webTouchBuilder.touchesLength);
@@ -892,7 +891,7 @@ TEST(WebInputEventConversionTest, WebMouseWheelEventBuilder)
     RefPtrWillBeRawPtr<Document> document = toLocalFrame(webViewImpl->page()->mainFrame())->document();
     RefPtrWillBeRawPtr<WheelEvent> event = WheelEvent::create(FloatPoint(1, 3), FloatPoint(5, 10),
         WheelEvent::DOM_DELTA_PAGE, document.get()->domWindow(), IntPoint(2, 6), IntPoint(10, 30),
-        PlatformEvent::CtrlKey, 0, true, -1 /* null plugin id */, true, Event::RailsModeHorizontal);
+        PlatformEvent::CtrlKey, 0, 0, true, -1 /* null plugin id */, true /* hasPreciseScrollingDeltas */, Event::RailsModeHorizontal);
     WebMouseWheelEventBuilder webMouseWheel(toLocalFrame(webViewImpl->page()->mainFrame())->view(), document.get()->layoutView(), *event);
     EXPECT_EQ(1, webMouseWheel.wheelTicksX);
     EXPECT_EQ(3, webMouseWheel.wheelTicksY);
@@ -906,6 +905,7 @@ TEST(WebInputEventConversionTest, WebMouseWheelEventBuilder)
     EXPECT_EQ(WebInputEvent::ControlKey, webMouseWheel.modifiers);
     EXPECT_TRUE(webMouseWheel.canScroll);
     EXPECT_EQ(WebInputEvent::RailsModeHorizontal, webMouseWheel.railsMode);
+    EXPECT_TRUE(webMouseWheel.hasPreciseScrollingDeltas);
 }
 
 TEST(WebInputEventConversionTest, PlatformWheelEventBuilder)
@@ -943,7 +943,7 @@ TEST(WebInputEventConversionTest, PlatformWheelEventBuilder)
         EXPECT_EQ(PlatformEvent::CtrlKey, platformWheelBuilder.modifiers());
         EXPECT_TRUE(platformWheelBuilder.hasPreciseScrollingDeltas());
         EXPECT_TRUE(platformWheelBuilder.canScroll());
-        EXPECT_EQ(platformWheelBuilder.railsMode(), PlatformEvent::RailsModeHorizontal);
+        EXPECT_EQ(platformWheelBuilder.getRailsMode(), PlatformEvent::RailsModeHorizontal);
     }
 
     {
@@ -966,7 +966,7 @@ TEST(WebInputEventConversionTest, PlatformWheelEventBuilder)
         EXPECT_EQ(PlatformEvent::ShiftKey, platformWheelBuilder.modifiers());
         EXPECT_FALSE(platformWheelBuilder.hasPreciseScrollingDeltas());
         EXPECT_FALSE(platformWheelBuilder.canScroll());
-        EXPECT_EQ(platformWheelBuilder.railsMode(), PlatformEvent::RailsModeFree);
+        EXPECT_EQ(platformWheelBuilder.getRailsMode(), PlatformEvent::RailsModeFree);
     }
 
     {
@@ -989,7 +989,7 @@ TEST(WebInputEventConversionTest, PlatformWheelEventBuilder)
         EXPECT_EQ(PlatformEvent::AltKey, platformWheelBuilder.modifiers());
         EXPECT_TRUE(platformWheelBuilder.hasPreciseScrollingDeltas());
         EXPECT_FALSE(platformWheelBuilder.canScroll());
-        EXPECT_EQ(platformWheelBuilder.railsMode(), PlatformEvent::RailsModeVertical);
+        EXPECT_EQ(platformWheelBuilder.getRailsMode(), PlatformEvent::RailsModeVertical);
     }
 }
 

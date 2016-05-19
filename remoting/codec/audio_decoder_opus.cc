@@ -4,6 +4,8 @@
 
 #include "remoting/codec/audio_decoder_opus.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
@@ -72,7 +74,6 @@ bool AudioDecoderOpus::ResetForPacket(AudioPacket* packet) {
   return decoder_ != nullptr;
 }
 
-
 scoped_ptr<AudioPacket> AudioDecoderOpus::Decode(
     scoped_ptr<AudioPacket> packet) {
   if (packet->encoding() != AudioPacket::ENCODING_OPUS) {
@@ -106,8 +107,8 @@ scoped_ptr<AudioPacket> AudioDecoderOpus::Decode(
   int buffer_pos = 0;
 
   for (int i = 0; i < packet->data_size(); ++i) {
-    int16* pcm_buffer =
-        reinterpret_cast<int16*>(string_as_array(decoded_data) + buffer_pos);
+    int16_t* pcm_buffer =
+        reinterpret_cast<int16_t*>(string_as_array(decoded_data) + buffer_pos);
     CHECK_LE(buffer_pos + max_frame_bytes,
              static_cast<int>(decoded_data->size()));
     std::string* frame = packet->mutable_data(i);
@@ -131,7 +132,7 @@ scoped_ptr<AudioPacket> AudioDecoderOpus::Decode(
 
   decoded_data->resize(buffer_pos);
 
-  return decoded_packet.Pass();
+  return decoded_packet;
 }
 
 }  // namespace remoting

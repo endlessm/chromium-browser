@@ -5,20 +5,24 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_ANDROID_H_
 #define CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_ANDROID_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <queue>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/i18n/rtl.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
-#include "cc/layers/delegated_frame_resource_collection.h"
 #include "cc/output/begin_frame_args.h"
 #include "cc/surfaces/surface_factory_client.h"
 #include "cc/surfaces/surface_id.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "content/browser/android/content_view_core_impl_observer.h"
 #include "content/browser/renderer_host/delegated_frame_evictor.h"
 #include "content/browser/renderer_host/ime_adapter_android.h"
 #include "content/browser/renderer_host/input/stylus_text_selector.h"
@@ -26,8 +30,8 @@
 #include "content/common/content_export.h"
 #include "content/public/browser/readback_types.h"
 #include "gpu/command_buffer/common/mailbox.h"
-#include "third_party/skia/include/core/SkColor.h"
 #include "third_party/WebKit/public/platform/WebGraphicsContext3D.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/android/window_android_observer.h"
 #include "ui/events/gesture_detection/filtered_gesture_provider.h"
 #include "ui/gfx/geometry/size.h"
@@ -38,8 +42,6 @@ struct ViewHostMsg_TextInputState_Params;
 
 namespace cc {
 class CopyOutputResult;
-class DelegatedFrameProvider;
-class DelegatedRendererLayer;
 class Layer;
 class SurfaceFactory;
 class SurfaceIdAllocator;
@@ -54,6 +56,7 @@ class WebMouseEvent;
 
 namespace content {
 class ContentViewCoreImpl;
+class ContentViewCoreObserver;
 class OverscrollControllerAndroid;
 class RenderWidgetHost;
 class RenderWidgetHostImpl;
@@ -66,13 +69,13 @@ struct NativeWebKeyboardEvent;
 // -----------------------------------------------------------------------------
 class CONTENT_EXPORT RenderWidgetHostViewAndroid
     : public RenderWidgetHostViewBase,
-      public cc::DelegatedFrameResourceCollectionClient,
       public cc::SurfaceFactoryClient,
       public ui::GestureProviderClient,
       public ui::WindowAndroidObserver,
       public DelegatedFrameEvictorClient,
       public StylusTextSelectorClient,
-      public ui::TouchSelectionControllerClient {
+      public ui::TouchSelectionControllerClient,
+      public content::ContentViewCoreImplObserver {
  public:
   RenderWidgetHostViewAndroid(RenderWidgetHostImpl* widget,
                               ContentViewCoreImpl* content_view_core);
@@ -148,7 +151,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
       BrowserAccessibilityDelegate* delegate) override;
   bool LockMouse() override;
   void UnlockMouse() override;
-  void OnSwapCompositorFrame(uint32 output_surface_id,
+  void OnSwapCompositorFrame(uint32_t output_surface_id,
                              scoped_ptr<cc::CompositorFrame> frame) override;
   void ClearCompositorFrame() override;
   void DidOverscroll(const DidOverscrollParams& params) override;
@@ -163,9 +166,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
                                           size_t start_offset,
                                           size_t end_offset) override;
   void OnDidNavigateMainFrameToNewPage() override;
-
-  // cc::DelegatedFrameResourceCollectionClient implementation.
-  void UnusedResourcesAreAvailable() override;
 
   // cc::SurfaceFactoryClient implementation.
   void ReturnResources(const cc::ReturnedResourceArray& resources) override;
@@ -185,6 +185,11 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void OnAnimate(base::TimeTicks begin_frame_time) override;
   void OnActivityStopped() override;
   void OnActivityStarted() override;
+
+  // content::ContentViewCoreImplObserver implementation.
+  void OnContentViewCoreDestroyed() override;
+  void OnAttachedToWindow() override;
+  void OnDetachedFromWindow() override;
 
   // DelegatedFrameEvictor implementation
   void EvictDelegatedFrame() override;
@@ -262,12 +267,12 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void RunAckCallbacks(cc::SurfaceDrawStatus status);
 
   void DestroyDelegatedContent();
-  void CheckOutputSurfaceChanged(uint32 output_surface_id);
+  void CheckOutputSurfaceChanged(uint32_t output_surface_id);
   void SubmitCompositorFrame(scoped_ptr<cc::CompositorFrame> frame_data);
-  void SwapDelegatedFrame(uint32 output_surface_id,
+  void SwapDelegatedFrame(uint32_t output_surface_id,
                           scoped_ptr<cc::CompositorFrame> frame_data);
-  void SendDelegatedFrameAck(uint32 output_surface_id);
-  void SendReturnedDelegatedResources(uint32 output_surface_id);
+  void SendDelegatedFrameAck(uint32_t output_surface_id);
+  void SendReturnedDelegatedResources(uint32_t output_surface_id);
 
   void OnFrameMetadataUpdated(
       const cc::CompositorFrameMetadata& frame_metadata);
@@ -308,10 +313,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
   // Drop any incoming frames from the renderer when there are locks on the
   // current frame.
-  void RetainFrame(uint32 output_surface_id,
+  void RetainFrame(uint32_t output_surface_id,
                    scoped_ptr<cc::CompositorFrame> frame);
 
-  void InternalSwapCompositorFrame(uint32 output_surface_id,
+  void InternalSwapCompositorFrame(uint32_t output_surface_id,
                                    scoped_ptr<cc::CompositorFrame> frame);
   void OnLostResources();
 
@@ -320,7 +325,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
     BEGIN_FRAME = 1 << 1,
     PERSISTENT_BEGIN_FRAME = 1 << 2
   };
-  void RequestVSyncUpdate(uint32 requests);
+  void RequestVSyncUpdate(uint32_t requests);
   void StartObservingRootWindow();
   void StopObservingRootWindow();
   void SendBeginFrame(base::TimeTicks frame_time, base::TimeDelta vsync_period);
@@ -335,7 +340,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool use_surfaces_;
 
   // Used to control action dispatch at the next |OnVSync()| call.
-  uint32 outstanding_vsync_requests_;
+  uint32_t outstanding_vsync_requests_;
 
   bool is_showing_;
 
@@ -346,20 +351,11 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   // ContentViewCoreImpl is our interface to the view system.
   ContentViewCoreImpl* content_view_core_;
 
-  // Cache the WindowAndroid instance exposed by ContentViewCore to avoid
-  // calling into ContentViewCore when it is being detached from the
-  // WebContents during destruction. The WindowAndroid has stronger lifetime
-  // guarantees, and should be safe to use for observer detachment.
-  // This will be non-null iff |content_view_core_| is non-null.
-  ui::WindowAndroid* content_view_core_window_android_;
-
   ImeAdapterAndroid ime_adapter_android_;
 
   // Body background color of the underlying document.
   SkColor cached_background_color_;
 
-  scoped_refptr<cc::DelegatedFrameResourceCollection> resource_collection_;
-  scoped_refptr<cc::DelegatedFrameProvider> frame_provider_;
   scoped_refptr<cc::Layer> layer_;
 
   scoped_ptr<cc::SurfaceIdAllocator> id_allocator_;
@@ -405,10 +401,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool observing_root_window_;
 
   struct LastFrameInfo {
-    LastFrameInfo(uint32 output_id,
+    LastFrameInfo(uint32_t output_id,
                   scoped_ptr<cc::CompositorFrame> output_frame);
     ~LastFrameInfo();
-    uint32 output_surface_id;
+    uint32_t output_surface_id;
     scoped_ptr<cc::CompositorFrame> frame;
   };
 

@@ -179,8 +179,6 @@ ACCEPTABLE_ARGUMENTS = set([
     # Run browser tests under this tool. See
     # tools/browser_tester/browsertester/browserlauncher.py for tool names.
     'browser_test_tool',
-    # activates buildbot-specific presets
-    'buildbot',
     # Where to install header files for public consumption.
     'includedir',
     # Where to install libraries for public consumption.
@@ -311,6 +309,9 @@ def SetUpArgumentBits(env):
   BitFromArgument(env, 'naclsdk_validate', default=True,
     desc='Verify the presence of the SDK')
 
+  # TODO(mseaborn): Remove this, since this is always False -- Valgrind is
+  # no longer supported.  This will require removing some Chromium-side
+  # references.
   BitFromArgument(env, 'running_on_valgrind', default=False,
     desc='Compile and test using valgrind')
 
@@ -336,9 +337,6 @@ def SetUpArgumentBits(env):
 
   BitFromArgument(env, 'pnacl_unsandboxed', default=False,
     desc='Translate pexe to an unsandboxed, host executable')
-
-  BitFromArgument(env, 'minsfi', default=False,
-    desc='Build MinSFI libraries and run tests')
 
   BitFromArgument(env, 'nonsfi_nacl', default=False,
     desc='Use Non-SFI Mode instead of the original SFI Mode.  This uses '
@@ -400,8 +398,7 @@ def SetUpArgumentBits(env):
 
   # PNaCl sanity checks
   if not env.Bit('bitcode'):
-    pnacl_only_flags = ('minsfi',
-                        'nonsfi_nacl',
+    pnacl_only_flags = ('nonsfi_nacl',
                         'pnacl_generate_pexe',
                         'pnacl_unsandboxed',
                         'skip_nonstable_bitcode',
@@ -427,58 +424,6 @@ def CheckArguments():
     if key not in ACCEPTABLE_ARGUMENTS:
       raise UserError('bad argument: %s' % key)
 
-
-# Sets a command line argument. Dies if an argument with this name is already
-# defined.
-def SetArgument(key, value):
-  print '    %s=%s' % (key, str(value))
-  if key in ARGUMENTS:
-    raise UserError('ERROR: %s redefined' % (key, ))
-  ARGUMENTS[key] = value
-
-# Expands "macro" command line arguments.
-def ExpandArguments():
-  if ARGUMENTS.get('buildbot') == 'memcheck':
-    print 'buildbot=memcheck expands to the following arguments:'
-    SetArgument('run_under',
-                ARGUMENTS.get('memcheck_command',
-                              'src/third_party/valgrind/memcheck.sh') +
-                ',--error-exitcode=1')
-    SetArgument('scale_timeout', 20)
-    SetArgument('running_on_valgrind', True)
-  elif ARGUMENTS.get('buildbot') == 'tsan':
-    print 'buildbot=tsan expands to the following arguments:'
-    SetArgument('run_under',
-                ARGUMENTS.get('tsan_command',
-                              'src/third_party/valgrind/tsan.sh') +
-                ',--nacl-untrusted,--error-exitcode=1,' +
-                '--suppressions=src/third_party/valgrind/tests.supp')
-    SetArgument('scale_timeout', 20)
-    SetArgument('running_on_valgrind', True)
-  elif ARGUMENTS.get('buildbot') == 'tsan-trusted':
-    print 'buildbot=tsan-trusted expands to the following arguments:'
-    SetArgument('run_under',
-                ARGUMENTS.get('tsan_command',
-                              'src/third_party/valgrind/tsan.sh') +
-                ',--error-exitcode=1,' +
-                '--suppressions=src/third_party/valgrind/tests.supp')
-    SetArgument('scale_timeout', 20)
-    SetArgument('running_on_valgrind', True)
-  elif ARGUMENTS.get('buildbot') == 'memcheck-browser-tests':
-    print 'buildbot=memcheck-browser-tests expands to the following arguments:'
-    SetArgument('browser_test_tool', 'memcheck')
-    SetArgument('scale_timeout', 20)
-    SetArgument('running_on_valgrind', True)
-  elif ARGUMENTS.get('buildbot') == 'tsan-browser-tests':
-    print 'buildbot=tsan-browser-tests expands to the following arguments:'
-    SetArgument('browser_test_tool', 'tsan')
-    SetArgument('scale_timeout', 20)
-    SetArgument('running_on_valgrind', True)
-  elif ARGUMENTS.get('buildbot'):
-    raise UserError('ERROR: unexpected argument buildbot="%s"' % (
-        ARGUMENTS.get('buildbot'), ))
-
-ExpandArguments()
 
 def GetTargetPlatform():
   return pynacl.platform.GetArch3264(ARGUMENTS.get('platform', 'x86-32'))
@@ -670,7 +615,6 @@ nacl_glibc_skiplist = set([
     # sanity check failure in free().
     # TODO(robertm): This needs further investigation.
     'run_ppapi_event_test',
-    'run_srpc_ro_file_test',
     'run_ppapi_geturl_valid_test',
     'run_ppapi_geturl_invalid_test',
     # http://code.google.com/p/chromium/issues/detail?id=108131
@@ -756,7 +700,6 @@ ACCEPTABLE_TEST_SUITES = set([
   'exit_status_tests',
   'gdb_tests',
   'mmap_race_tests',
-  'minsfi_tests',
   'nonpexe_tests',
   'pnacl_abi_tests',
   'sel_ldr_sled_tests',
@@ -1076,77 +1019,24 @@ if RunningUnderLeakCheck():
   pre_base_env.SetBits('with_leakcheck')
 
 
-def HasSuffix(item, suffix):
-  if isinstance(item, str):
-    return item.endswith(suffix)
-  elif hasattr(item, '__getitem__'):
-    return HasSuffix(item[0], suffix)
-  else:
-    return item.path.endswith(suffix)
-
-
 def StripSuffix(string, suffix):
   assert string.endswith(suffix)
   return string[:-len(suffix)]
 
 
+# TODO(mseaborn): Change code to use ComponentLibrary() directly.
+# DualLibrary() is left over from when we built libraries twice, with and
+# without "-fPIC", for building plugins as DSOs.
 def DualLibrary(env, lib_name, *args, **kwargs):
-  """Builder to build both .a and _shared.a library in one step.
-
-  Args:
-    env: Environment in which we were called.
-    lib_name: Library name.
-    args: Positional arguments.
-    kwargs: Keyword arguments.
-  """
-  static_objs = [i for i in Flatten(args[0]) if not HasSuffix(i, '.os')]
-  shared_objs = [i for i in Flatten(args[0]) if not HasSuffix(i, '.o')]
-  # Built static library as ususal.
-  env.ComponentLibrary(lib_name, static_objs, **kwargs)
-  # For coverage bots, we only want one object file since two versions would
-  # write conflicting information to the same .gdca/.gdna files.
-  if env.Bit('coverage_enabled'): return
-  # Build a static library using -fPIC for the .o's.
-  if env.Bit('linux'):
-    env_shared = env.Clone(OBJSUFFIX='.os')
-    env_shared.Append(CCFLAGS=['-fPIC'])
-    # -fPIE overrides -fPIC, and shared libraries should not be linked
-    # as executables.
-    env_shared.FilterOut(CCFLAGS=['-fPIE'])
-    env_shared.ComponentLibrary(lib_name + '_shared', shared_objs, **kwargs)
-    # for arm trusted we usually build -static
-    env_shared.FilterOut(LINKFLAGS=['-static'])
+  return env.ComponentLibrary(lib_name, *args, **kwargs)
 
 def DualObject(env, *args, **kwargs):
-  """Builder to build both .o and .os in one step.
-
-  Args:
-    env: Environment in which we were called.
-    args: Positional arguments.
-    kwargs: Keyword arguments.
-  """
-  # Built static library as ususal.
-  ret = env.ComponentObject(*args, **kwargs)
-  # For coverage bots, we only want one object file since two versions would
-  # write conflicting information to the same .gdca/.gdna files.
-  if env.Bit('coverage_enabled'): return ret
-  # Build a static library using -fPIC for the .o's.
-  if env.Bit('linux'):
-    env_shared = env.Clone(OBJSUFFIX='.os')
-    env_shared.Append(CCFLAGS=['-fPIC'])
-    ret += env_shared.ComponentObject(*args, **kwargs)
-  return ret
+  return env.ComponentObject(*args, **kwargs)
 
 
 def AddDualLibrary(env):
   env.AddMethod(DualLibrary)
   env.AddMethod(DualObject)
-  # For coverage bots we only build one set of objects and we always set
-  # '-fPIC' so we do not need a "special" library.
-  if env.Bit('coverage_enabled'):
-    env['SHARED_LIBS_SPECIAL'] = False
-  else:
-    env['SHARED_LIBS_SPECIAL'] = env.Bit('linux')
 
 
 # In prebuild mode we ignore the dependencies so that stuff does
@@ -1242,6 +1132,7 @@ def GetToolchainDir(env, platform_build_dir=None, toolchain_name=None,
     if is_pnacl:
       toolchain_arg = 'pnacl_%s_dir' % lib_name
     else:
+      assert lib_name == 'glibc'
       toolchain_arg = 'nacl_%s_dir' % lib_name
 
     custom_toolchain_dir = ARGUMENTS.get(toolchain_arg, None)
@@ -1452,66 +1343,6 @@ def ProgramNameForNmf(env, basename):
     return '%s_%s' % (basename, env.get('TARGET_FULLARCH'))
 
 pre_base_env.AddMethod(ProgramNameForNmf)
-
-
-def SelUniversalTest(env,
-                     name,
-                     nexe,
-                     args=None,
-                     sel_universal_flags=None,
-                     **kwargs):
-  # The dynamic linker's ability to receive arguments over IPC at
-  # startup currently requires it to reject the plugin's first
-  # connection, but this interferes with the sel_universal-based
-  # testing because sel_universal does not retry the connection.
-  # TODO(mseaborn): Fix by retrying the connection or by adding an
-  # option to ld.so to disable its argv-over-IPC feature.
-  if env.Bit('nacl_glibc') and not env.Bit('nacl_static_link'):
-    return []
-
-  # TODO(petarj): Sel_universal hangs on qemu-mips. Enable when fixed.
-  if env.Bit('build_mips32') and env.UsingEmulator():
-    return []
-
-  if sel_universal_flags is None:
-    sel_universal_flags = []
-
-  # When run under qemu, sel_universal must sneak in qemu to the execv
-  # call that spawns sel_ldr.
-  if env.UsingEmulator():
-    sel_universal_flags.append('--command_prefix')
-    sel_universal_flags.append(env.GetEmulator())
-
-  if 'TRUSTED_ENV' not in env:
-    return []
-  sel_universal = env['TRUSTED_ENV'].File(
-      '${STAGING_DIR}/${PROGPREFIX}sel_universal${PROGSUFFIX}')
-
-  # Point to sel_ldr using an environment variable.
-  sel_ldr = env.GetSelLdr()
-  if sel_ldr is None:
-    print 'WARNING: no sel_ldr found. Skipping test %s' % name
-    return []
-  kwargs.setdefault('osenv', []).append('NACL_SEL_LDR=' + sel_ldr.abspath)
-  bootstrap, _ = env.GetBootstrap()
-  if bootstrap is not None:
-    kwargs['osenv'].append('NACL_SEL_LDR_BOOTSTRAP=%s' % bootstrap.abspath)
-
-  node = CommandSelLdrTestNacl(env,
-                               name,
-                               nexe,
-                               args=args,
-                               loader=sel_universal,
-                               sel_ldr_flags=sel_universal_flags,
-                               skip_bootstrap=True,
-                               **kwargs)
-  if not env.Bit('built_elsewhere'):
-    env.Depends(node, sel_ldr)
-    if bootstrap is not None:
-      env.Depends(node, bootstrap)
-  return node
-
-pre_base_env.AddMethod(SelUniversalTest)
 
 
 def MakeNaClLogOption(env, target):
@@ -2234,15 +2065,11 @@ def MakeBaseTrustedEnv(platform=None):
       # KEEP THIS SORTED PLEASE
       'build/package_version/build.scons',
       'pynacl/build.scons',
-      'src/minsfi/trusted/build.scons',
       'src/nonsfi/irt/build.scons',
       'src/nonsfi/loader/build.scons',
       'src/shared/gio/build.scons',
       'src/shared/imc/build.scons',
       'src/shared/platform/build.scons',
-      'src/shared/serialization/build.scons',
-      'src/shared/srpc/build.scons',
-      'src/shared/utils/build.scons',
       'src/third_party/gtest/build.scons',
       'src/trusted/cpu_features/build.scons',
       'src/trusted/debug_stub/build.scons',
@@ -2250,14 +2077,10 @@ def MakeBaseTrustedEnv(platform=None):
       'src/trusted/fault_injection/build.scons',
       'src/trusted/interval_multiset/build.scons',
       'src/trusted/nacl_base/build.scons',
-      'src/trusted/nonnacl_util/build.scons',
       'src/trusted/perf_counter/build.scons',
       'src/trusted/platform_qualify/build.scons',
       'src/trusted/seccomp_bpf/build.scons',
-      'src/trusted/sel_universal/build.scons',
       'src/trusted/service_runtime/build.scons',
-      'src/trusted/simple_service/build.scons',
-      'src/trusted/threading/build.scons',
       'src/trusted/validator/build.scons',
       'src/trusted/validator/driver/build.scons',
       'src/trusted/validator_arm/build.scons',
@@ -2268,9 +2091,7 @@ def MakeBaseTrustedEnv(platform=None):
       'tests/performance/build.scons',
       'tests/python_version/build.scons',
       'tests/sel_ldr_seccomp/build.scons',
-      'tests/srpc_message/build.scons',
       'tests/tools/build.scons',
-      'tests/unittests/shared/srpc/build.scons',
       'tests/unittests/shared/imc/build.scons',
       'tests/unittests/shared/platform/build.scons',
       'tests/unittests/trusted/asan/build.scons',
@@ -2572,13 +2393,16 @@ def MakeMacEnv(platform=None):
   # and then only actually used on Mac.  But the find_sdk.py script
   # will barf if run on a non-Mac.
   if pynacl.platform.IsMac():
+    # mac_sdk_min must be kept in synch with mac_sdk_min in
+    # chromium/src/build/config/mac/mac_sdk.gni.
+    mac_sdk_min = '10.10'
     # Find the Mac SDK to use as sysroot.
     # This invocation matches the model in //build/config/mac/mac_sdk.gni.
     mac_sdk_sysroot, mac_sdk_version = subprocess.check_output([
         sys.executable,
         os.path.join(os.path.pardir, 'build', 'mac', 'find_sdk.py'),
         '--print_sdk_path',
-        'list lines'
+        mac_sdk_min
         ]).splitlines()
   else:
     mac_sdk_sysroot = 'ThisIsNotAMac'
@@ -3282,19 +3106,18 @@ if not nacl_env.Bit('nacl_glibc'):
 nacl_env.Append(
     BUILD_SCONSCRIPTS = [
     ####  ALPHABETICALLY SORTED ####
-    'src/minsfi/untrusted/nacl.scons',
     'src/nonsfi/irt/build.scons',
     'src/nonsfi/linux/nacl.scons',
     'src/nonsfi/loader/build.scons',
     'src/shared/gio/nacl.scons',
     'src/shared/imc/nacl.scons',
     'src/shared/platform/nacl.scons',
-    'src/shared/srpc/nacl.scons',
     'src/trusted/service_runtime/nacl.scons',
     'src/trusted/validator/nacl.scons',
     'src/untrusted/irt/nacl_headers.scons',
     'src/untrusted/minidump_generator/nacl.scons',
     'src/untrusted/nacl/nacl.scons',
+    'src/untrusted/pll_loader/nacl.scons',
     'src/untrusted/pnacl_dynloader/nacl.scons',
     'src/untrusted/valgrind/nacl.scons',
     ####  ALPHABETICALLY SORTED ####
@@ -3353,12 +3176,12 @@ irt_variant_tests = [
     'tests/infoleak/nacl.scons',
     'tests/libc/nacl.scons',
     'tests/libc_free_hello_world/nacl.scons',
+    'tests/limited_file_access/nacl.scons',
     'tests/list_mappings/nacl.scons',
     'tests/longjmp/nacl.scons',
     'tests/loop/nacl.scons',
     'tests/math/nacl.scons',
     'tests/memcheck_test/nacl.scons',
-    'tests/minsfi/nacl.scons',
     'tests/mmap/nacl.scons',
     'tests/mmap_main_nexe/nacl.scons',
     'tests/mmap_prot_exec/nacl.scons',
@@ -3386,8 +3209,6 @@ irt_variant_tests = [
     'tests/signal_handler/nacl.scons',
     'tests/simd/nacl.scons',
     'tests/sleep/nacl.scons',
-    'tests/srpc/nacl.scons',
-    'tests/srpc_message/nacl.scons',
     'tests/stack_alignment/nacl.scons',
     'tests/stubout_mode/nacl.scons',
     'tests/sysbasic/nacl.scons',
@@ -3440,7 +3261,6 @@ nonvariant_tests = [
     'tests/trusted_crash/osx_crash_filter/nacl.scons',
     'tests/trusted_crash/osx_crash_forwarding/nacl.scons',
     'tests/unittests/shared/imc/nacl.scons',
-    'tests/unittests/shared/srpc/nacl.scons',
     #### ALPHABETICALLY SORTED ####
 ]
 
@@ -3515,19 +3335,12 @@ nacl_env.AddMethod(RawSyscallObjects)
 # TODO(mcgrathr,bradnelson): could get cleaner if naclsdk.py got folded back in.
 nacl_irt_env.ClearBits('nacl_glibc')
 nacl_irt_env.ClearBits('nacl_pic')
-nacl_irt_env.ClearBits('nacl_clang')
 nacl_irt_env.ClearBits('pnacl_generate_pexe')
 nacl_irt_env.ClearBits('use_sandboxed_translator')
-
+nacl_irt_env.ClearBits('bitcode')
 # The choice of toolchain used to build the IRT does not depend on the toolchain
-# used to build user/test code. PNaCl is used on mips because that was until
-# recently the only compiler for mips. nacl-clang is used everywhere else.
-# TODO(dschuff): Use nacl-clang for Mips as well.
-if nacl_irt_env.Bit('build_mips32'):
-  nacl_irt_env.SetBits('bitcode')
-else:
-  nacl_irt_env.ClearBits('bitcode')
-  nacl_irt_env.SetBits('nacl_clang')
+# used to build user/test code. nacl-clang is used everywhere for the IRT.
+nacl_irt_env.SetBits('nacl_clang')
 
 nacl_irt_env.Tool('naclsdk')
 # These are unfortunately clobbered by running Tool, which
@@ -3551,31 +3364,11 @@ if nacl_irt_env.Bit('build_x86_32'):
   # See  https://code.google.com/p/nativeclient/issues/detail?id=3935
   nacl_irt_env.Append(CCFLAGS=['-mstackrealign', '-mno-sse'])
 
-
-if nacl_irt_env.Bit('bitcode'):
-  nacl_irt_env.Append(LINKFLAGS=['--pnacl-allow-native'])
-  if nacl_irt_env.Bit('build_mips32'):
-    # Disable the PNaCl IRT verifier since it will complain about
-    # __executable_start symbol not being a valid external symbol.
-    nacl_irt_env.Append(LINKFLAGS=['--pnacl-disable-abi-check'])
-
 # The IRT is C only, don't link with the C++ linker so that it doesn't
 # start depending on the C++ standard library and (in the case of
 # libc++) pthread.
 nacl_irt_env.Replace(LINK=(nacl_irt_env['LINK'].
-                           replace('pnacl-clang++', 'pnacl-clang')))
-nacl_irt_env.Replace(LINK=(nacl_irt_env['LINK'].
                            replace('nacl-clang++', 'nacl-clang')))
-
-
-# All IRT code must avoid direct use of the TLS ABI register, which
-# is reserved for user TLS.  Instead, ensure all TLS accesses use a
-# call to __nacl_read_tp, which the IRT code overrides to segregate
-# IRT-private TLS from user TLS. This only applies to mips now, on
-# other platforms we modify the TLS register through tls_edit as a
-# post process.
-if nacl_irt_env.Bit('build_mips32'):
-  nacl_irt_env.Append(LINKFLAGS=['-Wt,-mtls-use-call'])
 
 # TODO(mcgrathr): Clean up uses of these methods.
 def AddLibraryDummy(env, nodes):
@@ -3697,7 +3490,6 @@ nacl_irt_env.Append(
     BUILD_SCONSCRIPTS = [
         'src/shared/gio/nacl.scons',
         'src/shared/platform/nacl.scons',
-        'src/shared/srpc/nacl.scons',
         'src/tools/tls_edit/build.scons',
         'src/untrusted/elf_loader/nacl.scons',
         'src/untrusted/irt/nacl.scons',

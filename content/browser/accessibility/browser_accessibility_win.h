@@ -8,12 +8,15 @@
 #include <atlbase.h>
 #include <atlcom.h>
 #include <oleacc.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <UIAutomationCore.h>
 
 #include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/common/content_export.h"
 #include "third_party/iaccessible2/ia2_api_all.h"
@@ -87,8 +90,8 @@ BrowserAccessibilityWin
 
   // Mappings from roles and states to human readable strings. Initialize
   // with |InitializeStringMaps|.
-  static std::map<int32, base::string16> role_string_map;
-  static std::map<int32, base::string16> state_string_map;
+  static std::map<int32_t, base::string16> role_string_map;
+  static std::map<int32_t, base::string16> state_string_map;
 
   CONTENT_EXPORT BrowserAccessibilityWin();
 
@@ -710,24 +713,26 @@ BrowserAccessibilityWin
                          REFIID iid,
                          void** object);
 
+  CONTENT_EXPORT base::string16 GetText() const override;
+
   // Accessors.
-  int32 ia_role() const { return win_attributes_->ia_role; }
-  int32 ia_state() const { return win_attributes_->ia_state; }
+  int32_t ia_role() const { return win_attributes_->ia_role; }
+  int32_t ia_state() const { return win_attributes_->ia_state; }
   const base::string16& role_name() const { return win_attributes_->role_name; }
-  int32 ia2_role() const { return win_attributes_->ia2_role; }
-  int32 ia2_state() const { return win_attributes_->ia2_state; }
+  int32_t ia2_role() const { return win_attributes_->ia2_role; }
+  int32_t ia2_state() const { return win_attributes_->ia2_state; }
   const std::vector<base::string16>& ia2_attributes() const {
     return win_attributes_->ia2_attributes;
   }
   base::string16 name() const { return win_attributes_->name; }
   base::string16 description() const { return win_attributes_->description; }
-  base::string16 help() const { return win_attributes_->help; }
   base::string16 value() const { return win_attributes_->value; }
-  base::string16 hypertext() const { return win_attributes_->hypertext; }
-  std::map<int32, int32>& hyperlink_offset_to_index() const {
+  std::map<int32_t, int32_t>& hyperlink_offset_to_index() const {
     return win_attributes_->hyperlink_offset_to_index;
   }
-  std::vector<int32>& hyperlinks() const { return win_attributes_->hyperlinks; }
+  std::vector<int32_t>& hyperlinks() const {
+    return win_attributes_->hyperlinks;
+  }
 
  private:
   // Add one to the reference count and return the same object. Always
@@ -788,10 +793,12 @@ BrowserAccessibilityWin
 
   // Functions for retrieving offsets for hyperlinks and hypertext.
   // Return -1 in case of failure.
-  int32 GetHyperlinkIndexFromChild(const BrowserAccessibilityWin& child) const;
-  int32 GetHypertextOffsetFromHyperlinkIndex(int32 hyperlink_index) const;
-  int32 GetHypertextOffsetFromChild(const BrowserAccessibilityWin& child) const;
-  int32 GetHypertextOffsetFromDescendant(
+  int32_t GetHyperlinkIndexFromChild(
+      const BrowserAccessibilityWin& child) const;
+  int32_t GetHypertextOffsetFromHyperlinkIndex(int32_t hyperlink_index) const;
+  int32_t GetHypertextOffsetFromChild(
+      const BrowserAccessibilityWin& child) const;
+  int32_t GetHypertextOffsetFromDescendant(
       const BrowserAccessibilityWin& descendant) const;
 
   // If the selection endpoint is either equal to or an ancestor of this object,
@@ -821,9 +828,6 @@ BrowserAccessibilityWin
   // selection.)
   void GetSelectionOffsets(int* selection_start, int* selection_end) const;
 
-  // Append the accessible name from this node and its children.
-  base::string16 GetNameRecursive() const;
-
   // Get the value text, which might come from the floating-point
   // value for some roles.
   base::string16 GetValueText();
@@ -849,7 +853,7 @@ BrowserAccessibilityWin
 
   // Return a pointer to the object corresponding to the given id,
   // does not make a new reference.
-  BrowserAccessibilityWin* GetFromID(int32 id);
+  BrowserAccessibilityWin* GetFromID(int32_t id);
 
   // Returns true if this is a list box option with a parent of type list box,
   // or a menu list option with a parent of type menu list popup.
@@ -857,6 +861,11 @@ BrowserAccessibilityWin
 
   // Updates object attributes of IA2 with html attributes.
   void UpdateRequiredAttributes();
+
+  // Given an int list attribute containing the ids of related elements,
+  // add a new IAccessibleRelation for this object with the given type name.
+  void AddRelations(ui::AXIntListAttribute src_attr,
+                    const base::string16& iaccessiblerelation_type);
 
   // Windows-specific unique ID (unique within the browser process),
   // used for get_accChild, NotifyWinEvent, and as the unique ID for
@@ -868,19 +877,18 @@ BrowserAccessibilityWin
     ~WinAttributes();
 
     // IAccessible role and state.
-    int32 ia_role;
-    int32 ia_state;
+    int32_t ia_role;
+    int32_t ia_state;
     base::string16 role_name;
 
     // IAccessible name, description, help, value.
     base::string16 name;
     base::string16 description;
-    base::string16 help;
     base::string16 value;
 
     // IAccessible2 role and state.
-    int32 ia2_role;
-    int32 ia2_state;
+    int32_t ia2_role;
+    int32_t ia2_state;
 
     // IAccessible2 attributes.
     std::vector<base::string16> ia2_attributes;
@@ -890,11 +898,11 @@ BrowserAccessibilityWin
 
     // Maps the |hypertext_| embedded character offset to an index in
     // |hyperlinks_|.
-    std::map<int32, int32> hyperlink_offset_to_index;
+    std::map<int32_t, int32_t> hyperlink_offset_to_index;
 
     // The id of a BrowserAccessibilityWin for each hyperlink.
     // TODO(nektar): Replace object IDs with child indices.
-    std::vector<int32> hyperlinks;
+    std::vector<int32_t> hyperlinks;
   };
 
   scoped_ptr<WinAttributes> win_attributes_;

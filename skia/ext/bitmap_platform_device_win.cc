@@ -4,16 +4,17 @@
 
 #include <windows.h>
 #include <psapi.h>
+#include <stddef.h>
 
 #include "base/debug/gdi_debug_util_win.h"
 #include "base/logging.h"
 #include "base/win/win_util.h"
 #include "skia/ext/bitmap_platform_device_win.h"
 #include "skia/ext/platform_canvas.h"
+#include "skia/ext/skia_utils_win.h"
 #include "third_party/skia/include/core/SkMatrix.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkRegion.h"
-#include "third_party/skia/include/core/SkUtils.h"
 
 namespace {
 

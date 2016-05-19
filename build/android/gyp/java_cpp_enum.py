@@ -229,10 +229,7 @@ class HeaderParser(object):
       self._in_enum = True
 
 def GetScriptName():
-  script_components = os.path.abspath(sys.argv[0]).split(os.path.sep)
-  build_index = script_components.index('build')
-  return os.sep.join(script_components[build_index:])
-
+  return os.path.basename(os.path.abspath(sys.argv[0]))
 
 def DoGenerate(source_paths):
   for source_path in source_paths:
@@ -306,6 +303,7 @@ def AssertFilesList(output_paths, assert_files_list):
 def DoMain(argv):
   usage = 'usage: %prog [options] [output_dir] input_file(s)...'
   parser = optparse.OptionParser(usage=usage)
+  build_utils.AddDepfileOption(parser)
 
   parser.add_option('--assert_file', action="append", default=[],
                     dest="assert_files_list", help='Assert that the given '
@@ -320,6 +318,22 @@ def DoMain(argv):
                     action='store_true')
 
   options, args = parser.parse_args(argv)
+
+  if options.srcjar:
+    if not args:
+      parser.error('Need to specify at least one input file')
+    input_paths = args
+  else:
+    if len(args) < 2:
+      parser.error(
+          'Need to specify output directory and at least one input file')
+    output_dir = args[0]
+    input_paths = args[1:]
+
+  if options.depfile:
+    python_deps = build_utils.GetPythonDependencies()
+    build_utils.WriteDepfile(options.depfile, input_paths + python_deps)
+
   if options.srcjar:
     if options.print_output_only:
       parser.error('--print_output_only does not work with --srcjar')
@@ -327,17 +341,12 @@ def DoMain(argv):
       parser.error('--assert_file does not work with --srcjar')
 
     with zipfile.ZipFile(options.srcjar, 'w', zipfile.ZIP_STORED) as srcjar:
-      for output_path, data in DoGenerate(args):
-        srcjar.writestr(build_utils.CreateHermeticZipInfo(output_path), data)
+      for output_path, data in DoGenerate(input_paths):
+        build_utils.AddToZipHermetic(srcjar, output_path, data=data)
   else:
     # TODO(agrieve): Delete this non-srcjar branch once GYP is gone.
-    if len(args) < 2:
-      parser.error(
-          'Need to specify output directory and at least one input file')
-
-    output_dir = args[0]
     output_paths = []
-    for output_path, data in DoGenerate(args[1:]):
+    for output_path, data in DoGenerate(input_paths):
       full_path = os.path.join(output_dir, output_path)
       output_paths.append(full_path)
       if not options.print_output_only:

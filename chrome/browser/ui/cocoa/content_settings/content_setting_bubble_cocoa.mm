@@ -4,8 +4,11 @@
 
 #import "chrome/browser/ui/cocoa/content_settings/content_setting_bubble_cocoa.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -251,7 +254,6 @@ const ContentTypeToNibPath kNibPaths[] = {
     {CONTENT_SETTINGS_TYPE_GEOLOCATION, @"ContentBlockedGeolocation"},
     {CONTENT_SETTINGS_TYPE_MIXEDSCRIPT, @"ContentBlockedMixedScript"},
     {CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS, @"ContentProtocolHandlers"},
-    {CONTENT_SETTINGS_TYPE_MEDIASTREAM, @"ContentBlockedMedia"},
     {CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS, @"ContentBlockedDownloads"},
     {CONTENT_SETTINGS_TYPE_MIDI_SYSEX, @"ContentBlockedMIDISysEx"},
 };
@@ -266,15 +268,23 @@ const ContentTypeToNibPath kNibPaths[] = {
   observerBridge_.reset(
     new ContentSettingBubbleWebContentsObserverBridge(webContents, self));
 
-  ContentSettingsType settingsType = model->content_type();
-
   NSString* nibPath = @"";
-  for (const ContentTypeToNibPath& type_to_path : kNibPaths) {
-    if (settingsType == type_to_path.type) {
-      nibPath = type_to_path.path;
-      break;
+
+  ContentSettingSimpleBubbleModel* simple_bubble = model->AsSimpleBubbleModel();
+  if (simple_bubble) {
+    ContentSettingsType settingsType = simple_bubble->content_type();
+
+    for (const ContentTypeToNibPath& type_to_path : kNibPaths) {
+      if (settingsType == type_to_path.type) {
+        nibPath = type_to_path.path;
+        break;
+      }
     }
   }
+
+  if (model->AsMediaStreamBubbleModel())
+    nibPath = @"ContentBlockedMedia";
+
   DCHECK_NE(0u, [nibPath length]);
 
   if ((self = [super initWithWindowNibPath:nibPath
@@ -748,24 +758,34 @@ const ContentTypeToNibPath kNibPaths[] = {
 
   [self initializeTitle];
 
-  ContentSettingsType type = contentSettingBubbleModel_->content_type();
-  if (type == CONTENT_SETTINGS_TYPE_PLUGINS) {
+  // Note that the per-content-type methods and |initializeRadioGroup| below
+  // must be kept in the correct order, as they make interdependent adjustments
+  // of the bubble's height.
+  ContentSettingSimpleBubbleModel* simple_bubble =
+      contentSettingBubbleModel_->AsSimpleBubbleModel();
+  if (simple_bubble &&
+      simple_bubble->content_type() == CONTENT_SETTINGS_TYPE_PLUGINS) {
     [self sizeToFitLoadButton];
     [self initializeBlockedPluginsList];
   }
 
-  if (allowBlockRadioGroup_)  // not bound in cookie bubble xib
+  if (allowBlockRadioGroup_)  // Some xibs do not bind |allowBlockRadioGroup_|.
     [self initializeRadioGroup];
 
-  if (type == CONTENT_SETTINGS_TYPE_POPUPS ||
-      type == CONTENT_SETTINGS_TYPE_PLUGINS)
-    [self initializeItemList];
-  if (type == CONTENT_SETTINGS_TYPE_GEOLOCATION)
-    [self initializeGeoLists];
-  if (type == CONTENT_SETTINGS_TYPE_MEDIASTREAM)
+  if (simple_bubble) {
+    ContentSettingsType type = simple_bubble->content_type();
+
+    if (type == CONTENT_SETTINGS_TYPE_POPUPS ||
+        type == CONTENT_SETTINGS_TYPE_PLUGINS)
+      [self initializeItemList];
+    if (type == CONTENT_SETTINGS_TYPE_GEOLOCATION)
+      [self initializeGeoLists];
+    if (type == CONTENT_SETTINGS_TYPE_MIDI_SYSEX)
+      [self initializeMIDISysExLists];
+  }
+
+  if (contentSettingBubbleModel_->AsMediaStreamBubbleModel())
     [self initializeMediaMenus];
-  if (type == CONTENT_SETTINGS_TYPE_MIDI_SYSEX)
-    [self initializeMIDISysExLists];
 }
 
 ///////////////////////////////////////////////////////////////////////////////

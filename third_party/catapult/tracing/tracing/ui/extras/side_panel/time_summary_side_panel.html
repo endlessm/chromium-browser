@@ -7,12 +7,12 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/statistics.html">
-<link rel="import" href="/tracing/base/units/time_duration.html">
 <link rel="import" href="/tracing/model/event_set.html">
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
 <link rel="import" href="/tracing/ui/base/pie_chart.html">
 <link rel="import" href="/tracing/ui/side_panel/side_panel.html">
-<link rel="import" href="/tracing/ui/units/time_duration_span.html">
+<link rel="import" href="/tracing/value/ui/time_duration_span.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <polymer-element name="tr-ui-e-s-time-summary-side-panel"
     extends="tr-ui-side-panel">
@@ -112,7 +112,8 @@ found in the LICENSE file.
         var slicesInFilterRange = [];
         for (var i = 0; i < slices.length; i++) {
           var slice = slices[i];
-          if (rangeOfInterest.intersectsExplicitRange(slice.start, slice.end))
+          if (rangeOfInterest.intersectsExplicitRangeInclusive(
+                slice.start, slice.end))
             slicesInFilterRange.push(slice);
         }
         return slicesInFilterRange;
@@ -213,7 +214,7 @@ found in the LICENSE file.
           data.push({
             label: resultsForGroup.name,
             value: value,
-            valueText: tr.b.u.TimeDuration.format(value),
+            valueText: tr.v.Unit.byName.timeDurationInMs.format(value),
             resultsForGroup: resultsForGroup
           });
         }
@@ -252,10 +253,6 @@ found in the LICENSE file.
       set model(model) {
         this.model_ = model;
         this.updateContents_();
-      },
-
-      get listeningToKeys() {
-        return false;
       },
 
       get groupBy() {
@@ -350,7 +347,7 @@ found in the LICENSE file.
         summaryText.appendChild(tr.ui.b.createSpan({
           textContent: 'Total ' + this.groupingUnit_ + ': ',
           bold: true}));
-        summaryText.appendChild(tr.ui.units.createTimeDurationSpan(
+        summaryText.appendChild(tr.v.ui.createTimeDurationSpan(
             getValueFromGroup(allGroup), {ownerDocument: this.ownerDocument}));
         resultArea.appendChild(summaryText);
 
@@ -366,7 +363,7 @@ found in the LICENSE file.
           extraData.push({
             label: 'CPU Idle',
             value: idleTime,
-            valueText: tr.b.u.TimeDuration.format(idleTime)
+            valueText: tr.v.Unit.byName.timeDurationInMs.format(idleTime)
           });
           extraValue += idleTime;
         }

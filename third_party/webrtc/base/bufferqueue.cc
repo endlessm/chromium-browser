@@ -10,6 +10,8 @@
 
 #include "webrtc/base/bufferqueue.h"
 
+#include <algorithm>
+
 namespace rtc {
 
 BufferQueue::BufferQueue(size_t capacity, size_t default_size)
@@ -32,25 +34,33 @@ size_t BufferQueue::size() const {
   return queue_.size();
 }
 
+void BufferQueue::Clear() {
+  CritScope cs(&crit_);
+  while (!queue_.empty()) {
+    free_list_.push_back(queue_.front());
+    queue_.pop_front();
+  }
+}
+
 bool BufferQueue::ReadFront(void* buffer, size_t bytes, size_t* bytes_read) {
   CritScope cs(&crit_);
   if (queue_.empty()) {
     return false;
   }
 
+  bool was_writable = queue_.size() < capacity_;
   Buffer* packet = queue_.front();
   queue_.pop_front();
 
-  size_t next_packet_size = packet->size();
-  if (bytes > next_packet_size) {
-    bytes = next_packet_size;
-  }
-
+  bytes = std::min(bytes, packet->size());
   memcpy(buffer, packet->data(), bytes);
   if (bytes_read) {
     *bytes_read = bytes;
   }
   free_list_.push_back(packet);
+  if (!was_writable) {
+    NotifyWritableForTest();
+  }
   return true;
 }
 
@@ -61,6 +71,7 @@ bool BufferQueue::WriteBack(const void* buffer, size_t bytes,
     return false;
   }
 
+  bool was_readable = !queue_.empty();
   Buffer* packet;
   if (!free_list_.empty()) {
     packet = free_list_.back();
@@ -74,6 +85,9 @@ bool BufferQueue::WriteBack(const void* buffer, size_t bytes,
     *bytes_written = bytes;
   }
   queue_.push_back(packet);
+  if (!was_readable) {
+    NotifyReadableForTest();
+  }
   return true;
 }
 

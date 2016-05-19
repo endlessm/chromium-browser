@@ -4,6 +4,9 @@
 
 #include "content/renderer/browser_plugin/browser_plugin.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
@@ -74,7 +77,6 @@ BrowserPlugin::BrowserPlugin(
       mouse_locked_(false),
       ready_(false),
       browser_plugin_instance_id_(browser_plugin::kInstanceIDNone),
-      contents_opaque_(true),
       delegate_(delegate),
       weak_ptr_factory_(this) {
   browser_plugin_instance_id_ =
@@ -85,6 +87,8 @@ BrowserPlugin::BrowserPlugin(
 }
 
 BrowserPlugin::~BrowserPlugin() {
+  Detach();
+
   if (compositing_helper_.get())
     compositing_helper_->OnContainerDestroy();
 
@@ -100,10 +104,7 @@ bool BrowserPlugin::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(BrowserPlugin, message)
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_AdvanceFocus, OnAdvanceFocus)
-    IPC_MESSAGE_HANDLER_GENERIC(BrowserPluginMsg_CompositorFrameSwapped,
-                                OnCompositorFrameSwapped(message))
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_GuestGone, OnGuestGone)
-    IPC_MESSAGE_HANDLER(BrowserPluginMsg_SetContentsOpaque, OnSetContentsOpaque)
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_SetCursor, OnSetCursor)
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_SetMouseLock, OnSetMouseLock)
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_SetTooltipText, OnSetTooltipText)
@@ -126,7 +127,6 @@ void BrowserPlugin::OnSetChildFrameSurface(
 
   EnableCompositing(true);
   DCHECK(compositing_helper_.get());
-
   compositing_helper_->OnSetSurface(surface_id, frame_size, scale_factor,
                                     sequence);
 }
@@ -186,8 +186,6 @@ void BrowserPlugin::Detach() {
 }
 
 void BrowserPlugin::DidCommitCompositorFrame() {
-  if (compositing_helper_.get())
-    compositing_helper_->DidCommitCompositorFrame();
 }
 
 void BrowserPlugin::OnAdvanceFocus(int browser_plugin_instance_id,
@@ -197,29 +195,6 @@ void BrowserPlugin::OnAdvanceFocus(int browser_plugin_instance_id,
   if (!render_view)
     return;
   render_view->GetWebView()->advanceFocus(reverse);
-}
-
-void BrowserPlugin::OnCompositorFrameSwapped(const IPC::Message& message) {
-  if (!attached())
-    return;
-
-  BrowserPluginMsg_CompositorFrameSwapped::Param param;
-  if (!BrowserPluginMsg_CompositorFrameSwapped::Read(&message, &param))
-    return;
-  // Note that there is no need to send ACK for this message.
-  // If the guest has updated pixels then it is no longer crashed.
-  guest_crashed_ = false;
-
-  scoped_ptr<cc::CompositorFrame> frame(new cc::CompositorFrame);
-  base::get<1>(param).frame.AssignTo(frame.get());
-
-  EnableCompositing(true);
-  compositing_helper_->OnCompositorFrameSwapped(
-      frame.Pass(),
-      base::get<1>(param).producing_route_id,
-      base::get<1>(param).output_surface_id,
-      base::get<1>(param).producing_host_id,
-      base::get<1>(param).shared_memory_handle);
 }
 
 void BrowserPlugin::OnGuestGone(int browser_plugin_instance_id) {
@@ -236,15 +211,6 @@ void BrowserPlugin::OnGuestGone(int browser_plugin_instance_id) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::Bind(&BrowserPlugin::ShowSadGraphic,
                             weak_ptr_factory_.GetWeakPtr()));
-}
-
-void BrowserPlugin::OnSetContentsOpaque(int browser_plugin_instance_id,
-                                        bool opaque) {
-  if (contents_opaque_ == opaque)
-    return;
-  contents_opaque_ = opaque;
-  if (compositing_helper_.get())
-    compositing_helper_->SetContentsOpaque(opaque);
 }
 
 void BrowserPlugin::OnSetCursor(int browser_plugin_instance_id,
@@ -360,8 +326,6 @@ void BrowserPlugin::EnableCompositing(bool enable) {
           weak_ptr_factory_.GetWeakPtr());
     }
   }
-  compositing_helper_->EnableCompositing(enable);
-  compositing_helper_->SetContentsOpaque(contents_opaque_);
 
   if (!enable) {
     DCHECK(compositing_helper_.get());
@@ -443,13 +407,17 @@ bool BrowserPlugin::ShouldForwardToBrowserPlugin(
   return IPC_MESSAGE_CLASS(message) == BrowserPluginMsgStart;
 }
 
-void BrowserPlugin::updateGeometry(const WebRect& window_rect,
+void BrowserPlugin::updateGeometry(const WebRect& plugin_rect_in_viewport,
                                    const WebRect& clip_rect,
                                    const WebRect& unobscured_rect,
                                    const WebVector<WebRect>& cut_outs_rects,
                                    bool is_visible) {
   gfx::Rect old_view_rect = view_rect_;
-  view_rect_ = window_rect;
+  // Convert the plugin_rect_in_viewport to window coordinates, which is css.
+  WebRect rect_in_css(plugin_rect_in_viewport);
+  blink::WebView* webview = container()->element().document().frame()->view();
+  RenderView::FromWebView(webview)->convertViewportToWindow(&rect_in_css);
+  view_rect_ = rect_in_css;
 
   if (!ready_) {
     if (delegate_)
@@ -496,25 +464,28 @@ bool BrowserPlugin::acceptsInputEvents() {
   return true;
 }
 
-bool BrowserPlugin::handleInputEvent(const blink::WebInputEvent& event,
-                                     blink::WebCursorInfo& cursor_info) {
+blink::WebInputEventResult BrowserPlugin::handleInputEvent(
+    const blink::WebInputEvent& event,
+    blink::WebCursorInfo& cursor_info) {
   if (guest_crashed_ || !attached())
-    return false;
+    return blink::WebInputEventResult::NotHandled;
+
+  DCHECK(!blink::WebInputEvent::isTouchEventType(event.type));
 
   if (event.type == blink::WebInputEvent::MouseWheel) {
     auto wheel_event = static_cast<const blink::WebMouseWheelEvent&>(event);
     if (wheel_event.resendingPluginId == browser_plugin_instance_id_)
-      return false;
+      return blink::WebInputEventResult::NotHandled;
   }
 
   if (blink::WebInputEvent::isGestureEventType(event.type)) {
     auto gesture_event = static_cast<const blink::WebGestureEvent&>(event);
     if (gesture_event.resendingPluginId == browser_plugin_instance_id_)
-      return false;
+      return blink::WebInputEventResult::NotHandled;
   }
 
   if (event.type == blink::WebInputEvent::ContextMenu)
-    return true;
+    return blink::WebInputEventResult::HandledSuppressed;
 
   if (blink::WebInputEvent::isKeyboardEventType(event.type) &&
       !edit_commands_.empty()) {
@@ -527,16 +498,15 @@ bool BrowserPlugin::handleInputEvent(const blink::WebInputEvent& event,
 
   BrowserPluginManager::Get()->Send(
       new BrowserPluginHostMsg_HandleInputEvent(browser_plugin_instance_id_,
-                                                view_rect_,
                                                 &event));
   GetWebCursorInfo(cursor_, &cursor_info);
 
   // Although we forward this event to the guest, we don't report it as consumed
   // since other targets of this event in Blink never get that chance either.
   if (event.type == blink::WebInputEvent::GestureFlingStart)
-    return false;
+    return blink::WebInputEventResult::NotHandled;
 
-  return true;
+  return blink::WebInputEventResult::HandledApplication;
 }
 
 bool BrowserPlugin::handleDragStatusUpdate(blink::WebDragStatus drag_status,
@@ -571,16 +541,6 @@ void BrowserPlugin::didFinishLoading() {
 }
 
 void BrowserPlugin::didFailLoading(const blink::WebURLError& error) {
-}
-
-void BrowserPlugin::didFinishLoadingFrameRequest(const blink::WebURL& url,
-                                                 void* notify_data) {
-}
-
-void BrowserPlugin::didFailLoadingFrameRequest(
-    const blink::WebURL& url,
-    void* notify_data,
-    const blink::WebURLError& error) {
 }
 
 bool BrowserPlugin::executeEditCommand(const blink::WebString& name) {
@@ -662,7 +622,6 @@ bool BrowserPlugin::HandleMouseLockedInputEvent(
     const blink::WebMouseEvent& event) {
   BrowserPluginManager::Get()->Send(
       new BrowserPluginHostMsg_HandleInputEvent(browser_plugin_instance_id_,
-                                                view_rect_,
                                                 &event));
   return true;
 }

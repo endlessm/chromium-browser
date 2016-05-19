@@ -4,8 +4,12 @@
 
 #include "extensions/common/extension.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <utility>
+
 #include "base/base64.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/i18n/rtl.h"
@@ -128,7 +132,7 @@ scoped_refptr<Extension> Extension::Create(const base::FilePath& path,
     return NULL;
   }
 
-  scoped_refptr<Extension> extension = new Extension(path, manifest.Pass());
+  scoped_refptr<Extension> extension = new Extension(path, std::move(manifest));
   extension->install_warnings_.swap(install_warnings);
 
   if (!extension->InitFromValue(flags, &error)) {
@@ -380,7 +384,7 @@ Extension::ManifestData* Extension::GetManifestData(const std::string& key)
 void Extension::SetManifestData(const std::string& key,
                                 Extension::ManifestData* data) {
   DCHECK(!finished_parsing_manifest_ && thread_checker_.CalledOnValidThread());
-  manifest_data_[key] = linked_ptr<ManifestData>(data);
+  manifest_data_[key] = scoped_ptr<ManifestData>(data);
 }
 
 Manifest::Location Extension::location() const {

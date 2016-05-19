@@ -4,6 +4,9 @@
 
 #include "sync/test/engine/mock_commit_queue.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/logging.h"
 
 namespace syncer_v2 {
@@ -38,7 +41,7 @@ bool MockCommitQueue::HasCommitRequestForTagHash(
        lists_it != commit_request_lists_.rend(); ++lists_it) {
     for (CommitRequestDataList::const_iterator it = lists_it->begin();
          it != lists_it->end(); ++it) {
-      if (it->client_tag_hash == tag_hash) {
+      if (it->entity->client_tag_hash == tag_hash) {
         return true;
       }
     }
@@ -56,7 +59,7 @@ CommitRequestData MockCommitQueue::GetLatestCommitRequestForTagHash(
        lists_it != commit_request_lists_.rend(); ++lists_it) {
     for (CommitRequestDataList::const_iterator it = lists_it->begin();
          it != lists_it->end(); ++it) {
-      if (it->client_tag_hash == tag_hash) {
+      if (it->entity->client_tag_hash == tag_hash) {
         return *it;
       }
     }
@@ -67,70 +70,73 @@ CommitRequestData MockCommitQueue::GetLatestCommitRequestForTagHash(
 }
 
 UpdateResponseData MockCommitQueue::UpdateFromServer(
-    int64 version_offset,
+    int64_t version_offset,
     const std::string& tag_hash,
     const sync_pb::EntitySpecifics& specifics) {
   // Overwrite the existing server version if this is the new highest version.
-  int64 old_version = GetServerVersion(tag_hash);
-  int64 version = old_version + version_offset;
+  int64_t old_version = GetServerVersion(tag_hash);
+  int64_t version = old_version + version_offset;
   if (version > old_version) {
     SetServerVersion(tag_hash, version);
   }
 
-  UpdateResponseData data;
+  EntityData data;
   data.id = GenerateId(tag_hash);
   data.client_tag_hash = tag_hash;
-  data.response_version = version;
-  data.deleted = false;
   data.specifics = specifics;
-
   // These elements should have no effect on behavior, but we set them anyway
   // so we can test they are properly copied around the system if we want to.
-  data.ctime = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
-  data.mtime = data.ctime + base::TimeDelta::FromSeconds(version);
+  data.creation_time = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
+  data.modification_time =
+      data.creation_time + base::TimeDelta::FromSeconds(version);
   data.non_unique_name = specifics.preference().name();
 
-  data.encryption_key_name = server_encryption_key_name_;
+  UpdateResponseData response_data;
+  response_data.entity = data.PassToPtr();
+  response_data.response_version = version;
+  response_data.encryption_key_name = server_encryption_key_name_;
 
-  return data;
+  return response_data;
 }
 
 UpdateResponseData MockCommitQueue::TombstoneFromServer(
-    int64 version_offset,
+    int64_t version_offset,
     const std::string& tag_hash) {
-  int64 old_version = GetServerVersion(tag_hash);
-  int64 version = old_version + version_offset;
+  int64_t old_version = GetServerVersion(tag_hash);
+  int64_t version = old_version + version_offset;
   if (version > old_version) {
     SetServerVersion(tag_hash, version);
   }
 
-  UpdateResponseData data;
+  EntityData data;
   data.id = GenerateId(tag_hash);
   data.client_tag_hash = tag_hash;
-  data.response_version = version;
-  data.deleted = true;
-
   // These elements should have no effect on behavior, but we set them anyway
   // so we can test they are properly copied around the system if we want to.
-  data.ctime = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
-  data.mtime = data.ctime + base::TimeDelta::FromSeconds(version);
+  data.creation_time = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
+  data.modification_time =
+      data.creation_time + base::TimeDelta::FromSeconds(version);
   data.non_unique_name = "Name Non Unique";
 
-  data.encryption_key_name = server_encryption_key_name_;
+  UpdateResponseData response_data;
+  response_data.entity = data.PassToPtr();
+  response_data.response_version = version;
+  response_data.encryption_key_name = server_encryption_key_name_;
 
-  return data;
+  return response_data;
 }
 
 CommitResponseData MockCommitQueue::SuccessfulCommitResponse(
     const CommitRequestData& request_data) {
-  const std::string& client_tag_hash = request_data.client_tag_hash;
+  const EntityData& entity = request_data.entity.value();
+  const std::string& client_tag_hash = entity.client_tag_hash;
 
   CommitResponseData response_data;
 
   if (request_data.base_version == 0) {
     // Server assigns new ID to newly committed items.
-    DCHECK(request_data.id.empty());
-    response_data.id = request_data.id;
+    DCHECK(entity.id.empty());
+    response_data.id = entity.id;
   } else {
     // Otherwise we reuse the ID from the request.
     response_data.id = GenerateId(client_tag_hash);
@@ -140,7 +146,7 @@ CommitResponseData MockCommitQueue::SuccessfulCommitResponse(
   response_data.sequence_number = request_data.sequence_number;
 
   // Increment the server version on successful commit.
-  int64 version = GetServerVersion(client_tag_hash);
+  int64_t version = GetServerVersion(client_tag_hash);
   version++;
   SetServerVersion(client_tag_hash, version);
 
@@ -158,8 +164,8 @@ std::string MockCommitQueue::GenerateId(const std::string& tag_hash) {
   return "FakeId:" + tag_hash;
 }
 
-int64 MockCommitQueue::GetServerVersion(const std::string& tag_hash) {
-  std::map<const std::string, int64>::const_iterator it;
+int64_t MockCommitQueue::GetServerVersion(const std::string& tag_hash) {
+  std::map<const std::string, int64_t>::const_iterator it;
   it = server_versions_.find(tag_hash);
   if (it == server_versions_.end()) {
     return 0;
@@ -169,8 +175,8 @@ int64 MockCommitQueue::GetServerVersion(const std::string& tag_hash) {
 }
 
 void MockCommitQueue::SetServerVersion(const std::string& tag_hash,
-                                               int64 version) {
+                                       int64_t version) {
   server_versions_[tag_hash] = version;
 }
 
-}  // namespace syncer
+}  // namespace syncer_v2

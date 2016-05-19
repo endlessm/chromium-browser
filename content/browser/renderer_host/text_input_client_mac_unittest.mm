@@ -4,6 +4,9 @@
 
 #import "content/browser/renderer_host/text_input_client_mac.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread.h"
@@ -21,7 +24,7 @@
 namespace content {
 
 namespace {
-const int64 kTaskDelayMs = 200;
+const int64_t kTaskDelayMs = 200;
 
 class MockRenderWidgetHostDelegate : public RenderWidgetHostDelegate {
  public:
@@ -47,7 +50,7 @@ class TextInputClientMacTest : public testing::Test {
         thread_("TextInputClientMacTestThread") {
     RenderProcessHost* rph =
         process_factory_.CreateRenderProcessHost(&browser_context_, nullptr);
-    int32 routing_id = rph->GetNextRoutingID();
+    int32_t routing_id = rph->GetNextRoutingID();
     widget_.reset(new RenderWidgetHostImpl(&delegate_, rph, routing_id, false));
   }
 
@@ -145,7 +148,6 @@ TEST_F(TextInputClientMacTest, TimeoutCharacterIndex) {
 TEST_F(TextInputClientMacTest, NotFoundCharacterIndex) {
   ScopedTestingThread thread(this);
   const NSUInteger kPreviousValue = 42;
-  const size_t kNotFoundValue = static_cast<size_t>(-1);
 
   // Set an arbitrary value to ensure the index is not |NSNotFound|.
   PostTask(FROM_HERE,
@@ -156,7 +158,7 @@ TEST_F(TextInputClientMacTest, NotFoundCharacterIndex) {
       new TextInputClientMessageFilter(widget()->GetProcess()->GetID()));
   scoped_ptr<IPC::Message> message(
       new TextInputClientReplyMsg_GotCharacterIndexForPoint(
-          widget()->GetRoutingID(), kNotFoundValue));
+          widget()->GetRoutingID(), UINT32_MAX));
   // Set |WTF::notFound| to the index |kTaskDelayMs| after the previous
   // setting.
   PostTask(FROM_HERE,

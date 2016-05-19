@@ -3,24 +3,34 @@
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-checkbox/paper-checkbox.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-dialog/paper-dialog.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner.html">
+<link rel="import" href="chrome://md-settings/settings_dialog_css.html">
 
 <dom-module id="settings-reset-profile-dialog">
+  <link rel="import" type="css" href="reset_page_dialog.css">
   <link rel="import" type="css" href="reset_profile_dialog.css">
   <template>
+    <style include="settings-dialog"></style>
     <paper-dialog modal id="dialog">
-      <div>
-        <h2 i18n-content="resetPageTitle"></h2>
-        <div i18n-content="resetPageExplanation" id="explanation"></div>
-        <div class="layout center horizontal" id="buttonContainer">
-          <paper-button on-tap="onLearnMoreTap_" id="learnMore"
-              i18n-content="learnMore"></paper-button>
-          <div class="layout center buttons flex-1">
+      <div id="dialog-content">
+        <div class="top-row">
+          <span class="title" i18n-content="resetPageTitle"></span>
+          <paper-icon-button icon="clear" on-tap="onCancelTap_" id="close">
+          </paper-icon-button>
+        </div>
+        <div class="body">
+          <div class="explanation">
+            <span i18n-content="resetPageExplanation"></span>
+            <a i18n-values="href:resetPageLearnMoreUrl"
+                i18n-content="learnMore" target="_blank"></a>
+          </div>
+          <div class="button-container">
             <paper-spinner id="resetSpinner"></paper-spinner>
-            <paper-button on-tap="onCancelTap_" id="cancel"
-                i18n-content="cancel"></paper-button>
-            <paper-button i18n-content="resetPageCommit" on-tap="onResetTap_"
-                id="reset"></paper-button>
+            <paper-button class="cancel-button" on-tap="onCancelTap_"
+                id="cancel" i18n-content="cancel"></paper-button>
+            <paper-button class="action-button" i18n-content="resetPageCommit"
+                on-tap="onResetTap_" id="reset"></paper-button>
           </div>
         </div>
       </div>

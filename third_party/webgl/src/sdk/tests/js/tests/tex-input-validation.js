@@ -292,7 +292,7 @@ var testCases = [
     border: 0,
     format: 0x1903, // GL_RED
     type: gl.UNSIGNED_BYTE,
-    expectedError: gl.INVALID_ENUM },
+    expectedError: [gl.INVALID_ENUM, gl.INVALID_VALUE] },
   { target: gl.TEXTURE_2D,
     internalFormat: gl.RGBA,
     border: 1,
@@ -329,7 +329,13 @@ if (contextVersion < 2) {
       border: 0,
       format: gl.RGBA,
       type: gl.BYTE,
-      expectedError: gl.INVALID_OPERATION }
+      expectedError: gl.INVALID_OPERATION },
+    { target: gl.TEXTURE_3D,
+      internalFormat: gl.RGBA,
+      border: 0,
+      format: gl.RGBA,
+      type: gl.UNSIGNED_BYTE,
+      expectedError: gl.INVALID_ENUM }
   ]);
 }
 
@@ -367,7 +373,11 @@ if (contextVersion < 2) {
     { target: gl.TEXTURE_2D,
       format: gl.RGBA,
       type: gl.BYTE,
-      expectedError: gl.INVALID_OPERATION }
+      expectedError: gl.INVALID_OPERATION },
+    { target: gl.TEXTURE_3D,
+      format: gl.RGBA,
+      type: gl.UNSIGNED_BYTE,
+      expectedError: gl.INVALID_ENUM },
   ]);
 }
 
@@ -410,6 +420,16 @@ testCases = [
     border: 0,
     expectedError: gl.NO_ERROR }
 ];
+
+if (contextVersion > 1) {
+  testCases = testCases.concat([
+    { target: gl.TEXTURE_3D,
+      colorBufferFormat: gl.RGB5_A1,
+      internalFormat: gl.RGBA,
+      border: 0,
+      expectedError: gl.INVALID_ENUM }
+  ]);
+}
 
 for (var ii = 0; ii < testCases.length; ++ii) {
   testCopyTexImage2D(testCases[ii]);
@@ -514,7 +534,7 @@ var testCases = [
     border: 0,
     format: gl.RGBA,
     type: gl.UNSIGNED_BYTE,
-    expectedError: gl.INVALID_ENUM},
+    expectedError: gl.INVALID_VALUE},
   { target: gl.TEXTURE_3D,
     internalFormat: gl.RGBA,
     border: 0,

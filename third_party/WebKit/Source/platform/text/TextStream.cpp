@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/text/TextStream.h"
 
 #include "platform/LayoutUnit.h"
@@ -201,4 +200,4 @@ void writeIndent(TextStream& ts, int indent)
         ts << "  ";
 }
 
-}
+} // namespace blink

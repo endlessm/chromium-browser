@@ -2,17 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/bind.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "build/build_config.h"
 #include "chrome/browser/supervised_user/legacy/supervised_user_sync_service.h"
 #include "chrome/browser/supervised_user/legacy/supervised_user_sync_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "sync/api/attachments/attachment_id.h"
 #include "sync/api/sync_change.h"
@@ -22,7 +25,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_CHROMEOS)
-#include "components/user_manager/user_image/default_user_images.h"
+#include "chrome/browser/chromeos/login/users/default_user_image/default_user_images.h"
 #endif
 
 using sync_pb::ManagedUserSpecifics;
@@ -106,7 +109,7 @@ class SupervisedUserSyncServiceTest : public ::testing::Test {
   MockChangeProcessor* change_processor_;
 
   // A unique ID for creating "remote" Sync data.
-  int64 sync_data_id_;
+  int64_t sync_data_id_;
 };
 
 SupervisedUserSyncServiceTest::SupervisedUserSyncServiceTest()
@@ -292,7 +295,7 @@ TEST_F(SupervisedUserSyncServiceTest, GetAvatarIndex) {
 
   int avatar_index = 4;
 #if defined(OS_CHROMEOS)
-  avatar_index += user_manager::kFirstDefaultImageIndex;
+  avatar_index += chromeos::default_user_image::kFirstDefaultImageIndex;
 #endif
   std::string avatar_str =
       SupervisedUserSyncService::BuildAvatarString(avatar_index);
@@ -308,7 +311,7 @@ TEST_F(SupervisedUserSyncServiceTest, GetAvatarIndex) {
 
   avatar_index = 0;
 #if defined(OS_CHROMEOS)
-  avatar_index += user_manager::kFirstDefaultImageIndex;
+  avatar_index += chromeos::default_user_image::kFirstDefaultImageIndex;
 #endif
   avatar_str = SupervisedUserSyncService::BuildAvatarString(avatar_index);
 #if defined(OS_CHROMEOS)

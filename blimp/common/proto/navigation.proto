@@ -30,10 +30,18 @@ message NavigationStateChangeMessage {
 
   // If the title changed, this will contain the new title string.
   optional string title = 3;
+
+  // If the loading state changed, this will contain whether or not the page is
+  // loading.  See WebContents::IsLoading() for more details.
+  // TODO(dtrainor): Figure out exactly what we want to send here.  Loading may
+  // mean different things for different contexts (crbug.com/563626).
+  optional bool loading = 4;
 }
 
 message NavigationMessage {
   enum Type {
+    UNKNOWN = 0;
+
     // Server => Client types.
     NAVIGATION_STATE_CHANGED = 1;
 
@@ -46,6 +54,6 @@ message NavigationMessage {
 
   optional Type type = 1;
 
-  optional NavigationStateChangeMessage navigation_state_change = 1000;
+  optional NavigationStateChangeMessage navigation_state_changed = 1000;
   optional LoadUrlMessage load_url = 1001;
 }

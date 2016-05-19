@@ -5,9 +5,8 @@
 /**
  * @constructor
  * @extends {WebInspector.VBox}
- * @param {!WebInspector.InspectedPagePlaceholder} inspectedPagePlaceholder
  */
-WebInspector.DeviceModeView = function(inspectedPagePlaceholder)
+WebInspector.DeviceModeView = function()
 {
     WebInspector.VBox.call(this, true);
     this.setMinimumSize(150, 150);
@@ -16,168 +15,121 @@ WebInspector.DeviceModeView = function(inspectedPagePlaceholder)
     WebInspector.Tooltip.addNativeOverrideContainer(this.contentElement);
 
     this._model = new WebInspector.DeviceModeModel(this._updateUI.bind(this));
-    this._mediaInspector = new WebInspector.MediaQueryInspector(this._model.genericWidthSetting());
-    // TODO(dgozman): better full control, controlling mode, persist type/device, more fit options.
+    this._mediaInspector = new WebInspector.MediaQueryInspector(() => this._model.appliedDeviceSize().width, this._model.setWidth.bind(this._model));
+    // TODO(dgozman): remove CountUpdated event.
+    this._showMediaInspectorSetting = WebInspector.settings.createSetting("showMediaQueryInspector", false);
+    this._showMediaInspectorSetting.addChangeListener(this._updateUI, this);
+    this._showRulersSetting = WebInspector.settings.createSetting("emulation.showRulers", false);
+    this._showRulersSetting.addChangeListener(this._updateUI, this);
 
-    this._inspectedPagePlaceholder = inspectedPagePlaceholder;
+    this._topRuler = new WebInspector.DeviceModeView.Ruler(true, this._model.setWidthAndScaleToFit.bind(this._model));
+    this._topRuler.element.classList.add("device-mode-ruler-top");
+    this._leftRuler = new WebInspector.DeviceModeView.Ruler(false, this._model.setHeightAndScaleToFit.bind(this._model));
+    this._leftRuler.element.classList.add("device-mode-ruler-left");
     this._createUI();
-    WebInspector.zoomManager.addEventListener(WebInspector.ZoomManager.Events.ZoomChanged, this._updateUI, this);
+    WebInspector.zoomManager.addEventListener(WebInspector.ZoomManager.Events.ZoomChanged, this._zoomChanged, this);
 };
 
 WebInspector.DeviceModeView.prototype = {
     _createUI: function()
     {
-        var toolbarContainer = this.contentElement.createChild("div", "device-mode-toolbar");
-        var mediaInspectorContainer = this.contentElement.createChild("div", "device-mode-media-container");
-        this._contentArea = this.contentElement.createChild("div", "device-mode-content-area");
+        this._toolbar = new WebInspector.DeviceModeToolbar(this._model, this._showMediaInspectorSetting, this._showRulersSetting);
+        this.contentElement.appendChild(this._toolbar.element());
+
+        this._contentClip = this.contentElement.createChild("div", "device-mode-content-clip vbox");
+        this._responsivePresetsContainer = this._contentClip.createChild("div", "device-mode-presets-container");
+        this._populatePresetsContainer();
+        this._mediaInspectorContainer = this._contentClip.createChild("div", "device-mode-media-container");
+        this._contentArea = this._contentClip.createChild("div", "device-mode-content-area");
 
         this._screenArea = this._contentArea.createChild("div", "device-mode-screen-area");
         this._screenImage = this._screenArea.createChild("img", "device-mode-screen-image hidden");
         this._screenImage.addEventListener("load", this._onScreenImageLoaded.bind(this, true), false);
         this._screenImage.addEventListener("error", this._onScreenImageLoaded.bind(this, false), false);
 
-        this._resizerElement = this._screenArea.createChild("div", "device-mode-resizer");
-        this._resizerElement.createChild("div", "");
-        this._createResizer(this._resizerElement);
+        this._bottomRightResizerElement = this._screenArea.createChild("div", "device-mode-resizer device-mode-bottom-right-resizer");
+        this._bottomRightResizerElement.createChild("div", "");
+        this._createResizer(this._bottomRightResizerElement, 2, 1);
+
+        this._bottomLeftResizerElement = this._screenArea.createChild("div", "device-mode-resizer device-mode-bottom-left-resizer");
+        this._bottomLeftResizerElement.createChild("div", "");
+        this._createResizer(this._bottomLeftResizerElement, -2, 1);
+
+        this._rightResizerElement = this._screenArea.createChild("div", "device-mode-resizer device-mode-right-resizer");
+        this._rightResizerElement.createChild("div", "");
+        this._createResizer(this._rightResizerElement, 2, 0);
+
+        this._leftResizerElement = this._screenArea.createChild("div", "device-mode-resizer device-mode-left-resizer");
+        this._leftResizerElement.createChild("div", "");
+        this._createResizer(this._leftResizerElement, -2, 0);
+
+        this._bottomResizerElement = this._screenArea.createChild("div", "device-mode-resizer device-mode-bottom-resizer");
+        this._bottomResizerElement.createChild("div", "");
+        this._createResizer(this._bottomResizerElement, 0, 1);
+        this._bottomResizerElement.addEventListener("dblclick", this._model.setHeight.bind(this._model, 0), false);
+        this._bottomResizerElement.title = WebInspector.UIString("Double-click for full height");
 
         this._pageArea = this._screenArea.createChild("div", "device-mode-page-area");
-        this._inspectedPagePlaceholder.clearMinimumSizeAndMargins();
-        this._inspectedPagePlaceholder.show(this._pageArea);
-
-        this._warningInfobar = new WebInspector.Infobar(WebInspector.Infobar.Type.Warning, WebInspector.moduleSetting("disableOverridesWarning"));
-        this._warningInfobar.element.classList.add("device-mode-warning");
-        this._warningInfobar.setCloseCallback(this._model.clearWarning.bind(this._model));
-        this._contentArea.appendChild(this._warningInfobar.element);
-        this._warningMessage = this._warningInfobar.element.createChild("span");
-
-        this._createToolbar(toolbarContainer, mediaInspectorContainer);
+        this._pageArea.createChild("content");
     },
 
-    /**
-     * @param {!Element} toolbarContainer
-     * @param {!Element} mediaInspectorContainer
-     */
-    _createToolbar: function(toolbarContainer, mediaInspectorContainer)
+    _populatePresetsContainer: function()
     {
-        var toolbar = new WebInspector.Toolbar(toolbarContainer);
+        var sizes = [320, 375, 425, 768, 1024, 1440, 2560];
+        var titles = [WebInspector.UIString("Mobile S"),
+                      WebInspector.UIString("Mobile M"),
+                      WebInspector.UIString("Mobile L"),
+                      WebInspector.UIString("Tablet"),
+                      WebInspector.UIString("Laptop"),
+                      WebInspector.UIString("Laptop L"),
+                      WebInspector.UIString("4K")]
+        this._presetBlocks = [];
+        var inner = this._responsivePresetsContainer.createChild("div", "device-mode-presets-container-inner")
+        for (var i = sizes.length - 1; i >= 0; --i) {
+            var outer = inner.createChild("div", "fill device-mode-preset-bar-outer");
+            var block = outer.createChild("div", "device-mode-preset-bar");
+            block.createChild("span").textContent = titles[i] + " \u2013 " + sizes[i] + "px";
+            block.addEventListener("click", applySize.bind(this, sizes[i]), false);
+            block.__width = sizes[i];
+            this._presetBlocks.push(block);
+        }
 
-        var deviceSelect = this._createDeviceSelect();
-        var deviceSelectItem = new WebInspector.ToolbarItem(this._wrapToolbarItem(deviceSelect));
-        toolbar.appendToolbarItem(deviceSelectItem);
-        toolbar.appendSeparator();
+        /**
+         * @param {number} width
+         * @param {!Event} e
+         * @this {WebInspector.DeviceModeView}
+         */
+        function applySize(width, e)
+        {
+            this._model.emulate(WebInspector.DeviceModeModel.Type.Responsive, null, null);
+            this._model.setSizeAndScaleToFit(width, 0);
+            e.consume();
+        }
+    },
 
-        var genericWidthInput = createElementWithClass("input", "device-mode-size-input");
-        genericWidthInput.maxLength = 5;
-        genericWidthInput.placeholder = WebInspector.UIString("Full");
-        WebInspector.SettingsUI.bindSettingInputField(genericWidthInput, this._model.genericWidthSetting(), true, WebInspector.DeviceModeModel.deviceSizeValidator, true, true);
-        this._genericWidthItem = new WebInspector.ToolbarItem(this._wrapToolbarItem(genericWidthInput));
-        toolbar.appendToolbarItem(this._genericWidthItem);
-
-        this._deviceSizeInput = createElementWithClass("input", "device-mode-size-input");
-        this._deviceSizeInput.disabled = true;
-        this._deviceSizeInput.style.opacity = "0.7";
-        this._deviceSizeItem = new WebInspector.ToolbarItem(this._wrapToolbarItem(this._deviceSizeInput));
-        toolbar.appendToolbarItem(this._deviceSizeItem);
-        toolbar.appendSeparator();
-
-        var fitCheckbox = WebInspector.SettingsUI.createSettingCheckbox(WebInspector.UIString("Fit"), this._model.fitSetting(), true, WebInspector.UIString("Zoom to fit available space"));
-        var fitItem = new WebInspector.ToolbarItem(fitCheckbox);
-        toolbar.appendToolbarItem(fitItem);
-        toolbar.appendSeparator();
-
-        var mediaInspectorButton = new WebInspector.DeviceModeView.MediaInspectorButton(this._mediaInspector, mediaInspectorContainer, this.onResize.bind(this));
-        toolbar.appendToolbarItem(mediaInspectorButton.button());
+    toggleDeviceMode: function()
+    {
+        this._toolbar.toggleDeviceMode();
     },
 
     /**
      * @param {!Element} element
-     * @return {!Element}
-     */
-    _wrapToolbarItem: function(element)
-    {
-        var container = createElement("div");
-        var shadowRoot = WebInspector.createShadowRootWithCoreStyles(container);
-        shadowRoot.appendChild(WebInspector.Widget.createStyleElement("emulation/deviceModeToolbar.css"));
-        shadowRoot.appendChild(element);
-        return container;
-    },
-
-    /**
-     * @return {!Element}
-     */
-    _createDeviceSelect: function()
-    {
-        var select = createElementWithClass("select", "device-mode-device-select");
-        WebInspector.emulatedDevicesList.addEventListener(WebInspector.EmulatedDevicesList.Events.CustomDevicesUpdated, deviceListChanged, this);
-        WebInspector.emulatedDevicesList.addEventListener(WebInspector.EmulatedDevicesList.Events.StandardDevicesUpdated, deviceListChanged, this);
-        deviceListChanged.call(this);
-        select.addEventListener("change", optionSelected.bind(this), false);
-        return select;
-
-        /**
-         * @this {WebInspector.DeviceModeView}
-         */
-        function deviceListChanged()
-        {
-            select.removeChildren();
-
-            var genericGroup = select.createChild("optgroup");
-            genericGroup.label = WebInspector.UIString("Generic");
-            addOption.call(this, genericGroup, WebInspector.DeviceModeModel.Type.Mobile, null);
-            addOption.call(this, genericGroup, WebInspector.DeviceModeModel.Type.Tablet, null);
-            addOption.call(this, genericGroup, WebInspector.DeviceModeModel.Type.Desktop, null);
-
-            var deviceGroup = select.createChild("optgroup");
-            deviceGroup.label = WebInspector.UIString("Devices");
-            var devices = WebInspector.emulatedDevicesList.custom().concat(WebInspector.emulatedDevicesList.standard());
-            devices.sort(WebInspector.EmulatedDevice.compareByTitle);
-            for (var device of devices) {
-                if (device.show())
-                    addOption.call(this, deviceGroup, WebInspector.DeviceModeModel.Type.Device, device);
-            }
-        }
-
-        /**
-         * @param {!Element} group
-         * @param {!WebInspector.DeviceModeModel.Type} type
-         * @param {?WebInspector.EmulatedDevice} device
-         * @this {WebInspector.DeviceModeView}
-         */
-        function addOption(group, type, device)
-        {
-            var title = type === WebInspector.DeviceModeModel.Type.Device ? device.title : WebInspector.UIString(type);
-            var option = new Option(title, title);
-            option.device = device;
-            option.type = type;
-            group.appendChild(option);
-
-            if (type === this._model.type() && device === this._model.device())
-                select.selectedIndex = Array.prototype.slice.call(select.options).indexOf(option);
-        }
-
-        /**
-         * @this {WebInspector.DeviceModeView}
-         */
-        function optionSelected()
-        {
-            var option = select.options[select.selectedIndex];
-            this._model.emulate(option.type, option.device);
-            if (option.type !== WebInspector.DeviceModeModel.Type.Desktop)
-                WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.DeviceModeEnabled);
-        }
-    },
-
-    /**
-     * @param {!Element} element
+     * @param {number} widthFactor
+     * @param {number} heightFactor
      * @return {!WebInspector.ResizerWidget}
      */
-    _createResizer: function(element)
+    _createResizer: function(element, widthFactor, heightFactor)
     {
         var resizer = new WebInspector.ResizerWidget();
         resizer.addElement(element);
-        resizer.setCursor("ew-resize");
+        var cursor = widthFactor ? "ew-resize" : "ns-resize";
+        if (widthFactor * heightFactor > 0)
+            cursor = "nwse-resize";
+        if (widthFactor * heightFactor < 0)
+            cursor = "nesw-resize";
+        resizer.setCursor(cursor);
         resizer.addEventListener(WebInspector.ResizerWidget.Events.ResizeStart, this._onResizeStart, this);
-        resizer.addEventListener(WebInspector.ResizerWidget.Events.ResizeUpdate, this._onResizeUpdate, this);
+        resizer.addEventListener(WebInspector.ResizerWidget.Events.ResizeUpdate, this._onResizeUpdate.bind(this, widthFactor, heightFactor));
         resizer.addEventListener(WebInspector.ResizerWidget.Events.ResizeEnd, this._onResizeEnd, this);
         return resizer;
     },
@@ -188,27 +140,42 @@ WebInspector.DeviceModeView.prototype = {
     _onResizeStart: function(event)
     {
         this._slowPositionStart = null;
-        this._resizeStart = this._model.screenRect().width;
-        this._model.suspendFitScaleChanges();
+        /** @type {!Size} */
+        this._resizeStart = this._model.screenRect().size();
     },
 
     /**
+     * @param {number} widthFactor
+     * @param {number} heightFactor
      * @param {!WebInspector.Event} event
      */
-    _onResizeUpdate: function(event)
+    _onResizeUpdate: function(widthFactor, heightFactor, event)
     {
         if (event.data.shiftKey !== !!this._slowPositionStart)
-            this._slowPositionStart = event.data.shiftKey ? event.data.currentX : null;
+            this._slowPositionStart = event.data.shiftKey ? {x: event.data.currentX, y: event.data.currentY} : null;
 
-        var cssOffset = event.data.currentX - event.data.startX;
-        if (this._slowPositionStart)
-            cssOffset = (event.data.currentX - this._slowPositionStart) / 10 + this._slowPositionStart - event.data.startX;
-        var dipOffset = cssOffset * WebInspector.zoomManager.zoomFactor();
+        var cssOffsetX = event.data.currentX - event.data.startX;
+        var cssOffsetY = event.data.currentY - event.data.startY;
+        if (this._slowPositionStart) {
+            cssOffsetX = (event.data.currentX - this._slowPositionStart.x) / 10 + this._slowPositionStart.x - event.data.startX;
+            cssOffsetY = (event.data.currentY - this._slowPositionStart.y) / 10 + this._slowPositionStart.y - event.data.startY;
+        }
 
-        var newWidth = this._resizeStart + dipOffset * 2;
-        newWidth = Math.round(newWidth / this._model.fitScale());
-        newWidth = Math.max(Math.min(newWidth, WebInspector.DeviceModeModel.MaxDeviceSize), 1);
-        this._model.genericWidthSetting().set(newWidth);
+        if (widthFactor) {
+            var dipOffsetX = cssOffsetX * WebInspector.zoomManager.zoomFactor();
+            var newWidth = this._resizeStart.width + dipOffsetX * widthFactor;
+            newWidth = Math.round(newWidth / this._model.scale());
+            if (newWidth >= WebInspector.DeviceModeModel.MinDeviceSize && newWidth <= WebInspector.DeviceModeModel.MaxDeviceSize)
+                this._model.setWidth(newWidth);
+        }
+
+        if (heightFactor) {
+            var dipOffsetY = cssOffsetY * WebInspector.zoomManager.zoomFactor();
+            var newHeight = this._resizeStart.height + dipOffsetY * heightFactor;
+            newHeight = Math.round(newHeight / this._model.scale());
+            if (newHeight >= WebInspector.DeviceModeModel.MinDeviceSize && newHeight <= WebInspector.DeviceModeModel.MaxDeviceSize)
+                this._model.setHeight(newHeight);
+        }
     },
 
     /**
@@ -217,12 +184,7 @@ WebInspector.DeviceModeView.prototype = {
     _onResizeEnd: function(event)
     {
         delete this._resizeStart;
-        this._model.resumeFitScaleChanges();
-    },
-
-    updatePageResizer: function()
-    {
-        // TODO(dgozman): remove once we switch over.
+        WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.ResizedViewInResponsiveMode);
     },
 
     _updateUI: function()
@@ -231,53 +193,87 @@ WebInspector.DeviceModeView.prototype = {
             return;
 
         var zoomFactor = WebInspector.zoomManager.zoomFactor();
+        var callDoResize = false;
+        var showRulers = this._showRulersSetting.get() && this._model.type() !== WebInspector.DeviceModeModel.Type.None;
+        var contentAreaResized = false;
+        var updateRulers = false;
 
         var cssScreenRect = this._model.screenRect().scale(1 / zoomFactor);
-        var cssVisiblePageRect = this._model.visiblePageRect().scale(1 / zoomFactor);
-        var resizePagePlaceholder = false;
-
         if (!cssScreenRect.isEqual(this._cachedCssScreenRect)) {
             this._screenArea.style.left = cssScreenRect.left + "px";
             this._screenArea.style.top = cssScreenRect.top + "px";
             this._screenArea.style.width = cssScreenRect.width + "px";
             this._screenArea.style.height = cssScreenRect.height + "px";
-            resizePagePlaceholder = true;
+            this._leftRuler.element.style.left = cssScreenRect.left + "px";
+            updateRulers = true;
+            callDoResize = true;
+            this._cachedCssScreenRect = cssScreenRect;
         }
 
+        var cssVisiblePageRect = this._model.visiblePageRect().scale(1 / zoomFactor);
         if (!cssVisiblePageRect.isEqual(this._cachedCssVisiblePageRect)) {
             this._pageArea.style.left = cssVisiblePageRect.left + "px";
             this._pageArea.style.top = cssVisiblePageRect.top + "px";
             this._pageArea.style.width = cssVisiblePageRect.width + "px";
             this._pageArea.style.height = cssVisiblePageRect.height + "px";
-            resizePagePlaceholder = true;
+            callDoResize = true;
+            this._cachedCssVisiblePageRect = cssVisiblePageRect;
         }
 
-        if (this._model.type() !== this._cachedModelType) {
-            var isDevice = this._model.type() === WebInspector.DeviceModeModel.Type.Device;
-            this._resizerElement.classList.toggle("hidden", isDevice);
-            this._genericWidthItem.setVisible(!isDevice);
-            this._deviceSizeItem.setVisible(isDevice);
+        var resizable = this._model.type() === WebInspector.DeviceModeModel.Type.Responsive;
+        if (resizable !== this._cachedResizable) {
+            this._rightResizerElement.classList.toggle("hidden", !resizable);
+            this._leftResizerElement.classList.toggle("hidden", !resizable);
+            this._bottomResizerElement.classList.toggle("hidden", !resizable);
+            this._bottomRightResizerElement.classList.toggle("hidden", !resizable);
+            this._bottomLeftResizerElement.classList.toggle("hidden", !resizable);
+            this._cachedResizable = resizable;
         }
 
-        var warning = this._model.warning();
-        if (warning !== this._cachedWarning) {
-            this._warningMessage.textContent = warning;
-            this._warningInfobar.setVisible(!!warning);
+        var mediaInspectorVisible = this._showMediaInspectorSetting.get() && this._model.type() !== WebInspector.DeviceModeModel.Type.None;
+        if (mediaInspectorVisible !== this._cachedMediaInspectorVisible) {
+            if (mediaInspectorVisible)
+                this._mediaInspector.show(this._mediaInspectorContainer);
+            else
+                this._mediaInspector.detach();
+            contentAreaResized = true;
+            callDoResize = true;
+            this._cachedMediaInspectorVisible = mediaInspectorVisible;
         }
 
-        if (this._model.type() === WebInspector.DeviceModeModel.Type.Device) {
-            var deviceSize = this._model.appliedDeviceSize();
-            this._deviceSizeInput.value = deviceSize.width + "x" + deviceSize.height;
+        if (showRulers !== this._cachedShowRulers) {
+            this._contentClip.classList.toggle("device-mode-rulers-visible", showRulers);
+            if (showRulers) {
+                this._topRuler.show(this._contentClip, this._contentArea);
+                this._leftRuler.show(this._contentArea);
+            } else {
+                this._topRuler.detach();
+                this._leftRuler.detach();
+            }
+            contentAreaResized = true;
+            callDoResize = true;
+            this._cachedShowRulers = showRulers;
         }
+
+        if (this._model.scale() !== this._cachedScale) {
+            updateRulers = true;
+            callDoResize = true;
+            for (var block of this._presetBlocks)
+                block.style.width = block.__width * this._model.scale() + "px";
+            this._cachedScale = this._model.scale();
+        }
+
+        this._toolbar.update();
         this._loadScreenImage(this._model.screenImage());
-        if (resizePagePlaceholder)
-            this._inspectedPagePlaceholder.onResize();
-        this._mediaInspector.setAxisTransform(-cssScreenRect.left, this._model.fitScale());
-
-        this._cachedCssScreenRect = cssScreenRect;
-        this._cachedCssVisiblePageRect = cssVisiblePageRect;
-        this._cachedModelType = this._model.type();
-        this._cachedWarning = warning;
+        this._mediaInspector.setAxisTransform(this._model.scale());
+        if (callDoResize)
+            this.doResize();
+        if (updateRulers) {
+            this._topRuler.render(this._cachedCssScreenRect ? this._cachedCssScreenRect.left : 0, this._model.scale());
+            this._leftRuler.render(0, this._model.scale());
+        }
+        if (contentAreaResized)
+            this._contentAreaResized();
     },
 
     /**
@@ -300,14 +296,43 @@ WebInspector.DeviceModeView.prototype = {
         this._screenImage.classList.toggle("hidden", !success);
     },
 
+    _contentAreaResized: function()
+    {
+        var zoomFactor = WebInspector.zoomManager.zoomFactor();
+        var rect = this._contentArea.getBoundingClientRect();
+        var availableSize = new Size(Math.max(rect.width * zoomFactor, 1), Math.max(rect.height * zoomFactor, 1));
+        var preferredSize = new Size(Math.max((rect.width - 2 * this._handleWidth) * zoomFactor, 1), Math.max((rect.height - this._handleHeight) * zoomFactor, 1));
+        this._model.setAvailableSize(availableSize, preferredSize);
+    },
+
+    _measureHandles: function()
+    {
+        var hidden = this._rightResizerElement.classList.contains("hidden");
+        this._rightResizerElement.classList.toggle("hidden", false);
+        this._bottomResizerElement.classList.toggle("hidden", false);
+        this._handleWidth = this._rightResizerElement.offsetWidth;
+        this._handleHeight = this._bottomResizerElement.offsetHeight;
+        this._rightResizerElement.classList.toggle("hidden", hidden);
+        this._bottomResizerElement.classList.toggle("hidden", hidden);
+    },
+
+    _zoomChanged: function()
+    {
+        delete this._handleWidth;
+        delete this._handleHeight;
+        if (this.isShowing()) {
+            this._measureHandles();
+            this._contentAreaResized();
+        }
+    },
+
     /**
      * @override
      */
     onResize: function()
     {
-        var zoomFactor = WebInspector.zoomManager.zoomFactor();
-        var rect = this._contentArea.getBoundingClientRect();
-        this._model.availableSizeChanged(new Size(Math.max(rect.width * zoomFactor, 1), Math.max(rect.height * zoomFactor, 1)));
+        if (this.isShowing())
+            this._contentAreaResized();
     },
 
     /**
@@ -315,7 +340,8 @@ WebInspector.DeviceModeView.prototype = {
      */
     wasShown: function()
     {
-        this._mediaInspector.setEnabled(true);
+        this._measureHandles();
+        this._toolbar.restore();
     },
 
     /**
@@ -323,79 +349,116 @@ WebInspector.DeviceModeView.prototype = {
      */
     willHide: function()
     {
-        this._mediaInspector.setEnabled(false);
+        this._model.emulate(WebInspector.DeviceModeModel.Type.None, null, null);
     },
 
     __proto__: WebInspector.VBox.prototype
 }
 
-
 /**
- * @param {!WebInspector.MediaQueryInspector} mediaInspector
- * @param {!Element} container
- * @param {function()} resizeCallback
  * @constructor
+ * @extends {WebInspector.VBox}
+ * @param {boolean} horizontal
+ * @param {function(number)} applyCallback
  */
-WebInspector.DeviceModeView.MediaInspectorButton = function(mediaInspector, container, resizeCallback)
+WebInspector.DeviceModeView.Ruler = function(horizontal, applyCallback)
 {
-    this._mediaInspector = mediaInspector;
-    this._mediaInspector.addEventListener(WebInspector.MediaQueryInspector.Events.CountUpdated, this._updateButton, this);
-    this._mediaInspector.addEventListener(WebInspector.MediaQueryInspector.Events.HeightUpdated, resizeCallback);
-
-    this._resizeCallback = resizeCallback;
-    this._container = container;
-
-    this._setting = WebInspector.settings.createSetting("showMediaQueryInspector", false);
-    this._setting.addChangeListener(this._settingChanged, this);
-
-    this._button = new WebInspector.ToolbarButton(WebInspector.UIString("Media queries not found"), "waterfall-toolbar-item");
-    this._button.setToggled(this._setting.get());
-    this._button.setEnabled(false);
-    this._button.addEventListener("click", this._buttonClick, this);
-
-    this._updateMediaInspector();
+    WebInspector.VBox.call(this);
+    this._contentElement = this.element.createChild("div", "device-mode-ruler flex-auto");
+    this._horizontal = horizontal;
+    this._scale = 1;
+    this._offset = 0;
+    this._count = 0;
+    this._throttler = new WebInspector.Throttler(0);
+    this._applyCallback = applyCallback;
 }
 
-WebInspector.DeviceModeView.MediaInspectorButton.prototype = {
+WebInspector.DeviceModeView.Ruler.prototype = {
     /**
-     * @return {!WebInspector.ToolbarButton}
+     * @param {number} offset
+     * @param {number} scale
      */
-    button: function()
+    render: function(offset, scale)
     {
-        return this._button;
-    },
-
-    _settingChanged: function()
-    {
-        this._updateMediaInspector();
-        this._resizeCallback.call(null);
-    },
-
-    _buttonClick: function()
-    {
-        this._setting.set(!this._button.toggled());
-    },
-
-    _updateMediaInspector: function()
-    {
-        var show = this._setting.get();
-        this._button.setToggled(show);
-        if (this._mediaInspector.isShowing() && !show)
-            this._mediaInspector.detach();
-        if (!this._mediaInspector.isShowing() && show)
-            this._mediaInspector.show(this._container);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _updateButton: function(event)
-    {
-        var count = /** @type {number} */ (event.data);
-        this._button.setEnabled(!!count);
-        if (!count)
-            this._button.setTitle(WebInspector.UIString("Media queries not found"));
+        this._scale = scale;
+        this._offset = offset;
+        if (this._horizontal)
+            this.element.style.paddingLeft = this._offset + "px";
         else
-            this._button.setTitle(WebInspector.UIString((count === 1 ? "%d media query found" : "%d media queries found"), count));
-    }
+            this.element.style.paddingTop = this._offset + "px";
+        this._throttler.schedule(this._update.bind(this));
+    },
+
+    /**
+     * @override
+     */
+    onResize: function()
+    {
+        this._throttler.schedule(this._update.bind(this));
+    },
+
+    /**
+     * @return {!Promise.<?>}
+     */
+    _update: function()
+    {
+        var zoomFactor = WebInspector.zoomManager.zoomFactor();
+        var size = this._horizontal ? this._contentElement.offsetWidth : this._contentElement.offsetHeight;
+
+        if (this._scale !== this._renderedScale || zoomFactor !== this._renderedZoomFactor) {
+            this._contentElement.removeChildren();
+            this._count = 0;
+            this._renderedScale = this._scale;
+            this._renderedZoomFactor = zoomFactor;
+        }
+
+        var dipSize = size * zoomFactor / this._scale;
+        var count = Math.ceil(dipSize / 5);
+        var step = 1;
+        if (this._scale < 0.8)
+            step = 2;
+        if (this._scale < 0.6)
+            step = 4;
+        if (this._scale < 0.4)
+            step = 8;
+
+        for (var i = count; i < this._count; i++) {
+            if (!(i % step))
+                this._contentElement.lastChild.remove();
+        }
+
+        for (var i = this._count; i < count; i++) {
+            if (i % step)
+                continue;
+            var marker = this._contentElement.createChild("div", "device-mode-ruler-marker");
+            if (i) {
+                if (this._horizontal)
+                    marker.style.left = (5 * i) * this._scale / zoomFactor + "px";
+                else
+                    marker.style.top = (5 * i) * this._scale / zoomFactor + "px";
+                if (!(i % 20)) {
+                    var text = marker.createChild("div", "device-mode-ruler-text");
+                    text.textContent = i * 5;
+                    text.addEventListener("click", this._onMarkerClick.bind(this, i * 5), false);
+                }
+            }
+            if (!(i % 10))
+                marker.classList.add("device-mode-ruler-marker-large");
+            else if (!(i % 5))
+                marker.classList.add("device-mode-ruler-marker-medium");
+        }
+
+        this._count = count;
+        return Promise.resolve();
+    },
+
+    /**
+     * @param {number} size
+     */
+    _onMarkerClick: function(size)
+    {
+        this._applyCallback.call(null, size);
+    },
+
+    __proto__: WebInspector.VBox.prototype
 }

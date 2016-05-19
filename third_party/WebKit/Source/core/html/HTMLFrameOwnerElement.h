@@ -50,7 +50,7 @@ public:
     void setContentFrame(Frame&);
     void clearContentFrame();
 
-    virtual void disconnectContentFrame();
+    void disconnectContentFrame();
 
     // Most subclasses use LayoutPart (either LayoutEmbeddedObject or LayoutIFrame)
     // except for HTMLObjectElement and HTMLEmbedElement which may return any
@@ -79,7 +79,7 @@ public:
     // FrameOwner overrides:
     bool isLocal() const override { return true; }
     void dispatchLoad() override;
-    SandboxFlags sandboxFlags() const override { return m_sandboxFlags; }
+    SandboxFlags getSandboxFlags() const override { return m_sandboxFlags; }
     void renderFallbackContent() override { }
     ScrollbarMode scrollingMode() const override { return ScrollbarAuto; }
     int marginWidth() const override { return -1; }
@@ -109,21 +109,25 @@ DEFINE_ELEMENT_TYPE_CASTS(HTMLFrameOwnerElement, isFrameOwnerElement());
 class SubframeLoadingDisabler {
     STACK_ALLOCATED();
 public:
-    explicit SubframeLoadingDisabler(Node& root)
+    explicit SubframeLoadingDisabler(Node& root) : SubframeLoadingDisabler(&root)
+    {
+    }
+
+    explicit SubframeLoadingDisabler(Node* root)
         : m_root(root)
     {
-        disabledSubtreeRoots().add(m_root);
+        if (m_root)
+            disabledSubtreeRoots().add(m_root);
     }
 
     ~SubframeLoadingDisabler()
     {
-        disabledSubtreeRoots().remove(m_root);
+        if (m_root)
+            disabledSubtreeRoots().remove(m_root);
     }
 
     static bool canLoadFrame(HTMLFrameOwnerElement& owner)
     {
-        if (owner.document().unloadStarted())
-            return false;
         for (Node* node = &owner; node; node = node->parentOrShadowHostNode()) {
             if (disabledSubtreeRoots().contains(node))
                 return false;
@@ -132,7 +136,7 @@ public:
     }
 
 private:
-    static WillBeHeapHashCountedSet<RawPtrWillBeMember<Node>>& disabledSubtreeRoots();
+    CORE_EXPORT static WillBeHeapHashCountedSet<RawPtrWillBeMember<Node>>& disabledSubtreeRoots();
 
     RawPtrWillBeMember<Node> m_root;
 };

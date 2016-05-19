@@ -5,6 +5,7 @@
 #include "ash/rotator/screen_rotation_animator.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ash/display/display_info.h"
@@ -42,7 +43,7 @@ const int kRotationDurationInMs = 250;
 
 // Gets the current display rotation for the display with the specified
 // |display_id|.
-gfx::Display::Rotation GetCurrentRotation(int64 display_id) {
+gfx::Display::Rotation GetCurrentRotation(int64_t display_id) {
   return Shell::GetInstance()
       ->display_manager()
       ->GetDisplayInfo(display_id)
@@ -98,8 +99,7 @@ class LayerCleanupObserver : public ui::LayerAnimationObserver {
 
 LayerCleanupObserver::LayerCleanupObserver(
     scoped_ptr<ui::LayerTreeOwner> layer_tree_owner)
-    : layer_tree_owner_(layer_tree_owner.Pass()), sequence_(nullptr) {
-}
+    : layer_tree_owner_(std::move(layer_tree_owner)), sequence_(nullptr) {}
 
 LayerCleanupObserver::~LayerCleanupObserver() {
   // We must eplicitly detach from |sequence_| because we return true from
@@ -145,7 +145,7 @@ void LayerCleanupObserver::AbortAnimations(ui::Layer* layer) {
 // layer towards the new orientation through |rotation_degrees| while fading
 // out, and the new orientation's layer will be rotated in to the
 // |new_orientation| through |rotation_degrees| arc.
-void RotateScreen(int64 display_id,
+void RotateScreen(int64_t display_id,
                   gfx::Display::Rotation new_rotation,
                   gfx::Display::RotationSource source) {
   aura::Window* root_window = Shell::GetInstance()
@@ -176,7 +176,7 @@ void RotateScreen(int64 display_id,
   root_window->layer()->StackAtTop(old_layer_tree->root());
 
   scoped_ptr<LayerCleanupObserver> layer_cleanup_observer(
-      new LayerCleanupObserver(old_layer_tree.Pass()));
+      new LayerCleanupObserver(std::move(old_layer_tree)));
 
   Shell::GetInstance()->display_manager()->SetDisplayRotation(
       display_id, new_rotation, source);
@@ -243,9 +243,8 @@ void RotateScreen(int64 display_id,
 
 }  // namespace
 
-ScreenRotationAnimator::ScreenRotationAnimator(int64 display_id)
-    : display_id_(display_id) {
-}
+ScreenRotationAnimator::ScreenRotationAnimator(int64_t display_id)
+    : display_id_(display_id) {}
 
 ScreenRotationAnimator::~ScreenRotationAnimator() {
 }

@@ -1,8 +1,8 @@
-Current Status as of November 10, 2015
+Current Status as of January 8, 2016
 
 Upstream cherry-picks:
-  Commit 5e6ce28dabe002a6130f17b59c454bdee33088f7 fixes mp3 seeking for CBR
-    content. See https://crbug.com/545914.
+  Commit 63c9b30f98ce7d160b3a6dec1b36dc05fbb71941 fixes crash in qtpalette.c.
+  See https//crbug.com/583354.
 
 Autorename:
   autorename_* files are renamed copies of various files that would cause
@@ -11,6 +11,12 @@ Autorename:
 
 Current patches:
   .gitignore has a "Chromium stuff" section.
+
+  Remove add_cflags "-mips64" from configure
+    This conflicts with --extra-cflags=-mips64r6 for mips64el. There are a
+    series of upstream patches changing how mips arch selection works, this may
+    be resolved shortly. (Those patches are not by Google though, and are also
+    the reason it broke.)
 
   Changes/additions to compat/msvcrt/{snprintf.c,snprintf.h}
   Changes/additions to compat/{strtod.c,strtod.h}
@@ -35,6 +41,11 @@ Current patches:
     Disable deprecation warnings related to FF_API_AVPACKET_OLD_API.
     We cannot just disable FF_API_AVPACKET_OLD_API because upstream does not yet
     compile with it disabled. Therefore, suppress the warnings locally.
+
+  Revert 'sidx' processing for .mov containers. (libavformat/isom.h and mov.c)
+    Reverts commit 4ab56667594842283dc5ae07f0daba2a2cb4d3af.
+    'sidx' box processing is broken for MOV containers. http://crbug.com/568336.
+    Reported: http://ffmpeg.org/pipermail/ffmpeg-devel/2015-December/185040.html
 
   Changes to libavformat/matroskadec.c
     Add CONFIG_LZO and CONFIG_SIPR_DECODER (and other CONFIG_*) checks to remove
@@ -72,7 +83,6 @@ Current patches:
     adds the Chromium-specific private_extern extension for hiding these
     symbols on OSX.
 
-  Revert 'sidx' processing for .mov containers.
-    Reverts commit 4ab56667594842283dc5ae07f0daba2a2cb4d3af.
-    'sidx' box processing is broken for MOV containers. http://crbug.com/568336.
-    Reported: http://ffmpeg.org/pipermail/ffmpeg-devel/2015-December/185040.html
+  Changes to libavformat/riffdec.c
+    Work around VC++ 2015 Update 1 compiler bug, crbug.com/581768 and
+    https://connect.microsoft.com/VisualStudio/feedback/details/2291638

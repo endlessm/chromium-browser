@@ -1,3 +1,5 @@
 include_rules = [
-  "+mojo/application/public/interfaces",
+  "+mojo/converters/network",
+  "+mojo/edk/embedder",
+  "+mojo/shell",
 ]

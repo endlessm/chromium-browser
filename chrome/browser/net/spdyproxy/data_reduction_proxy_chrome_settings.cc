@@ -5,19 +5,20 @@
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
 
 #include <string>
+#include <utility>
 
 #include "base/base64.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/pref_names.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
@@ -25,6 +26,8 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/data_reduction_proxy/core/browser/data_store.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/proxy_config/proxy_prefs.h"
 #include "net/base/host_port_pair.h"
@@ -165,7 +168,8 @@ DataReductionProxyChromeSettings::MigrateDataReductionProxyOffProxyPrefsHelper(
 }
 
 DataReductionProxyChromeSettings::DataReductionProxyChromeSettings()
-    : data_reduction_proxy::DataReductionProxySettings() {
+    : data_reduction_proxy::DataReductionProxySettings(),
+      data_reduction_proxy_enabled_pref_name_(prefs::kDataSaverEnabled) {
 }
 
 DataReductionProxyChromeSettings::~DataReductionProxyChromeSettings() {
@@ -185,7 +189,7 @@ void DataReductionProxyChromeSettings::InitDataReductionProxySettings(
     scoped_ptr<data_reduction_proxy::DataStore> store,
     const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& db_task_runner) {
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if defined(OS_ANDROID)
   // On mobile we write Data Reduction Proxy prefs directly to the pref service.
   // On desktop we store Data Reduction Proxy prefs in memory, writing to disk
   // every 60 minutes and on termination. Shutdown hooks must be added for
@@ -198,11 +202,13 @@ void DataReductionProxyChromeSettings::InitDataReductionProxySettings(
 
   scoped_ptr<data_reduction_proxy::DataReductionProxyService> service =
       make_scoped_ptr(new data_reduction_proxy::DataReductionProxyService(
-          this, profile_prefs, request_context_getter, store.Pass(),
+          this, profile_prefs, request_context_getter, std::move(store),
           ui_task_runner, io_data->io_task_runner(), db_task_runner,
           commit_delay));
   data_reduction_proxy::DataReductionProxySettings::
-      InitDataReductionProxySettings(profile_prefs, io_data, service.Pass());
+      InitDataReductionProxySettings(data_reduction_proxy_enabled_pref_name_,
+                                     profile_prefs, io_data,
+                                     std::move(service));
   io_data->SetDataReductionProxyService(
       data_reduction_proxy_service()->GetWeakPtr());
 
@@ -218,8 +224,6 @@ void DataReductionProxyChromeSettings::InitDataReductionProxySettings(
 data_reduction_proxy::Client DataReductionProxyChromeSettings::GetClient() {
 #if defined(OS_ANDROID)
   return data_reduction_proxy::Client::CHROME_ANDROID;
-#elif defined(OS_IOS)
-  return data_reduction_proxy::Client::CHROME_IOS;
 #elif defined(OS_MACOSX)
   return data_reduction_proxy::Client::CHROME_MAC;
 #elif defined(OS_CHROMEOS)

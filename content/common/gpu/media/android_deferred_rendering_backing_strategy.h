@@ -5,6 +5,9 @@
 #ifndef CONTENT_COMMON_GPU_MEDIA_ANDROID_DEFERRED_RENDERING_BACKING_STRATEGY_H_
 #define CONTENT_COMMON_GPU_MEDIA_ANDROID_DEFERRED_RENDERING_BACKING_STRATEGY_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "content/common/content_export.h"
 #include "content/common/gpu/media/android_video_decode_accelerator.h"
 
@@ -14,6 +17,7 @@ class GLImage;
 
 namespace gpu {
 namespace gles2 {
+class GLStreamTextureImage;
 class TextureRef;
 }
 }
@@ -30,16 +34,17 @@ class AVDASharedState;
 class CONTENT_EXPORT AndroidDeferredRenderingBackingStrategy
     : public AndroidVideoDecodeAccelerator::BackingStrategy {
  public:
-  AndroidDeferredRenderingBackingStrategy();
+  explicit AndroidDeferredRenderingBackingStrategy(
+      AVDAStateProvider* state_provider);
   ~AndroidDeferredRenderingBackingStrategy() override;
 
   // AndroidVideoDecodeAccelerator::BackingStrategy
-  void Initialize(AVDAStateProvider*) override;
-  void Cleanup(const AndroidVideoDecodeAccelerator::OutputBufferMap&) override;
-  uint32 GetNumPictureBuffers() const override;
-  uint32 GetTextureTarget() const override;
-  scoped_refptr<gfx::SurfaceTexture> CreateSurfaceTexture() override;
-  void UseCodecBufferForPictureBuffer(int32 codec_buffer_index,
+  gfx::ScopedJavaSurface Initialize(int surface_view_id) override;
+  void Cleanup(bool have_context,
+               const AndroidVideoDecodeAccelerator::OutputBufferMap&) override;
+  scoped_refptr<gfx::SurfaceTexture> GetSurfaceTexture() const override;
+  uint32_t GetTextureTarget() const override;
+  void UseCodecBufferForPictureBuffer(int32_t codec_buffer_index,
                                       const media::PictureBuffer&) override;
   void AssignOnePictureBuffer(const media::PictureBuffer&) override;
   void ReuseOnePictureBuffer(const media::PictureBuffer&) override;
@@ -47,6 +52,8 @@ class CONTENT_EXPORT AndroidDeferredRenderingBackingStrategy
   void CodecChanged(
       media::VideoCodecBridge*,
       const AndroidVideoDecodeAccelerator::OutputBufferMap&) override;
+  void OnFrameAvailable() override;
+  bool ArePicturesOverlayable() override;
 
  private:
   // Release any codec buffer that is associated with the given picture buffer
@@ -58,13 +65,31 @@ class CONTENT_EXPORT AndroidDeferredRenderingBackingStrategy
 
   // Return the AVDACodecImage for a given PictureBuffer's texture.
   AVDACodecImage* GetImageForPicture(const media::PictureBuffer&);
-  void SetImageForPicture(const media::PictureBuffer& picture_buffer,
-                          const scoped_refptr<gl::GLImage>& image);
+  void SetImageForPicture(
+      const media::PictureBuffer& picture_buffer,
+      const scoped_refptr<gpu::gles2::GLStreamTextureImage>& image);
+
+  // Make a copy of the SurfaceTexture's front buffer and associate all given
+  // picture buffer textures with it. The picture buffer textures will not
+  // dependend on |this|, the SurfaceTexture, the MediaCodec or the VDA, so it's
+  // used to back the picture buffers when the VDA is being destroyed.
+  void CopySurfaceTextureToPictures(
+      const AndroidVideoDecodeAccelerator::OutputBufferMap& buffers);
+
+  // Return true if and only if the surface_texture_cant_detach workaround is
+  // not set.
+  bool DoesSurfaceTextureDetachWork() const;
+
+  // Return true if and only if CopySurfaceTextureToPictures is expected to work
+  // on this device.
+  bool ShouldCopyPictures() const;
 
   scoped_refptr<AVDASharedState> shared_state_;
 
   AVDAStateProvider* state_provider_;
 
+  // The SurfaceTexture to render to. Non-null after Initialize() if
+  // we're not rendering to a SurfaceView.
   scoped_refptr<gfx::SurfaceTexture> surface_texture_;
 
   media::VideoCodecBridge* media_codec_;

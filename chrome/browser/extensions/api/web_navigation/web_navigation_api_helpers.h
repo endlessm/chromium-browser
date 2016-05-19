@@ -7,12 +7,12 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "ui/base/page_transition_types.h"
 
 namespace content {
 class BrowserContext;
+class NavigationHandle;
 class RenderFrameHost;
 class WebContents;
 }
@@ -29,16 +29,11 @@ namespace web_navigation_api_helpers {
 int GetFrameId(content::RenderFrameHost* frame_host);
 
 // Create and dispatch the various events of the webNavigation API.
-void DispatchOnBeforeNavigate(content::WebContents* web_contents,
-                              content::RenderFrameHost* frame_host,
-                              const GURL& validated_url);
+void DispatchOnBeforeNavigate(content::NavigationHandle* navigation_handle);
 
 void DispatchOnCommitted(events::HistogramValue histogram_value,
                          const std::string& event_name,
-                         content::WebContents* web_contents,
-                         content::RenderFrameHost* frame_host,
-                         const GURL& url,
-                         ui::PageTransition transition_type);
+                         content::NavigationHandle* navigation_handle);
 
 void DispatchOnDOMContentLoaded(content::WebContents* web_contents,
                                 content::RenderFrameHost* frame_host,
@@ -59,6 +54,7 @@ void DispatchOnErrorOccurred(content::WebContents* web_contents,
                              content::RenderFrameHost* frame_host,
                              const GURL& url,
                              int error_code);
+void DispatchOnErrorOccurred(content::NavigationHandle* navigation_handle);
 
 void DispatchOnTabReplaced(
     content::WebContents* old_web_contents,

@@ -9,12 +9,13 @@
 #ifndef NET_QUIC_QUIC_SPDY_STREAM_H_
 #define NET_QUIC_QUIC_SPDY_STREAM_H_
 
+#include <stddef.h>
 #include <sys/types.h>
 
 #include <list>
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "net/base/iovec.h"
 #include "net/base/ip_endpoint.h"
@@ -32,6 +33,12 @@ class ReliableQuicStreamPeer;
 }  // namespace test
 
 class QuicSpdySession;
+
+// This is somewhat arbitrary.  It's possible, but unlikely, we will either fail
+// to set a priority client-side, or cancel a stream before stripping the
+// priority from the wire server-side.  In either case, start out with a
+// priority in the middle.
+const SpdyPriority kDefaultPriority = 3;
 
 // A QUIC stream that can send and receive HTTP2 (SPDY) headers.
 class NET_EXPORT_PRIVATE QuicSpdyStream : public ReliableQuicStream {
@@ -62,12 +69,6 @@ class NET_EXPORT_PRIVATE QuicSpdyStream : public ReliableQuicStream {
   // ReliableQuicStream implementation
   void OnClose() override;
 
-  // By default, this is the same as priority(), however it allows streams
-  // to temporarily alter effective priority.   For example if a SPDY stream has
-  // compressed but not written headers it can write the headers with a higher
-  // priority.
-  QuicPriority EffectivePriority() const override;
-
   // Called by the session when decompressed headers data is received
   // for this stream.
   // May be called multiple times, with each call providing additional headers
@@ -76,12 +77,23 @@ class NET_EXPORT_PRIVATE QuicSpdyStream : public ReliableQuicStream {
 
   // Called by the session when headers with a priority have been received
   // for this stream.  This method will only be called for server streams.
-  virtual void OnStreamHeadersPriority(QuicPriority priority);
+  virtual void OnStreamHeadersPriority(SpdyPriority priority);
 
   // Called by the session when decompressed headers have been completely
-  // delilvered to this stream.  If |fin| is true, then this stream
+  // delivered to this stream.  If |fin| is true, then this stream
   // should be closed; no more data will be sent by the peer.
   virtual void OnStreamHeadersComplete(bool fin, size_t frame_len);
+
+  // Called by the session when decompressed PUSH_PROMISE headers data
+  // is received for this stream.
+  // May be called multiple times, with each call providing additional headers
+  // data until OnPromiseHeadersComplete is called.
+  virtual void OnPromiseHeaders(StringPiece headers_data);
+
+  // Called by the session when decompressed push promise headers have
+  // been completely delivered to this stream.
+  virtual void OnPromiseHeadersComplete(QuicStreamId promised_id,
+                                        size_t frame_len);
 
   // Override the base class to not discard response when receiving
   // QUIC_STREAM_NO_ERROR on QUIC_VERSION_29 and later versions.
@@ -93,8 +105,16 @@ class NET_EXPORT_PRIVATE QuicSpdyStream : public ReliableQuicStream {
                               bool fin,
                               QuicAckListenerInterface* ack_notifier_delegate);
 
+  // Writes the trailers contained in |trailer_block| to the dedicated
+  // headers stream. Trailers will always have the FIN set.
+  virtual size_t WriteTrailers(SpdyHeaderBlock trailer_block,
+                               QuicAckListenerInterface* ack_notifier_delegate);
+
   // Marks |bytes_consumed| of the headers data as consumed.
   void MarkHeadersConsumed(size_t bytes_consumed);
+
+  // Marks |bytes_consumed| of the trailers data as consumed.
+  void MarkTrailersConsumed(size_t bytes_consumed);
 
   // This block of functions wraps the sequencer's functions of the same
   // name.  These methods return uncompressed data until that has
@@ -115,14 +135,27 @@ class NET_EXPORT_PRIVATE QuicSpdyStream : public ReliableQuicStream {
     return decompressed_headers_;
   }
 
- protected:
+  bool trailers_decompressed() const { return trailers_decompressed_; }
+
+  const std::string& decompressed_trailers() const {
+    return decompressed_trailers_;
+  }
+
+  virtual SpdyPriority priority() const;
+
   // Sets priority_ to priority.  This should only be called before bytes are
   // written to the server.
-  void set_priority(QuicPriority priority);
-  // This is protected because external classes should use EffectivePriority
-  // instead.
-  QuicPriority priority() const { return priority_; }
+  void SetPriority(SpdyPriority priority);
 
+ protected:
+  // Called by OnStreamHeadersComplete depending on which type (initial or
+  // trailing) headers are expected next.
+  virtual void OnInitialHeadersComplete(bool fin, size_t frame_len);
+  virtual void OnTrailingHeadersComplete(bool fin, size_t frame_len);
+  QuicSpdySession* spdy_session() const { return spdy_session_; }
+  Visitor* visitor() { return visitor_; }
+
+  // Returns true if headers have been fully read and consumed.
   bool FinishedReadingHeaders() const;
 
  private:
@@ -130,16 +163,25 @@ class NET_EXPORT_PRIVATE QuicSpdyStream : public ReliableQuicStream {
   friend class test::ReliableQuicStreamPeer;
   friend class QuicStreamUtils;
 
+  // Returns true if trailers have been fully read and consumed.
+  bool FinishedReadingTrailers() const;
+
   QuicSpdySession* spdy_session_;
 
   Visitor* visitor_;
   // True if the headers have been completely decompressed.
   bool headers_decompressed_;
   // The priority of the stream, once parsed.
-  QuicPriority priority_;
+  SpdyPriority priority_;
   // Contains a copy of the decompressed headers until they are consumed
   // via ProcessData or Readv.
   std::string decompressed_headers_;
+
+  // True if the trailers have been completely decompressed.
+  bool trailers_decompressed_;
+  // Contains a copy of the decompressed trailers until they are consumed
+  // via ProcessData or Readv.
+  std::string decompressed_trailers_;
 
   DISALLOW_COPY_AND_ASSIGN(QuicSpdyStream);
 };

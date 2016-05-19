@@ -13,23 +13,27 @@
 #include <algorithm>
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/modules/media_file/source/media_file_utility.h"
+#include "webrtc/base/platform_thread.h"
+#include "webrtc/modules/media_file/media_file_utility.h"
 #include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/system_wrappers/include/event_wrapper.h"
 #include "webrtc/system_wrappers/include/file_wrapper.h"
-#include "webrtc/system_wrappers/include/thread_wrapper.h"
 
 namespace webrtc {
 namespace test {
 
-FakeAudioDevice::FakeAudioDevice(Clock* clock, const std::string& filename)
+FakeAudioDevice::FakeAudioDevice(Clock* clock,
+                                 const std::string& filename,
+                                 float speed)
     : audio_callback_(NULL),
       capturing_(false),
       captured_audio_(),
       playout_buffer_(),
+      speed_(speed),
       last_playout_ms_(-1),
-      clock_(clock),
+      clock_(clock, speed),
       tick_(EventTimerWrapper::Create()),
+      thread_(FakeAudioDevice::Run, this, "FakeAudioDevice"),
       file_utility_(new ModuleFileUtility(0)),
       input_stream_(FileWrapper::Create()) {
   memset(captured_audio_, 0, sizeof(captured_audio_));
@@ -42,8 +46,7 @@ FakeAudioDevice::FakeAudioDevice(Clock* clock, const std::string& filename)
 FakeAudioDevice::~FakeAudioDevice() {
   Stop();
 
-  if (thread_.get() != NULL)
-    thread_->Stop();
+  thread_.Stop();
 }
 
 int32_t FakeAudioDevice::Init() {
@@ -51,17 +54,10 @@ int32_t FakeAudioDevice::Init() {
   if (file_utility_->InitPCMReading(*input_stream_.get()) != 0)
     return -1;
 
-  if (!tick_->StartTimer(true, 10))
+  if (!tick_->StartTimer(true, 10 / speed_))
     return -1;
-  thread_ = ThreadWrapper::CreateThread(FakeAudioDevice::Run, this,
-                                        "FakeAudioDevice");
-  if (thread_.get() == NULL)
-    return -1;
-  if (!thread_->Start()) {
-    thread_.reset();
-    return -1;
-  }
-  thread_->SetPriority(webrtc::kHighPriority);
+  thread_.Start();
+  thread_.SetPriority(rtc::kHighPriority);
   return 0;
 }
 
@@ -114,7 +110,7 @@ void FakeAudioDevice::CaptureAudio() {
                                                          false,
                                                          new_mic_level));
       size_t samples_needed = kFrequencyHz / 100;
-      int64_t now_ms = clock_->TimeInMilliseconds();
+      int64_t now_ms = clock_.TimeInMilliseconds();
       uint32_t time_since_last_playout_ms = now_ms - last_playout_ms_;
       if (last_playout_ms_ > 0 && time_since_last_playout_ms > 0) {
         samples_needed = std::min(

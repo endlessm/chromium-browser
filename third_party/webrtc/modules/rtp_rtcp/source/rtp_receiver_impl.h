@@ -36,7 +36,7 @@ class RtpReceiverImpl : public RtpReceiver {
   int32_t RegisterReceivePayload(const char payload_name[RTP_PAYLOAD_NAME_SIZE],
                                  const int8_t payload_type,
                                  const uint32_t frequency,
-                                 const uint8_t channels,
+                                 const size_t channels,
                                  const uint32_t rate) override;
 
   int32_t DeRegisterReceivePayload(const int8_t payload_type) override;
@@ -71,7 +71,7 @@ class RtpReceiverImpl : public RtpReceiver {
   void CheckCSRC(const WebRtcRTPHeader& rtp_header);
   int32_t CheckPayloadChanged(const RTPHeader& rtp_header,
                               const int8_t first_payload_byte,
-                              bool& is_red,
+                              bool* is_red,
                               PayloadUnion* payload);
 
   Clock* clock_;

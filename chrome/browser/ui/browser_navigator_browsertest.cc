@@ -5,9 +5,9 @@
 #include "chrome/browser/ui/browser_navigator_browsertest.h"
 
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
@@ -27,16 +27,18 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/omnibox/browser/omnibox_view.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/web_contents.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 
 using content::WebContents;
 
 namespace {
 
 const char kExpectedTitle[] = "PASSED!";
-const char kEchoTitleCommand[] = "echotitle";
+const char kEchoTitleCommand[] = "/echotitle";
 
 GURL GetGoogleURL() {
   return GURL("http://www.google.com/");
@@ -112,17 +114,14 @@ bool BrowserNavigatorTest::OpenPOSTURLInNewForegroundTabAndGetTitle(
 
 Browser* BrowserNavigatorTest::CreateEmptyBrowserForType(Browser::Type type,
                                                          Profile* profile) {
-  Browser* browser = new Browser(
-      Browser::CreateParams(type, profile, chrome::GetActiveDesktop()));
+  Browser* browser = new Browser(Browser::CreateParams(type, profile));
   chrome::AddTabAt(browser, GURL(), -1, true);
   return browser;
 }
 
 Browser* BrowserNavigatorTest::CreateEmptyBrowserForApp(Profile* profile) {
-  Browser* browser = new Browser(
-      Browser::CreateParams::CreateForApp(
-          "Test", false /* trusted_source */, gfx::Rect(), profile,
-          chrome::GetActiveDesktop()));
+  Browser* browser = new Browser(Browser::CreateParams::CreateForApp(
+      "Test", false /* trusted_source */, gfx::Rect(), profile));
   chrome::AddTabAt(browser, GURL(), -1, true);
   return browser;
 }
@@ -203,10 +202,6 @@ void BrowserNavigatorTest::SetUpCommandLine(base::CommandLine* command_line) {
   // Disable settings-in-a-window so that we can use the settings page and
   // sub-pages to test browser navigation.
   command_line->AppendSwitch(::switches::kDisableSettingsWindow);
-
-  // Disable new downloads UI as it is very very slow. https://crbug.com/526577
-  // TODO(dbeam): remove this once the downloads UI is not slow.
-  command_line->AppendSwitch(switches::kDisableMaterialDesignDownloads);
 }
 
 void BrowserNavigatorTest::Observe(
@@ -1282,9 +1277,11 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
 
 // TODO(linux_aura) http://crbug.com/163931
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
-#define MAYBE_NavigateFromDefaultToBookmarksInSameTab DISABLED_NavigateFromDefaultToBookmarksInSameTab
+#define MAYBE_NavigateFromDefaultToBookmarksInSameTab \
+    DISABLED_NavigateFromDefaultToBookmarksInSameTab
 #else
-#define MAYBE_NavigateFromDefaultToBookmarksInSameTab NavigateFromDefaultToBookmarksInSameTab
+#define MAYBE_NavigateFromDefaultToBookmarksInSameTab \
+    NavigateFromDefaultToBookmarksInSameTab
 #endif
 IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
                        MAYBE_NavigateFromDefaultToBookmarksInSameTab) {
@@ -1355,14 +1352,15 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest, ViewSourceIsntSingleton) {
 IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
                        SendBrowserInitiatedRequestUsingPOST) {
   // Uses a test sever to verify POST request.
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   // Open a browser initiated POST request in new foreground tab.
   base::string16 expected_title(base::ASCIIToUTF16(kExpectedTitle));
   std::string post_data = kExpectedTitle;
   base::string16 title;
   ASSERT_TRUE(OpenPOSTURLInNewForegroundTabAndGetTitle(
-      test_server()->GetURL(kEchoTitleCommand), post_data, true, &title));
+      embedded_test_server()->GetURL(kEchoTitleCommand), post_data, true,
+      &title));
   EXPECT_EQ(expected_title, title);
 }
 
@@ -1371,14 +1369,15 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
 IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
                        SendRendererInitiatedRequestUsingPOST) {
   // Uses a test sever to verify POST request.
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   // Open a renderer initiated POST request in new foreground tab.
   base::string16 expected_title(base::ASCIIToUTF16(kExpectedTitle));
   std::string post_data = kExpectedTitle;
   base::string16 title;
   ASSERT_TRUE(OpenPOSTURLInNewForegroundTabAndGetTitle(
-      test_server()->GetURL(kEchoTitleCommand), post_data, false, &title));
+      embedded_test_server()->GetURL(kEchoTitleCommand), post_data, false,
+      &title));
   EXPECT_NE(expected_title, title);
 }
 

@@ -3,21 +3,45 @@
 # found in the LICENSE file.
 
 import os
+import sys
+
+sys.path.insert(1, os.path.join(os.path.abspath(__file__), '..', '..'))
+
+from chrome_telemetry_build import chromium_config
 
 
 def GetChromiumSrcDir():
-  return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__)))))
+  return chromium_config.GetChromiumSrcDir()
+
+
+def GetCatapultBaseDir():
+  return os.path.join(
+      GetChromiumSrcDir(), 'third_party', 'catapult', 'catapult_base')
+
 
 def GetTelemetryDir():
-  return os.path.join(GetChromiumSrcDir(), 'tools', 'telemetry')
+  return chromium_config.GetTelemetryDir()
+
 
 def GetPerfDir():
   return os.path.join(GetChromiumSrcDir(), 'tools', 'perf')
 
+
 def GetPerfStorySetsDir():
   return os.path.join(GetPerfDir(), 'page_sets')
+
 
 def GetPerfBenchmarksDir():
   return os.path.join(GetPerfDir(), 'benchmarks')
 
+
+def AddTelemetryToPath():
+  telemetry_path = GetTelemetryDir()
+  if telemetry_path not in sys.path:
+    sys.path.insert(1, telemetry_path)
+
+
+def AddCatapultBaseToPath():
+  catapult_base_path = GetCatapultBaseDir()
+  if catapult_base_path not in sys.path:
+    sys.path.insert(1, catapult_base_path)

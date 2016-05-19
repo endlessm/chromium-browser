@@ -4,6 +4,10 @@
 
 #include "media/cdm/ppapi/ppapi_cdm_adapter.h"
 
+#include <string.h>
+
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "media/base/limits.h"
 #include "media/cdm/ppapi/cdm_file_io_impl.h"
 #include "media/cdm/ppapi/cdm_logging.h"

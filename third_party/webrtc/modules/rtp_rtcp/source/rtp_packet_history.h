@@ -10,8 +10,8 @@
  *  Class for storing RTP packets.
  */
 
-#ifndef WEBRTC_MODULES_RTP_RTCP_RTP_PACKET_HISTORY_H_
-#define WEBRTC_MODULES_RTP_RTCP_RTP_PACKET_HISTORY_H_
+#ifndef WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_PACKET_HISTORY_H_
+#define WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_PACKET_HISTORY_H_
 
 #include <vector>
 
@@ -29,7 +29,7 @@ static const size_t kMaxHistoryCapacity = 9600;
 
 class RTPPacketHistory {
  public:
-  RTPPacketHistory(Clock* clock);
+  explicit RTPPacketHistory(Clock* clock);
   ~RTPPacketHistory();
 
   void SetStorePacketsStatus(bool enable, uint16_t number_to_store);
@@ -101,4 +101,4 @@ class RTPPacketHistory {
   std::vector<StoredPacket> stored_packets_ GUARDED_BY(critsect_);
 };
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_RTP_RTCP_RTP_PACKET_HISTORY_H_
+#endif  // WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_PACKET_HISTORY_H_

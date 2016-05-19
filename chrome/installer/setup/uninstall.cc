@@ -7,12 +7,15 @@
 #include "chrome/installer/setup/uninstall.h"
 
 #include <windows.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <vector>
 
 #include "base/base_paths.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/process/kill.h"
 #include "base/strings/string16.h"
@@ -152,14 +155,21 @@ void ProcessGoogleUpdateItems(const InstallationState& original_state,
   }
 }
 
-void ProcessOnOsUpgradeWorkItems(const InstallerState& installer_state,
-                                 const Product& product) {
+// Processes uninstall WorkItems from install_worker in no-rollback-list.
+void ProcessChromeWorkItems(const InstallerState& installer_state,
+                            const Product& product) {
   scoped_ptr<WorkItemList> work_item_list(
       WorkItem::CreateNoRollbackWorkItemList());
   AddOsUpgradeWorkItems(installer_state, base::FilePath(), Version(), product,
                         work_item_list.get());
+  // Perform a best-effort cleanup of per-user keys. On system-level installs
+  // this will only cleanup keys for the user running the uninstall but it was
+  // considered that this was good enough (better than triggering Active Setup
+  // for all users solely for this cleanup).
+  AddCleanupDeprecatedPerUserRegistrationsWorkItems(product,
+                                                    work_item_list.get());
   if (!work_item_list->Do())
-    LOG(ERROR) << "Failed to remove on-os-upgrade command.";
+    LOG(ERROR) << "Failed to process Chrome WorkItems.";
 }
 
 void ProcessIELowRightsPolicyWorkItems(const InstallerState& installer_state) {
@@ -492,7 +502,7 @@ bool MoveSetupOutOfInstallFolder(const InstallerState& installer_state,
     // We cannot delete the file right away, but try to delete it some other
     // way. Either with the help of a different process or the system.
     if (!base::DeleteFileAfterReboot(temp_file)) {
-      const uint32 kDeleteAfterMs = 10 * 1000;
+      const uint32_t kDeleteAfterMs = 10 * 1000;
       installer::DeleteFileFromTempProcess(temp_file, kDeleteAfterMs);
     }
   }
@@ -568,7 +578,7 @@ DeleteResult DeleteChromeFilesAndFolders(const InstallerState& installer_state,
 InstallStatus IsChromeActiveOrUserCancelled(
     const InstallerState& installer_state,
     const Product& product) {
-  int32 exit_code = content::RESULT_CODE_NORMAL_EXIT;
+  int32_t exit_code = content::RESULT_CODE_NORMAL_EXIT;
   base::CommandLine options(base::CommandLine::NO_PROGRAM);
   options.AppendSwitch(installer::switches::kUninstall);
 
@@ -689,18 +699,6 @@ void RemoveFiletypeRegistration(const InstallerState& installer_state,
       }
     }
   }
-}
-
-// Builds and executes a work item list to remove DelegateExecute verb handler
-// work items for |product|.  This will be a noop for products whose
-// corresponding BrowserDistribution implementations do not publish a CLSID via
-// GetCommandExecuteImplClsid.
-bool ProcessDelegateExecuteWorkItems(const InstallerState& installer_state,
-                                     const Product& product) {
-  scoped_ptr<WorkItemList> item_list(WorkItem::CreateNoRollbackWorkItemList());
-  AddDelegateExecuteWorkItems(installer_state, base::FilePath(), Version(),
-                              product, item_list.get());
-  return item_list->Do();
 }
 
 // Removes Active Setup entries from the registry. This cannot be done through
@@ -854,19 +852,20 @@ void RemoveBlacklistState() {
 // this will not remove the state for users other than the one uninstalling
 // Chrome on a system-level install; see RemoveBlacklistState for details.
 void RemoveDistributionRegistryState(BrowserDistribution* distribution) {
-  static const base::char16* const kKeysToPreserve[] = {
-      L"Extensions",
-      L"NativeMessagingHosts",
-  };
-  base::string16 key_name(L"Software\\");
-  key_name += distribution->GetInstallSubDir();
-  // Delete the contents of the distribution key except for those parts used by
-  // outsiders to configure Chrome.
-  DeleteRegistryKeyPartial(
-      HKEY_CURRENT_USER, key_name,
-      std::vector<base::string16>(
-          &kKeysToPreserve[0],
-          &kKeysToPreserve[arraysize(kKeysToPreserve) - 1]));
+  // Binaries do not store per-user state.
+  if (distribution->GetType() != BrowserDistribution::CHROME_BINARIES) {
+    static const base::char16* const kKeysToPreserve[] = {
+        L"Extensions",
+        L"NativeMessagingHosts",
+    };
+    // Delete the contents of the distribution key except for those parts used
+    // by outsiders to configure Chrome.
+    DeleteRegistryKeyPartial(
+        HKEY_CURRENT_USER, distribution->GetRegistryPath(),
+        std::vector<base::string16>(
+            &kKeysToPreserve[0],
+            &kKeysToPreserve[arraysize(kKeysToPreserve) - 1]));
+  }
 }
 
 }  // namespace
@@ -1144,12 +1143,6 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
     // and registry entries. Here we will just make best effort and keep going
     // in case of errors.
     ClearRlzProductState();
-    // Delete the key that delegate_execute might make.
-    if (base::win::GetVersion() >= base::win::VERSION_WIN8) {
-      InstallUtil::DeleteRegistryKey(HKEY_CURRENT_USER,
-                                     chrome::kMetroRegistryPath,
-                                     WorkItem::kWow64Default);
-    }
 
     auto_launch_util::DisableBackgroundStartAtLogin();
 
@@ -1258,9 +1251,7 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
                                    HKEY_LOCAL_MACHINE, suffix, &ret);
     }
 
-    ProcessDelegateExecuteWorkItems(installer_state, product);
-
-    ProcessOnOsUpgradeWorkItems(installer_state, product);
+    ProcessChromeWorkItems(installer_state, product);
 
     UninstallActiveSetupEntries(installer_state, product);
 

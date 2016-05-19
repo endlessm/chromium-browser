@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_MEDIA_PROTECTED_MEDIA_IDENTIFIER_PERMISSION_CONTEXT_FACTORY_H_
 #define CHROME_BROWSER_MEDIA_PROTECTED_MEDIA_IDENTIFIER_PERMISSION_CONTEXT_FACTORY_H_
 
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "chrome/browser/permissions/permission_context_factory_base.h"
 
@@ -29,8 +30,6 @@ class ProtectedMediaIdentifierPermissionContextFactory
   // BrowserContextKeyedBaseFactory methods:
   KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* profile) const override;
-  void RegisterProfilePrefs(
-      user_prefs::PrefRegistrySyncable* registry) override;
 
   DISALLOW_COPY_AND_ASSIGN(
       ProtectedMediaIdentifierPermissionContextFactory);

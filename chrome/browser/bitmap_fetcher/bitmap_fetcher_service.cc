@@ -4,6 +4,10 @@
 
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
 
+#include <stddef.h>
+#include <utility>
+
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
 #include "chrome/browser/profiles/profile.h"
@@ -139,7 +143,7 @@ const chrome::BitmapFetcher* BitmapFetcherService::EnsureFetcherForUrl(
     return fetcher;
 
   scoped_ptr<chrome::BitmapFetcher> new_fetcher = CreateFetcher(url);
-  active_fetchers_.push_back(new_fetcher.Pass());
+  active_fetchers_.push_back(std::move(new_fetcher));
   return active_fetchers_.back().get();
 }
 

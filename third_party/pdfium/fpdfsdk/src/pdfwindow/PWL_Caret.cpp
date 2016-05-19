@@ -4,16 +4,11 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_Caret.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Caret.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 #define PWL_CARET_FLASHINTERVAL 500
-
-//////////////////////////////////////////////////////////////////////
-// Construction/Destruction
-//////////////////////////////////////////////////////////////////////
 
 CPWL_Caret::CPWL_Caret()
     : m_bFlash(FALSE),
@@ -33,7 +28,7 @@ void CPWL_Caret::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {
 }
 
 void CPWL_Caret::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                    CPDF_Matrix* pUser2Device) {
+                                    CFX_Matrix* pUser2Device) {
   if (IsVisible() && m_bFlash) {
     CPDF_Rect rcRect = GetCaretRect();
     CPDF_Rect rcClip = GetClipRect();
@@ -125,7 +120,6 @@ void CPWL_Caret::SetCaret(FX_BOOL bVisible,
         m_ptFoot = ptFoot;
 
         m_bFlash = TRUE;
-        // Move(GetCaretRect(),FALSE,TRUE);
         Move(m_rcInvalid, FALSE, TRUE);
       }
     } else {
@@ -138,7 +132,6 @@ void CPWL_Caret::SetCaret(FX_BOOL bVisible,
       CPWL_Wnd::SetVisible(TRUE);
       m_bFlash = TRUE;
 
-      // Move(GetCaretRect(),FALSE,TRUE);
       Move(m_rcInvalid, FALSE, TRUE);
     }
   } else {
@@ -160,6 +153,7 @@ void CPWL_Caret::InvalidateRect(CPDF_Rect* pRect) {
     rcRefresh.bottom -= 1;
 
     CPWL_Wnd::InvalidateRect(&rcRefresh);
-  } else
+  } else {
     CPWL_Wnd::InvalidateRect(pRect);
+  }
 }

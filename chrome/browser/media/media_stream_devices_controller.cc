@@ -4,11 +4,12 @@
 
 #include "chrome/browser/media/media_stream_devices_controller.h"
 
+#include <map>
+#include <utility>
+
 #include "base/auto_reset.h"
 #include "base/callback_helpers.h"
-#include "base/containers/scoped_ptr_map.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -21,12 +22,15 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/permission_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -36,14 +40,14 @@
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include <vector>
 
 #include "chrome/browser/android/preferences/pref_service_bridge.h"
 #include "chrome/browser/permissions/permission_update_infobar_delegate_android.h"
 #include "content/public/browser/android/content_view_core.h"
 #include "ui/android/window_android.h"
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 using content::BrowserThread;
 
@@ -51,33 +55,32 @@ namespace {
 
 // Returns true if the given ContentSettingsType is being requested in
 // |request|.
-bool ContentTypeIsRequested(ContentSettingsType type,
+bool ContentTypeIsRequested(content::PermissionType type,
                             const content::MediaStreamRequest& request) {
   if (request.request_type == content::MEDIA_OPEN_DEVICE_PEPPER_ONLY)
     return true;
 
-  if (type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC)
+  if (type == content::PermissionType::AUDIO_CAPTURE)
     return request.audio_type == content::MEDIA_DEVICE_AUDIO_CAPTURE;
 
-  if (type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA)
+  if (type == content::PermissionType::VIDEO_CAPTURE)
     return request.video_type == content::MEDIA_DEVICE_VIDEO_CAPTURE;
 
   return false;
 }
 
 using PermissionActionCallback =
-    base::Callback<void(ContentSettingsType, const GURL&)>;
+    base::Callback<void(content::PermissionType, const GURL&)>;
 
 // Calls |action_function| for each permission requested by |request|.
 void RecordPermissionAction(const content::MediaStreamRequest& request,
                             PermissionActionCallback callback) {
-  if (ContentTypeIsRequested(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
-                             request)) {
-    callback.Run(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
+  if (ContentTypeIsRequested(content::PermissionType::VIDEO_CAPTURE, request)) {
+    callback.Run(content::PermissionType::VIDEO_CAPTURE,
                  request.security_origin);
   }
-  if (ContentTypeIsRequested(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, request)) {
-    callback.Run(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
+  if (ContentTypeIsRequested(content::PermissionType::AUDIO_CAPTURE, request)) {
+    callback.Run(content::PermissionType::AUDIO_CAPTURE,
                  request.security_origin);
   }
 }
@@ -89,8 +92,7 @@ class MediaPermissionRequestLogger : content::WebContentsObserver {
   // Map of <render process id, render frame id> ->
   // MediaPermissionRequestLogger.
   using RequestMap =
-      base::ScopedPtrMap<std::pair<int, int>,
-                         scoped_ptr<MediaPermissionRequestLogger>>;
+      std::map<std::pair<int, int>, scoped_ptr<MediaPermissionRequestLogger>>;
 
  public:
   static void LogRequest(content::WebContents* contents,
@@ -102,8 +104,8 @@ class MediaPermissionRequestLogger : content::WebContentsObserver {
     if (!ContainsKey(GetRequestMap(), key)) {
       UMA_HISTOGRAM_BOOLEAN("Pepper.SecureOrigin.MediaStreamRequest",
                             is_secure);
-      GetRequestMap().set(key, make_scoped_ptr(new MediaPermissionRequestLogger(
-                                   contents, key)));
+      GetRequestMap()[key] =
+          make_scoped_ptr(new MediaPermissionRequestLogger(contents, key));
     }
   }
 
@@ -170,7 +172,7 @@ MediaStreamDevicesController::MediaStreamDevicesController(
     return;
   }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   std::vector<ContentSettingsType> content_settings_types;
   if (IsAllowedForAudio())
     content_settings_types.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
@@ -269,11 +271,7 @@ base::string16 MediaStreamDevicesController::GetMessageTextFragment() const {
   return l10n_util::GetStringUTF16(message_id);
 }
 
-bool MediaStreamDevicesController::HasUserGesture() const {
-  return request_.user_gesture;
-}
-
-GURL MediaStreamDevicesController::GetRequestingHostname() const {
+GURL MediaStreamDevicesController::GetOrigin() const {
   return request_.security_origin;
 }
 
@@ -423,7 +421,10 @@ void MediaStreamDevicesController::RunCallback(
     content::MediaStreamRequestResult denial_reason) {
   CHECK(!callback_.is_null());
 
-  if (persist_permission_changes_) {
+  // If the kill switch is on we don't update the tab context or persist the
+  // setting.
+  if (persist_permission_changes_ &&
+      denial_reason != content::MEDIA_DEVICE_KILL_SWITCH_ON) {
     StorePermission(audio_setting, video_setting);
     UpdateTabSpecificContentSettings(audio_setting, video_setting);
   }
@@ -450,7 +451,7 @@ void MediaStreamDevicesController::RunCallback(
              ->GetMediaStreamCaptureIndicator()
              ->RegisterMediaStream(web_contents_, devices);
   }
-  base::ResetAndReturn(&callback_).Run(devices, request_result, ui.Pass());
+  base::ResetAndReturn(&callback_).Run(devices, request_result, std::move(ui));
 }
 
 void MediaStreamDevicesController::StorePermission(
@@ -547,7 +548,15 @@ ContentSetting MediaStreamDevicesController::GetContentSetting(
     return CONTENT_SETTING_BLOCK;
   }
 
-  if (ContentTypeIsRequested(content_type, request)) {
+  content::PermissionType permission_type;
+  if (content_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC) {
+    permission_type = content::PermissionType::AUDIO_CAPTURE;
+  } else {
+    DCHECK(content_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
+    permission_type = content::PermissionType::VIDEO_CAPTURE;
+  }
+
+  if (ContentTypeIsRequested(permission_type, request)) {
     bool is_insecure_pepper_request =
         request.request_type == content::MEDIA_OPEN_DEVICE_PEPPER_ONLY &&
         request.security_origin.SchemeIs(url::kHttpScheme);
@@ -581,7 +590,7 @@ ContentSetting MediaStreamDevicesController::GetNewSetting(
 
 bool MediaStreamDevicesController::IsUserAcceptAllowed(
     ContentSettingsType content_type) const {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   content::ContentViewCore* cvc =
       content::ContentViewCore::FromWebContents(web_contents_);
   if (!cvc)

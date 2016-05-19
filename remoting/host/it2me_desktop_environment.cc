@@ -4,8 +4,11 @@
 
 #include "remoting/host/it2me_desktop_environment.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
+#include "build/build_config.h"
 #include "remoting/host/client_session_control.h"
 #include "remoting/host/host_window.h"
 #include "remoting/host/host_window_proxy.h"
@@ -24,11 +27,13 @@ It2MeDesktopEnvironment::~It2MeDesktopEnvironment() {
 
 It2MeDesktopEnvironment::It2MeDesktopEnvironment(
     scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
     base::WeakPtr<ClientSessionControl> client_session_control,
     bool supports_touch_events)
     : BasicDesktopEnvironment(caller_task_runner,
+                              video_capture_task_runner,
                               input_task_runner,
                               ui_task_runner,
                               supports_touch_events) {
@@ -57,41 +62,35 @@ It2MeDesktopEnvironment::It2MeDesktopEnvironment(
   if (want_user_interface) {
     continue_window_ = HostWindow::CreateContinueWindow();
     continue_window_.reset(new HostWindowProxy(
-        caller_task_runner,
-        ui_task_runner,
-        continue_window_.Pass()));
+        caller_task_runner, ui_task_runner, std::move(continue_window_)));
     continue_window_->Start(client_session_control);
 
     disconnect_window_ = HostWindow::CreateDisconnectWindow();
     disconnect_window_.reset(new HostWindowProxy(
-        caller_task_runner,
-        ui_task_runner,
-        disconnect_window_.Pass()));
+        caller_task_runner, ui_task_runner, std::move(disconnect_window_)));
     disconnect_window_->Start(client_session_control);
   }
 }
 
 It2MeDesktopEnvironmentFactory::It2MeDesktopEnvironmentFactory(
     scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner)
     : BasicDesktopEnvironmentFactory(caller_task_runner,
+                                     video_capture_task_runner,
                                      input_task_runner,
-                                     ui_task_runner) {
-}
+                                     ui_task_runner) {}
 
-It2MeDesktopEnvironmentFactory::~It2MeDesktopEnvironmentFactory() {
-}
+It2MeDesktopEnvironmentFactory::~It2MeDesktopEnvironmentFactory() {}
 
 scoped_ptr<DesktopEnvironment> It2MeDesktopEnvironmentFactory::Create(
     base::WeakPtr<ClientSessionControl> client_session_control) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  return make_scoped_ptr(new It2MeDesktopEnvironment(caller_task_runner(),
-                                                     input_task_runner(),
-                                                     ui_task_runner(),
-                                                     client_session_control,
-                                                     supports_touch_events()));
+  return make_scoped_ptr(new It2MeDesktopEnvironment(
+      caller_task_runner(), video_capture_task_runner(), input_task_runner(),
+      ui_task_runner(), client_session_control, supports_touch_events()));
 }
 
 }  // namespace remoting

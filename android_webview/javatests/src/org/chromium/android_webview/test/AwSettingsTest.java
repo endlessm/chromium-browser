@@ -9,6 +9,7 @@ import android.graphics.Point;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.SystemClock;
+import android.test.suitebuilder.annotation.LargeTest;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.view.WindowManager;
@@ -1603,8 +1604,12 @@ public class AwSettingsTest extends AwTestBase {
                     views.getContainer1(), views.getClient1(), new ImagePageGenerator(1, true)));
     }
 
-    @SmallTest
-    @Feature({"AndroidWebView", "Preferences"})
+    /*
+     * Disabled due to document.defaultCharset removal. crbug.com/587484
+     * @SmallTest
+     * @Feature({"AndroidWebView", "Preferences"})
+     */
+    @DisabledTest
     public void testDefaultTextEncodingWithTwoViews() throws Throwable {
         ViewPair views = createViews();
         runPerViewSettingsTest(
@@ -2716,13 +2721,9 @@ public class AwSettingsTest extends AwTestBase {
         assertEquals(defaultScale, getPixelScaleOnUiThread(awContents), .01f);
     }
 
-    /*
     @DisableHardwareAccelerationForTest
     @LargeTest
     @Feature({"AndroidWebView", "Preferences"})
-    http://crbug.com/304549
-    */
-    @DisabledTest
     public void testMediaPlaybackWithoutUserGesture() throws Throwable {
         assertTrue(VideoTestUtil.runVideoTest(this, false, false, WAIT_TIMEOUT_MS));
     }

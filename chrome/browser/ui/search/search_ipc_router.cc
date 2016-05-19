@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/search/search_ipc_router.h"
 
+#include <utility>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/common/render_messages.h"
@@ -30,10 +32,11 @@ bool IsProviderValid(const base::string16& provider) {
 }  // namespace
 
 SearchIPCRouter::SearchIPCRouter(content::WebContents* web_contents,
-                                 Delegate* delegate, scoped_ptr<Policy> policy)
+                                 Delegate* delegate,
+                                 scoped_ptr<Policy> policy)
     : WebContentsObserver(web_contents),
       delegate_(delegate),
-      policy_(policy.Pass()),
+      policy_(std::move(policy)),
       commit_counter_(0),
       is_active_tab_(false) {
   DCHECK(web_contents);
@@ -96,13 +99,6 @@ void SearchIPCRouter::SetSuggestionToPrefetch(
 
   Send(new ChromeViewMsg_SearchBoxSetSuggestionToPrefetch(routing_id(),
                                                           suggestion));
-}
-
-void SearchIPCRouter::SetOmniboxStartMargin(int start_margin) {
-  if (!policy_->ShouldSendSetOmniboxStartMargin())
-    return;
-
-  Send(new ChromeViewMsg_SearchBoxMarginChange(routing_id(), start_margin));
 }
 
 void SearchIPCRouter::SetInputInProgress(bool input_in_progress) {
@@ -214,8 +210,7 @@ void SearchIPCRouter::OnFocusOmnibox(int page_seq_no,
 void SearchIPCRouter::OnSearchBoxNavigate(
     int page_seq_no,
     const GURL& url,
-    WindowOpenDisposition disposition,
-    bool is_most_visited_item_url) const {
+    WindowOpenDisposition disposition) const {
   if (page_seq_no != commit_counter_)
     return;
 
@@ -223,7 +218,7 @@ void SearchIPCRouter::OnSearchBoxNavigate(
   if (!policy_->ShouldProcessNavigateToURL(is_active_tab_))
     return;
 
-  delegate_->NavigateToURL(url, disposition, is_most_visited_item_url);
+  delegate_->NavigateToURL(url, disposition);
 }
 
 void SearchIPCRouter::OnDeleteMostVisitedItem(int page_seq_no,

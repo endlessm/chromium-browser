@@ -4,10 +4,14 @@
 
 #include "chrome/browser/notifications/extension_welcome_notification.h"
 
+#include <stdint.h>
+
+#include <utility>
+
 #include "base/guid.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -21,6 +25,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -270,7 +275,7 @@ void ExtensionWelcomeNotification::ShowWelcomeNotification(
     if (pop_up_request == POP_UP_HIDDEN)
       message_center_notification->set_shown_as_popup(true);
 
-    GetMessageCenter()->AddNotification(message_center_notification.Pass());
+    GetMessageCenter()->AddNotification(std::move(message_center_notification));
     StartExpirationTimer();
   }
 }
@@ -334,7 +339,7 @@ void ExtensionWelcomeNotification::ExpireWelcomeNotification() {
 
 base::Time ExtensionWelcomeNotification::GetExpirationTimestamp() const {
   PrefService* const pref_service = profile_->GetPrefs();
-  const int64 expiration_timestamp =
+  const int64_t expiration_timestamp =
       pref_service->GetInt64(prefs::kWelcomeNotificationExpirationTimestamp);
   return (expiration_timestamp == 0)
       ? base::Time()

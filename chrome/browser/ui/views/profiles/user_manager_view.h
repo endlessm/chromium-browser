@@ -5,13 +5,16 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_PROFILES_USER_MANAGER_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_PROFILES_USER_MANAGER_VIEW_H_
 
+#include <memory>
+
 #include "base/auto_reset.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "ui/views/window/dialog_delegate.h"
 
-class AutoKeepAlive;
+class ScopedKeepAlive;
 
 namespace views {
 class WebView;
@@ -41,7 +44,7 @@ class UserManagerView : public views::DialogDelegateView {
  private:
   ~UserManagerView() override;
 
-  friend struct base::DefaultDeleter<UserManagerView>;
+  friend std::default_delete<UserManagerView>;
 
   // Creates dialog and initializes UI.
   void Init(Profile* guest_profile, const GURL& url);
@@ -61,7 +64,7 @@ class UserManagerView : public views::DialogDelegateView {
 
   views::WebView* web_view_;
 
-  scoped_ptr<AutoKeepAlive> keep_alive_;
+  scoped_ptr<ScopedKeepAlive> keep_alive_;
   base::Time user_manager_started_showing_;
 
   DISALLOW_COPY_AND_ASSIGN(UserManagerView);

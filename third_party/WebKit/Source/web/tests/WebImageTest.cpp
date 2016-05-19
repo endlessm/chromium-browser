@@ -28,25 +28,23 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/platform/WebImage.h"
 
 #include "platform/SharedBuffer.h"
-#include "public/platform/Platform.h"
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/WebData.h"
 #include "public/platform/WebSize.h"
-#include "public/platform/WebUnitTestSupport.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
 static PassRefPtr<SharedBuffer> readFile(const char* fileName)
 {
-    String filePath = Platform::current()->unitTestSupport()->webKitRootDir();
+    String filePath = testing::blinkRootDir();
     filePath.append("/Source/web/tests/data/");
     filePath.append(fileName);
 
-    return Platform::current()->unitTestSupport()->readFromFile(filePath);
+    return testing::readFromFile(filePath);
 }
 
 TEST(WebImageTest, PNGImage)

@@ -29,14 +29,18 @@
 #ifndef AudioArray_h
 #define AudioArray_h
 
+#include "wtf/Allocator.h"
 #include "wtf/Partitions.h"
 #include "wtf/Vector.h"
+#include "wtf/build_config.h"
 #include <string.h>
 
 namespace blink {
 
 template<typename T>
 class AudioArray {
+    USING_FAST_MALLOC(AudioArray);
+    WTF_MAKE_NONCOPYABLE(AudioArray);
 public:
     AudioArray() : m_allocation(nullptr), m_alignedData(nullptr), m_size(0) { }
     explicit AudioArray(size_t n) : m_allocation(nullptr), m_alignedData(nullptr), m_size(0)
@@ -78,7 +82,7 @@ public:
             // Again, check for integer overflow.
             RELEASE_ASSERT(initialSize + extraAllocationBytes >= initialSize);
 
-            T* allocation = static_cast<T*>(WTF::Partitions::fastMalloc(initialSize + extraAllocationBytes));
+            T* allocation = static_cast<T*>(WTF::Partitions::fastMalloc(initialSize + extraAllocationBytes, WTF_HEAP_PROFILER_TYPE_NAME(AudioArray<T>)));
             RELEASE_ASSERT(allocation);
 
             T* alignedData = alignedAddress(allocation, alignment);

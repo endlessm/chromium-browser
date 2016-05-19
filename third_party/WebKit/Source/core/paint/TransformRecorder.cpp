@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/TransformRecorder.h"
 
 #include "platform/graphics/GraphicsContext.h"
@@ -11,7 +10,7 @@
 
 namespace blink {
 
-TransformRecorder::TransformRecorder(GraphicsContext& context, const DisplayItemClientWrapper& client, const AffineTransform& transform)
+TransformRecorder::TransformRecorder(GraphicsContext& context, const DisplayItemClient& client, const AffineTransform& transform)
     : m_context(context)
     , m_client(client)
 {

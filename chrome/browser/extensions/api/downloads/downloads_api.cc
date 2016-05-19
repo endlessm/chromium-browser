@@ -4,10 +4,12 @@
 
 #include "chrome/browser/extensions/api/downloads/downloads_api.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <set>
 #include <string>
+#include <utility>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
@@ -17,6 +19,7 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram.h"
 #include "base/single_thread_task_runner.h"
@@ -28,6 +31,7 @@
 #include "base/task/cancelable_task_tracker.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_danger_prompt.h"
 #include "chrome/browser/download/download_file_icon_extractor.h"
@@ -536,7 +540,7 @@ void RunDownloadQuery(
       return;
   }
 
-  scoped_ptr<base::DictionaryValue> query_in_value(query_in.ToValue().Pass());
+  scoped_ptr<base::DictionaryValue> query_in_value(query_in.ToValue());
   for (base::DictionaryValue::Iterator query_json_field(*query_in_value.get());
        !query_json_field.IsAtEnd(); query_json_field.Advance()) {
     FilterTypeMap::const_iterator filter_type =
@@ -597,9 +601,8 @@ class ExtensionDownloadsEventRouterData : public base::SupportsUserData::Data {
       scoped_ptr<base::DictionaryValue> json_item)
       : updated_(0),
         changed_fired_(0),
-        json_(json_item.Pass()),
-        creator_conflict_action_(
-            downloads::FILENAME_CONFLICT_ACTION_UNIQUIFY),
+        json_(std::move(json_item)),
+        creator_conflict_action_(downloads::FILENAME_CONFLICT_ACTION_UNIQUIFY),
         determined_conflict_action_(
             downloads::FILENAME_CONFLICT_ACTION_UNIQUIFY) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -615,7 +618,7 @@ class ExtensionDownloadsEventRouterData : public base::SupportsUserData::Data {
 
   const base::DictionaryValue& json() const { return *json_.get(); }
   void set_json(scoped_ptr<base::DictionaryValue> json_item) {
-    json_ = json_item.Pass();
+    json_ = std::move(json_item);
   }
 
   void OnItemUpdated() { ++updated_; }
@@ -1021,7 +1024,7 @@ bool DownloadsDownloadFunction::RunAsync() {
 
   DownloadManager* manager = BrowserContext::GetDownloadManager(
       current_profile);
-  manager->DownloadUrl(download_params.Pass());
+  manager->DownloadUrl(std::move(download_params));
   RecordDownloadSource(DOWNLOAD_INITIATED_BY_EXTENSION);
   RecordApiFunctions(DOWNLOADS_FUNCTION_DOWNLOAD);
   return true;
@@ -1093,7 +1096,7 @@ bool DownloadsSearchFunction::RunSync() {
   for (DownloadManager::DownloadVector::const_iterator it = results.begin();
        it != results.end(); ++it) {
     DownloadItem* download_item = *it;
-    uint32 download_id = download_item->GetId();
+    uint32_t download_id = download_item->GetId();
     bool off_record = ((incognito_manager != NULL) &&
                        (incognito_manager->GetDownload(download_id) != NULL));
     scoped_ptr<base::DictionaryValue> json_item(
@@ -1426,7 +1429,7 @@ bool DownloadsSetShelfEnabledFunction::RunSync() {
         extension(), params->enabled);
   }
 
-  BrowserList* browsers = BrowserList::GetInstance(chrome::GetActiveDesktop());
+  BrowserList* browsers = BrowserList::GetInstance();
   if (browsers) {
     for (BrowserList::const_iterator iter = browsers->begin();
         iter != browsers->end(); ++iter) {
@@ -1764,7 +1767,7 @@ void ExtensionDownloadsEventRouter::OnDownloadCreated(
       (router->HasEventListener(downloads::OnChanged::kEventName) ||
        router->HasEventListener(
            downloads::OnDeterminingFilename::kEventName))) {
-    new ExtensionDownloadsEventRouterData(download_item, json_item.Pass());
+    new ExtensionDownloadsEventRouterData(download_item, std::move(json_item));
   }
 }
 
@@ -1833,7 +1836,7 @@ void ExtensionDownloadsEventRouter::OnDownloadUpdated(
                   Event::WillDispatchCallback(), delta.release());
     data->OnChangedFired();
   }
-  data->set_json(new_json.Pass());
+  data->set_json(std::move(new_json));
 }
 
 void ExtensionDownloadsEventRouter::OnDownloadRemoved(
@@ -1860,7 +1863,8 @@ void ExtensionDownloadsEventRouter::DispatchEvent(
   args->Append(arg);
   std::string json_args;
   base::JSONWriter::Write(*args, &json_args);
-  scoped_ptr<Event> event(new Event(histogram_value, event_name, args.Pass()));
+  scoped_ptr<Event> event(
+      new Event(histogram_value, event_name, std::move(args)));
   // The downloads system wants to share on-record events with off-record
   // extension renderers even in incognito_split_mode because that's how
   // chrome://downloads works. The "restrict_to_profile" mechanism does not
@@ -1869,7 +1873,7 @@ void ExtensionDownloadsEventRouter::DispatchEvent(
   event->restrict_to_browser_context =
       (include_incognito && !profile_->IsOffTheRecord()) ? NULL : profile_;
   event->will_dispatch_callback = will_dispatch_callback;
-  EventRouter::Get(profile_)->BroadcastEvent(event.Pass());
+  EventRouter::Get(profile_)->BroadcastEvent(std::move(event));
   DownloadsNotificationSource notification_source;
   notification_source.event_name = event_name;
   notification_source.profile = profile_;

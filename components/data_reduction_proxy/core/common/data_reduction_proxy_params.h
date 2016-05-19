@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_config_values.h"
 #include "net/proxy/proxy_server.h"
 #include "url/gurl.h"
@@ -39,6 +40,13 @@ bool IsIncludedInPromoFieldTrial();
 // is in effect.
 bool IsIncludedInHoldbackFieldTrial();
 
+// Returns the name of the trusted SPDY/HTTP2 proxy field trial.
+std::string GetTrustedSpdyProxyFieldTrialName();
+
+// Returns true if this client is part of the enabled group of the trusted
+// SPDY/HTTP2 proxy field trial.
+bool IsIncludedInTrustedSpdyProxyFieldTrial();
+
 // Returns true if this client is part of the field trial that should display
 // a promotion for the data reduction proxy on Android One devices.
 bool IsIncludedInAndroidOnePromoFieldTrial(const char* build_fingerprint);
@@ -50,13 +58,20 @@ std::string GetLoFiFieldTrialName();
 // is force enabled through flags.
 std::string GetLoFiFlagFieldTrialName();
 
-// Returns true if this client is part of the "Enabled" group of the Lo-Fi field
-// trial.
+// Returns true if this client is part of the "Enabled" or "Enabled_Preview"
+// group of the Lo-Fi field trial, both of which mean Lo-Fi should be enabled.
 bool IsIncludedInLoFiEnabledFieldTrial();
 
 // Returns true if this client is part of the "Control" group of the Lo-Fi field
 // trial.
 bool IsIncludedInLoFiControlFieldTrial();
+
+// Returns true if this client is part of the "Preview" group of the Lo-Fi field
+// trial.
+bool IsIncludedInLoFiPreviewFieldTrial();
+
+// Returns true if this client is part of the tamper detection experiment.
+bool IsIncludedInTamperDetectionExperiment();
 
 // Returns true if this client has any of the values to enable Lo-Fi mode for
 // the "data-reduction-proxy-lo-fi" command line switch. This includes the
@@ -78,6 +93,11 @@ bool IsLoFiSlowConnectionsOnlyViaFlags();
 // Returns true if this client has the command line switch to disable Lo-Fi
 // mode.
 bool IsLoFiDisabledViaFlags();
+
+// Returns true if this client has the command line switch to enable Lo-Fi
+// previews. This means a preview should be requested instead of placeholders
+// whenever Lo-Fi mode is on.
+bool AreLoFiPreviewsEnabledViaFlags();
 
 // Returns true if this client has the command line switch to show
 // interstitials for data reduction proxy bypasses.
@@ -125,9 +145,10 @@ int GetFieldTrialParameterAsInteger(const std::string& group,
 bool GetOverrideProxiesForHttpFromCommandLine(
     std::vector<net::ProxyServer>* override_proxies_for_http);
 
-}  // namespace params
+// Returns the name of the server side experiment field trial.
+std::string GetServerExperimentsFieldTrialName();
 
-class ClientConfig;
+}  // namespace params
 
 // Contains information about a given proxy server. |proxies_for_http| and
 // |proxies_for_https| contain the configured data reduction proxy servers.
@@ -135,6 +156,7 @@ class ClientConfig;
 // proxy for ssl; these are not mutually exclusive.
 struct DataReductionProxyTypeInfo {
   DataReductionProxyTypeInfo();
+  DataReductionProxyTypeInfo(const DataReductionProxyTypeInfo& other);
   ~DataReductionProxyTypeInfo();
   std::vector<net::ProxyServer> proxy_servers;
   bool is_fallback;
@@ -177,10 +199,6 @@ class DataReductionProxyParams : public DataReductionProxyConfigValues {
 
   // If true, uses QUIC instead of SPDY to connect to proxies that use TLS.
   void EnableQuic(bool enable);
-
-  // Populates |response| with the Data Reduction Proxy server configuration.
-  // Virtual for mocking.
-  virtual void PopulateConfigResponse(ClientConfig* config) const;
 
   // Overrides of |DataReductionProxyConfigValues|
   bool UsingHTTPTunnel(const net::HostPortPair& proxy_server) const override;

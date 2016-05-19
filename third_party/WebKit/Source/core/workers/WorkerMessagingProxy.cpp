@@ -25,10 +25,10 @@
  *
  */
 
-#include "config.h"
 
 #include "core/workers/WorkerMessagingProxy.h"
 
+#include "bindings/core/v8/V8GCController.h"
 #include "core/dom/CrossThreadTask.h"
 #include "core/dom/Document.h"
 #include "core/events/ErrorEvent.h"
@@ -39,7 +39,6 @@
 #include "core/frame/LocalFrame.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/inspector/ConsoleMessage.h"
-#include "core/inspector/ScriptCallStack.h"
 #include "core/inspector/WorkerDebuggerAgent.h"
 #include "core/loader/DocumentLoadTiming.h"
 #include "core/loader/DocumentLoader.h"
@@ -56,10 +55,10 @@ namespace blink {
 
 namespace {
 
-void processExceptionOnWorkerGlobalScope(int exceptionId, bool isHandled, ExecutionContext* scriptContext)
+void processExceptionOnWorkerGlobalScope(int exceptionId, bool handled, ExecutionContext* scriptContext)
 {
     WorkerGlobalScope* globalScope = toWorkerGlobalScope(scriptContext);
-    globalScope->exceptionHandled(exceptionId, isHandled);
+    globalScope->exceptionHandled(exceptionId, handled);
 }
 
 void processMessageOnWorkerGlobalScope(PassRefPtr<SerializedScriptValue> message, PassOwnPtr<MessagePortChannelArray> channels, WorkerObjectProxy* workerObjectProxy, ExecutionContext* scriptContext)
@@ -67,14 +66,14 @@ void processMessageOnWorkerGlobalScope(PassRefPtr<SerializedScriptValue> message
     WorkerGlobalScope* globalScope = toWorkerGlobalScope(scriptContext);
     MessagePortArray* ports = MessagePort::entanglePorts(*scriptContext, channels);
     globalScope->dispatchEvent(MessageEvent::create(ports, message));
-    workerObjectProxy->confirmMessageFromWorkerObject(scriptContext->hasPendingActivity());
+    workerObjectProxy->confirmMessageFromWorkerObject(V8GCController::hasPendingActivity(scriptContext));
 }
 
 } // namespace
 
 WorkerMessagingProxy::WorkerMessagingProxy(InProcessWorkerBase* workerObject, PassOwnPtrWillBeRawPtr<WorkerClients> workerClients)
     : m_executionContext(workerObject->executionContext())
-    , m_workerObjectProxy(WorkerObjectProxy::create(m_executionContext.get(), this))
+    , m_workerObjectProxy(WorkerObjectProxy::create(this))
     , m_workerObject(workerObject)
     , m_mayBeDestroyed(false)
     , m_unconfirmedMessageCount(0)
@@ -172,8 +171,8 @@ void WorkerMessagingProxy::reportException(const String& errorMessage, int lineN
     // This is intentionally different than the behavior in MessageWorkerTask, because terminated workers no longer deliver messages (section 4.6 of the WebWorker spec), but they do report exceptions.
 
     RefPtrWillBeRawPtr<ErrorEvent> event = ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, nullptr);
-    bool errorHandled = !m_workerObject->dispatchEvent(event);
-    postTaskToWorkerGlobalScope(createCrossThreadTask(&processExceptionOnWorkerGlobalScope, exceptionId, errorHandled));
+    DispatchEventResult dispatchResult = m_workerObject->dispatchEvent(event);
+    postTaskToWorkerGlobalScope(createCrossThreadTask(&processExceptionOnWorkerGlobalScope, exceptionId, dispatchResult != DispatchEventResult::NotCanceled));
 }
 
 void WorkerMessagingProxy::reportConsoleMessage(MessageSource source, MessageLevel level, const String& message, int lineNumber, const String& sourceURL)

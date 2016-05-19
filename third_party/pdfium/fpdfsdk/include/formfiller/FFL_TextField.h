@@ -7,7 +7,7 @@
 #ifndef FPDFSDK_INCLUDE_FORMFILLER_FFL_TEXTFIELD_H_
 #define FPDFSDK_INCLUDE_FORMFILLER_FFL_TEXTFIELD_H_
 
-#include "FFL_FormFiller.h"
+#include "fpdfsdk/include/formfiller/FFL_FormFiller.h"
 
 #define BF_ALIGN_LEFT 0
 #define BF_ALIGN_MIDDLE 1
@@ -55,6 +55,11 @@ class CFFL_TextField : public CFFL_FormFiller,
 
   // IPWL_Edit_Notify:
   void OnAddUndo(CPWL_Edit* pEdit) override;
+
+#ifdef PDF_ENABLE_XFA
+  // CFFL_FormFiller:
+  FX_BOOL IsFieldFull(CPDFSDK_PageView* pPageView) override;
+#endif  // PDF_ENABLE_XFA
 
  private:
   CBA_FontMap* m_pFontMap;

@@ -4,16 +4,18 @@
 
 #include "chrome/browser/chromeos/policy/device_status_collector.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/environment.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -38,6 +40,8 @@
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/system/fake_statistics_provider.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/testing_pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/geolocation_provider.h"
 #include "content/public/test/test_browser_thread.h"
@@ -61,7 +65,7 @@ namespace em = enterprise_management;
 
 namespace {
 
-const int64 kMillisecondsPerDay = Time::kMicrosecondsPerDay / 1000;
+const int64_t kMillisecondsPerDay = Time::kMicrosecondsPerDay / 1000;
 const char kKioskAccountId[] = "kiosk_user@localhost";
 const char kKioskAppId[] = "kiosk_app_id";
 const char kExternalMountPoint[] = "/a/b/c";
@@ -131,7 +135,7 @@ class TestingDeviceStatusCollector : public policy::DeviceStatusCollector {
   }
 
   void set_kiosk_account(scoped_ptr<policy::DeviceLocalAccount> account) {
-    kiosk_account_ = account.Pass();
+    kiosk_account_ = std::move(account);
   }
 
   scoped_ptr<policy::DeviceLocalAccount>
@@ -178,8 +182,8 @@ class TestingDeviceStatusCollector : public policy::DeviceStatusCollector {
 
 // Return the total number of active milliseconds contained in a device
 // status report.
-int64 GetActiveMilliseconds(em::DeviceStatusReportRequest& status) {
-  int64 active_milliseconds = 0;
+int64_t GetActiveMilliseconds(em::DeviceStatusReportRequest& status) {
+  int64_t active_milliseconds = 0;
   for (int i = 0; i < status.active_period_size(); i++) {
     active_milliseconds += status.active_period(i).active_duration();
   }
@@ -386,7 +390,7 @@ class DeviceStatusCollectorTest : public testing::Test {
 
  protected:
   // Convenience method.
-  int64 ActivePeriodMilliseconds() {
+  int64_t ActivePeriodMilliseconds() {
     return policy::DeviceStatusCollector::kIdlePollIntervalSeconds * 1000;
   }
 
@@ -983,7 +987,7 @@ TEST_F(DeviceStatusCollectorTest, NoSessionStatusIfSessionReportingDisabled) {
   // Should not report session status if session status reporting is disabled.
   settings_helper_.SetBoolean(chromeos::kReportDeviceSessionStatus, false);
   status_collector_->set_kiosk_account(make_scoped_ptr(
-      new policy::DeviceLocalAccount(fake_device_local_account_)).Pass());
+      new policy::DeviceLocalAccount(fake_device_local_account_)));
   // Set up a device-local account for single-app kiosk mode.
   MockRunningKioskApp(fake_device_local_account_);
 
@@ -994,7 +998,7 @@ TEST_F(DeviceStatusCollectorTest, NoSessionStatusIfSessionReportingDisabled) {
 TEST_F(DeviceStatusCollectorTest, ReportSessionStatus) {
   settings_helper_.SetBoolean(chromeos::kReportDeviceSessionStatus, true);
   status_collector_->set_kiosk_account(make_scoped_ptr(
-      new policy::DeviceLocalAccount(fake_device_local_account_)).Pass());
+      new policy::DeviceLocalAccount(fake_device_local_account_)));
 
   // Set up a device-local account for single-app kiosk mode.
   MockRunningKioskApp(fake_device_local_account_);
@@ -1281,7 +1285,7 @@ TEST_F(DeviceStatusCollectorNetworkInterfacesTest, NoNetworkStateIfNotKiosk) {
 TEST_F(DeviceStatusCollectorNetworkInterfacesTest, NetworkInterfaces) {
   // Mock that we are in kiosk mode so we report network state.
   status_collector_->set_kiosk_account(make_scoped_ptr(
-      new policy::DeviceLocalAccount(fake_device_local_account_)).Pass());
+      new policy::DeviceLocalAccount(fake_device_local_account_)));
 
   // Interfaces should be reported by default.
   GetStatus();

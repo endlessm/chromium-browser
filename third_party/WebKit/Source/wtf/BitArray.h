@@ -26,6 +26,7 @@
 #ifndef BitArray_h
 #define BitArray_h
 
+#include "wtf/Allocator.h"
 #include "wtf/Assertions.h"
 #include <string.h>
 
@@ -33,6 +34,7 @@ namespace WTF {
 
 template<unsigned arraySize>
 class BitArray {
+    USING_FAST_MALLOC(BitArray);
 public:
     BitArray(bool value = false)
     {
@@ -41,19 +43,19 @@ public:
 
     void set(unsigned index)
     {
-        ASSERT_WITH_SECURITY_IMPLICATION(index < arraySize);
+        RELEASE_ASSERT(index < arraySize);
         m_data[index / 8] |= 1 << (index & 7);
     }
 
     void clear(unsigned index)
     {
-        ASSERT_WITH_SECURITY_IMPLICATION(index < arraySize);
+        RELEASE_ASSERT(index < arraySize);
         m_data[index / 8] &= ~(1 << (index & 7));
     }
 
     bool get(unsigned index) const
     {
-        ASSERT_WITH_SECURITY_IMPLICATION(index < arraySize);
+        RELEASE_ASSERT(index < arraySize);
         return !!(m_data[index / 8] & (1 << (index & 7)));
     }
 

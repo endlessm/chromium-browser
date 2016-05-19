@@ -5,10 +5,12 @@
 #include "components/drive/drive_uploader.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task_runner_util.h"
@@ -39,10 +41,10 @@ namespace {
 // The value must be a multiple of 512KB according to the spec of GData WAPI and
 // Drive API v2. It is set to a smaller value than 2^31 for working around
 // server side error (crbug.com/264089).
-const int64 kUploadChunkSize = (1LL << 30);  // 1GB
+const int64_t kUploadChunkSize = (1LL << 30);  // 1GB
 // Maximum file size to be uploaded by multipart requests. The file that is
 // larger than the size is processed by resumable upload.
-const int64 kMaxMultipartUploadSize = (1LL << 20);  // 1MB
+const int64_t kMaxMultipartUploadSize = (1LL << 20);  // 1MB
 
 // Drive upload protocol. This is used to back a histogram. Sync this with UMA
 // enum "DriveUploadProtocol" and treat this as append-only.
@@ -70,7 +72,7 @@ class DriveUploader::RefCountedBatchRequest
  public:
   RefCountedBatchRequest(
       scoped_ptr<BatchRequestConfiguratorInterface> configurator)
-      : configurator_(configurator.Pass()) {}
+      : configurator_(std::move(configurator)) {}
 
   // Gets pointer of BatchRequestConfiguratorInterface owned by the instance.
   BatchRequestConfiguratorInterface* configurator() const {
@@ -136,9 +138,9 @@ struct DriveUploader::UploadFileInfo {
   GURL upload_location;
 
   // Header content-Length.
-  int64 content_length;
+  int64_t content_length;
 
-  int64 next_start_position;
+  int64_t next_start_position;
 
   // Blocks system suspend while upload is in progress.
   scoped_ptr<content::PowerSaveBlocker> power_save_blocker;
@@ -200,7 +202,7 @@ CancelCallback DriveUploader::UploadNewFile(
 void DriveUploader::StartBatchProcessing() {
   DCHECK(current_batch_request_ == nullptr);
   current_batch_request_ =
-      new RefCountedBatchRequest(drive_service_->StartBatchRequest().Pass());
+      new RefCountedBatchRequest(drive_service_->StartBatchRequest());
 }
 
 void DriveUploader::StopBatchProcessing() {
@@ -243,10 +245,9 @@ CancelCallback DriveUploader::ResumeUploadFile(
       local_file_path, content_type, callback, progress_callback));
   upload_file_info->upload_location = upload_location;
 
-  return StartUploadFile(
-      upload_file_info.Pass(),
-      base::Bind(&DriveUploader::StartGetUploadStatus,
-                 weak_ptr_factory_.GetWeakPtr()));
+  return StartUploadFile(std::move(upload_file_info),
+                         base::Bind(&DriveUploader::StartGetUploadStatus,
+                                    weak_ptr_factory_.GetWeakPtr()));
 }
 
 CancelCallback DriveUploader::StartUploadFile(
@@ -276,16 +277,16 @@ void DriveUploader::StartUploadFileAfterGetFileSize(
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (!get_file_size_result) {
-    UploadFailed(upload_file_info.Pass(), HTTP_NOT_FOUND);
+    UploadFailed(std::move(upload_file_info), HTTP_NOT_FOUND);
     return;
   }
   DCHECK_GE(upload_file_info->content_length, 0);
 
   if (upload_file_info->cancelled) {
-    UploadFailed(upload_file_info.Pass(), DRIVE_CANCELLED);
+    UploadFailed(std::move(upload_file_info), DRIVE_CANCELLED);
     return;
   }
-  start_initiate_upload_callback.Run(upload_file_info.Pass());
+  start_initiate_upload_callback.Run(std::move(upload_file_info));
 }
 
 void DriveUploader::CallUploadServiceAPINewFile(
@@ -371,13 +372,13 @@ void DriveUploader::OnUploadLocationReceived(
   if (code != HTTP_SUCCESS) {
     if (code == HTTP_PRECONDITION)
       code = HTTP_CONFLICT;  // ETag mismatch.
-    UploadFailed(upload_file_info.Pass(), code);
+    UploadFailed(std::move(upload_file_info), code);
     return;
   }
 
   upload_file_info->upload_location = upload_location;
   upload_file_info->next_start_position = 0;
-  UploadNextChunk(upload_file_info.Pass());
+  UploadNextChunk(std::move(upload_file_info));
 }
 
 void DriveUploader::StartGetUploadStatus(
@@ -403,14 +404,14 @@ void DriveUploader::UploadNextChunk(
             upload_file_info->content_length);
 
   if (upload_file_info->cancelled) {
-    UploadFailed(upload_file_info.Pass(), DRIVE_CANCELLED);
+    UploadFailed(std::move(upload_file_info), DRIVE_CANCELLED);
     return;
   }
 
   // Limit the size of data uploaded per each request by kUploadChunkSize.
-  const int64 end_position = std::min(
-      upload_file_info->content_length,
-      upload_file_info->next_start_position + kUploadChunkSize);
+  const int64_t end_position =
+      std::min(upload_file_info->content_length,
+               upload_file_info->next_start_position + kUploadChunkSize);
 
   UploadFileInfo* info_ptr = upload_file_info.get();
   info_ptr->cancel_callback = drive_service_->ResumeUpload(
@@ -450,14 +451,14 @@ void DriveUploader::OnUploadRangeResponseReceived(
              << upload_file_info->file_path.value() << "]";
 
     // Done uploading.
-    upload_file_info->completion_callback.Run(
-        HTTP_SUCCESS, GURL(), entry.Pass());
+    upload_file_info->completion_callback.Run(HTTP_SUCCESS, GURL(),
+                                              std::move(entry));
     return;
   }
 
   // ETag mismatch.
   if (response.code == HTTP_PRECONDITION) {
-    UploadFailed(upload_file_info.Pass(), HTTP_CONFLICT);
+    UploadFailed(std::move(upload_file_info), HTTP_CONFLICT);
     return;
   }
 
@@ -470,9 +471,9 @@ void DriveUploader::OnUploadRangeResponseReceived(
         << "UploadNextChunk http code=" << response.code
         << ", start_position_received=" << response.start_position_received
         << ", end_position_received=" << response.end_position_received;
-    UploadFailed(
-        upload_file_info.Pass(),
-        response.code == HTTP_FORBIDDEN ? DRIVE_NO_SPACE : response.code);
+    UploadFailed(std::move(upload_file_info), response.code == HTTP_FORBIDDEN
+                                                  ? DRIVE_NO_SPACE
+                                                  : response.code);
     return;
   }
 
@@ -481,14 +482,14 @@ void DriveUploader::OnUploadRangeResponseReceived(
            << " for [" << upload_file_info->file_path.value() << "]";
 
   upload_file_info->next_start_position = response.end_position_received;
-  UploadNextChunk(upload_file_info.Pass());
+  UploadNextChunk(std::move(upload_file_info));
 }
 
 void DriveUploader::OnUploadProgress(const ProgressCallback& callback,
-                                     int64 start_position,
-                                     int64 total_size,
-                                     int64 progress_of_chunk,
-                                     int64 total_of_chunk) {
+                                     int64_t start_position,
+                                     int64_t total_size,
+                                     int64_t progress_of_chunk,
+                                     int64_t total_of_chunk) {
   if (!callback.is_null())
     callback.Run(start_position + progress_of_chunk, total_size);
 }
@@ -520,7 +521,7 @@ void DriveUploader::OnMultipartUploadComplete(
              << upload_file_info->file_path.value() << "]";
     // Done uploading.
     upload_file_info->completion_callback.Run(
-        HTTP_SUCCESS, upload_file_info->upload_location, entry.Pass());
+        HTTP_SUCCESS, upload_file_info->upload_location, std::move(entry));
   } else {
     DVLOG(1) << "Upload failed " << upload_file_info->DebugString();
     if (error == HTTP_PRECONDITION)

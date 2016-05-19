@@ -4,10 +4,14 @@
 
 #include "ui/views/mus/aura_init.h"
 
+#include <utility>
+
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/path_service.h"
+#include "build/build_config.h"
 #include "components/resource_provider/public/cpp/resource_loader.h"
-#include "mojo/application/public/cpp/application_impl.h"
+#include "mojo/shell/public/cpp/connector.h"
 #include "ui/aura/env.h"
 #include "ui/base/ime/input_method_initializer.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -46,12 +50,12 @@ class MusViewsDelegate : public ViewsDelegate {
 
 }  // namespace
 
-AuraInit::AuraInit(mojo::ApplicationImpl* app, const std::string& resource_file)
+AuraInit::AuraInit(mojo::Connector* connector, const std::string& resource_file)
     : resource_file_(resource_file),
       views_delegate_(new MusViewsDelegate) {
   aura::Env::CreateInstance(false);
 
-  InitializeResources(app);
+  InitializeResources(connector);
 
   ui::InitializeInputMethodForTesting();
 }
@@ -68,25 +72,24 @@ AuraInit::~AuraInit() {
 #endif
 }
 
-void AuraInit::InitializeResources(mojo::ApplicationImpl* app) {
+void AuraInit::InitializeResources(mojo::Connector* connector) {
   if (ui::ResourceBundle::HasSharedInstance())
     return;
   resource_provider::ResourceLoader resource_loader(
-      app, GetResourcePaths(resource_file_));
-  if (!resource_loader.BlockUntilLoaded())
-    return;
+      connector, GetResourcePaths(resource_file_));
+  CHECK(resource_loader.BlockUntilLoaded());
   CHECK(resource_loader.loaded());
   ui::RegisterPathProvider();
   base::File pak_file = resource_loader.ReleaseFile(resource_file_);
   base::File pak_file_2 = pak_file.Duplicate();
   ui::ResourceBundle::InitSharedInstanceWithPakFileRegion(
-      pak_file.Pass(), base::MemoryMappedFile::Region::kWholeFile);
+      std::move(pak_file), base::MemoryMappedFile::Region::kWholeFile);
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromFile(
-      pak_file_2.Pass(), ui::SCALE_FACTOR_100P);
+      std::move(pak_file_2), ui::SCALE_FACTOR_100P);
 
 // Initialize the skia font code to go ask fontconfig underneath.
 #if defined(OS_LINUX) && !defined(OS_ANDROID)
-  font_loader_ = skia::AdoptRef(new font_service::FontLoader(app->shell()));
+  font_loader_ = skia::AdoptRef(new font_service::FontLoader(connector));
   SkFontConfigInterface::SetGlobal(font_loader_.get());
 #endif
 

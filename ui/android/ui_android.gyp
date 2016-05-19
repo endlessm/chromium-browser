@@ -44,7 +44,6 @@
         'ui_android_export.h',
         'ui_android_jni_registrar.cc',
         'ui_android_jni_registrar.h',
-        'view_android.cc',
         'view_android.h',
         'window_android.cc',
         'window_android.h',
@@ -165,6 +164,29 @@
       },
       'includes': [
         '../../build/java_strings_grd.gypi',
+      ],
+    },
+    {
+      # GN: //ui/android:ui_junit_tests
+      'target_name': 'ui_junit_tests',
+      'type': 'none',
+      'dependencies': [
+        'ui_java',
+        '../../base/base.gyp:base',
+        '../../base/base.gyp:base_junit_test_support',
+        '../../testing/android/junit/junit_test.gyp:junit_test_support',
+      ],
+      'variables': {
+        'main_class': 'org.chromium.testing.local.JunitTestMain',
+        'src_paths': [
+          'junit/',
+        ],
+        'test_type': 'junit',
+        'wrapper_script_name': 'helper/<(_target_name)',
+      },
+      'includes': [
+        '../../build/android/test_runner.gypi',
+        '../../build/host_jar.gypi',
       ],
     },
     {

@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "webencryptedmediaclient_impl.h"
+#include "media/blink/webencryptedmediaclient_impl.h"
+
+#include <utility>
 
 #include "base/bind.h"
 #include "base/metrics/histogram.h"
@@ -13,11 +15,12 @@
 #include "media/base/media_permission.h"
 #include "media/blink/webcontentdecryptionmodule_impl.h"
 #include "media/blink/webcontentdecryptionmoduleaccess_impl.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebContentDecryptionModuleResult.h"
 #include "third_party/WebKit/public/platform/WebEncryptedMediaRequest.h"
 #include "third_party/WebKit/public/platform/WebMediaKeySystemConfiguration.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 
 namespace media {
 
@@ -98,7 +101,8 @@ void WebEncryptedMediaClientImpl::requestMediaKeySystemAccess(
   GetReporter(request.keySystem())->ReportRequested();
 
   if (GetMediaClient()) {
-    GURL security_origin(request.securityOrigin().toString());
+    GURL security_origin(
+        blink::WebStringToGURL(request.securityOrigin().toString()));
 
     GetMediaClient()->RecordRapporURL("Media.OriginUrl.EME", security_origin);
 
@@ -124,7 +128,7 @@ void WebEncryptedMediaClientImpl::CreateCdm(
     const CdmConfig& cdm_config,
     scoped_ptr<blink::WebContentDecryptionModuleResult> result) {
   WebContentDecryptionModuleImpl::Create(
-      cdm_factory_, key_system, security_origin, cdm_config, result.Pass());
+      cdm_factory_, key_system, security_origin, cdm_config, std::move(result));
 }
 
 void WebEncryptedMediaClientImpl::OnRequestSucceeded(

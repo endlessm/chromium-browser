@@ -6,6 +6,8 @@
 
 #include "chrome/browser/extensions/api/cookies/cookies_helpers.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/logging.h"
@@ -25,6 +27,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_store.h"
 #include "net/cookies/cookie_util.h"
 #include "url/gurl.h"
 
@@ -87,7 +90,7 @@ scoped_ptr<Cookie> CreateCookie(
   }
   cookie->store_id = store_id;
 
-  return cookie.Pass();
+  return cookie;
 }
 
 scoped_ptr<CookieStore> CreateCookieStore(Profile* profile,
@@ -108,12 +111,11 @@ void GetCookieListFromStore(
     net::CookieStore* cookie_store, const GURL& url,
     const net::CookieMonster::GetCookieListCallback& callback) {
   DCHECK(cookie_store);
-  net::CookieMonster* monster = cookie_store->GetCookieMonster();
   if (!url.is_empty()) {
     DCHECK(url.is_valid());
-    monster->GetAllCookiesForURLAsync(url, callback);
+    cookie_store->GetAllCookiesForURLAsync(url, callback);
   } else {
-    monster->GetAllCookiesAsync(callback);
+    cookie_store->GetAllCookiesAsync(callback);
   }
 }
 

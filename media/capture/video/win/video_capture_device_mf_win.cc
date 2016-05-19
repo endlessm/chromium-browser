@@ -6,6 +6,7 @@
 
 #include <mfapi.h>
 #include <mferror.h>
+#include <stddef.h>
 
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
@@ -171,9 +172,9 @@ bool VideoCaptureDeviceMFWin::FormatFromGuid(const GUID& guid,
       {MFVideoFormat_YV12, PIXEL_FORMAT_YV12},
   };
 
-  for (int i = 0; i < arraysize(kFormatMap); ++i) {
-    if (kFormatMap[i].guid == guid) {
-      *format = kFormatMap[i].format;
+  for (const auto& kFormat : kFormatMap) {
+    if (kFormat.guid == guid) {
+      *format = kFormat.format;
       return true;
     }
   }
@@ -293,7 +294,7 @@ void VideoCaptureDeviceMFWin::StopAndDeAllocate() {
 }
 
 void VideoCaptureDeviceMFWin::OnIncomingCapturedData(
-    const uint8* data,
+    const uint8_t* data,
     int length,
     int rotation,
     const base::TimeTicks& time_stamp) {

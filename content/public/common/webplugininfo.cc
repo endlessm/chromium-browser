@@ -4,6 +4,8 @@
 
 #include "content/public/common/webplugininfo.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/logging.h"
@@ -24,6 +26,8 @@ WebPluginMimeType::WebPluginMimeType(const std::string& m,
       description(base::ASCIIToUTF16(d)) {
   file_extensions.push_back(f);
 }
+
+WebPluginMimeType::WebPluginMimeType(const WebPluginMimeType& other) = default;
 
 WebPluginMimeType::~WebPluginMimeType() {}
 

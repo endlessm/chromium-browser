@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ANDROID_BANNERS_APP_BANNER_DATA_FETCHER_ANDROID_H_
 
 #include "base/android/jni_android.h"
+#include "base/macros.h"
 #include "chrome/browser/banners/app_banner_data_fetcher.h"
 
 namespace banners {
@@ -14,19 +15,19 @@ namespace banners {
 // WebContents.  Extends the regular fetch to add support for Android apps.
 class AppBannerDataFetcherAndroid : public AppBannerDataFetcher {
  public:
-  AppBannerDataFetcherAndroid(
-      content::WebContents* web_contents,
-      base::WeakPtr<Delegate> weak_delegate,
-      int ideal_icon_size_in_dp,
-      int minimum_icon_size_in_dp,
-      int ideal_splash_image_size_in_dp,
-      int minimum_splash_image_size_in_dp);
+  AppBannerDataFetcherAndroid(content::WebContents* web_contents,
+                              base::WeakPtr<Delegate> weak_delegate,
+                              int ideal_icon_size_in_dp,
+                              int minimum_icon_size_in_dp,
+                              int ideal_splash_image_size_in_dp,
+                              int minimum_splash_image_size_in_dp,
+                              bool is_debug_mode);
 
   // Saves information about the Android app being promoted by the current page,
   // then continues the creation pipeline.
   bool ContinueFetching(const base::string16& app_title,
                         const std::string& app_package,
-                        base::android::ScopedJavaLocalRef<jobject> app_data,
+                        const base::android::JavaRef<jobject>& app_data,
                         const GURL& image_url);
 
   // Fetches the splash screen image and stores it in the WebappDataStorage.

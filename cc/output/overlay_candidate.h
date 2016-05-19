@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "cc/base/cc_export.h"
+#include "cc/quads/render_pass.h"
 #include "cc/resources/resource_format.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -38,7 +39,14 @@ class CC_EXPORT OverlayCandidate {
   // an overlay.
   static bool IsInvisibleQuad(const DrawQuad* quad);
 
+  // Returns true if any any of the quads in the list given by |quad_list_begin|
+  // and |quad_list_end| are visible and on top of |candidate|.
+  static bool IsOccluded(const OverlayCandidate& candidate,
+                         QuadList::ConstIterator quad_list_begin,
+                         QuadList::ConstIterator quad_list_end);
+
   OverlayCandidate();
+  OverlayCandidate(const OverlayCandidate& other);
   ~OverlayCandidate();
 
   // Transformation to apply to layer during composition.
@@ -66,6 +74,10 @@ class CC_EXPORT OverlayCandidate {
   // Stacking order of the overlay plane relative to the main surface,
   // which is 0. Signed to allow for "underlays".
   int plane_z_order;
+  // True if the overlay does not have any visible quads on top of it. Set by
+  // the strategy so the OverlayProcessor can consider subtracting damage caused
+  // by underlay quads.
+  bool is_unoccluded;
 
   // To be modified by the implementer if this candidate can go into
   // an overlay.

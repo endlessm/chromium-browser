@@ -8,11 +8,15 @@
 }
 
 #date {
-  color: #7c7c7c;
+  color: rgb(104, 113, 116);
   font-size: 100%;
   font-weight: 500;
   margin: 24px auto 10px;
   width: var(--downloads-item-width);
+}
+
+#date:empty {
+  display: none;
 }
 
 #content {

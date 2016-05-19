@@ -4,7 +4,10 @@
 
 #include "sync/internal_api/sync_manager_impl.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <string>
+#include <utility>
 
 #include "base/base64.h"
 #include "base/bind.h"
@@ -225,7 +228,7 @@ void SyncManagerImpl::Init(InitArgs* args) {
   CHECK(!initialized_);
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(args->post_factory.get());
-  DCHECK(!args->credentials.email.empty());
+  DCHECK(!args->credentials.account_id.empty());
   DCHECK(!args->credentials.sync_token.empty());
   DCHECK(!args->credentials.scope_set.empty());
   DCHECK(args->cancelation_signal);
@@ -260,7 +263,7 @@ void SyncManagerImpl::Init(InitArgs* args) {
   scoped_ptr<syncable::DirectoryBackingStore> backing_store =
       args->internal_components_factory->BuildDirectoryBackingStore(
           InternalComponentsFactory::STORAGE_ON_DISK,
-          args->credentials.email, absolute_db_path).Pass();
+          args->credentials.account_id, absolute_db_path);
 
   DCHECK(backing_store.get());
   share_.directory.reset(
@@ -276,9 +279,9 @@ void SyncManagerImpl::Init(InitArgs* args) {
   // sync token so clear sync_token from the UserShare.
   share_.sync_credentials.sync_token = "";
 
-  const std::string& username = args->credentials.email;
-  DVLOG(1) << "Username: " << username;
-  if (!OpenDirectory(username)) {
+  DVLOG(1) << "Username: " << args->credentials.email;
+  DVLOG(1) << "AccountId: " << args->credentials.account_id;
+  if (!OpenDirectory(args->credentials.account_id)) {
     NotifyInitializationFailure();
     LOG(ERROR) << "Sync manager initialization failed!";
     return;
@@ -324,19 +327,12 @@ void SyncManagerImpl::Init(InitArgs* args) {
   std::vector<SyncEngineEventListener*> listeners;
   listeners.push_back(&allstatus_);
   listeners.push_back(this);
-  session_context_ =
-      args->internal_components_factory->BuildContext(
-                                             connection_manager_.get(),
-                                             directory(),
-                                             args->extensions_activity,
-                                             listeners,
-                                             &debug_info_event_listener_,
-                                             model_type_registry_.get(),
-                                             args->invalidator_client_id)
-          .Pass();
-  session_context_->set_account_name(args->credentials.email);
+  session_context_ = args->internal_components_factory->BuildContext(
+      connection_manager_.get(), directory(), args->extensions_activity,
+      listeners, &debug_info_event_listener_, model_type_registry_.get(),
+      args->invalidator_client_id);
   scheduler_ = args->internal_components_factory->BuildScheduler(
-      name_, session_context_.get(), args->cancelation_signal).Pass();
+      name_, session_context_.get(), args->cancelation_signal);
 
   scheduler_->Start(SyncScheduler::CONFIGURATION_MODE, base::Time());
 
@@ -503,9 +499,10 @@ bool SyncManagerImpl::PurgeDisabledTypes(
 void SyncManagerImpl::UpdateCredentials(const SyncCredentials& credentials) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(initialized_);
-  DCHECK(!credentials.email.empty());
+  DCHECK(!credentials.account_id.empty());
   DCHECK(!credentials.sync_token.empty());
   DCHECK(!credentials.scope_set.empty());
+  session_context_->set_account_name(credentials.email);
 
   observing_network_connectivity_changes_ = true;
   if (!connection_manager_->SetAuthToken(credentials.sync_token))
@@ -680,7 +677,7 @@ SyncManagerImpl::HandleTransactionEndingChangeEvent(
 void SyncManagerImpl::HandleCalculateChangesChangeEventFromSyncApi(
     const ImmutableWriteTransactionInfo& write_transaction_info,
     syncable::BaseTransaction* trans,
-    std::vector<int64>* entries_changed) {
+    std::vector<int64_t>* entries_changed) {
   // We have been notified about a user action changing a sync model.
   LOG_IF(WARNING, !change_records_.empty()) <<
       "CALCULATE_CHANGES called with unapplied old changes.";
@@ -723,10 +720,14 @@ void SyncManagerImpl::HandleCalculateChangesChangeEventFromSyncApi(
   }
 }
 
-void SyncManagerImpl::SetExtraChangeRecordData(int64 id,
-    ModelType type, ChangeReorderBuffer* buffer,
-    Cryptographer* cryptographer, const syncable::EntryKernel& original,
-    bool existed_before, bool exists_now) {
+void SyncManagerImpl::SetExtraChangeRecordData(
+    int64_t id,
+    ModelType type,
+    ChangeReorderBuffer* buffer,
+    Cryptographer* cryptographer,
+    const syncable::EntryKernel& original,
+    bool existed_before,
+    bool exists_now) {
   // If this is a deletion and the datatype was encrypted, we need to decrypt it
   // and attach it to the buffer.
   if (!exists_now && existed_before) {
@@ -756,7 +757,7 @@ void SyncManagerImpl::SetExtraChangeRecordData(int64 id,
 void SyncManagerImpl::HandleCalculateChangesChangeEventFromSyncer(
     const ImmutableWriteTransactionInfo& write_transaction_info,
     syncable::BaseTransaction* trans,
-    std::vector<int64>* entries_changed) {
+    std::vector<int64_t>* entries_changed) {
   // We only expect one notification per sync step, so change_buffers_ should
   // contain no pending entries.
   LOG_IF(WARNING, !change_records_.empty()) <<
@@ -778,15 +779,14 @@ void SyncManagerImpl::HandleCalculateChangesChangeEventFromSyncer(
     if (type < FIRST_REAL_MODEL_TYPE)
       continue;
 
-    int64 handle = it->first;
+    int64_t handle = it->first;
     if (exists_now && !existed_before)
       change_buffers[type].PushAddedItem(handle);
     else if (!exists_now && existed_before)
       change_buffers[type].PushDeletedItem(handle);
     else if (exists_now && existed_before &&
-             VisiblePropertiesDiffer(it->second, crypto)) {
+             VisiblePropertiesDiffer(it->second, crypto))
       change_buffers[type].PushUpdatedItem(handle);
-    }
 
     SetExtraChangeRecordData(handle, type, &change_buffers[type], crypto,
                              it->second.original, existed_before, exists_now);
@@ -911,10 +911,8 @@ void SyncManagerImpl::OnIncomingInvalidation(
   DCHECK(thread_checker_.CalledOnValidThread());
 
   allstatus_.IncrementNotificationsReceived();
-  scheduler_->ScheduleInvalidationNudge(
-      type,
-      invalidation.Pass(),
-      FROM_HERE);
+  scheduler_->ScheduleInvalidationNudge(type, std::move(invalidation),
+                                        FROM_HERE);
 }
 
 void SyncManagerImpl::RefreshTypes(ModelTypeSet types) {

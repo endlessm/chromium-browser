@@ -20,7 +20,6 @@
         '../ui/gfx/gfx.gyp:gfx_vector_icons',
         '../url/url.gyp:url_lib',
         'bookmarks_browser',
-        'crash_core_common',  # TODO(mpearson): remove once 464926 is fixed.
         'metrics',
         'component_metrics_proto',
         'components_resources.gyp:components_resources',
@@ -37,7 +36,7 @@
         'search_engines',
         'toolbar',
         'url_formatter/url_formatter.gyp:url_formatter',
-        'variations_http_provider',
+        'variations_net',
       ],
       'export_dependent_settings': [
         'component_metrics_proto',
@@ -182,8 +181,14 @@
       ],
       'sources': [
         # Note: sources list duplicated in GN build.
+        'omnibox/browser/history_index_restore_observer.cc',
+        'omnibox/browser/history_index_restore_observer.h',
+        'omnibox/browser/in_memory_url_index_test_util.cc',
+        'omnibox/browser/in_memory_url_index_test_util.h',
         'omnibox/browser/mock_autocomplete_provider_client.cc',
         'omnibox/browser/mock_autocomplete_provider_client.h',
+        'omnibox/browser/shortcuts_provider_test_util.cc',
+        'omnibox/browser/shortcuts_provider_test_util.h',
         'omnibox/browser/test_scheme_classifier.cc',
         'omnibox/browser/test_scheme_classifier.h',
       ],
@@ -192,6 +197,15 @@
   'conditions': [
     ['OS == "android"', {
       'targets': [
+        {
+          # GN: //components/omnibox:autocomplete_match_javagen
+          'target_name': 'autocomplete_match_java',
+          'type': 'none',
+          'variables': {
+            'source_file': 'omnibox/browser/autocomplete_match.h',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
+        },
         {
           # GN: //components/omnibox:autocomplete_match_type_javagen
           'target_name': 'autocomplete_match_type_java',

@@ -5,28 +5,29 @@
 #ifndef CONTENT_PLUGIN_WEBPLUGIN_PROXY_H_
 #define CONTENT_PLUGIN_WEBPLUGIN_PROXY_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/containers/hash_tables.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "content/child/npapi/webplugin.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_sender.h"
 #include "skia/ext/refptr.h"
 #include "third_party/skia/include/core/SkCanvas.h"
-#include "url/gurl.h"
 #include "ui/gl/gpu_preference.h"
 #include "ui/surface/transport_dib.h"
+#include "url/gurl.h"
 
 #if defined(OS_MACOSX)
 #include <ApplicationServices/ApplicationServices.h>
 
 #include "base/mac/scoped_cftyperef.h"
 #endif
-
-struct PluginMsg_FetchURL_Params;
 
 namespace content {
 class PluginChannel;
@@ -55,7 +56,6 @@ class WebPluginProxy : public WebPlugin,
   void SetWindow(gfx::PluginWindowHandle window) override;
   void SetAcceptsInputEvents(bool accepts) override;
   void WillDestroyWindow(gfx::PluginWindowHandle window) override;
-  void CancelResource(unsigned long id) override;
   void Invalidate() override;
   void InvalidateRect(const gfx::Rect& rect) override;
   NPObject* GetWindowScriptNPObject() override;
@@ -66,30 +66,15 @@ class WebPluginProxy : public WebPlugin,
                  const std::string& cookie) override;
   std::string GetCookies(const GURL& url,
                          const GURL& first_party_for_cookies) override;
-  void HandleURLRequest(const char* url,
-                        const char* method,
-                        const char* target,
-                        const char* buf,
-                        unsigned int len,
-                        int notify_id,
-                        bool popups_allowed,
-                        bool notify_redirects) override;
   void UpdateGeometry(const gfx::Rect& window_rect,
                       const gfx::Rect& clip_rect,
                       const TransportDIB::Handle& windowless_buffer0,
                       const TransportDIB::Handle& windowless_buffer1,
                       int windowless_buffer_index);
   void CancelDocumentLoad() override;
-  void InitiateHTTPRangeRequest(const char* url,
-                                const char* range_info,
-                                int range_request_id) override;
   void DidStartLoading() override;
   void DidStopLoading() override;
-  void SetDeferResourceLoading(unsigned long resource_id, bool defer) override;
   bool IsOffTheRecord() override;
-  void ResourceClientDeleted(WebPluginResourceClient* resource_client) override;
-  void URLRedirectResponse(bool allow, int resource_id) override;
-  bool CheckIfRunInsecureContent(const GURL& url) override;
 #if defined(OS_WIN)
   void SetWindowlessData(HANDLE pump_messages_event,
                          gfx::NativeViewId dummy_activation_window) override;
@@ -100,9 +85,9 @@ class WebPluginProxy : public WebPlugin,
   WebPluginAcceleratedSurface* GetAcceleratedSurface(
       gfx::GpuPreference gpu_preference) override;
   void AcceleratedPluginEnabledRendering() override;
-  void AcceleratedPluginAllocatedIOSurface(int32 width,
-                                           int32 height,
-                                           uint32 surface_id) override;
+  void AcceleratedPluginAllocatedIOSurface(int32_t width,
+                                           int32_t height,
+                                           uint32_t surface_id) override;
   void AcceleratedPluginSwappedIOSurface() override;
 #endif
 
@@ -110,10 +95,6 @@ class WebPluginProxy : public WebPlugin,
   bool Send(IPC::Message* msg) override;
 
   // class-specific methods
-
-  // Returns a WebPluginResourceClient object given its id, or NULL if no
-  // object with that id exists.
-  WebPluginResourceClient* GetResourceClient(int id);
 
   // Returns the id of the renderer that contains this plugin.
   int GetRendererId();
@@ -128,9 +109,6 @@ class WebPluginProxy : public WebPlugin,
 
   // Callback from the renderer to let us know that a paint occurred.
   void DidPaint();
-
-  // Notification received on a plugin issued resource request creation.
-  void OnResourceCreated(int resource_id, WebPluginResourceClient* client);
 
 #if defined(OS_WIN) && !defined(USE_AURA)
   // Retrieves the IME status from a windowless plugin and sends it to a
@@ -181,9 +159,6 @@ class WebPluginProxy : public WebPlugin,
     return windowless_canvases_[windowless_buffer_index_];
   }
 #endif
-
-  typedef base::hash_map<int, WebPluginResourceClient*> ResourceClientMap;
-  ResourceClientMap resource_clients_;
 
   scoped_refptr<PluginChannel> channel_;
   int route_id_;

@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/page/ContextMenuController.h"
 
 #include "core/dom/Document.h"
@@ -99,7 +98,7 @@ void ContextMenuController::populateCustomContextMenu(const Event& event)
     if (!menuElement || !equalIgnoringCase(menuElement->fastGetAttribute(typeAttr), "context"))
         return;
     RefPtrWillBeRawPtr<RelatedEvent> relatedEvent = RelatedEvent::create(EventTypeNames::show, true, true, node);
-    if (!menuElement->dispatchEvent(relatedEvent.release()))
+    if (menuElement->dispatchEvent(relatedEvent.release()) != DispatchEventResult::NotCanceled)
         return;
     if (menuElement != element.assignedContextMenu())
         return;

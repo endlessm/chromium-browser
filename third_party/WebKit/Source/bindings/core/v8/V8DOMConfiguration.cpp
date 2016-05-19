@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/V8DOMConfiguration.h"
 
 #include "bindings/core/v8/V8ObjectConstructor.h"
@@ -344,6 +343,11 @@ v8::Local<v8::FunctionTemplate> V8DOMConfiguration::domClassTemplate(v8::Isolate
     configureDOMClassTemplate(result, isolate);
     data->setDOMTemplate(wrapperTypeInfo, result);
     return result;
+}
+
+void V8DOMConfiguration::setClassString(v8::Isolate* isolate, v8::Local<v8::ObjectTemplate> objectTemplate, const char* classString)
+{
+    objectTemplate->Set(v8::Symbol::GetToStringTag(isolate), v8AtomicString(isolate, classString), static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontEnum));
 }
 
 } // namespace blink

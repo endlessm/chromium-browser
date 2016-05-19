@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/browser.h"
@@ -11,15 +12,10 @@
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
-#include "chrome/browser/ui/sync/inline_login_dialog.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/common/url_constants.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/core/common/profile_management_switches.h"
-
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/app_mode/app_mode_utils.h"
-#endif
 
 LoginUIService::LoginUIService(Profile* profile)
     : ui_(NULL), profile_(profile) {
@@ -49,11 +45,12 @@ void LoginUIService::LoginUIClosed(LoginUI* ui) {
   FOR_EACH_OBSERVER(Observer, observer_list_, OnLoginUIClosed(ui));
 }
 
-void LoginUIService::SyncConfirmationUIClosed(bool configure_sync_first) {
+void LoginUIService::SyncConfirmationUIClosed(
+    SyncConfirmationUIClosedResults results) {
   FOR_EACH_OBSERVER(
       Observer,
       observer_list_,
-      OnSyncConfirmationUIClosed(configure_sync_first));
+      OnSyncConfirmationUIClosed(results));
 }
 
 void LoginUIService::UntrustedLoginUIShown() {
@@ -62,13 +59,12 @@ void LoginUIService::UntrustedLoginUIShown() {
 
 void LoginUIService::ShowLoginPopup() {
 #if defined(OS_CHROMEOS)
-  if (chrome::IsRunningInForcedAppMode())
-    InlineLoginDialog::Show(profile_);
+  NOTREACHED();
 #else
-  chrome::ScopedTabbedBrowserDisplayer displayer(
-      profile_, chrome::GetActiveDesktop());
+  chrome::ScopedTabbedBrowserDisplayer displayer(profile_);
   chrome::ShowBrowserSignin(
-      displayer.browser(), signin_metrics::SOURCE_APP_LAUNCHER);
+      displayer.browser(),
+      signin_metrics::AccessPoint::ACCESS_POINT_EXTENSIONS);
 #endif
 }
 
@@ -80,9 +76,10 @@ void LoginUIService::DisplayLoginResult(Browser* browser,
 #endif
   last_login_result_ = message;
   browser->window()->ShowAvatarBubbleFromAvatarButton(
-      message.empty() ? BrowserWindow::AVATAR_BUBBLE_MODE_CONFIRM_SIGNIN :
-                        BrowserWindow::AVATAR_BUBBLE_MODE_SHOW_ERROR,
-      signin::ManageAccountsParams());
+      message.empty() ? BrowserWindow::AVATAR_BUBBLE_MODE_CONFIRM_SIGNIN
+                      : BrowserWindow::AVATAR_BUBBLE_MODE_SHOW_ERROR,
+      signin::ManageAccountsParams(),
+      signin_metrics::AccessPoint::ACCESS_POINT_EXTENSIONS);
 }
 
 const base::string16& LoginUIService::GetLastLoginResult() {

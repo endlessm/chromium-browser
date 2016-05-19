@@ -52,6 +52,7 @@ PolymerElement.prototype.shadyRoot;
 /**
  * Returns the first node in this element’s local DOM that matches selector.
  * @param {string} selector
+ * @return {Element} Element found by the selector, or null if not found.
  */
 PolymerElement.prototype.$$ = function(selector) {};
 
@@ -255,6 +256,22 @@ PolymerElement.prototype.shift = function(path) {};
 PolymerElement.prototype.unshift = function(path, var_args) {};
 
 /**
+ * Returns a list of element children distributed to this element's
+ * `<content>`.
+ *
+ * If this element contans more than one `<content>` in its
+ * local DOM, an optional selector may be passed to choose the desired
+ * content.  This method differs from `getContentChildNodes` in that only
+ * elements are returned.
+ *
+ * @param {string=} slctr CSS selector to choose the desired
+ *   `<content>`.  Defaults to `content`.
+ * @return {!Array<!HTMLElement>} List of distributed nodes for the
+ *   `<content>`.
+ */
+PolymerElement.prototype.getContentChildren = function(slctr) {};
+
+/**
  * Fire an event.
  *
  * @param {string} type An event name.
@@ -262,7 +279,7 @@ PolymerElement.prototype.unshift = function(path, var_args) {};
  * @param {{
  *   bubbles: (boolean|undefined),
  *   cancelable: (boolean|undefined),
- *   node: (!HTMLElement|undefined)}=} options
+ *   node: (!EventTarget|undefined)}=} options
  * @return {Object} event
  */
 PolymerElement.prototype.fire = function(type, detail, options) {};
@@ -339,6 +356,14 @@ PolymerElement.prototype.async = function(method, wait) {};
  * @param {...*} var_args
  */
 PolymerElement.prototype.factoryImpl = function(var_args) {};
+
+/**
+ * Apply style scoping to the specified container and all its descendants.
+ * @param {!Element} container Element to scope.
+ * @param {boolean} shouldObserve When true, monitors the container for changes
+ *   and re-applies scoping for any future changes.
+ */
+PolymerElement.prototype.scopeSubtree = function(container, shouldObserve) {};
 
 Polymer.Base;
 
@@ -439,7 +464,7 @@ PolymerElement.prototype.importHref = function(href, onload, onerror) {};
 
 /**
  * Checks whether an element is in this element's light DOM tree.
- * @param {HTMLElement=} node The element to be checked.
+ * @param {?Node} node The element to be checked.
  * @return {boolean} true if node is in this element's light DOM tree.
  */
 PolymerElement.prototype.isLightDescendant = function(node) {};
@@ -522,6 +547,12 @@ PolymerElement.prototype._logf = function(var_args) {};
  */
 var PolymerDomApi = function() {};
 
+/**
+ * @param {?Node} node
+ * @return {boolean}
+ */
+PolymerDomApi.prototype.deepContains = function(node) {};
+
 /** @param {!Node} node */
 PolymerDomApi.prototype.appendChild = function(node) {};
 
@@ -539,6 +570,9 @@ PolymerDomApi.prototype.insertBefore = function(node, beforeNode) {};
 
 /** @param {!Node} node */
 PolymerDomApi.prototype.removeChild = function(node) {};
+
+/** @type {!Array<!HTMLElement>} */
+PolymerDomApi.prototype.children;
 
 /** @type {!Array<!Node>} */
 PolymerDomApi.prototype.childNodes;
@@ -603,12 +637,43 @@ PolymerDomApi.prototype.setAttribute = function(attribute, value) {};
 PolymerDomApi.prototype.removeAttribute = function(attribute) {};
 
 /**
- * @param {!Function} callback
- * @return {!{fn: (!Function|undefined), _nodes: !Array<!Node>}}
+ * @typedef {function({
+ *   target: !Node,
+ *   addedNodes: !Array<!Node>,
+ *   removedNodes: !Array<!Node>
+ * })}
+ */
+PolymerDomApi.ObserveCallback;
+
+/**
+ * A virtual type for observer callback handles.
+ *
+ * @private @constructor
+ */
+PolymerDomApi.ObserveHandle = function() {};
+
+/**
+ * Notifies callers about changes to the element's effective child nodes,
+ * the same list as returned by `getEffectiveChildNodes`.
+ *
+ * @param {!PolymerDomApi.ObserveCallback} callback The supplied callback
+ * is called with an `info` argument which is an object that provides
+ * the `target` on which the changes occurred, a list of any nodes
+ * added in the `addedNodes` array, and nodes removed in the
+ * `removedNodes` array.
+ *
+ * @return {!PolymerDomApi.ObserveHandle} Handle which is the argument to
+ * `unobserveNodes`.
  */
 PolymerDomApi.prototype.observeNodes = function(callback) {};
 
-/** @param {!{fn: (!Function|undefined), _nodes: !Array<!Node>}} handle */
+/**
+ * Stops observing changes to the element's effective child nodes.
+ *
+ * @param {!PolymerDomApi.ObserveHandle} handle The handle for the
+ * callback that should no longer receive notifications. This
+ * handle is returned from `observeNodes`.
+ */
 PolymerDomApi.prototype.unobserveNodes = function(handle) {};
 
 /** @type {?DOMTokenList} */
@@ -636,6 +701,16 @@ PolymerEventApi.prototype.localTarget;
 /** @type {?Array<!Element>|undefined} */
 PolymerEventApi.prototype.path;
 
+
+Polymer.Async;
+
+/**
+ * polymer-onerror experiment relies on this private API, so expose it only
+ * to let the compilation work. Do not use in user code.
+ */
+Polymer.Async._atEndOfMicrotask = function() {};
+
+
 /**
  * Returns a Polymer-friendly API for manipulating DOM of a specified node or
  * an event API for a specified event..
@@ -646,6 +721,24 @@ PolymerEventApi.prototype.path;
 Polymer.dom = function(nodeOrEvent) {};
 
 Polymer.dom.flush = function() {};
+
+/** @constructor */
+Polymer.Debouncer = function() {};
+
+Polymer.Debouncer.prototype = {
+  /**
+   * @param {function()} callback
+   * @param {number} wait
+   */
+  go: function(callback, wait) {},
+
+  stop: function() {},
+
+  complete: function() {}
+};
+
+/** @param {!Polymer.Debouncer} debouncer */
+Polymer.dom.addDebouncer = function(debouncer) {};
 
 Polymer.CaseMap;
 
@@ -790,11 +883,17 @@ Polymer.Templatizer = {
    *     model.set('item.checked', true);
    *   }
    *
-   * @param {!HTMLElement} el Element for which to return a template model.
+   * @param {?HTMLElement} el Element for which to return a template model.
    * @return {(!PolymerElement)|undefined} Model representing the binding scope for
    *   the element.
    */
-  modelForElement: function(el) {}
+  modelForElement: function(el) {},
+  
+  /**
+   * @param {function()} fn
+   * @protected
+   */
+   _debounceTemplate: function(fn) {}
 };
 
 

@@ -4,6 +4,8 @@
 
 #include "components/omnibox/browser/url_index_private_data.h"
 
+#include <stdint.h>
+
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -11,10 +13,10 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/files/file_util.h"
 #include "base/i18n/break_iterator.h"
 #include "base/i18n/case_conversion.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -26,6 +28,7 @@
 #include "components/history/core/browser/history_db_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/omnibox/browser/in_memory_url_index.h"
+#include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_formatter.h"
 
 #if defined(USE_SYSTEM_PROTOBUF)
@@ -154,7 +157,8 @@ ScoredHistoryMatches URLIndexPrivateData::HistoryItemsForTerms(
     size_t cursor_position,
     size_t max_matches,
     const std::string& languages,
-    bookmarks::BookmarkModel* bookmark_model) {
+    bookmarks::BookmarkModel* bookmark_model,
+    TemplateURLService* template_url_service) {
   // If cursor position is set and useful (not at either end of the
   // string), allow the search string to be broken at cursor position.
   // We do this by pretending there's a space where the cursor is.
@@ -173,7 +177,8 @@ ScoredHistoryMatches URLIndexPrivateData::HistoryItemsForTerms(
   base::string16 lower_raw_string(base::i18n::ToLower(search_string));
   base::string16 lower_unescaped_string =
       net::UnescapeURLComponent(lower_raw_string,
-          net::UnescapeRule::SPACES | net::UnescapeRule::URL_SPECIAL_CHARS);
+          net::UnescapeRule::SPACES | net::UnescapeRule::PATH_SEPARATORS |
+          net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS);
   // Extract individual 'words' (as opposed to 'terms'; see below) from the
   // search string. When the user types "colspec=ID%20Mstone Release" we get
   // four 'words': "colspec", "id", "mstone" and "release".
@@ -249,8 +254,9 @@ ScoredHistoryMatches URLIndexPrivateData::HistoryItemsForTerms(
   scored_items =
       std::for_each(
           history_id_set.begin(), history_id_set.end(),
-          AddHistoryMatch(bookmark_model, *this, languages, lower_raw_string,
-                          lower_raw_terms, base::Time::Now())).ScoredMatches();
+          AddHistoryMatch(bookmark_model, template_url_service, *this,
+                          languages, lower_raw_string, lower_raw_terms,
+                          base::Time::Now())).ScoredMatches();
 
   // Select and sort only the top |max_matches| results.
   if (scored_items.size() > max_matches) {
@@ -1074,8 +1080,8 @@ bool URLIndexPrivateData::RestoreWordList(
   if (!cache.has_word_list())
     return false;
   const WordListItem& list_item(cache.word_list());
-  uint32 expected_item_count = list_item.word_count();
-  uint32 actual_item_count = list_item.word_size();
+  uint32_t expected_item_count = list_item.word_count();
+  uint32_t actual_item_count = list_item.word_size();
   if (actual_item_count == 0 || actual_item_count != expected_item_count)
     return false;
   const RepeatedPtrField<std::string>& words(list_item.word());
@@ -1090,8 +1096,8 @@ bool URLIndexPrivateData::RestoreWordMap(
   if (!cache.has_word_map())
     return false;
   const WordMapItem& list_item(cache.word_map());
-  uint32 expected_item_count = list_item.item_count();
-  uint32 actual_item_count = list_item.word_map_entry_size();
+  uint32_t expected_item_count = list_item.item_count();
+  uint32_t actual_item_count = list_item.word_map_entry_size();
   if (actual_item_count == 0 || actual_item_count != expected_item_count)
     return false;
   const RepeatedPtrField<WordMapEntry>& entries(list_item.word_map_entry());
@@ -1106,8 +1112,8 @@ bool URLIndexPrivateData::RestoreCharWordMap(
   if (!cache.has_char_word_map())
     return false;
   const CharWordMapItem& list_item(cache.char_word_map());
-  uint32 expected_item_count = list_item.item_count();
-  uint32 actual_item_count = list_item.char_word_map_entry_size();
+  uint32_t expected_item_count = list_item.item_count();
+  uint32_t actual_item_count = list_item.char_word_map_entry_size();
   if (actual_item_count == 0 || actual_item_count != expected_item_count)
     return false;
   const RepeatedPtrField<CharWordMapEntry>&
@@ -1120,8 +1126,8 @@ bool URLIndexPrivateData::RestoreCharWordMap(
       return false;
     base::char16 uni_char = static_cast<base::char16>(iter->char_16());
     WordIDSet word_id_set;
-    const RepeatedField<int32>& word_ids(iter->word_id());
-    for (RepeatedField<int32>::const_iterator jiter = word_ids.begin();
+    const RepeatedField<int32_t>& word_ids(iter->word_id());
+    for (RepeatedField<int32_t>::const_iterator jiter = word_ids.begin();
          jiter != word_ids.end(); ++jiter)
       word_id_set.insert(*jiter);
     char_word_map_[uni_char] = word_id_set;
@@ -1134,8 +1140,8 @@ bool URLIndexPrivateData::RestoreWordIDHistoryMap(
   if (!cache.has_word_id_history_map())
     return false;
   const WordIDHistoryMapItem& list_item(cache.word_id_history_map());
-  uint32 expected_item_count = list_item.item_count();
-  uint32 actual_item_count = list_item.word_id_history_map_entry_size();
+  uint32_t expected_item_count = list_item.item_count();
+  uint32_t actual_item_count = list_item.word_id_history_map_entry_size();
   if (actual_item_count == 0 || actual_item_count != expected_item_count)
     return false;
   const RepeatedPtrField<WordIDHistoryMapEntry>&
@@ -1148,8 +1154,8 @@ bool URLIndexPrivateData::RestoreWordIDHistoryMap(
       return false;
     WordID word_id = iter->word_id();
     HistoryIDSet history_id_set;
-    const RepeatedField<int64>& history_ids(iter->history_id());
-    for (RepeatedField<int64>::const_iterator jiter = history_ids.begin();
+    const RepeatedField<int64_t>& history_ids(iter->history_id());
+    for (RepeatedField<int64_t>::const_iterator jiter = history_ids.begin();
          jiter != history_ids.end(); ++jiter) {
       history_id_set.insert(*jiter);
       AddToHistoryIDWordMap(*jiter, word_id);
@@ -1164,8 +1170,8 @@ bool URLIndexPrivateData::RestoreHistoryInfoMap(
   if (!cache.has_history_info_map())
     return false;
   const HistoryInfoMapItem& list_item(cache.history_info_map());
-  uint32 expected_item_count = list_item.item_count();
-  uint32 actual_item_count = list_item.history_info_map_entry_size();
+  uint32_t expected_item_count = list_item.item_count();
+  uint32_t actual_item_count = list_item.history_info_map_entry_size();
   if (actual_item_count == 0 || actual_item_count != expected_item_count)
     return false;
   const RepeatedPtrField<HistoryInfoMapEntry>&
@@ -1205,8 +1211,8 @@ bool URLIndexPrivateData::RestoreWordStartsMap(
   // page titles.
   if (cache.has_word_starts_map()) {
     const WordStartsMapItem& list_item(cache.word_starts_map());
-    uint32 expected_item_count = list_item.item_count();
-    uint32 actual_item_count = list_item.word_starts_map_entry_size();
+    uint32_t expected_item_count = list_item.item_count();
+    uint32_t actual_item_count = list_item.word_starts_map_entry_size();
     if (actual_item_count == 0 || actual_item_count != expected_item_count)
       return false;
     const RepeatedPtrField<WordStartsMapEntry>&
@@ -1216,13 +1222,13 @@ bool URLIndexPrivateData::RestoreWordStartsMap(
       HistoryID history_id = iter->history_id();
       RowWordStarts word_starts;
       // Restore the URL word starts.
-      const RepeatedField<int32>& url_starts(iter->url_word_starts());
-      for (RepeatedField<int32>::const_iterator jiter = url_starts.begin();
+      const RepeatedField<int32_t>& url_starts(iter->url_word_starts());
+      for (RepeatedField<int32_t>::const_iterator jiter = url_starts.begin();
            jiter != url_starts.end(); ++jiter)
         word_starts.url_word_starts_.push_back(*jiter);
       // Restore the page title word starts.
-      const RepeatedField<int32>& title_starts(iter->title_word_starts());
-      for (RepeatedField<int32>::const_iterator jiter = title_starts.begin();
+      const RepeatedField<int32_t>& title_starts(iter->title_word_starts());
+      for (RepeatedField<int32_t>::const_iterator jiter = title_starts.begin();
            jiter != title_starts.end(); ++jiter)
         word_starts.title_word_starts_.push_back(*jiter);
       word_starts_map_[history_id] = word_starts;
@@ -1265,6 +1271,9 @@ URLIndexPrivateData::SearchTermCacheItem::SearchTermCacheItem(
 URLIndexPrivateData::SearchTermCacheItem::SearchTermCacheItem() : used_(true) {
 }
 
+URLIndexPrivateData::SearchTermCacheItem::SearchTermCacheItem(
+    const SearchTermCacheItem& other) = default;
+
 URLIndexPrivateData::SearchTermCacheItem::~SearchTermCacheItem() {
 }
 
@@ -1272,12 +1281,14 @@ URLIndexPrivateData::SearchTermCacheItem::~SearchTermCacheItem() {
 
 URLIndexPrivateData::AddHistoryMatch::AddHistoryMatch(
     bookmarks::BookmarkModel* bookmark_model,
+    TemplateURLService* template_url_service,
     const URLIndexPrivateData& private_data,
     const std::string& languages,
     const base::string16& lower_string,
     const String16Vector& lower_terms,
     const base::Time now)
     : bookmark_model_(bookmark_model),
+      template_url_service_(template_url_service),
       private_data_(private_data),
       languages_(languages),
       lower_string_(lower_string),
@@ -1302,6 +1313,9 @@ URLIndexPrivateData::AddHistoryMatch::AddHistoryMatch(
   }
 }
 
+URLIndexPrivateData::AddHistoryMatch::AddHistoryMatch(
+    const AddHistoryMatch& other) = default;
+
 URLIndexPrivateData::AddHistoryMatch::~AddHistoryMatch() {
 }
 
@@ -1319,7 +1333,7 @@ void URLIndexPrivateData::AddHistoryMatch::operator()(
         hist_item, visits, languages_, lower_string_, lower_terms_,
         lower_terms_to_word_starts_offsets_, starts_pos->second,
         bookmark_model_ && bookmark_model_->IsBookmarked(hist_item.url()),
-        now_);
+        template_url_service_, now_);
     if (match.raw_score > 0)
       scored_matches_.push_back(match);
   }

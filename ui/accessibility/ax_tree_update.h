@@ -5,9 +5,13 @@
 #ifndef UI_ACCESSIBILITY_AX_TREE_UPDATE_H_
 #define UI_ACCESSIBILITY_AX_TREE_UPDATE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
+#include "base/containers/hash_tables.h"
 #include "base/strings/string_number_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_tree_data.h"
@@ -95,7 +99,7 @@ std::string AXTreeUpdateBase<AXNodeData, AXTreeData>::ToString() const {
   // to the rest of the tree for context, so we have to try to show the
   // relative indentation of child nodes in this update relative to their
   // parents.
-  base::hash_map<int32, int> id_to_indentation;
+  base::hash_map<int32_t, int> id_to_indentation;
   for (size_t i = 0; i < nodes.size(); ++i) {
     int indent = id_to_indentation[nodes[i].id];
     result += std::string(2 * indent, ' ');

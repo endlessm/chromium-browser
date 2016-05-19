@@ -4,12 +4,13 @@
 
 #include "chrome/browser/profiles/off_the_record_profile_impl.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/json_pref_store.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
@@ -42,6 +43,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/prefs/json_pref_store.h"
 #include "components/proxy_config/pref_proxy_config_tracker.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "components/ui/zoom/zoom_event_manager.h"
@@ -61,10 +63,10 @@
 #include "chrome/browser/media/protected_media_identifier_permission_context_factory.h"
 #endif  // defined(OS_ANDROID)
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
-#include "base/prefs/scoped_user_pref_update.h"
+#if defined(OS_ANDROID)
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/proxy_config/proxy_prefs.h"
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
+#endif  // defined(OS_ANDROID)
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/preferences.h"
@@ -318,7 +320,8 @@ net::URLRequestContextGetter* OffTheRecordProfileImpl::CreateRequestContext(
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) {
   return io_data_->CreateMainRequestContextGetter(
-      protocol_handlers, request_interceptors.Pass()).get();
+                     protocol_handlers, std::move(request_interceptors))
+      .get();
 }
 
 net::URLRequestContextGetter*
@@ -362,10 +365,9 @@ OffTheRecordProfileImpl::CreateRequestContextForStoragePartition(
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) {
   return io_data_->CreateIsolatedAppRequestContextGetter(
-      partition_path,
-      in_memory,
-      protocol_handlers,
-      request_interceptors.Pass()).get();
+                     partition_path, in_memory, protocol_handlers,
+                     std::move(request_interceptors))
+      .get();
 }
 
 content::ResourceContext* OffTheRecordProfileImpl::GetResourceContext() {

@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/events/ResourceProgressEvent.h"
 
 namespace blink {
@@ -54,4 +53,4 @@ DEFINE_TRACE(ResourceProgressEvent)
     ProgressEvent::trace(visitor);
 }
 
-}
+} // namespace blink

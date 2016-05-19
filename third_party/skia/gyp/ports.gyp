@@ -15,12 +15,14 @@
       ],
       'include_dirs': [
         '../include/effects',
+        '../include/client/android',
         '../include/images',
         '../include/ports',
         '../include/private',
         '../include/utils',
         '../include/utils/win',
         '../src/core',
+        '../src/image',
         '../src/lazy',
         '../src/ports',
         '../src/sfnt',
@@ -48,6 +50,8 @@
 
         '../src/ports/SkGlobalInitialization_default.cpp',
         '../src/ports/SkMemory_malloc.cpp',
+        '../src/ports/SkOSEnvironment.h',
+        '../src/ports/SkOSEnvironment.cpp',
         '../src/ports/SkOSFile_posix.cpp',
         '../src/ports/SkOSFile_stdio.cpp',
         '../src/ports/SkOSFile_win.cpp',
@@ -84,17 +88,11 @@
             'freetype.gyp:freetype',
           ],
           'conditions': [
-            [ 'skia_os == "android"', {
-              'dependencies': [
-                 'android_deps.gyp:expat',
-              ],
+            [ 'skia_android_framework', {
+              'link_settings': { 'libraries': [ '-lexpat' ] },
             }, {
-              'link_settings': {
-                'libraries': [
-                  '-ldl',
-                  '-lexpat',
-                ],
-              },
+              'link_settings': { 'libraries': [ '-ldl' ] },
+              'dependencies': [ 'expat.gyp:expat' ],
             }],
             [ 'skia_embedded_fonts', {
               'variables': {
@@ -139,6 +137,7 @@
                 '../src/ports/SkFontMgr_fontconfig.cpp',
                 '../src/ports/SkFontHost_fontconfig.cpp',
                 '../src/ports/SkFontConfigInterface_direct.cpp',
+                '../src/ports/SkFontConfigInterface_direct_factory.cpp',
               ],
               'sources/': [['include', '../src/ports/SkFontMgr_fontconfig_factory.cpp']],
             }]

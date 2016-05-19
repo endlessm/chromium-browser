@@ -7,6 +7,8 @@
 
 #include <queue>
 
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "components/guest_view/common/guest_view_constants.h"
@@ -111,10 +113,10 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   virtual int GetTaskPrefix() const = 0;
 
   // Dispatches an event to the guest proxy.
-  void DispatchEventToGuestProxy(GuestViewEvent* event);
+  void DispatchEventToGuestProxy(scoped_ptr<GuestViewEvent> event);
 
   // Dispatches an event to the view.
-  void DispatchEventToView(GuestViewEvent* event);
+  void DispatchEventToView(scoped_ptr<GuestViewEvent> event);
 
   // This creates a WebContents and initializes |this| GuestViewBase to use the
   // newly created WebContents.
@@ -351,7 +353,8 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   void ActivateContents(content::WebContents* contents) final;
   void ContentsMouseEvent(content::WebContents* source,
                           const gfx::Point& location,
-                          bool motion) final;
+                          bool motion,
+                          bool exited) final;
   void ContentsZoomChange(bool zoom_in) final;
   void LoadingStateChanged(content::WebContents* source,
                            bool to_different_document) final;
@@ -429,7 +432,7 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   // This is a queue of Events that are destined to be sent to the embedder once
   // the guest is attached to a particular embedder.
-  std::deque<linked_ptr<GuestViewEvent> > pending_events_;
+  std::deque<scoped_ptr<GuestViewEvent>> pending_events_;
 
   // The opener guest view.
   base::WeakPtr<GuestViewBase> opener_;

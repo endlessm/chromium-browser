@@ -17,8 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/SVGTextMetrics.h"
 
 #include "core/layout/api/LineLayoutSVGInlineText.h"
@@ -119,4 +117,4 @@ float SVGTextMetrics::advance(FontOrientation orientation) const
     }
 }
 
-}
+} // namespace blink

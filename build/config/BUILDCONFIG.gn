@@ -129,6 +129,10 @@ declare_args() {
   # argument, and set as the default toolchain.
   custom_toolchain = ""
 
+  # This should not normally be set as a build argument.  It's here so that
+  # every toolchain can pass through the "global" value via toolchain_args().
+  host_toolchain = ""
+
   # DON'T ADD MORE FLAGS HERE. Read the comment above.
 }
 
@@ -144,30 +148,38 @@ declare_args() {
 # We do this before anything else to make sure we complain about any
 # unsupported os/cpu combinations as early as possible.
 
-if (host_os == "linux") {
-  if (target_os != "linux") {
-    # TODO(dpranke) - is_clang normally applies only to the target
-    # build, and there is no way to indicate that you want to override
-    # it for both the target build *and* the host build. Do we need to
-    # support this?
-    host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
-  } else if (is_clang) {
-    host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
+if (host_toolchain == "") {
+  # This should only happen in the top-level context.
+  # In a specific toolchain context, the toolchain_args()
+  # block should have propagated a value down.
+  # TODO(dpranke): Add some sort of assert here that verifies that
+  # no toolchain omitted host_toolchain from its toolchain_args().
+
+  if (host_os == "linux") {
+    if (target_os != "linux") {
+      # TODO(dpranke) - is_clang normally applies only to the target
+      # build, and there is no way to indicate that you want to override
+      # it for both the target build *and* the host build. Do we need to
+      # support this?
+      host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
+    } else if (is_clang) {
+      host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
+    } else {
+      host_toolchain = "//build/toolchain/linux:$host_cpu"
+    }
+  } else if (host_os == "mac") {
+    host_toolchain = "//build/toolchain/mac:clang_$host_cpu"
+  } else if (host_os == "win") {
+    # TODO(crbug.com/467159): win cross-compiles don't actually work yet, so
+    # use the target_cpu instead of the host_cpu.
+    if (is_clang) {
+      host_toolchain = "//build/toolchain/win:clang_$target_cpu"
+    } else {
+      host_toolchain = "//build/toolchain/win:$target_cpu"
+    }
   } else {
-    host_toolchain = "//build/toolchain/linux:$host_cpu"
+    assert(false, "Unsupported host_os: $host_os")
   }
-} else if (host_os == "mac") {
-  host_toolchain = "//build/toolchain/mac:clang_$host_cpu"
-} else if (host_os == "win") {
-  # TODO(crbug.com/467159): win cross-compiles don't actually work yet, so
-  # use the target_cpu instead of the host_cpu.
-  if (is_clang) {
-    host_toolchain = "//build/toolchain/win:clang_$target_cpu"
-  } else {
-    host_toolchain = "//build/toolchain/win:$target_cpu"
-  }
-} else {
-  assert(false, "Unsupported host_os: $host_os")
 }
 
 _default_toolchain = ""
@@ -181,12 +193,13 @@ if (target_os == "android") {
     _default_toolchain = "//build/toolchain/android:$target_cpu"
   }
 } else if (target_os == "chromeos") {
+  # See comments in build/toolchain/cros/BUILD.gn about board compiles.
   assert(host_os == "linux",
          "ChromeOS builds are only supported on Linux hosts.")
   if (is_clang) {
-    _default_toolchain = "//build/toolchain/linux:clang_$target_cpu"
+    _default_toolchain = "//build/toolchain/cros:clang_target"
   } else {
-    _default_toolchain = "//build/toolchain/linux:$target_cpu"
+    _default_toolchain = "//build/toolchain/cros:target"
   }
 } else if (target_os == "ios") {
   _default_toolchain = "//build/toolchain/mac:ios_clang_arm"
@@ -200,7 +213,7 @@ if (target_os == "android") {
   assert(host_os == "mac", "Mac cross-compiles are unsupported.")
   _default_toolchain = host_toolchain
 } else if (target_os == "win") {
-  # On windows we use the same toolchain for host and target by default.
+  # On Windows we use the same toolchain for host and target by default.
   assert(target_os == host_os, "Win cross-compiles only work on win hosts.")
   if (is_clang) {
     _default_toolchain = "//build/toolchain/win:clang_$target_cpu"
@@ -436,6 +449,7 @@ set_sources_assignment_filter(sources_assignment_filter)
 _native_compiler_configs = [
   "//build/config:feature_flags",
   "//build/config/compiler:compiler",
+  "//build/config/compiler:clang_stackrealign",
   "//build/config/compiler:compiler_arm_fpu",
   "//build/config/compiler:chromium_code",
   "//build/config/compiler:default_include_dirs",
@@ -452,6 +466,7 @@ if (is_win) {
     "//build/config/win:nominmax",
     "//build/config/win:unicode",
     "//build/config/win:winver",
+    "//build/config/win:vs_code_analysis",
   ]
 }
 if (current_os == "winrt_81" || current_os == "winrt_81_phone" ||
@@ -484,12 +499,11 @@ if (is_debug) {
   _native_compiler_configs += [ "//build/config:release" ]
 }
 
-# Windows linker setup for EXEs and DLLs.
 if (is_win) {
+  # Many targets remove these configs, so they are not contained within
+  # //build/config:executable_config for easy removal.
   _windows_linker_configs = [
     "//build/config/win:default_incremental_linking",
-    "//build/config/win:sdk_link",
-    "//build/config/win:common_linker_setup",
 
     # Default to console-mode apps. Most of our targets are tests and such
     # that shouldn't use the windows subsystem.
@@ -498,20 +512,12 @@ if (is_win) {
 }
 
 # Executable defaults.
-_executable_configs =
-    _native_compiler_configs + [ "//build/config:default_libs" ]
+_executable_configs = _native_compiler_configs + [
+                        "//build/config:default_libs",
+                        "//build/config:executable_config",
+                      ]
 if (is_win) {
   _executable_configs += _windows_linker_configs
-} else if (is_mac) {
-  _executable_configs += [
-    "//build/config/mac:mac_dynamic_flags",
-    "//build/config/mac:mac_executable_flags",
-  ]
-} else if (is_linux || is_android) {
-  _executable_configs += [ "//build/config/gcc:executable_ldconfig" ]
-  if (is_android) {
-    _executable_configs += [ "//build/config/android:executable_config" ]
-  }
 }
 set_defaults("executable") {
   configs = _executable_configs
@@ -524,12 +530,12 @@ set_defaults("static_library") {
 
 # Shared library and loadable module defaults (also for components in component
 # mode).
-_shared_library_configs =
-    _native_compiler_configs + [ "//build/config:default_libs" ]
+_shared_library_configs = _native_compiler_configs + [
+                            "//build/config:default_libs",
+                            "//build/config:shared_library_config",
+                          ]
 if (is_win) {
   _shared_library_configs += _windows_linker_configs
-} else if (is_mac) {
-  _shared_library_configs += [ "//build/config/mac:mac_dynamic_flags" ]
 } else if (is_android) {
   # Strip native JNI exports from shared libraries by default. Binaries that
   # want this can remove this config.
@@ -545,6 +551,9 @@ set_defaults("loadable_module") {
 if (is_component_build) {
   set_defaults("component") {
     configs = _shared_library_configs
+    if (is_android) {
+      configs -= [ "//build/config/android:hide_native_jni_exports" ]
+    }
   }
 }
 
@@ -571,12 +580,25 @@ set_defaults("test") {
 # COMPONENT SETUP
 # ==============================================================================
 
-if (is_component_build) {
-  _component_mode = "shared_library"
-} else {
-  _component_mode = "source_set"
-}
+# Defines a component, which equates to a shared_library when
+# is_component_build == true and a source_set / static_library otherwise.
+#
+# Arguments are the same as a normal library with this addition:
+#   component_never_use_source_set: Whether to use static_library instead of
+#       source_set for non-component builds. Some targets (e.g. //base) should
+#       use static_library rather than source_set to avoid linking unused object
+#       files.
 template("component") {
+  _never_use_source_set = defined(invoker.component_never_use_source_set) &&
+                          invoker.component_never_use_source_set
+  assert(_never_use_source_set || true)  # Mark as used.
+  if (is_component_build) {
+    _component_mode = "shared_library"
+  } else if (_never_use_source_set) {
+    _component_mode = "static_library"
+  } else {
+    _component_mode = "source_set"
+  }
   target(_component_mode, target_name) {
     forward_variables_from(invoker, "*")
 

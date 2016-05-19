@@ -4,14 +4,17 @@
 
 #include "chrome/browser/android/offline_pages/offline_page_mhtml_archiver.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -22,7 +25,7 @@ namespace {
 const char kTestURL[] = "http://example.com/";
 const base::FilePath::CharType kTestFilePath[] = FILE_PATH_LITERAL(
     "/archive_dir/offline_page.mhtml");
-const int64 kTestFileSize = 123456LL;
+const int64_t kTestFileSize = 123456LL;
 
 class TestMHTMLArchiver : public OfflinePageMHTMLArchiver {
  public:
@@ -97,7 +100,7 @@ class OfflinePageMHTMLArchiverTest : public testing::Test {
     return last_result_;
   }
   const base::FilePath& last_file_path() const { return last_file_path_; }
-  int64 last_file_size() const { return last_file_size_; }
+  int64_t last_file_size() const { return last_file_size_; }
 
   const OfflinePageArchiver::CreateArchiveCallback callback() {
     return base::Bind(&OfflinePageMHTMLArchiverTest::OnCreateArchiveDone,
@@ -109,16 +112,16 @@ class OfflinePageMHTMLArchiverTest : public testing::Test {
                            OfflinePageArchiver::ArchiverResult result,
                            const GURL& url,
                            const base::FilePath& file_path,
-                           int64 file_size);
+                           int64_t file_size);
 
   OfflinePageArchiver* last_archiver_;
   OfflinePageArchiver::ArchiverResult last_result_;
   GURL last_url_;
   base::FilePath last_file_path_;
-  int64 last_file_size_;
+  int64_t last_file_size_;
 
-  base::MessageLoop message_loop_;
-  scoped_ptr<base::RunLoop> run_loop_;
+  scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
+  base::ThreadTaskRunnerHandle task_runner_handle_;
 
   DISALLOW_COPY_AND_ASSIGN(OfflinePageMHTMLArchiverTest);
 };
@@ -127,7 +130,9 @@ OfflinePageMHTMLArchiverTest::OfflinePageMHTMLArchiverTest()
     : last_archiver_(nullptr),
       last_result_(OfflinePageArchiver::ArchiverResult::
                        ERROR_ARCHIVE_CREATION_FAILED),
-      last_file_size_(0L) {
+      last_file_size_(0L),
+      task_runner_(new base::TestSimpleTaskRunner),
+      task_runner_handle_(task_runner_) {
 }
 
 OfflinePageMHTMLArchiverTest::~OfflinePageMHTMLArchiverTest() {
@@ -144,9 +149,7 @@ void OfflinePageMHTMLArchiverTest::OnCreateArchiveDone(
     OfflinePageArchiver::ArchiverResult result,
     const GURL& url,
     const base::FilePath& file_path,
-    int64 file_size) {
-  if (run_loop_)
-    run_loop_->Quit();
+    int64_t file_size) {
   last_url_ = url;
   last_archiver_ = archiver;
   last_result_ = result;
@@ -155,8 +158,7 @@ void OfflinePageMHTMLArchiverTest::OnCreateArchiveDone(
 }
 
 void OfflinePageMHTMLArchiverTest::PumpLoop() {
-  run_loop_.reset(new base::RunLoop());
-  run_loop_->Run();
+  task_runner_->RunUntilIdle();
 }
 
 // Tests that creation of an archiver fails when web contents is missing.
@@ -220,6 +222,20 @@ TEST_F(OfflinePageMHTMLArchiverTest, GenerateFileName) {
   base::FilePath actual_2(
       OfflinePageMHTMLArchiver::GenerateFileName(url_2, title_2));
   EXPECT_EQ(expected_2, actual_2);
-}
+
+  GURL url_3("https://www.google.com/search");
+  std::string title_3 =
+      "A really really really really really long title "
+      "that is over 80 chars long here^ - TRUNCATE THIS PART";
+  std::string expected_title_3_part =
+      "A_really_really_really_really_really_long_title_"
+      "that_is_over_80_chars_long_here^";
+  base::FilePath expected_3(
+      FILE_PATH_LITERAL("www.google.com-" +
+                        expected_title_3_part +
+                        "-ko+SHbxDoN0rARsFf82l4QubaJE=.mhtml"));
+  base::FilePath actual_3(
+      OfflinePageMHTMLArchiver::GenerateFileName(url_3, title_3));
+  EXPECT_EQ(expected_3, actual_3);}
 
 }  // namespace offline_pages

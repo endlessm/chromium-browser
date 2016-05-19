@@ -31,9 +31,9 @@ public:
         int detail, int screenX, int screenY, int windowX, int windowY,
         int movementX, int movementY,
         PlatformEvent::Modifiers, short button, unsigned short buttons,
-        PassRefPtrWillBeRawPtr<EventTarget> relatedTarget, DataTransfer*,
-        PlatformMouseEvent::SyntheticEventType = PlatformMouseEvent::RealOrIndistinguishable,
-        double uiCreateTime = 0);
+        PassRefPtrWillBeRawPtr<EventTarget> relatedTarget,
+        double platformTimeStamp, DataTransfer*,
+        PlatformMouseEvent::SyntheticEventType = PlatformMouseEvent::RealOrIndistinguishable);
 
     static PassRefPtrWillBeRawPtr<DragEvent> create(const AtomicString& type, const DragEventInit& initializer)
     {
@@ -56,8 +56,9 @@ private:
         int detail, int screenX, int screenY, int windowX, int windowY,
         int movementX, int movementY,
         PlatformEvent::Modifiers, short button, unsigned short buttons,
-        PassRefPtrWillBeRawPtr<EventTarget> relatedTarget, DataTransfer*,
-        PlatformMouseEvent::SyntheticEventType, double uiCreateTime = 0);
+        PassRefPtrWillBeRawPtr<EventTarget> relatedTarget,
+        double platformTimeStamp, DataTransfer*,
+        PlatformMouseEvent::SyntheticEventType);
 
     DragEvent(const AtomicString& type, const DragEventInit&);
 
@@ -71,7 +72,7 @@ public:
 private:
     explicit DragEventDispatchMediator(PassRefPtrWillBeRawPtr<DragEvent>);
     DragEvent& event() const;
-    bool dispatchEvent(EventDispatcher&) const override;
+    DispatchEventResult dispatchEvent(EventDispatcher&) const override;
 };
 
 DEFINE_EVENT_TYPE_CASTS(DragEvent);

@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/webdatabase/sqlite/SQLiteStatement.h"
 
 #include "modules/webdatabase/sqlite/SQLValue.h"
@@ -74,7 +73,7 @@ int restrictError(int error)
     }
 }
 
-}
+} // namespace
 
 namespace blink {
 

@@ -4,6 +4,9 @@
 
 #include "chrome/browser/signin/fake_signin_manager_builder.h"
 
+#include <utility>
+
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
@@ -19,7 +22,7 @@ scoped_ptr<KeyedService> BuildFakeSigninManagerBase(
   manager->Initialize(nullptr);
   SigninManagerFactory::GetInstance()
       ->NotifyObserversOfSigninManagerCreationForTesting(manager.get());
-  return manager.Pass();
+  return std::move(manager);
 }
 
 #if defined(OS_CHROMEOS)

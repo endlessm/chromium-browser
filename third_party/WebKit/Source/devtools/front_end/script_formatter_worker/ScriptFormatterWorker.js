@@ -230,6 +230,7 @@ FormatterWorker._innerParseCSS = function(text, chunkCallback)
         case FormatterWorker.CSSParserStates.Selector:
             if (tokenValue === "{" && tokenType === UndefTokenType) {
                 rule.selectorText = rule.selectorText.trim();
+                rule.styleRange = createRange(lineNumber, newColumn);
                 state = FormatterWorker.CSSParserStates.Style;
             } else {
                 rule.selectorText += tokenValue;
@@ -254,6 +255,8 @@ FormatterWorker._innerParseCSS = function(text, chunkCallback)
                 };
                 state = FormatterWorker.CSSParserStates.PropertyName;
             } else if (tokenValue === "}" && tokenType === UndefTokenType) {
+                rule.styleRange.endLine = lineNumber;
+                rule.styleRange.endColumn = column;
                 rules.push(rule);
                 state = FormatterWorker.CSSParserStates.Initial;
             } else if (tokenType["comment"]) {
@@ -286,7 +289,7 @@ FormatterWorker._innerParseCSS = function(text, chunkCallback)
             break;
         case FormatterWorker.CSSParserStates.PropertyName:
             if (tokenValue === ":" && tokenType === UndefTokenType) {
-                property.name = property.name.trim();
+                property.name = property.name;
                 property.nameRange.endLine = lineNumber;
                 property.nameRange.endColumn = column;
                 property.valueRange = createRange(lineNumber, newColumn);
@@ -297,13 +300,15 @@ FormatterWorker._innerParseCSS = function(text, chunkCallback)
             break;
         case FormatterWorker.CSSParserStates.PropertyValue:
             if ((tokenValue === ";" || tokenValue === "}") && tokenType === UndefTokenType) {
-                property.value = property.value.trim();
+                property.value = property.value;
                 property.valueRange.endLine = lineNumber;
                 property.valueRange.endColumn = column;
                 property.range.endLine = lineNumber;
                 property.range.endColumn = tokenValue === ";" ? newColumn : column;
                 rule.properties.push(property);
                 if (tokenValue === "}") {
+                    rule.styleRange.endLine = lineNumber;
+                    rule.styleRange.endColumn = column;
                     rules.push(rule);
                     state = FormatterWorker.CSSParserStates.Initial;
                 } else {
@@ -328,6 +333,7 @@ FormatterWorker._innerParseCSS = function(text, chunkCallback)
     for (lineNumber = 0; lineNumber < lines.length; ++lineNumber) {
         var line = lines[lineNumber];
         tokenizer(line, processToken);
+        processToken("\n", null, line.length, line.length + 1);
     }
     chunkCallback({ chunk: rules, isLastChunk: true });
 

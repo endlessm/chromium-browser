@@ -10,8 +10,6 @@
       'common/attrition_experiments.h',
       'common/auto_start_linux.cc',
       'common/auto_start_linux.h',
-      'common/badge_util.cc',
-      'common/badge_util.h',
       'common/channel_info.cc',
       'common/channel_info.h',
       'common/channel_info_android.cc',
@@ -42,14 +40,10 @@
       'common/custom_handlers/protocol_handler.cc',
       'common/custom_handlers/protocol_handler.h',
       'common/descriptors_android.h',
-      'common/icon_with_badge_image_source.cc',
-      'common/icon_with_badge_image_source.h',
       'common/ini_parser.cc',
       'common/ini_parser.h',
       'common/instant_types.cc',
       'common/instant_types.h',
-      'common/localized_error.cc',
-      'common/localized_error.h',
       'common/logging_chrome.cc',
       'common/logging_chrome.h',
       'common/mac/app_shim_launch.h',
@@ -114,6 +108,8 @@
       'common/worker_thread_ticker.h',
     ],
     'chrome_common_extensions_sources': [
+      'common/cast_messages.cc',
+      'common/cast_messages.h',
       'common/extensions/api/commands/commands_handler.cc',
       'common/extensions/api/commands/commands_handler.h',
       'common/extensions/api/extension_action/action_info.cc',
@@ -156,6 +152,8 @@
       'common/extensions/features/chrome_channel_feature_filter.h',
       'common/extensions/features/feature_channel.cc',
       'common/extensions/features/feature_channel.h',
+      'common/extensions/features/feature_util.cc',
+      'common/extensions/features/feature_util.h',
       'common/extensions/image_writer/image_writer_util_mac.cc',
       'common/extensions/image_writer/image_writer_util_mac.h',
       'common/extensions/manifest_handlers/app_icon_color_info.cc',
@@ -234,13 +232,13 @@
       'common/safe_browsing/zip_analyzer_results.h',
     ],
     'chrome_common_importer_sources': [
+      'common/importer/edge_importer_utils_win.cc',
+      'common/importer/edge_importer_utils_win.h',
       'common/importer/firefox_importer_utils.cc',
       'common/importer/firefox_importer_utils.h',
       'common/importer/firefox_importer_utils_linux.cc',
       'common/importer/firefox_importer_utils_mac.mm',
       'common/importer/firefox_importer_utils_win.cc',
-      'common/importer/ie_importer_test_registry_overrider_win.cc',
-      'common/importer/ie_importer_test_registry_overrider_win.h',
       'common/importer/ie_importer_utils_win.cc',
       'common/importer/ie_importer_utils_win.h',
       'common/importer/imported_bookmark_entry.cc',
@@ -251,6 +249,8 @@
       'common/importer/importer_bridge.h',
       'common/importer/importer_data_types.cc',
       'common/importer/importer_data_types.h',
+      'common/importer/importer_test_registry_overrider_win.cc',
+      'common/importer/importer_test_registry_overrider_win.h',
       'common/importer/importer_type.h',
       'common/importer/importer_url_row.cc',
       'common/importer/importer_url_row.h',
@@ -295,6 +295,7 @@
       # GN: //chrome/common:common
       'target_name': 'common',
       'type': 'static_library',
+      'hard_dependency': 1,  # Because of transitive dep on version_header.
       'variables': {
         'chrome_common_target': 1,
         'enable_wexit_time_destructors': 1,
@@ -316,8 +317,8 @@
         'safe_browsing_proto',
         '<(DEPTH)/base/base.gyp:base',
         '<(DEPTH)/base/base.gyp:base_i18n',
-        '<(DEPTH)/base/base.gyp:base_prefs',
         '<(DEPTH)/base/base.gyp:base_static',
+        '<(DEPTH)/chrome/chrome_features.gyp:chrome_common_features',
         '<(DEPTH)/chrome/chrome_resources.gyp:chrome_resources',
         '<(DEPTH)/chrome/chrome_resources.gyp:chrome_strings',
         '<(DEPTH)/chrome/chrome_resources.gyp:theme_resources',
@@ -329,16 +330,21 @@
         '<(DEPTH)/components/components.gyp:crash_core_common',
         '<(DEPTH)/components/components.gyp:error_page_common',
         '<(DEPTH)/components/components.gyp:favicon_base',
+        '<(DEPTH)/components/components.gyp:flags_ui_switches',
         '<(DEPTH)/components/components.gyp:gcm_driver_common',
         '<(DEPTH)/components/components.gyp:json_schema',
         '<(DEPTH)/components/components.gyp:metrics',
         '<(DEPTH)/components/components.gyp:metrics_net',
         '<(DEPTH)/components/components.gyp:omnibox_common',
         '<(DEPTH)/components/components.gyp:policy_component_common',
+        # TODO(fdoray): Remove this once the PreRead field trial has expired.
+        # crbug.com/577698
+        '<(DEPTH)/components/components.gyp:startup_metric_utils_common',
         '<(DEPTH)/components/components.gyp:translate_core_common',
         '<(DEPTH)/components/components.gyp:variations',
         '<(DEPTH)/components/components.gyp:version_info',
         '<(DEPTH)/components/components_strings.gyp:components_strings',
+        '<(DEPTH)/components/prefs/prefs.gyp:prefs',
         '<(DEPTH)/components/url_formatter/url_formatter.gyp:url_formatter',
         '<(DEPTH)/content/content.gyp:content_common',
         '<(DEPTH)/crypto/crypto.gyp:crypto',
@@ -347,6 +353,7 @@
         '<(DEPTH)/skia/skia.gyp:skia_library',
         '<(DEPTH)/third_party/icu/icu.gyp:icui18n',
         '<(DEPTH)/third_party/icu/icu.gyp:icuuc',
+        '<(DEPTH)/third_party/kasko/kasko.gyp:kasko_features',
         '<(DEPTH)/third_party/zlib/google/zip.gyp:zip',
         '<(DEPTH)/ui/gfx/ipc/gfx_ipc.gyp:gfx_ipc',
         '<(DEPTH)/ui/resources/ui_resources.gyp:ui_resources',
@@ -374,6 +381,12 @@
             ['chromeos==1', {
               'sources': [ '<@(chrome_common_extensions_chromeos_sources)' ],
             }],
+            ['OS=="win" or OS=="linux"', {
+              'sources': [
+                'common/extensions/api/input_ime/input_components_handler.cc',
+                'common/extensions/api/input_ime/input_components_handler.h',
+              ]
+            }]
           ],
         }],
         ['enable_extensions==1 and chromeos==1', {
@@ -473,26 +486,12 @@
         ['enable_print_preview==1', {
           'sources': [ '<@(chrome_common_service_process_sources)' ],
         }],
-        ['enable_service_discovery==1', {
-          'sources' : [
-            'common/local_discovery/service_discovery_client.cc',
-            'common/local_discovery/service_discovery_client.h',
-           ]
-        }],
-        ['enable_mdns==1', {
-          'sources' : [
-            'common/local_discovery/service_discovery_client_impl.cc',
-            'common/local_discovery/service_discovery_client_impl.h',
-          ]
-        }],
         ['OS=="android"', {
           'sources!': [
-            'common/badge_util.cc',
             'common/channel_info_posix.cc',
             'common/extensions/api/spellcheck/spellcheck_handler.cc',
             'common/extensions/manifest_handlers/extension_action_handler.cc',
             'common/extensions/manifest_handlers/minimum_chrome_version_checker.cc',
-            'common/icon_with_badge_image_source.cc',
             'common/media_galleries/metadata_types.h',
           ],
         }, {
@@ -506,11 +505,6 @@
           'dependencies': [
             '<(DEPTH)/components/components.gyp:dom_distiller_core',  # Needed by chrome_content_client.cc.
           ],
-        }],
-        ['enable_mdns == 1', {
-            'sources': [
-              'common/local_discovery/local_discovery_messages.h',
-            ]
         }],
         ['OS=="mac"', {
           'dependencies': [
@@ -562,6 +556,7 @@
       ],
       'dependencies': [
         '<(DEPTH)/base/base.gyp:base',
+        '<(DEPTH)/chrome/chrome_features.gyp:chrome_common_features',
         '<(DEPTH)/chrome/chrome_resources.gyp:chrome_resources',
         '<(DEPTH)/chrome/chrome_resources.gyp:chrome_strings',
         '<(DEPTH)/components/url_formatter/url_formatter.gyp:url_formatter',
@@ -640,14 +635,14 @@
       'target_name': 'common_mojo_bindings',
       'type': 'static_library',
       'includes': [
-        '../third_party/mojo/mojom_bindings_generator.gypi'
+        '../mojo/mojom_bindings_generator.gypi'
       ],
       'sources': [
         'common/resource_usage_reporter.mojom',
       ],
       'dependencies': [
         '../mojo/mojo_base.gyp:mojo_environment_chromium',
-        '../third_party/mojo/mojo_public.gyp:mojo_cpp_bindings',
+        '../mojo/mojo_public.gyp:mojo_cpp_bindings',
       ],
     },
   ],

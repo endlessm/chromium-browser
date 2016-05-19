@@ -2,14 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/browser/gpu/gpu_surface_tracker.h"
@@ -18,6 +22,7 @@
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
 #include "content/common/input_messages.h"
+#include "content/common/resize_params.h"
 #include "content/common/view_messages.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -119,6 +124,8 @@ class MockInputRouter : public InputRouter {
   void NotifySiteIsMobileOptimized(bool is_mobile_optimized) override {}
   void RequestNotificationWhenFlushed() override {}
   bool HasPendingEvents() const override { return false; }
+  void SetDeviceScaleFactor(float device_scale_factor) override {}
+  void SetFrameTreeNodeId(int frameTreeNodeId) override {}
 
   // IPC::Listener
   bool OnMessageReceived(const IPC::Message& message) override {
@@ -457,7 +464,7 @@ class RenderWidgetHostTest : public testing::Test {
 #endif
 #if defined(USE_AURA)
     screen_.reset(aura::TestScreen::Create(gfx::Size()));
-    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, screen_.get());
+    gfx::Screen::SetScreenInstance(screen_.get());
 #endif
     host_.reset(new MockRenderWidgetHost(delegate_.get(), process_,
                                          process_->GetNextRoutingID()));
@@ -477,7 +484,7 @@ class RenderWidgetHostTest : public testing::Test {
     browser_context_.reset();
 
 #if defined(USE_AURA)
-    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, nullptr);
+    gfx::Screen::SetScreenInstance(nullptr);
     screen_.reset();
 #endif
 #if defined(USE_AURA) || (defined(OS_MACOSX) && !defined(OS_IOS))
@@ -489,7 +496,7 @@ class RenderWidgetHostTest : public testing::Test {
   }
 
   void SetInitialRenderSizeParams() {
-    ViewMsg_Resize_Params render_size_params;
+    ResizeParams render_size_params;
     host_->GetResizeParams(&render_size_params);
     host_->SetInitialRenderSizeParams(render_size_params);
   }
@@ -497,9 +504,7 @@ class RenderWidgetHostTest : public testing::Test {
   virtual void ConfigureView(TestView* view) {
   }
 
-  int64 GetLatencyComponentId() {
-    return host_->GetLatencyComponentId();
-  }
+  int64_t GetLatencyComponentId() { return host_->GetLatencyComponentId(); }
 
   void SendInputEventACK(WebInputEvent::Type type,
                          InputEventAckState ack_result) {
@@ -537,8 +542,8 @@ class RenderWidgetHostTest : public testing::Test {
   }
 
   void SimulateWheelEvent(float dX, float dY, int modifiers, bool precise) {
-    host_->ForwardWheelEvent(
-        SyntheticWebMouseWheelEventBuilder::Build(dX, dY, modifiers, precise));
+    host_->ForwardWheelEvent(SyntheticWebMouseWheelEventBuilder::Build(
+        0, 0, dX, dY, modifiers, precise));
   }
 
   void SimulateWheelEventWithLatencyInfo(float dX,
@@ -547,7 +552,8 @@ class RenderWidgetHostTest : public testing::Test {
                                          bool precise,
                                          const ui::LatencyInfo& ui_latency) {
     host_->ForwardWheelEventWithLatencyInfo(
-        SyntheticWebMouseWheelEventBuilder::Build(dX, dY, modifiers, precise),
+        SyntheticWebMouseWheelEventBuilder::Build(0, 0, dX, dY, modifiers,
+                                                  precise),
         ui_latency);
   }
 
@@ -587,8 +593,8 @@ class RenderWidgetHostTest : public testing::Test {
 
   // Sends a touch event (irrespective of whether the page has a touch-event
   // handler or not).
-  uint32 SendTouchEvent() {
-    uint32 touch_event_id = touch_event_.uniqueTouchEventId;
+  uint32_t SendTouchEvent() {
+    uint32_t touch_event_id = touch_event_.uniqueTouchEventId;
     host_->ForwardTouchEventWithLatencyInfo(touch_event_, ui::LatencyInfo());
 
     touch_event_.ResetPoints();
@@ -1527,7 +1533,7 @@ ui::LatencyInfo GetLatencyInfoFromInputEvent(RenderWidgetHostProcess* process) {
 }
 
 void CheckLatencyInfoComponentInMessage(RenderWidgetHostProcess* process,
-                                        int64 component_id,
+                                        int64_t component_id,
                                         WebInputEvent::Type input_type) {
   ui::LatencyInfo latency_info = GetLatencyInfoFromInputEvent(process);
   EXPECT_TRUE(latency_info.FindLatency(
@@ -1586,7 +1592,7 @@ TEST_F(RenderWidgetHostTest, InputEventRWHLatencyComponent) {
 
   // Tests RWHI::ForwardTouchEventWithLatencyInfo().
   PressTouchPoint(0, 1);
-  uint32 touch_event_id = SendTouchEvent();
+  uint32_t touch_event_id = SendTouchEvent();
   InputEventAck ack(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
                     touch_event_id);
   host_->OnMessageReceived(InputHostMsg_HandleInputEvent_ACK(0, ack));
@@ -1623,7 +1629,7 @@ TEST_F(RenderWidgetHostTest, ResizeParams) {
   view_->set_bounds(bounds);
   view_->SetMockPhysicalBackingSize(physical_backing_size);
 
-  ViewMsg_Resize_Params resize_params;
+  ResizeParams resize_params;
   host_->GetResizeParams(&resize_params);
   EXPECT_EQ(bounds.size(), resize_params.new_size);
   EXPECT_EQ(physical_backing_size, resize_params.physical_backing_size);
@@ -1650,6 +1656,26 @@ TEST_F(RenderWidgetHostInitialSizeTest, InitialSize) {
   EXPECT_FALSE(process_->sink().GetUniqueMessageMatching(ViewMsg_Resize::ID));
   EXPECT_EQ(initial_size_, host_->old_resize_params_->new_size);
   EXPECT_TRUE(host_->resize_ack_pending_);
+}
+
+// Tests that event dispatch after the delegate has been detached doesn't cause
+// a crash. See crbug.com/563237.
+TEST_F(RenderWidgetHostTest, EventDispatchPostDetach) {
+  host_->OnMessageReceived(ViewHostMsg_HasTouchEventHandlers(0, true));
+  process_->sink().ClearMessages();
+
+  host_->DetachDelegate();
+
+  // Tests RWHI::ForwardGestureEventWithLatencyInfo().
+  SimulateGestureEventWithLatencyInfo(WebInputEvent::GestureScrollUpdate,
+                                      blink::WebGestureDeviceTouchscreen,
+                                      ui::LatencyInfo());
+
+
+  // Tests RWHI::ForwardWheelEventWithLatencyInfo().
+  SimulateWheelEventWithLatencyInfo(-5, 0, 0, true, ui::LatencyInfo());
+
+  ASSERT_FALSE(host_->input_router()->HasPendingEvents());
 }
 
 }  // namespace content

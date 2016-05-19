@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <list>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/timer/timer.h"
@@ -377,7 +380,7 @@ class QueueTouchEventDelegate : public GestureEventConsumeDelegate {
     DCHECK(!sent_events_ids_.empty());
     if (sent_events_ids_.empty())
       return;
-    uint32 sent_event_id = sent_events_ids_.front();
+    uint32_t sent_event_id = sent_events_ids_.front();
     sent_events_ids_.pop_front();
     dispatcher_->ProcessedTouchEvent(
         sent_event_id, window_,
@@ -387,7 +390,7 @@ class QueueTouchEventDelegate : public GestureEventConsumeDelegate {
   Window* window_;
   WindowEventDispatcher* dispatcher_;
   AckState synchronous_ack_for_next_event_;
-  std::list<uint32> sent_events_ids_;
+  std::list<uint32_t> sent_events_ids_;
 
   DISALLOW_COPY_AND_ASSIGN(QueueTouchEventDelegate);
 };
@@ -635,6 +638,18 @@ void DelayByShowPressTimeout() {
   run_loop.Run();
 }
 
+void SetTouchRadius(ui::TouchEvent* event, float radius_x, float radius_y) {
+  // Using ctor (over direct struct access) due to it's special behavior with
+  // radii.
+  ui::PointerDetails details(ui::EventPointerType::POINTER_TYPE_TOUCH,
+                             radius_x,
+                             radius_y,
+                             event->pointer_details().force,
+                             event->pointer_details().tilt_x,
+                             event->pointer_details().tilt_y);
+  event->set_pointer_details(details);
+}
+
 }  // namespace
 
 class GestureRecognizerTest : public AuraTestBase,
@@ -735,8 +750,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(101, 201),
                           kTouchId, tes.Now());
-     press.set_radius_x(5);
-     press.set_radius_y(12);
+     SetTouchRadius(&press, 5, 12);
      DispatchEventUsingWindowDispatcher(&press);
      EXPECT_FALSE(delegate->tap());
      EXPECT_TRUE(delegate->tap_down());
@@ -752,8 +766,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent release(ui::ET_TOUCH_RELEASED, gfx::Point(101, 201),
                             kTouchId, tes.LeapForward(50));
-     release.set_radius_x(5);
-     release.set_radius_y(12);
+     SetTouchRadius(&release, 5, 12);
 
      DispatchEventUsingWindowDispatcher(&release);
      EXPECT_TRUE(delegate->tap());
@@ -778,8 +791,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(365, 290),
                           kTouchId, tes.Now());
-     press.set_radius_x(8);
-     press.set_radius_y(14);
+     SetTouchRadius(&press, 8, 14);
      DispatchEventUsingWindowDispatcher(&press);
      EXPECT_FALSE(delegate->tap());
      EXPECT_TRUE(delegate->tap_down());
@@ -793,8 +805,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent release(ui::ET_TOUCH_RELEASED, gfx::Point(367, 291),
                             kTouchId, tes.LeapForward(50));
-     release.set_radius_x(20);
-     release.set_radius_y(13);
+     SetTouchRadius(&release, 20, 13);
 
      DispatchEventUsingWindowDispatcher(&release);
      EXPECT_TRUE(delegate->tap());
@@ -819,8 +830,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(46, 205),
                           kTouchId, tes.Now());
-     press.set_radius_x(6);
-     press.set_radius_y(10);
+     SetTouchRadius(&press, 6, 10);
      DispatchEventUsingWindowDispatcher(&press);
      EXPECT_FALSE(delegate->tap());
      EXPECT_TRUE(delegate->tap_down());
@@ -835,8 +845,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(49, 204),
                          kTouchId, tes.LeapForward(50));
-     move.set_radius_x(8);
-     move.set_radius_y(12);
+     SetTouchRadius(&move, 8, 12);
      DispatchEventUsingWindowDispatcher(&move);
      EXPECT_FALSE(delegate->tap());
      EXPECT_FALSE(delegate->tap_down());
@@ -850,8 +859,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent release(ui::ET_TOUCH_RELEASED, gfx::Point(49, 204),
                             kTouchId, tes.LeapForward(50));
-     release.set_radius_x(4);
-     release.set_radius_y(8);
+     SetTouchRadius(&release, 4, 8);
 
      DispatchEventUsingWindowDispatcher(&release);
      EXPECT_TRUE(delegate->tap());
@@ -876,8 +884,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(400, 150),
                           kTouchId, tes.Now());
-     press.set_radius_x(7);
-     press.set_radius_y(10);
+     SetTouchRadius(&press, 7, 10);
      DispatchEventUsingWindowDispatcher(&press);
      EXPECT_FALSE(delegate->tap());
      EXPECT_TRUE(delegate->tap_down());
@@ -891,8 +898,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(397, 151),
                          kTouchId, tes.LeapForward(50));
-     move.set_radius_x(13);
-     move.set_radius_y(12);
+     SetTouchRadius(&move, 13, 12);
      DispatchEventUsingWindowDispatcher(&move);
      EXPECT_FALSE(delegate->tap());
      EXPECT_FALSE(delegate->tap_down());
@@ -906,8 +912,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent move1(ui::ET_TOUCH_MOVED, gfx::Point(397, 149),
                           kTouchId, tes.LeapForward(50));
-     move1.set_radius_x(16);
-     move1.set_radius_y(16);
+     SetTouchRadius(&move1, 16, 16);
      DispatchEventUsingWindowDispatcher(&move1);
      EXPECT_FALSE(delegate->tap());
      EXPECT_FALSE(delegate->tap_down());
@@ -921,8 +926,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent move2(ui::ET_TOUCH_MOVED, gfx::Point(400, 150),
                           kTouchId, tes.LeapForward(50));
-     move2.set_radius_x(14);
-     move2.set_radius_y(10);
+     SetTouchRadius(&move2, 14, 10);
      DispatchEventUsingWindowDispatcher(&move2);
      EXPECT_FALSE(delegate->tap());
      EXPECT_FALSE(delegate->tap_down());
@@ -936,8 +940,7 @@ TEST_F(GestureRecognizerTest, GestureEventTapRegion) {
      delegate->Reset();
      ui::TouchEvent release(ui::ET_TOUCH_RELEASED, gfx::Point(401, 149),
                             kTouchId, tes.LeapForward(50));
-     release.set_radius_x(8);
-     release.set_radius_y(9);
+     SetTouchRadius(&release, 8, 9);
 
      DispatchEventUsingWindowDispatcher(&release);
      EXPECT_TRUE(delegate->tap());
@@ -2529,7 +2532,7 @@ TEST_F(GestureRecognizerTest, PressDoesNotCrash) {
       delegate.get(), -1234, gfx::Rect(10, 10, 300, 300), root_window()));
 
   ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(45, 45), 7, tes.Now());
-  press.set_radius_x(40);
+  SetTouchRadius(&press, 40, 0);
   DispatchEventUsingWindowDispatcher(&press);
   EXPECT_TRUE(delegate->tap_down());
   EXPECT_EQ(gfx::Rect(5, 5, 80, 80).ToString(),
@@ -3459,7 +3462,7 @@ TEST_F(GestureRecognizerTest, BoundingBoxRadiusChange) {
   ui::TouchEvent press2(
       ui::ET_TOUCH_PRESSED, gfx::Point(201, 201), kTouchId2,
       tes.LeapForward(400));
-  press2.set_radius_x(5);
+  SetTouchRadius(&press2, 5, 0);
   DispatchEventUsingWindowDispatcher(&press2);
   EXPECT_FALSE(delegate->pinch_begin());
   EXPECT_EQ(gfx::Rect(101, 196, 105, 10).ToString(),
@@ -3479,8 +3482,7 @@ TEST_F(GestureRecognizerTest, BoundingBoxRadiusChange) {
   // The position doesn't move, but the radius changes.
   ui::TouchEvent move2(
       ui::ET_TOUCH_MOVED, gfx::Point(50, 50), kTouchId, tes.LeapForward(40));
-  move2.set_radius_x(50);
-  move2.set_radius_y(60);
+  SetTouchRadius(&move2, 50, 60);
   DispatchEventUsingWindowDispatcher(&move2);
   EXPECT_FALSE(delegate->tap());
   EXPECT_FALSE(delegate->tap_cancel());
@@ -4364,6 +4366,87 @@ TEST_F(GestureRecognizerTest,
   delegate->ReceivedAck();
   EXPECT_2_EVENTS(delegate->events(), ui::ET_GESTURE_SCROLL_UPDATE,
                   ui::ET_GESTURE_SCROLL_UPDATE);
+}
+
+TEST_F(GestureRecognizerTest, GestureEventTwoWindowsActive) {
+  scoped_ptr<QueueTouchEventDelegate> queued_delegate(
+      new QueueTouchEventDelegate(host()->dispatcher()));
+  TimedEvents tes;
+  const int kWindowWidth = 123;
+  const int kWindowHeight = 45;
+  const int kTouchId1 = 6;
+  const int kTouchId2 = 4;
+  gfx::Rect bounds(150, 200, kWindowWidth, kWindowHeight);
+  scoped_ptr<aura::Window> window(CreateTestWindowWithDelegate(
+      queued_delegate.get(), -1234, bounds, root_window()));
+  queued_delegate->set_window(window.get());
+
+  // Touch down on the window. This should not generate any gesture event.
+  queued_delegate->Reset();
+  ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(151, 201), kTouchId1,
+                       tes.Now());
+  DispatchEventUsingWindowDispatcher(&press);
+  EXPECT_FALSE(queued_delegate->tap());
+  EXPECT_FALSE(queued_delegate->tap_down());
+  EXPECT_FALSE(queued_delegate->tap_cancel());
+  EXPECT_FALSE(queued_delegate->begin());
+  EXPECT_FALSE(queued_delegate->scroll_begin());
+  EXPECT_FALSE(queued_delegate->scroll_update());
+  EXPECT_FALSE(queued_delegate->scroll_end());
+
+  // Touch down on the second window. This should not generate any
+  // gesture event.
+  scoped_ptr<QueueTouchEventDelegate> queued_delegate2(
+      new QueueTouchEventDelegate(host()->dispatcher()));
+  gfx::Rect bounds2(0, 0, kWindowWidth, kWindowHeight);
+  scoped_ptr<aura::Window> window2(CreateTestWindowWithDelegate(
+      queued_delegate2.get(), -2345, bounds2, root_window()));
+  queued_delegate2->set_window(window2.get());
+
+  queued_delegate2->Reset();
+  ui::TouchEvent press2(ui::ET_TOUCH_PRESSED, gfx::Point(1, 1), kTouchId2,
+                        tes.Now());
+  DispatchEventUsingWindowDispatcher(&press2);
+  EXPECT_FALSE(queued_delegate2->tap());
+  EXPECT_FALSE(queued_delegate2->tap_down());
+  EXPECT_FALSE(queued_delegate2->tap_cancel());
+  EXPECT_FALSE(queued_delegate2->begin());
+  EXPECT_FALSE(queued_delegate2->scroll_begin());
+  EXPECT_FALSE(queued_delegate2->scroll_update());
+  EXPECT_FALSE(queued_delegate2->scroll_end());
+
+  // Ack the first window's touch; make sure it is processed by the first
+  // window.
+  queued_delegate->Reset();
+  queued_delegate->ReceivedAck();
+  EXPECT_FALSE(queued_delegate->tap());
+  EXPECT_FALSE(queued_delegate->show_press());
+  EXPECT_TRUE(queued_delegate->tap_down());
+  EXPECT_FALSE(queued_delegate->tap_cancel());
+  EXPECT_TRUE(queued_delegate->begin());
+  EXPECT_FALSE(queued_delegate->scroll_begin());
+  EXPECT_FALSE(queued_delegate->scroll_update());
+  EXPECT_FALSE(queued_delegate->scroll_end());
+  EXPECT_FALSE(queued_delegate->long_press());
+
+  // Ack the second window's touch; make sure it is processed by the second
+  // window.
+  queued_delegate2->Reset();
+  queued_delegate2->ReceivedAck();
+  EXPECT_FALSE(queued_delegate2->tap());
+  EXPECT_FALSE(queued_delegate2->show_press());
+  EXPECT_TRUE(queued_delegate2->tap_down());
+  EXPECT_FALSE(queued_delegate2->tap_cancel());
+  EXPECT_TRUE(queued_delegate2->begin());
+  EXPECT_FALSE(queued_delegate2->scroll_begin());
+  EXPECT_FALSE(queued_delegate2->scroll_update());
+  EXPECT_FALSE(queued_delegate2->scroll_end());
+  EXPECT_FALSE(queued_delegate2->long_press());
+
+  queued_delegate->Reset();
+  queued_delegate->WaitUntilReceivedGesture(ui::ET_GESTURE_SHOW_PRESS);
+  EXPECT_TRUE(queued_delegate->show_press());
+  EXPECT_FALSE(queued_delegate->tap_down());
 }
 
 }  // namespace test

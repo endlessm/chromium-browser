@@ -5,6 +5,8 @@
 #ifndef DEVICE_BLUETOOTH_TEST_BLUETOOTH_TEST_H_
 #define DEVICE_BLUETOOTH_TEST_BLUETOOTH_TEST_H_
 
+#include <stdint.h>
+
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
@@ -13,6 +15,7 @@
 #include "device/bluetooth/bluetooth_discovery_session.h"
 #include "device/bluetooth/bluetooth_gatt_characteristic.h"
 #include "device/bluetooth/bluetooth_gatt_connection.h"
+#include "device/bluetooth/bluetooth_gatt_descriptor.h"
 #include "device/bluetooth/bluetooth_gatt_notify_session.h"
 #include "device/bluetooth/bluetooth_gatt_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -55,7 +58,7 @@ class BluetoothTestBase : public testing::Test {
   // Calls adapter_->StartDiscoverySessionWithFilter with Low Energy transport,
   // and this fixture's callbacks expecting success.
   // Then RunLoop().RunUntilIdle().
-  void StartLowEnergyDiscoverySession();
+  virtual void StartLowEnergyDiscoverySession();
 
   // Calls adapter_->StartDiscoverySessionWithFilter with Low Energy transport,
   // and this fixture's callbacks expecting error.
@@ -76,6 +79,10 @@ class BluetoothTestBase : public testing::Test {
   // Initializes the BluetoothAdapter |adapter_| with a fake adapter that can be
   // controlled by this test fixture.
   virtual void InitWithFakeAdapter(){};
+
+  // Configures the fake adapter to lack the necessary permissions to scan for
+  // devices.  Returns false if the current platform always has permission.
+  virtual bool DenyPermission();
 
   // Create a fake Low Energy device and discover it.
   // |device_ordinal| selects between multiple fake device data sets to produce:
@@ -106,6 +113,9 @@ class BluetoothTestBase : public testing::Test {
       BluetoothDevice* device,
       const std::vector<std::string>& uuids) {}
 
+  // Simulates remove of a |service|.
+  virtual void SimulateGattServiceRemoved(BluetoothGattService* service) {}
+
   // Simulates failure to discover services.
   virtual void SimulateGattServicesDiscoveryError(BluetoothDevice* device) {}
 
@@ -113,6 +123,11 @@ class BluetoothTestBase : public testing::Test {
   virtual void SimulateGattCharacteristic(BluetoothGattService* service,
                                           const std::string& uuid,
                                           int properties) {}
+
+  // Simulates remove of a |characteristic| from |service|.
+  virtual void SimulateGattCharacteristicRemoved(
+      BluetoothGattService* service,
+      BluetoothGattCharacteristic* characteristic) {}
 
   // Remembers |characteristic|'s platform specific object to be used in a
   // subsequent call to methods such as SimulateGattCharacteristicRead that
@@ -131,12 +146,17 @@ class BluetoothTestBase : public testing::Test {
   virtual void SimulateGattCharacteristicSetNotifyWillFailSynchronouslyOnce(
       BluetoothGattCharacteristic* characteristic) {}
 
+  // Simulates a Characteristic Changed operation with updated |value|.
+  virtual void SimulateGattCharacteristicChanged(
+      BluetoothGattCharacteristic* characteristic,
+      const std::vector<uint8_t>& value) {}
+
   // Simulates a Characteristic Read operation succeeding, returning |value|.
   // If |characteristic| is null, acts upon the characteristic provided to
   // RememberCharacteristicForSubsequentAction.
   virtual void SimulateGattCharacteristicRead(
       BluetoothGattCharacteristic* characteristic,
-      const std::vector<uint8>& value) {}
+      const std::vector<uint8_t>& value) {}
 
   // Simulates a Characteristic Read operation failing with a GattErrorCode.
   virtual void SimulateGattCharacteristicReadError(
@@ -164,6 +184,16 @@ class BluetoothTestBase : public testing::Test {
   virtual void SimulateGattCharacteristicWriteWillFailSynchronouslyOnce(
       BluetoothGattCharacteristic* characteristic) {}
 
+  // Simulates a Descriptor on a service.
+  virtual void SimulateGattDescriptor(
+      BluetoothGattCharacteristic* characteristic,
+      const std::string& uuid) {}
+
+  // Simulates a Descriptor Write operation failing synchronously once for
+  // an unknown reason.
+  virtual void SimulateGattDescriptorWriteWillFailSynchronouslyOnce(
+      BluetoothGattDescriptor* descriptor) {}
+
   // Removes the device from the adapter and deletes it.
   virtual void DeleteDevice(BluetoothDevice* device);
 
@@ -174,7 +204,7 @@ class BluetoothTestBase : public testing::Test {
   void GattConnectionCallback(Call expected,
                               scoped_ptr<BluetoothGattConnection>);
   void NotifyCallback(Call expected, scoped_ptr<BluetoothGattNotifySession>);
-  void ReadValueCallback(Call expected, const std::vector<uint8>& value);
+  void ReadValueCallback(Call expected, const std::vector<uint8_t>& value);
   void ErrorCallback(Call expected);
   void ConnectErrorCallback(Call expected,
                             enum BluetoothDevice::ConnectErrorCode);
@@ -208,8 +238,8 @@ class BluetoothTestBase : public testing::Test {
   enum BluetoothDevice::ConnectErrorCode last_connect_error_code_ =
       BluetoothDevice::ERROR_UNKNOWN;
   ScopedVector<BluetoothGattNotifySession> notify_sessions_;
-  std::vector<uint8> last_read_value_;
-  std::vector<uint8> last_write_value_;
+  std::vector<uint8_t> last_read_value_;
+  std::vector<uint8_t> last_write_value_;
   BluetoothGattService::GattErrorCode last_gatt_error_code_;
 
   int callback_count_ = 0;
@@ -220,6 +250,7 @@ class BluetoothTestBase : public testing::Test {
   int gatt_notify_characteristic_attempts_ = 0;
   int gatt_read_characteristic_attempts_ = 0;
   int gatt_write_characteristic_attempts_ = 0;
+  int gatt_write_descriptor_attempts_ = 0;
 
   // The following values are used to make sure the correct callbacks
   // have been called. They are not reset when calling ResetEventCounts().

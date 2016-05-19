@@ -4,6 +4,8 @@
 
 #include "chrome/browser/browsing_data/cookies_tree_model.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -172,6 +174,8 @@ LocalDataContainer* GetLocalDataContainerForNode(CookieTreeNode* node) {
 }  // namespace
 
 CookieTreeNode::DetailedInfo::DetailedInfo() : node_type(TYPE_NONE) {}
+
+CookieTreeNode::DetailedInfo::DetailedInfo(const DetailedInfo& other) = default;
 
 CookieTreeNode::DetailedInfo::~DetailedInfo() {}
 
@@ -595,8 +599,7 @@ CookieTreeRootNode::CookieTreeRootNode(CookiesTreeModel* model)
 
 CookieTreeRootNode::~CookieTreeRootNode() {}
 
-CookieTreeHostNode* CookieTreeRootNode::GetOrCreateHostNode(
-    const GURL& url) {
+CookieTreeHostNode* CookieTreeRootNode::GetOrCreateHostNode(const GURL& url) {
   scoped_ptr<CookieTreeHostNode> host_node(
       new CookieTreeHostNode(url));
 
@@ -991,12 +994,12 @@ CookiesTreeModel::~CookiesTreeModel() {
 // static
 int CookiesTreeModel::GetSendForMessageID(const net::CanonicalCookie& cookie) {
   if (cookie.IsSecure()) {
-    if (cookie.IsFirstPartyOnly())
-      return IDS_COOKIES_COOKIE_SENDFOR_SECURE_FIRSTPARTY;
+    if (cookie.IsSameSite())
+      return IDS_COOKIES_COOKIE_SENDFOR_SECURE_SAME_SITE;
     return IDS_COOKIES_COOKIE_SENDFOR_SECURE;
   }
-  if (cookie.IsFirstPartyOnly())
-    return IDS_COOKIES_COOKIE_SENDFOR_FIRSTPARTY;
+  if (cookie.IsSameSite())
+    return IDS_COOKIES_COOKIE_SENDFOR_SAME_SITE;
   return IDS_COOKIES_COOKIE_SENDFOR_ANY;
 }
 
@@ -1232,6 +1235,8 @@ void CookiesTreeModel::PopulateCookieInfoWithFilter(
       source = GURL(std::string(url::kHttpScheme) +
                     url::kStandardSchemeSeparator + domain + "/");
     }
+    if (!source.SchemeIsHTTPOrHTTPS())
+      continue;
 
     if (filter.empty() || (CookieTreeHostNode::TitleForUrl(source)
                                .find(filter) != base::string16::npos)) {

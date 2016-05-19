@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSGradientValue.h"
 
 #include "core/CSSValueKeywords.h"
@@ -41,6 +40,7 @@
 #include "platform/graphics/skia/SkiaUtils.h"
 #include "wtf/text/StringBuilder.h"
 #include "wtf/text/WTFString.h"
+#include <algorithm>
 #include <utility>
 
 namespace blink {
@@ -524,6 +524,8 @@ static float positionFromValue(CSSValue* value, const CSSToLengthConversionData&
     case CSSValueRight:
         ASSERT(isHorizontal);
         return size.width();
+    case CSSValueCenter:
+        return origin + sign * .5f * edgeDistance;
     default:
         break;
     }
@@ -1132,22 +1134,23 @@ PassRefPtr<Gradient> CSSRadialGradientValue::createGradient(const CSSToLengthCon
             ? CircleEndShape
             : EllipseEndShape;
 
+        FloatSize floatSize(size);
         switch (m_sizingBehavior ? m_sizingBehavior->getValueID() : 0) {
         case CSSValueContain:
         case CSSValueClosestSide:
-            secondRadius = radiusToSide(secondPoint, size, shape,
+            secondRadius = radiusToSide(secondPoint, floatSize, shape,
                 [] (float a, float b) { return a < b; });
             break;
         case CSSValueFarthestSide:
-            secondRadius = radiusToSide(secondPoint, size, shape,
+            secondRadius = radiusToSide(secondPoint, floatSize, shape,
                 [] (float a, float b) { return a > b; });
             break;
         case CSSValueClosestCorner:
-            secondRadius = radiusToCorner(secondPoint, size, shape,
+            secondRadius = radiusToCorner(secondPoint, floatSize, shape,
                 [] (float a, float b) { return a < b; });
             break;
         default:
-            secondRadius = radiusToCorner(secondPoint, size, shape,
+            secondRadius = radiusToCorner(secondPoint, floatSize, shape,
                 [] (float a, float b) { return a > b; });
             break;
         }

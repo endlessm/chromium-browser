@@ -4,14 +4,17 @@
 
 #include "chrome/browser/ui/views/extensions/extension_install_dialog_view.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/i18n/rtl.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -101,15 +104,14 @@ base::string16 PrepareForDisplay(const base::string16& message,
 
 void ShowExtensionInstallDialogImpl(
     ExtensionInstallPromptShowParams* show_params,
-    ExtensionInstallPrompt::Delegate* delegate,
-    scoped_refptr<ExtensionInstallPrompt::Prompt> prompt) {
+    const ExtensionInstallPrompt::DoneCallback& done_callback,
+    scoped_ptr<ExtensionInstallPrompt::Prompt> prompt) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  ExtensionInstallDialogView* dialog =
-      new ExtensionInstallDialogView(show_params->profile(),
-                                     show_params->GetParentWebContents(),
-                                     delegate,
-                                     prompt);
-  if (prompt->ShouldUseTabModalDialog()) {
+  bool use_tab_modal_dialog = prompt->ShouldUseTabModalDialog();
+  ExtensionInstallDialogView* dialog = new ExtensionInstallDialogView(
+      show_params->profile(), show_params->GetParentWebContents(),
+      done_callback, std::move(prompt));
+  if (use_tab_modal_dialog) {
     content::WebContents* parent_web_contents =
         show_params->GetParentWebContents();
     if (parent_web_contents)
@@ -197,12 +199,12 @@ IconedView::IconedView(views::View* view, const gfx::ImageSkia& image) {
 ExtensionInstallDialogView::ExtensionInstallDialogView(
     Profile* profile,
     content::PageNavigator* navigator,
-    ExtensionInstallPrompt::Delegate* delegate,
-    scoped_refptr<ExtensionInstallPrompt::Prompt> prompt)
+    const ExtensionInstallPrompt::DoneCallback& done_callback,
+    scoped_ptr<ExtensionInstallPrompt::Prompt> prompt)
     : profile_(profile),
       navigator_(navigator),
-      delegate_(delegate),
-      prompt_(prompt),
+      done_callback_(done_callback),
+      prompt_(std::move(prompt)),
       container_(NULL),
       scroll_view_(NULL),
       handled_result_(false) {
@@ -210,8 +212,10 @@ ExtensionInstallDialogView::ExtensionInstallDialogView(
 }
 
 ExtensionInstallDialogView::~ExtensionInstallDialogView() {
-  if (!handled_result_)
-    delegate_->InstallUIAbort(true);
+  if (!handled_result_ && !done_callback_.is_null()) {
+    base::ResetAndReturn(&done_callback_)
+        .Run(ExtensionInstallPrompt::Result::USER_CANCELED);
+  }
 }
 
 void ExtensionInstallDialogView::InitView() {
@@ -592,7 +596,8 @@ bool ExtensionInstallDialogView::Cancel() {
   UpdateInstallResultHistogram(false);
   if (sampling_event_)
     sampling_event_->CreateUserDecisionEvent(ExperienceSamplingEvent::kDeny);
-  delegate_->InstallUIAbort(true);
+  base::ResetAndReturn(&done_callback_)
+      .Run(ExtensionInstallPrompt::Result::USER_CANCELED);
   return true;
 }
 
@@ -603,7 +608,8 @@ bool ExtensionInstallDialogView::Accept() {
   UpdateInstallResultHistogram(true);
   if (sampling_event_)
     sampling_event_->CreateUserDecisionEvent(ExperienceSamplingEvent::kProceed);
-  delegate_->InstallUIProceed();
+  base::ResetAndReturn(&done_callback_)
+      .Run(ExtensionInstallPrompt::Result::ACCEPTED);
   return true;
 }
 
@@ -624,8 +630,7 @@ void ExtensionInstallDialogView::LinkClicked(views::Link* source,
   if (navigator_) {
     navigator_->OpenURL(params);
   } else {
-    chrome::ScopedTabbedBrowserDisplayer displayer(
-        profile_, chrome::GetActiveDesktop());
+    chrome::ScopedTabbedBrowserDisplayer displayer(profile_);
     displayer.browser()->OpenURL(params);
   }
   GetWidget()->Close();

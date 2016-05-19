@@ -20,8 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGAnimateElement.h"
 
 #include "core/CSSPropertyNames.h"
@@ -417,4 +415,4 @@ DEFINE_TRACE(SVGAnimateElement)
     SVGAnimationElement::trace(visitor);
 }
 
-}
+} // namespace blink

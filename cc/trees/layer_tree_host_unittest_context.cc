@@ -4,9 +4,9 @@
 
 #include "cc/trees/layer_tree_host.h"
 
-#include "base/basictypes.h"
-#include "cc/layers/delegated_frame_provider.h"
-#include "cc/layers/delegated_frame_resource_collection.h"
+#include <stddef.h>
+#include <stdint.h>
+
 #include "cc/layers/heads_up_display_layer.h"
 #include "cc/layers/io_surface_layer.h"
 #include "cc/layers/layer_impl.h"
@@ -20,8 +20,6 @@
 #include "cc/resources/single_release_callback.h"
 #include "cc/test/failure_output_surface.h"
 #include "cc/test/fake_content_layer_client.h"
-#include "cc/test/fake_delegated_renderer_layer.h"
-#include "cc/test/fake_delegated_renderer_layer_impl.h"
 #include "cc/test/fake_layer_tree_host_client.h"
 #include "cc/test/fake_output_surface.h"
 #include "cc/test/fake_output_surface_client.h"
@@ -100,9 +98,9 @@ class LayerTreeHostContextTest : public LayerTreeTest {
     }
 
     if (delegating_renderer())
-      return FakeOutputSurface::CreateDelegating3d(context3d.Pass());
+      return FakeOutputSurface::CreateDelegating3d(std::move(context3d));
     else
-      return FakeOutputSurface::Create3d(context3d.Pass());
+      return FakeOutputSurface::Create3d(std::move(context3d));
   }
 
   DrawResult PrepareToDrawOnThread(LayerTreeHostImpl* host_impl,
@@ -194,7 +192,7 @@ class LayerTreeHostContextTestLostContextSucceeds
     scoped_ptr<OutputSurface> surface(
         LayerTreeHostContextTest::CreateOutputSurface());
     CHECK(surface);
-    layer_tree_host()->SetOutputSurface(surface.Pass());
+    layer_tree_host()->SetOutputSurface(std::move(surface));
   }
 
   void DidInitializeOutputSurface() override {
@@ -408,7 +406,7 @@ class LayerTreeHostClientTakeAwayOutputSurface
         LayerTreeHostContextTest::CreateOutputSurface();
     CHECK(surface);
     setos_counter_++;
-    layer_tree_host()->SetOutputSurface(surface.Pass());
+    layer_tree_host()->SetOutputSurface(std::move(surface));
   }
 
   void HideAndReleaseOutputSurface() {
@@ -636,6 +634,7 @@ class LayerTreeHostContextTestLostContextSucceedsWithContent
 
     layer_tree_host()->SetRootLayer(root_);
     LayerTreeHostContextTest::SetupTree();
+    client_.set_bounds(root_->bounds());
   }
 
   void InvalidateAndSetNeedsCommit() override {
@@ -648,7 +647,7 @@ class LayerTreeHostContextTestLostContextSucceedsWithContent
 
   void DrawLayersOnThread(LayerTreeHostImpl* host_impl) override {
     FakePictureLayerImpl* picture_impl = static_cast<FakePictureLayerImpl*>(
-        host_impl->active_tree()->root_layer()->children()[0]);
+        host_impl->active_tree()->root_layer()->children()[0].get());
     EXPECT_TRUE(picture_impl->HighResTiling()
                     ->TileAt(0, 0)
                     ->draw_info()
@@ -709,6 +708,7 @@ class LayerTreeHostContextTestLostContextAndEvictTextures
     scoped_refptr<FakePictureLayer> picture_layer =
         FakePictureLayer::Create(layer_settings(), &client_);
     picture_layer->SetBounds(gfx::Size(10, 20));
+    client_.set_bounds(picture_layer->bounds());
     layer_tree_host()->SetRootLayer(picture_layer);
 
     LayerTreeHostContextTest::SetupTree();
@@ -783,49 +783,49 @@ class LayerTreeHostContextTestLostContextAndEvictTextures
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseAfterEvict_SingleThread_DirectRenderer) {
   lose_after_evict_ = true;
-  RunTest(false, false);
+  RunTest(CompositorMode::SINGLE_THREADED, false);
 }
 
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseAfterEvict_SingleThread_DelegatingRenderer) {
   lose_after_evict_ = true;
-  RunTest(false, true);
+  RunTest(CompositorMode::SINGLE_THREADED, true);
 }
 
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseAfterEvict_MultiThread_DirectRenderer) {
   lose_after_evict_ = true;
-  RunTest(true, false);
+  RunTest(CompositorMode::THREADED, false);
 }
 
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseAfterEvict_MultiThread_DelegatingRenderer) {
   lose_after_evict_ = true;
-  RunTest(true, true);
+  RunTest(CompositorMode::THREADED, true);
 }
 
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseBeforeEvict_SingleThread_DirectRenderer) {
   lose_after_evict_ = false;
-  RunTest(false, false);
+  RunTest(CompositorMode::SINGLE_THREADED, false);
 }
 
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseBeforeEvict_SingleThread_DelegatingRenderer) {
   lose_after_evict_ = false;
-  RunTest(false, true);
+  RunTest(CompositorMode::SINGLE_THREADED, true);
 }
 
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseBeforeEvict_MultiThread_DirectRenderer) {
   lose_after_evict_ = false;
-  RunTest(true, false);
+  RunTest(CompositorMode::THREADED, false);
 }
 
 TEST_F(LayerTreeHostContextTestLostContextAndEvictTextures,
        LoseBeforeEvict_MultiThread_DelegatingRenderer) {
   lose_after_evict_ = false;
-  RunTest(true, true);
+  RunTest(CompositorMode::THREADED, true);
 }
 
 class LayerTreeHostContextTestLayersNotified : public LayerTreeHostContextTest {
@@ -843,6 +843,7 @@ class LayerTreeHostContextTestLayersNotified : public LayerTreeHostContextTest {
 
     layer_tree_host()->SetRootLayer(root_);
     LayerTreeHostContextTest::SetupTree();
+    client_.set_bounds(root_->bounds());
   }
 
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
@@ -857,9 +858,9 @@ class LayerTreeHostContextTestLayersNotified : public LayerTreeHostContextTest {
     root_picture = static_cast<FakePictureLayerImpl*>(
         host_impl->active_tree()->root_layer());
     child_picture =
-        static_cast<FakePictureLayerImpl*>(root_picture->children()[0]);
+        static_cast<FakePictureLayerImpl*>(root_picture->children()[0].get());
     grandchild_picture =
-        static_cast<FakePictureLayerImpl*>(child_picture->children()[0]);
+        static_cast<FakePictureLayerImpl*>(child_picture->children()[0].get());
 
     ++num_commits_;
     switch (num_commits_) {
@@ -932,16 +933,12 @@ class LayerTreeHostContextTestDontUseLostResources
                  gfx::Rect(0, 0, 10, 10),
                  gfx::Rect(0, 0, 10, 10),
                  gfx::Transform());
-    uint32_t mailbox_sync_point;
+    gpu::SyncToken mailbox_sync_token;
     AddOneOfEveryQuadType(pass.get(), child_resource_provider_.get(),
-                          RenderPassId(2, 1), &mailbox_sync_point);
+                          RenderPassId(2, 1), &mailbox_sync_token);
 
-    frame_data->render_pass_list.push_back(pass_for_quad.Pass());
-    frame_data->render_pass_list.push_back(pass.Pass());
-
-    delegated_resource_collection_ = new DelegatedFrameResourceCollection;
-    delegated_frame_provider_ = new DelegatedFrameProvider(
-        delegated_resource_collection_.get(), frame_data.Pass());
+    frame_data->render_pass_list.push_back(std::move(pass_for_quad));
+    frame_data->render_pass_list.push_back(std::move(pass));
 
     ResourceId resource = child_resource_provider_->CreateResource(
         gfx::Size(4, 4), ResourceProvider::TEXTURE_HINT_IMMUTABLE, RGBA_8888);
@@ -950,18 +947,16 @@ class LayerTreeHostContextTestDontUseLostResources
 
     gpu::Mailbox mailbox;
     gl->GenMailboxCHROMIUM(mailbox.name);
-    gpu::SyncToken sync_token(gl->InsertSyncPointCHROMIUM());
+
+    const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
+    gl->ShallowFlushCHROMIUM();
+
+    gpu::SyncToken sync_token;
+    gl->GenSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
 
     scoped_refptr<Layer> root = Layer::Create(layer_settings());
     root->SetBounds(gfx::Size(10, 10));
     root->SetIsDrawable(true);
-
-    scoped_refptr<FakeDelegatedRendererLayer> delegated =
-        FakeDelegatedRendererLayer::Create(layer_settings(),
-                                           delegated_frame_provider_.get());
-    delegated->SetBounds(gfx::Size(10, 10));
-    delegated->SetIsDrawable(true);
-    root->AddChild(delegated);
 
     scoped_refptr<PictureLayer> layer =
         PictureLayer::Create(layer_settings(), &client_);
@@ -983,6 +978,7 @@ class LayerTreeHostContextTestDontUseLostResources
     scoped_refptr<PictureLayer> mask =
         PictureLayer::Create(layer_settings_, &client_);
     mask->SetBounds(gfx::Size(10, 10));
+    client_.set_bounds(mask->bounds());
 
     scoped_refptr<PictureLayer> layer_with_mask =
         PictureLayer::Create(layer_settings_, &client_);
@@ -1011,16 +1007,19 @@ class LayerTreeHostContextTestDontUseLostResources
 
     color_video_frame_ = VideoFrame::CreateColorFrame(
         gfx::Size(4, 4), 0x80, 0x80, 0x80, base::TimeDelta());
+    ASSERT_TRUE(color_video_frame_);
     hw_video_frame_ = VideoFrame::WrapNativeTexture(
         media::PIXEL_FORMAT_ARGB,
         gpu::MailboxHolder(mailbox, sync_token, GL_TEXTURE_2D),
         media::VideoFrame::ReleaseMailboxCB(), gfx::Size(4, 4),
         gfx::Rect(0, 0, 4, 4), gfx::Size(4, 4), base::TimeDelta());
+    ASSERT_TRUE(hw_video_frame_);
     scaled_hw_video_frame_ = VideoFrame::WrapNativeTexture(
         media::PIXEL_FORMAT_ARGB,
         gpu::MailboxHolder(mailbox, sync_token, GL_TEXTURE_2D),
         media::VideoFrame::ReleaseMailboxCB(), gfx::Size(4, 4),
         gfx::Rect(0, 0, 3, 2), gfx::Size(4, 4), base::TimeDelta());
+    ASSERT_TRUE(scaled_hw_video_frame_);
 
     color_frame_provider_.set_frame(color_video_frame_);
     hw_frame_provider_.set_frame(hw_video_frame_);
@@ -1039,9 +1038,9 @@ class LayerTreeHostContextTestDontUseLostResources
     layer_tree_host()->SetDebugState(debug_state);
 
     scoped_refptr<PaintedScrollbarLayer> scrollbar =
-        PaintedScrollbarLayer::Create(
-            layer_settings_, scoped_ptr<Scrollbar>(new FakeScrollbar).Pass(),
-            layer->id());
+        PaintedScrollbarLayer::Create(layer_settings_,
+                                      scoped_ptr<Scrollbar>(new FakeScrollbar),
+                                      layer->id());
     scrollbar->SetBounds(gfx::Size(10, 10));
     scrollbar->SetIsDrawable(true);
     root->AddChild(scrollbar);
@@ -1107,10 +1106,6 @@ class LayerTreeHostContextTestDontUseLostResources
   scoped_ptr<SharedBitmapManager> shared_bitmap_manager_;
   scoped_ptr<ResourceProvider> child_resource_provider_;
 
-  scoped_refptr<DelegatedFrameResourceCollection>
-      delegated_resource_collection_;
-  scoped_refptr<DelegatedFrameProvider> delegated_frame_provider_;
-
   scoped_refptr<VideoFrame> color_video_frame_;
   scoped_refptr<VideoFrame> hw_video_frame_;
   scoped_refptr<VideoFrame> scaled_hw_video_frame_;
@@ -1135,6 +1130,7 @@ class LayerTreeHostContextTestImplSidePainting
     scoped_refptr<PictureLayer> picture =
         PictureLayer::Create(layer_settings(), &client_);
     picture->SetBounds(gfx::Size(10, 10));
+    client_.set_bounds(picture->bounds());
     picture->SetIsDrawable(true);
     root->AddChild(picture);
 

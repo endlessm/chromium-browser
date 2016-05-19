@@ -1,5 +1,3 @@
-#include "config.h"
-
 #include "core/frame/FrameView.h"
 #include "core/layout/LayoutView.h"
 #include "core/loader/DocumentLoader.h"
@@ -14,10 +12,10 @@
 #include "public/web/WebScriptSource.h"
 #include "public/web/WebSettings.h"
 #include "public/web/WebView.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/WebViewImpl.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 

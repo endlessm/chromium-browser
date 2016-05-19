@@ -5,7 +5,8 @@
 #ifndef CC_TEST_RENDER_PASS_TEST_UTILS_H_
 #define CC_TEST_RENDER_PASS_TEST_UTILS_H_
 
-#include "cc/base/scoped_ptr_vector.h"
+#include <stdint.h>
+
 #include "cc/output/filter_operations.h"
 #include "cc/quads/render_pass.h"
 #include "cc/resources/resource_provider.h"
@@ -58,7 +59,7 @@ void AddRenderPassQuad(RenderPass* to_pass,
 void AddOneOfEveryQuadType(RenderPass* to_pass,
                            ResourceProvider* resource_provider,
                            RenderPassId child_pass,
-                           uint32_t* sync_point_for_mailbox_texture);
+                           gpu::SyncToken* sync_token_for_mailbox_texture);
 
 }  // namespace cc
 

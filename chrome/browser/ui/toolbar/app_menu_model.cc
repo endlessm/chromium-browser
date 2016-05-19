@@ -8,11 +8,14 @@
 #include <cmath>
 
 #include "base/command_line.h"
+#include "base/debug/debugging_flags.h"
+#include "base/debug/profiler.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
@@ -46,6 +49,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/ui/zoom/zoom_controller.h"
@@ -58,6 +62,7 @@
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/feature_switch.h"
+#include "grit/components_strings.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/layout.h"
@@ -71,11 +76,9 @@
 #endif
 
 #if defined(OS_WIN)
-#include "base/win/metro.h"
 #include "base/win/shortcut.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/enumerate_modules_model_win.h"
-#include "chrome/browser/ui/metro_pin_tab_helper_win.h"
 #include "content/public/browser/gpu_data_manager.h"
 #endif
 
@@ -104,42 +107,6 @@ base::string16 GetUpgradeDialogMenuItemName() {
     return l10n_util::GetStringUTF16(IDS_UPDATE_NOW);
   }
 }
-
-#if defined(OS_WIN)
-bool GetRestartMenuItemIfRequired(const chrome::HostDesktopType& desktop_type,
-                                  int* command_id,
-                                  int* string_id) {
-  if (base::win::GetVersion() == base::win::VERSION_WIN8 ||
-      base::win::GetVersion() == base::win::VERSION_WIN8_1) {
-    if (desktop_type != chrome::HOST_DESKTOP_TYPE_ASH) {
-      *command_id = IDC_WIN8_METRO_RESTART;
-      *string_id = IDS_WIN8_METRO_RESTART;
-    } else {
-      *command_id = IDC_WIN_DESKTOP_RESTART;
-      *string_id = IDS_WIN_DESKTOP_RESTART;
-    }
-    return true;
-  }
-
-  // Windows 7 ASH mode is only supported in DEBUG for now.
-#if !defined(NDEBUG)
-  // Windows 8 can support ASH mode using WARP, but Windows 7 requires a working
-  // GPU compositor.
-  if (base::win::GetVersion() == base::win::VERSION_WIN7 &&
-      content::GpuDataManager::GetInstance()->CanUseGpuBrowserCompositor()) {
-    if (desktop_type != chrome::HOST_DESKTOP_TYPE_ASH) {
-      *command_id = IDC_WIN_CHROMEOS_RESTART;
-      *string_id = IDS_WIN_CHROMEOS_RESTART;
-    } else {
-      *command_id = IDC_WIN_DESKTOP_RESTART;
-      *string_id = IDS_WIN_DESKTOP_RESTART;
-    }
-    return true;
-  }
-#endif
-  return false;
-}
-#endif
 
 }  // namespace
 
@@ -277,7 +244,7 @@ ToolsMenuModel::ToolsMenuModel(ui::SimpleMenuModel::Delegate* delegate,
 ToolsMenuModel::~ToolsMenuModel() {}
 
 // More tools submenu is constructed as follows:
-// - Page specific actions overflow (save page, adding to taskbar).
+// - Page specific actions overflow (save page, adding to desktop).
 // - Browser / OS level tools (extensions, task manager).
 // - Developer tools.
 // - Option to enable profiling.
@@ -294,9 +261,6 @@ void ToolsMenuModel::Build(Browser* browser) {
     int string_id = IDS_ADD_TO_DESKTOP;
 #if defined(OS_MACOSX)
     string_id = IDS_ADD_TO_APPLICATIONS;
-#elif defined(OS_WIN)
-    if (base::win::CanPinShortcutToTaskbar())
-      string_id = IDS_ADD_TO_TASKBAR;
 #endif
 #if defined(USE_ASH)
     if (browser->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_ASH)
@@ -322,10 +286,10 @@ void ToolsMenuModel::Build(Browser* browser) {
   AddSeparator(ui::NORMAL_SEPARATOR);
   AddItemWithStringId(IDC_DEV_TOOLS, IDS_DEV_TOOLS);
 
-#if defined(ENABLE_PROFILING) && !defined(NO_TCMALLOC)
-  AddSeparator(ui::NORMAL_SEPARATOR);
-  AddCheckItemWithStringId(IDC_PROFILING_ENABLED, IDS_PROFILING_ENABLED);
-#endif
+  if (base::debug::IsProfilingSupported()) {
+    AddSeparator(ui::NORMAL_SEPARATOR);
+    AddCheckItemWithStringId(IDC_PROFILING_ENABLED, IDS_PROFILING_ENABLED);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -384,13 +348,7 @@ base::string16 AppMenuModel::GetLabelForCommandId(int command_id) const {
 #elif defined(OS_WIN)
     case IDC_PIN_TO_START_SCREEN: {
       int string_id = IDS_PIN_TO_START_SCREEN;
-      WebContents* web_contents =
-          browser_->tab_strip_model()->GetActiveWebContents();
-      MetroPinTabHelper* tab_helper =
-          web_contents ? MetroPinTabHelper::FromWebContents(web_contents)
-                       : NULL;
-      if (tab_helper && tab_helper->IsPinned())
-        string_id = IDS_UNPIN_FROM_START_SCREEN;
+      // TODO(scottmg): Remove http://crbug.com/558054.
       return l10n_util::GetStringUTF16(string_id);
     }
 #endif
@@ -403,18 +361,10 @@ base::string16 AppMenuModel::GetLabelForCommandId(int command_id) const {
 }
 
 bool AppMenuModel::GetIconForCommandId(int command_id, gfx::Image* icon) const {
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  switch (command_id) {
-    case IDC_UPGRADE_DIALOG: {
-      if (UpgradeDetector::GetInstance()->notify_upgrade()) {
-        *icon = rb.GetNativeImageNamed(
-            UpgradeDetector::GetInstance()->GetIconResourceID());
-        return true;
-      }
-      return false;
-    }
-    default:
-      break;
+  if (command_id == IDC_UPGRADE_DIALOG &&
+      UpgradeDetector::GetInstance()->notify_upgrade()) {
+    *icon = UpgradeDetector::GetInstance()->GetIcon();
+    return true;
   }
   return false;
 }
@@ -435,6 +385,9 @@ void AppMenuModel::LogMenuMetrics(int command_id) {
   base::TimeDelta delta = timer_.Elapsed();
 
   switch (command_id) {
+    case IDC_UPGRADE_DIALOG:
+      LogMenuAction(MENU_ACTION_UPGRADE_DIALOG);
+      break;
     case IDC_NEW_TAB:
       if (!uma_action_recorded_)
         UMA_HISTOGRAM_MEDIUM_TIMES("WrenchMenu.TimeToAction.NewTab", delta);
@@ -504,29 +457,6 @@ void AppMenuModel::LogMenuMetrics(int command_id) {
       LogMenuAction(MENU_ACTION_RESTORE_TAB);
       break;
 
-    // Windows.
-    case IDC_WIN_DESKTOP_RESTART:
-      if (!uma_action_recorded_) {
-        UMA_HISTOGRAM_MEDIUM_TIMES("WrenchMenu.TimeToAction.WinDesktopRestart",
-                                   delta);
-      }
-      LogMenuAction(MENU_ACTION_WIN_DESKTOP_RESTART);
-      break;
-    case IDC_WIN8_METRO_RESTART:
-      if (!uma_action_recorded_) {
-        UMA_HISTOGRAM_MEDIUM_TIMES("WrenchMenu.TimeToAction.Win8MetroRestart",
-                                   delta);
-      }
-      LogMenuAction(MENU_ACTION_WIN8_METRO_RESTART);
-      break;
-
-    case IDC_WIN_CHROMEOS_RESTART:
-      if (!uma_action_recorded_) {
-        UMA_HISTOGRAM_MEDIUM_TIMES("WrenchMenu.TimeToAction.ChromeOSRestart",
-                                   delta);
-      }
-      LogMenuAction(MENU_ACTION_WIN_CHROMEOS_RESTART);
-      break;
     case IDC_DISTILL_PAGE:
       if (!uma_action_recorded_) {
         UMA_HISTOGRAM_MEDIUM_TIMES("WrenchMenu.TimeToAction.DistillPage",
@@ -770,7 +700,7 @@ bool AppMenuModel::IsCommandIdVisible(int command_id) const {
       return true;
     }
     case IDC_PIN_TO_START_SCREEN:
-      return base::win::IsMetroProcess();
+      return false;
 #else
     case IDC_VIEW_INCOMPATIBILITIES:
     case IDC_PIN_TO_START_SCREEN:
@@ -914,22 +844,7 @@ void AppMenuModel::Build() {
                              IDS_TOGGLE_REQUEST_TABLET_SITE);
 #endif
 
-#if defined(OS_WIN)
-  int command_id = IDC_WIN_DESKTOP_RESTART;
-  int string_id = IDS_WIN_DESKTOP_RESTART;
-  if (GetRestartMenuItemIfRequired(browser_->host_desktop_type(),
-                                   &command_id,
-                                   &string_id)) {
-    AddSeparator(ui::NORMAL_SEPARATOR);
-    AddItemWithStringId(command_id, string_id);
-  }
-#endif
-  bool show_exit_menu = browser_defaults::kShowExitMenuItem;
-#if defined(OS_WIN)
-  if (browser_->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_ASH)
-    show_exit_menu = false;
-#endif
-  if (show_exit_menu) {
+  if (browser_defaults::kShowExitMenuItem) {
     AddSeparator(ui::NORMAL_SEPARATOR);
     AddItemWithStringId(IDC_EXIT, IDS_EXIT);
   }
@@ -953,6 +868,10 @@ bool AppMenuModel::AddGlobalErrorMenuItems() {
       SetIcon(GetIndexOfCommandId(error->MenuItemCommandID()),
               error->MenuItemIcon());
       menu_items_added = true;
+      if (IDC_SHOW_SIGNIN_ERROR == error->MenuItemCommandID()) {
+        content::RecordAction(
+            base::UserMetricsAction("Signin_Impression_FromMenu"));
+      }
     }
   }
   return menu_items_added;
@@ -981,7 +900,7 @@ void AppMenuModel::CreateCutCopyPasteMenu() {
   AddSeparator(ui::LOWER_SEPARATOR);
 
   // WARNING: Mac does not use the ButtonMenuItemModel, but instead defines the
-  // layout for this menu item in WrenchMenu.xib. It does, however, use the
+  // layout for this menu item in AppMenu.xib. It does, however, use the
   // command_id value from AddButtonItem() to identify this special item.
   edit_menu_item_model_.reset(new ui::ButtonMenuItemModel(IDS_EDIT, this));
   edit_menu_item_model_->AddGroupItemWithStringId(IDC_CUT, IDS_CUT);
@@ -997,7 +916,7 @@ void AppMenuModel::CreateZoomMenu() {
   AddSeparator(ui::LOWER_SEPARATOR);
 
   // WARNING: Mac does not use the ButtonMenuItemModel, but instead defines the
-  // layout for this menu item in WrenchMenu.xib. It does, however, use the
+  // layout for this menu item in AppMenu.xib. It does, however, use the
   // command_id value from AddButtonItem() to identify this special item.
   zoom_menu_item_model_.reset(
       new ui::ButtonMenuItemModel(IDS_ZOOM_MENU, this));

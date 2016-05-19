@@ -4,10 +4,13 @@
 
 #include "components/gcm_driver/gcm_stats_recorder_impl.h"
 
+#include <stdint.h>
+
 #include <deque>
 #include <string>
 #include <vector>
 
+#include "components/gcm_driver/crypto/gcm_encryption_provider.h"
 #include "google_apis/gcm/engine/mcs_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -15,7 +18,7 @@ namespace gcm {
 
 namespace {
 
-static uint64 kAndroidId = 4U;
+static uint64_t kAndroidId = 4U;
 static const char kCheckinStatus[] = "URL_FETCHING_FAILED";
 static const char kHost[] = "www.example.com";
 static const char kAppId[] = "app id 1";
@@ -29,7 +32,7 @@ static const gcm::MCSClient::MessageSendStatus kMessageSendStatus =
 static const int kByteSize = 99;
 static const int kTTL = 7;
 static const int kRetries = 3;
-static const int64 kDelay = 15000;
+static const int64_t kDelay = 15000;
 static const ConnectionFactory::ConnectionResetReason kReason =
     ConnectionFactory::NETWORK_CHANGE;
 static const int kNetworkError = 1;
@@ -96,6 +99,9 @@ static const char kNotifySendStatusDetails[] = "Msg size: 99 bytes, TTL: 7";
 static const char kIncomingSendErrorEvent[] = "Received 'send error' msg";
 static const char kIncomingSendErrorDetails[] = "";
 
+static const GCMEncryptionProvider::DecryptionResult kDecryptionResultFailure =
+    GCMEncryptionProvider::DECRYPTION_RESULT_INVALID_PAYLOAD;
+
 }  // namespace
 
 class GCMStatsRecorderImplTest : public testing::Test {
@@ -124,12 +130,18 @@ class GCMStatsRecorderImplTest : public testing::Test {
     EXPECT_EQ(expected_count,
               static_cast<int>(recorder_.sending_activities().size()));
   }
+  void VerifyRecordedDecryptionFailureCount(int expected_count) {
+    EXPECT_EQ(
+        expected_count,
+        static_cast<int>(recorder_.decryption_failure_activities().size()));
+  }
   void VerifyAllActivityQueueEmpty(const std::string& remark) {
     EXPECT_TRUE(recorder_.checkin_activities().empty()) << remark;
     EXPECT_TRUE(recorder_.connection_activities().empty()) << remark;
     EXPECT_TRUE(recorder_.registration_activities().empty()) << remark;
     EXPECT_TRUE(recorder_.receiving_activities().empty()) << remark;
     EXPECT_TRUE(recorder_.sending_activities().empty()) << remark;
+    EXPECT_TRUE(recorder_.decryption_failure_activities().empty()) << remark;
   }
 
   void VerifyCheckinInitiated(const std::string& remark) {
@@ -285,6 +297,16 @@ class GCMStatsRecorderImplTest : public testing::Test {
                       remark);
   }
 
+  void VerifyRecordedDecryptionFailure(const std::string& remark) {
+    const auto& queue = recorder_.decryption_failure_activities();
+
+    EXPECT_EQ(kAppId, queue.front().app_id) << remark;
+    EXPECT_EQ(
+        GCMEncryptionProvider::ToDecryptionResultDetailsString(
+            kDecryptionResultFailure),
+        queue.front().details) << remark;
+  }
+
  protected:
   void VerifyCheckin(
       const std::deque<CheckinActivity>& queue,
@@ -350,7 +372,7 @@ GCMStatsRecorderImplTest::~GCMStatsRecorderImplTest() {}
 
 void GCMStatsRecorderImplTest::SetUp(){
   source_ = "s1,s2";
-  recorder_.SetRecording(true);
+  recorder_.set_is_recording(true);
 }
 
 TEST_F(GCMStatsRecorderImplTest, StartStopRecordingTest) {
@@ -359,7 +381,7 @@ TEST_F(GCMStatsRecorderImplTest, StartStopRecordingTest) {
   VerifyRecordedSendingCount(1);
   VerifyDataSentToWire("1st call");
 
-  recorder_.SetRecording(false);
+  recorder_.set_is_recording(false);
   EXPECT_FALSE(recorder_.is_recording());
   recorder_.Clear();
   VerifyAllActivityQueueEmpty("all cleared");
@@ -522,6 +544,13 @@ TEST_F(GCMStatsRecorderImplTest, RecordSendingTest) {
   recorder_.RecordDataSentToWire(kAppId, kReceiverId, kMessageId, kQueuedSec);
   VerifyRecordedSendingCount(4);
   VerifyDataSentToWire("4th call");
+}
+
+TEST_F(GCMStatsRecorderImplTest, RecordDecryptionFailureTest) {
+  recorder_.RecordDecryptionFailure(kAppId, kDecryptionResultFailure);
+  VerifyRecordedDecryptionFailureCount(1);
+
+  VerifyRecordedDecryptionFailure("1st call");
 }
 
 }  // namespace gcm

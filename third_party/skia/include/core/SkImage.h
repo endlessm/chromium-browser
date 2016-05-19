@@ -154,6 +154,13 @@ public:
     uint32_t uniqueID() const { return fUniqueID; }
     virtual bool isOpaque() const { return false; }
 
+    /**
+     * Extracts YUV planes from the SkImage and stores them in client-provided memory. The sizes
+     * planes and rowBytes arrays are ordered [y, u, v].
+     */
+    bool readYUV8Planes(const SkISize[3], void* const planes[3], const size_t rowBytes[3],
+                        SkYUVColorSpace) const;
+
     virtual SkShader* newShader(SkShader::TileMode,
                                 SkShader::TileMode,
                                 const SkMatrix* localMatrix = NULL) const;
@@ -208,6 +215,16 @@ public:
     GrBackendObject getTextureHandle(bool flushPendingGrContextIO) const;
 
     /**
+     *  Hints to image calls where the system might cache computed intermediates (e.g. the results
+     *  of decoding or a read-back from the GPU. Passing kAllow signals that the system's default
+     *  behavior is fine. Passing kDisallow signals that caching should be avoided.
+     */
+     enum CachingHint {
+        kAllow_CachingHint,
+        kDisallow_CachingHint,
+    };
+
+    /**
      *  Copy the pixels from the image into the specified buffer (pixels + rowBytes),
      *  converting them into the requested format (dstInfo). The image pixels are read
      *  starting at the specified (srcX,srcY) location.
@@ -226,9 +243,19 @@ public:
      *  - If the requested colortype/alphatype cannot be converted from the image's types.
      */
     bool readPixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
-                    int srcX, int srcY) const;
+                    int srcX, int srcY, CachingHint = kAllow_CachingHint) const;
 
-    bool readPixels(const SkPixmap& dst, int srcX, int srcY) const;
+    bool readPixels(const SkPixmap& dst, int srcX, int srcY,
+                    CachingHint = kAllow_CachingHint) const;
+
+    /**
+     *  Copy the pixels from this image into the dst pixmap, converting as needed into dst's
+     *  colortype/alphatype. If the conversion cannot be performed, false is returned.
+     *
+     *  If dst's dimensions differ from the src dimension, the image will be scaled, applying the
+     *  specified filter-quality.
+     */
+    bool scalePixels(const SkPixmap& dst, SkFilterQuality, CachingHint = kAllow_CachingHint) const;
 
     /**
      *  Encode the image's pixels and return the result as a new SkData, which
@@ -247,7 +274,7 @@ public:
      *  attempt to reuse existing encoded data (as returned by refEncoded).
      *
      *  We defer to the SkPixelSerializer both for vetting existing encoded data
-     *  (useEncodedData) and for encoding the image (encodePixels) when no such data is
+     *  (useEncodedData) and for encoding the image (encode) when no such data is
      *  present or is rejected by the serializer.
      *
      *  If not specified, we use a default serializer which 1) always accepts existing data
@@ -280,6 +307,13 @@ public:
      */
     SkImage* newSubset(const SkIRect& subset) const;
 
+    /**
+     *  Ensures that an image is backed by a texture (when GrContext is non-null). If no
+     *  transformation is required, the returned image may be the same as this image. If the this
+     *  image is from a different GrContext, this will fail.
+     */
+    SkImage* newTextureImage(GrContext*) const;
+
     // Helper functions to convert to SkBitmap
 
     enum LegacyBitmapMode {
@@ -303,28 +337,6 @@ public:
      *  (and caches) its pixels / texture on-demand.
      */
     bool isLazyGenerated() const;
-
-    /**
-     *  Apply the specified filter to this image, and return the result as a new image.
-     *
-     *  if forceResultToOriginalSize is true, then the resulting image will be the same size as the
-     *  src, regardless of the normal output of the filter.
-     *
-     *  If offset is non-null, it is set to the relative offset needed to draw the resulting image
-     *  in the same logical place as the original.
-     *
-     *  e.g.
-     *      If the filter makes the result larger by a margin of 4 the output would be:
-     *          result->width()  == this->width + 8
-     *          result->height() == this->height + 8
-     *          offset.x()       == -4
-     *          offset.y()       == -4
-     *
-     *  If the filter fails to create a resulting image, null is returned, and the offset parameter
-     *  (if specified) will be undefined.
-     */
-    SkImage* applyFilter(SkImageFilter* filter, SkIPoint* offset,
-                         bool forceResultToOriginalSize) const;
 
 protected:
     SkImage(int width, int height, uint32_t uniqueID);

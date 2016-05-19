@@ -22,6 +22,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
+#include "grit/components_strings.h"
 #include "grit/theme_resources.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSAnimation+Duration.h"
 #import "ui/base/cocoa/find_pasteboard.h"
@@ -124,6 +125,10 @@ const float kRightEdgeOffset = 25;
        IDS_FIND_IN_PAGE_PREVIOUS_TOOLTIP)];
   [nextButton_ setToolTip:l10n_util::GetNSString(
        IDS_FIND_IN_PAGE_NEXT_TOOLTIP)];
+
+  [closeButton_ setTitle:l10n_util::GetNSString(IDS_ACCNAME_CLOSE)];
+  [previousButton_ setTitle:l10n_util::GetNSString(IDS_ACCNAME_PREVIOUS)];
+  [nextButton_ setTitle:l10n_util::GetNSString(IDS_ACCNAME_NEXT)];
 
   [findBarView_ setFrame:[self hiddenFindBarFrame]];
   defaultWidth_ = NSWidth([findBarView_ frame]);

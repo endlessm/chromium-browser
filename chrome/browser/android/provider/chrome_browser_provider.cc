@@ -4,6 +4,8 @@
 
 #include "chrome/browser/android/provider/chrome_browser_provider.h"
 
+#include <stdint.h>
+
 #include <cmath>
 #include <list>
 #include <utility>
@@ -12,6 +14,7 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -96,8 +99,8 @@ using content::BrowserThread;
 namespace {
 
 const char kDefaultUrlScheme[] = "http://";
-const int64 kInvalidContentProviderId = 0;
-const int64 kInvalidBookmarkId = -1;
+const int64_t kInvalidContentProviderId = 0;
+const int64_t kInvalidBookmarkId = -1;
 
 // ------------- Java-related utility methods ------------- //
 
@@ -141,7 +144,7 @@ jboolean ConvertJBooleanObjectToPrimitive(JNIEnv* env, jobject boolean_object) {
 
 base::Time ConvertJlongToTime(jlong value) {
   return base::Time::UnixEpoch() +
-      base::TimeDelta::FromMilliseconds((int64)value);
+         base::TimeDelta::FromMilliseconds((int64_t)value);
 }
 
 jint ConvertJIntegerToJint(JNIEnv* env, jobject integer_obj) {
@@ -199,11 +202,11 @@ class AddBookmarkTask : public BookmarkModelTask {
  public:
   explicit AddBookmarkTask(BookmarkModel* model) : BookmarkModelTask(model) {}
 
-  int64 Run(const base::string16& title,
-            const base::string16& url,
-            const bool is_folder,
-            const int64 parent_id) {
-    int64 result = kInvalidBookmarkId;
+  int64_t Run(const base::string16& title,
+              const base::string16& url,
+              const bool is_folder,
+              const int64_t parent_id) {
+    int64_t result = kInvalidBookmarkId;
     RunOnUIThreadBlocking::Run(
         base::Bind(&AddBookmarkTask::RunOnUIThread,
                    model(), title, url, is_folder, parent_id, &result));
@@ -214,8 +217,8 @@ class AddBookmarkTask : public BookmarkModelTask {
                             const base::string16& title,
                             const base::string16& url,
                             const bool is_folder,
-                            const int64 parent_id,
-                            int64* result) {
+                            const int64_t parent_id,
+                            int64_t* result) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
     GURL gurl = ParseAndMaybeAppendScheme(url, kDefaultUrlScheme);
@@ -251,14 +254,14 @@ class RemoveBookmarkTask : public BookmarkModelObserverTask {
         id_to_delete_(kInvalidBookmarkId) {}
   ~RemoveBookmarkTask() override {}
 
-  int Run(const int64 id) {
+  int Run(const int64_t id) {
     id_to_delete_ = id;
     RunOnUIThreadBlocking::Run(
         base::Bind(&RemoveBookmarkTask::RunOnUIThread, model(), id));
     return deleted_;
   }
 
-  static void RunOnUIThread(BookmarkModel* model, const int64 id) {
+  static void RunOnUIThread(BookmarkModel* model, const int64_t id) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     const BookmarkNode* node = bookmarks::GetBookmarkNodeByID(model, id);
     if (node && node->parent())
@@ -277,7 +280,7 @@ class RemoveBookmarkTask : public BookmarkModelObserverTask {
 
  private:
   int deleted_;
-  int64 id_to_delete_;
+  int64_t id_to_delete_;
 
   DISALLOW_COPY_AND_ASSIGN(RemoveBookmarkTask);
 };
@@ -315,10 +318,10 @@ class UpdateBookmarkTask : public BookmarkModelObserverTask {
         id_to_update_(kInvalidBookmarkId){}
   ~UpdateBookmarkTask() override {}
 
-  int Run(const int64 id,
+  int Run(const int64_t id,
           const base::string16& title,
           const base::string16& url,
-          const int64 parent_id) {
+          const int64_t parent_id) {
     id_to_update_ = id;
     RunOnUIThreadBlocking::Run(
         base::Bind(&UpdateBookmarkTask::RunOnUIThread,
@@ -327,10 +330,10 @@ class UpdateBookmarkTask : public BookmarkModelObserverTask {
   }
 
   static void RunOnUIThread(BookmarkModel* model,
-                            const int64 id,
+                            const int64_t id,
                             const base::string16& title,
                             const base::string16& url,
-                            const int64 parent_id) {
+                            const int64_t parent_id) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     const BookmarkNode* node = bookmarks::GetBookmarkNodeByID(model, id);
     if (node) {
@@ -363,7 +366,7 @@ class UpdateBookmarkTask : public BookmarkModelObserverTask {
 
  private:
   int updated_;
-  int64 id_to_update_;
+  int64_t id_to_update_;
 
   DISALLOW_COPY_AND_ASSIGN(UpdateBookmarkTask);
 };
@@ -375,7 +378,7 @@ class BookmarkNodeExistsTask : public BookmarkModelTask {
       : BookmarkModelTask(model) {
   }
 
-  bool Run(const int64 id) {
+  bool Run(const int64_t id) {
     bool result = false;
     RunOnUIThreadBlocking::Run(
         base::Bind(&BookmarkNodeExistsTask::RunOnUIThread,
@@ -384,7 +387,7 @@ class BookmarkNodeExistsTask : public BookmarkModelTask {
   }
 
   static void RunOnUIThread(BookmarkModel* model,
-                            const int64 id,
+                            const int64_t id,
                             bool* result) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
@@ -401,7 +404,7 @@ class IsInMobileBookmarksBranchTask : public BookmarkModelTask {
   explicit IsInMobileBookmarksBranchTask(BookmarkModel* model)
       : BookmarkModelTask(model) {}
 
-  bool Run(const int64 id) {
+  bool Run(const int64_t id) {
     bool result = false;
     RunOnUIThreadBlocking::Run(
         base::Bind(&IsInMobileBookmarksBranchTask::RunOnUIThread,
@@ -410,8 +413,8 @@ class IsInMobileBookmarksBranchTask : public BookmarkModelTask {
   }
 
   static void RunOnUIThread(BookmarkModel* model,
-                            const int64 id,
-                            bool *result) {
+                            const int64_t id,
+                            bool* result) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
     const BookmarkNode* node = bookmarks::GetBookmarkNodeByID(model, id);
@@ -434,8 +437,8 @@ class CreateBookmarksFolderOnceTask : public BookmarkModelTask {
   explicit CreateBookmarksFolderOnceTask(BookmarkModel* model)
       : BookmarkModelTask(model) {}
 
-  int64 Run(const base::string16& title, const int64 parent_id) {
-    int64 result = kInvalidBookmarkId;
+  int64_t Run(const base::string16& title, const int64_t parent_id) {
+    int64_t result = kInvalidBookmarkId;
     RunOnUIThreadBlocking::Run(
         base::Bind(&CreateBookmarksFolderOnceTask::RunOnUIThread,
                    model(), title, parent_id, &result));
@@ -444,8 +447,8 @@ class CreateBookmarksFolderOnceTask : public BookmarkModelTask {
 
   static void RunOnUIThread(BookmarkModel* model,
                             const base::string16& title,
-                            const int64 parent_id,
-                            int64* result) {
+                            const int64_t parent_id,
+                            int64_t* result) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
 
@@ -548,7 +551,7 @@ class GetBookmarkNodeTask : public BookmarkModelTask {
       : BookmarkModelTask(model) {
   }
 
-  void Run(const int64 id,
+  void Run(const int64_t id,
            bool get_parent,
            bool get_children,
            ScopedJavaGlobalRef<jobject>* jnode) {
@@ -558,7 +561,7 @@ class GetBookmarkNodeTask : public BookmarkModelTask {
   }
 
   static void RunOnUIThread(BookmarkModel* model,
-                            const int64 id,
+                            const int64_t id,
                             bool get_parent,
                             bool get_children,
                             ScopedJavaGlobalRef<jobject>* jnode) {
@@ -1115,7 +1118,7 @@ void FillBookmarkRow(JNIEnv* env,
         env, date)));
 
   if (favicon) {
-    std::vector<uint8> bytes;
+    std::vector<uint8_t> bytes;
     base::android::JavaByteArrayToByteVector(env, favicon, &bytes);
     row->set_favicon(base::RefCountedBytes::TakeVector(&bytes));
   }
@@ -1185,7 +1188,7 @@ ChromeBrowserProvider::~ChromeBrowserProvider() {
   bookmark_model_->RemoveObserver(this);
 }
 
-void ChromeBrowserProvider::Destroy(JNIEnv*, jobject) {
+void ChromeBrowserProvider::Destroy(JNIEnv*, const JavaParamRef<jobject>&) {
   history_service_observer_.RemoveAll();
   delete this;
 }
@@ -1193,9 +1196,9 @@ void ChromeBrowserProvider::Destroy(JNIEnv*, jobject) {
 // ------------- Provider public APIs ------------- //
 
 jlong ChromeBrowserProvider::AddBookmark(JNIEnv* env,
-                                         jobject,
-                                         jstring jurl,
-                                         jstring jtitle,
+                                         const JavaParamRef<jobject>&,
+                                         const JavaParamRef<jstring>& jurl,
+                                         const JavaParamRef<jstring>& jtitle,
                                          jboolean is_folder,
                                          jlong parent_id) {
   base::string16 url;
@@ -1207,16 +1210,18 @@ jlong ChromeBrowserProvider::AddBookmark(JNIEnv* env,
   return task.Run(title, url, is_folder, parent_id);
 }
 
-jint ChromeBrowserProvider::RemoveBookmark(JNIEnv*, jobject, jlong id) {
+jint ChromeBrowserProvider::RemoveBookmark(JNIEnv*,
+                                           const JavaParamRef<jobject>&,
+                                           jlong id) {
   RemoveBookmarkTask task(bookmark_model_);
   return task.Run(id);
 }
 
 jint ChromeBrowserProvider::UpdateBookmark(JNIEnv* env,
-                                           jobject,
+                                           const JavaParamRef<jobject>&,
                                            jlong id,
-                                           jstring jurl,
-                                           jstring jtitle,
+                                           const JavaParamRef<jstring>& jurl,
+                                           const JavaParamRef<jstring>& jtitle,
                                            jlong parent_id) {
   base::string16 url;
   if (jurl)
@@ -1228,16 +1233,17 @@ jint ChromeBrowserProvider::UpdateBookmark(JNIEnv* env,
 }
 
 // Add the bookmark with the given column values.
-jlong ChromeBrowserProvider::AddBookmarkFromAPI(JNIEnv* env,
-                                                jobject obj,
-                                                jstring url,
-                                                jobject created,
-                                                jobject isBookmark,
-                                                jobject date,
-                                                jbyteArray favicon,
-                                                jstring title,
-                                                jobject visits,
-                                                jlong parent_id) {
+jlong ChromeBrowserProvider::AddBookmarkFromAPI(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& url,
+    const JavaParamRef<jobject>& created,
+    const JavaParamRef<jobject>& isBookmark,
+    const JavaParamRef<jobject>& date,
+    const JavaParamRef<jbyteArray>& favicon,
+    const JavaParamRef<jstring>& title,
+    const JavaParamRef<jobject>& visits,
+    jlong parent_id) {
   DCHECK(url);
 
   history::HistoryAndBookmarkRow row;
@@ -1256,11 +1262,11 @@ jlong ChromeBrowserProvider::AddBookmarkFromAPI(JNIEnv* env,
 
 ScopedJavaLocalRef<jobject> ChromeBrowserProvider::QueryBookmarkFromAPI(
     JNIEnv* env,
-    jobject obj,
-    jobjectArray projection,
-    jstring selections,
-    jobjectArray selection_args,
-    jstring sort_order) {
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobjectArray>& projection,
+    const JavaParamRef<jstring>& selections,
+    const JavaParamRef<jobjectArray>& selection_args,
+    const JavaParamRef<jstring>& sort_order) {
   // Converts the projection to array of ColumnID and column name.
   // Used to store the projection column ID according their sequence.
   std::vector<history::HistoryAndBookmarkRow::ColumnID> query_columns;
@@ -1310,18 +1316,19 @@ ScopedJavaLocalRef<jobject> ChromeBrowserProvider::QueryBookmarkFromAPI(
 
 // Updates the bookmarks with the given column values. The value is not given if
 // it is NULL.
-jint ChromeBrowserProvider::UpdateBookmarkFromAPI(JNIEnv* env,
-                                                  jobject obj,
-                                                  jstring url,
-                                                  jobject created,
-                                                  jobject isBookmark,
-                                                  jobject date,
-                                                  jbyteArray favicon,
-                                                  jstring title,
-                                                  jobject visits,
-                                                  jlong parent_id,
-                                                  jstring selections,
-                                                  jobjectArray selection_args) {
+jint ChromeBrowserProvider::UpdateBookmarkFromAPI(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& url,
+    const JavaParamRef<jobject>& created,
+    const JavaParamRef<jobject>& isBookmark,
+    const JavaParamRef<jobject>& date,
+    const JavaParamRef<jbyteArray>& favicon,
+    const JavaParamRef<jstring>& title,
+    const JavaParamRef<jobject>& visits,
+    jlong parent_id,
+    const JavaParamRef<jstring>& selections,
+    const JavaParamRef<jobjectArray>& selection_args) {
   history::HistoryAndBookmarkRow row;
   FillBookmarkRow(env, obj, url, created, isBookmark, date, favicon, title,
                   visits, parent_id, &row, bookmark_model_);
@@ -1337,10 +1344,11 @@ jint ChromeBrowserProvider::UpdateBookmarkFromAPI(JNIEnv* env,
   return task.Run(row, where_clause, where_args);
 }
 
-jint ChromeBrowserProvider::RemoveBookmarkFromAPI(JNIEnv* env,
-                                                  jobject obj,
-                                                  jstring selections,
-                                                  jobjectArray selection_args) {
+jint ChromeBrowserProvider::RemoveBookmarkFromAPI(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& selections,
+    const JavaParamRef<jobjectArray>& selection_args) {
   std::vector<base::string16> where_args =
       ConvertJStringArrayToString16Array(env, selection_args);
 
@@ -1352,10 +1360,11 @@ jint ChromeBrowserProvider::RemoveBookmarkFromAPI(JNIEnv* env,
   return task.Run(where_clause, where_args);
 }
 
-jint ChromeBrowserProvider::RemoveHistoryFromAPI(JNIEnv* env,
-                                                 jobject obj,
-                                                 jstring selections,
-                                                 jobjectArray selection_args) {
+jint ChromeBrowserProvider::RemoveHistoryFromAPI(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& selections,
+    const JavaParamRef<jobjectArray>& selection_args) {
   std::vector<base::string16> where_args =
       ConvertJStringArrayToString16Array(env, selection_args);
 
@@ -1369,10 +1378,11 @@ jint ChromeBrowserProvider::RemoveHistoryFromAPI(JNIEnv* env,
 
 // Add the search term with the given column values. The value is not given if
 // it is NULL.
-jlong ChromeBrowserProvider::AddSearchTermFromAPI(JNIEnv* env,
-                                                  jobject obj,
-                                                  jstring search_term,
-                                                  jobject date) {
+jlong ChromeBrowserProvider::AddSearchTermFromAPI(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& search_term,
+    const JavaParamRef<jobject>& date) {
   DCHECK(search_term);
 
   history::SearchRow row;
@@ -1392,11 +1402,11 @@ jlong ChromeBrowserProvider::AddSearchTermFromAPI(JNIEnv* env,
 
 ScopedJavaLocalRef<jobject> ChromeBrowserProvider::QuerySearchTermFromAPI(
     JNIEnv* env,
-    jobject obj,
-    jobjectArray projection,
-    jstring selections,
-    jobjectArray selection_args,
-    jstring sort_order) {
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobjectArray>& projection,
+    const JavaParamRef<jstring>& selections,
+    const JavaParamRef<jobjectArray>& selection_args,
+    const JavaParamRef<jstring>& sort_order) {
   // Converts the projection to array of ColumnID and column name.
   // Used to store the projection column ID according their sequence.
   std::vector<history::SearchRow::ColumnID> query_columns;
@@ -1447,8 +1457,12 @@ ScopedJavaLocalRef<jobject> ChromeBrowserProvider::QuerySearchTermFromAPI(
 // Updates the search terms with the given column values. The value is not
 // given if it is NULL.
 jint ChromeBrowserProvider::UpdateSearchTermFromAPI(
-    JNIEnv* env, jobject obj, jstring search_term, jobject date,
-    jstring selections, jobjectArray selection_args) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& search_term,
+    const JavaParamRef<jobject>& date,
+    const JavaParamRef<jstring>& selections,
+    const JavaParamRef<jobjectArray>& selection_args) {
   history::SearchRow row;
   FillSearchRow(env, obj, search_term, date, &row);
 
@@ -1466,7 +1480,10 @@ jint ChromeBrowserProvider::UpdateSearchTermFromAPI(
 }
 
 jint ChromeBrowserProvider::RemoveSearchTermFromAPI(
-    JNIEnv* env, jobject obj, jstring selections, jobjectArray selection_args) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& selections,
+    const JavaParamRef<jobjectArray>& selection_args) {
   std::vector<base::string16> where_args =
       ConvertJStringArrayToString16Array(env, selection_args);
 
@@ -1484,7 +1501,7 @@ jint ChromeBrowserProvider::RemoveSearchTermFromAPI(
 
 jboolean ChromeBrowserProvider::BookmarkNodeExists(
     JNIEnv* env,
-    jobject obj,
+    const JavaParamRef<jobject>& obj,
     jlong id) {
   BookmarkNodeExistsTask task(bookmark_model_);
   return task.Run(id);
@@ -1492,8 +1509,8 @@ jboolean ChromeBrowserProvider::BookmarkNodeExists(
 
 jlong ChromeBrowserProvider::CreateBookmarksFolderOnce(
     JNIEnv* env,
-    jobject obj,
-    jstring jtitle,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& jtitle,
     jlong parent_id) {
   base::string16 title = ConvertJavaStringToUTF16(env, jtitle);
   if (title.empty())
@@ -1505,7 +1522,7 @@ jlong ChromeBrowserProvider::CreateBookmarksFolderOnce(
 
 ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetEditableBookmarkFolders(
     JNIEnv* env,
-    jobject obj) {
+    const JavaParamRef<jobject>& obj) {
   ScopedJavaGlobalRef<jobject> jroot;
   ManagedBookmarkService* managed =
       ManagedBookmarkServiceFactory::GetForProfile(profile_);
@@ -1515,7 +1532,9 @@ ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetEditableBookmarkFolders(
   return ScopedJavaLocalRef<jobject>(jroot);
 }
 
-void ChromeBrowserProvider::RemoveAllUserBookmarks(JNIEnv* env, jobject obj) {
+void ChromeBrowserProvider::RemoveAllUserBookmarks(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   LOG(ERROR) << "begin ChromeBrowserProvider::RemoveAllUserBookmarks";
   RemoveAllUserBookmarksTask task(bookmark_model_);
   task.Run();
@@ -1523,7 +1542,10 @@ void ChromeBrowserProvider::RemoveAllUserBookmarks(JNIEnv* env, jobject obj) {
 }
 
 ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetBookmarkNode(
-    JNIEnv* env, jobject obj, jlong id, jboolean get_parent,
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jlong id,
+    jboolean get_parent,
     jboolean get_children) {
   ScopedJavaGlobalRef<jobject> jnode;
   GetBookmarkNodeTask task(bookmark_model_);
@@ -1533,7 +1555,7 @@ ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetBookmarkNode(
 
 ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetMobileBookmarksFolder(
     JNIEnv* env,
-    jobject obj) {
+    const JavaParamRef<jobject>& obj) {
   ScopedJavaGlobalRef<jobject> jnode;
   GetMobileBookmarksNodeTask task(bookmark_model_);
   ConvertBookmarkNode(task.Run(), ScopedJavaLocalRef<jobject>(), &jnode);
@@ -1542,14 +1564,16 @@ ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetMobileBookmarksFolder(
 
 jboolean ChromeBrowserProvider::IsBookmarkInMobileBookmarksBranch(
     JNIEnv* env,
-    jobject obj,
+    const JavaParamRef<jobject>& obj,
     jlong id) {
   IsInMobileBookmarksBranchTask task(bookmark_model_);
   return task.Run(id);
 }
 
 ScopedJavaLocalRef<jbyteArray> ChromeBrowserProvider::GetFaviconOrTouchIcon(
-    JNIEnv* env, jobject obj, jstring jurl) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& jurl) {
   if (!jurl)
     return ScopedJavaLocalRef<jbyteArray>();
 
@@ -1566,7 +1590,9 @@ ScopedJavaLocalRef<jbyteArray> ChromeBrowserProvider::GetFaviconOrTouchIcon(
 }
 
 ScopedJavaLocalRef<jbyteArray> ChromeBrowserProvider::GetThumbnail(
-    JNIEnv* env, jobject obj, jstring jurl) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& jurl) {
   if (!jurl)
     return ScopedJavaLocalRef<jbyteArray>();
   GURL url = GURL(ConvertJavaStringToUTF16(env, jurl));

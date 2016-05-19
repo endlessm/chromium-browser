@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/SVGAnimatedEnumerationBase.h"
 
 #include "core/svg/SVGElement.h"
@@ -62,7 +61,7 @@ void SVGAnimatedEnumerationBase::setBaseVal(unsigned short value, ExceptionState
 
     ASSERT(this->attributeName() != QualifiedName::null());
     contextElement()->invalidateSVGAttributes();
-    contextElement()->svgAttributeChanged(this->attributeName());
+    contextElement()->svgAttributeBaseValChanged(this->attributeName());
 }
 
-}
+} // namespace blink

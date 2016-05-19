@@ -4,7 +4,12 @@
 
 #include "content/browser/media/capture/desktop_capture_device_aura.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/synchronization/waitable_event.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/public/browser/desktop_media_id.h"
@@ -37,21 +42,21 @@ const int kFrameRate = 30;
 class MockDeviceClient : public media::VideoCaptureDevice::Client {
  public:
   MOCK_METHOD5(OnIncomingCapturedData,
-               void(const uint8* data,
+               void(const uint8_t* data,
                     int length,
                     const media::VideoCaptureFormat& frame_format,
                     int rotation,
                     const base::TimeTicks& timestamp));
   MOCK_METHOD9(OnIncomingCapturedYuvData,
-               void (const uint8* y_data,
-                     const uint8* u_data,
-                     const uint8* v_data,
-                     size_t y_stride,
-                     size_t u_stride,
-                     size_t v_stride,
-                     const media::VideoCaptureFormat& frame_format,
-                     int clockwise_rotation,
-                     const base::TimeTicks& timestamp));
+               void(const uint8_t* y_data,
+                    const uint8_t* u_data,
+                    const uint8_t* v_data,
+                    size_t y_stride,
+                    size_t u_stride,
+                    size_t v_stride,
+                    const media::VideoCaptureFormat& frame_format,
+                    int clockwise_rotation,
+                    const base::TimeTicks& timestamp));
   MOCK_METHOD0(DoReserveOutputBuffer, void(void));
   MOCK_METHOD0(DoOnIncomingCapturedBuffer, void(void));
   MOCK_METHOD0(DoOnIncomingCapturedVideoFrame, void(void));
@@ -64,10 +69,8 @@ class MockDeviceClient : public media::VideoCaptureDevice::Client {
       const gfx::Size& dimensions,
       media::VideoPixelFormat format,
       media::VideoPixelStorage storage) override {
-    EXPECT_TRUE((format == media::PIXEL_FORMAT_I420 &&
-                 storage == media::PIXEL_STORAGE_CPU) ||
-                (format == media::PIXEL_FORMAT_ARGB &&
-                 storage == media::PIXEL_STORAGE_TEXTURE));
+    EXPECT_EQ(media::PIXEL_FORMAT_I420, format);
+    EXPECT_EQ(media::PIXEL_STORAGE_CPU, storage);
     DoReserveOutputBuffer();
     return scoped_ptr<Buffer>();
   }
@@ -151,7 +154,7 @@ TEST_F(DesktopCaptureDeviceAuraTest, StartAndStop) {
   capture_params.requested_format.frame_size.SetSize(640, 480);
   capture_params.requested_format.frame_rate = kFrameRate;
   capture_params.requested_format.pixel_format = media::PIXEL_FORMAT_I420;
-  capture_device->AllocateAndStart(capture_params, client.Pass());
+  capture_device->AllocateAndStart(capture_params, std::move(client));
   capture_device->StopAndDeAllocate();
 }
 

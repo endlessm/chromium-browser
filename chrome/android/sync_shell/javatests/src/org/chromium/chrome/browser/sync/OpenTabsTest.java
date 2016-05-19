@@ -15,7 +15,6 @@ import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
 import org.chromium.content.browser.test.util.Criteria;
-import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.sync.protocol.EntitySpecifics;
 import org.chromium.sync.protocol.SessionHeader;
 import org.chromium.sync.protocol.SessionSpecifics;
@@ -41,7 +40,7 @@ public class OpenTabsTest extends SyncTestBase {
 
     private static final String OPEN_TABS_TYPE = "Sessions";
 
-    // TestHttpServerClient is preferred here but it can't be used. The test server
+    // EmbeddedTestServer is preferred here but it can't be used. The test server
     // serves pages on localhost and Chrome doesn't sync localhost URLs as typed URLs.
     // This type of URL requires no external data connection or resources.
     private static final String URL = "data:text,OpenTabsTestURL";
@@ -128,13 +127,8 @@ public class OpenTabsTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testDownloadOpenTab() throws Exception {
         addFakeServerTabs(FAKE_CLIENT, URL);
-        SyncTestUtil.triggerSyncAndWaitForCompletion(mContext);
-
-        // Verify data synced to client.
-        OpenTabs openTabs = getLocalTabsForClient(FAKE_CLIENT);
-        assertEquals("Only the injected session should exist on the client.",
-                1, openTabs.urls.size());
-        assertEquals("The wrong URL was found for the session.", URL, openTabs.urls.get(0));
+        SyncTestUtil.triggerSync();
+        waitForLocalTabsForClient(FAKE_CLIENT, URL);
     }
 
     // Test syncing multiple open tabs from server to client.
@@ -142,15 +136,8 @@ public class OpenTabsTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testDownloadMultipleOpenTabs() throws Exception {
         addFakeServerTabs(FAKE_CLIENT, URL, URL2, URL3);
-        SyncTestUtil.triggerSyncAndWaitForCompletion(mContext);
-
-        // Verify data synced to client.
-        OpenTabs openTabs = getLocalTabsForClient(FAKE_CLIENT);
-        assertEquals("Only the injected tabs should exist on the client.",
-                3, openTabs.urls.size());
-        assertEquals("The wrong URL was found for tab 1.", URL, openTabs.urls.get(0));
-        assertEquals("The wrong URL was found for tab 2.", URL2, openTabs.urls.get(1));
-        assertEquals("The wrong URL was found for tab 3.", URL3, openTabs.urls.get(2));
+        SyncTestUtil.triggerSync();
+        waitForLocalTabsForClient(FAKE_CLIENT, URL, URL2, URL3);
     }
 
     // Test syncing a tab deletion from server to client.
@@ -159,12 +146,12 @@ public class OpenTabsTest extends SyncTestBase {
     public void testDownloadDeletedOpenTab() throws Exception {
         // Add the entity to test deleting.
         addFakeServerTabs(FAKE_CLIENT, URL);
-        SyncTestUtil.triggerSyncAndWaitForCompletion(mContext);
+        SyncTestUtil.triggerSync();
         waitForLocalTabsForClient(FAKE_CLIENT, URL);
 
         // Delete on server, sync, and verify deleted locally.
         deleteServerTabsForClient(FAKE_CLIENT);
-        SyncTestUtil.triggerSyncAndWaitForCompletion(mContext);
+        SyncTestUtil.triggerSync();
         waitForLocalTabsForClient(FAKE_CLIENT);
     }
 
@@ -174,12 +161,12 @@ public class OpenTabsTest extends SyncTestBase {
     public void testDownloadMultipleDeletedOpenTabs() throws Exception {
         // Add the entity to test deleting.
         addFakeServerTabs(FAKE_CLIENT, URL, URL2, URL3);
-        SyncTestUtil.triggerSyncAndWaitForCompletion(mContext);
+        SyncTestUtil.triggerSync();
         waitForLocalTabsForClient(FAKE_CLIENT, URL, URL2, URL3);
 
         // Delete on server, sync, and verify deleted locally.
         deleteServerTabsForClient(FAKE_CLIENT);
-        SyncTestUtil.triggerSyncAndWaitForCompletion(mContext);
+        SyncTestUtil.triggerSync();
         waitForLocalTabsForClient(FAKE_CLIENT);
     }
 
@@ -245,7 +232,8 @@ public class OpenTabsTest extends SyncTestBase {
             throws InterruptedException {
         final List<String> urlList = new ArrayList<String>(urls.length);
         for (String url : urls) urlList.add(url);
-        boolean success = CriteriaHelper.pollForCriteria(new Criteria() {
+        pollForCriteria(new Criteria("Expected local open tabs for client " + clientName + ": "
+                        + Arrays.toString(urls)) {
             @Override
             public boolean isSatisfied() {
                 try {
@@ -254,14 +242,12 @@ public class OpenTabsTest extends SyncTestBase {
                     throw new RuntimeException(e);
                 }
             }
-        }, SyncTestUtil.UI_TIMEOUT_MS, SyncTestUtil.CHECK_INTERVAL_MS);
-        assertTrue("Expected local open tabs for client " + clientName + ": "
-                + Arrays.toString(urls), success);
+        });
     }
 
     private void waitForServerTabs(final String... urls)
             throws InterruptedException {
-        boolean success = CriteriaHelper.pollForCriteria(new Criteria() {
+        pollForCriteria(new Criteria("Expected server open tabs: " + Arrays.toString(urls)) {
             @Override
             public boolean isSatisfied() {
                 try {
@@ -270,14 +256,22 @@ public class OpenTabsTest extends SyncTestBase {
                     throw new RuntimeException(e);
                 }
             }
-        }, SyncTestUtil.UI_TIMEOUT_MS, SyncTestUtil.CHECK_INTERVAL_MS);
-        assertTrue("Expected server open tabs: " + Arrays.toString(urls), success);
+        });
     }
 
-    private String getClientName() throws JSONException {
+    private String getClientName() throws Exception {
+        pollForCriteria(new Criteria("Expected 2 entities when getting the client name.") {
+            @Override
+            public boolean isSatisfied() {
+                try {
+                    return SyncTestUtil.getLocalData(mContext, OPEN_TABS_TYPE).size() == 2;
+                } catch (JSONException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
         List<Pair<String, JSONObject>> tabEntities = SyncTestUtil.getLocalData(
                 mContext, OPEN_TABS_TYPE);
-        assertEquals("Expected 2 entities when getting the client name.", 2, tabEntities.size());
         for (Pair<String, JSONObject> tabEntity : tabEntities) {
             if (tabEntity.second.has("header")) {
                 return tabEntity.second.getJSONObject("header").getString("client_name");

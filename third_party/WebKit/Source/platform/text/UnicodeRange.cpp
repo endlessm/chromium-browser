@@ -32,7 +32,6 @@
  * version of this file under any of the LGPL, the MPL or the GPL.
  */
 
-#include "config.h"
 #include "platform/text/UnicodeRange.h"
 
 namespace blink {
@@ -423,4 +422,4 @@ unsigned findCharUnicodeRange(UChar32 ch)
     return gUnicodeTertiaryRangeTable[(ch - 0x0700) >> 7];
 }
 
-}
+} // namespace blink

@@ -4,6 +4,9 @@
 
 #include "chrome/renderer/external_extension.h"
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/search_provider.h"
 #include "content/public/renderer/render_view.h"
@@ -115,7 +118,7 @@ void ExternalExtensionWrapper::AddSearchProvider(
     return;
 
   GURL osdd_url = GURL(webframe->document().url()).Resolve(osdd_string);
-  if (!osdd_url.is_empty() && osdd_url.is_valid()) {
+  if (osdd_url.is_valid()) {
     webframe->didCallAddSearchProvider();
     render_view->Send(new ChromeViewHostMsg_PageHasOSDD(
         render_view->GetRoutingID(), webframe->document().url(), osdd_url,

@@ -7,9 +7,11 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_WND_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_WND_H_
 
-#include "../fx_systemhandler.h"
+#include <vector>
+
 #include "core/include/fpdfdoc/fpdf_doc.h"
 #include "core/include/fxcrt/fx_basic.h"
+#include "fpdfsdk/include/fx_systemhandler.h"
 
 class CPWL_MsgControl;
 class CPWL_ScrollBar;
@@ -171,7 +173,7 @@ class IPWL_SpellCheck {
   virtual ~IPWL_SpellCheck() {}
   virtual FX_BOOL CheckWord(const FX_CHAR* sWord) = 0;
   virtual void SuggestWords(const FX_CHAR* sWord,
-                            CFX_ByteStringArray& sSuggest) = 0;
+                            std::vector<CFX_ByteString>& sSuggest) = 0;
 };
 
 class IPWL_Provider {
@@ -179,7 +181,7 @@ class IPWL_Provider {
   virtual ~IPWL_Provider() {}
 
   // get a matrix which map user space to CWnd client space
-  virtual CPDF_Matrix GetWindowMatrix(void* pAttachedData) = 0;
+  virtual CFX_Matrix GetWindowMatrix(void* pAttachedData) = 0;
 
   /*
   0 L"&Undo\tCtrl+Z"
@@ -247,7 +249,7 @@ struct PWL_CREATEPARAM {
   CPWL_Wnd* pParentWnd;               // ignore
   CPWL_MsgControl* pMsgControl;       // ignore
   int32_t eCursorType;                // ignore
-  CPDF_Matrix mtChild;                // ignore
+  CFX_Matrix mtChild;                 // ignore
 };
 
 class CPWL_Timer {
@@ -294,8 +296,7 @@ class CPWL_Wnd : public CPWL_TimerHandler {
   void Move(const CPDF_Rect& rcNew, FX_BOOL bReset, FX_BOOL bRefresh);
   virtual void InvalidateRect(CPDF_Rect* pRect = NULL);
 
-  void GetAppearanceStream(CFX_ByteString& sAppStream);
-  void DrawAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device);
+  void DrawAppearance(CFX_RenderDevice* pDevice, CFX_Matrix* pUser2Device);
 
   virtual FX_BOOL OnKeyDown(FX_WORD nChar, FX_DWORD nFlag);
   virtual FX_BOOL OnKeyUp(FX_WORD nChar, FX_DWORD nFlag);
@@ -336,32 +337,24 @@ class CPWL_Wnd : public CPWL_TimerHandler {
   virtual CPWL_Color GetBorderLeftTopColor(int32_t nBorderStyle) const;
   virtual CPWL_Color GetBorderRightBottomColor(int32_t nBorderStyle) const;
 
-  virtual FX_BOOL IsModified() const { return FALSE; }
-
   virtual void SetFontSize(FX_FLOAT fFontSize);
 
   void SetBackgroundColor(const CPWL_Color& color);
-  void SetBorderColor(const CPWL_Color& color);
-  void SetBorderWidth(int32_t nBorderWidth);
   void SetClipRect(const CPDF_Rect& rect);
   void SetBorderStyle(int32_t eBorderStyle);
-  void SetBorderDash(const CPWL_Dash& sDash);
 
-  CPDF_Rect GetOriginWindowRect() const;
   virtual CPDF_Rect GetWindowRect() const;
   virtual CPDF_Rect GetClientRect() const;
   CPDF_Point GetCenterPoint() const;
-  CPDF_Rect GetClientCenterSquare() const;
-  CPDF_Rect GetWindowCenterSquare() const;
   int32_t GetBorderWidth() const;
   FX_BOOL IsVisible() const { return m_bVisible; }
   FX_BOOL HasFlag(FX_DWORD dwFlags) const;
   void AddFlag(FX_DWORD dwFlags);
   void RemoveFlag(FX_DWORD dwFlags);
-  CPDF_Rect GetClipRect() const;
+  const CPDF_Rect& GetClipRect() const;
   CPWL_Wnd* GetParentWindow() const;
   int32_t GetBorderStyle() const;
-  CPWL_Dash GetBorderDash() const;
+  const CPWL_Dash& GetBorderDash() const;
   void* GetAttachedData() const;
 
   FX_BOOL WndHitTest(const CPDF_Point& point) const;
@@ -380,10 +373,10 @@ class CPWL_Wnd : public CPWL_TimerHandler {
   int32_t GetTransparency();
   void SetTransparency(int32_t nTransparency);
 
-  CPDF_Matrix GetChildToRoot() const;
-  CPDF_Matrix GetChildMatrix() const;
-  void SetChildMatrix(const CPDF_Matrix& mt);
-  CPDF_Matrix GetWindowMatrix() const;
+  CFX_Matrix GetChildToRoot() const;
+  CFX_Matrix GetChildMatrix() const;
+  void SetChildMatrix(const CFX_Matrix& mt);
+  CFX_Matrix GetWindowMatrix() const;
 
   virtual CPDF_Point ChildToParent(const CPDF_Point& point) const;
   virtual CPDF_Rect ChildToParent(const CPDF_Rect& rect) const;
@@ -410,9 +403,9 @@ class CPWL_Wnd : public CPWL_TimerHandler {
   virtual void GetChildAppearanceStream(CFX_ByteTextBuf& sAppStream);
 
   virtual void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                  CPDF_Matrix* pUser2Device);
+                                  CFX_Matrix* pUser2Device);
   virtual void DrawChildAppearance(CFX_RenderDevice* pDevice,
-                                   CPDF_Matrix* pUser2Device);
+                                   CFX_Matrix* pUser2Device);
 
   virtual void OnCreate(PWL_CREATEPARAM& cp);
   virtual void OnCreated();
@@ -427,7 +420,7 @@ class CPWL_Wnd : public CPWL_TimerHandler {
   void SetNotifyFlag(FX_BOOL bNotifying = TRUE) { m_bNotifying = bNotifying; }
 
   FX_BOOL IsValid() const;
-  PWL_CREATEPARAM GetCreationParam() const;
+  const PWL_CREATEPARAM& GetCreationParam() const;
   FX_BOOL IsNotifying() const { return m_bNotifying; }
 
   void InvalidateRectMove(const CPDF_Rect& rcOld, const CPDF_Rect& rcNew);

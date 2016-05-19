@@ -4,6 +4,8 @@
 
 #include "chrome/browser/sessions/session_restore.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <list>
 #include <set>
@@ -14,6 +16,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/debug/alias.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/field_trial.h"
@@ -21,6 +24,7 @@
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -81,7 +85,6 @@ class SessionRestoreImpl : public content::NotificationObserver {
  public:
   SessionRestoreImpl(Profile* profile,
                      Browser* browser,
-                     chrome::HostDesktopType host_desktop_type,
                      bool synchronous,
                      bool clobber_existing_tab,
                      bool always_create_tabbed_browser,
@@ -89,7 +92,6 @@ class SessionRestoreImpl : public content::NotificationObserver {
                      SessionRestore::CallbackList* callbacks)
       : profile_(profile),
         browser_(browser),
-        host_desktop_type_(host_desktop_type),
         synchronous_(synchronous),
         clobber_existing_tab_(clobber_existing_tab),
         always_create_tabbed_browser_(always_create_tabbed_browser),
@@ -97,10 +99,6 @@ class SessionRestoreImpl : public content::NotificationObserver {
         active_window_id_(0),
         restore_started_(base::TimeTicks::Now()),
         on_session_restored_callbacks_(callbacks) {
-    // For sanity's sake, if |browser| is non-null: force |host_desktop_type| to
-    // be the same as |browser|'s desktop type.
-    DCHECK(!browser || browser->host_desktop_type() == host_desktop_type);
-
     if (active_session_restorers == nullptr)
       active_session_restorers = new std::set<SessionRestoreImpl*>();
 
@@ -204,7 +202,7 @@ class SessionRestoreImpl : public content::NotificationObserver {
 
     Browser* browser =
         use_new_window
-            ? new Browser(Browser::CreateParams(profile_, host_desktop_type_))
+            ? new Browser(Browser::CreateParams(profile_))
             : browser_;
 
     RecordAppLaunchForTab(browser, tab, selected_index);
@@ -286,8 +284,7 @@ class SessionRestoreImpl : public content::NotificationObserver {
                                std::vector<RestoredTab>* contents_created) {
     Browser* browser = nullptr;
     if (!created_tabbed_browser && always_create_tabbed_browser_) {
-      browser =
-          new Browser(Browser::CreateParams(profile_, host_desktop_type_));
+      browser = new Browser(Browser::CreateParams(profile_));
       if (urls_to_open_.empty()) {
         // No tab browsers were created and no URLs were supplied on the command
         // line. Open the new tab page.
@@ -298,11 +295,9 @@ class SessionRestoreImpl : public content::NotificationObserver {
     }
 
     if (succeeded) {
-      if (SessionRestore::GetSmartRestoreMode() !=
-          SessionRestore::SMART_RESTORE_MODE_OFF) {
-        std::stable_sort(contents_created->begin(), contents_created->end());
-      }
-      // Start Loading tabs.
+      // Sort the tabs in the order they should be restored, and start loading
+      // them.
+      std::stable_sort(contents_created->begin(), contents_created->end());
       SessionRestoreDelegate::RestoreTabs(*contents_created, restore_started_);
     }
 
@@ -516,23 +511,21 @@ class SessionRestoreImpl : public content::NotificationObserver {
     base::TimeTicks now = base::TimeTicks::Now();
     base::TimeTicks highest_time = base::TimeTicks::UnixEpoch();
     if (initial_tab_count == 0) {
-      if (SessionRestore::GetSmartRestoreMode() ==
-          SessionRestore::SMART_RESTORE_MODE_MRU) {
-        // The last active time of a WebContents is initially set to the
-        // creation time of the tab, which is not necessarly the same as the
-        // loading time, so we have to restore the values. Also, since TimeTicks
-        // only make sense in their current session, these values have to be
-        // sanitized first. To do so, we need to first figure out the largest
-        // time. This will then be used to set the last active time of
-        // each tab where the most recent tab will have its time set to |now|
-        // and the rest of the tabs will have theirs set earlier by the same
-        // delta as they originally had.
-        for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
-          const sessions::SessionTab& tab = *(window.tabs[i]);
-          if (tab.last_active_time > highest_time)
-            highest_time = tab.last_active_time;
-        }
+      // The last active time of a WebContents is initially set to the
+      // creation time of the tab, which is not necessarly the same as the
+      // loading time, so we have to restore the values. Also, since TimeTicks
+      // only make sense in their current session, these values have to be
+      // sanitized first. To do so, we need to first figure out the largest
+      // time. This will then be used to set the last active time of
+      // each tab where the most recent tab will have its time set to |now|
+      // and the rest of the tabs will have theirs set earlier by the same
+      // delta as they originally had.
+      for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
+        const sessions::SessionTab& tab = *(window.tabs[i]);
+        if (tab.last_active_time > highest_time)
+          highest_time = tab.last_active_time;
       }
+
       for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
         const sessions::SessionTab& tab = *(window.tabs[i]);
 
@@ -546,11 +539,8 @@ class SessionRestoreImpl : public content::NotificationObserver {
           continue;
 
         // Sanitize the last active time.
-        if (SessionRestore::GetSmartRestoreMode() ==
-            SessionRestore::SMART_RESTORE_MODE_MRU) {
-          base::TimeDelta delta = highest_time - tab.last_active_time;
-          contents->SetLastActiveTime(now - delta);
-        }
+        base::TimeDelta delta = highest_time - tab.last_active_time;
+        contents->SetLastActiveTime(now - delta);
 
         RestoredTab restored_tab(contents, is_selected_tab,
                                  tab.extension_app_id.empty(), tab.pinned);
@@ -577,11 +567,8 @@ class SessionRestoreImpl : public content::NotificationObserver {
             RestoreTab(tab, tab_index_offset + i, browser, false);
         if (contents) {
           // Sanitize the last active time.
-          if (SessionRestore::GetSmartRestoreMode() ==
-              SessionRestore::SMART_RESTORE_MODE_MRU) {
-            base::TimeDelta delta = highest_time - tab.last_active_time;
-            contents->SetLastActiveTime(now - delta);
-          }
+          base::TimeDelta delta = highest_time - tab.last_active_time;
+          contents->SetLastActiveTime(now - delta);
           RestoredTab restored_tab(contents, false,
                                    tab.extension_app_id.empty(), tab.pinned);
           created_contents->push_back(restored_tab);
@@ -636,11 +623,11 @@ class SessionRestoreImpl : public content::NotificationObserver {
                                  gfx::Rect bounds,
                                  ui::WindowShowState show_state,
                                  const std::string& app_name) {
-    Browser::CreateParams params(type, profile_, host_desktop_type_);
+    Browser::CreateParams params(type, profile_);
     if (!app_name.empty()) {
       const bool trusted_source = true;  // We only store trusted app windows.
-      params = Browser::CreateParams::CreateForApp(
-          app_name, trusted_source, bounds, profile_, host_desktop_type_);
+      params = Browser::CreateParams::CreateForApp(app_name, trusted_source,
+                                                   bounds, profile_);
     } else {
       params.initial_bounds = bounds;
     }
@@ -698,10 +685,6 @@ class SessionRestoreImpl : public content::NotificationObserver {
   // The first browser to restore to, may be null.
   Browser* browser_;
 
-  // The desktop on which all new browsers should be created (browser_, if it is
-  // not NULL, must be of this desktop type as well).
-  chrome::HostDesktopType host_desktop_type_;
-
   // Whether or not restore is synchronous.
   const bool synchronous_;
 
@@ -752,8 +735,7 @@ class SessionRestoreImpl : public content::NotificationObserver {
 Browser* SessionRestore::RestoreSession(
     Profile* profile,
     Browser* browser,
-    chrome::HostDesktopType host_desktop_type,
-    uint32 behavior,
+    uint32_t behavior,
     const std::vector<GURL>& urls_to_open) {
 #if defined(OS_CHROMEOS)
   chromeos::BootTimesRecorder::Get()->AddLoginTimeMarker(
@@ -770,17 +752,16 @@ Browser* SessionRestore::RestoreSession(
   profile->set_restored_last_session(true);
   // SessionRestoreImpl takes care of deleting itself when done.
   SessionRestoreImpl* restorer = new SessionRestoreImpl(
-      profile, browser, host_desktop_type, (behavior & SYNCHRONOUS) != 0,
+      profile, browser, (behavior & SYNCHRONOUS) != 0,
       (behavior & CLOBBER_CURRENT_TAB) != 0,
-      (behavior & ALWAYS_CREATE_TABBED_BROWSER) != 0,
-      urls_to_open,
+      (behavior & ALWAYS_CREATE_TABBED_BROWSER) != 0, urls_to_open,
       SessionRestore::on_session_restored_callbacks());
   return restorer->Restore();
 }
 
 // static
 void SessionRestore::RestoreSessionAfterCrash(Browser* browser) {
-  uint32 behavior = 0;
+  uint32_t behavior = 0;
   if (browser->tab_strip_model()->count() == 1) {
     const content::WebContents* active_tab =
         browser->tab_strip_model()->GetWebContentsAt(0);
@@ -791,20 +772,18 @@ void SessionRestore::RestoreSessionAfterCrash(Browser* browser) {
       behavior = SessionRestore::CLOBBER_CURRENT_TAB;
     }
   }
-  SessionRestore::RestoreSession(browser->profile(), browser,
-                                 browser->host_desktop_type(), behavior,
+  SessionRestore::RestoreSession(browser->profile(), browser, behavior,
                                  std::vector<GURL>());
 }
 
 // static
 std::vector<Browser*> SessionRestore::RestoreForeignSessionWindows(
     Profile* profile,
-    chrome::HostDesktopType host_desktop_type,
     std::vector<const sessions::SessionWindow*>::const_iterator begin,
     std::vector<const sessions::SessionWindow*>::const_iterator end) {
   std::vector<GURL> gurls;
-  SessionRestoreImpl restorer(profile, static_cast<Browser*>(nullptr),
-                              host_desktop_type, true, false, true, gurls,
+  SessionRestoreImpl restorer(profile, static_cast<Browser*>(nullptr), true,
+                              false, true, gurls,
                               on_session_restored_callbacks());
   return restorer.RestoreForeignSession(begin, end);
 }
@@ -817,8 +796,7 @@ WebContents* SessionRestore::RestoreForeignSessionTab(
   Browser* browser = chrome::FindBrowserWithWebContents(source_web_contents);
   Profile* profile = browser->profile();
   std::vector<GURL> gurls;
-  SessionRestoreImpl restorer(profile, browser, browser->host_desktop_type(),
-                              true, false, false, gurls,
+  SessionRestoreImpl restorer(profile, browser, true, false, false, gurls,
                               on_session_restored_callbacks());
   return restorer.RestoreForeignTab(tab, disposition);
 }
@@ -854,17 +832,6 @@ SessionRestore::CallbackSubscription
     SessionRestore::RegisterOnSessionRestoredCallback(
         const base::Callback<void(int)>& callback) {
   return on_session_restored_callbacks()->Add(callback);
-}
-
-// static
-SessionRestore::SmartRestoreMode SessionRestore::GetSmartRestoreMode() {
-  std::string prioritize_tabs = variations::GetVariationParamValue(
-      "IntelligentSessionRestore", "PrioritizeTabs");
-  if (prioritize_tabs == "mru")
-    return SMART_RESTORE_MODE_MRU;
-  if (prioritize_tabs == "simple")
-    return SMART_RESTORE_MODE_SIMPLE;
-  return SMART_RESTORE_MODE_OFF;
 }
 
 // static

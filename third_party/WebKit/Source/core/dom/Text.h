@@ -60,7 +60,7 @@ public:
     void reattachIfNeeded(const AttachContext& = AttachContext());
 
     bool canContainRangeEndPoint() const final { return true; }
-    NodeType nodeType() const override;
+    NodeType getNodeType() const override;
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -70,7 +70,7 @@ protected:
 
 private:
     String nodeName() const override;
-    PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep = true) final;
+    PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep) final;
 
     bool isTextNode() const = delete; // This will catch anyone doing an unnecessary check.
 

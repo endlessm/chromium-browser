@@ -2,18 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/preferences_private/preferences_private_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -48,23 +49,7 @@ namespace {
 class FakeProfileSyncService : public ProfileSyncService {
  public:
   explicit FakeProfileSyncService(Profile* profile)
-      : ProfileSyncService(
-            make_scoped_ptr(new browser_sync::ChromeSyncClient(
-                profile,
-                make_scoped_ptr(new SyncApiComponentFactoryMock()))),
-            make_scoped_ptr<SigninManagerWrapper>(NULL),
-            ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-            browser_sync::MANUAL_START,
-            base::Bind(&EmptyNetworkTimeUpdate),
-            profile->GetPath(),
-            profile->GetRequestContext(),
-            profile->GetDebugName(),
-            chrome::GetChannel(),
-            content::BrowserThread::GetMessageLoopProxyForThread(
-                content::BrowserThread::DB),
-            content::BrowserThread::GetMessageLoopProxyForThread(
-                content::BrowserThread::FILE),
-            content::BrowserThread::GetBlockingPool()),
+      : ProfileSyncService(CreateProfileSyncServiceParamsForTest(profile)),
         sync_initialized_(true),
         initialized_state_violation_(false) {}
 
@@ -155,8 +140,7 @@ class PreferencesPrivateApiTest : public ExtensionApiTest {
         ProfileSyncServiceFactory::GetInstance()->SetTestingFactoryAndUse(
         profile, &FakeProfileSyncService::BuildFakeProfileSyncService));
 
-    browser_ = new Browser(Browser::CreateParams(
-        profile, chrome::HOST_DESKTOP_TYPE_NATIVE));
+    browser_ = new Browser(Browser::CreateParams(profile));
   }
 
   // Calls GetSyncCategoriesWithoutPassphraseFunction and verifies that the

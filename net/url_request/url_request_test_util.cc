@@ -4,6 +4,8 @@
 
 #include "net/url_request/url_request_test_util.h"
 
+#include <utility>
+
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -22,6 +24,7 @@
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/default_channel_id_store.h"
 #include "net/url_request/static_http_user_agent_settings.h"
+#include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_factory_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -49,14 +52,16 @@ const int kStageDestruction = 1 << 10;
 
 TestURLRequestContext::TestURLRequestContext()
     : initialized_(false),
-      client_socket_factory_(NULL),
+      client_socket_factory_(nullptr),
+      proxy_delegate_(nullptr),
       context_storage_(this) {
   Init();
 }
 
 TestURLRequestContext::TestURLRequestContext(bool delay_initialization)
     : initialized_(false),
-      client_socket_factory_(NULL),
+      client_socket_factory_(nullptr),
+      proxy_delegate_(nullptr),
       context_storage_(this) {
   if (!delay_initialization)
     Init();
@@ -96,9 +101,11 @@ void TestURLRequestContext::Init() {
     EXPECT_FALSE(client_socket_factory_);
   } else {
     HttpNetworkSession::Params params;
+
     if (http_network_session_params_)
       params = *http_network_session_params_;
     params.client_socket_factory = client_socket_factory();
+    params.proxy_delegate = proxy_delegate();
     params.host_resolver = host_resolver();
     params.cert_verifier = cert_verifier();
     params.transport_security_state = transport_security_state();
@@ -108,6 +115,7 @@ void TestURLRequestContext::Init() {
     params.network_delegate = network_delegate();
     params.http_server_properties = http_server_properties();
     params.net_log = net_log();
+    params.channel_id_service = channel_id_service();
     context_storage_.set_http_network_session(
         make_scoped_ptr(new HttpNetworkSession(params)));
     context_storage_.set_http_transaction_factory(make_scoped_ptr(
@@ -116,11 +124,11 @@ void TestURLRequestContext::Init() {
   }
   // In-memory cookie store.
   if (!cookie_store())
-    context_storage_.set_cookie_store(new CookieMonster(NULL, NULL));
+    context_storage_.set_cookie_store(new CookieMonster(nullptr, nullptr));
   // In-memory Channel ID service.
   if (!channel_id_service()) {
     context_storage_.set_channel_id_service(make_scoped_ptr(
-        new ChannelIDService(new DefaultChannelIDStore(NULL),
+        new ChannelIDService(new DefaultChannelIDStore(nullptr),
                              base::WorkerPool::GetTaskRunner(true))));
   }
   if (!http_user_agent_settings()) {
@@ -142,7 +150,7 @@ TestURLRequestContextGetter::TestURLRequestContextGetter(
 TestURLRequestContextGetter::TestURLRequestContextGetter(
     const scoped_refptr<base::SingleThreadTaskRunner>& network_task_runner,
     scoped_ptr<TestURLRequestContext> context)
-    : network_task_runner_(network_task_runner), context_(context.Pass()) {
+    : network_task_runner_(network_task_runner), context_(std::move(context)) {
   DCHECK(network_task_runner_.get());
 }
 
@@ -275,6 +283,11 @@ void TestDelegate::OnResponseStarted(URLRequest* request) {
 void TestDelegate::OnReadCompleted(URLRequest* request, int bytes_read) {
   // It doesn't make sense for the request to have IO pending at this point.
   DCHECK(!request->status().is_io_pending());
+
+  // If the request was cancelled in a redirect, it should not signal
+  // OnReadCompleted. Note that |cancel_in_rs_| may be true due to
+  // https://crbug.com/564848.
+  EXPECT_FALSE(cancel_in_rr_);
 
   if (response_started_count_ == 0)
     received_data_before_response_ = true;
@@ -621,6 +634,10 @@ bool TestNetworkDelegate::OnAreExperimentalCookieFeaturesEnabled() const {
   return experimental_cookie_features_enabled_;
 }
 
+bool TestNetworkDelegate::OnAreStrictSecureCookiesEnabled() const {
+  return experimental_cookie_features_enabled_;
+}
+
 bool TestNetworkDelegate::OnCancelURLRequestWithPolicyViolatingReferrerHeader(
     const URLRequest& request,
     const GURL& target_url,
@@ -628,19 +645,18 @@ bool TestNetworkDelegate::OnCancelURLRequestWithPolicyViolatingReferrerHeader(
   return cancel_request_with_policy_violating_referrer_;
 }
 
-TestJobInterceptor::TestJobInterceptor() : main_intercept_job_(NULL) {
-}
+TestJobInterceptor::TestJobInterceptor() {}
+
+TestJobInterceptor::~TestJobInterceptor() {}
 
 URLRequestJob* TestJobInterceptor::MaybeCreateJob(
     URLRequest* request,
     NetworkDelegate* network_delegate) const {
-  URLRequestJob* job = main_intercept_job_;
-  main_intercept_job_ = NULL;
-  return job;
+  return main_intercept_job_.release();
 }
 
-void TestJobInterceptor::set_main_intercept_job(URLRequestJob* job) {
-  main_intercept_job_ = job;
+void TestJobInterceptor::set_main_intercept_job(scoped_ptr<URLRequestJob> job) {
+  main_intercept_job_ = std::move(job);
 }
 
 }  // namespace net

@@ -16,15 +16,6 @@ to download depot_tools (which includes gclient, git-cl, and Ninja).
 depot_tools will also install Git on your system, if it wasn't installed
 already.
 
-
-Configure Git
--------------
-
-<!--?prettify lang=sh?-->
-
-    git config --global user.name "Your Name"
-    git config --global user.email you@example.com
-
 Clone the Skia repository
 -------------------------
 
@@ -33,42 +24,15 @@ Clone the Skia repository
     git clone https://skia.googlesource.com/skia.git
     cd skia
 
-Get Skia's dependencies and generate Ninja build files
-------------------------------------------------------
+Getting started with Skia
+-------------------------
 
-<!--?prettify lang=sh?-->
+Try out more things from the [desktop](./quick/desktop),
+[Android](./quick/android), and [iOS](./quick/ios)-specific Skia
+guides.
 
-    python bin/sync-and-gyp
-
-<!--
-    python tools/git-sync-deps
-    python ./gyp_skia
--->
-
-Compile all default targets
----------------------------
-
-<!--?prettify lang=sh?-->
-
-    ninja -C out/Debug
-
-Execute Skia tests
-------------------
-
-[More about Skia correctness testing tools](../dev/testing/testing)
-
-<!--?prettify lang=sh?-->
-
-    out/Debug/dm
-
-Execute Skia sample application
--------------------------------
-
-[More about Skia's SampleApp](sample/sampleapp)
-
-<!--?prettify lang=sh?-->
-
-    out/Debug/SampleApp
+Changing and contributing to Skia
+---------------------------------
 
 At this point, you have everything you need to build and use Skia!  If
 you want to make changes, and possibly contribute them back to the Skia

@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/shadow/TextControlInnerElements.h"
 
 #include "core/HTMLNames.h"
@@ -39,6 +38,7 @@
 #include "core/input/EventHandler.h"
 #include "core/layout/LayoutTextControlSingleLine.h"
 #include "core/layout/LayoutView.h"
+#include "core/layout/api/LayoutTextControlItem.h"
 #include "platform/UserGestureIndicator.h"
 
 namespace blink {
@@ -141,8 +141,8 @@ PassRefPtr<ComputedStyle> TextControlInnerEditorElement::customStyleForLayoutObj
     LayoutObject* parentLayoutObject = shadowHost()->layoutObject();
     if (!parentLayoutObject || !parentLayoutObject->isTextControl())
         return originalStyleForLayoutObject();
-    LayoutTextControl* textControlLayoutObject = toLayoutTextControl(parentLayoutObject);
-    return textControlLayoutObject->createInnerEditorStyle(textControlLayoutObject->styleRef());
+    LayoutTextControlItem textControlLayoutItem = LayoutTextControlItem(toLayoutTextControl(parentLayoutObject));
+    return textControlLayoutItem.createInnerEditorStyle(textControlLayoutItem.styleRef());
 }
 
 // ----------------------------
@@ -250,4 +250,4 @@ bool SearchFieldCancelButtonElement::willRespondToMouseClickEvents()
     return HTMLDivElement::willRespondToMouseClickEvents();
 }
 
-}
+} // namespace blink

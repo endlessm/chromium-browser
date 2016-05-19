@@ -5,9 +5,10 @@
 #ifndef COMPONENTS_RAPPOR_BLOOM_FILTER_H_
 #define COMPONENTS_RAPPOR_BLOOM_FILTER_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/macros.h"
 #include "components/rappor/byte_vector_utils.h"
 
@@ -30,9 +31,6 @@ class BloomFilter {
 
   // Returns the current value of the Bloom filter's bit array.
   const ByteVector& bytes() const { return bytes_; };
-
-  // Sets bytes for testing purposes.
-  void SetBytesForTesting(const ByteVector& bytes);
 
  private:
   // Stores the byte array of the Bloom filter.

@@ -26,10 +26,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/inspector/NetworkResourcesData.h"
 
 #include "core/dom/DOMImplementation.h"
+#include "core/fetch/MemoryCache.h"
 #include "core/fetch/Resource.h"
 #include "platform/SharedBuffer.h"
 #include "platform/network/ResourceResponse.h"
@@ -194,7 +194,7 @@ void NetworkResourcesData::responseReceived(const String& requestId, const Strin
         blobData->appendFile(filePath);
         AtomicString mimeType;
         if (response.isHTTP())
-            mimeType = extractMIMETypeFromMediaType(response.httpHeaderField("Content-Type"));
+            mimeType = extractMIMETypeFromMediaType(response.httpHeaderField(HTTPNames::Content_Type));
         if (mimeType.isEmpty())
             mimeType = response.mimeType();
         if (mimeType.isEmpty())
@@ -273,6 +273,7 @@ void NetworkResourcesData::maybeDecodeDataToContent(const String& requestId)
 
 void NetworkResourcesData::addResource(const String& requestId, Resource* cachedResource)
 {
+    ASSERT(memoryCache()->contains(cachedResource));
     ResourceData* resourceData = resourceDataForRequestId(requestId);
     if (!resourceData)
         return;

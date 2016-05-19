@@ -5,10 +5,12 @@
 #ifndef CONTENT_COMMON_NAVIGATION_PARAMS_H_
 #define CONTENT_COMMON_NAVIGATION_PARAMS_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/common/frame_message_enums.h"
 #include "content/public/common/page_state.h"
@@ -16,10 +18,6 @@
 #include "content/public/common/request_context_type.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
-
-namespace base {
-class RefCountedMemory;
-}
 
 namespace content {
 
@@ -62,6 +60,7 @@ struct CONTENT_EXPORT CommonNavigationParams {
                          const GURL& history_url_for_data_url,
                          LoFiState lofi_state,
                          const base::TimeTicks& navigation_start);
+  CommonNavigationParams(const CommonNavigationParams& other);
   ~CommonNavigationParams();
 
   // The URL to navigate to.
@@ -136,6 +135,7 @@ struct CONTENT_EXPORT BeginNavigationParams {
                         bool has_user_gesture,
                         bool skip_service_worker,
                         RequestContextType request_context_type);
+  BeginNavigationParams(const BeginNavigationParams& other);
 
   // The request method: GET, POST, etc.
   std::string method;
@@ -181,6 +181,7 @@ struct CONTENT_EXPORT StartNavigationParams {
 #endif
       int transferred_request_child_id,
       int transferred_request_request_id);
+  StartNavigationParams(const StartNavigationParams& other);
   ~StartNavigationParams();
 
   // Whether the navigation is a POST request (as opposed to a GET).
@@ -216,7 +217,7 @@ struct CONTENT_EXPORT RequestNavigationParams {
                           bool can_load_local_resources,
                           base::Time request_time,
                           const PageState& page_state,
-                          int32 page_id,
+                          int32_t page_id,
                           int nav_entry_id,
                           bool is_same_document_history_load,
                           bool has_committed_real_load,
@@ -224,7 +225,9 @@ struct CONTENT_EXPORT RequestNavigationParams {
                           int pending_history_list_offset,
                           int current_history_list_offset,
                           int current_history_list_length,
+                          bool is_view_source,
                           bool should_clear_history_list);
+  RequestNavigationParams(const RequestNavigationParams& other);
   ~RequestNavigationParams();
 
   // Whether or not the user agent override string should be used.
@@ -250,7 +253,7 @@ struct CONTENT_EXPORT RequestNavigationParams {
   // Forward, and Reload navigations should have a valid page_id.  If the load
   // succeeds, then this page_id will be reflected in the resultant
   // FrameHostMsg_DidCommitProvisionalLoad message.
-  int32 page_id;
+  int32_t page_id;
 
   // For browser-initiated navigations, this is the unique id of the
   // NavigationEntry being navigated to. (For renderer-initiated navigations it
@@ -283,6 +286,12 @@ struct CONTENT_EXPORT RequestNavigationParams {
   int current_history_list_offset;
   int current_history_list_length;
 
+  // Indicates whether the navigation is to a view-source:// scheme or not.
+  // It is a separate boolean as the view-source scheme is stripped from the
+  // URL before it is sent to the renderer process and the RenderFrame needs
+  // to be put in special view source mode.
+  bool is_view_source;
+
   // Whether session history should be cleared. In that case, the RenderView
   // needs to notify the browser that the clearing was succesful when the
   // navigation commits.
@@ -298,6 +307,14 @@ struct CONTENT_EXPORT RequestNavigationParams {
   // This parameter is not used in the current navigation architecture, where
   // it will always be equal to kInvalidServiceWorkerProviderId.
   int service_worker_provider_id;
+
+#if defined(OS_ANDROID)
+  // The real content of the data: URL. Only used in Android WebView for
+  // implementing LoadDataWithBaseUrl API method to circumvent the restriction
+  // on the GURL max length in the IPC layer. Short data: URLs can still be
+  // passed in the |CommonNavigationParams::url| field.
+  std::string data_url_as_string;
+#endif
 };
 
 // Helper struct keeping track in one place of all the parameters the browser

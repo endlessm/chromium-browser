@@ -4,6 +4,7 @@
 
 #include "components/policy/core/browser/android/policy_converter.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/android/jni_android.h"
@@ -22,6 +23,7 @@
 #include "jni/PolicyConverter_jni.h"
 
 using base::android::ConvertJavaStringToUTF8;
+using base::android::JavaRef;
 
 namespace policy {
 namespace android {
@@ -40,9 +42,9 @@ PolicyConverter::~PolicyConverter() {
 }
 
 scoped_ptr<PolicyBundle> PolicyConverter::GetPolicyBundle() {
-  scoped_ptr<PolicyBundle> filled_bundle(policy_bundle_.Pass());
+  scoped_ptr<PolicyBundle> filled_bundle(std::move(policy_bundle_));
   policy_bundle_.reset(new PolicyBundle);
-  return filled_bundle.Pass();
+  return filled_bundle;
 }
 
 base::android::ScopedJavaLocalRef<jobject> PolicyConverter::GetJavaObject() {
@@ -50,8 +52,8 @@ base::android::ScopedJavaLocalRef<jobject> PolicyConverter::GetJavaObject() {
 }
 
 void PolicyConverter::SetPolicyBoolean(JNIEnv* env,
-                                       jobject obj,
-                                       jstring policyKey,
+                                       const JavaRef<jobject>& obj,
+                                       const JavaRef<jstring>& policyKey,
                                        jboolean value) {
   SetPolicyValue(
       ConvertJavaStringToUTF8(env, policyKey),
@@ -59,8 +61,8 @@ void PolicyConverter::SetPolicyBoolean(JNIEnv* env,
 }
 
 void PolicyConverter::SetPolicyInteger(JNIEnv* env,
-                                       jobject obj,
-                                       jstring policyKey,
+                                       const JavaRef<jobject>& obj,
+                                       const JavaRef<jstring>& policyKey,
                                        jint value) {
   SetPolicyValue(
       ConvertJavaStringToUTF8(env, policyKey),
@@ -68,37 +70,38 @@ void PolicyConverter::SetPolicyInteger(JNIEnv* env,
 }
 
 void PolicyConverter::SetPolicyString(JNIEnv* env,
-                                      jobject obj,
-                                      jstring policyKey,
-                                      jstring value) {
+                                      const JavaRef<jobject>& obj,
+                                      const JavaRef<jstring>& policyKey,
+                                      const JavaRef<jstring>& value) {
   SetPolicyValue(ConvertJavaStringToUTF8(env, policyKey),
                  make_scoped_ptr(new base::StringValue(
                      ConvertJavaStringToUTF8(env, value))));
 }
 
 void PolicyConverter::SetPolicyStringArray(JNIEnv* env,
-                                           jobject obj,
-                                           jstring policyKey,
-                                           jobjectArray array) {
+                                           const JavaRef<jobject>& obj,
+                                           const JavaRef<jstring>& policyKey,
+                                           const JavaRef<jobjectArray>& array) {
   SetPolicyValue(ConvertJavaStringToUTF8(env, policyKey),
-                 ConvertJavaStringArrayToListValue(env, array).Pass());
+                 ConvertJavaStringArrayToListValue(env, array));
 }
 
 // static
 scoped_ptr<base::ListValue> PolicyConverter::ConvertJavaStringArrayToListValue(
     JNIEnv* env,
-    jobjectArray array) {
-  DCHECK(array);
-  int length = static_cast<int>(env->GetArrayLength(array));
+    const JavaRef<jobjectArray>& array) {
+  DCHECK(!array.is_null());
+  int length = static_cast<int>(env->GetArrayLength(array.obj()));
   DCHECK_GE(length, 0) << "Invalid array length: " << length;
 
   scoped_ptr<base::ListValue> list_value(new base::ListValue());
   for (int i = 0; i < length; ++i) {
-    jstring str = static_cast<jstring>(env->GetObjectArrayElement(array, i));
+    jstring str =
+        static_cast<jstring>(env->GetObjectArrayElement(array.obj(), i));
     list_value->AppendString(ConvertJavaStringToUTF8(env, str));
   }
 
-  return list_value.Pass();
+  return list_value;
 }
 
 // static
@@ -106,7 +109,7 @@ scoped_ptr<base::Value> PolicyConverter::ConvertValueToSchema(
     scoped_ptr<base::Value> value,
     const Schema& schema) {
   if (!schema.valid())
-    return value.Pass();
+    return value;
 
   switch (schema.type()) {
     case base::Value::TYPE_NULL:
@@ -121,13 +124,13 @@ scoped_ptr<base::Value> PolicyConverter::ConvertValueToSchema(
         if (string_value.compare("false") == 0)
           return make_scoped_ptr(new base::FundamentalValue(false));
 
-        return value.Pass();
+        return value;
       }
       int int_value = 0;
       if (value->GetAsInteger(&int_value))
         return make_scoped_ptr(new base::FundamentalValue(int_value != 0));
 
-      return value.Pass();
+      return value;
     }
 
     case base::Value::TYPE_INTEGER: {
@@ -137,7 +140,7 @@ scoped_ptr<base::Value> PolicyConverter::ConvertValueToSchema(
         if (base::StringToInt(string_value, &int_value))
           return make_scoped_ptr(new base::FundamentalValue(int_value));
       }
-      return value.Pass();
+      return value;
     }
 
     case base::Value::TYPE_DOUBLE: {
@@ -147,12 +150,12 @@ scoped_ptr<base::Value> PolicyConverter::ConvertValueToSchema(
         if (base::StringToDouble(string_value, &double_value))
           return make_scoped_ptr(new base::FundamentalValue(double_value));
       }
-      return value.Pass();
+      return value;
     }
 
     // String can't be converted from other types.
     case base::Value::TYPE_STRING: {
-      return value.Pass();
+      return value;
     }
 
     // Binary is not a valid schema type.
@@ -169,9 +172,9 @@ scoped_ptr<base::Value> PolicyConverter::ConvertValueToSchema(
         scoped_ptr<base::Value> decoded_value =
             base::JSONReader::Read(string_value);
         if (decoded_value)
-          return decoded_value.Pass();
+          return decoded_value;
       }
-      return value.Pass();
+      return value;
     }
   }
 
@@ -188,10 +191,9 @@ void PolicyConverter::SetPolicyValue(const std::string& key,
                                      scoped_ptr<base::Value> value) {
   const Schema schema = policy_schema_->GetKnownProperty(key);
   const PolicyNamespace ns(POLICY_DOMAIN_CHROME, std::string());
-  policy_bundle_->Get(ns)
-      .Set(key, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
-           POLICY_SOURCE_PLATFORM,
-           ConvertValueToSchema(value.Pass(), schema).release(), nullptr);
+  policy_bundle_->Get(ns).Set(
+      key, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE, POLICY_SOURCE_PLATFORM,
+      ConvertValueToSchema(std::move(value), schema).release(), nullptr);
 }
 
 }  // namespace android

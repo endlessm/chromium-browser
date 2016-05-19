@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_AFFILIATED_MATCH_HELPER_H_
 #define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_AFFILIATED_MATCH_HELPER_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -13,7 +15,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
-#include "base/timer/timer.h"
 #include "components/password_manager/core/browser/affiliation_utils.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
@@ -100,13 +101,9 @@ class AffiliatedMatchHelper : public PasswordStore::Observer,
   // much, but also low enough that the user be able log-in shortly after
   // browser start-up into web sites using Android credentials.
   // TODO(engedy): See if we can tie this instead to some meaningful event.
-  static const int64 kInitializationDelayOnStartupInSeconds = 8;
+  static const int64_t kInitializationDelayOnStartupInSeconds = 8;
 
  private:
-  // Indicates the time at which verifying that affiliation information has been
-  // correctly prefetched for dummy Android applications takes place.
-  enum class VerificationTiming { ON_STARTUP, PERIODIC };
-
   // Reads all autofillable credentials from the password store and starts
   // observing the store for future changes.
   void DoDeferredInitialization();
@@ -128,26 +125,6 @@ class AffiliatedMatchHelper : public PasswordStore::Observer,
       const AffiliatedFacets& results,
       bool success);
 
-  // Called either shortly after startup or periodically in the steady state (as
-  // indicated by |timing|) to verify that affiliation information has been
-  // correctly prefetched for the dummy Android applications. Will record UMA
-  // histograms using a appropriate suffix based on |timing|.
-  void VerifyAffiliationsForDummyFacets(VerificationTiming timing);
-
-  // Sets up the given |timer| to call VerifyAffiliationsForDummyFacets() with
-  // the specified |delay|, with the given |timing| designation.
-  void ScheduleVerifyAffiliationsForDummyFacets(base::Timer* timer,
-                                                base::TimeDelta delay,
-                                                VerificationTiming timing);
-
-  // Called back by the AffiliationService in response to requesting affiliation
-  // information for the dummy Web facets. The |timing| indicates if the check
-  // was performed shortly after startup or periodically in the steady state.
-  static void OnRetrievedAffiliationResultsForDummyWebFacets(
-      VerificationTiming timing,
-      const AffiliatedFacets& results,
-      bool success);
-
   // PasswordStore::Observer:
   void OnLoginsChanged(const PasswordStoreChangeList& changes) override;
 
@@ -160,10 +137,6 @@ class AffiliatedMatchHelper : public PasswordStore::Observer,
 
   // Being the sole consumer of AffiliationService, |this| owns the service.
   scoped_ptr<AffiliationService> affiliation_service_;
-
-  // Timers used to schedule VerifyAffiliationsPrefetchedForDummyFacets().
-  base::OneShotTimer on_startup_verification_timer_;
-  base::RepeatingTimer repeated_verification_timer_;
 
   base::WeakPtrFactory<AffiliatedMatchHelper> weak_ptr_factory_;
 

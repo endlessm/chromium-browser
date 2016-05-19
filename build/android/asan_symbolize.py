@@ -12,15 +12,16 @@ import re
 import sys
 
 from pylib import constants
+from pylib.constants import host_paths
 
 # Uses symbol.py from third_party/android_platform, not python's.
-sys.path.insert(0,
-                os.path.join(constants.DIR_SOURCE_ROOT,
-                            'third_party/android_platform/development/scripts'))
-import symbol
+with host_paths.SysPath(
+    host_paths.ANDROID_PLATFORM_DEVELOPMENT_SCRIPTS_PATH,
+    position=0):
+  import symbol
 
 
-_RE_ASAN = re.compile(r'(.*?)(#\S*?) (\S*?) \((.*?)\+(.*?)\)')
+_RE_ASAN = re.compile(r'(.*?)(#\S*?)\s+(\S*?)\s+\((.*?)\+(.*?)\)')
 
 def _ParseAsanLogLine(line):
   m = re.match(_RE_ASAN, line)
@@ -35,7 +36,7 @@ def _ParseAsanLogLine(line):
 
 
 def _FindASanLibraries():
-  asan_lib_dir = os.path.join(constants.DIR_SOURCE_ROOT,
+  asan_lib_dir = os.path.join(host_paths.DIR_SOURCE_ROOT,
                               'third_party', 'llvm-build',
                               'Release+Asserts', 'lib')
   asan_libs = []
@@ -93,7 +94,15 @@ def main():
   parser.add_option('-l', '--logcat',
                     help='File containing adb logcat output with ASan stacks. '
                          'Use stdin if not specified.')
+  parser.add_option('--output-directory',
+                    help='Path to the root build directory.')
   options, _ = parser.parse_args()
+
+  if options.output_directory:
+    constants.SetOutputDirectory(options.output_directory)
+  # Do an up-front test that the output directory is known.
+  constants.CheckOutputDirectory()
+
   if options.logcat:
     asan_input = file(options.logcat, 'r')
   else:

@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_OMNIBOX_BROWSER_SCORED_HISTORY_MATCH_H_
 #define COMPONENTS_OMNIBOX_BROWSER_SCORED_HISTORY_MATCH_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -16,6 +18,7 @@
 #include "components/omnibox/browser/in_memory_url_index_types.h"
 
 class ScoredHistoryMatchTest;
+class TemplateURLService;
 
 // An HistoryMatch that has a score as well as metrics defining where in the
 // history item's URL and/or page title matches have occurred.
@@ -28,16 +31,19 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
 
   // Required for STL, we don't use this directly.
   ScoredHistoryMatch();
+  ScoredHistoryMatch(const ScoredHistoryMatch& other);
 
   // Initializes the ScoredHistoryMatch with a raw score calculated for the
   // history item given in |row| with recent visits as indicated in |visits|. It
   // first determines if the row qualifies by seeing if all of the terms in
-  // |terms_vector| occur in |row|.  If so, calculates a raw score.  This raw
-  // score is in part determined by whether the matches occur at word
-  // boundaries, the locations of which are stored in |word_starts|.  For some
-  // terms, it's appropriate to look for the word boundary within the term. For
-  // instance, the term ".net" should look for a word boundary at the "n". These
-  // offsets (".net" should have an offset of 1) come from
+  // |terms_vector| occur in |row| and checking if the URL does not come from
+  // the default search provider (obtained from |template_url_service|).  If
+  // both those constraints are true, calculates a raw score.  This raw score
+  // is in part determined by whether the matches occur at word boundaries, the
+  // locations of which are stored in |word_starts|.  For some terms, it's
+  // appropriate to look for the word boundary within the term. For instance,
+  // the term ".net" should look for a word boundary at the "n". These offsets
+  // (".net" should have an offset of 1) come from
   // |terms_to_word_starts_offsets|. |is_url_bookmarked| indicates whether the
   // match's URL is referenced by any bookmarks, which can also affect the raw
   // score.  The raw score allows the matches to be ordered and can be used to
@@ -52,6 +58,7 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
                      const WordStarts& terms_to_word_starts_offsets,
                      const RowWordStarts& word_starts,
                      bool is_url_bookmarked,
+                     TemplateURLService* template_url_service,
                      base::Time now);
 
   ~ScoredHistoryMatch();
@@ -95,9 +102,6 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
   // Term matches within the page title.
   TermMatches title_matches;
 
-  // True if this is a candidate for in-line autocompletion.
-  bool can_inline;
-
  private:
   friend class ScoredHistoryMatchTest;
   FRIEND_TEST_ALL_PREFIXES(ScoredHistoryMatchTest, GetFinalRelevancyScore);
@@ -114,7 +118,8 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
   // the page's title and where they are (e.g., at word boundaries).  Revises
   // url_matches and title_matches in the process so they only reflect matches
   // used for scoring.  (For instance, some mid-word matches are not given
-  // credit in scoring.)
+  // credit in scoring.)  Requires that |url_matches| and |title_matches| are
+  // sorted.
   float GetTopicalityScore(const int num_terms,
                            const base::string16& cleaned_up_url,
                            const WordStarts& terms_to_word_starts_offsets,
@@ -166,7 +171,8 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
   static int bookmark_value_;
 
   // True if we should fix certain bugs in frequency scoring.
-  static bool fix_frequency_bugs_;
+  static bool fix_typed_visit_bug_;
+  static bool fix_few_visits_bug_;
 
   // If true, we allow input terms to match in the TLD (e.g., ".com").
   static bool allow_tld_matches_;

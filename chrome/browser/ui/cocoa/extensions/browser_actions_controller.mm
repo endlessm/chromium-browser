@@ -4,8 +4,12 @@
 
 #import "chrome/browser/ui/cocoa/extensions/browser_actions_controller.h"
 
-#include <string>
+#include <stddef.h>
 
+#include <string>
+#include <utility>
+
+#include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
 #include "chrome/browser/ui/browser.h"
@@ -161,7 +165,7 @@ const CGFloat kBrowserActionBubbleYOffset = 3.0;
 // Returns the associated ToolbarController.
 - (ToolbarController*)toolbarController;
 
-// Creates a message bubble anchored to the given |anchorAction|, or the wrench
+// Creates a message bubble anchored to the given |anchorAction|, or the app
 // menu if no |anchorAction| is null.
 - (ToolbarActionsBarBubbleMac*)createMessageBubble:
     (scoped_ptr<ToolbarActionsBarBubbleDelegate>)delegate
@@ -286,10 +290,10 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   extensions::ExtensionMessageBubbleController* weak_controller =
       bubble_controller.get();
   scoped_ptr<ExtensionMessageBubbleBridge> bridge(
-      new ExtensionMessageBubbleBridge(bubble_controller.Pass(),
+      new ExtensionMessageBubbleBridge(std::move(bubble_controller),
                                        anchor_action != nullptr));
   ToolbarActionsBarBubbleMac* bubble =
-      [controller_ createMessageBubble:bridge.Pass()
+      [controller_ createMessageBubble:std::move(bridge)
                           anchorToSelf:anchor_action != nil];
   weak_controller->OnShown();
   [bubble showWindow:nil];
@@ -375,15 +379,6 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
     [self showChevronIfNecessaryInFrame:[containerView_ frame]];
     [self updateGrippyCursors];
     [container setIsOverflow:isOverflow_];
-    if (ExtensionToolbarIconSurfacingBubbleDelegate::ShouldShowForProfile(
-            browser_->profile())) {
-      [containerView_ setTrackingEnabled:YES];
-      [[NSNotificationCenter defaultCenter]
-          addObserver:self
-             selector:@selector(containerMouseEntered:)
-                 name:kBrowserActionsContainerMouseEntered
-               object:containerView_];
-    }
 
     focusedViewIndex_ = -1;
   }
@@ -438,7 +433,7 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   NSView* referenceButton = button;
   if ([button superview] != containerView_ || isOverflow_) {
     referenceButton = toolbarActionsBar_->platform_settings().chevron_enabled ?
-         chevronMenuButton_.get() : [[self toolbarController] wrenchButton];
+         chevronMenuButton_.get() : [[self toolbarController] appMenuButton];
     bounds = [referenceButton bounds];
   } else {
     bounds = [button convertRect:[button frameAfterAnimation]
@@ -567,7 +562,16 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
       highlight.reset(
           new ui::NinePartImageIds(IMAGE_GRID(IDR_DEVELOPER_MODE_HIGHLIGHT)));
   }
-  [containerView_ setHighlight:highlight.Pass()];
+  [containerView_ setHighlight:std::move(highlight)];
+  if (toolbarActionsBar_->show_icon_surfacing_bubble() &&
+      ![containerView_ trackingEnabled]) {
+    [containerView_ setTrackingEnabled:YES];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(containerMouseEntered:)
+               name:kBrowserActionsContainerMouseEntered
+             object:containerView_];
+  }
 
   std::vector<ToolbarActionViewController*> toolbar_actions =
       toolbarActionsBar_->GetActions();
@@ -804,13 +808,11 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
 
 - (void)containerMouseEntered:(NSNotification*)notification {
   if (!activeBubble_ &&  // only show one bubble at a time
-      ExtensionToolbarIconSurfacingBubbleDelegate::ShouldShowForProfile(
-          browser_->profile())) {
+      toolbarActionsBar_->show_icon_surfacing_bubble()) {
     scoped_ptr<ToolbarActionsBarBubbleDelegate> delegate(
         new ExtensionToolbarIconSurfacingBubbleDelegate(browser_->profile()));
     ToolbarActionsBarBubbleMac* bubble =
-        [self createMessageBubble:delegate.Pass()
-                     anchorToSelf:YES];
+        [self createMessageBubble:std::move(delegate) anchorToSelf:YES];
     [bubble showWindow:nil];
   }
   [containerView_ setTrackingEnabled:NO];
@@ -940,7 +942,7 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
 
 - (void)updateChevronPositionInFrame:(NSRect)frame {
   CGFloat xPos = NSWidth(frame) - kChevronWidth -
-      toolbarActionsBar_->platform_settings().right_padding;
+      toolbarActionsBar_->platform_settings().item_spacing;
   NSRect buttonFrame = NSMakeRect(xPos,
                                   0,
                                   kChevronWidth,
@@ -1023,7 +1025,7 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
     anchorToSelf:(BOOL)anchorToSelf {
   DCHECK_GE([buttons_ count], 0u);
   NSView* anchorView =
-      anchorToSelf ? containerView_ : [[self toolbarController] wrenchButton];
+      anchorToSelf ? containerView_ : [[self toolbarController] appMenuButton];
   NSPoint anchor = [self popupPointForView:anchorView
                                 withBounds:[anchorView bounds]];
 
@@ -1031,7 +1033,7 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   activeBubble_ = [[ToolbarActionsBarBubbleMac alloc]
       initWithParentWindow:[containerView_ window]
                anchorPoint:anchor
-                  delegate:delegate.Pass()];
+                  delegate:std::move(delegate)];
   [[NSNotificationCenter defaultCenter]
       addObserver:self
          selector:@selector(bubbleWindowClosing:)

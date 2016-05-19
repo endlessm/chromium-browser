@@ -4,24 +4,28 @@
 
 #include "chrome/browser/extensions/api/file_system/file_system_api.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
 #if defined(OS_CHROMEOS)
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/testing_pref_service.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/test/base/testing_browser_process.h"
+#include "components/prefs/testing_pref_service.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
@@ -316,7 +320,8 @@ TEST_F(FileSystemApiConsentProviderTest, ForNonKioskApps) {
   // Component apps are not granted unless they are whitelisted.
   {
     scoped_refptr<Extension> component_extension(
-        test_util::BuildApp(ExtensionBuilder().SetLocation(Manifest::COMPONENT))
+        test_util::BuildApp(
+            std::move(ExtensionBuilder().SetLocation(Manifest::COMPONENT)))
             .Build());
     TestingConsentProviderDelegate delegate;
     ConsentProvider provider(&delegate);
@@ -327,7 +332,8 @@ TEST_F(FileSystemApiConsentProviderTest, ForNonKioskApps) {
   // user.
   {
     scoped_refptr<Extension> whitelisted_component_extension(
-        test_util::BuildApp(ExtensionBuilder().SetLocation(Manifest::COMPONENT))
+        test_util::BuildApp(
+            std::move(ExtensionBuilder().SetLocation(Manifest::COMPONENT)))
             .Build());
     TestingConsentProviderDelegate delegate;
     delegate.SetComponentWhitelist(whitelisted_component_extension->id());
@@ -361,7 +367,7 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
   // instantly without asking for user consent, but with a notification.
   {
     scoped_refptr<Extension> auto_launch_kiosk_app(
-        test_util::BuildApp(ExtensionBuilder().Pass())
+        test_util::BuildApp(ExtensionBuilder())
             .MergeManifest(DictionaryBuilder()
                                .SetBoolean("kiosk_enabled", true)
                                .SetBoolean("kiosk_only", true))
@@ -390,7 +396,7 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
   // Non-component apps in manual-launch kiosk mode will be granted access after
   // receiving approval from the user.
   scoped_refptr<Extension> manual_launch_kiosk_app(
-      test_util::BuildApp(ExtensionBuilder().Pass())
+      test_util::BuildApp(ExtensionBuilder())
           .MergeManifest(DictionaryBuilder()
                              .SetBoolean("kiosk_enabled", true)
                              .SetBoolean("kiosk_only", true))

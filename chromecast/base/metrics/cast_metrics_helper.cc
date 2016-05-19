@@ -226,6 +226,11 @@ void CastMetricsHelper::SetRecordActionCallback(
   record_action_callback_ = callback;
 }
 
+void CastMetricsHelper::SetDummySessionIdForTesting() {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  session_id_ = "00000000-0000-0000-0000-000000000000";
+}
+
 void CastMetricsHelper::RecordSimpleAction(const std::string& action) {
   MAKE_SURE_THREAD(RecordSimpleAction, action);
 

@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_GUEST_VIEW_WEB_VIEW_CHROME_WEB_VIEW_GUEST_DELEGATE_H_
 #define CHROME_BROWSER_GUEST_VIEW_WEB_VIEW_CHROME_WEB_VIEW_GUEST_DELEGATE_H_
 
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/web_view/chrome_web_view_internal_api.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest_delegate.h"
@@ -29,7 +31,7 @@ class ChromeWebViewGuestDelegate : public WebViewGuestDelegate {
   // WebViewGuestDelegate implementation.
   bool HandleContextMenu(const content::ContextMenuParams& params) override;
   void OnDidInitialize() override;
-  void OnShowContextMenu(int request_id, const MenuItemVector* items) override;
+  void OnShowContextMenu(int request_id) override;
   bool ShouldHandleFindRequestsForEmbedder() const override;
 
   WebViewGuest* web_view_guest() const { return web_view_guest_; }

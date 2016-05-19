@@ -5,11 +5,14 @@
 #ifndef NET_SPDY_TEST_UTILS_H_
 #define NET_SPDY_TEST_UTILS_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <string>
 
+#include "base/strings/string_piece.h"
 #include "net/spdy/spdy_header_block.h"
+#include "net/spdy/spdy_headers_handler_interface.h"
 #include "net/spdy/spdy_protocol.h"
 
 namespace net {
@@ -17,9 +20,9 @@ namespace net {
 class HashValue;
 class TransportSecurityState;
 
-inline bool operator==(StringPiece x,
+inline bool operator==(base::StringPiece x,
                        const SpdyHeaderBlock::StringPieceProxy& y) {
-  return x == y.operator StringPiece();
+  return x == y.operator base::StringPiece();
 }
 
 namespace test {
@@ -35,7 +38,7 @@ void CompareCharArraysWithHexError(
     const int expected_len);
 
 void SetFrameFlags(SpdyFrame* frame,
-                   uint8 flags,
+                   uint8_t flags,
                    SpdyMajorVersion spdy_version);
 
 void SetFrameLength(SpdyFrame* frame,
@@ -56,6 +59,28 @@ void AddPin(TransportSecurityState* state,
             const std::string& host,
             uint8_t primary_label,
             uint8_t backup_label);
+
+// A test implementation of SpdyHeadersHandlerInterface that correctly
+// reconstructs multiple header values for the same name.
+class TestHeadersHandler : public SpdyHeadersHandlerInterface {
+ public:
+  TestHeadersHandler() : header_bytes_parsed_(0) {}
+
+  void OnHeaderBlockStart() override;
+
+  void OnHeader(base::StringPiece name, base::StringPiece value) override;
+
+  void OnHeaderBlockEnd(size_t header_bytes_parsed) override;
+
+  const SpdyHeaderBlock& decoded_block() const { return block_; }
+  size_t header_bytes_parsed() { return header_bytes_parsed_; }
+
+ private:
+  SpdyHeaderBlock block_;
+  size_t header_bytes_parsed_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestHeadersHandler);
+};
 
 }  // namespace test
 }  // namespace net

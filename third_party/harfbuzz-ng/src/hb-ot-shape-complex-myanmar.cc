@@ -199,6 +199,10 @@ set_myanmar_properties (hb_glyph_info_t &info)
       cat = (indic_category_t) OT_A;
       break;
 
+    case 0x1039u:
+      cat = (indic_category_t) OT_H;
+      break;
+
     case 0x103Au:
       cat = (indic_category_t) OT_As;
       break;
@@ -447,7 +451,7 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
 
   buffer->idx = 0;
   unsigned int last_syllable = 0;
-  while (buffer->idx < buffer->len)
+  while (buffer->idx < buffer->len && !buffer->in_error)
   {
     unsigned int syllable = buffer->cur().syllable();
     syllable_type_t syllable_type = (syllable_type_t) (syllable & 0x0F);

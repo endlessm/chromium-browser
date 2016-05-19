@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "webcontentdecryptionmodule_impl.h"
+#include "media/blink/webcontentdecryptionmodule_impl.h"
 
-#include "base/basictypes.h"
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
@@ -16,8 +17,9 @@
 #include "media/blink/cdm_result_promise.h"
 #include "media/blink/cdm_session_adapter.h"
 #include "media/blink/webcontentdecryptionmodulesession_impl.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 #include "url/gurl.h"
 
 namespace media {
@@ -61,7 +63,8 @@ void WebContentDecryptionModuleImpl::Create(
     return;
   }
 
-  GURL security_origin_as_gurl(security_origin.toString());
+  GURL security_origin_as_gurl(
+      blink::WebStringToGURL(security_origin.toString()));
 
   // CdmSessionAdapter::CreateCdm() will keep a reference to |adapter|. Then
   // if WebContentDecryptionModuleImpl is successfully created (returned in
@@ -69,7 +72,7 @@ void WebContentDecryptionModuleImpl::Create(
   // be destructed.
   scoped_refptr<CdmSessionAdapter> adapter(new CdmSessionAdapter());
   adapter->CreateCdm(cdm_factory, key_system_ascii, security_origin_as_gurl,
-                     cdm_config, result.Pass());
+                     cdm_config, std::move(result));
 }
 
 WebContentDecryptionModuleImpl::WebContentDecryptionModuleImpl(
@@ -87,13 +90,13 @@ WebContentDecryptionModuleImpl::createSession() {
 }
 
 void WebContentDecryptionModuleImpl::setServerCertificate(
-    const uint8* server_certificate,
+    const uint8_t* server_certificate,
     size_t server_certificate_length,
     blink::WebContentDecryptionModuleResult result) {
   DCHECK(server_certificate);
   adapter_->SetServerCertificate(
-      std::vector<uint8>(server_certificate,
-                         server_certificate + server_certificate_length),
+      std::vector<uint8_t>(server_certificate,
+                           server_certificate + server_certificate_length),
       scoped_ptr<SimpleCdmPromise>(
           new CdmResultPromise<>(result, std::string())));
 }

@@ -4,6 +4,8 @@
 
 #include "content/common/gpu/media/android_video_decode_accelerator.h"
 
+#include <stdint.h>
+
 #include "base/android/jni_android.h"
 #include "base/bind.h"
 #include "base/logging.h"
@@ -12,7 +14,7 @@
 #include "content/common/gpu/media/android_copying_backing_strategy.h"
 #include "content/common/gpu/media/android_video_decode_accelerator.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
-#include "media/base/android/media_codec_bridge.h"
+#include "media/base/android/media_codec_util.h"
 #include "media/base/android/media_jni_registrar.h"
 #include "media/video/picture.h"
 #include "media/video/video_decode_accelerator.h"
@@ -29,9 +31,6 @@ bool MockMakeContextCurrent() {
 
 namespace content {
 
-// TODO(felipeg): Add more unit tests to test the ordinary behavior of
-// AndroidVideoDecodeAccelerator.
-// http://crbug.com/178647
 class MockVideoDecodeAcceleratorClient
     : public media::VideoDecodeAccelerator::Client {
  public:
@@ -39,12 +38,12 @@ class MockVideoDecodeAcceleratorClient
   ~MockVideoDecodeAcceleratorClient() override {}
 
   // VideoDecodeAccelerator::Client implementation.
-  void ProvidePictureBuffers(uint32 requested_num_of_buffers,
+  void ProvidePictureBuffers(uint32_t requested_num_of_buffers,
                              const gfx::Size& dimensions,
-                             uint32 texture_target) override {}
-  void DismissPictureBuffer(int32 picture_buffer_id) override {}
+                             uint32_t texture_target) override {}
+  void DismissPictureBuffer(int32_t picture_buffer_id) override {}
   void PictureReady(const media::Picture& picture) override {}
-  void NotifyEndOfBitstreamBuffer(int32 bitstream_buffer_id) override {}
+  void NotifyEndOfBitstreamBuffer(int32_t bitstream_buffer_id) override {}
   void NotifyFlushDone() override {}
   void NotifyResetDone() override {}
   void NotifyError(media::VideoDecodeAccelerator::Error error) override {}
@@ -58,8 +57,6 @@ class AndroidVideoDecodeAcceleratorTest : public testing::Test {
   void SetUp() override {
     JNIEnv* env = base::android::AttachCurrentThread();
     media::RegisterJni(env);
-    // TODO(felipeg): fix GL bindings, so that the decoder can perform GL
-    // calls.
 
     // Start message loop because
     // AndroidVideoDecodeAccelerator::ConfigureMediaCodec() starts a timer task.
@@ -70,14 +67,15 @@ class AndroidVideoDecodeAcceleratorTest : public testing::Test {
     scoped_ptr<MockVideoDecodeAcceleratorClient> client(
         new MockVideoDecodeAcceleratorClient());
     accelerator_.reset(new AndroidVideoDecodeAccelerator(
-        decoder->AsWeakPtr(), base::Bind(&MockMakeContextCurrent),
-        make_scoped_ptr(new AndroidCopyingBackingStrategy())));
+        decoder->AsWeakPtr(), base::Bind(&MockMakeContextCurrent)));
   }
 
   bool Configure(media::VideoCodec codec) {
     AndroidVideoDecodeAccelerator* accelerator =
         static_cast<AndroidVideoDecodeAccelerator*>(accelerator_.get());
-    accelerator->surface_texture_ = gfx::SurfaceTexture::Create(0);
+    scoped_refptr<gfx::SurfaceTexture> surface_texture =
+        gfx::SurfaceTexture::Create(0);
+    accelerator->surface_ = gfx::ScopedJavaSurface(surface_texture.get());
     accelerator->codec_ = codec;
     return accelerator->ConfigureMediaCodec();
   }
@@ -92,7 +90,7 @@ TEST_F(AndroidVideoDecodeAcceleratorTest, ConfigureUnsupportedCodec) {
 }
 
 TEST_F(AndroidVideoDecodeAcceleratorTest, ConfigureSupportedCodec) {
-  if (!media::MediaCodecBridge::IsAvailable())
+  if (!media::MediaCodecUtil::IsMediaCodecAvailable())
     return;
   EXPECT_TRUE(Configure(media::kCodecVP8));
 }

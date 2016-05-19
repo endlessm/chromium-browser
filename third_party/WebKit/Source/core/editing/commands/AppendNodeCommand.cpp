@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/AppendNodeCommand.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -42,7 +41,7 @@ AppendNodeCommand::AppendNodeCommand(PassRefPtrWillBeRawPtr<ContainerNode> paren
     ASSERT(m_parent->hasEditableStyle() || !m_parent->inActiveDocument());
 }
 
-void AppendNodeCommand::doApply()
+void AppendNodeCommand::doApply(EditingState*)
 {
     if (!m_parent->hasEditableStyle() && m_parent->inActiveDocument())
         return;

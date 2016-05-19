@@ -4,7 +4,11 @@
 
 #include "extensions/browser/api/cast_channel/cast_transport.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/format_macros.h"
@@ -143,7 +147,7 @@ proto::ErrorState CastTransportImpl::ErrorStateToProto(ChannelError state) {
 void CastTransportImpl::SetReadDelegate(scoped_ptr<Delegate> delegate) {
   DCHECK(CalledOnValidThread());
   DCHECK(delegate);
-  delegate_ = delegate.Pass();
+  delegate_ = std::move(delegate);
   if (started_) {
     delegate_->Start();
   }
@@ -192,6 +196,9 @@ CastTransportImpl::WriteRequest::WriteRequest(
   io_buffer = new net::DrainableIOBuffer(new net::StringIOBuffer(payload),
                                          payload.size());
 }
+
+CastTransportImpl::WriteRequest::WriteRequest(const WriteRequest& other) =
+    default;
 
 CastTransportImpl::WriteRequest::~WriteRequest() {
 }
@@ -408,7 +415,7 @@ int CastTransportImpl::DoRead() {
 
   // Read up to num_bytes_to_read into |current_read_buffer_|.
   return socket_->Read(
-      read_buffer_.get(), base::checked_cast<uint32>(num_bytes_to_read),
+      read_buffer_.get(), base::checked_cast<uint32_t>(num_bytes_to_read),
       base::Bind(&CastTransportImpl::OnReadResult, base::Unretained(this)));
 }
 
@@ -431,7 +438,7 @@ int CastTransportImpl::DoReadComplete(int result) {
     logger_->LogSocketEventForMessage(
         channel_id_, proto::MESSAGE_READ, current_message_->namespace_(),
         base::StringPrintf("Message size: %u",
-                           static_cast<uint32>(message_size)));
+                           static_cast<uint32_t>(message_size)));
     SetReadState(READ_STATE_DO_CALLBACK);
   } else if (framing_error != CHANNEL_ERROR_NONE) {
     DCHECK(!current_message_);

@@ -5,15 +5,17 @@
 #ifndef CHROME_BROWSER_CHROMEOS_APP_MODE_KIOSK_APP_MANAGER_H_
 #define CHROME_BROWSER_CHROMEOS_APP_MODE_KIOSK_APP_MANAGER_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
+#include "base/time/time.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_data_delegate.h"
 #include "chrome/browser/chromeos/extensions/external_cache.h"
 #include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
@@ -71,6 +73,7 @@ class KioskAppManager : public KioskAppDataDelegate,
     std::string user_id;
     std::string name;
     gfx::ImageSkia icon;
+    std::string required_platform_version;
     bool is_loading;
     bool was_auto_launched_with_zero_delay;
   };
@@ -134,6 +137,10 @@ class KioskAppManager : public KioskAppDataDelegate,
 
   // Enable auto launch setter.
   void SetEnableAutoLaunch(bool value);
+
+  // Returns the cached required platform version of the auto launch with
+  // zero delay kiosk app.
+  std::string GetAutoLaunchAppRequiredPlatformVersion() const;
 
   // Adds/removes a kiosk app by id. When removed, all locally cached data
   // will be removed as well.
@@ -228,7 +235,7 @@ class KioskAppManager : public KioskAppDataDelegate,
 
  private:
   friend struct base::DefaultLazyInstanceTraits<KioskAppManager>;
-  friend struct base::DefaultDeleter<KioskAppManager>;
+  friend std::default_delete<KioskAppManager>;
   friend class KioskAppManagerTest;
   friend class KioskTest;
   friend class KioskUpdateTest;
@@ -287,6 +294,9 @@ class KioskAppManager : public KioskAppDataDelegate,
 
   void GetCrxCacheDir(base::FilePath* cache_dir);
   void GetCrxUnpackDir(base::FilePath* unpack_dir);
+
+  // Returns the auto launch delay.
+  base::TimeDelta GetAutoLaunchDelay() const;
 
   // True if machine ownership is already established.
   bool ownership_established_;

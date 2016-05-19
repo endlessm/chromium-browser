@@ -10,12 +10,12 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/precache/precache_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/precache/content/precache_manager.h"
+#include "components/prefs/pref_service.h"
 #include "jni/PrecacheLauncher_jni.h"
 
 using base::android::AttachCurrentThread;
@@ -47,11 +47,11 @@ PrecacheLauncher::PrecacheLauncher(JNIEnv* env, jobject obj)
 
 PrecacheLauncher::~PrecacheLauncher() {}
 
-void PrecacheLauncher::Destroy(JNIEnv* env, jobject obj) {
+void PrecacheLauncher::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-void PrecacheLauncher::Start(JNIEnv* env, jobject obj) {
+void PrecacheLauncher::Start(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   // TODO(bengr): Add integration tests for the whole feature.
   Profile* profile = GetProfile();
 
@@ -66,7 +66,7 @@ void PrecacheLauncher::Start(JNIEnv* env, jobject obj) {
       &PrecacheLauncher::OnPrecacheCompleted, weak_factory_.GetWeakPtr()));
 }
 
-void PrecacheLauncher::Cancel(JNIEnv* env, jobject obj) {
+void PrecacheLauncher::Cancel(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   Profile* profile = GetProfile();
   PrecacheManager* precache_manager = GetPrecacheManager(profile);
 

@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/prefs/pref_member.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
+#include "build/build_config.h"
 #include "chrome/browser/sync/test/integration/bookmarks_helper.h"
 #include "chrome/browser/sync/test/integration/passwords_helper.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
@@ -13,6 +13,8 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/common/pref_names.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/prefs/pref_member.h"
+#include "components/prefs/pref_service.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "sync/protocol/sync_protocol_error.h"
 
@@ -30,7 +32,7 @@ class SyncDisabledChecker : public SingleClientStatusChangeChecker {
 
   bool IsExitConditionSatisfied() override {
     return !service()->IsSetupInProgress() &&
-           !service()->HasSyncSetupCompleted();
+           !service()->IsFirstSetupComplete();
   }
 
   std::string GetDebugMessage() const override { return "Sync Disabled"; }
@@ -163,41 +165,32 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, ActionableErrorTest) {
   ASSERT_EQ(status.sync_protocol_error.error_description, description);
 }
 
-// TODO(sync): Fix failing test on Chrome OS: http://crbug.com/351160
-IN_PROC_BROWSER_TEST_F(SyncErrorTest, DISABLED_ErrorWhileSettingUpAutoStart) {
+// This test verifies that sync keeps retrying if it encounters error during
+// setup.
+IN_PROC_BROWSER_TEST_F(SyncErrorTest, ErrorWhileSettingUp) {
   ASSERT_TRUE(SetupClients());
-  ASSERT_TRUE(GetSyncService(0)->auto_start_enabled());
 
-  // In auto start enabled platforms like chrome os we should be
-  // able to set up even if the first sync while setting up fails.
-  EXPECT_TRUE(GetFakeServer()->TriggerError(
-      sync_pb::SyncEnums::TRANSIENT_ERROR));
-  EXPECT_TRUE(GetFakeServer()->EnableAlternatingTriggeredErrors());
-  // Now setup sync and it should succeed.
-  ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-}
-
-#if defined(OS_CHROMEOS)
-#define MAYBE_ErrorWhileSettingUp DISABLED_ErrorWhileSettingUp
-#else
-#define MAYBE_ErrorWhileSettingUp ErrorWhileSettingUp
-#endif
-IN_PROC_BROWSER_TEST_F(SyncErrorTest, MAYBE_ErrorWhileSettingUp) {
-  ASSERT_TRUE(SetupClients());
-  ASSERT_FALSE(GetSyncService(0)->auto_start_enabled());
-
-  // In Non auto start enabled environments if the setup sync fails then
+#if !defined(OS_CHROMEOS)
+  // On non auto start enabled environments if the setup sync fails then
   // the setup would fail. So setup sync normally.
+  // In contrast on auto start enabled platforms like chrome os we should be
+  // able to set up even if the first sync while setting up fails.
   ASSERT_TRUE(SetupSync()) << "Setup sync failed";
   ASSERT_TRUE(GetClient(0)->DisableSyncForDatatype(syncer::AUTOFILL));
+#endif
 
   EXPECT_TRUE(GetFakeServer()->TriggerError(
       sync_pb::SyncEnums::TRANSIENT_ERROR));
   EXPECT_TRUE(GetFakeServer()->EnableAlternatingTriggeredErrors());
 
+#if defined(OS_CHROMEOS)
+  // Now setup sync and it should succeed.
+  ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
+#else
   // Now enable a datatype, whose first 2 syncs would fail, but we should
   // recover and setup succesfully on the third attempt.
   ASSERT_TRUE(GetClient(0)->EnableSyncForDatatype(syncer::AUTOFILL));
+#endif
 }
 
 IN_PROC_BROWSER_TEST_F(SyncErrorTest, BirthdayErrorUsingActionableErrorTest) {

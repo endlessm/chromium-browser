@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 
 namespace content {
@@ -25,9 +26,11 @@ bool SandboxedProcessLauncherDelegate::PreSpawnTarget(
 }
 
 #elif(OS_POSIX)
-bool SandboxedProcessLauncherDelegate::ShouldUseZygote() {
-  return false;
+#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
+ZygoteHandle* SandboxedProcessLauncherDelegate::GetZygote() {
+  return nullptr;
 }
+#endif  // !defined(OS_MACOSX) && !defined(OS_ANDROID)
 
 base::EnvironmentMap SandboxedProcessLauncherDelegate::GetEnvironment() {
   return base::EnvironmentMap();

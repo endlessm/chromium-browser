@@ -9,12 +9,15 @@
 #ifndef CHROME_BROWSER_SIGNIN_LOCAL_AUTH_H_
 #define CHROME_BROWSER_SIGNIN_LOCAL_AUTH_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/gtest_prod_util.h"
 
 class LocalAuthTest;
 class Profile;
+class ProfileAttributesEntry;
 
 namespace user_prefs {
 class PrefRegistrySyncable;
@@ -25,14 +28,13 @@ class LocalAuth {
   static void RegisterLocalAuthPrefs(
       user_prefs::PrefRegistrySyncable* registry);
 
-  static void SetLocalAuthCredentials(size_t profile_info_index,
+  static void SetLocalAuthCredentials(ProfileAttributesEntry* entry,
                                       const std::string& password);
-
 
   static void SetLocalAuthCredentials(const Profile* profile,
                                       const std::string& password);
 
-  static bool ValidateLocalAuthCredentials(size_t profile_info_index,
+  static bool ValidateLocalAuthCredentials(ProfileAttributesEntry* entry,
                                            const std::string& password);
 
   static bool ValidateLocalAuthCredentials(const Profile* profile,
@@ -48,7 +50,7 @@ class LocalAuth {
   static std::string TruncateStringByBits(const std::string& str,
                                           const size_t len_bits);
 
-  static void SetLocalAuthCredentialsWithEncoding(size_t profile_info_index,
+  static void SetLocalAuthCredentialsWithEncoding(ProfileAttributesEntry* entry,
                                                   const std::string& password,
                                                   char encoding_version);
 };

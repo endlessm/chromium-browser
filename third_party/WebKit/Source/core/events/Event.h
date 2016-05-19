@@ -123,6 +123,7 @@ public:
 
     bool bubbles() const { return m_canBubble; }
     bool cancelable() const { return m_cancelable; }
+    bool scoped() const { return m_scoped; }
 
     // Event creation timestamp in milliseconds. If |HiResEventTimeStamp|
     // runtime feature is enabled it returns a DOMHighResTimeStamp using the
@@ -131,7 +132,6 @@ public:
     // |m_createTime|). For more info see http://crbug.com/160524
     double timeStamp(ScriptState*) const;
     double platformTimeStamp() const { return m_platformTimeStamp; }
-    void setPlatformTimeStamp(double platformTimeStamp) { m_platformTimeStamp = platformTimeStamp; }
     DOMTimeStamp createTime() const { return m_createTime; }
 
     void stopPropagation() { m_propagationStopped = true; }
@@ -156,6 +156,7 @@ public:
     virtual bool isWheelEvent() const;
     virtual bool isRelatedEvent() const;
     virtual bool isPointerEvent() const;
+    virtual bool isInputEvent() const;
 
     // Drag events are a subset of mouse events.
     virtual bool isDragEvent() const;
@@ -170,11 +171,7 @@ public:
     bool immediatePropagationStopped() const { return m_immediatePropagationStopped; }
 
     bool defaultPrevented() const { return m_defaultPrevented; }
-    virtual void preventDefault()
-    {
-        if (m_cancelable)
-            m_defaultPrevented = true;
-    }
+    virtual void preventDefault();
     void setDefaultPrevented(bool defaultPrevented) { m_defaultPrevented = defaultPrevented; }
 
     bool defaultHandled() const { return m_defaultHandled; }
@@ -190,6 +187,7 @@ public:
     void initEventPath(Node&);
 
     WillBeHeapVector<RefPtrWillBeMember<EventTarget>> path(ScriptState*) const;
+    WillBeHeapVector<RefPtrWillBeMember<EventTarget>> deepPath(ScriptState*) const;
 
     bool isBeingDispatched() const { return eventPhase(); }
 
@@ -202,11 +200,16 @@ public:
     bool isTrusted() const { return m_isTrusted; }
     void setTrusted(bool value) { m_isTrusted = value; }
 
+    void setHandlingPassive(bool value) { m_handlingPassive = value; }
+
     DECLARE_VIRTUAL_TRACE();
 
 protected:
     Event();
     Event(const AtomicString& type, bool canBubble, bool cancelable);
+    Event(const AtomicString& type, bool canBubble, bool cancelable, double platformTimeStamp);
+    Event(const AtomicString& type, bool canBubble, bool cancelable, bool scoped);
+    Event(const AtomicString& type, bool canBubble, bool cancelable, bool scoped, double platformTimeStamp);
     Event(const AtomicString& type, const EventInit&);
 
     virtual void receivedTarget();
@@ -215,9 +218,17 @@ protected:
     void setCanBubble(bool bubble) { m_canBubble = bubble; }
 
 private:
+    enum EventPathMode {
+        EmptyAfterDispatch,
+        NonEmptyAfterDispatch
+    };
+
+    WillBeHeapVector<RefPtrWillBeMember<EventTarget>> pathInternal(ScriptState*, EventPathMode) const;
+
     AtomicString m_type;
     unsigned m_canBubble:1;
     unsigned m_cancelable:1;
+    unsigned m_scoped:1;
 
     unsigned m_propagationStopped:1;
     unsigned m_immediatePropagationStopped:1;
@@ -225,6 +236,7 @@ private:
     unsigned m_defaultHandled:1;
     unsigned m_cancelBubble:1;
     unsigned m_isTrusted : 1;
+    unsigned m_handlingPassive : 1;
 
     unsigned short m_eventPhase;
     RefPtrWillBeMember<EventTarget> m_currentTarget;

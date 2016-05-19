@@ -5,7 +5,11 @@
 #ifndef SYNC_ENGINE_MODEL_TYPE_WORKER_H_
 #define SYNC_ENGINE_MODEL_TYPE_WORKER_H_
 
-#include "base/containers/scoped_ptr_map.h"
+#include <stddef.h>
+
+#include <map>
+#include <string>
+
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/non_thread_safe.h"
@@ -17,6 +21,7 @@
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/non_blocking_sync_common.h"
 #include "sync/internal_api/public/sync_encryption_handler.h"
+#include "sync/protocol/data_type_state.pb.h"
 #include "sync/protocol/sync.pb.h"
 #include "sync/util/cryptographer.h"
 
@@ -55,8 +60,7 @@ class SYNC_EXPORT ModelTypeWorker : public syncer::UpdateHandler,
                                     public base::NonThreadSafe {
  public:
   ModelTypeWorker(syncer::ModelType type,
-                  const DataTypeState& initial_state,
-                  const UpdateResponseDataList& saved_pending_updates,
+                  const sync_pb::DataTypeState& initial_state,
                   scoped_ptr<syncer::Cryptographer> cryptographer,
                   syncer::NudgeHandler* nudge_handler,
                   scoped_ptr<ModelTypeProcessor> model_type_processor);
@@ -92,7 +96,7 @@ class SYNC_EXPORT ModelTypeWorker : public syncer::UpdateHandler,
   base::WeakPtr<ModelTypeWorker> AsWeakPtr();
 
  private:
-  typedef base::ScopedPtrMap<std::string, scoped_ptr<EntityTracker>> EntityMap;
+  using EntityMap = std::map<std::string, scoped_ptr<EntityTracker>>;
 
   // Stores a single commit request in this object's internal state.
   void StorePendingCommit(const CommitRequestData& request);
@@ -135,7 +139,7 @@ class SYNC_EXPORT ModelTypeWorker : public syncer::UpdateHandler,
   syncer::ModelType type_;
 
   // State that applies to the entire model type.
-  DataTypeState data_type_state_;
+  sync_pb::DataTypeState data_type_state_;
 
   // Pointer to the ModelTypeProcessor associated with this worker.
   // This is NULL when no proxy is connected..
@@ -165,6 +169,6 @@ class SYNC_EXPORT ModelTypeWorker : public syncer::UpdateHandler,
   base::WeakPtrFactory<ModelTypeWorker> weak_ptr_factory_;
 };
 
-}  // namespace syncer
+}  // namespace syncer_v2
 
 #endif  // SYNC_ENGINE_MODEL_TYPE_WORKER_H_

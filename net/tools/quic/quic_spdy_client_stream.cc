@@ -7,6 +7,8 @@
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "net/quic/quic_alarm.h"
+#include "net/quic/quic_client_promised_info.h"
 #include "net/quic/spdy_utils.h"
 #include "net/spdy/spdy_protocol.h"
 #include "net/tools/quic/quic_client_session.h"
@@ -17,7 +19,6 @@ using std::string;
 using base::StringToInt;
 
 namespace net {
-namespace tools {
 
 QuicSpdyClientStream::QuicSpdyClientStream(QuicStreamId id,
                                            QuicClientSession* session)
@@ -26,10 +27,10 @@ QuicSpdyClientStream::QuicSpdyClientStream(QuicStreamId id,
       response_code_(0),
       header_bytes_read_(0),
       header_bytes_written_(0),
-      allow_bidirectional_data_(false) {}
+      allow_bidirectional_data_(false),
+      session_(session) {}
 
-QuicSpdyClientStream::~QuicSpdyClientStream() {
-}
+QuicSpdyClientStream::~QuicSpdyClientStream() {}
 
 void QuicSpdyClientStream::OnStreamFrame(const QuicStreamFrame& frame) {
   if (!allow_bidirectional_data_ && !write_side_closed()) {
@@ -40,19 +41,79 @@ void QuicSpdyClientStream::OnStreamFrame(const QuicStreamFrame& frame) {
   QuicSpdyStream::OnStreamFrame(frame);
 }
 
-void QuicSpdyClientStream::OnStreamHeadersComplete(bool fin,
-                                                   size_t frame_len) {
-  header_bytes_read_ = frame_len;
-  QuicSpdyStream::OnStreamHeadersComplete(fin, frame_len);
-  if (!ParseResponseHeaders(decompressed_headers().data(),
-                            decompressed_headers().length())) {
+void QuicSpdyClientStream::OnInitialHeadersComplete(bool fin,
+                                                    size_t frame_len) {
+  QuicSpdyStream::OnInitialHeadersComplete(fin, frame_len);
+
+  DCHECK(headers_decompressed());
+  header_bytes_read_ += frame_len;
+  if (!SpdyUtils::ParseHeaders(decompressed_headers().data(),
+                               decompressed_headers().length(),
+                               &content_length_, &response_headers_)) {
+    Reset(QUIC_BAD_APPLICATION_PAYLOAD);
+    return;
+  }
+
+  string status = response_headers_[":status"].as_string();
+  size_t end = status.find(" ");
+  if (end != string::npos) {
+    status.erase(end);
+  }
+  if (!StringToInt(status, &response_code_)) {
+    // Invalid response code.
     Reset(QUIC_BAD_APPLICATION_PAYLOAD);
     return;
   }
   MarkHeadersConsumed(decompressed_headers().length());
+  DVLOG(1) << "headers complete for stream " << id();
+
+  session_->OnInitialHeadersComplete(id(), response_headers_);
+}
+
+void QuicSpdyClientStream::OnTrailingHeadersComplete(bool fin,
+                                                     size_t frame_len) {
+  QuicSpdyStream::OnTrailingHeadersComplete(fin, frame_len);
+
+  size_t final_byte_offset = 0;
+  if (!SpdyUtils::ParseTrailers(decompressed_trailers().data(),
+                                decompressed_trailers().length(),
+                                &final_byte_offset, &response_trailers_)) {
+    Reset(QUIC_BAD_APPLICATION_PAYLOAD);
+    return;
+  }
+  MarkTrailersConsumed(decompressed_trailers().length());
+
+  // The data on this stream ends at |final_byte_offset|.
+  DVLOG(1) << "Stream ends at byte offset: " << final_byte_offset
+           << "  currently read: " << stream_bytes_read();
+  OnStreamFrame(
+      QuicStreamFrame(id(), /*fin=*/true, final_byte_offset, StringPiece()));
+}
+
+void QuicSpdyClientStream::OnPromiseHeadersComplete(QuicStreamId promised_id,
+                                                    size_t frame_len) {
+  header_bytes_read_ += frame_len;
+  int content_length = -1;
+  SpdyHeaderBlock promise_headers;
+  if (!SpdyUtils::ParseHeaders(decompressed_headers().data(),
+                               decompressed_headers().length(), &content_length,
+                               &promise_headers)) {
+    Reset(QUIC_BAD_APPLICATION_PAYLOAD);
+    return;
+  }
+  MarkHeadersConsumed(decompressed_headers().length());
+
+  session_->HandlePromised(promised_id, promise_headers);
 }
 
 void QuicSpdyClientStream::OnDataAvailable() {
+  if (FLAGS_quic_supports_push_promise) {
+    // For push streams, visitor will not be set until the rendezvous
+    // between server promise and client request is complete.
+    if (visitor() == nullptr)
+      return;
+  }
+
   while (HasBytesToRead()) {
     struct iovec iov;
     if (GetReadableRegions(&iov, 1) == 0) {
@@ -77,38 +138,12 @@ void QuicSpdyClientStream::OnDataAvailable() {
   }
 }
 
-bool QuicSpdyClientStream::ParseResponseHeaders(const char* data,
-                                                uint32 data_len) {
-  DCHECK(headers_decompressed());
-  SpdyFramer framer(HTTP2);
-  if (!framer.ParseHeaderBlockInBuffer(data, data_len, &response_headers_) ||
-      response_headers_.empty()) {
-    return false;  // Headers were invalid.
-  }
-
-  if (ContainsKey(response_headers_, "content-length") &&
-      !StringToInt(StringPiece(response_headers_["content-length"]),
-                   &content_length_)) {
-    return false;  // Invalid content-length.
-  }
-  string status = response_headers_[":status"].as_string();
-  size_t end = status.find(" ");
-  if (end != string::npos) {
-    status.erase(end);
-  }
-  if (!StringToInt(status, &response_code_)) {
-    return false;  // Invalid response code.
-  }
-  return true;
-}
-
 size_t QuicSpdyClientStream::SendRequest(const SpdyHeaderBlock& headers,
                                          StringPiece body,
                                          bool fin) {
   bool send_fin_with_headers = fin && body.empty();
   size_t bytes_sent = body.size();
-  header_bytes_written_ =
-      WriteHeaders(headers, send_fin_with_headers, nullptr);
+  header_bytes_written_ = WriteHeaders(headers, send_fin_with_headers, nullptr);
   bytes_sent += header_bytes_written_;
 
   if (!body.empty()) {
@@ -128,5 +163,4 @@ void QuicSpdyClientStream::SendBody(const string& data,
   WriteOrBufferData(data, fin, listener);
 }
 
-}  // namespace tools
 }  // namespace net

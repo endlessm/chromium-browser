@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_DATA_USAGE_ANDROID_TRAFFIC_STATS_AMORTIZER_H_
 #define COMPONENTS_DATA_USAGE_ANDROID_TRAFFIC_STATS_AMORTIZER_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <utility>
@@ -43,7 +44,11 @@ class TrafficStatsAmortizer : public DataUseAmortizer {
 
   // Amortizes any unincluded network bytes overhead for |data_use| into
   // |data_use|, and passes the updated |data_use| to |callback| once
-  // amortization is complete.
+  // amortization is complete. The TrafficStatsAmortizer may combine together
+  // consecutive |data_use| objects that have the same |callback| if the
+  // |data_use| objects are identical in all ways but their byte counts, such
+  // that |callback| will only be called once with the single combined DataUse
+  // object.
   void AmortizeDataUse(scoped_ptr<DataUse> data_use,
                        const AmortizationCompleteCallback& callback) override;
 

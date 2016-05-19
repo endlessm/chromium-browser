@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "public/web/WebLeakDetector.h"
 
 #include "bindings/core/v8/ScriptPromise.h"
@@ -37,15 +35,16 @@
 #include "bindings/core/v8/V8GCController.h"
 #include "core/dom/ActiveDOMObject.h"
 #include "core/dom/Document.h"
+#include "core/editing/spellcheck/SpellChecker.h"
 #include "core/fetch/MemoryCache.h"
-#include "core/fetch/ResourceFetcher.h"
 #include "core/inspector/InstanceCounters.h"
 #include "core/layout/LayoutObject.h"
 #include "core/workers/WorkerThread.h"
 #include "modules/webaudio/AudioNode.h"
 #include "platform/Timer.h"
 #include "public/web/WebDocument.h"
-#include "public/web/WebLocalFrame.h"
+#include "public/web/WebFrame.h"
+#include "web/WebLocalFrameImpl.h"
 
 namespace blink {
 
@@ -65,7 +64,8 @@ public:
 
     ~WebLeakDetectorImpl() override {}
 
-    void collectGarbageAndGetDOMCounts(WebLocalFrame*) override;
+    void prepareForLeakDetection(WebFrame*) override;
+    void collectGarbageAndReport() override;
 
 private:
     void delayedGCAndReport(Timer<WebLeakDetectorImpl>*);
@@ -77,7 +77,7 @@ private:
     int m_numberOfGCNeeded;
 };
 
-void WebLeakDetectorImpl::collectGarbageAndGetDOMCounts(WebLocalFrame* frame)
+void WebLeakDetectorImpl::prepareForLeakDetection(WebFrame* frame)
 {
     v8::Isolate* isolate = v8::Isolate::GetCurrent();
     v8::HandleScope handleScope(isolate);
@@ -92,18 +92,26 @@ void WebLeakDetectorImpl::collectGarbageAndGetDOMCounts(WebLocalFrame* frame)
     WorkerThread::terminateAndWaitForAllWorkers();
     memoryCache()->evictResources();
 
-    {
-        RefPtrWillBeRawPtr<Document> document = PassRefPtrWillBeRawPtr<Document>(frame->document());
-        if (ResourceFetcher* fetcher = document->fetcher())
-            fetcher->garbageCollectDocumentResources();
+    // If the spellchecker is allowed to continue issuing requests while the
+    // leak detector runs, leaks may flakily be reported as the requests keep
+    // their associated element (and document) alive.
+    //
+    // Stop the spellchecker to prevent this.
+    if (frame->isWebLocalFrame()) {
+        WebLocalFrameImpl* localFrame = toWebLocalFrameImpl(frame);
+        SpellChecker& spellChecker = localFrame->frame()->spellChecker();
+        spellChecker.prepareForLeakDetection();
     }
 
     // FIXME: HTML5 Notification should be closed because notification affects the result of number of DOM objects.
 
-    V8GCController::collectAllGarbageForTesting(isolate);
-    // Note: Oilpan precise GC is scheduled at the end of the event loop.
-
     V8PerIsolateData::from(isolate)->clearScriptRegexpContext();
+}
+
+void WebLeakDetectorImpl::collectGarbageAndReport()
+{
+    V8GCController::collectAllGarbageForTesting(V8PerIsolateData::mainThreadIsolate());
+    // Note: Oilpan precise GC is scheduled at the end of the event loop.
 
     // Task queue may contain delayed object destruction tasks.
     // This method is called from navigation hook inside FrameLoader,

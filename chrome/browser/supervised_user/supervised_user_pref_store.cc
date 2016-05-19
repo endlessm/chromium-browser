@@ -4,11 +4,11 @@
 
 #include "chrome/browser/supervised_user/supervised_user_pref_store.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/prefs/pref_value_map.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
@@ -19,6 +19,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/prefs/pref_value_map.h"
 #include "components/signin/core/common/signin_pref_names.h"
 #include "content/public/browser/notification_source.h"
 
@@ -111,7 +112,7 @@ SupervisedUserPrefStore::~SupervisedUserPrefStore() {
 
 void SupervisedUserPrefStore::OnNewSettingsAvailable(
     const base::DictionaryValue* settings) {
-  scoped_ptr<PrefValueMap> old_prefs = prefs_.Pass();
+  scoped_ptr<PrefValueMap> old_prefs = std::move(prefs_);
   prefs_.reset(new PrefValueMap);
   if (settings) {
     // Set hardcoded prefs and defaults.
@@ -148,7 +149,7 @@ void SupervisedUserPrefStore::OnNewSettingsAvailable(
       // Reconstruct bookmarks from split settings.
       prefs_->SetValue(
           bookmarks::prefs::kSupervisedBookmarks,
-          SupervisedUserBookmarksHandler::BuildBookmarksTree(*settings).Pass());
+          SupervisedUserBookmarksHandler::BuildBookmarksTree(*settings));
     }
   }
 

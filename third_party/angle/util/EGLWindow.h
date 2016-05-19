@@ -34,10 +34,16 @@ struct EGLPlatformParameters
     EGLint majorVersion;
     EGLint minorVersion;
     EGLint deviceType;
+    EGLint presentPath;
 
     EGLPlatformParameters();
     explicit EGLPlatformParameters(EGLint renderer);
     EGLPlatformParameters(EGLint renderer, EGLint majorVersion, EGLint minorVersion, EGLint deviceType);
+    EGLPlatformParameters(EGLint renderer,
+                          EGLint majorVersion,
+                          EGLint minorVersion,
+                          EGLint deviceType,
+                          EGLint presentPath);
 };
 
 bool operator<(const EGLPlatformParameters &a, const EGLPlatformParameters &b);
@@ -59,6 +65,8 @@ class EGLWindow : angle::NonCopyable
     void setConfigDepthBits(int bits) { mDepthBits = bits; }
     void setConfigStencilBits(int bits) { mStencilBits = bits; }
     void setMultisample(bool multisample) { mMultisample = multisample; }
+    void setDebugEnabled(bool debug) { mDebug = debug; }
+    void setNoErrorEnabled(bool noError) { mNoError = noError; }
     void setSwapInterval(EGLint swapInterval) { mSwapInterval = swapInterval; }
 
     static EGLBoolean FindEGLConfig(EGLDisplay dpy, const EGLint *attrib_list, EGLConfig *config);
@@ -79,6 +87,7 @@ class EGLWindow : angle::NonCopyable
     int getConfigDepthBits() const { return mDepthBits; }
     int getConfigStencilBits() const { return mStencilBits; }
     bool isMultisample() const { return mMultisample; }
+    bool isDebugEnabled() const { return mDebug; }
     EGLint getSwapInterval() const { return mSwapInterval; }
 
     bool initializeGL(OSWindow *osWindow);
@@ -101,6 +110,8 @@ class EGLWindow : angle::NonCopyable
     int mDepthBits;
     int mStencilBits;
     bool mMultisample;
+    bool mDebug;
+    bool mNoError;
     EGLint mSwapInterval;
 };
 

@@ -124,6 +124,8 @@ void SystemTrayDelegate::ShowNetworkSettingsForGuid(const std::string& guid) {
 void SystemTrayDelegate::ShowDisplaySettings() {
 }
 
+void SystemTrayDelegate::ShowPowerSettings() {}
+
 void SystemTrayDelegate::ShowChromeSlow() {
 }
 
@@ -256,11 +258,6 @@ void SystemTrayDelegate::ActiveUserWasChanged() {
 
 bool SystemTrayDelegate::IsSearchKeyMappedToCapsLock() {
   return false;
-}
-
-tray::UserAccountsDelegate* SystemTrayDelegate::GetUserAccountsDelegate(
-    const AccountId& account_id) {
-  return nullptr;
 }
 
 void SystemTrayDelegate::AddCustodianInfoTrayObserver(

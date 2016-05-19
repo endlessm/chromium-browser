@@ -7,16 +7,19 @@
 
 #include <stdint.h>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/devtools/devtools_network_interceptor.h"
 #include "net/base/completion_callback.h"
 #include "net/base/load_states.h"
+#include "net/base/net_error_details.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_transaction.h"
 #include "net/websockets/websocket_handshake_stream_base.h"
 
 class DevToolsNetworkController;
+class DevToolsNetworkUploadDataStream;
 class GURL;
 
 namespace net {
@@ -42,8 +45,7 @@ class DevToolsNetworkControllerHelper;
 // used to simulate network outage. It runs saved callback (if any) with
 // net::ERR_INTERNET_DISCONNECTED result value.
 class DevToolsNetworkTransaction
-    : public net::HttpTransaction,
-      public DevToolsNetworkInterceptor::Throttable {
+    : public net::HttpTransaction {
  public:
   static const char kDevToolsEmulateNetworkConditionsClientId[];
 
@@ -53,13 +55,6 @@ class DevToolsNetworkTransaction
 
   ~DevToolsNetworkTransaction() override;
 
-  // DevToolsNetworkInterceptor::Throttable implementation.
-  void Fail() override;
-  int64_t ThrottledByteCount() override;
-  void Throttled(int64_t count) override;
-  void ThrottleFinished() override;
-  void GetSendEndTiming(base::TimeTicks* send_end) override;
-
   // HttpTransaction methods:
   int Start(const net::HttpRequestInfo* request,
             const net::CompletionCallback& callback,
@@ -67,6 +62,7 @@ class DevToolsNetworkTransaction
   int RestartIgnoringLastError(
       const net::CompletionCallback& callback) override;
   int RestartWithCertificate(net::X509Certificate* client_cert,
+                             net::SSLPrivateKey* client_private_key,
                              const net::CompletionCallback& callback) override;
   int RestartWithAuth(const net::AuthCredentials& credentials,
                       const net::CompletionCallback& callback) override;
@@ -86,6 +82,7 @@ class DevToolsNetworkTransaction
   void SetQuicServerInfo(net::QuicServerInfo* quic_server_info) override;
   bool GetLoadTimingInfo(net::LoadTimingInfo* load_timing_info) const override;
   bool GetRemoteEndpoint(net::IPEndPoint* endpoint) const override;
+  void PopulateNetErrorDetails(net::NetErrorDetails* details) const override;
   void SetPriority(net::RequestPriority priority) override;
   void SetWebSocketHandshakeStreamCreateHelper(
       net::WebSocketHandshakeStreamBase::CreateHelper* create_helper) override;
@@ -100,18 +97,29 @@ class DevToolsNetworkTransaction
   friend class test::DevToolsNetworkControllerHelper;
 
  private:
-  // Checks whether request contains
-  // "X-DevTools-Emulate-Network-Conditions-Client-Id" header.
-  // If it does, header is removed from request, and it's value is returned.
-  void ProcessRequest(std::string* client_id);
+  void Fail();
+  bool CheckFailed();
 
-  // Proxy callback handler. Runs saved callback.
-  void OnCallback(int result);
+  void IOCallback(const net::CompletionCallback& callback,
+                  bool start,
+                  int result);
+  int Throttle(const net::CompletionCallback& callback,
+               bool start,
+               int result);
+  void ThrottleCallback(const net::CompletionCallback& callback,
+                        int result,
+                        int64_t bytes);
+
+  DevToolsNetworkInterceptor::ThrottleCallback throttle_callback_;
+  int64_t throttled_byte_count_;
 
   DevToolsNetworkController* controller_;
   base::WeakPtr<DevToolsNetworkInterceptor> interceptor_;
 
-  // Modified request. Should be destructed after |network_transaction_|
+  // Modified upload data stream. Should be destructed after |custom_request_|.
+  scoped_ptr<DevToolsNetworkUploadDataStream> custom_upload_data_stream_;
+
+  // Modified request. Should be destructed after |network_transaction_|.
   scoped_ptr<net::HttpRequestInfo> custom_request_;
 
   // Real network transaction.
@@ -121,31 +129,6 @@ class DevToolsNetworkTransaction
 
   // True if Fail was already invoked.
   bool failed_;
-
-  // Value of  request header.
-  std::string client_id_;
-
-  enum CallbackType {
-      NONE,
-      READ,
-      RESTART_IGNORING_LAST_ERROR,
-      RESTART_WITH_AUTH,
-      RESTART_WITH_CERTIFICATE,
-      START
-  };
-
-  int SetupCallback(
-      net::CompletionCallback callback,
-      int result,
-      CallbackType callback_type);
-
-  void Throttle(int result);
-
-  int throttled_result_;
-  int64_t throttled_byte_count_;
-  CallbackType callback_type_;
-  net::CompletionCallback proxy_callback_;
-  net::CompletionCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsNetworkTransaction);
 };

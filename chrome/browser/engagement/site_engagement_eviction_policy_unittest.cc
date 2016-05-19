@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
@@ -18,7 +21,7 @@
 
 namespace {
 
-const int64 kGlobalQuota = 25 * 1024;
+const int64_t kGlobalQuota = 25 * 1024;
 
 }  // namespace
 
@@ -28,11 +31,14 @@ class TestSiteEngagementScoreProvider : public SiteEngagementScoreProvider {
 
   virtual ~TestSiteEngagementScoreProvider() {}
 
-  double GetScore(const GURL& url) override {
-    return engagement_score_map_[url];
+  double GetScore(const GURL& url) const override {
+    const auto& it = engagement_score_map_.find(url);
+    if (it != engagement_score_map_.end())
+      return it->second;
+    return 0.0;
   }
 
-  double GetTotalEngagementPoints() override {
+  double GetTotalEngagementPoints() const override {
     double total = 0;
     for (const auto& site : engagement_score_map_)
       total += site.second;
@@ -57,14 +63,15 @@ class SiteEngagementEvictionPolicyTest : public testing::Test {
 
   ~SiteEngagementEvictionPolicyTest() override {}
 
-  GURL CalculateEvictionOriginWithExceptions(const std::map<GURL, int64>& usage,
-                                             const std::set<GURL>& exceptions) {
+  GURL CalculateEvictionOriginWithExceptions(
+      const std::map<GURL, int64_t>& usage,
+      const std::set<GURL>& exceptions) {
     return SiteEngagementEvictionPolicy::CalculateEvictionOriginForTests(
         storage_policy_, score_provider_.get(), exceptions, usage,
         kGlobalQuota);
   }
 
-  GURL CalculateEvictionOrigin(const std::map<GURL, int64>& usage) {
+  GURL CalculateEvictionOrigin(const std::map<GURL, int64_t>& usage) {
     return CalculateEvictionOriginWithExceptions(usage, std::set<GURL>());
   }
 
@@ -88,7 +95,7 @@ TEST_F(SiteEngagementEvictionPolicyTest, GetEvictionOrigin) {
   GURL url2("http://www.example.com");
   GURL url3("http://www.spam.me");
 
-  std::map<GURL, int64> usage;
+  std::map<GURL, int64_t> usage;
   usage[url1] = 10 * 1024;
   usage[url2] = 10 * 1024;
   usage[url3] = 10 * 1024;
@@ -126,7 +133,7 @@ TEST_F(SiteEngagementEvictionPolicyTest, SpecialStoragePolicy) {
   GURL url1("http://www.google.com");
   GURL url2("http://www.example.com");
 
-  std::map<GURL, int64> usage;
+  std::map<GURL, int64_t> usage;
   usage[url1] = 10 * 1024;
   usage[url2] = 10 * 1024;
 
@@ -148,7 +155,7 @@ TEST_F(SiteEngagementEvictionPolicyTest, Exceptions) {
   GURL url1("http://www.google.com");
   GURL url2("http://www.example.com");
 
-  std::map<GURL, int64> usage;
+  std::map<GURL, int64_t> usage;
   usage[url1] = 10 * 1024;
   usage[url2] = 10 * 1024;
 

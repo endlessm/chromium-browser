@@ -2,22 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifdef WIN32
-#include <windows.h>
-#else
-#include <pthread.h>
-#endif
+#include "url/gurl.h"
+
+#include <stddef.h>
 
 #include <algorithm>
 #include <ostream>
-
-#include "url/gurl.h"
 
 #include "base/logging.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "url/url_canon_stdstring.h"
 #include "url/url_util.h"
+
+#ifdef WIN32
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 
 namespace {
 
@@ -76,16 +78,16 @@ GURL::GURL(const GURL& other)
   DCHECK(!is_valid_ || !SchemeIsFileSystem() || inner_url_);
 }
 
-GURL::GURL(const std::string& url_string) {
+GURL::GURL(base::StringPiece url_string) {
   InitCanonical(url_string, true);
 }
 
-GURL::GURL(const base::string16& url_string) {
+GURL::GURL(base::StringPiece16 url_string) {
   InitCanonical(url_string, true);
 }
 
 GURL::GURL(const std::string& url_string, RetainWhiteSpaceSelector) {
-  InitCanonical(url_string, false);
+  InitCanonical(base::StringPiece(url_string), false);
 }
 
 GURL::GURL(const char* canonical_spec,
@@ -106,7 +108,8 @@ GURL::GURL(std::string canonical_spec, const url::Parsed& parsed, bool is_valid)
 }
 
 template<typename STR>
-void GURL::InitCanonical(const STR& input_spec, bool trim_path_end) {
+void GURL::InitCanonical(base::BasicStringPiece<STR> input_spec,
+                         bool trim_path_end) {
   // Reserve enough room in the output for the input, plus some extra so that
   // we have room if we have to escape a few things without reallocating.
   spec_.reserve(input_spec.size() + 32);
@@ -329,7 +332,7 @@ GURL GURL::GetOrigin() const {
 }
 
 GURL GURL::GetAsReferrer() const {
-  if (!is_valid_ || !SchemeIsHTTPOrHTTPS())
+  if (!SchemeIsValidForReferrer())
     return GURL();
 
   if (!has_ref() && !has_username() && !has_password())
@@ -381,6 +384,10 @@ bool GURL::SchemeIs(base::StringPiece lower_ascii_scheme) const {
 
 bool GURL::SchemeIsHTTPOrHTTPS() const {
   return SchemeIs(url::kHttpScheme) || SchemeIs(url::kHttpsScheme);
+}
+
+bool GURL::SchemeIsValidForReferrer() const {
+  return is_valid_ && IsReferrerScheme(spec_.data(), parsed_.scheme);
 }
 
 bool GURL::SchemeIsWSOrWSS() const {

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/memory/ref_counted_memory.h"
@@ -23,7 +25,7 @@ class GLImageRefCountedMemoryTestDelegate {
     scoped_refptr<base::RefCountedBytes> bytes(new base::RefCountedBytes(data));
     GLImageTestSupport::SetBufferDataToColor(
         size.width(), size.height(),
-        static_cast<int>(RowSizeForBufferFormat(size.width(), format, 0)),
+        static_cast<int>(RowSizeForBufferFormat(size.width(), format, 0)), 0,
         format, color, &bytes->data().front());
     scoped_refptr<GLImageRefCountedMemory> image(new GLImageRefCountedMemory(
         size, gl::GLImageMemory::GetInternalFormatForTesting(format)));
@@ -31,6 +33,8 @@ class GLImageRefCountedMemoryTestDelegate {
     EXPECT_TRUE(rv);
     return image;
   }
+
+  unsigned GetTextureTarget() const { return GL_TEXTURE_2D; }
 };
 
 using GLImageTestTypes = testing::Types<

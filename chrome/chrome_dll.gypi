@@ -116,13 +116,12 @@
             'app/chrome_main_delegate.h',
             'app/chrome_main_mac.h',
             'app/chrome_main_mac.mm',
-            'app/close_handle_hook_win.cc',
-            'app/close_handle_hook_win.h',
             'app/delay_load_hook_win.cc',
             'app/delay_load_hook_win.h',
           ],
           'dependencies': [
             '<@(chromium_browser_dependencies)',
+            'chrome_features.gyp:chrome_common_features',
             '../content/content.gyp:content_app_browser',
           ],
           'conditions': [
@@ -250,11 +249,6 @@
                 },
               },
               'conditions': [
-                ['win_use_allocator_shim==1', {
-                  'dependencies': [
-                    '<(allocator_target)',
-                  ],
-                }],
                 ['enable_basic_printing==1 or enable_print_preview==1', {
                   'dependencies': [
                     '../printing/printing.gyp:printing',
@@ -300,6 +294,7 @@
               'dependencies': [
                 '../components/components.gyp:crash_component',
                 '../components/components.gyp:policy',
+                '../third_party/crashpad/crashpad/handler/handler.gyp:crashpad_handler',
               ],
               'sources': [
                 'app/chrome_crash_reporter_client.cc',
@@ -350,7 +345,10 @@
           },
           'dependencies': [
             '<@(chromium_child_dependencies)',
+            '../components/components.gyp:browser_watcher_client',
             '../content/content.gyp:content_app_child',
+            '../third_party/kasko/kasko.gyp:kasko',
+            'chrome_features.gyp:chrome_common_features',
             'chrome_version_resources',
             'policy_path_parser',
           ],
@@ -362,12 +360,26 @@
             'app/chrome_main.cc',
             'app/chrome_main_delegate.cc',
             'app/chrome_main_delegate.h',
-            'app/close_handle_hook_win.cc',
-            'app/close_handle_hook_win.h',
           ],
           'conditions': [
             ['OS=="win"', {
               'conditions': [
+                ['chrome_pgo_phase!=0', {
+                  # Disable Warning 4702 ("Unreachable code") for the WPO/PGO
+                  # builds. Probably anything that this would catch that
+                  # wouldn't be caught in a normal build isn't going to
+                  # actually be a bug, so the incremental value of C4702 for
+                  # PGO builds is likely very small.
+                  'msvs_disabled_warnings': [
+                    4702
+                  ],
+                  'msvs_settings': {
+                    'VCCLCompilerTool': {
+                      # This implies link time code generation.
+                      'WholeProgramOptimization': 'true',
+                    },
+                  },
+                }],
                 ['chrome_pgo_phase==1', {
                   'msvs_settings': {
                     'VCLinkerTool': {
@@ -386,6 +398,16 @@
                   },
                 }],
               ]
+            }],
+            ['OS=="win" and configuration_policy==1', {
+              'dependencies': [
+                '<(DEPTH)/components/components.gyp:policy',
+              ],
+            }],
+            ['configuration_policy==1', {
+              'dependencies': [
+                'policy_path_parser',
+              ],
             }],
             ['enable_plugins==1', {
               'dependencies': [

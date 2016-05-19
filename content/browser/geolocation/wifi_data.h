@@ -7,7 +7,6 @@
 
 #include <set>
 
-#include "base/basictypes.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 
@@ -38,6 +37,7 @@ struct AccessPointDataLess {
 // All data for wifi.
 struct CONTENT_EXPORT WifiData {
   WifiData();
+  WifiData(const WifiData& other);
   ~WifiData();
 
   // Determines whether a new set of WiFi data differs significantly from this.

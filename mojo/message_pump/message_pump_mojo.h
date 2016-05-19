@@ -5,13 +5,18 @@
 #ifndef MOJO_MESSAGE_PUMP_MESSAGE_PUMP_MOJO_H_
 #define MOJO_MESSAGE_PUMP_MESSAGE_PUMP_MOJO_H_
 
-#include <map>
+#include <stdint.h>
+
+#include <functional>
+#include <set>
+#include <unordered_map>
 
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_pump.h"
 #include "base/observer_list.h"
 #include "base/synchronization/lock.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/time/time.h"
 #include "mojo/message_pump/mojo_message_pump_export.h"
 #include "mojo/public/cpp/system/core.h"
@@ -68,7 +73,6 @@ class MOJO_MESSAGE_PUMP_EXPORT MessagePumpMojo : public base::MessagePump {
 
  private:
   struct RunState;
-  struct WaitState;
 
   // Contains the data needed to track a request to AddHandler().
   struct Handler {
@@ -81,7 +85,13 @@ class MOJO_MESSAGE_PUMP_EXPORT MessagePumpMojo : public base::MessagePump {
     int id;
   };
 
-  typedef std::map<Handle, Handler> HandleToHandler;
+  struct HandleHasher {
+    size_t operator()(const Handle& handle) const {
+      return std::hash<uint32_t>()(static_cast<uint32_t>(handle.value()));
+    }
+  };
+
+  using HandleToHandler = std::unordered_map<Handle, Handler, HandleHasher>;
 
   // Implementation of Run().
   void DoRunLoop(RunState* run_state, Delegate* delegate);
@@ -91,18 +101,36 @@ class MOJO_MESSAGE_PUMP_EXPORT MessagePumpMojo : public base::MessagePump {
   // handle has become ready, |false| otherwise.
   bool DoInternalWork(const RunState& run_state, bool block);
 
-  // Removes the given invalid handle. This is called if MojoWaitMany finds an
-  // invalid handle.
-  void RemoveInvalidHandle(const WaitState& wait_state,
-                           MojoResult result,
-                           uint32_t result_index);
+  bool DoNonMojoWork(const RunState& run_state, bool block);
 
-  void SignalControlPipe(const RunState& run_state);
+  // Waits for handles in the wait set to become ready. Returns |true| if ready
+  // handles may be available, or |false| if the wait's deadline was exceeded.
+  // Note, ready handles may be unavailable, even though |true| was returned.
+  bool WaitForReadyHandles(const RunState& run_state) const;
 
-  WaitState GetWaitState(const RunState& run_state) const;
+  // Retrieves any 'ready' handles from the wait set, and runs the handler's
+  // OnHandleReady() or OnHandleError() functions as necessary. Returns |true|
+  // if any handles were ready and processed.
+  bool ProcessReadyHandles();
 
-  // Returns the deadline for the call to MojoWaitMany().
+  // Removes any handles that have expired their deadline. Runs the handler's
+  // OnHandleError() function with |MOJO_RESULT_DEADLINE_EXCEEDED| as the
+  // result. Returns |true| if any handles were removed.
+  bool RemoveExpiredHandles();
+
+  void SignalControlPipe();
+
+  // Returns the deadline for the call to MojoWait().
   MojoDeadline GetDeadlineForWait(const RunState& run_state) const;
+
+  // Run |OnHandleReady()| for the handler registered with |handle|. |handle|
+  // must be registered.
+  void SignalHandleReady(Handle handle);
+
+  // Run |OnHandleError()| for the handler registered with |handle| and the
+  // error code |result|. |handle| must be registered, and will be removed
+  // before calling |OnHandleError()|.
+  void SignalHandleError(Handle handle, MojoResult result);
 
   void WillSignalHandler();
   void DidSignalHandler();
@@ -117,6 +145,10 @@ class MOJO_MESSAGE_PUMP_EXPORT MessagePumpMojo : public base::MessagePump {
   base::Lock run_state_lock_;
 
   HandleToHandler handlers_;
+  // Set of handles that have a deadline set. Avoids iterating over all elements
+  // in |handles_| in the common case (no deadline set).
+  // TODO(amistry): Make this better and avoid special-casing deadlines.
+  std::set<Handle> deadline_handles_;
 
   // An ever increasing value assigned to each Handler::id. Used to detect
   // uniqueness while notifying. That is, while notifying expired timers we copy
@@ -126,6 +158,16 @@ class MOJO_MESSAGE_PUMP_EXPORT MessagePumpMojo : public base::MessagePump {
   int next_handler_id_;
 
   base::ObserverList<Observer> observers_;
+
+  // Mojo handle for the wait set.
+  ScopedHandle wait_set_handle_;
+  // Used to wake up run loop from |SignalControlPipe()|.
+  ScopedMessagePipeHandle read_handle_;
+  ScopedMessagePipeHandle write_handle_;
+
+  // Used to sleep until there is more work to do, when the Mojo EDK is shutting
+  // down.
+  base::WaitableEvent event_;
 
   DISALLOW_COPY_AND_ASSIGN(MessagePumpMojo);
 };

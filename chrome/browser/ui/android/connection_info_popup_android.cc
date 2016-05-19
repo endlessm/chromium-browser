@@ -10,6 +10,7 @@
 #include "chrome/browser/android/resource_mapper.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ssl/chrome_security_state_model_client.h"
 #include "chrome/browser/ui/website_settings/website_settings.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_context.h"
@@ -18,6 +19,7 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/ssl_status.h"
+#include "grit/components_strings.h"
 #include "jni/ConnectionInfoPopup_jni.h"
 #include "net/cert/x509_certificate.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -90,28 +92,29 @@ ConnectionInfoPopupAndroid::ConnectionInfoPopupAndroid(
 
   popup_jobject_.Reset(env, java_website_settings_pop);
 
-  SecurityStateModel* security_model =
-      SecurityStateModel::FromWebContents(web_contents);
-  DCHECK(security_model);
+  ChromeSecurityStateModelClient* security_model_client =
+      ChromeSecurityStateModelClient::FromWebContents(web_contents);
+  DCHECK(security_model_client);
 
   presenter_.reset(new WebsiteSettings(
       this, Profile::FromBrowserContext(web_contents->GetBrowserContext()),
       TabSpecificContentSettings::FromWebContents(web_contents), web_contents,
-      nav_entry->GetURL(), security_model->GetSecurityInfo(),
+      nav_entry->GetURL(), security_model_client->GetSecurityInfo(),
       content::CertStore::GetInstance()));
 }
 
 ConnectionInfoPopupAndroid::~ConnectionInfoPopupAndroid() {
 }
 
-void ConnectionInfoPopupAndroid::Destroy(JNIEnv* env, jobject obj) {
+void ConnectionInfoPopupAndroid::Destroy(JNIEnv* env,
+                                         const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
 void ConnectionInfoPopupAndroid::ResetCertDecisions(
     JNIEnv* env,
-    jobject obj,
-    jobject java_web_contents) {
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& java_web_contents) {
   presenter_->OnRevokeSSLErrorBypassButtonPressed();
 }
 
@@ -135,8 +138,16 @@ void ConnectionInfoPopupAndroid::SetIdentityInfo(
 
     ScopedJavaLocalRef<jstring> description =
         ConvertUTF8ToJavaString(env, identity_info.identity_status_description);
-    base::string16 certificate_label =
-        l10n_util::GetStringUTF16(IDS_PAGEINFO_CERT_INFO_BUTTON);
+    base::string16 certificate_label;
+
+    // Only show the certificate viewer link if the connection actually used a
+    // certificate.
+    if (identity_info.identity_status !=
+        WebsiteSettings::SITE_IDENTITY_STATUS_NO_CERT) {
+      certificate_label =
+          l10n_util::GetStringUTF16(IDS_PAGEINFO_CERT_INFO_BUTTON);
+    }
+
     Java_ConnectionInfoPopup_addCertificateSection(
         env,
         popup_jobject_.obj(),
@@ -180,7 +191,8 @@ void ConnectionInfoPopupAndroid::SetCookieInfo(
 }
 
 void ConnectionInfoPopupAndroid::SetPermissionInfo(
-    const PermissionInfoList& permission_info_list) {
+    const PermissionInfoList& permission_info_list,
+    const ChosenObjectInfoList& chosen_object_info_list) {
   NOTIMPLEMENTED();
 }
 

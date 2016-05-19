@@ -14,11 +14,7 @@
 # If your project only builds in one or the other then this should be overridden
 # accordingly.
 #
-ifneq ($(ENABLE_BIONIC),)
-ALL_TOOLCHAINS ?= pnacl glibc clang-newlib bionic
-else
 ALL_TOOLCHAINS ?= pnacl glibc clang-newlib
-endif
 
 VALID_TOOLCHAINS ?= $(ALL_TOOLCHAINS)
 TOOLCHAIN ?= $(word 1,$(VALID_TOOLCHAINS))
@@ -36,6 +32,7 @@ GETOS := python $(NACL_SDK_ROOT)/tools/getos.py
 NACL_CONFIG := python $(NACL_SDK_ROOT)/tools/nacl_config.py
 FIXDEPS := python $(NACL_SDK_ROOT)/tools/fix_deps.py -c
 OSNAME := $(shell $(GETOS))
+SYSARCH := $(shell $(GETOS) --nacl-arch)
 
 
 #
@@ -383,12 +380,16 @@ endif
 
 #
 # Convert a source path to a object file path.
+# If source path is absolute then just use the basename of for the object
+# file name (absolute sources paths with the same basename are not allowed).
+# For relative paths use the full path to the source in the object file path
+# name.
 #
 # $1 = Source Name
 # $2 = Arch suffix
 #
 define SRC_TO_OBJ
-$(OUTDIR)/$(basename $(subst ..,__,$(1)))$(2).o
+$(if $(filter /%,$(1)), $(OUTDIR)/$(basename $(notdir $(1)))$(2).o, $(OUTDIR)/$(basename $(subst ..,__,$(1)))$(2).o)
 endef
 
 
@@ -428,7 +429,7 @@ ifneq (,$(findstring $(TOOLCHAIN),win))
 include $(NACL_SDK_ROOT)/tools/host_vc.mk
 endif
 
-ifneq (,$(findstring $(TOOLCHAIN),glibc bionic clang-newlib))
+ifneq (,$(findstring $(TOOLCHAIN),glibc clang-newlib))
 include $(NACL_SDK_ROOT)/tools/nacl_gcc.mk
 endif
 
@@ -468,7 +469,6 @@ PPAPI_DEBUG = $(abspath $(OSNAME)/Debug/$(TARGET)$(HOST_EXT));application/x-ppap
 PPAPI_RELEASE = $(abspath $(OSNAME)/Release/$(TARGET)$(HOST_EXT));application/x-ppapi-release
 
 
-SYSARCH := $(shell $(GETOS) --nacl-arch)
 SEL_LDR_PATH := python $(NACL_SDK_ROOT)/tools/sel_ldr.py
 
 ifndef STANDALONE

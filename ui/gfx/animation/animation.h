@@ -6,6 +6,7 @@
 #define UI_GFX_ANIMATION_ANIMATION_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "ui/gfx/animation/animation_container_element.h"
@@ -62,6 +63,11 @@ class GFX_EXPORT Animation : public AnimationContainerElement {
   // Looks at session type (e.g. remote desktop) and accessibility settings
   // to give guidance for heavy animations such as "start download" arrow.
   static bool ShouldRenderRichAnimation();
+
+  // Determines on a per-platform basis whether scroll animations (e.g. produced
+  // by home/end key) should be enabled. Should only be called from the browser
+  // process.
+  static bool ScrollAnimationsEnabledBySystem();
 
  protected:
   // Invoked from Start to allow subclasses to prepare for the animation.

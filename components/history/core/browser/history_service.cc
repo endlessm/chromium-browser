@@ -18,6 +18,8 @@
 
 #include "components/history/core/browser/history_service.h"
 
+#include <utility>
+
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -30,6 +32,7 @@
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "components/history/core/browser/download_row.h"
 #include "components/history/core/browser/history_backend.h"
 #include "components/history/core/browser/history_backend_client.h"
@@ -43,7 +46,6 @@
 #include "components/history/core/browser/keyword_search_term.h"
 #include "components/history/core/browser/visit_database.h"
 #include "components/history/core/browser/visit_delegate.h"
-#include "components/history/core/browser/visit_filter.h"
 #include "components/history/core/browser/web_history_service.h"
 #include "components/history/core/common/thumbnail_score.h"
 #include "sync/api/sync_error_factory.h"
@@ -190,11 +192,10 @@ HistoryService::HistoryService()
 HistoryService::HistoryService(scoped_ptr<HistoryClient> history_client,
                                scoped_ptr<VisitDelegate> visit_delegate)
     : thread_(new base::Thread(kHistoryThreadName)),
-      history_client_(history_client.Pass()),
-      visit_delegate_(visit_delegate.Pass()),
+      history_client_(std::move(history_client)),
+      visit_delegate_(std::move(visit_delegate)),
       backend_loaded_(false),
-      weak_ptr_factory_(this) {
-}
+      weak_ptr_factory_(this) {}
 
 HistoryService::~HistoryService() {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -357,7 +358,7 @@ void HistoryService::SetOnBackendDestroyTask(const base::Closure& task) {
                  history_backend_.get(), base::MessageLoop::current(), task));
 }
 
-void HistoryService::TopHosts(int num_hosts,
+void HistoryService::TopHosts(size_t num_hosts,
                               const TopHostsCallback& callback) const {
   DCHECK(thread_) << "History service being called after cleanup";
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -365,6 +366,17 @@ void HistoryService::TopHosts(int num_hosts,
       thread_->task_runner().get(), FROM_HERE,
       base::Bind(&HistoryBackend::TopHosts, history_backend_.get(), num_hosts),
       callback);
+}
+
+void HistoryService::GetCountsForOrigins(
+    const std::set<GURL>& origins,
+    const GetCountsForOriginsCallback& callback) const {
+  DCHECK(thread_) << "History service being called after cleanup";
+  DCHECK(thread_checker_.CalledOnValidThread());
+  PostTaskAndReplyWithResult(thread_->task_runner().get(), FROM_HERE,
+                             base::Bind(&HistoryBackend::GetCountsForOrigins,
+                                        history_backend_.get(), origins),
+                             callback);
 }
 
 void HistoryService::HostRankIfAvailable(
@@ -735,7 +747,7 @@ void HistoryService::UpdateDownload(const DownloadRow& data) {
                                            history_backend_.get(), data));
 }
 
-void HistoryService::RemoveDownloads(const std::set<uint32>& ids) {
+void HistoryService::RemoveDownloads(const std::set<uint32_t>& ids) {
   DCHECK(thread_) << "History service being called after cleanup";
   DCHECK(thread_checker_.CalledOnValidThread());
   ScheduleTask(PRIORITY_NORMAL, base::Bind(&HistoryBackend::RemoveDownloads,
@@ -812,22 +824,6 @@ base::CancelableTaskTracker::TaskId HistoryService::QueryMostVisitedURLs(
       thread_->task_runner().get(), FROM_HERE,
       base::Bind(&HistoryBackend::QueryMostVisitedURLs, history_backend_.get(),
                  result_count, days_back, base::Unretained(result)),
-      base::Bind(callback, base::Owned(result)));
-}
-
-base::CancelableTaskTracker::TaskId HistoryService::QueryFilteredURLs(
-    int result_count,
-    const VisitFilter& filter,
-    bool extended_info,
-    const QueryFilteredURLsCallback& callback,
-    base::CancelableTaskTracker* tracker) {
-  DCHECK(thread_) << "History service being called after cleanup";
-  DCHECK(thread_checker_.CalledOnValidThread());
-  FilteredURLList* result = new FilteredURLList();
-  return tracker->PostTaskAndReply(
-      thread_->task_runner().get(), FROM_HERE,
-      base::Bind(&HistoryBackend::QueryFilteredURLs, history_backend_.get(),
-                 result_count, filter, extended_info, base::Unretained(result)),
       base::Bind(callback, base::Owned(result)));
 }
 
@@ -955,7 +951,7 @@ syncer::SyncMergeResult HistoryService::MergeDataAndStartSyncing(
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_EQ(type, syncer::HISTORY_DELETE_DIRECTIVES);
   delete_directive_handler_.Start(this, initial_sync_data,
-                                  sync_processor.Pass());
+                                  std::move(sync_processor));
   return syncer::SyncMergeResult(type);
 }
 
@@ -1060,7 +1056,7 @@ void HistoryService::ExpireLocalAndRemoteHistoryBetween(
     // TODO(dubroy): This API does not yet support deletion of specific URLs.
     DCHECK(restrict_urls.empty());
 
-    delete_directive_handler_.CreateDeleteDirectives(std::set<int64>(),
+    delete_directive_handler_.CreateDeleteDirectives(std::set<int64_t>(),
                                                      begin_time, end_time);
 
     // Attempt online deletion from the history server, but ignore the result.

@@ -4,6 +4,7 @@
 
 #include "ui/base/clipboard/clipboard_android.h"
 
+#include "base/android/context_utils.h"
 #include "base/android/jni_string.h"
 #include "base/lazy_instance.h"
 #include "base/stl_util.h"
@@ -115,10 +116,9 @@ void ClipboardMap::CommitToAndroidClipboard() {
     ScopedJavaLocalRef<jstring> str =
         ConvertUTF8ToJavaString(env, map_[kPlainTextFormat].c_str());
     DCHECK(str.obj());
-
     Java_Clipboard_setText(env, clipboard_manager_.obj(), str.obj());
   } else {
-    Java_Clipboard_setText(env, clipboard_manager_.obj(), nullptr);
+    Java_Clipboard_clear(env, clipboard_manager_.obj());
     NOTIMPLEMENTED();
   }
 }
@@ -127,7 +127,7 @@ void ClipboardMap::Clear() {
   JNIEnv* env = AttachCurrentThread();
   base::AutoLock lock(lock_);
   map_.clear();
-  Java_Clipboard_setText(env, clipboard_manager_.obj(), NULL);
+  Java_Clipboard_clear(env, clipboard_manager_.obj());
 }
 
 // Add a key:jstr pair to map, but only if jstr is not null, and also
@@ -281,7 +281,7 @@ ClipboardAndroid::~ClipboardAndroid() {
   DCHECK(CalledOnValidThread());
 }
 
-uint64 ClipboardAndroid::GetSequenceNumber(ClipboardType /* type */) const {
+uint64_t ClipboardAndroid::GetSequenceNumber(ClipboardType /* type */) const {
   DCHECK(CalledOnValidThread());
   // TODO: implement this. For now this interface will advertise
   // that the clipboard never changes. That's fine as long as we
@@ -351,8 +351,8 @@ void ClipboardAndroid::ReadAsciiText(ClipboardType type,
 void ClipboardAndroid::ReadHTML(ClipboardType type,
                                 base::string16* markup,
                                 std::string* src_url,
-                                uint32* fragment_start,
-                                uint32* fragment_end) const {
+                                uint32_t* fragment_start,
+                                uint32_t* fragment_end) const {
   DCHECK(CalledOnValidThread());
   DCHECK_EQ(type, CLIPBOARD_TYPE_COPY_PASTE);
   if (src_url)
@@ -362,7 +362,7 @@ void ClipboardAndroid::ReadHTML(ClipboardType type,
   *markup = base::UTF8ToUTF16(input);
 
   *fragment_start = 0;
-  *fragment_end = static_cast<uint32>(markup->length());
+  *fragment_end = static_cast<uint32_t>(markup->length());
 }
 
 void ClipboardAndroid::ReadRTF(ClipboardType type, std::string* result) const {

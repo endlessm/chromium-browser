@@ -5,7 +5,9 @@
 // Test application that simulates a cast sender - Data can be either generated
 // or read from a file.
 
+#include <stdint.h>
 #include <queue>
+#include <utility>
 
 #include "base/at_exit.h"
 #include "base/base_paths.h"
@@ -76,7 +78,7 @@ void QuitLoopOnInitializationResult(media::cast::OperationalStatus result) {
   base::MessageLoop::current()->QuitWhenIdle();
 }
 
-net::IPEndPoint CreateUDPAddress(const std::string& ip_str, uint16 port) {
+net::IPEndPoint CreateUDPAddress(const std::string& ip_str, uint16_t port) {
   net::IPAddressNumber ip_number;
   CHECK(net::ParseIPLiteralToNumber(ip_str, &ip_number));
   return net::IPEndPoint(ip_number, port);
@@ -125,19 +127,15 @@ void WriteLogsToFileAndDestroySubscribers(
   video_event_subscriber->GetEventsAndReset(
       &log_metadata, &frame_events, &packet_events);
 
-  DumpLoggingData(log_metadata,
-                  frame_events,
-                  packet_events,
-                  video_log_file.Pass());
+  DumpLoggingData(log_metadata, frame_events, packet_events,
+                  std::move(video_log_file));
 
   VLOG(0) << "Dumping logging data for audio stream.";
   audio_event_subscriber->GetEventsAndReset(
       &log_metadata, &frame_events, &packet_events);
 
-  DumpLoggingData(log_metadata,
-                  frame_events,
-                  packet_events,
-                  audio_log_file.Pass());
+  DumpLoggingData(log_metadata, frame_events, packet_events,
+                  std::move(audio_log_file));
 }
 
 void WriteStatsAndDestroySubscribers(
@@ -161,6 +159,31 @@ void WriteStatsAndDestroySubscribers(
       *stats, base::JSONWriter::OPTIONS_PRETTY_PRINT, &json);
   VLOG(0) << "Audio stats: " << json;
 }
+
+class TransportClient : public media::cast::CastTransportSender::Client {
+ public:
+  explicit TransportClient(
+      media::cast::LogEventDispatcher* log_event_dispatcher)
+      : log_event_dispatcher_(log_event_dispatcher) {}
+
+  void OnStatusChanged(media::cast::CastTransportStatus status) final {
+    VLOG(1) << "Transport status: " << status;
+  };
+  void OnLoggingEventsReceived(
+      scoped_ptr<std::vector<media::cast::FrameEvent>> frame_events,
+      scoped_ptr<std::vector<media::cast::PacketEvent>> packet_events) final {
+    DCHECK(log_event_dispatcher_);
+    log_event_dispatcher_->DispatchBatchOfEvents(std::move(frame_events),
+                                                 std::move(packet_events));
+  };
+  void ProcessRtpPacket(scoped_ptr<media::cast::Packet> packet) final {}
+
+ private:
+  media::cast::LogEventDispatcher* const
+      log_event_dispatcher_;  // Not owned by this class.
+
+  DISALLOW_COPY_AND_ASSIGN(TransportClient);
+};
 
 }  // namespace
 
@@ -202,7 +225,7 @@ int main(int argc, char** argv) {
   // Running transport on the main thread.
   // Setting up transport config.
   net::IPEndPoint remote_endpoint =
-      CreateUDPAddress(remote_ip_address, static_cast<uint16>(remote_port));
+      CreateUDPAddress(remote_ip_address, static_cast<uint16_t>(remote_port));
 
   // Enable raw event and stats logging.
   // Running transport on the main thread.
@@ -237,14 +260,12 @@ int main(int argc, char** argv) {
   // CastTransportSender initialization.
   scoped_ptr<media::cast::CastTransportSender> transport_sender =
       media::cast::CastTransportSender::Create(
-          nullptr,  // net log.
-          cast_environment->Clock(), net::IPEndPoint(), remote_endpoint,
-          make_scoped_ptr(new base::DictionaryValue),  // options
-          base::Bind(&UpdateCastTransportStatus),
-          base::Bind(&media::cast::LogEventDispatcher::DispatchBatchOfEvents,
-                     base::Unretained(cast_environment->logger())),
-          base::TimeDelta::FromSeconds(1),
-          media::cast::PacketReceiverCallback(), io_message_loop.task_runner());
+          cast_environment->Clock(), base::TimeDelta::FromSeconds(1),
+          make_scoped_ptr(new TransportClient(cast_environment->logger())),
+          make_scoped_ptr(new media::cast::UdpTransport(
+              nullptr, io_message_loop.task_runner(), net::IPEndPoint(),
+              remote_endpoint, base::Bind(&UpdateCastTransportStatus))),
+          io_message_loop.task_runner());
 
   // Set up event subscribers.
   scoped_ptr<media::cast::EncodingEventSubscriber> video_event_subscriber;

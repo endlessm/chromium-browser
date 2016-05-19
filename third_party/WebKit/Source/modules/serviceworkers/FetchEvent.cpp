@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
-#include "FetchEvent.h"
+#include "modules/serviceworkers/FetchEvent.h"
 
 #include "modules/fetch/Request.h"
 #include "modules/serviceworkers/ServiceWorkerGlobalScope.h"
@@ -29,6 +28,11 @@ PassRefPtrWillBeRawPtr<FetchEvent> FetchEvent::create(const AtomicString& type, 
 Request* FetchEvent::request() const
 {
     return m_request;
+}
+
+String FetchEvent::clientId() const
+{
+    return m_clientId;
 }
 
 bool FetchEvent::isReload() const
@@ -58,6 +62,7 @@ FetchEvent::FetchEvent(const AtomicString& type, const FetchEventInit& initializ
 {
     if (initializer.hasRequest())
         m_request = initializer.request();
+    m_clientId = initializer.clientId();
     m_isReload = initializer.isReload();
 }
 

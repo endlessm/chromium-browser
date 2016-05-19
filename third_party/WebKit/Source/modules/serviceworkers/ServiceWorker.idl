@@ -39,9 +39,8 @@ enum ServiceWorkerState {
 };
 
 [
-    ActiveDOMObject,
+    DependentLifetime,
     GarbageCollected,
-    TypeChecking=Interface,
 ] interface ServiceWorker : EventTarget {
 
     [PostMessage, RaisesException] void postMessage(SerializedScriptValue message, optional sequence<Transferable> transfer);

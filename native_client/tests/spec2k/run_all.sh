@@ -294,6 +294,14 @@ SetupPnaclX8664Opt() {
 }
 
 #@
+#@ SetupPnaclX8664OptSz
+#@    use pnacl x86-64 compiler (with lto) plus Subzero
+SetupPnaclX8664OptSz() {
+  SetupPnaclX8664Common
+  SUFFIX=pnacl.opt.sz.x8664
+}
+
+#@
 #@ SetupPnaclX8664ZBSOpt
 #@    use pnacl x86-64 compiler (with lto)
 #@    use x86-64 zero-based sandbox
@@ -330,6 +338,14 @@ SetupPnaclTranslatorFastX8664Opt() {
 }
 
 #@
+#@ SetupPnaclTranslatorFastX8664OptSz
+#@    use pnacl x8664 Subzero translator (with lto)
+SetupPnaclTranslatorFastX8664OptSz() {
+  SetupPnaclX8664Common
+  SUFFIX=pnacl_translator_fast.opt.sz.x8664
+}
+
+#@
 #@ SetupPnaclTranslator1ThreadX8664Opt
 #@    use pnacl x8664 translator (with lto). Compile w/ 1 thread.
 SetupPnaclTranslator1ThreadX8664Opt() {
@@ -343,6 +359,14 @@ SetupPnaclTranslator1ThreadX8664Opt() {
 SetupPnaclTranslatorFast1ThreadX8664Opt() {
   SetupPnaclX8664Common
   SUFFIX=pnacl_translator_fast_1thread.opt.x8664
+}
+
+#@
+#@ SetupPnaclTranslatorFast1ThreadX8664OptSz
+#@    use pnacl x8664 Subzero translator (with lto). Compile w/ 1 thread.
+SetupPnaclTranslatorFast1ThreadX8664OptSz() {
+  SetupPnaclX8664Common
+  SUFFIX=pnacl_translator_fast_1thread.opt.sz.x8664
 }
 
 SetupPnaclX8632Common() {
@@ -952,7 +976,7 @@ PopulateFromSpecHarness() {
 #@ BuildPrerequisites <platform> <bitcode>
 #@
 #@   Invoke scons to build some potentially missing  components, e.g.
-#@   sel_ldr, sel_universal, irt, some untrusted libraries.
+#@   sel_ldr, irt, some untrusted libraries.
 #@   Those compoents should be present in the SDK but are not in the
 #@   standard toolchain tarballs.
 BuildPrerequisites() {
@@ -963,7 +987,7 @@ BuildPrerequisites() {
   # Sel universal is only used for the pnacl sandboxed translator,
   # but prepare it just in case.
   # IRT is used both to run the tests and to run the pnacl sandboxed translator.
-  build-runtime "${platforms}" "sel_ldr sel_universal irt_core elf_loader" \
+  build-runtime "${platforms}" "sel_ldr irt_core elf_loader" \
     ${extrabuild} ${extra_flags}
   if [ ${bitcode} == "bitcode" ] ; then
      build-libs-pnacl

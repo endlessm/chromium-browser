@@ -5,13 +5,14 @@
 #ifndef SERVICES_TEST_SERVICE_TEST_REQUEST_TRACKER_IMPL_H_
 #define SERVICES_TEST_SERVICE_TEST_REQUEST_TRACKER_IMPL_H_
 
+#include <stdint.h>
+
 #include "base/memory/weak_ptr.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/cpp/system/macros.h"
 #include "mojo/services/test_service/test_request_tracker.mojom.h"
 
 namespace mojo {
-class ApplicationConnection;
 namespace test {
 
 typedef std::map<uint64_t, std::vector<ServiceStats> > AllRecordsMap;

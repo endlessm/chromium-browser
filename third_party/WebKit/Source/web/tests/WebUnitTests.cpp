@@ -28,10 +28,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/tests/WebUnitTests.h"
 
 #include "bindings/core/v8/V8GCController.h"
+#include "platform/weborigin/SchemeRegistry.h"
 #include <base/bind.h>
 #include <base/message_loop/message_loop.h>
 #include <base/run_loop.h>
@@ -46,6 +46,8 @@ namespace {
 int runHelper(base::TestSuite* testSuite, void (*preTestHook)(void), void (*postTestHook)(void))
 {
     preTestHook();
+
+    SchemeRegistry::initialize();
     int result = testSuite->Run();
 
     // Tickle EndOfTaskRunner which among other things will flush the queue

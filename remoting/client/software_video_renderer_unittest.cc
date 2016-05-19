@@ -4,6 +4,9 @@
 
 #include "remoting/client/software_video_renderer.h"
 
+#include <stdint.h>
+
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -11,9 +14,9 @@
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/threading/thread.h"
-#include "remoting/client/frame_consumer.h"
 #include "remoting/codec/video_encoder_verbatim.h"
 #include "remoting/proto/video.pb.h"
+#include "remoting/protocol/frame_consumer.h"
 #include "remoting/protocol/session_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
@@ -27,20 +30,19 @@ namespace {
 const int kFrameWidth = 200;
 const int kFrameHeight = 200;
 
-class TestFrameConsumer : public FrameConsumer {
+class TestFrameConsumer : public protocol::FrameConsumer {
  public:
   TestFrameConsumer() {}
   ~TestFrameConsumer() override {}
 
-  scoped_ptr<DesktopFrame> WaitForNextFrame(
-      base::Closure* out_done_callback) {
+  scoped_ptr<DesktopFrame> WaitForNextFrame(base::Closure* out_done_callback) {
     EXPECT_TRUE(thread_checker_.CalledOnValidThread());
     frame_run_loop_.reset(new base::RunLoop());
     frame_run_loop_->Run();
     frame_run_loop_.reset();
     *out_done_callback = last_frame_done_callback_;
     last_frame_done_callback_.Reset();
-    return last_frame_.Pass();
+    return std::move(last_frame_);
   }
 
   // FrameConsumer interface.
@@ -53,7 +55,7 @@ class TestFrameConsumer : public FrameConsumer {
   void DrawFrame(scoped_ptr<DesktopFrame> frame,
                  const base::Closure& done) override {
     EXPECT_TRUE(thread_checker_.CalledOnValidThread());
-    last_frame_ = frame.Pass();
+    last_frame_ = std::move(frame);
     last_frame_done_callback_ = done;
     frame_run_loop_->Quit();
   }
@@ -95,7 +97,7 @@ scoped_ptr<DesktopFrame> CreateTestFrame(int index) {
         webrtc::DesktopRect::MakeWH(index, index));
   }
 
-  return frame.Pass();
+  return frame;
 }
 
 // Returns true when frames a and b are equivalent.

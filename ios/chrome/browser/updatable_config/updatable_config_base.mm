@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/updatable_config/updatable_config_base.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #import "base/mac/bind_objc_block.h"
 #include "base/mac/scoped_nsobject.h"
@@ -63,7 +65,7 @@ class ConfigFetcher : public net::URLFetcherDelegate {
   }
 
   void OnURLFetchComplete(const net::URLFetcher* fetcher) override {
-    DCHECK_EQ(fetcher_, fetcher);
+    DCHECK_EQ(fetcher_.get(), fetcher);
     NSData* responseData = nil;
     if (fetcher_->GetResponseCode() == net::HTTP_OK) {
       std::string response;

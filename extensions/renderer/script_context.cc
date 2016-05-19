@@ -5,6 +5,7 @@
 #include "extensions/renderer/script_context.h"
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -23,12 +24,12 @@
 #include "extensions/renderer/renderer_extension_registry.h"
 #include "extensions/renderer/v8_helpers.h"
 #include "gin/per_context_data.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/web/WebDataSource.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebScopedMicrotaskSuppression.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "v8/include/v8.h"
 
@@ -279,16 +280,22 @@ GURL ScriptContext::GetEffectiveDocumentURL(const blink::WebFrame* frame,
   // hierarchy to find the closest non-about:-page and return its URL.
   const blink::WebFrame* parent = frame;
   do {
-    parent = parent->parent() ? parent->parent() : parent->opener();
-  } while (parent != NULL && !parent->document().isNull() &&
+    if (parent->parent())
+      parent = parent->parent();
+    else if (parent->opener() != parent)
+      parent = parent->opener();
+    else
+      parent = nullptr;
+  } while (parent && !parent->document().isNull() &&
            GURL(parent->document().url()).SchemeIs(url::kAboutScheme));
 
   if (parent && !parent->document().isNull()) {
     // Only return the parent URL if the frame can access it.
     const blink::WebDocument& parent_document = parent->document();
     if (frame->document().securityOrigin().canAccess(
-            parent_document.securityOrigin()))
+            parent_document.securityOrigin())) {
       return parent_document.url();
+    }
   }
   return document_url;
 }

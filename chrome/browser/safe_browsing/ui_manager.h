@@ -12,17 +12,23 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
-#include "chrome/browser/safe_browsing/hit_report.h"
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
+#include "components/safe_browsing_db/hit_report.h"
+#include "content/public/browser/browser_thread.h"
 #include "url/gurl.h"
 
 namespace base {
 class Thread;
 }  // namespace base
+
+namespace content {
+class NavigationEntry;
+}  // namespace content
 
 namespace net {
 class SSLInfo;
@@ -44,7 +50,27 @@ class SafeBrowsingUIManager
   // interacting with the blocking page.
   struct UnsafeResource {
     UnsafeResource();
+    UnsafeResource(const UnsafeResource& other);
     ~UnsafeResource();
+
+    // Returns true if this UnsafeResource is a main frame load that was blocked
+    // while the navigation is still pending. Note that a main frame hit may not
+    // be blocking, eg. client side detection happens after the load is
+    // committed.
+    bool IsMainPageLoadBlocked() const;
+
+    // Returns the NavigationEntry for this resource (for a main frame hit) or
+    // for the page which contains this resource (for a subresource hit).
+    // This method must only be called while the UnsafeResource is still
+    // "valid".
+    // I.e,
+    //   For MainPageLoadBlocked resources, it must not be called if the load
+    //   was aborted (going back or replaced with a different navigation),
+    //   or resumed (proceeded through warning or matched whitelist).
+    //   For non-MainPageLoadBlocked resources, it must not be called if any
+    //   other navigation has committed (whether by going back or unrelated
+    //   navigations), though a pending navigation is okay.
+    content::NavigationEntry* GetNavigationEntryForResource() const;
 
     GURL url;
     GURL original_url;
@@ -53,9 +79,10 @@ class SafeBrowsingUIManager
     bool is_subframe;
     SBThreatType threat_type;
     std::string threat_metadata;
-    UrlCheckCallback callback;  // This is called back on the IO thread.
+    UrlCheckCallback callback;  // This is called back on |callback_thread|.
+    scoped_refptr<base::SingleThreadTaskRunner> callback_thread;
     int render_process_host_id;
-    int render_view_id;
+    int render_frame_id;
     safe_browsing::ThreatSource threat_source;
   };
 
@@ -63,13 +90,6 @@ class SafeBrowsingUIManager
   // was found.
   class Observer {
    public:
-    // The |resource| was classified as unsafe by SafeBrowsing.
-    // This method will be called every time an unsafe resource is
-    // loaded, even if it has already been whitelisted by the user.
-    // The |resource| must not be accessed after OnSafeBrowsingHit returns.
-    // This method will be called on the UI thread.
-    virtual void OnSafeBrowsingMatch(const UnsafeResource& resource) = 0;
-
     // The |resource| was classified as unsafe by SafeBrowsing, and is
     // not whitelisted.
     // The |resource| must not be accessed after OnSafeBrowsingHit returns.

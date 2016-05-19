@@ -5,10 +5,13 @@
 #ifndef CONTENT_CHILD_BLUETOOTH_BLUETOOTH_DISPATCHER_H_
 #define CONTENT_CHILD_BLUETOOTH_BLUETOOTH_DISPATCHER_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <queue>
 
 #include "base/id_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "content/common/bluetooth/bluetooth_device.h"
 #include "content/public/child/worker_thread.h"
@@ -21,7 +24,7 @@ class TaskRunner;
 }
 
 namespace blink {
-class WebBluetoothGATTCharacteristic;
+class WebBluetoothRemoteGATTCharacteristic;
 }
 
 namespace IPC {
@@ -29,7 +32,9 @@ class Message;
 }
 
 struct BluetoothCharacteristicRequest;
+struct BluetoothCharacteristicsRequest;
 struct BluetoothPrimaryServiceRequest;
+struct BluetoothWriteValueRequest;
 struct BluetoothNotificationsRequest;
 
 namespace content {
@@ -61,34 +66,48 @@ class BluetoothDispatcher : public WorkerThread::Observer {
   void requestDevice(int frame_routing_id,
                      const blink::WebRequestDeviceOptions& options,
                      blink::WebBluetoothRequestDeviceCallbacks* callbacks);
-  void connectGATT(const blink::WebString& device_id,
-                   blink::WebBluetoothConnectGATTCallbacks* callbacks);
+  void connect(int frame_routing_id,
+               const blink::WebString& device_id,
+               blink::WebBluetoothRemoteGATTServerConnectCallbacks* callbacks);
+  void disconnect(int frame_routing_id, const blink::WebString& device_id);
   void getPrimaryService(
+      int frame_routing_id,
       const blink::WebString& device_id,
       const blink::WebString& service_uuid,
       blink::WebBluetoothGetPrimaryServiceCallbacks* callbacks);
-
   void getCharacteristic(
+      int frame_routing_id,
       const blink::WebString& service_instance_id,
       const blink::WebString& characteristic_uuid,
       blink::WebBluetoothGetCharacteristicCallbacks* callbacks);
-  void readValue(const blink::WebString& characteristic_instance_id,
+  void getCharacteristics(
+      int frame_routing_id,
+      const blink::WebString& service_instance_id,
+      const blink::WebString& characteristics_uuid,
+      blink::WebBluetoothGetCharacteristicsCallbacks* callbacks);
+  void readValue(int frame_routing_id,
+                 const blink::WebString& characteristic_instance_id,
                  blink::WebBluetoothReadValueCallbacks* callbacks);
-  void writeValue(const blink::WebString& characteristic_instance_id,
+  void writeValue(int frame_routing_id,
+                  const blink::WebString& characteristic_instance_id,
                   const blink::WebVector<uint8_t>& value,
                   blink::WebBluetoothWriteValueCallbacks*);
-  void startNotifications(const blink::WebString& characteristic_instance_id,
-                          blink::WebBluetoothGATTCharacteristic* delegate,
+  void startNotifications(int frame_routing_id,
+                          const blink::WebString& characteristic_instance_id,
+                          blink::WebBluetoothRemoteGATTCharacteristic* delegate,
                           blink::WebBluetoothNotificationsCallbacks*);
-  void stopNotifications(const blink::WebString& characteristic_instance_id,
-                         blink::WebBluetoothGATTCharacteristic* delegate,
+  void stopNotifications(int frame_routing_id,
+                         const blink::WebString& characteristic_instance_id,
+                         blink::WebBluetoothRemoteGATTCharacteristic* delegate,
                          blink::WebBluetoothNotificationsCallbacks*);
   void characteristicObjectRemoved(
+      int frame_routing_id,
       const blink::WebString& characteristic_instance_id,
-      blink::WebBluetoothGATTCharacteristic* delegate);
+      blink::WebBluetoothRemoteGATTCharacteristic* delegate);
   void registerCharacteristicObject(
+      int frame_routing_id,
       const blink::WebString& characteristic_instance_id,
-      blink::WebBluetoothGATTCharacteristic* characteristic);
+      blink::WebBluetoothRemoteGATTCharacteristic* characteristic);
 
   // WorkerThread::Observer implementation.
   void WillStopCurrentWorkerThread() override;
@@ -110,8 +129,9 @@ class BluetoothDispatcher : public WorkerThread::Observer {
 
   // Creates a notification request and queues it.
   int QueueNotificationRequest(
+      int frame_routing_id,
       const std::string& characteristic_instance_id,
-      blink::WebBluetoothGATTCharacteristic* characteristic,
+      blink::WebBluetoothRemoteGATTCharacteristic* characteristic,
       blink::WebBluetoothNotificationsCallbacks* callbacks,
       NotificationsRequestType type);
   // Pops the last requests and runs the next request in the queue.
@@ -128,13 +148,13 @@ class BluetoothDispatcher : public WorkerThread::Observer {
   // notifications.
   void AddToActiveNotificationSubscriptions(
       const std::string& characteristic_instance_id,
-      blink::WebBluetoothGATTCharacteristic* characteristic);
+      blink::WebBluetoothRemoteGATTCharacteristic* characteristic);
   // Removes the object from the set of subscribed object to the
   // characteristic's notifications. Returns true if the subscription
   // becomes inactive.
   bool RemoveFromActiveNotificationSubscriptions(
       const std::string& characteristic_instance_id,
-      blink::WebBluetoothGATTCharacteristic* characteristic);
+      blink::WebBluetoothRemoteGATTCharacteristic* characteristic);
 
   // The following functions decide whether to resolve the request immediately
   // or send an IPC to change the subscription state.
@@ -154,6 +174,7 @@ class BluetoothDispatcher : public WorkerThread::Observer {
   // receiving notifications.
   // https://crbug.com/541388
   void UnregisterCharacteristicObject(
+      int frame_routing_id,
       const blink::WebString& characteristic_instance_id);
 
   // IPC Handlers, see definitions in bluetooth_messages.h.
@@ -163,12 +184,10 @@ class BluetoothDispatcher : public WorkerThread::Observer {
   void OnRequestDeviceError(int thread_id,
                             int request_id,
                             blink::WebBluetoothError error);
-  void OnConnectGATTSuccess(int thread_id,
-                            int request_id,
-                            const std::string& message);
-  void OnConnectGATTError(int thread_id,
-                          int request_id,
-                          blink::WebBluetoothError error);
+  void OnGATTServerConnectSuccess(int thread_id, int request_id);
+  void OnGATTServerConnectError(int thread_id,
+                                int request_id,
+                                blink::WebBluetoothError error);
   void OnGetPrimaryServiceSuccess(int thread_id,
                                   int request_id,
                                   const std::string& service_instance_id);
@@ -178,10 +197,19 @@ class BluetoothDispatcher : public WorkerThread::Observer {
   void OnGetCharacteristicSuccess(int thread_id,
                                   int request_id,
                                   const std::string& characteristic_instance_id,
-                                  uint32 characteristic_properties);
+                                  uint32_t characteristic_properties);
   void OnGetCharacteristicError(int thread_id,
                                 int request_id,
                                 blink::WebBluetoothError error);
+  void OnGetCharacteristicsSuccess(
+      int thread_id,
+      int request_id,
+      const std::vector<std::string>& characteristics_instance_ids,
+      const std::vector<std::string>& characteristics_uuids,
+      const std::vector<uint32_t>& characteristic_properties);
+  void OnGetCharacteristicsError(int thread_id,
+                                 int request_id,
+                                 blink::WebBluetoothError error);
   void OnReadValueSuccess(int thread_id,
                           int request_id,
                           const std::vector<uint8_t>& value);
@@ -214,7 +242,7 @@ class BluetoothDispatcher : public WorkerThread::Observer {
       pending_requests_;
   // Tracks requests to connect to a device.
   // Owns callback objects.
-  IDMap<blink::WebBluetoothConnectGATTCallbacks, IDMapOwnPointer>
+  IDMap<blink::WebBluetoothRemoteGATTServerConnectCallbacks, IDMapOwnPointer>
       pending_connect_requests_;
   // Tracks requests to get a primary service from a device.
   // Owns request objects.
@@ -223,28 +251,32 @@ class BluetoothDispatcher : public WorkerThread::Observer {
   // Tracks requests to get a characteristic from a service.
   IDMap<BluetoothCharacteristicRequest, IDMapOwnPointer>
       pending_characteristic_requests_;
+  // Tracks requests to get characteristics from a service.
+  IDMap<BluetoothCharacteristicsRequest, IDMapOwnPointer>
+      pending_characteristics_requests_;
   // Tracks requests to read from a characteristics.
   IDMap<blink::WebBluetoothReadValueCallbacks, IDMapOwnPointer>
       pending_read_value_requests_;
-  IDMap<blink::WebBluetoothWriteValueCallbacks, IDMapOwnPointer>
+  IDMap<BluetoothWriteValueRequest, IDMapOwnPointer>
       pending_write_value_requests_;
   IDMap<BluetoothNotificationsRequest, IDMapOwnPointer>
       pending_notifications_requests_;
 
   // Map of characteristic_instance_id to a set of
-  // WebBluetoothGATTCharacteristic pointers. Keeps track of which
+  // WebBluetoothRemoteGATTCharacteristic pointers. Keeps track of which
   // objects are subscribed to notifications.
-  std::map<std::string, std::set<blink::WebBluetoothGATTCharacteristic*>>
+  std::map<std::string, std::set<blink::WebBluetoothRemoteGATTCharacteristic*>>
       active_notification_subscriptions_;
 
-  // Map of characteristic_instance_ids to WebBluetoothGATTCharacteristics.
+  // Map of characteristic_instance_ids to
+  // WebBluetoothRemoteGATTCharacteristics.
   // Keeps track of what characteristics have listeners.
   // TODO(ortuno): We are assuming that there exists a single frame per
   // dispatcher, so there could be at most one characteristic object per
   // characteristic_instance_id. Change to a set when we support multiple
   // frames.
   // http://crbug.com/541388
-  std::map<std::string, blink::WebBluetoothGATTCharacteristic*>
+  std::map<std::string, blink::WebBluetoothRemoteGATTCharacteristic*>
       active_characteristics_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothDispatcher);

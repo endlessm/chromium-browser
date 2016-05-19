@@ -3,10 +3,31 @@
 # found in the LICENSE file.
 
 if (current_toolchain == host_toolchain) {
+  config("android_protoc_warnings") {
+    cflags = [
+      "-Wno-null-conversion",
+      "-Wno-tautological-undefined-compare",
+      "-Wno-unused-function",
+      "-Wno-unused-local-typedef",
+    ]
+  }
+
   # GYP: //third_party/android_protobuf/android_protobuf.gyp:android_protoc
   executable("android_protoc") {
-    configs -= [ "//build/config/compiler:chromium_code" ]
-    configs += [ "//build/config/compiler:no_chromium_code" ]
+    configs -= [
+      "//build/config/compiler:chromium_code",
+
+      # Does not compile with sanitizers.
+      "//build/config/sanitizers:default_sanitizer_flags",
+      "//build/config/sanitizers:default_sanitizer_coverage_flags",
+    ]
+
+    configs += [
+      "//build/config/compiler:no_chromium_code",
+
+      # Must be after no_chromium_code so warning flags are ordered correctly.
+      ":android_protoc_warnings",
+    ]
 
     deps = [
       "//build/config/sanitizers:deps",
@@ -114,12 +135,6 @@ if (current_toolchain == host_toolchain) {
       "src/src",
     ]
 
-    if (is_clang) {
-      cflags = [
-        "-Wno-null-conversion",
-        "-Wno-tautological-undefined-compare",
-      ]
-    }
     defines = [
       # This macro must be defined to suppress the use
       # of dynamic_cast<>, which requires RTTI.
@@ -134,6 +149,7 @@ if (is_android) {
 
   # GYP: //third_party/android_protobuf/android_protobuf.gyp:protobuf_nano_javalib
   android_library("protobuf_nano_javalib") {
+    chromium_code = false
     java_files = [
       "src/java/src/main/java/com/google/protobuf/nano/CodedInputByteBufferNano.java",
       "src/java/src/main/java/com/google/protobuf/nano/CodedOutputByteBufferNano.java",

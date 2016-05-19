@@ -2,18 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <string>
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
+#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "chrome/browser/browsing_data/browsing_data_remover_test_util.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/notifications/notification_test_util.h"
@@ -29,6 +35,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -37,12 +44,12 @@
 #include "components/gcm_driver/common/gcm_messages.h"
 #include "components/gcm_driver/gcm_client.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/window_open_disposition.h"
 
-#if defined(ENABLE_BACKGROUND)
+#if BUILDFLAG(ENABLE_BACKGROUND)
 #include "chrome/browser/background/background_mode_manager.h"
 #endif
 
@@ -60,13 +67,9 @@ class UnregistrationCallback {
     message_loop_runner_->Quit();
   }
 
-  void WaitUntilSatisfied() {
-    message_loop_runner_->Run();
-  }
+  void WaitUntilSatisfied() { message_loop_runner_->Run(); }
 
-  const std::string& app_id() {
-    return app_id_;
-  }
+  const std::string& app_id() { return app_id_; }
 
  private:
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
@@ -81,18 +84,10 @@ class PushMessagingBrowserTest : public InProcessBrowserTest {
   ~PushMessagingBrowserTest() override {}
 
   // InProcessBrowserTest:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kEnablePushMessagePayload);
-    InProcessBrowserTest::SetUpCommandLine(command_line);
-  }
-
-  // InProcessBrowserTest:
   void SetUp() override {
-    https_server_.reset(new net::SpawnedTestServer(
-        net::SpawnedTestServer::TYPE_HTTPS,
-        net::BaseTestServer::SSLOptions(
-            net::BaseTestServer::SSLOptions::CERT_OK),
-        base::FilePath(FILE_PATH_LITERAL("chrome/test/data/"))));
+    https_server_.reset(
+        new net::EmbeddedTestServer(net::EmbeddedTestServer::TYPE_HTTPS));
+    https_server_->ServeFilesFromSourceDirectory("chrome/test/data");
     ASSERT_TRUE(https_server_->Start());
 
 #if defined(ENABLE_NOTIFICATIONS)
@@ -141,9 +136,7 @@ class PushMessagingBrowserTest : public InProcessBrowserTest {
     ui_test_utils::NavigateToURL(GetBrowser(), https_server_->GetURL(path));
   }
 
-  void LoadTestPage() {
-    LoadTestPage(GetTestURL());
-  }
+  void LoadTestPage() { LoadTestPage(GetTestURL()); }
 
   bool RunScript(const std::string& script, std::string* result) {
     return RunScript(script, result, nullptr);
@@ -154,8 +147,7 @@ class PushMessagingBrowserTest : public InProcessBrowserTest {
     if (!web_contents)
       web_contents = GetBrowser()->tab_strip_model()->GetActiveWebContents();
     return content::ExecuteScriptAndExtractString(web_contents->GetMainFrame(),
-                                                  script,
-                                                  result);
+                                                  script, result);
   }
 
   gcm::GCMAppHandler* GetAppHandler() {
@@ -179,13 +171,13 @@ class PushMessagingBrowserTest : public InProcessBrowserTest {
   }
 
   PushMessagingAppIdentifier GetAppIdentifierForServiceWorkerRegistration(
-      int64 service_worker_registration_id);
+      int64_t service_worker_registration_id);
 
   void SendMessageAndWaitUntilHandled(
       const PushMessagingAppIdentifier& app_identifier,
       const gcm::IncomingMessage& message);
 
-  net::SpawnedTestServer* https_server() const { return https_server_.get(); }
+  net::EmbeddedTestServer* https_server() const { return https_server_.get(); }
 
   gcm::FakeGCMProfileService* gcm_service() const { return gcm_service_; }
 
@@ -214,14 +206,12 @@ class PushMessagingBrowserTest : public InProcessBrowserTest {
   PushMessagingServiceImpl* push_service() const { return push_service_; }
 
  protected:
-  virtual std::string GetTestURL() {
-    return "files/push_messaging/test.html";
-  }
+  virtual std::string GetTestURL() { return "/push_messaging/test.html"; }
 
   virtual Browser* GetBrowser() const { return browser(); }
 
  private:
-  scoped_ptr<net::SpawnedTestServer> https_server_;
+  scoped_ptr<net::EmbeddedTestServer> https_server_;
   gcm::FakeGCMProfileService* gcm_service_;
   PushMessagingServiceImpl* push_service_;
 
@@ -235,7 +225,7 @@ class PushMessagingBrowserTest : public InProcessBrowserTest {
 class PushMessagingBrowserTestEmptySubscriptionOptions
     : public PushMessagingBrowserTest {
   std::string GetTestURL() override {
-    return "files/push_messaging/test_no_subscription_options.html";
+    return "/push_messaging/test_no_subscription_options.html";
   }
 };
 
@@ -271,8 +261,8 @@ void PushMessagingBrowserTest::TryToSubscribeSuccessfully(
 
 PushMessagingAppIdentifier
 PushMessagingBrowserTest::GetAppIdentifierForServiceWorkerRegistration(
-    int64 service_worker_registration_id) {
-  GURL origin = https_server()->GetURL(std::string()).GetOrigin();
+    int64_t service_worker_registration_id) {
+  GURL origin = https_server()->GetURL("/").GetOrigin();
   PushMessagingAppIdentifier app_identifier =
       PushMessagingAppIdentifier::FindByServiceWorker(
           GetBrowser()->profile(), origin, service_worker_registration_id);
@@ -343,8 +333,25 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, SubscribeFailureNoManifest) {
   ASSERT_EQ("manifest removed", script_result);
 
   ASSERT_TRUE(RunScript("subscribePush()", &script_result));
-  EXPECT_EQ("AbortError - Registration failed - no sender id provided",
+  EXPECT_EQ("AbortError - Registration failed - manifest empty or missing",
             script_result);
+}
+
+IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, SubscribeFailureNoSenderId) {
+  std::string script_result;
+
+  ASSERT_TRUE(RunScript("registerServiceWorker()", &script_result));
+  ASSERT_EQ("ok - service worker registered", script_result);
+
+  RequestAndAcceptPermission();
+
+  ASSERT_TRUE(RunScript("swapManifestNoSenderId()", &script_result));
+  ASSERT_EQ("sender id removed from manifest", script_result);
+
+  ASSERT_TRUE(RunScript("subscribePush()", &script_result));
+  EXPECT_EQ(
+      "AbortError - Registration failed - gcm_sender_id not found in manifest",
+      script_result);
 }
 
 // TODO(johnme): Test subscribing from a worker - see https://crbug.com/437298.
@@ -363,7 +370,13 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTestEmptySubscriptionOptions,
             script_result);
 }
 
-IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, SubscribePersisted) {
+// Disabled on Windows and Linux due to flakiness (http://crbug.com/554003).
+#if defined(OS_WIN) || defined(OS_LINUX)
+#define MAYBE_SubscribePersisted DISABLED_SubscribePersisted
+#else
+#define MAYBE_SubscribePersisted SubscribePersisted
+#endif
+IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, MAYBE_SubscribePersisted) {
   std::string script_result;
 
   // First, test that Service Worker registration IDs are assigned in order of
@@ -376,24 +389,24 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, SubscribePersisted) {
       GetAppIdentifierForServiceWorkerRegistration(0LL);
   EXPECT_EQ(sw0_identifier.app_id(), gcm_service()->last_registered_app_id());
 
-  LoadTestPage("files/push_messaging/subscope1/test.html");
+  LoadTestPage("/push_messaging/subscope1/test.html");
   ASSERT_TRUE(RunScript("registerServiceWorker()", &script_result));
   ASSERT_EQ("ok - service worker registered", script_result);
 
-  LoadTestPage("files/push_messaging/subscope2/test.html");
+  LoadTestPage("/push_messaging/subscope2/test.html");
   ASSERT_TRUE(RunScript("registerServiceWorker()", &script_result));
   ASSERT_EQ("ok - service worker registered", script_result);
 
   // Note that we need to reload the page after registering, otherwise
   // navigator.serviceWorker.ready is going to be resolved with the parent
   // Service Worker which still controls the page.
-  LoadTestPage("files/push_messaging/subscope2/test.html");
+  LoadTestPage("/push_messaging/subscope2/test.html");
   TryToSubscribeSuccessfully("1-1" /* expected_push_subscription_id */);
   PushMessagingAppIdentifier sw2_identifier =
       GetAppIdentifierForServiceWorkerRegistration(2LL);
   EXPECT_EQ(sw2_identifier.app_id(), gcm_service()->last_registered_app_id());
 
-  LoadTestPage("files/push_messaging/subscope1/test.html");
+  LoadTestPage("/push_messaging/subscope1/test.html");
   TryToSubscribeSuccessfully("1-2" /* expected_push_subscription_id */);
   PushMessagingAppIdentifier sw1_identifier =
       GetAppIdentifierForServiceWorkerRegistration(1LL);
@@ -407,11 +420,11 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, SubscribePersisted) {
   // test server uses random port numbers for each test (even PRE_Foo and Foo),
   // so we wouldn't be able to load the test pages with the same origin.
 
-  LoadTestPage("files/push_messaging/subscope1/test.html");
+  LoadTestPage("/push_messaging/subscope1/test.html");
   TryToSubscribeSuccessfully("1-2" /* expected_push_subscription_id */);
   EXPECT_EQ(sw1_identifier.app_id(), gcm_service()->last_registered_app_id());
 
-  LoadTestPage("files/push_messaging/subscope2/test.html");
+  LoadTestPage("/push_messaging/subscope2/test.html");
   TryToSubscribeSuccessfully("1-1" /* expected_push_subscription_id */);
   EXPECT_EQ(sw1_identifier.app_id(), gcm_service()->last_registered_app_id());
 
@@ -471,6 +484,33 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PushEventSuccess) {
   EXPECT_EQ("testdata", script_result);
 }
 
+IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PushEventWithoutPayload) {
+  std::string script_result;
+
+  TryToSubscribeSuccessfully("1-0" /* expected_push_subscription_id */);
+
+  PushMessagingAppIdentifier app_identifier =
+      GetAppIdentifierForServiceWorkerRegistration(0LL);
+  EXPECT_EQ(app_identifier.app_id(), gcm_service()->last_registered_app_id());
+  EXPECT_EQ("1234567890", gcm_service()->last_registered_sender_ids()[0]);
+
+  ASSERT_TRUE(RunScript("isControlled()", &script_result));
+  ASSERT_EQ("false - is not controlled", script_result);
+
+  LoadTestPage();  // Reload to become controlled.
+
+  ASSERT_TRUE(RunScript("isControlled()", &script_result));
+  ASSERT_EQ("true - is controlled", script_result);
+
+  gcm::IncomingMessage message;
+  message.sender_id = "1234567890";
+  message.decrypted = false;
+
+  push_service()->OnMessage(app_identifier.app_id(), message);
+  ASSERT_TRUE(RunScript("resultQueue.pop()", &script_result));
+  EXPECT_EQ("[NULL]", script_result);
+}
+
 IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PushEventNoServiceWorker) {
   std::string script_result;
 
@@ -496,8 +536,8 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PushEventNoServiceWorker) {
   // When the push service will receive it next message, given that there is no
   // SW available, it should unregister |app_identifier.app_id()|.
   UnregistrationCallback callback;
-  gcm_service()->SetUnregisterCallback(base::Bind(&UnregistrationCallback::Run,
-                                                  base::Unretained(&callback)));
+  gcm_service()->SetUnregisterCallback(
+      base::Bind(&UnregistrationCallback::Run, base::Unretained(&callback)));
 
   gcm::IncomingMessage message;
   message.sender_id = "1234567890";
@@ -653,12 +693,10 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
 
   {
     base::RunLoop run_loop;
-    push_service()->SetMessageCallbackForTesting(
-        base::Bind(&PushMessagingBrowserTest::OnDeliveryFinished,
-                   base::Unretained(this),
-                   &number_of_notifications_shown,
-                   base::BarrierClosure(2 /* num_closures */,
-                                        run_loop.QuitClosure())));
+    push_service()->SetMessageCallbackForTesting(base::Bind(
+        &PushMessagingBrowserTest::OnDeliveryFinished, base::Unretained(this),
+        &number_of_notifications_shown,
+        base::BarrierClosure(2 /* num_closures */, run_loop.QuitClosure())));
 
     message.raw_data = "testdata";
     push_service()->OnMessage(app_identifier.app_id(), message);
@@ -739,8 +777,7 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PermissionStateSaysGranted) {
   RequestAndAcceptPermission();
 
   ASSERT_TRUE(RunScript("subscribePush()", &script_result));
-  EXPECT_EQ(GetEndpointForSubscriptionId("1-0"),
-            script_result);
+  EXPECT_EQ(GetEndpointForSubscriptionId("1-0"), script_result);
 
   ASSERT_TRUE(RunScript("permissionState()", &script_result));
   EXPECT_EQ("permission status - granted", script_result);
@@ -821,8 +858,8 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       message_loop_runner->QuitClosure());
 
-  HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())->
-      ClearSettingsForOneType(CONTENT_SETTINGS_TYPE_PUSH_MESSAGING);
+  HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
+      ->ClearSettingsForOneType(CONTENT_SETTINGS_TYPE_PUSH_MESSAGING);
 
   message_loop_runner->Run();
 
@@ -850,12 +887,11 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       message_loop_runner->QuitClosure());
 
-  GURL origin = https_server()->GetURL(std::string()).GetOrigin();
+  GURL origin = https_server()->GetURL("/").GetOrigin();
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::FromURLNoWildcard(origin),
-                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING, std::string(),
                           CONTENT_SETTING_DEFAULT);
 
   message_loop_runner->Run();
@@ -884,12 +920,11 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       message_loop_runner->QuitClosure());
 
-  GURL origin = https_server()->GetURL(std::string()).GetOrigin();
+  GURL origin = https_server()->GetURL("/").GetOrigin();
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::FromURLNoWildcard(origin),
-                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING, std::string(),
                           CONTENT_SETTING_BLOCK);
 
   message_loop_runner->Run();
@@ -918,8 +953,8 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       message_loop_runner->QuitClosure());
 
-  HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())->
-      ClearSettingsForOneType(CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
+  HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
+      ->ClearSettingsForOneType(CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
 
   message_loop_runner->Run();
 
@@ -947,12 +982,11 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       message_loop_runner->QuitClosure());
 
-  GURL origin = https_server()->GetURL(std::string()).GetOrigin();
+  GURL origin = https_server()->GetURL("/").GetOrigin();
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::Wildcard(),
-                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string(),
                           CONTENT_SETTING_DEFAULT);
 
   message_loop_runner->Run();
@@ -981,12 +1015,11 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       message_loop_runner->QuitClosure());
 
-  GURL origin = https_server()->GetURL(std::string()).GetOrigin();
+  GURL origin = https_server()->GetURL("/").GetOrigin();
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::Wildcard(),
-                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string(),
                           CONTENT_SETTING_BLOCK);
 
   message_loop_runner->Run();
@@ -1015,18 +1048,16 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       base::BarrierClosure(2, message_loop_runner->QuitClosure()));
 
-  GURL origin = https_server()->GetURL(std::string()).GetOrigin();
+  GURL origin = https_server()->GetURL("/").GetOrigin();
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::Wildcard(),
-                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string(),
                           CONTENT_SETTING_ALLOW);
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::FromURLNoWildcard(origin),
-                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING, std::string(),
                           CONTENT_SETTING_ALLOW);
 
   message_loop_runner->Run();
@@ -1059,30 +1090,26 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
   push_service()->SetContentSettingChangedCallbackForTesting(
       base::BarrierClosure(4, message_loop_runner->QuitClosure()));
 
-  GURL origin = https_server()->GetURL(std::string()).GetOrigin();
+  GURL origin = https_server()->GetURL("/").GetOrigin();
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::Wildcard(),
                           ContentSettingsPattern::Wildcard(),
-                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string(),
                           CONTENT_SETTING_ALLOW);
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromString("https://*"),
                           ContentSettingsPattern::FromString("https://*"),
-                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING, std::string(),
                           CONTENT_SETTING_ALLOW);
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::Wildcard(),
-                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string(),
                           CONTENT_SETTING_DEFAULT);
   HostContentSettingsMapFactory::GetForProfile(GetBrowser()->profile())
       ->SetContentSetting(ContentSettingsPattern::FromURLNoWildcard(origin),
                           ContentSettingsPattern::FromURLNoWildcard(origin),
-                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
-                          std::string(),
+                          CONTENT_SETTINGS_TYPE_PUSH_MESSAGING, std::string(),
                           CONTENT_SETTING_DEFAULT);
 
   message_loop_runner->Run();
@@ -1117,12 +1144,12 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
 
   // Simulate a user clearing site data (including Service Workers, crucially).
   BrowsingDataRemover* remover =
-      BrowsingDataRemover::CreateForUnboundedRange(GetBrowser()->profile());
+      BrowsingDataRemoverFactory::GetForBrowserContext(GetBrowser()->profile());
   BrowsingDataRemoverCompletionObserver observer(remover);
-  remover->Remove(BrowsingDataRemover::REMOVE_SITE_DATA,
+  remover->Remove(BrowsingDataRemover::Unbounded(),
+                  BrowsingDataRemover::REMOVE_SITE_DATA,
                   BrowsingDataHelper::UNPROTECTED_WEB);
   observer.BlockUntilCompletion();
-  // BrowsingDataRemover deletes itself.
 
   base::RunLoop run_loop;
   push_service()->SetContentSettingChangedCallbackForTesting(
@@ -1197,7 +1224,7 @@ IN_PROC_BROWSER_TEST_F(PushMessagingIncognitoBrowserTest,
 }
 
 // None of the following should matter on ChromeOS: crbug.com/527045
-#if defined(ENABLE_BACKGROUND) && !defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_BACKGROUND) && !defined(OS_CHROMEOS)
 // Push background mode is disabled by default.
 IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
                        BackgroundModeDisabledByDefault) {
@@ -1281,4 +1308,4 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBackgroundModeDisabledBrowserTest,
   EXPECT_EQ("unsubscribe result: true", script_result);
   ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
 }
-#endif  // defined(ENABLE_BACKGROUND) && !defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(ENABLE_BACKGROUND) && !defined(OS_CHROMEOS)

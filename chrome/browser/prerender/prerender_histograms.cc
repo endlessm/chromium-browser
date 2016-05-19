@@ -54,6 +54,8 @@ std::string GetHistogramName(Origin origin, bool is_wash,
       return ComposeHistogramName("webnext", name);
     case ORIGIN_GWS_PRERENDER:
       return ComposeHistogramName("gws", name);
+    case ORIGIN_EXTERNAL_REQUEST_FORCED_CELLULAR:
+      return ComposeHistogramName("externalrequestforced", name);
     default:
       NOTREACHED();
       break;
@@ -104,6 +106,8 @@ do { \
   } else if (origin == ORIGIN_INSTANT) { \
     HISTOGRAM; \
   } else if (origin == ORIGIN_LINK_REL_NEXT) { \
+    HISTOGRAM; \
+  } else if (origin == ORIGIN_EXTERNAL_REQUEST_FORCED_CELLULAR) { \
     HISTOGRAM; \
   } else { \
     HISTOGRAM; \
@@ -361,8 +365,8 @@ void PrerenderHistograms::RecordFinalStatus(
 
 void PrerenderHistograms::RecordNetworkBytes(Origin origin,
                                              bool used,
-                                             int64 prerender_bytes,
-                                             int64 profile_bytes) {
+                                             int64_t prerender_bytes,
+                                             int64_t profile_bytes) {
   const int kHistogramMin = 1;
   const int kHistogramMax = 100000000;  // 100M.
   const int kBucketCount = 50;

@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/accessibility/AXObject.h"
 
 #include "core/editing/EditingUtilities.h"
@@ -136,6 +135,7 @@ struct InternalRoleEntry {
 
 const InternalRoleEntry internalRoles[] = {
     { UnknownRole, "Unknown" },
+    { AbbrRole, "Abbr" },
     { AlertDialogRole, "AlertDialog" },
     { AlertRole, "Alert" },
     { AnnotationRole, "Annotation" },
@@ -676,20 +676,42 @@ bool AXObject::isPresentationalChild() const
     return m_cachedIsPresentationalChild;
 }
 
+// Simplify whitespace, but preserve a single leading and trailing whitespace character if it's present.
+// static
+String AXObject::collapseWhitespace(const String& str)
+{
+    StringBuilder result;
+    if (!str.isEmpty() && isHTMLSpace<UChar>(str[0]))
+        result.append(' ');
+    result.append(str.simplifyWhiteSpace(isHTMLSpace<UChar>));
+    if (!str.isEmpty() && isHTMLSpace<UChar>(str[str.length() - 1]))
+        result.append(' ');
+    return result.toString();
+}
+
+String AXObject::computedName() const
+{
+    AXNameFrom nameFrom;
+    AXObject::AXObjectVector nameObjects;
+    return name(nameFrom, &nameObjects);
+}
+
 String AXObject::name(AXNameFrom& nameFrom, AXObject::AXObjectVector* nameObjects) const
 {
     HeapHashSet<Member<const AXObject>> visited;
     AXRelatedObjectVector relatedObjects;
     String text = textAlternative(false, false, visited, nameFrom, &relatedObjects, nullptr);
 
-    if (!node() || !isHTMLBRElement(node()))
-        text = text.simplifyWhiteSpace(isHTMLSpace<UChar>);
+    AccessibilityRole role = roleValue();
+    if (!node() || (!isHTMLBRElement(node()) && role != StaticTextRole && role != InlineTextBoxRole))
+        text = collapseWhitespace(text);
 
     if (nameObjects) {
         nameObjects->clear();
         for (size_t i = 0; i < relatedObjects.size(); i++)
             nameObjects->append(relatedObjects[i]->object);
     }
+
     return text;
 }
 
@@ -707,6 +729,178 @@ String AXObject::recursiveTextAlternative(const AXObject& axObj, bool inAriaLabe
 {
     AXNameFrom tmpNameFrom;
     return axObj.textAlternative(true, inAriaLabelledByTraversal, visited, tmpNameFrom, nullptr, nullptr);
+}
+
+bool AXObject::isHiddenForTextAlternativeCalculation() const
+{
+    if (equalIgnoringCase(getAttribute(aria_hiddenAttr), "false"))
+        return false;
+
+    if (layoutObject())
+        return layoutObject()->style()->visibility() != VISIBLE;
+
+    // This is an obscure corner case: if a node has no LayoutObject, that means it's not rendered,
+    // but we still may be exploring it as part of a text alternative calculation, for example if it
+    // was explicitly referenced by aria-labelledby. So we need to explicitly call the style resolver
+    // to check whether it's invisible or display:none, rather than relying on the style cached in the
+    // LayoutObject.
+    Document* doc = document();
+    if (doc && doc->frame() && node() && node()->isElementNode()) {
+        RefPtr<ComputedStyle> style = doc->ensureStyleResolver().styleForElement(toElement(node()));
+        return style->display() == NONE || style->visibility() != VISIBLE;
+    }
+
+    return false;
+}
+
+String AXObject::ariaTextAlternative(bool recursive, bool inAriaLabelledByTraversal, AXObjectSet& visited, AXNameFrom& nameFrom, AXRelatedObjectVector* relatedObjects, NameSources* nameSources, bool* foundTextAlternative) const
+{
+    String textAlternative;
+    bool alreadyVisited = visited.contains(this);
+    visited.add(this);
+
+    // Step 2A from: http://www.w3.org/TR/accname-aam-1.1
+    // If you change this logic, update AXNodeObject::nameFromLabelElement, too.
+    if (!inAriaLabelledByTraversal && isHiddenForTextAlternativeCalculation()) {
+        *foundTextAlternative = true;
+        return String();
+    }
+
+    // Step 2B from: http://www.w3.org/TR/accname-aam-1.1
+    // If you change this logic, update AXNodeObject::nameFromLabelElement, too.
+    if (!inAriaLabelledByTraversal && !alreadyVisited) {
+        const QualifiedName& attr = hasAttribute(aria_labeledbyAttr) && !hasAttribute(aria_labelledbyAttr) ? aria_labeledbyAttr : aria_labelledbyAttr;
+        nameFrom = AXNameFromRelatedElement;
+        if (nameSources) {
+            nameSources->append(NameSource(*foundTextAlternative, attr));
+            nameSources->last().type = nameFrom;
+        }
+
+        const AtomicString& ariaLabelledby = getAttribute(attr);
+        if (!ariaLabelledby.isNull()) {
+            if (nameSources)
+                nameSources->last().attributeValue = ariaLabelledby;
+
+            textAlternative = textFromAriaLabelledby(visited, relatedObjects);
+
+            if (!textAlternative.isNull()) {
+                if (nameSources) {
+                    NameSource& source = nameSources->last();
+                    source.type = nameFrom;
+                    source.relatedObjects = *relatedObjects;
+                    source.text = textAlternative;
+                    *foundTextAlternative = true;
+                } else {
+                    *foundTextAlternative = true;
+                    return textAlternative;
+                }
+            } else if (nameSources) {
+                nameSources->last().invalid = true;
+            }
+        }
+    }
+
+    // Step 2C from: http://www.w3.org/TR/accname-aam-1.1
+    // If you change this logic, update AXNodeObject::nameFromLabelElement, too.
+    nameFrom = AXNameFromAttribute;
+    if (nameSources) {
+        nameSources->append(NameSource(*foundTextAlternative, aria_labelAttr));
+        nameSources->last().type = nameFrom;
+    }
+    const AtomicString& ariaLabel = getAttribute(aria_labelAttr);
+    if (!ariaLabel.isEmpty()) {
+        textAlternative = ariaLabel;
+
+        if (nameSources) {
+            NameSource& source = nameSources->last();
+            source.text = textAlternative;
+            source.attributeValue = ariaLabel;
+            *foundTextAlternative = true;
+        } else {
+            *foundTextAlternative = true;
+            return textAlternative;
+        }
+    }
+
+    return textAlternative;
+}
+
+String AXObject::textFromElements(bool inAriaLabelledbyTraversal, AXObjectSet& visited, WillBeHeapVector<RawPtrWillBeMember<Element>>& elements, AXRelatedObjectVector* relatedObjects) const
+{
+    StringBuilder accumulatedText;
+    bool foundValidElement = false;
+    AXRelatedObjectVector localRelatedObjects;
+
+    for (const auto& element : elements) {
+        AXObject* axElement = axObjectCache().getOrCreate(element);
+        if (axElement) {
+            foundValidElement = true;
+
+            String result = recursiveTextAlternative(*axElement, inAriaLabelledbyTraversal, visited);
+            localRelatedObjects.append(new NameSourceRelatedObject(axElement, result));
+            if (!result.isEmpty()) {
+                if (!accumulatedText.isEmpty())
+                    accumulatedText.append(" ");
+                accumulatedText.append(result);
+            }
+        }
+    }
+    if (!foundValidElement)
+        return String();
+    if (relatedObjects)
+        *relatedObjects = localRelatedObjects;
+    return accumulatedText.toString();
+}
+
+void AXObject::tokenVectorFromAttribute(Vector<String>& tokens, const QualifiedName& attribute) const
+{
+    Node* node = this->node();
+    if (!node || !node->isElementNode())
+        return;
+
+    String attributeValue = getAttribute(attribute).string();
+    if (attributeValue.isEmpty())
+        return;
+
+    attributeValue.simplifyWhiteSpace();
+    attributeValue.split(' ', tokens);
+}
+
+void AXObject::elementsFromAttribute(WillBeHeapVector<RawPtrWillBeMember<Element>>& elements, const QualifiedName& attribute) const
+{
+    Vector<String> ids;
+    tokenVectorFromAttribute(ids, attribute);
+    if (ids.isEmpty())
+        return;
+
+    TreeScope& scope = node()->treeScope();
+    for (const auto& id : ids) {
+        if (Element* idElement = scope.getElementById(AtomicString(id)))
+            elements.append(idElement);
+    }
+}
+
+void AXObject::ariaLabelledbyElementVector(WillBeHeapVector<RawPtrWillBeMember<Element>>& elements) const
+{
+    // Try both spellings, but prefer aria-labelledby, which is the official spec.
+    elementsFromAttribute(elements, aria_labelledbyAttr);
+    if (!elements.size())
+        elementsFromAttribute(elements, aria_labeledbyAttr);
+}
+
+String AXObject::textFromAriaLabelledby(AXObjectSet& visited, AXRelatedObjectVector* relatedObjects) const
+{
+    WillBeHeapVector<RawPtrWillBeMember<Element>> elements;
+    ariaLabelledbyElementVector(elements);
+    return textFromElements(true, visited, elements, relatedObjects);
+}
+
+String AXObject::textFromAriaDescribedby(AXRelatedObjectVector* relatedObjects) const
+{
+    AXObjectSet visited;
+    WillBeHeapVector<RawPtrWillBeMember<Element>> elements;
+    elementsFromAttribute(elements, aria_describedbyAttr);
+    return textFromElements(true, visited, elements, relatedObjects);
 }
 
 AccessibilityOrientation AXObject::orientation() const
@@ -843,18 +1037,6 @@ int AXObject::indexInParent() const
     return 0;
 }
 
-void AXObject::ariaTreeRows(AXObjectVector& result)
-{
-    for (const auto& child : children()) {
-        // Add tree items as the rows.
-        if (child->roleValue() == TreeItemRole)
-            result.append(child);
-
-        // Now see if this item also has rows hiding inside of it.
-        child->ariaTreeRows(result);
-    }
-}
-
 bool AXObject::isLiveRegion() const
 {
     const AtomicString& liveRegion = liveRegionStatus();
@@ -928,18 +1110,16 @@ IntRect AXObject::boundingBoxForQuads(LayoutObject* obj, const Vector<FloatQuad>
 
 AXObject* AXObject::elementAccessibilityHitTest(const IntPoint& point) const
 {
-    // Send the hit test back into the sub-frame if necessary.
-    if (isAttachment()) {
-        Widget* widget = widgetForAttachmentView();
-        // Normalize the point for the widget's bounds.
-        if (widget && widget->isFrameView())
-            return axObjectCache().getOrCreate(widget)->accessibilityHitTest(IntPoint(point - widget->frameRect().location()));
-    }
-
-    // Check if there are any mock elements that need to be handled.
+    // Check if there are any mock elements or child frames that need to be handled.
     for (const auto& child : m_children) {
         if (child->isMockObject() && child->elementRect().contains(point))
             return child->elementAccessibilityHitTest(point);
+
+        if (child->isWebArea()) {
+            FrameView* frameView = child->documentFrameView();
+            if (frameView)
+                return child->accessibilityHitTest(IntPoint(point - frameView->frameRect().location()));
+        }
     }
 
     return const_cast<AXObject*>(this);
@@ -1000,19 +1180,6 @@ void AXObject::clearChildren()
 
     m_children.clear();
     m_haveChildren = false;
-}
-
-AXObject* AXObject::focusedUIElement() const
-{
-    Document* doc = document();
-    if (!doc)
-        return 0;
-
-    Page* page = doc->page();
-    if (!page)
-        return 0;
-
-    return axObjectCache().focusedUIElementForPage(page);
 }
 
 Document* AXObject::document() const
@@ -1246,7 +1413,7 @@ void AXObject::scrollToMakeVisibleWithSubFocus(const IntRect& subfocus) const
     ScrollableArea* scrollableArea = 0;
     while (scrollParent) {
         scrollableArea = scrollParent->getScrollableAreaIfScrollable();
-        if (scrollableArea && !scrollParent->isAXScrollView())
+        if (scrollableArea)
             break;
         scrollParent = scrollParent->parentObject();
     }
@@ -1295,7 +1462,7 @@ void AXObject::scrollToGlobalPoint(const IntPoint& globalPoint) const
     HeapVector<Member<const AXObject>> objects;
     AXObject* parentObject;
     for (parentObject = this->parentObject(); parentObject; parentObject = parentObject->parentObject()) {
-        if (parentObject->getScrollableAreaIfScrollable() && !parentObject->isAXScrollView())
+        if (parentObject->getScrollableAreaIfScrollable())
             objects.prepend(parentObject);
     }
     objects.append(this);
@@ -1382,7 +1549,7 @@ int AXObject::lineForPosition(const VisiblePosition& position) const
     do {
         previousPosition = currentPosition;
         currentPosition = previousLinePosition(
-            currentPosition, 0, HasEditableAXRole);
+            currentPosition, LayoutUnit(), HasEditableAXRole);
         ++lineCount;
     } while (currentPosition.isNotNull()
         && !inSameLine(currentPosition, previousPosition));
@@ -1478,13 +1645,13 @@ bool AXObject::nameFromContents() const
     case MenuItemCheckBoxRole:
     case MenuItemRadioRole:
     case MenuListOptionRole:
+    case PopUpButtonRole:
     case RadioButtonRole:
     case StaticTextRole:
     case StatusRole:
     case SwitchRole:
     case TabRole:
     case ToggleButtonRole:
-    case TreeItemRole:
         return true;
     default:
         return false;

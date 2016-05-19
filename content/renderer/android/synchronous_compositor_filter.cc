@@ -10,6 +10,7 @@
 #include "content/common/android/sync_compositor_messages.h"
 #include "content/common/input_messages.h"
 #include "content/renderer/android/synchronous_compositor_proxy.h"
+#include "ui/events/blink/synchronous_input_handler_proxy.h"
 
 namespace content {
 
@@ -78,6 +79,9 @@ void SynchronousCompositorFilter::OnMessageReceivedOnCompositorThread(
     proxy->OnMessageReceived(message);
     return;
   }
+
+  if (!message.is_sync())
+    return;
   IPC::Message* reply = IPC::SyncMessage::GenerateReply(&message);
   reply->set_reply_error();
   Send(reply);
@@ -214,7 +218,7 @@ void SynchronousCompositorFilter::SetBoundHandlerOnCompositorThread(
 
 void SynchronousCompositorFilter::DidAddInputHandler(
     int routing_id,
-    SynchronousInputHandlerProxy* synchronous_input_handler_proxy) {
+    ui::SynchronousInputHandlerProxy* synchronous_input_handler_proxy) {
   DCHECK(compositor_task_runner_->BelongsToCurrentThread());
   DCHECK(synchronous_input_handler_proxy);
   Entry& entry = entry_map_[routing_id];
@@ -250,6 +254,10 @@ void SynchronousCompositorFilter::DidStopFlinging(int routing_id) {
   DCHECK(compositor_task_runner_->BelongsToCurrentThread());
   Send(new InputHostMsg_DidStopFlinging(routing_id));
 }
+
+void SynchronousCompositorFilter::NonBlockingInputEventHandled(
+    int routing_id,
+    blink::WebInputEvent::Type type) {}
 
 SynchronousCompositorFilter::Entry::Entry()
     : begin_frame_source(nullptr),

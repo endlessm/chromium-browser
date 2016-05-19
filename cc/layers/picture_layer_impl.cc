@@ -4,6 +4,9 @@
 
 #include "cc/layers/picture_layer_impl.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -11,6 +14,7 @@
 
 #include "base/time/time.h"
 #include "base/trace_event/trace_event_argument.h"
+#include "cc/base/histograms.h"
 #include "cc/base/math_util.h"
 #include "cc/debug/debug_colors.h"
 #include "cc/debug/micro_benchmark_impl.h"
@@ -47,6 +51,10 @@ const int kMinHeightForGpuRasteredTile = 256;
 // When making odd-sized tiles, round them up to increase the chances
 // of using the same tile size.
 const int kTileRoundUp = 64;
+
+// For performance reasons and to support compressed tile textures, tile
+// width and height should be an even multiple of 4 in size.
+const int kTileMinimalAlignment = 4;
 
 }  // namespace
 
@@ -263,7 +271,7 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
 
   // Ignore missing tiles outside of viewport for tile priority. This is
   // normally the same as draw viewport but can be independently overridden by
-  // embedders like Android WebView with SetExternalDrawConstraints.
+  // embedders like Android WebView with SetExternalTilePriorityConstraints.
   gfx::Rect scaled_viewport_for_tile_priority = gfx::ScaleToEnclosingRect(
       viewport_rect_for_tile_priority_in_content_space_, max_contents_scale);
 
@@ -347,8 +355,16 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
       if (geometry_rect.Intersects(scaled_viewport_for_tile_priority)) {
         append_quads_data->num_missing_tiles++;
         ++missing_tile_count;
+        // We only keep track of discardable images if we're using raster tasks,
+        // so we only gather stats in this case.
+        if (layer_tree_impl()->settings().image_decode_tasks_enabled) {
+          if (raster_source_->HasDiscardableImageInRect(geometry_rect))
+            append_quads_data->num_missing_tiles_some_image_content++;
+          else
+            append_quads_data->num_missing_tiles_no_image_content++;
+        }
       }
-      int64 checkerboarded_area =
+      int64_t checkerboarded_area =
           visible_geometry_rect.width() * visible_geometry_rect.height();
       append_quads_data->checkerboarded_visible_content_area +=
           checkerboarded_area;
@@ -358,7 +374,7 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
       // subtraction.
       gfx::Rect visible_rect_has_recording = visible_geometry_rect;
       visible_rect_has_recording.Intersect(scaled_recorded_viewport);
-      int64 checkerboarded_has_recording_area =
+      int64_t checkerboarded_has_recording_area =
           visible_rect_has_recording.width() *
           visible_rect_has_recording.height();
       append_quads_data->checkerboarded_needs_raster_content_area +=
@@ -401,12 +417,7 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
   CleanUpTilingsOnActiveLayer(last_append_quads_tilings_);
 }
 
-bool PictureLayerImpl::UpdateTiles(bool resourceless_software_draw) {
-  if (!resourceless_software_draw) {
-    visible_rect_for_tile_priority_ = visible_layer_rect();
-    screen_space_transform_for_tile_priority_ = screen_space_transform();
-  }
-
+bool PictureLayerImpl::UpdateTiles() {
   if (!CanHaveTilings()) {
     ideal_page_scale_ = 0.f;
     ideal_device_scale_ = 0.f;
@@ -483,17 +494,17 @@ bool PictureLayerImpl::UpdateTiles(bool resourceless_software_draw) {
 }
 
 void PictureLayerImpl::UpdateViewportRectForTilePriorityInContentSpace() {
-  // If visible_rect_for_tile_priority_ is empty or
-  // viewport_rect_for_tile_priority is set to be different from the device
-  // viewport, try to inverse project the viewport into layer space and use
-  // that. Otherwise just use visible_rect_for_tile_priority_
-  gfx::Rect visible_rect_in_content_space = visible_rect_for_tile_priority_;
+  // If visible_layer_rect() is empty or viewport_rect_for_tile_priority is
+  // set to be different from the device viewport, try to inverse project the
+  // viewport into layer space and use that. Otherwise just use
+  // visible_layer_rect().
+  gfx::Rect visible_rect_in_content_space = visible_layer_rect();
   gfx::Rect viewport_rect_for_tile_priority =
       layer_tree_impl()->ViewportRectForTilePriority();
   if (visible_rect_in_content_space.IsEmpty() ||
       layer_tree_impl()->DeviceViewport() != viewport_rect_for_tile_priority) {
     gfx::Transform view_to_layer(gfx::Transform::kSkipInitialization);
-    if (screen_space_transform_for_tile_priority_.GetInverse(&view_to_layer)) {
+    if (ScreenSpaceTransform().GetInverse(&view_to_layer)) {
       // Transform from view space to content space.
       visible_rect_in_content_space = MathUtil::ProjectEnclosingClippedRect(
           view_to_layer, viewport_rect_for_tile_priority);
@@ -539,6 +550,12 @@ void PictureLayerImpl::UpdateRasterSource(
   // first frame.
   bool could_have_tilings = raster_source_.get() && CanHaveTilings();
   raster_source_.swap(raster_source);
+
+  // Only set the image decode controller when we're committing.
+  if (!pending_set) {
+    raster_source_->SetImageDecodeController(
+        layer_tree_impl()->tile_manager()->GetImageDecodeController());
+  }
 
   // The |new_invalidation| must be cleared before updating tilings since they
   // access the invalidation through the PictureLayerTilingClient interface.
@@ -642,7 +659,7 @@ skia::RefPtr<SkPicture> PictureLayerImpl::GetPicture() {
   return raster_source_->GetFlattenedPicture();
 }
 
-Region PictureLayerImpl::GetInvalidationRegion() {
+Region PictureLayerImpl::GetInvalidationRegionForDebugging() {
   // |invalidation_| gives the invalidation contained in the source frame, but
   // is not cleared after drawing from the layer. However, update_rect() is
   // cleared once the invalidation is drawn, which is useful for debugging
@@ -768,6 +785,10 @@ gfx::Size PictureLayerImpl::CalculateTileSize(
     tile_height = MathUtil::UncheckedRoundUp(tile_height, kTileRoundUp);
     tile_height = std::min(tile_height, default_tile_height);
   }
+
+  // Ensure that tile width and height are properly aligned.
+  tile_width = MathUtil::UncheckedRoundUp(tile_width, kTileMinimalAlignment);
+  tile_height = MathUtil::UncheckedRoundUp(tile_height, kTileMinimalAlignment);
 
   // Under no circumstance should we be larger than the max texture size.
   tile_width = std::min(tile_width, max_texture_size);
@@ -999,22 +1020,24 @@ void PictureLayerImpl::RecalculateRasterScales() {
     if (maximum_scale) {
       gfx::Size bounds_at_maximum_scale =
           gfx::ScaleToCeiledSize(raster_source_->GetSize(), maximum_scale);
-      int64 maximum_area = static_cast<int64>(bounds_at_maximum_scale.width()) *
-                           static_cast<int64>(bounds_at_maximum_scale.height());
+      int64_t maximum_area =
+          static_cast<int64_t>(bounds_at_maximum_scale.width()) *
+          static_cast<int64_t>(bounds_at_maximum_scale.height());
       gfx::Size viewport = layer_tree_impl()->device_viewport_size();
-      int64 viewport_area = static_cast<int64>(viewport.width()) *
-                            static_cast<int64>(viewport.height());
+      int64_t viewport_area = static_cast<int64_t>(viewport.width()) *
+                              static_cast<int64_t>(viewport.height());
       if (maximum_area <= viewport_area)
         can_raster_at_maximum_scale = true;
     }
     if (starting_scale && starting_scale > maximum_scale) {
       gfx::Size bounds_at_starting_scale =
           gfx::ScaleToCeiledSize(raster_source_->GetSize(), starting_scale);
-      int64 start_area = static_cast<int64>(bounds_at_starting_scale.width()) *
-                         static_cast<int64>(bounds_at_starting_scale.height());
+      int64_t start_area =
+          static_cast<int64_t>(bounds_at_starting_scale.width()) *
+          static_cast<int64_t>(bounds_at_starting_scale.height());
       gfx::Size viewport = layer_tree_impl()->device_viewport_size();
-      int64 viewport_area = static_cast<int64>(viewport.width()) *
-                            static_cast<int64>(viewport.height());
+      int64_t viewport_area = static_cast<int64_t>(viewport.width()) *
+                              static_cast<int64_t>(viewport.height());
       if (start_area <= viewport_area)
         should_raster_at_starting_scale = true;
     }

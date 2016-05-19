@@ -4,17 +4,17 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "global.h"
+#include "fpdfsdk/src/javascript/global.h"
 
-#include "../../include/javascript/IJavaScript.h"
-#include "JS_Context.h"
-#include "JS_Define.h"
-#include "JS_EventHandler.h"
-#include "JS_GlobalData.h"
-#include "JS_Object.h"
-#include "JS_Value.h"
 #include "core/include/fxcrt/fx_ext.h"
-#include "resource.h"
+#include "fpdfsdk/include/javascript/IJavaScript.h"
+#include "fpdfsdk/src/javascript/JS_Context.h"
+#include "fpdfsdk/src/javascript/JS_Define.h"
+#include "fpdfsdk/src/javascript/JS_EventHandler.h"
+#include "fpdfsdk/src/javascript/JS_GlobalData.h"
+#include "fpdfsdk/src/javascript/JS_Object.h"
+#include "fpdfsdk/src/javascript/JS_Value.h"
+#include "fpdfsdk/src/javascript/resource.h"
 
 /* ---------------------------- global ---------------------------- */
 
@@ -57,7 +57,7 @@ static unsigned JS_CalcHash(const wchar_t* main) {
   return (unsigned)FX_HashCode_String_GetW(main, FXSYS_wcslen(main));
 }
 
-#ifdef _DEBUG
+#ifndef NDEBUG
 class HashVerify {
  public:
   HashVerify();
@@ -227,12 +227,8 @@ FX_BOOL JSGlobalAlternate::setPersistent(IJS_Context* cc,
 }
 
 void JSGlobalAlternate::UpdateGlobalPersistentVariables() {
-  ASSERT(m_pGlobalData != NULL);
-
   for (int i = 0, sz = m_pGlobalData->GetSize(); i < sz; i++) {
     CJS_GlobalData_Element* pData = m_pGlobalData->GetAt(i);
-    ASSERT(pData != NULL);
-
     switch (pData->data.nType) {
       case JS_GLOBALDATA_TYPE_NUMBER:
         SetGlobalVariables(pData->data.sKey, JS_GLOBALDATA_TYPE_NUMBER,
@@ -268,7 +264,6 @@ void JSGlobalAlternate::UpdateGlobalPersistentVariables() {
                            false, "", pObj, pData->bPersistent == 1);
         FXJS_PutObjectObject(NULL, m_pJSObject->ToV8Object(),
                              pData->data.sKey.UTF8Decode().c_str(), pObj);
-
       } break;
       case JS_GLOBALDATA_TYPE_NULL:
         SetGlobalVariables(pData->data.sKey, JS_GLOBALDATA_TYPE_NULL, 0, false,
@@ -380,12 +375,8 @@ void JSGlobalAlternate::ObjectToArray(IJS_Context* cc,
 
 void JSGlobalAlternate::PutObjectProperty(v8::Local<v8::Object> pObj,
                                           CJS_KeyValue* pData) {
-  ASSERT(pData != NULL);
-
   for (int i = 0, sz = pData->objData.Count(); i < sz; i++) {
     CJS_KeyValue* pObjData = pData->objData.GetAt(i);
-    ASSERT(pObjData != NULL);
-
     switch (pObjData->nType) {
       case JS_GLOBALDATA_TYPE_NUMBER:
         FXJS_PutObjectNumber(NULL, pObj, pObjData->sKey.UTF8Decode().c_str(),

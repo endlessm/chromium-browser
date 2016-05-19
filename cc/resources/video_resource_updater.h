@@ -5,10 +5,13 @@
 #ifndef CC_RESOURCES_VIDEO_RESOURCE_UPDATER_H_
 #define CC_RESOURCES_VIDEO_RESOURCE_UPDATER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <list>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -35,6 +38,7 @@ class CC_EXPORT VideoFrameExternalResources {
     NONE,
     YUV_RESOURCE,
     RGB_RESOURCE,
+    RGBA_PREMULTIPLIED_RESOURCE,
     RGBA_RESOURCE,
     STREAM_TEXTURE_RESOURCE,
     IO_SURFACE,
@@ -59,7 +63,13 @@ class CC_EXPORT VideoFrameExternalResources {
   std::vector<unsigned> software_resources;
   ReleaseCallbackImpl software_release_callback;
 
+  // Used by hardware textures which do not return values in the 0-1 range.
+  // After a lookup, subtract offset and multiply by multiplier.
+  float offset;
+  float multiplier;
+
   VideoFrameExternalResources();
+  VideoFrameExternalResources(const VideoFrameExternalResources& other);
   ~VideoFrameExternalResources();
 };
 
@@ -96,6 +106,7 @@ class CC_EXPORT VideoResourceUpdater
                   const gfx::Size& resource_size,
                   ResourceFormat resource_format,
                   gpu::Mailbox mailbox);
+    PlaneResource(const PlaneResource& other);
   };
 
   static bool PlaneResourceMatchesUniqueID(const PlaneResource& plane_resource,
@@ -111,9 +122,13 @@ class CC_EXPORT VideoResourceUpdater
   typedef std::list<PlaneResource> ResourceList;
   ResourceList::iterator AllocateResource(const gfx::Size& plane_size,
                                           ResourceFormat format,
-                                          bool has_mailbox);
+                                          bool has_mailbox,
+                                          bool immutable_hint);
   void DeleteResource(ResourceList::iterator resource_it);
   bool VerifyFrame(const scoped_refptr<media::VideoFrame>& video_frame);
+  void CopyPlaneTexture(const scoped_refptr<media::VideoFrame>& video_frame,
+                        const gpu::MailboxHolder& mailbox_holder,
+                        VideoFrameExternalResources* external_resources);
   VideoFrameExternalResources CreateForHardwarePlanes(
       const scoped_refptr<media::VideoFrame>& video_frame);
   VideoFrameExternalResources CreateForSoftwarePlanes(

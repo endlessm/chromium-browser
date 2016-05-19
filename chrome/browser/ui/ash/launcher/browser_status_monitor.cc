@@ -8,6 +8,7 @@
 #include "ash/shelf/shelf_util.h"
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "chrome/browser/ui/ash/launcher/browser_shortcut_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
@@ -19,6 +20,7 @@
 #include "chrome/browser/ui/settings_window_manager_observer.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "grit/ash_resources.h"
@@ -126,7 +128,7 @@ BrowserStatusMonitor::BrowserStatusMonitor(
           aura::client::GetActivationClient(*iter));
       observed_root_windows_.Add(static_cast<aura::Window*>(*iter));
     }
-    ash::Shell::GetInstance()->GetScreen()->AddObserver(this);
+    gfx::Screen::GetScreen()->AddObserver(this);
   }
 
   browser_tab_strip_tracker_.Init(
@@ -137,7 +139,7 @@ BrowserStatusMonitor::~BrowserStatusMonitor() {
   // This check needs for win7_aura. Without this, all tests in
   // ChromeLauncherController will fail in win7_aura.
   if (ash::Shell::HasInstance())
-    ash::Shell::GetInstance()->GetScreen()->RemoveObserver(this);
+    gfx::Screen::GetScreen()->RemoveObserver(this);
 
   chrome::SettingsWindowManager::GetInstance()->RemoveObserver(
       settings_window_observer_.get());

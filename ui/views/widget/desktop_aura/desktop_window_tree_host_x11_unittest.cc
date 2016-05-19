@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include <stddef.h>
 #include <X11/extensions/shape.h>
 #include <X11/Xlib.h>
 
@@ -15,6 +16,7 @@
 #undef None
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "ui/aura/window.h"
@@ -22,7 +24,7 @@
 #include "ui/base/hit_test.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
-#include "ui/events/platform/x11/x11_event_source.h"
+#include "ui/events/platform/x11/x11_event_source_glib.h"
 #include "ui/events/test/platform_event_source_test_api.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
@@ -66,11 +68,9 @@ class WMStateWaiter : public X11PropertyChangeWaiter {
   bool ShouldKeepOnWaiting(const ui::PlatformEvent& event) override {
     std::vector<Atom> hints;
     if (ui::GetAtomArrayProperty(xwindow(), "_NET_WM_STATE", &hints)) {
-      std::vector<Atom>::iterator it = std::find(
-          hints.begin(),
-          hints.end(),
-          atom_cache_->GetAtom(hint_));
-      bool hint_set = (it != hints.end());
+      auto it = std::find(hints.cbegin(), hints.cend(),
+                          atom_cache_->GetAtom(hint_));
+      bool hint_set = (it != hints.cend());
       return hint_set != wait_till_set_;
     }
     return true;
@@ -149,7 +149,7 @@ scoped_ptr<Widget> CreateWidget(WidgetDelegate* delegate) {
   params.native_widget = new DesktopNativeWidgetAura(widget.get());
   params.bounds = gfx::Rect(100, 100, 100, 100);
   widget->Init(params);
-  return widget.Pass();
+  return widget;
 }
 
 // Returns the list of rectangles which describe |xid|'s bounding region via the

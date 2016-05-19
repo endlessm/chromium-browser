@@ -4,7 +4,10 @@
 
 #include "chrome/browser/password_manager/password_store_proxy_mac.h"
 
+#include <utility>
+
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
@@ -22,6 +25,7 @@
 #include "crypto/mock_apple_keychain.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/origin.h"
 
 namespace {
 
@@ -61,7 +65,7 @@ class MockPasswordStoreConsumer
 class MockPasswordStoreObserver
     : public password_manager::PasswordStore::Observer {
  public:
-  MockPasswordStoreObserver(PasswordStoreProxyMac* password_store)
+  explicit MockPasswordStoreObserver(PasswordStoreProxyMac* password_store)
       : guard_(this) {
     guard_.Add(password_store);
   }
@@ -144,7 +148,7 @@ PasswordStoreProxyMacTest::~PasswordStoreProxyMacTest() {
 void PasswordStoreProxyMacTest::SetUp() {
   scoped_ptr<password_manager::LoginDatabase> login_db(
       new password_manager::LoginDatabase(test_login_db_file_path()));
-  CreateAndInitPasswordStore(login_db.Pass());
+  CreateAndInitPasswordStore(std::move(login_db));
 }
 
 void PasswordStoreProxyMacTest::TearDown() {
@@ -155,7 +159,7 @@ void PasswordStoreProxyMacTest::CreateAndInitPasswordStore(
     scoped_ptr<password_manager::LoginDatabase> login_db) {
   store_ = new PasswordStoreProxyMac(
       BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI),
-      make_scoped_ptr(new crypto::MockAppleKeychain), login_db.Pass(),
+      make_scoped_ptr(new crypto::MockAppleKeychain), std::move(login_db),
       &testing_prefs_);
   ASSERT_TRUE(store_->Init(syncer::SyncableService::StartSyncFlare()));
 }
@@ -163,7 +167,7 @@ void PasswordStoreProxyMacTest::CreateAndInitPasswordStore(
 void PasswordStoreProxyMacTest::ClosePasswordStore() {
   if (!store_)
     return;
-  store_->Shutdown();
+  store_->ShutdownOnUIThread();
   EXPECT_FALSE(store_->GetBackgroundTaskRunner());
   store_ = nullptr;
 }
@@ -172,8 +176,7 @@ void PasswordStoreProxyMacTest::FinishAsyncProcessing() {
   // Do a store-level query to wait for all the previously enqueued operations
   // to finish.
   MockPasswordStoreConsumer consumer;
-  store_->GetLogins(PasswordForm(),
-                    password_manager::PasswordStore::ALLOW_PROMPT, &consumer);
+  store_->GetLogins(PasswordForm(), &consumer);
   EXPECT_CALL(consumer, OnGetPasswordStoreResultsConstRef(_))
       .WillOnce(QuitUIMessageLoop());
   base::MessageLoop::current()->Run();
@@ -221,7 +224,8 @@ void PasswordStoreProxyMacTest::CheckRemoveLoginsBetween(bool check_created) {
   old_form.origin = GURL("http://accounts.google.com/LoginAuth");
   old_form.signon_realm = "http://accounts.google.com/";
   old_form.username_value = base::ASCIIToUTF16("my_username");
-  old_form.federation_url = GURL("http://accounts.google.com/federation");
+  old_form.federation_origin =
+      url::Origin(GURL("http://accounts.google.com/federation"));
 
   PasswordForm new_form = old_form;
   new_form.origin = GURL("http://accounts.google2.com/LoginAuth");
@@ -257,9 +261,9 @@ void PasswordStoreProxyMacTest::CheckRemoveLoginsBetween(bool check_created) {
 // ----------- Tests -------------
 
 TEST_P(PasswordStoreProxyMacTest, StartAndStop) {
-  // PasswordStore::Shutdown() immediately follows PasswordStore::Init(). The
-  // message loop isn't running in between. Anyway, PasswordStore should end up
-  // in the right state.
+  // PasswordStore::ShutdownOnUIThread() immediately follows
+  // PasswordStore::Init(). The message loop isn't running in between. Anyway,
+  // PasswordStore should end up in the right state.
   ClosePasswordStore();
 
   int status = testing_prefs_.GetInteger(
@@ -308,8 +312,7 @@ TEST_P(PasswordStoreProxyMacTest, FillLogins) {
   AddForm(blacklisted_form);
 
   MockPasswordStoreConsumer mock_consumer;
-  store()->GetLogins(password_form, PasswordStoreProxyMac::ALLOW_PROMPT,
-                     &mock_consumer);
+  store()->GetLogins(password_form, &mock_consumer);
   EXPECT_CALL(mock_consumer, OnGetPasswordStoreResultsConstRef(
                                  ElementsAre(Pointee(password_form))))
       .WillOnce(QuitUIMessageLoop());
@@ -360,8 +363,7 @@ TEST_P(PasswordStoreProxyMacTest, OperationsOnABadDatabaseSilentlyFail) {
 
   // Get all logins; autofillable logins; blacklisted logins.
   MockPasswordStoreConsumer mock_consumer;
-  store()->GetLogins(*form, password_manager::PasswordStore::DISALLOW_PROMPT,
-                     &mock_consumer);
+  store()->GetLogins(*form, &mock_consumer);
   ON_CALL(mock_consumer, OnGetPasswordStoreResultsConstRef(_))
       .WillByDefault(QuitUIMessageLoop());
   EXPECT_CALL(mock_consumer, OnGetPasswordStoreResultsConstRef(IsEmpty()));
@@ -444,7 +446,7 @@ void PasswordStoreProxyMacMigrationTest::TestMigration(bool lock_keychain) {
     keychain_->set_locked(true);
   store_ = new PasswordStoreProxyMac(
       BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI),
-      keychain_.Pass(), login_db_.Pass(), &testing_prefs_);
+      std::move(keychain_), std::move(login_db_), &testing_prefs_);
   ASSERT_TRUE(store_->Init(syncer::SyncableService::StartSyncFlare()));
   FinishAsyncProcessing();
 
@@ -454,7 +456,7 @@ void PasswordStoreProxyMacMigrationTest::TestMigration(bool lock_keychain) {
         store_->password_store_mac()->keychain())->set_locked(false);
   }
   MockPasswordStoreConsumer mock_consumer;
-  store()->GetLogins(form, PasswordStoreProxyMac::ALLOW_PROMPT, &mock_consumer);
+  store()->GetLogins(form, &mock_consumer);
   EXPECT_CALL(mock_consumer,
               OnGetPasswordStoreResultsConstRef(ElementsAre(Pointee(form))))
       .WillOnce(QuitUIMessageLoop());

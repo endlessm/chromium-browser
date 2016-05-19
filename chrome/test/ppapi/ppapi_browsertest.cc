@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/test/test_timeouts.h"
 #include "base/win/windows_version.h"
@@ -61,9 +64,7 @@ using content::RenderViewHost;
 // Flaky on Mac ASAN:
 //    http://crbug.com/428670
 
-#if defined(DISABLE_NACL) || \
-    (defined(OS_MACOSX) && defined(ADDRESS_SANITIZER)) || \
-    defined(DISABLE_NACL_BROWSERTESTS)
+#if defined(DISABLE_NACL) || (defined(OS_MACOSX) && defined(ADDRESS_SANITIZER))
 
 #define MAYBE_PPAPI_NACL(test_name) DISABLED_##test_name
 
@@ -945,6 +946,8 @@ IN_PROC_BROWSER_TEST_F(PPAPINaClPNaClNonSfiTest,
   RUN_AUDIO_CONFIG_SUBTESTS;
 }
 
+TEST_PPAPI_NACL(AudioEncoder)
+
 // PPB_Audio tests.
 #define RUN_AUDIO_SUBTESTS \
   RunTestViaHTTP( \
@@ -1100,6 +1103,7 @@ IN_PROC_BROWSER_TEST_F(PPAPINaClPNaClNonSfiTest, MAYBE_PNACL_NONSFI(View)) {
   RunTest( \
       LIST_TEST(FlashMessageLoop_Basics) \
       LIST_TEST(FlashMessageLoop_RunWithoutQuit) \
+      LIST_TEST(FlashMessageLoop_SuspendScriptCallbackWhileRunning) \
   )
 
 #if defined(OS_LINUX)  // Disabled due to flakiness http://crbug.com/316925
@@ -1285,8 +1289,13 @@ IN_PROC_BROWSER_TEST_F(NewlibPackagedAppTest,
   RunTests("packaged_app");
 }
 
-IN_PROC_BROWSER_TEST_F(NonSfiPackagedAppTest,
-                       MAYBE_PNACL_NONSFI(SuccessfulLoad)) {
+#if defined(OS_LINUX)
+// http://crbug.com/579804
+#define MAYBE_SuccessfulLoad DISABLED_SuccessfulLoad
+#else
+#define MAYBE_SuccessfulLoad MAYBE_PNACL_NONSFI(SuccessfulLoad)
+#endif
+IN_PROC_BROWSER_TEST_F(NonSfiPackagedAppTest, MAYBE_SuccessfulLoad) {
   RunTests("packaged_app");
 }
 

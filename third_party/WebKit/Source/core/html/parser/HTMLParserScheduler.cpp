@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLParserScheduler.h"
 
 #include "core/dom/Document.h"
@@ -92,6 +91,11 @@ HTMLParserScheduler::HTMLParserScheduler(HTMLDocumentParser* parser, WebTaskRunn
 
 HTMLParserScheduler::~HTMLParserScheduler()
 {
+}
+
+DEFINE_TRACE(HTMLParserScheduler)
+{
+    visitor->trace(m_parser);
 }
 
 void HTMLParserScheduler::scheduleForResume()
@@ -170,4 +174,4 @@ void HTMLParserScheduler::continueParsing()
     m_parser->resumeParsingAfterYield();
 }
 
-}
+} // namespace blink

@@ -9,9 +9,10 @@
 
 namespace content {
 
-// Test version of a NavigationThrottle. It will always return the same
+// Test version of a NavigationThrottle. It will always return the current
 // NavigationThrottle::ThrottleCheckResult |result_|, It also monitors the
-// number of times WillStartRequest and WillRedirectRequest were called.
+// number of times WillStartRequest, WillRedirectRequest, and
+// WillProcessResponse were called.
 class TestNavigationThrottle : public NavigationThrottle {
  public:
   TestNavigationThrottle(NavigationHandle* handle,
@@ -19,7 +20,8 @@ class TestNavigationThrottle : public NavigationThrottle {
       : NavigationThrottle(handle),
         result_(result),
         will_start_calls_(0),
-        will_redirect_calls_(0) {}
+        will_redirect_calls_(0),
+        will_process_response_calls_(0) {}
 
   ~TestNavigationThrottle() override {}
 
@@ -33,16 +35,25 @@ class TestNavigationThrottle : public NavigationThrottle {
     return result_;
   }
 
+  NavigationThrottle::ThrottleCheckResult WillProcessResponse() override {
+    ++will_process_response_calls_;
+    return result_;
+  }
+
   int will_start_calls() const { return will_start_calls_; }
   int will_redirect_calls() const { return will_redirect_calls_; }
+  int will_process_response_calls() const {
+    return will_process_response_calls_;
+  }
 
  private:
   // The result returned by the TestNavigationThrottle.
   NavigationThrottle::ThrottleCheckResult result_;
 
-  // The number of times WillStartRequest and WillRedirectRequest were called.
+  // The number of times each handler was called.
   int will_start_calls_;
   int will_redirect_calls_;
+  int will_process_response_calls_;
 };
 
 class NavigationHandleImplTest : public RenderViewHostImplTestHarness {
@@ -54,7 +65,8 @@ class NavigationHandleImplTest : public RenderViewHostImplTestHarness {
   void SetUp() override {
     RenderViewHostImplTestHarness::SetUp();
     test_handle_ = NavigationHandleImpl::Create(
-        GURL(), main_test_rfh()->frame_tree_node());
+        GURL(), main_test_rfh()->frame_tree_node(), false, false,
+        base::TimeTicks::Now());
   }
 
   void TearDown() override {
@@ -70,6 +82,14 @@ class NavigationHandleImplTest : public RenderViewHostImplTestHarness {
 
   bool IsDeferringRedirect() {
     return test_handle_->state() == NavigationHandleImpl::DEFERRING_REDIRECT;
+  }
+
+  bool IsDeferringResponse() {
+    return test_handle_->state() == NavigationHandleImpl::DEFERRING_RESPONSE;
+  }
+
+  bool IsCanceling() {
+    return test_handle_->state() == NavigationHandleImpl::CANCELING;
   }
 
   // Helper function to call WillStartRequest on |handle|. If this function
@@ -90,6 +110,8 @@ class NavigationHandleImplTest : public RenderViewHostImplTestHarness {
   // Helper function to call WillRedirectRequest on |handle|. If this function
   // returns DEFER, |callback_result_| will be set to the actual result of the
   // throttle checks when they are finished.
+  // TODO(clamy): this should also simulate that WillStartRequest was called if
+  // it has not been called before.
   void SimulateWillRedirectRequest() {
     was_callback_called_ = false;
     callback_result_ = NavigationThrottle::DEFER;
@@ -97,7 +119,25 @@ class NavigationHandleImplTest : public RenderViewHostImplTestHarness {
     // It's safe to use base::Unretained since the NavigationHandle is owned by
     // the NavigationHandleImplTest.
     test_handle_->WillRedirectRequest(
-        GURL(), false, GURL(), false,
+        GURL(), false, GURL(), false, scoped_refptr<net::HttpResponseHeaders>(),
+        base::Bind(&NavigationHandleImplTest::UpdateThrottleCheckResult,
+                   base::Unretained(this)));
+  }
+
+  // Helper function to call WillProcessResponse on |handle|. If this function
+  // returns DEFER, |callback_result_| will be set to the actual result of the
+  // throttle checks when they are finished.
+  // TODO(clamy): this should also simulate that WillStartRequest was called if
+  // it has not been called before.
+  void SimulateWillProcessResponse() {
+    was_callback_called_ = false;
+    callback_result_ = NavigationThrottle::DEFER;
+
+    // It's safe to use base::Unretained since the NavigationHandle is owned by
+    // the NavigationHandleImplTest.
+    test_handle_->WillProcessResponse(
+        main_test_rfh(),
+        scoped_refptr<net::HttpResponseHeaders>(),
         base::Bind(&NavigationHandleImplTest::UpdateThrottleCheckResult,
                    base::Unretained(this)));
   }
@@ -144,8 +184,92 @@ TEST_F(NavigationHandleImplTest, ResumeDeferred) {
       CreateTestNavigationThrottle(NavigationThrottle::DEFER);
   EXPECT_FALSE(IsDeferringStart());
   EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_FALSE(IsDeferringResponse());
   EXPECT_EQ(0, test_throttle->will_start_calls());
   EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+
+  // Simulate WillStartRequest. The request should be deferred. The callback
+  // should not have been called.
+  SimulateWillStartRequest();
+  EXPECT_TRUE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_FALSE(IsDeferringResponse());
+  EXPECT_FALSE(was_callback_called());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+
+  // Resume the request. It should no longer be deferred and the callback
+  // should have been called.
+  test_handle()->Resume();
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_FALSE(IsDeferringResponse());
+  EXPECT_TRUE(was_callback_called());
+  EXPECT_EQ(NavigationThrottle::PROCEED, callback_result());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+
+  // Simulate WillRedirectRequest. The request should be deferred. The callback
+  // should not have been called.
+  SimulateWillRedirectRequest();
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_TRUE(IsDeferringRedirect());
+  EXPECT_FALSE(IsDeferringResponse());
+  EXPECT_FALSE(was_callback_called());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(1, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+
+  // Resume the request. It should no longer be deferred and the callback
+  // should have been called.
+  test_handle()->Resume();
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_FALSE(IsDeferringResponse());
+  EXPECT_TRUE(was_callback_called());
+  EXPECT_EQ(NavigationThrottle::PROCEED, callback_result());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(1, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+
+  // Simulate WillProcessResponse. It will be deferred. The callback should not
+  // have been called.
+  SimulateWillProcessResponse();
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(IsDeferringResponse());
+  EXPECT_FALSE(was_callback_called());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(1, test_throttle->will_redirect_calls());
+  EXPECT_EQ(1, test_throttle->will_process_response_calls());
+
+  // Resume the request. It should no longer be deferred and the callback should
+  // have been called.
+  test_handle()->Resume();
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_FALSE(IsDeferringResponse());
+  EXPECT_TRUE(was_callback_called());
+  EXPECT_EQ(NavigationThrottle::PROCEED, callback_result());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(1, test_throttle->will_redirect_calls());
+  EXPECT_EQ(1, test_throttle->will_process_response_calls());
+  EXPECT_TRUE(test_handle()->GetRenderFrameHost());
+}
+
+// Checks that a navigation deferred during WillStartRequest can be properly
+// cancelled.
+TEST_F(NavigationHandleImplTest, CancelDeferredWillStart) {
+  TestNavigationThrottle* test_throttle =
+      CreateTestNavigationThrottle(NavigationThrottle::DEFER);
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_EQ(0, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
 
   // Simulate WillStartRequest. The request should be deferred. The callback
   // should not have been called.
@@ -155,16 +279,31 @@ TEST_F(NavigationHandleImplTest, ResumeDeferred) {
   EXPECT_FALSE(was_callback_called());
   EXPECT_EQ(1, test_throttle->will_start_calls());
   EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
 
-  // Resume the request. It should no longer be deferred and the callback
-  // should have been called.
-  test_handle()->Resume();
+  // Cancel the request. The callback should have been called.
+  test_handle()->CancelDeferredNavigation(
+      NavigationThrottle::CANCEL_AND_IGNORE);
   EXPECT_FALSE(IsDeferringStart());
   EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(IsCanceling());
   EXPECT_TRUE(was_callback_called());
-  EXPECT_EQ(NavigationThrottle::PROCEED, callback_result());
+  EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
   EXPECT_EQ(1, test_throttle->will_start_calls());
   EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+}
+
+// Checks that a navigation deferred during WillRedirectRequest can be properly
+// cancelled.
+TEST_F(NavigationHandleImplTest, CancelDeferredWillRedirect) {
+  TestNavigationThrottle* test_throttle =
+      CreateTestNavigationThrottle(NavigationThrottle::DEFER);
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_EQ(0, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
 
   // Simulate WillRedirectRequest. The request should be deferred. The callback
   // should not have been called.
@@ -172,18 +311,54 @@ TEST_F(NavigationHandleImplTest, ResumeDeferred) {
   EXPECT_FALSE(IsDeferringStart());
   EXPECT_TRUE(IsDeferringRedirect());
   EXPECT_FALSE(was_callback_called());
-  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_start_calls());
   EXPECT_EQ(1, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
 
-  // Resume the request. It should no longer be deferred and the callback
-  // should have been called.
-  test_handle()->Resume();
+  // Cancel the request. The callback should have been called.
+  test_handle()->CancelDeferredNavigation(
+      NavigationThrottle::CANCEL_AND_IGNORE);
   EXPECT_FALSE(IsDeferringStart());
   EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(IsCanceling());
   EXPECT_TRUE(was_callback_called());
-  EXPECT_EQ(NavigationThrottle::PROCEED, callback_result());
-  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
+  EXPECT_EQ(0, test_throttle->will_start_calls());
   EXPECT_EQ(1, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+}
+
+// Checks that a navigation deferred can be canceled and not ignored.
+TEST_F(NavigationHandleImplTest, CancelDeferredNoIgnore) {
+  TestNavigationThrottle* test_throttle =
+      CreateTestNavigationThrottle(NavigationThrottle::DEFER);
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_EQ(0, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+
+  // Simulate WillRedirectRequest. The request should be deferred. The callback
+  // should not have been called.
+  SimulateWillStartRequest();
+  EXPECT_TRUE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_FALSE(was_callback_called());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
+
+  // Cancel the request. The callback should have been called with CANCEL, and
+  // not CANCEL_AND_IGNORE.
+  test_handle()->CancelDeferredNavigation(NavigationThrottle::CANCEL);
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(IsCanceling());
+  EXPECT_TRUE(was_callback_called());
+  EXPECT_EQ(NavigationThrottle::CANCEL, callback_result());
+  EXPECT_EQ(1, test_throttle->will_start_calls());
+  EXPECT_EQ(0, test_throttle->will_redirect_calls());
+  EXPECT_EQ(0, test_throttle->will_process_response_calls());
 }
 
 // Checks that a NavigationThrottle asking to defer followed by a
@@ -197,8 +372,10 @@ TEST_F(NavigationHandleImplTest, DeferThenProceed) {
   EXPECT_FALSE(IsDeferringRedirect());
   EXPECT_EQ(0, defer_throttle->will_start_calls());
   EXPECT_EQ(0, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(0, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
+  EXPECT_EQ(0, proceed_throttle->will_process_response_calls());
 
   // Simulate WillStartRequest. The request should be deferred. The callback
   // should not have been called. The second throttle should not have been
@@ -209,6 +386,7 @@ TEST_F(NavigationHandleImplTest, DeferThenProceed) {
   EXPECT_FALSE(was_callback_called());
   EXPECT_EQ(1, defer_throttle->will_start_calls());
   EXPECT_EQ(0, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(0, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
 
@@ -221,6 +399,7 @@ TEST_F(NavigationHandleImplTest, DeferThenProceed) {
   EXPECT_EQ(NavigationThrottle::PROCEED, callback_result());
   EXPECT_EQ(1, defer_throttle->will_start_calls());
   EXPECT_EQ(0, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(1, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
 
@@ -233,6 +412,7 @@ TEST_F(NavigationHandleImplTest, DeferThenProceed) {
   EXPECT_FALSE(was_callback_called());
   EXPECT_EQ(1, defer_throttle->will_start_calls());
   EXPECT_EQ(1, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(1, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
 
@@ -245,6 +425,7 @@ TEST_F(NavigationHandleImplTest, DeferThenProceed) {
   EXPECT_EQ(NavigationThrottle::PROCEED, callback_result());
   EXPECT_EQ(1, defer_throttle->will_start_calls());
   EXPECT_EQ(1, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(1, proceed_throttle->will_start_calls());
   EXPECT_EQ(1, proceed_throttle->will_redirect_calls());
 }
@@ -260,6 +441,7 @@ TEST_F(NavigationHandleImplTest, DeferThenCancelWillStartRequest) {
   EXPECT_FALSE(IsDeferringRedirect());
   EXPECT_EQ(0, defer_throttle->will_start_calls());
   EXPECT_EQ(0, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
 
@@ -272,18 +454,21 @@ TEST_F(NavigationHandleImplTest, DeferThenCancelWillStartRequest) {
   EXPECT_FALSE(was_callback_called());
   EXPECT_EQ(1, defer_throttle->will_start_calls());
   EXPECT_EQ(0, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
 
   // Resume the request. The callback should have been called. The second
   // throttle should have been notified.
   test_handle()->Resume();
-  EXPECT_TRUE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringStart());
   EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(IsCanceling());
   EXPECT_TRUE(was_callback_called());
   EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
   EXPECT_EQ(1, defer_throttle->will_start_calls());
   EXPECT_EQ(0, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(1, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
 }
@@ -299,6 +484,7 @@ TEST_F(NavigationHandleImplTest, DeferThenCancelWillRedirectRequest) {
   EXPECT_FALSE(IsDeferringRedirect());
   EXPECT_EQ(0, defer_throttle->will_start_calls());
   EXPECT_EQ(0, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
 
@@ -311,6 +497,7 @@ TEST_F(NavigationHandleImplTest, DeferThenCancelWillRedirectRequest) {
   EXPECT_FALSE(was_callback_called());
   EXPECT_EQ(0, defer_throttle->will_start_calls());
   EXPECT_EQ(1, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
 
@@ -318,11 +505,13 @@ TEST_F(NavigationHandleImplTest, DeferThenCancelWillRedirectRequest) {
   // throttle should have been notified.
   test_handle()->Resume();
   EXPECT_FALSE(IsDeferringStart());
-  EXPECT_TRUE(IsDeferringRedirect());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(IsCanceling());
   EXPECT_TRUE(was_callback_called());
   EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
   EXPECT_EQ(0, defer_throttle->will_start_calls());
   EXPECT_EQ(1, defer_throttle->will_redirect_calls());
+  EXPECT_EQ(0, defer_throttle->will_process_response_calls());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(1, cancel_throttle->will_redirect_calls());
 }
@@ -340,6 +529,7 @@ TEST_F(NavigationHandleImplTest, CancelThenProceedWillStartRequest) {
   EXPECT_FALSE(IsDeferringRedirect());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(0, cancel_throttle->will_process_response_calls());
   EXPECT_EQ(0, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
 
@@ -353,6 +543,7 @@ TEST_F(NavigationHandleImplTest, CancelThenProceedWillStartRequest) {
   EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
   EXPECT_EQ(1, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(0, cancel_throttle->will_process_response_calls());
   EXPECT_EQ(0, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
 }
@@ -370,6 +561,7 @@ TEST_F(NavigationHandleImplTest, CancelThenProceedWillRedirectRequest) {
   EXPECT_FALSE(IsDeferringRedirect());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(0, cancel_throttle->will_process_response_calls());
   EXPECT_EQ(0, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
 
@@ -383,8 +575,74 @@ TEST_F(NavigationHandleImplTest, CancelThenProceedWillRedirectRequest) {
   EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
   EXPECT_EQ(0, cancel_throttle->will_start_calls());
   EXPECT_EQ(1, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(0, cancel_throttle->will_process_response_calls());
   EXPECT_EQ(0, proceed_throttle->will_start_calls());
   EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
+}
+
+// Checks that a NavigationThrottle asking to proceed followed by a
+// NavigationThrottle asking to cancel behave correctly in WillProcessResponse.
+// Both throttles will be called, and the request will be cancelled.
+TEST_F(NavigationHandleImplTest, ProceedThenCancelWillProcessResponse) {
+  TestNavigationThrottle* proceed_throttle =
+      CreateTestNavigationThrottle(NavigationThrottle::PROCEED);
+  TestNavigationThrottle* cancel_throttle =
+      CreateTestNavigationThrottle(NavigationThrottle::CANCEL_AND_IGNORE);
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_EQ(0, cancel_throttle->will_start_calls());
+  EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(0, cancel_throttle->will_process_response_calls());
+  EXPECT_EQ(0, proceed_throttle->will_start_calls());
+  EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
+  EXPECT_EQ(0, proceed_throttle->will_process_response_calls());
+
+  // Simulate WillRedirectRequest. The request should not be deferred. The
+  // callback should have been called.
+  SimulateWillProcessResponse();
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(was_callback_called());
+  EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
+  EXPECT_EQ(0, cancel_throttle->will_start_calls());
+  EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(1, cancel_throttle->will_process_response_calls());
+  EXPECT_EQ(0, proceed_throttle->will_start_calls());
+  EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
+  EXPECT_EQ(1, proceed_throttle->will_process_response_calls());
+}
+
+// Checks that a NavigationThrottle asking to cancel followed by a
+// NavigationThrottle asking to proceed behave correctly in WillProcessResponse.
+// The navigation will be canceled directly, and the second throttle will not
+// be called.
+TEST_F(NavigationHandleImplTest, CancelThenProceedWillProcessResponse) {
+  TestNavigationThrottle* cancel_throttle =
+      CreateTestNavigationThrottle(NavigationThrottle::CANCEL_AND_IGNORE);
+  TestNavigationThrottle* proceed_throttle =
+      CreateTestNavigationThrottle(NavigationThrottle::PROCEED);
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_EQ(0, cancel_throttle->will_start_calls());
+  EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(0, cancel_throttle->will_process_response_calls());
+  EXPECT_EQ(0, proceed_throttle->will_start_calls());
+  EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
+
+  // Simulate WillRedirectRequest. The request should not be deferred. The
+  // callback should have been called. The second throttle should not have
+  // been notified.
+  SimulateWillProcessResponse();
+  EXPECT_FALSE(IsDeferringStart());
+  EXPECT_FALSE(IsDeferringRedirect());
+  EXPECT_TRUE(was_callback_called());
+  EXPECT_EQ(NavigationThrottle::CANCEL_AND_IGNORE, callback_result());
+  EXPECT_EQ(0, cancel_throttle->will_start_calls());
+  EXPECT_EQ(0, cancel_throttle->will_redirect_calls());
+  EXPECT_EQ(1, cancel_throttle->will_process_response_calls());
+  EXPECT_EQ(0, proceed_throttle->will_start_calls());
+  EXPECT_EQ(0, proceed_throttle->will_redirect_calls());
+  EXPECT_EQ(0, proceed_throttle->will_process_response_calls());
 }
 
 }  // namespace content

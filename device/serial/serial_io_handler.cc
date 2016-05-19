@@ -4,15 +4,18 @@
 
 #include "device/serial/serial_io_handler.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/permission_broker_client.h"
-#include "dbus/file_descriptor.h"
+#include "dbus/file_descriptor.h"  // nogncheck
 #endif  // defined(OS_CHROMEOS)
 
 namespace device {
@@ -23,9 +26,9 @@ SerialIoHandler::SerialIoHandler(
     : file_thread_task_runner_(file_thread_task_runner),
       ui_thread_task_runner_(ui_thread_task_runner) {
   options_.bitrate = 9600;
-  options_.data_bits = serial::DATA_BITS_EIGHT;
-  options_.parity_bit = serial::PARITY_BIT_NO;
-  options_.stop_bits = serial::STOP_BITS_ONE;
+  options_.data_bits = serial::DataBits::EIGHT;
+  options_.parity_bit = serial::ParityBit::NO;
+  options_.stop_bits = serial::StopBits::ONE;
   options_.cts_flow_control = false;
   options_.has_cts_flow_control = true;
 }
@@ -44,18 +47,22 @@ void SerialIoHandler::Open(const std::string& port,
   DCHECK(file_thread_task_runner_.get());
   DCHECK(ui_thread_task_runner_.get());
   MergeConnectionOptions(options);
+  port_ = port;
 
 #if defined(OS_CHROMEOS)
   chromeos::PermissionBrokerClient* client =
       chromeos::DBusThreadManager::Get()->GetPermissionBrokerClient();
   DCHECK(client) << "Could not get permission_broker client.";
   // PermissionBrokerClient should be called on the UI thread.
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      base::ThreadTaskRunnerHandle::Get();
   ui_thread_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&chromeos::PermissionBrokerClient::OpenPath,
-                            base::Unretained(client), port,
-                            base::Bind(&SerialIoHandler::OnPathOpened, this,
-                                       file_thread_task_runner_,
-                                       base::ThreadTaskRunnerHandle::Get())));
+      FROM_HERE,
+      base::Bind(
+          &chromeos::PermissionBrokerClient::OpenPath, base::Unretained(client),
+          port, base::Bind(&SerialIoHandler::OnPathOpened, this,
+                           file_thread_task_runner_, task_runner),
+          base::Bind(&SerialIoHandler::OnPathOpenError, this, task_runner)));
 #else
   file_thread_task_runner_->PostTask(
       FROM_HERE, base::Bind(&SerialIoHandler::StartOpen, this, port,
@@ -69,10 +76,18 @@ void SerialIoHandler::OnPathOpened(
     scoped_refptr<base::SingleThreadTaskRunner> file_thread_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner,
     dbus::FileDescriptor fd) {
-  DCHECK(CalledOnValidThread());
   file_thread_task_runner->PostTask(
       FROM_HERE, base::Bind(&SerialIoHandler::ValidateOpenPort, this,
                             io_thread_task_runner, base::Passed(&fd)));
+}
+
+void SerialIoHandler::OnPathOpenError(
+    scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner,
+    const std::string& error_name,
+    const std::string& error_message) {
+  io_thread_task_runner->PostTask(
+      FROM_HERE, base::Bind(&SerialIoHandler::ReportPathOpenError, this,
+                            error_name, error_message));
 }
 
 void SerialIoHandler::ValidateOpenPort(
@@ -89,6 +104,17 @@ void SerialIoHandler::ValidateOpenPort(
       base::Bind(&SerialIoHandler::FinishOpen, this, base::Passed(&file)));
 }
 
+void SerialIoHandler::ReportPathOpenError(const std::string& error_name,
+                                          const std::string& error_message) {
+  DCHECK(CalledOnValidThread());
+  DCHECK(!open_complete_.is_null());
+  LOG(ERROR) << "Permission broker failed to open '" << port_
+             << "': " << error_name << ": " << error_message;
+  OpenCompleteCallback callback = open_complete_;
+  open_complete_.Reset();
+  callback.Run(false);
+}
+
 #endif
 
 void SerialIoHandler::MergeConnectionOptions(
@@ -96,13 +122,13 @@ void SerialIoHandler::MergeConnectionOptions(
   if (options.bitrate) {
     options_.bitrate = options.bitrate;
   }
-  if (options.data_bits != serial::DATA_BITS_NONE) {
+  if (options.data_bits != serial::DataBits::NONE) {
     options_.data_bits = options.data_bits;
   }
-  if (options.parity_bit != serial::PARITY_BIT_NONE) {
+  if (options.parity_bit != serial::ParityBit::NONE) {
     options_.parity_bit = options.parity_bit;
   }
-  if (options.stop_bits != serial::STOP_BITS_NONE) {
+  if (options.stop_bits != serial::StopBits::NONE) {
     options_.stop_bits = options.stop_bits;
   }
   if (options.has_cts_flow_control) {
@@ -144,7 +170,7 @@ void SerialIoHandler::FinishOpen(base::File file) {
     return;
   }
 
-  file_ = file.Pass();
+  file_ = std::move(file);
 
   bool success = PostOpen() && ConfigurePortImpl();
   if (!success) {
@@ -162,7 +188,8 @@ void SerialIoHandler::Close() {
   if (file_.IsValid()) {
     DCHECK(file_thread_task_runner_.get());
     file_thread_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&SerialIoHandler::DoClose, Passed(file_.Pass())));
+        FROM_HERE,
+        base::Bind(&SerialIoHandler::DoClose, Passed(std::move(file_))));
   }
 }
 
@@ -174,7 +201,7 @@ void SerialIoHandler::DoClose(base::File port) {
 void SerialIoHandler::Read(scoped_ptr<WritableBuffer> buffer) {
   DCHECK(CalledOnValidThread());
   DCHECK(!IsReadPending());
-  pending_read_buffer_ = buffer.Pass();
+  pending_read_buffer_ = std::move(buffer);
   read_canceled_ = false;
   AddRef();
   ReadImpl();
@@ -183,7 +210,7 @@ void SerialIoHandler::Read(scoped_ptr<WritableBuffer> buffer) {
 void SerialIoHandler::Write(scoped_ptr<ReadOnlyBuffer> buffer) {
   DCHECK(CalledOnValidThread());
   DCHECK(!IsWritePending());
-  pending_write_buffer_ = buffer.Pass();
+  pending_write_buffer_ = std::move(buffer);
   write_canceled_ = false;
   AddRef();
   WriteImpl();
@@ -193,11 +220,12 @@ void SerialIoHandler::ReadCompleted(int bytes_read,
                                     serial::ReceiveError error) {
   DCHECK(CalledOnValidThread());
   DCHECK(IsReadPending());
-  scoped_ptr<WritableBuffer> pending_read_buffer = pending_read_buffer_.Pass();
-  if (error == serial::RECEIVE_ERROR_NONE) {
+  scoped_ptr<WritableBuffer> pending_read_buffer =
+      std::move(pending_read_buffer_);
+  if (error == serial::ReceiveError::NONE) {
     pending_read_buffer->Done(bytes_read);
   } else {
-    pending_read_buffer->DoneWithError(bytes_read, error);
+    pending_read_buffer->DoneWithError(bytes_read, static_cast<int32_t>(error));
   }
   Release();
 }
@@ -207,11 +235,12 @@ void SerialIoHandler::WriteCompleted(int bytes_written,
   DCHECK(CalledOnValidThread());
   DCHECK(IsWritePending());
   scoped_ptr<ReadOnlyBuffer> pending_write_buffer =
-      pending_write_buffer_.Pass();
-  if (error == serial::SEND_ERROR_NONE) {
+      std::move(pending_write_buffer_);
+  if (error == serial::SendError::NONE) {
     pending_write_buffer->Done(bytes_written);
   } else {
-    pending_write_buffer->DoneWithError(bytes_written, error);
+    pending_write_buffer->DoneWithError(bytes_written,
+                                        static_cast<int32_t>(error));
   }
   Release();
 }

@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include "content/browser/renderer_host/input/touch_event_queue.h"
+
+#include <stddef.h>
+#include <utility>
+
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
@@ -10,7 +14,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "content/browser/renderer_host/input/timeout_monitor.h"
-#include "content/browser/renderer_host/input/touch_event_queue.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
 #include "content/common/input/web_touch_event_traits.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -57,7 +60,7 @@ class TouchEventQueueTest : public testing::Test,
     sent_events_.push_back(event.event);
     sent_events_ids_.push_back(event.event.uniqueTouchEventId);
     if (sync_ack_result_) {
-      auto sync_ack_result = sync_ack_result_.Pass();
+      auto sync_ack_result = std::move(sync_ack_result_);
       SendTouchEventAck(*sync_ack_result);
     }
   }
@@ -69,16 +72,19 @@ class TouchEventQueueTest : public testing::Test,
     last_acked_event_state_ = ack_result;
     if (followup_touch_event_) {
       scoped_ptr<WebTouchEvent> followup_touch_event =
-          followup_touch_event_.Pass();
+          std::move(followup_touch_event_);
       SendTouchEvent(*followup_touch_event);
     }
     if (followup_gesture_event_) {
       scoped_ptr<WebGestureEvent> followup_gesture_event =
-          followup_gesture_event_.Pass();
+          std::move(followup_gesture_event_);
       queue_->OnGestureScrollEvent(
           GestureEventWithLatencyInfo(*followup_gesture_event,
                                       ui::LatencyInfo()));
     }
+  }
+
+  void OnFilteringTouchEvent(const blink::WebTouchEvent& touch_event) override {
   }
 
  protected:
@@ -102,17 +108,16 @@ class TouchEventQueueTest : public testing::Test,
 
   void SendTouchEvent(WebTouchEvent event) {
     if (slop_length_dips_) {
-      event.causesScrollingIfUncanceled = false;
+      event.movedBeyondSlopRegion = false;
       if (WebTouchEventTraits::IsTouchSequenceStart(event))
         anchor_ = event.touches[0].position;
       if (event.type == WebInputEvent::TouchMove) {
         gfx::Vector2dF delta = anchor_ - event.touches[0].position;
         if (delta.LengthSquared() > slop_length_dips_ * slop_length_dips_)
-          event.causesScrollingIfUncanceled = true;
+          event.movedBeyondSlopRegion = true;
       }
     } else {
-      event.causesScrollingIfUncanceled =
-          event.type == WebInputEvent::TouchMove;
+      event.movedBeyondSlopRegion = event.type == WebInputEvent::TouchMove;
     }
     queue_->QueueEvent(TouchEventWithLatencyInfo(event, ui::LatencyInfo()));
   }
@@ -187,7 +192,7 @@ class TouchEventQueueTest : public testing::Test,
     point.radiusX = radius_x;
     point.radiusY = radius_y;
     touch_event_.touches[index].state = WebTouchPoint::StateMoved;
-    touch_event_.causesScrollingIfUncanceled = true;
+    touch_event_.movedBeyondSlopRegion = true;
     WebTouchEventTraits::ResetType(WebInputEvent::TouchMove,
                                    touch_event_.timeStampSeconds,
                                    &touch_event_);
@@ -200,7 +205,7 @@ class TouchEventQueueTest : public testing::Test,
     WebTouchPoint& point = touch_event_.touches[index];
     point.rotationAngle = rotation_angle;
     touch_event_.touches[index].state = WebTouchPoint::StateMoved;
-    touch_event_.causesScrollingIfUncanceled = true;
+    touch_event_.movedBeyondSlopRegion = true;
     WebTouchEventTraits::ResetType(WebInputEvent::TouchMove,
                                    touch_event_.timeStampSeconds,
                                    &touch_event_);
@@ -213,7 +218,7 @@ class TouchEventQueueTest : public testing::Test,
     WebTouchPoint& point = touch_event_.touches[index];
     point.force = force;
     touch_event_.touches[index].state = WebTouchPoint::StateMoved;
-    touch_event_.causesScrollingIfUncanceled = true;
+    touch_event_.movedBeyondSlopRegion = true;
     WebTouchEventTraits::ResetType(WebInputEvent::TouchMove,
                                    touch_event_.timeStampSeconds,
                                    &touch_event_);

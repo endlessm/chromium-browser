@@ -7,8 +7,11 @@
 #import <objc/runtime.h>
 #include <OpenGL/gl.h>
 #include <QuartzCore/QuartzCore.h>
+#include <stdint.h>
 
-#include "base/basictypes.h"
+#include <limits>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
@@ -51,14 +54,13 @@
 #include "content/common/edit_command.h"
 #include "content/common/gpu/gpu_messages.h"
 #include "content/common/input_messages.h"
+#include "content/common/site_isolation_policy.h"
 #include "content/common/view_messages.h"
 #include "content/common/webplugin_geometry.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_plugin_guest_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/native_web_keyboard_event.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_widget_host_view_frame_subscriber.h"
 #import "content/public/browser/render_widget_host_view_mac_delegate.h"
 #include "content/public/browser/web_contents.h"
@@ -67,7 +69,6 @@
 #include "third_party/WebKit/public/platform/WebScreenInfo.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 #import "third_party/mozilla/ComplexTextInputPanel.h"
-#include "ui/accelerated_widget_mac/surface_handle_types.h"
 #include "ui/base/cocoa/animation_utils.h"
 #import "ui/base/cocoa/fullscreen_window_manager.h"
 #import "ui/base/cocoa/underlay_opengl_hosting_window.h"
@@ -395,7 +396,7 @@ NSWindow* ApparentWindowForView(NSView* view) {
 
 blink::WebScreenInfo GetWebScreenInfo(NSView* view) {
   gfx::Display display =
-      gfx::Screen::GetNativeScreen()->GetDisplayNearestWindow(view);
+      gfx::Screen::GetScreen()->GetDisplayNearestWindow(view);
 
   NSScreen* screen = [NSScreen deepestScreen];
 
@@ -538,14 +539,14 @@ RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget,
   root_layer_.reset(new ui::Layer(ui::LAYER_SOLID_COLOR));
   delegated_frame_host_.reset(new DelegatedFrameHost(this));
 
-  gfx::Screen::GetScreenFor(cocoa_view_)->AddObserver(this);
+  gfx::Screen::GetScreen()->AddObserver(this);
 
   if (!is_guest_view_hack_)
     render_widget_host_->SetView(this);
 
   // Let the page-level input event router know about our surface ID
   // namespace for surface-based hit testing.
-  if (UseSurfacesEnabled() && render_widget_host_->delegate() &&
+  if (render_widget_host_->delegate() &&
       render_widget_host_->delegate()->GetInputEventRouter()) {
     render_widget_host_->delegate()
         ->GetInputEventRouter()
@@ -554,7 +555,7 @@ RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget,
 }
 
 RenderWidgetHostViewMac::~RenderWidgetHostViewMac() {
-  gfx::Screen::GetScreenFor(cocoa_view_)->RemoveObserver(this);
+  gfx::Screen::GetScreen()->RemoveObserver(this);
 
   // This is being called from |cocoa_view_|'s destructor, so invalidate the
   // pointer.
@@ -562,8 +563,7 @@ RenderWidgetHostViewMac::~RenderWidgetHostViewMac() {
 
   UnlockMouse();
 
-  if (UseSurfacesEnabled() && render_widget_host_ &&
-      render_widget_host_->delegate() &&
+  if (render_widget_host_ && render_widget_host_->delegate() &&
       render_widget_host_->delegate()->GetInputEventRouter()) {
     render_widget_host_->delegate()
         ->GetInputEventRouter()
@@ -592,6 +592,10 @@ void RenderWidgetHostViewMac::SetDelegate(
 
 void RenderWidgetHostViewMac::SetAllowPauseForResizeOrRepaint(bool allow) {
   allow_pause_for_resize_or_repaint_ = allow;
+}
+
+cc::SurfaceId RenderWidgetHostViewMac::SurfaceIdForTesting() const {
+  return delegated_frame_host_->SurfaceIdForTesting();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -656,7 +660,7 @@ void RenderWidgetHostViewMac::DestroyBrowserCompositorView() {
     browser_compositor_->accelerated_widget_mac()->ResetNSView();
     browser_compositor_->compositor()->SetScaleAndSize(1.0, gfx::Size(0, 0));
     browser_compositor_->compositor()->SetRootLayer(nullptr);
-    BrowserCompositorMac::Recycle(browser_compositor_.Pass());
+    BrowserCompositorMac::Recycle(std::move(browser_compositor_));
     browser_compositor_state_ = BrowserCompositorDestroyed;
   }
 }
@@ -891,7 +895,7 @@ void RenderWidgetHostViewMac::WasOccluded() {
   // occur in this specific order. However, because thumbnail generation is
   // asychronous, that operation won't run before SuspendBrowserCompositorView()
   // completes. As a result you won't get a thumbnail for the page unless you
-  // happen to switch back to it. See http://crbug.com/530707 .
+  // execute these two statements in this specific order.
   render_widget_host_->WasHidden();
   SuspendBrowserCompositorView();
 }
@@ -1055,23 +1059,6 @@ void RenderWidgetHostViewMac::RenderProcessGone(base::TerminationStatus status,
   Destroy();
 }
 
-void RenderWidgetHostViewMac::RenderWidgetHostGone() {
-  // Clear SurfaceID namespace ownership before we shutdown the
-  // compositor.
-  if (UseSurfacesEnabled() && render_widget_host_ &&
-      render_widget_host_->delegate() &&
-      render_widget_host_->delegate()->GetInputEventRouter()) {
-    render_widget_host_->delegate()
-        ->GetInputEventRouter()
-        ->RemoveSurfaceIdNamespaceOwner(GetSurfaceIdNamespace());
-  }
-
-  // Destroy the DelegatedFrameHost, to prevent crashes when Destroy is never
-  // called on the view.
-  // http://crbug.com/404828
-  ShutdownBrowserCompositor();
-}
-
 void RenderWidgetHostViewMac::Destroy() {
   [[NSNotificationCenter defaultCenter]
       removeObserver:cocoa_view_
@@ -1097,8 +1084,7 @@ void RenderWidgetHostViewMac::Destroy() {
 
   // Clear SurfaceID namespace ownership before we shutdown the
   // compositor.
-  if (UseSurfacesEnabled() && render_widget_host_ &&
-      render_widget_host_->delegate() &&
+  if (render_widget_host_ && render_widget_host_->delegate() &&
       render_widget_host_->delegate()->GetInputEventRouter()) {
     render_widget_host_->delegate()
         ->GetInputEventRouter()
@@ -1266,7 +1252,7 @@ bool RenderWidgetHostViewMac::CanCopyToVideoFrame() const {
 void RenderWidgetHostViewMac::BeginFrameSubscription(
     scoped_ptr<RenderWidgetHostViewFrameSubscriber> subscriber) {
   DCHECK(delegated_frame_host_);
-  delegated_frame_host_->BeginFrameSubscription(subscriber.Pass());
+  delegated_frame_host_->BeginFrameSubscription(std::move(subscriber));
 }
 
 void RenderWidgetHostViewMac::EndFrameSubscription() {
@@ -1328,9 +1314,10 @@ bool RenderWidgetHostViewMac::GetLineBreakIndex(
   // 75% of maximum height.
   // TODO(nona): Check the threshold is reliable or not.
   // TODO(nona): Bidi support.
-  const size_t loop_end_idx = std::min(bounds.size(), range.end());
+  const size_t loop_end_idx =
+      std::min(bounds.size(), static_cast<size_t>(range.end()));
   int max_height = 0;
-  int min_y_offset = kint32max;
+  int min_y_offset = std::numeric_limits<int32_t>::max();
   for (size_t idx = range.start(); idx < loop_end_idx; ++idx) {
     max_height = std::max(max_height, bounds[idx].height());
     min_y_offset = std::min(min_y_offset, bounds[idx].y());
@@ -1464,7 +1451,8 @@ bool RenderWidgetHostViewMac::HasAcceleratedSurface(
 }
 
 void RenderWidgetHostViewMac::OnSwapCompositorFrame(
-    uint32 output_surface_id, scoped_ptr<cc::CompositorFrame> frame) {
+    uint32_t output_surface_id,
+    scoped_ptr<cc::CompositorFrame> frame) {
   TRACE_EVENT0("browser", "RenderWidgetHostViewMac::OnSwapCompositorFrame");
 
   last_scroll_offset_ = frame->metadata.root_scroll_offset;
@@ -1477,7 +1465,7 @@ void RenderWidgetHostViewMac::OnSwapCompositorFrame(
 
     // Compute the frame size based on the root render pass rect size.
     cc::RenderPass* root_pass =
-        frame->delegated_frame_data->render_pass_list.back();
+        frame->delegated_frame_data->render_pass_list.back().get();
     gfx::Size pixel_size = root_pass->output_rect.size();
     gfx::Size dip_size = gfx::ConvertSizeToDIP(scale_factor, pixel_size);
 
@@ -1490,12 +1478,8 @@ void RenderWidgetHostViewMac::OnSwapCompositorFrame(
 
     SendVSyncParametersToRenderer();
 
-    delegated_frame_host_->SwapDelegatedFrame(
-        output_surface_id,
-        frame->delegated_frame_data.Pass(),
-        frame->metadata.device_scale_factor,
-        frame->metadata.latency_info,
-        &frame->metadata.satisfies_sequences);
+    delegated_frame_host_->SwapDelegatedFrame(output_surface_id,
+                                              std::move(frame));
   } else {
     DLOG(ERROR) << "Received unexpected frame type.";
     bad_message::ReceivedBadMessage(render_widget_host_->GetProcess(),
@@ -1591,16 +1575,17 @@ uint32_t RenderWidgetHostViewMac::GetSurfaceIdNamespace() {
 }
 
 uint32_t RenderWidgetHostViewMac::SurfaceIdNamespaceAtPoint(
+    cc::SurfaceHittestDelegate* delegate,
     const gfx::Point& point,
     gfx::Point* transformed_point) {
   // The surface hittest happens in device pixels, so we need to convert the
   // |point| from DIPs to pixels before hittesting.
-  float scale_factor = gfx::Screen::GetScreenFor(cocoa_view_)
+  float scale_factor = gfx::Screen::GetScreen()
                            ->GetDisplayNearestWindow(cocoa_view_)
                            .device_scale_factor();
   gfx::Point point_in_pixels = gfx::ConvertPointToPixel(scale_factor, point);
-  cc::SurfaceId id = delegated_frame_host_->SurfaceIdAtPoint(point_in_pixels,
-                                                             transformed_point);
+  cc::SurfaceId id = delegated_frame_host_->SurfaceIdAtPoint(
+      delegate, point_in_pixels, transformed_point);
   *transformed_point = gfx::ConvertPointToDIP(scale_factor, *transformed_point);
 
   // It is possible that the renderer has not yet produced a surface, in which
@@ -1608,6 +1593,18 @@ uint32_t RenderWidgetHostViewMac::SurfaceIdNamespaceAtPoint(
   if (id.is_null())
     return GetSurfaceIdNamespace();
   return cc::SurfaceIdAllocator::NamespaceForId(id);
+}
+
+bool RenderWidgetHostViewMac::ShouldRouteEvent(
+    const WebInputEvent& event) const {
+  // See also RenderWidgetHostViewAura::ShouldRouteEvent.
+  // TODO(wjmaclean): Update this function if RenderWidgetHostViewMac implements
+  // OnTouchEvent(), to match what we are doing in RenderWidgetHostViewAura.
+  DCHECK(WebInputEvent::isMouseEventType(event.type) ||
+         event.type == WebInputEvent::MouseWheel);
+  return render_widget_host_->delegate() &&
+         render_widget_host_->delegate()->GetInputEventRouter() &&
+         SiteIsolationPolicy::AreCrossProcessFramesPossible();
 }
 
 void RenderWidgetHostViewMac::ProcessMouseEvent(
@@ -1619,6 +1616,14 @@ void RenderWidgetHostViewMac::ProcessMouseWheelEvent(
   render_widget_host_->ForwardWheelEvent(event);
 }
 
+void RenderWidgetHostViewMac::TransformPointToLocalCoordSpace(
+    const gfx::Point& point,
+    cc::SurfaceId original_surface,
+    gfx::Point* transformed_point) {
+  delegated_frame_host_->TransformPointToLocalCoordSpace(
+      point, original_surface, transformed_point);
+}
+
 bool RenderWidgetHostViewMac::Send(IPC::Message* message) {
   if (render_widget_host_)
     return render_widget_host_->Send(message);
@@ -1628,7 +1633,7 @@ bool RenderWidgetHostViewMac::Send(IPC::Message* message) {
 
 void RenderWidgetHostViewMac::ShutdownHost() {
   weak_factory_.InvalidateWeakPtrs();
-  render_widget_host_->Shutdown();
+  render_widget_host_->ShutdownAndDestroyWidget(true);
   // Do not touch any members at this point, |this| has been deleted.
 }
 
@@ -1760,7 +1765,7 @@ void RenderWidgetHostViewMac::OnDisplayRemoved(const gfx::Display& display) {
 
 void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
     const gfx::Display& display, uint32_t metrics) {
-  gfx::Screen* screen = gfx::Screen::GetScreenFor(cocoa_view_);
+  gfx::Screen* screen = gfx::Screen::GetScreen();
   if (display.id() != screen->GetDisplayNearestWindow(cocoa_view_).id())
     return;
 
@@ -1948,14 +1953,12 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
       WebMouseEvent enterEvent = WebMouseEventBuilder::Build(theEvent, self);
       enterEvent.type = WebInputEvent::MouseMove;
       enterEvent.button = WebMouseEvent::ButtonNone;
-      if (renderWidgetHostView_->render_widget_host_->delegate() &&
-          renderWidgetHostView_->render_widget_host_->delegate()
-              ->GetInputEventRouter()) {
+      if (renderWidgetHostView_->ShouldRouteEvent(enterEvent)) {
         renderWidgetHostView_->render_widget_host_->delegate()
             ->GetInputEventRouter()
             ->RouteMouseEvent(renderWidgetHostView_.get(), &enterEvent);
       } else {
-        renderWidgetHostView_->ForwardMouseEvent(enterEvent);
+        renderWidgetHostView_->ProcessMouseEvent(enterEvent);
       }
     }
   }
@@ -1985,14 +1988,12 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
   }
 
   WebMouseEvent event = WebMouseEventBuilder::Build(theEvent, self);
-  if (renderWidgetHostView_->render_widget_host_->delegate() &&
-      renderWidgetHostView_->render_widget_host_->delegate()
-          ->GetInputEventRouter()) {
+  if (renderWidgetHostView_->ShouldRouteEvent(event)) {
     renderWidgetHostView_->render_widget_host_->delegate()
         ->GetInputEventRouter()
         ->RouteMouseEvent(renderWidgetHostView_.get(), &event);
   } else {
-    renderWidgetHostView_->ForwardMouseEvent(event);
+    renderWidgetHostView_->ProcessMouseEvent(event);
   }
 }
 
@@ -2096,7 +2097,7 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
         renderWidgetHostView_->fullscreen_parent_host_view();
     if (parent)
       parent->cocoa_view()->suppressNextEscapeKeyUp_ = YES;
-    widgetHost->Shutdown();
+    widgetHost->ShutdownAndDestroyWidget(true);
     return;
   }
 
@@ -2104,6 +2105,8 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
   // out-of-process iframes), pick the one that should process this event.
   if (widgetHost->delegate())
     widgetHost = widgetHost->delegate()->GetFocusedRenderWidgetHost(widgetHost);
+  if (!widgetHost)
+    return;
 
   // Suppress the escape key up event if necessary.
   if (event.windowsKeyCode == ui::VKEY_ESCAPE && suppressNextEscapeKeyUp_) {
@@ -2153,6 +2156,7 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
   markedText_.clear();
   markedTextSelectedRange_ = NSMakeRange(NSNotFound, 0);
   underlines_.clear();
+  setMarkedTextReplacementRange_ = gfx::Range::InvalidRange();
   unmarkTextCalled_ = NO;
   hasEditCommands_ = NO;
   editCommands_.clear();
@@ -2238,6 +2242,7 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
     // When marked text is available, |markedTextSelectedRange_| will be the
     // range being selected inside the marked text.
     widgetHost->ImeSetComposition(markedText_, underlines_,
+                                  setMarkedTextReplacementRange_,
                                   markedTextSelectedRange_.location,
                                   NSMaxRange(markedTextSelectedRange_));
   } else if (oldHasMarkedText && !hasMarkedText_ && !textInserted) {
@@ -2248,6 +2253,9 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
       widgetHost->ImeCancelComposition();
     }
   }
+
+  // Clear information from |interpretKeyEvents:|
+  setMarkedTextReplacementRange_ = gfx::Range::InvalidRange();
 
   // If the key event was handled by the input method but it also generated some
   // edit commands, then we need to send the real key event and corresponding
@@ -2292,7 +2300,7 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
       event.skip_in_browser = true;
       widgetHost->ForwardKeyboardEvent(event);
     } else if ((!textInserted || delayEventUntilAfterImeCompostion) &&
-               [[theEvent characters] length] > 0 &&
+               event.text[0] != '\0' &&
                (([theEvent modifierFlags] & kCtrlCmdKeyMask) ||
                 (hasEditCommands_ && editCommands_.empty()))) {
       // We don't get insertText: calls if ctrl or cmd is down, or the key event
@@ -2498,14 +2506,12 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
     WebMouseWheelEvent webEvent = WebMouseWheelEventBuilder::Build(
         event, self, canRubberbandLeft, canRubberbandRight);
     webEvent.railsMode = mouseWheelFilter_.UpdateRailsMode(webEvent);
-    if (renderWidgetHostView_->render_widget_host_->delegate() &&
-        renderWidgetHostView_->render_widget_host_->delegate()
-            ->GetInputEventRouter()) {
+    if (renderWidgetHostView_->ShouldRouteEvent(webEvent)) {
       renderWidgetHostView_->render_widget_host_->delegate()
           ->GetInputEventRouter()
           ->RouteMouseWheelEvent(renderWidgetHostView_.get(), &webEvent);
     } else {
-      renderWidgetHostView_->render_widget_host_->ForwardWheelEvent(webEvent);
+      renderWidgetHostView_->ProcessMouseWheelEvent(webEvent);
     }
   }
 }
@@ -2827,7 +2833,7 @@ void RenderWidgetHostViewMac::OnDisplayMetricsChanged(
       renderWidgetHostView_->render_widget_host_
           ->GetRootBrowserAccessibilityManager();
   if (manager) {
-    BrowserAccessibility* focused_item = manager->GetFocus(NULL);
+    BrowserAccessibility* focused_item = manager->GetFocus();
     DCHECK(focused_item);
     if (focused_item) {
       BrowserAccessibilityCocoa* focused_item_cocoa =
@@ -3102,9 +3108,11 @@ extern NSString *NSTextInputReplacementRangeAttributeName;
   // is empty to update the input method state. (Our input method backend can
   // automatically cancels an ongoing composition when we send an empty text.
   // So, it is OK to send an empty text to the renderer.)
-  if (!handlingKeyDown_) {
+  if (handlingKeyDown_) {
+    setMarkedTextReplacementRange_ = gfx::Range(replacementRange);
+  } else {
     renderWidgetHostView_->render_widget_host_->ImeSetComposition(
-        markedText_, underlines_,
+        markedText_, underlines_, gfx::Range(replacementRange),
         newSelRange.location, NSMaxRange(newSelRange));
   }
 }

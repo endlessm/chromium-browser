@@ -4,6 +4,9 @@
 
 #include "content/child/blob_storage/blob_transport_controller.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/memory/shared_memory.h"
 #include "content/child/blob_storage/blob_consolidation.h"
 #include "storage/common/blob_storage/blob_item_bytes_request.h"
@@ -100,7 +103,8 @@ TEST_F(BlobTransportControllerTest, Responses) {
   consolidation->AddDataItem(CreateData("Hello3"));
   // See the above test for the expected descriptions layout.
 
-  holder->blob_storage_.insert(kBlobUUID, make_scoped_ptr(consolidation));
+  holder->blob_storage_.insert(
+      std::make_pair(kBlobUUID, make_scoped_ptr(consolidation)));
 
   std::vector<BlobItemBytesRequest> requests;
   std::vector<base::SharedMemoryHandle> memory_handles;
@@ -158,7 +162,8 @@ TEST_F(BlobTransportControllerTest, SharedMemory) {
   consolidation->AddDataItem(CreateData("Hello3"));
   // See the above test for the expected descriptions layout.
 
-  holder->blob_storage_.insert(kBlobUUID, make_scoped_ptr(consolidation));
+  holder->blob_storage_.insert(
+      std::make_pair(kBlobUUID, make_scoped_ptr(consolidation)));
 
   std::vector<BlobItemBytesRequest> requests;
   std::vector<base::SharedMemoryHandle> memory_handles;
@@ -224,7 +229,8 @@ TEST_F(BlobTransportControllerTest, ResponsesErrors) {
   BlobConsolidation* consolidation = new BlobConsolidation();
   consolidation->AddBlobItem(KRefBlobUUID, 10, 10);
 
-  holder->blob_storage_.insert(kBlobUUID, make_scoped_ptr(consolidation));
+  holder->blob_storage_.insert(
+      std::make_pair(kBlobUUID, make_scoped_ptr(consolidation)));
 
   std::vector<BlobItemBytesRequest> requests;
   std::vector<base::SharedMemoryHandle> memory_handles;

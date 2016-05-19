@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/events/ProgressEvent.h"
 
 namespace blink {
@@ -61,4 +60,4 @@ DEFINE_TRACE(ProgressEvent)
     Event::trace(visitor);
 }
 
-}
+} // namespace blink

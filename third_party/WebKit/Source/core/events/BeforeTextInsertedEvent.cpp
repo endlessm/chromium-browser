@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/events/BeforeTextInsertedEvent.h"
 
 namespace blink {
@@ -48,4 +47,4 @@ DEFINE_TRACE(BeforeTextInsertedEvent)
     Event::trace(visitor);
 }
 
-}
+} // namespace blink

@@ -6,18 +6,14 @@
 #define CHROME_BROWSER_PERMISSIONS_CHOOSER_CONTEXT_BASE_H_
 
 #include <string>
+#include <vector>
 
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
+#include "base/values.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "url/gurl.h"
 
-namespace base {
-class DictionaryValue;
-class Value;
-}
-
-class GURL;
 class HostContentSettingsMap;
 class Profile;
 
@@ -26,15 +22,41 @@ class Profile;
 // Subclasses must define the structure of the objects that are stored.
 class ChooserContextBase : public KeyedService {
  public:
+  struct Object {
+    // The contents of |object| are Swap()ed into the internal dictionary.
+    Object(GURL requesting_origin,
+           GURL embedding_origin,
+           base::DictionaryValue* object,
+           const std::string& source,
+           bool incognito);
+    ~Object();
+
+    GURL requesting_origin;
+    GURL embedding_origin;
+    base::DictionaryValue object;
+    std::string source;
+    bool incognito;
+  };
+
   ChooserContextBase(Profile* profile,
                      ContentSettingsType data_content_settings_type);
   ~ChooserContextBase() override;
 
   // Returns the list of objects that |requesting_origin| has been granted
   // permission to access when embedded within |embedding_origin|.
-  ScopedVector<base::DictionaryValue> GetGrantedObjects(
+  //
+  // This method may be extended by a subclass to return objects not stored in
+  // |host_content_settings_map_|.
+  virtual std::vector<scoped_ptr<base::DictionaryValue>> GetGrantedObjects(
       const GURL& requesting_origin,
       const GURL& embedding_origin);
+
+  // Returns the set of all objects that any origin has been granted permission
+  // to access.
+  //
+  // This method may be extended by a subclass to return objects not stored in
+  // |host_content_settings_map_|.
+  virtual std::vector<scoped_ptr<Object>> GetAllGrantedObjects();
 
   // Grants |requesting_origin| access to |object| when embedded within
   // |embedding_origin| by writing it into |host_content_settings_map_|.
@@ -44,9 +66,13 @@ class ChooserContextBase : public KeyedService {
 
   // Revokes |requesting_origin|'s permission to access |object| when embedded
   // within |embedding_origin|.
-  void RevokeObjectPermission(const GURL& requesting_origin,
-                              const GURL& embedding_origin,
-                              const base::DictionaryValue& object);
+  //
+  // This method may be extended by a subclass to revoke permission to access
+  // objects returned by GetPreviouslyChosenObjects but not stored in
+  // |host_content_settings_map_|.
+  virtual void RevokeObjectPermission(const GURL& requesting_origin,
+                                      const GURL& embedding_origin,
+                                      const base::DictionaryValue& object);
 
   // Validates the structure of an object read from
   // |host_content_settings_map_|.

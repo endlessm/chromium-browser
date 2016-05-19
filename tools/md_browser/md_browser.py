@@ -30,6 +30,7 @@ def main(argv):
   try:
     s = Server(args.port, SRC_DIR)
     print("Listening on http://localhost:%s/" % args.port)
+    print(" Try loading http://localhost:%s/docs/README.md" % args.port)
     s.serve_forever()
     s.shutdown()
     return 0
@@ -96,11 +97,14 @@ class Handler(SimpleHTTPServer.SimpleHTTPRequestHandler):
       self._DoNotFound()
     elif path.lower().endswith('.md'):
       self._DoMD(path)
+    elif os.path.exists(full_path + '/README.md'):
+      self._DoMD(path + '/README.md')
     else:
       self._DoUnknown()
 
   def _DoMD(self, path):
     extensions = [
+        'markdown.extensions.def_list',
         'markdown.extensions.fenced_code',
         'markdown.extensions.tables',
         'markdown.extensions.toc',

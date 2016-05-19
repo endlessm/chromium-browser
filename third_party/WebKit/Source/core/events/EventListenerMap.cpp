@@ -30,7 +30,6 @@
  *
  */
 
-#include "config.h"
 #include "core/events/EventListenerMap.h"
 
 #include "core/events/EventTarget.h"
@@ -49,7 +48,7 @@ namespace blink {
 #if ENABLE(ASSERT)
 static Mutex& activeIteratorCountMutex()
 {
-    AtomicallyInitializedStaticReference(Mutex, mutex, new Mutex());
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(Mutex, mutex, new Mutex());
     return mutex;
 }
 

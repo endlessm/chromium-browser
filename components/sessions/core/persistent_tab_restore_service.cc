@@ -4,14 +4,17 @@
 
 #include "components/sessions/core/persistent_tab_restore_service.h"
 
-#include <cstring>  // memcpy
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_vector.h"
 #include "base/stl_util.h"
@@ -30,7 +33,7 @@ namespace {
 // Only written if the tab is pinned.
 typedef bool PinnedStatePayload;
 
-typedef int32 RestoredEntryPayload;
+typedef int32_t RestoredEntryPayload;
 
 typedef std::map<SessionID::id_type, TabRestoreService::Entry*> IDToEntry;
 
@@ -38,7 +41,7 @@ typedef std::map<SessionID::id_type, TabRestoreService::Entry*> IDToEntry;
 // used for backwards compat when it comes to reading the session files.
 struct SelectedNavigationInTabPayload {
   SessionID::id_type id;
-  int32 index;
+  int32_t index;
 };
 
 // Payload used for the start of a window close. This is the old struct that is
@@ -46,19 +49,19 @@ struct SelectedNavigationInTabPayload {
 // struct must be POD, because we memset the contents.
 struct WindowPayload {
   SessionID::id_type window_id;
-  int32 selected_tab_index;
-  int32 num_tabs;
+  int32_t selected_tab_index;
+  int32_t num_tabs;
 };
 
 // Payload used for the start of a window close.  This struct must be POD,
 // because we memset the contents.
 struct WindowPayload2 : WindowPayload {
-  int64 timestamp;
+  int64_t timestamp;
 };
 
 // Payload used for the start of a tab close.
 struct SelectedNavigationInTabPayload2 : SelectedNavigationInTabPayload {
-  int64 timestamp;
+  int64_t timestamp;
 };
 
 // Used to indicate what has loaded.
@@ -166,7 +169,7 @@ class PersistentTabRestoreService::Delegate
   // Creates a tab close command.
   static scoped_ptr<SessionCommand> CreateSelectedNavigationInTabCommand(
       SessionID::id_type tab_id,
-      int32 index,
+      int32_t index,
       base::Time timestamp);
 
   // Creates a restore command.
@@ -304,7 +307,7 @@ void PersistentTabRestoreService::Delegate::OnClearEntries() {
   const Entries& entries = tab_restore_service_helper_->entries();
   for (Entries::const_iterator i = entries.begin(); i != entries.end(); ++i)
     base_session_service_->ScheduleCommand(
-        CreateRestoredEntryCommand((*i)->id).Pass());
+        CreateRestoredEntryCommand((*i)->id));
 
   entries_to_write_ = 0;
 
@@ -313,7 +316,7 @@ void PersistentTabRestoreService::Delegate::OnClearEntries() {
 
   // Schedule a command, otherwise if there are no pending commands Save does
   // nothing.
-  base_session_service_->ScheduleCommand(CreateRestoredEntryCommand(1).Pass());
+  base_session_service_->ScheduleCommand(CreateRestoredEntryCommand(1));
 }
 
 void PersistentTabRestoreService::Delegate::OnRestoreEntryById(
@@ -327,7 +330,7 @@ void PersistentTabRestoreService::Delegate::OnRestoreEntryById(
   if (static_cast<int>(index) < entries_to_write_)
     entries_to_write_--;
 
-  base_session_service_->ScheduleCommand(CreateRestoredEntryCommand(id).Pass());
+  base_session_service_->ScheduleCommand(CreateRestoredEntryCommand(id));
 }
 
 void PersistentTabRestoreService::Delegate::OnAddEntry() {
@@ -404,17 +407,13 @@ void PersistentTabRestoreService::Delegate::ScheduleCommandsForWindow(
   if (valid_tab_count == 0)
     return;  // No tabs to persist.
 
-  base_session_service_->ScheduleCommand(
-      CreateWindowCommand(window.id,
-                          std::min(real_selected_tab, valid_tab_count - 1),
-                          valid_tab_count,
-                          window.timestamp).Pass());
+  base_session_service_->ScheduleCommand(CreateWindowCommand(
+      window.id, std::min(real_selected_tab, valid_tab_count - 1),
+      valid_tab_count, window.timestamp));
 
   if (!window.app_name.empty()) {
-    base_session_service_->ScheduleCommand(
-        CreateSetWindowAppNameCommand(kCommandSetWindowAppName, window.id,
-                                      window.app_name)
-            .Pass());
+    base_session_service_->ScheduleCommand(CreateSetWindowAppNameCommand(
+        kCommandSetWindowAppName, window.id, window.app_name));
   }
 
   for (size_t i = 0; i < window.tabs.size(); ++i) {
@@ -443,31 +442,25 @@ void PersistentTabRestoreService::Delegate::ScheduleCommandsForTab(
   }
 
   // Write the command that identifies the selected tab.
-  base_session_service_->ScheduleCommand(
-      CreateSelectedNavigationInTabCommand(tab.id,
-                                           valid_count_before_selected,
-                                           tab.timestamp).Pass());
+  base_session_service_->ScheduleCommand(CreateSelectedNavigationInTabCommand(
+      tab.id, valid_count_before_selected, tab.timestamp));
 
   if (tab.pinned) {
     PinnedStatePayload payload = true;
     scoped_ptr<SessionCommand> command(
         new SessionCommand(kCommandPinnedState, sizeof(payload)));
     memcpy(command->contents(), &payload, sizeof(payload));
-    base_session_service_->ScheduleCommand(command.Pass());
+    base_session_service_->ScheduleCommand(std::move(command));
   }
 
   if (!tab.extension_app_id.empty()) {
-    base_session_service_->ScheduleCommand(
-        CreateSetTabExtensionAppIDCommand(kCommandSetExtensionAppID, tab.id,
-                                          tab.extension_app_id)
-            .Pass());
+    base_session_service_->ScheduleCommand(CreateSetTabExtensionAppIDCommand(
+        kCommandSetExtensionAppID, tab.id, tab.extension_app_id));
   }
 
   if (!tab.user_agent_override.empty()) {
-    base_session_service_->ScheduleCommand(
-        CreateSetTabUserAgentOverrideCommand(kCommandSetTabUserAgentOverride,
-                                             tab.id, tab.user_agent_override)
-            .Pass());
+    base_session_service_->ScheduleCommand(CreateSetTabUserAgentOverrideCommand(
+        kCommandSetTabUserAgentOverride, tab.id, tab.user_agent_override));
   }
 
   // Then write the navigations.
@@ -508,7 +501,7 @@ PersistentTabRestoreService::Delegate::CreateWindowCommand(
 scoped_ptr<SessionCommand>
 PersistentTabRestoreService::Delegate::CreateSelectedNavigationInTabCommand(
     SessionID::id_type tab_id,
-    int32 index,
+    int32_t index,
     base::Time timestamp) {
   SelectedNavigationInTabPayload2 payload;
   payload.id = tab_id;
@@ -915,7 +908,7 @@ void PersistentTabRestoreService::Delegate::RemoveEntryByID(
 PersistentTabRestoreService::PersistentTabRestoreService(
     scoped_ptr<TabRestoreServiceClient> client,
     TimeFactory* time_factory)
-    : client_(client.Pass()),
+    : client_(std::move(client)),
       delegate_(new Delegate(client_.get())),
       helper_(this, delegate_.get(), client_.get(), time_factory) {
   delegate_->set_tab_restore_service_helper(&helper_);
@@ -955,9 +948,8 @@ const TabRestoreService::Entries& PersistentTabRestoreService::entries() const {
 }
 
 std::vector<LiveTab*> PersistentTabRestoreService::RestoreMostRecentEntry(
-    LiveTabContext* context,
-    int host_desktop_type) {
-  return helper_.RestoreMostRecentEntry(context, host_desktop_type);
+    LiveTabContext* context) {
+  return helper_.RestoreMostRecentEntry(context);
 }
 
 TabRestoreService::Tab* PersistentTabRestoreService::RemoveTabEntryById(
@@ -968,9 +960,8 @@ TabRestoreService::Tab* PersistentTabRestoreService::RemoveTabEntryById(
 std::vector<LiveTab*> PersistentTabRestoreService::RestoreEntryById(
     LiveTabContext* context,
     SessionID::id_type id,
-    int host_desktop_type,
     WindowOpenDisposition disposition) {
-  return helper_.RestoreEntryById(context, id, host_desktop_type, disposition);
+  return helper_.RestoreEntryById(context, id, disposition);
 }
 
 bool PersistentTabRestoreService::IsLoaded() const {

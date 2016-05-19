@@ -26,12 +26,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/weborigin/SecurityPolicy.h"
 
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/OriginAccessEntry.h"
+#include "platform/weborigin/SchemeRegistry.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashSet.h"
@@ -68,9 +68,10 @@ void SecurityPolicy::init()
 bool SecurityPolicy::shouldHideReferrer(const KURL& url, const String& referrer)
 {
     bool referrerIsSecureURL = protocolIs(referrer, "https");
-    bool referrerIsWebURL = referrerIsSecureURL || protocolIs(referrer, "http");
+    String scheme = KURL(KURL(), referrer).protocol();
+    bool schemeIsAllowed = SchemeRegistry::shouldTreatURLSchemeAsAllowedForReferrer(scheme);
 
-    if (!referrerIsWebURL)
+    if (!schemeIsAllowed)
         return true;
 
     if (!referrerIsSecureURL)
@@ -86,7 +87,8 @@ Referrer SecurityPolicy::generateReferrer(ReferrerPolicy referrerPolicy, const K
     if (referrer.isEmpty())
         return Referrer(String(), referrerPolicy);
 
-    if (!(protocolIs(referrer, "https") || protocolIs(referrer, "http")))
+    String scheme = KURL(KURL(), referrer).protocol();
+    if (!SchemeRegistry::shouldTreatURLSchemeAsAllowedForReferrer(scheme))
         return Referrer(String(), referrerPolicy);
 
     if (SecurityOrigin::shouldUseInnerURL(url))

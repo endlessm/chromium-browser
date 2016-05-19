@@ -19,12 +19,29 @@
       'sources': [
         'device_client.cc',
         'device_client.h',
+        'device_info_query_win.cc',
+        'device_info_query_win.h',
         'device_monitor_win.cc',
         'device_monitor_win.h',
       ],
       'dependencies': [
         '../../base/base.gyp:base',
       ]
+    },
+    {
+      'target_name': 'device_core_mocks',
+      'type': 'static_library',
+      'include_dirs': [
+        '../..',
+      ],
+      'dependencies': [
+        '../../testing/gmock.gyp:gmock',
+        'device_core',
+      ],
+      'sources': [
+        'mock_device_client.cc',
+        'mock_device_client.h',
+      ],
     },
   ],
 }

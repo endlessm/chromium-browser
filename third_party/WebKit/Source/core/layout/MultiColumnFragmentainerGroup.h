@@ -44,9 +44,9 @@ public:
 
     LayoutSize offsetFromColumnSet() const;
 
-    // Return the block offset from the enclosing flow thread, if nested. In the coordinate space
-    // of the enclosing flow thread.
-    LayoutUnit blockOffsetInEnclosingFlowThread() const;
+    // Return the block offset from the enclosing fragmentation context, if nested. In the
+    // coordinate space of the enclosing fragmentation context.
+    LayoutUnit blockOffsetInEnclosingFragmentationContext() const;
 
     // The top of our flow thread portion
     LayoutUnit logicalTopInFlowThread() const { return m_logicalTopInFlowThread; }
@@ -59,9 +59,8 @@ public:
     // The height of our flow thread portion
     LayoutUnit logicalHeightInFlowThread() const { return m_logicalBottomInFlowThread - m_logicalTopInFlowThread; }
 
-    bool heightIsAuto() const;
     void resetColumnHeight();
-    bool recalculateColumnHeight(BalancedColumnHeightCalculation calculationMode);
+    bool recalculateColumnHeight();
 
     LayoutSize flowThreadTranslationAtOffset(LayoutUnit offsetInFlowThread) const;
     LayoutUnit columnLogicalTopForOffset(LayoutUnit offsetInFlowThread) const;
@@ -85,7 +84,7 @@ private:
     LayoutUnit calculateMaxColumnHeight() const;
     void setAndConstrainColumnHeight(LayoutUnit);
 
-    LayoutUnit calculateColumnHeight(BalancedColumnHeightCalculation) const;
+    LayoutUnit rebalanceColumnHeightIfNeeded() const;
 
     LayoutRect columnRectAt(unsigned columnIndex) const;
     LayoutUnit logicalTopInFlowThreadAt(unsigned columnIndex) const { return m_logicalTopInFlowThread + columnIndex * m_columnHeight; }

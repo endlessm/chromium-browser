@@ -5,6 +5,8 @@
 #ifndef EXTENSIONS_COMMON_PERMISSIONS_SOCKET_PERMISSION_H_
 #define EXTENSIONS_COMMON_PERMISSIONS_SOCKET_PERMISSION_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "extensions/common/permissions/api_permission.h"
@@ -19,7 +21,7 @@ class SocketPermission
   struct CheckParam : APIPermission::CheckParam {
     CheckParam(content::SocketPermissionRequest::OperationType type,
                const std::string& host,
-               uint16 port)
+               uint16_t port)
         : request(type, host, port) {}
     content::SocketPermissionRequest request;
   };
@@ -28,6 +30,12 @@ class SocketPermission
 
   ~SocketPermission() override;
 
+  // SetDisjunctionPermission overrides.
+  bool FromValue(const base::Value* value,
+                 std::string* error,
+                 std::vector<std::string>* unhandled_permissions) override;
+
+  // APIPermission overrides
   PermissionIDSet GetPermissions() const override;
 };
 

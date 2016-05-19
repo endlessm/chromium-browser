@@ -4,6 +4,8 @@
 
 #include "cc/test/render_pass_test_utils.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "cc/quads/debug_border_draw_quad.h"
 #include "cc/quads/io_surface_draw_quad.h"
@@ -28,7 +30,7 @@ RenderPass* AddRenderPass(RenderPassList* pass_list,
   scoped_ptr<RenderPass> pass(RenderPass::Create());
   pass->SetNew(id, output_rect, output_rect, root_transform);
   RenderPass* saved = pass.get();
-  pass_list->push_back(pass.Pass());
+  pass_list->push_back(std::move(pass));
   return saved;
 }
 
@@ -150,14 +152,16 @@ static void EmptyReleaseCallback(const gpu::SyncToken& sync_token,
 void AddOneOfEveryQuadType(RenderPass* to_pass,
                            ResourceProvider* resource_provider,
                            RenderPassId child_pass,
-                           uint32_t* sync_point_for_mailbox_texture) {
+                           gpu::SyncToken* sync_token_for_mailbox_tebxture) {
   gfx::Rect rect(0, 0, 100, 100);
   gfx::Rect opaque_rect(10, 10, 80, 80);
   gfx::Rect visible_rect(0, 0, 100, 100);
   const float vertex_opacity[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
-  static const uint32_t kSyncTokenForMailboxTextureQuad = 30;
-  *sync_point_for_mailbox_texture = kSyncTokenForMailboxTextureQuad;
+  static const gpu::SyncToken kSyncTokenForMailboxTextureQuad(
+      gpu::CommandBufferNamespace::GPU_IO, 0,
+      gpu::CommandBufferId::FromUnsafeValue(0x123), 30);
+  *sync_token_for_mailbox_tebxture = kSyncTokenForMailboxTextureQuad;
 
   ResourceId resource1 = resource_provider->CreateResource(
       gfx::Size(45, 5), ResourceProvider::TEXTURE_HINT_IMMUTABLE,
@@ -194,10 +198,9 @@ void AddOneOfEveryQuadType(RenderPass* to_pass,
   memcpy(gpu_mailbox.name, "Hello world", strlen("Hello world") + 1);
   scoped_ptr<SingleReleaseCallbackImpl> callback =
       SingleReleaseCallbackImpl::Create(base::Bind(&EmptyReleaseCallback));
-  TextureMailbox mailbox(
-      gpu_mailbox, gpu::SyncToken(*sync_point_for_mailbox_texture), target);
+  TextureMailbox mailbox(gpu_mailbox, kSyncTokenForMailboxTextureQuad, target);
   ResourceId resource8 = resource_provider->CreateResourceFromTextureMailbox(
-      mailbox, callback.Pass());
+      mailbox, std::move(callback));
   resource_provider->AllocateForTesting(resource8);
 
   SharedQuadState* shared_state = to_pass->CreateAndAppendSharedQuadState();
@@ -295,7 +298,8 @@ void AddOneOfEveryQuadType(RenderPass* to_pass,
                    gfx::RectF(.0f, .0f, 100.0f, 100.0f),
                    gfx::RectF(.0f, .0f, 50.0f, 50.0f), gfx::Size(100, 100),
                    gfx::Size(50, 50), plane_resources[0], plane_resources[1],
-                   plane_resources[2], plane_resources[3], color_space);
+                   plane_resources[2], plane_resources[3], color_space, 0.0,
+                   1.0);
 }
 
 }  // namespace cc

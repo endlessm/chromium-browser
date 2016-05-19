@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="5056" systemVersion="13F1077" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="5056" systemVersion="13F34" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
     <dependencies>
-        <deployment version="1060" identifier="macosx"/>
+        <deployment version="1060" defaultVersion="1060" identifier="macosx"/>
         <development version="5100" identifier="xcode"/>
         <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="5056"/>
     </dependencies>
@@ -319,6 +319,11 @@ CA
                                     <action selector="commandDispatch:" target="-1" id="531"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="^IDS_TOGGLE_FULLSCREEN_TOOLBAR_MAC" tag="40251" keyEquivalent="F" id="70p-NK-bpU">
+                                <connections>
+                                    <action selector="commandDispatch:" target="-1" id="0A7-Iy-65Q"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="538"/>
                             <menuItem title="^IDS_STOP_MENU_MAC" tag="33006" keyEquivalent="." id="539">
                                 <connections>
@@ -344,7 +349,7 @@ CA
                             <menuItem title="^IDS_ENTER_FULLSCREEN_MAC" tag="34030" keyEquivalent="f" id="692">
                                 <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>
                                 <connections>
-                                    <action selector="commandDispatch:" target="-1" id="693"/>
+                                    <action selector="toggleFullScreen:" target="-1" id="693"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="^IDS_TEXT_DEFAULT_MAC" tag="38002" keyEquivalent="0" id="460">
@@ -423,7 +428,7 @@ CA
                                 <modifierMask key="keyEquivalentModifierMask"/>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" tag="480" id="545"/>
-                            <menuItem title="^IDS_SHOWFULLHISTORY_LINK" tag="40010" keyEquivalent="y" id="544">
+                            <menuItem title="^IDS_HISTORY_SHOWFULLHISTORY_LINK" tag="40010" keyEquivalent="y" id="544">
                                 <connections>
                                     <action selector="commandDispatch:" target="-1" id="549"/>
                                 </connections>
@@ -487,6 +492,11 @@ CA
                                     <action selector="commandDispatch:" target="-1" id="530"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="^IDS_SHOW_AS_TAB" tag="34029" id="470">
+                                <connections>
+                                    <action selector="commandDispatch:" target="-1" id="559"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="551"/>
                             <menuItem title="^IDS_SHOW_DOWNLOADS_MAC" tag="40012" keyEquivalent="J" id="550">
                                 <connections>
@@ -533,6 +543,9 @@ CA
                             </menuItem>
                         </items>
                     </menu>
+                </menuItem>
+                <menuItem title="Item" id="PoF-z7-3yH">
+                    <modifierMask key="keyEquivalentModifierMask"/>
                 </menuItem>
             </items>
         </menu>

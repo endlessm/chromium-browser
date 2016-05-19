@@ -44,13 +44,17 @@ source_set("gpu_sources") {
     "//base",
     "//content:export",
     "//content/public/child:child_sources",
-    "//mojo/application/public/interfaces",
+    "//mojo/shell/public/interfaces",
     "//skia",
     "//ui/gl",
   ]
 
-  if (enable_mojo_media == "gpu") {
-    deps += [ "//media/mojo/services:application" ]
+  public_deps = [
+    "//content/common:mojo_bindings",
+  ]
+
+  if (mojo_media_host == "gpu") {
+    deps += [ "//media/mojo/services:application_factory" ]
   }
 
   if (is_win) {

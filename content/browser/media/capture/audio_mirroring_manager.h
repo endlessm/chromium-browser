@@ -36,8 +36,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "content/common/content_export.h"
 #include "media/audio/audio_source_diverter.h"
@@ -122,6 +122,7 @@ class CONTENT_EXPORT AudioMirroringManager {
 
     StreamRoutingState(const SourceFrameRef& source_frame,
                        Diverter* stream_diverter);
+    StreamRoutingState(const StreamRoutingState& other);
     ~StreamRoutingState();
   };
 

@@ -4,6 +4,9 @@
 
 #include "components/drive/file_system.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -11,8 +14,8 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -29,6 +32,7 @@
 #include "components/drive/service/fake_drive_service.h"
 #include "components/drive/service/test_util.h"
 #include "components/drive/sync_client.h"
+#include "components/prefs/testing_pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "google_apis/drive/drive_api_parser.h"
@@ -174,7 +178,7 @@ class FileSystemTest : public testing::Test {
         google_apis::test_util::CreateCopyResultCallback(&error, &entry));
     content::RunAllBlockingPoolTasksUntilIdle();
 
-    return entry.Pass();
+    return entry;
   }
 
   // Gets directory info by path synchronously.
@@ -189,7 +193,7 @@ class FileSystemTest : public testing::Test {
     content::RunAllBlockingPoolTasksUntilIdle();
     if (error != FILE_ERROR_OK)
       entries.reset();
-    return entries.Pass();
+    return entries;
   }
 
   // Used to implement ReadDirectorySync().
@@ -241,8 +245,10 @@ class FileSystemTest : public testing::Test {
 
     ASSERT_EQ(FILE_ERROR_OK, resource_metadata->Initialize());
 
-    const int64 changestamp = param == USE_SERVER_TIMESTAMP ?
-        fake_drive_service_->about_resource().largest_change_id() : 1;
+    const int64_t changestamp =
+        param == USE_SERVER_TIMESTAMP
+            ? fake_drive_service_->about_resource().largest_change_id()
+            : 1;
     ASSERT_EQ(FILE_ERROR_OK,
               resource_metadata->SetLargestChangestamp(changestamp));
 
@@ -562,7 +568,7 @@ TEST_F(FileSystemTest, TruncateFile) {
   scoped_ptr<ResourceEntry> entry = GetResourceEntrySync(file_path);
   ASSERT_TRUE(entry);
 
-  const int64 kLength = entry->file_info().size() + 100;
+  const int64_t kLength = entry->file_info().size() + 100;
 
   FileError error = FILE_ERROR_FAILED;
   file_system_->TruncateFile(
@@ -962,8 +968,8 @@ TEST_F(FileSystemTest, PinAndUnpin_NotSynced) {
 
 TEST_F(FileSystemTest, GetAvailableSpace) {
   FileError error = FILE_ERROR_OK;
-  int64 bytes_total;
-  int64 bytes_used;
+  int64_t bytes_total;
+  int64_t bytes_used;
   file_system_->GetAvailableSpace(
       google_apis::test_util::CreateCopyResultCallback(
           &error, &bytes_total, &bytes_used));

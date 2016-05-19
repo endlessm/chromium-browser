@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/graphics/filters/FEConvolveMatrix.h"
 
 #include "SkMatrixConvolutionImageFilter.h"
@@ -59,7 +58,7 @@ FloatRect FEConvolveMatrix::mapPaintRect(const FloatRect& rect, bool forward)
     FloatRect result = rect;
     if (parametersValid()) {
         result.moveBy(forward ? -m_targetOffset : m_targetOffset - m_kernelSize);
-        result.expand(m_kernelSize);
+        result.expand(FloatSize(m_kernelSize));
     }
     return result;
 }
@@ -153,7 +152,7 @@ PassRefPtr<SkImageFilter> FEConvolveMatrix::createImageFilter(SkiaImageFilterBui
     OwnPtr<SkScalar[]> kernel = adoptArrayPtr(new SkScalar[numElements]);
     for (int i = 0; i < numElements; ++i)
         kernel[i] = SkFloatToScalar(m_kernelMatrix[numElements - 1 - i]);
-    SkImageFilter::CropRect cropRect = getCropRect(builder.cropOffset());
+    SkImageFilter::CropRect cropRect = getCropRect();
     return adoptRef(SkMatrixConvolutionImageFilter::Create(kernelSize, kernel.get(), gain, bias, target, tileMode, convolveAlpha, input.get(), &cropRect));
 }
 
@@ -181,7 +180,7 @@ TextStream& FEConvolveMatrix::externalRepresentation(TextStream& ts, int indent)
     writeIndent(ts, indent);
     ts << "[feConvolveMatrix";
     FilterEffect::externalRepresentation(ts);
-    ts << " order=\"" << m_kernelSize << "\" "
+    ts << " order=\"" << FloatSize(m_kernelSize) << "\" "
        << "kernelMatrix=\"" << m_kernelMatrix  << "\" "
        << "divisor=\"" << m_divisor << "\" "
        << "bias=\"" << m_bias << "\" "

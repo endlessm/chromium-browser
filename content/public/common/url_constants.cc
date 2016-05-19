@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "content/public/common/url_constants.h"
 
 namespace content {
@@ -10,8 +11,10 @@ namespace content {
 // There are security implications associated with introducing new schemes.
 const char kChromeDevToolsScheme[] = "chrome-devtools";
 const char kChromeUIScheme[] = "chrome";
+const char kExeScheme[] = "exe";
 const char kGuestScheme[] = "chrome-guest";
 const char kMetadataScheme[] = "metadata";
+const char kMojoScheme[] = "mojo";
 const char kSwappedOutScheme[] = "swappedout";
 const char kViewSourceScheme[] = "view-source";
 #if defined(OS_CHROMEOS)
@@ -29,9 +32,10 @@ const char kChromeUIGpuHost[] = "gpu";
 const char kChromeUIHistogramHost[] = "histograms";
 const char kChromeUIMediaInternalsHost[] = "media-internals";
 const char kChromeUINetworkViewCacheHost[] = "view-http-cache";
+const char kChromeUINetworkErrorHost[] = "network-error";
+const char kChromeUINetworkErrorsListingHost[] = "network-errors";
 const char kChromeUIResourcesHost[] = "resources";
 const char kChromeUIServiceWorkerInternalsHost[] = "serviceworker-internals";
-const char kChromeUITcmallocHost[] = "tcmalloc";
 const char kChromeUITracingHost[] = "tracing";
 const char kChromeUIWebRTCInternalsHost[] = "webrtc-internals";
 
@@ -39,12 +43,15 @@ const char kChromeUIBadCastCrashURL[] = "chrome://badcastcrash";
 const char kChromeUIBrowserCrashURL[] = "chrome://inducebrowsercrashforrealz";
 const char kChromeUIBrowserUIHang[] = "chrome://uithreadhang";
 const char kChromeUICrashURL[] = "chrome://crash";
+const char kChromeUIDelayedBrowserUIHang[] = "chrome://delayeduithreadhang";
 const char kChromeUIDumpURL[] = "chrome://crashdump";
 const char kChromeUIGpuCleanURL[] = "chrome://gpuclean";
 const char kChromeUIGpuCrashURL[] = "chrome://gpucrash";
 const char kChromeUIGpuHangURL[] = "chrome://gpuhang";
 const char kChromeUIHangURL[] = "chrome://hang";
 const char kChromeUIKillURL[] = "chrome://kill";
+const char kChromeUINetworkErrorURL[] = "chrome://network-error";
+const char kChromeUINetworkErrorsListingURL[] = "chrome://network-errors";
 const char kChromeUIPpapiFlashCrashURL[] = "chrome://ppapiflashcrash";
 const char kChromeUIPpapiFlashHangURL[] = "chrome://ppapiflashhang";
 const char kChromeUIServiceWorkerInternalsURL[] =

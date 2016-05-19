@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
@@ -9,8 +14,8 @@
 #include "mojo/edk/embedder/embedder.h"
 #include "mojo/edk/embedder/scoped_platform_handle.h"
 #include "mojo/edk/system/handle_signals_state.h"
-#include "mojo/edk/system/message_pipe_test_utils.h"
 #include "mojo/edk/system/test_utils.h"
+#include "mojo/edk/test/mojo_test_base.h"
 #include "mojo/edk/test/test_utils.h"
 #include "mojo/public/c/system/functions.h"
 #include "mojo/public/cpp/system/message_pipe.h"
@@ -20,12 +25,10 @@ namespace mojo {
 namespace edk {
 namespace {
 
-class MultiprocessMessagePipePerfTest
-    : public test::MultiprocessMessagePipeTestBase {
+class MultiprocessMessagePipePerfTest : public test::MojoTestBase {
  public:
   MultiprocessMessagePipePerfTest()
-      : test::MultiprocessMessagePipeTestBase(base::MessageLoop::TYPE_IO),
-        message_count_(0),
+      : message_count_(0),
         message_size_(0) {}
 
   void SetUpMeasurement(int message_count, size_t message_size) {
@@ -85,25 +88,15 @@ class MultiprocessMessagePipePerfTest
 // repeated twice, until the other end is closed or it receives "quitquitquit"
 // (which it doesn't reply to). It'll return the number of messages received,
 // not including any "quitquitquit" message, modulo 100.
-MOJO_MULTIPROCESS_TEST_CHILD_MAIN(PingPongClient) {
-  SimplePlatformSupport platform_support;
-  base::MessageLoop message_loop(base::MessageLoop::TYPE_IO);
-  base::TestIOThread test_io_thread(base::TestIOThread::kAutoStart);
-  test::ScopedIPCSupport ipc_support(test_io_thread.task_runner());
-
-  ScopedPlatformHandle client_platform_handle =
-      test::MultiprocessTestHelper::client_platform_handle.Pass();
-  CHECK(client_platform_handle.is_valid());
-  ScopedMessagePipeHandle mp =
-      CreateMessagePipe(client_platform_handle.Pass());
-
+DEFINE_TEST_CLIENT_WITH_PIPE(PingPongClient, MultiprocessMessagePipePerfTest,
+                             h) {
   std::string buffer(1000000, '\0');
   int rv = 0;
   while (true) {
     // Wait for our end of the message pipe to be readable.
     HandleSignalsState hss;
     MojoResult result =
-        MojoWait(mp.get().value(), MOJO_HANDLE_SIGNAL_READABLE,
+        MojoWait(h, MOJO_HANDLE_SIGNAL_READABLE,
                  MOJO_DEADLINE_INDEFINITE, &hss);
     if (result != MOJO_RESULT_OK) {
       rv = result;
@@ -111,7 +104,7 @@ MOJO_MULTIPROCESS_TEST_CHILD_MAIN(PingPongClient) {
     }
 
     uint32_t read_size = static_cast<uint32_t>(buffer.size());
-    CHECK_EQ(MojoReadMessage(mp.get().value(), &buffer[0],
+    CHECK_EQ(MojoReadMessage(h, &buffer[0],
                              &read_size, nullptr,
                              0, MOJO_READ_MESSAGE_FLAG_NONE),
              MOJO_RESULT_OK);
@@ -120,7 +113,7 @@ MOJO_MULTIPROCESS_TEST_CHILD_MAIN(PingPongClient) {
     if (read_size == 0)
       break;
 
-    CHECK_EQ(MojoWriteMessage(mp.get().value(), &buffer[0],
+    CHECK_EQ(MojoWriteMessage(h, &buffer[0],
                               read_size,
                               nullptr, 0, MOJO_WRITE_MESSAGE_FLAG_NONE),
              MOJO_RESULT_OK);
@@ -139,22 +132,18 @@ MOJO_MULTIPROCESS_TEST_CHILD_MAIN(PingPongClient) {
 #define MAYBE_PingPong PingPong
 #endif  // defined(OS_ANDROID)
 TEST_F(MultiprocessMessagePipePerfTest, MAYBE_PingPong) {
-  helper()->StartChild("PingPongClient");
+  RUN_CHILD_ON_PIPE(PingPongClient, h)
+    // This values are set to align with one at ipc_pertests.cc for comparison.
+    const size_t kMsgSize[5] = {12, 144, 1728, 20736, 248832};
+    const int kMessageCount[5] = {50000, 50000, 50000, 12000, 1000};
 
-  ScopedMessagePipeHandle mp = CreateMessagePipe(
-      helper()->server_platform_handle.Pass());
+    for (size_t i = 0; i < 5; i++) {
+      SetUpMeasurement(kMessageCount[i], kMsgSize[i]);
+      Measure(h);
+    }
 
-  // This values are set to align with one at ipc_pertests.cc for comparison.
-  const size_t kMsgSize[5] = {12, 144, 1728, 20736, 248832};
-  const int kMessageCount[5] = {50000, 50000, 50000, 12000, 1000};
-
-  for (size_t i = 0; i < 5; i++) {
-    SetUpMeasurement(kMessageCount[i], kMsgSize[i]);
-    Measure(mp.get().value());
-  }
-
-  SendQuitMessage(mp.get().value());
-  EXPECT_EQ(0, helper()->WaitForChildShutdown());
+    SendQuitMessage(h);
+  END_CHILD()
 }
 
 }  // namespace

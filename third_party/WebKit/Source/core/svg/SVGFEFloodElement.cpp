@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGFEFloodElement.h"
 
 #include "core/SVGNames.h"
@@ -66,4 +65,4 @@ PassRefPtrWillBeRawPtr<FilterEffect> SVGFEFloodElement::build(SVGFilterBuilder*,
     return FEFlood::create(filter, color, opacity);
 }
 
-}
+} // namespace blink

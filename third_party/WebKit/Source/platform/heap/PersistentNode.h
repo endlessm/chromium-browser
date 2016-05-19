@@ -7,13 +7,17 @@
 
 #include "platform/PlatformExport.h"
 #include "platform/heap/ThreadState.h"
+#include "wtf/Allocator.h"
 #include "wtf/Assertions.h"
 #include "wtf/MainThread.h"
 #include "wtf/ThreadingPrimitives.h"
 
 namespace blink {
 
+class CrossThreadPersistentRegion;
+
 class PersistentNode final {
+    DISALLOW_NEW();
 public:
     PersistentNode()
         : m_self(nullptr)
@@ -22,6 +26,7 @@ public:
         ASSERT(isUnused());
     }
 
+#if ENABLE(ASSERT)
     ~PersistentNode()
     {
         // If you hit this assert, it means that the thread finished
@@ -30,8 +35,9 @@ public:
         // main thread finishes without clearing all persistent handles.
         ASSERT(isMainThread() || isUnused());
     }
+#endif
 
-    // It is dangrous to copy the PersistentNode because it breaks the
+    // It is dangerous to copy the PersistentNode because it breaks the
     // free list.
     PersistentNode& operator=(const PersistentNode& otherref) = delete;
 
@@ -94,6 +100,7 @@ private:
 };
 
 struct PersistentNodeSlots final {
+    USING_FAST_MALLOC(PersistentNodeSlots);
 private:
     static const int slotCount = 256;
     PersistentNodeSlots* m_next;
@@ -107,6 +114,7 @@ private:
 // a predefined number of PersistentNodes. You can call allocatePersistentNode/
 // freePersistentNode to allocate/free a PersistentNode on the region.
 class PLATFORM_EXPORT PersistentRegion final {
+    USING_FAST_MALLOC(PersistentRegion);
 public:
     PersistentRegion()
         : m_freeListHead(nullptr)
@@ -157,6 +165,7 @@ private:
 };
 
 class CrossThreadPersistentRegion final {
+    USING_FAST_MALLOC(CrossThreadPersistentRegion);
 public:
     CrossThreadPersistentRegion() : m_persistentRegion(adoptPtr(new PersistentRegion)) { }
 

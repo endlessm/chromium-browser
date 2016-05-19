@@ -5,11 +5,12 @@
 #ifndef CHROME_BROWSER_UI_WEBSITE_SETTINGS_WEBSITE_SETTINGS_H_
 #define CHROME_BROWSER_UI_WEBSITE_SETTINGS_WEBSITE_SETTINGS_H_
 
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
-#include "chrome/browser/ssl/security_state_model.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/security_state/security_state_model.h"
 #include "content/public/common/signed_certificate_timestamp_id_and_status.h"
 #include "url/gurl.h"
 
@@ -19,6 +20,7 @@ class WebContents;
 }
 
 class ChromeSSLHostStateDelegate;
+class ChooserContextBase;
 class HostContentSettingsMap;
 class Profile;
 class WebsiteSettingsUI;
@@ -75,7 +77,8 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   };
 
   // UMA statistics for WebsiteSettings. Do not reorder or remove existing
-  // fields.
+  // fields. A Java counterpart will be generated for this enum.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.pageinfo
   enum WebsiteSettingsAction {
     WEBSITE_SETTINGS_OPENED = 0,
     WEBSITE_SETTINGS_PERMISSIONS_TAB_SELECTED = 1,
@@ -92,16 +95,26 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
     WEBSITE_SETTINGS_COUNT
   };
 
+  struct ChooserUIInfo {
+    ChooserContextBase* (*get_context)(Profile*);
+    int blocked_icon_id;
+    int allowed_icon_id;
+    int label_string_id;
+    int delete_tooltip_string_id;
+    const char* ui_name_key;
+  };
+
   // Creates a WebsiteSettings for the passed |url| using the given |ssl| status
   // object to determine the status of the site's connection. The
   // |WebsiteSettings| takes ownership of the |ui|.
-  WebsiteSettings(WebsiteSettingsUI* ui,
-                  Profile* profile,
-                  TabSpecificContentSettings* tab_specific_content_settings,
-                  content::WebContents* web_contents,
-                  const GURL& url,
-                  const SecurityStateModel::SecurityInfo& security_info,
-                  content::CertStore* cert_store);
+  WebsiteSettings(
+      WebsiteSettingsUI* ui,
+      Profile* profile,
+      TabSpecificContentSettings* tab_specific_content_settings,
+      content::WebContents* web_contents,
+      const GURL& url,
+      const security_state::SecurityStateModel::SecurityInfo& security_info,
+      content::CertStore* cert_store);
   ~WebsiteSettings() override;
 
   void RecordWebsiteSettingsAction(WebsiteSettingsAction action);
@@ -109,6 +122,10 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // This method is called when ever a permission setting is changed.
   void OnSitePermissionChanged(ContentSettingsType type,
                                ContentSetting value);
+
+  // This method is called whenever access to an object is revoked.
+  void OnSiteChosenObjectDeleted(const ChooserUIInfo& ui_info,
+                                 const base::DictionaryValue& object);
 
   // This method is called by the UI when the UI is closing.
   void OnUIClosing();
@@ -144,8 +161,9 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
 
  private:
   // Initializes the |WebsiteSettings|.
-  void Init(const GURL& url,
-            const SecurityStateModel::SecurityInfo& security_info);
+  void Init(
+      const GURL& url,
+      const security_state::SecurityStateModel::SecurityInfo& security_info);
 
   // Sets (presents) the information about the site's permissions in the |ui_|.
   void PresentSitePermissions();

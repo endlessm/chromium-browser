@@ -39,9 +39,9 @@ typedef std::vector<std::string> ResponseCookies;
 // To use this class, create an instance with the desired URL and a pointer to
 // the object to be notified when the URL has been loaded:
 //   scoped_ptr<URLFetcher> fetcher =
-//   URLFetcher::Create("http://www.google.com",
-//                                                     URLFetcher::GET,
-//                                                     this);
+//       URLFetcher::Create(GURL("http://www.google.com"),
+//                          URLFetcher::GET,
+//                          this);
 //
 // You must also set a request context getter:
 //
@@ -49,7 +49,7 @@ typedef std::vector<std::string> ResponseCookies;
 //
 // Then, optionally set properties on this object, like the request context or
 // extra headers:
-//   fetcher->set_extra_request_headers("X-Foo: bar");
+//   fetcher->AddExtraRequestHeader("X-Foo: bar");
 //
 // Finally, start the request:
 //   fetcher->Start();
@@ -57,14 +57,13 @@ typedef std::vector<std::string> ResponseCookies;
 // You may cancel the request by destroying the URLFetcher:
 //   fetcher.reset();
 //
-// The object you supply as a delegate must inherit from
-// URLFetcherDelegate; when the fetch is completed,
-// OnURLFetchComplete() will be called with a pointer to the URLFetcher.  From
-// that point until the original URLFetcher instance is destroyed, you may use
-// accessor methods to see the result of the fetch. You should copy these
-// objects if you need them to live longer than the URLFetcher instance. If the
-// URLFetcher instance is destroyed before the callback happens, the fetch will
-// be canceled and no callback will occur.
+// The object you supply as a delegate must inherit from URLFetcherDelegate.
+// When the fetch is completed, OnURLFetchComplete() will be called with a
+// pointer to the URLFetcher. From that point until the original URLFetcher
+// instance is destroyed, you may use accessor methods to see the result of the
+// fetch. You should copy these objects if you need them to live longer than
+// the URLFetcher instance. If the URLFetcher instance is destroyed before the
+// callback happens, the fetch will be canceled and no callback will occur.
 //
 // You may create the URLFetcher instance on any thread; OnURLFetchComplete()
 // will be called back on the same thread you use to create the instance.
@@ -150,8 +149,8 @@ class NET_EXPORT URLFetcher {
   virtual void SetUploadFilePath(
       const std::string& upload_content_type,
       const base::FilePath& file_path,
-      uint64 range_offset,
-      uint64 range_length,
+      uint64_t range_offset,
+      uint64_t range_length,
       scoped_refptr<base::TaskRunner> file_task_runner) = 0;
 
   // Sets data only needed by POSTs.  All callers making POST requests should
@@ -207,10 +206,12 @@ class NET_EXPORT URLFetcher {
   virtual void SetRequestContext(
       URLRequestContextGetter* request_context_getter) = 0;
 
-  // Set the URL that should be consulted for the third-party cookie
-  // blocking policy.
-  virtual void SetFirstPartyForCookies(
-      const GURL& first_party_for_cookies) = 0;
+  // Set the URL that should be considered as "initiating" the fetch. This URL
+  // will be considered the "first-party" when applying cookie blocking policy
+  // to requests, and treated as the request's initiator.
+  //
+  // TODO(mkwst): Convert this to take a 'url::Origin': https://crbug.com/577565
+  virtual void SetInitiatorURL(const GURL& initiator) = 0;
 
   // Set the key and data callback that is used when setting the user
   // data on any URLRequest objects this object creates.

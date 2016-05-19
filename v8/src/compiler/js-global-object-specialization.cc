@@ -27,14 +27,11 @@ struct JSGlobalObjectSpecialization::ScriptContextTableLookupResult {
 
 
 JSGlobalObjectSpecialization::JSGlobalObjectSpecialization(
-    Editor* editor, JSGraph* jsgraph, Flags flags,
-    Handle<JSGlobalObject> global_object, CompilationDependencies* dependencies)
+    Editor* editor, JSGraph* jsgraph,
+    MaybeHandle<Context> native_context, CompilationDependencies* dependencies)
     : AdvancedReducer(editor),
       jsgraph_(jsgraph),
-      flags_(flags),
-      global_object_(global_object),
-      script_context_table_(
-          global_object->native_context()->script_context_table(), isolate()),
+      native_context_(native_context),
       dependencies_(dependencies),
       type_cache_(TypeCache::Get()) {}
 
@@ -51,16 +48,19 @@ Reduction JSGlobalObjectSpecialization::Reduce(Node* node) {
   return NoChange();
 }
 
-
 Reduction JSGlobalObjectSpecialization::ReduceJSLoadGlobal(Node* node) {
   DCHECK_EQ(IrOpcode::kJSLoadGlobal, node->opcode());
   Handle<Name> name = LoadGlobalParametersOf(node->op()).name();
   Node* effect = NodeProperties::GetEffectInput(node);
   Node* control = NodeProperties::GetControlInput(node);
 
+  // Retrieve the global object from the given {node}.
+  Handle<JSGlobalObject> global_object;
+  if (!GetGlobalObject(node).ToHandle(&global_object)) return NoChange();
+
   // Try to lookup the name on the script context table first (lexical scoping).
   ScriptContextTableLookupResult result;
-  if (LookupInScriptContextTable(name, &result)) {
+  if (LookupInScriptContextTable(global_object, name, &result)) {
     if (result.context->is_the_hole(result.index)) return NoChange();
     Node* context = jsgraph()->HeapConstant(result.context);
     Node* value = effect = graph()->NewNode(
@@ -72,7 +72,7 @@ Reduction JSGlobalObjectSpecialization::ReduceJSLoadGlobal(Node* node) {
 
   // Lookup on the global object instead.  We only deal with own data
   // properties of the global object here (represented as PropertyCell).
-  LookupIterator it(global_object(), name, LookupIterator::OWN);
+  LookupIterator it(global_object, name, LookupIterator::OWN);
   if (it.state() != LookupIterator::DATA) return NoChange();
   Handle<PropertyCell> property_cell = it.GetPropertyCell();
   PropertyDetails property_details = property_cell->property_details();
@@ -86,47 +86,36 @@ Reduction JSGlobalObjectSpecialization::ReduceJSLoadGlobal(Node* node) {
     return Replace(value);
   }
 
-  // Load from non-configurable, data property on the global can be lowered to
-  // a field load, even without deoptimization, because the property cannot be
-  // deleted or reconfigured to an accessor/interceptor property.  Yet, if
-  // deoptimization support is available, we can constant-fold certain global
-  // properties or at least lower them to field loads annotated with more
-  // precise type feedback.
+  // Record a code dependency on the cell if we can benefit from the
+  // additional feedback, or the global property is configurable (i.e.
+  // can be deleted or reconfigured to an accessor property).
+  if (property_details.cell_type() != PropertyCellType::kMutable ||
+      property_details.IsConfigurable()) {
+    dependencies()->AssumePropertyCell(property_cell);
+  }
+
+  // Load from constant/undefined global property can be constant-folded.
+  if (property_details.cell_type() == PropertyCellType::kConstant ||
+      property_details.cell_type() == PropertyCellType::kUndefined) {
+    Node* value = jsgraph()->Constant(property_cell_value);
+    ReplaceWithValue(node, value);
+    return Replace(value);
+  }
+
+  // Load from constant type cell can benefit from type feedback.
   Type* property_cell_value_type = Type::Tagged();
-  if (flags() & kDeoptimizationEnabled) {
-    // Record a code dependency on the cell if we can benefit from the
-    // additional feedback, or the global property is configurable (i.e.
-    // can be deleted or reconfigured to an accessor property).
-    if (property_details.cell_type() != PropertyCellType::kMutable ||
-        property_details.IsConfigurable()) {
-      dependencies()->AssumePropertyCell(property_cell);
+  if (property_details.cell_type() == PropertyCellType::kConstantType) {
+    // Compute proper type based on the current value in the cell.
+    if (property_cell_value->IsSmi()) {
+      property_cell_value_type = type_cache_.kSmi;
+    } else if (property_cell_value->IsNumber()) {
+      property_cell_value_type = type_cache_.kHeapNumber;
+    } else {
+      Handle<Map> property_cell_value_map(
+          Handle<HeapObject>::cast(property_cell_value)->map(), isolate());
+      property_cell_value_type =
+          Type::Class(property_cell_value_map, graph()->zone());
     }
-
-    // Load from constant/undefined global property can be constant-folded.
-    if ((property_details.cell_type() == PropertyCellType::kConstant ||
-         property_details.cell_type() == PropertyCellType::kUndefined)) {
-      Node* value = jsgraph()->Constant(property_cell_value);
-      ReplaceWithValue(node, value);
-      return Replace(value);
-    }
-
-    // Load from constant type cell can benefit from type feedback.
-    if (property_details.cell_type() == PropertyCellType::kConstantType) {
-      // Compute proper type based on the current value in the cell.
-      if (property_cell_value->IsSmi()) {
-        property_cell_value_type = type_cache_.kSmi;
-      } else if (property_cell_value->IsNumber()) {
-        property_cell_value_type = type_cache_.kHeapNumber;
-      } else {
-        Handle<Map> property_cell_value_map(
-            Handle<HeapObject>::cast(property_cell_value)->map(), isolate());
-        property_cell_value_type =
-            Type::Class(property_cell_value_map, graph()->zone());
-      }
-    }
-  } else if (property_details.IsConfigurable()) {
-    // Access to configurable global properties requires deoptimization support.
-    return NoChange();
   }
   Node* value = effect = graph()->NewNode(
       simplified()->LoadField(
@@ -145,9 +134,13 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
   Node* effect = NodeProperties::GetEffectInput(node);
   Node* control = NodeProperties::GetControlInput(node);
 
+  // Retrieve the global object from the given {node}.
+  Handle<JSGlobalObject> global_object;
+  if (!GetGlobalObject(node).ToHandle(&global_object)) return NoChange();
+
   // Try to lookup the name on the script context table first (lexical scoping).
   ScriptContextTableLookupResult result;
-  if (LookupInScriptContextTable(name, &result)) {
+  if (LookupInScriptContextTable(global_object, name, &result)) {
     if (result.context->is_the_hole(result.index)) return NoChange();
     if (result.immutable) return NoChange();
     Node* context = jsgraph()->HeapConstant(result.context);
@@ -159,7 +152,7 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
 
   // Lookup on the global object instead.  We only deal with own data
   // properties of the global object here (represented as PropertyCell).
-  LookupIterator it(global_object(), name, LookupIterator::OWN);
+  LookupIterator it(global_object, name, LookupIterator::OWN);
   if (it.state() != LookupIterator::DATA) return NoChange();
   Handle<PropertyCell> property_cell = it.GetPropertyCell();
   PropertyDetails property_details = property_cell->property_details();
@@ -172,9 +165,8 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
       return NoChange();
     }
     case PropertyCellType::kConstant: {
-      // Store to constant property cell requires deoptimization support,
-      // because we might even need to eager deoptimize for mismatch.
-      if (!(flags() & kDeoptimizationEnabled)) return NoChange();
+      // Record a code dependency on the cell, and just deoptimize if the new
+      // value doesn't match the previous value stored inside the cell.
       dependencies()->AssumePropertyCell(property_cell);
       Node* check =
           graph()->NewNode(simplified()->ReferenceEqual(Type::Tagged()), value,
@@ -182,17 +174,18 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
       Node* branch =
           graph()->NewNode(common()->Branch(BranchHint::kTrue), check, control);
       Node* if_false = graph()->NewNode(common()->IfFalse(), branch);
-      Node* deoptimize = graph()->NewNode(common()->Deoptimize(), frame_state,
-                                          effect, if_false);
+      Node* deoptimize =
+          graph()->NewNode(common()->Deoptimize(DeoptimizeKind::kEager),
+                           frame_state, effect, if_false);
       // TODO(bmeurer): This should be on the AdvancedReducer somehow.
       NodeProperties::MergeControlToEnd(graph(), common(), deoptimize);
+      Revisit(graph()->end());
       control = graph()->NewNode(common()->IfTrue(), branch);
       break;
     }
     case PropertyCellType::kConstantType: {
-      // Store to constant-type property cell requires deoptimization support,
-      // because we might even need to eager deoptimize for mismatch.
-      if (!(flags() & kDeoptimizationEnabled)) return NoChange();
+      // Record a code dependency on the cell, and just deoptimize if the new
+      // values' type doesn't match the type of the previous value in the cell.
       dependencies()->AssumePropertyCell(property_cell);
       Node* check = graph()->NewNode(simplified()->ObjectIsSmi(), value);
       Type* property_cell_value_type = Type::TaggedSigned();
@@ -201,10 +194,12 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
         Node* branch = graph()->NewNode(common()->Branch(BranchHint::kFalse),
                                         check, control);
         Node* if_true = graph()->NewNode(common()->IfTrue(), branch);
-        Node* deoptimize = graph()->NewNode(common()->Deoptimize(), frame_state,
-                                            effect, if_true);
+        Node* deoptimize =
+            graph()->NewNode(common()->Deoptimize(DeoptimizeKind::kEager),
+                             frame_state, effect, if_true);
         // TODO(bmeurer): This should be on the AdvancedReducer somehow.
         NodeProperties::MergeControlToEnd(graph(), common(), deoptimize);
+        Revisit(graph()->end());
         control = graph()->NewNode(common()->IfFalse(), branch);
 
         // Load the {value} map check against the {property_cell} map.
@@ -221,10 +216,12 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
       Node* branch =
           graph()->NewNode(common()->Branch(BranchHint::kTrue), check, control);
       Node* if_false = graph()->NewNode(common()->IfFalse(), branch);
-      Node* deoptimize = graph()->NewNode(common()->Deoptimize(), frame_state,
-                                          effect, if_false);
+      Node* deoptimize =
+          graph()->NewNode(common()->Deoptimize(DeoptimizeKind::kEager),
+                           frame_state, effect, if_false);
       // TODO(bmeurer): This should be on the AdvancedReducer somehow.
       NodeProperties::MergeControlToEnd(graph(), common(), deoptimize);
+      Revisit(graph()->end());
       control = graph()->NewNode(common()->IfTrue(), branch);
       effect = graph()->NewNode(
           simplified()->StoreField(
@@ -234,13 +231,11 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
     }
     case PropertyCellType::kMutable: {
       // Store to non-configurable, data property on the global can be lowered
-      // to a field store, even without deoptimization, because the property
-      // cannot be deleted or reconfigured to an accessor/interceptor property.
+      // to a field store, even without recording a code dependency on the cell,
+      // because the property cannot be deleted or reconfigured to an accessor
+      // or interceptor property.
       if (property_details.IsConfigurable()) {
-        // With deoptimization support, we can lower stores even to configurable
-        // data properties on the global object, by adding a code dependency on
-        // the cell.
-        if (!(flags() & kDeoptimizationEnabled)) return NoChange();
+        // Protect lowering by recording a code dependency on the cell.
         dependencies()->AssumePropertyCell(property_cell);
       }
       effect = graph()->NewNode(
@@ -254,16 +249,27 @@ Reduction JSGlobalObjectSpecialization::ReduceJSStoreGlobal(Node* node) {
 }
 
 
+MaybeHandle<JSGlobalObject> JSGlobalObjectSpecialization::GetGlobalObject(
+    Node* node) {
+  Node* const context = NodeProperties::GetContextInput(node);
+  return NodeProperties::GetSpecializationGlobalObject(context,
+                                                       native_context());
+}
+
+
 bool JSGlobalObjectSpecialization::LookupInScriptContextTable(
-    Handle<Name> name, ScriptContextTableLookupResult* result) {
+    Handle<JSGlobalObject> global_object, Handle<Name> name,
+    ScriptContextTableLookupResult* result) {
   if (!name->IsString()) return false;
+  Handle<ScriptContextTable> script_context_table(
+      global_object->native_context()->script_context_table(), isolate());
   ScriptContextTable::LookupResult lookup_result;
-  if (!ScriptContextTable::Lookup(script_context_table(),
+  if (!ScriptContextTable::Lookup(script_context_table,
                                   Handle<String>::cast(name), &lookup_result)) {
     return false;
   }
   Handle<Context> script_context = ScriptContextTable::GetContext(
-      script_context_table(), lookup_result.context_index);
+      script_context_table, lookup_result.context_index);
   result->context = script_context;
   result->immutable = IsImmutableVariableMode(lookup_result.mode);
   result->index = lookup_result.slot_index;

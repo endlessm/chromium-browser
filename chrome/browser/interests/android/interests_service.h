@@ -8,6 +8,7 @@
 #include <jni.h>
 
 #include "base/android/scoped_java_ref.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/interests/interests_fetcher.h"
@@ -20,11 +21,11 @@ class InterestsService {
   explicit InterestsService(Profile* profile);
   virtual ~InterestsService();
 
-  void Destroy(JNIEnv* env, jobject obj);
+  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
   static bool Register(JNIEnv* env);
   void GetInterests(JNIEnv* env,
-                    jobject obj,
-                    jobject j_callback);
+                    const base::android::JavaParamRef<jobject>& obj,
+                    const base::android::JavaParamRef<jobject>& j_callback);
 
  private:
   void OnObtainedInterests(

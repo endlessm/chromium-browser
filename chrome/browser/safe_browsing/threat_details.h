@@ -22,6 +22,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "net/base/completion_callback.h"
 
@@ -44,7 +45,9 @@ typedef base::hash_map<
     linked_ptr<ClientSafeBrowsingReportRequest::Resource>>
     ResourceMap;
 
-class ThreatDetails : public base::RefCountedThreadSafe<ThreatDetails>,
+class ThreatDetails : public base::RefCountedThreadSafe<
+                          ThreatDetails,
+                          content::BrowserThread::DeleteOnUIThread>,
                       public content::WebContentsObserver {
  public:
   typedef SafeBrowsingUIManager::UnsafeResource UnsafeResource;
@@ -73,10 +76,12 @@ class ThreatDetails : public base::RefCountedThreadSafe<ThreatDetails>,
   void OnRedirectionCollectionReady();
 
   // content::WebContentsObserver implementation.
-  bool OnMessageReceived(const IPC::Message& message) override;
+  bool OnMessageReceived(const IPC::Message& message,
+                         content::RenderFrameHost* render_frame_host) override;
 
  protected:
   friend class ThreatDetailsFactoryImpl;
+  friend class TestThreatDetailsFactory;
 
   ThreatDetails(SafeBrowsingUIManager* ui_manager,
                 content::WebContents* web_contents,
@@ -98,6 +103,9 @@ class ThreatDetails : public base::RefCountedThreadSafe<ThreatDetails>,
 
  private:
   friend class base::RefCountedThreadSafe<ThreatDetails>;
+  friend struct content::BrowserThread::DeleteOnThread<
+      content::BrowserThread::UI>;
+  friend class base::DeleteHelper<ThreatDetails>;
 
   // Starts the collection of the report.
   void StartCollection();

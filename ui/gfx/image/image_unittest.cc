@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPaint.h"
@@ -266,7 +269,15 @@ TEST_F(ImageTest, MultiResolutionPNGToImageSkia) {
 #endif
 }
 
-TEST_F(ImageTest, MultiResolutionPNGToPlatform) {
+// TODO(crbug.com/153782): disable this test as it fails on iOS retina devices.
+#if defined(OS_IOS)
+#define MAYBE_MultiResolutionPNGToPlatform \
+    DISABLED_MultiResolutionPNGToPlatform
+#else
+#define MAYBE_MultiResolutionPNGToPlatform \
+    MultiResolutionPNGToPlatform
+#endif
+TEST_F(ImageTest, MAYBE_MultiResolutionPNGToPlatform) {
   const int kSize1x = 25;
   const int kSize2x = 50;
 
@@ -316,7 +327,15 @@ TEST_F(ImageTest, PlatformToPNGEncodeAndDecode) {
 
 // The platform types use the platform provided encoding/decoding of PNGs. Make
 // sure these work with the Skia Encode/Decode.
-TEST_F(ImageTest, PNGEncodeFromSkiaDecodeToPlatform) {
+// TODO(crbug.com/153782): disable this test as it fails on iOS retina devices.
+#if defined(OS_IOS)
+#define MAYBE_PNGEncodeFromSkiaDecodeToPlatform \
+    DISABLED_PNGEncodeFromSkiaDecodeToPlatform
+#else
+#define MAYBE_PNGEncodeFromSkiaDecodeToPlatform \
+    PNGEncodeFromSkiaDecodeToPlatform
+#endif
+TEST_F(ImageTest, MAYBE_PNGEncodeFromSkiaDecodeToPlatform) {
   // Force the conversion sequence skia to png to platform_type.
   gfx::Image from_bitmap = gfx::Image::CreateFrom1xBitmap(
       gt::CreateBitmap(25, 25));

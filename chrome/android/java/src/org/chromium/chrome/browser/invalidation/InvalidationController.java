@@ -168,6 +168,9 @@ public class InvalidationController implements ApplicationStatus.ApplicationStat
      * sync types.  Starts the client if needed.
      */
     public void ensureStartedAndUpdateRegisteredTypes() {
+        ProfileSyncService syncService = ProfileSyncService.get();
+        if (syncService == null) return;
+
         mStarted = true;
 
         // Ensure GCM has been initialized.
@@ -178,7 +181,7 @@ public class InvalidationController implements ApplicationStatus.ApplicationStat
         mEnableSessionInvalidationsTimer.resume();
 
         HashSet<Integer> typesToRegister = new HashSet<Integer>();
-        typesToRegister.addAll(ProfileSyncService.get().getPreferredDataTypes());
+        typesToRegister.addAll(syncService.getPreferredDataTypes());
         if (!mSessionInvalidationsEnabled) {
             typesToRegister.remove(ModelType.SESSIONS);
             typesToRegister.remove(ModelType.FAVICON_TRACKING);
@@ -231,6 +234,13 @@ public class InvalidationController implements ApplicationStatus.ApplicationStat
         Intent intent = new Intent(mContext, InvalidationClientService.class);
         intent.putExtra(InvalidationIntentProtocol.EXTRA_STOP, true);
         mContext.startService(intent);
+    }
+
+    /**
+     * Returns whether the invalidation client has been started.
+     */
+    public boolean isStarted() {
+        return mStarted;
     }
 
     /**

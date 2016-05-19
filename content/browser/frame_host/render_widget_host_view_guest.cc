@@ -2,18 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/browser/frame_host/render_widget_host_view_guest.h"
+
+#include <utility>
+
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "cc/surfaces/surface.h"
 #include "cc/surfaces/surface_factory.h"
 #include "cc/surfaces/surface_manager.h"
 #include "cc/surfaces/surface_sequence.h"
 #include "content/browser/browser_plugin/browser_plugin_guest.h"
 #include "content/browser/compositor/surface_utils.h"
-#include "content/browser/frame_host/render_widget_host_view_guest.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
+#include "content/browser/renderer_host/render_widget_host_delegate.h"
+#include "content/browser/renderer_host/render_widget_host_input_event_router.h"
 #include "content/common/browser_plugin/browser_plugin_messages.h"
 #include "content/common/frame_messages.h"
 #include "content/common/gpu/gpu_messages.h"
@@ -34,20 +40,6 @@
 
 namespace content {
 
-namespace {
-
-#if defined(USE_AURA)
-blink::WebGestureEvent CreateFlingCancelEvent(double time_stamp) {
-  blink::WebGestureEvent gesture_event;
-  gesture_event.timeStampSeconds = time_stamp;
-  gesture_event.type = blink::WebGestureEvent::GestureFlingCancel;
-  gesture_event.sourceDevice = blink::WebGestureDeviceTouchscreen;
-  return gesture_event;
-}
-#endif  // defined(USE_AURA)
-
-}  // namespace
-
 RenderWidgetHostViewGuest::RenderWidgetHostViewGuest(
     RenderWidgetHost* widget_host,
     BrowserPluginGuest* guest,
@@ -56,16 +48,11 @@ RenderWidgetHostViewGuest::RenderWidgetHostViewGuest(
       // |guest| is NULL during test.
       guest_(guest ? guest->AsWeakPtr() : base::WeakPtr<BrowserPluginGuest>()),
       platform_view_(platform_view) {
-#if defined(USE_AURA)
-  gesture_recognizer_.reset(ui::GestureRecognizer::Create());
-  gesture_recognizer_->AddGestureEventHelper(this);
-#endif  // defined(USE_AURA)
+  // Inputs for guest view are already scaled.
+  host_->set_scale_input_to_viewport(false);
 }
 
 RenderWidgetHostViewGuest::~RenderWidgetHostViewGuest() {
-#if defined(USE_AURA)
-  gesture_recognizer_->RemoveGestureEventHelper(this);
-#endif  // defined(USE_AURA)
 }
 
 bool RenderWidgetHostViewGuest::OnMessageReceivedFromEmbedder(
@@ -95,8 +82,22 @@ void RenderWidgetHostViewGuest::Show() {
   // The two sizes may fall out of sync if we switch RenderWidgetHostViews,
   // resize, and then switch page, as is the case with interstitial pages.
   // NOTE: |guest_| is NULL in unit tests.
-  if (guest_)
+  if (guest_) {
     SetSize(guest_->web_contents()->GetViewBounds().size());
+    // Since we were last shown, our renderer may have had a different surface
+    // set (e.g. showing an interstitial), so we resend our current surface to
+    // the renderer.
+    if (!surface_id_.is_null()) {
+      cc::SurfaceSequence sequence = cc::SurfaceSequence(
+          id_allocator_->id_namespace(), next_surface_sequence_++);
+      GetSurfaceManager()
+          ->GetSurfaceForId(surface_id_)
+          ->AddDestructionDependency(sequence);
+      guest_->SetChildFrameSurface(surface_id_, current_surface_size_,
+                                   current_surface_scale_factor_,
+                                   sequence);
+    }
+  }
   host_->WasShown(ui::LatencyInfo());
 }
 
@@ -133,29 +134,43 @@ bool RenderWidgetHostViewGuest::HasFocus() const {
 #if defined(USE_AURA)
 void RenderWidgetHostViewGuest::ProcessAckedTouchEvent(
     const TouchEventWithLatencyInfo& touch, InputEventAckState ack_result) {
-  // TODO(fsamuel): Currently we will only take this codepath if the guest has
-  // requested touch events. A better solution is to always forward touchpresses
-  // to the embedder process to target a BrowserPlugin, and then route all
-  // subsequent touch points of that touchdown to the appropriate guest until
-  // that touch point is released.
-  ScopedVector<ui::TouchEvent> events;
-  if (!MakeUITouchEventsFromWebTouchEvents(touch, &events, LOCAL_COORDINATES))
-    return;
-
-  ui::EventResult result = (ack_result ==
-      INPUT_EVENT_ACK_STATE_CONSUMED) ? ui::ER_HANDLED : ui::ER_UNHANDLED;
-  for (ScopedVector<ui::TouchEvent>::iterator iter = events.begin(),
-      end = events.end(); iter != end; ++iter)  {
-    if (!gesture_recognizer_->ProcessTouchEventPreDispatch(*iter, this))
-      continue;
-
-    scoped_ptr<ui::GestureRecognizer::Gestures> gestures;
-    gestures.reset(gesture_recognizer_->AckTouchEvent(
-        (*iter)->unique_event_id(), result, this));
-    ProcessGestures(gestures.get());
-  }
+  // TODO(tdresser): Since all ProcessAckedTouchEvent() uses is the event id,
+  // don't pass the full event object here. https://crbug.com/550581.
+  GetOwnerRenderWidgetHostView()->ProcessAckedTouchEvent(touch, ack_result);
 }
 #endif
+
+void RenderWidgetHostViewGuest::ProcessTouchEvent(
+    const blink::WebTouchEvent& event,
+    const ui::LatencyInfo& latency) {
+  if (event.type == blink::WebInputEvent::TouchStart) {
+    DCHECK(guest_->GetOwnerRenderWidgetHostView());
+    RenderWidgetHostImpl* embedder = static_cast<RenderWidgetHostImpl*>(
+        guest_->GetOwnerRenderWidgetHostView()->GetRenderWidgetHost());
+    if (!embedder->GetView()->HasFocus())
+      embedder->GetView()->Focus();
+  }
+
+  host_->ForwardTouchEventWithLatencyInfo(event, latency);
+}
+
+void RenderWidgetHostViewGuest::RegisterSurfaceNamespaceId() {
+  DCHECK(host_);
+  if (host_->delegate() && host_->delegate()->GetInputEventRouter()) {
+    RenderWidgetHostInputEventRouter* router =
+        host_->delegate()->GetInputEventRouter();
+    if (!router->is_registered(GetSurfaceIdNamespace()))
+      router->AddSurfaceIdNamespaceOwner(GetSurfaceIdNamespace(), this);
+  }
+}
+
+void RenderWidgetHostViewGuest::UnregisterSurfaceNamespaceId() {
+  DCHECK(host_);
+  if (host_->delegate() && host_->delegate()->GetInputEventRouter()) {
+    host_->delegate()->GetInputEventRouter()->RemoveSurfaceIdNamespaceOwner(
+        GetSurfaceIdNamespace());
+  }
+}
 
 gfx::Rect RenderWidgetHostViewGuest::GetViewBounds() const {
   if (!guest_)
@@ -205,27 +220,12 @@ void RenderWidgetHostViewGuest::SetTooltipText(
 }
 
 void RenderWidgetHostViewGuest::OnSwapCompositorFrame(
-    uint32 output_surface_id,
+    uint32_t output_surface_id,
     scoped_ptr<cc::CompositorFrame> frame) {
-  if (!guest_ || !guest_->attached()) {
-    // We shouldn't hang on to a surface while we are detached.
-    ClearCompositorSurfaceIfNecessary();
-    return;
-  }
-
   last_scroll_offset_ = frame->metadata.root_scroll_offset;
-  // When not using surfaces, the frame just gets proxied to
-  // the embedder's renderer to be composited.
-  if (!frame->delegated_frame_data || !use_surfaces_) {
-    guest_->SwapCompositorFrame(output_surface_id,
-                                host_->GetProcess()->GetID(),
-                                host_->GetRoutingID(),
-                                frame.Pass());
-    return;
-  }
 
   cc::RenderPass* root_pass =
-      frame->delegated_frame_data->render_pass_list.back();
+      frame->delegated_frame_data->render_pass_list.back().get();
 
   gfx::Size frame_size = root_pass->output_rect.size();
   float scale_factor = frame->metadata.device_scale_factor;
@@ -271,8 +271,16 @@ void RenderWidgetHostViewGuest::OnSwapCompositorFrame(
   ack_pending_count_++;
   // If this value grows very large, something is going wrong.
   DCHECK(ack_pending_count_ < 1000);
-  surface_factory_->SubmitCompositorFrame(surface_id_, frame.Pass(),
+  surface_factory_->SubmitCompositorFrame(surface_id_, std::move(frame),
                                           ack_callback);
+
+  ProcessFrameSwappedCallbacks();
+
+  // If after detaching we are sent a frame, we should finish processing it, and
+  // then we should clear the surface so that we are not holding resources we
+  // no longer need.
+  if (!guest_ || !guest_->attached())
+    ClearCompositorSurfaceIfNecessary();
 }
 
 bool RenderWidgetHostViewGuest::OnMessageReceived(const IPC::Message& msg) {
@@ -420,19 +428,6 @@ void RenderWidgetHostViewGuest::SelectionBoundsChanged(
   rwhv->SelectionBoundsChanged(guest_params);
 }
 
-void RenderWidgetHostViewGuest::SetBackgroundColor(SkColor color) {
-  // Content embedders can toggle opaque backgrounds through this API.
-  // We plumb the value here so that BrowserPlugin updates its compositing
-  // state in response to this change. We also want to preserve this flag
-  // after recovering from a crash so we let BrowserPluginGuest store it.
-  if (!guest_)
-    return;
-  RenderWidgetHostViewBase::SetBackgroundColor(color);
-  bool opaque = GetBackgroundOpaque();
-  host_->SetBackgroundOpaque(opaque);
-  guest_->SetContentsOpaque(opaque);
-}
-
 bool RenderWidgetHostViewGuest::LockMouse() {
   return platform_view_->LockMouse();
 }
@@ -546,81 +541,10 @@ gfx::NativeViewId RenderWidgetHostViewGuest::GetParentForWindowlessPlugin()
 #endif
 
 void RenderWidgetHostViewGuest::DestroyGuestView() {
+  UnregisterSurfaceNamespaceId();
   host_->SetView(NULL);
   host_ = NULL;
   base::MessageLoop::current()->DeleteSoon(FROM_HERE, this);
-}
-
-bool RenderWidgetHostViewGuest::CanDispatchToConsumer(
-    ui::GestureConsumer* consumer) {
-  CHECK_EQ(static_cast<RenderWidgetHostViewGuest*>(consumer), this);
-  return true;
-}
-
-void RenderWidgetHostViewGuest::DispatchGestureEvent(
-    ui::GestureEvent* event) {
-  ForwardGestureEventToRenderer(event);
-}
-
-void RenderWidgetHostViewGuest::DispatchCancelTouchEvent(
-    ui::TouchEvent* event) {
-  if (!host_)
-    return;
-
-  blink::WebTouchEvent cancel_event;
-  // TODO(rbyers): This event has no touches in it.  Don't we need to know what
-  // touches are currently active in order to cancel them all properly?
-  WebTouchEventTraits::ResetType(blink::WebInputEvent::TouchCancel,
-                                 event->time_stamp().InSecondsF(),
-                                 &cancel_event);
-
-  host_->ForwardTouchEventWithLatencyInfo(cancel_event, *event->latency());
-}
-
-bool RenderWidgetHostViewGuest::ForwardGestureEventToRenderer(
-    ui::GestureEvent* gesture) {
-#if defined(USE_AURA)
-  if (!host_)
-    return false;
-
-  if ((gesture->type() == ui::ET_GESTURE_PINCH_BEGIN ||
-      gesture->type() == ui::ET_GESTURE_PINCH_UPDATE ||
-      gesture->type() == ui::ET_GESTURE_PINCH_END) && !pinch_zoom_enabled_) {
-    return true;
-  }
-
-  blink::WebGestureEvent web_gesture =
-      MakeWebGestureEventFromUIEvent(*gesture);
-  const gfx::Point& client_point = gesture->location();
-  const gfx::Point& screen_point = gesture->location();
-
-  web_gesture.x = client_point.x();
-  web_gesture.y = client_point.y();
-  web_gesture.globalX = screen_point.x();
-  web_gesture.globalY = screen_point.y();
-
-  if (web_gesture.type == blink::WebGestureEvent::Undefined)
-    return false;
-  if (web_gesture.type == blink::WebGestureEvent::GestureTapDown) {
-    host_->ForwardGestureEvent(
-        CreateFlingCancelEvent(gesture->time_stamp().InSecondsF()));
-  }
-  host_->ForwardGestureEvent(web_gesture);
-  return true;
-#else
-  return false;
-#endif
-}
-
-void RenderWidgetHostViewGuest::ProcessGestures(
-    ui::GestureRecognizer::Gestures* gestures) {
-  if ((gestures == NULL) || gestures->empty())
-    return;
-  for (ui::GestureRecognizer::Gestures::iterator g_it = gestures->begin();
-      g_it != gestures->end();
-      ++g_it) {
-    ForwardGestureEventToRenderer(*g_it);
-  }
 }
 
 RenderWidgetHostViewBase*
@@ -652,7 +576,6 @@ void RenderWidgetHostViewGuest::GestureEventAck(
 void RenderWidgetHostViewGuest::OnHandleInputEvent(
     RenderWidgetHostImpl* embedder,
     int browser_plugin_instance_id,
-    const gfx::Rect& guest_window_rect,
     const blink::WebInputEvent* event) {
   if (blink::WebInputEvent::isMouseEventType(event->type)) {
     // The mouse events for BrowserPlugin are modified by all

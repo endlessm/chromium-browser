@@ -5,9 +5,11 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_UI_MOCK_LOGIN_DISPLAY_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_UI_MOCK_LOGIN_DISPLAY_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "testing/gmock/include/gmock/gmock.h"
+
+class AccountId;
 
 namespace chromeos {
 
@@ -26,8 +28,7 @@ class MockLoginDisplay : public LoginDisplay {
   MOCK_METHOD2(ShowPasswordChangedDialog, void(bool, const std::string&));
   MOCK_METHOD1(ShowSigninUI, void(const std::string&));
   MOCK_METHOD0(ShowWhitelistCheckFailedError, void(void));
-  MOCK_METHOD1(OnBeforeUserRemoved, void(const std::string&));
-  MOCK_METHOD1(OnUserRemoved, void(const std::string&));
+  MOCK_METHOD0(ShowUnrecoverableCrypthomeErrorDialog, void());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockLoginDisplay);

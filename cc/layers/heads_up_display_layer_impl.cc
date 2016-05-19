@@ -4,6 +4,9 @@
 
 #include "cc/layers/heads_up_display_layer_impl.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <vector>
 
@@ -20,16 +23,15 @@
 #include "cc/trees/layer_tree_host_impl.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkPath.h"
-#include "third_party/skia/include/core/SkRRect.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "third_party/skia/include/effects/SkColorMatrixFilter.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/size_conversions.h"
-#include "ui/gfx/hud_font.h"
 
 namespace cc {
 
@@ -46,7 +48,7 @@ static inline SkPaint CreatePaint() {
   swizzle_matrix.fMat[2 + 5 * 0] = 1;
   swizzle_matrix.fMat[3 + 5 * 3] = 1;
 
-  skia::RefPtr<SkColorMatrixFilter> filter =
+  skia::RefPtr<SkColorFilter> filter =
       skia::AdoptRef(SkColorMatrixFilter::Create(swizzle_matrix));
   paint.setColorFilter(filter.get());
 #endif
@@ -71,15 +73,10 @@ double HeadsUpDisplayLayerImpl::Graph::UpdateUpperBound() {
 HeadsUpDisplayLayerImpl::HeadsUpDisplayLayerImpl(LayerTreeImpl* tree_impl,
                                                  int id)
     : LayerImpl(tree_impl, id),
-      typeface_(gfx::GetHudTypeface()),
       internal_contents_scale_(1.f),
       fps_graph_(60.0, 80.0),
       paint_time_graph_(16.0, 48.0),
       fade_step_(0) {
-  if (!typeface_) {
-    typeface_ = skia::AdoptRef(
-        SkTypeface::CreateFromName("monospace", SkTypeface::kBold));
-  }
 }
 
 HeadsUpDisplayLayerImpl::~HeadsUpDisplayLayerImpl() {}
@@ -91,11 +88,9 @@ scoped_ptr<LayerImpl> HeadsUpDisplayLayerImpl::CreateLayerImpl(
 
 void HeadsUpDisplayLayerImpl::AcquireResource(
     ResourceProvider* resource_provider) {
-  for (ScopedPtrVector<ScopedResource>::iterator it = resources_.begin();
-       it != resources_.end();
-       ++it) {
-    if (!resource_provider->InUseByConsumer((*it)->id())) {
-      resources_.swap(it, resources_.end() - 1);
+  for (auto& resource : resources_) {
+    if (!resource_provider->InUseByConsumer(resource->id())) {
+      resource.swap(resources_.back());
       return;
     }
   }
@@ -105,26 +100,16 @@ void HeadsUpDisplayLayerImpl::AcquireResource(
   resource->Allocate(internal_content_bounds_,
                      ResourceProvider::TEXTURE_HINT_IMMUTABLE,
                      resource_provider->best_texture_format());
-  resources_.push_back(resource.Pass());
+  resources_.push_back(std::move(resource));
 }
-
-class ResourceSizeIsEqualTo {
- public:
-  explicit ResourceSizeIsEqualTo(const gfx::Size& size_)
-      : compare_size_(size_) {}
-
-  bool operator()(const ScopedResource* resource) {
-    return resource->size() == compare_size_;
-  }
-
- private:
-  const gfx::Size compare_size_;
-};
 
 void HeadsUpDisplayLayerImpl::ReleaseUnmatchedSizeResources(
     ResourceProvider* resource_provider) {
-  ScopedPtrVector<ScopedResource>::iterator it_erase =
-      resources_.partition(ResourceSizeIsEqualTo(internal_content_bounds_));
+  auto it_erase =
+      std::remove_if(resources_.begin(), resources_.end(),
+                     [this](const scoped_ptr<ScopedResource>& resource) {
+                       return internal_content_bounds_ != resource->size();
+                     });
   resources_.erase(it_erase, resources_.end());
 }
 
@@ -186,7 +171,7 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
 
   SkISize canvas_size;
   if (hud_surface_)
-    canvas_size = hud_surface_->getCanvas()->getDeviceSize();
+    canvas_size = hud_surface_->getCanvas()->getBaseLayerSize();
   else
     canvas_size.set(0, 0);
 
@@ -222,6 +207,7 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
   resource_provider->CopyToResource(resources_.back()->id(),
                                     static_cast<const uint8_t*>(pixels),
                                     internal_content_bounds_);
+  resource_provider->GenerateSyncTokenForResource(resources_.back()->id());
 }
 
 void HeadsUpDisplayLayerImpl::ReleaseResources() {
@@ -231,6 +217,25 @@ void HeadsUpDisplayLayerImpl::ReleaseResources() {
 gfx::Rect HeadsUpDisplayLayerImpl::GetEnclosingRectInTargetSpace() const {
   DCHECK_GT(internal_contents_scale_, 0.f);
   return GetScaledEnclosingRectInTargetSpace(internal_contents_scale_);
+}
+
+void HeadsUpDisplayLayerImpl::SetHUDTypeface(
+    const skia::RefPtr<SkTypeface>& typeface) {
+  if (typeface_ == typeface)
+    return;
+
+  DCHECK(typeface_.get() == nullptr);
+  typeface_ = typeface;
+  NoteLayerPropertyChanged();
+}
+
+void HeadsUpDisplayLayerImpl::PushPropertiesTo(LayerImpl* layer) {
+  LayerImpl::PushPropertiesTo(layer);
+
+  HeadsUpDisplayLayerImpl* layer_impl =
+      static_cast<HeadsUpDisplayLayerImpl*>(layer);
+
+  layer_impl->SetHUDTypeface(typeface_);
 }
 
 void HeadsUpDisplayLayerImpl::UpdateHudContents() {
@@ -284,6 +289,7 @@ void HeadsUpDisplayLayerImpl::DrawHudContents(SkCanvas* canvas) {
 int HeadsUpDisplayLayerImpl::MeasureText(SkPaint* paint,
                                          const std::string& text,
                                          int size) const {
+  DCHECK(typeface_.get());
   const bool anti_alias = paint->isAntiAlias();
   paint->setAntiAlias(true);
   paint->setTextSize(size);
@@ -300,6 +306,7 @@ void HeadsUpDisplayLayerImpl::DrawText(SkCanvas* canvas,
                                        int size,
                                        int x,
                                        int y) const {
+  DCHECK(typeface_.get());
   const bool anti_alias = paint->isAntiAlias();
   paint->setAntiAlias(true);
 
@@ -652,6 +659,7 @@ void HeadsUpDisplayLayerImpl::DrawDebugRect(
     SkColor fill_color,
     float stroke_width,
     const std::string& label_text) const {
+  DCHECK(typeface_.get());
   gfx::Rect debug_layer_rect =
       gfx::ScaleToEnclosingRect(rect.rect, 1.0 / internal_contents_scale_,
                                 1.0 / internal_contents_scale_);

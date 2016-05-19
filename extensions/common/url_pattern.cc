@@ -4,8 +4,11 @@
 
 #include "extensions/common/url_pattern.h"
 
+#include <stddef.h>
+
 #include <ostream>
 
+#include "base/macros.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -147,6 +150,8 @@ URLPattern::URLPattern(int valid_schemes, const std::string& pattern)
   if (PARSE_SUCCESS != result)
     NOTREACHED() << "URLPattern invalid: " << pattern << " result " << result;
 }
+
+URLPattern::URLPattern(const URLPattern& other) = default;
 
 URLPattern::~URLPattern() {
 }

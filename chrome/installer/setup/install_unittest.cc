@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <objbase.h>
+#include <stddef.h>
 
 #include <string>
 
@@ -10,6 +11,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
@@ -88,10 +90,9 @@ class InstallShortcutTest : public testing::Test {
     expected_properties_.set_description(chrome_properties.description);
     expected_properties_.set_dual_mode(false);
     expected_start_menu_properties_ = expected_properties_;
-    expected_start_menu_properties_.set_dual_mode(
-        InstallUtil::ShouldInstallMetroProperties());
+    expected_start_menu_properties_.set_dual_mode(false);
 
-    prefs_.reset(GetFakeMasterPrefs(false, false, false));
+    prefs_.reset(GetFakeMasterPrefs(false, false));
 
     ASSERT_TRUE(fake_user_desktop_.CreateUniqueTempDir());
     ASSERT_TRUE(fake_common_desktop_.CreateUniqueTempDir());
@@ -117,9 +118,6 @@ class InstallShortcutTest : public testing::Test {
     base::string16 shortcut_name(
         dist_->GetShortcutName(BrowserDistribution::SHORTCUT_CHROME) +
         installer::kLnkExt);
-    base::string16 alternate_shortcut_name(
-        dist_->GetShortcutName(BrowserDistribution::SHORTCUT_CHROME_ALTERNATE) +
-        installer::kLnkExt);
 
     user_desktop_shortcut_ =
         fake_user_desktop_.path().Append(shortcut_name);
@@ -140,8 +138,6 @@ class InstallShortcutTest : public testing::Test {
             .Append(dist_->GetStartMenuShortcutSubfolder(
                 BrowserDistribution::SUBFOLDER_CHROME))
             .Append(shortcut_name);
-    user_alternate_desktop_shortcut_ =
-        fake_user_desktop_.path().Append(alternate_shortcut_name);
   }
 
   void TearDown() override {
@@ -156,8 +152,7 @@ class InstallShortcutTest : public testing::Test {
 
   installer::MasterPreferences* GetFakeMasterPrefs(
       bool do_not_create_desktop_shortcut,
-      bool do_not_create_quick_launch_shortcut,
-      bool alternate_desktop_shortcut) {
+      bool do_not_create_quick_launch_shortcut) {
     const struct {
       const char* pref_name;
       bool is_desired;
@@ -166,8 +161,6 @@ class InstallShortcutTest : public testing::Test {
         do_not_create_desktop_shortcut },
       { installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
         do_not_create_quick_launch_shortcut },
-      { installer::master_preferences::kAltShortcutText,
-        alternate_desktop_shortcut },
     };
 
     std::string master_prefs("{\"distribution\":{");
@@ -209,7 +202,6 @@ class InstallShortcutTest : public testing::Test {
   base::FilePath system_desktop_shortcut_;
   base::FilePath system_start_menu_shortcut_;
   base::FilePath system_start_menu_subdir_shortcut_;
-  base::FilePath user_alternate_desktop_shortcut_;
 };
 
 }  // namespace
@@ -271,23 +263,9 @@ TEST_F(InstallShortcutTest, CreateAllShortcutsSystemLevel) {
                               expected_properties_);
 }
 
-TEST_F(InstallShortcutTest, CreateAllShortcutsAlternateDesktopName) {
-  scoped_ptr<installer::MasterPreferences> prefs_alt_desktop(
-      GetFakeMasterPrefs(false, false, true));
-  installer::CreateOrUpdateShortcuts(
-      chrome_exe_, *product_, *prefs_alt_desktop, installer::CURRENT_USER,
-      installer::INSTALL_SHORTCUT_CREATE_ALL);
-  base::win::ValidateShortcut(user_alternate_desktop_shortcut_,
-                              expected_properties_);
-  base::win::ValidateShortcut(user_quick_launch_shortcut_,
-                              expected_properties_);
-  base::win::ValidateShortcut(user_start_menu_shortcut_,
-                              expected_start_menu_properties_);
-}
-
 TEST_F(InstallShortcutTest, CreateAllShortcutsButDesktopShortcut) {
   scoped_ptr<installer::MasterPreferences> prefs_no_desktop(
-      GetFakeMasterPrefs(true, false, false));
+      GetFakeMasterPrefs(true, false));
   installer::CreateOrUpdateShortcuts(
       chrome_exe_, *product_, *prefs_no_desktop, installer::CURRENT_USER,
       installer::INSTALL_SHORTCUT_CREATE_ALL);
@@ -300,7 +278,7 @@ TEST_F(InstallShortcutTest, CreateAllShortcutsButDesktopShortcut) {
 
 TEST_F(InstallShortcutTest, CreateAllShortcutsButQuickLaunchShortcut) {
   scoped_ptr<installer::MasterPreferences> prefs_no_ql(
-      GetFakeMasterPrefs(false, true, false));
+      GetFakeMasterPrefs(false, true));
   installer::CreateOrUpdateShortcuts(
       chrome_exe_, *product_, *prefs_no_ql, installer::CURRENT_USER,
       installer::INSTALL_SHORTCUT_CREATE_ALL);

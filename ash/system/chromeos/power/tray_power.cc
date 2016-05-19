@@ -4,11 +4,14 @@
 
 #include "ash/system/chromeos/power/tray_power.h"
 
+#include <utility>
+
 #include "ash/accessibility_delegate.h"
 #include "ash/ash_switches.h"
 #include "ash/shell.h"
 #include "ash/system/chromeos/devicetype_utils.h"
 #include "ash/system/chromeos/power/battery_notification.h"
+#include "ash/system/chromeos/power/dual_role_notification.h"
 #include "ash/system/date/date_view.h"
 #include "ash/system/system_notifier.h"
 #include "ash/system/tray/system_tray_delegate.h"
@@ -190,6 +193,7 @@ void TrayPower::OnPowerStatusChanged() {
     return;
 
   MaybeShowUsbChargerNotification();
+  MaybeShowDualRoleNotification();
 
   if (battery_alert) {
     // Remove any existing notification so it's dismissed before adding a new
@@ -228,7 +232,7 @@ bool TrayPower::MaybeShowUsbChargerNotification() {
                                    system_notifier::kNotifierPower),
         message_center::RichNotificationData(),
         new UsbNotificationDelegate(this)));
-    message_center_->AddNotification(notification.Pass());
+    message_center_->AddNotification(std::move(notification));
     return true;
   } else if (!usb_charger_is_connected && usb_charger_was_connected_) {
     // USB charger was unplugged or was identified as a different type while
@@ -239,6 +243,18 @@ bool TrayPower::MaybeShowUsbChargerNotification() {
     return true;
   }
   return false;
+}
+
+void TrayPower::MaybeShowDualRoleNotification() {
+  const PowerStatus& status = *PowerStatus::Get();
+  if (!status.HasDualRoleDevices()) {
+    dual_role_notification_.reset();
+    return;
+  }
+
+  if (!dual_role_notification_)
+    dual_role_notification_.reset(new DualRoleNotification(message_center_));
+  dual_role_notification_->Update();
 }
 
 bool TrayPower::UpdateNotificationState() {

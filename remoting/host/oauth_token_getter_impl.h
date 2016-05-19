@@ -7,7 +7,6 @@
 
 #include <queue>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
@@ -35,6 +34,7 @@ class OAuthTokenGetterImpl : public OAuthTokenGetter,
   // OAuthTokenGetter interface.
   void CallWithToken(
       const OAuthTokenGetter::TokenCallback& on_access_token) override;
+  void InvalidateCache() override;
 
  private:
   // gaia::GaiaOAuthClient::Delegate interface.

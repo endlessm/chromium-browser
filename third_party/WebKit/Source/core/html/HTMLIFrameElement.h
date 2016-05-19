@@ -24,25 +24,24 @@
 #ifndef HTMLIFrameElement_h
 #define HTMLIFrameElement_h
 
-#include "core/dom/DOMSettableTokenList.h"
 #include "core/html/HTMLFrameElementBase.h"
+#include "core/html/HTMLIFrameElementSandbox.h"
 
 namespace blink {
 
-class HTMLIFrameElement final : public HTMLFrameElementBase, public DOMSettableTokenListObserver {
+class HTMLIFrameElement final : public HTMLFrameElementBase, public DOMTokenListObserver {
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLIFrameElement);
 public:
     DECLARE_NODE_FACTORY(HTMLIFrameElement);
     DECLARE_VIRTUAL_TRACE();
     ~HTMLIFrameElement() override;
-    DOMSettableTokenList* sandbox() const;
+    DOMTokenList* sandbox() const;
 
 private:
     explicit HTMLIFrameElement(Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     bool isPresentationAttribute(const QualifiedName&) const override;
     void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override;
 
@@ -56,13 +55,13 @@ private:
     void didLoadNonEmptyDocument() override { m_didLoadNonEmptyDocument = true; }
     bool isInteractiveContent() const override;
 
-    void valueChanged() override;
+    void valueWasSet() override;
 
     ReferrerPolicy referrerPolicyAttribute() override;
 
     AtomicString m_name;
     bool m_didLoadNonEmptyDocument;
-    RefPtrWillBeMember<DOMSettableTokenList> m_sandbox;
+    RefPtrWillBeMember<HTMLIFrameElementSandbox> m_sandbox;
 
     ReferrerPolicy m_referrerPolicy;
 };

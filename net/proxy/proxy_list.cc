@@ -19,6 +19,8 @@ namespace net {
 ProxyList::ProxyList() {
 }
 
+ProxyList::ProxyList(const ProxyList& other) = default;
+
 ProxyList::~ProxyList() {
 }
 
@@ -146,7 +148,7 @@ scoped_ptr<base::ListValue> ProxyList::ToValue() const {
   scoped_ptr<base::ListValue> list(new base::ListValue());
   for (size_t i = 0; i < proxies_.size(); ++i)
     list->AppendString(proxies_[i].ToURI());
-  return list.Pass();
+  return list;
 }
 
 bool ProxyList::Fallback(ProxyRetryInfoMap* proxy_retry_info,

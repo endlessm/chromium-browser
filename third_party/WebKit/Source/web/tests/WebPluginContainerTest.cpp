@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebPluginContainer.h"
 
 #include "core/dom/Element.h"
@@ -49,13 +48,13 @@
 #include "public/web/WebPrintParams.h"
 #include "public/web/WebSettings.h"
 #include "public/web/WebView.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/WebPluginContainerImpl.h"
 #include "web/WebViewImpl.h"
 #include "web/tests/FakeWebPlugin.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gtest/gtest.h>
 
 using blink::testing::runPendingTasks;
 
@@ -106,9 +105,8 @@ private:
 class TestPluginWebFrameClient : public FrameTestHelpers::TestWebFrameClient {
     WebPlugin* createPlugin(WebLocalFrame* frame, const WebPluginParams& params) override
     {
-        if (params.mimeType == WebString::fromUTF8("application/x-webkit-test-webplugin"))
-            return new TestPlugin(frame, params, this);
-        if (params.mimeType == WebString::fromUTF8("application/pdf"))
+        if (params.mimeType == "application/x-webkit-test-webplugin"
+            || params.mimeType == "application/pdf")
             return new TestPlugin(frame, params, this);
         return WebFrameClient::createPlugin(frame, params);
     }
@@ -178,6 +176,25 @@ TEST_F(WebPluginContainerTest, PluginDocumentPluginIsFocused)
     EXPECT_TRUE(document.isPluginDocument());
     WebPluginContainer* pluginContainer = getWebPluginContainer(webView, "plugin");
     EXPECT_EQ(document.focusedElement(), pluginContainer->element());
+}
+
+TEST_F(WebPluginContainerTest, IFramePluginDocumentNotFocused)
+{
+    URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL.c_str()), WebString::fromUTF8("test.pdf"), WebString::fromUTF8("application/pdf"));
+    URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL.c_str()), WebString::fromUTF8("iframe_pdf.html"), WebString::fromUTF8("text/html"));
+
+    TestPluginWebFrameClient pluginWebFrameClient; // Must outlive webViewHelper.
+    FrameTestHelpers::WebViewHelper webViewHelper;
+    WebView* webView = webViewHelper.initializeAndLoad(m_baseURL + "iframe_pdf.html", true, &pluginWebFrameClient);
+    ASSERT(webView);
+    webView->updateAllLifecyclePhases();
+
+    WebDocument document = webView->mainFrame()->document();
+    WebFrame* iframe = webView->mainFrame()->firstChild();
+    EXPECT_TRUE(iframe->document().isPluginDocument());
+    WebPluginContainer* pluginContainer = iframe->document().getElementById("plugin").pluginContainer();
+    EXPECT_NE(document.focusedElement(), pluginContainer->element());
+    EXPECT_NE(iframe->document().focusedElement(), pluginContainer->element());
 }
 
 TEST_F(WebPluginContainerTest, PrintOnePage)
@@ -320,10 +337,10 @@ public:
     {
     }
 
-    bool handleInputEvent(const WebInputEvent& event, WebCursorInfo&) override
+    WebInputEventResult handleInputEvent(const WebInputEvent& event, WebCursorInfo&) override
     {
         m_lastEventType = event.type;
-        return true;
+        return WebInputEventResult::HandledSystem;
     }
     WebInputEvent::Type getLastInputEventType() {return m_lastEventType; }
 
@@ -373,7 +390,7 @@ TEST_F(WebPluginContainerTest, GestureLongPressReachesPlugin)
     EXPECT_EQ(WebInputEvent::Undefined, testPlugin->getLastInputEventType());
 
     // Next, send an event that does hit the plugin, and verify it does receive it.
-    WebRect rect = pluginContainerOneElement.boundsInViewportSpace();
+    WebRect rect = pluginContainerOneElement.boundsInViewport();
     event.x = rect.x + rect.width / 2;
     event.y = rect.y + rect.height / 2;
 
@@ -400,7 +417,7 @@ TEST_F(WebPluginContainerTest, IsRectTopmostTest)
         toWebPluginContainerImpl(getWebPluginContainer(webView, WebString::fromUTF8("translated-plugin")));
     pluginContainerImpl->setFrameRect(IntRect(0, 0, 300, 300));
 
-    WebRect rect = pluginContainerImpl->element().boundsInViewportSpace();
+    WebRect rect = pluginContainerImpl->element().boundsInViewport();
     EXPECT_TRUE(pluginContainerImpl->isRectTopmost(rect));
 
     // Cause the plugin's frame to be detached.
@@ -444,6 +461,38 @@ TEST_F(WebPluginContainerTest, ClippedRectsForIframedElement)
     EXPECT_RECT_EQ(IntRect(10, 210, 300, 300), windowRect);
     EXPECT_RECT_EQ(IntRect(0, 0, 240, 90), clipRect);
     EXPECT_RECT_EQ(IntRect(0, 0, 240, 160), unobscuredRect);
+
+    // Cause the plugin's frame to be detached.
+    webViewHelper.reset();
+}
+
+TEST_F(WebPluginContainerTest, ClippedRectsForSubpixelPositionedPlugin)
+{
+    URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL.c_str()), WebString::fromUTF8("plugin_container.html"));
+
+    TestPluginWebFrameClient pluginWebFrameClient; // Must outlive webViewHelper.
+    FrameTestHelpers::WebViewHelper webViewHelper;
+    WebView* webView = webViewHelper.initializeAndLoad(m_baseURL + "plugin_container.html", true, &pluginWebFrameClient);
+    ASSERT(webView);
+    webView->settings()->setPluginsEnabled(true);
+    webView->resize(WebSize(300, 300));
+    webView->updateAllLifecyclePhases();
+    runPendingTasks();
+
+    WebElement pluginElement = webView->mainFrame()->document().getElementById("subpixel-positioned-plugin");
+    RefPtrWillBeRawPtr<WebPluginContainerImpl> pluginContainerImpl = toWebPluginContainerImpl(pluginElement.pluginContainer());
+
+    ASSERT(pluginContainerImpl.get());
+
+    IntRect windowRect, clipRect, unobscuredRect;
+    Vector<IntRect> cutOutRects;
+
+    calculateGeometry(pluginContainerImpl.get(), windowRect, clipRect, unobscuredRect, cutOutRects);
+    // TODO(chrishtr): these values should not be -1, they should be 0. They are -1 because WebPluginContainerImpl currently uses an IntRect for
+    // frameRect() to determine the position of the plugin, which results in a loss of precision if it is actually subpixel positioned.
+    EXPECT_RECT_EQ(IntRect(0, 0, 40, 40), windowRect);
+    EXPECT_RECT_EQ(IntRect(-1, -1, 41, 41), clipRect);
+    EXPECT_RECT_EQ(IntRect(-1, -1, 41, 41), unobscuredRect);
 
     // Cause the plugin's frame to be detached.
     webViewHelper.reset();

@@ -4,6 +4,8 @@
 
 #include "net/http/http_request_headers.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -34,8 +36,9 @@ const char HttpRequestHeaders::kProxyAuthorization[] = "Proxy-Authorization";
 const char HttpRequestHeaders::kProxyConnection[] = "Proxy-Connection";
 const char HttpRequestHeaders::kRange[] = "Range";
 const char HttpRequestHeaders::kReferer[] = "Referer";
-const char HttpRequestHeaders::kUserAgent[] = "User-Agent";
 const char HttpRequestHeaders::kTransferEncoding[] = "Transfer-Encoding";
+const char HttpRequestHeaders::kTokenBinding[] = "Token-Binding";
+const char HttpRequestHeaders::kUserAgent[] = "User-Agent";
 
 HttpRequestHeaders::HeaderKeyValuePair::HeaderKeyValuePair() {
 }
@@ -67,6 +70,8 @@ bool HttpRequestHeaders::Iterator::GetNext() {
 }
 
 HttpRequestHeaders::HttpRequestHeaders() {}
+HttpRequestHeaders::HttpRequestHeaders(const HttpRequestHeaders& other) =
+    default;
 HttpRequestHeaders::~HttpRequestHeaders() {}
 
 bool HttpRequestHeaders::GetHeader(const base::StringPiece& key,
@@ -154,15 +159,9 @@ void HttpRequestHeaders::AddHeaderFromString(
 
 void HttpRequestHeaders::AddHeadersFromString(
     const base::StringPiece& headers) {
-  // TODO(willchan): Consider adding more StringPiece support in string_util.h
-  // to eliminate copies.
-  std::vector<std::string> header_line_vector;
-  base::SplitStringUsingSubstr(headers.as_string(), "\r\n",
-                               &header_line_vector);
-  for (std::vector<std::string>::const_iterator it = header_line_vector.begin();
-       it != header_line_vector.end(); ++it) {
-    if (!it->empty())
-      AddHeaderFromString(*it);
+  for (const base::StringPiece& header : base::SplitStringPieceUsingSubstr(
+           headers, "\r\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
+    AddHeaderFromString(header);
   }
 }
 
@@ -203,7 +202,7 @@ scoped_ptr<base::Value> HttpRequestHeaders::NetLogCallback(
                            it->key.c_str(), log_value.c_str())));
   }
   dict->Set("headers", headers);
-  return dict.Pass();
+  return std::move(dict);
 }
 
 // static

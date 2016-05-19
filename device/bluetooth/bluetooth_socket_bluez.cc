@@ -4,10 +4,11 @@
 
 #include "device/bluetooth/bluetooth_socket_bluez.h"
 
+#include <stdint.h>
 #include <queue>
 #include <string>
+#include <utility>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
@@ -139,11 +140,11 @@ void BluetoothSocketBlueZ::Listen(
   switch (socket_type) {
     case kRfcomm:
       options_->channel.reset(
-          new uint16(service_options.channel ? *service_options.channel : 0));
+          new uint16_t(service_options.channel ? *service_options.channel : 0));
       break;
     case kL2cap:
       options_->psm.reset(
-          new uint16(service_options.psm ? *service_options.psm : 0));
+          new uint16_t(service_options.psm ? *service_options.psm : 0));
       break;
     default:
       NOTREACHED();
@@ -367,7 +368,7 @@ void BluetoothSocketBlueZ::NewConnection(
   } else {
     linked_ptr<ConnectionRequest> request(new ConnectionRequest());
     request->device_path = device_path;
-    request->fd = fd.Pass();
+    request->fd = std::move(fd);
     request->options = options;
     request->callback = callback;
 
@@ -456,14 +457,12 @@ void BluetoothSocketBlueZ::DoNewConnection(
     LOG(WARNING) << uuid_.canonical_value() << " :" << fd->value()
                  << ": Invalid file descriptor received from Bluetooth Daemon.";
     ui_task_runner()->PostTask(FROM_HERE, base::Bind(callback, REJECTED));
-    ;
     return;
   }
 
   if (tcp_socket()) {
     LOG(WARNING) << uuid_.canonical_value() << ": Already connected";
     ui_task_runner()->PostTask(FROM_HERE, base::Bind(callback, REJECTED));
-    ;
     return;
   }
 
@@ -477,7 +476,6 @@ void BluetoothSocketBlueZ::DoNewConnection(
     LOG(WARNING) << uuid_.canonical_value() << ": Error adopting socket: "
                  << std::string(net::ErrorToString(net_result));
     ui_task_runner()->PostTask(FROM_HERE, base::Bind(callback, REJECTED));
-    ;
     return;
   }
 
@@ -485,7 +483,6 @@ void BluetoothSocketBlueZ::DoNewConnection(
           << ": Taking descriptor, confirming success.";
   fd->TakeValue();
   ui_task_runner()->PostTask(FROM_HERE, base::Bind(callback, SUCCESS));
-  ;
 }
 
 void BluetoothSocketBlueZ::OnNewConnection(

@@ -5,16 +5,18 @@
 #include "extensions/browser/api/app_window/app_window_api.h"
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_client.h"
@@ -66,15 +68,13 @@ const char kImeOptionIsNotSupported[] =
 const char kImeWindowUnsupportedPlatform[] =
     "The \"ime\" option can only be used on ChromeOS.";
 #else
-const char kImeOptionMustBeTrueAndNeedsFrameNone[] =
-    "IME extensions must create window with \"ime: true\" and "
-    "\"frame: 'none'\".";
+const char kImeWindowMustBeImeWindowOrPanel[] =
+    "IME extensions must create ime window ( with \"ime: true\" and "
+    "\"frame: 'none'\") or panel window (with \"type: panel\").";
 #endif
 }  // namespace app_window_constants
 
 const char kNoneFrameOption[] = "none";
-  // TODO(benwells): Remove HTML titlebar injection.
-const char kHtmlFrameOption[] = "experimental-html";
 
 namespace {
 
@@ -122,8 +122,7 @@ void CopyBoundsSpec(const app_window::BoundsSpecification* input_spec,
 
 }  // namespace
 
-AppWindowCreateFunction::AppWindowCreateFunction()
-    : inject_html_titlebar_(false) {}
+AppWindowCreateFunction::AppWindowCreateFunction() {}
 
 bool AppWindowCreateFunction::RunAsync() {
   // Don't create app window if the system is shutting down.
@@ -196,8 +195,6 @@ bool AppWindowCreateFunction::RunAsync() {
           result->Set("frameId", new base::FundamentalValue(frame_id));
           existing_window->GetSerializedState(result);
           result->SetBoolean("existingWindow", true);
-          // TODO(benwells): Remove HTML titlebar injection.
-          result->SetBoolean("injectTitlebar", false);
           SetResult(result);
           SendResponse(true);
           return true;
@@ -235,13 +232,17 @@ bool AppWindowCreateFunction::RunAsync() {
       error_ = app_window_constants::kImeWindowUnsupportedPlatform;
       return false;
 #else
-      // IME extensions must create window with "ime: true" and "frame: none".
-      if (!options->ime.get() || !*options->ime.get() ||
-          create_params.frame != AppWindow::FRAME_NONE) {
-        error_ = app_window_constants::kImeOptionMustBeTrueAndNeedsFrameNone;
+      // IME extensions must create ime window (with "ime: true" and
+      // "frame: none") or panel window (with "type: panel").
+      if (options->ime.get() && *options->ime.get() &&
+          create_params.frame == AppWindow::FRAME_NONE) {
+        create_params.is_ime_window = true;
+      } else if (options->type == app_window::WINDOW_TYPE_PANEL) {
+        create_params.window_type = AppWindow::WINDOW_TYPE_PANEL;
+      } else {
+        error_ = app_window_constants::kImeWindowMustBeImeWindowOrPanel;
         return false;
       }
-      create_params.is_ime_window = true;
 #endif  // OS_CHROMEOS
     } else {
       if (options->ime.get()) {
@@ -354,8 +355,6 @@ bool AppWindowCreateFunction::RunAsync() {
 
   base::DictionaryValue* result = new base::DictionaryValue;
   result->Set("frameId", new base::FundamentalValue(frame_id));
-  result->Set("injectTitlebar",
-      new base::FundamentalValue(inject_html_titlebar_));
   result->Set("id", new base::StringValue(app_window->window_key()));
   app_window->GetSerializedState(result);
   SetResult(result);
@@ -371,8 +370,7 @@ bool AppWindowCreateFunction::RunAsync() {
   // PlzNavigate: delay sending the response until the newly created window has
   // been told to navigate, and blink has been correctly initialized in the
   // renderer.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kEnableBrowserSideNavigation)) {
+  if (content::IsBrowserSideNavigationEnabled()) {
     app_window->SetOnFirstCommitCallback(
         base::Bind(&AppWindowCreateFunction::SendResponse, this, true));
     return true;
@@ -498,15 +496,6 @@ bool AppWindowCreateFunction::GetBoundsSpec(
 
 AppWindow::Frame AppWindowCreateFunction::GetFrameFromString(
     const std::string& frame_string) {
-  if (frame_string == kHtmlFrameOption &&
-      (extension()->permissions_data()->HasAPIPermission(
-           APIPermission::kExperimental) ||
-       base::CommandLine::ForCurrentProcess()->HasSwitch(
-           switches::kEnableExperimentalExtensionApis))) {
-     inject_html_titlebar_ = true;
-     return AppWindow::FRAME_NONE;
-  }
-
   if (frame_string == kNoneFrameOption)
     return AppWindow::FRAME_NONE;
 

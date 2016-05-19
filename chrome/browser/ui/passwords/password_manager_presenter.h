@@ -5,13 +5,17 @@
 #ifndef CHROME_BROWSER_UI_PASSWORDS_PASSWORD_MANAGER_PRESENTER_H_
 #define CHROME_BROWSER_UI_PASSWORDS_PASSWORD_MANAGER_PRESENTER_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
-#include "base/prefs/pref_member.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
+#include "components/prefs/pref_member.h"
 
 namespace autofill {
 struct PasswordForm;
@@ -111,8 +115,8 @@ class PasswordManagerPresenter
   PasswordListPopulater populater_;
   PasswordExceptionListPopulater exception_populater_;
 
-  ScopedVector<autofill::PasswordForm> password_list_;
-  ScopedVector<autofill::PasswordForm> password_exception_list_;
+  std::vector<scoped_ptr<autofill::PasswordForm>> password_list_;
+  std::vector<scoped_ptr<autofill::PasswordForm>> password_exception_list_;
 
   // Whether to show stored passwords or not.
   BooleanPrefMember show_passwords_;

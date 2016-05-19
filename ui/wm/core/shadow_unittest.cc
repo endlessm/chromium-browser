@@ -4,6 +4,7 @@
 
 #include "ui/wm/core/shadow.h"
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -59,8 +60,7 @@ class MockResourceBundleDelegate : public ui::ResourceBundle::Delegate {
         return gfx::Image();
     }
   }
-  gfx::Image GetNativeImageNamed(int resource_id,
-                                 ui::ResourceBundle::ImageRTL rtl) override {
+  gfx::Image GetNativeImageNamed(int resource_id) override {
     return gfx::Image();
   }
   base::RefCountedStaticMemory* LoadDataResourceBytes(
@@ -75,9 +75,6 @@ class MockResourceBundleDelegate : public ui::ResourceBundle::Delegate {
   }
   bool GetLocalizedString(int message_id, base::string16* value) override {
     return false;
-  }
-  scoped_ptr<gfx::Font> GetFont(ui::ResourceBundle::FontStyle style) override {
-    return nullptr;
   }
 
   int last_resource_id() const { return last_resource_id_; }

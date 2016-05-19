@@ -7,8 +7,9 @@ import sys
 import unittest
 import StringIO
 
-import mock # pylint: disable=F0401
+import mock  # pylint: disable=import-error
 
+from core import path_util
 import fetch_benchmark_deps
 
 
@@ -25,7 +26,7 @@ class FetchBenchmarkDepsUnittest(unittest.TestCase):
   """
 
   def setUp(self):
-    """Override sys.argv as if it is called from commnad line."""
+    """Override sys.argv as if it is called from command line."""
     self._argv = sys.argv
     sys.argv = ['./fetch_benchmark_deps', '']
 
@@ -51,7 +52,7 @@ class FetchBenchmarkDepsUnittest(unittest.TestCase):
         mock_get.GetFilesInDirectoryIfChanged.return_value = True
         fetch_benchmark_deps.main(output)
     for f in output.getvalue().splitlines():
-      fullpath = os.path.join(fetch_benchmark_deps.GetChromiumDir(), f)
+      fullpath = os.path.join(path_util.GetChromiumSrcDir(), f)
       sha1path = fullpath + '.sha1'
       self.assertTrue(os.path.isfile(sha1path))
     if expected_fetched_file_paths:
@@ -68,5 +69,5 @@ class FetchBenchmarkDepsUnittest(unittest.TestCase):
     octane_wpr_path = os.path.join(
         os.path.dirname(__file__), 'page_sets', 'data', 'octane_001.wpr')
     expected = os.path.relpath(octane_wpr_path,
-                               fetch_benchmark_deps.GetChromiumDir())
+                               path_util.GetChromiumSrcDir())
     self._RunFetchBenchmarkDepsTest('octane', NormPaths(expected))

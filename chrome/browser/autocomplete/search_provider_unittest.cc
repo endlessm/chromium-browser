@@ -4,11 +4,13 @@
 
 #include "components/omnibox/browser/search_provider.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -28,7 +30,6 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/google/core/browser/google_switches.h"
 #include "components/history/core/browser/history_service.h"
@@ -42,6 +43,7 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_switches.h"
 #include "components/omnibox/browser/suggestion_answer.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/search_engines_switches.h"
 #include "components/search_engines/search_terms_data.h"
@@ -547,10 +549,8 @@ void SearchProviderTest::ResetFieldTrialList() {
   field_trial_list_.reset(new base::FieldTrialList(
       new metrics::SHA1EntropyProvider("foo")));
   variations::testing::ClearAllVariationParams();
-  base::FieldTrial* trial = base::FieldTrialList::CreateFieldTrial(
-      "AutocompleteDynamicTrial_0", "DefaultGroup");
-  trial->group();
 }
+
 base::FieldTrial* SearchProviderTest::CreateFieldTrial(
     const char* field_trial_rule,
     bool enabled) {
@@ -2548,6 +2548,10 @@ TEST_F(SearchProviderTest, DefaultProviderSuggestRelevanceScoringUrlInput) {
 
 // A basic test that verifies the field trial triggered parsing logic.
 TEST_F(SearchProviderTest, FieldTrialTriggeredParsing) {
+  base::FieldTrial* trial = base::FieldTrialList::CreateFieldTrial(
+      OmniboxFieldTrial::kBundledExperimentFieldTrialName, "DefaultGroup");
+  trial->group();
+
   QueryForInputAndWaitForFetcherResponses(
       ASCIIToUTF16("foo"), false,
       "[\"foo\",[\"foo bar\"],[\"\"],[],"
@@ -3224,26 +3228,6 @@ TEST_F(SearchProviderTest, ParseDeletionUrl) {
              "deletion_url"));
        }
      }
-}
-
-TEST_F(SearchProviderTest, ReflectsBookmarkBarState) {
-  profile_.GetPrefs()->SetBoolean(bookmarks::prefs::kShowBookmarkBar, false);
-  base::string16 term = term1_.substr(0, term1_.length() - 1);
-  QueryForInput(term, true, false);
-  ASSERT_FALSE(provider_->matches().empty());
-  EXPECT_EQ(AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
-            provider_->matches()[0].type);
-  ASSERT_TRUE(provider_->matches()[0].search_terms_args != NULL);
-  EXPECT_FALSE(provider_->matches()[0].search_terms_args->bookmark_bar_pinned);
-
-  profile_.GetPrefs()->SetBoolean(bookmarks::prefs::kShowBookmarkBar, true);
-  term = term1_.substr(0, term1_.length() - 1);
-  QueryForInput(term, true, false);
-  ASSERT_FALSE(provider_->matches().empty());
-  EXPECT_EQ(AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
-            provider_->matches()[0].type);
-  ASSERT_TRUE(provider_->matches()[0].search_terms_args != NULL);
-  EXPECT_TRUE(provider_->matches()[0].search_terms_args->bookmark_bar_pinned);
 }
 
 TEST_F(SearchProviderTest, CanSendURL) {

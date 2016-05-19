@@ -12,9 +12,12 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/process/process.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
+#include "cc/output/compositor_frame.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -54,6 +57,7 @@ namespace content {
 class BrowserContext;
 class MessageLoopRunner;
 class RenderViewHost;
+class RenderWidgetHost;
 class WebContents;
 
 // Navigate a frame with ID |iframe_id| to |url|, blocking until the navigation
@@ -129,8 +133,10 @@ void SimulateGestureScrollSequence(WebContents* web_contents,
 // Taps the screen at |point|.
 void SimulateTapAt(WebContents* web_contents, const gfx::Point& point);
 
+#if defined(USE_AURA)
 // Generates a TouchStart at |point|.
 void SimulateTouchPressAt(WebContents* web_contents, const gfx::Point& point);
+#endif
 
 // Taps the screen with modifires at |point|.
 void SimulateTapWithModifiersAt(WebContents* web_contents,
@@ -420,18 +426,72 @@ class FrameWatcher : public BrowserMessageFilter {
   // Wait for |frames_to_wait| swap mesages from the compositor.
   void WaitFrames(int frames_to_wait);
 
+  // Return the meta data received in the last compositor
+  // swap frame.
+  const cc::CompositorFrameMetadata& LastMetadata();
+
  private:
   ~FrameWatcher() override;
 
   // Overridden BrowserMessageFilter methods.
   bool OnMessageReceived(const IPC::Message& message) override;
 
-  void ReceivedFrameSwap();
+  void ReceivedFrameSwap(cc::CompositorFrameMetadata meta_data);
 
   int frames_to_wait_;
   base::Closure quit_;
+  cc::CompositorFrameMetadata last_metadata_;
 
   DISALLOW_COPY_AND_ASSIGN(FrameWatcher);
+};
+
+// This class is intended to synchronize the renderer main thread, renderer impl
+// thread and the browser main thread.
+class MainThreadFrameObserver : public IPC::Listener {
+ public:
+  explicit MainThreadFrameObserver(RenderWidgetHost* render_widget_host);
+  ~MainThreadFrameObserver() override;
+
+  // Synchronizes the browser main thread with the renderer main thread and impl
+  // thread.
+  void Wait();
+
+  // Overridden IPC::Listener methods.
+  bool OnMessageReceived(const IPC::Message& msg) override;
+
+ private:
+  void Quit();
+
+  RenderWidgetHost* render_widget_host_;
+  scoped_ptr<base::RunLoop> run_loop_;
+  int routing_id_;
+
+  DISALLOW_COPY_AND_ASSIGN(MainThreadFrameObserver);
+};
+
+// Watches for an input msg to be consumed.
+class InputMsgWatcher : public BrowserMessageFilter {
+ public:
+  InputMsgWatcher(RenderWidgetHost* render_widget_host,
+                  blink::WebInputEvent::Type type);
+
+  // Wait until ack message occurs, returning the ack result from
+  // the message.
+  uint32_t WaitForAck();
+
+ private:
+  ~InputMsgWatcher() override;
+
+  // Overridden BrowserMessageFilter methods.
+  bool OnMessageReceived(const IPC::Message& message) override;
+
+  void ReceivedAck(blink::WebInputEvent::Type ack_type, uint32_t ack_state);
+
+  blink::WebInputEvent::Type wait_for_type_;
+  uint32_t ack_result_;
+  base::Closure quit_;
+
+  DISALLOW_COPY_AND_ASSIGN(InputMsgWatcher);
 };
 
 }  // namespace content

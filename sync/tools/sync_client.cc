@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
 #include <cstddef>
 #include <cstdio>
 #include <string>
+#include <utility>
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
@@ -20,6 +22,7 @@
 #include "base/rand_util.h"
 #include "base/task_runner.h"
 #include "base/threading/thread.h"
+#include "build/build_config.h"
 #include "components/invalidation/impl/non_blocking_invalidator.h"
 #include "components/invalidation/public/object_id_invalidation_map.h"
 #include "components/sync_driver/invalidation_helper.h"
@@ -131,7 +134,7 @@ class LoggingChangeDelegate : public SyncManager::ChangeDelegate {
   ~LoggingChangeDelegate() override {}
 
   void OnChangesApplied(ModelType model_type,
-                        int64 model_version,
+                        int64_t model_version,
                         const BaseTransaction* trans,
                         const ImmutableChangeRecordList& changes) override {
     LOG(INFO) << "Changes applied for "
@@ -200,7 +203,7 @@ class InvalidationAdapter : public syncer::InvalidationInterface {
     return invalidation_.payload();
   }
 
-  int64 GetVersion() const override { return invalidation_.version(); }
+  int64_t GetVersion() const override { return invalidation_.version(); }
 
   void Acknowledge() override { invalidation_.Acknowledge(); }
 
@@ -238,7 +241,7 @@ class InvalidatorShim : public InvalidationHandler {
              ++inv_it) {
           scoped_ptr<syncer::InvalidationInterface> inv_adapter(
               new InvalidationAdapter(*inv_it));
-          sync_manager_->OnIncomingInvalidation(type, inv_adapter.Pass());
+          sync_manager_->OnIncomingInvalidation(type, std::move(inv_adapter));
         }
       }
     }
@@ -307,6 +310,7 @@ int SyncClientMain(int argc, char* argv[]) {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   SyncCredentials credentials;
+  credentials.account_id = command_line.GetSwitchValueASCII(kEmailSwitch);
   credentials.email = command_line.GetSwitchValueASCII(kEmailSwitch);
   credentials.sync_token = command_line.GetSwitchValueASCII(kTokenSwitch);
   // TODO(akalin): Write a wrapper script that gets a token for an
@@ -392,7 +396,7 @@ int SyncClientMain(int argc, char* argv[]) {
   workers.push_back(passive_model_safe_worker);
 
   // Set up sync manager.
-  SyncManagerFactory sync_manager_factory(SyncManagerFactory::NORMAL);
+  SyncManagerFactory sync_manager_factory;
   scoped_ptr<SyncManager> sync_manager =
       sync_manager_factory.CreateSyncManager("sync_client manager");
   LoggingJsEventHandler js_event_handler;
@@ -424,7 +428,7 @@ int SyncClientMain(int argc, char* argv[]) {
   args.database_location = database_dir.path();
   args.event_handler = WeakHandle<JsEventHandler>(js_event_handler.AsWeakPtr());
   args.service_url = GURL(kSyncServiceURL);
-  args.post_factory = post_factory.Pass();
+  args.post_factory = std::move(post_factory);
   args.workers = workers;
   args.extensions_activity = extensions_activity;
   args.change_delegate = &change_delegate;

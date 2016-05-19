@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/models/combobox_model.h"
@@ -75,7 +77,7 @@ ScopedExamples CreateExamples() {
   examples->push_back(new TreeViewExample);
   examples->push_back(new VectorExample);
   examples->push_back(new WidgetExample);
-  return examples.Pass();
+  return examples;
 }
 
 struct ExampleTitleCompare {
@@ -91,7 +93,7 @@ ScopedExamples GetExamplesToShow(ScopedExamples extra) {
     extra->weak_clear();
   }
   std::sort(examples->begin(), examples->end(), ExampleTitleCompare());
-  return examples.Pass();
+  return examples;
 }
 
 }  // namespace
@@ -132,7 +134,7 @@ class ExamplesWindowContents : public WidgetDelegateView,
         operation_(operation) {
     instance_ = this;
     combobox_->set_listener(this);
-    combobox_model_.SetExamples(examples.Pass());
+    combobox_model_.SetExamples(std::move(examples));
     combobox_->ModelChanged();
 
     set_background(Background::CreateStandardPanelBackground());
@@ -219,10 +221,11 @@ void ShowExamplesWindow(Operation operation,
   if (ExamplesWindowContents::instance()) {
     ExamplesWindowContents::instance()->GetWidget()->Activate();
   } else {
-    ScopedExamples examples(GetExamplesToShow(extra_examples.Pass()));
+    ScopedExamples examples(GetExamplesToShow(std::move(extra_examples)));
     Widget* widget = new Widget;
     Widget::InitParams params;
-    params.delegate = new ExamplesWindowContents(operation, examples.Pass());
+    params.delegate =
+        new ExamplesWindowContents(operation, std::move(examples));
     params.context = window_context;
     widget->Init(params);
     widget->Show();

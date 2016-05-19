@@ -10,6 +10,7 @@ import android.test.suitebuilder.annotation.SmallTest;
 import org.chromium.base.StreamUtil;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.SuppressFBWarnings;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.TabState;
 import org.chromium.chrome.test.util.ApplicationData;
 import org.chromium.chrome.test.util.browser.tabmodel.MockTabModelSelector;
@@ -232,6 +233,7 @@ public class RestoreMigrateTest extends InstrumentationTestCase {
                 getInstrumentation().getTargetContext(), null, null);
 
         int maxId = Math.max(getMaxId(selector0), getMaxId(selector1));
+        RecordHistogram.disableForTests();
         assertEquals("Invalid next id", maxId + 1, storeIn.loadStateInternal());
     }
 
@@ -258,6 +260,7 @@ public class RestoreMigrateTest extends InstrumentationTestCase {
         TabPersistentStore storeIn1 = new TabPersistentStore(selectorIn1, 1,
                 getInstrumentation().getTargetContext(), null, null);
 
+        RecordHistogram.disableForTests();
         storeIn0.loadStateInternal();
         storeIn1.loadStateInternal();
 

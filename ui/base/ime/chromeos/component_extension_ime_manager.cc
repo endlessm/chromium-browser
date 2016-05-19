@@ -4,8 +4,12 @@
 
 #include "ui/base/ime/chromeos/component_extension_ime_manager.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "chromeos/chromeos_switches.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
@@ -33,6 +37,7 @@ const char* kLoginLayoutWhitelist[] = {
   "es(cat)",
   "fi",
   "fr",
+  "fr(oss)",
   "gb(dvorak)",
   "gb(extd)",
   "hr",
@@ -57,7 +62,9 @@ const char* kLoginLayoutWhitelist[] = {
   "us(colemak)",
   "us(dvorak)",
   "us(dvp)",
-  "us(intl)"
+  "us(intl)",
+  "us(workman)",
+  "us(workman-intl)"
 };
 
 // Gets the input method category according to the given input method id.
@@ -112,7 +119,7 @@ ComponentExtensionIMEManager::~ComponentExtensionIMEManager() {
 
 void ComponentExtensionIMEManager::Initialize(
     scoped_ptr<ComponentExtensionIMEManagerDelegate> delegate) {
-  delegate_ = delegate.Pass();
+  delegate_ = std::move(delegate);
   std::vector<ComponentExtensionIME> ext_list = delegate_->ListIME();
   for (size_t i = 0; i < ext_list.size(); ++i) {
     ComponentExtensionIME& ext = ext_list[i];

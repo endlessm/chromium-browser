@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_DOWNLOAD_DOWNLOAD_REQUEST_INFOBAR_DELEGATE_ANDROID_H_
 #define CHROME_BROWSER_DOWNLOAD_DOWNLOAD_REQUEST_INFOBAR_DELEGATE_ANDROID_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/download/download_request_limiter.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
@@ -47,6 +47,7 @@ class DownloadRequestInfoBarDelegateAndroid : public ConfirmInfoBarDelegate {
       base::WeakPtr<DownloadRequestLimiter::TabDownloadState> host);
 
   // ConfirmInfoBarDelegate:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   int GetIconId() const override;
   base::string16 GetMessageText() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;

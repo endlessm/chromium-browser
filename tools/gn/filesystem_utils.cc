@@ -377,7 +377,7 @@ bool MakeAbsolutePathRelativeIfPossible(const base::StringPiece& source_root,
 #endif
 }
 
-void NormalizePath(std::string* path) {
+void NormalizePath(std::string* path, const base::StringPiece& source_root) {
   char* pathbuf = path->empty() ? nullptr : &(*path)[0];
 
   // top_index is the first character we can modify in the path. Anything
@@ -433,9 +433,48 @@ void NormalizePath(std::string* path) {
                 // up more levels.  Otherwise "../.." would collapse to
                 // nothing.
                 top_index = dest_i;
+              } else if (top_index == 2 && !source_root.empty()) {
+                // |path| was passed in as a source-absolute path. Prepend
+                // |source_root| to make |path| absolute. |source_root| must not
+                // end with a slash unless we are at root.
+                DCHECK(source_root.size() == 1u ||
+                       !IsSlash(source_root[source_root.size() - 1u]));
+                size_t source_root_len = source_root.size();
+
+#if defined(OS_WIN)
+                // On Windows, if the source_root does not start with a slash,
+                // append one here for consistency.
+                if (!IsSlash(source_root[0])) {
+                  path->insert(0, "/" + source_root.as_string());
+                  source_root_len++;
+                } else {
+                  path->insert(0, source_root.data(), source_root_len);
+                }
+
+                // Normalize slashes in source root portion.
+                for (size_t i = 0; i < source_root_len; ++i) {
+                  if ((*path)[i] == '\\')
+                    (*path)[i] = '/';
+                }
+#else
+                path->insert(0, source_root.data(), source_root_len);
+#endif
+
+                // |path| is now absolute, so |top_index| is 1. |dest_i| and
+                // |src_i| should be incremented to keep the same relative
+                // position. Comsume the leading "//" by decrementing |dest_i|.
+                top_index = 1;
+                pathbuf = &(*path)[0];
+                dest_i += source_root_len - 2;
+                src_i += source_root_len;
+
+                // Just find the previous slash or the beginning of input.
+                while (dest_i > 0 && !IsSlash(pathbuf[dest_i - 1]))
+                  dest_i--;
               }
-              // Otherwise we're at the beginning of an absolute path. Don't
-              // allow ".." to go up another level and just eat it.
+              // Otherwise we're at the beginning of a system-absolute path, or
+              // a source-absolute path for which we don't know the absolute
+              // path. Don't allow ".." to go up another level, and just eat it.
             } else {
               // Just find the previous slash or the beginning of input.
               while (dest_i > 0 && !IsSlash(pathbuf[dest_i - 1]))
@@ -646,6 +685,86 @@ std::string GetOutputSubdirName(const Label& toolchain_label, bool is_default) {
   // For now just assume the toolchain name is always a valid dir name. We may
   // want to clean up the in the future.
   return toolchain_label.name() + "/";
+}
+
+bool ContentsEqual(const base::FilePath& file_path, const std::string& data) {
+  // Compare file and stream sizes first. Quick and will save us some time if
+  // they are different sizes.
+  int64_t file_size;
+  if (!base::GetFileSize(file_path, &file_size) ||
+      static_cast<size_t>(file_size) != data.size()) {
+    return false;
+  }
+
+  std::string file_data;
+  file_data.resize(file_size);
+  if (!base::ReadFileToString(file_path, &file_data))
+    return false;
+
+  return file_data == data;
+}
+
+bool WriteFileIfChanged(const base::FilePath& file_path,
+                        const std::string& data,
+                        Err* err) {
+  if (ContentsEqual(file_path, data))
+    return true;
+
+  // Create the directory if necessary.
+  if (!base::CreateDirectory(file_path.DirName())) {
+    if (err) {
+      *err =
+          Err(Location(), "Unable to create directory.",
+              "I was using \"" + FilePathToUTF8(file_path.DirName()) + "\".");
+    }
+    return false;
+  }
+
+  int size = static_cast<int>(data.size());
+  bool write_success = false;
+
+#if defined(OS_WIN)
+  // On Windows, provide a custom implementation of base::WriteFile. Sometimes
+  // the base version fails, especially on the bots. The guess is that Windows
+  // Defender or other antivirus programs still have the file open (after
+  // checking for the read) when the write happens immediately after. This
+  // version opens with FILE_SHARE_READ (normally not what you want when
+  // replacing the entire contents of the file) which lets us continue even if
+  // another program has the file open for reading. See http://crbug.com/468437
+  base::win::ScopedHandle file(::CreateFile(file_path.value().c_str(),
+                                            GENERIC_WRITE, FILE_SHARE_READ,
+                                            NULL, CREATE_ALWAYS, 0, NULL));
+  if (file.IsValid()) {
+    DWORD written;
+    BOOL result = ::WriteFile(file.Get(), data.c_str(), size, &written, NULL);
+    if (result) {
+      if (static_cast<int>(written) == size) {
+        write_success = true;
+      } else {
+        // Didn't write all the bytes.
+        LOG(ERROR) << "wrote" << written << " bytes to "
+                   << base::UTF16ToUTF8(file_path.value()) << " expected "
+                   << size;
+      }
+    } else {
+      // WriteFile failed.
+      PLOG(ERROR) << "writing file " << base::UTF16ToUTF8(file_path.value())
+                  << " failed";
+    }
+  } else {
+    PLOG(ERROR) << "CreateFile failed for path "
+                << base::UTF16ToUTF8(file_path.value());
+  }
+#else
+  write_success = base::WriteFile(file_path, data.c_str(), size) == size;
+#endif
+
+  if (!write_success && err) {
+    *err = Err(Location(), "Unable to write file.",
+               "I was writing \"" + FilePathToUTF8(file_path) + "\".");
+  }
+
+  return write_success;
 }
 
 SourceDir GetToolchainOutputDir(const Settings* settings) {

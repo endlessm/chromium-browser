@@ -5,11 +5,12 @@
 #ifndef CONTENT_BROWSER_BROWSER_MAIN_LOOP_H_
 #define CONTENT_BROWSER_BROWSER_MAIN_LOOP_H_
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "content/browser/browser_process_sub_thread.h"
 #include "content/public/browser/browser_main_runner.h"
 
@@ -22,7 +23,6 @@ class PowerMonitor;
 class SystemMonitor;
 class MemoryPressureMonitor;
 namespace trace_event {
-class TraceMemoryController;
 class TraceEventSystemStatsMonitor;
 }  // namespace trace_event
 }  // namespace base
@@ -33,7 +33,13 @@ class ScopedIPCSupport;
 
 namespace media {
 class AudioManager;
+#if defined(OS_LINUX) && defined(USE_UDEV)
+class DeviceMonitorLinux;
+#endif
 class UserInputMonitor;
+#if defined(OS_MACOSX)
+class DeviceMonitorMac;
+#endif
 namespace midi {
 class MidiManager;
 }  // namespace midi
@@ -63,10 +69,6 @@ struct MainFunctionParams;
 
 #if defined(OS_ANDROID)
 class ScreenOrientationDelegate;
-#elif defined(OS_LINUX)
-class DeviceMonitorLinux;
-#elif defined(OS_MACOSX)
-class DeviceMonitorMac;
 #elif defined(OS_WIN)
 class SystemMessageWindowWin;
 #endif
@@ -130,7 +132,7 @@ class CONTENT_EXPORT BrowserMainLoop {
   void StopStartupTracingTimer();
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
-  DeviceMonitorMac* device_monitor_mac() const {
+  media::DeviceMonitorMac* device_monitor_mac() const {
     return device_monitor_mac_.get();
   }
 #endif
@@ -207,7 +209,6 @@ class CONTENT_EXPORT BrowserMainLoop {
 #endif
 
   scoped_ptr<MemoryObserver> memory_observer_;
-  scoped_ptr<base::trace_event::TraceMemoryController> trace_memory_controller_;
 
   // Members initialized in |InitStartupTracingForDuration()| ------------------
   base::FilePath startup_trace_file_;
@@ -250,10 +251,10 @@ class CONTENT_EXPORT BrowserMainLoop {
 
   scoped_ptr<media::midi::MidiManager> midi_manager_;
 
-#if defined(USE_UDEV)
-  scoped_ptr<DeviceMonitorLinux> device_monitor_linux_;
+#if defined(OS_LINUX) && defined(USE_UDEV)
+  scoped_ptr<media::DeviceMonitorLinux> device_monitor_linux_;
 #elif defined(OS_MACOSX) && !defined(OS_IOS)
-  scoped_ptr<DeviceMonitorMac> device_monitor_mac_;
+  scoped_ptr<media::DeviceMonitorMac> device_monitor_mac_;
 #endif
 #if defined(USE_OZONE)
   scoped_ptr<ui::ClientNativePixmapFactory> client_native_pixmap_factory_;

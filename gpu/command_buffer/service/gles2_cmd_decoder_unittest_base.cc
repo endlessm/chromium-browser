@@ -4,6 +4,9 @@
 
 #include "gpu/command_buffer/service/gles2_cmd_decoder_unittest_base.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -84,8 +87,8 @@ void NormalizeInitState(gpu::gles2::GLES2DecoderTestBase::InitState* init) {
   init->extensions += "GL_EXT_framebuffer_object ";
 }
 
-const uint32 kMaxColorAttachments = 16;
-const uint32 kMaxDrawBuffers = 16;
+const uint32_t kMaxColorAttachments = 16;
+const uint32_t kMaxDrawBuffers = 16;
 
 }  // namespace Anonymous
 
@@ -120,7 +123,8 @@ GLES2DecoderTestBase::GLES2DecoderTestBase()
       cached_color_mask_alpha_(true),
       cached_depth_mask_(true),
       cached_stencil_front_mask_(static_cast<GLuint>(-1)),
-      cached_stencil_back_mask_(static_cast<GLuint>(-1)) {
+      cached_stencil_back_mask_(static_cast<GLuint>(-1)),
+      shader_language_version_(100) {
   memset(immediate_buffer_, 0xEE, sizeof(immediate_buffer_));
 }
 
@@ -249,9 +253,11 @@ void GLES2DecoderTestBase::InitDecoderWithCommandLine(
 
   AddExpectationsForBindVertexArrayOES();
 
-  EXPECT_CALL(*gl_, EnableVertexAttribArray(0))
-      .Times(1)
-      .RetiresOnSaturation();
+  if (!group_->feature_info()->gl_version_info().BehavesLikeGLES()) {
+    EXPECT_CALL(*gl_, EnableVertexAttribArray(0))
+        .Times(1)
+        .RetiresOnSaturation();
+  }
   static GLuint attrib_0_id[] = {
     kServiceAttrib0BufferId,
   };
@@ -349,10 +355,16 @@ void GLES2DecoderTestBase::InitDecoderWithCommandLine(
   EXPECT_CALL(*gl_, GetIntegerv(GL_MAX_VIEWPORT_DIMS, _))
       .WillOnce(SetArrayArgument<1>(
           max_viewport_dims, max_viewport_dims + arraysize(max_viewport_dims)))
+        .RetiresOnSaturation();
+
+  static GLfloat line_width_range[] = { 1.0f, 2.0f };
+  EXPECT_CALL(*gl_, GetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, _))
+      .WillOnce(SetArrayArgument<1>(
+          line_width_range, line_width_range + arraysize(line_width_range)))
       .RetiresOnSaturation();
 
   SetupInitCapabilitiesExpectations(group_->feature_info()->IsES3Capable());
-  SetupInitStateExpectations();
+  SetupInitStateExpectations(group_->feature_info()->IsES3Capable());
 
   EXPECT_CALL(*gl_, ActiveTexture(GL_TEXTURE0))
       .Times(1)
@@ -393,24 +405,25 @@ void GLES2DecoderTestBase::InitDecoderWithCommandLine(
       engine_->GetSharedMemoryBuffer(kSharedMemoryId);
   shared_memory_offset_ = kSharedMemoryOffset;
   shared_memory_address_ =
-      reinterpret_cast<int8*>(buffer->memory()) + shared_memory_offset_;
+      reinterpret_cast<int8_t*>(buffer->memory()) + shared_memory_offset_;
   shared_memory_id_ = kSharedMemoryId;
   shared_memory_base_ = buffer->memory();
 
-  static const int32 kLoseContextWhenOutOfMemory = 0x10002;
-  static const int32 kWebGLVersion = 0x10003;
+  static const int32_t kLoseContextWhenOutOfMemory = 0x10002;
+  static const int32_t kWebGLVersion = 0x10003;
 
-  int32 attributes[] = {EGL_ALPHA_SIZE,
-                        normalized_init.request_alpha ? 8 : 0,
-                        EGL_DEPTH_SIZE,
-                        normalized_init.request_depth ? 24 : 0,
-                        EGL_STENCIL_SIZE,
-                        normalized_init.request_stencil ? 8 : 0,
-                        kLoseContextWhenOutOfMemory,
-                        normalized_init.lose_context_when_out_of_memory ? 1 : 0,
-                        kWebGLVersion,
-                        init.context_type};
-  std::vector<int32> attribs(attributes, attributes + arraysize(attributes));
+  int32_t attributes[] = {
+      EGL_ALPHA_SIZE,
+      normalized_init.request_alpha ? 8 : 0,
+      EGL_DEPTH_SIZE,
+      normalized_init.request_depth ? 24 : 0,
+      EGL_STENCIL_SIZE,
+      normalized_init.request_stencil ? 8 : 0,
+      kLoseContextWhenOutOfMemory,
+      normalized_init.lose_context_when_out_of_memory ? 1 : 0,
+      kWebGLVersion,
+      init.context_type};
+  std::vector<int32_t> attribs(attributes, attributes + arraysize(attributes));
 
   decoder_.reset(GLES2Decoder::Create(group_.get()));
   decoder_->SetIgnoreCachedStateForTest(ignore_cached_state_for_test_);
@@ -491,18 +504,18 @@ void GLES2DecoderTestBase::ResetDecoder() {
     return;
   // All Tests should have read all their GLErrors before getting here.
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
-
-  EXPECT_CALL(*gl_, DeleteBuffersARB(1, _))
-      .Times(2)
-      .RetiresOnSaturation();
-  if (group_->feature_info()->feature_flags().native_vertex_array_object) {
-    EXPECT_CALL(*gl_, DeleteVertexArraysOES(1, Pointee(kServiceVertexArrayId)))
-        .Times(1)
-        .RetiresOnSaturation();
+  if (!decoder_->WasContextLost()) {
+    EXPECT_CALL(*gl_, DeleteBuffersARB(1, _)).Times(2).RetiresOnSaturation();
+    if (group_->feature_info()->feature_flags().native_vertex_array_object) {
+      EXPECT_CALL(*gl_,
+                  DeleteVertexArraysOES(1, Pointee(kServiceVertexArrayId)))
+          .Times(1)
+          .RetiresOnSaturation();
+    }
   }
 
   decoder_->EndDecoding();
-  decoder_->Destroy(true);
+  decoder_->Destroy(!decoder_->WasContextLost());
   decoder_.reset();
   group_->Destroy(mock_decoder_.get(), false);
   engine_.reset();
@@ -611,14 +624,16 @@ void GLES2DecoderTestBase::SetBucketData(
   }
 }
 
-void GLES2DecoderTestBase::SetBucketAsCString(
-    uint32 bucket_id, const char* str) {
+void GLES2DecoderTestBase::SetBucketAsCString(uint32_t bucket_id,
+                                              const char* str) {
   SetBucketData(bucket_id, str, str ? (strlen(str) + 1) : 0);
 }
 
-void GLES2DecoderTestBase::SetBucketAsCStrings(
-    uint32 bucket_id, GLsizei count, const char** str,
-    GLsizei count_in_header, char str_end) {
+void GLES2DecoderTestBase::SetBucketAsCStrings(uint32_t bucket_id,
+                                               GLsizei count,
+                                               const char** str,
+                                               GLsizei count_in_header,
+                                               char str_end) {
   uint32_t header_size = sizeof(GLint) * (count + 1);
   uint32_t total_size = header_size;
   scoped_ptr<GLint[]> header(new GLint[count + 1]);
@@ -745,9 +760,6 @@ void GLES2DecoderTestBase::SetupExpectationsForFramebufferClearingMulti(
       .WillOnce(Return(GL_FRAMEBUFFER_COMPLETE))
       .RetiresOnSaturation();
   if (target == GL_READ_FRAMEBUFFER_EXT) {
-    EXPECT_CALL(*gl_, BindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, 0))
-        .Times(1)
-        .RetiresOnSaturation();
     EXPECT_CALL(*gl_, BindFramebufferEXT(
         GL_DRAW_FRAMEBUFFER_EXT, read_framebuffer_service_id))
         .Times(1)
@@ -782,10 +794,6 @@ void GLES2DecoderTestBase::SetupExpectationsForFramebufferClearingMulti(
       restore_depth, restore_scissor_test, restore_scissor_x, restore_scissor_y,
       restore_scissor_width, restore_scissor_height);
   if (target == GL_READ_FRAMEBUFFER_EXT) {
-    EXPECT_CALL(*gl_, BindFramebufferEXT(
-        GL_READ_FRAMEBUFFER_EXT, read_framebuffer_service_id))
-        .Times(1)
-        .RetiresOnSaturation();
     EXPECT_CALL(*gl_, BindFramebufferEXT(
         GL_DRAW_FRAMEBUFFER_EXT, draw_framebuffer_service_id))
         .Times(1)
@@ -824,6 +832,11 @@ void GLES2DecoderTestBase::DoBindBuffer(
   EXPECT_CALL(*gl_, BindBuffer(target, service_id))
       .Times(1)
       .RetiresOnSaturation();
+  if (target == GL_PIXEL_PACK_BUFFER) {
+    EXPECT_CALL(*gl_, PixelStorei(GL_PACK_ROW_LENGTH, _))
+        .Times(1)
+        .RetiresOnSaturation();
+  }
   cmds::BindBuffer cmd;
   cmd.Init(target, client_id);
   EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
@@ -1149,11 +1162,16 @@ void GLES2DecoderTestBase::DoBindTexImage2DCHROMIUM(GLenum target,
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 }
 
-void GLES2DecoderTestBase::DoTexImage2D(
-    GLenum target, GLint level, GLenum internal_format,
-    GLsizei width, GLsizei height, GLint border,
-    GLenum format, GLenum type,
-    uint32 shared_memory_id, uint32 shared_memory_offset) {
+void GLES2DecoderTestBase::DoTexImage2D(GLenum target,
+                                        GLint level,
+                                        GLenum internal_format,
+                                        GLsizei width,
+                                        GLsizei height,
+                                        GLint border,
+                                        GLenum format,
+                                        GLenum type,
+                                        uint32_t shared_memory_id,
+                                        uint32_t shared_memory_offset) {
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(GL_NO_ERROR))
       .RetiresOnSaturation();
@@ -1171,10 +1189,16 @@ void GLES2DecoderTestBase::DoTexImage2D(
 }
 
 void GLES2DecoderTestBase::DoTexImage2DConvertInternalFormat(
-    GLenum target, GLint level, GLenum requested_internal_format,
-    GLsizei width, GLsizei height, GLint border,
-    GLenum format, GLenum type,
-    uint32 shared_memory_id, uint32 shared_memory_offset,
+    GLenum target,
+    GLint level,
+    GLenum requested_internal_format,
+    GLsizei width,
+    GLsizei height,
+    GLint border,
+    GLenum format,
+    GLenum type,
+    uint32_t shared_memory_id,
+    uint32_t shared_memory_offset,
     GLenum expected_internal_format) {
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(GL_NO_ERROR))
@@ -1192,10 +1216,14 @@ void GLES2DecoderTestBase::DoTexImage2DConvertInternalFormat(
   EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
 }
 
-void GLES2DecoderTestBase::DoCompressedTexImage2D(
-    GLenum target, GLint level, GLenum format,
-    GLsizei width, GLsizei height, GLint border,
-    GLsizei size, uint32 bucket_id) {
+void GLES2DecoderTestBase::DoCompressedTexImage2D(GLenum target,
+                                                  GLint level,
+                                                  GLenum format,
+                                                  GLsizei width,
+                                                  GLsizei height,
+                                                  GLint border,
+                                                  GLsizei size,
+                                                  uint32_t bucket_id) {
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(GL_NO_ERROR))
       .RetiresOnSaturation();
@@ -1212,6 +1240,33 @@ void GLES2DecoderTestBase::DoCompressedTexImage2D(
   cmd.Init(
       target, level, format, width, height,
       bucket_id);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+}
+
+void GLES2DecoderTestBase::DoTexImage3D(GLenum target,
+                                        GLint level,
+                                        GLenum internal_format,
+                                        GLsizei width,
+                                        GLsizei height,
+                                        GLsizei depth,
+                                        GLint border,
+                                        GLenum format,
+                                        GLenum type,
+                                        uint32_t shared_memory_id,
+                                        uint32_t shared_memory_offset) {
+  EXPECT_CALL(*gl_, GetError())
+      .WillOnce(Return(GL_NO_ERROR))
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, TexImage3D(target, level, internal_format,
+                               width, height, depth, border, format, type, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, GetError())
+      .WillOnce(Return(GL_NO_ERROR))
+      .RetiresOnSaturation();
+  cmds::TexImage3D cmd;
+  cmd.Init(target, level, internal_format, width, height, depth, format, type,
+           shared_memory_id, shared_memory_offset);
   EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
 }
 
@@ -1248,7 +1303,7 @@ void GLES2DecoderTestBase::DoFramebufferTexture2D(
       .WillOnce(Return(error))
       .RetiresOnSaturation();
   cmds::FramebufferTexture2D cmd;
-  cmd.Init(target, attachment, textarget, texture_client_id);
+  cmd.Init(target, attachment, textarget, texture_client_id, level);
   EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
 }
 
@@ -1262,10 +1317,23 @@ void GLES2DecoderTestBase::DoFramebufferRenderbuffer(
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(GL_NO_ERROR))
       .RetiresOnSaturation();
-  EXPECT_CALL(*gl_, FramebufferRenderbufferEXT(
-      target, attachment, renderbuffer_target, renderbuffer_service_id))
-      .Times(1)
-      .RetiresOnSaturation();
+  if (attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
+    EXPECT_CALL(*gl_, FramebufferRenderbufferEXT(
+        target, GL_DEPTH_ATTACHMENT, renderbuffer_target,
+        renderbuffer_service_id))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, FramebufferRenderbufferEXT(
+        target, GL_STENCIL_ATTACHMENT, renderbuffer_target,
+        renderbuffer_service_id))
+        .Times(1)
+        .RetiresOnSaturation();
+  } else {
+    EXPECT_CALL(*gl_, FramebufferRenderbufferEXT(
+        target, attachment, renderbuffer_target, renderbuffer_service_id))
+        .Times(1)
+        .RetiresOnSaturation();
+  }
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(error))
       .RetiresOnSaturation();
@@ -1325,7 +1393,7 @@ void GLES2DecoderTestBase::AddExpectationsForBindVertexArrayOES() {
       .Times(1)
       .RetiresOnSaturation();
   } else {
-    for (uint32 vv = 0; vv < group_->max_vertex_attribs(); ++vv) {
+    for (uint32_t vv = 0; vv < group_->max_vertex_attribs(); ++vv) {
       AddExpectationsForRestoreAttribState(vv);
     }
 
@@ -1404,17 +1472,17 @@ const GLuint GLES2DecoderTestBase::kServiceVertexArrayId;
 const GLuint GLES2DecoderTestBase::kServiceTransformFeedbackId;
 const GLuint GLES2DecoderTestBase::kServiceSyncId;
 
-const int32 GLES2DecoderTestBase::kSharedMemoryId;
+const int32_t GLES2DecoderTestBase::kSharedMemoryId;
 const size_t GLES2DecoderTestBase::kSharedBufferSize;
-const uint32 GLES2DecoderTestBase::kSharedMemoryOffset;
-const int32 GLES2DecoderTestBase::kInvalidSharedMemoryId;
-const uint32 GLES2DecoderTestBase::kInvalidSharedMemoryOffset;
-const uint32 GLES2DecoderTestBase::kInitialResult;
-const uint8 GLES2DecoderTestBase::kInitialMemoryValue;
+const uint32_t GLES2DecoderTestBase::kSharedMemoryOffset;
+const int32_t GLES2DecoderTestBase::kInvalidSharedMemoryId;
+const uint32_t GLES2DecoderTestBase::kInvalidSharedMemoryOffset;
+const uint32_t GLES2DecoderTestBase::kInitialResult;
+const uint8_t GLES2DecoderTestBase::kInitialMemoryValue;
 
-const uint32 GLES2DecoderTestBase::kNewClientId;
-const uint32 GLES2DecoderTestBase::kNewServiceId;
-const uint32 GLES2DecoderTestBase::kInvalidClientId;
+const uint32_t GLES2DecoderTestBase::kNewClientId;
+const uint32_t GLES2DecoderTestBase::kNewServiceId;
+const uint32_t GLES2DecoderTestBase::kInvalidClientId;
 
 const GLuint GLES2DecoderTestBase::kServiceVertexShaderId;
 const GLuint GLES2DecoderTestBase::kServiceFragmentShaderId;
@@ -1492,7 +1560,10 @@ const GLenum GLES2DecoderTestBase::kUniform7Type;
 const GLenum GLES2DecoderTestBase::kUniformCubemapType;
 const GLint GLES2DecoderTestBase::kInvalidUniformLocation;
 const GLint GLES2DecoderTestBase::kBadUniformIndex;
-
+const GLint GLES2DecoderTestBase::kOutputVariable1Size;
+const GLenum GLES2DecoderTestBase::kOutputVariable1Type;
+const GLuint GLES2DecoderTestBase::kOutputVariable1ColorName;
+const GLuint GLES2DecoderTestBase::kOutputVariable1Index;
 #endif
 
 const char* GLES2DecoderTestBase::kAttrib1Name = "attrib1";
@@ -1505,6 +1576,9 @@ const char* GLES2DecoderTestBase::kUniform4Name = "uniform4";
 const char* GLES2DecoderTestBase::kUniform5Name = "uniform5";
 const char* GLES2DecoderTestBase::kUniform6Name = "uniform6";
 const char* GLES2DecoderTestBase::kUniform7Name = "uniform7";
+
+const char* GLES2DecoderTestBase::kOutputVariable1Name = "gl_FragColor";
+const char* GLES2DecoderTestBase::kOutputVariable1NameESSL3 = "color";
 
 void GLES2DecoderTestBase::SetupDefaultProgram() {
   {
@@ -1654,6 +1728,19 @@ void GLES2DecoderTestBase::SetupShader(
     GLuint program_client_id, GLuint program_service_id,
     GLuint vertex_shader_client_id, GLuint vertex_shader_service_id,
     GLuint fragment_shader_client_id, GLuint fragment_shader_service_id) {
+  static TestHelper::ProgramOutputInfo kProgramOutputsESSL1[] = {{
+      kOutputVariable1Name, kOutputVariable1Size, kOutputVariable1Type,
+      kOutputVariable1ColorName, kOutputVariable1Index,
+  }};
+  static TestHelper::ProgramOutputInfo kProgramOutputsESSL3[] = {{
+      kOutputVariable1NameESSL3, kOutputVariable1Size, kOutputVariable1Type,
+      kOutputVariable1ColorName, kOutputVariable1Index,
+  }};
+  TestHelper::ProgramOutputInfo* program_outputs =
+      shader_language_version_ == 100 ? kProgramOutputsESSL1
+                                      : kProgramOutputsESSL3;
+  const size_t kNumProgramOutputs = 1;
+
   {
     InSequence s;
 
@@ -1665,9 +1752,11 @@ void GLES2DecoderTestBase::SetupShader(
                 AttachShader(program_service_id, fragment_shader_service_id))
         .Times(1)
         .RetiresOnSaturation();
-    TestHelper::SetupShaderExpectations(gl_.get(), group_->feature_info(),
-                                        attribs, num_attribs, uniforms,
-                                        num_uniforms, program_service_id);
+
+    TestHelper::SetupShaderExpectationsWithVaryings(
+        gl_.get(), group_->feature_info(), attribs, num_attribs, uniforms,
+        num_uniforms, nullptr, 0, program_outputs, kNumProgramOutputs,
+        program_service_id);
   }
 
   DoCreateShader(
@@ -1676,10 +1765,20 @@ void GLES2DecoderTestBase::SetupShader(
       GL_FRAGMENT_SHADER, fragment_shader_client_id,
       fragment_shader_service_id);
 
-  TestHelper::SetShaderStates(
-      gl_.get(), GetShader(vertex_shader_client_id), true);
-  TestHelper::SetShaderStates(
-      gl_.get(), GetShader(fragment_shader_client_id), true);
+  TestHelper::SetShaderStates(gl_.get(), GetShader(vertex_shader_client_id),
+                              true, nullptr, nullptr, &shader_language_version_,
+                              nullptr, nullptr, nullptr, nullptr, nullptr,
+                              nullptr);
+
+  OutputVariableList frag_output_variable_list;
+  frag_output_variable_list.push_back(TestHelper::ConstructOutputVariable(
+      program_outputs[0].type, program_outputs[0].size, GL_MEDIUM_FLOAT, true,
+      program_outputs[0].name));
+
+  TestHelper::SetShaderStates(gl_.get(), GetShader(fragment_shader_client_id),
+                              true, nullptr, nullptr, &shader_language_version_,
+                              nullptr, nullptr, nullptr, nullptr,
+                              &frag_output_variable_list, nullptr);
 
   cmds::AttachShader attach_cmd;
   attach_cmd.Init(program_client_id, vertex_shader_client_id);
@@ -1752,6 +1851,15 @@ void GLES2DecoderTestBase::DoScissor(GLint x,
       .RetiresOnSaturation();
   cmds::Scissor cmd;
   cmd.Init(x, y, width, height);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+}
+
+void GLES2DecoderTestBase::DoPixelStorei(GLenum pname, GLint param) {
+  EXPECT_CALL(*gl_, PixelStorei(pname, param))
+      .Times(1)
+      .RetiresOnSaturation();
+  cmds::PixelStorei cmd;
+  cmd.Init(pname, param);
   EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
 }
 
@@ -1854,12 +1962,35 @@ void GLES2DecoderTestBase::SetupMockGLBehaviors() {
           &GLES2DecoderTestBase::MockGLStates::OnVertexAttribNullPointer));
 }
 
+void GLES2DecoderTestBase::SetupInitStateManualExpectations(bool es3_capable) {
+  if (es3_capable) {
+    EXPECT_CALL(*gl_, PixelStorei(GL_PACK_ROW_LENGTH, 0))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, PixelStorei(GL_UNPACK_ROW_LENGTH, 0))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, PixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, PixelStorei(GL_UNPACK_SKIP_PIXELS, 0))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, PixelStorei(GL_UNPACK_SKIP_ROWS, 0))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, PixelStorei(GL_UNPACK_SKIP_IMAGES, 0))
+        .Times(1)
+        .RetiresOnSaturation();
+  }
+}
+
 GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::
 MockCommandBufferEngine() {
 
   scoped_ptr<base::SharedMemory> shm(new base::SharedMemory());
   shm->CreateAndMapAnonymous(kSharedBufferSize);
-  valid_buffer_ = MakeBufferFromSharedMemory(shm.Pass(), kSharedBufferSize);
+  valid_buffer_ = MakeBufferFromSharedMemory(std::move(shm), kSharedBufferSize);
 
   ClearSharedMemory();
 }
@@ -1869,28 +2000,29 @@ GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::
 
 scoped_refptr<gpu::Buffer>
 GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::GetSharedMemoryBuffer(
-    int32 shm_id) {
+    int32_t shm_id) {
   return shm_id == kSharedMemoryId ? valid_buffer_ : invalid_buffer_;
 }
 
 void GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::set_token(
-    int32 token) {
+    int32_t token) {
   DCHECK(false);
 }
 
 bool GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::SetGetBuffer(
-    int32 /* transfer_buffer_id */) {
+    int32_t /* transfer_buffer_id */) {
   DCHECK(false);
   return false;
 }
 
 bool GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::SetGetOffset(
-   int32 offset) {
+    int32_t offset) {
   DCHECK(false);
   return false;
 }
 
-int32 GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::GetGetOffset() {
+int32_t
+GLES2DecoderWithShaderTestBase::MockCommandBufferEngine::GetGetOffset() {
   DCHECK(false);
   return 0;
 }

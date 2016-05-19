@@ -192,7 +192,12 @@ int RAND_pseudo_bytes(uint8_t *buf, size_t len) {
   return RAND_bytes(buf, len);
 }
 
-void RAND_seed(const void *buf, int num) {}
+void RAND_seed(const void *buf, int num) {
+  /* OpenSSH calls |RAND_seed| before jailing on the assumption that any needed
+   * file descriptors etc will be opened. */
+  uint8_t unused;
+  RAND_bytes(&unused, sizeof(unused));
+}
 
 int RAND_load_file(const char *path, long num) {
   if (num < 0) {  /* read the "whole file" */
@@ -203,6 +208,8 @@ int RAND_load_file(const char *path, long num) {
     return INT_MAX;
   }
 }
+
+const char *RAND_file_name(char *buf, size_t num) { return NULL; }
 
 void RAND_add(const void *buf, int num, double entropy) {}
 

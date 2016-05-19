@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <string>
+#include <vector>
 
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
@@ -35,7 +38,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestAddChunk) {
     '9', '9', '9', '9',
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_TRUE(ParseChunk(kRawAddChunk, sizeof(kRawAddChunk), &chunks));
   ASSERT_EQ(1U, chunks.size());
   EXPECT_EQ(1, chunks[0]->ChunkNumber());
@@ -80,7 +83,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestAddFullChunk) {
     full_hash2.full_hash[i] = (i % 2) ? '3' : '2';
   }
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_TRUE(ParseChunk(kRawAddChunk, sizeof(kRawAddChunk), &chunks));
   ASSERT_EQ(1U, chunks.size());
   EXPECT_EQ(1, chunks[0]->ChunkNumber());
@@ -120,7 +123,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestAddChunks) {
     'g', 'g', 'g', 'g',
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_TRUE(ParseChunk(kRawAddChunk, sizeof(kRawAddChunk), &chunks));
   ASSERT_EQ(2U, chunks.size());
 
@@ -160,7 +163,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestTruncatedPrefixChunk) {
     '3', '3', '3', '3',
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_FALSE(ParseChunk(kRawAddChunk, sizeof(kRawAddChunk), &chunks));
 }
 
@@ -181,7 +184,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestTruncatedFullHashChunk) {
     '0', '1', '0', '1', '0', '1', '0', '1',
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_FALSE(ParseChunk(kRawAddChunk, sizeof(kRawAddChunk), &chunks));
 }
 
@@ -198,7 +201,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestHugeChunk) {
     '3', '3', '3', '3',
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_FALSE(ParseChunk(kRawAddChunk, sizeof(kRawAddChunk), &chunks));
 }
 
@@ -219,7 +222,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestSubChunk) {
     '\x07', '\x09',            // varint 7, varint 9
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_TRUE(ParseChunk(kRawSubChunk, sizeof(kRawSubChunk), &chunks));
   ASSERT_EQ(1U, chunks.size());
   EXPECT_EQ(3, chunks[0]->ChunkNumber());
@@ -268,7 +271,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestSubFullChunk) {
     full_hash2.full_hash[i] = i % 2 ? '3' : '2';
   }
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_TRUE(ParseChunk(kRawSubChunk, sizeof(kRawSubChunk), &chunks));
   ASSERT_EQ(1U, chunks.size());
   EXPECT_EQ(2, chunks[0]->ChunkNumber());
@@ -551,7 +554,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestZeroSizeAddChunk) {
     '\x02',                    // chunk_number varint 2
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_TRUE(ParseChunk(kEmptyAddChunk, sizeof(kEmptyAddChunk), &chunks));
   ASSERT_EQ(1U, chunks.size());
   EXPECT_EQ(2, chunks[0]->ChunkNumber());
@@ -622,7 +625,7 @@ TEST(SafeBrowsingProtocolParsingTest, TestZeroSizeSubChunk) {
     '\x01',                    // enum ChunkType == SUB
   };
 
-  ScopedVector<SBChunkData> chunks;
+  std::vector<scoped_ptr<SBChunkData>> chunks;
   EXPECT_TRUE(ParseChunk(kEmptySubChunk, sizeof(kEmptySubChunk), &chunks));
   ASSERT_EQ(1U, chunks.size());
   EXPECT_EQ(2, chunks[0]->ChunkNumber());

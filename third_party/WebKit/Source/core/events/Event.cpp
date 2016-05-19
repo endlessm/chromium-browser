@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/events/Event.h"
 
 #include "core/dom/StaticNodeList.h"
@@ -35,30 +34,61 @@
 
 namespace blink {
 
+static bool defaultScopedFromEventType(const AtomicString& eventType)
+{
+    return (eventType == EventTypeNames::abort
+        || eventType == EventTypeNames::change
+        || eventType == EventTypeNames::error
+        || eventType == EventTypeNames::load
+        || eventType == EventTypeNames::reset
+        || eventType == EventTypeNames::resize
+        || eventType == EventTypeNames::scroll
+        || eventType == EventTypeNames::select
+        || eventType == EventTypeNames::selectstart
+        || eventType == EventTypeNames::slotchange);
+}
+
 Event::Event()
-    : Event("", false, false)
+    : Event("", false, false, false)
 {
 }
 
 Event::Event(const AtomicString& eventType, bool canBubbleArg, bool cancelableArg)
+    : Event(eventType, canBubbleArg, cancelableArg, defaultScopedFromEventType(eventType), monotonicallyIncreasingTime())
+{
+}
+
+Event::Event(const AtomicString& eventType, bool canBubbleArg, bool cancelableArg, double platformTimeStamp)
+    : Event(eventType, canBubbleArg, cancelableArg, defaultScopedFromEventType(eventType), platformTimeStamp)
+{
+}
+
+Event::Event(const AtomicString& eventType, bool canBubbleArg, bool cancelableArg, bool scoped)
+    : Event(eventType, canBubbleArg, cancelableArg, scoped, monotonicallyIncreasingTime())
+{
+}
+
+Event::Event(const AtomicString& eventType, bool canBubbleArg, bool cancelableArg, bool scoped, double platformTimeStamp)
     : m_type(eventType)
     , m_canBubble(canBubbleArg)
     , m_cancelable(cancelableArg)
+    , m_scoped(scoped)
     , m_propagationStopped(false)
     , m_immediatePropagationStopped(false)
     , m_defaultPrevented(false)
     , m_defaultHandled(false)
     , m_cancelBubble(false)
     , m_isTrusted(false)
+    , m_handlingPassive(false)
     , m_eventPhase(0)
     , m_currentTarget(nullptr)
     , m_createTime(convertSecondsToDOMTimeStamp(currentTime()))
-    , m_platformTimeStamp(monotonicallyIncreasingTime())
+    , m_platformTimeStamp(platformTimeStamp)
 {
 }
 
 Event::Event(const AtomicString& eventType, const EventInit& initializer)
-    : Event(eventType, initializer.bubbles(), initializer.cancelable())
+    : Event(eventType, initializer.bubbles(), initializer.cancelable(), initializer.scoped())
 {
 }
 
@@ -155,6 +185,11 @@ bool Event::isPointerEvent() const
     return false;
 }
 
+bool Event::isInputEvent() const
+{
+    return false;
+}
+
 bool Event::isDragEvent() const
 {
     return false;
@@ -173,6 +208,19 @@ bool Event::isBeforeTextInsertedEvent() const
 bool Event::isBeforeUnloadEvent() const
 {
     return false;
+}
+
+void Event::preventDefault()
+{
+    if (m_handlingPassive) {
+        const LocalDOMWindow* window = m_currentTarget ? m_currentTarget->toDOMWindow() : 0;
+        if (window)
+            window->printErrorMessage("Unable to preventDefault inside passive event listener invocation.");
+        return;
+    }
+
+    if (m_cancelable)
+        m_defaultPrevented = true;
 }
 
 void Event::setTarget(PassRefPtrWillBeRawPtr<EventTarget> target)
@@ -209,6 +257,16 @@ void Event::initEventPath(Node& node)
 
 WillBeHeapVector<RefPtrWillBeMember<EventTarget>> Event::path(ScriptState* scriptState) const
 {
+    return pathInternal(scriptState, NonEmptyAfterDispatch);
+}
+
+WillBeHeapVector<RefPtrWillBeMember<EventTarget>> Event::deepPath(ScriptState* scriptState) const
+{
+    return pathInternal(scriptState, EmptyAfterDispatch);
+}
+
+WillBeHeapVector<RefPtrWillBeMember<EventTarget>> Event::pathInternal(ScriptState* scriptState, EventPathMode mode) const
+{
     if (m_target)
         OriginsUsingFeatures::countOriginOrIsolatedWorldHumanReadableName(scriptState, *m_target, OriginsUsingFeatures::Feature::EventPath);
 
@@ -220,6 +278,8 @@ WillBeHeapVector<RefPtrWillBeMember<EventTarget>> Event::path(ScriptState* scrip
         }
         ASSERT(!m_eventPath->isEmpty());
         // After dispatching the event
+        if (mode == EmptyAfterDispatch)
+            return WillBeHeapVector<RefPtrWillBeMember<EventTarget>>();
         return m_eventPath->last().treeScopeEventContext().ensureEventPath(*m_eventPath);
     }
 

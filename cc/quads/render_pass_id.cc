@@ -4,13 +4,17 @@
 
 #include "cc/quads/render_pass_id.h"
 
+#include <stddef.h>
+
+#include "base/hash.h"
+
 namespace cc {
 
 void* RenderPassId::AsTracingId() const {
   static_assert(sizeof(size_t) <= sizeof(void*),  // NOLINT
                 "size of size_t should not be greater than that of a pointer");
   return reinterpret_cast<void*>(
-      base::HashPair(layer_id, static_cast<int>(index)));
+      base::HashInts(layer_id, static_cast<int>(index)));
 }
 
 }  // namespace cc

@@ -11,10 +11,9 @@ Unit tests for the contents of device_utils.py (mostly DeviceUtils).
 # pylint: disable=unused-argument
 
 import logging
-import os
-import sys
 import unittest
 
+from devil import devil_env
 from devil.android import device_errors
 from devil.android import device_signal
 from devil.android import device_utils
@@ -23,11 +22,9 @@ from devil.android.sdk import intent
 from devil.android.sdk import version_codes
 from devil.utils import cmd_helper
 from devil.utils import mock_calls
-from pylib import constants
 
-sys.path.append(os.path.join(
-    constants.DIR_SOURCE_ROOT, 'third_party', 'pymock'))
-import mock # pylint: disable=F0401
+with devil_env.SysPath(devil_env.PYMOCK_PATH):
+  import mock # pylint: disable=import-error
 
 
 class _MockApkHelper(object):
@@ -71,17 +68,21 @@ class DeviceUtilsInitTest(unittest.TestCase):
 class DeviceUtilsGetAVDsTest(mock_calls.TestCase):
 
   def testGetAVDs(self):
-    with self.assertCall(
-        mock.call.devil.utils.cmd_helper.GetCmdOutput(
-            [mock.ANY, 'list', 'avd']),
-        'Available Android Virtual Devices:\n'
-        '    Name: my_android5.0\n'
-        '    Path: /some/path/to/.android/avd/my_android5.0.avd\n'
-        '  Target: Android 5.0 (API level 21)\n'
-        ' Tag/ABI: default/x86\n'
-        '    Skin: WVGA800\n'):
-      self.assertEquals(['my_android5.0'],
-                        device_utils.GetAVDs())
+    mocked_attrs = {
+      'android_sdk': '/my/sdk/path'
+    }
+    with mock.patch('devil.devil_env._Environment.LocalPath',
+                    mock.Mock(side_effect=lambda a: mocked_attrs[a])):
+      with self.assertCall(
+          mock.call.devil.utils.cmd_helper.GetCmdOutput(
+              [mock.ANY, 'list', 'avd']),
+          'Available Android Virtual Devices:\n'
+          '    Name: my_android5.0\n'
+          '    Path: /some/path/to/.android/avd/my_android5.0.avd\n'
+          '  Target: Android 5.0 (API level 21)\n'
+          ' Tag/ABI: default/x86\n'
+          '    Skin: WVGA800\n'):
+        self.assertEquals(['my_android5.0'], device_utils.GetAVDs())
 
 
 class DeviceUtilsRestartServerTest(mock_calls.TestCase):
@@ -570,7 +571,8 @@ class DeviceUtilsInstallTest(DeviceUtilsTest):
     with self.patch_call(self.call.device.build_version_sdk, return_value=23):
       with self.assertCalls(
           (self.call.device._GetApplicationPathsInternal('test.package'), []),
-          self.call.adb.Install('/fake/test/app.apk', reinstall=False),
+          self.call.adb.Install('/fake/test/app.apk', reinstall=False,
+                                allow_downgrade=False),
           (self.call.device.GrantPermissions('test.package', ['p1']), [])):
         self.device.Install(DeviceUtilsInstallTest.mock_apk, retries=0)
 
@@ -578,21 +580,24 @@ class DeviceUtilsInstallTest(DeviceUtilsTest):
     with self.patch_call(self.call.device.build_version_sdk, return_value=20):
       with self.assertCalls(
           (self.call.device._GetApplicationPathsInternal('test.package'), []),
-          (self.call.adb.Install('/fake/test/app.apk', reinstall=False))):
+          (self.call.adb.Install('/fake/test/app.apk', reinstall=False,
+                                 allow_downgrade=False))):
         self.device.Install(DeviceUtilsInstallTest.mock_apk, retries=0)
 
   def testInstall_findPermissions(self):
     with self.patch_call(self.call.device.build_version_sdk, return_value=23):
       with self.assertCalls(
           (self.call.device._GetApplicationPathsInternal('test.package'), []),
-          (self.call.adb.Install('/fake/test/app.apk', reinstall=False)),
+          (self.call.adb.Install('/fake/test/app.apk', reinstall=False,
+                                 allow_downgrade=False)),
           (self.call.device.GrantPermissions('test.package', ['p1']), [])):
         self.device.Install(DeviceUtilsInstallTest.mock_apk, retries=0)
 
   def testInstall_passPermissions(self):
     with self.assertCalls(
         (self.call.device._GetApplicationPathsInternal('test.package'), []),
-        (self.call.adb.Install('/fake/test/app.apk', reinstall=False)),
+        (self.call.adb.Install('/fake/test/app.apk', reinstall=False,
+                               allow_downgrade=False)),
         (self.call.device.GrantPermissions('test.package', ['p1', 'p2']), [])):
       self.device.Install(DeviceUtilsInstallTest.mock_apk, retries=0,
                           permissions=['p1', 'p2'])
@@ -605,7 +610,8 @@ class DeviceUtilsInstallTest(DeviceUtilsTest):
             ['/fake/test/app.apk']),
          (['/fake/test/app.apk'], None)),
         self.call.device.Uninstall('test.package'),
-        self.call.adb.Install('/fake/test/app.apk', reinstall=False)):
+        self.call.adb.Install('/fake/test/app.apk', reinstall=False,
+                              allow_downgrade=False)):
       self.device.Install(DeviceUtilsInstallTest.mock_apk, retries=0,
                           permissions=[])
 
@@ -616,7 +622,8 @@ class DeviceUtilsInstallTest(DeviceUtilsTest):
         (self.call.device._ComputeStaleApks('test.package',
             ['/fake/test/app.apk']),
          (['/fake/test/app.apk'], None)),
-        self.call.adb.Install('/fake/test/app.apk', reinstall=True)):
+        self.call.adb.Install('/fake/test/app.apk', reinstall=True,
+                              allow_downgrade=False)):
       self.device.Install(DeviceUtilsInstallTest.mock_apk,
           reinstall=True, retries=0, permissions=[])
 
@@ -634,10 +641,24 @@ class DeviceUtilsInstallTest(DeviceUtilsTest):
   def testInstall_fails(self):
     with self.assertCalls(
         (self.call.device._GetApplicationPathsInternal('test.package'), []),
-        (self.call.adb.Install('/fake/test/app.apk', reinstall=False),
+        (self.call.adb.Install('/fake/test/app.apk', reinstall=False,
+                               allow_downgrade=False),
          self.CommandError('Failure\r\n'))):
       with self.assertRaises(device_errors.CommandFailedError):
         self.device.Install(DeviceUtilsInstallTest.mock_apk, retries=0)
+
+  def testInstall_downgrade(self):
+    with self.assertCalls(
+        (self.call.device._GetApplicationPathsInternal('test.package'),
+         ['/fake/data/app/test.package.apk']),
+        (self.call.device._ComputeStaleApks('test.package',
+            ['/fake/test/app.apk']),
+         (['/fake/test/app.apk'], None)),
+        self.call.adb.Install('/fake/test/app.apk', reinstall=True,
+                              allow_downgrade=True)):
+      self.device.Install(DeviceUtilsInstallTest.mock_apk,
+          reinstall=True, retries=0, permissions=[], allow_downgrade=True)
+
 
 class DeviceUtilsInstallSplitApkTest(DeviceUtilsTest):
 
@@ -653,7 +674,8 @@ class DeviceUtilsInstallSplitApkTest(DeviceUtilsTest):
          ['split2.apk']),
         (self.call.device._GetApplicationPathsInternal('test.package'), []),
         (self.call.adb.InstallMultiple(
-            ['base.apk', 'split2.apk'], partial=None, reinstall=False))):
+            ['base.apk', 'split2.apk'], partial=None, reinstall=False,
+            allow_downgrade=False))):
       self.device.InstallSplitApk(DeviceUtilsInstallSplitApkTest.mock_apk,
           ['split1.apk', 'split2.apk', 'split3.apk'], permissions=[], retries=0)
 
@@ -671,10 +693,32 @@ class DeviceUtilsInstallSplitApkTest(DeviceUtilsTest):
                                             ['base.apk', 'split2.apk']),
          (['split2.apk'], None)),
         (self.call.adb.InstallMultiple(
-            ['split2.apk'], partial='test.package', reinstall=True))):
+            ['split2.apk'], partial='test.package', reinstall=True,
+            allow_downgrade=False))):
       self.device.InstallSplitApk(DeviceUtilsInstallSplitApkTest.mock_apk,
                                   ['split1.apk', 'split2.apk', 'split3.apk'],
                                   reinstall=True, permissions=[], retries=0)
+
+  def testInstallSplitApk_downgrade(self):
+    with self.assertCalls(
+        (self.call.device._CheckSdkLevel(21)),
+        (mock.call.devil.android.sdk.split_select.SelectSplits(
+            self.device, 'base.apk',
+            ['split1.apk', 'split2.apk', 'split3.apk'],
+            allow_cached_props=False),
+         ['split2.apk']),
+        (self.call.device._GetApplicationPathsInternal('test.package'),
+         ['base-on-device.apk', 'split2-on-device.apk']),
+        (self.call.device._ComputeStaleApks('test.package',
+                                            ['base.apk', 'split2.apk']),
+         (['split2.apk'], None)),
+        (self.call.adb.InstallMultiple(
+            ['split2.apk'], partial='test.package', reinstall=True,
+            allow_downgrade=True))):
+      self.device.InstallSplitApk(DeviceUtilsInstallSplitApkTest.mock_apk,
+                                  ['split1.apk', 'split2.apk', 'split3.apk'],
+                                  reinstall=True, permissions=[], retries=0,
+                                  allow_downgrade=True)
 
 
 class DeviceUtilsUninstallTest(DeviceUtilsTest):
@@ -1458,32 +1502,45 @@ class DeviceUtilsPushChangedFilesZippedTest(DeviceUtilsTest):
 
 class DeviceUtilsPathExistsTest(DeviceUtilsTest):
 
-  def testPathExists_usingTest_pathExists(self):
+  def testPathExists_pathExists(self):
     with self.assertCall(
         self.call.device.RunShellCommand(
-            "test -e '/path/file exists';echo $?",
-            check_return=True, timeout=None, retries=None), ['0']):
+            "test -e '/path/file exists'",
+            as_root=False, check_return=True, timeout=10, retries=0),
+        []):
       self.assertTrue(self.device.PathExists('/path/file exists'))
 
-  def testPathExists_usingTest_multiplePathExists(self):
+  def testPathExists_multiplePathExists(self):
     with self.assertCall(
         self.call.device.RunShellCommand(
-            "test -e '/path 1' -a -e /path2;echo $?",
-            check_return=True, timeout=None, retries=None), ['0']):
+            "test -e '/path 1' -a -e /path2",
+            as_root=False, check_return=True, timeout=10, retries=0),
+        []):
       self.assertTrue(self.device.PathExists(('/path 1', '/path2')))
 
-  def testPathExists_usingTest_pathDoesntExist(self):
+  def testPathExists_pathDoesntExist(self):
     with self.assertCall(
         self.call.device.RunShellCommand(
-            "test -e /path/file.not.exists;echo $?",
-            check_return=True, timeout=None, retries=None), ['1']):
+            "test -e /path/file.not.exists",
+            as_root=False, check_return=True, timeout=10, retries=0),
+        self.ShellError()):
       self.assertFalse(self.device.PathExists('/path/file.not.exists'))
 
-  def testFileExists_usingTest_pathDoesntExist(self):
+  def testPathExists_asRoot(self):
     with self.assertCall(
         self.call.device.RunShellCommand(
-            "test -e /path/file.not.exists;echo $?",
-            check_return=True, timeout=None, retries=None), ['1']):
+            "test -e /root/path/exists",
+            as_root=True, check_return=True, timeout=10, retries=0),
+        self.ShellError()):
+      self.assertFalse(
+          self.device.PathExists('/root/path/exists', as_root=True))
+
+  def testFileExists_pathDoesntExist(self):
+    with self.assertCall(
+        self.call.device.RunShellCommand(
+            "test -e /path/file.not.exists",
+            as_root=False, check_return=True, timeout=10, retries=0),
+        self.ShellError()):
       self.assertFalse(self.device.FileExists('/path/file.not.exists'))
 
 
@@ -1774,6 +1831,16 @@ class DeviceUtilsSetJavaAssertsTest(DeviceUtilsTest):
     with self.assertCalls(
         (self.call.device.ReadFile(self.device.LOCAL_PROPERTIES_PATH),
          'some.example.prop=with an example value\n'
+         'dalvik.vm.enableassertions=all\n'
+         'some.other.prop=value_ok\n'),
+        (self.call.device.GetProp('dalvik.vm.enableassertions'), 'all')):
+      self.assertFalse(self.device.SetJavaAsserts(True))
+
+  def testSetJavaAsserts_malformedLocalProp(self):
+    with self.assertCalls(
+        (self.call.device.ReadFile(self.device.LOCAL_PROPERTIES_PATH),
+         'some.example.prop=with an example value\n'
+         'malformed_property\n'
          'dalvik.vm.enableassertions=all\n'
          'some.other.prop=value_ok\n'),
         (self.call.device.GetProp('dalvik.vm.enableassertions'), 'all')):

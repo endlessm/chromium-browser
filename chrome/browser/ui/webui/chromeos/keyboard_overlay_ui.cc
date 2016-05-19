@@ -4,13 +4,15 @@
 
 #include "chrome/browser/ui/webui/chromeos/keyboard_overlay_ui.h"
 
+#include <stddef.h>
+
 #include "ash/display/display_manager.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
@@ -19,6 +21,7 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -38,7 +41,7 @@ namespace {
 const char kLearnMoreURL[] =
 #if defined(OFFICIAL_BUILD)
     "chrome-extension://honijodknafkokifofgiaalefdiedpko/"
-    "main.html?answer=188743";
+    "main.html?answer=1047364";
 #else
     "https://support.google.com/chromebook/answer/183101";
 #endif

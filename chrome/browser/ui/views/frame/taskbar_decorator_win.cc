@@ -12,7 +12,6 @@
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
-#include "chrome/browser/ui/host_desktop.h"
 #include "content/public/browser/browser_thread.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
@@ -59,20 +58,17 @@ void SetOverlayIcon(HWND hwnd, scoped_ptr<SkBitmap> bitmap) {
     SkCanvas offscreen_canvas(offscreen_bitmap);
     offscreen_canvas.clear(SK_ColorTRANSPARENT);
     offscreen_canvas.drawBitmap(sk_icon, 0, kOverlayIconSize - resized_height);
-    icon.Set(IconUtil::CreateHICONFromSkBitmap(offscreen_bitmap));
-    if (!icon.Get())
+    icon = IconUtil::CreateHICONFromSkBitmap(offscreen_bitmap).Pass();
+    if (!icon.is_valid())
       return;
   }
-  taskbar->SetOverlayIcon(hwnd, icon, L"");
+  taskbar->SetOverlayIcon(hwnd, icon.get(), L"");
 }
 
 }  // namespace
 
 void DrawTaskbarDecoration(gfx::NativeWindow window, const gfx::Image* image) {
-  // HOST_DESKTOP_TYPE_ASH doesn't use the taskbar.
-  if (base::win::GetVersion() < base::win::VERSION_WIN7 ||
-      chrome::GetHostDesktopTypeForNativeWindow(window) !=
-      chrome::HOST_DESKTOP_TYPE_NATIVE)
+  if (base::win::GetVersion() < base::win::VERSION_WIN7)
     return;
 
   HWND hwnd = views::HWNDForNativeWindow(window);
@@ -90,7 +86,7 @@ void DrawTaskbarDecoration(gfx::NativeWindow window, const gfx::Image* image) {
         profiles::GetAvatarIconAsSquare(*image->ToSkBitmap(), 1)));
   }
   content::BrowserThread::GetBlockingPool()->PostWorkerTaskWithShutdownBehavior(
-      FROM_HERE, base::Bind(&SetOverlayIcon, hwnd, Passed(&bitmap)),
+      FROM_HERE, base::Bind(&SetOverlayIcon, hwnd, base::Passed(&bitmap)),
       base::SequencedWorkerPool::CONTINUE_ON_SHUTDOWN);
 }
 

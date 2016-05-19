@@ -4,6 +4,8 @@
 
 #include "ui/base/ime/candidate_window.h"
 
+#include <stddef.h>
+
 #include <string>
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
@@ -96,6 +98,8 @@ CandidateWindow::CandidateWindowProperty::~CandidateWindowProperty() {
 
 CandidateWindow::Entry::Entry() {
 }
+
+CandidateWindow::Entry::Entry(const Entry& other) = default;
 
 CandidateWindow::Entry::~Entry() {
 }

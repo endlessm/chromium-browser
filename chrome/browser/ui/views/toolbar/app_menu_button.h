@@ -9,7 +9,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/toolbar/app_menu_icon_painter.h"
-#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/button/menu_button_listener.h"
 #include "ui/views/view.h"
@@ -18,15 +17,14 @@ class AppMenu;
 class AppMenuModel;
 
 namespace views {
-class InkDropAnimationController;
+class InkDropDelegate;
 class LabelButtonBorder;
 class MenuListener;
 }
 
 class ToolbarView;
 
-class AppMenuButton : public views::InkDropHost,
-                      public views::MenuButton,
+class AppMenuButton : public views::MenuButton,
                       public AppMenuIconPainter::Delegate {
  public:
   explicit AppMenuButton(ToolbarView* toolbar_view);
@@ -62,23 +60,27 @@ class AppMenuButton : public views::InkDropHost,
   // Only used in MD.
   void UpdateIcon();
 
+  // Sets |margin_trailing_| when the browser is maximized and updates layout
+  // to make the focus rectangle centered.
+  void SetTrailingMargin(int margin);
+
   // Opens the app menu immediately during a drag-and-drop operation.
   // Used only in testing.
   static bool g_open_app_immediately_for_testing;
 
  private:
-  // views::InkDropHost:
-  void AddInkDropLayer(ui::Layer* ink_drop_layer) override;
-  void RemoveInkDropLayer(ui::Layer* ink_drop_layer) override;
+  // views::MenuButton:
+  gfx::Point GetInkDropCenter() const override;
 
   // views::MenuButton:
   const char* GetClassName() const override;
+  scoped_ptr<views::LabelButtonBorder> CreateDefaultBorder() const override;
+  gfx::Rect GetThemePaintRect() const override;
   bool GetDropFormats(
       int* formats,
       std::set<ui::Clipboard::FormatType>* format_types) override;
   bool AreDropTypesRequired() override;
   bool CanDrop(const ui::OSExchangeData& data) override;
-  void Layout() override;
   void OnDragEntered(const ui::DropTargetEvent& event) override;
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
@@ -90,9 +92,6 @@ class AppMenuButton : public views::InkDropHost,
 
   // Only used in MD.
   AppMenuIconPainter::Severity severity_;
-
-  // Animation controller for the ink drop ripple effect.
-  scoped_ptr<views::InkDropAnimationController> ink_drop_animation_controller_;
 
   // Our owning toolbar view.
   ToolbarView* toolbar_view_;
@@ -110,9 +109,13 @@ class AppMenuButton : public views::InkDropHost,
   scoped_ptr<AppMenuModel> menu_model_;
   scoped_ptr<AppMenu> menu_;
 
-  // Used by ShowMenu() to detect when |this| has been deleted; see comments
-  // there.
-  bool* destroyed_;
+
+  // Any trailing margin to be applied. Used when the browser is in
+  // a maximized state to extend to the full window width.
+  int margin_trailing_;
+
+  // Controls the visual feedback for the button state.
+  scoped_ptr<views::InkDropDelegate> ink_drop_delegate_;
 
   // Used to spawn weak pointers for delayed tasks to open the overflow menu.
   base::WeakPtrFactory<AppMenuButton> weak_factory_;

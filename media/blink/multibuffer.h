@@ -5,6 +5,7 @@
 #ifndef MEDIA_BLINK_MULTIBUFFER_H_
 #define MEDIA_BLINK_MULTIBUFFER_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <limits>
@@ -14,8 +15,11 @@
 
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
+#include "base/hash.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "media/base/data_buffer.h"
 #include "media/blink/interval_map.h"
 #include "media/blink/lru.h"
@@ -23,8 +27,14 @@
 
 namespace media {
 
+// Used to identify a block of data in the multibuffer.
+// Our blocks are 32kb (1 << 15), so our maximum cacheable file size
+// is 1 << (15 + 31) = 64Tb
 typedef int32_t MultiBufferBlockId;
 class MultiBuffer;
+
+// This type is used to identify a block in the LRU, which is shared between
+// multibuffers.
 typedef std::pair<MultiBuffer*, MultiBufferBlockId> MultiBufferGlobalBlockId;
 
 }  // namespace media
@@ -34,15 +44,7 @@ namespace BASE_HASH_NAMESPACE {
 template <>
 struct hash<media::MultiBufferGlobalBlockId> {
   std::size_t operator()(const media::MultiBufferGlobalBlockId& key) const {
-// It would be nice if we could use intptr_t instead of int64_t here, but
-// on some platforms, int64_t is declared as "long" which doesn't match
-// any of the HashPair() functions. This leads to a compile error since
-// the compiler can't decide which HashPair() function to call.
-#if defined(ARCH_CPU_64_BITS)
-    return base::HashPair(reinterpret_cast<int64_t>(key.first), key.second);
-#else
-    return base::HashPair(reinterpret_cast<int32_t>(key.first), key.second);
-#endif
+    return base::HashInts(reinterpret_cast<uintptr_t>(key.first), key.second);
   }
 };
 
@@ -71,8 +73,6 @@ const int kMaxWaitForWriterOffset = 5;
 
 // This is the size of the look-behind region.
 const int kMaxWaitForReaderOffset = 50;
-
-class MultiBuffer;
 
 // MultiBuffers are multi-reader multi-writer cache/buffers with
 // prefetching and pinning. Data is stored internally in ref-counted
@@ -118,9 +118,6 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
     // and after the last block we will get an end-of-stream
     // DataBuffer.
     virtual scoped_refptr<DataBuffer> Read() = 0;
-
-    // |cb| is called every time Available() becomes true.
-    virtual void SetAvailableCallback(const base::Closure& cb) = 0;
 
     // Ask the data provider to stop giving us data.
     // It's ok if the effect is not immediate.
@@ -229,8 +226,8 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   // not call it anymore.
   scoped_ptr<DataProvider> RemoveProvider(DataProvider* provider);
 
-  // Add a writer to this cache. Cache takes ownership and
-  // may choose to destroy it.
+  // Add a writer to this cache. Cache takes ownership, and may
+  // destroy |provider| later. (Not during this call.)
   void AddProvider(scoped_ptr<DataProvider> provider);
 
   // Transfer all data from |other| to this.
@@ -240,12 +237,22 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   const DataMap& map() const { return data_; }
   int32_t block_size_shift() const { return block_size_shift_; }
 
+  // Callback which notifies us that a data provider has
+  // some data for us. Also called when it might be appropriate
+  // for a provider in a deferred state to wake up.
+  void OnDataProviderEvent(DataProvider* provider);
+
  protected:
   // Create a new writer at |pos| and return it.
   // Users needs to implemement this method.
-  virtual DataProvider* CreateWriter(const BlockId& pos) = 0;
+  virtual scoped_ptr<DataProvider> CreateWriter(const BlockId& pos) = 0;
 
   virtual bool RangeSupported() const = 0;
+
+  // Called when the cache becomes empty. Implementations can use this
+  // as a signal for when we should free this object and any metadata
+  // that goes with it.
+  virtual void OnEmpty();
 
  private:
   // For testing.
@@ -276,11 +283,6 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   void NotifyAvailableRange(const Interval<MultiBufferBlockId>& observer_range,
                             const Interval<MultiBufferBlockId>& new_range);
 
-  // Callback which notifies us that a data provider has
-  // some data for us. Also called when it might be apprperiate
-  // for a provider in a deferred state to wake up.
-  void DataProviderEvent(DataProvider* provider);
-
   // Max number of blocks.
   int64_t max_size_;
 
@@ -295,8 +297,7 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
 
   // Keeps track of writers by their position.
   // The writers are owned by this class.
-  // TODO(hubbe): Use ScopedPtrMap here. (must add upper/lower_bound first)
-  std::map<BlockId, DataProvider*> writer_index_;
+  std::map<BlockId, scoped_ptr<DataProvider>> writer_index_;
 
   // Gloabally shared LRU, decides which block to free next.
   scoped_refptr<GlobalLRU> lru_;
@@ -310,6 +311,8 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   // and 0 for all blocks that are not. Used to quickly figure out
   // ranges of available/unavailable blocks without iterating.
   IntervalMap<BlockId, int32_t> present_;
+
+  DISALLOW_COPY_AND_ASSIGN(MultiBuffer);
 };
 
 }  // namespace media

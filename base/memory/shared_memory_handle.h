@@ -5,6 +5,8 @@
 #ifndef BASE_MEMORY_SHARED_MEMORY_HANDLE_H_
 #define BASE_MEMORY_SHARED_MEMORY_HANDLE_H_
 
+#include <stddef.h>
+
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
@@ -62,6 +64,9 @@ class BASE_EXPORT SharedMemoryHandle {
   // an instance of this class is passed over a Chrome IPC channel.
   bool NeedsBrokering() const;
 
+  void SetOwnershipPassesToIPC(bool ownership_passes);
+  bool OwnershipPassesToIPC() const;
+
   HANDLE GetHandle() const;
   base::ProcessId GetPID() const;
 
@@ -71,6 +76,13 @@ class BASE_EXPORT SharedMemoryHandle {
   // The process in which |handle_| is valid and can be used. If |handle_| is
   // invalid, this will be kNullProcessId.
   base::ProcessId pid_;
+
+  // Whether passing this object as a parameter to an IPC message passes
+  // ownership of |handle_| to the IPC stack. This is meant to mimic the
+  // behavior of the |auto_close| parameter of FileDescriptor. This member only
+  // affects attachment-brokered SharedMemoryHandles.
+  // Defaults to |false|.
+  bool ownership_passes_to_ipc_;
 };
 #else
 class BASE_EXPORT SharedMemoryHandle {

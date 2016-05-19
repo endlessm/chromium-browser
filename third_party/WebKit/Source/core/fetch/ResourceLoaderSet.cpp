@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/fetch/ResourceLoaderSet.h"
 
 #include "wtf/Vector.h"
@@ -61,4 +60,4 @@ void ResourceLoaderSet::setAllDefersLoading(bool defers)
         loader->setDefersLoading(defers);
 }
 
-}
+} // namespace blink

@@ -15,10 +15,9 @@
 #include "base/metrics/sparse_histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_member.h"
-#include "base/prefs/pref_service.h"
 #include "base/profiler/scoped_tracker.h"
-#include "components/domain_reliability/monitor.h"
+#include "components/prefs/pref_member.h"
+#include "components/prefs/pref_service.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/web/public/web_thread.h"
 #include "net/base/load_flags.h"
@@ -27,10 +26,6 @@
 #include "net/http/http_status_code.h"
 #include "net/log/net_log.h"
 #include "net/url_request/url_request.h"
-
-#if defined(ENABLE_CONFIGURATION_POLICY)
-#include "components/policy/core/browser/url_blacklist_manager.h"
-#endif
 
 namespace {
 
@@ -72,12 +67,7 @@ void RecordNetworkErrorHistograms(const net::URLRequest* request) {
 }  // namespace
 
 IOSChromeNetworkDelegate::IOSChromeNetworkDelegate()
-    : enable_do_not_track_(nullptr),
-#if defined(ENABLE_CONFIGURATION_POLICY)
-      url_blacklist_manager_(nullptr),
-#endif
-      domain_reliability_monitor_(nullptr) {
-}
+    : enable_do_not_track_(nullptr) {}
 
 IOSChromeNetworkDelegate::~IOSChromeNetworkDelegate() {}
 
@@ -85,9 +75,9 @@ IOSChromeNetworkDelegate::~IOSChromeNetworkDelegate() {}
 void IOSChromeNetworkDelegate::InitializePrefsOnUIThread(
     BooleanPrefMember* enable_do_not_track,
     PrefService* pref_service) {
-  DCHECK_CURRENTLY_ON_WEB_THREAD(web::WebThread::UI);
+  DCHECK_CURRENTLY_ON(web::WebThread::UI);
   if (enable_do_not_track) {
-    enable_do_not_track->Init(ios::prefs::kEnableDoNotTrack, pref_service);
+    enable_do_not_track->Init(prefs::kEnableDoNotTrack, pref_service);
     enable_do_not_track->MoveToThread(
         web::WebThread::GetTaskRunnerForThread(web::WebThread::IO));
   }
@@ -101,22 +91,6 @@ int IOSChromeNetworkDelegate::OnBeforeURLRequest(
   tracked_objects::ScopedTracker tracking_profile1(
       FROM_HERE_WITH_EXPLICIT_FUNCTION(
           "456327 URLRequest::IOSChromeNetworkDelegate::OnBeforeURLRequest"));
-
-#if defined(ENABLE_CONFIGURATION_POLICY)
-  int error = net::ERR_BLOCKED_BY_ADMINISTRATOR;
-  // iOS cannot check the resource type, block everything.
-  // See http://crbug.com/338283 and http://crbug.com/489704
-  if (url_blacklist_manager_ &&
-      url_blacklist_manager_->ShouldBlockRequestForFrame(request->url(),
-                                                         &error)) {
-    // URL access blocked by policy.
-    request->net_log().AddEvent(
-        net::NetLog::TYPE_CHROME_POLICY_ABORTED_REQUEST,
-        net::NetLog::StringCallback("url",
-                                    &request->url().possibly_invalid_spec()));
-    return error;
-  }
-#endif
 
   // TODO(mmenke): Remove ScopedTracker below once crbug.com/456327 is fixed.
   tracked_objects::ScopedTracker tracking_profile2(
@@ -134,17 +108,9 @@ int IOSChromeNetworkDelegate::OnBeforeURLRequest(
   return net::OK;
 }
 
-void IOSChromeNetworkDelegate::OnBeforeRedirect(net::URLRequest* request,
-                                                const GURL& new_location) {
-  if (domain_reliability_monitor_)
-    domain_reliability_monitor_->OnBeforeRedirect(request);
-}
-
 void IOSChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
                                            bool started) {
   RecordNetworkErrorHistograms(request);
-  if (domain_reliability_monitor_)
-    domain_reliability_monitor_->OnCompleted(request, started);
 }
 
 net::NetworkDelegate::AuthRequiredResponse

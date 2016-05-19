@@ -5,11 +5,13 @@
 #ifndef NET_SPDY_HPACK_DECODER_H_
 #define NET_SPDY_HPACK_DECODER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "net/base/net_export.h"
@@ -23,8 +25,6 @@
 
 namespace net {
 
-class HpackHuffmanTable;
-
 namespace test {
 class HpackDecoderPeer;
 }  // namespace test
@@ -33,9 +33,7 @@ class NET_EXPORT_PRIVATE HpackDecoder {
  public:
   friend class test::HpackDecoderPeer;
 
-  // |table| is an initialized HPACK Huffman table, having an
-  // externally-managed lifetime which spans beyond HpackDecoder.
-  explicit HpackDecoder(const HpackHuffmanTable& table);
+  HpackDecoder();
   ~HpackDecoder();
 
   // Called upon acknowledgement of SETTINGS_HEADER_TABLE_SIZE.
@@ -47,6 +45,7 @@ class NET_EXPORT_PRIVATE HpackDecoder {
   // headers to it rather than accumulating them in a SpdyHeaderBlock.
   void HandleControlFrameHeadersStart(SpdyHeadersHandlerInterface* handler) {
     handler_ = handler;
+    total_header_bytes_ = 0;
   }
 
   // Called as headers data arrives. Returns false if an error occurred.
@@ -91,7 +90,7 @@ class NET_EXPORT_PRIVATE HpackDecoder {
   bool HandleHeaderRepresentation(base::StringPiece name,
                                   base::StringPiece value);
 
-  const uint32 max_string_literal_size_;
+  const uint32_t max_string_literal_size_;
   HpackHeaderTable header_table_;
 
   // TODO(jgraettinger): Buffer for headers data, and storage for the last-
@@ -100,13 +99,12 @@ class NET_EXPORT_PRIVATE HpackDecoder {
   std::string headers_block_buffer_;
   SpdyHeaderBlock decoded_block_;
 
-  // Huffman table to be applied to decoded Huffman literals,
-  // and scratch space for storing those decoded literals.
-  const HpackHuffmanTable& huffman_table_;
+  // Scratch space for storing decoded literals.
   std::string key_buffer_, value_buffer_;
 
   // If non-NULL, handles decoded headers.
   SpdyHeadersHandlerInterface* handler_;
+  size_t total_header_bytes_;
 
   // Flag to keep track of having seen a regular header field.
   bool regular_header_seen_;

@@ -8,10 +8,12 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
+#include "grit/components_strings.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -259,19 +261,11 @@ void BookmarkAppBubbleView::UpdateAddButtonState() {
 }
 
 int BookmarkAppBubbleView::TitleStringId() {
-  int string_id = IDS_ADD_TO_DESKTOP_BUBBLE_TITLE;
-#if defined(OS_WIN)
-  if (base::win::CanPinShortcutToTaskbar())
-    string_id = IDS_ADD_TO_TASKBAR_BUBBLE_TITLE;
-#endif  // defined(OS_WIN)
 #if defined(USE_ASH)
-  if (chrome::GetHostDesktopTypeForNativeWindow(
-          anchor_widget()->GetNativeWindow()) ==
-      chrome::HOST_DESKTOP_TYPE_ASH) {
-    string_id = IDS_ADD_TO_SHELF_BUBBLE_TITLE;
-  }
+  return IDS_ADD_TO_SHELF_BUBBLE_TITLE;
+#else
+  return IDS_ADD_TO_DESKTOP_BUBBLE_TITLE;
 #endif
-  return string_id;
 }
 
 base::string16 BookmarkAppBubbleView::GetTrimmedTitle() {

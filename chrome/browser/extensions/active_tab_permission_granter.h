@@ -8,6 +8,7 @@
 #include <set>
 #include <string>
 
+#include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "extensions/browser/extension_registry_observer.h"
@@ -39,6 +40,9 @@ class ActiveTabPermissionGranter
   // If |extension| has the activeTab or tabCapture permission, grants
   // tab-specific permissions to it until the next page navigation or refresh.
   void GrantIfRequested(const Extension* extension);
+
+  // Clears tab-specific permissions for all extensions. Used only for testing.
+  void RevokeForTesting();
 
  private:
   // content::WebContentsObserver implementation.

@@ -16,9 +16,9 @@
 #include "printing/printing_context_system_dialog_win.h"
 #include "printing/printing_utils.h"
 #include "printing/units.h"
-#include "skia/ext/platform_device.h"
-#include "ui/aura/remote_window_tree_host_win.h"
+#include "skia/ext/skia_utils_win.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_tree_host.h"
 
 namespace printing {
 

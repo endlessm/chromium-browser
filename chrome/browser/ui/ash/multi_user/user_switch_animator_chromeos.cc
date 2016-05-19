@@ -13,6 +13,7 @@
 #include "ash/wm/window_positioner.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
+#include "base/macros.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_notification_blocker_chromeos.h"
@@ -110,6 +111,7 @@ UserSwitchAnimatorChromeOS::UserSwitchAnimatorChromeOS(
       animation_step_(ANIMATION_STEP_HIDE_OLD_USER),
       screen_cover_(GetScreenCover(NULL)),
       windows_by_account_id_() {
+  ash::Shell::GetInstance()->DismissAppList();
   BuildUserToWindowsListMap();
   AdvanceUserTransitionAnimation();
 
@@ -139,8 +141,8 @@ bool UserSwitchAnimatorChromeOS::CoversScreen(aura::Window* window) {
   if (ash::wm::GetWindowState(window)->IsFullscreen())
     return true;
   gfx::Rect bounds = window->GetBoundsInRootWindow();
-  gfx::Rect work_area = gfx::Screen::GetScreenFor(window)->
-      GetDisplayNearestWindow(window).work_area();
+  gfx::Rect work_area =
+      gfx::Screen::GetScreen()->GetDisplayNearestWindow(window).work_area();
   bounds.Intersect(work_area);
   return work_area == bounds;
 }
@@ -193,22 +195,20 @@ void UserSwitchAnimatorChromeOS::TransitionWallpaper(
     wallpaper_delegate->SetAnimationDurationOverride(
         std::max(duration, kMinimalAnimationTimeMS));
     if (screen_cover_ != NEW_USER_COVERS_SCREEN) {
-      chromeos::WallpaperManager::Get()->SetUserWallpaperNow(
-          new_account_id_.GetUserEmail());
+      chromeos::WallpaperManager::Get()->SetUserWallpaperNow(new_account_id_);
       wallpaper_user_id_for_test_ =
           (NO_USER_COVERS_SCREEN == screen_cover_ ? "->" : "") +
-          new_account_id_.GetUserEmail();
+          new_account_id_.Serialize();
     }
   } else if (animation_step == ANIMATION_STEP_FINALIZE) {
     // Revert the wallpaper cross dissolve animation duration back to the
     // default.
     if (screen_cover_ == NEW_USER_COVERS_SCREEN)
-      chromeos::WallpaperManager::Get()->SetUserWallpaperNow(
-          new_account_id_.GetUserEmail());
+      chromeos::WallpaperManager::Get()->SetUserWallpaperNow(new_account_id_);
 
     // Coming here the wallpaper user id is the final result. No matter how we
     // got here.
-    wallpaper_user_id_for_test_ = new_account_id_.GetUserEmail();
+    wallpaper_user_id_for_test_ = new_account_id_.Serialize();
     wallpaper_delegate->SetAnimationDurationOverride(0);
   }
 }

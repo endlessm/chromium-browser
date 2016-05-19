@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGString.h"
 
 #include "core/svg/SVGAnimateElement.h"
@@ -45,4 +44,4 @@ float SVGString::calculateDistance(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGE
     return -1;
 }
 
-}
+} // namespace blink

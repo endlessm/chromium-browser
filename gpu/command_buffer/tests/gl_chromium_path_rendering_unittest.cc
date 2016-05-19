@@ -5,6 +5,8 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2extchromium.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <cmath>
 
 #include "base/command_line.h"
@@ -148,7 +150,7 @@ class CHROMIUMPathRenderingDrawTest : public CHROMIUMPathRenderingTest {
     SCOPED_TRACE(testing::Message() << "Verifying fill at " << x << "," << y);
     static const float kFillCoords[] = {55.0f, 54.0f, 50.0f,
                                         28.0f, 66.0f, 63.0f};
-    static const uint8 kBlue[] = {0, 0, 255, 255};
+    static const uint8_t kBlue[] = {0, 0, 255, 255};
 
     for (size_t i = 0; i < arraysize(kFillCoords); i += 2) {
       float fx = kFillCoords[i];
@@ -162,7 +164,7 @@ class CHROMIUMPathRenderingDrawTest : public CHROMIUMPathRenderingTest {
     SCOPED_TRACE(testing::Message() << "Verifying background at " << x << ","
                                     << y);
     const float kBackgroundCoords[] = {80.0f, 80.0f, 20.0f, 20.0f, 90.0f, 1.0f};
-    const uint8 kExpectedColor[] = {0, 0, 0, 0};
+    const uint8_t kExpectedColor[] = {0, 0, 0, 0};
 
     for (size_t i = 0; i < arraysize(kBackgroundCoords); i += 2) {
       float bx = kBackgroundCoords[i];
@@ -176,12 +178,12 @@ class CHROMIUMPathRenderingDrawTest : public CHROMIUMPathRenderingTest {
   void VerifyTestPatternStroke(float x, float y) {
     SCOPED_TRACE(testing::Message() << "Verifying stroke at " << x << "," << y);
     // Inside the stroke we should have green.
-    const uint8 kGreen[] = {0, 255, 0, 255};
+    const uint8_t kGreen[] = {0, 255, 0, 255};
     EXPECT_TRUE(GLTestHelper::CheckPixels(x + 50, y + 53, 1, 1, 0, kGreen));
     EXPECT_TRUE(GLTestHelper::CheckPixels(x + 26, y + 76, 1, 1, 0, kGreen));
 
     // Outside the path we should have black.
-    const uint8 black[] = {0, 0, 0, 0};
+    const uint8_t black[] = {0, 0, 0, 0};
     EXPECT_TRUE(GLTestHelper::CheckPixels(x + 10, y + 10, 1, 1, 0, black));
     EXPECT_TRUE(GLTestHelper::CheckPixels(x + 80, y + 80, 1, 1, 0, black));
   }
@@ -454,7 +456,7 @@ TEST_F(CHROMIUMPathRenderingTest, TestPathObjectState) {
 
   // Make sure nothing got drawn by the drawing commands that should not produce
   // anything.
-  const uint8 black[] = {0, 0, 0, 0};
+  const uint8_t black[] = {0, 0, 0, 0};
   EXPECT_TRUE(
       GLTestHelper::CheckPixels(0, 0, kResolution, kResolution, 0, black));
 }
@@ -1079,7 +1081,7 @@ TEST_P(CHROMIUMPathRenderingWithTexturingTest,
         float px = i * kShapeWidth;
         float py = j * kShapeHeight;
 
-        uint8 color[4];
+        uint8_t color[4];
         color[0] = roundf((px + fx) / kResolution * 255.0f);
         color[1] = roundf((py + fy) / kResolution * 255.0f);
         color[2] = 0;
@@ -1179,7 +1181,7 @@ TEST_P(CHROMIUMPathRenderingWithTexturingTest,
         float px = i * kShapeWidth;
         float py = j * kShapeHeight;
 
-        uint8 color[4];
+        uint8_t color[4];
         color[0] = roundf(fx / kShapeWidth * 255.0f);
         color[1] = roundf(fy / kShapeHeight * 255.0f);
         color[2] = 0;
@@ -1196,9 +1198,8 @@ TEST_P(CHROMIUMPathRenderingWithTexturingTest,
   EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
 }
 
-// Fails on Nexus 9
 TEST_P(CHROMIUMPathRenderingWithTexturingTest,
-       DISABLED_TestProgramPathFragmentInputGenArgs) {
+       TestProgramPathFragmentInputGenArgs) {
   if (!IsApplicable())
     return;
 
@@ -1583,7 +1584,7 @@ TEST_P(CHROMIUMPathRenderingWithTexturingTest,
           float px = i * kShapeWidth;
           float py = j * kShapeHeight;
 
-          uint8 color[4] = {0, 255, 0, 255};
+          uint8_t color[4] = {0, 255, 0, 255};
 
           EXPECT_TRUE(
               GLTestHelper::CheckPixels(px + fx, py + fy, 1, 1, 2, color));
@@ -1677,7 +1678,7 @@ TEST_P(CHROMIUMPathRenderingWithTexturingTest,
         float px = i * kShapeWidth;
         float py = j * kShapeHeight;
 
-        uint8 color[4] = {0, 255, 0, 255};
+        uint8_t color[4] = {0, 255, 0, 255};
 
         EXPECT_TRUE(
             GLTestHelper::CheckPixels(px + fx, py + fy, 1, 1, 2, color));
@@ -1687,6 +1688,91 @@ TEST_P(CHROMIUMPathRenderingWithTexturingTest,
 
   EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
   TeardownStateForTestPattern();
+}
+
+TEST_P(CHROMIUMPathRenderingWithTexturingTest, UnusedFragmentInputUpdate) {
+  if (!IsApplicable())
+    return;
+
+  // clang-format off
+  static const char* kVertexShaderString = SHADER(
+      attribute vec4 a_position;
+      void main() {
+        gl_Position = a_position;
+      }
+  );
+  static const char* kFragmentShaderString = SHADER(
+      precision mediump float;
+      uniform vec4 u_colorA;
+      uniform float u_colorU;
+      uniform vec4 u_colorC;
+      void main() {
+        gl_FragColor = u_colorA + u_colorC;
+      }
+  );
+  // clang-format on
+  const GLint kColorULocation = 1;
+  const GLint kNonexistingLocation = 5;
+  const GLint kUnboundLocation = 6;
+
+  GLuint vertex_shader =
+      GLTestHelper::LoadShader(GL_VERTEX_SHADER, kVertexShaderString);
+  GLuint fragment_shader =
+      GLTestHelper::LoadShader(GL_FRAGMENT_SHADER, kFragmentShaderString);
+  GLuint program = glCreateProgram();
+  glBindFragmentInputLocationCHROMIUM(program, kColorULocation, "u_colorU");
+  // The non-existing uniform should behave like existing, but optimized away
+  // uniform.
+  glBindFragmentInputLocationCHROMIUM(program, kNonexistingLocation,
+                                      "nonexisting");
+  // Let A and C be assigned automatic locations.
+  glAttachShader(program, vertex_shader);
+  glAttachShader(program, fragment_shader);
+  glLinkProgram(program);
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  EXPECT_EQ(1, linked);
+  glUseProgram(program);
+
+  GLfloat kColor[16] = {
+      0.0f,
+  };
+  // No errors on bound locations, since caller does not know
+  // if the driver optimizes them away or not.
+  glProgramPathFragmentInputGenCHROMIUM(program, kColorULocation,
+                                        GL_CONSTANT_CHROMIUM, 1, kColor);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // No errors on bound locations of names that do not exist
+  // in the shader. Otherwise it would be inconsistent wrt the
+  // optimization case.
+  glProgramPathFragmentInputGenCHROMIUM(program, kNonexistingLocation,
+                                        GL_CONSTANT_CHROMIUM, 1, kColor);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // The above are equal to updating -1.
+  glProgramPathFragmentInputGenCHROMIUM(program, -1, GL_CONSTANT_CHROMIUM, 1,
+                                        kColor);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // No errors when updating with other type either.
+  // The type can not be known with the non-existing case.
+  glProgramPathFragmentInputGenCHROMIUM(program, kColorULocation,
+                                        GL_CONSTANT_CHROMIUM, 4, kColor);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+  glProgramPathFragmentInputGenCHROMIUM(program, kNonexistingLocation,
+                                        GL_CONSTANT_CHROMIUM, 4, kColor);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+  glProgramPathFragmentInputGenCHROMIUM(program, -1, GL_CONSTANT_CHROMIUM, 4,
+                                        kColor);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // Updating an unbound, non-existing location still causes
+  // an error.
+  glProgramPathFragmentInputGenCHROMIUM(program, kUnboundLocation,
+                                        GL_CONSTANT_CHROMIUM, 4, kColor);
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_OPERATION), glGetError());
 }
 
 INSTANTIATE_TEST_CASE_P(WithAndWithoutShaderNameMapping,

@@ -4,7 +4,10 @@
 
 #include "mojo/public/cpp/bindings/lib/bindings_serialization.h"
 
-#include "mojo/public/cpp/environment/logging.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include "base/logging.h"
 
 namespace mojo {
 namespace internal {
@@ -40,7 +43,7 @@ void EncodePointer(const void* ptr, uint64_t* offset) {
 
   const char* p_obj = reinterpret_cast<const char*>(ptr);
   const char* p_slot = reinterpret_cast<const char*>(offset);
-  MOJO_DCHECK(p_obj > p_slot);
+  DCHECK(p_obj > p_slot);
 
   *offset = static_cast<uint64_t>(p_obj - p_slot);
 }
@@ -73,7 +76,7 @@ void DecodeHandle(Handle* handle, std::vector<Handle>* handles) {
     *handle = Handle();
     return;
   }
-  MOJO_DCHECK(handle->value() < handles->size());
+  DCHECK(handle->value() < handles->size());
   // Just leave holes in the vector so we don't screw up other indices.
   *handle = FetchAndReset(&handles->at(handle->value()));
 }
@@ -85,6 +88,14 @@ void DecodeHandle(Interface_Data* data, std::vector<Handle>* handles) {
 void DecodeHandle(MojoHandle* handle, std::vector<Handle>* handles) {
   DecodeHandle(reinterpret_cast<Handle*>(handle), handles);
 }
+
+SerializationContext::SerializationContext() {}
+
+SerializationContext::SerializationContext(
+    scoped_refptr<MultiplexRouter> in_router)
+    : router(std::move(in_router)) {}
+
+SerializationContext::~SerializationContext() {}
 
 }  // namespace internal
 }  // namespace mojo

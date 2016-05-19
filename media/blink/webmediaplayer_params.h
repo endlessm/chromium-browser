@@ -5,7 +5,10 @@
 #ifndef MEDIA_BLINK_WEBMEDIAPLAYER_PARAMS_H_
 #define MEDIA_BLINK_WEBMEDIAPLAYER_PARAMS_H_
 
+#include <stdint.h>
+
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "media/blink/media_blink_export.h"
 #include "media/filters/context_3d.h"
@@ -18,13 +21,14 @@ class TaskRunner;
 namespace blink {
 class WebContentDecryptionModule;
 class WebMediaPlayerClient;
+class WebMediaSession;
 }
 
 namespace media {
 
 class RestartableAudioRendererSink;
 class MediaLog;
-class MediaPermission;
+class SurfaceManager;
 
 // Holds parameters for constructing WebMediaPlayerImpl without having
 // to plumb arguments through various abstraction layers.
@@ -51,8 +55,9 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
       const scoped_refptr<base::SingleThreadTaskRunner>& compositor_task_runner,
       const Context3DCB& context_3d,
       const AdjustAllocatedMemoryCB& adjust_allocated_memory_cb,
-      MediaPermission* media_permission,
-      blink::WebContentDecryptionModule* initial_cdm);
+      blink::WebContentDecryptionModule* initial_cdm,
+      SurfaceManager* surface_manager,
+      blink::WebMediaSession* media_session);
 
   ~WebMediaPlayerParams();
 
@@ -82,8 +87,6 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
 
   Context3DCB context_3d_cb() const { return context_3d_cb_; }
 
-  MediaPermission* media_permission() const { return media_permission_; }
-
   blink::WebContentDecryptionModule* initial_cdm() const {
     return initial_cdm_;
   }
@@ -91,6 +94,10 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
   AdjustAllocatedMemoryCB adjust_allocated_memory_cb() const {
     return adjust_allocated_memory_cb_;
   }
+
+  SurfaceManager* surface_manager() const { return surface_manager_; }
+
+  const blink::WebMediaSession* media_session() const { return media_session_; }
 
  private:
   DeferLoadCB defer_load_cb_;
@@ -102,9 +109,10 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
   Context3DCB context_3d_cb_;
   AdjustAllocatedMemoryCB adjust_allocated_memory_cb_;
 
-  // TODO(xhwang): Remove after prefixed EME API support is removed.
-  MediaPermission* media_permission_;
   blink::WebContentDecryptionModule* initial_cdm_;
+  SurfaceManager* surface_manager_;
+
+  blink::WebMediaSession* media_session_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(WebMediaPlayerParams);
 };

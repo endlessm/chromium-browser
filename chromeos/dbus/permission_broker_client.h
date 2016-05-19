@@ -5,10 +5,12 @@
 #ifndef CHROMEOS_DBUS_PERMISSION_BROKER_CLIENT_H_
 #define CHROMEOS_DBUS_PERMISSION_BROKER_CLIENT_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/dbus/dbus_client.h"
 #include "dbus/file_descriptor.h"
@@ -32,6 +34,12 @@ class CHROMEOS_EXPORT PermissionBrokerClient : public DBusClient {
   // An OpenPathCallback callback is run when an OpenPath request is completed.
   typedef base::Callback<void(dbus::FileDescriptor)> OpenPathCallback;
 
+  // An ErrorCallback callback is run when an error is returned by the
+  // permission broker.
+  typedef base::Callback<void(const std::string& error_name,
+                              const std::string& message)>
+      ErrorCallback;
+
   ~PermissionBrokerClient() override;
 
   static PermissionBrokerClient* Create();
@@ -43,26 +51,18 @@ class CHROMEOS_EXPORT PermissionBrokerClient : public DBusClient {
   virtual void CheckPathAccess(const std::string& path,
                                const ResultCallback& callback) = 0;
 
-  // RequestPathAccess requests access to a single device node identified by
-  // |path|. If |interface_id| value is passed (different than
-  // UsbDevicePermissionData::ANY_INTERFACE), the request will check if a
-  // specific interface is claimed while requesting access.
-  // This allows devices with multiple interfaces to be accessed even if
-  // some of them are already claimed by kernel.
-  virtual void RequestPathAccess(const std::string& path,
-                                 int interface_id,
-                                 const ResultCallback& callback) = 0;
-
   // OpenPath requests that the permission broker open the device node
-  // identified by |path| and return the resulting file descriptor.
+  // identified by |path| and return the resulting file descriptor. One of
+  // |callback| or |error_callback| is called.
   virtual void OpenPath(const std::string& path,
-                        const OpenPathCallback& callback) = 0;
+                        const OpenPathCallback& callback,
+                        const ErrorCallback& error_callback) = 0;
 
   // Requests the |port| be opened on the firewall for incoming TCP/IP
   // connections received on |interface| (an empty string indicates all
   // interfaces). An open pipe must be passed as |lifeline_fd| so that the
   // permission broker can monitor the lifetime of the calling process.
-  virtual void RequestTcpPortAccess(uint16 port,
+  virtual void RequestTcpPortAccess(uint16_t port,
                                     const std::string& interface,
                                     const dbus::FileDescriptor& lifeline_fd,
                                     const ResultCallback& callback) = 0;
@@ -71,7 +71,7 @@ class CHROMEOS_EXPORT PermissionBrokerClient : public DBusClient {
   // received on |interface| (an empty string indicates all interfaces). An open
   // pipe must be passed as |lifeline_fd| so that the permission broker can
   // monitor the lifetime of the calling process.
-  virtual void RequestUdpPortAccess(uint16 port,
+  virtual void RequestUdpPortAccess(uint16_t port,
                                     const std::string& interface,
                                     const dbus::FileDescriptor& lifeline_fd,
                                     const ResultCallback& callback) = 0;
@@ -79,14 +79,14 @@ class CHROMEOS_EXPORT PermissionBrokerClient : public DBusClient {
   // Releases a request for an open firewall port for TCP/IP connections. The
   // |port| and |interface| parameters must be the same as a previous call to
   // RequestTcpPortAccess.
-  virtual void ReleaseTcpPort(uint16 port,
+  virtual void ReleaseTcpPort(uint16_t port,
                               const std::string& interface,
                               const ResultCallback& callback) = 0;
 
   // Releases a request for an open firewall port for UDP packets. The |port|
   // and |interface| parameters must be the same as a previous call to
   // RequestUdpPortAccess.
-  virtual void ReleaseUdpPort(uint16 port,
+  virtual void ReleaseUdpPort(uint16_t port,
                               const std::string& interface,
                               const ResultCallback& callback) = 0;
 

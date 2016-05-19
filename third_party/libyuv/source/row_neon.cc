@@ -1374,55 +1374,6 @@ void ARGBToUV444Row_NEON(const uint8* src_argb, uint8* dst_u, uint8* dst_v,
   );
 }
 
-// 16x1 pixels -> 8x1.  width is number of argb pixels. e.g. 16.
-void ARGBToUV422Row_NEON(const uint8* src_argb, uint8* dst_u, uint8* dst_v,
-                         int width) {
-  asm volatile (
-    "vmov.s16   q10, #112 / 2                  \n"  // UB / VR 0.875 coefficient
-    "vmov.s16   q11, #74 / 2                   \n"  // UG -0.5781 coefficient
-    "vmov.s16   q12, #38 / 2                   \n"  // UR -0.2969 coefficient
-    "vmov.s16   q13, #18 / 2                   \n"  // VB -0.1406 coefficient
-    "vmov.s16   q14, #94 / 2                   \n"  // VG -0.7344 coefficient
-    "vmov.u16   q15, #0x8080                   \n"  // 128.5
-  "1:                                          \n"
-    MEMACCESS(0)
-    "vld4.8     {d0, d2, d4, d6}, [%0]!        \n"  // load 8 ARGB pixels.
-    MEMACCESS(0)
-    "vld4.8     {d1, d3, d5, d7}, [%0]!        \n"  // load next 8 ARGB pixels.
-
-    "vpaddl.u8  q0, q0                         \n"  // B 16 bytes -> 8 shorts.
-    "vpaddl.u8  q1, q1                         \n"  // G 16 bytes -> 8 shorts.
-    "vpaddl.u8  q2, q2                         \n"  // R 16 bytes -> 8 shorts.
-
-    "subs       %3, %3, #16                    \n"  // 16 processed per loop.
-    "vmul.s16   q8, q0, q10                    \n"  // B
-    "vmls.s16   q8, q1, q11                    \n"  // G
-    "vmls.s16   q8, q2, q12                    \n"  // R
-    "vadd.u16   q8, q8, q15                    \n"  // +128 -> unsigned
-
-    "vmul.s16   q9, q2, q10                    \n"  // R
-    "vmls.s16   q9, q1, q14                    \n"  // G
-    "vmls.s16   q9, q0, q13                    \n"  // B
-    "vadd.u16   q9, q9, q15                    \n"  // +128 -> unsigned
-
-    "vqshrn.u16  d0, q8, #8                    \n"  // 16 bit to 8 bit U
-    "vqshrn.u16  d1, q9, #8                    \n"  // 16 bit to 8 bit V
-
-    MEMACCESS(1)
-    "vst1.8     {d0}, [%1]!                    \n"  // store 8 pixels U.
-    MEMACCESS(2)
-    "vst1.8     {d1}, [%2]!                    \n"  // store 8 pixels V.
-    "bgt        1b                             \n"
-  : "+r"(src_argb),  // %0
-    "+r"(dst_u),     // %1
-    "+r"(dst_v),     // %2
-    "+r"(width)        // %3
-  :
-  : "cc", "memory", "q0", "q1", "q2", "q3",
-    "q8", "q9", "q10", "q11", "q12", "q13", "q14", "q15"
-  );
-}
-
 // 32x1 pixels -> 8x1.  width is number of argb pixels. e.g. 32.
 void ARGBToUV411Row_NEON(const uint8* src_argb, uint8* dst_u, uint8* dst_v,
                          int width) {
@@ -2259,16 +2210,13 @@ void RAWToYRow_NEON(const uint8* src_raw, uint8* dst_y, int width) {
 void InterpolateRow_NEON(uint8* dst_ptr,
                          const uint8* src_ptr, ptrdiff_t src_stride,
                          int dst_width, int source_y_fraction) {
+  int y1_fraction = source_y_fraction;
   asm volatile (
     "cmp        %4, #0                         \n"
     "beq        100f                           \n"
     "add        %2, %1                         \n"
-    "cmp        %4, #64                        \n"
-    "beq        75f                            \n"
     "cmp        %4, #128                       \n"
     "beq        50f                            \n"
-    "cmp        %4, #192                       \n"
-    "beq        25f                            \n"
 
     "vdup.8     d5, %4                         \n"
     "rsb        %4, #256                       \n"
@@ -2291,20 +2239,6 @@ void InterpolateRow_NEON(uint8* dst_ptr,
     "bgt        1b                             \n"
     "b          99f                            \n"
 
-    // Blend 25 / 75.
-  "25:                                         \n"
-    MEMACCESS(1)
-    "vld1.8     {q0}, [%1]!                    \n"
-    MEMACCESS(2)
-    "vld1.8     {q1}, [%2]!                    \n"
-    "subs       %3, %3, #16                    \n"
-    "vrhadd.u8  q0, q1                         \n"
-    "vrhadd.u8  q0, q1                         \n"
-    MEMACCESS(0)
-    "vst1.8     {q0}, [%0]!                    \n"
-    "bgt        25b                            \n"
-    "b          99f                            \n"
-
     // Blend 50 / 50.
   "50:                                         \n"
     MEMACCESS(1)
@@ -2316,20 +2250,6 @@ void InterpolateRow_NEON(uint8* dst_ptr,
     MEMACCESS(0)
     "vst1.8     {q0}, [%0]!                    \n"
     "bgt        50b                            \n"
-    "b          99f                            \n"
-
-    // Blend 75 / 25.
-  "75:                                         \n"
-    MEMACCESS(1)
-    "vld1.8     {q1}, [%1]!                    \n"
-    MEMACCESS(2)
-    "vld1.8     {q0}, [%2]!                    \n"
-    "subs       %3, %3, #16                    \n"
-    "vrhadd.u8  q0, q1                         \n"
-    "vrhadd.u8  q0, q1                         \n"
-    MEMACCESS(0)
-    "vst1.8     {q0}, [%0]!                    \n"
-    "bgt        75b                            \n"
     "b          99f                            \n"
 
     // Blend 100 / 0 - Copy row unchanged.
@@ -2346,7 +2266,7 @@ void InterpolateRow_NEON(uint8* dst_ptr,
     "+r"(src_ptr),          // %1
     "+r"(src_stride),       // %2
     "+r"(dst_width),        // %3
-    "+r"(source_y_fraction) // %4
+    "+r"(y1_fraction)       // %4
   :
   : "cc", "memory", "q0", "q1", "d4", "d5", "q13", "q14"
   );

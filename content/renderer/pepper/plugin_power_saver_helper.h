@@ -9,13 +9,19 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "content/common/content_export.h"
+#include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "url/origin.h"
 
 namespace blink {
 struct WebPluginParams;
 struct WebRect;
+}
+
+namespace gfx {
+class Size;
 }
 
 namespace content {
@@ -31,6 +37,7 @@ class CONTENT_EXPORT PluginPowerSaverHelper : public RenderFrameObserver {
   struct PeripheralPlugin {
     PeripheralPlugin(const url::Origin& content_origin,
                      const base::Closure& unthrottle_callback);
+    PeripheralPlugin(const PeripheralPlugin& other);
     ~PeripheralPlugin();
 
     url::Origin content_origin;
@@ -40,11 +47,10 @@ class CONTENT_EXPORT PluginPowerSaverHelper : public RenderFrameObserver {
   // See RenderFrame for documentation.
   void RegisterPeripheralPlugin(const url::Origin& content_origin,
                                 const base::Closure& unthrottle_callback);
-  bool ShouldThrottleContent(const url::Origin& main_frame_origin,
-                             const url::Origin& content_origin,
-                             int width,
-                             int height,
-                             bool* cross_origin_main_content) const;
+  RenderFrame::PeripheralContentStatus GetPeripheralContentStatus(
+      const url::Origin& main_frame_origin,
+      const url::Origin& content_origin,
+      const gfx::Size& unobscured_size) const;
   void WhitelistContentOrigin(const url::Origin& content_origin);
 
   // RenderFrameObserver implementation.

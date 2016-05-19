@@ -31,11 +31,7 @@
 WebInspector.ScopeChainSidebarPane = function()
 {
     WebInspector.SidebarPane.call(this, WebInspector.UIString("Scope"));
-    this._sections = [];
-    /** @type {!Set.<?string>} */
-    this._expandedSections = new Set();
-    /** @type {!Set.<string>} */
-    this._expandedProperties = new Set();
+    this._expandController = new WebInspector.ObjectPropertiesSectionExpandController();
 }
 
 WebInspector.ScopeChainSidebarPane._pathSymbol = Symbol("path");
@@ -55,18 +51,6 @@ WebInspector.ScopeChainSidebarPane.prototype = {
             this.element.appendChild(infoElement);
             return;
         }
-
-        for (var i = 0; i < this._sections.length; ++i) {
-            var section = this._sections[i];
-            if (!section.title)
-                continue;
-            if (section.expanded)
-                this._expandedSections.add(section.title);
-            else
-                this._expandedSections.delete(section.title);
-        }
-
-        this._sections = [];
 
         var foundLocalScope = false;
         var scopeChain = callFrame.scopeChain();
@@ -125,62 +109,21 @@ WebInspector.ScopeChainSidebarPane.prototype = {
             if (!title || title === subtitle)
                 subtitle = undefined;
 
-            var titleElement = createElementWithClass("div");
+            var titleElement = createElementWithClass("div", "scope-chain-sidebar-pane-section-header");
             titleElement.createChild("div", "scope-chain-sidebar-pane-section-subtitle").textContent = subtitle;
             titleElement.createChild("div", "scope-chain-sidebar-pane-section-title").textContent = title;
 
             var section = new WebInspector.ObjectPropertiesSection(scope.object(), titleElement, emptyPlaceholder, true, extraProperties);
-            section[WebInspector.ScopeChainSidebarPane._pathSymbol] = title + ":" + (subtitle ? subtitle + ":" : "");
-            section.addEventListener(TreeOutline.Events.ElementAttached, this._elementAttached, this);
-            section.addEventListener(TreeOutline.Events.ElementExpanded, this._elementExpanded, this);
-            section.addEventListener(TreeOutline.Events.ElementCollapsed, this._elementCollapsed, this);
+            this._expandController.watchSection(title + (subtitle ? ":" + subtitle : ""), section);
 
             if (scope.type() === DebuggerAgent.ScopeType.Global)
                 section.objectTreeElement().collapse();
-            else if (!foundLocalScope || scope.type() === DebuggerAgent.ScopeType.Local || this._expandedSections.has(title))
+            else if (!foundLocalScope || scope.type() === DebuggerAgent.ScopeType.Local)
                 section.objectTreeElement().expand();
 
             section.element.classList.add("scope-chain-sidebar-pane-section");
-            this._sections.push(section);
             this.element.appendChild(section.element);
         }
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _elementAttached: function(event)
-    {
-        var element = /** @type {!WebInspector.ObjectPropertyTreeElement} */ (event.data);
-        if (element.isExpandable() && this._expandedProperties.has(this._propertyPath(element)))
-            element.expand();
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _elementExpanded: function(event)
-    {
-        var element = /** @type {!WebInspector.ObjectPropertyTreeElement} */ (event.data);
-        this._expandedProperties.add(this._propertyPath(element));
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _elementCollapsed: function(event)
-    {
-        var element = /** @type {!WebInspector.ObjectPropertyTreeElement} */ (event.data);
-        this._expandedProperties.delete(this._propertyPath(element));
-    },
-
-    /**
-     * @param {!WebInspector.ObjectPropertyTreeElement} treeElement
-     * @return {string}
-     */
-    _propertyPath: function(treeElement)
-    {
-        return treeElement.treeOutline[WebInspector.ScopeChainSidebarPane._pathSymbol] + WebInspector.ObjectPropertyTreeElement.prototype.propertyPath.call(treeElement);
     },
 
     __proto__: WebInspector.SidebarPane.prototype

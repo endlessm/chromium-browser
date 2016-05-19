@@ -22,7 +22,7 @@ import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.policy.PolicyAuditor;
 import org.chromium.chrome.browser.policy.PolicyAuditor.AuditEvent;
-import org.chromium.chrome.browser.ssl.ConnectionSecurityLevel;
+import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.base.DeviceFormFactor;
@@ -149,6 +149,12 @@ public class TabWebContentsObserver extends WebContentsObserver {
         if (mTab.getNativePage() != null) {
             mTab.pushNativePageStateToNavigationEntry();
         }
+    }
+
+    @Override
+    public void didFinishNavigation(
+            boolean isMainFrame, boolean isErrorPage, boolean hasCommitted) {
+        if (isMainFrame && hasCommitted) mTab.setIsShowingErrorPage(isErrorPage);
     }
 
     @Override

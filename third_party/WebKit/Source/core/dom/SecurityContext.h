@@ -67,7 +67,7 @@ public:
     void setSecurityOrigin(PassRefPtr<SecurityOrigin>);
     virtual void didUpdateSecurityOrigin() = 0;
 
-    SandboxFlags sandboxFlags() const { return m_sandboxFlags; }
+    SandboxFlags getSandboxFlags() const { return m_sandboxFlags; }
     bool isSandboxed(SandboxFlags mask) const { return m_sandboxFlags & mask; }
     void enforceSandboxFlags(SandboxFlags mask);
 
@@ -75,10 +75,13 @@ public:
     bool isHostedInReservedIPRange() const { return m_hostedInReservedIPRange; }
 
     void setInsecureRequestsPolicy(InsecureRequestsPolicy policy) { m_insecureRequestsPolicy = policy; }
-    InsecureRequestsPolicy insecureRequestsPolicy() const { return m_insecureRequestsPolicy; }
+    InsecureRequestsPolicy getInsecureRequestsPolicy() const { return m_insecureRequestsPolicy; }
 
     void addInsecureNavigationUpgrade(unsigned hashedHost) { m_insecureNavigationsToUpgrade.add(hashedHost); }
     InsecureNavigationsSet* insecureNavigationsToUpgrade() { return &m_insecureNavigationsToUpgrade; }
+
+    void setShouldEnforceStrictMixedContentChecking(bool shouldEnforce) { m_enforceStrictMixedContentChecking = shouldEnforce; }
+    bool shouldEnforceStrictMixedContentChecking() { return m_enforceStrictMixedContentChecking; }
 
 protected:
     SecurityContext();
@@ -99,6 +102,7 @@ private:
     bool m_hostedInReservedIPRange;
     InsecureRequestsPolicy m_insecureRequestsPolicy;
     InsecureNavigationsSet m_insecureNavigationsToUpgrade;
+    bool m_enforceStrictMixedContentChecking;
 };
 
 } // namespace blink

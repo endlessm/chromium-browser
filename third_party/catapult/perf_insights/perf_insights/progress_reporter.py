@@ -2,11 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-class RunReporter(object):
-  def __init__(self, run_info):
-    self.run_info = run_info
 
-  def DidAddValue(self, value):
+class RunReporter(object):
+
+  def __init__(self, canonical_url):
+    self.canonical_url = canonical_url
+
+  def DidAddFailure(self, failure):
     pass
 
   def DidRun(self, run_failed):
@@ -16,8 +18,10 @@ class RunReporter(object):
 # Derived from telemetry ProgressReporter. Should stay close in architecture
 # to telemetry ProgressReporter.
 class ProgressReporter(object):
-  def WillRun(self, run_info):
-    return RunReporter(run_info)
 
-  def DidFinishAllRuns(self, results):
+  def WillRun(self, canonical_url):
+    return RunReporter(canonical_url)
+
+  # TODO(eakuefner): Implement reduction, make this not take a result list.
+  def DidFinishAllRuns(self, result_list):
     pass

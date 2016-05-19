@@ -12,14 +12,16 @@
 //  
 //===----------------------------------------------------------------------===//
 
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
+#include <typeinfo>
+
 #include "config.h"
-#include "unwind.h"
 #include "cxa_exception.hpp"
 #include "cxa_handlers.hpp"
 #include "private_typeinfo.h"
-#include <typeinfo>
-#include <stdlib.h>
-#include <assert.h>
+#include "unwind.h"
 
 /*
     Exception Header Layout:
@@ -50,7 +52,7 @@
 +------------------+--+-----+-----+------------------------+--------------------------+
 | callSiteTableLength | (ULEB128) | Call Site Table length, used to find Action table |
 +---------------------+-----------+---------------------------------------------------+
-#if !__USING_SJLJ_EXCEPTIONS__
+#ifndef __USING_SJLJ_EXCEPTIONS__
 +---------------------+-----------+------------------------------------------------+
 | Beginning of Call Site Table            The current ip lies within the           |
 | ...                                     (start, length) range of one of these    |
@@ -135,6 +137,19 @@ Notes:
 
 namespace __cxxabiv1
 {
+
+namespace
+{
+
+template <class AsType>
+uintptr_t readPointerHelper(const uint8_t*& p) {
+    AsType value;
+    memcpy(&value, p, sizeof(AsType));
+    p += sizeof(AsType);
+    return static_cast<uintptr_t>(value);
+}
+
+} // end namespace
 
 extern "C"
 {
@@ -230,8 +245,7 @@ readEncodedPointer(const uint8_t** data, uint8_t encoding)
     switch (encoding & 0x0F)
     {
     case DW_EH_PE_absptr:
-        result = *((uintptr_t*)p);
-        p += sizeof(uintptr_t);
+        result = readPointerHelper<uintptr_t>(p);
         break;
     case DW_EH_PE_uleb128:
         result = readULEB128(&p);
@@ -240,28 +254,22 @@ readEncodedPointer(const uint8_t** data, uint8_t encoding)
         result = static_cast<uintptr_t>(readSLEB128(&p));
         break;
     case DW_EH_PE_udata2:
-        result = *((uint16_t*)p);
-        p += sizeof(uint16_t);
+        result = readPointerHelper<uint16_t>(p);
         break;
     case DW_EH_PE_udata4:
-        result = *((uint32_t*)p);
-        p += sizeof(uint32_t);
+        result = readPointerHelper<uint32_t>(p);
         break;
     case DW_EH_PE_udata8:
-        result = static_cast<uintptr_t>(*((uint64_t*)p));
-        p += sizeof(uint64_t);
+        result = readPointerHelper<uint64_t>(p);
         break;
     case DW_EH_PE_sdata2:
-        result = static_cast<uintptr_t>(*((int16_t*)p));
-        p += sizeof(int16_t);
+        result = readPointerHelper<int16_t>(p);
         break;
     case DW_EH_PE_sdata4:
-        result = static_cast<uintptr_t>(*((int32_t*)p));
-        p += sizeof(int32_t);
+        result = readPointerHelper<int32_t>(p);
         break;
     case DW_EH_PE_sdata8:
-        result = static_cast<uintptr_t>(*((int64_t*)p));
-        p += sizeof(int64_t);
+        result = readPointerHelper<int64_t>(p);
         break;
     default:
         // not supported 
@@ -506,11 +514,14 @@ void
 set_registers(_Unwind_Exception* unwind_exception, _Unwind_Context* context,
               const scan_results& results)
 {
-    _Unwind_SetGR(context, __builtin_eh_return_data_regno(0),
-                                 reinterpret_cast<uintptr_t>(unwind_exception));
-    _Unwind_SetGR(context, __builtin_eh_return_data_regno(1),
-                                    static_cast<uintptr_t>(results.ttypeIndex));
-    _Unwind_SetIP(context, results.landingPad);
+#if defined(__USING_SJLJ_EXCEPTIONS__)
+#define __builtin_eh_return_data_regno(regno) regno
+#endif
+  _Unwind_SetGR(context, __builtin_eh_return_data_regno(0),
+                reinterpret_cast<uintptr_t>(unwind_exception));
+  _Unwind_SetGR(context, __builtin_eh_return_data_regno(1),
+                static_cast<uintptr_t>(results.ttypeIndex));
+  _Unwind_SetIP(context, results.landingPad);
 }
 
 /*
@@ -590,7 +601,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
     // Get beginning current frame's code (as defined by the 
     // emitted dwarf code)
     uintptr_t funcStart = _Unwind_GetRegionStart(context);
-#if __USING_SJLJ_EXCEPTIONS__
+#ifdef __USING_SJLJ_EXCEPTIONS__
     if (ip == uintptr_t(-1))
     {
         // no action
@@ -623,7 +634,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
     // Walk call-site table looking for range that 
     // includes current PC. 
     uint8_t callSiteEncoding = *lsda++;
-#if __USING_SJLJ_EXCEPTIONS__
+#ifdef __USING_SJLJ_EXCEPTIONS__
     (void)callSiteEncoding;  // When using SjLj exceptions, callSiteEncoding is never used
 #endif
     uint32_t callSiteTableLength = static_cast<uint32_t>(readULEB128(&lsda));
@@ -634,7 +645,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
     while (callSitePtr < callSiteTableEnd)
     {
         // There is one entry per call site.
-#if !__USING_SJLJ_EXCEPTIONS__
+#ifndef __USING_SJLJ_EXCEPTIONS__
         // The call sites are non-overlapping in [start, start+length)
         // The call sites are ordered in increasing value of start
         uintptr_t start = readEncodedPointer(&callSitePtr, callSiteEncoding);
@@ -650,7 +661,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
 #endif  // __USING_SJLJ_EXCEPTIONS__
         {
             // Found the call site containing ip.
-#if !__USING_SJLJ_EXCEPTIONS__
+#ifndef __USING_SJLJ_EXCEPTIONS__
             if (landingPad == 0)
             {
                 // No handler here
@@ -852,7 +863,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
                 action += actionOffset;
             }  // there is no break out of this loop, only return
         }
-#if !__USING_SJLJ_EXCEPTIONS__
+#ifndef __USING_SJLJ_EXCEPTIONS__
         else if (ipOffset < start)
         {
             // There is no call site for this ip
@@ -918,7 +929,7 @@ _UA_CLEANUP_PHASE
 
 #if !LIBCXXABI_ARM_EHABI
 _Unwind_Reason_Code
-#if __USING_SJLJ_EXCEPTIONS__
+#ifdef __USING_SJLJ_EXCEPTIONS__
 __gxx_personality_sj0
 #else
 __gxx_personality_v0
@@ -1007,22 +1018,25 @@ __gxx_personality_v0
 }
 #else
 
+extern "C" _Unwind_Reason_Code __gnu_unwind_frame(_Unwind_Exception*,
+                                                  _Unwind_Context*);
+
 // Helper function to unwind one frame.
 // ARM EHABI 7.3 and 7.4: If the personality function returns _URC_CONTINUE_UNWIND, the
 // personality routine should update the virtual register set (VRS) according to the
 // corresponding frame unwinding instructions (ARM EHABI 9.3.)
-static _Unwind_Reason_Code continue_unwind(_Unwind_Context* context,
-                                           uint32_t* unwind_opcodes,
-                                           size_t opcode_words)
+static _Unwind_Reason_Code continue_unwind(_Unwind_Exception* unwind_exception,
+                                           _Unwind_Context* context)
 {
-    if (_Unwind_VRS_Interpret(context, unwind_opcodes, 1, opcode_words * 4) !=
-        _URC_CONTINUE_UNWIND)
+    if (__gnu_unwind_frame(unwind_exception, context) != _URC_OK)
         return _URC_FAILURE;
     return _URC_CONTINUE_UNWIND;
 }
 
 // ARM register names
+#if !LIBCXXABI_USE_LLVM_UNWINDER
 static const uint32_t REG_UCB = 12;  // Register to save _Unwind_Control_Block
+#endif
 static const uint32_t REG_SP = 13;
 
 static void save_results_to_barrier_cache(_Unwind_Exception* unwind_exception,
@@ -1056,42 +1070,23 @@ __gxx_personality_v0(_Unwind_State state,
     bool native_exception = (unwind_exception->exception_class & get_vendor_and_language) ==
                             (kOurExceptionClass & get_vendor_and_language);
 
-#if LIBCXXABI_ARM_EHABI
-    // ARM EHABI # 6.2, # 9.2
-    //
-    //  +---- ehtp
-    //  v
-    // +--------------------------------------+
-    // | +--------+--------+--------+-------+ |
-    // | |0| prel31 to __gxx_personality_v0 | |
-    // | +--------+--------+--------+-------+ |
-    // | |      N |      unwind opcodes     | |  <-- UnwindData
-    // | +--------+--------+--------+-------+ |
-    // | | Word 2        unwind opcodes     | |
-    // | +--------+--------+--------+-------+ |
-    // | ...                                  |
-    // | +--------+--------+--------+-------+ |
-    // | | Word N        unwind opcodes     | |
-    // | +--------+--------+--------+-------+ |
-    // | | LSDA                             | |  <-- lsda
-    // | | ...                              | |
-    // | +--------+--------+--------+-------+ |
-    // +--------------------------------------+
-
-    uint32_t *UnwindData = unwind_exception->pr_cache.ehtp + 1;
-    uint32_t FirstDataWord = *UnwindData;
-    size_t N = ((FirstDataWord >> 24) & 0xff);
-    size_t NDataWords = N + 1;
-#endif
-
+#if !LIBCXXABI_USE_LLVM_UNWINDER
     // Copy the address of _Unwind_Control_Block to r12 so that
     // _Unwind_GetLanguageSpecificData() and _Unwind_GetRegionStart() can
     // return correct address.
     _Unwind_SetGR(context, REG_UCB, reinterpret_cast<uint32_t>(unwind_exception));
+#endif
+
+    // Check the undocumented force unwinding behavior
+    bool is_force_unwinding = state & _US_FORCE_UNWIND;
+    state &= ~_US_FORCE_UNWIND;
 
     scan_results results;
     switch (state) {
     case _US_VIRTUAL_UNWIND_FRAME:
+        if (is_force_unwinding)
+            return continue_unwind(unwind_exception, context);
+
         // Phase 1 search:  All we're looking for in phase 1 is a handler that halts unwinding
         scan_eh_tab(results, _UA_SEARCH_PHASE, native_exception, unwind_exception, context);
         if (results.reason == _URC_HANDLER_FOUND)
@@ -1103,10 +1098,15 @@ __gxx_personality_v0(_Unwind_State state,
         }
         // Did not find the catch handler
         if (results.reason == _URC_CONTINUE_UNWIND)
-            return continue_unwind(context, UnwindData, NDataWords);
+            return continue_unwind(unwind_exception, context);
         return results.reason;
 
     case _US_UNWIND_FRAME_STARTING:
+        // TODO: Support force unwinding in the phase 2 search.
+        // NOTE: In order to call the cleanup functions, _Unwind_ForcedUnwind()
+        // will call this personality function with (_US_FORCE_UNWIND |
+        // _US_UNWIND_FRAME_STARTING).
+
         // Phase 2 search
         if (unwind_exception->barrier_cache.sp == _Unwind_GetGR(context, REG_SP))
         {
@@ -1151,11 +1151,11 @@ __gxx_personality_v0(_Unwind_State state,
 
         // Did not find any handler
         if (results.reason == _URC_CONTINUE_UNWIND)
-            return continue_unwind(context, UnwindData, NDataWords);
+            return continue_unwind(unwind_exception, context);
         return results.reason;
 
     case _US_UNWIND_FRAME_RESUME:
-        return continue_unwind(context, UnwindData, NDataWords);
+        return continue_unwind(unwind_exception, context);
     }
 
     // We were called improperly: neither a phase 1 or phase 2 search

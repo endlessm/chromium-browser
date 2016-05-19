@@ -23,7 +23,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLTextAreaElement.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -154,7 +153,7 @@ void HTMLTextAreaElement::collectStyleForPresentationAttribute(const QualifiedNa
     }
 }
 
-void HTMLTextAreaElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void HTMLTextAreaElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (name == rowsAttr) {
         unsigned rows = 0;
@@ -196,7 +195,7 @@ void HTMLTextAreaElement::parseAttribute(const QualifiedName& name, const Atomic
     } else if (name == minlengthAttr) {
         setNeedsValidityCheck();
     } else {
-        HTMLTextFormControlElement::parseAttribute(name, value);
+        HTMLTextFormControlElement::parseAttribute(name, oldValue, value);
     }
 }
 
@@ -244,17 +243,12 @@ bool HTMLTextAreaElement::shouldShowFocusRingOnMouseFocus() const
 void HTMLTextAreaElement::updateFocusAppearance(SelectionBehaviorOnFocus selectionBehavior)
 {
     switch (selectionBehavior) {
-    case SelectionBehaviorOnFocus::Reset:
-        setSelectionRange(0, 0, SelectionHasNoDirection, NotDispatchSelectEvent);
-        break;
+    case SelectionBehaviorOnFocus::Reset: // Fallthrough.
     case SelectionBehaviorOnFocus::Restore:
         restoreCachedSelection();
         break;
     case SelectionBehaviorOnFocus::None:
-        // |None| is used only for FocusController::setFocusedElement and
-        // Document::setFocusedElement, and they don't call
-        // updateFocusAppearance().
-        ASSERT_NOT_REACHED();
+        return;
     }
     if (document().frame())
         document().frame()->selection().revealSelection();

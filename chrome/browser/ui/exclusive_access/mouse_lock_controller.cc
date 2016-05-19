@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/exclusive_access/mouse_lock_controller.h"
 
+#include "base/metrics/histogram_macros.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -21,10 +22,17 @@
 using content::RenderViewHost;
 using content::WebContents;
 
+namespace {
+
+const char kBubbleReshowsHistogramName[] =
+    "ExclusiveAccess.BubbleReshowsPerSession.MouseLock";
+
+}  // namespace
+
 MouseLockController::MouseLockController(ExclusiveAccessManager* manager)
     : ExclusiveAccessControllerBase(manager),
-      mouse_lock_state_(MOUSELOCK_NOT_REQUESTED) {
-}
+      mouse_lock_state_(MOUSELOCK_NOT_REQUESTED),
+      fake_mouse_lock_for_test_(false) {}
 
 MouseLockController::~MouseLockController() {
 }
@@ -70,7 +78,8 @@ void MouseLockController::RequestToLockMouse(WebContents* web_contents,
         mouse_lock_state_ = MOUSELOCK_REQUESTED;
       } else {
         // Lock mouse.
-        if (web_contents->GotResponseToLockMouseRequest(true)) {
+        if (fake_mouse_lock_for_test_ ||
+            web_contents->GotResponseToLockMouseRequest(true)) {
           if (last_unlocked_by_target) {
             mouse_lock_state_ = MOUSELOCK_ACCEPTED_SILENTLY;
           } else {
@@ -113,6 +122,11 @@ void MouseLockController::NotifyTabExclusiveAccessLost() {
     mouse_lock_state_ = MOUSELOCK_NOT_REQUESTED;
     exclusive_access_manager()->UpdateExclusiveAccessExitBubbleContent();
   }
+}
+
+void MouseLockController::RecordBubbleReshowsHistogram(
+    int bubble_reshow_count) {
+  UMA_HISTOGRAM_COUNTS_100(kBubbleReshowsHistogramName, bubble_reshow_count);
 }
 
 bool MouseLockController::HandleUserPressedEscape() {
@@ -187,6 +201,7 @@ bool MouseLockController::OnDenyExclusiveAccessPermission() {
 }
 
 void MouseLockController::LostMouseLock() {
+  RecordExitingUMA();
   mouse_lock_state_ = MOUSELOCK_NOT_REQUESTED;
   SetTabWithExclusiveAccess(nullptr);
   NotifyMouseLockChange();
@@ -230,15 +245,17 @@ void MouseLockController::UnlockMouse() {
 }
 
 ContentSetting MouseLockController::GetMouseLockSetting(const GURL& url) const {
-  // If simplified UI is enabled, never ask the user, just auto-allow. (Always
-  // return CONTENT_SETTING_ALLOW in favour of CONTENT_SETTING_ASK.)
-  bool simplified_ui =
-      ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled();
+  // If simplified UI is enabled, never ask the user, just auto-allow. We no
+  // longer give users control over this at the settings level (since it is very
+  // easy to escape mouse lock when it happens). Even if the user has blocked
+  // access to this site in the past, we now ignore that setting.
+  if (ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled())
+    return CONTENT_SETTING_ALLOW;
 
   // Always ask on file:// URLs, since we can't meaningfully make the
   // decision stick for a particular origin.
   // TODO(estark): Revisit this when crbug.com/455882 is fixed.
-  if (url.SchemeIsFile() && !simplified_ui)
+  if (url.SchemeIsFile())
     return CONTENT_SETTING_ASK;
 
   if (exclusive_access_manager()
@@ -251,9 +268,6 @@ ContentSetting MouseLockController::GetMouseLockSetting(const GURL& url) const {
           exclusive_access_manager()->context()->GetProfile());
   ContentSetting setting = settings_map->GetContentSetting(
       url, url, CONTENT_SETTINGS_TYPE_MOUSELOCK, std::string());
-
-  if (simplified_ui && setting == CONTENT_SETTING_ASK)
-    return CONTENT_SETTING_ALLOW;
 
   return setting;
 }

@@ -4,10 +4,14 @@
 
 #include "content/browser/frame_host/render_frame_host_manager.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/debug/crash_logging.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
@@ -30,7 +34,6 @@
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/webui/web_ui_controller_factory_registry.h"
-#include "content/browser/webui/web_ui_impl.h"
 #include "content/common/frame_messages.h"
 #include "content/common/site_isolation_policy.h"
 #include "content/common/view_messages.h"
@@ -39,173 +42,13 @@
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/user_metrics.h"
-#include "content/public/browser/web_ui_controller.h"
 #include "content/public/common/browser_plugin_guest_mode.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/referrer.h"
 #include "content/public/common/url_constants.h"
 
 namespace content {
-
-namespace {
-
-// Helper function to add the FrameTree of the given node's opener to the list
-// of |opener_trees|, if it doesn't exist there already. |visited_index|
-// indicates which FrameTrees in |opener_trees| have already been visited
-// (i.e., those at indices less than |visited_index|). |nodes_with_back_links|
-// collects FrameTreeNodes with openers in FrameTrees that have already been
-// visited (such as those with cycles).  This function is intended to be used
-// with FrameTree::ForEach, so it always returns true to visit all nodes in the
-// tree.
-bool OpenerForFrameTreeNode(
-    size_t visited_index,
-    std::vector<FrameTree*>* opener_trees,
-    base::hash_set<FrameTreeNode*>* nodes_with_back_links,
-    FrameTreeNode* node) {
-  if (!node->opener())
-    return true;
-
-  FrameTree* opener_tree = node->opener()->frame_tree();
-
-  const auto& existing_tree_it =
-      std::find(opener_trees->begin(), opener_trees->end(), opener_tree);
-  if (existing_tree_it == opener_trees->end()) {
-    // This is a new opener tree that we will need to process.
-    opener_trees->push_back(opener_tree);
-  } else {
-    // If this tree is already on our processing list *and* we have visited it,
-    // then this node's opener is a back link.  This means the node will need
-    // special treatment to process its opener.
-    size_t position = std::distance(opener_trees->begin(), existing_tree_it);
-    if (position < visited_index)
-      nodes_with_back_links->insert(node);
-  }
-  return true;
-}
-
-}  // namespace
-
-// A helper class to hold all frame proxies and register as a
-// RenderProcessHostObserver for them.
-class RenderFrameHostManager::RenderFrameProxyHostMap
-    : public RenderProcessHostObserver {
- public:
-  using MapType = base::hash_map<int32, RenderFrameProxyHost*>;
-
-  RenderFrameProxyHostMap(RenderFrameHostManager* manager);
-  ~RenderFrameProxyHostMap() override;
-
-  // Read-only access to the underlying map of site instance ID to
-  // RenderFrameProxyHosts.
-  MapType::const_iterator begin() const { return map_.begin(); }
-  MapType::const_iterator end() const { return map_.end(); }
-  bool empty() const { return map_.empty(); }
-
-  // Returns the proxy with the specified ID, or nullptr if there is no such
-  // one.
-  RenderFrameProxyHost* Get(int32 id);
-
-  // Adds the specified proxy with the specified ID. It is an error (and fatal)
-  // to add more than one proxy with the specified ID.
-  void Add(int32 id, scoped_ptr<RenderFrameProxyHost> proxy);
-
-  // Removes the proxy with the specified site instance ID.
-  void Remove(int32 id);
-
-  // Removes all proxies.
-  void Clear();
-
-  // RenderProcessHostObserver implementation.
-  void RenderProcessWillExit(RenderProcessHost* host) override;
-  void RenderProcessExited(RenderProcessHost* host,
-                           base::TerminationStatus status,
-                           int exit_code) override;
-
- private:
-  RenderFrameHostManager* manager_;
-  MapType map_;
-};
-
-RenderFrameHostManager::RenderFrameProxyHostMap::RenderFrameProxyHostMap(
-    RenderFrameHostManager* manager)
-    : manager_(manager) {}
-
-RenderFrameHostManager::RenderFrameProxyHostMap::~RenderFrameProxyHostMap() {
-  Clear();
-}
-
-RenderFrameProxyHost* RenderFrameHostManager::RenderFrameProxyHostMap::Get(
-    int32 id) {
-  auto it = map_.find(id);
-  if (it != map_.end())
-    return it->second;
-  return nullptr;
-}
-
-void RenderFrameHostManager::RenderFrameProxyHostMap::Add(
-    int32 id,
-    scoped_ptr<RenderFrameProxyHost> proxy) {
-  CHECK_EQ(0u, map_.count(id)) << "Inserting a duplicate item.";
-
-  // If this is the first proxy that has this process host, observe the
-  // process host.
-  RenderProcessHost* host = proxy->GetProcess();
-  size_t count =
-      std::count_if(begin(), end(), [host](MapType::value_type item) {
-        return item.second->GetProcess() == host;
-      });
-  if (count == 0)
-    host->AddObserver(this);
-
-  map_[id] = proxy.release();
-}
-
-void RenderFrameHostManager::RenderFrameProxyHostMap::Remove(int32 id) {
-  auto it = map_.find(id);
-  if (it == map_.end())
-    return;
-
-  // If this is the last proxy that has this process host, stop observing the
-  // process host.
-  RenderProcessHost* host = it->second->GetProcess();
-  size_t count =
-      std::count_if(begin(), end(), [host](MapType::value_type item) {
-        return item.second->GetProcess() == host;
-      });
-  if (count == 1)
-    host->RemoveObserver(this);
-
-  delete it->second;
-  map_.erase(it);
-}
-
-void RenderFrameHostManager::RenderFrameProxyHostMap::Clear() {
-  std::set<RenderProcessHost*> hosts;
-  for (const auto& pair : map_)
-    hosts.insert(pair.second->GetProcess());
-  for (auto host : hosts)
-    host->RemoveObserver(this);
-
-  STLDeleteValues(&map_);
-}
-
-void RenderFrameHostManager::RenderFrameProxyHostMap::RenderProcessWillExit(
-    RenderProcessHost* host) {
-  manager_->RendererProcessClosing(host);
-}
-
-void RenderFrameHostManager::RenderFrameProxyHostMap::RenderProcessExited(
-    RenderProcessHost* host,
-    base::TerminationStatus status,
-    int exit_code) {
-  manager_->RendererProcessClosing(host);
-}
-
-// static
-bool RenderFrameHostManager::ClearRFHsPendingShutdown(FrameTreeNode* node) {
-  node->render_manager()->pending_delete_hosts_.clear();
-  return true;
-}
 
 RenderFrameHostManager::RenderFrameHostManager(
     FrameTreeNode* frame_tree_node,
@@ -218,25 +61,17 @@ RenderFrameHostManager::RenderFrameHostManager(
       render_frame_delegate_(render_frame_delegate),
       render_view_delegate_(render_view_delegate),
       render_widget_delegate_(render_widget_delegate),
-      proxy_hosts_(new RenderFrameProxyHostMap(this)),
       interstitial_page_(nullptr),
-      should_reuse_web_ui_(false),
       weak_factory_(this) {
   DCHECK(frame_tree_node_);
 }
 
 RenderFrameHostManager::~RenderFrameHostManager() {
-  if (pending_render_frame_host_) {
-    scoped_ptr<RenderFrameHostImpl> relic = UnsetPendingRenderFrameHost();
-    ShutdownProxiesIfLastActiveFrameInSiteInstance(relic.get());
-  }
+  if (pending_render_frame_host_)
+    UnsetPendingRenderFrameHost();
 
-  if (speculative_render_frame_host_) {
-    scoped_ptr<RenderFrameHostImpl> relic = UnsetSpeculativeRenderFrameHost();
-    ShutdownProxiesIfLastActiveFrameInSiteInstance(relic.get());
-  }
-
-  ShutdownProxiesIfLastActiveFrameInSiteInstance(render_frame_host_.get());
+  if (speculative_render_frame_host_)
+    UnsetSpeculativeRenderFrameHost();
 
   // Delete any RenderFrameProxyHosts and swapped out RenderFrameHosts.
   // It is important to delete those prior to deleting the current
@@ -245,18 +80,14 @@ RenderFrameHostManager::~RenderFrameHostManager() {
   // the current RenderFrameHost and uses it during its destructor.
   ResetProxyHosts();
 
-  // Release the WebUI prior to resetting the current RenderFrameHost, as the
-  // WebUI accesses the RenderFrameHost during cleanup.
-  web_ui_.reset();
-
   // We should always have a current RenderFrameHost except in some tests.
   SetRenderFrameHost(scoped_ptr<RenderFrameHostImpl>());
 }
 
 void RenderFrameHostManager::Init(SiteInstance* site_instance,
-                                  int32 view_routing_id,
-                                  int32 frame_routing_id,
-                                  int32 widget_routing_id) {
+                                  int32_t view_routing_id,
+                                  int32_t frame_routing_id,
+                                  int32_t widget_routing_id) {
   DCHECK(site_instance);
   // TODO(avi): While RenderViewHostImpl is-a RenderWidgetHostImpl, this must
   // hold true to avoid having two RenderWidgetHosts for the top-level frame.
@@ -289,6 +120,17 @@ RenderViewHostImpl* RenderFrameHostManager::pending_render_view_host() const {
   return pending_render_frame_host_->render_view_host();
 }
 
+WebUIImpl* RenderFrameHostManager::GetNavigatingWebUI() const {
+  if (IsBrowserSideNavigationEnabled()) {
+    if (speculative_render_frame_host_)
+      return speculative_render_frame_host_->web_ui();
+  } else {
+    if (pending_render_frame_host_)
+      return pending_render_frame_host_->web_ui();
+  }
+  return render_frame_host_->pending_web_ui();
+}
+
 RenderWidgetHostView* RenderFrameHostManager::GetRenderWidgetHostView() const {
   if (interstitial_page_)
     return interstitial_page_->GetView();
@@ -298,8 +140,8 @@ RenderWidgetHostView* RenderFrameHostManager::GetRenderWidgetHostView() const {
 }
 
 bool RenderFrameHostManager::ForInnerDelegate() {
-  return delegate_->GetOuterDelegateFrameTreeNodeID() !=
-      FrameTreeNode::kFrameTreeNodeInvalidID;
+  return delegate_->GetOuterDelegateFrameTreeNodeId() !=
+      FrameTreeNode::kFrameTreeNodeInvalidId;
 }
 
 RenderWidgetHostImpl*
@@ -309,7 +151,7 @@ RenderFrameHostManager::GetOuterRenderWidgetHostForKeyboardInput() {
 
   FrameTreeNode* outer_contents_frame_tree_node =
       FrameTreeNode::GloballyFindByID(
-          delegate_->GetOuterDelegateFrameTreeNodeID());
+          delegate_->GetOuterDelegateFrameTreeNodeId());
   return outer_contents_frame_tree_node->parent()
       ->current_frame_host()
       ->render_view_host()
@@ -318,7 +160,7 @@ RenderFrameHostManager::GetOuterRenderWidgetHostForKeyboardInput() {
 
 FrameTreeNode* RenderFrameHostManager::GetOuterDelegateNode() {
   int outer_contents_frame_tree_node_id =
-      delegate_->GetOuterDelegateFrameTreeNodeID();
+      delegate_->GetOuterDelegateFrameTreeNodeId();
   return FrameTreeNode::GloballyFindByID(outer_contents_frame_tree_node_id);
 }
 
@@ -326,16 +168,15 @@ RenderFrameProxyHost* RenderFrameHostManager::GetProxyToParent() {
   if (frame_tree_node_->IsMainFrame())
     return nullptr;
 
-  return proxy_hosts_->Get(frame_tree_node_->parent()
-                               ->render_manager()
-                               ->current_frame_host()
-                               ->GetSiteInstance()
-                               ->GetId());
+  return GetRenderFrameProxyHost(frame_tree_node_->parent()
+                                     ->render_manager()
+                                     ->current_frame_host()
+                                     ->GetSiteInstance());
 }
 
 RenderFrameProxyHost* RenderFrameHostManager::GetProxyToOuterDelegate() {
   int outer_contents_frame_tree_node_id =
-      delegate_->GetOuterDelegateFrameTreeNodeID();
+      delegate_->GetOuterDelegateFrameTreeNodeId();
   FrameTreeNode* outer_contents_frame_tree_node =
       FrameTreeNode::GloballyFindByID(outer_contents_frame_tree_node_id);
   if (!outer_contents_frame_tree_node ||
@@ -351,31 +192,10 @@ RenderFrameProxyHost* RenderFrameHostManager::GetProxyToOuterDelegate() {
 void RenderFrameHostManager::RemoveOuterDelegateFrame() {
   FrameTreeNode* outer_delegate_frame_tree_node =
       FrameTreeNode::GloballyFindByID(
-          delegate_->GetOuterDelegateFrameTreeNodeID());
+          delegate_->GetOuterDelegateFrameTreeNodeId());
   DCHECK(outer_delegate_frame_tree_node->parent());
   outer_delegate_frame_tree_node->frame_tree()->RemoveFrame(
       outer_delegate_frame_tree_node);
-}
-
-void RenderFrameHostManager::SetPendingWebUI(const GURL& url, int bindings) {
-  pending_web_ui_ = CreateWebUI(url, bindings);
-  pending_and_current_web_ui_.reset();
-}
-
-scoped_ptr<WebUIImpl> RenderFrameHostManager::CreateWebUI(const GURL& url,
-                                                          int bindings) {
-  scoped_ptr<WebUIImpl> new_web_ui(delegate_->CreateWebUIForRenderManager(url));
-
-  // If we have assigned (zero or more) bindings to this NavigationEntry in the
-  // past, make sure we're not granting it different bindings than it had
-  // before.  If so, note it and don't give it any bindings, to avoid a
-  // potential privilege escalation.
-  if (new_web_ui && bindings != NavigationEntryImpl::kInvalidBindings &&
-      new_web_ui->GetBindings() != bindings) {
-    RecordAction(base::UserMetricsAction("ProcessSwapBindingsMismatch_RVHM"));
-    return nullptr;
-  }
-  return new_web_ui.Pass();
 }
 
 RenderFrameHostImpl* RenderFrameHostManager::Navigate(
@@ -399,7 +219,7 @@ RenderFrameHostImpl* RenderFrameHostManager::Navigate(
   // If the current render_frame_host_ isn't live, we should create it so
   // that we don't show a sad tab while the dest_render_frame_host fetches
   // its first page.  (Bug 1145340)
-  if (dest_render_frame_host != render_frame_host_ &&
+  if (dest_render_frame_host != render_frame_host_.get() &&
       !render_frame_host_->IsRenderFrameLive()) {
     // Note: we don't call InitRenderView here because we are navigating away
     // soon anyway, and we don't have the NavigationEntry for this host.
@@ -426,10 +246,17 @@ RenderFrameHostImpl* RenderFrameHostManager::Navigate(
     if (!InitRenderView(dest_render_frame_host->render_view_host(), nullptr))
       return nullptr;
 
+    if (GetNavigatingWebUI()) {
+      // A new RenderView was created and there is a navigating WebUI which
+      // never interacted with it. So notify the WebUI using RenderViewCreated.
+      GetNavigatingWebUI()->RenderViewCreated(
+          dest_render_frame_host->render_view_host());
+    }
+
     // Now that we've created a new renderer, be sure to hide it if it isn't
     // our primary one.  Otherwise, we might crash if we try to call Show()
     // on it later.
-    if (dest_render_frame_host != render_frame_host_) {
+    if (dest_render_frame_host != render_frame_host_.get()) {
       if (dest_render_frame_host->GetView())
         dest_render_frame_host->GetView()->Hide();
     } else {
@@ -470,7 +297,7 @@ RenderFrameHostImpl* RenderFrameHostManager::Navigate(
     // NavigationHandle that came from the transferring RenderFrameHost.
     DCHECK(transfer_navigation_handle_);
     dest_render_frame_host->SetNavigationHandle(
-        transfer_navigation_handle_.Pass());
+        std::move(transfer_navigation_handle_));
   }
   DCHECK(!transfer_navigation_handle_);
 
@@ -489,8 +316,7 @@ void RenderFrameHostManager::Stop() {
   }
 
   // PlzNavigate: a loading speculative RenderFrameHost should also stop.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     if (speculative_render_frame_host_ &&
         speculative_render_frame_host_->is_loading()) {
       speculative_render_frame_host_->Send(
@@ -500,9 +326,11 @@ void RenderFrameHostManager::Stop() {
 }
 
 void RenderFrameHostManager::SetIsLoading(bool is_loading) {
-  render_frame_host_->render_view_host()->SetIsLoading(is_loading);
-  if (pending_render_frame_host_)
-    pending_render_frame_host_->render_view_host()->SetIsLoading(is_loading);
+  render_frame_host_->render_view_host()->GetWidget()->SetIsLoading(is_loading);
+  if (pending_render_frame_host_) {
+    pending_render_frame_host_->render_view_host()->GetWidget()->SetIsLoading(
+        is_loading);
+  }
 }
 
 bool RenderFrameHostManager::ShouldCloseTabOnUnresponsiveRenderer() {
@@ -546,8 +374,7 @@ void RenderFrameHostManager::OnBeforeUnloadACK(
     bool proceed,
     const base::TimeTicks& proceed_time) {
   if (for_cross_site_transition) {
-    DCHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kEnableBrowserSideNavigation));
+    DCHECK(!IsBrowserSideNavigationEnabled());
     // Ignore if we're not in a cross-process navigation.
     if (!pending_render_frame_host_)
       return;
@@ -582,11 +409,8 @@ void RenderFrameHostManager::OnBeforeUnloadACK(
       }
 
       // PlzNavigate: clean up the speculative RenderFrameHost if there is one.
-      if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-              switches::kEnableBrowserSideNavigation) &&
-          speculative_render_frame_host_) {
+      if (IsBrowserSideNavigationEnabled() && speculative_render_frame_host_)
         CleanUpNavigation();
-      }
 
       // This is not a cross-process navigation; the tab is being closed.
       render_frame_host_->render_view_host()->ClosePage();
@@ -611,18 +435,27 @@ void RenderFrameHostManager::OnCrossSiteResponse(
   // TODO(creis): We need to handle the case that the pending RFH has changed
   // in the mean time, while this was being posted from the IO thread.  We
   // should probably cancel the request in that case.
-  DCHECK(pending_render_frame_host == pending_render_frame_host_ ||
-         pending_render_frame_host == render_frame_host_);
+  DCHECK(pending_render_frame_host == pending_render_frame_host_.get() ||
+         pending_render_frame_host == render_frame_host_.get());
+
+  // Check if the FrameTreeNode is loading. This will be used later to notify
+  // the FrameTreeNode that the load stop if the transfer fails.
+  bool frame_tree_node_was_loading = frame_tree_node_->IsLoading();
 
   // Store the transferring request so that we can release it if the transfer
   // navigation matches.
-  cross_site_transferring_request_ = cross_site_transferring_request.Pass();
+  cross_site_transferring_request_ = std::move(cross_site_transferring_request);
 
   // Store the NavigationHandle to give it to the appropriate RenderFrameHost
   // after it started navigating.
   transfer_navigation_handle_ =
       pending_render_frame_host->PassNavigationHandleOwnership();
   DCHECK(transfer_navigation_handle_);
+
+  // Set the transferring RenderFrameHost as not loading, so that it does not
+  // emit a DidStopLoading notification if it is destroyed when creating the
+  // new navigating RenderFrameHost.
+  pending_render_frame_host->set_is_loading(false);
 
   // Sanity check that the params are for the correct frame and process.
   // These should match the RenderFrameHost that made the request.
@@ -645,13 +478,9 @@ void RenderFrameHostManager::OnCrossSiteResponse(
   std::vector<GURL> rest_of_chain = transfer_url_chain;
   rest_of_chain.pop_back();
 
-  // We don't know whether the original request had |user_action| set to true.
-  // However, since we force the navigation to be in the current tab, it
-  // doesn't matter.
   pending_render_frame_host->frame_tree_node()->navigator()->RequestTransferURL(
       pending_render_frame_host, transfer_url, nullptr, rest_of_chain, referrer,
-      page_transition, CURRENT_TAB, global_request_id,
-      should_replace_current_entry, true);
+      page_transition, global_request_id, should_replace_current_entry);
 
   // The transferring request was only needed during the RequestTransferURL
   // call, so it is safe to clear at this point.
@@ -660,6 +489,11 @@ void RenderFrameHostManager::OnCrossSiteResponse(
   // If the navigation continued, the NavigationHandle should have been
   // transfered to a RenderFrameHost. In the other cases, it should be cleared.
   transfer_navigation_handle_.reset();
+
+  // If the navigation in the new renderer did not start, inform the
+  // FrameTreeNode that it stopped loading.
+  if (!frame_tree_node_->IsLoading() && frame_tree_node_was_loading)
+    frame_tree_node_->DidStopLoading();
 }
 
 void RenderFrameHostManager::DidNavigateFrame(
@@ -676,24 +510,38 @@ void RenderFrameHostManager::CommitPendingIfNecessary(
     RenderFrameHostImpl* render_frame_host,
     bool was_caused_by_user_gesture) {
   if (!pending_render_frame_host_ && !speculative_render_frame_host_) {
-    DCHECK(!should_reuse_web_ui_ || web_ui_);
+    // There's no pending/speculative RenderFrameHost so it must be that the
+    // current renderer process completed a navigation.
 
     // We should only hear this from our current renderer.
-    DCHECK_EQ(render_frame_host_, render_frame_host);
+    DCHECK_EQ(render_frame_host_.get(), render_frame_host);
 
-    // Even when there is no pending RVH, there may be a pending Web UI.
-    if (pending_web_ui() || speculative_web_ui_)
-      CommitPending();
+    // If the current RenderFrameHost has a pending WebUI it must be committed.
+    // Note: When one tries to move same-site commit logic into RenderFrameHost
+    // itself, mind that the focus setting logic inside CommitPending also needs
+    // to be moved there.
+    if (render_frame_host_->pending_web_ui())
+      CommitPendingWebUI();
     return;
   }
 
-  if (render_frame_host == pending_render_frame_host_ ||
-      render_frame_host == speculative_render_frame_host_) {
-    // The pending cross-process navigation completed, so show the renderer.
+  if (render_frame_host == pending_render_frame_host_.get() ||
+      render_frame_host == speculative_render_frame_host_.get()) {
+    // A cross-process navigation completed, so show the new renderer. If a
+    // same-process navigation is also ongoing, it will be canceled when the
+    // pending/speculative RenderFrameHost replaces the current one in the
+    // commit call below.
     CommitPending();
-  } else if (render_frame_host == render_frame_host_) {
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kEnableBrowserSideNavigation)) {
+  } else if (render_frame_host == render_frame_host_.get()) {
+    // A same-process navigation committed while a simultaneous cross-process
+    // navigation is still ongoing.
+
+    // If the current RenderFrameHost has a pending WebUI it must be committed.
+    if (render_frame_host_->pending_web_ui())
+      CommitPendingWebUI();
+
+    // Decide on canceling the ongoing cross-process navigation.
+    if (IsBrowserSideNavigationEnabled()) {
       CleanUpNavigation();
     } else {
       if (was_caused_by_user_gesture) {
@@ -706,7 +554,7 @@ void RenderFrameHostManager::CommitPendingIfNecessary(
     }
   } else {
     // No one else should be sending us DidNavigate in this state.
-    DCHECK(false);
+    NOTREACHED();
   }
 }
 
@@ -728,7 +576,7 @@ void RenderFrameHostManager::DidChangeOpener(
 
   frame_tree_node_->SetOpener(opener);
 
-  for (const auto& pair : *proxy_hosts_) {
+  for (const auto& pair : proxy_hosts_) {
     if (pair.second->GetSiteInstance() == source_site_instance)
       continue;
     pair.second->UpdateOpener();
@@ -764,49 +612,12 @@ void RenderFrameHostManager::CommitPendingSandboxFlags() {
   // the parent process since it already knows the latest flags.
   SiteInstance* parent_site_instance =
       frame_tree_node_->parent()->current_frame_host()->GetSiteInstance();
-  for (const auto& pair : *proxy_hosts_) {
+  for (const auto& pair : proxy_hosts_) {
     if (pair.second->GetSiteInstance() != parent_site_instance) {
       pair.second->Send(new FrameMsg_DidUpdateSandboxFlags(
           pair.second->GetRoutingID(),
           frame_tree_node_->current_replication_state().sandbox_flags));
     }
-  }
-}
-
-void RenderFrameHostManager::RendererProcessClosing(
-    RenderProcessHost* render_process_host) {
-  // Remove any swapped out RVHs from this process, so that we don't try to
-  // swap them back in while the process is exiting.  Start by finding them,
-  // since there could be more than one.
-  std::list<int> ids_to_remove;
-  // Do not remove proxies in the dead process that still have active frame
-  // count though, we just reset them to be uninitialized.
-  std::list<int> ids_to_keep;
-  for (const auto& pair : *proxy_hosts_) {
-    RenderFrameProxyHost* proxy = pair.second;
-    if (proxy->GetProcess() != render_process_host)
-      continue;
-
-    if (static_cast<SiteInstanceImpl*>(proxy->GetSiteInstance())
-            ->active_frame_count() >= 1U) {
-      ids_to_keep.push_back(pair.first);
-    } else {
-      ids_to_remove.push_back(pair.first);
-    }
-  }
-
-  // Now delete them.
-  while (!ids_to_remove.empty()) {
-    proxy_hosts_->Remove(ids_to_remove.back());
-    ids_to_remove.pop_back();
-  }
-
-  while (!ids_to_keep.empty()) {
-    frame_tree_node_->frame_tree()->ForEach(
-        base::Bind(
-            &RenderFrameHostManager::ResetProxiesInSiteInstance,
-            ids_to_keep.back()));
-    ids_to_keep.pop_back();
   }
 }
 
@@ -828,35 +639,24 @@ void RenderFrameHostManager::SwapOutOldFrame(
 
   // If the old RFH is not live, just return as there is no further work to do.
   // It will be deleted and there will be no proxy created.
-  int32 old_site_instance_id =
-      old_render_frame_host->GetSiteInstance()->GetId();
-  if (!old_render_frame_host->IsRenderFrameLive()) {
-    ShutdownProxiesIfLastActiveFrameInSiteInstance(old_render_frame_host.get());
+  if (!old_render_frame_host->IsRenderFrameLive())
     return;
-  }
 
   // If there are no active frames besides this one, we can delete the old
   // RenderFrameHost once it runs its unload handler, without replacing it with
   // a proxy.
-  size_t active_frame_count =
-      old_render_frame_host->GetSiteInstance()->active_frame_count();
-  if (active_frame_count <= 1) {
-    // Clear out any proxies from this SiteInstance, in case this was the
-    // last one keeping other proxies alive.
-    ShutdownProxiesIfLastActiveFrameInSiteInstance(old_render_frame_host.get());
-
+  if (old_render_frame_host->GetSiteInstance()->active_frame_count() <= 1) {
     // Tell the old RenderFrameHost to swap out, with no proxy to replace it.
     old_render_frame_host->SwapOut(nullptr, true);
-    MoveToPendingDeleteHosts(old_render_frame_host.Pass());
+    MoveToPendingDeleteHosts(std::move(old_render_frame_host));
     return;
   }
 
   // Otherwise there are active views and we need a proxy for the old RFH.
   // (There should not be one yet.)
-  RenderFrameProxyHost* proxy = new RenderFrameProxyHost(
-      old_render_frame_host->GetSiteInstance(),
-      old_render_frame_host->render_view_host(), frame_tree_node_);
-  proxy_hosts_->Add(old_site_instance_id, make_scoped_ptr(proxy));
+  RenderFrameProxyHost* proxy =
+      CreateRenderFrameProxyHost(old_render_frame_host->GetSiteInstance(),
+                                 old_render_frame_host->render_view_host());
 
   // Tell the old RenderFrameHost to swap out and be replaced by the proxy.
   old_render_frame_host->SwapOut(proxy, true);
@@ -868,7 +668,7 @@ void RenderFrameHostManager::SwapOutOldFrame(
     // In --site-per-process, frames delete their RFH rather than storing it
     // in the proxy.  Schedule it for deletion once the SwapOutACK comes in.
     // TODO(creis): This will be the default when we remove swappedout://.
-    MoveToPendingDeleteHosts(old_render_frame_host.Pass());
+    MoveToPendingDeleteHosts(std::move(old_render_frame_host));
   } else {
     // We shouldn't get here for subframes, since we only swap subframes when
     // --site-per-process is used.
@@ -876,7 +676,7 @@ void RenderFrameHostManager::SwapOutOldFrame(
 
     // The old RenderFrameHost will stay alive inside the proxy so that existing
     // JavaScript window references to it stay valid.
-    proxy->TakeFrameHostOwnership(old_render_frame_host.Pass());
+    proxy->TakeFrameHostOwnership(std::move(old_render_frame_host));
   }
 }
 
@@ -899,12 +699,10 @@ void RenderFrameHostManager::DiscardUnusedFrame(
     // |render_frame_host|, as this method is only called to discard a pending
     // or speculative RenderFrameHost, i.e. one that has never hosted an actual
     // document.
-    RenderFrameProxyHost* proxy = proxy_hosts_->Get(site_instance->GetId());
+    RenderFrameProxyHost* proxy = GetRenderFrameProxyHost(site_instance);
     if (!proxy) {
-      proxy = new RenderFrameProxyHost(site_instance,
-                                       render_frame_host->render_view_host(),
-                                       frame_tree_node_);
-      proxy_hosts_->Add(site_instance->GetId(), make_scoped_ptr(proxy));
+      proxy = CreateRenderFrameProxyHost(site_instance,
+                                         render_frame_host->render_view_host());
     }
 
     if (!SiteIsolationPolicy::IsSwappedOutStateForbidden()) {
@@ -918,15 +716,11 @@ void RenderFrameHostManager::DiscardUnusedFrame(
       if (!render_frame_host->is_swapped_out())
         render_frame_host->SwapOut(proxy, false);
 
-      proxy->TakeFrameHostOwnership(render_frame_host.Pass());
+      proxy->TakeFrameHostOwnership(std::move(render_frame_host));
     }
   }
 
-  if (render_frame_host) {
-    // We won't be coming back, so delete this one.
-    ShutdownProxiesIfLastActiveFrameInSiteInstance(render_frame_host.get());
-    render_frame_host.reset();
-  }
+  render_frame_host.reset();
 }
 
 void RenderFrameHostManager::MoveToPendingDeleteHosts(
@@ -942,14 +736,13 @@ void RenderFrameHostManager::MoveToPendingDeleteHosts(
   // |render_frame_host| will be deleted when its SwapOut ACK is received, or
   // when the timer times out, or when the RFHM itself is deleted (whichever
   // comes first).
-  pending_delete_hosts_.push_back(
-      linked_ptr<RenderFrameHostImpl>(render_frame_host.release()));
+  pending_delete_hosts_.push_back(std::move(render_frame_host));
 }
 
 bool RenderFrameHostManager::IsPendingDeletion(
     RenderFrameHostImpl* render_frame_host) {
   for (const auto& rfh : pending_delete_hosts_) {
-    if (rfh == render_frame_host)
+    if (rfh.get() == render_frame_host)
       return true;
   }
   return false;
@@ -960,7 +753,7 @@ bool RenderFrameHostManager::DeleteFromPendingList(
   for (RFHPendingDeleteList::iterator iter = pending_delete_hosts_.begin();
        iter != pending_delete_hosts_.end();
        iter++) {
-    if (*iter == render_frame_host) {
+    if (iter->get() == render_frame_host) {
       pending_delete_hosts_.erase(iter);
       return true;
     }
@@ -969,19 +762,30 @@ bool RenderFrameHostManager::DeleteFromPendingList(
 }
 
 void RenderFrameHostManager::ResetProxyHosts() {
-  proxy_hosts_->Clear();
+  for (const auto& pair : proxy_hosts_) {
+    static_cast<SiteInstanceImpl*>(pair.second->GetSiteInstance())
+        ->RemoveObserver(this);
+  }
+  proxy_hosts_.clear();
+}
+
+void RenderFrameHostManager::ClearRFHsPendingShutdown() {
+  pending_delete_hosts_.clear();
+}
+
+void RenderFrameHostManager::ClearWebUIInstances() {
+  current_frame_host()->ClearAllWebUI();
+  if (pending_render_frame_host_)
+    pending_render_frame_host_->ClearAllWebUI();
+  // PlzNavigate
+  if (speculative_render_frame_host_)
+    speculative_render_frame_host_->ClearAllWebUI();
 }
 
 // PlzNavigate
 void RenderFrameHostManager::DidCreateNavigationRequest(
     const NavigationRequest& request) {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
-  // Clean up any state in case there's an ongoing navigation.
-  // TODO(carlosk): remove this cleanup here once we properly cancel ongoing
-  // navigations.
-  CleanUpNavigation();
-
+  CHECK(IsBrowserSideNavigationEnabled());
   RenderFrameHostImpl* dest_rfh = GetFrameHostForNavigation(request);
   DCHECK(dest_rfh);
 }
@@ -989,8 +793,7 @@ void RenderFrameHostManager::DidCreateNavigationRequest(
 // PlzNavigate
 RenderFrameHostImpl* RenderFrameHostManager::GetFrameHostForNavigation(
     const NavigationRequest& request) {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+  CHECK(IsBrowserSideNavigationEnabled());
 
   SiteInstance* current_site_instance = render_frame_host_->GetSiteInstance();
 
@@ -1009,57 +812,77 @@ RenderFrameHostImpl* RenderFrameHostManager::GetFrameHostForNavigation(
   // The appropriate RenderFrameHost to commit the navigation.
   RenderFrameHostImpl* navigation_rfh = nullptr;
 
-  // Renderer-initiated main frame navigations that may require a SiteInstance
-  // swap are sent to the browser via the OpenURL IPC and are afterwards treated
-  // as browser-initiated navigations. NavigationRequests marked as
-  // renderer-initiated are created by receiving a BeginNavigation IPC, and will
-  // then proceed in the same renderer that sent the IPC due to the condition
-  // below.
-  // Subframe navigations will use the current renderer, unless
-  // --site-per-process is enabled.
-  // TODO(carlosk): Have renderer-initated main frame navigations swap processes
-  // if needed when it no longer breaks OAuth popups (see
-  // https://crbug.com/440266).
-  bool is_main_frame = frame_tree_node_->IsMainFrame();
-  if (current_site_instance == dest_site_instance.get() ||
-      (!request.browser_initiated() && is_main_frame) ||
-      (!is_main_frame && !dest_site_instance->RequiresDedicatedProcess() &&
-       !current_site_instance->RequiresDedicatedProcess())) {
-    // Reuse the current RFH if its SiteInstance matches the the navigation's
-    // or if this is a subframe navigation. We only swap RFHs for subframes when
-    // --site-per-process is enabled.
-    CleanUpNavigation();
+  bool notify_webui_of_rv_creation = false;
+
+  // Reuse the current RenderFrameHost if its SiteInstance matches the
+  // navigation's.
+  bool no_renderer_swap = current_site_instance == dest_site_instance.get();
+  if (SiteIsolationPolicy::AreCrossProcessFramesPossible()) {
+    // Check if the current renderer should be changed for the navigation.
+    no_renderer_swap |=
+        render_frame_host_->IsRenderFrameLive() &&
+        ShouldMakeNetworkRequestForURL(request.common_params().url) &&
+        !IsRendererTransferNeededForNavigation(render_frame_host_.get(),
+                                               request.common_params().url);
+  } else {
+    // Subframe navigations will use the current renderer.
+    no_renderer_swap |= !frame_tree_node_->IsMainFrame();
+
+    // Renderer-initiated main frame navigations that may require a
+    // SiteInstance swap are sent to the browser via the OpenURL IPC and are
+    // afterwards treated as browser-initiated navigations. NavigationRequests
+    // marked as renderer-initiated are created by receiving a BeginNavigation
+    // IPC, and will then proceed in the same renderer that sent the IPC due to
+    // the condition below.
+    // TODO(carlosk): Have renderer-initated main frame navigations swap
+    // processes if needed when it no longer breaks OAuth popups (see
+    // https://crbug.com/440266).
+    no_renderer_swap |= !request.browser_initiated();
+  }
+
+  if (no_renderer_swap) {
+    // GetFrameHostForNavigation will be called more than once during a
+    // navigation (currently twice, on request and when it's about to commit in
+    // the renderer). In the follow up calls an existing pending WebUI should
+    // not be recreated if the URL didn't change. So instead of calling
+    // CleanUpNavigation just discard the speculative RenderFrameHost if one
+    // exists.
+    if (speculative_render_frame_host_)
+      DiscardUnusedFrame(UnsetSpeculativeRenderFrameHost());
+
+    UpdatePendingWebUIOnCurrentFrameHost(request.common_params().url,
+                                         request.bindings());
+
     navigation_rfh = render_frame_host_.get();
 
-    // As SiteInstances are the same, check if the WebUI should be reused.
-    const NavigationEntry* current_navigation_entry =
-        delegate_->GetLastCommittedNavigationEntryForRenderManager();
-    should_reuse_web_ui_ = ShouldReuseWebUI(current_navigation_entry,
-                                            request.common_params().url);
-    if (!should_reuse_web_ui_) {
-      speculative_web_ui_ = CreateWebUI(request.common_params().url,
-                                        request.bindings());
-      // Make sure the current RenderViewHost has the right bindings.
-      if (speculative_web_ui() &&
-          !render_frame_host_->GetProcess()->IsForGuestsOnly()) {
-        render_frame_host_->render_view_host()->AllowBindings(
-            speculative_web_ui()->GetBindings());
-      }
-    }
+    DCHECK(!speculative_render_frame_host_);
   } else {
-    // If the SiteInstance for the final URL doesn't match the one from the
-    // speculatively created RenderFrameHost, create a new RenderFrameHost using
-    // this new SiteInstance.
+    // If the current RenderFrameHost cannot be used a speculative one is
+    // created with the SiteInstance for the current URL. If a speculative
+    // RenderFrameHost already exists we try as much as possible to reuse it and
+    // its associated WebUI.
+
+    // Check if an existing speculative RenderFrameHost can be reused.
     if (!speculative_render_frame_host_ ||
         speculative_render_frame_host_->GetSiteInstance() !=
             dest_site_instance.get()) {
+      // If a previous speculative RenderFrameHost didn't exist or if its
+      // SiteInstance differs from the one for the current URL, a new one needs
+      // to be created.
       CleanUpNavigation();
-      bool success = CreateSpeculativeRenderFrameHost(
-          request.common_params().url, current_site_instance,
-          dest_site_instance.get(), request.bindings());
+      bool success = CreateSpeculativeRenderFrameHost(current_site_instance,
+                                                      dest_site_instance.get());
       DCHECK(success);
     }
     DCHECK(speculative_render_frame_host_);
+
+    bool changed_web_ui = speculative_render_frame_host_->UpdatePendingWebUI(
+        request.common_params().url, request.bindings());
+    speculative_render_frame_host_->CommitPendingWebUI();
+    DCHECK_EQ(GetNavigatingWebUI(), speculative_render_frame_host_->web_ui());
+    notify_webui_of_rv_creation =
+        changed_web_ui && speculative_render_frame_host_->web_ui();
+
     navigation_rfh = speculative_render_frame_host_.get();
 
     // Check if our current RFH is live.
@@ -1081,11 +904,11 @@ RenderFrameHostImpl* RenderFrameHostManager::GetFrameHostForNavigation(
   if (!navigation_rfh->IsRenderFrameLive()) {
     // Recreate the opener chain.
     CreateOpenerProxies(navigation_rfh->GetSiteInstance(), frame_tree_node_);
-    if (!InitRenderView(navigation_rfh->render_view_host(), nullptr)) {
+    if (!InitRenderView(navigation_rfh->render_view_host(), nullptr))
       return nullptr;
-    }
+    notify_webui_of_rv_creation = true;
 
-    if (navigation_rfh == render_frame_host_) {
+    if (navigation_rfh == render_frame_host_.get()) {
       // TODO(nasko): This is a very ugly hack. The Chrome extensions process
       // manager still uses NotificationService and expects to see a
       // RenderViewHost changed notification after WebContents and
@@ -1095,44 +918,53 @@ RenderFrameHostImpl* RenderFrameHostManager::GetFrameHostForNavigation(
       delegate_->NotifyMainFrameSwappedFromRenderManager(
           nullptr, render_frame_host_->render_view_host());
     }
+    DCHECK(navigation_rfh->IsRenderFrameLive());
   }
+
+  // If a WebUI was created in a speculative RenderFrameHost or a new RenderView
+  // was created then the WebUI never interacted with the RenderView. Notify
+  // using RenderViewCreated.
+  if (notify_webui_of_rv_creation && GetNavigatingWebUI())
+    GetNavigatingWebUI()->RenderViewCreated(navigation_rfh->render_view_host());
 
   return navigation_rfh;
 }
 
 // PlzNavigate
 void RenderFrameHostManager::CleanUpNavigation() {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
-  speculative_web_ui_.reset();
-  should_reuse_web_ui_ = false;
-  if (speculative_render_frame_host_)
+  CHECK(IsBrowserSideNavigationEnabled());
+  render_frame_host_->ClearPendingWebUI();
+  if (speculative_render_frame_host_) {
+    bool was_loading = speculative_render_frame_host_->is_loading();
     DiscardUnusedFrame(UnsetSpeculativeRenderFrameHost());
+    if (was_loading)
+      frame_tree_node_->DidStopLoading();
+  }
 }
 
 // PlzNavigate
 scoped_ptr<RenderFrameHostImpl>
 RenderFrameHostManager::UnsetSpeculativeRenderFrameHost() {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+  CHECK(IsBrowserSideNavigationEnabled());
   speculative_render_frame_host_->GetProcess()->RemovePendingView();
-  return speculative_render_frame_host_.Pass();
+  return std::move(speculative_render_frame_host_);
 }
 
 void RenderFrameHostManager::OnDidStartLoading() {
-  for (const auto& pair : *proxy_hosts_) {
+  for (const auto& pair : proxy_hosts_) {
     pair.second->Send(
         new FrameMsg_DidStartLoading(pair.second->GetRoutingID()));
   }
 }
 
 void RenderFrameHostManager::OnDidStopLoading() {
-  for (const auto& pair : *proxy_hosts_) {
+  for (const auto& pair : proxy_hosts_) {
     pair.second->Send(new FrameMsg_DidStopLoading(pair.second->GetRoutingID()));
   }
 }
 
-void RenderFrameHostManager::OnDidUpdateName(const std::string& name) {
+void RenderFrameHostManager::OnDidUpdateName(const std::string& name,
+                                             const std::string& unique_name) {
   // The window.name message may be sent outside of --site-per-process when
   // report_frame_name_changes renderer preference is set (used by
   // WebView).  Don't send the update to proxies in those cases.
@@ -1141,9 +973,20 @@ void RenderFrameHostManager::OnDidUpdateName(const std::string& name) {
   if (!SiteIsolationPolicy::AreCrossProcessFramesPossible())
     return;
 
-  for (const auto& pair : *proxy_hosts_) {
-    pair.second->Send(
-        new FrameMsg_DidUpdateName(pair.second->GetRoutingID(), name));
+  for (const auto& pair : proxy_hosts_) {
+    pair.second->Send(new FrameMsg_DidUpdateName(pair.second->GetRoutingID(),
+                                                 name, unique_name));
+  }
+}
+
+void RenderFrameHostManager::OnEnforceStrictMixedContentChecking(
+    bool should_enforce) {
+  if (!SiteIsolationPolicy::AreCrossProcessFramesPossible())
+    return;
+
+  for (const auto& pair : proxy_hosts_) {
+    pair.second->Send(new FrameMsg_EnforceStrictMixedContentChecking(
+        pair.second->GetRoutingID(), should_enforce));
   }
 }
 
@@ -1151,7 +994,7 @@ void RenderFrameHostManager::OnDidUpdateOrigin(const url::Origin& origin) {
   if (!SiteIsolationPolicy::IsSwappedOutStateForbidden())
     return;
 
-  for (const auto& pair : *proxy_hosts_) {
+  for (const auto& pair : proxy_hosts_) {
     pair.second->Send(
         new FrameMsg_DidUpdateOrigin(pair.second->GetRoutingID(), origin));
   }
@@ -1166,40 +1009,49 @@ RenderFrameHostManager::SiteInstanceDescriptor::SiteInstanceDescriptor(
   new_site_url = SiteInstance::GetSiteForURL(browser_context, dest_url);
 }
 
-// static
-bool RenderFrameHostManager::ClearProxiesInSiteInstance(
-    int32 site_instance_id,
-    FrameTreeNode* node) {
-  RenderFrameProxyHost* proxy =
-      node->render_manager()->proxy_hosts_->Get(site_instance_id);
-  if (proxy) {
-    // Delete the proxy.  If it is for a main frame (and thus the RFH is stored
-    // in the proxy) and it was still pending swap out, move the RFH to the
-    // pending deletion list first.
-    if (node->IsMainFrame() &&
-        proxy->render_frame_host() &&
-        proxy->render_frame_host()->rfh_state() ==
-            RenderFrameHostImpl::STATE_PENDING_SWAP_OUT) {
-      DCHECK(!SiteIsolationPolicy::IsSwappedOutStateForbidden());
-      scoped_ptr<RenderFrameHostImpl> swapped_out_rfh =
-          proxy->PassFrameHostOwnership();
-      node->render_manager()->MoveToPendingDeleteHosts(swapped_out_rfh.Pass());
-    }
-    node->render_manager()->proxy_hosts_->Remove(site_instance_id);
-  }
-
-  return true;
+void RenderFrameHostManager::RenderProcessGone(SiteInstanceImpl* instance) {
+  GetRenderFrameProxyHost(instance)->set_render_frame_proxy_created(false);
 }
 
-// static.
-bool RenderFrameHostManager::ResetProxiesInSiteInstance(int32 site_instance_id,
-                                                        FrameTreeNode* node) {
-  RenderFrameProxyHost* proxy =
-      node->render_manager()->proxy_hosts_->Get(site_instance_id);
-  if (proxy)
-    proxy->set_render_frame_proxy_created(false);
+void RenderFrameHostManager::ActiveFrameCountIsZero(
+    SiteInstanceImpl* site_instance) {
+  // |site_instance| no longer contains any active RenderFrameHosts, so we don't
+  // need to maintain a proxy there anymore.
+  RenderFrameProxyHost* proxy = GetRenderFrameProxyHost(site_instance);
+  CHECK(proxy);
 
-  return true;
+  // Delete the proxy.  If it is for a main frame (and the RFH is stored
+  // in the proxy) and it was still pending swap out, move the RFH to the
+  // pending deletion list first.
+  if (frame_tree_node_->IsMainFrame() && proxy->render_frame_host() &&
+      proxy->render_frame_host()->rfh_state() ==
+          RenderFrameHostImpl::STATE_PENDING_SWAP_OUT) {
+    DCHECK(!SiteIsolationPolicy::IsSwappedOutStateForbidden());
+    scoped_ptr<RenderFrameHostImpl> swapped_out_rfh =
+        proxy->PassFrameHostOwnership();
+    MoveToPendingDeleteHosts(std::move(swapped_out_rfh));
+  }
+
+  DeleteRenderFrameProxyHost(site_instance);
+}
+
+RenderFrameProxyHost* RenderFrameHostManager::CreateRenderFrameProxyHost(
+    SiteInstance* site_instance,
+    RenderViewHostImpl* rvh) {
+  int site_instance_id = site_instance->GetId();
+  CHECK(proxy_hosts_.find(site_instance_id) == proxy_hosts_.end())
+      << "A proxy already existed for this SiteInstance.";
+  RenderFrameProxyHost* proxy_host =
+      new RenderFrameProxyHost(site_instance, rvh, frame_tree_node_);
+  proxy_hosts_[site_instance_id] = make_scoped_ptr(proxy_host);
+  static_cast<SiteInstanceImpl*>(site_instance)->AddObserver(this);
+  return proxy_host;
+}
+
+void RenderFrameHostManager::DeleteRenderFrameProxyHost(
+    SiteInstance* site_instance) {
+  static_cast<SiteInstanceImpl*>(site_instance)->RemoveObserver(this);
+  proxy_hosts_.erase(site_instance->GetId());
 }
 
 bool RenderFrameHostManager::ShouldTransitionCrossSite() {
@@ -1232,6 +1084,12 @@ bool RenderFrameHostManager::ShouldSwapBrowsingInstancesForNavigation(
     SiteInstance* new_site_instance,
     const GURL& new_effective_url,
     bool new_is_view_source_mode) const {
+  // A subframe must stay in the same BrowsingInstance as its parent.
+  // TODO(nasko): Ensure that SiteInstance swap is still triggered for subframes
+  // in the cases covered by the rest of the checks in this method.
+  if (!frame_tree_node_->IsMainFrame())
+    return false;
+
   // If new_entry already has a SiteInstance, assume it is correct.  We only
   // need to force a swap if it is in a different BrowsingInstance.
   if (new_site_instance) {
@@ -1296,18 +1154,6 @@ bool RenderFrameHostManager::ShouldSwapBrowsingInstancesForNavigation(
     return true;
 
   return false;
-}
-
-bool RenderFrameHostManager::ShouldReuseWebUI(
-    const NavigationEntry* current_entry,
-    const GURL& new_url) const {
-  NavigationControllerImpl& controller =
-      delegate_->GetControllerForRenderManager();
-  return current_entry && web_ui_ &&
-      (WebUIControllerFactoryRegistry::GetInstance()->GetWebUIType(
-          controller.GetBrowserContext(), current_entry->GetURL()) ==
-       WebUIControllerFactoryRegistry::GetInstance()->GetWebUIType(
-          controller.GetBrowserContext(), new_url));
 }
 
 SiteInstance* RenderFrameHostManager::GetSiteInstanceForNavigation(
@@ -1520,8 +1366,7 @@ RenderFrameHostManager::DetermineSiteInstanceForURL(
   // Use the current SiteInstance for same site navigations, as long as the
   // process type is correct.  (The URL may have been installed as an app since
   // the last time we visited it.)
-  const GURL& current_url =
-      GetCurrentURLForSiteInstance(current_instance_impl, current_entry);
+  const GURL& current_url = GetCurrentURLForSiteInstance(current_instance_impl);
   if (SiteInstance::IsSameWebSite(browser_context, current_url, dest_url) &&
       !current_instance_impl->HasWrongProcessForURL(dest_url)) {
     return SiteInstanceDescriptor(current_instance_impl);
@@ -1546,6 +1391,14 @@ bool RenderFrameHostManager::IsRendererTransferNeededForNavigation(
   // We do not currently swap processes for navigations in webview tag guests.
   if (rfh->GetSiteInstance()->GetSiteURL().SchemeIs(kGuestScheme))
     return false;
+
+  // Don't swap processes for extensions embedded in DevTools. See
+  // https://crbug.com/564216.
+  if (rfh->GetSiteInstance()->GetSiteURL().SchemeIs(kChromeDevToolsScheme)) {
+    // TODO(nick): https://crbug.com/570483 Check to see if |dest_url| is a
+    // devtools extension, and swap processes if not.
+    return false;
+  }
 
   BrowserContext* context = rfh->GetSiteInstance()->GetBrowserContext();
   GURL effective_url = SiteInstanceImpl::GetEffectiveURL(context, dest_url);
@@ -1596,29 +1449,19 @@ SiteInstance* RenderFrameHostManager::ConvertToSiteInstance(
 }
 
 const GURL& RenderFrameHostManager::GetCurrentURLForSiteInstance(
-    SiteInstance* current_instance, NavigationEntry* current_entry) {
-  // If this is a subframe that is potentially out of process from its parent,
-  // don't consider using current_entry's url for SiteInstance selection, since
-  // current_entry's url is for the main frame and may be in a different site
-  // than this frame.
-  // TODO(creis): Remove this when we can check the FrameNavigationEntry's url.
-  // See http://crbug.com/369654
-  if (!frame_tree_node_->IsMainFrame() &&
-      SiteIsolationPolicy::AreCrossProcessFramesPossible())
-    return frame_tree_node_->current_url();
+    SiteInstance* current_instance) {
+  // Use the current RenderFrameHost's last successful URL if it has one.  This
+  // excludes commits of net errors, since net errors do not currently swap
+  // processes for transfer navigations.  Thus, we compare against the last
+  // successful commit when deciding whether to swap this time.
+  // (Note: browser-initiated net errors do swap processes, but the frame's last
+  // successful URL will be empty in that case, causing us to fall back to the
+  // SiteInstance's URL below.)
+  if (!render_frame_host_->last_successful_url().is_empty())
+    return render_frame_host_->last_successful_url();
 
-  // If there is no last non-interstitial entry (and current_instance already
-  // has a site), then we must have been opened from another tab.  We want
-  // to compare against the URL of the page that opened us, but we can't
-  // get to it directly.  The best we can do is check against the site of
-  // the SiteInstance.  This will be correct when we intercept links and
-  // script-based navigations, but for now, it could place some pages in a
-  // new process unnecessarily.  We should only hit this case if a page tries
-  // to open a new tab to an interstitial-inducing URL, and then navigates
-  // the page to a different same-site URL.  (This seems very unlikely in
-  // practice.)
-  if (current_entry)
-    return current_entry->GetURL();
+  // Fall back to the SiteInstance's Site URL if the FrameTreeNode doen't have a
+  // current URL.
   return current_instance->GetSiteURL();
 }
 
@@ -1642,8 +1485,8 @@ void RenderFrameHostManager::CreatePendingRenderFrameHost(
   CreateProxiesForNewRenderFrameHost(old_instance, new_instance);
 
   // Create a non-swapped-out RFH with the given opener.
-  pending_render_frame_host_ = CreateRenderFrame(
-      new_instance, pending_web_ui(), create_render_frame_flags, nullptr);
+  pending_render_frame_host_ =
+      CreateRenderFrame(new_instance, create_render_frame_flags, nullptr);
 }
 
 void RenderFrameHostManager::CreateProxiesForNewRenderFrameHost(
@@ -1696,9 +1539,9 @@ void RenderFrameHostManager::CreateProxiesForNewNamedFrame() {
 
 scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::CreateRenderFrameHost(
     SiteInstance* site_instance,
-    int32 view_routing_id,
-    int32 frame_routing_id,
-    int32 widget_routing_id,
+    int32_t view_routing_id,
+    int32_t frame_routing_id,
+    int32_t widget_routing_id,
     int flags) {
   if (frame_routing_id == MSG_ROUTING_NONE)
     frame_routing_id = site_instance->GetProcess()->GetNextRoutingID();
@@ -1739,18 +1582,10 @@ scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::CreateRenderFrameHost(
 
 // PlzNavigate
 bool RenderFrameHostManager::CreateSpeculativeRenderFrameHost(
-    const GURL& url,
     SiteInstance* old_instance,
-    SiteInstance* new_instance,
-    int bindings) {
+    SiteInstance* new_instance) {
   CHECK(new_instance);
   CHECK_NE(old_instance, new_instance);
-  CHECK(!should_reuse_web_ui_);
-
-  // Note: |speculative_web_ui_| must be initialized before starting the
-  // |speculative_render_frame_host_| creation steps otherwise the WebUI
-  // won't be properly initialized.
-  speculative_web_ui_ = CreateWebUI(url, bindings);
 
   // The process for the new SiteInstance may (if we're sharing a process with
   // another host that already initialized it) or may not (we have our own
@@ -1765,19 +1600,13 @@ bool RenderFrameHostManager::CreateSpeculativeRenderFrameHost(
   if (delegate_->IsHidden())
     create_render_frame_flags |= CREATE_RF_HIDDEN;
   speculative_render_frame_host_ =
-      CreateRenderFrame(new_instance, speculative_web_ui_.get(),
-                        create_render_frame_flags, nullptr);
+      CreateRenderFrame(new_instance, create_render_frame_flags, nullptr);
 
-  if (!speculative_render_frame_host_) {
-    speculative_web_ui_.reset();
-    return false;
-  }
-  return true;
+  return !!speculative_render_frame_host_;
 }
 
 scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::CreateRenderFrame(
     SiteInstance* instance,
-    WebUIImpl* web_ui,
     int flags,
     int* view_routing_id_ptr) {
   bool swapped_out = !!(flags & CREATE_RF_SWAPPED_OUT);
@@ -1816,7 +1645,7 @@ scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::CreateRenderFrame(
       new_render_frame_host = proxy->PassFrameHostOwnership();
       new_render_frame_host->GetProcess()->AddPendingView();
 
-      proxy_hosts_->Remove(instance->GetId());
+      DeleteRenderFrameProxyHost(instance);
       // NB |proxy| is deleted at this point.
 
       // If we are reusing the RenderViewHost and it doesn't already have a
@@ -1830,7 +1659,7 @@ scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::CreateRenderFrame(
   } else {
     // Create a new RenderFrameHost if we don't find an existing one.
 
-    int32 widget_routing_id = MSG_ROUTING_NONE;
+    int32_t widget_routing_id = MSG_ROUTING_NONE;
 
     // A RenderFrame in a different process from its parent RenderFrame
     // requires a RenderWidget for input/layout/painting.
@@ -1851,11 +1680,10 @@ scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::CreateRenderFrame(
     if (!swapped_out) {
       new_render_frame_host->GetProcess()->AddPendingView();
     } else {
-      proxy = new RenderFrameProxyHost(
-          new_render_frame_host->GetSiteInstance(),
-          new_render_frame_host->render_view_host(), frame_tree_node_);
-      proxy_hosts_->Add(instance->GetId(), make_scoped_ptr(proxy));
-      proxy->TakeFrameHostOwnership(new_render_frame_host.Pass());
+      proxy =
+          CreateRenderFrameProxyHost(new_render_frame_host->GetSiteInstance(),
+                                     new_render_frame_host->render_view_host());
+      proxy->TakeFrameHostOwnership(std::move(new_render_frame_host));
     }
 
     if (frame_tree_node_->IsMainFrame()) {
@@ -1895,25 +1723,10 @@ scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::CreateRenderFrame(
     }
   }
 
-  // When a new RenderView is created by the renderer process, the new
-  // WebContents gets a RenderViewHost in the SiteInstance of its opener
-  // WebContents. If not used in the first navigation, this RVH is swapped out
-  // and is not granted bindings, so we may need to grant them when swapping it
-  // in.
-  if (web_ui && !new_render_frame_host->GetProcess()->IsForGuestsOnly()) {
-    int required_bindings = web_ui->GetBindings();
-    RenderViewHost* render_view_host =
-        new_render_frame_host->render_view_host();
-    if ((render_view_host->GetEnabledBindings() & required_bindings) !=
-            required_bindings) {
-      render_view_host->AllowBindings(required_bindings);
-    }
-  }
-
   // Returns the new RFH if it isn't swapped out.
   if (success && !swapped_out) {
     DCHECK(new_render_frame_host->GetSiteInstance() == instance);
-    return new_render_frame_host.Pass();
+    return new_render_frame_host;
   }
   return nullptr;
 }
@@ -1942,11 +1755,8 @@ int RenderFrameHostManager::CreateRenderFrameProxy(SiteInstance* instance) {
   if (proxy && proxy->is_render_frame_proxy_live())
     return proxy->GetRoutingID();
 
-  if (!proxy) {
-    proxy =
-        new RenderFrameProxyHost(instance, render_view_host, frame_tree_node_);
-    proxy_hosts_->Add(instance->GetId(), make_scoped_ptr(proxy));
-  }
+  if (!proxy)
+    proxy = CreateRenderFrameProxyHost(instance, render_view_host);
 
   if (SiteIsolationPolicy::IsSwappedOutStateForbidden() &&
       frame_tree_node_->IsMainFrame()) {
@@ -1959,10 +1769,12 @@ int RenderFrameHostManager::CreateRenderFrameProxy(SiteInstance* instance) {
 }
 
 void RenderFrameHostManager::CreateProxiesForChildFrame(FrameTreeNode* child) {
-  for (const auto& pair : *proxy_hosts_) {
+  RenderFrameProxyHost* outer_delegate_proxy =
+      ForInnerDelegate() ? GetProxyToOuterDelegate() : nullptr;
+  for (const auto& pair : proxy_hosts_) {
     // Do not create proxies for subframes in the outer delegate's process,
     // since the outer delegate does not need to interact with them.
-    if (ForInnerDelegate() && pair.second == GetProxyToOuterDelegate())
+    if (pair.second.get() == outer_delegate_proxy)
       continue;
 
     child->render_manager()->CreateRenderFrameProxy(
@@ -1991,10 +1803,8 @@ void RenderFrameHostManager::CreateOuterDelegateProxy(
     SiteInstance* outer_contents_site_instance,
     RenderFrameHostImpl* render_frame_host) {
   CHECK(BrowserPluginGuestMode::UseCrossProcessFramesForGuests());
-  RenderFrameProxyHost* proxy = new RenderFrameProxyHost(
-      outer_contents_site_instance, nullptr, frame_tree_node_);
-  proxy_hosts_->Add(outer_contents_site_instance->GetId(),
-                    make_scoped_ptr(proxy));
+  RenderFrameProxyHost* proxy =
+      CreateRenderFrameProxyHost(outer_contents_site_instance, nullptr);
 
   // Swap the outer WebContents's frame with the proxy to inner WebContents.
   //
@@ -2006,7 +1816,8 @@ void RenderFrameHostManager::CreateOuterDelegateProxy(
   // investigate and fix.
   render_frame_host->Send(new FrameMsg_SwapOut(
       render_frame_host->GetRoutingID(), proxy->GetRoutingID(),
-      false /* is_loading */, FrameReplicationState()));
+      false /* is_loading */,
+      render_frame_host->frame_tree_node()->current_replication_state()));
   proxy->set_render_frame_proxy_created(true);
 }
 
@@ -2027,31 +1838,6 @@ bool RenderFrameHostManager::InitRenderView(
   // We may have initialized this RenderViewHost for another RenderFrameHost.
   if (render_view_host->IsRenderViewLive())
     return true;
-
-  // If |render_view_host| is not for a proxy and the navigation is to a WebUI,
-  // and if the RenderView is not in a guest process, tell |render_view_host|
-  // about any bindings it will need enabled.
-  // TODO(carlosk): Move WebUI to RenderFrameHost in https://crbug.com/508850.
-  WebUIImpl* dest_web_ui = nullptr;
-  if (!proxy) {
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kEnableBrowserSideNavigation)) {
-      dest_web_ui =
-          should_reuse_web_ui_ ? web_ui_.get() : speculative_web_ui_.get();
-    } else {
-      dest_web_ui = pending_web_ui();
-    }
-  }
-  if (dest_web_ui && !render_view_host->GetProcess()->IsForGuestsOnly()) {
-    render_view_host->AllowBindings(dest_web_ui->GetBindings());
-  } else {
-    // Ensure that we don't create an unprivileged RenderView in a WebUI-enabled
-    // process unless it's swapped out.
-    if (render_view_host->is_active()) {
-      CHECK(!ChildProcessSecurityPolicyImpl::GetInstance()->HasWebUIBindings(
-                render_view_host->GetProcess()->GetID()));
-    }
-  }
 
   int opener_frame_routing_id =
       GetOpenerRoutingID(render_view_host->GetSiteInstance());
@@ -2112,8 +1898,34 @@ bool RenderFrameHostManager::InitRenderFrame(
   if (existing_proxy) {
     proxy_routing_id = existing_proxy->GetRoutingID();
     CHECK_NE(proxy_routing_id, MSG_ROUTING_NONE);
-    if (!existing_proxy->is_render_frame_proxy_live())
+    if (!existing_proxy->is_render_frame_proxy_live()) {
+      // Calling InitRenderFrameProxy on main frames seems to be causing
+      // https://crbug.com/575245, so track down how this can happen.
+      // TODO(creis): Remove this once we've found the cause.
+      if (SiteIsolationPolicy::IsSwappedOutStateForbidden() &&
+          !frame_tree_node_->parent()) {
+        base::debug::SetCrashKeyValue(
+            "initrf_frame_id",
+            base::IntToString(render_frame_host->GetRoutingID()));
+        base::debug::SetCrashKeyValue("initrf_proxy_id",
+                                      base::IntToString(proxy_routing_id));
+        base::debug::SetCrashKeyValue(
+            "initrf_view_id",
+            base::IntToString(
+                render_frame_host->render_view_host()->GetRoutingID()));
+        base::debug::SetCrashKeyValue(
+            "initrf_main_frame_id",
+            base::IntToString(render_frame_host->render_view_host()
+                                  ->main_frame_routing_id()));
+        base::debug::SetCrashKeyValue(
+            "initrf_view_is_live",
+            render_frame_host->render_view_host()->IsRenderViewLive() ? "yes"
+                                                                      : "no");
+        base::debug::DumpWithoutCrashing();
+      }
+
       existing_proxy->InitRenderFrameProxy();
+    }
   }
 
   return delegate_->CreateRenderFrameForRenderManager(
@@ -2141,49 +1953,33 @@ int RenderFrameHostManager::GetRoutingIdForSiteInstance(
   return MSG_ROUTING_NONE;
 }
 
-void RenderFrameHostManager::CommitPending() {
-  TRACE_EVENT1("navigation", "RenderFrameHostManager::CommitPending",
+void RenderFrameHostManager::CommitPendingWebUI() {
+  TRACE_EVENT1("navigation", "RenderFrameHostManager::CommitPendingWebUI",
                "FrameTreeNode id", frame_tree_node_->frame_tree_node_id());
-  bool browser_side_navigation =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation);
+  DCHECK(render_frame_host_->pending_web_ui());
 
   // First check whether we're going to want to focus the location bar after
   // this commit.  We do this now because the navigation hasn't formally
-  // committed yet, so if we've already cleared |pending_web_ui_| the call chain
+  // committed yet, so if we've already cleared the pending WebUI the call chain
   // this triggers won't be able to figure out what's going on.
   bool will_focus_location_bar = delegate_->FocusLocationBarByDefault();
 
-  // Next commit the Web UI, if any. Either replace |web_ui_| with
-  // |pending_web_ui_|, or clear |web_ui_| if there is no pending WebUI, or
-  // leave |web_ui_| as is if reusing it.
-  DCHECK(!(pending_web_ui_ && pending_and_current_web_ui_));
-  if (pending_web_ui_ || speculative_web_ui_) {
-    DCHECK(!should_reuse_web_ui_);
-    web_ui_.reset(browser_side_navigation ? speculative_web_ui_.release()
-                                          : pending_web_ui_.release());
-  } else if (pending_and_current_web_ui_ || should_reuse_web_ui_) {
-    if (browser_side_navigation) {
-      DCHECK(web_ui_);
-      should_reuse_web_ui_ = false;
-    } else {
-      DCHECK_EQ(pending_and_current_web_ui_.get(), web_ui_.get());
-      pending_and_current_web_ui_.reset();
-    }
-  } else {
-    web_ui_.reset();
-  }
-  DCHECK(!speculative_web_ui_);
-  DCHECK(!should_reuse_web_ui_);
+  render_frame_host_->CommitPendingWebUI();
 
-  // It's possible for the pending_render_frame_host_ to be nullptr when we
-  // aren't crossing process boundaries. If so, we just needed to handle the Web
-  // UI committing above and we're done.
-  if (!pending_render_frame_host_ && !speculative_render_frame_host_) {
-    if (will_focus_location_bar)
-      delegate_->SetFocusToLocationBar(false);
-    return;
-  }
+  if (will_focus_location_bar)
+    delegate_->SetFocusToLocationBar(false);
+}
+
+void RenderFrameHostManager::CommitPending() {
+  TRACE_EVENT1("navigation", "RenderFrameHostManager::CommitPending",
+               "FrameTreeNode id", frame_tree_node_->frame_tree_node_id());
+  DCHECK(pending_render_frame_host_ || speculative_render_frame_host_);
+
+  // First check whether we're going to want to focus the location bar after
+  // this commit.  We do this now because the navigation hasn't formally
+  // committed yet, so if we've already cleared the pending WebUI the call chain
+  // this triggers won't be able to figure out what's going on.
+  bool will_focus_location_bar = delegate_->FocusLocationBarByDefault();
 
   // Remember if the page was focused so we can focus the new renderer in
   // that case.
@@ -2193,22 +1989,22 @@ void RenderFrameHostManager::CommitPending() {
 
   bool is_main_frame = frame_tree_node_->IsMainFrame();
 
+  // While the old frame is still current, remove its children from the tree.
+  frame_tree_node_->ResetForNewProcess();
+
   // Swap in the pending or speculative frame and make it active. Also ensure
   // the FrameTree stays in sync.
   scoped_ptr<RenderFrameHostImpl> old_render_frame_host;
-  if (!browser_side_navigation) {
+  if (!IsBrowserSideNavigationEnabled()) {
     DCHECK(!speculative_render_frame_host_);
     old_render_frame_host =
-        SetRenderFrameHost(pending_render_frame_host_.Pass());
+        SetRenderFrameHost(std::move(pending_render_frame_host_));
   } else {
     // PlzNavigate
     DCHECK(speculative_render_frame_host_);
     old_render_frame_host =
-        SetRenderFrameHost(speculative_render_frame_host_.Pass());
+        SetRenderFrameHost(std::move(speculative_render_frame_host_));
   }
-
-  // Remove the children of the old frame from the tree.
-  frame_tree_node_->ResetForNewProcess();
 
   // The process will no longer try to exit, so we can decrement the count.
   render_frame_host_->GetProcess()->RemovePendingView();
@@ -2225,6 +2021,7 @@ void RenderFrameHostManager::CommitPending() {
     // now to make sure the sad tab shows up, etc.
     DCHECK(!render_frame_host_->IsRenderFrameLive());
     DCHECK(!render_frame_host_->render_view_host()->IsRenderViewLive());
+    render_frame_host_->ResetLoadingState();
     delegate_->RenderProcessGoneFromRenderManager(
         render_frame_host_->render_view_host());
   }
@@ -2275,12 +2072,12 @@ void RenderFrameHostManager::CommitPending() {
   // out ack arrives (or immediately if the process isn't live).
   // In the --site-per-process case, old subframe RFHs are not kept alive inside
   // the proxy.
-  SwapOutOldFrame(old_render_frame_host.Pass());
+  SwapOutOldFrame(std::move(old_render_frame_host));
 
   if (SiteIsolationPolicy::IsSwappedOutStateForbidden()) {
     // Since the new RenderFrameHost is now committed, there must be no proxies
     // for its SiteInstance. Delete any existing ones.
-    proxy_hosts_->Remove(render_frame_host_->GetSiteInstance()->GetId());
+    DeleteRenderFrameProxyHost(render_frame_host_->GetSiteInstance());
   }
 
   // If this is a subframe, it should have a CrossProcessFrameConnector
@@ -2298,46 +2095,7 @@ void RenderFrameHostManager::CommitPending() {
 
   // After all is done, there must never be a proxy in the list which has the
   // same SiteInstance as the current RenderFrameHost.
-  CHECK(!proxy_hosts_->Get(render_frame_host_->GetSiteInstance()->GetId()));
-}
-
-void RenderFrameHostManager::ShutdownProxiesIfLastActiveFrameInSiteInstance(
-    RenderFrameHostImpl* render_frame_host) {
-  if (!render_frame_host)
-    return;
-  if (!RenderFrameHostImpl::IsRFHStateActive(render_frame_host->rfh_state()))
-    return;
-  if (render_frame_host->GetSiteInstance()->active_frame_count() > 1U)
-    return;
-
-  // After |render_frame_host| goes away, there will be no active frames left in
-  // its SiteInstance, so we can delete all proxies created in that SiteInstance
-  // on behalf of frames anywhere in the BrowsingInstance.
-  int32 site_instance_id = render_frame_host->GetSiteInstance()->GetId();
-
-  // First remove any proxies for this SiteInstance from our own list.
-  ClearProxiesInSiteInstance(site_instance_id, frame_tree_node_);
-
-  // Use the safe RenderWidgetHost iterator for now to find all RenderViewHosts
-  // in the SiteInstance, then tell their respective FrameTrees to remove all
-  // RenderFrameProxyHosts corresponding to them.
-  // TODO(creis): Replace this with a RenderFrameHostIterator that protects
-  // against use-after-frees if a later element is deleted before getting to it.
-  scoped_ptr<RenderWidgetHostIterator> widgets(
-      RenderWidgetHostImpl::GetAllRenderWidgetHosts());
-  while (RenderWidgetHost* widget = widgets->GetNextHost()) {
-    RenderViewHost* rvh = RenderViewHost::From(widget);
-    if (!rvh)
-      continue;
-    if (site_instance_id == rvh->GetSiteInstance()->GetId()) {
-      // This deletes all RenderFrameHosts using the |rvh|, which then causes
-      // |rvh| to Shutdown.
-      FrameTree* tree = rvh->GetDelegate()->GetFrameTree();
-      tree->ForEach(base::Bind(
-          &RenderFrameHostManager::ClearProxiesInSiteInstance,
-          site_instance_id));
-    }
-  }
+  CHECK(!GetRenderFrameProxyHost(render_frame_host_->GetSiteInstance()));
 }
 
 RenderFrameHostImpl* RenderFrameHostManager::UpdateStateForNavigate(
@@ -2349,27 +2107,48 @@ RenderFrameHostImpl* RenderFrameHostManager::UpdateStateForNavigate(
     bool dest_is_view_source_mode,
     const GlobalRequestID& transferred_request_id,
     int bindings) {
-  // Don't swap for subframes unless we are in --site-per-process.  We can get
-  // here in tests for subframes (e.g., NavigateFrameToURL).
-  if (!frame_tree_node_->IsMainFrame() &&
-      !SiteIsolationPolicy::AreCrossProcessFramesPossible()) {
-    return render_frame_host_.get();
-  }
+  if (!frame_tree_node_->IsMainFrame()) {
+    // Don't swap for subframes unless we are in an OOPIF-enabled mode.  We can
+    // get here in tests for subframes (e.g., NavigateFrameToURL).
+    if (!SiteIsolationPolicy::AreCrossProcessFramesPossible())
+      return render_frame_host_.get();
 
-  // If we are currently navigating cross-process, we want to get back to normal
-  // and then navigate as usual.
-  if (pending_render_frame_host_)
-    CancelPending();
+    // If dest_url is a unique origin like about:blank, then the need for a swap
+    // is determined by the source_instance.
+    GURL resolved_url = dest_url;
+    if (url::Origin(resolved_url).unique()) {
+      // If there is no source_instance for a unique origin, then we should
+      // avoid a process swap.
+      if (!source_instance)
+        return render_frame_host_.get();
+
+      // Use source_instance to determine if a swap is needed.
+      resolved_url = source_instance->GetSiteURL();
+    }
+
+    // If we are in an OOPIF mode that only applies to some sites, only swap if
+    // the policy determines that a transfer would have been needed.  We can get
+    // here for session restore.
+    if (!IsRendererTransferNeededForNavigation(render_frame_host_.get(),
+                                               resolved_url)) {
+      DCHECK(!dest_instance ||
+             dest_instance == render_frame_host_->GetSiteInstance());
+      return render_frame_host_.get();
+    }
+  }
 
   SiteInstance* current_instance = render_frame_host_->GetSiteInstance();
   scoped_refptr<SiteInstance> new_instance = GetSiteInstanceForNavigation(
       dest_url, source_instance, dest_instance, nullptr, transition,
       dest_is_restore, dest_is_view_source_mode);
 
-  const NavigationEntry* current_entry =
-      delegate_->GetLastCommittedNavigationEntryForRenderManager();
-
-  DCHECK(!pending_render_frame_host_);
+  // If we are currently navigating cross-process to a pending RFH for a
+  // different SiteInstance, we want to get back to normal and then navigate as
+  // usual.  We will reuse the pending RFH below if it matches the destination
+  // SiteInstance.
+  if (pending_render_frame_host_ &&
+      pending_render_frame_host_->GetSiteInstance() != new_instance)
+    CancelPending();
 
   if (new_instance.get() != current_instance) {
     TRACE_EVENT_INSTANT2(
@@ -2381,16 +2160,24 @@ RenderFrameHostImpl* RenderFrameHostManager::UpdateStateForNavigate(
 
     // New SiteInstance: create a pending RFH to navigate.
 
-    // This will possibly create (set to nullptr) a Web UI object for the
-    // pending page. We'll use this later to give the page special access. This
-    // must happen before the new renderer is created below so it will get
-    // bindings. It must also happen after the above conditional call to
-    // CancelPending(), otherwise CancelPending may clear the pending_web_ui_
-    // and the page will not have its bindings set appropriately.
-    SetPendingWebUI(dest_url, bindings);
-    CreatePendingRenderFrameHost(current_instance, new_instance.get());
+    if (!pending_render_frame_host_)
+      CreatePendingRenderFrameHost(current_instance, new_instance.get());
+    DCHECK(pending_render_frame_host_);
     if (!pending_render_frame_host_)
       return nullptr;
+    DCHECK_EQ(new_instance, pending_render_frame_host_->GetSiteInstance());
+
+    pending_render_frame_host_->UpdatePendingWebUI(dest_url, bindings);
+    pending_render_frame_host_->CommitPendingWebUI();
+    DCHECK_EQ(GetNavigatingWebUI(), pending_render_frame_host_->web_ui());
+
+    // If a WebUI exists in the pending RenderFrameHost it was just created, as
+    // well as the RenderView, and they never interacted. So notify it using
+    // RenderViewCreated.
+    if (pending_render_frame_host_->web_ui()) {
+      pending_render_frame_host_->web_ui()->RenderViewCreated(
+          pending_render_frame_host_->render_view_host());
+    }
 
     // Check if our current RFH is live before we set up a transition.
     if (!render_frame_host_->IsRenderFrameLive()) {
@@ -2404,24 +2191,20 @@ RenderFrameHostImpl* RenderFrameHostManager::UpdateStateForNavigate(
     }
     // Otherwise, it's safe to treat this as a pending cross-process transition.
 
-    // We now have a pending RFH.
-    DCHECK(pending_render_frame_host_);
-
-    // We need to wait until the beforeunload handler has run, unless we are
-    // transferring an existing request (in which case it has already run).
-    // Suspend the new render view (i.e., don't let it send the cross-process
-    // Navigate message) until we hear back from the old renderer's
-    // beforeunload handler.  If the handler returns false, we'll have to
-    // cancel the request.
-    //
-    DCHECK(!pending_render_frame_host_->are_navigations_suspended());
     bool is_transfer = transferred_request_id != GlobalRequestID();
     if (is_transfer) {
       // We don't need to stop the old renderer or run beforeunload/unload
       // handlers, because those have already been done.
       DCHECK(cross_site_transferring_request_->request_id() ==
              transferred_request_id);
-    } else {
+    } else if (!pending_render_frame_host_->are_navigations_suspended()) {
+      // If the pending RFH hasn't already been suspended from a previous
+      // attempt to navigate it, then we need to wait for the beforeunload
+      // handler to run.  Suspend navigations in the pending RFH until we hear
+      // back from the old RFH's beforeunload handler (via OnBeforeUnloadACK or
+      // a timeout).  If the handler returns false, we'll have to cancel the
+      // request.
+      //
       // Also make sure the old render view stops, in case a load is in
       // progress.  (We don't want to do this for transfers, since it will
       // interrupt the transfer with an unexpected DidStopLoading.)
@@ -2429,10 +2212,6 @@ RenderFrameHostImpl* RenderFrameHostManager::UpdateStateForNavigate(
           render_frame_host_->GetRoutingID()));
       pending_render_frame_host_->SetNavigationsSuspended(true,
                                                           base::TimeTicks());
-      // Unless we are transferring an existing request, we should now tell the
-      // old render view to run its beforeunload handler, since it doesn't
-      // otherwise know that the cross-site request is happening.  This will
-      // trigger a call to OnBeforeUnloadACK with the reply.
       render_frame_host_->DispatchBeforeUnload(true);
     }
 
@@ -2446,25 +2225,9 @@ RenderFrameHostImpl* RenderFrameHostManager::UpdateStateForNavigate(
   // original site).  In that case, we have a proxy for the current RFH but
   // haven't deleted it yet.  The new navigation will swap it back in, so we can
   // delete the proxy.
-  proxy_hosts_->Remove(new_instance.get()->GetId());
+  DeleteRenderFrameProxyHost(new_instance.get());
 
-  if (ShouldReuseWebUI(current_entry, dest_url)) {
-    pending_web_ui_.reset();
-    pending_and_current_web_ui_ = web_ui_->AsWeakPtr();
-  } else {
-    SetPendingWebUI(dest_url, bindings);
-    // Make sure the new RenderViewHost has the right bindings.
-    if (pending_web_ui() &&
-        !render_frame_host_->GetProcess()->IsForGuestsOnly()) {
-      render_frame_host_->render_view_host()->AllowBindings(
-          pending_web_ui()->GetBindings());
-    }
-  }
-
-  if (pending_web_ui() && render_frame_host_->IsRenderFrameLive()) {
-    pending_web_ui()->RenderViewReused(render_frame_host_->render_view_host(),
-                                       frame_tree_node_->IsMainFrame());
-  }
+  UpdatePendingWebUIOnCurrentFrameHost(dest_url, bindings);
 
   // The renderer can exit view source mode when any error or cancellation
   // happen. We must overwrite to recover the mode.
@@ -2477,16 +2240,50 @@ RenderFrameHostImpl* RenderFrameHostManager::UpdateStateForNavigate(
   return render_frame_host_.get();
 }
 
+void RenderFrameHostManager::UpdatePendingWebUIOnCurrentFrameHost(
+    const GURL& dest_url,
+    int entry_bindings) {
+  bool pending_webui_changed =
+      render_frame_host_->UpdatePendingWebUI(dest_url, entry_bindings);
+  DCHECK_EQ(GetNavigatingWebUI(), render_frame_host_->pending_web_ui());
+
+  if (render_frame_host_->pending_web_ui() && pending_webui_changed &&
+      render_frame_host_->IsRenderFrameLive()) {
+    // If a pending WebUI exists in the current RenderFrameHost and it has been
+    // updated and the associated RenderFrame is alive, notify the WebUI about
+    // the RenderView.
+    // Note: If the RenderFrame is not alive at this point the notification will
+    // happen later, when the RenderView is created.
+    if (render_frame_host_->pending_web_ui() == render_frame_host_->web_ui()) {
+      // If the active WebUI is being reused it has already interacting with
+      // this RenderView in the past, so call RenderViewReused.
+      render_frame_host_->pending_web_ui()->RenderViewReused(
+          render_frame_host_->render_view_host(),
+          frame_tree_node_->IsMainFrame());
+    } else {
+      // If this is a new WebUI it has never interacted with the existing
+      // RenderView so call RenderViewCreated.
+      render_frame_host_->pending_web_ui()->RenderViewCreated(
+          render_frame_host_->render_view_host());
+    }
+  }
+}
+
 void RenderFrameHostManager::CancelPending() {
   TRACE_EVENT1("navigation", "RenderFrameHostManager::CancelPending",
                "FrameTreeNode id", frame_tree_node_->frame_tree_node_id());
+  render_frame_host_->ClearPendingWebUI();
+
+  bool pending_was_loading = pending_render_frame_host_->is_loading();
   DiscardUnusedFrame(UnsetPendingRenderFrameHost());
+  if (pending_was_loading)
+    frame_tree_node_->DidStopLoading();
 }
 
 scoped_ptr<RenderFrameHostImpl>
 RenderFrameHostManager::UnsetPendingRenderFrameHost() {
   scoped_ptr<RenderFrameHostImpl> pending_render_frame_host =
-      pending_render_frame_host_.Pass();
+      std::move(pending_render_frame_host_);
 
   RenderFrameDevToolsAgentHost::OnCancelPendingNavigation(
       pending_render_frame_host.get(),
@@ -2495,18 +2292,15 @@ RenderFrameHostManager::UnsetPendingRenderFrameHost() {
   // We no longer need to prevent the process from exiting.
   pending_render_frame_host->GetProcess()->RemovePendingView();
 
-  pending_web_ui_.reset();
-  pending_and_current_web_ui_.reset();
-
-  return pending_render_frame_host.Pass();
+  return pending_render_frame_host;
 }
 
 scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::SetRenderFrameHost(
     scoped_ptr<RenderFrameHostImpl> render_frame_host) {
   // Swap the two.
   scoped_ptr<RenderFrameHostImpl> old_render_frame_host =
-      render_frame_host_.Pass();
-  render_frame_host_ = render_frame_host.Pass();
+      std::move(render_frame_host_);
+  render_frame_host_ = std::move(render_frame_host);
 
   if (frame_tree_node_->IsMainFrame()) {
     // Update the count of top-level frames using this SiteInstance.  All
@@ -2523,13 +2317,12 @@ scoped_ptr<RenderFrameHostImpl> RenderFrameHostManager::SetRenderFrameHost(
     }
   }
 
-  return old_render_frame_host.Pass();
+  return old_render_frame_host;
 }
 
 bool RenderFrameHostManager::IsRVHOnSwappedOutList(
     RenderViewHostImpl* rvh) const {
-  RenderFrameProxyHost* proxy = GetRenderFrameProxyHost(
-      rvh->GetSiteInstance());
+  RenderFrameProxyHost* proxy = GetRenderFrameProxyHost(rvh->GetSiteInstance());
   if (!proxy)
     return false;
   // If there is a proxy without RFH, it is for a subframe in the SiteInstance
@@ -2544,8 +2337,7 @@ bool RenderFrameHostManager::IsOnSwappedOutList(
   if (!rfh->GetSiteInstance())
     return false;
 
-  RenderFrameProxyHost* host =
-      proxy_hosts_->Get(rfh->GetSiteInstance()->GetId());
+  RenderFrameProxyHost* host = GetRenderFrameProxyHost(rfh->GetSiteInstance());
   if (!host)
     return false;
 
@@ -2562,14 +2354,14 @@ RenderViewHostImpl* RenderFrameHostManager::GetSwappedOutRenderViewHost(
 
 RenderFrameProxyHost* RenderFrameHostManager::GetRenderFrameProxyHost(
     SiteInstance* instance) const {
-  return proxy_hosts_->Get(instance->GetId());
+  auto it = proxy_hosts_.find(instance->GetId());
+  if (it != proxy_hosts_.end())
+    return it->second.get();
+  return nullptr;
 }
 
-std::map<int, RenderFrameProxyHost*>
-RenderFrameHostManager::GetAllProxyHostsForTesting() {
-  std::map<int, RenderFrameProxyHost*> result;
-  result.insert(proxy_hosts_->begin(), proxy_hosts_->end());
-  return result;
+int RenderFrameHostManager::GetProxyCount() {
+  return proxy_hosts_.size();
 }
 
 void RenderFrameHostManager::CollectOpenerFrameTrees(
@@ -2578,12 +2370,39 @@ void RenderFrameHostManager::CollectOpenerFrameTrees(
   CHECK(opener_frame_trees);
   opener_frame_trees->push_back(frame_tree_node_->frame_tree());
 
+  // Add the FrameTree of the given node's opener to the list of
+  // |opener_frame_trees| if it doesn't exist there already. |visited_index|
+  // indicates which FrameTrees in |opener_frame_trees| have already been
+  // visited (i.e., those at indices less than |visited_index|).
+  // |nodes_with_back_links| collects FrameTreeNodes with openers in FrameTrees
+  // that have already been visited (such as those with cycles).
   size_t visited_index = 0;
   while (visited_index < opener_frame_trees->size()) {
     FrameTree* frame_tree = (*opener_frame_trees)[visited_index];
     visited_index++;
-    frame_tree->ForEach(base::Bind(&OpenerForFrameTreeNode, visited_index,
-                                   opener_frame_trees, nodes_with_back_links));
+    for (FrameTreeNode* node : frame_tree->Nodes()) {
+      if (!node->opener())
+        continue;
+
+      FrameTree* opener_tree = node->opener()->frame_tree();
+      const auto& existing_tree_it = std::find(
+          opener_frame_trees->begin(), opener_frame_trees->end(), opener_tree);
+
+      if (existing_tree_it == opener_frame_trees->end()) {
+        // This is a new opener tree that we will need to process.
+        opener_frame_trees->push_back(opener_tree);
+      } else {
+        // If this tree is already on our processing list *and* we have visited
+        // it,
+        // then this node's opener is a back link.  This means the node will
+        // need
+        // special treatment to process its opener.
+        size_t position =
+            std::distance(opener_frame_trees->begin(), existing_tree_it);
+        if (position < visited_index)
+          nodes_with_back_links->insert(node);
+      }
+    }
   }
 }
 
@@ -2672,8 +2491,7 @@ void RenderFrameHostManager::CreateOpenerProxiesForFrameTree(
         frame_tree->root()->render_manager()->CreateRenderFrameProxy(instance);
       } else {
         frame_tree->root()->render_manager()->CreateRenderFrame(
-            instance, nullptr, CREATE_RF_SWAPPED_OUT | CREATE_RF_HIDDEN,
-            nullptr);
+            instance, CREATE_RF_SWAPPED_OUT | CREATE_RF_HIDDEN, nullptr);
       }
     }
   }

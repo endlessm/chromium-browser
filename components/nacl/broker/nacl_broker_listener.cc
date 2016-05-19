@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
+#include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/thread_task_runner_handle.h"
@@ -25,18 +26,20 @@
 
 namespace {
 
-void SendReply(IPC::Channel* channel, int32 pid, bool result) {
+void SendReply(IPC::Channel* channel, int32_t pid, bool result) {
   channel->Send(new NaClProcessMsg_DebugExceptionHandlerLaunched(pid, result));
 }
 
 }  // namespace
 
 NaClBrokerListener::NaClBrokerListener() {
-  attachment_broker_.reset(
-      IPC::AttachmentBrokerUnprivileged::CreateBroker().release());
+  IPC::AttachmentBrokerUnprivileged::CreateBrokerIfNeeded();
 }
 
 NaClBrokerListener::~NaClBrokerListener() {
+  IPC::AttachmentBroker* broker = IPC::AttachmentBroker::GetGlobal();
+  if (broker && !broker->IsPrivilegedBroker() && channel_)
+    broker->DeregisterBrokerCommunicationChannel(channel_.get());
 }
 
 void NaClBrokerListener::Listen() {
@@ -44,8 +47,9 @@ void NaClBrokerListener::Listen() {
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kProcessChannelID);
   channel_ = IPC::Channel::CreateClient(channel_name, this);
-  if (attachment_broker_.get())
-    attachment_broker_->DesignateBrokerCommunicationChannel(channel_.get());
+  IPC::AttachmentBroker* broker = IPC::AttachmentBroker::GetGlobal();
+  if (broker && !broker->IsPrivilegedBroker())
+    broker->RegisterBrokerCommunicationChannel(channel_.get());
   CHECK(channel_->Connect());
   base::MessageLoop::current()->Run();
 }
@@ -64,7 +68,7 @@ bool NaClBrokerListener::PreSpawnTarget(sandbox::TargetPolicy* policy) {
   return result == sandbox::SBOX_ALL_OK;
 }
 
-void NaClBrokerListener::OnChannelConnected(int32 peer_pid) {
+void NaClBrokerListener::OnChannelConnected(int32_t peer_pid) {
   browser_process_ = base::Process::OpenWithExtraPrivileges(peer_pid);
   CHECK(browser_process_.IsValid());
 }
@@ -105,8 +109,8 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
     cmd_line->AppendSwitchASCII(switches::kProcessChannelID,
                                 loader_channel_id);
 
-    base::Process loader_process = content::StartSandboxedProcess(this,
-                                                                  cmd_line);
+    base::Process loader_process = content::StartSandboxedProcess(
+        this, cmd_line, base::HandlesToInheritVector());
     if (loader_process.IsValid()) {
       // Note: PROCESS_DUP_HANDLE is necessary here, because:
       // 1) The current process is the broker, which is the loader's parent.
@@ -128,7 +132,8 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
 }
 
 void NaClBrokerListener::OnLaunchDebugExceptionHandler(
-    int32 pid, base::ProcessHandle process_handle,
+    int32_t pid,
+    base::ProcessHandle process_handle,
     const std::string& startup_info) {
   NaClStartDebugExceptionHandlerThread(
       base::Process(process_handle), startup_info,

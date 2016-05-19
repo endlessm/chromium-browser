@@ -5,9 +5,11 @@
 #ifndef UI_GFX_CANVAS_H_
 #define UI_GFX_CANVAS_H_
 
+#include <stdint.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "skia/ext/platform_canvas.h"
@@ -87,7 +89,7 @@ class GFX_EXPORT Canvas {
   // Creates a Canvas backed by an |sk_canvas| with |image_scale_|.
   // |sk_canvas| is assumed to be already scaled based on |image_scale|
   // so no additional scaling is applied.
-  Canvas(SkCanvas* sk_canvas, float image_scale);
+  Canvas(const skia::RefPtr<SkCanvas>& sk_canvas, float image_scale);
 
   virtual ~Canvas();
 
@@ -179,8 +181,8 @@ class GFX_EXPORT Canvas {
   // at the specified alpha once Restore() is called.
   // |layer_bounds| are the bounds of the layer relative to the current
   // transform.
-  void SaveLayerAlpha(uint8 alpha);
-  void SaveLayerAlpha(uint8 alpha, const Rect& layer_bounds);
+  void SaveLayerAlpha(uint8_t alpha);
+  void SaveLayerAlpha(uint8_t alpha, const Rect& layer_bounds);
 
   // Restores the drawing state after a call to Save*(). It is an error to
   // call Restore() more times than Save*().
@@ -268,7 +270,7 @@ class GFX_EXPORT Canvas {
 
   // Helper for DrawImageInt(..., paint) that constructs a temporary paint and
   // calls paint.setAlpha(alpha).
-  void DrawImageInt(const ImageSkia&, int x, int y, uint8 alpha);
+  void DrawImageInt(const ImageSkia&, int x, int y, uint8_t alpha);
 
   // Draws an image with the origin at the specified location, using the
   // specified paint. The upper left corner of the bitmap is rendered at the
@@ -397,6 +399,18 @@ class GFX_EXPORT Canvas {
                     int w,
                     int h);
 
+  // Helper for TileImageInt().  Initializes |paint| for tiling |image| with the
+  // given parameters.  Returns false if the provided image does not have a
+  // representation for the current scale.
+  bool InitSkPaintForTiling(const ImageSkia& image,
+                            int src_x,
+                            int src_y,
+                            float tile_scale_x,
+                            float tile_scale_y,
+                            int dest_x,
+                            int dest_y,
+                            SkPaint* paint);
+
   // Apply transformation on the canvas.
   void Transform(const Transform& transform);
 
@@ -407,18 +421,16 @@ class GFX_EXPORT Canvas {
                        const Rect& display_rect,
                        int flags);
 
-  skia::PlatformCanvas* platform_canvas() { return owned_canvas_.get(); }
-  SkCanvas* sk_canvas() { return canvas_; }
+  SkCanvas* sk_canvas() { return canvas_.get(); }
   float image_scale() const { return image_scale_; }
 
  private:
-  // Test whether the provided rectangle intersects the current clip rect.
-  bool IntersectsClipRectInt(int x, int y, int w, int h);
-  bool IntersectsClipRect(const Rect& rect);
+  // Tests whether the provided rectangle intersects the current clip rect.
+  bool IntersectsClipRect(const SkRect& rect);
 
-  // Helper for the DrawImageInt functions declared above. The |pixel|
-  // parameter if true indicates that the bounds and the image are to
-  // be assumed to be in pixels, i.e. no scaling needs to be performed.
+  // Helper for the DrawImageInt functions declared above. The
+  // |remove_image_scale| parameter indicates if the scale of the |image_rep|
+  // should be removed when drawing the image, to avoid double-scaling it.
   void DrawImageIntHelper(const ImageSkiaRep& image_rep,
                           int src_x,
                           int src_y,
@@ -430,15 +442,14 @@ class GFX_EXPORT Canvas {
                           int dest_h,
                           bool filter,
                           const SkPaint& paint,
-                          bool pixel);
+                          bool remove_image_scale);
 
   // The device scale factor at which drawing on this canvas occurs.
   // An additional scale can be applied via Canvas::Scale(). However,
   // Canvas::Scale() does not affect |image_scale_|.
   float image_scale_;
 
-  skia::RefPtr<skia::PlatformCanvas> owned_canvas_;
-  SkCanvas* canvas_;
+  skia::RefPtr<SkCanvas> canvas_;
 
   DISALLOW_COPY_AND_ASSIGN(Canvas);
 };

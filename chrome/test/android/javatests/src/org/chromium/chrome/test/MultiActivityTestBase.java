@@ -8,6 +8,7 @@ import android.content.Context;
 import android.test.InstrumentationTestCase;
 import android.text.TextUtils;
 
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.base.test.util.parameter.BaseParameter;
@@ -135,9 +136,10 @@ public abstract class MultiActivityTestBase extends InstrumentationTestCase
     @Override
     public void setUp() throws Exception {
         super.setUp();
+        RecordHistogram.disableForTests();
         mContext = getInstrumentation().getTargetContext();
         CommandLineFlags.setUp(mContext, getClass().getMethod(getName()));
-        ApplicationTestUtils.setUp(mContext, true, true);
+        ApplicationTestUtils.setUp(mContext, true);
 
         // Make the DocumentTabModelSelector use a mocked out directory so that test runs don't
         // interfere with each other.
@@ -170,14 +172,14 @@ public abstract class MultiActivityTestBase extends InstrumentationTestCase
         final Tab tab = activity.getActivityTab();
         assert tab != null;
 
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 if (!tab.isLoadingAndRenderingDone()) return false;
                 if (!TextUtils.equals(expectedTitle, tab.getTitle())) return false;
                 return true;
             }
-        }));
+        });
     }
 
     /**
@@ -203,6 +205,7 @@ public abstract class MultiActivityTestBase extends InstrumentationTestCase
      *
      * @return a {@link Map} of {@link BaseParameter} objects to set as the available parameters.
      */
+    @Override
     public Map<String, BaseParameter> getAvailableParameters() {
         return mAvailableParameters;
     }
@@ -213,6 +216,7 @@ public abstract class MultiActivityTestBase extends InstrumentationTestCase
      * @param parameterTag a string with the name of the {@link BaseParameter} we want.
      * @return a parameter that extends {@link BaseParameter} that has the matching parameterTag.
      */
+    @Override
     @SuppressWarnings("unchecked")
     public <T extends BaseParameter> T getAvailableParameter(String parameterTag) {
         return (T) mAvailableParameters.get(parameterTag);
@@ -223,6 +227,7 @@ public abstract class MultiActivityTestBase extends InstrumentationTestCase
      *
      * @param parameterReader the {@link Parameter.Reader} to set.
      */
+    @Override
     public void setParameterReader(Parameter.Reader parameterReader) {
         mParameterReader = parameterReader;
         mAvailableParameters = createAvailableParameters();

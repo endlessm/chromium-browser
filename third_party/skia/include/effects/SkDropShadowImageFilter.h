@@ -33,9 +33,10 @@ public:
 
 protected:
     void flatten(SkWriteBuffer&) const override;
-    bool onFilterImage(Proxy*, const SkBitmap& source, const Context&, SkBitmap* result,
-                       SkIPoint* loc) const override;
-    bool onFilterBounds(const SkIRect& src, const SkMatrix&, SkIRect* dst) const override;
+    bool onFilterImageDeprecated(Proxy*, const SkBitmap& source, const Context&, SkBitmap* result,
+                                 SkIPoint* loc) const override;
+    void onFilterNodeBounds(const SkIRect& src, const SkMatrix&,
+                            SkIRect* dst, MapDirection) const override;
 
 private:
     SkDropShadowImageFilter(SkScalar dx, SkScalar dy, SkScalar sigmaX, SkScalar sigmaY, SkColor,

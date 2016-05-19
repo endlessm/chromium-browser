@@ -5,6 +5,8 @@
 #ifndef CC_DEBUG_RASTERIZE_AND_RECORD_BENCHMARK_H_
 #define CC_DEBUG_RASTERIZE_AND_RECORD_BENCHMARK_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <utility>
 #include <vector>
@@ -39,9 +41,6 @@ class RasterizeAndRecordBenchmark : public MicroBenchmark {
       scoped_refptr<base::SingleThreadTaskRunner> origin_task_runner) override;
 
  private:
-  void RunOnDisplayListLayer(PictureLayer* layer,
-                             const gfx::Rect& visible_layer_rect);
-
   void RecordRasterResults(scoped_ptr<base::Value> results);
 
   struct RecordResults {

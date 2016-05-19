@@ -1,5 +1,0 @@
-include_rules = [
-  "+mojo/message_pump",
-  "+mojo/runner",
-  "+third_party/mojo/src/mojo/edk/embedder",
-]

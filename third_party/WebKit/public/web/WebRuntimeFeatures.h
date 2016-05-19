@@ -68,12 +68,10 @@ public:
 
     BLINK_EXPORT static void enableDisplayList2dCanvas(bool);
     BLINK_EXPORT static void forceDisplayList2dCanvas(bool);
+    BLINK_EXPORT static void forceDisable2dCanvasCopyOnWrite(bool);
 
     BLINK_EXPORT static void enableEncryptedMedia(bool);
     BLINK_EXPORT static bool isEncryptedMediaEnabled();
-
-    BLINK_EXPORT static void enablePrefixedEncryptedMedia(bool);
-    BLINK_EXPORT static bool isPrefixedEncryptedMediaEnabled();
 
     BLINK_EXPORT static void enableCompositorAnimationTimelines(bool);
 
@@ -98,6 +96,8 @@ public:
 
     BLINK_EXPORT static void enableMediaSource(bool);
 
+    BLINK_EXPORT static void enableNotificationActionIcons(bool);
+
     BLINK_EXPORT static void enableNotificationConstructor(bool);
 
     BLINK_EXPORT static void enableNotifications(bool);
@@ -114,23 +114,15 @@ public:
 
     BLINK_EXPORT static void enableRequestAutocomplete(bool);
 
-    BLINK_EXPORT static void enableScreenOrientation(bool);
-
     BLINK_EXPORT static void enableScriptedSpeech(bool);
 
     BLINK_EXPORT static void enableSlimmingPaintV2(bool);
 
     BLINK_EXPORT static void enableTouch(bool);
 
-    BLINK_EXPORT static void enableTouchIconLoading(bool);
-
-    BLINK_EXPORT static void enableWebAudio(bool);
-
     BLINK_EXPORT static void enableWebGLDraftExtensions(bool);
 
     BLINK_EXPORT static void enableWebGLImageChromium(bool);
-
-    BLINK_EXPORT static void enableWebMIDI(bool);
 
     BLINK_EXPORT static void enableXSLT(bool);
 
@@ -150,8 +142,6 @@ public:
 
     BLINK_EXPORT static void enableV8IdleTasks(bool);
 
-    BLINK_EXPORT static void enableSVG1DOM(bool);
-
     BLINK_EXPORT static void enableReducedReferrerGranularity(bool);
 
     BLINK_EXPORT static void enablePushMessaging(bool);
@@ -167,6 +157,19 @@ public:
     BLINK_EXPORT static void enableNewMediaPlaybackUi(bool);
 
     BLINK_EXPORT static void enablePresentationAPI(bool);
+
+    BLINK_EXPORT static void enableWebFontsIntervention(bool);
+
+    BLINK_EXPORT static void enableWebFontsInterventionTrigger(bool);
+
+    BLINK_EXPORT static void enableScrollAnchoring(bool);
+
+    BLINK_EXPORT static void enableRenderingPipelineThrottling(bool);
+
+    // TODO(nhiroki): Remove after ExtendableMessageEvent is shipped
+    // (crbug.com/543198).
+    BLINK_EXPORT static bool isServiceWorkerExtendableMessageEventEnabled();
+
 private:
     WebRuntimeFeatures();
 };

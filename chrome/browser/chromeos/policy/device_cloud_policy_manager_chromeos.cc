@@ -4,13 +4,15 @@
 
 #include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
@@ -33,6 +35,8 @@
 #include "components/policy/core/common/cloud/cloud_policy_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "components/policy/core/common/remote_commands/remote_commands_factory.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "crypto/sha2.h"
 #include "policy/proto/device_management_backend.pb.h"
@@ -113,11 +117,10 @@ DeviceCloudPolicyManagerChromeOS::DeviceCloudPolicyManagerChromeOS(
           task_runner,
           BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
           BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO)),
-      device_store_(store.Pass()),
+      device_store_(std::move(store)),
       state_keys_broker_(state_keys_broker),
       task_runner_(task_runner),
-      local_state_(nullptr) {
-}
+      local_state_(nullptr) {}
 
 DeviceCloudPolicyManagerChromeOS::~DeviceCloudPolicyManagerChromeOS() {}
 
@@ -185,6 +188,13 @@ bool DeviceCloudPolicyManagerChromeOS::IsSharkRequisition() const {
   return GetDeviceRequisition() == kSharkRequisition;
 }
 
+void DeviceCloudPolicyManagerChromeOS::SetDeviceEnrollmentAutoStart() {
+  if (local_state_) {
+    local_state_->SetBoolean(prefs::kDeviceEnrollmentAutoStart, true);
+    local_state_->SetBoolean(prefs::kDeviceEnrollmentCanExit, false);
+  }
+}
+
 void DeviceCloudPolicyManagerChromeOS::Shutdown() {
   status_uploader_.reset();
   syslog_uploader_.reset();
@@ -240,7 +250,7 @@ void DeviceCloudPolicyManagerChromeOS::StartConnection(
   if (ForcedReEnrollmentEnabled())
     client_to_connect->SetStateKeysToUpload(state_keys_broker_->state_keys());
 
-  core()->Connect(client_to_connect.Pass());
+  core()->Connect(std::move(client_to_connect));
   core()->StartRefreshScheduler();
   core()->StartRemoteCommandsService(
       scoped_ptr<RemoteCommandsFactory>(new DeviceCommandsFactoryChromeOS()));

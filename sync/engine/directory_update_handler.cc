@@ -4,6 +4,10 @@
 
 #include "sync/engine/directory_update_handler.h"
 
+#include <stdint.h>
+
+#include <vector>
+
 #include "sync/engine/conflict_resolver.h"
 #include "sync/engine/process_updates_util.h"
 #include "sync/engine/update_applicator.h"
@@ -144,7 +148,7 @@ SyncerError DirectoryUpdateHandler::ApplyUpdatesImpl(
     sessions::StatusController* status) {
   syncable::WriteTransaction trans(FROM_HERE, syncable::SYNCER, dir_);
 
-  std::vector<int64> handles;
+  std::vector<int64_t> handles;
   dir_->GetUnappliedUpdateMetaHandles(
       &trans,
       FullModelTypeSet(type_),

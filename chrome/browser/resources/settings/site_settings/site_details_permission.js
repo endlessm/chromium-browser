@@ -31,17 +31,9 @@ Polymer({
     },
 
     /**
-     * The ID of the category this widget is displaying data for.
-     */
-    category: Number,
-
-    /**
      * The origin, which this permission affects.
      */
-    origin: {
-      type: String,
-      observer: 'initialize_',
-    },
+    origin: String,
 
     i18n_: {
       readOnly: true,
@@ -55,7 +47,17 @@ Polymer({
     },
   },
 
+  observers: [
+    'initialize_(' +
+        'prefs.profile.content_settings.exceptions.*, category, origin)',
+  ],
+
   initialize_: function() {
+    this.$.details.hidden = true;
+    if (this.get('prefs.' +
+        this.computeCategoryExceptionsPrefName(this.category)) === undefined)
+      return;
+
     var pref = this.getPref(
         this.computeCategoryExceptionsPrefName(this.category));
     var originPref = pref.value[this.origin + ',*'];
@@ -74,13 +76,23 @@ Polymer({
     }
   },
 
+  /**
+   * Resets the category permission for this origin.
+   */
   resetPermission: function() {
-    var pref = this.getPref(
-        this.computeCategoryExceptionsPrefName(this.category));
-    delete pref.value[this.origin + ',' + this.origin];
-    delete pref.value[this.origin + ',*'];
-    this.setPrefValue(
-        this.computeCategoryExceptionsPrefName(this.category), pref.value);
+    this.resetCategoryPermissionForOrigin(this.origin, this.category);
     this.$.details.hidden = true;
+  },
+
+  /**
+   * Handles the category permission changing for this origin.
+   * @param {!{target: !{selectedItem: !{innerText: string}}}} event
+   */
+  onPermissionMenuIronSelect_: function(event) {
+    var action = event.target.selectedItem.innerText;
+    var value = (action == this.i18n_.allowAction) ?
+        settings.PermissionValues.ALLOW :
+        settings.PermissionValues.BLOCK;
+    this.setCategoryPermissionForOrigin(this.origin, value, this.category);
   },
 });

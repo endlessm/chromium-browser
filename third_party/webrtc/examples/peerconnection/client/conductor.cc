@@ -13,13 +13,13 @@
 #include <utility>
 #include <vector>
 
-#include "talk/app/webrtc/videosourceinterface.h"
-#include "webrtc/examples/peerconnection/client/defaults.h"
-#include "talk/media/devices/devicemanager.h"
-#include "talk/app/webrtc/test/fakeconstraints.h"
+#include "webrtc/api/videosourceinterface.h"
+#include "webrtc/api/test/fakeconstraints.h"
 #include "webrtc/base/common.h"
 #include "webrtc/base/json.h"
 #include "webrtc/base/logging.h"
+#include "webrtc/examples/peerconnection/client/defaults.h"
+#include "webrtc/media/devices/devicemanager.h"
 
 // Names used for a IceCandidate JSON object.
 const char kCandidateSdpMidName[] = "sdpMid";
@@ -113,28 +113,22 @@ bool Conductor::CreatePeerConnection(bool dtls) {
   ASSERT(peer_connection_factory_.get() != NULL);
   ASSERT(peer_connection_.get() == NULL);
 
-  webrtc::PeerConnectionInterface::IceServers servers;
+  webrtc::PeerConnectionInterface::RTCConfiguration config;
   webrtc::PeerConnectionInterface::IceServer server;
   server.uri = GetPeerConnectionString();
-  servers.push_back(server);
+  config.servers.push_back(server);
 
   webrtc::FakeConstraints constraints;
   if (dtls) {
     constraints.AddOptional(webrtc::MediaConstraintsInterface::kEnableDtlsSrtp,
                             "true");
-  }
-  else
-  {
+  } else {
     constraints.AddOptional(webrtc::MediaConstraintsInterface::kEnableDtlsSrtp,
                             "false");
   }
 
-  peer_connection_ =
-      peer_connection_factory_->CreatePeerConnection(servers,
-                                                     &constraints,
-                                                     NULL,
-                                                     NULL,
-                                                     this);
+  peer_connection_ = peer_connection_factory_->CreatePeerConnection(
+      config, &constraints, NULL, NULL, this);
   return peer_connection_.get() != NULL;
 }
 

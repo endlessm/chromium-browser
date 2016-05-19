@@ -10,13 +10,14 @@
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/ip_endpoint.h"
 #include "net/log/net_log.h"
 #include "net/quic/crypto/crypto_handshake.h"
 #include "net/quic/crypto/quic_crypto_client_config.h"
 #include "net/quic/quic_bandwidth.h"
+#include "net/quic/quic_client_push_promise_index.h"
 #include "net/quic/quic_config.h"
 #include "net/quic/quic_connection.h"
 #include "net/quic/quic_packet_writer.h"
@@ -29,25 +30,12 @@ namespace net {
 class ProofVerifier;
 class QuicServerId;
 
-namespace tools {
-
 class QuicClientBase {
  public:
-  // A packet writer factory that always returns the same writer.
-  class DummyPacketWriterFactory : public QuicConnection::PacketWriterFactory {
-   public:
-    explicit DummyPacketWriterFactory(QuicPacketWriter* writer);
-    ~DummyPacketWriterFactory() override;
-
-    QuicPacketWriter* Create(QuicConnection* connection) const override;
-
-   private:
-    QuicPacketWriter* writer_;
-  };
-
   QuicClientBase(const QuicServerId& server_id,
                  const QuicVersionVector& supported_versions,
                  const QuicConfig& config,
+                 QuicConnectionHelperInterface* helper,
                  ProofVerifier* proof_verifier);
 
   ~QuicClientBase();
@@ -180,6 +168,8 @@ class QuicClientBase {
   // connection ID).
   virtual QuicConnectionId GenerateNewConnectionId();
 
+  QuicConnectionHelperInterface* helper() { return helper_.get(); }
+
  private:
   // |server_id_| is a tuple (hostname, port, is_https) of the server.
   QuicServerId server_id_;
@@ -188,6 +178,9 @@ class QuicClientBase {
   // servers.
   QuicConfig config_;
   QuicCryptoClientConfig crypto_config_;
+
+  // Helper to be used by created connections. Needs to outlive |session_|.
+  scoped_ptr<QuicConnectionHelperInterface> helper_;
 
   // Writer used to actually send packets to the wire. Needs to outlive
   // |session_|.
@@ -228,10 +221,11 @@ class QuicClientBase {
   // to the previous client-level connection.
   bool connected_or_attempting_connect_;
 
+  QuicClientPushPromiseIndex push_promise_index_;
+
   DISALLOW_COPY_AND_ASSIGN(QuicClientBase);
 };
 
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_QUIC_CLIENT_BASE_H_

@@ -4,10 +4,14 @@
 
 #include "chrome/browser/password_manager/password_store_win.h"
 
+#include <stddef.h>
+
 #include <map>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
@@ -67,7 +71,7 @@ class PasswordStoreWin::DBHandler : public WebDataServiceConsumer {
   scoped_refptr<PasswordWebDataService> web_data_service_;
 
   // This creates a cycle between us and PasswordStore. The cycle is broken
-  // from PasswordStoreWin::Shutdown, which deletes us.
+  // from PasswordStoreWin::ShutdownOnUIThread, which deletes us.
   scoped_refptr<PasswordStoreWin> password_store_;
 
   PendingRequestMap pending_requests_;
@@ -185,15 +189,14 @@ void PasswordStoreWin::ShutdownOnDBThread() {
   db_handler_.reset();
 }
 
-void PasswordStoreWin::Shutdown() {
+void PasswordStoreWin::ShutdownOnUIThread() {
   BrowserThread::PostTask(
       BrowserThread::DB, FROM_HERE,
       base::Bind(&PasswordStoreWin::ShutdownOnDBThread, this));
-  PasswordStoreDefault::Shutdown();
+  PasswordStoreDefault::ShutdownOnUIThread();
 }
 
 void PasswordStoreWin::GetLoginsImpl(const PasswordForm& form,
-                                     AuthorizationPromptPolicy prompt_policy,
                                      scoped_ptr<GetLoginsRequest> request) {
   // When importing from IE7, the credentials are first stored into a temporary
   // Web SQL database. Then, after each GetLogins() request that does not yield
@@ -204,8 +207,7 @@ void PasswordStoreWin::GetLoginsImpl(const PasswordForm& form,
   // can be overridden instead. See: https://crbug.com/78830.
   // TODO(engedy): Credentials should be imported into the LoginDatabase in the
   // first place. See: https://crbug.com/456119.
-  ScopedVector<autofill::PasswordForm> matched_forms(
-      FillMatchingLogins(form, prompt_policy));
+  ScopedVector<autofill::PasswordForm> matched_forms(FillMatchingLogins(form));
   if (matched_forms.empty() && db_handler_) {
     db_handler_->GetIE7Login(
         form, base::Bind(&GetLoginsRequest::NotifyConsumerWithResults,

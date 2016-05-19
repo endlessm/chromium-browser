@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -151,7 +154,7 @@ scoped_ptr<net::test_server::HttpResponse> RespondWithHTML(
       new net::test_server::BasicHttpResponse());
   response->set_content_type("text/html");
   response->set_content(html);
-  return response.Pass();
+  return std::move(response);
 }
 
 void VerifyVisualStateUpdated(const base::Closure& done_cb,
@@ -183,7 +186,7 @@ bool SnapshotMatches(const base::FilePath& reference, const SkBitmap& bitmap) {
   if (w < kComparisonWidth || h < kComparisonHeight)
     return false;
 
-  int32_t* ref_pixels = reinterpret_cast<int32_t*>(vector_as_array(&decoded));
+  int32_t* ref_pixels = reinterpret_cast<int32_t*>(decoded.data());
   SkAutoLockPixels lock_image(bitmap);
   int32_t* pixels = static_cast<int32_t*>(bitmap.getPixels());
 
@@ -240,8 +243,8 @@ void CompareSnapshotToReference(const base::FilePath& reference,
     ASSERT_TRUE(
         gfx::PNGCodec::EncodeBGRASkBitmap(clipped_bitmap, false, &png_data));
     ASSERT_EQ(static_cast<int>(png_data.size()),
-              base::WriteFile(reference, reinterpret_cast<const char*>(
-                                             vector_as_array(&png_data)),
+              base::WriteFile(reference,
+                              reinterpret_cast<const char*>(png_data.data()),
                               png_data.size()));
   }
 
@@ -261,7 +264,7 @@ class PluginPowerSaverBrowserTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     InProcessBrowserTest::SetUpOnMainThread();
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
 
     embedded_test_server()->ServeFilesFromDirectory(
         ui_test_utils::GetTestFilePath(
@@ -280,11 +283,9 @@ class PluginPowerSaverBrowserTest : public InProcessBrowserTest {
     // Allows us to use the same reference image on HiDPI/Retina displays.
     command_line->AppendSwitchASCII(switches::kForceDeviceScaleFactor, "1");
 
-#if !defined(OS_CHROMEOS)
-    // These pixel tests are flaky on MSan bots with hardware rendering.
-    // However, ChromeOS does not support software compositing.
-    command_line->AppendSwitch(switches::kDisableGpu);
-#endif
+    // The pixel tests run more reliably in software mode.
+    if (PixelTestsEnabled())
+      command_line->AppendSwitch(switches::kDisableGpu);
   }
 
  protected:
@@ -292,7 +293,7 @@ class PluginPowerSaverBrowserTest : public InProcessBrowserTest {
     if (PixelTestsEnabled()) {
       gfx::Rect bounds(gfx::Rect(0, 0, kBrowserWidth, kBrowserHeight));
       gfx::Rect screen_bounds =
-          gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().bounds();
+          gfx::Screen::GetScreen()->GetPrimaryDisplay().bounds();
       ASSERT_GT(screen_bounds.width(), kBrowserWidth);
       ASSERT_GT(screen_bounds.height(), kBrowserHeight);
       browser()->window()->SetBounds(bounds);
@@ -370,10 +371,9 @@ class PluginPowerSaverBrowserTest : public InProcessBrowserTest {
 #if defined(OS_WIN) || defined(ADDRESS_SANITIZER)
     // Flaky on Windows and Asan bots. See crbug.com/549285.
     return false;
-#elif defined(OS_CHROMEOS) && defined(MEMORY_SANITIZER)
-    // Because we cannot use hardware OpenGL under MSan, but also cannot use
-    // software rendering under ChromeOS, we skip this portion of the test.
-    // See crbug.com/512140
+#elif defined(OS_CHROMEOS)
+    // Because ChromeOS cannot use software rendering and the pixel tests
+    // continue to flake with hardware acceleration, disable these on ChromeOS.
     return false;
 #else
     return true;
@@ -385,8 +385,12 @@ IN_PROC_BROWSER_TEST_F(PluginPowerSaverBrowserTest, SmallSameOrigin) {
   LoadHTML(
       "<object id='plugin' data='fake.swf' "
       "    type='application/x-ppapi-tests' width='400' height='100'>"
+      "</object>"
+      "<object id='plugin_poster' data='fake.swf' poster='click_me.png' "
+      "    type='application/x-ppapi-tests' width='400' height='100'>"
       "</object>");
   VerifyPluginMarkedEssential(GetActiveWebContents(), "plugin");
+  VerifyPluginMarkedEssential(GetActiveWebContents(), "plugin_poster");
 }
 
 IN_PROC_BROWSER_TEST_F(PluginPowerSaverBrowserTest, SmallCrossOrigin) {
@@ -547,7 +551,13 @@ IN_PROC_BROWSER_TEST_F(PluginPowerSaverBrowserTest,
   SimulateClickAndAwaitMarkedEssential("plugin", gfx::Point(50, 50));
 }
 
-IN_PROC_BROWSER_TEST_F(PluginPowerSaverBrowserTest, OriginWhitelisting) {
+// Flaky on ASAN bots: crbug.com/560765.
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_OriginWhitelisting DISABLED_OriginWhitelisting
+#else
+#define MAYBE_OriginWhitelisting OriginWhitelisting
+#endif
+IN_PROC_BROWSER_TEST_F(PluginPowerSaverBrowserTest, MAYBE_OriginWhitelisting) {
   LoadHTML(
       "<object id='plugin_small' data='http://a.com/fake1.swf' "
       "    type='application/x-ppapi-tests' width='100' height='100'></object>"

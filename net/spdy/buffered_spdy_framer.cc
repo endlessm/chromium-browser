@@ -13,13 +13,14 @@ namespace {
 // GOAWAY frame debug data is only buffered up to this many bytes.
 size_t kGoAwayDebugDataMaxSize = 1024;
 
+// Initial and maximum sizes for header block buffer.
+size_t kHeaderBufferInitialSize = 8 * 1024;
+size_t kHeaderBufferMaxSize = 256 * 1024;
+
 }  // namespace
 
 SpdyMajorVersion NextProtoToSpdyMajorVersion(NextProto next_proto) {
   switch (next_proto) {
-    case kProtoDeprecatedSPDY2:
-      return SPDY2;
-    case kProtoSPDY3:
     case kProtoSPDY31:
       return SPDY3;
     case kProtoHTTP2:
@@ -30,20 +31,15 @@ SpdyMajorVersion NextProtoToSpdyMajorVersion(NextProto next_proto) {
       break;
   }
   NOTREACHED();
-  return SPDY2;
+  return HTTP2;
 }
 
-BufferedSpdyFramer::BufferedSpdyFramer(SpdyMajorVersion version,
-                                       bool enable_compression)
+BufferedSpdyFramer::BufferedSpdyFramer(SpdyMajorVersion version)
     : spdy_framer_(version),
       visitor_(NULL),
-      header_buffer_used_(0),
       header_buffer_valid_(false),
       header_stream_id_(SpdyFramer::kInvalidStream),
-      frames_received_(0) {
-  spdy_framer_.set_enable_compression(enable_compression);
-  memset(header_buffer_, 0, sizeof(header_buffer_));
-}
+      frames_received_(0) {}
 
 BufferedSpdyFramer::~BufferedSpdyFramer() {
 }
@@ -127,8 +123,8 @@ bool BufferedSpdyFramer::OnControlFrameHeaderData(SpdyStreamId stream_id,
     CHECK(header_buffer_valid_);
 
     SpdyHeaderBlock headers;
-    if (!spdy_framer_.ParseHeaderBlockInBuffer(header_buffer_,
-                                               header_buffer_used_, &headers)) {
+    if (!spdy_framer_.ParseHeaderBlockInBuffer(
+            header_buffer_.data(), header_buffer_.size(), &headers)) {
       visitor_->OnStreamError(
           stream_id, "Could not parse Spdy Control Frame Header.");
       return false;
@@ -171,15 +167,22 @@ bool BufferedSpdyFramer::OnControlFrameHeaderData(SpdyStreamId stream_id,
     return true;
   }
 
-  const size_t available = kHeaderBufferSize - header_buffer_used_;
-  if (len > available) {
+  const size_t new_size = header_buffer_.size() + len;
+  if (new_size > kHeaderBufferMaxSize) {
     header_buffer_valid_ = false;
-    visitor_->OnStreamError(
-        stream_id, "Received more data than the allocated size.");
+    visitor_->OnStreamError(stream_id, "Received too much header data.");
     return false;
   }
-  memcpy(header_buffer_ + header_buffer_used_, header_data, len);
-  header_buffer_used_ += len;
+
+  if (new_size > header_buffer_.capacity()) {
+    // Grow |header_buffer_| exponentially to reduce memory allocations and
+    // copies.
+    size_t new_capacity = std::max(new_size, kHeaderBufferInitialSize);
+    new_capacity = std::max(new_capacity, 2 * header_buffer_.capacity());
+    new_capacity = std::min(new_capacity, kHeaderBufferMaxSize);
+    header_buffer_.reserve(new_capacity);
+  }
+  header_buffer_.append(header_data, len);
   return true;
 }
 
@@ -217,8 +220,8 @@ void BufferedSpdyFramer::OnSettings(bool clear_persisted) {
 }
 
 void BufferedSpdyFramer::OnSetting(SpdySettingsIds id,
-                                   uint8 flags,
-                                   uint32 value) {
+                                   uint8_t flags,
+                                   uint32_t value) {
   visitor_->OnSetting(id, flags, value);
 }
 
@@ -411,7 +414,7 @@ SpdyFrame* BufferedSpdyFramer::CreateHeaders(
 // SpdyWindowUpdateIR).
 SpdyFrame* BufferedSpdyFramer::CreateWindowUpdate(
     SpdyStreamId stream_id,
-    uint32 delta_window_size) const {
+    uint32_t delta_window_size) const {
   SpdyWindowUpdateIR update_ir(stream_id, delta_window_size);
   return spdy_framer_.SerializeWindowUpdate(update_ir);
 }
@@ -419,7 +422,7 @@ SpdyFrame* BufferedSpdyFramer::CreateWindowUpdate(
 // TODO(jgraettinger): Eliminate uses of this method (prefer SpdyDataIR).
 SpdyFrame* BufferedSpdyFramer::CreateDataFrame(SpdyStreamId stream_id,
                                                const char* data,
-                                               uint32 len,
+                                               uint32_t len,
                                                SpdyDataFlags flags) {
   SpdyDataIR data_ir(stream_id,
                      base::StringPiece(data, len));
@@ -442,8 +445,7 @@ SpdyPriority BufferedSpdyFramer::GetHighestPriority() const {
 }
 
 void BufferedSpdyFramer::InitHeaderStreaming(SpdyStreamId stream_id) {
-  memset(header_buffer_, 0, kHeaderBufferSize);
-  header_buffer_used_ = 0;
+  header_buffer_.clear();
   header_buffer_valid_ = true;
   header_stream_id_ = stream_id;
   DCHECK_NE(header_stream_id_, SpdyFramer::kInvalidStream);

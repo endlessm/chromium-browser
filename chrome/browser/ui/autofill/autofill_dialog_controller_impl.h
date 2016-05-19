@@ -5,10 +5,13 @@
 #ifndef CHROME_BROWSER_UI_AUTOFILL_AUTOFILL_DIALOG_CONTROLLER_IMPL_H_
 #define CHROME_BROWSER_UI_AUTOFILL_AUTOFILL_DIALOG_CONTROLLER_IMPL_H_
 
+#include <stddef.h>
+
 #include <set>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -214,6 +217,18 @@ class AutofillDialogControllerImpl
   void SubmitButtonDelayEndForTesting();
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,
+                           AutocompleteEvent);
+  FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,
+                           AutocompleteErrorEventReasonCancel);
+  FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,
+                           AutocompleteErrorEventReasonInvalid);
+  FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,
+                           ErrorWithFrameNavigation);
+  FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,
+                           FillFormIncludesCVC);
+  FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,
+                           Submit);
   FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,
                            TransactionAmount);
   FRIEND_TEST_ALL_PREFIXES(AutofillDialogControllerTest,

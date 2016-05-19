@@ -5,6 +5,7 @@
 #ifndef CONTENT_TEST_FAKE_RENDERER_SCHEDULER_H_
 #define CONTENT_TEST_FAKE_RENDERER_SCHEDULER_H_
 
+#include "base/macros.h"
 #include "components/scheduler/renderer/renderer_scheduler.h"
 
 namespace content {
@@ -17,8 +18,8 @@ class FakeRendererScheduler : public scheduler::RendererScheduler {
   // RendererScheduler implementation.
   scoped_ptr<blink::WebThread> CreateMainThread() override;
   scoped_refptr<scheduler::TaskQueue> DefaultTaskRunner() override;
-  scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override;
-  scoped_refptr<base::SingleThreadTaskRunner> LoadingTaskRunner() override;
+  scoped_refptr<scheduler::TaskQueue> CompositorTaskRunner() override;
+  scoped_refptr<scheduler::TaskQueue> LoadingTaskRunner() override;
   scoped_refptr<scheduler::SingleThreadIdleTaskRunner> IdleTaskRunner()
       override;
   scoped_refptr<scheduler::TaskQueue> TimerTaskRunner() override;
@@ -52,8 +53,6 @@ class FakeRendererScheduler : public scheduler::RendererScheduler {
   void SuspendTimerQueue() override;
   void ResumeTimerQueue() override;
   void SetTimerQueueSuspensionWhenBackgroundedEnabled(bool enabled) override;
-  double CurrentTimeSeconds() const override;
-  double MonotonicallyIncreasingTimeSeconds() const override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(FakeRendererScheduler);

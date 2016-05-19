@@ -5,12 +5,18 @@
 #ifndef CONTENT_RENDERER_RENDERER_BLINK_PLATFORM_IMPL_H_
 #define CONTENT_RENDERER_RENDERER_BLINK_PLATFORM_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/compiler_specific.h"
 #include "base/id_map.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "cc/blink/web_compositor_support_impl.h"
 #include "content/child/blink_platform_impl.h"
 #include "content/common/content_export.h"
+#include "content/renderer/origin_trials/trial_token_validator.h"
 #include "content/renderer/webpublicsuffixlist_impl.h"
 #include "device/vibration/vibration_manager.mojom.h"
 #include "third_party/WebKit/public/platform/WebGraphicsContext3D.h"
@@ -26,11 +32,14 @@ class SyncMessageFilter;
 }
 
 namespace blink {
-class WebBatteryStatus;
+class WebCanvasCaptureHandler;
 class WebDeviceMotionData;
 class WebDeviceOrientationData;
 class WebGraphicsContext3DProvider;
+class WebMediaPlayer;
 class WebMediaRecorderHandler;
+class WebMediaStream;
+class WebSecurityOrigin;
 class WebServiceWorkerCacheStorage;
 }
 
@@ -40,7 +49,6 @@ class WebThreadImplForRendererScheduler;
 }
 
 namespace content {
-class BatteryStatusDispatcher;
 class DeviceLightEventPump;
 class DeviceMotionEventPump;
 class DeviceOrientationEventPump;
@@ -81,7 +89,10 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   void createMessageChannel(blink::WebMessagePortChannel** channel1,
                             blink::WebMessagePortChannel** channel2) override;
   blink::WebPrescientNetworking* prescientNetworking() override;
-  void cacheMetadata(const blink::WebURL&, int64, const char*, size_t) override;
+  void cacheMetadata(const blink::WebURL&,
+                     int64_t,
+                     const char*,
+                     size_t) override;
   blink::WebString defaultLocale() override;
   void suddenTerminationChanged(bool enabled) override;
   blink::WebStorageNamespace* createLocalStorageNamespace() override;
@@ -100,7 +111,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   blink::WebString signedPublicKeyAndChallengeString(
       unsigned key_size_index,
       const blink::WebString& challenge,
-      const blink::WebURL& url) override;
+      const blink::WebURL& url,
+      const blink::WebURL& top_origin) override;
   void getPluginList(bool refresh,
                      blink::WebPluginListBuilder* builder) override;
   blink::WebPublicSuffixList* publicSuffixList() override;
@@ -124,7 +136,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
       unsigned channels,
       double sample_rate,
       blink::WebAudioDevice::RenderCallback* callback,
-      const blink::WebString& input_device_id) override;
+      const blink::WebString& input_device_id,
+      const blink::WebSecurityOrigin& security_origin) override;
 
   bool loadAudioResource(blink::WebAudioBus* destination_bus,
                          const char* audio_file_data,
@@ -141,8 +154,13 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   blink::WebMediaRecorderHandler* createMediaRecorderHandler() override;
   blink::WebMediaStreamCenter* createMediaStreamCenter(
       blink::WebMediaStreamCenterClient* client) override;
-  bool processMemorySizesInBytes(size_t* private_bytes,
-                                 size_t* shared_bytes) override;
+  blink::WebCanvasCaptureHandler* createCanvasCaptureHandler(
+      const blink::WebSize& size,
+      double frame_rate,
+      blink::WebMediaStreamTrack* track) override;
+  void createHTMLVideoElementCapturer(
+      blink::WebMediaStream* web_media_stream,
+      blink::WebMediaPlayer* web_media_player) override;
   blink::WebGraphicsContext3D* createOffscreenGraphicsContext3D(
       const blink::WebGraphicsContext3D::Attributes& attributes) override;
   blink::WebGraphicsContext3D* createOffscreenGraphicsContext3D(
@@ -158,6 +176,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   blink::WebString convertIDNToUnicode(
       const blink::WebString& host,
       const blink::WebString& languages) override;
+  void connectToRemoteService(const char* name,
+                              mojo::ScopedMessagePipeHandle handle) override;
   void startListening(blink::WebPlatformEventType,
                       blink::WebPlatformEventListener*) override;
   void stopListening(blink::WebPlatformEventType) override;
@@ -170,8 +190,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   void recordRappor(const char* metric,
                     const blink::WebString& sample) override;
   void recordRapporURL(const char* metric, const blink::WebURL& url) override;
-  double currentTimeSeconds() override;
-  double monotonicallyIncreasingTimeSeconds() override;
+
+  blink::WebTrialTokenValidator* trialTokenValidator() override;
 
   // Set the PlatformEventObserverBase in |platform_event_observers_| associated
   // with |type| to |observer|. If there was already an observer associated to
@@ -199,10 +219,6 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   // is invoked.
   static void SetMockDeviceOrientationDataForTesting(
       const blink::WebDeviceOrientationData& data);
-
-  // Notifies blink::WebBatteryStatusListener that battery status has changed.
-  void MockBatteryStatusChangedForTesting(
-      const blink::WebBatteryStatus& status);
 
   WebDatabaseObserverImpl* web_database_observer_impl() {
     return web_database_observer_impl_.get();
@@ -270,14 +286,14 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
 
   scoped_ptr<blink::WebScrollbarBehavior> web_scrollbar_behavior_;
 
-  scoped_ptr<BatteryStatusDispatcher> battery_status_dispatcher_;
-
   // Handle to the Vibration mojo service.
   device::VibrationManagerPtr vibration_manager_;
 
   IDMap<PlatformEventObserverBase, IDMapOwnPointer> platform_event_observers_;
 
   scheduler::RendererScheduler* renderer_scheduler_;  // NOT OWNED
+
+  TrialTokenValidator trial_token_validator_;
 
   DISALLOW_COPY_AND_ASSIGN(RendererBlinkPlatformImpl);
 };

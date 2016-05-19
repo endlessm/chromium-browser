@@ -4,6 +4,9 @@
 
 #include "chrome/browser/chromeos/boot_times_recorder.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/bind.h"
@@ -16,7 +19,6 @@
 #include "base/location.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -28,10 +30,11 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_iterator.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
@@ -63,8 +66,7 @@ RenderWidgetHost* GetRenderWidgetHost(NavigationController* tab) {
 
 const std::string GetTabUrl(RenderWidgetHost* rwh) {
   RenderWidgetHostView* rwhv = rwh->GetView();
-  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
-    Browser* browser = *it;
+  for (auto* browser : *BrowserList::GetInstance()) {
     for (int i = 0, tab_count = browser->tab_strip_model()->count();
          i < tab_count;
          ++i) {
@@ -113,7 +115,7 @@ static const base::FilePath::CharType kDiskPrefix[] = FPL("disk-");
 // Name of the time that Chrome's main() is called.
 static const base::FilePath::CharType kChromeMain[] = FPL("chrome-main");
 // Delay in milliseconds before writing the login times to disk.
-static const int64 kLoginTimeWriteDelayMs = 3000;
+static const int64_t kLoginTimeWriteDelayMs = 3000;
 
 // Names of login stats files.
 static const base::FilePath::CharType kLoginSuccess[] = FPL("login-success");

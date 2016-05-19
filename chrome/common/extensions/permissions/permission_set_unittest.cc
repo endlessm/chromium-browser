@@ -2,12 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_test_util.h"
@@ -679,7 +685,7 @@ TEST(PermissionsTest, IsPrivilegeIncrease) {
     { "plugin3", true },  // none -> plugin
 #endif
     { "storage", false },  // none -> storage
-    { "notifications", false },  // none -> notifications
+    { "notifications", true },  // none -> notifications
     { "platformapp1", false },  // host permissions for platform apps
     { "platformapp2", true },  // API permissions for platform apps
     { "media_galleries1", true },  // all -> read|all
@@ -752,7 +758,6 @@ TEST(PermissionsTest, PermissionMessages) {
   skip.insert(APIPermission::kInlineInstallPrivate);
   skip.insert(APIPermission::kIdltest);
   skip.insert(APIPermission::kLogPrivate);
-  skip.insert(APIPermission::kNotifications);
   skip.insert(APIPermission::kNotificationProvider);
   skip.insert(APIPermission::kOverrideEscFullscreen);
   skip.insert(APIPermission::kPointerLock);
@@ -1299,11 +1304,12 @@ TEST(PermissionsTest, GetWarningMessages_PlatformAppHosts) {
 testing::AssertionResult ShowsAllHostsWarning(const std::string& pattern) {
   scoped_refptr<Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
-                           .Set("name", "TLDWildCardTest")
-                           .Set("version", "0.1.0")
-                           .Set("permissions", ListBuilder().Append(pattern))
-                           .Build())
+          .SetManifest(
+              DictionaryBuilder()
+                  .Set("name", "TLDWildCardTest")
+                  .Set("version", "0.1.0")
+                  .Set("permissions", std::move(ListBuilder().Append(pattern)))
+                  .Build())
           .Build();
 
   return VerifyHasPermissionMessage(

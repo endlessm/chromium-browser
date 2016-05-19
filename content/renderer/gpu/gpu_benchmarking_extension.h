@@ -5,7 +5,7 @@
 #ifndef CONTENT_RENDERER_GPU_GPU_BENCHMARKING_EXTENSION_H_
 #define CONTENT_RENDERER_GPU_GPU_BENCHMARKING_EXTENSION_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "gin/wrappable.h"
 
 namespace blink {
@@ -54,6 +54,7 @@ class GpuBenchmarking : public gin::Wrappable<GpuBenchmarking> {
   void ClearImageCache();
   int RunMicroBenchmark(gin::Arguments* args);
   bool SendMessageToMicroBenchmark(int id, v8::Local<v8::Object> message);
+  bool HasGpuChannel();
   bool HasGpuProcess();
 
   DISALLOW_COPY_AND_ASSIGN(GpuBenchmarking);

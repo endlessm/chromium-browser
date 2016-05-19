@@ -4,6 +4,8 @@
 
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -46,7 +48,7 @@ namespace autofill {
 namespace {
 
 // The period after which autocomplete entries should expire in days.
-const int64 kExpirationPeriodInDays = 60;
+const int64_t kExpirationPeriodInDays = 60;
 
 // Helper struct for AutofillTable::RemoveFormElementsAddedBetween().
 // Contains all the necessary fields to update a row in the 'autofill' table.
@@ -119,7 +121,7 @@ scoped_ptr<AutofillProfile> AutofillProfileFromStatement(
   profile->set_origin(s.ColumnString(index++));
   profile->set_language_code(s.ColumnString(index++));
 
-  return profile.Pass();
+  return profile;
 }
 
 void BindEncryptedCardToColumn(sql::Statement* s,
@@ -182,7 +184,7 @@ scoped_ptr<CreditCard> CreditCardFromStatement(const sql::Statement& s) {
   credit_card->set_modification_date(Time::FromTimeT(s.ColumnInt64(index++)));
   credit_card->set_origin(s.ColumnString(index++));
 
-  return credit_card.Pass();
+  return credit_card;
 }
 
 bool AddAutofillProfileNamesToProfile(sql::Connection* db,
@@ -493,7 +495,7 @@ bool AutofillTable::GetFormValuesForElementName(
   } else {
     base::string16 prefix_lower = base::i18n::ToLower(prefix);
     base::string16 next_prefix = prefix_lower;
-    next_prefix[next_prefix.length() - 1]++;
+    next_prefix.back()++;
 
     sql::Statement s1;
     s1.Assign(db_->GetUniqueStatement(
@@ -1271,6 +1273,9 @@ void AutofillTable::SetServerCreditCards(
 
     masked_insert.Run();
     masked_insert.Reset(true);
+
+    // Save the use count and use date of the card.
+    UpdateServerCardUsageStats(card);
   }
 
   // Delete all items in the unmasked table that aren't in the new set.

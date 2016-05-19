@@ -5,19 +5,20 @@
 #include "components/infobars/core/infobar.h"
 
 #include <cmath>
+#include <utility>
 
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "components/infobars/core/infobar_container.h"
 #include "components/infobars/core/infobar_manager.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/animation/slide_animation.h"
 
 namespace infobars {
 
 InfoBar::InfoBar(scoped_ptr<InfoBarDelegate> delegate)
     : owner_(NULL),
-      delegate_(delegate.Pass()),
+      delegate_(std::move(delegate)),
       container_(NULL),
       animation_(this),
       arrow_height_(0),

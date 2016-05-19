@@ -1,4 +1,4 @@
-// Copyright (c) 2015 PDFium Authors. All rights reserved.
+// Copyright 2015 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define TESTING_EMBEDDER_TEST_H_
 
 #include <map>
+#include <memory>
 #include <string>
 
 #include "public/fpdf_dataavail.h"
@@ -13,7 +14,7 @@
 #include "public/fpdf_formfill.h"
 #include "public/fpdfview.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/base/nonstd_unique_ptr.h"
+#include "testing/test_support.h"
 
 #ifdef PDF_ENABLE_V8
 #include "v8/include/v8.h"
@@ -78,6 +79,10 @@ class EmbedderTest : public ::testing::Test,
   FPDF_DOCUMENT document() { return document_; }
   FPDF_FORMHANDLE form_handle() { return form_handle_; }
 
+  // Create an empty document, and its form fill environment. Returns true
+  // on success or false on failure.
+  virtual bool CreateEmptyDocument();
+
   // Open the document specified by |filename|, and create its form fill
   // environment, or return false on failure.
   // The filename is relative to the test data directory where we store all the
@@ -107,8 +112,10 @@ class EmbedderTest : public ::testing::Test,
   virtual void UnloadPage(FPDF_PAGE page);
 
  protected:
+  void SetupFormFillEnvironment();
+
   Delegate* delegate_;
-  nonstd::unique_ptr<Delegate> default_delegate_;
+  std::unique_ptr<Delegate> default_delegate_;
   FPDF_DOCUMENT document_;
   FPDF_FORMHANDLE form_handle_;
   FPDF_AVAIL avail_;
@@ -123,7 +130,7 @@ class EmbedderTest : public ::testing::Test,
   void* external_isolate_;
   TestLoader* loader_;
   size_t file_length_;
-  char* file_contents_;
+  std::unique_ptr<char, pdfium::FreeDeleter> file_contents_;
 
  private:
   static void UnsupportedHandlerTrampoline(UNSUPPORT_INFO*, int type);

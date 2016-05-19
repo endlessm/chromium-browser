@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/graphics/filters/FEMerge.h"
 
 #include "SkMergeImageFilter.h"
@@ -50,7 +49,7 @@ PassRefPtr<SkImageFilter> FEMerge::createImageFilter(SkiaImageFilterBuilder& bui
         inputRefs[i] = builder.build(inputEffect(i), operatingColorSpace());
         inputs[i] = inputRefs[i].get();
     }
-    SkImageFilter::CropRect rect = getCropRect(builder.cropOffset());
+    SkImageFilter::CropRect rect = getCropRect();
     return adoptRef(SkMergeImageFilter::Create(inputs.get(), size, 0, &rect));
 }
 

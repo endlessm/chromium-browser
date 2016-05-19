@@ -44,7 +44,6 @@
       'feedback_private.idl',
       'file_system.idl',
       'font_settings.json',
-      'gcd_private.idl',
       'gcm.json',
       'hangouts_private.idl',
       'history.json',
@@ -59,7 +58,6 @@
       'launcher_page.idl',
       'location.idl',
       'manifest_types.json',
-      'mdns.idl',
       'media_galleries.idl',
       'metrics_private.json',
       'notification_provider.idl',
@@ -71,7 +69,6 @@
       'preferences_private.json',
       'resources_private.idl',
       'screenlock_private.idl',
-      'search_engines_private.idl',
       'sessions.json',
       'settings_private.idl',
       'signed_in_devices.idl',
@@ -122,6 +119,7 @@
       'file_system_provider_internal.idl',
       'first_run_private.json',
       'input_ime.json',
+      'input_method_private.json',
       'launcher_search_provider.idl',
       'log_private.idl',
       'platform_keys.idl',
@@ -136,11 +134,21 @@
       'media_player_private.json',
     ],
 
+    'service_discovery_schema_files': [
+      'gcd_private.idl',
+      'mdns.idl',
+    ],
+
     'webrtc_schema_files': [
       'cast_streaming_receiver_session.idl',
       'cast_streaming_rtp_stream.idl',
       'cast_streaming_session.idl',
       'cast_streaming_udp_transport.idl',
+    ],
+
+    # Input IME schema.
+    'input_ime_schema_file': [
+      'input_ime.json',
     ],
 
     'non_compiled_schema_files': [
@@ -166,6 +174,19 @@
         ],
         'non_compiled_schema_files': [
           '<@(chromeos_non_compiled_schema_files)',
+        ],
+      }, { # chromeos==0
+        'conditions': [
+          ['OS=="linux" or OS=="win"', {
+            'schema_files': [
+              '<@(input_ime_schema_file)',
+            ],
+          }],
+        ],
+      }],
+      ['enable_service_discovery==1', {
+        'schema_files': [
+          '<@(service_discovery_schema_files)',
         ],
       }],
       ['enable_webrtc==1', {

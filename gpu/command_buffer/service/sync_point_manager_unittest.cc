@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <queue>
 
 #include "base/bind.h"
@@ -36,7 +38,7 @@ struct SyncPointStream {
 
   SyncPointStream(SyncPointManager* sync_point_manager,
                   CommandBufferNamespace namespace_id,
-                  uint64_t command_buffer_id)
+                  CommandBufferId command_buffer_id)
       : order_data(SyncPointOrderData::Create()),
         client(sync_point_manager->CreateSyncPointClient(order_data,
                                                          namespace_id,
@@ -83,17 +85,25 @@ TEST_F(SyncPointManagerTest, BasicSyncPointOrderDataTest) {
   EXPECT_EQ(order_num, order_data->current_order_num());
   EXPECT_EQ(0u, order_data->processed_order_num());
   EXPECT_EQ(order_num, order_data->unprocessed_order_num());
+  EXPECT_TRUE(order_data->IsProcessingOrderNumber());
+
+  order_data->PauseProcessingOrderNumber(order_num);
+  EXPECT_FALSE(order_data->IsProcessingOrderNumber());
+
+  order_data->BeginProcessingOrderNumber(order_num);
+  EXPECT_TRUE(order_data->IsProcessingOrderNumber());
 
   order_data->FinishProcessingOrderNumber(order_num);
   EXPECT_EQ(order_num, order_data->current_order_num());
   EXPECT_EQ(order_num, order_data->processed_order_num());
   EXPECT_EQ(order_num, order_data->unprocessed_order_num());
+  EXPECT_FALSE(order_data->IsProcessingOrderNumber());
 }
 
 TEST_F(SyncPointManagerTest, SyncPointClientRegistration) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId = 0x123;
+  const CommandBufferId kBufferId = CommandBufferId::FromUnsafeValue(0x123);
 
   scoped_refptr<SyncPointClientState> empty_state =
       sync_point_manager_->GetSyncPointClientState(kNamespaceId, kBufferId);
@@ -114,7 +124,7 @@ TEST_F(SyncPointManagerTest, SyncPointClientRegistration) {
 TEST_F(SyncPointManagerTest, BasicFenceSyncRelease) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId = 0x123;
+  const CommandBufferId kBufferId = CommandBufferId::FromUnsafeValue(0x123);
 
   scoped_refptr<SyncPointOrderData> order_data = SyncPointOrderData::Create();
   scoped_ptr<SyncPointClient> client =
@@ -125,7 +135,11 @@ TEST_F(SyncPointManagerTest, BasicFenceSyncRelease) {
   EXPECT_EQ(0u, client_state->fence_sync_release());
   EXPECT_FALSE(client_state->IsFenceSyncReleased(1));
 
+  const uint32_t order_num =
+      order_data->GenerateUnprocessedOrderNumber(sync_point_manager_.get());
+  order_data->BeginProcessingOrderNumber(order_num);
   client->ReleaseFenceSync(1);
+  order_data->FinishProcessingOrderNumber(order_num);
 
   EXPECT_EQ(1u, client_state->fence_sync_release());
   EXPECT_TRUE(client_state->IsFenceSyncReleased(1));
@@ -134,8 +148,8 @@ TEST_F(SyncPointManagerTest, BasicFenceSyncRelease) {
 TEST_F(SyncPointManagerTest, MultipleClientsPerOrderData) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   scoped_refptr<SyncPointOrderData> order_data = SyncPointOrderData::Create();
   scoped_ptr<SyncPointClient> client1 =
@@ -148,7 +162,11 @@ TEST_F(SyncPointManagerTest, MultipleClientsPerOrderData) {
   scoped_refptr<SyncPointClientState> client_state1 = client1->client_state();
   scoped_refptr<SyncPointClientState> client_state2 = client2->client_state();
 
+  const uint32_t order_num =
+      order_data->GenerateUnprocessedOrderNumber(sync_point_manager_.get());
+  order_data->BeginProcessingOrderNumber(order_num);
   client1->ReleaseFenceSync(1);
+  order_data->FinishProcessingOrderNumber(order_num);
 
   EXPECT_TRUE(client_state1->IsFenceSyncReleased(1));
   EXPECT_FALSE(client_state2->IsFenceSyncReleased(1));
@@ -157,8 +175,8 @@ TEST_F(SyncPointManagerTest, MultipleClientsPerOrderData) {
 TEST_F(SyncPointManagerTest, BasicFenceSyncWaitRelease) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);
@@ -184,8 +202,8 @@ TEST_F(SyncPointManagerTest, BasicFenceSyncWaitRelease) {
 TEST_F(SyncPointManagerTest, WaitOnSelfFails) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);
@@ -208,8 +226,8 @@ TEST_F(SyncPointManagerTest, WaitOnSelfFails) {
 TEST_F(SyncPointManagerTest, OutOfOrderRelease) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);
@@ -232,8 +250,8 @@ TEST_F(SyncPointManagerTest, OutOfOrderRelease) {
 TEST_F(SyncPointManagerTest, HigherOrderNumberRelease) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);
@@ -261,8 +279,8 @@ TEST_F(SyncPointManagerTest, HigherOrderNumberRelease) {
 TEST_F(SyncPointManagerTest, DestroyedClientRelease) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);
@@ -288,8 +306,8 @@ TEST_F(SyncPointManagerTest, DestroyedClientRelease) {
 TEST_F(SyncPointManagerTest, NonExistentRelease) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);
@@ -321,8 +339,8 @@ TEST_F(SyncPointManagerTest, NonExistentRelease) {
 TEST_F(SyncPointManagerTest, NonExistentRelease2) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);
@@ -365,8 +383,8 @@ TEST_F(SyncPointManagerTest, NonExistentRelease2) {
 TEST_F(SyncPointManagerTest, NonExistentOrderNumRelease) {
   const CommandBufferNamespace kNamespaceId =
       gpu::CommandBufferNamespace::GPU_IO;
-  const uint64_t kBufferId1 = 0x123;
-  const uint64_t kBufferId2 = 0x234;
+  const CommandBufferId kBufferId1 = CommandBufferId::FromUnsafeValue(0x123);
+  const CommandBufferId kBufferId2 = CommandBufferId::FromUnsafeValue(0x234);
 
   SyncPointStream release_stream(sync_point_manager_.get(), kNamespaceId,
                                  kBufferId1);

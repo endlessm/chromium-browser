@@ -34,15 +34,11 @@ static_library("common") {
     "password_generation_util.h",
     "save_password_progress_logger.cc",
     "save_password_progress_logger.h",
-    "web_element_descriptor.cc",
-    "web_element_descriptor.h",
   ]
 
   deps = [
     "//base",
     "//base:i18n",
-    "//ui/base",
-    "//ui/gfx",
     "//url",
   ]
 

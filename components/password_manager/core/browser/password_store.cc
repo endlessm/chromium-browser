@@ -4,9 +4,12 @@
 
 #include "components/password_manager/core/browser/password_store.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/thread_task_runner_handle.h"
@@ -54,7 +57,7 @@ void PasswordStore::GetLoginsRequest::NotifyConsumerWithResults(
         login = nullptr;
       }
     }
-    results = remaining_logins.Pass();
+    results = std::move(remaining_logins);
   }
 
   origin_task_runner_->PostTask(
@@ -63,10 +66,12 @@ void PasswordStore::GetLoginsRequest::NotifyConsumerWithResults(
 }
 
 void PasswordStore::GetLoginsRequest::NotifyWithSiteStatistics(
-    ScopedVector<InteractionsStats> stats) {
+    std::vector<scoped_ptr<InteractionsStats>> stats) {
+  auto passed_stats(make_scoped_ptr(
+      new std::vector<scoped_ptr<InteractionsStats>>(std::move(stats))));
   origin_task_runner_->PostTask(
       FROM_HERE, base::Bind(&PasswordStoreConsumer::OnGetSiteStatistics,
-                            consumer_weak_, base::Passed(&stats)));
+                            consumer_weak_, base::Passed(&passed_stats)));
 }
 
 PasswordStore::PasswordStore(
@@ -86,7 +91,7 @@ bool PasswordStore::Init(const syncer::SyncableService::StartSyncFlare& flare) {
 
 void PasswordStore::SetAffiliatedMatchHelper(
     scoped_ptr<AffiliatedMatchHelper> helper) {
-  affiliated_match_helper_ = helper.Pass();
+  affiliated_match_helper_ = std::move(helper);
 }
 
 void PasswordStore::AddLogin(const PasswordForm& form) {
@@ -143,13 +148,18 @@ void PasswordStore::RemoveStatisticsCreatedBetween(
                  delete_begin, delete_end, completion));
 }
 
+void PasswordStore::DisableAutoSignInForAllLogins(
+    const base::Closure& completion) {
+  ScheduleTask(base::Bind(&PasswordStore::DisableAutoSignInForAllLoginsInternal,
+                          this, completion));
+}
+
 void PasswordStore::TrimAffiliationCache() {
   if (affiliated_match_helper_)
     affiliated_match_helper_->TrimAffiliationCache();
 }
 
 void PasswordStore::GetLogins(const PasswordForm& form,
-                              AuthorizationPromptPolicy prompt_policy,
                               PasswordStoreConsumer* consumer) {
   // Per http://crbug.com/121738, we deliberately ignore saved logins for
   // http*://www.google.com/ that were stored prior to 2012. (Google now uses
@@ -174,10 +184,10 @@ void PasswordStore::GetLogins(const PasswordForm& form,
   if (affiliated_match_helper_) {
     affiliated_match_helper_->GetAffiliatedAndroidRealms(
         form, base::Bind(&PasswordStore::ScheduleGetLoginsWithAffiliations,
-                         this, form, prompt_policy, base::Passed(&request)));
+                         this, form, base::Passed(&request)));
   } else {
     ScheduleTask(base::Bind(&PasswordStore::GetLoginsImpl, this, form,
-                            prompt_policy, base::Passed(&request)));
+                            base::Passed(&request)));
   }
 }
 
@@ -227,7 +237,6 @@ void PasswordStore::RemoveObserver(Observer* observer) {
 }
 
 bool PasswordStore::ScheduleTask(const base::Closure& task) {
-  CHECK(is_alive());
   scoped_refptr<base::SingleThreadTaskRunner> task_runner(
       GetBackgroundTaskRunner());
   if (task_runner.get())
@@ -235,7 +244,7 @@ bool PasswordStore::ScheduleTask(const base::Closure& task) {
   return false;
 }
 
-void PasswordStore::Shutdown() {
+void PasswordStore::ShutdownOnUIThread() {
   ScheduleTask(base::Bind(&PasswordStore::DestroySyncableService, this));
   // The AffiliationService must be destroyed from the main thread.
   affiliated_match_helper_.reset();
@@ -259,9 +268,8 @@ PasswordStore::GetBackgroundTaskRunner() {
 }
 
 void PasswordStore::GetLoginsImpl(const autofill::PasswordForm& form,
-                                  AuthorizationPromptPolicy prompt_policy,
                                   scoped_ptr<GetLoginsRequest> request) {
-  request->NotifyConsumerWithResults(FillMatchingLogins(form, prompt_policy));
+  request->NotifyConsumerWithResults(FillMatchingLogins(form));
 }
 
 
@@ -392,12 +400,19 @@ void PasswordStore::RemoveStatisticsCreatedBetweenInternal(
     main_thread_runner_->PostTask(FROM_HERE, completion);
 }
 
+void PasswordStore::DisableAutoSignInForAllLoginsInternal(
+    const base::Closure& completion) {
+  DisableAutoSignInForAllLoginsImpl();
+  if (!completion.is_null())
+    main_thread_runner_->PostTask(FROM_HERE, completion);
+}
+
 void PasswordStore::GetAutofillableLoginsImpl(
     scoped_ptr<GetLoginsRequest> request) {
   ScopedVector<PasswordForm> obtained_forms;
   if (!FillAutofillableLogins(&obtained_forms))
     obtained_forms.clear();
-  request->NotifyConsumerWithResults(obtained_forms.Pass());
+  request->NotifyConsumerWithResults(std::move(obtained_forms));
 }
 
 void PasswordStore::GetBlacklistLoginsImpl(
@@ -405,7 +420,7 @@ void PasswordStore::GetBlacklistLoginsImpl(
   ScopedVector<PasswordForm> obtained_forms;
   if (!FillBlacklistLogins(&obtained_forms))
     obtained_forms.clear();
-  request->NotifyConsumerWithResults(obtained_forms.Pass());
+  request->NotifyConsumerWithResults(std::move(obtained_forms));
 }
 
 void PasswordStore::NotifySiteStats(const GURL& origin_domain,
@@ -415,51 +430,47 @@ void PasswordStore::NotifySiteStats(const GURL& origin_domain,
 
 void PasswordStore::GetLoginsWithAffiliationsImpl(
     const PasswordForm& form,
-    AuthorizationPromptPolicy prompt_policy,
     scoped_ptr<GetLoginsRequest> request,
     const std::vector<std::string>& additional_android_realms) {
   DCHECK(GetBackgroundTaskRunner()->BelongsToCurrentThread());
-  ScopedVector<PasswordForm> results(FillMatchingLogins(form, prompt_policy));
+  ScopedVector<PasswordForm> results(FillMatchingLogins(form));
   for (const std::string& realm : additional_android_realms) {
     PasswordForm android_form;
     android_form.scheme = PasswordForm::SCHEME_HTML;
     android_form.signon_realm = realm;
-    ScopedVector<PasswordForm> more_results(
-        FillMatchingLogins(android_form, DISALLOW_PROMPT));
+    ScopedVector<PasswordForm> more_results(FillMatchingLogins(android_form));
     for (PasswordForm* form : more_results)
       form->is_affiliation_based_match = true;
     ScopedVector<PasswordForm>::iterator it_first_federated = std::partition(
         more_results.begin(), more_results.end(),
-        [](PasswordForm* form) { return form->federation_url.is_empty(); });
+        [](PasswordForm* form) { return form->federation_origin.unique(); });
     more_results.erase(it_first_federated, more_results.end());
     password_manager_util::TrimUsernameOnlyCredentials(&more_results);
     results.insert(results.end(), more_results.begin(), more_results.end());
     more_results.weak_clear();
   }
-  request->NotifyConsumerWithResults(results.Pass());
+  request->NotifyConsumerWithResults(std::move(results));
 }
 
 void PasswordStore::ScheduleGetLoginsWithAffiliations(
     const PasswordForm& form,
-    AuthorizationPromptPolicy prompt_policy,
     scoped_ptr<GetLoginsRequest> request,
     const std::vector<std::string>& additional_android_realms) {
   ScheduleTask(base::Bind(&PasswordStore::GetLoginsWithAffiliationsImpl, this,
-                          form, prompt_policy, base::Passed(&request),
+                          form, base::Passed(&request),
                           additional_android_realms));
 }
 
 scoped_ptr<PasswordForm> PasswordStore::GetLoginImpl(
     const PasswordForm& primary_key) {
   DCHECK(GetBackgroundTaskRunner()->BelongsToCurrentThread());
-  ScopedVector<PasswordForm> candidates(
-      FillMatchingLogins(primary_key, DISALLOW_PROMPT));
+  ScopedVector<PasswordForm> candidates(FillMatchingLogins(primary_key));
   for (PasswordForm*& candidate : candidates) {
     if (ArePasswordFormUniqueKeyEqual(*candidate, primary_key) &&
         !candidate->is_public_suffix_match) {
       scoped_ptr<PasswordForm> result(candidate);
       candidate = nullptr;
-      return result.Pass();
+      return result;
     }
   }
   return make_scoped_ptr<PasswordForm>(nullptr);
@@ -494,7 +505,7 @@ void PasswordStore::UpdateAffiliatedWebLoginsImpl(
     web_form_template.scheme = PasswordForm::SCHEME_HTML;
     web_form_template.signon_realm = affiliated_web_realm;
     ScopedVector<PasswordForm> web_logins(
-        FillMatchingLogins(web_form_template, DISALLOW_PROMPT));
+        FillMatchingLogins(web_form_template));
     for (PasswordForm* web_login : web_logins) {
       // Do not update HTTP logins, logins saved under insecure conditions, and
       // non-HTML login forms; PSL matches; logins with a different username;
@@ -584,18 +595,6 @@ void PasswordStore::InitSyncableService(
 void PasswordStore::DestroySyncableService() {
   DCHECK(GetBackgroundTaskRunner()->BelongsToCurrentThread());
   syncable_service_.reset();
-}
-
-// No-op implementation of RemoveLoginsByOriginAndTimeImpl to please the
-// compiler on derived classes that have not yet provided an implementation on
-// their own.
-// TODO(ttr314@googlemail.com): Once crbug.com/113973 is done, remove default
-// implementation and mark method as pure virtual.
-PasswordStoreChangeList PasswordStore::RemoveLoginsByOriginAndTimeImpl(
-    const url::Origin& origin,
-    base::Time delete_begin,
-    base::Time delete_end) {
-  return PasswordStoreChangeList();
 }
 
 }  // namespace password_manager

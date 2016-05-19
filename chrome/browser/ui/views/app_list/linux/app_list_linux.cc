@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/app_list/linux/app_list_linux.h"
 
+#include "build/build_config.h"
 #include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/gfx/screen.h"
@@ -83,9 +84,8 @@ gfx::Point AppListLinux::FindAnchorPoint(const gfx::Size& view_size,
 
 // static
 void AppListLinux::MoveNearCursor(app_list::AppListView* view) {
-  gfx::Point cursor = gfx::Screen::GetNativeScreen()->GetCursorScreenPoint();
-  gfx::Screen* screen =
-      gfx::Screen::GetScreenFor(view->GetWidget()->GetNativeView());
+  gfx::Screen* screen = gfx::Screen::GetScreen();
+  gfx::Point cursor = screen->GetCursorScreenPoint();
   gfx::Display display = screen->GetDisplayNearestPoint(cursor);
 
   view->SetBubbleArrow(views::BubbleBorder::FLOAT);

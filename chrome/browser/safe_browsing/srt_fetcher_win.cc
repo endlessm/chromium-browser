@@ -4,6 +4,8 @@
 
 #include "chrome/browser/safe_browsing/srt_fetcher_win.h"
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/bind.h"
@@ -11,9 +13,10 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -34,8 +37,9 @@
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "components/component_updater/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/rappor/rappor_service.h"
-#include "components/variations/net/variations_http_header_provider.h"
+#include "components/variations/net/variations_http_headers.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
@@ -49,6 +53,8 @@ namespace safe_browsing {
 
 const wchar_t kSoftwareRemovalToolRegistryKey[] =
     L"Software\\Google\\Software Removal Tool";
+
+const wchar_t kCleanerSubKey[] = L"Cleaner";
 
 const wchar_t kEndTimeValueName[] = L"EndTime";
 const wchar_t kStartTimeValueName[] = L"StartTime";
@@ -89,8 +95,7 @@ void DisplaySRTPrompt(const base::FilePath& download_path) {
   // show the prompt this time and will wait until the next run of the
   // reporter. We can't use other ways of finding a browser because we don't
   // have a profile.
-  chrome::HostDesktopType desktop_type = chrome::GetActiveDesktop();
-  Browser* browser = chrome::FindLastActiveWithHostDesktopType(desktop_type);
+  Browser* browser = chrome::FindLastActive();
   if (!browser)
     return;
 
@@ -100,9 +105,9 @@ void DisplaySRTPrompt(const base::FilePath& download_path) {
   // Make sure we have a tabbed browser since we need to anchor the bubble to
   // the toolbar's wrench menu. Create one if none exist already.
   if (browser->type() != Browser::TYPE_TABBED) {
-    browser = chrome::FindTabbedBrowser(profile, false, desktop_type);
+    browser = chrome::FindTabbedBrowser(profile, false);
     if (!browser)
-      browser = new Browser(Browser::CreateParams(profile, desktop_type));
+      browser = new Browser(Browser::CreateParams(profile));
   }
   GlobalErrorService* global_error_service =
       GlobalErrorServiceFactory::GetForProfile(profile);
@@ -230,9 +235,8 @@ class SRTFetcher : public net::URLFetcherDelegate {
     ProfileIOData* io_data = ProfileIOData::FromResourceContext(
         profile_->GetResourceContext());
     net::HttpRequestHeaders headers;
-    variations::VariationsHttpHeaderProvider::GetInstance()->AppendHeaders(
-        url_fetcher_->GetOriginalURL(),
-        io_data->IsOffTheRecord(),
+    variations::AppendVariationHeaders(
+        url_fetcher_->GetOriginalURL(), io_data->IsOffTheRecord(),
         ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled(),
         &headers);
     url_fetcher_->SetExtraRequestHeaders(headers.ToString());
@@ -346,7 +350,7 @@ void ReportSwReporterRuntime(const base::TimeDelta& reporter_running_time) {
   }
 
   bool has_start_time = false;
-  int64 start_time_value = 0;
+  int64_t start_time_value = 0;
   if (reporter_key.HasValue(kStartTimeValueName) &&
       reporter_key.ReadInt64(kStartTimeValueName, &start_time_value) ==
           ERROR_SUCCESS) {
@@ -355,7 +359,7 @@ void ReportSwReporterRuntime(const base::TimeDelta& reporter_running_time) {
   }
 
   bool has_end_time = false;
-  int64 end_time_value = 0;
+  int64_t end_time_value = 0;
   if (reporter_key.HasValue(kEndTimeValueName) &&
       reporter_key.ReadInt64(kEndTimeValueName, &end_time_value) ==
           ERROR_SUCCESS) {
@@ -398,7 +402,7 @@ void ReportSwReporterScanTimes() {
 
   base::string16 value_name;
   int uws_id = 0;
-  int64 raw_scan_time = 0;
+  int64_t raw_scan_time = 0;
   int num_scan_times = scan_times_key.GetValueCount();
   for (int i = 0; i < num_scan_times; ++i) {
     if (scan_times_key.GetValueNameAt(i, &value_name) == ERROR_SUCCESS &&
@@ -521,8 +525,7 @@ class ReporterRunner : public chrome::BrowserListObserver {
     // a profile, which we need, to tell whether we should prompt or not.
     // TODO(mad): crbug.com/503269, investigate whether we should change how we
     // decide when it's time to download the SRT and when to display the prompt.
-    chrome::HostDesktopType desktop_type = chrome::GetActiveDesktop();
-    Browser* browser = chrome::FindLastActiveWithHostDesktopType(desktop_type);
+    Browser* browser = chrome::FindLastActive();
     if (!browser) {
       RecordReporterStepHistogram(SW_REPORTER_NO_BROWSER);
       BrowserList::AddObserver(this);
@@ -604,6 +607,24 @@ void RunSwReporter(
     const scoped_refptr<base::TaskRunner>& blocking_task_runner) {
   ReporterRunner::Run(exe_path, version, main_thread_task_runner,
                       blocking_task_runner);
+}
+
+bool ReporterFoundUws() {
+  PrefService* local_state = g_browser_process->local_state();
+  if (!local_state)
+    return false;
+  int exit_code = local_state->GetInteger(prefs::kSwReporterLastExitCode);
+  return exit_code == kSwReporterCleanupNeeded;
+}
+
+bool UserHasRunCleaner() {
+  base::string16 cleaner_key_path(kSoftwareRemovalToolRegistryKey);
+  cleaner_key_path.append(L"\\").append(kCleanerSubKey);
+
+  base::win::RegKey srt_cleaner_key(HKEY_CURRENT_USER, cleaner_key_path.c_str(),
+                                    KEY_QUERY_VALUE);
+
+  return srt_cleaner_key.Valid() && srt_cleaner_key.GetValueCount() > 0;
 }
 
 void SetReporterLauncherForTesting(const ReporterLauncher& reporter_launcher) {

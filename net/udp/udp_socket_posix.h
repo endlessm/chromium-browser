@@ -5,6 +5,9 @@
 #ifndef NET_UDP_UDP_SOCKET_POSIX_H_
 #define NET_UDP_UDP_SOCKET_POSIX_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
@@ -83,23 +86,19 @@ class NET_EXPORT UDPSocketPosix : public base::NonThreadSafe {
   // |address| is a buffer provided by the caller for receiving the sender
   //   address information about the received data.  This buffer must be kept
   //   alive by the caller until the callback is placed.
-  // |address_length| is a ptr to the length of the |address| buffer.  This
-  //   is an input parameter containing the maximum size |address| can hold
-  //   and also an output parameter for the size of |address| upon completion.
   // |callback| is the callback on completion of the RecvFrom.
   // Returns a net error code, or ERR_IO_PENDING if the IO is in progress.
-  // If ERR_IO_PENDING is returned, the caller must keep |buf|, |address|,
-  // and |address_length| alive until the callback is called.
+  // If ERR_IO_PENDING is returned, the caller must keep |buf| and |address|
+  // alive until the callback is called.
   int RecvFrom(IOBuffer* buf,
                int buf_len,
                IPEndPoint* address,
                const CompletionCallback& callback);
 
   // Sends to a socket with a particular destination.
-  // |buf| is the buffer to send
-  // |buf_len| is the number of bytes to send
+  // |buf| is the buffer to send.
+  // |buf_len| is the number of bytes to send.
   // |address| is the recipient address.
-  // |address_length| is the size of the recipient address
   // |callback| is the user callback function to call on complete.
   // Returns a net error code, or ERR_IO_PENDING if the IO is in progress.
   // If ERR_IO_PENDING is returned, the caller must keep |buf| and |address|
@@ -111,11 +110,11 @@ class NET_EXPORT UDPSocketPosix : public base::NonThreadSafe {
 
   // Sets the receive buffer size (in bytes) for the socket.
   // Returns a net error code.
-  int SetReceiveBufferSize(int32 size);
+  int SetReceiveBufferSize(int32_t size);
 
   // Sets the send buffer size (in bytes) for the socket.
   // Returns a net error code.
-  int SetSendBufferSize(int32 size);
+  int SetSendBufferSize(int32_t size);
 
   // Returns true if the socket is already connected or bound.
   bool is_connected() const { return is_connected_; }
@@ -152,7 +151,7 @@ class NET_EXPORT UDPSocketPosix : public base::NonThreadSafe {
   // default interface is used.
   // Should be called before Bind().
   // Returns a net error code.
-  int SetMulticastInterface(uint32 interface_index);
+  int SetMulticastInterface(uint32_t interface_index);
 
   // Sets the time-to-live option for UDP packets sent to the multicast
   // group address. The default value of this option is 1.
@@ -264,7 +263,7 @@ class NET_EXPORT UDPSocketPosix : public base::NonThreadSafe {
   int socket_options_;
 
   // Multicast interface.
-  uint32 multicast_interface_;
+  uint32_t multicast_interface_;
 
   // Multicast socket options cached for SetMulticastOption.
   // Cannot be used after Bind().

@@ -22,7 +22,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/TextDocument.h"
 
 #include "core/html/parser/TextDocumentParser.h"
@@ -38,7 +37,7 @@ TextDocument::TextDocument(const DocumentInit& initializer)
 
 PassRefPtrWillBeRawPtr<DocumentParser> TextDocument::createParser()
 {
-    return TextDocumentParser::create(*this, parserSynchronizationPolicy());
+    return TextDocumentParser::create(*this, getParserSynchronizationPolicy());
 }
 
-}
+} // namespace blink

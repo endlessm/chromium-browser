@@ -4,6 +4,8 @@
 
 #include "ios/web/net/cert_verifier_block_adapter.h"
 
+#include <utility>
+
 #include "base/mac/bind_objc_block.h"
 #include "net/base/net_errors.h"
 #include "net/cert/crl_set.h"
@@ -23,7 +25,7 @@ struct VerificationContext
   VerificationContext(scoped_refptr<net::X509Certificate> cert,
                       net::NetLog* net_log)
       : request(nullptr),
-        cert(cert.Pass()),
+        cert(std::move(cert)),
         net_log(net::BoundNetLog::Make(
             net_log,
             net::NetLog::SOURCE_IOS_WEB_VIEW_CERT_VERIFIER)) {}
@@ -94,7 +96,7 @@ void CertVerifierBlockAdapter::Verify(
     // However, it guarantees that |callback| - and thus |completion_handler| -
     // will always be called, which is a necessary part of the API contract of
     // |CertVerifierBlockAdapter::Verify()|.
-    context->request = request.Pass();
+    context->request = std::move(request);
     // Completion handler will be called from |callback| when verification
     // request is completed.
     return;

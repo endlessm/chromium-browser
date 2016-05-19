@@ -536,16 +536,16 @@ static int compute_minmax_8x8(const uint8_t *s, int sp, const uint8_t *d,
     if (x8_idx < pixels_wide && y8_idx < pixels_high) {
 #if CONFIG_VP9_HIGHBITDEPTH
       if (highbd_flag & YV12_FLAG_HIGHBITDEPTH) {
-        vp10_highbd_minmax_8x8(s + y8_idx * sp + x8_idx, sp,
+        vpx_highbd_minmax_8x8(s + y8_idx * sp + x8_idx, sp,
                               d + y8_idx * dp + x8_idx, dp,
                               &min, &max);
       } else {
-        vp10_minmax_8x8(s + y8_idx * sp + x8_idx, sp,
+        vpx_minmax_8x8(s + y8_idx * sp + x8_idx, sp,
                        d + y8_idx * dp + x8_idx, dp,
                        &min, &max);
       }
 #else
-      vp10_minmax_8x8(s + y8_idx * sp + x8_idx, sp,
+      vpx_minmax_8x8(s + y8_idx * sp + x8_idx, sp,
                      d + y8_idx * dp + x8_idx, dp,
                      &min, &max);
 #endif
@@ -577,18 +577,18 @@ static void fill_variance_4x4avg(const uint8_t *s, int sp, const uint8_t *d,
       int d_avg = 128;
 #if CONFIG_VP9_HIGHBITDEPTH
       if (highbd_flag & YV12_FLAG_HIGHBITDEPTH) {
-        s_avg = vp10_highbd_avg_4x4(s + y4_idx * sp + x4_idx, sp);
+        s_avg = vpx_highbd_avg_4x4(s + y4_idx * sp + x4_idx, sp);
         if (!is_key_frame)
-          d_avg = vp10_highbd_avg_4x4(d + y4_idx * dp + x4_idx, dp);
+          d_avg = vpx_highbd_avg_4x4(d + y4_idx * dp + x4_idx, dp);
       } else {
-        s_avg = vp10_avg_4x4(s + y4_idx * sp + x4_idx, sp);
+        s_avg = vpx_avg_4x4(s + y4_idx * sp + x4_idx, sp);
         if (!is_key_frame)
-          d_avg = vp10_avg_4x4(d + y4_idx * dp + x4_idx, dp);
+          d_avg = vpx_avg_4x4(d + y4_idx * dp + x4_idx, dp);
       }
 #else
-      s_avg = vp10_avg_4x4(s + y4_idx * sp + x4_idx, sp);
+      s_avg = vpx_avg_4x4(s + y4_idx * sp + x4_idx, sp);
       if (!is_key_frame)
-        d_avg = vp10_avg_4x4(d + y4_idx * dp + x4_idx, dp);
+        d_avg = vpx_avg_4x4(d + y4_idx * dp + x4_idx, dp);
 #endif
       sum = s_avg - d_avg;
       sse = sum * sum;
@@ -616,18 +616,18 @@ static void fill_variance_8x8avg(const uint8_t *s, int sp, const uint8_t *d,
       int d_avg = 128;
 #if CONFIG_VP9_HIGHBITDEPTH
       if (highbd_flag & YV12_FLAG_HIGHBITDEPTH) {
-        s_avg = vp10_highbd_avg_8x8(s + y8_idx * sp + x8_idx, sp);
+        s_avg = vpx_highbd_avg_8x8(s + y8_idx * sp + x8_idx, sp);
         if (!is_key_frame)
-          d_avg = vp10_highbd_avg_8x8(d + y8_idx * dp + x8_idx, dp);
+          d_avg = vpx_highbd_avg_8x8(d + y8_idx * dp + x8_idx, dp);
       } else {
-        s_avg = vp10_avg_8x8(s + y8_idx * sp + x8_idx, sp);
+        s_avg = vpx_avg_8x8(s + y8_idx * sp + x8_idx, sp);
         if (!is_key_frame)
-          d_avg = vp10_avg_8x8(d + y8_idx * dp + x8_idx, dp);
+          d_avg = vpx_avg_8x8(d + y8_idx * dp + x8_idx, dp);
       }
 #else
-      s_avg = vp10_avg_8x8(s + y8_idx * sp + x8_idx, sp);
+      s_avg = vpx_avg_8x8(s + y8_idx * sp + x8_idx, sp);
       if (!is_key_frame)
-        d_avg = vp10_avg_8x8(d + y8_idx * dp + x8_idx, dp);
+        d_avg = vpx_avg_8x8(d + y8_idx * dp + x8_idx, dp);
 #endif
       sum = s_avg - d_avg;
       sse = sum * sum;
@@ -1140,15 +1140,6 @@ static void rd_pick_sb_modes(VP10_COMP *cpi,
     p[i].eobs = ctx->eobs_pbuf[i][0];
   }
 
-  if (cm->current_video_frame == 0 && cm->allow_screen_content_tools) {
-    for (i = 0; i < 2; ++i) {
-      if (ctx->color_index_map[i] == 0) {
-        CHECK_MEM_ERROR(cm, ctx->color_index_map[i],
-                        vpx_memalign(16, (ctx->num_4x4_blk << 4) *
-                                     sizeof(*ctx->color_index_map[i])));
-      }
-    }
-  }
   for (i = 0; i < 2; ++i)
     pd[i].color_index_map = ctx->color_index_map[i];
 
@@ -1164,7 +1155,7 @@ static void rd_pick_sb_modes(VP10_COMP *cpi,
   if (xd->cur_buf->flags & YV12_FLAG_HIGHBITDEPTH) {
     x->source_variance =
         vp10_high_get_sby_perpixel_variance(cpi, &x->plane[0].src,
-                                           bsize, xd->bd);
+                                            bsize, xd->bd);
   } else {
     x->source_variance =
       vp10_get_sby_perpixel_variance(cpi, &x->plane[0].src, bsize);
@@ -2588,7 +2579,7 @@ static MV_REFERENCE_FRAME get_frame_type(const VP10_COMP *cpi) {
 }
 
 static TX_MODE select_tx_mode(const VP10_COMP *cpi, MACROBLOCKD *const xd) {
-  if (!cpi->common.seg.enabled && xd->lossless[0])
+  if (xd->lossless[0])
     return ONLY_4X4;
   if (cpi->sf.tx_size_search_method == USE_LARGESTALL)
     return ALLOW_32X32;
@@ -2651,6 +2642,10 @@ void vp10_encode_tile(VP10_COMP *cpi, ThreadData *td,
   TOKENEXTRA *tok = cpi->tile_tok[tile_row][tile_col];
   int mi_row;
 
+  // Set up pointers to per thread motion search counters.
+  td->mb.m_search_count_ptr = &td->rd_counts.m_search_count;
+  td->mb.ex_search_count_ptr = &td->rd_counts.ex_search_count;
+
   for (mi_row = tile_info->mi_row_start; mi_row < tile_info->mi_row_end;
        mi_row += MI_BLOCK_SIZE) {
     encode_rd_sb_row(cpi, td, this_tile, mi_row, &tok);
@@ -2704,17 +2699,15 @@ static void encode_frame_internal(VP10_COMP *cpi) {
   vp10_zero(rdc->coef_counts);
   vp10_zero(rdc->comp_pred_diff);
   vp10_zero(rdc->filter_diff);
+  rdc->m_search_count = 0;   // Count of motion search hits.
+  rdc->ex_search_count = 0;  // Exhaustive mesh search hits.
 
-  for (i = 0; i < (cm->seg.enabled ? MAX_SEGMENTS : 1); ++i) {
-#if CONFIG_MISC_FIXES
-    const int qindex = vp10_get_qindex(&cm->seg, i, cm->base_qindex);
-#endif
-    xd->lossless[i] = cm->y_dc_delta_q == 0 &&
-#if CONFIG_MISC_FIXES
-                      qindex == 0 &&
-#else
-                      cm->base_qindex == 0 &&
-#endif
+  for (i = 0; i < MAX_SEGMENTS; ++i) {
+    const int qindex = CONFIG_MISC_FIXES && cm->seg.enabled ?
+                       vp10_get_qindex(&cm->seg, i, cm->base_qindex) :
+                       cm->base_qindex;
+    xd->lossless[i] = qindex == 0 &&
+                      cm->y_dc_delta_q == 0 &&
                       cm->uv_dc_delta_q == 0 &&
                       cm->uv_ac_delta_q == 0;
   }
@@ -2984,16 +2977,6 @@ static void encode_superblock(VP10_COMP *cpi, ThreadData *td,
     if (output_enabled)
       sum_intra_stats(td->counts, mi, xd->above_mi, xd->left_mi,
                       frame_is_intra_only(cm));
-
-    if (bsize >= BLOCK_8X8 && output_enabled) {
-      if (mbmi->palette_mode_info.palette_size[0] > 0) {
-        mbmi->palette_mode_info.palette_first_color_idx[0] =
-            xd->plane[0].color_index_map[0];
-        // TODO(huisu): this increases the use of token buffer. Needs stretch
-        // test to verify.
-        vp10_tokenize_palette_sb(td, bsize, 0, t);
-      }
-    }
     vp10_tokenize_sb(cpi, td, t, !output_enabled, VPXMAX(bsize, BLOCK_8X8));
   } else {
     int ref;
@@ -3041,5 +3024,16 @@ static void encode_superblock(VP10_COMP *cpi, ThreadData *td,
     }
     ++td->counts->tx.tx_totals[mbmi->tx_size];
     ++td->counts->tx.tx_totals[get_uv_tx_size(mbmi, &xd->plane[1])];
+    if (mbmi->tx_size < TX_32X32 &&
+        cm->base_qindex > 0 && !mbmi->skip &&
+        !segfeature_active(&cm->seg, mbmi->segment_id, SEG_LVL_SKIP)) {
+      if (is_inter_block(mbmi)) {
+        ++td->counts->inter_ext_tx[mbmi->tx_size][mbmi->tx_type];
+      } else {
+        ++td->counts->intra_ext_tx[mbmi->tx_size]
+                                  [intra_mode_to_tx_type_context[mbmi->mode]]
+                                  [mbmi->tx_type];
+      }
+    }
   }
 }

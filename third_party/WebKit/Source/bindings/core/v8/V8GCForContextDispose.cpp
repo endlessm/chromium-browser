@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/V8GCForContextDispose.h"
 
 #include "bindings/core/v8/V8PerIsolateData.h"
@@ -70,7 +69,7 @@ V8GCForContextDispose& V8GCForContextDispose::instance()
 
 void V8GCForContextDispose::pseudoIdleTimerFired(Timer<V8GCForContextDispose>*)
 {
-    V8PerIsolateData::mainThreadIsolate()->IdleNotificationDeadline(Platform::current()->monotonicallyIncreasingTimeSeconds());
+    V8PerIsolateData::mainThreadIsolate()->IdleNotificationDeadline(monotonicallyIncreasingTime());
     reset();
 }
 

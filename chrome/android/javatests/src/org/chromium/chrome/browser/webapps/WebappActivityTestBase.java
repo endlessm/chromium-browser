@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.webapps;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.view.ViewGroup;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.browser.ShortcutHelper;
@@ -125,13 +126,13 @@ public abstract class WebappActivityTestBase extends ChromeActivityTestCaseBase<
     protected void waitUntilIdle() {
         getInstrumentation().waitForIdleSync();
         try {
-            assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+            CriteriaHelper.pollForCriteria(new Criteria() {
                     @Override
                     public boolean isSatisfied() {
                         return getActivity().getActivityTab() != null
                                 && !getActivity().getActivityTab().isLoading();
                     }
-                }));
+                });
         } catch (InterruptedException exception) {
             fail();
         }
@@ -181,15 +182,33 @@ public abstract class WebappActivityTestBase extends ChromeActivityTestCaseBase<
     }
 
     /**
-     * Waits for the splash screen to be hidden and return whether it was hidden
-     * (true) or if it timed out (false).
+     * Waits for the splash screen to be hidden.
      */
-    protected boolean waitUntilSplashscreenHides() throws InterruptedException {
-        return CriteriaHelper.pollForCriteria(new Criteria() {
+    protected void waitUntilSplashscreenHides() throws InterruptedException {
+        CriteriaHelper.pollForCriteria(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return !getActivity().isSplashScreenVisibleForTests();
+            }
+        });
+    }
+
+    protected ViewGroup waitUntilSplashScreenAppears() {
+        try {
+            CriteriaHelper.pollForCriteria(new Criteria() {
                 @Override
                 public boolean isSatisfied() {
-                    return !getActivity().isSplashScreenVisibleForTests();
+                    return getActivity().getSplashScreenForTests() != null;
                 }
             });
+        } catch (InterruptedException e) {
+            fail();
+        }
+
+        ViewGroup splashScreen = getActivity().getSplashScreenForTests();
+        if (splashScreen == null) {
+            fail("No splash screen available.");
+        }
+        return splashScreen;
     }
 }

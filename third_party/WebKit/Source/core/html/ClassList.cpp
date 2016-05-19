@@ -22,7 +22,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/ClassList.h"
 
 #include "core/dom/Document.h"
@@ -31,17 +30,19 @@ namespace blink {
 
 using namespace HTMLNames;
 
-ClassList::ClassList(Element* element) : m_element(element) { }
+ClassList::ClassList(Element* element) : DOMTokenList(nullptr), m_element(element) { }
 
 #if !ENABLE(OILPAN)
 void ClassList::ref()
 {
     m_element->ref();
+    DOMTokenList::ref();
 }
 
 void ClassList::deref()
 {
     m_element->deref();
+    DOMTokenList::deref();
 }
 #endif
 

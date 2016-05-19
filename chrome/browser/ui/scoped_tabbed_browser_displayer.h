@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_UI_SCOPED_TABBED_BROWSER_DISPLAYER_H_
 #define CHROME_BROWSER_UI_SCOPED_TABBED_BROWSER_DISPLAYER_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/host_desktop.h"
 
 class Browser;
@@ -13,13 +13,13 @@ class Profile;
 
 namespace chrome {
 
-// This class finds the last active tabbed browser matching |profile| and
-// |type|. If there is no tabbed browser, a new non visible browser is created.
+// This class finds the last active tabbed browser matching |profile|. If there
+// is no tabbed browser, a new non visible browser is created.
 // ScopedTabbedBrowserDisplayer ensures that the browser is made visible and is
 // activated by the time that ScopedTabbedBrowserDisplayer goes out of scope.
 class ScopedTabbedBrowserDisplayer {
  public:
-  ScopedTabbedBrowserDisplayer(Profile* profile, HostDesktopType type);
+  explicit ScopedTabbedBrowserDisplayer(Profile* profile);
   ~ScopedTabbedBrowserDisplayer();
 
   Browser* browser() {

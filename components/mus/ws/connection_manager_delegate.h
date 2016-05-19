@@ -5,9 +5,11 @@
 #ifndef COMPONENTS_MUS_WS_CONNECTION_MANAGER_DELEGATE_H_
 #define COMPONENTS_MUS_WS_CONNECTION_MANAGER_DELEGATE_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "components/mus/public/cpp/types.h"
+#include "components/mus/common/types.h"
 #include "components/mus/public/interfaces/window_tree.mojom.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 
@@ -17,10 +19,12 @@ namespace ws {
 
 class ClientConnection;
 class ConnectionManager;
-struct WindowId;
+class ServerWindow;
 
 class ConnectionManagerDelegate {
  public:
+  virtual void OnFirstRootConnectionCreated();
+
   virtual void OnNoMoreRootConnections() = 0;
 
   // Creates a ClientConnection in response to Embed() calls on the
@@ -28,8 +32,7 @@ class ConnectionManagerDelegate {
   virtual ClientConnection* CreateClientConnectionForEmbedAtWindow(
       ConnectionManager* connection_manager,
       mojo::InterfaceRequest<mojom::WindowTree> tree_request,
-      ConnectionSpecificId creator_id,
-      const WindowId& root_id,
+      ServerWindow* root,
       uint32_t policy_bitmask,
       mojom::WindowTreeClientPtr client) = 0;
 

@@ -8,15 +8,17 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "ipc/ipc_listener.h"
 #include "third_party/WebKit/public/web/WebSharedWorkerConnector.h"
 #include "url/gurl.h"
 
-namespace content {
-
+namespace IPC {
 class MessageRouter;
+}
+
+namespace content {
 
 // Implementation of the WebSharedWorker APIs. This object is intended to only
 // live long enough to allow the caller to send a "connect" event to the worker
@@ -27,10 +29,7 @@ class WebSharedWorkerProxy : public blink::WebSharedWorkerConnector,
                              private IPC::Listener {
  public:
   // If the worker not loaded yet, route_id == MSG_ROUTING_NONE
-  WebSharedWorkerProxy(MessageRouter* router,
-                       unsigned long long document_id,
-                       int route_id,
-                       int render_frame_route_id);
+  WebSharedWorkerProxy(IPC::MessageRouter* router, int route_id);
   ~WebSharedWorkerProxy() override;
 
   // Implementations of WebSharedWorkerConnector APIs
@@ -64,22 +63,11 @@ class WebSharedWorkerProxy : public blink::WebSharedWorkerConnector,
   // routing ids).
   int route_id_;
 
-  // The routing id for the RenderFrame that created this worker.
-  int render_frame_route_id_;
-
-  MessageRouter* const router_;
-
-  // ID of our parent document (used to shutdown workers when the parent
-  // document is detached).
-  unsigned long long document_id_;
+  IPC::MessageRouter* const router_;
 
   // Stores messages that were sent before the StartWorkerContext message.
   std::vector<IPC::Message*> queued_messages_;
 
-  // The id for the placeholder worker instance we've stored on the
-  // browser process (we need to pass this same route id back in when creating
-  // the worker).
-  int pending_route_id_;
   ConnectListener* connect_listener_;
   bool created_;
 

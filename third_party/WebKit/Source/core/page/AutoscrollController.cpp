@@ -26,7 +26,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/page/AutoscrollController.h"
 
 #include "core/frame/FrameView.h"
@@ -52,6 +51,7 @@ PassOwnPtrWillBeRawPtr<AutoscrollController> AutoscrollController::create(Page& 
 AutoscrollController::AutoscrollController(Page& page)
     : m_page(&page)
     , m_autoscrollLayoutObject(nullptr)
+    , m_pressedLayoutObject(nullptr)
     , m_autoscrollType(NoAutoscroll)
     , m_dragAndDropAutoscrollStartTime(0)
 {
@@ -82,6 +82,8 @@ void AutoscrollController::startAutoscrollForSelection(LayoutObject* layoutObjec
         scrollable = layoutObject->isListBox() ? toLayoutListBox(layoutObject) : nullptr;
     if (!scrollable)
         return;
+
+    m_pressedLayoutObject = layoutObject && layoutObject->isBox() ? toLayoutBox(layoutObject) : nullptr;
     m_autoscrollType = AutoscrollForSelection;
     m_autoscrollLayoutObject = scrollable;
     startAutoscroll();
@@ -89,13 +91,16 @@ void AutoscrollController::startAutoscrollForSelection(LayoutObject* layoutObjec
 
 void AutoscrollController::stopAutoscroll()
 {
+    if (m_pressedLayoutObject) {
+        m_pressedLayoutObject->stopAutoscroll();
+        m_pressedLayoutObject = nullptr;
+    }
     LayoutBox* scrollable = m_autoscrollLayoutObject;
     m_autoscrollLayoutObject = nullptr;
 
     if (!scrollable)
         return;
 
-    scrollable->stopAutoscroll();
 #if OS(WIN)
     if (panScrollInProgress()) {
         if (FrameView* view = scrollable->frame()->view()) {
@@ -109,6 +114,9 @@ void AutoscrollController::stopAutoscroll()
 
 void AutoscrollController::stopAutoscrollIfNeeded(LayoutObject* layoutObject)
 {
+    if (m_pressedLayoutObject == layoutObject)
+        m_pressedLayoutObject = nullptr;
+
     if (m_autoscrollLayoutObject != layoutObject)
         return;
     m_autoscrollLayoutObject = nullptr;
@@ -131,7 +139,12 @@ void AutoscrollController::updateAutoscrollLayoutObject()
 
     while (layoutObject && !(layoutObject->isBox() && toLayoutBox(layoutObject)->canAutoscroll()))
         layoutObject = layoutObject->parent();
-    m_autoscrollLayoutObject = layoutObject && layoutObject->isBox() ? toLayoutBox(layoutObject) : nullptr;
+
+    LayoutBox* autoscrollLayoutObject = layoutObject && layoutObject->isBox() ? toLayoutBox(layoutObject) : nullptr;
+    if (m_autoscrollLayoutObject && !autoscrollLayoutObject)
+        m_autoscrollType = NoAutoscroll;
+
+    m_autoscrollLayoutObject = autoscrollLayoutObject;
 }
 
 void AutoscrollController::updateDragAndDrop(Node* dropTargetNode, const IntPoint& eventPosition, double eventTime)
@@ -259,12 +272,12 @@ void AutoscrollController::animate(double)
 #endif
     }
     if (m_autoscrollType != NoAutoscroll)
-        m_page->chromeClient().scheduleAnimation();
+        m_page->chromeClient().scheduleAnimation(m_autoscrollLayoutObject->frame()->view());
 }
 
 void AutoscrollController::startAutoscroll()
 {
-    m_page->chromeClient().scheduleAnimation();
+    m_page->chromeClient().scheduleAnimation(m_autoscrollLayoutObject->frame()->view());
 }
 
 #if OS(WIN)

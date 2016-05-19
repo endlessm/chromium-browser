@@ -10,16 +10,6 @@ from telemetry import benchmark
 DESKTOP_PLATFORMS = ['mac', 'linux', 'win', 'chromeos']
 WEBVIEW_PLATFORMS = ['android-webview', 'android-webview-shell']
 
-class ChromeProxyClientVersion(ChromeProxyBenchmark):
-  tag = 'client_version'
-  test = measurements.ChromeProxyClientVersion
-  page_set = pagesets.SyntheticStorySet
-
-  @classmethod
-  def Name(cls):
-    return 'chrome_proxy_benchmark.client_version.synthetic'
-
-
 class ChromeProxyClientType(ChromeProxyBenchmark):
   tag = 'client_type'
   test = measurements.ChromeProxyClientType
@@ -39,6 +29,17 @@ class ChromeProxyLoFi(ChromeProxyBenchmark):
   @classmethod
   def Name(cls):
     return 'chrome_proxy_benchmark.lo_fi.lo_fi'
+
+
+@benchmark.Disabled(*WEBVIEW_PLATFORMS)
+class ChromeProxyPreviewLoFi(ChromeProxyBenchmark):
+  tag = 'lo_fi_preview'
+  test = measurements.ChromeProxyLoFiPreview
+  page_set = pagesets.LoFiPreviewStorySet
+
+  @classmethod
+  def Name(cls):
+    return 'chrome_proxy_benchmark.lo_fi_preview.lo_fi_preview'
 
 
 class ChromeProxyExpDirective(ChromeProxyBenchmark):
@@ -69,6 +70,37 @@ class ChromeProxyBypass(ChromeProxyBenchmark):
   @classmethod
   def Name(cls):
     return 'chrome_proxy_benchmark.bypass.bypass'
+
+
+class ChromeProxyHTTPSBypass(ChromeProxyBenchmark):
+  tag = 'https_bypass'
+  test = measurements.ChromeProxyHTTPSBypass
+  page_set = pagesets.HTTPSBypassStorySet
+
+  @classmethod
+  def Name(cls):
+    return 'chrome_proxy_benchmark.https_bypass.https_bypass'
+
+
+class ChromeProxyHTML5Test(ChromeProxyBenchmark):
+  tag = 'html5test'
+  test = measurements.ChromeProxyHTML5Test
+  page_set = pagesets.HTML5TestStorySet
+
+  @classmethod
+  def Name(cls):
+    return 'chrome_proxy_benchmark.html5test.html5test'
+
+
+@benchmark.Enabled(*DESKTOP_PLATFORMS)
+class ChromeProxyYouTube(ChromeProxyBenchmark):
+  tag = 'youtube'
+  test = measurements.ChromeProxyYouTube
+  page_set = pagesets.YouTubeStorySet
+
+  @classmethod
+  def Name(cls):
+    return 'chrome_proxy_benchmark.youtube.youtube'
 
 
 class ChromeProxyCorsBypass(ChromeProxyBenchmark):
@@ -159,6 +191,17 @@ class ChromeProxyReenableAfterBypass(ChromeProxyBenchmark):
   @classmethod
   def Name(cls):
     return 'chrome_proxy_benchmark.reenable_after_bypass.reenable_after_bypass'
+
+
+class ChromeProxyReenableAfterSetBypass(ChromeProxyBenchmark):
+  tag = 'reenable_after_set_bypass'
+  test = measurements.ChromeProxyReenableAfterSetBypass
+  page_set = pagesets.ReenableAfterSetBypassStorySet
+
+  @classmethod
+  def Name(cls):
+    return ('chrome_proxy_benchmark.reenable_after_set_bypass' +
+            '.reenable_after_set_bypass')
 
 
 class ChromeProxySmoke(ChromeProxyBenchmark):

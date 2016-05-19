@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/platform_keys/platform_keys_api.h"
 
+#include <stddef.h>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -130,8 +132,7 @@ PlatformKeysInternalGetPublicKeyFunction::Run() {
   if (cert_der.empty())
     return RespondNow(Error(platform_keys::kErrorInvalidX509Cert));
   scoped_refptr<net::X509Certificate> cert_x509 =
-      net::X509Certificate::CreateFromBytes(vector_as_array(&cert_der),
-                                            cert_der.size());
+      net::X509Certificate::CreateFromBytes(cert_der.data(), cert_der.size());
   if (!cert_x509)
     return RespondNow(Error(platform_keys::kErrorInvalidX509Cert));
 
@@ -206,8 +207,8 @@ PlatformKeysInternalSelectClientCertificatesFunction::Run() {
       if (client_cert_der.empty())
         return RespondNow(Error(platform_keys::kErrorInvalidX509Cert));
       scoped_refptr<net::X509Certificate> client_cert_x509 =
-          net::X509Certificate::CreateFromBytes(
-              vector_as_array(&client_cert_der), client_cert_der.size());
+          net::X509Certificate::CreateFromBytes(client_cert_der.data(),
+                                                client_cert_der.size());
       if (!client_cert_x509)
         return RespondNow(Error(platform_keys::kErrorInvalidX509Cert));
       client_certs->push_back(client_cert_x509);
@@ -228,7 +229,8 @@ PlatformKeysInternalSelectClientCertificatesFunction::Run() {
   }
 
   service->SelectClientCertificates(
-      request, client_certs.Pass(), params->details.interactive, extension_id(),
+      request, std::move(client_certs), params->details.interactive,
+      extension_id(),
       base::Bind(&PlatformKeysInternalSelectClientCertificatesFunction::
                      OnSelectedCertificates,
                  this),
@@ -352,7 +354,7 @@ PlatformKeysVerifyTLSServerCertificateFunction::Run() {
 
   VerifyTrustAPI::GetFactoryInstance()
       ->Get(browser_context())
-      ->Verify(params.Pass(), extension_id(),
+      ->Verify(std::move(params), extension_id(),
                base::Bind(&PlatformKeysVerifyTLSServerCertificateFunction::
                               FinishedVerification,
                           this));

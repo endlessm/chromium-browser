@@ -9,10 +9,10 @@
 
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_member.h"
 #import "chrome/browser/ui/cocoa/has_weak_browser_pointer.h"
 #import "chrome/browser/ui/cocoa/url_drop_target.h"
 #import "chrome/browser/ui/cocoa/view_resizer.h"
+#include "components/prefs/pref_member.h"
 #import "ui/base/cocoa/tracking_area.h"
 
 @class AutocompleteTextField;
@@ -54,7 +54,7 @@ class NotificationBridge;
   IBOutlet MenuButton* forwardButton_;
   IBOutlet ReloadButton* reloadButton_;
   IBOutlet ToolbarButton* homeButton_;
-  IBOutlet MenuButton* wrenchButton_;
+  IBOutlet MenuButton* appMenuButton_;
   IBOutlet AutocompleteTextField* locationBar_;
   IBOutlet BrowserActionsContainerView* browserActionsContainerView_;
 
@@ -152,7 +152,10 @@ class NotificationBridge;
 // associated window's coordinate system.
 - (NSPoint)bookmarkBubblePoint;
 
-// Point on the translate icon fot the Translate bubble.
+// Point on the save credit card icon for the save credit card bubble.
+- (NSPoint)saveCreditCardBubblePoint;
+
+// Point on the translate icon for the Translate bubble.
 - (NSPoint)translateBubblePoint;
 
 // Returns the desired toolbar height for the given compression factor.
@@ -171,8 +174,8 @@ class NotificationBridge;
 // Return the BrowserActionsController for this toolbar.
 - (BrowserActionsController*)browserActionsController;
 
-// Returns the wrench button.
-- (NSButton*)wrenchButton;
+// Returns the app menu button.
+- (NSButton*)appMenuButton;
 
 // Returns the app menu controller.
 - (AppMenuController*)appMenuController;
@@ -184,7 +187,7 @@ class NotificationBridge;
 // Returns an array of views in the order of the outlets above.
 - (NSArray*)toolbarViews;
 - (void)showOptionalHomeButton;
-- (void)installWrenchMenu;
+- (void)installAppMenu;
 // Return a hover button for the current event.
 - (NSButton*)hoverButtonForEvent:(NSEvent*)theEvent;
 @end

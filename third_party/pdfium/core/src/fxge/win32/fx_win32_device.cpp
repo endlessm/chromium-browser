@@ -9,14 +9,15 @@
 #if _FX_OS_ == _FX_WIN32_DESKTOP_ || _FX_OS_ == _FX_WIN64_DESKTOP_
 #include <crtdbg.h>
 
-#include "../dib/dib_int.h"
-#include "../ge/text_int.h"
 #include "core/include/fxcodec/fx_codec.h"
 #include "core/include/fxge/fx_freetype.h"
 #include "core/include/fxge/fx_ge_win32.h"
 #include "core/src/fxge/agg/include/fx_agg_driver.h"
-#include "dwrite_int.h"
-#include "win32_int.h"
+#include "core/src/fxge/dib/dib_int.h"
+#include "core/src/fxge/ge/fx_text_int.h"
+#include "core/src/fxge/win32/dwrite_int.h"
+#include "core/src/fxge/win32/win32_int.h"
+#include "third_party/base/stl_util.h"
 
 class CFX_Win32FallbackFontInfo final : public CFX_FolderFontInfo {
  public:
@@ -192,10 +193,10 @@ static const struct {
     {"Times-Italic", "Times New Roman", FALSE, TRUE},
 };
 CFX_ByteString CFX_Win32FontInfo::FindFont(const CFX_ByteString& name) {
-  if (m_pMapper == NULL) {
+  if (!m_pMapper) {
     return name;
   }
-  int nFonts = m_pMapper->m_InstalledTTFonts.GetSize();
+  int nFonts = pdfium::CollectionSize<int>(m_pMapper->m_InstalledTTFonts);
   for (int i = 0; i < nFonts; i++) {
     CFX_ByteString thisname = m_pMapper->m_InstalledTTFonts[i];
     if (thisname[0] == ' ') {
@@ -251,7 +252,7 @@ FX_BOOL _GetSubFontName(CFX_ByteString& name) {
   _FontNameMap* found = (_FontNameMap*)FXSYS_bsearch(
       name.c_str(), pFontnameMap, size / sizeof(_FontNameMap),
       sizeof(_FontNameMap), compareString);
-  if (found == NULL) {
+  if (!found) {
     return FALSE;
   }
   name = found->m_pSubFontName;
@@ -528,7 +529,7 @@ FX_BOOL CGdiDeviceDriver::GDI_SetDIBits(const CFX_DIBitmap* pBitmap1,
                                         void* pIccTransform) {
   if (m_DeviceClass == FXDC_PRINTER) {
     CFX_DIBitmap* pBitmap = pBitmap1->FlipImage(FALSE, TRUE);
-    if (pBitmap == NULL) {
+    if (!pBitmap) {
       return FALSE;
     }
     if ((pBitmap->IsCmykImage() || pIccTransform) &&
@@ -575,7 +576,7 @@ FX_BOOL CGdiDeviceDriver::GDI_StretchDIBits(const CFX_DIBitmap* pBitmap1,
                                             FX_DWORD flags,
                                             void* pIccTransform) {
   CFX_DIBitmap* pBitmap = (CFX_DIBitmap*)pBitmap1;
-  if (pBitmap == NULL || dest_width == 0 || dest_height == 0) {
+  if (!pBitmap || dest_width == 0 || dest_height == 0) {
     return FALSE;
   }
   if ((pBitmap->IsCmykImage() || pIccTransform) &&
@@ -620,7 +621,7 @@ FX_BOOL CGdiDeviceDriver::GDI_StretchBitMask(const CFX_DIBitmap* pBitmap1,
                                              int alpha_flag,
                                              void* pIccTransform) {
   CFX_DIBitmap* pBitmap = (CFX_DIBitmap*)pBitmap1;
-  if (pBitmap == NULL || dest_width == 0 || dest_height == 0) {
+  if (!pBitmap || dest_width == 0 || dest_height == 0) {
     return FALSE;
   }
   _Color2Argb(bitmap_color, bitmap_color, alpha_flag | (1 << 24),
@@ -681,7 +682,7 @@ FX_BOOL CGdiDeviceDriver::SetClipRgn(void* hRgn) {
   return TRUE;
 }
 static HPEN _CreatePen(const CFX_GraphStateData* pGraphState,
-                       const CFX_AffineMatrix* pMatrix,
+                       const CFX_Matrix* pMatrix,
                        FX_DWORD argb) {
   FX_FLOAT width;
   FX_FLOAT scale = 1.f;
@@ -757,7 +758,7 @@ static HBRUSH _CreateBrush(FX_DWORD argb) {
 }
 static void _SetPathToDC(HDC hDC,
                          const CFX_PathData* pPathData,
-                         const CFX_AffineMatrix* pMatrix) {
+                         const CFX_Matrix* pMatrix) {
   BeginPath(hDC);
   int nPoints = pPathData->GetPointCount();
   FX_PATHPOINT* pPoints = pPathData->GetPoints();
@@ -835,12 +836,12 @@ void CGdiDeviceDriver::DrawLine(FX_FLOAT x1,
   MoveToEx(m_hDC, FXSYS_round(x1), FXSYS_round(y1), NULL);
   LineTo(m_hDC, FXSYS_round(x2), FXSYS_round(y2));
 }
-static FX_BOOL _MatrixNoScaled(const CFX_AffineMatrix* pMatrix) {
+static FX_BOOL _MatrixNoScaled(const CFX_Matrix* pMatrix) {
   return pMatrix->GetA() == 1.0f && pMatrix->GetB() == 0 &&
          pMatrix->GetC() == 0 && pMatrix->GetD() == 1.0f;
 }
 FX_BOOL CGdiDeviceDriver::DrawPath(const CFX_PathData* pPathData,
-                                   const CFX_AffineMatrix* pMatrix,
+                                   const CFX_Matrix* pMatrix,
                                    const CFX_GraphStateData* pGraphState,
                                    FX_DWORD fill_color,
                                    FX_DWORD stroke_color,
@@ -855,7 +856,7 @@ FX_BOOL CGdiDeviceDriver::DrawPath(const CFX_PathData* pPathData,
   _Color2Argb(stroke_color, stroke_color, alpha_flag, pIccTransform);
   CWin32Platform* pPlatform =
       (CWin32Platform*)CFX_GEModule::Get()->GetPlatformData();
-  if ((pGraphState == NULL || stroke_color == 0) &&
+  if (!(pGraphState || stroke_color == 0) &&
       !pPlatform->m_GdiplusExt.IsAvailable()) {
     CFX_FloatRect bbox_f = pPathData->GetBoundingBox();
     if (pMatrix) {
@@ -975,7 +976,7 @@ FX_BOOL CGdiDeviceDriver::FillRect(const FX_RECT* pRect,
   return TRUE;
 }
 FX_BOOL CGdiDeviceDriver::SetClip_PathFill(const CFX_PathData* pPathData,
-                                           const CFX_AffineMatrix* pMatrix,
+                                           const CFX_Matrix* pMatrix,
                                            int fill_mode) {
   if (pPathData->GetPointCount() == 5) {
     CFX_FloatRect rectf;
@@ -992,7 +993,7 @@ FX_BOOL CGdiDeviceDriver::SetClip_PathFill(const CFX_PathData* pPathData,
 }
 FX_BOOL CGdiDeviceDriver::SetClip_PathStroke(
     const CFX_PathData* pPathData,
-    const CFX_AffineMatrix* pMatrix,
+    const CFX_Matrix* pMatrix,
     const CFX_GraphStateData* pGraphState) {
   HPEN hPen = _CreatePen(pGraphState, pMatrix, 0xff000000);
   hPen = (HPEN)SelectObject(m_hDC, hPen);
@@ -1066,8 +1067,7 @@ FX_BOOL CGdiDisplayDriver::GetDIBits(CFX_DIBitmap* pBitmap,
       !CFX_GEModule::Get()->GetCodecModule()->GetIccModule()) {
     pIccTransform = NULL;
   }
-  if (pBitmap->GetBPP() > 8 && !pBitmap->IsCmykImage() &&
-      pIccTransform == NULL) {
+  if (pBitmap->GetBPP() > 8 && !pBitmap->IsCmykImage() && !pIccTransform) {
     ret = ::GetDIBits(hDCMemory, hbmp, 0, height, pBitmap->GetBuffer(), &bmi,
                       DIB_RGB_COLORS) == height;
   } else {
@@ -1165,7 +1165,7 @@ FX_BOOL CGdiDisplayDriver::UseFoxitStretchEngine(const CFX_DIBSource* pSource,
   bitmap_clip.Offset(-dest_left, -dest_top);
   CFX_DIBitmap* pStretched =
       pSource->StretchTo(dest_width, dest_height, render_flags, &bitmap_clip);
-  if (pStretched == NULL) {
+  if (!pStretched) {
     return TRUE;
   }
   FX_RECT src_rect(0, 0, pStretched->GetWidth(), pStretched->GetHeight());
@@ -1186,7 +1186,7 @@ FX_BOOL CGdiDisplayDriver::StretchDIBits(const CFX_DIBSource* pSource,
                                          int alpha_flag,
                                          void* pIccTransform,
                                          int blend_type) {
-  ASSERT(pSource != NULL && pClipRect != NULL);
+  ASSERT(pSource && pClipRect);
   if (flags || dest_width > 10000 || dest_width < -10000 ||
       dest_height > 10000 || dest_height < -10000) {
     return UseFoxitStretchEngine(pSource, color, dest_left, dest_top,
@@ -1205,7 +1205,7 @@ FX_BOOL CGdiDisplayDriver::StretchDIBits(const CFX_DIBSource* pSource,
     int clip_width = clip_rect.Width(), clip_height = clip_rect.Height();
     CFX_DIBitmap* pStretched =
         pSource->StretchTo(dest_width, dest_height, flags, &clip_rect);
-    if (pStretched == NULL) {
+    if (!pStretched) {
       return TRUE;
     }
     CFX_DIBitmap background;
@@ -1228,11 +1228,11 @@ FX_BOOL CGdiDisplayDriver::StretchDIBits(const CFX_DIBSource* pSource,
   if (pSource->HasAlpha()) {
     CWin32Platform* pPlatform =
         (CWin32Platform*)CFX_GEModule::Get()->GetPlatformData();
-    if (pPlatform->m_GdiplusExt.IsAvailable() && pIccTransform == NULL &&
+    if (pPlatform->m_GdiplusExt.IsAvailable() && !pIccTransform &&
         !pSource->IsCmykImage()) {
       CFX_DIBExtractor temp(pSource);
       CFX_DIBitmap* pBitmap = temp;
-      if (pBitmap == NULL) {
+      if (!pBitmap) {
         return FALSE;
       }
       return pPlatform->m_GdiplusExt.StretchDIBits(
@@ -1340,7 +1340,7 @@ CFX_WinBitmapDevice::CFX_WinBitmapDevice(int width,
   uint8_t* pBuffer;
   m_hBitmap = CreateDIBSection(NULL, (BITMAPINFO*)&bmih, DIB_RGB_COLORS,
                                (void**)&pBuffer, NULL, 0);
-  if (m_hBitmap == NULL) {
+  if (!m_hBitmap) {
     return;
   }
   CFX_DIBitmap* pBitmap = new CFX_DIBitmap;

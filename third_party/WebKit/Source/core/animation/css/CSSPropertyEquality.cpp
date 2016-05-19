@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/css/CSSPropertyEquality.h"
 
 #include "core/animation/css/CSSAnimations.h"
@@ -53,7 +52,7 @@ bool fillLayersEqual(const FillLayer& aLayers, const FillLayer& bLayers)
     return true;
 }
 
-}
+} // namespace
 
 bool CSSPropertyEquality::propertiesEqual(CSSPropertyID prop, const ComputedStyle& a, const ComputedStyle& b)
 {
@@ -178,8 +177,7 @@ bool CSSPropertyEquality::propertiesEqual(CSSPropertyID prop, const ComputedStyl
     case CSSPropertyMotionOffset:
         return a.motionOffset() == b.motionOffset();
     case CSSPropertyMotionRotation:
-        return a.motionRotation() == b.motionRotation()
-            && a.motionRotationType() == b.motionRotationType();
+        return a.motionRotation() == b.motionRotation();
     case CSSPropertyObjectPosition:
         return a.objectPosition() == b.objectPosition();
     case CSSPropertyOpacity:
@@ -251,16 +249,16 @@ bool CSSPropertyEquality::propertiesEqual(CSSPropertyID prop, const ComputedStyl
         return a.verticalBorderSpacing() == b.verticalBorderSpacing();
     case CSSPropertyWebkitClipPath:
         return dataEquivalent(a.clipPath(), b.clipPath());
-    case CSSPropertyWebkitColumnCount:
+    case CSSPropertyColumnCount:
         return a.columnCount() == b.columnCount();
-    case CSSPropertyWebkitColumnGap:
+    case CSSPropertyColumnGap:
         return a.columnGap() == b.columnGap();
-    case CSSPropertyWebkitColumnRuleColor:
+    case CSSPropertyColumnRuleColor:
         return a.columnRuleColor() == b.columnRuleColor()
             && a.visitedLinkColumnRuleColor() == b.visitedLinkColumnRuleColor();
-    case CSSPropertyWebkitColumnRuleWidth:
+    case CSSPropertyColumnRuleWidth:
         return a.columnRuleWidth() == b.columnRuleWidth();
-    case CSSPropertyWebkitColumnWidth:
+    case CSSPropertyColumnWidth:
         return a.columnWidth() == b.columnWidth();
     case CSSPropertyWebkitFilter:
         return a.filter() == b.filter();
@@ -315,6 +313,8 @@ bool CSSPropertyEquality::propertiesEqual(CSSPropertyID prop, const ComputedStyl
         return a.width() == b.width();
     case CSSPropertyWordSpacing:
         return a.wordSpacing() == b.wordSpacing();
+    case CSSPropertyD:
+        return a.svgStyle().d()->equals(*b.svgStyle().d());
     case CSSPropertyCx:
         return a.svgStyle().cx() == b.svgStyle().cx();
     case CSSPropertyCy:
@@ -337,4 +337,4 @@ bool CSSPropertyEquality::propertiesEqual(CSSPropertyID prop, const ComputedStyl
     }
 }
 
-}
+} // namespace blink

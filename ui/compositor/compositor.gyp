@@ -29,8 +29,8 @@
         'callback_layer_animation_observer.h',
         'canvas_painter.cc',
         'canvas_painter.h',
-        'clip_transform_recorder.cc',
-        'clip_transform_recorder.h',
+        'clip_recorder.cc',
+        'clip_recorder.h',
         'closure_animation_observer.cc',
         'closure_animation_observer.h',
         'compositing_recorder.cc',
@@ -66,6 +66,7 @@
         'layer_delegate.h',
         'layer_owner.cc',
         'layer_owner.h',
+        'layer_threaded_animation_delegate.h',
         'layer_tree_owner.cc',
         'layer_tree_owner.h',
         'layer_type.h',
@@ -83,6 +84,8 @@
         'scoped_layer_animation_settings.h',
         'transform_animation_curve_adapter.cc',
         'transform_animation_curve_adapter.h',
+        'transform_recorder.cc',
+        'transform_recorder.h',
       ],
       'conditions': [
         ['OS == "win" and use_aura == 1', {
@@ -159,6 +162,7 @@
         '<(DEPTH)/base/base.gyp:base',
         '<(DEPTH)/base/base.gyp:test_support_base',
         '<(DEPTH)/cc/cc.gyp:cc',
+        '<(DEPTH)/cc/cc.gyp:cc_surfaces',
         '<(DEPTH)/cc/cc_tests.gyp:cc_test_support',
         '<(DEPTH)/skia/skia.gyp:skia',
         '<(DEPTH)/testing/gmock.gyp:gmock',
@@ -187,15 +191,6 @@
         ['OS=="linux"', {
           'dependencies': [
             '<(DEPTH)/third_party/mesa/mesa.gyp:osmesa',
-          ],
-        }],
-        ['os_posix == 1 and OS != "mac"', {
-          'conditions': [
-            ['use_allocator!="none"', {
-              'dependencies': [
-                '<(DEPTH)/base/allocator/allocator.gyp:allocator',
-              ],
-            }],
           ],
         }],
         ['OS == "android"', {

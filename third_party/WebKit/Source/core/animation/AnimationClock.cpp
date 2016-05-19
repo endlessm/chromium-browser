@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/AnimationClock.h"
 
 #include "wtf/CurrentTime.h"
@@ -79,4 +78,4 @@ void AnimationClock::resetTimeForTesting(double time)
     s_currentTask = 0;
 }
 
-}
+} // namespace blink

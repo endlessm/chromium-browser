@@ -4,6 +4,9 @@
 
 #include "chrome/common/extensions/permissions/chrome_api_permissions.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "chrome/grit/generated_resources.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/api_permission_set.h"
@@ -187,8 +190,6 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kInlineInstallPrivate, "inlineInstallPrivate"},
       {APIPermission::kSettingsPrivate, "settingsPrivate",
-       APIPermissionInfo::kFlagCannotBeOptional},
-      {APIPermission::kSearchEnginesPrivate, "searchEnginesPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kAutofillPrivate, "autofillPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},

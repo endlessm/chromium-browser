@@ -11,19 +11,15 @@
     android:gravity="center_vertical">
 
     <ImageView
-        android:id="@+id/control_toggle_icon"
+        android:id="@+id/control_icon"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="@dimen/infobar_control_margin_between_items"
         android:scaleType="centerInside"
         android:contentDescription="@null" />
 
-    <!-- TODO(dfalcantara): Line spacing multiplier is applied to all lines in JB & KK, even if the
-                            TextView has only one line.  This throws off vertical alignment.  Find
-                            a solution that hopefully doesn't involve subclassing the TextView.
-    -->
     <TextView
-        android:id="@+id/control_toggle_message"
+        android:id="@+id/control_message"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"

@@ -25,9 +25,9 @@
  *
  */
 
-#include "config.h"
 #include "core/dom/ExecutionContext.h"
 
+#include "bindings/core/v8/ScriptCallStack.h"
 #include "core/dom/ExecutionContextTask.h"
 #include "core/events/ErrorEvent.h"
 #include "core/events/EventTarget.h"
@@ -35,7 +35,6 @@
 #include "core/frame/UseCounter.h"
 #include "core/html/PublicURLManager.h"
 #include "core/inspector/InspectorInstrumentation.h"
-#include "core/inspector/ScriptCallStack.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/workers/WorkerThread.h"
 #include "platform/RuntimeEnabledFeatures.h"
@@ -43,10 +42,10 @@
 
 namespace blink {
 
-class ExecutionContext::PendingException : public NoBaseWillBeGarbageCollectedFinalized<ExecutionContext::PendingException> {
+class ExecutionContext::PendingException {
     WTF_MAKE_NONCOPYABLE(PendingException);
 public:
-    PendingException(const String& errorMessage, int lineNumber, int columnNumber, int scriptId, const String& sourceURL, PassRefPtrWillBeRawPtr<ScriptCallStack> callStack)
+    PendingException(const String& errorMessage, int lineNumber, int columnNumber, int scriptId, const String& sourceURL, PassRefPtr<ScriptCallStack> callStack)
         : m_errorMessage(errorMessage)
         , m_lineNumber(lineNumber)
         , m_columnNumber(columnNumber)
@@ -55,16 +54,13 @@ public:
         , m_callStack(callStack)
     {
     }
-    DEFINE_INLINE_TRACE()
-    {
-        visitor->trace(m_callStack);
-    }
+
     String m_errorMessage;
     int m_lineNumber;
     int m_columnNumber;
     int m_scriptId;
     String m_sourceURL;
-    RefPtrWillBeMember<ScriptCallStack> m_callStack;
+    RefPtr<ScriptCallStack> m_callStack;
 };
 
 ExecutionContext::ExecutionContext()
@@ -72,7 +68,6 @@ ExecutionContext::ExecutionContext()
     , m_inDispatchErrorEvent(false)
     , m_activeDOMObjectsAreSuspended(false)
     , m_activeDOMObjectsAreStopped(false)
-    , m_strictMixedContentCheckingEnforced(false)
     , m_windowInteractionTokens(0)
     , m_isRunSuspendableTasksScheduled(false)
     , m_referrerPolicy(ReferrerPolicyDefault)
@@ -151,13 +146,13 @@ bool ExecutionContext::shouldSanitizeScriptError(const String& sourceURL, Access
     return !(securityOrigin()->canRequestNoSuborigin(completeURL(sourceURL)) || corsStatus == SharableCrossOrigin);
 }
 
-void ExecutionContext::reportException(PassRefPtrWillBeRawPtr<ErrorEvent> event, int scriptId, PassRefPtrWillBeRawPtr<ScriptCallStack> callStack, AccessControlStatus corsStatus)
+void ExecutionContext::reportException(PassRefPtrWillBeRawPtr<ErrorEvent> event, int scriptId, PassRefPtr<ScriptCallStack> callStack, AccessControlStatus corsStatus)
 {
     RefPtrWillBeRawPtr<ErrorEvent> errorEvent = event;
     if (m_inDispatchErrorEvent) {
         if (!m_pendingExceptions)
-            m_pendingExceptions = adoptPtrWillBeNoop(new WillBeHeapVector<OwnPtrWillBeMember<PendingException>>());
-        m_pendingExceptions->append(adoptPtrWillBeNoop(new PendingException(errorEvent->messageForConsole(), errorEvent->lineno(), errorEvent->colno(), scriptId, errorEvent->filename(), callStack)));
+            m_pendingExceptions = adoptPtr(new Vector<OwnPtr<PendingException>>());
+        m_pendingExceptions->append(adoptPtr(new PendingException(errorEvent->messageForConsole(), errorEvent->lineno(), errorEvent->colno(), scriptId, errorEvent->filename(), callStack)));
         return;
     }
 
@@ -264,9 +259,15 @@ bool ExecutionContext::isWindowInteractionAllowed() const
     return m_windowInteractionTokens > 0;
 }
 
+bool ExecutionContext::isSecureContext(const SecureContextCheck privilegeContextCheck) const
+{
+    String unusedErrorMessage;
+    return isSecureContext(unusedErrorMessage, privilegeContextCheck);
+}
+
 void ExecutionContext::setReferrerPolicy(ReferrerPolicy referrerPolicy)
 {
-    // FIXME: Can we adopt the CSP referrer policy merge algorithm? Or does the web rely on being able to modify the referrer policy in-flight?
+    // When a referrer policy has already been set, the latest value takes precedence.
     UseCounter::count(this, UseCounter::SetReferrerPolicy);
     if (m_referrerPolicy != ReferrerPolicyDefault)
         UseCounter::count(this, UseCounter::ResetReferrerPolicy);
@@ -296,7 +297,6 @@ void ExecutionContext::enforceSuborigin(const String& name)
 DEFINE_TRACE(ExecutionContext)
 {
 #if ENABLE(OILPAN)
-    visitor->trace(m_pendingExceptions);
     visitor->trace(m_publicURLManager);
     HeapSupplementable<ExecutionContext>::trace(visitor);
 #endif

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/paint/ClipRecorder.h"
 
 #include "platform/graphics/GraphicsContext.h"
@@ -11,7 +10,7 @@
 
 namespace blink {
 
-ClipRecorder::ClipRecorder(GraphicsContext& context, const DisplayItemClientWrapper& client, DisplayItem::Type type, const LayoutRect& clipRect)
+ClipRecorder::ClipRecorder(GraphicsContext& context, const DisplayItemClient& client, DisplayItem::Type type, const LayoutRect& clipRect)
     : m_client(client)
     , m_context(context)
     , m_type(type)

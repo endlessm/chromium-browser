@@ -4,12 +4,16 @@
 
 #include "components/proximity_auth/cryptauth/cryptauth_device_manager.h"
 
+#include <stddef.h>
+#include <utility>
+
+#include "base/base64url.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/scoped_user_pref_update.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/simple_test_clock.h"
-#include "components/proximity_auth/cryptauth/base64url.h"
+#include "components/prefs/scoped_user_pref_update.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/proximity_auth/cryptauth/fake_cryptauth_gcm_manager.h"
 #include "components/proximity_auth/cryptauth/mock_cryptauth_client.h"
 #include "components/proximity_auth/cryptauth/mock_sync_scheduler.h"
@@ -87,9 +91,15 @@ void ExpectUnlockKeysAndPrefAreEqual(
                                                  &bluetooth_address_b64));
 
     std::string public_key, device_name, bluetooth_address;
-    ASSERT_TRUE(Base64UrlDecode(public_key_b64, &public_key));
-    ASSERT_TRUE(Base64UrlDecode(device_name_b64, &device_name));
-    ASSERT_TRUE(Base64UrlDecode(bluetooth_address_b64, &bluetooth_address));
+    ASSERT_TRUE(base::Base64UrlDecode(
+        public_key_b64, base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+        &public_key));
+    ASSERT_TRUE(base::Base64UrlDecode(
+        device_name_b64, base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+        &device_name));
+    ASSERT_TRUE(base::Base64UrlDecode(
+        bluetooth_address_b64, base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+        &bluetooth_address));
 
     const auto& expected_unlock_key = expected_unlock_keys[i];
     EXPECT_EQ(expected_unlock_key.public_key(), public_key);
@@ -107,8 +117,8 @@ class TestCryptAuthDeviceManager : public CryptAuthDeviceManager {
                              scoped_ptr<CryptAuthClientFactory> client_factory,
                              CryptAuthGCMManager* gcm_manager,
                              PrefService* pref_service)
-      : CryptAuthDeviceManager(clock.Pass(),
-                               client_factory.Pass(),
+      : CryptAuthDeviceManager(std::move(clock),
+                               std::move(client_factory),
                                gcm_manager,
                                pref_service),
         scoped_sync_scheduler_(new NiceMock<MockSyncScheduler>()),
@@ -118,7 +128,7 @@ class TestCryptAuthDeviceManager : public CryptAuthDeviceManager {
 
   scoped_ptr<SyncScheduler> CreateSyncScheduler() override {
     EXPECT_TRUE(scoped_sync_scheduler_);
-    return scoped_sync_scheduler_.Pass();
+    return std::move(scoped_sync_scheduler_);
   }
 
   base::WeakPtr<MockSyncScheduler> GetSyncScheduler() {
@@ -176,9 +186,15 @@ class ProximityAuthCryptAuthDeviceManagerTest
         new base::DictionaryValue());
 
     std::string public_key_b64, device_name_b64, bluetooth_address_b64;
-    Base64UrlEncode(kStoredPublicKey, &public_key_b64);
-    Base64UrlEncode(kStoredDeviceName, &device_name_b64);
-    Base64UrlEncode(kStoredBluetoothAddress, &bluetooth_address_b64);
+    base::Base64UrlEncode(kStoredPublicKey,
+                          base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                          &public_key_b64);
+    base::Base64UrlEncode(kStoredDeviceName,
+                          base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                          &device_name_b64);
+    base::Base64UrlEncode(kStoredBluetoothAddress,
+                          base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                          &bluetooth_address_b64);
 
     unlock_key_dictionary->SetString("public_key", public_key_b64);
     unlock_key_dictionary->SetString("device_name", device_name_b64);
@@ -187,7 +203,7 @@ class ProximityAuthCryptAuthDeviceManagerTest
     {
       ListPrefUpdate update(&pref_service_,
                             prefs::kCryptAuthDeviceSyncUnlockKeys);
-      update.Get()->Append(unlock_key_dictionary.Pass());
+      update.Get()->Append(std::move(unlock_key_dictionary));
     }
 
     device_manager_.reset(new TestCryptAuthDeviceManager(
@@ -240,7 +256,7 @@ class ProximityAuthCryptAuthDeviceManagerTest
     scoped_ptr<SyncScheduler::SyncRequest> sync_request = make_scoped_ptr(
         new SyncScheduler::SyncRequest(device_manager_->GetSyncScheduler()));
     EXPECT_CALL(*this, OnSyncStartedProxy());
-    delegate->OnSyncRequested(sync_request.Pass());
+    delegate->OnSyncRequested(std::move(sync_request));
 
     EXPECT_EQ(expected_invocation_reason,
               get_my_devices_request_.invocation_reason());
@@ -333,7 +349,7 @@ TEST_F(ProximityAuthCryptAuthDeviceManagerTest, InitWithDefaultPrefs) {
   CryptAuthDeviceManager::RegisterPrefs(pref_service.registry());
 
   TestCryptAuthDeviceManager device_manager(
-      clock.Pass(),
+      std::move(clock),
       make_scoped_ptr(new MockCryptAuthClientFactory(
           MockCryptAuthClientFactory::MockType::MAKE_STRICT_MOCKS)),
       &gcm_manager_, &pref_service);

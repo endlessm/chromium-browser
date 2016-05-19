@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/DOMImplementation.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -262,4 +261,4 @@ DEFINE_TRACE(DOMImplementation)
     visitor->trace(m_document);
 }
 
-}
+} // namespace blink

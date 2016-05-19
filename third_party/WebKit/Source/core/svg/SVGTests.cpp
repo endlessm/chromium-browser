@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGTests.h"
 
 #include "core/SVGNames.h"
@@ -78,4 +77,4 @@ bool SVGTests::isKnownAttribute(const QualifiedName& attrName)
         || attrName == SVGNames::systemLanguageAttr;
 }
 
-}
+} // namespace blink

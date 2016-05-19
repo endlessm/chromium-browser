@@ -19,7 +19,6 @@
 #include "base/sys_byteorder.h"
 #include "base/time/time.h"
 #include "net/base/ip_endpoint.h"
-#include "net/base/net_util.h"
 
 #if !defined(OS_NACL) && !defined(OS_WIN)
 #include <net/if.h>
@@ -119,8 +118,9 @@ bool FillIfaddrs(ifaddrs* interfaces,
   return true;
 }
 #endif  // OS_MACOSX
+
 // Verify GetNetworkList().
-TEST(NetUtilTest, GetNetworkList) {
+TEST(NetworkInterfacesTest, GetNetworkList) {
   NetworkInterfaceList list;
   ASSERT_TRUE(GetNetworkList(&list, INCLUDE_HOST_SCOPE_VIRTUAL_INTERFACES));
   for (NetworkInterfaceList::iterator it = list.begin();
@@ -163,9 +163,10 @@ TEST(NetUtilTest, GetNetworkList) {
 
     if (interface_to_luid && luid_to_guid) {
       NET_LUID luid;
-      EXPECT_EQ(interface_to_luid(it->interface_index, &luid), NO_ERROR);
+      EXPECT_EQ(static_cast<DWORD>(NO_ERROR),
+                interface_to_luid(it->interface_index, &luid));
       GUID guid;
-      EXPECT_EQ(luid_to_guid(&luid, &guid), NO_ERROR);
+      EXPECT_EQ(static_cast<DWORD>(NO_ERROR), luid_to_guid(&luid, &guid));
       LPOLESTR name;
       StringFromCLSID(guid, &name);
       EXPECT_STREQ(base::UTF8ToWide(it->name).c_str(), name);
@@ -231,7 +232,7 @@ char* GetInterfaceNameVM(int interface_index, char* ifname) {
   return CopyInterfaceName(ifname_vm, arraysize(ifname_vm), ifname);
 }
 
-TEST(NetUtilTest, GetNetworkListTrimming) {
+TEST(NetworkInterfacesTest, GetNetworkListTrimming) {
   IPAddressNumber ipv6_local_address(
       kIPv6LocalAddr, kIPv6LocalAddr + arraysize(kIPv6LocalAddr));
   IPAddressNumber ipv6_address(kIPv6Addr, kIPv6Addr + arraysize(kIPv6Addr));
@@ -332,7 +333,7 @@ TEST(NetUtilTest, GetNetworkListTrimming) {
 
 #elif defined(OS_MACOSX)
 
-TEST(NetUtilTest, GetNetworkListTrimming) {
+TEST(NetworkInterfacesTest, GetNetworkListTrimming) {
   IPAddressNumber ipv6_local_address(
       kIPv6LocalAddr, kIPv6LocalAddr + arraysize(kIPv6LocalAddr));
   IPAddressNumber ipv6_address(kIPv6Addr, kIPv6Addr + arraysize(kIPv6Addr));
@@ -479,7 +480,7 @@ bool FillAdapterAddress(IP_ADAPTER_ADDRESSES* adapter_address,
   return true;
 }
 
-TEST(NetUtilTest, GetNetworkListTrimming) {
+TEST(NetworkInterfacesTest, GetNetworkListTrimming) {
   IPAddressNumber ipv6_local_address(
       kIPv6LocalAddr, kIPv6LocalAddr + arraysize(kIPv6LocalAddr));
   IPAddressNumber ipv6_address(kIPv6Addr, kIPv6Addr + arraysize(kIPv6Addr));
@@ -595,7 +596,7 @@ TEST(NetUtilTest, GetNetworkListTrimming) {
 
 #endif  // !OS_MACOSX && !OS_WIN && !OS_NACL
 
-TEST(NetUtilTest, GetWifiSSID) {
+TEST(NetworkInterfacesTest, GetWifiSSID) {
   // We can't check the result of GetWifiSSID() directly, since the result
   // will differ across machines. Simply exercise the code path and hope that it
   // doesn't crash.
@@ -603,7 +604,7 @@ TEST(NetUtilTest, GetWifiSSID) {
 }
 
 #if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_CHROMEOS)
-TEST(NetUtilTest, GetWifiSSIDFromInterfaceList) {
+TEST(NetworkInterfacesTest, GetWifiSSIDFromInterfaceList) {
   NetworkInterfaceList list;
   EXPECT_EQ(std::string(), internal::GetWifiSSIDFromInterfaceListInternal(
                                list, TestGetInterfaceSSID));
@@ -742,12 +743,20 @@ void TryChangeWifiOptions(int options) {
 }
 
 // Test SetWifiOptions().
-TEST(NetUtilTest, SetWifiOptionsTest) {
+TEST(NetworkInterfacesTest, SetWifiOptionsTest) {
   TryChangeWifiOptions(0);
   TryChangeWifiOptions(WIFI_OPTIONS_DISABLE_SCAN);
   TryChangeWifiOptions(WIFI_OPTIONS_MEDIA_STREAMING_MODE);
   TryChangeWifiOptions(WIFI_OPTIONS_DISABLE_SCAN |
                        WIFI_OPTIONS_MEDIA_STREAMING_MODE);
+}
+
+TEST(NetworkInterfacesTest, GetHostName) {
+  // We can't check the result of GetHostName() directly, since the result
+  // will differ across machines. Our goal here is to simply exercise the
+  // code path, and check that things "look about right".
+  std::string hostname = GetHostName();
+  EXPECT_FALSE(hostname.empty());
 }
 
 }  // namespace

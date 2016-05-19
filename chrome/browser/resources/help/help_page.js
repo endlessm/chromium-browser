@@ -165,7 +165,9 @@ cr.define('help', function() {
       var logo = $('product-logo');
       logo.onclick = function(e) {
         logo.classList.remove('spin');
-        setTimeout(function() { logo.classList.add('spin'); }, 0);
+        // Force a style recalc that cancels the animation specified by "spin".
+        getComputedStyle(logo).getPropertyValue('animation-name');
+        logo.classList.add('spin');
       };
 
       // Attempt to update.
@@ -325,10 +327,13 @@ cr.define('help', function() {
         }
       } else if (status == 'updated') {
         this.setUpdateImage_('up-to-date');
-        $('update-status-message').innerHTML = message ? message :
+        $('update-status-message').innerHTML =
             loadTimeData.getString('upToDate');
       } else if (status == 'failed') {
         this.setUpdateImage_('failed');
+        $('update-status-message').innerHTML = message;
+      } else if (status == 'disabled_by_admin') {
+        this.setUpdateImage_('disabled-by-admin');
         $('update-status-message').innerHTML = message;
       }
 

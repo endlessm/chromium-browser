@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,12 +22,13 @@
 #include "chrome/browser/ui/views/find_bar_host.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/grit/generated_resources.h"
+#include "grit/components_strings.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_flags.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
 #include "ui/events/event.h"
@@ -150,7 +152,7 @@ FindBarView::FindBarView(FindBarHost* host)
     close_button_ = new views::ImageButton(this);
   }
 
-  find_previous_button_->set_tag(FIND_PREVIOUS_TAG);
+  find_previous_button_->set_id(VIEW_ID_FIND_IN_PAGE_PREVIOUS_BUTTON);
   find_previous_button_->SetFocusable(true);
   find_previous_button_->set_request_focus_on_press(false);
   find_previous_button_->SetTooltipText(
@@ -159,7 +161,7 @@ FindBarView::FindBarView(FindBarHost* host)
       l10n_util::GetStringUTF16(IDS_ACCNAME_PREVIOUS));
   AddChildView(find_previous_button_);
 
-  find_next_button_->set_tag(FIND_NEXT_TAG);
+  find_next_button_->set_id(VIEW_ID_FIND_IN_PAGE_NEXT_BUTTON);
   find_next_button_->SetFocusable(true);
   find_next_button_->set_request_focus_on_press(false);
   find_next_button_->SetTooltipText(
@@ -168,7 +170,7 @@ FindBarView::FindBarView(FindBarHost* host)
       l10n_util::GetStringUTF16(IDS_ACCNAME_NEXT));
   AddChildView(find_next_button_);
 
-  close_button_->set_tag(CLOSE_TAG);
+  close_button_->set_id(VIEW_ID_FIND_IN_PAGE_CLOSE_BUTTON);
   close_button_->SetFocusable(true);
   close_button_->set_request_focus_on_press(false);
   close_button_->SetTooltipText(
@@ -420,20 +422,24 @@ gfx::Size FindBarView::GetPreferredSize() const {
 
 void FindBarView::ButtonPressed(
     views::Button* sender, const ui::Event& event) {
-  switch (sender->tag()) {
-    case FIND_PREVIOUS_TAG:
-    case FIND_NEXT_TAG:
+  switch (sender->id()) {
+    case VIEW_ID_FIND_IN_PAGE_PREVIOUS_BUTTON:
+    case VIEW_ID_FIND_IN_PAGE_NEXT_BUTTON:
       if (!find_text_->text().empty()) {
         FindTabHelper* find_tab_helper = FindTabHelper::FromWebContents(
             find_bar_host()->GetFindBarController()->web_contents());
-        find_tab_helper->StartFinding(find_text_->text(),
-                                      sender->tag() == FIND_NEXT_TAG,
-                                      false);  // Not case sensitive.
+        find_tab_helper->StartFinding(
+            find_text_->text(),
+            sender->id() == VIEW_ID_FIND_IN_PAGE_NEXT_BUTTON,
+            false);  // Not case sensitive.
       }
-      // Move focus to the find textfield.
-      find_text_->RequestFocus();
+
+      if (event.IsMouseEvent()) {
+        // Move focus to the find textfield.
+        find_text_->RequestFocus();
+      }
       break;
-    case CLOSE_TAG:
+    case VIEW_ID_FIND_IN_PAGE_CLOSE_BUTTON:
       find_bar_host()->GetFindBarController()->EndFindSession(
           FindBarController::kKeepSelectionOnPage,
           FindBarController::kKeepResultsInFindBox);

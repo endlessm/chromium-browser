@@ -11,7 +11,7 @@
 #include "webrtc/video_encoder.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_error_codes.h"
+#include "webrtc/modules/video_coding/include/video_error_codes.h"
 
 namespace webrtc {
 
@@ -65,6 +65,10 @@ class VideoEncoderSoftwareFallbackWrapperTest : public ::testing::Test {
     bool SupportsNativeHandle() const override {
       ++supports_native_handle_count_;
       return false;
+    }
+
+    const char* ImplementationName() const override {
+      return "fake-encoder";
     }
 
     int init_encode_count_ = 0;
@@ -257,6 +261,15 @@ TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
   fallback_wrapper_.SupportsNativeHandle();
   EXPECT_EQ(0, fake_encoder_.supports_native_handle_count_);
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, fallback_wrapper_.Release());
+}
+
+TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
+       ReportsFallbackImplementationName) {
+  UtilizeFallbackEncoder();
+  // Hard coded expected value since libvpx is the software implementation name
+  // for VP8. Change accordingly if the underlying implementation does.
+  EXPECT_STREQ("libvpx (fallback from: fake-encoder)",
+               fallback_wrapper_.ImplementationName());
 }
 
 }  // namespace webrtc

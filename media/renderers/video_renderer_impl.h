@@ -5,8 +5,12 @@
 #ifndef MEDIA_RENDERERS_VIDEO_RENDERER_IMPL_H_
 #define MEDIA_RENDERERS_VIDEO_RENDERER_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <deque>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
@@ -34,8 +38,7 @@ class TickClock;
 
 namespace media {
 
-// VideoRendererImpl creates its own thread for the sole purpose of timing frame
-// presentation.  It handles reading from the VideoFrameStream and stores the
+// VideoRendererImpl handles reading from a VideoFrameStream storing the
 // results in a queue of decoded frames and executing a callback when a frame is
 // ready for rendering.
 class MEDIA_EXPORT VideoRendererImpl
@@ -62,7 +65,7 @@ class MEDIA_EXPORT VideoRendererImpl
   // VideoRenderer implementation.
   void Initialize(DemuxerStream* stream,
                   const PipelineStatusCB& init_cb,
-                  const SetCdmReadyCB& set_cdm_ready_cb,
+                  CdmContext* cdm_context,
                   const StatisticsCB& statistics_cb,
                   const BufferingStateCB& buffering_state_cb,
                   const base::Closure& ended_cb,
@@ -147,6 +150,12 @@ class MEDIA_EXPORT VideoRendererImpl
 
   // Helper method for converting a single media timestamp to wall clock time.
   base::TimeTicks ConvertMediaTimestamp(base::TimeDelta media_timestamp);
+
+  base::TimeTicks GetCurrentMediaTimeAsWallClockTime();
+
+  // Helper method for checking if a frame timestamp plus the frame's expected
+  // duration is before |start_timestamp_|.
+  bool IsBeforeStartTime(base::TimeDelta timestamp);
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 

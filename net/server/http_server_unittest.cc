@@ -15,6 +15,7 @@
 #include "base/format_macros.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -29,7 +30,6 @@
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/test_completion_callback.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
@@ -164,7 +164,7 @@ class TestHttpClient {
       return false;
 
     // Return true if response has data equal to or more than content length.
-    int64 body_size = static_cast<int64>(response.size()) - end_of_headers;
+    int64_t body_size = static_cast<int64_t>(response.size()) - end_of_headers;
     DCHECK_LE(0, body_size);
     scoped_refptr<HttpResponseHeaders> headers(new HttpResponseHeaders(
         HttpUtil::AssembleRawHeaders(response.data(), end_of_headers)));
@@ -188,7 +188,7 @@ class HttpServerTest : public testing::Test,
     scoped_ptr<ServerSocket> server_socket(
         new TCPServerSocket(NULL, NetLog::Source()));
     server_socket->ListenWithAddressAndPort("127.0.0.1", 0, 1);
-    server_.reset(new HttpServer(server_socket.Pass(), this));
+    server_.reset(new HttpServer(std::move(server_socket), this));
     ASSERT_EQ(OK, server_->GetLocalAddress(&server_address_));
   }
 
@@ -536,8 +536,10 @@ class MockStreamSocket : public StreamSocket {
             const CompletionCallback& callback) override {
     return ERR_NOT_IMPLEMENTED;
   }
-  int SetReceiveBufferSize(int32 size) override { return ERR_NOT_IMPLEMENTED; }
-  int SetSendBufferSize(int32 size) override { return ERR_NOT_IMPLEMENTED; }
+  int SetReceiveBufferSize(int32_t size) override {
+    return ERR_NOT_IMPLEMENTED;
+  }
+  int SetSendBufferSize(int32_t size) override { return ERR_NOT_IMPLEMENTED; }
 
   void DidRead(const char* data, int data_len) {
     if (!read_buf_.get()) {

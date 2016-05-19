@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "wtf/PartitionAllocator.h"
 
 #include "wtf/PartitionAlloc.h"
@@ -36,9 +35,9 @@
 
 namespace WTF {
 
-void* PartitionAllocator::allocateBacking(size_t size)
+void* PartitionAllocator::allocateBacking(size_t size, const char* typeName)
 {
-    return Partitions::bufferMalloc(size);
+    return Partitions::bufferMalloc(size, typeName);
 }
 
 void PartitionAllocator::freeVectorBacking(void* address)
@@ -49,6 +48,18 @@ void PartitionAllocator::freeVectorBacking(void* address)
 void PartitionAllocator::freeHashTableBacking(void* address)
 {
     Partitions::bufferFree(address);
+}
+
+template <>
+char* PartitionAllocator::allocateVectorBacking<char>(size_t size)
+{
+  return reinterpret_cast<char*>(allocateBacking(size, "char"));
+}
+
+template <>
+char* PartitionAllocator::allocateExpandedVectorBacking<char>(size_t size)
+{
+  return reinterpret_cast<char*>(allocateBacking(size, "char"));
 }
 
 } // namespace WTF

@@ -37,6 +37,15 @@ const int kMaxTrackBufferGapWarningLogs = 20;
 // Limit the number of MEDIA_LOG() logs for MSE GC algorithm warnings.
 const int kMaxGarbageCollectAlgorithmWarningLogs = 20;
 
+// Limit the number of MEDIA_LOG() logs for same DTS for non-keyframe followed
+// by keyframe. Prior to relaxing the "media segments must begin with a
+// keyframe" requirement, we issued decode error for this situation. That was
+// likely too strict, and now that the keyframe requirement is relaxed, we have
+// no knowledge of media segment boundaries here. Now, we log but don't trigger
+// decode error, since we allow these sequences which may cause extra decoder
+// work or other side-effects.
+const int kMaxStrangeSameTimestampsLogs = 20;
+
 // Helper method that returns true if |ranges| is sorted in increasing order,
 // false otherwise.
 bool IsRangeListSorted(const std::list<media::SourceBufferRange*>& ranges) {
@@ -137,9 +146,8 @@ SourceBufferStream::SourceBufferStream(const AudioDecoderConfig& audio_config,
                                        bool splice_frames_enabled)
     : media_log_(media_log),
       seek_buffer_timestamp_(kNoTimestamp()),
-      media_segment_start_time_(kNoDecodeTimestamp()),
+      coded_frame_group_start_time_(kNoDecodeTimestamp()),
       range_for_next_append_(ranges_.end()),
-      last_appended_buffer_timestamp_(kNoDecodeTimestamp()),
       last_output_buffer_timestamp_(kNoDecodeTimestamp()),
       max_interbuffer_distance_(kNoTimestamp()),
       memory_limit_(kSourceBufferAudioMemoryLimit),
@@ -153,9 +161,8 @@ SourceBufferStream::SourceBufferStream(const VideoDecoderConfig& video_config,
                                        bool splice_frames_enabled)
     : media_log_(media_log),
       seek_buffer_timestamp_(kNoTimestamp()),
-      media_segment_start_time_(kNoDecodeTimestamp()),
+      coded_frame_group_start_time_(kNoDecodeTimestamp()),
       range_for_next_append_(ranges_.end()),
-      last_appended_buffer_timestamp_(kNoDecodeTimestamp()),
       last_output_buffer_timestamp_(kNoDecodeTimestamp()),
       max_interbuffer_distance_(kNoTimestamp()),
       memory_limit_(kSourceBufferVideoMemoryLimit),
@@ -170,9 +177,8 @@ SourceBufferStream::SourceBufferStream(const TextTrackConfig& text_config,
     : media_log_(media_log),
       text_track_config_(text_config),
       seek_buffer_timestamp_(kNoTimestamp()),
-      media_segment_start_time_(kNoDecodeTimestamp()),
+      coded_frame_group_start_time_(kNoDecodeTimestamp()),
       range_for_next_append_(ranges_.end()),
-      last_appended_buffer_timestamp_(kNoDecodeTimestamp()),
       last_output_buffer_timestamp_(kNoDecodeTimestamp()),
       max_interbuffer_distance_(kNoTimestamp()),
       memory_limit_(kSourceBufferAudioMemoryLimit),
@@ -185,25 +191,29 @@ SourceBufferStream::~SourceBufferStream() {
   }
 }
 
-void SourceBufferStream::OnNewMediaSegment(
-    DecodeTimestamp media_segment_start_time) {
-  DVLOG(1) << __FUNCTION__ << " " << GetStreamTypeName()
-           << " (" << media_segment_start_time.InSecondsF() << ")";
+void SourceBufferStream::OnStartOfCodedFrameGroup(
+    DecodeTimestamp coded_frame_group_start_time) {
+  DVLOG(1) << __FUNCTION__ << " " << GetStreamTypeName() << " ("
+           << coded_frame_group_start_time.InSecondsF() << ")";
   DCHECK(!end_of_stream_);
-  media_segment_start_time_ = media_segment_start_time;
-  new_media_segment_ = true;
+  coded_frame_group_start_time_ = coded_frame_group_start_time;
+  new_coded_frame_group_ = true;
 
   RangeList::iterator last_range = range_for_next_append_;
-  range_for_next_append_ = FindExistingRangeFor(media_segment_start_time);
+  range_for_next_append_ = FindExistingRangeFor(coded_frame_group_start_time);
 
-  // Only reset |last_appended_buffer_timestamp_| if this new media segment is
-  // not adjacent to the previous media segment appended to the stream.
+  // Only reset |last_appended_buffer_timestamp_| if this new coded frame group
+  // is not adjacent to the previous coded frame group appended to the stream.
   if (range_for_next_append_ == ranges_.end() ||
       !AreAdjacentInSequence(last_appended_buffer_timestamp_,
-                             media_segment_start_time)) {
+                             coded_frame_group_start_time)) {
     last_appended_buffer_timestamp_ = kNoDecodeTimestamp();
+    last_appended_buffer_duration_ = kNoTimestamp();
     last_appended_buffer_is_keyframe_ = false;
-    DVLOG(3) << __FUNCTION__ << " next appended buffers will be in a new range";
+    DVLOG(3) << __FUNCTION__ << " next appended buffers will "
+             << (range_for_next_append_ == ranges_.end()
+                     ? "be in a new range"
+                     : "overlap an existing range");
   } else if (last_range != ranges_.end()) {
     DCHECK(last_range == range_for_next_append_);
     DVLOG(3) << __FUNCTION__ << " next appended buffers will continue range "
@@ -217,41 +227,29 @@ bool SourceBufferStream::Append(const BufferQueue& buffers) {
                "buffers to append", buffers.size());
 
   DCHECK(!buffers.empty());
-  DCHECK(media_segment_start_time_ != kNoDecodeTimestamp());
-  DCHECK(media_segment_start_time_ <= buffers.front()->GetDecodeTimestamp());
+  DCHECK(coded_frame_group_start_time_ != kNoDecodeTimestamp());
+  DCHECK(coded_frame_group_start_time_ <=
+         buffers.front()->GetDecodeTimestamp());
   DCHECK(!end_of_stream_);
 
   DVLOG(1) << __FUNCTION__ << " " << GetStreamTypeName()
            << ": buffers " << BufferQueueToLogString(buffers);
 
-  // New media segments must begin with a keyframe.
-  // TODO(wolenetz): Relax this requirement. See http://crbug.com/229412.
-  if (new_media_segment_ && !buffers.front()->is_key_frame()) {
-    MEDIA_LOG(ERROR, media_log_) << "Media segment did not begin with key "
-                                    "frame. Support for such segments will be "
-                                    "available in a future version. Please see "
-                                    "https://crbug.com/229412.";
+  // New coded frame groups emitted by the coded frame processor must begin with
+  // a keyframe. TODO(wolenetz): Change this to [DCHECK + MEDIA_LOG(ERROR...) +
+  // return false] once the CHECK has baked in a stable release. See
+  // https://crbug.com/580621.
+  CHECK(!new_coded_frame_group_ || buffers.front()->is_key_frame());
+
+  // Buffers within a coded frame group should be monotonically increasing.
+  if (!IsMonotonicallyIncreasing(buffers)) {
     return false;
   }
 
-  // Buffers within a media segment should be monotonically increasing.
-  if (!IsMonotonicallyIncreasing(buffers))
-    return false;
-
-  if (media_segment_start_time_ < DecodeTimestamp() ||
+  if (coded_frame_group_start_time_ < DecodeTimestamp() ||
       buffers.front()->GetDecodeTimestamp() < DecodeTimestamp()) {
     MEDIA_LOG(ERROR, media_log_)
-        << "Cannot append a media segment with negative timestamps.";
-    return false;
-  }
-
-  if (!IsNextTimestampValid(buffers.front()->GetDecodeTimestamp(),
-                            buffers.front()->is_key_frame())) {
-    const DecodeTimestamp& dts = buffers.front()->GetDecodeTimestamp();
-    MEDIA_LOG(ERROR, media_log_)
-        << "Invalid same timestamp construct detected at"
-        << " time " << dts.InSecondsF();
-
+        << "Cannot append a coded frame group with negative timestamps.";
     return false;
   }
 
@@ -267,20 +265,40 @@ bool SourceBufferStream::Append(const BufferQueue& buffers) {
   // If there's a range for |buffers|, insert |buffers| accordingly. Otherwise,
   // create a new range with |buffers|.
   if (range_for_next_append_ != ranges_.end()) {
-    (*range_for_next_append_)->AppendBuffersToEnd(buffers);
+    if (new_coded_frame_group_ && (!splice_frames_enabled_ ||
+                                   buffers.front()->splice_buffers().empty())) {
+      // If the first append to this stream in a new coded frame group continues
+      // a previous range, use the new group's start time instead of the first
+      // new buffer's timestamp as the proof of adjacency to the existing range.
+      // A large gap (larger than our normal buffer adjacency test) can occur in
+      // a muxed set of streams (which share a common coded frame group start
+      // time) with a significantly jagged start across the streams.
+      // Don't do this logic if there was a splice frame generated for the first
+      // new buffer, since splices are guaranteed to be in the same range and
+      // adjacent, and since the splice frame's timestamp can be less than
+      // |coded_frame_group_start_time_| due to the splicing.
+      (*range_for_next_append_)
+          ->AppendBuffersToEnd(buffers, coded_frame_group_start_time_);
+    } else {
+      // Otherwise, use the first new buffer's timestamp as the proof of
+      // adjacency.
+      (*range_for_next_append_)
+          ->AppendBuffersToEnd(buffers, kNoDecodeTimestamp());
+    }
+
     last_appended_buffer_timestamp_ = buffers.back()->GetDecodeTimestamp();
+    last_appended_buffer_duration_ = buffers.back()->duration();
     last_appended_buffer_is_keyframe_ = buffers.back()->is_key_frame();
   } else {
     DecodeTimestamp new_range_start_time = std::min(
-        media_segment_start_time_, buffers.front()->GetDecodeTimestamp());
+        coded_frame_group_start_time_, buffers.front()->GetDecodeTimestamp());
     const BufferQueue* buffers_for_new_range = &buffers;
     BufferQueue trimmed_buffers;
 
-    // If the new range is not being created because of a new media
-    // segment, then we must make sure that we start with a key frame.
-    // This can happen if the GOP in the previous append gets destroyed
-    // by a Remove() call.
-    if (!new_media_segment_) {
+    // If the new range is not being created because of a new coded frame group,
+    // then we must make sure that we start with a key frame.  This can happen
+    // if the GOP in the previous append gets destroyed by a Remove() call.
+    if (!new_coded_frame_group_) {
       BufferQueue::const_iterator itr = buffers.begin();
 
       // Scan past all the non-key-frames.
@@ -292,9 +310,10 @@ bool SourceBufferStream::Append(const BufferQueue& buffers) {
       // buffer state and return.
       if (itr == buffers.end()) {
         last_appended_buffer_timestamp_ = buffers.back()->GetDecodeTimestamp();
+        last_appended_buffer_duration_ = buffers.back()->duration();
         last_appended_buffer_is_keyframe_ = buffers.back()->is_key_frame();
         DVLOG(1) << __FUNCTION__ << " " << GetStreamTypeName()
-                 << ": new buffers in the middle of media segment depend on"
+                 << ": new buffers in the middle of coded frame group depend on"
                     "keyframe that has been removed, and contain no keyframes."
                     "Skipping further processing.";
         DVLOG(1) << __FUNCTION__ << " " << GetStreamTypeName()
@@ -319,11 +338,12 @@ bool SourceBufferStream::Append(const BufferQueue& buffers) {
                        base::Unretained(this))));
     last_appended_buffer_timestamp_ =
         buffers_for_new_range->back()->GetDecodeTimestamp();
+    last_appended_buffer_duration_ = buffers_for_new_range->back()->duration();
     last_appended_buffer_is_keyframe_ =
         buffers_for_new_range->back()->is_key_frame();
   }
 
-  new_media_segment_ = false;
+  new_coded_frame_group_ = false;
 
   MergeWithAdjacentRangeIfNecessary(range_for_next_append_);
 
@@ -412,6 +432,28 @@ void SourceBufferStream::Remove(base::TimeDelta start, base::TimeDelta end,
   }
 }
 
+DecodeTimestamp SourceBufferStream::PotentialNextAppendTimestamp() const {
+  // The next potential append will either be just at or after
+  // |last_appended_buffer_timestamp_| (if known), or if unknown and we are
+  // still at the beginning of a new coded frame group, then will be into the
+  // range (if any) to which |coded_frame_group_start_time_| belongs.
+  if (last_appended_buffer_timestamp_ != kNoDecodeTimestamp()) {
+    // TODO(wolenetz): Determine if this +1us is still necessary. See
+    // https://crbug.com/589295.
+    return last_appended_buffer_timestamp_ +
+           base::TimeDelta::FromInternalValue(1);
+  }
+
+  if (new_coded_frame_group_)
+    return coded_frame_group_start_time_;
+
+  // If we still don't know a potential next append timestamp, then we have
+  // removed the ranged to which it previously belonged and have not completed a
+  // subsequent append or received a subsequent OnStartOfCodedFrameGroup()
+  // signal.
+  return kNoDecodeTimestamp();
+}
+
 void SourceBufferStream::RemoveInternal(DecodeTimestamp start,
                                         DecodeTimestamp end,
                                         bool exclude_start,
@@ -439,6 +481,19 @@ void SourceBufferStream::RemoveInternal(DecodeTimestamp start,
     SourceBufferRange* new_range = range->SplitRange(end);
     if (new_range) {
       itr = ranges_.insert(++itr, new_range);
+
+      // Update |range_for_next_append_| if it was previously |range| and should
+      // be |new_range| now.
+      if (range_for_next_append_ != ranges_.end() &&
+          *range_for_next_append_ == range) {
+        DecodeTimestamp potential_next_append_timestamp =
+            PotentialNextAppendTimestamp();
+        if (potential_next_append_timestamp != kNoDecodeTimestamp() &&
+            new_range->BelongsToRange(potential_next_append_timestamp)) {
+          range_for_next_append_ = itr;
+        }
+      }
+
       --itr;
 
       // Update the selected range if the next buffer position was transferred
@@ -475,11 +530,9 @@ void SourceBufferStream::RemoveInternal(DecodeTimestamp start,
     // operation makes it impossible for the next append to be added
     // to the current range.
     if (range_for_next_append_ != ranges_.end() &&
-        *range_for_next_append_ == range &&
-        last_appended_buffer_timestamp_ != kNoDecodeTimestamp()) {
+        *range_for_next_append_ == range) {
       DecodeTimestamp potential_next_append_timestamp =
-          last_appended_buffer_timestamp_ +
-          base::TimeDelta::FromInternalValue(1);
+          PotentialNextAppendTimestamp();
 
       if (!range->BelongsToRange(potential_next_append_timestamp)) {
         DVLOG(1) << "Resetting range_for_next_append_ since the next append"
@@ -521,8 +574,7 @@ bool SourceBufferStream::ShouldSeekToStartOfBuffered(
           beginning_of_buffered < kSeekToStartFudgeRoom());
 }
 
-bool SourceBufferStream::IsMonotonicallyIncreasing(
-    const BufferQueue& buffers) const {
+bool SourceBufferStream::IsMonotonicallyIncreasing(const BufferQueue& buffers) {
   DCHECK(!buffers.empty());
   DecodeTimestamp prev_timestamp = last_appended_buffer_timestamp_;
   bool prev_is_keyframe = last_appended_buffer_is_keyframe_;
@@ -545,12 +597,13 @@ bool SourceBufferStream::IsMonotonicallyIncreasing(
       }
 
       if (current_timestamp == prev_timestamp &&
-          !SourceBufferRange::AllowSameTimestamp(prev_is_keyframe,
-                                                 current_is_keyframe)) {
-        MEDIA_LOG(ERROR, media_log_) << "Unexpected combination of buffers with"
-                                     << " the same timestamp detected at "
-                                     << current_timestamp.InSecondsF();
-        return false;
+          SourceBufferRange::IsUncommonSameTimestampSequence(
+              prev_is_keyframe, current_is_keyframe)) {
+        LIMITED_MEDIA_LOG(DEBUG, media_log_, num_strange_same_timestamps_logs_,
+                          kMaxStrangeSameTimestampsLogs)
+            << "Detected an append sequence with keyframe following a "
+               "non-keyframe, both with the same decode timestamp of "
+            << current_timestamp.InSecondsF();
       }
     }
 
@@ -559,15 +612,6 @@ bool SourceBufferStream::IsMonotonicallyIncreasing(
   }
   return true;
 }
-
-bool SourceBufferStream::IsNextTimestampValid(
-    DecodeTimestamp next_timestamp, bool next_is_keyframe) const {
-  return (last_appended_buffer_timestamp_ != next_timestamp) ||
-      new_media_segment_ ||
-      SourceBufferRange::AllowSameTimestamp(last_appended_buffer_is_keyframe_,
-                                            next_is_keyframe);
-}
-
 
 bool SourceBufferStream::OnlySelectedRangeIsSeeked() const {
   for (RangeList::const_iterator itr = ranges_.begin();
@@ -651,12 +695,36 @@ bool SourceBufferStream::GarbageCollectIfNeeded(DecodeTimestamp media_time,
            << " last_appended_buffer_timestamp_="
            << last_appended_buffer_timestamp_.InSecondsF();
 
+  if (selected_range_ && !seek_pending_ &&
+      media_time > selected_range_->GetBufferedEndTimestamp()) {
+    // Strictly speaking |media_time| (taken from HTMLMediaElement::currentTime)
+    // should always be in the buffered ranges, but media::Pipeline uses audio
+    // stream as the main time source, when audio is present.
+    // In cases when audio and video streams have different buffered ranges, the
+    // |media_time| value might be slightly outside of the video stream buffered
+    // range. In those cases we need to clamp |media_time| value to the current
+    // stream buffered ranges, to ensure the MSE garbage collection algorithm
+    // works correctly (see crbug.com/563292 for details).
+    DecodeTimestamp selected_buffered_end =
+        selected_range_->GetBufferedEndTimestamp();
+
+    DVLOG(2) << __FUNCTION__ << " media_time " << media_time.InSecondsF()
+             << " is outside of selected_range_=["
+             << selected_range_->GetStartTimestamp().InSecondsF() << ";"
+             << selected_buffered_end.InSecondsF()
+             << "] clamping media_time to be "
+             << selected_buffered_end.InSecondsF();
+    media_time = selected_buffered_end;
+  }
+
   size_t bytes_freed = 0;
 
   // If last appended buffer position was earlier than the current playback time
   // then try deleting data between last append and current media_time.
   if (last_appended_buffer_timestamp_ != kNoDecodeTimestamp() &&
-      last_appended_buffer_timestamp_ < media_time) {
+      last_appended_buffer_duration_ != kNoTimestamp() &&
+      media_time >
+          last_appended_buffer_timestamp_ + last_appended_buffer_duration_) {
     size_t between = FreeBuffersAfterLastAppended(bytes_to_free, media_time);
     DVLOG(3) << __FUNCTION__ << " FreeBuffersAfterLastAppended "
              << " released " << between << " bytes"
@@ -674,6 +742,8 @@ bool SourceBufferStream::GarbageCollectIfNeeded(DecodeTimestamp media_time,
     if (range_for_next_append_ != ranges_.end()) {
       DCHECK((*range_for_next_append_)->GetStartTimestamp() <= media_time);
       media_time = (*range_for_next_append_)->GetStartTimestamp();
+      DVLOG(3) << __FUNCTION__ << " media_time adjusted to "
+               << media_time.InSecondsF();
     }
   }
 
@@ -703,7 +773,7 @@ bool SourceBufferStream::GarbageCollectIfNeeded(DecodeTimestamp media_time,
     if (bytes_freed < bytes_to_free) {
       size_t front2 = FreeBuffers(bytes_to_free - bytes_freed,
                                   ranges_.back()->GetEndTimestamp(), false);
-      DVLOG(3) << __FUNCTION__ << " Removed " << front << " bytes from the"
+      DVLOG(3) << __FUNCTION__ << " Removed " << front2 << " bytes from the"
                << " front. ranges_=" << RangesToString(ranges_);
       bytes_freed += front2;
     }
@@ -828,13 +898,24 @@ size_t SourceBufferStream::FreeBuffers(size_t total_bytes_to_free,
     } else {
       current_range = ranges_.front();
       DVLOG(5) << "current_range=" << RangeToString(*current_range);
-      if (!current_range->FirstGOPEarlierThanMediaTime(media_time)) {
+
+      // FirstGOPEarlierThanMediaTime() is useful here especially if
+      // |seek_pending_| (such that no range contains next buffer
+      // position).
+      // FirstGOPContainsNextBufferPosition() is useful here especially if
+      // |!seek_pending_| to protect against DeleteGOPFromFront() if
+      // FirstGOPEarlierThanMediaTime() was insufficient alone.
+      if (!current_range->FirstGOPEarlierThanMediaTime(media_time) ||
+          current_range->FirstGOPContainsNextBufferPosition()) {
         // We have removed all data up to the GOP that contains current playback
         // position, we can't delete any further.
         DVLOG(5) << "current_range contains playback position, stopping GC";
         break;
       }
-      DVLOG(4) << "Deleting GOP from front: " << RangeToString(*current_range);
+      DVLOG(4) << "Deleting GOP from front: " << RangeToString(*current_range)
+               << ", media_time: " << media_time.InMicroseconds()
+               << ", current_range->HasNextBufferPosition(): "
+               << current_range->HasNextBufferPosition();
       bytes_deleted = current_range->DeleteGOPFromFront(&buffers);
     }
 
@@ -900,9 +981,7 @@ void SourceBufferStream::PrepareRangesForNextAppend(
     GenerateSpliceFrame(new_buffers);
 
   DecodeTimestamp prev_timestamp = last_appended_buffer_timestamp_;
-  bool prev_is_keyframe = last_appended_buffer_is_keyframe_;
   DecodeTimestamp next_timestamp = new_buffers.front()->GetDecodeTimestamp();
-  bool next_is_keyframe = new_buffers.front()->is_key_frame();
 
   if (prev_timestamp != kNoDecodeTimestamp() &&
       prev_timestamp != next_timestamp) {
@@ -911,22 +990,25 @@ void SourceBufferStream::PrepareRangesForNextAppend(
     RemoveInternal(prev_timestamp, next_timestamp, true, deleted_buffers);
   }
 
-  // Make the delete range exclusive if we are dealing with an allowed same
-  // timestamp situation. This prevents the first buffer in the current append
-  // from deleting the last buffer in the previous append if both buffers
-  // have the same timestamp.
-  //
-  // The delete range should never be exclusive if a splice frame was generated
-  // because we don't generate splice frames for same timestamp situations.
+  // Always make the start of the delete range exclusive for same timestamp
+  // across the last buffer in the previous append and the first buffer in the
+  // current append. Never be exclusive if a splice frame was generated because
+  // we don't generate splice frames for same timestamp situations.
   DCHECK(new_buffers.front()->splice_timestamp() !=
          new_buffers.front()->timestamp());
-  const bool exclude_start =
-      new_buffers.front()->splice_buffers().empty() &&
-      prev_timestamp == next_timestamp &&
-      SourceBufferRange::AllowSameTimestamp(prev_is_keyframe, next_is_keyframe);
+  const bool exclude_start = new_buffers.front()->splice_buffers().empty() &&
+                             prev_timestamp == next_timestamp;
 
   // Delete the buffers that |new_buffers| overlaps.
   DecodeTimestamp start = new_buffers.front()->GetDecodeTimestamp();
+  if (new_coded_frame_group_) {
+    // Extend the deletion range earlier to the coded frame group start time if
+    // this is the first append in a new coded frame group. Note that |start|
+    // could already be less than |coded_frame_group_start_time_| if a splice
+    // was generated.
+    DCHECK(coded_frame_group_start_time_ != kNoDecodeTimestamp());
+    start = std::min(coded_frame_group_start_time_, start);
+  }
   DecodeTimestamp end = new_buffers.back()->GetDecodeTimestamp();
   base::TimeDelta duration = new_buffers.back()->duration();
 

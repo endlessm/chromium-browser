@@ -53,7 +53,7 @@ inline ComputedStyle* Node::mutableComputedStyle() const
 
 inline const ComputedStyle* Node::parentComputedStyle() const
 {
-    if (isActiveInsertionPoint(*this))
+    if (isSlotOrActiveInsertionPoint())
         return 0;
     ContainerNode* parent = LayoutTreeBuilderTraversal::parent(*this);
     return parent ? parent->computedStyle() : 0;
@@ -66,5 +66,5 @@ inline const ComputedStyle& Node::computedStyleRef() const
     return *style;
 }
 
-}
+} // namespace blink
 #endif // NodeComputedStyle_h

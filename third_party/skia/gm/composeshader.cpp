@@ -9,7 +9,6 @@
 
 #include "SkBitmapProcShader.h"
 #include "SkCanvas.h"
-#include "SkComposeShader.h"
 #include "SkGradientShader.h"
 #include "SkGraphics.h"
 #include "SkShader.h"
@@ -36,7 +35,7 @@ static SkShader* make_shader(SkXfermode::Mode mode) {
 
     SkAutoTUnref<SkXfermode> xfer(SkXfermode::Create(mode));
 
-    return new SkComposeShader(shaderA, shaderB, xfer);
+    return SkShader::CreateComposeShader(shaderA, shaderB, xfer);
 }
 
 class ComposeShaderGM : public skiagm::GM {
@@ -162,7 +161,15 @@ static SkShader* make_linear_gradient_shader(int length) {
 
 class ComposeShaderBitmapGM : public skiagm::GM {
 public:
-    ComposeShaderBitmapGM() {
+    ComposeShaderBitmapGM() {}
+    ~ComposeShaderBitmapGM() {
+        SkSafeUnref(fColorBitmapShader);
+        SkSafeUnref(fAlpha8BitmapShader);
+        SkSafeUnref(fLinearGradientShader);
+    }
+
+protected:
+    void onOnceBeforeDraw() override {
         draw_color_bm(&fColorBitmap, squareLength);
         draw_alpha8_bm(&fAlpha8Bitmap, squareLength);
         SkMatrix s;
@@ -173,13 +180,7 @@ public:
                                                      SkShader::kRepeat_TileMode, &s);
         fLinearGradientShader = make_linear_gradient_shader(squareLength);
     }
-    ~ComposeShaderBitmapGM() {
-        SkSafeUnref(fColorBitmapShader);
-        SkSafeUnref(fAlpha8BitmapShader);
-        SkSafeUnref(fLinearGradientShader);
-    }
 
-protected:
     SkString onShortName() override {
         return SkString("composeshader_bitmap");
     }
@@ -192,11 +193,11 @@ protected:
         SkAutoTUnref<SkXfermode> xfer(SkXfermode::Create(SkXfermode::kDstOver_Mode));
 
         // gradient should appear over color bitmap
-        SkAutoTUnref<SkShader> shader0(new SkComposeShader(fLinearGradientShader,
+        SkAutoTUnref<SkShader> shader0(SkShader::CreateComposeShader(fLinearGradientShader,
                                                            fColorBitmapShader,
                                                            xfer));
         // gradient should appear over alpha8 bitmap colorized by the paint color
-        SkAutoTUnref<SkShader> shader1(new SkComposeShader(fLinearGradientShader,
+        SkAutoTUnref<SkShader> shader1(SkShader::CreateComposeShader(fLinearGradientShader,
                                                            fAlpha8BitmapShader,
                                                            xfer));
 
@@ -222,8 +223,9 @@ protected:
             canvas->translate(0, r.height() + 5);
         }
     }
+    
 private:
-    /** This determines the length and width of the bitmaps used in the SkComposeShaders.  Values
+    /** This determines the length and width of the bitmaps used in the ComposeShaders.  Values
      *  above 20 may cause an SkASSERT to fail in SkSmallAllocator. However, larger values will
      *  work in a release build.  You can change this parameter and then compile a release build
      *  to have this GM draw larger bitmaps for easier visual inspection.
@@ -232,9 +234,9 @@ private:
 
     SkBitmap fColorBitmap;
     SkBitmap fAlpha8Bitmap;
-    SkShader* fColorBitmapShader;
-    SkShader* fAlpha8BitmapShader;
-    SkShader* fLinearGradientShader;
+    SkShader* fColorBitmapShader{nullptr};
+    SkShader* fAlpha8BitmapShader{nullptr};
+    SkShader* fLinearGradientShader{nullptr};
 
     typedef GM INHERITED;
 };

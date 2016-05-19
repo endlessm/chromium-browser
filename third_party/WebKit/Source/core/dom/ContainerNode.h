@@ -160,7 +160,6 @@ public:
 
     // FIXME: These methods should all be renamed to something better than "check",
     // since it's not clear that they alter the style bits of siblings and children.
-    void checkForChildrenAdjacentRuleChanges();
     enum SiblingCheckType { FinishedParsingChildren, SiblingElementInserted, SiblingElementRemoved };
     void checkForSiblingStyleChanges(SiblingCheckType, Node* nodeBeforeChange, Node* nodeAfterChange);
     void recalcChildStyle(StyleRecalcChange);
@@ -294,27 +293,6 @@ inline ContainerNode::ContainerNode(TreeScope* treeScope, ConstructionType type)
     , m_firstChild(nullptr)
     , m_lastChild(nullptr)
 {
-}
-
-inline void ContainerNode::attachChildren(const AttachContext& context)
-{
-    AttachContext childrenContext(context);
-    childrenContext.resolvedStyle = nullptr;
-
-    for (Node* child = firstChild(); child; child = child->nextSibling()) {
-        ASSERT(child->needsAttach() || childAttachedAllowedWhenAttachingChildren(this));
-        if (child->needsAttach())
-            child->attach(childrenContext);
-    }
-}
-
-inline void ContainerNode::detachChildren(const AttachContext& context)
-{
-    AttachContext childrenContext(context);
-    childrenContext.resolvedStyle = nullptr;
-
-    for (Node* child = firstChild(); child; child = child->nextSibling())
-        child->detach(childrenContext);
 }
 
 inline bool ContainerNode::needsAdjacentStyleRecalc() const

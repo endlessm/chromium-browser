@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/events/KeyboardEvent.h"
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
@@ -73,20 +72,21 @@ KeyboardEvent::KeyboardEvent()
 }
 
 KeyboardEvent::KeyboardEvent(const PlatformKeyboardEvent& key, AbstractView* view)
-    : UIEventWithKeyState(eventTypeForKeyboardEventType(key.type()), true, true, view, 0, key.modifiers(), InputDeviceCapabilities::doesntFireTouchEventsSourceCapabilities())
+    : UIEventWithKeyState(eventTypeForKeyboardEventType(key.type()), true, true, view, 0, key.modifiers(), key.timestamp(), InputDeviceCapabilities::doesntFireTouchEventsSourceCapabilities())
     , m_keyEvent(adoptPtr(new PlatformKeyboardEvent(key)))
     , m_keyIdentifier(key.keyIdentifier())
     , m_code(key.code())
     , m_key(key.key())
     , m_location(keyLocationCode(key))
 {
-    setPlatformTimeStamp(key.timestamp());
     initLocationModifiers(m_location);
 }
 
 KeyboardEvent::KeyboardEvent(const AtomicString& eventType, const KeyboardEventInit& initializer)
     : UIEventWithKeyState(eventType, initializer)
     , m_keyIdentifier(initializer.keyIdentifier())
+    , m_code(initializer.code())
+    , m_key(initializer.key())
     , m_location(initializer.location())
 {
     if (initializer.repeat())
@@ -95,8 +95,9 @@ KeyboardEvent::KeyboardEvent(const AtomicString& eventType, const KeyboardEventI
 }
 
 KeyboardEvent::KeyboardEvent(const AtomicString& eventType, bool canBubble, bool cancelable, AbstractView* view,
-    const String& keyIdentifier, const String& code, const String& key, unsigned location, PlatformEvent::Modifiers modifiers)
-    : UIEventWithKeyState(eventType, canBubble, cancelable, view, 0, modifiers, InputDeviceCapabilities::doesntFireTouchEventsSourceCapabilities())
+    const String& keyIdentifier, const String& code, const String& key, unsigned location, PlatformEvent::Modifiers modifiers,
+    double plaformTimeStamp)
+    : UIEventWithKeyState(eventType, canBubble, cancelable, view, 0, modifiers, plaformTimeStamp, InputDeviceCapabilities::doesntFireTouchEventsSourceCapabilities())
     , m_keyIdentifier(keyIdentifier)
     , m_code(code)
     , m_key(key)
@@ -191,30 +192,9 @@ void KeyboardEvent::initLocationModifiers(unsigned location)
     }
 }
 
-PassRefPtrWillBeRawPtr<EventDispatchMediator> KeyboardEvent::createMediator()
-{
-    return KeyboardEventDispatchMediator::create(this);
-}
-
 DEFINE_TRACE(KeyboardEvent)
 {
     UIEventWithKeyState::trace(visitor);
-}
-
-PassRefPtrWillBeRawPtr<KeyboardEventDispatchMediator> KeyboardEventDispatchMediator::create(PassRefPtrWillBeRawPtr<KeyboardEvent> event)
-{
-    return adoptRefWillBeNoop(new KeyboardEventDispatchMediator(event));
-}
-
-KeyboardEventDispatchMediator::KeyboardEventDispatchMediator(PassRefPtrWillBeRawPtr<KeyboardEvent> event)
-    : EventDispatchMediator(event)
-{
-}
-
-bool KeyboardEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
-{
-    // Make sure not to return true if we already took default action while handling the event.
-    return EventDispatchMediator::dispatchEvent(dispatcher) && !event().defaultHandled();
 }
 
 } // namespace blink

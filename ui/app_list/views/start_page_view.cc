@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/i18n/rtl.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_view_state.h"
@@ -85,7 +86,7 @@ class CustomLauncherPageBackgroundView : public views::View {
     selected_ = selected;
     SetVisible(selected);
     if (selected)
-      NotifyAccessibilityEvent(ui::AX_EVENT_FOCUS, true);
+      NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION, true);
   }
 
   bool selected() { return selected_; }

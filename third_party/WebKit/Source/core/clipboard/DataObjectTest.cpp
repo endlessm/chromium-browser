@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/clipboard/DataObject.h"
 
 #include "core/clipboard/DataObjectItem.h"
-#include "public/platform/Platform.h"
-#include "public/platform/WebUnitTestSupport.h"
-#include <gtest/gtest.h>
+#include "platform/testing/UnitTestHelpers.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -25,7 +23,7 @@ protected:
 
 TEST_F(DataObjectTest, addItemWithFilenameAndNoTitle)
 {
-    String filePath = Platform::current()->unitTestSupport()->webKitRootDir();
+    String filePath = testing::blinkRootDir();
     filePath.append("/Source/core/clipboard/DataObjectTest.cpp");
 
     m_dataObject->addFilename(filePath, String());
@@ -38,13 +36,13 @@ TEST_F(DataObjectTest, addItemWithFilenameAndNoTitle)
     ASSERT_TRUE(blob->isFile());
     File* file = toFile(blob);
     EXPECT_TRUE(file->hasBackingFile());
-    EXPECT_EQ(File::IsUserVisible, file->userVisibility());
+    EXPECT_EQ(File::IsUserVisible, file->getUserVisibility());
     EXPECT_EQ(filePath, file->path());
 }
 
 TEST_F(DataObjectTest, addItemWithFilenameAndTitle)
 {
-    String filePath = Platform::current()->unitTestSupport()->webKitRootDir();
+    String filePath = testing::blinkRootDir();
     filePath.append("/Source/core/clipboard/DataObjectTest.cpp");
 
     m_dataObject->addFilename(filePath, "name.cpp");
@@ -57,7 +55,7 @@ TEST_F(DataObjectTest, addItemWithFilenameAndTitle)
     ASSERT_TRUE(blob->isFile());
     File* file = toFile(blob);
     EXPECT_TRUE(file->hasBackingFile());
-    EXPECT_EQ(File::IsUserVisible, file->userVisibility());
+    EXPECT_EQ(File::IsUserVisible, file->getUserVisibility());
     EXPECT_EQ(filePath, file->path());
     EXPECT_EQ("name.cpp", file->name());
 }

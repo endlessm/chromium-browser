@@ -10,17 +10,20 @@
 #ifndef BASE_METRICS_STATISTICS_RECORDER_H_
 #define BASE_METRICS_STATISTICS_RECORDER_H_
 
+#include <stdint.h>
+
 #include <list>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_base.h"
+#include "base/strings/string_piece.h"
 
 namespace base {
 
@@ -29,7 +32,36 @@ class Lock;
 
 class BASE_EXPORT StatisticsRecorder {
  public:
+  typedef std::map<uint64_t, HistogramBase*> HistogramMap;  // Key is name-hash.
   typedef std::vector<HistogramBase*> Histograms;
+
+  // A class for iterating over the histograms held within this global resource.
+  class BASE_EXPORT HistogramIterator {
+   public:
+    HistogramIterator(const HistogramMap::iterator& iter,
+                      bool include_persistent);
+    HistogramIterator(const HistogramIterator& rhs);  // Must be copyable.
+    ~HistogramIterator();
+
+    HistogramIterator& operator++();
+    HistogramIterator operator++(int) {
+      HistogramIterator tmp(*this);
+      operator++();
+      return tmp;
+    }
+
+    bool operator==(const HistogramIterator& rhs) const {
+      return iter_ == rhs.iter_;
+    }
+    bool operator!=(const HistogramIterator& rhs) const {
+      return iter_ != rhs.iter_;
+    }
+    HistogramBase* operator*() { return iter_->second; }
+
+   private:
+    HistogramMap::iterator iter_;
+    const bool include_persistent_;
+  };
 
   // Initializes the StatisticsRecorder system. Safe to call multiple times.
   static void Initialize();
@@ -68,7 +100,11 @@ class BASE_EXPORT StatisticsRecorder {
 
   // Find a histogram by name. It matches the exact name. This method is thread
   // safe.  It returns NULL if a matching histogram is not found.
-  static HistogramBase* FindHistogram(const std::string& name);
+  static HistogramBase* FindHistogram(base::StringPiece name);
+
+  // Support for iterating over known histograms.
+  static HistogramIterator begin(bool include_persistent);
+  static HistogramIterator end();
 
   // GetSnapshot copies some of the pointers to registered histograms into the
   // caller supplied vector (Histograms). Only histograms which have |query| as
@@ -94,26 +130,16 @@ class BASE_EXPORT StatisticsRecorder {
   // histogram. This method is thread safe.
   static OnSampleCallback FindCallback(const std::string& histogram_name);
 
+  // Clears all of the known histograms and resets static variables to a
+  // state that allows a new initialization.
+  static void ResetForTesting();
+
+  // Removes a histogram from the internal set of known ones. This can be
+  // necessary during testing persistent histograms where the underlying
+  // memory is being released.
+  static void ForgetHistogramForTesting(base::StringPiece name);
+
  private:
-  // HistogramNameRef holds a weak const ref to the name field of the associated
-  // Histogram object, allowing re-use of the underlying string storage for the
-  // map keys. The wrapper is required as using "const std::string&" as the key
-  // results in compile errors.
-  struct HistogramNameRef {
-    explicit HistogramNameRef(const std::string& name) : name_(name) {};
-
-    // Operator < is necessary to use this type as a std::map key.
-    bool operator<(const HistogramNameRef& other) const {
-      return name_ < other.name_;
-    }
-
-    // Weak, owned by the associated Histogram object.
-    const std::string& name_;
-  };
-
-  // We keep all registered histograms in a map, from name to histogram.
-  typedef std::map<HistogramNameRef, HistogramBase*> HistogramMap;
-
   // We keep a map of callbacks to histograms, so that as histograms are
   // created, we can set the callback properly.
   typedef std::map<std::string, OnSampleCallback> CallbackMap;
@@ -121,13 +147,14 @@ class BASE_EXPORT StatisticsRecorder {
   // We keep all |bucket_ranges_| in a map, from checksum to a list of
   // |bucket_ranges_|.  Checksum is calculated from the |ranges_| in
   // |bucket_ranges_|.
-  typedef std::map<uint32, std::list<const BucketRanges*>*> RangesMap;
+  typedef std::map<uint32_t, std::list<const BucketRanges*>*> RangesMap;
 
   friend struct DefaultLazyInstanceTraits<StatisticsRecorder>;
   friend class HistogramBaseTest;
   friend class HistogramSnapshotManagerTest;
   friend class HistogramTest;
   friend class JsonPrefStoreTest;
+  friend class SharedHistogramTest;
   friend class SparseHistogramTest;
   friend class StatisticsRecorderTest;
   FRIEND_TEST_ALL_PREFIXES(HistogramDeltaSerializationTest,
@@ -139,6 +166,7 @@ class BASE_EXPORT StatisticsRecorder {
   StatisticsRecorder();
   ~StatisticsRecorder();
 
+  static void Reset();
   static void DumpHistogramsToVlog(void* instance);
 
   static HistogramMap* histograms_;

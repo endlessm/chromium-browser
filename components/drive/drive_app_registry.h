@@ -11,6 +11,7 @@
 
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -41,6 +42,7 @@ struct DriveAppInfo {
                const std::string& app_name,
                const GURL& create_url,
                bool is_removable);
+  DriveAppInfo(const DriveAppInfo& other);
   ~DriveAppInfo();
 
   // Drive app id.

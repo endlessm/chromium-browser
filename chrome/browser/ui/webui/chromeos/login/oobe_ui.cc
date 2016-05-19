@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 
+#include <stddef.h>
+
 #include "ash/shell_window_ids.h"
 #include "ash/wm/screen_dimmer.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -18,10 +21,8 @@
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/consumer_management_service.h"
 #include "chrome/browser/chromeos/settings/shutdown_policy_handler.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
 #include "chrome/browser/extensions/signin/gaia_auth_extension_loader.h"
@@ -55,13 +56,16 @@
 #include "chrome/browser/ui/webui/chromeos/login/user_image_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/wrong_hwid_screen_handler.h"
 #include "chrome/browser/ui/webui/options/chromeos/user_image_source.h"
+#include "chrome/browser/ui/webui/test_files_request_filter.h"
 #include "chrome/browser/ui/webui/theme_source.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "content/public/common/content_switches.h"
 #include "grit/browser_resources.h"
 #include "grit/chrome_unscaled_resources.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -138,6 +142,13 @@ content::WebUIDataSource* CreateOobeUIDataSource(
     source->AddResourcePath("Roboto-Bold.ttf", IDR_FONT_ROBOTO_BOLD);
   }
 
+  // Only add a filter when runing as test.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const bool is_running_test = command_line->HasSwitch(::switches::kTestName) ||
+                               command_line->HasSwitch(::switches::kTestType);
+  if (is_running_test)
+    source->SetRequestFilter(::test::GetTestFilesRequestFilter());
+
   return source;
 }
 
@@ -189,6 +200,8 @@ const char OobeUI::kScreenFatalError[] = "fatal-error";
 const char OobeUI::kScreenControllerPairing[] = "controller-pairing";
 const char OobeUI::kScreenHostPairing[] = "host-pairing";
 const char OobeUI::kScreenDeviceDisabled[] = "device-disabled";
+const char OobeUI::kScreenUnrecoverableCryptohomeError[] =
+    "unrecoverable-cryptohome-error";
 
 OobeUI::OobeUI(content::WebUI* web_ui, const GURL& url)
     : WebUIController(web_ui),
@@ -307,16 +320,11 @@ OobeUI::OobeUI(content::WebUI* web_ui, const GURL& url)
   user_image_view_ = user_image_screen_handler;
   AddScreenHandler(user_image_screen_handler);
 
-  policy::ConsumerManagementService* consumer_management =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos()->
-          GetConsumerManagementService();
-
   user_board_screen_handler_ = new UserBoardScreenHandler();
   AddScreenHandler(user_board_screen_handler_);
 
   gaia_screen_handler_ =
-      new GaiaScreenHandler(
-          core_handler_, network_state_informer_, consumer_management);
+      new GaiaScreenHandler(core_handler_, network_state_informer_);
   AddScreenHandler(gaia_screen_handler_);
 
   signin_screen_handler_ =
@@ -543,6 +551,8 @@ void OobeUI::InitializeScreenMaps() {
   screen_names_[SCREEN_OOBE_CONTROLLER_PAIRING] = kScreenControllerPairing;
   screen_names_[SCREEN_OOBE_HOST_PAIRING] = kScreenHostPairing;
   screen_names_[SCREEN_DEVICE_DISABLED] = kScreenDeviceDisabled;
+  screen_names_[SCREEN_UNRECOVERABLE_CRYPTOHOME_ERROR] =
+      kScreenUnrecoverableCryptohomeError;
 
   dim_overlay_screen_ids_.push_back(SCREEN_CONFIRM_PASSWORD);
   dim_overlay_screen_ids_.push_back(SCREEN_GAIA_SIGNIN);
@@ -609,8 +619,7 @@ void OobeUI::ShowSigninScreen(const LoginScreenContext& context,
   if (connector->GetDeviceMode() == policy::DEVICE_MODE_LEGACY_RETAIL_MODE) {
     // If we're in legacy retail mode, the best thing we can do is launch the
     // new offline demo mode.
-    LoginDisplayHost* host = LoginDisplayHostImpl::default_host();
-    host->StartDemoAppLaunch();
+    LoginDisplayHost::default_host()->StartDemoAppLaunch();
     return;
   }
 

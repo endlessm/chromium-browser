@@ -5,6 +5,8 @@
 // IPC messages for the Cast Media Acceleration (CMA) pipeline.
 // Multiply-included message file, hence no include guard.
 
+#include <stddef.h>
+
 #include "chromecast/common/media/cma_ipc_common.h"
 #include "chromecast/common/media/cma_param_traits.h"
 #include "chromecast/common/media/cma_param_traits_macros.h"
@@ -66,9 +68,7 @@ IPC_MESSAGE_CONTROL2(CmaHostMsg_NotifyPipeWrite,
 
 // Messages from the browser to the renderer process.
 
-IPC_MESSAGE_CONTROL2(CmaMsg_MediaStateChanged,
-                     int /* Media pipeline ID */,
-                     media::PipelineStatus /* Status */)
+IPC_MESSAGE_CONTROL1(CmaMsg_FlushDone, int /* Media pipeline ID */)
 IPC_MESSAGE_CONTROL4(CmaMsg_TimeUpdate,
                      int /* Media pipeline ID */,
                      base::TimeDelta /* Media time */,
@@ -92,6 +92,9 @@ IPC_MESSAGE_CONTROL2(CmaMsg_NotifyPipeRead,
                      int /* Media pipeline ID */,
                      chromecast::media::TrackId /* Track ID */)
 
+IPC_MESSAGE_CONTROL2(CmaMsg_WaitForKey,
+                     int /* Media pipeline ID */,
+                     chromecast::media::TrackId /* Track ID */)
 IPC_MESSAGE_CONTROL2(CmaMsg_Eos,
                      int /* Media pipeline ID */,
                      chromecast::media::TrackId /* Track ID */)

@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
 #include "base/message_loop/message_loop_test.h"
@@ -19,10 +23,10 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_WIN)
-#include "base/message_loop/message_pump_dispatcher.h"
 #include "base/message_loop/message_pump_win.h"
 #include "base/process/memory.h"
 #include "base/strings/string16.h"
@@ -336,7 +340,7 @@ void RunTest_RecursiveDenial2(MessageLoop::Type message_loop_type) {
   WaitForSingleObject(event.Get(), INFINITE);
   MessageLoop::current()->Run();
 
-  ASSERT_EQ(order.Size(), 17);
+  ASSERT_EQ(17u, order.Size());
   EXPECT_EQ(order.Get(0), TaskItem(RECURSIVE, 1, true));
   EXPECT_EQ(order.Get(1), TaskItem(RECURSIVE, 1, false));
   EXPECT_EQ(order.Get(2), TaskItem(MESSAGEBOX, 2, true));
@@ -380,7 +384,7 @@ void RunTest_RecursiveSupport2(MessageLoop::Type message_loop_type) {
   WaitForSingleObject(event.Get(), INFINITE);
   MessageLoop::current()->Run();
 
-  ASSERT_EQ(order.Size(), 18);
+  ASSERT_EQ(18u, order.Size());
   EXPECT_EQ(order.Get(0), TaskItem(RECURSIVE, 1, true));
   EXPECT_EQ(order.Get(1), TaskItem(RECURSIVE, 1, false));
   EXPECT_EQ(order.Get(2), TaskItem(MESSAGEBOX, 2, true));
@@ -421,70 +425,6 @@ void PostNTasksThenQuit(int posts_remaining) {
 
 #if defined(OS_WIN)
 
-class DispatcherImpl : public MessagePumpDispatcher {
- public:
-  DispatcherImpl() : dispatch_count_(0) {}
-
-  uint32_t Dispatch(const NativeEvent& msg) override {
-    ::TranslateMessage(&msg);
-    ::DispatchMessage(&msg);
-    // Do not count WM_TIMER since it is not what we post and it will cause
-    // flakiness.
-    if (msg.message != WM_TIMER)
-      ++dispatch_count_;
-    // We treat WM_LBUTTONUP as the last message.
-    return msg.message == WM_LBUTTONUP ? POST_DISPATCH_QUIT_LOOP
-                                       : POST_DISPATCH_NONE;
-  }
-
-  int dispatch_count_;
-};
-
-void MouseDownUp() {
-  PostMessage(NULL, WM_LBUTTONDOWN, 0, 0);
-  PostMessage(NULL, WM_LBUTTONUP, 'A', 0);
-}
-
-void RunTest_Dispatcher(MessageLoop::Type message_loop_type) {
-  MessageLoop loop(message_loop_type);
-
-  MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      Bind(&MouseDownUp),
-      TimeDelta::FromMilliseconds(100));
-  DispatcherImpl dispatcher;
-  RunLoop run_loop(&dispatcher);
-  run_loop.Run();
-  ASSERT_EQ(2, dispatcher.dispatch_count_);
-}
-
-LRESULT CALLBACK MsgFilterProc(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == MessagePumpForUI::kMessageFilterCode) {
-    MSG* msg = reinterpret_cast<MSG*>(lparam);
-    if (msg->message == WM_LBUTTONDOWN)
-      return TRUE;
-  }
-  return FALSE;
-}
-
-void RunTest_DispatcherWithMessageHook(MessageLoop::Type message_loop_type) {
-  MessageLoop loop(message_loop_type);
-
-  MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      Bind(&MouseDownUp),
-      TimeDelta::FromMilliseconds(100));
-  HHOOK msg_hook = SetWindowsHookEx(WH_MSGFILTER,
-                                    MsgFilterProc,
-                                    NULL,
-                                    GetCurrentThreadId());
-  DispatcherImpl dispatcher;
-  RunLoop run_loop(&dispatcher);
-  run_loop.Run();
-  ASSERT_EQ(1, dispatcher.dispatch_count_);
-  UnhookWindowsHookEx(msg_hook);
-}
-
 class TestIOHandler : public MessageLoopForIO::IOHandler {
  public:
   TestIOHandler(const wchar_t* name, HANDLE signal, bool wait);
@@ -522,7 +462,7 @@ void TestIOHandler::Init() {
 
   DWORD read;
   EXPECT_FALSE(ReadFile(file_.Get(), buffer_, size(), &read, context()));
-  EXPECT_EQ(ERROR_IO_PENDING, GetLastError());
+  EXPECT_EQ(static_cast<DWORD>(ERROR_IO_PENDING), GetLastError());
   if (wait_)
     WaitForIO();
 }
@@ -615,8 +555,9 @@ void RunTest_WaitForIO() {
   DWORD written;
   EXPECT_TRUE(WriteFile(server1.Get(), buffer, sizeof(buffer), &written, NULL));
   PlatformThread::Sleep(2 * delay);
-  EXPECT_EQ(WAIT_TIMEOUT, WaitForSingleObject(callback1_called.Get(), 0)) <<
-      "handler1 has not been called";
+  EXPECT_EQ(static_cast<DWORD>(WAIT_TIMEOUT),
+            WaitForSingleObject(callback1_called.Get(), 0))
+      << "handler1 has not been called";
 
   EXPECT_TRUE(WriteFile(server2.Get(), buffer, sizeof(buffer), &written, NULL));
 
@@ -705,16 +646,6 @@ TEST(MessageLoopTest, TaskObserver) {
 }
 
 #if defined(OS_WIN)
-TEST(MessageLoopTest, Dispatcher) {
-  // This test requires a UI loop
-  RunTest_Dispatcher(MessageLoop::TYPE_UI);
-}
-
-TEST(MessageLoopTest, DispatcherWithMessageHook) {
-  // This test requires a UI loop
-  RunTest_DispatcherWithMessageHook(MessageLoop::TYPE_UI);
-}
-
 TEST(MessageLoopTest, IOHandler) {
   RunTest_IOHandler();
 }
@@ -1033,6 +964,17 @@ TEST(MessageLoopTest, OriginalRunnerWorks) {
                             Bind(&Foo::Test1ConstRef, foo.get(), "a"));
   loop.RunUntilIdle();
   EXPECT_EQ(1, foo->test_count());
+}
+
+TEST(MessageLoopTest, DeleteUnboundLoop) {
+  // It should be possible to delete an unbound message loop on a thread which
+  // already has another active loop. This happens when thread creation fails.
+  MessageLoop loop;
+  scoped_ptr<MessageLoop> unbound_loop(MessageLoop::CreateUnbound(
+      MessageLoop::TYPE_DEFAULT, MessageLoop::MessagePumpFactoryCallback()));
+  unbound_loop.reset();
+  EXPECT_EQ(&loop, MessageLoop::current());
+  EXPECT_EQ(loop.task_runner(), ThreadTaskRunnerHandle::Get());
 }
 
 }  // namespace base

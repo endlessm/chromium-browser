@@ -10,12 +10,11 @@
 WebInspector.PromisePane = function()
 {
     WebInspector.VBox.call(this);
-    this.registerRequiredCSS("ui/filter.css");
     this.registerRequiredCSS("promises/promisePane.css");
     this.element.classList.add("promises");
 
-    var toolbar = new WebInspector.Toolbar(this.element);
-    this._recordButton = new WebInspector.ToolbarButton("", "record-toolbar-item");
+    var toolbar = new WebInspector.Toolbar("", this.element);
+    this._recordButton = new WebInspector.ToolbarToggle("", "record-toolbar-item");
     this._recordButton.addEventListener("click", this._recordButtonClicked.bind(this));
     toolbar.appendToolbarItem(this._recordButton);
 
@@ -38,7 +37,7 @@ WebInspector.PromisePane = function()
     var asyncCheckbox = new WebInspector.ToolbarCheckbox(WebInspector.UIString("Async"), WebInspector.UIString("Capture async stack traces"), WebInspector.moduleSetting("enableAsyncStackTraces"));
     toolbar.appendToolbarItem(asyncCheckbox);
 
-    this.element.appendChild(this._filterBar.filtersElement());
+    this._filterBar.show(this.element);
 
     this._hiddenByFilterCount = 0;
     this._filterStatusMessageElement = this.element.createChild("div", "promises-filter-status hidden");
@@ -48,8 +47,6 @@ WebInspector.PromisePane = function()
     resetFiltersLink.textContent = WebInspector.UIString("Show all promises.");
     resetFiltersLink.addEventListener("click", this._resetFilters.bind(this), true);
 
-    this._dataGridContainer = new WebInspector.DataGridContainerWidget();
-    this._dataGridContainer.show(this.element);
     // FIXME: Make "status" column width fixed to ~16px.
     var columns = [
         { id: "status", weight: 1 },
@@ -60,7 +57,7 @@ WebInspector.PromisePane = function()
     ];
     this._dataGrid = new WebInspector.ViewportDataGrid(columns, undefined, undefined, undefined, this._onContextMenu.bind(this));
     this._dataGrid.setStickToBottom(true);
-    this._dataGridContainer.appendDataGrid(this._dataGrid);
+    this._dataGrid.asWidget().show(this.element);
 
     this._linkifier = new WebInspector.Linkifier();
 
@@ -107,14 +104,15 @@ WebInspector.PromiseDetails.prototype = {
             this.status = details.status;
         if (details.parentId)
             this.parentId = details.parentId;
-        if (details.callFrame)
-            this.callFrame = details.callFrame;
         if (details.creationTime)
             this.creationTime = details.creationTime;
         if (details.settlementTime)
             this.settlementTime = details.settlementTime;
-        if (details.creationStack)
+        if (details.creationStack) {
             this.creationStack = details.creationStack;
+            if (this.creationStack.callFrames.length)
+                this.callFrame = this.creationStack.callFrames[0];
+        }
         if (details.asyncCreationStack)
             this.asyncCreationStack = details.asyncCreationStack;
         if (details.settlementStack)
@@ -603,16 +601,12 @@ WebInspector.PromisePane.prototype = {
         var details = this._promiseDetailsByDebuggerModel.get(this._debuggerModel).get(node.promiseId());
 
         var stackTrace;
-        var asyncStackTrace;
-        if (anchor.classList.contains("created-column")) {
+        if (anchor.classList.contains("created-column"))
             stackTrace = details.creationStack;
-            asyncStackTrace = details.asyncCreationStack;
-        } else {
+        else
             stackTrace = details.settlementStack;
-            asyncStackTrace = details.asyncSettlementStack;
-        }
 
-        var content = WebInspector.DOMPresentationUtils.buildStackTracePreviewContents(this._debuggerModel.target(), this._linkifier, stackTrace, asyncStackTrace);
+        var content = WebInspector.DOMPresentationUtils.buildStackTracePreviewContents(this._debuggerModel.target(), this._linkifier, stackTrace);
         popover.setCanShrink(true);
         popover.showForAnchor(content, anchor);
     },
@@ -693,7 +687,7 @@ WebInspector.PromiseDataGridNode.prototype = {
 
     /**
      * @param {!Element} cell
-     * @param {?ConsoleAgent.CallFrame=} callFrame
+     * @param {?RuntimeAgent.CallFrame=} callFrame
      */
     _appendCallFrameAnchor: function(cell, callFrame)
     {
@@ -742,7 +736,7 @@ WebInspector.PromiseDataGridNode.prototype = {
             break;
 
         case "settled":
-            this._appendCallFrameAnchor(cell, details.settlementStack ? details.settlementStack[0] : null);
+            this._appendCallFrameAnchor(cell, details.settlementStack && details.settlementStack.callFrames.length ? details.settlementStack.callFrames[0] : null);
             break;
 
         case "tts":
@@ -765,7 +759,7 @@ WebInspector.PromiseDataGridNode.prototype = {
     },
 
     /**
-     * @param {?ConsoleAgent.CallFrame=} callFrame
+     * @param {?RuntimeAgent.CallFrame=} callFrame
      * @return {string}
      */
     _callFrameAnchorTextForSearch: function(callFrame)
@@ -787,7 +781,7 @@ WebInspector.PromiseDataGridNode.prototype = {
         var texts = [
             WebInspector.beautifyFunctionName(details.callFrame ? details.callFrame.functionName : ""),
             this._callFrameAnchorTextForSearch(details.callFrame),
-            this._callFrameAnchorTextForSearch(details.settlementStack ? details.settlementStack[0] : null),
+            this._callFrameAnchorTextForSearch(details.settlementStack && details.settlementStack.callFrames.length ? details.settlementStack.callFrames[0] : null),
             this._ttsCellText().replace(/\u2009/g, " ") // \u2009 is a thin space.
         ];
         return texts.join(" ");

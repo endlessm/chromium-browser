@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/filesystem/EntrySync.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -95,4 +94,4 @@ DEFINE_TRACE(EntrySync)
     EntryBase::trace(visitor);
 }
 
-}
+} // namespace blink

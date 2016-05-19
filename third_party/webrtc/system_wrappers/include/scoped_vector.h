@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "webrtc/base/checks.h"
+#include "webrtc/base/deprecation.h"
 #include "webrtc/system_wrappers/include/stl_util.h"
 
 namespace webrtc {
@@ -43,9 +44,7 @@ class ScopedVector {
   ~ScopedVector() { clear(); }
 
   // Move construction and assignment.
-  ScopedVector(ScopedVector&& other) {
-    *this = static_cast<ScopedVector&&>(other);
-  }
+  ScopedVector(ScopedVector&& other) { *this = std::move(other); }
   ScopedVector& operator=(ScopedVector&& other) {
     std::swap(v_, other.v_);  // The arguments are std::vectors, so std::swap
                               // is the one that we want.
@@ -58,7 +57,11 @@ class ScopedVector {
   ScopedVector& operator=(const ScopedVector& other) = delete;
 
   // Get an rvalue reference. (sv.Pass() does the same thing as std::move(sv).)
-  ScopedVector&& Pass() { return static_cast<ScopedVector&&>(*this); }
+  // Deprecated; remove in March 2016 (bug 5373).
+  RTC_DEPRECATED ScopedVector&& Pass() { return DEPRECATED_Pass(); }
+  ScopedVector&& DEPRECATED_Pass() {
+    return std::move(*this);
+  }
 
   reference operator[](size_t index) { return v_[index]; }
   const_reference operator[](size_t index) const { return v_[index]; }

@@ -4,6 +4,8 @@
 
 #include "sync/engine/syncer_proto_util.h"
 
+#include <map>
+
 #include "base/format_macros.h"
 #include "base/strings/stringprintf.h"
 #include "google_apis/google_api_keys.h"
@@ -122,18 +124,12 @@ SyncProtocolErrorType PBErrorTypeToSyncProtocolErrorType(
       return MIGRATION_DONE;
     case sync_pb::SyncEnums::DISABLED_BY_ADMIN:
       return DISABLED_BY_ADMIN;
-    case sync_pb::SyncEnums::USER_ROLLBACK:
-      return USER_ROLLBACK;
     case sync_pb::SyncEnums::PARTIAL_FAILURE:
       return PARTIAL_FAILURE;
     case sync_pb::SyncEnums::CLIENT_DATA_OBSOLETE:
       return CLIENT_DATA_OBSOLETE;
     case sync_pb::SyncEnums::UNKNOWN:
       return UNKNOWN_ERROR;
-    case sync_pb::SyncEnums::USER_NOT_ACTIVATED:
-    case sync_pb::SyncEnums::AUTH_INVALID:
-    case sync_pb::SyncEnums::ACCESS_DENIED:
-      return INVALID_CREDENTIAL;
     default:
       NOTREACHED();
       return UNKNOWN_ERROR;
@@ -195,8 +191,6 @@ SyncProtocolError ErrorCodeToSyncProtocolError(
     error.action = RESET_LOCAL_SYNC_DATA;
   } else if (error_type == sync_pb::SyncEnums::DISABLED_BY_ADMIN) {
     error.action = STOP_SYNC_FOR_DISABLED_ACCOUNT;
-  } else if (error_type == sync_pb::SyncEnums::USER_ROLLBACK) {
-    error.action = DISABLE_SYNC_AND_ROLLBACK;
   }  // There is no other action we can compute for legacy server.
   return error;
 }
@@ -345,28 +339,13 @@ bool SyncerProtoUtil::PostAndProcessHeaders(ServerConnectionManager* scm,
             ClientToServerMessage::default_instance().protocol_version());
   msg.SerializeToString(&params.buffer_in);
 
-  ScopedServerStatusWatcher server_status_watcher(scm, &params.response);
   // Fills in params.buffer_out and params.response.
-  if (!scm->PostBufferWithCachedAuth(&params, &server_status_watcher)) {
+  if (!scm->PostBufferWithCachedAuth(&params)) {
     LOG(WARNING) << "Error posting from syncer:" << params.response;
     return false;
   }
 
-  if (response->ParseFromString(params.buffer_out)) {
-    // TODO(tim): This is an egregious layering violation (bug 35060).
-    switch (response->error_code()) {
-      case sync_pb::SyncEnums::ACCESS_DENIED:
-      case sync_pb::SyncEnums::AUTH_INVALID:
-      case sync_pb::SyncEnums::USER_NOT_ACTIVATED:
-        // Fires on ScopedServerStatusWatcher
-        params.response.server_status = HttpResponse::SYNC_AUTH_ERROR;
-        return false;
-      default:
-        return true;
-    }
-  }
-
-  return false;
+  return response->ParseFromString(params.buffer_out);
 }
 
 base::TimeDelta SyncerProtoUtil::GetThrottleDelay(
@@ -515,8 +494,6 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
       return SERVER_RETURN_NOT_MY_BIRTHDAY;
     case DISABLED_BY_ADMIN:
       return SERVER_RETURN_DISABLED_BY_ADMIN;
-    case USER_ROLLBACK:
-      return SERVER_RETURN_USER_ROLLBACK;
     case PARTIAL_FAILURE:
       // This only happens when partial throttling during GetUpdates.
       if (!sync_protocol_error.error_data_types.Empty()) {

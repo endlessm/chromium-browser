@@ -9,6 +9,7 @@
 
 #include "base/callback.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 
 namespace content {
 class WebContents;
@@ -27,16 +28,15 @@ class VersionUpdater {
     FAILED_OFFLINE,
     FAILED_CONNECTION_TYPE_DISALLOWED,
     DISABLED,
+    DISABLED_BY_ADMIN
   };
 
-#if defined(OS_MACOSX)
-  // Promotion state.
+  // Promotion state (Mac-only).
   enum PromotionState {
     PROMOTE_HIDDEN,
     PROMOTE_ENABLED,
     PROMOTE_DISABLED
   };
-#endif  // defined(OS_MACOSX)
 
   // TODO(jhawkins): Use a delegate interface instead of multiple callback
   // types.
@@ -50,25 +50,23 @@ class VersionUpdater {
   typedef base::Callback<void(Status, int, const base::string16&)>
       StatusCallback;
 
-#if defined(OS_MACOSX)
-  // Used to show or hide the promote UI elements.
+  // Used to show or hide the promote UI elements. Mac-only.
   typedef base::Callback<void(PromotionState)> PromoteCallback;
-#endif
 
   virtual ~VersionUpdater() {}
 
   // Sub-classes must implement this method to create the respective
-  // specialization.
+  // specialization. |web_contents| may be null, in which case any required UX
+  // (e.g., UAC to elevate on Windows) may not be associated with any existing
+  // browser windows.
   static VersionUpdater* Create(content::WebContents* web_contents);
 
   // Begins the update process by checking for update availability.
-  // |status_callback| is called for each status update. |promote_callback| can
-  // be used to show or hide the promote UI elements.
-  virtual void CheckForUpdate(const StatusCallback& status_callback
-#if defined(OS_MACOSX)
-                              , const PromoteCallback& promote_callback
-#endif
-                              ) = 0;
+  // |status_callback| is called for each status update. |promote_callback|
+  // (which is only used on the Mac) can be used to show or hide the promote UI
+  // elements.
+  virtual void CheckForUpdate(const StatusCallback& status_callback,
+                              const PromoteCallback& promote_callback) = 0;
 
 #if defined(OS_MACOSX)
   // Make updates available for all users.

@@ -16,14 +16,12 @@ source_set("renderer") {
     "key_systems_cast.h",
   ]
 
+  public_deps = [
+    "//chromecast/renderer/media",
+  ]
+
   if (chromecast_branding == "public") {
     sources += [ "cast_content_renderer_client_simple.cc" ]
-  }
-
-  if (!is_android) {
-    public_deps = [
-      "//chromecast/renderer/media",
-    ]
   }
 
   if (use_playready) {
@@ -33,8 +31,8 @@ source_set("renderer") {
   deps = [
     "//base",
     "//chromecast/base",
-    "//chromecast/crash",
     "//chromecast/common/media",
+    "//chromecast/crash",
     "//chromecast/media",
     "//components/cdm/renderer",
     "//components/network_hints/renderer",

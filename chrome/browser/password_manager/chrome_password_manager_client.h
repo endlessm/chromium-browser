@@ -5,16 +5,18 @@
 #ifndef CHROME_BROWSER_PASSWORD_MANAGER_CHROME_PASSWORD_MANAGER_CLIENT_H_
 #define CHROME_BROWSER_PASSWORD_MANAGER_CHROME_PASSWORD_MANAGER_CLIENT_H_
 
-#include "base/basictypes.h"
+#include <vector>
+
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
-#include "base/prefs/pref_member.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
 #include "components/password_manager/content/browser/credential_manager_dispatcher.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
-#include "components/password_manager/sync/browser/sync_store_result_filter.h"
+#include "components/password_manager/sync/browser/sync_credentials_filter.h"
+#include "components/prefs/pref_member.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/gfx/geometry/rect.h"
@@ -59,18 +61,23 @@ class ChromePasswordManagerClient
       base::Callback<void(const password_manager::CredentialInfo&)> callback)
       override;
   void ForceSavePassword() override;
+  void GeneratePassword() override;
   void NotifyUserAutoSignin(
       ScopedVector<autofill::PasswordForm> local_forms) override;
+  void NotifyUserCouldBeAutoSignedIn(
+      scoped_ptr<autofill::PasswordForm> form) override;
+  void NotifySuccessfulLoginWithExistingPassword(
+      const autofill::PasswordForm& form) override;
   void AutomaticPasswordSave(scoped_ptr<password_manager::PasswordFormManager>
                                  saved_form_manager) override;
-  void PasswordWasAutofilled(const autofill::PasswordFormMap& best_matches,
-                             const GURL& origin) const override;
+  void PasswordWasAutofilled(
+      const autofill::PasswordFormMap& best_matches,
+      const GURL& origin,
+      const std::vector<scoped_ptr<autofill::PasswordForm>>* federated_matches)
+      const override;
   PrefService* GetPrefs() override;
   password_manager::PasswordStore* GetPasswordStore() const override;
   password_manager::PasswordSyncState GetPasswordSyncState() const override;
-  void OnLogRouterAvailabilityChanged(bool router_can_be_used) override;
-  void LogSavePasswordProgress(const std::string& text) const override;
-  bool IsLoggingActive() const override;
   bool WasLastNavigationHTTPError() const override;
   bool DidLastPageLoadEncounterSSLErrors() const override;
   bool IsOffTheRecord() const override;
@@ -81,6 +88,7 @@ class ChromePasswordManagerClient
   const GURL& GetLastCommittedEntryURL() const override;
   const password_manager::CredentialsFilter* GetStoreResultFilter()
       const override;
+  const password_manager::LogManager* GetLogManager() const override;
 
   // Hides any visible generation UI.
   void HidePasswordGenerationPopup();
@@ -96,9 +104,6 @@ class ChromePasswordManagerClient
   // the sad old Infobar UI.
   static bool IsTheHotNewBubbleUIEnabled();
 
-  // Returns true if the password manager should be enabled during sync signin.
-  static bool EnabledForSyncSignin();
-
  protected:
   // Callable for tests.
   ChromePasswordManagerClient(content::WebContents* web_contents,
@@ -110,6 +115,8 @@ class ChromePasswordManagerClient
   // content::WebContentsObserver overrides.
   bool OnMessageReceived(const IPC::Message& message,
                          content::RenderFrameHost* render_frame_host) override;
+  void DidStartNavigation(
+      content::NavigationHandle* navigation_handle) override;
 
   // Given |bounds| in the renderers coordinate system, return the same bounds
   // in the screens coordinate system.
@@ -122,10 +129,15 @@ class ChromePasswordManagerClient
 
   // Causes the password generation UI to be shown for the specified form.
   // The popup will be anchored at |element_bounds|. The generated password
-  // will be no longer than |max_length|.
+  // will be no longer than |max_length|. |generation_element| should contain a
+  // name of a password field at which generation popup is attached.
+  // |is_manually_triggered| informs whether it is automatically or manually
+  // triggered generation.
   void ShowPasswordGenerationPopup(content::RenderFrameHost* render_frame_host,
                                    const gfx::RectF& bounds,
                                    int max_length,
+                                   const base::string16& generation_element,
+                                   bool is_manually_triggered,
                                    const autofill::PasswordForm& form);
 
   // Causes the password editing UI to be shown anchored at |element_bounds|.
@@ -133,13 +145,19 @@ class ChromePasswordManagerClient
                                 const gfx::RectF& bounds,
                                 const autofill::PasswordForm& form);
 
+  // Shows the dialog where the user can accept or decline the global autosignin
+  // setting as a first run experience. The dialog won't appear in Incognito or
+  // when the autosign-in is off.
+  void PromptUserToEnableAutosigninIfNecessary();
+
   // Notify the PasswordManager that generation is available for |form|. Used
   // for UMA stats.
   void GenerationAvailableForForm(const autofill::PasswordForm& form);
 
-  // Sends a message to the renderer with the current value of
-  // |can_use_log_router_|.
-  void NotifyRendererOfLoggingAvailability();
+  // Called as a response to PromptUserToChooseCredentials.
+  void OnCredentialsChosen(
+      base::Callback<void(const password_manager::CredentialInfo&)> callback,
+      const password_manager::CredentialInfo& credential);
 
   Profile* const profile_;
 
@@ -157,14 +175,17 @@ class ChromePasswordManagerClient
   base::WeakPtr<
     autofill::PasswordGenerationPopupControllerImpl> popup_controller_;
 
-  // True if |this| is registered with some LogRouter which can accept logs.
-  bool can_use_log_router_;
-
   // Set to false to disable password saving (will no longer ask if you
   // want to save passwords and also won't fill the passwords).
   BooleanPrefMember saving_and_filling_passwords_enabled_;
 
-  const password_manager::SyncStoreResultFilter credentials_filter_;
+  const password_manager::SyncCredentialsFilter credentials_filter_;
+
+  scoped_ptr<password_manager::LogManager> log_manager_;
+
+  // Set during 'NotifyUserCouldBeAutoSignedIn' in order to store the
+  // form for potential use during 'NotifySuccessfulLoginWithExistingPassword'.
+  scoped_ptr<autofill::PasswordForm> possible_auto_sign_in_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromePasswordManagerClient);
 };

@@ -19,3 +19,8 @@ Added gyp support to __arm64__
 
 Use '_byteswap_*' functions to convert between host and network byte order on
 Windows.
+
+Initialized "failures" to 0 in replay_driver.c -- merges
+https://github.com/cisco/libsrtp/pull/138
+
+Renamed "mips" to "mips_value" in srtp_driver.c to fix MIPS build.

@@ -5,6 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/range.html">
 <link rel="import" href="/tracing/ui/base/chart_base.html">
 <link rel="import" href="/tracing/ui/base/mouse_tracker.html">
@@ -34,6 +35,9 @@ tr.exportTo('tr.ui.b', function() {
       this.classList.add('chart-base-2d');
       this.xScale_ = d3.scale.linear();
       this.yScale_ = d3.scale.linear();
+      this.isYLogScale_ = false;
+      this.yLogScaleMin_ = undefined;
+      this.dataRange_ = new tr.b.Range();
 
       this.data_ = [];
       this.seriesKeys_ = [];
@@ -67,7 +71,26 @@ tr.exportTo('tr.ui.b', function() {
 
       this.data_ = data;
       this.updateSeriesKeys_();
+      this.updateDataRange_();
       this.updateContents_();
+    },
+
+    set isYLogScale(logScale) {
+      if (logScale)
+        this.yScale_ = d3.scale.log(10);
+      else
+        this.yScale_ = d3.scale.linear();
+      this.isYLogScale_ = logScale;
+    },
+
+    getYScaleMin_: function() {
+      return this.isYLogScale_ ? this.yLogScaleMin_ : 0;
+    },
+
+    getYScaleDomain_: function(minValue, maxValue) {
+      if (this.isYLogScale_)
+        return [this.getYScaleMin_(), maxValue];
+      return [Math.min(minValue, this.getYScaleMin_()), maxValue];
     },
 
     getSampleWidth_: function(data, index, leftSide) {
@@ -171,12 +194,54 @@ tr.exportTo('tr.ui.b', function() {
       return margin;
     },
 
+    updateDataRange_: function() {
+      var dataBySeriesKey = this.getDataBySeriesKey_();
+      this.dataRange_.reset();
+      tr.b.iterItems(dataBySeriesKey, function(series, values) {
+        for (var i = 0; i < values.length; i++) {
+          this.dataRange_.addValue(values[i][series]);
+        }
+      }, this);
+
+      // Choose the closest power of 10, rounded down, as the smallest tick
+      // to display.
+      this.yLogScaleMin_ = undefined;
+      if (this.dataRange_.min !== undefined) {
+        var onePowerLess = Math.floor(
+            Math.log(this.dataRange_.min) / Math.log(10)) - 1;
+        this.yLogScaleMin_ = Math.pow(10, onePowerLess);
+      }
+    },
+
     updateYAxis_: function(yAxis) {
       yAxis.selectAll('*').remove();
       yAxis[0][0].style.opacity = 0;
-      yAxis.call(d3.svg.axis()
+
+      var axisModifier = d3.svg.axis()
         .scale(this.yScale_)
-        .orient('left'));
+        .orient('left');
+
+      if (this.isYLogScale_) {
+        if (this.yLogScaleMin_ === undefined)
+          return;
+        var largestPower = Math.ceil(
+            Math.log(this.dataRange_.max) / Math.log(10)) + 1;
+        var smallestPower = Math.floor(
+            Math.log(this.dataRange_.min) / Math.log(10));
+        var tickValues = [];
+        for (var i = smallestPower; i < largestPower; i++) {
+          tickValues.push(Math.pow(10, i));
+        }
+
+        axisModifier = axisModifier
+          .tickValues(tickValues)
+          .tickFormat(function(d) {
+            return d;
+          });
+      }
+
+      yAxis.call(axisModifier);
+
       window.requestAnimationFrame(function() {
         var previousTop = undefined;
         var leftMargin = 0;
@@ -240,10 +305,13 @@ tr.exportTo('tr.ui.b', function() {
           if (multiSeriesDatum[seriesKey] === undefined)
             return;
 
+          if (!this.isDatumFieldSeries_(seriesKey))
+            return;
+
           var singleSeriesDatum = {x: x};
           singleSeriesDatum[seriesKey] = multiSeriesDatum[seriesKey];
           dataBySeriesKey[seriesKey].push(singleSeriesDatum);
-        });
+        }, this);
       }, this);
 
       return dataBySeriesKey;

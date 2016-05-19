@@ -18,23 +18,27 @@ def _RelPathToUnixPath(p):
 
 def RunTests():
   project = tracing_project.TracingProject()
-  d8_test_module_filenames = ['/' + _RelPathToUnixPath(x)
-                              for x in project.FindAllD8TestModuleRelPaths()]
-  d8_test_module_filenames.sort()
+  headless_test_module_filenames = [
+      '/' + _RelPathToUnixPath(x)
+      for x in project.FindAllD8TestModuleRelPaths()]
+  headless_test_module_filenames.sort()
 
   cmd = """
-  loadHTML('/tracing/base/d8_tests.html');
+  HTMLImportsLoader.loadHTML('/tracing/base/headless_tests.html');
+  tr.b.unittest.loadAndRunTests(sys.argv.slice(1));
   """
   res = vinn.RunJsString(
-    cmd, source_paths=list(project.source_paths),
-    js_args=d8_test_module_filenames, stdout=sys.stdout, stdin=sys.stdin)
+      cmd, source_paths=list(project.source_paths),
+      js_args=headless_test_module_filenames,
+      stdout=sys.stdout, stdin=sys.stdin)
   return res.returncode
+
 
 def Main(argv):
   parser = argparse.ArgumentParser(
       description='Run d8 tests.')
   parser.add_argument(
-    '--no-install-hooks', dest='install_hooks', action='store_false')
+      '--no-install-hooks', dest='install_hooks', action='store_false')
   parser.set_defaults(install_hooks=True)
   args = parser.parse_args(argv[1:])
   if args.install_hooks:

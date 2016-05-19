@@ -29,6 +29,7 @@
     '../third_party/skia/src/images/SkScaledBitmapSampler.cpp',
 
     '../third_party/skia/src/ports/SkFontConfigInterface_direct.cpp',
+    '../third_party/skia/src/ports/SkFontConfigInterface_direct_factory.cpp',
 
     '../third_party/skia/src/fonts/SkFontMgr_fontconfig.cpp',
     '../third_party/skia/src/ports/SkFontHost_fontconfig.cpp',
@@ -47,7 +48,7 @@
     "../third_party/skia/src/ports/SkFontMgr_android_factory.cpp",
     '../third_party/skia/src/ports/SkFontMgr_android_parser.cpp',
     '../third_party/skia/src/ports/SkFontMgr_win_dw.cpp',
-    '../third_party/skia/src/ports/SkGlobalInitialization_chromium.cpp',
+    '../third_party/skia/src/ports/SkGlobalInitialization_default.cpp',
     '../third_party/skia/src/ports/SkOSFile_posix.cpp',
     '../third_party/skia/src/ports/SkOSFile_stdio.cpp',
     '../third_party/skia/src/ports/SkOSFile_win.cpp',
@@ -63,12 +64,9 @@
 
   # Exclude all unused files in skia utils.gypi file
   'sources!': [
-  '../third_party/skia/src/utils/SkBitmapHasher.cpp',
   '../third_party/skia/src/utils/SkBoundaryPatch.cpp',
   '../third_party/skia/src/utils/SkFrontBufferedStream.cpp',
   '../third_party/skia/src/utils/SkCamera.cpp',
-  '../third_party/skia/src/utils/SkCubicInterval.cpp',
-  '../third_party/skia/src/utils/SkCullPoints.cpp',
   '../third_party/skia/src/utils/SkDumpCanvas.cpp',
   '../third_party/skia/src/utils/SkInterpolator.cpp',
   '../third_party/skia/src/utils/SkLayer.cpp',
@@ -77,7 +75,6 @@
   '../third_party/skia/src/utils/SkNinePatch.cpp',
   '../third_party/skia/src/utils/SkOSFile.cpp',
   '../third_party/skia/src/utils/SkParsePath.cpp',
-  '../third_party/skia/src/utils/SkSHA1.cpp',
 
 #windows
   '../third_party/skia/src/utils/win/SkAutoCoInitialize.cpp',
@@ -91,6 +88,7 @@
   'include_dirs': [
     '../third_party/skia/include/c',
     '../third_party/skia/include/core',
+    '../third_party/skia/include/client/android',
     '../third_party/skia/include/effects',
     '../third_party/skia/include/images',
     '../third_party/skia/include/lazy',
@@ -179,6 +177,7 @@
     [ 'OS=="win" or OS=="mac" or OS=="ios" or OS=="android"', {
       'sources!': [
         '../third_party/skia/src/ports/SkFontConfigInterface_direct.cpp',
+        '../third_party/skia/src/ports/SkFontConfigInterface_direct_factory.cpp',
         '../third_party/skia/src/ports/SkFontHost_fontconfig.cpp',
         '../third_party/skia/src/fonts/SkFontMgr_fontconfig.cpp',
       ],

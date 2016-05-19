@@ -40,18 +40,27 @@ void FieldTrialSynchronizer::NotifyAllRenderers(
   // need to be on the UI thread.
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
+  // Check that the sender's PID doesn't change between messages. We expect
+  // these IPCs to always be delivered from the same browser process, whose pid
+  // should not change.
+  // TODO(asvitkine): Remove this after http://crbug.com/359406 is fixed.
+  static base::ProcessId sender_pid = base::Process::Current().Pid();
   for (content::RenderProcessHost::iterator it(
           content::RenderProcessHost::AllHostsIterator());
        !it.IsAtEnd(); it.Advance()) {
-    it.GetCurrentValue()->Send(
-        new ChromeViewMsg_SetFieldTrialGroup(field_trial_name, group_name));
+    it.GetCurrentValue()->Send(new ChromeViewMsg_SetFieldTrialGroup(
+        field_trial_name, group_name, sender_pid));
   }
 }
 
 void FieldTrialSynchronizer::OnFieldTrialGroupFinalized(
     const std::string& field_trial_name,
     const std::string& group_name) {
+  // TODO(asvitkine): Remove these CHECKs once http://crbug.com/359406 is fixed.
   CHECK(!field_trial_name.empty() && !group_name.empty());
+  CHECK_EQ(group_name, base::FieldTrialList::FindFullName(field_trial_name))
+      << field_trial_name << ":" << group_name << "=>"
+      << base::FieldTrialList::FindFullName(field_trial_name);
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::Bind(&FieldTrialSynchronizer::NotifyAllRenderers,

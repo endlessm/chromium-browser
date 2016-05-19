@@ -30,7 +30,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/graphics/ImageBuffer.h"
 
 #include "GrContext.h"
@@ -64,7 +63,7 @@ PassOwnPtr<ImageBuffer> ImageBuffer::create(PassOwnPtr<ImageBufferSurface> surfa
 {
     if (!surface->isValid())
         return nullptr;
-    return adoptPtr(new ImageBuffer(surface));
+    return adoptPtr(new ImageBuffer(std::move(surface)));
 }
 
 PassOwnPtr<ImageBuffer> ImageBuffer::create(const IntSize& size, OpacityMode opacityMode, ImageInitializationMode initializationMode)
@@ -77,26 +76,29 @@ PassOwnPtr<ImageBuffer> ImageBuffer::create(const IntSize& size, OpacityMode opa
 
 ImageBuffer::ImageBuffer(PassOwnPtr<ImageBufferSurface> surface)
     : m_snapshotState(InitialSnapshotState)
-    , m_surface(surface)
+    , m_surface(std::move(surface))
     , m_client(0)
+    , m_gpuMemoryUsage(0)
 {
     m_surface->setImageBuffer(this);
+    updateGPUMemoryUsage();
 }
+
+intptr_t ImageBuffer::s_globalGPUMemoryUsage = 0;
 
 ImageBuffer::~ImageBuffer()
 {
+    ImageBuffer::s_globalGPUMemoryUsage -= m_gpuMemoryUsage;
 }
 
 SkCanvas* ImageBuffer::canvas() const
 {
-    if (!isSurfaceValid())
-        return nullptr;
     return m_surface->canvas();
 }
 
-void ImageBuffer::disableDeferral() const
+void ImageBuffer::disableDeferral(DisableDeferralReason reason) const
 {
-    return m_surface->disableDeferral();
+    return m_surface->disableDeferral(reason);
 }
 
 bool ImageBuffer::writePixels(const SkImageInfo& info, const void* pixels, size_t rowBytes, int x, int y)
@@ -143,19 +145,19 @@ void ImageBuffer::resetCanvas(SkCanvas* canvas) const
         m_client->restoreCanvasMatrixClipStack(canvas);
 }
 
-PassRefPtr<SkImage> ImageBuffer::newSkImageSnapshot(AccelerationHint hint) const
+PassRefPtr<SkImage> ImageBuffer::newSkImageSnapshot(AccelerationHint hint, SnapshotReason reason) const
 {
     if (m_snapshotState == InitialSnapshotState)
         m_snapshotState = DidAcquireSnapshot;
 
     if (!isSurfaceValid())
         return nullptr;
-    return m_surface->newImageSnapshot(hint);
+    return m_surface->newImageSnapshot(hint, reason);
 }
 
-PassRefPtr<Image> ImageBuffer::newImageSnapshot(AccelerationHint hint) const
+PassRefPtr<Image> ImageBuffer::newImageSnapshot(AccelerationHint hint, SnapshotReason reason) const
 {
-    RefPtr<SkImage> snapshot = newSkImageSnapshot(hint);
+    RefPtr<SkImage> snapshot = newSkImageSnapshot(hint, reason);
     if (!snapshot)
         return nullptr;
     return StaticBitmapImage::create(snapshot);
@@ -181,7 +183,7 @@ bool ImageBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platform3
     if (!isSurfaceValid())
         return false;
 
-    RefPtr<const SkImage> textureImage = m_surface->newImageSnapshot(PreferAcceleration);
+    RefPtr<const SkImage> textureImage = m_surface->newImageSnapshot(PreferAcceleration, SnapshotReasonCopyToWebGLTexture);
     if (!textureImage)
         return false;
 
@@ -207,25 +209,28 @@ bool ImageBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platform3
     // Contexts may be in a different share group. We must transfer the texture through a mailbox first
     sharedContext->genMailboxCHROMIUM(mailbox->name);
     sharedContext->produceTextureDirectCHROMIUM(textureId, GL_TEXTURE_2D, mailbox->name);
+    const WGC3Duint64 sharedFenceSync = sharedContext->insertFenceSyncCHROMIUM();
     sharedContext->flush();
 
-    mailbox->validSyncToken = sharedContext->insertSyncPoint(mailbox->syncToken);
+    mailbox->validSyncToken = sharedContext->genSyncTokenCHROMIUM(sharedFenceSync, mailbox->syncToken);
     if (mailbox->validSyncToken)
-        context->waitSyncToken(mailbox->syncToken);
+        context->waitSyncTokenCHROMIUM(mailbox->syncToken);
 
     Platform3DObject sourceTexture = context->createAndConsumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox->name);
 
     // The canvas is stored in a premultiplied format, so unpremultiply if necessary.
     // The canvas is stored in an inverted position, so the flip semantics are reversed.
-    context->copyTextureCHROMIUM(GL_TEXTURE_2D, sourceTexture, texture, internalFormat, destType, flipY ? GL_FALSE : GL_TRUE, GL_FALSE, premultiplyAlpha ? GL_FALSE : GL_TRUE);
+    context->copyTextureCHROMIUM(sourceTexture, texture, internalFormat, destType, flipY ? GL_FALSE : GL_TRUE, GL_FALSE, premultiplyAlpha ? GL_FALSE : GL_TRUE);
 
     context->deleteTexture(sourceTexture);
+
+    const WGC3Duint64 contextFenceSync = context->insertFenceSyncCHROMIUM();
 
     context->flush();
 
     WGC3Dbyte syncToken[24];
-    if (context->insertSyncPoint(syncToken))
-        sharedContext->waitSyncToken(syncToken);
+    if (context->genSyncTokenCHROMIUM(contextFenceSync, syncToken))
+        sharedContext->waitSyncTokenCHROMIUM(syncToken);
 
     // Undo grContext texture binding changes introduced in this function
     provider->grContext()->resetContext(kTextureBinding_GrGLBackendState);
@@ -253,26 +258,26 @@ bool ImageBuffer::copyRenderingResultsFromDrawingBuffer(DrawingBuffer* drawingBu
         GL_UNSIGNED_BYTE, 0, true, false, sourceBuffer);
 }
 
-void ImageBuffer::draw(GraphicsContext* context, const FloatRect& destRect, const FloatRect* srcPtr, SkXfermode::Mode op)
+void ImageBuffer::draw(GraphicsContext& context, const FloatRect& destRect, const FloatRect* srcPtr, SkXfermode::Mode op)
 {
     if (!isSurfaceValid())
         return;
 
-    FloatRect srcRect = srcPtr ? *srcPtr : FloatRect(FloatPoint(), size());
+    FloatRect srcRect = srcPtr ? *srcPtr : FloatRect(FloatPoint(), FloatSize(size()));
     m_surface->draw(context, destRect, srcRect, op);
 }
 
-void ImageBuffer::flush()
+void ImageBuffer::flush(FlushReason reason)
 {
     if (m_surface->canvas()) {
-        m_surface->flush();
+        m_surface->flush(reason);
     }
 }
 
-void ImageBuffer::flushGpu()
+void ImageBuffer::flushGpu(FlushReason reason)
 {
     if (m_surface->canvas()) {
-        m_surface->flushGpu();
+        m_surface->flushGpu(reason);
     }
 }
 
@@ -291,7 +296,7 @@ bool ImageBuffer::getImageData(Multiply multiplied, const IntRect& rect, WTF::Ar
     }
 
     ASSERT(canvas());
-    RefPtr<SkImage> snapshot = m_surface->newImageSnapshot(PreferNoAcceleration);
+    RefPtr<SkImage> snapshot = m_surface->newImageSnapshot(PreferNoAcceleration, SnapshotReasonGetImageData);
     if (!snapshot)
         return false;
 
@@ -345,13 +350,32 @@ void ImageBuffer::putByteArray(Multiply multiplied, const unsigned char* source,
     m_surface->writePixels(info, srcAddr, srcBytesPerRow, destX, destY);
 }
 
+void ImageBuffer::updateGPUMemoryUsage() const
+{
+    if (this->isAccelerated()) {
+        // If image buffer is accelerated, we should keep track of GPU memory usage.
+        int gpuBufferCount = 2;
+        Checked<intptr_t, RecordOverflow> checkedGPUUsage = 4 * gpuBufferCount;
+        checkedGPUUsage *= this->size().width();
+        checkedGPUUsage *= this->size().height();
+        intptr_t gpuMemoryUsage;
+        if (checkedGPUUsage.safeGet(gpuMemoryUsage) == CheckedState::DidOverflow)
+            gpuMemoryUsage = std::numeric_limits<intptr_t>::max();
+
+        s_globalGPUMemoryUsage += (gpuMemoryUsage - m_gpuMemoryUsage);
+        m_gpuMemoryUsage = gpuMemoryUsage;
+    } else if (m_gpuMemoryUsage > 0) {
+        // In case of switching from accelerated to non-accelerated mode,
+        // the GPU memory usage needs to be updated too.
+        s_globalGPUMemoryUsage -= m_gpuMemoryUsage;
+        m_gpuMemoryUsage = 0;
+    }
+}
+
 bool ImageDataBuffer::encodeImage(const String& mimeType, const double& quality, Vector<unsigned char>* encodedImage) const
 {
     if (mimeType == "image/jpeg") {
-        int compressionQuality = JPEGImageEncoder::DefaultCompressionQuality;
-        if (quality >= 0.0 && quality <= 1.0)
-            compressionQuality = static_cast<int>(quality * 100 + 0.5);
-        if (!JPEGImageEncoder::encode(*this, compressionQuality, encodedImage))
+        if (!JPEGImageEncoder::encode(*this, quality, encodedImage))
             return false;
     } else if (mimeType == "image/webp") {
         int compressionQuality = WEBPImageEncoder::DefaultCompressionQuality;

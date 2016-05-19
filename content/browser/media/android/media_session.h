@@ -6,9 +6,11 @@
 #define CONTENT_BROWSER_MEDIA_ANDROID_MEDIA_SESSION_H_
 
 #include <jni.h>
+#include <stddef.h>
 
 #include "base/android/scoped_java_ref.h"
 #include "base/id_map.h"
+#include "base/macros.h"
 #include "content/browser/media/android/media_session_uma_helper.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -62,11 +64,28 @@ class CONTENT_EXPORT MediaSession
 
   // Called when the Android system requests the MediaSession to be suspended.
   // Called by Java through JNI.
-  void OnSuspend(JNIEnv* env, jobject obj, jboolean temporary);
+  void OnSuspend(JNIEnv* env,
+                 const base::android::JavaParamRef<jobject>& obj,
+                 jboolean temporary);
+
+  // Called when the Android system requests the MediaSession to duck.
+  // Called by Java through JNI.
+  void OnSetVolumeMultiplier(JNIEnv* env, jobject obj,
+                             jdouble volume_multiplier);
 
   // Called when the Android system requests the MediaSession to be resumed.
   // Called by Java through JNI.
-  void OnResume(JNIEnv* env, jobject obj);
+  void OnResume(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
+
+  // Called when the Android system requests the MediaSession to duck.
+  // Called by Java through JNI.
+  void RecordSessionDuck(JNIEnv* env,
+                         const base::android::JavaParamRef<jobject> &obj);
+
+  // Called when a player is paused in the content.
+  // If the paused player is the last player, we suspend the MediaSession.
+  // Otherwise, the paused player will be removed from the MediaSession.
+  void OnPlayerPaused(MediaSessionObserver* observer, int player_id);
 
   // Called when the user requests resuming the session. No-op if the session is
   // not controllable.
@@ -109,6 +128,8 @@ class CONTENT_EXPORT MediaSession
     SYSTEM,
     // Suspended by the UI.
     UI,
+    // Suspended by the page via script or user interaction.
+    CONTENT,
   };
 
   // Representation of a player for the MediaSession.
@@ -134,8 +155,9 @@ class CONTENT_EXPORT MediaSession
   // Setup the JNI.
   void Initialize();
 
-  void OnSuspendInternal(SuspendType type);
+  void OnSuspendInternal(SuspendType type, State new_state);
   void OnResumeInternal(SuspendType type);
+  void OnSetVolumeMultiplierInternal(double volume_multiplier);
 
   // Requests audio focus to Android using |j_media_session_|.
   // Returns whether the request was granted. If |j_media_session_| is null, it
@@ -161,6 +183,10 @@ class CONTENT_EXPORT MediaSession
   Type audio_focus_type_;
 
   MediaSessionUmaHelper uma_helper_;
+
+  // The volume multiplier of this session. All players in this session should
+  // multiply their volume with this multiplier to get the effective volume.
+  double volume_multiplier_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaSession);
 };

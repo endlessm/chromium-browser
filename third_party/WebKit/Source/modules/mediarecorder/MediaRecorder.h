@@ -9,6 +9,7 @@
 #include "core/events/EventTarget.h"
 #include "modules/EventTargetModules.h"
 #include "modules/ModulesExport.h"
+#include "modules/mediarecorder/MediaRecorderOptions.h"
 #include "modules/mediastream/MediaStream.h"
 #include "platform/AsyncMethodRunner.h"
 #include "public/platform/WebMediaRecorderHandler.h"
@@ -35,7 +36,7 @@ public:
     };
 
     static MediaRecorder* create(ExecutionContext*, MediaStream*, ExceptionState&);
-    static MediaRecorder* create(ExecutionContext*, MediaStream*, const String& mimeType, ExceptionState&);
+    static MediaRecorder* create(ExecutionContext*, MediaStream*, const MediaRecorderOptions&, ExceptionState&);
 
     virtual ~MediaRecorder() {}
 
@@ -44,6 +45,8 @@ public:
     String state() const;
     bool ignoreMutedMedia() const { return m_ignoreMutedMedia; }
     void setIgnoreMutedMedia(bool ignoreMutedMedia) { m_ignoreMutedMedia = ignoreMutedMedia; }
+    unsigned long videoBitsPerSecond() const { return m_videoBitsPerSecond; }
+    unsigned long audioBitsPerSecond() const { return m_audioBitsPerSecond; }
 
     DEFINE_ATTRIBUTE_EVENT_LISTENER(start);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(stop);
@@ -59,28 +62,26 @@ public:
     void resume(ExceptionState&);
     void requestData(ExceptionState&);
 
-    static String canRecordMimeType(const String& mimeType);
+    static bool isTypeSupported(const String& type);
 
     // EventTarget
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override;
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override;
 
     // ActiveDOMObject
-    virtual void suspend() override;
-    virtual void resume() override;
-    virtual void stop() override;
-    virtual bool hasPendingActivity() const override { return !m_stopped; }
+    void suspend() override;
+    void resume() override;
+    void stop() override;
+    bool hasPendingActivity() const override { return !m_stopped; }
 
     // WebMediaRecorderHandlerClient
-    virtual void writeData(const char* data, size_t length, bool lastInSlice) override;
-    virtual void failOutOfMemory(const WebString& message) override;
-    virtual void failIllegalStreamModification(const WebString& message) override;
-    virtual void failOtherRecordingError(const WebString& message) override;
+    void writeData(const char* data, size_t length, bool lastInSlice) override;
+    void onError(const WebString& message) override;
 
     DECLARE_VIRTUAL_TRACE();
 
 private:
-    MediaRecorder(ExecutionContext*, MediaStream*, const String& mimeType, ExceptionState&);
+    MediaRecorder(ExecutionContext*, MediaStream*, const MediaRecorderOptions&, ExceptionState&);
 
     void createBlobEvent(Blob*);
 
@@ -89,9 +90,12 @@ private:
     void dispatchScheduledEvent();
 
     Member<MediaStream> m_stream;
+    size_t m_streamAmountOfTracks;
     String m_mimeType;
     bool m_stopped;
     bool m_ignoreMutedMedia;
+    int m_audioBitsPerSecond;
+    int m_videoBitsPerSecond;
 
     State m_state;
 
@@ -99,7 +103,7 @@ private:
 
     OwnPtr<WebMediaRecorderHandler> m_recorderHandler;
 
-    AsyncMethodRunner<MediaRecorder> m_dispatchScheduledEventRunner;
+    Member<AsyncMethodRunner<MediaRecorder>> m_dispatchScheduledEventRunner;
     WillBeHeapVector<RefPtrWillBeMember<Event>> m_scheduledEvents;
 };
 

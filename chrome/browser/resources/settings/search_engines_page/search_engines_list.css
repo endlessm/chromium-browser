@@ -2,22 +2,24 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file. */
 
-.container {
-  max-height: 400px;
-  overflow-y: auto;
-  width: 760px;
+.headers {
+  display: flex;
+  padding: 10px 0;
 }
 
-.headers > div {
-  background-color: #6c6c6c;
-  color: white;
-  display: inline-block;
+.headers .name,
+.headers .keyword {
+  flex: 3;
 }
 
-.narrow-label {
-  width: 140px;
+.headers .url {
+  flex: 4.5;
 }
 
-.wide-label {
-  width: 300px;
+div {
+  margin: var(--search-engines-list-margin);
+}
+
+::content [is='action-link'] {
+  margin: var(--search-engines-list-item-vertical-space) 0;
 }

@@ -9,9 +9,9 @@
 #include <list>
 #include <map>
 #include <set>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_enumerator.h"
@@ -24,6 +24,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/favicon_base/select_favicon_frames.h"
 #include "components/history/core/browser/download_constants.h"
 #include "components/history/core/browser/download_row.h"
@@ -38,7 +39,6 @@
 #include "components/history/core/browser/page_usage_data.h"
 #include "components/history/core/browser/typed_url_syncable_service.h"
 #include "components/history/core/browser/url_utils.h"
-#include "components/history/core/browser/visit_filter.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "sql/error_delegate_util.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -152,7 +152,9 @@ QueuedHistoryDBTask::QueuedHistoryDBTask(
     scoped_ptr<HistoryDBTask> task,
     scoped_refptr<base::SingleThreadTaskRunner> origin_loop,
     const base::CancelableTaskTracker::IsCanceledCallback& is_canceled)
-    : task_(task.Pass()), origin_loop_(origin_loop), is_canceled_(is_canceled) {
+    : task_(std::move(task)),
+      origin_loop_(origin_loop),
+      is_canceled_(is_canceled) {
   DCHECK(task_);
   DCHECK(origin_loop_);
   DCHECK(!is_canceled_.is_null());
@@ -208,9 +210,8 @@ HistoryBackend::HistoryBackend(
       recent_redirects_(kMaxRedirectCount),
       backend_destroy_message_loop_(nullptr),
       segment_queried_(false),
-      backend_client_(backend_client.Pass()),
-      task_runner_(task_runner) {
-}
+      backend_client_(std::move(backend_client)),
+      task_runner_(task_runner) {}
 
 HistoryBackend::~HistoryBackend() {
   DCHECK(!scheduled_commit_) << "Deleting without cleanup";
@@ -411,7 +412,7 @@ void HistoryBackend::UpdateVisitDuration(VisitID visit_id, const Time end_ts) {
   }
 }
 
-TopHostsList HistoryBackend::TopHosts(int num_hosts) const {
+TopHostsList HistoryBackend::TopHosts(size_t num_hosts) const {
   if (!db_)
     return TopHostsList();
 
@@ -422,6 +423,29 @@ TopHostsList HistoryBackend::TopHosts(int num_hosts) const {
   for (const auto& host_count : top_hosts)
     host_ranks_[host_count.first] = i++;
   return top_hosts;
+}
+
+OriginCountMap HistoryBackend::GetCountsForOrigins(
+    const std::set<GURL>& origins) const {
+  if (!db_)
+    return OriginCountMap();
+
+  URLDatabase::URLEnumerator it;
+  if (!db_->InitURLEnumeratorForEverything(&it))
+    return OriginCountMap();
+
+  OriginCountMap origin_count_map;
+  for (const GURL& origin : origins)
+    origin_count_map[origin] = 0;
+
+  URLRow row;
+  while (it.GetNextURL(&row)) {
+    GURL origin = row.url().GetOrigin();
+    if (ContainsValue(origins, origin))
+      ++origin_count_map[origin];
+  }
+
+  return origin_count_map;
 }
 
 int HistoryBackend::HostRankIfAvailable(const GURL& url) const {
@@ -657,7 +681,7 @@ void HistoryBackend::InitImpl(
   {
     scoped_ptr<InMemoryHistoryBackend> mem_backend(new InMemoryHistoryBackend);
     if (mem_backend->Init(history_name))
-      delegate_->SetInMemoryBackend(mem_backend.Pass());
+      delegate_->SetInMemoryBackend(std::move(mem_backend));
   }
   db_->BeginExclusiveMode();  // Must be after the mem backend read the data.
 
@@ -1131,7 +1155,7 @@ void HistoryBackend::RemoveObserver(HistoryBackendObserver* observer) {
 
 // Downloads -------------------------------------------------------------------
 
-uint32 HistoryBackend::GetNextDownloadId() {
+uint32_t HistoryBackend::GetNextDownloadId() {
   return db_ ? db_->GetNextDownloadId() : kInvalidDownloadId;
 }
 
@@ -1157,14 +1181,14 @@ bool HistoryBackend::CreateDownload(const DownloadRow& history_info) {
   return success;
 }
 
-void HistoryBackend::RemoveDownloads(const std::set<uint32>& ids) {
+void HistoryBackend::RemoveDownloads(const std::set<uint32_t>& ids) {
   if (!db_)
     return;
   size_t downloads_count_before = db_->CountDownloads();
   base::TimeTicks started_removing = base::TimeTicks::Now();
   // HistoryBackend uses a long-running Transaction that is committed
   // periodically, so this loop doesn't actually hit the disk too hard.
-  for (std::set<uint32>::const_iterator it = ids.begin(); it != ids.end();
+  for (std::set<uint32_t>::const_iterator it = ids.begin(); it != ids.end();
        ++it) {
     db_->RemoveDownload(*it);
   }
@@ -1341,85 +1365,6 @@ void HistoryBackend::QueryMostVisitedURLs(int result_count,
     MostVisitedURL url = MakeMostVisitedURL(*current_data, redirects);
     result->push_back(url);
   }
-}
-
-void HistoryBackend::QueryFilteredURLs(int result_count,
-                                       const VisitFilter& filter,
-                                       bool extended_info,
-                                       FilteredURLList* result) {
-  DCHECK(result);
-  base::Time request_start = base::Time::Now();
-
-  result->clear();
-  if (!db_) {
-    // No History Database - return an empty list.
-    return;
-  }
-
-  VisitVector visits;
-  db_->GetDirectVisitsDuringTimes(filter, 0, &visits);
-
-  std::map<URLID, double> score_map;
-  for (size_t i = 0; i < visits.size(); ++i) {
-    score_map[visits[i].url_id] += filter.GetVisitScore(visits[i]);
-  }
-
-  // TODO(georgey): experiment with visit_segment database granularity (it is
-  // currently 24 hours) to use it directly instead of using visits database,
-  // which is considerably slower.
-  ScopedVector<PageUsageData> data;
-  data.reserve(score_map.size());
-  for (std::map<URLID, double>::iterator it = score_map.begin();
-       it != score_map.end(); ++it) {
-    PageUsageData* pud = new PageUsageData(it->first);
-    pud->SetScore(it->second);
-    data.push_back(pud);
-  }
-
-  // Limit to the top |result_count| results.
-  std::sort(data.begin(), data.end(), PageUsageData::Predicate);
-  DCHECK_GE(result_count, 0);
-  if (result_count && data.size() > static_cast<size_t>(result_count))
-    data.resize(result_count);
-
-  for (size_t i = 0; i < data.size(); ++i) {
-    URLRow info;
-    if (db_->GetURLRow(data[i]->GetID(), &info)) {
-      data[i]->SetURL(info.url());
-      data[i]->SetTitle(info.title());
-    }
-  }
-
-  for (size_t i = 0; i < data.size(); ++i) {
-    PageUsageData* current_data = data[i];
-    FilteredURL url(*current_data);
-
-    if (extended_info) {
-      VisitVector visits;
-      db_->GetVisitsForURL(current_data->GetID(), &visits);
-      if (visits.size() > 0) {
-        url.extended_info.total_visits = visits.size();
-        for (size_t i = 0; i < visits.size(); ++i) {
-          url.extended_info.duration_opened +=
-              visits[i].visit_duration.InSeconds();
-          if (visits[i].visit_time > url.extended_info.last_visit_time) {
-            url.extended_info.last_visit_time = visits[i].visit_time;
-          }
-        }
-        // TODO(macourteau): implement the url.extended_info.visits stat.
-      }
-    }
-    result->push_back(url);
-  }
-
-  int delta_time = std::max(
-      1, std::min(999, static_cast<int>((base::Time::Now() - request_start)
-                                            .InMilliseconds())));
-  STATIC_HISTOGRAM_POINTER_BLOCK(
-      "NewTabPage.SuggestedSitesLoadTime", Add(delta_time),
-      base::LinearHistogram::FactoryGet(
-          "NewTabPage.SuggestedSitesLoadTime", 1, 1000, 100,
-          base::Histogram::kUmaTargetedHistogramFlag));
 }
 
 void HistoryBackend::GetRedirectsFromSpecificVisit(VisitID cur_visit,
@@ -2513,7 +2458,7 @@ void HistoryBackend::ProcessDBTask(
     const base::CancelableTaskTracker::IsCanceledCallback& is_canceled) {
   bool scheduled = !queued_history_db_tasks_.empty();
   queued_history_db_tasks_.push_back(
-      new QueuedHistoryDBTask(task.Pass(), origin_loop, is_canceled));
+      new QueuedHistoryDBTask(std::move(task), origin_loop, is_canceled));
   if (!scheduled)
     ProcessDBTaskImpl();
 }
@@ -2528,10 +2473,6 @@ void HistoryBackend::NotifyURLVisited(ui::PageTransition transition,
                                       const URLRow& row,
                                       const RedirectList& redirects,
                                       base::Time visit_time) {
-  if (typed_url_syncable_service_)
-    typed_url_syncable_service_->OnURLVisited(this, transition, row, redirects,
-                                              visit_time);
-
   FOR_EACH_OBSERVER(HistoryBackendObserver, observers_,
                     OnURLVisited(this, transition, row, redirects, visit_time));
 
@@ -2540,9 +2481,6 @@ void HistoryBackend::NotifyURLVisited(ui::PageTransition transition,
 }
 
 void HistoryBackend::NotifyURLsModified(const URLRows& rows) {
-  if (typed_url_syncable_service_)
-    typed_url_syncable_service_->OnURLsModified(this, rows);
-
   FOR_EACH_OBSERVER(HistoryBackendObserver, observers_,
                     OnURLsModified(this, rows));
 
@@ -2555,11 +2493,6 @@ void HistoryBackend::NotifyURLsDeleted(bool all_history,
                                        const URLRows& rows,
                                        const std::set<GURL>& favicon_urls) {
   URLRows copied_rows(rows);
-  if (typed_url_syncable_service_) {
-    typed_url_syncable_service_->OnURLsDeleted(this, all_history, expired,
-                                               copied_rows, favicon_urls);
-  }
-
   FOR_EACH_OBSERVER(
       HistoryBackendObserver, observers_,
       OnURLsDeleted(this, all_history, expired, copied_rows, favicon_urls));

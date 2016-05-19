@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/command_line.h"
 #include "content/browser/browser_url_handler_impl.h"
 #include "content/browser/frame_host/cross_process_frame_connector.h"
 #include "content/browser/frame_host/navigation_entry_impl.h"
@@ -19,7 +18,7 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/page_state.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/test/test_render_view_host.h"
@@ -55,8 +54,7 @@ TestRenderViewHost* TestWebContents::GetRenderViewHost() const {
 }
 
 TestRenderFrameHost* TestWebContents::GetPendingMainFrame() const {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     return static_cast<TestRenderFrameHost*>(
         GetRenderManager()->speculative_render_frame_host_.get());
   }
@@ -74,8 +72,7 @@ void TestWebContents::StartNavigation(const GURL& url) {
 
   // This will simulate receiving the DidStartProvisionalLoad IPC from the
   // renderer.
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (!IsBrowserSideNavigationEnabled()) {
     if (GetMainFrame()->is_waiting_for_beforeunload_ack())
       GetMainFrame()->SendBeforeUnloadACK(true);
     TestRenderFrameHost* rfh =
@@ -150,8 +147,7 @@ const std::string& TestWebContents::GetSaveFrameHeaders() {
 }
 
 bool TestWebContents::CrossProcessNavigationPending() {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     return GetRenderManager()->speculative_render_frame_host_ &&
            static_cast<TestRenderFrameHost*>(
                GetRenderManager()->speculative_render_frame_host_.get())
@@ -193,7 +189,28 @@ void TestWebContents::NavigateAndCommit(const GURL& url) {
 }
 
 void TestWebContents::TestSetIsLoading(bool value) {
-  SetIsLoading(value, true, nullptr);
+  if (value) {
+    DidStartLoading(GetMainFrame()->frame_tree_node(), true);
+  } else {
+    for (FrameTreeNode* node : frame_tree_.Nodes()) {
+      RenderFrameHostImpl* current_frame_host =
+          node->render_manager()->current_frame_host();
+      DCHECK(current_frame_host);
+      current_frame_host->ResetLoadingState();
+
+      if (IsBrowserSideNavigationEnabled()) {
+        RenderFrameHostImpl* speculative_frame_host =
+            node->render_manager()->speculative_frame_host();
+        if (speculative_frame_host)
+          speculative_frame_host->ResetLoadingState();
+      } else {
+        RenderFrameHostImpl* pending_frame_host =
+            node->render_manager()->pending_frame_host();
+        if (pending_frame_host)
+          pending_frame_host->ResetLoadingState();
+      }
+    }
+  }
 }
 
 void TestWebContents::CommitPendingNavigation() {
@@ -215,9 +232,7 @@ void TestWebContents::CommitPendingNavigation() {
   // Note that for some synchronous navigations (about:blank, javascript
   // urls, etc.) there will be no NavigationRequest, and no simulation of the
   // network stack is required.
-  bool browser_side_navigation =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation);
+  bool browser_side_navigation = IsBrowserSideNavigationEnabled();
   if (!browser_side_navigation ||
       GetMainFrame()->frame_tree_node()->navigation_request()) {
     GetMainFrame()->PrepareForCommit();
@@ -308,12 +323,12 @@ void TestWebContents::CreateNewWindow(
     const ViewHostMsg_CreateWindow_Params& params,
     SessionStorageNamespace* session_storage_namespace) {}
 
-void TestWebContents::CreateNewWidget(int32 render_process_id,
-                                      int32 route_id,
+void TestWebContents::CreateNewWidget(int32_t render_process_id,
+                                      int32_t route_id,
                                       blink::WebPopupType popup_type) {}
 
-void TestWebContents::CreateNewFullscreenWidget(int32 render_process_id,
-                                                int32 route_id) {}
+void TestWebContents::CreateNewFullscreenWidget(int32_t render_process_id,
+                                                int32_t route_id) {}
 
 void TestWebContents::ShowCreatedWindow(int route_id,
                                         WindowOpenDisposition disposition,

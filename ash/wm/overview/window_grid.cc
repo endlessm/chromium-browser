@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <functional>
 #include <set>
+#include <utility>
 #include <vector>
 
 #include "ash/ash_switches.h"
@@ -57,8 +58,7 @@ class CleanupWidgetAfterAnimationObserver
 
 CleanupWidgetAfterAnimationObserver::CleanupWidgetAfterAnimationObserver(
     scoped_ptr<views::Widget> widget)
-    : widget_(widget.Pass()) {
-}
+    : widget_(std::move(widget)) {}
 
 CleanupWidgetAfterAnimationObserver::~CleanupWidgetAfterAnimationObserver() {
 }
@@ -185,12 +185,14 @@ void ReorderItemsGreedyLeastMovement(std::vector<aura::Window*>* items,
         bounding_rect.y() + row * item_size.height() + item_size.height() / 2);
     // Find the nearest window for this position.
     size_t swap_index = i;
-    int64 shortest_distance = std::numeric_limits<int64>::max();
+    int64_t shortest_distance = std::numeric_limits<int64_t>::max();
     for (size_t j = i; j < items->size(); ++j) {
       aura::Window* window = (*items)[j];
-      int64 distance = (ScreenUtil::ConvertRectToScreen(
-                            window, window->GetTargetBounds()).CenterPoint() -
-                        overview_item_center).LengthSquared();
+      int64_t distance =
+          (ScreenUtil::ConvertRectToScreen(window, window->GetTargetBounds())
+               .CenterPoint() -
+           overview_item_center)
+              .LengthSquared();
       // We compare raw pointers to create a stable ordering given two windows
       // with the same center point.
       if (distance < shortest_distance ||
@@ -389,7 +391,7 @@ void WindowGrid::OnWindowDestroying(aura::Window* window) {
     if (selected_index_ >= removed_index && selected_index_ != 0)
       selected_index_--;
     if (send_focus_alert)
-      SelectedWindow()->SendFocusAlert();
+      SelectedWindow()->SendAccessibleSelectionEvent();
   }
 
   PositionWindows(true);
@@ -445,8 +447,8 @@ void WindowGrid::InitSelectionWidget(WindowSelector::Direction direction) {
   const gfx::Rect target_bounds = SelectedWindow()->target_bounds();
   gfx::Vector2d fade_out_direction =
           GetSlideVectorForFadeIn(direction, target_bounds);
-  gfx::Display dst_display = gfx::Screen::GetScreenFor(root_window_)->
-      GetDisplayMatching(target_bounds);
+  gfx::Display dst_display =
+      gfx::Screen::GetScreen()->GetDisplayMatching(target_bounds);
   selection_widget_->GetNativeWindow()->SetBoundsInScreen(
       target_bounds - fade_out_direction, dst_display);
 }
@@ -475,7 +477,7 @@ void WindowGrid::MoveSelectionWidget(WindowSelector::Direction direction,
     // CleanupWidgetAfterAnimationObserver will delete itself (and the
     // widget) when the movement animation is complete.
     animation_settings.AddObserver(
-        new CleanupWidgetAfterAnimationObserver(selection_widget_.Pass()));
+        new CleanupWidgetAfterAnimationObserver(std::move(selection_widget_)));
     old_selection->SetOpacity(0);
     old_selection->GetNativeWindow()->SetBounds(
         old_selection->GetNativeWindow()->bounds() + fade_out_direction);
@@ -488,7 +490,7 @@ void WindowGrid::MoveSelectionWidget(WindowSelector::Direction direction,
     InitSelectionWidget(direction);
   // Send an a11y alert so that if ChromeVox is enabled, the item label is
   // read.
-  SelectedWindow()->SendFocusAlert();
+  SelectedWindow()->SendAccessibleSelectionEvent();
   // The selection widget is moved to the newly selected item in the same
   // grid.
   MoveSelectionWidgetToTarget(animate);

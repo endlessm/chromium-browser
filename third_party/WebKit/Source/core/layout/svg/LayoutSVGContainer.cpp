@@ -21,7 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGContainer.h"
 
 #include "core/layout/HitTestResult.h"
@@ -175,7 +174,7 @@ bool LayoutSVGContainer::nodeAtFloatPoint(HitTestResult& result, const FloatPoin
         if (child->nodeAtFloatPoint(result, localPoint, hitTestAction)) {
             const LayoutPoint& localLayoutPoint = roundedLayoutPoint(localPoint);
             updateHitTestResult(result, localLayoutPoint);
-            if (!result.addNodeToListBasedTestResult(child->node(), localLayoutPoint))
+            if (result.addNodeToListBasedTestResult(child->node(), localLayoutPoint) == StopHitTesting)
                 return true;
         }
     }
@@ -186,7 +185,7 @@ bool LayoutSVGContainer::nodeAtFloatPoint(HitTestResult& result, const FloatPoin
         if (objectBoundingBox().contains(localPoint)) {
             const LayoutPoint& localLayoutPoint = roundedLayoutPoint(localPoint);
             updateHitTestResult(result, localLayoutPoint);
-            if (!result.addNodeToListBasedTestResult(element(), localLayoutPoint))
+            if (result.addNodeToListBasedTestResult(element(), localLayoutPoint) == StopHitTesting)
                 return true;
         }
     }
@@ -194,4 +193,4 @@ bool LayoutSVGContainer::nodeAtFloatPoint(HitTestResult& result, const FloatPoin
     return false;
 }
 
-}
+} // namespace blink

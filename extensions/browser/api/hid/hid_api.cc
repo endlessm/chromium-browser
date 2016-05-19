@@ -4,10 +4,11 @@
 
 #include "extensions/browser/api/hid/hid_api.h"
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/stl_util.h"
 #include "device/core/device_client.h"
 #include "device/hid/hid_connection.h"
 #include "device/hid/hid_device_filter.h"
@@ -142,7 +143,7 @@ void HidGetUserSelectedDevicesFunction::OnDevicesChosen(
     const std::vector<scoped_refptr<HidDeviceInfo>>& devices) {
   HidDeviceManager* device_manager = HidDeviceManager::Get(browser_context());
   CHECK(device_manager);
-  Respond(OneArgument(device_manager->GetApiDevicesFromList(devices).Pass()));
+  Respond(OneArgument(device_manager->GetApiDevicesFromList(devices)));
 }
 
 HidConnectFunction::HidConnectFunction() : connection_manager_(nullptr) {
@@ -346,7 +347,7 @@ void HidSendFeatureReportFunction::StartWork(HidConnection* connection) {
   scoped_refptr<net::IOBufferWithSize> buffer(
       new net::IOBufferWithSize(parameters_->data.size() + 1));
   buffer->data()[0] = static_cast<uint8_t>(parameters_->report_id);
-  memcpy(buffer->data() + 1, vector_as_array(&parameters_->data),
+  memcpy(buffer->data() + 1, parameters_->data.data(),
          parameters_->data.size());
   connection->SendFeatureReport(
       buffer, buffer->size(),

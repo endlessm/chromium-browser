@@ -4,10 +4,11 @@
 
 #include "cc/debug/rasterize_and_record_benchmark_impl.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <limits>
 
-#include "base/basictypes.h"
 #include "base/values.h"
 #include "cc/debug/lap_timer.h"
 #include "cc/layers/layer_impl.h"
@@ -42,19 +43,18 @@ void RunBenchmark(DisplayListRasterSource* raster_source,
     LapTimer timer(kWarmupRuns,
                    base::TimeDelta::FromMilliseconds(kTimeLimitMillis),
                    kTimeCheckInterval);
+    SkColor color = SK_ColorTRANSPARENT;
+    *is_solid_color = raster_source->PerformSolidColorAnalysis(
+        content_rect, contents_scale, &color);
+
     do {
       SkBitmap bitmap;
       bitmap.allocPixels(SkImageInfo::MakeN32Premul(content_rect.width(),
                                                     content_rect.height()));
       SkCanvas canvas(bitmap);
-      DisplayListRasterSource::SolidColorAnalysis analysis;
 
-      raster_source->PerformSolidColorAnalysis(content_rect, contents_scale,
-                                               &analysis);
       raster_source->PlaybackToCanvas(&canvas, content_rect, content_rect,
                                       contents_scale);
-
-      *is_solid_color = analysis.is_solid_color;
 
       timer.NextLap();
     } while (!timer.HasTimeLimitExpired());
@@ -148,7 +148,7 @@ void RasterizeAndRecordBenchmarkImpl::DidCompleteCommit(
   result->SetInteger("total_picture_layers_off_screen",
                      rasterize_results_.total_picture_layers_off_screen);
 
-  NotifyDone(result.Pass());
+  NotifyDone(std::move(result));
 }
 
 void RasterizeAndRecordBenchmarkImpl::RunOnLayer(PictureLayerImpl* layer) {

@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string16.h"
@@ -87,7 +90,7 @@ class TestSearchProvider : public SearchProvider {
       result->set_display_type(display_type_);
       if (voice_result_indices.find(i) != voice_result_indices.end())
         result->set_voice_result(true);
-      Add(scoped_ptr<SearchResult>(result).Pass());
+      Add(scoped_ptr<SearchResult>(result));
     }
   }
   void Stop() override {}
@@ -123,7 +126,7 @@ class MixerTest : public testing::Test,
   // testing::Test overrides:
   void SetUp() override {
     // If the parameter is true, enable the field trial.
-    const char* field_trial_name = GetParam() ? "Blended" : "default";
+    const char* field_trial_name = GetParam() ? "Blended" : "Control";
     base::FieldTrialList::CreateFieldTrial("AppListMixer", field_trial_name);
 
     results_.reset(new AppListModel::SearchResults);

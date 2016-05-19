@@ -5,7 +5,8 @@
 #ifndef COMPONENTS_MUS_WS_SERVER_WINDOW_SURFACE_MANAGER_H_
 #define COMPONENTS_MUS_WS_SERVER_WINDOW_SURFACE_MANAGER_H_
 
-#include "base/containers/scoped_ptr_map.h"
+#include <map>
+
 #include "base/macros.h"
 #include "cc/surfaces/surface_factory.h"
 #include "cc/surfaces/surface_id.h"
@@ -19,6 +20,7 @@ namespace ws {
 
 class ServerWindow;
 class ServerWindowSurface;
+class ServerWindowSurfaceManagerTestApi;
 
 // ServerWindowSurfaceManager tracks the surfaces associated with a
 // ServerWindow.
@@ -26,6 +28,9 @@ class ServerWindowSurfaceManager {
  public:
   explicit ServerWindowSurfaceManager(ServerWindow* window);
   ~ServerWindowSurfaceManager();
+
+  // Returns true if the surfaces from this manager should be drawn.
+  bool ShouldDraw();
 
   // Creates a new surface of the specified type, replacing the existing one of
   // the specified type.
@@ -38,9 +43,15 @@ class ServerWindowSurfaceManager {
   ServerWindowSurface* GetDefaultSurface();
   ServerWindowSurface* GetUnderlaySurface();
   ServerWindowSurface* GetSurfaceByType(mojom::SurfaceType type);
+  bool HasSurfaceOfType(mojom::SurfaceType type);
 
  private:
+  friend class ServerWindowSurfaceManagerTestApi;
   friend class ServerWindowSurface;
+
+  // Returns true if a surface of |type| has been set and it's size is greater
+  // than the size of the window.
+  bool IsSurfaceReadyAndNonEmpty(mojom::SurfaceType type) const;
 
   cc::SurfaceId GenerateId();
 
@@ -49,9 +60,16 @@ class ServerWindowSurfaceManager {
   cc::SurfaceIdAllocator surface_id_allocator_;
 
   using TypeToSurfaceMap =
-      base::ScopedPtrMap<mojom::SurfaceType, scoped_ptr<ServerWindowSurface>>;
+      std::map<mojom::SurfaceType, scoped_ptr<ServerWindowSurface>>;
 
   TypeToSurfaceMap type_to_surface_map_;
+
+  // While true the window is not drawn. This is initially true if the window
+  // has the property |kWaitForUnderlay_Property|. This is set to false once
+  // the underlay and default surface have been set *and* their size is at
+  // least that of the window. Ideally we would wait for sizes to match, but
+  // the underlay is not necessarily as big as the window.
+  bool waiting_for_initial_frames_;
 
   DISALLOW_COPY_AND_ASSIGN(ServerWindowSurfaceManager);
 };

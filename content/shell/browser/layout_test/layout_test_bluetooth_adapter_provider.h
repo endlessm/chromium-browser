@@ -5,6 +5,8 @@
 #ifndef CONTENT_SHELL_BROWSER_LAYOUT_TEST_LAYOUT_TEST_BLUETOOTH_ADAPTER_PROVIDER_H_
 #define CONTENT_SHELL_BROWSER_LAYOUT_TEST_LAYOUT_TEST_BLUETOOTH_ADAPTER_PROVIDER_H_
 
+#include <stdint.h>
+
 #include "base/callback.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
 #include "device/bluetooth/test/mock_bluetooth_device.h"
@@ -171,7 +173,8 @@ class LayoutTestBluetoothAdapterProvider {
   // Inherits from |EmptyAdapter|
   // Internal Structure:
   //   - Heart Rate Device
-  //      - Advertised UUIDs:
+  //      - UUIDs:
+  //         - Generic Access UUID (0x1800)
   //         - Heart Rate UUID (0x180d)
   static scoped_refptr<testing::NiceMock<device::MockBluetoothAdapter>>
   GetMissingServiceHeartRateAdapter();
@@ -181,7 +184,8 @@ class LayoutTestBluetoothAdapterProvider {
   // The services in this adapter do not contain any characteristics.
   // Internal Structure:
   //   - Heart Rate Device
-  //      - Advertised UUIDs:
+  //      - UUIDs:
+  //         - Generic Access UUID (0x1800)
   //         - Heart Rate UUID (0x180d)
   //      - Services:
   //         - Generic Access Service
@@ -193,7 +197,8 @@ class LayoutTestBluetoothAdapterProvider {
   // Inherits from |EmptyAdapter|
   // Internal Structure:
   //   - Heart Rate Device
-  //      - Advertised UUIDs:
+  //      - UUIDs:
+  //         - Generic Access UUID (0x1800)
   //         - Heart Rate UUID (0x180d)
   //      - Services:
   //         - Generic Access Service - Characteristics as described in
@@ -202,6 +207,31 @@ class LayoutTestBluetoothAdapterProvider {
   //           GetHeartRateService.
   static scoped_refptr<testing::NiceMock<device::MockBluetoothAdapter>>
   GetHeartRateAdapter();
+
+  // |BlacklistTestAdapter|
+  // Inherits from |EmptyAdapter|
+  // Internal Structure:
+  //   - |ConnectableDevice|(adapter, "Blacklist Test Device", uuids)
+  //      - UUIDs:
+  //         - Blacklist Test Service UUID
+  //           (611c954a-263b-4f4a-aab6-01ddb953f985)
+  //         - Device Information UUID (0x180a)
+  //         - Generic Access UUID (0x1800)
+  //         - Heart Rate UUID (0x180d)
+  //         - Human Interface Device UUID (0x1812) (a blacklisted service)
+  //      - Services:
+  //         - Blacklist Test Service - Characteristics as described in
+  //           GetBlacklistTestService.
+  //         - Device Information Service - Characteristics as described in
+  //           GetDeviceInformationService.
+  //         - Generic Access Service - Characteristics as described in
+  //           GetGenericAccessService.
+  //         - Heart Rate Service - Characteristics as described in
+  //           GetHeartRateService.
+  //         - Human Interface Device Service - No characteristics needed
+  //           because the service is blacklisted.
+  static scoped_refptr<testing::NiceMock<device::MockBluetoothAdapter>>
+  GetBlacklistTestAdapter();
 
   // |DelayedServicesDiscoveryAdapter|
   // Inherits from |EmptyAdapter|
@@ -221,17 +251,38 @@ class LayoutTestBluetoothAdapterProvider {
   // that can occur. This way we don’t need to create an adapter for each type
   // of error. Each of the devices has a service with a different UUID so that
   // they can be accessed by using different filters.
-  // See errorUUID() declaration below.
+  // See connectErrorUUID() declaration below.
   // Internal Structure:
-  //  - UnconnectableDevice(BluetoothDevice::ERROR_UNKNOWN)       errorUUID(0x0)
-  //  - UnconnectableDevice(BluetoothDevice::ERROR_INPROGRESS)    errorUUID(0x1)
-  //  - UnconnectableDevice(BluetoothDevice::ERROR_FAILED)        errorUUID(0x2)
-  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_FAILED)   errorUUID(0x3)
-  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_CANCELED) errorUUID(0x4)
-  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_REJECTED) errorUUID(0x5)
-  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_TIMEOUT)  errorUUID(0x6)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_UNKNOWN)
+  //    connectErrorUUID(0x0)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_INPROGRESS)
+  //    connectErrorUUID(0x1)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_FAILED)
+  //    connectErrorUUID(0x2)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_FAILED)
+  //    connectErrorUUID(0x3)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_CANCELED)
+  //    connectErrorUUID(0x4)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_REJECTED)
+  //    connectErrorUUID(0x5)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_AUTH_TIMEOUT)
+  //    connectErrorUUID(0x6)
   //  - UnconnectableDevice(BluetoothDevice::ERROR_UNSUPPORTED_DEVICE)
-  //    errorUUID(0x7)
+  //    connectErrorUUID(0x7)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_ATTRIBUTE_LENGTH_INVALID)
+  //    connectErrorUUID(0x8)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_CONNECTION_CONGESTED)
+  //    connectErrorUUID(0x9)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_INSUFFICIENT_ENCRYPTION)
+  //    connectErrorUUID(0xa)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_OFFSET_INVALID)
+  //    connectErrorUUID(0xb)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_READ_NOT_PERMITTED)
+  //    connectErrorUUID(0xc)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_REQUEST_NOT_SUPPORTED)
+  //    connectErrorUUID(0xd)
+  //  - UnconnectableDevice(BluetoothDevice::ERROR_WRITE_NOT_PERMITTED)
+  //    connectErrorUUID(0xe)
   static scoped_refptr<testing::NiceMock<device::MockBluetoothAdapter>>
   GetFailingConnectionsAdapter();
 
@@ -287,7 +338,7 @@ class LayoutTestBluetoothAdapterProvider {
   // Devices
 
   // |BaseDevice|
-  // Adv UUIDs added:
+  // UUIDs added:
   // None.
   // Services added:
   // None.
@@ -326,8 +377,7 @@ class LayoutTestBluetoothAdapterProvider {
   // |BatteryDevice|
   // Inherits from |BaseDevice|(adapter, "Battery Device", uuids,
   //                            "00:00:00:00:00:01")
-  // Adv UUIDs added:
-  //   - Generic Access (0x1800)
+  // UUIDs added:
   //   - Battery Service UUID (0x180F)
   // Services added:
   // None.
@@ -337,9 +387,10 @@ class LayoutTestBluetoothAdapterProvider {
   // |GlucoseDevice|
   // Inherits from |BaseDevice|(adapter, "Glucose Device", uuids,
   //                            "00:00:00:00:00:02")
-  // Adv UUIDs added:
+  // UUIDs added:
   //   - Generic Access (0x1800)
   //   - Glucose UUID (0x1808)
+  //   - Tx Power (0x1804)
   // Services added:
   // None.
   static scoped_ptr<testing::NiceMock<device::MockBluetoothDevice>>
@@ -347,7 +398,7 @@ class LayoutTestBluetoothAdapterProvider {
 
   // |ConnectableDevice|
   // Inherits from |BaseDevice|(adapter, device_name)
-  // Adv UUIDs added:
+  // UUIDs added:
   // None.
   // Services added:
   // None.
@@ -363,7 +414,7 @@ class LayoutTestBluetoothAdapterProvider {
 
   // |UnconnectableDevice|
   // Inherits from |BaseDevice|(adapter, device_name)
-  // Adv UUIDs added:
+  // UUIDs added:
   //  - errorUUID(error_code)
   // Services added:
   // None.
@@ -378,7 +429,8 @@ class LayoutTestBluetoothAdapterProvider {
 
   // |HeartRateDevice|
   // Inherits from |ConnectableDevice|(adapter, "Heart Rate Device", uuids)
-  // Adv UUIDs added:
+  // UUIDs added:
+  //   - Generic Access (0x1800)
   //   - Heart Rate UUID (0x180D)
   // Services added:
   // None. Each user of the HeartRateDevice is in charge of adding the
@@ -411,19 +463,50 @@ class LayoutTestBluetoothAdapterProvider {
   GetBaseGATTService(device::MockBluetoothDevice* device,
                      const std::string& uuid);
 
+  // |DeviceInformationService|
+  // Internal Structure:
+  //  - Characteristics:
+  //     - Serial Number String: (0x2a25) (a blacklisted characteristic)
+  //        - Mock Functions:
+  //           - Read: Fails test.
+  //           - GetProperties: Returns
+  //               BluetoothGattCharacteristic::PROPERTY_READ
+  static scoped_ptr<testing::NiceMock<device::MockBluetoothGattService>>
+  GetDeviceInformationService(device::MockBluetoothDevice* device);
+
+  // |BlacklistTestService|
+  // Internal Structure:
+  //  - Characteristics:
+  //     - Blacklist Exclude Reads Characteristic:
+  //       (bad1c9a2-9a5b-4015-8b60-1579bbbf2135)
+  //        - Mock Functions:
+  //           - Read: Fails test.
+  //           - Write: Calls success callback.
+  //           - GetProperties: Returns
+  //               BluetoothGattCharacteristic::PROPERTY_READ |
+  //               BluetoothGattCharacteristic::PROPERTY_WRITE
+  static scoped_ptr<testing::NiceMock<device::MockBluetoothGattService>>
+  GetBlacklistTestService(device::MockBluetoothDevice* device);
+
   // |GenericAccessService|
   // Internal Structure:
   //  - Characteristics:
-  //     - Device Name:
+  //     - Device Name: (0x2A00)
   //        - Mock Functions:
   //           - Read: Calls success callback with device's name.
   //           - Write: Calls success callback.
   //           - GetProperties: Returns
   //               BluetoothGattCharacteristic::PROPERTY_READ |
   //               BluetoothGattCharacteristic::PROPERTY_WRITE
+  //     - Peripheral Privacy Flag: (0x2A02) (blacklisted for writes)
+  //        - Mock Functions:
+  //           - Read: Calls success callback with boolean value 'false'.
+  //           - Write: Fails test.
+  //           - GetProperties: Returns
+  //               BluetoothGattCharacteristic::PROPERTY_READ |
+  //               BluetoothGattCharacteristic::PROPERTY_WRITE
   static scoped_ptr<testing::NiceMock<device::MockBluetoothGattService>>
-  GetGenericAccessService(device::MockBluetoothAdapter* adapter,
-                          device::MockBluetoothDevice* device);
+  GetGenericAccessService(device::MockBluetoothDevice* device);
 
   // |HeartRateService|
   // Internal Structure:
@@ -445,13 +528,19 @@ class LayoutTestBluetoothAdapterProvider {
   //               callback with [1] which corresponds to chest.
   //           - GetProperties: Returns
   //               BluetoothGattCharacteristic::PROPERTY_READ
+  //     - Body Sensor Location (0x2a38)
+  //        - Mock Functions:
+  //           - Read: Calls GattCharacteristicValueChanged and success
+  //               callback with [2] which corresponds to wrist.
+  //           - GetProperties: Returns
+  //               BluetoothGattCharacteristic::PROPERTY_READ
   static scoped_ptr<testing::NiceMock<device::MockBluetoothGattService>>
   GetHeartRateService(device::MockBluetoothAdapter* adapter,
                       device::MockBluetoothDevice* device);
 
   // Characteristics
 
-  // |BaseCharacteristic|(service, uuid)
+  // |BaseCharacteristic|(identifier, service, uuid)
   // Descriptors added:
   // None.
   // Mock Functions:
@@ -461,7 +550,7 @@ class LayoutTestBluetoothAdapterProvider {
   //       Returns the descriptor matching the identifier provided if the
   //       descriptor was added to the characteristic.
   //   - GetIdentifier:
-  //       Returns: uuid + “ Identifier”
+  //       Returns: identifier
   //   - GetUUID:
   //       Returns: uuid
   //   - IsLocal:
@@ -474,6 +563,7 @@ class LayoutTestBluetoothAdapterProvider {
   //       Returns: NULL
   static scoped_ptr<testing::NiceMock<device::MockBluetoothGattCharacteristic>>
   GetBaseGATTCharacteristic(
+      const std::string& identifier,
       device::MockBluetoothGattService* service,
       const std::string& uuid,
       device::BluetoothGattCharacteristic::Properties properties);
@@ -509,12 +599,21 @@ class LayoutTestBluetoothAdapterProvider {
 
   // Helper functions:
 
+  // DEPRECATED: This is a poor practice as it exposes the specific
+  //             enum values of this code base into the UUIDs used
+  //             by the test data. Prefer methods such as
+  //             connectErrorUUID.
   // errorUUID(alias) returns a UUID with the top 32 bits of
   // "00000000-97e5-4cd7-b9f1-f5a427670c59" replaced with the bits of |alias|.
   // For example, errorUUID(0xDEADBEEF) returns
   // "deadbeef-97e5-4cd7-b9f1-f5a427670c59". The bottom 96 bits of error UUIDs
   // were generated as a type 4 (random) UUID.
   static std::string errorUUID(uint32_t alias);
+
+  // Returns a stable test data UUID associated with a given
+  // BluetoothDevice::ConnectErrorCode.
+  static device::BluetoothUUID connectErrorUUID(
+      device::BluetoothDevice::ConnectErrorCode error_code);
 
   // Function to turn an integer into an MAC address of the form
   // XX:XX:XX:XX:XX:XX. For example makeMACAddress(0xdeadbeef)

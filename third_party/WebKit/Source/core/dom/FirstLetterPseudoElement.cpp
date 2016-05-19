@@ -21,7 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/FirstLetterPseudoElement.h"
 
 #include "core/dom/Element.h"
@@ -30,6 +29,7 @@
 #include "core/layout/LayoutObjectInlines.h"
 #include "core/layout/LayoutText.h"
 #include "core/layout/LayoutTextFragment.h"
+#include "core/layout/api/LayoutTextFragmentItem.h"
 #include "wtf/TemporaryChange.h"
 #include "wtf/text/WTFString.h"
 #include "wtf/text/icu/UnicodeIcu.h"
@@ -109,7 +109,7 @@ LayoutObject* FirstLetterPseudoElement::firstLetterTextLayoutObject(const Elemen
     if (!parentLayoutObject
         || !parentLayoutObject->style()->hasPseudoStyle(FIRST_LETTER)
         || !canHaveGeneratedChildren(*parentLayoutObject)
-        || !(parentLayoutObject->isLayoutBlockFlow() || parentLayoutObject->isLayoutButton()))
+        || !parentLayoutObject->canHaveFirstLineOrFirstLetterStyle())
         return nullptr;
 
     // Drill down into our children and look for our first text child.
@@ -137,7 +137,7 @@ LayoutObject* FirstLetterPseudoElement::firstLetterTextLayoutObject(const Elemen
                 break;
             }
             firstLetterTextLayoutObject = firstLetterTextLayoutObject->nextSibling();
-        } else if (firstLetterTextLayoutObject->isReplaced() || firstLetterTextLayoutObject->isLayoutButton()
+        } else if (firstLetterTextLayoutObject->isAtomicInlineLevel() || firstLetterTextLayoutObject->isLayoutButton()
             || firstLetterTextLayoutObject->isMenuList()) {
             return nullptr;
         } else if (firstLetterTextLayoutObject->isFlexibleBoxIncludingDeprecated() || firstLetterTextLayoutObject->isLayoutGrid()) {
@@ -170,6 +170,7 @@ FirstLetterPseudoElement::FirstLetterPseudoElement(Element* parent)
 
 FirstLetterPseudoElement::~FirstLetterPseudoElement()
 {
+    ASSERT(!m_remainingTextLayoutObject);
 }
 
 void FirstLetterPseudoElement::updateTextFragments()
@@ -184,17 +185,17 @@ void FirstLetterPseudoElement::updateTextFragments()
     for (auto child = layoutObject()->slowFirstChild(); child; child = child->nextSibling()) {
         if (!child->isText() || !toLayoutText(child)->isTextFragment())
             continue;
-        LayoutTextFragment* childFragment = toLayoutTextFragment(child);
-        if (childFragment->firstLetterPseudoElement() != this)
+        LayoutTextFragmentItem childFragment = LayoutTextFragmentItem(toLayoutTextFragment(child));
+        if (childFragment.firstLetterPseudoElement() != this)
             continue;
 
-        childFragment->setTextFragment(oldText.impl()->substring(0, length), 0, length);
-        childFragment->dirtyLineBoxes();
+        childFragment.setTextFragment(oldText.impl()->substring(0, length), 0, length);
+        childFragment.dirtyLineBoxes();
 
         // Make sure the first-letter layoutObject is set to require a layout as it
         // needs to re-create the line boxes. The remaining text layoutObject
         // will be marked by the LayoutText::setText.
-        childFragment->setNeedsLayoutAndPrefWidthsRecalc(LayoutInvalidationReason::TextChanged);
+        childFragment.setNeedsLayoutAndPrefWidthsRecalc(LayoutInvalidationReason::TextChanged);
         break;
     }
 }

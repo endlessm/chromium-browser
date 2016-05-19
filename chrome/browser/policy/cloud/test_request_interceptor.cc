@@ -6,10 +6,12 @@
 
 #include <limits>
 #include <queue>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
@@ -83,7 +85,7 @@ bool ValidRequest(net::URLRequest* request,
   const net::UploadDataStream* stream = request->get_upload();
   if (!stream)
     return false;
-  const ScopedVector<net::UploadElementReader>* readers =
+  const std::vector<scoped_ptr<net::UploadElementReader>>* readers =
       stream->GetElementReaders();
   if (!readers || readers->size() != 1u)
     return false;
@@ -153,7 +155,7 @@ void RegisterHttpInterceptor(
     const std::string& hostname,
     scoped_ptr<net::URLRequestInterceptor> interceptor) {
   net::URLRequestFilter::GetInstance()->AddHostnameInterceptor(
-      "http", hostname, interceptor.Pass());
+      "http", hostname, std::move(interceptor));
 }
 
 void UnregisterHttpInterceptor(const std::string& hostname) {
@@ -206,7 +208,7 @@ net::URLRequestJob* TestRequestInterceptor::Delegate::MaybeInterceptRequest(
     net::NetworkDelegate* network_delegate) const {
   CHECK(io_task_runner_->RunsTasksOnCurrentThread());
 
-  if (request->url().host() != hostname_) {
+  if (request->url().host_piece() != hostname_) {
     // Reject requests to other servers.
     return ErrorJobCallback(
         net::ERR_CONNECTION_REFUSED, request, network_delegate);

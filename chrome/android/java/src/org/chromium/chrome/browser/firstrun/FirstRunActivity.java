@@ -11,9 +11,9 @@ import android.os.Bundle;
 import android.support.v4.view.ViewPager;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
-import android.util.Log;
 
 import org.chromium.base.ApplicationStatus;
+import org.chromium.base.Log;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.base.metrics.RecordHistogram;
@@ -21,10 +21,13 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.EmbedContentViewActivity;
+import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.preferences.datareduction.DataReductionPromoScreen;
 import org.chromium.chrome.browser.preferences.datareduction.DataReductionProxyUma;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.signin.SigninAccessPoint;
+import org.chromium.chrome.browser.signin.SigninManager;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
@@ -305,6 +308,8 @@ public class FirstRunActivity extends AppCompatActivity implements FirstRunPageD
     @Override
     public void onSigninDialogShown() {
         RecordUserAction.record("MobileFre.SignInShown");
+        RecordUserAction.record("Signin_Impression_FromStartPage");
+        SigninManager.logSigninStartAccessPoint(SigninAccessPoint.START_PAGE);
     }
 
     @Override
@@ -405,8 +410,7 @@ public class FirstRunActivity extends AppCompatActivity implements FirstRunPageD
         // This should happen before super.onCreate() because it might recreate a fragment,
         // and a fragment might depend on the native library.
         try {
-            ((ChromeApplication) getApplication())
-                    .startBrowserProcessesAndLoadLibrariesSync(true);
+            ChromeBrowserInitializer.getInstance(this).handleSynchronousStartup();
             mNativeSideIsInitialized = true;
         } catch (ProcessInitException e) {
             Log.e(TAG, "Unable to load native library.", e);

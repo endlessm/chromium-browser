@@ -4,24 +4,27 @@
 
 #include "components/variations/service/variations_service.h"
 
-#include <vector>
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
 
 #include "base/build_time.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/sys_info.h"
 #include "base/task_runner_util.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/values.h"
 #include "base/version.h"
+#include "build/build_config.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/metrics/metrics_state_manager.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/variations/pref_names.h"
 #include "components/variations/proto/variations_seed.pb.h"
 #include "components/variations/variations_seed_processor.h"
@@ -45,11 +48,9 @@ namespace variations {
 
 namespace {
 
-const int kMaxRetrySeedFetch = 5;
-
 // TODO(mad): To be removed when we stop updating the NetworkTimeTracker.
 // For the HTTP date headers, the resolution of the server time is 1 second.
-const int64 kServerTimeResolutionMs = 1000;
+const int64_t kServerTimeResolutionMs = 1000;
 
 // Maximum age permitted for a variations seed, in days.
 const int kMaxVariationsSeedAgeDays = 30;
@@ -197,7 +198,7 @@ std::string GetHardwareClass() {
 // Returns the date that should be used by the VariationsSeedProcessor to do
 // expiry and start date checks.
 base::Time GetReferenceDateForExpiryChecks(PrefService* local_state) {
-  const int64 date_value = local_state->GetInt64(prefs::kVariationsSeedDate);
+  const int64_t date_value = local_state->GetInt64(prefs::kVariationsSeedDate);
   const base::Time seed_date = base::Time::FromInternalValue(date_value);
   const base::Time build_time = base::GetBuildTime();
   // Use the build time for date checks if either the seed date is invalid or
@@ -213,7 +214,7 @@ base::Time GetReferenceDateForExpiryChecks(PrefService* local_state) {
 std::string GetHeaderValue(const net::HttpResponseHeaders* headers,
                            const base::StringPiece& name) {
   std::string value;
-  headers->EnumerateHeader(NULL, name, &value);
+  headers->EnumerateHeader(nullptr, name, &value);
   return value;
 }
 
@@ -223,7 +224,7 @@ std::vector<std::string> GetHeaderValuesList(
     const net::HttpResponseHeaders* headers,
     const base::StringPiece& name) {
   std::vector<std::string> values;
-  void* iter = NULL;
+  size_t iter = 0;
   std::string value;
   while (headers->EnumerateHeader(&iter, name, &value)) {
     values.push_back(value);
@@ -274,7 +275,7 @@ VariationsService::VariationsService(
     PrefService* local_state,
     metrics::MetricsStateManager* state_manager,
     const UIStringOverrider& ui_string_overrider)
-    : client_(client.Pass()),
+    : client_(std::move(client)),
       ui_string_overrider_(ui_string_overrider),
       local_state_(local_state),
       state_manager_(state_manager),
@@ -283,15 +284,13 @@ VariationsService::VariationsService(
       create_trials_from_seed_called_(false),
       initial_request_completed_(false),
       disable_deltas_for_next_request_(false),
-      resource_request_allowed_notifier_(notifier.Pass()),
+      resource_request_allowed_notifier_(std::move(notifier)),
       request_count_(0),
       weak_ptr_factory_(this) {
   DCHECK(client_.get());
   DCHECK(resource_request_allowed_notifier_.get());
 
   resource_request_allowed_notifier_->Init(this);
-  seed_store_.SetVariationsFirstRunSeedCallback(
-      client_->GetVariationsFirstRunSeedCallback());
 }
 
 VariationsService::~VariationsService() {
@@ -299,6 +298,7 @@ VariationsService::~VariationsService() {
 
 bool VariationsService::CreateTrialsFromSeed(base::FeatureList* feature_list) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  CHECK(!create_trials_from_seed_called_);
 
   create_trials_from_seed_called_ = true;
 
@@ -306,7 +306,7 @@ bool VariationsService::CreateTrialsFromSeed(base::FeatureList* feature_list) {
   if (!LoadSeed(&seed))
     return false;
 
-  const int64 last_fetch_time_internal =
+  const int64_t last_fetch_time_internal =
       local_state_->GetInt64(prefs::kVariationsLastFetchTime);
   const base::Time last_fetch_time =
       base::Time::FromInternalValue(last_fetch_time_internal);
@@ -493,15 +493,15 @@ scoped_ptr<VariationsService> VariationsService::Create(
           switches::kVariationsServerURL)) {
     DVLOG(1) << "Not creating VariationsService in unofficial build without --"
              << switches::kVariationsServerURL << " specified.";
-    return result.Pass();
+    return result;
   }
 #endif
   result.reset(new VariationsService(
-      client.Pass(),
+      std::move(client),
       make_scoped_ptr(new web_resource::ResourceRequestAllowedNotifier(
           local_state, disable_network_switch)),
       local_state, state_manager, ui_string_overrider));
-  return result.Pass();
+  return result;
 }
 
 // static
@@ -509,7 +509,7 @@ scoped_ptr<VariationsService> VariationsService::CreateForTesting(
     scoped_ptr<VariationsServiceClient> client,
     PrefService* local_state) {
   return make_scoped_ptr(new VariationsService(
-      client.Pass(),
+      std::move(client),
       make_scoped_ptr(new web_resource::ResourceRequestAllowedNotifier(
           local_state, nullptr)),
       local_state, nullptr, UIStringOverrider()));
@@ -527,7 +527,6 @@ void VariationsService::DoActualFetch() {
   pending_seed_request_->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
                                       net::LOAD_DO_NOT_SAVE_COOKIES);
   pending_seed_request_->SetRequestContext(client_->GetURLRequestContext());
-  pending_seed_request_->SetMaxRetriesOn5xx(kMaxRetrySeedFetch);
   bool enable_deltas = false;
   if (!seed_store_.variations_serial_number().empty() &&
       !disable_deltas_for_next_request_) {
@@ -798,7 +797,7 @@ std::string VariationsService::LoadPermanentConsistencyCountry(
 
   // Determine if the version from the saved pref matches |version|.
   const bool does_version_match =
-      is_pref_valid && version.Equals(base::Version(stored_version_string));
+      is_pref_valid && version == base::Version(stored_version_string);
 
   // Determine if the country in the saved pref matches the country in
   // |latest_country|.

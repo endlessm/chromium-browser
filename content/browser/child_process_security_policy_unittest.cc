@@ -5,7 +5,6 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/public/common/url_constants.h"
@@ -133,6 +132,8 @@ TEST_F(ChildProcessSecurityPolicyTest, IsWebSafeSchemeTest) {
   EXPECT_TRUE(p->IsWebSafeScheme("registered-web-safe-scheme"));
 
   EXPECT_FALSE(p->IsWebSafeScheme(kChromeUIScheme));
+  EXPECT_FALSE(p->IsWebSafeScheme(kExeScheme));
+  EXPECT_FALSE(p->IsWebSafeScheme(kMojoScheme));
 }
 
 TEST_F(ChildProcessSecurityPolicyTest, IsPseudoSchemeTest) {

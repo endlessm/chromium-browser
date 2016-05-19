@@ -5,11 +5,11 @@
 package org.chromium.chrome.browser.compositor.layouts;
 
 import android.content.Context;
-import android.graphics.Bitmap;
 import android.graphics.Rect;
 
 import org.chromium.chrome.browser.compositor.TitleCache;
 import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.ui.resources.ResourceManager;
 
@@ -27,8 +27,9 @@ class MockLayoutHost implements LayoutManagerHost, LayoutRenderHost {
 
     static class MockTitleCache implements TitleCache {
         @Override
-        public void put(int tabId, Bitmap titleBitmap, Bitmap faviconBitmap, boolean isIncognito,
-                boolean isRtl) { }
+        public String getUpdatedTitle(Tab tab, String defaultTitle) {
+            return null;
+        }
 
         @Override
         public void remove(int tabId) { }
@@ -61,14 +62,6 @@ class MockLayoutHost implements LayoutManagerHost, LayoutRenderHost {
 
     @Override
     public void onPhysicalBackingSizeChanged(int width, int height) { }
-
-    @Override
-    public void onOverdrawBottomHeightChanged(int overdrawHeight) {}
-
-    @Override
-    public int getCurrentOverdrawBottomHeight() {
-        return 0;
-    }
 
     @Override
     public Context getContext() {
@@ -157,5 +150,9 @@ class MockLayoutHost implements LayoutManagerHost, LayoutRenderHost {
     @Override
     public float getTopControlsUrlBarAlpha() {
         return 1f;
+    }
+
+    @Override
+    public void hideKeyboard(Runnable postHideTask) {
     }
 }

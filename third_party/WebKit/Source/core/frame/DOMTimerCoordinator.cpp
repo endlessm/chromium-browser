@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/DOMTimerCoordinator.h"
 
 #include "core/dom/ExecutionContext.h"
 #include "core/frame/DOMTimer.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -40,20 +40,6 @@ void DOMTimerCoordinator::removeTimeoutByID(int timeoutID)
         removedTimer->disposeTimer();
 
     m_timers.remove(timeoutID);
-}
-
-void DOMTimerCoordinator::didChangeTimerAlignmentInterval()
-{
-    // Reschedule timers in increasing order of desired run time to maintain their relative order.
-    // TODO(skyostil): Move timer alignment into the scheduler.
-    WillBeHeapVector<RawPtrWillBeMember<DOMTimer>> timers;
-    timers.reserveCapacity(m_timers.size());
-    for (TimeoutMap::iterator iter = m_timers.begin(); iter != m_timers.end(); ++iter)
-        timers.append(iter->value.get());
-    std::sort(timers.begin(), timers.end(), TimerBase::Comparator());
-    double now = monotonicallyIncreasingTime();
-    for (DOMTimer* timer : timers)
-        timer->didChangeAlignmentInterval(now);
 }
 
 DEFINE_TRACE(DOMTimerCoordinator)

@@ -4,12 +4,13 @@
 
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/file_manager/fake_disk_mount_manager.h"
@@ -20,6 +21,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/dbus/fake_power_manager_client.h"
 #include "chromeos/disks/disk_mount_manager.h"
+#include "components/prefs/pref_service.h"
 #include "components/storage_monitor/storage_info.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "device/media_transfer_protocol/mtp_storage_info.pb.h"

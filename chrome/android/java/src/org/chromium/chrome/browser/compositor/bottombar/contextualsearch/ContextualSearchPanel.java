@@ -125,7 +125,6 @@ public class ContextualSearchPanel extends OverlayPanel {
         if (mSceneLayer == null) return;
 
         mSceneLayer.update(resourceManager, this,
-                ContextualSearchSceneLayer.CONTEXTUAL_SEARCH_PANEL,
                 getSearchContextViewId(),
                 getSearchTermViewId(),
                 getPeekPromoControl(),
@@ -309,6 +308,13 @@ public class ContextualSearchPanel extends OverlayPanel {
     @Override
     public boolean supportsContextualSearchLayout() {
         return mManagementDelegate != null && !mManagementDelegate.isRunningInCompatibilityMode();
+    }
+
+    @Override
+    public void notifyBarTouched(float x) {
+        // Directly notify the content that it was touched since the close button is not displayed
+        // when Contextual Search is peeking.
+        getOverlayPanelContent().notifyBarTouched();
     }
 
     // ============================================================================================
@@ -501,6 +507,16 @@ public class ContextualSearchPanel extends OverlayPanel {
         super.updatePanelForMaximization(percentage);
 
         getPeekPromoControl().onUpdateFromExpandToMaximize(percentage);
+    }
+
+    @Override
+    protected void updatePanelForOrientationChange() {
+        // TODO(pedrosimonetti): find a better way of resizing the promo upon rotation.
+        // Destroys the Promo view so it can be properly resized. Once the Promo starts
+        // using the ViewResourceInflater, we could probably just call invalidate.
+        destroyPromoView();
+
+        super.updatePanelForOrientationChange();
     }
 
     // ============================================================================================

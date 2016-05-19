@@ -96,13 +96,14 @@ class BlinkGCPluginConsumer : public clang::ASTConsumer {
                                  clang::CXXRecordDecl* base);
   void ReportFieldsRequireTracing(RecordInfo* info,
                                   clang::CXXMethodDecl* trace);
-  void ReportClassContainsInvalidFields(RecordInfo* info,
-                                        CheckFieldsVisitor::Errors* errors);
+  void ReportClassContainsInvalidFields(
+      RecordInfo* info,
+      const CheckFieldsVisitor::Errors& errors);
   void ReportClassContainsGCRoots(RecordInfo* info,
-                                  CheckGCRootsVisitor::Errors* errors);
+                                  const CheckGCRootsVisitor::Errors& errors);
   void ReportFinalizerAccessesFinalizedFields(
       clang::CXXMethodDecl* dtor,
-      CheckFinalizerVisitor::Errors* fields);
+      const CheckFinalizerVisitor::Errors& errors);
   void ReportClassRequiresFinalization(RecordInfo* info);
   void ReportClassDoesNotRequireFinalization(RecordInfo* info);
   void ReportClassMustDeclareGCMixinTraceMethod(RecordInfo* info);
@@ -163,7 +164,6 @@ class BlinkGCPluginConsumer : public clang::ASTConsumer {
   unsigned diag_class_declares_pure_virtual_trace_;
   unsigned diag_left_most_base_must_be_polymorphic_;
   unsigned diag_base_class_must_declare_virtual_trace_;
-  unsigned diag_class_must_declare_gc_mixin_trace_method_;
 
   unsigned diag_base_requires_tracing_note_;
   unsigned diag_field_requires_tracing_note_;

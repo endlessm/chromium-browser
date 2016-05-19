@@ -4,9 +4,13 @@
 
 #include "cc/resources/video_resource_updater.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 
 #include "base/bind.h"
+#include "base/bit_cast.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/base/math_util.h"
 #include "cc/output/gl_renderer.h"
@@ -35,9 +39,12 @@ VideoFrameExternalResources::ResourceType ResourceTypeForVideoFrame(
         case GL_TEXTURE_2D:
           return (video_frame->format() == media::PIXEL_FORMAT_XRGB)
                      ? VideoFrameExternalResources::RGB_RESOURCE
-                     : VideoFrameExternalResources::RGBA_RESOURCE;
+                     : VideoFrameExternalResources::RGBA_PREMULTIPLIED_RESOURCE;
         case GL_TEXTURE_EXTERNAL_OES:
-          return VideoFrameExternalResources::STREAM_TEXTURE_RESOURCE;
+          return video_frame->metadata()->IsTrue(
+                     media::VideoFrameMetadata::COPY_REQUIRED)
+                     ? VideoFrameExternalResources::RGBA_RESOURCE
+                     : VideoFrameExternalResources::STREAM_TEXTURE_RESOURCE;
         case GL_TEXTURE_RECTANGLE_ARB:
           return VideoFrameExternalResources::IO_SURFACE;
         default:
@@ -63,6 +70,12 @@ VideoFrameExternalResources::ResourceType ResourceTypeForVideoFrame(
     case media::PIXEL_FORMAT_RGB32:
     case media::PIXEL_FORMAT_MJPEG:
     case media::PIXEL_FORMAT_MT21:
+    case media::PIXEL_FORMAT_YUV420P9:
+    case media::PIXEL_FORMAT_YUV422P9:
+    case media::PIXEL_FORMAT_YUV444P9:
+    case media::PIXEL_FORMAT_YUV420P10:
+    case media::PIXEL_FORMAT_YUV422P10:
+    case media::PIXEL_FORMAT_YUV444P10:
     case media::PIXEL_FORMAT_UNKNOWN:
       break;
   }
@@ -87,7 +100,7 @@ class SyncTokenClientImpl : public media::VideoFrame::SyncTokenClient {
   void WaitSyncToken(const gpu::SyncToken& sync_token) override {
     if (sync_token.HasData()) {
       gl_->WaitSyncTokenCHROMIUM(sync_token.GetConstData());
-      if (sync_token_.HasData()) {
+      if (sync_token_.HasData() && sync_token_ != sync_token) {
         gl_->WaitSyncTokenCHROMIUM(sync_token_.GetConstData());
         sync_token_.Clear();
       }
@@ -115,6 +128,9 @@ VideoResourceUpdater::PlaneResource::PlaneResource(
       plane_index(0u) {
 }
 
+VideoResourceUpdater::PlaneResource::PlaneResource(const PlaneResource& other) =
+    default;
+
 bool VideoResourceUpdater::PlaneResourceMatchesUniqueID(
     const PlaneResource& plane_resource,
     const media::VideoFrame* video_frame,
@@ -134,8 +150,13 @@ void VideoResourceUpdater::SetPlaneResourceUniqueId(
 }
 
 VideoFrameExternalResources::VideoFrameExternalResources()
-    : type(NONE), read_lock_fences_enabled(false) {
-}
+    : type(NONE),
+      read_lock_fences_enabled(false),
+      offset(0.0f),
+      multiplier(1.0f) {}
+
+VideoFrameExternalResources::VideoFrameExternalResources(
+    const VideoFrameExternalResources& other) = default;
 
 VideoFrameExternalResources::~VideoFrameExternalResources() {}
 
@@ -153,11 +174,14 @@ VideoResourceUpdater::~VideoResourceUpdater() {
 VideoResourceUpdater::ResourceList::iterator
 VideoResourceUpdater::AllocateResource(const gfx::Size& plane_size,
                                        ResourceFormat format,
-                                       bool has_mailbox) {
+                                       bool has_mailbox,
+                                       bool immutable_hint) {
   // TODO(danakj): Abstract out hw/sw resource create/delete from
   // ResourceProvider and stop using ResourceProvider in this class.
   const ResourceId resource_id = resource_provider_->CreateResource(
-      plane_size, ResourceProvider::TEXTURE_HINT_IMMUTABLE, format);
+      plane_size, immutable_hint ? ResourceProvider::TEXTURE_HINT_IMMUTABLE
+                                 : ResourceProvider::TEXTURE_HINT_DEFAULT,
+      format);
   if (resource_id == 0)
     return all_resources_.end();
 
@@ -210,17 +234,56 @@ static gfx::Size SoftwarePlaneDimension(
     const scoped_refptr<media::VideoFrame>& input_frame,
     bool software_compositor,
     size_t plane_index) {
-  if (!software_compositor) {
-    return media::VideoFrame::PlaneSize(
-        input_frame->format(), plane_index, input_frame->coded_size());
-  }
-  return input_frame->coded_size();
+  gfx::Size coded_size = input_frame->coded_size();
+  if (software_compositor)
+    return coded_size;
+
+  int plane_width = media::VideoFrame::Columns(
+      plane_index, input_frame->format(), coded_size.width());
+  int plane_height = media::VideoFrame::Rows(plane_index, input_frame->format(),
+                                             coded_size.height());
+  return gfx::Size(plane_width, plane_height);
 }
 
 VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
     const scoped_refptr<media::VideoFrame>& video_frame) {
   TRACE_EVENT0("cc", "VideoResourceUpdater::CreateForSoftwarePlanes");
   const media::VideoPixelFormat input_frame_format = video_frame->format();
+
+  // TODO(hubbe): Make this a video frame method.
+  int bits_per_channel = 0;
+  switch (input_frame_format) {
+    case media::PIXEL_FORMAT_UNKNOWN:
+      NOTREACHED();
+    // Fall through!
+    case media::PIXEL_FORMAT_I420:
+    case media::PIXEL_FORMAT_YV12:
+    case media::PIXEL_FORMAT_YV16:
+    case media::PIXEL_FORMAT_YV12A:
+    case media::PIXEL_FORMAT_YV24:
+    case media::PIXEL_FORMAT_NV12:
+    case media::PIXEL_FORMAT_NV21:
+    case media::PIXEL_FORMAT_UYVY:
+    case media::PIXEL_FORMAT_YUY2:
+    case media::PIXEL_FORMAT_ARGB:
+    case media::PIXEL_FORMAT_XRGB:
+    case media::PIXEL_FORMAT_RGB24:
+    case media::PIXEL_FORMAT_RGB32:
+    case media::PIXEL_FORMAT_MJPEG:
+    case media::PIXEL_FORMAT_MT21:
+      bits_per_channel = 8;
+      break;
+    case media::PIXEL_FORMAT_YUV420P9:
+    case media::PIXEL_FORMAT_YUV422P9:
+    case media::PIXEL_FORMAT_YUV444P9:
+      bits_per_channel = 9;
+      break;
+    case media::PIXEL_FORMAT_YUV420P10:
+    case media::PIXEL_FORMAT_YUV422P10:
+    case media::PIXEL_FORMAT_YUV444P10:
+      bits_per_channel = 10;
+      break;
+  }
 
   // Only YUV software video frames are supported.
   if (!media::IsYuvPlanar(input_frame_format)) {
@@ -231,7 +294,8 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
   const bool software_compositor = context_provider_ == NULL;
 
   ResourceFormat output_resource_format =
-      resource_provider_->yuv_resource_format();
+      resource_provider_->YuvResourceFormat(bits_per_channel);
+
   size_t output_plane_count = media::VideoFrame::NumPlanes(input_frame_format);
 
   // TODO(skaslev): If we're in software compositing mode, we do the YUV -> RGB
@@ -291,9 +355,10 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
 
     // Check if we need to allocate a new resource.
     if (resource_it == all_resources_.end()) {
+      const bool is_immutable = true;
       resource_it =
           AllocateResource(output_plane_resource_size, output_resource_format,
-                           !software_compositor);
+                           !software_compositor, is_immutable);
     }
     if (resource_it == all_resources_.end())
       break;
@@ -342,7 +407,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
     PlaneResource& plane_resource = *plane_resources[i];
     // Update each plane's resource id with its content.
     DCHECK_EQ(plane_resource.resource_format,
-              resource_provider_->yuv_resource_format());
+              resource_provider_->YuvResourceFormat(bits_per_channel));
 
     if (!PlaneResourceMatchesUniqueID(plane_resource, video_frame.get(), i)) {
       // We need to transfer data from |video_frame| to the plane resource.
@@ -351,9 +416,9 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
       // The |resource_size_pixels| is the size of the resource we want to
       // upload to.
       gfx::Size resource_size_pixels = plane_resource.resource_size;
-      // The |video_stride_pixels| is the width of the video frame we are
+      // The |video_stride_bytes| is the width of the video frame we are
       // uploading (including non-frame data to fill in the stride).
-      int video_stride_pixels = video_frame->stride(i);
+      int video_stride_bytes = video_frame->stride(i);
 
       size_t bytes_per_row = ResourceUtil::UncheckedWidthInBytes<size_t>(
           resource_size_pixels.width(), plane_resource.resource_format);
@@ -362,10 +427,24 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
       size_t upload_image_stride =
           MathUtil::UncheckedRoundUp<size_t>(bytes_per_row, 4u);
 
+      bool needs_conversion = false;
+      int shift = 0;
+
+      // LUMINANCE_F16 uses half-floats, so we always need a conversion step.
+      if (plane_resource.resource_format == LUMINANCE_F16) {
+        needs_conversion = true;
+        // Note that the current method of converting integers to half-floats
+        // stops working if you have more than 10 bits of data.
+        DCHECK_LE(bits_per_channel, 10);
+      } else if (bits_per_channel > 8) {
+        // If bits_per_channel > 8 and we can't use LUMINANCE_F16, we need to
+        // shift the data down and create an 8-bit texture.
+        needs_conversion = true;
+        shift = bits_per_channel - 8;
+      }
       const uint8_t* pixels;
-      size_t video_bytes_per_row = ResourceUtil::UncheckedWidthInBytes<size_t>(
-          video_stride_pixels, plane_resource.resource_format);
-      if (upload_image_stride == video_bytes_per_row) {
+      if (static_cast<int>(upload_image_stride) == video_stride_bytes &&
+          !needs_conversion) {
         pixels = video_frame->data(i);
       } else {
         // Avoid malloc for each frame/plane if possible.
@@ -373,11 +452,36 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
             upload_image_stride * resource_size_pixels.height();
         if (upload_pixels_.size() < needed_size)
           upload_pixels_.resize(needed_size);
+
         for (int row = 0; row < resource_size_pixels.height(); ++row) {
-          uint8_t* dst = &upload_pixels_[upload_image_stride * row];
-          const uint8_t* src =
-              video_frame->data(i) + (video_bytes_per_row * row);
-          memcpy(dst, src, bytes_per_row);
+          if (plane_resource.resource_format == LUMINANCE_F16) {
+            uint16_t* dst = reinterpret_cast<uint16_t*>(
+                &upload_pixels_[upload_image_stride * row]);
+            const uint16_t* src = reinterpret_cast<uint16_t*>(
+                video_frame->data(i) + (video_stride_bytes * row));
+            // Micro-benchmarking indicates that the compiler does
+            // a good enough job of optimizing this loop that trying
+            // to manually operate on one uint64 at a time is not
+            // actually helpful.
+            // Note to future optimizers: Benchmark your optimizations!
+            for (size_t i = 0; i < bytes_per_row / 2; i++)
+              dst[i] = src[i] | 0x3800;
+          } else if (shift != 0) {
+            // We have more-than-8-bit input which we need to shift
+            // down to fit it into an 8-bit texture.
+            uint8_t* dst = &upload_pixels_[upload_image_stride * row];
+            const uint16_t* src = reinterpret_cast<uint16_t*>(
+                video_frame->data(i) + (video_stride_bytes * row));
+            for (size_t i = 0; i < bytes_per_row; i++)
+              dst[i] = src[i] >> shift;
+          } else {
+            // Input and output are the same size and format, but
+            // differ in stride, copy one row at a time.
+            uint8_t* dst = &upload_pixels_[upload_image_stride * row];
+            const uint8_t* src =
+                video_frame->data(i) + (video_stride_bytes * row);
+            memcpy(dst, src, bytes_per_row);
+          }
         }
         pixels = &upload_pixels_[0];
       }
@@ -385,6 +489,29 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
       resource_provider_->CopyToResource(plane_resource.resource_id, pixels,
                                          resource_size_pixels);
       SetPlaneResourceUniqueId(video_frame.get(), i, &plane_resource);
+    }
+
+    if (plane_resource.resource_format == LUMINANCE_F16) {
+      // By OR-ing with 0x3800, 10-bit numbers become half-floats in the
+      // range [0.5..1) and 9-bit numbers get the range [0.5..0.75).
+      //
+      // Half-floats are evaluated as:
+      // float value = pow(2.0, exponent - 25) * (0x400 + fraction);
+      //
+      // In our case the exponent is 14 (since we or with 0x3800) and
+      // pow(2.0, 14-25) * 0x400 evaluates to 0.5 (our offset) and
+      // pow(2.0, 14-25) * fraction is [0..0.49951171875] for 10-bit and
+      // [0..0.24951171875] for 9-bit.
+      //
+      // (https://en.wikipedia.org/wiki/Half-precision_floating-point_format)
+      //
+      // PLEASE NOTE: This doesn't work if bits_per_channel is > 10.
+      // PLEASE NOTE: All planes are assumed to use the same multiplier/offset.
+      external_resources.offset = 0.5f;
+      // Max value from input data.
+      int max_input_value = (1 << bits_per_channel) - 1;
+      // 2 << 11 = 2048 would be 1.0 with our exponent.
+      external_resources.multiplier = 2048.0 / max_input_value;
     }
 
     external_resources.mailboxes.push_back(
@@ -418,6 +545,78 @@ void VideoResourceUpdater::ReturnTexture(
   video_frame->UpdateReleaseSyncToken(&client);
 }
 
+// Create a copy of a texture-backed source video frame in a new GL_TEXTURE_2D
+// texture.
+void VideoResourceUpdater::CopyPlaneTexture(
+    const scoped_refptr<media::VideoFrame>& video_frame,
+    const gpu::MailboxHolder& mailbox_holder,
+    VideoFrameExternalResources* external_resources) {
+  gpu::gles2::GLES2Interface* gl = context_provider_->ContextGL();
+  SyncTokenClientImpl client(gl, mailbox_holder.sync_token);
+
+  const gfx::Size output_plane_resource_size = video_frame->coded_size();
+  // The copy needs to be a direct transfer of pixel data, so we use an RGBA8
+  // target to avoid loss of precision or dropping any alpha component.
+  const ResourceFormat copy_target_format = ResourceFormat::RGBA_8888;
+
+  // Search for an existing resource to reuse.
+  VideoResourceUpdater::ResourceList::iterator resource = all_resources_.end();
+
+  for (auto it = all_resources_.begin(); it != all_resources_.end(); ++it) {
+    // Reuse resource if attributes match and the resource is a currently
+    // unreferenced texture.
+    if (it->resource_size == output_plane_resource_size &&
+        it->resource_format == copy_target_format && !it->mailbox.IsZero() &&
+        it->ref_count == 0 &&
+        resource_provider_->GetTextureHint(it->resource_id) !=
+            ResourceProvider::TEXTURE_HINT_IMMUTABLE) {
+      resource = it;
+      break;
+    }
+  }
+
+  // Otherwise allocate a new resource.
+  if (resource == all_resources_.end()) {
+    const bool is_immutable = false;
+    resource = AllocateResource(output_plane_resource_size, copy_target_format,
+                                true, is_immutable);
+  }
+
+  ++resource->ref_count;
+
+  ResourceProvider::ScopedWriteLockGL lock(resource_provider_,
+                                           resource->resource_id);
+  uint32_t texture_id = lock.texture_id();
+
+  DCHECK_EQ(resource_provider_->GetResourceTextureTarget(resource->resource_id),
+            (GLenum)GL_TEXTURE_2D);
+
+  gl->WaitSyncTokenCHROMIUM(mailbox_holder.sync_token.GetConstData());
+  uint32_t src_texture_id = gl->CreateAndConsumeTextureCHROMIUM(
+      mailbox_holder.texture_target, mailbox_holder.mailbox.name);
+  gl->CopySubTextureCHROMIUM(src_texture_id, texture_id, 0, 0, 0, 0,
+                             output_plane_resource_size.width(),
+                             output_plane_resource_size.height(), false, false,
+                             false);
+  gl->DeleteTextures(1, &src_texture_id);
+
+  // Sync point for use of frame copy.
+  gpu::SyncToken sync_token;
+  const uint64_t fence_sync = gl->InsertFenceSyncCHROMIUM();
+  gl->ShallowFlushCHROMIUM();
+  gl->GenSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+
+  // Done with the source video frame texture at this point.
+  video_frame->UpdateReleaseSyncToken(&client);
+
+  external_resources->mailboxes.push_back(
+      TextureMailbox(resource->mailbox, sync_token, GL_TEXTURE_2D,
+                     video_frame->coded_size(), false));
+
+  external_resources->release_callbacks.push_back(
+      base::Bind(&RecycleResource, AsWeakPtr(), resource->resource_id));
+}
+
 VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
     const scoped_refptr<media::VideoFrame>& video_frame) {
   TRACE_EVENT0("cc", "VideoResourceUpdater::CreateForHardwarePlanes");
@@ -426,7 +625,10 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
     return VideoFrameExternalResources();
 
   VideoFrameExternalResources external_resources;
-  external_resources.read_lock_fences_enabled = true;
+  if (video_frame->metadata()->IsTrue(
+          media::VideoFrameMetadata::READ_LOCK_FENCES_ENABLED)) {
+    external_resources.read_lock_fences_enabled = true;
+  }
 
   external_resources.type = ResourceTypeForVideoFrame(video_frame.get());
   if (external_resources.type == VideoFrameExternalResources::NONE) {
@@ -440,13 +642,20 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
     const gpu::MailboxHolder& mailbox_holder = video_frame->mailbox_holder(i);
     if (mailbox_holder.mailbox.IsZero())
       break;
-    external_resources.mailboxes.push_back(
-        TextureMailbox(mailbox_holder.mailbox, mailbox_holder.sync_token,
-                       mailbox_holder.texture_target, video_frame->coded_size(),
-                       video_frame->metadata()->IsTrue(
-                           media::VideoFrameMetadata::ALLOW_OVERLAY)));
-    external_resources.release_callbacks.push_back(
-        base::Bind(&ReturnTexture, AsWeakPtr(), video_frame));
+
+    if (video_frame->metadata()->IsTrue(
+            media::VideoFrameMetadata::COPY_REQUIRED)) {
+      CopyPlaneTexture(video_frame, mailbox_holder, &external_resources);
+    } else {
+      external_resources.mailboxes.push_back(TextureMailbox(
+          mailbox_holder.mailbox, mailbox_holder.sync_token,
+          mailbox_holder.texture_target, video_frame->coded_size(),
+          video_frame->metadata()->IsTrue(
+              media::VideoFrameMetadata::ALLOW_OVERLAY)));
+
+      external_resources.release_callbacks.push_back(
+          base::Bind(&ReturnTexture, AsWeakPtr(), video_frame));
+    }
   }
   return external_resources;
 }

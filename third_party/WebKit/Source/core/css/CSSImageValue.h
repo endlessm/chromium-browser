@@ -23,7 +23,7 @@
 
 #include "core/CoreExport.h"
 #include "core/css/CSSValue.h"
-#include "core/fetch/ResourceFetcher.h"
+#include "platform/CrossOriginAttributeValue.h"
 #include "platform/weborigin/Referrer.h"
 #include "wtf/RefPtr.h"
 
@@ -49,14 +49,17 @@ public:
     {
         return adoptRefWillBeNoop(new CSSImageValue(rawValue, url, image));
     }
+    static PassRefPtrWillBeRawPtr<CSSImageValue> create(const AtomicString& absoluteURL)
+    {
+        return adoptRefWillBeNoop(new CSSImageValue(absoluteURL));
+    }
     ~CSSImageValue();
 
     bool isCachePending() const { return m_isCachePending; }
     StyleFetchedImage* cachedImage() const { ASSERT(!isCachePending()); return m_cachedImage.get(); }
-    StyleFetchedImage* cacheImage(Document*, const ResourceLoaderOptions&);
-    StyleFetchedImage* cacheImage(Document* document) { return cacheImage(document, ResourceFetcher::defaultResourceOptions()); }
+    StyleFetchedImage* cacheImage(Document*, CrossOriginAttributeValue = CrossOriginAttributeNotSet);
 
-    const String& url() { return m_absoluteURL; }
+    const String& url() const { return m_absoluteURL; }
 
     void setReferrer(const Referrer& referrer) { m_referrer = referrer; }
     const Referrer& referrer() const { return m_referrer; }
@@ -83,6 +86,7 @@ public:
 
 private:
     CSSImageValue(const AtomicString& rawValue, const KURL&, StyleFetchedImage*);
+    CSSImageValue(const AtomicString& absoluteURL);
 
     AtomicString m_relativeURL;
     AtomicString m_absoluteURL;

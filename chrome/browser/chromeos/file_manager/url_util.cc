@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/file_manager/url_util.h"
 
+#include <stddef.h>
+
 #include "base/json/json_writer.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
@@ -12,6 +14,11 @@
 namespace file_manager {
 namespace util {
 namespace {
+
+const char kAllowedPaths[] = "allowedPaths";
+const char kNativePath[] = "nativePath";
+const char kNativeOrDrivePath[] = "nativeOrDrivePath";
+const char kAnyPath[] = "anyPath";
 
 // Returns a file manager URL for the given |path|.
 GURL GetFileManagerUrl(const char* path) {
@@ -107,8 +114,21 @@ GURL GetFileManagerMainPageUrlWithParams(
 
   // If the caller cannot handle Drive path, the file chooser dialog need to
   // return resolved local native paths to the selected files.
-  arg_value.SetBoolean("shouldReturnLocalPath",
-                       !file_types || !file_types->support_drive);
+  if (file_types) {
+    switch (file_types->allowed_paths) {
+      case ui::SelectFileDialog::FileTypeInfo::NATIVE_PATH:
+        arg_value.SetString(kAllowedPaths, kNativePath);
+        break;
+      case ui::SelectFileDialog::FileTypeInfo::NATIVE_OR_DRIVE_PATH:
+        arg_value.SetString(kAllowedPaths, kNativeOrDrivePath);
+        break;
+      case ui::SelectFileDialog::FileTypeInfo::ANY_PATH:
+        arg_value.SetString(kAllowedPaths, kAnyPath);
+        break;
+    }
+  } else {
+    arg_value.SetString(kAllowedPaths, kNativePath);
+  }
 
   std::string json_args;
   base::JSONWriter::Write(arg_value, &json_args);

@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "cc/animation/animation.h"
+#include "cc/animation/animation_events.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/test/layer_animator_test_controller.h"
 #include "ui/gfx/geometry/rect.h"
@@ -28,9 +31,9 @@ LayerAnimationSequence* LayerAnimatorTestController::GetRunningSequence(
 }
 
 void LayerAnimatorTestController::StartThreadedAnimationsIfNeeded() {
-  std::vector<cc::Animation::TargetProperty> threaded_properties;
-  threaded_properties.push_back(cc::Animation::OPACITY);
-  threaded_properties.push_back(cc::Animation::TRANSFORM);
+  std::vector<cc::TargetProperty::Type> threaded_properties;
+  threaded_properties.push_back(cc::TargetProperty::OPACITY);
+  threaded_properties.push_back(cc::TargetProperty::TRANSFORM);
 
   for (size_t i = 0; i < threaded_properties.size(); i++) {
     LayerAnimationElement::AnimatableProperty animatable_property =
@@ -51,6 +54,10 @@ void LayerAnimatorTestController::StartThreadedAnimationsIfNeeded() {
         cc::AnimationEvent::STARTED, 0, element->animation_group_id(),
         threaded_properties[i], base::TimeTicks::Now()));
   }
+}
+
+void LayerAnimatorTestController::Step(const base::TimeDelta& duration) {
+  animator_->Step(animator_->last_step_time() + duration);
 }
 
 }  // namespace ui

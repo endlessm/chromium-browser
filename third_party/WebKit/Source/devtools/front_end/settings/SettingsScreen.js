@@ -36,7 +36,6 @@ WebInspector.SettingsScreen = function()
 {
     WebInspector.VBox.call(this, true);
     this.registerRequiredCSS("settings/settingsScreen.css");
-    this.element.id = "settings-screen";
 
     this.contentElement.tabIndex = 0;
     this.contentElement.classList.add("help-window-main");
@@ -294,8 +293,7 @@ WebInspector.WorkspaceSettingsTab = function()
     WebInspector.isolatedFileSystemManager.addEventListener(WebInspector.IsolatedFileSystemManager.Events.FileSystemAdded, this._fileSystemAdded, this);
     WebInspector.isolatedFileSystemManager.addEventListener(WebInspector.IsolatedFileSystemManager.Events.FileSystemRemoved, this._fileSystemRemoved, this);
 
-    var folderExcludeSetting = WebInspector.isolatedFileSystemManager.workspaceFolderExcludePatternSetting();
-    var folderExcludePatternInput = WebInspector.SettingsUI.createSettingInputField(WebInspector.UIString("Folder exclude pattern"), folderExcludeSetting, false, 0, "270px", WebInspector.SettingsUI.regexValidator);
+    var folderExcludePatternInput = this._createFolderExcludePatternInput();
     folderExcludePatternInput.classList.add("folder-exclude-pattern");
     this.containerElement.appendChild(folderExcludePatternInput);
 
@@ -315,6 +313,38 @@ WebInspector.WorkspaceSettingsTab = function()
 }
 
 WebInspector.WorkspaceSettingsTab.prototype = {
+    /**
+     * @return {!Element}
+     */
+    _createFolderExcludePatternInput: function()
+    {
+        var p = createElement("p");
+        var labelElement = p.createChild("label");
+        labelElement.textContent = WebInspector.UIString("Folder exclude pattern");
+        var inputElement = p.createChild("input");
+        inputElement.type = "text";
+        inputElement.style.width = "270px";
+        var folderExcludeSetting = WebInspector.isolatedFileSystemManager.workspaceFolderExcludePatternSetting();
+        var setValue = WebInspector.bindInput(inputElement, folderExcludeSetting.set.bind(folderExcludeSetting), regexValidator, false);
+        folderExcludeSetting.addChangeListener(() => setValue.call(null, folderExcludeSetting.get()));
+        setValue(folderExcludeSetting.get());
+        return p;
+
+        /**
+         * @param {string} value
+         * @return {boolean}
+         */
+        function regexValidator(value)
+        {
+            var regex;
+            try {
+                regex = new RegExp(value);
+            } catch (e) {
+            }
+            return !!regex;
+        }
+    },
+
     /**
      * @param {!WebInspector.IsolatedFileSystem} fileSystem
      */
@@ -349,7 +379,7 @@ WebInspector.WorkspaceSettingsTab.prototype = {
         path.textContent = fileSystemPath;
         path.title = fileSystemPath;
 
-        var toolbar = new WebInspector.Toolbar();
+        var toolbar = new WebInspector.Toolbar("");
         var button = new WebInspector.ToolbarButton(WebInspector.UIString("Remove"), "delete-toolbar-item");
         button.addEventListener("click", this._removeFileSystemClicked.bind(this, fileSystem));
         toolbar.appendToolbarItem(button);
@@ -363,12 +393,12 @@ WebInspector.WorkspaceSettingsTab.prototype = {
      */
     _removeFileSystemClicked: function(fileSystem)
     {
-        WebInspector.isolatedFileSystemManager.removeFileSystem(fileSystem.path());
+        WebInspector.isolatedFileSystemManager.removeFileSystem(fileSystem);
     },
 
     _addFileSystemClicked: function()
     {
-        WebInspector.isolatedFileSystemManager.addFileSystem("");
+        WebInspector.isolatedFileSystemManager.addFileSystem();
     },
 
     _fileSystemAdded: function(event)

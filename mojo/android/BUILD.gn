@@ -7,9 +7,9 @@ import("//build/config/android/rules.gni")
 group("android") {
   testonly = true
   deps = [
-    ":system_java",
     ":mojo_javatests",
     ":mojo_test_apk",
+    ":system_java",
   ]
 }
 
@@ -45,10 +45,10 @@ source_set("libsystem_java") {
   deps = [
     ":system_java_jni_headers",
     "//base",
+    "//mojo/edk/system",
     "//mojo/environment:chromium",
     "//mojo/message_pump",
     "//mojo/public/cpp/environment",
-    "//third_party/mojo/src/mojo/edk/system",
   ]
 }
 
@@ -92,9 +92,6 @@ android_library("mojo_javatests") {
     "javatests/src/org/chromium/mojo/bindings/ValidationTest.java",
     "javatests/src/org/chromium/mojo/bindings/ValidationTestUtil.java",
     "javatests/src/org/chromium/mojo/bindings/ValidationTestUtilTest.java",
-    "javatests/src/org/chromium/mojo/HandleMock.java",
-    "javatests/src/org/chromium/mojo/MojoTestCase.java",
-    "javatests/src/org/chromium/mojo/TestUtils.java",
     "javatests/src/org/chromium/mojo/system/impl/CoreImplTest.java",
   ]
 
@@ -126,24 +123,23 @@ shared_library("mojo_java_unittests") {
     "//base",
     "//base/test/:test_support",
     "//build/config/sanitizers:deps",
+    "//mojo/edk/system",
     "//mojo/message_pump",
     "//mojo/public/cpp/bindings/tests:mojo_public_bindings_test_utils",
-    "//mojo/public/cpp/test_support:test_utils",
     "//mojo/public/cpp/environment",
-    "//third_party/mojo/src/mojo/edk/system",
+    "//mojo/public/cpp/test_support:test_utils",
   ]
   defines = [ "UNIT_TEST" ]
 }
 
-android_apk("mojo_test_apk") {
-  testonly = true
+instrumentation_test_apk("mojo_test_apk") {
   deps = [
-    ":mojo_javatests",
     ":mojo_java_unittests",
+    ":mojo_javatests",
     ":system_java",
     "//base:base_java",
-    "//mojo/public/java:bindings",
     "//mojo/public/interfaces/bindings/tests:test_interfaces",
+    "//mojo/public/java:bindings",
   ]
   native_libs = [ "libmojo_java_unittests.so" ]
   apk_name = "MojoTest"

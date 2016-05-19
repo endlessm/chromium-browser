@@ -4,6 +4,8 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/state_store.h"
 
+#include <stdint.h>
+
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/macros.h"
@@ -12,6 +14,7 @@
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident.h"
 #include "chrome/browser/safe_browsing/incident_reporting/platform_state_store.h"
@@ -108,7 +111,7 @@ class StateStoreTest : public PlatformStateStoreTestBase {
         new user_prefs::PrefRegistrySyncable();
     chrome::RegisterUserProfilePrefs(pref_registry);
     profile_ = profile_manager_.CreateTestingProfile(
-        kProfileName_, factory.CreateSyncable(pref_registry).Pass(),
+        kProfileName_, factory.CreateSyncable(pref_registry),
         base::UTF8ToUTF16(kProfileName_), 0, std::string(),
         TestingProfile::TestingFactories());
   }

@@ -4,12 +4,18 @@
 
 #include "chrome/browser/task_management/sampling/task_manager_impl.h"
 
+#include "base/command_line.h"
 #include "base/stl_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/task_management/providers/browser_process_task_provider.h"
 #include "chrome/browser/task_management/providers/child_process_task_provider.h"
 #include "chrome/browser/task_management/providers/web_contents/web_contents_task_provider.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_data_manager.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/task_management/providers/arc/arc_process_task_provider.h"
+#endif  // defined(OS_CHROMEOS)
 
 namespace task_management {
 
@@ -39,6 +45,12 @@ TaskManagerImpl::TaskManagerImpl()
   task_providers_.push_back(new BrowserProcessTaskProvider());
   task_providers_.push_back(new ChildProcessTaskProvider());
   task_providers_.push_back(new WebContentsTaskProvider());
+#if defined(OS_CHROMEOS)
+  if (arc::ArcBridgeService::GetEnabled(
+          base::CommandLine::ForCurrentProcess())) {
+    task_providers_.push_back(new ArcProcessTaskProvider());
+  }
+#endif  // defined(OS_CHROMEOS)
 
   content::GpuDataManager::GetInstance()->AddObserver(this);
 }
@@ -60,24 +72,28 @@ void TaskManagerImpl::ActivateTask(TaskId task_id) {
   GetTaskByTaskId(task_id)->Activate();
 }
 
+void TaskManagerImpl::KillTask(TaskId task_id) {
+  GetTaskByTaskId(task_id)->Kill();
+}
+
 double TaskManagerImpl::GetCpuUsage(TaskId task_id) const {
   return GetTaskGroupByTaskId(task_id)->cpu_usage();
 }
 
-int64 TaskManagerImpl::GetPhysicalMemoryUsage(TaskId task_id) const {
+int64_t TaskManagerImpl::GetPhysicalMemoryUsage(TaskId task_id) const {
   return GetTaskGroupByTaskId(task_id)->physical_bytes();
 }
 
-int64 TaskManagerImpl::GetPrivateMemoryUsage(TaskId task_id) const {
+int64_t TaskManagerImpl::GetPrivateMemoryUsage(TaskId task_id) const {
   return GetTaskGroupByTaskId(task_id)->private_bytes();
 }
 
-int64 TaskManagerImpl::GetSharedMemoryUsage(TaskId task_id) const {
+int64_t TaskManagerImpl::GetSharedMemoryUsage(TaskId task_id) const {
   return GetTaskGroupByTaskId(task_id)->shared_bytes();
 }
 
-int64 TaskManagerImpl::GetGpuMemoryUsage(TaskId task_id,
-                                         bool* has_duplicates) const {
+int64_t TaskManagerImpl::GetGpuMemoryUsage(TaskId task_id,
+                                           bool* has_duplicates) const {
   const TaskGroup* task_group = GetTaskGroupByTaskId(task_id);
   if (has_duplicates)
     *has_duplicates = task_group->gpu_memory_has_duplicates();
@@ -92,13 +108,13 @@ int TaskManagerImpl::GetNaClDebugStubPort(TaskId task_id) const {
 #if !defined(DISABLE_NACL)
   return GetTaskGroupByTaskId(task_id)->nacl_debug_stub_port();
 #else
-  return -1;
+  return -2;
 #endif  // !defined(DISABLE_NACL)
 }
 
 void TaskManagerImpl::GetGDIHandles(TaskId task_id,
-                                    int64* current,
-                                    int64* peak) const {
+                                    int64_t* current,
+                                    int64_t* peak) const {
 #if defined(OS_WIN)
   const TaskGroup* task_group = GetTaskGroupByTaskId(task_id);
   *current = task_group->gdi_current_handles();
@@ -110,8 +126,8 @@ void TaskManagerImpl::GetGDIHandles(TaskId task_id,
 }
 
 void TaskManagerImpl::GetUSERHandles(TaskId task_id,
-                                     int64* current,
-                                     int64* peak) const {
+                                     int64_t* current,
+                                     int64_t* peak) const {
 #if defined(OS_WIN)
   const TaskGroup* task_group = GetTaskGroupByTaskId(task_id);
   *current = task_group->user_current_handles();
@@ -122,8 +138,24 @@ void TaskManagerImpl::GetUSERHandles(TaskId task_id,
 #endif  // defined(OS_WIN)
 }
 
+int TaskManagerImpl::GetOpenFdCount(TaskId task_id) const {
+#if defined(OS_LINUX)
+  return GetTaskGroupByTaskId(task_id)->open_fd_count();
+#else
+  return -1;
+#endif  // defined(OS_LINUX)
+}
+
+bool TaskManagerImpl::IsTaskOnBackgroundedProcess(TaskId task_id) const {
+  return GetTaskGroupByTaskId(task_id)->is_backgrounded();
+}
+
 const base::string16& TaskManagerImpl::GetTitle(TaskId task_id) const {
   return GetTaskByTaskId(task_id)->title();
+}
+
+const std::string& TaskManagerImpl::GetTaskNameForRappor(TaskId task_id) const {
+  return GetTaskByTaskId(task_id)->rappor_sample_name();
 }
 
 base::string16 TaskManagerImpl::GetProfileName(TaskId task_id) const {
@@ -147,17 +179,21 @@ Task::Type TaskManagerImpl::GetType(TaskId task_id) const {
   return GetTaskByTaskId(task_id)->GetType();
 }
 
-int64 TaskManagerImpl::GetNetworkUsage(TaskId task_id) const {
+int64_t TaskManagerImpl::GetNetworkUsage(TaskId task_id) const {
   return GetTaskByTaskId(task_id)->network_usage();
 }
 
-int64 TaskManagerImpl::GetSqliteMemoryUsed(TaskId task_id) const {
+int64_t TaskManagerImpl::GetProcessTotalNetworkUsage(TaskId task_id) const {
+  return GetTaskGroupByTaskId(task_id)->per_process_network_usage();
+}
+
+int64_t TaskManagerImpl::GetSqliteMemoryUsed(TaskId task_id) const {
   return GetTaskByTaskId(task_id)->GetSqliteMemoryUsed();
 }
 
 bool TaskManagerImpl::GetV8Memory(TaskId task_id,
-                                  int64* allocated,
-                                  int64* used) const {
+                                  int64_t* allocated,
+                                  int64_t* used) const {
   const Task* task = GetTaskByTaskId(task_id);
   if (!task->ReportsV8Memory())
     return false;
@@ -305,6 +341,9 @@ void TaskManagerImpl::Refresh() {
 }
 
 void TaskManagerImpl::StartUpdating() {
+  if (is_running_)
+    return;
+
   is_running_ = true;
 
   for (auto& provider : task_providers_)
@@ -314,6 +353,9 @@ void TaskManagerImpl::StartUpdating() {
 }
 
 void TaskManagerImpl::StopUpdating() {
+  if (!is_running_)
+    return;
+
   is_running_ = false;
 
   io_thread_helper_manager_.reset();

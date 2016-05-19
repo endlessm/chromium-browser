@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/events/DragEvent.h"
 
 #include "core/clipboard/DataTransfer.h"
@@ -16,13 +15,15 @@ PassRefPtrWillBeRawPtr<DragEvent> DragEvent::create(const AtomicString& type, bo
     int movementX, int movementY,
     PlatformEvent::Modifiers modifiers,
     short button, unsigned short buttons,
-    PassRefPtrWillBeRawPtr<EventTarget> relatedTarget, DataTransfer* dataTransfer, PlatformMouseEvent::SyntheticEventType syntheticEventType,
-    double uiCreateTime)
+    PassRefPtrWillBeRawPtr<EventTarget> relatedTarget,
+    double platformTimeStamp, DataTransfer* dataTransfer,
+    PlatformMouseEvent::SyntheticEventType syntheticEventType)
 {
     return adoptRefWillBeNoop(new DragEvent(type, canBubble, cancelable, view,
         detail, screenX, screenY, windowX, windowY,
         movementX, movementY,
-        modifiers, button, buttons, relatedTarget, dataTransfer, syntheticEventType, uiCreateTime));
+        modifiers, button, buttons, relatedTarget, platformTimeStamp,
+        dataTransfer, syntheticEventType));
 }
 
 
@@ -41,11 +42,11 @@ DragEvent::DragEvent(const AtomicString& eventType, bool canBubble, bool cancela
     int movementX, int movementY,
     PlatformEvent::Modifiers modifiers,
     short button, unsigned short buttons, PassRefPtrWillBeRawPtr<EventTarget> relatedTarget,
-    DataTransfer* dataTransfer, PlatformMouseEvent::SyntheticEventType syntheticEventType,
-    double uiCreateTime)
+    double platformTimeStamp, DataTransfer* dataTransfer,
+    PlatformMouseEvent::SyntheticEventType syntheticEventType)
     : MouseEvent(eventType, canBubble, cancelable, view, detail, screenX, screenY,
         windowX, windowY, movementX, movementY, modifiers, button, buttons, relatedTarget,
-        syntheticEventType, uiCreateTime)
+        platformTimeStamp, syntheticEventType)
     , m_dataTransfer(dataTransfer)
 
 {
@@ -93,7 +94,7 @@ DragEvent& DragEventDispatchMediator::event() const
     return toDragEvent(EventDispatchMediator::event());
 }
 
-bool DragEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
+DispatchEventResult DragEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
 {
     event().eventPath().adjustForRelatedTarget(dispatcher.node(), event().relatedTarget());
     return EventDispatchMediator::dispatchEvent(dispatcher);

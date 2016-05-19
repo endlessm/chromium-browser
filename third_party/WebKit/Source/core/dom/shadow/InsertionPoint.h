@@ -59,8 +59,6 @@ public:
     void attach(const AttachContext& = AttachContext()) override;
     void detach(const AttachContext& = AttachContext()) override;
 
-    bool shouldUseFallbackElements() const;
-
     size_t distributedNodesSize() const { return m_distributedNodes.size(); }
     Node* distributedNodeAt(size_t index)  const { return m_distributedNodes.at(index).get(); }
     Node* firstDistributedNode() const { return m_distributedNodes.isEmpty() ? 0 : m_distributedNodes.first().get(); }
@@ -99,6 +97,7 @@ inline bool isActiveShadowInsertionPoint(const Node& node)
     return node.isInsertionPoint() && toInsertionPoint(node).isShadowInsertionPoint();
 }
 
+// TODO(hayato): The function name is confusing. This neither resolve a reprojection nor support v1 shadow trees.
 inline ElementShadow* shadowWhereNodeCanBeDistributed(const Node& node)
 {
     Node* parent = node.parentNode();

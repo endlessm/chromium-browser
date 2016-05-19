@@ -11,6 +11,7 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "content/public/browser/content_browser_client.h"
 
 class PrefService;
@@ -20,7 +21,6 @@ class CrashHandlerHostLinux;
 }
 
 namespace media {
-class AudioManagerFactory;
 class BrowserCdmFactory;
 }
 
@@ -53,6 +53,9 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
   // Appends extra command line arguments before launching a new process.
   virtual void AppendExtraCommandLineSwitches(base::CommandLine* command_line);
 
+  // Hook for code to run before browser threads created.
+  virtual void PreCreateThreads();
+
   // Creates and returns the CastService instance for the current process.
   // Note: |request_context_getter| might be different than the main request
   // getter accessible via CastBrowserProcess.
@@ -62,15 +65,9 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
       net::URLRequestContextGetter* request_context_getter);
 
 #if !defined(OS_ANDROID)
-  virtual scoped_ptr<::media::AudioManagerFactory> CreateAudioManagerFactory();
-
-  // Creates a CmaMediaPipelineClient which is responsible to create (CMA
-  // backend)
-  // for media playback and watch media pipeline status, called once per media
-  // player
-  // instance.
-  virtual scoped_refptr<media::CmaMediaPipelineClient>
-  CreateCmaMediaPipelineClient();
+  // Returns CmaMediaPipelineClient which is responsible to create
+  // CMA backend for media playback and watch media pipeline status.
+  scoped_refptr<media::CmaMediaPipelineClient> GetCmaMediaPipelineClient();
 #endif
 
   // Performs cleanup for process exit (but before AtExitManager cleanup).
@@ -106,8 +103,7 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
   std::string GetApplicationLocale() override;
   content::QuotaPermissionContext* CreateQuotaPermissionContext() override;
   void AllowCertificateError(
-      int render_process_id,
-      int render_view_id,
+      content::WebContents* web_contents,
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,
@@ -137,8 +133,8 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
       int opener_render_view_id,
       int opener_render_frame_id,
       bool* no_javascript_access) override;
-  void RegisterUnsandboxedOutOfProcessMojoApplications(
-      std::map<GURL, base::string16>* apps) override;
+  void RegisterInProcessMojoApplications(
+      StaticMojoApplicationMap* apps) override;
 #if defined(OS_ANDROID)
   void GetAdditionalMappedFilesForChildProcess(
       const base::CommandLine& command_line,
@@ -152,6 +148,8 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
       int child_process_id,
       content::FileDescriptorInfo* mappings) override;
 #endif  // defined(OS_ANDROID)
+  void GetAdditionalWebUISchemes(
+      std::vector<std::string>* additional_schemes) override;
 #if defined(OS_ANDROID) && defined(VIDEO_HOLE)
   content::ExternalVideoSurfaceContainer*
   OverrideCreateExternalVideoSurfaceContainer(
@@ -160,6 +158,11 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
 
  protected:
   CastContentBrowserClient();
+
+#if !defined(OS_ANDROID)
+  virtual scoped_refptr<media::CmaMediaPipelineClient>
+  CreateCmaMediaPipelineClient();
+#endif  // !defined(OS_ANDROID)
 
   URLRequestContextFactory* url_request_context_factory() const {
     return url_request_context_factory_.get();
@@ -183,7 +186,10 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
 
   // A static cache to hold crash_handlers for each process_type
   std::map<std::string, breakpad::CrashHandlerHostLinux*> crash_handlers_;
-#endif
+
+  // The CmaMediaPipelineClient to pass to all message hosts.
+  scoped_refptr<media::CmaMediaPipelineClient> cma_media_pipeline_client_;
+#endif  // !defined(OS_ANDROID)
 
   scoped_ptr<URLRequestContextFactory> url_request_context_factory_;
 

@@ -4,14 +4,13 @@
 
 #include "chrome/browser/favicon/chrome_fallback_icon_client.h"
 
+#include "build/build_config.h"
 #include "grit/platform_locale_settings.h"
 #include "ui/base/l10n/l10n_util.h"
 
 ChromeFallbackIconClient::ChromeFallbackIconClient() {
 #if defined(OS_CHROMEOS)
   font_list_.push_back("Noto Sans");
-#elif defined(OS_IOS)
-  font_list_.push_back("Helvetica Neue");
 #else
   font_list_.push_back(l10n_util::GetStringUTF8(IDS_SANS_SERIF_FONT_FAMILY));
 #endif

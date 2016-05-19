@@ -5,20 +5,23 @@
 #ifndef COMPONENTS_SEARCH_ENGINES_TEMPLATE_URL_SERVICE_H_
 #define COMPONENTS_SEARCH_ENGINES_TEMPLATE_URL_SERVICE_H_
 
+#include <stddef.h>
 #include <list>
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback_list.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/time/clock.h"
 #include "components/google/core/browser/google_url_tracker.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/search_engines/default_search_manager.h"
 #include "components/search_engines/keyword_web_data_service.h"
 #include "components/search_engines/template_url.h"
@@ -294,6 +297,9 @@ class TemplateURLService : public WebDataServiceConsumer,
 
 #if defined(UNIT_TEST)
   void set_loaded(bool value) { loaded_ = value; }
+
+  // Turns Load() into a no-op.
+  void set_disable_load(bool value) { disable_load_ = value; }
 #endif
 
   // Whether or not the keywords have been loaded.
@@ -378,7 +384,7 @@ class TemplateURLService : public WebDataServiceConsumer,
       const syncer::SyncDataList& sync_data);
 
 #if defined(UNIT_TEST)
-  void set_clock(scoped_ptr<base::Clock> clock) { clock_ = clock.Pass(); }
+  void set_clock(scoped_ptr<base::Clock> clock) { clock_ = std::move(clock); }
 #endif
 
  private:
@@ -397,6 +403,7 @@ class TemplateURLService : public WebDataServiceConsumer,
                            ResolveSyncKeywordConflict);
   FRIEND_TEST_ALL_PREFIXES(TemplateURLServiceSyncTest, PreSyncDeletes);
   FRIEND_TEST_ALL_PREFIXES(TemplateURLServiceSyncTest, MergeInSyncTemplateURL);
+  FRIEND_TEST_ALL_PREFIXES(ToolbarModelTest, GoogleBaseURL);
 
   friend class InstantUnitTestBase;
   friend class TemplateURLServiceTestUtil;
@@ -745,6 +752,9 @@ class TemplateURLService : public WebDataServiceConsumer,
   // further communication with sync or writing to prefs, so we don't persist
   // inconsistent state data anywhere.
   bool load_failed_;
+
+  // Whether Load() is disabled. True only in testing contexts.
+  bool disable_load_;
 
   // If non-zero, we're waiting on a load.
   KeywordWebDataService::Handle load_handle_;

@@ -28,10 +28,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/inspector/PageConsoleAgent.h"
 
 #include "bindings/core/v8/ScriptController.h"
+#include "bindings/core/v8/V8Binding.h"
 #include "core/dom/Document.h"
 #include "core/frame/FrameConsole.h"
 #include "core/frame/FrameHost.h"
@@ -45,8 +45,8 @@ namespace blink {
 
 int PageConsoleAgent::s_enabledAgentCount = 0;
 
-PageConsoleAgent::PageConsoleAgent(InjectedScriptManager* injectedScriptManager, InspectorDOMAgent* domAgent, InspectedFrames* inspectedFrames)
-    : InspectorConsoleAgent(injectedScriptManager)
+PageConsoleAgent::PageConsoleAgent(V8RuntimeAgent* runtimeAgent, InspectorDOMAgent* domAgent, InspectedFrames* inspectedFrames)
+    : InspectorConsoleAgent(runtimeAgent)
     , m_inspectorDOMAgent(domAgent)
     , m_inspectedFrames(inspectedFrames)
 {
@@ -63,6 +63,7 @@ PageConsoleAgent::~PageConsoleAgent()
 DEFINE_TRACE(PageConsoleAgent)
 {
     visitor->trace(m_inspectorDOMAgent);
+    visitor->trace(m_inspectedFrames);
     InspectorConsoleAgent::trace(visitor);
 }
 
@@ -120,14 +121,14 @@ void PageConsoleAgent::workerTerminated(WorkerInspectorProxy* workerInspectorPro
 void PageConsoleAgent::enableStackCapturingIfNeeded()
 {
     if (!s_enabledAgentCount)
-        ScriptController::setCaptureCallStackForUncaughtExceptions(true);
+        ScriptController::setCaptureCallStackForUncaughtExceptions(toIsolate(m_inspectedFrames->root()), true);
     ++s_enabledAgentCount;
 }
 
 void PageConsoleAgent::disableStackCapturingIfNeeded()
 {
     if (!(--s_enabledAgentCount))
-        ScriptController::setCaptureCallStackForUncaughtExceptions(false);
+        ScriptController::setCaptureCallStackForUncaughtExceptions(toIsolate(m_inspectedFrames->root()), false);
 }
 
 } // namespace blink

@@ -27,13 +27,18 @@
 #include "third_party/ocmock/gtest_support.h"
 
 namespace {
-// URL of the Google domain where the X-CHROME-CONNECTED cookie is set/removed.
+// URL of the Google domain where the CHROME_CONNECTED cookie is set/removed.
 NSURL* const kGoogleUrl = [NSURL URLWithString:@"https://google.com/"];
-// URL of the Youtube domain where the X-CHROME-CONNECTED cookie is set/removed.
+// URL of the Youtube domain where the CHROME_CONNECTED cookie is set/removed.
 NSURL* const kYoutubeUrl = [NSURL URLWithString:@"https://youtube.com/"];
-// URL of a country Google domain where the X-CHROME-CONNECTED cookie is
+// URL of a country Google domain where the CHROME_CONNECTED cookie is
 // set/removed.
 NSURL* const kCountryGoogleUrl = [NSURL URLWithString:@"https://google.de/"];
+
+// Google domain.
+const char* kGoogleDomain = "google.com";
+// Youtube domain.
+const char* kYoutubeDomain = "youtube.com";
 
 // AccountConsistencyService specialization that fakes the creation of the
 // WKWebView in order to mock it. This allows tests to intercept the calls to
@@ -126,7 +131,8 @@ class AccountConsistencyServiceTest : public PlatformTest {
     signin_manager_.reset(new FakeSigninManager(
         signin_client_.get(), nullptr, &account_tracker_service_, nullptr));
     account_tracker_service_.Initialize(signin_client_.get());
-    settings_map_ = new HostContentSettingsMap(&prefs_, false);
+    settings_map_ = new HostContentSettingsMap(
+        &prefs_, false /* incognito_profile */, false /* guest_profile */);
     cookie_settings_ =
         new content_settings::CookieSettings(settings_map_.get(), &prefs_, "");
     ResetAccountConsistencyService();
@@ -175,6 +181,18 @@ class AccountConsistencyServiceTest : public PlatformTest {
   id GetMockWKWebView() { return account_consistency_service_->GetWKWebView(); }
   id GetNavigationDelegate() {
     return account_consistency_service_->navigation_delegate_;
+  }
+
+  bool ShouldAddCookieToDomain(const std::string& domain,
+                               bool should_check_last_update_time) {
+    return account_consistency_service_->ShouldAddChromeConnectedCookieToDomain(
+        domain, should_check_last_update_time);
+  }
+
+  void CheckDomainHasCookie(const std::string& domain) {
+    EXPECT_GE(
+        account_consistency_service_->last_cookie_update_map_.count(domain),
+        1u);
   }
 
   // Creates test threads, necessary for ActiveStateManager that needs a UI
@@ -390,4 +408,53 @@ TEST_F(AccountConsistencyServiceTest, DomainsClearedOnBrowsingDataRemoved) {
   dict =
       prefs_.GetDictionary(AccountConsistencyService::kDomainsWithCookiePref);
   EXPECT_EQ(0u, dict->size());
+}
+
+// Tests that cookie requests are correctly processed or ignored when the update
+// time isn't checked.
+TEST_F(AccountConsistencyServiceTest, ShouldAddCookieDontCheckUpdateTime) {
+  EXPECT_TRUE(ShouldAddCookieToDomain(kGoogleDomain, false));
+  EXPECT_TRUE(ShouldAddCookieToDomain(kYoutubeDomain, false));
+
+  AddPageLoadedExpectation(kGoogleUrl, true /* continue_navigation */);
+  AddPageLoadedExpectation(kYoutubeUrl, true /* continue_navigation */);
+  SignIn();
+
+  EXPECT_FALSE(ShouldAddCookieToDomain(kGoogleDomain, false));
+  EXPECT_FALSE(ShouldAddCookieToDomain(kYoutubeDomain, false));
+
+  ResetAccountConsistencyService();
+
+  EXPECT_FALSE(ShouldAddCookieToDomain(kGoogleDomain, false));
+  EXPECT_FALSE(ShouldAddCookieToDomain(kYoutubeDomain, false));
+}
+
+// Tests that cookie requests are correctly processed or ignored when the update
+// time is checked.
+TEST_F(AccountConsistencyServiceTest, ShouldAddCookieCheckUpdateTime) {
+  EXPECT_TRUE(ShouldAddCookieToDomain(kGoogleDomain, true));
+  EXPECT_TRUE(ShouldAddCookieToDomain(kYoutubeDomain, true));
+
+  AddPageLoadedExpectation(kGoogleUrl, true /* continue_navigation */);
+  AddPageLoadedExpectation(kYoutubeUrl, true /* continue_navigation */);
+  SignIn();
+
+  EXPECT_FALSE(ShouldAddCookieToDomain(kGoogleDomain, true));
+  EXPECT_FALSE(ShouldAddCookieToDomain(kYoutubeDomain, true));
+
+  ResetAccountConsistencyService();
+
+  EXPECT_TRUE(ShouldAddCookieToDomain(kGoogleDomain, true));
+  EXPECT_TRUE(ShouldAddCookieToDomain(kYoutubeDomain, true));
+}
+
+// Tests that main domains are added to the internal map when cookies are set in
+// reaction to signin.
+TEST_F(AccountConsistencyServiceTest, SigninAddCookieOnMainDomains) {
+  AddPageLoadedExpectation(kGoogleUrl, true /* continue_navigation */);
+  AddPageLoadedExpectation(kYoutubeUrl, true /* continue_navigation */);
+  SignIn();
+
+  CheckDomainHasCookie(kGoogleDomain);
+  CheckDomainHasCookie(kYoutubeDomain);
 }

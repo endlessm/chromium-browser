@@ -5,16 +5,25 @@
 #ifndef COMPONENTS_MUS_PUBLIC_CPP_WINDOW_TREE_CONNECTION_H_
 #define COMPONENTS_MUS_PUBLIC_CPP_WINDOW_TREE_CONNECTION_H_
 
-#include <string>
+#include <stdint.h>
 
-#include "components/mus/public/cpp/types.h"
+#include <map>
+#include <string>
+#include <vector>
+
+#include "components/mus/common/types.h"
 #include "components/mus/public/interfaces/window_tree.mojom.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
+
+namespace mojo {
+class Connector;
+}
 
 namespace mus {
 
 class Window;
 class WindowManagerDelegate;
+class WindowTreeConnectionObserver;
 class WindowTreeDelegate;
 
 // Encapsulates a connection to a window tree. A unique connection is made
@@ -31,24 +40,38 @@ class WindowTreeConnection {
 
   virtual ~WindowTreeConnection() {}
 
-  // The returned WindowTreeConnection instance owns itself, and is deleted when
-  // the last root is destroyed or the connection to the service is broken.
+  // Creates a WindowTreeConnection with no roots. Use this to establish a
+  // connection directly to mus and create top level windows.
+  static WindowTreeConnection* Create(WindowTreeDelegate* delegate,
+                                      mojo::Connector* connector);
+
+  // Creates a WindowTreeConnection to service the specified request for
+  // a WindowTreeClient. Use this to be embedded in another app.
   static WindowTreeConnection* Create(
       WindowTreeDelegate* delegate,
       mojo::InterfaceRequest<mojom::WindowTreeClient> request,
       CreateType create_type);
 
+  // Create a WindowTreeConnection that is going to serve as the WindowManager.
   static WindowTreeConnection* CreateForWindowManager(
       WindowTreeDelegate* delegate,
       mojo::InterfaceRequest<mojom::WindowTreeClient> request,
       CreateType create_type,
       WindowManagerDelegate* window_manager_delegate);
 
+  // Sets whether this is deleted when there are no roots. The default is to
+  // delete when there are no roots.
+  virtual void SetDeleteOnNoRoots(bool value) = 0;
+
   // Returns the root of this connection.
-  virtual Window* GetRoot() = 0;
+  virtual const std::set<Window*>& GetRoots() = 0;
 
   // Returns a Window known to this connection.
   virtual Window* GetWindowById(Id id) = 0;
+
+  // Returns the Window with input capture; null if no window has requested
+  // input capture, or if another app has capture.
+  virtual Window* GetCaptureWindow() = 0;
 
   // Returns the focused window; null if focus is not yet known or another app
   // is focused.
@@ -56,13 +79,21 @@ class WindowTreeConnection {
 
   // Creates and returns a new Window (which is owned by the window server).
   // Windows are initially hidden, use SetVisible(true) to show.
-  virtual Window* NewWindow() = 0;
+  Window* NewWindow() { return NewWindow(nullptr); }
+  virtual Window* NewWindow(
+      const std::map<std::string, std::vector<uint8_t>>* properties) = 0;
+  virtual Window* NewTopLevelWindow(
+      const std::map<std::string, std::vector<uint8_t>>* properties) = 0;
 
   // Returns true if ACCESS_POLICY_EMBED_ROOT was specified.
   virtual bool IsEmbedRoot() = 0;
 
   // Returns the id for this connection.
+  // TODO(sky): remove this. It is not necessarily correct anymore.
   virtual ConnectionSpecificId GetConnectionId() = 0;
+
+  virtual void AddObserver(WindowTreeConnectionObserver* observer) = 0;
+  virtual void RemoveObserver(WindowTreeConnectionObserver* observer) = 0;
 };
 
 }  // namespace mus

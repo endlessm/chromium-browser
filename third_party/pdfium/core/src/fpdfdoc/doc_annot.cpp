@@ -6,20 +6,20 @@
 
 #include "core/include/fpdfapi/fpdf_pageobj.h"
 #include "core/include/fpdfdoc/fpdf_doc.h"
-#include "third_party/base/nonstd_unique_ptr.h"
 
 CPDF_AnnotList::CPDF_AnnotList(CPDF_Page* pPage)
     : m_pDocument(pPage->m_pDocument) {
   if (!pPage->m_pFormDict)
     return;
 
-  CPDF_Array* pAnnots = pPage->m_pFormDict->GetArray("Annots");
+  CPDF_Array* pAnnots = pPage->m_pFormDict->GetArrayBy("Annots");
   if (!pAnnots)
     return;
 
   CPDF_Dictionary* pRoot = m_pDocument->GetRoot();
-  CPDF_Dictionary* pAcroForm = pRoot->GetDict("AcroForm");
-  FX_BOOL bRegenerateAP = pAcroForm && pAcroForm->GetBoolean("NeedAppearances");
+  CPDF_Dictionary* pAcroForm = pRoot->GetDictBy("AcroForm");
+  FX_BOOL bRegenerateAP =
+      pAcroForm && pAcroForm->GetBooleanBy("NeedAppearances");
   for (FX_DWORD i = 0; i < pAnnots->GetCount(); ++i) {
     CPDF_Dictionary* pDict = ToDictionary(pAnnots->GetElementValue(i));
     if (!pDict)
@@ -31,11 +31,10 @@ CPDF_AnnotList::CPDF_AnnotList(CPDF_Page* pPage)
       CPDF_Reference* pAction = new CPDF_Reference(m_pDocument, dwObjNum);
       pAnnots->InsertAt(i, pAction);
       pAnnots->RemoveAt(i + 1);
-      pDict = pAnnots->GetDict(i);
+      pDict = pAnnots->GetDictAt(i);
     }
     m_AnnotList.push_back(new CPDF_Annot(pDict, this));
-    if (bRegenerateAP &&
-        pDict->GetConstString(FX_BSTRC("Subtype")) == FX_BSTRC("Widget") &&
+    if (bRegenerateAP && pDict->GetConstStringBy("Subtype") == "Widget" &&
         CPDF_InterForm::UpdatingAPEnabled()) {
       FPDF_GenerateAP(m_pDocument, pDict);
     }
@@ -47,11 +46,11 @@ CPDF_AnnotList::~CPDF_AnnotList() {
     delete annot;
 }
 
-void CPDF_AnnotList::DisplayPass(const CPDF_Page* pPage,
+void CPDF_AnnotList::DisplayPass(CPDF_Page* pPage,
                                  CFX_RenderDevice* pDevice,
                                  CPDF_RenderContext* pContext,
                                  FX_BOOL bPrinting,
-                                 CFX_AffineMatrix* pMatrix,
+                                 CFX_Matrix* pMatrix,
                                  FX_BOOL bWidgetPass,
                                  CPDF_RenderOptions* pOptions,
                                  FX_RECT* clip_rect) {
@@ -74,7 +73,7 @@ void CPDF_AnnotList::DisplayPass(const CPDF_Page* pPage,
       IPDF_OCContext* pOCContext = pOptions->m_pOCContext;
       CPDF_Dictionary* pAnnotDict = pAnnot->GetAnnotDict();
       if (pOCContext && pAnnotDict &&
-          !pOCContext->CheckOCGVisible(pAnnotDict->GetDict(FX_BSTRC("OC")))) {
+          !pOCContext->CheckOCGVisible(pAnnotDict->GetDictBy("OC"))) {
         continue;
       }
     }
@@ -98,11 +97,11 @@ void CPDF_AnnotList::DisplayPass(const CPDF_Page* pPage,
   }
 }
 
-void CPDF_AnnotList::DisplayAnnots(const CPDF_Page* pPage,
+void CPDF_AnnotList::DisplayAnnots(CPDF_Page* pPage,
                                    CFX_RenderDevice* pDevice,
                                    CPDF_RenderContext* pContext,
                                    FX_BOOL bPrinting,
-                                   CFX_AffineMatrix* pUser2Device,
+                                   CFX_Matrix* pUser2Device,
                                    FX_DWORD dwAnnotFlags,
                                    CPDF_RenderOptions* pOptions,
                                    FX_RECT* pClipRect) {
@@ -119,40 +118,36 @@ void CPDF_AnnotList::DisplayAnnots(const CPDF_Page* pPage,
 CPDF_Annot::CPDF_Annot(CPDF_Dictionary* pDict, CPDF_AnnotList* pList)
     : m_pAnnotDict(pDict),
       m_pList(pList),
-      m_sSubtype(m_pAnnotDict->GetConstString(FX_BSTRC("Subtype"))) {}
+      m_sSubtype(m_pAnnotDict->GetConstStringBy("Subtype")) {}
 CPDF_Annot::~CPDF_Annot() {
   ClearCachedAP();
 }
 void CPDF_Annot::ClearCachedAP() {
-  FX_POSITION pos = m_APMap.GetStartPosition();
-  while (pos) {
-    void* pForm;
-    void* pObjects;
-    m_APMap.GetNextAssoc(pos, pForm, pObjects);
-    delete (CPDF_PageObjects*)pObjects;
+  for (const auto& pair : m_APMap) {
+    delete pair.second;
   }
-  m_APMap.RemoveAll();
+  m_APMap.clear();
 }
 CFX_ByteString CPDF_Annot::GetSubType() const {
   return m_sSubtype;
 }
 
 void CPDF_Annot::GetRect(CPDF_Rect& rect) const {
-  if (m_pAnnotDict == NULL) {
+  if (!m_pAnnotDict) {
     return;
   }
-  rect = m_pAnnotDict->GetRect("Rect");
+  rect = m_pAnnotDict->GetRectBy("Rect");
   rect.Normalize();
 }
 
 FX_DWORD CPDF_Annot::GetFlags() const {
-  return m_pAnnotDict->GetInteger("F");
+  return m_pAnnotDict->GetIntegerBy("F");
 }
 
 CPDF_Stream* FPDFDOC_GetAnnotAP(CPDF_Dictionary* pAnnotDict,
                                 CPDF_Annot::AppearanceMode mode) {
-  CPDF_Dictionary* pAP = pAnnotDict->GetDict("AP");
-  if (pAP == NULL) {
+  CPDF_Dictionary* pAP = pAnnotDict->GetDictBy("AP");
+  if (!pAP) {
     return NULL;
   }
   const FX_CHAR* ap_entry = "N";
@@ -170,19 +165,19 @@ CPDF_Stream* FPDFDOC_GetAnnotAP(CPDF_Dictionary* pAnnotDict,
     return pStream;
 
   if (CPDF_Dictionary* pDict = psub->AsDictionary()) {
-    CFX_ByteString as = pAnnotDict->GetString("AS");
+    CFX_ByteString as = pAnnotDict->GetStringBy("AS");
     if (as.IsEmpty()) {
-      CFX_ByteString value = pAnnotDict->GetString(FX_BSTRC("V"));
+      CFX_ByteString value = pAnnotDict->GetStringBy("V");
       if (value.IsEmpty()) {
-        CPDF_Dictionary* pDict = pAnnotDict->GetDict(FX_BSTRC("Parent"));
-        value = pDict ? pDict->GetString(FX_BSTRC("V")) : CFX_ByteString();
+        CPDF_Dictionary* pDict = pAnnotDict->GetDictBy("Parent");
+        value = pDict ? pDict->GetStringBy("V") : CFX_ByteString();
       }
       if (value.IsEmpty() || !pDict->KeyExist(value))
-        as = FX_BSTRC("Off");
+        as = "Off";
       else
         as = value;
     }
-    return pDict->GetStream(as);
+    return pDict->GetStreamBy(as);
   }
   return nullptr;
 }
@@ -192,28 +187,28 @@ CPDF_Form* CPDF_Annot::GetAPForm(const CPDF_Page* pPage, AppearanceMode mode) {
   if (!pStream)
     return nullptr;
 
-  void* pForm;
-  if (m_APMap.Lookup(pStream, pForm))
-    return static_cast<CPDF_Form*>(pForm);
+  auto it = m_APMap.find(pStream);
+  if (it != m_APMap.end())
+    return it->second;
 
   CPDF_Form* pNewForm =
       new CPDF_Form(m_pList->GetDocument(), pPage->m_pResources, pStream);
   pNewForm->ParseContent(nullptr, nullptr, nullptr, nullptr);
-  m_APMap.SetAt(pStream, pNewForm);
+  m_APMap[pStream] = pNewForm;
   return pNewForm;
 }
 
 static CPDF_Form* FPDFDOC_Annot_GetMatrix(const CPDF_Page* pPage,
                                           CPDF_Annot* pAnnot,
                                           CPDF_Annot::AppearanceMode mode,
-                                          const CFX_AffineMatrix* pUser2Device,
+                                          const CFX_Matrix* pUser2Device,
                                           CFX_Matrix& matrix) {
   CPDF_Form* pForm = pAnnot->GetAPForm(pPage, mode);
   if (!pForm) {
     return NULL;
   }
-  CFX_FloatRect form_bbox = pForm->m_pFormDict->GetRect(FX_BSTRC("BBox"));
-  CFX_Matrix form_matrix = pForm->m_pFormDict->GetMatrix(FX_BSTRC("Matrix"));
+  CFX_FloatRect form_bbox = pForm->m_pFormDict->GetRectBy("BBox");
+  CFX_Matrix form_matrix = pForm->m_pFormDict->GetMatrixBy("Matrix");
   form_matrix.TransformRect(form_bbox);
   CPDF_Rect arect;
   pAnnot->GetRect(arect);
@@ -221,9 +216,9 @@ static CPDF_Form* FPDFDOC_Annot_GetMatrix(const CPDF_Page* pPage,
   matrix.Concat(*pUser2Device);
   return pForm;
 }
-FX_BOOL CPDF_Annot::DrawAppearance(const CPDF_Page* pPage,
+FX_BOOL CPDF_Annot::DrawAppearance(CPDF_Page* pPage,
                                    CFX_RenderDevice* pDevice,
-                                   const CFX_AffineMatrix* pUser2Device,
+                                   const CFX_Matrix* pUser2Device,
                                    AppearanceMode mode,
                                    const CPDF_RenderOptions* pOptions) {
   CFX_Matrix matrix;
@@ -232,14 +227,14 @@ FX_BOOL CPDF_Annot::DrawAppearance(const CPDF_Page* pPage,
   if (!pForm) {
     return FALSE;
   }
-  CPDF_RenderContext context;
-  context.Create((CPDF_Page*)pPage);
-  context.DrawObjectList(pDevice, pForm, &matrix, pOptions);
+  CPDF_RenderContext context(pPage);
+  context.AppendLayer(pForm, &matrix);
+  context.Render(pDevice, pOptions, nullptr);
   return TRUE;
 }
 FX_BOOL CPDF_Annot::DrawInContext(const CPDF_Page* pPage,
-                                  const CPDF_RenderContext* pContext,
-                                  const CFX_AffineMatrix* pUser2Device,
+                                  CPDF_RenderContext* pContext,
+                                  const CFX_Matrix* pUser2Device,
                                   AppearanceMode mode) {
   CFX_Matrix matrix;
   CPDF_Form* pForm =
@@ -247,11 +242,11 @@ FX_BOOL CPDF_Annot::DrawInContext(const CPDF_Page* pPage,
   if (!pForm) {
     return FALSE;
   }
-  ((CPDF_RenderContext*)pContext)->AppendObjectList(pForm, &matrix);
+  pContext->AppendLayer(pForm, &matrix);
   return TRUE;
 }
 void CPDF_Annot::DrawBorder(CFX_RenderDevice* pDevice,
-                            const CFX_AffineMatrix* pUser2Device,
+                            const CFX_Matrix* pUser2Device,
                             const CPDF_RenderOptions* pOptions) {
   if (GetSubType() == "Popup") {
     return;
@@ -268,18 +263,18 @@ void CPDF_Annot::DrawBorder(CFX_RenderDevice* pDevice,
   if (!bPrinting && (annot_flags & ANNOTFLAG_NOVIEW)) {
     return;
   }
-  CPDF_Dictionary* pBS = m_pAnnotDict->GetDict("BS");
+  CPDF_Dictionary* pBS = m_pAnnotDict->GetDictBy("BS");
   char style_char;
   FX_FLOAT width;
   CPDF_Array* pDashArray = NULL;
-  if (pBS == NULL) {
-    CPDF_Array* pBorderArray = m_pAnnotDict->GetArray("Border");
+  if (!pBS) {
+    CPDF_Array* pBorderArray = m_pAnnotDict->GetArrayBy("Border");
     style_char = 'S';
     if (pBorderArray) {
-      width = pBorderArray->GetNumber(2);
+      width = pBorderArray->GetNumberAt(2);
       if (pBorderArray->GetCount() == 4) {
-        pDashArray = pBorderArray->GetArray(3);
-        if (pDashArray == NULL) {
+        pDashArray = pBorderArray->GetArrayAt(3);
+        if (!pDashArray) {
           return;
         }
         int nLen = pDashArray->GetCount();
@@ -299,23 +294,23 @@ void CPDF_Annot::DrawBorder(CFX_RenderDevice* pDevice,
       width = 1;
     }
   } else {
-    CFX_ByteString style = pBS->GetString("S");
-    pDashArray = pBS->GetArray("D");
+    CFX_ByteString style = pBS->GetStringBy("S");
+    pDashArray = pBS->GetArrayBy("D");
     style_char = style[1];
-    width = pBS->GetNumber("W");
+    width = pBS->GetNumberBy("W");
   }
   if (width <= 0) {
     return;
   }
-  CPDF_Array* pColor = m_pAnnotDict->GetArray("C");
+  CPDF_Array* pColor = m_pAnnotDict->GetArrayBy("C");
   FX_DWORD argb = 0xff000000;
-  if (pColor != NULL) {
-    int R = (int32_t)(pColor->GetNumber(0) * 255);
-    int G = (int32_t)(pColor->GetNumber(1) * 255);
-    int B = (int32_t)(pColor->GetNumber(2) * 255);
+  if (pColor) {
+    int R = (int32_t)(pColor->GetNumberAt(0) * 255);
+    int G = (int32_t)(pColor->GetNumberAt(1) * 255);
+    int B = (int32_t)(pColor->GetNumberAt(2) * 255);
     argb = ArgbEncode(0xff, R, G, B);
   }
-  CPDF_GraphStateData graph_state;
+  CFX_GraphStateData graph_state;
   graph_state.m_LineWidth = width;
   if (style_char == 'D') {
     if (pDashArray) {
@@ -327,7 +322,7 @@ void CPDF_Annot::DrawBorder(CFX_RenderDevice* pDevice,
       graph_state.m_DashCount = dash_count;
       FX_DWORD i;
       for (i = 0; i < pDashArray->GetCount(); ++i) {
-        graph_state.m_DashArray[i] = pDashArray->GetNumber(i);
+        graph_state.m_DashArray[i] = pDashArray->GetNumberAt(i);
       }
       if (i < dash_count) {
         graph_state.m_DashArray[i] = graph_state.m_DashArray[i - 1];
@@ -340,7 +335,7 @@ void CPDF_Annot::DrawBorder(CFX_RenderDevice* pDevice,
   }
   CFX_FloatRect rect;
   GetRect(rect);
-  CPDF_PathData path;
+  CFX_PathData path;
   width /= 2;
   path.AppendRect(rect.left + width, rect.bottom + width, rect.right - width,
                   rect.top - width);

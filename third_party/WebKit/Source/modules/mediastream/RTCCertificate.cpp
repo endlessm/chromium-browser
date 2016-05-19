@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/mediastream/RTCCertificate.h"
 
 namespace blink {
@@ -41,6 +40,11 @@ RTCCertificate::RTCCertificate(WebRTCCertificate* certificate)
 WebRTCCertificate* RTCCertificate::certificateShallowCopy() const
 {
     return m_certificate->shallowCopy();
+}
+
+DOMTimeStamp RTCCertificate::expires() const
+{
+    return static_cast<DOMTimeStamp>(m_certificate->expires());
 }
 
 } // namespace blink

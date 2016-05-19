@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/SVGResources.h"
 
 #include "core/SVGNames.h"
@@ -673,4 +672,4 @@ void SVGResources::dump(const LayoutObject* object)
 }
 #endif
 
-}
+} // namespace blink

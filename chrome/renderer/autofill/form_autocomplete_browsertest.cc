@@ -4,6 +4,7 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/test/base/chrome_render_view_test.h"
 #include "components/autofill/content/common/autofill_messages.h"
 #include "components/autofill/content/renderer/autofill_agent.h"
@@ -385,6 +386,68 @@ TEST_F(FormAutocompleteTest, AjaxSucceeded_FilledFormStillVisible) {
 
   // No submission messages sent.
   VerifyNoSubmitMessagesReceived(render_thread_.get());
+}
+
+// Test that a FocusNoLongerOnForm message is sent if focus goes from an
+// interacted form to an element outside the form.
+TEST_F(FormAutocompleteTest,
+       InteractedFormNoLongerFocused_FocusNoLongerOnForm) {
+  // Load a form.
+  LoadHTML(
+      "<html><input type='text' id='different'/>"
+      "<form id='myForm' action='http://example.com/blade.php'>"
+      "<input name='fname' id='fname' value='Bob'/>"
+      "<input name='lname' value='Deckard'/><input type=submit></form></html>");
+
+  // Simulate user input so that the form is "remembered".
+  WebDocument document = GetMainFrame()->document();
+  WebElement element = document.getElementById(WebString::fromUTF8("fname"));
+  ASSERT_FALSE(element.isNull());
+  WebInputElement fname_element = element.to<WebInputElement>();
+  SimulateUserInputChangeForElement(&fname_element, std::string("Rick"));
+
+  // Change focus to a different node outside the form.
+  WebElement different =
+      document.getElementById(WebString::fromUTF8("different"));
+  SetFocused(different);
+
+  ProcessPendingMessages();
+
+  EXPECT_TRUE(render_thread_->sink().GetFirstMessageMatching(
+                  AutofillHostMsg_FocusNoLongerOnForm::ID) != nullptr);
+}
+
+// Test that a FocusNoLongerOnForm message is sent if focus goes from one
+// interacted form to another.
+TEST_F(FormAutocompleteTest, InteractingInDifferentForms_FocusNoLongerOnForm) {
+  // Load a form.
+  LoadHTML(
+      "<html><form id='myForm' action='http://example.com/blade.php'>"
+      "<input name='fname' id='fname' value='Bob'/>"
+      "<input name='lname' value='Deckard'/><input type=submit></form>"
+      "<form id='myForm2' action='http://example.com/runner.php'>"
+      "<input name='fname' id='fname2' value='Bob'/>"
+      "<input name='lname' value='Deckard'/><input type=submit></form></html>");
+
+  // Simulate user input in the first form so that the form is "remembered".
+  WebDocument document = GetMainFrame()->document();
+  WebElement element = document.getElementById(WebString::fromUTF8("fname"));
+  ASSERT_FALSE(element.isNull());
+  WebInputElement fname_element = element.to<WebInputElement>();
+  SimulateUserInputChangeForElement(&fname_element, std::string("Rick"));
+
+  // Simulate user input in the second form so that a "no longer focused"
+  // message is sent for the first form.
+  document = GetMainFrame()->document();
+  element = document.getElementById(WebString::fromUTF8("fname2"));
+  ASSERT_FALSE(element.isNull());
+  fname_element = element.to<WebInputElement>();
+  SimulateUserInputChangeForElement(&fname_element, std::string("John"));
+
+  ProcessPendingMessages();
+
+  EXPECT_TRUE(render_thread_->sink().GetFirstMessageMatching(
+                  AutofillHostMsg_FocusNoLongerOnForm::ID) != nullptr);
 }
 
 // Tests that submitting a form that has autocomplete="off" generates

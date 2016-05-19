@@ -5,9 +5,9 @@
 #include "extensions/browser/api/management/management_api.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
@@ -18,6 +18,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/management/management_api_constants.h"
@@ -106,6 +107,8 @@ scoped_ptr<management::ExtensionInfo> CreateExtensionInfo(
   info->enabled = registry->enabled_extensions().Contains(info->id);
   info->offline_enabled = OfflineEnabledInfo::IsOfflineEnabled(&extension);
   info->version = extension.VersionString();
+  if (!extension.version_name().empty())
+    info->version_name.reset(new std::string(extension.version_name()));
   info->description = extension.description();
   info->options_url = OptionsPageInfo::GetOptionsPage(&extension).spec();
   info->homepage_url.reset(
@@ -243,13 +246,7 @@ scoped_ptr<management::ExtensionInfo> CreateExtensionInfo(
         GetAvailableLaunchTypes(extension, delegate)));
   }
 
-  return info.Pass();
-}
-
-bool ShouldNotBeVisible(const Extension* extension,
-                        content::BrowserContext* context) {
-  return (extension->ShouldNotBeVisible() ||
-          ExtensionPrefs::Get(context)->IsEphemeralApp(extension->id()));
+  return info;
 }
 
 void AddExtensionInfo(const ExtensionSet& extensions,
@@ -259,7 +256,7 @@ void AddExtensionInfo(const ExtensionSet& extensions,
        iter != extensions.end(); ++iter) {
     const Extension& extension = *iter->get();
 
-    if (ShouldNotBeVisible(&extension, context))
+    if (extension.ShouldNotBeVisible())
       continue;  // Skip built-in extensions/apps.
 
     extension_list->push_back(make_linked_ptr<management::ExtensionInfo>(
@@ -434,7 +431,7 @@ ExtensionFunction::ResponseAction ManagementSetEnabledFunction::Run() {
 
   const Extension* extension =
       registry->GetExtensionById(extension_id_, ExtensionRegistry::EVERYTHING);
-  if (!extension || ShouldNotBeVisible(extension, browser_context()))
+  if (!extension || extension->ShouldNotBeVisible())
     return RespondNow(Error(keys::kNoExtensionError, extension_id_));
 
   bool enabled = params->enabled;
@@ -456,8 +453,10 @@ ExtensionFunction::ResponseAction ManagementSetEnabledFunction::Run() {
       if (!user_gesture())
         return RespondNow(Error(keys::kGestureNeededForEscalationError));
 
-      AddRef();  // Matched in InstallUIProceed/InstallUIAbort
-      install_prompt_ = delegate->SetEnabledFunctionDelegate(this, extension);
+      AddRef();  // Matched in OnInstallPromptDone().
+      install_prompt_ = delegate->SetEnabledFunctionDelegate(
+          GetSenderWebContents(), browser_context(), extension,
+          base::Bind(&ManagementSetEnabledFunction::OnInstallPromptDone, this));
       return RespondLater();
     }
     if (prefs->GetDisableReasons(extension_id_) &
@@ -479,18 +478,18 @@ ExtensionFunction::ResponseAction ManagementSetEnabledFunction::Run() {
   return RespondNow(NoArguments());
 }
 
-void ManagementSetEnabledFunction::InstallUIProceed() {
-  ManagementAPI::GetFactoryInstance()
-      ->Get(browser_context())
-      ->GetDelegate()
-      ->EnableExtension(browser_context(), extension_id_);
-  Respond(OneArgument(new base::FundamentalValue(true)));
-  Release();
-}
+void ManagementSetEnabledFunction::OnInstallPromptDone(bool did_accept) {
+  if (did_accept) {
+    ManagementAPI::GetFactoryInstance()
+        ->Get(browser_context())
+        ->GetDelegate()
+        ->EnableExtension(browser_context(), extension_id_);
+    Respond(OneArgument(new base::FundamentalValue(true)));
+  } else {
+    Respond(Error(keys::kUserDidNotReEnableError));
+  }
 
-void ManagementSetEnabledFunction::InstallUIAbort(bool user_initiated) {
-  Respond(Error(keys::kUserDidNotReEnableError));
-  Release();
+  Release();  // Balanced in Run().
 }
 
 void ManagementSetEnabledFunction::OnRequirementsChecked(
@@ -523,8 +522,7 @@ ExtensionFunction::ResponseAction ManagementUninstallFunctionBase::Uninstall(
       extensions::ExtensionRegistry::Get(browser_context())
           ->GetExtensionById(target_extension_id_,
                              ExtensionRegistry::EVERYTHING);
-  if (!target_extension ||
-      ShouldNotBeVisible(target_extension, browser_context())) {
+  if (!target_extension || target_extension->ShouldNotBeVisible()) {
     return RespondNow(Error(keys::kNoExtensionError, target_extension_id_));
   }
 
@@ -867,7 +865,7 @@ void ManagementEventRouter::BroadcastEvent(
     const Extension* extension,
     events::HistogramValue histogram_value,
     const char* event_name) {
-  if (ShouldNotBeVisible(extension, browser_context_))
+  if (extension->ShouldNotBeVisible())
     return;  // Don't dispatch events for built-in extenions.
   scoped_ptr<base::ListValue> args(new base::ListValue());
   if (event_name == management::OnUninstalled::kEventName) {
@@ -880,7 +878,7 @@ void ManagementEventRouter::BroadcastEvent(
 
   EventRouter::Get(browser_context_)
       ->BroadcastEvent(scoped_ptr<Event>(
-          new Event(histogram_value, event_name, args.Pass())));
+          new Event(histogram_value, event_name, std::move(args))));
 }
 
 ManagementAPI::ManagementAPI(content::BrowserContext* context)

@@ -20,6 +20,7 @@
 #include "webrtc/base/helpers.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/messagedigest.h"
+#include "webrtc/base/network.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/stringencode.h"
 #include "webrtc/base/stringutils.h"
@@ -120,12 +121,12 @@ const char TCPTYPE_SIMOPEN_STR[] = "so";
 //   then the foundation will be different.  Two candidate pairs with
 //   the same foundation pairs are likely to have similar network
 //   characteristics.  Foundations are used in the frozen algorithm.
-static std::string ComputeFoundation(
-    const std::string& type,
-    const std::string& protocol,
-    const rtc::SocketAddress& base_address) {
+static std::string ComputeFoundation(const std::string& type,
+                                     const std::string& protocol,
+                                     const std::string& relay_protocol,
+                                     const rtc::SocketAddress& base_address) {
   std::ostringstream ost;
-  ost << type << base_address.ipaddr().ToString() << protocol;
+  ost << type << base_address.ipaddr().ToString() << protocol << relay_protocol;
   return rtc::ToString<uint32_t>(rtc::ComputeCrc32(ost.str()));
 }
 
@@ -195,6 +196,11 @@ void Port::Construct() {
     ice_username_fragment_ = rtc::CreateRandomString(ICE_UFRAG_LENGTH);
     password_ = rtc::CreateRandomString(ICE_PWD_LENGTH);
   }
+  network_->SignalInactive.connect(this, &Port::OnNetworkInactive);
+  // TODO(honghaiz): Make it configurable from user setting.
+  network_cost_ =
+      (network_->type() == rtc::ADAPTER_TYPE_CELLULAR) ? kMaxNetworkCost : 0;
+
   LOG_J(LS_INFO, this) << "Port created";
 }
 
@@ -250,9 +256,11 @@ void Port::AddAddress(const rtc::SocketAddress& address,
   c.set_password(password_);
   c.set_network_name(network_->name());
   c.set_network_type(network_->type());
+  c.set_network_cost(network_cost_);
   c.set_generation(generation_);
   c.set_related_address(related_address);
-  c.set_foundation(ComputeFoundation(type, protocol, base_address));
+  c.set_foundation(
+      ComputeFoundation(type, protocol, relay_protocol, base_address));
   candidates_.push_back(c);
   SignalCandidateReady(this, c);
 
@@ -308,10 +316,6 @@ void Port::OnReadPacket(
                             << addr.ToSensitiveString() << ")";
     }
   }
-}
-
-void Port::OnSentPacket(const rtc::SentPacket& sent_packet) {
-  PortInterface::SignalSentPacket(this, sent_packet);
 }
 
 void Port::OnReadyToSend() {
@@ -631,11 +635,16 @@ void Port::OnMessage(rtc::Message *pmsg) {
   }
 }
 
+void Port::OnNetworkInactive(const rtc::Network* network) {
+  ASSERT(network == network_);
+  SignalNetworkInactive(this);
+}
+
 std::string Port::ToString() const {
   std::stringstream ss;
-  ss << "Port[" << content_name_ << ":" << component_
-     << ":" << generation_ << ":" << type_
-     << ":" << network_->ToString() << "]";
+  ss << "Port[" << std::hex << this << std::dec << ":" << content_name_ << ":"
+     << component_ << ":" << generation_ << ":" << type_ << ":"
+     << network_->ToString() << "]";
   return ss.str();
 }
 
@@ -694,6 +703,11 @@ class ConnectionRequest : public StunRequest {
           STUN_ATTR_RETRANSMIT_COUNT,
           static_cast<uint32_t>(connection_->pings_since_last_response_.size() -
                                 1)));
+    }
+    uint32_t network_cost = connection_->port()->network_cost();
+    if (network_cost > 0) {
+      request->AddAttribute(
+          new StunUInt32Attribute(STUN_ATTR_NETWORK_COST, network_cost));
     }
 
     // Adding ICE_CONTROLLED or ICE_CONTROLLING attribute based on the role.
@@ -1008,6 +1022,11 @@ void Connection::Destroy() {
   port_->thread()->Post(this, MSG_DELETE);
 }
 
+void Connection::FailAndDestroy() {
+  set_state(Connection::STATE_FAILED);
+  Destroy();
+}
+
 void Connection::PrintPingsSinceLastResponse(std::string* s, size_t max) {
   std::ostringstream oss;
   oss << std::boolalpha;
@@ -1119,31 +1138,39 @@ void Connection::ReceivedPingResponse() {
 }
 
 bool Connection::dead(uint32_t now) const {
-  if (now < (time_created_ms_ + MIN_CONNECTION_LIFETIME)) {
-    // A connection that hasn't passed its minimum lifetime is still alive.
-    // We do this to prevent connections from being pruned too quickly
-    // during a network change event when two networks would be up
-    // simultaneously but only for a brief period.
+  if (last_received() > 0) {
+    // If it has ever received anything, we keep it alive until it hasn't
+    // received anything for DEAD_CONNECTION_RECEIVE_TIMEOUT. This covers the
+    // normal case of a successfully used connection that stops working. This
+    // also allows a remote peer to continue pinging over a locally inactive
+    // (pruned) connection.
+    return (now > (last_received() + DEAD_CONNECTION_RECEIVE_TIMEOUT));
+  }
+
+  if (active()) {
+    // If it has never received anything, keep it alive as long as it is
+    // actively pinging and not pruned. Otherwise, the connection might be
+    // deleted before it has a chance to ping. This is the normal case for a
+    // new connection that is pinging but hasn't received anything yet.
     return false;
   }
 
-  if (receiving_) {
-    // A connection that is receiving is alive.
-    return false;
-  }
-
-  // A connection is alive until it is inactive.
-  return !active();
-
-  // TODO(honghaiz): Move from using the write state to using the receiving
-  // state with something like the following:
-  // return (now > (last_received() + DEAD_CONNECTION_RECEIVE_TIMEOUT));
+  // If it has never received anything and is not actively pinging (pruned), we
+  // keep it around for at least MIN_CONNECTION_LIFETIME to prevent connections
+  // from being pruned too quickly during a network change event when two
+  // networks would be up simultaneously but only for a brief period.
+  return now > (time_created_ms_ + MIN_CONNECTION_LIFETIME);
 }
 
 std::string Connection::ToDebugId() const {
   std::stringstream ss;
   ss << std::hex << this;
   return ss.str();
+}
+
+uint32_t Connection::ComputeNetworkCost() const {
+  // TODO(honghaiz): Will add rtt as part of the network cost.
+  return local_candidate().network_cost() + remote_candidate_.network_cost();
 }
 
 std::string Connection::ToString() const {
@@ -1250,8 +1277,7 @@ void Connection::OnConnectionRequestErrorResponse(ConnectionRequest* request,
     // This is not a valid connection.
     LOG_J(LS_ERROR, this) << "Received STUN error response, code="
                           << error_code << "; killing connection";
-    set_state(STATE_FAILED);
-    Destroy();
+    FailAndDestroy();
   }
 }
 
@@ -1304,7 +1330,7 @@ void Connection::OnMessage(rtc::Message *pmsg) {
   delete this;
 }
 
-uint32_t Connection::last_received() {
+uint32_t Connection::last_received() const {
   return std::max(last_data_received_,
              std::max(last_ping_received_, last_ping_response_received_));
 }
@@ -1385,10 +1411,11 @@ void Connection::MaybeAddPrflxCandidate(ConnectionRequest* request,
   new_local_candidate.set_password(local_candidate().password());
   new_local_candidate.set_network_name(local_candidate().network_name());
   new_local_candidate.set_network_type(local_candidate().network_type());
+  new_local_candidate.set_network_cost(local_candidate().network_cost());
   new_local_candidate.set_related_address(local_candidate().address());
-  new_local_candidate.set_foundation(
-      ComputeFoundation(PRFLX_PORT_TYPE, local_candidate().protocol(),
-                        local_candidate().address()));
+  new_local_candidate.set_foundation(ComputeFoundation(
+      PRFLX_PORT_TYPE, local_candidate().protocol(),
+      local_candidate().relay_protocol(), local_candidate().address()));
 
   // Change the local candidate of this Connection to the new prflx candidate.
   local_candidate_index_ = port_->AddPrflxCandidate(new_local_candidate);
@@ -1398,10 +1425,10 @@ void Connection::MaybeAddPrflxCandidate(ConnectionRequest* request,
   SignalStateChange(this);
 }
 
-ProxyConnection::ProxyConnection(Port* port, size_t index,
-                                 const Candidate& candidate)
-  : Connection(port, index, candidate), error_(0) {
-}
+ProxyConnection::ProxyConnection(Port* port,
+                                 size_t index,
+                                 const Candidate& remote_candidate)
+    : Connection(port, index, remote_candidate) {}
 
 int ProxyConnection::Send(const void* data, size_t size,
                           const rtc::PacketOptions& options) {

@@ -4,7 +4,7 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "fxcrt_platforms.h"
+#include "core/src/fxcrt/fxcrt_platforms.h"
 
 #include "core/include/fxcrt/fx_basic.h"
 
@@ -17,11 +17,11 @@ IFXCRT_FileAccess* FXCRT_FileAccess_Create() {
 }
 void FXCRT_GetFileModeString(FX_DWORD dwModes, CFX_ByteString& bsMode) {
   if (dwModes & FX_FILEMODE_ReadOnly) {
-    bsMode = FX_BSTRC("rb");
+    bsMode = "rb";
   } else if (dwModes & FX_FILEMODE_Truncate) {
-    bsMode = FX_BSTRC("w+b");
+    bsMode = "w+b";
   } else {
-    bsMode = FX_BSTRC("a+b");
+    bsMode = "a+b";
   }
 }
 void FXCRT_GetFileModeString(FX_DWORD dwModes, CFX_WideString& wsMode) {
@@ -128,52 +128,5 @@ FX_BOOL CFXCRT_FileAccess_CRT::Flush() {
 }
 FX_BOOL CFXCRT_FileAccess_CRT::Truncate(FX_FILESIZE szFile) {
   return FALSE;
-}
-FX_BOOL FX_File_Exist(const CFX_ByteStringC& fileName) {
-  return access(fileName.GetCStr(), F_OK) > -1;
-}
-FX_BOOL FX_File_Exist(const CFX_WideStringC& fileName) {
-  return FX_File_Exist(FX_UTF8Encode(fileName));
-}
-FX_BOOL FX_File_Delete(const CFX_ByteStringC& fileName) {
-  return remove(fileName.GetCStr()) > -1;
-}
-FX_BOOL FX_File_Delete(const CFX_WideStringC& fileName) {
-  return FX_File_Delete(FX_UTF8Encode(fileName));
-}
-FX_BOOL FX_File_Copy(const CFX_ByteStringC& fileNameSrc,
-                     const CFX_ByteStringC& fileNameDst) {
-  CFXCRT_FileAccess_CRT src, dst;
-  if (!src.Open(fileNameSrc, FX_FILEMODE_ReadOnly)) {
-    return FALSE;
-  }
-  FX_FILESIZE size = src.GetSize();
-  if (!size) {
-    return FALSE;
-  }
-  if (!dst.Open(fileNameDst, FX_FILEMODE_Truncate)) {
-    return FALSE;
-  }
-  FX_FILESIZE num = 0;
-  uint8_t* pBuffer = FX_Alloc(uint8_t, 32768);
-  while (num = src.Read(pBuffer, 32768)) {
-    if (dst.Write(pBuffer, num) != num) {
-      break;
-    }
-  }
-  FX_Free(pBuffer);
-  return TRUE;
-}
-FX_BOOL FX_File_Copy(const CFX_WideStringC& fileNameSrc,
-                     const CFX_WideStringC& fileNameDst) {
-  return FX_File_Copy(FX_UTF8Encode(fileNameSrc), FX_UTF8Encode(fileNameDst));
-}
-FX_BOOL FX_File_Move(const CFX_ByteStringC& fileNameSrc,
-                     const CFX_ByteStringC& fileNameDst) {
-  return rename(fileNameSrc.GetCStr(), fileNameDst.GetCStr());
-}
-FX_BOOL FX_File_Move(const CFX_WideStringC& fileNameSrc,
-                     const CFX_WideStringC& fileNameDst) {
-  return FX_File_Move(FX_UTF8Encode(fileNameSrc), FX_UTF8Encode(fileNameDst));
 }
 #endif

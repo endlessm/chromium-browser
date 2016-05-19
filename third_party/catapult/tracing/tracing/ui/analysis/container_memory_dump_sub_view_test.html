@@ -28,10 +28,16 @@ tr.b.unittest.testSuite(function() {
         'tr-ui-a-container-memory-dump-sub-view');
     if (opt_parentElement)
       opt_parentElement.appendChild(viewEl);
-    if (selection === undefined)
+    if (selection === undefined) {
       viewEl.selection = undefined;
-    else
-      viewEl.selection = new tr.model.EventSet(selection);
+    } else {
+      // Rotate the list of selected dumps to check that the sub-view sorts
+      // them properly.
+      var length = selection.length;
+      viewEl.selection = new tr.model.EventSet(
+          selection.slice(length / 2, length).concat(
+              selection.slice(0, length / 2)));
+    }
     return viewEl;
   }
 
@@ -115,13 +121,19 @@ tr.b.unittest.testSuite(function() {
     // All these views should be completely empty.
     var unsetViewEl = document.createElement(
         'tr-ui-a-container-memory-dump-sub-view');
-    assert.throws(this.addHTMLOutput.bind(this, unsetViewEl), '0 width');
+    this.addHTMLOutput(unsetViewEl);
+    assert.equal(unsetViewEl.getBoundingClientRect().width, 0);
+    assert.equal(unsetViewEl.getBoundingClientRect().height, 0);
 
     var undefinedViewEl = createViewWithSelection(undefined);
-    assert.throws(this.addHTMLOutput.bind(this, undefinedViewEl), '0 width');
+    this.addHTMLOutput(undefinedViewEl);
+    assert.equal(undefinedViewEl.getBoundingClientRect().width, 0);
+    assert.equal(undefinedViewEl.getBoundingClientRect().height, 0);
 
     var emptyViewEl = createViewWithSelection([]);
-    assert.throws(this.addHTMLOutput.bind(this, emptyViewEl), '0 width');
+    this.addHTMLOutput(emptyViewEl);
+    assert.equal(emptyViewEl.getBoundingClientRect().width, 0);
+    assert.equal(emptyViewEl.getBoundingClientRect().height, 0);
   });
 
   test('instantiate_singleGlobalMemoryDump', function() {
@@ -148,7 +160,7 @@ tr.b.unittest.testSuite(function() {
 
           // Malloc of process 2.
           overviewTableEl.selectedTableRow = overviewTableEl.tableRows[1];
-          overviewTableEl.selectedColumnIndex = 7;
+          overviewTableEl.selectedColumnIndex = 8;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(2 /* PID */, 'malloc',
               false /* no heap details pane */);
@@ -165,9 +177,9 @@ tr.b.unittest.testSuite(function() {
           checkVmRegionsPane(undefined);
           checkAllocatorPane(undefined);
 
-          // Blink dirty of Process 1.
+          // Blink of Process 1.
           overviewTableEl.selectedTableRow = overviewTableEl.tableRows[0];
-          overviewTableEl.selectedColumnIndex = 6;
+          overviewTableEl.selectedColumnIndex = 7;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(undefined);
 
@@ -179,7 +191,7 @@ tr.b.unittest.testSuite(function() {
 
           // V8 of Process 3.
           overviewTableEl.selectedTableRow = overviewTableEl.tableRows[2];
-          overviewTableEl.selectedColumnIndex = 9;
+          overviewTableEl.selectedColumnIndex = 10;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(3 /* PID */, 'v8', true /* heap details pane */);
         });
@@ -197,13 +209,13 @@ tr.b.unittest.testSuite(function() {
 
           // Tracing of Process 2.
           overviewTableEl.selectedTableRow = overviewTableEl.tableRows[0];
-          overviewTableEl.selectedColumnIndex = 10;
+          overviewTableEl.selectedColumnIndex = 11;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(2 /* PID */, 'tracing',
               false /* no heap details pane */);
 
           // Blink of Process 2.
-          overviewTableEl.selectedColumnIndex = 6;
+          overviewTableEl.selectedColumnIndex = 7;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(2 /* PID */, 'blink',
               false /* no heap details pane */);
@@ -227,13 +239,13 @@ tr.b.unittest.testSuite(function() {
 
           // Tracing of Process 2.
           overviewTableEl.selectedTableRow = overviewTableEl.tableRows[0];
-          overviewTableEl.selectedColumnIndex = 10;
+          overviewTableEl.selectedColumnIndex = 11;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(2 /* PID */, 'tracing',
               false /* no heap details pane */);
 
           // V8 of Process 2.
-          overviewTableEl.selectedColumnIndex = 9;
+          overviewTableEl.selectedColumnIndex = 10;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(2 /* PID */, 'v8',
               false /* no heap details pane */);
@@ -262,7 +274,7 @@ tr.b.unittest.testSuite(function() {
 
           // Select V8 of Process 2.
           overviewTableEl.selectedTableRow = overviewTableEl.tableRows[0];
-          overviewTableEl.selectedColumnIndex = 9;
+          overviewTableEl.selectedColumnIndex = 10;
           checkVmRegionsPane(undefined);
           checkAllocatorPane(2 /* PID */, 'v8',
               false /* no heap details pane */);
@@ -279,7 +291,7 @@ tr.b.unittest.testSuite(function() {
           // changed).
           assert.strictEqual(
               overviewTableEl.selectedTableRow, overviewTableEl.tableRows[1]);
-          assert.equal(overviewTableEl.selectedColumnIndex, 9);
+          assert.equal(overviewTableEl.selectedColumnIndex, 10);
           checkVmRegionsPane(undefined);
           checkAllocatorPane(2 /* PID */, 'v8',
               false /* no heap details pane */);

@@ -4,12 +4,19 @@
 
 #include "ui/events/test/event_generator.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <utility>
+
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/tick_clock.h"
+#include "build/build_config.h"
 #include "ui/events/event.h"
 #include "ui/events/event_source.h"
 #include "ui/events/event_utils.h"
@@ -42,7 +49,7 @@ class TestTickClock : public base::TickClock {
   }
 
  private:
-  int64 ticks_ = 1;
+  int64_t ticks_ = 1;
 
   DISALLOW_COPY_AND_ASSIGN(TestTickClock);
 };
@@ -363,7 +370,8 @@ void EventGenerator::GestureScrollSequenceWithCallback(
     const ScrollStepCallback& callback) {
   const int kTouchId = 5;
   base::TimeDelta timestamp = Now();
-  ui::TouchEvent press(ui::ET_TOUCH_PRESSED, start, kTouchId, timestamp);
+  ui::TouchEvent press(ui::ET_TOUCH_PRESSED, start, 0, kTouchId,
+                       timestamp, 5.0f, 5.0f, 0.0f, 1.0f);
   Dispatch(&press);
 
   callback.Run(ui::ET_GESTURE_SCROLL_BEGIN, gfx::Vector2dF());
@@ -374,14 +382,16 @@ void EventGenerator::GestureScrollSequenceWithCallback(
   for (int i = 0; i < steps; ++i) {
     location.Offset(dx, dy);
     timestamp += step_delay;
-    ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(), kTouchId, timestamp);
+    ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(), 0, kTouchId,
+                        timestamp, 5.0f, 5.0f, 0.0f, 1.0f);
     move.set_location_f(location);
     move.set_root_location_f(location);
     Dispatch(&move);
     callback.Run(ui::ET_GESTURE_SCROLL_UPDATE, gfx::Vector2dF(dx, dy));
   }
 
-  ui::TouchEvent release(ui::ET_TOUCH_RELEASED, end, kTouchId, timestamp);
+  ui::TouchEvent release(ui::ET_TOUCH_RELEASED, end, 0, kTouchId,
+                         timestamp, 5.0f, 5.0f, 0.0f, 1.0f);
   Dispatch(&release);
 
   callback.Run(ui::ET_GESTURE_SCROLL_END, gfx::Vector2dF());
@@ -553,7 +563,7 @@ void EventGenerator::Dispatch(ui::Event* event) {
 }
 
 void EventGenerator::SetTickClock(scoped_ptr<base::TickClock> tick_clock) {
-  tick_clock_ = tick_clock.Pass();
+  tick_clock_ = std::move(tick_clock);
 }
 
 base::TimeDelta EventGenerator::Now() {
@@ -576,7 +586,7 @@ void EventGenerator::DispatchKeyEvent(bool is_press,
                                       int flags) {
 #if defined(OS_WIN)
   UINT key_press = WM_KEYDOWN;
-  uint16 character = ui::DomCodeToUsLayoutCharacter(
+  uint16_t character = ui::DomCodeToUsLayoutCharacter(
       ui::UsLayoutKeyboardCodeToDomCode(key_code), flags);
   if (is_press && character) {
     MSG native_event = { NULL, WM_KEYDOWN, key_code, 0 };
@@ -665,11 +675,18 @@ void EventGenerator::DoDispatchEvent(ui::Event* event, bool async) {
     }
     pending_events_.push_back(pending_event);
   } else {
-    ui::EventSource* event_source = delegate()->GetEventSource(current_target_);
-    ui::EventSourceTestApi event_source_test(event_source);
-    ui::EventDispatchDetails details =
-        event_source_test.SendEventToProcessor(event);
-    CHECK(!details.dispatcher_destroyed);
+    if (event->IsKeyEvent()) {
+      delegate()->DispatchKeyEventToIME(current_target_,
+                                        static_cast<ui::KeyEvent*>(event));
+    }
+    if (!event->handled()) {
+      ui::EventSource* event_source =
+          delegate()->GetEventSource(current_target_);
+      ui::EventSourceTestApi event_source_test(event_source);
+      ui::EventDispatchDetails details =
+          event_source_test.SendEventToProcessor(event);
+      CHECK(!details.dispatcher_destroyed);
+    }
   }
 }
 

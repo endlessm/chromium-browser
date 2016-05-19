@@ -5,6 +5,7 @@
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 import("//mojo/public/mojo_application.gni")
+import("//mojo/public/mojo_application_manifest.gni")
 
 source_set("lib") {
   sources = [
@@ -14,6 +15,7 @@ source_set("lib") {
     "client_connection.h",
     "connection_manager.cc",
     "connection_manager.h",
+    "connection_manager_delegate.cc",
     "connection_manager_delegate.h",
     "default_access_policy.cc",
     "default_access_policy.h",
@@ -27,6 +29,7 @@ source_set("lib") {
     "focus_controller.cc",
     "focus_controller.h",
     "focus_controller_delegate.h",
+    "focus_controller_observer.h",
     "operation.cc",
     "operation.h",
     "server_window.cc",
@@ -40,12 +43,17 @@ source_set("lib") {
     "server_window_surface.h",
     "server_window_surface_manager.cc",
     "server_window_surface_manager.h",
+    "server_window_tracker.h",
     "window_coordinate_conversions.cc",
     "window_coordinate_conversions.h",
     "window_finder.cc",
     "window_finder.h",
     "window_manager_access_policy.cc",
     "window_manager_access_policy.h",
+    "window_manager_factory_service.cc",
+    "window_manager_factory_service.h",
+    "window_tree_factory.cc",
+    "window_tree_factory.h",
     "window_tree_host_connection.cc",
     "window_tree_host_connection.h",
     "window_tree_host_delegate.h",
@@ -61,11 +69,9 @@ source_set("lib") {
     "//cc/surfaces",
     "//cc/surfaces:surface_id",
     "//components/mus/common",
-    "//components/mus/gles2:gles2",
-    "//components/mus/public/cpp:common",
+    "//components/mus/gles2",
     "//components/mus/public/interfaces",
     "//components/mus/surfaces",
-    "//mojo/application/public/cpp",
     "//mojo/common:common_base",
     "//mojo/converters/geometry",
     "//mojo/converters/ime",
@@ -73,15 +79,21 @@ source_set("lib") {
     "//mojo/converters/surfaces",
     "//mojo/public/cpp/bindings:callback",
     "//mojo/services/tracing/public/cpp",
+    "//mojo/shell/public/cpp",
+    "//ui/base",
     "//ui/events",
     "//ui/events/platform",
     "//ui/gfx",
     "//ui/gfx/geometry",
-    "//ui/gl:gl",
+    "//ui/gl",
     "//ui/mojo/geometry:interfaces",
+    "//ui/platform_window",
     "//ui/platform_window:platform_impls",
-    "//ui/platform_window:platform_window",
   ]
+
+  if (use_ozone) {
+    deps += [ "//ui/ozone:ozone" ]
+  }
 }
 
 source_set("test_support") {
@@ -94,8 +106,8 @@ source_set("test_support") {
 
   deps = [
     "//base",
+    "//components/mus/common",
     "//components/mus/public/cpp",
-    "//components/mus/public/cpp:common",
     "//components/mus/public/interfaces",
     "//mojo/common",
     "//mojo/public/cpp/bindings:bindings",
@@ -108,8 +120,11 @@ group("tests") {
   deps = [
     ":apptests",
     ":window_manager_unittests",
-    "//components/mus/public/cpp/tests:mojo_view_manager_lib_unittests",
   ]
+  if (!is_android) {
+    deps +=
+        [ "//components/mus/public/cpp/tests:mojo_view_manager_lib_unittests" ]
+  }
 }
 
 test("window_manager_unittests") {
@@ -117,37 +132,41 @@ test("window_manager_unittests") {
     "event_dispatcher_unittest.cc",
     "focus_controller_unittest.cc",
     "server_window_drawn_tracker_unittest.cc",
+    "server_window_surface_manager_test_api.cc",
+    "server_window_surface_manager_test_api.h",
     "test_server_window_delegate.cc",
     "test_server_window_delegate.h",
     "transient_windows_unittest.cc",
     "window_coordinate_conversions_unittest.cc",
+    "window_finder_unittest.cc",
     "window_tree_unittest.cc",
   ]
 
   deps = [
-    ":test_support",
     ":lib",
+    ":test_support",
     "//base",
     "//base/test:test_config",
-    "//components/mus/surfaces",
+    "//cc:cc",
+    "//components/mus/common",
     "//components/mus/public/cpp",
-    "//components/mus/public/cpp:common",
     "//components/mus/public/interfaces",
-    "//mojo/application/public/interfaces",
+    "//components/mus/surfaces",
     "//mojo/converters/geometry",
     "//mojo/converters/input_events",
     "//mojo/converters/transform",
+    "//mojo/edk/test:run_all_unittests",
     "//mojo/environment:chromium",
     "//mojo/gles2",
-    "//mojo/platform_handle",
+    "//mojo/platform_handle:for_shared_library",
     "//mojo/public/cpp/bindings:bindings",
-    "//third_party/mojo/src/mojo/edk/test:run_all_unittests",
-    "//ui/mojo/geometry:interfaces",
+    "//mojo/shell/public/interfaces",
     "//testing/gtest",
     "//ui/events",
     "//ui/gfx",
     "//ui/gfx:test_support",
     "//ui/gfx/geometry",
+    "//ui/mojo/geometry:interfaces",
   ]
 
   if (!is_android) {  # TODO(GYP) Enable on Android when osmesa links.
@@ -165,15 +184,17 @@ mojo_native_application("apptests") {
   ]
 
   deps = [
+    ":manifest",
     ":test_support",
     "//base",
     "//base/test:test_config",
+    "//components/mus/common",
     "//components/mus/public/cpp",
     "//components/mus/public/cpp/tests:test_support",
     "//components/mus/public/interfaces",
-    "//mojo/application/public/cpp:sources",
-    "//mojo/application/public/cpp:test_support",
     "//mojo/converters/geometry",
+    "//mojo/shell/public/cpp:sources",
+    "//mojo/shell/public/cpp:test_support",
     "//ui/gfx:test_support",
     "//ui/gfx/geometry",
     "//ui/mojo/geometry:interfaces",
@@ -183,4 +204,13 @@ mojo_native_application("apptests") {
   data_deps = [
     ":lib",
   ]
+
+  if (use_x11) {
+    deps += [ "//tools/xdisplaycheck" ]
+  }
+}
+
+mojo_application_manifest("manifest") {
+  application_name = "mus_apptests"
+  source = "apptest_manifest.json"
 }

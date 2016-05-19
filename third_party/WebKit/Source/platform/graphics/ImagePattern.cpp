@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/ImagePattern.h"
 
 #include "platform/graphics/Image.h"
@@ -78,4 +77,4 @@ bool ImagePattern::isTextureBacked() const
     return m_tileImage && m_tileImage->isTextureBacked();
 }
 
-} // namespace
+} // namespace blink

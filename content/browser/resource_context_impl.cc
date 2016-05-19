@@ -4,6 +4,9 @@
 
 #include "content/browser/resource_context_impl.h"
 
+#include <stdint.h>
+
+#include "base/bind.h"
 #include "base/logging.h"
 #include "content/browser/fileapi/chrome_blob_storage_context.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
@@ -35,8 +38,13 @@ std::string ReturnEmptySalt() {
 
 
 ResourceContext::ResourceContext() {
-  if (ResourceDispatcherHostImpl::Get())
-    ResourceDispatcherHostImpl::Get()->AddResourceContext(this);
+  ResourceDispatcherHostImpl* rdhi = ResourceDispatcherHostImpl::Get();
+  if (rdhi) {
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&ResourceDispatcherHostImpl::AddResourceContext,
+                   base::Unretained(rdhi), this));
+  }
 }
 
 ResourceContext::~ResourceContext() {
@@ -59,7 +67,7 @@ scoped_ptr<net::ClientCertStore> ResourceContext::CreateClientCertStore() {
 }
 
 void ResourceContext::CreateKeygenHandler(
-    uint32 key_size_in_bits,
+    uint32_t key_size_in_bits,
     const std::string& challenge_string,
     const GURL& url,
     const base::Callback<void(scoped_ptr<net::KeygenHandler>)>& callback) {

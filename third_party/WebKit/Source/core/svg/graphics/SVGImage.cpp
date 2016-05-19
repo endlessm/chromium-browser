@@ -25,20 +25,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/svg/graphics/SVGImage.h"
 
 #include "core/animation/AnimationTimeline.h"
 #include "core/dom/NodeTraversal.h"
-#include "core/dom/shadow/ComposedTreeTraversal.h"
+#include "core/dom/shadow/FlatTreeTraversal.h"
+#include "core/frame/Deprecation.h"
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
 #include "core/style/ComputedStyle.h"
 #include "core/layout/svg/LayoutSVGRoot.h"
 #include "core/loader/FrameLoadRequest.h"
-#include "core/paint/CompositingRecorder.h"
 #include "core/paint/FloatClipRecorder.h"
 #include "core/paint/TransformRecorder.h"
 #include "core/svg/SVGDocumentExtensions.h"
@@ -81,6 +79,12 @@ SVGImage::~SVGImage()
     ASSERT(!m_chromeClient || !m_chromeClient->image());
 }
 
+LayoutRect SVGImage::visualRect() const
+{
+    // TODO(chrishtr): fix this.
+    return LayoutRect();
+}
+
 bool SVGImage::isInSVGImage(const Node* node)
 {
     ASSERT(node);
@@ -107,7 +111,7 @@ bool SVGImage::currentFrameHasSingleSecurityOrigin() const
 
     // Don't allow foreignObject elements or images that are not known to be
     // single-origin since these can leak cross-origin information.
-    for (Node* node = rootElement; node; node = ComposedTreeTraversal::next(*node)) {
+    for (Node* node = rootElement; node; node = FlatTreeTraversal::next(*node)) {
         if (isSVGForeignObjectElement(*node))
             return false;
         if (isSVGImageElement(*node)) {
@@ -132,24 +136,6 @@ static SVGSVGElement* svgRootElement(Page* page)
     return frame->document()->accessSVGExtensions().rootElement();
 }
 
-void SVGImage::setContainerSize(const IntSize& size)
-{
-    if (!usesContainerSize())
-        return;
-
-    SVGSVGElement* rootElement = svgRootElement(m_page.get());
-    if (!rootElement)
-        return;
-
-    FrameView* view = frameView();
-    view->resize(this->containerSize());
-
-    LayoutSVGRoot* layoutObject = toLayoutSVGRoot(rootElement->layoutObject());
-    if (!layoutObject)
-        return;
-    layoutObject->setContainerSize(size);
-}
-
 IntSize SVGImage::containerSize() const
 {
     SVGSVGElement* rootElement = svgRootElement(m_page.get());
@@ -168,33 +154,72 @@ IntSize SVGImage::containerSize() const
     // Assure that a container size is always given for a non-identity zoom level.
     ASSERT(layoutObject->style()->effectiveZoom() == 1);
 
-    FloatSize intrinsicSize;
-    double intrinsicRatio = 0;
-    layoutObject->computeIntrinsicRatioInformation(intrinsicSize, intrinsicRatio);
+    // No set container size; use concrete object size.
+    return m_concreteObjectSize;
+}
 
-    if (intrinsicSize.isEmpty() && intrinsicRatio) {
-        if (!intrinsicSize.width() && intrinsicSize.height())
-            intrinsicSize.setWidth(intrinsicSize.height() * intrinsicRatio);
-        else if (intrinsicSize.width() && !intrinsicSize.height())
-            intrinsicSize.setHeight(intrinsicSize.width() / intrinsicRatio);
+static float resolveWidthForRatio(float height, const FloatSize& intrinsicRatio)
+{
+    return height * intrinsicRatio.width() / intrinsicRatio.height();
+}
+
+static float resolveHeightForRatio(float width, const FloatSize& intrinsicRatio)
+{
+    return width * intrinsicRatio.height() / intrinsicRatio.width();
+}
+
+FloatSize SVGImage::calculateConcreteObjectSize(const FloatSize& defaultObjectSize) const
+{
+    SVGSVGElement* svg = svgRootElement(m_page.get());
+    if (!svg)
+        return FloatSize();
+
+    LayoutSVGRoot* layoutObject = toLayoutSVGRoot(svg->layoutObject());
+    if (!layoutObject)
+        return FloatSize();
+
+    LayoutBox::IntrinsicSizingInfo intrinsicSizingInfo;
+    layoutObject->computeIntrinsicSizingInfo(intrinsicSizingInfo);
+
+    // https://www.w3.org/TR/css3-images/#default-sizing
+
+    if (intrinsicSizingInfo.hasWidth && intrinsicSizingInfo.hasHeight)
+        return intrinsicSizingInfo.size;
+
+    if (svg->preserveAspectRatio()->currentValue()->align() == SVGPreserveAspectRatio::SVG_PRESERVEASPECTRATIO_NONE) {
+        // TODO(davve): The intrinsic aspect ratio is not used to resolve a missing intrinsic width
+        // or height when preserveAspectRatio is none. It's unclear whether this is correct. See
+        // crbug.com/584172.
+        return defaultObjectSize;
     }
 
-    // TODO(davve): In order to maintain aspect ratio the intrinsic
-    // size is faked from the viewBox as a last resort. This may cause
-    // unwanted side effects. Preferably we should be able to signal
-    // the intrinsic ratio in another way.
-    if (intrinsicSize.isEmpty())
-        intrinsicSize = rootElement->currentViewBoxRect().size();
+    if (intrinsicSizingInfo.hasWidth) {
+        if (intrinsicSizingInfo.aspectRatio.isEmpty())
+            return FloatSize(intrinsicSizingInfo.size.width(), defaultObjectSize.height());
 
-    if (!intrinsicSize.isEmpty())
-        return expandedIntSize(intrinsicSize);
+        return FloatSize(intrinsicSizingInfo.size.width(), resolveHeightForRatio(intrinsicSizingInfo.size.width(), intrinsicSizingInfo.aspectRatio));
+    }
 
-    // As last resort, use CSS replaced element fallback size.
-    return IntSize(300, 150);
+    if (intrinsicSizingInfo.hasHeight) {
+        if (intrinsicSizingInfo.aspectRatio.isEmpty())
+            return FloatSize(defaultObjectSize.width(), intrinsicSizingInfo.size.height());
+
+        return FloatSize(resolveWidthForRatio(intrinsicSizingInfo.size.height(), intrinsicSizingInfo.aspectRatio), intrinsicSizingInfo.size.height());
+    }
+
+    if (!intrinsicSizingInfo.aspectRatio.isEmpty()) {
+        // TODO(davve): According to the specification, the concrete object size should resolve as a
+        // contain constraint against the default object size at this stage. Until the
+        // defaultObjectSize is context sensitive, right now it's hard-coded to 300x150, we have to
+        // preserve legacy behavior by returning the aspectRatio as the concrete object size.
+        return intrinsicSizingInfo.aspectRatio;
+    }
+
+    return defaultObjectSize;
 }
 
 void SVGImage::drawForContainer(SkCanvas* canvas, const SkPaint& paint, const FloatSize containerSize, float zoom, const FloatRect& dstRect,
-    const FloatRect& srcRect)
+    const FloatRect& srcRect, const KURL& url)
 {
     if (!m_page)
         return;
@@ -203,7 +228,11 @@ void SVGImage::drawForContainer(SkCanvas* canvas, const SkPaint& paint, const Fl
     ImageObserverDisabler imageObserverDisabler(this);
 
     IntSize roundedContainerSize = roundedIntSize(containerSize);
-    setContainerSize(roundedContainerSize);
+
+    if (SVGSVGElement* rootElement = svgRootElement(m_page.get())) {
+        if (LayoutSVGRoot* layoutObject = toLayoutSVGRoot(rootElement->layoutObject()))
+            layoutObject->setContainerSize(roundedContainerSize);
+    }
 
     FloatRect scaledSrc = srcRect;
     scaledSrc.scale(1 / zoom);
@@ -213,27 +242,18 @@ void SVGImage::drawForContainer(SkCanvas* canvas, const SkPaint& paint, const Fl
     adjustedSrcSize.scale(roundedContainerSize.width() / containerSize.width(), roundedContainerSize.height() / containerSize.height());
     scaledSrc.setSize(adjustedSrcSize);
 
-    draw(canvas, paint, dstRect, scaledSrc, DoNotRespectImageOrientation, ClampImageToSourceRect);
+    drawInternal(canvas, paint, dstRect, scaledSrc, DoNotRespectImageOrientation, ClampImageToSourceRect, url);
 }
 
 PassRefPtr<SkImage> SVGImage::imageForCurrentFrame()
 {
-    if (!m_page)
-        return nullptr;
-
-    SkPictureRecorder recorder;
-    SkCanvas* canvas = recorder.beginRecording(width(), height());
-    drawForContainer(canvas, SkPaint(), size(), 1, rect(), rect());
-    RefPtr<SkPicture> picture = adoptRef(recorder.endRecording());
-
-    return adoptRef(
-        SkImage::NewFromPicture(picture.get(), SkISize::Make(width(), height()), nullptr, nullptr));
+    return imageForCurrentFrameForContainer(KURL());
 }
 
-void SVGImage::drawPatternForContainer(GraphicsContext* context, const FloatSize containerSize,
+void SVGImage::drawPatternForContainer(GraphicsContext& context, const FloatSize containerSize,
     float zoom, const FloatRect& srcRect, const FloatSize& tileScale, const FloatPoint& phase,
     SkXfermode::Mode compositeOp, const FloatRect& dstRect,
-    const IntSize& repeatSpacing)
+    const FloatSize& repeatSpacing, const KURL& url)
 {
     // Tile adjusted for scaling/stretch.
     FloatRect tile(srcRect);
@@ -241,16 +261,16 @@ void SVGImage::drawPatternForContainer(GraphicsContext* context, const FloatSize
 
     // Expand the tile to account for repeat spacing.
     FloatRect spacedTile(tile);
-    spacedTile.expand(repeatSpacing);
+    spacedTile.expand(FloatSize(repeatSpacing));
 
-    SkPictureBuilder patternPicture(spacedTile, nullptr, context);
+    SkPictureBuilder patternPicture(spacedTile, nullptr, &context);
     if (!DrawingRecorder::useCachedDrawingIfPossible(patternPicture.context(), *this, DisplayItem::Type::SVGImage)) {
         DrawingRecorder patternPictureRecorder(patternPicture.context(), *this, DisplayItem::Type::SVGImage, spacedTile);
         // When generating an expanded tile, make sure we don't draw into the spacing area.
         if (tile != spacedTile)
             patternPicture.context().clip(tile);
         SkPaint paint;
-        drawForContainer(patternPicture.context().canvas(), paint, containerSize, zoom, tile, srcRect);
+        drawForContainer(patternPicture.context().canvas(), paint, containerSize, zoom, tile, srcRect, url);
     }
     RefPtr<const SkPicture> tilePicture = patternPicture.endRecording();
 
@@ -263,8 +283,22 @@ void SVGImage::drawPatternForContainer(GraphicsContext* context, const FloatSize
     SkPaint paint;
     paint.setShader(patternShader.get());
     paint.setXfermodeMode(compositeOp);
-    paint.setColorFilter(context->colorFilter());
-    context->drawRect(dstRect, paint);
+    paint.setColorFilter(context.colorFilter());
+    context.drawRect(dstRect, paint);
+}
+
+PassRefPtr<SkImage> SVGImage::imageForCurrentFrameForContainer(const KURL& url)
+{
+    if (!m_page)
+        return nullptr;
+
+    SkPictureRecorder recorder;
+    SkCanvas* canvas = recorder.beginRecording(width(), height());
+    drawForContainer(canvas, SkPaint(), FloatSize(size()), 1, rect(), rect(), url);
+    RefPtr<SkPicture> picture = adoptRef(recorder.endRecording());
+
+    return adoptRef(
+        SkImage::NewFromPicture(picture.get(), SkISize::Make(width(), height()), nullptr, nullptr));
 }
 
 static bool drawNeedsLayer(const SkPaint& paint)
@@ -281,17 +315,24 @@ static bool drawNeedsLayer(const SkPaint& paint)
     return false;
 }
 
-void SVGImage::draw(SkCanvas* canvas, const SkPaint& paint, const FloatRect& dstRect, const FloatRect& srcRect, RespectImageOrientationEnum, ImageClampingMode)
+void SVGImage::draw(SkCanvas* canvas, const SkPaint& paint, const FloatRect& dstRect, const FloatRect& srcRect,
+    RespectImageOrientationEnum shouldRespectImageOrientation, ImageClampingMode clampMode)
 {
     if (!m_page)
         return;
 
+    drawInternal(canvas, paint, dstRect, srcRect, shouldRespectImageOrientation, clampMode, KURL());
+}
+
+void SVGImage::drawInternal(SkCanvas* canvas, const SkPaint& paint, const FloatRect& dstRect, const FloatRect& srcRect,
+    RespectImageOrientationEnum, ImageClampingMode, const KURL& url)
+{
     FrameView* view = frameView();
     view->resize(containerSize());
 
     // Always call processUrlFragment, even if the url is empty, because
     // there may have been a previous url/fragment that needs to be reset.
-    view->processUrlFragment(m_url);
+    view->processUrlFragment(url);
 
     SkPictureBuilder imagePicture(dstRect);
     {
@@ -307,7 +348,7 @@ void SVGImage::draw(SkCanvas* canvas, const SkPaint& paint, const FloatRect& dst
         TransformRecorder transformRecorder(imagePicture.context(), *this, transform);
 
         view->updateAllLifecyclePhases();
-        view->paint(&imagePicture.context(), CullRect(enclosingIntRect(srcRect)));
+        view->paint(imagePicture.context(), CullRect(enclosingIntRect(srcRect)));
         ASSERT(!view->needsLayout());
     }
 
@@ -346,20 +387,19 @@ FrameView* SVGImage::frameView() const
     return toLocalFrame(m_page->mainFrame())->view();
 }
 
-void SVGImage::computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio)
+void SVGImage::computeIntrinsicDimensions(FloatSize& intrinsicSize, FloatSize& intrinsicRatio)
 {
     SVGSVGElement* rootElement = svgRootElement(m_page.get());
     if (!rootElement)
         return;
 
-    intrinsicWidth = rootElement->intrinsicWidth();
-    intrinsicHeight = rootElement->intrinsicHeight();
+    intrinsicSize = FloatSize(rootElement->intrinsicWidth(), rootElement->intrinsicHeight());
     if (rootElement->preserveAspectRatio()->currentValue()->align() == SVGPreserveAspectRatio::SVG_PRESERVEASPECTRATIO_NONE)
         return;
 
     intrinsicRatio = rootElement->viewBox()->currentValue()->value().size();
-    if (intrinsicRatio.isEmpty() && intrinsicWidth.isFixed() && intrinsicHeight.isFixed())
-        intrinsicRatio = FloatSize(floatValueForLength(intrinsicWidth, 0), floatValueForLength(intrinsicHeight, 0));
+    if (intrinsicRatio.isEmpty())
+        intrinsicRatio = intrinsicSize;
 }
 
 // FIXME: support CatchUpAnimation = CatchUp.
@@ -414,7 +454,7 @@ void SVGImage::updateUseCounters(Document& document) const
 {
     if (SVGSVGElement* rootElement = svgRootElement(m_page.get())) {
         if (rootElement->timeContainer()->hasAnimations())
-            UseCounter::countDeprecation(document, UseCounter::SVGSMILAnimationInImageRegardlessOfCache);
+            Deprecation::countDeprecation(document, UseCounter::SVGSMILAnimationInImageRegardlessOfCache);
     }
 }
 
@@ -455,7 +495,7 @@ bool SVGImage::dataChanged(bool allDataReceived)
         OwnPtrWillBeRawPtr<Page> page;
         {
             TRACE_EVENT0("blink", "SVGImage::dataChanged::createPage");
-            page = adoptPtrWillBeNoop(new Page(pageClients));
+            page = Page::create(pageClients);
             page->settings().setScriptEnabled(false);
             page->settings().setPluginsEnabled(false);
             page->settings().setAcceleratedCompositingEnabled(false);
@@ -494,8 +534,8 @@ bool SVGImage::dataChanged(bool allDataReceived)
         loader.load(FrameLoadRequest(0, blankURL(), SubstituteData(data(), AtomicString("image/svg+xml", AtomicString::ConstructFromLiteral),
             AtomicString("UTF-8", AtomicString::ConstructFromLiteral), KURL(), ForceSynchronousLoad)));
 
-        // Set the intrinsic size before a container size is available.
-        m_intrinsicSize = containerSize();
+        // Set the concrete object size before a container size is available.
+        m_concreteObjectSize = roundedIntSize(calculateConcreteObjectSize(FloatSize(300, 150)));
     }
 
     return m_page;
@@ -506,4 +546,4 @@ String SVGImage::filenameExtension() const
     return "svg";
 }
 
-}
+} // namespace blink

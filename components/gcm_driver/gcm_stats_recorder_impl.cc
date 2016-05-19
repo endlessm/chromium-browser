@@ -15,8 +15,8 @@
 
 namespace gcm {
 
-const uint32 MAX_LOGGED_ACTIVITY_COUNT = 100;
-const int64 RECEIVED_DATA_MESSAGE_BURST_LENGTH_SECONDS = 2;
+const uint32_t MAX_LOGGED_ACTIVITY_COUNT = 100;
+const int64_t RECEIVED_DATA_MESSAGE_BURST_LENGTH_SECONDS = 2;
 
 namespace {
 
@@ -153,10 +153,6 @@ GCMStatsRecorderImpl::GCMStatsRecorderImpl()
 GCMStatsRecorderImpl::~GCMStatsRecorderImpl() {
 }
 
-void GCMStatsRecorderImpl::SetRecording(bool recording) {
-  is_recording_ = recording;
-}
-
 void GCMStatsRecorderImpl::SetDelegate(Delegate* delegate) {
   delegate_ = delegate;
 }
@@ -167,11 +163,30 @@ void GCMStatsRecorderImpl::Clear() {
   registration_activities_.clear();
   receiving_activities_.clear();
   sending_activities_.clear();
+  decryption_failure_activities_.clear();
 }
 
 void GCMStatsRecorderImpl::NotifyActivityRecorded() {
   if (delegate_)
     delegate_->OnActivityRecorded();
+}
+
+void GCMStatsRecorderImpl::RecordDecryptionFailure(
+    const std::string& app_id,
+    GCMEncryptionProvider::DecryptionResult result) {
+  DCHECK_NE(result, GCMEncryptionProvider::DECRYPTION_RESULT_UNENCRYPTED);
+  DCHECK_NE(result, GCMEncryptionProvider::DECRYPTION_RESULT_DECRYPTED);
+  if (!is_recording_)
+    return;
+
+  DecryptionFailureActivity data;
+  DecryptionFailureActivity* inserted_data = InsertCircularBuffer(
+      &decryption_failure_activities_, data);
+  inserted_data->app_id = app_id;
+  inserted_data->details =
+      GCMEncryptionProvider::ToDecryptionResultDetailsString(result);
+
+  NotifyActivityRecorded();
 }
 
 void GCMStatsRecorderImpl::RecordCheckin(
@@ -185,14 +200,15 @@ void GCMStatsRecorderImpl::RecordCheckin(
   NotifyActivityRecorded();
 }
 
-void GCMStatsRecorderImpl::RecordCheckinInitiated(uint64 android_id) {
+void GCMStatsRecorderImpl::RecordCheckinInitiated(uint64_t android_id) {
   if (!is_recording_)
     return;
   RecordCheckin("Checkin initiated",
                 base::StringPrintf("Android Id: %" PRIu64, android_id));
 }
 
-void GCMStatsRecorderImpl::RecordCheckinDelayedDueToBackoff(int64 delay_msec) {
+void GCMStatsRecorderImpl::RecordCheckinDelayedDueToBackoff(
+    int64_t delay_msec) {
   if (!is_recording_)
     return;
   RecordCheckin("Checkin backoff",
@@ -237,7 +253,7 @@ void GCMStatsRecorderImpl::RecordConnectionInitiated(const std::string& host) {
 }
 
 void GCMStatsRecorderImpl::RecordConnectionDelayedDueToBackoff(
-    int64 delay_msec) {
+    int64_t delay_msec) {
   if (!is_recording_)
     return;
   RecordConnection("Connection backoff",
@@ -311,7 +327,7 @@ void GCMStatsRecorderImpl::RecordRegistrationResponse(
 void GCMStatsRecorderImpl::RecordRegistrationRetryDelayed(
     const std::string& app_id,
     const std::string& source,
-    int64 delay_msec,
+    int64_t delay_msec,
     int retries_left) {
   if (!is_recording_)
     return;
@@ -348,7 +364,7 @@ void GCMStatsRecorderImpl::RecordUnregistrationResponse(
 void GCMStatsRecorderImpl::RecordUnregistrationRetryDelayed(
     const std::string& app_id,
     const std::string& source,
-    int64 delay_msec,
+    int64_t delay_msec,
     int retries_left) {
   if (!is_recording_)
     return;
@@ -442,27 +458,31 @@ void GCMStatsRecorderImpl::RecordDataMessageReceived(
 }
 
 void GCMStatsRecorderImpl::CollectActivities(
-    RecordedActivities* recorder_activities) const {
-  recorder_activities->checkin_activities.insert(
-      recorder_activities->checkin_activities.begin(),
+    RecordedActivities* recorded_activities) const {
+  recorded_activities->checkin_activities.insert(
+      recorded_activities->checkin_activities.begin(),
       checkin_activities_.begin(),
       checkin_activities_.end());
-  recorder_activities->connection_activities.insert(
-      recorder_activities->connection_activities.begin(),
+  recorded_activities->connection_activities.insert(
+      recorded_activities->connection_activities.begin(),
       connection_activities_.begin(),
       connection_activities_.end());
-  recorder_activities->registration_activities.insert(
-      recorder_activities->registration_activities.begin(),
+  recorded_activities->registration_activities.insert(
+      recorded_activities->registration_activities.begin(),
       registration_activities_.begin(),
       registration_activities_.end());
-  recorder_activities->receiving_activities.insert(
-      recorder_activities->receiving_activities.begin(),
+  recorded_activities->receiving_activities.insert(
+      recorded_activities->receiving_activities.begin(),
       receiving_activities_.begin(),
       receiving_activities_.end());
-  recorder_activities->sending_activities.insert(
-      recorder_activities->sending_activities.begin(),
+  recorded_activities->sending_activities.insert(
+      recorded_activities->sending_activities.begin(),
       sending_activities_.begin(),
       sending_activities_.end());
+  recorded_activities->decryption_failure_activities.insert(
+      recorded_activities->decryption_failure_activities.begin(),
+      decryption_failure_activities_.begin(),
+      decryption_failure_activities_.end());
 }
 
 void GCMStatsRecorderImpl::RecordSending(const std::string& app_id,

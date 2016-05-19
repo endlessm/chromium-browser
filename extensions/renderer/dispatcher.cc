@@ -4,13 +4,17 @@
 
 #include "extensions/renderer/dispatcher.h"
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/containers/scoped_ptr_map.h"
 #include "base/debug/alias.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics_action.h"
@@ -20,6 +24,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "content/grit/content_resources.h"
 #include "content/public/child/v8_value_converter.h"
 #include "content/public/common/browser_plugin_guest_mode.h"
@@ -56,6 +61,7 @@
 #include "extensions/renderer/context_menus_custom_bindings.h"
 #include "extensions/renderer/css_native_handler.h"
 #include "extensions/renderer/dispatcher_delegate.h"
+#include "extensions/renderer/display_source_custom_bindings.h"
 #include "extensions/renderer/document_custom_bindings.h"
 #include "extensions/renderer/dom_activity_logger.h"
 #include "extensions/renderer/event_bindings.h"
@@ -123,8 +129,8 @@ namespace extensions {
 
 namespace {
 
-static const int64 kInitialExtensionIdleHandlerDelayMs = 5 * 1000;
-static const int64 kMaxExtensionIdleHandlerDelayMs = 5 * 60 * 1000;
+static const int64_t kInitialExtensionIdleHandlerDelayMs = 5 * 1000;
+static const int64_t kMaxExtensionIdleHandlerDelayMs = 5 * 60 * 1000;
 static const char kEventDispatchFunction[] = "dispatchEvent";
 static const char kOnSuspendEvent[] = "runtime.onSuspend";
 static const char kOnSuspendCanceledEvent[] = "runtime.onSuspendCanceled";
@@ -262,7 +268,7 @@ void Dispatcher::DidCreateScriptContext(
   {
     scoped_ptr<ModuleSystem> module_system(
         new ModuleSystem(context, &source_map_));
-    context->set_module_system(module_system.Pass());
+    context->set_module_system(std::move(module_system));
   }
   ModuleSystem* module_system = context->module_system();
 
@@ -494,6 +500,24 @@ void Dispatcher::DidCreateDocumentElement(blink::WebLocalFrame* frame) {
   }
 }
 
+void Dispatcher::RunScriptsAtDocumentStart(content::RenderFrame* render_frame) {
+  ExtensionFrameHelper* frame_helper = ExtensionFrameHelper::Get(render_frame);
+  if (!frame_helper)
+    return;  // The frame is invisible to extensions.
+
+  frame_helper->RunScriptsAtDocumentStart();
+  // |frame_helper| and |render_frame| might be dead by now.
+}
+
+void Dispatcher::RunScriptsAtDocumentEnd(content::RenderFrame* render_frame) {
+  ExtensionFrameHelper* frame_helper = ExtensionFrameHelper::Get(render_frame);
+  if (!frame_helper)
+    return;  // The frame is invisible to extensions.
+
+  frame_helper->RunScriptsAtDocumentEnd();
+  // |frame_helper| and |render_frame| might be dead by now.
+}
+
 void Dispatcher::OnExtensionResponse(int request_id,
                                      bool success,
                                      const base::ListValue& response,
@@ -638,6 +662,8 @@ std::vector<std::pair<std::string, int> > Dispatcher::GetJsResources() {
   resources.push_back(std::make_pair("webViewEvents", IDR_WEB_VIEW_EVENTS_JS));
   resources.push_back(std::make_pair("webViewInternal",
                                      IDR_WEB_VIEW_INTERNAL_CUSTOM_BINDINGS_JS));
+  resources.push_back(
+      std::make_pair("webViewExperimental", IDR_WEB_VIEW_EXPERIMENTAL_JS));
   if (content::BrowserPluginGuestMode::UseCrossProcessFramesForGuests()) {
     resources.push_back(std::make_pair("webViewIframe",
                                        IDR_WEB_VIEW_IFRAME_JS));
@@ -681,6 +707,9 @@ std::vector<std::pair<std::string, int> > Dispatcher::GetJsResources() {
   resources.push_back(
       std::make_pair("declarativeWebRequest",
                      IDR_DECLARATIVE_WEBREQUEST_CUSTOM_BINDINGS_JS));
+  resources.push_back(
+      std::make_pair("displaySource",
+                     IDR_DISPLAY_SOURCE_CUSTOM_BINDINGS_JS));
   resources.push_back(
       std::make_pair("contextMenus", IDR_CONTEXT_MENUS_CUSTOM_BINDINGS_JS));
   resources.push_back(
@@ -796,13 +825,9 @@ void Dispatcher::RegisterNativeHandlers(ModuleSystem* module_system,
       scoped_ptr<NativeHandler>(new FileSystemNatives(context)));
 
   // Custom bindings.
-  // |dispatcher| is null in unit tests.
-  const ScriptContextSet* script_context_set = dispatcher ?
-      &dispatcher->script_context_set() : nullptr;
   module_system->RegisterNativeHandler(
       "app_window_natives",
-      scoped_ptr<NativeHandler>(new AppWindowCustomBindings(
-          script_context_set, context)));
+      scoped_ptr<NativeHandler>(new AppWindowCustomBindings(context)));
   module_system->RegisterNativeHandler(
       "blob_natives",
       scoped_ptr<NativeHandler>(new BlobNativeHandler(context)));
@@ -825,6 +850,9 @@ void Dispatcher::RegisterNativeHandlers(ModuleSystem* module_system,
       scoped_ptr<NativeHandler>(new IdGeneratorCustomBindings(context)));
   module_system->RegisterNativeHandler(
       "runtime", scoped_ptr<NativeHandler>(new RuntimeCustomBindings(context)));
+  module_system->RegisterNativeHandler(
+      "display_source",
+      scoped_ptr<NativeHandler>(new DisplaySourceCustomBindings(context)));
 }
 
 bool Dispatcher::OnControlMessageReceived(const IPC::Message& message) {
@@ -927,7 +955,7 @@ void Dispatcher::IdleNotification() {
     // Dampen the forced delay as well if the extension stays idle for long
     // periods of time. (forced_idle_timer_ can be NULL after
     // OnRenderProcessShutdown has been called.)
-    int64 forced_delay_ms =
+    int64_t forced_delay_ms =
         std::max(RenderThread::Get()->GetIdleNotificationDelayInMs(),
                  kMaxExtensionIdleHandlerDelayMs);
     forced_idle_timer_->Stop();
@@ -943,6 +971,10 @@ void Dispatcher::OnRenderProcessShutdown() {
   v8_schema_registry_.reset();
   forced_idle_timer_.reset();
   content_watcher_.reset();
+  script_context_set_->ForEach(
+      std::string(), nullptr,
+      base::Bind(&ScriptContextSet::Remove,
+                 base::Unretained(script_context_set_.get())));
 }
 
 void Dispatcher::OnActivateExtension(const std::string& extension_id) {
@@ -1089,7 +1121,7 @@ void Dispatcher::OnSetWebViewPartitionID(const std::string& partition_id) {
 }
 
 void Dispatcher::OnShouldSuspend(const std::string& extension_id,
-                                 uint64 sequence_id) {
+                                 uint64_t sequence_id) {
   RenderThread::Get()->Send(
       new ExtensionHostMsg_ShouldSuspendAck(extension_id, sequence_id));
 }
@@ -1164,7 +1196,8 @@ void Dispatcher::OnUpdatePermissions(
         active->effective_hosts());
   }
 
-  extension->permissions_data()->SetPermissions(active.Pass(), withheld.Pass());
+  extension->permissions_data()->SetPermissions(std::move(active),
+                                                std::move(withheld));
   UpdateBindings(extension->id());
 }
 
@@ -1584,6 +1617,10 @@ void Dispatcher::RequireGuestViewModules(ScriptContext* context) {
     module_system->Require("webView");
     module_system->Require("webViewApiMethods");
     module_system->Require("webViewAttributes");
+    if (context->GetAvailability("webViewExperimentalInternal")
+            .is_available()) {
+      module_system->Require("webViewExperimental");
+    }
 
     if (content::BrowserPluginGuestMode::UseCrossProcessFramesForGuests()) {
       module_system->Require("webViewIframe");

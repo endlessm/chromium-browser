@@ -4,6 +4,8 @@
 
 #include "ipc/handle_win.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_number_conversions.h"
@@ -19,25 +21,27 @@ HandleWin::HandleWin(const HANDLE& handle, Permissions permissions)
     : handle_(handle), permissions_(permissions) {}
 
 // static
-void ParamTraits<HandleWin>::Write(Message* m, const param_type& p) {
+void ParamTraits<HandleWin>::Write(base::Pickle* m, const param_type& p) {
   scoped_refptr<IPC::internal::HandleAttachmentWin> attachment(
       new IPC::internal::HandleAttachmentWin(p.get_handle(),
                                              p.get_permissions()));
-  if (!m->WriteAttachment(attachment.Pass()))
+  if (!m->WriteAttachment(std::move(attachment)))
     NOTREACHED();
 }
 
 // static
-bool ParamTraits<HandleWin>::Read(const Message* m,
+bool ParamTraits<HandleWin>::Read(const base::Pickle* m,
                                   base::PickleIterator* iter,
                                   param_type* r) {
-  scoped_refptr<MessageAttachment> attachment;
-  if (!m->ReadAttachment(iter, &attachment))
+  scoped_refptr<base::Pickle::Attachment> base_attachment;
+  if (!m->ReadAttachment(iter, &base_attachment))
     return false;
+  MessageAttachment* attachment =
+      static_cast<MessageAttachment*>(base_attachment.get());
   if (attachment->GetType() != MessageAttachment::TYPE_BROKERABLE_ATTACHMENT)
     return false;
   BrokerableAttachment* brokerable_attachment =
-      static_cast<BrokerableAttachment*>(attachment.get());
+      static_cast<BrokerableAttachment*>(attachment);
   if (brokerable_attachment->GetBrokerableType() !=
       BrokerableAttachment::WIN_HANDLE) {
     return false;
@@ -45,6 +49,7 @@ bool ParamTraits<HandleWin>::Read(const Message* m,
   IPC::internal::HandleAttachmentWin* handle_attachment =
       static_cast<IPC::internal::HandleAttachmentWin*>(brokerable_attachment);
   r->set_handle(handle_attachment->get_handle());
+  handle_attachment->reset_handle_ownership();
   return true;
 }
 

@@ -135,7 +135,7 @@ WebInspector.ConsoleViewMessage.prototype = {
     _formatMessage: function()
     {
         this._formattedMessage = createElement("span");
-        this._formattedMessage.appendChild(WebInspector.Widget.createStyleElement("components/objectValue.css"));
+        WebInspector.appendStyle(this._formattedMessage, "components/objectValue.css");
         this._formattedMessage.className = "console-message-text source-code";
 
         /**
@@ -213,11 +213,8 @@ WebInspector.ConsoleViewMessage.prototype = {
             if (consoleMessage.scriptId) {
                 this._anchorElement = this._linkifyScriptId(consoleMessage.scriptId, consoleMessage.url || "", consoleMessage.line, consoleMessage.column);
             } else {
-                var showBlackboxed = (consoleMessage.source !== WebInspector.ConsoleMessage.MessageSource.ConsoleAPI);
-                var debuggerModel = WebInspector.DebuggerModel.fromTarget(this._target());
-                var callFrame = WebInspector.DebuggerPresentationUtils.callFrameAnchorFromStackTrace(debuggerModel, consoleMessage.stackTrace, consoleMessage.asyncStackTrace, showBlackboxed);
-                if (callFrame && callFrame.scriptId)
-                    this._anchorElement = this._linkifyCallFrame(callFrame);
+                if (consoleMessage.stackTrace && consoleMessage.stackTrace.callFrames.length)
+                    this._anchorElement = this._linkifyStackTraceTopFrame(consoleMessage.stackTrace);
                 else if (consoleMessage.url && consoleMessage.url !== "undefined")
                     this._anchorElement = this._linkifyLocation(consoleMessage.url, consoleMessage.line, consoleMessage.column);
             }
@@ -230,7 +227,7 @@ WebInspector.ConsoleViewMessage.prototype = {
             this._formattedMessage.insertBefore(this._anchorElement, this._formattedMessage.firstChild);
         }
 
-        var dumpStackTrace = (!!consoleMessage.stackTrace || !!consoleMessage.asyncStackTrace) && (consoleMessage.source === WebInspector.ConsoleMessage.MessageSource.Network || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.Error || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.RevokedError || consoleMessage.type === WebInspector.ConsoleMessage.MessageType.Trace);
+        var dumpStackTrace = !!consoleMessage.stackTrace && (consoleMessage.source === WebInspector.ConsoleMessage.MessageSource.Network || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.Error || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.RevokedError || consoleMessage.type === WebInspector.ConsoleMessage.MessageType.Trace);
         if (dumpStackTrace) {
             var treeOutline = new TreeOutline();
             treeOutline.element.classList.add("outline-disclosure", "outline-disclosure-no-padding");
@@ -276,13 +273,15 @@ WebInspector.ConsoleViewMessage.prototype = {
     },
 
     /**
-     * @param {!ConsoleAgent.CallFrame} callFrame
+     * @param {!RuntimeAgent.StackTrace} stackTrace
      * @return {?Element}
      */
-    _linkifyCallFrame: function(callFrame)
+    _linkifyStackTraceTopFrame: function(stackTrace)
     {
         var target = this._target();
-        return this._linkifier.linkifyConsoleCallFrame(target, callFrame, "console-message-url");
+        if (!target)
+            return null;
+        return this._linkifier.linkifyStackTraceTopFrame(target, stackTrace, "console-message-url");
     },
 
     /**
@@ -1013,8 +1012,7 @@ WebInspector.ConsoleViewMessage.prototype = {
         var target = this._target();
         if (!target)
             return;
-        var content = WebInspector.DOMPresentationUtils.buildStackTracePreviewContents(target,
-            this._linkifier, this._message.stackTrace, this._message.asyncStackTrace);
+        var content = WebInspector.DOMPresentationUtils.buildStackTracePreviewContents(target, this._linkifier, this._message.stackTrace);
         var treeElement = new TreeElement(content);
         treeElement.selectable = false;
         parentTreeElement.appendChild(treeElement);
@@ -1245,14 +1243,14 @@ WebInspector.ConsoleViewMessage.prototype = {
             if (!isCallFrameLine)
                 continue;
 
-            var openBracketIndex = lines[i].indexOf("(");
-            var closeBracketIndex = lines[i].indexOf(")");
+            var openBracketIndex = -1;
+            var closeBracketIndex = -1;
+            var match = /\([^\)\(]+\)/.exec(lines[i]);
+            if (match) {
+                openBracketIndex = match.index;
+                closeBracketIndex = match.index + match[0].length - 1;
+            }
             var hasOpenBracket = openBracketIndex !== -1;
-            var hasCloseBracket = closeBracketIndex !== -1;
-
-            if ((openBracketIndex > closeBracketIndex) ||  (hasOpenBracket ^ hasCloseBracket))
-                return null;
-
             var left = hasOpenBracket ? openBracketIndex + 1 : lines[i].indexOf("at") + 3;
             var right = hasOpenBracket ? closeBracketIndex : lines[i].length;
             var linkCandidate = lines[i].substring(left, right);

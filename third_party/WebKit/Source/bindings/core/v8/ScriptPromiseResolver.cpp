@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "bindings/core/v8/ScriptPromiseResolver.h"
 
 namespace blink {
@@ -18,7 +17,7 @@ ScriptPromiseResolver::ScriptPromiseResolver(ScriptState* scriptState)
 #endif
 {
     if (executionContext()->activeDOMObjectsAreStopped()) {
-        m_state = ResolvedOrRejected;
+        m_state = Detached;
         m_resolver.clear();
     }
 }
@@ -34,10 +33,15 @@ void ScriptPromiseResolver::resume()
         m_timer.startOneShot(0, BLINK_FROM_HERE);
 }
 
-void ScriptPromiseResolver::stop()
+void ScriptPromiseResolver::detach()
 {
+    if (m_state == Detached)
+        return;
     m_timer.stop();
-    clear();
+    m_state = Detached;
+    m_resolver.clear();
+    m_value.clear();
+    m_keepAlive.clear();
 }
 
 void ScriptPromiseResolver::keepAliveWhilePending()
@@ -45,11 +49,11 @@ void ScriptPromiseResolver::keepAliveWhilePending()
     // keepAliveWhilePending() will be called twice if the resolver
     // is created in a suspended execution context and the resolver
     // is then resolved/rejected while in that suspended state.
-    if (m_state == ResolvedOrRejected || m_keepAlive)
+    if (m_state == Detached || m_keepAlive)
         return;
 
     // Keep |this| around while the promise is Pending;
-    // see clear() for the dual operation.
+    // see detach() for the dual operation.
     m_keepAlive = this;
 }
 
@@ -57,7 +61,7 @@ void ScriptPromiseResolver::onTimerFired(Timer<ScriptPromiseResolver>*)
 {
     ASSERT(m_state == Resolving || m_state == Rejecting);
     if (!scriptState()->contextIsValid()) {
-        clear();
+        detach();
         return;
     }
 
@@ -77,17 +81,7 @@ void ScriptPromiseResolver::resolveOrRejectImmediately()
             m_resolver.reject(m_value.newLocal(m_scriptState->isolate()));
         }
     }
-    clear();
-}
-
-void ScriptPromiseResolver::clear()
-{
-    if (m_state == ResolvedOrRejected)
-        return;
-    m_state = ResolvedOrRejected;
-    m_resolver.clear();
-    m_value.clear();
-    m_keepAlive.clear();
+    detach();
 }
 
 DEFINE_TRACE(ScriptPromiseResolver)

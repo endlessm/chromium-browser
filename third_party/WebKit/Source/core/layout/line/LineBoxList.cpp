@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/line/LineBoxList.h"
 
 #include "core/layout/HitTestResult.h"
@@ -256,7 +255,7 @@ void LineBoxList::dirtyLinesFromChangedChild(LineLayoutItem container, LineLayou
         if (curr.isFloatingOrOutOfFlowPositioned())
             continue;
 
-        if (curr.isReplaced()) {
+        if (curr.isAtomicInlineLevel()) {
             InlineBox* wrapper = toLayoutBox(curr)->inlineBoxWrapper();
             if (wrapper)
                 box = &wrapper->root();
@@ -324,4 +323,4 @@ void LineBoxList::checkConsistency() const
 
 #endif
 
-}
+} // namespace blink

@@ -9,10 +9,11 @@
 #include <string>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/debug/task_annotator.h"
+#include "base/gtest_prod_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/incoming_task_queue.h"
@@ -25,6 +26,7 @@
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
 #include "base/tracking_info.h"
+#include "build/build_config.h"
 
 // TODO(sky): these includes should not be necessary. Nuke them.
 #if defined(OS_WIN)
@@ -397,13 +399,25 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
  protected:
   scoped_ptr<MessagePump> pump_;
 
+  using MessagePumpFactoryCallback = Callback<scoped_ptr<MessagePump>()>;
+
+  // Common protected constructor. Other constructors delegate the
+  // initialization to this constructor.
+  // A subclass can invoke this constructor to create a message_loop of a
+  // specific type with a custom loop. The implementation does not call
+  // BindToCurrentThread. If this constructor is invoked directly by a subclass,
+  // then the subclass must subsequently bind the message loop.
+  MessageLoop(Type type, MessagePumpFactoryCallback pump_factory);
+
+  // Configure various members and bind this message loop to the current thread.
+  void BindToCurrentThread();
+
  private:
   friend class RunLoop;
   friend class internal::IncomingTaskQueue;
   friend class ScheduleWorkTest;
   friend class Thread;
-
-  using MessagePumpFactoryCallback = Callback<scoped_ptr<MessagePump>()>;
+  FRIEND_TEST_ALL_PREFIXES(MessageLoopTest, DeleteUnboundLoop);
 
   // Creates a MessageLoop without binding to a thread.
   // If |type| is TYPE_CUSTOM non-null |pump_factory| must be also given
@@ -419,13 +433,6 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   static scoped_ptr<MessageLoop> CreateUnbound(
       Type type,
       MessagePumpFactoryCallback pump_factory);
-
-  // Common private constructor. Other constructors delegate the initialization
-  // to this constructor.
-  MessageLoop(Type type, MessagePumpFactoryCallback pump_factory);
-
-  // Configure various members and bind this message loop to the current thread.
-  void BindToCurrentThread();
 
   // Sets the ThreadTaskRunnerHandle for the current thread to point to the
   // task runner for this message loop.
@@ -560,17 +567,19 @@ class BASE_EXPORT MessageLoopForUI : public MessageLoop {
   MessageLoopForUI() : MessageLoop(TYPE_UI) {
   }
 
+  explicit MessageLoopForUI(scoped_ptr<MessagePump> pump);
+
   // Returns the MessageLoopForUI of the current thread.
   static MessageLoopForUI* current() {
     MessageLoop* loop = MessageLoop::current();
     DCHECK(loop);
-    DCHECK_EQ(MessageLoop::TYPE_UI, loop->type());
+    DCHECK(loop->IsType(MessageLoop::TYPE_UI));
     return static_cast<MessageLoopForUI*>(loop);
   }
 
   static bool IsCurrent() {
     MessageLoop* loop = MessageLoop::current();
-    return loop && loop->type() == MessageLoop::TYPE_UI;
+    return loop && loop->IsType(MessageLoop::TYPE_UI);
   }
 
 #if defined(OS_IOS)
@@ -601,8 +610,8 @@ class BASE_EXPORT MessageLoopForUI : public MessageLoop {
 // Do not add any member variables to MessageLoopForUI!  This is important b/c
 // MessageLoopForUI is often allocated via MessageLoop(TYPE_UI).  Any extra
 // data that you need should be stored on the MessageLoop's pump_ instance.
-COMPILE_ASSERT(sizeof(MessageLoop) == sizeof(MessageLoopForUI),
-               MessageLoopForUI_should_not_have_extra_member_variables);
+static_assert(sizeof(MessageLoop) == sizeof(MessageLoopForUI),
+              "MessageLoopForUI should not have extra member variables");
 
 #endif  // !defined(OS_NACL)
 
@@ -621,6 +630,7 @@ class BASE_EXPORT MessageLoopForIO : public MessageLoop {
   // Returns the MessageLoopForIO of the current thread.
   static MessageLoopForIO* current() {
     MessageLoop* loop = MessageLoop::current();
+    DCHECK(loop);
     DCHECK_EQ(MessageLoop::TYPE_IO, loop->type());
     return static_cast<MessageLoopForIO*>(loop);
   }
@@ -682,8 +692,8 @@ class BASE_EXPORT MessageLoopForIO : public MessageLoop {
 // Do not add any member variables to MessageLoopForIO!  This is important b/c
 // MessageLoopForIO is often allocated via MessageLoop(TYPE_IO).  Any extra
 // data that you need should be stored on the MessageLoop's pump_ instance.
-COMPILE_ASSERT(sizeof(MessageLoop) == sizeof(MessageLoopForIO),
-               MessageLoopForIO_should_not_have_extra_member_variables);
+static_assert(sizeof(MessageLoop) == sizeof(MessageLoopForIO),
+              "MessageLoopForIO should not have extra member variables");
 
 }  // namespace base
 

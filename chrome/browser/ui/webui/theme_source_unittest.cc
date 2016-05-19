@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/message_loop/message_loop.h"
@@ -44,7 +46,7 @@ class WebUISourcesTest : public testing::Test {
     profile_.reset();
   }
 
-  void SendResponse(base::RefCountedMemory* data) {
+  void SendResponse(scoped_refptr<base::RefCountedMemory> data) {
     result_data_size_ = data ? data->size() : 0;
   }
 

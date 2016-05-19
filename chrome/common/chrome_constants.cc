@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_version.h"
 
@@ -21,10 +22,6 @@
 namespace chrome {
 
 const char kChromeVersion[] = CHROME_VERSION_STRING;
-
-#if defined(OS_WIN)
-const char kChromeVersionEnvVar[] = "CHROME_VERSION";
-#endif
 
 // The following should not be used for UI strings; they are meant
 // for system strings only. UI changes should be made in the GRD.
@@ -122,7 +119,6 @@ const base::FilePath::CharType kFrameworkName[] =
 
 #if defined(OS_WIN)
 const base::FilePath::CharType kBrowserResourcesDll[] = FPL("chrome.dll");
-const base::FilePath::CharType kMetroDriverDll[] = FPL("metro_driver.dll");
 const base::FilePath::CharType kStatusTrayWindowClass[] =
     FPL("Chrome_StatusTrayWindow");
 #endif  // defined(OS_WIN)
@@ -159,8 +155,6 @@ const base::FilePath::CharType kPreferencesFilename[] = FPL("Preferences");
 const base::FilePath::CharType kProtectedPreferencesFilenameDeprecated[] =
     FPL("Protected Preferences");
 const base::FilePath::CharType kReadmeFilename[] = FPL("README");
-const base::FilePath::CharType kResetPromptMementoFilename[] =
-    FPL("Reset Prompt Memento");
 const base::FilePath::CharType kSafeBrowsingBaseFilename[] =
     FPL("Safe Browsing");
 const base::FilePath::CharType kSecurePreferencesFilename[] =
@@ -209,9 +203,6 @@ const wchar_t kMetroNavigationAndSearchMessage[] =
     L"CHROME_METRO_NAV_SEARCH_REQUEST";
 const wchar_t kMetroGetCurrentTabInfoMessage[] =
     L"CHROME_METRO_GET_CURRENT_TAB_INFO";
-const wchar_t kMetroRegistryPath[] =
-    L"Software\\" PRODUCT_STRING_PATH L"\\Metro";
-const wchar_t kLaunchModeValue[] = L"launch_mode";
 // This is used by breakpad and the metrics reporting.
 const wchar_t kBrowserCrashDumpAttemptsRegistryPath[] =
     L"Software\\" PRODUCT_STRING_PATH L"\\BrowserCrashDumpAttempts";

@@ -7,8 +7,8 @@
 
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/global_error/global_error.h"
 
 class GlobalErrorService;
@@ -59,8 +59,8 @@ class SRTGlobalError : public GlobalErrorWithStandardBubble {
   // download and execute the SRT.
   void FallbackToDownloadPage();
 
-  // Destroys this instance.
-  void DestroySelf();
+  // Called when user interaction is done.
+  void OnUserinteractionDone();
 
   // Used to dismiss the GlobalError, then set to NULL.
   GlobalErrorService* global_error_service_;

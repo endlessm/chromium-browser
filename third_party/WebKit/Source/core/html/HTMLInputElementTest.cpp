@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/html/HTMLInputElement.h"
 
 #include "core/dom/Document.h"
 #include "core/html/HTMLBodyElement.h"
+#include "core/html/HTMLFormElement.h"
 #include "core/html/HTMLHtmlElement.h"
 #include "core/testing/DummyPageHolder.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -53,11 +53,34 @@ TEST(HTMLInputElementTest, DefaultToolTip)
     RefPtrWillBeRawPtr<Document> document = Document::create();
     RefPtrWillBeRawPtr<HTMLHtmlElement> html = HTMLHtmlElement::create(*document);
     html->appendChild(HTMLBodyElement::create(*document));
-    RefPtrWillBeRawPtr<HTMLInputElement> input = HTMLInputElement::create(*document, nullptr, false);
-    input->setBooleanAttribute(HTMLNames::requiredAttr, true);
-    toHTMLBodyElement(html->firstChild())->appendChild(input.get());
+    RefPtrWillBeRawPtr<HTMLInputElement> inputWithoutForm = HTMLInputElement::create(*document, nullptr, false);
+    inputWithoutForm->setBooleanAttribute(HTMLNames::requiredAttr, true);
+    toHTMLBodyElement(html->firstChild())->appendChild(inputWithoutForm.get());
     document->appendChild(html.release());
-    EXPECT_EQ("<<ValidationValueMissing>>", input->defaultToolTip());
+    EXPECT_EQ("<<ValidationValueMissing>>", inputWithoutForm->defaultToolTip());
+
+    RefPtrWillBeRawPtr<HTMLFormElement> form = HTMLFormElement::create(*document);
+    document->body()->appendChild(form.get());
+    RefPtrWillBeRawPtr<HTMLInputElement> inputWithForm = HTMLInputElement::create(*document, nullptr, false);
+    inputWithForm->setBooleanAttribute(HTMLNames::requiredAttr, true);
+    form->appendChild(inputWithForm.get());
+    EXPECT_EQ("<<ValidationValueMissing>>", inputWithForm->defaultToolTip());
+
+    form->setBooleanAttribute(HTMLNames::novalidateAttr, true);
+    EXPECT_EQ(String(), inputWithForm->defaultToolTip());
+}
+
+// crbug.com/589838
+TEST(HTMLInputElementTest, ImageTypeCrash)
+{
+    RefPtrWillBeRawPtr<Document> document = Document::create();
+    RefPtrWillBeRawPtr<HTMLInputElement> input = HTMLInputElement::create(*document, nullptr, false);
+    input->setAttribute(HTMLNames::typeAttr, "image");
+    input->ensureFallbackContent();
+    // Make sure ensurePrimaryContent() recreates UA shadow tree, and updating
+    // |value| doesn't crash.
+    input->ensurePrimaryContent();
+    input->setAttribute(HTMLNames::valueAttr, "aaa");
 }
 
 } // namespace blink

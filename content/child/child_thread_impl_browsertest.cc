@@ -2,6 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/child/child_thread_impl.h"
+
+#include <stddef.h>
+#include <string.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/discardable_memory.h"
@@ -9,7 +15,6 @@
 #include "base/time/time.h"
 #include "content/child/child_discardable_shared_memory_manager.h"
 #include "content/child/child_gpu_memory_buffer_manager.h"
-#include "content/child/child_thread_impl.h"
 #include "content/common/gpu/client/gpu_memory_buffer_impl.h"
 #include "content/common/host_discardable_shared_memory_manager.h"
 #include "content/public/common/content_switches.h"
@@ -59,8 +64,7 @@ class ChildThreadImplBrowserTest : public ContentBrowserTest {
   ChildDiscardableSharedMemoryManager* child_discardable_shared_memory_manager_;
 };
 
-IN_PROC_BROWSER_TEST_F(ChildThreadImplBrowserTest,
-                       DISABLED_LockDiscardableMemory) {
+IN_PROC_BROWSER_TEST_F(ChildThreadImplBrowserTest, LockDiscardableMemory) {
   const size_t kSize = 1024 * 1024;  // 1MiB.
 
   scoped_ptr<base::DiscardableMemory> memory =
@@ -81,7 +85,7 @@ IN_PROC_BROWSER_TEST_F(ChildThreadImplBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(ChildThreadImplBrowserTest,
-                       DISABLED_DiscardableMemoryAddressSpace) {
+                       DiscardableMemoryAddressSpace) {
   const size_t kLargeSize = 4 * 1024 * 1024;   // 4MiB.
   const size_t kNumberOfInstances = 1024 + 1;  // >4GiB total.
 
@@ -94,12 +98,12 @@ IN_PROC_BROWSER_TEST_F(ChildThreadImplBrowserTest,
     void* addr = memory->data();
     ASSERT_NE(nullptr, addr);
     memory->Unlock();
-    instances.push_back(memory.Pass());
+    instances.push_back(std::move(memory));
   }
 }
 
 IN_PROC_BROWSER_TEST_F(ChildThreadImplBrowserTest,
-                       DISABLED_ReleaseFreeDiscardableMemory) {
+                       ReleaseFreeDiscardableMemory) {
   const size_t kSize = 1024 * 1024;  // 1MiB.
 
   scoped_ptr<base::DiscardableMemory> memory =

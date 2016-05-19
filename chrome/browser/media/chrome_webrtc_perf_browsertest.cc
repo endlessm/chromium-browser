@@ -106,10 +106,8 @@ class WebRtcPerfBrowserTest : public WebRtcTestBase {
 // This is manual for its long execution time.
 IN_PROC_BROWSER_TEST_F(WebRtcPerfBrowserTest,
                        MANUAL_RunsAudioVideoCall60SecsAndLogsInternalMetrics) {
-  if (OnWinXp()) return;
-
   ASSERT_TRUE(test::HasReferenceFilesInCheckout());
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   ASSERT_GE(TestTimeouts::action_max_timeout().InSeconds(), 100) <<
       "This is a long-running test; you must specify "
@@ -151,10 +149,8 @@ IN_PROC_BROWSER_TEST_F(WebRtcPerfBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WebRtcPerfBrowserTest,
                        MANUAL_RunsOneWayCall60SecsAndLogsInternalMetrics) {
-  if (OnWinXp()) return;
-
   ASSERT_TRUE(test::HasReferenceFilesInCheckout());
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   ASSERT_GE(TestTimeouts::action_max_timeout().InSeconds(), 100) <<
       "This is a long-running test; you must specify "

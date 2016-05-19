@@ -211,7 +211,7 @@ bool SkTwoPointConicalGradient::isOpaque() const {
     return false;
 }
 
-size_t SkTwoPointConicalGradient::contextSize() const {
+size_t SkTwoPointConicalGradient::contextSize(const ContextRec&) const {
     return sizeof(TwoPointConicalGradientContext);
 }
 
@@ -224,9 +224,6 @@ SkTwoPointConicalGradient::TwoPointConicalGradientContext::TwoPointConicalGradie
         const SkTwoPointConicalGradient& shader, const ContextRec& rec)
     : INHERITED(shader, rec)
 {
-    // we don't have a span16 proc
-    fFlags &= ~kHasSpan16_Flag;
-
     // in general, we might discard based on computed-radius, so clear
     // this flag (todo: sometimes we can detect that we never discard...)
     fFlags &= ~kOpaqueAlpha_Flag;
@@ -264,10 +261,9 @@ void SkTwoPointConicalGradient::TwoPointConicalGradientContext::shadeSpan(
         SkScalar dy, fy = srcPt.fY;
 
         if (fDstToIndexClass == kFixedStepInX_MatrixClass) {
-            SkFixed fixedX, fixedY;
-            (void)fDstToIndex.fixedStepInX(SkIntToScalar(y), &fixedX, &fixedY);
-            dx = SkFixedToScalar(fixedX);
-            dy = SkFixedToScalar(fixedY);
+            const auto step = fDstToIndex.fixedStepInX(SkIntToScalar(y));
+            dx = step.fX;
+            dy = step.fY;
         } else {
             SkASSERT(fDstToIndexClass == kLinear_MatrixClass);
             dx = fDstToIndex.getScaleX();

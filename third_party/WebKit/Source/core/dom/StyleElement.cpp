@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/StyleElement.h"
 
 #include "bindings/core/v8/ScriptController.h"
@@ -238,4 +237,4 @@ DEFINE_TRACE(StyleElement)
     visitor->trace(m_sheet);
 }
 
-}
+} // namespace blink

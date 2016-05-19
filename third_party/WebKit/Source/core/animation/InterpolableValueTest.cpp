@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/InterpolableValue.h"
 
 #include "core/animation/Interpolation.h"
 #include "core/animation/PropertyHandle.h"
-
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -18,7 +16,7 @@ class SampleInterpolation : public Interpolation {
 public:
     static PassRefPtr<Interpolation> create(PassOwnPtr<InterpolableValue> start, PassOwnPtr<InterpolableValue> end)
     {
-        return adoptRef(new SampleInterpolation(start, end));
+        return adoptRef(new SampleInterpolation(std::move(start), std::move(end)));
     }
 
     PropertyHandle property() const override
@@ -27,7 +25,7 @@ public:
     }
 private:
     SampleInterpolation(PassOwnPtr<InterpolableValue> start, PassOwnPtr<InterpolableValue> end)
-        : Interpolation(start, end)
+        : Interpolation(std::move(start), std::move(end))
     {
     }
 };
@@ -62,7 +60,7 @@ protected:
 
     PassRefPtr<Interpolation> interpolateLists(PassOwnPtr<InterpolableList> listA, PassOwnPtr<InterpolableList> listB, double progress)
     {
-        RefPtr<Interpolation> i = SampleInterpolation::create(listA, listB);
+        RefPtr<Interpolation> i = SampleInterpolation::create(std::move(listA), std::move(listB));
         i->interpolate(0, progress);
         return i;
     }
@@ -161,4 +159,4 @@ TEST_F(AnimationInterpolableValueTest, ScaleAndAddLists)
     EXPECT_FLOAT_EQ(33, toInterpolableNumber(baseList->get(2))->value());
 }
 
-}
+} // namespace blink

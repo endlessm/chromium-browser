@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/HTMLTableRowsCollection.h"
 
 #include "core/HTMLNames.h"
@@ -142,4 +141,4 @@ Element* HTMLTableRowsCollection::virtualItemAfter(Element* previous) const
     return rowAfter(toHTMLTableElement(ownerNode()), toHTMLTableRowElement(previous));
 }
 
-}
+} // namespace blink

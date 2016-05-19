@@ -49,7 +49,8 @@ public:
     static PassRefPtrWillBeRawPtr<InputType> create(HTMLInputElement&);
 
 private:
-    DateTimeLocalInputType(HTMLInputElement& element) : BaseDateTimeLocalInputType(element) { }
+    explicit DateTimeLocalInputType(HTMLInputElement& element) : BaseDateTimeLocalInputType(element) { }
+
     void countUsage() override;
     const AtomicString& formControlType() const override;
     double valueAsDate() const override;
@@ -58,6 +59,7 @@ private:
     bool parseToDateComponentsInternal(const String&, DateComponents*) const override;
     bool setMillisecondToDateComponents(double, DateComponents*) const override;
     String localizeValue(const String&) const override;
+    void warnIfValueIsInvalid(const String&) const override;
 
 #if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
     // BaseMultipleFieldsDateAndTimeInputType functions

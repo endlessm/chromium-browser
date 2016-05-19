@@ -5,10 +5,14 @@
 #ifndef COMPONENTS_RAPPOR_TEST_RAPPOR_SERVICE_H_
 #define COMPONENTS_RAPPOR_TEST_RAPPOR_SERVICE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <string>
 
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/rappor/rappor_service.h"
 #include "components/rappor/test_log_uploader.h"
 

@@ -7,12 +7,14 @@
 #ifndef CORE_INCLUDE_FPDFAPI_FPDF_SERIAL_H_
 #define CORE_INCLUDE_FPDFAPI_FPDF_SERIAL_H_
 
-#include "fpdf_page.h"
-#include "fpdf_pageobj.h"
+#include "core/include/fpdfapi/fpdf_page.h"
+#include "core/include/fpdfapi/fpdf_pageobj.h"
 
 class CPDF_ObjectStream;
 class CPDF_XRefStream;
+
 CFX_ByteTextBuf& operator<<(CFX_ByteTextBuf& buf, const CPDF_Object* pObj);
+
 #define FPDFCREATE_INCREMENTAL 1
 #define FPDFCREATE_NO_ORIGINAL 2
 #define FPDFCREATE_PROGRESSIVE 4
@@ -91,15 +93,11 @@ class CPDF_Creator {
   FX_DWORD m_dwFlags;
   FX_POSITION m_Pos;
   FX_FILESIZE m_XrefStart;
-
   CFX_FileSizeListArray m_ObjectOffset;
-
-  CFX_DWordListArray m_ObjectSize;
   CFX_DWordArray m_NewObjNumArray;
-
   CPDF_Array* m_pIDArray;
-
   int32_t m_FileVersion;
+
   friend class CPDF_ObjectStream;
   friend class CPDF_XRefStream;
 };

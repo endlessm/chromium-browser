@@ -5,10 +5,11 @@
 #ifndef COMPONENTS_MUS_ANDROID_LOADER_H_
 #define COMPONENTS_MUS_ANDROID_LOADER_H_
 
+#include "base/macros.h"
 #include "mojo/shell/application_loader.h"
 
 namespace mojo {
-class ApplicationImpl;
+class ShellConnection;
 }
 
 namespace mus {
@@ -22,9 +23,9 @@ class AndroidLoader : public mojo::shell::ApplicationLoader {
   // Overridden from mojo::shell::ApplicationLoader:
   void Load(
       const GURL& url,
-      mojo::InterfaceRequest<mojo::Application> application_request) override;
+      mojo::InterfaceRequest<mojo::shell::mojom::ShellClient> request) override;
 
-  scoped_ptr<mojo::ApplicationImpl> app_;
+  scoped_ptr<mojo::ShellConnection> app_;
 
   DISALLOW_COPY_AND_ASSIGN(AndroidLoader);
 };

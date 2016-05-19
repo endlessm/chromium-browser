@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/mhtml/MHTMLArchive.h"
 
 #include "platform/DateComponents.h"
@@ -39,7 +38,9 @@
 #include "platform/mhtml/MHTMLParser.h"
 #include "platform/text/QuotedPrintable.h"
 #include "platform/weborigin/SchemeRegistry.h"
+#include "wtf/Assertions.h"
 #include "wtf/CryptographicallyRandomNumber.h"
+#include "wtf/CurrentTime.h"
 #include "wtf/DateMath.h"
 #include "wtf/text/Base64.h"
 #include "wtf/text/StringBuilder.h"
@@ -49,26 +50,6 @@ namespace blink {
 const char* const quotedPrintable = "quoted-printable";
 const char* const base64 = "base64";
 const char* const binary = "binary";
-
-String MHTMLArchive::generateMHTMLBoundary()
-{
-    // Trying to generate random boundaries similar to IE/UnMHT
-    // (ex: ----=_NextPart_000_001B_01CC157B.96F808A0).
-    const size_t randomValuesLength = 10;
-    char randomValues[randomValuesLength];
-    cryptographicallyRandomValues(&randomValues, randomValuesLength);
-    StringBuilder stringBuilder;
-    stringBuilder.appendLiteral("----=_NextPart_000_");
-    for (size_t i = 0; i < randomValuesLength; ++i) {
-        if (i == 2)
-            stringBuilder.append('_');
-        else if (i == 6)
-            stringBuilder.append('.');
-        stringBuilder.append(lowerNibbleToASCIIHexDigit(randomValues[i]));
-        stringBuilder.append(upperNibbleToASCIIHexDigit(randomValues[i]));
-    }
-    return stringBuilder.toString();
-}
 
 static String replaceNonPrintableCharacters(const String& text)
 {
@@ -88,15 +69,6 @@ MHTMLArchive::MHTMLArchive()
 
 MHTMLArchive::~MHTMLArchive()
 {
-#if !ENABLE(OILPAN)
-    // Because all frames know about each other we need to perform a deep clearing of the archives graph.
-    clearAllSubframeArchives();
-#endif
-}
-
-PassRefPtrWillBeRawPtr<MHTMLArchive> MHTMLArchive::create()
-{
-    return adoptRefWillBeNoop(new MHTMLArchive);
 }
 
 PassRefPtrWillBeRawPtr<MHTMLArchive> MHTMLArchive::create(const KURL& url, SharedBuffer* data)
@@ -106,27 +78,29 @@ PassRefPtrWillBeRawPtr<MHTMLArchive> MHTMLArchive::create(const KURL& url, Share
         return nullptr;
 
     MHTMLParser parser(data);
-    RefPtrWillBeRawPtr<MHTMLArchive> mainArchive = parser.parseArchive();
-    if (!mainArchive)
+    WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>> resources = parser.parseArchive();
+    if (resources.isEmpty())
         return nullptr; // Invalid MHTML file.
 
-    // Since MHTML is a flat format, we need to make all frames aware of all resources.
-    for (size_t i = 0; i < parser.frameCount(); ++i) {
-        RefPtrWillBeRawPtr<MHTMLArchive> archive = parser.frameAt(i);
-        for (size_t j = 1; j < parser.frameCount(); ++j) {
-            if (i != j)
-                archive->addSubframeArchive(parser.frameAt(j));
-        }
-        for (size_t j = 0; j < parser.subResourceCount(); ++j)
-            archive->addSubresource(parser.subResourceAt(j));
+    RefPtrWillBeRawPtr<MHTMLArchive> archive = adoptRefWillBeNoop(new MHTMLArchive);
+    // The first document suitable resource is the main resource of the top frame.
+    for (size_t i = 0; i < resources.size(); ++i) {
+        const AtomicString& mimeType = resources[i]->mimeType();
+        if (archive->mainResource() || !MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType) || MIMETypeRegistry::isSupportedJavaScriptMIMEType(mimeType) || mimeType == "text/css")
+            archive->addSubresource(resources[i].get());
+        else
+            archive->setMainResource(resources[i].get());
     }
-    return mainArchive.release();
+    return archive.release();
 }
 
 void MHTMLArchive::generateMHTMLHeader(
     const String& boundary, const String& title, const String& mimeType,
     SharedBuffer& outputBuffer)
 {
+    ASSERT(!boundary.isEmpty());
+    ASSERT(!mimeType.isEmpty());
+
     DateComponents now;
     now.setMillisecondsSinceEpochForDateTime(currentTimeMS());
     // TODO(lukasza): Passing individual date/time components seems fragile.
@@ -160,14 +134,26 @@ void MHTMLArchive::generateMHTMLHeader(
 
 void MHTMLArchive::generateMHTMLPart(
     const String& boundary,
+    const String& contentID,
     EncodingPolicy encodingPolicy,
     const SerializedResource& resource,
     SharedBuffer& outputBuffer)
 {
+    ASSERT(!boundary.isEmpty());
+    ASSERT(contentID.isEmpty() || contentID[0] == '<');
+
     StringBuilder stringBuilder;
     stringBuilder.append("--" + boundary + "\r\n");
+
     stringBuilder.appendLiteral("Content-Type: ");
     stringBuilder.append(resource.mimeType);
+    stringBuilder.appendLiteral("\r\n");
+
+    if (!contentID.isEmpty()) {
+        stringBuilder.appendLiteral("Content-ID: ");
+        stringBuilder.append(contentID);
+        stringBuilder.appendLiteral("\r\n");
+    }
 
     const char* contentEncoding = 0;
     if (encodingPolicy == UseBinaryEncoding)
@@ -177,11 +163,17 @@ void MHTMLArchive::generateMHTMLPart(
     else
         contentEncoding = base64;
 
-    stringBuilder.appendLiteral("\r\nContent-Transfer-Encoding: ");
+    stringBuilder.appendLiteral("Content-Transfer-Encoding: ");
     stringBuilder.append(contentEncoding);
-    stringBuilder.appendLiteral("\r\nContent-Location: ");
-    stringBuilder.append(resource.url);
-    stringBuilder.appendLiteral("\r\n\r\n");
+    stringBuilder.appendLiteral("\r\n");
+
+    if (!resource.url.protocolIsAbout()) {
+        stringBuilder.appendLiteral("Content-Location: ");
+        stringBuilder.append(resource.url);
+        stringBuilder.appendLiteral("\r\n");
+    }
+
+    stringBuilder.appendLiteral("\r\n");
 
     CString asciiString = stringBuilder.toString().utf8();
     outputBuffer.append(asciiString.data(), asciiString.length());
@@ -201,7 +193,7 @@ void MHTMLArchive::generateMHTMLPart(
         if (!strcmp(contentEncoding, quotedPrintable)) {
             quotedPrintableEncode(data, dataLength, encodedData);
             outputBuffer.append(encodedData.data(), encodedData.size());
-            outputBuffer.append("\r\n", 2);
+            outputBuffer.append("\r\n", 2u);
         } else {
             ASSERT(!strcmp(contentEncoding, base64));
             // We are not specifying insertLFs = true below as it would cut the lines with LFs and MHTML requires CRLFs.
@@ -212,7 +204,7 @@ void MHTMLArchive::generateMHTMLPart(
             do {
                 size_t lineLength = std::min(encodedDataLength - index, maximumLineLength);
                 outputBuffer.append(encodedData.data() + index, lineLength);
-                outputBuffer.append("\r\n", 2);
+                outputBuffer.append("\r\n", 2u);
                 index += maximumLineLength;
             } while (index < encodedDataLength);
         }
@@ -223,66 +215,36 @@ void MHTMLArchive::generateMHTMLFooter(
     const String& boundary,
     SharedBuffer& outputBuffer)
 {
+    ASSERT(!boundary.isEmpty());
     CString asciiString = String("--" + boundary + "--\r\n").utf8();
     outputBuffer.append(asciiString.data(), asciiString.length());
 }
-
-PassRefPtr<SharedBuffer> MHTMLArchive::generateMHTMLData(
-    const Vector<SerializedResource>& resources,
-    EncodingPolicy encodingPolicy,
-    const String& title, const String& mimeType)
-{
-    String boundary = MHTMLArchive::generateMHTMLBoundary();
-
-    RefPtr<SharedBuffer> mhtmlData = SharedBuffer::create();
-    MHTMLArchive::generateMHTMLHeader(boundary, title, mimeType, *mhtmlData);
-    for (const auto& resource : resources) {
-        MHTMLArchive::generateMHTMLPart(
-            boundary, encodingPolicy, resource, *mhtmlData);
-    }
-    MHTMLArchive::generateMHTMLFooter(boundary, *mhtmlData);
-    return mhtmlData.release();
-}
-
-#if !ENABLE(OILPAN)
-void MHTMLArchive::clearAllSubframeArchives()
-{
-    SubFrameArchives clearedArchives;
-    clearAllSubframeArchivesImpl(&clearedArchives);
-}
-
-void MHTMLArchive::clearAllSubframeArchivesImpl(SubFrameArchives* clearedArchives)
-{
-    for (SubFrameArchives::iterator it = m_subframeArchives.begin(); it != m_subframeArchives.end(); ++it) {
-        if (!clearedArchives->contains(*it)) {
-            clearedArchives->append(*it);
-            (*it)->clearAllSubframeArchivesImpl(clearedArchives);
-        }
-    }
-    m_subframeArchives.clear();
-}
-#endif
 
 void MHTMLArchive::setMainResource(PassRefPtrWillBeRawPtr<ArchiveResource> mainResource)
 {
     m_mainResource = mainResource;
 }
 
-void MHTMLArchive::addSubresource(PassRefPtrWillBeRawPtr<ArchiveResource> subResource)
+void MHTMLArchive::addSubresource(ArchiveResource* resource)
 {
-    m_subresources.append(subResource);
+    const KURL& url = resource->url();
+    m_subresources.set(url, resource);
+    KURL cidURI = MHTMLParser::convertContentIDToURI(resource->contentID());
+    if (cidURI.isValid())
+        m_subresources.set(cidURI, resource);
 }
 
-void MHTMLArchive::addSubframeArchive(PassRefPtrWillBeRawPtr<MHTMLArchive> subframeArchive)
+ArchiveResource* MHTMLArchive::subresourceForURL(const KURL& url) const
 {
-    m_subframeArchives.append(subframeArchive);
+    return m_subresources.get(url.string());
 }
 
 DEFINE_TRACE(MHTMLArchive)
 {
     visitor->trace(m_mainResource);
+#if ENABLE(OILPAN)
     visitor->trace(m_subresources);
-    visitor->trace(m_subframeArchives);
+#endif
 }
 
-}
+} // namespace blink

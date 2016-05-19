@@ -5,6 +5,8 @@
 #ifndef CC_LAYERS_CONTENT_LAYER_CLIENT_H_
 #define CC_LAYERS_CONTENT_LAYER_CLIENT_H_
 
+#include <stddef.h>
+
 #include "cc/base/cc_export.h"
 #include "cc/playback/display_item_list.h"
 
@@ -18,13 +20,20 @@ class CC_EXPORT ContentLayerClient {
  public:
   enum PaintingControlSetting {
     PAINTING_BEHAVIOR_NORMAL,
+    PAINTING_BEHAVIOR_NORMAL_FOR_TEST,
     DISPLAY_LIST_CONSTRUCTION_DISABLED,
     DISPLAY_LIST_CACHING_DISABLED,
-    DISPLAY_LIST_PAINTING_DISABLED
+    DISPLAY_LIST_PAINTING_DISABLED,
+    SUBSEQUENCE_CACHING_DISABLED,
   };
 
+  // The paintable region is the rectangular region, within the bounds of the
+  // layer this client paints, that the client is capable of painting via
+  // paintContents(). Calling paintContents() will return a DisplayItemList
+  // that is guaranteed valid only within this region.
+  virtual gfx::Rect PaintableRegion() = 0;
+
   virtual scoped_refptr<DisplayItemList> PaintContentsToDisplayList(
-      const gfx::Rect& clip,
       PaintingControlSetting painting_status) = 0;
 
   // If true the layer may skip clearing the background before rasterizing,

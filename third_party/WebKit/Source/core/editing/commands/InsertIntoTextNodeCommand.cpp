@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/InsertIntoTextNodeCommand.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -45,7 +44,7 @@ InsertIntoTextNodeCommand::InsertIntoTextNodeCommand(PassRefPtrWillBeRawPtr<Text
     ASSERT(!m_text.isEmpty());
 }
 
-void InsertIntoTextNodeCommand::doApply()
+void InsertIntoTextNodeCommand::doApply(EditingState*)
 {
     bool passwordEchoEnabled = document().settings() && document().settings()->passwordEchoEnabled();
     if (passwordEchoEnabled)

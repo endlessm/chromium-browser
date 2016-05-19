@@ -2,9 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ui/compositor/layer.h"
 #include "ui/compositor/test/test_layer_animation_delegate.h"
 
 namespace ui {
+
+TestLayerThreadedAnimationDelegate::TestLayerThreadedAnimationDelegate() {}
+
+TestLayerThreadedAnimationDelegate::~TestLayerThreadedAnimationDelegate() {}
 
 TestLayerAnimationDelegate::TestLayerAnimationDelegate()
     : opacity_(1.0f),
@@ -12,6 +17,7 @@ TestLayerAnimationDelegate::TestLayerAnimationDelegate()
       brightness_(0.0f),
       grayscale_(0.0f),
       color_(SK_ColorBLACK) {
+  CreateCcLayer();
 }
 
 TestLayerAnimationDelegate::TestLayerAnimationDelegate(
@@ -21,7 +27,11 @@ TestLayerAnimationDelegate::TestLayerAnimationDelegate(
       opacity_(other.GetOpacityForAnimation()),
       visibility_(other.GetVisibilityForAnimation()),
       color_(SK_ColorBLACK) {
+  CreateCcLayer();
 }
+
+TestLayerAnimationDelegate::TestLayerAnimationDelegate(
+    const TestLayerAnimationDelegate& other) = default;
 
 TestLayerAnimationDelegate::~TestLayerAnimationDelegate() {
 }
@@ -91,16 +101,28 @@ float TestLayerAnimationDelegate::GetDeviceScaleFactor() const {
   return 1.0f;
 }
 
-void TestLayerAnimationDelegate::AddThreadedAnimation(
-      scoped_ptr<cc::Animation> animation) {
-}
-
-void TestLayerAnimationDelegate::RemoveThreadedAnimation(int animation_id) {
-}
-
 LayerAnimatorCollection*
 TestLayerAnimationDelegate::GetLayerAnimatorCollection() {
   return NULL;
 }
+
+cc::Layer* TestLayerAnimationDelegate::GetCcLayer() const {
+  return cc_layer_.get();
+}
+
+LayerThreadedAnimationDelegate*
+TestLayerAnimationDelegate::GetThreadedAnimationDelegate() {
+  return &threaded_delegate_;
+}
+
+void TestLayerAnimationDelegate::CreateCcLayer() {
+  cc_layer_ = cc::Layer::Create(ui::Layer::UILayerSettings());
+}
+
+void TestLayerThreadedAnimationDelegate::AddThreadedAnimation(
+    scoped_ptr<cc::Animation> animation) {}
+
+void TestLayerThreadedAnimationDelegate::RemoveThreadedAnimation(
+    int animation_id) {}
 
 }  // namespace ui

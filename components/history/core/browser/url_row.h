@@ -5,7 +5,8 @@
 #ifndef COMPONENTS_HISTORY_CORE_BROWSER_URL_ROW_H_
 #define COMPONENTS_HISTORY_CORE_BROWSER_URL_ROW_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "components/query_parser/snippet.h"
@@ -13,7 +14,7 @@
 
 namespace history {
 
-typedef int64 URLID;
+typedef int64_t URLID;
 
 // Holds all information globally associated with one URL (one row in the
 // URL table).
@@ -36,6 +37,8 @@ class URLRow {
   // We need to be able to set the id of a URLRow that's being passed through
   // an IPC message.  This constructor should probably not be used otherwise.
   URLRow(const GURL& url, URLID id);
+
+  URLRow(const URLRow& other);
 
   virtual ~URLRow();
   URLRow& operator=(const URLRow& other);
@@ -167,6 +170,7 @@ class URLResult : public URLRow {
   URLResult(const GURL& url,
             const query_parser::Snippet::MatchPositions& title_matches);
   explicit URLResult(const URLRow& url_row);
+  URLResult(const URLResult& other);
   ~URLResult() override;
 
   base::Time visit_time() const { return visit_time_; }

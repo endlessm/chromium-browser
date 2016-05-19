@@ -4,8 +4,12 @@
 
 #include "components/drive/directory_loader.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
@@ -31,7 +35,7 @@ FileError CheckLocalState(ResourceMetadata* resource_metadata,
                           const google_apis::AboutResource& about_resource,
                           const std::string& local_id,
                           ResourceEntry* entry,
-                          int64* local_changestamp) {
+                          int64_t* local_changestamp) {
   // Fill My Drive resource ID.
   ResourceEntry mydrive;
   FileError error = resource_metadata->GetResourceEntryByPath(
@@ -348,7 +352,7 @@ void DirectoryLoader::ReadDirectoryAfterGetAboutResource(
   // Check the current status of local metadata, and start loading if needed.
   google_apis::AboutResource* about_resource_ptr = about_resource.get();
   ResourceEntry* entry = new ResourceEntry;
-  int64* local_changestamp = new int64;
+  int64_t* local_changestamp = new int64_t;
   base::PostTaskAndReplyWithResult(
       blocking_task_runner_.get(),
       FROM_HERE,
@@ -370,7 +374,7 @@ void DirectoryLoader::ReadDirectoryAfterCheckLocalState(
     scoped_ptr<google_apis::AboutResource> about_resource,
     const std::string& local_id,
     const ResourceEntry* entry,
-    const int64* local_changestamp,
+    const int64_t* local_changestamp,
     FileError error) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(about_resource);
@@ -385,10 +389,10 @@ void DirectoryLoader::ReadDirectoryAfterCheckLocalState(
     return;
   }
 
-  int64 remote_changestamp = about_resource->largest_change_id();
+  int64_t remote_changestamp = about_resource->largest_change_id();
 
   // Start loading the directory.
-  int64 directory_changestamp = std::max(
+  int64_t directory_changestamp = std::max(
       entry->directory_specific_info().changestamp(), *local_changestamp);
 
   DirectoryFetchInfo directory_fetch_info(
@@ -479,7 +483,7 @@ void DirectoryLoader::SendEntries(const std::string& local_id,
         entries_to_send->push_back(entry);
       }
     }
-    callback_state->entries_callback.Run(entries_to_send.Pass());
+    callback_state->entries_callback.Run(std::move(entries_to_send));
   }
 }
 

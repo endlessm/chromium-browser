@@ -156,8 +156,7 @@ void CFX_PathData::AddPointCount(int addPoints) {
   AllocPointCount(new_count);
   m_PointCount = new_count;
 }
-void CFX_PathData::Append(const CFX_PathData* pSrc,
-                          const CFX_AffineMatrix* pMatrix) {
+void CFX_PathData::Append(const CFX_PathData* pSrc, const CFX_Matrix* pMatrix) {
   int old_count = m_PointCount;
   AddPointCount(pSrc->m_PointCount);
   FXSYS_memcpy(m_pPoints + old_count, pSrc->m_pPoints,
@@ -264,18 +263,17 @@ static void _UpdateLineJoinPoints(CFX_FloatRect& rect,
     return;
   }
   if (!bStartVert) {
-    start_k = FXSYS_Div(middle_y - start_y, middle_x - start_x);
-    start_c = middle_y - FXSYS_Mul(start_k, middle_x);
+    start_k = (middle_y - start_y) / (middle_x - start_x);
+    start_c = middle_y - (start_k * middle_x);
     start_len = FXSYS_sqrt2(start_x - middle_x, start_y - middle_y);
-    start_dc = (FX_FLOAT)FXSYS_fabs(
-        FXSYS_MulDiv(half_width, start_len, start_x - middle_x));
+    start_dc =
+        (FX_FLOAT)FXSYS_fabs(half_width * start_len / (start_x - middle_x));
   }
   if (!bEndVert) {
-    end_k = FXSYS_Div(end_y - middle_y, end_x - middle_x);
-    end_c = middle_y - FXSYS_Mul(end_k, middle_x);
+    end_k = (end_y - middle_y) / (end_x - middle_x);
+    end_c = middle_y - (end_k * middle_x);
     end_len = FXSYS_sqrt2(end_x - middle_x, end_y - middle_y);
-    end_dc = (FX_FLOAT)FXSYS_fabs(
-        FXSYS_MulDiv(half_width, end_len, end_x - middle_x));
+    end_dc = (FX_FLOAT)FXSYS_fabs(half_width * end_len / (end_x - middle_x));
   }
   if (bStartVert) {
     FX_FLOAT outside_x = start_x;
@@ -285,10 +283,10 @@ static void _UpdateLineJoinPoints(CFX_FloatRect& rect,
       outside_x -= half_width;
     }
     FX_FLOAT outside_y;
-    if (start_y < FXSYS_Mul(end_k, start_x) + end_c) {
-      outside_y = FXSYS_Mul(end_k, outside_x) + end_c + end_dc;
+    if (start_y < (end_k * start_x) + end_c) {
+      outside_y = (end_k * outside_x) + end_c + end_dc;
     } else {
-      outside_y = FXSYS_Mul(end_k, outside_x) + end_c - end_dc;
+      outside_y = (end_k * outside_x) + end_c - end_dc;
     }
     rect.UpdateRect(outside_x, outside_y);
     return;
@@ -301,10 +299,10 @@ static void _UpdateLineJoinPoints(CFX_FloatRect& rect,
       outside_x -= half_width;
     }
     FX_FLOAT outside_y;
-    if (end_y < FXSYS_Mul(start_k, end_x) + start_c) {
-      outside_y = FXSYS_Mul(start_k, outside_x) + start_c + start_dc;
+    if (end_y < (start_k * end_x) + start_c) {
+      outside_y = (start_k * outside_x) + start_c + start_dc;
     } else {
-      outside_y = FXSYS_Mul(start_k, outside_x) + start_c - start_dc;
+      outside_y = (start_k * outside_x) + start_c - start_dc;
     }
     rect.UpdateRect(outside_x, outside_y);
     return;
@@ -321,19 +319,19 @@ static void _UpdateLineJoinPoints(CFX_FloatRect& rect,
     return;
   }
   FX_FLOAT start_outside_c = start_c;
-  if (end_y < FXSYS_Mul(start_k, end_x) + start_c) {
+  if (end_y < (start_k * end_x) + start_c) {
     start_outside_c += start_dc;
   } else {
     start_outside_c -= start_dc;
   }
   FX_FLOAT end_outside_c = end_c;
-  if (start_y < FXSYS_Mul(end_k, start_x) + end_c) {
+  if (start_y < (end_k * start_x) + end_c) {
     end_outside_c += end_dc;
   } else {
     end_outside_c -= end_dc;
   }
-  FX_FLOAT join_x = FXSYS_Div(end_outside_c - start_outside_c, start_k - end_k);
-  FX_FLOAT join_y = FXSYS_Mul(start_k, join_x) + start_outside_c;
+  FX_FLOAT join_x = (end_outside_c - start_outside_c) / (start_k - end_k);
+  FX_FLOAT join_y = (start_k * join_x) + start_outside_c;
   rect.UpdateRect(join_x, join_y);
 }
 CFX_FloatRect CFX_PathData::GetBoundingBox(FX_FLOAT line_width,
@@ -384,8 +382,8 @@ CFX_FloatRect CFX_PathData::GetBoundingBox(FX_FLOAT line_width,
   }
   return rect;
 }
-void CFX_PathData::Transform(const CFX_AffineMatrix* pMatrix) {
-  if (pMatrix == NULL) {
+void CFX_PathData::Transform(const CFX_Matrix* pMatrix) {
+  if (!pMatrix) {
     return;
   }
   for (int i = 0; i < m_PointCount; i++) {
@@ -393,7 +391,7 @@ void CFX_PathData::Transform(const CFX_AffineMatrix* pMatrix) {
   }
 }
 FX_BOOL CFX_PathData::GetZeroAreaPath(CFX_PathData& NewPath,
-                                      CFX_AffineMatrix* pMatrix,
+                                      CFX_Matrix* pMatrix,
                                       FX_BOOL& bThin,
                                       FX_BOOL bAdjust) const {
   if (m_PointCount < 3) {
@@ -563,9 +561,9 @@ FX_BOOL CFX_PathData::IsRect() const {
   }
   return m_PointCount == 5 || (m_pPoints[3].m_Flag & FXPT_CLOSEFIGURE);
 }
-FX_BOOL CFX_PathData::IsRect(const CFX_AffineMatrix* pMatrix,
+FX_BOOL CFX_PathData::IsRect(const CFX_Matrix* pMatrix,
                              CFX_FloatRect* pRect) const {
-  if (pMatrix == NULL) {
+  if (!pMatrix) {
     if (!IsRect()) {
       return FALSE;
     }

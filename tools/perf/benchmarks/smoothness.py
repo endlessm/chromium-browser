@@ -36,7 +36,6 @@ class _Smoothness(perf_benchmark.PerfBenchmark):
     return True
 
 
-@benchmark.Disabled('reference') # crbug.com/547833
 class SmoothnessTop25(_Smoothness):
   """Measures rendering statistics while scrolling down the top 25 web pages.
 
@@ -80,6 +79,9 @@ class SmoothnessToughCanvasCases(_Smoothness):
   """
   page_set = page_sets.ToughCanvasCasesPageSet
 
+  def SetExtraBrowserOptions(self, options):
+    options.AppendExtraBrowserArgs('--enable-experimental-canvas-features')
+
   @classmethod
   def Name(cls):
     return 'smoothness.tough_canvas_cases'
@@ -103,7 +105,8 @@ class SmoothnessMaps(perf_benchmark.PerfBenchmark):
     return 'smoothness.maps'
 
 
-@benchmark.Disabled('android')
+@benchmark.Disabled('android',
+                    'mac')     # crbug.com/567802
 class SmoothnessKeyDesktopMoveCases(_Smoothness):
   page_set = page_sets.KeyDesktopMoveCasesPageSet
 
@@ -125,6 +128,9 @@ class SmoothnessKeyMobileSites(_Smoothness):
     return 'smoothness.key_mobile_sites_smooth'
 
 
+@benchmark.Disabled('android')  # crbug.com/589580
+@benchmark.Disabled('android-reference')  # crbug.com/588786
+@benchmark.Disabled('mac')  # crbug.com/563615
 class SmoothnessToughAnimationCases(_Smoothness):
   test = smoothness.SmoothnessWithRestart
   page_set = page_sets.ToughAnimationCasesPageSet
@@ -156,7 +162,6 @@ class SmoothnessKeySilkCases(_Smoothness):
 
 
 @benchmark.Enabled('android', 'mac')
-@benchmark.Disabled('reference') # crbug.com/547833
 class SmoothnessGpuRasterizationTop25(_Smoothness):
   """Measures rendering statistics for the top 25 with GPU rasterization.
   """
@@ -171,7 +176,8 @@ class SmoothnessGpuRasterizationTop25(_Smoothness):
     return 'smoothness.gpu_rasterization.top_25_smooth'
 
 
-@benchmark.Enabled('android')
+# crbug.com/589580 (This test should only be enabled on Android after fix.)
+@benchmark.Disabled('all')
 class SmoothnessGpuRasterizationKeyMobileSites(_Smoothness):
   """Measures rendering statistics for the key mobile sites with GPU
   rasterization.
@@ -272,6 +278,10 @@ class SmoothnessToughPinchZoomCases(_Smoothness):
   def Name(cls):
     return 'smoothness.tough_pinch_zoom_cases'
 
+  @classmethod
+  def ShouldDisable(cls, possible_browser):
+    return cls.IsSvelte(possible_browser)  # http://crbug.com/564008
+
 
 @benchmark.Enabled('chromeos', 'mac')
 class SmoothnessDesktopToughPinchZoomCases(_Smoothness):
@@ -300,6 +310,10 @@ class SmoothnessGpuRasterizationToughPinchZoomCases(_Smoothness):
   @classmethod
   def Name(cls):
     return 'smoothness.gpu_rasterization.tough_pinch_zoom_cases'
+
+  @classmethod
+  def ShouldDisable(cls, possible_browser):
+    return cls.IsSvelte(possible_browser)  # http://crbug.com/564008
 
 
 @benchmark.Enabled('chromeos', 'mac')
@@ -356,7 +370,6 @@ class SmoothnessGpuRasterizationPolymer(_Smoothness):
     return 'smoothness.gpu_rasterization.polymer'
 
 
-@benchmark.Disabled('reference')  # crbug.com/549429
 class SmoothnessToughScrollingCases(_Smoothness):
   page_set = page_sets.ToughScrollingCasesPageSet
 
@@ -373,7 +386,7 @@ class SmoothnessToughScrollingCases(_Smoothness):
     return 'smoothness.tough_scrolling_cases'
 
 
-@benchmark.Enabled('android', "mac")
+@benchmark.Enabled('android', 'mac')
 class SmoothnessGpuRasterizationToughScrollingCases(_Smoothness):
   tag = 'gpu_rasterization'
   test = smoothness.Smoothness
@@ -386,6 +399,7 @@ class SmoothnessGpuRasterizationToughScrollingCases(_Smoothness):
   def Name(cls):
     return 'smoothness.gpu_rasterization.tough_scrolling_cases'
 
+
 @benchmark.Disabled('android')  # http://crbug.com/531593
 class SmoothnessToughImageDecodeCases(_Smoothness):
   page_set = page_sets.ToughImageDecodeCasesPageSet
@@ -394,7 +408,7 @@ class SmoothnessToughImageDecodeCases(_Smoothness):
   def Name(cls):
     return 'smoothness.tough_image_decode_cases'
 
-@benchmark.Disabled('android')  # http://crbug.com/513699
+
 class SmoothnessImageDecodingCases(_Smoothness):
   """Measures decoding statistics for jpeg images.
   """
@@ -407,6 +421,10 @@ class SmoothnessImageDecodingCases(_Smoothness):
   @classmethod
   def Name(cls):
     return 'smoothness.image_decoding_cases'
+
+  @classmethod
+  def ShouldDisable(cls, possible_browser):
+    return cls.IsSvelte(possible_browser)  # http://crbug.com/563974
 
 
 @benchmark.Disabled('android')  # http://crbug.com/513699
@@ -445,7 +463,6 @@ class SmoothnessToughAnimatedImageCases(_Smoothness):
     return 'smoothness.tough_animated_image_cases'
 
 
-@benchmark.Disabled('reference')  # http://crbug.com/499489
 class SmoothnessToughTextureUploadCases(_Smoothness):
   page_set = page_sets.ToughTextureUploadCasesPageSet
 
@@ -454,19 +471,21 @@ class SmoothnessToughTextureUploadCases(_Smoothness):
     return 'smoothness.tough_texture_upload_cases'
 
 
-@benchmark.Disabled('reference')  # http://crbug.com/496684
 class SmoothnessToughAdCases(_Smoothness):
   """Measures rendering statistics while displaying advertisements."""
-  page_set = page_sets.ToughAdCasesPageSet
+  page_set = page_sets.SyntheticToughAdCasesPageSet
 
   @classmethod
   def Name(cls):
     return 'smoothness.tough_ad_cases'
 
+  @classmethod
+  def ShouldDisable(cls, possible_browser):
+    return cls.IsSvelte(possible_browser)  # http://crbug.com/555089
 
-# http://crbug.com/496684 (reference)
+
 # http://crbug.com/522619 (mac/win)
-@benchmark.Disabled('reference', 'win', 'mac')
+@benchmark.Disabled('win', 'mac')
 class SmoothnessScrollingToughAdCases(_Smoothness):
   """Measures rendering statistics while scrolling advertisements."""
   page_set = page_sets.ScrollingToughAdCasesPageSet
@@ -476,9 +495,8 @@ class SmoothnessScrollingToughAdCases(_Smoothness):
     return 'smoothness.scrolling_tough_ad_cases'
 
 
-# http://crbug.com/496684 (reference)
-# http://crbug.com/522619 (mac/win)
-@benchmark.Disabled('reference', 'win', 'mac')
+@benchmark.Disabled('android-reference')  # crbug.com/588786
+@benchmark.Disabled('mac', 'win')  # crbug.com/522619 (mac/win)
 class SmoothnessBidirectionallyScrollingToughAdCases(_Smoothness):
   """Measures rendering statistics while scrolling advertisements."""
   page_set = page_sets.BidirectionallyScrollingToughAdCasesPageSet
@@ -492,11 +510,14 @@ class SmoothnessBidirectionallyScrollingToughAdCases(_Smoothness):
     return 'smoothness.bidirectionally_scrolling_tough_ad_cases'
 
 
-@benchmark.Disabled('reference')  # http://crbug.com/496684
 class SmoothnessToughWebGLAdCases(_Smoothness):
   """Measures rendering statistics while scrolling advertisements."""
-  page_set = page_sets.ToughWebglAdCasesPageSet
+  page_set = page_sets.SyntheticToughWebglAdCasesPageSet
 
   @classmethod
   def Name(cls):
     return 'smoothness.tough_webgl_ad_cases'
+
+  @classmethod
+  def ShouldDisable(cls, possible_browser):
+    return cls.IsSvelte(possible_browser)  # http://crbug.com/574485

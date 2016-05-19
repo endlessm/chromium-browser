@@ -12,10 +12,13 @@
 
 #include "components/autofill/content/browser/risk/fingerprint.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/cpu.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
 #include "base/strings/string_split.h"
@@ -49,7 +52,7 @@ namespace risk {
 
 namespace {
 
-const int32 kFingerprinterVersion = 1;
+const int32_t kFingerprinterVersion = 1;
 
 // Maximum amount of time, in seconds, to wait for loading asynchronous
 // fingerprint data.
@@ -123,12 +126,10 @@ void AddAcceptLanguagesToFingerprint(
 // into the |machine|.
 void AddScreenInfoToFingerprint(const WebScreenInfo& screen_info,
                                 Fingerprint::MachineCharacteristics* machine) {
-  // TODO(scottmg): NativeScreen maybe wrong. http://crbug.com/133312
-  machine->set_screen_count(
-      gfx::Screen::GetNativeScreen()->GetNumDisplays());
+  machine->set_screen_count(gfx::Screen::GetScreen()->GetNumDisplays());
 
   const gfx::Size screen_size =
-      gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().GetSizeInPixel();
+      gfx::Screen::GetScreen()->GetPrimaryDisplay().GetSizeInPixel();
   machine->mutable_screen_size()->set_width(screen_size.width());
   machine->mutable_screen_size()->set_height(screen_size.height());
 
@@ -172,7 +173,7 @@ void AddGpuInfoToFingerprint(Fingerprint::MachineCharacteristics* machine,
 class FingerprintDataLoader : public content::GpuDataManagerObserver {
  public:
   FingerprintDataLoader(
-      uint64 obfuscated_gaia_id,
+      uint64_t obfuscated_gaia_id,
       const gfx::Rect& window_bounds,
       const gfx::Rect& content_bounds,
       const WebScreenInfo& screen_info,
@@ -213,7 +214,7 @@ class FingerprintDataLoader : public content::GpuDataManagerObserver {
 
   // Data that will be passed on to the next loading phase.  See the comment for
   // GetFingerprint() for a description of these variables.
-  const uint64 obfuscated_gaia_id_;
+  const uint64_t obfuscated_gaia_id_;
   const gfx::Rect window_bounds_;
   const gfx::Rect content_bounds_;
   const WebScreenInfo screen_info_;
@@ -249,7 +250,7 @@ class FingerprintDataLoader : public content::GpuDataManagerObserver {
 };
 
 FingerprintDataLoader::FingerprintDataLoader(
-    uint64 obfuscated_gaia_id,
+    uint64_t obfuscated_gaia_id,
     const gfx::Rect& window_bounds,
     const gfx::Rect& content_bounds,
     const WebScreenInfo& screen_info,
@@ -421,7 +422,7 @@ void FingerprintDataLoader::FillFingerprint() {
   metadata->set_obfuscated_gaia_id(obfuscated_gaia_id_);
   metadata->set_fingerprinter_version(kFingerprinterVersion);
 
-  callback_.Run(fingerprint.Pass());
+  callback_.Run(std::move(fingerprint));
 }
 
 }  // namespace
@@ -429,7 +430,7 @@ void FingerprintDataLoader::FillFingerprint() {
 namespace internal {
 
 void GetFingerprintInternal(
-    uint64 obfuscated_gaia_id,
+    uint64_t obfuscated_gaia_id,
     const gfx::Rect& window_bounds,
     const gfx::Rect& content_bounds,
     const blink::WebScreenInfo& screen_info,
@@ -452,7 +453,7 @@ void GetFingerprintInternal(
 }  // namespace internal
 
 void GetFingerprint(
-    uint64 obfuscated_gaia_id,
+    uint64_t obfuscated_gaia_id,
     const gfx::Rect& window_bounds,
     content::WebContents* web_contents,
     const std::string& version,

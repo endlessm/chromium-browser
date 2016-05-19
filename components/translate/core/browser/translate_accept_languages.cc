@@ -4,10 +4,12 @@
 
 #include "components/translate/core/browser/translate_accept_languages.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/translate/core/browser/translate_download_manager.h"
 #include "components/translate/core/common/translate_util.h"
 #include "ui/base/l10n/l10n_util.h"

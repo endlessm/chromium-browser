@@ -26,8 +26,8 @@
 #ifndef FontResource_h
 #define FontResource_h
 
+#include "core/fetch/Resource.h"
 #include "core/fetch/ResourceClient.h"
-#include "core/fetch/ResourcePtr.h"
 #include "platform/Timer.h"
 #include "platform/fonts/FontOrientation.h"
 #include "wtf/OwnPtr.h"
@@ -38,12 +38,13 @@ class FetchRequest;
 class ResourceFetcher;
 class FontPlatformData;
 class FontCustomPlatformData;
+class FontResourceClient;
 
 class FontResource final : public Resource {
 public:
-    typedef ResourceClient ClientType;
+    using ClientType = FontResourceClient;
 
-    static ResourcePtr<FontResource> fetch(FetchRequest&, ResourceFetcher*);
+    static PassRefPtrWillBeRawPtr<FontResource> fetch(FetchRequest&, ResourceFetcher*);
     ~FontResource() override;
 
     void load(ResourceFetcher*, const ResourceLoaderOptions&) override;
@@ -52,8 +53,7 @@ public:
 
     void allClientsRemoved() override;
     void beginLoadIfNeeded(ResourceFetcher* dl);
-    bool stillNeedsLoad() const override { return m_state != LoadInitiated; }
-    bool exceedsFontLoadWaitLimit() const { return m_exceedsFontLoadWaitLimit; }
+    bool stillNeedsLoad() const override { return m_state < LoadInitiated; }
 
     bool loadScheduled() const { return m_state != Unloaded; }
     void didScheduleLoad();
@@ -75,24 +75,25 @@ private:
         FontResourceFactory()
             : ResourceFactory(Resource::Font) { }
 
-        Resource* create(const ResourceRequest& request, const String& charset) const override
+        PassRefPtrWillBeRawPtr<Resource> create(const ResourceRequest& request, const String& charset) const override
         {
-            return new FontResource(request);
+            return adoptRefWillBeNoop(new FontResource(request));
         }
     };
     FontResource(const ResourceRequest&);
 
     void checkNotify() override;
-    void fontLoadWaitLimitCallback(Timer<FontResource>*);
+    void fontLoadShortLimitCallback(Timer<FontResource>*);
+    void fontLoadLongLimitCallback(Timer<FontResource>*);
 
-    enum State { Unloaded, LoadScheduled, LoadInitiated };
+    enum State { Unloaded, LoadScheduled, LoadInitiated, ShortLimitExceeded, LongLimitExceeded };
 
     OwnPtr<FontCustomPlatformData> m_fontData;
     String m_otsParsingMessage;
     State m_state;
-    bool m_exceedsFontLoadWaitLimit;
     bool m_corsFailed;
-    Timer<FontResource> m_fontLoadWaitLimitTimer;
+    Timer<FontResource> m_fontLoadShortLimitTimer;
+    Timer<FontResource> m_fontLoadLongLimitTimer;
 
     friend class MemoryCache;
 };
@@ -102,13 +103,14 @@ DEFINE_RESOURCE_TYPE_CASTS(Font);
 class FontResourceClient : public ResourceClient {
 public:
     ~FontResourceClient() override {}
-    static ResourceClientType expectedType() { return FontType; }
-    ResourceClientType resourceClientType() const final { return expectedType(); }
+    static bool isExpectedType(ResourceClient* client) { return client->getResourceClientType() == FontType; }
+    ResourceClientType getResourceClientType() const final { return FontType; }
     virtual void fontLoaded(FontResource*) {}
     virtual void didStartFontLoad(FontResource*) {}
-    virtual void fontLoadWaitLimitExceeded(FontResource*) {}
+    virtual void fontLoadShortLimitExceeded(FontResource*) {}
+    virtual void fontLoadLongLimitExceeded(FontResource*) {}
 };
 
-}
+} // namespace blink
 
 #endif

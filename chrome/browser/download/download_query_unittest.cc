@@ -2,16 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <limits>
 #include <string>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/download_query.h"
 #include "content/public/test/mock_download_item.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -31,7 +37,7 @@ static const int kSomeKnownTime = 1355864160;
 static const char kSomeKnownTime8601[] = "2012-12-18T20:56:0";
 static const char k8601Suffix[] = ".000Z";
 
-bool IdNotEqual(uint32 not_id, const DownloadItem& item) {
+bool IdNotEqual(uint32_t not_id, const DownloadItem& item) {
   return item.GetId() != not_id;
 }
 
@@ -157,9 +163,9 @@ TEST_F(DownloadQueryTest, DownloadQueryTest_ZeroItems) {
 
 TEST_F(DownloadQueryTest, DownloadQueryTest_InvalidFilter) {
   scoped_ptr<base::Value> value(new base::FundamentalValue(0));
-  EXPECT_FALSE(query()->AddFilter(
-      static_cast<DownloadQuery::FilterType>(kint32max),
-      *value.get()));
+  EXPECT_FALSE(query()->AddFilter(static_cast<DownloadQuery::FilterType>(
+                                      std::numeric_limits<int32_t>::max()),
+                                  *value.get()));
 }
 
 TEST_F(DownloadQueryTest, DownloadQueryTest_EmptyQuery) {
@@ -174,35 +180,6 @@ TEST_F(DownloadQueryTest, DownloadQueryTest_Limit) {
   CreateMocks(2);
   query()->Limit(1);
   ExpectStandardFilterResults();
-}
-
-TEST_F(DownloadQueryTest, DownloadQueryTest_Skip) {
-  CreateMocks(2);
-  query()->Skip(1);
-  Search();
-  EXPECT_EQ(1U, results()->size());
-}
-
-TEST_F(DownloadQueryTest, DownloadQueryTest_SkipMoreThanExist) {
-  query()->Skip(20);
-  Search();
-  EXPECT_EQ(0U, results()->size());
-}
-
-TEST_F(DownloadQueryTest, DownloadQueryTest_LimitSkipAndSort) {
-  const size_t kNumMocks = 10U;
-  CreateMocks(kNumMocks);
-  for (size_t i = 0; i < kNumMocks; ++i) {
-    EXPECT_CALL(mock(i), GetStartTime()).WillRepeatedly(Return(
-        base::Time::FromTimeT(kSomeKnownTime + 1000 * i)));
-  }
-  query()->AddSorter(DownloadQuery::SORT_START_TIME, DownloadQuery::ASCENDING);
-  query()->Limit(2);
-  query()->Skip(5);
-  Search();
-  EXPECT_EQ(2U, results()->size());
-  EXPECT_EQ(5U, results()->at(0)->GetId());
-  EXPECT_EQ(6U, results()->at(1)->GetId());
 }
 
 TEST_F(DownloadQueryTest, DownloadQueryTest_FilterGenericQueryFilename) {

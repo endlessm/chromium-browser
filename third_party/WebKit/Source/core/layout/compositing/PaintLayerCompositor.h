@@ -63,6 +63,9 @@ enum CompositingStateTransitionType {
 // GraphicsLayers based on the Layer painting order.
 //
 // There is one PaintLayerCompositor per LayoutView.
+//
+// In Slimming Paint v2, PaintLayerCompositor will be eventually replaced by
+// PaintArtifactCompositor.
 
 class CORE_EXPORT PaintLayerCompositor final : public GraphicsLayerClient {
     USING_FAST_MALLOC(PaintLayerCompositor);
@@ -124,7 +127,7 @@ public:
         RootLayerAttachedViaEnclosingFrame
     };
 
-    RootLayerAttachment rootLayerAttachment() const { return m_rootLayerAttachment; }
+    RootLayerAttachment getRootLayerAttachment() const { return m_rootLayerAttachment; }
     void updateRootLayerAttachment();
     void updateRootLayerPosition();
 
@@ -132,7 +135,7 @@ public:
 
     static PaintLayerCompositor* frameContentsCompositor(LayoutPart*);
     // Return true if the layers changed.
-    static bool parentFrameContentLayers(LayoutPart*);
+    static bool attachFrameContentLayersToIframeLayer(LayoutPart*);
 
     // Update the geometry of the layers used for clipping and scrolling in frames.
     void frameViewDidChangeLocation(const IntPoint& contentsOffset);
@@ -152,7 +155,7 @@ public:
     void resetTrackedPaintInvalidationRects();
     void setTracksPaintInvalidations(bool);
 
-    String debugName(const GraphicsLayer*) override;
+    String debugName(const GraphicsLayer*) const override;
     DocumentLifecycle& lifecycle() const;
 
     bool needsUpdateDescendantDependentFlags() const { return m_needsUpdateDescendantDependentFlags; }
@@ -176,8 +179,11 @@ private:
     void assertNoUnresolvedDirtyBits();
 #endif
 
+    void updateIfNeededRecursiveInternal();
+
     // GraphicsLayerClient implementation
-    void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect*) const override;
+    IntRect computeInterestRect(const GraphicsLayer*, const IntRect&) const override;
+    void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect& interestRect) const override;
 
     bool isTrackingPaintInvalidations() const override;
 
@@ -210,7 +216,6 @@ private:
 
     LayoutView& m_layoutView;
     OwnPtr<GraphicsLayer> m_rootContentLayer;
-    OwnPtr<GraphicsLayer> m_rootTransformLayer;
 
     CompositingReasonFinder m_compositingReasonFinder;
 

@@ -4,6 +4,9 @@
 
 #include "components/metrics/profiler/tracking_synchronizer.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/metrics/histogram.h"
@@ -180,7 +183,7 @@ TrackingSynchronizer::TrackingSynchronizer(
     scoped_ptr<base::TickClock> clock,
     const TrackingSynchronizerDelegateFactory& delegate_factory)
     : last_used_sequence_number_(kNeverUsableSequenceNumber),
-      clock_(clock.Pass()) {
+      clock_(std::move(clock)) {
   DCHECK(!g_tracking_synchronizer);
   g_tracking_synchronizer = this;
   phase_start_times_.push_back(clock_->NowTicks());

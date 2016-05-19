@@ -34,6 +34,8 @@ config("fontconfig") {
 }
 
 pkg_config("freetype2") {
+  visibility = [ "//build/linux:freetype2" ]
+
   packages = [ "freetype2" ]
 }
 
@@ -46,18 +48,26 @@ pkg_config("glib") {
   ]
 }
 
-pkg_config("pangocairo") {
-  packages = [ "pangocairo" ]
+if (use_pango || use_cairo) {
+  pkg_config("pangocairo") {
+    packages = [ "pangocairo" ]
+  }
 }
 
-pkg_config("pangoft2") {
-  packages = [ "pangoft2" ]
+if (use_pango) {
+  pkg_config("pangoft2") {
+    packages = [ "pangoft2" ]
+  }
 }
 
 # Note: if your target also depends on //dbus, you don't need to add this
 # config (it will get added automatically if you depend on //dbus).
 pkg_config("dbus") {
   packages = [ "dbus-1" ]
+}
+
+pkg_config("libffi") {
+  packages = [ "libffi" ]
 }
 
 config("x11") {
@@ -119,10 +129,10 @@ if (!is_chromeos && use_gconf) {
     pkg_config("atk") {
       packages = [ "atk" ]
       atk_lib_dir = exec_script(pkg_config_script,
-                                [
-                                  "--libdir",
-                                  "atk",
-                                ],
+                                pkg_config_args + [
+                                      "--libdir",
+                                      "atk",
+                                    ],
                                 "string")
       defines = [ "ATK_LIB_DIR=\"$atk_lib_dir\"" ]
     }

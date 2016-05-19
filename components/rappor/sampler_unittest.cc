@@ -4,6 +4,8 @@
 
 #include "components/rappor/sampler.h"
 
+#include <utility>
+
 #include "components/rappor/byte_vector_utils.h"
 #include "components/rappor/proto/rappor_metric.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -14,10 +16,7 @@ const RapporParameters kTestRapporParameters = {
     1 /* Num cohorts */,
     1 /* Bloom filter size bytes */,
     4 /* Bloom filter hash count */,
-    PROBABILITY_75 /* Fake data probability */,
-    PROBABILITY_50 /* Fake one probability */,
-    PROBABILITY_75 /* One coin probability */,
-    PROBABILITY_50 /* Zero coin probability */,
+    NORMAL_NOISE /* Noise level */,
     UMA_RAPPOR_GROUP /* Recording group (not used) */};
 
 class TestSamplerFactory {
@@ -35,11 +34,11 @@ TEST(RapporSamplerTest, TestExport) {
 
   scoped_ptr<Sample> sample1 = TestSamplerFactory::CreateSample();
   sample1->SetStringField("Foo", "Junk");
-  sampler.AddSample("Metric1", sample1.Pass());
+  sampler.AddSample("Metric1", std::move(sample1));
 
   scoped_ptr<Sample> sample2 = TestSamplerFactory::CreateSample();
   sample2->SetStringField("Foo", "Junk2");
-  sampler.AddSample("Metric1", sample2.Pass());
+  sampler.AddSample("Metric1", std::move(sample2));
 
   // Since the two samples were for one metric, we should randomly get one
   // of the two.

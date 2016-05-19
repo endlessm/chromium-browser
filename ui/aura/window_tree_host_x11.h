@@ -5,6 +5,9 @@
 #ifndef UI_AURA_WINDOW_TREE_HOST_X11_H_
 #define UI_AURA_WINDOW_TREE_HOST_X11_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/window_tree_host.h"
@@ -24,13 +27,8 @@ class MouseEvent;
 
 namespace aura {
 
-namespace internal {
-class TouchEventCalibrate;
-}
-
 class AURA_EXPORT WindowTreeHostX11 : public WindowTreeHost,
                                       public ui::PlatformEventDispatcher {
-
  public:
   explicit WindowTreeHostX11(const gfx::Rect& bounds);
   ~WindowTreeHostX11() override;
@@ -91,8 +89,6 @@ class AURA_EXPORT WindowTreeHostX11 : public WindowTreeHost,
 
   // The bounds of |xwindow_|.
   gfx::Rect bounds_;
-
-  scoped_ptr<internal::TouchEventCalibrate> touch_calibrate_;
 
   ui::X11AtomCache atom_cache_;
 

@@ -4,11 +4,13 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "ttgsubtable.h"
+#include "core/src/fpdfapi/fpdf_font/ttgsubtable.h"
+
+#include <memory>
 
 #include "core/include/fxge/fx_freetype.h"
 #include "core/include/fxge/fx_ge.h"
-#include "third_party/base/nonstd_unique_ptr.h"
+#include "third_party/base/stl_util.h"
 
 CFX_GlyphMap::CFX_GlyphMap() {}
 CFX_GlyphMap::~CFX_GlyphMap() {}
@@ -47,7 +49,7 @@ FX_BOOL CFX_GlyphMap::Lookup(int key, int& value) {
   void* pResult = FXSYS_bsearch(&key, m_Buffer.GetBuffer(),
                                 m_Buffer.GetSize() / sizeof(_IntPair),
                                 sizeof(_IntPair), _CompareInt);
-  if (pResult == NULL) {
+  if (!pResult) {
     return FALSE;
   }
   value = ((FX_DWORD*)pResult)[1];
@@ -86,7 +88,7 @@ bool CFX_CTTGSUBTable::GetVerticalGlyph(uint32_t glyphnum,
                 k);
           if (FeatureList.FeatureRecord[index].FeatureTag == tag[0] ||
               FeatureList.FeatureRecord[index].FeatureTag == tag[1]) {
-            if (m_featureMap.find(index) == m_featureMap.end()) {
+            if (!pdfium::ContainsKey(m_featureMap, index)) {
               m_featureMap[index] = index;
             }
           }
@@ -158,7 +160,7 @@ bool CFX_CTTGSUBTable::GetVerticalGlyphSub2(uint32_t glyphnum,
 int CFX_CTTGSUBTable::GetCoverageIndex(struct TCoverageFormatBase* Coverage,
                                        uint32_t g) {
   int i = 0;
-  if (Coverage == NULL) {
+  if (!Coverage) {
     return -1;
   }
   switch (Coverage->CoverageFormat) {
@@ -404,7 +406,7 @@ IFX_GSUBTable* IFX_GSUBTable::Create(CFX_Font* pFont) {
       FXFT_Load_Sfnt_Table(pFont->GetFace(), FT_MAKE_TAG('G', 'S', 'U', 'B'), 0,
                            pFont->GetSubData(), NULL);
   if (!error && pFont->GetSubData()) {
-    nonstd::unique_ptr<CFX_GSUBTable> pGsubTable(new CFX_GSUBTable);
+    std::unique_ptr<CFX_GSUBTable> pGsubTable(new CFX_GSUBTable);
     if (pGsubTable->m_GsubImp.LoadGSUBTable((FT_Bytes)pFont->GetSubData())) {
       return pGsubTable.release();
     }

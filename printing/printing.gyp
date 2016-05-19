@@ -139,7 +139,7 @@
             'cups',
           ],
           'variables': {
-            'cups_version': '<!(cups-config --api-version)',
+            'cups_version': '<!(python cups_config_helper.py --api-version <(sysroot))',
           },
           'conditions': [
             ['cups_version in ["1.6", "1.7"]', {
@@ -246,15 +246,6 @@
           ],
           'sources': [
             'backend/cups_helper_unittest.cc',
-          ],
-        }],
-        [ 'os_posix == 1 and OS != "mac" and OS != "android" and OS != "ios"', {
-          'conditions': [
-            ['use_allocator!="none"', {
-              'dependencies': [
-                '../base/allocator/allocator.gyp:allocator',
-              ],
-            }],
           ],
         }],
       ],

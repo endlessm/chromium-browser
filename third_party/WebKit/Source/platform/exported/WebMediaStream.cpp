@@ -22,8 +22,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "public/platform/WebMediaStream.h"
 
 #include "platform/UUID.h"
@@ -43,7 +41,7 @@ namespace {
 
 class ExtraDataContainer : public MediaStreamDescriptor::ExtraData {
 public:
-    ExtraDataContainer(PassOwnPtr<WebMediaStream::ExtraData> extraData) : m_extraData(extraData) { }
+    ExtraDataContainer(PassOwnPtr<WebMediaStream::ExtraData> extraData) : m_extraData(std::move(extraData)) { }
 
     WebMediaStream::ExtraData* extraData() { return m_extraData.get(); }
 

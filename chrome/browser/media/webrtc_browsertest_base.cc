@@ -4,9 +4,13 @@
 
 #include "chrome/browser/media/webrtc_browsertest_base.h"
 
+#include <stddef.h>
+
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/media/webrtc_browsertest_common.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
@@ -311,8 +315,15 @@ void WebRtcTestBase::SetupPeerconnectionWithoutLocalStream(
 }
 
 std::string WebRtcTestBase::CreateLocalOffer(
-      content::WebContents* from_tab) const {
-  std::string response = ExecuteJavascript("createLocalOffer({})", from_tab);
+      content::WebContents* from_tab,
+      std::string default_video_codec) const {
+  if (default_video_codec.empty())
+    default_video_codec = "null";
+  else
+    default_video_codec = "'" + default_video_codec + "'";
+  std::string javascript = base::StringPrintf(
+      "createLocalOffer({}, %s)", default_video_codec.c_str());
+  std::string response = ExecuteJavascript(javascript, from_tab);
   EXPECT_EQ("ok-", response.substr(0, 3)) << "Failed to create local offer: "
       << response;
 
@@ -320,8 +331,10 @@ std::string WebRtcTestBase::CreateLocalOffer(
   return local_offer;
 }
 
-std::string WebRtcTestBase::CreateAnswer(std::string local_offer,
-                                         content::WebContents* to_tab) const {
+std::string WebRtcTestBase::CreateAnswer(
+    std::string local_offer,
+    content::WebContents* to_tab,
+    std::string default_video_codec) const {
   std::string javascript =
       base::StringPrintf("receiveOfferFromPeer('%s', {})", local_offer.c_str());
   std::string response = ExecuteJavascript(javascript, to_tab);
@@ -330,6 +343,17 @@ std::string WebRtcTestBase::CreateAnswer(std::string local_offer,
       << response;
 
   std::string answer = response.substr(3);
+
+  if (!default_video_codec.empty()) {
+    response = ExecuteJavascript(
+        base::StringPrintf("verifyDefaultVideoCodec('%s', '%s')",
+                           answer.c_str(), default_video_codec.c_str()),
+        to_tab);
+    EXPECT_EQ("ok-", response.substr(0, 3))
+        << "Receiving peer failed to verify default codec: "
+        << response;
+  }
+
   return answer;
 }
 
@@ -354,9 +378,10 @@ void WebRtcTestBase::GatherAndSendIceCandidates(
 }
 
 void WebRtcTestBase::NegotiateCall(content::WebContents* from_tab,
-                                   content::WebContents* to_tab) const {
-  std::string local_offer = CreateLocalOffer(from_tab);
-  std::string answer = CreateAnswer(local_offer, to_tab);
+                                   content::WebContents* to_tab,
+                                   const std::string& video_codec) const {
+  std::string local_offer = CreateLocalOffer(from_tab, video_codec);
+  std::string answer = CreateAnswer(local_offer, to_tab, video_codec);
   ReceiveAnswer(answer, from_tab);
 
   // Send all ICE candidates (wait for gathering to finish if necessary).

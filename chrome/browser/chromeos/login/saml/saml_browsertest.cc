@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -31,7 +32,9 @@
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_display.h"
+#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/policy/affiliation_test_helper.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
@@ -39,7 +42,7 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/policy/test/local_policy_test_server.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/signin/inline_login_ui.h"
+#include "chrome/browser/ui/webui/signin/get_auth_frame.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -79,7 +82,6 @@
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
 #include "net/cookies/canonical_cookie.h"
-#include "net/cookies/cookie_monster.h"
 #include "net/cookies/cookie_store.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -132,6 +134,8 @@ const char kRelayState[] = "RelayState";
 const char kTestUserinfoToken[] = "fake-userinfo-token";
 const char kTestRefreshToken[] = "fake-refresh-token";
 const char kPolicy[] = "{\"managed_users\": [\"*\"]}";
+
+const char kAffiliationID[] = "some-affiliation-id";
 
 // FakeSamlIdp serves IdP auth form and the form submission. The form is
 // served with the template's RelayState placeholder expanded to the real
@@ -247,7 +251,7 @@ scoped_ptr<HttpResponse> FakeSamlIdp::HandleRequest(
   http_response->AddCustomHeader(
       "Set-cookie",
       base::StringPrintf("saml=%s", cookie_value_.c_str()));
-  return http_response.Pass();
+  return std::move(http_response);
 }
 
 scoped_ptr<HttpResponse> FakeSamlIdp::BuildHTMLResponse(
@@ -267,7 +271,7 @@ scoped_ptr<HttpResponse> FakeSamlIdp::BuildHTMLResponse(
   http_response->set_content(response_html);
   http_response->set_content_type("text/html");
 
-  return http_response.Pass();
+  return std::move(http_response);
 }
 
 // A FakeCryptohomeClient that stores the salted and hashed secret passed to
@@ -313,6 +317,8 @@ class SamlTest : public OobeBaseTest {
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kOobeSkipPostLogin);
+    command_line->AppendSwitch(
+        chromeos::switches::kAllowFailedPolicyFetchForTest);
 
     const GURL gaia_url = gaia_https_forwarder_.GetURLForSSLHost("");
     const GURL saml_idp_url = saml_https_forwarder_.GetURLForSSLHost("SAML");
@@ -862,8 +868,8 @@ guest_view::TestGuestViewManager* SAMLEnrollmentTest::GetGuestViewManager() {
 }
 
 content::WebContents* SAMLEnrollmentTest::GetEnrollmentContents() {
-  content::RenderFrameHost* frame_host = InlineLoginUI::GetAuthFrame(
-      GetLoginUI()->GetWebContents(), GURL(), gaia_frame_parent_);
+  content::RenderFrameHost* frame_host =
+      signin::GetAuthFrame(GetLoginUI()->GetWebContents(), gaia_frame_parent_);
   if (!frame_host)
     return nullptr;
   return content::WebContents::FromRenderFrameHost(frame_host);
@@ -951,12 +957,10 @@ void SAMLPolicyTest::SetUpInProcessBrowserTestFixture() {
   SamlTest::SetUpInProcessBrowserTestFixture();
 
   // Initialize device policy.
-  test_helper_.InstallOwnerKey();
-  test_helper_.MarkAsEnterpriseOwned();
-  device_policy_->SetDefaultSigningKey();
-  device_policy_->Build();
-  fake_session_manager_client_->set_device_policy(device_policy_->GetBlob());
-  fake_session_manager_client_->OnPropertyChangeComplete(true);
+  std::set<std::string> device_affiliation_ids;
+  device_affiliation_ids.insert(kAffiliationID);
+  policy::affiliation_test_helper::SetDeviceAffiliationID(
+      &test_helper_, fake_session_manager_client_, device_affiliation_ids);
 
   // Initialize user policy.
   EXPECT_CALL(provider_, IsInitializationComplete(_))
@@ -977,6 +981,18 @@ void SAMLPolicyTest::SetUpOnMainThread() {
   user_manager::UserManager::Get()->SaveUserOAuthStatus(
       AccountId::FromUserEmail(kDifferentDomainSAMLUserEmail),
       user_manager::User::OAUTH2_TOKEN_STATUS_VALID);
+
+  // Give affiliated users appropriate affiliation IDs.
+  std::set<std::string> user_affiliation_ids;
+  user_affiliation_ids.insert(kAffiliationID);
+  chromeos::ChromeUserManager::Get()->SetUserAffiliation(kFirstSAMLUserEmail,
+                                                         user_affiliation_ids);
+  chromeos::ChromeUserManager::Get()->SetUserAffiliation(kSecondSAMLUserEmail,
+                                                         user_affiliation_ids);
+  chromeos::ChromeUserManager::Get()->SetUserAffiliation(kHTTPSAMLUserEmail,
+                                                         user_affiliation_ids);
+  chromeos::ChromeUserManager::Get()->SetUserAffiliation(kNonSAMLUserEmail,
+                                                         user_affiliation_ids);
 
   // Set up fake networks.
   DBusThreadManager::Get()
@@ -1077,11 +1093,9 @@ void SAMLPolicyTest::GetCookies() {
 void SAMLPolicyTest::GetCookiesOnIOThread(
     const scoped_refptr<net::URLRequestContextGetter>& request_context,
     const base::Closure& callback) {
-  request_context->GetURLRequestContext()->cookie_store()->
-      GetCookieMonster()->GetAllCookiesAsync(base::Bind(
-          &SAMLPolicyTest::StoreCookieList,
-          base::Unretained(this),
-          callback));
+  request_context->GetURLRequestContext()->cookie_store()->GetAllCookiesAsync(
+      base::Bind(&SAMLPolicyTest::StoreCookieList, base::Unretained(this),
+                 callback));
 }
 
 void SAMLPolicyTest::StoreCookieList(

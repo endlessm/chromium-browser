@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/timer/timer.h"
@@ -38,8 +39,7 @@ class VIEWS_EXPORT TooltipController : public aura::client::TooltipClient,
   ~TooltipController() override;
 
   // Overridden from aura::client::TooltipClient.
-  int GetMaxWidth(const gfx::Point& location,
-                  aura::Window* context) const override;
+  int GetMaxWidth(const gfx::Point& location) const override;
   void UpdateTooltip(aura::Window* target) override;
   void SetTooltipShownTimeout(aura::Window* target, int timeout_in_ms) override;
   void SetTooltipsEnabled(bool enable) override;

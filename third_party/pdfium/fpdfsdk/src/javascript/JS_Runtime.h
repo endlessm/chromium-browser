@@ -11,10 +11,10 @@
 #include <utility>
 #include <vector>
 
-#include "../../include/javascript/IJavaScript.h"
-#include "../../include/jsapi/fxjs_v8.h"
-#include "JS_EventHandler.h"
 #include "core/include/fxcrt/fx_basic.h"
+#include "fpdfsdk/include/javascript/IJavaScript.h"
+#include "fpdfsdk/include/jsapi/fxjs_v8.h"
+#include "fpdfsdk/src/javascript/JS_EventHandler.h"
 
 class CJS_Context;
 
@@ -58,6 +58,16 @@ class CJS_Runtime : public IJS_Runtime {
   v8::Isolate* GetIsolate() const { return m_isolate; }
   v8::Local<v8::Context> NewJSContext();
 
+  void SetConstArray(const CFX_WideString& name, v8::Local<v8::Array> array);
+  v8::Local<v8::Array> GetConstArray(const CFX_WideString& name);
+
+#ifdef PDF_ENABLE_XFA
+  FX_BOOL GetHValueByName(const CFX_ByteStringC& utf8Name,
+                          FXJSE_HVALUE hValue) override;
+  FX_BOOL SetHValueByName(const CFX_ByteStringC& utf8Name,
+                          FXJSE_HVALUE hValue) override;
+#endif  // PDF_ENABLE_XFA
+
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
@@ -73,6 +83,7 @@ class CJS_Runtime : public IJS_Runtime {
   bool m_isolateManaged;
   v8::Global<v8::Context> m_context;
   std::vector<v8::Global<v8::Object>*> m_StaticObjects;
+  std::map<CFX_WideString, v8::Global<v8::Array>> m_ConstArrays;
   std::set<Observer*> m_observers;
 };
 

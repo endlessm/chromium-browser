@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #include <string>
+#include <utility>
 
+#include "build/build_config.h"
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/chrome_switches.h"
@@ -43,7 +45,7 @@ class ActivityLogApiTest : public ExtensionApiTest {
     response->set_code(net::HTTP_OK);
     response->set_content("<html><head><title>ActivityLogTest</title>"
                           "</head><body>Hello World</body></html>");
-    return response.Pass();
+    return std::move(response);
   }
 
  private:

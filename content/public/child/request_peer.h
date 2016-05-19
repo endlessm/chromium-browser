@@ -5,9 +5,10 @@
 #ifndef CONTENT_PUBLIC_CHILD_REQUEST_PEER_H_
 #define CONTENT_PUBLIC_CHILD_REQUEST_PEER_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/common/content_export.h"
 
@@ -57,7 +58,7 @@ class CONTENT_EXPORT RequestPeer {
 
   // Called as upload progress is made.
   // note: only for requests with upload progress enabled.
-  virtual void OnUploadProgress(uint64 position, uint64 size) = 0;
+  virtual void OnUploadProgress(uint64_t position, uint64_t size) = 0;
 
   // Called when a redirect occurs.  The implementation may return false to
   // suppress the redirect.  The ResourceResponseInfo provides information about
@@ -94,29 +95,8 @@ class CONTENT_EXPORT RequestPeer {
                                   bool stale_copy_in_cache,
                                   const std::string& security_info,
                                   const base::TimeTicks& completion_time,
-                                  int64 total_transfer_size) = 0;
+                                  int64_t total_transfer_size) = 0;
 
-  // This is a combined notification of
-  //  - OnReceivedResponse,
-  //  - OnReceivedData and
-  //  - OnCompletedRequest.
-  // Unlike OnReceivedData, |data| can be null.
-  // This method is introduced to avoid repetitive method calls which might
-  // lead to use-after-free issues. See https://crbug.com/485413,
-  // https://crbug.com/507170.
-  // TODO(yhirano): Fix the RequestPeer lifecycle problem and remove this
-  // function.
-  virtual void OnReceivedCompletedResponse(
-      const ResourceResponseInfo& info,
-      scoped_ptr<ReceivedData> data,
-      int error_code,
-      bool was_ignored_by_handler,
-      bool stale_copy_in_cache,
-      const std::string& security_info,
-      const base::TimeTicks& completion_time,
-      int64 total_transfer_size) = 0;
-
- protected:
   virtual ~RequestPeer() {}
 };
 

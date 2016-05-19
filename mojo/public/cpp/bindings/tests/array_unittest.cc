@@ -3,6 +3,11 @@
 // found in the LICENSE file.
 
 #include "mojo/public/cpp/bindings/array.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "mojo/public/cpp/bindings/lib/array_internal.h"
 #include "mojo/public/cpp/bindings/lib/array_serialization.h"
 #include "mojo/public/cpp/bindings/lib/fixed_buffer.h"
@@ -45,17 +50,17 @@ TEST_F(ArrayTest, Bool) {
 TEST_F(ArrayTest, Handle) {
   MessagePipe pipe;
   Array<ScopedMessagePipeHandle> handles(2);
-  handles[0] = pipe.handle0.Pass();
+  handles[0] = std::move(pipe.handle0);
   handles[1].reset(pipe.handle1.release());
 
   EXPECT_FALSE(pipe.handle0.is_valid());
   EXPECT_FALSE(pipe.handle1.is_valid());
 
-  Array<ScopedMessagePipeHandle> handles2 = handles.Pass();
+  Array<ScopedMessagePipeHandle> handles2 = std::move(handles);
   EXPECT_TRUE(handles2[0].is_valid());
   EXPECT_TRUE(handles2[1].is_valid());
 
-  ScopedMessagePipeHandle pipe_handle = handles2[0].Pass();
+  ScopedMessagePipeHandle pipe_handle = std::move(handles2[0]);
   EXPECT_TRUE(pipe_handle.is_valid());
   EXPECT_FALSE(handles2[0].is_valid());
 }
@@ -68,7 +73,7 @@ TEST_F(ArrayTest, HandlesAreClosed) {
 
   {
     Array<ScopedMessagePipeHandle> handles(2);
-    handles[0] = pipe.handle0.Pass();
+    handles[0] = std::move(pipe.handle0);
     handles[1].reset(pipe.handle0.release());
   }
 
@@ -123,6 +128,7 @@ TEST_F(ArrayTest, Clone) {
   {
     // Test array of array.
     Array<Array<int8_t>> array(2);
+    array[0] = nullptr;
     array[1] = Array<int8_t>(2);
     array[1][0] = 0;
     array[1][1] = 1;
@@ -153,10 +159,10 @@ TEST_F(ArrayTest, Serialization_ArrayOfPOD) {
   FixedBufferForTesting buf(size);
   Array_Data<int32_t>* data;
   ArrayValidateParams validate_params(0, false, nullptr);
-  SerializeArray_(array.Pass(), &buf, &data, &validate_params);
+  SerializeArray_(std::move(array), &buf, &data, &validate_params);
 
   Array<int32_t> array2;
-  Deserialize_(data, &array2);
+  Deserialize_(data, &array2, nullptr);
 
   EXPECT_EQ(4U, array2.size());
   for (size_t i = 0; i < array2.size(); ++i)
@@ -164,17 +170,17 @@ TEST_F(ArrayTest, Serialization_ArrayOfPOD) {
 }
 
 TEST_F(ArrayTest, Serialization_EmptyArrayOfPOD) {
-  Array<int32_t> array(0);
+  Array<int32_t> array;
   size_t size = GetSerializedSize_(array);
   EXPECT_EQ(8U, size);
 
   FixedBufferForTesting buf(size);
   Array_Data<int32_t>* data;
   ArrayValidateParams validate_params(0, false, nullptr);
-  SerializeArray_(array.Pass(), &buf, &data, &validate_params);
+  SerializeArray_(std::move(array), &buf, &data, &validate_params);
 
   Array<int32_t> array2;
-  Deserialize_(data, &array2);
+  Deserialize_(data, &array2, nullptr);
   EXPECT_EQ(0U, array2.size());
 }
 
@@ -184,7 +190,7 @@ TEST_F(ArrayTest, Serialization_ArrayOfArrayOfPOD) {
     Array<int32_t> inner(4);
     for (size_t i = 0; i < inner.size(); ++i)
       inner[i] = static_cast<int32_t>(i + (j * 10));
-    array[j] = inner.Pass();
+    array[j] = std::move(inner);
   }
 
   size_t size = GetSerializedSize_(array);
@@ -194,10 +200,10 @@ TEST_F(ArrayTest, Serialization_ArrayOfArrayOfPOD) {
   Array_Data<Array_Data<int32_t>*>* data;
   ArrayValidateParams validate_params(
       0, false, new ArrayValidateParams(0, false, nullptr));
-  SerializeArray_(array.Pass(), &buf, &data, &validate_params);
+  SerializeArray_(std::move(array), &buf, &data, &validate_params);
 
   Array<Array<int32_t>> array2;
-  Deserialize_(data, &array2);
+  Deserialize_(data, &array2, nullptr);
 
   EXPECT_EQ(2U, array2.size());
   for (size_t j = 0; j < array2.size(); ++j) {
@@ -219,10 +225,10 @@ TEST_F(ArrayTest, Serialization_ArrayOfBool) {
   FixedBufferForTesting buf(size);
   Array_Data<bool>* data;
   ArrayValidateParams validate_params(0, false, nullptr);
-  SerializeArray_(array.Pass(), &buf, &data, &validate_params);
+  SerializeArray_(std::move(array), &buf, &data, &validate_params);
 
   Array<bool> array2;
-  Deserialize_(data, &array2);
+  Deserialize_(data, &array2, nullptr);
 
   EXPECT_EQ(10U, array2.size());
   for (size_t i = 0; i < array2.size(); ++i)
@@ -247,10 +253,10 @@ TEST_F(ArrayTest, Serialization_ArrayOfString) {
   Array_Data<String_Data*>* data;
   ArrayValidateParams validate_params(
       0, false, new ArrayValidateParams(0, false, nullptr));
-  SerializeArray_(array.Pass(), &buf, &data, &validate_params);
+  SerializeArray_(std::move(array), &buf, &data, &validate_params);
 
   Array<String> array2;
-  Deserialize_(data, &array2);
+  Deserialize_(data, &array2, nullptr);
 
   EXPECT_EQ(10U, array2.size());
   for (size_t i = 0; i < array2.size(); ++i) {
@@ -303,7 +309,7 @@ TEST_F(ArrayTest, Resize_Copyable) {
     EXPECT_TRUE(array[i].copied());
     EXPECT_EQ(value_ptrs[i], array[i].ptr());
   }
-  array.reset();
+  array = nullptr;
   EXPECT_EQ(0u, CopyableType::num_instances());
   EXPECT_FALSE(array);
   array.resize(0);
@@ -355,7 +361,7 @@ TEST_F(ArrayTest, Resize_MoveOnly) {
   for (size_t i = capacity; i < array.size(); i++)
     EXPECT_FALSE(array[i].moved());
 
-  array.reset();
+  array = nullptr;
   EXPECT_EQ(0u, MoveOnlyType::num_instances());
   EXPECT_FALSE(array);
   array.resize(0);
@@ -366,7 +372,7 @@ TEST_F(ArrayTest, Resize_MoveOnly) {
 TEST_F(ArrayTest, PushBack_Copyable) {
   ASSERT_EQ(0u, CopyableType::num_instances());
   mojo::Array<CopyableType> array(2);
-  array.reset();
+  array = nullptr;
   std::vector<CopyableType*> value_ptrs;
   size_t capacity = array.storage().capacity();
   for (size_t i = 0; i < capacity; i++) {
@@ -394,20 +400,20 @@ TEST_F(ArrayTest, PushBack_Copyable) {
     EXPECT_TRUE(array[i].copied());
     EXPECT_EQ(value_ptrs[i], array[i].ptr());
   }
-  array.reset();
+  array = nullptr;
   EXPECT_EQ(0u, CopyableType::num_instances());
 }
 
 TEST_F(ArrayTest, PushBack_MoveOnly) {
   ASSERT_EQ(0u, MoveOnlyType::num_instances());
   mojo::Array<MoveOnlyType> array(2);
-  array.reset();
+  array = nullptr;
   std::vector<MoveOnlyType*> value_ptrs;
   size_t capacity = array.storage().capacity();
   for (size_t i = 0; i < capacity; i++) {
     MoveOnlyType value;
     value_ptrs.push_back(value.ptr());
-    array.push_back(value.Pass());
+    array.push_back(std::move(value));
     ASSERT_EQ(i + 1, array.size());
     ASSERT_EQ(i + 1, value_ptrs.size());
     EXPECT_EQ(array.size() + 1, MoveOnlyType::num_instances());
@@ -419,7 +425,7 @@ TEST_F(ArrayTest, PushBack_MoveOnly) {
   {
     MoveOnlyType value;
     value_ptrs.push_back(value.ptr());
-    array.push_back(value.Pass());
+    array.push_back(std::move(value));
     EXPECT_EQ(array.size() + 1, MoveOnlyType::num_instances());
   }
   ASSERT_EQ(capacity + 1, array.size());
@@ -429,8 +435,35 @@ TEST_F(ArrayTest, PushBack_MoveOnly) {
     EXPECT_TRUE(array[i].moved());
     EXPECT_EQ(value_ptrs[i], array[i].ptr());
   }
-  array.reset();
+  array = nullptr;
   EXPECT_EQ(0u, MoveOnlyType::num_instances());
+}
+
+TEST_F(ArrayTest, MoveFromAndToSTLVector_Copyable) {
+  std::vector<CopyableType> vec1(1);
+  mojo::Array<CopyableType> arr(std::move(vec1));
+  ASSERT_EQ(1u, arr.size());
+  ASSERT_FALSE(arr[0].copied());
+
+  std::vector<CopyableType> vec2(arr.PassStorage());
+  ASSERT_EQ(1u, vec2.size());
+  ASSERT_FALSE(vec2[0].copied());
+
+  ASSERT_EQ(0u, arr.size());
+  ASSERT_TRUE(arr.is_null());
+}
+
+TEST_F(ArrayTest, MoveFromAndToSTLVector_MoveOnly) {
+  std::vector<MoveOnlyType> vec1(1);
+  mojo::Array<MoveOnlyType> arr(std::move(vec1));
+
+  ASSERT_EQ(1u, arr.size());
+
+  std::vector<MoveOnlyType> vec2(arr.PassStorage());
+  ASSERT_EQ(1u, vec2.size());
+
+  ASSERT_EQ(0u, arr.size());
+  ASSERT_TRUE(arr.is_null());
 }
 
 }  // namespace

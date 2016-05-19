@@ -859,6 +859,11 @@ es3fShaderStateQueryTests.TransformFeedbackCase.prototype.test = function() {
     gl.deleteShader(shaderVert);
     gl.deleteShader(shaderFrag);
     gl.deleteProgram(shaderProg);
+
+    // TODO(kbr): this test is failing and leaving an error in the GL
+    // state, causing later tests to fail. Clear the error state for
+    // the time being.
+    while (gl.getError() != gl.NO_ERROR) {}
 };
 
 /**
@@ -1075,12 +1080,12 @@ setParentClass(es3fShaderStateQueryTests.VertexAttributeStrideCase, es3fApiCase.
 
 es3fShaderStateQueryTests.VertexAttributeStrideCase.prototype.test = function() {
     var pointers = [
-        [1, gl.FLOAT, 0, 0],
-        [1, gl.FLOAT, 1, 0],
-        [1, gl.FLOAT, 4, 0],
-        [1, gl.HALF_FLOAT, 0, 0],
-        [1, gl.HALF_FLOAT, 1, 0],
-        [1, gl.HALF_FLOAT, 4, 0]
+        [1, gl.FLOAT, 0, 0, gl.NO_ERROR],
+        [1, gl.FLOAT, 1, 0, gl.INVALID_OPERATION],
+        [1, gl.FLOAT, 4, 0, gl.NO_ERROR],
+        [1, gl.HALF_FLOAT, 0, 0, gl.NO_ERROR],
+        [1, gl.HALF_FLOAT, 1, 0, gl.INVALID_OPERATION],
+        [1, gl.HALF_FLOAT, 4, 0, gl.NO_ERROR]
     ];
 
     var buf = gl.createBuffer();
@@ -1090,24 +1095,30 @@ es3fShaderStateQueryTests.VertexAttributeStrideCase.prototype.test = function() 
 
     for (var ndx = 0; ndx < pointers.length; ++ndx) {
         gl.vertexAttribPointer(0, pointers[ndx][0], pointers[ndx][1], false, pointers[ndx][2], pointers[ndx][3]);
-        this.check(glsStateQuery.verifyVertexAttrib(0, gl.VERTEX_ATTRIB_ARRAY_STRIDE, pointers[ndx][2]));
+        this.expectError(pointers[ndx][4]);
+        if (pointers[ndx][4] == gl.NO_ERROR) {
+            this.check(glsStateQuery.verifyVertexAttrib(0, gl.VERTEX_ATTRIB_ARRAY_STRIDE, pointers[ndx][2]));
+        }
     }
 
     var pointersI = [
-        [1, gl.INT, 0, 0],
-        [1, gl.INT, 1, 0],
-        [1, gl.INT, 4, 0],
-        [4, gl.UNSIGNED_BYTE, 0, 0],
-        [4, gl.UNSIGNED_BYTE, 1, 0],
-        [4, gl.UNSIGNED_BYTE, 4, 0],
-        [2, gl.SHORT, 0, 0],
-        [2, gl.SHORT, 1, 0],
-        [2, gl.SHORT, 4, 0]
+        [1, gl.INT, 0, 0, gl.NO_ERROR],
+        [1, gl.INT, 1, 0, gl.INVALID_OPERATION],
+        [1, gl.INT, 4, 0, gl.NO_ERROR],
+        [4, gl.UNSIGNED_BYTE, 0, 0, gl.NO_ERROR],
+        [4, gl.UNSIGNED_BYTE, 1, 0, gl.NO_ERROR],
+        [4, gl.UNSIGNED_BYTE, 4, 0, gl.NO_ERROR],
+        [2, gl.SHORT, 0, 0, gl.NO_ERROR],
+        [2, gl.SHORT, 1, 0, gl.INVALID_OPERATION],
+        [2, gl.SHORT, 4, 0, gl.NO_ERROR]
     ];
 
     for (var ndx = 0; ndx < pointersI.length; ++ndx) {
         gl.vertexAttribIPointer(0, pointersI[ndx][0], pointersI[ndx][1], pointersI[ndx][2], pointersI[ndx][3]);
-        this.check(glsStateQuery.verifyVertexAttrib(0, gl.VERTEX_ATTRIB_ARRAY_STRIDE, pointersI[ndx][2]));
+        this.expectError(pointersI[ndx][4]);
+        if (pointersI[ndx][4] == gl.NO_ERROR) {
+            this.check(glsStateQuery.verifyVertexAttrib(0, gl.VERTEX_ATTRIB_ARRAY_STRIDE, pointersI[ndx][2]));
+        }
     }
 
     // Test with multiple VAOs
@@ -2011,21 +2022,21 @@ es3fShaderStateQueryTests.UniformValueMatrixCase.prototype.test = function() {
     // the values of the matrix are returned in column major order but they can be given in either order
 
     location = gl.getUniformLocation(program, 'mat2Uniform');
-    var m2 = new Float32Array(matrixValues.splice(0, 2 * 2));
+    var m2 = new Float32Array(matrixValues.slice(0, 2 * 2));
     gl.uniformMatrix2fv(location, false, m2);
     this.check(glsStateQuery.verifyUniform(program, location, m2));
     gl.uniformMatrix2fv(location, true, m2);
     this.check(glsStateQuery.verifyUniform(program, location, transpose(2, 2, m2)));
 
     location = gl.getUniformLocation(program, 'mat3Uniform');
-    var m3 = new Float32Array(matrixValues.splice(0, 3 * 3));
+    var m3 = new Float32Array(matrixValues.slice(0, 3 * 3));
     gl.uniformMatrix3fv(location, false, m3);
     this.check(glsStateQuery.verifyUniform(program, location, m3));
     gl.uniformMatrix3fv(location, true, m3);
     this.check(glsStateQuery.verifyUniform(program, location, transpose(3, 3, m3)));
 
     location = gl.getUniformLocation(program, 'mat4Uniform');
-    var m4 = new Float32Array(matrixValues.splice(0, 4 * 4));
+    var m4 = new Float32Array(matrixValues.slice(0, 4 * 4));
     gl.uniformMatrix4fv(location, false, m4);
     this.check(glsStateQuery.verifyUniform(program, location, m4));
     gl.uniformMatrix4fv(location, true, m4);

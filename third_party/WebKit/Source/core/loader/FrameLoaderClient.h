@@ -40,6 +40,7 @@
 #include "platform/heap/Handle.h"
 #include "platform/network/ResourceLoadPriority.h"
 #include "platform/weborigin/Referrer.h"
+#include "public/platform/WebMediaPlayer.h"
 #include "wtf/Forward.h"
 #include "wtf/Vector.h"
 #include <v8.h>
@@ -66,7 +67,6 @@ class SubstituteData;
 class WebApplicationCacheHost;
 class WebApplicationCacheHostClient;
 class WebCookieJar;
-class WebMediaPlayer;
 class WebMediaPlayerClient;
 class WebMediaSession;
 class WebRTCPeerConnectionHandler;
@@ -95,11 +95,11 @@ public:
     virtual void dispatchDidCommitLoad(HistoryItem*, HistoryCommitType) = 0;
     virtual void dispatchDidFailProvisionalLoad(const ResourceError&, HistoryCommitType) = 0;
     virtual void dispatchDidFailLoad(const ResourceError&, HistoryCommitType) = 0;
-    virtual void dispatchDidFinishDocumentLoad(bool documentIsEmpty) = 0;
+    virtual void dispatchDidFinishDocumentLoad() = 0;
     virtual void dispatchDidFinishLoad() = 0;
     virtual void dispatchDidChangeThemeColor() = 0;
 
-    virtual NavigationPolicy decidePolicyForNavigation(const ResourceRequest&, DocumentLoader*, NavigationType, NavigationPolicy, bool shouldReplaceCurrentEntry) = 0;
+    virtual NavigationPolicy decidePolicyForNavigation(const ResourceRequest&, DocumentLoader*, NavigationType, NavigationPolicy, bool shouldReplaceCurrentEntry, bool isClientRedirect) = 0;
     virtual bool hasPendingNavigation() = 0;
 
     virtual void dispatchWillSendSubmitEvent(HTMLFormElement*) = 0;
@@ -129,6 +129,13 @@ public:
     virtual void didDetectXSS(const KURL&, bool didBlockEntirePage) = 0;
     virtual void didDispatchPingLoader(const KURL&) = 0;
 
+    // The given main resource displayed content with certificate errors
+    // with the given URL and security info.
+    virtual void didDisplayContentWithCertificateErrors(const KURL&, const CString& securityInfo, const WebURL& mainResourceUrl, const CString& mainResourceSecurityInfo) = 0;
+    // The given main resource ran content with certificate errors with
+    // the given URL and security info.
+    virtual void didRunContentWithCertificateErrors(const KURL&, const CString& securityInfo, const WebURL& mainResourceUrl, const CString& mainResourceSecurityInfo) = 0;
+
     // Will be called when |PerformanceTiming| events are updated
     virtual void didChangePerformanceTiming() { }
 
@@ -153,7 +160,7 @@ public:
     virtual bool canCreatePluginWithoutRenderer(const String& mimeType) const = 0;
     virtual PassRefPtrWillBeRawPtr<Widget> createPlugin(HTMLPlugInElement*, const KURL&, const Vector<String>&, const Vector<String>&, const String&, bool loadManually, DetachedPluginPolicy) = 0;
 
-    virtual PassOwnPtr<WebMediaPlayer> createWebMediaPlayer(HTMLMediaElement&, const WebURL&, WebMediaPlayerClient*) = 0;
+    virtual PassOwnPtr<WebMediaPlayer> createWebMediaPlayer(HTMLMediaElement&, WebMediaPlayer::LoadType, const WebURL&, WebMediaPlayerClient*) = 0;
 
     virtual PassOwnPtr<WebMediaSession> createWebMediaSession() = 0;
 
@@ -162,6 +169,8 @@ public:
     virtual void didCreateNewDocument() = 0;
     virtual void dispatchDidClearWindowObjectInMainWorld() = 0;
     virtual void documentElementAvailable() = 0;
+    virtual void runScriptsAtDocumentElementAvailable() = 0;
+    virtual void runScriptsAtDocumentReady(bool documentIsEmpty) = 0;
 
     virtual v8::Local<v8::Value> createTestInterface(const AtomicString& name) = 0;
 
@@ -178,7 +187,7 @@ public:
     virtual bool allowPlugins(bool enabledPerSettings) { return enabledPerSettings; }
     virtual bool allowImage(bool enabledPerSettings, const KURL&) { return enabledPerSettings; }
     virtual bool allowMedia(const KURL&) { return true; }
-    virtual bool allowDisplayingInsecureContent(bool enabledPerSettings, SecurityOrigin*, const KURL&) { return enabledPerSettings; }
+    virtual bool allowDisplayingInsecureContent(bool enabledPerSettings, const KURL&) { return enabledPerSettings; }
     virtual bool allowRunningInsecureContent(bool enabledPerSettings, SecurityOrigin*, const KURL&) { return enabledPerSettings; }
 
     // This callback notifies the client that the frame was about to run
@@ -190,9 +199,14 @@ public:
     // This callback is similar, but for plugins.
     virtual void didNotAllowPlugins() { }
 
+    // This callback notifies the client that the frame created a Keygen element.
+    virtual void didUseKeygen() { }
+
     virtual WebCookieJar* cookieJar() const = 0;
 
-    virtual void didChangeName(const String&) { }
+    virtual void didChangeName(const String& name, const String& uniqueName) { }
+
+    virtual void didEnforceStrictMixedContentChecking() {}
 
     virtual void didChangeSandboxFlags(Frame* childFrame, SandboxFlags) { }
 
@@ -223,8 +237,6 @@ public:
     virtual SharedWorkerRepositoryClient* sharedWorkerRepositoryClient() { return 0; }
 
     virtual PassOwnPtr<WebApplicationCacheHost> createApplicationCacheHost(WebApplicationCacheHostClient*) = 0;
-
-    virtual void didStopAllLoaders() { }
 
     virtual void dispatchDidChangeManifest() { }
 

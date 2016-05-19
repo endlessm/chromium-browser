@@ -85,6 +85,13 @@ TEST_F(TabManagerWebContentsDataTest, LastAudioChangeTime) {
   EXPECT_EQ(now, tab_data()->LastAudioChangeTime());
 }
 
+TEST_F(TabManagerWebContentsDataTest, LastInactiveTime) {
+  EXPECT_EQ(base::TimeTicks::UnixEpoch(), tab_data()->LastInactiveTime());
+  auto now = base::TimeTicks::Now();
+  tab_data()->SetLastInactiveTime(now);
+  EXPECT_EQ(now, tab_data()->LastInactiveTime());
+}
+
 TEST_F(TabManagerWebContentsDataTest, CopyState) {
   scoped_ptr<WebContents> web_contents2;
   auto tab_data2 = CreateWebContentsAndTabData(&web_contents2);
@@ -175,6 +182,26 @@ TEST_F(TabManagerWebContentsDataTest, HistogramsReloadToCloseTime) {
             histograms.GetTotalCountsForPrefix(kHistogramName).begin()->second);
 
   histograms.ExpectBucketCount(kHistogramName, 13000, 1);
+}
+
+TEST_F(TabManagerWebContentsDataTest, HistogramsInactiveToReloadTime) {
+  const char kHistogramName[] = "TabManager.Discarding.InactiveToReloadTime";
+
+  base::HistogramTester histograms;
+
+  EXPECT_TRUE(histograms.GetTotalCountsForPrefix(kHistogramName).empty());
+
+  tab_data()->SetLastInactiveTime(test_clock().NowTicks());
+  test_clock().Advance(base::TimeDelta::FromSeconds(5));
+  tab_data()->SetDiscardState(true);
+  tab_data()->IncrementDiscardCount();
+  test_clock().Advance(base::TimeDelta::FromSeconds(7));
+  tab_data()->SetDiscardState(false);
+
+  EXPECT_EQ(1,
+            histograms.GetTotalCountsForPrefix(kHistogramName).begin()->second);
+
+  histograms.ExpectBucketCount(kHistogramName, 12000, 1);
 }
 
 }  // namespace memory

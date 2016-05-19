@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/PartPainter.h"
 
 #include "core/layout/LayoutPart.h"
@@ -10,6 +9,7 @@
 #include "core/paint/LayoutObjectDrawingRecorder.h"
 #include "core/paint/PaintInfo.h"
 #include "core/paint/PaintLayer.h"
+#include "core/paint/ReplacedPainter.h"
 #include "core/paint/RoundedInnerRectClipper.h"
 #include "core/paint/ScrollableAreaPainter.h"
 #include "core/paint/TransformRecorder.h"
@@ -19,7 +19,7 @@ namespace blink {
 
 bool PartPainter::isSelected() const
 {
-    SelectionState s = m_layoutPart.selectionState();
+    SelectionState s = m_layoutPart.getSelectionState();
     if (s == SelectionNone)
         return false;
     if (s == SelectionInside)
@@ -42,10 +42,10 @@ bool PartPainter::isSelected() const
 
 void PartPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    if (!m_layoutPart.shouldPaint(paintInfo, paintOffset))
+    LayoutPoint adjustedPaintOffset = paintOffset + m_layoutPart.location();
+    if (!ReplacedPainter(m_layoutPart).shouldPaint(paintInfo, adjustedPaintOffset))
         return;
 
-    LayoutPoint adjustedPaintOffset = paintOffset + m_layoutPart.location();
     LayoutRect borderRect(adjustedPaintOffset, m_layoutPart.size());
 
     if (m_layoutPart.hasBoxDecorationBackground() && (paintInfo.phase == PaintPhaseForeground || paintInfo.phase == PaintPhaseSelection))
@@ -56,7 +56,7 @@ void PartPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffs
         return;
     }
 
-    if ((paintInfo.phase == PaintPhaseOutline || paintInfo.phase == PaintPhaseSelfOutline) && m_layoutPart.style()->hasOutline())
+    if (shouldPaintSelfOutline(paintInfo.phase))
         ObjectPainter(m_layoutPart).paintOutline(paintInfo, adjustedPaintOffset);
 
     if (paintInfo.phase != PaintPhaseForeground)
@@ -83,12 +83,12 @@ void PartPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffs
     }
 
     // Paint a partially transparent wash over selected widgets.
-    if (isSelected() && !paintInfo.isPrinting() && !LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_layoutPart, paintInfo.phase, adjustedPaintOffset)) {
+    if (isSelected() && !paintInfo.isPrinting() && !LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(paintInfo.context, m_layoutPart, paintInfo.phase, adjustedPaintOffset)) {
         LayoutRect rect = m_layoutPart.localSelectionRect();
         rect.moveBy(adjustedPaintOffset);
         IntRect selectionRect = pixelSnappedIntRect(rect);
-        LayoutObjectDrawingRecorder drawingRecorder(*paintInfo.context, m_layoutPart, paintInfo.phase, selectionRect, adjustedPaintOffset);
-        paintInfo.context->fillRect(selectionRect, m_layoutPart.selectionBackgroundColor());
+        LayoutObjectDrawingRecorder drawingRecorder(paintInfo.context, m_layoutPart, paintInfo.phase, selectionRect, adjustedPaintOffset);
+        paintInfo.context.fillRect(selectionRect, m_layoutPart.selectionBackgroundColor());
     }
 
     if (m_layoutPart.canResize())
@@ -111,7 +111,7 @@ void PartPainter::paintContents(const PaintInfo& paintInfo, const LayoutPoint& p
     IntSize widgetPaintOffset = paintLocation - widgetLocation;
     // When painting widgets into compositing layers, tx and ty are relative to the enclosing compositing layer,
     // not the root. In this case, shift the CTM and adjust the CullRect to be root-relative to fix plugin drawing.
-    TransformRecorder transform(*paintInfo.context, m_layoutPart,
+    TransformRecorder transform(paintInfo.context, m_layoutPart,
         AffineTransform::translation(widgetPaintOffset.width(), widgetPaintOffset.height()));
 
     CullRect adjustedCullRect(paintInfo.cullRect(), -widgetPaintOffset);

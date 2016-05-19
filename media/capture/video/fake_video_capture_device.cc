@@ -4,7 +4,9 @@
 
 #include "media/capture/video/fake_video_capture_device.h"
 
+#include <stddef.h>
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
@@ -71,10 +73,8 @@ void DrawPacman(bool use_argb,
 }
 
 FakeVideoCaptureDevice::FakeVideoCaptureDevice(BufferOwnership buffer_ownership,
-                                               BufferPlanarity planarity,
                                                float fake_capture_rate)
     : buffer_ownership_(buffer_ownership),
-      planarity_(planarity),
       fake_capture_rate_(fake_capture_rate),
       weak_factory_(this) {}
 
@@ -87,7 +87,7 @@ void FakeVideoCaptureDevice::AllocateAndStart(
     scoped_ptr<VideoCaptureDevice::Client> client) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  client_ = client.Pass();
+  client_ = std::move(client);
 
   // Incoming |params| can be none of the supported formats, so we get the
   // closest thing rounded up. TODO(mcasas): Use the |params|, if they belong to
@@ -103,15 +103,9 @@ void FakeVideoCaptureDevice::AllocateAndStart(
     capture_format_.frame_size.SetSize(320, 240);
 
   if (buffer_ownership_ == BufferOwnership::CLIENT_BUFFERS) {
-    if (planarity_ == BufferPlanarity::PACKED) {
-      capture_format_.pixel_storage = PIXEL_STORAGE_CPU;
-      capture_format_.pixel_format = PIXEL_FORMAT_ARGB;
-      DVLOG(1) << "starting with client argb buffers";
-    } else if (planarity_ == BufferPlanarity::TRIPLANAR) {
-      capture_format_.pixel_storage = PIXEL_STORAGE_GPUMEMORYBUFFER;
-      capture_format_.pixel_format = PIXEL_FORMAT_I420;
-      DVLOG(1) << "starting with gmb I420 buffers";
-    }
+    capture_format_.pixel_storage = PIXEL_STORAGE_CPU;
+    capture_format_.pixel_format = PIXEL_FORMAT_ARGB;
+    DVLOG(1) << "starting with client argb buffers";
   } else if (buffer_ownership_ == BufferOwnership::OWN_BUFFERS) {
     capture_format_.pixel_storage = PIXEL_STORAGE_CPU;
     capture_format_.pixel_format = PIXEL_FORMAT_I420;
@@ -119,7 +113,7 @@ void FakeVideoCaptureDevice::AllocateAndStart(
   }
 
   if (capture_format_.pixel_format == PIXEL_FORMAT_I420) {
-    fake_frame_.reset(new uint8[VideoFrame::AllocationSize(
+    fake_frame_.reset(new uint8_t[VideoFrame::AllocationSize(
         PIXEL_FORMAT_I420, capture_format_.frame_size)]);
   }
 
@@ -153,20 +147,9 @@ void FakeVideoCaptureDevice::CaptureUsingOwnBuffers(
              fake_capture_rate_, capture_format_.frame_size);
 
   // Give the captured frame to the client.
-  if (planarity_ == BufferPlanarity::PACKED) {
-    client_->OnIncomingCapturedData(fake_frame_.get(), frame_size,
-                                    capture_format_, 0 /* rotation */,
-                                    base::TimeTicks::Now());
-  } else if (planarity_ == BufferPlanarity::TRIPLANAR) {
-    client_->OnIncomingCapturedYuvData(
-        fake_frame_.get(),
-        fake_frame_.get() + capture_format_.frame_size.GetArea(),
-        fake_frame_.get() + capture_format_.frame_size.GetArea() * 5 / 4,
-        capture_format_.frame_size.width(),
-        capture_format_.frame_size.width() / 2,
-        capture_format_.frame_size.width() / 2, capture_format_,
-        0 /* rotation */, base::TimeTicks::Now());
-  }
+  client_->OnIncomingCapturedData(fake_frame_.get(), frame_size,
+                                  capture_format_, 0 /* rotation */,
+                                  base::TimeTicks::Now());
   BeepAndScheduleNextCapture(
       expected_execution_time,
       base::Bind(&FakeVideoCaptureDevice::CaptureUsingOwnBuffers,
@@ -212,7 +195,7 @@ void FakeVideoCaptureDevice::CaptureUsingClientBuffers(
   }
 
   // Give the captured frame to the client.
-  client_->OnIncomingCapturedBuffer(capture_buffer.Pass(), capture_format_,
+  client_->OnIncomingCapturedBuffer(std::move(capture_buffer), capture_format_,
                                     base::TimeTicks::Now());
 
   BeepAndScheduleNextCapture(

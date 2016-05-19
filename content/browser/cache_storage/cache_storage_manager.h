@@ -8,8 +8,8 @@
 #include <map>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "content/browser/cache_storage/cache_storage.h"
 #include "content/common/content_export.h"
@@ -91,7 +91,7 @@ class CONTENT_EXPORT CacheStorageManager {
   friend class CacheStorageMigrationTest;
   friend class CacheStorageQuotaClient;
 
-  typedef std::map<GURL, CacheStorage*> CacheStorageMap;
+  typedef std::map<GURL, scoped_ptr<CacheStorage>> CacheStorageMap;
 
   CacheStorageManager(
       const base::FilePath& path,
@@ -104,6 +104,10 @@ class CONTENT_EXPORT CacheStorageManager {
   // QuotaClient and Browsing Data Deletion support
   void GetAllOriginsUsage(
       const CacheStorageContext::GetUsageInfoCallback& callback);
+  void GetAllOriginsUsageGetSizes(
+      scoped_ptr<std::vector<CacheStorageUsageInfo>> usage_info,
+      const CacheStorageContext::GetUsageInfoCallback& callback);
+
   void GetOriginUsage(const GURL& origin_url,
                       const storage::QuotaClient::GetUsageCallback& callback);
   void GetOrigins(const storage::QuotaClient::GetOriginsCallback& callback);

@@ -2,16 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media/base/android/media_codec_player.h"
+
 #include <stdint.h>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/timer/timer.h"
 #include "media/base/android/demuxer_android.h"
-#include "media/base/android/media_codec_bridge.h"
-#include "media/base/android/media_codec_player.h"
+#include "media/base/android/media_codec_util.h"
 #include "media/base/android/media_player_manager.h"
 #include "media/base/android/media_task_runner.h"
+#include "media/base/android/sdk_media_codec_bridge.h"
 #include "media/base/android/test_data_factory.h"
 #include "media/base/android/test_statistics.h"
 #include "media/base/timestamp_constants.h"
@@ -19,15 +23,6 @@
 #include "ui/gl/android/surface_texture.h"
 
 namespace media {
-
-// Helper macro to skip the test if MediaCodecBridge isn't available.
-#define SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE()        \
-  do {                                                            \
-    if (!MediaCodecBridge::IsAvailable()) {                       \
-      VLOG(0) << "Could not run test - not supported on device."; \
-      return;                                                     \
-    }                                                             \
-  } while (0)
 
 #define RUN_ON_MEDIA_THREAD(CLASS, METHOD, ...)                               \
   do {                                                                        \
@@ -136,7 +131,9 @@ class MockMediaPlayerManager : public MediaPlayerManager {
   void OnWaitingForDecryptionKey(int player_id) override {}
   MediaPlayerAndroid* GetFullscreenPlayer() override { return nullptr; }
   MediaPlayerAndroid* GetPlayer(int player_id) override { return nullptr; }
-  bool RequestPlay(int player_id, base::TimeDelta duration) override {
+  bool RequestPlay(int player_id,
+                   base::TimeDelta duration,
+                   bool has_audio) override {
     return playback_allowed_;
   }
 
@@ -352,12 +349,12 @@ class MockDemuxerAndroid : public DemuxerAndroid {
 
   // Sets the audio data factory.
   void SetAudioFactory(scoped_ptr<AudioFactory> factory) {
-    audio_factory_ = factory.Pass();
+    audio_factory_ = std::move(factory);
   }
 
   // Sets the video data factory.
   void SetVideoFactory(scoped_ptr<VideoFactory> factory) {
-    video_factory_ = factory.Pass();
+    video_factory_ = std::move(factory);
   }
 
   // Accessors for data factories.
@@ -657,7 +654,7 @@ void MediaCodecPlayerTest::SetVideoSurface() {
   gfx::ScopedJavaSurface surface(surface_texture_a_.get());
 
   ASSERT_NE(nullptr, player_);
-  player_->SetVideoSurface(surface.Pass());
+  player_->SetVideoSurface(std::move(surface));
 }
 
 void MediaCodecPlayerTest::SetVideoSurfaceB() {
@@ -665,7 +662,7 @@ void MediaCodecPlayerTest::SetVideoSurfaceB() {
   gfx::ScopedJavaSurface surface(surface_texture_b_.get());
 
   ASSERT_NE(nullptr, player_);
-  player_->SetVideoSurface(surface.Pass());
+  player_->SetVideoSurface(std::move(surface));
 }
 
 void MediaCodecPlayerTest::RemoveVideoSurface() {
@@ -756,8 +753,8 @@ bool MediaCodecPlayerTest::StartAVPlayback(
     scoped_ptr<VideoFactory> video_factory,
     uint32_t flags,
     const char* test_name) {
-  demuxer_->SetAudioFactory(audio_factory.Pass());
-  demuxer_->SetVideoFactory(video_factory.Pass());
+  demuxer_->SetAudioFactory(std::move(audio_factory));
+  demuxer_->SetVideoFactory(std::move(video_factory));
 
   CreatePlayer();
   SetVideoSurface();
@@ -817,8 +814,8 @@ bool MediaCodecPlayerTest::StartAVSeekAndPreroll(
     const char* test_name) {
   // Initialize A/V playback
 
-  demuxer_->SetAudioFactory(audio_factory.Pass());
-  demuxer_->SetVideoFactory(video_factory.Pass());
+  demuxer_->SetAudioFactory(std::move(audio_factory));
+  demuxer_->SetVideoFactory(std::move(video_factory));
 
   CreatePlayer();
   SetVideoSurface();
@@ -941,7 +938,7 @@ TEST_F(MediaCodecPlayerTest, SetAudioVideoConfigsAfterPlayerCreation) {
   EXPECT_EQ(240, manager_.media_metadata_.height);
 }
 
-TEST_F(MediaCodecPlayerTest, AudioPlayTillCompletion) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AudioPlayTillCompletion) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   base::TimeDelta duration = base::TimeDelta::FromMilliseconds(1000);
@@ -1056,7 +1053,7 @@ TEST_F(MediaCodecPlayerTest, VideoNoPermission) {
 }
 
 // http://crbug.com/518900
-TEST_F(MediaCodecPlayerTest, AudioSeekAfterStop) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AudioSeekAfterStop) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Play for 300 ms, then Pause, then Seek to beginning. The playback should
@@ -1115,7 +1112,7 @@ TEST_F(MediaCodecPlayerTest, AudioSeekAfterStop) {
       &MockMediaPlayerManager::IsSeekCompleted, base::Unretained(&manager_))));
 }
 
-TEST_F(MediaCodecPlayerTest, AudioSeekThenPlay) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AudioSeekThenPlay) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Issue Seek command immediately followed by Start. The playback should
@@ -1149,7 +1146,7 @@ TEST_F(MediaCodecPlayerTest, AudioSeekThenPlay) {
       &MockMediaPlayerManager::IsSeekCompleted, base::Unretained(&manager_))));
 }
 
-TEST_F(MediaCodecPlayerTest, AudioSeekThenPlayThenConfig) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AudioSeekThenPlayThenConfig) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Issue Seek command immediately followed by Start but without prior demuxer
@@ -1189,7 +1186,7 @@ TEST_F(MediaCodecPlayerTest, AudioSeekThenPlayThenConfig) {
 }
 
 // http://crbug.com/518900
-TEST_F(MediaCodecPlayerTest, AudioSeekWhilePlaying) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AudioSeekWhilePlaying) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Play for 300 ms, then issue several Seek commands in the row.
@@ -1268,7 +1265,7 @@ TEST_F(MediaCodecPlayerTest, VideoReplaceSurface) {
   EXPECT_LE(duration, manager_.pts_stat_.max());
 }
 
-TEST_F(MediaCodecPlayerTest, VideoRemoveAndSetSurface) {
+TEST_F(MediaCodecPlayerTest, DISABLED_VideoRemoveAndSetSurface) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   base::TimeDelta duration = base::TimeDelta::FromMilliseconds(1000);
@@ -1318,7 +1315,7 @@ TEST_F(MediaCodecPlayerTest, VideoRemoveAndSetSurface) {
 }
 
 // http://crbug.com/518900
-TEST_F(MediaCodecPlayerTest, VideoReleaseAndStart) {
+TEST_F(MediaCodecPlayerTest, DISABLED_VideoReleaseAndStart) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   base::TimeDelta duration = base::TimeDelta::FromMilliseconds(1000);
@@ -1366,7 +1363,7 @@ TEST_F(MediaCodecPlayerTest, VideoReleaseAndStart) {
   EXPECT_LE(max_pts_before_backgrounding, manager_.pts_stat_.max());
 }
 
-TEST_F(MediaCodecPlayerTest, VideoSeekAndRelease) {
+TEST_F(MediaCodecPlayerTest, DISABLED_VideoSeekAndRelease) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   base::TimeDelta duration = base::TimeDelta::FromMilliseconds(2000);
@@ -1529,7 +1526,7 @@ TEST_F(MediaCodecPlayerTest, VideoPrerollAfterSeek) {
   EXPECT_EQ(6, manager_.pts_stat_.num_values());
 }
 
-TEST_F(MediaCodecPlayerTest, AVPrerollAudioWaitsForVideo) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVPrerollAudioWaitsForVideo) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that during prerolling neither audio nor video plays and that both
@@ -1552,8 +1549,8 @@ TEST_F(MediaCodecPlayerTest, AVPrerollAudioWaitsForVideo) {
 
   demuxer_->SetVideoPrerollInterval(preroll_intvl);
 
-  ASSERT_TRUE(StartAVSeekAndPreroll(audio_factory.Pass(), video_factory.Pass(),
-                                    seek_position, 0,
+  ASSERT_TRUE(StartAVSeekAndPreroll(std::move(audio_factory),
+                                    std::move(video_factory), seek_position, 0,
                                     "AVPrerollAudioWaitsForVideo"));
 
   // Wait till preroll finishes and the real playback starts.
@@ -1580,7 +1577,7 @@ TEST_F(MediaCodecPlayerTest, AVPrerollAudioWaitsForVideo) {
   EXPECT_TRUE(AlmostEqual(seek_position, manager_.pts_stat_.min(), 25));
 }
 
-TEST_F(MediaCodecPlayerTest, AVPrerollReleaseAndRestart) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVPrerollReleaseAndRestart) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that player will resume prerolling if prerolling is interrupted by
@@ -1601,8 +1598,8 @@ TEST_F(MediaCodecPlayerTest, AVPrerollReleaseAndRestart) {
 
   demuxer_->SetVideoPrerollInterval(preroll_intvl);
 
-  ASSERT_TRUE(StartAVSeekAndPreroll(audio_factory.Pass(), video_factory.Pass(),
-                                    seek_position, 0,
+  ASSERT_TRUE(StartAVSeekAndPreroll(std::move(audio_factory),
+                                    std::move(video_factory), seek_position, 0,
                                     "AVPrerollReleaseAndRestart"));
 
   // Issue Release().
@@ -1654,7 +1651,7 @@ TEST_F(MediaCodecPlayerTest, AVPrerollReleaseAndRestart) {
   EXPECT_TRUE(AlmostEqual(seek_position, manager_.pts_stat_.min(), 50));
 }
 
-TEST_F(MediaCodecPlayerTest, AVPrerollStopAndRestart) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVPrerollStopAndRestart) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that if Pause() happens during the preroll phase,
@@ -1675,8 +1672,8 @@ TEST_F(MediaCodecPlayerTest, AVPrerollStopAndRestart) {
 
   demuxer_->SetVideoPrerollInterval(preroll_intvl);
 
-  ASSERT_TRUE(StartAVSeekAndPreroll(audio_factory.Pass(), video_factory.Pass(),
-                                    seek_position, 0,
+  ASSERT_TRUE(StartAVSeekAndPreroll(std::move(audio_factory),
+                                    std::move(video_factory), seek_position, 0,
                                     "AVPrerollStopAndRestart"));
 
   // Video stream should be prerolling. Request to stop.
@@ -1746,7 +1743,7 @@ TEST_F(MediaCodecPlayerTest, AVPrerollStopAndRestart) {
   EXPECT_TRUE(AlmostEqual(seek_position, manager_.pts_stat_.min(), 25));
 }
 
-TEST_F(MediaCodecPlayerTest, AVPrerollVideoEndsWhilePrerolling) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVPrerollVideoEndsWhilePrerolling) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that when one stream ends in the preroll phase and another is not
@@ -1831,7 +1828,7 @@ TEST_F(MediaCodecPlayerTest, AVPrerollVideoEndsWhilePrerolling) {
   DVLOG(0) << "AVPrerollVideoEndsWhilePrerolling: end";
 }
 
-TEST_F(MediaCodecPlayerTest, VideoConfigChangeWhilePlaying) {
+TEST_F(MediaCodecPlayerTest, DISABLED_VideoConfigChangeWhilePlaying) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that video only playback continues after video config change.
@@ -1901,7 +1898,8 @@ TEST_F(MediaCodecPlayerTest, VideoConfigChangeWhilePlaying) {
             manager_.render_stat_[DemuxerStream::VIDEO].num_values());
 }
 
-TEST_F(MediaCodecPlayerTest, AVVideoConfigChangeWhilePlaying) {
+// https://crbug.com/587195
+TEST_F(MediaCodecPlayerTest, DISABLED_AVVideoConfigChangeWhilePlaying) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that A/V playback continues after video config change.
@@ -1918,8 +1916,8 @@ TEST_F(MediaCodecPlayerTest, AVVideoConfigChangeWhilePlaying) {
 
   video_factory->RequestConfigChange(config_change_position);
 
-  ASSERT_TRUE(StartAVPlayback(audio_factory.Pass(), video_factory.Pass(),
-                              kAlwaysReconfigVideo,
+  ASSERT_TRUE(StartAVPlayback(std::move(audio_factory),
+                              std::move(video_factory), kAlwaysReconfigVideo,
                               "AVVideoConfigChangeWhilePlaying"));
 
   // Wait till completion
@@ -1948,7 +1946,7 @@ TEST_F(MediaCodecPlayerTest, AVVideoConfigChangeWhilePlaying) {
             manager_.render_stat_[DemuxerStream::AUDIO].num_values());
 }
 
-TEST_F(MediaCodecPlayerTest, AVAudioConfigChangeWhilePlaying) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVAudioConfigChangeWhilePlaying) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that A/V playback continues after audio config change.
@@ -1964,8 +1962,8 @@ TEST_F(MediaCodecPlayerTest, AVAudioConfigChangeWhilePlaying) {
 
   audio_factory->RequestConfigChange(config_change_position);
 
-  ASSERT_TRUE(StartAVPlayback(audio_factory.Pass(), video_factory.Pass(),
-                              kAlwaysReconfigAudio,
+  ASSERT_TRUE(StartAVPlayback(std::move(audio_factory),
+                              std::move(video_factory), kAlwaysReconfigAudio,
                               "AVAudioConfigChangeWhilePlaying"));
 
   // Wait till completion
@@ -1992,7 +1990,7 @@ TEST_F(MediaCodecPlayerTest, AVAudioConfigChangeWhilePlaying) {
             manager_.render_stat_[DemuxerStream::AUDIO].num_values());
 }
 
-TEST_F(MediaCodecPlayerTest, AVSimultaneousConfigChange_1) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVSimultaneousConfigChange_1) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that the playback continues if audio and video config changes happen
@@ -2010,7 +2008,8 @@ TEST_F(MediaCodecPlayerTest, AVSimultaneousConfigChange_1) {
   audio_factory->RequestConfigChange(config_change_audio);
   video_factory->RequestConfigChange(config_change_video);
 
-  ASSERT_TRUE(StartAVPlayback(audio_factory.Pass(), video_factory.Pass(),
+  ASSERT_TRUE(StartAVPlayback(std::move(audio_factory),
+                              std::move(video_factory),
                               kAlwaysReconfigAudio | kAlwaysReconfigVideo,
                               "AVSimultaneousConfigChange_1"));
 
@@ -2038,7 +2037,7 @@ TEST_F(MediaCodecPlayerTest, AVSimultaneousConfigChange_1) {
             manager_.render_stat_[DemuxerStream::AUDIO].num_values());
 }
 
-TEST_F(MediaCodecPlayerTest, AVSimultaneousConfigChange_2) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVSimultaneousConfigChange_2) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that the playback continues if audio and video config changes happen
@@ -2057,7 +2056,8 @@ TEST_F(MediaCodecPlayerTest, AVSimultaneousConfigChange_2) {
   audio_factory->RequestConfigChange(config_change_audio);
   video_factory->RequestConfigChange(config_change_video);
 
-  ASSERT_TRUE(StartAVPlayback(audio_factory.Pass(), video_factory.Pass(),
+  ASSERT_TRUE(StartAVPlayback(std::move(audio_factory),
+                              std::move(video_factory),
                               kAlwaysReconfigAudio | kAlwaysReconfigVideo,
                               "AVSimultaneousConfigChange_2"));
 
@@ -2085,7 +2085,7 @@ TEST_F(MediaCodecPlayerTest, AVSimultaneousConfigChange_2) {
             manager_.render_stat_[DemuxerStream::AUDIO].num_values());
 }
 
-TEST_F(MediaCodecPlayerTest, AVAudioEndsAcrossVideoConfigChange) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVAudioEndsAcrossVideoConfigChange) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that audio can end while video config change processing.
@@ -2101,8 +2101,8 @@ TEST_F(MediaCodecPlayerTest, AVAudioEndsAcrossVideoConfigChange) {
 
   video_factory->RequestConfigChange(config_change_video);
 
-  ASSERT_TRUE(StartAVPlayback(audio_factory.Pass(), video_factory.Pass(),
-                              kAlwaysReconfigVideo,
+  ASSERT_TRUE(StartAVPlayback(std::move(audio_factory),
+                              std::move(video_factory), kAlwaysReconfigVideo,
                               "AVAudioEndsAcrossVideoConfigChange"));
 
   // Wait till completion
@@ -2135,7 +2135,8 @@ TEST_F(MediaCodecPlayerTest, AVAudioEndsAcrossVideoConfigChange) {
   EXPECT_EQ(video_duration, manager_.pts_stat_.max());
 }
 
-TEST_F(MediaCodecPlayerTest, AVVideoEndsAcrossAudioConfigChange) {
+// https://crbug.com/587195
+TEST_F(MediaCodecPlayerTest, DISABLED_AVVideoEndsAcrossAudioConfigChange) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that video can end while audio config change processing.
@@ -2150,8 +2151,8 @@ TEST_F(MediaCodecPlayerTest, AVVideoEndsAcrossAudioConfigChange) {
 
   audio_factory->RequestConfigChange(config_change_audio);
 
-  ASSERT_TRUE(StartAVPlayback(audio_factory.Pass(), video_factory.Pass(),
-                              kAlwaysReconfigAudio,
+  ASSERT_TRUE(StartAVPlayback(std::move(audio_factory),
+                              std::move(video_factory), kAlwaysReconfigAudio,
                               "AVVideoEndsAcrossAudioConfigChange"));
 
   // Wait till completion
@@ -2174,7 +2175,7 @@ TEST_F(MediaCodecPlayerTest, AVVideoEndsAcrossAudioConfigChange) {
             manager_.render_stat_[DemuxerStream::AUDIO].num_values());
 }
 
-TEST_F(MediaCodecPlayerTest, AVPrerollAcrossVideoConfigChange) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVPrerollAcrossVideoConfigChange) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that preroll continues if interrupted by video config change.
@@ -2193,9 +2194,9 @@ TEST_F(MediaCodecPlayerTest, AVPrerollAcrossVideoConfigChange) {
   scoped_ptr<VideoFactory> video_factory(new VideoFactory(duration));
   video_factory->RequestConfigChange(config_change_position);
 
-  ASSERT_TRUE(StartAVSeekAndPreroll(audio_factory.Pass(), video_factory.Pass(),
-                                    seek_position, kAlwaysReconfigVideo,
-                                    "AVPrerollAcrossVideoConfigChange"));
+  ASSERT_TRUE(StartAVSeekAndPreroll(
+      std::move(audio_factory), std::move(video_factory), seek_position,
+      kAlwaysReconfigVideo, "AVPrerollAcrossVideoConfigChange"));
 
   // Wait till preroll finishes and the real playback starts.
   EXPECT_TRUE(
@@ -2223,7 +2224,7 @@ TEST_F(MediaCodecPlayerTest, AVPrerollAcrossVideoConfigChange) {
   EXPECT_TRUE(AlmostEqual(seek_position, manager_.pts_stat_.min(), 25));
 }
 
-TEST_F(MediaCodecPlayerTest, AVPrerollAcrossAudioConfigChange) {
+TEST_F(MediaCodecPlayerTest, DISABLED_AVPrerollAcrossAudioConfigChange) {
   SKIP_TEST_IF_MEDIA_CODEC_BRIDGE_IS_NOT_AVAILABLE();
 
   // Test that preroll continues if interrupted by video config change.
@@ -2242,9 +2243,9 @@ TEST_F(MediaCodecPlayerTest, AVPrerollAcrossAudioConfigChange) {
 
   scoped_ptr<VideoFactory> video_factory(new VideoFactory(duration));
 
-  ASSERT_TRUE(StartAVSeekAndPreroll(audio_factory.Pass(), video_factory.Pass(),
-                                    seek_position, kAlwaysReconfigAudio,
-                                    "AVPrerollAcrossAudioConfigChange"));
+  ASSERT_TRUE(StartAVSeekAndPreroll(
+      std::move(audio_factory), std::move(video_factory), seek_position,
+      kAlwaysReconfigAudio, "AVPrerollAcrossAudioConfigChange"));
 
   // Wait till preroll finishes and the real playback starts.
   EXPECT_TRUE(

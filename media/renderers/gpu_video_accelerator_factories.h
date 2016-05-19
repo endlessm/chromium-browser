@@ -5,6 +5,9 @@
 #ifndef MEDIA_RENDERERS_GPU_VIDEO_ACCELERATOR_FACTORIES_H_
 #define MEDIA_RENDERERS_GPU_VIDEO_ACCELERATOR_FACTORIES_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/macros.h"
@@ -69,12 +72,12 @@ class MEDIA_EXPORT GpuVideoAcceleratorFactories {
   virtual scoped_ptr<VideoEncodeAccelerator> CreateVideoEncodeAccelerator() = 0;
 
   // Allocate & delete native textures.
-  virtual bool CreateTextures(int32 count,
+  virtual bool CreateTextures(int32_t count,
                               const gfx::Size& size,
-                              std::vector<uint32>* texture_ids,
+                              std::vector<uint32_t>* texture_ids,
                               std::vector<gpu::Mailbox>* texture_mailboxes,
-                              uint32 texture_target) = 0;
-  virtual void DeleteTexture(uint32 texture_id) = 0;
+                              uint32_t texture_target) = 0;
+  virtual void DeleteTexture(uint32_t texture_id) = 0;
 
   virtual void WaitSyncToken(const gpu::SyncToken& sync_token) = 0;
 
@@ -84,7 +87,7 @@ class MEDIA_EXPORT GpuVideoAcceleratorFactories {
       gfx::BufferUsage usage) = 0;
 
   virtual bool ShouldUseGpuMemoryBuffersForVideoFrames() const = 0;
-  virtual unsigned ImageTextureTarget() = 0;
+  virtual unsigned ImageTextureTarget(gfx::BufferFormat format) = 0;
   // Pixel format of the hardware video frames created when GpuMemoryBuffers
   // video frames are enabled.
   virtual VideoPixelFormat VideoFrameOutputFormat() = 0;
@@ -97,9 +100,10 @@ class MEDIA_EXPORT GpuVideoAcceleratorFactories {
   // Returns the task runner the video accelerator runs on.
   virtual scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() = 0;
 
-  // Returns the supported codec profiles of video decode accelerator.
-  virtual VideoDecodeAccelerator::SupportedProfiles
-      GetVideoDecodeAcceleratorSupportedProfiles() = 0;
+  // Return the capabilities of video decode accelerator, which includes the
+  // supported codec profiles.
+  virtual VideoDecodeAccelerator::Capabilities
+  GetVideoDecodeAcceleratorCapabilities() = 0;
 
   // Returns the supported codec profiles of video encode accelerator.
   virtual VideoEncodeAccelerator::SupportedProfiles

@@ -5,6 +5,7 @@
 #include "components/crash/content/browser/crash_handler_host_linux.h"
 
 #include <errno.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -30,6 +31,7 @@
 #include "breakpad/src/client/linux/handler/exception_handler.h"
 #include "breakpad/src/client/linux/minidump_writer/linux_dumper.h"
 #include "breakpad/src/client/linux/minidump_writer/minidump_writer.h"
+#include "build/build_config.h"
 #include "components/crash/content/app/breakpad_linux_impl.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -89,7 +91,7 @@ CrashHandlerHostLinux::CrashHandlerHostLinux(const std::string& process_type,
       dumps_path_(dumps_path),
       upload_(upload),
       shutting_down_(false),
-      worker_pool_token_(BrowserThread::GetBlockingPool()->GetSequenceToken()) {
+      worker_pool_token_(base::SequencedWorkerPool::GetSequenceToken()) {
   int fds[2];
   // We use SOCK_SEQPACKET rather than SOCK_DGRAM to prevent the process from
   // sending datagrams to other sockets on the system. The sandbox may prevent

@@ -4,12 +4,13 @@
 
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_store.h"
 
+#include <stddef.h>
 #include <stdint.h>
-
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -79,7 +80,7 @@ void DataReductionProxyEventStore::AddConstants(
                      kDataReductionProxyBypassEventTypeTable[i].constant);
   }
 
-  constants_dict->Set("dataReductionProxyBypassEventType", dict.Pass());
+  constants_dict->Set("dataReductionProxyBypassEventType", std::move(dict));
 
   dict.reset(new base::DictionaryValue());
   for (size_t i = 0; i < arraysize(kDataReductionProxyBypassActionTypeTable);
@@ -88,7 +89,7 @@ void DataReductionProxyEventStore::AddConstants(
                      kDataReductionProxyBypassActionTypeTable[i].constant);
   }
 
-  constants_dict->Set("dataReductionProxyBypassActionType", dict.Pass());
+  constants_dict->Set("dataReductionProxyBypassActionType", std::move(dict));
 }
 
 DataReductionProxyEventStore::DataReductionProxyEventStore()
@@ -168,7 +169,7 @@ void DataReductionProxyEventStore::AddEnabledEvent(
     current_configuration_.reset(event->DeepCopy());
   else
     current_configuration_.reset();
-  AddEvent(event.Pass());
+  AddEvent(std::move(event));
 }
 
 void DataReductionProxyEventStore::AddEventAndSecureProxyCheckState(
@@ -176,16 +177,16 @@ void DataReductionProxyEventStore::AddEventAndSecureProxyCheckState(
     SecureProxyCheckState state) {
   DCHECK(thread_checker_.CalledOnValidThread());
   secure_proxy_check_state_ = state;
-  AddEvent(event.Pass());
+  AddEvent(std::move(event));
 }
 
 void DataReductionProxyEventStore::AddAndSetLastBypassEvent(
     scoped_ptr<base::Value> event,
-    int64 expiration_ticks) {
+    int64_t expiration_ticks) {
   DCHECK(thread_checker_.CalledOnValidThread());
   last_bypass_event_.reset(event->DeepCopy());
   expiration_ticks_ = expiration_ticks;
-  AddEvent(event.Pass());
+  AddEvent(std::move(event));
 }
 
 std::string DataReductionProxyEventStore::GetHttpProxyList() const {

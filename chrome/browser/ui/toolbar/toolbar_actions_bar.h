@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_UI_TOOLBAR_TOOLBAR_ACTIONS_BAR_H_
 #define CHROME_BROWSER_UI_TOOLBAR_TOOLBAR_ACTIONS_BAR_H_
 
+#include <stddef.h>
+
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/scoped_vector.h"
@@ -48,13 +50,11 @@ class ToolbarActionsBar : public ToolbarActionsModel::Observer {
  public:
   // A struct to contain the platform settings.
   struct PlatformSettings {
-    explicit PlatformSettings(bool in_overflow_mode);
+    PlatformSettings();
 
-    // The padding that comes before the first icon in the container.
-    int left_padding;
-    // The padding following the final icon in the container.
-    int right_padding;
-    // The spacing between each of the icons.
+    // The spacing between each of the icons, between the start of the
+    // container and the first item, and between the last item and end of
+    // the container.
     int item_spacing;
     // The number of icons per row in the overflow menu.
     int icons_per_overflow_menu_row;
@@ -232,6 +232,9 @@ class ToolbarActionsBar : public ToolbarActionsModel::Observer {
     return popped_out_action_;
   }
   bool in_overflow_mode() const { return main_bar_ != nullptr; }
+  bool show_icon_surfacing_bubble() const {
+    return model_->highlighting_for_toolbar_redesign();
+  }
 
   ToolbarActionsBarDelegate* delegate_for_test() { return delegate_; }
 
@@ -244,7 +247,8 @@ class ToolbarActionsBar : public ToolbarActionsModel::Observer {
   using ToolbarActions = ScopedVector<ToolbarActionViewController>;
 
   // ToolbarActionsModel::Observer:
-  void OnToolbarActionAdded(const std::string& action_id, int index) override;
+  void OnToolbarActionAdded(const ToolbarActionsModel::ToolbarItem& item,
+                            int index) override;
   void OnToolbarActionRemoved(const std::string& action_id) override;
   void OnToolbarActionMoved(const std::string& action_id, int index) override;
   void OnToolbarActionUpdated(const std::string& action_id) override;

@@ -6,12 +6,14 @@
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_WEBDATA_AUTOFILL_PROFILE_DATA_TYPE_CONTROLLER_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/scoped_observer.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
 #include "components/sync_driver/non_ui_data_type_controller.h"
 
 namespace autofill {
+class AutofillWebDataService;
 class PersonalDataManager;
 }  // namespace autofill
 
@@ -26,7 +28,8 @@ class AutofillProfileDataTypeController
       const scoped_refptr<base::SingleThreadTaskRunner>& ui_thread,
       const scoped_refptr<base::SingleThreadTaskRunner>& db_thread,
       const base::Closure& error_callback,
-      sync_driver::SyncClient* sync_client);
+      sync_driver::SyncClient* sync_client,
+      const scoped_refptr<autofill::AutofillWebDataService>& web_data_service);
 
   // NonUIDataTypeController:
   syncer::ModelType type() const override;
@@ -54,8 +57,13 @@ class AutofillProfileDataTypeController
   // A reference to the DB thread's task runner.
   const scoped_refptr<base::SingleThreadTaskRunner> db_thread_;
 
+  // A pointer to the sync client.
   sync_driver::SyncClient* const sync_client_;
-  autofill::PersonalDataManager* personal_data_;
+
+  // A reference to the AutofillWebDataService for this controller.
+  scoped_refptr<autofill::AutofillWebDataService> web_data_service_;
+
+  // Whether the database loaded callback has been registered.
   bool callback_registered_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillProfileDataTypeController);

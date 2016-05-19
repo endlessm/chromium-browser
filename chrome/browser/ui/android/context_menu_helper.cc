@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/android/context_menu_helper.h"
 
+#include <stdint.h>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
@@ -46,31 +48,28 @@ ContextMenuHelper::~ContextMenuHelper() {
   Java_ContextMenuHelper_destroy(env, java_obj_.obj());
 }
 
-void ContextMenuHelper::ShowContextMenu(
+bool ContextMenuHelper::ShowContextMenu(
     content::RenderFrameHost* render_frame_host,
     const content::ContextMenuParams& params) {
   content::ContentViewCore* content_view_core =
       content::ContentViewCore::FromWebContents(web_contents_);
 
   if (!content_view_core)
-    return;
+    return false;
 
   base::android::ScopedJavaLocalRef<jobject> jcontent_view_core(
       content_view_core->GetJavaObject());
 
   if (jcontent_view_core.is_null())
-    return;
+    return false;
 
   JNIEnv* env = base::android::AttachCurrentThread();
   context_menu_params_ = params;
-
   render_frame_id_ = render_frame_host->GetRoutingID();
   render_process_id_ = render_frame_host->GetProcess()->GetID();
 
-  Java_ContextMenuHelper_showContextMenu(
-      env,
-      java_obj_.obj(),
-      jcontent_view_core.obj(),
+  return Java_ContextMenuHelper_showContextMenu(
+      env, java_obj_.obj(), jcontent_view_core.obj(),
       ContextMenuHelper::CreateJavaContextMenuParams(params).obj());
 }
 
@@ -110,9 +109,9 @@ ContextMenuHelper::CreateJavaContextMenuParams(
 }
 
 void ContextMenuHelper::OnStartDownload(JNIEnv* env,
-                                        jobject obj,
+                                        const JavaParamRef<jobject>& obj,
                                         jboolean jis_link,
-                                        jstring jheaders) {
+                                        const JavaParamRef<jstring>& jheaders) {
   std::string headers(ConvertJavaStringToUTF8(env, jheaders));
   content::DownloadControllerAndroid::Get()->StartContextMenuDownload(
       context_menu_params_,
@@ -121,7 +120,8 @@ void ContextMenuHelper::OnStartDownload(JNIEnv* env,
       headers);
 }
 
-void ContextMenuHelper::SearchForImage(JNIEnv* env, jobject obj) {
+void ContextMenuHelper::SearchForImage(JNIEnv* env,
+                                       const JavaParamRef<jobject>& obj) {
   content::RenderFrameHost* render_frame_host =
       content::RenderFrameHost::FromID(render_process_id_, render_frame_id_);
   if (!render_frame_host)
@@ -131,7 +131,8 @@ void ContextMenuHelper::SearchForImage(JNIEnv* env, jobject obj) {
       render_frame_host, context_menu_params_.src_url);
 }
 
-void ContextMenuHelper::ShareImage(JNIEnv* env, jobject obj) {
+void ContextMenuHelper::ShareImage(JNIEnv* env,
+                                   const JavaParamRef<jobject>& obj) {
   content::RenderFrameHost* render_frame_host =
       content::RenderFrameHost::FromID(render_process_id_, render_frame_id_);
   if (!render_frame_host)
@@ -162,8 +163,7 @@ void ContextMenuHelper::OnShareImage(const std::string& thumbnail_data,
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jbyteArray> j_bytes =
       base::android::ToJavaByteArray(
-          env,
-          reinterpret_cast<const uint8*>(thumbnail_data.data()),
+          env, reinterpret_cast<const uint8_t*>(thumbnail_data.data()),
           thumbnail_data.length());
 
   Java_ContextMenuHelper_onShareImageReceived(

@@ -4,6 +4,10 @@
 
 #include "ui/ozone/platform/drm/gpu/gbm_surfaceless.h"
 
+#include <utility>
+
+#include "third_party/khronos/EGL/egl.h"
+#include "ui/ozone/common/egl_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_vsync_provider.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
@@ -14,7 +18,7 @@ namespace ui {
 
 GbmSurfaceless::GbmSurfaceless(scoped_ptr<DrmWindowProxy> window,
                                GbmSurfaceFactory* surface_manager)
-    : window_(window.Pass()), surface_manager_(surface_manager) {
+    : window_(std::move(window)), surface_manager_(surface_manager) {
   surface_manager_->RegisterSurface(window_->widget(), this);
 }
 
@@ -52,6 +56,26 @@ scoped_ptr<gfx::VSyncProvider> GbmSurfaceless::CreateVSyncProvider() {
 
 bool GbmSurfaceless::IsUniversalDisplayLinkDevice() {
   return planes_.empty() ? false : planes_[0].buffer->RequiresGlFinish();
+}
+
+void* /* EGLConfig */ GbmSurfaceless::GetEGLSurfaceConfig(
+    const EglConfigCallbacks& egl) {
+  EGLint config_attribs[] = {EGL_BUFFER_SIZE,
+                             32,
+                             EGL_ALPHA_SIZE,
+                             8,
+                             EGL_BLUE_SIZE,
+                             8,
+                             EGL_GREEN_SIZE,
+                             8,
+                             EGL_RED_SIZE,
+                             8,
+                             EGL_RENDERABLE_TYPE,
+                             EGL_OPENGL_ES2_BIT,
+                             EGL_SURFACE_TYPE,
+                             EGL_DONT_CARE,
+                             EGL_NONE};
+  return ChooseEGLConfig(egl, config_attribs);
 }
 
 }  // namespace ui

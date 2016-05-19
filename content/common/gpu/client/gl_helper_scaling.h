@@ -9,6 +9,7 @@
 #include <map>
 #include <vector>
 
+#include "base/macros.h"
 #include "content/common/gpu/client/gl_helper.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -150,6 +151,7 @@ class CONTENT_EXPORT GLHelperScaling {
                 bool scale_x_,
                 bool vertically_flip_texture_,
                 bool swizzle_);
+    ScalerStage(const ScalerStage& other);
     ShaderType shader;
     gfx::Size src_size;
     gfx::Rect src_subrect;

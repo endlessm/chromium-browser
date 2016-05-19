@@ -17,6 +17,7 @@
 #include "SkImageEncoder.h"
 #include "SkImageGenerator.h"
 #include "SkLayerInfo.h"
+#include "SkMD5.h"
 #include "SkPaint.h"
 #include "SkPicture.h"
 #include "SkPictureRecorder.h"
@@ -31,10 +32,6 @@
 #include "SkStream.h"
 #include "sk_tool_utils.h"
 
-#if SK_SUPPORT_GPU
-#include "SkSurface.h"
-#include "GrContextFactory.h"
-#endif
 #include "Test.h"
 
 #include "SkLumaColorFilter.h"
@@ -50,14 +47,13 @@ static void make_bm(SkBitmap* bm, int w, int h, SkColor color, bool immutable) {
 
 // For a while willPlayBackBitmaps() ignored SkImages and just looked for SkBitmaps.
 static void test_images_are_found_by_willPlayBackBitmaps(skiatest::Reporter* reporter) {
-    // We just need _some_ SkImage.
-    SkAutoTUnref<SkImage> image(SkImage::NewFromBitmap(SkBitmap()));
+    // We just need _some_ SkImage
+    const SkPMColor pixel = 0;
+    const SkImageInfo info = SkImageInfo::MakeN32Premul(1, 1);
+    SkAutoTUnref<SkImage> image(SkImage::NewRasterCopy(info, &pixel, sizeof(pixel)));
 
     SkPictureRecorder recorder;
-    {
-        auto canvas = recorder.beginRecording(100,100);
-        canvas->drawImage(image, 0,0);
-    }
+    recorder.beginRecording(100,100)->drawImage(image, 0,0);
     SkAutoTUnref<SkPicture> picture(recorder.endRecording());
 
     REPORTER_ASSERT(reporter, picture->willPlayBackBitmaps());
@@ -150,7 +146,7 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
         path.lineTo(50, 50);
 
         SkScalar intervals[] = { 1.0f, 1.0f };
-        SkAutoTUnref<SkDashPathEffect> dash(SkDashPathEffect::Create(intervals, 2, 0));
+        SkAutoTUnref<SkPathEffect> dash(SkDashPathEffect::Create(intervals, 2, 0));
 
         SkPaint paint;
         paint.setStyle(SkPaint::kStroke_Style);
@@ -563,10 +559,9 @@ public:
         , fRestoreCount(0){
     }
 
-    virtual SaveLayerStrategy willSaveLayer(const SkRect* bounds, const SkPaint* paint,
-                                            SaveFlags flags) override {
+    SaveLayerStrategy getSaveLayerStrategy(const SaveLayerRec& rec) override {
         ++fSaveLayerCount;
-        return this->INHERITED::willSaveLayer(bounds, paint, flags);
+        return this->INHERITED::getSaveLayerStrategy(rec);
     }
 
     void willSave() override {
@@ -855,8 +850,9 @@ static SkData* serialized_picture_from_bitmap(const SkBitmap& bitmap) {
     SkAutoTUnref<SkPicture> picture(recorder.endRecording());
 
     SkDynamicMemoryWStream wStream;
-    sk_tool_utils::PngPixelSerializer serializer;
-    picture->serialize(&wStream, &serializer);
+    SkAutoTUnref<SkPixelSerializer> serializer(
+            SkImageEncoder::CreatePixelSerializer());
+    picture->serialize(&wStream, serializer);
     return wStream.copyToData();
 }
 
@@ -876,7 +872,18 @@ static void assert_one_parse_error_cb(SkError error, void* context) {
                             SkGetLastErrorString());
 }
 
-static void test_bitmap_with_encoded_data(skiatest::Reporter* reporter) {
+static void md5(const SkBitmap& bm, SkMD5::Digest* digest) {
+    SkAutoLockPixels autoLockPixels(bm);
+    SkASSERT(bm.getPixels());
+    SkMD5 md5;
+    size_t rowLen = bm.info().bytesPerPixel() * bm.width();
+    for (int y = 0; y < bm.height(); ++y) {
+        md5.update(static_cast<uint8_t*>(bm.getAddr(0, y)), rowLen);
+    }
+    md5.finish(*digest);
+}
+
+DEF_TEST(Picture_EncodedData, reporter) {
     // Create a bitmap that will be encoded.
     SkBitmap original;
     make_bm(&original, 100, 100, SK_ColorBLUE, true);
@@ -896,6 +903,7 @@ static void test_bitmap_with_encoded_data(skiatest::Reporter* reporter) {
     SkAutoDataUnref picture1(serialized_picture_from_bitmap(original));
     SkAutoDataUnref picture2(serialized_picture_from_bitmap(bm));
     REPORTER_ASSERT(reporter, picture1->equals(picture2));
+
     // Now test that a parse error was generated when trying to create a new SkPicture without
     // providing a function to decode the bitmap.
     ErrorContext context;
@@ -908,6 +916,24 @@ static void test_bitmap_with_encoded_data(skiatest::Reporter* reporter) {
     REPORTER_ASSERT(reporter, pictureFromStream.get() != nullptr);
     SkClearLastError();
     SkSetErrorCallback(nullptr, nullptr);
+
+    // Test that using the version of CreateFromStream that just takes a stream also decodes the
+    // bitmap. Drawing this picture should look exactly like the original bitmap.
+    SkMD5::Digest referenceDigest;
+    md5(original, &referenceDigest);
+
+    SkBitmap dst;
+    dst.allocPixels(original.info());
+    dst.eraseColor(SK_ColorRED);
+    SkCanvas canvas(dst);
+
+    pictureStream.rewind();
+    pictureFromStream.reset(SkPicture::CreateFromStream(&pictureStream));
+    canvas.drawPicture(pictureFromStream.get());
+
+    SkMD5::Digest digest2;
+    md5(dst, &digest2);
+    REPORTER_ASSERT(reporter, referenceDigest == digest2);
 }
 
 static void test_clip_bound_opt(skiatest::Reporter* reporter) {
@@ -1179,7 +1205,6 @@ DEF_TEST(Picture, reporter) {
     test_has_text(reporter);
     test_images_are_found_by_willPlayBackBitmaps(reporter);
     test_analysis(reporter);
-    test_bitmap_with_encoded_data(reporter);
     test_clip_bound_opt(reporter);
     test_clip_expansion(reporter);
     test_hierarchical(reporter);
@@ -1197,7 +1222,7 @@ static void draw_bitmaps(const SkBitmap bitmap, SkCanvas* canvas) {
     canvas->drawBitmap(bitmap, 0.0f, 0.0f, &paint);
     canvas->drawBitmapRect(bitmap, rect, rect, &paint, SkCanvas::kStrict_SrcRectConstraint);
     canvas->drawBitmapNine(bitmap, irect, rect, &paint);
-    canvas->drawSprite(bitmap, 1, 1);
+    canvas->drawBitmap(bitmap, 1, 1);   // drawSprite
 }
 
 static void test_draw_bitmaps(SkCanvas* canvas) {

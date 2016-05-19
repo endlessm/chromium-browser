@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/test/test_timeouts.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -20,7 +21,11 @@ class BookmarksTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     InProcessBrowserTest::SetUpOnMainThread();
-    EnableAccessibilityChecksForTestCase(true);
+
+    // Re-enable accessibility checks when audit failures are resolved.
+    // AX_TEXT_01: http://crbug.com/559201
+    // AX_ARIA_08: http://crbug.com/559202
+    // EnableAccessibilityChecksForTestCase(true);
   }
 
   void OpenBookmarksManager() {

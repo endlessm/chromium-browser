@@ -14,11 +14,12 @@
 /**
  * Create an offscreen opengl context with an RGBA8 / 8bit stencil FBO.
  * Provides a GrGLInterface struct of function pointers for the context.
+ * This class is intended for Skia's testing needs and not for general
+ * use.
  */
-
-class SK_API SkGLContext : public SkRefCnt {
+class SK_API SkGLContext : public SkNoncopyable {
 public:
-    ~SkGLContext() override;
+    virtual ~SkGLContext();
 
     bool isValid() const { return NULL != gl(); }
 
@@ -36,6 +37,23 @@ public:
 
     void makeCurrent() const;
 
+    /** Used for testing EGLImage integration. Take a GL_TEXTURE_2D and wraps it in an EGL Image */
+    virtual GrEGLImage texture2DToEGLImage(GrGLuint /*texID*/) const { return 0; }
+    virtual void destroyEGLImage(GrEGLImage) const {}
+
+    /** Used for testing GL_TEXTURE_RECTANGLE integration. */
+    GrGLint createTextureRectangle(int width, int height, GrGLenum internalFormat,
+                                   GrGLenum externalFormat, GrGLenum externalType,
+                                   GrGLvoid* data);
+
+    /**
+     * Used for testing EGLImage integration. Takes a EGLImage and wraps it in a
+     * GL_TEXTURE_EXTERNAL_OES.
+     */
+    virtual GrGLuint eglImageToExternalTexture(GrEGLImage) const { return 0; }
+
+    void swapBuffers();
+
     /**
      * The only purpose of this function it to provide a means of scheduling
      * work on the GPU (since all of the subclasses create primary buffers for
@@ -49,7 +67,7 @@ public:
      * not perform some sort of synchronization, depending on whether the
      * drawing surface provided by the platform is double buffered.
      */
-    void swapBuffers();
+    void waitOnSyncOrSwap();
 
     /**
      * This notifies the context that we are deliberately testing abandoning
@@ -59,7 +77,18 @@ public:
      */
     void testAbandon();
 
+    /**
+     * Creates a new GL context of the same type and makes the returned context current
+     * (if not null).
+     */
+    virtual SkGLContext* createNew() const { return nullptr; }
+
     class GLFenceSync;  // SkGpuFenceSync implementation that uses the OpenGL functionality.
+
+    /*
+     * returns the fencesync object owned by this SkGLContext
+     */
+    SkGpuFenceSync* fenceSync() { return fFenceSync.get(); }
 
 protected:
     SkGLContext();
@@ -89,18 +118,18 @@ private:
     SkAutoTUnref<const GrGLInterface> fGL;
 
     friend class GLFenceSync;  // For onPlatformGetProcAddress.
-
-    typedef SkRefCnt INHERITED;
 };
 
-/** Creates platform-dependent GL context object
- * Returns a valid gl context object or NULL if such can not be created.
- * Note: If Skia embedder needs a custom GL context that sets up the GL
- * interface, this function should be implemented by the embedder.
- * Otherwise, the default implementation for the platform should be compiled in
- * the library.
+/** Creates platform-dependent GL context object.  The shareContext parameter is in an optional
+ * context with which to share display lists. This should be a pointer to an SkGLContext created
+ * with SkCreatePlatformGLContext.  NULL indicates that no sharing is to take place. Returns a valid
+ * gl context object or NULL if such can not be created.
+ * Note: If Skia embedder needs a custom GL context that sets up the GL interface, this function
+ * should be implemented by the embedder. Otherwise, the default implementation for the platform
+ * should be compiled in the library.
  */
-SK_API SkGLContext* SkCreatePlatformGLContext(GrGLStandard forcedGpuAPI);
+SK_API SkGLContext* SkCreatePlatformGLContext(GrGLStandard forcedGpuAPI,
+                                              SkGLContext* shareContext = nullptr);
 
 /**
  * Helper macros for using the GL context through the GrGLInterface. Example:

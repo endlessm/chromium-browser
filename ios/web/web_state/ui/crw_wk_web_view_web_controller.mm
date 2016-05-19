@@ -5,6 +5,9 @@
 #import "ios/web/web_state/ui/crw_wk_web_view_web_controller.h"
 
 #import <WebKit/WebKit.h>
+#include <stddef.h>
+
+#include <utility>
 
 #include "base/containers/mru_cache.h"
 #include "base/ios/ios_util.h"
@@ -44,7 +47,6 @@
 #import "ios/web/web_state/js/crw_js_window_id_manager.h"
 #import "ios/web/web_state/ui/crw_web_controller+protected.h"
 #import "ios/web/web_state/ui/crw_wk_script_message_router.h"
-#import "ios/web/web_state/ui/crw_wk_web_view_crash_detector.h"
 #import "ios/web/web_state/ui/web_view_js_utils.h"
 #import "ios/web/web_state/ui/wk_back_forward_list_item_holder.h"
 #import "ios/web/web_state/ui/wk_web_view_configuration_provider.h"
@@ -157,9 +159,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   // The WKWebView managed by this instance.
   base::scoped_nsobject<WKWebView> _wkWebView;
 
-  // The Watch Dog that detects and reports WKWebView crashes.
-  base::scoped_nsobject<CRWWKWebViewCrashDetector> _crashDetector;
-
   // The actual URL of the document object (i.e., the last committed URL).
   // TODO(crbug.com/549616): Remove this in favor of just updating the
   // navigation manager and treating that as authoritative. For now, this allows
@@ -237,17 +236,11 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 // changed.
 @property(nonatomic, readonly) NSDictionary* wkWebViewObservers;
 
-// Returns the string to use as the request group ID in the user agent. Returns
-// nil unless the network stack is enabled.
-@property(nonatomic, readonly) NSString* requestGroupIDForUserAgent;
-
 // Activity indicator group ID for this web controller.
 @property(nonatomic, readonly) NSString* activityIndicatorGroupID;
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 // Identifier used for storing and retrieving certificates.
 @property(nonatomic, readonly) int certGroupID;
-#endif  // #if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 
 // Downloader for PassKit files. Lazy initialized.
 @property(nonatomic, readonly) CRWPassKitDownloader* passKitDownloader;
@@ -305,10 +298,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 // navigation.
 - (BOOL)isBackForwardListItemValid:(WKBackForwardListItem*)item;
 
-// Returns a new CRWWKWebViewCrashDetector created with the given |webView| or
-// nil if |webView| is nil. Callers are responsible for releasing the object.
-- (CRWWKWebViewCrashDetector*)newCrashDetectorWithWebView:(WKWebView*)webView;
-
 // Called when web view process has been terminated.
 - (void)webViewWebProcessDidCrash;
 
@@ -324,18 +313,14 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 // Convenience method to inform CWRWebDelegate about a blocked popup.
 - (void)didBlockPopupWithURL:(GURL)popupURL sourceURL:(GURL)sourceURL;
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 // Called when a load ends in an SSL error and certificate chain.
 - (void)handleSSLCertError:(NSError*)error;
-#endif
 
 // Adds an activity indicator tasks for this web controller.
 - (void)addActivityIndicatorTask;
 
 // Clears all activity indicator tasks for this web controller.
 - (void)clearActivityIndicatorTasks;
-
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 
 // Updates |security_style| and |cert_status| for the NavigationItem with ID
 // |navigationItemID|, if URL and certificate chain still match |host| and
@@ -355,7 +340,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 // Updates SSL status for the current navigation item based on the information
 // provided by web view.
 - (void)updateSSLStatusForCurrentNavigationItem;
-#endif
 
 // Used in webView:didReceiveAuthenticationChallenge:completionHandler: to reply
 // with NSURLSessionAuthChallengeDisposition and credentials.
@@ -407,14 +391,12 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 // NSURLErrorCancelled code should be cancelled.
 - (BOOL)shouldAbortLoadForCancelledError:(NSError*)error;
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 // Called when WKWebView estimatedProgress has been changed.
 - (void)webViewEstimatedProgressDidChange;
 
 // Called when WKWebView certificateChain or hasOnlySecureContent property has
 // changed.
 - (void)webViewSecurityFeaturesDidChange;
-#endif  // !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 
 // Called when WKWebView loading state has been changed.
 - (void)webViewLoadingStateDidChange;
@@ -434,7 +416,7 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 - (instancetype)initWithWebState:(scoped_ptr<web::WebStateImpl>)webState {
   DCHECK(webState);
   web::BrowserState* browserState = webState->GetBrowserState();
-  self = [super initWithWebState:webState.Pass()];
+  self = [super initWithWebState:std::move(webState)];
   if (self) {
     _certVerificationController.reset([[CRWCertVerificationController alloc]
         initWithBrowserState:browserState]);
@@ -470,12 +452,10 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   web::EvaluateJavaScript(_wkWebView, script, nil);
 }
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 - (void)terminateNetworkActivity {
   web::CertStore::GetInstance()->RemoveCertsForGroup(self.certGroupID);
   [super terminateNetworkActivity];
 }
-#endif  // #if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 
 - (void)setPageDialogOpenPolicy:(web::PageDialogOpenPolicy)policy {
   // TODO(eugenebut): implement dialogs/windows suppression using
@@ -490,6 +470,7 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 
 - (void)stopLoading {
   _stoppedWKNavigation.reset(_latestWKNavigation);
+  [super stopLoading];
 }
 
 #pragma mark -
@@ -545,13 +526,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   DCHECK(trustLevel);
   *trustLevel = web::URLVerificationTrustLevel::kAbsolute;
   return _documentURL;
-}
-
-// TODO(stuartmorgan): Remove this method and use the API for WKWebView,
-// making the reset-on-each-load behavior specific to the UIWebView subclass.
-- (void)registerUserAgent {
-  web::BuildAndRegisterUserAgentForUIWebView([self requestGroupIDForUserAgent],
-                                             [self useDesktopUserAgent]);
 }
 
 - (BOOL)isCurrentNavigationItemPOST {
@@ -614,6 +588,12 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 - (void)loadRequestForCurrentNavigationItem {
   DCHECK(self.webView && !self.nativeController);
   DCHECK([self currentSessionEntry]);
+  // If a load is kicked off on a WKWebView with a frame whose size is {0, 0} or
+  // that has a negative dimension for a size, rendering issues occur that
+  // manifest in erroneous scrolling and tap handling (crbug.com/574996,
+  // crbug.com/577793).
+  DCHECK_GT(CGRectGetWidth(self.webView.frame), 0.0);
+  DCHECK_GT(CGRectGetHeight(self.webView.frame), 0.0);
 
   web::WKBackForwardListItemHolder* holder =
       [self currentBackForwardListItemHolder];
@@ -776,23 +756,13 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 
 - (NSDictionary*)wkWebViewObservers {
   return @{
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
-    @"estimatedProgress" : @"webViewEstimatedProgressDidChange",
     @"certificateChain" : @"webViewSecurityFeaturesDidChange",
+    @"estimatedProgress" : @"webViewEstimatedProgressDidChange",
     @"hasOnlySecureContent" : @"webViewSecurityFeaturesDidChange",
-#endif
     @"loading" : @"webViewLoadingStateDidChange",
     @"title" : @"webViewTitleDidChange",
     @"URL" : @"webViewURLDidChange",
   };
-}
-
-- (NSString*)requestGroupIDForUserAgent {
-#if defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
-  return self.webStateImpl->GetRequestGroupID();
-#else
-  return nil;
-#endif
 }
 
 - (NSString*)activityIndicatorGroupID {
@@ -801,13 +771,11 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
           self.webStateImpl->GetRequestGroupID()];
 }
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 - (int)certGroupID {
   DCHECK(self.webStateImpl);
   // Request tracker IDs are used as certificate groups.
   return self.webStateImpl->GetRequestTracker()->identifier();
 }
-#endif
 
 - (void)loadPOSTRequest:(NSMutableURLRequest*)request {
   if (!_POSTRequestLoader) {
@@ -847,7 +815,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 - (WKWebView*)createWebViewWithConfiguration:(WKWebViewConfiguration*)config {
   return [web::CreateWKWebView(CGRectZero, config,
                                self.webStateImpl->GetBrowserState(),
-                               [self requestGroupIDForUserAgent],
                                [self useDesktopUserAgent]) autorelease];
 }
 
@@ -890,7 +857,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
     [_wkWebView addObserver:self forKeyPath:keyPath options:0 context:nullptr];
   }
   _injectedScriptManagers.reset([[NSMutableSet alloc] init]);
-  _crashDetector.reset([self newCrashDetectorWithWebView:_wkWebView]);
   [self setDocumentURL:[self defaultURL]];
 }
 
@@ -988,19 +954,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
          [list.backList indexOfObject:item] != NSNotFound;
 }
 
-- (CRWWKWebViewCrashDetector*)newCrashDetectorWithWebView:(WKWebView*)webView {
-  // iOS9 provides crash detection API.
-  if (!webView || base::ios::IsRunningOnIOS9OrLater())
-    return nil;
-
-  base::WeakNSObject<CRWWKWebViewWebController> weakSelf(self);
-  id crashHandler = ^{
-    [weakSelf webViewWebProcessDidCrash];
-  };
-  return [[CRWWKWebViewCrashDetector alloc] initWithWebView:webView
-                                               crashHandler:crashHandler];
-}
-
 - (void)webViewWebProcessDidCrash {
   _webProcessIsDead = YES;
 
@@ -1061,9 +1014,8 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   });
 }
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 - (void)handleSSLCertError:(NSError*)error {
-  DCHECK(web::IsWKWebViewSSLCertError(error));
+  CHECK(web::IsWKWebViewSSLCertError(error));
 
   net::SSLInfo info;
   web::GetSSLInfoFromWKWebViewSSLCertError(error, &info);
@@ -1071,8 +1023,12 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   web::SSLStatus status;
   status.security_style = web::SECURITY_STYLE_AUTHENTICATION_BROKEN;
   status.cert_status = info.cert_status;
-  status.cert_id = web::CertStore::GetInstance()->StoreCert(
-      info.cert.get(), self.certGroupID);
+  // |info.cert| can be null if certChain in NSError is empty or can not be
+  // parsed.
+  if (info.cert) {
+    status.cert_id = web::CertStore::GetInstance()->StoreCert(info.cert.get(),
+                                                              self.certGroupID);
+  }
 
   // Retrieve verification results from _certVerificationErrors cache to avoid
   // unnecessary recalculations. Verification results are cached for the leaf
@@ -1117,7 +1073,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
                         }];
   [self loadCancelled];
 }
-#endif  // #if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 
 - (void)addActivityIndicatorTask {
   [[CRWNetworkActivityIndicatorManager sharedInstance]
@@ -1129,8 +1084,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
       clearNetworkTasksForGroup:[self activityIndicatorGroupID]];
 }
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
-
 - (void)updateSSLStatusForNavigationItemWithID:(int)navigationItemID
                                      certChain:(NSArray*)chain
                                           host:(NSString*)host
@@ -1141,7 +1094,7 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
 
   // The searched item almost always be the last one, so walk backward rather
   // than forward.
-  for (int i = navigationManager->GetEntryCount() - 1; 0 <= i; i--) {
+  for (int i = navigationManager->GetItemCount() - 1; 0 <= i; i--) {
     web::NavigationItem* item = navigationManager->GetItemAtIndex(i);
     if (item->GetUniqueID() != navigationItemID)
       continue;
@@ -1157,7 +1110,7 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
       web::SSLStatus previousSSLStatus = item->GetSSL();
       SSLStatus.cert_status = certStatus;
       SSLStatus.security_style = style;
-      if (navigationManager->GetCurrentEntryIndex() == i &&
+      if (navigationManager->GetCurrentItemIndex() == i &&
           !previousSSLStatus.Equals(SSLStatus)) {
         [self didUpdateSSLStatusForCurrentNavigationItem];
       }
@@ -1256,8 +1209,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   }
 }
 
-#endif  // !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
-
 - (void)handleHTTPAuthForChallenge:(NSURLAuthenticationChallenge*)challenge
                  completionHandler:
                      (void (^)(NSURLSessionAuthChallengeDisposition,
@@ -1265,6 +1216,7 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   NSURLProtectionSpace* space = challenge.protectionSpace;
   DCHECK(
       [space.authenticationMethod isEqual:NSURLAuthenticationMethodHTTPBasic] ||
+      [space.authenticationMethod isEqual:NSURLAuthenticationMethodNTLM] ||
       [space.authenticationMethod isEqual:NSURLAuthenticationMethodHTTPDigest]);
 
   SEL selector = @selector(webController:
@@ -1628,8 +1580,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
     [self performSelector:NSSelectorFromString(dispatcherSelectorName)];
 }
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
-// TODO(eugenebut): use WKWebView progress even if Chrome net stack is enabled.
 - (void)webViewEstimatedProgressDidChange {
   if ([self.delegate respondsToSelector:
           @selector(webController:didUpdateProgress:)]) {
@@ -1646,8 +1596,6 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   }
   [self updateSSLStatusForCurrentNavigationItem];
 }
-
-#endif  // !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
 
 - (void)webViewLoadingStateDidChange {
   if ([_wkWebView isLoading]) {
@@ -1857,9 +1805,15 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
     // TODO(crbug.com/546347): Extract necessary tasks for app specific URL
     // navigation rather than restarting the load.
     if (web::GetWebClient()->IsAppSpecificURL(webViewURL)) {
-      [self abortWebLoad];
-      web::WebLoadParams params(webViewURL);
-      [self loadWithParams:params];
+      // Renderer-initiated loads of WebUI can be done only from other WebUI
+      // pages. WebUI pages may have increased power and using the same web
+      // process (which may potentially be controller by an attacker) is
+      // dangerous.
+      if (web::GetWebClient()->IsAppSpecificURL(_documentURL)) {
+        [self abortWebLoad];
+        web::WebLoadParams params(webViewURL);
+        [self loadWithParams:params];
+      }
       return;
     } else {
       [self registerLoadRequest:webViewURL];
@@ -1906,29 +1860,16 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
     return;
   }
 
-  // Directly cancelled navigations are simply discarded without handling
-  // their potential errors.
-  if (![_pendingNavigationInfo cancelled]) {
+  // Handle load cancellation for directly cancelled navigations without
+  // handling their potential errors. Otherwise, handle the error.
+  if ([_pendingNavigationInfo cancelled]) {
+    [self loadCancelled];
+  } else {
     error = WKWebViewErrorWithSource(error, PROVISIONAL_LOAD);
 
-#if defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
-    // For WKWebViews, the underlying errors for errors reported by the net
-    // stack are not copied over when transferring the errors from the IO
-    // thread.  For cancelled errors that trigger load abortions, translate the
-    // error early to trigger |-discardNonCommittedEntries| from
-    // |-handleLoadError:inMainFrame:|.
-    if (error.code == NSURLErrorCancelled &&
-        [self shouldAbortLoadForCancelledError:error] &&
-        !error.userInfo[NSUnderlyingErrorKey]) {
-      error = web::NetErrorFromError(error);
-    }
-#endif  // defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
-
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
     if (web::IsWKWebViewSSLCertError(error))
       [self handleSSLCertError:error];
     else
-#endif
       [self handleLoadError:error inMainFrame:YES];
   }
 
@@ -1966,9 +1907,7 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   }
   [self webPageChanged];
 
-#if !defined(ENABLE_CHROME_NET_STACK_FOR_WKWEBVIEW)
   [self updateSSLStatusForCurrentNavigationItem];
-#endif
 
   // Report cases where SSL cert is missing for a secure connection.
   if (_documentURL.SchemeIsCryptographic()) {
@@ -2006,6 +1945,7 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
                                   NSURLCredential*))completionHandler {
   NSString* authMethod = challenge.protectionSpace.authenticationMethod;
   if ([authMethod isEqual:NSURLAuthenticationMethodHTTPBasic] ||
+      [authMethod isEqual:NSURLAuthenticationMethodNTLM] ||
       [authMethod isEqual:NSURLAuthenticationMethodHTTPDigest]) {
     [self handleHTTPAuthForChallenge:challenge
                    completionHandler:completionHandler];
@@ -2052,19 +1992,20 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
                forNavigationAction:(WKNavigationAction*)navigationAction
                     windowFeatures:(WKWindowFeatures*)windowFeatures {
   GURL requestURL = net::GURLWithNSURL(navigationAction.request.URL);
-  NSString* referer = GetRefererFromNavigationAction(navigationAction);
-  GURL referrerURL = referer ? GURL(base::SysNSStringToUTF8(referer)) :
-                               [self currentURL];
 
-  if (![self userIsInteracting] &&
-      [self shouldBlockPopupWithURL:requestURL sourceURL:referrerURL]) {
-    [self didBlockPopupWithURL:requestURL sourceURL:referrerURL];
-    // Desktop Chrome does not return a window for the blocked popups;
-    // follow the same approach by returning nil;
-    return nil;
+  if (![self userIsInteracting]) {
+    NSString* referer = GetRefererFromNavigationAction(navigationAction);
+    GURL referrerURL =
+        referer ? GURL(base::SysNSStringToUTF8(referer)) : [self currentURL];
+    if ([self shouldBlockPopupWithURL:requestURL sourceURL:referrerURL]) {
+      [self didBlockPopupWithURL:requestURL sourceURL:referrerURL];
+      // Desktop Chrome does not return a window for the blocked popups;
+      // follow the same approach by returning nil;
+      return nil;
+    }
   }
 
-  id child = [self createChildWebControllerWithReferrerURL:referrerURL];
+  id child = [self createChildWebController];
   // WKWebView requires WKUIDelegate to return a child view created with
   // exactly the same |configuration| object (exception is raised if config is
   // different). |configuration| param and config returned by
@@ -2073,6 +2014,10 @@ WKWebViewErrorSource WKWebViewErrorSourceFromError(NSError* error) {
   // owns a separate shallow copy of WKWebViewConfiguration.
   [child ensureWebViewCreatedWithConfiguration:configuration];
   return [child webView];
+}
+
+- (void)webViewDidClose:(WKWebView*)webView {
+  [self orderClose];
 }
 
 - (void)webView:(WKWebView*)webView

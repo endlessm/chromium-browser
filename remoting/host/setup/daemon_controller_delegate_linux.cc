@@ -7,7 +7,6 @@
 #include <unistd.h>
 
 #include "base/base_paths.h"
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
@@ -26,7 +25,7 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "net/base/net_util.h"
+#include "net/base/network_interfaces.h"
 #include "remoting/host/host_config.h"
 #include "remoting/host/usage_stats_consent.h"
 
@@ -140,7 +139,7 @@ scoped_ptr<base::DictionaryValue> DaemonControllerDelegateLinux::GetConfig() {
   if (config->GetString(kXmppLoginConfigPath, &value)) {
     result->SetString(kXmppLoginConfigPath, value);
   }
-  return result.Pass();
+  return result;
 }
 
 void DaemonControllerDelegateLinux::SetConfigAndStart(
@@ -230,9 +229,8 @@ DaemonControllerDelegateLinux::GetUsageStatsConsent() {
 }
 
 scoped_refptr<DaemonController> DaemonController::Create() {
-  scoped_ptr<DaemonController::Delegate> delegate(
-      new DaemonControllerDelegateLinux());
-  return new DaemonController(delegate.Pass());
+  return new DaemonController(
+      make_scoped_ptr(new DaemonControllerDelegateLinux()));
 }
 
 }  // namespace remoting

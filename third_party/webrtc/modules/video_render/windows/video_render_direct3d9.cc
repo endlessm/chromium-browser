@@ -294,8 +294,8 @@ VideoRenderDirect3D9::VideoRenderDirect3D9(Trace* trace,
     _totalMemory(0),
     _availableMemory(0)
 {
-    _screenUpdateThread = ThreadWrapper::CreateThread(
-        ScreenUpdateThreadProc, this, "ScreenUpdateThread");
+    _screenUpdateThread.reset(new rtc::PlatformThread(
+        ScreenUpdateThreadProc, this, "ScreenUpdateThread"));
     _screenUpdateEvent = EventTimerWrapper::Create();
     SetRect(&_originalHwndRect, 0, 0, 0, 0);
 }
@@ -305,7 +305,7 @@ VideoRenderDirect3D9::~VideoRenderDirect3D9()
     //NOTE: we should not enter CriticalSection in here!
 
     // Signal event to exit thread, then delete it
-    ThreadWrapper* tmpPtr = _screenUpdateThread.release();
+    rtc::PlatformThread* tmpPtr = _screenUpdateThread.release();
     if (tmpPtr)
     {
         _screenUpdateEvent->Set();
@@ -546,7 +546,7 @@ int32_t VideoRenderDirect3D9::Init()
         return -1;
     }
     _screenUpdateThread->Start();
-    _screenUpdateThread->SetPriority(kRealtimePriority);
+    _screenUpdateThread->SetPriority(rtc::kRealtimePriority);
 
     // Start the event triggering the render process
     unsigned int monitorFreq = 60;
@@ -1125,12 +1125,6 @@ int32_t VideoRenderDirect3D9::SetBitmap(const void* bitMap,
 int32_t VideoRenderDirect3D9::GetGraphicsMemory(uint64_t& totalMemory,
                                                 uint64_t& availableMemory)
 {
-    if (_totalMemory == -1 || _availableMemory == -1)
-    {
-        totalMemory = 0;
-        availableMemory = 0;
-        return -1;
-    }
     totalMemory = _totalMemory;
     availableMemory = _availableMemory;
     return 0;

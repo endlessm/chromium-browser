@@ -4,11 +4,15 @@
 
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition_attribute.h"
 
+#include <stddef.h>
+
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/memory/scoped_vector.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -153,14 +157,12 @@ WebRequestConditionAttributeResourceType::Create(
   passed_types.reserve(number_types);
   for (size_t i = 0; i < number_types; ++i) {
     std::string resource_type_string;
-    ResourceType type = content::RESOURCE_TYPE_LAST_TYPE;
     if (!value_as_list->GetString(i, &resource_type_string) ||
-        !helpers::ParseResourceType(resource_type_string, &type)) {
+        !helpers::ParseResourceType(resource_type_string, &passed_types)) {
       *error = ErrorUtils::FormatErrorMessage(kInvalidValue,
                                               keys::kResourceTypeKey);
       return scoped_refptr<const WebRequestConditionAttribute>(NULL);
     }
-    passed_types.push_back(type);
   }
 
   return scoped_refptr<const WebRequestConditionAttribute>(
@@ -351,19 +353,20 @@ class HeaderMatcher {
 
    private:
     // Takes ownership of the content of both |name_match| and |value_match|.
-    HeaderMatchTest(ScopedVector<const StringMatchTest>* name_match,
-                    ScopedVector<const StringMatchTest>* value_match);
+    HeaderMatchTest(std::vector<scoped_ptr<const StringMatchTest>> name_match,
+                    std::vector<scoped_ptr<const StringMatchTest>> value_match);
 
     // Tests to be passed by a header's name.
-    const ScopedVector<const StringMatchTest> name_match_;
+    const std::vector<scoped_ptr<const StringMatchTest>> name_match_;
     // Tests to be passed by a header's value.
-    const ScopedVector<const StringMatchTest> value_match_;
+    const std::vector<scoped_ptr<const StringMatchTest>> value_match_;
+
     DISALLOW_COPY_AND_ASSIGN(HeaderMatchTest);
   };
 
-  explicit HeaderMatcher(ScopedVector<const HeaderMatchTest>* tests);
+  explicit HeaderMatcher(std::vector<scoped_ptr<const HeaderMatchTest>> tests);
 
-  const ScopedVector<const HeaderMatchTest> tests_;
+  const std::vector<scoped_ptr<const HeaderMatchTest>> tests_;
 
   DISALLOW_COPY_AND_ASSIGN(HeaderMatcher);
 };
@@ -375,7 +378,7 @@ HeaderMatcher::~HeaderMatcher() {}
 // static
 scoped_ptr<const HeaderMatcher> HeaderMatcher::Create(
     const base::ListValue* tests) {
-  ScopedVector<const HeaderMatchTest> header_tests;
+  std::vector<scoped_ptr<const HeaderMatchTest>> header_tests;
   for (base::ListValue::const_iterator it = tests->begin();
        it != tests->end(); ++it) {
     const base::DictionaryValue* tests = NULL;
@@ -386,10 +389,11 @@ scoped_ptr<const HeaderMatcher> HeaderMatcher::Create(
         HeaderMatchTest::Create(tests));
     if (header_test.get() == NULL)
       return scoped_ptr<const HeaderMatcher>();
-    header_tests.push_back(header_test.Pass());
+    header_tests.push_back(std::move(header_test));
   }
 
-  return scoped_ptr<const HeaderMatcher>(new HeaderMatcher(&header_tests));
+  return scoped_ptr<const HeaderMatcher>(
+      new HeaderMatcher(std::move(header_tests)));
 }
 
 bool HeaderMatcher::TestNameValue(const std::string& name,
@@ -401,8 +405,9 @@ bool HeaderMatcher::TestNameValue(const std::string& name,
   return false;
 }
 
-HeaderMatcher::HeaderMatcher(ScopedVector<const HeaderMatchTest>* tests)
-  : tests_(tests->Pass()) {}
+HeaderMatcher::HeaderMatcher(
+    std::vector<scoped_ptr<const HeaderMatchTest>> tests)
+    : tests_(std::move(tests)) {}
 
 // HeaderMatcher::StringMatchTest implementation.
 
@@ -453,18 +458,18 @@ HeaderMatcher::StringMatchTest::StringMatchTest(const std::string& data,
 // HeaderMatcher::HeaderMatchTest implementation.
 
 HeaderMatcher::HeaderMatchTest::HeaderMatchTest(
-    ScopedVector<const StringMatchTest>* name_match,
-    ScopedVector<const StringMatchTest>* value_match)
-    : name_match_(name_match->Pass()),
-      value_match_(value_match->Pass()) {}
+    std::vector<scoped_ptr<const StringMatchTest>> name_match,
+    std::vector<scoped_ptr<const StringMatchTest>> value_match)
+    : name_match_(std::move(name_match)),
+      value_match_(std::move(value_match)) {}
 
 HeaderMatcher::HeaderMatchTest::~HeaderMatchTest() {}
 
 // static
 scoped_ptr<const HeaderMatcher::HeaderMatchTest>
 HeaderMatcher::HeaderMatchTest::Create(const base::DictionaryValue* tests) {
-  ScopedVector<const StringMatchTest> name_match;
-  ScopedVector<const StringMatchTest> value_match;
+  std::vector<scoped_ptr<const StringMatchTest>> name_match;
+  std::vector<scoped_ptr<const StringMatchTest>> value_match;
 
   for (base::DictionaryValue::Iterator it(*tests);
        !it.IsAtEnd(); it.Advance()) {
@@ -496,7 +501,7 @@ HeaderMatcher::HeaderMatchTest::Create(const base::DictionaryValue* tests) {
     }
     const base::Value* content = &it.value();
 
-    ScopedVector<const StringMatchTest>* tests =
+    std::vector<scoped_ptr<const StringMatchTest>>* tests =
         is_name ? &name_match : &value_match;
     switch (content->GetType()) {
       case base::Value::TYPE_LIST: {
@@ -504,14 +509,14 @@ HeaderMatcher::HeaderMatchTest::Create(const base::DictionaryValue* tests) {
         CHECK(content->GetAsList(&list));
         for (base::ListValue::const_iterator it = list->begin();
              it != list->end(); ++it) {
-          tests->push_back(
-              StringMatchTest::Create(*it, match_type, !is_name).release());
+          tests->push_back(make_scoped_ptr(
+              StringMatchTest::Create(*it, match_type, !is_name).release()));
         }
         break;
       }
       case base::Value::TYPE_STRING: {
-        tests->push_back(
-            StringMatchTest::Create(content, match_type, !is_name).release());
+        tests->push_back(make_scoped_ptr(
+            StringMatchTest::Create(content, match_type, !is_name).release()));
         break;
       }
       default: {
@@ -522,7 +527,7 @@ HeaderMatcher::HeaderMatchTest::Create(const base::DictionaryValue* tests) {
   }
 
   return scoped_ptr<const HeaderMatchTest>(
-      new HeaderMatchTest(&name_match, &value_match));
+      new HeaderMatchTest(std::move(name_match), std::move(value_match)));
 }
 
 bool HeaderMatcher::HeaderMatchTest::Matches(const std::string& name,
@@ -545,11 +550,10 @@ bool HeaderMatcher::HeaderMatchTest::Matches(const std::string& name,
 //
 
 WebRequestConditionAttributeRequestHeaders::
-WebRequestConditionAttributeRequestHeaders(
-    scoped_ptr<const HeaderMatcher> header_matcher,
-    bool positive)
-    : header_matcher_(header_matcher.Pass()),
-      positive_(positive) {}
+    WebRequestConditionAttributeRequestHeaders(
+        scoped_ptr<const HeaderMatcher> header_matcher,
+        bool positive)
+    : header_matcher_(std::move(header_matcher)), positive_(positive) {}
 
 WebRequestConditionAttributeRequestHeaders::
 ~WebRequestConditionAttributeRequestHeaders() {}
@@ -570,7 +574,7 @@ scoped_ptr<const HeaderMatcher> PrepareHeaderMatcher(
       HeaderMatcher::Create(value_as_list));
   if (header_matcher.get() == NULL)
     *error = ErrorUtils::FormatErrorMessage(kInvalidValue, name);
-  return header_matcher.Pass();
+  return header_matcher;
 }
 
 }  // namespace
@@ -592,7 +596,7 @@ WebRequestConditionAttributeRequestHeaders::Create(
 
   return scoped_refptr<const WebRequestConditionAttribute>(
       new WebRequestConditionAttributeRequestHeaders(
-          header_matcher.Pass(), name == keys::kRequestHeadersKey));
+          std::move(header_matcher), name == keys::kRequestHeadersKey));
 }
 
 int WebRequestConditionAttributeRequestHeaders::GetStages() const {
@@ -640,11 +644,10 @@ bool WebRequestConditionAttributeRequestHeaders::Equals(
 //
 
 WebRequestConditionAttributeResponseHeaders::
-WebRequestConditionAttributeResponseHeaders(
-    scoped_ptr<const HeaderMatcher> header_matcher,
-    bool positive)
-    : header_matcher_(header_matcher.Pass()),
-      positive_(positive) {}
+    WebRequestConditionAttributeResponseHeaders(
+        scoped_ptr<const HeaderMatcher> header_matcher,
+        bool positive)
+    : header_matcher_(std::move(header_matcher)), positive_(positive) {}
 
 WebRequestConditionAttributeResponseHeaders::
 ~WebRequestConditionAttributeResponseHeaders() {}
@@ -666,7 +669,7 @@ WebRequestConditionAttributeResponseHeaders::Create(
 
   return scoped_refptr<const WebRequestConditionAttribute>(
       new WebRequestConditionAttributeResponseHeaders(
-          header_matcher.Pass(), name == keys::kResponseHeadersKey));
+          std::move(header_matcher), name == keys::kResponseHeadersKey));
 }
 
 int WebRequestConditionAttributeResponseHeaders::GetStages() const {
@@ -689,7 +692,7 @@ bool WebRequestConditionAttributeResponseHeaders::IsFulfilled(
   bool passed = false;  // Did some header pass TestNameValue?
   std::string name;
   std::string value;
-  void* iter = NULL;
+  size_t iter = 0;
   while (!passed && headers->EnumerateHeaderLines(&iter, &name, &value)) {
     passed |= header_matcher_->TestNameValue(name, value);
   }

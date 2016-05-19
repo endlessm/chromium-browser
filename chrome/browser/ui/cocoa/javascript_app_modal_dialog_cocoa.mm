@@ -5,10 +5,12 @@
 #include "chrome/browser/ui/cocoa/javascript_app_modal_dialog_cocoa.h"
 
 #import <Cocoa/Cocoa.h>
+#include <stddef.h>
 
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #import "base/mac/foundation_util.h"
+#include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #import "chrome/browser/chrome_browser_application_mac.h"
 #include "chrome/browser/ui/app_modal/chrome_javascript_native_dialog_factory.h"
@@ -79,8 +81,13 @@ const int kMessageTextMaxSlots = 2000;
 }
 
 - (NSAlert*)alert {
-  if (!alert_)
+  if (!alert_) {
     alert_.reset([[NSAlert alloc] init]);
+    // Set a blank icon.
+    NSImage* image =
+        [[[NSImage alloc] initWithSize:NSMakeSize(1, 1)] autorelease];
+    [alert_ setIcon:image];
+  }
   return alert_;
 }
 

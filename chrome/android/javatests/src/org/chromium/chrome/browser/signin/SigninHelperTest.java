@@ -70,6 +70,7 @@ public class SigninHelperTest extends InstrumentationTestCase {
         assertEquals("B", getNewSignedInAccountName());
     }
 
+    @DisabledTest // crbug.com/568623
     @SmallTest
     public void testNotSignedInAccountRename() {
         setSignedInAccountName("A");

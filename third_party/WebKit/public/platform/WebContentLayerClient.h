@@ -28,31 +28,42 @@
 
 #include "WebCommon.h"
 
+namespace gfx {
+class Rect;
+}
+
 namespace blink {
 
-class WebDisplayItemList;
 struct WebRect;
+class WebDisplayItemList;
 
 class BLINK_PLATFORM_EXPORT WebContentLayerClient {
 public:
     enum PaintingControlSetting {
+        // Returns the last PaintArtifact produced.
         PaintDefaultBehavior,
+        // Paints the content to simulate the behavior of FrameView::synchronizedPaint.
+        PaintDefaultBehaviorForTest,
         DisplayListConstructionDisabled,
         DisplayListCachingDisabled,
-        DisplayListPaintingDisabled
+        DisplayListPaintingDisabled,
+        SubsequenceCachingDisabled
     };
+
+    // The paintable region is the rectangular region, within the bounds of the layer
+    // this client paints, that the client is capable of painting via paintContents().
+    // Calling paintContents will return a WebDisplayitemList that is guaranteed valid
+    // only within this region.
+    // In particular, this is used to represent the interest rect in Blink.
+    virtual gfx::Rect paintableRegion() = 0;
 
     // Paints the content area for the layer, typically dirty rects submitted
     // through WebContentLayer::setNeedsDisplayInRect, submitting drawing commands
     // to populate the WebDisplayItemList.
-    // The |clip| rect defines the region of interest. The resulting WebDisplayItemList should contain
-    // sufficient content to correctly paint the rect, but may also contain other content. The result
-    // will be clipped on playback.
     // The |PaintingControlSetting| enum controls painting to isolate different components in performance tests.
     // Currently the DisplayListConstructionDisabled does nothing.
     virtual void paintContents(
         WebDisplayItemList*,
-        const WebRect& clip,
         PaintingControlSetting = PaintDefaultBehavior) = 0;
 
     // Returns an estimate of the current memory usage within this object,

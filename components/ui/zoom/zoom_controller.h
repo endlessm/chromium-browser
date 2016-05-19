@@ -5,12 +5,12 @@
 #ifndef COMPONENTS_UI_ZOOM_ZOOM_CONTROLLER_H_
 #define COMPONENTS_UI_ZOOM_ZOOM_CONTROLLER_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/prefs/pref_member.h"
+#include "components/prefs/pref_member.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"

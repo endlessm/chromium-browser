@@ -4,17 +4,26 @@
 
 #include "content/child/content_child_helpers.h"
 
-#if defined(OS_LINUX)
-#include <malloc.h>
-#endif
+#include <stdint.h>
 
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/process/process_metrics.h"
+#include "build/build_config.h"
 #include "v8/include/v8.h"
+
+#if defined(OS_LINUX)
+#include <malloc.h>
+#endif
 
 namespace content {
 
+// TODO(primiano): get rid of this file together with --memory-metrics.
+// This function is both misplaced and misnamed. If useful, this should
+// be moved to base/process/process_metrics.h. Regardless the name,
+// though, this provides only a partial and misleading value.
+// Unfortunately some telemetry benchmark rely on it and these need to
+// be refactored before getting rid of this. See crbug.com/581365 .
 #if defined(OS_LINUX) || defined(OS_ANDROID)
 size_t GetMemoryUsageKB() {
   struct mallinfo minfo = mallinfo();

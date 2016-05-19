@@ -5,8 +5,12 @@
 #include "content/browser/frame_host/render_widget_host_view_child_frame.h"
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
+#include "build/build_config.h"
+#include "cc/output/copy_output_request.h"
+#include "cc/output/copy_output_result.h"
 #include "cc/surfaces/surface.h"
 #include "cc/surfaces/surface_factory.h"
 #include "cc/surfaces/surface_manager.h"
@@ -32,19 +36,16 @@ namespace content {
 RenderWidgetHostViewChildFrame::RenderWidgetHostViewChildFrame(
     RenderWidgetHost* widget_host)
     : host_(RenderWidgetHostImpl::From(widget_host)),
-      use_surfaces_(UseSurfacesEnabled()),
       next_surface_sequence_(1u),
       last_output_surface_id_(0),
       current_surface_scale_factor_(1.f),
       ack_pending_count_(0),
       frame_connector_(nullptr),
       weak_factory_(this) {
-  if (use_surfaces_) {
-    id_allocator_ = CreateSurfaceIdAllocator();
-    if (host_->delegate() && host_->delegate()->GetInputEventRouter()) {
-      host_->delegate()->GetInputEventRouter()->AddSurfaceIdNamespaceOwner(
-          GetSurfaceIdNamespace(), this);
-    }
+  id_allocator_ = CreateSurfaceIdAllocator();
+  if (host_->delegate() && host_->delegate()->GetInputEventRouter()) {
+    host_->delegate()->GetInputEventRouter()->AddSurfaceIdNamespaceOwner(
+        GetSurfaceIdNamespace(), this);
   }
 
   host_->SetView(this);
@@ -82,8 +83,7 @@ bool RenderWidgetHostViewChildFrame::HasFocus() const {
 }
 
 bool RenderWidgetHostViewChildFrame::IsSurfaceAvailableForCopy() const {
-  NOTIMPLEMENTED();
-  return false;
+  return surface_factory_ && !surface_id_.is_null();
 }
 
 void RenderWidgetHostViewChildFrame::Show() {
@@ -130,6 +130,9 @@ RenderWidgetHostViewChildFrame::GetNativeViewAccessible() {
 }
 
 void RenderWidgetHostViewChildFrame::SetBackgroundColor(SkColor color) {
+  RenderWidgetHostViewBase::SetBackgroundColor(color);
+  bool opaque = GetBackgroundOpaque();
+  host_->SetBackgroundOpaque(opaque);
 }
 
 gfx::Size RenderWidgetHostViewChildFrame::GetPhysicalBackingSize() const {
@@ -205,8 +208,7 @@ void RenderWidgetHostViewChildFrame::Destroy() {
     frame_connector_ = NULL;
   }
 
-  if (use_surfaces_ && host_->delegate() &&
-      host_->delegate()->GetInputEventRouter()) {
+  if (host_->delegate() && host_->delegate()->GetInputEventRouter()) {
     host_->delegate()->GetInputEventRouter()->RemoveSurfaceIdNamespaceOwner(
         GetSurfaceIdNamespace());
   }
@@ -238,7 +240,7 @@ void RenderWidgetHostViewChildFrame::UnlockCompositingSurface() {
   NOTIMPLEMENTED();
 }
 
-void RenderWidgetHostViewChildFrame::SurfaceDrawn(uint32 output_surface_id,
+void RenderWidgetHostViewChildFrame::SurfaceDrawn(uint32_t output_surface_id,
                                                   cc::SurfaceDrawStatus drawn) {
   cc::CompositorFrameAck ack;
   DCHECK_GT(ack_pending_count_, 0U);
@@ -252,26 +254,15 @@ void RenderWidgetHostViewChildFrame::SurfaceDrawn(uint32 output_surface_id,
 }
 
 void RenderWidgetHostViewChildFrame::OnSwapCompositorFrame(
-      uint32 output_surface_id,
-      scoped_ptr<cc::CompositorFrame> frame) {
+    uint32_t output_surface_id,
+    scoped_ptr<cc::CompositorFrame> frame) {
   last_scroll_offset_ = frame->metadata.root_scroll_offset;
 
   if (!frame_connector_)
     return;
 
-  // When not using surfaces, the frame just gets proxied to
-  // the embedder's renderer to be composited.
-  if (!frame->delegated_frame_data || !use_surfaces_) {
-    frame_connector_->ChildFrameCompositorFrameSwapped(
-        output_surface_id,
-        host_->GetProcess()->GetID(),
-        host_->GetRoutingID(),
-        frame.Pass());
-    return;
-  }
-
   cc::RenderPass* root_pass =
-      frame->delegated_frame_data->render_pass_list.back();
+      frame->delegated_frame_data->render_pass_list.back().get();
 
   gfx::Size frame_size = root_pass->output_rect.size();
   float scale_factor = frame->metadata.device_scale_factor;
@@ -316,8 +307,19 @@ void RenderWidgetHostViewChildFrame::OnSwapCompositorFrame(
   ack_pending_count_++;
   // If this value grows very large, something is going wrong.
   DCHECK_LT(ack_pending_count_, 1000U);
-  surface_factory_->SubmitCompositorFrame(surface_id_, frame.Pass(),
+  surface_factory_->SubmitCompositorFrame(surface_id_, std::move(frame),
                                           ack_callback);
+
+  ProcessFrameSwappedCallbacks();
+}
+
+void RenderWidgetHostViewChildFrame::ProcessFrameSwappedCallbacks() {
+  // We only use callbacks once, therefore we make a new list for registration
+  // before we start, and discard the old list entries when we are done.
+  FrameSwappedCallbackList process_callbacks;
+  process_callbacks.swap(frame_swapped_callbacks_);
+  for (scoped_ptr<base::Closure>& callback : process_callbacks)
+    callback->Run();
 }
 
 void RenderWidgetHostViewChildFrame::GetScreenInfo(
@@ -356,26 +358,40 @@ void RenderWidgetHostViewChildFrame::UnlockMouse() {
 }
 
 uint32_t RenderWidgetHostViewChildFrame::GetSurfaceIdNamespace() {
-  if (!use_surfaces_)
-    return 0;
-
   return id_allocator_->id_namespace();
 }
 
 void RenderWidgetHostViewChildFrame::ProcessKeyboardEvent(
     const NativeWebKeyboardEvent& event) {
+  if (!host_)
+    return;
+
   host_->ForwardKeyboardEvent(event);
 }
 
 void RenderWidgetHostViewChildFrame::ProcessMouseEvent(
     const blink::WebMouseEvent& event) {
+  if (!host_)
+    return;
+
   host_->ForwardMouseEvent(event);
 }
 
 void RenderWidgetHostViewChildFrame::ProcessMouseWheelEvent(
     const blink::WebMouseWheelEvent& event) {
+  if (!host_)
+    return;
+
   if (event.deltaX != 0 || event.deltaY != 0)
     host_->ForwardWheelEvent(event);
+}
+
+gfx::Point RenderWidgetHostViewChildFrame::TransformPointToRootCoordSpace(
+    const gfx::Point& point) {
+  if (!frame_connector_)
+    return point;
+
+  return frame_connector_->TransformPointToRootCoordSpace(point, surface_id_);
 }
 
 #if defined(OS_MACOSX)
@@ -411,12 +427,44 @@ bool RenderWidgetHostViewChildFrame::PostProcessEventForPluginIme(
 }
 #endif  // defined(OS_MACOSX)
 
+void RenderWidgetHostViewChildFrame::RegisterFrameSwappedCallback(
+    scoped_ptr<base::Closure> callback) {
+  frame_swapped_callbacks_.push_back(std::move(callback));
+}
+
 void RenderWidgetHostViewChildFrame::CopyFromCompositingSurface(
-    const gfx::Rect& /* src_subrect */,
-    const gfx::Size& /* dst_size */,
+    const gfx::Rect& src_subrect,
+    const gfx::Size& output_size,
     const ReadbackRequestCallback& callback,
-    const SkColorType /* preferred_color_type */) {
-  callback.Run(SkBitmap(), READBACK_FAILED);
+    const SkColorType preferred_color_type) {
+  if (!IsSurfaceAvailableForCopy()) {
+    // Defer submitting the copy request until after a frame is drawn, at which
+    // point we should be guaranteed that the surface is available.
+    RegisterFrameSwappedCallback(make_scoped_ptr(new base::Closure(base::Bind(
+        &RenderWidgetHostViewChildFrame::SubmitSurfaceCopyRequest, AsWeakPtr(),
+        src_subrect, output_size, callback, preferred_color_type))));
+    return;
+  }
+
+  SubmitSurfaceCopyRequest(src_subrect, output_size, callback,
+                           preferred_color_type);
+}
+
+void RenderWidgetHostViewChildFrame::SubmitSurfaceCopyRequest(
+    const gfx::Rect& src_subrect,
+    const gfx::Size& output_size,
+    const ReadbackRequestCallback& callback,
+    const SkColorType preferred_color_type) {
+  DCHECK(IsSurfaceAvailableForCopy());
+
+  scoped_ptr<cc::CopyOutputRequest> request =
+      cc::CopyOutputRequest::CreateRequest(
+          base::Bind(&CopyFromCompositingSurfaceHasResult, output_size,
+                     preferred_color_type, callback));
+  if (!src_subrect.IsEmpty())
+    request->set_area(src_subrect);
+
+  surface_factory_->RequestCopyOfSurface(surface_id_, std::move(request));
 }
 
 void RenderWidgetHostViewChildFrame::CopyFromCompositingSurfaceToVideoFrame(
@@ -475,13 +523,8 @@ void RenderWidgetHostViewChildFrame::SetBeginFrameSource(
 BrowserAccessibilityManager*
 RenderWidgetHostViewChildFrame::CreateBrowserAccessibilityManager(
     BrowserAccessibilityDelegate* delegate) {
-  // TODO(mfomitchev): Accessibility on Android Aura: crbug.com/543262
-#if defined(OS_ANDROID) && defined(USE_AURA)
-  return nullptr;
-#else
   return BrowserAccessibilityManager::Create(
       BrowserAccessibilityManager::GetEmptyDocument(), delegate);
-#endif
 }
 
 void RenderWidgetHostViewChildFrame::ClearCompositorSurfaceIfNecessary() {
@@ -489,5 +532,9 @@ void RenderWidgetHostViewChildFrame::ClearCompositorSurfaceIfNecessary() {
     surface_factory_->Destroy(surface_id_);
   surface_id_ = cc::SurfaceId();
 }
+
+cc::SurfaceId RenderWidgetHostViewChildFrame::SurfaceIdForTesting() const {
+  return surface_id_;
+};
 
 }  // namespace content

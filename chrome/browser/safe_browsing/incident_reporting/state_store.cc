@@ -4,14 +4,16 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/state_store.h"
 
+#include <utility>
+
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident.h"
 #include "chrome/browser/safe_browsing/incident_reporting/platform_state_store.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 
 namespace safe_browsing {
 
@@ -137,7 +139,7 @@ StateStore::StateStore(Profile* profile)
     transaction.ClearAll();
   } else if (!incidents_sent_ || !incidents_sent_->Equals(value_dict.get())) {
     state_store_init_result = PSS_DIFFERS;
-    transaction.ReplacePrefDict(value_dict.Pass());
+    transaction.ReplacePrefDict(std::move(value_dict));
   }
   UMA_HISTOGRAM_ENUMERATION("SBIRS.StateStoreInit", state_store_init_result,
                             NUM_INITIALIZATION_RESULTS);

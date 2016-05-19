@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "chrome/browser/ui/app_list/app_list_service.h"
 
@@ -59,7 +60,7 @@ class AppListServiceDisabled : public AppListService {
 }  // namespace
 
 // static
-AppListService* AppListService::Get(chrome::HostDesktopType desktop_type) {
+AppListService* AppListService::Get() {
   return AppListServiceDisabled::GetInstance();
 }
 

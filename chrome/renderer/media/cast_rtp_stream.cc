@@ -4,12 +4,15 @@
 
 #include "chrome/renderer/media/cast_rtp_stream.h"
 
+#include <stdint.h>
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
@@ -24,12 +27,10 @@
 #include "media/audio/audio_parameters.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_converter.h"
-#include "media/base/audio_fifo.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/limits.h"
 #include "media/base/video_frame.h"
 #include "media/cast/cast_config.h"
-#include "media/cast/cast_defines.h"
 #include "media/cast/cast_sender.h"
 #include "media/cast/net/cast_transport_config.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamSource.h"
@@ -70,8 +71,8 @@ CastRtpPayloadParams DefaultVp8Payload() {
   payload.ssrc = 11;
   payload.feedback_ssrc = 12;
   payload.clock_rate = media::cast::kVideoFrequency;
-  payload.max_bitrate = media::cast::kDefaultMaxVideoBitRate;
-  payload.min_bitrate = media::cast::kDefaultMinVideoBitRate;
+  payload.max_bitrate = media::cast::kDefaultMaxVideoKbps;
+  payload.min_bitrate = media::cast::kDefaultMinVideoKbps;
   payload.channels = 1;
   payload.max_frame_rate = media::cast::kDefaultMaxFrameRate;
   payload.codec_name = kCodecNameVp8;
@@ -85,8 +86,8 @@ CastRtpPayloadParams DefaultH264Payload() {
   payload.ssrc = 11;
   payload.feedback_ssrc = 12;
   payload.clock_rate = media::cast::kVideoFrequency;
-  payload.max_bitrate = media::cast::kDefaultMaxVideoBitRate;
-  payload.min_bitrate = media::cast::kDefaultMinVideoBitRate;
+  payload.max_bitrate = media::cast::kDefaultMaxVideoKbps;
+  payload.min_bitrate = media::cast::kDefaultMinVideoKbps;
   payload.channels = 1;
   payload.max_frame_rate = media::cast::kDefaultMaxFrameRate;
   payload.codec_name = kCodecNameH264;
@@ -164,31 +165,62 @@ bool ToAudioSenderConfig(const CastRtpParams& params,
                          AudioSenderConfig* config) {
   config->ssrc = params.payload.ssrc;
   config->receiver_ssrc = params.payload.feedback_ssrc;
-  if (config->ssrc == config->receiver_ssrc)
+  if (config->ssrc == config->receiver_ssrc) {
+    DVLOG(1) << "ssrc " << config->ssrc << " cannot be equal to receiver_ssrc";
     return false;
+  }
   config->min_playout_delay = base::TimeDelta::FromMilliseconds(
                                   params.payload.min_latency_ms ?
                                   params.payload.min_latency_ms :
                                   params.payload.max_latency_ms);
   config->max_playout_delay =
       base::TimeDelta::FromMilliseconds(params.payload.max_latency_ms);
-  if (config->min_playout_delay <= base::TimeDelta())
+  config->animated_playout_delay = base::TimeDelta::FromMilliseconds(
+      params.payload.animated_latency_ms ? params.payload.animated_latency_ms
+                                         : params.payload.max_latency_ms);
+  if (config->min_playout_delay <= base::TimeDelta()) {
+    DVLOG(1) << "min_playout_delay " << config->min_playout_delay
+             << " is too small";
     return false;
-  if (config->min_playout_delay > config->max_playout_delay)
+  }
+  if (config->min_playout_delay > config->max_playout_delay) {
+    DVLOG(1) << "min_playout_delay " << config->min_playout_delay
+             << " is too big";
     return false;
+  }
+  if (config->animated_playout_delay < config->min_playout_delay ||
+      config->animated_playout_delay > config->max_playout_delay) {
+    DVLOG(1) << "animated_playout_delay " << config->animated_playout_delay
+             << " is out of range";
+    return false;
+  }
   config->rtp_payload_type = params.payload.payload_type;
   config->use_external_encoder = false;
   config->frequency = params.payload.clock_rate;
-  if (config->frequency < media::cast::kMinSampleRateForEncoding)
-    return false;
+  // Sampling rate must be one of the Opus-supported values.
+  switch (config->frequency) {
+    case 48000:
+    case 24000:
+    case 16000:
+    case 12000:
+    case 8000:
+      break;
+    default:
+      DVLOG(1) << "frequency " << config->frequency << " is invalid";
+      return false;
+  }
   config->channels = params.payload.channels;
-  if (config->channels < 1)
+  if (config->channels < 1) {
+    DVLOG(1) << "channels " << config->channels << " is invalid";
     return false;
+  }
   config->bitrate = params.payload.max_bitrate * kBitrateMultiplier;
-  if (params.payload.codec_name == kCodecNameOpus)
+  if (params.payload.codec_name == kCodecNameOpus) {
     config->codec = media::cast::CODEC_AUDIO_OPUS;
-  else
+  } else {
+    DVLOG(1) << "codec_name " << params.payload.codec_name << " is invalid";
     return false;
+  }
   config->aes_key = params.payload.aes_key;
   config->aes_iv_mask = params.payload.aes_iv_mask;
   return true;
@@ -198,29 +230,51 @@ bool ToVideoSenderConfig(const CastRtpParams& params,
                          VideoSenderConfig* config) {
   config->ssrc = params.payload.ssrc;
   config->receiver_ssrc = params.payload.feedback_ssrc;
-  if (config->ssrc == config->receiver_ssrc)
+  if (config->ssrc == config->receiver_ssrc) {
+    DVLOG(1) << "ssrc " << config->ssrc << " cannot be equal to receiver_ssrc";
     return false;
+  }
   config->min_playout_delay = base::TimeDelta::FromMilliseconds(
                                   params.payload.min_latency_ms ?
                                   params.payload.min_latency_ms :
                                   params.payload.max_latency_ms);
   config->max_playout_delay =
       base::TimeDelta::FromMilliseconds(params.payload.max_latency_ms);
-  if (config->min_playout_delay <= base::TimeDelta())
+  config->animated_playout_delay = base::TimeDelta::FromMilliseconds(
+      params.payload.animated_latency_ms ? params.payload.animated_latency_ms
+                                         : params.payload.max_latency_ms);
+  if (config->min_playout_delay <= base::TimeDelta()) {
+    DVLOG(1) << "min_playout_delay " << config->min_playout_delay
+             << " is too small";
     return false;
-  if (config->min_playout_delay > config->max_playout_delay)
+  }
+  if (config->min_playout_delay > config->max_playout_delay) {
+    DVLOG(1) << "min_playout_delay " << config->min_playout_delay
+             << " is too big";
     return false;
+  }
+  if (config->animated_playout_delay < config->min_playout_delay ||
+      config->animated_playout_delay > config->max_playout_delay) {
+    DVLOG(1) << "animated_playout_delay " << config->animated_playout_delay
+             << " is out of range";
+    return false;
+  }
   config->rtp_payload_type = params.payload.payload_type;
   config->min_bitrate = config->start_bitrate =
       params.payload.min_bitrate * kBitrateMultiplier;
   config->max_bitrate = params.payload.max_bitrate * kBitrateMultiplier;
-  if (config->min_bitrate > config->max_bitrate)
+  if (config->min_bitrate > config->max_bitrate) {
+    DVLOG(1) << "min_bitrate " << config->min_bitrate << " is larger than "
+             << "max_bitrate " << config->max_bitrate;
     return false;
+  }
   config->start_bitrate = config->min_bitrate;
   config->max_frame_rate = static_cast<int>(
       std::max(1.0, params.payload.max_frame_rate) + 0.5);
-  if (config->max_frame_rate > media::limits::kMaxFramesPerSecond)
+  if (config->max_frame_rate > media::limits::kMaxFramesPerSecond) {
+    DVLOG(1) << "max_frame_rate " << config->max_frame_rate << " is invalid";
     return false;
+  }
   if (params.payload.codec_name == kCodecNameVp8) {
     config->use_external_encoder = IsHardwareVP8EncodingSupported();
     config->codec = media::cast::CODEC_VIDEO_VP8;
@@ -228,6 +282,7 @@ bool ToVideoSenderConfig(const CastRtpParams& params,
     config->use_external_encoder = IsHardwareH264EncodingSupported();
     config->codec = media::cast::CODEC_VIDEO_H264;
   } else {
+    DVLOG(1) << "codec_name " << params.payload.codec_name << " is invalid";
     return false;
   }
   if (!config->use_external_encoder)
@@ -381,7 +436,7 @@ class CastAudioSink : public base::SupportsWeakPtr<CastAudioSink>,
     sample_frames_in_ += input_params_.frames_per_buffer();
     sample_frames_out_ += audio_bus->frames();
 
-    frame_input_->InsertAudio(audio_bus.Pass(),
+    frame_input_->InsertAudio(std::move(audio_bus),
                               capture_time_of_first_converted_sample);
   }
 
@@ -431,8 +486,8 @@ class CastAudioSink : public base::SupportsWeakPtr<CastAudioSink>,
   media::AudioParameters input_params_;
   scoped_ptr<media::AudioConverter> converter_;
   const media::AudioBus* current_input_bus_;
-  int64 sample_frames_in_;
-  int64 sample_frames_out_;
+  int64_t sample_frames_in_;
+  int64_t sample_frames_out_;
 
   DISALLOW_COPY_AND_ASSIGN(CastAudioSink);
 };
@@ -457,9 +512,14 @@ CastRtpPayloadParams::CastRtpPayloadParams()
       max_frame_rate(0.0) {
 }
 
+CastRtpPayloadParams::CastRtpPayloadParams(const CastRtpPayloadParams& other) =
+    default;
+
 CastRtpPayloadParams::~CastRtpPayloadParams() {}
 
 CastRtpParams::CastRtpParams() {}
+
+CastRtpParams::CastRtpParams(const CastRtpParams& other) = default;
 
 CastRtpParams::~CastRtpParams() {}
 

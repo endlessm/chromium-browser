@@ -179,15 +179,15 @@ void OpenSLESPlayer::AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) {
   const int sample_rate_hz = audio_parameters_.sample_rate();
   ALOGD("SetPlayoutSampleRate(%d)", sample_rate_hz);
   audio_device_buffer_->SetPlayoutSampleRate(sample_rate_hz);
-  const int channels = audio_parameters_.channels();
-  ALOGD("SetPlayoutChannels(%d)", channels);
+  const size_t channels = audio_parameters_.channels();
+  ALOGD("SetPlayoutChannels(%" PRIuS ")", channels);
   audio_device_buffer_->SetPlayoutChannels(channels);
   RTC_CHECK(audio_device_buffer_);
   AllocateDataBuffers();
 }
 
 SLDataFormat_PCM OpenSLESPlayer::CreatePCMConfiguration(
-    int channels,
+    size_t channels,
     int sample_rate,
     size_t bits_per_sample) {
   ALOGD("CreatePCMConfiguration");
@@ -245,7 +245,7 @@ void OpenSLESPlayer::AllocateDataBuffers() {
       audio_parameters_.GetBytesPerBuffer());
   bytes_per_buffer_ = audio_parameters_.GetBytesPerFrame() *
       audio_parameters_.frames_per_10ms_buffer();
-  RTC_DCHECK_GT(bytes_per_buffer_, audio_parameters_.GetBytesPerBuffer());
+  RTC_DCHECK_GE(bytes_per_buffer_, audio_parameters_.GetBytesPerBuffer());
   ALOGD("native buffer size: %" PRIuS, bytes_per_buffer_);
   // Create a modified audio buffer class which allows us to ask for any number
   // of samples (and not only multiple of 10ms) to match the native OpenSL ES

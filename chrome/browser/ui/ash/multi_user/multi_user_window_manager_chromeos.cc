@@ -16,6 +16,7 @@
 #include "ash/wm/maximize_mode/maximize_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "base/auto_reset.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/browser_process.h"
@@ -23,7 +24,6 @@
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_notification_blocker_chromeos.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/ash/multi_user/user_switch_animator_chromeos.h"
@@ -31,8 +31,6 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
-#include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
@@ -146,28 +144,23 @@ void RecordUMAForTransferredWindowType(aura::Window* window) {
   ash::MultiProfileUMA::RecordTeleportWindowType(window_type);
 }
 
-// This is used to monitor profile destruction.
-class MultiUserWindowManagerCrOSShutdownNotifierFactory
-    : public BrowserContextKeyedServiceShutdownNotifierFactory {
- public:
-  static MultiUserWindowManagerCrOSShutdownNotifierFactory* GetInstance() {
-    return base::Singleton<
-        MultiUserWindowManagerCrOSShutdownNotifierFactory>::get();
+bool HasSystemModalTransientChildWindow(aura::Window* window) {
+  if (window == nullptr)
+    return false;
+
+  aura::Window* system_modal_container = window->GetRootWindow()->GetChildById(
+      ash::kShellWindowId_SystemModalContainer);
+  if (window->parent() == system_modal_container)
+    return true;
+
+  aura::Window::Windows::const_iterator it =
+      wm::GetTransientChildren(window).begin();
+  for (; it != wm::GetTransientChildren(window).end(); ++it) {
+    if (HasSystemModalTransientChildWindow(*it))
+      return true;
   }
-
- private:
-  friend struct base::DefaultSingletonTraits<
-      MultiUserWindowManagerCrOSShutdownNotifierFactory>;
-
-  MultiUserWindowManagerCrOSShutdownNotifierFactory()
-      : BrowserContextKeyedServiceShutdownNotifierFactory(
-            "MultiUserWindowManagerChromeOS") {
-    DependsOn(SigninManagerFactory::GetInstance());
-  }
-  ~MultiUserWindowManagerCrOSShutdownNotifierFactory() override {}
-
-  DISALLOW_COPY_AND_ASSIGN(MultiUserWindowManagerCrOSShutdownNotifierFactory);
-};
+  return false;
+}
 
 }  // namespace
 
@@ -217,11 +210,7 @@ class AnimationSetter {
 // window observer will take care of that.
 class AppObserver : public extensions::AppWindowRegistry::Observer {
  public:
-  explicit AppObserver(
-      const std::string& user_id,
-      KeyedServiceShutdownNotifier::Subscription* shutdown_notification)
-      : user_id_(user_id),
-        profile_shutdown_notification_(shutdown_notification) {}
+  explicit AppObserver(const std::string& user_id) : user_id_(user_id) {}
   ~AppObserver() override {}
 
   // AppWindowRegistry::Observer overrides:
@@ -234,12 +223,6 @@ class AppObserver : public extensions::AppWindowRegistry::Observer {
 
  private:
   std::string user_id_;
-
-  // This notification is triggered when the profile gets destroyed (during
-  // shutdown process).
-  // The callback (stored in notification) destroyes AppObserver object.
-  scoped_ptr<KeyedServiceShutdownNotifier::Subscription>
-      profile_shutdown_notification_;
 
   DISALLOW_COPY_AND_ASSIGN(AppObserver);
 };
@@ -267,21 +250,28 @@ MultiUserWindowManagerChromeOS::~MultiUserWindowManagerChromeOS() {
     window = window_to_entry_.begin();
   }
 
-  // Remove all app observers.
-  AccountIdToAppWindowObserver::iterator app_observer_iterator =
-      account_id_to_app_observer_.begin();
-  while (app_observer_iterator != account_id_to_app_observer_.end()) {
-    Profile* profile =
-        multi_user_util::GetProfileFromAccountId(app_observer_iterator->first);
-    CHECK(profile) << "profile not found for:"
-                   << app_observer_iterator->first.GetUserEmail();
-    RemoveUser(app_observer_iterator->first, profile);
-    app_observer_iterator = account_id_to_app_observer_.begin();
-  }
-
   if (ash::Shell::HasInstance())
     ash::Shell::GetInstance()->session_state_delegate()->
         RemoveSessionStateObserver(this);
+
+  // Remove all app observers.
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+  // might be nullptr in unit tests.
+  if (!profile_manager)
+    return;
+
+  std::vector<Profile*> profiles = profile_manager->GetLoadedProfiles();
+  for (auto it = profiles.begin(); it != profiles.end(); ++it) {
+    const AccountId account_id = multi_user_util::GetAccountIdFromProfile(*it);
+    AccountIdToAppWindowObserver::iterator app_observer_iterator =
+        account_id_to_app_observer_.find(account_id);
+    if (app_observer_iterator != account_id_to_app_observer_.end()) {
+      extensions::AppWindowRegistry::Get(*it)->RemoveObserver(
+          app_observer_iterator->second);
+      delete app_observer_iterator->second;
+      account_id_to_app_observer_.erase(app_observer_iterator);
+    }
+  }
 }
 
 void MultiUserWindowManagerChromeOS::Init() {
@@ -410,15 +400,8 @@ void MultiUserWindowManagerChromeOS::AddUser(content::BrowserContext* context) {
       account_id_to_app_observer_.end())
     return;
 
-  scoped_ptr<KeyedServiceShutdownNotifier::Subscription> notification =
-      MultiUserWindowManagerCrOSShutdownNotifierFactory::GetInstance()
-          ->Get(profile)
-          ->Subscribe(base::Bind(&MultiUserWindowManagerChromeOS::RemoveUser,
-                                 base::Unretained(this), account_id,
-                                 base::Unretained(profile)));
-
   account_id_to_app_observer_[account_id] =
-      new AppObserver(account_id.GetUserEmail(), notification.release());
+      new AppObserver(account_id.GetUserEmail());
   extensions::AppWindowRegistry::Get(profile)
       ->AddObserver(account_id_to_app_observer_[account_id]);
 
@@ -431,7 +414,7 @@ void MultiUserWindowManagerChromeOS::AddUser(content::BrowserContext* context) {
     account_id_to_app_observer_[account_id]->OnAppWindowAdded(*it);
 
   // Account all existing browser windows of this user accordingly.
-  BrowserList* browser_list = BrowserList::GetInstance(HOST_DESKTOP_TYPE_ASH);
+  BrowserList* browser_list = BrowserList::GetInstance();
   BrowserList::const_iterator browser_it = browser_list->begin();
   for (; browser_it != browser_list->end(); ++browser_it) {
     if ((*browser_it)->profile()->GetOriginalProfile() == profile)
@@ -626,7 +609,11 @@ bool MultiUserWindowManagerChromeOS::ShowWindowForUserIntern(
 
 void MultiUserWindowManagerChromeOS::SetWindowVisibility(
     aura::Window* window, bool visible, int animation_time_in_ms) {
-  if (window->IsVisible() == visible)
+  // For a panel window, it's possible that this panel window is in the middle
+  // of relayout animation because of hiding/reshowing shelf during profile
+  // switch. Thus the window's visibility might not be its real visibility. See
+  // crbug.com/564725 for more info.
+  if (window->TargetVisibility() == visible)
     return;
 
   // Hiding a system modal dialog should not be allowed. Instead we switch to
@@ -634,11 +621,7 @@ void MultiUserWindowManagerChromeOS::SetWindowVisibility(
   // Note that in some cases (e.g. unit test) windows might not have a root
   // window.
   if (!visible && window->GetRootWindow()) {
-    // Get the system modal container for the window's root window.
-    aura::Window* system_modal_container =
-        window->GetRootWindow()->GetChildById(
-            ash::kShellWindowId_SystemModalContainer);
-    if (window->parent() == system_modal_container) {
+    if (HasSystemModalTransientChildWindow(window)) {
       // The window is system modal and we need to find the parent which owns
       // it so that we can switch to the desktop accordingly.
       AccountId account_id = GetUserPresentingWindow(window);
@@ -777,32 +760,12 @@ void MultiUserWindowManagerChromeOS::SetWindowVisible(
     window->Show();
   else
     window->Hide();
-
-  // Make sure that animations have no influence on the window state after the
-  // call.
-  DCHECK_EQ(visible, window->IsVisible());
 }
 
 int MultiUserWindowManagerChromeOS::GetAdjustedAnimationTimeInMS(
     int default_time_in_ms) const {
   return animation_speed_ == ANIMATION_SPEED_NORMAL ? default_time_in_ms :
       (animation_speed_ == ANIMATION_SPEED_FAST ? 10 : 0);
-}
-
-void MultiUserWindowManagerChromeOS::RemoveUser(const AccountId& account_id,
-                                                Profile* profile) {
-  AccountIdToAppWindowObserver::iterator app_observer_iterator =
-      account_id_to_app_observer_.find(account_id);
-  DCHECK(app_observer_iterator != account_id_to_app_observer_.end())
-      << "User id '" << account_id.GetUserEmail() << "', profile=" << profile
-      << " was not found.";
-  if (app_observer_iterator == account_id_to_app_observer_.end())
-    return;
-
-  extensions::AppWindowRegistry::Get(profile)
-      ->RemoveObserver(app_observer_iterator->second);
-  delete app_observer_iterator->second;
-  account_id_to_app_observer_.erase(app_observer_iterator);
 }
 
 }  // namespace chrome

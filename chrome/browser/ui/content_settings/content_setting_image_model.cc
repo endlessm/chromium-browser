@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
 
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/prerender/prerender_manager.h"
@@ -13,14 +15,12 @@
 #include "content/public/browser/web_contents.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/vector_icons_public.h"
-
-#if !defined(OS_MACOSX)
 #include "ui/gfx/color_palette.h"
+#include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
-#endif
+#include "ui/gfx/vector_icons_public.h"
 
 using content::WebContents;
 
@@ -33,14 +33,6 @@ bool UseVectorGraphics() {
   return ui::MaterialDesignController::IsModeMaterial();
 #endif
 }
-
-#if !defined(OS_MACOSX)
-// Gets a vector icon badged with |badge|.
-gfx::Image GetIcon(gfx::VectorIconId id, gfx::VectorIconId badge) {
-  return gfx::Image(
-      gfx::CreateVectorIconWithBadge(id, 16, gfx::kChromeIconGrey, badge));
-}
-#endif
 
 }  // namespace
 
@@ -245,13 +237,6 @@ scoped_ptr<ContentSettingImageModel>
   if (content_settings_type == CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS)
     return make_scoped_ptr(new ContentSettingRPHImageModel());
 
-  if (content_settings_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM) {
-    NOTREACHED() << "The mediastream content setting is deprecated. "
-                 << "Media image model that used to be tied to this setting "
-                 << "can no longer be created by this function.";
-    return nullptr;
-  }
-
   if (content_settings_type == CONTENT_SETTINGS_TYPE_MIDI_SYSEX)
     return make_scoped_ptr(new ContentSettingMIDISysExImageModel());
 
@@ -318,20 +303,18 @@ void ContentSettingBlockedImageModel::UpdateFromWebContents(
   if (!UseVectorGraphics()) {
     DCHECK(icon_id);
     SetIconByResourceId(icon_id);
-#if !defined(OS_MACOSX)
   } else {
-    if (type == CONTENT_SETTINGS_TYPE_PPAPI_BROKER) {
-      set_icon(GetIcon(image_details->vector_icon_id,
-                       gfx::VectorIconId::WARNING_BADGE));
-    } else {
-      SetIconByVectorId(image_details->vector_icon_id,
-                        content_settings->IsContentBlocked(type));
-    }
-#endif
+    gfx::VectorIconId badge_id = gfx::VectorIconId::VECTOR_ICON_NONE;
+    if (type == CONTENT_SETTINGS_TYPE_PPAPI_BROKER)
+      badge_id = gfx::VectorIconId::WARNING_BADGE;
+    else if (content_settings->IsContentBlocked(type))
+      badge_id = gfx::VectorIconId::BLOCKED_BADGE;
+
+    set_icon_by_vector_id(image_details->vector_icon_id, badge_id);
   }
   set_explanatory_string_id(explanation_id);
   DCHECK(tooltip_id);
-  set_tooltip(l10n_util::GetStringUTF8(tooltip_id));
+  set_tooltip(l10n_util::GetStringUTF16(tooltip_id));
 }
 
 // Geolocation -----------------------------------------------------------------
@@ -361,14 +344,16 @@ void ContentSettingGeolocationImageModel::UpdateFromWebContents(
   usages_state.GetDetailedInfo(NULL, &state_flags);
   bool allowed =
       !!(state_flags & ContentSettingsUsagesState::TABSTATE_HAS_ANY_ALLOWED);
-  if (!UseVectorGraphics())
+  if (!UseVectorGraphics()) {
     SetIconByResourceId(allowed ? IDR_ALLOWED_LOCATION : IDR_BLOCKED_LOCATION);
-#if !defined(OS_MACOSX)
-  else
-    SetIconByVectorId(gfx::VectorIconId::MY_LOCATION, !allowed);
-#endif
-  set_tooltip(l10n_util::GetStringUTF8(allowed ?
-      IDS_GEOLOCATION_ALLOWED_TOOLTIP : IDS_GEOLOCATION_BLOCKED_TOOLTIP));
+  } else {
+    set_icon_by_vector_id(gfx::VectorIconId::MY_LOCATION,
+                          allowed ? gfx::VectorIconId::VECTOR_ICON_NONE
+                                  : gfx::VectorIconId::BLOCKED_BADGE);
+  }
+  set_tooltip(l10n_util::GetStringUTF16(allowed
+                                            ? IDS_GEOLOCATION_ALLOWED_TOOLTIP
+                                            : IDS_GEOLOCATION_BLOCKED_TOOLTIP));
 }
 
 // Media -----------------------------------------------------------------------
@@ -403,26 +388,26 @@ void ContentSettingMediaImageModel::UpdateFromWebContents(
   int id = IDS_CAMERA_BLOCKED;
   if (state & (TabSpecificContentSettings::MICROPHONE_BLOCKED |
                TabSpecificContentSettings::CAMERA_BLOCKED)) {
-    if (!UseVectorGraphics())
+    if (!UseVectorGraphics()) {
       SetIconByResourceId(IDR_BLOCKED_CAMERA);
-#if !defined(OS_MACOSX)
-    else
-      SetIconByVectorId(gfx::VectorIconId::VIDEOCAM, true);
-#endif
+    } else {
+      set_icon_by_vector_id(gfx::VectorIconId::VIDEOCAM,
+                            gfx::VectorIconId::BLOCKED_BADGE);
+    }
     if (is_mic)
       id = is_cam ? IDS_MICROPHONE_CAMERA_BLOCKED : IDS_MICROPHONE_BLOCKED;
   } else {
-    if (!UseVectorGraphics())
+    if (!UseVectorGraphics()) {
       SetIconByResourceId(IDR_ALLOWED_CAMERA);
-#if !defined(OS_MACOSX)
-    else
-      SetIconByVectorId(gfx::VectorIconId::VIDEOCAM, false);
-#endif
+    } else {
+      set_icon_by_vector_id(gfx::VectorIconId::VIDEOCAM,
+                            gfx::VectorIconId::VECTOR_ICON_NONE);
+    }
     id = IDS_CAMERA_ACCESSED;
     if (is_mic)
       id = is_cam ? IDS_MICROPHONE_CAMERA_ALLOWED : IDS_MICROPHONE_ACCESSED;
   }
-  set_tooltip(l10n_util::GetStringUTF8(id));
+  set_tooltip(l10n_util::GetStringUTF16(id));
   set_visible(true);
 }
 
@@ -471,13 +456,13 @@ void ContentSettingMediaImageModel::SetAnimationHasRun(
 
 ContentSettingRPHImageModel::ContentSettingRPHImageModel()
     : ContentSettingSimpleImageModel(CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS) {
-  if (!UseVectorGraphics())
+  if (!UseVectorGraphics()) {
     SetIconByResourceId(IDR_REGISTER_PROTOCOL_HANDLER);
-#if !defined(OS_MACOSX)
-  else
-    SetIconByVectorId(gfx::VectorIconId::PROTOCOL_HANDLER, false);
-#endif
-  set_tooltip(l10n_util::GetStringUTF8(IDS_REGISTER_PROTOCOL_HANDLER_TOOLTIP));
+  } else {
+    set_icon_by_vector_id(gfx::VectorIconId::PROTOCOL_HANDLER,
+                          gfx::VectorIconId::VECTOR_ICON_NONE);
+  }
+  set_tooltip(l10n_util::GetStringUTF16(IDS_REGISTER_PROTOCOL_HANDLER_TOOLTIP));
 }
 
 void ContentSettingRPHImageModel::UpdateFromWebContents(
@@ -523,23 +508,36 @@ void ContentSettingMIDISysExImageModel::UpdateFromWebContents(
   usages_state.GetDetailedInfo(NULL, &state_flags);
   bool allowed =
       !!(state_flags & ContentSettingsUsagesState::TABSTATE_HAS_ANY_ALLOWED);
-#if defined(OS_MACOSX)
-  SetIconByResourceId(allowed ? IDR_ALLOWED_MIDI_SYSEX
-                              : IDR_BLOCKED_MIDI_SYSEX);
-#else
-  SetIconByVectorId(gfx::VectorIconId::MIDI, !allowed);
-#endif
-  set_tooltip(l10n_util::GetStringUTF8(allowed ?
-      IDS_MIDI_SYSEX_ALLOWED_TOOLTIP : IDS_MIDI_SYSEX_BLOCKED_TOOLTIP));
+  if (!UseVectorGraphics()) {
+    SetIconByResourceId(allowed ? IDR_ALLOWED_MIDI_SYSEX
+                                : IDR_BLOCKED_MIDI_SYSEX);
+  } else {
+    set_icon_by_vector_id(gfx::VectorIconId::MIDI,
+                          allowed ? gfx::VectorIconId::VECTOR_ICON_NONE
+                                  : gfx::VectorIconId::BLOCKED_BADGE);
+  }
+  set_tooltip(l10n_util::GetStringUTF16(allowed
+                                            ? IDS_MIDI_SYSEX_ALLOWED_TOOLTIP
+                                            : IDS_MIDI_SYSEX_BLOCKED_TOOLTIP));
 }
 
 // Base class ------------------------------------------------------------------
 
+gfx::Image ContentSettingImageModel::GetIcon(SkColor nearby_text_color) const {
+  return UseVectorGraphics()
+             ? gfx::Image(gfx::CreateVectorIconWithBadge(
+                   vector_icon_id_, 16,
+                   color_utils::DeriveDefaultIconColor(nearby_text_color),
+                   vector_icon_badge_id_))
+             : raster_icon_;
+}
+
 ContentSettingImageModel::ContentSettingImageModel()
     : is_visible_(false),
-      icon_id_(0),
-      explanatory_string_id_(0) {
-}
+      raster_icon_id_(0),
+      vector_icon_id_(gfx::VectorIconId::VECTOR_ICON_NONE),
+      vector_icon_badge_id_(gfx::VectorIconId::VECTOR_ICON_NONE),
+      explanatory_string_id_(0) {}
 
 // static
 ScopedVector<ContentSettingImageModel>
@@ -570,18 +568,11 @@ ScopedVector<ContentSettingImageModel>
           CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS));
   result.push_back(new ContentSettingMIDISysExImageModel());
 
-  return result.Pass();
+  return result;
 }
 
 void ContentSettingImageModel::SetIconByResourceId(int id) {
-  icon_id_ = id;
-  icon_ = ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(id);
+  raster_icon_id_ = id;
+  raster_icon_ =
+      ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(id);
 }
-
-#if !defined(OS_MACOSX)
-void ContentSettingImageModel::SetIconByVectorId(gfx::VectorIconId id,
-                                                 bool blocked) {
-  icon_ = GetIcon(id, blocked ? gfx::VectorIconId::BLOCKED_BADGE
-                              : gfx::VectorIconId::VECTOR_ICON_NONE);
-}
-#endif

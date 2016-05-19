@@ -4,6 +4,8 @@
 
 #include "components/password_manager/content/renderer/credential_manager_client.h"
 
+#include <stddef.h>
+
 #include "components/password_manager/content/common/credential_manager_content_utils.h"
 #include "components/password_manager/content/common/credential_manager_messages.h"
 #include "components/password_manager/core/common/credential_manager_types.h"
@@ -11,6 +13,7 @@
 #include "third_party/WebKit/public/platform/WebCredential.h"
 #include "third_party/WebKit/public/platform/WebCredentialManagerError.h"
 #include "third_party/WebKit/public/platform/WebFederatedCredential.h"
+#include "third_party/WebKit/public/platform/WebPassOwnPtr.h"
 #include "third_party/WebKit/public/platform/WebPasswordCredential.h"
 #include "third_party/WebKit/public/web/WebView.h"
 
@@ -22,9 +25,7 @@ template <typename T>
 void ClearCallbacksMapWithErrors(T* callbacks_map) {
   typename T::iterator iter(callbacks_map);
   while (!iter.IsAtEnd()) {
-    blink::WebCredentialManagerError reason(
-        blink::WebCredentialManagerError::ErrorTypeUnknown);
-    iter.GetCurrentValue()->onError(&reason);
+    iter.GetCurrentValue()->onError(blink::WebCredentialManagerUnknownError);
     callbacks_map->Remove(iter.GetCurrentKey());
     iter.Advance();
   }
@@ -39,7 +40,6 @@ CredentialManagerClient::CredentialManagerClient(
 }
 
 CredentialManagerClient::~CredentialManagerClient() {
-  ClearCallbacksMapWithErrors(&failed_sign_in_callbacks_);
   ClearCallbacksMapWithErrors(&store_callbacks_);
   ClearCallbacksMapWithErrors(&require_user_mediation_callbacks_);
   ClearCallbacksMapWithErrors(&get_callbacks_);
@@ -90,18 +90,16 @@ void CredentialManagerClient::OnSendCredential(int request_id,
       // Intentionally empty; we'll send nullptr to the onSuccess call below.
       break;
   }
-  callbacks->onSuccess(credential.get());
+  callbacks->onSuccess(adoptWebPtr(credential.release()));
   get_callbacks_.Remove(request_id);
 }
 
 void CredentialManagerClient::OnRejectCredentialRequest(
     int request_id,
-    blink::WebCredentialManagerError::ErrorType error_type) {
+    blink::WebCredentialManagerError error) {
   RequestCallbacks* callbacks = get_callbacks_.Lookup(request_id);
   DCHECK(callbacks);
-  scoped_ptr<blink::WebCredentialManagerError> error(
-      new blink::WebCredentialManagerError(error_type));
-  callbacks->onError(error.get());
+  callbacks->onError(error);
   get_callbacks_.Remove(request_id);
 }
 
@@ -124,7 +122,8 @@ void CredentialManagerClient::dispatchRequireUserMediation(
 }
 
 void CredentialManagerClient::dispatchGet(
-    bool zeroClickOnly,
+    bool zero_click_only,
+    bool include_passwords,
     const blink::WebVector<blink::WebURL>& federations,
     RequestCallbacks* callbacks) {
   int request_id = get_callbacks_.Add(callbacks);
@@ -132,7 +131,8 @@ void CredentialManagerClient::dispatchGet(
   for (size_t i = 0; i < std::min(federations.size(), kMaxFederations); ++i)
     federation_vector.push_back(federations[i]);
   Send(new CredentialManagerHostMsg_RequestCredential(
-      routing_id(), request_id, zeroClickOnly, federation_vector));
+      routing_id(), request_id, zero_click_only, include_passwords,
+      federation_vector));
 }
 
 void CredentialManagerClient::RespondToNotificationCallback(

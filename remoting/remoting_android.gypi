@@ -173,8 +173,6 @@
           ],
           'variables': {
             'apk_name': 'Chromoting',
-            'android_app_version_name': '<(version_full)',
-            'android_app_version_code': '<!(python tools/android_version.py <(android_app_version_name))',
             'android_manifest_path': '<(SHARED_INTERMEDIATE_DIR)/remoting/android/AndroidManifest.xml',
             'java_in_dir': '<(remoting_apk_java_in_dir)',
             'native_lib_target': 'libremoting_client_jni',
@@ -190,14 +188,41 @@
           ],
         },  # end of target 'remoting_apk'
         {
+          'target_name': 'remoting_test_apk_manifest',
+          'type': 'none',
+          'sources': [
+            'android/javatests/AndroidManifest.xml.jinja2',
+          ],
+          'rules': [{
+            'rule_name': 'generate_manifest',
+            'extension': 'jinja2',
+            'inputs': [
+              '<(remoting_localize_path)',
+              '<(branding_path)',
+            ],
+            'outputs': [
+              '<(SHARED_INTERMEDIATE_DIR)/remoting/android_test/<(RULE_INPUT_ROOT)',
+            ],
+            'action': [
+              'python', '<(remoting_localize_path)',
+              '--variables', '<(branding_path)',
+              '--template', '<(RULE_INPUT_PATH)',
+              '--locale_output', '<@(_outputs)',
+              'en',
+            ],
+          }],
+        },  # end of target 'remoting_test_apk_manifest'
+        {
           'target_name': 'remoting_test_apk',
           'type': 'none',
           'dependencies': [
             '../base/base.gyp:base_java_test_support',
             'remoting_android_client_java',
+            'remoting_test_apk_manifest',
           ],
           'variables': {
             'apk_name': 'ChromotingTest',
+            'android_manifest_path': '<(SHARED_INTERMEDIATE_DIR)/remoting/android_test/AndroidManifest.xml',
             'java_in_dir': 'android/javatests',
             'is_test_apk': 1,
           },

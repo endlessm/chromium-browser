@@ -227,9 +227,15 @@
         '../components/components.gyp:breakpad_host',
         '../components/components.gyp:cdm_browser',
         '../components/components.gyp:cdm_renderer',
+        '../components/components.gyp:component_metrics_proto',
         '../components/components.gyp:crash_component',
         '../components/components.gyp:data_reduction_proxy_core_browser',
         '../components/components.gyp:devtools_discovery',
+        '../components/components.gyp:metrics',
+        '../components/components.gyp:metrics_gpu',
+        '../components/components.gyp:metrics_net',
+        '../components/components.gyp:metrics_profiler',
+        '../components/components.gyp:metrics_ui',
         '../components/components.gyp:navigation_interception',
         '../components/components.gyp:printing_common',
         '../components/components.gyp:printing_browser',
@@ -249,6 +255,7 @@
         '../gpu/skia_bindings/skia_bindings.gyp:gpu_skia_bindings',
         '../media/media.gyp:media',
         '../media/midi/midi.gyp:midi',
+         '../net/net.gyp:net_extras',
         '../printing/printing.gyp:printing',
         '../skia/skia.gyp:skia',
         '../third_party/WebKit/public/blink.gyp:blink',
@@ -301,6 +308,8 @@
         'browser/aw_message_port_message_filter.cc',
         'browser/aw_message_port_message_filter.h',
         'browser/aw_message_port_service.h',
+        'browser/aw_metrics_service_client.h',
+        'browser/aw_metrics_service_client.cc',
         'browser/aw_permission_manager.cc',
         'browser/aw_permission_manager.h',
         'browser/aw_pref_store.cc',
@@ -341,8 +350,14 @@
         'browser/gl_view_renderer_manager.h',
         'browser/net/android_stream_reader_url_request_job.cc',
         'browser/net/android_stream_reader_url_request_job.h',
+        'browser/net/aw_cookie_store_wrapper.cc',
+        'browser/net/aw_cookie_store_wrapper.h',
         'browser/net/aw_http_user_agent_settings.h',
         'browser/net/aw_http_user_agent_settings.cc',
+        'browser/net/aw_network_change_notifier.cc',
+        'browser/net/aw_network_change_notifier.h',
+        'browser/net/aw_network_change_notifier_factory.cc',
+        'browser/net/aw_network_change_notifier_factory.h',
         'browser/net/aw_network_delegate.cc',
         'browser/net/aw_network_delegate.h',
         'browser/net/aw_request_interceptor.cc',
@@ -352,11 +367,13 @@
         'browser/net/aw_url_request_job_factory.cc',
         'browser/net/aw_url_request_job_factory.h',
         'browser/net/aw_web_resource_response.h',
-        'browser/net_disk_cache_remover.cc',
-        'browser/net_disk_cache_remover.h',
         'browser/net/init_native_callback.h',
         'browser/net/input_stream_reader.cc',
         'browser/net/input_stream_reader.h',
+        'browser/net/token_binding_manager.cc',
+        'browser/net/token_binding_manager.h',
+        'browser/net_disk_cache_remover.cc',
+        'browser/net_disk_cache_remover.h',
         'browser/parent_compositor_draw_constraints.cc',
         'browser/parent_compositor_draw_constraints.h',
         'browser/parent_output_surface.cc',
@@ -449,7 +466,8 @@
         'has_java_resources': 1,
         'R_package': 'org.chromium.android_webview',
         'R_package_relpath': 'org/chromium/android_webview',
-        'android_manifest_path': '../android_webview/apk/java/AndroidManifest.xml', # for lint
+        # for lint; do not use the system webview's manifest because it's a template
+        'android_manifest_path': '../android_webview/test/shell/AndroidManifest.xml',
       },
       'conditions': [
         ['configuration_policy==1', {
@@ -469,21 +487,27 @@
       },
       'includes': [ 'apk/system_webview_glue_common.gypi' ],
     },
-    # GN version:  //android_webview:system_webview_apk
-    {
-      'target_name': 'system_webview_apk',
-      'dependencies': [
-        'system_webview_glue_java',
+  ],
+  'conditions': [
+    ['use_webview_internal_framework==0', {
+      'targets': [
+        # GN version:  //android_webview:system_webview_apk
+        {
+          'target_name': 'system_webview_apk',
+          'dependencies': [
+            'system_webview_glue_java',
+          ],
+          'variables': {
+            'apk_name': 'SystemWebView',
+            'android_sdk_jar': '../third_party/android_platform/webview/frameworks_6.0.jar',
+            'java_in_dir': '../build/android/empty',
+            'resource_dir': 'apk/java/res',
+            'android_manifest_template_vars': ['package=<(system_webview_package_name)'],
+          },
+          'includes': [ 'apk/system_webview_apk_common.gypi' ],
+        },
       ],
-      'variables': {
-        'apk_name': 'SystemWebView',
-        'android_sdk_jar': '../third_party/android_platform/webview/frameworks_6.0.jar',
-        'java_in_dir': '../build/android/empty',
-        'resource_dir': 'apk/java/res',
-        'android_manifest_template_vars': ['package=<(system_webview_package_name)'],
-      },
-      'includes': [ 'apk/system_webview_apk_common.gypi' ],
-    },
+    }]
   ],
   'includes': [
     'android_webview_tests.gypi',

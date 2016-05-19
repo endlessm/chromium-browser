@@ -5,12 +5,13 @@
 #ifndef NET_DNS_DNS_HOSTS_H_
 #define NET_DNS_DNS_HOSTS_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/containers/hash_tables.h"
 #include "base/files/file_path.h"
 #include "net/base/address_family.h"
@@ -26,8 +27,7 @@ namespace BASE_HASH_NAMESPACE {
 template<>
 struct hash<net::DnsHostsKey> {
   std::size_t operator()(const net::DnsHostsKey& key) const {
-    hash<base::StringPiece> string_piece_hash;
-    return string_piece_hash(key.first) + key.second;
+    return base::StringPieceHash()(key.first) + key.second;
   }
 };
 

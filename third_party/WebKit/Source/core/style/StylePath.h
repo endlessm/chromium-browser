@@ -1,0 +1,47 @@
+// Copyright 2016 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef StylePath_h
+#define StylePath_h
+
+#include "platform/heap/Handle.h"
+#include "wtf/OwnPtr.h"
+#include "wtf/PassRefPtr.h"
+#include "wtf/RefCounted.h"
+#include "wtf/RefPtr.h"
+
+namespace blink {
+
+class CSSValue;
+class Path;
+class SVGPathByteStream;
+
+class StylePath : public RefCounted<StylePath> {
+public:
+    static PassRefPtr<StylePath> create(PassOwnPtr<SVGPathByteStream>);
+    ~StylePath();
+
+    static StylePath* emptyPath();
+
+    const Path& path() const;
+    float length() const;
+    bool isClosed() const;
+
+    const SVGPathByteStream& byteStream() const;
+
+    PassRefPtrWillBeRawPtr<CSSValue> computedCSSValue() const;
+
+    bool equals(const StylePath&) const;
+
+private:
+    explicit StylePath(PassOwnPtr<SVGPathByteStream>);
+
+    OwnPtr<SVGPathByteStream> m_byteStream;
+    mutable OwnPtr<Path> m_path;
+    mutable float m_pathLength;
+};
+
+} // namespace blink
+
+#endif // StylePath_h

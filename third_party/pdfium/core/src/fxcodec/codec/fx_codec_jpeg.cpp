@@ -6,10 +6,10 @@
 
 #include <setjmp.h>
 
-#include "codec_int.h"
 #include "core/include/fxcodec/fx_codec.h"
 #include "core/include/fxcrt/fx_safe_types.h"
 #include "core/include/fxge/fx_dib.h"
+#include "core/src/fxcodec/codec/codec_int.h"
 
 extern "C" {
 #undef FAR
@@ -82,7 +82,7 @@ static void _error_do_nothing2(j_common_ptr cinfo, char*) {}
 static FX_BOOL _JpegEmbedIccProfile(j_compress_ptr cinfo,
                                     const uint8_t* icc_buf_ptr,
                                     FX_DWORD icc_length) {
-  if (icc_buf_ptr == NULL || icc_length == 0) {
+  if (!icc_buf_ptr || icc_length == 0) {
     return FALSE;
   }
   FX_DWORD icc_segment_size = (JPEG_MARKER_MAXSIZE - 2 - JPEG_OVERHEAD_LEN);
@@ -230,6 +230,21 @@ static void _JpegEncode(const CFX_DIBSource* pSource,
   FX_Free(line_buf);
   dest_size = dest_buf_length - (FX_STRSIZE)dest.free_in_buffer;
 }
+
+#ifdef PDF_ENABLE_XFA
+static void _JpegLoadAttribute(struct jpeg_decompress_struct* pInfo,
+                               CFX_DIBAttribute* pAttribute) {
+  if (pInfo == NULL || pAttribute == NULL) {
+    return;
+  }
+  if (pAttribute) {
+    pAttribute->m_nXDPI = pInfo->X_density;
+    pAttribute->m_nYDPI = pInfo->Y_density;
+    pAttribute->m_wDPIUnit = pInfo->density_unit;
+  }
+}
+#endif  // PDF_ENABLE_XFA
+
 static FX_BOOL _JpegLoadInfo(const uint8_t* src_buf,
                              FX_DWORD src_size,
                              int& width,
@@ -282,10 +297,10 @@ static FX_BOOL _JpegLoadInfo(const uint8_t* src_buf,
   color_transform =
       cinfo.jpeg_color_space == JCS_YCbCr || cinfo.jpeg_color_space == JCS_YCCK;
   bits_per_components = cinfo.data_precision;
-  if (icc_buf_ptr != NULL) {
+  if (icc_buf_ptr) {
     *icc_buf_ptr = NULL;
   }
-  if (icc_length != NULL) {
+  if (icc_length) {
     *icc_length = 0;
   }
   jpeg_destroy_decompress(&cinfo);
@@ -501,7 +516,7 @@ ICodec_ScanlineDecoder* CCodec_JpegModule::CreateDecoder(
     int height,
     int nComps,
     FX_BOOL ColorTransform) {
-  if (src_buf == NULL || src_size == 0) {
+  if (!src_buf || src_size == 0) {
     return NULL;
   }
   CCodec_JpegDecoder* pDecoder = new CCodec_JpegDecoder;
@@ -531,10 +546,9 @@ FX_BOOL CCodec_JpegModule::Encode(const CFX_DIBSource* pSource,
                                   int quality,
                                   const uint8_t* icc_buf,
                                   FX_DWORD icc_length) {
-  if (pSource->GetBPP() < 8 || pSource->GetPalette() != NULL) {
-    ASSERT(pSource->GetBPP() >= 8 && pSource->GetPalette() == NULL);
+  if (pSource->GetBPP() < 8 || pSource->GetPalette())
     return FALSE;
-  }
+
   _JpegEncode(pSource, dest_buf, dest_size, quality, icc_buf, icc_length);
   return TRUE;
 }
@@ -616,10 +630,19 @@ void CCodec_JpegModule::Input(void* pContext,
   p->m_SrcMgr.next_input_byte = src_buf;
   p->m_SrcMgr.bytes_in_buffer = src_size;
 }
+
+#ifdef PDF_ENABLE_XFA
+int CCodec_JpegModule::ReadHeader(void* pContext,
+                                  int* width,
+                                  int* height,
+                                  int* nComps,
+                                  CFX_DIBAttribute* pAttribute) {
+#else   // PDF_ENABLE_XFA
 int CCodec_JpegModule::ReadHeader(void* pContext,
                                   int* width,
                                   int* height,
                                   int* nComps) {
+#endif  // PDF_ENABLE_XFA
   FXJPEG_Context* p = (FXJPEG_Context*)pContext;
   if (setjmp(p->m_JumpMark) == -1) {
     return 1;
@@ -634,6 +657,9 @@ int CCodec_JpegModule::ReadHeader(void* pContext,
   *width = p->m_Info.image_width;
   *height = p->m_Info.image_height;
   *nComps = p->m_Info.num_components;
+#ifdef PDF_ENABLE_XFA
+  _JpegLoadAttribute(&p->m_Info, pAttribute);
+#endif
   return 0;
 }
 int CCodec_JpegModule::StartScanline(void* pContext, int down_scale) {
@@ -655,7 +681,7 @@ FX_BOOL CCodec_JpegModule::ReadScanline(void* pContext,
 }
 FX_DWORD CCodec_JpegModule::GetAvailInput(void* pContext,
                                           uint8_t** avail_buf_ptr) {
-  if (avail_buf_ptr != NULL) {
+  if (avail_buf_ptr) {
     *avail_buf_ptr = NULL;
     if (((FXJPEG_Context*)pContext)->m_SrcMgr.bytes_in_buffer > 0) {
       *avail_buf_ptr =

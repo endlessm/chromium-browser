@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/macros.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/ozone/platform/drm/gpu/overlay_plane.h"
 #include "ui/ozone/public/surface_ozone_egl.h"
@@ -39,6 +40,8 @@ class GbmSurfaceless : public SurfaceOzoneEGL {
   void OnSwapBuffersAsync(const SwapCompletionCallback& callback) override;
   scoped_ptr<gfx::VSyncProvider> CreateVSyncProvider() override;
   bool IsUniversalDisplayLinkDevice() override;
+  void* /* EGLConfig */ GetEGLSurfaceConfig(
+      const EglConfigCallbacks& egl) override;
 
  protected:
   scoped_ptr<DrmWindowProxy> window_;
@@ -47,6 +50,7 @@ class GbmSurfaceless : public SurfaceOzoneEGL {
 
   std::vector<OverlayPlane> planes_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(GbmSurfaceless);
 };
 

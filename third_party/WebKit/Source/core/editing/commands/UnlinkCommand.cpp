@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/UnlinkCommand.h"
 
 #include "core/html/HTMLAnchorElement.h"
@@ -35,13 +34,13 @@ UnlinkCommand::UnlinkCommand(Document& document)
 {
 }
 
-void UnlinkCommand::doApply()
+void UnlinkCommand::doApply(EditingState* editingState)
 {
     // FIXME: If a caret is inside a link, we should remove it, but currently we don't.
     if (!endingSelection().isNonOrphanedRange())
         return;
 
-    removeStyledElement(HTMLAnchorElement::create(document()));
+    removeStyledElement(HTMLAnchorElement::create(document()), editingState);
 }
 
-}
+} // namespace blink

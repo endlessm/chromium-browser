@@ -4,6 +4,8 @@
 
 source_set("feedback") {
   sources = [
+    "anonymizer_tool.cc",
+    "anonymizer_tool.h",
     "feedback_common.cc",
     "feedback_common.h",
     "feedback_data.cc",
@@ -28,13 +30,14 @@ source_set("feedback") {
 
   deps = [
     "//base",
-    "//components/keyed_service/core",
-    "//components/keyed_service/content",
     "//components/feedback/proto",
+    "//components/keyed_service/content",
+    "//components/keyed_service/core",
     "//components/variations/net",
     "//content/public/browser",
     "//content/public/common",
     "//net",
+    "//third_party/re2",
     "//third_party/zlib:zip",
   ]
 }
@@ -42,6 +45,7 @@ source_set("feedback") {
 source_set("unit_tests") {
   testonly = true
   sources = [
+    "anonymizer_tool_unittest.cc",
     "feedback_common_unittest.cc",
     "feedback_data_unittest.cc",
     "feedback_uploader_chrome_unittest.cc",
@@ -50,10 +54,10 @@ source_set("unit_tests") {
   deps = [
     ":feedback",
     "//base",
-    "//base:prefs_test_support",
     "//components/feedback/proto",
     "//components/keyed_service/core",
     "//components/pref_registry:test_support",
+    "//components/prefs:test_support",
     "//components/user_prefs",
     "//components/variations/net",
     "//content/test:test_support",

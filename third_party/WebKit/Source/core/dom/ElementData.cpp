@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/ElementData.h"
 
 #include "core/css/StylePropertySet.h"
@@ -167,7 +166,7 @@ PassRefPtrWillBeRawPtr<ShareableElementData> ShareableElementData::createWithAtt
 #if ENABLE(OILPAN)
     void* slot = Heap::allocate<ElementData>(sizeForShareableElementDataWithAttributeCount(attributes.size()));
 #else
-    void* slot = WTF::Partitions::fastMalloc(sizeForShareableElementDataWithAttributeCount(attributes.size()));
+    void* slot = WTF::Partitions::fastMalloc(sizeForShareableElementDataWithAttributeCount(attributes.size()), WTF_HEAP_PROFILER_TYPE_NAME(ShareableElementData));
 #endif
     return adoptRefWillBeNoop(new (slot) ShareableElementData(attributes));
 }
@@ -207,7 +206,7 @@ PassRefPtrWillBeRawPtr<ShareableElementData> UniqueElementData::makeShareableCop
 #if ENABLE(OILPAN)
     void* slot = Heap::allocate<ElementData>(sizeForShareableElementDataWithAttributeCount(m_attributeVector.size()));
 #else
-    void* slot = WTF::Partitions::fastMalloc(sizeForShareableElementDataWithAttributeCount(m_attributeVector.size()));
+    void* slot = WTF::Partitions::fastMalloc(sizeForShareableElementDataWithAttributeCount(m_attributeVector.size()), WTF_HEAP_PROFILER_TYPE_NAME(ShareableElementData));
 #endif
     return adoptRefWillBeNoop(new (slot) ShareableElementData(*this));
 }

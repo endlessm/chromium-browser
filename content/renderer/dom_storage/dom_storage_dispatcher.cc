@@ -99,11 +99,11 @@ class DomStorageDispatcher::ProxyImpl : public DOMStorageProxy {
   explicit ProxyImpl(RenderThreadImpl* sender);
 
   // Methods for use by DomStorageDispatcher directly.
-  DOMStorageCachedArea* OpenCachedArea(
-      int64 namespace_id, const GURL& origin);
+  DOMStorageCachedArea* OpenCachedArea(int64_t namespace_id,
+                                       const GURL& origin);
   void CloseCachedArea(DOMStorageCachedArea* area);
-  DOMStorageCachedArea* LookupCachedArea(
-      int64 namespace_id, const GURL& origin);
+  DOMStorageCachedArea* LookupCachedArea(int64_t namespace_id,
+                                         const GURL& origin);
   void CompleteOnePendingCallback(bool success);
   void Shutdown();
 
@@ -155,7 +155,7 @@ class DomStorageDispatcher::ProxyImpl : public DOMStorageProxy {
     return callback;
   }
 
-  std::string GetCachedAreaKey(int64 namespace_id, const GURL& origin) {
+  std::string GetCachedAreaKey(int64_t namespace_id, const GURL& origin) {
     return base::Int64ToString(namespace_id) + origin.spec();
   }
 
@@ -179,7 +179,8 @@ DomStorageDispatcher::ProxyImpl::ProxyImpl(RenderThreadImpl* sender)
 }
 
 DOMStorageCachedArea* DomStorageDispatcher::ProxyImpl::OpenCachedArea(
-    int64 namespace_id, const GURL& origin) {
+    int64_t namespace_id,
+    const GURL& origin) {
   std::string key = GetCachedAreaKey(namespace_id, origin);
   if (CachedAreaHolder* holder = GetAreaHolder(key)) {
     ++(holder->open_count_);
@@ -204,7 +205,8 @@ void DomStorageDispatcher::ProxyImpl::CloseCachedArea(
 }
 
 DOMStorageCachedArea* DomStorageDispatcher::ProxyImpl::LookupCachedArea(
-    int64 namespace_id, const GURL& origin) {
+    int64_t namespace_id,
+    const GURL& origin) {
   std::string key = GetCachedAreaKey(namespace_id, origin);
   CachedAreaHolder* holder = GetAreaHolder(key);
   if (!holder)
@@ -268,7 +270,9 @@ DomStorageDispatcher::~DomStorageDispatcher() {
 }
 
 scoped_refptr<DOMStorageCachedArea> DomStorageDispatcher::OpenCachedArea(
-    int connection_id, int64 namespace_id, const GURL& origin) {
+    int connection_id,
+    int64_t namespace_id,
+    const GURL& origin) {
   RenderThreadImpl::current()->Send(
       new DOMStorageHostMsg_OpenStorageArea(
           connection_id, namespace_id, origin));
@@ -297,9 +301,8 @@ void DomStorageDispatcher::OnStorageEvent(
     const DOMStorageMsg_Event_Params& params) {
   RenderThreadImpl::current()->EnsureWebKitInitialized();
 
-  bool originated_in_process = params.connection_id != 0;
   WebStorageAreaImpl* originating_area = NULL;
-  if (originated_in_process) {
+  if (params.connection_id) {
     originating_area = WebStorageAreaImpl::FromConnectionId(
         params.connection_id);
   } else {
@@ -316,8 +319,7 @@ void DomStorageDispatcher::OnStorageEvent(
         params.new_value,
         params.origin,
         params.page_url,
-        originating_area,
-        originated_in_process);
+        originating_area);
   } else {
     WebStorageNamespaceImpl
         session_namespace_for_event_dispatch(params.namespace_id);
@@ -328,8 +330,7 @@ void DomStorageDispatcher::OnStorageEvent(
         params.origin,
         params.page_url,
         session_namespace_for_event_dispatch,
-        originating_area,
-        originated_in_process);
+        originating_area);
   }
 }
 

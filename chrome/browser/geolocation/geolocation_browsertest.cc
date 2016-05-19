@@ -2,14 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/simple_test_clock.h"
 #include "base/time/clock.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
@@ -30,7 +34,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/geoposition.h"
 #include "content/public/test/browser_test_utils.h"
-#include "net/base/net_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
 namespace {
@@ -294,8 +297,7 @@ void GeolocationBrowserTest::TearDownInProcessBrowserTestFixture() {
 }
 
 void GeolocationBrowserTest::Initialize(InitializationOptions options) {
-  if (!embedded_test_server()->Started() &&
-      !embedded_test_server()->InitializeAndWaitUntilReady()) {
+  if (!embedded_test_server()->Started() && !embedded_test_server()->Start()) {
     ADD_FAILURE() << "Test server failed to start.";
     return;
   }

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/imports/HTMLImportStateResolver.h"
 
 #include "core/html/imports/HTMLImport.h"
@@ -79,5 +78,4 @@ HTMLImportState HTMLImportStateResolver::resolve() const
     return HTMLImportState(HTMLImportState::Ready);
 }
 
-}
-
+} // namespace blink

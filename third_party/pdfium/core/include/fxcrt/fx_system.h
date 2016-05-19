@@ -55,22 +55,23 @@
 
 #if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
 #define _CRT_SECURE_NO_WARNINGS
-#include <sal.h>
 #include <windows.h>
+#include <sal.h>
 #endif
 
 #if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
-#include <libkern/OSAtomic.h>
 #include <Carbon/Carbon.h>
+#include <libkern/OSAtomic.h>
 #endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 typedef void* FX_POSITION;       // Keep until fxcrt containers gone
-typedef unsigned short FX_WORD;  // Keep - "an efficient small type"
-typedef unsigned int FX_DWORD;   // Keep - "an efficient type"
+typedef uint16_t FX_WORD;        // Keep - "an efficient small type"
+typedef uint32_t FX_DWORD;       // Keep - "an efficient type"
 typedef float FX_FLOAT;          // Keep, allow upgrade to doubles.
+typedef double FX_DOUBLE;        // Keep, allow downgrade to floats.
 typedef int FX_BOOL;             // Keep, sadly not always 0 or 1.
 typedef char FX_CHAR;            // Keep, questionable signedness.
 typedef wchar_t FX_WCHAR;        // Keep, maybe bad platform wchars.
@@ -79,10 +80,6 @@ typedef wchar_t FX_WCHAR;        // Keep, maybe bad platform wchars.
 // allow -1 as a placeholder for "unknown".
 // TODO(palmer): it should be a |size_t|, or at least unsigned.
 typedef int FX_STRSIZE;
-
-#if defined(DEBUG) && !defined(_DEBUG)
-#define _DEBUG
-#endif
 
 #ifndef TRUE
 #define TRUE 1
@@ -103,16 +100,16 @@ static_assert(FALSE == false, "false_needs_to_be_false");
 
 #define FXSYS_assert assert
 #ifndef ASSERT
-#ifdef _DEBUG
+#ifndef NDEBUG
 #define ASSERT FXSYS_assert
 #else
 #define ASSERT(a)
 #endif
 #endif
 
-#define FX_MAX(a, b) (((a) > (b)) ? (a) : (b))
-#define FX_MIN(a, b) (((a) < (b)) ? (a) : (b))
+// M_PI not universally present on all platforms.
 #define FX_PI 3.1415926535897932384626433832795f
+#define FX_BEZIER 0.5522847498308f
 
 // NOTE: prevent use of the return value from snprintf() since some platforms
 // have different return values (e.g. windows _vsnprintf()), and provide
@@ -272,9 +269,6 @@ int64_t FXSYS_atoi64(const FX_CHAR* str);
 int64_t FXSYS_wtoi64(const FX_WCHAR* str);
 const FX_CHAR* FXSYS_i64toa(int64_t value, FX_CHAR* str, int radix);
 int FXSYS_round(FX_FLOAT f);
-#define FXSYS_Mul(a, b) ((a) * (b))
-#define FXSYS_Div(a, b) ((a) / (b))
-#define FXSYS_MulDiv(a, b, c) ((a) * (b) / (c))
 #define FXSYS_sqrt2(a, b) (FX_FLOAT) FXSYS_sqrt((a) * (a) + (b) * (b))
 #ifdef __cplusplus
 };

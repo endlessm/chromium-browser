@@ -113,6 +113,19 @@ UIView* GetFirstResponderSubview(UIView* view) {
   return [_webController webViewType];
 }
 
+- (BOOL)shouldUseInsetForTopPadding {
+  SEL shouldUseInsetSelector = @selector(shouldUseInsetForTopPadding);
+  return [_contentView respondsToSelector:shouldUseInsetSelector] &&
+         [_contentView shouldUseInsetForTopPadding];
+}
+
+- (void)setShouldUseInsetForTopPadding:(BOOL)shouldUseInsetForTopPadding {
+  if ([_contentView
+          respondsToSelector:@selector(setShouldUseInsetForTopPadding:)]) {
+    [_contentView setShouldUseInsetForTopPadding:shouldUseInsetForTopPadding];
+  }
+}
+
 - (void)registerInsets:(UIEdgeInsets)insets forCaller:(id)caller {
   NSValue* callerValue = [NSValue valueWithNonretainedObject:caller];
   if ([_registeredInsets objectForKey:callerValue])
@@ -172,6 +185,10 @@ UIView* GetFirstResponderSubview(UIView* view) {
         (BOOL)keyboardDisplayRequiresUserAction {
   [_webController
       setKeyboardDisplayRequiresUserAction:keyboardDisplayRequiresUserAction];
+}
+
+- (BOOL)becomeFirstResponder {
+  return [_contentView becomeFirstResponder];
 }
 
 @end

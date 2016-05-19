@@ -8,7 +8,7 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -83,10 +83,6 @@ class BrowserPolicyConnectorChromeOS
   // factors. See DeviceCloudPolicyInitializer::GetPrescribedEnrollmentConfig()
   // for details.
   EnrollmentConfig GetPrescribedEnrollmentConfig() const;
-
-  // Works out the user affiliation by checking the given |user_name| against
-  // the installation attributes.
-  UserAffiliation GetUserAffiliation(const std::string& user_name);
 
   DeviceCloudPolicyManagerChromeOS* GetDeviceCloudPolicyManager() {
     return device_cloud_policy_manager_;

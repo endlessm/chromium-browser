@@ -4,15 +4,18 @@
 
 #include "chrome/browser/supervised_user/supervised_user_settings_service.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/prefs/json_pref_store.h"
-#include "base/prefs/pref_filter.h"
 #include "base/strings/string_util.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/supervised_user/supervised_user_url_filter.h"
 #include "chrome/common/chrome_constants.h"
+#include "components/prefs/json_pref_store.h"
+#include "components/prefs/pref_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/user_metrics.h"
 #include "sync/api/sync_change.h"
@@ -187,8 +190,8 @@ SyncMergeResult SupervisedUserSettingsService::MergeDataAndStartSyncing(
     scoped_ptr<SyncChangeProcessor> sync_processor,
     scoped_ptr<SyncErrorFactory> error_handler) {
   DCHECK_EQ(SUPERVISED_USER_SETTINGS, type);
-  sync_processor_ = sync_processor.Pass();
-  error_handler_ = error_handler.Pass();
+  sync_processor_ = std::move(sync_processor);
+  error_handler_ = std::move(error_handler);
 
   // Clear all atomic and split settings, then recreate them from Sync data.
   Clear();
@@ -404,7 +407,7 @@ scoped_ptr<base::DictionaryValue> SupervisedUserSettingsService::GetSettings() {
     settings->Set(it.key(), it.value().DeepCopy());
   }
 
-  return settings.Pass();
+  return settings;
 }
 
 void SupervisedUserSettingsService::InformSubscribers() {

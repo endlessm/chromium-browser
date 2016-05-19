@@ -5,8 +5,8 @@
 #ifndef CONTENT_RENDERER_GPU_COMPOSITOR_EXTERNAL_BEGIN_FRAME_SOURCE_H_
 #define CONTENT_RENDERER_GPU_COMPOSITOR_EXTERNAL_BEGIN_FRAME_SOURCE_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "cc/scheduler/begin_frame_source.h"
 #include "content/renderer/gpu/compositor_forwarding_message_filter.h"
@@ -31,7 +31,8 @@ class CompositorExternalBeginFrameSource
   ~CompositorExternalBeginFrameSource() override;
 
   // cc::BeginFrameSourceBase implementation.
-  void OnNeedsBeginFramesChange(bool needs_begin_frames) override;
+  void AddObserver(cc::BeginFrameObserver* obs) override;
+  void OnNeedsBeginFramesChanged(bool needs_begin_frames) override;
   void SetClientReady() override;
 
  private:
@@ -69,6 +70,7 @@ class CompositorExternalBeginFrameSource
   scoped_refptr<IPC::SyncMessageFilter> message_sender_;
   int routing_id_;
   CompositorForwardingMessageFilter::Handler begin_frame_source_filter_handler_;
+  cc::BeginFrameArgs missed_begin_frame_args_;
 
   DISALLOW_COPY_AND_ASSIGN(CompositorExternalBeginFrameSource);
 };

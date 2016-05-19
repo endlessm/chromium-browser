@@ -4,6 +4,8 @@
 
 #include "chrome/service/cloud_print/cloud_print_connector.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
@@ -360,8 +362,7 @@ void CloudPrintConnector::ReportUserMessage(const std::string& message_id,
                                             const std::string& failure_msg) {
   // This is a fire and forget type of function.
   // Result of this request will be ignored.
-  std::string mime_boundary;
-  CreateMimeBoundaryForUpload(&mime_boundary);
+  std::string mime_boundary = net::GenerateMimeMultipartBoundary();
   GURL url = GetUrlForUserMessage(settings_.server_url(), message_id);
   std::string post_data;
   net::AddMultipartValueForUpload(kMessageTextValue, failure_msg, mime_boundary,
@@ -607,8 +608,7 @@ void CloudPrintConnector::OnReceivePrinterCaps(
   const printing::PrinterBasicInfo& info = pending_tasks_.front().printer_info;
   DCHECK(IsSamePrinter(info.printer_name, printer_name));
 
-  std::string mime_boundary;
-  CreateMimeBoundaryForUpload(&mime_boundary);
+  std::string mime_boundary = net::GenerateMimeMultipartBoundary();
   std::string post_data;
 
   net::AddMultipartValueForUpload(kProxyIdValue,

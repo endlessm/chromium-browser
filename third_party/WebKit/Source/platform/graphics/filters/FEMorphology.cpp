@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/graphics/filters/FEMorphology.h"
 
 #include "SkMorphologyImageFilter.h"
@@ -99,7 +98,7 @@ PassRefPtr<SkImageFilter> FEMorphology::createImageFilter(SkiaImageFilterBuilder
     RefPtr<SkImageFilter> input(builder.build(inputEffect(0), operatingColorSpace()));
     SkScalar radiusX = SkFloatToScalar(filter()->applyHorizontalScale(m_radiusX));
     SkScalar radiusY = SkFloatToScalar(filter()->applyVerticalScale(m_radiusY));
-    SkImageFilter::CropRect rect = getCropRect(builder.cropOffset());
+    SkImageFilter::CropRect rect = getCropRect();
     if (m_type == FEMORPHOLOGY_OPERATOR_DILATE)
         return adoptRef(SkDilateImageFilter::Create(radiusX, radiusY, input.get(), &rect));
     return adoptRef(SkErodeImageFilter::Create(radiusX, radiusY, input.get(), &rect));

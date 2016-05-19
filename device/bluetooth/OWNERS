@@ -1,8 +1,8 @@
+scheib@chromium.org
+
+# No longer fulltime chromium developers:
 keybuk@chromium.org
 armansito@chromium.org
-
-per-file *_android*=scheib@chromium.org
-per-file *test*=scheib@chromium.org
 
 per-file *.gyp*=*
 per-file BUILD.gn=*

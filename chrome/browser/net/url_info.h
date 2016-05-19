@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "net/base/host_port_pair.h"
 #include "url/gurl.h"
@@ -73,6 +74,8 @@ class UrlInfo {
   // UrlInfo are usually made by the default constructor during
   // initializing of the Predictor's map (of info for Hostnames).
   UrlInfo();
+
+  UrlInfo(const UrlInfo& other);
 
   ~UrlInfo();
 

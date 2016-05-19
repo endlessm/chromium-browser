@@ -9,6 +9,7 @@
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/sync/one_click_signin_sync_starter.h"
@@ -78,6 +79,7 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
                               const std::string& session_index,
                               const std::string& auth_code,
                               bool choose_what_to_sync);
+    FinishCompleteLoginParams(const FinishCompleteLoginParams& other);
     ~FinishCompleteLoginParams();
 
     // Pointer to WebUI handler.  May be nullptr.
@@ -170,7 +172,6 @@ class InlineSigninHelper : public GaiaAuthConsumer {
   // cross account error, and false otherwise.
   bool HandleCrossAccountError(
       const std::string& refresh_token,
-      signin_metrics::Source source,
       OneClickSigninSyncStarter::ConfirmationRequired confirmation_required,
       OneClickSigninSyncStarter::StartSyncMode start_mode);
 
@@ -178,7 +179,6 @@ class InlineSigninHelper : public GaiaAuthConsumer {
   void ConfirmEmailAction(
       content::WebContents* web_contents,
       const std::string& refresh_token,
-      signin_metrics::Source source,
       OneClickSigninSyncStarter::ConfirmationRequired confirmation_required,
       OneClickSigninSyncStarter::StartSyncMode start_mode,
       Action action);
@@ -193,7 +193,8 @@ class InlineSigninHelper : public GaiaAuthConsumer {
   virtual void CreateSyncStarter(
       Browser* browser,
       content::WebContents* contents,
-      const GURL& url,
+      const GURL& current_url,
+      const GURL& continue_url,
       const std::string& refresh_token,
       OneClickSigninSyncStarter::StartSyncMode start_mode,
       OneClickSigninSyncStarter::ConfirmationRequired confirmation_required);

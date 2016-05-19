@@ -5,11 +5,12 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_BROWSER_ACTIONS_CONTAINER_H_
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_BROWSER_ACTIONS_CONTAINER_H_
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/observer_list.h"
-#include "chrome/browser/extensions/extension_keybinding_registry.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar_delegate.h"
-#include "chrome/browser/ui/views/extensions/extension_keybinding_registry_views.h"
 #include "chrome/browser/ui/views/toolbar/chevron_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_action_view.h"
 #include "ui/gfx/animation/animation_delegate.h"
@@ -52,19 +53,20 @@ class ResizeArea;
 // layout is similar to this:
 //   rI_I_IcCs
 // Where the letters are as follows:
-//   r: An invisible resize area.  This is ToolbarView::kStandardSpacing pixels
-//      wide and directly adjacent to the omnibox. Only shown for the main
-//      container.
-//   I: An icon.  This is as wide as the IDR_BROWSER_ACTION image.
-//   _: kItemSpacing pixels of empty space.
-//   c: kChevronSpacing pixels of empty space.  Only present if C is present.
+//   r: An invisible resize area.  This is
+//      GetLayoutConstant(TOOLBAR_STANDARD_SPACING) pixels wide and directly
+//      adjacent to the omnibox. Only shown for the main container.
+//   I: An icon. In material design this has a width of 28. Otherwise it is as
+//      wide as the IDR_BROWSER_ACTION image.
+//   _: ToolbarActionsBar::PlatformSettings::item_spacing pixels of empty space.
+//   c: GetChevronSpacing() pixels of empty space. Only present if C is present.
 //   C: An optional chevron, as wide as the IDR_BROWSER_ACTIONS_OVERFLOW image,
 //      and visible only when both of the following statements are true:
 //      - The container is set to a width smaller than needed to show all icons.
 //      - There is no other container in 'overflow' mode to handle the
 //        non-visible icons for this container.
-//   s: ToolbarView::kStandardSpacing pixels of empty space (before the app
-//      menu).
+//   s: GetLayoutConstant(TOOLBAR_STANDARD_SPACING) pixels of empty space
+//      (before the app menu).
 // The reason the container contains the trailing space "s", rather than having
 // it be handled by the parent view, is so that when the chevron is invisible
 // and the user starts dragging an icon around, we have the space to draw the
@@ -120,14 +122,12 @@ class ResizeArea;
 // growing the container.
 //
 ////////////////////////////////////////////////////////////////////////////////
-class BrowserActionsContainer
-    : public views::View,
-      public ToolbarActionsBarDelegate,
-      public views::ResizeAreaDelegate,
-      public gfx::AnimationDelegate,
-      public ToolbarActionView::Delegate,
-      public views::WidgetObserver,
-      public extensions::ExtensionKeybindingRegistry::Delegate {
+class BrowserActionsContainer : public views::View,
+                                public ToolbarActionsBarDelegate,
+                                public views::ResizeAreaDelegate,
+                                public gfx::AnimationDelegate,
+                                public ToolbarActionView::Delegate,
+                                public views::WidgetObserver {
  public:
   // Constructs a BrowserActionContainer for a particular |browser| object. For
   // documentation of |main_container|, see class comments.
@@ -149,11 +149,6 @@ class BrowserActionsContainer
 
   ToolbarActionsBar* toolbar_actions_bar() {
     return toolbar_actions_bar_.get();
-  }
-
-  // The class that registers for keyboard shortcuts for extension commands.
-  extensions::ExtensionKeybindingRegistry* extension_keybinding_registry() {
-    return extension_keybinding_registry_.get();
   }
 
   // Get a particular toolbar action view.
@@ -184,10 +179,6 @@ class BrowserActionsContainer
   // Returns how many actions will be visible once the container finishes
   // animating to a new size, or (if not animating) the currently visible icons.
   size_t VisibleBrowserActionsAfterAnimation() const;
-
-  // Executes |command| registered by |extension|.
-  void ExecuteExtensionCommand(const extensions::Extension* extension,
-                               const extensions::Command& command);
 
   // Returns the preferred width given the limit of |max_width|. (Unlike most
   // views, since we don't want to show part of an icon or a large space after
@@ -255,10 +246,6 @@ class BrowserActionsContainer
   // views::WidgetObserver:
   void OnWidgetClosing(views::Widget* widget) override;
   void OnWidgetDestroying(views::Widget* widget) override;
-
-  // Overridden from extension::ExtensionKeybindingRegistry::Delegate:
-  extensions::ActiveTabPermissionGranter* GetActiveTabPermissionGranter()
-      override;
 
   views::BubbleDelegateView* active_bubble() { return active_bubble_; }
 
@@ -343,9 +330,6 @@ class BrowserActionsContainer
   // The DropPosition for the current drag-and-drop operation, or NULL if there
   // is none.
   scoped_ptr<DropPosition> drop_position_;
-
-  // The class that registers for keyboard shortcuts for extension commands.
-  scoped_ptr<ExtensionKeybindingRegistryViews> extension_keybinding_registry_;
 
   // The extension bubble that is actively showing, if any.
   views::BubbleDelegateView* active_bubble_;

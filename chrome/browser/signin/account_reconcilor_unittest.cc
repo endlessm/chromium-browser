@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -66,7 +69,7 @@ scoped_ptr<KeyedService> MockAccountReconcilor::Build(
       ChromeSigninClientFactory::GetForProfile(profile),
       GaiaCookieManagerServiceFactory::GetForProfile(profile)));
   reconcilor->Initialize(false /* start_reconcile_if_tokens_available */);
-  return reconcilor.Pass();
+  return std::move(reconcilor);
 }
 
 MockAccountReconcilor::MockAccountReconcilor(
@@ -284,7 +287,8 @@ TEST_F(AccountReconcilorTest, SigninManagerRegistration) {
 
   EXPECT_CALL(*GetMockReconcilor(), PerformLogoutAllAccountsAction());
 
-  signin_manager()->SignOut(signin_metrics::SIGNOUT_TEST);
+  signin_manager()->SignOut(signin_metrics::SIGNOUT_TEST,
+                            signin_metrics::SignoutDelete::IGNORE_METRIC);
   ASSERT_FALSE(reconcilor->IsRegisteredWithTokenService());
 }
 
@@ -600,7 +604,8 @@ TEST_F(AccountReconcilorTest, SignoutAfterErrorDoesNotRecordUma) {
   ASSERT_FALSE(reconcilor->is_reconcile_started_);
 
   EXPECT_CALL(*GetMockReconcilor(), PerformLogoutAllAccountsAction());
-  signin_manager()->SignOut(signin_metrics::SIGNOUT_TEST);
+  signin_manager()->SignOut(signin_metrics::SIGNOUT_TEST,
+                            signin_metrics::SignoutDelete::IGNORE_METRIC);
 
   base::HistogramTester::CountsMap expected_counts;
   expected_counts["Signin.Reconciler.Duration.Failure"] = 1;
@@ -812,12 +817,6 @@ TEST_F(AccountReconcilorTest, AddAccountToCookieCompletedWithBogusAccount) {
   ASSERT_FALSE(reconcilor->is_reconcile_started_);
 }
 
-#if !defined(OS_IOS)
-// These tests don't run on iOS because that platform uses a different
-// implementation of FakeOAuth2TokenServiceDelegate.  However, iOS also removes
-// accounts when an auth error is detected, so the scenarios being tested here
-// do not apply.
-
 TEST_F(AccountReconcilorTest, NoLoopWithBadPrimary) {
   // Connect profile to a primary account and then add a secondary account.
   const std::string account_id1 =
@@ -902,8 +901,6 @@ TEST_F(AccountReconcilorTest, WontMergeAccountsWithError) {
   ASSERT_FALSE(reconcilor->is_reconcile_started_);
   ASSERT_FALSE(reconcilor->error_during_last_reconcile_);
 }
-
-#endif  // OS_IOS
 
 INSTANTIATE_TEST_CASE_P(AccountReconcilorMaybeEnabled,
                         AccountReconcilorTest,

@@ -7,10 +7,13 @@ package org.chromium.chrome.browser.document;
 import android.annotation.TargetApi;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.os.Build;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.Menu;
+import android.view.View;
+import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.Window;
 
@@ -27,29 +30,33 @@ import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.KeyboardShortcuts;
 import org.chromium.chrome.browser.TabState;
+import org.chromium.chrome.browser.UrlConstants;
+import org.chromium.chrome.browser.bookmarks.BookmarkUtils;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel.StateChangeReason;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManagerDocument;
-import org.chromium.chrome.browser.document.DocumentTab.DocumentTabObserver;
-import org.chromium.chrome.browser.enhancedbookmarks.EnhancedBookmarkUtils;
+import org.chromium.chrome.browser.compositor.layouts.LayoutManagerDocumentTabSwitcher;
+import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
+import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior.OverviewModeObserver;
 import org.chromium.chrome.browser.firstrun.FirstRunSignInProcessor;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.metrics.StartupMetrics;
 import org.chromium.chrome.browser.metrics.UmaUtils;
+import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.preferences.datareduction.DataReductionPreferences;
 import org.chromium.chrome.browser.preferences.datareduction.DataReductionPromoScreen;
 import org.chromium.chrome.browser.signin.SigninPromoScreen;
-import org.chromium.chrome.browser.ssl.ConnectionSecurityLevel;
+import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabUma.TabCreationState;
+import org.chromium.chrome.browser.tabmodel.AsyncTabParams;
+import org.chromium.chrome.browser.tabmodel.AsyncTabParamsManager;
 import org.chromium.chrome.browser.tabmodel.SingleTabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
-import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.document.ActivityDelegate;
 import org.chromium.chrome.browser.tabmodel.document.AsyncTabCreationParams;
-import org.chromium.chrome.browser.tabmodel.document.AsyncTabCreationParamsManager;
 import org.chromium.chrome.browser.tabmodel.document.DocumentTabModel;
 import org.chromium.chrome.browser.tabmodel.document.DocumentTabModel.InitializationObserver;
 import org.chromium.chrome.browser.tabmodel.document.DocumentTabModelImpl;
@@ -60,9 +67,11 @@ import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.chrome.browser.util.UrlUtilities;
 import org.chromium.chrome.browser.widget.findinpage.FindToolbarManager;
+import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.components.service_tab_launcher.ServiceTabLauncher;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationEntry;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.PageTransition;
 
 /**
@@ -88,6 +97,111 @@ public class DocumentActivity extends ChromeActivity {
     // plus add another 20ms for a re-layout.
     private static final int MENU_EXIT_ANIMATION_WAIT_MS = 170;
 
+    private class DocumentTabObserver extends EmptyTabObserver {
+        @Override
+        public void onPageLoadStarted(Tab tab, String url) {
+            // Discard startup navigation measurements when the user interfered and started the
+            // 2nd navigation (in activity lifetime) in parallel.
+            if (!sIsFirstPageLoadStart) {
+                UmaUtils.setRunningApplicationStart(false);
+            } else {
+                sIsFirstPageLoadStart = false;
+            }
+        }
+
+        @Override
+        public void onWebContentsSwapped(Tab tab, boolean didStartLoad, boolean didFinishLoad) {
+            if (!didStartLoad) return;
+            resetIcon();
+        }
+
+        @Override
+        public void onFaviconUpdated(Tab tab, Bitmap icon) {
+            if (icon == null) return;
+            if (mLargestFavicon == null || icon.getWidth() > mLargestFavicon.getWidth()
+                    || icon.getHeight() > mLargestFavicon.getHeight()) {
+                mLargestFavicon = icon;
+                updateTaskDescription();
+            }
+        }
+
+        @Override
+        public void onUrlUpdated(Tab tab) {
+            assert mTab == tab;
+
+            updateTaskDescription();
+            mTabModel.updateEntry(getIntent(), mTab);
+        }
+
+        @Override
+        public void onTitleUpdated(Tab tab) {
+            super.onTitleUpdated(tab);
+            updateTaskDescription();
+        }
+
+        @Override
+        public void onSSLStateUpdated(Tab tab) {
+            if (hasSecurityWarningOrError(tab)) resetIcon();
+        }
+
+        @Override
+        public void onDidNavigateMainFrame(Tab tab, String url, String baseUrl,
+                boolean isNavigationToDifferentPage, boolean isFragmentNavigation,
+                int statusCode) {
+            if (!isNavigationToDifferentPage) return;
+            mLargestFavicon = null;
+            updateTaskDescription();
+        }
+
+        @Override
+        public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
+            assert mTab == tab;
+
+            updateTaskDescription();
+            mTabModel.updateEntry(getIntent(), mTab);
+        }
+
+        @Override
+        public void onDidChangeThemeColor(Tab tab, int color) {
+            updateTaskDescription();
+        }
+
+        @Override
+        public void onDidAttachInterstitialPage(Tab tab) {
+            resetIcon();
+        }
+
+        @Override
+        public void onDidDetachInterstitialPage(Tab tab) {
+            resetIcon();
+        }
+
+        @Override
+        public void onCrash(Tab tab, boolean sadTabShown) {
+            int currentState = ApplicationStatus.getStateForActivity(DocumentActivity.this);
+            if (currentState != ActivityState.STOPPED) return;
+
+            if (!isTaskRoot() || IntentUtils.safeGetBooleanExtra(getIntent(),
+                    IntentHandler.EXTRA_APPEND_TASK, false)) {
+                return;
+            }
+
+            // Finishing backgrounded Activities whose renderers have crashed allows us to
+            // destroy them and return resources sooner than if we wait for Android to destroy
+            // the Activities themselves.  Problematically, this also removes
+            // IncognitoDocumentActivity instances from Android's Recents menu and auto-closes
+            // the tab.  Instead, take a hit and keep the Activities alive -- Android will
+            // eventually destroy the Activities, anyway (crbug.com/450292).
+            if (!isIncognito()) finish();
+        }
+
+        private boolean hasSecurityWarningOrError(Tab tab) {
+            int securityLevel = tab.getSecurityLevel();
+            return securityLevel == ConnectionSecurityLevel.SECURITY_ERROR
+                    || securityLevel == ConnectionSecurityLevel.SECURITY_WARNING
+                    || securityLevel == ConnectionSecurityLevel.SECURITY_POLICY_WARNING;
+        }
+    }
     private DocumentTabModel mTabModel;
     private InitializationObserver mTabInitializationObserver;
 
@@ -103,7 +217,7 @@ public class DocumentActivity extends ChromeActivity {
 
     private int mDefaultThemeColor;
 
-    private DocumentTab mDocumentTab;
+    private Tab mTab;
     private FindToolbarManager mFindToolbarManager;
     private boolean mRecordedStartupUma;
 
@@ -111,7 +225,7 @@ public class DocumentActivity extends ChromeActivity {
     // used from the UI thread.
     private static boolean sIsFirstPageLoadStart = true;
 
-    /** Whether the DocumentTab has already been added to the TabModel. */
+    /** Whether the Tab has already been added to the TabModel. */
     private boolean mNeedsToBeAddedToTabModel;
 
     @Override
@@ -246,8 +360,8 @@ public class DocumentActivity extends ChromeActivity {
 
         if (mNeedsToBeAddedToTabModel) {
             mNeedsToBeAddedToTabModel = false;
-            mTabModel.addTab(getIntent(), mDocumentTab);
-            getTabModelSelector().setTab(mDocumentTab);
+            mTabModel.addTab(getIntent(), mTab);
+            getTabModelSelector().setTab(mTab);
         }
 
         super.finishNativeInitialization();
@@ -258,7 +372,7 @@ public class DocumentActivity extends ChromeActivity {
      */
     protected final int determineTabId() {
         int tabId = ActivityDelegate.getTabIdFromIntent(getIntent());
-        if (tabId == Tab.INVALID_TAB_ID && mDocumentTab != null) tabId = mDocumentTab.getId();
+        if (tabId == Tab.INVALID_TAB_ID && mTab != null) tabId = mTab.getId();
         return tabId;
     }
 
@@ -293,10 +407,10 @@ public class DocumentActivity extends ChromeActivity {
         }
 
         // Check the Tab's history.
-        if (TextUtils.isEmpty(initialUrl) && mDocumentTab != null
-                && mDocumentTab.getWebContents() != null) {
+        if (TextUtils.isEmpty(initialUrl) && mTab != null
+                && mTab.getWebContents() != null) {
             NavigationEntry entry =
-                    mDocumentTab.getWebContents().getNavigationController().getEntryAtIndex(0);
+                    mTab.getWebContents().getNavigationController().getEntryAtIndex(0);
             if (entry != null) initialUrl = entry.getOriginalUrl();
         }
 
@@ -305,19 +419,18 @@ public class DocumentActivity extends ChromeActivity {
 
     @Override
     public CharSequence onCreateDescription() {
-        return mDocumentTab != null ? mDocumentTab.getTitle() : "";
+        return mTab != null ? mTab.getTitle() : "";
     }
 
     @Override
-    public final DocumentTab getActivityTab() {
-        return mDocumentTab;
+    public final Tab getActivityTab() {
+        return mTab;
     }
 
     @Override
     public void onStartWithNative() {
         super.onStartWithNative();
         handleDocumentUma();
-        ChromeLauncherActivity.sendExceptionCount();
     }
 
     @Override
@@ -347,13 +460,15 @@ public class DocumentActivity extends ChromeActivity {
         // If finishing, release all the active media players as we don't know when onStop()
         // will get called.
         super.onPause();
-        if (isFinishing() && mDocumentTab != null && mDocumentTab.getWebContents() != null) {
-            mDocumentTab.getWebContents().releaseMediaPlayers();
+        if (isFinishing() && mTab != null && mTab.getWebContents() != null) {
+            mTab.getWebContents().suspendAllMediaPlayers();
+            mTab.getWebContents().setAudioMuted(true);
         }
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasWindowFocus) {
+        super.onWindowFocusChanged(hasWindowFocus);
         if (hasWindowFocus) updateLastTabId();
     }
 
@@ -371,13 +486,12 @@ public class DocumentActivity extends ChromeActivity {
     public void onResumeWithNative() {
         super.onResumeWithNative();
 
-        if (mDocumentTab != null) {
-            AsyncTabCreationParams asyncParams = AsyncTabCreationParamsManager.remove(
+        if (mTab != null) {
+            AsyncTabParams asyncParams = AsyncTabParamsManager.remove(
                     ActivityDelegate.getTabIdFromIntent(getIntent()));
             if (asyncParams != null && asyncParams.getLoadUrlParams().getUrl() != null) {
                 loadLastKnownUrl(asyncParams);
             }
-            mDocumentTab.show(TabSelectionType.FROM_USER);
         }
         StartupMetrics.getInstance().recordHistogram(false);
     }
@@ -387,7 +501,7 @@ public class DocumentActivity extends ChromeActivity {
         return (SingleTabModelSelector) super.getTabModelSelector();
     }
 
-    private void loadLastKnownUrl(AsyncTabCreationParams asyncParams) {
+    private void loadLastKnownUrl(AsyncTabParams asyncParams) {
         Intent intent = getIntent();
         if (asyncParams != null && asyncParams.getOriginalIntent() != null) {
             intent = asyncParams.getOriginalIntent();
@@ -424,7 +538,7 @@ public class DocumentActivity extends ChromeActivity {
         }
 
         if (asyncParams != null && asyncParams.getOriginalIntent() != null) {
-            mDocumentTab.getTabRedirectHandler().updateIntent(asyncParams.getOriginalIntent());
+            mTab.getTabRedirectHandler().updateIntent(asyncParams.getOriginalIntent());
         } else {
             if (getIntent() != null) {
                 try {
@@ -434,14 +548,14 @@ public class DocumentActivity extends ChromeActivity {
                     // Ignore exception.
                 }
             }
-            mDocumentTab.getTabRedirectHandler().updateIntent(intent);
+            mTab.getTabRedirectHandler().updateIntent(intent);
         }
 
-        mDocumentTab.loadUrl(loadUrlParams);
+        mTab.loadUrl(loadUrlParams);
         if (asyncParams != null && asyncParams.getRequestId() != null
                 && asyncParams.getRequestId() > 0) {
             ServiceTabLauncher.onWebContentsForRequestAvailable(
-                    asyncParams.getRequestId(), mDocumentTab.getWebContents());
+                    asyncParams.getRequestId(), mTab.getWebContents());
         }
     }
 
@@ -455,68 +569,131 @@ public class DocumentActivity extends ChromeActivity {
         mDefaultThemeColor = isIncognito()
                 ? ApiCompatibilityUtils.getColor(getResources(), R.color.incognito_primary_color)
                 : ApiCompatibilityUtils.getColor(getResources(), R.color.default_primary_color);
-        AsyncTabCreationParams asyncParams = AsyncTabCreationParamsManager.remove(
+
+        AsyncTabParams params = AsyncTabParamsManager.remove(
                 ActivityDelegate.getTabIdFromIntent(getIntent()));
-        int tabId = determineTabId();
-        TabState tabState = mTabModel.getTabStateForDocument(tabId);
-        boolean isInitiallyHidden = asyncParams != null ? asyncParams.isInitiallyHidden() : false;
-        mDocumentTab = DocumentTab.create(DocumentActivity.this, isIncognito(), getWindowAndroid(),
-                determineLastKnownUrl(), asyncParams != null ? asyncParams.getWebContents() : null,
-                tabState, isInitiallyHidden);
+
+        AsyncTabCreationParams asyncParams = params instanceof AsyncTabCreationParams
+                ? (AsyncTabCreationParams) params : null;
+        boolean isAffiliated = asyncParams != null ? asyncParams.isAffiliated() : false;
+        boolean isCreatedWithWebContents = asyncParams != null
+                && asyncParams.getWebContents() != null;
+
+        // URL modification must happen before the Tab is created.
+        if (!isIncognito() && asyncParams != null) {
+            LoadUrlParams loadUrlParams = asyncParams.getLoadUrlParams();
+            if (loadUrlParams != null && loadUrlParams.getUrl() != null) {
+                loadUrlParams.setUrl(DataReductionProxySettings.getInstance()
+                        .maybeRewriteWebliteUrl(loadUrlParams.getUrl()));
+            }
+        }
+
+        if (params != null && params.getTabToReparent() != null) {
+            mTab = params.getTabToReparent();
+            mTab.reparentToActivity(this, new DocumentTabDelegateFactory());
+        } else {
+            mTab = createActivityTab(asyncParams);
+        }
 
         if (asyncParams != null && asyncParams.getWebContents() != null) {
             Intent parentIntent = IntentUtils.safeGetParcelableExtra(getIntent(),
                     IntentHandler.EXTRA_PARENT_INTENT);
-            mDocumentTab.setParentIntent(parentIntent);
+            mTab.setParentIntent(parentIntent);
         }
 
         if (mTabModel.isNativeInitialized()) {
-            mTabModel.addTab(getIntent(), mDocumentTab);
+            mTabModel.addTab(getIntent(), mTab);
         } else {
             mNeedsToBeAddedToTabModel = true;
         }
 
-        getTabModelSelector().setTab(mDocumentTab);
+        getTabModelSelector().setTab(mTab);
 
-        TabCreationState creationState = isInitiallyHidden
-                ? TabCreationState.LIVE_IN_BACKGROUND : TabCreationState.LIVE_IN_FOREGROUND;
-        if (!mDocumentTab.didRestoreState()
+        if (mTab.didFailToRestore()
                 || (asyncParams != null && asyncParams.getLoadUrlParams().getUrl() != null)) {
-            if (!mDocumentTab.isCreatedWithWebContents()) {
+            if (!isCreatedWithWebContents) {
                 // Don't load tabs in the background on low end devices. We will call
                 // loadLastKnownUrl() in onResumeWithNative() next time activity is resumed.
-                int launchMode = IntentUtils.safeGetIntExtra(getIntent(),
-                        ChromeLauncherActivity.EXTRA_LAUNCH_MODE,
-                        ChromeLauncherActivity.LAUNCH_MODE_FOREGROUND);
-                if (SysUtils.isLowEndDevice()
-                        && launchMode == ChromeLauncherActivity.LAUNCH_MODE_AFFILIATED
-                        && asyncParams != null) {
+                if (SysUtils.isLowEndDevice() && isAffiliated) {
                     // onResumeWithNative() wants asyncParams's URL to be non-null.
                     LoadUrlParams loadUrlParams = asyncParams.getLoadUrlParams();
                     if (loadUrlParams.getUrl() == null) {
                         loadUrlParams.setUrl(determineLastKnownUrl());
                     }
 
-                    AsyncTabCreationParamsManager.add(
+                    AsyncTabParamsManager.add(
                             ActivityDelegate.getTabIdFromIntent(getIntent()), asyncParams);
 
                     // Use the URL as the document title until tab is loaded.
                     updateTaskDescription(loadUrlParams.getUrl(), null);
-                    creationState = TabCreationState.FROZEN_FOR_LAZY_LOAD;
                 } else {
                     loadLastKnownUrl(asyncParams);
                 }
             }
-            mDocumentTab.setShouldPreserve(IntentUtils.safeGetBooleanExtra(getIntent(),
+            mTab.setShouldPreserve(IntentUtils.safeGetBooleanExtra(getIntent(),
                     IntentHandler.EXTRA_PRESERVE_TASK, false));
-        } else {
-            creationState = TabCreationState.FROZEN_ON_RESTORE;
         }
-        mDocumentTab.initializeTabUma(creationState);
 
         ToolbarControlContainer controlContainer =
                 (ToolbarControlContainer) findViewById(R.id.control_container);
-        LayoutManagerDocument layoutDriver = new LayoutManagerDocument(getCompositorViewHolder());
+        LayoutManagerDocument layoutDriver = null;
+        OverviewModeBehavior overviewModeBehavior = null;
+        OnClickListener tabSwitcherClickHandler = null;
+        if (FeatureUtilities.isTabSwitchingEnabledInDocumentMode(getApplicationContext())) {
+            LayoutManagerDocumentTabSwitcher layoutDriverTabSwitcher =
+                    new LayoutManagerDocumentTabSwitcher(getCompositorViewHolder());
+            layoutDriverTabSwitcher.addOverviewModeObserver(new OverviewModeObserver() {
+                @Override
+                public void onOverviewModeStartedShowing(boolean showToolbar) {
+                    if (mFindToolbarManager != null) mFindToolbarManager.hideToolbar();
+                    if (getAssistStatusHandler() != null) {
+                        getAssistStatusHandler().updateAssistState();
+                    }
+                    ApiCompatibilityUtils.setStatusBarColor(getWindow(), Color.BLACK);
+                    StartupMetrics.getInstance().recordOpenedTabSwitcher();
+                }
+
+                @Override
+                public void onOverviewModeFinishedShowing() {}
+
+                @Override
+                public void onOverviewModeStartedHiding(
+                        boolean showToolbar, boolean delayAnimation) {}
+
+                @Override
+                public void onOverviewModeFinishedHiding() {
+                    if (getAssistStatusHandler() != null) {
+                        getAssistStatusHandler().updateAssistState();
+                    }
+                    if (getActivityTab() != null) {
+                        LayoutManagerDocumentTabSwitcher manager =
+                                (LayoutManagerDocumentTabSwitcher) getCompositorViewHolder()
+                                .getLayoutManager();
+                        boolean isInOverviewMode = manager != null && manager.overviewVisible();
+                        setStatusBarColor(getActivityTab(),
+                                isInOverviewMode ? Color.BLACK : getActivityTab().getThemeColor());
+                    }
+                }
+            });
+            layoutDriver = layoutDriverTabSwitcher;
+            overviewModeBehavior = layoutDriverTabSwitcher;
+
+            tabSwitcherClickHandler = new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (getFullscreenManager() != null
+                            && getFullscreenManager().getPersistentFullscreenMode()) {
+                        return;
+                    }
+                    LayoutManagerDocumentTabSwitcher manager =
+                            (LayoutManagerDocumentTabSwitcher) getCompositorViewHolder()
+                            .getLayoutManager();
+                    manager.toggleOverview();
+                }
+            };
+        } else {
+            layoutDriver = new LayoutManagerDocument(getCompositorViewHolder());
+        }
         initializeCompositorContent(layoutDriver, findViewById(R.id.url_bar),
                 (ViewGroup) findViewById(android.R.id.content), controlContainer);
 
@@ -529,120 +706,18 @@ public class DocumentActivity extends ChromeActivity {
         }
 
         getToolbarManager().initializeWithNative(getTabModelSelector(), getFullscreenManager(),
-                mFindToolbarManager, null, layoutDriver, null, null, null, null);
+                mFindToolbarManager, overviewModeBehavior, layoutDriver, tabSwitcherClickHandler,
+                null, null, null);
 
-        mDocumentTab.setFullscreenManager(getFullscreenManager());
+        mTab.setFullscreenManager(getFullscreenManager());
 
-        mDocumentTab.addObserver(new DocumentTabObserver() {
-            @Override
-            public void onPageLoadStarted(Tab tab, String url) {
-                // Discard startup navigation measurements when the user interfered and started the
-                // 2nd navigation (in activity lifetime) in parallel.
-                if (!sIsFirstPageLoadStart) {
-                    UmaUtils.setRunningApplicationStart(false);
-                } else {
-                    sIsFirstPageLoadStart = false;
-                }
-            }
-
-            @Override
-            public void onWebContentsSwapped(Tab tab, boolean didStartLoad, boolean didFinishLoad) {
-                if (!didStartLoad) return;
-                resetIcon();
-            }
-
-            @Override
-            protected void onFaviconReceived(Bitmap image) {
-                super.onFaviconReceived(image);
-                if (mLargestFavicon == null || image.getWidth() > mLargestFavicon.getWidth()
-                        || image.getHeight() > mLargestFavicon.getHeight()) {
-                    mLargestFavicon = image;
-                    updateTaskDescription();
-                }
-            }
-
-            @Override
-            public void onUrlUpdated(Tab tab) {
-                assert mDocumentTab == tab;
-
-                updateTaskDescription();
-                mTabModel.updateEntry(getIntent(), mDocumentTab);
-            }
-
-            @Override
-            public void onTitleUpdated(Tab tab) {
-                super.onTitleUpdated(tab);
-                updateTaskDescription();
-            }
-
-            @Override
-            public void onSSLStateUpdated(Tab tab) {
-                if (hasSecurityWarningOrError(tab)) resetIcon();
-            }
-
-            @Override
-            public void onDidNavigateMainFrame(Tab tab, String url, String baseUrl,
-                    boolean isNavigationToDifferentPage, boolean isFragmentNavigation,
-                    int statusCode) {
-                if (!isNavigationToDifferentPage) return;
-                mLargestFavicon = null;
-            }
-
-            @Override
-            public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
-                assert mDocumentTab == tab;
-
-                updateTaskDescription();
-                mTabModel.updateEntry(getIntent(), mDocumentTab);
-            }
-
-            @Override
-            public void onDidChangeThemeColor(Tab tab, int color) {
-                updateTaskDescription();
-            }
-
-            @Override
-            public void onDidAttachInterstitialPage(Tab tab) {
-                resetIcon();
-            }
-
-            @Override
-            public void onDidDetachInterstitialPage(Tab tab) {
-                resetIcon();
-            }
-
-            @Override
-            public void onCrash(Tab tab, boolean sadTabShown) {
-                int currentState = ApplicationStatus.getStateForActivity(DocumentActivity.this);
-                if (currentState != ActivityState.STOPPED) return;
-
-                if (!isTaskRoot() || IntentUtils.safeGetBooleanExtra(getIntent(),
-                        IntentHandler.EXTRA_APPEND_TASK, false)) {
-                    return;
-                }
-
-                // Finishing backgrounded Activities whose renderers have crashed allows us to
-                // destroy them and return resources sooner than if we wait for Android to destroy
-                // the Activities themselves.  Problematically, this also removes
-                // IncognitoDocumentActivity instances from Android's Recents menu and auto-closes
-                // the tab.  Instead, take a hit and keep the Activities alive -- Android will
-                // eventually destroy the Activities, anyway (crbug.com/450292).
-                if (!isIncognito()) finish();
-            }
-
-            private boolean hasSecurityWarningOrError(Tab tab) {
-                int securityLevel = tab.getSecurityLevel();
-                return securityLevel == ConnectionSecurityLevel.SECURITY_ERROR
-                        || securityLevel == ConnectionSecurityLevel.SECURITY_WARNING
-                        || securityLevel == ConnectionSecurityLevel.SECURITY_POLICY_WARNING;
-            }
-        });
+        mTab.addObserver(new DocumentTabObserver());
 
         removeWindowBackground();
 
-        if (mDocumentTab != null) {
+        if (mTab != null) {
             DataReductionPreferences.launchDataReductionSSLInfoBar(
-                    DocumentActivity.this, mDocumentTab.getWebContents());
+                    DocumentActivity.this, mTab.getWebContents());
         }
     }
 
@@ -653,20 +728,20 @@ public class DocumentActivity extends ChromeActivity {
 
     private void updateLastTabId() {
         ChromeApplication.getDocumentTabModelSelector().selectModel(isIncognito());
-        int tabId = mDocumentTab == null
-                 ? ActivityDelegate.getTabIdFromIntent(getIntent()) : mDocumentTab.getId();
+        int tabId = mTab == null
+                 ? ActivityDelegate.getTabIdFromIntent(getIntent()) : mTab.getId();
         mTabModel.setLastShownId(tabId);
     }
 
     @Override
     public boolean handleBackPressed() {
-        if (mDocumentTab == null) return false;
+        if (mTab == null) return false;
 
         if (exitFullscreenIfShowing()) return true;
 
-        if (mDocumentTab.canGoBack()) {
-            mDocumentTab.goBack();
-        } else if (!mDocumentTab.shouldPreserve()) {
+        if (mTab.canGoBack()) {
+            mTab.goBack();
+        } else if (!mTab.shouldPreserve()) {
             finishAndRemoveTask();
         } else {
             moveTaskToBack(true);
@@ -680,13 +755,61 @@ public class DocumentActivity extends ChromeActivity {
         return (TabDelegate) super.getTabCreator(incognito);
     }
 
+    private Tab createActivityTab(AsyncTabCreationParams asyncParams) {
+        boolean isAffiliated = asyncParams != null ? asyncParams.isAffiliated() : false;
+        boolean isCreatedWithWebContents = asyncParams != null
+                && asyncParams.getWebContents() != null;
+        int tabId = determineTabId();
+        int parentTabId = getIntent().getIntExtra(
+                IntentHandler.EXTRA_PARENT_TAB_ID, Tab.INVALID_TAB_ID);
+        TabState tabState = mTabModel.getTabStateForDocument(tabId);
+        boolean hasTabState = tabState != null;
+        String url = determineLastKnownUrl();
+
+        Tab tab = new Tab(tabId, parentTabId, isIncognito(), this, getWindowAndroid(),
+                getTabLaunchType(url, hasTabState, isAffiliated),
+                getTabCreationState(hasTabState, isAffiliated), tabState);
+
+        // Initialize tab and web contents.
+        WebContents webContents = isCreatedWithWebContents ? asyncParams.getWebContents() : null;
+        tab.initialize(webContents, getTabContentManager(),
+                new DocumentTabDelegateFactory(), isAffiliated, hasTabState);
+        tab.getView().requestFocus();
+        if (isCreatedWithWebContents) webContents.resumeLoadingCreatedWebContents();
+
+        return tab;
+    }
+
+    /**
+     * This cannot return {@link TabCreationState#FROZEN_ON_RESTORE_FAILED} since the Tab has
+     * to be created first to even attempt restore.
+     */
+    private TabCreationState getTabCreationState(boolean hasTabState, boolean isAffiliated) {
+        if (hasTabState) return TabCreationState.FROZEN_ON_RESTORE;
+        if (isAffiliated) {
+            if (SysUtils.isLowEndDevice()) return TabCreationState.FROZEN_FOR_LAZY_LOAD;
+            return TabCreationState.LIVE_IN_BACKGROUND;
+        }
+        return TabCreationState.LIVE_IN_FOREGROUND;
+    }
+
+    private TabLaunchType getTabLaunchType(
+            String url, boolean hasTabState, boolean isAffiliated) {
+        if (hasTabState) return TabLaunchType.FROM_RESTORE;
+        if (isAffiliated) return TabLaunchType.FROM_LONGPRESS_BACKGROUND;
+        if (!TextUtils.isEmpty(url) && url.equals(UrlConstants.NTP_URL)) {
+            return TabLaunchType.FROM_CHROME_UI;
+        }
+        return TabLaunchType.FROM_EXTERNAL_APP;
+    }
+
     @Override
     public void createContextualSearchTab(String searchUrl) {
         AsyncTabCreationParams asyncParams =
                 new AsyncTabCreationParams(new LoadUrlParams(searchUrl, PageTransition.LINK));
         asyncParams.setDocumentStartedBy(DocumentMetricIds.STARTED_BY_CONTEXTUAL_SEARCH);
         getTabCreator(false).createNewTab(
-                asyncParams, TabLaunchType.FROM_MENU_OR_OVERVIEW, getActivityTab().getId());
+                asyncParams, TabLaunchType.FROM_CHROME_UI, getActivityTab().getId());
     }
 
     @Override
@@ -713,12 +836,10 @@ public class DocumentActivity extends ChromeActivity {
             }, MENU_EXIT_ANIMATION_WAIT_MS);
         } else if (id == R.id.all_bookmarks_menu_id) {
             StartupMetrics.getInstance().recordOpenedBookmarks();
-            if (!EnhancedBookmarkUtils.showEnhancedBookmarkIfEnabled(this)) {
-                NewTabPage.launchBookmarksDialog(this, mDocumentTab, getTabModelSelector());
-            }
+            BookmarkUtils.showBookmarkManager(this);
             RecordUserAction.record("MobileMenuAllBookmarks");
         } else if (id == R.id.recent_tabs_menu_id) {
-            NewTabPage.launchRecentTabsDialog(this, mDocumentTab);
+            NewTabPage.launchRecentTabsDialog(this, mTab);
             RecordUserAction.record("MobileMenuOpenTabs");
         } else if (id == R.id.find_in_page_id) {
             mFindToolbarManager.showToolbar();
@@ -756,7 +877,7 @@ public class DocumentActivity extends ChromeActivity {
 
     @Override
     public boolean shouldShowAppMenu() {
-        if (mDocumentTab == null || !getToolbarManager().isInitialized()) {
+        if (mTab == null || !getToolbarManager().isInitialized()) {
             return false;
         }
 
@@ -770,7 +891,7 @@ public class DocumentActivity extends ChromeActivity {
     }
 
     private void updateTaskDescription() {
-        if (mDocumentTab == null) {
+        if (mTab == null) {
             updateTaskDescription(null, null);
             return;
         }
@@ -781,8 +902,8 @@ public class DocumentActivity extends ChromeActivity {
             return;
         }
 
-        String label = mDocumentTab.getTitle();
-        String domain = UrlUtilities.getDomainAndRegistry(mDocumentTab.getUrl(), false);
+        String label = mTab.getTitle();
+        String domain = UrlUtilities.getDomainAndRegistry(mTab.getUrl(), false);
         if (TextUtils.isEmpty(label)) {
             label = domain;
         }
@@ -793,7 +914,7 @@ public class DocumentActivity extends ChromeActivity {
 
         Bitmap bitmap = null;
         if (!isIncognito()) {
-            bitmap = mIcon.getBitmap(mDocumentTab.getUrl(), mLargestFavicon);
+            bitmap = mIcon.getBitmap(mTab.getUrl(), mLargestFavicon);
         }
 
         updateTaskDescription(label, bitmap);
@@ -819,7 +940,7 @@ public class DocumentActivity extends ChromeActivity {
      */
     boolean isNewTabPage() {
         String url;
-        if (mDocumentTab == null) {
+        if (mTab == null) {
             // If the Tab hasn't been created yet, then we're really early in initialization.
             // Use a combination of the original URL from the Intent and whether or not the Tab is
             // retargetable to know whether or not the user navigated away from the NTP.
@@ -829,7 +950,7 @@ public class DocumentActivity extends ChromeActivity {
             url = IntentHandler.getUrlFromIntent(getIntent());
             if (mTabModel.hasEntryForTabId(tabId) && !mTabModel.isRetargetable(tabId)) return false;
         } else {
-            url = mDocumentTab.getUrl();
+            url = mTab.getUrl();
         }
         return NewTabPage.isNTPUrl(url);
     }

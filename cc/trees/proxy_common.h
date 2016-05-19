@@ -5,11 +5,18 @@
 #ifndef CC_TREES_PROXY_COMMON_H_
 #define CC_TREES_PROXY_COMMON_H_
 
+#include <stddef.h>
+
 #include "cc/base/cc_export.h"
 #include "cc/output/begin_frame_args.h"
 #include "cc/trees/layer_tree_host_common.h"
 
 namespace cc {
+
+namespace proto {
+class BeginMainFrameAndCommitState;
+}
+
 class LayerTreeHost;
 
 struct CC_EXPORT BeginMainFrameAndCommitState {
@@ -21,6 +28,9 @@ struct CC_EXPORT BeginMainFrameAndCommitState {
   scoped_ptr<ScrollAndScaleSet> scroll_info;
   size_t memory_allocation_limit_bytes;
   bool evicted_ui_resources;
+
+  void ToProtobuf(proto::BeginMainFrameAndCommitState* proto) const;
+  void FromProtobuf(const proto::BeginMainFrameAndCommitState& proto);
 };
 
 }  // namespace cc

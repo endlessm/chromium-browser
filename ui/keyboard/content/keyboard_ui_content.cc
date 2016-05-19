@@ -5,6 +5,7 @@
 #include "ui/keyboard/content/keyboard_ui_content.h"
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/values.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_iterator.h"
@@ -160,7 +161,8 @@ void KeyboardUIContent::LoadSystemKeyboard() {
 }
 
 void KeyboardUIContent::UpdateInsetsForWindow(aura::Window* window) {
-  aura::Window* keyboard_window = GetKeyboardWindow();
+  aura::Window* keyboard_container =
+      keyboard_controller()->GetContainerWindow();
   if (!ShouldWindowOverscroll(window))
     return;
 
@@ -171,7 +173,7 @@ void KeyboardUIContent::UpdateInsetsForWindow(aura::Window* window) {
     if (view && window->Contains(view->GetNativeView())) {
       gfx::Rect window_bounds = view->GetNativeView()->GetBoundsInScreen();
       gfx::Rect intersect =
-          gfx::IntersectRects(window_bounds, keyboard_window->bounds());
+          gfx::IntersectRects(window_bounds, keyboard_container->bounds());
       int overlap = ShouldEnableInsets(window) ? intersect.height() : 0;
       if (overlap > 0 && overlap < window_bounds.height())
         view->SetInsets(gfx::Insets(0, 0, overlap, 0));
@@ -199,7 +201,7 @@ aura::Window* KeyboardUIContent::GetKeyboardWindow() {
 }
 
 bool KeyboardUIContent::HasKeyboardWindow() const {
-  return keyboard_contents_;
+  return !!keyboard_contents_;
 }
 
 bool KeyboardUIContent::ShouldWindowOverscroll(aura::Window* window) const {

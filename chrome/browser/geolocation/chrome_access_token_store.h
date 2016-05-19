@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_GEOLOCATION_CHROME_ACCESS_TOKEN_STORE_H_
 #define CHROME_BROWSER_GEOLOCATION_CHROME_ACCESS_TOKEN_STORE_H_
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "content/public/browser/access_token_store.h"
 
@@ -17,7 +18,7 @@ class ChromeAccessTokenStore : public content::AccessTokenStore {
 
   ChromeAccessTokenStore();
 
-  void LoadAccessTokens(const LoadAccessTokensCallbackType& request) override;
+  void LoadAccessTokens(const LoadAccessTokensCallback& request) override;
 
  private:
   ~ChromeAccessTokenStore() override;

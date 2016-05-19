@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_METRICS_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_METRICS_H_
 
+#include <stddef.h>
+
 #include "base/macros.h"
 #include "content/browser/service_worker/service_worker_database.h"
 #include "content/common/service_worker/service_worker_types.h"
@@ -28,14 +30,6 @@ class ServiceWorkerMetrics {
     WRITE_HEADERS_ERROR,
     WRITE_DATA_ERROR,
     NUM_WRITE_RESPONSE_RESULT_TYPES,
-  };
-
-  enum DiskCacheMigrationResult {
-    MIGRATION_OK,
-    MIGRATION_NOT_NECESSARY,
-    MIGRATION_ERROR_MIGRATION_FAILED,
-    MIGRATION_ERROR_UPDATE_DATABASE,
-    NUM_MIGRATION_RESULT_TYPES,
   };
 
   enum DeleteAndStartOverResult {
@@ -65,6 +59,7 @@ class ServiceWorkerMetrics {
     REQUEST_JOB_ERROR_DESTROYED,
     REQUEST_JOB_ERROR_DESTROYED_WITH_BLOB,
     REQUEST_JOB_ERROR_DESTROYED_WITH_STREAM,
+    REQUEST_JOB_ERROR_BAD_DELEGATE,
     NUM_REQUEST_JOB_RESULT_TYPES,
   };
 
@@ -77,15 +72,28 @@ class ServiceWorkerMetrics {
     NUM_TYPES
   };
 
-  enum EventType {
-    EVENT_TYPE_FETCH,
+  // Used for UMA. Append-only.
+  enum class EventType {
+    ACTIVATE,
+    INSTALL,
+    FETCH,
+    SYNC,
+    NOTIFICATION_CLICK,
+    PUSH,
+    GEOFENCING,
+    SERVICE_PORT_CONNECT,
+    MESSAGE,
+    NOTIFICATION_CLOSE,
     // Add new events to record here.
 
-    NUM_EVENT_TYPES
+    NUM_TYPES
   };
 
   // Used for UMA. Append only.
   enum class Site { OTHER, NEW_TAB_PAGE, NUM_TYPES };
+
+  // Converts an event type to a string. Used for tracing.
+  static const char* EventTypeToString(EventType event_type);
 
   // Excludes NTP scope from UMA for now as it tends to dominate the stats and
   // makes the results largely skewed. Some metrics don't follow this policy
@@ -107,7 +115,6 @@ class ServiceWorkerMetrics {
   // Used for ServiceWorkerStorage.
   static void RecordPurgeResourceResult(int net_error);
   static void RecordDeleteAndStartOverResult(DeleteAndStartOverResult result);
-  static void RecordDiskCacheMigrationResult(DiskCacheMigrationResult result);
 
   // Counts the number of page loads controlled by a Service Worker.
   static void CountControlledPageLoad(const GURL& url);
@@ -137,14 +144,17 @@ class ServiceWorkerMetrics {
                                       size_t handled_events,
                                       size_t fired_events);
 
+  // Records how often a dispatched event times out.
+  static void RecordEventTimeout(EventType event);
+
+  // Records the amount of time spent handling an event.
+  static void RecordEventDuration(EventType event,
+                                  const base::TimeDelta& time,
+                                  bool was_handled);
+
   // Records the result of dispatching a fetch event to a service worker.
   static void RecordFetchEventStatus(bool is_main_resource,
                                      ServiceWorkerStatusCode status);
-
-  // Records the amount of time spent handling a fetch event with the given
-  // result.
-  static void RecordFetchEventTime(ServiceWorkerFetchEventResult result,
-                                   const base::TimeDelta& time);
 
   // Records result of a ServiceWorkerURLRequestJob that was forwarded to
   // the service worker.

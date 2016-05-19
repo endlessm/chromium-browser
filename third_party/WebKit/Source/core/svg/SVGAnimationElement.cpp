@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGAnimationElement.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -160,11 +159,11 @@ static bool parseKeySplines(const String& string, Vector<UnitBezier>& result)
     return true;
 }
 
-void SVGAnimationElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void SVGAnimationElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (name == SVGNames::valuesAttr) {
         if (!parseValues(value, m_values)) {
-            reportAttributeParsingError(ParsingAttributeFailedError, name, value);
+            reportAttributeParsingError(SVGParseStatus::ParsingFailed, name, value);
             return;
         }
         updateAnimationMode();
@@ -173,7 +172,7 @@ void SVGAnimationElement::parseAttribute(const QualifiedName& name, const Atomic
 
     if (name == SVGNames::keyTimesAttr) {
         if (!parseKeyTimes(value, m_keyTimes, true))
-            reportAttributeParsingError(ParsingAttributeFailedError, name, value);
+            reportAttributeParsingError(SVGParseStatus::ParsingFailed, name, value);
         return;
     }
 
@@ -182,14 +181,14 @@ void SVGAnimationElement::parseAttribute(const QualifiedName& name, const Atomic
             // This is specified to be an animateMotion attribute only but it is simpler to put it here
             // where the other timing calculatations are.
             if (!parseKeyTimes(value, m_keyPoints, false))
-                reportAttributeParsingError(ParsingAttributeFailedError, name, value);
+                reportAttributeParsingError(SVGParseStatus::ParsingFailed, name, value);
         }
         return;
     }
 
     if (name == SVGNames::keySplinesAttr) {
         if (!parseKeySplines(value, m_keySplines))
-            reportAttributeParsingError(ParsingAttributeFailedError, name, value);
+            reportAttributeParsingError(SVGParseStatus::ParsingFailed, name, value);
         return;
     }
 
@@ -208,7 +207,7 @@ void SVGAnimationElement::parseAttribute(const QualifiedName& name, const Atomic
         return;
     }
 
-    SVGSMILElement::parseAttribute(name, value);
+    SVGSMILElement::parseAttribute(name, oldValue, value);
 }
 
 void SVGAnimationElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -731,4 +730,4 @@ void SVGAnimationElement::checkInvalidCSSAttributeType()
         clearAnimatedType();
 }
 
-}
+} // namespace blink

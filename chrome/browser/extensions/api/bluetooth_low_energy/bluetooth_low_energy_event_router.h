@@ -5,12 +5,15 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_BLUETOOTH_LOW_ENERGY_BLUETOOTH_LOW_ENERGY_EVENT_ROUTER_H_
 #define CHROME_BROWSER_EXTENSIONS_API_BLUETOOTH_LOW_ENERGY_BLUETOOTH_LOW_ENERGY_EVENT_ROUTER_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/common/extensions/api/bluetooth_low_energy.h"
@@ -57,21 +60,26 @@ class BluetoothLowEnergyEventRouter
     kStatusSuccess = 0,
     kStatusErrorAlreadyConnected,
     kStatusErrorAlreadyNotifying,
+    kStatusErrorAttributeLengthInvalid,
     kStatusErrorAuthenticationFailed,
     kStatusErrorCanceled,
+    kStatusErrorConnectionCongested,
     kStatusErrorFailed,
     kStatusErrorGattNotSupported,
     kStatusErrorHigherSecurity,
     kStatusErrorInProgress,
     kStatusErrorInsufficientAuthorization,
+    kStatusErrorInsufficientEncryption,
+    kStatusErrorInvalidArguments,
     kStatusErrorInvalidLength,
     kStatusErrorNotConnected,
     kStatusErrorNotFound,
     kStatusErrorNotNotifying,
+    kStatusErrorOffsetInvalid,
     kStatusErrorPermissionDenied,
+    kStatusErrorRequestNotSupported,
     kStatusErrorTimeout,
     kStatusErrorUnsupportedDevice,
-    kStatusErrorInvalidArguments,
   };
 
   // Error callback is used by asynchronous methods to report failures.
@@ -194,7 +202,7 @@ class BluetoothLowEnergyEventRouter
   // failure. |extension| is the extension that made the call.
   void WriteCharacteristicValue(const Extension* extension,
                                 const std::string& instance_id,
-                                const std::vector<uint8>& value,
+                                const std::vector<uint8_t>& value,
                                 const base::Closure& callback,
                                 const ErrorCallback& error_callback);
 
@@ -229,7 +237,7 @@ class BluetoothLowEnergyEventRouter
   // failure. |extension| is the extension that made the call.
   void WriteDescriptorValue(const Extension* extension,
                             const std::string& instance_id,
-                            const std::vector<uint8>& value,
+                            const std::vector<uint8_t>& value,
                             const base::Closure& callback,
                             const ErrorCallback& error_callback);
 
@@ -266,10 +274,10 @@ class BluetoothLowEnergyEventRouter
   void GattCharacteristicValueChanged(
       device::BluetoothAdapter* adapter,
       device::BluetoothGattCharacteristic* characteristic,
-      const std::vector<uint8>& value) override;
+      const std::vector<uint8_t>& value) override;
   void GattDescriptorValueChanged(device::BluetoothAdapter* adapter,
                                   device::BluetoothGattDescriptor* descriptor,
-                                  const std::vector<uint8>& value) override;
+                                  const std::vector<uint8_t>& value) override;
 
   device::BluetoothAdapter* adapter() { return adapter_.get(); }
 
@@ -313,7 +321,7 @@ class BluetoothLowEnergyEventRouter
   // Called by BluetoothGattCharacteristic and BluetoothGattDescriptor in
   // response to ReadRemoteCharacteristic and ReadRemoteDescriptor.
   void OnValueSuccess(const base::Closure& callback,
-                      const std::vector<uint8>& value);
+                      const std::vector<uint8_t>& value);
 
   // Called by BluetoothDevice in response to a call to CreateGattConnection.
   void OnCreateGattConnection(

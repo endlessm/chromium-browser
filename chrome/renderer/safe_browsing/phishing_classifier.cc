@@ -38,6 +38,24 @@ namespace safe_browsing {
 const float PhishingClassifier::kInvalidScore = -1.0;
 const float PhishingClassifier::kPhishyThreshold = 0.5;
 
+namespace {
+// Used for UMA, do not reorder.
+enum SkipClassificationReason {
+  CLASSIFICATION_PROCEED = 0,
+  SKIP_HTTPS = 1,
+  SKIP_NONE_GET = 2,
+  SKIP_REASON_MAX
+};
+
+void RecordReasonForSkippingClassificationToUMA(
+    SkipClassificationReason reason) {
+  UMA_HISTOGRAM_ENUMERATION("SBClientPhishing.SkipClassificationReason",
+                            reason,
+                            SKIP_REASON_MAX);
+}
+
+}  // namespace
+
 PhishingClassifier::PhishingClassifier(content::RenderFrame* render_frame,
                                        FeatureExtractorClock* clock)
     : render_frame_(render_frame),
@@ -111,6 +129,7 @@ void PhishingClassifier::BeginFeatureExtraction() {
   // Currently, we only classify http: URLs that are GET requests.
   GURL url(frame->document().url());
   if (!url.SchemeIs(url::kHttpScheme)) {
+    RecordReasonForSkippingClassificationToUMA(SKIP_HTTPS);
     RunFailureCallback();
     return;
   }
@@ -119,10 +138,13 @@ void PhishingClassifier::BeginFeatureExtraction() {
   if (!ds ||
       !base::EqualsASCII(base::StringPiece16(ds->request().httpMethod()),
                          "GET")) {
+    if (ds)
+      RecordReasonForSkippingClassificationToUMA(SKIP_NONE_GET);
     RunFailureCallback();
     return;
   }
 
+  RecordReasonForSkippingClassificationToUMA(CLASSIFICATION_PROCEED);
   features_.reset(new FeatureMap);
   if (!url_extractor_->ExtractFeatures(url, features_.get())) {
     RunFailureCallback();
@@ -148,7 +170,7 @@ void PhishingClassifier::CancelPendingClassification() {
 }
 
 void PhishingClassifier::DOMExtractionFinished(bool success) {
-  shingle_hashes_.reset(new std::set<uint32>);
+  shingle_hashes_.reset(new std::set<uint32_t>);
   if (success) {
     // Term feature extraction can take awhile, so it runs asynchronously
     // in several chunks of work and invokes the callback when finished.
@@ -172,7 +194,7 @@ void PhishingClassifier::TermExtractionFinished(bool success) {
     FeatureMap hashed_features;
     ClientPhishingRequest verdict;
     verdict.set_model_version(scorer_->model_version());
-    verdict.set_url(main_frame->document().url().spec());
+    verdict.set_url(main_frame->document().url().string().utf8());
     for (base::hash_map<std::string, double>::const_iterator it =
              features_->features().begin();
          it != features_->features().end(); ++it) {
@@ -184,7 +206,7 @@ void PhishingClassifier::TermExtractionFinished(bool success) {
       feature->set_name(it->first);
       feature->set_value(it->second);
     }
-    for (std::set<uint32>::const_iterator it = shingle_hashes_->begin();
+    for (std::set<uint32_t>::const_iterator it = shingle_hashes_->begin();
          it != shingle_hashes_->end(); ++it) {
       verdict.add_shingle_hashes(*it);
     }

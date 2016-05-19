@@ -5,12 +5,16 @@
 #ifndef COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_FIELD_TRIAL_H_
 #define COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_FIELD_TRIAL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
+#include "components/metrics/proto/omnibox_input_type.pb.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
 
 namespace base {
@@ -29,6 +33,7 @@ struct HUPScoringParams {
     typedef std::pair<double, int> CountMaxRelevance;
 
     ScoreBuckets();
+    ScoreBuckets(const ScoreBuckets& other);
     ~ScoreBuckets();
 
     // Computes a half-life time decay given the |elapsed_time|.
@@ -98,13 +103,14 @@ class OmniboxFieldTrial {
   // given number.  Omitted types are assumed to have multipliers of 1.0.
   typedef std::map<AutocompleteMatchType::Type, float> DemotionMultipliers;
 
-  // Activates all dynamic field trials.  The main difference between
-  // the autocomplete dynamic and static field trials is that the former
-  // don't require any code changes on the Chrome side as they are controlled
-  // on the server side.  Chrome binary simply propagates all necessary
-  // information through the X-Client-Data header.
-  // This method may be called multiple times.
-  static void ActivateDynamicTrials();
+  // Do not change these values as they need to be in sync with values
+  // specified in experiment configs on the variations server.
+  enum EmphasizeTitlesCondition {
+    EMPHASIZE_WHEN_NONEMPTY = 0,
+    EMPHASIZE_WHEN_TITLE_MATCHES = 1,
+    EMPHASIZE_WHEN_ONLY_TITLE_MATCHES = 2,
+    EMPHASIZE_NEVER = 3
+  };
 
   // ---------------------------------------------------------
   // For any experiment that's part of the bundled omnibox field trial.
@@ -123,7 +129,7 @@ class OmniboxFieldTrial {
   // Populates |field_trial_hash| with hashes of the active suggest field trial
   // names, if any.
   static void GetActiveSuggestFieldTrialHashes(
-      std::vector<uint32>* field_trial_hash);
+      std::vector<uint32_t>* field_trial_hash);
 
   // ---------------------------------------------------------
   // For the AutocompleteController "stop timer" field trial.
@@ -285,9 +291,13 @@ class OmniboxFieldTrial {
   // For the HQPFixFrequencyScoring experiment that's part of the
   // bundled omnibox field trial.
 
-  // Returns true if HQP should apply the bug fixes to the GetFrequency()
-  // function.
-  static bool HQPFixFrequencyScoringBugs();
+  // Returns true if HQP should apply the bug fix for correctly identifying
+  // typed visits.
+  static bool HQPFixTypedVisitBug();
+
+  // Returns true if HQP should apply the bug fix to discount the visits to
+  // pages visited less than ten times.
+  static bool HQPFixFewVisitsBug();
 
   // ---------------------------------------------------------
   // For the HQPNumTitleWords experiment that's part of the
@@ -299,14 +309,20 @@ class OmniboxFieldTrial {
   static size_t HQPNumTitleWordsToAllow();
 
   // ---------------------------------------------------------
-  // For the HQPAlsoDoHUPLikeScoring experiment that's part of the
-  // bundled omnibox field trial.
+  // For the replace HUP experiment that's part of the bundled omnibox field
+  // trial.
 
   // Returns whether HistoryQuick provider (HQP) should attempt to score
   // suggestions also with a HistoryURL-provider-like (HUP-like) mode, and
   // assign suggestions the max of this score and the normal score.
   // Returns false if the experiment isn't active.
   static bool HQPAlsoDoHUPLikeScoring();
+
+  // Returns whether HistoryURL provider (HUP) should search its database for
+  // URLs and suggest them.  If false, HistoryURL provider merely creates the
+  // URL-what-you-typed match when appropriate.  Return true if the experiment
+  // isn't active.
+  static bool HUPSearchDatabase();
 
   // ---------------------------------------------------------
   // For the PreventUWYTDefaultForNonURLInputs experiment that's part of the
@@ -342,6 +358,27 @@ class OmniboxFieldTrial {
   static int KeywordScoreForSufficientlyCompleteMatch();
 
   // ---------------------------------------------------------
+  // For the HQPAllowDupMatchesForScoring experiment that's part of the
+  // bundled omnibox field trial.
+
+  // Returns true if HistoryQuick provider should allow overlapping term hits
+  // to count when scoring and only remove overlaps/duplicates later (which
+  // is necessary for highlighting).  Returns false if the experiment isn't
+  // active.
+  static bool HQPAllowDupMatchesForScoring();
+
+  // ---------------------------------------------------------
+  // For the EmphasizeTitles experiment that's part of the bundled omnibox
+  // field trial.
+
+  // Returns the conditions under which the UI code should display the title
+  // of a URL more prominently than the URL for an input of type |input_type|.
+  // Normally the URL is displayed more prominently.  Returns NEVER_EMPHASIZE
+  // if the experiment isn't active.
+  static EmphasizeTitlesCondition GetEmphasizeTitlesConditionForInput(
+      metrics::OmniboxInputType::Type input_type);
+
+  // ---------------------------------------------------------
   // Exposed publicly for the sake of unittests.
   static const char kBundledExperimentFieldTrialName[];
   // Rule names used by the bundled experiment.
@@ -359,13 +396,17 @@ class OmniboxFieldTrial {
   static const char kDisableResultsCachingRule[];
   static const char kMeasureSuggestPollingDelayFromLastKeystrokeRule[];
   static const char kSuggestPollingDelayMsRule[];
-  static const char kHQPFixFrequencyScoringBugsRule[];
+  static const char kHQPFixTypedVisitBugRule[];
+  static const char kHQPFixFewVisitsBugRule[];
   static const char kHQPNumTitleWordsRule[];
   static const char kHQPAlsoDoHUPLikeScoringRule[];
+  static const char kHUPSearchDatabaseRule[];
   static const char kPreventUWYTDefaultForNonURLInputsRule[];
   static const char kKeywordRequiresRegistryRule[];
   static const char kKeywordRequiresPrefixMatchRule[];
   static const char kKeywordScoreForSufficientlyCompleteMatchRule[];
+  static const char kHQPAllowDupMatchesForScoringRule[];
+  static const char kEmphasizeTitlesRule[];
 
   // Parameter names used by the HUP new scoring experiments.
   static const char kHUPNewScoringEnabledParam[];

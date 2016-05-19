@@ -85,8 +85,9 @@ base::TimeTicks JustAfter(base::TimeTicks t) {
 // Returns true if updates have been accumulated by |accumulator| for a
 // sufficient amount of time and the latest update was fairly recent, relative
 // to |now|.
-bool HasSufficientRecentFeedback(const FeedbackSignalAccumulator& accumulator,
-                                 base::TimeTicks now) {
+bool HasSufficientRecentFeedback(
+    const FeedbackSignalAccumulator<base::TimeTicks>& accumulator,
+    base::TimeTicks now) {
   const base::TimeDelta amount_of_history =
       accumulator.update_time() - accumulator.reset_time();
   return (amount_of_history.InMicroseconds() >= kMinSizeChangePeriodMicros) &&
@@ -170,6 +171,13 @@ bool VideoCaptureOracle::ObserveEventAndDecideCapture(
         should_sample = smoothing_sampler_.IsOverdueForSamplingAt(event_time);
       break;
 
+    case kMouseCursorUpdate:
+      // Only allow a sampling if there are none currently in-progress.
+      if (num_frames_pending_ == 0) {
+        smoothing_sampler_.ConsiderPresentationEvent(event_time);
+        should_sample = smoothing_sampler_.ShouldSample();
+      }
+      break;
     case kNumEvents:
       NOTREACHED();
       break;

@@ -5,11 +5,14 @@
 #ifndef EXTENSIONS_BROWSER_VALUE_STORE_LEVELDB_VALUE_STORE_H_
 #define EXTENSIONS_BROWSER_VALUE_STORE_LEVELDB_VALUE_STORE_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "extensions/browser/value_store/value_store.h"
@@ -51,8 +54,6 @@ class LeveldbValueStore : public ValueStore,
   WriteResult Remove(const std::string& key) override;
   WriteResult Remove(const std::vector<std::string>& keys) override;
   WriteResult Clear() override;
-  bool Restore() override;
-  bool RestoreKey(const std::string& key) override;
 
   // Write directly to the backing levelDB. Only used for testing to cause
   // corruption in the database.
@@ -63,32 +64,39 @@ class LeveldbValueStore : public ValueStore,
                     base::trace_event::ProcessMemoryDump* pmd) override;
 
  private:
+  // Fix the |key| or database. If |key| is not null and the database is open
+  // then the key will be deleted. Otherwise the database will be repaired, and
+  // failing that will be deleted.
+  BackingStoreRestoreStatus FixCorruption(const std::string* key);
+
+  // Log, to UMA, the status of an attempt to restore a database.
+  BackingStoreRestoreStatus LogRestoreStatus(
+      BackingStoreRestoreStatus restore_status);
+
   // Tries to open the database if it hasn't been opened already.
-  scoped_ptr<ValueStore::Error> EnsureDbIsOpen();
+  ValueStore::Status EnsureDbIsOpen();
 
   // Reads a setting from the database.
-  scoped_ptr<ValueStore::Error> ReadFromDb(
-      leveldb::ReadOptions options,
-      const std::string& key,
-      // Will be reset() with the result, if any.
-      scoped_ptr<base::Value>* setting);
+  ValueStore::Status ReadFromDb(const std::string& key,
+                                // Will be reset() with the result, if any.
+                                scoped_ptr<base::Value>* setting);
 
   // Adds a setting to a WriteBatch, and logs the change in |changes|. For use
   // with WriteToDb.
-  scoped_ptr<ValueStore::Error> AddToBatch(ValueStore::WriteOptions options,
-                                           const std::string& key,
-                                           const base::Value& value,
-                                           leveldb::WriteBatch* batch,
-                                           ValueStoreChangeList* changes);
+  ValueStore::Status AddToBatch(ValueStore::WriteOptions options,
+                                const std::string& key,
+                                const base::Value& value,
+                                leveldb::WriteBatch* batch,
+                                ValueStoreChangeList* changes);
 
   // Commits the changes in |batch| to the database.
-  scoped_ptr<ValueStore::Error> WriteToDb(leveldb::WriteBatch* batch);
+  ValueStore::Status WriteToDb(leveldb::WriteBatch* batch);
 
-  // Converts an error leveldb::Status to a ValueStore::Error. Returns a
-  // scoped_ptr for convenience; the result will always be non-empty.
-  scoped_ptr<ValueStore::Error> ToValueStoreError(
-      const leveldb::Status& status,
-      scoped_ptr<std::string> key);
+  // Converts an error leveldb::Status to a ValueStore::Error.
+  ValueStore::Status ToValueStoreError(const leveldb::Status& status);
+
+  // Delete a value (identified by |key|) from the value store.
+  leveldb::Status Delete(const std::string& key);
 
   // Removes the on-disk database at |db_path_|. Any file system locks should
   // be released before calling this method.
@@ -99,11 +107,16 @@ class LeveldbValueStore : public ValueStore,
 
   // The location of the leveldb backend.
   const base::FilePath db_path_;
+  leveldb::Options open_options_;
+  leveldb::ReadOptions read_options_;
 
   // leveldb backend.
   scoped_ptr<leveldb::DB> db_;
+  // Database is corrupt - restoration failed.
+  bool db_unrecoverable_;
   base::HistogramBase* open_histogram_;
-  base::HistogramBase* restore_histogram_;
+  base::HistogramBase* db_restore_histogram_;
+  base::HistogramBase* value_restore_histogram_;
 
   DISALLOW_COPY_AND_ASSIGN(LeveldbValueStore);
 };

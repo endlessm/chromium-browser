@@ -34,17 +34,17 @@ Below is a brief summary of what the sheriff does for each task:
 * Track down people responsible for breakages and revert broken changes if there is no easy fix.
 * Close and open the [tree](http://skia-tree-status.appspot.com).
 * Keep the builder comments on the [status page](https://status.skia.org) up to date.
-* File or follow up with [BreakingTheBuildbots bugs](https://code.google.com/p/skia/issues/list?q=label:BreakingTheBuildbots). See the tip on [when to file bugs](#when_to_file_bugs).
+* File or follow up with [BreakingTheBuildbots bugs](https://bug.skia.org/?q=label:BreakingTheBuildbots). See the tip on [when to file bugs](#when_to_file_bugs).
 
 <a name="deps_rolls"></a>
 ### DEPS rolls
-* Ensure that [AutoRoll Bot](https://skia-tree-status.appspot.com/set_arb_action)'s DEPS rolls land successfully.
+* Ensure that [AutoRoll Bot](https://autoroll.skia.org)'s DEPS rolls land successfully.
 
 <a name="gold_and_perf"></a>
 ### Gold and Perf
 * Pay attention for new [Perf](https://perf.skia.org/) and [Gold](https://gold.skia.org/) alerts (by clicking on the bell at the top right of the [status page](https://status.skia.org)).
 * The sheriff's duty here is to make sure that when developers introduce new images or new perf regressions, that they are aware of what happened, and they use these tools to take appropriate action.
- 
+
 <a name="sheriff_doc"></a>
 ### Documentation
 * Improve/update this documentation page for future sheriffs, especially the [Tips section](#tips).
@@ -75,7 +75,7 @@ Tips for sheriffs
 ### When to file bugs
 
 Pay close attention to the "Failures" view in the [status page](https://status.skia.org).
-Look at all existing [BreakingTheBuildbots bugs](https://code.google.com/p/skia/issues/list?q=label:BreakingTheBuildbots). If the list is kept up to date then it should accurately represent everything that is causing failures. If it does not, then please file/update bugs accordingly.
+Look at all existing [BreakingTheBuildbots bugs](https://bug.skia.org/?q=label:BreakingTheBuildbots). If the list is kept up to date then it should accurately represent everything that is causing failures. If it does not, then please file/update bugs accordingly.
 
 
 <a name="how_close_tree"></a>
@@ -149,7 +149,7 @@ If a Skia CL changes layout tests, but the new images look good, the tests need 
 
 * Retry the DEPS roll (for the 1st/dispreferred option this usually means just retrying the layout bots)
 * Make a Blink patch by editing LayoutTests/TestExpectations
-  * Add # comment about what has changed 
+  * Add # comment about what has changed
   * Add line(s) like the following after the comment:
       * crbug.com/<bug#youjustcreated> foo/bar/test-name.html [ NeedsRebaseline ]
         * (if you took the second option above you can just edit the existing line(s))

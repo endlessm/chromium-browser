@@ -5,20 +5,24 @@
 #ifndef CONTENT_BROWSER_NOTIFICATIONS_NOTIFICATION_MESSAGE_FILTER_H_
 #define CONTENT_BROWSER_NOTIFICATIONS_NOTIFICATION_MESSAGE_FILTER_H_
 
+#include <stdint.h>
+
 #include <map>
+#include <vector>
 
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/notification_database_data.h"
 #include "third_party/WebKit/public/platform/modules/notifications/WebNotificationPermission.h"
 
 class GURL;
-class SkBitmap;
 
 namespace content {
 
 class BrowserContext;
+struct NotificationResources;
 class PlatformNotificationContextImpl;
 struct PlatformNotificationData;
 class PlatformNotificationService;
@@ -39,8 +43,8 @@ class NotificationMessageFilter : public BrowserMessageFilter {
   // BrowserMessageFilter implementation. Called on the UI thread.
   void OnDestruct() const override;
   bool OnMessageReceived(const IPC::Message& message) override;
-  void OverrideThreadForMessage(
-      const IPC::Message& message, content::BrowserThread::ID* thread) override;
+  void OverrideThreadForMessage(const IPC::Message& message,
+                                content::BrowserThread::ID* thread) override;
 
  protected:
   ~NotificationMessageFilter() override;
@@ -54,22 +58,21 @@ class NotificationMessageFilter : public BrowserMessageFilter {
   void OnShowPlatformNotification(
       int notification_id,
       const GURL& origin,
-      const SkBitmap& icon,
-      const PlatformNotificationData& notification_data);
+      const PlatformNotificationData& notification_data,
+      const NotificationResources& notification_resources);
   void OnShowPersistentNotification(
       int request_id,
-      int64 service_worker_registration_id,
+      int64_t service_worker_registration_id,
       const GURL& origin,
-      const SkBitmap& icon,
-      const PlatformNotificationData& notification_data);
+      const PlatformNotificationData& notification_data,
+      const NotificationResources& notification_resources);
   void OnGetNotifications(int request_id,
                           int64_t service_worker_registration_id,
                           const GURL& origin,
                           const std::string& filter_tag);
   void OnClosePlatformNotification(int notification_id);
-  void OnClosePersistentNotification(
-      const GURL& origin,
-      int64_t persistent_notification_id);
+  void OnClosePersistentNotification(const GURL& origin,
+                                     int64_t persistent_notification_id);
 
   // Callback to be invoked by the notification context when the notification
   // data for the persistent notification may have been written, as indicated by
@@ -77,8 +80,8 @@ class NotificationMessageFilter : public BrowserMessageFilter {
   void DidWritePersistentNotificationData(
       int request_id,
       const GURL& origin,
-      const SkBitmap& icon,
       const PlatformNotificationData& notification_data,
+      const NotificationResources& notification_resources,
       bool success,
       int64_t persistent_notification_id);
 
@@ -107,9 +110,8 @@ class NotificationMessageFilter : public BrowserMessageFilter {
   // cases where the renderer shouldn't send messages if it weren't the case. If
   // no permission has been granted, a bad message has been received and the
   // renderer should be killed accordingly.
-  bool VerifyNotificationPermissionGranted(
-      PlatformNotificationService* service,
-      const GURL& origin);
+  bool VerifyNotificationPermissionGranted(PlatformNotificationService* service,
+                                           const GURL& origin);
 
   int process_id_;
   scoped_refptr<PlatformNotificationContextImpl> notification_context_;

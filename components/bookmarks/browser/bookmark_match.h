@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_TITLE_MATCH_H_
 #define COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_TITLE_MATCH_H_
 
+#include <stddef.h>
+
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -20,6 +22,7 @@ struct BookmarkMatch {
   typedef std::vector<MatchPosition> MatchPositions;
 
   BookmarkMatch();
+  BookmarkMatch(const BookmarkMatch& other);
   ~BookmarkMatch();
 
   // Extracts and returns the offsets from |match_positions|.

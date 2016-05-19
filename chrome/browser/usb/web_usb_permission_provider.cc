@@ -4,11 +4,12 @@
 
 #include "chrome/browser/usb/web_usb_permission_provider.h"
 
-#include "base/command_line.h"
+#include <stddef.h>
+#include <utility>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/usb/usb_chooser_context.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
-#include "chrome/common/chrome_switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -57,11 +58,6 @@ bool FindOriginInDescriptorSet(const WebUsbDescriptorSet* set,
   return false;
 }
 
-bool EnableWebUsbOnAnyOrigin() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableWebUsbOnAnyOrigin);
-}
-
 }  // namespace
 
 WebUSBPermissionProvider::WebUSBPermissionProvider(
@@ -88,17 +84,16 @@ void WebUSBPermissionProvider::HasDevicePermission(
   UsbChooserContext* chooser_context =
       UsbChooserContextFactory::GetForProfile(profile);
 
-  mojo::Array<mojo::String> allowed_guids(0);
+  mojo::Array<mojo::String> allowed_guids;
   for (size_t i = 0; i < requested_devices.size(); ++i) {
     const device::usb::DeviceInfoPtr& device = requested_devices[i];
     if (FindOriginInDescriptorSet(device->webusb_allowed_origins.get(),
                                   requesting_origin, nullptr, nullptr) &&
-        (EnableWebUsbOnAnyOrigin() ||
-         chooser_context->HasDevicePermission(requesting_origin,
-                                              embedding_origin, device->guid)))
+        chooser_context->HasDevicePermission(requesting_origin,
+                                             embedding_origin, device->guid))
       allowed_guids.push_back(device->guid);
   }
-  callback.Run(allowed_guids.Pass());
+  callback.Run(std::move(allowed_guids));
 }
 
 void WebUSBPermissionProvider::HasConfigurationPermission(
@@ -127,5 +122,5 @@ void WebUSBPermissionProvider::HasInterfacePermission(
 void WebUSBPermissionProvider::Bind(
     mojo::InterfaceRequest<device::usb::PermissionProvider> request) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  bindings_.AddBinding(this, request.Pass());
+  bindings_.AddBinding(this, std::move(request));
 }

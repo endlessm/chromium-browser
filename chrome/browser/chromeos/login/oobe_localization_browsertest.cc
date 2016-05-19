@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/task_runner.h"
 #include "chrome/browser/browser_process.h"
@@ -14,12 +16,14 @@
 #include "chrome/browser/chromeos/login/login_wizard.h"
 #include "chrome/browser/chromeos/login/screens/network_screen.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/system/fake_statistics_provider.h"
 #include "chromeos/system/statistics_provider.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
@@ -76,66 +80,55 @@ struct LocalizationTestParams {
   const char* expected_keyboard_layout;
   const char* expected_keyboard_select_control;
 } const oobe_localization_test_parameters[] = {
-      // ------------------ Non-Latin setup
-      // For a non-Latin keyboard layout like Russian, we expect to see the US
-      // keyboard.
-      {"ru", "xkb:ru::rus", "ru", kUSLayout, "xkb:us::eng"},
-      {"ru", "xkb:us::eng,xkb:ru::rus", "ru", kUSLayout, "xkb:us::eng"},
+    // ------------------ Non-Latin setup
+    // For a non-Latin keyboard layout like Russian, we expect to see the US
+    // keyboard.
+    {"ru", "xkb:ru::rus", "ru", kUSLayout, "xkb:us::eng"},
+    {"ru", "xkb:us::eng,xkb:ru::rus", "ru", kUSLayout, "xkb:us::eng"},
 
-      // IMEs do not load at OOBE, so we just expect to see the (Latin) Japanese
-      // keyboard.
-      {"ja", "xkb:jp::jpn", "ja", "xkb:jp::jpn", "xkb:jp::jpn,[xkb:us::eng]"},
+    // IMEs do not load at OOBE, so we just expect to see the (Latin) Japanese
+    // keyboard.
+    {"ja", "xkb:jp::jpn", "ja", "xkb:jp::jpn", "xkb:jp::jpn,[xkb:us::eng]"},
 
-      // We don't use the Icelandic locale but the Icelandic keyboard layout
-      // should still be selected when specified as the default.
-      {"en-US",
-       "xkb:is::ice",
-       "en-US",
-       "xkb:is::ice",
-       "xkb:is::ice,[xkb:us::eng,xkb:us:intl:eng,xkb:us:altgr-intl:eng,"
-           "xkb:us:dvorak:eng,xkb:us:dvp:eng,xkb:us:colemak:eng]"},
-      // ------------------ Full Latin setup
-      // French Swiss keyboard.
-      {"fr",
-       "xkb:ch:fr:fra",
-       "fr",
-       "xkb:ch:fr:fra",
-       "xkb:ch:fr:fra,[xkb:fr::fra,xkb:be::fra,xkb:ca::fra,"
-           "xkb:ca:multix:fra,xkb:us::eng]"},
+    // We don't use the Icelandic locale but the Icelandic keyboard layout
+    // should still be selected when specified as the default.
+    {"en-US", "xkb:is::ice", "en-US", "xkb:is::ice",
+     "xkb:is::ice,[xkb:us::eng,xkb:us:intl:eng,xkb:us:altgr-intl:eng,"
+     "xkb:us:dvorak:eng,xkb:us:dvp:eng,xkb:us:colemak:eng,"
+     "xkb:us:workman:eng,xkb:us:workman-intl:eng]"},
+    // ------------------ Full Latin setup
+    // French Swiss keyboard.
+    {"fr", "xkb:ch:fr:fra", "fr", "xkb:ch:fr:fra",
+     "xkb:ch:fr:fra,[xkb:fr::fra,xkb:be::fra,xkb:ca::fra,"
+     "xkb:ca:multix:fra,xkb:us::eng]"},
 
-      // German Swiss keyboard.
-      {"de",
-       "xkb:ch::ger",
-       "de",
-       "xkb:ch::ger",
-       "xkb:ch::ger,[xkb:de::ger,xkb:de:neo:ger,xkb:be::ger,xkb:us::eng]"},
+    // German Swiss keyboard.
+    {"de", "xkb:ch::ger", "de", "xkb:ch::ger",
+     "xkb:ch::ger,[xkb:de::ger,xkb:de:neo:ger,xkb:be::ger,xkb:us::eng]"},
 
-      // NetworkScreenMultipleLocales
-      {"es,en-US,nl",
-       "xkb:be::nld",
-       "es,en-US,nl",
-       "xkb:be::nld",
-       "xkb:be::nld,[xkb:es::spa,xkb:latam::spa,xkb:us::eng]"},
+    // NetworkScreenMultipleLocales
+    {"es,en-US,nl", "xkb:be::nld", "es,en-US,nl", "xkb:be::nld",
+     "xkb:be::nld,[xkb:es::spa,xkb:latam::spa,xkb:us::eng]"},
 
-      {"ru,de", "xkb:ru::rus", "ru,de", kUSLayout, "xkb:us::eng"},
+    {"ru,de", "xkb:ru::rus", "ru,de", kUSLayout, "xkb:us::eng"},
 
-      // TODO(alemate/michaelpg): Figure out why these tests are failing
-      // and re-enable them. crbug.com/422702.
-      // ------------------ Regional Locales
-      // Syntetic example to test correct merging of different locales.
-      // {"fr-CH,it-CH,de-CH",
-      //  "xkb:fr::fra,xkb:it::ita,xkb:de::ger",
-      //  "fr-CH,it-CH,de-CH",
-      //  "xkb:fr::fra",
-      //  "xkb:fr::fra,xkb:it::ita,xkb:de::ger,[xkb:be::fra,xkb:ca::fra,"
-      //      "xkb:ch:fr:fra,xkb:ca:multix:fra,xkb:us::eng]"},
+    // TODO(alemate/michaelpg): Figure out why these tests are failing
+    // and re-enable them. crbug.com/422702.
+    // ------------------ Regional Locales
+    // Syntetic example to test correct merging of different locales.
+    // {"fr-CH,it-CH,de-CH",
+    //  "xkb:fr::fra,xkb:it::ita,xkb:de::ger",
+    //  "fr-CH,it-CH,de-CH",
+    //  "xkb:fr::fra",
+    //  "xkb:fr::fra,xkb:it::ita,xkb:de::ger,[xkb:be::fra,xkb:ca::fra,"
+    //      "xkb:ch:fr:fra,xkb:ca:multix:fra,xkb:us::eng]"},
 
-      // Another syntetic example. Check that british keyboard is available.
-      // {"en-AU",
-      //  "xkb:us::eng",
-      //  "en-AU",
-      //  "xkb:us::eng",
-      //  "xkb:us::eng,[xkb:gb:extd:eng,xkb:gb:dvorak:eng]"},
+    // Another syntetic example. Check that british keyboard is available.
+    // {"en-AU",
+    //  "xkb:us::eng",
+    //  "en-AU",
+    //  "xkb:us::eng",
+    //  "xkb:us::eng,[xkb:gb:extd:eng,xkb:gb:dvorak:eng]"},
 };
 
 class OobeLocalizationTest
@@ -162,11 +155,10 @@ class OobeLocalizationTest
   void RunLocalizationTest();
 
   void WaitUntilJSIsReady() {
-    LoginDisplayHostImpl* host = static_cast<LoginDisplayHostImpl*>(
-        LoginDisplayHostImpl::default_host());
+    LoginDisplayHost* host = LoginDisplayHost::default_host();
     if (!host)
       return;
-    chromeos::OobeUI* oobe_ui = host->GetOobeUI();
+    OobeUI* oobe_ui = host->GetOobeUI();
     if (!oobe_ui)
       return;
     base::RunLoop run_loop;
@@ -333,17 +325,13 @@ void OobeLocalizationTest::RunLocalizationTest() {
       first_language.c_str());
 
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      static_cast<chromeos::LoginDisplayHostImpl*>(
-          chromeos::LoginDisplayHostImpl::default_host())
-          ->GetOobeUI()
-          ->web_ui()
-          ->GetWebContents(),
-      waiting_script,
-      &done));
+      LoginDisplayHost::default_host()->GetOobeUI()->web_ui()->GetWebContents(),
+      waiting_script, &done));
 
-  checker.set_web_contents(static_cast<chromeos::LoginDisplayHostImpl*>(
-                           chromeos::LoginDisplayHostImpl::default_host())->
-                           GetOobeUI()->web_ui()->GetWebContents());
+  checker.set_web_contents(LoginDisplayHost::default_host()
+                               ->GetOobeUI()
+                               ->web_ui()
+                               ->GetWebContents());
 
   if (!VerifyInitialOptions(kLocaleSelect, expected_locale.c_str(), true)) {
     LOG(ERROR) << "Actual value of " << kLocaleSelect << ":\n"
@@ -370,7 +358,7 @@ void OobeLocalizationTest::RunLocalizationTest() {
   EXPECT_EQ(expected_keyboard_select, DumpOptions(kKeyboardSelect));
 
   // Shut down the display host.
-  chromeos::LoginDisplayHostImpl::default_host()->Finalize();
+  LoginDisplayHost::default_host()->Finalize();
   base::MessageLoopForUI::current()->RunUntilIdle();
 
   // Clear the locale pref so the statistics provider is pinged next time.

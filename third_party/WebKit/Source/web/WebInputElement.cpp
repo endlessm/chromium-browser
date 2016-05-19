@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebInputElement.h"
 
 #include "core/HTMLNames.h"
@@ -84,7 +83,8 @@ bool WebInputElement::isCheckbox() const
 
 int WebInputElement::maxLength() const
 {
-    return constUnwrap<HTMLInputElement>()->maxLength();
+    int maxLen = constUnwrap<HTMLInputElement>()->maxLength();
+    return maxLen == -1 ? HTMLInputElement::maximumLength : maxLen;
 }
 
 void WebInputElement::setActivatedSubmit(bool activated)

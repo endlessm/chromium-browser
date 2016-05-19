@@ -69,8 +69,15 @@ class FieldPoint : public GraphPoint {
 // Wrapper class to lazily collect information about a C++ record.
 class RecordInfo {
  public:
-  typedef std::map<clang::CXXRecordDecl*, BasePoint> Bases;
-  typedef std::map<clang::FieldDecl*, FieldPoint> Fields;
+  typedef std::vector<std::pair<clang::CXXRecordDecl*, BasePoint>> Bases;
+
+  struct FieldDeclCmp {
+    bool operator()(clang::FieldDecl* a, clang::FieldDecl *b) const {
+      return a->getLocStart() < b->getLocStart();
+    }
+  };
+  typedef std::map<clang::FieldDecl*, FieldPoint, FieldDeclCmp> Fields;
+
   typedef std::vector<const clang::Type*> TemplateArgs;
 
   ~RecordInfo();
@@ -93,7 +100,6 @@ class RecordInfo {
   bool IsStackAllocated();
   bool IsNonNewable();
   bool IsOnlyPlacementNewable();
-  bool IsGCMixinInstance();
   bool IsEagerlyFinalized();
   bool IsGCRefCounted();
 

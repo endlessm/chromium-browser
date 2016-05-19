@@ -18,6 +18,37 @@
 namespace media {
 namespace mp2t {
 
+namespace {
+
+VideoCodecProfile ProfileIDCToVideoCodecProfile(int profile_idc) {
+  switch (profile_idc) {
+    case H264SPS::kProfileIDCBaseline:
+      return H264PROFILE_BASELINE;
+    case H264SPS::kProfileIDCMain:
+      return H264PROFILE_MAIN;
+    case H264SPS::kProfileIDCHigh:
+      return H264PROFILE_HIGH;
+    case H264SPS::kProfileIDHigh10:
+      return H264PROFILE_HIGH10PROFILE;
+    case H264SPS::kProfileIDHigh422:
+      return H264PROFILE_HIGH422PROFILE;
+    case H264SPS::kProfileIDHigh444Predictive:
+      return H264PROFILE_HIGH444PREDICTIVEPROFILE;
+    case H264SPS::kProfileIDScalableBaseline:
+      return H264PROFILE_SCALABLEBASELINE;
+    case H264SPS::kProfileIDScalableHigh:
+      return H264PROFILE_SCALABLEHIGH;
+    case H264SPS::kProfileIDStereoHigh:
+      return H264PROFILE_STEREOHIGH;
+    case H264SPS::kProfileIDSMultiviewHigh:
+      return H264PROFILE_MULTIVIEWHIGH;
+  }
+  NOTREACHED() << "unknown video profile: " << profile_idc;
+  return VIDEO_CODEC_PROFILE_UNKNOWN;
+}
+
+}  // namespace
+
 // An AUD NALU is at least 4 bytes:
 // 3 bytes for the start code + 1 byte for the NALU type.
 const int kMinAUDSize = 4;
@@ -41,7 +72,7 @@ void EsParserH264::Flush() {
 
   // Simulate an additional AUD to force emitting the last access unit
   // which is assumed to be complete at this point.
-  uint8 aud[] = { 0x00, 0x00, 0x01, 0x09 };
+  uint8_t aud[] = {0x00, 0x00, 0x01, 0x09};
   es_queue_->Push(aud, sizeof(aud));
   ParseFromEsQueue();
 
@@ -57,9 +88,9 @@ void EsParserH264::ResetInternal() {
   es_adapter_.Reset();
 }
 
-bool EsParserH264::FindAUD(int64* stream_pos) {
+bool EsParserH264::FindAUD(int64_t* stream_pos) {
   while (true) {
-    const uint8* es;
+    const uint8_t* es;
     int size;
     es_queue_->PeekAt(*stream_pos, &es, &size);
 
@@ -120,10 +151,10 @@ bool EsParserH264::ParseFromEsQueue() {
   bool is_key_frame = false;
   int pps_id_for_access_unit = -1;
 
-  const uint8* es;
+  const uint8_t* es;
   int size;
   es_queue_->PeekAt(current_access_unit_pos_, &es, &size);
-  int access_unit_size = base::checked_cast<int, int64>(
+  int access_unit_size = base::checked_cast<int, int64_t>(
       next_access_unit_pos_ - current_access_unit_pos_);
   DCHECK_LE(access_unit_size, size);
   h264_parser_->SetStream(es, access_unit_size);
@@ -195,8 +226,10 @@ bool EsParserH264::ParseFromEsQueue() {
   return true;
 }
 
-bool EsParserH264::EmitFrame(int64 access_unit_pos, int access_unit_size,
-                             bool is_key_frame, int pps_id) {
+bool EsParserH264::EmitFrame(int64_t access_unit_pos,
+                             int access_unit_size,
+                             bool is_key_frame,
+                             int pps_id) {
   // Get the access unit timing info.
   // Note: |current_timing_desc.pts| might be |kNoTimestamp()| at this point
   // if:
@@ -236,7 +269,7 @@ bool EsParserH264::EmitFrame(int64 access_unit_pos, int access_unit_size,
   DVLOG(LOG_LEVEL_ES) << "Emit frame: stream_pos=" << current_access_unit_pos_
                       << " size=" << access_unit_size;
   int es_size;
-  const uint8* es;
+  const uint8_t* es;
   es_queue_->PeekAt(current_access_unit_pos_, &es, &es_size);
   CHECK_GE(es_size, access_unit_size);
 
@@ -279,9 +312,9 @@ bool EsParserH264::UpdateVideoDecoderConfig(const H264SPS* sps) {
     return false;
 
   VideoDecoderConfig video_decoder_config(
-      kCodecH264, VIDEO_CODEC_PROFILE_UNKNOWN, PIXEL_FORMAT_YV12,
-      COLOR_SPACE_HD_REC709, coded_size, visible_rect, natural_size,
-      std::vector<uint8_t>(), false);
+      kCodecH264, ProfileIDCToVideoCodecProfile(sps->profile_idc),
+      PIXEL_FORMAT_YV12, COLOR_SPACE_HD_REC709, coded_size, visible_rect,
+      natural_size, std::vector<uint8_t>(), false);
 
   if (!video_decoder_config.Matches(last_video_decoder_config_)) {
     DVLOG(1) << "Profile IDC: " << sps->profile_idc;

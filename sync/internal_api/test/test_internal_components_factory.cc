@@ -5,7 +5,6 @@
 #include "sync/internal_api/public/test/test_internal_components_factory.h"
 
 #include "sync/sessions/sync_session_context.h"
-#include "sync/syncable/deferred_on_disk_directory_backing_store.h"
 #include "sync/syncable/in_memory_directory_backing_store.h"
 #include "sync/syncable/on_disk_directory_backing_store.h"
 #include "sync/syncable/invalid_directory_backing_store.h"
@@ -52,7 +51,6 @@ TestInternalComponentsFactory::BuildContext(
           switches_.pre_commit_updates_policy ==
               FORCE_ENABLE_PRE_COMMIT_UPDATE_AVOIDANCE,
           invalidator_client_id));
-
 }
 
 scoped_ptr<syncable::DirectoryBackingStore>
@@ -70,10 +68,6 @@ TestInternalComponentsFactory::BuildDirectoryBackingStore(
       return scoped_ptr<syncable::DirectoryBackingStore>(
           new syncable::OnDiskDirectoryBackingStore(dir_name,
                                                     backing_filepath));
-    case STORAGE_ON_DISK_DEFERRED:
-      return scoped_ptr<syncable::DirectoryBackingStore>(
-          new syncable::DeferredOnDiskDirectoryBackingStore(dir_name,
-                                                            backing_filepath));
     case STORAGE_INVALID:
       return scoped_ptr<syncable::DirectoryBackingStore>(
           new syncable::InvalidDirectoryBackingStore());

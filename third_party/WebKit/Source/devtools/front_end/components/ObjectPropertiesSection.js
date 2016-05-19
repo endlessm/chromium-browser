@@ -38,6 +38,7 @@ WebInspector.ObjectPropertiesSection = function(object, title, emptyPlaceholder,
     this._object = object;
     this._editable = true;
     TreeOutlineInShadow.call(this);
+    this.hideOverflow();
     this.setFocusable(false);
     this._objectTreeElement = new WebInspector.ObjectPropertiesSection.RootElement(object, emptyPlaceholder, ignoreHasOwnProperty, extraProperties);
     this.appendChild(this._objectTreeElement);
@@ -49,7 +50,7 @@ WebInspector.ObjectPropertiesSection = function(object, title, emptyPlaceholder,
     this.element._section = this;
     this.registerRequiredCSS("components/objectValue.css");
     this.registerRequiredCSS("components/objectPropertiesSection.css");
-    this.rootElement().childrenListElement.classList.add("source-code", "object-properties-section")
+    this.rootElement().childrenListElement.classList.add("source-code", "object-properties-section");
 }
 
 /** @const */
@@ -63,8 +64,7 @@ WebInspector.ObjectPropertiesSection._arrayLoadThreshold = 100;
 WebInspector.ObjectPropertiesSection.defaultObjectPresentation = function(object, skipProto)
 {
     var componentRoot = createElementWithClass("span", "source-code");
-    var shadowRoot = WebInspector.createShadowRootWithCoreStyles(componentRoot);
-    shadowRoot.appendChild(WebInspector.Widget.createStyleElement("components/objectValue.css"));
+    var shadowRoot = WebInspector.createShadowRootWithCoreStyles(componentRoot, "components/objectValue.css");
     shadowRoot.appendChild(WebInspector.ObjectPropertiesSection.createValueElement(object, false));
     if (!object.hasChildren)
         return componentRoot;
@@ -157,6 +157,7 @@ WebInspector.ObjectPropertiesSection.RootElement = function(object, emptyPlaceho
     this.setExpandable(true);
     this.selectable = false;
     this.toggleOnClick = true;
+    this.listItemElement.classList.add("object-properties-section-root-element");
 }
 
 WebInspector.ObjectPropertiesSection.RootElement.prototype = {
@@ -383,31 +384,6 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
                 parent.expand();
             }
         };
-    },
-
-    /**
-     * @return {string|undefined}
-     */
-    propertyPath: function()
-    {
-        if (this._cachedPropertyPath)
-            return this._cachedPropertyPath;
-
-        var current = this;
-        var result;
-
-        do {
-            if (current.property) {
-                if (result)
-                    result = current.property.name + "." + result;
-                else
-                    result = current.property.name;
-            }
-            current = current.parent;
-        } while (current && !current.root);
-
-        this._cachedPropertyPath = result;
-        return result;
     },
 
     /**
@@ -1259,5 +1235,104 @@ WebInspector.ObjectPropertiesSection.formatObjectAsFunction = function(func, ele
             if (params && tokenType === "js-def")
                 params.push(token);
         }
+    }
+}
+
+/**
+ * @constructor
+ */
+WebInspector.ObjectPropertiesSectionExpandController = function()
+{
+    /** @type {!Set.<string>} */
+    this._expandedProperties = new Set();
+}
+
+WebInspector.ObjectPropertiesSectionExpandController._cachedPathSymbol = Symbol("cachedPath");
+WebInspector.ObjectPropertiesSectionExpandController._treeOutlineId = Symbol("treeOutlineId");
+
+WebInspector.ObjectPropertiesSectionExpandController.prototype = {
+    /**
+     * @param {string} id
+     * @param {!WebInspector.ObjectPropertiesSection} section
+     */
+    watchSection: function(id, section)
+    {
+        section.addEventListener(TreeOutline.Events.ElementAttached, this._elementAttached, this);
+        section.addEventListener(TreeOutline.Events.ElementExpanded, this._elementExpanded, this);
+        section.addEventListener(TreeOutline.Events.ElementCollapsed, this._elementCollapsed, this);
+        section[WebInspector.ObjectPropertiesSectionExpandController._treeOutlineId] = id;
+
+        if (this._expandedProperties.has(id))
+            section.expand();
+    },
+
+    /**
+     * @param {string} id
+     */
+    stopWatchSectionsWithId: function(id)
+    {
+        for (var property of this._expandedProperties) {
+            if (property.startsWith(id + ":"))
+                this._expandedProperties.delete(property);
+        }
+    },
+
+    /**
+     * @param {!WebInspector.Event} event
+     */
+    _elementAttached: function(event)
+    {
+        var element = /** @type {!TreeElement} */ (event.data);
+        if (element.isExpandable() && this._expandedProperties.has(this._propertyPath(element)))
+            element.expand();
+    },
+
+    /**
+     * @param {!WebInspector.Event} event
+     */
+    _elementExpanded: function(event)
+    {
+        var element = /** @type {!TreeElement} */ (event.data);
+        this._expandedProperties.add(this._propertyPath(element));
+    },
+
+    /**
+     * @param {!WebInspector.Event} event
+     */
+    _elementCollapsed: function(event)
+    {
+        var element = /** @type {!TreeElement} */ (event.data);
+        this._expandedProperties.delete(this._propertyPath(element));
+    },
+
+    /**
+     * @param {!TreeElement} treeElement
+     * @return {string}
+     */
+    _propertyPath: function(treeElement)
+    {
+        var cachedPropertyPath = treeElement[WebInspector.ObjectPropertiesSectionExpandController._cachedPathSymbol];
+        if (cachedPropertyPath)
+            return cachedPropertyPath;
+
+        var current = treeElement;
+        var rootElement = treeElement.treeOutline.objectTreeElement();
+
+        var result;
+
+        while (current !== rootElement) {
+            var currentName = "";
+            if (current.property)
+                currentName = current.property.name;
+            else
+                currentName = typeof current.title === "string" ? current.title : current.title.textContent;
+
+            result = currentName + (result ? "." + result : "");
+            current = current.parent;
+        }
+        var treeOutlineId = treeElement.treeOutline[WebInspector.ObjectPropertiesSectionExpandController._treeOutlineId];
+        result = treeOutlineId + (result ? ":" + result : "");
+        treeElement[WebInspector.ObjectPropertiesSectionExpandController._cachedPathSymbol] = result;
+        return result;
     }
 }

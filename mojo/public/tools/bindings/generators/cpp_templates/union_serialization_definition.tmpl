@@ -48,23 +48,23 @@ void SerializeUnion_({{union.name}}Ptr input, mojo::internal::Buffer* buf,
             buf, &result->data.f_{{field.name}}.ptr);
 {%      elif field.kind|is_struct_kind %}
         Serialize_(
-            mojo::internal::Forward(*(input_acc.data()->{{field.name}})),
+            std::move(*(input_acc.data()->{{field.name}})),
             buf, &result->data.f_{{field.name}}.ptr);
 {%      elif field.kind|is_union_kind %}
         SerializeUnion_(
-            mojo::internal::Forward(*(input_acc.data()->{{field.name}})),
+            std::move(*(input_acc.data()->{{field.name}})),
             buf, &result->data.f_{{field.name}}.ptr, false);
 {%      elif field.kind|is_array_kind %}
         const mojo::internal::ArrayValidateParams {{field.name}}_validate_params(
             {{field.kind|get_array_validate_params_ctor_args|indent(16)}});
         SerializeArray_(
-            mojo::internal::Forward(*(input_acc.data()->{{field.name}})),
+            std::move(*(input_acc.data()->{{field.name}})),
             buf, &result->data.f_{{field.name}}.ptr, &{{field.name}}_validate_params);
 {%      elif field.kind|is_map_kind %}
         const mojo::internal::ArrayValidateParams {{field.name}}_validate_params(
             {{field.kind.value_kind|get_map_validate_params_ctor_args|indent(16)}});
         SerializeMap_(
-            mojo::internal::Forward(*(input_acc.data()->{{field.name}})),
+            std::move(*(input_acc.data()->{{field.name}})),
             buf, &result->data.f_{{field.name}}.ptr, &{{field.name}}_validate_params);
 {%-     endif %}
 {%    elif field.kind|is_any_handle_kind %}
@@ -75,9 +75,11 @@ void SerializeUnion_({{union.name}}Ptr input, mojo::internal::Buffer* buf,
             reinterpret_cast<mojo::internal::Interface_Data*>(
                 &result->data.f_{{field.name}});
         mojo::internal::InterfacePointerToData(
-            input_acc.data()->{{field.name}}->Pass(), {{field.name}});
+            std::move(*input_acc.data()->{{field.name}}), {{field.name}});
 {%-   elif field.kind|is_associated_kind %}
         // TODO(yzshen): add seralization logic for associated kinds.
+{%    elif field.kind|is_enum_kind %}
+        result->data.f_{{field.name}}.value = static_cast<int32_t>(input_acc.data()->{{field.name}});
 {%    else %}
         result->data.f_{{field.name}} = input_acc.data()->{{field.name}};
 {%-   endif %}
@@ -93,8 +95,10 @@ void SerializeUnion_({{union.name}}Ptr input, mojo::internal::Buffer* buf,
   *output = result;
 }
 
-void Deserialize_(internal::{{union.name}}_Data* input,
-                  {{union.name}}Ptr* output) {
+bool Deserialize_(internal::{{union.name}}_Data* input,
+                  {{union.name}}Ptr* output,
+                  mojo::internal::SerializationContext* context) {
+  bool success = true;
   if (input && !input->is_null()) {
     {{union.name}}Ptr result({{union.name}}::New());
     mojo::internal::UnionAccessor<{{union.name}}> result_acc(result.get());
@@ -103,11 +107,12 @@ void Deserialize_(internal::{{union.name}}_Data* input,
       case {{union.name}}::Tag::{{field.name|upper}}: {
 {%    if field.kind|is_object_kind %}
         result_acc.SwitchActive({{union.name}}::Tag::{{field.name|upper}});
-        Deserialize_(input->data.f_{{field.name}}.ptr, result_acc.data()->{{field.name}});
+        if (!Deserialize_(input->data.f_{{field.name}}.ptr, result_acc.data()->{{field.name}}, context))
+          success = false;
 {%    elif field.kind|is_any_handle_kind %}
         {{field.kind|cpp_wrapper_type}}* {{field.name}} =
             reinterpret_cast<{{field.kind|cpp_wrapper_type}}*>(&input->data.f_{{field.name}});
-        result->set_{{field.name}}({{field.name}}->Pass());
+        result->set_{{field.name}}(std::move(*{{field.name}}));
 {%    elif field.kind|is_interface_kind %}
         {{field.kind|cpp_wrapper_type}} {{field.name}}_out;
         mojo::internal::Interface_Data* {{field.name}}_in =
@@ -115,11 +120,11 @@ void Deserialize_(internal::{{union.name}}_Data* input,
                 &input->data.f_{{field.name}});
         mojo::internal::InterfaceDataToPointer(
             {{field.name}}_in, &{{field.name}}_out);
-        result->set_{{field.name}}({{field.name}}_out.Pass());
+        result->set_{{field.name}}(std::move({{field.name}}_out));
 {%-   elif field.kind|is_associated_kind %}
         // TODO(yzshen): add deserialization logic for associated kinds.
 {%    elif field.kind|is_enum_kind %}
-        result->set_{{field.name}}(static_cast<{{field.kind|cpp_wrapper_type}}>(input->data.f_{{field.name}}));
+        result->set_{{field.name}}(static_cast<{{field.kind|cpp_wrapper_type}}>(input->data.f_{{field.name}}.value));
 {%    else %}
         result->set_{{field.name}}(input->data.f_{{field.name}});
 {%-   endif %}
@@ -127,8 +132,9 @@ void Deserialize_(internal::{{union.name}}_Data* input,
       }
 {%- endfor %}
     }
-    *output = result.Pass();
+    *output = std::move(result);
   } else {
     output->reset();
   }
+  return success;
 }

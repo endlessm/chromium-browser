@@ -4,6 +4,8 @@
 
 #include "chromecast/browser/media/cma_message_filter_host.h"
 
+#include <stdint.h>
+
 #include <utility>
 
 #include "base/lazy_instance.h"
@@ -47,8 +49,8 @@ base::LazyInstance<MediaPipelineCmaMap> g_pipeline_map_cma =
     LAZY_INSTANCE_INITIALIZER;
 
 uint64_t GetPipelineCmaId(int process_id, int media_id) {
-  return (static_cast<uint64>(process_id) << 32) +
-      static_cast<uint64>(media_id);
+  return (static_cast<uint64_t>(process_id) << 32) +
+         static_cast<uint64_t>(media_id);
 }
 
 MediaPipelineHost* GetMediaPipeline(int process_id, int media_id) {
@@ -350,6 +352,8 @@ void CmaMessageFilterHost::AudioInitialize(
   }
 
   AvPipelineClient client;
+  client.wait_for_key_cb = ::media::BindToCurrentLoop(base::Bind(
+      &CmaMessageFilterHost::OnWaitForKey, weak_this_, media_id, track_id));
   client.eos_cb = ::media::BindToCurrentLoop(base::Bind(
       &CmaMessageFilterHost::OnEos, weak_this_, media_id, track_id));
   client.playback_error_cb = ::media::BindToCurrentLoop(base::Bind(
@@ -380,6 +384,9 @@ void CmaMessageFilterHost::VideoInitialize(
   }
 
   VideoPipelineClient client;
+  client.av_pipeline_client.wait_for_key_cb = ::media::BindToCurrentLoop(
+      base::Bind(&CmaMessageFilterHost::OnWaitForKey, weak_this_,
+                 media_id, track_id));
   client.av_pipeline_client.eos_cb = ::media::BindToCurrentLoop(
       base::Bind(&CmaMessageFilterHost::OnEos, weak_this_,
                  media_id, track_id));
@@ -416,14 +423,12 @@ void CmaMessageFilterHost::Flush(int media_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   MediaPipelineHost* media_pipeline = LookupById(media_id);
   if (!media_pipeline) {
-    Send(new CmaMsg_MediaStateChanged(
-        media_id, ::media::PIPELINE_ERROR_ABORT));
+    Send(new CmaMsg_FlushDone(media_id));
     return;
   }
-  ::media::PipelineStatusCB pipeline_status_cb = ::media::BindToCurrentLoop(
-      base::Bind(&CmaMessageFilterHost::OnMediaStateChanged, weak_this_,
-                 media_id));
-  FORWARD_CALL(media_pipeline, Flush, pipeline_status_cb);
+  base::Closure flush_cb = ::media::BindToCurrentLoop(
+      base::Bind(&CmaMessageFilterHost::OnFlushDone, weak_this_, media_id));
+  FORWARD_CALL(media_pipeline, Flush, flush_cb);
 }
 
 void CmaMessageFilterHost::Stop(int media_id) {
@@ -465,10 +470,9 @@ void CmaMessageFilterHost::NotifyPipeWrite(int media_id, TrackId track_id) {
 
 // *** Browser to renderer messages ***
 
-void CmaMessageFilterHost::OnMediaStateChanged(
-    int media_id, ::media::PipelineStatus status) {
+void CmaMessageFilterHost::OnFlushDone(int media_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  Send(new CmaMsg_MediaStateChanged(media_id, status));
+  Send(new CmaMsg_FlushDone(media_id));
 }
 
 void CmaMessageFilterHost::OnTrackStateChanged(
@@ -496,6 +500,11 @@ void CmaMessageFilterHost::OnBufferingNotification(
     int media_id, ::media::BufferingState state) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   Send(new CmaMsg_BufferingNotification(media_id, state));
+}
+
+void CmaMessageFilterHost::OnWaitForKey(int media_id, TrackId track_id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  Send(new CmaMsg_WaitForKey(media_id, track_id));
 }
 
 void CmaMessageFilterHost::OnEos(int media_id, TrackId track_id) {

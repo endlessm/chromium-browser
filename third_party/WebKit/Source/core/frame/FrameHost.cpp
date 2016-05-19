@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/frame/FrameHost.h"
 
 #include "core/frame/EventHandlerRegistry.h"
@@ -75,6 +74,11 @@ ChromeClient& FrameHost::chromeClient() const
 UseCounter& FrameHost::useCounter() const
 {
     return m_page->useCounter();
+}
+
+Deprecation& FrameHost::deprecation() const
+{
+    return m_page->deprecation();
 }
 
 float FrameHost::deviceScaleFactor() const
@@ -179,4 +183,4 @@ void FrameHost::setUserAgentPageScaleConstraints(PageScaleConstraints newConstra
     rootView->setNeedsLayout();
 }
 
-}
+} // namespace blink

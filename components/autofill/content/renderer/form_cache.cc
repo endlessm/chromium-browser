@@ -5,6 +5,7 @@
 #include "components/autofill/content/renderer/form_cache.h"
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/content/renderer/form_autofill_util.h"
@@ -20,7 +21,6 @@
 #include "third_party/WebKit/public/web/WebInputElement.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebSelectElement.h"
-#include "third_party/WebKit/public/web/WebTextAreaElement.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using blink::WebConsoleMessage;
@@ -33,7 +33,6 @@ using blink::WebInputElement;
 using blink::WebNode;
 using blink::WebSelectElement;
 using blink::WebString;
-using blink::WebTextAreaElement;
 using blink::WebVector;
 
 namespace autofill {
@@ -58,13 +57,29 @@ void LogDeprecationMessages(const WebFormControlElement& element) {
   }
 }
 
-// To avoid overly expensive computation, we impose a minimum number of
-// allowable fields.  The corresponding maximum number of allowable fields
-// is imposed by WebFormElementToFormData().
-bool ShouldIgnoreForm(size_t num_editable_elements,
-                      size_t num_control_elements) {
-  return (num_editable_elements < kRequiredAutofillFields &&
-          num_control_elements > 0);
+// Determines whether the form is interesting enough to send to the browser
+// for further operations.
+bool IsFormInteresting(const FormData& form, size_t num_editable_elements) {
+  if (form.fields.empty())
+    return false;
+
+  // If the form has at least one field with an autocomplete attribute, it is a
+  // candidate for autofill.
+  bool all_fields_are_passwords = true;
+  for (const FormFieldData& field : form.fields) {
+    if (!field.autocomplete_attribute.empty())
+      return true;
+    if (field.form_control_type != "password")
+      all_fields_are_passwords = false;
+  }
+
+  // If there are no autocomplete attributes, the form needs to have at least
+  // the required number of editable fields for the prediction routines to be a
+  // candidate for autofill.
+  return num_editable_elements >= kRequiredFieldsForPredictionRoutines ||
+         (all_fields_are_passwords &&
+          num_editable_elements >=
+              kRequiredFieldsForFormsWithOnlyPasswordFields);
 }
 
 }  // namespace
@@ -103,7 +118,7 @@ std::vector<FormData> FormCache::ExtractNewForms() {
     size_t num_editable_elements =
         ScanFormControlElements(control_elements, log_deprecation_messages);
 
-    if (ShouldIgnoreForm(num_editable_elements, control_elements.size()))
+    if (num_editable_elements == 0)
       continue;
 
     FormData form;
@@ -116,8 +131,8 @@ std::vector<FormData> FormCache::ExtractNewForms() {
     if (num_fields_seen > form_util::kMaxParseableFields)
       return forms;
 
-    if (form.fields.size() >= kRequiredAutofillFields &&
-        !ContainsKey(parsed_forms_, form)) {
+    if (!ContainsKey(parsed_forms_, form) &&
+        IsFormInteresting(form, num_editable_elements)) {
       for (auto it = parsed_forms_.begin(); it != parsed_forms_.end(); ++it) {
         if (it->SameFormAs(form)) {
           parsed_forms_.erase(it);
@@ -140,7 +155,7 @@ std::vector<FormData> FormCache::ExtractNewForms() {
   size_t num_editable_elements =
       ScanFormControlElements(control_elements, log_deprecation_messages);
 
-  if (ShouldIgnoreForm(num_editable_elements, control_elements.size()))
+  if (num_editable_elements == 0)
     return forms;
 
   FormData synthetic_form;
@@ -154,8 +169,8 @@ std::vector<FormData> FormCache::ExtractNewForms() {
   if (num_fields_seen > form_util::kMaxParseableFields)
     return forms;
 
-  if (synthetic_form.fields.size() >= kRequiredAutofillFields &&
-      !parsed_forms_.count(synthetic_form)) {
+  if (!parsed_forms_.count(synthetic_form) &&
+      IsFormInteresting(synthetic_form, num_editable_elements)) {
     SaveInitialValues(control_elements);
     forms.push_back(synthetic_form);
     parsed_forms_.insert(synthetic_form);
@@ -285,19 +300,28 @@ bool FormCache::ShowPredictions(const FormDataPredictions& form) {
   for (size_t i = 0; i < control_elements.size(); ++i) {
     WebFormControlElement& element = control_elements[i];
 
-    if (base::string16(element.nameForAutofill()) != form.data.fields[i].name) {
+    const FormFieldData& field_data = form.data.fields[i];
+    if (base::string16(element.nameForAutofill()) != field_data.name) {
       // Keep things simple.  Don't show predictions for elements whose names
       // were modified between page load and the server's response to our query.
       continue;
     }
 
-    base::string16 title = l10n_util::GetStringFUTF16(
-        IDS_AUTOFILL_SHOW_PREDICTIONS_TITLE,
-        base::UTF8ToUTF16(form.fields[i].overall_type),
-        base::UTF8ToUTF16(form.fields[i].server_type),
-        base::UTF8ToUTF16(form.fields[i].heuristic_type),
-        base::UTF8ToUTF16(form.fields[i].signature),
-        base::UTF8ToUTF16(form.signature));
+    static const size_t kMaxLabelSize = 100;
+    const base::string16 truncated_label = field_data.label.substr(
+        0, std::min(field_data.label.length(), kMaxLabelSize));
+
+    const FormFieldDataPredictions& field = form.fields[i];
+    std::vector<base::string16> replacements;
+    replacements.push_back(base::UTF8ToUTF16(field.overall_type));
+    replacements.push_back(base::UTF8ToUTF16(field.server_type));
+    replacements.push_back(base::UTF8ToUTF16(field.heuristic_type));
+    replacements.push_back(truncated_label);
+    replacements.push_back(base::UTF8ToUTF16(field.parseable_name));
+    replacements.push_back(base::UTF8ToUTF16(field.signature));
+    replacements.push_back(base::UTF8ToUTF16(form.signature));
+    const base::string16 title = l10n_util::GetStringFUTF16(
+        IDS_AUTOFILL_SHOW_PREDICTIONS_TITLE, replacements, nullptr);
     element.setAttribute("title", WebString(title));
   }
 

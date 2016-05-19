@@ -5,12 +5,15 @@
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/ui/views/layout_constants.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/location_bar/background_with_1_px_border.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/native_theme/native_theme.h"
+#include "ui/views/animation/ink_drop_hover.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/painter.h"
 
@@ -29,7 +32,6 @@ SkColor CalculateImageColor(gfx::ImageSkia* image) {
 
 IconLabelBubbleView::IconLabelBubbleView(int contained_image,
                                          const gfx::FontList& font_list,
-                                         SkColor text_color,
                                          SkColor parent_background_color,
                                          bool elide_in_middle)
     : background_painter_(nullptr),
@@ -48,11 +50,19 @@ IconLabelBubbleView::IconLabelBubbleView(int contained_image,
   image_->set_interactive(false);
   AddChildView(image_);
 
-  label_->SetEnabledColor(text_color);
+  label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 
   if (elide_in_middle)
     label_->SetElideBehavior(gfx::ELIDE_MIDDLE);
   AddChildView(label_);
+
+  // Bubbles are given the full internal height of the location bar so that all
+  // child views in the location bar have the same height. The visible height of
+  // the bubble should be smaller, so use an empty border to shrink down the
+  // content bounds so the background gets painted correctly.
+  const int padding = GetLayoutConstant(LOCATION_BAR_BUBBLE_VERTICAL_PADDING);
+  SetBorder(
+      views::Border::CreateEmptyBorder(gfx::Insets(padding, 0, padding, 0)));
 }
 
 IconLabelBubbleView::~IconLabelBubbleView() {
@@ -60,14 +70,23 @@ IconLabelBubbleView::~IconLabelBubbleView() {
 
 void IconLabelBubbleView::SetBackgroundImageGrid(
     const int background_images[]) {
-  background_painter_.reset(
-      views::Painter::CreateImageGridPainter(background_images));
-  // Use the middle image of the background to represent the color of the entire
-  // background.
-  gfx::ImageSkia* background_image =
-      ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-          background_images[4]);
-  SetLabelBackgroundColor(CalculateImageColor(background_image));
+  should_show_background_ = true;
+  if (!ui::MaterialDesignController::IsModeMaterial()) {
+    background_painter_.reset(
+        views::Painter::CreateImageGridPainter(background_images));
+    // Use the middle image of the background to represent the color of the
+    // entire background.
+    gfx::ImageSkia* background_image =
+        ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+            background_images[4]);
+    SetLabelBackgroundColor(CalculateImageColor(background_image));
+  }
+  OnNativeThemeChanged(GetNativeTheme());
+}
+
+void IconLabelBubbleView::UnsetBackgroundImageGrid() {
+  should_show_background_ = false;
+  SetLabelBackgroundColor(SK_ColorTRANSPARENT);
 }
 
 void IconLabelBubbleView::SetLabel(const base::string16& label) {
@@ -79,7 +98,7 @@ void IconLabelBubbleView::SetImage(const gfx::ImageSkia& image_skia) {
 }
 
 bool IconLabelBubbleView::ShouldShowBackground() const {
-  return true;
+  return should_show_background_;
 }
 
 double IconLabelBubbleView::WidthMultiplier() const {
@@ -104,7 +123,7 @@ void IconLabelBubbleView::Layout() {
   // this up when MD is on by default.
   bool icon_has_enough_padding =
       !is_extension_icon_ || ui::MaterialDesignController::IsModeMaterial();
-  const int image_width = image()->GetPreferredSize().width();
+  const int image_width = image_->GetPreferredSize().width();
   image_->SetBounds(std::min((width() - image_width) / 2,
                              GetBubbleOuterPadding(icon_has_enough_padding)),
                     0, image_->GetPreferredSize().width(), height());
@@ -117,15 +136,45 @@ void IconLabelBubbleView::Layout() {
 
 void IconLabelBubbleView::OnNativeThemeChanged(
     const ui::NativeTheme* native_theme) {
+  label_->SetEnabledColor(GetTextColor());
+
   if (!ui::MaterialDesignController::IsModeMaterial())
     return;
 
-  label_->SetEnabledColor(GetTextColor());
-  SkColor border_color = GetBorderColor();
-  SkColor background_color = SkColorSetA(border_color, 0x13);
-  set_background(
-      new BackgroundWith1PxBorder(background_color, border_color, false));
+  bool inverted = color_utils::IsDark(GetParentBackgroundColor());
+  SkColor border_color = inverted ? SK_ColorWHITE : GetBorderColor();
+  SkColor background_color =
+      inverted ? SK_ColorWHITE : SkColorSetA(border_color, 0x13);
+  set_background(new BackgroundWith1PxBorder(background_color, border_color));
   SetLabelBackgroundColor(background_color);
+}
+
+void IconLabelBubbleView::AddInkDropLayer(ui::Layer* ink_drop_layer) {
+  image()->SetPaintToLayer(true);
+  image()->SetFillsBoundsOpaquely(false);
+  InkDropHostView::AddInkDropLayer(ink_drop_layer);
+}
+
+void IconLabelBubbleView::RemoveInkDropLayer(ui::Layer* ink_drop_layer) {
+  InkDropHostView::RemoveInkDropLayer(ink_drop_layer);
+  image()->SetPaintToLayer(false);
+}
+
+scoped_ptr<views::InkDropHover> IconLabelBubbleView::CreateInkDropHover()
+    const {
+  // Location bar views don't show hover effect.
+  return nullptr;
+}
+
+SkColor IconLabelBubbleView::GetInkDropBaseColor() const {
+  return color_utils::DeriveDefaultIconColor(GetTextColor());
+}
+
+SkColor IconLabelBubbleView::GetParentBackgroundColor() const {
+  return ui::MaterialDesignController::IsModeMaterial()
+             ? GetNativeTheme()->GetSystemColor(
+                   ui::NativeTheme::kColorId_TextfieldDefaultBackground)
+             : parent_background_color_;
 }
 
 gfx::Size IconLabelBubbleView::GetSizeForLabelWidth(int width) const {
@@ -140,6 +189,20 @@ gfx::Size IconLabelBubbleView::GetSizeForLabelWidth(int width) const {
   }
 
   return size;
+}
+
+void IconLabelBubbleView::SetLabelBackgroundColor(
+    SkColor chip_background_color) {
+  // The background images are painted atop |parent_background_color_|.
+  // Alpha-blend |chip_background_color| with |parent_background_color_| to
+  // determine the actual color the label text will sit atop.
+  // Tricky bit: We alpha blend an opaque version of |chip_background_color|
+  // against |parent_background_color_| using the original image grid color's
+  // alpha. This is because AlphaBlend(a, b, 255) always returns |a| unchanged
+  // even if |a| is a color with non-255 alpha.
+  label_->SetBackgroundColor(color_utils::AlphaBlend(
+      SkColorSetA(chip_background_color, 255), GetParentBackgroundColor(),
+      SkColorGetA(chip_background_color)));
 }
 
 int IconLabelBubbleView::GetBubbleOuterPadding(bool leading) const {
@@ -160,20 +223,6 @@ int IconLabelBubbleView::GetBubbleOuterPaddingMd(bool leading) const {
   return 2;
 }
 
-void IconLabelBubbleView::SetLabelBackgroundColor(
-    SkColor background_image_color) {
-  // The background images are painted atop |parent_background_color_|.
-  // Alpha-blend |background_image_color| with |parent_background_color_| to
-  // determine the actual color the label text will sit atop.
-  // Tricky bit: We alpha blend an opaque version of |background_image_color|
-  // against |parent_background_color_| using the original image grid color's
-  // alpha. This is because AlphaBlend(a, b, 255) always returns |a| unchanged
-  // even if |a| is a color with non-255 alpha.
-  label_->SetBackgroundColor(color_utils::AlphaBlend(
-      SkColorSetA(background_image_color, 255), parent_background_color_,
-      SkColorGetA(background_image_color)));
-}
-
 const char* IconLabelBubbleView::GetClassName() const {
   return "IconLabelBubbleView";
 }
@@ -181,8 +230,10 @@ const char* IconLabelBubbleView::GetClassName() const {
 void IconLabelBubbleView::OnPaint(gfx::Canvas* canvas) {
   if (!ShouldShowBackground())
     return;
-  if (background_painter_)
-    background_painter_->Paint(canvas, size());
+  if (background_painter_) {
+    views::Painter::PaintPainterAt(canvas, background_painter_.get(),
+                                   GetContentsBounds());
+  }
   if (background())
     background()->Paint(canvas, this);
 }

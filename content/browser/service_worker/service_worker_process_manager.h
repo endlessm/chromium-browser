@@ -6,6 +6,7 @@
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_PROCESS_MANAGER_H_
 
 #include <map>
+#include <memory>
 #include <vector>
 
 #include "base/callback.h"
@@ -19,6 +20,7 @@ class GURL;
 namespace content {
 
 class BrowserContext;
+struct EmbeddedWorkerSettings;
 class SiteInstance;
 
 // Interacts with the UI thread to keep RenderProcessHosts alive while the
@@ -48,9 +50,11 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
       int embedded_worker_id,
       const GURL& pattern,
       const GURL& script_url,
+      bool can_use_existing_process,
       const base::Callback<void(ServiceWorkerStatusCode,
                                 int process_id,
-                                bool is_new_process)>& callback);
+                                bool is_new_process,
+                                const EmbeddedWorkerSettings&)>& callback);
 
   // Drops a reference to a process that was running a Service Worker, and its
   // SiteInstance.  This must match a call to AllocateWorkerProcess.
@@ -65,6 +69,11 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
     process_id_for_test_ = process_id;
   }
 
+  // Sets the process ID to be used for tests that force creating a new process.
+  void SetNewProcessIdForTest(int process_id) {
+    new_process_id_for_test_ = process_id;
+  }
+
   // Adds/removes process reference for the |pattern|, the process with highest
   // references count will be chosen to start a worker.
   void AddProcessReferenceToPattern(const GURL& pattern, int process_id);
@@ -75,11 +84,18 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerProcessManagerTest, SortProcess);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerProcessManagerTest,
+                           FindAvailableProcess);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerProcessManagerTest,
+                           AllocateWorkerProcess_FindAvailableProcess);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerProcessManagerTest,
+                           AllocateWorkerProcess_InShutdown);
 
   // Information about the process for an EmbeddedWorkerInstance.
   struct ProcessInfo {
     explicit ProcessInfo(const scoped_refptr<SiteInstance>& site_instance);
     explicit ProcessInfo(int process_id);
+    ProcessInfo(const ProcessInfo& other);
     ~ProcessInfo();
 
     // Stores the SiteInstance the Worker lives inside. This needs to outlive
@@ -94,6 +110,9 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
     int process_id;
   };
 
+  // Returns true if Shutdown() has been called.
+  bool IsShutdown() const { return !browser_context_; }
+
   // Maps the process ID to its reference count.
   typedef std::map<int, int> ProcessRefMap;
 
@@ -102,6 +121,10 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
 
   // Returns a process vector sorted by the reference count for the |pattern|.
   std::vector<int> SortProcessesForPattern(const GURL& pattern) const;
+
+  // Returns the id of an available process for this pattern, or
+  // ChildProcessHost::kInvalidUniqueID if there is none.
+  int FindAvailableProcess(const GURL& pattern);
 
   // These fields are only accessed on the UI thread.
   BrowserContext* browser_context_;
@@ -118,6 +141,7 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
   // In unit tests, this will be returned as the process for all
   // EmbeddedWorkerInstances.
   int process_id_for_test_;
+  int new_process_id_for_test_;
 
   // Candidate processes info for each pattern, should be accessed on the
   // UI thread.
@@ -130,12 +154,12 @@ class CONTENT_EXPORT ServiceWorkerProcessManager {
 
 }  // namespace content
 
-namespace base {
+namespace std {
 // Specialized to post the deletion to the UI thread.
 template <>
-struct CONTENT_EXPORT DefaultDeleter<content::ServiceWorkerProcessManager> {
+struct CONTENT_EXPORT default_delete<content::ServiceWorkerProcessManager> {
   void operator()(content::ServiceWorkerProcessManager* ptr) const;
 };
-}  // namespace base
+}  // namespace std
 
 #endif  // CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_PROCESS_MANAGER_H_

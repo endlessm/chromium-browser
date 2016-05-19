@@ -9,9 +9,11 @@
 #include <iomanip>
 #include <iostream>
 
+#include "build/build_config.h"
 #include "chrome/browser/fullscreen.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller_test.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -51,7 +53,7 @@ FullscreenControllerStateTest::FullscreenControllerStateTest()
     },
     { // STATE_BROWSER_FULLSCREEN_NO_CHROME:
       STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN
-      STATE_BROWSER_FULLSCREEN_WITH_CHROME,   // Event TOGGLE_FULLSCREEN_CHROME
+      STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN_CHROME
       STATE_TAB_BROWSER_FULLSCREEN,           // Event TAB_FULLSCREEN_TRUE
       STATE_BROWSER_FULLSCREEN_NO_CHROME,     // Event TAB_FULLSCREEN_FALSE
       STATE_METRO_SNAP,                       // Event METRO_SNAP_TRUE
@@ -62,7 +64,7 @@ FullscreenControllerStateTest::FullscreenControllerStateTest()
       STATE_BROWSER_FULLSCREEN_NO_CHROME,     // Event WINDOW_CHANGE
     },
     { // STATE_BROWSER_FULLSCREEN_WITH_CHROME:
-      STATE_BROWSER_FULLSCREEN_NO_CHROME,     // Event TOGGLE_FULLSCREEN
+      STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN
       STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN_CHROME
       STATE_TAB_BROWSER_FULLSCREEN_CHROME,    // Event TAB_FULLSCREEN_TRUE
       STATE_BROWSER_FULLSCREEN_WITH_CHROME,   // Event TAB_FULLSCREEN_FALSE
@@ -122,7 +124,7 @@ FullscreenControllerStateTest::FullscreenControllerStateTest()
       STATE_TAB_BROWSER_FULLSCREEN_CHROME,    // Event WINDOW_CHANGE
     },
     { // STATE_TO_NORMAL:
-      STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN
+      STATE_TO_BROWSER_FULLSCREEN_WITH_CHROME,// Event TOGGLE_FULLSCREEN
       STATE_TO_BROWSER_FULLSCREEN_WITH_CHROME,// Event TOGGLE_FULLSCREEN_CHROME
       // TODO(scheib) Should be a route back to TAB. http://crbug.com/154196
       STATE_TO_NORMAL,                        // Event TAB_FULLSCREEN_TRUE
@@ -135,8 +137,8 @@ FullscreenControllerStateTest::FullscreenControllerStateTest()
       STATE_NORMAL,                           // Event WINDOW_CHANGE
     },
     { // STATE_TO_BROWSER_FULLSCREEN_NO_CHROME:
-      STATE_TO_BROWSER_FULLSCREEN_NO_CHROME,  // Event TOGGLE_FULLSCREEN
-      STATE_TO_BROWSER_FULLSCREEN_WITH_CHROME,// Event TOGGLE_FULLSCREEN_CHROME
+      STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN
+      STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN_CHROME
       // TODO(scheib) Should be a route to TAB_BROWSER http://crbug.com/154196
       STATE_TO_BROWSER_FULLSCREEN_NO_CHROME,  // Event TAB_FULLSCREEN_TRUE
       STATE_TO_BROWSER_FULLSCREEN_NO_CHROME,  // Event TAB_FULLSCREEN_FALSE
@@ -153,7 +155,7 @@ FullscreenControllerStateTest::FullscreenControllerStateTest()
       STATE_BROWSER_FULLSCREEN_NO_CHROME,     // Event WINDOW_CHANGE
     },
     { // STATE_TO_BROWSER_FULLSCREEN_WITH_CHROME:
-      STATE_TO_BROWSER_FULLSCREEN_NO_CHROME,  // Event TOGGLE_FULLSCREEN
+      STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN
       STATE_TO_NORMAL,                        // Event TOGGLE_FULLSCREEN_CHROME
       // TODO(scheib) Should be a route to TAB_BROWSER http://crbug.com/154196
       STATE_TAB_BROWSER_FULLSCREEN,           // Event TAB_FULLSCREEN_TRUE
@@ -740,10 +742,12 @@ void FullscreenControllerStateTest::VerifyWindowStateExpectations(
     FullscreenForBrowserExpectation fullscreen_for_browser,
     FullscreenForTabExpectation fullscreen_for_tab,
     InMetroSnapExpectation in_metro_snap) {
+  ExclusiveAccessContext* context =
+      GetBrowser()->window()->GetExclusiveAccessContext();
   if (fullscreen_with_toolbar != FULLSCREEN_WITH_CHROME_NO_EXPECTATION &&
-      GetBrowser()->window()->SupportsFullscreenWithToolbar()) {
-    EXPECT_EQ(GetBrowser()->window()->IsFullscreenWithToolbar(),
-              !!fullscreen_with_toolbar) << GetAndClearDebugLog();
+      context->SupportsFullscreenWithToolbar()) {
+    EXPECT_EQ(context->IsFullscreenWithToolbar(), !!fullscreen_with_toolbar)
+        << GetAndClearDebugLog();
   }
   if (fullscreen_for_browser != FULLSCREEN_FOR_BROWSER_NO_EXPECTATION) {
     EXPECT_EQ(GetFullscreenController()->IsFullscreenForBrowser(),

@@ -4,9 +4,11 @@
 
 #include "chrome/browser/metrics/perf/perf_provider_chromeos.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -79,11 +81,11 @@ base::TimeDelta RandomTimeDelta(base::TimeDelta max) {
 // integer, stores the result in |out| and return true. Otherwise return false.
 bool GetInt64Param(const std::map<std::string, std::string>& params,
                    const std::string& key,
-                   int64* out) {
+                   int64_t* out) {
   auto it = params.find(key);
   if (it == params.end())
     return false;
-  int64 value;
+  int64_t value;
   // NB: StringToInt64 will set value even if the conversion fails.
   if (!base::StringToInt64(it->second, &value))
     return false;
@@ -200,11 +202,10 @@ PerfProvider::CollectionParams::CollectionParams(
 }
 
 PerfProvider::CollectionParams::TriggerParams::TriggerParams(
-    int64 sampling_factor,
+    int64_t sampling_factor,
     base::TimeDelta max_collection_delay)
     : sampling_factor_(sampling_factor),
-      max_collection_delay_(max_collection_delay.ToInternalValue()) {
-}
+      max_collection_delay_(max_collection_delay.ToInternalValue()) {}
 
 const PerfProvider::CollectionParams PerfProvider::kDefaultParameters(
   /* collection_duration = */ base::TimeDelta::FromSeconds(2),
@@ -221,6 +222,13 @@ PerfProvider::PerfProvider()
       login_observer_(this),
       next_profiling_interval_start_(base::TimeTicks::Now()),
       weak_factory_(this) {
+}
+
+PerfProvider::~PerfProvider() {
+  chromeos::LoginState::Get()->RemoveObserver(&login_observer_);
+}
+
+void PerfProvider::Init() {
   CHECK(command_selector_.SetOdds(
       internal::GetDefaultCommandsForCpu(GetCPUIdentity())));
   std::map<std::string, std::string> params;
@@ -246,10 +254,6 @@ PerfProvider::PerfProvider()
   // when this class is instantiated. By calling LoggedInStateChanged() here,
   // PerfProvider will recognize that the system is already logged in.
   login_observer_.LoggedInStateChanged();
-}
-
-PerfProvider::~PerfProvider() {
-  chromeos::LoginState::Get()->RemoveObserver(&login_observer_);
 }
 
 namespace internal {
@@ -307,7 +311,7 @@ std::string FindBestCpuSpecifierFromParams(
 
 void PerfProvider::SetCollectionParamsFromVariationParams(
     const std::map<std::string, std::string>& params) {
-  int64 value;
+  int64_t value;
   if (GetInt64Param(params, "ProfileCollectionDurationSec", &value)) {
     collection_params_.set_collection_duration(
         base::TimeDelta::FromSeconds(value));
@@ -382,8 +386,8 @@ void PerfProvider::ParseOutputProtoIfValid(
     scoped_ptr<WindowedIncognitoObserver> incognito_observer,
     scoped_ptr<SampledProfile> sampled_profile,
     int result,
-    const std::vector<uint8>& perf_data,
-    const std::vector<uint8>& perf_stat) {
+    const std::vector<uint8_t>& perf_data,
+    const std::vector<uint8_t>& perf_stat) {
   DCHECK(CalledOnValidThread());
 
   if (incognito_observer->incognito_launched()) {
@@ -452,9 +456,10 @@ void PerfProvider::SuspendDone(const base::TimeDelta& sleep_duration) {
     return;
 
   // Collect a profile only 1/|sampling_factor| of the time, to avoid
-  // collecting too much data.
+  // collecting too much data. (0 means disable the trigger)
   const auto& resume_params = collection_params_.resume_from_suspend();
-  if (base::RandGenerator(resume_params.sampling_factor()) != 0)
+  if (resume_params.sampling_factor() == 0 ||
+      base::RandGenerator(resume_params.sampling_factor()) != 0)
     return;
 
   // Override any existing profiling.
@@ -479,9 +484,12 @@ void PerfProvider::OnSessionRestoreDone(int num_tabs_restored) {
 
   // Collect a profile only 1/|sampling_factor| of the time, to
   // avoid collecting too much data and potentially causing UI latency.
+  // (0 means disable the trigger)
   const auto& restore_params = collection_params_.restore_session();
-  if (base::RandGenerator(restore_params.sampling_factor()) != 0)
+  if (restore_params.sampling_factor() == 0 ||
+      base::RandGenerator(restore_params.sampling_factor()) != 0) {
     return;
+  }
 
   const auto min_interval = base::TimeDelta::FromSeconds(
       kMinIntervalBetweenSessionRestoreCollectionsInSec);
@@ -591,7 +599,7 @@ void PerfProvider::DoPeriodicCollection() {
   scoped_ptr<SampledProfile> sampled_profile(new SampledProfile);
   sampled_profile->set_trigger_event(SampledProfile::PERIODIC_COLLECTION);
 
-  CollectIfNecessary(sampled_profile.Pass());
+  CollectIfNecessary(std::move(sampled_profile));
 }
 
 void PerfProvider::CollectPerfDataAfterResume(
@@ -603,7 +611,7 @@ void PerfProvider::CollectPerfDataAfterResume(
   sampled_profile->set_suspend_duration_ms(sleep_duration.InMilliseconds());
   sampled_profile->set_ms_after_resume(time_after_resume.InMilliseconds());
 
-  CollectIfNecessary(sampled_profile.Pass());
+  CollectIfNecessary(std::move(sampled_profile));
 }
 
 void PerfProvider::CollectPerfDataAfterSessionRestore(
@@ -615,7 +623,7 @@ void PerfProvider::CollectPerfDataAfterSessionRestore(
   sampled_profile->set_ms_after_restore(time_after_restore.InMilliseconds());
   sampled_profile->set_num_tabs_restored(num_tabs_restored);
 
-  CollectIfNecessary(sampled_profile.Pass());
+  CollectIfNecessary(std::move(sampled_profile));
   last_session_restore_collection_time_ = base::TimeTicks::Now();
 }
 

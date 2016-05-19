@@ -4,10 +4,15 @@
 
 #include "ui/gfx/canvas.h"
 
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/numerics/safe_conversions.h"
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkPixmap.h"
 #include "ui/gfx/font_list.h"
@@ -16,6 +21,7 @@
 #include "ui/gfx/range/range.h"
 #include "ui/gfx/render_text.h"
 #include "ui/gfx/shadow_value.h"
+#include "ui/gfx/skia_util.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/gfx/text_utils.h"
 
@@ -182,7 +188,7 @@ void Canvas::DrawStringRectWithShadows(const base::string16& text,
                                        int line_height,
                                        int flags,
                                        const ShadowValues& shadows) {
-  if (!IntersectsClipRect(text_bounds))
+  if (!IntersectsClipRect(RectToSkRect(text_bounds)))
     return;
 
   Rect clip_rect(text_bounds);

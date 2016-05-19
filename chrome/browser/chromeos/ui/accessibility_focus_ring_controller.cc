@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/ui/accessibility_focus_ring_controller.h"
 
+#include <stddef.h>
+
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/shell.h"
 #include "base/logging.h"
@@ -71,8 +73,7 @@ void AccessibilityFocusRingController::Update() {
     }
 
     gfx::Rect bounds = rings_[0].GetBounds();
-    gfx::Display display =
-      gfx::Screen::GetNativeScreen()->GetDisplayMatching(bounds);
+    gfx::Display display = gfx::Screen::GetScreen()->GetDisplayMatching(bounds);
     aura::Window* root_window = ash::Shell::GetInstance()
                                     ->window_tree_host_manager()
                                     ->GetRootWindowForDisplayId(display.id());

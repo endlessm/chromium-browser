@@ -101,7 +101,7 @@ EarconEngine = function() {
    * The source audio nodes for queued tick / tocks for progress.
    * Kept around so they can be canceled.
    *
-   * @type {Array<AudioNode>}
+   * @type {Array<Array<AudioNode>>}
    * @private
    */
   this.progressSources_ = [];
@@ -685,6 +685,10 @@ EarconEngine.prototype.generateProgressTickTocks_ = function() {
  * explicitly canceled.
  */
 EarconEngine.prototype.startProgress = function() {
+  if (this.progressIntervalID_) {
+    this.cancelProgress();
+  }
+
   this.progressSources_ = [];
   this.progressGain_ = 0.5;
   this.progressTime_ = this.context_.currentTime;

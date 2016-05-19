@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/button/menu_button_listener.h"
@@ -17,7 +18,7 @@ namespace gfx {
 class Canvas;
 class Image;
 }
-class Browser;
+class BrowserView;
 class Profile;
 
 // AvatarMenuButton
@@ -32,9 +33,8 @@ class AvatarMenuButton : public views::MenuButton,
   // Internal class name.
   static const char kViewClassName[];
 
-  // Creates a new button. Unless |disabled| is true, clicking on the button
-  // will cause the profile menu to be displayed.
-  AvatarMenuButton(Browser* browser, bool disabled);
+  // Creates a new button for the given browser view.
+  explicit AvatarMenuButton(BrowserView* browser_view);
 
   ~AvatarMenuButton() override;
 
@@ -46,17 +46,12 @@ class AvatarMenuButton : public views::MenuButton,
   // to Chrome avatar icons, will be resized and modified for the title bar.
   virtual void SetAvatarIcon(const gfx::Image& icon, bool is_rectangle);
 
-  void set_button_on_right(bool button_on_right) {
-    button_on_right_ = button_on_right;
-  }
-  bool button_on_right() { return button_on_right_; }
-
-  // Get avatar images for the profile.  |avatar| is used in the browser window
-  // whereas |taskbar_badge_avatar| is used for the OS taskbar.  If
+  // Get avatar images for the BrowserView. |avatar| is used in the browser
+  // window whereas |taskbar_badge_avatar| is used for the OS taskbar. If
   // |taskbar_badge_avatar| is empty then |avatar| should be used for the
   // taskbar as well. Returns false if the cache doesn't have an entry for a
-  // Profile::REGULAR_PROFILE type |profile|, otherwise return true.
-  static bool GetAvatarImages(Profile* profile,
+  // Profile::REGULAR_PROFILE type Profile, otherwise return true.
+  static bool GetAvatarImages(const BrowserView* browser_view,
                               bool should_show_avatar_menu,
                               gfx::Image* avatar,
                               gfx::Image* taskbar_badge_avatar,
@@ -68,11 +63,12 @@ class AvatarMenuButton : public views::MenuButton,
                          const gfx::Rect& rect) const override;
 
   // views::MenuButtonListener:
-  void OnMenuButtonClicked(views::View* source,
-                           const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
-  Browser* browser_;
-  bool disabled_;
+  BrowserView* browser_view_;
+  bool enabled_;
   scoped_ptr<ui::MenuModel> menu_model_;
 
   // Use a scoped ptr because gfx::Image doesn't have a default constructor.
@@ -80,8 +76,6 @@ class AvatarMenuButton : public views::MenuButton,
   gfx::ImageSkia button_icon_;
   bool is_rectangle_;
   int old_height_;
-  // True if the avatar button is on the right side of the browser window.
-  bool button_on_right_;
 
   DISALLOW_COPY_AND_ASSIGN(AvatarMenuButton);
 };

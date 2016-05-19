@@ -5,6 +5,8 @@
 #ifndef ASH_DISPLAY_DISPLAY_UTIL_H_
 #define ASH_DISPLAY_DISPLAY_UTIL_H_
 
+#include <stdint.h>
+
 #include <set>
 #include <utility>
 #include <vector>
@@ -55,16 +57,14 @@ ASH_EXPORT bool GetDisplayModeForNextResolution(const DisplayInfo& info,
 
 // Sets the UI scale for the |display_id|. Returns false if the
 // display_id is not an internal display.
-ASH_EXPORT bool SetDisplayUIScale(int64 display_id, float scale);
+ASH_EXPORT bool SetDisplayUIScale(int64_t display_id, float scale);
 
 // Tests if the |info| has display mode that matches |ui_scale|.
 bool HasDisplayModeForUIScale(const DisplayInfo& info, float ui_scale);
 
-// Computes the bounds that defines the bounds between two displays
-// based on the layout |position|.
+// Computes the bounds that defines the bounds between two displays.
 void ComputeBoundary(const gfx::Display& primary_display,
                      const gfx::Display& secondary_display,
-                     DisplayLayout::Position position,
                      gfx::Rect* primary_edge_in_screen,
                      gfx::Rect* secondary_edge_in_screen);
 
@@ -87,14 +87,38 @@ ASH_EXPORT int FindDisplayIndexContainingPoint(
     const std::vector<gfx::Display>& displays,
     const gfx::Point& point_in_screen);
 
-// Creates the DisplayIdPair where ids are sorted using |CompareDisplayIds|
-// below.
-ASH_EXPORT DisplayIdPair CreateDisplayIdPair(int64 id1, int64 id2);
+// Sorts id list using |CompareDisplayIds| below.
+ASH_EXPORT void SortDisplayIdList(DisplayIdList* list);
+
+// Default id generator.
+class DefaultDisplayIdGenerator {
+ public:
+  int64_t operator()(int64_t id) { return id; }
+};
+
+// Generate sorted DisplayIdList from iterators.
+template <class ForwardIterator, class Generator = DefaultDisplayIdGenerator>
+DisplayIdList GenerateDisplayIdList(ForwardIterator first,
+                                    ForwardIterator last,
+                                    Generator generator = Generator()) {
+  DisplayIdList list;
+  while (first != last) {
+    list.push_back(generator(*first));
+    ++first;
+  }
+  SortDisplayIdList(&list);
+  return list;
+}
+
+// Creates sorted DisplayIdList.
+ASH_EXPORT DisplayIdList CreateDisplayIdList(const DisplayList& list);
+
+ASH_EXPORT std::string DisplayIdListToString(const DisplayIdList& list);
 
 // Returns true if one of following conditinos is met.
 // 1) id1 is internal.
 // 2) output index of id1 < output index of id2 and id2 isn't internal.
-ASH_EXPORT bool CompareDisplayIds(int64 id1, int64 id2);
+ASH_EXPORT bool CompareDisplayIds(int64_t id1, int64_t id2);
 
 }  // namespace ash
 

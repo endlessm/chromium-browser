@@ -9,9 +9,11 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/test_timeouts.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/dom_distiller/content/browser/web_contents_main_frame_observer.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_frame_host.h"
@@ -48,9 +50,7 @@ namespace dom_distiller {
 
 const char* kExternalTestResourcesPath =
     "third_party/dom_distiller_js/dist/test/data";
-// TODO(wychen) Remove filter when crbug.com/471854 is fixed.
-const char* kTestFilePath =
-    "/war/test.html?console_log=0&filter=-*.SchemaOrgParserAccessorTest.*";
+const char* kTestFilePath = "/war/test.html?console_log=0";
 const char* kRunJsTestsJs =
     "(function() {return org.chromium.distiller.JsTestEntry.run();})();";
 
@@ -95,7 +95,7 @@ class DomDistillerJsTest : public content::ContentBrowserTest {
     PathService::Get(base::DIR_SOURCE_ROOT, &path);
     path = path.AppendASCII(kExternalTestResourcesPath);
     embedded_test_server()->ServeFilesFromDirectory(path);
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
   }
 };
 
@@ -120,7 +120,7 @@ IN_PROC_BROWSER_TEST_F(DomDistillerJsTest, RunJsTests) {
   // Add timeout in case JS Test execution fails. It is safe to call the
   // QuitClosure multiple times.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, run_loop.QuitClosure(), base::TimeDelta::FromSeconds(15));
+      FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_max_timeout());
   web_contents->GetMainFrame()->ExecuteJavaScriptForTests(
       base::UTF8ToUTF16(kRunJsTestsJs),
       base::Bind(&DomDistillerJsTest::OnJsTestExecutionDone,

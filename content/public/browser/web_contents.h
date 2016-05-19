@@ -5,14 +5,16 @@
 #ifndef CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_H_
 #define CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_H_
 
+#include <stdint.h>
+
 #include <set>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/process/kill.h"
 #include "base/strings/string16.h"
 #include "base/supports_user_data.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/navigation_controller.h"
@@ -87,6 +89,7 @@ class WebContents : public PageNavigator,
  public:
   struct CONTENT_EXPORT CreateParams {
     explicit CreateParams(BrowserContext* context);
+    CreateParams(const CreateParams& other);
     ~CreateParams();
     CreateParams(BrowserContext* context, SiteInstance* site);
 
@@ -212,6 +215,12 @@ class WebContents : public PageNavigator,
   // Returns the focused frame for the currently active view.
   virtual RenderFrameHost* GetFocusedFrame() = 0;
 
+  // Returns the current RenderFrameHost for a given FrameTreeNode ID if it is
+  // part of this tab. See RenderFrameHost::GetFrameTreeNodeId for documentation
+  // on this ID.
+  virtual RenderFrameHost* FindFrameByFrameTreeNodeId(
+      int frame_tree_node_id) = 0;
+
   // Calls |on_frame| for each frame in the currently active view.
   // Note: The RenderFrameHost parameter is not guaranteed to have a live
   // RenderFrame counterpart in the renderer process. Callbacks should check
@@ -220,9 +229,14 @@ class WebContents : public PageNavigator,
   virtual void ForEachFrame(
       const base::Callback<void(RenderFrameHost*)>& on_frame) = 0;
 
-  // Sends the given IPC to all frames in the currently active view. This is a
-  // convenience method instead of calling ForEach.
-  virtual void SendToAllFrames(IPC::Message* message) = 0;
+  // Returns a vector of all RenderFrameHosts in the currently active view in
+  // breadth-first traversal order.
+  virtual std::vector<RenderFrameHost*> GetAllFrames() = 0;
+
+  // Sends the given IPC to all frames in the currently active view and returns
+  // the number of sent messages (i.e. the number of processed frames). This is
+  // a convenience method instead of calling ForEach.
+  virtual int SendToAllFrames(IPC::Message* message) = 0;
 
   // Gets the current RenderViewHost for this tab.
   virtual RenderViewHost* GetRenderViewHost() const = 0;
@@ -293,11 +307,11 @@ class WebContents : public PageNavigator,
   // this WebContents.  Page IDs are specific to a given SiteInstance and
   // WebContents, corresponding to a specific RenderView in the renderer.
   // Page IDs increase with each new page that is loaded by a tab.
-  virtual int32 GetMaxPageID() = 0;
+  virtual int32_t GetMaxPageID() = 0;
 
   // The max page ID for any page that the given SiteInstance has loaded in
   // this WebContents.
-  virtual int32 GetMaxPageIDForSiteInstance(SiteInstance* site_instance) = 0;
+  virtual int32_t GetMaxPageIDForSiteInstance(SiteInstance* site_instance) = 0;
 
   // Returns the SiteInstance associated with the current page.
   virtual SiteInstance* GetSiteInstance() const = 0;
@@ -324,8 +338,8 @@ class WebContents : public PageNavigator,
   virtual const base::string16& GetLoadStateHost() const = 0;
 
   // Returns the upload progress.
-  virtual uint64 GetUploadSize() const = 0;
-  virtual uint64 GetUploadPosition() const = 0;
+  virtual uint64_t GetUploadSize() const = 0;
+  virtual uint64_t GetUploadPosition() const = 0;
 
   // Returns the character encoding of the page.
   virtual const std::string& GetEncoding() const = 0;
@@ -406,6 +420,10 @@ class WebContents : public PageNavigator,
 
   // Reloads the focused frame.
   virtual void ReloadFocusedFrame(bool ignore_cache) = 0;
+
+  // Reloads all the Lo-Fi images in this WebContents. Ignores the cache and
+  // reloads from the network.
+  virtual void ReloadLoFiImages() = 0;
 
   // Editing commands ----------------------------------------------------------
 
@@ -524,8 +542,7 @@ class WebContents : public PageNavigator,
   // Generate an MHTML representation of the current page in the given file.
   virtual void GenerateMHTML(
       const base::FilePath& file,
-      const base::Callback<void(
-          int64 /* size of the file */)>& callback) = 0;
+      const base::Callback<void(int64_t /* size of the file */)>& callback) = 0;
 
   // Returns the contents MIME type after a navigation.
   virtual const std::string& GetContentsMimeType() const = 0;
@@ -668,7 +685,10 @@ class WebContents : public PageNavigator,
   virtual void HasManifest(const HasManifestCallback& callback) = 0;
 
   // Requests the renderer to exit fullscreen.
-  virtual void ExitFullscreen() = 0;
+  // |will_cause_resize| indicates whether the fullscreen change causes a
+  // view resize. e.g. This will be false when going from tab fullscreen to
+  // browser fullscreen.
+  virtual void ExitFullscreen(bool will_cause_resize) = 0;
 
   // Unblocks requests from renderer for a newly created window. This is
   // used in showCreatedWindow() or sometimes later in cases where
@@ -684,11 +704,10 @@ class WebContents : public PageNavigator,
   virtual void SuspendMediaSession() = 0;
   // Requests to stop the current media session.
   virtual void StopMediaSession() = 0;
-#if !defined(USE_AURA)
+
   CONTENT_EXPORT static WebContents* FromJavaWebContents(
       jobject jweb_contents_android);
   virtual base::android::ScopedJavaLocalRef<jobject> GetJavaWebContents() = 0;
-#endif  // !USE_AURA
 #elif defined(OS_MACOSX)
   // Allowing other views disables optimizations which assume that only a single
   // WebContents is present.

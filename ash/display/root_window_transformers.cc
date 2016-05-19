@@ -12,7 +12,6 @@
 #include "ash/host/root_window_transformer.h"
 #include "ash/magnifier/magnification_controller.h"
 #include "ash/shell.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
 #include "third_party/skia/include/utils/SkMatrix44.h"
@@ -22,6 +21,7 @@
 #include "ui/gfx/display.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/gfx/screen.h"
 #include "ui/gfx/transform.h"
 #include "ui/gfx/transform.h"
 
@@ -280,7 +280,7 @@ class PartialBoundsRootWindowTransformer : public RootWindowTransformer {
   PartialBoundsRootWindowTransformer(const gfx::Rect& screen_bounds,
                                      const gfx::Display& display) {
     gfx::Display unified_display =
-        Shell::GetInstance()->GetScreen()->GetPrimaryDisplay();
+        gfx::Screen::GetScreen()->GetPrimaryDisplay();
     DisplayInfo display_info =
         Shell::GetInstance()->display_manager()->GetDisplayInfo(display.id());
     root_bounds_ = gfx::Rect(display_info.bounds_in_native().size());

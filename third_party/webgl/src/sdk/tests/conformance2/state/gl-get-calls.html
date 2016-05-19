@@ -90,9 +90,9 @@ else {
 
     shouldBe('context.getParameter(context.UNPACK_IMAGE_HEIGHT)', '0');
     shouldBe('context.getParameter(context.UNPACK_ROW_LENGTH)', '0');
-    shouldBe('context.getParameter(context.UNPACK_SKIP_IMAGES)', 'false');
-    shouldBe('context.getParameter(context.UNPACK_SKIP_PIXELS)', 'false');
-    shouldBe('context.getParameter(context.UNPACK_SKIP_ROWS)', 'false');
+    shouldBe('context.getParameter(context.UNPACK_SKIP_IMAGES)', '0');
+    shouldBe('context.getParameter(context.UNPACK_SKIP_PIXELS)', '0');
+    shouldBe('context.getParameter(context.UNPACK_SKIP_ROWS)', '0');
     shouldBe('context.getParameter(context.VERTEX_ARRAY_BINDING)', 'null');
 
     debug("");
@@ -166,11 +166,11 @@ else {
 
     shouldBeGreaterThanOrEqual('context.getParameter(context.MAX_VERTEX_UNIFORM_BLOCKS)', '12');
     shouldBeType('context.getParameter(context.MAX_VERTEX_UNIFORM_BLOCKS)', 'Number');
-    
+
     shouldBeGreaterThanOrEqual('context.getParameter(context.MAX_VERTEX_UNIFORM_COMPONENTS)', '1024');
     shouldBeType('context.getParameter(context.MAX_VERTEX_UNIFORM_COMPONENTS)', 'Number');
 
-    shouldBeGreaterThanOrEqual('context.getParameter(context.MIN_PROGRAM_TEXEL_OFFSET)', '-8');
+    shouldBeLessThanOrEqual('context.getParameter(context.MIN_PROGRAM_TEXEL_OFFSET)', '-8');
     shouldBeType('context.getParameter(context.MIN_PROGRAM_TEXEL_OFFSET)', 'Number');
 
     shouldBeGreaterThanOrEqual('context.getParameter(context.UNIFORM_BUFFER_OFFSET_ALIGNMENT)', '1');

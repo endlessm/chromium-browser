@@ -19,7 +19,6 @@
  *
  */
 
-#include "config.h"
 #include "core/style/StyleRareInheritedData.h"
 
 #include "core/style/AppliedTextDecoration.h"
@@ -30,6 +29,7 @@
 #include "core/style/QuotesData.h"
 #include "core/style/ShadowList.h"
 #include "core/style/StyleImage.h"
+#include "core/style/StyleVariableData.h"
 
 namespace blink {
 
@@ -39,7 +39,7 @@ struct SameSizeAsStyleRareInheritedData : public RefCounted<SameSizeAsStyleRareI
     float firstFloat;
     Color colors[5];
     void* ownPtrs[1];
-    AtomicString atomicStrings[4];
+    AtomicString atomicStrings[3];
 #if ENABLE(OILPAN)
     void* refPtrs[1];
     Persistent<void*> persistentHandles[2];
@@ -51,6 +51,7 @@ struct SameSizeAsStyleRareInheritedData : public RefCounted<SameSizeAsStyleRareI
     unsigned m_bitfields[2];
     short pagedMediaShorts[2];
     short hyphenationShorts[3];
+    uint8_t snapHeight;
 
     Color touchColors;
     TabSize tabSize;
@@ -96,9 +97,11 @@ StyleRareInheritedData::StyleRareInheritedData()
     , m_subtreeWillChangeContents(false)
     , m_selfOrAncestorHasDirAutoAttribute(false)
     , m_respectImageOrientation(false)
+    , m_snapHeightPosition(0)
     , hyphenationLimitBefore(-1)
     , hyphenationLimitAfter(-1)
     , hyphenationLimitLines(-1)
+    , m_snapHeightUnit(0)
     , tapHighlightColor(ComputedStyle::initialTapHighlightColor())
     , m_tabSize(ComputedStyle::initialTabSize())
 {
@@ -151,11 +154,12 @@ StyleRareInheritedData::StyleRareInheritedData(const StyleRareInheritedData& o)
     , m_subtreeWillChangeContents(o.m_subtreeWillChangeContents)
     , m_selfOrAncestorHasDirAutoAttribute(o.m_selfOrAncestorHasDirAutoAttribute)
     , m_respectImageOrientation(o.m_respectImageOrientation)
+    , m_snapHeightPosition(o.m_snapHeightPosition)
     , hyphenationString(o.hyphenationString)
     , hyphenationLimitBefore(o.hyphenationLimitBefore)
     , hyphenationLimitAfter(o.hyphenationLimitAfter)
     , hyphenationLimitLines(o.hyphenationLimitLines)
-    , locale(o.locale)
+    , m_snapHeightUnit(o.m_snapHeightUnit)
     , textEmphasisCustomMark(o.textEmphasisCustomMark)
     , tapHighlightColor(o.tapHighlightColor)
     , appliedTextDecorations(o.appliedTextDecorations)
@@ -215,8 +219,9 @@ bool StyleRareInheritedData::operator==(const StyleRareInheritedData& o) const
         && m_subtreeWillChangeContents == o.m_subtreeWillChangeContents
         && m_selfOrAncestorHasDirAutoAttribute == o.m_selfOrAncestorHasDirAutoAttribute
         && m_respectImageOrientation == o.m_respectImageOrientation
+        && m_snapHeightPosition == o.m_snapHeightPosition
         && hyphenationString == o.hyphenationString
-        && locale == o.locale
+        && m_snapHeightUnit == o.m_snapHeightUnit
         && textEmphasisCustomMark == o.textEmphasisCustomMark
         && quotesDataEquivalent(o)
         && m_tabSize == o.m_tabSize
@@ -225,7 +230,7 @@ bool StyleRareInheritedData::operator==(const StyleRareInheritedData& o) const
         && m_rubyPosition == o.m_rubyPosition
         && dataEquivalent(listStyleImage.get(), o.listStyleImage.get())
         && dataEquivalent(appliedTextDecorations, o.appliedTextDecorations)
-        && variables == o.variables;
+        && dataEquivalent(variables, o.variables);
 }
 
 bool StyleRareInheritedData::shadowDataEquivalent(const StyleRareInheritedData& o) const

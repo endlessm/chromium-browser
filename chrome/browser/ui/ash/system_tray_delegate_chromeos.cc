@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/ash/system_tray_delegate_chromeos.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ash/ash_switches.h"
@@ -19,6 +21,7 @@
 #include "ash/shell_delegate.h"
 #include "ash/shell_window_ids.h"
 #include "ash/system/bluetooth/bluetooth_observer.h"
+#include "ash/system/chromeos/power/power_status.h"
 #include "ash/system/chromeos/session/logout_button_observer.h"
 #include "ash/system/chromeos/shutdown_policy_observer.h"
 #include "ash/system/date/clock_observer.h"
@@ -36,7 +39,6 @@
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
@@ -52,7 +54,6 @@
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/login_wizard.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
 #include "chrome/browser/chromeos/login/user_flow.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
@@ -74,7 +75,6 @@
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/ash/networking_config_delegate_chromeos.h"
 #include "chrome/browser/ui/ash/system_tray_delegate_utils.h"
-#include "chrome/browser/ui/ash/user_accounts_delegate_chromeos.h"
 #include "chrome/browser/ui/ash/volume_controller_chromeos.h"
 #include "chrome/browser/ui/ash/vpn_delegate_chromeos.h"
 #include "chrome/browser/ui/browser.h"
@@ -97,6 +97,7 @@
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
@@ -472,9 +473,19 @@ void SystemTrayDelegateChromeOS::ShowDisplaySettings() {
   ShowSettingsSubPageForActiveUser(kDisplaySettingsSubPageName);
 }
 
+void SystemTrayDelegateChromeOS::ShowPowerSettings() {
+  if (!(switches::PowerOverlayEnabled() ||
+        (ash::PowerStatus::Get()->IsBatteryPresent() &&
+         ash::PowerStatus::Get()->SupportsDualRoleDevices()))) {
+    return;
+  }
+  content::RecordAction(base::UserMetricsAction("Tray_ShowPowerOptions"));
+  ShowSettingsSubPageForActiveUser(chrome::kPowerOptionsSubPage);
+}
+
 void SystemTrayDelegateChromeOS::ShowChromeSlow() {
   chrome::ScopedTabbedBrowserDisplayer displayer(
-      ProfileManager::GetPrimaryUserProfile(), chrome::HOST_DESKTOP_TYPE_ASH);
+      ProfileManager::GetPrimaryUserProfile());
   chrome::ShowSlow(displayer.browser());
 }
 
@@ -482,8 +493,7 @@ bool SystemTrayDelegateChromeOS::ShouldShowDisplayNotification() {
   // Packaged app is not counted as 'last active', so if a browser opening the
   // display settings is in background of a packaged app, it will return true.
   // TODO(mukai): fix this.
-  Browser* active_browser =
-      chrome::FindLastActiveWithHostDesktopType(chrome::HOST_DESKTOP_TYPE_ASH);
+  Browser* active_browser = chrome::FindLastActive();
   if (!active_browser)
     return true;
 
@@ -512,7 +522,7 @@ void SystemTrayDelegateChromeOS::ShowHelp() {
 
 void SystemTrayDelegateChromeOS::ShowAccessibilityHelp() {
   chrome::ScopedTabbedBrowserDisplayer displayer(
-      ProfileManager::GetActiveUserProfile(), chrome::HOST_DESKTOP_TYPE_ASH);
+      ProfileManager::GetActiveUserProfile());
   accessibility::ShowAccessibilityHelp(displayer.browser());
 }
 
@@ -526,7 +536,7 @@ void SystemTrayDelegateChromeOS::ShowAccessibilitySettings() {
 
 void SystemTrayDelegateChromeOS::ShowPublicAccountInfo() {
   chrome::ScopedTabbedBrowserDisplayer displayer(
-      ProfileManager::GetActiveUserProfile(), chrome::HOST_DESKTOP_TYPE_ASH);
+      ProfileManager::GetActiveUserProfile());
   chrome::ShowPolicy(displayer.browser());
 }
 
@@ -548,7 +558,7 @@ void SystemTrayDelegateChromeOS::ShowEnterpriseInfo() {
     help_app->ShowHelpTopic(chromeos::HelpAppLauncher::HELP_ENTERPRISE);
   } else {
     chrome::ScopedTabbedBrowserDisplayer displayer(
-        ProfileManager::GetActiveUserProfile(), chrome::HOST_DESKTOP_TYPE_ASH);
+        ProfileManager::GetActiveUserProfile());
     chrome::ShowSingletonTab(displayer.browser(),
                              GURL(chrome::kLearnMoreEnterpriseURL));
   }
@@ -774,7 +784,7 @@ bool SystemTrayDelegateChromeOS::GetBluetoothDiscovering() {
 
 void SystemTrayDelegateChromeOS::ChangeProxySettings() {
   CHECK(GetUserLoginStatus() == ash::user::LOGGED_IN_NONE);
-  LoginDisplayHostImpl::default_host()->OpenProxySettings();
+  LoginDisplayHost::default_host()->OpenProxySettings();
 }
 
 ash::CastConfigDelegate* SystemTrayDelegateChromeOS::GetCastConfigDelegate() {
@@ -822,23 +832,6 @@ void SystemTrayDelegateChromeOS::ActiveUserWasChanged() {
 
 bool SystemTrayDelegateChromeOS::IsSearchKeyMappedToCapsLock() {
   return search_key_mapped_to_ == input_method::kCapsLockKey;
-}
-
-ash::tray::UserAccountsDelegate*
-SystemTrayDelegateChromeOS::GetUserAccountsDelegate(
-    const AccountId& account_id) {
-  auto it = accounts_delegates_.find(account_id);
-  if (it == accounts_delegates_.end()) {
-    const user_manager::User* user =
-        user_manager::UserManager::Get()->FindUser(account_id);
-    Profile* user_profile = ProfileHelper::Get()->GetProfileByUserUnsafe(user);
-    CHECK(user_profile);
-    accounts_delegates_.set(
-        account_id, scoped_ptr<ash::tray::UserAccountsDelegate>(
-                        new UserAccountsDelegateChromeOS(user_profile)));
-    it = accounts_delegates_.find(account_id);
-  }
-  return it->second;
 }
 
 void SystemTrayDelegateChromeOS::AddCustodianInfoTrayObserver(
@@ -1045,8 +1038,7 @@ void SystemTrayDelegateChromeOS::NotifyIfLastWindowClosed() {
   if (!user_profile_)
     return;
 
-  BrowserList* browser_list =
-      BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_ASH);
+  BrowserList* browser_list = BrowserList::GetInstance();
   for (BrowserList::const_iterator it = browser_list->begin();
        it != browser_list->end();
        ++it) {
@@ -1236,7 +1228,7 @@ void SystemTrayDelegateChromeOS::OnStartBluetoothDiscoverySession(
   if (!should_run_bluetooth_discovery_)
     return;
   VLOG(1) << "Claiming new Bluetooth device discovery session.";
-  bluetooth_discovery_session_ = discovery_session.Pass();
+  bluetooth_discovery_session_ = std::move(discovery_session);
   GetSystemTrayNotifier()->NotifyBluetoothDiscoveringChanged();
 }
 

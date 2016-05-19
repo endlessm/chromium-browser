@@ -5,6 +5,8 @@
 #include "content/browser/accessibility/accessibility_tree_formatter.h"
 
 #include <oleacc.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <string>
 
@@ -24,6 +26,33 @@
 
 
 namespace content {
+
+class AccessibilityTreeFormatterWin : public AccessibilityTreeFormatter {
+ public:
+  explicit AccessibilityTreeFormatterWin();
+  ~AccessibilityTreeFormatterWin() override;
+
+ private:
+  const base::FilePath::StringType GetExpectedFileSuffix() override;
+  const std::string GetAllowEmptyString() override;
+  const std::string GetAllowString() override;
+  const std::string GetDenyString() override;
+  void AddProperties(const BrowserAccessibility& node,
+                     base::DictionaryValue* dict) override;
+  base::string16 ToString(const base::DictionaryValue& node) override;
+};
+
+// static
+AccessibilityTreeFormatter* AccessibilityTreeFormatter::Create() {
+  return new AccessibilityTreeFormatterWin();
+}
+
+AccessibilityTreeFormatterWin::AccessibilityTreeFormatterWin() {
+  ui::win::CreateATLModuleIfNeeded();
+}
+
+AccessibilityTreeFormatterWin::~AccessibilityTreeFormatterWin() {
+}
 
 const char* ALL_ATTRIBUTES[] = {
     "name",
@@ -124,11 +153,7 @@ base::string16 GetIA2Hypertext(BrowserAccessibilityWin& ax_object) {
 
 } // Namespace
 
-void AccessibilityTreeFormatter::Initialize() {
-  ui::win::CreateATLModuleIfNeeded();
-}
-
-void AccessibilityTreeFormatter::AddProperties(
+void AccessibilityTreeFormatterWin::AddProperties(
     const BrowserAccessibility& node, base::DictionaryValue* dict) {
   dict->SetInteger("id", node.GetId());
   BrowserAccessibilityWin* ax_object =
@@ -142,8 +167,13 @@ void AccessibilityTreeFormatter::AddProperties(
   dict->SetString("role", IAccessible2RoleToString(ax_object->ia2_role()));
 
   base::win::ScopedBstr temp_bstr;
-  if (SUCCEEDED(ax_object->get_accName(variant_self, temp_bstr.Receive())))
-    dict->SetString("name", base::string16(temp_bstr, temp_bstr.Length()));
+  if (SUCCEEDED(ax_object->get_accName(variant_self, temp_bstr.Receive()))) {
+    base::string16 name = base::string16(temp_bstr, temp_bstr.Length());
+
+    // Ignore a JAWS workaround where the name of a document is " ".
+    if (name != L" " || ax_object->ia2_role() != ROLE_SYSTEM_DOCUMENT)
+      dict->SetString("name", name);
+  }
   temp_bstr.Reset();
 
   if (SUCCEEDED(ax_object->get_accValue(variant_self, temp_bstr.Receive())))
@@ -151,7 +181,7 @@ void AccessibilityTreeFormatter::AddProperties(
   temp_bstr.Reset();
 
   std::vector<base::string16> state_strings;
-  int32 ia_state = ax_object->ia_state();
+  int32_t ia_state = ax_object->ia_state();
 
   // Avoid flakiness: these states depend on whether the window is focused
   // and the position of the mouse cursor.
@@ -212,7 +242,7 @@ void AccessibilityTreeFormatter::AddProperties(
     dict->SetString("help", base::string16(temp_bstr, temp_bstr.Length()));
   temp_bstr.Reset();
 
-  BrowserAccessibility* root = node.manager()->GetRoot();
+  BrowserAccessibility* root = node.manager()->GetRootManager()->GetRoot();
   LONG left, top, width, height;
   LONG root_left, root_top, root_width, root_height;
   if (SUCCEEDED(ax_object->accLocation(
@@ -284,11 +314,11 @@ void AccessibilityTreeFormatter::AddProperties(
   }
 }
 
-base::string16 AccessibilityTreeFormatter::ToString(
+base::string16 AccessibilityTreeFormatterWin::ToString(
     const base::DictionaryValue& dict) {
   base::string16 line;
 
-  if (show_ids_) {
+  if (show_ids()) {
     int id_value;
     dict.GetInteger("id", &id_value);
     WriteAttribute(true, base::IntToString16(id_value), &line);
@@ -298,8 +328,7 @@ base::string16 AccessibilityTreeFormatter::ToString(
   dict.GetString("role", &role_value);
   WriteAttribute(true, base::UTF16ToUTF8(role_value), &line);
 
-  for (int i = 0; i < arraysize(ALL_ATTRIBUTES); i++) {
-    const char* attribute_name = ALL_ATTRIBUTES[i];
+  for (const char* attribute_name : ALL_ATTRIBUTES) {
     const base::Value* value;
     if (!dict.Get(attribute_name, &value))
       continue;
@@ -377,30 +406,20 @@ base::string16 AccessibilityTreeFormatter::ToString(
   return line;
 }
 
-// static
 const base::FilePath::StringType
-AccessibilityTreeFormatter::GetActualFileSuffix() {
-  return FILE_PATH_LITERAL("-actual-win.txt");
-}
-
-// static
-const base::FilePath::StringType
-AccessibilityTreeFormatter::GetExpectedFileSuffix() {
+AccessibilityTreeFormatterWin::GetExpectedFileSuffix() {
   return FILE_PATH_LITERAL("-expected-win.txt");
 }
 
-// static
-const std::string AccessibilityTreeFormatter::GetAllowEmptyString() {
+const std::string AccessibilityTreeFormatterWin::GetAllowEmptyString() {
   return "@WIN-ALLOW-EMPTY:";
 }
 
-// static
-const std::string AccessibilityTreeFormatter::GetAllowString() {
+const std::string AccessibilityTreeFormatterWin::GetAllowString() {
   return "@WIN-ALLOW:";
 }
 
-// static
-const std::string AccessibilityTreeFormatter::GetDenyString() {
+const std::string AccessibilityTreeFormatterWin::GetDenyString() {
   return "@WIN-DENY:";
 }
 

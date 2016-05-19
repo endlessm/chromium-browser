@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGLengthTearOff.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -40,10 +38,23 @@ namespace blink {
 
 namespace {
 
+inline bool isValidLengthUnit(CSSPrimitiveValue::UnitType unit)
+{
+    return unit == CSSPrimitiveValue::UnitType::Number
+        || unit == CSSPrimitiveValue::UnitType::Percentage
+        || unit == CSSPrimitiveValue::UnitType::Ems
+        || unit == CSSPrimitiveValue::UnitType::Exs
+        || unit == CSSPrimitiveValue::UnitType::Pixels
+        || unit == CSSPrimitiveValue::UnitType::Centimeters
+        || unit == CSSPrimitiveValue::UnitType::Millimeters
+        || unit == CSSPrimitiveValue::UnitType::Inches
+        || unit == CSSPrimitiveValue::UnitType::Points
+        || unit == CSSPrimitiveValue::UnitType::Picas;
+}
+
 inline bool isValidLengthUnit(unsigned short type)
 {
-    return type != static_cast<unsigned short>(CSSPrimitiveValue::UnitType::Unknown)
-        && type <= static_cast<unsigned short>(CSSPrimitiveValue::UnitType::Picas);
+    return isValidLengthUnit(static_cast<CSSPrimitiveValue::UnitType>(type));
 }
 
 inline bool canResolveRelativeUnits(const SVGElement* contextElement)
@@ -88,7 +99,16 @@ inline SVGLengthType toSVGLengthType(CSSPrimitiveValue::UnitType type)
         return LengthTypeUnknown;
     }
 }
+
 } // namespace
+
+bool SVGLengthTearOff::hasExposedLengthUnit()
+{
+    CSSPrimitiveValue::UnitType unit = target()->typeWithCalcResolved();
+    return isValidLengthUnit(unit)
+        || unit == CSSPrimitiveValue::UnitType::Unknown
+        || unit == CSSPrimitiveValue::UnitType::UserUnits;
+}
 
 SVGLengthType SVGLengthTearOff::unitType()
 {
@@ -133,10 +153,10 @@ float SVGLengthTearOff::valueInSpecifiedUnits()
     return target()->valueInSpecifiedUnits();
 }
 
-void SVGLengthTearOff::setValueInSpecifiedUnits(float value, ExceptionState& es)
+void SVGLengthTearOff::setValueInSpecifiedUnits(float value, ExceptionState& exceptionState)
 {
     if (isImmutable()) {
-        es.throwDOMException(NoModificationAllowedError, "The attribute is read-only.");
+        exceptionState.throwDOMException(NoModificationAllowedError, "The attribute is read-only.");
         return;
     }
     target()->setValueInSpecifiedUnits(value);
@@ -149,20 +169,23 @@ String SVGLengthTearOff::valueAsString()
     return hasExposedLengthUnit() ? target()->valueAsString() : String::number(0);
 }
 
-void SVGLengthTearOff::setValueAsString(const String& str, ExceptionState& es)
+void SVGLengthTearOff::setValueAsString(const String& str, ExceptionState& exceptionState)
 {
     if (isImmutable()) {
-        es.throwDOMException(NoModificationAllowedError, "The attribute is read-only.");
+        exceptionState.throwDOMException(NoModificationAllowedError, "The attribute is read-only.");
         return;
     }
 
     String oldValue = target()->valueAsString();
 
-    target()->setValueAsString(str, es);
+    SVGParsingError status = target()->setValueAsString(str);
 
-    if (!es.hadException() && !hasExposedLengthUnit()) {
-        target()->setValueAsString(oldValue, ASSERT_NO_EXCEPTION); // rollback to old value
-        es.throwDOMException(SyntaxError, "The value provided ('" + str + "') is invalid.");
+    if (status == SVGParseStatus::NoError && !hasExposedLengthUnit()) {
+        target()->setValueAsString(oldValue); // rollback to old value
+        status = SVGParseStatus::ParsingFailed;
+    }
+    if (status != SVGParseStatus::NoError) {
+        exceptionState.throwDOMException(SyntaxError, "The value provided ('" + str + "') is invalid.");
         return;
     }
 
@@ -197,7 +220,7 @@ void SVGLengthTearOff::convertToSpecifiedUnits(unsigned short unitType, Exceptio
         return;
     }
 
-    if ((target()->isRelative() || SVGLength::isRelativeUnit(toCSSUnitType(unitType)))
+    if ((target()->isRelative() || CSSPrimitiveValue::isRelativeUnit(toCSSUnitType(unitType)))
         && !canResolveRelativeUnits(contextElement())) {
         exceptionState.throwDOMException(NotSupportedError, "Could not resolve relative length.");
         return;
@@ -213,4 +236,4 @@ SVGLengthTearOff::SVGLengthTearOff(PassRefPtrWillBeRawPtr<SVGLength> target, SVG
 {
 }
 
-}
+} // namespace blink

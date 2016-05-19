@@ -7,35 +7,35 @@
 
 #include <map>
 
+#include "base/macros.h"
 #include "components/resource_provider/public/interfaces/resource_provider.mojom.h"
-#include "mojo/application/public/cpp/application_delegate.h"
-#include "mojo/application/public/cpp/interface_factory.h"
-#include "mojo/common/weak_binding_set.h"
 #include "mojo/public/cpp/bindings/binding.h"
-
-namespace mojo {
-class ApplicationImpl;
-}
+#include "mojo/public/cpp/bindings/binding_set.h"
+#include "mojo/services/tracing/public/cpp/tracing_impl.h"
+#include "mojo/shell/public/cpp/interface_factory.h"
+#include "mojo/shell/public/cpp/shell_client.h"
 
 namespace resource_provider {
 
-class ResourceProviderApp : public mojo::ApplicationDelegate,
+class ResourceProviderApp : public mojo::ShellClient,
                             public mojo::InterfaceFactory<ResourceProvider> {
  public:
   explicit ResourceProviderApp(const std::string& resource_provider_app_url);
   ~ResourceProviderApp() override;
 
  private:
-  // ApplicationDelegate:
-  void Initialize(mojo::ApplicationImpl* app) override;
-  bool ConfigureIncomingConnection(
-      mojo::ApplicationConnection* connection) override;
+  // mojo::ShellClient:
+  void Initialize(mojo::Connector* connector, const std::string& url,
+                  uint32_t id, uint32_t user_id) override;
+  bool AcceptConnection(mojo::Connection* connection) override;
 
   // mojo::InterfaceFactory<ResourceProvider>:
-  void Create(mojo::ApplicationConnection* connection,
+  void Create(mojo::Connection* connection,
               mojo::InterfaceRequest<ResourceProvider> request) override;
 
-  mojo::WeakBindingSet<ResourceProvider> bindings_;
+  mojo::TracingImpl tracing_;
+
+  mojo::BindingSet<ResourceProvider> bindings_;
 
   // The name of the app that the resource provider code lives in. When using
   // core services, it'll be the url of that. Otherwise it'll just be

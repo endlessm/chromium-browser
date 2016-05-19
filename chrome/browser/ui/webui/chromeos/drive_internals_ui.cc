@@ -4,13 +4,16 @@
 
 #include "chrome/browser/ui/webui/chromeos/drive_internals_ui.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
 #include "chrome/browser/chromeos/drive/debug_info_collector.h"
@@ -28,6 +31,7 @@
 #include "components/drive/event_logger.h"
 #include "components/drive/job_list.h"
 #include "components/drive/service/drive_service_interface.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -69,11 +73,11 @@ void GetGCacheContents(const base::FilePath& root_path,
                        base::FileEnumerator::SHOW_SYM_LINKS);
   base::FileEnumerator enumerator(root_path, true /* recursive */, options);
 
-  int64 total_size = 0;
+  int64_t total_size = 0;
   for (base::FilePath current = enumerator.Next(); !current.empty();
        current = enumerator.Next()) {
     base::FileEnumerator::FileInfo info = enumerator.GetInfo();
-    int64 size = info.GetSize();
+    int64_t size = info.GetSize();
     const bool is_directory = info.IsDirectory();
     const bool is_symbolic_link = base::IsLink(info.GetName());
     const base::Time last_modified = info.GetLastModifiedTime();
@@ -111,7 +115,7 @@ void GetFreeDiskSpace(const base::FilePath& home_path,
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(local_storage_summary);
 
-  const int64 free_space = base::SysInfo::AmountOfFreeDiskSpace(home_path);
+  const int64_t free_space = base::SysInfo::AmountOfFreeDiskSpace(home_path);
   local_storage_summary->SetDouble("free_space", free_space);
 }
 

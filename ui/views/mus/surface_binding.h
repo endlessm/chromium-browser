@@ -5,16 +5,18 @@
 #ifndef UI_VIEWS_MUS_SURFACE_BINDING_H_
 #define UI_VIEWS_MUS_SURFACE_BINDING_H_
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/mus/public/interfaces/window_tree.mojom.h"
+#include "ui/views/mus/mus_export.h"
 
 namespace cc {
 class OutputSurface;
 }
 
 namespace mojo {
-class Shell;
+class Connector;
 }
 
 namespace mus {
@@ -28,9 +30,9 @@ namespace views {
 // Internally SurfaceBinding manages one connection (and related structures) per
 // WindowTree. That is, all Windows from a particular WindowTree share the same
 // connection.
-class SurfaceBinding {
+class VIEWS_MUS_EXPORT SurfaceBinding {
  public:
-  SurfaceBinding(mojo::Shell* shell,
+  SurfaceBinding(mojo::Connector* connector,
                  mus::Window* window,
                  mus::mojom::SurfaceType surface_type);
   ~SurfaceBinding();

@@ -117,8 +117,8 @@ component("midi") {
     defines += [ "EXPORT_USB_MIDI" ]
 
     deps += [
-      "//base:i18n",
       ":midi_jni_headers",
+      "//base:i18n",
     ]
   }
 
@@ -150,15 +150,6 @@ component("midi") {
   }
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("midi_unittests_run") {
-  testonly = true
-  deps = [
-    ":midi_unittests",
-  ]
-}
-
 test("midi_unittests") {
   sources = [
     "midi_manager_unittest.cc",
@@ -179,7 +170,7 @@ test("midi_unittests") {
   ]
 
   if (is_android) {
-    apk_deps = [ ":midi_java" ]
+    deps += [ ":midi_java" ]
     isolate_file = "midi_unittests.isolate"
   }
 

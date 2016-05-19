@@ -4,17 +4,19 @@
 
 #include "ios/chrome/browser/translate/chrome_ios_translate_client.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "components/infobars/core/infobar.h"
+#include "components/prefs/pref_service.h"
 #include "components/translate/core/browser/page_translated_details.h"
 #include "components/translate/core/browser/translate_accept_languages.h"
 #include "components/translate/core/browser/translate_infobar_delegate.h"
 #include "components/translate/core/browser/translate_manager.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #include "components/translate/core/browser/translate_step.h"
+#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/infobars/infobar.h"
 #include "ios/chrome/browser/infobars/infobar_controller.h"
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
@@ -26,7 +28,6 @@
 #import "ios/chrome/browser/translate/translate_message_infobar_controller.h"
 #include "ios/chrome/browser/translate/translate_service_ios.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
-#include "ios/public/provider/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/web/public/browser_state.h"
 #include "ios/web/public/web_state/web_state.h"
 #include "url/gurl.h"
@@ -36,11 +37,10 @@ DEFINE_WEB_STATE_USER_DATA_KEY(ChromeIOSTranslateClient);
 ChromeIOSTranslateClient::ChromeIOSTranslateClient(web::WebState* web_state)
     : web::WebStateObserver(web_state),
       translate_manager_(
-          new translate::TranslateManager(this, ios::prefs::kAcceptLanguages)),
+          new translate::TranslateManager(this, prefs::kAcceptLanguages)),
       translate_driver_(web_state,
                         web_state->GetNavigationManager(),
-                        translate_manager_.get()) {
-}
+                        translate_manager_.get()) {}
 
 ChromeIOSTranslateClient::~ChromeIOSTranslateClient() {
 }
@@ -48,8 +48,8 @@ ChromeIOSTranslateClient::~ChromeIOSTranslateClient() {
 // static
 scoped_ptr<translate::TranslatePrefs>
 ChromeIOSTranslateClient::CreateTranslatePrefs(PrefService* prefs) {
-  return scoped_ptr<translate::TranslatePrefs>(new translate::TranslatePrefs(
-      prefs, ios::prefs::kAcceptLanguages, nullptr));
+  return scoped_ptr<translate::TranslatePrefs>(
+      new translate::TranslatePrefs(prefs, prefs::kAcceptLanguages, nullptr));
 }
 
 translate::TranslateManager* ChromeIOSTranslateClient::GetTranslateManager() {
@@ -62,7 +62,7 @@ scoped_ptr<infobars::InfoBar> ChromeIOSTranslateClient::CreateInfoBar(
     scoped_ptr<translate::TranslateInfoBarDelegate> delegate) const {
   translate::TranslateStep step = delegate->translate_step();
 
-  scoped_ptr<InfoBarIOS> infobar(new InfoBarIOS(delegate.Pass()));
+  scoped_ptr<InfoBarIOS> infobar(new InfoBarIOS(std::move(delegate)));
   base::scoped_nsobject<InfoBarController> controller;
   switch (step) {
     case translate::TRANSLATE_STEP_AFTER_TRANSLATE:
@@ -86,7 +86,7 @@ scoped_ptr<infobars::InfoBar> ChromeIOSTranslateClient::CreateInfoBar(
       NOTREACHED();
   }
   infobar->SetController(controller);
-  return infobar.Pass();
+  return std::move(infobar);
 }
 
 void ChromeIOSTranslateClient::ShowTranslateUI(
@@ -136,7 +136,7 @@ ChromeIOSTranslateClient::GetTranslateAcceptLanguages() {
 }
 
 int ChromeIOSTranslateClient::GetInfobarIconID() const {
-  return IDR_INFOBAR_TRANSLATE_IOS;
+  return IDR_IOS_INFOBAR_TRANSLATE;
 }
 
 bool ChromeIOSTranslateClient::IsTranslatableURL(const GURL& url) {

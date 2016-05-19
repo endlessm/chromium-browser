@@ -4,6 +4,7 @@
 
 #include "google_apis/gaia/fake_gaia.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/base_paths.h"
@@ -97,8 +98,7 @@ CookieMap GetRequestCookies(const HttpRequest& request) {
 bool GetAccessToken(const HttpRequest& request,
                     const char* auth_token_prefix,
                     std::string* access_token) {
-  std::map<std::string, std::string>::const_iterator auth_header_entry =
-      request.headers.find("Authorization");
+  auto auth_header_entry = request.headers.find("Authorization");
   if (auth_header_entry != request.headers.end()) {
     if (base::StartsWith(auth_header_entry->second, auth_token_prefix,
                          base::CompareCase::SENSITIVE)) {
@@ -126,6 +126,9 @@ void SetCookies(BasicHttpResponse* http_response,
 
 FakeGaia::AccessTokenInfo::AccessTokenInfo()
   : expires_in(3600) {}
+
+FakeGaia::AccessTokenInfo::AccessTokenInfo(const AccessTokenInfo& other) =
+    default;
 
 FakeGaia::AccessTokenInfo::~AccessTokenInfo() {}
 
@@ -309,7 +312,7 @@ scoped_ptr<HttpResponse> FakeGaia::HandleRequest(const HttpRequest& request) {
     return scoped_ptr<HttpResponse>();      // Request not understood.
   }
 
-  return http_response.Pass();
+  return std::move(http_response);
 }
 
 void FakeGaia::IssueOAuthToken(const std::string& auth_token,

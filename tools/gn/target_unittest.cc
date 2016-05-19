@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "tools/gn/target.h"
+
+#include <utility>
+
 #include "testing/gtest/include/gtest/gtest.h"
 #include "tools/gn/build_settings.h"
 #include "tools/gn/config.h"
 #include "tools/gn/scheduler.h"
 #include "tools/gn/settings.h"
-#include "tools/gn/target.h"
 #include "tools/gn/test_with_scope.h"
 #include "tools/gn/toolchain.h"
 
@@ -35,7 +38,7 @@ TEST(Target, LibInheritance) {
   TestWithScope setup;
   Err err;
 
-  const std::string lib("foo");
+  const LibFile lib("foo");
   const SourceDir libdir("/foo_dir/");
 
   // Leaf target with ldflags set.
@@ -52,7 +55,7 @@ TEST(Target, LibInheritance) {
 
   // Shared library target should inherit the libs from the static library
   // and its own. Its own flag should be before the inherited one.
-  const std::string second_lib("bar");
+  const LibFile second_lib("bar");
   const SourceDir second_libdir("/bar_dir/");
   TestTarget shared(setup, "//foo:shared", Target::SHARED_LIBRARY);
   shared.config_values().libs().push_back(second_lib);
@@ -234,6 +237,31 @@ TEST(Target, InheritCompleteStaticLibNoIheritedStaticLibDeps) {
   ASSERT_FALSE(a.OnResolved(&err));
 }
 
+TEST(Target, NoActionDepPropgation) {
+  TestWithScope setup;
+  Err err;
+
+  // Create a dependency chain:
+  //   A (exe) -> B (action) -> C (source_set)
+  {
+    TestTarget a(setup, "//foo:a", Target::EXECUTABLE);
+    TestTarget b(setup, "//foo:b", Target::ACTION);
+    TestTarget c(setup, "//foo:c", Target::SOURCE_SET);
+
+    a.private_deps().push_back(LabelTargetPair(&b));
+    b.private_deps().push_back(LabelTargetPair(&c));
+
+    ASSERT_TRUE(c.OnResolved(&err));
+    ASSERT_TRUE(b.OnResolved(&err));
+    ASSERT_TRUE(a.OnResolved(&err));
+
+    // The executable should not have inherited the source set across the
+    // action.
+    std::vector<const Target*> libs = a.inherited_libraries().GetOrdered();
+    ASSERT_TRUE(libs.empty());
+  }
+}
+
 TEST(Target, GetComputedOutputName) {
   TestWithScope setup;
   Err err;
@@ -361,6 +389,8 @@ TEST(Target, PublicConfigs) {
 
   Label pub_config_label(SourceDir("//a/"), "pubconfig");
   Config pub_config(setup.settings(), pub_config_label);
+  LibFile lib_name("testlib");
+  pub_config.own_values().libs().push_back(lib_name);
   ASSERT_TRUE(pub_config.OnResolved(&err));
 
   // This is the destination target that has a public config.
@@ -380,6 +410,11 @@ TEST(Target, PublicConfigs) {
   ASSERT_TRUE(dep_on_pub.OnResolved(&err));
   ASSERT_EQ(1u, dep_on_pub.configs().size());
   EXPECT_EQ(&pub_config, dep_on_pub.configs()[0].ptr);
+
+  // Libs have special handling, check that they were forwarded from the
+  // public config to all_libs.
+  ASSERT_EQ(1u, dep_on_pub.all_libs().size());
+  ASSERT_EQ(lib_name, dep_on_pub.all_libs()[0]);
 
   // This target has a private dependency on dest for forwards configs.
   TestTarget forward(setup, "//a:f", Target::SOURCE_SET);
@@ -413,7 +448,7 @@ TEST(Target, LinkAndDepOutputs) {
   solink_tool->set_outputs(SubstitutionList::MakeForTest(
       kLinkPattern, kDependPattern));
 
-  toolchain.SetTool(Toolchain::TYPE_SOLINK, solink_tool.Pass());
+  toolchain.SetTool(Toolchain::TYPE_SOLINK, std::move(solink_tool));
 
   Target target(setup.settings(), Label(SourceDir("//a/"), "a"));
   target.set_output_type(Target::SHARED_LIBRARY);
@@ -422,6 +457,46 @@ TEST(Target, LinkAndDepOutputs) {
 
   EXPECT_EQ("./liba.so", target.link_output_file().value());
   EXPECT_EQ("./liba.so.TOC", target.dependency_output_file().value());
+  EXPECT_EQ("./liba.so", target.runtime_link_output_file().value());
+}
+
+// Tests that runtime_link output works without an explicit link_output for
+// solink tools.
+TEST(Target, RuntimeLinkOuput) {
+  TestWithScope setup;
+  Err err;
+
+  Toolchain toolchain(setup.settings(), Label(SourceDir("//tc/"), "tc"));
+
+  scoped_ptr<Tool> solink_tool(new Tool());
+  solink_tool->set_output_prefix("");
+  solink_tool->set_default_output_extension(".dll");
+
+  const char kLibPattern[] =
+      "{{root_out_dir}}/{{target_output_name}}{{output_extension}}.lib";
+  SubstitutionPattern lib_output =
+      SubstitutionPattern::MakeForTest(kLibPattern);
+
+  const char kDllPattern[] =
+      "{{root_out_dir}}/{{target_output_name}}{{output_extension}}";
+  SubstitutionPattern dll_output =
+      SubstitutionPattern::MakeForTest(kDllPattern);
+
+  solink_tool->set_outputs(
+      SubstitutionList::MakeForTest(kLibPattern, kDllPattern));
+
+  solink_tool->set_runtime_link_output(dll_output);
+
+  toolchain.SetTool(Toolchain::TYPE_SOLINK, std::move(solink_tool));
+
+  Target target(setup.settings(), Label(SourceDir("//a/"), "a"));
+  target.set_output_type(Target::SHARED_LIBRARY);
+  target.SetToolchain(&toolchain);
+  ASSERT_TRUE(target.OnResolved(&err));
+
+  EXPECT_EQ("./a.dll.lib", target.link_output_file().value());
+  EXPECT_EQ("./a.dll.lib", target.dependency_output_file().value());
+  EXPECT_EQ("./a.dll", target.runtime_link_output_file().value());
 }
 
 // Shared libraries should be inherited across public shared liobrary
@@ -552,6 +627,31 @@ TEST(Target, WriteFileGeneratedInputs) {
   EXPECT_TRUE(scheduler.GetUnknownGeneratedInputs().empty());
 }
 
+// Tests that intermediate object files generated by binary targets are also
+// considered generated for the purposes of input checking. Above, we tested
+// the failure cases for generated inputs, so here only test .o files that are
+// present.
+TEST(Target, ObjectGeneratedInputs) {
+  Scheduler scheduler;
+  TestWithScope setup;
+  Err err;
+
+  // This target compiles the source.
+  SourceFile source_file("//source.cc");
+  TestTarget source_generator(setup, "//:source_target", Target::SOURCE_SET);
+  source_generator.sources().push_back(source_file);
+  EXPECT_TRUE(source_generator.OnResolved(&err));
+
+  // This is the object file that the test toolchain generates for the source.
+  SourceFile object_file("//out/Debug/obj/source_target.source.o");
+
+  TestTarget final_target(setup, "//:final", Target::ACTION);
+  final_target.inputs().push_back(object_file);
+  EXPECT_TRUE(final_target.OnResolved(&err));
+
+  AssertSchedulerHasOneUnknownFileMatching(&final_target, object_file);
+}
+
 TEST(Target, ResolvePrecompiledHeaders) {
   TestWithScope setup;
   Err err;
@@ -607,4 +707,59 @@ TEST(Target, ResolvePrecompiledHeaders) {
       "  header: pch2.h\n"
       "  source: //pcs2.cc",
       err.help_text());
+}
+
+TEST(Target, AssertNoDeps) {
+  TestWithScope setup;
+  Err err;
+
+  // A target.
+  TestTarget a(setup, "//a", Target::SHARED_LIBRARY);
+  ASSERT_TRUE(a.OnResolved(&err));
+
+  // B depends on A and has an assert_no_deps for a random dir.
+  TestTarget b(setup, "//b", Target::SHARED_LIBRARY);
+  b.private_deps().push_back(LabelTargetPair(&a));
+  b.assert_no_deps().push_back(LabelPattern(
+      LabelPattern::RECURSIVE_DIRECTORY, SourceDir("//disallowed/"),
+      std::string(), Label()));
+  ASSERT_TRUE(b.OnResolved(&err));
+
+  LabelPattern disallow_a(LabelPattern::RECURSIVE_DIRECTORY, SourceDir("//a/"),
+                          std::string(), Label());
+
+  // C depends on B and disallows depending on A. This should fail.
+  TestTarget c(setup, "//c", Target::EXECUTABLE);
+  c.private_deps().push_back(LabelTargetPair(&b));
+  c.assert_no_deps().push_back(disallow_a);
+  ASSERT_FALSE(c.OnResolved(&err));
+
+  // Validate the error message has the proper path.
+  EXPECT_EQ(
+      "//c:c has an assert_no_deps entry:\n"
+      "  //a/*\n"
+      "which fails for the dependency path:\n"
+      "  //c:c ->\n"
+      "  //b:b ->\n"
+      "  //a:a",
+      err.help_text());
+  err = Err();
+
+  // Add an intermediate executable with: exe -> b -> a
+  TestTarget exe(setup, "//exe", Target::EXECUTABLE);
+  exe.private_deps().push_back(LabelTargetPair(&b));
+  ASSERT_TRUE(exe.OnResolved(&err));
+
+  // D depends on the executable and disallows depending on A. Since there is
+  // an intermediate executable, this should be OK.
+  TestTarget d(setup, "//d", Target::EXECUTABLE);
+  d.private_deps().push_back(LabelTargetPair(&exe));
+  d.assert_no_deps().push_back(disallow_a);
+  ASSERT_TRUE(d.OnResolved(&err));
+
+  // A2 disallows depending on anything in its own directory, but the
+  // assertions should not match the target itself so this should be OK.
+  TestTarget a2(setup, "//a:a2", Target::EXECUTABLE);
+  a2.assert_no_deps().push_back(disallow_a);
+  ASSERT_TRUE(a2.OnResolved(&err));
 }

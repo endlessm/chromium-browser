@@ -7,7 +7,7 @@
 
 #include <set>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "components/mus/ws/server_window_observer.h"
 
 namespace mus {
@@ -38,10 +38,15 @@ class ServerWindowDrawnTracker : public ServerWindowObserver {
   void RemoveObservers();
 
   // ServerWindowObserver:
+  void OnWindowDestroying(ServerWindow* window) override;
   void OnWindowDestroyed(ServerWindow* window) override;
+  void OnWillChangeWindowHierarchy(ServerWindow* window,
+                                   ServerWindow* new_parent,
+                                   ServerWindow* old_parent) override;
   void OnWindowHierarchyChanged(ServerWindow* window,
                                 ServerWindow* new_parent,
                                 ServerWindow* old_parent) override;
+  void OnWillChangeWindowVisibility(ServerWindow* window) override;
   void OnWindowVisibilityChanged(ServerWindow* window) override;
 
   ServerWindow* window_;

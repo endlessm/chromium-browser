@@ -10,7 +10,6 @@
 #include "base/metrics/histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -18,6 +17,7 @@
 #include "chromeos/login/user_names.h"
 #include "chromeos/login_event_recorder.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "net/cookies/cookie_monster.h"
@@ -58,11 +58,13 @@ void LoginPerformer::OnAuthFailure(const AuthFailure& failure) {
                             failure.reason(),
                             AuthFailure::NUM_FAILURE_REASONS);
 
-  DVLOG(1) << "failure.reason " << failure.reason();
-  DVLOG(1) << "failure.error.state " << failure.error().state();
+  LOG(ERROR) << "Login failure, reason=" << failure.reason()
+             << ", error.state=" << failure.error().state();
 
   last_login_failure_ = failure;
   if (delegate_) {
+    delegate_->SetAuthFlowOffline(user_context_.GetAuthFlow() ==
+                                  UserContext::AUTH_FLOW_OFFLINE);
     delegate_->OnAuthFailure(failure);
     return;
   } else {
@@ -130,22 +132,21 @@ void LoginPerformer::PerformLogin(const UserContext& user_context,
 
 void LoginPerformer::DoPerformLogin(const UserContext& user_context,
                                     AuthorizationMode auth_mode) {
-  const std::string email =
-      gaia::CanonicalizeEmail(user_context.GetAccountId().GetUserEmail());
   bool wildcard_match = false;
 
-  if (!IsUserWhitelisted(email, &wildcard_match)) {
+  const AccountId& account_id = user_context.GetAccountId();
+  if (!IsUserWhitelisted(account_id, &wildcard_match)) {
     NotifyWhitelistCheckFailure();
     return;
   }
 
   if (user_context.GetAuthFlow() == UserContext::AUTH_FLOW_EASY_UNLOCK)
-    SetupEasyUnlockUserFlow(user_context.GetAccountId().GetUserEmail());
+    SetupEasyUnlockUserFlow(user_context.GetAccountId());
 
   switch (auth_mode_) {
     case AUTH_MODE_EXTENSION: {
       RunOnlineWhitelistCheck(
-          email, wildcard_match, user_context.GetRefreshToken(),
+          account_id, wildcard_match, user_context.GetRefreshToken(),
           base::Bind(&LoginPerformer::StartLoginCompletion,
                      weak_factory_.GetWeakPtr()),
           base::Bind(&LoginPerformer::NotifyWhitelistCheckFailure,
@@ -182,7 +183,7 @@ void LoginPerformer::TrustedLoginAsSupervisedUser(
     return;
   }
 
-  SetupSupervisedUserFlow(user_context.GetAccountId().GetUserEmail());
+  SetupSupervisedUserFlow(user_context.GetAccountId());
   UserContext user_context_copy = TransformSupervisedKey(user_context);
 
   if (UseExtendedAuthenticatorForSupervisedUser(user_context)) {
@@ -206,7 +207,7 @@ void LoginPerformer::TrustedLoginAsSupervisedUser(
 }
 
 void LoginPerformer::LoginAsPublicSession(const UserContext& user_context) {
-  if (!CheckPolicyForUser(user_context.GetAccountId().GetUserEmail())) {
+  if (!CheckPolicyForUser(user_context.GetAccountId())) {
     DCHECK(delegate_);
     if (delegate_)
       delegate_->PolicyLoadFailed();
@@ -260,7 +261,7 @@ void LoginPerformer::EnsureExtendedAuthenticator() {
 }
 
 void LoginPerformer::StartLoginCompletion() {
-  DVLOG(1) << "Login completion started";
+  VLOG(1) << "Online login completion started.";
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker("AuthStarted", false);
   content::BrowserContext* browser_context = GetSigninContext();
   EnsureAuthenticator();
@@ -273,7 +274,7 @@ void LoginPerformer::StartLoginCompletion() {
 }
 
 void LoginPerformer::StartAuthentication() {
-  DVLOG(1) << "Auth started";
+  VLOG(1) << "Offline auth started.";
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker("AuthStarted", false);
   if (delegate_) {
     EnsureAuthenticator();

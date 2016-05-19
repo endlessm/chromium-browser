@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSSegmentedFontFace.h"
 
 #include "core/css/CSSFontFace.h"
@@ -72,12 +71,7 @@ bool CSSSegmentedFontFace::isValid() const
     return false;
 }
 
-void CSSSegmentedFontFace::fontLoaded(CSSFontFace*)
-{
-    pruneTable();
-}
-
-void CSSSegmentedFontFace::fontLoadWaitLimitExceeded(CSSFontFace*)
+void CSSSegmentedFontFace::fontFaceInvalidated()
 {
     pruneTable();
 }
@@ -206,4 +200,4 @@ DEFINE_TRACE(CSSSegmentedFontFace)
 #endif
 }
 
-}
+} // namespace blink

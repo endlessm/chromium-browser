@@ -19,7 +19,32 @@ from dashboard import file_bug
 from dashboard import testing_common
 from dashboard import utils
 from dashboard.models import anomaly
+from dashboard.models import bug_label_patterns
 from dashboard.models import sheriff
+
+
+class MockIssueTrackerService(object):
+  """A fake version of IssueTrackerService that saves call values."""
+
+  bug_id = 12345
+  new_bug_args = None
+  new_bug_kwargs = None
+  add_comment_args = None
+  add_comment_kwargs = None
+
+  def __init__(self, http=None):
+    pass
+
+  @classmethod
+  def NewBug(cls, *args, **kwargs):
+    cls.new_bug_args = args
+    cls.new_bug_kwargs = kwargs
+    return cls.bug_id
+
+  @classmethod
+  def AddBugComment(cls, *args, **kwargs):
+    cls.add_comment_args = args
+    cls.add_comment_kwargs = kwargs
 
 
 class FileBugTest(testing_common.TestCase):
@@ -28,17 +53,20 @@ class FileBugTest(testing_common.TestCase):
     super(FileBugTest, self).setUp()
     app = webapp2.WSGIApplication([('/file_bug', file_bug.FileBugHandler)])
     self.testapp = webtest.TestApp(app)
-    testing_common.SetSheriffDomains(['chromium.org', 'google.com'])
-    testing_common.SetInternalDomain('google.com')
+    testing_common.SetSheriffDomains(['chromium.org'])
+    testing_common.SetIsInternalUser('internal@chromium.org', True)
+    testing_common.SetIsInternalUser('foo@chromium.org', False)
     self.SetCurrentUser('foo@chromium.org')
-    # When requests are made to the issue tracker service (using the mock
-    # HTTP object in mock_oauth2_decorator), some data is expected,
-    # but not necessarily read.
-    mock_oauth2_decorator.HTTP_MOCK.data = '{"id": 123}'
+
+    # Add a fake issue tracker service that we can get call values from.
+    file_bug.issue_tracker_service = mock.MagicMock()
+    self.original_service = file_bug.issue_tracker_service.IssueTrackerService
+    self.service = MockIssueTrackerService
+    file_bug.issue_tracker_service.IssueTrackerService = self.service
 
   def tearDown(self):
     super(FileBugTest, self).tearDown()
-    mock_oauth2_decorator.MockOAuth2Decorator.past_bodies = []
+    file_bug.issue_tracker_service.IssueTrackerService = self.original_service
     self.UnsetCurrentUser()
 
   def _AddSampleAlerts(self):
@@ -84,7 +112,7 @@ class FileBugTest(testing_common.TestCase):
     # If any of the alerts are marked as internal-only, which should happen
     # when the corresponding test is internal-only, then the create bug dialog
     # should suggest adding a Restrict-View-Google label.
-    self.SetCurrentUser('foo@google.com')
+    self.SetCurrentUser('internal@chromium.org')
     alert_keys = self._AddSampleAlerts()
     anomaly_entity = alert_keys[0].get()
     anomaly_entity.internal_only = True
@@ -92,6 +120,18 @@ class FileBugTest(testing_common.TestCase):
     response = self.testapp.get(
         '/file_bug?summary=s&description=d&keys=%s' % alert_keys[0].urlsafe())
     self.assertIn('Restrict-View-Google', response.body)
+
+  def testGet_SetsBugLabelsComponents(self):
+    self.SetCurrentUser('internal@chromium.org')
+    alert_keys = self._AddSampleAlerts()
+    bug_label_patterns.AddBugLabelPattern('label1-foo', '*/*/*/first_paint')
+    bug_label_patterns.AddBugLabelPattern('Cr-Performance-Blink',
+                                          '*/*/*/mean_frame_time')
+    response = self.testapp.get(
+        '/file_bug?summary=s&description=d&keys=%s,%s' % (
+            alert_keys[0].urlsafe(), alert_keys[1].urlsafe()))
+    self.assertIn('label1-foo', response.body)
+    self.assertIn('Performance&gt;Blink', response.body)
 
   @mock.patch(
       'google.appengine.api.app_identity.get_default_version_hostname',
@@ -111,6 +151,7 @@ class FileBugTest(testing_common.TestCase):
             ('finish', 'true'),
             ('label', 'one'),
             ('label', 'two'),
+            ('component', 'Foo>Bar'),
         ])
     return response
 
@@ -125,7 +166,7 @@ class FileBugTest(testing_common.TestCase):
     # parameter given, an issue will be created using the issue tracker
     # API, and the anomalies will be updated, and a response page will
     # be sent which indicates success.
-    mock_oauth2_decorator.HTTP_MOCK.data = '{"id": 277761}'
+    self.service.bug_id = 277761
     response = self._PostSampleBug()
 
     # The response page should have a bug number.
@@ -139,7 +180,7 @@ class FileBugTest(testing_common.TestCase):
         self.assertIsNone(anomaly_entity.bug_id)
 
     # Two HTTP requests are made when filing a bug; only test 2nd request.
-    comment = json.loads(mock_oauth2_decorator.HTTP_MOCK.body)['content']
+    comment = self.service.add_comment_args[1]
     self.assertIn(
         'https://chromeperf.appspot.com/group_report?bug_id=277761', comment)
     self.assertIn('https://chromeperf.appspot.com/group_report?keys=', comment)
@@ -166,8 +207,7 @@ class FileBugTest(testing_common.TestCase):
     # M-2 since 111995 (lowest possible revision introducing regression)
     # is less than 112000 (revision for M-2).
     self._PostSampleBug()
-    self.assertIn(u'M-2', json.loads(
-        mock_oauth2_decorator.MockOAuth2Decorator.past_bodies[-1])['labels'])
+    self.assertIn('M-2', self.service.new_bug_kwargs['labels'])
 
   @unittest.skip('Flaky; see #1555.')
   @mock.patch(
@@ -192,8 +232,7 @@ class FileBugTest(testing_common.TestCase):
     # label the bug M-2 since 111995 is less than 112000 (M-2) and 111999
     # (M-3) AND M-2 is lower than M-3.
     self._PostSampleBug()
-    self.assertIn(u'M-2', json.loads(
-        mock_oauth2_decorator.MockOAuth2Decorator.past_bodies[-1])['labels'])
+    self.assertIn('M-2', self.service.new_bug_kwargs['labels'])
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -203,9 +242,17 @@ class FileBugTest(testing_common.TestCase):
     # Here, we test that we don't label the bug with an unexpected value when
     # there is no version information from omahaproxy (for whatever reason)
     self._PostSampleBug()
-    labels = json.loads(
-        mock_oauth2_decorator.MockOAuth2Decorator.past_bodies[-1])['labels']
+    labels = self.service.new_bug_kwargs['labels']
     self.assertEqual(0, len([x for x in labels if x.startswith(u'M-')]))
+
+  @mock.patch(
+      'google.appengine.api.urlfetch.fetch',
+      mock.MagicMock(return_value=testing_common.FakeResponseObject(
+          200, '[]')))
+  def testGet_WithFinish_SucceedsWithComponents(self):
+    # Here, we test that components are posted separately from labels.
+    self._PostSampleBug()
+    self.assertIn('Foo>Bar', self.service.new_bug_kwargs['components'])
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -221,8 +268,7 @@ class FileBugTest(testing_common.TestCase):
     # Here, we test that we label the bug with the highest milestone when the
     # revision introducing regression is beyond all milestones in the list.
     self._PostSampleBug()
-    self.assertIn(u'M-1', json.loads(
-        mock_oauth2_decorator.MockOAuth2Decorator.past_bodies[-1])['labels'])
+    self.assertIn('M-1', self.service.new_bug_kwargs['labels'])
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -237,8 +283,7 @@ class FileBugTest(testing_common.TestCase):
   @mock.patch('logging.warn')
   def testGet_WithFinish_SucceedsWithNAAndLogsWarning(self, mock_warn):
     self._PostSampleBug()
-    labels = json.loads(
-        mock_oauth2_decorator.MockOAuth2Decorator.past_bodies[-1])['labels']
+    labels = self.service.new_bug_kwargs['labels']
     self.assertEqual(0, len([x for x in labels if x.startswith(u'M-')]))
     self.assertEqual(1, mock_warn.call_count)
 

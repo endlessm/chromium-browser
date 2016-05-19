@@ -15,6 +15,8 @@ class BrowserFrameMus : public NativeBrowserFrame,
   BrowserFrameMus(BrowserFrame* browser_frame, BrowserView* browser_view);
   ~BrowserFrameMus() override;
 
+  mus::Window* mus_window();
+
  private:
   // Overridden from NativeBrowserFrame:
   views::Widget::InitParams GetWidgetParams() override;
@@ -24,6 +26,9 @@ class BrowserFrameMus : public NativeBrowserFrame,
   void GetWindowPlacement(gfx::Rect* bounds,
                           ui::WindowShowState* show_state) const override;
   int GetMinimizeButtonOffset() const override;
+
+  // Overriden from NativeWidgetMus:
+  void UpdateClientArea() override;
 
   BrowserView* browser_view_;
 

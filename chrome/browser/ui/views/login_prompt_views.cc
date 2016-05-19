@@ -4,12 +4,13 @@
 
 #include "chrome/browser/ui/login/login_prompt.h"
 
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/views/login_view.h"
-#include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/password_manager/core/browser/password_manager.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
@@ -100,7 +101,8 @@ class LoginHandlerViews : public LoginHandler, public views::DialogDelegate {
   }
 
   // LoginHandler:
-  void BuildViewImpl(const base::string16& explanation,
+  void BuildViewImpl(const base::string16& authority,
+                     const base::string16& explanation,
                      LoginModelData* login_model_data) override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -109,7 +111,7 @@ class LoginHandlerViews : public LoginHandler, public views::DialogDelegate {
     // browser window, so the view may be destroyed after the password
     // manager. The view listens for model destruction and unobserves
     // accordingly.
-    login_view_ = new LoginView(explanation, login_model_data);
+    login_view_ = new LoginView(authority, explanation, login_model_data);
 
     // Scary thread safety note: This can potentially be called *after* SetAuth
     // or CancelAuth (say, if the request was cancelled before the UI thread got

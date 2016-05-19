@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/values.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -43,6 +43,7 @@ class AppListPrefs : public KeyedService {
       ITEM_TYPE_END = FOLDER_ITEM,
     };
     AppListInfo();
+    AppListInfo(const AppListInfo& other);
     ~AppListInfo();
     scoped_ptr<base::DictionaryValue> CreateDictFromAppListInfo() const;
 

@@ -54,11 +54,17 @@ InspectableViewsFinder::View InspectableViewsFinder::ConstructView(
     case VIEW_TYPE_BACKGROUND_CONTENTS:
       view->type = api::developer_private::VIEW_TYPE_BACKGROUND_CONTENTS;
       break;
+    case VIEW_TYPE_COMPONENT:
+      view->type = api::developer_private::VIEW_TYPE_COMPONENT;
+      break;
     case VIEW_TYPE_EXTENSION_BACKGROUND_PAGE:
       view->type = api::developer_private::VIEW_TYPE_EXTENSION_BACKGROUND_PAGE;
       break;
     case VIEW_TYPE_EXTENSION_DIALOG:
       view->type = api::developer_private::VIEW_TYPE_EXTENSION_DIALOG;
+      break;
+    case VIEW_TYPE_EXTENSION_GUEST:
+      view->type = api::developer_private::VIEW_TYPE_EXTENSION_GUEST;
       break;
     case VIEW_TYPE_EXTENSION_POPUP:
       view->type = api::developer_private::VIEW_TYPE_EXTENSION_POPUP;
@@ -71,9 +77,6 @@ InspectableViewsFinder::View InspectableViewsFinder::ConstructView(
       break;
     case VIEW_TYPE_TAB_CONTENTS:
       view->type = api::developer_private::VIEW_TYPE_TAB_CONTENTS;
-      break;
-    case VIEW_TYPE_VIRTUAL_KEYBOARD:
-      view->type = api::developer_private::VIEW_TYPE_VIRTUAL_KEYBOARD;
       break;
     default:
       NOTREACHED();
@@ -148,8 +151,10 @@ void InspectableViewsFinder::GetViewsForExtensionProcess(
     content::WebContents* web_contents =
         content::WebContents::FromRenderFrameHost(host);
     ViewType host_type = GetViewType(web_contents);
-    if (host_type == VIEW_TYPE_EXTENSION_POPUP ||
-        host_type == VIEW_TYPE_EXTENSION_DIALOG) {
+    if (host_type == VIEW_TYPE_INVALID ||
+        host_type == VIEW_TYPE_EXTENSION_POPUP ||
+        host_type == VIEW_TYPE_EXTENSION_DIALOG ||
+        host_type == VIEW_TYPE_APP_WINDOW) {
       continue;
     }
 

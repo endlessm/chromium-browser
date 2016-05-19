@@ -42,7 +42,6 @@
 #include "platform/heap/Handle.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashSet.h"
-#include "wtf/PassOwnPtr.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/Vector.h"
 
@@ -55,15 +54,15 @@ class CORE_EXPORT KeyframeEffectModelBase : public EffectModel {
 public:
     // FIXME: Implement accumulation.
 
-    using PropertySpecificKeyframeVector = Vector<OwnPtr<Keyframe::PropertySpecificKeyframe>>;
+    using PropertySpecificKeyframeVector = Vector<RefPtr<Keyframe::PropertySpecificKeyframe>>;
     class PropertySpecificKeyframeGroup {
     public:
-        void appendKeyframe(PassOwnPtr<Keyframe::PropertySpecificKeyframe>);
+        void appendKeyframe(PassRefPtr<Keyframe::PropertySpecificKeyframe>);
         const PropertySpecificKeyframeVector& keyframes() const { return m_keyframes; }
 
     private:
         void removeRedundantKeyframes();
-        bool addSyntheticKeyframeIfRequired(PassRefPtr<TimingFunction> neutralKeyframeEasing);
+        bool addSyntheticKeyframeIfRequired(PassRefPtr<TimingFunction> zeroOffsetEasing);
 
         PropertySpecificKeyframeVector m_keyframes;
 
@@ -82,6 +81,13 @@ public:
     {
         ensureKeyframeGroups();
         return m_keyframeGroups->get(property)->keyframes();
+    }
+
+    using KeyframeGroupMap = HashMap<PropertyHandle, OwnPtr<PropertySpecificKeyframeGroup>>;
+    const KeyframeGroupMap& getPropertySpecificKeyframeGroups() const
+    {
+        ensureKeyframeGroups();
+        return *m_keyframeGroups;
     }
 
     // EffectModel implementation.
@@ -105,7 +111,7 @@ public:
     bool snapshotAllCompositorKeyframes(Element&, const ComputedStyle* baseStyle);
 
     template<typename T>
-    inline void forEachInterpolation(const T& callback) { m_interpolationEffect->forEachInterpolation(callback); }
+    inline void forEachInterpolation(const T& callback) { m_interpolationEffect.forEachInterpolation(callback); }
 
     static KeyframeVector normalizedKeyframesForInspector(const KeyframeVector& keyframes) { return normalizedKeyframes(keyframes); }
 
@@ -118,11 +124,11 @@ public:
     bool isTransformRelatedEffect() const override;
 
 protected:
-    KeyframeEffectModelBase(PassRefPtr<TimingFunction> neutralKeyframeEasing)
+    KeyframeEffectModelBase(PassRefPtr<TimingFunction> defaultKeyframeEasing)
         : m_lastIteration(0)
         , m_lastFraction(std::numeric_limits<double>::quiet_NaN())
         , m_lastIterationDuration(0)
-        , m_neutralKeyframeEasing(neutralKeyframeEasing)
+        , m_defaultKeyframeEasing(defaultKeyframeEasing)
         , m_hasSyntheticKeyframes(false)
     {
     }
@@ -131,37 +137,37 @@ protected:
 
     // Lazily computes the groups of property-specific keyframes.
     void ensureKeyframeGroups() const;
-    void ensureInterpolationEffect(Element* = nullptr, const ComputedStyle* baseStyle = nullptr) const;
+    void ensureInterpolationEffectPopulated(Element* = nullptr, const ComputedStyle* baseStyle = nullptr) const;
 
     KeyframeVector m_keyframes;
     // The spec describes filtering the normalized keyframes at sampling time
     // to get the 'property-specific keyframes'. For efficiency, we cache the
     // property-specific lists.
-    using KeyframeGroupMap = HashMap<PropertyHandle, OwnPtr<PropertySpecificKeyframeGroup>>;
     mutable OwnPtr<KeyframeGroupMap> m_keyframeGroups;
-    mutable RefPtr<InterpolationEffect> m_interpolationEffect;
+    mutable InterpolationEffect m_interpolationEffect;
     mutable int m_lastIteration;
     mutable double m_lastFraction;
     mutable double m_lastIterationDuration;
-    RefPtr<TimingFunction> m_neutralKeyframeEasing;
+    RefPtr<TimingFunction> m_defaultKeyframeEasing;
 
     mutable bool m_hasSyntheticKeyframes;
 
     friend class KeyframeEffectModelTest;
 };
 
+// Time independent representation of an Animation's keyframes.
 template <class Keyframe>
 class KeyframeEffectModel final : public KeyframeEffectModelBase {
 public:
     using KeyframeVector = Vector<RefPtr<Keyframe>>;
-    static KeyframeEffectModel<Keyframe>* create(const KeyframeVector& keyframes, PassRefPtr<TimingFunction> neutralKeyframeEasing = nullptr)
+    static KeyframeEffectModel<Keyframe>* create(const KeyframeVector& keyframes, PassRefPtr<TimingFunction> defaultKeyframeEasing = nullptr)
     {
-        return new KeyframeEffectModel(keyframes, neutralKeyframeEasing);
+        return new KeyframeEffectModel(keyframes, defaultKeyframeEasing);
     }
 
 private:
-    KeyframeEffectModel(const KeyframeVector& keyframes, PassRefPtr<TimingFunction> neutralKeyframeEasing)
-        : KeyframeEffectModelBase(neutralKeyframeEasing)
+    KeyframeEffectModel(const KeyframeVector& keyframes, PassRefPtr<TimingFunction> defaultKeyframeEasing)
+        : KeyframeEffectModelBase(defaultKeyframeEasing)
     {
         m_keyframes.appendVector(keyframes);
     }

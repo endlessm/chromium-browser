@@ -3,14 +3,16 @@
 // found in the LICENSE file.
 
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_service.h"
 #include "base/test/histogram_tester.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/password_manager/sync/browser/password_manager_setting_migrator_service.h"
 #include "components/pref_registry/testing_pref_service_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/sync_driver/fake_sync_service.h"
 #include "components/syncable_prefs/pref_model_associator_client.h"
 #include "components/syncable_prefs/pref_service_mock_factory.h"
@@ -122,7 +124,7 @@ void StartSyncingPref(syncable_prefs::PrefServiceSyncable* prefs,
 
 class SyncServiceMock : public sync_driver::FakeSyncService {
  public:
-  bool HasSyncSetupCompleted() const override { return true; }
+  bool IsFirstSetupComplete() const override { return true; }
 
   bool CanSyncStart() const override { return can_sync_start_; }
 
@@ -147,16 +149,6 @@ class TestPrefModelAssociatorClient
 
   bool IsMergeableDictionaryPreference(
       const std::string& pref_name) const override {
-    return false;
-  }
-
-  bool IsMigratedPreference(const std::string& new_pref_name,
-                            std::string* old_pref_name) const override {
-    return false;
-  }
-
-  bool IsOldMigratedPreference(const std::string& old_pref_name,
-                               std::string* new_pref_name) const override {
     return false;
   }
 

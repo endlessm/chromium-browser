@@ -5,13 +5,15 @@
 #include "chrome/browser/prefs/command_line_pref_store.h"
 
 #include <gtest/gtest.h>
+#include <stddef.h>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/prefs/command_line_pref_store.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/proxy_config/pref_proxy_config_tracker_impl.h"
 #include "components/syncable_prefs/pref_service_mock_factory.h"
 #include "net/proxy/proxy_config_service_common_unittest.h"
@@ -172,7 +174,7 @@ class CommandLinePrefStoreProxyTest
     PrefProxyConfigTrackerImpl::RegisterPrefs(registry.get());
     syncable_prefs::PrefServiceMockFactory factory;
     factory.set_command_line_prefs(new CommandLinePrefStore(&command_line_));
-    pref_service_ = factory.Create(registry.get()).Pass();
+    pref_service_ = factory.Create(registry.get());
     PrefProxyConfigTrackerImpl::ReadPrefConfig(pref_service_.get(),
                                                &proxy_config_);
   }

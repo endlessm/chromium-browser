@@ -50,7 +50,7 @@ public:
     static const LayoutSVGResourceType s_resourceType = MaskerResourceType;
     LayoutSVGResourceType resourceType() const override { return s_resourceType; }
 
-    PassRefPtr<const SkPicture> createContentPicture(AffineTransform&, const FloatRect&, GraphicsContext*);
+    PassRefPtr<const SkPicture> createContentPicture(AffineTransform&, const FloatRect&, GraphicsContext&);
 
 private:
     void calculateMaskContentPaintInvalidationRect();
@@ -61,6 +61,6 @@ private:
 
 DEFINE_LAYOUT_SVG_RESOURCE_TYPE_CASTS(LayoutSVGResourceMasker, MaskerResourceType);
 
-}
+} // namespace blink
 
 #endif

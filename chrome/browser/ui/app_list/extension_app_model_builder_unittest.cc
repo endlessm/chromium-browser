@@ -4,11 +4,13 @@
 
 #include "chrome/browser/ui/app_list/extension_app_model_builder.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
@@ -21,15 +23,20 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/prefs/pref_service.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/browser/extension_system.h"
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/app_list/app_list_item.h"
+
+using extensions::AppSorting;
+using extensions::ExtensionSystem;
 
 namespace {
 
@@ -214,8 +221,7 @@ TEST_F(ExtensionAppModelBuilderTest, Reinstall) {
 }
 
 TEST_F(ExtensionAppModelBuilderTest, OrdinalPrefsChange) {
-  extensions::AppSorting* sorting =
-      extensions::ExtensionPrefs::Get(profile_.get())->app_sorting();
+  AppSorting* sorting = ExtensionSystem::Get(profile_.get())->app_sorting();
 
   syncer::StringOrdinal package_app_page =
       sorting->GetPageOrdinal(kPackagedApp1Id);
@@ -237,8 +243,7 @@ TEST_F(ExtensionAppModelBuilderTest, OrdinalPrefsChange) {
 }
 
 TEST_F(ExtensionAppModelBuilderTest, OnExtensionMoved) {
-  extensions::AppSorting* sorting =
-      extensions::ExtensionPrefs::Get(profile_.get())->app_sorting();
+  AppSorting* sorting = ExtensionSystem::Get(profile_.get())->app_sorting();
   sorting->SetPageOrdinal(kHostedAppId,
                           sorting->GetPageOrdinal(kPackagedApp1Id));
 
@@ -260,8 +265,7 @@ TEST_F(ExtensionAppModelBuilderTest, OnExtensionMoved) {
 
 TEST_F(ExtensionAppModelBuilderTest, InvalidOrdinal) {
   // Creates a no-ordinal case.
-  extensions::AppSorting* sorting =
-      extensions::ExtensionPrefs::Get(profile_.get())->app_sorting();
+  AppSorting* sorting = ExtensionSystem::Get(profile_.get())->app_sorting();
   sorting->ClearOrdinals(kPackagedApp1Id);
 
   // Creates a corrupted ordinal case.
@@ -281,8 +285,7 @@ TEST_F(ExtensionAppModelBuilderTest, OrdinalConfilicts) {
   syncer::StringOrdinal conflict_ordinal =
       syncer::StringOrdinal::CreateInitialOrdinal();
 
-  extensions::AppSorting* sorting =
-      extensions::ExtensionPrefs::Get(profile_.get())->app_sorting();
+  AppSorting* sorting = ExtensionSystem::Get(profile_.get())->app_sorting();
   sorting->SetPageOrdinal(kHostedAppId, conflict_ordinal);
   sorting->SetAppLaunchOrdinal(kHostedAppId, conflict_ordinal);
 

@@ -27,7 +27,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/frame/Frame.h"
 
 #include "core/dom/DocumentType.h"
@@ -205,9 +204,15 @@ bool Frame::canNavigate(const Frame& targetFrame)
         return true;
 
     if (securityContext()->isSandboxed(SandboxNavigation)) {
+        // Sandboxed frames can navigate their own children.
         if (targetFrame.tree().isDescendantOf(this))
             return true;
 
+        // They can also navigate popups, if the 'allow-sandbox-escape-via-popup' flag is specified.
+        if (targetFrame == targetFrame.tree().top() && targetFrame.tree().top() != tree().top() && !securityContext()->isSandboxed(SandboxPropagatesToAuxiliaryBrowsingContexts))
+            return true;
+
+        // Otherwise, block the navigation.
         const char* reason = "The frame attempting navigation is sandboxed, and is therefore disallowed from navigating its ancestors.";
         if (securityContext()->isSandboxed(SandboxTopNavigation) && targetFrame == tree().top())
             reason = "The frame attempting navigation of the top-level window is sandboxed, but the 'allow-top-navigation' flag is not set.";
@@ -286,13 +291,6 @@ Settings* Frame::settings() const
     if (m_host)
         return &m_host->settings();
     return nullptr;
-}
-
-void Frame::scheduleVisualUpdateUnlessThrottled()
-{
-    if (isLocalFrame() && toLocalFrame(this)->shouldThrottleRendering())
-        return;
-    page()->animator().scheduleVisualUpdate();
 }
 
 Frame::Frame(FrameClient* client, FrameHost* host, FrameOwner* owner)

@@ -674,7 +674,7 @@ void TextureBorderClampTest::init (void)
 	m_texture = genDummyTexture<glu::Texture2D>(m_context.getRenderContext(), m_context.getContextInfo(), m_texFormat, tcu::IVec2(m_texWidth, m_texHeight));
 
 	m_testCtx.getLog()	<< tcu::TestLog::Message
-						<< "Created texture with format " << ((glu::isCompressedFormat(m_texFormat)) ? (glu::getCompressedTexFormatName(m_texFormat)) : (glu::getPixelFormatName(m_texFormat)))
+						<< "Created texture with format " << glu::getTextureFormatName(m_texFormat)
 						<< ", size (" << m_texture->getRefTexture().getWidth() << ", " << m_texture->getRefTexture().getHeight() << ")\n"
 						<< "Setting sampling state using " << ((m_stateType == STATE_TEXTURE_PARAM) ? ("texture state") : ("sampler state"))
 						<< tcu::TestLog::EndMessage;
@@ -1117,7 +1117,7 @@ bool TextureBorderClampTest::verifyTextureGatherResult (const tcu::ConstPixelBuf
 	tcu::Surface								errorMask			(renderedFrame.getWidth(), renderedFrame.getHeight());
 	int											numFailedPixels		= 0;
 
-	tcu::clear(errorMask.getAccess(), tcu::RGBA::green.toVec());
+	tcu::clear(errorMask.getAccess(), tcu::RGBA::green().toVec());
 
 	for (int py = 0; py < reference.getHeight(); ++py)
 	for (int px = 0; px < reference.getWidth(); ++px)
@@ -1137,7 +1137,7 @@ bool TextureBorderClampTest::verifyTextureGatherResult (const tcu::ConstPixelBuf
 		{
 			if (!tcu::isGatherOffsetsResultValid(effectiveView, samplerParams.sampler, lookupPrecision, texCoord, 0, glu::getDefaultGatherOffsets(), resultValue))
 			{
-				errorMask.setPixel(px, py, tcu::RGBA::red);
+				errorMask.setPixel(px, py, tcu::RGBA::red());
 				++numFailedPixels;
 			}
 		}
@@ -1182,7 +1182,7 @@ bool TextureBorderClampTest::verifyTextureGatherCmpResult (const tcu::ConstPixel
 	int											numFailedPixels		= 0;
 	bool										lowQuality			= false;
 
-	tcu::clear(errorMask.getAccess(), tcu::RGBA::green.toVec());
+	tcu::clear(errorMask.getAccess(), tcu::RGBA::green().toVec());
 
 	for (int py = 0; py < reference.getHeight(); ++py)
 	for (int px = 0; px < reference.getWidth(); ++px)
@@ -1204,7 +1204,7 @@ bool TextureBorderClampTest::verifyTextureGatherCmpResult (const tcu::ConstPixel
 				// fall back to low quality verification
 				if (!tcu::isGatherOffsetsCompareResultValid(effectiveView, samplerParams.sampler, lowQualityTexComparePrecision, texCoord, glu::getDefaultGatherOffsets(), refZ, resultValue))
 				{
-					errorMask.setPixel(px, py, tcu::RGBA::red);
+					errorMask.setPixel(px, py, tcu::RGBA::red());
 					++numFailedPixels;
 				}
 			}
@@ -2085,7 +2085,7 @@ void TextureBorderClampPerAxisCase3D::init (void)
 
 	// texture info
 	m_testCtx.getLog()	<< tcu::TestLog::Message
-						<< "Created 3D texture with format " << ((glu::isCompressedFormat(m_texFormat)) ? (glu::getCompressedTexFormatName(m_texFormat)) : (glu::getPixelFormatName(m_texFormat)))
+						<< "Created 3D texture with format " << glu::getTextureFormatName(m_texFormat)
 						<< ", size (" << m_texture->getRefTexture().getWidth() << ", " << m_texture->getRefTexture().getHeight() << ", " << m_texture->getRefTexture().getDepth() << ")\n"
 						<< tcu::TestLog::EndMessage;
 

@@ -6,6 +6,9 @@
 
 #import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
+#include <stdint.h>
+
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
@@ -16,6 +19,8 @@
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
@@ -27,6 +32,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/extensions/extension_ui_util.h"
 #import "chrome/browser/mac/dock.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -46,6 +52,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "grit/chrome_unscaled_resources.h"
+#include "grit/components_strings.h"
 #import "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -60,6 +67,34 @@ namespace {
 
 // Launch Services Key to run as an agent app, which doesn't launch in the dock.
 NSString* const kLSUIElement = @"LSUIElement";
+
+// Class that invokes a provided |callback| when destroyed, and supplies a means
+// to keep the instance alive via posted tasks. The provided |callback| will
+// always be invoked on the UI thread.
+class Latch : public base::RefCountedThreadSafe<
+                  Latch,
+                  content::BrowserThread::DeleteOnUIThread> {
+ public:
+  explicit Latch(const base::Closure& callback) : callback_(callback) {}
+
+  // Wraps a reference to |this| in a Closure and returns it. Running the
+  // Closure does nothing. The Closure just serves to keep a reference alive
+  // until |this| is ready to be destroyed; invoking the |callback|.
+  base::Closure NoOpClosure() { return base::Bind(&Latch::NoOp, this); }
+
+ private:
+  friend class base::RefCountedThreadSafe<Latch>;
+  friend class base::DeleteHelper<Latch>;
+  friend struct content::BrowserThread::DeleteOnThread<
+      content::BrowserThread::UI>;
+
+  ~Latch() { callback_.Run(); }
+  void NoOp() {}
+
+  base::Closure callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(Latch);
+};
 
 class ScopedCarbonHandle {
  public:
@@ -277,7 +312,7 @@ void UpdateAndLaunchShimOnFileThread(
       shortcut_info->profile_path, shortcut_info->extension_id, GURL());
   UpdatePlatformShortcutsInternal(shortcut_data_dir, base::string16(),
                                   *shortcut_info, file_handlers_info);
-  LaunchShimOnFileThread(shortcut_info.Pass(), true);
+  LaunchShimOnFileThread(std::move(shortcut_info), true);
 }
 
 void UpdateAndLaunchShim(
@@ -292,8 +327,7 @@ void UpdateAndLaunchShim(
 void RebuildAppAndLaunch(scoped_ptr<web_app::ShortcutInfo> shortcut_info) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (shortcut_info->extension_id == app_mode::kAppListModeId) {
-    AppListService* app_list_service =
-        AppListService::Get(chrome::HOST_DESKTOP_TYPE_NATIVE);
+    AppListService* app_list_service = AppListService::Get();
     app_list_service->CreateShortcut();
     app_list_service->Show();
     return;
@@ -400,7 +434,8 @@ void UpdateAppShortcutsSubdirLocalizedName(
     return;
 
   base::FilePath directory_name = apps_directory.BaseName().RemoveExtension();
-  base::string16 localized_name = ShellIntegration::GetAppShortcutsSubdirName();
+  base::string16 localized_name =
+      shell_integration::GetAppShortcutsSubdirName();
   NSDictionary* strings_dict = @{
       base::mac::FilePathToNSString(directory_name) :
           base::SysUTF16ToNSString(localized_name)
@@ -581,6 +616,19 @@ void RevealAppShimInFinderForAppOnFileThread(
   web_app::WebAppShortcutCreator shortcut_creator(
       app_path, shortcut_info.get(), extensions::FileHandlersInfo());
   shortcut_creator.RevealAppShimInFinder();
+}
+
+// Mac-specific version of web_app::ShouldCreateShortcutFor() used during batch
+// upgrades to ensure all shortcuts a user may still have are repaired when
+// required by a Chrome upgrade.
+bool ShouldUpgradeShortcutFor(Profile* profile,
+                              const extensions::Extension* extension) {
+  if (extension->location() == extensions::Manifest::COMPONENT ||
+      !extensions::ui_util::CanDisplayInAppLauncher(extension, profile)) {
+    return false;
+  }
+
+  return extension->is_app();
 }
 
 }  // namespace
@@ -805,23 +853,53 @@ bool WebAppShortcutCreator::UpdateShortcuts() {
   std::vector<base::FilePath> paths;
   paths.push_back(app_data_dir_);
 
-  // Try to update the copy under /Applications. If that does not exist, check
+  // Remember whether the copy in the profile directory exists. If it doesn't
+  // and others do, it should be re-created. Otherwise, it's a signal that a
+  // shortcut has never been created.
+  bool profile_copy_exists = base::PathExists(GetInternalShortcutPath());
+
+  // Try to update the copy under ~/Applications. If that does not exist, check
   // if a matching bundle can be found elsewhere.
   base::FilePath app_path = GetApplicationsShortcutPath();
-  if (app_path.empty() || !base::PathExists(app_path))
-    app_path = GetAppBundleById(GetBundleIdentifier());
 
-  if (app_path.empty()) {
-    if (info_->from_bookmark) {
-      // The bookmark app shortcut has been deleted by the user. Restore it, as
-      // the Mac UI for bookmark apps creates the expectation that the app will
-      // be added to Applications.
-      app_path = GetApplicationsDirname();
-      paths.push_back(app_path);
+  // Never look in ~/Applications or search the system for a bundle ID in a test
+  // since that relies on global system state and potentially cruft that may be
+  // leftover from prior/crashed test runs.
+  // TODO(tapted): Remove this check when tests that arrive here via setting
+  // |g_app_shims_allow_update_and_launch_in_tests| can properly mock out all
+  // the calls below.
+  if (!g_app_shims_allow_update_and_launch_in_tests) {
+    if (app_path.empty() || !base::PathExists(app_path))
+      app_path = GetAppBundleById(GetBundleIdentifier());
+
+    if (app_path.empty()) {
+      if (profile_copy_exists && info_->from_bookmark) {
+        // The bookmark app shortcut has been deleted by the user. Restore it,
+        // as the Mac UI for bookmark apps creates the expectation that the app
+        // will be added to Applications.
+        app_path = GetApplicationsDirname();
+        paths.push_back(app_path);
+      }
+    } else {
+      paths.push_back(app_path.DirName());
     }
   } else {
-    paths.push_back(app_path.DirName());
+    // If a test has set g_app_shims_allow_update_and_launch_in_tests, it means
+    // it relies on UpdateShortcuts() to create shortcuts. (Tests can't rely on
+    // install-triggered shortcut creation because they can't synchronize with
+    // the UI thread). So, allow shortcuts to be created for this case, even if
+    // none currently exist. TODO(tapted): Remove this when tests are properly
+    // mocked.
+    profile_copy_exists = true;
   }
+
+  // When upgrading, if no shim exists anywhere on disk, don't create the copy
+  // under the profile directory for the first time. The best way to tell
+  // whether a shortcut has been created is to poke around on disk, so the
+  // upgrade process must send all candidate extensions to the FILE thread.
+  // Then those without shortcuts will get culled here.
+  if (paths.size() == 1 && !profile_copy_exists)
+    return false;
 
   size_t success_count = CreateShortcutsIn(paths);
   if (success_count == 0)
@@ -1136,18 +1214,18 @@ void UpdateShortcutsForAllApps(Profile* profile,
   if (!registry)
     return;
 
+  scoped_refptr<Latch> latch = new Latch(callback);
+
   // Update all apps.
-  scoped_ptr<extensions::ExtensionSet> everything =
+  scoped_ptr<extensions::ExtensionSet> candidates =
       registry->GenerateInstalledExtensionsSet();
-  for (extensions::ExtensionSet::const_iterator it = everything->begin();
-       it != everything->end(); ++it) {
-    if (web_app::ShouldCreateShortcutFor(SHORTCUT_CREATION_AUTOMATED, profile,
-                                         it->get())) {
-      web_app::UpdateAllShortcuts(base::string16(), profile, it->get());
+  for (auto& extension_refptr : *candidates) {
+    const extensions::Extension* extension = extension_refptr.get();
+    if (ShouldUpgradeShortcutFor(profile, extension)) {
+      web_app::UpdateAllShortcuts(base::string16(), profile, extension,
+                                  latch->NoOpClosure());
     }
   }
-
-  callback.Run();
 }
 
 void RevealAppShimInFinderForApp(Profile* profile,

@@ -2,12 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/layout/LayoutBlock.h"
 
 #include "core/layout/LayoutBlockFlow.h"
 #include "core/layout/LayoutTestHelper.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -22,4 +21,4 @@ TEST_F(LayoutBlockTest, LayoutNameCalledWithNullStyle)
     obj->destroy();
 }
 
-}
+} // namespace blink

@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_RENDERER_CONTEXT_MENU_RENDER_VIEW_CONTEXT_MENU_TEST_UTIL_H_
 #define CHROME_BROWSER_RENDERER_CONTEXT_MENU_RENDER_VIEW_CONTEXT_MENU_TEST_UTIL_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
 #include "url/gurl.h"
 
@@ -61,6 +61,12 @@ class TestRenderViewContextMenu : public RenderViewContextMenu {
 #if defined(ENABLE_EXTENSIONS)
   extensions::ContextMenuMatcher& extension_items() { return extension_items_; }
 #endif
+
+  void set_protocol_handler_registry(ProtocolHandlerRegistry* registry) {
+    protocol_handler_registry_ = registry;
+  }
+
+  using RenderViewContextMenu::AppendImageItems;
 
   void Show() override;
 

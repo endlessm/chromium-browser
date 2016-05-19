@@ -4,6 +4,9 @@
 
 #include "sync/internal_api/public/util/proto_value_ptr.h"
 
+#include <utility>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -42,7 +45,7 @@ class TestValue {
 
   int value() const { return value_->value(); }
   IntValue* value_ptr() const { return value_.get(); }
-  bool is_initialized() const { return value_; }
+  bool is_initialized() const { return !!value_; }
   bool is_default() const { return is_default_; }
 
   // TestValue uses the default traits struct with ProtoValuePtr<TestValue>.
@@ -69,7 +72,7 @@ class TestValue {
     ASSERT_TRUE(src->is_initialized());
     ASSERT_FALSE(src->is_default());
     // Not exactly swap, but good enough for the test.
-    value_ = src->value_.Pass();
+    value_ = std::move(src->value_);
   }
 
   void ParseFromArray(const void* blob, int length) {
@@ -97,7 +100,6 @@ class TestValue {
   static int g_delete_count;
 
   scoped_ptr<IntValue> value_;
-  bool is_initialized_;
   bool is_default_;
 
   DISALLOW_COPY_AND_ASSIGN(TestValue);

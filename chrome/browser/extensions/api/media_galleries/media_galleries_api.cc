@@ -6,12 +6,15 @@
 
 #include "chrome/browser/extensions/api/media_galleries/media_galleries_api.h"
 
+#include <stddef.h>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -346,20 +349,20 @@ bool MediaGalleriesEventRouter::ExtensionHasScanProgressListener(
 void MediaGalleriesEventRouter::OnScanStarted(const std::string& extension_id) {
   MediaGalleries::ScanProgressDetails details;
   details.type = MediaGalleries::SCAN_PROGRESS_TYPE_START;
-  DispatchEventToExtension(
-      extension_id, events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
-      MediaGalleries::OnScanProgress::kEventName,
-      MediaGalleries::OnScanProgress::Create(details).Pass());
+  DispatchEventToExtension(extension_id,
+                           events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
+                           MediaGalleries::OnScanProgress::kEventName,
+                           MediaGalleries::OnScanProgress::Create(details));
 }
 
 void MediaGalleriesEventRouter::OnScanCancelled(
     const std::string& extension_id) {
   MediaGalleries::ScanProgressDetails details;
   details.type = MediaGalleries::SCAN_PROGRESS_TYPE_CANCEL;
-  DispatchEventToExtension(
-      extension_id, events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
-      MediaGalleries::OnScanProgress::kEventName,
-      MediaGalleries::OnScanProgress::Create(details).Pass());
+  DispatchEventToExtension(extension_id,
+                           events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
+                           MediaGalleries::OnScanProgress::kEventName,
+                           MediaGalleries::OnScanProgress::Create(details));
 }
 
 void MediaGalleriesEventRouter::OnScanFinished(
@@ -372,20 +375,20 @@ void MediaGalleriesEventRouter::OnScanFinished(
   details.audio_count.reset(new int(file_counts.audio_count));
   details.image_count.reset(new int(file_counts.image_count));
   details.video_count.reset(new int(file_counts.video_count));
-  DispatchEventToExtension(
-      extension_id, events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
-      MediaGalleries::OnScanProgress::kEventName,
-      MediaGalleries::OnScanProgress::Create(details).Pass());
+  DispatchEventToExtension(extension_id,
+                           events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
+                           MediaGalleries::OnScanProgress::kEventName,
+                           MediaGalleries::OnScanProgress::Create(details));
 }
 
 void MediaGalleriesEventRouter::OnScanError(
     const std::string& extension_id) {
   MediaGalleries::ScanProgressDetails details;
   details.type = MediaGalleries::SCAN_PROGRESS_TYPE_ERROR;
-  DispatchEventToExtension(
-      extension_id, events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
-      MediaGalleries::OnScanProgress::kEventName,
-      MediaGalleries::OnScanProgress::Create(details).Pass());
+  DispatchEventToExtension(extension_id,
+                           events::MEDIA_GALLERIES_ON_SCAN_PROGRESS,
+                           MediaGalleries::OnScanProgress::kEventName,
+                           MediaGalleries::OnScanProgress::Create(details));
 }
 
 void MediaGalleriesEventRouter::DispatchEventToExtension(
@@ -395,17 +398,13 @@ void MediaGalleriesEventRouter::DispatchEventToExtension(
     scoped_ptr<base::ListValue> event_args) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  // TODO(tommycli): Remove these CHECKs after fixing https://crbug.com/467627.
-  CHECK(profile_);
   EventRouter* router = EventRouter::Get(profile_);
-  CHECK(router);
-
   if (!router->ExtensionHasEventListener(extension_id, event_name))
     return;
 
-  scoped_ptr<extensions::Event> event(
-      new extensions::Event(histogram_value, event_name, event_args.Pass()));
-  router->DispatchEventToExtension(extension_id, event.Pass());
+  scoped_ptr<extensions::Event> event(new extensions::Event(
+      histogram_value, event_name, std::move(event_args)));
+  router->DispatchEventToExtension(extension_id, std::move(event));
 }
 
 void MediaGalleriesEventRouter::OnGalleryChanged(
@@ -413,10 +412,10 @@ void MediaGalleriesEventRouter::OnGalleryChanged(
   MediaGalleries::GalleryChangeDetails details;
   details.type = MediaGalleries::GALLERY_CHANGE_TYPE_CONTENTS_CHANGED;
   details.gallery_id = base::Uint64ToString(gallery_id);
-  DispatchEventToExtension(
-      extension_id, events::MEDIA_GALLERIES_ON_GALLERY_CHANGED,
-      MediaGalleries::OnGalleryChanged::kEventName,
-      MediaGalleries::OnGalleryChanged::Create(details).Pass());
+  DispatchEventToExtension(extension_id,
+                           events::MEDIA_GALLERIES_ON_GALLERY_CHANGED,
+                           MediaGalleries::OnGalleryChanged::kEventName,
+                           MediaGalleries::OnGalleryChanged::Create(details));
 }
 
 void MediaGalleriesEventRouter::OnGalleryWatchDropped(
@@ -424,10 +423,10 @@ void MediaGalleriesEventRouter::OnGalleryWatchDropped(
   MediaGalleries::GalleryChangeDetails details;
   details.type = MediaGalleries::GALLERY_CHANGE_TYPE_WATCH_DROPPED;
   details.gallery_id = gallery_id;
-  DispatchEventToExtension(
-      extension_id, events::MEDIA_GALLERIES_ON_GALLERY_CHANGED,
-      MediaGalleries::OnGalleryChanged::kEventName,
-      MediaGalleries::OnGalleryChanged::Create(details).Pass());
+  DispatchEventToExtension(extension_id,
+                           events::MEDIA_GALLERIES_ON_GALLERY_CHANGED,
+                           MediaGalleries::OnGalleryChanged::kEventName,
+                           MediaGalleries::OnGalleryChanged::Create(details));
 }
 
 void MediaGalleriesEventRouter::OnListenerRemoved(
@@ -933,8 +932,10 @@ void MediaGalleriesGetMetadataFunction::OnPreferencesInit(
 }
 
 void MediaGalleriesGetMetadataFunction::GetMetadata(
-    MediaGalleries::GetMetadataType metadata_type, const std::string& blob_uuid,
-    scoped_ptr<std::string> blob_header, int64 total_blob_length) {
+    MediaGalleries::GetMetadataType metadata_type,
+    const std::string& blob_uuid,
+    scoped_ptr<std::string> blob_header,
+    int64_t total_blob_length) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   std::string mime_type;
@@ -1042,7 +1043,7 @@ void MediaGalleriesGetMetadataFunction::ConstructNextBlob(
   extensions::BlobHolder* holder =
       extensions::BlobHolder::FromRenderProcessHost(
           render_frame_host()->GetProcess());
-  holder->HoldBlobReference(current_blob.Pass());
+  holder->HoldBlobReference(std::move(current_blob));
 
   // Construct the next Blob if necessary.
   if (blob_uuids->size() < attached_images->size()) {

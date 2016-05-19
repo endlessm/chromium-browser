@@ -7,12 +7,12 @@ The complete set of contributors may be found at http://polymer.github.io/CONTRI
 Code distributed by Google as part of the polymer project is also
 subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
 --><html><head><link rel="import" href="../polymer/polymer.html">
-<link rel="import" href="../iron-input/iron-input.html">
 <link rel="import" href="../iron-form-element-behavior/iron-form-element-behavior.html">
+<link rel="import" href="../iron-input/iron-input.html">
 <link rel="import" href="paper-input-behavior.html">
+<link rel="import" href="paper-input-char-counter.html">
 <link rel="import" href="paper-input-container.html">
 <link rel="import" href="paper-input-error.html">
-<link rel="import" href="paper-input-char-counter.html">
 
 <!--
 Material design: [Text fields](https://www.google.com/design/spec/components/text-fields.html)
@@ -37,9 +37,10 @@ for `suffix`).
     </paper-input>
 
 A `paper-input` can use the native `type=search` or `type=file` features.
-However, since we can't control the native styling of the input, in these cases
-it's recommended to use a placeholder text, or `always-float-label`,
-as to not overlap the native UI (search icon, file button, etc.).
+However, since we can't control the native styling of the input (search icon,
+file button, date placeholder, etc.), in these cases the label will be
+automatically floated. The `placeholder` attribute can still be used for
+additional informational text.
 
     <paper-input label="search!" type="search"
         placeholder="search for cats" autosave="test" results="5">
@@ -47,10 +48,16 @@ as to not overlap the native UI (search icon, file button, etc.).
 
 See `Polymer.PaperInputBehavior` for more API docs.
 
+### Focus
+
+To focus a paper-input, you can call the native `focus()` method as long as the
+paper input has a tab index.
+
 ### Styling
 
 See `Polymer.PaperInputContainer` for a list of custom properties used to
 style this element.
+
 
 @group Paper Elements
 @element paper-input
@@ -60,7 +67,6 @@ style this element.
 
 </head><body><dom-module id="paper-input">
   <template>
-
     <style>
       :host {
         display: block;
@@ -89,7 +95,7 @@ style this element.
 
       <label hidden$="[[!label]]">[[label]]</label>
 
-      <input is="iron-input" id="input" aria-labelledby$="[[_ariaLabelledBy]]" aria-describedby$="[[_ariaDescribedBy]]" disabled$="[[disabled]]" bind-value="{{value}}" invalid="{{invalid}}" prevent-invalid-input="[[preventInvalidInput]]" allowed-pattern="[[allowedPattern]]" validator="[[validator]]" type$="[[type]]" pattern$="[[pattern]]" required$="[[required]]" autocomplete$="[[autocomplete]]" autofocus$="[[autofocus]]" inputmode$="[[inputmode]]" minlength$="[[minlength]]" maxlength$="[[maxlength]]" min$="[[min]]" max$="[[max]]" step$="[[step]]" name$="[[name]]" placeholder$="[[placeholder]]" readonly$="[[readonly]]" list$="[[list]]" size$="[[size]]" autocapitalize$="[[autocapitalize]]" autocorrect$="[[autocorrect]]" on-change="_onChange" autosave$="[[autosave]]" results$="[[results]]" accept$="[[accept]]" multiple$="[[multiple]]">
+      <input is="iron-input" id="input" aria-labelledby$="[[_ariaLabelledBy]]" aria-describedby$="[[_ariaDescribedBy]]" disabled$="[[disabled]]" title$="[[title]]" bind-value="{{value}}" invalid="{{invalid}}" prevent-invalid-input="[[preventInvalidInput]]" allowed-pattern="[[allowedPattern]]" validator="[[validator]]" type$="[[type]]" pattern$="[[pattern]]" required$="[[required]]" autocomplete$="[[autocomplete]]" autofocus$="[[autofocus]]" inputmode$="[[inputmode]]" minlength$="[[minlength]]" maxlength$="[[maxlength]]" min$="[[min]]" max$="[[max]]" step$="[[step]]" name$="[[name]]" placeholder$="[[placeholder]]" readonly$="[[readonly]]" list$="[[list]]" size$="[[size]]" autocapitalize$="[[autocapitalize]]" autocorrect$="[[autocorrect]]" on-change="_onChange" tabindex$="[[tabindex]]" autosave$="[[autosave]]" results$="[[results]]" accept$="[[accept]]" multiple$="[[multiple]]">
 
       <content select="[suffix]"></content>
 
@@ -102,7 +108,6 @@ style this element.
       </template>
 
     </paper-input-container>
-
   </template>
 </dom-module>
 

@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "platform/weborigin/SchemeRegistry.h"
 
 #include "wtf/ThreadSpecific.h"
@@ -193,6 +192,24 @@ static URLSchemesSet& secureContextBypassingSchemes()
 {
     DEFINE_STATIC_LOCAL_WITH_LOCK(URLSchemesSet, secureContextBypassingSchemes, ());
     return secureContextBypassingSchemes;
+}
+
+static URLSchemesSet& allowedInReferrerSchemes()
+{
+    DEFINE_STATIC_LOCAL_WITH_LOCK(URLSchemesSet, allowedInReferrerSchemes, ());
+
+    if (allowedInReferrerSchemes.isEmpty()) {
+        allowedInReferrerSchemes.add("http");
+        allowedInReferrerSchemes.add("https");
+    }
+
+    return allowedInReferrerSchemes;
+}
+
+void SchemeRegistry::initialize()
+{
+    // Instantiate the mutex object.
+    mutex();
 }
 
 bool SchemeRegistry::shouldTreatURLSchemeAsLocal(const String& scheme)
@@ -391,6 +408,26 @@ bool SchemeRegistry::shouldTreatURLSchemeAsFirstPartyWhenTopLevel(const String& 
         return false;
     MutexLocker locker(mutex());
     return firstPartyWhenTopLevelSchemes().contains(scheme);
+}
+
+void SchemeRegistry::registerURLSchemeAsAllowedForReferrer(const String& scheme)
+{
+    MutexLocker locker(mutex());
+    allowedInReferrerSchemes().add(scheme);
+}
+
+void SchemeRegistry::removeURLSchemeAsAllowedForReferrer(const String& scheme)
+{
+    MutexLocker locker(mutex());
+    allowedInReferrerSchemes().remove(scheme);
+}
+
+bool SchemeRegistry::shouldTreatURLSchemeAsAllowedForReferrer(const String& scheme)
+{
+    if (scheme.isEmpty())
+        return false;
+    MutexLocker locker(mutex());
+    return allowedInReferrerSchemes().contains(scheme);
 }
 
 void SchemeRegistry::registerURLSchemeAsBypassingContentSecurityPolicy(const String& scheme, PolicyAreas policyAreas)

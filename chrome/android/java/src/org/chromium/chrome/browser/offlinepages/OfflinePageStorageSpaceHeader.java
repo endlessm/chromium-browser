@@ -52,10 +52,11 @@ public class OfflinePageStorageSpaceHeader {
     public ViewHolder createHolder(ViewGroup parent) {
         // TODO(fgorski): Enable recalculation in case some pages were deleted.
         ViewGroup header = (ViewGroup) LayoutInflater.from(mContext).inflate(
-                R.layout.eb_offline_pages_storage_space_header, parent, false);
+                R.layout.bookmark_offline_pages_storage_space_header, parent, false);
 
         ((TextView) header.findViewById(R.id.storage_header_message))
-                .setText(mContext.getString(R.string.offline_pages_storage_space_message,
+                .setText(mContext.getString(
+                        OfflinePageUtils.getStringId(R.string.offline_pages_storage_space_message),
                         Formatter.formatFileSize(
                                 mContext, mOfflinePageStorageSpacePolicy.getSizeOfAllPages())));
 

@@ -4,6 +4,8 @@
 
 #include "content/renderer/devtools/devtools_agent.h"
 
+#include <stddef.h>
+
 #include <map>
 
 #include "base/lazy_instance.h"
@@ -13,6 +15,7 @@
 #include "content/common/devtools_messages.h"
 #include "content/common/frame_messages.h"
 #include "content/renderer/devtools/devtools_client.h"
+#include "content/renderer/devtools/devtools_cpu_throttler.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_widget.h"
 #include "ipc/ipc_channel.h"
@@ -21,10 +24,6 @@
 #include "third_party/WebKit/public/web/WebConsoleMessage.h"
 #include "third_party/WebKit/public/web/WebDevToolsAgent.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
-
-#if defined(USE_TCMALLOC)
-#include "third_party/tcmalloc/chromium/src/gperftools/heap-profiler.h"
-#endif
 
 using blink::WebConsoleMessage;
 using blink::WebDevToolsAgent;
@@ -68,7 +67,8 @@ DevToolsAgent::DevToolsAgent(RenderFrameImpl* frame)
       is_devtools_client_(false),
       paused_in_mouse_move_(false),
       paused_(false),
-      frame_(frame) {
+      frame_(frame),
+      cpu_throttler_(new DevToolsCPUThrottler()) {
   g_agent_for_routing_id.Get()[routing_id()] = this;
   frame_->GetWebFrame()->setDevToolsAgentClient(this);
 }
@@ -87,6 +87,8 @@ bool DevToolsAgent::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(DevToolsAgentMsg_DispatchOnInspectorBackend,
                         OnDispatchOnInspectorBackend)
     IPC_MESSAGE_HANDLER(DevToolsAgentMsg_InspectElement, OnInspectElement)
+    IPC_MESSAGE_HANDLER(DevToolsAgentMsg_RequestNewWindow_ACK,
+                        OnRequestNewWindowACK)
     IPC_MESSAGE_HANDLER(DevToolsMsg_SetupDevToolsClient, OnSetupDevToolsClient)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
@@ -101,12 +103,12 @@ void DevToolsAgent::WidgetWillClose() {
   ContinueProgram();
 }
 
-void DevToolsAgent::sendProtocolMessage(
-    int call_id,
-    const blink::WebString& message,
-    const blink::WebString& state_cookie) {
-  SendChunkedProtocolMessage(
-      this, routing_id(), call_id, message.utf8(), state_cookie.utf8());
+void DevToolsAgent::sendProtocolMessage(int session_id,
+                                        int call_id,
+                                        const blink::WebString& message,
+                                        const blink::WebString& state_cookie) {
+  SendChunkedProtocolMessage(this, routing_id(), session_id, call_id,
+                             message.utf8(), state_cookie.utf8());
 }
 
 blink::WebDevToolsAgentClient::WebKitClientMessageLoop*
@@ -130,6 +132,15 @@ void DevToolsAgent::didExitDebugLoop() {
   }
 }
 
+bool DevToolsAgent::requestDevToolsForFrame(blink::WebLocalFrame* webFrame) {
+  RenderFrameImpl* frame = RenderFrameImpl::FromWebFrame(webFrame);
+  if (!frame)
+    return false;
+  Send(new DevToolsAgentHostMsg_RequestNewWindow(routing_id(),
+      frame->GetRoutingID()));
+  return true;
+}
+
 void DevToolsAgent::enableTracing(const WebString& category_filter) {
   // Tracing is already started by DevTools TracingHandler::Start for the
   // renderer target in the browser process. It will eventually start tracing in
@@ -147,6 +158,10 @@ void DevToolsAgent::disableTracing() {
   TraceLog::GetInstance()->SetDisabled();
 }
 
+void DevToolsAgent::setCPUThrottlingRate(double rate) {
+  cpu_throttler_->SetThrottlingRate(rate);
+}
+
 // static
 DevToolsAgent* DevToolsAgent::FromRoutingId(int routing_id) {
   IdToAgentMap::iterator it = g_agent_for_routing_id.Get().find(routing_id);
@@ -157,18 +172,19 @@ DevToolsAgent* DevToolsAgent::FromRoutingId(int routing_id) {
 }
 
 // static
-void DevToolsAgent::SendChunkedProtocolMessage(
-    IPC::Sender* sender,
-    int routing_id,
-    int call_id,
-    const std::string& message,
-    const std::string& post_state) {
+void DevToolsAgent::SendChunkedProtocolMessage(IPC::Sender* sender,
+                                               int routing_id,
+                                               int session_id,
+                                               int call_id,
+                                               const std::string& message,
+                                               const std::string& post_state) {
   DevToolsMessageChunk chunk;
   chunk.message_size = message.size();
   chunk.is_first = true;
 
   if (message.length() < kMaxMessageChunkSize) {
     chunk.data = message;
+    chunk.session_id = session_id;
     chunk.call_id = call_id;
     chunk.post_state = post_state;
     chunk.is_last = true;
@@ -179,6 +195,7 @@ void DevToolsAgent::SendChunkedProtocolMessage(
 
   for (size_t pos = 0; pos < message.length(); pos += kMaxMessageChunkSize) {
     chunk.is_last = pos + kMaxMessageChunkSize >= message.length();
+    chunk.session_id = chunk.is_last ? session_id : 0;
     chunk.call_id = chunk.is_last ? call_id : 0;
     chunk.post_state = chunk.is_last ? post_state : std::string();
     chunk.data = message.substr(pos, kMaxMessageChunkSize);
@@ -189,19 +206,20 @@ void DevToolsAgent::SendChunkedProtocolMessage(
   }
 }
 
-void DevToolsAgent::OnAttach(const std::string& host_id) {
+void DevToolsAgent::OnAttach(const std::string& host_id, int session_id) {
   WebDevToolsAgent* web_agent = GetWebAgent();
   if (web_agent) {
-    web_agent->attach(WebString::fromUTF8(host_id));
+    web_agent->attach(WebString::fromUTF8(host_id), session_id);
     is_attached_ = true;
   }
 }
 
 void DevToolsAgent::OnReattach(const std::string& host_id,
+                               int session_id,
                                const std::string& agent_state) {
   WebDevToolsAgent* web_agent = GetWebAgent();
   if (web_agent) {
-    web_agent->reattach(WebString::fromUTF8(host_id),
+    web_agent->reattach(WebString::fromUTF8(host_id), session_id,
                         WebString::fromUTF8(agent_state));
     is_attached_ = true;
   }
@@ -215,21 +233,27 @@ void DevToolsAgent::OnDetach() {
   }
 }
 
-void DevToolsAgent::OnDispatchOnInspectorBackend(const std::string& message) {
+void DevToolsAgent::OnDispatchOnInspectorBackend(int session_id,
+                                                 const std::string& message) {
   TRACE_EVENT0("devtools", "DevToolsAgent::OnDispatchOnInspectorBackend");
   WebDevToolsAgent* web_agent = GetWebAgent();
   if (web_agent)
-    web_agent->dispatchOnInspectorBackend(WebString::fromUTF8(message));
+    web_agent->dispatchOnInspectorBackend(session_id,
+                                          WebString::fromUTF8(message));
 }
 
-void DevToolsAgent::OnInspectElement(
-    const std::string& host_id, int x, int y) {
+void DevToolsAgent::OnInspectElement(int x, int y) {
   WebDevToolsAgent* web_agent = GetWebAgent();
   if (web_agent) {
-    web_agent->attach(WebString::fromUTF8(host_id));
+    DCHECK(is_attached_);
     web_agent->inspectElementAt(WebPoint(x, y));
-    is_attached_ = true;
   }
+}
+
+void DevToolsAgent::OnRequestNewWindowACK(bool success) {
+  WebDevToolsAgent* web_agent = GetWebAgent();
+  if (web_agent && !success)
+    web_agent->failedToRequestDevTools();
 }
 
 void DevToolsAgent::AddMessageToConsole(ConsoleMessageLevel level,

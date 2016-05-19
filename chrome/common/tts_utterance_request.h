@@ -7,7 +7,6 @@
 
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/strings/string16.h"
 
 struct TtsUtteranceRequest {
@@ -25,6 +24,7 @@ struct TtsUtteranceRequest {
 
 struct TtsVoice {
   TtsVoice();
+  TtsVoice(const TtsVoice& other);
   ~TtsVoice();
 
   std::string voice_uri;

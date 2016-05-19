@@ -47,6 +47,9 @@ class ReferenceKind(Kind):
     if self == SHAREDBUFFER:
       return NULLABLE_SHAREDBUFFER
 
+    if IsStructKind(self) and self.native_only:
+      raise Exception('Native-only structs cannot be nullable.')
+
     nullable_kind = type(self)()
     nullable_kind.shared_definition = self.shared_definition
     if self.spec is not None:
@@ -131,6 +134,8 @@ PRIMITIVES = (
 
 
 ATTRIBUTE_MIN_VERSION = 'MinVersion'
+ATTRIBUTE_EXTENSIBLE = 'Extensible'
+ATTRIBUTE_SYNC = 'Sync'
 
 
 class NamedValue(object):
@@ -202,6 +207,7 @@ class UnionField(Field): pass
 
 class Struct(ReferenceKind):
   ReferenceKind.AddSharedProperty('name')
+  ReferenceKind.AddSharedProperty('native_only')
   ReferenceKind.AddSharedProperty('module')
   ReferenceKind.AddSharedProperty('imported_from')
   ReferenceKind.AddSharedProperty('fields')
@@ -214,6 +220,7 @@ class Struct(ReferenceKind):
       spec = None
     ReferenceKind.__init__(self, spec)
     self.name = name
+    self.native_only = False
     self.module = module
     self.imported_from = None
     self.fields = []
@@ -370,6 +377,11 @@ class Method(object):
     return self.attributes.get(ATTRIBUTE_MIN_VERSION) \
         if self.attributes else None
 
+  @property
+  def sync(self):
+    return self.attributes.get(ATTRIBUTE_SYNC) \
+        if self.attributes else None
+
 
 class Interface(ReferenceKind):
   ReferenceKind.AddSharedProperty('module')
@@ -442,6 +454,11 @@ class Enum(Kind):
     Kind.__init__(self, spec)
     self.fields = []
     self.attributes = attributes
+
+  @property
+  def extensible(self):
+    return self.attributes.get(ATTRIBUTE_EXTENSIBLE, False) \
+        if self.attributes else False
 
 
 class Module(object):
@@ -601,6 +618,8 @@ def IsCloneableKind(kind):
     if IsArrayKind(kind):
       return _IsCloneable(kind.kind, visited_kinds)
     if IsStructKind(kind) or IsUnionKind(kind):
+      if IsStructKind(kind) and kind.native_only:
+        return False
       for field in kind.fields:
         if not _IsCloneable(field.kind, visited_kinds):
           return False
@@ -616,5 +635,46 @@ def IsCloneableKind(kind):
 def HasCallbacks(interface):
   for method in interface.methods:
     if method.response_parameters != None:
+      return True
+  return False
+
+
+# Finds out whether an interface passes associated interfaces and associated
+# interface requests.
+def PassesAssociatedKinds(interface):
+  def _ContainsAssociatedKinds(kind, visited_kinds):
+    if kind in visited_kinds:
+      # No need to examine the kind again.
+      return False
+    visited_kinds.add(kind)
+    if IsAssociatedKind(kind):
+      return True
+    if IsArrayKind(kind):
+      return _ContainsAssociatedKinds(kind.kind, visited_kinds)
+    if IsStructKind(kind) or IsUnionKind(kind):
+      for field in kind.fields:
+        if _ContainsAssociatedKinds(field.kind, visited_kinds):
+          return True
+    if IsMapKind(kind):
+      # No need to examine the key kind, only primitive kinds and non-nullable
+      # string are allowed to be key kinds.
+      return _ContainsAssociatedKinds(kind.value_kind, visited_kinds)
+    return False
+
+  visited_kinds = set()
+  for method in interface.methods:
+    for param in method.parameters:
+      if _ContainsAssociatedKinds(param.kind, visited_kinds):
+        return True
+    if method.response_parameters != None:
+      for param in method.response_parameters:
+        if _ContainsAssociatedKinds(param.kind, visited_kinds):
+          return True
+  return False
+
+
+def HasSyncMethods(interface):
+  for method in interface.methods:
+    if method.sync:
       return True
   return False

@@ -277,8 +277,7 @@ ui::ThreePartImage& GetStrokeImage(bool active) {
 // Returns the color used to draw the background of a tab. |selected| selects
 // between the foreground and background tabs.
 - (NSColor*)backgroundColorForSelected:(bool)selected {
-  ThemeService* themeProvider =
-      static_cast<ThemeService*>([[self window] themeProvider]);
+  const ui::ThemeProvider* themeProvider = [[self window] themeProvider];
   if (!themeProvider)
     return [[self window] backgroundColor];
 
@@ -298,7 +297,7 @@ ui::ThreePartImage& GetStrokeImage(bool active) {
   // Themes don't have an inactive image so only look for one if there's no
   // theme.
   bool active =
-      [[self window] isMainWindow] || !themeProvider->UsingDefaultTheme();
+      [[self window] isMainWindow] || !themeProvider->UsingSystemTheme();
   return themeProvider->GetNSImageColorNamed(bitmapResources[active][selected]);
 }
 
@@ -359,7 +358,7 @@ ui::ThreePartImage& GetStrokeImage(bool active) {
     // image. However, even if the theme doesn't provide a tab background, the
     // theme machinery will make one if given a frame image. See
     // BrowserThemePack::GenerateTabBackgroundImages for details.
-    ui::ThemeProvider* themeProvider = [[self window] themeProvider];
+    const ui::ThemeProvider* themeProvider = [[self window] themeProvider];
     BOOL hasCustomTheme = themeProvider &&
         (themeProvider->HasCustomImage(IDR_THEME_TAB_BACKGROUND) ||
          themeProvider->HasCustomImage(IDR_THEME_FRAME));

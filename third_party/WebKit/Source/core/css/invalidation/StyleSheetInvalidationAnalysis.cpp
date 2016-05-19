@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/invalidation/StyleSheetInvalidationAnalysis.h"
 
 #include "core/css/CSSSelectorList.h"
@@ -56,7 +55,7 @@ static bool determineSelectorScopes(const CSSSelectorList& selectorList, HashSet
                 scopeSelector = current;
             else if (current->match() == CSSSelector::Class && (!scopeSelector || scopeSelector->match() != CSSSelector::Id))
                 scopeSelector = current;
-            CSSSelector::Relation relation = current->relation();
+            CSSSelector::RelationType relation = current->relation();
             // FIXME: it would be better to use setNeedsStyleRecalc for all shadow hosts matching
             // scopeSelector. Currently requests full style recalc.
             if (relation == CSSSelector::ShadowDeep || relation == CSSSelector::ShadowPseudo)
@@ -180,4 +179,4 @@ void StyleSheetInvalidationAnalysis::invalidateStyle()
     }
 }
 
-}
+} // namespace blink

@@ -65,7 +65,7 @@ public:
         v8::Local<v8::Context> context = isolate->GetCurrentContext();
         if (context.IsEmpty())
             return false;
-        return context != v8::Debug::GetDebugContext();
+        return context != v8::Debug::GetDebugContext(isolate);
     }
 
     static ScriptState* from(v8::Local<v8::Context> context)
@@ -79,8 +79,8 @@ public:
         return scriptState;
     }
 
-    // The context of the returned ScriptState may have been already detached.
-    // You must check scriptState->contextIsValid() before using the context.
+    // These methods can return nullptr if the context associated with the
+    // ScriptState has already been detached.
     static ScriptState* forMainWorld(LocalFrame*);
     static ScriptState* forWorld(LocalFrame*, DOMWrapperWorld&);
 
@@ -89,6 +89,7 @@ public:
     LocalDOMWindow* domWindow() const;
     virtual ExecutionContext* executionContext() const;
     virtual void setExecutionContext(ExecutionContext*);
+    int contextIdInDebugger();
 
     // This can return an empty handle if the v8::Context is gone.
     v8::Local<v8::Context> context() const { return m_context.newLocal(m_isolate); }
@@ -102,17 +103,10 @@ public:
     V8PerContextData* perContextData() const { return m_perContextData.get(); }
     void disposePerContextData();
 
-    class Observer {
-    public:
-        virtual ~Observer() { }
-        virtual void willDisposeScriptState(ScriptState*) = 0;
-    };
-    void addObserver(Observer*);
-    void removeObserver(Observer*);
-
     bool evalEnabled() const;
     void setEvalEnabled(bool);
     ScriptValue getFromGlobalObject(const char* name);
+    ScriptValue getFromExtrasExports(const char* name);
 
 protected:
     ScriptState(v8::Local<v8::Context>, PassRefPtr<DOMWrapperWorld>);
@@ -134,7 +128,6 @@ private:
 #if ENABLE(ASSERT)
     bool m_globalObjectDetached;
 #endif
-    Vector<Observer*> m_observers;
 };
 
 // ScriptStateProtectingContext keeps the context associated with the ScriptState alive.
@@ -163,6 +156,6 @@ private:
     ScopedPersistent<v8::Context> m_context;
 };
 
-}
+} // namespace blink
 
 #endif // ScriptState_h

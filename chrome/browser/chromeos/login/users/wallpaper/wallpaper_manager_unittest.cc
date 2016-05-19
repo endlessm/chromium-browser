@@ -16,8 +16,6 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/testing_pref_service.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
@@ -29,6 +27,8 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/settings/cros_settings_provider.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/image/image.h"
 
@@ -95,36 +95,30 @@ TEST_F(WallpaperManagerCacheTest, VerifyWallpaperCache) {
   gfx::ImageSkia test_user_1_wallpaper = CreateTestImage(SK_ColorRED);
   gfx::ImageSkia test_user_2_wallpaper = CreateTestImage(SK_ColorGREEN);
   gfx::ImageSkia test_user_3_wallpaper = CreateTestImage(SK_ColorWHITE);
-  test_api->SetWallpaperCache(test_account_id_1.GetUserEmail(), path1,
-                              test_user_1_wallpaper);
-  test_api->SetWallpaperCache(test_account_id_2.GetUserEmail(), path2,
-                              test_user_2_wallpaper);
-  test_api->SetWallpaperCache(test_account_id_3.GetUserEmail(), path3,
-                              test_user_3_wallpaper);
+  test_api->SetWallpaperCache(test_account_id_1, path1, test_user_1_wallpaper);
+  test_api->SetWallpaperCache(test_account_id_2, path2, test_user_2_wallpaper);
+  test_api->SetWallpaperCache(test_account_id_3, path3, test_user_3_wallpaper);
 
   test_api->ClearDisposableWallpaperCache();
 
   gfx::ImageSkia cached_wallpaper;
-  EXPECT_TRUE(test_api->GetWallpaperFromCache(test_account_id_1.GetUserEmail(),
-                                              &cached_wallpaper));
-  base::FilePath path;
   EXPECT_TRUE(
-      test_api->GetPathFromCache(test_account_id_1.GetUserEmail(), &path));
+      test_api->GetWallpaperFromCache(test_account_id_1, &cached_wallpaper));
+  base::FilePath path;
+  EXPECT_TRUE(test_api->GetPathFromCache(test_account_id_1, &path));
   // Logged in users' wallpaper cache should be kept.
   EXPECT_TRUE(cached_wallpaper.BackedBySameObjectAs(test_user_1_wallpaper));
   EXPECT_EQ(path, path1);
-  EXPECT_TRUE(test_api->GetWallpaperFromCache(test_account_id_2.GetUserEmail(),
-                                              &cached_wallpaper));
   EXPECT_TRUE(
-      test_api->GetPathFromCache(test_account_id_2.GetUserEmail(), &path));
+      test_api->GetWallpaperFromCache(test_account_id_2, &cached_wallpaper));
+  EXPECT_TRUE(test_api->GetPathFromCache(test_account_id_2, &path));
   EXPECT_TRUE(cached_wallpaper.BackedBySameObjectAs(test_user_2_wallpaper));
   EXPECT_EQ(path, path2);
 
   // Not logged in user's wallpaper cache should be cleared.
-  EXPECT_FALSE(test_api->GetWallpaperFromCache(test_account_id_3.GetUserEmail(),
-                                               &cached_wallpaper));
   EXPECT_FALSE(
-      test_api->GetPathFromCache(test_account_id_3.GetUserEmail(), &path));
+      test_api->GetWallpaperFromCache(test_account_id_3, &cached_wallpaper));
+  EXPECT_FALSE(test_api->GetPathFromCache(test_account_id_3, &path));
 }
 
 // Test that the user's wallpaper cache is cleared after the user is removed.
@@ -143,26 +137,24 @@ TEST_F(WallpaperManagerCacheTest, CacheClearedOnUserRemoval) {
 
   const gfx::ImageSkia test_user_1_wallpaper = CreateTestImage(SK_ColorRED);
   const gfx::ImageSkia test_user_2_wallpaper = CreateTestImage(SK_ColorGREEN);
-  test_api->SetWallpaperCache(test_account_id_1.GetUserEmail(), path1,
-                              test_user_1_wallpaper);
-  test_api->SetWallpaperCache(test_account_id_2.GetUserEmail(), path2,
-                              test_user_2_wallpaper);
+  test_api->SetWallpaperCache(test_account_id_1, path1, test_user_1_wallpaper);
+  test_api->SetWallpaperCache(test_account_id_2, path2, test_user_2_wallpaper);
 
   gfx::ImageSkia cached_wallpaper;
   // Test that both user1 and user2's wallpaper can be found in cache.
-  EXPECT_TRUE(test_api->GetWallpaperFromCache(test_account_id_1.GetUserEmail(),
-                                              &cached_wallpaper));
-  EXPECT_TRUE(test_api->GetWallpaperFromCache(test_account_id_2.GetUserEmail(),
-                                              &cached_wallpaper));
+  EXPECT_TRUE(
+      test_api->GetWallpaperFromCache(test_account_id_1, &cached_wallpaper));
+  EXPECT_TRUE(
+      test_api->GetWallpaperFromCache(test_account_id_2, &cached_wallpaper));
 
   // Remove user2.
   fake_user_manager()->RemoveUserFromList(test_account_id_2);
 
   // Test that only user1's wallpaper can be found in cache.
-  EXPECT_TRUE(test_api->GetWallpaperFromCache(test_account_id_1.GetUserEmail(),
-                                              &cached_wallpaper));
-  EXPECT_FALSE(test_api->GetWallpaperFromCache(test_account_id_2.GetUserEmail(),
-                                               &cached_wallpaper));
+  EXPECT_TRUE(
+      test_api->GetWallpaperFromCache(test_account_id_1, &cached_wallpaper));
+  EXPECT_FALSE(
+      test_api->GetWallpaperFromCache(test_account_id_2, &cached_wallpaper));
 }
 
 }  // namespace chromeos

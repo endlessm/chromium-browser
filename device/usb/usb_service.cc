@@ -6,9 +6,15 @@
 
 #include "base/at_exit.h"
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "components/device_event_log/device_event_log.h"
 #include "device/usb/usb_device.h"
+
+#if defined(OS_ANDROID)
+#include "device/usb/usb_service_android.h"
+#else
 #include "device/usb/usb_service_impl.h"
+#endif
 
 namespace device {
 
@@ -29,7 +35,11 @@ void UsbService::Observer::WillDestroyUsbService() {}
 // static
 scoped_ptr<UsbService> UsbService::Create(
     scoped_refptr<base::SequencedTaskRunner> blocking_task_runner) {
+#if defined(OS_ANDROID)
+  return make_scoped_ptr(new UsbServiceAndroid());
+#else
   return make_scoped_ptr(new UsbServiceImpl(blocking_task_runner));
+#endif
 }
 
 UsbService::~UsbService() {
@@ -58,6 +68,7 @@ void UsbService::NotifyDeviceRemoved(scoped_refptr<UsbDevice> device) {
   DCHECK(CalledOnValidThread());
 
   FOR_EACH_OBSERVER(Observer, observer_list_, OnDeviceRemoved(device));
+  device->NotifyDeviceRemoved();
   FOR_EACH_OBSERVER(Observer, observer_list_, OnDeviceRemovedCleanup(device));
 }
 

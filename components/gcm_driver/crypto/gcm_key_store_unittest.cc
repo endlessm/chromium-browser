@@ -5,11 +5,13 @@
 #include "components/gcm_driver/crypto/gcm_key_store.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/histogram_tester.h"
 #include "base/thread_task_runner_handle.h"
-#include "crypto/curve25519.h"
+#include "components/gcm_driver/crypto/p256_key_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace gcm {
@@ -45,61 +47,75 @@ class GCMKeyStoreTest : public ::testing::Test {
   }
 
   // Callback to use with GCMKeyStore::{GetKeys, CreateKeys} calls.
-  void GotKeys(KeyPair* pair_out, const KeyPair& pair) {
-    DCHECK(pair_out);
-
+  void GotKeys(KeyPair* pair_out, std::string* auth_secret_out,
+               const KeyPair& pair, const std::string& auth_secret) {
     *pair_out = pair;
-  }
-
-  // Callback to use with GCMKeyStore::DeleteKeys calls.
-  void DeletedKeys(bool* success_out, bool success) {
-    DCHECK(success_out);
-
-    *success_out = success;
+    *auth_secret_out = auth_secret;
   }
 
  protected:
   GCMKeyStore* gcm_key_store() { return gcm_key_store_.get(); }
+  base::HistogramTester* histogram_tester() { return &histogram_tester_; }
 
  private:
   base::MessageLoop message_loop_;
   base::ScopedTempDir scoped_temp_dir_;
+  base::HistogramTester histogram_tester_;
 
   scoped_ptr<GCMKeyStore> gcm_key_store_;
 };
 
-TEST_F(GCMKeyStoreTest, CreatedByDefault) {
+TEST_F(GCMKeyStoreTest, EmptyByDefault) {
+  // The key store is initialized lazily, so this histogram confirms that
+  // calling the constructor does not in fact cause initialization.
+  histogram_tester()->ExpectTotalCount(
+      "GCM.Crypto.InitKeyStoreSuccessRate", 0);
+
   KeyPair pair;
+  std::string auth_secret;
   gcm_key_store()->GetKeys(kFakeAppId,
                            base::Bind(&GCMKeyStoreTest::GotKeys,
-                                      base::Unretained(this), &pair));
+                                      base::Unretained(this), &pair,
+                                      &auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
   ASSERT_FALSE(pair.IsInitialized());
   EXPECT_FALSE(pair.has_type());
+  EXPECT_EQ(0u, auth_secret.size());
+
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.GetKeySuccessRate", 0, 1);  // failure
 }
 
 TEST_F(GCMKeyStoreTest, CreateAndGetKeys) {
   KeyPair pair;
+  std::string auth_secret;
   gcm_key_store()->CreateKeys(kFakeAppId,
                               base::Bind(&GCMKeyStoreTest::GotKeys,
-                                         base::Unretained(this), &pair));
+                                         base::Unretained(this), &pair,
+                                         &auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(pair.IsInitialized());
-
   ASSERT_TRUE(pair.has_private_key());
-  EXPECT_EQ(crypto::curve25519::kScalarBytes, pair.private_key().size());
-
   ASSERT_TRUE(pair.has_public_key());
-  EXPECT_EQ(crypto::curve25519::kBytes, pair.public_key().size());
+
+  EXPECT_GT(pair.public_key().size(), 0u);
+  EXPECT_GT(pair.private_key().size(), 0u);
+
+  ASSERT_GT(auth_secret.size(), 0u);
+
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.CreateKeySuccessRate", 1, 1);  // success
 
   KeyPair read_pair;
+  std::string read_auth_secret;
   gcm_key_store()->GetKeys(kFakeAppId,
                            base::Bind(&GCMKeyStoreTest::GotKeys,
-                                      base::Unretained(this), &read_pair));
+                                      base::Unretained(this), &read_pair,
+                                      &read_auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
@@ -108,64 +124,87 @@ TEST_F(GCMKeyStoreTest, CreateAndGetKeys) {
   EXPECT_EQ(pair.type(), read_pair.type());
   EXPECT_EQ(pair.private_key(), read_pair.private_key());
   EXPECT_EQ(pair.public_key(), read_pair.public_key());
+
+  EXPECT_EQ(auth_secret, read_auth_secret);
+
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.GetKeySuccessRate", 1, 1);  // failure
 }
 
 TEST_F(GCMKeyStoreTest, KeysPersistenceBetweenInstances) {
   KeyPair pair;
+  std::string auth_secret;
   gcm_key_store()->CreateKeys(kFakeAppId,
                               base::Bind(&GCMKeyStoreTest::GotKeys,
-                                         base::Unretained(this), &pair));
+                                         base::Unretained(this), &pair,
+                                         &auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(pair.IsInitialized());
+
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.InitKeyStoreSuccessRate", 1, 1);  // success
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.LoadKeyStoreSuccessRate", 1, 1);  // success
 
   // Create a new GCM Key Store instance.
   CreateKeyStore();
 
   KeyPair read_pair;
+  std::string read_auth_secret;
   gcm_key_store()->GetKeys(kFakeAppId,
                            base::Bind(&GCMKeyStoreTest::GotKeys,
-                                      base::Unretained(this), &read_pair));
+                                      base::Unretained(this), &read_pair,
+                                      &read_auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(read_pair.IsInitialized());
   EXPECT_TRUE(read_pair.has_type());
+  EXPECT_GT(read_auth_secret.size(), 0u);
+
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.InitKeyStoreSuccessRate", 1, 2);  // success
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.LoadKeyStoreSuccessRate", 1, 2);  // success
 }
 
-TEST_F(GCMKeyStoreTest, CreateAndDeleteKeys) {
+TEST_F(GCMKeyStoreTest, CreateAndRemoveKeys) {
   KeyPair pair;
+  std::string auth_secret;
   gcm_key_store()->CreateKeys(kFakeAppId,
                               base::Bind(&GCMKeyStoreTest::GotKeys,
-                                         base::Unretained(this), &pair));
+                                         base::Unretained(this), &pair,
+                                         &auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(pair.IsInitialized());
 
   KeyPair read_pair;
+  std::string read_auth_secret;
   gcm_key_store()->GetKeys(kFakeAppId,
                            base::Bind(&GCMKeyStoreTest::GotKeys,
-                                      base::Unretained(this), &read_pair));
+                                      base::Unretained(this), &read_pair,
+                                      &read_auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(read_pair.IsInitialized());
   EXPECT_TRUE(read_pair.has_type());
 
-  bool success = false;
-  gcm_key_store()->DeleteKeys(kFakeAppId,
-                              base::Bind(&GCMKeyStoreTest::DeletedKeys,
-                                         base::Unretained(this), &success));
+  gcm_key_store()->RemoveKeys(kFakeAppId, base::Bind(&base::DoNothing));
 
   base::RunLoop().RunUntilIdle();
 
-  ASSERT_TRUE(success);
+  histogram_tester()->ExpectBucketCount(
+      "GCM.Crypto.RemoveKeySuccessRate", 1, 1);  // success
 
   gcm_key_store()->GetKeys(kFakeAppId,
                            base::Bind(&GCMKeyStoreTest::GotKeys,
-                                      base::Unretained(this), &read_pair));
+                                      base::Unretained(this), &read_pair,
+                                      &read_auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
@@ -174,9 +213,11 @@ TEST_F(GCMKeyStoreTest, CreateAndDeleteKeys) {
 
 TEST_F(GCMKeyStoreTest, GetKeysMultipleAppIds) {
   KeyPair pair;
+  std::string auth_secret;
   gcm_key_store()->CreateKeys(kFakeAppId,
                               base::Bind(&GCMKeyStoreTest::GotKeys,
-                                         base::Unretained(this), &pair));
+                                         base::Unretained(this), &pair,
+                                         &auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
@@ -184,16 +225,19 @@ TEST_F(GCMKeyStoreTest, GetKeysMultipleAppIds) {
 
   gcm_key_store()->CreateKeys(kSecondFakeAppId,
                               base::Bind(&GCMKeyStoreTest::GotKeys,
-                                         base::Unretained(this), &pair));
+                                         base::Unretained(this), &pair,
+                                         &auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(pair.IsInitialized());
 
   KeyPair read_pair;
+  std::string read_auth_secret;
   gcm_key_store()->GetKeys(kFakeAppId,
                            base::Bind(&GCMKeyStoreTest::GotKeys,
-                                      base::Unretained(this), &read_pair));
+                                      base::Unretained(this), &read_pair,
+                                      &read_auth_secret));
 
   base::RunLoop().RunUntilIdle();
 
@@ -203,18 +247,22 @@ TEST_F(GCMKeyStoreTest, GetKeysMultipleAppIds) {
 
 TEST_F(GCMKeyStoreTest, SuccessiveCallsBeforeInitialization) {
   KeyPair pair;
+  std::string auth_secret;
   gcm_key_store()->CreateKeys(kFakeAppId,
                               base::Bind(&GCMKeyStoreTest::GotKeys,
-                                         base::Unretained(this), &pair));
+                                         base::Unretained(this), &pair,
+                                         &auth_secret));
 
   // Deliberately do not run the message loop, so that the callback has not
   // been resolved yet. The following EXPECT() ensures this.
   EXPECT_FALSE(pair.IsInitialized());
 
   KeyPair read_pair;
+  std::string read_auth_secret;
   gcm_key_store()->GetKeys(kFakeAppId,
                            base::Bind(&GCMKeyStoreTest::GotKeys,
-                                      base::Unretained(this), &read_pair));
+                                      base::Unretained(this), &read_pair,
+                                      &read_auth_secret));
 
   EXPECT_FALSE(read_pair.IsInitialized());
 

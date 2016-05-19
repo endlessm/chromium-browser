@@ -5,6 +5,7 @@
 #include "skia/ext/skia_utils_mac.h"
 
 #import <AppKit/AppKit.h>
+#include <stdint.h>
 
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
@@ -85,7 +86,7 @@ SkBitmap NSImageOrNSImageRepToSkBitmapWithColorSpace(
 
 } // namespace
 
-namespace gfx {
+namespace skia {
 
 CGAffineTransform SkMatrixToCGAffineTransform(const SkMatrix& matrix) {
   // CGAffineTransforms don't support perspective transforms, so make sure
@@ -190,10 +191,10 @@ SkBitmap CGImageToSkBitmap(CGImageRef image) {
   int width = CGImageGetWidth(image);
   int height = CGImageGetHeight(image);
 
-  scoped_ptr<SkBaseDevice> device(
+  scoped_ptr<skia::BitmapPlatformDevice> device(
       skia::BitmapPlatformDevice::Create(NULL, width, height, false));
 
-  CGContextRef context = skia::GetBitmapContext(device.get());
+  CGContextRef context = device->GetBitmapContext();
 
   // We need to invert the y-axis of the canvas so that Core Graphics drawing
   // happens right-side up. Skia has an upper-left origin and CG has a lower-
@@ -466,4 +467,4 @@ bool SkiaBitLocker::hasEmptyClipRegion() const {
   return canvas_->isClipEmpty();
 }
 
-}  // namespace gfx
+}  // namespace skia

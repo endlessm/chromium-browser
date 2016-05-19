@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/accessibility/AXARIAGrid.h"
 
 #include "core/layout/LayoutObject.h"
@@ -81,6 +80,7 @@ bool AXARIAGrid::addTableRowChild(AXObject* child, HeapHashSet<Member<AXObject>>
 
 void AXARIAGrid::addChildren()
 {
+    ASSERT(!isDetached());
     ASSERT(!m_haveChildren);
 
     if (!isAXTable()) {
@@ -93,7 +93,7 @@ void AXARIAGrid::addChildren()
         return;
 
     HeapVector<Member<AXObject>> children;
-    for (AXObject* child = firstChild(); child; child = child->nextSibling())
+    for (AXObject* child = rawFirstChild(); child; child = child->rawNextSibling())
         children.append(child);
     computeAriaOwnsChildren(children);
 

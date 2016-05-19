@@ -20,11 +20,11 @@
  * Boston, MA 02110-1301, USA.
 */
 
-#include "config.h"
 #include "core/css/StylePropertySerializer.h"
 
 #include "core/CSSValueKeywords.h"
 #include "core/StylePropertyShorthand.h"
+#include "core/css/CSSCustomPropertyDeclaration.h"
 #include "core/css/CSSPropertyMetadata.h"
 #include "core/css/CSSValuePool.h"
 #include "wtf/BitArray.h"
@@ -176,6 +176,22 @@ StylePropertySerializer::StylePropertySerializer(const StylePropertySet& propert
 {
 }
 
+String StylePropertySerializer::getCustomPropertyText(const PropertyValueForSerializer& property, bool isNotFirstDecl) const
+{
+    ASSERT(property.id() == CSSPropertyVariable);
+    StringBuilder result;
+    if (isNotFirstDecl)
+        result.append(' ');
+    const CSSCustomPropertyDeclaration* value = toCSSCustomPropertyDeclaration(property.value());
+    result.append(value->name());
+    result.append(':');
+    result.append(value->customCSSText());
+    if (property.isImportant())
+        result.appendLiteral(" !important");
+    result.append(';');
+    return result.toString();
+}
+
 String StylePropertySerializer::getPropertyText(CSSPropertyID propertyID, const String& value, bool isImportant, bool isNotFirstDecl) const
 {
     StringBuilder result;
@@ -210,7 +226,9 @@ String StylePropertySerializer::asText() const
         CSSPropertyID shorthandPropertyID = CSSPropertyInvalid;
         CSSPropertyID borderFallbackShorthandProperty = CSSPropertyInvalid;
         String value;
-        ASSERT(!isShorthandProperty(propertyID));
+        // Shorthands with variable references are not expanded at parse time
+        // and hence may still be observed during serialization.
+        ASSERT(!isShorthandProperty(propertyID) || property.value()->isVariableReferenceValue());
 
         switch (propertyID) {
         case CSSPropertyBackgroundAttachment:
@@ -343,6 +361,9 @@ String StylePropertySerializer::asText() const
         case CSSPropertyWebkitMaskOrigin:
             shorthandPropertyID = CSSPropertyWebkitMask;
             break;
+        case CSSPropertyVariable:
+            result.append(getCustomPropertyText(property, numDecls++));
+            continue;
         case CSSPropertyAll:
             result.append(getPropertyText(propertyID, property.value()->cssText(), property.isImportant(), numDecls++));
             continue;
@@ -414,10 +435,10 @@ String StylePropertySerializer::getPropertyValue(CSSPropertyID propertyID) const
         return get4Values(borderWidthShorthand());
     case CSSPropertyBorderStyle:
         return get4Values(borderStyleShorthand());
-    case CSSPropertyWebkitColumnRule:
-        return getShorthandValue(webkitColumnRuleShorthand());
-    case CSSPropertyWebkitColumns:
-        return getShorthandValue(webkitColumnsShorthand());
+    case CSSPropertyColumnRule:
+        return getShorthandValue(columnRuleShorthand());
+    case CSSPropertyColumns:
+        return getShorthandValue(columnsShorthand());
     case CSSPropertyFlex:
         return getShorthandValue(flexShorthand());
     case CSSPropertyFlexFlow:
@@ -489,8 +510,7 @@ String StylePropertySerializer::borderSpacingValue(const StylePropertyShorthand&
 void StylePropertySerializer::appendFontLonghandValueIfNotNormal(CSSPropertyID propertyID, StringBuilder& result, String& commonValue) const
 {
     int foundPropertyIndex = m_propertySet.findPropertyIndex(propertyID);
-    if (foundPropertyIndex == -1)
-        return;
+    ASSERT(foundPropertyIndex != -1);
 
     const CSSValue* val = m_propertySet.propertyAt(foundPropertyIndex).value();
     if (val->isPrimitiveValue() && toCSSPrimitiveValue(val)->getValueID() == CSSValueNormal) {
@@ -525,10 +545,12 @@ void StylePropertySerializer::appendFontLonghandValueIfNotNormal(CSSPropertyID p
 
 String StylePropertySerializer::fontValue() const
 {
+    if (!isPropertyShorthandAvailable(fontShorthand()) && !shorthandHasOnlyInitialOrInheritedValue(fontShorthand()))
+        return emptyString();
+
     int fontSizePropertyIndex = m_propertySet.findPropertyIndex(CSSPropertyFontSize);
     int fontFamilyPropertyIndex = m_propertySet.findPropertyIndex(CSSPropertyFontFamily);
-    if (fontSizePropertyIndex == -1 || fontFamilyPropertyIndex == -1)
-        return emptyString();
+    ASSERT(fontSizePropertyIndex != -1 && fontFamilyPropertyIndex != -1);
 
     PropertyValueForSerializer fontSizeProperty = m_propertySet.propertyAt(fontSizePropertyIndex);
     PropertyValueForSerializer fontFamilyProperty = m_propertySet.propertyAt(fontFamilyPropertyIndex);
@@ -637,6 +659,7 @@ String StylePropertySerializer::getLayeredShorthandValue(const StylePropertyShor
         bool useRepeatXShorthand = false;
         bool useRepeatYShorthand = false;
         bool useSingleWordShorthand = false;
+        bool foundPositionXCSSProperty = false;
         bool foundPositionYCSSProperty = false;
 
         for (unsigned propertyIndex = 0; propertyIndex < size; propertyIndex++) {
@@ -687,10 +710,10 @@ String StylePropertySerializer::getLayeredShorthandValue(const StylePropertyShor
 
             if (!(value->isInitialValue() && toCSSInitialValue(value)->isImplicit())) {
                 if (property == CSSPropertyBackgroundSize || property == CSSPropertyWebkitMaskSize) {
-                    if (foundPositionYCSSProperty)
+                    if (foundPositionYCSSProperty || foundPositionXCSSProperty)
                         layerResult.appendLiteral(" / ");
                     else
-                        continue;
+                        layerResult.appendLiteral(" 0% 0% / ");
                 } else if (!layerResult.isEmpty()) {
                     // Do this second to avoid ending up with an extra space in the output if we hit the continue above.
                     layerResult.append(' ');
@@ -707,6 +730,8 @@ String StylePropertySerializer::getLayeredShorthandValue(const StylePropertyShor
                         useSingleWordShorthand = false;
                     layerResult.append(value->cssText());
                 }
+                if (property == CSSPropertyBackgroundPositionX || property == CSSPropertyWebkitMaskPositionX)
+                    foundPositionXCSSProperty = true;
                 if (property == CSSPropertyBackgroundPositionY || property == CSSPropertyWebkitMaskPositionY) {
                     foundPositionYCSSProperty = true;
                     // background-position is a special case. If only the first offset is specified,
@@ -977,4 +1002,4 @@ bool StylePropertySerializer::shorthandHasOnlyInitialOrInheritedValue(const Styl
     return isInitialValue || isInheritedValue;
 }
 
-}
+} // namespace blink

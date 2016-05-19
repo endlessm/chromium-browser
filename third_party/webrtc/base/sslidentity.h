@@ -19,6 +19,7 @@
 
 #include "webrtc/base/buffer.h"
 #include "webrtc/base/messagedigest.h"
+#include "webrtc/base/timeutils.h"
 
 namespace rtc {
 
@@ -35,7 +36,7 @@ class SSLCertChain;
 // possibly caching of intermediate results.)
 class SSLCertificate {
  public:
-  // Parses and build a certificate from a PEM encoded string.
+  // Parses and builds a certificate from a PEM encoded string.
   // Returns NULL on failure.
   // The length of the string representation of the certificate is
   // stored in *pem_length if it is non-NULL, and only if
@@ -68,6 +69,10 @@ class SSLCertificate {
                              unsigned char* digest,
                              size_t size,
                              size_t* length) const = 0;
+
+  // Returns the time in seconds relative to epoch, 1970-01-01T00:00:00Z (UTC),
+  // or -1 if an expiration time could not be retrieved.
+  virtual int64_t CertificateExpirationTime() const = 0;
 };
 
 // SSLCertChain is a simple wrapper for a vector of SSLCertificates. It serves
@@ -120,6 +125,12 @@ static const int kRsaDefaultExponent = 0x10001;  // = 2^16+1 = 65537
 static const int kRsaMinModSize = 1024;
 static const int kRsaMaxModSize = 8192;
 
+// Certificate default validity lifetime.
+static const int kDefaultCertificateLifetime = 60 * 60 * 24 * 30;  // 30 days
+// Certificate validity window.
+// This is to compensate for slightly incorrect system clocks.
+static const int kCertificateWindow = -60 * 60 * 24;
+
 struct RSAParams {
   unsigned int mod_size;
   unsigned int pub_exp;
@@ -168,8 +179,8 @@ KeyType IntKeyTypeFamilyToKeyType(int key_type_family);
 // random string will be used.
 struct SSLIdentityParams {
   std::string common_name;
-  int not_before;  // offset from current time in seconds.
-  int not_after;   // offset from current time in seconds.
+  time_t not_before;  // Absolute time since epoch in seconds.
+  time_t not_after;   // Absolute time since epoch in seconds.
   KeyParams key_params;
 };
 
@@ -179,18 +190,24 @@ struct SSLIdentityParams {
 class SSLIdentity {
  public:
   // Generates an identity (keypair and self-signed certificate). If
-  // common_name is non-empty, it will be used for the certificate's
-  // subject and issuer name, otherwise a random string will be used.
+  // |common_name| is non-empty, it will be used for the certificate's subject
+  // and issuer name, otherwise a random string will be used. The key type and
+  // parameters are defined in |key_param|. The certificate's lifetime in
+  // seconds from the current time is defined in |certificate_lifetime|; it
+  // should be a non-negative number.
   // Returns NULL on failure.
   // Caller is responsible for freeing the returned object.
   static SSLIdentity* Generate(const std::string& common_name,
+                               const KeyParams& key_param,
+                               time_t certificate_lifetime);
+  static SSLIdentity* Generate(const std::string& common_name,
                                const KeyParams& key_param);
   static SSLIdentity* Generate(const std::string& common_name,
-                               KeyType key_type) {
-    return Generate(common_name, KeyParams(key_type));
-  }
+                               KeyType key_type);
 
   // Generates an identity with the specified validity period.
+  // TODO(torbjorng): Now that Generate() accepts relevant params, make tests
+  // use that instead of this function.
   static SSLIdentity* GenerateForTest(const SSLIdentityParams& params);
 
   // Construct an identity from a private key and a certificate.
@@ -216,6 +233,11 @@ class SSLIdentity {
                               const unsigned char* data,
                               size_t length);
 };
+
+// Convert from ASN1 time as restricted by RFC 5280 to seconds from 1970-01-01
+// 00.00 ("epoch").  If the ASN1 time cannot be read, return -1.  The data at
+// |s| is not 0-terminated; its char count is defined by |length|.
+int64_t ASN1TimeToSec(const unsigned char* s, size_t length, bool long_format);
 
 extern const char kPemTypeCertificate[];
 extern const char kPemTypeRsaPrivateKey[];

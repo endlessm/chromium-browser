@@ -96,7 +96,7 @@ SkShader::Context* SkShader::onCreateContext(const ContextRec& rec, void*) const
     return nullptr;
 }
 
-size_t SkShader::contextSize() const {
+size_t SkShader::contextSize(const ContextRec&) const {
     return 0;
 }
 
@@ -117,16 +117,22 @@ SkShader::Context::ShadeProc SkShader::Context::asAShadeProc(void** ctx) {
     return nullptr;
 }
 
-#include "SkColorPriv.h"
-
-void SkShader::Context::shadeSpan16(int x, int y, uint16_t span16[], int count) {
-    SkASSERT(span16);
-    SkASSERT(count > 0);
-    SkASSERT(this->canCallShadeSpan16());
-
-    // basically, if we get here, the subclass screwed up
-    SkDEBUGFAIL("kHasSpan16 flag is set, but shadeSpan16() not implemented");
+void SkShader::Context::shadeSpan4f(int x, int y, SkPM4f dst[], int count) {
+    const int N = 128;
+    SkPMColor tmp[N];
+    while (count > 0) {
+        int n = SkTMin(count, N);
+        this->shadeSpan(x, y, tmp, n);
+        for (int i = 0; i < n; ++i) {
+            dst[i] = SkPM4f::FromPMColor(tmp[i]);
+        }
+        dst += n;
+        x += n;
+        count -= n;
+    }
 }
+
+#include "SkColorPriv.h"
 
 #define kTempColorQuadCount 6   // balance between speed (larger) and saving stack-space
 #define kTempColorCount     (kTempColorQuadCount << 2)
@@ -195,7 +201,7 @@ SkShader::Context::MatrixClass SkShader::Context::ComputeMatrixClass(const SkMat
     MatrixClass mc = kLinear_MatrixClass;
 
     if (mat.hasPerspective()) {
-        if (mat.fixedStepInX(0, nullptr, nullptr)) {
+        if (mat.isFixedStepInX()) {
             mc = kFixedStepInX_MatrixClass;
         } else {
             mc = kPerspective_MatrixClass;
@@ -266,10 +272,6 @@ uint32_t SkColorShader::ColorShaderContext::getFlags() const {
     return fFlags;
 }
 
-uint8_t SkColorShader::ColorShaderContext::getSpan16Alpha() const {
-    return SkGetPackedA32(fPMColor);
-}
-
 SkShader::Context* SkColorShader::onCreateContext(const ContextRec& rec, void* storage) const {
     return new (storage) ColorShaderContext(*this, rec);
 }
@@ -285,9 +287,6 @@ SkColorShader::ColorShaderContext::ColorShaderContext(const SkColorShader& shade
     unsigned g = SkColorGetG(color);
     unsigned b = SkColorGetB(color);
 
-    // we want this before we apply any alpha
-    fColor16 = SkPack888ToRGB16(r, g, b);
-
     if (a != 255) {
         r = SkMulDiv255Round(r, a);
         g = SkMulDiv255Round(g, a);
@@ -295,12 +294,13 @@ SkColorShader::ColorShaderContext::ColorShaderContext(const SkColorShader& shade
     }
     fPMColor = SkPackARGB32(a, r, g, b);
 
+    SkColor4f c4 = SkColor4f::FromColor(shader.fColor);
+    c4.fA *= rec.fPaint->getAlpha() / 255.0f;
+    fPM4f = c4.premul();
+
     fFlags = kConstInY32_Flag;
     if (255 == a) {
         fFlags |= kOpaqueAlpha_Flag;
-        if (rec.fPaint->isDither() == false) {
-            fFlags |= kHasSpan16_Flag;
-        }
     }
 }
 
@@ -308,12 +308,14 @@ void SkColorShader::ColorShaderContext::shadeSpan(int x, int y, SkPMColor span[]
     sk_memset32(span, fPMColor, count);
 }
 
-void SkColorShader::ColorShaderContext::shadeSpan16(int x, int y, uint16_t span[], int count) {
-    sk_memset16(span, fColor16, count);
-}
-
 void SkColorShader::ColorShaderContext::shadeSpanAlpha(int x, int y, uint8_t alpha[], int count) {
     memset(alpha, SkGetPackedA32(fPMColor), count);
+}
+
+void SkColorShader::ColorShaderContext::shadeSpan4f(int x, int y, SkPM4f span[], int count) {
+    for (int i = 0; i < count; ++i) {
+        span[i] = fPM4f;
+    }
 }
 
 SkShader::GradientType SkColorShader::asAGradient(GradientInfo* info) const {

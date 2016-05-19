@@ -7,11 +7,13 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
+
+#include <memory>
 #include <string>
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/checks.h"
-#include "webrtc/modules/audio_coding/codecs/opus/include/opus_interface.h"
+#include "webrtc/modules/audio_coding/codecs/opus/opus_interface.h"
 #include "webrtc/modules/audio_coding/codecs/opus/opus_inst.h"
 #include "webrtc/modules/audio_coding/neteq/tools/audio_loop.h"
 #include "webrtc/test/testsupport/fileutils.h"
@@ -42,7 +44,9 @@ class OpusTest : public TestWithParam<::testing::tuple<int, int>> {
   // After preparation, |speech_data_.GetNextBlock()| returns a pointer to a
   // block of |block_length_ms| milliseconds. The data is looped every
   // |loop_length_ms| milliseconds.
-  void PrepareSpeechData(int channel, int block_length_ms, int loop_length_ms);
+  void PrepareSpeechData(size_t channel,
+                         int block_length_ms,
+                         int loop_length_ms);
 
   int EncodeDecode(WebRtcOpusEncInst* encoder,
                    rtc::ArrayView<const int16_t> input_audio,
@@ -53,7 +57,7 @@ class OpusTest : public TestWithParam<::testing::tuple<int, int>> {
   void SetMaxPlaybackRate(WebRtcOpusEncInst* encoder,
                           opus_int32 expect, int32_t set);
 
-  void CheckAudioBounded(const int16_t* audio, size_t samples, int channels,
+  void CheckAudioBounded(const int16_t* audio, size_t samples, size_t channels,
                          uint16_t bound) const;
 
   WebRtcOpusEncInst* opus_encoder_;
@@ -62,7 +66,7 @@ class OpusTest : public TestWithParam<::testing::tuple<int, int>> {
   AudioLoop speech_data_;
   uint8_t bitstream_[kMaxBytes];
   size_t encoded_bytes_;
-  int channels_;
+  size_t channels_;
   int application_;
 };
 
@@ -70,11 +74,11 @@ OpusTest::OpusTest()
     : opus_encoder_(NULL),
       opus_decoder_(NULL),
       encoded_bytes_(0),
-      channels_(::testing::get<0>(GetParam())),
+      channels_(static_cast<size_t>(::testing::get<0>(GetParam()))),
       application_(::testing::get<1>(GetParam())) {
 }
 
-void OpusTest::PrepareSpeechData(int channel, int block_length_ms,
+void OpusTest::PrepareSpeechData(size_t channel, int block_length_ms,
                                  int loop_length_ms) {
   const std::string file_name =
         webrtc::test::ResourcePath((channel == 1) ?
@@ -99,9 +103,9 @@ void OpusTest::SetMaxPlaybackRate(WebRtcOpusEncInst* encoder,
 }
 
 void OpusTest::CheckAudioBounded(const int16_t* audio, size_t samples,
-                                 int channels, uint16_t bound) const {
+                                 size_t channels, uint16_t bound) const {
   for (size_t i = 0; i < samples; ++i) {
-    for (int c = 0; c < channels; ++c) {
+    for (size_t c = 0; c < channels; ++c) {
       ASSERT_GE(audio[i * channels + c], -bound);
       ASSERT_LE(audio[i * channels + c], bound);
     }
@@ -115,7 +119,7 @@ int OpusTest::EncodeDecode(WebRtcOpusEncInst* encoder,
                            int16_t* audio_type) {
   int encoded_bytes_int = WebRtcOpus_Encode(
       encoder, input_audio.data(),
-      rtc::CheckedDivExact(input_audio.size(), static_cast<size_t>(channels_)),
+      rtc::CheckedDivExact(input_audio.size(), channels_),
       kMaxBytes, bitstream_);
   EXPECT_GE(encoded_bytes_int, 0);
   encoded_bytes_ = static_cast<size_t>(encoded_bytes_int);
@@ -196,12 +200,12 @@ void OpusTest::TestDtxEffect(bool dtx, int block_length_ms) {
   const int max_dtx_frames = 400 / block_length_ms + 1;
 
   // We run |kRunTimeMs| milliseconds of pure silence.
-  const int kRunTimeMs = 2000;
+  const int kRunTimeMs = 4500;
 
   // We check that, after a |kCheckTimeMs| milliseconds (given that the CNG in
   // Opus needs time to adapt), the absolute values of DTX decoded signal are
   // bounded by |kOutputValueBound|.
-  const int kCheckTimeMs = 1500;
+  const int kCheckTimeMs = 4000;
 
 #if defined(OPUS_FIXED_POINT)
   const uint16_t kOutputValueBound = 20;
@@ -588,8 +592,7 @@ TEST_P(OpusTest, OpusDurationEstimation) {
   auto speech_block = speech_data_.GetNextBlock();
   int encoded_bytes_int = WebRtcOpus_Encode(
       opus_encoder_, speech_block.data(),
-      rtc::CheckedDivExact(speech_block.size(),
-                           2 * static_cast<size_t>(channels_)),
+      rtc::CheckedDivExact(speech_block.size(), 2 * channels_),
       kMaxBytes, bitstream_);
   EXPECT_GE(encoded_bytes_int, 0);
   EXPECT_EQ(kOpus10msFrameSamples,
@@ -601,7 +604,7 @@ TEST_P(OpusTest, OpusDurationEstimation) {
   speech_block = speech_data_.GetNextBlock();
   encoded_bytes_int = WebRtcOpus_Encode(
       opus_encoder_, speech_block.data(),
-      rtc::CheckedDivExact(speech_block.size(), static_cast<size_t>(channels_)),
+      rtc::CheckedDivExact(speech_block.size(), channels_),
       kMaxBytes, bitstream_);
   EXPECT_GE(encoded_bytes_int, 0);
   EXPECT_EQ(kOpus20msFrameSamples,
@@ -635,7 +638,7 @@ TEST_P(OpusTest, OpusDecodeRepacketized) {
 
   // Encode & decode.
   int16_t audio_type;
-  rtc::scoped_ptr<int16_t[]> output_data_decode(
+  std::unique_ptr<int16_t[]> output_data_decode(
       new int16_t[kPackets * kOpus20msFrameSamples * channels_]);
   OpusRepacketizer* rp = opus_repacketizer_create();
 
@@ -643,8 +646,7 @@ TEST_P(OpusTest, OpusDecodeRepacketized) {
     auto speech_block = speech_data_.GetNextBlock();
     encoded_bytes_ =
         WebRtcOpus_Encode(opus_encoder_, speech_block.data(),
-                          rtc::CheckedDivExact(speech_block.size(),
-                                               static_cast<size_t>(channels_)),
+                          rtc::CheckedDivExact(speech_block.size(), channels_),
                           kMaxBytes, bitstream_);
     EXPECT_EQ(OPUS_OK, opus_repacketizer_cat(rp, bitstream_, encoded_bytes_));
   }

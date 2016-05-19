@@ -6,8 +6,8 @@
 
 #include "base/callback_helpers.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -21,6 +21,7 @@
 #include "components/drive/resource_metadata.h"
 #include "components/drive/service/fake_drive_service.h"
 #include "components/drive/service/test_util.h"
+#include "components/prefs/testing_pref_service.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "google_apis/drive/drive_api_parser.h"
 #include "google_apis/drive/test_util.h"
@@ -121,7 +122,7 @@ class DirectoryLoaderTest : public testing::Test {
         google_apis::test_util::CreateCopyResultCallback(&error, &entry));
     base::RunLoop().RunUntilIdle();
     EXPECT_EQ(google_apis::HTTP_CREATED, error);
-    return entry.Pass();
+    return entry;
   }
 
   content::TestBrowserThreadBundle thread_bundle_;

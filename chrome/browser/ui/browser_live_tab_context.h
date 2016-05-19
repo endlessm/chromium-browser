@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "chrome/browser/ui/host_desktop.h"
+#include "base/macros.h"
 #include "components/sessions/core/live_tab_context.h"
 
 class Browser;
@@ -57,7 +57,6 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
   // see Browser::Create
   static sessions::LiveTabContext* Create(
       Profile* profile,
-      chrome::HostDesktopType host_desktop_type,
       const std::string& app_name);
 
   // see browser::FindBrowserForWebContents
@@ -66,10 +65,9 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
 
   // see chrome::FindBrowserWithID
   // Returns the LiveTabContext of the Browser with |desired_id| if
-  // such a Browser exists and is on the desktop defined by |host_desktop_type|.
+  // such a Browser exists.
   static sessions::LiveTabContext* FindContextWithID(
-      SessionID::id_type desired_id,
-      chrome::HostDesktopType host_desktop_type);
+      SessionID::id_type desired_id);
 
  private:
   Browser* browser_;

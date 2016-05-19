@@ -10,6 +10,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/site_instance.h"
@@ -65,6 +66,7 @@ struct NavigateParams {
   NavigateParams(Profile* profile,
                  const GURL& a_url,
                  ui::PageTransition a_transition);
+  NavigateParams(const NavigateParams& other);
   ~NavigateParams();
 
   // The URL/referrer to be loaded. Ignored if |target_contents| is non-NULL.
@@ -224,11 +226,6 @@ struct NavigateParams {
   // The profile that is initiating the navigation. If there is a non-NULL
   // browser passed in via |browser|, it's profile will be used instead.
   Profile* initiating_profile;
-
-  // Refers to a navigation that was parked in the browser in order to be
-  // transferred to another RVH. Only used in case of a redirection of a request
-  // to a different site that created a new RVH.
-  content::GlobalRequestID transferred_global_request_id;
 
   // Refers to which desktop this navigation should occur on. May be passed
   // explicitly or inferred from an existing Browser instance.

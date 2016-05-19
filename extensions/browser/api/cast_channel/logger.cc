@@ -4,7 +4,10 @@
 
 #include "extensions/browser/api/cast_channel/logger.h"
 
+#include <stdint.h>
+
 #include <string>
+#include <utility>
 
 #include "base/strings/string_util.h"
 #include "base/time/clock.h"
@@ -76,12 +79,9 @@ scoped_ptr<char[]> Compress(const std::string& input, size_t* length) {
   size_t out_size = deflateBound(&stream, input.size());
   scoped_ptr<char[]> out(new char[out_size]);
 
-  static_assert(sizeof(uint8) == sizeof(char),
-                "uint8 char should be of different sizes");
-
-  stream.next_in = reinterpret_cast<uint8*>(const_cast<char*>(input.data()));
+  stream.next_in = reinterpret_cast<uint8_t*>(const_cast<char*>(input.data()));
   stream.avail_in = input.size();
-  stream.next_out = reinterpret_cast<uint8*>(out.get());
+  stream.next_out = reinterpret_cast<uint8_t*>(out.get());
   stream.avail_out = out_size;
 
   // Do a one-shot compression. This will return Z_STREAM_END only if |output|
@@ -99,7 +99,7 @@ scoped_ptr<char[]> Compress(const std::string& input, size_t* length) {
   if (success)
     *length = out_size - stream.avail_out;
 
-  return out.Pass();
+  return out;
 }
 
 // Propagate any error fields set in |event| to |last_errors|.  If any error
@@ -126,7 +126,7 @@ Logger::AggregatedSocketEventLog::~AggregatedSocketEventLog() {
 }
 
 Logger::Logger(scoped_ptr<base::Clock> clock, base::Time unix_epoch_time)
-    : clock_(clock.Pass()), unix_epoch_time_(unix_epoch_time) {
+    : clock_(std::move(clock)), unix_epoch_time_(unix_epoch_time) {
   DCHECK(clock_);
 
   // Logger may not be necessarily be created on the IO thread, but logging
@@ -144,7 +144,7 @@ void Logger::LogNewSocketEvent(const CastSocket& cast_socket) {
   AggregatedSocketEvent& aggregated_socket_event =
       LogSocketEvent(cast_socket.id(), event);
 
-  const net::IPAddressNumber& ip = cast_socket.ip_endpoint().address();
+  const net::IPAddressNumber& ip = cast_socket.ip_endpoint().address().bytes();
   aggregated_socket_event.set_endpoint_id(ip.back());
   aggregated_socket_event.set_channel_auth_type(cast_socket.channel_auth() ==
                                                         CHANNEL_AUTH_TYPE_SSL

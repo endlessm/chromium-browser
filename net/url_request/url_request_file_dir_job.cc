@@ -12,9 +12,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "net/base/directory_listing.h"
 #include "net/base/io_buffer.h"
-#include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/url_request/url_request_status.h"
 #include "url/gurl.h"
 
@@ -27,19 +26,29 @@ namespace net {
 URLRequestFileDirJob::URLRequestFileDirJob(URLRequest* request,
                                            NetworkDelegate* network_delegate,
                                            const base::FilePath& dir_path)
+    : URLRequestFileDirJob(request,
+                           network_delegate,
+                           dir_path,
+                           base::WorkerPool::GetTaskRunner(true)) {}
+
+URLRequestFileDirJob::URLRequestFileDirJob(
+    URLRequest* request,
+    NetworkDelegate* network_delegate,
+    const base::FilePath& dir_path,
+    const scoped_refptr<base::TaskRunner>& dir_task_runner)
     : URLRequestJob(request, network_delegate),
       lister_(dir_path, this),
       dir_path_(dir_path),
+      dir_task_runner_(dir_task_runner),
       canceled_(false),
       list_complete_(false),
       wrote_header_(false),
       read_pending_(false),
       read_buffer_length_(0),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
 void URLRequestFileDirJob::StartAsync() {
-  lister_.Start();
+  lister_.Start(dir_task_runner_.get());
 
   NotifyHeadersComplete();
 }
@@ -66,24 +75,17 @@ void URLRequestFileDirJob::Kill() {
   weak_factory_.InvalidateWeakPtrs();
 }
 
-bool URLRequestFileDirJob::ReadRawData(IOBuffer* buf,
-                                       int buf_size,
-                                       int* bytes_read) {
-  DCHECK(bytes_read);
-  *bytes_read = 0;
+int URLRequestFileDirJob::ReadRawData(IOBuffer* buf, int buf_size) {
+  int result = ReadBuffer(buf->data(), buf_size);
+  if (result == ERR_IO_PENDING) {
+    // We are waiting for more data
+    read_pending_ = true;
+    read_buffer_ = buf;
+    read_buffer_length_ = buf_size;
+    return ERR_IO_PENDING;
+  }
 
-  if (is_done())
-    return true;
-
-  if (FillReadBuffer(buf->data(), buf_size, bytes_read))
-    return true;
-
-  // We are waiting for more data
-  read_pending_ = true;
-  read_buffer_ = buf;
-  read_buffer_length_ = buf_size;
-  SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
-  return false;
+  return result;
 }
 
 bool URLRequestFileDirJob::GetMimeType(std::string* mime_type) const {
@@ -132,59 +134,57 @@ void URLRequestFileDirJob::OnListFile(
       data.info.GetLastModifiedTime()));
 
   // TODO(darin): coalesce more?
-  CompleteRead();
+  CompleteRead(OK);
 }
 
 void URLRequestFileDirJob::OnListDone(int error) {
   DCHECK(!canceled_);
-  if (error != OK) {
-    read_pending_ = false;
-    NotifyDone(URLRequestStatus(URLRequestStatus::FAILED, error));
-  } else {
-    list_complete_ = true;
-    CompleteRead();
-  }
+  DCHECK_LE(error, OK);
+
+  list_complete_ = true;
+  list_complete_result_ = static_cast<Error>(error);
+  CompleteRead(list_complete_result_);
 }
 
 URLRequestFileDirJob::~URLRequestFileDirJob() {}
 
-void URLRequestFileDirJob::CompleteRead() {
-  if (read_pending_) {
-    int bytes_read;
-    if (FillReadBuffer(read_buffer_->data(), read_buffer_length_,
-                       &bytes_read)) {
+void URLRequestFileDirJob::CompleteRead(Error error) {
+  DCHECK_LE(error, OK);
+  DCHECK_NE(error, ERR_IO_PENDING);
+
+  // Do nothing if there is no read pending.
+  if (!read_pending_)
+    return;
+
+  int result = error;
+  if (error == OK) {
+    result = ReadBuffer(read_buffer_->data(), read_buffer_length_);
+    if (result >= 0) {
       // We completed the read, so reset the read buffer.
-      read_pending_ = false;
       read_buffer_ = NULL;
       read_buffer_length_ = 0;
-
-      SetStatus(URLRequestStatus());
-      NotifyReadComplete(bytes_read);
     } else {
       NOTREACHED();
       // TODO: Better error code.
-      NotifyDone(URLRequestStatus::FromError(ERR_FAILED));
+      result = ERR_FAILED;
     }
   }
+
+  read_pending_ = false;
+  ReadRawDataComplete(result);
 }
 
-bool URLRequestFileDirJob::FillReadBuffer(char* buf, int buf_size,
-                                          int* bytes_read) {
-  DCHECK(bytes_read);
-
-  *bytes_read = 0;
-
+int URLRequestFileDirJob::ReadBuffer(char* buf, int buf_size) {
   int count = std::min(buf_size, static_cast<int>(data_.size()));
   if (count) {
     memcpy(buf, &data_[0], count);
     data_.erase(0, count);
-    *bytes_read = count;
-    return true;
+    return count;
   } else if (list_complete_) {
     // EOF
-    return true;
+    return list_complete_result_;
   }
-  return false;
+  return ERR_IO_PENDING;
 }
 
 }  // namespace net

@@ -1,5 +1,5 @@
 /*
- * Copyright 2009 Google Inc.
+ * Copyright 2009-2015 Google Inc.
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -9,7 +9,7 @@
 
 #include "SkBuffer.h"
 #include "SkDataTable.h"
-#include "SkFontConfigInterface.h"
+#include "SkFontConfigInterface_direct.h"
 #include "SkFontStyle.h"
 #include "SkMutex.h"
 #include "SkStream.h"
@@ -106,37 +106,6 @@ static void fontconfiginterface_unittest() {
     test_writeToMemory(iden0, 0);
 }
 #endif
-
-class SkFontConfigInterfaceDirect : public SkFontConfigInterface {
-public:
-            SkFontConfigInterfaceDirect();
-    virtual ~SkFontConfigInterfaceDirect();
-
-    virtual bool matchFamilyName(const char familyName[],
-                                 SkTypeface::Style requested,
-                                 FontIdentity* outFontIdentifier,
-                                 SkString* outFamilyName,
-                                 SkTypeface::Style* outStyle) override;
-    SkStreamAsset* openStream(const FontIdentity&) override;
-
-    // new APIs
-    SkDataTable* getFamilyNames() override;
-    virtual bool matchFamilySet(const char inFamilyName[],
-                                SkString* outFamilyName,
-                                SkTArray<FontIdentity>*) override;
-
-private:
-    SkMutex mutex_;
-};
-
-SkFontConfigInterface* SkFontConfigInterface::GetSingletonDirectInterface(SkBaseMutex* mutex) {
-    SkAutoMutexAcquire ac(mutex);
-    static SkFontConfigInterfaceDirect* singleton = nullptr;
-    if (singleton == nullptr) {
-        singleton = new SkFontConfigInterfaceDirect;
-    }
-    return singleton;
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -334,66 +303,6 @@ bool IsFallbackFontAllowed(const SkString& family) {
          strcasecmp(family_cstr, "monospace") == 0;
 }
 
-static bool valid_pattern(FcPattern* pattern) {
-#ifdef SK_FONT_CONFIG_ONLY_ALLOW_SCALABLE_FONTS
-    FcBool is_scalable;
-    if (FcPatternGetBool(pattern, FC_SCALABLE, 0, &is_scalable) != FcResultMatch
-        || !is_scalable) {
-        return false;
-    }
-#endif
-
-    // fontconfig can also return fonts which are unreadable
-    const char* c_filename = get_name(pattern, FC_FILE);
-    if (!c_filename) {
-        return false;
-    }
-    if (access(c_filename, R_OK) != 0) {
-        return false;
-    }
-    return true;
-}
-
-// Find matching font from |font_set| for the given font family.
-FcPattern* MatchFont(FcFontSet* font_set,
-                     const char* post_config_family,
-                     const SkString& family) {
-  // Older versions of fontconfig have a bug where they cannot select
-  // only scalable fonts so we have to manually filter the results.
-  FcPattern* match = nullptr;
-  for (int i = 0; i < font_set->nfont; ++i) {
-    FcPattern* current = font_set->fonts[i];
-    if (valid_pattern(current)) {
-      match = current;
-      break;
-    }
-  }
-
-  if (match && !IsFallbackFontAllowed(family)) {
-    bool acceptable_substitute = false;
-    for (int id = 0; id < 255; ++id) {
-      const char* post_match_family = get_name(match, FC_FAMILY, id);
-      if (!post_match_family)
-        break;
-      acceptable_substitute =
-          (strcasecmp(post_config_family, post_match_family) == 0 ||
-           // Workaround for Issue 12530:
-           //   requested family: "Bitstream Vera Sans"
-           //   post_config_family: "Arial"
-           //   post_match_family: "Bitstream Vera Sans"
-           // -> We should treat this case as a good match.
-           strcasecmp(family.c_str(), post_match_family) == 0) ||
-           IsMetricCompatibleReplacement(family.c_str(), post_match_family);
-      if (acceptable_substitute)
-        break;
-    }
-    if (!acceptable_substitute)
-      return nullptr;
-  }
-
-  return match;
-}
-
 // Retrieves |is_bold|, |is_italic| and |font_family| properties from |font|.
 SkTypeface::Style GetFontStyle(FcPattern* font) {
     int resulting_bold;
@@ -442,6 +351,70 @@ SkFontConfigInterfaceDirect::SkFontConfigInterfaceDirect() {
 }
 
 SkFontConfigInterfaceDirect::~SkFontConfigInterfaceDirect() {
+}
+
+bool SkFontConfigInterfaceDirect::isAccessible(const char* filename) {
+    if (access(filename, R_OK) != 0) {
+        return false;
+    }
+    return true;
+}
+
+bool SkFontConfigInterfaceDirect::isValidPattern(FcPattern* pattern) {
+#ifdef SK_FONT_CONFIG_ONLY_ALLOW_SCALABLE_FONTS
+    FcBool is_scalable;
+    if (FcPatternGetBool(pattern, FC_SCALABLE, 0, &is_scalable) != FcResultMatch
+        || !is_scalable) {
+        return false;
+    }
+#endif
+
+    // fontconfig can also return fonts which are unreadable
+    const char* c_filename = get_name(pattern, FC_FILE);
+    if (!c_filename) {
+        return false;
+    }
+    return this->isAccessible(c_filename);
+}
+
+// Find matching font from |font_set| for the given font family.
+FcPattern* SkFontConfigInterfaceDirect::MatchFont(FcFontSet* font_set,
+                                                  const char* post_config_family,
+                                                  const SkString& family) {
+  // Older versions of fontconfig have a bug where they cannot select
+  // only scalable fonts so we have to manually filter the results.
+  FcPattern* match = nullptr;
+  for (int i = 0; i < font_set->nfont; ++i) {
+    FcPattern* current = font_set->fonts[i];
+    if (this->isValidPattern(current)) {
+      match = current;
+      break;
+    }
+  }
+
+  if (match && !IsFallbackFontAllowed(family)) {
+    bool acceptable_substitute = false;
+    for (int id = 0; id < 255; ++id) {
+      const char* post_match_family = get_name(match, FC_FAMILY, id);
+      if (!post_match_family)
+        break;
+      acceptable_substitute =
+          (strcasecmp(post_config_family, post_match_family) == 0 ||
+           // Workaround for Issue 12530:
+           //   requested family: "Bitstream Vera Sans"
+           //   post_config_family: "Arial"
+           //   post_match_family: "Bitstream Vera Sans"
+           // -> We should treat this case as a good match.
+           strcasecmp(family.c_str(), post_match_family) == 0) ||
+           IsMetricCompatibleReplacement(family.c_str(), post_match_family);
+      if (acceptable_substitute)
+        break;
+    }
+    if (!acceptable_substitute)
+      return nullptr;
+  }
+
+  return match;
 }
 
 bool SkFontConfigInterfaceDirect::matchFamilyName(const char familyName[],
@@ -514,7 +487,7 @@ bool SkFontConfigInterfaceDirect::matchFamilyName(const char familyName[],
         return false;
     }
 
-    FcPattern* match = MatchFont(font_set, post_config_family, familyStr);
+    FcPattern* match = this->MatchFont(font_set, post_config_family, familyStr);
     if (!match) {
         FcPatternDestroy(pattern);
         FcFontSetDestroy(font_set);
@@ -608,132 +581,4 @@ SkDataTable* SkFontConfigInterfaceDirect::getFamilyNames() {
 
     return SkDataTable::NewCopyArrays((const void*const*)names.begin(),
                                       sizes.begin(), names.count());
-}
-
-bool SkFontConfigInterfaceDirect::matchFamilySet(const char inFamilyName[],
-                                                 SkString* outFamilyName,
-                                                 SkTArray<FontIdentity>* ids) {
-    SkAutoMutexAcquire ac(mutex_);
-
-#if 0
-    SkString familyStr(familyName ? familyName : "");
-    if (familyStr.size() > kMaxFontFamilyLength) {
-        return false;
-    }
-
-    SkAutoMutexAcquire ac(mutex_);
-
-    FcPattern* pattern = FcPatternCreate();
-
-    if (familyName) {
-        FcPatternAddString(pattern, FC_FAMILY, (FcChar8*)familyName);
-    }
-    FcPatternAddBool(pattern, FC_SCALABLE, FcTrue);
-
-    FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
-    FcDefaultSubstitute(pattern);
-
-    // Font matching:
-    // CSS often specifies a fallback list of families:
-    //    font-family: a, b, c, serif;
-    // However, fontconfig will always do its best to find *a* font when asked
-    // for something so we need a way to tell if the match which it has found is
-    // "good enough" for us. Otherwise, we can return nullptr which gets piped up
-    // and lets WebKit know to try the next CSS family name. However, fontconfig
-    // configs allow substitutions (mapping "Arial -> Helvetica" etc) and we
-    // wish to support that.
-    //
-    // Thus, if a specific family is requested we set @family_requested. Then we
-    // record two strings: the family name after config processing and the
-    // family name after resolving. If the two are equal, it's a good match.
-    //
-    // So consider the case where a user has mapped Arial to Helvetica in their
-    // config.
-    //    requested family: "Arial"
-    //    post_config_family: "Helvetica"
-    //    post_match_family: "Helvetica"
-    //      -> good match
-    //
-    // and for a missing font:
-    //    requested family: "Monaco"
-    //    post_config_family: "Monaco"
-    //    post_match_family: "Times New Roman"
-    //      -> BAD match
-    //
-    // However, we special-case fallback fonts; see IsFallbackFontAllowed().
-
-    const char* post_config_family = get_name(pattern, FC_FAMILY);
-
-    FcResult result;
-    FcFontSet* font_set = FcFontSort(0, pattern, 0, 0, &result);
-    if (!font_set) {
-        FcPatternDestroy(pattern);
-        return false;
-    }
-
-    FcPattern* match = MatchFont(font_set, post_config_family, familyStr);
-    if (!match) {
-        FcPatternDestroy(pattern);
-        FcFontSetDestroy(font_set);
-        return false;
-    }
-
-    FcPatternDestroy(pattern);
-
-    // From here out we just extract our results from 'match'
-
-    if (FcPatternGetString(match, FC_FAMILY, 0, &post_config_family) != FcResultMatch) {
-        FcFontSetDestroy(font_set);
-        return false;
-    }
-
-    FcChar8* c_filename;
-    if (FcPatternGetString(match, FC_FILE, 0, &c_filename) != FcResultMatch) {
-        FcFontSetDestroy(font_set);
-        return false;
-    }
-
-    int face_index;
-    if (FcPatternGetInteger(match, FC_INDEX, 0, &face_index) != FcResultMatch) {
-        FcFontSetDestroy(font_set);
-        return false;
-    }
-
-    FcFontSetDestroy(font_set);
-
-    if (outIdentity) {
-        outIdentity->fTTCIndex = face_index;
-        outIdentity->fString.set((const char*)c_filename);
-    }
-    if (outFamilyName) {
-        outFamilyName->set((const char*)post_config_family);
-    }
-    if (outStyle) {
-        *outStyle = GetFontStyle(match);
-    }
-    return true;
-
-////////////////////
-
-        int count;
-        FcPattern** match = MatchFont(font_set, post_config_family, &count);
-        if (!match) {
-            FcPatternDestroy(pattern);
-            FcFontSetDestroy(font_set);
-            return nullptr;
-        }
-
-        FcPatternDestroy(pattern);
-
-        SkTDArray<FcPattern*> trimmedMatches;
-        for (int i = 0; i < count; ++i) {
-            const char* justName = find_just_name(get_name(match[i], FC_FILE));
-            if (!is_lower(*justName)) {
-                *trimmedMatches.append() = match[i];
-            }
-        }
-
-        SkFontStyleSet_FC* sset = new SkFontStyleSet_FC                                               (trimmedMatches.begin(),                                               trimmedMatches.count());
-#endif
-    return false;
 }

@@ -9,9 +9,9 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/memory/linked_ptr.h"
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/network/managed_network_configuration_handler.h"
@@ -118,8 +118,8 @@ class CHROMEOS_EXPORT ManagedNetworkConfigurationHandlerImpl
   typedef base::Callback<void(const std::string& service_path,
                               scoped_ptr<base::DictionaryValue> properties)>
       GetDevicePropertiesCallback;
-  typedef std::map<std::string, linked_ptr<Policies> > UserToPoliciesMap;
-  typedef std::map<std::string, linked_ptr<PolicyApplicator>>
+  typedef std::map<std::string, scoped_ptr<Policies>> UserToPoliciesMap;
+  typedef std::map<std::string, scoped_ptr<PolicyApplicator>>
       UserToPolicyApplicatorMap;
   typedef std::map<std::string, std::set<std::string>>
       UserToModifiedPoliciesMap;
@@ -215,7 +215,7 @@ class CHROMEOS_EXPORT ManagedNetworkConfigurationHandlerImpl
   // associated set of GUIDs is empty.
   UserToModifiedPoliciesMap queued_modified_policies_;
 
-  base::ObserverList<NetworkPolicyObserver> observers_;
+  base::ObserverList<NetworkPolicyObserver, true> observers_;
 
   // For Shill client callbacks
   base::WeakPtrFactory<ManagedNetworkConfigurationHandlerImpl>

@@ -5,10 +5,10 @@
 #ifndef NET_TOOLS_QUIC_TEST_TOOLS_QUIC_IN_MEMORY_CACHE_PEER_H_
 #define NET_TOOLS_QUIC_TEST_TOOLS_QUIC_IN_MEMORY_CACHE_PEER_H_
 
+#include "base/macros.h"
 #include "net/tools/quic/quic_in_memory_cache.h"
 
 namespace net {
-namespace tools {
 namespace test {
 
 class QuicInMemoryCachePeer {
@@ -21,7 +21,6 @@ class QuicInMemoryCachePeer {
 };
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_TEST_TOOLS_QUIC_IN_MEMORY_CACHE_PEER_H_

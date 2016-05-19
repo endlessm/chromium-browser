@@ -5,12 +5,14 @@
 #include "base/profiler/stack_sampling_profiler.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/profiler/native_stack_sampler.h"
 #include "base/synchronization/lock.h"
 #include "base/thread_task_runner_handle.h"
@@ -105,6 +107,9 @@ StackSamplingProfiler::Frame::Frame() {}
 
 StackSamplingProfiler::CallStackProfile::CallStackProfile() {}
 
+StackSamplingProfiler::CallStackProfile::CallStackProfile(
+    const CallStackProfile& other) = default;
+
 StackSamplingProfiler::CallStackProfile::~CallStackProfile() {}
 
 // StackSamplingProfiler::SamplingThread --------------------------------------
@@ -113,11 +118,10 @@ StackSamplingProfiler::SamplingThread::SamplingThread(
     scoped_ptr<NativeStackSampler> native_sampler,
     const SamplingParams& params,
     const CompletedCallback& completed_callback)
-    : native_sampler_(native_sampler.Pass()),
+    : native_sampler_(std::move(native_sampler)),
       params_(params),
       stop_event_(false, false),
-      completed_callback_(completed_callback) {
-}
+      completed_callback_(completed_callback) {}
 
 StackSamplingProfiler::SamplingThread::~SamplingThread() {}
 
@@ -256,8 +260,8 @@ void StackSamplingProfiler::Start() {
   if (!native_sampler)
     return;
 
-  sampling_thread_.reset(
-      new SamplingThread(native_sampler.Pass(), params_, completed_callback_));
+  sampling_thread_.reset(new SamplingThread(std::move(native_sampler), params_,
+                                            completed_callback_));
   if (!PlatformThread::Create(0, sampling_thread_.get(),
                               &sampling_thread_handle_))
     sampling_thread_.reset();

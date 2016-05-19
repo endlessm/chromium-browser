@@ -24,7 +24,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGText.h"
 
 #include "core/editing/PositionWithAffinity.h"
@@ -67,7 +66,7 @@ const LayoutSVGText* findTextRoot(const LayoutObject* start)
     return nullptr;
 }
 
-}
+} // namespace
 
 LayoutSVGText::LayoutSVGText(SVGTextElement* node)
     : LayoutSVGBlock(node)
@@ -264,22 +263,6 @@ void LayoutSVGText::subtreeChildWasRemoved(const Vector<SVGTextLayoutAttributes*
         m_layoutAttributesBuilder.buildLayoutAttributesForText(affectedAttributes[i]->context());
 }
 
-void LayoutSVGText::subtreeStyleDidChange()
-{
-    if (!shouldHandleSubtreeMutations() || documentBeingDestroyed())
-        return;
-
-    checkLayoutAttributesConsistency(this, m_layoutAttributes);
-
-    // Only update the metrics cache, but not the text positioning element cache
-    // nor the layout attributes cached in the leaf #text layoutObjects.
-    FontCachePurgePreventer fontCachePurgePreventer;
-    for (LayoutObject* descendant = firstChild(); descendant; descendant = descendant->nextInPreOrder(this)) {
-        if (descendant->isSVGInlineText())
-            m_layoutAttributesBuilder.rebuildMetricsForTextLayoutObject(toLayoutSVGInlineText(descendant));
-    }
-}
-
 void LayoutSVGText::subtreeTextDidChange(LayoutSVGInlineText* text)
 {
     ASSERT(text);
@@ -319,8 +302,6 @@ void LayoutSVGText::layout()
 {
     ASSERT(needsLayout());
     LayoutAnalyzer::Scope analyzer(*this);
-
-    subtreeStyleDidChange();
 
     bool updateCachedBoundariesInParents = false;
     if (m_needsTransformUpdate) {
@@ -389,8 +370,8 @@ void LayoutSVGText::layout()
     setLogicalHeight(beforeEdge);
 
     LayoutState state(*this, locationOffset());
-    LayoutUnit paintInvalidationLogicalTop = 0;
-    LayoutUnit paintInvalidationLogicalBottom = 0;
+    LayoutUnit paintInvalidationLogicalTop;
+    LayoutUnit paintInvalidationLogicalBottom;
     layoutInlineChildren(true, paintInvalidationLogicalTop, paintInvalidationLogicalBottom, afterEdge);
 
     if (m_needsReordering)
@@ -453,14 +434,17 @@ PositionWithAffinity LayoutSVGText::positionForPoint(const LayoutPoint& pointInC
     if (!rootBox)
         return createPositionWithAffinity(0);
 
+    LayoutPoint clippedPointInContents(pointInContents);
+    clippedPointInContents.clampNegativeToZero();
+
     ASSERT(!rootBox->nextRootBox());
     ASSERT(childrenInline());
 
-    InlineBox* closestBox = toSVGRootInlineBox(rootBox)->closestLeafChildForPosition(pointInContents);
+    InlineBox* closestBox = toSVGRootInlineBox(rootBox)->closestLeafChildForPosition(clippedPointInContents);
     if (!closestBox)
         return createPositionWithAffinity(0);
 
-    return closestBox->lineLayoutItem().positionForPoint(LayoutPoint(pointInContents.x(), closestBox->y()));
+    return closestBox->getLineLayoutItem().positionForPoint(LayoutPoint(clippedPointInContents.x(), closestBox->y()));
 }
 
 void LayoutSVGText::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) const
@@ -496,6 +480,12 @@ FloatRect LayoutSVGText::paintInvalidationRectInLocalCoordinates() const
         textShadow->adjustRectForShadow(paintInvalidationRect);
 
     return paintInvalidationRect;
+}
+
+bool LayoutSVGText::isObjectBoundingBoxValid() const
+{
+    // If we don't have any line boxes, then consider the bbox invalid.
+    return firstLineBox();
 }
 
 void LayoutSVGText::addChild(LayoutObject* child, LayoutObject* beforeChild)
@@ -537,4 +527,4 @@ void LayoutSVGText::invalidateTreeIfNeeded(PaintInvalidationState& paintInvalida
     invalidatePaintOfSubtreesIfNeeded(childTreeWalkState);
 }
 
-}
+} // namespace blink

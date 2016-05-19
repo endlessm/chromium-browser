@@ -25,7 +25,6 @@
  *
  */
 
-#include "config.h"
 #include "core/dom/ContextLifecycleNotifier.h"
 
 #include "core/dom/ActiveDOMObject.h"
@@ -103,18 +102,6 @@ unsigned ContextLifecycleNotifier::activeDOMObjectCount() const
         activeDOMObjects++;
     }
     return activeDOMObjects;
-}
-
-bool ContextLifecycleNotifier::hasPendingActivity() const
-{
-    for (ContextLifecycleObserver* observer : m_observers) {
-        if (observer->observerType() != ContextLifecycleObserver::ActiveDOMObjectType)
-            continue;
-        ActiveDOMObject* activeDOMObject = static_cast<ActiveDOMObject*>(observer);
-        if (activeDOMObject->hasPendingActivity())
-            return true;
-    }
-    return false;
 }
 
 #if ENABLE(ASSERT)

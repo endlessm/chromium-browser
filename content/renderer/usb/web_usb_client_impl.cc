@@ -4,6 +4,9 @@
 
 #include "content/renderer/usb/web_usb_client_impl.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/memory/scoped_ptr.h"
@@ -46,8 +49,8 @@ ScopedWebCallbacks<CallbacksType> MakeScopedUSBCallbacks(
   return make_scoped_web_callbacks(
       callbacks,
       base::Bind(&RejectCallbacksWithError<CallbacksType>,
-                 blink::WebUSBError(blink::WebUSBError::Error::Service,
-                                    base::UTF8ToUTF16(kNoServiceError))));
+                 blink::WebUSBError(blink::WebUSBError::Error::NotFound,
+                                    base::ASCIIToUTF16(kNoServiceError))));
 }
 
 void OnGetDevicesComplete(
@@ -60,7 +63,8 @@ void OnGetDevicesComplete(
     device::usb::DevicePtr device;
     device_manager->GetDevice(results[i]->guid, mojo::GetProxy(&device));
     (*devices)[i] = new WebUSBDeviceImpl(
-        device.Pass(), mojo::ConvertTo<blink::WebUSBDeviceInfo>(results[i]));
+        std::move(device),
+        mojo::ConvertTo<blink::WebUSBDeviceInfo>(results[i]));
   }
   scoped_callbacks.PassCallbacks()->onSuccess(blink::adoptWebPtr(devices));
 }
@@ -74,12 +78,13 @@ void OnRequestDevicesComplete(
     device::usb::DevicePtr device;
     device_manager->GetDevice(result->guid, mojo::GetProxy(&device));
     blink::WebUSBDevice* web_usb_device = new WebUSBDeviceImpl(
-        device.Pass(), mojo::ConvertTo<blink::WebUSBDeviceInfo>(result));
+        std::move(device), mojo::ConvertTo<blink::WebUSBDeviceInfo>(result));
 
     scoped_callbacks->onSuccess(blink::adoptWebPtr(web_usb_device));
   } else {
-    scoped_callbacks->onSuccess(
-        blink::adoptWebPtr<blink::WebUSBDevice>(nullptr));
+    scoped_callbacks->onError(
+        blink::WebUSBError(blink::WebUSBError::Error::NotFound,
+                           base::ASCIIToUTF16("No device selected.")));
   }
 }
 
@@ -113,7 +118,7 @@ void WebUSBClientImpl::requestDevice(
       mojo::Array<device::usb::DeviceFilterPtr>::From(options.filters);
 
   webusb_permission_bubble_->GetPermission(
-      device_filters.Pass(),
+      std::move(device_filters),
       base::Bind(&OnRequestDevicesComplete, base::Passed(&scoped_callbacks),
                  base::Unretained(device_manager_.get())));
 }
@@ -150,7 +155,8 @@ void WebUSBClientImpl::OnDeviceChangeNotification(
     device::usb::DevicePtr device;
     device_manager_->GetDevice(device_info->guid, mojo::GetProxy(&device));
     observer_->onDeviceConnected(blink::adoptWebPtr(new WebUSBDeviceImpl(
-        device.Pass(), mojo::ConvertTo<blink::WebUSBDeviceInfo>(device_info))));
+        std::move(device),
+        mojo::ConvertTo<blink::WebUSBDeviceInfo>(device_info))));
   }
   for (size_t i = 0; i < notification->devices_removed.size(); ++i) {
     const device::usb::DeviceInfoPtr& device_info =
@@ -158,7 +164,8 @@ void WebUSBClientImpl::OnDeviceChangeNotification(
     device::usb::DevicePtr device;
     device_manager_->GetDevice(device_info->guid, mojo::GetProxy(&device));
     observer_->onDeviceDisconnected(blink::adoptWebPtr(new WebUSBDeviceImpl(
-        device.Pass(), mojo::ConvertTo<blink::WebUSBDeviceInfo>(device_info))));
+        std::move(device),
+        mojo::ConvertTo<blink::WebUSBDeviceInfo>(device_info))));
   }
 }
 

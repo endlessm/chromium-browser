@@ -5,26 +5,31 @@
 #ifndef CHROME_BROWSER_IO_THREAD_H_
 #define CHROME_BROWSER_IO_THREAD_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_member.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
+#include "chrome/common/features.h"
+#include "components/prefs/pref_member.h"
 #include "components/ssl_config/ssl_config_service_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_thread_delegate.h"
 #include "net/base/network_change_notifier.h"
 #include "net/http/http_network_session.h"
-#include "net/socket/next_proto.h"
 
 class PrefProxyConfigTracker;
 class PrefService;
@@ -35,13 +40,13 @@ namespace base {
 class CommandLine;
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 namespace chrome {
 namespace android {
 class ExternalDataUseObserver;
 }
 }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 namespace chrome_browser_net {
 class DnsProbeService;
@@ -56,15 +61,16 @@ class EventRouterForwarder;
 }
 
 namespace net {
-class CertPolicyEnforcer;
+class CTPolicyEnforcer;
 class CertVerifier;
 class ChannelIDService;
 class CookieStore;
-class CTVerifier;
+class CTLogVerifier;
 class FtpTransactionFactory;
 class HostMappingRules;
 class HostResolver;
-class HttpAuthHandlerFactory;
+class HttpAuthHandlerRegistryFactory;
+class HttpAuthPreferences;
 class HttpNetworkSession;
 class HttpServerProperties;
 class HttpTransactionFactory;
@@ -79,7 +85,6 @@ class URLRequestBackoffManager;
 class URLRequestContext;
 class URLRequestContextGetter;
 class URLRequestJobFactory;
-class URLSecurityManager;
 }  // namespace net
 
 namespace net_log {
@@ -138,11 +143,11 @@ class IOThread : public content::BrowserThreadDelegate {
     // Global aggregator of data use. It must outlive the
     // |system_network_delegate|.
     scoped_ptr<data_usage::DataUseAggregator> data_use_aggregator;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
     // An external observer of data use.
     scoped_ptr<chrome::android::ExternalDataUseObserver>
         external_data_use_observer;
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
     // The "system" NetworkDelegate, used for Profile-agnostic network events.
     scoped_ptr<net::NetworkDelegate> system_network_delegate;
     scoped_ptr<net::HostResolver> host_resolver;
@@ -153,8 +158,9 @@ class IOThread : public content::BrowserThreadDelegate {
     // used to enforce pinning for system requests and will only use built-in
     // pins.
     scoped_ptr<net::TransportSecurityState> transport_security_state;
+    std::vector<scoped_refptr<const net::CTLogVerifier>> ct_logs;
     scoped_ptr<net::CTVerifier> cert_transparency_verifier;
-    scoped_ptr<net::CertPolicyEnforcer> cert_policy_enforcer;
+    scoped_ptr<net::CTPolicyEnforcer> ct_policy_enforcer;
     scoped_refptr<net::SSLConfigService> ssl_config_service;
     scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory;
     scoped_ptr<net::HttpServerProperties> http_server_properties;
@@ -168,7 +174,7 @@ class IOThread : public content::BrowserThreadDelegate {
     scoped_ptr<net::URLRequestJobFactory>
         proxy_script_fetcher_url_request_job_factory;
     scoped_ptr<net::URLRequestBackoffManager> url_request_backoff_manager;
-    scoped_ptr<net::URLSecurityManager> url_security_manager;
+    scoped_ptr<net::HttpAuthPreferences> http_auth_preferences;
     // TODO(willchan): Remove proxy script fetcher context since it's not
     // necessary now that I got rid of refcounting URLRequestContexts.
     //
@@ -193,23 +199,24 @@ class IOThread : public content::BrowserThreadDelegate {
     scoped_ptr<net::HttpUserAgentSettings> http_user_agent_settings;
     scoped_ptr<net::NetworkQualityEstimator> network_quality_estimator;
     bool ignore_certificate_errors;
-    uint16 testing_fixed_http_port;
-    uint16 testing_fixed_https_port;
+    uint16_t testing_fixed_http_port;
+    uint16_t testing_fixed_https_port;
     Optional<bool> enable_tcp_fast_open_for_ssl;
 
-    Optional<size_t> initial_max_spdy_concurrent_streams;
-    Optional<bool> enable_spdy_compression;
-    Optional<bool> enable_spdy_ping_based_connection_checking;
     Optional<net::NextProto> spdy_default_protocol;
-    net::NextProtoVector next_protos;
-    Optional<std::string> trusted_spdy_proxy;
+    Optional<bool> enable_spdy31;
+    Optional<bool> enable_http2;
     std::set<net::HostPortPair> forced_spdy_exclusions;
-    Optional<bool> use_alternative_services;
+    Optional<bool> parse_alternative_services;
+    Optional<bool> enable_alternative_service_with_different_host;
     Optional<double> alternative_service_probability_threshold;
 
     Optional<bool> enable_npn;
 
+    Optional<bool> enable_brotli;
+
     Optional<bool> enable_quic;
+    Optional<bool> disable_quic_on_timeout_with_open_streams;
     Optional<bool> enable_quic_for_proxies;
     Optional<bool> enable_quic_port_selection;
     Optional<bool> quic_always_require_handshake_confirmation;
@@ -229,11 +236,17 @@ class IOThread : public content::BrowserThreadDelegate {
     Optional<net::QuicVersionVector> quic_supported_versions;
     Optional<net::HostPortPair> origin_to_force_quic_on;
     Optional<bool> quic_close_sessions_on_ip_change;
+    Optional<int> quic_idle_connection_timeout_seconds;
+    Optional<bool> quic_disable_preconnect_if_0rtt;
+    std::unordered_set<std::string> quic_host_whitelist;
+    Optional<bool> quic_migrate_sessions_on_network_change;
+    Optional<bool> quic_migrate_sessions_early;
     bool enable_user_alternate_protocol_ports;
     // NetErrorTabHelper uses |dns_probe_service| to send DNS probes when a
     // main frame load fails with a DNS error in order to provide more useful
     // information to the renderer so it can show a more specific error page.
     scoped_ptr<chrome_browser_net::DnsProbeService> dns_probe_service;
+    bool enable_token_binding;
   };
 
   // |net_log| must either outlive the IOThread or be NULL.
@@ -309,6 +322,12 @@ class IOThread : public content::BrowserThreadDelegate {
                                    const VariationParameters& quic_trial_params,
                                    Globals* globals);
 
+  // Configures Alternative Services in |globals| based on the field trial
+  // group.
+  static void ConfigureAltSvcGlobals(const base::CommandLine& command_line,
+                                     base::StringPiece altsvc_trial_group,
+                                     IOThread::Globals* globals);
+
   // Configures NPN in |globals| based on the field trial group.
   static void ConfigureNPNGlobals(base::StringPiece npn_trial_group,
                                   Globals* globals);
@@ -323,8 +342,7 @@ class IOThread : public content::BrowserThreadDelegate {
   // SystemRequestContext state has been initialized on the UI thread.
   void InitSystemRequestContextOnIOThread();
 
-  net::HttpAuthHandlerFactory* CreateDefaultAuthHandlerFactory(
-      net::HostResolver* resolver);
+  void CreateDefaultAuthHandlerFactory();
 
   // Returns an SSLConfigService instance.
   net::SSLConfigService* GetSSLConfigService();
@@ -332,6 +350,11 @@ class IOThread : public content::BrowserThreadDelegate {
   void ChangedToOnTheRecordOnIOThread();
 
   void UpdateDnsClientEnabled();
+  void UpdateServerWhitelist();
+  void UpdateDelegateWhitelist();
+  void UpdateAndroidAuthNegotiateAccountType();
+  void UpdateNegotiateDisableCnameLookup();
+  void UpdateNegotiateEnablePort();
 
   // Configures QUIC options based on the flags in |command_line| as
   // well as the QUIC field trial group.
@@ -353,6 +376,11 @@ class IOThread : public content::BrowserThreadDelegate {
       const VariationParameters& quic_trial_params,
       bool quic_allowed_by_policy,
       Globals* globals);
+
+  // Returns true if QUIC should be disabled when a connection times out with
+  // open streams.
+  static bool ShouldDisableQuicWhenConnectionTimesOutWithOpenStreams(
+      const VariationParameters& quic_trial_params);
 
   // Returns true if QUIC should be enabled, either as a result
   // of a field trial or a command line flag.
@@ -406,8 +434,8 @@ class IOThread : public content::BrowserThreadDelegate {
   // Returns true if QUIC should prefer AES-GCN even without hardware support.
   static bool ShouldQuicPreferAes(const VariationParameters& quic_trial_params);
 
-  // Returns true if QUIC should enable alternative services.
-  static bool ShouldQuicEnableAlternativeServices(
+  // Returns true if QUIC should enable alternative services for different host.
+  static bool ShouldQuicEnableAlternativeServicesForDifferentHost(
       const base::CommandLine& command_line,
       const VariationParameters& quic_trial_params);
 
@@ -435,6 +463,30 @@ class IOThread : public content::BrowserThreadDelegate {
   // Returns true if QUIC should close sessions when any of the client's
   // IP addresses change.
   static bool ShouldQuicCloseSessionsOnIpChange(
+      const VariationParameters& quic_trial_params);
+
+  // Returns the idle connection timeout for QUIC connections.  Returns 0 if
+  // there is an error parsing any of the options, or if the default value
+  // should be used.
+  static int GetQuicIdleConnectionTimeoutSeconds(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if PreConnect should be disabled if QUIC can do 0RTT.
+  static bool ShouldQuicDisablePreConnectIfZeroRtt(
+      const VariationParameters& quic_trial_params);
+
+  // Returns the set of hosts to whitelist for QUIC.
+  static std::unordered_set<std::string> GetQuicHostWhitelist(
+      const base::CommandLine& command_line,
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC should migrate sessions when primary network
+  // changes.
+  static bool ShouldQuicMigrateSessionsOnNetworkChange(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC should migrate sessions early.
+  static bool ShouldQuicMigrateSessionsEarly(
       const VariationParameters& quic_trial_params);
 
   // Returns the maximum length for QUIC packets, based on any flags in
@@ -508,13 +560,23 @@ class IOThread : public content::BrowserThreadDelegate {
   BooleanPrefMember quick_check_enabled_;
 
   // Store HTTP Auth-related policies in this thread.
+  // TODO(aberent) Make the list of auth schemes a PrefMember, so that the
+  // policy can change after startup (https://crbug/549273).
   std::string auth_schemes_;
-  bool negotiate_disable_cname_lookup_;
-  bool negotiate_enable_port_;
-  std::string auth_server_whitelist_;
-  std::string auth_delegate_whitelist_;
+  BooleanPrefMember negotiate_disable_cname_lookup_;
+  BooleanPrefMember negotiate_enable_port_;
+  StringPrefMember auth_server_whitelist_;
+  StringPrefMember auth_delegate_whitelist_;
+
+#if defined(OS_ANDROID)
+  StringPrefMember auth_android_negotiate_account_type_;
+#endif
+#if defined(OS_POSIX) && !defined(OS_ANDROID)
+  // No PrefMember for the GSSAPI library name, since changing it after startup
+  // requires unloading the existing GSSAPI library, which could cause all sorts
+  // of problems for, for example, active Negotiate transactions.
   std::string gssapi_library_name_;
-  std::string auth_android_negotiate_account_type_;
+#endif
 
   // This is an instance of the default SSLConfigServiceManager for the current
   // platform and it gets SSL preferences from local_state object.

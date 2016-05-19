@@ -4,9 +4,13 @@
 
 #include "components/signin/core/browser/signin_header_helper.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/signin/core/common/profile_management_switches.h"
@@ -138,6 +142,9 @@ ManageAccountsParams::ManageAccountsParams()
   route_id = 0;
 #endif  // !defined(OS_IOS)
 }
+
+ManageAccountsParams::ManageAccountsParams(const ManageAccountsParams& other) =
+    default;
 
 bool SettingsAllowSigninCookies(
     const content_settings::CookieSettings* cookie_settings) {

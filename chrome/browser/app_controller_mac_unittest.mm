@@ -15,7 +15,6 @@
 #include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/profile_sync_service_mock.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
@@ -24,6 +23,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/browser/profile_sync_service_mock.h"
 #include "components/signin/core/browser/fake_auth_status_provider.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/core/browser/signin_manager.h"
@@ -125,7 +125,7 @@ TEST_F(AppControllerTest, TestSigninMenuItemNoErrors) {
   SigninManager* signin = SigninManagerFactory::GetForProfile(profile_);
   signin->SetAuthenticatedAccountInfo(username, username);
   ProfileSyncService* sync = ProfileSyncServiceFactory::GetForProfile(profile_);
-  sync->SetSyncSetupCompleted();
+  sync->SetFirstSetupComplete();
   [AppController updateSigninItem:syncMenuItem
                        shouldShow:YES
                    currentProfile:profile_];
@@ -145,7 +145,7 @@ TEST_F(AppControllerTest, TestSigninMenuItemAuthError) {
   SigninManager* signin = SigninManagerFactory::GetForProfile(profile_);
   signin->SetAuthenticatedAccountInfo(username, username);
   ProfileSyncService* sync = ProfileSyncServiceFactory::GetForProfile(profile_);
-  sync->SetSyncSetupCompleted();
+  sync->SetFirstSetupComplete();
   // Force an auth error.
   FakeAuthStatusProvider provider(
       SigninErrorControllerFactory::GetForProfile(profile_));

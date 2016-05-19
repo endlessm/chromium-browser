@@ -4,6 +4,8 @@
 
 #include "media/audio/audio_output_stream_sink.h"
 
+#include <cmath>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
@@ -76,14 +78,17 @@ OutputDevice* AudioOutputStreamSink::GetOutputDevice() {
 }
 
 int AudioOutputStreamSink::OnMoreData(AudioBus* dest,
-                                      uint32 total_bytes_delay) {
+                                      uint32_t total_bytes_delay,
+                                      uint32_t frames_skipped) {
   // Note: Runs on the audio thread created by the OS.
   base::AutoLock al(callback_lock_);
   if (!active_render_callback_)
     return 0;
 
-  return active_render_callback_->Render(
-      dest, total_bytes_delay * 1000.0 / active_params_.GetBytesPerSecond());
+  uint32_t frames_delayed = std::round(static_cast<double>(total_bytes_delay) /
+                                       active_params_.GetBytesPerFrame());
+
+  return active_render_callback_->Render(dest, frames_delayed, frames_skipped);
 }
 
 void AudioOutputStreamSink::OnError(AudioOutputStream* stream) {

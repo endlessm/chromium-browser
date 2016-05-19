@@ -5,11 +5,16 @@
 #ifndef CONTENT_PUBLIC_TEST_MOCK_RENDER_PROCESS_HOST_H_
 #define CONTENT_PUBLIC_TEST_MOCK_RENDER_PROCESS_HOST_H_
 
-#include "base/basictypes.h"
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_process_host_factory.h"
+#include "content/public/common/service_registry.h"
 #include "ipc/ipc_test_sink.h"
 
 class StoragePartition;
@@ -39,8 +44,8 @@ class MockRenderProcessHost : public RenderProcessHost {
   void EnableSendQueue() override;
   bool Init() override;
   int GetNextRoutingID() override;
-  void AddRoute(int32 routing_id, IPC::Listener* listener) override;
-  void RemoveRoute(int32 routing_id) override;
+  void AddRoute(int32_t routing_id, IPC::Listener* listener) override;
+  void RemoveRoute(int32_t routing_id) override;
   void AddObserver(RenderProcessHostObserver* observer) override;
   void RemoveObserver(RenderProcessHostObserver* observer) override;
   void ShutdownForBadMessage() override;
@@ -71,11 +76,12 @@ class MockRenderProcessHost : public RenderProcessHost {
   void AddFilter(BrowserMessageFilter* filter) override;
   bool FastShutdownForPageCount(size_t count) override;
   base::TimeDelta GetChildProcessIdleTime() const override;
-  void ResumeRequestsForView(int route_id) override;
   void FilterURL(bool empty_allowed, GURL* url) override;
 #if defined(ENABLE_WEBRTC)
   void EnableAudioDebugRecordings(const base::FilePath& file) override;
   void DisableAudioDebugRecordings() override;
+  void EnableEventLogRecordings(const base::FilePath& file) override;
+  void DisableEventLogRecordings() override;
   void SetWebRtcLogMessageCallback(
       base::Callback<void(const std::string&)> callback) override;
   WebRtcStopRtpDumpCallback StartRtpDump(
@@ -96,13 +102,16 @@ class MockRenderProcessHost : public RenderProcessHost {
   scoped_refptr<media::MediaKeys> GetCdm(int render_frame_id,
                                          int cdm_id) const override;
 #endif
+  bool IsProcessBackgrounded() const override;
+  void IncrementWorkerRefCount() override;
+  void DecrementWorkerRefCount() override;
 
   // IPC::Sender via RenderProcessHost.
   bool Send(IPC::Message* msg) override;
 
   // IPC::Listener via RenderProcessHost.
   bool OnMessageReceived(const IPC::Message& msg) override;
-  void OnChannelConnected(int32 peer_pid) override;
+  void OnChannelConnected(int32_t peer_pid) override;
 
   // Attaches the factory object so we can remove this object in its destructor
   // and prevent MockRenderProcessHostFacotry from deleting it.
@@ -114,12 +123,22 @@ class MockRenderProcessHost : public RenderProcessHost {
     is_for_guests_only_ = is_for_guests_only;
   }
 
+  void set_is_process_backgrounded(bool is_process_backgrounded) {
+    is_process_backgrounded_ = is_process_backgrounded;
+  }
+
   void SetProcessHandle(scoped_ptr<base::ProcessHandle> new_handle) {
-    process_handle = new_handle.Pass();
+    process_handle = std::move(new_handle);
   }
 
   void GetAudioOutputControllers(
       const GetAudioOutputControllersCallback& callback) const override {}
+
+  int worker_ref_count() const { return worker_ref_count_; }
+
+  void SetServiceRegistry(scoped_ptr<ServiceRegistry> service_registry) {
+    service_registry_ = std::move(service_registry);
+  }
 
  private:
   // Stores IPC messages that would have been sent to the renderer.
@@ -137,7 +156,10 @@ class MockRenderProcessHost : public RenderProcessHost {
   bool fast_shutdown_started_;
   bool deletion_callback_called_;
   bool is_for_guests_only_;
+  bool is_process_backgrounded_;
   scoped_ptr<base::ProcessHandle> process_handle;
+  int worker_ref_count_;
+  scoped_ptr<ServiceRegistry> service_registry_;
 
   DISALLOW_COPY_AND_ASSIGN(MockRenderProcessHost);
 };

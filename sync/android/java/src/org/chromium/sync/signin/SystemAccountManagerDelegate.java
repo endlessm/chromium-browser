@@ -13,14 +13,16 @@ import android.accounts.AuthenticatorException;
 import android.accounts.OperationCanceledException;
 import android.content.Context;
 import android.os.AsyncTask;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.StrictMode;
 import android.os.SystemClock;
+
+import com.google.android.gms.auth.GoogleAuthException;
+import com.google.android.gms.auth.GoogleAuthUtil;
+import com.google.android.gms.auth.GooglePlayServicesAvailabilityException;
 
 import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.annotations.MainDex;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
 
@@ -31,6 +33,7 @@ import java.util.concurrent.TimeUnit;
  * Default implementation of {@link AccountManagerDelegate} which delegates all calls to the
  * Android account manager.
  */
+@MainDex
 public class SystemAccountManagerDelegate implements AccountManagerDelegate {
 
     private final AccountManager mAccountManager;
@@ -70,21 +73,32 @@ public class SystemAccountManagerDelegate implements AccountManagerDelegate {
     }
 
     @Override
-    public AccountManagerFuture<Bundle> getAuthToken(Account account, String authTokenType,
-            boolean notifyAuthFailure, AccountManagerCallback<Bundle> callback, Handler handler) {
-        return mAccountManager.getAuthToken(account, authTokenType, null, notifyAuthFailure,
-                callback, handler);
+    public String getAuthToken(Account account, String authTokenScope) throws AuthException {
+        assert !ThreadUtils.runningOnUiThread();
+        assert AccountManagerHelper.GOOGLE_ACCOUNT_TYPE.equals(account.type);
+        try {
+            return GoogleAuthUtil.getTokenWithNotification(mApplicationContext, account,
+                    authTokenScope, null);
+        } catch (GoogleAuthException ex) {
+            // This case includes a UserRecoverableNotifiedException, but most clients will have
+            // their own retry mechanism anyway.
+            // TODO(bauerb): Investigate integrating the callback with ConnectionRetry.
+            throw new AuthException(false /* isTransientError */, ex);
+        } catch (IOException ex) {
+            throw new AuthException(true /* isTransientError */, ex);
+        }
     }
 
     @Override
-    public void invalidateAuthToken(String accountType, String authToken) {
-        // Temporarily allowing disk access while fixing. TODO: http://crbug.com/535320
-        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
-        StrictMode.allowThreadDiskReads();
+    public void invalidateAuthToken(String authToken) throws AuthException {
         try {
-            mAccountManager.invalidateAuthToken(accountType, authToken);
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
+            GoogleAuthUtil.clearToken(mApplicationContext, authToken);
+        } catch (GooglePlayServicesAvailabilityException ex) {
+            throw new AuthException(false /* isTransientError */, ex);
+        } catch (GoogleAuthException ex) {
+            throw new AuthException(false /* isTransientError */, ex);
+        } catch (IOException ex) {
+            throw new AuthException(true /* isTransientError */, ex);
         }
     }
 

@@ -5,6 +5,8 @@
 #ifndef CC_TEST_FAKE_PICTURE_LAYER_H_
 #define CC_TEST_FAKE_PICTURE_LAYER_H_
 
+#include <stddef.h>
+
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "cc/layers/picture_layer.h"
@@ -23,7 +25,7 @@ class FakePictureLayer : public PictureLayer {
       ContentLayerClient* client,
       scoped_ptr<DisplayListRecordingSource> source) {
     return make_scoped_refptr(
-        new FakePictureLayer(settings, client, source.Pass()));
+        new FakePictureLayer(settings, client, std::move(source)));
   }
 
   scoped_ptr<LayerImpl> CreateLayerImpl(LayerTreeImpl* tree_impl) override;

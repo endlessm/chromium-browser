@@ -22,13 +22,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/DefaultAudioDestinationNode.h"
-
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/ExceptionCode.h"
+#include "modules/webaudio/AbstractAudioContext.h"
 #include "platform/Logging.h"
 #include "wtf/MainThread.h"
 
@@ -87,7 +85,7 @@ void DefaultAudioDestinationHandler::createDestination()
     float hardwareSampleRate = AudioDestination::hardwareSampleRate();
     WTF_LOG(WebAudio, ">>>> hardwareSampleRate = %f\n", hardwareSampleRate);
 
-    m_destination = AudioDestination::create(*this, m_inputDeviceId, m_numberOfInputChannels, channelCount(), hardwareSampleRate);
+    m_destination = AudioDestination::create(*this, m_inputDeviceId, m_numberOfInputChannels, channelCount(), hardwareSampleRate, context()->securityOrigin());
 }
 
 void DefaultAudioDestinationHandler::startRendering()
@@ -154,4 +152,3 @@ DefaultAudioDestinationNode* DefaultAudioDestinationNode::create(AbstractAudioCo
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

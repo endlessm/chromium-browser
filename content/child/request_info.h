@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "content/common/content_export.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/public/common/referrer.h"
@@ -20,6 +21,7 @@
 #include "third_party/WebKit/public/platform/WebTaskRunner.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace blink {
 class WebTaskRunner;
@@ -38,9 +40,12 @@ struct CONTENT_EXPORT RequestInfo {
   // Absolute URL encoded in ASCII per the rules of RFC-2396.
   GURL url;
 
-  // URL of the document in the top-level window, which may be checked by the
-  // third-party cookie blocking policy.
+  // URL representing the first-party origin for the request, which may be
+  // checked by the third-party cookie blocking policy.
   GURL first_party_for_cookies;
+
+  // The origin of the context which initiated the request.
+  url::Origin request_initiator;
 
   // Optional parameter, the referrer to use for the request for the url member.
   Referrer referrer;
@@ -117,6 +122,10 @@ struct CONTENT_EXPORT RequestInfo {
 
   // Optional, the specific task queue to execute loading tasks on.
   scoped_ptr<blink::WebTaskRunner> loading_web_task_runner;
+
+  // PlzNavigate: the stream URL to request during navigations to get access to
+  // the ResourceBody that has already been fetched by the browser process.
+  GURL resource_body_stream_url;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(RequestInfo);

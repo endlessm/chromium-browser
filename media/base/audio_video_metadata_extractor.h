@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "media/base/media_export.h"
 
 struct AVDictionary;
@@ -26,6 +26,7 @@ class MEDIA_EXPORT AudioVideoMetadataExtractor {
 
   struct StreamInfo {
     StreamInfo();
+    StreamInfo(const StreamInfo& other);
     ~StreamInfo();
     std::string type;
     TagDictionary tags;

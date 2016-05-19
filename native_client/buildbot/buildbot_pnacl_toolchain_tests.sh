@@ -39,6 +39,8 @@ export PNACL_BUILDBOT=true
 # by long periods without console output.
 export PNACL_VERBOSE=true
 
+EXIT_STATUS=0
+
 clobber() {
   echo @@@BUILD_STEP clobber@@@
   rm -rf scons-out
@@ -51,6 +53,7 @@ clobber() {
 
 handle-error() {
   echo "@@@STEP_FAILURE@@@"
+  EXIT_STATUS=1
 }
 
 ignore-error() {
@@ -65,8 +68,7 @@ readonly SCONS_COMMON_SLOW="./scons --verbose bitcode=1 -j2"
 
 build-run-prerequisites() {
   local platform=$1
-  ${SCONS_COMMON} platform=${platform} \
-    sel_ldr sel_universal irt_core elf_loader
+  ${SCONS_COMMON} platform=${platform} sel_ldr irt_core elf_loader
 }
 
 
@@ -220,7 +222,7 @@ tc-test-bot() {
     # all 4 combinations would be run, plus more for Subzero.
     if [[ ${archset} =~ x86 ]]; then
       optset[2]="--opt O3f --opt O0b"
-      if [[ ${archset} == x86-32 ]]; then
+      if [[ ${archset} == x86-32 || ${archset} == x86-64 ]]; then
         # Run a Subzero -O2 test set on x86-32.
         optset[3]="--opt O3f --opt O2b_sz"
       fi
@@ -254,6 +256,7 @@ tc-test-bot() {
     fi
 
   done
+  exit $EXIT_STATUS
 }
 
 

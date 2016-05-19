@@ -11,7 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "content/common/content_param_traits.h"
@@ -58,12 +57,11 @@ IPC_MESSAGE_CONTROL1(WorkerProcessMsg_CreateWorker,
 
 // Sent by the worker process to check whether access to web databases is
 // allowed.
-IPC_SYNC_MESSAGE_CONTROL5_1(WorkerProcessHostMsg_AllowDatabase,
+IPC_SYNC_MESSAGE_CONTROL4_1(WorkerProcessHostMsg_AllowDatabase,
                             int /* worker_route_id */,
                             GURL /* origin url */,
                             base::string16 /* database name */,
                             base::string16 /* database display name */,
-                            unsigned long /* estimated size */,
                             bool /* result */)
 
 // Sent by the worker process to check whether access to file system is allowed.

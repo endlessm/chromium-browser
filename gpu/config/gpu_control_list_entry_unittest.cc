@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/json/json_reader.h"
 #include "gpu/config/gpu_control_list.h"
 #include "gpu/config/gpu_info.h"
@@ -1148,8 +1150,8 @@ TEST_F(GpuControlListEntryDualGPUTest, CategoryPrimarySecondary) {
         ]
       }
   );
-  // Default is primary.
-  EntryShouldNotApply(json_default);
+  // Default is active, and the secondary Intel GPU is active.
+  EntryShouldApply(json_default);
 }
 
 TEST_F(GpuControlListEntryDualGPUTest, ActiveSecondaryGPU) {

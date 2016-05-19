@@ -3,7 +3,11 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/files/file_path.h"
+#include "base/macros.h"
+#include "base/path_service.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -32,7 +36,7 @@ class ChromeSitePerProcessTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
     content::SetupCrossSiteRedirector(embedded_test_server());
   }
 
@@ -102,21 +106,75 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
 // involves querying content settings from the renderer process and using the
 // top frame's origin as one of the parameters.  See https://crbug.com/426658.
 IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest, PluginWithRemoteTopFrame) {
-  GURL main_url(embedded_test_server()->GetURL("a.com", "/iframe.html"));
+  // Serve from the root so that flash_object.html can load the swf file.
+  base::FilePath test_data_dir;
+  CHECK(base::PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir));
+  embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
+
+  GURL main_url(
+      embedded_test_server()->GetURL("a.com", "/chrome/test/data/iframe.html"));
   ui_test_utils::NavigateToURL(browser(), main_url);
 
   // Navigate subframe to a page with a Flash object.
   content::WebContents* active_web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   GURL frame_url =
-      embedded_test_server()->GetURL("b.com", "/flash_object.html");
-  content::DOMMessageQueue msg_queue;
-  EXPECT_TRUE(NavigateIframeToURL(active_web_contents, "test", frame_url));
+      embedded_test_server()->GetURL("b.com",
+                                     "/chrome/test/data/flash_object.html");
 
   // Ensure the page finishes loading without crashing.
+  EXPECT_TRUE(NavigateIframeToURL(active_web_contents, "test", frame_url));
+}
+
+// Check that window.focus works for cross-process popups.
+IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest, PopupWindowFocus) {
+  GURL main_url(embedded_test_server()->GetURL("/page_with_focus_events.html"));
+  ui_test_utils::NavigateToURL(browser(), main_url);
+
+  // Set window.name on main page.  This will be used to identify the page
+  // later when it sends messages from its focus/blur events.
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_TRUE(ExecuteScript(web_contents, "window.name = 'main'"));
+
+  // Open a popup for a cross-site page.
+  GURL popup_url =
+      embedded_test_server()->GetURL("foo.com", "/page_with_focus_events.html");
+  content::WindowedNotificationObserver popup_observer(
+      chrome::NOTIFICATION_TAB_ADDED,
+      content::NotificationService::AllSources());
+  EXPECT_TRUE(ExecuteScript(web_contents,
+                            "openPopup('" + popup_url.spec() + "','popup')"));
+  popup_observer.Wait();
+  ASSERT_EQ(2, browser()->tab_strip_model()->count());
+  content::WebContents* popup =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_TRUE(WaitForLoadStop(popup));
+  EXPECT_EQ(popup_url, popup->GetLastCommittedURL());
+  EXPECT_NE(popup, web_contents);
+
+  // Switch focus to the original tab, since opening a popup also focused it.
+  web_contents->GetDelegate()->ActivateContents(web_contents);
+  EXPECT_EQ(web_contents, browser()->tab_strip_model()->GetActiveWebContents());
+
+  // Focus the popup via window.focus().
+  content::DOMMessageQueue queue;
+  EXPECT_TRUE(ExecuteScript(web_contents, "focusPopup()"));
+
+  // Wait for main page to lose focus and for popup to gain focus.  Each event
+  // will send a message, and the two messages can arrive in any order.
   std::string status;
-  while (msg_queue.WaitForMessage(&status)) {
-    if (status == "\"DONE\"")
+  bool main_lost_focus = false;
+  bool popup_got_focus = false;
+  while (queue.WaitForMessage(&status)) {
+    if (status == "\"main-lost-focus\"")
+      main_lost_focus = true;
+    if (status == "\"popup-got-focus\"")
+      popup_got_focus = true;
+    if (main_lost_focus && popup_got_focus)
       break;
   }
+
+  // The popup should be focused now.
+  EXPECT_EQ(popup, browser()->tab_strip_model()->GetActiveWebContents());
 }

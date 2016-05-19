@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -264,11 +266,11 @@ class NetworkingPrivateChromeOSApiTest : public ExtensionApiTest {
       content::BrowserContext* context) {
     scoped_ptr<CryptoVerifyStub> crypto_verify(new CryptoVerifyStub);
     scoped_ptr<NetworkingPrivateDelegate> result(
-        new NetworkingPrivateChromeOS(context, crypto_verify.Pass()));
+        new NetworkingPrivateChromeOS(context, std::move(crypto_verify)));
     scoped_ptr<NetworkingPrivateDelegate::UIDelegate> ui_delegate(
         new UIDelegateStub);
-    result->set_ui_delegate(ui_delegate.Pass());
-    return result.Pass();
+    result->set_ui_delegate(std::move(ui_delegate));
+    return std::move(result);
   }
 
   void SetUpOnMainThread() override {
@@ -337,6 +339,9 @@ class NetworkingPrivateChromeOSApiTest : public ExtensionApiTest {
     service_test_->SetServiceProperty(kWifi1ServicePath,
                                       shill::kSecurityClassProperty,
                                       base::StringValue(shill::kSecurityWep));
+    service_test_->SetServiceProperty(kWifi1ServicePath,
+                                      shill::kWifiBSsid,
+                                      base::StringValue("00:01:02:03:04:05"));
     service_test_->SetServiceProperty(kWifi1ServicePath,
                                       shill::kSignalStrengthProperty,
                                       base::FundamentalValue(40));

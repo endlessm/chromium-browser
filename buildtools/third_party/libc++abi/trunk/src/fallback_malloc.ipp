@@ -26,7 +26,7 @@
 namespace {
 
 // When POSIX threads are not available, make the mutex operations a nop
-#if LIBCXXABI_SINGLE_THREADED
+#if LIBCXXABI_HAS_NO_THREADS
 static void * heap_mutex = 0;
 #else
 static pthread_mutex_t heap_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -34,7 +34,7 @@ static pthread_mutex_t heap_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 class mutexor {
 public:
-#if LIBCXXABI_SINGLE_THREADED
+#if LIBCXXABI_HAS_NO_THREADS
     mutexor ( void * ) {}
     ~mutexor () {}
 #else
@@ -44,7 +44,7 @@ public:
 private:
     mutexor ( const mutexor &rhs );
     mutexor & operator = ( const mutexor &rhs );
-#if !LIBCXXABI_SINGLE_THREADED
+#if !LIBCXXABI_HAS_NO_THREADS
     pthread_mutex_t *mtx_;
 #endif
     };
@@ -68,7 +68,7 @@ heap_node *node_from_offset ( const heap_offset offset )
     { return (heap_node *) ( heap + ( offset * sizeof (heap_node))); }
 
 heap_offset offset_from_node ( const heap_node *ptr )
-    { return static_cast<heap_offset>(static_cast<size_t>(((char *) ptr ) - heap)  / sizeof (heap_node)); }
+    { return static_cast<heap_offset>(static_cast<size_t>(reinterpret_cast<const char *>(ptr) - heap)  / sizeof (heap_node)); }
  
 void init_heap () {
     freelist = (heap_node *) heap;
@@ -97,8 +97,8 @@ void *fallback_malloc(size_t len) {
 
         if (p->len > nelems) {  //  chunk is larger, shorten, and return the tail
             heap_node *q;
-            
-            p->len -= nelems;
+
+            p->len = static_cast<heap_size>(p->len - nelems);
             q = p + p->len;
             q->next_node = 0;
             q->len = static_cast<heap_size>(nelems);
@@ -143,14 +143,14 @@ void fallback_free (void *ptr) {
 #ifdef DEBUG_FALLBACK_MALLOC
             std::cout << "  Appending onto chunk at " << offset_from_node ( p ) << std::endl;
 #endif
-            p->len += cp->len;  // make the free heap_node larger
+            p->len = static_cast<heap_size>(p->len + cp->len);  // make the free heap_node larger
             return;
             }
         else if ( after ( cp ) == p ) { // there's a free heap_node right after
 #ifdef DEBUG_FALLBACK_MALLOC
             std::cout << "  Appending free chunk at " << offset_from_node ( p ) << std::endl;
 #endif
-            cp->len += p->len;
+            cp->len = static_cast<heap_size>(cp->len + p->len);
             if ( prev == 0 ) {
                 freelist = cp;
                 cp->next_node = p->next_node;

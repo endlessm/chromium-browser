@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/MediaValuesCached.h"
 
 #include "core/css/CSSPrimitiveValue.h"
@@ -12,59 +11,49 @@
 
 namespace blink {
 
-PassRefPtrWillBeRawPtr<MediaValues> MediaValuesCached::create()
+MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData(Document& document)
+    : MediaValuesCached::MediaValuesCachedData()
+{
+    ASSERT(isMainThread());
+    LocalFrame* frame = MediaValues::frameFrom(document);
+    // TODO(hiroshige): Clean up |frame->view()| conditions.
+    ASSERT(!frame || frame->view());
+    if (frame && frame->view()) {
+        ASSERT(frame->document() && frame->document()->layoutView());
+
+        // In case that frame is missing (e.g. for images that their document does not have a frame)
+        // We simply leave the MediaValues object with the default MediaValuesCachedData values.
+        viewportWidth = MediaValues::calculateViewportWidth(frame);
+        viewportHeight = MediaValues::calculateViewportHeight(frame);
+        deviceWidth = MediaValues::calculateDeviceWidth(frame);
+        deviceHeight = MediaValues::calculateDeviceHeight(frame);
+        devicePixelRatio = MediaValues::calculateDevicePixelRatio(frame);
+        colorBitsPerComponent = MediaValues::calculateColorBitsPerComponent(frame);
+        monochromeBitsPerComponent = MediaValues::calculateMonochromeBitsPerComponent(frame);
+        primaryPointerType = MediaValues::calculatePrimaryPointerType(frame);
+        availablePointerTypes = MediaValues::calculateAvailablePointerTypes(frame);
+        primaryHoverType = MediaValues::calculatePrimaryHoverType(frame);
+        availableHoverTypes = MediaValues::calculateAvailableHoverTypes(frame);
+        defaultFontSize = MediaValues::calculateDefaultFontSize(frame);
+        threeDEnabled = MediaValues::calculateThreeDEnabled(frame);
+        strictMode = MediaValues::calculateStrictMode(frame);
+        displayMode = MediaValues::calculateDisplayMode(frame);
+        mediaType = MediaValues::calculateMediaType(frame);
+    }
+}
+
+PassRefPtrWillBeRawPtr<MediaValuesCached> MediaValuesCached::create()
 {
     return adoptRefWillBeNoop(new MediaValuesCached());
 }
 
-PassRefPtrWillBeRawPtr<MediaValues> MediaValuesCached::create(MediaValuesCachedData& data)
+PassRefPtrWillBeRawPtr<MediaValuesCached> MediaValuesCached::create(const MediaValuesCachedData& data)
 {
     return adoptRefWillBeNoop(new MediaValuesCached(data));
 }
 
-PassRefPtrWillBeRawPtr<MediaValues> MediaValuesCached::create(Document& document)
-{
-    return MediaValuesCached::create(frameFrom(document));
-}
-
-PassRefPtrWillBeRawPtr<MediaValues> MediaValuesCached::create(LocalFrame* frame)
-{
-    // FIXME - Added an assert here so we can better understand when a frame is present without its view().
-    ASSERT(!frame || frame->view());
-    if (!frame || !frame->view())
-        return adoptRefWillBeNoop(new MediaValuesCached());
-    ASSERT(frame->document() && frame->document()->layoutView());
-    return adoptRefWillBeNoop(new MediaValuesCached(frame));
-}
-
 MediaValuesCached::MediaValuesCached()
 {
-}
-
-MediaValuesCached::MediaValuesCached(LocalFrame* frame)
-{
-    ASSERT(isMainThread());
-    ASSERT(frame);
-    // In case that frame is missing (e.g. for images that their document does not have a frame)
-    // We simply leave the MediaValues object with the default MediaValuesCachedData values.
-    m_data.viewportWidth = calculateViewportWidth(frame);
-    m_data.viewportHeight = calculateViewportHeight(frame);
-    m_data.deviceWidth = calculateDeviceWidth(frame);
-    m_data.deviceHeight = calculateDeviceHeight(frame);
-    m_data.devicePixelRatio = calculateDevicePixelRatio(frame);
-    m_data.colorBitsPerComponent = calculateColorBitsPerComponent(frame);
-    m_data.monochromeBitsPerComponent = calculateMonochromeBitsPerComponent(frame);
-    m_data.primaryPointerType = calculatePrimaryPointerType(frame);
-    m_data.availablePointerTypes = calculateAvailablePointerTypes(frame);
-    m_data.primaryHoverType = calculatePrimaryHoverType(frame);
-    m_data.availableHoverTypes = calculateAvailableHoverTypes(frame);
-    m_data.defaultFontSize = calculateDefaultFontSize(frame);
-    m_data.threeDEnabled = calculateThreeDEnabled(frame);
-    m_data.strictMode = calculateStrictMode(frame);
-    m_data.displayMode = calculateDisplayMode(frame);
-    const String mediaType = calculateMediaType(frame);
-    if (!mediaType.isEmpty())
-        m_data.mediaType = mediaType.isolatedCopy();
 }
 
 MediaValuesCached::MediaValuesCached(const MediaValuesCachedData& data)
@@ -87,25 +76,12 @@ bool MediaValuesCached::computeLength(double value, CSSPrimitiveValue::UnitType 
     return MediaValues::computeLength(value, type, m_data.defaultFontSize, m_data.viewportWidth, m_data.viewportHeight, result);
 }
 
-bool MediaValuesCached::isSafeToSendToAnotherThread() const
-{
-#if ENABLE(OILPAN)
-    // Oilpan objects are safe to send to another thread as long as the thread
-    // does not outlive the thread used for creation. MediaValues are
-    // allocated on the main thread and may be passed to the parser thread,
-    // so this should be safe.
-    return true;
-#else
-    return hasOneRef();
-#endif
-}
-
-int MediaValuesCached::viewportWidth() const
+double MediaValuesCached::viewportWidth() const
 {
     return m_data.viewportWidth;
 }
 
-int MediaValuesCached::viewportHeight() const
+double MediaValuesCached::viewportHeight() const
 {
     return m_data.viewportHeight;
 }
@@ -185,14 +161,14 @@ bool MediaValuesCached::hasValues() const
     return true;
 }
 
-void MediaValuesCached::setViewportWidth(int width)
+void MediaValuesCached::setViewportWidth(double width)
 {
     m_data.viewportWidth = width;
 }
 
-void MediaValuesCached::setViewportHeight(int height)
+void MediaValuesCached::setViewportHeight(double height)
 {
     m_data.viewportHeight = height;
 }
 
-} // namespace
+} // namespace blink

@@ -4,7 +4,10 @@
 
 #include "ui/compositor/layer_animation_element.h"
 
+#include <utility>
+
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "cc/animation/animation.h"
 #include "cc/animation/animation_id_provider.h"
 #include "ui/compositor/float_animation_curve_adapter.h"
@@ -341,7 +344,10 @@ class ThreadedLayerAnimationElement : public LayerAnimationElement {
       return false;
 
     if (Started() && IsThreaded()) {
-      delegate->RemoveThreadedAnimation(animation_id());
+      LayerThreadedAnimationDelegate* threaded =
+          delegate->GetThreadedAnimationDelegate();
+      DCHECK(threaded);
+      threaded->RemoveThreadedAnimation(animation_id());
     }
 
     OnEnd(delegate);
@@ -350,7 +356,10 @@ class ThreadedLayerAnimationElement : public LayerAnimationElement {
 
   void OnAbort(LayerAnimationDelegate* delegate) override {
     if (delegate && Started() && IsThreaded()) {
-      delegate->RemoveThreadedAnimation(animation_id());
+      LayerThreadedAnimationDelegate* threaded =
+          delegate->GetThreadedAnimationDelegate();
+      DCHECK(threaded);
+      threaded->RemoveThreadedAnimation(animation_id());
     }
   }
 
@@ -363,7 +372,11 @@ class ThreadedLayerAnimationElement : public LayerAnimationElement {
     set_effective_start_time(base::TimeTicks());
     scoped_ptr<cc::Animation> animation = CreateCCAnimation();
     animation->set_needs_synchronized_start_time(true);
-    delegate->AddThreadedAnimation(animation.Pass());
+
+    LayerThreadedAnimationDelegate* threaded =
+        delegate->GetThreadedAnimationDelegate();
+    DCHECK(threaded);
+    threaded->AddThreadedAnimation(std::move(animation));
   }
 
   virtual void OnEnd(LayerAnimationDelegate* delegate) = 0;
@@ -410,10 +423,10 @@ class ThreadedOpacityTransition : public ThreadedLayerAnimationElement {
                                        start_,
                                        target_,
                                        duration()));
-    scoped_ptr<cc::Animation> animation(
-        cc::Animation::Create(animation_curve.Pass(), animation_id(),
-                              animation_group_id(), cc::Animation::OPACITY));
-    return animation.Pass();
+    scoped_ptr<cc::Animation> animation(cc::Animation::Create(
+        std::move(animation_curve), animation_id(), animation_group_id(),
+        cc::TargetProperty::OPACITY));
+    return animation;
   }
 
   void OnGetTarget(TargetValue* target) const override {
@@ -463,10 +476,10 @@ class ThreadedTransformTransition : public ThreadedLayerAnimationElement {
                                            start_,
                                            target_,
                                            duration()));
-    scoped_ptr<cc::Animation> animation(
-        cc::Animation::Create(animation_curve.Pass(), animation_id(),
-                              animation_group_id(), cc::Animation::TRANSFORM));
-    return animation.Pass();
+    scoped_ptr<cc::Animation> animation(cc::Animation::Create(
+        std::move(animation_curve), animation_id(), animation_group_id(),
+        cc::TargetProperty::TRANSFORM));
+    return animation;
   }
 
   void OnGetTarget(TargetValue* target) const override {
@@ -535,10 +548,10 @@ class InverseTransformTransition : public ThreadedLayerAnimationElement {
   }
 
   scoped_ptr<cc::Animation> CreateCCAnimation() override {
-    scoped_ptr<cc::Animation> animation(
-        cc::Animation::Create(animation_curve_->Clone(), animation_id(),
-                              animation_group_id(), cc::Animation::TRANSFORM));
-    return animation.Pass();
+    scoped_ptr<cc::Animation> animation(cc::Animation::Create(
+        animation_curve_->Clone(), animation_id(), animation_group_id(),
+        cc::TargetProperty::TRANSFORM));
+    return animation;
   }
 
   void OnGetTarget(TargetValue* target) const override {
@@ -729,12 +742,11 @@ void LayerAnimationElement::RequestEffectiveStart(
 
 // static
 LayerAnimationElement::AnimatableProperty
-LayerAnimationElement::ToAnimatableProperty(
-    cc::Animation::TargetProperty property) {
+LayerAnimationElement::ToAnimatableProperty(cc::TargetProperty::Type property) {
   switch (property) {
-    case cc::Animation::TRANSFORM:
+    case cc::TargetProperty::TRANSFORM:
       return TRANSFORM;
-    case cc::Animation::OPACITY:
+    case cc::TargetProperty::OPACITY:
       return OPACITY;
     default:
       NOTREACHED();

@@ -10,8 +10,10 @@
 #include <vector>
 
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/domain_reliability/clear_mode.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
@@ -27,7 +29,7 @@ class ZoomLevelDelegate;
 }
 
 namespace net {
-class CookieMonster;
+class CookieStore;
 class URLRequestContextGetter;
 }
 
@@ -267,7 +269,7 @@ class TestingProfile : public Profile {
   // TODO(ajwong): Remove this API in favor of directly retrieving the
   // CookieStore from the StoragePartition after ExtensionURLRequestContext
   // has been removed.
-  net::CookieMonster* GetCookieMonster();
+  net::CookieStore* GetCookieStore();
 
   PrefService* GetPrefs() override;
   const PrefService* GetPrefs() const override;
@@ -323,6 +325,14 @@ class TestingProfile : public Profile {
     profile_name_ = profile_name;
   }
 
+ private:
+  // We use a temporary directory to store testing profile data. This
+  // must be declared before anything that may make use of the
+  // directory so as to ensure files are closed before cleanup.  In a
+  // multi-profile environment, this is invalid and the directory is
+  // managed by the TestingProfileManager.
+  base::ScopedTempDir temp_dir_;
+
  protected:
   base::Time start_time_;
   scoped_ptr<syncable_prefs::PrefServiceSyncable> prefs_;
@@ -377,10 +387,6 @@ class TestingProfile : public Profile {
   // The proxy prefs tracker.
   scoped_ptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
 
-  // We use a temporary directory to store testing profile data. In a multi-
-  // profile environment, this is invalid and the directory is managed by the
-  // TestingProfileManager.
-  base::ScopedTempDir temp_dir_;
   // The path to this profile. This will be valid in either of the two above
   // cases.
   base::FilePath profile_path_;

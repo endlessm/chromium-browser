@@ -6,9 +6,9 @@
 #define MOJO_SERVICES_NETWORK_TCP_SERVER_SOCKET_H_
 
 #include "base/memory/scoped_ptr.h"
-#include "mojo/application/public/cpp/app_lifetime_helper.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/services/network/public/interfaces/tcp_server_socket.mojom.h"
+#include "mojo/shell/public/cpp/message_loop_ref.h"
 #include "net/base/ip_endpoint.h"
 #include "net/socket/tcp_socket.h"
 
@@ -20,7 +20,7 @@ class TCPServerSocketImpl : public TCPServerSocket {
 
   // Passed ownership of a socket already in listening mode.
   TCPServerSocketImpl(scoped_ptr<net::TCPSocket> socket,
-                      scoped_ptr<mojo::AppRefCount> app_refcount,
+                      scoped_ptr<mojo::MessageLoopRef> app_refcount,
                       InterfaceRequest<TCPServerSocket> request);
   ~TCPServerSocketImpl() override;
 
@@ -47,7 +47,7 @@ class TCPServerSocketImpl : public TCPServerSocket {
   scoped_ptr<net::TCPSocket> accepted_socket_;
   net::IPEndPoint accepted_address_;
 
-  scoped_ptr<mojo::AppRefCount> app_refcount_;
+  scoped_ptr<mojo::MessageLoopRef> app_refcount_;
   StrongBinding<TCPServerSocket> binding_;
 };
 

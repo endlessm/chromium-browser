@@ -4,8 +4,11 @@
 
 #include "extensions/browser/user_script_loader.h"
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
+#include <utility>
 
 #include "base/version.h"
 #include "content/public/browser/browser_context.h"
@@ -262,7 +265,7 @@ void UserScriptLoader::StartLoad() {
   for (const UserScript& script : changed_scripts)
     changed_hosts_.insert(script.host_id());
 
-  LoadScripts(user_scripts_.Pass(), changed_hosts_, added_script_ids,
+  LoadScripts(std::move(user_scripts_), changed_hosts_, added_script_ids,
               base::Bind(&UserScriptLoader::OnScriptsLoaded,
                          weak_factory_.GetWeakPtr()));
 
@@ -276,7 +279,7 @@ void UserScriptLoader::StartLoad() {
 scoped_ptr<base::SharedMemory> UserScriptLoader::Serialize(
     const UserScriptList& scripts) {
   base::Pickle pickle;
-  pickle.WriteSizeT(scripts.size());
+  pickle.WriteUInt32(scripts.size());
   for (const UserScript& script : scripts) {
     // TODO(aa): This can be replaced by sending content script metadata to
     // renderers along with other extension data in ExtensionMsg_Loaded.

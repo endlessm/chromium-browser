@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -66,6 +67,8 @@ class MediaRouterBaseBrowserTest : public ExtensionBrowserTest,
   bool is_unpacked() const { return !extension_unpacked_.empty(); }
 
   bool is_extension_host_created() const { return extension_host_created_; }
+
+  bool is_off_the_record() { return profile()->IsOffTheRecord(); }
 
   // These values are initialized via flags.
   base::FilePath extension_crx_;

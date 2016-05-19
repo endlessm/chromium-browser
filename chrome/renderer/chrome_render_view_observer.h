@@ -9,8 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "content/public/common/top_controls_state.h"
 #include "content/public/renderer/render_view_observer.h"
 #include "url/gurl.h"
@@ -44,7 +45,7 @@ class ChromeRenderViewObserver : public content::RenderViewObserver {
   void DidStartLoading() override;
   void Navigate(const GURL& url) override;
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !defined(OS_ANDROID)
   void OnWebUIJavaScript(const base::string16& javascript);
 #endif
 #if defined(ENABLE_EXTENSIONS)

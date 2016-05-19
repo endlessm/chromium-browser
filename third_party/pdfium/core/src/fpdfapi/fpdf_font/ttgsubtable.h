@@ -260,7 +260,7 @@ class CFX_CTTGSUBTable {
     TSingleSubstFormat2() : Coverage(NULL), GlyphCount(0), Substitute(NULL) {
       SubstFormat = 2;
     }
-    ~TSingleSubstFormat2() {
+    ~TSingleSubstFormat2() override {
       delete Coverage;
       delete[] Substitute;
     }
@@ -277,10 +277,9 @@ class CFX_CTTGSUBTable {
     TLookup()
         : LookupType(0), LookupFlag(0), SubTableCount(0), SubTable(NULL) {}
     ~TLookup() {
-      if (SubTableCount > 0 && SubTable != NULL) {
-        for (int i = 0; i < SubTableCount; i++) {
+      if (SubTable) {
+        for (int i = 0; i < SubTableCount; ++i)
           delete SubTable[i];
-        }
         delete[] SubTable;
       }
     }
@@ -356,8 +355,7 @@ class CFX_CTTGSUBTable {
 class CFX_GSUBTable final : public IFX_GSUBTable {
  public:
   ~CFX_GSUBTable() override {}
-  virtual FX_BOOL GetVerticalGlyph(FX_DWORD glyphnum,
-                                   FX_DWORD* vglyphnum) override;
+  FX_BOOL GetVerticalGlyph(FX_DWORD glyphnum, FX_DWORD* vglyphnum) override;
 
   CFX_CTTGSUBTable m_GsubImp;
 };

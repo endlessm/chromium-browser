@@ -250,6 +250,8 @@ typedef struct RD_COUNTS {
   vp10_coeff_count coef_counts[TX_SIZES][PLANE_TYPES];
   int64_t comp_pred_diff[REFERENCE_MODES];
   int64_t filter_diff[SWITCHABLE_FILTER_CONTEXTS];
+  int m_search_count;
+  int ex_search_count;
 } RD_COUNTS;
 
 typedef struct ThreadData {
@@ -460,17 +462,13 @@ typedef struct VP10_COMP {
   int y_mode_costs[INTRA_MODES][INTRA_MODES][INTRA_MODES];
   int switchable_interp_costs[SWITCHABLE_FILTER_CONTEXTS][SWITCHABLE_FILTERS];
   int partition_cost[PARTITION_CONTEXTS][PARTITION_TYPES];
-  int palette_y_size_cost[PALETTE_BLOCK_SIZES][PALETTE_SIZES];
-  int palette_uv_size_cost[PALETTE_BLOCK_SIZES][PALETTE_SIZES];
-  int palette_y_color_cost[PALETTE_MAX_SIZE - 1][PALETTE_COLOR_CONTEXTS]
-                                                 [PALETTE_COLORS];
-  int palette_uv_color_cost[PALETTE_MAX_SIZE - 1][PALETTE_COLOR_CONTEXTS]
-                                                  [PALETTE_COLORS];
 
   int multi_arf_allowed;
   int multi_arf_enabled;
   int multi_arf_last_grp_enabled;
 
+  int intra_tx_type_costs[EXT_TX_SIZES][TX_TYPES][TX_TYPES];
+  int inter_tx_type_costs[EXT_TX_SIZES][TX_TYPES];
 #if CONFIG_VP9_TEMPORAL_DENOISING
   VP9_DENOISER denoiser;
 #endif

@@ -9,7 +9,10 @@
 #include <psapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <time.h>
+#include <winsock2.h>
 
 #include <algorithm>
 #include <limits>
@@ -18,6 +21,7 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/process/process_handle.h"
 #include "base/rand_util.h"
@@ -359,7 +363,8 @@ bool CreateTemporaryDirInDir(const FilePath& base_dir,
     new_dir_name.assign(prefix);
     new_dir_name.append(IntToString16(GetCurrentProcId()));
     new_dir_name.push_back('_');
-    new_dir_name.append(IntToString16(RandInt(0, kint16max)));
+    new_dir_name.append(
+        IntToString16(RandInt(0, std::numeric_limits<int16_t>::max())));
 
     path_to_create = base_dir.Append(new_dir_name);
     if (::CreateDirectory(path_to_create.value().c_str(), NULL)) {
@@ -761,6 +766,13 @@ bool CopyFile(const FilePath& from_path, const FilePath& to_path) {
     SetFileAttributes(dest, attrs & ~FILE_ATTRIBUTE_READONLY);
   }
   return true;
+}
+
+bool SetNonBlocking(int fd) {
+  unsigned long nonblocking = 1;
+  if (ioctlsocket(fd, FIONBIO, &nonblocking) == 0)
+    return true;
+  return false;
 }
 
 // -----------------------------------------------------------------------------

@@ -37,6 +37,7 @@
 #include "platform/heap/ThreadState.h"
 #include "platform/heap/Visitor.h"
 #include "wtf/AddressSanitizer.h"
+#include "wtf/Allocator.h"
 #include "wtf/Assertions.h"
 #include "wtf/Atomics.h"
 #include "wtf/ContainerAnnotations.h"
@@ -128,7 +129,7 @@ class NormalPageHeap;
 class OrphanedPagePool;
 class PageMemory;
 class PageMemoryRegion;
-class WebProcessMemoryDump;
+class WebMemoryAllocatorDump;
 
 // HeapObjectHeader is 4 byte (32 bit) that has the following layout:
 //
@@ -165,6 +166,7 @@ const size_t nonLargeObjectPageSizeMax = 1 << 17;
 static_assert(nonLargeObjectPageSizeMax >= blinkPageSize, "max size supported by HeapObjectHeader must at least be blinkPageSize");
 
 class PLATFORM_EXPORT HeapObjectHeader {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     // If gcInfoIndex is 0, this header is interpreted as a free list header.
     NO_SANITIZE_ADDRESS
@@ -185,7 +187,7 @@ public:
         ASSERT(gcInfoIndex < GCInfoTable::maxIndex);
         ASSERT(size < nonLargeObjectPageSizeMax);
         ASSERT(!(size & allocationMask));
-        m_encoded = (gcInfoIndex << headerGCInfoIndexShift) | size | (gcInfoIndex == gcInfoIndexForFreeListHeader ? headerFreedBitMask : 0);
+        m_encoded = static_cast<uint32_t>((gcInfoIndex << headerGCInfoIndexShift) | size | (gcInfoIndex == gcInfoIndexForFreeListHeader ? headerFreedBitMask : 0));
     }
 
     NO_SANITIZE_ADDRESS
@@ -199,7 +201,11 @@ public:
     NO_SANITIZE_ADDRESS
     size_t gcInfoIndex() const { return (m_encoded & headerGCInfoIndexMask) >> headerGCInfoIndexShift; }
     NO_SANITIZE_ADDRESS
-    void setSize(size_t size) { m_encoded = size | (m_encoded & ~headerSizeMask); }
+    void setSize(size_t size)
+    {
+        ASSERT(size < nonLargeObjectPageSizeMax);
+        m_encoded = static_cast<uint32_t>(size) | (m_encoded & ~headerSizeMask);
+    }
     bool isMarked() const;
     void mark();
     void unmark();
@@ -231,14 +237,14 @@ private:
 #endif
 
     // In 64 bit architectures, we intentionally add 4 byte padding immediately
-    // after the HeapHeaderObject. This is because:
+    // after the HeapObjectHeader. This is because:
     //
-    // | HeapHeaderObject (4 byte) | padding (4 byte) | object payload (8 * n byte) |
+    // | HeapObjectHeader (4 byte) | padding (4 byte) | object payload (8 * n byte) |
     // ^8 byte aligned                                ^8 byte aligned
     //
     // is better than:
     //
-    // | HeapHeaderObject (4 byte) | object payload (8 * n byte) | padding (4 byte) |
+    // | HeapObjectHeader (4 byte) | object payload (8 * n byte) | padding (4 byte) |
     // ^4 byte aligned             ^8 byte aligned               ^4 byte aligned
     //
     // since the former layout aligns both header and payload to 8 byte.
@@ -344,6 +350,7 @@ inline bool isPageHeaderAddress(Address address)
 // Note: An object whose size is between |largeObjectSizeThreshold| and
 // |blinkPageSize| can go to either of NormalPage or LargeObjectPage.
 class BasePage {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     BasePage(PageMemory*, BaseHeap*);
     virtual ~BasePage() { }
@@ -369,6 +376,7 @@ public:
     virtual void sweep() = 0;
     virtual void makeConsistentForGC() = 0;
     virtual void makeConsistentForMutator() = 0;
+    virtual void invalidateObjectStartBitmap() = 0;
 
 #if defined(ADDRESS_SANITIZER)
     virtual void poisonObjects(BlinkGC::ObjectsToPoison, BlinkGC::Poisoning) = 0;
@@ -384,7 +392,14 @@ public:
     virtual void checkAndMarkPointer(Visitor*, Address) = 0;
     virtual void markOrphaned();
 
-    virtual void takeSnapshot(String dumpBaseName, size_t pageIndex, ThreadState::GCSnapshotInfo&, size_t* outFreeSize, size_t* outFreeCount) = 0;
+    class HeapSnapshotInfo {
+        STACK_ALLOCATED();
+    public:
+        size_t freeCount = 0;
+        size_t freeSize = 0;
+    };
+
+    virtual void takeSnapshot(WebMemoryAllocatorDump*, ThreadState::GCSnapshotInfo&, HeapSnapshotInfo&) = 0;
 #if ENABLE(ASSERT)
     virtual bool contains(Address) = 0;
 #endif
@@ -453,13 +468,14 @@ public:
     void sweep() override;
     void makeConsistentForGC() override;
     void makeConsistentForMutator() override;
+    void invalidateObjectStartBitmap() override { m_objectStartBitMapComputed = false; }
 #if defined(ADDRESS_SANITIZER)
     void poisonObjects(BlinkGC::ObjectsToPoison, BlinkGC::Poisoning) override;
 #endif
     void checkAndMarkPointer(Visitor*, Address) override;
     void markOrphaned() override;
 
-    void takeSnapshot(String dumpBaseName, size_t pageIndex, ThreadState::GCSnapshotInfo&, size_t* outFreeSize, size_t* outFreeCount) override;
+    void takeSnapshot(WebMemoryAllocatorDump*, ThreadState::GCSnapshotInfo&, HeapSnapshotInfo&) override;
 #if ENABLE(ASSERT)
     // Returns true for the whole blinkPageSize page that the page is on, even
     // for the header, and the unmapped guard page at the start. That ensures
@@ -477,12 +493,10 @@ public:
 
 
     NormalPageHeap* heapForNormalPage();
-    void clearObjectStartBitMap();
 
 private:
     HeapObjectHeader* findHeaderFromAddress(Address);
     void populateObjectStartBitMap();
-    bool isObjectStartBitMapComputed() { return m_objectStartBitMapComputed; }
 
     bool m_objectStartBitMapComputed;
     uint8_t m_objectStartBitMap[reservedForObjectBitMap];
@@ -511,13 +525,14 @@ public:
     void sweep() override;
     void makeConsistentForGC() override;
     void makeConsistentForMutator() override;
+    void invalidateObjectStartBitmap() override { }
 #if defined(ADDRESS_SANITIZER)
     void poisonObjects(BlinkGC::ObjectsToPoison, BlinkGC::Poisoning) override;
 #endif
     void checkAndMarkPointer(Visitor*, Address) override;
     void markOrphaned() override;
 
-    void takeSnapshot(String dumpBaseName, size_t pageIndex, ThreadState::GCSnapshotInfo&, size_t* outFreeSize, size_t* outFreeCount) override;
+    void takeSnapshot(WebMemoryAllocatorDump*, ThreadState::GCSnapshotInfo&, HeapSnapshotInfo&) override;
 #if ENABLE(ASSERT)
     // Returns true for any address that is on one of the pages that this
     // large object uses. That ensures that we can use a negative result to
@@ -569,10 +584,10 @@ private:
 // The HeapDoesNotContainCache is a negative cache, so it must be flushed when
 // memory is added to the heap.
 class HeapDoesNotContainCache {
+    USING_FAST_MALLOC(HeapDoesNotContainCache);
 public:
     HeapDoesNotContainCache()
-        : m_entries(adoptArrayPtr(new Address[HeapDoesNotContainCache::numberOfEntries]))
-        , m_hasEntries(false)
+        : m_hasEntries(false)
     {
         // Start by flushing the cache in a non-empty state to initialize all the cache entries.
         for (int i = 0; i < numberOfEntries; ++i)
@@ -601,11 +616,12 @@ private:
 
     static size_t hash(Address);
 
-    WTF::OwnPtr<Address[]> m_entries;
+    Address m_entries[numberOfEntries];
     bool m_hasEntries;
 };
 
 class FreeList {
+    DISALLOW_NEW();
 public:
     FreeList();
 
@@ -641,6 +657,7 @@ private:
 // NormalPageHeap represents a heap that contains NormalPages
 // and LargeObjectHeap represents a heap that contains LargeObjectPages.
 class PLATFORM_EXPORT BaseHeap {
+    USING_FAST_MALLOC(BaseHeap);
 public:
     BaseHeap(ThreadState*, int);
     virtual ~BaseHeap();

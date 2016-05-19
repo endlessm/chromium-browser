@@ -2,17 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-{%- set header_guard = "%s_INTERNAL_H_"|
-        format(module.path|upper|replace("/","_")|replace(".","_")) %}
+{%- if variant -%}
+{%-   set variant_path = "%s-%s"|format(module.path, variant) -%}
+{%- else -%}
+{%-   set variant_path = module.path -%}
+{%- endif -%}
+
+{%- set header_guard = "%s_INTERNAL_H_"|format(
+        variant_path|upper|replace("/","_")|replace(".","_")|
+            replace("-", "_")) %}
 
 #ifndef {{header_guard}}
 #define {{header_guard}}
 
 #include "mojo/public/cpp/bindings/lib/bindings_internal.h"
 #include "mojo/public/cpp/bindings/lib/buffer.h"
+#include "mojo/public/cpp/bindings/lib/native_serialization.h"
 #include "mojo/public/cpp/bindings/lib/union_accessor.h"
 #include "mojo/public/cpp/bindings/lib/value_traits.h"
 #include "mojo/public/cpp/bindings/struct_ptr.h"
+{%- for header in extra_headers %}
+#include "{{header}}"
+{%- endfor %}
 
 {%- for import in imports %}
 #include "{{import.module.path}}-internal.h"
@@ -27,6 +38,9 @@ class BoundsChecker;
 {%- for namespace in namespaces_as_array %}
 namespace {{namespace}} {
 {%- endfor %}
+{%- if variant %}
+namespace {{variant}} {
+{%- endif %}
 
 {#--- Wrapper forward declarations #}
 {%  for struct in structs %}
@@ -49,6 +63,12 @@ class {{struct.name}}_Data;
 class {{union.name}}_Data;
 {%- endfor %}
 
+{#--- Enums #}
+{% from "enum_macros.tmpl" import enum_data_decl -%}
+{%- for enum in enums %}
+  {{enum_data_decl(enum)}}
+{%- endfor %}
+
 #pragma pack(push, 1)
 
 {#--- Unions must be declared first because they can be members of structs #}
@@ -57,14 +77,30 @@ class {{union.name}}_Data;
 {%    include "union_declaration.tmpl" %}
 {%- endfor %}
 
-{#--- Class declarations #}
+{#--- Struct class declarations #}
 {%  for struct in structs %}
 {%    include "struct_declaration.tmpl" %}
+{%- endfor %}
+
+{#--- Interface class declarations. They are needed only when they contain
+    enums. #}
+{%- for interface in interfaces %}
+{%-   if interface.enums %}
+class {{interface.name}}_Data {
+ public:
+{%-     for enum in interface.enums %}
+  {{enum_data_decl(enum)|indent(2)}}
+{%-     endfor %}
+};
+{%-   endif %}
 {%- endfor %}
 
 #pragma pack(pop)
 
 }  // namespace internal
+{%- if variant %}
+}  // namespace {{variant}}
+{%- endif %}
 {%- for namespace in namespaces_as_array|reverse %}
 }  // namespace {{namespace}}
 {%- endfor %}

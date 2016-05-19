@@ -9,6 +9,9 @@
 #include "content/browser/appcache/appcache_request_handler.h"
 #include "content/browser/appcache/appcache_service_impl.h"
 #include "content/browser/appcache/appcache_url_request_job.h"
+#include "content/browser/appcache/chrome_appcache_service.h"
+#include "content/browser/bad_message.h"
+#include "content/browser/loader/resource_message_filter.h"
 #include "content/common/appcache_interfaces.h"
 #include "net/url_request/url_request.h"
 
@@ -55,7 +58,7 @@ void AppCacheInterceptor::SetExtraRequestInfo(
 }
 
 void AppCacheInterceptor::GetExtraResponseInfo(net::URLRequest* request,
-                                               int64* cache_id,
+                                               int64_t* cache_id,
                                                GURL* manifest_url) {
   DCHECK(*cache_id == kAppCacheNoCacheId);
   DCHECK(manifest_url->is_empty());
@@ -76,10 +79,16 @@ void AppCacheInterceptor::PrepareForCrossSiteTransfer(
 void AppCacheInterceptor::CompleteCrossSiteTransfer(
     net::URLRequest* request,
     int new_process_id,
-    int new_host_id) {
+    int new_host_id,
+    ResourceMessageFilter* filter) {
   AppCacheRequestHandler* handler = GetHandler(request);
   if (!handler)
     return;
+  if (!handler->SanityCheckIsSameService(filter->appcache_service())) {
+    bad_message::ReceivedBadMessage(filter,
+                                    bad_message::ACI_WRONG_STORAGE_PARTITION);
+    return;
+  }
   DCHECK_NE(kAppCacheNoHostId, new_host_id);
   handler->CompleteCrossSiteTransfer(new_process_id,
                                      new_host_id);

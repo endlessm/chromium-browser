@@ -4,6 +4,9 @@
 
 #include "sync/syncable/entry_kernel.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/json/string_escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "sync/protocol/proto_value_conversions.h"
@@ -20,6 +23,8 @@ EntryKernel::EntryKernel() : dirty_(false) {
     int64_fields[i] = 0;
   }
 }
+
+EntryKernel::EntryKernel(const EntryKernel& other) = default;
 
 EntryKernel::~EntryKernel() {}
 
@@ -109,13 +114,13 @@ void SetEncryptableProtoValues(
     } else {
       value = EntitySpecificsToValue(kernel.ref(field));
     }
-    dictionary_value->Set(key, value.Pass());
+    dictionary_value->Set(key, std::move(value));
   }
 }
 
 // Helper functions for SetFieldValues().
 
-base::StringValue* Int64ToValue(int64 i) {
+base::StringValue* Int64ToValue(int64_t i) {
   return new base::StringValue(base::Int64ToString(i));
 }
 
@@ -287,5 +292,5 @@ std::ostream& operator<<(std::ostream& os, const EntryKernel& entry_kernel) {
   return os;
 }
 
-}  // namespace syncer
 }  // namespace syncable
+}  // namespace syncer

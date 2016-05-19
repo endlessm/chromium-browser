@@ -4,18 +4,14 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_ScrollBar.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ScrollBar.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 #define IsFloatZero(f) ((f) < 0.0001 && (f) > -0.0001)
 #define IsFloatBigger(fa, fb) ((fa) > (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatSmaller(fa, fb) ((fa) < (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatEqual(fa, fb) IsFloatZero((fa) - (fb))
-
-/* ------------------------------- PWL_FLOATRANGE
- * ------------------------------- */
 
 PWL_FLOATRANGE::PWL_FLOATRANGE() {
   Default();
@@ -48,9 +44,6 @@ FX_BOOL PWL_FLOATRANGE::In(FX_FLOAT x) const {
 FX_FLOAT PWL_FLOATRANGE::GetWidth() const {
   return fMax - fMin;
 }
-
-/* ------------------------------- PWL_SCROLL_PRIVATEDATA
- * ------------------------------- */
 
 PWL_SCROLL_PRIVATEDATA::PWL_SCROLL_PRIVATEDATA() {
   Default();
@@ -112,9 +105,6 @@ void PWL_SCROLL_PRIVATEDATA::SubBig() {
   if (!SetPos(fScrollPos - fBigStep))
     SetPos(ScrollRange.fMin);
 }
-
-/* ------------------------------- CPWL_SBButton -------------------------------
- */
 
 CPWL_SBButton::CPWL_SBButton(PWL_SCROLLBAR_TYPE eScrollBarType,
                              PWL_SBBUTTON_TYPE eButtonType) {
@@ -244,7 +234,7 @@ void CPWL_SBButton::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {
 }
 
 void CPWL_SBButton::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                       CPDF_Matrix* pUser2Device) {
+                                       CFX_Matrix* pUser2Device) {
   if (!IsVisible())
     return;
 
@@ -405,8 +395,6 @@ void CPWL_SBButton::DrawThisAppearance(CFX_RenderDevice* pDevice,
           }
         } break;
         case PSBT_POS: {
-          // CPWL_Wnd::DrawThisAppearance(pDevice,pUser2Device);
-
           // draw border
           CPDF_Rect rcDraw = rectWnd;
           CPWL_Utils::DrawStrokeRect(pDevice, pUser2Device, rcDraw,
@@ -532,14 +520,6 @@ void CPWL_SBButton::DrawThisAppearance(CFX_RenderDevice* pDevice,
 
             CPWL_Utils::DrawStrokeLine(pDevice, pUser2Device, ptLeft, ptRight,
                                        crStroke, 1.0f);
-
-            /*
-            ptLeft.y += 1.5f;
-            ptRight.y += 1.5f;
-
-            CPWL_Utils::DrawStrokeLine(pDevice, pUser2Device, ptLeft, ptRight,
-                    ArgbEncode(nTransparancy,150,150,150),1.0f);
-                    */
           }
         } break;
         default:
@@ -580,23 +560,10 @@ FX_BOOL CPWL_SBButton::OnMouseMove(const CPDF_Point& point, FX_DWORD nFlag) {
 
   if (CPWL_Wnd* pParent = GetParentWindow()) {
     pParent->OnNotify(this, PNM_MOUSEMOVE, 0, (intptr_t)&point);
-
-    /*
-    if (m_bMouseDown && (m_eSBButtonType == PSBT_MIN || m_eSBButtonType ==
-    PSBT_MAX))
-    {
-            if
-    (!pParent->OnNotify(this,PNM_LBUTTONDOWN,nFlags,(intptr_t)&point))
-                    return FALSE;
-    }
-    */
   }
 
   return TRUE;
 }
-
-/* ------------------------------- CPWL_ScrollBar
- * ---------------------------------- */
 
 CPWL_ScrollBar::CPWL_ScrollBar(PWL_SCROLLBAR_TYPE sbType)
     : m_sbType(sbType),
@@ -642,8 +609,9 @@ void CPWL_ScrollBar::RePosChildWnd() {
                                   rcClient.left + fBWidth, rcClient.top);
           rcMaxButton = CPDF_Rect(rcClient.right - fBWidth, rcClient.bottom,
                                   rcClient.right, rcClient.top);
-        } else
+        } else {
           SetVisible(FALSE);
+        }
       }
       break;
     case SBT_VSCROLL:
@@ -665,8 +633,9 @@ void CPWL_ScrollBar::RePosChildWnd() {
                                   rcClient.right, rcClient.top);
           rcMaxButton = CPDF_Rect(rcClient.left, rcClient.bottom,
                                   rcClient.right, rcClient.bottom + fBWidth);
-        } else
+        } else {
           SetVisible(FALSE);
+        }
       }
       break;
   }
@@ -696,7 +665,7 @@ void CPWL_ScrollBar::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {
 }
 
 void CPWL_ScrollBar::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                        CPDF_Matrix* pUser2Device) {
+                                        CFX_Matrix* pUser2Device) {
   CPDF_Rect rectWnd = GetWindowRect();
 
   if (IsVisible() && !rectWnd.IsEmpty()) {
@@ -923,9 +892,8 @@ void CPWL_ScrollBar::SetScrollStep(FX_FLOAT fBigStep, FX_FLOAT fSmallStep) {
 }
 
 void CPWL_ScrollBar::MovePosButton(FX_BOOL bRefresh) {
-  ASSERT(m_pPosButton != NULL);
-  ASSERT(m_pMinButton != NULL);
-  ASSERT(m_pMaxButton != NULL);
+  ASSERT(m_pMinButton);
+  ASSERT(m_pMaxButton);
 
   if (m_pPosButton->IsVisible()) {
     CPDF_Rect rcClient;

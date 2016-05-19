@@ -5,10 +5,13 @@
 #ifndef CHROME_BROWSER_SPELLCHECKER_SPELLCHECK_HOST_METRICS_H_
 #define CHROME_BROWSER_SPELLCHECKER_SPELLCHECK_HOST_METRICS_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/containers/hash_tables.h"
+#include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 

@@ -4,10 +4,13 @@
 
 #include "chrome/browser/policy/cloud/user_policy_signin_service_base.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/policy/cloud/user_cloud_policy_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -63,7 +66,7 @@ void UserPolicySigninServiceBase::FetchPolicyForSignedInUser(
   UserCloudPolicyManager* manager = policy_manager();
   DCHECK(manager);
   DCHECK(!manager->core()->client());
-  InitializeUserCloudPolicyManager(username, client.Pass());
+  InitializeUserCloudPolicyManager(username, std::move(client));
   DCHECK(manager->IsClientRegistered());
 
   // Now initiate a policy fetch.
@@ -150,11 +153,7 @@ UserPolicySigninServiceBase::CreateClientForRegistrationOnly(
     const std::string& username) {
   DCHECK(!username.empty());
   // We should not be called with a client already initialized.
-#if !defined(OS_IOS)
-  // On iOS we check if an account has policy while the profile is signed in
-  // to another account.
   DCHECK(!policy_manager() || !policy_manager()->core()->client());
-#endif
 
   // If the user should not get policy, just bail out.
   if (!policy_manager() || !ShouldLoadPolicyForUser(username)) {
@@ -239,7 +238,7 @@ void UserPolicySigninServiceBase::InitializeUserCloudPolicyManager(
   DCHECK(!manager->core()->client());
   scoped_refptr<net::URLRequestContextGetter> context =
       client->GetRequestContext();
-  manager->Connect(local_state_, context, client.Pass());
+  manager->Connect(local_state_, context, std::move(client));
   DCHECK(manager->core()->service());
 
   // Observe the client to detect errors fetching policy.

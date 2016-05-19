@@ -5,15 +5,17 @@
 #ifndef MEDIA_RENDERERS_MOCK_GPU_VIDEO_ACCELERATOR_FACTORIES_H_
 #define MEDIA_RENDERERS_MOCK_GPU_VIDEO_ACCELERATOR_FACTORIES_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "media/renderers/gpu_video_accelerator_factories.h"
 #include "media/video/video_decode_accelerator.h"
 #include "media/video/video_encode_accelerator.h"
 #include "testing/gmock/include/gmock/gmock.h"
-
-template <class T>
-class scoped_refptr;
 
 namespace base {
 class SharedMemory;
@@ -33,16 +35,16 @@ class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
   MOCK_METHOD0(DoCreateVideoEncodeAccelerator, VideoEncodeAccelerator*());
 
   MOCK_METHOD5(CreateTextures,
-               bool(int32 count,
+               bool(int32_t count,
                     const gfx::Size& size,
-                    std::vector<uint32>* texture_ids,
+                    std::vector<uint32_t>* texture_ids,
                     std::vector<gpu::Mailbox>* texture_mailboxes,
-                    uint32 texture_target));
-  MOCK_METHOD1(DeleteTexture, void(uint32 texture_id));
+                    uint32_t texture_target));
+  MOCK_METHOD1(DeleteTexture, void(uint32_t texture_id));
   MOCK_METHOD1(WaitSyncToken, void(const gpu::SyncToken& sync_token));
   MOCK_METHOD0(GetTaskRunner, scoped_refptr<base::SingleThreadTaskRunner>());
-  MOCK_METHOD0(GetVideoDecodeAcceleratorSupportedProfiles,
-               VideoDecodeAccelerator::SupportedProfiles());
+  MOCK_METHOD0(GetVideoDecodeAcceleratorCapabilities,
+               VideoDecodeAccelerator::Capabilities());
   MOCK_METHOD0(GetVideoEncodeAcceleratorSupportedProfiles,
                VideoEncodeAccelerator::SupportedProfiles());
 
@@ -52,7 +54,7 @@ class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
       gfx::BufferUsage usage) override;
 
   bool ShouldUseGpuMemoryBuffersForVideoFrames() const override;
-  unsigned ImageTextureTarget() override;
+  unsigned ImageTextureTarget(gfx::BufferFormat format) override;
   VideoPixelFormat VideoFrameOutputFormat() override {
     return video_frame_output_format_;
   };
@@ -68,6 +70,8 @@ class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
   void SetFailToAllocateGpuMemoryBufferForTesting(bool fail) {
     fail_to_allocate_gpu_memory_buffer_ = fail;
   }
+
+  void SetGpuMemoryBuffersInUseByMacOSWindowServer(bool in_use);
 
   scoped_ptr<base::SharedMemory> CreateSharedMemory(size_t size) override;
 

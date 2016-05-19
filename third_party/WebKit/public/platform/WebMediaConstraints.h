@@ -37,10 +37,261 @@
 #include "WebString.h"
 #include "WebVector.h"
 
+#include <vector>
+
 namespace blink {
 
 class WebMediaConstraintsPrivate;
 
+class BLINK_PLATFORM_EXPORT BaseConstraint {
+public:
+    explicit BaseConstraint(const char* name);
+    virtual ~BaseConstraint();
+    virtual bool isEmpty() const = 0;
+    virtual bool hasMandatory() const = 0;
+    const char* name() const
+    {
+        return m_name;
+    }
+    virtual WebString toString() const = 0;
+
+private:
+    const char* m_name;
+};
+
+class BLINK_PLATFORM_EXPORT LongConstraint : public BaseConstraint {
+public:
+    explicit LongConstraint(const char* name);
+
+    void setMin(long value)
+    {
+        m_min = value;
+        m_hasMin = true;
+    }
+
+    void setMax(long value)
+    {
+        m_max = value;
+        m_hasMax = true;
+    }
+
+    void setExact(long value)
+    {
+        m_exact = value;
+        m_hasExact = true;
+    }
+
+    void setIdeal(long value)
+    {
+        m_ideal = value;
+        m_hasIdeal = true;
+    }
+
+    bool matches(long value) const;
+    bool isEmpty() const override;
+    bool hasMandatory() const override;
+    WebString toString() const override;
+    bool hasMin() const { return m_hasMin; }
+    long min() const { return m_min; }
+    bool hasMax() const { return m_hasMax; }
+    long max() const { return m_max; }
+
+private:
+    long m_min;
+    long m_max;
+    long m_exact;
+    long m_ideal;
+    unsigned m_hasMin : 1;
+    unsigned m_hasMax : 1;
+    unsigned m_hasExact : 1;
+    unsigned m_hasIdeal : 1;
+};
+
+class BLINK_PLATFORM_EXPORT DoubleConstraint : public BaseConstraint {
+public:
+    // Permit a certain leeway when comparing floats. The offset of 0.00001
+    // is chosen based on observed behavior of doubles formatted with
+    // rtc::ToString.
+    static const double kConstraintEpsilon;
+
+    explicit DoubleConstraint(const char* name);
+
+    void setMin(double value)
+    {
+        m_min = value;
+        m_hasMin = true;
+    }
+
+    void setMax(double value)
+    {
+        m_max = value;
+        m_hasMax = true;
+    }
+
+    void setExact(double value)
+    {
+        m_exact = value;
+        m_hasExact = true;
+    }
+
+    void setIdeal(double value)
+    {
+        m_ideal = value;
+        m_hasIdeal = true;
+    }
+
+    bool matches(double value) const;
+    bool isEmpty() const override;
+    bool hasMandatory() const override;
+    WebString toString() const override;
+    bool hasMin() const { return m_hasMin; }
+    double min() const { return m_min; }
+    bool hasMax() const { return m_hasMax; }
+    double max() const { return m_max; }
+
+private:
+    double m_min;
+    double m_max;
+    double m_exact;
+    double m_ideal;
+    unsigned m_hasMin : 1;
+    unsigned m_hasMax : 1;
+    unsigned m_hasExact : 1;
+    unsigned m_hasIdeal : 1;
+};
+
+class BLINK_PLATFORM_EXPORT StringConstraint : public BaseConstraint {
+public:
+    // String-valued options don't have min or max, but can have multiple
+    // values for ideal and exact.
+    explicit StringConstraint(const char* name);
+
+    void setExact(const WebString& exact)
+    {
+        m_exact.assign(&exact, 1);
+    }
+
+    void setExact(const WebVector<WebString>& exact)
+    {
+        m_exact.assign(exact);
+    }
+
+    void setIdeal(const WebVector<WebString>& ideal)
+    {
+        m_ideal.assign(ideal);
+    }
+
+
+    bool matches(WebString value) const;
+    bool isEmpty() const override;
+    bool hasMandatory() const override;
+    WebString toString() const override;
+    const WebVector<WebString>& exact() const;
+    const WebVector<WebString>& ideal() const;
+
+private:
+    WebVector<WebString> m_exact;
+    WebVector<WebString> m_ideal;
+};
+
+class BLINK_PLATFORM_EXPORT BooleanConstraint : public BaseConstraint {
+public:
+    explicit BooleanConstraint(const char* name);
+
+    bool exact() const { return m_exact; }
+    bool ideal() const { return m_ideal; }
+    void setIdeal(bool value)
+    {
+        m_ideal = value;
+        m_hasIdeal = true;
+    }
+
+    void setExact(bool value)
+    {
+        m_exact = value;
+        m_hasExact = true;
+    }
+
+    bool matches(bool value) const;
+    bool isEmpty() const override;
+    bool hasMandatory() const override;
+    WebString toString() const override;
+    bool hasExact() const { return m_hasExact; }
+
+private:
+    unsigned m_ideal : 1;
+    unsigned m_exact : 1;
+    unsigned m_hasIdeal : 1;
+    unsigned m_hasExact : 1;
+};
+
+struct WebMediaTrackConstraintSet {
+public:
+    BLINK_PLATFORM_EXPORT WebMediaTrackConstraintSet();
+
+    LongConstraint width;
+    LongConstraint height;
+    DoubleConstraint aspectRatio;
+    DoubleConstraint frameRate;
+    StringConstraint facingMode;
+    DoubleConstraint volume;
+    LongConstraint sampleRate;
+    LongConstraint sampleSize;
+    BooleanConstraint echoCancellation;
+    DoubleConstraint latency;
+    LongConstraint channelCount;
+    StringConstraint deviceId;
+    StringConstraint groupId;
+    // Constraints not exposed in Blink at the moment, only through
+    // the legacy name interface.
+    StringConstraint mediaStreamSource; // tab, screen, desktop, system
+    BooleanConstraint renderToAssociatedSink;
+    BooleanConstraint hotwordEnabled;
+    BooleanConstraint googEchoCancellation;
+    BooleanConstraint googExperimentalEchoCancellation;
+    BooleanConstraint googAutoGainControl;
+    BooleanConstraint googExperimentalAutoGainControl;
+    BooleanConstraint googNoiseSuppression;
+    BooleanConstraint googHighpassFilter;
+    BooleanConstraint googTypingNoiseDetection;
+    BooleanConstraint googExperimentalNoiseSuppression;
+    BooleanConstraint googBeamforming;
+    StringConstraint googArrayGeometry;
+    BooleanConstraint googAudioMirroring;
+    BooleanConstraint googDAEchoCancellation;
+    BooleanConstraint googNoiseReduction;
+    StringConstraint offerToReceiveAudio;
+    StringConstraint offerToReceiveVideo;
+    BooleanConstraint voiceActivityDetection;
+    BooleanConstraint iceRestart;
+    BooleanConstraint googUseRtpMux;
+    BooleanConstraint enableDtlsSrtp;
+    BooleanConstraint enableRtpDataChannels;
+    BooleanConstraint enableDscp;
+    BooleanConstraint enableIPv6;
+    BooleanConstraint googEnableVideoSuspendBelowMinBitrate;
+    LongConstraint googNumUnsignalledRecvStreams;
+    BooleanConstraint googCombinedAudioVideoBwe;
+    LongConstraint googScreencastMinBitrate;
+    BooleanConstraint googCpuOveruseDetection;
+    LongConstraint googCpuUnderuseThreshold;
+    LongConstraint googCpuOveruseThreshold;
+    LongConstraint googCpuUnderuseEncodeRsdThreshold;
+    LongConstraint googCpuOveruseEncodeRsdThreshold;
+    BooleanConstraint googCpuOveruseEncodeUsage;
+    LongConstraint googHighStartBitrate;
+    BooleanConstraint googPayloadPadding;
+
+    BLINK_PLATFORM_EXPORT bool isEmpty() const;
+    BLINK_PLATFORM_EXPORT bool hasMandatory() const;
+    BLINK_PLATFORM_EXPORT bool hasMandatoryOutsideSet(const std::vector<std::string>&, std::string&) const;
+    BLINK_PLATFORM_EXPORT WebString toString() const;
+
+private:
+    std::vector<const BaseConstraint*> allConstraints() const;
+};
+
+// Old type/value form of constraint. Will be deprecated.
 struct WebMediaConstraint {
     WebMediaConstraint()
     {
@@ -58,7 +309,9 @@ struct WebMediaConstraint {
 
 class WebMediaConstraints {
 public:
-    WebMediaConstraints() { }
+    WebMediaConstraints()
+    {
+    }
     WebMediaConstraints(const WebMediaConstraints& other) { assign(other); }
     ~WebMediaConstraints() { reset(); }
 
@@ -73,14 +326,25 @@ public:
     BLINK_PLATFORM_EXPORT void reset();
     bool isNull() const { return m_private.isNull(); }
 
+    BLINK_PLATFORM_EXPORT bool isEmpty() const;
+    // Old accessors, will be deprecated
     BLINK_PLATFORM_EXPORT void getOptionalConstraints(WebVector<WebMediaConstraint>&) const;
     BLINK_PLATFORM_EXPORT void getMandatoryConstraints(WebVector<WebMediaConstraint>&) const;
 
     BLINK_PLATFORM_EXPORT bool getOptionalConstraintValue(const WebString& name, WebString& value) const;
     BLINK_PLATFORM_EXPORT bool getMandatoryConstraintValue(const WebString& name, WebString& value) const;
+    // End of will be deprecated
 
     BLINK_PLATFORM_EXPORT void initialize();
-    BLINK_PLATFORM_EXPORT void initialize(const WebVector<WebMediaConstraint>& optional, const WebVector<WebMediaConstraint>& mandatory);
+    // Transition initializer, will be removed
+    BLINK_PLATFORM_EXPORT void initialize(const WebVector<WebMediaConstraint>& optional, const WebVector<WebMediaConstraint>& mandatory, const WebMediaTrackConstraintSet& basic, const WebVector<WebMediaTrackConstraintSet>& advanced);
+
+    BLINK_PLATFORM_EXPORT void initialize(const WebMediaTrackConstraintSet& basic, const WebVector<WebMediaTrackConstraintSet>& advanced);
+
+    BLINK_PLATFORM_EXPORT const WebMediaTrackConstraintSet& basic() const;
+    BLINK_PLATFORM_EXPORT const WebVector<WebMediaTrackConstraintSet>& advanced() const;
+
+    BLINK_PLATFORM_EXPORT const WebString toString() const;
 
 private:
     WebPrivatePtr<WebMediaConstraintsPrivate> m_private;

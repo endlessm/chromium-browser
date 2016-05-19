@@ -481,14 +481,9 @@ class Isolate {
     return isolate;
   }
 
-  INLINE(static Isolate* UncheckedCurrent()) {
-    DCHECK(base::NoBarrier_Load(&isolate_key_created_) == 1);
-    return reinterpret_cast<Isolate*>(
-        base::Thread::GetThreadLocal(isolate_key_));
-  }
-
-  // Like UncheckedCurrent, but skips the check that |isolate_key_| was
-  // initialized. Callers have to ensure that themselves.
+  // Like Current, but skips the check that |isolate_key_| was initialized.
+  // Callers have to ensure that themselves.
+  // DO NOT USE. The only remaining callsite will be deleted soon.
   INLINE(static Isolate* UnsafeCurrent()) {
     return reinterpret_cast<Isolate*>(
         base::Thread::GetThreadLocal(isolate_key_));
@@ -522,6 +517,10 @@ class Isolate {
   // Find the PerThread for given (isolate, thread) combination
   // If one does not yet exist, return null.
   PerIsolateThreadData* FindPerThreadDataForThread(ThreadId thread_id);
+
+  // Discard the PerThread for this particular (isolate, thread) combination
+  // If one does not yet exist, no-op.
+  void DiscardPerThreadDataForThisThread();
 
   // Returns the key used to store the pointer to the current isolate.
   // Used internally for V8 threads that do not execute JavaScript but still
@@ -684,9 +683,6 @@ class Isolate {
   // set.
   bool MayAccess(Handle<Context> accessing_context, Handle<JSObject> receiver);
 
-  bool IsInternallyUsedPropertyName(Handle<Object> name);
-  bool IsInternallyUsedPropertyName(Object* name);
-
   void SetFailedAccessCheckCallback(v8::FailedAccessCheckCallback callback);
   void ReportFailedAccessCheck(Handle<JSObject> receiver);
 
@@ -822,6 +818,10 @@ class Isolate {
   StubCache* stub_cache() { return stub_cache_; }
   CodeAgingHelper* code_aging_helper() { return code_aging_helper_; }
   DeoptimizerData* deoptimizer_data() { return deoptimizer_data_; }
+  bool deoptimizer_lazy_throw() const { return deoptimizer_lazy_throw_; }
+  void set_deoptimizer_lazy_throw(bool value) {
+    deoptimizer_lazy_throw_ = value;
+  }
   ThreadLocalTop* thread_local_top() { return &thread_local_top_; }
   MaterializedObjectStore* materialized_object_store() {
     return materialized_object_store_;
@@ -893,7 +893,7 @@ class Isolate {
 
   unibrow::Mapping<unibrow::Ecma262Canonicalize>*
       interp_canonicalize_mapping() {
-    return &interp_canonicalize_mapping_;
+    return &regexp_macro_assembler_canonicalize_;
   }
 
   Debug* debug() { return debug_; }
@@ -939,7 +939,7 @@ class Isolate {
   bool initialized_from_snapshot() { return initialized_from_snapshot_; }
 
   double time_millis_since_init() {
-    return base::OS::TimeCurrentMillis() - time_millis_at_init_;
+    return heap_.MonotonicallyIncreasingTimeInMs() - time_millis_at_init_;
   }
 
   DateCache* date_cache() {
@@ -953,10 +953,6 @@ class Isolate {
     date_cache_ = date_cache;
   }
 
-  ErrorToStringHelper* error_tostring_helper() {
-    return &error_tostring_helper_;
-  }
-
   Map* get_initial_js_array_map(ElementsKind kind,
                                 Strength strength = Strength::WEAK);
 
@@ -964,6 +960,7 @@ class Isolate {
   static const int kArrayProtectorInvalid = 0;
 
   bool IsFastArrayConstructorPrototypeChainIntact();
+  bool IsArraySpeciesLookupChainIntact();
 
   // On intent to set an element in object, make sure that appropriate
   // notifications occur if the set is on the elements of the array or
@@ -979,6 +976,7 @@ class Isolate {
   void UpdateArrayProtectorOnNormalizeElements(Handle<JSObject> object) {
     UpdateArrayProtectorOnSetElement(object);
   }
+  void InvalidateArraySpeciesProtector();
 
   // Returns true if array is the initial array prototype in any native context.
   bool IsAnyInitialArrayPrototype(Handle<JSArray> array);
@@ -1059,6 +1057,10 @@ class Isolate {
   void RemoveCallCompletedCallback(CallCompletedCallback callback);
   void FireCallCompletedCallback();
 
+  void AddBeforeCallEnteredCallback(BeforeCallEnteredCallback callback);
+  void RemoveBeforeCallEnteredCallback(BeforeCallEnteredCallback callback);
+  void FireBeforeCallEnteredCallback();
+
   void SetPromiseRejectCallback(PromiseRejectCallback callback);
   void ReportPromiseReject(Handle<JSObject> promise, Handle<Object> value,
                            v8::PromiseRejectEvent event);
@@ -1093,8 +1095,9 @@ class Isolate {
 
   FutexWaitListNode* futex_wait_list_node() { return &futex_wait_list_node_; }
 
-  void RegisterCancelableTask(Cancelable* task);
-  void RemoveCancelableTask(Cancelable* task);
+  CancelableTaskManager* cancelable_task_manager() {
+    return cancelable_task_manager_;
+  }
 
   interpreter::Interpreter* interpreter() const { return interpreter_; }
 
@@ -1206,10 +1209,6 @@ class Isolate {
   // the frame.
   void RemoveMaterializedObjectsOnUnwind(StackFrame* frame);
 
-  // Traverse prototype chain to find out whether the object is derived from
-  // the Error object.
-  bool IsErrorObject(Handle<Object> obj);
-
   base::Atomic32 id_;
   EntryStackItem* entry_stack_;
   int stack_trace_nesting_level_;
@@ -1227,6 +1226,7 @@ class Isolate {
   StubCache* stub_cache_;
   CodeAgingHelper* code_aging_helper_;
   DeoptimizerData* deoptimizer_data_;
+  bool deoptimizer_lazy_throw_;
   MaterializedObjectStore* materialized_object_store_;
   ThreadLocalTop thread_local_top_;
   bool capture_stack_trace_for_uncaught_exceptions_;
@@ -1254,8 +1254,6 @@ class Isolate {
       regexp_macro_assembler_canonicalize_;
   RegExpStack* regexp_stack_;
   DateCache* date_cache_;
-  ErrorToStringHelper error_tostring_helper_;
-  unibrow::Mapping<unibrow::Ecma262Canonicalize> interp_canonicalize_mapping_;
   CallInterfaceDescriptorData* call_descriptor_data_;
   base::RandomNumberGenerator* random_number_generator_;
 
@@ -1326,6 +1324,9 @@ class Isolate {
   int next_unique_sfi_id_;
 #endif
 
+  // List of callbacks before a Call starts execution.
+  List<BeforeCallEnteredCallback> before_call_entered_callbacks_;
+
   // List of callbacks when a Call completes.
   List<CallCompletedCallback> call_completed_callbacks_;
 
@@ -1338,7 +1339,7 @@ class Isolate {
 
   FutexWaitListNode futex_wait_list_node_;
 
-  std::set<Cancelable*> cancelable_tasks_;
+  CancelableTaskManager* cancelable_task_manager_;
 
   v8::Isolate::AbortOnUncaughtExceptionCallback
       abort_on_uncaught_exception_callback_;

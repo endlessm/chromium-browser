@@ -4,7 +4,10 @@
 
 #include "ui/views/controls/table/table_view.h"
 
+#include <stddef.h>
+
 #include <map>
+#include <utility>
 
 #include "base/auto_reset.h"
 #include "base/i18n/rtl.h"
@@ -176,7 +179,7 @@ View* TableView::CreateParentIfNecessary() {
 
 void TableView::SetRowBackgroundPainter(
     scoped_ptr<TableViewRowBackgroundPainter> painter) {
-  row_background_painter_ = painter.Pass();
+  row_background_painter_ = std::move(painter);
 }
 
 void TableView::SetGrouper(TableGrouper* grouper) {
@@ -542,7 +545,7 @@ void TableView::OnPaint(gfx::Canvas* canvas) {
                                                   GetRowBounds(i),
                                                   canvas);
     }
-    if (selection_model_.active() == i && HasFocus())
+    if (selection_model_.active() == model_index && HasFocus())
       canvas->DrawFocusRect(GetRowBounds(i));
     for (int j = region.min_column; j < region.max_column; ++j) {
       const gfx::Rect cell_bounds(GetCellBounds(i, j));

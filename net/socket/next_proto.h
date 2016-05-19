@@ -18,16 +18,14 @@ namespace net {
 // are used to collect statistics on UMA.  Also, values must be in [0,499),
 // because of the way TLS protocol negotiation extension information is added to
 // UMA histogram.
+const int kProtoSPDYHistogramOffset = 100;
 enum NextProto {
   kProtoUnknown = 0,
   kProtoHTTP11 = 1,
   kProtoMinimumVersion = kProtoHTTP11,
 
-  kProtoDeprecatedSPDY2 = 100,
-  kProtoSPDYMinimumVersion = kProtoDeprecatedSPDY2,
-  kProtoSPDYHistogramOffset = kProtoDeprecatedSPDY2,
-  kProtoSPDY3 = 101,
   kProtoSPDY31 = 102,
+  kProtoSPDYMinimumVersion = kProtoSPDY31,
   // kProtoHTTP2_14 = 103,  // HTTP/2 draft-14
   // kProtoHTTP2_15 = 104,  // HTTP/2 draft-15
   // kProtoHTTP2_16 = 105,  // HTTP/2 draft-16
@@ -44,16 +42,6 @@ enum NextProto {
 typedef std::vector<NextProto> NextProtoVector;
 
 // Convenience functions to create NextProtoVector.
-
-// Default values, which are subject to change over time.
-NET_EXPORT NextProtoVector NextProtosDefaults();
-
-// Enable SPDY/3.1 and QUIC, but not HTTP/2.
-NET_EXPORT NextProtoVector NextProtosSpdy31();
-
-// Control SPDY/3.1 and HTTP/2 separately.
-NET_EXPORT NextProtoVector NextProtosWithSpdyAndQuic(bool spdy_enabled,
-                                                     bool quic_enabled);
 
 // Returns true if |next_proto| is a version of SPDY or HTTP/2.
 bool NextProtoIsSPDY(NextProto next_proto);

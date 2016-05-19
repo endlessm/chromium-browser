@@ -18,8 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGFEMergeNodeElement.h"
 
 #include "core/svg/SVGFilterPrimitiveStandardAttributes.h"
@@ -52,4 +50,4 @@ void SVGFEMergeNodeElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGElement::svgAttributeChanged(attrName);
 }
 
-}
+} // namespace blink

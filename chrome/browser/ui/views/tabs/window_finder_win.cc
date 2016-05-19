@@ -4,6 +4,9 @@
 
 #include "chrome/browser/ui/views/tabs/window_finder.h"
 
+#include <shobjidl.h>
+
+#include "base/macros.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/windows_version.h"
 #include "ui/aura/window.h"
@@ -11,12 +14,6 @@
 #include "ui/gfx/win/dpi.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_win.h"
 #include "ui/views/win/hwnd_util.h"
-
-#if defined(USE_ASH)
-gfx::NativeWindow GetLocalProcessWindowAtPointAsh(
-    const gfx::Point& screen_point,
-    const std::set<gfx::NativeWindow>& ignore);
-#endif
 
 namespace {
 
@@ -107,16 +104,16 @@ class TopMostFinder : public BaseWindowFinder {
     }
 
     // hwnd is at the point. Make sure the point is within the windows region.
-    if (GetWindowRgn(hwnd, tmp_region_.Get()) == ERROR) {
+    if (GetWindowRgn(hwnd, tmp_region_.get()) == ERROR) {
       // There's no region on the window and the window contains the point. Stop
       // iterating.
       return true;
     }
 
     // The region is relative to the window's rect.
-    BOOL is_point_in_region = PtInRegion(tmp_region_.Get(),
-        screen_loc_.x() - r.left, screen_loc_.y() - r.top);
-    tmp_region_ = CreateRectRgn(0, 0, 0, 0);
+    BOOL is_point_in_region = PtInRegion(
+        tmp_region_.get(), screen_loc_.x() - r.left, screen_loc_.y() - r.top);
+    tmp_region_.reset(CreateRectRgn(0, 0, 0, 0));
     // Stop iterating if the region contains the point.
     return !!is_point_in_region;
   }
@@ -149,29 +146,6 @@ class TopMostFinder : public BaseWindowFinder {
 };
 
 // LocalProcessWindowFinder ---------------------------------------------------
-
-// Copied from ShObjIdl.h in 10.0.10240.0 SDK. This can be removed once we
-// update to the newer SDK.
-#if NTDDI_VERSION < 0x0A000000
-class DECLSPEC_UUID("aa509086-5ca9-4c25-8f95-589d3c07b48a")
-    VirtualDesktopManager;
-
-MIDL_INTERFACE("a5cd92ff-29be-454c-8d04-d82879fb3f1b")
-IVirtualDesktopManager : public IUnknown {
- public:
-  virtual HRESULT STDMETHODCALLTYPE IsWindowOnCurrentVirtualDesktop(
-      /* [in] */ __RPC__in HWND topLevelWindow,
-      /* [out] */ __RPC__out BOOL * onCurrentDesktop) = 0;
-
-  virtual HRESULT STDMETHODCALLTYPE GetWindowDesktopId(
-      /* [in] */ __RPC__in HWND topLevelWindow,
-      /* [out] */ __RPC__out GUID * desktopId) = 0;
-
-  virtual HRESULT STDMETHODCALLTYPE MoveWindowToDesktop(
-      /* [in] */ __RPC__in HWND topLevelWindow,
-      /* [in] */ __RPC__in REFGUID desktopId) = 0;
-};
-#endif  // NTDDI_VERSION < 0x0A000000
 
 // Helper class to determine if a particular point contains a window from our
 // process.
@@ -260,14 +234,8 @@ std::set<HWND> RemapIgnoreSet(const std::set<gfx::NativeView>& ignore) {
 }  // namespace
 
 gfx::NativeWindow GetLocalProcessWindowAtPoint(
-    chrome::HostDesktopType host_desktop_type,
     const gfx::Point& screen_point,
-    const std::set<gfx::NativeWindow>& ignore,
-    gfx::NativeWindow source) {
-#if defined(USE_ASH)
-  if (host_desktop_type == chrome::HOST_DESKTOP_TYPE_ASH)
-    return GetLocalProcessWindowAtPointAsh(screen_point, ignore);
-#endif
+    const std::set<gfx::NativeWindow>& ignore) {
   return LocalProcessWindowFinder::GetProcessWindowAtPoint(
-          screen_point, RemapIgnoreSet(ignore));
+      screen_point, RemapIgnoreSet(ignore));
 }

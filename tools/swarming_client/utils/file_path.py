@@ -32,8 +32,9 @@ HARDLINK, HARDLINK_WITH_FALLBACK, SYMLINK, COPY = range(1, 5)
 
 
 if sys.platform == 'win32':
+  import locale
   from ctypes.wintypes import create_unicode_buffer
-  from ctypes.wintypes import windll, FormatError  # pylint: disable=E0611
+  from ctypes.wintypes import windll  # pylint: disable=E0611
   from ctypes.wintypes import GetLastError  # pylint: disable=E0611
 elif sys.platform == 'darwin':
   import Carbon.File  #  pylint: disable=F0401
@@ -41,6 +42,12 @@ elif sys.platform == 'darwin':
 
 
 if sys.platform == 'win32':
+  def FormatError(err):
+    """Returns a formatted error on Windows in unicode."""
+    # We need to take in account the current code page.
+    return ctypes.wintypes.FormatError(err).decode(
+        locale.getpreferredencoding(), 'replace')
+
   def QueryDosDevice(drive_letter):
     """Returns the Windows 'native' path for a DOS drive letter."""
     assert re.match(r'^[a-zA-Z]:$', drive_letter), drive_letter
@@ -163,9 +170,16 @@ if sys.platform == 'win32':
     dacl.AddAccessAllowedAce(
         win32security.ACL_REVISION_DS, FILE_ALL_ACCESS, user)
     sd.SetSecurityDescriptorDacl(1, dacl, 0)
+    # Note that this assumes the object is either owned by the current user or
+    # its group or that the current ACL permits this. Otherwise it will silently
+    # fail.
     win32security.SetFileSecurity(
         fs.extend(path), win32security.DACL_SECURITY_INFORMATION, sd)
-
+    # It's important to also look for the read only bit after, as it's possible
+    # the set_read_only() call to remove the read only bit had silently failed
+    # because there was no DACL for the user.
+    if not (os.stat(path).st_mode & stat.S_IWUSR):
+      os.chmod(path, 0777)
 
   def isabs(path):
     """Accepts X: as an absolute path, unlike python's os.path.isabs()."""

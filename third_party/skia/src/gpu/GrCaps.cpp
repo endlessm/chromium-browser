@@ -15,6 +15,7 @@ GrShaderCaps::GrShaderCaps() {
     fPathRenderingSupport = false;
     fDstReadInShaderSupport = false;
     fDualSourceBlendingSupport = false;
+    fIntegerSupport = false;
     fShaderPrecisionVaries = false;
 }
 
@@ -50,6 +51,7 @@ SkString GrShaderCaps::dump() const {
     r.appendf("Path Rendering Support             : %s\n", gNY[fPathRenderingSupport]);
     r.appendf("Dst Read In Shader Support         : %s\n", gNY[fDstReadInShaderSupport]);
     r.appendf("Dual Source Blending Support       : %s\n", gNY[fDualSourceBlendingSupport]);
+    r.appendf("Integer Support                    : %s\n", gNY[fIntegerSupport]);
 
     r.appendf("Shader Float Precisions (varies: %s):\n", gNY[fShaderPrecisionVaries]);
 
@@ -90,7 +92,7 @@ GrCaps::GrCaps(const GrContextOptions& options) {
     fCompressedTexSubImageSupport = false;
     fOversizedStencilSupport = false;
     fTextureBarrierSupport = false;
-    fMixedSamplesSupport = false;
+    fUsesMixedSamples = false;
     fSupportsInstancedDraws = false;
     fFullClearIsFree = false;
     fMustClearUploadedBufferData = false;
@@ -104,16 +106,16 @@ GrCaps::GrCaps(const GrContextOptions& options) {
 
     fMaxRenderTargetSize = 1;
     fMaxTextureSize = 1;
-    fMaxSampleCount = 0;
-
-    memset(fConfigRenderSupport, 0, sizeof(fConfigRenderSupport));
-    memset(fConfigTextureSupport, 0, sizeof(fConfigTextureSupport));
+    fMaxColorSampleCount = 0;
+    fMaxStencilSampleCount = 0;
+    fMaxRasterSamples = 0;
 
     fSuppressPrints = options.fSuppressPrints;
     fImmediateFlush = options.fImmediateMode;
     fDrawPathMasksToCompressedTextureSupport = options.fDrawPathToCompressedTexture;
     fGeometryBufferMapThreshold = options.fGeometryBufferMapThreshold;
     fUseDrawInsteadOfPartialRenderTargetWrite = options.fUseDrawInsteadOfPartialRenderTargetWrite;
+    fUseDrawInsteadOfAllRenderTargetWrites = false;
 
     fPreferVRAMUseOverFlushes = true;
 }
@@ -163,7 +165,7 @@ SkString GrCaps::dump() const {
     r.appendf("Compressed Update Support          : %s\n", gNY[fCompressedTexSubImageSupport]);
     r.appendf("Oversized Stencil Support          : %s\n", gNY[fOversizedStencilSupport]);
     r.appendf("Texture Barrier Support            : %s\n", gNY[fTextureBarrierSupport]);
-    r.appendf("Mixed Samples Support              : %s\n", gNY[fMixedSamplesSupport]);
+    r.appendf("Uses Mixed Samples                 : %s\n", gNY[fUsesMixedSamples]);
     r.appendf("Supports instanced draws           : %s\n", gNY[fSupportsInstancedDraws]);
     r.appendf("Full screen clear is free          : %s\n", gNY[fFullClearIsFree]);
     r.appendf("Must clear buffer memory           : %s\n", gNY[fMustClearUploadedBufferData]);
@@ -178,7 +180,9 @@ SkString GrCaps::dump() const {
 
     r.appendf("Max Texture Size                   : %d\n", fMaxTextureSize);
     r.appendf("Max Render Target Size             : %d\n", fMaxRenderTargetSize);
-    r.appendf("Max Sample Count                   : %d\n", fMaxSampleCount);
+    r.appendf("Max Color Sample Count             : %d\n", fMaxColorSampleCount);
+    r.appendf("Max Stencil Sample Count           : %d\n", fMaxStencilSampleCount);
+    r.appendf("Max Raster Samples                 : %d\n", fMaxRasterSamples);
 
     static const char* kBlendEquationSupportNames[] = {
         "Basic",
@@ -229,22 +233,24 @@ SkString GrCaps::dump() const {
     GR_STATIC_ASSERT(14 == kRGBA_half_GrPixelConfig);
     GR_STATIC_ASSERT(SK_ARRAY_COUNT(kConfigNames) == kGrPixelConfigCnt);
 
-    SkASSERT(!fConfigRenderSupport[kUnknown_GrPixelConfig][0]);
-    SkASSERT(!fConfigRenderSupport[kUnknown_GrPixelConfig][1]);
+    SkASSERT(!this->isConfigRenderable(kUnknown_GrPixelConfig, false));
+    SkASSERT(!this->isConfigRenderable(kUnknown_GrPixelConfig, true));
 
     for (size_t i = 1; i < SK_ARRAY_COUNT(kConfigNames); ++i)  {
+        GrPixelConfig config = static_cast<GrPixelConfig>(i);
         r.appendf("%s is renderable: %s, with MSAA: %s\n",
                   kConfigNames[i],
-                  gNY[fConfigRenderSupport[i][0]],
-                  gNY[fConfigRenderSupport[i][1]]);
+                  gNY[this->isConfigRenderable(config, false)],
+                  gNY[this->isConfigRenderable(config, true)]);
     }
 
-    SkASSERT(!fConfigTextureSupport[kUnknown_GrPixelConfig]);
+    SkASSERT(!this->isConfigTexturable(kUnknown_GrPixelConfig));
 
     for (size_t i = 1; i < SK_ARRAY_COUNT(kConfigNames); ++i)  {
+        GrPixelConfig config = static_cast<GrPixelConfig>(i);
         r.appendf("%s is uploadable to a texture: %s\n",
                   kConfigNames[i],
-                  gNY[fConfigTextureSupport[i]]);
+                  gNY[this->isConfigTexturable(config)]);
     }
 
     return r;

@@ -4,20 +4,19 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_EditCtrl.h"
-#include "../../include/pdfwindow/PWL_ScrollBar.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
-#include "../../include/pdfwindow/PWL_Caret.h"
-#include "../../include/pdfwindow/PWL_FontMap.h"
+#include "fpdfsdk/include/pdfwindow/PWL_EditCtrl.h"
+
+#include "fpdfsdk/include/pdfwindow/PWL_Caret.h"
+#include "fpdfsdk/include/pdfwindow/PWL_FontMap.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ScrollBar.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
+#include "public/fpdf_fwlevent.h"
 
 #define IsFloatZero(f) ((f) < 0.0001 && (f) > -0.0001)
 #define IsFloatBigger(fa, fb) ((fa) > (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatSmaller(fa, fb) ((fa) < (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatEqual(fa, fb) IsFloatZero((fa) - (fb))
-
-/* ---------------------------- CPWL_EditCtrl ------------------------------ */
 
 CPWL_EditCtrl::CPWL_EditCtrl()
     : m_pEdit(NULL),
@@ -27,7 +26,7 @@ CPWL_EditCtrl::CPWL_EditCtrl()
       m_nCharSet(DEFAULT_CHARSET),
       m_nCodePage(0) {
   m_pEdit = IFX_Edit::NewEdit();
-  ASSERT(m_pEdit != NULL);
+  ASSERT(m_pEdit);
 }
 
 CPWL_EditCtrl::~CPWL_EditCtrl() {
@@ -47,7 +46,7 @@ void CPWL_EditCtrl::OnCreated() {
 }
 
 FX_BOOL CPWL_EditCtrl::IsWndHorV() {
-  CPDF_Matrix mt = GetWindowMatrix();
+  CFX_Matrix mt = GetWindowMatrix();
   CPDF_Point point1(0, 1);
   CPDF_Point point2(1, 1);
 
@@ -382,10 +381,6 @@ void CPWL_EditCtrl::SetCaret(FX_BOOL bVisible,
 
     m_pEditCaret->SetCaret(bVisible, ptHead, ptFoot);
   }
-}
-
-FX_BOOL CPWL_EditCtrl::IsModified() const {
-  return m_pEdit->IsModified();
 }
 
 CFX_WideString CPWL_EditCtrl::GetText() const {

@@ -4,6 +4,8 @@
 
 import("//build/config/linux/pkg_config.gni")
 
+visibility = [ "//ui/ozone/*" ]
+
 source_set("caca") {
   sources = [
     "caca_event_source.cc",
@@ -23,9 +25,14 @@ source_set("caca") {
   deps = [
     "//base",
     "//skia",
+    "//ui/events",
     "//ui/events/ozone:events_ozone_layout",
     "//ui/events/platform",
+    "//ui/gfx",
     "//ui/gfx/geometry",
+    "//ui/ozone:ozone_base",
+    "//ui/ozone/common",
+    "//ui/platform_window",
   ]
 
   configs += [ ":libcaca" ]

@@ -20,6 +20,7 @@
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request_context.h"
+#include "url/origin.h"
 
 namespace content {
 
@@ -139,6 +140,8 @@ AppCacheUpdateJob::UrlToFetch::UrlToFetch(const GURL& url,
       existing_response_info(info) {
 }
 
+AppCacheUpdateJob::UrlToFetch::UrlToFetch(const UrlToFetch& other) = default;
+
 AppCacheUpdateJob::UrlToFetch::~UrlToFetch() {
 }
 
@@ -163,6 +166,7 @@ AppCacheUpdateJob::URLFetcher::~URLFetcher() {
 
 void AppCacheUpdateJob::URLFetcher::Start() {
   request_->set_first_party_for_cookies(job_->manifest_url_);
+  request_->set_initiator(url::Origin(job_->manifest_url_));
   if (fetch_type_ == MANIFEST_FETCH && job_->doing_full_update_check_)
     request_->SetLoadFlags(request_->load_flags() | net::LOAD_BYPASS_CACHE);
   else if (existing_response_headers_.get())
@@ -174,7 +178,7 @@ void AppCacheUpdateJob::URLFetcher::OnReceivedRedirect(
     net::URLRequest* request,
     const net::RedirectInfo& redirect_info,
     bool* defer_redirect) {
-  DCHECK(request_ == request);
+  DCHECK_EQ(request_.get(), request);
   // Redirect is not allowed by the update process.
   job_->MadeProgress();
   redirect_response_code_ = request->GetResponseCode();
@@ -185,7 +189,7 @@ void AppCacheUpdateJob::URLFetcher::OnReceivedRedirect(
 
 void AppCacheUpdateJob::URLFetcher::OnResponseStarted(
     net::URLRequest *request) {
-  DCHECK(request == request_);
+  DCHECK_EQ(request_.get(), request);
   int response_code = -1;
   if (request->status().is_success()) {
     response_code = request->GetResponseCode();
@@ -244,7 +248,7 @@ void AppCacheUpdateJob::URLFetcher::OnResponseStarted(
 
 void AppCacheUpdateJob::URLFetcher::OnReadCompleted(
     net::URLRequest* request, int bytes_read) {
-  DCHECK(request_ == request);
+  DCHECK_EQ(request_.get(), request);
   bool data_consumed = true;
   if (request->status().is_success() && bytes_read > 0) {
     job_->MadeProgress();
@@ -270,13 +274,14 @@ void AppCacheUpdateJob::URLFetcher::OnReadCompleted(
 
 void AppCacheUpdateJob::URLFetcher::AddConditionalHeaders(
     const net::HttpResponseHeaders* headers) {
-  DCHECK(request_.get() && headers);
+  DCHECK(request_);
+  DCHECK(headers);
   net::HttpRequestHeaders extra_headers;
 
   // Add If-Modified-Since header if response info has Last-Modified header.
   const std::string last_modified = "Last-Modified";
   std::string last_modified_value;
-  headers->EnumerateHeader(NULL, last_modified, &last_modified_value);
+  headers->EnumerateHeader(nullptr, last_modified, &last_modified_value);
   if (!last_modified_value.empty()) {
     extra_headers.SetHeader(net::HttpRequestHeaders::kIfModifiedSince,
                             last_modified_value);
@@ -285,7 +290,7 @@ void AppCacheUpdateJob::URLFetcher::AddConditionalHeaders(
   // Add If-None-Match header if response info has ETag header.
   const std::string etag = "ETag";
   std::string etag_value;
-  headers->EnumerateHeader(NULL, etag, &etag_value);
+  headers->EnumerateHeader(nullptr, etag, &etag_value);
   if (!etag_value.empty()) {
     extra_headers.SetHeader(net::HttpRequestHeaders::kIfNoneMatch,
                             etag_value);
@@ -1446,7 +1451,8 @@ bool AppCacheUpdateJob::MaybeLoadFromNewestCache(const GURL& url,
 }
 
 void AppCacheUpdateJob::OnResponseInfoLoaded(
-    AppCacheResponseInfo* response_info, int64 response_id) {
+    AppCacheResponseInfo* response_info,
+    int64_t response_id) {
   const net::HttpResponseInfo* http_info = response_info ?
       response_info->http_response_info() : NULL;
 
@@ -1470,7 +1476,7 @@ void AppCacheUpdateJob::OnResponseInfoLoaded(
     // Responses with a "vary" header get treated as expired.
     const std::string name = "vary";
     std::string value;
-    void* iter = NULL;
+    size_t iter = 0;
     if (!http_info->headers.get() ||
         http_info->headers->RequiresValidation(http_info->request_time,
                                                http_info->response_time,

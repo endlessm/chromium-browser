@@ -358,6 +358,12 @@ message ClientDownloadRequest {
 
   // True if the .zip or DMG, etc, was 100% successfully unpacked.
   optional bool archive_valid = 26;
+
+    // True if this ClientDownloadRequest is from a whitelisted domain.
+  optional bool skipped_url_whitelist = 28;
+
+  // True if this ClientDownloadRequest contains a whitelisted certificate.
+  optional bool skipped_certificate_whitelist = 31;
 }
 
 message ClientDownloadResponse {
@@ -483,12 +489,18 @@ message ClientIncidentReport {
     message ResourceRequestIncident {
       enum Type {
         UNKNOWN = 0;
-        TYPE_SCRIPT = 1;
-        TYPE_DOMAIN = 2;
+        TYPE_PATTERN = 3;
       }
       optional bytes digest = 1;
       optional string origin = 2;
       optional Type type = 3 [default = UNKNOWN];
+    }
+    message SuspiciousModuleIncident {
+      optional string path = 1;
+      optional ClientDownloadRequest.Digests digest = 2;
+      optional string version = 3;
+      optional ClientDownloadRequest.SignatureInfo signature = 4;
+      optional ClientDownloadRequest.ImageHeaders image_headers = 5;
     }
     optional int64 incident_time_msec = 1;
     optional TrackedPreferenceIncident tracked_preference = 2;
@@ -497,6 +509,7 @@ message ClientIncidentReport {
     // Note: skip tag 5 because it was previously used.
     optional VariationsSeedSignatureIncident variations_seed_signature = 6;
     optional ResourceRequestIncident resource_request = 7;
+    optional SuspiciousModuleIncident suspicious_module = 8;
   }
 
   repeated IncidentData incident = 1;
@@ -528,6 +541,8 @@ message ClientIncidentReport {
       }
 
       repeated RegistryKey registry_key = 3;
+
+      optional bool is_enrolled_to_domain = 4;
     }
     optional OS os = 1;
     message Machine {
@@ -679,7 +694,8 @@ message ClientSafeBrowsingReportRequest {
     URL_UNWANTED = 3;
     CLIENT_SIDE_PHISHING_URL = 4;
     CLIENT_SIDE_MALWARE_URL = 5;
-    MALICIOUS_DOWNLOAD_RECOVERY = 6;
+    DANGEROUS_DOWNLOAD_RECOVERY = 6;
+    DANGEROUS_DOWNLOAD_WARNING = 7;
   }
 
   message HTTPHeader {
@@ -731,7 +747,8 @@ message ClientSafeBrowsingReportRequest {
 
   optional ReportType type = 10;
 
-  // Only set if ReportType is MALICIOUS_DOWNLOAD_RECOVERY.
+  // Only set if ReportType is DANGEROUS_DOWNLOAD_RECOVERY or
+  // DANGEROUS_DOWNLOAD_WARNING.
   optional ClientDownloadResponse.Verdict download_verdict = 11;
 
   // URL of the page in the address bar.

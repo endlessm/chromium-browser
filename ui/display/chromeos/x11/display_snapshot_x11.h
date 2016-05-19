@@ -5,6 +5,9 @@
 #ifndef UI_DISPLAY_CHROMEOS_X11_DISPLAY_SNAPSHOT_X11_H_
 #define UI_DISPLAY_CHROMEOS_X11_DISPLAY_SNAPSHOT_X11_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "ui/display/display_export.h"
 #include "ui/display/types/display_snapshot.h"
 
@@ -25,6 +28,7 @@ class DISPLAY_EXPORT DisplaySnapshotX11 : public DisplaySnapshot {
                      bool has_overscan,
                      std::string display_name,
                      const std::vector<const DisplayMode*>& modes,
+                     const std::vector<uint8_t>& edid,
                      const DisplayMode* current_mode,
                      const DisplayMode* native_mode,
                      RROutput output,

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "url/gurl.h"
 
 class UpdateManifest {
@@ -41,6 +42,7 @@ class UpdateManifest {
   // The result of parsing one <app> tag in an xml update check manifest.
   struct Result {
     Result();
+    Result(const Result& other);
     ~Result();
 
     std::string extension_id;

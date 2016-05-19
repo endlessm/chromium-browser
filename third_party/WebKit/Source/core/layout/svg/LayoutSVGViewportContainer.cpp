@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGViewportContainer.h"
 
 #include "core/layout/svg/SVGLayoutSupport.h"
@@ -102,4 +101,4 @@ void LayoutSVGViewportContainer::paint(const PaintInfo& paintInfo, const LayoutP
     SVGContainerPainter(*this).paint(paintInfo);
 }
 
-}
+} // namespace blink

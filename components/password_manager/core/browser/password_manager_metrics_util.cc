@@ -4,17 +4,17 @@
 
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "url/gurl.h"
 
 using base::ListValue;
@@ -179,6 +179,13 @@ void LogUpdatePasswordSubmissionEvent(UpdatePasswordSubmissionEvent event) {
   DCHECK_LT(event, UPDATE_PASSWORD_EVENT_COUNT);
   UMA_HISTOGRAM_ENUMERATION("PasswordManager.UpdatePasswordSubmissionEvent",
                             event, UPDATE_PASSWORD_EVENT_COUNT);
+}
+
+void LogMultiAccountUpdateBubbleUserAction(
+    MultiAccountUpdateBubbleUserAction action) {
+  UMA_HISTOGRAM_ENUMERATION("PasswordManager.MultiAccountPasswordUpdateAction",
+                            action,
+                            MULTI_ACCOUNT_UPDATE_BUBBLE_USER_ACTION_COUNT);
 }
 
 }  // namespace metrics_util

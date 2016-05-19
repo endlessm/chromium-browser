@@ -21,8 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/graphics/filters/SVGFEImage.h"
 
 #include "core/layout/LayoutObject.h"
@@ -121,7 +119,7 @@ FloatRect FEImage::determineAbsolutePaintRect(const FloatRect& originalRequested
         }
         destRect.intersect(srcRect);
     } else {
-        srcRect = FloatRect(FloatPoint(), m_image->size());
+        srcRect = FloatRect(FloatPoint(), FloatSize(m_image->size()));
         m_preserveAspectRatio->transformRect(destRect, srcRect);
     }
 
@@ -177,7 +175,7 @@ PassRefPtr<SkImageFilter> FEImage::createImageFilterForLayoutObject(const Layout
     SkPictureBuilder filterPicture(dstRect);
     {
         TransformRecorder transformRecorder(filterPicture.context(), layoutObject, transform);
-        SVGPaintContext::paintSubtree(&filterPicture.context(), &layoutObject);
+        SVGPaintContext::paintSubtree(filterPicture.context(), &layoutObject);
     }
     RefPtr<const SkPicture> recording = filterPicture.endRecording();
 
@@ -199,7 +197,7 @@ PassRefPtr<SkImageFilter> FEImage::createImageFilter(SkiaImageFilterBuilder& bui
         return createTransparentBlack(builder);
     }
 
-    FloatRect srcRect = FloatRect(FloatPoint(), m_image->size());
+    FloatRect srcRect = FloatRect(FloatPoint(), FloatSize(m_image->size()));
     FloatRect dstRect = filterPrimitiveSubregion();
 
     m_preserveAspectRatio->transformRect(dstRect, srcRect);

@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "net/sdch/sdch_owner.h"
+
+#include <utility>
+
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
-#include "base/prefs/testing_pref_store.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
@@ -14,7 +18,6 @@
 #include "base/values.h"
 #include "net/base/sdch_manager.h"
 #include "net/log/net_log.h"
-#include "net/sdch/sdch_owner.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_error_job.h"
@@ -23,17 +26,16 @@
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+namespace net {
+
 namespace {
 
-bool GetDictionaryForURL(TestingPrefStore* store,
+bool GetDictionaryForURL(SdchOwner::PrefStorage* store,
                          const GURL& url,
                          std::string* hash,
                          base::DictionaryValue** dict) {
-  base::Value* sdch_val = nullptr;
   base::DictionaryValue* sdch_dict = nullptr;
-  if (!store->GetMutableValue("SDCH", &sdch_val))
-    return false;
-  if (!sdch_val->GetAsDictionary(&sdch_dict))
+  if (!store->GetMutableValue(&sdch_dict))
     return false;
 
   base::DictionaryValue* dicts_dict = nullptr;
@@ -59,9 +61,59 @@ bool GetDictionaryForURL(TestingPrefStore* store,
   return false;
 }
 
-}  // namespace
+// This class supports copying so we can emulate persistent storage.
+class TestPrefStorage : public SdchOwner::PrefStorage {
+ public:
+  explicit TestPrefStorage(bool initialized)
+      : initialized_(initialized), initialization_observer_(nullptr) {}
+  explicit TestPrefStorage(const TestPrefStorage& other)
+      : initialized_(other.initialized_),
+        initialization_observer_(nullptr) {  // Don't copy observer.
+    storage_.MergeDictionary(&other.storage_);
+  }
 
-namespace net {
+  ~TestPrefStorage() override {}
+
+  void SetInitialized() {
+    DCHECK(!initialized_);
+    initialized_ = true;
+    if (initialization_observer_)
+      initialization_observer_->OnPrefStorageInitializationComplete(true);
+  }
+
+  ReadError GetReadError() const override { return PERSISTENCE_FAILURE_NONE; }
+
+  bool GetValue(const base::DictionaryValue** result) const override {
+    *result = &storage_;
+    return true;
+  }
+  bool GetMutableValue(base::DictionaryValue** result) override {
+    *result = &storage_;
+    return true;
+  }
+  void SetValue(scoped_ptr<base::DictionaryValue> value) override {
+    storage_.Clear();
+    storage_.MergeDictionary(value.get());
+  }
+
+  void ReportValueChanged() override {}
+
+  // This storage class requires no special initialization.
+  bool IsInitializationComplete() override { return initialized_; }
+  void StartObservingInit(SdchOwner* observer) override {
+    DCHECK(!initialization_observer_);
+    initialization_observer_ = observer;
+  }
+  void StopObservingInit() override { initialization_observer_ = nullptr; }
+
+ private:
+  bool initialized_;
+  SdchOwner* initialization_observer_;
+
+  base::DictionaryValue storage_;
+};
+
+}  // namespace
 
 static const char generic_url[] = "http://www.example.com";
 static const char generic_domain[] = "www.example.com";
@@ -259,7 +311,6 @@ class SdchOwnerTest : public testing::Test {
   SdchOwnerTest()
       : last_jobs_created_(error_jobs_created),
         dictionary_creation_index_(0),
-        pref_store_(new TestingPrefStore),
         sdch_owner_(new SdchOwner(&sdch_manager_, &url_request_context_)) {
     // Any jobs created on this context will immediately error,
     // which leaves the test in control of signals to SdchOwner.
@@ -273,7 +324,6 @@ class SdchOwnerTest : public testing::Test {
   SdchManager& sdch_manager() { return sdch_manager_; }
   SdchOwner& sdch_owner() { return *(sdch_owner_.get()); }
   BoundNetLog& bound_net_log() { return net_log_; }
-  TestingPrefStore& pref_store() { return *(pref_store_.get()); }
 
   int JobsRecentlyCreated() {
     int result = error_jobs_created - last_jobs_created_;
@@ -311,8 +361,9 @@ class SdchOwnerTest : public testing::Test {
   // SdchOwner::OnDictionaryFetched(), and return whether that
   // addition was successful or not.
   bool CreateAndAddDictionary(size_t size,
-                              std::string* server_hash_p,
-                              base::Time last_used_time) {
+                              base::Time last_used_time,
+                              base::Time created_time,
+                              std::string* server_hash_p) {
     GURL dictionary_url(
         base::StringPrintf("%s/d%d", generic_url, dictionary_creation_index_));
     std::string dictionary_text(NewSdchDictionary(size - 4));
@@ -324,11 +375,19 @@ class SdchOwnerTest : public testing::Test {
 
     if (DictionaryPresentInManager(server_hash))
       return false;
-    sdch_owner().OnDictionaryFetched(last_used_time, 0, dictionary_text,
-                                     dictionary_url, net_log_, false);
+    sdch_owner().OnDictionaryFetched(last_used_time, created_time, 0,
+                                     dictionary_text, dictionary_url, net_log_,
+                                     false);
     if (server_hash_p)
       *server_hash_p = server_hash;
     return DictionaryPresentInManager(server_hash);
+  }
+
+  bool CreateAndAddDictionary(size_t size,
+                              base::Time last_used_time,
+                              std::string* server_hash_p) {
+    return CreateAndAddDictionary(size, last_used_time, base::Time(),
+                                  server_hash_p);
   }
 
   void ResetOwner() {
@@ -346,7 +405,6 @@ class SdchOwnerTest : public testing::Test {
   MockURLRequestJobFactory job_factory_;
   URLRequestContext url_request_context_;
   SdchManager sdch_manager_;
-  scoped_refptr<TestingPrefStore> pref_store_;
   scoped_ptr<SdchOwner> sdch_owner_;
 
   DISALLOW_COPY_AND_ASSIGN(SdchOwnerTest);
@@ -366,8 +424,9 @@ TEST_F(SdchOwnerTest, OnGetDictionary_Fetching) {
   // Fetch generated when half full.
   GURL dict_url2(std::string(generic_url) + "/d2");
   std::string dictionary1(NewSdchDictionary(kMaxSizeForTesting / 2));
-  sdch_owner().OnDictionaryFetched(base::Time::Now(), 1, dictionary1,
-                                   dict_url1, bound_net_log(), false);
+  sdch_owner().OnDictionaryFetched(base::Time::Now(), base::Time::Now(), 1,
+                                   dictionary1, dict_url1, bound_net_log(),
+                                   false);
   EXPECT_EQ(0, JobsRecentlyCreated());
   SignalGetDictionaryAndClearJobs(request_url, dict_url2);
   EXPECT_EQ(1, JobsRecentlyCreated());
@@ -376,8 +435,9 @@ TEST_F(SdchOwnerTest, OnGetDictionary_Fetching) {
   GURL dict_url3(std::string(generic_url) + "/d3");
   std::string dictionary2(NewSdchDictionary(
       (kMaxSizeForTesting / 2 - kMinFetchSpaceForTesting / 2)));
-  sdch_owner().OnDictionaryFetched(base::Time::Now(), 1, dictionary2,
-                                   dict_url2, bound_net_log(), false);
+  sdch_owner().OnDictionaryFetched(base::Time::Now(), base::Time::Now(), 1,
+                                   dictionary2, dict_url2, bound_net_log(),
+                                   false);
   EXPECT_EQ(0, JobsRecentlyCreated());
   SignalGetDictionaryAndClearJobs(request_url, dict_url3);
   EXPECT_EQ(0, JobsRecentlyCreated());
@@ -394,18 +454,18 @@ TEST_F(SdchOwnerTest, OnDictionaryFetched_Fetching) {
                                        base::TimeDelta::FromMinutes(30));
 
   // Add successful when empty.
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 2, nullptr,
-                                     dictionary_last_used_time));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 2,
+                                     dictionary_last_used_time, nullptr));
   EXPECT_EQ(0, JobsRecentlyCreated());
 
   // Add successful when half full.
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 2, nullptr,
-                                     dictionary_last_used_time));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 2,
+                                     dictionary_last_used_time, nullptr));
   EXPECT_EQ(0, JobsRecentlyCreated());
 
   // Add unsuccessful when full.
-  EXPECT_FALSE(CreateAndAddDictionary(kMaxSizeForTesting / 2, nullptr,
-                                      dictionary_last_used_time));
+  EXPECT_FALSE(CreateAndAddDictionary(kMaxSizeForTesting / 2,
+                                      dictionary_last_used_time, nullptr));
   EXPECT_EQ(0, JobsRecentlyCreated());
 }
 
@@ -425,9 +485,9 @@ TEST_F(SdchOwnerTest, ConfirmAutoEviction) {
   base::Time stale(base::Time::Now() - base::TimeDelta::FromHours(25));
 
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d1, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, fresh, &server_hash_d1));
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d2, stale));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, stale, &server_hash_d2));
 
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d2));
@@ -438,7 +498,7 @@ TEST_F(SdchOwnerTest, ConfirmAutoEviction) {
   test_clock->Advance(synthetic_delta);
 
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d3, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, fresh, &server_hash_d3));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_FALSE(DictionaryPresentInManager(server_hash_d2));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d3));
@@ -481,12 +541,12 @@ TEST_F(SdchOwnerTest, ConfirmAutoEviction_2) {
   base::Time fresh(base::Time::Now() - base::TimeDelta::FromHours(23));
   base::Time stale(base::Time::Now() - base::TimeDelta::FromHours(25));
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d1, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, fresh, &server_hash_d1));
 
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d2, stale));
+      CreateAndAddDictionary(kMaxSizeForTesting / 4, stale, &server_hash_d2));
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d3, stale));
+      CreateAndAddDictionary(kMaxSizeForTesting / 4, stale, &server_hash_d3));
 
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d2));
@@ -494,7 +554,7 @@ TEST_F(SdchOwnerTest, ConfirmAutoEviction_2) {
 
   std::string server_hash_d4;
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d4, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, fresh, &server_hash_d4));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_FALSE(DictionaryPresentInManager(server_hash_d2));
   EXPECT_FALSE(DictionaryPresentInManager(server_hash_d3));
@@ -514,13 +574,13 @@ TEST_F(SdchOwnerTest, ConfirmAutoEviction_Oldest) {
   base::Time stale_older(base::Time::Now() - base::TimeDelta::FromHours(71));
 
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d1, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 4, fresh, &server_hash_d1));
 
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d2,
-                                     stale_newer));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, stale_newer,
+                                     &server_hash_d2));
 
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d3,
-                                     stale_older));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, stale_older,
+                                     &server_hash_d3));
 
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d2));
@@ -531,7 +591,7 @@ TEST_F(SdchOwnerTest, ConfirmAutoEviction_Oldest) {
 
   std::string server_hash_d4;
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d4, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, fresh, &server_hash_d4));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d2));
   EXPECT_FALSE(DictionaryPresentInManager(server_hash_d3));
@@ -551,13 +611,13 @@ TEST_F(SdchOwnerTest, UseChangesEviction) {
   base::Time stale_older(base::Time::Now() - base::TimeDelta::FromHours(71));
 
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d1, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 4, fresh, &server_hash_d1));
 
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d2,
-                                     stale_newer));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, stale_newer,
+                                     &server_hash_d2));
 
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d3,
-                                     stale_older));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, stale_older,
+                                     &server_hash_d3));
 
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d2));
@@ -570,7 +630,7 @@ TEST_F(SdchOwnerTest, UseChangesEviction) {
   // newer stale one.
   std::string server_hash_d4;
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d4, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, fresh, &server_hash_d4));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_FALSE(DictionaryPresentInManager(server_hash_d2));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d3));
@@ -590,13 +650,13 @@ TEST_F(SdchOwnerTest, UsePreventsAddition) {
   base::Time stale_older(base::Time::Now() - base::TimeDelta::FromHours(71));
 
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d1, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 4, fresh, &server_hash_d1));
 
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d2,
-                                     stale_newer));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, stale_newer,
+                                     &server_hash_d2));
 
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, &server_hash_d3,
-                                     stale_older));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 4, stale_older,
+                                     &server_hash_d3));
 
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d2));
@@ -609,7 +669,7 @@ TEST_F(SdchOwnerTest, UsePreventsAddition) {
   // The addition of a new dictionary should fail, not evicting anything.
   std::string server_hash_d4;
   EXPECT_FALSE(
-      CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d4, fresh));
+      CreateAndAddDictionary(kMaxSizeForTesting / 2, fresh, &server_hash_d4));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d2));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d3));
@@ -622,11 +682,11 @@ TEST_F(SdchOwnerTest, ClearReturnsSpace) {
   std::string server_hash_d2;
 
   // Take up all the space.
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting, &server_hash_d1,
-                                     base::Time::Now()));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting, base::Time::Now(),
+                                     &server_hash_d1));
   // Addition should fail.
-  EXPECT_FALSE(CreateAndAddDictionary(kMaxSizeForTesting, &server_hash_d2,
-                                      base::Time::Now()));
+  EXPECT_FALSE(CreateAndAddDictionary(kMaxSizeForTesting, base::Time::Now(),
+                                      &server_hash_d2));
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_FALSE(DictionaryPresentInManager(server_hash_d2));
   sdch_manager().ClearData();
@@ -635,7 +695,7 @@ TEST_F(SdchOwnerTest, ClearReturnsSpace) {
 
   // Addition should now succeed.
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting, nullptr, base::Time::Now()));
+      CreateAndAddDictionary(kMaxSizeForTesting, base::Time::Now(), nullptr));
 }
 
 // Confirm memory pressure gets all the space back.
@@ -644,12 +704,12 @@ TEST_F(SdchOwnerTest, MemoryPressureReturnsSpace) {
   std::string server_hash_d2;
 
   // Take up all the space.
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting, &server_hash_d1,
-                                     base::Time::Now()));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting, base::Time::Now(),
+                                     &server_hash_d1));
 
   // Addition should fail.
-  EXPECT_FALSE(CreateAndAddDictionary(kMaxSizeForTesting, &server_hash_d2,
-                                      base::Time::Now()));
+  EXPECT_FALSE(CreateAndAddDictionary(kMaxSizeForTesting, base::Time::Now(),
+                                      &server_hash_d2));
 
   EXPECT_TRUE(DictionaryPresentInManager(server_hash_d1));
   EXPECT_FALSE(DictionaryPresentInManager(server_hash_d2));
@@ -666,17 +726,19 @@ TEST_F(SdchOwnerTest, MemoryPressureReturnsSpace) {
 
   // Addition should now succeed.
   EXPECT_TRUE(
-      CreateAndAddDictionary(kMaxSizeForTesting, nullptr, base::Time::Now()));
+      CreateAndAddDictionary(kMaxSizeForTesting, base::Time::Now(), nullptr));
 }
 
 // Confirm that use of a pinned dictionary after its removal works properly.
 TEST_F(SdchOwnerTest, PinRemoveUse) {
-  pref_store().SetInitializationCompleted();
-  sdch_owner().EnablePersistentStorage(&pref_store());
+  // Pass ownership of the storage to the SdchOwner, but keep a pointer.
+  TestPrefStorage* pref_store = new TestPrefStorage(true);
+  sdch_owner().EnablePersistentStorage(
+      scoped_ptr<SdchOwner::PrefStorage>(pref_store));
 
   std::string server_hash_d1;
-  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 2, &server_hash_d1,
-                                     base::Time::Now()));
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 2, base::Time::Now(),
+                                     &server_hash_d1));
 
   scoped_ptr<SdchManager::DictionarySet> return_set(
       sdch_manager().GetDictionarySet(
@@ -686,15 +748,13 @@ TEST_F(SdchOwnerTest, PinRemoveUse) {
 
   const base::Value* result = nullptr;
   const base::DictionaryValue* dict_result = nullptr;
-  ASSERT_TRUE(pref_store().GetValue("SDCH", &result));
-  ASSERT_TRUE(result->GetAsDictionary(&dict_result));
+  ASSERT_TRUE(pref_store->GetValue(&dict_result));
   EXPECT_TRUE(dict_result->Get("dictionaries", &result));
   EXPECT_TRUE(dict_result->Get("dictionaries." + server_hash_d1, &result));
 
   sdch_manager().ClearData();
 
-  ASSERT_TRUE(pref_store().GetValue("SDCH", &result));
-  ASSERT_TRUE(result->GetAsDictionary(&dict_result));
+  ASSERT_TRUE(pref_store->GetValue(&dict_result));
   EXPECT_TRUE(dict_result->Get("dictionaries", &result));
   EXPECT_FALSE(dict_result->Get("dictionaries." + server_hash_d1, &result));
 
@@ -705,24 +765,44 @@ TEST_F(SdchOwnerTest, PinRemoveUse) {
 
   sdch_manager().OnDictionaryUsed(server_hash_d1);
 
-  ASSERT_TRUE(pref_store().GetValue("SDCH", &result));
-  ASSERT_TRUE(result->GetAsDictionary(&dict_result));
+  ASSERT_TRUE(pref_store->GetValue(&dict_result));
   EXPECT_TRUE(dict_result->Get("dictionaries", &result));
   EXPECT_FALSE(dict_result->Get("dictionaries." + server_hash_d1, &result));
 }
 
+TEST_F(SdchOwnerTest, UsageIntervalMetrics) {
+  const GURL url("http://www.example.com/dict0");
+
+  std::string server_hash;
+  base::Time last_used_time(base::Time::Now() - base::TimeDelta::FromHours(23));
+  base::Time created_time(base::Time::Now() - base::TimeDelta::FromHours(47));
+
+  EXPECT_TRUE(CreateAndAddDictionary(kMaxSizeForTesting / 3, last_used_time,
+                                     created_time, &server_hash));
+
+  base::HistogramTester tester;
+
+  sdch_owner().OnDictionaryUsed(server_hash);
+  tester.ExpectTotalCount("Sdch3.FirstUseInterval", 1);
+  tester.ExpectTotalCount("Sdch3.UsageInterval2", 0);
+
+  sdch_owner().OnDictionaryUsed(server_hash);
+  tester.ExpectTotalCount("Sdch3.FirstUseInterval", 1);  // count didn't change
+  tester.ExpectTotalCount("Sdch3.UsageInterval2", 1);
+}
+
 class SdchOwnerPersistenceTest : public ::testing::Test {
  public:
-  SdchOwnerPersistenceTest() : pref_store_(new TestingPrefStore()) {
-    pref_store_->SetInitializationCompleted();
-  }
+  SdchOwnerPersistenceTest() {}
   virtual ~SdchOwnerPersistenceTest() {}
 
   void ClearOwner() {
     owner_.reset(NULL);
   }
 
-  void ResetOwner(bool delay) {
+  // If the storage points is non-null it will be saved as the persistent
+  // storage for the SdchOwner.
+  void ResetOwner(scoped_ptr<SdchOwner::PrefStorage> storage) {
     // This has to be done first, since SdchOwner may be observing SdchManager,
     // and SdchManager can't be destroyed with a live observer.
     owner_.reset(NULL);
@@ -734,14 +814,14 @@ class SdchOwnerPersistenceTest : public ::testing::Test {
     owner_->SetMinSpaceForDictionaryFetch(
         SdchOwnerTest::kMinFetchSpaceForTesting);
     owner_->SetFetcherForTesting(make_scoped_ptr(fetcher_));
-    if (!delay)
-      owner_->EnablePersistentStorage(pref_store_.get());
+    if (storage)
+      owner_->EnablePersistentStorage(std::move(storage));
   }
 
   void InsertDictionaryForURL(const GURL& url, const std::string& nonce) {
-    owner_->OnDictionaryFetched(base::Time::Now(), 1,
-                                CreateDictionary(url, nonce),
-                                url, net_log_, false);
+    owner_->OnDictionaryFetched(base::Time::Now(), base::Time::Now(), 1,
+                                CreateDictionary(url, nonce), url, net_log_,
+                                false);
   }
 
   bool CompleteLoadFromURL(const GURL& url, const std::string& nonce,
@@ -762,7 +842,6 @@ class SdchOwnerPersistenceTest : public ::testing::Test {
 
  protected:
   BoundNetLog net_log_;
-  scoped_refptr<TestingPrefStore> pref_store_;
   scoped_ptr<SdchManager> manager_;
   MockSdchDictionaryFetcher* fetcher_;
   scoped_ptr<SdchOwner> owner_;
@@ -771,15 +850,7 @@ class SdchOwnerPersistenceTest : public ::testing::Test {
 
 // Test an empty persistence store.
 TEST_F(SdchOwnerPersistenceTest, Empty) {
-  ResetOwner(false);
-  EXPECT_EQ(0, owner_->GetDictionaryCountForTesting());
-}
-
-// Test a persistence store with an empty dictionary.
-TEST_F(SdchOwnerPersistenceTest, Persistent_EmptyDict) {
-  pref_store_->SetValue("SDCH", make_scoped_ptr(new base::DictionaryValue()),
-                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
-  ResetOwner(false);
+  ResetOwner(make_scoped_ptr(new TestPrefStorage(true)));
   EXPECT_EQ(0, owner_->GetDictionaryCountForTesting());
 }
 
@@ -787,10 +858,15 @@ TEST_F(SdchOwnerPersistenceTest, Persistent_EmptyDict) {
 TEST_F(SdchOwnerPersistenceTest, Persistent_BadVersion) {
   scoped_ptr<base::DictionaryValue> sdch_dict(new base::DictionaryValue());
   sdch_dict->SetInteger("version", 2);
-  pref_store_->SetValue("SDCH", sdch_dict.Pass(),
-                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
-  ResetOwner(false);
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  storage->SetValue(std::move(sdch_dict));
+
+  TestPrefStorage* old_storage = storage.get();  // Save storage pointer.
+  ResetOwner(std::move(storage));  // Takes ownership of storage pointer.
+
+  storage.reset(new TestPrefStorage(*old_storage));
+  ResetOwner(std::move(storage));
   EXPECT_EQ(0, owner_->GetDictionaryCountForTesting());
 }
 
@@ -799,22 +875,26 @@ TEST_F(SdchOwnerPersistenceTest, Persistent_EmptyDictList) {
   scoped_ptr<base::DictionaryValue> sdch_dict(new base::DictionaryValue());
   scoped_ptr<base::DictionaryValue> dicts(new base::DictionaryValue());
   sdch_dict->SetInteger("version", 1);
-  sdch_dict->Set("dictionaries", dicts.Pass());
-  pref_store_->SetValue("SDCH", sdch_dict.Pass(),
-                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
+  sdch_dict->Set("dictionaries", std::move(dicts));
 
-  ResetOwner(false);
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  storage->SetValue(std::move(sdch_dict));
+  ResetOwner(std::move(storage));
   EXPECT_EQ(0, owner_->GetDictionaryCountForTesting());
 }
 
 TEST_F(SdchOwnerPersistenceTest, OneDict) {
   const GURL url("http://www.example.com/dict");
-  ResetOwner(false);
+
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  TestPrefStorage* old_storage = storage.get();  // Save storage pointer.
+  ResetOwner(std::move(storage));  // Takes ownership of storage pointer.
   EXPECT_EQ(0, owner_->GetDictionaryCountForTesting());
   InsertDictionaryForURL(url, "0");
   EXPECT_EQ(1, owner_->GetDictionaryCountForTesting());
 
-  ResetOwner(false);
+  storage.reset(new TestPrefStorage(*old_storage));
+  ResetOwner(std::move(storage));
   EXPECT_EQ(0, owner_->GetDictionaryCountForTesting());
   EXPECT_TRUE(CompleteLoadFromURL(url, "0", true));
   EXPECT_EQ(1, owner_->GetDictionaryCountForTesting());
@@ -823,11 +903,15 @@ TEST_F(SdchOwnerPersistenceTest, OneDict) {
 TEST_F(SdchOwnerPersistenceTest, TwoDicts) {
   const GURL url0("http://www.example.com/dict0");
   const GURL url1("http://www.example.com/dict1");
-  ResetOwner(false);
+
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  TestPrefStorage* old_storage = storage.get();  // Save storage pointer.
+  ResetOwner(std::move(storage));  // Takes ownership of storage pointer.
   InsertDictionaryForURL(url0, "0");
   InsertDictionaryForURL(url1, "1");
 
-  ResetOwner(false);
+  storage.reset(new TestPrefStorage(*old_storage));
+  ResetOwner(std::move(storage));
   EXPECT_TRUE(CompleteLoadFromURL(url0, "0", true));
   EXPECT_TRUE(CompleteLoadFromURL(url1, "1", true));
   EXPECT_EQ(2, owner_->GetDictionaryCountForTesting());
@@ -838,19 +922,20 @@ TEST_F(SdchOwnerPersistenceTest, TwoDicts) {
 TEST_F(SdchOwnerPersistenceTest, OneGoodDictOneBadDict) {
   const GURL url0("http://www.example.com/dict0");
   const GURL url1("http://www.example.com/dict1");
-  ResetOwner(false);
+
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  TestPrefStorage* old_storage = storage.get();  // Save storage pointer.
+  ResetOwner(std::move(storage));                // Takes ownership of storage.
   InsertDictionaryForURL(url0, "0");
   InsertDictionaryForURL(url1, "1");
 
-  // Mutate the pref store a bit now. Clear the owner first, to ensure that the
-  // SdchOwner doesn't observe these changes and object. The manual dictionary
-  // manipulation is a bit icky.
-  ClearOwner();
+  // Make a new storage based on the current contents of the old one.
+  storage.reset(new TestPrefStorage(*old_storage));
   base::DictionaryValue* dict = nullptr;
-  ASSERT_TRUE(GetDictionaryForURL(pref_store_.get(), url1, nullptr, &dict));
+  ASSERT_TRUE(GetDictionaryForURL(storage.get(), url1, nullptr, &dict));
   dict->Remove("use_count", nullptr);
 
-  ResetOwner(false);
+  ResetOwner(std::move(storage));
   EXPECT_TRUE(CompleteLoadFromURL(url0, "0", true));
   EXPECT_FALSE(CompleteLoadFromURL(url1, "1", true));
   EXPECT_EQ(1, owner_->GetDictionaryCountForTesting());
@@ -860,27 +945,31 @@ TEST_F(SdchOwnerPersistenceTest, OneGoodDictOneBadDict) {
 
 TEST_F(SdchOwnerPersistenceTest, UsingDictionaryUpdatesUseCount) {
   const GURL url("http://www.example.com/dict");
-  ResetOwner(false);
+
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  TestPrefStorage* old_storage = storage.get();  // Save storage pointer.
+  ResetOwner(std::move(storage));  // Takes ownership of storage pointer.
   InsertDictionaryForURL(url, "0");
 
   std::string hash;
   int old_count;
+  storage.reset(new TestPrefStorage(*old_storage));
   {
     ClearOwner();
     base::DictionaryValue* dict = nullptr;
-    ASSERT_TRUE(GetDictionaryForURL(pref_store_.get(), url, &hash, &dict));
+    ASSERT_TRUE(GetDictionaryForURL(storage.get(), url, &hash, &dict));
     ASSERT_TRUE(dict->GetInteger("use_count", &old_count));
   }
 
-  ResetOwner(false);
+  old_storage = storage.get();     // Save storage pointer.
+  ResetOwner(std::move(storage));  // Takes ownership of storage pointer.
   ASSERT_TRUE(CompleteLoadFromURL(url, "0", true));
   owner_->OnDictionaryUsed(hash);
 
   int new_count;
   {
-    ClearOwner();
     base::DictionaryValue* dict = nullptr;
-    ASSERT_TRUE(GetDictionaryForURL(pref_store_.get(), url, nullptr, &dict));
+    ASSERT_TRUE(GetDictionaryForURL(old_storage, url, nullptr, &dict));
     ASSERT_TRUE(dict->GetInteger("use_count", &new_count));
   }
 
@@ -891,13 +980,16 @@ TEST_F(SdchOwnerPersistenceTest, LoadingDictionaryMerges) {
   const GURL url0("http://www.example.com/dict0");
   const GURL url1("http://www.example.com/dict1");
 
-  ResetOwner(false);
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  TestPrefStorage* old_storage = storage.get();  // Save storage pointer.
+  ResetOwner(std::move(storage));  // Takes ownership of storage pointer.
   InsertDictionaryForURL(url1, "1");
 
-  ResetOwner(true);
+  storage.reset(new TestPrefStorage(*old_storage));
+  ResetOwner(scoped_ptr<SdchOwner::PrefStorage>());
   InsertDictionaryForURL(url0, "0");
   EXPECT_EQ(1, owner_->GetDictionaryCountForTesting());
-  owner_->EnablePersistentStorage(pref_store_.get());
+  owner_->EnablePersistentStorage(std::move(storage));
   ASSERT_TRUE(CompleteLoadFromURL(url1, "1", true));
   EXPECT_EQ(2, owner_->GetDictionaryCountForTesting());
 }
@@ -905,12 +997,16 @@ TEST_F(SdchOwnerPersistenceTest, LoadingDictionaryMerges) {
 TEST_F(SdchOwnerPersistenceTest, PersistenceMetrics) {
   const GURL url0("http://www.example.com/dict0");
   const GURL url1("http://www.example.com/dict1");
-  ResetOwner(false);
+
+  scoped_ptr<TestPrefStorage> storage(new TestPrefStorage(true));
+  TestPrefStorage* old_storage = storage.get();  // Save storage pointer.
+  ResetOwner(std::move(storage));  // Takes ownership of storage pointer.
 
   InsertDictionaryForURL(url0, "0");
   InsertDictionaryForURL(url1, "1");
 
-  ResetOwner(false);
+  storage.reset(new TestPrefStorage(*old_storage));
+  ResetOwner(std::move(storage));
 
   base::HistogramTester tester;
 

@@ -5,8 +5,10 @@
 #ifndef CHROME_BROWSER_PROFILE_RESETTER_BRANDCODE_CONFIG_FETCHER_H_
 #define CHROME_BROWSER_PROFILE_RESETTER_BRANDCODE_CONFIG_FETCHER_H_
 
-#include "base/basictypes.h"
+#include <utility>
+
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/timer/timer.h"
 #include "net/url_request/url_fetcher_delegate.h"
 
@@ -24,10 +26,10 @@ class BrandcodeConfigFetcher : public net::URLFetcherDelegate {
                          const std::string& brandcode);
   ~BrandcodeConfigFetcher() override;
 
-  bool IsActive() const { return config_fetcher_; }
+  bool IsActive() const { return !!config_fetcher_; }
 
   scoped_ptr<BrandcodedDefaultSettings> GetSettings() {
-    return default_settings_.Pass();
+    return std::move(default_settings_);
   }
 
   // Sets the new callback. The previous one won't be called.

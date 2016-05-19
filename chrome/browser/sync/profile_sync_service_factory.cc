@@ -4,10 +4,11 @@
 
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 
-#include "base/command_line.h"
+#include <utility>
+
 #include "base/memory/singleton.h"
-#include "base/prefs/pref_service.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
@@ -19,17 +20,16 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/services/gcm/gcm_profile_service_factory.h"
-#include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/signin/about_signin_internals_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/chrome_sync_client.h"
-#include "chrome/browser/sync/profile_sync_components_factory_impl.h"
 #include "chrome/browser/sync/supervised_user_signin_manager_wrapper.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/web_data_service_factory.h"
 #include "chrome/common/channel_info.h"
+#include "components/browser_sync/browser/profile_sync_components_factory_impl.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/network_time/network_time_tracker.h"
@@ -135,7 +135,9 @@ ProfileSyncServiceFactory::~ProfileSyncServiceFactory() {
 
 KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  Profile* profile = static_cast<Profile*>(context);
+  ProfileSyncService::InitParams init_params;
+
+  Profile* profile = Profile::FromBrowserContext(context);
 
   SigninManagerBase* signin = SigninManagerFactory::GetForProfile(profile);
 
@@ -148,18 +150,11 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
   // once http://crbug.com/171406 has been fixed.
   AboutSigninInternalsFactory::GetForProfile(profile);
 
-  const GURL sync_service_url = GetSyncServiceURL(
-      *base::CommandLine::ForCurrentProcess(), chrome::GetChannel());
+  init_params.signin_wrapper =
+      make_scoped_ptr(new SupervisedUserSigninManagerWrapper(profile, signin));
 
-  scoped_ptr<SigninManagerWrapper> signin_wrapper(
-      new SupervisedUserSigninManagerWrapper(profile, signin));
-  std::string account_id = signin_wrapper->GetAccountIdToUse();
-  OAuth2TokenService::ScopeSet scope_set;
-  scope_set.insert(signin_wrapper->GetSyncScopeToUse());
-  ProfileOAuth2TokenService* token_service =
+  init_params.oauth2_token_service =
       ProfileOAuth2TokenServiceFactory::GetForProfile(profile);
-  net::URLRequestContextGetter* url_request_context_getter =
-      profile->GetRequestContext();
 
   // TODO(tim): Currently, AUTO/MANUAL settings refer to the *first* time sync
   // is set up and *not* a browser restart for a manual-start platform (where
@@ -167,27 +162,31 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
   // intervention). We can get rid of the browser_default eventually, but
   // need to take care that ProfileSyncService doesn't get tripped up between
   // those two cases. Bug 88109.
-  browser_sync::ProfileSyncServiceStartBehavior behavior =
-      browser_defaults::kSyncAutoStarts ? browser_sync::AUTO_START
-                                        : browser_sync::MANUAL_START;
-  scoped_ptr<sync_driver::SyncApiComponentFactory> sync_factory(
-      new ProfileSyncComponentsFactoryImpl(
-          profile, base::CommandLine::ForCurrentProcess(), sync_service_url,
-          token_service, url_request_context_getter));
-  scoped_ptr<browser_sync::ChromeSyncClient> sync_client(
-      new browser_sync::ChromeSyncClient(profile, sync_factory.Pass()));
-  ProfileSyncService* pss = new ProfileSyncService(
-      sync_client.Pass(), signin_wrapper.Pass(), token_service,
-      behavior, base::Bind(&UpdateNetworkTime), profile->GetPath(),
-      profile->GetRequestContext(), profile->GetDebugName(),
-      chrome::GetChannel(),
+  init_params.start_behavior = browser_defaults::kSyncAutoStarts
+                                   ? browser_sync::AUTO_START
+                                   : browser_sync::MANUAL_START;
+
+  init_params.sync_client =
+      make_scoped_ptr(new browser_sync::ChromeSyncClient(profile));
+
+  init_params.network_time_update_callback = base::Bind(&UpdateNetworkTime);
+  init_params.base_directory = profile->GetPath();
+  init_params.url_request_context = profile->GetRequestContext();
+  init_params.debug_identifier = profile->GetDebugName();
+  init_params.channel = chrome::GetChannel();
+
+  init_params.db_thread = content::BrowserThread::GetMessageLoopProxyForThread(
+      content::BrowserThread::DB);
+  init_params.file_thread =
       content::BrowserThread::GetMessageLoopProxyForThread(
-          content::BrowserThread::DB),
-      content::BrowserThread::GetMessageLoopProxyForThread(
-          content::BrowserThread::FILE),
-      content::BrowserThread::GetBlockingPool());
+          content::BrowserThread::FILE);
+  init_params.blocking_pool = content::BrowserThread::GetBlockingPool();
+
+  auto pss = make_scoped_ptr(new ProfileSyncService(std::move(init_params)));
+
+  // Will also initialize the sync client.
   pss->Initialize();
-  return pss;
+  return pss.release();
 }
 
 // static

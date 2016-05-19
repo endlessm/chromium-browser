@@ -7,19 +7,20 @@
 #include "base/json/json_string_value_serializer.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
+#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "chrome/browser/extensions/api/browsing_data/browsing_data_api.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/prefs/pref_service.h"
 
 using extension_function_test_utils::RunFunctionAndReturnError;
 using extension_function_test_utils::RunFunctionAndReturnSingleResult;
@@ -259,20 +260,21 @@ class ExtensionBrowsingDataTest : public InProcessBrowserTest {
   scoped_ptr<BrowsingDataRemover::NotificationDetails> called_with_details_;
 
   BrowsingDataRemover::CallbackSubscription callback_subscription_;
-
 };
 
 }  // namespace
 
 IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, OneAtATime) {
-  BrowsingDataRemover::set_removing(true);
+  BrowsingDataRemover* browsing_data_remover =
+      BrowsingDataRemoverFactory::GetForBrowserContext(browser()->profile());
+  browsing_data_remover->SetRemoving(true);
   scoped_refptr<BrowsingDataRemoveFunction> function =
       new BrowsingDataRemoveFunction();
   EXPECT_TRUE(base::MatchPattern(
       RunFunctionAndReturnError(function.get(), kRemoveEverythingArguments,
                                 browser()),
       extension_browsing_data_api_constants::kOneAtATimeError));
-  BrowsingDataRemover::set_removing(false);
+  browsing_data_remover->SetRemoving(false);
 
   EXPECT_EQ(base::Time(), GetBeginTime());
   EXPECT_EQ(-1, GetRemovalMask());

@@ -4,17 +4,22 @@
 
 #include "chrome/browser/media_galleries/media_folder_finder.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <set>
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/sequence_checker.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/task_runner_util.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/file_system/file_system_api.h"
 #include "chrome/browser/media_galleries/fileapi/media_path_filter.h"
 #include "chrome/common/chrome_paths.h"
@@ -35,9 +40,9 @@ using content::BrowserThread;
 
 namespace {
 
-const int64 kMinimumImageSize = 200 * 1024;    // 200 KB
-const int64 kMinimumAudioSize = 500 * 1024;    // 500 KB
-const int64 kMinimumVideoSize = 1024 * 1024;   // 1 MB
+const int64_t kMinimumImageSize = 200 * 1024;   // 200 KB
+const int64_t kMinimumAudioSize = 500 * 1024;   // 500 KB
+const int64_t kMinimumVideoSize = 1024 * 1024;  // 1 MB
 
 const int kPrunedPaths[] = {
 #if defined(OS_WIN)
@@ -46,7 +51,7 @@ const int kPrunedPaths[] = {
   base::DIR_PROGRAM_FILESX86,
   base::DIR_WINDOWS,
 #endif
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   chrome::DIR_USER_APPLICATIONS,
   chrome::DIR_USER_LIBRARY,
 #endif
@@ -72,7 +77,7 @@ void CountScanResult(MediaGalleryScanFileType type,
     scan_result->video_count += 1;
 }
 
-bool FileMeetsSizeRequirement(MediaGalleryScanFileType type, int64 size) {
+bool FileMeetsSizeRequirement(MediaGalleryScanFileType type, int64_t size) {
   if (type & MEDIA_GALLERY_SCAN_FILE_TYPE_IMAGE)
     if (size >= kMinimumImageSize)
       return true;
@@ -165,6 +170,8 @@ void GetDefaultScanRoots(const DefaultScanRootsCallback& callback,
 }  // namespace
 
 MediaFolderFinder::WorkerReply::WorkerReply() {}
+
+MediaFolderFinder::WorkerReply::WorkerReply(const WorkerReply& other) = default;
 
 MediaFolderFinder::WorkerReply::~WorkerReply() {}
 

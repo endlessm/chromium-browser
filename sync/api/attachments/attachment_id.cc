@@ -4,6 +4,9 @@
 
 #include "sync/api/attachments/attachment_id.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "sync/internal_api/public/base/attachment_id_proto.h"
 #include "sync/protocol/sync.pb.h"
@@ -70,6 +73,8 @@ const sync_pb::AttachmentIdProto& AttachmentId::GetProto() const {
 
 AttachmentId::AttachmentId(sync_pb::AttachmentIdProto* proto)
     : proto_(proto) {}
+
+AttachmentId::AttachmentId(const AttachmentId& other) = default;
 
 size_t AttachmentId::GetSize() const {
   return proto_.Get().size_bytes();

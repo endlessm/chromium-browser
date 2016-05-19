@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/inspector/DOMPatchSupport.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -167,7 +166,7 @@ bool DOMPatchSupport::innerPatchNode(Digest* oldDigest, Digest* newDigest, Excep
     Node* oldNode = oldDigest->m_node;
     Node* newNode = newDigest->m_node;
 
-    if (newNode->nodeType() != oldNode->nodeType() || newNode->nodeName() != oldNode->nodeName())
+    if (newNode->getNodeType() != oldNode->getNodeType() || newNode->nodeName() != oldNode->nodeName())
         return m_domEditor->replaceChild(oldNode->parentNode(), newNode, oldNode, exceptionState);
 
     if (oldNode->nodeValue() != newNode->nodeValue()) {
@@ -233,7 +232,7 @@ DOMPatchSupport::diff(const WillBeHeapVector<OwnPtrWillBeMember<Digest>>& oldLis
         newMap[newIndex].second = oldIndex;
     }
 
-    typedef HashMap<String, Vector<size_t> > DiffTable;
+    typedef HashMap<String, Vector<size_t>> DiffTable;
     DiffTable newTable;
     DiffTable oldTable;
 
@@ -298,7 +297,7 @@ bool DOMPatchSupport::innerPatchChildren(ContainerNode* parentNode, const WillBe
 
     // 1. First strip everything except for the nodes that retain. Collect pending merges.
     WillBeHeapHashMap<RawPtrWillBeMember<Digest>, RawPtrWillBeMember<Digest>> merges;
-    HashSet<size_t, WTF::IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t> > usedNewOrdinals;
+    HashSet<size_t, WTF::IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>> usedNewOrdinals;
     for (size_t i = 0; i < oldList.size(); ++i) {
         if (oldMap[i].first) {
             if (usedNewOrdinals.add(oldMap[i].second).isNewEntry)
@@ -335,7 +334,7 @@ bool DOMPatchSupport::innerPatchChildren(ContainerNode* parentNode, const WillBe
     }
 
     // Mark retained nodes as used, do not reuse node more than once.
-    HashSet<size_t, WTF::IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t> >  usedOldOrdinals;
+    HashSet<size_t, WTF::IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>>  usedOldOrdinals;
     for (size_t i = 0; i < newList.size(); ++i) {
         if (!newMap[i].first)
             continue;
@@ -403,7 +402,7 @@ PassOwnPtrWillBeRawPtr<DOMPatchSupport::Digest> DOMPatchSupport::createDigest(No
     OwnPtr<WebCryptoDigestor> digestor = createDigestor(HashAlgorithmSha1);
     DigestValue digestResult;
 
-    Node::NodeType nodeType = node->nodeType();
+    Node::NodeType nodeType = node->getNodeType();
     digestor->consume(reinterpret_cast<const unsigned char*>(&nodeType), sizeof(nodeType));
     addStringToDigestor(digestor.get(), node->nodeName());
     addStringToDigestor(digestor.get(), node->nodeValue());

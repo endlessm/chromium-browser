@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "ash/ash_export.h"
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/timer/timer.h"
 #include "ui/aura/window_observer.h"
@@ -61,6 +61,7 @@ class ASH_EXPORT MultiWindowResizeController :
   // Used to track the two resizable windows and direction.
   struct ResizeWindows {
     ResizeWindows();
+    ResizeWindows(const ResizeWindows& other);
     ~ResizeWindows();
 
     // Returns true if |other| equals this ResizeWindows. This does *not*

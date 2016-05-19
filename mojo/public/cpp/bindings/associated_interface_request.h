@@ -5,27 +5,85 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_ASSOCIATED_INTERFACE_REQUEST_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_ASSOCIATED_INTERFACE_REQUEST_H_
 
-#include "mojo/public/cpp/system/macros.h"
+#include <utility>
+
+#include "base/macros.h"
+#include "mojo/public/cpp/bindings/lib/scoped_interface_endpoint_handle.h"
 
 namespace mojo {
 
-// Represents an associated interface request.
-// TODO(yzshen): implement it.
+namespace internal {
+class AssociatedInterfaceRequestHelper;
+}
+
+// AssociatedInterfaceRequest represents an associated interface request. It is
+// similar to InterfaceRequest except that it doesn't own a message pipe handle.
 template <typename Interface>
 class AssociatedInterfaceRequest {
-  MOJO_MOVE_ONLY_TYPE(AssociatedInterfaceRequest)
+  DISALLOW_COPY_AND_ASSIGN_WITH_MOVE_FOR_BIND(AssociatedInterfaceRequest);
 
  public:
+  // Constructs an empty AssociatedInterfaceRequest, representing that the
+  // client is not requesting an implementation of Interface.
   AssociatedInterfaceRequest() {}
-  AssociatedInterfaceRequest(AssociatedInterfaceRequest&& other) {}
+  AssociatedInterfaceRequest(decltype(nullptr)) {}
 
+  // Takes the interface endpoint handle from another
+  // AssociatedInterfaceRequest.
+  AssociatedInterfaceRequest(AssociatedInterfaceRequest&& other) {
+    handle_ = std::move(other.handle_);
+  }
   AssociatedInterfaceRequest& operator=(AssociatedInterfaceRequest&& other) {
+    if (this != &other)
+      handle_ = std::move(other.handle_);
     return *this;
   }
 
-  bool is_pending() const { return false; }
+  // Assigning to nullptr resets the AssociatedInterfaceRequest to an empty
+  // state, closing the interface endpoint handle currently bound to it (if
+  // any).
+  AssociatedInterfaceRequest& operator=(decltype(nullptr)) {
+    handle_.reset();
+    return *this;
+  }
+
+  // Indicates whether the request currently contains a valid interface endpoint
+  // handle.
+  bool is_pending() const { return handle_.is_valid(); }
+
+ private:
+  friend class internal::AssociatedInterfaceRequestHelper;
+
+  internal::ScopedInterfaceEndpointHandle handle_;
 };
 
+namespace internal {
+
+// With this helper, AssociatedInterfaceRequest doesn't have to expose any
+// operations related to ScopedInterfaceEndpointHandle, which is an internal
+// class.
+class AssociatedInterfaceRequestHelper {
+ public:
+  template <typename Interface>
+  static ScopedInterfaceEndpointHandle PassHandle(
+      AssociatedInterfaceRequest<Interface>* request) {
+    return std::move(request->handle_);
+  }
+
+  template <typename Interface>
+  static const ScopedInterfaceEndpointHandle& GetHandle(
+      AssociatedInterfaceRequest<Interface>* request) {
+    return request->handle_;
+  }
+
+  template <typename Interface>
+  static void SetHandle(AssociatedInterfaceRequest<Interface>* request,
+                        ScopedInterfaceEndpointHandle handle) {
+    request->handle_ = std::move(handle);
+  }
+};
+
+}  // namespace internal
 }  // namespace mojo
 
 #endif  // MOJO_PUBLIC_CPP_BINDINGS_ASSOCIATED_INTERFACE_REQUEST_H_

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/macros.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/third_party/mozilla/url_parse.h"
@@ -67,6 +69,21 @@ TEST(URLUtilTest, IsStandard) {
 
   const char kFooScheme[] = "foo";
   EXPECT_FALSE(IsStandard(kFooScheme, Component(0, strlen(kFooScheme))));
+}
+
+TEST(URLUtilTest, IsReferrerScheme) {
+  const char kHTTPScheme[] = "http";
+  EXPECT_TRUE(IsReferrerScheme(kHTTPScheme, Component(0, strlen(kHTTPScheme))));
+
+  const char kFooScheme[] = "foo";
+  EXPECT_FALSE(IsReferrerScheme(kFooScheme, Component(0, strlen(kFooScheme))));
+}
+
+TEST(URLUtilTest, AddReferrerScheme) {
+  const char kFooScheme[] = "foo";
+  EXPECT_FALSE(IsReferrerScheme(kFooScheme, Component(0, strlen(kFooScheme))));
+  AddReferrerScheme(kFooScheme, url::SCHEME_WITHOUT_PORT);
+  EXPECT_TRUE(IsReferrerScheme(kFooScheme, Component(0, strlen(kFooScheme))));
 }
 
 TEST(URLUtilTest, GetStandardSchemeType) {

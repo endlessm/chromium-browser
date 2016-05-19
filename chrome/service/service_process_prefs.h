@@ -7,7 +7,8 @@
 
 #include <string>
 
-#include "base/prefs/json_pref_store.h"
+#include "base/macros.h"
+#include "components/prefs/json_pref_store.h"
 
 namespace base {
 class DictionaryValue;

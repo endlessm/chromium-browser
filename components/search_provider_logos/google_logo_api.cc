@@ -4,6 +4,10 @@
 
 #include "components/search_provider_logos/google_logo_api.h"
 
+#include <stdint.h>
+
+#include <algorithm>
+
 #include "base/base64.h"
 #include "base/json/json_reader.h"
 #include "base/memory/ref_counted_memory.h"
@@ -67,16 +71,11 @@ scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
   if (response_sp.starts_with(kResponsePreamble))
     response_sp.remove_prefix(strlen(kResponsePreamble));
 
-  scoped_ptr<base::Value> value = base::JSONReader::Read(response_sp);
-
-  // Check if no logo today.
-  if (!value.get()) {
-    *parsing_failed = false;
-    return scoped_ptr<EncodedLogo>();
-  }
-
   // Default parsing failure to be true.
   *parsing_failed = true;
+  scoped_ptr<base::Value> value = base::JSONReader::Read(response_sp);
+  if (!value.get())
+    return scoped_ptr<EncodedLogo>();
   // The important data lives inside several nested dictionaries:
   // {"update": {"logo": { "mime_type": ..., etc } } }
   const base::DictionaryValue* outer_dict;
@@ -85,6 +84,13 @@ scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
   const base::DictionaryValue* update_dict;
   if (!outer_dict->GetDictionary("update", &update_dict))
     return scoped_ptr<EncodedLogo>();
+
+  // If there is no logo today, the "update" dictionary will be empty.
+  if (update_dict->empty()) {
+    *parsing_failed = false;
+    return scoped_ptr<EncodedLogo>();
+  }
+
   const base::DictionaryValue* logo_dict;
   if (!update_dict->GetDictionary("logo", &logo_dict))
     return scoped_ptr<EncodedLogo>();
@@ -116,7 +122,7 @@ scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
   int time_to_live_ms;
   if (logo_dict->GetInteger("time_to_live", &time_to_live_ms)) {
     time_to_live = base::TimeDelta::FromMilliseconds(
-        std::min(static_cast<int64>(time_to_live_ms), kMaxTimeToLiveMS));
+        std::min(static_cast<int64_t>(time_to_live_ms), kMaxTimeToLiveMS));
     logo->metadata.can_show_after_expiration = false;
   } else {
     time_to_live = base::TimeDelta::FromMilliseconds(kMaxTimeToLiveMS);
@@ -126,7 +132,7 @@ scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
 
   // If this point is reached, parsing has succeeded.
   *parsing_failed = false;
-  return logo.Pass();
+  return logo;
 }
 
 }  // namespace search_provider_logos

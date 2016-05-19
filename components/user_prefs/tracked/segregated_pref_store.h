@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_USER_PREFS_TRACKED_SEGREGATED_PREF_STORE_H_
 #define COMPONENTS_USER_PREFS_TRACKED_SEGREGATED_PREF_STORE_H_
 
+#include <stdint.h>
+
 #include <set>
 #include <string>
 
@@ -13,7 +15,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/prefs/persistent_pref_store.h"
+#include "components/prefs/persistent_pref_store.h"
 
 // Provides a unified PersistentPrefStore implementation that splits its storage
 // and retrieval between two underlying PersistentPrefStore instances: a set of
@@ -54,21 +56,23 @@ class SegregatedPrefStore : public PersistentPrefStore {
   // WriteablePrefStore implementation
   void SetValue(const std::string& key,
                 scoped_ptr<base::Value> value,
-                uint32 flags) override;
-  void RemoveValue(const std::string& key, uint32 flags) override;
+                uint32_t flags) override;
+  void RemoveValue(const std::string& key, uint32_t flags) override;
 
   // PersistentPrefStore implementation
   bool GetMutableValue(const std::string& key, base::Value** result) override;
-  void ReportValueChanged(const std::string& key, uint32 flags) override;
+  void ReportValueChanged(const std::string& key, uint32_t flags) override;
   void SetValueSilently(const std::string& key,
                         scoped_ptr<base::Value> value,
-                        uint32 flags) override;
+                        uint32_t flags) override;
   bool ReadOnly() const override;
   PrefReadError GetReadError() const override;
   PrefReadError ReadPrefs() override;
   void ReadPrefsAsync(ReadErrorDelegate* error_delegate) override;
   void CommitPendingWrite() override;
   void SchedulePendingLossyWrites() override;
+
+  void ClearMutableValues() override;
 
  private:
   // Aggregates events from the underlying stores and synthesizes external

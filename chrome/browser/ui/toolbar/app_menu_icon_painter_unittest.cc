@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/toolbar/app_menu_icon_painter.h"
 
+#include "base/macros.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/test/base/testing_profile.h"
@@ -16,9 +17,10 @@
 class AppMenuIconPainterTest : public testing::Test,
                                public AppMenuIconPainter::Delegate {
  public:
-  AppMenuIconPainterTest() : schedule_paint_count_(0), painter_(this) {
-    theme_provider_ = ThemeServiceFactory::GetForProfile(&profile_);
-  }
+  AppMenuIconPainterTest()
+      : schedule_paint_count_(0),
+        theme_provider_(ThemeService::GetThemeProviderForProfile(&profile_)),
+        painter_(this) {}
 
   void ScheduleAppMenuIconPaint() override { ++schedule_paint_count_; }
 
@@ -27,7 +29,7 @@ class AppMenuIconPainterTest : public testing::Test,
   content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;
   int schedule_paint_count_;
-  ui::ThemeProvider* theme_provider_;
+  const ui::ThemeProvider& theme_provider_;
   AppMenuIconPainter painter_;
 
  private:
@@ -40,25 +42,25 @@ TEST_F(AppMenuIconPainterTest, Paint) {
   gfx::Rect rect(0, 0, 29, 29);
   gfx::Canvas canvas(rect.size(), 1.0f, true);
 
-  painter_.Paint(&canvas, theme_provider_, rect,
+  painter_.Paint(&canvas, &theme_provider_, rect,
                  AppMenuIconPainter::BEZEL_NONE);
-  painter_.Paint(&canvas, theme_provider_, rect,
+  painter_.Paint(&canvas, &theme_provider_, rect,
                  AppMenuIconPainter::BEZEL_HOVER);
-  painter_.Paint(&canvas, theme_provider_, rect,
+  painter_.Paint(&canvas, &theme_provider_, rect,
                  AppMenuIconPainter::BEZEL_PRESSED);
 
   painter_.SetSeverity(AppMenuIconPainter::SEVERITY_LOW, true);
-  painter_.Paint(&canvas, theme_provider_, rect,
+  painter_.Paint(&canvas, &theme_provider_, rect,
                  AppMenuIconPainter::BEZEL_PRESSED);
   painter_.SetSeverity(AppMenuIconPainter::SEVERITY_MEDIUM, true);
-  painter_.Paint(&canvas, theme_provider_, rect,
+  painter_.Paint(&canvas, &theme_provider_, rect,
                  AppMenuIconPainter::BEZEL_PRESSED);
   painter_.SetSeverity(AppMenuIconPainter::SEVERITY_HIGH, true);
-  painter_.Paint(&canvas, theme_provider_, rect,
+  painter_.Paint(&canvas, &theme_provider_, rect,
                  AppMenuIconPainter::BEZEL_PRESSED);
 
-  painter_.set_badge(*theme_provider_->GetImageSkiaNamed(IDR_PRODUCT_LOGO_16));
-  painter_.Paint(&canvas, theme_provider_, rect,
+  painter_.set_badge(*theme_provider_.GetImageSkiaNamed(IDR_PRODUCT_LOGO_16));
+  painter_.Paint(&canvas, &theme_provider_, rect,
                  AppMenuIconPainter::BEZEL_PRESSED);
 }
 

@@ -4,12 +4,16 @@
 
 #include "chrome/installer/util/master_preferences.h"
 
+#include <stddef.h>
+
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "chrome/common/env_vars.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/installer/util/master_preferences_constants.h"
@@ -146,7 +150,7 @@ void MasterPreferences::InitializeFromCommandLine(
   };
 
   std::string name(installer::master_preferences::kDistroDict);
-  for (int i = 0; i < arraysize(translate_switches); ++i) {
+  for (size_t i = 0; i < arraysize(translate_switches); ++i) {
     if (cmd_line.HasSwitch(translate_switches[i].cmd_line_switch)) {
       name.assign(installer::master_preferences::kDistroDict);
       name.append(".").append(translate_switches[i].distribution_switch);
@@ -248,19 +252,6 @@ void MasterPreferences::EnforceLegacyPreferences() {
         installer::master_preferences::kDoNotCreateDesktopShortcut, true);
     distribution_->SetBoolean(
         installer::master_preferences::kDoNotCreateQuickLaunchShortcut, true);
-  }
-
-  // If there is no entry for kURLsToRestoreOnStartup and there is one for
-  // kURLsToRestoreOnStartupOld, copy the old to the new.
-  const base::ListValue* startup_urls_list = NULL;
-  if (master_dictionary_ &&
-      !master_dictionary_->GetList(prefs::kURLsToRestoreOnStartup, NULL) &&
-      master_dictionary_->GetList(prefs::kURLsToRestoreOnStartupOld,
-                                  &startup_urls_list) &&
-      startup_urls_list) {
-    base::ListValue* new_startup_urls_list = startup_urls_list->DeepCopy();
-    master_dictionary_->Set(prefs::kURLsToRestoreOnStartup,
-                            new_startup_urls_list);
   }
 }
 

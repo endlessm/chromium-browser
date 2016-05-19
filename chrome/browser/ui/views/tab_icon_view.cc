@@ -11,6 +11,7 @@
 
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/views/tab_icon_view_model.h"
 #include "grit/theme_resources.h"
@@ -56,7 +57,7 @@ void TabIconView::InitializeIfNeeded() {
 
 TabIconView::TabIconView(TabIconViewModel* model,
                          views::MenuButtonListener* listener)
-    : views::MenuButton(NULL, base::string16(), listener, false),
+    : views::MenuButton(base::string16(), listener, false),
       model_(model),
       is_light_(false) {
   InitializeIfNeeded();

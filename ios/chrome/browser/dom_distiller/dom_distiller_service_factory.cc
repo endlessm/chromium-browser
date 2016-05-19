@@ -4,7 +4,10 @@
 
 #include "ios/chrome/browser/dom_distiller/dom_distiller_service_factory.h"
 
+#include <utility>
+
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "components/dom_distiller/core/article_entry.h"
@@ -17,7 +20,7 @@
 #include "components/leveldb_proto/proto_database.h"
 #include "components/leveldb_proto/proto_database_impl.h"
 #include "ios/chrome/browser/browser_state/browser_state_otr_helper.h"
-#include "ios/public/provider/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/web/public/browser_state.h"
 #include "ios/web/public/web_thread.h"
 
@@ -33,10 +36,10 @@ class DomDistillerKeyedService
       scoped_ptr<dom_distiller::DistillerFactory> distiller_factory,
       scoped_ptr<dom_distiller::DistillerPageFactory> distiller_page_factory,
       scoped_ptr<dom_distiller::DistilledPagePrefs> distilled_page_prefs)
-      : DomDistillerService(store.Pass(),
-                            distiller_factory.Pass(),
-                            distiller_page_factory.Pass(),
-                            distilled_page_prefs.Pass()) {}
+      : DomDistillerService(std::move(store),
+                            std::move(distiller_factory),
+                            std::move(distiller_page_factory),
+                            std::move(distilled_page_prefs)) {}
 
   ~DomDistillerKeyedService() override {}
 
@@ -82,7 +85,7 @@ scoped_ptr<KeyedService> DomDistillerServiceFactory::BuildServiceInstanceFor(
       context->GetStatePath().Append(FILE_PATH_LITERAL("Articles")));
 
   scoped_ptr<DomDistillerStore> dom_distiller_store(
-      new DomDistillerStore(db.Pass(), database_dir));
+      new DomDistillerStore(std::move(db), database_dir));
 
   scoped_ptr<DistillerPageFactory> distiller_page_factory(
       new DistillerPageFactoryIOS(context));
@@ -90,14 +93,14 @@ scoped_ptr<KeyedService> DomDistillerServiceFactory::BuildServiceInstanceFor(
       new DistillerURLFetcherFactory(context->GetRequestContext()));
 
   dom_distiller::proto::DomDistillerOptions options;
-  scoped_ptr<DistillerFactory> distiller_factory(
-      new DistillerFactoryImpl(distiller_url_fetcher_factory.Pass(), options));
+  scoped_ptr<DistillerFactory> distiller_factory(new DistillerFactoryImpl(
+      std::move(distiller_url_fetcher_factory), options));
   scoped_ptr<DistilledPagePrefs> distilled_page_prefs(new DistilledPagePrefs(
       ios::ChromeBrowserState::FromBrowserState(context)->GetPrefs()));
 
   return make_scoped_ptr(new DomDistillerKeyedService(
-      dom_distiller_store.Pass(), distiller_factory.Pass(),
-      distiller_page_factory.Pass(), distilled_page_prefs.Pass()));
+      std::move(dom_distiller_store), std::move(distiller_factory),
+      std::move(distiller_page_factory), std::move(distilled_page_prefs)));
 }
 
 web::BrowserState* DomDistillerServiceFactory::GetBrowserStateToUse(

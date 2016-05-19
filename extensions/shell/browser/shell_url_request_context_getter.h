@@ -6,6 +6,7 @@
 #define EXTENSIONS_SHELL_BROWSER_SHELL_URL_REQUEST_CONTEXT_GETTER_H_
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "content/shell/browser/shell_url_request_context_getter.h"
 
 namespace base {
@@ -32,8 +33,8 @@ class ShellURLRequestContextGetter :
       content::BrowserContext* browser_context,
       bool ignore_certificate_errors,
       const base::FilePath& base_path,
-      base::MessageLoop* io_loop,
-      base::MessageLoop* file_loop,
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> file_task_runner,
       content::ProtocolHandlerMap* protocol_handlers,
       content::URLRequestInterceptorScopedVector request_interceptors,
       net::NetLog* net_log,

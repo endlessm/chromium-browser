@@ -5,6 +5,8 @@
 #ifndef CONTENT_PUBLIC_COMMON_PEPPER_PLUGIN_INFO_H_
 #define CONTENT_PUBLIC_COMMON_PEPPER_PLUGIN_INFO_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -35,6 +37,7 @@ struct CONTENT_EXPORT PepperPluginInfo {
   };
 
   PepperPluginInfo();
+  PepperPluginInfo(const PepperPluginInfo& other);
   ~PepperPluginInfo();
 
   WebPluginInfo ToWebPluginInfo() const;
@@ -63,7 +66,7 @@ struct CONTENT_EXPORT PepperPluginInfo {
   EntryPoints internal_entry_points;
 
   // Permission bits from ppapi::Permission.
-  uint32 permissions;
+  uint32_t permissions;
 };
 
 }  // namespace content

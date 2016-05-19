@@ -6,15 +6,25 @@
 #define MOJO_SERVICES_TRACING_PUBLIC_CPP_TRACING_IMPL_H_
 
 #include "base/macros.h"
-#include "mojo/application/public/cpp/interface_factory.h"
 #include "mojo/services/tracing/public/cpp/trace_provider_impl.h"
 #include "mojo/services/tracing/public/interfaces/tracing.mojom.h"
+#include "mojo/shell/public/cpp/interface_factory.h"
 
 namespace mojo {
 
-class ApplicationConnection;
-class ApplicationImpl;
+class Connection;
+class Connector;
 
+// Connects to mojo:tracing during your Application's Initialize() call once
+// per process.
+//
+// We need to deal with multiple ways of packaging mojo applications
+// together. We'll need to deal with packages that use the mojo.ContentHandler
+// interface to bundle several Applciations into a single physical on disk
+// mojo binary, and with those same services each in their own mojo binary.
+//
+// Have your bundle ContentHandler own a TracingImpl, and each Application own
+// a TracingImpl. In bundles, the second TracingImpl will be a no-op.
 class TracingImpl : public InterfaceFactory<tracing::TraceProvider> {
  public:
   TracingImpl();
@@ -22,14 +32,14 @@ class TracingImpl : public InterfaceFactory<tracing::TraceProvider> {
 
   // This connects to the tracing service and registers ourselves to provide
   // tracing data on demand.
-  void Initialize(ApplicationImpl* app);
+  void Initialize(Connector* connector, const std::string& url);
 
  private:
   // InterfaceFactory<tracing::TraceProvider> implementation.
-  void Create(ApplicationConnection* connection,
+  void Create(Connection* connection,
               InterfaceRequest<tracing::TraceProvider> request) override;
 
-  scoped_ptr<ApplicationConnection> connection_;
+  scoped_ptr<Connection> connection_;
   TraceProviderImpl provider_impl_;
 
   DISALLOW_COPY_AND_ASSIGN(TracingImpl);

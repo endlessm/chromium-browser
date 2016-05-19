@@ -9,6 +9,7 @@
 #include <set>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/shared_memory.h"
 #include "base/memory/weak_ptr.h"
@@ -163,9 +164,6 @@ class UserScriptLoader : public content::NotificationObserver {
   // that we're currently mid-load and then start over again once the load
   // finishes.  This boolean tracks whether another load is pending.
   bool pending_load_;
-
-  // Whether or not we are currently loading.
-  bool is_loading_;
 
   // The browser_context for which the scripts managed here are installed.
   content::BrowserContext* browser_context_;

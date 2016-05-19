@@ -12,6 +12,7 @@
 #include "base/threading/thread_id_name_manager.h"
 #include "base/threading/thread_local.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/build_config.h"
 
 #if defined(OS_WIN)
 #include "base/win/scoped_com_initializer.h"
@@ -51,6 +52,8 @@ Thread::Options::Options(MessageLoop::Type type,
       priority(ThreadPriority::NORMAL) {
 }
 
+Thread::Options::Options(const Options& other) = default;
+
 Thread::Options::~Options() {
 }
 
@@ -67,7 +70,7 @@ Thread::Thread(const std::string& name)
       message_loop_(nullptr),
       message_loop_timer_slack_(TIMER_SLACK_NONE),
       name_(name),
-      start_event_(false, false) {
+      start_event_(true, false) {
 }
 
 Thread::~Thread() {
@@ -262,8 +265,12 @@ void Thread::ThreadMain() {
   com_initializer.reset();
 #endif
 
-  // Assert that MessageLoop::QuitWhenIdle was called by ThreadQuitHelper.
-  DCHECK(GetThreadWasQuitProperly());
+  if (message_loop->type() != MessageLoop::TYPE_CUSTOM) {
+    // Assert that MessageLoop::QuitWhenIdle was called by ThreadQuitHelper.
+    // Don't check for custom message pumps, because their shutdown might not
+    // allow this.
+    DCHECK(GetThreadWasQuitProperly());
+  }
 
   // We can't receive messages anymore.
   // (The message loop is destructed at the end of this block)

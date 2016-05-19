@@ -8,17 +8,16 @@ source_set("service") {
     "ui_string_overrider.h",
     "variations_service.cc",
     "variations_service.h",
-    "variations_service_client.cc",
     "variations_service_client.h",
   ]
 
   deps = [
     "//base",
-    "//base:prefs",
     "//components/data_use_measurement/core",
     "//components/metrics",
     "//components/network_time",
     "//components/pref_registry",
+    "//components/prefs",
     "//components/variations",
     "//components/variations/proto",
     "//components/version_info",
@@ -38,9 +37,8 @@ source_set("unit_tests") {
   deps = [
     ":service",
     "//base",
-    "//base:prefs_test_support",
     "//base/test:test_support",
-    "//components/compression",
+    "//components/prefs:test_support",
     "//components/variations",
     "//components/variations/proto",
     "//components/web_resource:test_support",

@@ -8,6 +8,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
+#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/stl_util.h"
 #include "content/common/gpu/media/h264_decoder.h"
@@ -1359,7 +1360,8 @@ H264Decoder::DecodeResult H264Decoder::Decode() {
         if (!ProcessSPS(sps_id, &need_new_buffers))
           SET_ERROR_AND_RETURN();
 
-        state_ = kDecoding;
+        if (state_ == kNeedStreamMetadata)
+          state_ = kAfterReset;
 
         if (need_new_buffers) {
           if (!Flush())
@@ -1377,9 +1379,6 @@ H264Decoder::DecodeResult H264Decoder::Decode() {
       }
 
       case media::H264NALU::kPPS: {
-        if (state_ != kDecoding)
-          break;
-
         int pps_id;
 
         if (!FinishPrevFrameIfPresent())

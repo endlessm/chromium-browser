@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/resolver/CSSVariableResolver.h"
 
 #include "core/CSSPropertyNames.h"
 #include "core/CSSValueKeywords.h"
 #include "core/StyleBuilderFunctions.h"
+#include "core/StylePropertyShorthand.h"
+#include "core/css/CSSValuePool.h"
 #include "core/css/CSSVariableData.h"
 #include "core/css/CSSVariableReferenceValue.h"
 #include "core/css/parser/CSSParserToken.h"
@@ -21,129 +22,130 @@
 
 namespace blink {
 
-// TODO(leviw): This should take a CSSParserTokenRange
-static void findEndIndexOfVariableReference(const Vector<CSSParserToken>& resolvedTokens, unsigned startIndex, unsigned& endIndex, unsigned& commaIndex, bool& hasClosingBracket)
+bool CSSVariableResolver::resolveFallback(CSSParserTokenRange range, Vector<CSSParserToken>& result)
 {
-    endIndex = 0;
-    commaIndex = 0;
-    unsigned bracketCount = 1;
-    for (unsigned i = startIndex; i < resolvedTokens.size(); ++i) {
-        CSSParserTokenType type = resolvedTokens[i].type();
-
-        if (type == CommaToken && !commaIndex) {
-            commaIndex = i;
-        } else if (type == LeftParenthesisToken || type == FunctionToken) {
-            bracketCount++;
-        } else if (type == RightParenthesisToken) {
-            if (bracketCount == 1) {
-                hasClosingBracket = true;
-                endIndex = i;
-                return;
-            }
-            bracketCount--;
-        }
-    }
-    hasClosingBracket = false;
-    endIndex = resolvedTokens.size() - 1;
+    if (range.atEnd())
+        return false;
+    ASSERT(range.peek().type() == CommaToken);
+    range.consume();
+    return resolveTokenRange(range, result);
 }
 
-unsigned CSSVariableResolver::resolveVariableTokensRecursive(Vector<CSSParserToken>& resolvedTokens, unsigned startIndex)
+CSSVariableData* CSSVariableResolver::valueForCustomProperty(AtomicString name)
 {
-    unsigned variableLocation = startIndex;
-    while (resolvedTokens[variableLocation].type() != IdentToken)
-        variableLocation++;
-
-    unsigned commaIndex;
-    unsigned endIndex;
-    bool hasClosingBracket;
-    // Find default value and match braces
-    findEndIndexOfVariableReference(resolvedTokens, variableLocation + 1, endIndex, commaIndex, hasClosingBracket);
-
-    unsigned length = endIndex - startIndex + 1;
-    unsigned varFunctionPosition = startIndex;
-
-    AtomicString variableName = resolvedTokens[variableLocation].value();
-
-    if (m_variablesSeen.contains(variableName)) {
-        m_cycleDetected = true;
-        resolvedTokens.clear();
-        return 0;
+    if (m_variablesSeen.contains(name)) {
+        m_cycleStartPoints.add(name);
+        return nullptr;
     }
 
-    CSSVariableData* variableData = m_styleVariableData ? m_styleVariableData->getVariable(variableName) : nullptr;
-    if (variableData) {
-        Vector<CSSParserToken> tokens(variableData->tokens());
-        if (variableData->needsVariableResolution()) {
-            m_variablesSeen.add(variableName);
-            resolveVariableReferencesFromTokens(tokens);
-            m_variablesSeen.remove(variableName);
-
-            // The old variable data holds onto the backing string the new resolved CSSVariableData
-            // relies on. Ensure it will live beyond us overwriting the RefPtr in StyleVariableData.
-            ASSERT(variableData->refCount() > 1);
-
-            m_styleVariableData->setVariable(variableName, CSSVariableData::createResolved(tokens));
-        }
-        if (tokens.size()) {
-            resolvedTokens.remove(startIndex, length);
-            resolvedTokens.insert(startIndex, tokens);
-            return tokens.size();
-        }
-    }
-
-    // Fallback on default value if present
-    if (!commaIndex || m_cycleDetected) {
-        resolvedTokens.clear();
-        return 0;
-    }
-
-    // Move the tokens to the beginning of the variable reference
-    unsigned defaultValueStart = commaIndex + 1;
-    unsigned defaultValueLength = endIndex - commaIndex - (hasClosingBracket ? 1 : 0);
-    for (unsigned i = 0; i < defaultValueLength; ++i)
-        resolvedTokens[varFunctionPosition + i] = resolvedTokens[defaultValueStart + i];
-    resolvedTokens.remove(varFunctionPosition + defaultValueLength, length - defaultValueLength);
-
-    resolveVariableReferencesFromTokens(resolvedTokens);
-
-    return resolvedTokens.size();
+    if (!m_styleVariableData)
+        return nullptr;
+    CSSVariableData* variableData = m_styleVariableData->getVariable(name);
+    if (!variableData)
+        return nullptr;
+    if (!variableData->needsVariableResolution())
+        return variableData;
+    RefPtr<CSSVariableData> newVariableData = resolveCustomProperty(name, *variableData);
+    m_styleVariableData->setVariable(name, newVariableData);
+    return newVariableData.get();
 }
 
-void CSSVariableResolver::resolveVariableReferencesFromTokens(Vector<CSSParserToken>& tokens)
+PassRefPtr<CSSVariableData> CSSVariableResolver::resolveCustomProperty(AtomicString name, const CSSVariableData& variableData)
 {
-    for (unsigned i = 0; i < tokens.size(); ++i) {
-        if (tokens[i].functionId() == CSSValueVar) {
-            unsigned validTokens = resolveVariableTokensRecursive(tokens, i);
-            if (validTokens < 1 || m_cycleDetected) {
-                tokens.clear();
-                break;
-            }
-            i += validTokens - 1;
+    ASSERT(variableData.needsVariableResolution());
+
+    Vector<CSSParserToken> tokens;
+    m_variablesSeen.add(name);
+    bool success = resolveTokenRange(variableData.tokens(), tokens);
+    m_variablesSeen.remove(name);
+
+    // The old variable data holds onto the backing string the new resolved CSSVariableData
+    // relies on. Ensure it will live beyond us overwriting the RefPtr in StyleVariableData.
+    ASSERT(variableData.refCount() > 1);
+
+    if (!success || !m_cycleStartPoints.isEmpty()) {
+        m_cycleStartPoints.remove(name);
+        return nullptr;
+    }
+    return CSSVariableData::createResolved(tokens, variableData);
+}
+
+bool CSSVariableResolver::resolveVariableReference(CSSParserTokenRange range, Vector<CSSParserToken>& result)
+{
+    range.consumeWhitespace();
+    ASSERT(range.peek().type() == IdentToken);
+    AtomicString variableName = range.consumeIncludingWhitespace().value();
+    ASSERT(range.atEnd() || (range.peek().type() == CommaToken));
+
+    CSSVariableData* variableData = valueForCustomProperty(variableName);
+    if (!variableData)
+        return resolveFallback(range, result);
+
+    result.appendVector(variableData->tokens());
+    Vector<CSSParserToken> trash;
+    resolveFallback(range, trash);
+    return true;
+}
+
+bool CSSVariableResolver::resolveTokenRange(CSSParserTokenRange range,
+    Vector<CSSParserToken>& result)
+{
+    bool success = true;
+    while (!range.atEnd()) {
+        if (range.peek().functionId() == CSSValueVar) {
+            success &= resolveVariableReference(range.consumeBlock(), result);
+        } else {
+            result.append(range.consume());
         }
     }
+    return success;
+}
+
+PassRefPtrWillBeRawPtr<CSSValue> CSSVariableResolver::resolveVariableReferences(StyleVariableData* styleVariableData, CSSPropertyID id, const CSSVariableReferenceValue& value)
+{
+    ASSERT(!isShorthandProperty(id));
+
+    CSSVariableResolver resolver(styleVariableData);
+    Vector<CSSParserToken> tokens;
+    if (!resolver.resolveTokenRange(value.variableDataValue()->tokens(), tokens))
+        return cssValuePool().createUnsetValue();
+
+    CSSParserContext context(HTMLStandardMode, nullptr);
+    WillBeHeapVector<CSSProperty, 256> parsedProperties;
+    // TODO(timloh): This should be CSSParser::parseSingleValue and not need a vector.
+    if (!CSSPropertyParser::parseValue(id, false, CSSParserTokenRange(tokens), context, parsedProperties, StyleRule::RuleType::Style))
+        return cssValuePool().createUnsetValue();
+    ASSERT(parsedProperties.size() == 1);
+    return parsedProperties[0].value();
 }
 
 void CSSVariableResolver::resolveAndApplyVariableReferences(StyleResolverState& state, CSSPropertyID id, const CSSVariableReferenceValue& value)
 {
-    // TODO(leviw): This should be a stack
-    Vector<CSSParserToken> tokens = value.variableDataValue()->tokens();
-
     CSSVariableResolver resolver(state.style()->variables());
 
-    resolver.resolveVariableReferencesFromTokens(tokens);
+    Vector<CSSParserToken> tokens;
+    if (resolver.resolveTokenRange(value.variableDataValue()->tokens(), tokens)) {
+        CSSParserContext context(HTMLStandardMode, 0);
 
-    if (!tokens.size())
+        WillBeHeapVector<CSSProperty, 256> parsedProperties;
+
+        if (CSSPropertyParser::parseValue(id, false, CSSParserTokenRange(tokens), context, parsedProperties, StyleRule::RuleType::Style)) {
+            unsigned parsedPropertiesCount = parsedProperties.size();
+            for (unsigned i = 0; i < parsedPropertiesCount; ++i)
+                StyleBuilder::applyProperty(parsedProperties[i].id(), state, parsedProperties[i].value());
+            return;
+        }
+    }
+
+    RefPtrWillBeRawPtr<CSSUnsetValue> unset = cssValuePool().createUnsetValue();
+    if (isShorthandProperty(id)) {
+        StylePropertyShorthand shorthand = shorthandForProperty(id);
+        for (unsigned i = 0; i < shorthand.length(); i++)
+            StyleBuilder::applyProperty(shorthand.properties()[i], state, unset.get());
         return;
+    }
 
-    CSSParserContext context(HTMLStandardMode, 0);
-
-    WillBeHeapVector<CSSProperty, 256> parsedProperties;
-
-    CSSPropertyParser::parseValue(id, false, CSSParserTokenRange(tokens), context, parsedProperties, StyleRule::Type::Style);
-
-    unsigned parsedPropertiesCount = parsedProperties.size();
-    for (unsigned i = 0; i < parsedPropertiesCount; ++i)
-        StyleBuilder::applyProperty(parsedProperties[i].id(), state, parsedProperties[i].value());
+    StyleBuilder::applyProperty(id, state, unset.get());
 }
 
 void CSSVariableResolver::resolveVariableDefinitions(StyleVariableData* variables)
@@ -151,29 +153,16 @@ void CSSVariableResolver::resolveVariableDefinitions(StyleVariableData* variable
     if (!variables)
         return;
 
+    CSSVariableResolver resolver(variables);
     for (auto& variable : variables->m_data) {
-        if (!variable.value->needsVariableResolution())
-            continue;
-        Vector<CSSParserToken> resolvedTokens(variable.value->tokens());
-
-        CSSVariableResolver resolver(variables, variable.key);
-        resolver.resolveVariableReferencesFromTokens(resolvedTokens);
-
-        variable.value = CSSVariableData::createResolved(resolvedTokens);
+        if (variable.value && variable.value->needsVariableResolution())
+            variable.value = resolver.resolveCustomProperty(variable.key, *variable.value);
     }
 }
 
 CSSVariableResolver::CSSVariableResolver(StyleVariableData* styleVariableData)
     : m_styleVariableData(styleVariableData)
-    , m_cycleDetected(false)
 {
-}
-
-CSSVariableResolver::CSSVariableResolver(StyleVariableData* styleVariableData, AtomicString& variable)
-    : m_styleVariableData(styleVariableData)
-    , m_cycleDetected(false)
-{
-    m_variablesSeen.add(variable);
 }
 
 } // namespace blink

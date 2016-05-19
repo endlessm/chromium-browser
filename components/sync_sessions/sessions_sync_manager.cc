@@ -5,13 +5,15 @@
 #include "components/sync_sessions/sessions_sync_manager.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/metrics/field_trial.h"
-#include "components/sync_driver/glue/synced_window_delegate.h"
+#include "build/build_config.h"
 #include "components/sync_driver/local_device_info_provider.h"
-#include "components/sync_driver/sessions/synced_window_delegates_getter.h"
 #include "components/sync_sessions/sync_sessions_client.h"
 #include "components/sync_sessions/synced_tab_delegate.h"
+#include "components/sync_sessions/synced_window_delegate.h"
+#include "components/sync_sessions/synced_window_delegates_getter.h"
 #include "components/variations/variations_associated_data.h"
 #include "sync/api/sync_error.h"
 #include "sync/api/sync_error_factory.h"
@@ -78,12 +80,10 @@ SessionsSyncManager::SessionsSyncManager(
       local_device_(local_device),
       local_session_header_node_id_(TabNodePool::kInvalidTabNodeID),
       stale_session_threshold_days_(kDefaultStaleSessionThresholdDays),
-      local_event_router_(router.Pass()),
+      local_event_router_(std::move(router)),
       page_revisit_broadcaster_(this, sessions_client),
       sessions_updated_callback_(sessions_updated_callback),
-      datatype_refresh_callback_(datatype_refresh_callback) {
-  synced_window_getter_ = sessions_client_->GetSyncedWindowDelegatesGetter();
-}
+      datatype_refresh_callback_(datatype_refresh_callback) {}
 
 SessionsSyncManager::~SessionsSyncManager() {}
 
@@ -104,8 +104,8 @@ syncer::SyncMergeResult SessionsSyncManager::MergeDataAndStartSyncing(
   DCHECK(session_tracker_.Empty());
   DCHECK_EQ(0U, local_tab_pool_.Capacity());
 
-  error_handler_ = error_handler.Pass();
-  sync_processor_ = sync_processor.Pass();
+  error_handler_ = std::move(error_handler);
+  sync_processor_ = std::move(sync_processor);
 
   local_session_header_node_id_ = TabNodePool::kInvalidTabNodeID;
 
@@ -186,7 +186,7 @@ void SessionsSyncManager::AssociateWindows(
 
   session_tracker_.ResetSessionTracking(local_tag);
   std::set<const SyncedWindowDelegate*> windows =
-      GetSyncedWindowDelegatesGetter()->GetSyncedWindowDelegates();
+      synced_window_delegates_getter()->GetSyncedWindowDelegates();
 
   for (std::set<const SyncedWindowDelegate*>::const_iterator i =
            windows.begin();
@@ -351,12 +351,12 @@ void SessionsSyncManager::AssociateTab(SyncedTabDelegate* const tab,
 
 void SessionsSyncManager::RebuildAssociations() {
   syncer::SyncDataList data(sync_processor_->GetAllSyncData(syncer::SESSIONS));
-  scoped_ptr<syncer::SyncErrorFactory> error_handler(error_handler_.Pass());
-  scoped_ptr<syncer::SyncChangeProcessor> processor(sync_processor_.Pass());
+  scoped_ptr<syncer::SyncErrorFactory> error_handler(std::move(error_handler_));
+  scoped_ptr<syncer::SyncChangeProcessor> processor(std::move(sync_processor_));
 
   StopSyncing(syncer::SESSIONS);
-  MergeDataAndStartSyncing(syncer::SESSIONS, data, processor.Pass(),
-                           error_handler.Pass());
+  MergeDataAndStartSyncing(syncer::SESSIONS, data, std::move(processor),
+                           std::move(error_handler));
 }
 
 bool SessionsSyncManager::IsValidSessionHeader(
@@ -893,8 +893,7 @@ void SessionsSyncManager::LocalTabDelegateToSpecifics(
   session_tab = session_tracker_.GetTab(current_machine_tag(),
                                         tab_delegate.GetSessionId(),
                                         tab_delegate.GetSyncId());
-  SetSessionTabFromDelegate(GetSyncedWindowDelegatesGetter(), tab_delegate,
-                            base::Time::Now(), session_tab);
+  SetSessionTabFromDelegate(tab_delegate, base::Time::Now(), session_tab);
   SetVariationIds(session_tab);
   sync_pb::SessionTab tab_s = session_tab->ToSyncData();
   specifics->set_session_tag(current_machine_tag_);
@@ -947,7 +946,6 @@ void SessionsSyncManager::AssociateRestoredPlaceholderTab(
 
 // static
 void SessionsSyncManager::SetSessionTabFromDelegate(
-    SyncedWindowDelegatesGetter* synced_window_getter,
     const SyncedTabDelegate& tab_delegate,
     base::Time mtime,
     sessions::SessionTab* session_tab) {
@@ -958,7 +956,7 @@ void SessionsSyncManager::SetSessionTabFromDelegate(
   // Use -1 to indicate that the index hasn't been set properly yet.
   session_tab->current_navigation_index = -1;
   const SyncedWindowDelegate* window_delegate =
-      synced_window_getter->FindById(tab_delegate.GetWindowId());
+      synced_window_delegates_getter()->FindById(tab_delegate.GetWindowId());
   session_tab->pinned =
       window_delegate ? window_delegate->IsTabPinned(&tab_delegate) : false;
   session_tab->extension_app_id = tab_delegate.GetExtensionAppId();
@@ -1026,8 +1024,8 @@ FaviconCache* SessionsSyncManager::GetFaviconCache() {
 }
 
 SyncedWindowDelegatesGetter*
-SessionsSyncManager::GetSyncedWindowDelegatesGetter() const {
-  return synced_window_getter_;
+SessionsSyncManager::synced_window_delegates_getter() const {
+  return sessions_client_->GetSyncedWindowDelegatesGetter();
 }
 
 void SessionsSyncManager::DoGarbageCollection() {

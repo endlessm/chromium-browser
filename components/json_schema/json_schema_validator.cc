@@ -4,6 +4,8 @@
 
 #include "components/json_schema/json_schema_validator.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -11,13 +13,14 @@
 
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "components/json_schema/json_schema_constants.h"
-#include "third_party/re2/re2/re2.h"
+#include "third_party/re2/src/re2/re2.h"
 
 namespace schema = json_schema_constants;
 

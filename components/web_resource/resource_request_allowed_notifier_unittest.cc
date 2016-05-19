@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/web_resource/eula_accepted_notifier.h"
 #include "components/web_resource/resource_request_allowed_notifier_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"

@@ -5,9 +5,9 @@
 #ifndef REMOTING_HOST_WIN_SESSION_DESKTOP_ENVIRONMENT_H_
 #define REMOTING_HOST_WIN_SESSION_DESKTOP_ENVIRONMENT_H_
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "remoting/host/me2me_desktop_environment.h"
 
@@ -26,6 +26,7 @@ class SessionDesktopEnvironment : public Me2MeDesktopEnvironment {
   friend class SessionDesktopEnvironmentFactory;
   SessionDesktopEnvironment(
       scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
       const base::Closure& inject_sas,
@@ -42,6 +43,7 @@ class SessionDesktopEnvironmentFactory : public Me2MeDesktopEnvironmentFactory {
  public:
   SessionDesktopEnvironmentFactory(
       scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
       const base::Closure& inject_sas);

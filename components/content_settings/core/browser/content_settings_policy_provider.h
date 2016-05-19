@@ -9,11 +9,11 @@
 
 #include <vector>
 
-#include "base/basictypes.h"
-#include "base/prefs/pref_change_registrar.h"
+#include "base/macros.h"
 #include "base/synchronization/lock.h"
 #include "components/content_settings/core/browser/content_settings_observable_provider.h"
 #include "components/content_settings/core/browser/content_settings_origin_identifier_value_map.h"
+#include "components/prefs/pref_change_registrar.h"
 
 class PrefService;
 
@@ -31,9 +31,10 @@ class PolicyProvider : public ObservableProvider {
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
   // ProviderInterface implementations.
-  RuleIterator* GetRuleIterator(ContentSettingsType content_type,
-                                const ResourceIdentifier& resource_identifier,
-                                bool incognito) const override;
+  scoped_ptr<RuleIterator> GetRuleIterator(
+      ContentSettingsType content_type,
+      const ResourceIdentifier& resource_identifier,
+      bool incognito) const override;
 
   bool SetWebsiteSetting(const ContentSettingsPattern& primary_pattern,
                          const ContentSettingsPattern& secondary_pattern,

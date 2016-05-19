@@ -40,9 +40,13 @@ PixelBufferAccess		flipYAccess					(const PixelBufferAccess& access);
 ConstPixelBufferAccess	flipYAccess					(const ConstPixelBufferAccess& access);
 
 bool					isCombinedDepthStencilType	(TextureFormat::ChannelType type);
+bool					hasStencilComponent			(TextureFormat::ChannelOrder order);
+bool					hasDepthComponent			(TextureFormat::ChannelOrder order);
 
 // sRGB - linear conversion.
 Vec4					sRGBToLinear				(const Vec4& cs);
+Vec4					sRGB8ToLinear				(const UVec4& cs);
+Vec4					sRGBA8ToLinear				(const UVec4& cs);
 Vec4					linearToSRGB				(const Vec4& cl);
 bool					isSRGB						(TextureFormat format);
 
@@ -60,7 +64,21 @@ enum TextureChannelClass
 	TEXTURECHANNELCLASS_LAST
 };
 
-TextureChannelClass getTextureChannelClass (TextureFormat::ChannelType channelType);
+TextureChannelClass		getTextureChannelClass		(TextureFormat::ChannelType channelType);
+
+/*--------------------------------------------------------------------*//*!
+ * \brief Texture access type
+ *//*--------------------------------------------------------------------*/
+enum TextureAccessType
+{
+	TEXTUREACCESSTYPE_FLOAT	= 0,		//!< Read (getPixel) or write as floating-point data
+	TEXTUREACCESSTYPE_SIGNED_INT,		//!< Read (getPixelInt) or write as signed integer data
+	TEXTUREACCESSTYPE_UNSIGNED_INT,		//!< Read (getPixelUint) or write as unsigned integer data
+
+	TEXTUREACCESSTYPE_LAST
+};
+
+bool					isAccessValid				(TextureFormat format, TextureAccessType type);
 
 /*--------------------------------------------------------------------*//*!
  * \brief Standard parameters for texture format testing
@@ -85,6 +103,11 @@ TextureFormatInfo	getTextureFormatInfo				(const TextureFormat& format);
 IVec4				getTextureFormatBitDepth			(const TextureFormat& format);
 IVec4				getTextureFormatMantissaBitDepth	(const TextureFormat& format);
 BVec4				getTextureFormatChannelMask			(const TextureFormat& format);
+
+IVec4				getFormatMinIntValue				(const TextureFormat& format);
+IVec4				getFormatMaxIntValue				(const TextureFormat& format);
+
+UVec4				getFormatMaxUintValue				(const TextureFormat& format);
 
 // Texture fill.
 void	clear							(const PixelBufferAccess& access, const Vec4& color);

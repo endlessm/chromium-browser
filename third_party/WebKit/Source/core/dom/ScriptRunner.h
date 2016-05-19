@@ -27,7 +27,6 @@
 #define ScriptRunner_h
 
 #include "core/CoreExport.h"
-#include "core/fetch/ResourcePtr.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Deque.h"
 #include "wtf/HashMap.h"
@@ -61,7 +60,7 @@ public:
     void notifyScriptReady(ScriptLoader*, ExecutionType);
     void notifyScriptLoadError(ScriptLoader*, ExecutionType);
 
-    static void movePendingAsyncScript(Document&, Document&, ScriptLoader*);
+    static void movePendingScript(Document&, Document&, ScriptLoader*);
 
     DECLARE_TRACE();
 
@@ -70,9 +69,8 @@ private:
 
     explicit ScriptRunner(Document*);
 
-    void addPendingAsyncScript(ScriptLoader*);
-
-    void movePendingAsyncScript(ScriptRunner*, ScriptLoader*);
+    void movePendingScript(ScriptRunner*, ScriptLoader*);
+    bool removePendingInOrderScript(ScriptLoader*);
 
     void postTask(const WebTraceLocation&);
 

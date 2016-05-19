@@ -4,9 +4,13 @@
 
 #include "chrome/browser/chromeos/first_run/drive_first_run_controller.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray_delegate.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
@@ -101,9 +105,7 @@ void DriveOfflineNotificationDelegate::ButtonClick(int button_index) {
   // The support page will be localized based on the user's GAIA account.
   const GURL url = GURL(kDriveOfflineSupportUrl);
 
-  chrome::ScopedTabbedBrowserDisplayer displayer(
-       profile_,
-       chrome::HOST_DESKTOP_TYPE_ASH);
+  chrome::ScopedTabbedBrowserDisplayer displayer(profile_);
   chrome::ShowSingletonTabOverwritingNTP(
       displayer.browser(),
       chrome::GetSingletonTabNavigateParams(displayer.browser(), url));
@@ -469,7 +471,8 @@ void DriveFirstRunController::ShowNotification() {
                                      kDriveHostedAppId),
           data, new DriveOfflineNotificationDelegate(profile_)));
   notification->set_priority(message_center::LOW_PRIORITY);
-  message_center::MessageCenter::Get()->AddNotification(notification.Pass());
+  message_center::MessageCenter::Get()->AddNotification(
+      std::move(notification));
 }
 
 }  // namespace chromeos

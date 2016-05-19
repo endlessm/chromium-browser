@@ -10,15 +10,18 @@
 
 namespace chrome {
 
-ScopedTabbedBrowserDisplayer::ScopedTabbedBrowserDisplayer(
-    Profile* profile,
-    HostDesktopType type) {
-  browser_ = FindTabbedBrowser(profile, false, type);
+ScopedTabbedBrowserDisplayer::ScopedTabbedBrowserDisplayer(Profile* profile) {
+  browser_ = FindTabbedBrowser(profile, false);
   if (!browser_)
-    browser_ = new Browser(Browser::CreateParams(profile, type));
+    browser_ = new Browser(Browser::CreateParams(profile));
 }
 
 ScopedTabbedBrowserDisplayer::~ScopedTabbedBrowserDisplayer() {
+  // Make sure to restore the window, since window()->Show() will not unminimize
+  // it.
+  if (browser_->window()->IsMinimized())
+    browser_->window()->Restore();
+
   browser_->window()->Show();
 }
 

@@ -5,6 +5,7 @@
 #ifndef UI_GL_GL_SURFACE_WGL_H_
 #define UI_GL_GL_SURFACE_WGL_H_
 
+#include "base/macros.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gl/gl_surface.h"
 
@@ -35,7 +36,7 @@ class NativeViewGLSurfaceWGL : public GLSurfaceWGL {
   explicit NativeViewGLSurfaceWGL(gfx::AcceleratedWidget window);
 
   // Implement GLSurface.
-  bool Initialize() override;
+  bool Initialize(GLSurface::Format format) override;
   void Destroy() override;
   bool IsOffscreen() override;
   gfx::SwapResult SwapBuffers() override;
@@ -59,7 +60,7 @@ class PbufferGLSurfaceWGL : public GLSurfaceWGL {
   explicit PbufferGLSurfaceWGL(const gfx::Size& size);
 
   // Implement GLSurface.
-  bool Initialize() override;
+  bool Initialize(GLSurface::Format format) override;
   void Destroy() override;
   bool IsOffscreen() override;
   gfx::SwapResult SwapBuffers() override;

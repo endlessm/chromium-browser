@@ -5,6 +5,8 @@
 #ifndef MOJO_EDK_SYSTEM_CORE_TEST_BASE_H_
 #define MOJO_EDK_SYSTEM_CORE_TEST_BASE_H_
 
+#include <stddef.h>
+
 #include "base/synchronization/lock.h"
 #include "mojo/edk/embedder/embedder_internal.h"
 #include "mojo/edk/system/test_utils.h"
@@ -22,7 +24,7 @@ namespace test {
 
 class CoreTestBase_MockHandleInfo;
 
-class CoreTestBase : public MojoSystemTest {
+class CoreTestBase : public testing::Test {
  public:
   using MockHandleInfo = CoreTestBase_MockHandleInfo;
 
@@ -57,7 +59,6 @@ class CoreTestBase_MockHandleInfo {
   unsigned GetEndReadDataCallCount() const;
   unsigned GetAddAwakableCallCount() const;
   unsigned GetRemoveAwakableCallCount() const;
-  unsigned GetCancelAllAwakablesCallCount() const;
 
   size_t GetAddedAwakableSize() const;
   Awakable* GetAddedAwakableAt(unsigned i) const;
@@ -76,7 +77,6 @@ class CoreTestBase_MockHandleInfo {
   void IncrementEndReadDataCallCount();
   void IncrementAddAwakableCallCount();
   void IncrementRemoveAwakableCallCount();
-  void IncrementCancelAllAwakablesCallCount();
 
   void AllowAddAwakable(bool alllow);
   bool IsAddAwakableAllowed() const;
@@ -97,7 +97,6 @@ class CoreTestBase_MockHandleInfo {
   unsigned end_read_data_call_count_;
   unsigned add_awakable_call_count_;
   unsigned remove_awakable_call_count_;
-  unsigned cancel_all_awakables_call_count_;
 
   bool add_awakable_allowed_;
   std::vector<Awakable*> added_awakables_;

@@ -28,13 +28,23 @@ Polymer({
     },
 
     /**
+     * The text for the start casting button.
+     * @private {string}
+     */
+    startCastingButtonText_: {
+      type: String,
+      readOnly: true,
+      value: loadTimeData.getString('startCastingButton'),
+    },
+
+    /**
      * The text for the stop casting button.
      * @private {string}
      */
     stopCastingButtonText_: {
       type: String,
       readOnly: true,
-      value: loadTimeData.getString('stopCastingButton'),
+      value: function() { return loadTimeData.getString('stopCastingButton'); },
     },
 
     /**
@@ -57,6 +67,16 @@ Polymer({
    */
   closeRoute_: function() {
     this.fire('close-route-click', {route: this.route});
+  },
+
+  /**
+   * Fires a start-casting-to-route-click event. This is called when the button
+   * to start casting to the current route is clicked.
+   *
+   * @private
+   */
+  startCastingToRoute_: function() {
+    this.fire('start-casting-to-route-click', {route: this.route});
   },
 
   /**

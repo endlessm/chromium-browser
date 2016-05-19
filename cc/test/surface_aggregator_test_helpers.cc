@@ -4,6 +4,8 @@
 
 #include "cc/test/surface_aggregator_test_helpers.h"
 
+#include <stddef.h>
+
 #include "base/format_macros.h"
 #include "base/strings/stringprintf.h"
 #include "cc/layers/append_quads_data.h"
@@ -129,7 +131,7 @@ void TestPassesMatchExpectations(Pass* expected_passes,
 
   for (size_t i = 0; i < passes->size(); ++i) {
     SCOPED_TRACE(base::StringPrintf("Pass number %" PRIuS, i));
-    RenderPass* pass = passes->at(i);
+    RenderPass* pass = (*passes)[i].get();
     TestPassMatchesExpectations(expected_passes[i], pass);
   }
 }

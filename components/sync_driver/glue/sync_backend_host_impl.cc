@@ -4,6 +4,8 @@
 
 #include "components/sync_driver/glue/sync_backend_host_impl.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -59,7 +61,7 @@ SyncBackendHostImpl::SyncBackendHostImpl(
       invalidation_handler_registered_(false),
       weak_ptr_factory_(this) {
   core_ = new SyncBackendHostCore(name_, sync_folder,
-                                  sync_prefs_->HasSyncSetupCompleted(),
+                                  sync_prefs_->IsFirstSetupComplete(),
                                   weak_ptr_factory_.GetWeakPtr());
 }
 
@@ -85,7 +87,7 @@ void SyncBackendHostImpl::Initialize(
     const HttpPostProviderFactoryGetter& http_post_provider_factory_getter,
     scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state) {
   registrar_.reset(new browser_sync::SyncBackendRegistrar(
-      name_, sync_client_, sync_thread.Pass(), ui_thread_, db_thread,
+      name_, sync_client_, std::move(sync_thread), ui_thread_, db_thread,
       file_thread));
   CHECK(registrar_->sync_thread());
 
@@ -116,7 +118,7 @@ void SyncBackendHostImpl::Initialize(
   if (cl->HasSwitch(switches::kSyncEnableClearDataOnPassphraseEncryption))
     clear_data_option = syncer::PASSPHRASE_TRANSITION_CLEAR_DATA;
 
-  std::map<syncer::ModelType, int64> invalidation_versions;
+  std::map<syncer::ModelType, int64_t> invalidation_versions;
   sync_prefs_->GetInvalidationVersions(&invalidation_versions);
 
   scoped_ptr<DoInitializeOptions> init_opts(new DoInitializeOptions(
@@ -126,15 +128,14 @@ void SyncBackendHostImpl::Initialize(
       http_post_provider_factory_getter.Run(
           core_->GetRequestContextCancelationSignal()),
       credentials, invalidator_ ? invalidator_->GetInvalidatorClientId() : "",
-      sync_manager_factory.Pass(), delete_sync_data_folder,
+      std::move(sync_manager_factory), delete_sync_data_folder,
       sync_prefs_->GetEncryptionBootstrapToken(),
       sync_prefs_->GetKeystoreEncryptionBootstrapToken(),
       scoped_ptr<InternalComponentsFactory>(
-          new syncer::InternalComponentsFactoryImpl(factory_switches))
-          .Pass(),
+          new syncer::InternalComponentsFactoryImpl(factory_switches)),
       unrecoverable_error_handler, report_unrecoverable_error_function,
-      saved_nigori_state.Pass(), clear_data_option, invalidation_versions));
-  InitCore(init_opts.Pass());
+      std::move(saved_nigori_state), clear_data_option, invalidation_versions));
+  InitCore(std::move(init_opts));
 }
 
 void SyncBackendHostImpl::TriggerRefresh(const syncer::ModelTypeSet& types) {
@@ -438,7 +439,7 @@ void SyncBackendHostImpl::DeactivateDirectoryDataType(syncer::ModelType type) {
 void SyncBackendHostImpl::ActivateNonBlockingDataType(
     syncer::ModelType type,
     scoped_ptr<syncer_v2::ActivationContext> activation_context) {
-  sync_context_proxy_->ConnectTypeToSync(type, activation_context.Pass());
+  sync_context_proxy_->ConnectTypeToSync(type, std::move(activation_context));
 }
 
 void SyncBackendHostImpl::DeactivateNonBlockingDataType(
@@ -828,7 +829,7 @@ void SyncBackendHostImpl::HandleDirectoryStatusCountersUpdatedOnFrontendLoop(
 }
 
 void SyncBackendHostImpl::UpdateInvalidationVersions(
-    const std::map<syncer::ModelType, int64>& invalidation_versions) {
+    const std::map<syncer::ModelType, int64_t>& invalidation_versions) {
   sync_prefs_->UpdateInvalidationVersions(invalidation_versions);
 }
 

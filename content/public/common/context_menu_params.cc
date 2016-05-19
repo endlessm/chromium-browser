@@ -6,7 +6,7 @@
 
 namespace content {
 
-const int32 CustomContextMenuContext::kCurrentRenderWidget = kint32max;
+const int32_t CustomContextMenuContext::kCurrentRenderWidget = INT32_MAX;
 
 CustomContextMenuContext::CustomContextMenuContext()
     : is_pepper_menu(false),
@@ -34,6 +34,8 @@ ContextMenuParams::ContextMenuParams()
       source_type(ui::MENU_SOURCE_NONE),
       input_field_type(blink::WebContextMenuData::InputFieldTypeNone) {
 }
+
+ContextMenuParams::ContextMenuParams(const ContextMenuParams& other) = default;
 
 ContextMenuParams::~ContextMenuParams() {
 }

@@ -9,6 +9,7 @@
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -158,7 +159,7 @@ void PrivetV3Session::FetcherDelegate::OnURLFetchComplete(
   }
 
   bool has_error = value->HasKey(kPrivetV3KeyError);
-  LOG_IF(ERROR, has_error) << "Response: " << value;
+  LOG_IF(ERROR, has_error) << "Response: " << value.get();
   ReplyAndDestroyItself(
       has_error ? Result::STATUS_DEVICEERROR : Result::STATUS_SUCCESS, *value);
 }

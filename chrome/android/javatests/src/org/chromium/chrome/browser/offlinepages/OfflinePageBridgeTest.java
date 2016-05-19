@@ -4,36 +4,45 @@
 
 package org.chromium.chrome.browser.offlinepages;
 
-import android.test.suitebuilder.annotation.MediumTest;
+import android.content.Context;
+import android.os.Environment;
+import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.DeletePageCallback;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.OfflinePageModelObserver;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.SavePageCallback;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.bookmarks.BookmarkType;
 import org.chromium.components.offlinepages.DeletePageResult;
 import org.chromium.components.offlinepages.SavePageResult;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.net.NetworkChangeNotifier;
+import org.chromium.net.test.EmbeddedTestServer;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Unit tests for {@link OfflinePageBridge}. */
+@CommandLineFlags.Add({ChromeSwitches.ENABLE_OFFLINE_PAGES})
 public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActivity> {
-    private static final String TEST_PAGE =
-            TestHttpServerClient.getUrl("chrome/test/data/android/about.html");
+    private static final String TEST_PAGE = "/chrome/test/data/android/about.html";
     private static final int TIMEOUT_MS = 5000;
+    private static final long POLLING_INTERVAL = 100;
     private static final BookmarkId BOOKMARK_ID = new BookmarkId(1234, BookmarkType.NORMAL);
 
     private OfflinePageBridge mOfflinePageBridge;
+    private EmbeddedTestServer mTestServer;
+    private String mTestPage;
 
     public OfflinePageBridgeTest() {
         super(ChromeActivity.class);
@@ -46,6 +55,12 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
+                // Ensure we start in an offline state.
+                NetworkChangeNotifier.forceConnectivityState(false);
+                Context context = getActivity().getBaseContext();
+                if (!NetworkChangeNotifier.isInitialized()) {
+                    NetworkChangeNotifier.init(context);
+                }
                 Profile profile = Profile.getLastUsedProfile();
                 mOfflinePageBridge = new OfflinePageBridge(profile);
                 if (mOfflinePageBridge.isOfflinePageModelLoaded()) {
@@ -62,6 +77,16 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
             }
         });
         assertTrue(semaphore.tryAcquire(TIMEOUT_MS, TimeUnit.MILLISECONDS));
+
+        mTestServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestPage = mTestServer.getURL(TEST_PAGE);
+    }
+
+    @Override
+    protected void tearDown() throws Exception {
+        mTestServer.stopAndDestroyServer();
+        super.tearDown();
     }
 
     @Override
@@ -69,20 +94,20 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
         startMainActivityOnBlankPage();
     }
 
-    @MediumTest
+    @SmallTest
     public void testLoadOfflinePagesWhenEmpty() throws Exception {
         List<OfflinePageItem> offlinePages = getAllPages();
         assertEquals("Offline pages count incorrect.", 0, offlinePages.size());
     }
 
-    @MediumTest
+    @SmallTest
     public void testAddOfflinePageAndLoad() throws Exception {
-        loadUrl(TEST_PAGE);
-        savePage(SavePageResult.SUCCESS, TEST_PAGE);
+        loadUrl(mTestPage);
+        savePage(SavePageResult.SUCCESS, mTestPage);
         List<OfflinePageItem> allPages = getAllPages();
         OfflinePageItem offlinePage = allPages.get(0);
         assertEquals("Offline pages count incorrect.", 1, allPages.size());
-        assertEquals("Offline page item url incorrect.", TEST_PAGE, offlinePage.getUrl());
+        assertEquals("Offline page item url incorrect.", mTestPage, offlinePage.getUrl());
         assertEquals("Offline page item bookmark ID incorrect.", BOOKMARK_ID,
                 offlinePage.getBookmarkId());
         assertTrue("Offline page item offline file url doesn't start properly.",
@@ -91,28 +116,117 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
                 offlinePage.getOfflineUrl().endsWith(".mhtml"));
         assertTrue("Offline page item offline file doesn't have the right name.",
                 offlinePage.getOfflineUrl().contains("About"));
-        // BUG(518758): Depending on the bot the result will be either 626 or 627.
+
+        // We don't care about the exact file size of the mhtml file:
+        // - exact file size is not something that the end user sees or cares about
+        // - exact file size can vary based on external factors (i.e. see crbug.com/518758)
+        // - verification of contents of the resulting mhtml file should be covered by mhtml
+        //   serialization tests (i.e. save_page_browsertest.cc)
+        // - we want to avoid overtesting and artificially requiring specific formatting and/or
+        //   implementation choices in the mhtml serialization code
+        // OTOH, it still seems useful to assert that the file is not empty and that its size is in
+        // the right ballpark.
         long size = offlinePage.getFileSize();
-        assertTrue("Offline page item size is incorrect: " + size, size == 626 || size == 627);
+        assertTrue("Offline page item size is incorrect: " + size, 600 < size && size < 800);
     }
 
-    @MediumTest
-    public void testMarkPageAccessed() throws Exception {
-        loadUrl(TEST_PAGE);
-        savePage(SavePageResult.SUCCESS, TEST_PAGE);
-        OfflinePageItem offlinePage = mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID);
-        assertNotNull("Offline page should be available, but it is not.", offlinePage);
-        assertEquals("Offline page access count should be 0.", 0, offlinePage.getAccessCount());
+    @SmallTest
+    public void testGetLaunchUrlFromOnlineUrl() throws Exception {
+        // Start online
+        forceConnectivityStateOnUiThread(true);
+        loadUrl(mTestPage);
+        savePage(SavePageResult.SUCCESS, mTestPage);
 
-        markPageAccessed(BOOKMARK_ID, 1);
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                // Should return online URL since we are online.
+                assertEquals(mTestPage, mOfflinePageBridge.getLaunchUrlFromOnlineUrl(mTestPage));
+
+                // Switch to offline
+                NetworkChangeNotifier.forceConnectivityState(false);
+
+                // Should return saved page URL since we are offline.
+                assertTrue("Offline page item offline file url doesn't start properly.",
+                        mOfflinePageBridge.getLaunchUrlFromOnlineUrl(mTestPage).startsWith(
+                                "file:///"));
+            }
+        });
     }
 
-    @MediumTest
+    @SmallTest
+    public void testGetLaunchUrlAndMarkAccessed() throws Exception {
+        // Start online
+        forceConnectivityStateOnUiThread(true);
+
+        loadUrl(mTestPage);
+        savePage(SavePageResult.SUCCESS, mTestPage);
+
+        final AtomicReference<OfflinePageItem> offlinePageRef = new AtomicReference<>();
+
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                OfflinePageItem offlinePage = mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID);
+                offlinePageRef.set(offlinePage);
+                assertEquals("", 0, offlinePage.getAccessCount());
+                long initialAccessTimeMs = offlinePage.getLastAccessTimeMs();
+
+                assertEquals("Should return online URL while online", mTestPage,
+                        mOfflinePageBridge.getLaunchUrlAndMarkAccessed(offlinePage, mTestPage));
+
+                assertEquals("Get launch URL should not affect access time while online.",
+                        initialAccessTimeMs,
+                        mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID).getLastAccessTimeMs());
+                assertEquals("Get launch URL should not affect access count while online.", 0,
+                        mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID).getAccessCount());
+
+                // Switch to offline
+                NetworkChangeNotifier.forceConnectivityState(false);
+
+                // Should return saved page URL since we are offline.
+                assertTrue("Offline page item offline file url doesn't start properly.",
+                        mOfflinePageBridge.getLaunchUrlAndMarkAccessed(offlinePage, mTestPage)
+                                .startsWith("file:///"));
+            }
+        });
+
+        // We need to poll since there is no callback for mark page as accessed.
+        try {
+            CriteriaHelper.pollForUIThreadCriteria(
+                    new Criteria("Failed while waiting for access count to change.") {
+                        @Override
+                        public boolean isSatisfied() {
+                            OfflinePageItem entry =
+                                    mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID);
+                            return entry.getAccessCount() != 0;
+                        }
+                    },
+                    TIMEOUT_MS, POLLING_INTERVAL);
+        } catch (InterruptedException e) {
+            fail("Failed while waiting for access count to change." + e);
+        }
+
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                OfflinePageItem entry = mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID);
+                assertEquals(
+                        "GetLaunchUrl should increment accessed count when used while offline.", 1,
+                        entry.getAccessCount());
+
+                assertTrue("GetLaunchUrl should update last accessed time when used while offline.",
+                        entry.getLastAccessTimeMs() > offlinePageRef.get().getLastAccessTimeMs());
+            }
+        });
+    }
+
+    @SmallTest
     public void testGetPageByBookmarkId() throws Exception {
-        loadUrl(TEST_PAGE);
-        savePage(SavePageResult.SUCCESS, TEST_PAGE);
+        loadUrl(mTestPage);
+        savePage(SavePageResult.SUCCESS, mTestPage);
         OfflinePageItem offlinePage = mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID);
-        assertEquals("Offline page item url incorrect.", TEST_PAGE, offlinePage.getUrl());
+        assertEquals("Offline page item url incorrect.", mTestPage, offlinePage.getUrl());
         assertEquals("Offline page item bookmark ID incorrect.", BOOKMARK_ID,
                 offlinePage.getBookmarkId());
         assertTrue("Offline page item offline file url doesn't start properly.",
@@ -126,16 +240,26 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
                 mOfflinePageBridge.getPageByBookmarkId(new BookmarkId(-42, BookmarkType.NORMAL)));
     }
 
-    @MediumTest
+    @SmallTest
     public void testDeleteOfflinePage() throws Exception {
         deletePage(BOOKMARK_ID, DeletePageResult.NOT_FOUND);
-        loadUrl(TEST_PAGE);
-        savePage(SavePageResult.SUCCESS, TEST_PAGE);
+        loadUrl(mTestPage);
+        savePage(SavePageResult.SUCCESS, mTestPage);
         assertNotNull("Offline page should be available, but it is not.",
                 mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID));
         deletePage(BOOKMARK_ID, DeletePageResult.SUCCESS);
         assertNull("Offline page should be gone, but it is available.",
                 mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID));
+    }
+
+    @SmallTest
+    public void testGetOfflineUrlForOnlineUrl() throws Exception {
+        loadUrl(mTestPage);
+        savePage(SavePageResult.SUCCESS, mTestPage);
+        OfflinePageItem offlinePage = mOfflinePageBridge.getPageByBookmarkId(BOOKMARK_ID);
+        assertEquals("We should get the same offline URL, when querying using online URL",
+                offlinePage.getOfflineUrl(),
+                mOfflinePageBridge.getOfflineUrlForOnlineUrl(offlinePage.getUrl()));
     }
 
     private void savePage(final int expectedResult, final String expectedUrl)
@@ -145,7 +269,7 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
             @Override
             public void run() {
                 assertNotNull("Tab is null", getActivity().getActivityTab());
-                assertEquals("URL does not match requested.", TEST_PAGE,
+                assertEquals("URL does not match requested.", mTestPage,
                         getActivity().getActivityTab().getUrl());
                 assertNotNull("WebContents is null",
                         getActivity().getActivityTab().getWebContents());
@@ -164,24 +288,6 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
             }
         });
         assertTrue(semaphore.tryAcquire(TIMEOUT_MS, TimeUnit.MILLISECONDS));
-    }
-
-    private void markPageAccessed(final BookmarkId bookmarkId, final int expectedAccessCount)
-            throws InterruptedException {
-        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
-            @Override
-            public void run() {
-                mOfflinePageBridge.markPageAccessed(bookmarkId);
-            }
-        });
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                OfflinePageItem offlinePage =
-                        mOfflinePageBridge.getPageByBookmarkId(bookmarkId);
-                return offlinePage.getAccessCount() == expectedAccessCount;
-            }
-        }));
     }
 
     private void deletePage(BookmarkId bookmarkId, final int expectedResult)
@@ -204,7 +310,6 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
 
     private List<OfflinePageItem> getAllPages()
             throws InterruptedException {
-        final Semaphore semaphore = new Semaphore(0);
         final List<OfflinePageItem> result = new ArrayList<OfflinePageItem>();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
@@ -213,11 +318,17 @@ public class OfflinePageBridgeTest extends ChromeActivityTestCaseBase<ChromeActi
                 for (OfflinePageItem item : mOfflinePageBridge.getAllPages()) {
                     result.add(item);
                 }
-
-                semaphore.release();
             }
         });
-        assertTrue(semaphore.tryAcquire(TIMEOUT_MS, TimeUnit.MILLISECONDS));
         return result;
+    }
+
+    private void forceConnectivityStateOnUiThread(final boolean state) {
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                NetworkChangeNotifier.forceConnectivityState(state);
+            }
+        });
     }
 }

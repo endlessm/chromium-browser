@@ -22,7 +22,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLTextFormControlElement.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -99,7 +98,7 @@ void HTMLTextFormControlElement::dispatchBlurEvent(Element* newFocusedElement, W
 void HTMLTextFormControlElement::defaultEventHandler(Event* event)
 {
     if (event->type() == EventTypeNames::webkitEditableContentChanged && layoutObject() && layoutObject()->isTextControl()) {
-        m_lastChangeWasUserEdit = true;
+        m_lastChangeWasUserEdit = !document().isRunningExecCommand();
         subtreeHasChanged();
         return;
     }
@@ -236,8 +235,7 @@ void HTMLTextFormControlElement::setRangeText(const String& replacement, unsigne
     else
         text.insert(replacement, start);
 
-    setInnerEditorValue(text);
-    subtreeHasChanged();
+    setValue(text, TextFieldEventBehavior::DispatchNoEvent);
 
     if (selectionMode == "select") {
         newSelectionStart = start;
@@ -386,7 +384,7 @@ void HTMLTextFormControlElement::setSelectionRange(int start, int end, TextField
         newSelection.setWithoutValidation(startPosition, endPosition);
     newSelection.setIsDirectional(direction != SelectionHasNoDirection);
 
-    frame->selection().setSelection(newSelection, FrameSelection::DoNotAdjustInComposedTree | FrameSelection::CloseTyping | FrameSelection::ClearTypingStyle | (selectionOption == ChangeSelectionAndFocus ? 0 : FrameSelection::DoNotSetFocus));
+    frame->selection().setSelection(newSelection, FrameSelection::DoNotAdjustInFlatTree | FrameSelection::CloseTyping | FrameSelection::ClearTypingStyle | (selectionOption == ChangeSelectionAndFocus ? 0 : FrameSelection::DoNotSetFocus));
     if (eventBehaviour == DispatchSelectEvent)
         scheduleSelectEvent();
 }
@@ -600,7 +598,7 @@ void HTMLTextFormControlElement::scheduleSelectEvent()
     document().enqueueUniqueAnimationFrameEvent(event.release());
 }
 
-void HTMLTextFormControlElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void HTMLTextFormControlElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (name == autocapitalizeAttr)
         UseCounter::count(document(), UseCounter::AutocapitalizeAttribute);
@@ -610,7 +608,7 @@ void HTMLTextFormControlElement::parseAttribute(const QualifiedName& name, const
         updatePlaceholderVisibility();
         UseCounter::count(document(), UseCounter::PlaceholderAttribute);
     } else {
-        HTMLFormControlElementWithState::parseAttribute(name, value);
+        HTMLFormControlElementWithState::parseAttribute(name, oldValue, value);
     }
 }
 

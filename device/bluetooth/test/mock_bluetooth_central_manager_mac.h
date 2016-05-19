@@ -6,6 +6,7 @@
 #define DEVICE_BLUETOOTH_MOCK_BLUETOOTH_CENTRAL_MANAGER_MAC_H_
 
 #include "base/mac/sdk_forward_declarations.h"
+#include "build/build_config.h"
 
 #if defined(OS_IOS)
 #import <CoreBluetooth/CoreBluetooth.h>
@@ -20,17 +21,10 @@
 // respond to 'stub').
 @interface MockCentralManager : NSObject
 
-@property(nonatomic, assign) BOOL scanForPeripheralsCallCount;
-@property(nonatomic, assign) BOOL stopScanCallCount;
+@property(nonatomic, assign) NSInteger scanForPeripheralsCallCount;
+@property(nonatomic, assign) NSInteger stopScanCallCount;
 @property(nonatomic, assign) id<CBCentralManagerDelegate> delegate;
 @property(nonatomic, assign) CBCentralManagerState state;
-
-// Designated initializer
-- (instancetype)init;
-
-- (instancetype)initWithDelegate:(id<CBCentralManagerDelegate>)delegate
-                           queue:(dispatch_queue_t)queue
-                         options:(NSDictionary*)options;
 
 - (void)scanForPeripheralsWithServices:(NSArray*)serviceUUIDs
                                options:(NSDictionary*)options;

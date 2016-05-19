@@ -17,8 +17,7 @@
         '../src/lazy',
         '../gm',       # needed to pull gm.h
         '../samplecode', # To pull SampleApp.h and SampleCode.h
-        '../src/pipe/utils', # For TiledPipeController
-        '../src/utils/debugger',
+        '../tools/debugger',
         '../tools',
         '../experimental',
       ],
@@ -38,7 +37,7 @@
         '../samplecode/SampleAARects.cpp',
         '../samplecode/SampleAARectModes.cpp',
         '../samplecode/SampleAll.cpp',
-	'../samplecode/SampleAnimatedText.cpp',
+        '../samplecode/SampleAnimatedText.cpp',
         '../samplecode/SampleAnimator.cpp',
         '../samplecode/SampleAnimBlur.cpp',
         '../samplecode/SampleApp.cpp',
@@ -58,7 +57,6 @@
         '../samplecode/SampleColorFilter.cpp',
         '../samplecode/SampleComplexClip.cpp',
         '../samplecode/SampleConcavePaths.cpp',
-        '../samplecode/SampleCull.cpp',
         '../samplecode/SampleDegenerateTwoPtRadials.cpp',
         '../samplecode/SampleDither.cpp',
         '../samplecode/SampleDitherBitmap.cpp',
@@ -87,6 +85,7 @@
         '../samplecode/SampleLua.cpp',
         '../samplecode/SampleManyRects.cpp',
         '../samplecode/SampleMeasure.cpp',
+        '../samplecode/SampleMegaStroke.cpp',
         '../samplecode/SamplePatch.cpp',
         '../samplecode/SamplePath.cpp',
         '../samplecode/SamplePathClip.cpp',
@@ -136,10 +135,6 @@
         '../experimental/SkPerlinNoiseShader2/SkPerlinNoiseShader2.cpp',
         '../experimental/SkPerlinNoiseShader2/SkPerlinNoiseShader2.h',
 
-        # TiledPipeController
-        '../src/pipe/utils/SamplePipeControllers.h',
-        '../src/pipe/utils/SamplePipeControllers.cpp',
-
         # Lua
         '../src/utils/SkLuaCanvas.cpp',
         '../src/utils/SkLua.cpp',
@@ -153,12 +148,14 @@
         'etc1.gyp:libetc1',
         'experimental.gyp:experimental',
         'flags.gyp:flags',
+        'jsoncpp.gyp:jsoncpp',
         'lua.gyp:lua',
         'pdf.gyp:pdf',
         'skia_lib.gyp:skia_lib',
         'tools.gyp:resources',
         'tools.gyp:sk_tool_utils',
         'tools.gyp:timer',
+        'tools.gyp:url_data_manager',
         'views.gyp:views',
         'views_animated.gyp:views_animated',
         'xml.gyp:xml',
@@ -260,9 +257,9 @@
           'sources!': [
             '../samplecode/SampleLighting.cpp',  #doesn't compile due to gpu dependencies
           ],
- 	  'include_dirs' : [
-	    '../include/gpu',
-	  ],
+          'include_dirs' : [
+            '../include/gpu',
+          ],
         }],
         [ 'skia_gpu == 1', {
           'dependencies': [

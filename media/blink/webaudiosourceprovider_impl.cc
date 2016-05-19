@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "media/base/bind_to_current_loop.h"
 #include "third_party/WebKit/public/platform/WebAudioSourceProviderClient.h"
 
@@ -114,7 +115,7 @@ void WebAudioSourceProviderImpl::provideInput(
   DCHECK(renderer_);
   DCHECK(client_);
   DCHECK_EQ(channels_, bus_wrapper_->channels());
-  const int frames = renderer_->Render(bus_wrapper_.get(), 0);
+  const int frames = renderer_->Render(bus_wrapper_.get(), 0, 0);
   if (frames < static_cast<int>(number_of_frames)) {
     bus_wrapper_->ZeroFramesPartial(
         frames,

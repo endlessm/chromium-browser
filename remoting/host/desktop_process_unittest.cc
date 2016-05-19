@@ -4,13 +4,19 @@
 
 #include "remoting/host/desktop_process.h"
 
+#include <stdint.h>
+
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "build/build_config.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "ipc/ipc_listener.h"
@@ -19,10 +25,11 @@
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/host/chromoting_messages.h"
 #include "remoting/host/desktop_process.h"
-#include "remoting/host/fake_desktop_capturer.h"
+#include "remoting/host/fake_mouse_cursor_monitor.h"
 #include "remoting/host/host_exit_codes.h"
 #include "remoting/host/host_mock_objects.h"
 #include "remoting/host/screen_resolution.h"
+#include "remoting/protocol/fake_desktop_capturer.h"
 #include "remoting/protocol/protocol_mock_objects.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gmock_mutant.h"
@@ -46,7 +53,7 @@ class MockDaemonListener : public IPC::Listener {
   bool OnMessageReceived(const IPC::Message& message) override;
 
   MOCK_METHOD1(OnDesktopAttached, void(IPC::PlatformFileForTransit));
-  MOCK_METHOD1(OnChannelConnected, void(int32));
+  MOCK_METHOD1(OnChannelConnected, void(int32_t));
   MOCK_METHOD0(OnChannelError, void());
 
  private:
@@ -60,7 +67,7 @@ class MockNetworkListener : public IPC::Listener {
 
   bool OnMessageReceived(const IPC::Message& message) override;
 
-  MOCK_METHOD1(OnChannelConnected, void(int32));
+  MOCK_METHOD1(OnChannelConnected, void(int32_t));
   MOCK_METHOD0(OnChannelError, void());
 
   MOCK_METHOD0(OnDesktopEnvironmentCreated, void());
@@ -116,6 +123,10 @@ class DesktopProcessTest : public testing::Test {
   // Creates a fake webrtc::DesktopCapturer, to mock
   // DesktopEnvironment::CreateVideoCapturer().
   webrtc::DesktopCapturer* CreateVideoCapturer();
+
+  // Creates a fake webrtc::MouseCursorMonitor, to mock
+  // DesktopEnvironment::CreateMouseCursorMonitor().
+  webrtc::MouseCursorMonitor* CreateMouseCursorMonitor();
 
   // Disconnects the daemon-to-desktop channel causing the desktop process to
   // exit.
@@ -201,6 +212,9 @@ DesktopEnvironment* DesktopProcessTest::CreateDesktopEnvironment() {
   EXPECT_CALL(*desktop_environment, CreateVideoCapturerPtr())
       .Times(AtMost(1))
       .WillOnce(Invoke(this, &DesktopProcessTest::CreateVideoCapturer));
+  EXPECT_CALL(*desktop_environment, CreateMouseCursorMonitorPtr())
+      .Times(AtMost(1))
+      .WillOnce(Invoke(this, &DesktopProcessTest::CreateMouseCursorMonitor));
   EXPECT_CALL(*desktop_environment, GetCapabilities())
       .Times(AtMost(1));
   EXPECT_CALL(*desktop_environment, SetCapabilities(_))
@@ -218,7 +232,11 @@ InputInjector* DesktopProcessTest::CreateInputInjector() {
 }
 
 webrtc::DesktopCapturer* DesktopProcessTest::CreateVideoCapturer() {
-  return new FakeDesktopCapturer();
+  return new protocol::FakeDesktopCapturer();
+}
+
+webrtc::MouseCursorMonitor* DesktopProcessTest::CreateMouseCursorMonitor() {
+  return new FakeMouseCursorMonitor();
 }
 
 void DesktopProcessTest::DisconnectChannels() {
@@ -260,7 +278,7 @@ void DesktopProcessTest::RunDesktopProcess() {
       .WillRepeatedly(Return(false));
 
   DesktopProcess desktop_process(ui_task_runner, io_task_runner_, channel_name);
-  EXPECT_TRUE(desktop_process.Start(desktop_environment_factory.Pass()));
+  EXPECT_TRUE(desktop_process.Start(std::move(desktop_environment_factory)));
 
   ui_task_runner = nullptr;
   run_loop.Run();

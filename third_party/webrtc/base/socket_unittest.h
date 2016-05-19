@@ -21,8 +21,9 @@ namespace rtc {
 // socketserver, and call the SocketTest test methods.
 class SocketTest : public testing::Test {
  protected:
-  SocketTest() : ss_(NULL), kIPv4Loopback(INADDR_LOOPBACK),
-                 kIPv6Loopback(in6addr_loopback) {}
+  SocketTest() : kIPv4Loopback(INADDR_LOOPBACK),
+                 kIPv6Loopback(in6addr_loopback),
+                 ss_(nullptr) {}
   virtual void SetUp() { ss_ = Thread::Current()->socketserver(); }
   void TestConnectIPv4();
   void TestConnectIPv6();
@@ -57,6 +58,14 @@ class SocketTest : public testing::Test {
   void TestGetSetOptionsIPv4();
   void TestGetSetOptionsIPv6();
 
+  static const int kTimeout = 5000;  // ms
+  const IPAddress kIPv4Loopback;
+  const IPAddress kIPv6Loopback;
+
+ protected:
+  void TcpInternal(const IPAddress& loopback, size_t data_size,
+      ssize_t max_send_size);
+
  private:
   void ConnectInternal(const IPAddress& loopback);
   void ConnectWithDnsLookupInternal(const IPAddress& loopback,
@@ -71,17 +80,17 @@ class SocketTest : public testing::Test {
   void ServerCloseInternal(const IPAddress& loopback);
   void CloseInClosedCallbackInternal(const IPAddress& loopback);
   void SocketServerWaitInternal(const IPAddress& loopback);
-  void TcpInternal(const IPAddress& loopback);
   void SingleFlowControlCallbackInternal(const IPAddress& loopback);
   void UdpInternal(const IPAddress& loopback);
   void UdpReadyToSend(const IPAddress& loopback);
   void GetSetOptionsInternal(const IPAddress& loopback);
 
-  static const int kTimeout = 5000;  // ms
   SocketServer* ss_;
-  const IPAddress kIPv4Loopback;
-  const IPAddress kIPv6Loopback;
 };
+
+// For unbound sockets, GetLocalAddress / GetRemoteAddress return AF_UNSPEC
+// values on Windows, but an empty address of the same family on Linux/MacOS X.
+bool IsUnspecOrEmptyIP(const IPAddress& address);
 
 }  // namespace rtc
 

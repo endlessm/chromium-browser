@@ -8,9 +8,10 @@
 #include <map>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "components/autofill/core/common/password_form_field_prediction_map.h"
+#include "components/autofill/core/common/password_form_generation_data.h"
 #include "components/password_manager/core/browser/password_autofill_manager.h"
 #include "components/password_manager/core/browser/password_generation_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
@@ -53,8 +54,8 @@ class ContentPasswordManagerDriver : public PasswordManagerDriver {
       const autofill::PasswordFormFillData& form_data) override;
   void AllowPasswordGenerationForForm(
       const autofill::PasswordForm& form) override;
-  void AccountCreationFormsFound(
-      const std::vector<autofill::FormData>& forms) override;
+  void FormsEligibleForGenerationFound(
+      const std::vector<autofill::PasswordFormGenerationData>& forms) override;
   void AutofillDataReceived(
       const std::map<autofill::FormData,
                      autofill::PasswordFormFieldPredictionMap>& predictions)
@@ -66,6 +67,8 @@ class ContentPasswordManagerDriver : public PasswordManagerDriver {
                          const base::string16& password) override;
   void ClearPreviewedForm() override;
   void ForceSavePassword() override;
+  void GeneratePassword() override;
+  void SendLoggingAvailability() override;
 
   PasswordGenerationManager* GetPasswordGenerationManager() override;
   PasswordManager* GetPasswordManager() override;

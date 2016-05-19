@@ -12,7 +12,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "jni/CookiesFetcher_jni.h"
-#include "net/cookies/cookie_monster.h"
 #include "net/cookies/cookie_store.h"
 #include "net/url_request/url_request_context.h"
 
@@ -22,11 +21,12 @@ CookiesFetcher::CookiesFetcher(JNIEnv* env, jobject obj, Profile* profile) {
 CookiesFetcher::~CookiesFetcher() {
 }
 
-void CookiesFetcher::Destroy(JNIEnv* env, jobject obj) {
+void CookiesFetcher::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-void CookiesFetcher::PersistCookies(JNIEnv* env, jobject obj) {
+void CookiesFetcher::PersistCookies(JNIEnv* env,
+                                    const JavaParamRef<jobject>& obj) {
   Profile* profile = ProfileManager::GetPrimaryUserProfile();
   if (!profile->HasOffTheRecordProfile()) {
     // There is no work to be done. We might consider calling
@@ -62,9 +62,7 @@ void CookiesFetcher::PersistCookiesInternal(
     return;
   }
 
-  net::CookieMonster* monster = store->GetCookieMonster();
-
-  monster->GetAllCookiesAsync(base::Bind(
+  store->GetAllCookiesAsync(base::Bind(
       &CookiesFetcher::OnCookiesFetchFinished, base::Unretained(this)));
 }
 
@@ -87,7 +85,7 @@ void CookiesFetcher::OnCookiesFetchFinished(const net::CookieList& cookies) {
         base::android::ConvertUTF8ToJavaString(env, i->Path()).obj(),
         i->CreationDate().ToInternalValue(), i->ExpiryDate().ToInternalValue(),
         i->LastAccessDate().ToInternalValue(), i->IsSecure(), i->IsHttpOnly(),
-        i->IsFirstPartyOnly(), i->Priority());
+        i->IsSameSite(), i->Priority());
     env->SetObjectArrayElement(joa.obj(), index++, java_cookie.obj());
   }
 
@@ -98,18 +96,18 @@ void CookiesFetcher::OnCookiesFetchFinished(const net::CookieList& cookies) {
 }
 
 void CookiesFetcher::RestoreCookies(JNIEnv* env,
-                                    jobject obj,
-                                    jstring url,
-                                    jstring name,
-                                    jstring value,
-                                    jstring domain,
-                                    jstring path,
-                                    int64 creation,
-                                    int64 expiration,
-                                    int64 last_access,
+                                    const JavaParamRef<jobject>& obj,
+                                    const JavaParamRef<jstring>& url,
+                                    const JavaParamRef<jstring>& name,
+                                    const JavaParamRef<jstring>& value,
+                                    const JavaParamRef<jstring>& domain,
+                                    const JavaParamRef<jstring>& path,
+                                    int64_t creation,
+                                    int64_t expiration,
+                                    int64_t last_access,
                                     bool secure,
                                     bool httponly,
-                                    bool firstpartyonly,
+                                    bool same_site,
                                     int priority) {
   Profile* profile = ProfileManager::GetPrimaryUserProfile();
   if (!profile->HasOffTheRecordProfile()) {
@@ -128,8 +126,8 @@ void CookiesFetcher::RestoreCookies(JNIEnv* env,
       base::android::ConvertJavaStringToUTF8(env, path),
       base::Time::FromInternalValue(creation),
       base::Time::FromInternalValue(expiration),
-      base::Time::FromInternalValue(last_access), secure, httponly,
-      firstpartyonly, static_cast<net::CookiePriority>(priority));
+      base::Time::FromInternalValue(last_access), secure, httponly, same_site,
+      static_cast<net::CookiePriority>(priority));
 
   // The rest must be done from the IO thread.
   content::BrowserThread::PostTask(
@@ -153,19 +151,19 @@ void CookiesFetcher::RestoreToCookieJarInternal(
       return;
   }
 
-  net::CookieMonster* monster = store->GetCookieMonster();
   base::Callback<void(bool success)> cb;
 
   // TODO(estark): Remove kEnableExperimentalWebPlatformFeatures check
   // when we decide whether to ship cookie
   // prefixes. https://crbug.com/541511
-  monster->SetCookieWithDetailsAsync(
-      cookie.Source(), cookie.Name(), cookie.Value(), cookie.Domain(),
-      cookie.Path(), cookie.ExpiryDate(), cookie.IsSecure(),
-      cookie.IsHttpOnly(), cookie.IsFirstPartyOnly(),
+  bool experimental_features_enabled =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableExperimentalWebPlatformFeatures),
-      cookie.Priority(), cb);
+          switches::kEnableExperimentalWebPlatformFeatures);
+  store->SetCookieWithDetailsAsync(
+      cookie.Source(), cookie.Name(), cookie.Value(), cookie.Domain(),
+      cookie.Path(), base::Time(), cookie.ExpiryDate(), cookie.LastAccessDate(),
+      cookie.IsSecure(), cookie.IsHttpOnly(), cookie.IsSameSite(),
+      experimental_features_enabled, cookie.Priority(), cb);
 }
 
 // JNI functions

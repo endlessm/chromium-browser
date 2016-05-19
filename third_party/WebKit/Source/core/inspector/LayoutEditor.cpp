@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/inspector/LayoutEditor.h"
 
 #include "bindings/core/v8/ScriptController.h"
@@ -21,33 +20,33 @@
 #include "core/layout/LayoutInline.h"
 #include "core/layout/LayoutObject.h"
 #include "core/style/ComputedStyle.h"
-#include "platform/JSONValues.h"
 #include "platform/ScriptForbiddenScope.h"
+#include "platform/inspector_protocol/Values.h"
 
 namespace blink {
 
 namespace {
 
-PassRefPtr<JSONObject> createAnchor(const String& type, const String& propertyName, PassRefPtr<JSONObject> valueDescription)
+PassRefPtr<protocol::DictionaryValue> createAnchor(const String& type, const String& propertyName, PassRefPtr<protocol::DictionaryValue> valueDescription)
 {
-    RefPtr<JSONObject> object = JSONObject::create();
+    RefPtr<protocol::DictionaryValue> object = protocol::DictionaryValue::create();
     object->setString("type", type);
     object->setString("propertyName", propertyName);
     object->setObject("propertyValue", valueDescription);
     return object.release();
 }
 
-PassRefPtr<JSONObject> pointToJSON(FloatPoint point)
+PassRefPtr<protocol::DictionaryValue> pointToJSON(FloatPoint point)
 {
-    RefPtr<JSONObject> object = JSONObject::create();
+    RefPtr<protocol::DictionaryValue> object = protocol::DictionaryValue::create();
     object->setNumber("x", point.x());
     object->setNumber("y", point.y());
     return object.release();
 }
 
-PassRefPtr<JSONObject> quadToJSON(FloatQuad& quad)
+PassRefPtr<protocol::DictionaryValue> quadToJSON(FloatQuad& quad)
 {
-    RefPtr<JSONObject> object = JSONObject::create();
+    RefPtr<protocol::DictionaryValue> object = protocol::DictionaryValue::create();
     object->setObject("p1", pointToJSON(quad.p1()));
     object->setObject("p2", pointToJSON(quad.p2()));
     object->setObject("p3", pointToJSON(quad.p3()));
@@ -137,8 +136,8 @@ LayoutEditor::LayoutEditor(Element* element, InspectorCSSAgent* cssAgent, Inspec
     , m_changingProperty(CSSPropertyInvalid)
     , m_propertyInitialValue(0)
     , m_isDirty(false)
-    , m_matchedRules(m_cssAgent->matchedRulesList(element))
-    , m_currentRuleIndex(m_matchedRules->length() - (m_element->style() ? 0 : 1))
+    , m_matchedStyles(cssAgent->matchingStyles(element))
+    , m_currentRuleIndex(0)
 {
 }
 
@@ -161,13 +160,13 @@ DEFINE_TRACE(LayoutEditor)
     visitor->trace(m_cssAgent);
     visitor->trace(m_domAgent);
     visitor->trace(m_scriptController);
-    visitor->trace(m_matchedRules);
+    visitor->trace(m_matchedStyles);
 }
 
 void LayoutEditor::rebuild()
 {
-    RefPtr<JSONObject> object = JSONObject::create();
-    RefPtr<JSONArray> anchors = JSONArray::create();
+    RefPtr<protocol::DictionaryValue> object = protocol::DictionaryValue::create();
+    RefPtr<protocol::ListValue> anchors = protocol::ListValue::create();
 
     appendAnchorFor(anchors.get(), "padding", "padding-top");
     appendAnchorFor(anchors.get(), "padding", "padding-right");
@@ -188,12 +187,12 @@ void LayoutEditor::rebuild()
     object->setObject("marginQuad", quadToJSON(margin));
     object->setObject("borderQuad", quadToJSON(border));
     evaluateInOverlay("showLayoutEditor", object.release());
-    pushSelectorInfoInOverlay();
+    editableSelectorUpdated(false);
 }
 
 RefPtrWillBeRawPtr<CSSPrimitiveValue> LayoutEditor::getPropertyCSSValue(CSSPropertyID property) const
 {
-    RefPtrWillBeRawPtr<CSSStyleDeclaration> style = m_cssAgent->findEffectiveDeclaration(property, m_matchedRules.get(), m_element->style());
+    RefPtrWillBeRawPtr<CSSStyleDeclaration> style = m_cssAgent->findEffectiveDeclaration(property, m_matchedStyles);
     if (!style)
         return nullptr;
 
@@ -256,13 +255,13 @@ bool LayoutEditor::growInside(String propertyName, CSSPrimitiveValue* value)
     return false;
 }
 
-PassRefPtr<JSONObject> LayoutEditor::createValueDescription(const String& propertyName)
+PassRefPtr<protocol::DictionaryValue> LayoutEditor::createValueDescription(const String& propertyName)
 {
     RefPtrWillBeRawPtr<CSSPrimitiveValue> cssValue = getPropertyCSSValue(cssPropertyID(propertyName));
     if (cssValue && !(cssValue->isLength() || cssValue->isPercentage()))
         return nullptr;
 
-    RefPtr<JSONObject> object = JSONObject::create();
+    RefPtr<protocol::DictionaryValue> object = protocol::DictionaryValue::create();
     object->setNumber("value", cssValue ? cssValue->getFloatValue() : 0);
     CSSPrimitiveValue::UnitType unitType = cssValue ? cssValue->typeWithCalcResolved() : CSSPrimitiveValue::UnitType::Pixels;
     object->setString("unit", CSSPrimitiveValue::unitTypeToString(unitType));
@@ -272,15 +271,14 @@ PassRefPtr<JSONObject> LayoutEditor::createValueDescription(const String& proper
         m_growsInside.set(propertyName, growInside(propertyName, cssValue.get()));
 
     object->setBoolean("growInside", m_growsInside.get(propertyName));
-
     return object.release();
 }
 
-void LayoutEditor::appendAnchorFor(JSONArray* anchors, const String& type, const String& propertyName)
+void LayoutEditor::appendAnchorFor(protocol::ListValue* anchors, const String& type, const String& propertyName)
 {
-    RefPtr<JSONObject> description = createValueDescription(propertyName);
+    RefPtr<protocol::DictionaryValue> description = createValueDescription(propertyName);
     if (description)
-        anchors->pushObject(createAnchor(type, propertyName, description.release()));
+        anchors->pushValue(createAnchor(type, propertyName, description.release()));
 }
 
 void LayoutEditor::overlayStartedPropertyChange(const String& anchorName)
@@ -342,50 +340,50 @@ void LayoutEditor::commitChanges()
     m_domAgent->markUndoableState(&errorString);
 }
 
-bool LayoutEditor::currentStyleIsInline() const
-{
-    return m_currentRuleIndex == m_matchedRules->length() && !!m_element->style();
-}
-
 void LayoutEditor::nextSelector()
 {
-    if (m_currentRuleIndex == 0)
+    if (m_currentRuleIndex == m_matchedStyles.size() - 1)
         return;
 
-    m_currentRuleIndex--;
-    pushSelectorInfoInOverlay();
+    ++m_currentRuleIndex;
+    editableSelectorUpdated(true);
 }
 
 void LayoutEditor::previousSelector()
 {
-    if (currentStyleIsInline() || ((m_currentRuleIndex ==  m_matchedRules->length() - 1) && !m_element->style()))
+    if (m_currentRuleIndex == 0)
         return;
 
-    m_currentRuleIndex++;
-    pushSelectorInfoInOverlay();
-}
-void LayoutEditor::pushSelectorInfoInOverlay() const
-{
-    evaluateInOverlay("setSelectorInLayoutEditor", currentSelectorInfo());
+    --m_currentRuleIndex;
+    editableSelectorUpdated(true);
 }
 
-PassRefPtr<JSONObject> LayoutEditor::currentSelectorInfo() const
+void LayoutEditor::editableSelectorUpdated(bool hasChanged) const
 {
-    RefPtr<JSONObject> object = JSONObject::create();
-    String currentSelectorText = currentStyleIsInline() ? "inline style" : toCSSStyleRule(m_matchedRules->item(m_currentRuleIndex))->selectorText();
+    CSSStyleDeclaration* style = m_matchedStyles.at(m_currentRuleIndex).get();
+    evaluateInOverlay("setSelectorInLayoutEditor", currentSelectorInfo(style));
+    if (hasChanged)
+        m_cssAgent->layoutEditorItemSelected(m_element.get(), style);
+}
+
+PassRefPtr<protocol::DictionaryValue> LayoutEditor::currentSelectorInfo(CSSStyleDeclaration* style) const
+{
+    RefPtr<protocol::DictionaryValue> object = protocol::DictionaryValue::create();
+    CSSStyleRule* rule = style->parentRule() ? toCSSStyleRule(style->parentRule()) : nullptr;
+    String currentSelectorText = rule ? rule->selectorText() : "element.style";
     object->setString("selector", currentSelectorText);
 
     Document* ownerDocument = m_element->ownerDocument();
-    if (!ownerDocument->isActive() || currentStyleIsInline())
+    if (!ownerDocument->isActive() || !rule)
         return object.release();
 
     Vector<String> medias;
-    buildMediaListChain(m_matchedRules->item(m_currentRuleIndex), medias);
-    RefPtr<JSONArray> mediasJSONArray = JSONArray::create();
+    buildMediaListChain(rule, medias);
+    RefPtr<protocol::ListValue> mediaListValue = protocol::ListValue::create();
     for (size_t i = 0; i < medias.size(); ++i)
-        mediasJSONArray->pushString(medias[i]);
+        mediaListValue->pushValue(protocol::StringValue::create(medias[i]));
 
-    object->setArray("medias", mediasJSONArray.release());
+    object->setArray("medias", mediaListValue.release());
 
     TrackExceptionState exceptionState;
     RefPtrWillBeRawPtr<StaticElementList> elements = ownerDocument->querySelectorAll(AtomicString(currentSelectorText), exceptionState);
@@ -393,7 +391,7 @@ PassRefPtr<JSONObject> LayoutEditor::currentSelectorInfo() const
     if (!elements || exceptionState.hadException())
         return object.release();
 
-    RefPtr<JSONArray> highlights = JSONArray::create();
+    RefPtr<protocol::ListValue> highlights = protocol::ListValue::create();
     InspectorHighlightConfig config = affectedNodesHighlightConfig();
     for (unsigned i = 0; i < elements->length(); ++i) {
         Element* element = elements->item(i);
@@ -401,7 +399,7 @@ PassRefPtr<JSONObject> LayoutEditor::currentSelectorInfo() const
             continue;
 
         InspectorHighlight highlight(element, config, false);
-        highlights->pushObject(highlight.asJSONObject());
+        highlights->pushValue(highlight.asProtocolValue());
     }
 
     object->setArray("nodes", highlights.release());
@@ -410,37 +408,16 @@ PassRefPtr<JSONObject> LayoutEditor::currentSelectorInfo() const
 
 bool LayoutEditor::setCSSPropertyValueInCurrentRule(const String& value)
 {
-    RefPtrWillBeRawPtr<CSSStyleDeclaration> effectiveDeclaration = m_cssAgent->findEffectiveDeclaration(m_changingProperty, m_matchedRules.get(), m_element->style());
-    bool forceImportant = false;
-
-    if (effectiveDeclaration) {
-        CSSStyleRule* effectiveRule = nullptr;
-        if (effectiveDeclaration->parentRule() && effectiveDeclaration->parentRule()->type() == CSSRule::STYLE_RULE)
-            effectiveRule = toCSSStyleRule(effectiveDeclaration->parentRule());
-
-        unsigned effectiveRuleIndex = m_matchedRules->length();
-        for (unsigned i = 0; i < m_matchedRules->length(); ++i) {
-            if (m_matchedRules->item(i) == effectiveRule) {
-                effectiveRuleIndex = i;
-                break;
-            }
-        }
-        forceImportant = effectiveDeclaration->getPropertyPriority(getPropertyNameString(m_changingProperty)) == "important";
-        forceImportant |= effectiveRuleIndex > m_currentRuleIndex;
-    }
-
-    CSSStyleDeclaration* style = currentStyleIsInline() ? m_element->style() : toCSSStyleRule(m_matchedRules->item(m_currentRuleIndex))->style();
-
     String errorString;
-    m_cssAgent->setCSSPropertyValue(&errorString, m_element.get(), style, m_changingProperty, value, forceImportant);
+    m_cssAgent->setLayoutEditorValue(&errorString, m_element.get(), m_matchedStyles.at(m_currentRuleIndex), m_changingProperty, value, false);
     return errorString.isEmpty();
 }
 
-void LayoutEditor::evaluateInOverlay(const String& method, PassRefPtr<JSONValue> argument) const
+void LayoutEditor::evaluateInOverlay(const String& method, PassRefPtr<protocol::Value> argument) const
 {
     ScriptForbiddenScope::AllowUserAgentScript allowScript;
-    RefPtr<JSONArray> command = JSONArray::create();
-    command->pushString(method);
+    RefPtr<protocol::ListValue> command = protocol::ListValue::create();
+    command->pushValue(protocol::StringValue::create(method));
     command->pushValue(argument);
     m_scriptController->executeScriptInMainWorld("dispatch(" + command->toJSONString() + ")", ScriptController::ExecuteScriptWhenScriptsDisabled);
 }

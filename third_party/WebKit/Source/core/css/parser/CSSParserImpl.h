@@ -55,10 +55,12 @@ public:
     };
 
     static bool parseValue(MutableStylePropertySet*, CSSPropertyID, const String&, bool important, const CSSParserContext&);
+    static bool parseVariableValue(MutableStylePropertySet*, const AtomicString& propertyName, const String&, bool important, const CSSParserContext&);
     static PassRefPtrWillBeRawPtr<ImmutableStylePropertySet> parseInlineStyleDeclaration(const String&, Element*);
     static bool parseDeclarationList(MutableStylePropertySet*, const String&, const CSSParserContext&);
     static PassRefPtrWillBeRawPtr<StyleRuleBase> parseRule(const String&, const CSSParserContext&, StyleSheetContents*, AllowedRulesType);
     static void parseStyleSheet(const String&, const CSSParserContext&, StyleSheetContents*);
+    static CSSSelectorList parsePageSelector(CSSParserTokenRange, StyleSheetContents*);
 
     static PassOwnPtr<Vector<double>> parseKeyframeKeyList(const String&);
 
@@ -95,10 +97,10 @@ private:
     PassRefPtrWillBeRawPtr<StyleRuleKeyframe> consumeKeyframeStyleRule(CSSParserTokenRange prelude, CSSParserTokenRange block);
     PassRefPtrWillBeRawPtr<StyleRule> consumeStyleRule(CSSParserTokenRange prelude, CSSParserTokenRange block);
 
-    void consumeDeclarationList(CSSParserTokenRange, StyleRule::Type);
-    void consumeDeclaration(CSSParserTokenRange, StyleRule::Type);
-    void consumeDeclarationValue(CSSParserTokenRange, CSSPropertyID, bool important, StyleRule::Type);
-    void consumeVariableDeclarationValue(CSSParserTokenRange, const AtomicString& variableName, bool important);
+    void consumeDeclarationList(CSSParserTokenRange, StyleRule::RuleType);
+    void consumeDeclaration(CSSParserTokenRange, StyleRule::RuleType);
+    void consumeDeclarationValue(CSSParserTokenRange, CSSPropertyID, bool important, StyleRule::RuleType);
+    void consumeVariableValue(CSSParserTokenRange, const AtomicString& propertyName, bool important);
 
     static PassOwnPtr<Vector<double>> consumeKeyframeKeyList(CSSParserTokenRange);
 

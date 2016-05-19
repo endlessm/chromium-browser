@@ -9,6 +9,7 @@ from core import perf_benchmark
 from telemetry import benchmark
 from telemetry.timeline import tracing_category_filter
 from telemetry.web_perf import timeline_based_measurement
+from telemetry.web_perf.metrics import memory_timeline
 
 import page_sets
 
@@ -25,18 +26,26 @@ class _MemoryInfra(perf_benchmark.PerfBenchmark):
         # TODO(perezju): Temporary workaround to disable periodic memory dumps.
         # See: http://crbug.com/513692
         '--enable-memory-benchmarking',
-        # TODO(ssid): Remove this flag after fixing http://crbug.com/461788.
-        '--no-sandbox'
     ])
 
   def CreateTimelineBasedMeasurementOptions(self):
     # Enable only memory-infra, to get memory dumps, and blink.console, to get
     # the timeline markers used for mapping threads to tabs.
     trace_memory = tracing_category_filter.TracingCategoryFilter(
-      filter_string='-*,blink.console,disabled-by-default-memory-infra')
-    options = timeline_based_measurement.Options(overhead_level=trace_memory)
-    options.tracing_options.enable_android_graphics_memtrack = True
-    return options
+        filter_string='-*,blink.console,disabled-by-default-memory-infra')
+    tbm_options = timeline_based_measurement.Options(
+        overhead_level=trace_memory)
+    tbm_options.config.enable_android_graphics_memtrack = True
+    return tbm_options
+
+  @classmethod
+  def HasBenchmarkTraceRerunDebugOption(cls):
+    return True
+
+  def SetupBenchmarkDefaultTraceRerunOptions(self, tbm_options):
+    tbm_options.SetLegacyTimelineBasedMetrics((
+        memory_timeline.MemoryTimelineMetric(),
+    ))
 
 
 # TODO(bashi): Workaround for http://crbug.com/532075
@@ -46,7 +55,7 @@ class MemoryHealthPlan(_MemoryInfra):
   """Timeline based benchmark for the Memory Health Plan."""
 
   _PREFIX_WHITELIST = ('memory_allocator_', 'memory_android_memtrack_',
-                       'memory_mmaps_')
+                       'memory_mmaps_', 'process_count_')
 
   page_set = page_sets.MemoryHealthStory
 
@@ -68,7 +77,7 @@ class MemoryHealthPlan(_MemoryInfra):
 
 # TODO(bashi): Workaround for http://crbug.com/532075
 # @benchmark.Enabled('android') shouldn't be needed.
-@benchmark.Enabled('android')
+@benchmark.Disabled('all')  # crbug.com/581119
 class RendererMemoryBlinkMemoryMobile(_MemoryInfra):
   """Timeline based benchmark for measuring memory consumption on mobile
   sites on which blink's memory consumption is relatively high."""

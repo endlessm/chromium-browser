@@ -4,10 +4,15 @@
 
 #include "remoting/host/setup/me2me_native_messaging_host.h"
 
-#include "base/basictypes.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <utility>
+
 #include "base/compiler_specific.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -15,7 +20,7 @@
 #include "base/values.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
 #include "net/base/file_stream.h"
-#include "net/base/net_util.h"
+#include "net/base/network_interfaces.h"
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/host/native_messaging/log_message_handler.h"
 #include "remoting/host/native_messaging/pipe_messaging_channel.h"
@@ -324,15 +329,15 @@ void Me2MeNativeMessagingHostTest::StartHost() {
           make_scoped_ptr(new MockPairingRegistryDelegate()));
 
   scoped_ptr<extensions::NativeMessagingChannel> channel(
-      new PipeMessagingChannel(input_read_file.Pass(),
-                               output_write_file.Pass()));
+      new PipeMessagingChannel(std::move(input_read_file),
+                               std::move(output_write_file)));
 
   scoped_ptr<OAuthClient> oauth_client(
       new MockOAuthClient("fake_user_email", "fake_refresh_token"));
 
-  host_.reset(new Me2MeNativeMessagingHost(false, 0, channel.Pass(),
+  host_.reset(new Me2MeNativeMessagingHost(false, 0, std::move(channel),
                                            daemon_controller, pairing_registry,
-                                           oauth_client.Pass()));
+                                           std::move(oauth_client)));
   host_->Start(base::Bind(&Me2MeNativeMessagingHostTest::StopHost,
                           base::Unretained(this)));
 
@@ -385,7 +390,7 @@ void Me2MeNativeMessagingHostTest::TearDown() {
 scoped_ptr<base::DictionaryValue>
 Me2MeNativeMessagingHostTest::ReadMessageFromOutputPipe() {
   while (true) {
-    uint32 length;
+    uint32_t length;
     int read_result = output_read_file_.ReadAtCurrentPos(
         reinterpret_cast<char*>(&length), sizeof(length));
     if (read_result != sizeof(length)) {
@@ -420,7 +425,7 @@ void Me2MeNativeMessagingHostTest::WriteMessageToInputPipe(
   std::string message_json;
   base::JSONWriter::Write(message, &message_json);
 
-  uint32 length = message_json.length();
+  uint32_t length = message_json.length();
   input_write_file_.WriteAtCurrentPos(reinterpret_cast<char*>(&length),
                                       sizeof(length));
   input_write_file_.WriteAtCurrentPos(message_json.data(), length);
@@ -438,7 +443,7 @@ void Me2MeNativeMessagingHostTest::TestBadRequest(const base::Value& message) {
 
   // Read from output pipe, and verify responses.
   scoped_ptr<base::DictionaryValue> response = ReadMessageFromOutputPipe();
-  VerifyHelloResponse(response.Pass());
+  VerifyHelloResponse(std::move(response));
 
   response = ReadMessageFromOutputPipe();
   EXPECT_FALSE(response);
@@ -531,7 +536,7 @@ TEST_F(Me2MeNativeMessagingHostTest, All) {
 
     // Call the verification routine corresponding to the message id.
     ASSERT_TRUE(verify_routines[id]);
-    verify_routines[id](response.Pass());
+    verify_routines[id](std::move(response));
 
     // Clear the pointer so that the routine cannot be called the second time.
     verify_routines[id] = nullptr;

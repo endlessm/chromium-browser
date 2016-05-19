@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/events/MouseRelatedEvent.h"
 
 #include "core/dom/Document.h"
@@ -52,11 +51,11 @@ static LayoutSize contentsScrollOffset(AbstractView* abstractView)
     return LayoutSize(frameView->scrollX() / scaleFactor, frameView->scrollY() / scaleFactor);
 }
 
-MouseRelatedEvent::MouseRelatedEvent(const AtomicString& eventType, bool canBubble, bool cancelable, PassRefPtrWillBeRawPtr<AbstractView> abstractView,
-    int detail, const IntPoint& screenLocation, const IntPoint& rootFrameLocation,
-    const IntPoint& movementDelta,
-    PlatformEvent::Modifiers modifiers, PositionType positionType, InputDeviceCapabilities* sourceCapabilities)
-    : UIEventWithKeyState(eventType, canBubble, cancelable, abstractView, detail, modifiers, sourceCapabilities)
+MouseRelatedEvent::MouseRelatedEvent(const AtomicString& eventType, bool canBubble, bool cancelable,
+    PassRefPtrWillBeRawPtr<AbstractView> abstractView, int detail, const IntPoint& screenLocation,
+    const IntPoint& rootFrameLocation, const IntPoint& movementDelta, PlatformEvent::Modifiers modifiers,
+    double platformTimeStamp, PositionType positionType, InputDeviceCapabilities* sourceCapabilities)
+    : UIEventWithKeyState(eventType, canBubble, cancelable, abstractView, detail, modifiers, platformTimeStamp, sourceCapabilities)
     , m_screenLocation(screenLocation)
     , m_movementDelta(movementDelta)
     , m_positionType(positionType)
@@ -146,9 +145,17 @@ void MouseRelatedEvent::computeRelativePosition()
     // Must have an updated layout tree for this math to work correctly.
     targetNode->document().updateLayoutIgnorePendingStylesheets();
 
-    // Adjust offsetLocation to be relative to the target's position.
+    // Adjust offsetLocation to be relative to the target's padding box.
     if (LayoutObject* r = targetNode->layoutObject()) {
         FloatPoint localPos = r->absoluteToLocal(FloatPoint(absoluteLocation()), UseTransforms);
+
+        // Adding this here to address crbug.com/570666. Basically we'd like to
+        // find the local coordinates relative to the padding box not the border box.
+        if (r->isBoxModelObject()) {
+            LayoutBoxModelObject* layoutBox = toLayoutBoxModelObject(r);
+            localPos.move(-layoutBox->borderLeft(), -layoutBox->borderTop());
+        }
+
         m_offsetLocation = roundedLayoutPoint(localPos);
         float scaleFactor = 1 / pageZoomFactor(this);
         if (scaleFactor != 1.0f)

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
@@ -144,8 +145,8 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, TestOpenPopupIncognito) {
   EXPECT_FALSE(BrowserActionTestUtil(browser()).HasPopup());
 #endif
   // Incognito window should have a popup.
-  EXPECT_TRUE(BrowserActionTestUtil(BrowserList::GetInstance(
-      chrome::GetActiveDesktop())->GetLastActive()).HasPopup());
+  EXPECT_TRUE(BrowserActionTestUtil(BrowserList::GetInstance()->GetLastActive())
+                  .HasPopup());
 }
 
 // Tests that an extension can open a popup in the last active incognito window

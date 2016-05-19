@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "components/history/core/browser/history_types.h"
@@ -86,15 +87,13 @@ class InstantService : public KeyedService,
   // Sends the current set of search URLs to a renderer process.
   void SendSearchURLsToRenderer(content::RenderProcessHost* rph);
 
-  // Invoked to notify the Instant page that the omnibox start margin has
-  // changed.
-  void OnOmniboxStartMarginChanged(int start_margin);
+  // Used to validate that the URL the NTP is trying to navigate to is actually
+  // a URL on the most visited items / suggested items list.
+  bool IsValidURLForNavigation(const GURL& url) const;
 
   InstantSearchPrerenderer* instant_search_prerenderer() {
     return instant_prerenderer_.get();
   }
-
-  int omnibox_start_margin() const { return omnibox_start_margin_; }
 
  private:
   friend class InstantExtendedTest;
@@ -107,6 +106,8 @@ class InstantService : public KeyedService,
   FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, ProcessIsolation);
   FRIEND_TEST_ALL_PREFIXES(InstantServiceEnabledTest,
                            SendsSearchURLsToRenderer);
+  FRIEND_TEST_ALL_PREFIXES(InstantServiceTest, GetSuggestionFromServiceSide);
+  FRIEND_TEST_ALL_PREFIXES(InstantServiceTest, GetSuggestionFromClientSide);
 
   // KeyedService:
   void Shutdown() override;
@@ -143,7 +144,7 @@ class InstantService : public KeyedService,
 
 #if defined(ENABLE_THEMES)
   // Theme changed notification handler.
-  void OnThemeChanged(ThemeService* theme_service);
+  void OnThemeChanged();
 #endif
 
   void ResetInstantSearchPrerenderer();
@@ -165,10 +166,6 @@ class InstantService : public KeyedService,
 
   // Theme-related data for NTP overlay to adopt themes.
   scoped_ptr<ThemeBackgroundInfo> theme_info_;
-
-  // The start-edge margin of the omnibox, used by the Instant page to align
-  // text or assets properly with the omnibox.
-  int omnibox_start_margin_;
 
   base::ObserverList<InstantServiceObserver> observers_;
 

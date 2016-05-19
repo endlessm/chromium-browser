@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/resolver/StyleResolverStats.h"
 
 namespace blink {
@@ -64,9 +63,9 @@ bool StyleResolverStats::allCountersEnabled() const
     return allCountersEnabled;
 }
 
-PassRefPtr<TracedValue> StyleResolverStats::toTracedValue() const
+PassOwnPtr<TracedValue> StyleResolverStats::toTracedValue() const
 {
-    RefPtr<TracedValue> tracedValue = TracedValue::create();
+    OwnPtr<TracedValue> tracedValue = TracedValue::create();
     tracedValue->setInteger("sharedStyleLookups", sharedStyleLookups);
     tracedValue->setInteger("sharedStyleCandidates", sharedStyleCandidates);
     tracedValue->setInteger("sharedStyleFound", sharedStyleFound);

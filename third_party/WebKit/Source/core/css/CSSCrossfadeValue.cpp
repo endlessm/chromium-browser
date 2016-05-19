@@ -23,12 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSCrossfadeValue.h"
 
 #include "core/css/CSSImageValue.h"
 #include "core/layout/LayoutObject.h"
 #include "core/style/StyleFetchedImage.h"
+#include "core/svg/graphics/SVGImageForContainer.h"
 #include "platform/graphics/CrossfadeGeneratedImage.h"
 #include "wtf/text/StringBuilder.h"
 
@@ -88,20 +88,51 @@ static Image* renderableImageForCSSValue(CSSValue* value, const LayoutObject* la
 {
     ImageResource* cachedImage = cachedImageForCSSValue(value, &layoutObject->document());
 
-    // If the image can be rendered at 1 zoom it will have non-empty dimension
-    // and should be able to render at other scales as well.
-    if (!cachedImage || !cachedImage->canRender(*layoutObject, 1))
+    if (!cachedImage || !cachedImage->canRender())
         return nullptr;
 
-    return cachedImage->imageForLayoutObject(layoutObject);
+    return cachedImage->image();
+}
+
+static KURL urlForCSSValue(const CSSValue* value)
+{
+    if (!value->isImageValue())
+        return KURL();
+
+    return KURL(ParsedURLString, toCSSImageValue(*value).url());
+}
+
+CSSCrossfadeValue::CSSCrossfadeValue(PassRefPtrWillBeRawPtr<CSSValue> fromValue, PassRefPtrWillBeRawPtr<CSSValue> toValue, PassRefPtrWillBeRawPtr<CSSPrimitiveValue> percentageValue)
+    : CSSImageGeneratorValue(CrossfadeClass)
+    , m_fromValue(fromValue)
+    , m_toValue(toValue)
+    , m_percentageValue(percentageValue)
+    , m_cachedFromImage(nullptr)
+    , m_cachedToImage(nullptr)
+    , m_crossfadeSubimageObserver(this)
+{
+#if ENABLE(OILPAN)
+    ThreadState::current()->registerPreFinalizer(this);
+#endif
 }
 
 CSSCrossfadeValue::~CSSCrossfadeValue()
 {
-    if (m_cachedFromImage)
+#if !ENABLE(OILPAN)
+    dispose();
+#endif
+}
+
+void CSSCrossfadeValue::dispose()
+{
+    if (m_cachedFromImage) {
         m_cachedFromImage->removeClient(&m_crossfadeSubimageObserver);
-    if (m_cachedToImage)
+        m_cachedFromImage = nullptr;
+    }
+    if (m_cachedToImage) {
         m_cachedToImage->removeClient(&m_crossfadeSubimageObserver);
+        m_cachedToImage = nullptr;
+    }
 }
 
 String CSSCrossfadeValue::customCSSText() const
@@ -163,8 +194,8 @@ bool CSSCrossfadeValue::knownToBeOpaque(const LayoutObject* layoutObject) const
 
 void CSSCrossfadeValue::loadSubimages(Document* document)
 {
-    ResourcePtr<ImageResource> oldCachedFromImage = m_cachedFromImage;
-    ResourcePtr<ImageResource> oldCachedToImage = m_cachedToImage;
+    RefPtrWillBeRawPtr<ImageResource> oldCachedFromImage = m_cachedFromImage;
+    RefPtrWillBeRawPtr<ImageResource> oldCachedToImage = m_cachedToImage;
 
     m_cachedFromImage = cachedImageForCSSValue(m_fromValue.get(), document);
     m_cachedToImage = cachedImageForCSSValue(m_toValue.get(), document);
@@ -197,7 +228,16 @@ PassRefPtr<Image> CSSCrossfadeValue::image(const LayoutObject* layoutObject, con
     if (!fromImage || !toImage)
         return Image::nullImage();
 
-    m_generatedImage = CrossfadeGeneratedImage::create(fromImage, toImage, m_percentageValue->getFloatValue(), fixedSize(layoutObject), size);
+    RefPtr<Image> fromImageRef(fromImage);
+    RefPtr<Image> toImageRef(toImage);
+
+    if (fromImage->isSVGImage())
+        fromImageRef = SVGImageForContainer::create(toSVGImage(fromImage), size, 1, urlForCSSValue(m_fromValue.get()));
+
+    if (toImage->isSVGImage())
+        toImageRef = SVGImageForContainer::create(toSVGImage(toImage), size, 1, urlForCSSValue(m_toValue.get()));
+
+    m_generatedImage = CrossfadeGeneratedImage::create(fromImageRef, toImageRef, m_percentageValue->getFloatValue(), fixedSize(layoutObject), size);
 
     return m_generatedImage.release();
 }
@@ -237,6 +277,8 @@ DEFINE_TRACE_AFTER_DISPATCH(CSSCrossfadeValue)
     visitor->trace(m_fromValue);
     visitor->trace(m_toValue);
     visitor->trace(m_percentageValue);
+    visitor->trace(m_cachedFromImage);
+    visitor->trace(m_cachedToImage);
     visitor->trace(m_crossfadeSubimageObserver);
     CSSImageGeneratorValue::traceAfterDispatch(visitor);
 }

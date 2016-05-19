@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/ColorDistance.h"
 
 #include "platform/graphics/Color.h"
@@ -39,4 +38,4 @@ float ColorDistance::distance(const Color& fromColor, const Color& toColor)
     return sqrtf(redDiff * redDiff + blueDiff * blueDiff + greenDiff * greenDiff);
 }
 
-}
+} // namespace blink

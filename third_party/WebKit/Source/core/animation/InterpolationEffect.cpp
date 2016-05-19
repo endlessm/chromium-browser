@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/InterpolationEffect.h"
 
 namespace blink {
@@ -13,11 +12,11 @@ void InterpolationEffect::getActiveInterpolations(double fraction, double iterat
     size_t resultIndex = 0;
 
     for (const auto& record : m_interpolations) {
-        if (fraction >= record->m_applyFrom && fraction < record->m_applyTo) {
-            RefPtr<Interpolation> interpolation = record->m_interpolation;
-            double localFraction = (fraction - record->m_start) / (record->m_end - record->m_start);
-            if (record->m_easing)
-                localFraction = record->m_easing->evaluate(localFraction, accuracyForDuration(iterationDuration));
+        if (fraction >= record.m_applyFrom && fraction < record.m_applyTo) {
+            RefPtr<Interpolation> interpolation = record.m_interpolation;
+            double localFraction = (fraction - record.m_start) / (record.m_end - record.m_start);
+            if (record.m_easing)
+                localFraction = record.m_easing->evaluate(localFraction, accuracyForDuration(iterationDuration));
             interpolation->interpolate(0, localFraction);
             if (resultIndex < existingSize)
                 result[resultIndex++] = interpolation;

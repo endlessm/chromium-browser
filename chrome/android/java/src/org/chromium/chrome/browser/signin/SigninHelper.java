@@ -20,9 +20,8 @@ import org.chromium.chrome.browser.invalidation.InvalidationServiceFactory;
 import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.signin.SigninManager.SignInFlowObserver;
+import org.chromium.chrome.browser.signin.SigninManager.SignInCallback;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
-import org.chromium.chrome.browser.sync.SyncController;
 import org.chromium.sync.AndroidSyncSettings;
 import org.chromium.sync.signin.AccountManagerHelper;
 import org.chromium.sync.signin.ChromeSigninController;
@@ -32,6 +31,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
+import javax.annotation.Nullable;
 
 /**
  * A helper for tasks like re-signin.
@@ -103,7 +104,7 @@ public class SigninHelper {
 
     private final ChromeSigninController mChromeSigninController;
 
-    private final ProfileSyncService mProfileSyncService;
+    @Nullable private final ProfileSyncService mProfileSyncService;
 
     private final SigninManager mSigninManager;
 
@@ -111,7 +112,6 @@ public class SigninHelper {
 
     private final OAuth2TokenService mOAuth2TokenService;
 
-    private final SyncController mSyncController;
 
     public static SigninHelper get(Context context) {
         synchronized (LOCK) {
@@ -128,7 +128,6 @@ public class SigninHelper {
         mSigninManager = SigninManager.get(mContext);
         mAccountTrackerService = AccountTrackerService.get(mContext);
         mOAuth2TokenService = OAuth2TokenService.getForProfile(Profile.getLastUsedProfile());
-        mSyncController = SyncController.get(context);
         mChromeSigninController = ChromeSigninController.get(mContext);
     }
 
@@ -194,7 +193,7 @@ public class SigninHelper {
                 protected void onPostExecute(Void result) {
                     String renamedAccount = getNewSignedInAccountName(mContext);
                     if (renamedAccount == null) {
-                        mSigninManager.signOut(null, null);
+                        mSigninManager.signOut();
                     } else {
                         validateAccountSettings(true);
                     }
@@ -210,8 +209,8 @@ public class SigninHelper {
             mOAuth2TokenService.validateAccounts(mContext, false);
         }
 
-        if (AndroidSyncSettings.isSyncEnabled(mContext)) {
-            if (mProfileSyncService.hasSyncSetupCompleted()) {
+        if (mProfileSyncService != null && AndroidSyncSettings.isSyncEnabled(mContext)) {
+            if (mProfileSyncService.isFirstSetupComplete()) {
                 if (accountsChanged) {
                     // Nudge the syncer to ensure it does a full sync.
                     InvalidationServiceFactory.getForProfile(Profile.getLastUsedProfile())
@@ -238,7 +237,7 @@ public class SigninHelper {
 
         // TODO(acleung): Deal with passphrase or just prompt user to re-enter it?
         // Perform a sign-out with a callback to sign-in again.
-        mSigninManager.signOut(null, new Runnable() {
+        mSigninManager.signOut(new Runnable() {
             @Override
             public void run() {
                 // Clear the shared perf only after signOut is successful.
@@ -255,9 +254,9 @@ public class SigninHelper {
         // This is the correct account now.
         final Account account = AccountManagerHelper.createAccountFromName(newName);
 
-        mSigninManager.startSignIn(null, account, true, new SignInFlowObserver() {
+        mSigninManager.signIn(account, null, new SignInCallback() {
             @Override
-            public void onSigninComplete() {
+            public void onSignInComplete() {
                 if (mProfileSyncService != null) {
                     mProfileSyncService.setSetupInProgress(false);
                 }
@@ -265,8 +264,7 @@ public class SigninHelper {
             }
 
             @Override
-            public void onSigninCancelled() {
-            }
+            public void onSignInAborted() {}
         });
     }
 
@@ -375,6 +373,12 @@ public class SigninHelper {
             PreferenceManager.getDefaultSharedPreferences(context)
                     .edit().putInt(ACCOUNT_RENAME_EVENT_INDEX_PREFS_KEY, newIndex).apply();
         }
+    }
+
+    @VisibleForTesting
+    public static void resetAccountRenameEventIndex(Context context) {
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit().putInt(ACCOUNT_RENAME_EVENT_INDEX_PREFS_KEY, 0).apply();
     }
 
     public static boolean checkAndClearAccountsChangedPref(Context context) {

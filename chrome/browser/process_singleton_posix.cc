@@ -52,14 +52,16 @@
 #include <set>
 #include <string>
 
+#include <stddef.h>
+
 #include "base/base_paths.h"
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
@@ -77,11 +79,12 @@
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/base/net_util.h"
+#include "net/base/network_interfaces.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_LINUX)
@@ -221,9 +224,8 @@ int SetupSocketOnly() {
   int sock = socket(PF_UNIX, SOCK_STREAM, 0);
   PCHECK(sock >= 0) << "socket() failed";
 
-  int rv = net::SetNonBlocking(sock);
-  DCHECK_EQ(0, rv) << "Failed to make non-blocking socket.";
-  rv = SetCloseOnExec(sock);
+  DCHECK(base::SetNonBlocking(sock)) << "Failed to make non-blocking socket.";
+  int rv = SetCloseOnExec(sock);
   DCHECK_EQ(0, rv) << "Failed to set CLOEXEC on socket.";
 
   return sock;
@@ -590,8 +592,8 @@ void ProcessSingleton::LinuxWatcher::OnFileCanReadWithoutBlocking(int fd) {
     PLOG(ERROR) << "accept() failed";
     return;
   }
-  int rv = net::SetNonBlocking(connection_socket);
-  DCHECK_EQ(0, rv) << "Failed to make non-blocking socket.";
+  DCHECK(base::SetNonBlocking(connection_socket))
+      << "Failed to make non-blocking socket.";
   SocketReader* reader = new SocketReader(this,
                                           ui_message_loop_,
                                           connection_socket);

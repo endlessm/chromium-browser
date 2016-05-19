@@ -4,8 +4,10 @@
 
 #include "components/history/core/browser/top_sites_impl.h"
 
+#include <stdint.h>
 #include <algorithm>
 #include <set>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -14,15 +16,13 @@
 #include "base/md5.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/history/core/browser/history_backend.h"
 #include "components/history/core/browser/history_constants.h"
 #include "components/history/core/browser/history_db_task.h"
@@ -31,6 +31,9 @@
 #include "components/history/core/browser/top_sites_observer.h"
 #include "components/history/core/browser/url_utils.h"
 #include "components/history/core/common/thumbnail_score.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -75,17 +78,17 @@ const size_t kMaxTempTopImages = 8;
 
 const int kDaysOfHistory = 90;
 // Time from startup to first HistoryService query.
-const int64 kUpdateIntervalSecs = 15;
+const int64_t kUpdateIntervalSecs = 15;
 // Intervals between requests to HistoryService.
-const int64 kMinUpdateIntervalMinutes = 1;
-#if !defined(OS_IOS)
-const int64 kMaxUpdateIntervalMinutes = 60;
-#else
-// On iOS, having the max at 60 results in the topsites database being
-// not updated often enough since the app isn't usually running for long
+const int64_t kMinUpdateIntervalMinutes = 1;
+#if defined(OS_IOS) || defined(OS_ANDROID)
+// On mobile, having the max at 60 minutes results in the topsites database
+// being not updated often enough since the app isn't usually running for long
 // stretches of time.
-const int64 kMaxUpdateIntervalMinutes = 5;
-#endif  // !defined(OS_IOS)
+const int64_t kMaxUpdateIntervalMinutes = 5;
+#else
+const int64_t kMaxUpdateIntervalMinutes = 60;
+#endif  // defined(OS_IOS) || defined(OS_ANDROID)
 
 // Use 100 quality (highest quality) because we're very sensitive to
 // artifacts for these small sized, highly detailed images.
@@ -331,7 +334,7 @@ void TopSitesImpl::AddBlacklistedURL(const GURL& url) {
   {
     DictionaryPrefUpdate update(pref_service_, kMostVisitedURLsBlacklist);
     base::DictionaryValue* blacklist = update.Get();
-    blacklist->SetWithoutPathExpansion(GetURLHash(url), dummy.Pass());
+    blacklist->SetWithoutPathExpansion(GetURLHash(url), std::move(dummy));
   }
 
   ResetThreadSafeCache();
@@ -735,9 +738,9 @@ base::TimeDelta TopSitesImpl::GetUpdateDelay() {
   if (cache_->top_sites().size() <= prepopulated_pages_.size())
     return base::TimeDelta::FromSeconds(30);
 
-  int64 range = kMaxUpdateIntervalMinutes - kMinUpdateIntervalMinutes;
-  int64 minutes = kMaxUpdateIntervalMinutes -
-      last_num_urls_changed_ * range / cache_->top_sites().size();
+  int64_t range = kMaxUpdateIntervalMinutes - kMinUpdateIntervalMinutes;
+  int64_t minutes = kMaxUpdateIntervalMinutes -
+                    last_num_urls_changed_ * range / cache_->top_sites().size();
   return base::TimeDelta::FromMinutes(minutes);
 }
 

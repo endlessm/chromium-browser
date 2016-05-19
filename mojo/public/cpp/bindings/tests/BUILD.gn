@@ -3,13 +3,13 @@
 # found in the LICENSE file.
 
 import("../../../mojo_application.gni")
-import("../../../mojo_sdk.gni")
 
-mojo_sdk_source_set("tests") {
+source_set("tests") {
   testonly = true
 
   sources = [
     "array_unittest.cc",
+    "associated_interface_unittest.cc",
     "binding_callback_unittest.cc",
     "binding_unittest.cc",
     "bounds_checker_unittest.cc",
@@ -24,12 +24,27 @@ mojo_sdk_source_set("tests") {
     "map_unittest.cc",
     "message_queue.cc",
     "message_queue.h",
+    "multiplex_router_unittest.cc",
+    "pickle_unittest.cc",
+    "pickled_struct_blink.cc",
+    "pickled_struct_blink.h",
+    "pickled_struct_chromium.cc",
+    "pickled_struct_chromium.h",
+    "rect_blink.h",
+    "rect_chromium.h",
     "request_response_unittest.cc",
+    "router_test_util.cc",
+    "router_test_util.h",
     "router_unittest.cc",
     "sample_service_unittest.cc",
     "serialization_warning_unittest.cc",
+    "stl_converters_unittest.cc",
     "string_unittest.cc",
+    "struct_traits_unittest.cc",
     "struct_unittest.cc",
+    "struct_with_traits_impl.cc",
+    "struct_with_traits_impl.h",
+    "sync_method_unittest.cc",
     "type_conversion_unittest.cc",
     "union_unittest.cc",
     "validation_unittest.cc",
@@ -39,22 +54,22 @@ mojo_sdk_source_set("tests") {
     ":mojo_public_bindings_test_utils",
     "//mojo/environment:chromium",
     "//mojo/message_pump",
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/bindings:callback",
+    "//mojo/public/cpp/system",
+    "//mojo/public/cpp/test_support:test_utils",
+    "//mojo/public/cpp/utility",
+    "//mojo/public/interfaces/bindings/tests:test_associated_interfaces",
+    "//mojo/public/interfaces/bindings/tests:test_interfaces",
+    "//mojo/public/interfaces/bindings/tests:test_interfaces_blink",
+    "//mojo/public/interfaces/bindings/tests:test_interfaces_chromium",
+    "//mojo/public/interfaces/bindings/tests:test_interfaces_experimental",
+    "//mojo/public/interfaces/bindings/tests:test_struct_traits_interfaces",
     "//testing/gtest",
-  ]
-
-  mojo_sdk_deps = [
-    "mojo/public/cpp/bindings",
-    "mojo/public/cpp/bindings:callback",
-    "mojo/public/cpp/system",
-    "mojo/public/cpp/test_support:test_utils",
-    "mojo/public/cpp/utility",
-    "mojo/public/interfaces/bindings/tests:test_associated_interfaces",
-    "mojo/public/interfaces/bindings/tests:test_interfaces",
-    "mojo/public/interfaces/bindings/tests:test_interfaces_experimental",
   ]
 }
 
-mojo_sdk_source_set("perftests") {
+source_set("perftests") {
   testonly = true
 
   sources = [
@@ -62,25 +77,24 @@ mojo_sdk_source_set("perftests") {
   ]
 
   deps = [
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/bindings:callback",
+    "//mojo/public/cpp/environment:standalone",
+    "//mojo/public/cpp/system",
+    "//mojo/public/cpp/test_support:test_utils",
+    "//mojo/public/cpp/utility",
+    "//mojo/public/interfaces/bindings/tests:test_interfaces",
     "//testing/gtest",
-  ]
-
-  mojo_sdk_deps = [
-    "mojo/public/cpp/bindings",
-    "mojo/public/cpp/bindings:callback",
-    "mojo/public/cpp/environment:standalone",
-    "mojo/public/cpp/system",
-    "mojo/public/cpp/test_support:test_utils",
-    "mojo/public/cpp/utility",
-    "mojo/public/interfaces/bindings/tests:test_interfaces",
   ]
 }
 
-mojo_sdk_source_set("mojo_public_bindings_test_utils") {
+source_set("mojo_public_bindings_test_utils") {
   sources = [
     "validation_test_input_parser.cc",
     "validation_test_input_parser.h",
   ]
 
-  mojo_sdk_deps = [ "mojo/public/c/system" ]
+  deps = [
+    "//mojo/public/c/system",
+  ]
 }

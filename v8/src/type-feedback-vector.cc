@@ -15,8 +15,13 @@ namespace internal {
 
 
 static bool IsPropertyNameFeedback(Object* feedback) {
-  return feedback->IsString() ||
-         (feedback->IsSymbol() && !Symbol::cast(feedback)->is_private());
+  if (feedback->IsString()) return true;
+  if (!feedback->IsSymbol()) return false;
+  Symbol* symbol = Symbol::cast(feedback);
+  Heap* heap = symbol->GetHeap();
+  return symbol != heap->uninitialized_symbol() &&
+         symbol != heap->premonomorphic_symbol() &&
+         symbol != heap->megamorphic_symbol();
 }
 
 
@@ -140,8 +145,6 @@ Handle<TypeFeedbackVector> TypeFeedbackVector::New(
 
   Handle<FixedArray> array = factory->NewFixedArray(length, TENURED);
   array->set(kMetadataIndex, *metadata);
-  array->set(kWithTypesIndex, Smi::FromInt(0));
-  array->set(kGenericCountIndex, Smi::FromInt(0));
 
   // Ensure we can skip the write barrier
   Handle<Object> uninitialized_sentinel = UninitializedSentinel(isolate);
@@ -158,28 +161,6 @@ Handle<TypeFeedbackVector> TypeFeedbackVector::New(
 int TypeFeedbackVector::GetIndexFromSpec(const FeedbackVectorSpec* spec,
                                          FeedbackVectorSlot slot) {
   return kReservedIndexCount + slot.ToInt();
-}
-
-
-// static
-int TypeFeedbackVector::PushAppliedArgumentsIndex() {
-  return kReservedIndexCount;
-}
-
-
-// static
-Handle<TypeFeedbackVector> TypeFeedbackVector::CreatePushAppliedArgumentsVector(
-    Isolate* isolate) {
-  StaticFeedbackVectorSpec spec;
-  FeedbackVectorSlot slot = spec.AddKeyedLoadICSlot();
-  // TODO(ishell): allocate this metadata only once.
-  Handle<TypeFeedbackMetadata> feedback_metadata =
-      TypeFeedbackMetadata::New(isolate, &spec);
-  Handle<TypeFeedbackVector> feedback_vector =
-      TypeFeedbackVector::New(isolate, feedback_metadata);
-  DCHECK_EQ(PushAppliedArgumentsIndex(), feedback_vector->GetIndex(slot));
-  USE(slot);
-  return feedback_vector;
 }
 
 
@@ -233,13 +214,11 @@ void TypeFeedbackVector::ClearSlotsImpl(SharedFunctionInfo* shared,
           break;
         }
         case FeedbackVectorSlotKind::STORE_IC: {
-          DCHECK(FLAG_vector_stores);
           StoreICNexus nexus(this, slot);
           nexus.Clear(shared->code());
           break;
         }
         case FeedbackVectorSlotKind::KEYED_STORE_IC: {
-          DCHECK(FLAG_vector_stores);
           KeyedStoreICNexus nexus(this, slot);
           nexus.Clear(shared->code());
           break;
@@ -269,7 +248,6 @@ void TypeFeedbackVector::ClearSlotsImpl(SharedFunctionInfo* shared,
 
 // static
 void TypeFeedbackVector::ClearAllKeyedStoreICs(Isolate* isolate) {
-  DCHECK(FLAG_vector_stores);
   SharedFunctionInfo::Iterator iterator(isolate);
   SharedFunctionInfo* shared;
   while ((shared = iterator.Next())) {
@@ -293,7 +271,6 @@ void TypeFeedbackVector::ClearKeyedStoreICs(SharedFunctionInfo* shared) {
     if (kind != FeedbackVectorSlotKind::KEYED_STORE_IC) continue;
     Object* obj = Get(slot);
     if (obj != uninitialized_sentinel) {
-      DCHECK(FLAG_vector_stores);
       KeyedStoreICNexus nexus(this, slot);
       nexus.Clear(host);
     }
@@ -363,6 +340,10 @@ void FeedbackNexus::ConfigurePremonomorphic() {
 
 
 void FeedbackNexus::ConfigureMegamorphic() {
+  // Keyed ICs must use ConfigureMegamorphicKeyed.
+  DCHECK_NE(FeedbackVectorSlotKind::KEYED_LOAD_IC, vector()->GetKind(slot()));
+  DCHECK_NE(FeedbackVectorSlotKind::KEYED_STORE_IC, vector()->GetKind(slot()));
+
   Isolate* isolate = GetIsolate();
   SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(isolate),
               SKIP_WRITE_BARRIER);
@@ -370,6 +351,21 @@ void FeedbackNexus::ConfigureMegamorphic() {
                    SKIP_WRITE_BARRIER);
 }
 
+void KeyedLoadICNexus::ConfigureMegamorphicKeyed(IcCheckType property_type) {
+  Isolate* isolate = GetIsolate();
+  SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(isolate),
+              SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(static_cast<int>(property_type)),
+                   SKIP_WRITE_BARRIER);
+}
+
+void KeyedStoreICNexus::ConfigureMegamorphicKeyed(IcCheckType property_type) {
+  Isolate* isolate = GetIsolate();
+  SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(isolate),
+              SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(static_cast<int>(property_type)),
+                   SKIP_WRITE_BARRIER);
+}
 
 InlineCacheState LoadICNexus::StateFromFeedback() const {
   Isolate* isolate = GetIsolate();
@@ -520,6 +516,19 @@ void CallICNexus::ConfigureMonomorphic(Handle<JSFunction> function) {
 }
 
 
+void CallICNexus::ConfigureMegamorphic() {
+  FeedbackNexus::ConfigureMegamorphic();
+}
+
+
+void CallICNexus::ConfigureMegamorphic(int call_count) {
+  SetFeedback(*TypeFeedbackVector::MegamorphicSentinel(GetIsolate()),
+              SKIP_WRITE_BARRIER);
+  SetFeedbackExtra(Smi::FromInt(call_count * kCallCountIncrement),
+                   SKIP_WRITE_BARRIER);
+}
+
+
 void LoadICNexus::ConfigureMonomorphic(Handle<Map> receiver_map,
                                        Handle<Code> handler) {
   Handle<WeakCell> cell = Map::WeakCellForMap(receiver_map);
@@ -536,8 +545,8 @@ void KeyedLoadICNexus::ConfigureMonomorphic(Handle<Name> name,
     SetFeedback(*cell);
     SetFeedbackExtra(*handler);
   } else {
-    SetFeedback(*name);
     Handle<FixedArray> array = EnsureExtraArrayOfSize(2);
+    SetFeedback(*name);
     array->set(0, *cell);
     array->set(1, *handler);
   }
@@ -560,8 +569,8 @@ void KeyedStoreICNexus::ConfigureMonomorphic(Handle<Name> name,
     SetFeedback(*cell);
     SetFeedbackExtra(*handler);
   } else {
-    SetFeedback(*name);
     Handle<FixedArray> array = EnsureExtraArrayOfSize(2);
+    SetFeedback(*name);
     array->set(0, *cell);
     array->set(1, *handler);
   }
@@ -590,8 +599,8 @@ void KeyedLoadICNexus::ConfigurePolymorphic(Handle<Name> name,
     SetFeedbackExtra(*TypeFeedbackVector::UninitializedSentinel(GetIsolate()),
                      SKIP_WRITE_BARRIER);
   } else {
-    SetFeedback(*name);
     array = EnsureExtraArrayOfSize(receiver_count * 2);
+    SetFeedback(*name);
   }
 
   InstallHandlers(array, maps, handlers);
@@ -620,8 +629,8 @@ void KeyedStoreICNexus::ConfigurePolymorphic(Handle<Name> name,
     SetFeedbackExtra(*TypeFeedbackVector::UninitializedSentinel(GetIsolate()),
                      SKIP_WRITE_BARRIER);
   } else {
-    SetFeedback(*name);
     array = EnsureExtraArrayOfSize(receiver_count * 2);
+    SetFeedback(*name);
   }
 
   InstallHandlers(array, maps, handlers);
@@ -834,10 +843,20 @@ KeyedAccessStoreMode KeyedStoreICNexus::GetKeyedAccessStoreMode() const {
   return mode;
 }
 
+IcCheckType KeyedLoadICNexus::GetKeyType() const {
+  Object* feedback = GetFeedback();
+  if (feedback == *TypeFeedbackVector::MegamorphicSentinel(GetIsolate())) {
+    return static_cast<IcCheckType>(Smi::cast(GetFeedbackExtra())->value());
+  }
+  return IsPropertyNameFeedback(feedback) ? PROPERTY : ELEMENT;
+}
 
 IcCheckType KeyedStoreICNexus::GetKeyType() const {
-  // The structure of the vector slots tells us the type.
-  return GetFeedback()->IsName() ? PROPERTY : ELEMENT;
+  Object* feedback = GetFeedback();
+  if (feedback == *TypeFeedbackVector::MegamorphicSentinel(GetIsolate())) {
+    return static_cast<IcCheckType>(Smi::cast(GetFeedbackExtra())->value());
+  }
+  return IsPropertyNameFeedback(feedback) ? PROPERTY : ELEMENT;
 }
 }  // namespace internal
 }  // namespace v8

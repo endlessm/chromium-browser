@@ -4,15 +4,20 @@
 
 #include "content/browser/media/capture/web_contents_video_capture_device.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind_helpers.h"
 #include "base/debug/debugger.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/test/test_timeouts.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
-#include "content/browser/media/capture/web_contents_capture_util.h"
 #include "content/browser/renderer_host/media/video_capture_buffer_pool.h"
 #include "content/browser/renderer_host/render_view_host_factory.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
@@ -20,6 +25,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_widget_host_view_frame_subscriber.h"
+#include "content/public/browser/web_contents_media_capture_id.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -73,9 +79,9 @@ void RunCurrentLoopWithDeadline() {
 }
 
 SkColor ConvertRgbToYuv(SkColor rgb) {
-  uint8 yuv[3];
-  media::ConvertRGB32ToYUV(reinterpret_cast<uint8*>(&rgb),
-                           yuv, yuv + 1, yuv + 2, 1, 1, 1, 1, 1);
+  uint8_t yuv[3];
+  media::ConvertRGB32ToYUV(reinterpret_cast<uint8_t*>(&rgb), yuv, yuv + 1,
+                           yuv + 2, 1, 1, 1, 1, 1);
   return SkColorSetRGB(yuv[0], yuv[1], yuv[2]);
 }
 
@@ -166,8 +172,8 @@ class CaptureTestSourceController {
 // CaptureTestSourceController.
 class CaptureTestView : public TestRenderWidgetHostView {
  public:
-  explicit CaptureTestView(RenderWidgetHostImpl* rwh,
-                           CaptureTestSourceController* controller)
+  CaptureTestView(RenderWidgetHostImpl* rwh,
+                  CaptureTestSourceController* controller)
       : TestRenderWidgetHostView(rwh),
         controller_(controller),
         fake_bounds_(100, 100, 100 + kTestWidth, 100 + kTestHeight) {}
@@ -234,40 +240,19 @@ class CaptureTestView : public TestRenderWidgetHostView {
   DISALLOW_IMPLICIT_CONSTRUCTORS(CaptureTestView);
 };
 
-#if defined(COMPILER_MSVC)
-// MSVC warns on diamond inheritance. See comment for same warning on
-// RenderViewHostImpl.
-#pragma warning(push)
-#pragma warning(disable: 4250)
-#endif
-
 // A stub implementation which returns solid-color bitmaps in calls to
 // CopyFromBackingStore(). The behavior is controlled by a
 // CaptureTestSourceController.
-class CaptureTestRenderViewHost : public TestRenderViewHost {
+class CaptureTestRenderWidgetHost : public RenderWidgetHostImpl {
  public:
-  CaptureTestRenderViewHost(SiteInstance* instance,
-                            RenderViewHostDelegate* delegate,
-                            RenderWidgetHostDelegate* widget_delegate,
-                            int32 routing_id,
-                            int32 main_frame_routing_id,
-                            bool swapped_out,
-                            CaptureTestSourceController* controller)
-      : TestRenderViewHost(instance,
-                           delegate,
-                           widget_delegate,
-                           routing_id,
-                           main_frame_routing_id,
-                           swapped_out),
-        controller_(controller) {
-    // Override the default view installed by TestRenderViewHost; we need
-    // our special subclass which has mocked-out tab capture support.
-    RenderWidgetHostView* old_view = GetWidget()->GetView();
-    GetWidget()->SetView(new CaptureTestView(GetWidget(), controller));
-    delete old_view;
-  }
+  CaptureTestRenderWidgetHost(RenderWidgetHostDelegate* delegate,
+                              RenderProcessHost* process,
+                              int32_t routing_id,
+                              CaptureTestSourceController* controller)
+      : RenderWidgetHostImpl(delegate, process, routing_id, false /* hidden */),
+        controller_(controller) {}
 
-  // TestRenderViewHost overrides.
+  // RenderWidgetHostImpl overrides.
   void CopyFromBackingStore(const gfx::Rect& src_rect,
                             const gfx::Size& accelerated_dst_size,
                             const ReadbackRequestCallback& callback,
@@ -288,13 +273,40 @@ class CaptureTestRenderViewHost : public TestRenderViewHost {
  private:
   CaptureTestSourceController* controller_;
 
-  DISALLOW_IMPLICIT_CONSTRUCTORS(CaptureTestRenderViewHost);
+  DISALLOW_IMPLICIT_CONSTRUCTORS(CaptureTestRenderWidgetHost);
 };
 
-#if defined(COMPILER_MSVC)
-// Re-enable warning 4250
-#pragma warning(pop)
-#endif
+class CaptureTestRenderViewHost : public TestRenderViewHost {
+ public:
+  CaptureTestRenderViewHost(SiteInstance* instance,
+                            RenderViewHostDelegate* delegate,
+                            RenderWidgetHostDelegate* widget_delegate,
+                            int32_t routing_id,
+                            int32_t main_frame_routing_id,
+                            bool swapped_out,
+                            CaptureTestSourceController* controller)
+      : TestRenderViewHost(instance,
+                           make_scoped_ptr(new CaptureTestRenderWidgetHost(
+                               widget_delegate,
+                               instance->GetProcess(),
+                               routing_id,
+                               controller)),
+                           delegate,
+                           main_frame_routing_id,
+                           swapped_out),
+        controller_(controller) {
+    // Override the default view installed by TestRenderViewHost; we need
+    // our special subclass which has mocked-out tab capture support.
+    RenderWidgetHostView* old_view = GetWidget()->GetView();
+    GetWidget()->SetView(new CaptureTestView(GetWidget(), controller));
+    delete old_view;
+  }
+
+ private:
+  CaptureTestSourceController* controller_;
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(CaptureTestRenderViewHost);
+};
 
 class CaptureTestRenderViewHostFactory : public RenderViewHostFactory {
  public:
@@ -310,8 +322,8 @@ class CaptureTestRenderViewHostFactory : public RenderViewHostFactory {
       SiteInstance* instance,
       RenderViewHostDelegate* delegate,
       RenderWidgetHostDelegate* widget_delegate,
-      int32 routing_id,
-      int32 main_frame_routing_id,
+      int32_t routing_id,
+      int32_t main_frame_routing_id,
       bool swapped_out) override {
     return new CaptureTestRenderViewHost(instance, delegate, widget_delegate,
                                          routing_id, main_frame_routing_id,
@@ -338,15 +350,15 @@ class StubClient : public media::VideoCaptureDevice::Client {
   ~StubClient() override {}
 
   MOCK_METHOD5(OnIncomingCapturedData,
-               void(const uint8* data,
+               void(const uint8_t* data,
                     int length,
                     const media::VideoCaptureFormat& frame_format,
                     int rotation,
                     const base::TimeTicks& timestamp));
   MOCK_METHOD9(OnIncomingCapturedYuvData,
-               void(const uint8* y_data,
-                    const uint8* u_data,
-                    const uint8* v_data,
+               void(const uint8_t* y_data,
+                    const uint8_t* u_data,
+                    const uint8_t* v_data,
                     size_t y_stride,
                     size_t u_stride,
                     size_t v_stride,
@@ -423,7 +435,7 @@ class StubClient : public media::VideoCaptureDevice::Client {
         int buffer_id)
         : id_(buffer_id),
           pool_(pool),
-          buffer_handle_(buffer_handle.Pass()) {
+          buffer_handle_(std::move(buffer_handle)) {
       DCHECK(pool_.get());
     }
     int id() const override { return id_; }
@@ -469,7 +481,7 @@ class StubClientObserver {
   virtual ~StubClientObserver() {}
 
   scoped_ptr<media::VideoCaptureDevice::Client> PassClient() {
-    return client_.Pass();
+    return std::move(client_);
   }
 
   void QuitIfConditionsMet(SkColor color, const gfx::Size& size) {
@@ -578,8 +590,8 @@ class MAYBE_WebContentsVideoCaptureDeviceTest : public testing::Test {
     test_screen_.display()->set_bounds(gfx::Rect(0, 0, 2560, 1440));
     test_screen_.display()->set_device_scale_factor(kTestDeviceScaleFactor);
 
-    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, &test_screen_);
-    ASSERT_EQ(&test_screen_, gfx::Screen::GetNativeScreen());
+    gfx::Screen::SetScreenInstance(&test_screen_);
+    ASSERT_EQ(&test_screen_, gfx::Screen::GetScreen());
 
     // TODO(nick): Sadness and woe! Much "mock-the-world" boilerplate could be
     // eliminated here, if only we could use RenderViewHostTestHarness. The
@@ -637,7 +649,7 @@ class MAYBE_WebContentsVideoCaptureDeviceTest : public testing::Test {
     render_view_host_factory_.reset();
     render_process_host_factory_.reset();
 
-    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, NULL);
+    gfx::Screen::SetScreenInstance(nullptr);
   }
 
   // Accessors.

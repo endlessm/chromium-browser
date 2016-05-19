@@ -4,8 +4,9 @@
 
 #include "chrome/browser/chromeos/settings/device_oauth2_token_service.h"
 
+#include <stdint.h>
+
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
@@ -21,6 +22,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_cryptohome_client.h"
 #include "components/ownership/mock_owner_key_util.h"
+#include "components/prefs/testing_pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
@@ -76,7 +78,7 @@ class DeviceOAuth2TokenServiceTest : public testing::Test {
   }
 
   void SetUpWithPendingSalt() {
-    fake_cryptohome_client_->set_system_salt(std::vector<uint8>());
+    fake_cryptohome_client_->set_system_salt(std::vector<uint8_t>());
     fake_cryptohome_client_->SetServiceIsAvailable(false);
     SetUpDefaultValues();
   }
@@ -334,7 +336,7 @@ TEST_F(DeviceOAuth2TokenServiceTest, RefreshTokenValidation_Cancel) {
 }
 
 TEST_F(DeviceOAuth2TokenServiceTest, RefreshTokenValidation_NoSalt) {
-  fake_cryptohome_client_->set_system_salt(std::vector<uint8>());
+  fake_cryptohome_client_->set_system_salt(std::vector<uint8_t>());
   fake_cryptohome_client_->SetServiceIsAvailable(true);
   SetUpDefaultValues();
 

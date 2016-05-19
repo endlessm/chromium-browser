@@ -4,12 +4,15 @@
 
 #include "chrome/browser/prerender/prerender_contents.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <functional>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/history/history_tab_helper.h"
 #include "chrome/browser/prerender/prerender_field_trial.h"
@@ -92,13 +95,19 @@ class PrerenderContents::WebContentsDelegateImpl
                               const OpenURLParams& params) override {
     // |OpenURLFromTab| is typically called when a frame performs a navigation
     // that requires the browser to perform the transition instead of WebKit.
-    // Examples include prerendering a site that redirects to an app URL, or if
-    // --site-per-process is specified and the prerendered frame redirects to a
-    // different origin.
+    // Examples include client redirects to hosted app URLs.
     // TODO(cbentzel): Consider supporting this for CURRENT_TAB dispositions, if
     // it is a common case during prerenders.
     prerender_contents_->Destroy(FINAL_STATUS_OPEN_URL);
     return NULL;
+  }
+
+  bool ShouldTransferNavigation() override {
+    // Cancel the prerender if the navigation attempts to transfer to a
+    // different process.  Examples include server redirects to privileged pages
+    // or cross-site subframe navigations in --site-per-process.
+    prerender_contents_->Destroy(FINAL_STATUS_OPEN_URL);
+    return false;
   }
 
   void CloseContents(content::WebContents* contents) override {
@@ -753,7 +762,7 @@ void PrerenderContents::AddResourceThrottle(
   resource_throttles_.push_back(throttle);
 }
 
-void PrerenderContents::AddNetworkBytes(int64 bytes) {
+void PrerenderContents::AddNetworkBytes(int64_t bytes) {
   network_bytes_ += bytes;
 }
 

@@ -4,11 +4,14 @@
 
 #include "chrome/browser/web_applications/update_shortcut_worker_win.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/shortcut.h"
@@ -154,7 +157,7 @@ void UpdateShortcutWorker::CheckExistingShortcuts() {
     }
   };
 
-  for (int i = 0; i < arraysize(locations); ++i) {
+  for (size_t i = 0; i < arraysize(locations); ++i) {
     base::FilePath path;
     if (!PathService::Get(locations[i].location_id, &path)) {
       NOTREACHED();
@@ -201,7 +204,7 @@ void UpdateShortcutWorker::UpdateShortcutsOnFileThread() {
   CheckExistingShortcuts();
   if (!shortcut_files_.empty()) {
     // Generates app id from web app url and profile path.
-    base::string16 app_id = ShellIntegration::GetAppModelIdForProfile(
+    base::string16 app_id = shell_integration::GetAppModelIdForProfile(
         base::UTF8ToWide(
             web_app::GenerateApplicationNameFromURL(shortcut_info_->url)),
         profile_path_);

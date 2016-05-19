@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/platform/WebPrerender.h"
 
 #include "platform/Prerender.h"
@@ -55,7 +54,7 @@ private:
     OwnPtr<WebPrerender::ExtraData> m_extraData;
 };
 
-} // anon namespace
+} // namespace
 
 WebPrerender::WebPrerender(PassRefPtr<Prerender> prerender)
     : m_private(prerender)
@@ -99,7 +98,7 @@ WebString WebPrerender::referrer() const
 
 WebReferrerPolicy WebPrerender::referrerPolicy() const
 {
-    return static_cast<WebReferrerPolicy>(m_private->referrerPolicy());
+    return static_cast<WebReferrerPolicy>(m_private->getReferrerPolicy());
 }
 
 void WebPrerender::setExtraData(WebPrerender::ExtraData* extraData)

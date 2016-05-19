@@ -6,41 +6,64 @@
 
 /* Media query bars */
 
+.media-inspector-view {
+    height: 50px;
+}
+
 .media-inspector-marker-container {
-    position: relative;
     height: 14px;
     margin: 2px 0;
+    position: relative;
+}
+
+.media-inspector-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    pointer-events: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
 }
 
 .media-inspector-marker {
-    position: absolute;
-    top: 1px;
-    bottom: 1px;
+    flex: none;
+    pointer-events: auto;
+    margin: 1px 0;
     white-space: nowrap;
-    border-radius: 2px;
+    z-index: auto;
+    position: relative;
 }
 
-.media-inspector-marker-inactive {
-    -webkit-filter: brightness(80%);
+.media-inspector-marker-spacer {
+    flex: auto;
 }
 
 .media-inspector-marker:hover {
-    top: -1px;
-    bottom: -1px;
-    -webkit-filter: brightness(115%) !important;
+    margin: -1px 0;
+    opacity: 1;
 }
 
 .media-inspector-marker-max-width {
-    background: linear-gradient(to left, rgba(255, 255, 255, 0.27), rgba(0,0,0,0) 30px), linear-gradient(to bottom, rgb(72, 139, 249), rgb(26, 113, 233));
-    border-radius: 0 2px 2px 0;
-    border-right: 2px solid rgb(171, 207, 255);
+    background-color: hsl(207, 90%, 77%);
+    border-right: 2px solid hsl(207, 90%, 61%);
+    border-left: 2px solid hsl(207, 90%, 61%);
+}
+
+.media-inspector-marker-inactive .media-inspector-marker-max-width:not(:hover) {
+    background-color: hsl(199, 94%, 94%);
 }
 
 .media-inspector-marker-min-max-width {
-    background: linear-gradient(to right, rgba(255, 255, 255, 0.27), rgba(0,0,0,0) 30px), linear-gradient(to left, rgba(255, 255, 255, 0.27), rgba(0,0,0,0) 30px), linear-gradient(to bottom, rgb(112, 174, 7), rgb(3, 131, 0));
-    border-radius: 2px;
-    border-left: 2px solid rgb(80, 226, 40);
-    border-right: 2px solid rgb(80, 226, 40);
+    background-color: hsl(88, 50%, 76%);
+    border-left: 2px solid #689F38;
+    border-right: 2px solid hsl(92, 48%, 42%);
+}
+
+.media-inspector-marker-inactive .media-inspector-marker-min-max-width:not(:hover) {
+    background-color: hsl(125, 39%, 94%);
 }
 
 .media-inspector-marker-min-max-width:hover {
@@ -48,9 +71,20 @@
 }
 
 .media-inspector-marker-min-width {
-    background: linear-gradient(to right, rgba(255, 255, 255, 0.27), rgba(0,0,0,0) 30px), linear-gradient(to bottom, rgb(222, 129, 30), rgb(204, 104, 31));
-    border-radius: 2px 0 0 2px;
-    border-left: 2px solid rgb(255, 181, 142);
+    background-color: hsl(36, 100%, 75%);
+    flex: auto;
+}
+
+.media-inspector-marker-inactive .media-inspector-marker-min-width:not(:hover) {
+    background-color: hsl(37, 100%, 94%);
+}
+
+.media-inspector-marker-min-width-right {
+    border-left: 2px solid hsl(30, 100%, 48%);
+}
+
+.media-inspector-marker-min-width-left {
+    border-right: 2px solid hsl(30, 100%, 48%);
 }
 
 /* Media query labels */
@@ -61,6 +95,7 @@
 
 .media-inspector-marker-label-container {
     position: absolute;
+    z-index: 1;
 }
 
 .media-inspector-marker-label-container-left {
@@ -72,12 +107,11 @@
 }
 
 .media-inspector-marker-label {
-    color: #eee;
+    color: #222;
     position: absolute;
     top: 1px;
     bottom: 0;
-    font-size: 10px;
-    text-shadow: rgba(0, 0, 0, 0.6) 1px 1px;
+    font-size: 12px;
     pointer-events: none;
 }
 

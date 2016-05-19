@@ -57,7 +57,7 @@ bool DeserializeCommonSection1(base::PickleIterator* iter,
          iter->ReadString16(&field_data->value) &&
          iter->ReadString(&field_data->form_control_type) &&
          iter->ReadString(&field_data->autocomplete_attribute) &&
-         iter->ReadSizeT(&field_data->max_length) &&
+         iter->ReadUInt64(&field_data->max_length) &&
          iter->ReadBool(&field_data->is_autofilled) &&
          iter->ReadBool(&field_data->is_checked) &&
          iter->ReadBool(&field_data->is_checkable) &&
@@ -90,6 +90,8 @@ FormFieldData::FormFieldData()
       text_direction(base::i18n::UNKNOWN_DIRECTION) {
 }
 
+FormFieldData::FormFieldData(const FormFieldData& other) = default;
+
 FormFieldData::~FormFieldData() {
 }
 
@@ -116,6 +118,11 @@ bool FormFieldData::SameFieldAs(const FormFieldData& field) const {
 }
 
 bool FormFieldData::operator<(const FormFieldData& field) const {
+  // This does not use std::tie() as that generates more implicit variables
+  // than the max-vartrack-size for var-tracking-assignments when compiling
+  // for Android, producing build warnings. (See https://crbug.com/555171 for
+  // context.)
+
   // Like operator==, this ignores the value.
   if (label < field.label) return true;
   if (label > field.label) return false;
@@ -150,7 +157,7 @@ void SerializeFormFieldData(const FormFieldData& field_data,
   pickle->WriteString16(field_data.value);
   pickle->WriteString(field_data.form_control_type);
   pickle->WriteString(field_data.autocomplete_attribute);
-  pickle->WriteSizeT(field_data.max_length);
+  pickle->WriteUInt64(field_data.max_length);
   pickle->WriteBool(field_data.is_autofilled);
   pickle->WriteBool(field_data.is_checked);
   pickle->WriteBool(field_data.is_checkable);

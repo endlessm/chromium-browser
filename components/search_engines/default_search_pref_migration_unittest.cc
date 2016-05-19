@@ -4,6 +4,8 @@
 
 #include "components/search_engines/default_search_pref_migration.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/compiler_specific.h"
@@ -134,7 +136,7 @@ scoped_ptr<TemplateURL> DefaultSearchPrefMigrationTest::CreateKeyword(
   data.SetKeyword(base::ASCIIToUTF16(keyword));
   data.SetURL(url);
   scoped_ptr<TemplateURL> t_url(new TemplateURL(data));
-  return t_url.Pass();
+  return t_url;
 }
 
 TEST_F(DefaultSearchPrefMigrationTest, MigrateUserSelectedValue) {

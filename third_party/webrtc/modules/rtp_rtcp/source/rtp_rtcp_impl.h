@@ -12,15 +12,17 @@
 #define WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_RTCP_IMPL_H_
 
 #include <list>
+#include <set>
+#include <utility>
 #include <vector>
 
+#include "webrtc/base/gtest_prod_util.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
 #include "webrtc/modules/rtp_rtcp/source/packet_loss_stats.h"
 #include "webrtc/modules/rtp_rtcp/source/rtcp_receiver.h"
 #include "webrtc/modules/rtp_rtcp/source/rtcp_sender.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_sender.h"
-#include "webrtc/test/testsupport/gtest_prod_util.h"
 
 namespace webrtc {
 
@@ -33,7 +35,7 @@ class ModuleRtpRtcpImpl : public RtpRtcp {
   int64_t TimeUntilNextProcess() override;
 
   // Process any pending tasks such as timeouts.
-  int32_t Process() override;
+  void Process() override;
 
   // Receiver part.
 
@@ -91,7 +93,6 @@ class ModuleRtpRtcpImpl : public RtpRtcp {
 
   void SetRtxSendPayloadType(int payload_type,
                              int associated_payload_type) override;
-  std::pair<int, int> RtxSendPayloadType() const override;
 
   // Sends kRtcpByeCode when going from true to false.
   int32_t SetSendingStatus(bool sending) override;
@@ -258,7 +259,7 @@ class ModuleRtpRtcpImpl : public RtpRtcp {
   int32_t SetSendREDPayloadType(int8_t payload_type) override;
 
   // Get payload type for Redundant Audio Data RFC 2198.
-  int32_t SendREDPayloadType(int8_t& payload_type) const override;
+  int32_t SendREDPayloadType(int8_t* payload_type) const override;
 
   // Store the audio level in d_bov for header-extension-for-audio-level-
   // indication.
@@ -280,9 +281,9 @@ class ModuleRtpRtcpImpl : public RtpRtcp {
                            uint8_t payload_type_red,
                            uint8_t payload_type_fec) override;
 
-  void GenericFECStatus(bool& enable,
-                        uint8_t& payload_type_red,
-                        uint8_t& payload_type_fec) override;
+  void GenericFECStatus(bool* enable,
+                        uint8_t* payload_type_red,
+                        uint8_t* payload_type_fec) override;
 
   int32_t SetFecParameters(const FecProtectionParams* delta_params,
                            const FecProtectionParams* key_params) override;
@@ -293,7 +294,7 @@ class ModuleRtpRtcpImpl : public RtpRtcp {
 
   bool LastReceivedXrReferenceTimeInfo(RtcpReceiveTimeInfo* info) const;
 
-  virtual int32_t BoundingSet(bool& tmmbr_owner, TMMBRSet*& bounding_set_rec);
+  int32_t BoundingSet(bool* tmmbr_owner, TMMBRSet* bounding_set_rec);
 
   void BitrateSent(uint32_t* total_rate,
                    uint32_t* video_rate,

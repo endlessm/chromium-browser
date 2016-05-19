@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGTextContentElement.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -32,6 +31,7 @@
 #include "core/frame/LocalFrame.h"
 #include "core/frame/UseCounter.h"
 #include "core/layout/LayoutObject.h"
+#include "core/layout/api/LineLayoutAPIShim.h"
 #include "core/layout/svg/SVGTextQuery.h"
 
 namespace blink {
@@ -66,7 +66,7 @@ public:
 
 private:
     SVGAnimatedTextLength(SVGTextContentElement* contextElement)
-        : SVGAnimatedLength(contextElement, SVGNames::textLengthAttr, SVGLength::create(SVGLengthMode::Width), ForbidNegativeLengths)
+        : SVGAnimatedLength(contextElement, SVGNames::textLengthAttr, SVGLength::create(SVGLengthMode::Width))
     {
     }
 };
@@ -251,17 +251,14 @@ bool SVGTextContentElement::selfHasRelativeLengths() const
     return true;
 }
 
-SVGTextContentElement* SVGTextContentElement::elementFromLayoutObject(LayoutObject* layoutObject)
+SVGTextContentElement* SVGTextContentElement::elementFromLineLayoutItem(LineLayoutItem lineLayoutItem)
 {
-    if (!layoutObject)
+    if (lineLayoutItem.isNull() || (!lineLayoutItem.isSVGText() && !lineLayoutItem.isSVGInline()))
         return nullptr;
 
-    if (!layoutObject->isSVGText() && !layoutObject->isSVGInline())
-        return nullptr;
-
-    SVGElement* element = toSVGElement(layoutObject->node());
+    SVGElement* element = toSVGElement(lineLayoutItem.node());
     ASSERT(element);
     return isSVGTextContentElement(*element) ? toSVGTextContentElement(element) : 0;
 }
 
-}
+} // namespace blink

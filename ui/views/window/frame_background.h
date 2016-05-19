@@ -5,7 +5,7 @@
 #ifndef UI_VIEWS_WINDOW_FRAME_BACKGROUND_H_
 #define UI_VIEWS_WINDOW_FRAME_BACKGROUND_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/views/views_export.h"
 
@@ -64,15 +64,15 @@ class VIEWS_EXPORT FrameBackground {
   // Paints the border for a standard, non-maximized window.  Also paints the
   // background of the title bar area, since the top frame border and the
   // title bar background are a contiguous component.
-  void PaintRestored(gfx::Canvas* canvas, View* view) const;
+  void PaintRestored(gfx::Canvas* canvas, const View* view) const;
 
   // Paints the border for a maximized window, which does not include the
   // window edges.
-  void PaintMaximized(gfx::Canvas* canvas, View* view) const;
+  void PaintMaximized(gfx::Canvas* canvas, const View* view) const;
 
  private:
   // Fills the frame area with the frame color.
-  void PaintFrameColor(gfx::Canvas* canvas, View* view) const;
+  void PaintFrameColor(gfx::Canvas* canvas, const View* view) const;
 
   SkColor frame_color_;
   const gfx::ImageSkia* theme_image_;

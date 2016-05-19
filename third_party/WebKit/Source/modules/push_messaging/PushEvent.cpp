@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/push_messaging/PushEvent.h"
 
 #include "modules/push_messaging/PushEventInit.h"
@@ -37,9 +36,6 @@ const AtomicString& PushEvent::interfaceName() const
 
 PushMessageData* PushEvent::data()
 {
-    if (!m_data)
-        m_data = PushMessageData::create();
-
     return m_data.get();
 }
 

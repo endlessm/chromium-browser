@@ -4,6 +4,8 @@
 
 #include "cc/playback/drawing_display_item.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/strings/stringprintf.h"
@@ -11,6 +13,7 @@
 #include "base/values.h"
 #include "cc/debug/picture_debug_util.h"
 #include "cc/proto/display_item.pb.h"
+#include "cc/proto/image_serialization_processor.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkData.h"
 #include "third_party/skia/include/core/SkMatrix.h"
@@ -21,39 +24,15 @@
 
 namespace cc {
 
-DrawingDisplayItem::DrawingDisplayItem() {
+DrawingDisplayItem::DrawingDisplayItem() {}
+
+DrawingDisplayItem::DrawingDisplayItem(skia::RefPtr<const SkPicture> picture) {
+  SetNew(std::move(picture));
 }
 
-DrawingDisplayItem::~DrawingDisplayItem() {
-}
-
-void DrawingDisplayItem::SetNew(skia::RefPtr<SkPicture> picture) {
-  picture_ = picture.Pass();
-  DisplayItem::SetNew(picture_->suitableForGpuRasterization(NULL),
-                      picture_->approximateOpCount(),
-                      SkPictureUtils::ApproximateBytesUsed(picture_.get()));
-}
-
-void DrawingDisplayItem::ToProtobuf(proto::DisplayItem* proto) const {
-  proto->set_type(proto::DisplayItem::Type_Drawing);
-
-  proto::DrawingDisplayItem* details = proto->mutable_drawing_item();
-
-  // Just use skia's serialize() method for now.
-  if (picture_) {
-    SkDynamicMemoryWStream stream;
-
-    // TODO(dtrainor, nyquist): Add an SkPixelSerializer to not serialize images
-    // more than once (crbug.com/548434).
-    picture_->serialize(&stream, nullptr);
-    if (stream.bytesWritten() > 0) {
-      SkAutoDataUnref data(stream.copyToData());
-      details->set_picture(data->data(), data->size());
-    }
-  }
-}
-
-void DrawingDisplayItem::FromProtobuf(const proto::DisplayItem& proto) {
+DrawingDisplayItem::DrawingDisplayItem(
+    const proto::DisplayItem& proto,
+    ImageSerializationProcessor* image_serialization_processor) {
   DCHECK_EQ(proto::DisplayItem::Type_Drawing, proto.type());
 
   skia::RefPtr<SkPicture> picture;
@@ -61,11 +40,41 @@ void DrawingDisplayItem::FromProtobuf(const proto::DisplayItem& proto) {
   if (details.has_picture()) {
     SkMemoryStream stream(details.picture().data(), details.picture().size());
 
-    // TODO(dtrainor, nyquist): Add an image decoder.
-    picture = skia::AdoptRef(SkPicture::CreateFromStream(&stream, nullptr));
+    picture = skia::AdoptRef(SkPicture::CreateFromStream(
+        &stream, image_serialization_processor->GetPixelDeserializer()));
   }
 
-  SetNew(picture.Pass());
+  SetNew(std::move(picture));
+}
+
+DrawingDisplayItem::DrawingDisplayItem(const DrawingDisplayItem& item) {
+  item.CloneTo(this);
+}
+
+DrawingDisplayItem::~DrawingDisplayItem() {
+}
+
+void DrawingDisplayItem::SetNew(skia::RefPtr<const SkPicture> picture) {
+  picture_ = std::move(picture);
+}
+
+void DrawingDisplayItem::ToProtobuf(
+    proto::DisplayItem* proto,
+    ImageSerializationProcessor* image_serialization_processor) const {
+  proto->set_type(proto::DisplayItem::Type_Drawing);
+
+  proto::DrawingDisplayItem* details = proto->mutable_drawing_item();
+
+  // Just use skia's serialize() method for now.
+  if (picture_) {
+    SkDynamicMemoryWStream stream;
+    picture_->serialize(&stream,
+                        image_serialization_processor->GetPixelSerializer());
+    if (stream.bytesWritten() > 0) {
+      SkAutoDataUnref data(stream.copyToData());
+      details->set_picture(data->data(), data->size());
+    }
+  }
 }
 
 void DrawingDisplayItem::Raster(SkCanvas* canvas,
@@ -90,9 +99,17 @@ void DrawingDisplayItem::Raster(SkCanvas* canvas,
 }
 
 void DrawingDisplayItem::AsValueInto(
+    const gfx::Rect& visual_rect,
     base::trace_event::TracedValue* array) const {
   array->BeginDictionary();
   array->SetString("name", "DrawingDisplayItem");
+
+  array->BeginArray("visualRect");
+  array->AppendInteger(visual_rect.x());
+  array->AppendInteger(visual_rect.y());
+  array->AppendInteger(visual_rect.width());
+  array->AppendInteger(visual_rect.height());
+  array->EndArray();
 
   array->BeginArray("cullRect");
   array->AppendInteger(picture_->cullRect().x());
@@ -109,6 +126,18 @@ void DrawingDisplayItem::AsValueInto(
 
 void DrawingDisplayItem::CloneTo(DrawingDisplayItem* item) const {
   item->SetNew(picture_);
+}
+
+size_t DrawingDisplayItem::ExternalMemoryUsage() const {
+  return SkPictureUtils::ApproximateBytesUsed(picture_.get());
+}
+
+int DrawingDisplayItem::ApproximateOpCount() const {
+  return picture_->approximateOpCount();
+}
+
+bool DrawingDisplayItem::IsSuitableForGpuRasterization() const {
+  return picture_->suitableForGpuRasterization(NULL);
 }
 
 }  // namespace cc

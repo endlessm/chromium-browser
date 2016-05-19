@@ -4,8 +4,11 @@
 
 #include "chrome/browser/download/download_ui_controller.h"
 
+#include <utility>
+
 #include "base/callback.h"
 #include "base/stl_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -84,10 +87,8 @@ void DownloadShelfUIControllerDelegate::OnNewDownloadReady(
 
   // As a last resort, use the last active browser for this profile. Not ideal,
   // but better than not showing the download at all.
-  if (browser == NULL) {
-    browser = chrome::FindLastActiveWithProfile(profile_,
-                                                chrome::GetActiveDesktop());
-  }
+  if (browser == nullptr)
+    browser = chrome::FindLastActiveWithProfile(profile_);
 
   if (browser && browser->window() &&
       DownloadItemModel(item).ShouldShowInShelf()) {
@@ -105,8 +106,7 @@ DownloadUIController::Delegate::~Delegate() {
 
 DownloadUIController::DownloadUIController(content::DownloadManager* manager,
                                            scoped_ptr<Delegate> delegate)
-    : download_notifier_(manager, this),
-      delegate_(delegate.Pass()) {
+    : download_notifier_(manager, this), delegate_(std::move(delegate)) {
 #if defined(OS_ANDROID)
   if (!delegate_)
     delegate_.reset(new AndroidUIControllerDelegate());

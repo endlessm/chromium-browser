@@ -37,8 +37,8 @@ ServerWindowSurface::ServerWindowSurface(
                            ->GetSurfacesState()
                            ->manager(),
                        this),
-      client_(client.Pass()),
-      binding_(this, request.Pass()) {
+      client_(std::move(client)),
+      binding_(this, std::move(request)) {
   surface_factory_.Create(surface_id_);
 }
 
@@ -73,7 +73,6 @@ void ServerWindowSurface::SubmitCompositorFrame(
   surface_factory_.SubmitCompositorFrame(surface_id_,
                                          ConvertCompositorFrame(frame),
                                          base::Bind(&CallCallback, callback));
-  window()->delegate()->GetSurfacesState()->scheduler()->SetNeedsDraw();
   window()->delegate()->OnScheduleWindowPaint(window());
   last_submitted_frame_size_ = frame_size;
 }
@@ -100,14 +99,23 @@ bool ServerWindowSurface::ConvertSurfaceDrawQuad(
     const mojom::CompositorFrameMetadataPtr& metadata,
     cc::SharedQuadState* sqs,
     cc::RenderPass* render_pass) {
-  Id id = static_cast<Id>(
+  // Surface ids originate from the client, meaning they are ClientWindowIds
+  // and can only be resolved by the client that submitted the frame.
+  const ClientWindowId other_client_window_id(
       input->surface_quad_state->surface.To<cc::SurfaceId>().id);
-  WindowId other_window_id = WindowIdFromTransportId(id);
-  ServerWindow* other_window = window()->GetChildWindow(other_window_id);
-  if (!other_window)
-    return false;
+  ServerWindow* other_window = window()->delegate()->FindWindowForSurface(
+      window(), mojom::SurfaceType::DEFAULT, other_client_window_id);
+  if (!other_window) {
+    DVLOG(2) << "The window ID '" << other_client_window_id.id
+             << "' does not exist.";
+    // TODO(fsamuel): We return true here so that the CompositorFrame isn't
+    // entirely rejected. We just drop this SurfaceDrawQuad. This failure
+    // can happen if the client has an out of date view of the window tree.
+    // It would be nice if we can avoid reaching this state in the future.
+    return true;
+  }
 
-  referenced_window_ids_.insert(other_window_id);
+  referenced_window_ids_.insert(other_window->id());
 
   ServerWindowSurface* default_surface =
       other_window->GetOrCreateSurfaceManager()->GetDefaultSurface();

@@ -4,11 +4,14 @@
 
 #include "chrome/browser/renderer_host/chrome_render_message_filter.h"
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -35,19 +38,12 @@
 #include "extensions/common/manifest_handlers/default_locale_handler.h"
 #endif
 
-#if defined(USE_TCMALLOC)
-#include "chrome/browser/browser_about_handler.h"
-#endif
-
 using content::BrowserThread;
-using blink::WebCache;
 
 namespace {
 
-const uint32 kFilteredMessageClasses[] = {
-  ChromeMsgStart,
-  ContentSettingsMsgStart,
-  NetworkHintsMsgStart,
+const uint32_t kFilteredMessageClasses[] = {
+    ChromeMsgStart, ContentSettingsMsgStart, NetworkHintsMsgStart,
 };
 
 }  // namespace
@@ -133,9 +129,14 @@ void ChromeRenderMessageFilter::OnPreconnect(const GURL& url,
 }
 
 void ChromeRenderMessageFilter::OnUpdatedCacheStats(
-    const WebCache::UsageStats& stats) {
+    uint64_t min_dead_capacity,
+    uint64_t max_dead_capacity,
+    uint64_t capacity,
+    uint64_t live_size,
+    uint64_t dead_size) {
   web_cache::WebCacheManager::GetInstance()->ObserveStats(
-      render_process_id_, stats);
+      render_process_id_, min_dead_capacity, max_dead_capacity, capacity,
+      live_size, dead_size);
 }
 
 void ChromeRenderMessageFilter::OnAllowDatabase(

@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/Timer.h"
 
+#include "platform/testing/TestingPlatformSupport.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebScheduler.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebViewScheduler.h"
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include <queue>
 
 using testing::ElementsAre;
@@ -18,11 +18,6 @@ using testing::ElementsAre;
 namespace blink {
 namespace {
 double gCurrentTimeSecs = 0.0;
-
-double currentTime()
-{
-    return gCurrentTimeSecs;
-}
 
 // This class exists because gcc doesn't know how to move an OwnPtr.
 class RefCountedTaskContainer : public RefCounted<RefCountedTaskContainer> {
@@ -44,8 +39,10 @@ class DelayedTask {
 public:
     DelayedTask(WebTaskRunner::Task* task, double delaySeconds)
         : m_task(adoptRef(new RefCountedTaskContainer(task)))
-        , m_runTimeSeconds(monotonicallyIncreasingTime() + delaySeconds)
-        , m_delaySeconds(delaySeconds) { }
+        , m_runTimeSeconds(gCurrentTimeSecs + delaySeconds)
+        , m_delaySeconds(delaySeconds)
+    {
+    }
 
     bool operator<(const DelayedTask& other) const
     {
@@ -94,6 +91,17 @@ public:
         return nullptr;
     }
 
+    double virtualTimeSeconds() const override
+    {
+        ASSERT_NOT_REACHED();
+        return 0.0;
+    }
+
+    double monotonicallyIncreasingVirtualTimeSeconds() const override
+    {
+        return gCurrentTimeSecs;
+    }
+
     std::priority_queue<DelayedTask>* m_timerTasks; // NOT OWNED
 };
 
@@ -133,11 +141,6 @@ public:
     {
         ASSERT_NOT_REACHED();
         return nullptr;
-    }
-
-    void postTimerTaskAt(const WebTraceLocation&, WebTaskRunner::Task* task, double monotonicTime) override
-    {
-        m_timerTasks.push(DelayedTask(task, (monotonicTime - monotonicallyIncreasingTime()) * 1000));
     }
 
     void runUntilIdle()
@@ -236,7 +239,7 @@ private:
     OwnPtr<MockWebScheduler> m_webScheduler;
 };
 
-class TimerTestPlatform : public Platform {
+class TimerTestPlatform : public TestingPlatformSupport {
 public:
     TimerTestPlatform()
         : m_webThread(adoptPtr(new FakeWebThread())) { }
@@ -245,17 +248,6 @@ public:
     WebThread* currentThread() override
     {
         return m_webThread.get();
-    }
-
-    void cryptographicallyRandomValues(unsigned char*, size_t) override
-    {
-        ASSERT_NOT_REACHED();
-    }
-
-    const unsigned char* getTraceCategoryEnabledFlag(const char* categoryName) override
-    {
-        static const unsigned char enabled[] = {0};
-        return enabled;
     }
 
     void runUntilIdle()
@@ -296,29 +288,19 @@ class TimerTest : public testing::Test {
 public:
     void SetUp() override
     {
-        m_platform = adoptPtr(new TimerTestPlatform());
-        m_oldPlatform = Platform::current();
-        Platform::initialize(m_platform.get());
-        WTF::setMonotonicallyIncreasingTimeFunction(currentTime);
-
         m_runTimes.clear();
         gCurrentTimeSecs = 10.0;
         m_startTime = gCurrentTimeSecs;
     }
 
-    void TearDown() override
-    {
-        Platform::initialize(m_oldPlatform);
-    }
-
     void countingTask(Timer<TimerTest>*)
     {
-        m_runTimes.append(monotonicallyIncreasingTime());
+        m_runTimes.append(gCurrentTimeSecs);
     }
 
     void recordNextFireTimeTask(Timer<TimerTest>* timer)
     {
-        m_nextFireTimes.append(monotonicallyIncreasingTime() + timer->nextFireInterval());
+        m_nextFireTimes.append(gCurrentTimeSecs + timer->nextFireInterval());
     }
 
     void advanceTimeBy(double timeSecs)
@@ -328,27 +310,27 @@ public:
 
     void runUntilIdle()
     {
-        m_platform->runUntilIdle();
+        m_platform.runUntilIdle();
     }
 
     void runPendingTasks()
     {
-        m_platform->runPendingTasks();
+        m_platform.runPendingTasks();
     }
 
     void runUntilIdleOrDeadlinePassed(double deadline)
     {
-        m_platform->runUntilIdleOrDeadlinePassed(deadline);
+        m_platform.runUntilIdleOrDeadlinePassed(deadline);
     }
 
     bool hasOneTimerTask() const
     {
-        return m_platform->hasOneTimerTask();
+        return m_platform.hasOneTimerTask();
     }
 
     double nextTimerTaskDelaySecs() const
     {
-        return m_platform->nextTimerTaskDelaySecs();
+        return m_platform.nextTimerTaskDelaySecs();
     }
 
 protected:
@@ -357,8 +339,7 @@ protected:
     WTF::Vector<double> m_nextFireTimes;
 
 private:
-    OwnPtr<TimerTestPlatform> m_platform;
-    Platform* m_oldPlatform;
+    TimerTestPlatform m_platform;
 };
 
 TEST_F(TimerTest, StartOneShot_Zero)
@@ -468,7 +449,7 @@ TEST_F(TimerTest, StartOneShot_NonZeroAndCancelThenRepost)
     runUntilIdle();
     EXPECT_FALSE(m_runTimes.size());
 
-    double secondPostTime = monotonicallyIncreasingTime();
+    double secondPostTime = gCurrentTimeSecs;
     timer.startOneShot(10, BLINK_FROM_HERE);
 
     ASSERT(hasOneTimerTask());
@@ -717,80 +698,6 @@ TEST_F(TimerTest, AugmentRepeatInterval)
     EXPECT_THAT(m_runTimes, ElementsAre(m_startTime + 20.0, m_startTime + 40.0));
 }
 
-class MockTimerWithAlignment : public TimerBase {
-public:
-    MockTimerWithAlignment() : m_lastFireTime(0.0), m_alignedFireTime(0.0) { }
-
-    void fired() override
-    {
-    }
-
-    double alignedFireTime(double fireTime) const override
-    {
-        m_lastFireTime = fireTime;
-        return m_alignedFireTime;
-    }
-
-    void setAlignedFireTime(double alignedFireTime)
-    {
-        m_alignedFireTime = alignedFireTime;
-    }
-
-    double lastFireTime() const
-    {
-        return m_lastFireTime;
-    }
-
-private:
-    mutable double m_lastFireTime;
-    double m_alignedFireTime;
-};
-
-TEST_F(TimerTest, TimerAlignment_OneShotZero)
-{
-    MockTimerWithAlignment timer;
-    timer.setAlignedFireTime(m_startTime + 1.0);
-
-    timer.start(0.0, 0.0, BLINK_FROM_HERE);
-
-    // The nextFireInterval gets overrriden.
-    EXPECT_FLOAT_EQ(1.0, timer.nextFireInterval());
-    EXPECT_FLOAT_EQ(0.0, timer.nextUnalignedFireInterval());
-    EXPECT_FLOAT_EQ(m_startTime, timer.lastFireTime());
-}
-
-TEST_F(TimerTest, TimerAlignment_OneShotNonZero)
-{
-    MockTimerWithAlignment timer;
-    timer.setAlignedFireTime(m_startTime + 1.0);
-
-    timer.start(0.5, 0.0, BLINK_FROM_HERE);
-
-    // The nextFireInterval gets overrriden.
-    EXPECT_FLOAT_EQ(1.0, timer.nextFireInterval());
-    EXPECT_FLOAT_EQ(0.5, timer.nextUnalignedFireInterval());
-    EXPECT_FLOAT_EQ(m_startTime + 0.5, timer.lastFireTime());
-}
-
-TEST_F(TimerTest, DidChangeAlignmentInterval)
-{
-    MockTimerWithAlignment timer;
-    timer.setAlignedFireTime(m_startTime + 1.0);
-
-    timer.start(0.0, 0.0, BLINK_FROM_HERE);
-
-    EXPECT_FLOAT_EQ(1.0, timer.nextFireInterval());
-    EXPECT_FLOAT_EQ(0.0, timer.nextUnalignedFireInterval());
-    EXPECT_FLOAT_EQ(m_startTime, timer.lastFireTime());
-
-    timer.setAlignedFireTime(m_startTime);
-    timer.didChangeAlignmentInterval(monotonicallyIncreasingTime());
-
-    EXPECT_FLOAT_EQ(0.0, timer.nextFireInterval());
-    EXPECT_FLOAT_EQ(0.0, timer.nextUnalignedFireInterval());
-    EXPECT_FLOAT_EQ(m_startTime, timer.lastFireTime());
-}
-
 TEST_F(TimerTest, RepeatingTimerDoesNotDrift)
 {
     Timer<TimerTest> timer(this, &TimerTest::recordNextFireTimeTask);
@@ -832,6 +739,31 @@ TEST_F(TimerTest, RepeatingTimerDoesNotDrift)
         m_startTime + 18.0,
         m_startTime + 28.0));
 }
+
+template <typename TimerFiredClass>
+class TimerForTest : public Timer<TimerFiredClass> {
+public:
+    using TimerFiredFunction = void (TimerFiredClass::*)(Timer<TimerFiredClass>*);
+
+    ~TimerForTest() override { }
+
+    TimerForTest(TimerFiredClass* timerFiredClass, TimerFiredFunction timerFiredFunction, WebTaskRunner* webTaskRunner)
+        : Timer<TimerFiredClass>(timerFiredClass, timerFiredFunction, webTaskRunner)
+    {
+    }
+};
+
+TEST_F(TimerTest, UserSuppliedWebTaskRunner)
+{
+    std::priority_queue<DelayedTask> timerTasks;
+    MockWebTaskRunner taskRunner(&timerTasks);
+    TimerForTest<TimerTest> timer(this, &TimerTest::countingTask, &taskRunner);
+    timer.startOneShot(0, BLINK_FROM_HERE);
+
+    // Make sure the task was posted on taskRunner.
+    EXPECT_FALSE(timerTasks.empty());
+}
+
 
 } // namespace
 } // namespace blink

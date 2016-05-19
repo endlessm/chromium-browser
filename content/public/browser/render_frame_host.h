@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback_forward.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/common/console_message_level.h"
 #include "ipc/ipc_listener.h"
@@ -16,6 +17,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace base {
 class Value;
@@ -24,6 +26,7 @@ class Value;
 namespace content {
 class RenderProcessHost;
 class RenderViewHost;
+class RenderWidgetHostView;
 class ServiceRegistry;
 class SiteInstance;
 
@@ -34,6 +37,16 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns the RenderFrameHost given its ID and the ID of its render process.
   // Returns nullptr if the IDs do not correspond to a live RenderFrameHost.
   static RenderFrameHost* FromID(int render_process_id, int render_frame_id);
+
+  // Returns the current RenderFrameHost associated with the frame identified by
+  // the given FrameTreeNode ID, in any WebContents. The frame may change its
+  // current RenderFrameHost over time, so the returned RenderFrameHost can be
+  // different from the RenderFrameHost that returned the ID via
+  // GetFrameTreeNodeId(). See GetFrameTreeNodeId for more details.
+  // Use WebContents::FindFrameByFrameTreeNodeId to find a RenderFrameHost in
+  // a specific WebContents.
+  // Returns nullptr if the frame does not exist.
+  static RenderFrameHost* FromFrameTreeNodeId(int frame_tree_node_id);
 
 #if defined(OS_ANDROID)
   // Globally allows for injecting JavaScript into the main world. This feature
@@ -61,10 +74,25 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns the process for this frame.
   virtual RenderProcessHost* GetProcess() = 0;
 
+  // Returns the RenderWidgetHostView that can be used to control focus and
+  // visibility for this frame.
+  virtual RenderWidgetHostView* GetView() = 0;
+
   // Returns the current RenderFrameHost of the parent frame, or nullptr if
   // there is no parent. The result may be in a different process than the
   // current RenderFrameHost.
   virtual RenderFrameHost* GetParent() = 0;
+
+  // Returns the FrameTreeNode ID for this frame. This ID is browser-global and
+  // uniquely identifies a frame that hosts content. The identifier is fixed at
+  // the creation of the frame and stays constant for the lifetime of the frame.
+  // When the frame is removed, the ID is not used again.
+  //
+  // A RenderFrameHost is tied to a process. Due to cross-process navigations,
+  // the RenderFrameHost may have a shorter lifetime than a frame. Consequently,
+  // the same FrameTreeNode ID may refer to a different RenderFrameHost after a
+  // navigation.
+  virtual int GetFrameTreeNodeId() = 0;
 
   // Returns the assigned name of the frame, the name of the iframe tag
   // declaring it. For example, <iframe name="framename">[...]</iframe>. It is
@@ -76,7 +104,16 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   virtual bool IsCrossProcessSubframe() = 0;
 
   // Returns the last committed URL of the frame.
-  virtual GURL GetLastCommittedURL() = 0;
+  virtual const GURL& GetLastCommittedURL() = 0;
+
+  // Returns the last committed origin of the frame.
+  //
+  // The origin is only available if this RenderFrameHost is current in the
+  // frame tree -- i.e., it would be visited by WebContents::ForEachFrame. In
+  // particular, this method may CHECK if called from
+  // WebContentsObserver::RenderFrameCreated, since non-current frames can be
+  // passed to that observer method.
+  virtual url::Origin GetLastCommittedOrigin() = 0;
 
   // Returns the associated widget's native view.
   virtual gfx::NativeView GetNativeView() = 0;
@@ -149,6 +186,19 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns whether the RenderFrame in the renderer process has been created
   // and still has a connection.  This is valid for all frames.
   virtual bool IsRenderFrameLive() = 0;
+
+  // Get the number of proxies to this frame, in all processes. Exposed for
+  // use by resource metrics.
+  virtual int GetProxyCount() = 0;
+
+#if defined(OS_ANDROID)
+  // Selects and zooms to the find result nearest to the point (x,y)
+  // defined in find-in-page coordinates.
+  virtual void ActivateNearestFindResult(int request_id, float x, float y) = 0;
+
+  // Asks the renderer process to send the rects of the current find matches.
+  virtual void RequestFindMatchRects(int current_version) = 0;
+#endif
 
  private:
   // This interface should only be implemented inside content.

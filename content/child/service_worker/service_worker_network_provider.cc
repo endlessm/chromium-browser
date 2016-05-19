@@ -5,13 +5,12 @@
 #include "content/child/service_worker/service_worker_network_provider.h"
 
 #include "base/atomic_sequence_num.h"
-#include "base/command_line.h"
 #include "content/child/child_thread_impl.h"
 #include "content/child/service_worker/service_worker_provider_context.h"
 #include "content/common/navigation_params.h"
 #include "content/common/service_worker/service_worker_messages.h"
 #include "content/common/service_worker/service_worker_utils.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 
 namespace content {
 
@@ -55,9 +54,7 @@ ServiceWorkerNetworkProvider::CreateForNavigation(
     const RequestNavigationParams& request_params,
     blink::WebSandboxFlags sandbox_flags,
     bool content_initiated) {
-  bool browser_side_navigation =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation);
+  bool browser_side_navigation = IsBrowserSideNavigationEnabled();
   bool should_create_provider_for_window = false;
   int service_worker_provider_id = kInvalidServiceWorkerProviderId;
   scoped_ptr<ServiceWorkerNetworkProvider> network_provider;
@@ -100,7 +97,7 @@ ServiceWorkerNetworkProvider::CreateForNavigation(
     network_provider = scoped_ptr<ServiceWorkerNetworkProvider>(
         new ServiceWorkerNetworkProvider());
   }
-  return network_provider.Pass();
+  return network_provider;
 }
 
 ServiceWorkerNetworkProvider::ServiceWorkerNetworkProvider(
@@ -139,7 +136,7 @@ ServiceWorkerNetworkProvider::~ServiceWorkerNetworkProvider() {
 }
 
 void ServiceWorkerNetworkProvider::SetServiceWorkerVersionId(
-    int64 version_id) {
+    int64_t version_id) {
   DCHECK_NE(kInvalidServiceWorkerProviderId, provider_id_);
   if (!ChildThreadImpl::current())
     return;  // May be null in some tests.

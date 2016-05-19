@@ -5,7 +5,12 @@
 #ifndef SYNC_SYNCABLE_ENTRY_KERNEL_H_
 #define SYNC_SYNCABLE_ENTRY_KERNEL_H_
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <map>
 #include <set>
+#include <string>
 
 #include "base/time/time.h"
 #include "base/values.h"
@@ -37,7 +42,7 @@ namespace syncable {
 //    directory_backing_store.cc
 //  - TestSimpleFieldsPreservedDuringSaveChanges in syncable_unittest.cc
 
-static const int64 kInvalidMetaHandle = 0;
+static const int64_t kInvalidMetaHandle = 0;
 
 enum {
   BEGIN_FIELDS = 0,
@@ -193,7 +198,7 @@ enum {
   BIT_TEMPS_COUNT = BIT_TEMPS_END - BIT_TEMPS_BEGIN
 };
 
-struct SYNC_EXPORT_PRIVATE EntryKernel {
+struct SYNC_EXPORT EntryKernel {
  private:
   typedef syncer::ProtoValuePtr<sync_pb::EntitySpecifics> EntitySpecificsPtr;
   typedef syncer::ProtoValuePtr<sync_pb::AttachmentMetadata>
@@ -201,7 +206,7 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
 
   std::string string_fields[STRING_FIELDS_COUNT];
   EntitySpecificsPtr specifics_fields[PROTO_FIELDS_COUNT];
-  int64 int64_fields[INT64_FIELDS_COUNT];
+  int64_t int64_fields[INT64_FIELDS_COUNT];
   base::Time time_fields[TIME_FIELDS_COUNT];
   Id id_fields[ID_FIELDS_COUNT];
   UniquePosition unique_position_fields[UNIQUE_POSITION_FIELDS_COUNT];
@@ -214,6 +219,7 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
 
  public:
   EntryKernel();
+  EntryKernel(const EntryKernel& other);
   ~EntryKernel();
 
   // Set the dirty bit, and optionally add this entry's metahandle to
@@ -243,10 +249,10 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
   }
 
   // Setters.
-  inline void put(MetahandleField field, int64 value) {
+  inline void put(MetahandleField field, int64_t value) {
     int64_fields[field - INT64_FIELDS_BEGIN] = value;
   }
-  inline void put(Int64Field field, int64 value) {
+  inline void put(Int64Field field, int64_t value) {
     int64_fields[field - INT64_FIELDS_BEGIN] = value;
   }
   inline void put(TimeField field, const base::Time& value) {
@@ -258,7 +264,7 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
   inline void put(IdField field, const Id& value) {
     id_fields[field - ID_FIELDS_BEGIN] = value;
   }
-  inline void put(BaseVersion field, int64 value) {
+  inline void put(BaseVersion field, int64_t value) {
     int64_fields[field - INT64_FIELDS_BEGIN] = value;
   }
   inline void put(IndexedBitField field, bool value) {
@@ -289,10 +295,10 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
   }
 
   // Const ref getters.
-  inline int64 ref(MetahandleField field) const {
+  inline int64_t ref(MetahandleField field) const {
     return int64_fields[field - INT64_FIELDS_BEGIN];
   }
-  inline int64 ref(Int64Field field) const {
+  inline int64_t ref(Int64Field field) const {
     return int64_fields[field - INT64_FIELDS_BEGIN];
   }
   inline const base::Time& ref(TimeField field) const {
@@ -301,7 +307,7 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
   inline const Id& ref(IdField field) const {
     return id_fields[field - ID_FIELDS_BEGIN];
   }
-  inline int64 ref(BaseVersion field) const {
+  inline int64_t ref(BaseVersion field) const {
     return int64_fields[field - INT64_FIELDS_BEGIN];
   }
   inline bool ref(IndexedBitField field) const {
@@ -399,7 +405,7 @@ struct EntryKernelMutation {
   EntryKernel original, mutated;
 };
 
-typedef std::map<int64, EntryKernelMutation> EntryKernelMutationMap;
+typedef std::map<int64_t, EntryKernelMutation> EntryKernelMutationMap;
 
 typedef Immutable<EntryKernelMutationMap> ImmutableEntryKernelMutationMap;
 
@@ -416,4 +422,4 @@ std::ostream& operator<<(std::ostream& os, const EntryKernel& entry_kernel);
 }  // namespace syncable
 }  // namespace syncer
 
-#endif // SYNC_SYNCABLE_ENTRY_KERNEL_H_
+#endif  // SYNC_SYNCABLE_ENTRY_KERNEL_H_

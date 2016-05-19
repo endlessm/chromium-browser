@@ -32,11 +32,11 @@ public class ApplicationTestUtils {
 
     // TODO(jbudorick): fix deprecation warning crbug.com/537347
     @SuppressWarnings("deprecation")
-    public static void setUp(Context context, boolean clearAppData, boolean checkHttpServer)
+    public static void setUp(Context context, boolean clearAppData)
             throws Exception {
         if (clearAppData) {
             // Clear data and remove any tasks listed in Android's Overview menu between test runs.
-            Assert.assertTrue("Unable to clear the app data", clearAppData(context));
+            clearAppData(context);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 finishAllChromeTasks(context);
             }
@@ -51,8 +51,6 @@ public class ApplicationTestUtils {
         // Disable Omaha related activities.
         OmahaClient.setEnableCommunication(false);
         OmahaClient.setEnableUpdateDetection(false);
-
-        if (checkHttpServer) TestHttpServerClient.checkServerIsUp();
     }
 
     public static void tearDown(Context context) throws Exception {
@@ -70,10 +68,9 @@ public class ApplicationTestUtils {
      * Clear all files and folders in the Chrome application directory except 'lib'.
      * The 'cache' directory is recreated as an empty directory.
      * @param context Target instrumentation context.
-     * @return Whether clearing the application data was successful.
      */
-    public static boolean clearAppData(Context context) throws InterruptedException {
-        return ApplicationData.clearAppData(context);
+    public static void clearAppData(Context context) throws InterruptedException {
+        ApplicationData.clearAppData(context);
     }
 
     /** Send the user to the Android home screen. */
@@ -97,25 +94,25 @@ public class ApplicationTestUtils {
 
     /** Waits until Chrome is in the background. */
     public static void waitUntilChromeInBackground() throws Exception {
-        Assert.assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 int state = ApplicationStatus.getStateForApplication();
                 return state == ApplicationState.HAS_STOPPED_ACTIVITIES
                         || state == ApplicationState.HAS_DESTROYED_ACTIVITIES;
             }
-        }));
+        });
     }
 
     /** Waits until Chrome is in the foreground. */
     public static void waitUntilChromeInForeground() throws Exception {
-        Assert.assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 int state = ApplicationStatus.getStateForApplication();
                 return state == ApplicationState.HAS_RUNNING_ACTIVITIES;
             }
-        }));
+        });
     }
 
     /** Finishes all tasks Chrome has listed in Android's Overview. */
@@ -128,18 +125,17 @@ public class ApplicationTestUtils {
             task.finishAndRemoveTask();
         }
 
-        Assert.assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return getNumChromeTasks(context) == 0;
             }
-        }));
+        });
     }
 
     /** Counts how many tasks Chrome has listed in Android's Overview. */
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     public static int getNumChromeTasks(Context context) {
-        int count = 0;
         ActivityManager activityManager =
                 (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
         return activityManager.getAppTasks().size();
@@ -163,16 +159,16 @@ public class ApplicationTestUtils {
     public static void assertWaitForPageScaleFactorMatch(final ChromeActivity activity,
             final float expectedScale, boolean waitLongerForLoad) throws InterruptedException {
         long waitTimeInMs = waitLongerForLoad ? 10000 : CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
-        boolean scaleFactorMatch = CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 if (activity.getCurrentContentViewCore() == null) return false;
 
+                updateFailureReason("Expecting scale factor of: " + expectedScale + ", got: "
+                        + activity.getCurrentContentViewCore().getScale());
                 return Math.abs(activity.getCurrentContentViewCore().getScale() - expectedScale)
                         < FLOAT_EPSILON;
             }
         }, waitTimeInMs, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
-        Assert.assertTrue("Expecting scale factor of: " + expectedScale + ", got: "
-                    + activity.getCurrentContentViewCore().getScale(), scaleFactorMatch);
     }
 }

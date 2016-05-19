@@ -56,12 +56,10 @@ enum BmpInputFormat {
 /*
  * Checks the start of the stream to see if the image is a bitmap
  */
-bool SkBmpCodec::IsBmp(SkStream* stream) {
+bool SkBmpCodec::IsBmp(const void* buffer, size_t bytesRead) {
     // TODO: Support "IC", "PT", "CI", "CP", "BA"
     const char bmpSig[] = { 'B', 'M' };
-    char buffer[sizeof(bmpSig)];
-    return stream->read(buffer, sizeof(bmpSig)) == sizeof(bmpSig) &&
-            !memcmp(buffer, bmpSig, sizeof(bmpSig));
+    return bytesRead >= sizeof(bmpSig) && !memcmp(buffer, bmpSig, sizeof(bmpSig));
 }
 
 /*
@@ -375,9 +373,13 @@ bool SkBmpCodec::ReadHeader(SkStream* stream, bool inIco, SkCodec** codecOut) {
     // of the image to use the alpha channels.  However, many of these images
     // leave the alpha channel blank and expect to be rendered as opaque.  This
     // is the case for almost all V3 images, so we render these as opaque.  For
-    // V4+, we will use the alpha channel, and fix the image later if it turns
-    // out to be fully transparent.
-    // As an exception, V3 bmp-in-ico may use an alpha mask.
+    // V4+ images in kMask mode, we will use the alpha mask.
+    //
+    // skbug.com/4116: We should perhaps also apply the alpha mask in kStandard
+    //                 mode.  We just haven't seen any images that expect this
+    //                 behavior.
+    //
+    // Additionally, V3 bmp-in-ico may use the alpha mask.
     SkAlphaType alphaType = kOpaque_SkAlphaType;
     if ((kInfoV3_BmpHeaderType == headerType && inIco) ||
             kInfoV4_BmpHeaderType == headerType ||
@@ -430,6 +432,12 @@ bool SkBmpCodec::ReadHeader(SkStream* stream, bool inIco, SkCodec** codecOut) {
             if (kRLE_BmpInputFormat != inputFormat && !inIco) {
                 colorType = kIndex_8_SkColorType;
             }
+
+            // Mask bmps must have 16, 24, or 32 bits per pixel.
+            if (kBitMask_BmpInputFormat == inputFormat) {
+                SkCodecPrintf("Error: invalid input value of bits per pixel for mask bmp.\n");
+                return false;
+            }
         case 24:
         case 32:
             break;
@@ -474,6 +482,14 @@ bool SkBmpCodec::ReadHeader(SkStream* stream, bool inIco, SkCodec** codecOut) {
     }
 
     if (codecOut) {
+        // BMPs-in-ICOs contain an alpha mask after the image which means we
+        // cannot guarantee that an image is opaque, even if the bmp thinks
+        // it is.
+        bool isOpaque = kOpaque_SkAlphaType == alphaType;
+        if (inIco) {
+            alphaType = kUnpremul_SkAlphaType;
+        }
+
         // Set the image info
         const SkImageInfo& imageInfo = SkImageInfo::Make(width, height,
                 colorType, alphaType);
@@ -481,8 +497,10 @@ bool SkBmpCodec::ReadHeader(SkStream* stream, bool inIco, SkCodec** codecOut) {
         // Return the codec
         switch (inputFormat) {
             case kStandard_BmpInputFormat:
+                // We require streams to have a memory base for Bmp-in-Ico decodes.
+                SkASSERT(!inIco || nullptr != stream->getMemoryBase());
                 *codecOut = new SkBmpStandardCodec(imageInfo, stream, bitsPerPixel, numColors,
-                        bytesPerColor, offset - bytesRead, rowOrder, inIco);
+                        bytesPerColor, offset - bytesRead, rowOrder, isOpaque, inIco);
                 return true;
             case kBitMask_BmpInputFormat:
                 // Bmp-in-Ico must be standard mode
@@ -534,6 +552,7 @@ SkBmpCodec::SkBmpCodec(const SkImageInfo& info, SkStream* stream,
     : INHERITED(info, stream)
     , fBitsPerPixel(bitsPerPixel)
     , fRowOrder(rowOrder)
+    , fSrcRowBytes(SkAlign4(compute_row_bytes(info.width(), fBitsPerPixel)))
 {}
 
 bool SkBmpCodec::onRewind() {
@@ -546,19 +565,6 @@ int32_t SkBmpCodec::getDstRow(int32_t y, int32_t height) const {
     }
     SkASSERT(SkCodec::kBottomUp_SkScanlineOrder == fRowOrder);
     return height - y - 1;
-}
-
-/*
- * Compute the number of colors in the color table
- */
-uint32_t SkBmpCodec::computeNumColors(uint32_t numColors) {
-    // Zero is a default for maxColors
-    // Also set numColors to maxColors when it is too large
-    uint32_t maxColors = 1 << fBitsPerPixel;
-    if (numColors == 0 || numColors >= maxColors) {
-        return maxColors;
-    }
-    return numColors;
 }
 
 SkCodec::Result SkBmpCodec::onStartScanlineDecode(const SkImageInfo& dstInfo,
@@ -577,4 +583,13 @@ int SkBmpCodec::onGetScanlines(void* dst, int count, size_t rowBytes) {
 
     // Decode the requested rows
     return this->decodeRows(rowInfo, dst, rowBytes, this->options());
+}
+
+bool SkBmpCodec::skipRows(int count) {
+    const size_t bytesToSkip = count * fSrcRowBytes;
+    return this->stream()->skip(bytesToSkip) == bytesToSkip;
+}
+
+bool SkBmpCodec::onSkipScanlines(int count) {
+    return this->skipRows(count);
 }

@@ -4,15 +4,20 @@
 
 #include "media/midi/midi_manager.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/system_monitor/system_monitor.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace media {
@@ -34,8 +39,8 @@ class FakeMidiManager : public MidiManager {
   void Finalize() override { finalize_is_called_ = true; }
 
   void DispatchSendMidiData(MidiManagerClient* client,
-                            uint32 port_index,
-                            const std::vector<uint8>& data,
+                            uint32_t port_index,
+                            const std::vector<uint8_t>& data,
                             double timestamp) override {}
 
   // Utility functions for testing.
@@ -67,8 +72,8 @@ class FakeMidiManagerClient : public MidiManagerClient {
   // MidiManagerClient implementation.
   void AddInputPort(const MidiPortInfo& info) override {}
   void AddOutputPort(const MidiPortInfo& info) override {}
-  void SetInputPortState(uint32 port_index, MidiPortState state) override {}
-  void SetOutputPortState(uint32 port_index, MidiPortState state) override {}
+  void SetInputPortState(uint32_t port_index, MidiPortState state) override {}
+  void SetOutputPortState(uint32_t port_index, MidiPortState state) override {}
 
   void CompleteStartSession(Result result) override {
     EXPECT_TRUE(wait_for_result_);
@@ -76,8 +81,8 @@ class FakeMidiManagerClient : public MidiManagerClient {
     wait_for_result_ = false;
   }
 
-  void ReceiveMidiData(uint32 port_index,
-                       const uint8* data,
+  void ReceiveMidiData(uint32_t port_index,
+                       const uint8_t* data,
                        size_t size,
                        double timestamp) override {}
   void AccumulateMidiBytesSent(size_t size) override {}

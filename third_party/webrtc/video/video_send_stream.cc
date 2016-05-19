@@ -18,21 +18,18 @@
 #include "webrtc/base/checks.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/trace_event.h"
-#include "webrtc/call/congestion_controller.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
-#include "webrtc/modules/pacing/include/packet_router.h"
+#include "webrtc/modules/bitrate_controller/include/bitrate_controller.h"
+#include "webrtc/modules/congestion_controller/include/congestion_controller.h"
+#include "webrtc/modules/pacing/packet_router.h"
+#include "webrtc/modules/utility/include/process_thread.h"
+#include "webrtc/video/call_stats.h"
 #include "webrtc/video/video_capture_input.h"
-#include "webrtc/video_engine/call_stats.h"
-#include "webrtc/video_engine/encoder_state_feedback.h"
-#include "webrtc/video_engine/payload_router.h"
-#include "webrtc/video_engine/vie_channel.h"
-#include "webrtc/video_engine/vie_encoder.h"
+#include "webrtc/video/vie_remb.h"
 #include "webrtc/video_send_stream.h"
 
 namespace webrtc {
 
-class BitrateAllocator;
-class PacedSender;
 class RtcpIntraFrameObserver;
 class TransportFeedbackObserver;
 
@@ -107,65 +104,123 @@ std::string VideoSendStream::Config::ToString() const {
   return ss.str();
 }
 
+namespace {
+
+VideoCodecType PayloadNameToCodecType(const std::string& payload_name) {
+  if (payload_name == "VP8")
+    return kVideoCodecVP8;
+  if (payload_name == "VP9")
+    return kVideoCodecVP9;
+  if (payload_name == "H264")
+    return kVideoCodecH264;
+  return kVideoCodecGeneric;
+}
+
+bool PayloadTypeSupportsSkippingFecPackets(const std::string& payload_name) {
+  switch (PayloadNameToCodecType(payload_name)) {
+    case kVideoCodecVP8:
+    case kVideoCodecVP9:
+      return true;
+    case kVideoCodecH264:
+    case kVideoCodecGeneric:
+      return false;
+    case kVideoCodecI420:
+    case kVideoCodecRED:
+    case kVideoCodecULPFEC:
+    case kVideoCodecUnknown:
+      RTC_NOTREACHED();
+      return false;
+  }
+  RTC_NOTREACHED();
+  return false;
+}
+
+// TODO(pbos): Lower these thresholds (to closer to 100%) when we handle
+// pipelining encoders better (multiple input frames before something comes
+// out). This should effectively turn off CPU adaptations for systems that
+// remotely cope with the load right now.
+CpuOveruseOptions GetCpuOveruseOptions(bool full_overuse_time) {
+  CpuOveruseOptions options;
+  if (full_overuse_time) {
+    options.low_encode_usage_threshold_percent = 150;
+    options.high_encode_usage_threshold_percent = 200;
+  }
+  return options;
+}
+}  // namespace
+
 namespace internal {
 VideoSendStream::VideoSendStream(
     int num_cpu_cores,
     ProcessThread* module_process_thread,
     CallStats* call_stats,
     CongestionController* congestion_controller,
+    VieRemb* remb,
+    BitrateAllocator* bitrate_allocator,
     const VideoSendStream::Config& config,
     const VideoEncoderConfig& encoder_config,
     const std::map<uint32_t, RtpState>& suspended_ssrcs)
-    : stats_proxy_(Clock::GetRealTimeClock(), config),
-      transport_adapter_(config.send_transport),
+    : stats_proxy_(Clock::GetRealTimeClock(),
+                   config,
+                   encoder_config.content_type),
       encoded_frame_proxy_(config.post_encode_callback),
       config_(config),
       suspended_ssrcs_(suspended_ssrcs),
       module_process_thread_(module_process_thread),
       call_stats_(call_stats),
       congestion_controller_(congestion_controller),
-      encoder_feedback_(new EncoderStateFeedback()),
-      use_config_bitrate_(true) {
+      remb_(remb),
+      overuse_detector_(
+          Clock::GetRealTimeClock(),
+          GetCpuOveruseOptions(config.encoder_settings.full_overuse_time),
+          this,
+          config.post_encode_callback,
+          &stats_proxy_),
+      vie_channel_(config.send_transport,
+                   module_process_thread_,
+                   &payload_router_,
+                   nullptr,
+                   &encoder_feedback_,
+                   congestion_controller_->GetBitrateController()
+                       ->CreateRtcpBandwidthObserver(),
+                   congestion_controller_->GetTransportFeedbackObserver(),
+                   nullptr,
+                   call_stats_->rtcp_rtt_stats(),
+                   congestion_controller_->pacer(),
+                   congestion_controller_->packet_router(),
+                   config_.rtp.ssrcs.size(),
+                   true),
+      vie_receiver_(vie_channel_.vie_receiver()),
+      vie_encoder_(num_cpu_cores,
+                   config_.rtp.ssrcs,
+                   module_process_thread_,
+                   &stats_proxy_,
+                   config.pre_encode_callback,
+                   &overuse_detector_,
+                   congestion_controller_->pacer(),
+                   &payload_router_,
+                   bitrate_allocator),
+      vcm_(vie_encoder_.vcm()),
+      rtp_rtcp_modules_(vie_channel_.rtp_rtcp()),
+      input_(&vie_encoder_,
+             config_.local_renderer,
+             &stats_proxy_,
+             &overuse_detector_) {
   LOG(LS_INFO) << "VideoSendStream: " << config_.ToString();
+
   RTC_DCHECK(!config_.rtp.ssrcs.empty());
+  RTC_DCHECK(module_process_thread_);
+  RTC_DCHECK(call_stats_);
+  RTC_DCHECK(congestion_controller_);
+  RTC_DCHECK(remb_);
 
-  // Set up Call-wide sequence numbers, if configured for this send stream.
-  TransportFeedbackObserver* transport_feedback_observer = nullptr;
-  for (const RtpExtension& extension : config.rtp.extensions) {
-    if (extension.name == RtpExtension::kTransportSequenceNumber) {
-      transport_feedback_observer =
-          congestion_controller_->GetTransportFeedbackObserver();
-      break;
-    }
-  }
+  RTC_CHECK(vie_encoder_.Init());
+  encoder_feedback_.Init(config_.rtp.ssrcs, &vie_encoder_);
+  RTC_CHECK(vie_channel_.Init() == 0);
 
-  const std::vector<uint32_t>& ssrcs = config.rtp.ssrcs;
+  vcm_->RegisterProtectionCallback(vie_channel_.vcm_protection_callback());
 
-  vie_encoder_.reset(new ViEEncoder(
-      num_cpu_cores, module_process_thread_, &stats_proxy_,
-      config.pre_encode_callback, congestion_controller_->pacer(),
-      congestion_controller_->bitrate_allocator()));
-  RTC_CHECK(vie_encoder_->Init());
-
-  vie_channel_.reset(new ViEChannel(
-      num_cpu_cores, config.send_transport, module_process_thread_,
-      encoder_feedback_->GetRtcpIntraFrameObserver(),
-      congestion_controller_->GetBitrateController()->
-          CreateRtcpBandwidthObserver(),
-      transport_feedback_observer,
-      congestion_controller_->GetRemoteBitrateEstimator(false),
-      call_stats_->rtcp_rtt_stats(), congestion_controller_->pacer(),
-      congestion_controller_->packet_router(), ssrcs.size(), true));
-  RTC_CHECK(vie_channel_->Init() == 0);
-
-  call_stats_->RegisterStatsObserver(vie_channel_->GetStatsObserver());
-
-  vie_encoder_->StartThreadsAndSetSharedMembers(
-      vie_channel_->send_payload_router(),
-      vie_channel_->vcm_protection_callback());
-
-  std::vector<uint32_t> first_ssrc(1, ssrcs[0]);
-  vie_encoder_->SetSsrcs(first_ssrc);
+  call_stats_->RegisterStatsObserver(vie_channel_.GetStatsObserver());
 
   for (size_t i = 0; i < config_.rtp.extensions.size(); ++i) {
     const std::string& extension = config_.rtp.extensions[i].name;
@@ -174,121 +229,124 @@ VideoSendStream::VideoSendStream(
     RTC_DCHECK_GE(id, 1);
     RTC_DCHECK_LE(id, 14);
     if (extension == RtpExtension::kTOffset) {
-      RTC_CHECK_EQ(0, vie_channel_->SetSendTimestampOffsetStatus(true, id));
+      RTC_CHECK_EQ(0, vie_channel_.SetSendTimestampOffsetStatus(true, id));
     } else if (extension == RtpExtension::kAbsSendTime) {
-      RTC_CHECK_EQ(0, vie_channel_->SetSendAbsoluteSendTimeStatus(true, id));
+      RTC_CHECK_EQ(0, vie_channel_.SetSendAbsoluteSendTimeStatus(true, id));
     } else if (extension == RtpExtension::kVideoRotation) {
-      RTC_CHECK_EQ(0, vie_channel_->SetSendVideoRotationStatus(true, id));
+      RTC_CHECK_EQ(0, vie_channel_.SetSendVideoRotationStatus(true, id));
     } else if (extension == RtpExtension::kTransportSequenceNumber) {
-      RTC_CHECK_EQ(0, vie_channel_->SetSendTransportSequenceNumber(true, id));
+      RTC_CHECK_EQ(0, vie_channel_.SetSendTransportSequenceNumber(true, id));
     } else {
       RTC_NOTREACHED() << "Registering unsupported RTP extension.";
     }
   }
 
-  congestion_controller_->SetChannelRembStatus(true, false,
-                                               vie_channel_->rtp_rtcp());
+  remb_->AddRembSender(rtp_rtcp_modules_[0]);
+  rtp_rtcp_modules_[0]->SetREMBStatus(true);
 
   // Enable NACK, FEC or both.
   const bool enable_protection_nack = config_.rtp.nack.rtp_history_ms > 0;
-  const bool enable_protection_fec = config_.rtp.fec.red_payload_type != -1;
+  bool enable_protection_fec = config_.rtp.fec.red_payload_type != -1;
+  // Payload types without picture ID cannot determine that a stream is complete
+  // without retransmitting FEC, so using FEC + NACK for H.264 (for instance) is
+  // a waste of bandwidth since FEC packets still have to be transmitted. Note
+  // that this is not the case with FLEXFEC.
+  if (enable_protection_nack &&
+      !PayloadTypeSupportsSkippingFecPackets(
+          config_.encoder_settings.payload_name)) {
+    LOG(LS_WARNING) << "Transmitting payload type without picture ID using"
+                       "NACK+FEC is a waste of bandwidth since FEC packets "
+                       "also have to be retransmitted. Disabling FEC.";
+    enable_protection_fec = false;
+  }
   // TODO(changbin): Should set RTX for RED mapping in RTP sender in future.
-  vie_channel_->SetProtectionMode(enable_protection_nack, enable_protection_fec,
-                                  config_.rtp.fec.red_payload_type,
-                                  config_.rtp.fec.ulpfec_payload_type);
-  vie_encoder_->SetProtectionMethod(enable_protection_nack,
-                                    enable_protection_fec);
+  vie_channel_.SetProtectionMode(enable_protection_nack, enable_protection_fec,
+                                 config_.rtp.fec.red_payload_type,
+                                 config_.rtp.fec.ulpfec_payload_type);
+  vie_encoder_.SetProtectionMethod(enable_protection_nack,
+                                   enable_protection_fec);
 
   ConfigureSsrcs();
 
-  vie_channel_->SetRTCPCName(config_.rtp.c_name.c_str());
-
-  input_.reset(new internal::VideoCaptureInput(
-      module_process_thread_, vie_encoder_.get(), config_.local_renderer,
-      &stats_proxy_, this, config_.encoding_time_observer));
-
+  // TODO(pbos): Should we set CNAME on all RTP modules?
+  rtp_rtcp_modules_.front()->SetCNAME(config_.rtp.c_name.c_str());
   // 28 to match packet overhead in ModuleRtpRtcpImpl.
-  RTC_DCHECK_LE(config_.rtp.max_packet_size, static_cast<size_t>(0xFFFF - 28));
-  vie_channel_->SetMTU(static_cast<uint16_t>(config_.rtp.max_packet_size + 28));
+  static const size_t kRtpPacketSizeOverhead = 28;
+  RTC_DCHECK_LE(config_.rtp.max_packet_size, 0xFFFFu + kRtpPacketSizeOverhead);
+  const uint16_t mtu = static_cast<uint16_t>(config_.rtp.max_packet_size +
+                                             kRtpPacketSizeOverhead);
+  for (RtpRtcp* rtp_rtcp : rtp_rtcp_modules_) {
+    rtp_rtcp->RegisterRtcpStatisticsCallback(&stats_proxy_);
+    rtp_rtcp->RegisterSendChannelRtpStatisticsCallback(&stats_proxy_);
+    rtp_rtcp->SetMaxTransferUnit(mtu);
+  }
 
   RTC_DCHECK(config.encoder_settings.encoder != nullptr);
   RTC_DCHECK_GE(config.encoder_settings.payload_type, 0);
   RTC_DCHECK_LE(config.encoder_settings.payload_type, 127);
-  RTC_CHECK_EQ(0, vie_encoder_->RegisterExternalEncoder(
+  RTC_CHECK_EQ(0, vie_encoder_.RegisterExternalEncoder(
                       config.encoder_settings.encoder,
                       config.encoder_settings.payload_type,
                       config.encoder_settings.internal_source));
 
   RTC_CHECK(ReconfigureVideoEncoder(encoder_config));
 
-  vie_channel_->RegisterSendSideDelayObserver(&stats_proxy_);
+  vie_channel_.RegisterSendSideDelayObserver(&stats_proxy_);
 
   if (config_.post_encode_callback)
-    vie_encoder_->RegisterPostEncodeImageCallback(&encoded_frame_proxy_);
+    vie_encoder_.RegisterPostEncodeImageCallback(&encoded_frame_proxy_);
 
   if (config_.suspend_below_min_bitrate)
-    vie_encoder_->SuspendBelowMinBitrate();
+    vie_encoder_.SuspendBelowMinBitrate();
 
-  congestion_controller_->AddEncoder(vie_encoder_.get());
-  encoder_feedback_->AddEncoder(ssrcs, vie_encoder_.get());
+  vie_channel_.RegisterRtcpPacketTypeCounterObserver(&stats_proxy_);
+  vie_channel_.RegisterSendBitrateObserver(&stats_proxy_);
+  vie_channel_.RegisterSendFrameCountObserver(&stats_proxy_);
 
-  vie_channel_->RegisterSendChannelRtcpStatisticsCallback(&stats_proxy_);
-  vie_channel_->RegisterSendChannelRtpStatisticsCallback(&stats_proxy_);
-  vie_channel_->RegisterRtcpPacketTypeCounterObserver(&stats_proxy_);
-  vie_channel_->RegisterSendBitrateObserver(&stats_proxy_);
-  vie_channel_->RegisterSendFrameCountObserver(&stats_proxy_);
+  module_process_thread_->RegisterModule(&overuse_detector_);
 }
 
 VideoSendStream::~VideoSendStream() {
   LOG(LS_INFO) << "~VideoSendStream: " << config_.ToString();
-  vie_channel_->RegisterSendFrameCountObserver(nullptr);
-  vie_channel_->RegisterSendBitrateObserver(nullptr);
-  vie_channel_->RegisterRtcpPacketTypeCounterObserver(nullptr);
-  vie_channel_->RegisterSendChannelRtpStatisticsCallback(nullptr);
-  vie_channel_->RegisterSendChannelRtcpStatisticsCallback(nullptr);
+  Stop();
 
-  // Remove capture input (thread) so that it's not running after the current
-  // channel is deleted.
-  input_.reset();
+  module_process_thread_->DeRegisterModule(&overuse_detector_);
+  vie_channel_.RegisterSendFrameCountObserver(nullptr);
+  vie_channel_.RegisterSendBitrateObserver(nullptr);
+  vie_channel_.RegisterRtcpPacketTypeCounterObserver(nullptr);
 
-  vie_encoder_->DeRegisterExternalEncoder(
-      config_.encoder_settings.payload_type);
+  vie_encoder_.DeRegisterExternalEncoder(config_.encoder_settings.payload_type);
 
-  call_stats_->DeregisterStatsObserver(vie_channel_->GetStatsObserver());
-  congestion_controller_->SetChannelRembStatus(false, false,
-                                               vie_channel_->rtp_rtcp());
+  call_stats_->DeregisterStatsObserver(vie_channel_.GetStatsObserver());
+  rtp_rtcp_modules_[0]->SetREMBStatus(false);
+  remb_->RemoveRembSender(rtp_rtcp_modules_[0]);
 
-  // Remove the feedback, stop all encoding threads and processing. This must be
-  // done before deleting the channel.
-  congestion_controller_->RemoveEncoder(vie_encoder_.get());
-  encoder_feedback_->RemoveEncoder(vie_encoder_.get());
-  vie_encoder_->StopThreadsAndRemoveSharedMembers();
+  // ViEChannel outlives ViEEncoder so remove encoder from feedback before
+  // destruction.
+  encoder_feedback_.TearDown();
 
-  uint32_t remote_ssrc = vie_channel_->GetRemoteSSRC();
   congestion_controller_->GetRemoteBitrateEstimator(false)->RemoveStream(
-      remote_ssrc);
+      vie_receiver_->GetRemoteSsrc());
 }
 
 VideoCaptureInput* VideoSendStream::Input() {
-  return input_.get();
+  return &input_;
 }
 
 void VideoSendStream::Start() {
-  transport_adapter_.Enable();
-  vie_encoder_->Pause();
-  if (vie_channel_->StartSend() == 0) {
+  vie_encoder_.Pause();
+  if (vie_channel_.StartSend() == 0) {
     // Was not already started, trigger a keyframe.
-    vie_encoder_->SendKeyFrame();
+    vie_encoder_.SendKeyFrame();
   }
-  vie_encoder_->Restart();
-  vie_channel_->StartReceive();
+  vie_encoder_.Restart();
+  vie_receiver_->StartReceive();
 }
 
 void VideoSendStream::Stop() {
   // TODO(pbos): Make sure the encoder stops here.
-  vie_channel_->StopSend();
-  vie_channel_->StopReceive();
-  transport_adapter_.Disable();
+  vie_channel_.StopSend();
+  vie_receiver_->StopReceive();
 }
 
 bool VideoSendStream::ReconfigureVideoEncoder(
@@ -301,15 +359,8 @@ bool VideoSendStream::ReconfigureVideoEncoder(
 
   VideoCodec video_codec;
   memset(&video_codec, 0, sizeof(video_codec));
-  if (config_.encoder_settings.payload_name == "VP8") {
-    video_codec.codecType = kVideoCodecVP8;
-  } else if (config_.encoder_settings.payload_name == "VP9") {
-    video_codec.codecType = kVideoCodecVP9;
-  } else if (config_.encoder_settings.payload_name == "H264") {
-    video_codec.codecType = kVideoCodecH264;
-  } else {
-    video_codec.codecType = kVideoCodecGeneric;
-  }
+  video_codec.codecType =
+      PayloadNameToCodecType(config_.encoder_settings.payload_name);
 
   switch (config.content_type) {
     case VideoEncoderConfig::ContentType::kRealtimeVideo:
@@ -397,8 +448,8 @@ bool VideoSendStream::ReconfigureVideoEncoder(
     RTC_DCHECK_GE(streams[i].max_bitrate_bps, streams[i].target_bitrate_bps);
     RTC_DCHECK_GE(streams[i].max_qp, 0);
 
-    sim_stream->width = static_cast<unsigned short>(streams[i].width);
-    sim_stream->height = static_cast<unsigned short>(streams[i].height);
+    sim_stream->width = static_cast<uint16_t>(streams[i].width);
+    sim_stream->height = static_cast<uint16_t>(streams[i].height);
     sim_stream->minBitrate = streams[i].min_bitrate_bps / 1000;
     sim_stream->targetBitrate = streams[i].target_bitrate_bps / 1000;
     sim_stream->maxBitrate = streams[i].max_bitrate_bps / 1000;
@@ -407,12 +458,12 @@ bool VideoSendStream::ReconfigureVideoEncoder(
         streams[i].temporal_layer_thresholds_bps.size() + 1);
 
     video_codec.width = std::max(video_codec.width,
-                                 static_cast<unsigned short>(streams[i].width));
+                                 static_cast<uint16_t>(streams[i].width));
     video_codec.height = std::max(
-        video_codec.height, static_cast<unsigned short>(streams[i].height));
+        video_codec.height, static_cast<uint16_t>(streams[i].height));
     video_codec.minBitrate =
-        std::min(video_codec.minBitrate,
-                 static_cast<unsigned int>(streams[i].min_bitrate_bps / 1000));
+        std::min(static_cast<uint16_t>(video_codec.minBitrate),
+                 static_cast<uint16_t>(streams[i].min_bitrate_bps / 1000));
     video_codec.maxBitrate += streams[i].max_bitrate_bps / 1000;
     video_codec.qpMax = std::max(video_codec.qpMax,
                                  static_cast<unsigned int>(streams[i].max_qp));
@@ -434,16 +485,17 @@ bool VideoSendStream::ReconfigureVideoEncoder(
     stats_proxy_.OnInactiveSsrc(config_.rtp.ssrcs[i]);
   }
 
+  stats_proxy_.SetContentType(config.content_type);
+
   RTC_DCHECK_GE(config.min_transmit_bitrate_bps, 0);
-  vie_encoder_->SetMinTransmitBitrate(config.min_transmit_bitrate_bps / 1000);
+  vie_encoder_.SetMinTransmitBitrate(config.min_transmit_bitrate_bps / 1000);
 
   encoder_config_ = config;
-  use_config_bitrate_ = false;
   return true;
 }
 
 bool VideoSendStream::DeliverRtcp(const uint8_t* packet, size_t length) {
-  return vie_channel_->ReceivedRTCPPacket(packet, length) == 0;
+  return vie_receiver_->DeliverRtcp(packet, length);
 }
 
 VideoSendStream::Stats VideoSendStream::GetStats() {
@@ -461,46 +513,59 @@ void VideoSendStream::NormalUsage() {
 }
 
 void VideoSendStream::ConfigureSsrcs() {
-  vie_channel_->SetSSRC(config_.rtp.ssrcs.front(), kViEStreamTypeNormal, 0);
+  // Configure regular SSRCs.
   for (size_t i = 0; i < config_.rtp.ssrcs.size(); ++i) {
     uint32_t ssrc = config_.rtp.ssrcs[i];
-    vie_channel_->SetSSRC(ssrc, kViEStreamTypeNormal,
-                          static_cast<unsigned char>(i));
+    RtpRtcp* const rtp_rtcp = rtp_rtcp_modules_[i];
+    rtp_rtcp->SetSSRC(ssrc);
+
+    // Restore RTP state if previous existed.
     RtpStateMap::iterator it = suspended_ssrcs_.find(ssrc);
     if (it != suspended_ssrcs_.end())
-      vie_channel_->SetRtpStateForSsrc(ssrc, it->second);
+      rtp_rtcp->SetRtpStateForSsrc(ssrc, it->second);
   }
 
-  if (config_.rtp.rtx.ssrcs.empty()) {
+  // Set up RTX if available.
+  if (config_.rtp.rtx.ssrcs.empty())
     return;
-  }
 
-  // Set up RTX.
+  // Configure RTX SSRCs.
   RTC_DCHECK_EQ(config_.rtp.rtx.ssrcs.size(), config_.rtp.ssrcs.size());
   for (size_t i = 0; i < config_.rtp.rtx.ssrcs.size(); ++i) {
     uint32_t ssrc = config_.rtp.rtx.ssrcs[i];
-    vie_channel_->SetSSRC(config_.rtp.rtx.ssrcs[i], kViEStreamTypeRtx,
-                          static_cast<unsigned char>(i));
+    RtpRtcp* const rtp_rtcp = rtp_rtcp_modules_[i];
+    rtp_rtcp->SetRtxSsrc(ssrc);
     RtpStateMap::iterator it = suspended_ssrcs_.find(ssrc);
     if (it != suspended_ssrcs_.end())
-      vie_channel_->SetRtpStateForSsrc(ssrc, it->second);
+      rtp_rtcp->SetRtpStateForSsrc(ssrc, it->second);
   }
 
+  // Configure RTX payload types.
   RTC_DCHECK_GE(config_.rtp.rtx.payload_type, 0);
-  vie_channel_->SetRtxSendPayloadType(config_.rtp.rtx.payload_type,
-                                      config_.encoder_settings.payload_type);
+  for (RtpRtcp* rtp_rtcp : rtp_rtcp_modules_) {
+    rtp_rtcp->SetRtxSendPayloadType(config_.rtp.rtx.payload_type,
+                                    config_.encoder_settings.payload_type);
+    rtp_rtcp->SetRtxSendStatus(kRtxRetransmitted | kRtxRedundantPayloads);
+  }
+  if (config_.rtp.fec.red_payload_type != -1 &&
+      config_.rtp.fec.red_rtx_payload_type != -1) {
+    for (RtpRtcp* rtp_rtcp : rtp_rtcp_modules_) {
+      rtp_rtcp->SetRtxSendPayloadType(config_.rtp.fec.red_rtx_payload_type,
+                                      config_.rtp.fec.red_payload_type);
+    }
+  }
 }
 
 std::map<uint32_t, RtpState> VideoSendStream::GetRtpStates() const {
   std::map<uint32_t, RtpState> rtp_states;
   for (size_t i = 0; i < config_.rtp.ssrcs.size(); ++i) {
     uint32_t ssrc = config_.rtp.ssrcs[i];
-    rtp_states[ssrc] = vie_channel_->GetRtpStateForSsrc( ssrc);
+    rtp_states[ssrc] = vie_channel_.GetRtpStateForSsrc(ssrc);
   }
 
   for (size_t i = 0; i < config_.rtp.rtx.ssrcs.size(); ++i) {
     uint32_t ssrc = config_.rtp.rtx.ssrcs[i];
-    rtp_states[ssrc] = vie_channel_->GetRtpStateForSsrc(ssrc);
+    rtp_states[ssrc] = vie_channel_.GetRtpStateForSsrc(ssrc);
   }
 
   return rtp_states;
@@ -510,26 +575,19 @@ void VideoSendStream::SignalNetworkState(NetworkState state) {
   // When network goes up, enable RTCP status before setting transmission state.
   // When it goes down, disable RTCP afterwards. This ensures that any packets
   // sent due to the network state changed will not be dropped.
-  if (state == kNetworkUp)
-    vie_channel_->SetRTCPMode(RtcpMode::kCompound);
-  vie_encoder_->SetNetworkTransmissionState(state == kNetworkUp);
-  if (state == kNetworkDown)
-    vie_channel_->SetRTCPMode(RtcpMode::kOff);
+  if (state == kNetworkUp) {
+    for (RtpRtcp* rtp_rtcp : rtp_rtcp_modules_)
+      rtp_rtcp->SetRTCPStatus(config_.rtp.rtcp_mode);
+  }
+  vie_encoder_.SetNetworkTransmissionState(state == kNetworkUp);
+  if (state == kNetworkDown) {
+    for (RtpRtcp* rtp_rtcp : rtp_rtcp_modules_)
+      rtp_rtcp->SetRTCPStatus(RtcpMode::kOff);
+  }
 }
 
-int64_t VideoSendStream::GetRtt() const {
-  webrtc::RtcpStatistics rtcp_stats;
-  uint16_t frac_lost;
-  uint32_t cumulative_lost;
-  uint32_t extended_max_sequence_number;
-  uint32_t jitter;
-  int64_t rtt_ms;
-  if (vie_channel_->GetSendRtcpStatistics(&frac_lost, &cumulative_lost,
-                                          &extended_max_sequence_number,
-                                          &jitter, &rtt_ms) == 0) {
-    return rtt_ms;
-  }
-  return -1;
+int VideoSendStream::GetPaddingNeededBps() const {
+  return vie_encoder_.GetPaddingNeededBps();
 }
 
 bool VideoSendStream::SetSendCodec(VideoCodec video_codec) {
@@ -547,29 +605,22 @@ bool VideoSendStream::SetSendCodec(VideoCodec video_codec) {
     video_codec.maxBitrate = kEncoderMinBitrate;
 
   // Stop the media flow while reconfiguring.
-  vie_encoder_->Pause();
+  vie_encoder_.Pause();
 
-  if (vie_encoder_->SetEncoder(video_codec) != 0) {
+  if (vie_encoder_.SetEncoder(video_codec) != 0) {
     LOG(LS_ERROR) << "Failed to set encoder.";
     return false;
   }
 
-  if (vie_channel_->SetSendCodec(video_codec, false) != 0) {
+  if (vie_channel_.SetSendCodec(video_codec, false) != 0) {
     LOG(LS_ERROR) << "Failed to set send codec.";
     return false;
   }
 
-  // Not all configured SSRCs have to be utilized (simulcast senders don't have
-  // to send on all SSRCs at once etc.)
-  std::vector<uint32_t> used_ssrcs = config_.rtp.ssrcs;
-  used_ssrcs.resize(static_cast<size_t>(video_codec.numberOfSimulcastStreams));
-  vie_encoder_->SetSsrcs(used_ssrcs);
-
   // Restart the media flow
-  vie_encoder_->Restart();
+  vie_encoder_.Restart();
 
   return true;
 }
-
 }  // namespace internal
 }  // namespace webrtc

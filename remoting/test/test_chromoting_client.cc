@@ -5,6 +5,7 @@
 #include "remoting/test/test_chromoting_client.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
@@ -12,18 +13,19 @@
 #include "jingle/glue/thread_wrapper.h"
 #include "net/base/request_priority.h"
 #include "net/socket/client_socket_factory.h"
+#include "remoting/base/chromium_url_request.h"
 #include "remoting/base/url_request_context_getter.h"
 #include "remoting/client/audio_player.h"
 #include "remoting/client/chromoting_client.h"
 #include "remoting/client/client_context.h"
 #include "remoting/client/token_fetcher_proxy.h"
-#include "remoting/protocol/chromium_port_allocator.h"
+#include "remoting/protocol/chromium_port_allocator_factory.h"
 #include "remoting/protocol/host_stub.h"
-#include "remoting/protocol/ice_transport_factory.h"
 #include "remoting/protocol/negotiating_client_authenticator.h"
 #include "remoting/protocol/network_settings.h"
 #include "remoting/protocol/session_config.h"
 #include "remoting/protocol/third_party_client_authenticator.h"
+#include "remoting/protocol/transport_context.h"
 #include "remoting/signaling/xmpp_signal_strategy.h"
 #include "remoting/test/connection_setup_info.h"
 #include "remoting/test/test_video_renderer.h"
@@ -69,10 +71,10 @@ TestChromotingClient::TestChromotingClient()
     : TestChromotingClient(nullptr) {}
 
 TestChromotingClient::TestChromotingClient(
-    scoped_ptr<VideoRenderer> video_renderer)
+    scoped_ptr<protocol::VideoRenderer> video_renderer)
     : connection_to_host_state_(protocol::ConnectionToHost::INITIALIZING),
       connection_error_code_(protocol::OK),
-      video_renderer_(video_renderer.Pass()) {}
+      video_renderer_(std::move(video_renderer)) {}
 
 TestChromotingClient::~TestChromotingClient() {
   // Ensure any connections are closed and the members are destroyed in the
@@ -104,32 +106,33 @@ void TestChromotingClient::StartConnection(
 
   if (test_connection_to_host_) {
     chromoting_client_->SetConnectionToHostForTests(
-        test_connection_to_host_.Pass());
+        std::move(test_connection_to_host_));
   }
 
-  XmppSignalStrategy::XmppServerConfig xmpp_server_config;
-  xmpp_server_config.host = kXmppHostName;
-  xmpp_server_config.port = kXmppPortNumber;
-  xmpp_server_config.use_tls = true;
-  xmpp_server_config.username = connection_setup_info.user_name;
-  xmpp_server_config.auth_token = connection_setup_info.access_token;
+  if (!signal_strategy_) {
+    XmppSignalStrategy::XmppServerConfig xmpp_server_config;
+    xmpp_server_config.host = kXmppHostName;
+    xmpp_server_config.port = kXmppPortNumber;
+    xmpp_server_config.use_tls = true;
+    xmpp_server_config.username = connection_setup_info.user_name;
+    xmpp_server_config.auth_token = connection_setup_info.access_token;
 
-  // Set up the signal strategy.  This must outlive the client object.
-  signal_strategy_.reset(
-      new XmppSignalStrategy(net::ClientSocketFactory::GetDefaultFactory(),
-                             request_context_getter, xmpp_server_config));
+    // Set up the signal strategy.  This must outlive the client object.
+    signal_strategy_.reset(
+        new XmppSignalStrategy(net::ClientSocketFactory::GetDefaultFactory(),
+                               request_context_getter, xmpp_server_config));
+  }
 
   protocol::NetworkSettings network_settings(
       protocol::NetworkSettings::NAT_TRAVERSAL_FULL);
 
-  scoped_ptr<protocol::ChromiumPortAllocator> port_allocator(
-      protocol::ChromiumPortAllocator::Create(request_context_getter,
-                                              network_settings));
-
-  scoped_ptr<protocol::TransportFactory> transport_factory(
-      new protocol::IceTransportFactory(
-          signal_strategy_.get(), port_allocator.Pass(), network_settings,
-          protocol::TransportRole::CLIENT));
+  scoped_refptr<protocol::TransportContext> transport_context(
+      new protocol::TransportContext(
+          signal_strategy_.get(),
+          make_scoped_ptr(new protocol::ChromiumPortAllocatorFactory()),
+          make_scoped_ptr(
+              new ChromiumUrlRequestFactory(request_context_getter)),
+          network_settings, protocol::TransportRole::CLIENT));
 
   scoped_ptr<protocol::ThirdPartyClientAuthenticator::TokenFetcher>
       token_fetcher(new TokenFetcherProxy(
@@ -145,15 +148,12 @@ void TestChromotingClient::StartConnection(
 
   scoped_ptr<protocol::Authenticator> authenticator(
       new protocol::NegotiatingClientAuthenticator(
-          connection_setup_info.pairing_id,
-          connection_setup_info.shared_secret,
-          connection_setup_info.host_id,
-          fetch_secret_callback,
-          token_fetcher.Pass(),
-          connection_setup_info.auth_methods));
+          connection_setup_info.pairing_id, connection_setup_info.shared_secret,
+          connection_setup_info.host_id, fetch_secret_callback,
+          std::move(token_fetcher), connection_setup_info.auth_methods));
 
   chromoting_client_->Start(
-      signal_strategy_.get(), authenticator.Pass(), transport_factory.Pass(),
+      signal_strategy_.get(), std::move(authenticator), transport_context,
       connection_setup_info.host_jid, connection_setup_info.capabilities);
 }
 
@@ -188,9 +188,14 @@ void TestChromotingClient::RemoveRemoteConnectionObserver(
   connection_observers_.RemoveObserver(observer);
 }
 
+void TestChromotingClient::SetSignalStrategyForTests(
+    scoped_ptr<SignalStrategy> signal_strategy) {
+  signal_strategy_ = std::move(signal_strategy);
+}
+
 void TestChromotingClient::SetConnectionToHostForTests(
     scoped_ptr<protocol::ConnectionToHost> connection_to_host) {
-  test_connection_to_host_ = connection_to_host.Pass();
+  test_connection_to_host_ = std::move(connection_to_host);
 }
 
 void TestChromotingClient::OnConnectionState(

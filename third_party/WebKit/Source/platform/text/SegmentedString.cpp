@@ -17,7 +17,6 @@
     Boston, MA 02110-1301, USA.
 */
 
-#include "config.h"
 #include "platform/text/SegmentedString.h"
 
 namespace blink {
@@ -294,4 +293,4 @@ void SegmentedString::setCurrentPosition(OrdinalNumber line, OrdinalNumber colum
     m_numberOfCharactersConsumedPriorToCurrentLine = numberOfCharactersConsumed() + prologLength - columnAftreProlog.zeroBasedInt();
 }
 
-}
+} // namespace blink

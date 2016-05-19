@@ -4,7 +4,6 @@
 
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_win.h"
 
-#include "base/win/metro.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/aura/client/aura_constants.h"
@@ -96,6 +95,9 @@ DesktopWindowTreeHostWin::~DesktopWindowTreeHostWin() {
 
 // static
 aura::Window* DesktopWindowTreeHostWin::GetContentWindowForHWND(HWND hwnd) {
+  // All HWND's we create should have WindowTreeHost instances associated with
+  // them. There are exceptions like the content layer creating HWND's which
+  // are not associated with WindowTreeHost instances.
   aura::WindowTreeHost* host =
       aura::WindowTreeHost::GetForAcceleratedWidget(hwnd);
   return host ? host->window()->GetProperty(kContentWindowForRootWindow) : NULL;
@@ -123,6 +125,7 @@ void DesktopWindowTreeHostWin::Init(aura::Window* content_window,
                                     const Widget::InitParams& params) {
   // TODO(beng): SetInitParams().
   content_window_ = content_window;
+  wants_mouse_events_when_inactive_ = params.wants_mouse_events_when_inactive;
 
   aura::client::SetAnimationHost(content_window_, this);
 
@@ -623,6 +626,10 @@ bool DesktopWindowTreeHostWin::CanActivate() const {
   return native_widget_delegate_->CanActivate();
 }
 
+bool DesktopWindowTreeHostWin::WantsMouseEventsWhenInactive() const {
+  return wants_mouse_events_when_inactive_;
+}
+
 bool DesktopWindowTreeHostWin::WidgetSizeIsClientSize() const {
   const Widget* widget = GetWidget()->GetTopLevelWidget();
   return IsMaximized() || (widget && widget->ShouldUseNativeFrame());
@@ -905,9 +912,11 @@ void DesktopWindowTreeHostWin::HandleWindowSizeChanged() {
   // changed (can occur on Windows 10 when snapping a window to the side of
   // the screen). In that case do a resize to the current size to reenable
   // swaps.
-  if (compositor())
-    compositor()->SetScaleAndSize(compositor()->device_scale_factor(),
-                                  compositor()->size());
+  if (compositor()) {
+    compositor()->SetScaleAndSize(
+        compositor()->device_scale_factor(),
+        message_handler_->GetClientAreaBounds().size());
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

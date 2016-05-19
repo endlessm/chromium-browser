@@ -23,7 +23,7 @@ public class WebappSplashScreenBackgroundColorTest extends WebappActivityTestBas
     protected Intent createIntent() {
         Intent intent = super.createIntent();
         // This is setting Color.GREEN with 50% opacity.
-        intent.putExtra(ShortcutHelper.EXTRA_BACKGROUND_COLOR, (long) Color.argb(128, 0, 255, 0));
+        intent.putExtra(ShortcutHelper.EXTRA_BACKGROUND_COLOR, 0x8000FF00L);
         return intent;
     }
 
@@ -32,7 +32,7 @@ public class WebappSplashScreenBackgroundColorTest extends WebappActivityTestBas
     public void testShowBackgroundColorAndRecordUma() throws Exception {
         startWebappActivity();
 
-        ViewGroup splashScreen = getActivity().getSplashScreenForTests();
+        ViewGroup splashScreen = waitUntilSplashScreenAppears();
         ColorDrawable background = (ColorDrawable) splashScreen.getBackground();
 
         assertEquals(Color.GREEN, background.getColor());

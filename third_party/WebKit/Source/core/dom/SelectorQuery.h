@@ -85,18 +85,18 @@ private:
     bool m_needsUpdatedDistribution : 1;
 };
 
-class SelectorQuery {
+class CORE_EXPORT SelectorQuery {
     WTF_MAKE_NONCOPYABLE(SelectorQuery);
     USING_FAST_MALLOC(SelectorQuery);
 public:
-    static PassOwnPtr<SelectorQuery> adopt(CSSSelectorList&);
+    static PassOwnPtr<SelectorQuery> adopt(CSSSelectorList);
 
     bool matches(Element&) const;
     Element* closest(Element&) const;
     PassRefPtrWillBeRawPtr<StaticElementList> queryAll(ContainerNode& rootNode) const;
     PassRefPtrWillBeRawPtr<Element> queryFirst(ContainerNode& rootNode) const;
 private:
-    explicit SelectorQuery(CSSSelectorList&);
+    explicit SelectorQuery(CSSSelectorList);
 
     SelectorDataList m_selectors;
     CSSSelectorList m_selectorList;
@@ -112,6 +112,6 @@ private:
     HashMap<AtomicString, OwnPtr<SelectorQuery>> m_entries;
 };
 
-}
+} // namespace blink
 
 #endif

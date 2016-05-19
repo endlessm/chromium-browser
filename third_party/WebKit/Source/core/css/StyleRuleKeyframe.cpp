@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/StyleRuleKeyframe.h"
 
 #include "core/css/StylePropertySet.h"
@@ -25,7 +24,7 @@ String StyleRuleKeyframe::keyText() const
     StringBuilder keyText;
     for (unsigned i = 0; i < m_keys.size(); ++i) {
         if (i)
-            keyText.append(',');
+            keyText.appendLiteral(", ");
         keyText.appendNumber(m_keys.at(i) * 100);
         keyText.append('%');
     }

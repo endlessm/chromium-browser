@@ -7,9 +7,12 @@
 #include "base/base_paths.h"
 #include "base/base_switches.h"
 #include "base/logging.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/test/test_content_client_initializer.h"
+#include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,7 +24,6 @@
 #include "base/mac/scoped_nsautorelease_pool.h"
 #if !defined(OS_IOS)
 #include "base/test/mock_chrome_application_mac.h"
-#include "content/browser/in_process_io_surface_manager_mac.h"
 #endif
 #endif
 
@@ -82,7 +84,7 @@ void ContentTestSuite::Initialize() {
 #endif
 
 #if defined(OS_WIN)
-  gfx::InitDeviceScaleFactor(1.0f);
+  gfx::SetDefaultDeviceScaleFactor(1.0f);
 #endif
 
   ContentTestSuiteBase::Initialize();
@@ -98,8 +100,11 @@ void ContentTestSuite::Initialize() {
   bool is_child_process = base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kTestChildProcess);
   if (!is_child_process) {
+    gpu::GPUInfo gpu_info;
+    gpu::CollectBasicGraphicsInfo(&gpu_info);
+    gpu::ApplyGpuDriverBugWorkarounds(gpu_info,
+                                      base::CommandLine::ForCurrentProcess());
     gfx::GLSurfaceTestSupport::InitializeOneOff();
-    gpu::ApplyGpuDriverBugWorkarounds(base::CommandLine::ForCurrentProcess());
   }
 #endif
   testing::TestEventListeners& listeners =
@@ -108,9 +113,6 @@ void ContentTestSuite::Initialize() {
 #if defined(OS_ANDROID)
   SurfaceTextureManager::SetInstance(
       InProcessSurfaceTextureManager::GetInstance());
-#endif
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  gfx::IOSurfaceManager::SetInstance(InProcessIOSurfaceManager::GetInstance());
 #endif
 #if defined(USE_OZONE)
   if (!is_child_process) {

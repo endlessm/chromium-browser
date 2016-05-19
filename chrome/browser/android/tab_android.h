@@ -6,9 +6,11 @@
 #define CHROME_BROWSER_ANDROID_TAB_ANDROID_H_
 
 #include <jni.h>
+#include <stdint.h>
 
 #include "base/android/jni_weak_ref.h"
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/search/instant_service_observer.h"
@@ -48,10 +50,6 @@ class WebContents;
 
 namespace infobars {
 class InfoBar;
-}
-
-namespace offline_pages {
-struct OfflinePageItem;
 }
 
 namespace prerender {
@@ -122,13 +120,15 @@ class TabAndroid : public CoreTabHelperDelegate,
 
   bool HasPrerenderedUrl(GURL gurl);
 
-  void MakeLoadURLParams(
-      chrome::NavigateParams* params,
-      content::NavigationController::LoadURLParams* load_url_params);
-
   bool HasOfflinePages() const;
   void ShowOfflinePages();
   void LoadOfflineCopy(const GURL& url);
+
+  // Notifies this TabAndroid that a Lo-Fi response has been received. The
+  // TabAndroid then handles showing Lo-Fi UI if this is the first Lo-Fi
+  // response for a page load. |is_preview| indicates whether the response was a
+  // Lo-Fi preview response.
+  void OnLoFiResponseReceived(bool is_preview);
 
   // Overridden from CoreTabHelperDelegate:
   void SwapTabContents(content::WebContents* old_contents,
@@ -150,90 +150,116 @@ class TabAndroid : public CoreTabHelperDelegate,
                const content::NotificationDetails& details) override;
 
   // Overridden from favicon::FaviconDriverObserver:
-  void OnFaviconAvailable(const gfx::Image& image) override;
   void OnFaviconUpdated(favicon::FaviconDriver* favicon_driver,
-                        bool icon_url_changed) override;
+                        NotificationIconType notification_icon_type,
+                        const GURL& icon_url,
+                        bool icon_url_changed,
+                        const gfx::Image& image) override;
 
   // Methods called from Java via JNI -----------------------------------------
 
-  void Destroy(JNIEnv* env, jobject obj);
-  void InitWebContents(JNIEnv* env,
-                       jobject obj,
-                       jboolean incognito,
-                       jobject jcontent_view_core,
-                       jobject jweb_contents_delegate,
-                       jobject jcontext_menu_populator);
-  void DestroyWebContents(JNIEnv* env, jobject obj, jboolean delete_native);
-  base::android::ScopedJavaLocalRef<jobject> GetProfileAndroid(JNIEnv* env,
-                                                               jobject obj);
-  TabLoadStatus LoadUrl(JNIEnv* env,
-                        jobject obj,
-                        jstring url,
-                        jstring j_extra_headers,
-                        jbyteArray j_post_data,
-                        jint page_transition,
-                        jstring j_referrer_url,
-                        jint referrer_policy,
-                        jboolean is_renderer_initiated,
-                        jboolean should_replace_current_entry,
-                        jlong intent_received_timestamp,
-                        jboolean has_user_gesture);
-  void SetActiveNavigationEntryTitleForUrl(JNIEnv* env,
-                                           jobject obj,
-                                           jstring jurl,
-                                           jstring jtitle);
-  bool Print(JNIEnv* env, jobject obj);
+  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
+  void InitWebContents(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jboolean incognito,
+      const base::android::JavaParamRef<jobject>& jcontent_view_core,
+      const base::android::JavaParamRef<jobject>& jweb_contents_delegate,
+      const base::android::JavaParamRef<jobject>& jcontext_menu_populator);
+  void UpdateDelegates(
+        JNIEnv* env,
+        const base::android::JavaParamRef<jobject>& obj,
+        const base::android::JavaParamRef<jobject>& jweb_contents_delegate,
+        const base::android::JavaParamRef<jobject>& jcontext_menu_populator);
+  void DestroyWebContents(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& obj,
+                          jboolean delete_native);
+  base::android::ScopedJavaLocalRef<jobject> GetProfileAndroid(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
+  TabLoadStatus LoadUrl(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jstring>& url,
+      const base::android::JavaParamRef<jstring>& j_extra_headers,
+      const base::android::JavaParamRef<jbyteArray>& j_post_data,
+      jint page_transition,
+      const base::android::JavaParamRef<jstring>& j_referrer_url,
+      jint referrer_policy,
+      jboolean is_renderer_initiated,
+      jboolean should_replace_current_entry,
+      jlong intent_received_timestamp,
+      jboolean has_user_gesture);
+  void SetActiveNavigationEntryTitleForUrl(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jstring>& jurl,
+      const base::android::JavaParamRef<jstring>& jtitle);
+  bool Print(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
   // Sets the tab as content to be printed through JNI.
   void SetPendingPrint();
 
   // Called to get default favicon of current tab, return null if no
   // favicon is avaliable for current tab.
-  base::android::ScopedJavaLocalRef<jobject> GetFavicon(JNIEnv* env,
-                                                        jobject obj);
+  base::android::ScopedJavaLocalRef<jobject> GetFavicon(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
 
-  void CreateHistoricalTab(JNIEnv* env, jobject obj);
+  void CreateHistoricalTab(JNIEnv* env,
+                           const base::android::JavaParamRef<jobject>& obj);
 
   static void CreateHistoricalTabFromContents(
       content::WebContents* web_contents);
 
   void UpdateTopControlsState(JNIEnv* env,
-                              jobject obj,
+                              const base::android::JavaParamRef<jobject>& obj,
                               jint constraints,
                               jint current,
                               jboolean animate);
 
-  void LoadOriginalImage(JNIEnv* env, jobject obj);
+  void LoadOriginalImage(JNIEnv* env,
+                         const base::android::JavaParamRef<jobject>& obj);
 
-  jlong GetBookmarkId(JNIEnv* env, jobject obj, jboolean only_editable);
+  jlong GetBookmarkId(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& obj,
+                      jboolean only_editable);
 
-  jboolean HasOfflineCopy(JNIEnv* env, jobject obj);
+  jboolean HasOfflineCopy(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& obj);
 
-  jboolean IsOfflinePage(JNIEnv* env, jobject obj);
+  jboolean IsOfflinePage(JNIEnv* env,
+                         const base::android::JavaParamRef<jobject>& obj);
 
   base::android::ScopedJavaLocalRef<jstring> GetOfflinePageOriginalUrl(
       JNIEnv* env,
-      jobject obj);
+      const base::android::JavaParamRef<jobject>& obj);
 
-  void SetInterceptNavigationDelegate(JNIEnv* env,
-                                      jobject obj,
-                                      jobject delegate);
+  void SetInterceptNavigationDelegate(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& delegate);
 
   // TODO(dtrainor): Remove this, pull content_layer() on demand.
-  void AttachToTabContentManager(JNIEnv* env,
-                                 jobject obj,
-                                 jobject jtab_content_manager);
+  void AttachToTabContentManager(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& jtab_content_manager);
 
-  void AttachOverlayContentViewCore(JNIEnv* env,
-                                    jobject obj,
-                                    jobject jcontent_view_core,
-                                    jboolean visible);
+  void AttachOverlayContentViewCore(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& jcontent_view_core,
+      jboolean visible);
 
-  void DetachOverlayContentViewCore(JNIEnv* env,
-                                    jobject obj,
-                                    jobject jcontent_view_core);
+  void DetachOverlayContentViewCore(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& jcontent_view_core);
 
-  bool HasPrerenderedUrl(JNIEnv* env, jobject obj, jstring url);
+  bool HasPrerenderedUrl(JNIEnv* env,
+                         const base::android::JavaParamRef<jobject>& obj,
+                         const base::android::JavaParamRef<jstring>& url);
 
   // Register the Tab's native methods through JNI.
   static bool RegisterTabAndroid(JNIEnv* env);
@@ -242,8 +268,6 @@ class TabAndroid : public CoreTabHelperDelegate,
   prerender::PrerenderManager* GetPrerenderManager() const;
 
   int64_t GetBookmarkIdHelper(bool only_editable) const;
-
-  const offline_pages::OfflinePageItem* GetOfflinePage(const GURL& url) const;
 
   JavaObjectWeakGlobalRef weak_java_tab_;
 

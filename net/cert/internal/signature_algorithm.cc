@@ -4,6 +4,8 @@
 
 #include "net/cert/internal/signature_algorithm.h"
 
+#include <utility>
+
 #include "base/numerics/safe_math.h"
 #include "net/der/input.h"
 #include "net/der/parse_values.h"
@@ -224,7 +226,8 @@ WARN_UNUSED_RESULT bool IsNull(const der::Input& input) {
 // Returns a nullptr on failure.
 //
 // RFC 5912 requires that the parameters for RSA PKCS#1 v1.5 algorithms be NULL
-// ("PARAMS TYPE NULL ARE required"):
+// ("PARAMS TYPE NULL ARE required"), however an empty parameter is also
+// allowed for compatibility with non-compliant OCSP responders:
 //
 //     sa-rsaWithSHA1 SIGNATURE-ALGORITHM ::= {
 //      IDENTIFIER sha1WithRSAEncryption
@@ -259,7 +262,8 @@ WARN_UNUSED_RESULT bool IsNull(const der::Input& input) {
 //     }
 scoped_ptr<SignatureAlgorithm> ParseRsaPkcs1(DigestAlgorithm digest,
                                              const der::Input& params) {
-  if (!IsNull(params))
+  // TODO(svaldez): Add warning about non-strict parsing.
+  if (!IsNull(params) && !IsEmpty(params))
     return nullptr;
 
   return SignatureAlgorithm::CreateRsaPkcs1(digest);
@@ -338,13 +342,13 @@ WARN_UNUSED_RESULT bool ParseHashAlgorithm(const der::Input input,
 
   DigestAlgorithm hash;
 
-  if (oid.Equals(der::Input(kOidSha1))) {
+  if (oid == der::Input(kOidSha1)) {
     hash = DigestAlgorithm::Sha1;
-  } else if (oid.Equals(der::Input(kOidSha256))) {
+  } else if (oid == der::Input(kOidSha256)) {
     hash = DigestAlgorithm::Sha256;
-  } else if (oid.Equals(der::Input(kOidSha384))) {
+  } else if (oid == der::Input(kOidSha384)) {
     hash = DigestAlgorithm::Sha384;
-  } else if (oid.Equals(der::Input(kOidSha512))) {
+  } else if (oid == der::Input(kOidSha512)) {
     hash = DigestAlgorithm::Sha512;
   } else {
     // Unsupported digest algorithm.
@@ -393,7 +397,7 @@ WARN_UNUSED_RESULT bool ParseMaskGenAlgorithm(const der::Input input,
     return false;
 
   // MGF1 is the only supported mask generation algorithm.
-  if (!oid.Equals(der::Input(kOidMgf1)))
+  if (oid != der::Input(kOidMgf1))
     return false;
 
   return ParseHashAlgorithm(params, mgf1_hash);
@@ -540,10 +544,6 @@ RsaPssParameters::RsaPssParameters(DigestAlgorithm mgf1_hash,
     : mgf1_hash_(mgf1_hash), salt_length_(salt_length) {
 }
 
-bool RsaPssParameters::Equals(const RsaPssParameters* other) const {
-  return mgf1_hash_ == other->mgf1_hash_ && salt_length_ == other->salt_length_;
-}
-
 SignatureAlgorithm::~SignatureAlgorithm() {
 }
 
@@ -557,34 +557,34 @@ scoped_ptr<SignatureAlgorithm> SignatureAlgorithm::CreateFromDer(
   // TODO(eroman): Each OID is tested for equality in order, which is not
   // particularly efficient.
 
-  if (oid.Equals(der::Input(kOidSha1WithRsaEncryption)))
+  if (oid == der::Input(kOidSha1WithRsaEncryption))
     return ParseRsaPkcs1(DigestAlgorithm::Sha1, params);
 
-  if (oid.Equals(der::Input(kOidSha256WithRsaEncryption)))
+  if (oid == der::Input(kOidSha256WithRsaEncryption))
     return ParseRsaPkcs1(DigestAlgorithm::Sha256, params);
 
-  if (oid.Equals(der::Input(kOidSha384WithRsaEncryption)))
+  if (oid == der::Input(kOidSha384WithRsaEncryption))
     return ParseRsaPkcs1(DigestAlgorithm::Sha384, params);
 
-  if (oid.Equals(der::Input(kOidSha512WithRsaEncryption)))
+  if (oid == der::Input(kOidSha512WithRsaEncryption))
     return ParseRsaPkcs1(DigestAlgorithm::Sha512, params);
 
-  if (oid.Equals(der::Input(kOidEcdsaWithSha1)))
+  if (oid == der::Input(kOidEcdsaWithSha1))
     return ParseEcdsa(DigestAlgorithm::Sha1, params);
 
-  if (oid.Equals(der::Input(kOidEcdsaWithSha256)))
+  if (oid == der::Input(kOidEcdsaWithSha256))
     return ParseEcdsa(DigestAlgorithm::Sha256, params);
 
-  if (oid.Equals(der::Input(kOidEcdsaWithSha384)))
+  if (oid == der::Input(kOidEcdsaWithSha384))
     return ParseEcdsa(DigestAlgorithm::Sha384, params);
 
-  if (oid.Equals(der::Input(kOidEcdsaWithSha512)))
+  if (oid == der::Input(kOidEcdsaWithSha512))
     return ParseEcdsa(DigestAlgorithm::Sha512, params);
 
-  if (oid.Equals(der::Input(kOidRsaSsaPss)))
+  if (oid == der::Input(kOidRsaSsaPss))
     return ParseRsaPss(params);
 
-  if (oid.Equals(der::Input(kOidSha1WithRsaSignature)))
+  if (oid == der::Input(kOidSha1WithRsaSignature))
     return ParseRsaPkcs1(DigestAlgorithm::Sha1, params);
 
   return nullptr;  // Unsupported OID.
@@ -611,34 +611,6 @@ scoped_ptr<SignatureAlgorithm> SignatureAlgorithm::CreateRsaPss(
       make_scoped_ptr(new RsaPssParameters(mgf1_hash, salt_length))));
 }
 
-bool SignatureAlgorithm::Equals(const SignatureAlgorithm& other) const {
-  if (algorithm_ != other.algorithm_)
-    return false;
-
-  if (digest_ != other.digest_)
-    return false;
-
-  // Check that the parameters are equal.
-  switch (algorithm_) {
-    case SignatureAlgorithmId::RsaPss: {
-      const RsaPssParameters* params1 = ParamsForRsaPss();
-      const RsaPssParameters* params2 = other.ParamsForRsaPss();
-      if (!params1 || !params2 || !params1->Equals(params2))
-        return false;
-      break;
-    }
-
-    // There shouldn't be any parameters.
-    case SignatureAlgorithmId::RsaPkcs1:
-    case SignatureAlgorithmId::Ecdsa:
-      if (params_ || other.params_)
-        return false;
-      break;
-  }
-
-  return true;
-}
-
 const RsaPssParameters* SignatureAlgorithm::ParamsForRsaPss() const {
   if (algorithm_ == SignatureAlgorithmId::RsaPss)
     return static_cast<RsaPssParameters*>(params_.get());
@@ -649,7 +621,6 @@ SignatureAlgorithm::SignatureAlgorithm(
     SignatureAlgorithmId algorithm,
     DigestAlgorithm digest,
     scoped_ptr<SignatureAlgorithmParameters> params)
-    : algorithm_(algorithm), digest_(digest), params_(params.Pass()) {
-}
+    : algorithm_(algorithm), digest_(digest), params_(std::move(params)) {}
 
 }  // namespace net

@@ -21,6 +21,10 @@ test("cast_media_unittests") {
     "cma/base/balanced_media_task_runner_unittest.cc",
     "cma/base/buffering_controller_unittest.cc",
     "cma/base/buffering_frame_provider_unittest.cc",
+    "cma/base/demuxer_stream_adapter_unittest.cc",
+    "cma/base/demuxer_stream_for_test.cc",
+    "cma/base/demuxer_stream_for_test.h",
+    "cma/base/multi_demuxer_stream_adapter_unittest.cc",
     "cma/ipc/media_message_fifo_unittest.cc",
     "cma/ipc/media_message_unittest.cc",
     "cma/ipc_streamer/av_streamer_unittest.cc",
@@ -38,6 +42,11 @@ test("cast_media_unittests") {
 
   deps = [
     ":media",
+    "//base",
+    "//base:i18n",
+    "//base/test:test_support",
+    "//chromecast/base",
+    "//chromecast/base/metrics:test_support",
     "//chromecast/media/audio",
     "//chromecast/media/base:message_loop",
     "//chromecast/media/cma/backend",
@@ -45,11 +54,6 @@ test("cast_media_unittests") {
     "//chromecast/media/cma/ipc",
     "//chromecast/media/cma/ipc_streamer",
     "//chromecast/media/cma/pipeline",
-    "//base",
-    "//base:i18n",
-    "//base/test:test_support",
-    "//chromecast/base",
-    "//chromecast/base/metrics:test_support",
     "//chromecast/public",
     "//media",
     "//media/base:test_support",
@@ -57,10 +61,10 @@ test("cast_media_unittests") {
     "//testing/gtest",
     "//ui/gfx/geometry",
   ]
-}
 
-# TODO(slan): delete this target once Chromecast M44/earlier is obsolete.
-# See: b/21639416
-shared_library("libffmpegsumo") {
-  output_name = "libffmpegsumo"
+  if (chromecast_branding == "public") {
+    # Link default libcast_media_1.0 statically not to link dummy one
+    # dynamically for public unittests.
+    deps += [ "//chromecast/media/base:libcast_media_1.0_default_core" ]
+  }
 }

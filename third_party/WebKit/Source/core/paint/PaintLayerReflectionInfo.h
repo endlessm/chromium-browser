@@ -72,7 +72,7 @@ class PaintLayerReflectionInfo {
     WTF_MAKE_NONCOPYABLE(PaintLayerReflectionInfo);
 public:
     explicit PaintLayerReflectionInfo(LayoutBox&);
-    void destroy();
+    ~PaintLayerReflectionInfo();
 
     LayoutReplica* reflection() const { return m_reflection; }
     PaintLayer* reflectionLayer() const;
@@ -81,7 +81,7 @@ public:
 
     void updateAfterStyleChange(const ComputedStyle* oldStyle);
 
-    void paint(GraphicsContext*, const PaintLayerPaintingInfo&, PaintLayerFlags);
+    PaintLayerPainter::PaintResult paint(GraphicsContext&, const PaintLayerPaintingInfo&, PaintLayerFlags);
 
 private:
     LayoutBox& box() { return *m_box; }

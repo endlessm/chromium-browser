@@ -4,6 +4,8 @@
 
 #include "cc/quads/texture_draw_quad.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "base/trace_event/trace_event_argument.h"
 #include "base/values.h"
@@ -22,6 +24,8 @@ TextureDrawQuad::TextureDrawQuad()
   this->vertex_opacity[2] = 0.f;
   this->vertex_opacity[3] = 0.f;
 }
+
+TextureDrawQuad::TextureDrawQuad(const TextureDrawQuad& other) = default;
 
 void TextureDrawQuad::SetNew(const SharedQuadState* shared_quad_state,
                              const gfx::Rect& rect,

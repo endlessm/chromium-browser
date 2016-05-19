@@ -15,21 +15,50 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
 #include "content/public/browser/web_contents.h"
-
 #include "jni/ExternalPrerenderHandler_jni.h"
+#include "net/base/network_change_notifier.h"
 
 using base::android::ConvertJavaStringToUTF16;
 
 namespace prerender {
 
-bool ExternalPrerenderHandlerAndroid::AddPrerender(JNIEnv* env,
-                                                   jobject obj,
-                                                   jobject jprofile,
-                                                   jobject jweb_contents,
-                                                   jstring jurl,
-                                                   jstring jreferrer,
-                                                   jint width,
-                                                   jint height) {
+namespace {
+
+static bool CheckAndConvertParams(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jprofile,
+    const JavaParamRef<jstring>& jurl,
+    const JavaParamRef<jobject>& jweb_contents,
+    GURL* url,
+    prerender::PrerenderManager** prerender_manager,
+    content::WebContents** web_contents) {
+  if (jurl == NULL)
+    return false;
+  *url = GURL(ConvertJavaStringToUTF16(env, jurl));
+  if (!url->is_valid())
+    return false;
+
+  Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
+  *prerender_manager =
+      prerender::PrerenderManagerFactory::GetForProfile(profile);
+  if (!*prerender_manager)
+    return false;
+  *web_contents = content::WebContents::FromJavaWebContents(jweb_contents);
+  return true;
+}
+
+}  // namespace
+
+bool ExternalPrerenderHandlerAndroid::AddPrerender(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& jprofile,
+    const JavaParamRef<jobject>& jweb_contents,
+    const JavaParamRef<jstring>& jurl,
+    const JavaParamRef<jstring>& jreferrer,
+    jint width,
+    jint height,
+    jboolean prerender_on_cellular) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
 
   GURL url = GURL(ConvertJavaStringToUTF16(env, jurl));
@@ -49,19 +78,31 @@ bool ExternalPrerenderHandlerAndroid::AddPrerender(JNIEnv* env,
   if (prerender_handle_.get()) {
     prerender_handle_->OnNavigateAway();
   }
-  prerender_handle_.reset(
-      prerender_manager->AddPrerenderFromExternalRequest(
-          url,
-          referrer,
-          web_contents->GetController().GetDefaultSessionStorageNamespace(),
-          gfx::Size(width, height)));
+  if (prerender_on_cellular && net::NetworkChangeNotifier::IsConnectionCellular(
+                   net::NetworkChangeNotifier::GetConnectionType())) {
+    prerender_handle_.reset(
+        prerender_manager->AddPrerenderOnCellularFromExternalRequest(
+            url,
+            referrer,
+            web_contents->GetController().GetDefaultSessionStorageNamespace(),
+            gfx::Size(width, height)));
+  } else {
+    prerender_handle_.reset(
+        prerender_manager->AddPrerenderFromExternalRequest(
+            url,
+            referrer,
+            web_contents->GetController().GetDefaultSessionStorageNamespace(),
+            gfx::Size(width, height)));
+  }
+
   if (!prerender_handle_)
     return false;
   return true;
 }
 
-void ExternalPrerenderHandlerAndroid::CancelCurrentPrerender(JNIEnv* env,
-                                                             jobject object) {
+void ExternalPrerenderHandlerAndroid::CancelCurrentPrerender(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& object) {
   if (!prerender_handle_)
     return;
   prerender_handle_->OnCancel();
@@ -73,20 +114,29 @@ static jboolean HasPrerenderedUrl(JNIEnv* env,
                                   const JavaParamRef<jobject>& jprofile,
                                   const JavaParamRef<jstring>& jurl,
                                   const JavaParamRef<jobject>& jweb_contents) {
-  if (jurl == NULL)
+  GURL url;
+  prerender::PrerenderManager* prerender_manager;
+  content::WebContents* web_contents;
+  if (!CheckAndConvertParams(env, jprofile, jurl, jweb_contents, &url,
+                             &prerender_manager, &web_contents))
     return false;
-
-  Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
-  GURL url = GURL(ConvertJavaStringToUTF16(env, jurl));
-  if (!url.is_valid())
-    return false;
-  prerender::PrerenderManager* prerender_manager =
-          prerender::PrerenderManagerFactory::GetForProfile(profile);
-  if (!prerender_manager)
-    return false;
-  content::WebContents* web_contents =
-      content::WebContents::FromJavaWebContents(jweb_contents);
   return prerender_manager->HasPrerenderedUrl(url, web_contents);
+}
+
+static jboolean HasPrerenderedAndFinishedLoadingUrl(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz,
+    const JavaParamRef<jobject>& jprofile,
+    const JavaParamRef<jstring>& jurl,
+    const JavaParamRef<jobject>& jweb_contents) {
+  GURL url;
+  prerender::PrerenderManager* prerender_manager;
+  content::WebContents* web_contents;
+  if (!CheckAndConvertParams(env, jprofile, jurl, jweb_contents, &url,
+                             &prerender_manager, &web_contents))
+    return false;
+  return prerender_manager->HasPrerenderedAndFinishedLoadingUrl(url,
+                                                                web_contents);
 }
 
 ExternalPrerenderHandlerAndroid::ExternalPrerenderHandlerAndroid() {}

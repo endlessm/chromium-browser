@@ -35,6 +35,8 @@
 #include "platform/fonts/FontWidthVariant.h"
 #include "platform/fonts/TextRenderingMode.h"
 #include "platform/fonts/TypesettingFeatures.h"
+#include "platform/text/LocaleToScriptMapping.h"
+#include "wtf/Allocator.h"
 #include "wtf/MathExtras.h"
 
 #include "wtf/RefPtr.h"
@@ -46,6 +48,7 @@ namespace blink {
 const float FontSizeAdjustNone = -1;
 
 class PLATFORM_EXPORT FontDescription {
+    USING_FAST_MALLOC(FontDescription);
 public:
     enum GenericFamilyType { NoFamily, StandardFamily, SerifFamily, SansSerifFamily,
                              MonospaceFamily, CursiveFamily, FantasyFamily, PictographFamily };
@@ -91,6 +94,7 @@ public:
     bool operator!=(const FontDescription& other) const { return !(*this == other); }
 
     struct VariantLigatures {
+        STACK_ALLOCATED();
         VariantLigatures(LigaturesState state = NormalLigaturesState)
             : common(state)
             , discretionary(state)
@@ -106,6 +110,7 @@ public:
     };
 
     struct Size {
+        STACK_ALLOCATED();
         Size(unsigned keyword, float value, bool isAbsolute)
             : keyword(keyword)
             , isAbsolute(isAbsolute)
@@ -118,6 +123,7 @@ public:
     };
 
     struct FamilyDescription {
+        STACK_ALLOCATED();
         FamilyDescription(GenericFamilyType genericFamily) : genericFamily(genericFamily) { }
         FamilyDescription(GenericFamilyType genericFamily, const FontFamily& family)
             : genericFamily(genericFamily)
@@ -181,7 +187,7 @@ public:
     FontFeatureSettings* featureSettings() const { return m_featureSettings.get(); }
 
     float effectiveFontSize() const; // Returns either the computedSize or the computedPixelSize
-    FontCacheKey cacheKey(const FontFaceCreationParams&, FontTraits desiredTraits = FontTraits(0), bool loading = false, unsigned version = 0) const;
+    FontCacheKey cacheKey(const FontFaceCreationParams&, FontTraits desiredTraits = FontTraits(0)) const;
 
     void setFamily(const FontFamily& family) { m_familyList = family; }
     void setComputedSize(float s) { m_computedSize = clampTo<float>(s); }
@@ -201,8 +207,11 @@ public:
     void setTextRendering(TextRenderingMode rendering) { m_fields.m_textRendering = rendering; updateTypesettingFeatures(); }
     void setOrientation(FontOrientation orientation) { m_fields.m_orientation = static_cast<unsigned>(orientation); }
     void setWidthVariant(FontWidthVariant widthVariant) { m_fields.m_widthVariant = widthVariant; }
-    void setScript(UScriptCode s) { m_fields.m_script = s; }
-    void setLocale(const AtomicString& locale) { m_locale = locale; }
+    void setLocale(const AtomicString& locale)
+    {
+        m_locale = locale;
+        m_fields.m_script = localeToScriptCodeForFontSelection(locale);
+    }
     void setSyntheticBold(bool syntheticBold) { m_fields.m_syntheticBold = syntheticBold; }
     void setSyntheticItalic(bool syntheticItalic) { m_fields.m_syntheticItalic = syntheticItalic; }
     void setFeatureSettings(PassRefPtr<FontFeatureSettings> settings) { m_featureSettings = settings; }
@@ -245,6 +254,7 @@ private:
     float m_wordSpacing;
 
     struct BitFields {
+        DISALLOW_NEW();
         unsigned m_orientation : static_cast<unsigned>(FontOrientation::BitCount);
 
         unsigned m_widthVariant : 2; // FontWidthVariant

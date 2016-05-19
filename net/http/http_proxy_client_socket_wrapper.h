@@ -5,9 +5,11 @@
 #ifndef NET_HTTP_HTTP_PROXY_CLIENT_SOCKET_WRAPPER_H_
 #define NET_HTTP_HTTP_PROXY_CLIENT_SOCKET_WRAPPER_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
@@ -53,6 +55,7 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
   HttpProxyClientSocketWrapper(
       const std::string& group_name,
       RequestPriority priority,
+      ClientSocketPool::RespectLimits respect_limits,
       base::TimeDelta connect_timeout_duration,
       base::TimeDelta proxy_negotiation_timeout_duration,
       TransportClientSocketPool* transport_pool,
@@ -110,8 +113,8 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
   int Write(IOBuffer* buf,
             int buf_len,
             const CompletionCallback& callback) override;
-  int SetReceiveBufferSize(int32 size) override;
-  int SetSendBufferSize(int32 size) override;
+  int SetReceiveBufferSize(int32_t size) override;
+  int SetSendBufferSize(int32_t size) override;
   int GetPeerAddress(IPEndPoint* address) const override;
   int GetLocalAddress(IPEndPoint* address) const override;
 
@@ -166,6 +169,7 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
 
   const std::string group_name_;
   RequestPriority priority_;
+  ClientSocketPool::RespectLimits respect_limits_;
   const base::TimeDelta connect_timeout_duration_;
   const base::TimeDelta proxy_negotiation_timeout_duration_;
 

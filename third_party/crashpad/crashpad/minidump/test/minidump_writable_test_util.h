@@ -22,7 +22,7 @@
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "gtest/gtest.h"
 #include "minidump/minidump_extensions.h"
 #include "minidump/minidump_writable.h"
@@ -89,6 +89,7 @@ MINIDUMP_ALLOW_OVERSIZED_DATA(MINIDUMP_DIRECTORY);
 // variable-sized lists.
 MINIDUMP_ALLOW_OVERSIZED_DATA(MINIDUMP_MEMORY_LIST);
 MINIDUMP_ALLOW_OVERSIZED_DATA(MINIDUMP_MODULE_LIST);
+MINIDUMP_ALLOW_OVERSIZED_DATA(MINIDUMP_UNLOADED_MODULE_LIST);
 MINIDUMP_ALLOW_OVERSIZED_DATA(MINIDUMP_THREAD_LIST);
 MINIDUMP_ALLOW_OVERSIZED_DATA(MINIDUMP_HANDLE_DATA_STREAM);
 MINIDUMP_ALLOW_OVERSIZED_DATA(MINIDUMP_MEMORY_INFO_LIST);
@@ -185,6 +186,12 @@ template <>
 const MINIDUMP_MODULE_LIST* MinidumpWritableAtLocationDescriptor<
     MINIDUMP_MODULE_LIST>(const std::string& file_contents,
                           const MINIDUMP_LOCATION_DESCRIPTOR& location);
+
+template <>
+const MINIDUMP_UNLOADED_MODULE_LIST*
+MinidumpWritableAtLocationDescriptor<MINIDUMP_UNLOADED_MODULE_LIST>(
+    const std::string& file_contents,
+    const MINIDUMP_LOCATION_DESCRIPTOR& location);
 
 template <>
 const MINIDUMP_THREAD_LIST* MinidumpWritableAtLocationDescriptor<

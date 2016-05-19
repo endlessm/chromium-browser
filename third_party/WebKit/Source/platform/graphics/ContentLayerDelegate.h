@@ -28,39 +28,36 @@
 #include "platform/PlatformExport.h"
 #include "platform/geometry/IntSize.h"
 #include "public/platform/WebContentLayerClient.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/PassOwnPtr.h"
 
 class SkCanvas;
 
+namespace gfx {
+class Rect;
+}
+
 namespace blink {
 
-class GraphicsContext;
 class IntRect;
-class PaintController;
-
-class PLATFORM_EXPORT GraphicsContextPainter {
-public:
-    virtual void paint(GraphicsContext&, const IntRect* clip) = 0;
-    virtual PaintController* paintController() = 0;
-
-protected:
-    virtual ~GraphicsContextPainter() { }
-};
+class GraphicsLayer;
 
 class PLATFORM_EXPORT ContentLayerDelegate : public WebContentLayerClient {
     WTF_MAKE_NONCOPYABLE(ContentLayerDelegate);
-
+    USING_FAST_MALLOC(ContentLayerDelegate);
 public:
-    explicit ContentLayerDelegate(GraphicsContextPainter*);
+    explicit ContentLayerDelegate(GraphicsLayer*);
     ~ContentLayerDelegate() override;
 
+    gfx::Rect paintableRegion() override;
+
     // WebContentLayerClient implementation.
-    void paintContents(WebDisplayItemList*, const WebRect& clip, WebContentLayerClient::PaintingControlSetting = PaintDefaultBehavior) override;
+    void paintContents(WebDisplayItemList*, WebContentLayerClient::PaintingControlSetting = PaintDefaultBehavior) override;
     size_t approximateUnsharedMemoryUsage() const override;
 
 private:
-    GraphicsContextPainter* m_painter;
+    GraphicsLayer* m_graphicsLayer;
 };
 
 } // namespace blink

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_factory_chromeos.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -147,16 +149,35 @@ scoped_ptr<UserCloudPolicyManagerChromeOS>
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
   const bool is_browser_restart =
       command_line->HasSwitch(chromeos::switches::kLoginUser);
-  const bool wait_for_initial_policy = !is_browser_restart;
+  const user_manager::UserManager* const user_manager =
+      user_manager::UserManager::Get();
 
-  const base::TimeDelta initial_policy_fetch_timeout =
-      user_manager::UserManager::Get()->IsCurrentUserNew()
-          ? base::TimeDelta::Max()
-          : base::TimeDelta::FromSeconds(kInitialPolicyFetchTimeoutSeconds);
+  // We want to block for policy in a few situations: if the user is new, or
+  // if we are forcing an online signin. An online signin will be forced if
+  // there has been a credential error, or if the initial session creation
+  // was not completed (the oauth_token_status is not set to valid by
+  // OAuth2LoginManager until profile creation/session restore is complete).
+  const bool block_forever_for_policy =
+      !user_manager->IsLoggedInAsStub() &&
+      (user_manager->IsCurrentUserNew() ||
+       user_manager->GetActiveUser()->force_online_signin() ||
+       user_manager->GetActiveUser()->oauth_token_status() !=
+           user_manager::User::OAUTH2_TOKEN_STATUS_VALID);
+
+  const bool wait_for_policy_fetch =
+      block_forever_for_policy || !is_browser_restart;
+
+  base::TimeDelta initial_policy_fetch_timeout;
+  if (block_forever_for_policy) {
+    initial_policy_fetch_timeout = base::TimeDelta::Max();
+  } else if (wait_for_policy_fetch) {
+    initial_policy_fetch_timeout =
+        base::TimeDelta::FromSeconds(kInitialPolicyFetchTimeoutSeconds);
+  }
 
   DeviceManagementService* device_management_service =
       connector->device_management_service();
-  if (wait_for_initial_policy)
+  if (wait_for_policy_fetch)
     device_management_service->ScheduleInitialization(0);
 
   base::FilePath profile_dir = profile->GetPath();
@@ -198,8 +219,8 @@ scoped_ptr<UserCloudPolicyManagerChromeOS>
 
   scoped_ptr<UserCloudPolicyManagerChromeOS> manager(
       new UserCloudPolicyManagerChromeOS(
-          store.Pass(), external_data_manager.Pass(),
-          component_policy_cache_dir, wait_for_initial_policy,
+          std::move(store), std::move(external_data_manager),
+          component_policy_cache_dir, wait_for_policy_fetch,
           initial_policy_fetch_timeout, base::ThreadTaskRunnerHandle::Get(),
           file_task_runner, io_task_runner));
 
@@ -217,7 +238,7 @@ scoped_ptr<UserCloudPolicyManagerChromeOS>
 
   DCHECK(managers_.find(profile) == managers_.end());
   managers_[profile] = manager.get();
-  return manager.Pass();
+  return manager;
 }
 
 void UserCloudPolicyManagerFactoryChromeOS::BrowserContextShutdown(

@@ -4,6 +4,7 @@
 
 #include <objbase.h>
 #include <windows.h>
+#include <stddef.h>
 #include <winternl.h>
 
 #include <cstdlib>
@@ -137,22 +138,52 @@ void RewritePointersToStackMemory(uintptr_t top, uintptr_t bottom,
 #endif
 }
 
-// Walks the stack represented by |context| from the current frame downwards,
-// recording the instruction pointers for each frame in |instruction_pointers|.
-int RecordStack(CONTEXT* context, int max_stack_size,
-                const void* instruction_pointers[],
-                ScopedModuleHandle modules[]) {
-#ifdef _WIN64
-  Win32StackFrameUnwinder frame_unwinder;
-  int i = 0;
-  for (; (i < max_stack_size) && context->Rip; ++i) {
-    instruction_pointers[i] = reinterpret_cast<const void*>(context->Rip);
-    if (!frame_unwinder.TryUnwind(context, &modules[i]))
-      return i + 1;
+// Movable type representing a recorded stack frame.
+struct RecordedFrame {
+  RecordedFrame() {}
+
+  RecordedFrame(RecordedFrame&& other)
+      : instruction_pointer(other.instruction_pointer),
+        module(std::move(other.module)) {
   }
-  return i;
-#else
-  return 0;
+
+  RecordedFrame& operator=(RecordedFrame&& other) {
+    instruction_pointer = other.instruction_pointer;
+    module = std::move(other.module);
+    return *this;
+  }
+
+  const void* instruction_pointer;
+  ScopedModuleHandle module;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(RecordedFrame);
+};
+
+// Walks the stack represented by |context| from the current frame downwards,
+// recording the instruction pointer and associated module for each frame in
+// |stack|.
+void RecordStack(CONTEXT* context, std::vector<RecordedFrame>* stack) {
+#ifdef _WIN64
+  DCHECK(stack->empty());
+
+  // Reserve enough memory for most stacks, to avoid repeated
+  // allocations. Approximately 99.9% of recorded stacks are 128 frames or
+  // fewer.
+  stack->reserve(128);
+
+  Win32StackFrameUnwinder frame_unwinder;
+  while (context->Rip) {
+    const void* instruction_pointer =
+        reinterpret_cast<const void*>(context->Rip);
+    ScopedModuleHandle module;
+    if (!frame_unwinder.TryUnwind(context, &module))
+      return;
+    RecordedFrame frame;
+    frame.instruction_pointer = instruction_pointer;
+    frame.module = std::move(module);
+    stack->push_back(std::move(frame));
+  }
 #endif
 }
 
@@ -236,8 +267,8 @@ class ScopedSuspendThread {
 
 ScopedSuspendThread::ScopedSuspendThread(HANDLE thread_handle)
     : thread_handle_(thread_handle),
-      was_successful_(::SuspendThread(thread_handle) != -1) {
-}
+      was_successful_(::SuspendThread(thread_handle) !=
+                      static_cast<DWORD>(-1)) {}
 
 ScopedSuspendThread::~ScopedSuspendThread() {
   if (!was_successful_)
@@ -254,27 +285,42 @@ ScopedSuspendThread::~ScopedSuspendThread() {
   // before priority boost is reenabled. The measured length of this window is
   // ~100us, so this should occur fairly rarely.
   ScopedDisablePriorityBoost disable_priority_boost(thread_handle_);
-  bool resume_thread_succeeded = ::ResumeThread(thread_handle_) != -1;
+  bool resume_thread_succeeded =
+      ::ResumeThread(thread_handle_) != static_cast<DWORD>(-1);
   CHECK(resume_thread_succeeded) << "ResumeThread failed: " << GetLastError();
 }
 
+// Tests whether |stack_pointer| points to a location in the guard page.
+//
+// IMPORTANT NOTE: This function is invoked while the target thread is
+// suspended so it must not do any allocation from the default heap, including
+// indirectly via use of DCHECK/CHECK or other logging statements. Otherwise
+// this code can deadlock on heap locks in the default heap acquired by the
+// target thread before it was suspended.
+bool PointsToGuardPage(uintptr_t stack_pointer) {
+  MEMORY_BASIC_INFORMATION memory_info;
+  SIZE_T result = ::VirtualQuery(reinterpret_cast<LPCVOID>(stack_pointer),
+                                 &memory_info,
+                                 sizeof(memory_info));
+  return result != 0 && (memory_info.Protect & PAGE_GUARD);
+}
+
 // Suspends the thread with |thread_handle|, copies its stack and resumes the
-// thread, then records the stack into |instruction_pointers|. Returns the size
-// of the stack.
+// thread, then records the stack frames and associated modules into |stack|.
 //
 // IMPORTANT NOTE: No allocations from the default heap may occur in the
 // ScopedSuspendThread scope, including indirectly via use of DCHECK/CHECK or
 // other logging statements. Otherwise this code can deadlock on heap locks in
-// the default heap acquired by the target thread before it was suspended. This
-// is why we pass instruction pointers as preallocated arrays.
-int SuspendThreadAndRecordStack(HANDLE thread_handle,
-                                const void* base_address,
-                                void* stack_copy_buffer,
-                                size_t stack_copy_buffer_size,
-                                int max_stack_size,
-                                const void* instruction_pointers[],
-                                ScopedModuleHandle modules[],
-                                NativeStackSamplerTestDelegate* test_delegate) {
+// the default heap acquired by the target thread before it was suspended.
+void SuspendThreadAndRecordStack(
+    HANDLE thread_handle,
+    const void* base_address,
+    void* stack_copy_buffer,
+    size_t stack_copy_buffer_size,
+    std::vector<RecordedFrame>* stack,
+    NativeStackSamplerTestDelegate* test_delegate) {
+  DCHECK(stack->empty());
+
   CONTEXT thread_context = {0};
   thread_context.ContextFlags = CONTEXT_FULL;
   // The stack bounds are saved to uintptr_ts for use outside
@@ -287,10 +333,10 @@ int SuspendThreadAndRecordStack(HANDLE thread_handle,
     ScopedSuspendThread suspend_thread(thread_handle);
 
     if (!suspend_thread.was_successful())
-      return 0;
+      return;
 
     if (!::GetThreadContext(thread_handle, &thread_context))
-      return 0;
+      return;
 #if defined(_WIN64)
     bottom = thread_context.Rsp;
 #else
@@ -298,7 +344,13 @@ int SuspendThreadAndRecordStack(HANDLE thread_handle,
 #endif
 
     if ((top - bottom) > stack_copy_buffer_size)
-      return 0;
+      return;
+
+    // Dereferencing a pointer in the guard page in a thread that doesn't own
+    // the stack results in a STATUS_GUARD_PAGE_VIOLATION exception and a crash.
+    // This occurs very rarely, but reliably over the population.
+    if (PointsToGuardPage(bottom))
+      return;
 
     std::memcpy(stack_copy_buffer, reinterpret_cast<const void*>(bottom),
                 top - bottom);
@@ -309,8 +361,7 @@ int SuspendThreadAndRecordStack(HANDLE thread_handle,
 
   RewritePointersToStackMemory(top, bottom, &thread_context, stack_copy_buffer);
 
-  return RecordStack(&thread_context, max_stack_size, instruction_pointers,
-                     modules);
+  RecordStack(&thread_context, stack);
 }
 
 // NativeStackSamplerWin ------------------------------------------------------
@@ -349,11 +400,8 @@ class NativeStackSamplerWin : public NativeStackSampler {
   size_t GetModuleIndex(HMODULE module_handle,
                         std::vector<StackSamplingProfiler::Module>* modules);
 
-  // Copies the stack information represented by |instruction_pointers| into
-  // |sample| and |modules|.
-  void CopyToSample(const void* const instruction_pointers[],
-                    const ScopedModuleHandle module_handles[],
-                    int stack_depth,
+  // Copies the information represented by |stack| into |sample| and |modules|.
+  void CopyToSample(const std::vector<RecordedFrame>& stack,
                     StackSamplingProfiler::Sample* sample,
                     std::vector<StackSamplingProfiler::Module>* modules);
 
@@ -404,20 +452,11 @@ void NativeStackSamplerWin::RecordStackSample(
   if (!stack_copy_buffer_)
     return;
 
-  const int max_stack_size = 64;
-  const void* instruction_pointers[max_stack_size] = {0};
-  ScopedModuleHandle modules[max_stack_size];
-
-  int stack_depth = SuspendThreadAndRecordStack(thread_handle_.Get(),
-                                                thread_stack_base_address_,
-                                                stack_copy_buffer_.get(),
-                                                kStackCopyBufferSize,
-                                                max_stack_size,
-                                                instruction_pointers,
-                                                modules,
-                                                test_delegate_);
-  CopyToSample(instruction_pointers, modules, stack_depth, sample,
-               current_modules_);
+  std::vector<RecordedFrame> stack;
+  SuspendThreadAndRecordStack(thread_handle_.Get(), thread_stack_base_address_,
+                              stack_copy_buffer_.get(), kStackCopyBufferSize,
+                              &stack, test_delegate_);
+  CopyToSample(stack, sample, current_modules_);
 }
 
 void NativeStackSamplerWin::ProfileRecordingStopped() {
@@ -465,18 +504,16 @@ size_t NativeStackSamplerWin::GetModuleIndex(
 }
 
 void NativeStackSamplerWin::CopyToSample(
-    const void* const instruction_pointers[],
-    const ScopedModuleHandle module_handles[],
-    int stack_depth,
+    const std::vector<RecordedFrame>& stack,
     StackSamplingProfiler::Sample* sample,
     std::vector<StackSamplingProfiler::Module>* modules) {
   sample->clear();
-  sample->reserve(stack_depth);
+  sample->reserve(stack.size());
 
-  for (int i = 0; i < stack_depth; ++i) {
+  for (const RecordedFrame& frame : stack) {
     sample->push_back(StackSamplingProfiler::Frame(
-        reinterpret_cast<uintptr_t>(instruction_pointers[i]),
-        GetModuleIndex(module_handles[i].Get(), modules)));
+        reinterpret_cast<uintptr_t>(frame.instruction_pointer),
+        GetModuleIndex(frame.module.Get(), modules)));
   }
 }
 

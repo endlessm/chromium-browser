@@ -16,8 +16,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NACL_LOG_MODULE_NAME  "elf_util"
-
 #include "native_client/src/include/elf_constants.h"
 #include "native_client/src/include/elf.h"
 #include "native_client/src/include/nacl_macros.h"
@@ -662,8 +660,7 @@ static NaClErrorCode NaClElfFileMapSegment(struct NaClApp *nap,
        * Remove scratch mapping, then map directly into untrusted
        * address space or pread.
        */
-      NaClDescUnmapUnsafe(ndp, (void *) image_sys_addr,
-                          rounded_filesz);
+      NaClHostDescUnmapUnsafe((void *) image_sys_addr, rounded_filesz);
       NACL_MAKE_MEM_UNDEFINED((void *) paddr, rounded_filesz);
 
       if (NaClValidationSucceeded != validator_status) {

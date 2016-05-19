@@ -4,12 +4,10 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/formfiller/FormFiller.h"
-#include "../../include/formfiller/FFL_FormFiller.h"
-#include "../../include/formfiller/FFL_PushButton.h"
+#include "fpdfsdk/include/formfiller/FFL_PushButton.h"
 
-/* ------------------------------- CFFL_PushButton
- * ------------------------------- */
+#include "fpdfsdk/include/formfiller/FFL_FormFiller.h"
+#include "fpdfsdk/include/pdfwindow/PWL_SpecialButton.h"
 
 CFFL_PushButton::CFFL_PushButton(CPDFDoc_Environment* pApp,
                                  CPDFSDK_Annot* pAnnot)
@@ -34,7 +32,7 @@ FX_BOOL CFFL_PushButton::OnChar(CPDFSDK_Annot* pAnnot,
 void CFFL_PushButton::OnDraw(CPDFSDK_PageView* pPageView,
                              CPDFSDK_Annot* pAnnot,
                              CFX_RenderDevice* pDevice,
-                             CPDF_Matrix* pUser2Device,
+                             CFX_Matrix* pUser2Device,
                              FX_DWORD dwFlags) {
   CFFL_Button::OnDraw(pPageView, pAnnot, pDevice, pUser2Device, dwFlags);
 }

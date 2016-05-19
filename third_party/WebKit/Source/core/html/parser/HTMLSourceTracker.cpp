@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLSourceTracker.h"
 
 #include "core/html/parser/HTMLTokenizer.h"
@@ -92,4 +91,4 @@ String HTMLSourceTracker::sourceForToken(const HTMLToken& token)
     return m_cachedSourceForToken;
 }
 
-}
+} // namespace blink

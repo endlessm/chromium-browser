@@ -24,14 +24,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/shadow/ElementShadow.h"
 
 #include "core/css/StyleSheetList.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/dom/NodeTraversal.h"
 #include "core/dom/shadow/DistributedNodes.h"
-#include "core/frame/UseCounter.h"
+#include "core/frame/Deprecation.h"
 #include "core/html/HTMLContentElement.h"
 #include "core/html/HTMLShadowElement.h"
 #include "core/inspector/InspectorInstrumentation.h"
@@ -71,6 +70,10 @@ inline void DistributionPool::populateChildren(const ContainerNode& parent)
 {
     clear();
     for (Node* child = parent.firstChild(); child; child = child->nextSibling()) {
+        if (isHTMLSlotElement(child)) {
+            // TODO(hayato): Support re-distribution across v0 and v1 shadow trees
+            continue;
+        }
         if (isActiveInsertionPoint(*child)) {
             InsertionPoint* insertionPoint = toInsertionPoint(child);
             for (size_t i = 0; i < insertionPoint->distributedNodesSize(); ++i)
@@ -153,9 +156,9 @@ ShadowRoot& ElementShadow::addShadowRoot(Element& shadowHost, ShadowRootType typ
             shadowHost.willAddFirstAuthorShadowRoot();
         } else if (m_shadowRoots.head()->type() == ShadowRootType::UserAgent) {
             shadowHost.willAddFirstAuthorShadowRoot();
-            UseCounter::countDeprecation(shadowHost.document(), UseCounter::ElementCreateShadowRootMultipleWithUserAgentShadowRoot);
+            Deprecation::countDeprecation(shadowHost.document(), UseCounter::ElementCreateShadowRootMultipleWithUserAgentShadowRoot);
         } else {
-            UseCounter::countDeprecation(shadowHost.document(), UseCounter::ElementCreateShadowRootMultiple);
+            Deprecation::countDeprecation(shadowHost.document(), UseCounter::ElementCreateShadowRootMultiple);
         }
     } else if (type == ShadowRootType::Open || type == ShadowRootType::Closed) {
         shadowHost.willAddFirstAuthorShadowRoot();
@@ -284,7 +287,6 @@ void ElementShadow::distribute()
 
 void ElementShadow::distributeV0()
 {
-    host()->setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::Shadow));
     WillBeHeapVector<RawPtrWillBeMember<HTMLShadowElement>, 32> shadowInsertionPoints;
     DistributionPool pool(*host());
 
@@ -328,7 +330,9 @@ void ElementShadow::distributeV0()
 
 void ElementShadow::distributeV1()
 {
-    // TODO(hayato): Implement this
+    if (!m_slotAssignment)
+        m_slotAssignment = SlotAssignment::create();
+    m_slotAssignment->resolveAssignment(youngestShadowRoot());
 }
 
 void ElementShadow::didDistributeNode(const Node* node, InsertionPoint* insertionPoint)
@@ -398,7 +402,8 @@ DEFINE_TRACE(ElementShadow)
     // It is therefore enough to trace one of the shadow roots here and the
     // rest will be traced from there.
     visitor->trace(m_shadowRoots.head());
+    visitor->trace(m_slotAssignment);
 #endif
 }
 
-} // namespace
+} // namespace blink

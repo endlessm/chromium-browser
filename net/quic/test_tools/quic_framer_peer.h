@@ -5,6 +5,7 @@
 #ifndef NET_QUIC_TEST_TOOLS_QUIC_FRAMER_PEER_H_
 #define NET_QUIC_TEST_TOOLS_QUIC_FRAMER_PEER_H_
 
+#include "base/macros.h"
 #include "net/quic/crypto/quic_encrypter.h"
 #include "net/quic/quic_framer.h"
 #include "net/quic/quic_protocol.h"
@@ -18,6 +19,7 @@ class QuicFramerPeer {
   static QuicPacketNumber CalculatePacketNumberFromWire(
       QuicFramer* framer,
       QuicPacketNumberLength packet_number_length,
+      QuicPacketNumber last_packet_number,
       QuicPacketNumber packet_number);
   static void SetLastSerializedConnectionId(QuicFramer* framer,
                                             QuicConnectionId connection_id);
@@ -30,6 +32,12 @@ class QuicFramerPeer {
   static void SwapCrypters(QuicFramer* framer1, QuicFramer* framer2);
 
   static QuicEncrypter* GetEncrypter(QuicFramer* framer, EncryptionLevel level);
+
+  static QuicPacketNumber GetLastPacketNumber(QuicFramer* framer);
+
+  static QuicPathId GetLastPathId(QuicFramer* framer);
+
+  static bool IsPathClosed(QuicFramer* framer, QuicPathId path_id);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(QuicFramerPeer);

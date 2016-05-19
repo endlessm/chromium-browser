@@ -5,8 +5,10 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_FRAME_OPAQUE_BROWSER_FRAME_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_FRAME_OPAQUE_BROWSER_FRAME_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/frame/avatar_button_manager.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view_layout_delegate.h"
@@ -19,7 +21,6 @@ class BrowserView;
 class OpaqueBrowserFrameViewLayout;
 class OpaqueBrowserFrameViewPlatformSpecific;
 class TabIconView;
-class NewAvatarButton;
 
 namespace views {
 class ImageButton;
@@ -43,6 +44,7 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   int GetThemeBackgroundXInset() const override;
   void UpdateThrobber(bool running) override;
   gfx::Size GetMinimumSize() const override;
+  views::View* GetProfileSwitcherView() const override;
 
   // views::NonClientFrameView:
   gfx::Rect GetBoundsForClientView() const override;
@@ -62,8 +64,9 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::MenuButtonListener:
-  void OnMenuButtonClicked(views::View* source,
-                           const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
   // TabIconViewModel:
   bool ShouldTabIconViewAnimate() const override;
@@ -84,7 +87,9 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   bool IsFullscreen() const override;
   bool IsTabStripVisible() const override;
   int GetTabStripHeight() const override;
+  bool IsToolbarVisible() const override;
   gfx::Size GetTabstripPreferredSize() const override;
+  int GetToolbarLeadingCornerClientWidth() const override;
 
  protected:
   views::ImageButton* minimize_button() const { return minimize_button_; }
@@ -97,7 +102,7 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
 
   // BrowserNonClientFrameView:
   bool ShouldPaintAsThemed() const override;
-  void UpdateNewAvatarButtonImpl() override;
+  void UpdateAvatar() override;
 
  private:
   // views::NonClientFrameView:
@@ -118,10 +123,6 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   // calculated as if the window was restored, regardless of its current state.
   int FrameBorderThickness(bool restored) const;
 
-  // Returns the height of the top resize area.  This is smaller than the frame
-  // border height in order to increase the window draggable area.
-  int TopResizeHeight() const;
-
   // Returns true if the specified point is within the avatar menu buttons.
   bool IsWithinAvatarMenuButtons(const gfx::Point& point) const;
 
@@ -136,16 +137,23 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   // Returns true if the view should draw its own custom title bar.
   bool ShouldShowWindowTitleBar() const;
 
+  // Computes the height of the top area of the frame.
+  int GetTopAreaHeight() const;
+
   // Paint various sub-components of this view.  The *FrameBorder() functions
   // also paint the background of the titlebar area, since the top frame border
   // and titlebar background are a contiguous component.
-  void PaintRestoredFrameBorder(gfx::Canvas* canvas);
-  void PaintMaximizedFrameBorder(gfx::Canvas* canvas);
-  void PaintToolbarBackground(gfx::Canvas* canvas);
-  void PaintRestoredClientEdge(gfx::Canvas* canvas);
-
-  // Returns the bounds of the client area for the specified view size.
-  gfx::Rect CalculateClientAreaBounds(int width, int height) const;
+  void PaintRestoredFrameBorder(gfx::Canvas* canvas) const;
+  void PaintMaximizedFrameBorder(gfx::Canvas* canvas) const;
+  void PaintToolbarBackground(gfx::Canvas* canvas) const;
+  void PaintClientEdge(gfx::Canvas* canvas) const;
+  void FillClientEdgeRects(int x,
+                           int y,
+                           int w,
+                           int h,
+                           bool draw_bottom,
+                           SkColor color,
+                           gfx::Canvas* canvas) const;
 
   // Our layout manager also calculates various bounds.
   OpaqueBrowserFrameViewLayout* layout_;
@@ -159,6 +167,9 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   // The window icon and title.
   TabIconView* window_icon_;
   views::Label* window_title_;
+
+  // Wrapper around the in-frame avatar switcher.
+  AvatarButtonManager profile_switcher_;
 
   // Background painter for the window frame.
   scoped_ptr<views::FrameBackground> frame_background_;

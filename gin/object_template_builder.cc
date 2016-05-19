@@ -4,6 +4,8 @@
 
 #include "gin/object_template_builder.h"
 
+#include <stdint.h>
+
 #include "gin/interceptor.h"
 #include "gin/per_isolate_data.h"
 #include "gin/public/wrapper_info.h"
@@ -142,6 +144,9 @@ ObjectTemplateBuilder::ObjectTemplateBuilder(v8::Isolate* isolate)
     : isolate_(isolate), template_(v8::ObjectTemplate::New(isolate)) {
   template_->SetInternalFieldCount(kNumberOfInternalFields);
 }
+
+ObjectTemplateBuilder::ObjectTemplateBuilder(
+    const ObjectTemplateBuilder& other) = default;
 
 ObjectTemplateBuilder::~ObjectTemplateBuilder() {
 }

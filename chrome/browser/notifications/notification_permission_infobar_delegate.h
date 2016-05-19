@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "chrome/browser/permissions/permission_infobar_delegate.h"
 
 class NotificationPermissionInfobarDelegate : public PermissionInfobarDelegate {
@@ -27,6 +28,7 @@ class NotificationPermissionInfobarDelegate : public PermissionInfobarDelegate {
   ~NotificationPermissionInfobarDelegate() override;
 
   // PermissionInfoBarDelegate:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   int GetIconId() const override;
   base::string16 GetMessageText() const override;
 

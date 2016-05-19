@@ -5,7 +5,10 @@
 #ifndef CONTENT_CHILD_REQUEST_EXTRA_DATA_H_
 #define CONTENT_CHILD_REQUEST_EXTRA_DATA_H_
 
+#include <utility>
+
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "content/child/web_url_loader_impl.h"
 #include "content/common/content_export.h"
 #include "content/common/navigation_params.h"
@@ -87,6 +90,14 @@ class CONTENT_EXPORT RequestExtraData
       int service_worker_provider_id) {
     service_worker_provider_id_ = service_worker_provider_id;
   }
+  // true if the request originated from within a service worker e.g. due to
+  // a fetch() in the service worker script.
+  bool originated_from_service_worker() const {
+    return originated_from_service_worker_;
+  }
+  void set_originated_from_service_worker(bool originated_from_service_worker) {
+    originated_from_service_worker_ = originated_from_service_worker;
+  }
   LoFiState lofi_state() const {
     return lofi_state_;
   }
@@ -113,12 +124,12 @@ class CONTENT_EXPORT RequestExtraData
   // PlzNavigate: |stream_override| is used to override certain parameters of
   // navigation requests.
   scoped_ptr<StreamOverrideParameters> TakeStreamOverrideOwnership() {
-    return stream_override_.Pass();
+    return std::move(stream_override_);
   }
 
   void set_stream_override(
       scoped_ptr<StreamOverrideParameters> stream_override) {
-    stream_override_ = stream_override.Pass();
+    stream_override_ = std::move(stream_override);
   }
 
  private:
@@ -134,6 +145,7 @@ class CONTENT_EXPORT RequestExtraData
   int transferred_request_child_id_;
   int transferred_request_request_id_;
   int service_worker_provider_id_;
+  bool originated_from_service_worker_;
   blink::WebString custom_user_agent_;
   blink::WebString requested_with_;
   scoped_ptr<StreamOverrideParameters> stream_override_;

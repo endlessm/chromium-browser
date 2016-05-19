@@ -4,7 +4,13 @@
 
 #include "components/sync_sessions/sessions_sync_manager.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
+#include "base/macros.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/sync/chrome_sync_client.h"
 #include "chrome/browser/sync/glue/session_sync_test_helper.h"
@@ -18,11 +24,12 @@
 #include "components/sessions/core/session_id.h"
 #include "components/sessions/core/session_types.h"
 #include "components/sync_driver/device_info.h"
-#include "components/sync_driver/glue/synced_window_delegate.h"
 #include "components/sync_driver/local_device_info_provider_mock.h"
-#include "components/sync_driver/sessions/synced_window_delegates_getter.h"
 #include "components/sync_driver/sync_api_component_factory.h"
+#include "components/sync_sessions/sync_sessions_client.h"
 #include "components/sync_sessions/synced_tab_delegate.h"
+#include "components/sync_sessions/synced_window_delegate.h"
+#include "components/sync_sessions/synced_window_delegates_getter.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "sync/api/attachments/attachment_id.h"
@@ -183,10 +190,9 @@ class TestSyncProcessorStub : public syncer::SyncChangeProcessor {
   syncer::SyncDataList sync_data_to_return_;
 };
 
-syncer::SyncChange MakeRemoteChange(
-    int64 id,
-    const sync_pb::SessionSpecifics& specifics,
-    SyncChange::SyncChangeType type) {
+syncer::SyncChange MakeRemoteChange(int64_t id,
+                                    const sync_pb::SessionSpecifics& specifics,
+                                    SyncChange::SyncChangeType type) {
   sync_pb::EntitySpecifics entity;
   entity.mutable_session()->CopyFrom(specifics);
   return syncer::SyncChange(
@@ -259,6 +265,58 @@ scoped_ptr<LocalSessionEventRouter> NewDummyRouter() {
   return scoped_ptr<LocalSessionEventRouter>(new DummyRouter());
 }
 
+// Provides ability to override SyncedWindowDelegatesGetter.
+// All other calls are passed through to the original SyncSessionsClient.
+class SyncSessionsClientShim : public sync_sessions::SyncSessionsClient {
+ public:
+  SyncSessionsClientShim(
+      sync_sessions::SyncSessionsClient* sync_sessions_client)
+      : sync_sessions_client_(sync_sessions_client),
+        synced_window_getter_(nullptr) {}
+  ~SyncSessionsClientShim() override {}
+
+  bookmarks::BookmarkModel* GetBookmarkModel() override {
+    return sync_sessions_client_->GetBookmarkModel();
+  }
+
+  favicon::FaviconService* GetFaviconService() override {
+    return sync_sessions_client_->GetFaviconService();
+  }
+
+  history::HistoryService* GetHistoryService() override {
+    return sync_sessions_client_->GetHistoryService();
+  }
+
+  bool ShouldSyncURL(const GURL& url) const override {
+    return sync_sessions_client_->ShouldSyncURL(url);
+  }
+
+  browser_sync::SyncedWindowDelegatesGetter* GetSyncedWindowDelegatesGetter()
+      override {
+    // The idea here is to allow the test code override the default
+    // SyncedWindowDelegatesGetter provided by |sync_sessions_client_|.
+    // If |synced_window_getter_| is explicitly set, return it; otherwise return
+    // the default one provided by |sync_sessions_client_|.
+    return synced_window_getter_
+               ? synced_window_getter_
+               : sync_sessions_client_->GetSyncedWindowDelegatesGetter();
+  }
+
+  scoped_ptr<browser_sync::LocalSessionEventRouter> GetLocalSessionEventRouter()
+      override {
+    return sync_sessions_client_->GetLocalSessionEventRouter();
+  }
+
+  void set_synced_window_getter(
+      browser_sync::SyncedWindowDelegatesGetter* synced_window_getter) {
+    synced_window_getter_ = synced_window_getter;
+  }
+
+ private:
+  sync_sessions::SyncSessionsClient* const sync_sessions_client_;
+  browser_sync::SyncedWindowDelegatesGetter* synced_window_getter_;
+};
+
 }  // namespace
 
 class SessionsSyncManagerTest
@@ -277,7 +335,9 @@ class SessionsSyncManagerTest
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
-    sync_client_.reset(new browser_sync::ChromeSyncClient(profile(), nullptr));
+    sync_client_.reset(new browser_sync::ChromeSyncClient(profile()));
+    sessions_client_shim_.reset(
+        new SyncSessionsClientShim(sync_client_->GetSyncSessionsClient()));
     browser_sync::NotificationServiceSessionsRouter* router(
         new browser_sync::NotificationServiceSessionsRouter(
             profile(), GetSyncSessionsClient(),
@@ -354,13 +414,19 @@ class SessionsSyncManagerTest
   }
 
   sync_sessions::SyncSessionsClient* GetSyncSessionsClient() {
-    return sync_client_->GetSyncSessionsClient();
+    return sessions_client_shim_.get();
   }
 
   sync_driver::SyncPrefs* sync_prefs() { return sync_prefs_.get(); }
 
+  void set_synced_window_getter(
+      browser_sync::SyncedWindowDelegatesGetter* synced_window_getter) {
+    sessions_client_shim_->set_synced_window_getter(synced_window_getter);
+  }
+
  private:
   scoped_ptr<browser_sync::ChromeSyncClient> sync_client_;
+  scoped_ptr<SyncSessionsClientShim> sessions_client_shim_;
   scoped_ptr<sync_driver::SyncPrefs> sync_prefs_;
   SessionNotificationObserver observer_;
   scoped_ptr<SessionsSyncManager> manager_;
@@ -423,7 +489,7 @@ class SyncedTabDelegateFake : public SyncedTabDelegate {
   }
 
   void AppendEntry(scoped_ptr<content::NavigationEntry> entry) {
-    entries_.push_back(entry.Pass());
+    entries_.push_back(std::move(entry));
   }
 
   GURL GetVirtualURLAtIndex(int i) const override {
@@ -541,9 +607,9 @@ TEST_F(SessionsSyncManagerTest, SetSessionTabFromDelegate) {
   entry3->SetTimestamp(kTime3);
   entry3->SetHttpStatusCode(202);
 
-  tab.AppendEntry(entry1.Pass());
-  tab.AppendEntry(entry2.Pass());
-  tab.AppendEntry(entry3.Pass());
+  tab.AppendEntry(std::move(entry1));
+  tab.AppendEntry(std::move(entry2));
+  tab.AppendEntry(std::move(entry3));
   tab.set_current_entry_index(2);
 
   sessions::SessionTab session_tab;
@@ -559,8 +625,7 @@ TEST_F(SessionsSyncManagerTest, SetSessionTabFromDelegate) {
       SerializedNavigationEntryTestHelper::CreateNavigation(
           "http://www.example.com", "Example"));
   session_tab.session_storage_persistent_id = "persistent id";
-  manager()->SetSessionTabFromDelegate(
-      manager()->GetSyncedWindowDelegatesGetter(), tab, kTime4, &session_tab);
+  manager()->SetSessionTabFromDelegate(tab, kTime4, &session_tab);
 
   EXPECT_EQ(0, session_tab.window_id.id());
   EXPECT_EQ(0, session_tab.tab_id.id());
@@ -654,21 +719,20 @@ TEST_F(SessionsSyncManagerTest, SetSessionTabFromDelegateNavigationIndex) {
   entry9->SetTimestamp(kTime9);
   entry9->SetHttpStatusCode(200);
 
-  tab.AppendEntry(entry0.Pass());
-  tab.AppendEntry(entry1.Pass());
-  tab.AppendEntry(entry2.Pass());
-  tab.AppendEntry(entry3.Pass());
-  tab.AppendEntry(entry4.Pass());
-  tab.AppendEntry(entry5.Pass());
-  tab.AppendEntry(entry6.Pass());
-  tab.AppendEntry(entry7.Pass());
-  tab.AppendEntry(entry8.Pass());
-  tab.AppendEntry(entry9.Pass());
+  tab.AppendEntry(std::move(entry0));
+  tab.AppendEntry(std::move(entry1));
+  tab.AppendEntry(std::move(entry2));
+  tab.AppendEntry(std::move(entry3));
+  tab.AppendEntry(std::move(entry4));
+  tab.AppendEntry(std::move(entry5));
+  tab.AppendEntry(std::move(entry6));
+  tab.AppendEntry(std::move(entry7));
+  tab.AppendEntry(std::move(entry8));
+  tab.AppendEntry(std::move(entry9));
   tab.set_current_entry_index(8);
 
   sessions::SessionTab session_tab;
-  manager()->SetSessionTabFromDelegate(
-      manager()->GetSyncedWindowDelegatesGetter(), tab, kTime9, &session_tab);
+  manager()->SetSessionTabFromDelegate(tab, kTime9, &session_tab);
 
   EXPECT_EQ(6, session_tab.current_navigation_index);
   ASSERT_EQ(8u, session_tab.navigations.size());
@@ -702,15 +766,14 @@ TEST_F(SessionsSyncManagerTest, SetSessionTabFromDelegateCurrentInvalid) {
   entry3->SetTimestamp(kTime3);
   entry3->SetHttpStatusCode(200);
 
-  tab.AppendEntry(entry0.Pass());
-  tab.AppendEntry(entry1.Pass());
-  tab.AppendEntry(entry2.Pass());
-  tab.AppendEntry(entry3.Pass());
+  tab.AppendEntry(std::move(entry0));
+  tab.AppendEntry(std::move(entry1));
+  tab.AppendEntry(std::move(entry2));
+  tab.AppendEntry(std::move(entry3));
   tab.set_current_entry_index(1);
 
   sessions::SessionTab session_tab;
-  manager()->SetSessionTabFromDelegate(
-      manager()->GetSyncedWindowDelegatesGetter(), tab, kTime9, &session_tab);
+  manager()->SetSessionTabFromDelegate(tab, kTime9, &session_tab);
 
   EXPECT_EQ(2, session_tab.current_navigation_index);
   ASSERT_EQ(3u, session_tab.navigations.size());
@@ -749,7 +812,7 @@ TEST_F(SessionsSyncManagerTest, BlockedNavigations) {
   GURL url1("http://www.google.com/");
   entry1->SetVirtualURL(url1);
   entry1->SetTimestamp(kTime1);
-  tab.AppendEntry(entry1.Pass());
+  tab.AppendEntry(std::move(entry1));
 
   scoped_ptr<content::NavigationEntry> entry2(
       content::NavigationEntry::Create());
@@ -762,8 +825,8 @@ TEST_F(SessionsSyncManagerTest, BlockedNavigations) {
   entry3->SetVirtualURL(url3);
   entry3->SetTimestamp(kTime3);
   ScopedVector<const content::NavigationEntry> blocked_navigations;
-  blocked_navigations.push_back(entry2.Pass());
-  blocked_navigations.push_back(entry3.Pass());
+  blocked_navigations.push_back(std::move(entry2));
+  blocked_navigations.push_back(std::move(entry3));
 
   tab.set_is_supervised(true);
   tab.set_blocked_navigations(&blocked_navigations.get());
@@ -781,8 +844,7 @@ TEST_F(SessionsSyncManagerTest, BlockedNavigations) {
       SerializedNavigationEntryTestHelper::CreateNavigation(
           "http://www.example.com", "Example"));
   session_tab.session_storage_persistent_id = "persistent id";
-  manager()->SetSessionTabFromDelegate(
-      manager()->GetSyncedWindowDelegatesGetter(), tab, kTime4, &session_tab);
+  manager()->SetSessionTabFromDelegate(tab, kTime4, &session_tab);
 
   EXPECT_EQ(0, session_tab.window_id.id());
   EXPECT_EQ(0, session_tab.tab_id.id());
@@ -914,7 +976,7 @@ TEST_F(SessionsSyncManagerTest, SwappedOutOnRestore) {
   manager()->StopSyncing(syncer::SESSIONS);
 
   const std::set<const SyncedWindowDelegate*>& windows =
-      manager()->GetSyncedWindowDelegatesGetter()->GetSyncedWindowDelegates();
+      manager()->synced_window_delegates_getter()->GetSyncedWindowDelegates();
   ASSERT_EQ(1U, windows.size());
   SyncedTabDelegateFake t1_override, t2_override;
   t1_override.SetSyncId(1);  // No WebContents by default.
@@ -927,7 +989,7 @@ TEST_F(SessionsSyncManagerTest, SwappedOutOnRestore) {
   delegates.insert(&window_override);
   scoped_ptr<TestSyncedWindowDelegatesGetter> getter(
       new TestSyncedWindowDelegatesGetter(delegates));
-  manager()->synced_window_getter_ = getter.get();
+  set_synced_window_getter(getter.get());
 
   syncer::SyncMergeResult result = manager()->MergeDataAndStartSyncing(
       syncer::SESSIONS, in,
@@ -1988,7 +2050,7 @@ TEST_F(SessionsSyncManagerTest, NotifiedOfLocalRemovalOfForeignSession) {
   ASSERT_TRUE(observer()->notified_of_update());
 }
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if defined(OS_ANDROID)
 // Tests that opening the other devices page triggers a session sync refresh.
 // This page only exists on mobile platforms today; desktop has a
 // search-enhanced NTP without other devices.
@@ -2000,7 +2062,7 @@ TEST_F(SessionsSyncManagerTest, NotifiedOfRefresh) {
   NavigateAndCommitActiveTab(GURL("chrome://newtab/#open_tabs"));
   EXPECT_TRUE(observer()->notified_of_refresh());
 }
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
+#endif  // defined(OS_ANDROID)
 
 // Tests receipt of duplicate tab IDs in the same window.  This should never
 // happen, but we want to make sure the client won't do anything bad if it does

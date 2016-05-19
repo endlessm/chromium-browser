@@ -11,22 +11,23 @@
 #ifdef ENABLE_RTC_EVENT_LOG
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/buffer.h"
 #include "webrtc/base/checks.h"
+#include "webrtc/base/random.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread.h"
 #include "webrtc/call.h"
 #include "webrtc/call/rtc_event_log.h"
 #include "webrtc/modules/rtp_rtcp/source/rtcp_packet.h"
+#include "webrtc/modules/rtp_rtcp/source/rtcp_packet/sender_report.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_sender.h"
 #include "webrtc/system_wrappers/include/clock.h"
-#include "webrtc/test/random.h"
 #include "webrtc/test/test_suite.h"
 #include "webrtc/test/testsupport/fileutils.h"
-#include "webrtc/test/testsupport/gtest_disable.h"
 
 // Files generated at build-time by the protobuf compiler.
 #ifdef WEBRTC_ANDROID_PLATFORM_BUILD
@@ -300,7 +301,7 @@ size_t GenerateRtpPacket(uint32_t extensions_bitvector,
                          uint32_t csrcs_count,
                          uint8_t* packet,
                          size_t packet_size,
-                         test::Random* prng) {
+                         Random* prng) {
   RTC_CHECK_GE(packet_size, 16 + 4 * csrcs_count + 4 * kNumExtensions);
   Clock* clock = Clock::GetRealTimeClock();
 
@@ -313,7 +314,8 @@ size_t GenerateRtpPacket(uint32_t extensions_bitvector,
                        nullptr,   // SendTimeObserver*
                        nullptr,   // BitrateStatisticsObserver*
                        nullptr,   // FrameCountObserver*
-                       nullptr);  // SendSideDelayObserver*
+                       nullptr,   // SendSideDelayObserver*
+                       nullptr);  // RtcEventLog*
 
   std::vector<uint32_t> csrcs;
   for (unsigned i = 0; i < csrcs_count; i++) {
@@ -348,15 +350,15 @@ size_t GenerateRtpPacket(uint32_t extensions_bitvector,
   return header_size;
 }
 
-rtc::scoped_ptr<rtcp::RawPacket> GenerateRtcpPacket(test::Random* prng) {
+rtc::Buffer GenerateRtcpPacket(Random* prng) {
   rtcp::ReportBlock report_block;
   report_block.To(prng->Rand<uint32_t>());  // Remote SSRC.
   report_block.WithFractionLost(prng->Rand(50));
 
   rtcp::SenderReport sender_report;
   sender_report.From(prng->Rand<uint32_t>());  // Sender SSRC.
-  sender_report.WithNtpSec(prng->Rand<uint32_t>());
-  sender_report.WithNtpFrac(prng->Rand<uint32_t>());
+  sender_report.WithNtp(
+      NtpTime(prng->Rand<uint32_t>(), prng->Rand<uint32_t>()));
   sender_report.WithPacketCount(prng->Rand<uint32_t>());
   sender_report.WithReportBlock(report_block);
 
@@ -365,7 +367,7 @@ rtc::scoped_ptr<rtcp::RawPacket> GenerateRtcpPacket(test::Random* prng) {
 
 void GenerateVideoReceiveConfig(uint32_t extensions_bitvector,
                                 VideoReceiveStream::Config* config,
-                                test::Random* prng) {
+                                Random* prng) {
   // Create a map from a payload type to an encoder name.
   VideoReceiveStream::Decoder decoder;
   decoder.payload_type = prng->Rand(0, 127);
@@ -394,7 +396,7 @@ void GenerateVideoReceiveConfig(uint32_t extensions_bitvector,
 
 void GenerateVideoSendConfig(uint32_t extensions_bitvector,
                              VideoSendStream::Config* config,
-                             test::Random* prng) {
+                             Random* prng) {
   // Create a map from a payload type to an encoder name.
   config->encoder_settings.payload_type = prng->Rand(0, 127);
   config->encoder_settings.payload_name = (prng->Rand<bool>() ? "VP8" : "H264");
@@ -425,7 +427,7 @@ void LogSessionAndReadBack(size_t rtp_count,
   ASSERT_LE(playout_count, rtp_count);
   ASSERT_LE(bwe_loss_count, rtp_count);
   std::vector<rtc::Buffer> rtp_packets;
-  std::vector<rtc::scoped_ptr<rtcp::RawPacket> > rtcp_packets;
+  std::vector<rtc::Buffer> rtcp_packets;
   std::vector<size_t> rtp_header_sizes;
   std::vector<uint32_t> playout_ssrcs;
   std::vector<std::pair<int32_t, uint8_t> > bwe_loss_updates;
@@ -433,7 +435,7 @@ void LogSessionAndReadBack(size_t rtp_count,
   VideoReceiveStream::Config receiver_config(nullptr);
   VideoSendStream::Config sender_config(nullptr);
 
-  test::Random prng(random_seed);
+  Random prng(random_seed);
 
   // Create rtp_count RTP packets containing random data.
   for (size_t i = 0; i < rtp_count; i++) {
@@ -479,15 +481,15 @@ void LogSessionAndReadBack(size_t rtp_count,
     size_t bwe_loss_index = 1;
     for (size_t i = 1; i <= rtp_count; i++) {
       log_dumper->LogRtpHeader(
-          (i % 2 == 0),  // Every second packet is incoming.
+          (i % 2 == 0) ? kIncomingPacket : kOutgoingPacket,
           (i % 3 == 0) ? MediaType::AUDIO : MediaType::VIDEO,
           rtp_packets[i - 1].data(), rtp_packets[i - 1].size());
       if (i * rtcp_count >= rtcp_index * rtp_count) {
         log_dumper->LogRtcpPacket(
-            rtcp_index % 2 == 0,  // Every second packet is incoming
+            (rtcp_index % 2 == 0) ? kIncomingPacket : kOutgoingPacket,
             rtcp_index % 3 == 0 ? MediaType::AUDIO : MediaType::VIDEO,
-            rtcp_packets[rtcp_index - 1]->Buffer(),
-            rtcp_packets[rtcp_index - 1]->Length());
+            rtcp_packets[rtcp_index - 1].data(),
+            rtcp_packets[rtcp_index - 1].size());
         rtcp_index++;
       }
       if (i * playout_count >= playout_index * rtp_count) {
@@ -534,8 +536,8 @@ void LogSessionAndReadBack(size_t rtp_count,
       VerifyRtcpEvent(parsed_stream.stream(event_index),
                       rtcp_index % 2 == 0,  // Every second packet is incoming.
                       rtcp_index % 3 == 0 ? MediaType::AUDIO : MediaType::VIDEO,
-                      rtcp_packets[rtcp_index - 1]->Buffer(),
-                      rtcp_packets[rtcp_index - 1]->Length());
+                      rtcp_packets[rtcp_index - 1].data(),
+                      rtcp_packets[rtcp_index - 1].size());
       event_index++;
       rtcp_index++;
     }
@@ -590,7 +592,7 @@ TEST(RtcEventLogTest, LogSessionAndReadBack) {
                             1 + csrcs_count,  // Number of BWE loss events.
                             extensions,       // Bit vector choosing extensions.
                             csrcs_count,      // Number of contributing sources.
-                            extensions + csrcs_count);  // Random seed.
+                            extensions * 3 + csrcs_count + 1);  // Random seed.
     }
   }
 }
@@ -602,13 +604,13 @@ void DropOldEvents(uint32_t extensions_bitvector,
                    unsigned int random_seed) {
   rtc::Buffer old_rtp_packet;
   rtc::Buffer recent_rtp_packet;
-  rtc::scoped_ptr<rtcp::RawPacket> old_rtcp_packet;
-  rtc::scoped_ptr<rtcp::RawPacket> recent_rtcp_packet;
+  rtc::Buffer old_rtcp_packet;
+  rtc::Buffer recent_rtcp_packet;
 
   VideoReceiveStream::Config receiver_config(nullptr);
   VideoSendStream::Config sender_config(nullptr);
 
-  test::Random prng(random_seed);
+  Random prng(random_seed);
 
   // Create two RTP packets containing random data.
   size_t packet_size = prng.Rand(1000, 1100);
@@ -642,18 +644,20 @@ void DropOldEvents(uint32_t extensions_bitvector,
     log_dumper->SetBufferDuration(50000);
     log_dumper->LogVideoReceiveStreamConfig(receiver_config);
     log_dumper->LogVideoSendStreamConfig(sender_config);
-    log_dumper->LogRtpHeader(false, MediaType::AUDIO, old_rtp_packet.data(),
-                             old_rtp_packet.size());
-    log_dumper->LogRtcpPacket(true, MediaType::AUDIO, old_rtcp_packet->Buffer(),
-                              old_rtcp_packet->Length());
+    log_dumper->LogRtpHeader(kOutgoingPacket, MediaType::AUDIO,
+                             old_rtp_packet.data(), old_rtp_packet.size());
+    log_dumper->LogRtcpPacket(kIncomingPacket, MediaType::AUDIO,
+                              old_rtcp_packet.data(),
+                              old_rtcp_packet.size());
     // Sleep 55 ms to let old events be removed from the queue.
     rtc::Thread::SleepMs(55);
     log_dumper->StartLogging(temp_filename, 10000000);
-    log_dumper->LogRtpHeader(true, MediaType::VIDEO, recent_rtp_packet.data(),
+    log_dumper->LogRtpHeader(kIncomingPacket, MediaType::VIDEO,
+                             recent_rtp_packet.data(),
                              recent_rtp_packet.size());
-    log_dumper->LogRtcpPacket(false, MediaType::VIDEO,
-                              recent_rtcp_packet->Buffer(),
-                              recent_rtcp_packet->Length());
+    log_dumper->LogRtcpPacket(kOutgoingPacket, MediaType::VIDEO,
+                              recent_rtcp_packet.data(),
+                              recent_rtcp_packet.size());
   }
 
   // Read the generated file from disk.
@@ -671,7 +675,7 @@ void DropOldEvents(uint32_t extensions_bitvector,
                  recent_rtp_packet.data(), recent_header_size,
                  recent_rtp_packet.size());
   VerifyRtcpEvent(parsed_stream.stream(4), false, MediaType::VIDEO,
-                  recent_rtcp_packet->Buffer(), recent_rtcp_packet->Length());
+                  recent_rtcp_packet.data(), recent_rtcp_packet.size());
 
   // Clean up temporary file - can be pretty slow.
   remove(temp_filename.c_str());

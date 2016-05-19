@@ -25,7 +25,6 @@
 #define KeyboardEvent_h
 
 #include "core/CoreExport.h"
-#include "core/events/EventDispatchMediator.h"
 #include "core/events/KeyboardEventInit.h"
 #include "core/events/UIEventWithKeyState.h"
 
@@ -58,10 +57,10 @@ public:
 
     static PassRefPtrWillBeRawPtr<KeyboardEvent> create(const AtomicString& type, bool canBubble, bool cancelable, AbstractView* view,
         const String& keyIdentifier, const String& code, const String& key, unsigned location,
-        PlatformEvent::Modifiers modifiers)
+        PlatformEvent::Modifiers modifiers, double platformTimeStamp)
     {
         return adoptRefWillBeNoop(new KeyboardEvent(type, canBubble, cancelable, view, keyIdentifier, code, key, location,
-            modifiers));
+            modifiers, platformTimeStamp));
     }
 
     ~KeyboardEvent() override;
@@ -86,8 +85,6 @@ public:
     bool isKeyboardEvent() const override;
     int which() const override;
 
-    PassRefPtrWillBeRawPtr<EventDispatchMediator> createMediator() override;
-
     DECLARE_VIRTUAL_TRACE();
 
 private:
@@ -96,7 +93,7 @@ private:
     KeyboardEvent(const AtomicString&, const KeyboardEventInit&);
     KeyboardEvent(const AtomicString& type, bool canBubble, bool cancelable, AbstractView*,
         const String& keyIdentifier, const String& code, const String& key, unsigned location,
-        PlatformEvent::Modifiers);
+        PlatformEvent::Modifiers, double platformTimeStamp);
 
     void initLocationModifiers(unsigned location);
 
@@ -105,14 +102,6 @@ private:
     String m_code;
     String m_key;
     unsigned m_location;
-};
-
-class KeyboardEventDispatchMediator : public EventDispatchMediator {
-public:
-    static PassRefPtrWillBeRawPtr<KeyboardEventDispatchMediator> create(PassRefPtrWillBeRawPtr<KeyboardEvent>);
-private:
-    explicit KeyboardEventDispatchMediator(PassRefPtrWillBeRawPtr<KeyboardEvent>);
-    bool dispatchEvent(EventDispatcher&) const override;
 };
 
 DEFINE_EVENT_TYPE_CASTS(KeyboardEvent);

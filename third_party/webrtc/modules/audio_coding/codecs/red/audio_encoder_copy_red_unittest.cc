@@ -8,11 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/checks.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/audio_coding/codecs/red/audio_encoder_copy_red.h"
 #include "webrtc/modules/audio_coding/codecs/mock/mock_audio_encoder.h"
 
@@ -42,7 +42,7 @@ class AudioEncoderCopyRedTest : public ::testing::Test {
     config.speech_encoder = &mock_encoder_;
     red_.reset(new AudioEncoderCopyRed(config));
     memset(audio_, 0, sizeof(audio_));
-    EXPECT_CALL(mock_encoder_, NumChannels()).WillRepeatedly(Return(1));
+    EXPECT_CALL(mock_encoder_, NumChannels()).WillRepeatedly(Return(1U));
     EXPECT_CALL(mock_encoder_, SampleRateHz())
         .WillRepeatedly(Return(sample_rate_hz_));
     EXPECT_CALL(mock_encoder_, MaxEncodedBytes())
@@ -68,7 +68,7 @@ class AudioEncoderCopyRedTest : public ::testing::Test {
   }
 
   MockAudioEncoder mock_encoder_;
-  rtc::scoped_ptr<AudioEncoderCopyRed> red_;
+  std::unique_ptr<AudioEncoderCopyRed> red_;
   uint32_t timestamp_;
   int16_t audio_[kMaxNumSamples];
   const int sample_rate_hz_;
@@ -110,8 +110,8 @@ TEST_F(AudioEncoderCopyRedTest, CheckSampleRatePropagation) {
 }
 
 TEST_F(AudioEncoderCopyRedTest, CheckNumChannelsPropagation) {
-  EXPECT_CALL(mock_encoder_, NumChannels()).WillOnce(Return(17));
-  EXPECT_EQ(17, red_->NumChannels());
+  EXPECT_CALL(mock_encoder_, NumChannels()).WillOnce(Return(17U));
+  EXPECT_EQ(17U, red_->NumChannels());
 }
 
 TEST_F(AudioEncoderCopyRedTest, CheckFrameSizePropagation) {

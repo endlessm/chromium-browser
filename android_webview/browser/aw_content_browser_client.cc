@@ -4,6 +4,8 @@
 
 #include "android_webview/browser/aw_content_browser_client.h"
 
+#include <utility>
+
 #include "android_webview/browser/aw_browser_context.h"
 #include "android_webview/browser/aw_browser_main_parts.h"
 #include "android_webview/browser/aw_contents_client_bridge_base.h"
@@ -24,8 +26,10 @@
 #include "base/android/locale_utils.h"
 #include "base/base_paths_android.h"
 #include "base/command_line.h"
+#include "base/files/scoped_file.h"
 #include "base/path_service.h"
 #include "components/cdm/browser/cdm_message_filter_android.h"
+#include "components/crash/content/browser/crash_micro_dump_manager_android.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
 #include "content/public/browser/access_token_store.h"
 #include "content/public/browser/browser_message_filter.h"
@@ -140,11 +144,11 @@ class AwAccessTokenStore : public content::AccessTokenStore {
   AwAccessTokenStore() { }
 
   // content::AccessTokenStore implementation
-  void LoadAccessTokens(const LoadAccessTokensCallbackType& request) override {
-    AccessTokenStore::AccessTokenSet access_token_set;
-    // AccessTokenSet and net::URLRequestContextGetter not used on Android,
+  void LoadAccessTokens(const LoadAccessTokensCallback& request) override {
+    AccessTokenStore::AccessTokenMap access_token_map;
+    // AccessTokenMap and net::URLRequestContextGetter not used on Android,
     // but Run needs to be called to finish the geolocation setup.
-    request.Run(access_token_set, NULL);
+    request.Run(access_token_map, NULL);
   }
   void SaveAccessToken(const GURL& server_url,
                        const base::string16& access_token) override {}
@@ -232,8 +236,8 @@ net::URLRequestContextGetter* AwContentBrowserClient::CreateRequestContext(
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) {
   DCHECK_EQ(browser_context_.get(), browser_context);
-  return browser_context_->CreateRequestContext(protocol_handlers,
-                                                request_interceptors.Pass());
+  return browser_context_->CreateRequestContext(
+      protocol_handlers, std::move(request_interceptors));
 }
 
 net::URLRequestContextGetter*
@@ -248,7 +252,7 @@ AwContentBrowserClient::CreateRequestContextForStoragePartition(
   // downstream. (crbug.com/350286)
   return browser_context_->CreateRequestContextForStoragePartition(
       partition_path, in_memory, protocol_handlers,
-      request_interceptors.Pass());
+      std::move(request_interceptors));
 }
 
 bool AwContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -351,7 +355,7 @@ bool AwContentBrowserClient::AllowSetCookie(const GURL& url,
                                             content::ResourceContext* context,
                                             int render_process_id,
                                             int render_frame_id,
-                                            net::CookieOptions* options) {
+                                            const net::CookieOptions& options) {
   return AwCookieAccessPolicy::GetInstance()->AllowSetCookie(url,
                                                              first_party,
                                                              cookie_line,
@@ -365,7 +369,6 @@ bool AwContentBrowserClient::AllowWorkerDatabase(
     const GURL& url,
     const base::string16& name,
     const base::string16& display_name,
-    unsigned long estimated_size,
     content::ResourceContext* context,
     const std::vector<std::pair<int, int> >& render_frames) {
   // Android WebView does not yet support web workers.
@@ -396,8 +399,7 @@ AwContentBrowserClient::CreateQuotaPermissionContext() {
 }
 
 void AwContentBrowserClient::AllowCertificateError(
-    int render_process_id,
-    int render_frame_id,
+    content::WebContents* web_contents,
     int cert_error,
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
@@ -408,7 +410,7 @@ void AwContentBrowserClient::AllowCertificateError(
     const base::Callback<void(bool)>& callback,
     content::CertificateRequestResultType* result) {
   AwContentsClientBridgeBase* client =
-      AwContentsClientBridgeBase::FromID(render_process_id, render_frame_id);
+      AwContentsClientBridgeBase::FromWebContents(web_contents);
   bool cancel_request = true;
   if (client)
     client->AllowCertificateError(cert_error,
@@ -427,7 +429,7 @@ void AwContentBrowserClient::SelectClientCertificate(
   AwContentsClientBridgeBase* client =
       AwContentsClientBridgeBase::FromWebContents(web_contents);
   if (client)
-    client->SelectClientCertificate(cert_request_info, delegate.Pass());
+    client->SelectClientCertificate(cert_request_info, std::move(delegate));
 }
 
 bool AwContentBrowserClient::CanCreateWindow(
@@ -472,9 +474,15 @@ content::AccessTokenStore* AwContentBrowserClient::CreateAccessTokenStore() {
 }
 
 bool AwContentBrowserClient::IsFastShutdownPossible() {
-  NOTREACHED() << "Android WebView is single process, so IsFastShutdownPossible"
-               << " should never be called";
-  return false;
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kSingleProcess)) {
+    NOTREACHED()
+        << "Android WebView is single process, so IsFastShutdownPossible"
+        << " should never be called";
+    return false;
+  } else {
+    return true;
+  }
 }
 
 void AwContentBrowserClient::ClearCache(content::RenderFrameHost* rfh) {
@@ -526,6 +534,14 @@ void AwContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
 
   fd = ui::GetLocalePackFd(&(*regions)[kAndroidWebViewLocalePakDescriptor]);
   mappings->Share(kAndroidWebViewLocalePakDescriptor, fd);
+
+  base::ScopedFD crash_signal_file =
+      breakpad::CrashMicroDumpManager::GetInstance()->CreateCrashInfoChannel(
+          child_process_id);
+  if (crash_signal_file.is_valid()) {
+    mappings->Transfer(kAndroidWebViewCrashSignalDescriptor,
+                       std::move(crash_signal_file));
+  }
 }
 
 void AwContentBrowserClient::OverrideWebkitPrefs(
@@ -549,10 +565,9 @@ AwContentBrowserClient::CreateThrottlesForNavigation(
   if (navigation_handle->IsInMainFrame()) {
     throttles.push_back(
         navigation_interception::InterceptNavigationDelegate::CreateThrottleFor(
-            navigation_handle)
-            .Pass());
+            navigation_handle));
   }
-  return throttles.Pass();
+  return throttles;
 }
 
 #if defined(VIDEO_HOLE)

@@ -40,13 +40,15 @@ AppBannerManagerAndroid::AppBannerManagerAndroid(
 AppBannerManagerAndroid::~AppBannerManagerAndroid() {
 }
 
-void AppBannerManagerAndroid::Destroy(JNIEnv* env, jobject obj) {
+void AppBannerManagerAndroid::Destroy(JNIEnv* env,
+                                      const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-void AppBannerManagerAndroid::ReplaceWebContents(JNIEnv* env,
-                                                 jobject obj,
-                                                 jobject jweb_contents) {
+void AppBannerManagerAndroid::ReplaceWebContents(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& jweb_contents) {
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(jweb_contents);
   AppBannerManager::ReplaceWebContents(web_contents);
@@ -54,8 +56,9 @@ void AppBannerManagerAndroid::ReplaceWebContents(JNIEnv* env,
 
 bool AppBannerManagerAndroid::HandleNonWebApp(const std::string& platform,
                                               const GURL& url,
-                                              const std::string& id) {
-  if (!CheckPlatformAndId(platform, id))
+                                              const std::string& id,
+                                              bool is_debug_mode) {
+  if (!CheckPlatformAndId(platform, id, is_debug_mode))
     return false;
 
   banners::TrackDisplayEvent(DISPLAY_EVENT_NATIVE_APP_BANNER_REQUESTED);
@@ -68,8 +71,8 @@ bool AppBannerManagerAndroid::HandleNonWebApp(const std::string& platform,
 
   std::string id_from_app_url = ExtractQueryValueForName(url, kIdName);
   if (id_from_app_url.size() && id != id_from_app_url) {
-    banners::OutputDeveloperDebugMessage(web_contents(),
-                                         banners::kIgnoredIdsDoNotMatch);
+    banners::OutputDeveloperDebugMessage(
+        web_contents(), banners::kIgnoredIdsDoNotMatch, is_debug_mode);
     return false;
   }
 
@@ -97,27 +100,31 @@ bool AppBannerManagerAndroid::HandleNonWebApp(const std::string& platform,
 }
 
 bool AppBannerManagerAndroid::CheckPlatformAndId(const std::string& platform,
-                                                 const std::string& id) {
+                                                 const std::string& id,
+                                                 bool is_debug_mode) {
   if (platform != kPlayPlatform) {
     banners::OutputDeveloperDebugMessage(
-        web_contents(), platform + banners::kIgnoredNotSupportedOnAndroid);
+        web_contents(), platform + banners::kIgnoredNotSupportedOnAndroid,
+        is_debug_mode);
     return false;
   }
   if (id.empty()) {
-    banners::OutputDeveloperDebugMessage(web_contents(), banners::kIgnoredNoId);
+    banners::OutputDeveloperDebugMessage(web_contents(), banners::kIgnoredNoId,
+                                         is_debug_mode);
     return false;
   }
   return true;
 }
 
-bool AppBannerManagerAndroid::CheckFetcherMatchesContents() {
+bool AppBannerManagerAndroid::CheckFetcherMatchesContents(bool is_debug_mode) {
   if (!web_contents())
     return false;
 
   if (!data_fetcher() ||
       data_fetcher()->validated_url() != web_contents()->GetURL()) {
     banners::OutputDeveloperNotShownMessage(
-        web_contents(), banners::kUserNavigatedBeforeBannerShown);
+        web_contents(), banners::kUserNavigatedBeforeBannerShown,
+        is_debug_mode);
     return false;
   }
   return true;
@@ -140,39 +147,47 @@ std::string AppBannerManagerAndroid::ExtractQueryValueForName(
 }
 
 AppBannerDataFetcher* AppBannerManagerAndroid::CreateAppBannerDataFetcher(
-    base::WeakPtr<Delegate> weak_delegate) {
+    base::WeakPtr<Delegate> weak_delegate,
+    bool is_debug_mode) {
   return new AppBannerDataFetcherAndroid(
-      web_contents(),
-      weak_delegate,
+      web_contents(), weak_delegate,
       ShortcutHelper::GetIdealHomescreenIconSizeInDp(),
       ShortcutHelper::GetMinimumHomescreenIconSizeInDp(),
       ShortcutHelper::GetIdealSplashImageSizeInDp(),
-      ShortcutHelper::GetMinimumSplashImageSizeInDp());
+      ShortcutHelper::GetMinimumSplashImageSizeInDp(), is_debug_mode);
 }
 
-bool AppBannerManagerAndroid::OnAppDetailsRetrieved(JNIEnv* env,
-                                                    jobject obj,
-                                                    jobject japp_data,
-                                                    jstring japp_title,
-                                                    jstring japp_package,
-                                                    jstring jicon_url) {
-  if (!CheckFetcherMatchesContents())
-    return false;
-
-  base::android::ScopedJavaLocalRef<jobject> native_app_data;
-  native_app_data.Reset(env, japp_data);
-  GURL image_url = GURL(ConvertJavaStringToUTF8(env, jicon_url));
-
+bool AppBannerManagerAndroid::OnAppDetailsRetrieved(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& japp_data,
+    const JavaParamRef<jstring>& japp_title,
+    const JavaParamRef<jstring>& japp_package,
+    const JavaParamRef<jstring>& jicon_url) {
   AppBannerDataFetcherAndroid* android_fetcher =
       static_cast<AppBannerDataFetcherAndroid*>(data_fetcher().get());
+  if (!CheckFetcherMatchesContents(android_fetcher->is_debug_mode()))
+    return false;
+
+  GURL image_url = GURL(ConvertJavaStringToUTF8(env, jicon_url));
+
   return android_fetcher->ContinueFetching(
       ConvertJavaStringToUTF16(env, japp_title),
-      ConvertJavaStringToUTF8(env, japp_package),
-      native_app_data, image_url);
+      ConvertJavaStringToUTF8(env, japp_package), japp_data, image_url);
 }
 
-bool AppBannerManagerAndroid::IsFetcherActive(JNIEnv* env, jobject obj) {
+bool AppBannerManagerAndroid::IsFetcherActive(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   return AppBannerManager::IsFetcherActive();
+}
+
+void AppBannerManagerAndroid::RequestAppBanner(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
+  AppBannerManager::RequestAppBanner(web_contents()->GetMainFrame(),
+                                     web_contents()->GetLastCommittedURL(),
+                                     true);
 }
 
 // static

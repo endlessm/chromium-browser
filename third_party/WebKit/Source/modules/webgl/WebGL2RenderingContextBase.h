@@ -36,22 +36,41 @@ public:
     void blitFramebuffer(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum);
     void framebufferTextureLayer(ScriptState*, GLenum, GLenum, WebGLTexture*, GLint, GLint);
     ScriptValue getInternalformatParameter(ScriptState*, GLenum, GLenum, GLenum);
-    void invalidateFramebuffer(GLenum, Vector<GLenum>&);
-    void invalidateSubFramebuffer(GLenum, Vector<GLenum>&, GLint, GLint, GLsizei, GLsizei);
+    void invalidateFramebuffer(GLenum, const Vector<GLenum>&);
+    void invalidateSubFramebuffer(GLenum, const Vector<GLenum>&, GLint, GLint, GLsizei, GLsizei);
     void readBuffer(GLenum);
 
     /* Renderbuffer objects */
     void renderbufferStorageMultisample(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
 
     /* Texture objects */
+    void texImage2D(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, GLintptr);
+    // Have to re-declair/re-define the following texImage2D functions from base class.
+    // This is because the above texImage2D() hides the name from base class.
+    void texImage2D(GLenum target, GLint level, GLint internalformat,
+        GLsizei width, GLsizei height, GLint border,
+        GLenum format, GLenum type, DOMArrayBufferView*);
+    void texImage2D(GLenum target, GLint level, GLint internalformat,
+        GLenum format, GLenum type, ImageData*);
+    void texImage2D(GLenum target, GLint level, GLint internalformat,
+        GLenum format, GLenum type, HTMLImageElement*, ExceptionState&);
+    void texImage2D(GLenum target, GLint level, GLint internalformat,
+        GLenum format, GLenum type, HTMLCanvasElement*, ExceptionState&);
+    void texImage2D(GLenum target, GLint level, GLint internalformat,
+        GLenum format, GLenum type, HTMLVideoElement*, ExceptionState&);
+    void texImage2D(GLenum target, GLint level, GLint internalformat,
+        GLenum format, GLenum type, PassRefPtrWillBeRawPtr<ImageBitmap>, ExceptionState&);
+
     void texStorage2D(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
     void texStorage3D(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
     void texImage3D(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, DOMArrayBufferView*);
+    void texImage3D(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, GLintptr);
     void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, DOMArrayBufferView*);
     void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLenum, GLenum, ImageData*);
     void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLenum, GLenum, HTMLImageElement*, ExceptionState&);
     void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLenum, GLenum, HTMLCanvasElement*, ExceptionState&);
     void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLenum, GLenum, HTMLVideoElement*, ExceptionState&);
+    void texSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLenum, GLenum, PassRefPtrWillBeRawPtr<ImageBitmap>, ExceptionState&);
     void copyTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei);
     void compressedTexImage3D(GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, DOMArrayBufferView*);
     void compressedTexSubImage3D(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, DOMArrayBufferView*);
@@ -147,13 +166,14 @@ public:
     WebGLActiveInfo* getTransformFeedbackVarying(WebGLProgram*, GLuint);
     void pauseTransformFeedback();
     void resumeTransformFeedback();
+    bool validateTransformFeedbackPrimitiveMode(const char* functionName, GLenum primitiveMode);
 
     /* Uniform Buffer Objects and Transform Feedback Buffers */
     void bindBufferBase(GLenum, GLuint, WebGLBuffer*);
     void bindBufferRange(GLenum, GLuint, WebGLBuffer*, long long, long long);
     ScriptValue getIndexedParameter(ScriptState*, GLenum, GLuint);
     Vector<GLuint> getUniformIndices(WebGLProgram*, const Vector<String>&);
-    Vector<GLint> getActiveUniforms(WebGLProgram*, const Vector<GLuint>&, GLenum);
+    ScriptValue getActiveUniforms(ScriptState*, WebGLProgram*, const Vector<GLuint>&, GLenum);
     GLuint getUniformBlockIndex(WebGLProgram*, const String&);
     ScriptValue getActiveUniformBlockParameter(ScriptState*, WebGLProgram*, GLuint, GLenum);
     String getActiveUniformBlockName(WebGLProgram*, GLuint);
@@ -175,6 +195,7 @@ public:
     ScriptValue getParameter(ScriptState*, GLenum pname) override;
     ScriptValue getTexParameter(ScriptState*, GLenum target, GLenum pname) override;
     ScriptValue getFramebufferAttachmentParameter(ScriptState*, GLenum target, GLenum attachment, GLenum pname) override;
+    void pixelStorei(GLenum pname, GLint param) override;
     void readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, DOMArrayBufferView* pixels) override;
     void restoreCurrentFramebuffer() override;
 
@@ -195,8 +216,8 @@ protected:
         TexStorageType3D,
     };
     bool validateTexStorage(const char*, GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei, TexStorageType);
-    bool validateTexImage3D(const char* functionName, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type);
-    bool validateTexSubImage3D(const char*, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLenum format, GLenum type, GLsizei width, GLsizei height, GLsizei depth);
+
+    bool validateUniformBlockIndex(const char*, WebGLProgram*, GLuint);
 
     ScriptValue getInt64Parameter(ScriptState*, GLenum);
 
@@ -210,33 +231,47 @@ protected:
     bool validateBufferBaseTarget(const char* functionName, GLenum target);
     bool validateAndUpdateBufferBindBaseTarget(const char* functionName, GLenum, GLuint, WebGLBuffer*);
 
-    void vertexAttribIivImpl(const char*, GLuint, const GLint*, GLsizei);
-    void vertexAttribIuivImpl(const char*, GLuint, const GLuint*, GLsizei);
+    WebGLImageConversion::PixelStoreParams getPackPixelStoreParams() override;
+    WebGLImageConversion::PixelStoreParams getUnpackPixelStoreParams() override;
+
+    bool checkAndTranslateAttachments(const char* functionName, GLenum, const Vector<GLenum>&, Vector<GLenum>&);
 
     /* WebGLRenderingContextBase overrides */
     unsigned getMaxWebGLLocationLength() const override { return 1024; };
     bool validateCapability(const char* functionName, GLenum) override;
     bool validateBufferTarget(const char* functionName, GLenum target) override;
     bool validateAndUpdateBufferBindTarget(const char* functionName, GLenum, WebGLBuffer*) override;
-    WebGLTexture* validateTextureBinding(const char* functionName, GLenum target, bool useSixEnumsForCubeMap) override;
     bool validateFramebufferTarget(GLenum target) override;
-    bool validateReadPixelsFormatAndType(GLenum format, GLenum type) override;
-    DOMArrayBufferView::ViewType readPixelsExpectedArrayBufferViewType(GLenum type) override;
+
+    bool validateReadPixelsFormatAndType(GLenum format, GLenum type, DOMArrayBufferView*) override;
     WebGLFramebuffer* getFramebufferBinding(GLenum target) override;
+    WebGLFramebuffer* getReadFramebufferBinding() override;
     GLint getMaxTextureLevelForTarget(GLenum target) override;
     void renderbufferStorageImpl(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, const char* functionName) override;
-    GLenum boundFramebufferColorFormat() override;
+
+    // Helper function to check texture 3D target and texture bound to the target.
+    // Generate GL errors and return 0 if target is invalid or texture bound is
+    // null.  Otherwise, return the texture bound to the target.
+    WebGLTexture* validateTexture3DBinding(const char* functionName, GLenum target);
 
     WebGLBuffer* validateBufferDataTarget(const char* functionName, GLenum target) override;
     bool validateBufferDataUsage(const char* functionName, GLenum usage) override;
 
     void removeBoundBuffer(WebGLBuffer*) override;
 
+    void resetUnpackParameters() override;
+    void restoreUnpackParameters() override;
+
+    bool transformFeedbackActive() const override;
+    bool transformFeedbackPaused() const override;
+    void setTransformFeedbackActive(bool);
+    void setTransformFeedbackPaused(bool);
+
     PersistentWillBeMember<WebGLFramebuffer> m_readFramebufferBinding;
     PersistentWillBeMember<WebGLTransformFeedback> m_transformFeedbackBinding;
-    GLint m_maxArrayTextureLayers;
 
     std::set<GLenum> m_supportedInternalFormatsStorage;
+    std::set<GLenum> m_compressedTextureFormatsETC2EAC;
 
     PersistentWillBeMember<WebGLBuffer> m_boundCopyReadBuffer;
     PersistentWillBeMember<WebGLBuffer> m_boundCopyWriteBuffer;
@@ -247,11 +282,21 @@ protected:
 
     PersistentHeapVectorWillBeHeapVector<Member<WebGLBuffer>> m_boundIndexedTransformFeedbackBuffers;
     PersistentHeapVectorWillBeHeapVector<Member<WebGLBuffer>> m_boundIndexedUniformBuffers;
+    GLint m_maxTransformFeedbackSeparateAttribs;
     size_t m_maxBoundUniformBufferIndex;
 
     PersistentWillBeMember<WebGLQuery> m_currentBooleanOcclusionQuery;
     PersistentWillBeMember<WebGLQuery> m_currentTransformFeedbackPrimitivesWrittenQuery;
     PersistentHeapVectorWillBeHeapVector<Member<WebGLSampler>> m_samplerUnits;
+
+    GLint m_packRowLength;
+    GLint m_packSkipPixels;
+    GLint m_packSkipRows;
+    GLint m_unpackRowLength;
+    GLint m_unpackImageHeight;
+    GLint m_unpackSkipPixels;
+    GLint m_unpackSkipRows;
+    GLint m_unpackSkipImages;
 };
 
 DEFINE_TYPE_CASTS(WebGL2RenderingContextBase, CanvasRenderingContext, context,

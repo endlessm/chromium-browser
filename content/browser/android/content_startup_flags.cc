@@ -10,7 +10,7 @@
 #include "base/logging.h"
 #include "base/sys_info.h"
 #include "cc/base/switches.h"
-#include "cc/trees/layer_tree_settings.h"
+#include "cc/layers/layer_settings.h"
 #include "content/public/browser/android/compositor.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
@@ -80,13 +80,11 @@ void SetContentCommandLineFlags(bool single_process,
         switches::kProfilerTiming, switches::kProfilerTimingDisabledValue);
   }
 
-#if !defined(USE_AURA)
   cc::LayerSettings layer_settings;
-  if (parsed_command_line->HasSwitch(
-          switches::kEnableAndroidCompositorAnimationTimelines))
-    layer_settings.use_compositor_animation_timelines = true;
+  layer_settings.use_compositor_animation_timelines =
+      !parsed_command_line->HasSwitch(
+          switches::kDisableAndroidCompositorAnimationTimelines);
   Compositor::SetLayerSettings(layer_settings);
-#endif
 }
 
 }  // namespace content

@@ -4,11 +4,14 @@
 
 #include "chrome/common/cloud_print/cloud_print_helpers.h"
 
+#include <stdint.h>
+
+#include <limits>
+
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/md5.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
 #include "base/values.h"
@@ -49,7 +52,7 @@ std::string HashPrinterTags(const PrinterTags& printer_tags) {
 std::string AppendPathToUrl(const GURL& url, const std::string& path) {
   DCHECK_NE(path[0], '/');
   std::string ret = url.path();
-  if (url.has_path() && (ret[ret.length() - 1] != '/'))
+  if (url.has_path() && (ret.back() != '/'))
     ret += '/';
   ret += path;
   return ret;
@@ -196,18 +199,11 @@ scoped_ptr<base::DictionaryValue> ParseResponseJSON(
   if (succeeded &&
       !response_dict->GetBoolean(kSuccessValue, succeeded))
     *succeeded = false;
-  return response_dict.Pass();
+  return response_dict;
 }
 
 std::string GetMultipartMimeType(const std::string& mime_boundary) {
   return std::string("multipart/form-data; boundary=") + mime_boundary;
-}
-
-// Create a MIME boundary marker (27 '-' characters followed by 16 hex digits).
-void CreateMimeBoundaryForUpload(std::string* out) {
-  int r1 = base::RandInt(0, kint32max);
-  int r2 = base::RandInt(0, kint32max);
-  base::SStringPrintf(out, "---------------------------%08X%08X", r1, r2);
 }
 
 std::string GetHashOfPrinterTags(const PrinterTags& printer_tags) {

@@ -4,9 +4,13 @@
 
 #include "chrome/browser/search/instant_service.h"
 
+#include <stddef.h>
+
 #include "base/metrics/field_trial.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/favicon/fallback_icon_service_factory.h"
 #include "chrome/browser/favicon/large_icon_service_factory.h"
@@ -18,6 +22,7 @@
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/search/suggestions/suggestions_service_factory.h"
 #include "chrome/browser/search/suggestions/suggestions_source.h"
+#include "chrome/browser/search/suggestions/suggestions_utils.h"
 #include "chrome/browser/search/thumbnail_source.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
@@ -35,14 +40,18 @@
 #include "components/search/search.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/url_data_source.h"
+#include "content/public/common/url_constants.h"
+#include "extensions/common/constants.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia.h"
+#include "url/url_constants.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/search/local_ntp_source.h"
@@ -55,6 +64,22 @@
 #endif  // defined(ENABLE_THEMES)
 
 namespace {
+
+// Used in a histogram; don't reorder, insert new values only at the end, and
+// keep in sync with "NtpMostVisitedScheme" in histograms.xml.
+enum class HistogramScheme {
+  OTHER,
+  OTHER_WEBSAFE,
+  HTTP,
+  HTTPS,
+  FTP,
+  FILE,
+  CHROME,
+  EXTENSION,
+  JAVASCRIPT,
+  // Insert new values here.
+  COUNT
+};
 
 const char kLocalNTPSuggestionService[] = "LocalNTPSuggestionsService";
 const char kLocalNTPSuggestionServiceEnabled[] = "Enabled";
@@ -70,7 +95,6 @@ bool IsLocalNTPSuggestionServiceEnabled() {
 InstantService::InstantService(Profile* profile)
     : profile_(profile),
       template_url_service_(TemplateURLServiceFactory::GetForProfile(profile_)),
-      omnibox_start_margin_(search::kDisableStartMargin),
       suggestions_service_(NULL),
       weak_ptr_factory_(this) {
   // The initialization below depends on a typical set of browser threads. Skip
@@ -107,8 +131,12 @@ InstantService::InstantService(Profile* profile)
 
   scoped_refptr<history::TopSites> top_sites =
       TopSitesFactory::GetForProfile(profile_);
-  if (top_sites)
+  if (top_sites) {
     top_sites->AddObserver(this);
+    // Immediately query the TopSites state.
+    TopSitesChanged(top_sites.get(),
+                    history::TopSitesObserver::ChangeReason::MOST_VISITED);
+  }
 
   if (profile_ && profile_->GetResourceContext()) {
     content::BrowserThread::PostTask(
@@ -157,7 +185,7 @@ InstantService::InstantService(Profile* profile)
 
   if (suggestions_service_) {
     suggestions_service_->FetchSuggestionsData(
-        suggestions::INITIALIZED_ENABLED_HISTORY,
+        suggestions::GetSyncState(profile_),
         base::Bind(&InstantService::OnSuggestionsAvailable,
                    weak_ptr_factory_.GetWeakPtr()));
   }
@@ -236,10 +264,12 @@ void InstantService::UpdateThemeInfo() {
 #if defined(ENABLE_THEMES)
   // Update theme background info.
   // Initialize |theme_info| if necessary.
-  if (!theme_info_)
-    OnThemeChanged(ThemeServiceFactory::GetForProfile(profile_));
-  else
-    OnThemeChanged(NULL);
+  if (!theme_info_) {
+    OnThemeChanged();
+  } else {
+    FOR_EACH_OBSERVER(InstantServiceObserver, observers_,
+                      ThemeInfoChanged(*theme_info_));
+  }
 #endif  // defined(ENABLE_THEMES)
 }
 
@@ -278,10 +308,9 @@ void InstantService::Observe(int type,
           content::Source<content::RenderProcessHost>(source)->GetID());
       break;
 #if defined(ENABLE_THEMES)
-    case chrome::NOTIFICATION_BROWSER_THEME_CHANGED: {
-      OnThemeChanged(content::Source<ThemeService>(source).ptr());
+    case chrome::NOTIFICATION_BROWSER_THEME_CHANGED:
+      OnThemeChanged();
       break;
-    }
 #endif  // defined(ENABLE_THEMES)
     default:
       NOTREACHED() << "Unexpected notification type in InstantService.";
@@ -293,10 +322,51 @@ void InstantService::SendSearchURLsToRenderer(content::RenderProcessHost* rph) {
       search::GetSearchURLs(profile_), search::GetNewTabPageURL(profile_)));
 }
 
-void InstantService::OnOmniboxStartMarginChanged(int start_margin) {
-  omnibox_start_margin_ = start_margin;
-  FOR_EACH_OBSERVER(InstantServiceObserver, observers_,
-                    OmniboxStartMarginChanged(omnibox_start_margin_));
+bool InstantService::IsValidURLForNavigation(const GURL& url) const {
+  HistogramScheme scheme = HistogramScheme::OTHER;
+  if (url.SchemeIs(url::kHttpScheme)) {
+    scheme = HistogramScheme::HTTP;
+  } else if (url.SchemeIs(url::kHttpsScheme)) {
+    scheme = HistogramScheme::HTTPS;
+  } else if (url.SchemeIs(url::kFtpScheme)) {
+    scheme = HistogramScheme::FTP;
+  } else if (url.SchemeIsFile()) {
+    scheme = HistogramScheme::FILE;
+  } else if (url.SchemeIs(content::kChromeUIScheme)) {
+    scheme = HistogramScheme::CHROME;
+  } else if (url.SchemeIs(extensions::kExtensionScheme)) {
+    scheme = HistogramScheme::EXTENSION;
+  } else if (url.SchemeIs(url::kJavaScriptScheme)) {
+    scheme = HistogramScheme::JAVASCRIPT;
+  } else if (content::ChildProcessSecurityPolicy::GetInstance()
+                 ->IsWebSafeScheme(url.scheme())) {
+    scheme = HistogramScheme::OTHER_WEBSAFE;
+  }
+  UMA_HISTOGRAM_ENUMERATION("NewTabPage.MostVisitedScheme",
+                            static_cast<int32_t>(scheme),
+                            static_cast<int32_t>(HistogramScheme::COUNT));
+
+  // Certain URLs are privileged and should never be considered valid
+  // navigation targets.
+  // TODO(treib): Ideally this should deny by default and only allow if the
+  // scheme passes the content::ChildProcessSecurityPolicy::IsWebSafeScheme()
+  // check.
+  if (url.SchemeIs(content::kChromeUIScheme))
+    return false;
+
+  // javascript: URLs never make sense as a most visited item either.
+  if (url.SchemeIs(url::kJavaScriptScheme))
+    return false;
+
+  for (const auto& item : most_visited_items_) {
+    if (item.url == url)
+      return true;
+  }
+  for (const auto& item : suggestions_items_) {
+    if (item.url == url)
+      return true;
+  }
+  return false;
 }
 
 void InstantService::OnRendererProcessTerminated(int process_id) {
@@ -331,6 +401,7 @@ void InstantService::OnSuggestionsAvailable(
     if (suggestion.has_click_url()) {
       item.click_url = GURL(suggestion.click_url());
     }
+    item.is_server_side_suggestion = true;
     new_suggestions_items.push_back(item);
   }
   suggestions_items_ = new_suggestions_items;
@@ -346,6 +417,7 @@ void InstantService::OnMostVisitedItemsReceived(
     InstantMostVisitedItem item;
     item.url = url.url;
     item.title = url.title;
+    item.is_server_side_suggestion = false;
     new_most_visited_items.push_back(item);
   }
 
@@ -381,31 +453,25 @@ RGBAColor SkColorToRGBAColor(const SkColor& sKColor) {
 
 }  // namespace
 
-void InstantService::OnThemeChanged(ThemeService* theme_service) {
-  if (!theme_service) {
-    DCHECK(theme_info_.get());
-    FOR_EACH_OBSERVER(InstantServiceObserver, observers_,
-                      ThemeInfoChanged(*theme_info_));
-    return;
-  }
-
+void InstantService::OnThemeChanged() {
   // Get theme information from theme service.
   theme_info_.reset(new ThemeBackgroundInfo());
 
   // Get if the current theme is the default theme.
+  ThemeService* theme_service = ThemeServiceFactory::GetForProfile(profile_);
   theme_info_->using_default_theme = theme_service->UsingDefaultTheme();
 
   // Get theme colors.
+  const ui::ThemeProvider& theme_provider =
+      ThemeService::GetThemeProviderForProfile(profile_);
   SkColor background_color =
-      theme_service->GetColor(ThemeProperties::COLOR_NTP_BACKGROUND);
-  SkColor text_color =
-      theme_service->GetColor(ThemeProperties::COLOR_NTP_TEXT);
-  SkColor link_color =
-      theme_service->GetColor(ThemeProperties::COLOR_NTP_LINK);
+      theme_provider.GetColor(ThemeProperties::COLOR_NTP_BACKGROUND);
+  SkColor text_color = theme_provider.GetColor(ThemeProperties::COLOR_NTP_TEXT);
+  SkColor link_color = theme_provider.GetColor(ThemeProperties::COLOR_NTP_LINK);
   SkColor text_color_light =
-      theme_service->GetColor(ThemeProperties::COLOR_NTP_TEXT_LIGHT);
+      theme_provider.GetColor(ThemeProperties::COLOR_NTP_TEXT_LIGHT);
   SkColor header_color =
-      theme_service->GetColor(ThemeProperties::COLOR_NTP_HEADER);
+      theme_provider.GetColor(ThemeProperties::COLOR_NTP_HEADER);
   // Generate section border color from the header color.
   SkColor section_border_color =
       SkColorSetARGB(kSectionBorderAlphaTransparency,
@@ -431,16 +497,16 @@ void InstantService::OnThemeChanged(ThemeService* theme_service) {
   theme_info_->header_color = SkColorToRGBAColor(header_color);
   theme_info_->section_border_color = SkColorToRGBAColor(section_border_color);
 
-  int logo_alternate = theme_service->GetDisplayProperty(
-      ThemeProperties::NTP_LOGO_ALTERNATE);
+  int logo_alternate =
+      theme_provider.GetDisplayProperty(ThemeProperties::NTP_LOGO_ALTERNATE);
   theme_info_->logo_alternate = logo_alternate == 1;
 
-  if (theme_service->HasCustomImage(IDR_THEME_NTP_BACKGROUND)) {
+  if (theme_provider.HasCustomImage(IDR_THEME_NTP_BACKGROUND)) {
     // Set theme id for theme background image url.
     theme_info_->theme_id = theme_service->GetThemeID();
 
     // Set theme background image horizontal alignment.
-    int alignment = theme_service->GetDisplayProperty(
+    int alignment = theme_provider.GetDisplayProperty(
         ThemeProperties::NTP_BACKGROUND_ALIGNMENT);
     if (alignment & ThemeProperties::ALIGN_LEFT)
       theme_info_->image_horizontal_alignment = THEME_BKGRND_IMAGE_ALIGN_LEFT;
@@ -458,7 +524,7 @@ void InstantService::OnThemeChanged(ThemeService* theme_service) {
       theme_info_->image_vertical_alignment = THEME_BKGRND_IMAGE_ALIGN_CENTER;
 
     // Set theme backgorund image tiling.
-    int tiling = theme_service->GetDisplayProperty(
+    int tiling = theme_provider.GetDisplayProperty(
         ThemeProperties::NTP_BACKGROUND_TILING);
     switch (tiling) {
       case ThemeProperties::NO_REPEAT:
@@ -476,13 +542,13 @@ void InstantService::OnThemeChanged(ThemeService* theme_service) {
     }
 
     // Set theme background image height.
-    gfx::ImageSkia* image = theme_service->GetImageSkiaNamed(
-        IDR_THEME_NTP_BACKGROUND);
+    gfx::ImageSkia* image =
+        theme_provider.GetImageSkiaNamed(IDR_THEME_NTP_BACKGROUND);
     DCHECK(image);
     theme_info_->image_height = image->height();
 
     theme_info_->has_attribution =
-       theme_service->HasCustomImage(IDR_THEME_NTP_ATTRIBUTION);
+        theme_provider.HasCustomImage(IDR_THEME_NTP_ATTRIBUTION);
   }
 
   FOR_EACH_OBSERVER(InstantServiceObserver, observers_,

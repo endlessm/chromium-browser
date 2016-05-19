@@ -14,6 +14,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_danger_type.h"
 #include "content/public/browser/download_item.h"
+#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/views/controls/button/label_button.h"
@@ -54,7 +55,6 @@ class DownloadDangerPromptViews : public DownloadDangerPrompt,
   bool Cancel() override;
   bool Accept() override;
   bool Close() override;
-  views::View* GetInitiallyFocusedView() override;
   views::View* GetContentsView() override;
   views::Widget* GetWidget() override;
   const views::Widget* GetWidget() const override;
@@ -138,12 +138,16 @@ DownloadDangerPromptViews::DownloadDangerPromptViews(
 void DownloadDangerPromptViews::InvokeActionForTesting(Action action) {
   switch (action) {
     case ACCEPT:
-      Accept();
+      // This inversion is intentional.
+      Cancel();
+      break;
+
+    case DISMISS:
+      Close();
       break;
 
     case CANCEL:
-    case DISMISS:
-      Cancel();
+      Accept();
       break;
 
     default:
@@ -183,17 +187,20 @@ ui::ModalType DownloadDangerPromptViews::GetModalType() const {
   return ui::MODAL_TYPE_CHILD;
 }
 
-bool DownloadDangerPromptViews::Cancel() {
+bool DownloadDangerPromptViews::Accept() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  // ExperienceSampling: User canceled the warning.
+  // ExperienceSampling: User did not proceed down the dangerous path.
   sampling_event_->CreateUserDecisionEvent(ExperienceSamplingEvent::kDeny);
+  // Note that the presentational concept of "Accept/Cancel" is inverted from
+  // the model's concept of ACCEPT/CANCEL. In the UI, the safe path is "Accept"
+  // and the dangerous path is "Cancel".
   RunDone(CANCEL);
   return true;
 }
 
-bool DownloadDangerPromptViews::Accept() {
+bool DownloadDangerPromptViews::Cancel() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  // ExperienceSampling: User proceeded through the warning.
+  // ExperienceSampling: User proceeded down the dangerous path.
   sampling_event_->CreateUserDecisionEvent(ExperienceSamplingEvent::kProceed);
   RunDone(ACCEPT);
   return true;
@@ -201,14 +208,10 @@ bool DownloadDangerPromptViews::Accept() {
 
 bool DownloadDangerPromptViews::Close() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  // ExperienceSampling: User canceled the warning.
+  // ExperienceSampling: User did not proceed down the dangerous path.
   sampling_event_->CreateUserDecisionEvent(ExperienceSamplingEvent::kDeny);
   RunDone(DISMISS);
   return true;
-}
-
-views::View* DownloadDangerPromptViews::GetInitiallyFocusedView() {
-  return GetDialogClientView()->cancel_button();
 }
 
 views::View* DownloadDangerPromptViews::GetContentsView() {
@@ -236,6 +239,11 @@ void DownloadDangerPromptViews::OnDownloadUpdated(
 }
 
 base::string16 DownloadDangerPromptViews::GetAcceptButtonTitle() const {
+  // "Be safe".
+  return l10n_util::GetStringUTF16(IDS_CONFIRM_CANCEL_AGAIN_MALICIOUS);
+}
+
+base::string16 DownloadDangerPromptViews::GetCancelButtonTitle() const {
   if (show_context_)
     return l10n_util::GetStringUTF16(IDS_CONFIRM_DOWNLOAD);
   switch (download_->GetDangerType()) {
@@ -246,20 +254,6 @@ base::string16 DownloadDangerPromptViews::GetAcceptButtonTitle() const {
     }
     default:
       return l10n_util::GetStringUTF16(IDS_CONFIRM_DOWNLOAD_AGAIN);
-  }
-}
-
-base::string16 DownloadDangerPromptViews::GetCancelButtonTitle() const {
-  if (show_context_)
-    return l10n_util::GetStringUTF16(IDS_CANCEL);
-  switch (download_->GetDangerType()) {
-    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_URL:
-    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT:
-    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST: {
-      return l10n_util::GetStringUTF16(IDS_CONFIRM_CANCEL_AGAIN_MALICIOUS);
-    }
-    default:
-      return l10n_util::GetStringUTF16(IDS_CANCEL);
   }
 }
 
@@ -336,10 +330,11 @@ void DownloadDangerPromptViews::RunDone(Action action) {
   OnDone done = done_;
   done_.Reset();
   if (download_ != NULL) {
+    const bool accept = action == DownloadDangerPrompt::ACCEPT;
+    RecordDownloadDangerPrompt(accept, *download_);
     if (!download_->GetURL().is_empty() &&
         !download_->GetBrowserContext()->IsOffTheRecord()) {
-      SendSafeBrowsingDownloadRecoveryReport(
-          action == DownloadDangerPrompt::ACCEPT, download_->GetURL());
+      SendSafeBrowsingDownloadRecoveryReport(accept, *download_);
     }
     download_->RemoveObserver(this);
     download_ = NULL;

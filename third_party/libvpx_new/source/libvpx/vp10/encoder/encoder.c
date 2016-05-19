@@ -328,6 +328,7 @@ void vp10_initialize_enc(void) {
     vp10_rc_init_minq_luts();
     vp10_entropy_mv_init();
     vp10_temporal_filter_init();
+    vp10_encode_token_init();
     init_done = 1;
   }
 }
@@ -389,9 +390,6 @@ static void dealloc_compressor_data(VP10_COMP *cpi) {
   cpi->tile_tok[0][0] = 0;
 
   vp10_free_pc_tree(&cpi->td);
-
-  if (cpi->common.allow_screen_content_tools)
-    vpx_free(cpi->td.mb.palette_buffer);
 
   if (cpi->source_diff_var != NULL) {
     vpx_free(cpi->source_diff_var);
@@ -1425,7 +1423,11 @@ void vp10_change_config(struct VP10_COMP *cpi, const VP10EncoderConfig *oxcf) {
   cpi->td.mb.e_mbd.bd = (int)cm->bit_depth;
 #endif  // CONFIG_VP9_HIGHBITDEPTH
 
-  rc->baseline_gf_interval = (MIN_GF_INTERVAL + MAX_GF_INTERVAL) / 2;
+  if ((oxcf->pass == 0) && (oxcf->rc_mode == VPX_Q)) {
+    rc->baseline_gf_interval = FIXED_GF_INTERVAL;
+  } else {
+    rc->baseline_gf_interval = (MIN_GF_INTERVAL + MAX_GF_INTERVAL) / 2;
+  }
 
   cpi->refresh_golden_frame = 0;
   cpi->refresh_last_frame = 1;
@@ -1434,15 +1436,6 @@ void vp10_change_config(struct VP10_COMP *cpi, const VP10EncoderConfig *oxcf) {
           oxcf->frame_parallel_decoding_mode ? REFRESH_FRAME_CONTEXT_FORWARD
                                              : REFRESH_FRAME_CONTEXT_BACKWARD;
   cm->reset_frame_context = RESET_FRAME_CONTEXT_NONE;
-
-  cm->allow_screen_content_tools = (cpi->oxcf.content == VP9E_CONTENT_SCREEN);
-  if (cm->allow_screen_content_tools) {
-    MACROBLOCK *x = &cpi->td.mb;
-    if (x->palette_buffer == 0) {
-      CHECK_MEM_ERROR(cm, x->palette_buffer,
-                      vpx_memalign(16, sizeof(*x->palette_buffer)));
-    }
-  }
 
   vp10_reset_segment_features(cm);
   vp10_set_high_precision_mv(cpi, 0);
@@ -1949,8 +1942,6 @@ void vp10_remove_compressor(VP10_COMP *cpi) {
 
     // Deallocate allocated thread data.
     if (t < cpi->num_workers - 1) {
-      if (cpi->common.allow_screen_content_tools)
-        vpx_free(thread_data->td->mb.palette_buffer);
       vpx_free(thread_data->td->counts);
       vp10_free_pc_tree(thread_data->td);
       vpx_free(thread_data->td);
@@ -2664,7 +2655,7 @@ static void loopfilter_frame(VP10_COMP *cpi, VP10_COMMON *cm) {
   MACROBLOCKD *xd = &cpi->td.mb.e_mbd;
   struct loopfilter *lf = &cm->lf;
   if (is_lossless_requested(&cpi->oxcf)) {
-      lf->filter_level = 0;
+    lf->filter_level = 0;
   } else {
     struct vpx_usec_timer timer;
 
@@ -2857,7 +2848,7 @@ static void output_frame_level_debug_stats(VP10_COMP *cpi) {
   recon_err = vp10_get_y_sse(cpi->Source, get_frame_new_buffer(cm));
 
   if (cpi->twopass.total_left_stats.coded_error != 0.0)
-    fprintf(f, "%10u %dx%d %d %d %10d %10d %10d %10d"
+    fprintf(f, "%10u %dx%d  %10d %10d %d %d %10d %10d %10d %10d"
        "%10"PRId64" %10"PRId64" %5d %5d %10"PRId64" "
        "%10"PRId64" %10"PRId64" %10d "
        "%7.2lf %7.2lf %7.2lf %7.2lf %7.2lf"
@@ -2866,6 +2857,8 @@ static void output_frame_level_debug_stats(VP10_COMP *cpi) {
         "%10lf %8u %10"PRId64" %10d %10d %10d\n",
         cpi->common.current_video_frame,
         cm->width, cm->height,
+        cpi->td.rd_counts.m_search_count,
+        cpi->td.rd_counts.ex_search_count,
         cpi->rc.source_alt_ref_pending,
         cpi->rc.source_alt_ref_active,
         cpi->rc.this_frame_target,
@@ -3815,13 +3808,22 @@ static void setup_denoiser_buffer(VP10_COMP *cpi) {
 int vp10_receive_raw_frame(VP10_COMP *cpi, unsigned int frame_flags,
                           YV12_BUFFER_CONFIG *sd, int64_t time_stamp,
                           int64_t end_time) {
-  VP10_COMMON *cm = &cpi->common;
+  VP10_COMMON *volatile const cm = &cpi->common;
   struct vpx_usec_timer timer;
-  int res = 0;
+  volatile int res = 0;
   const int subsampling_x = sd->subsampling_x;
   const int subsampling_y = sd->subsampling_y;
 #if CONFIG_VP9_HIGHBITDEPTH
-  const int use_highbitdepth = sd->flags & YV12_FLAG_HIGHBITDEPTH;
+  const int use_highbitdepth = (sd->flags & YV12_FLAG_HIGHBITDEPTH) != 0;
+#endif
+
+  if (setjmp(cm->error.jmp)) {
+    cm->error.setjmp = 0;
+    return -1;
+  }
+  cm->error.setjmp = 1;
+
+#if CONFIG_VP9_HIGHBITDEPTH
   check_initial_width(cpi, use_highbitdepth, subsampling_x, subsampling_y);
 #else
   check_initial_width(cpi, subsampling_x, subsampling_y);
@@ -3854,6 +3856,7 @@ int vp10_receive_raw_frame(VP10_COMP *cpi, unsigned int frame_flags,
     res = -1;
   }
 
+  cm->error.setjmp = 0;
   return res;
 }
 

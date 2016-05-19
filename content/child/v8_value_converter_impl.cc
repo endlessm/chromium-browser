@@ -4,6 +4,9 @@
 
 #include "content/child/v8_value_converter_impl.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <cmath>
 #include <string>
 
@@ -227,6 +230,9 @@ v8::Local<v8::Value> V8ValueConverterImpl::ToV8Array(
     const base::ListValue* val) const {
   v8::Local<v8::Array> result(v8::Array::New(isolate, val->GetSize()));
 
+  // TODO(robwu): Callers should pass in the context.
+  v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
   for (size_t i = 0; i < val->GetSize(); ++i) {
     const base::Value* child = NULL;
     CHECK(val->Get(i, &child));
@@ -235,10 +241,10 @@ v8::Local<v8::Value> V8ValueConverterImpl::ToV8Array(
         ToV8ValueImpl(isolate, creation_context, child);
     CHECK(!child_v8.IsEmpty());
 
-    v8::TryCatch try_catch;
-    result->Set(static_cast<uint32>(i), child_v8);
-    if (try_catch.HasCaught())
-      LOG(ERROR) << "Setter for index " << i << " threw an exception.";
+    v8::Maybe<bool> maybe =
+        result->CreateDataProperty(context, static_cast<uint32_t>(i), child_v8);
+    if (!maybe.IsJust() || !maybe.FromJust())
+      LOG(ERROR) << "Failed to set value at index " << i;
   }
 
   return result;
@@ -250,6 +256,9 @@ v8::Local<v8::Value> V8ValueConverterImpl::ToV8Object(
     const base::DictionaryValue* val) const {
   v8::Local<v8::Object> result(v8::Object::New(isolate));
 
+  // TODO(robwu): Callers should pass in the context.
+  v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
   for (base::DictionaryValue::Iterator iter(*val);
        !iter.IsAtEnd(); iter.Advance()) {
     const std::string& key = iter.key();
@@ -257,15 +266,13 @@ v8::Local<v8::Value> V8ValueConverterImpl::ToV8Object(
         ToV8ValueImpl(isolate, creation_context, &iter.value());
     CHECK(!child_v8.IsEmpty());
 
-    v8::TryCatch try_catch;
-    result->Set(
-        v8::String::NewFromUtf8(
-            isolate, key.c_str(), v8::String::kNormalString, key.length()),
+    v8::Maybe<bool> maybe = result->CreateDataProperty(
+        context,
+        v8::String::NewFromUtf8(isolate, key.c_str(), v8::String::kNormalString,
+                                key.length()),
         child_v8);
-    if (try_catch.HasCaught()) {
-      LOG(ERROR) << "Setter for property " << key.c_str() << " threw an "
-                 << "exception.";
-    }
+    if (!maybe.IsJust() || !maybe.FromJust())
+      LOG(ERROR) << "Failed to set property with key " << key;
   }
 
   return result;
@@ -395,8 +402,8 @@ base::Value* V8ValueConverterImpl::FromV8Array(
   base::ListValue* result = new base::ListValue();
 
   // Only fields with integer keys are carried over to the ListValue.
-  for (uint32 i = 0; i < val->Length(); ++i) {
-    v8::TryCatch try_catch;
+  for (uint32_t i = 0; i < val->Length(); ++i) {
+    v8::TryCatch try_catch(isolate);
     v8::Local<v8::Value> child_v8 = val->Get(i);
     if (try_catch.HasCaught()) {
       LOG(ERROR) << "Getter for index " << i << " threw an exception.";
@@ -496,7 +503,7 @@ base::Value* V8ValueConverterImpl::FromV8Object(
   scoped_ptr<base::DictionaryValue> result(new base::DictionaryValue());
   v8::Local<v8::Array> property_names(val->GetOwnPropertyNames());
 
-  for (uint32 i = 0; i < property_names->Length(); ++i) {
+  for (uint32_t i = 0; i < property_names->Length(); ++i) {
     v8::Local<v8::Value> key(property_names->Get(i));
 
     // Extend this test to cover more types as necessary and if sensible.
@@ -509,7 +516,7 @@ base::Value* V8ValueConverterImpl::FromV8Object(
 
     v8::String::Utf8Value name_utf8(key);
 
-    v8::TryCatch try_catch;
+    v8::TryCatch try_catch(isolate);
     v8::Local<v8::Value> child_v8 = val->Get(key);
 
     if (try_catch.HasCaught()) {

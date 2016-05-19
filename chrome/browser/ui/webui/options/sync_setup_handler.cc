@@ -4,7 +4,8 @@
 
 #include "chrome/browser/ui/webui/options/sync_setup_handler.h"
 
-#include "base/basictypes.h"
+#include <string>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
@@ -12,15 +13,15 @@
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
@@ -38,8 +39,11 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
+#include "components/autofill/core/common/autofill_constants.h"
+#include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/core/browser/signin_metrics.h"
@@ -75,6 +79,7 @@ struct SyncConfigInfo {
   bool sync_everything;
   bool sync_nothing;
   syncer::ModelTypeSet data_types;
+  bool payments_integration_enabled;
   std::string passphrase;
   bool passphrase_is_gaia;
 };
@@ -83,8 +88,8 @@ SyncConfigInfo::SyncConfigInfo()
     : encrypt_all(false),
       sync_everything(false),
       sync_nothing(false),
-      passphrase_is_gaia(false) {
-}
+      payments_integration_enabled(false),
+      passphrase_is_gaia(false) {}
 
 SyncConfigInfo::~SyncConfigInfo() {}
 
@@ -108,6 +113,13 @@ bool GetConfiguration(const std::string& json, SyncConfigInfo* config) {
 
   DCHECK(!(config->sync_everything && config->sync_nothing))
       << "syncAllDataTypes and syncNothing cannot both be true";
+
+  if (!result->GetBoolean("paymentsIntegrationEnabled",
+                          &config->payments_integration_enabled)) {
+    DLOG(ERROR) << "GetConfiguration() not passed a paymentsIntegrationEnabled "
+                << "value";
+    return false;
+  }
 
   syncer::ModelTypeNameMap type_names = syncer::GetUserSelectableTypeNameMap();
 
@@ -179,6 +191,7 @@ void SyncSetupHandler::GetStaticLocalizedValues(
   localized_strings->SetString(
       "chooseDataTypesInstructions",
       GetStringFUTF16(IDS_SYNC_CHOOSE_DATATYPES_INSTRUCTIONS, product_name));
+  localized_strings->SetString("autofillHelpURL", autofill::kHelpURL);
   localized_strings->SetString(
       "encryptionInstructions",
       GetStringFUTF16(IDS_SYNC_ENCRYPTION_INSTRUCTIONS, product_name));
@@ -217,56 +230,57 @@ void SyncSetupHandler::GetStaticLocalizedValues(
       "syncErrorHelpURL", chrome::kSyncErrorsHelpURL);
 
   static OptionsStringResource resources[] = {
-    { "syncSetupConfigureTitle", IDS_SYNC_SETUP_CONFIGURE_TITLE },
-    { "syncSetupSpinnerTitle", IDS_SYNC_SETUP_SPINNER_TITLE },
-    { "syncSetupTimeoutTitle", IDS_SYNC_SETUP_TIME_OUT_TITLE },
-    { "syncSetupTimeoutContent", IDS_SYNC_SETUP_TIME_OUT_CONTENT },
-    { "errorLearnMore", IDS_LEARN_MORE },
-    { "cancel", IDS_CANCEL },
-    { "loginSuccess", IDS_SYNC_SUCCESS },
-    { "settingUp", IDS_SYNC_LOGIN_SETTING_UP },
-    { "syncAllDataTypes", IDS_SYNC_EVERYTHING },
-    { "chooseDataTypes", IDS_SYNC_CHOOSE_DATATYPES },
-    { "syncNothing", IDS_SYNC_NOTHING },
-    { "bookmarks", IDS_SYNC_DATATYPE_BOOKMARKS },
-    { "preferences", IDS_SYNC_DATATYPE_PREFERENCES },
-    { "autofill", IDS_SYNC_DATATYPE_AUTOFILL },
-    { "themes", IDS_SYNC_DATATYPE_THEMES },
-    { "passwords", IDS_SYNC_DATATYPE_PASSWORDS },
-    { "extensions", IDS_SYNC_DATATYPE_EXTENSIONS },
-    { "typedURLs", IDS_SYNC_DATATYPE_TYPED_URLS },
-    { "apps", IDS_SYNC_DATATYPE_APPS },
-    { "wifiCredentials", IDS_SYNC_DATATYPE_WIFI_CREDENTIALS },
-    { "openTabs", IDS_SYNC_DATATYPE_TABS },
-    { "serviceUnavailableError", IDS_SYNC_SETUP_ABORTED_BY_PENDING_CLEAR },
-    { "confirmLabel", IDS_SYNC_CONFIRM_PASSPHRASE_LABEL },
-    { "emptyErrorMessage", IDS_SYNC_EMPTY_PASSPHRASE_ERROR },
-    { "mismatchErrorMessage", IDS_SYNC_PASSPHRASE_MISMATCH_ERROR },
-    { "customizeLinkLabel", IDS_SYNC_CUSTOMIZE_LINK_LABEL },
-    { "confirmSyncPreferences", IDS_SYNC_CONFIRM_SYNC_PREFERENCES },
-    { "syncEverything", IDS_SYNC_SYNC_EVERYTHING },
-    { "useDefaultSettings", IDS_SYNC_USE_DEFAULT_SETTINGS },
-    { "enterPassphraseBody", IDS_SYNC_ENTER_PASSPHRASE_BODY },
-    { "enterGooglePassphraseBody", IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY },
-    { "passphraseLabel", IDS_SYNC_PASSPHRASE_LABEL },
-    { "incorrectPassphrase", IDS_SYNC_INCORRECT_PASSPHRASE },
-    { "passphraseWarning", IDS_SYNC_PASSPHRASE_WARNING },
-    { "yes", IDS_SYNC_PASSPHRASE_CANCEL_YES },
-    { "no", IDS_SYNC_PASSPHRASE_CANCEL_NO },
-    { "sectionExplicitMessagePrefix", IDS_SYNC_PASSPHRASE_MSG_EXPLICIT_PREFIX },
-    { "sectionExplicitMessagePostfix",
-        IDS_SYNC_PASSPHRASE_MSG_EXPLICIT_POSTFIX },
-    // TODO(rogerta): browser/resource/sync_promo/sync_promo.html and related
-    // file may not be needed any more.  If not, then the following promo
-    // strings can also be removed.
-    { "promoPageTitle", IDS_SYNC_PROMO_TAB_TITLE },
-    { "promoSkipButton", IDS_SYNC_PROMO_SKIP_BUTTON },
-    { "promoAdvanced", IDS_SYNC_PROMO_ADVANCED },
-    { "promoLearnMore", IDS_LEARN_MORE },
-    { "promoTitleShort", IDS_SYNC_PROMO_MESSAGE_TITLE_SHORT },
-    { "encryptionSectionTitle", IDS_SYNC_ENCRYPTION_SECTION_TITLE },
-    { "basicEncryptionOption", IDS_SYNC_BASIC_ENCRYPTION_DATA },
-    { "fullEncryptionOption", IDS_SYNC_FULL_ENCRYPTION_DATA },
+      {"syncSetupConfigureTitle", IDS_SYNC_SETUP_CONFIGURE_TITLE},
+      {"syncSetupSpinnerTitle", IDS_SYNC_SETUP_SPINNER_TITLE},
+      {"syncSetupTimeoutTitle", IDS_SYNC_SETUP_TIME_OUT_TITLE},
+      {"syncSetupTimeoutContent", IDS_SYNC_SETUP_TIME_OUT_CONTENT},
+      {"errorLearnMore", IDS_LEARN_MORE},
+      {"cancel", IDS_CANCEL},
+      {"loginSuccess", IDS_SYNC_SUCCESS},
+      {"settingUp", IDS_SYNC_LOGIN_SETTING_UP},
+      {"syncAllDataTypes", IDS_SYNC_EVERYTHING},
+      {"chooseDataTypes", IDS_SYNC_CHOOSE_DATATYPES},
+      {"syncNothing", IDS_SYNC_NOTHING},
+      {"bookmarks", IDS_SYNC_DATATYPE_BOOKMARKS},
+      {"preferences", IDS_SYNC_DATATYPE_PREFERENCES},
+      {"autofill", IDS_SYNC_DATATYPE_AUTOFILL},
+      {"themes", IDS_SYNC_DATATYPE_THEMES},
+      {"passwords", IDS_SYNC_DATATYPE_PASSWORDS},
+      {"extensions", IDS_SYNC_DATATYPE_EXTENSIONS},
+      {"typedURLs", IDS_SYNC_DATATYPE_TYPED_URLS},
+      {"apps", IDS_SYNC_DATATYPE_APPS},
+      {"wifiCredentials", IDS_SYNC_DATATYPE_WIFI_CREDENTIALS},
+      {"openTabs", IDS_SYNC_DATATYPE_TABS},
+      {"enablePaymentsIntegration", IDS_AUTOFILL_USE_PAYMENTS_DATA},
+      {"serviceUnavailableError", IDS_SYNC_SETUP_ABORTED_BY_PENDING_CLEAR},
+      {"confirmLabel", IDS_SYNC_CONFIRM_PASSPHRASE_LABEL},
+      {"emptyErrorMessage", IDS_SYNC_EMPTY_PASSPHRASE_ERROR},
+      {"mismatchErrorMessage", IDS_SYNC_PASSPHRASE_MISMATCH_ERROR},
+      {"customizeLinkLabel", IDS_SYNC_CUSTOMIZE_LINK_LABEL},
+      {"confirmSyncPreferences", IDS_SYNC_CONFIRM_SYNC_PREFERENCES},
+      {"syncEverything", IDS_SYNC_SYNC_EVERYTHING},
+      {"useDefaultSettings", IDS_SYNC_USE_DEFAULT_SETTINGS},
+      {"enterPassphraseBody", IDS_SYNC_ENTER_PASSPHRASE_BODY},
+      {"enterGooglePassphraseBody", IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY},
+      {"passphraseLabel", IDS_SYNC_PASSPHRASE_LABEL},
+      {"incorrectPassphrase", IDS_SYNC_INCORRECT_PASSPHRASE},
+      {"passphraseWarning", IDS_SYNC_PASSPHRASE_WARNING},
+      {"yes", IDS_SYNC_PASSPHRASE_CANCEL_YES},
+      {"no", IDS_SYNC_PASSPHRASE_CANCEL_NO},
+      {"sectionExplicitMessagePrefix", IDS_SYNC_PASSPHRASE_MSG_EXPLICIT_PREFIX},
+      {"sectionExplicitMessagePostfix",
+       IDS_SYNC_PASSPHRASE_MSG_EXPLICIT_POSTFIX},
+      // TODO(rogerta): browser/resource/sync_promo/sync_promo.html and related
+      // file may not be needed any more.  If not, then the following promo
+      // strings can also be removed.
+      {"promoPageTitle", IDS_SYNC_PROMO_TAB_TITLE},
+      {"promoSkipButton", IDS_SYNC_PROMO_SKIP_BUTTON},
+      {"promoAdvanced", IDS_SYNC_PROMO_ADVANCED},
+      {"promoLearnMore", IDS_LEARN_MORE},
+      {"promoTitleShort", IDS_SYNC_PROMO_MESSAGE_TITLE_SHORT},
+      {"encryptionSectionTitle", IDS_SYNC_ENCRYPTION_SECTION_TITLE},
+      {"basicEncryptionOption", IDS_SYNC_BASIC_ENCRYPTION_DATA},
+      {"fullEncryptionOption", IDS_SYNC_FULL_ENCRYPTION_DATA},
   };
 
   RegisterStrings(localized_strings, resources, arraysize(resources));
@@ -284,7 +298,7 @@ void SyncSetupHandler::ConfigureSyncDone() {
 
   ProfileSyncService* service = GetSyncService();
   DCHECK(service);
-  if (!service->HasSyncSetupCompleted()) {
+  if (!service->IsFirstSetupComplete()) {
     // This is the first time configuring sync, so log it.
     base::FilePath profile_file_path = GetProfile()->GetPath();
     ProfileMetrics::LogProfileSyncSignIn(profile_file_path);
@@ -292,7 +306,7 @@ void SyncSetupHandler::ConfigureSyncDone() {
     // We're done configuring, so notify ProfileSyncService that it is OK to
     // start syncing.
     service->SetSetupInProgress(false);
-    service->SetSyncSetupCompleted();
+    service->SetFirstSetupComplete();
   }
 }
 
@@ -335,23 +349,25 @@ void SyncSetupHandler::RegisterMessages() {
 }
 
 #if !defined(OS_CHROMEOS)
-void SyncSetupHandler::DisplayGaiaLogin() {
+void SyncSetupHandler::DisplayGaiaLogin(
+    signin_metrics::AccessPoint access_point) {
   DCHECK(!sync_startup_tracker_);
   // Advanced options are no longer being configured if the login screen is
   // visible. If the user exits the signin wizard after this without
   // configuring sync, CloseSyncSetup() will ensure they are logged out.
   configuring_sync_ = false;
-  DisplayGaiaLoginInNewTabOrWindow();
+  DisplayGaiaLoginInNewTabOrWindow(access_point);
 }
 
-void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow() {
+void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow(
+    signin_metrics::AccessPoint access_point) {
   Browser* browser = chrome::FindBrowserWithWebContents(
       web_ui()->GetWebContents());
   bool force_new_tab = false;
   if (!browser) {
     // Settings is not displayed in a browser window. Open a new window.
-    browser = new Browser(Browser::CreateParams(
-        Browser::TYPE_TABBED, GetProfile(), chrome::GetActiveDesktop()));
+    browser =
+        new Browser(Browser::CreateParams(Browser::TYPE_TABBED, GetProfile()));
     force_new_tab = true;
   }
 
@@ -371,19 +387,21 @@ void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow() {
     if (!force_new_tab) {
       browser->window()->ShowAvatarBubbleFromAvatarButton(
           BrowserWindow::AVATAR_BUBBLE_MODE_REAUTH,
-          signin::ManageAccountsParams());
+          signin::ManageAccountsParams(), access_point);
     } else {
-      url = signin::GetReauthURL(browser->profile(),
-                                 error_controller->error_account_id());
+      url = signin::GetReauthURL(
+          access_point, signin_metrics::Reason::REASON_REAUTHENTICATION,
+          browser->profile(), error_controller->error_account_id());
     }
   } else {
-    signin_metrics::LogSigninSource(signin_metrics::SOURCE_SETTINGS);
     if (!force_new_tab) {
       browser->window()->ShowAvatarBubbleFromAvatarButton(
           BrowserWindow::AVATAR_BUBBLE_MODE_SIGNIN,
-          signin::ManageAccountsParams());
+          signin::ManageAccountsParams(), access_point);
     } else {
-      url = signin::GetPromoURL(signin_metrics::SOURCE_SETTINGS, true);
+      url = signin::GetPromoURL(
+          access_point, signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT,
+          true);
     }
   }
 
@@ -563,6 +581,10 @@ void SyncSetupHandler::HandleConfigure(const base::ListValue* args) {
   service->OnUserChoseDatatypes(configuration.sync_everything,
                                 configuration.data_types);
 
+  PrefService* pref_service = GetProfile()->GetPrefs();
+  pref_service->SetBoolean(autofill::prefs::kAutofillWalletImportEnabled,
+                           configuration.payments_integration_enabled);
+
   // Need to call IsPassphraseRequiredForDecryption() *after* calling
   // OnUserChoseDatatypes() because the user may have just disabled the
   // encrypted datatypes (in which case we just want to exit, not prompt the
@@ -628,7 +650,7 @@ void SyncSetupHandler::HandleShowSetupUI(const base::ListValue* args) {
   // If a setup wizard is present on this page or another, bring it to focus.
   // Otherwise, display a new one on this page.
   if (!FocusExistingWizardIfPresent())
-    OpenSyncSetup();
+    OpenSyncSetup(false /* creating_supervised_user */);
 }
 
 #if defined(OS_CHROMEOS)
@@ -643,19 +665,25 @@ void SyncSetupHandler::HandleDoSignOutOnAuthError(const base::ListValue* args) {
 #if !defined(OS_CHROMEOS)
 void SyncSetupHandler::HandleStartSignin(const base::ListValue* args) {
   // Should only be called if the user is not already signed in.
-  DCHECK(!SigninManagerFactory::GetForProfile(GetProfile())->
-      IsAuthenticated());
-  OpenSyncSetup();
+  DCHECK(!SigninManagerFactory::GetForProfile(GetProfile())->IsAuthenticated());
+  bool creating_supervised_user = false;
+  args->GetBoolean(0, &creating_supervised_user);
+  OpenSyncSetup(creating_supervised_user);
 }
 
 void SyncSetupHandler::HandleStopSyncing(const base::ListValue* args) {
   if (GetSyncService())
     ProfileSyncService::SyncEvent(ProfileSyncService::STOP_FROM_OPTIONS);
-  SigninManagerFactory::GetForProfile(GetProfile())->SignOut(
-      signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS);
 
   bool delete_profile = false;
-  if (args->GetBoolean(0, &delete_profile) && delete_profile) {
+  args->GetBoolean(0, &delete_profile);
+  signin_metrics::SignoutDelete delete_metric =
+      delete_profile ? signin_metrics::SignoutDelete::DELETED
+                     : signin_metrics::SignoutDelete::KEEPING;
+  SigninManagerFactory::GetForProfile(GetProfile())
+      ->SignOut(signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS, delete_metric);
+
+  if (delete_profile) {
     // Do as BrowserOptionsHandler::DeleteProfile().
     options::helper::DeleteProfileAtPath(GetProfile()->GetPath(), web_ui());
   }
@@ -677,8 +705,9 @@ void SyncSetupHandler::CloseSyncSetup() {
   if (IsActiveLogin()) {
     // Don't log a cancel event if the sync setup dialog is being
     // automatically closed due to an auth error.
-    if (!sync_service || (!sync_service->HasSyncSetupCompleted() &&
-        sync_service->GetAuthError().state() == GoogleServiceAuthError::NONE)) {
+    if (!sync_service || (!sync_service->IsFirstSetupComplete() &&
+                          sync_service->GetAuthError().state() ==
+                              GoogleServiceAuthError::NONE)) {
       if (configuring_sync_) {
         ProfileSyncService::SyncEvent(
             ProfileSyncService::CANCEL_DURING_CONFIGURE);
@@ -697,8 +726,9 @@ void SyncSetupHandler::CloseSyncSetup() {
           // initial setup.
           // TODO(rsimha): Revisit this for M30. See http://crbug.com/252049.
           if (sync_service->IsFirstSetupInProgress()) {
-            SigninManagerFactory::GetForProfile(GetProfile())->SignOut(
-                signin_metrics::ABORT_SIGNIN);
+            SigninManagerFactory::GetForProfile(GetProfile())
+                ->SignOut(signin_metrics::ABORT_SIGNIN,
+                          signin_metrics::SignoutDelete::IGNORE_METRIC);
           }
   #endif
         }
@@ -717,7 +747,7 @@ void SyncSetupHandler::CloseSyncSetup() {
   configuring_sync_ = false;
 }
 
-void SyncSetupHandler::OpenSyncSetup() {
+void SyncSetupHandler::OpenSyncSetup(bool creating_supervised_user) {
   if (!PrepareSyncSetup())
     return;
 
@@ -743,7 +773,10 @@ void SyncSetupHandler::OpenSyncSetup() {
     // setup including any visible overlays, and display the gaia auth page.
     // Control will be returned to the sync settings page once auth is complete.
     CloseUI();
-    DisplayGaiaLogin();
+    DisplayGaiaLogin(
+        creating_supervised_user ?
+            signin_metrics::AccessPoint::ACCESS_POINT_SUPERVISED_USER :
+            signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS);
     return;
   }
 #endif
@@ -832,6 +865,7 @@ void SyncSetupHandler::DisplayConfigureSync(bool passphrase_failed) {
   //   syncNothing: true if the user wants to sync nothing
   //   <data_type>Registered: true if the associated data type is supported
   //   <data_type>Synced: true if the user wants to sync that specific data type
+  //   paymentsIntegrationEnabled: true if the user wants Payments integration
   //   encryptionEnabled: true if sync supports encryption
   //   encryptAllData: true if user wants to encrypt all data (not just
   //       passwords)
@@ -855,10 +889,14 @@ void SyncSetupHandler::DisplayConfigureSync(bool passphrase_failed) {
     // TODO(treib): How do we want to handle pref groups, i.e. when only some of
     // the sync types behind a checkbox are force-enabled? crbug.com/403326
   }
-  sync_driver::SyncPrefs sync_prefs(GetProfile()->GetPrefs());
+  PrefService* pref_service = GetProfile()->GetPrefs();
+  sync_driver::SyncPrefs sync_prefs(pref_service);
   args.SetBoolean("passphraseFailed", passphrase_failed);
   args.SetBoolean("syncAllDataTypes", sync_prefs.HasKeepEverythingSynced());
   args.SetBoolean("syncNothing", false);  // Always false during initial setup.
+  args.SetBoolean(
+      "paymentsIntegrationEnabled",
+      pref_service->GetBoolean(autofill::prefs::kAutofillWalletImportEnabled));
   args.SetBoolean("encryptAllData", service->IsEncryptEverythingEnabled());
   args.SetBoolean("encryptAllDataAllowed",
                   service->IsEncryptEverythingAllowed());

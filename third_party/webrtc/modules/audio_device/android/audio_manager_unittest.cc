@@ -8,9 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
+
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/format_macros.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/audio_device/android/build_info.h"
 #include "webrtc/modules/audio_device/android/audio_manager.h"
 #include "webrtc/modules/audio_device/android/ensure_initialized.h"
@@ -43,7 +44,7 @@ class AudioManagerTest : public ::testing::Test {
     EXPECT_NE(0, audio_manager()->GetDelayEstimateInMilliseconds());
   }
 
-  rtc::scoped_ptr<AudioManager> audio_manager_;
+  std::unique_ptr<AudioManager> audio_manager_;
   AudioParameters playout_parameters_;
   AudioParameters record_parameters_;
 };
@@ -82,14 +83,14 @@ TEST_F(AudioManagerTest, ShowAudioParameterInfo) {
   PRINT("%saudio layer: %s\n", kTag,
         low_latency_out ? "Low latency OpenSL" : "Java/JNI based AudioTrack");
   PRINT("%ssample rate: %d Hz\n", kTag, playout_parameters_.sample_rate());
-  PRINT("%schannels: %d\n", kTag, playout_parameters_.channels());
+  PRINT("%schannels: %" PRIuS "\n", kTag, playout_parameters_.channels());
   PRINT("%sframes per buffer: %" PRIuS " <=> %.2f ms\n", kTag,
         playout_parameters_.frames_per_buffer(),
         playout_parameters_.GetBufferSizeInMilliseconds());
   PRINT("RECORD: \n");
   PRINT("%saudio layer: %s\n", kTag, "Java/JNI based AudioRecord");
   PRINT("%ssample rate: %d Hz\n", kTag, record_parameters_.sample_rate());
-  PRINT("%schannels: %d\n", kTag, record_parameters_.channels());
+  PRINT("%schannels: %" PRIuS "\n", kTag, record_parameters_.channels());
   PRINT("%sframes per buffer: %" PRIuS " <=> %.2f ms\n", kTag,
         record_parameters_.frames_per_buffer(),
         record_parameters_.GetBufferSizeInMilliseconds());
@@ -119,7 +120,7 @@ TEST_F(AudioManagerTest, AudioParametersWithDefaultConstruction) {
   AudioParameters params;
   EXPECT_FALSE(params.is_valid());
   EXPECT_EQ(0, params.sample_rate());
-  EXPECT_EQ(0, params.channels());
+  EXPECT_EQ(0U, params.channels());
   EXPECT_EQ(0U, params.frames_per_buffer());
   EXPECT_EQ(0U, params.frames_per_10ms_buffer());
   EXPECT_EQ(0U, params.GetBytesPerFrame());
@@ -131,7 +132,7 @@ TEST_F(AudioManagerTest, AudioParametersWithDefaultConstruction) {
 // Basic test of the AudioParameters class using non default construction.
 TEST_F(AudioManagerTest, AudioParametersWithNonDefaultConstruction) {
   const int kSampleRate = 48000;
-  const int kChannels = 1;
+  const size_t kChannels = 1;
   const size_t kFramesPerBuffer = 480;
   const size_t kFramesPer10msBuffer = 480;
   const size_t kBytesPerFrame = 2;

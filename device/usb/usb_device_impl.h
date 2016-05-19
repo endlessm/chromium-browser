@@ -5,10 +5,16 @@
 #ifndef DEVICE_USB_USB_DEVICE_IMPL_H_
 #define DEVICE_USB_USB_DEVICE_IMPL_H_
 
+#include <stdint.h>
+
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "device/usb/usb_descriptors.h"
 #include "device/usb/usb_device.h"
 #include "device/usb/webusb_descriptors.h"
@@ -41,7 +47,6 @@ class UsbDeviceImpl : public UsbDevice {
   void CheckUsbAccess(const ResultCallback& callback) override;
 #endif  // OS_CHROMEOS
   void Open(const OpenCallback& callback) override;
-  bool Close(scoped_refptr<UsbDeviceHandle> handle) override;
   const UsbConfigDescriptor* GetActiveConfiguration() override;
 
   // These functions are used during enumeration only. The values must not
@@ -56,8 +61,9 @@ class UsbDeviceImpl : public UsbDevice {
     serial_number_ = value;
   }
   void set_device_path(const std::string& value) { device_path_ = value; }
-  void set_webusb_allowed_origins(scoped_ptr<WebUsbDescriptorSet> descriptors) {
-    webusb_allowed_origins_ = descriptors.Pass();
+  void set_webusb_allowed_origins(
+      scoped_ptr<WebUsbAllowedOrigins> allowed_origins) {
+    webusb_allowed_origins_ = std::move(allowed_origins);
   }
   void set_webusb_landing_page(const GURL& url) { webusb_landing_page_ = url; }
 
@@ -83,6 +89,7 @@ class UsbDeviceImpl : public UsbDevice {
   void ReadAllConfigurations();
 
   // Called by UsbDeviceHandleImpl.
+  void Close(scoped_refptr<UsbDeviceHandle> handle);
   void RefreshActiveConfiguration();
 
  private:
@@ -90,6 +97,9 @@ class UsbDeviceImpl : public UsbDevice {
 #if defined(OS_CHROMEOS)
   void OnOpenRequestComplete(const OpenCallback& callback,
                              dbus::FileDescriptor fd);
+  void OnOpenRequestError(const OpenCallback& callback,
+                          const std::string& error_name,
+                          const std::string& error_message);
   void OpenOnBlockingThreadWithFd(dbus::FileDescriptor fd,
                                   const OpenCallback& callback);
 #endif

@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/timing/PerformanceUserTiming.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -31,6 +30,7 @@
 #include "core/timing/PerformanceBase.h"
 #include "core/timing/PerformanceMark.h"
 #include "core/timing/PerformanceMeasure.h"
+#include "platform/Histogram.h"
 #include "platform/TraceEvent.h"
 #include "public/platform/Platform.h"
 #include "wtf/text/StringHash.h"
@@ -70,11 +70,11 @@ RestrictedKeyMap* createRestrictedKeyMap()
 
 const RestrictedKeyMap& restrictedKeyMap()
 {
-    AtomicallyInitializedStaticReference(RestrictedKeyMap, map, createRestrictedKeyMap());
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(RestrictedKeyMap, map, createRestrictedKeyMap());
     return map;
 }
 
-} // namespace anonymous
+} // namespace
 
 UserTiming::UserTiming(PerformanceBase& performance)
     : m_performance(&performance)
@@ -115,7 +115,8 @@ PerformanceEntry* UserTiming::mark(const String& markName, ExceptionState& excep
     double startTime = m_performance->now();
     PerformanceEntry* entry = PerformanceMark::create(markName, startTime);
     insertPerformanceEntry(m_marksMap, *entry);
-    Platform::current()->histogramCustomCounts("PLT.UserTiming_Mark", static_cast<int>(startTime), 0, 600000, 100);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(CustomCountHistogram, userTimingMarkHistogram, new CustomCountHistogram("PLT.UserTiming_Mark", 0, 600000, 100));
+    userTimingMarkHistogram.count(static_cast<int>(startTime));
     return entry;
 }
 
@@ -174,8 +175,10 @@ PerformanceEntry* UserTiming::measure(const String& measureName, const String& s
 
     PerformanceEntry* entry = PerformanceMeasure::create(measureName, startTime, endTime);
     insertPerformanceEntry(m_measuresMap, *entry);
-    if (endTime >= startTime)
-        Platform::current()->histogramCustomCounts("PLT.UserTiming_MeasureDuration", static_cast<int>(endTime - startTime), 0, 600000, 100);
+    if (endTime >= startTime) {
+        DEFINE_THREAD_SAFE_STATIC_LOCAL(CustomCountHistogram, measureDurationHistogram, new CustomCountHistogram("PLT.UserTiming_MeasureDuration", 0, 600000, 100));
+        measureDurationHistogram.count(static_cast<int>(endTime - startTime));
+    }
     return entry;
 }
 

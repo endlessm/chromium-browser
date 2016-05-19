@@ -10,6 +10,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/version.h"
@@ -66,9 +67,7 @@ class RequirementsChecker;
 // terminating during the install. We can't listen for the app termination
 // notification here in this class because it can be destroyed on any thread
 // and won't safely be able to clean up UI thread notification listeners.
-class CrxInstaller
-    : public SandboxedUnpackerClient,
-      public ExtensionInstallPrompt::Delegate {
+class CrxInstaller : public SandboxedUnpackerClient {
  public:
   // Used in histograms; do not change order.
   enum OffStoreInstallAllowReason {
@@ -107,9 +106,7 @@ class CrxInstaller
   // Convert the specified web app into an extension and install it.
   void InstallWebApp(const WebApplicationInfo& web_app);
 
-  // Overridden from ExtensionInstallPrompt::Delegate:
-  void InstallUIProceed() override;
-  void InstallUIAbort(bool user_initiated) override;
+  void OnInstallPromptDone(ExtensionInstallPrompt::Result result);
 
   int creation_flags() const { return creation_flags_; }
   void set_creation_flags(int val) { creation_flags_ = val; }
@@ -198,9 +195,6 @@ class CrxInstaller
   void set_install_immediately(bool val) {
     set_install_flag(kInstallFlagInstallImmediately, val);
   }
-  void set_is_ephemeral(bool val) {
-    set_install_flag(kInstallFlagIsEphemeral, val);
-  }
   void set_do_not_sync(bool val) {
     set_install_flag(kInstallFlagDoNotSync, val);
   }
@@ -256,6 +250,10 @@ class CrxInstaller
 
   // Runs on the UI thread. Confirms the installation to the ExtensionService.
   void ConfirmInstall();
+
+  // Runs on the UI thread. Updates the creation flags for the extension and
+  // calls CompleteInstall().
+  void UpdateCreationFlagsAndCompleteInstall();
 
   // Runs on File thread. Install the unpacked extension into the profile and
   // notify the frontend.

@@ -118,12 +118,6 @@ name=http://crbug.com/107567 intentional mismatch in _DebugHeapDelete, no frame
 *!std::numpunct<*>::_Tidy
 *!std::numpunct<*>::~numpunct<*>
 
-# TODO(rbultje): Investigate if code fix is required instead.
-WARNING
-name=http://crbug.com/223255 - prefetches in vp8
-instruction=prefetch*
-ffmpegsumo.dll!ff_prefetch_mmxext
-
 ############################
 # Intentional errors in Chromium tests (ToolsSanityTests)
 LEAK
@@ -231,12 +225,6 @@ name=CrashingChildProcess deliberate crash
 UNADDRESSABLE ACCESS
 name=::Crasher::Run deliberate crash
 *!base::`anonymous namespace'::Crasher::Run
-
-WARNING
-name=AllocationRegister guard page access deliberate crash
-base.dll!base::trace_event::AllocationRegister::Insert
-*!base::trace_event::AllocationRegisterTest_OverflowDeathTest_Test::TestBody
-*!testing::internal::HandleExceptionsInMethodIfSupported<>
 
 ############################
 # Benign issues in Chromium
@@ -397,13 +385,11 @@ MSVCR100D.dll!operator new
 *!operator new
 *!operator new[]
 *!`anonymous namespace'::SecurityTest_NewOverflow_Test::TestBody
-*!testing::internal::HandleExceptionsInMethodIfSupported<>
 
 WARNING
 name=Security test (calloc overflow)
 *!`anonymous namespace'::CallocReturnsNull
 *!`anonymous namespace'::SecurityTest_CallocOverflow_Test::TestBody
-*!testing::internal::HandleExceptionsInMethodIfSupported<>
 
 GDI USAGE ERROR
 name=http://crbug.com/234484
@@ -425,8 +411,7 @@ skia.dll!HDCOffscreen::draw
 ...
 skia.dll!SkScalerContext::getImage
 skia.dll!SkGlyphCache::findImage
-skia.dll!D1G_RectClip
-skia.dll!SkDraw::draw*
+skia.dll!DrawOneGlyph::getImageData
 
 HANDLE LEAK
 name=http://crbug.com/346842
@@ -436,7 +421,7 @@ system call NtGdiCreateDIBSection
 *!SkScalerContext_GDI::generateImage
 *!SkScalerContext::getImage
 *!SkGlyphCache::findImage
-*!D1G*RectClip
+*!DrawOneGlyph::getImageData
 
 HANDLE LEAK
 name=http://crbug.com/346993
@@ -531,16 +516,6 @@ system call NtCreate*
 *!disk_cache::BlockFiles::Init
 *!disk_cache::BackendImpl::SyncInit
 *!disk_cache::BackendIO::ExecuteBackendOperation
-*!base::internal::Invoker<>::Run
-*!base::MessageLoop::RunTask
-*!base::MessageLoop::DeferOrRunPendingTask
-*!base::MessageLoop::DoWork
-*!base::MessagePumpForIO::DoRunLoop
-*!base::MessagePumpWin::Run
-*!base::MessageLoop::RunHandler
-*!base::Thread::Run
-*!content::BrowserThreadImpl::CacheThreadRun
-*!content::BrowserThreadImpl::Run
 
 GDI USAGE ERROR
 name=379774
@@ -738,15 +713,6 @@ UNADDRESSABLE ACCESS
 name=bug_536803
 *!blink::SecurityOrigin::addSuborigin
 *!blink::SecurityOriginTest_Suborigins_Test::TestBody
-*!testing::internal::HandleExceptionsInMethodIfSupported<>
-
-UNADDRESSABLE ACCESS
-name=bug_554520
-*!gl::Program::release
-*!gl::State::reset
-*!gl::State::~State
-*!`anonymous namespace'::ValidationESTest_DrawElementsWithMaxIndexGivesError_Test::TestBody
-*!testing::internal::HandleExceptionsInMethodIfSupported<>
 
 HANDLE LEAK
 name=bug_555058_a
@@ -795,3 +761,63 @@ content.dll!content::BrowserThreadImpl::ProcessLauncherThreadRun
 content.dll!content::BrowserThreadImpl::Run
 base.dll!base::Thread::ThreadMain
 base.dll!base::`anonymous namespace'::ThreadFunc
+
+HANDLE LEAK
+name=bug_561803_a
+system call NtCreateNamedPipeFile
+*!CreateNamedPipeW
+*!mojo::edk::PlatformChannelPair::PlatformChannelPair
+...
+*!mojo::edk::ChildProcessLaunched
+*!content::*::OnProcessLaunched
+*!content::ChildProcessLauncher::Notify
+*!content::ChildProcessLauncher::DidLaunch
+*!base::internal::InvokeHelper<>::MakeItSo
+
+GDI USAGE ERROR
+name=bug_573352
+system call NtGdiDeleteObjectApp
+GDI32.dll!...
+SHELL32.dll!...
+ui_base.dll!drag_utils::SetDragImageOnDataObject
+
+HANDLE LEAK
+name=bug_580636_a
+system call NtDuplicateObject
+KERNELBASE.dll!DuplicateHandle
+...
+*!IPC::internal::HandleAttachmentWin::HandleAttachmentWin
+
+HANDLE LEAK
+name=bug_586668_a
+system call NtDuplicateObject
+KERNELBASE.dll!DuplicateHandle
+KERNEL32.dll!DuplicateHandle
+mojo_system_impl.dll!mojo::edk::Channel::Message::RewriteHandles
+mojo_system_impl.dll!mojo::edk::NodeController::OnRelayPortsMessage
+mojo_system_impl.dll!mojo::edk::NodeChannel::OnChannelMessage
+mojo_system_impl.dll!mojo::edk::Channel::OnReadComplete
+
+HANDLE LEAK
+name=bug_586668_b
+system call NtDuplicateObject
+KERNELBASE.dll!DuplicateHandle
+KERNEL32.dll!DuplicateHandle
+base.dll!base::SharedMemory::DuplicateHandle
+mojo_system_impl.dll!mojo::edk::PlatformSharedBuffer::DuplicatePlatformHandle
+mojo_system_impl.dll!mojo::edk::SharedBufferDispatcher::EndSerialize
+mojo_system_impl.dll!mojo::edk::MessagePipeDispatcher::WriteMessage
+mojo_system_impl.dll!mojo::edk::Core::WriteMessage
+
+HANDLE LEAK
+name=bug_586996_b
+system call NtDuplicateObject
+KERNELBASE.dll!DuplicateHandle
+KERNEL32.dll!DuplicateHandle
+ipc.dll!IPC::AttachmentBrokerPrivilegedWin::DuplicateWinHandle
+ipc.dll!IPC::AttachmentBrokerPrivilegedWin::OnDuplicateWinHandle
+ipc.dll!IPC::AttachmentBrokerPrivilegedWin::OnMessageReceived
+ipc.dll!IPC::internal::ChannelReader::HandleTranslatedMessage
+ipc.dll!IPC::internal::ChannelReader::TranslateInputData
+ipc.dll!IPC::internal::ChannelReader::AsyncReadComplete
+ipc.dll!IPC::ChannelWin::OnIOCompleted

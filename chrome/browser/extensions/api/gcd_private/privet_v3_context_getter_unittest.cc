@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/gcd_private/privet_v3_context_getter.h"
 
+#include <stddef.h>
+
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "content/public/browser/browser_thread.h"
@@ -40,7 +42,7 @@ class PrivetV3ContextGetterTest : public testing::Test,
 
   void CreateServer(EmbeddedTestServer::Type type) {
     server_.reset(new EmbeddedTestServer(type));
-    ASSERT_TRUE(server_->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(server_->Start());
 
     base::FilePath test_data_dir;
     ASSERT_TRUE(PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir));

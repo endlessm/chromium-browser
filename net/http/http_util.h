@@ -5,6 +5,8 @@
 #ifndef NET_HTTP_HTTP_UTIL_H_
 #define NET_HTTP_HTTP_UTIL_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -79,6 +81,11 @@ class NET_EXPORT HttpUtil {
   // Returns false if |value| contains NUL or CRLF. This method does not perform
   // a fully RFC-2616-compliant header value validation.
   static bool IsValidHeaderValue(const std::string& value);
+
+  // Returns true if |value| is a valid HTTP header value according to
+  // RFC 7230 and doesn't contain CR or LF.
+  // i.e. returns true if |value| matches |*field-content| in RFC 7230.
+  static bool IsValidHeaderValueRFC7230(const base::StringPiece& value);
 
   // Strips all header lines from |headers| whose name matches
   // |headers_to_remove|. |headers_to_remove| is a list of null-terminated
@@ -284,6 +291,7 @@ class NET_EXPORT HttpUtil {
     ValuesIterator(std::string::const_iterator values_begin,
                    std::string::const_iterator values_end,
                    char delimiter);
+    ValuesIterator(const ValuesIterator& other);
     ~ValuesIterator();
 
     // Advances the iterator to the next value, if any.  Returns true if there
@@ -330,6 +338,8 @@ class NET_EXPORT HttpUtil {
     NameValuePairsIterator(std::string::const_iterator begin,
                            std::string::const_iterator end,
                            char delimiter);
+
+    NameValuePairsIterator(const NameValuePairsIterator& other);
 
     ~NameValuePairsIterator();
 

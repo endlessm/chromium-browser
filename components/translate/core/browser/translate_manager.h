@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/callback_list.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/translate/core/browser/language_state.h"
@@ -54,8 +55,7 @@ class TranslateManager {
   //     the UI language
   //     the accept-language list
   // If no language is found then an empty string is returned.
-  static std::string GetTargetLanguage(
-      const std::vector<std::string>& accept_languages_list);
+  static std::string GetTargetLanguage(const TranslatePrefs* prefs);
 
   // Returns the language to automatically translate to. |original_language| is
   // the webpage's original language.

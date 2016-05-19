@@ -44,6 +44,7 @@ class BreakableControlFlowBuilder : public ControlFlowBuilder {
   // SetBreakTarget is called.
   void Break() { EmitJump(&break_sites_); }
   void BreakIfTrue() { EmitJumpIfTrue(&break_sites_); }
+  void BreakIfFalse() { EmitJumpIfFalse(&break_sites_); }
   void BreakIfUndefined() { EmitJumpIfUndefined(&break_sites_); }
   void BreakIfNull() { EmitJumpIfNull(&break_sites_); }
 
@@ -52,19 +53,33 @@ class BreakableControlFlowBuilder : public ControlFlowBuilder {
   void EmitJump(ZoneVector<BytecodeLabel>* labels, int index);
   void EmitJumpIfTrue(ZoneVector<BytecodeLabel>* labels);
   void EmitJumpIfTrue(ZoneVector<BytecodeLabel>* labels, int index);
+  void EmitJumpIfFalse(ZoneVector<BytecodeLabel>* labels);
+  void EmitJumpIfFalse(ZoneVector<BytecodeLabel>* labels, int index);
   void EmitJumpIfUndefined(ZoneVector<BytecodeLabel>* labels);
   void EmitJumpIfNull(ZoneVector<BytecodeLabel>* labels);
 
   void BindLabels(const BytecodeLabel& target, ZoneVector<BytecodeLabel>* site);
 
- private:
   // Unbound labels that identify jumps for break statements in the code.
   ZoneVector<BytecodeLabel> break_sites_;
 };
 
+
+// Class to track control flow for block statements (which can break in JS).
+class BlockBuilder final : public BreakableControlFlowBuilder {
+ public:
+  explicit BlockBuilder(BytecodeArrayBuilder* builder)
+      : BreakableControlFlowBuilder(builder) {}
+
+  void EndBlock();
+
+ private:
+  BytecodeLabel block_end_;
+};
+
+
 // A class to help with co-ordinating break and continue statements with
 // their loop.
-// TODO(oth): add support for TF branch/merge info.
 class LoopBuilder final : public BreakableControlFlowBuilder {
  public:
   explicit LoopBuilder(BytecodeArrayBuilder* builder)
@@ -72,9 +87,12 @@ class LoopBuilder final : public BreakableControlFlowBuilder {
         continue_sites_(builder->zone()) {}
   ~LoopBuilder();
 
-  // This methods should be called by the LoopBuilder owner before
-  // destruction to update sites that emit jumps for continue.
-  void SetContinueTarget(const BytecodeLabel& continue_target);
+  void LoopHeader();
+  void Condition() { builder()->Bind(&condition_); }
+  void Next() { builder()->Bind(&next_); }
+  void JumpToHeader() { builder()->Jump(&loop_header_); }
+  void JumpToHeaderIfTrue() { builder()->JumpIfTrue(&loop_header_); }
+  void EndLoop();
 
   // This method is called when visiting continue statements in the AST.
   // Inserts a jump to a unbound label that is patched when the corresponding
@@ -85,12 +103,19 @@ class LoopBuilder final : public BreakableControlFlowBuilder {
   void ContinueIfNull() { EmitJumpIfNull(&continue_sites_); }
 
  private:
+  void SetContinueTarget(const BytecodeLabel& continue_target);
+
+  BytecodeLabel loop_header_;
+  BytecodeLabel condition_;
+  BytecodeLabel next_;
+  BytecodeLabel loop_end_;
+
   // Unbound labels that identify jumps for continue statements in the code.
   ZoneVector<BytecodeLabel> continue_sites_;
 };
 
+
 // A class to help with co-ordinating break statements with their switch.
-// TODO(oth): add support for TF branch/merge info.
 class SwitchBuilder final : public BreakableControlFlowBuilder {
  public:
   explicit SwitchBuilder(BytecodeArrayBuilder* builder, int number_of_cases)
@@ -117,6 +142,53 @@ class SwitchBuilder final : public BreakableControlFlowBuilder {
  private:
   // Unbound labels that identify jumps for case statements in the code.
   ZoneVector<BytecodeLabel> case_sites_;
+};
+
+
+// A class to help with co-ordinating control flow in try-catch statements.
+class TryCatchBuilder final : public ControlFlowBuilder {
+ public:
+  explicit TryCatchBuilder(BytecodeArrayBuilder* builder)
+      : ControlFlowBuilder(builder), handler_id_(builder->NewHandlerEntry()) {}
+
+  void BeginTry(Register context);
+  void EndTry();
+  void EndCatch();
+
+ private:
+  int handler_id_;
+  BytecodeLabel handler_;
+  BytecodeLabel exit_;
+};
+
+
+// A class to help with co-ordinating control flow in try-finally statements.
+class TryFinallyBuilder final : public ControlFlowBuilder {
+ public:
+  explicit TryFinallyBuilder(BytecodeArrayBuilder* builder, bool will_catch)
+      : ControlFlowBuilder(builder),
+        handler_id_(builder->NewHandlerEntry()),
+        finalization_sites_(builder->zone()),
+        will_catch_(will_catch) {}
+
+  void BeginTry(Register context);
+  void LeaveTry();
+  void EndTry();
+  void BeginHandler();
+  void BeginFinally();
+  void EndFinally();
+
+ private:
+  int handler_id_;
+  BytecodeLabel handler_;
+
+  // Unbound labels that identify jumps to the finally block in the code.
+  ZoneVector<BytecodeLabel> finalization_sites_;
+
+  // Conservative prediction of whether exceptions thrown into the handler for
+  // this finally block will be caught. Note that such a prediction depends on
+  // whether this try-finally is nested inside a surrounding try-catch.
+  bool will_catch_;
 };
 
 }  // namespace interpreter

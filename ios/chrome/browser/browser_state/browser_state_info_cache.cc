@@ -4,14 +4,16 @@
 
 #include "ios/chrome/browser/browser_state/browser_state_info_cache.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/values.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "ios/chrome/browser/browser_state/browser_state_info_cache_observer.h"
 #include "ios/chrome/browser/pref_names.h"
 
@@ -26,7 +28,7 @@ BrowserStateInfoCache::BrowserStateInfoCache(
     const base::FilePath& user_data_dir)
     : prefs_(prefs), user_data_dir_(user_data_dir) {
   // Populate the cache
-  DictionaryPrefUpdate update(prefs_, ios::prefs::kBrowserStateInfoCache);
+  DictionaryPrefUpdate update(prefs_, prefs::kBrowserStateInfoCache);
   base::DictionaryValue* cache = update.Get();
   for (base::DictionaryValue::Iterator it(*cache); !it.IsAtEnd();
        it.Advance()) {
@@ -43,7 +45,7 @@ void BrowserStateInfoCache::AddBrowserState(
     const std::string& gaia_id,
     const base::string16& user_name) {
   std::string key = CacheKeyFromBrowserStatePath(browser_state_path);
-  DictionaryPrefUpdate update(prefs_, ios::prefs::kBrowserStateInfoCache);
+  DictionaryPrefUpdate update(prefs_, prefs::kBrowserStateInfoCache);
   base::DictionaryValue* cache = update.Get();
 
   scoped_ptr<base::DictionaryValue> info(new base::DictionaryValue);
@@ -74,7 +76,7 @@ void BrowserStateInfoCache::RemoveBrowserState(
     NOTREACHED();
     return;
   }
-  DictionaryPrefUpdate update(prefs_, ios::prefs::kBrowserStateInfoCache);
+  DictionaryPrefUpdate update(prefs_, prefs::kBrowserStateInfoCache);
   base::DictionaryValue* cache = update.Get();
   std::string key = CacheKeyFromBrowserStatePath(browser_state_path);
   cache->Remove(key, nullptr);
@@ -173,14 +175,14 @@ const base::FilePath& BrowserStateInfoCache::GetUserDataDir() const {
 
 // static
 void BrowserStateInfoCache::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterDictionaryPref(ios::prefs::kBrowserStateInfoCache);
+  registry->RegisterDictionaryPref(prefs::kBrowserStateInfoCache);
 }
 
 const base::DictionaryValue*
 BrowserStateInfoCache::GetInfoForBrowserStateAtIndex(size_t index) const {
   DCHECK_LT(index, GetNumberOfBrowserStates());
   const base::DictionaryValue* cache =
-      prefs_->GetDictionary(ios::prefs::kBrowserStateInfoCache);
+      prefs_->GetDictionary(prefs::kBrowserStateInfoCache);
   const base::DictionaryValue* info = nullptr;
   cache->GetDictionaryWithoutPathExpansion(sorted_keys_[index], &info);
   return info;
@@ -189,7 +191,7 @@ BrowserStateInfoCache::GetInfoForBrowserStateAtIndex(size_t index) const {
 void BrowserStateInfoCache::SetInfoForBrowserStateAtIndex(
     size_t index,
     base::DictionaryValue* info) {
-  DictionaryPrefUpdate update(prefs_, ios::prefs::kBrowserStateInfoCache);
+  DictionaryPrefUpdate update(prefs_, prefs::kBrowserStateInfoCache);
   base::DictionaryValue* cache = update.Get();
   cache->SetWithoutPathExpansion(sorted_keys_[index], info);
 }

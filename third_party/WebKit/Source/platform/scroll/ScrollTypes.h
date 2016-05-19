@@ -52,7 +52,8 @@ enum ScrollDirectionPhysical {
 enum ScrollType {
     UserScroll,
     ProgrammaticScroll,
-    CompositorScroll
+    CompositorScroll,
+    AnchoringScroll
 };
 
 // Convert logical scroll direction to physical. Physical scroll directions are unaffected.
@@ -179,6 +180,7 @@ enum ScrollbarOverlayStyle {
 // the amount of the scroll delta that was not consumed by scrolling. If didScroll is false
 // then unusedScrollDelta is zero.
 struct ScrollResultOneDimensional {
+    STACK_ALLOCATED();
     explicit ScrollResultOneDimensional(bool didScroll)
         : didScroll(didScroll)
         , unusedScrollDelta(0) { }
@@ -191,6 +193,7 @@ struct ScrollResultOneDimensional {
 };
 
 struct ScrollResult {
+    STACK_ALLOCATED();
     explicit ScrollResult()
         : didScrollX(false)
         , didScrollY(false)
@@ -212,6 +215,6 @@ struct ScrollResult {
 
 typedef unsigned ScrollbarControlPartMask;
 
-}
+} // namespace blink
 
 #endif

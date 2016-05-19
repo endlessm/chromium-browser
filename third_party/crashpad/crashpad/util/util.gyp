@@ -94,6 +94,8 @@
         'misc/initialization_state_dcheck.h',
         'misc/pdb_structures.cc',
         'misc/pdb_structures.h',
+        'misc/random_string.cc',
+        'misc/random_string.h',
         'misc/scoped_forbid_return.cc',
         'misc/scoped_forbid_return.h',
         'misc/symbolic_constants_common.h',
@@ -126,6 +128,8 @@
         'posix/process_info_mac.cc',
         'posix/symbolic_constants_posix.cc',
         'posix/symbolic_constants_posix.h',
+        'stdlib/aligned_allocator.cc',
+        'stdlib/aligned_allocator.h',
         'stdlib/cxx.h',
         'stdlib/map_insert.h',
         'stdlib/objc.h',
@@ -148,6 +152,8 @@
         'thread/thread_log_messages.h',
         'thread/thread_posix.cc',
         'thread/thread_win.cc',
+        'thread/worker_thread.cc',
+        'thread/worker_thread.h',
         'win/address_types.h',
         'win/capture_context.asm',
         'win/capture_context.h',
@@ -160,6 +166,8 @@
         'win/exception_handler_server.h',
         'win/get_function.cc',
         'win/get_function.h',
+        'win/get_module_information.cc',
+        'win/get_module_information.h',
         'win/handle.cc',
         'win/handle.h',
         'win/module_version.cc',
@@ -255,6 +263,7 @@
           },
           'msvs_disabled_warnings': [
             4201,  # nonstandard extension used : nameless struct/union.
+            4577,  # 'noexcept' used with no exception handling mode specified
           ],
           'conditions': [
             ['target_arch=="ia32"', {

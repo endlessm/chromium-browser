@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/appcache/appcache_entry.h"
 #include "content/browser/appcache/appcache_histograms.h"
@@ -190,6 +191,8 @@ AppCacheDatabase::GroupRecord::GroupRecord()
     : group_id(0) {
 }
 
+AppCacheDatabase::GroupRecord::GroupRecord(const GroupRecord& other) = default;
+
 AppCacheDatabase::GroupRecord::~GroupRecord() {
 }
 
@@ -218,12 +221,12 @@ void AppCacheDatabase::Disable() {
   ResetConnectionAndTables();
 }
 
-int64 AppCacheDatabase::GetOriginUsage(const GURL& origin) {
+int64_t AppCacheDatabase::GetOriginUsage(const GURL& origin) {
   std::vector<CacheRecord> records;
   if (!FindCachesForOrigin(origin, &records))
     return 0;
 
-  int64 origin_usage = 0;
+  int64_t origin_usage = 0;
   std::vector<CacheRecord>::const_iterator iter = records.begin();
   while (iter != records.end()) {
     origin_usage += iter->cache_size;
@@ -232,7 +235,7 @@ int64 AppCacheDatabase::GetOriginUsage(const GURL& origin) {
   return origin_usage;
 }
 
-bool AppCacheDatabase::GetAllOriginUsage(std::map<GURL, int64>* usage_map) {
+bool AppCacheDatabase::GetAllOriginUsage(std::map<GURL, int64_t>* usage_map) {
   std::set<GURL> origins;
   if (!FindOriginsWithGroups(&origins))
     return false;
@@ -260,8 +263,10 @@ bool AppCacheDatabase::FindOriginsWithGroups(std::set<GURL>* origins) {
 }
 
 bool AppCacheDatabase::FindLastStorageIds(
-    int64* last_group_id, int64* last_cache_id, int64* last_response_id,
-    int64* last_deletable_response_rowid) {
+    int64_t* last_group_id,
+    int64_t* last_cache_id,
+    int64_t* last_response_id,
+    int64_t* last_deletable_response_rowid) {
   DCHECK(last_group_id && last_cache_id && last_response_id &&
          last_deletable_response_rowid);
 
@@ -281,11 +286,11 @@ bool AppCacheDatabase::FindLastStorageIds(
       "SELECT MAX(response_id) FROM DeletableResponseIds";
   const char* kMaxDeletableResponseRowIdSql =
       "SELECT MAX(rowid) FROM DeletableResponseIds";
-  int64 max_group_id;
-  int64 max_cache_id;
-  int64 max_response_id_from_entries;
-  int64 max_response_id_from_deletables;
-  int64 max_deletable_response_rowid;
+  int64_t max_group_id;
+  int64_t max_cache_id;
+  int64_t max_response_id_from_entries;
+  int64_t max_response_id_from_deletables;
+  int64_t max_deletable_response_rowid;
   if (!RunUniqueStatementWithInt64Result(kMaxGroupIdSql, &max_group_id) ||
       !RunUniqueStatementWithInt64Result(kMaxCacheIdSql, &max_cache_id) ||
       !RunUniqueStatementWithInt64Result(kMaxResponseIdFromEntriesSql,
@@ -305,7 +310,7 @@ bool AppCacheDatabase::FindLastStorageIds(
   return true;
 }
 
-bool AppCacheDatabase::FindGroup(int64 group_id, GroupRecord* record) {
+bool AppCacheDatabase::FindGroup(int64_t group_id, GroupRecord* record) {
   DCHECK(record);
   if (!LazyOpen(kDontCreate))
     return false;
@@ -377,7 +382,8 @@ bool AppCacheDatabase::FindGroupsForOrigin(
   return statement.Succeeded();
 }
 
-bool AppCacheDatabase::FindGroupForCache(int64 cache_id, GroupRecord* record) {
+bool AppCacheDatabase::FindGroupForCache(int64_t cache_id,
+                                         GroupRecord* record) {
   DCHECK(record);
   if (!LazyOpen(kDontCreate))
     return false;
@@ -420,7 +426,7 @@ bool AppCacheDatabase::InsertGroup(const GroupRecord* record) {
   return statement.Run();
 }
 
-bool AppCacheDatabase::DeleteGroup(int64 group_id) {
+bool AppCacheDatabase::DeleteGroup(int64_t group_id) {
   if (!LazyOpen(kDontCreate))
     return false;
 
@@ -431,15 +437,14 @@ bool AppCacheDatabase::DeleteGroup(int64 group_id) {
   return statement.Run();
 }
 
-bool AppCacheDatabase::UpdateLastAccessTime(
-    int64 group_id, base::Time time) {
+bool AppCacheDatabase::UpdateLastAccessTime(int64_t group_id, base::Time time) {
   if (!LazyUpdateLastAccessTime(group_id, time))
     return false;
   return CommitLazyLastAccessTimes();
 }
 
-bool AppCacheDatabase::LazyUpdateLastAccessTime(
-    int64 group_id, base::Time time) {
+bool AppCacheDatabase::LazyUpdateLastAccessTime(int64_t group_id,
+                                                base::Time time) {
   if (!LazyOpen(kCreateIfNeeded))
     return false;
   lazy_last_access_times_[group_id] = time;
@@ -468,7 +473,7 @@ bool AppCacheDatabase::CommitLazyLastAccessTimes() {
 }
 
 bool AppCacheDatabase::UpdateEvictionTimes(
-    int64 group_id,
+    int64_t group_id,
     base::Time last_full_update_check_time,
     base::Time first_evictable_error_time) {
   if (!LazyOpen(kCreateIfNeeded))
@@ -485,7 +490,7 @@ bool AppCacheDatabase::UpdateEvictionTimes(
   return statement.Run();  // Will succeed even if group_id is invalid.
 }
 
-bool AppCacheDatabase::FindCache(int64 cache_id, CacheRecord* record) {
+bool AppCacheDatabase::FindCache(int64_t cache_id, CacheRecord* record) {
   DCHECK(record);
   if (!LazyOpen(kDontCreate))
     return false;
@@ -504,7 +509,8 @@ bool AppCacheDatabase::FindCache(int64 cache_id, CacheRecord* record) {
   return true;
 }
 
-bool AppCacheDatabase::FindCacheForGroup(int64 group_id, CacheRecord* record) {
+bool AppCacheDatabase::FindCacheForGroup(int64_t group_id,
+                                         CacheRecord* record) {
   DCHECK(record);
   if (!LazyOpen(kDontCreate))
     return false;
@@ -559,7 +565,7 @@ bool AppCacheDatabase::InsertCache(const CacheRecord* record) {
   return statement.Run();
 }
 
-bool AppCacheDatabase::DeleteCache(int64 cache_id) {
+bool AppCacheDatabase::DeleteCache(int64_t cache_id) {
   if (!LazyOpen(kDontCreate))
     return false;
 
@@ -572,8 +578,8 @@ bool AppCacheDatabase::DeleteCache(int64 cache_id) {
   return statement.Run();
 }
 
-bool AppCacheDatabase::FindEntriesForCache(
-    int64 cache_id, std::vector<EntryRecord>* records) {
+bool AppCacheDatabase::FindEntriesForCache(int64_t cache_id,
+                                           std::vector<EntryRecord>* records) {
   DCHECK(records && records->empty());
   if (!LazyOpen(kDontCreate))
     return false;
@@ -616,8 +622,9 @@ bool AppCacheDatabase::FindEntriesForUrl(
   return statement.Succeeded();
 }
 
-bool AppCacheDatabase::FindEntry(
-    int64 cache_id, const GURL& url, EntryRecord* record) {
+bool AppCacheDatabase::FindEntry(int64_t cache_id,
+                                 const GURL& url,
+                                 EntryRecord* record) {
   DCHECK(record);
   if (!LazyOpen(kDontCreate))
     return false;
@@ -673,7 +680,7 @@ bool AppCacheDatabase::InsertEntryRecords(
   return transaction.Commit();
 }
 
-bool AppCacheDatabase::DeleteEntriesForCache(int64 cache_id) {
+bool AppCacheDatabase::DeleteEntriesForCache(int64_t cache_id) {
   if (!LazyOpen(kDontCreate))
     return false;
 
@@ -686,8 +693,9 @@ bool AppCacheDatabase::DeleteEntriesForCache(int64 cache_id) {
   return statement.Run();
 }
 
-bool AppCacheDatabase::AddEntryFlags(
-    const GURL& entry_url, int64 cache_id, int additional_flags) {
+bool AppCacheDatabase::AddEntryFlags(const GURL& entry_url,
+                                     int64_t cache_id,
+                                     int additional_flags) {
   if (!LazyOpen(kDontCreate))
     return false;
 
@@ -724,7 +732,7 @@ bool AppCacheDatabase::FindNamespacesForOrigin(
 }
 
 bool AppCacheDatabase::FindNamespacesForCache(
-    int64 cache_id,
+    int64_t cache_id,
     std::vector<NamespaceRecord>* intercepts,
     std::vector<NamespaceRecord>* fallbacks) {
   DCHECK(intercepts && intercepts->empty());
@@ -789,7 +797,7 @@ bool AppCacheDatabase::InsertNamespaceRecords(
   return transaction.Commit();
 }
 
-bool AppCacheDatabase::DeleteNamespacesForCache(int64 cache_id) {
+bool AppCacheDatabase::DeleteNamespacesForCache(int64_t cache_id) {
   if (!LazyOpen(kDontCreate))
     return false;
 
@@ -803,7 +811,8 @@ bool AppCacheDatabase::DeleteNamespacesForCache(int64 cache_id) {
 }
 
 bool AppCacheDatabase::FindOnlineWhiteListForCache(
-    int64 cache_id, std::vector<OnlineWhiteListRecord>* records) {
+    int64_t cache_id,
+    std::vector<OnlineWhiteListRecord>* records) {
   DCHECK(records && records->empty());
   if (!LazyOpen(kDontCreate))
     return false;
@@ -856,7 +865,7 @@ bool AppCacheDatabase::InsertOnlineWhiteListRecords(
   return transaction.Commit();
 }
 
-bool AppCacheDatabase::DeleteOnlineWhiteListForCache(int64 cache_id) {
+bool AppCacheDatabase::DeleteOnlineWhiteListForCache(int64_t cache_id) {
   if (!LazyOpen(kDontCreate))
     return false;
 
@@ -870,7 +879,9 @@ bool AppCacheDatabase::DeleteOnlineWhiteListForCache(int64 cache_id) {
 }
 
 bool AppCacheDatabase::GetDeletableResponseIds(
-    std::vector<int64>* response_ids, int64 max_rowid, int limit) {
+    std::vector<int64_t>* response_ids,
+    int64_t max_rowid,
+    int limit) {
   if (!LazyOpen(kDontCreate))
     return false;
 
@@ -889,22 +900,23 @@ bool AppCacheDatabase::GetDeletableResponseIds(
 }
 
 bool AppCacheDatabase::InsertDeletableResponseIds(
-    const std::vector<int64>& response_ids) {
+    const std::vector<int64_t>& response_ids) {
   const char kSql[] =
       "INSERT INTO DeletableResponseIds (response_id) VALUES (?)";
   return RunCachedStatementWithIds(SQL_FROM_HERE, kSql, response_ids);
 }
 
 bool AppCacheDatabase::DeleteDeletableResponseIds(
-    const std::vector<int64>& response_ids) {
+    const std::vector<int64_t>& response_ids) {
   const char kSql[] =
       "DELETE FROM DeletableResponseIds WHERE response_id = ?";
   return RunCachedStatementWithIds(SQL_FROM_HERE, kSql, response_ids);
 }
 
 bool AppCacheDatabase::RunCachedStatementWithIds(
-    const sql::StatementID& statement_id, const char* sql,
-    const std::vector<int64>& ids) {
+    const sql::StatementID& statement_id,
+    const char* sql,
+    const std::vector<int64_t>& ids) {
   DCHECK(sql);
   if (!LazyOpen(kCreateIfNeeded))
     return false;
@@ -915,7 +927,7 @@ bool AppCacheDatabase::RunCachedStatementWithIds(
 
   sql::Statement statement(db_->GetCachedStatement(statement_id, sql));
 
-  std::vector<int64>::const_iterator iter = ids.begin();
+  std::vector<int64_t>::const_iterator iter = ids.begin();
   while (iter != ids.end()) {
     statement.BindInt64(0, *iter);
     if (!statement.Run())
@@ -927,8 +939,8 @@ bool AppCacheDatabase::RunCachedStatementWithIds(
   return transaction.Commit();
 }
 
-bool AppCacheDatabase::RunUniqueStatementWithInt64Result(
-    const char* sql, int64* result) {
+bool AppCacheDatabase::RunUniqueStatementWithInt64Result(const char* sql,
+                                                         int64_t* result) {
   DCHECK(sql);
   sql::Statement statement(db_->GetUniqueStatement(sql));
   if (!statement.Step()) {
@@ -939,8 +951,9 @@ bool AppCacheDatabase::RunUniqueStatementWithInt64Result(
 }
 
 bool AppCacheDatabase::FindResponseIdsForCacheHelper(
-    int64 cache_id, std::vector<int64>* ids_vector,
-    std::set<int64>* ids_set) {
+    int64_t cache_id,
+    std::vector<int64_t>* ids_vector,
+    std::set<int64_t>* ids_set) {
   DCHECK(ids_vector || ids_set);
   DCHECK(!(ids_vector && ids_set));
   if (!LazyOpen(kDontCreate))
@@ -953,7 +966,7 @@ bool AppCacheDatabase::FindResponseIdsForCacheHelper(
 
   statement.BindInt64(0, cache_id);
   while (statement.Step()) {
-    int64 id = statement.ColumnInt64(0);
+    int64_t id = statement.ColumnInt64(0);
     if (ids_set)
       ids_set->insert(id);
     else

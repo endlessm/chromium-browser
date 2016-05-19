@@ -4,8 +4,10 @@
 
 #include "chrome/browser/chromeos/preferences.h"
 
+#include <utility>
+
 #include "base/json/json_string_value_serializer.h"
-#include "base/prefs/pref_member.h"
+#include "base/macros.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
@@ -19,6 +21,7 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/prefs/pref_member.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
@@ -125,7 +128,7 @@ class MyMockInputMethodManager : public MockInputMethodManager {
   ~MyMockInputMethodManager() override {}
 
   scoped_ptr<InputMethodDescriptors> GetSupportedInputMethods() const override {
-    return whitelist_.GetSupportedInputMethods().Pass();
+    return whitelist_.GetSupportedInputMethods();
   }
 
   std::string last_input_method_id_;
@@ -269,11 +272,11 @@ class InputMethodPreferencesTest : public PreferencesTest {
     scoped_ptr<ComponentExtensionIMEManagerDelegate> delegate(mock_delegate);
     scoped_ptr<ComponentExtensionIMEManager> component_extension_ime_manager(
         new ComponentExtensionIMEManager);
-    component_extension_ime_manager->Initialize(delegate.Pass());
+    component_extension_ime_manager->Initialize(std::move(delegate));
 
     // Add the ComponentExtensionIMEManager to the mock InputMethodManager.
     mock_manager_->SetComponentExtensionIMEManager(
-        component_extension_ime_manager.Pass());
+        std::move(component_extension_ime_manager));
   }
 
   std::vector<ComponentExtensionIME> CreateImeList() {

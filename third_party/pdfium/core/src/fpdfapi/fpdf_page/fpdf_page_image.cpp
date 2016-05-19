@@ -4,15 +4,13 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "pageint.h"
+#include "core/src/fpdfapi/fpdf_page/pageint.h"
 
 #include "core/include/fpdfapi/fpdf_page.h"
 #include "core/include/fpdfapi/fpdf_pageobj.h"
 
-CPDF_ImageObject::CPDF_ImageObject() {
-  m_pImage = NULL;
-  m_Type = PDFPAGE_IMAGE;
-}
+CPDF_ImageObject::CPDF_ImageObject() : m_pImage(nullptr) {}
+
 CPDF_ImageObject::~CPDF_ImageObject() {
   if (!m_pImage) {
     return;
@@ -24,15 +22,17 @@ CPDF_ImageObject::~CPDF_ImageObject() {
     m_pImage->GetDocument()->GetPageData()->ReleaseImage(m_pImage->GetStream());
   }
 }
-void CPDF_ImageObject::CopyData(const CPDF_PageObject* pSrc) {
-  const CPDF_ImageObject* pSrcObj = (const CPDF_ImageObject*)pSrc;
-  if (m_pImage) {
-    m_pImage->Release();
-  }
-  m_pImage = pSrcObj->m_pImage->Clone();
-  m_Matrix = pSrcObj->m_Matrix;
+
+CPDF_ImageObject* CPDF_ImageObject::Clone() const {
+  CPDF_ImageObject* obj = new CPDF_ImageObject;
+  obj->CopyData(this);
+
+  obj->m_pImage = m_pImage->Clone();
+  obj->m_Matrix = m_Matrix;
+  return obj;
 }
-void CPDF_ImageObject::Transform(const CFX_AffineMatrix& matrix) {
+
+void CPDF_ImageObject::Transform(const CFX_Matrix& matrix) {
   m_Matrix.Concat(matrix);
   CalcBoundingBox();
 }
@@ -51,7 +51,7 @@ CPDF_Image* CPDF_Image::Clone() {
     return m_pDocument->GetPageData()->GetImage(m_pStream);
 
   CPDF_Image* pImage = new CPDF_Image(m_pDocument);
-  pImage->LoadImageF(ToStream(m_pStream->CPDF_Object::Clone()), m_bInline);
+  pImage->LoadImageF(ToStream(m_pStream->Clone()), m_bInline);
   if (m_bInline)
     pImage->SetInlineDict(ToDictionary(m_pInlineDict->Clone(TRUE)));
 
@@ -88,11 +88,11 @@ FX_BOOL CPDF_Image::LoadImageF(CPDF_Stream* pStream, FX_BOOL bInline) {
   if (m_bInline) {
     m_pInlineDict = ToDictionary(pDict->Clone());
   }
-  m_pOC = pDict->GetDict(FX_BSTRC("OC"));
-  m_bIsMask = !pDict->KeyExist(FX_BSTRC("ColorSpace")) ||
-              pDict->GetInteger(FX_BSTRC("ImageMask"));
-  m_bInterpolate = pDict->GetInteger(FX_BSTRC("Interpolate"));
-  m_Height = pDict->GetInteger(FX_BSTRC("Height"));
-  m_Width = pDict->GetInteger(FX_BSTRC("Width"));
+  m_pOC = pDict->GetDictBy("OC");
+  m_bIsMask =
+      !pDict->KeyExist("ColorSpace") || pDict->GetIntegerBy("ImageMask");
+  m_bInterpolate = pDict->GetIntegerBy("Interpolate");
+  m_Height = pDict->GetIntegerBy("Height");
+  m_Width = pDict->GetIntegerBy("Width");
   return TRUE;
 }

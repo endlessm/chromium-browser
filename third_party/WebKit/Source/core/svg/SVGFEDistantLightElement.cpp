@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGFEDistantLightElement.h"
 
 #include "core/SVGNames.h"
@@ -37,4 +36,4 @@ PassRefPtr<LightSource> SVGFEDistantLightElement::lightSource(Filter* filter) co
     return DistantLightSource::create(azimuth()->currentValue()->value(), elevation()->currentValue()->value());
 }
 
-}
+} // namespace blink

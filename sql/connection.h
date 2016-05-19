@@ -5,6 +5,7 @@
 #ifndef SQL_CONNECTION_H_
 #define SQL_CONNECTION_H_
 
+#include <stddef.h>
 #include <stdint.h>
 #include <map>
 #include <set>
@@ -19,7 +20,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
-#include "base/trace_event/memory_dump_provider.h"
 #include "sql/sql_export.h"
 
 struct sqlite3;
@@ -32,6 +32,7 @@ class HistogramBase;
 
 namespace sql {
 
+class ConnectionMemoryDumpProvider;
 class Recovery;
 class Statement;
 
@@ -104,7 +105,7 @@ class SQL_EXPORT TimeSource {
   DISALLOW_COPY_AND_ASSIGN(TimeSource);
 };
 
-class SQL_EXPORT Connection : public base::trace_event::MemoryDumpProvider {
+class SQL_EXPORT Connection {
  private:
   class StatementRef;  // Forward declaration, see real one below.
 
@@ -112,7 +113,7 @@ class SQL_EXPORT Connection : public base::trace_event::MemoryDumpProvider {
   // The database is opened by calling Open[InMemory](). Any uncommitted
   // transactions will be rolled back when this object is deleted.
   Connection();
-  ~Connection() override;
+  ~Connection();
 
   // Pre-init configuration ----------------------------------------------------
 
@@ -148,8 +149,11 @@ class SQL_EXPORT Connection : public base::trace_event::MemoryDumpProvider {
   // other platforms.
   void set_restrict_to_user() { restrict_to_user_ = true; }
 
-  // Call to opt out of memory-mapped file I/O.
+  // Call to opt out of memory-mapped file I/O on per connection basis.
   void set_mmap_disabled() { mmap_disabled_ = true; }
+
+  // Call to opt out of memory-mapped file I/O on all connections.
+  static void set_mmap_disabled_by_default();
 
   // Set an error-handling callback.  On errors, the error number (and
   // statement, if available) will be passed to the callback.
@@ -483,11 +487,6 @@ class SQL_EXPORT Connection : public base::trace_event::MemoryDumpProvider {
   // with the syntax of a SQL statement, or problems with the database schema.
   static bool ShouldIgnoreSqliteCompileError(int error);
 
-  // base::trace_event::MemoryDumpProvider implementation.
-  bool OnMemoryDump(
-      const base::trace_event::MemoryDumpArgs& args,
-      base::trace_event::ProcessMemoryDump* process_memory_dump) override;
-
   // Collect various diagnostic information and post a crash dump to aid
   // debugging.  Dump rate per database is limited to prevent overwhelming the
   // crash server.
@@ -509,6 +508,8 @@ class SQL_EXPORT Connection : public base::trace_event::MemoryDumpProvider {
   friend class test::ScopedMockTimeSource;
 
   FRIEND_TEST_ALL_PREFIXES(SQLConnectionTest, CollectDiagnosticInfo);
+  FRIEND_TEST_ALL_PREFIXES(SQLConnectionTest, GetAppropriateMmapSize);
+  FRIEND_TEST_ALL_PREFIXES(SQLConnectionTest, OnMemoryDump);
   FRIEND_TEST_ALL_PREFIXES(SQLConnectionTest, RegisterIntentToUpload);
 
   // Internal initialize function used by both Init and InitInMemory. The file
@@ -792,6 +793,9 @@ class SQL_EXPORT Connection : public base::trace_event::MemoryDumpProvider {
   // Source for timing information, provided to allow tests to inject time
   // changes.
   scoped_ptr<TimeSource> clock_;
+
+  // Stores the dump provider object when db is open.
+  scoped_ptr<ConnectionMemoryDumpProvider> memory_dump_provider_;
 
   DISALLOW_COPY_AND_ASSIGN(Connection);
 };

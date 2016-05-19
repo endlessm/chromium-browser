@@ -6,16 +6,20 @@
 
 #include <algorithm>
 
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/themes/theme_properties.h"
-#include "chrome/browser/ui/views/layout_constants.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_result_view.h"
+#include "chrome/browser/ui/views/theme_copying_widget.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "grit/theme_resources.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
-#include "ui/compositor/clip_transform_recorder.h"
+#include "ui/compositor/clip_recorder.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image.h"
@@ -28,10 +32,11 @@
 #include "ui/views/window/non_client_view.h"
 
 class OmniboxPopupContentsView::AutocompletePopupWidget
-    : public views::Widget,
+    : public ThemeCopyingWidget,
       public base::SupportsWeakPtr<AutocompletePopupWidget> {
  public:
-  AutocompletePopupWidget() {}
+  explicit AutocompletePopupWidget(views::Widget* role_model)
+      : ThemeCopyingWidget(role_model) {}
   ~AutocompletePopupWidget() override {}
 
  private:
@@ -69,13 +74,12 @@ OmniboxPopupContentsView::OmniboxPopupContentsView(
   // The contents is owned by the LocationBarView.
   set_owned_by_client();
 
-  ui::ThemeProvider* theme = location_bar_view_->GetThemeProvider();
+  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
   if (ui::MaterialDesignController::IsModeMaterial()) {
-    top_shadow_ = theme->GetImageSkiaNamed(IDR_OMNIBOX_DROPDOWN_SHADOW_TOP);
-    bottom_shadow_ =
-        theme->GetImageSkiaNamed(IDR_OMNIBOX_DROPDOWN_SHADOW_BOTTOM);
+    top_shadow_ = rb->GetImageSkiaNamed(IDR_OMNIBOX_DROPDOWN_SHADOW_TOP);
+    bottom_shadow_ = rb->GetImageSkiaNamed(IDR_OMNIBOX_DROPDOWN_SHADOW_BOTTOM);
   } else {
-    bottom_shadow_ = theme->GetImageSkiaNamed(IDR_BUBBLE_B);
+    bottom_shadow_ = rb->GetImageSkiaNamed(IDR_BUBBLE_B);
   }
 
   SetEventTargeter(
@@ -237,7 +241,7 @@ void OmniboxPopupContentsView::UpdatePopupAppearance() {
     views::Widget* popup_parent = location_bar_view_->GetWidget();
 
     // If the popup is currently closed, we need to create it.
-    popup_ = (new AutocompletePopupWidget)->AsWeakPtr();
+    popup_ = (new AutocompletePopupWidget(popup_parent))->AsWeakPtr();
 
     views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
 #if defined(OS_WIN)
@@ -446,11 +450,10 @@ void OmniboxPopupContentsView::OnPaint(gfx::Canvas* canvas) {
   if (ui::MaterialDesignController::IsModeMaterial()) {
     canvas->TileImageInt(*top_shadow_, 0, 0, width(), top_shadow_->height());
   } else {
-    canvas->FillRect(
-        gfx::Rect(0, 0, width(),
-                  views::NonClientFrameView::kClientEdgeThickness),
-        ThemeProperties::GetDefaultColor(
-            ThemeProperties::COLOR_TOOLBAR_SEPARATOR));
+    canvas->FillRect(gfx::Rect(0, 0, width(),
+                               views::NonClientFrameView::kClientEdgeThickness),
+                     location_bar_view_->GetThemeProvider()->GetColor(
+                         ThemeProperties::COLOR_TOOLBAR_BOTTOM_SEPARATOR));
   }
 
   // Bottom border.
@@ -464,8 +467,8 @@ void OmniboxPopupContentsView::PaintChildren(const ui::PaintContext& context) {
   contents_bounds.Inset(0, views::NonClientFrameView::kClientEdgeThickness, 0,
                         bottom_shadow_->height() - interior);
 
-  ui::ClipTransformRecorder clip_transform_recorder(context);
-  clip_transform_recorder.ClipRect(contents_bounds);
+  ui::ClipRecorder clip_recorder(context);
+  clip_recorder.ClipRect(contents_bounds);
   {
     ui::PaintRecorder recorder(context, size());
     SkColor background_color = result_view_at(0)->GetColor(

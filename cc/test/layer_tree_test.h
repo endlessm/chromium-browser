@@ -8,6 +8,11 @@
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread.h"
 #include "cc/animation/animation_delegate.h"
+#include "cc/layers/layer_settings.h"
+#include "cc/test/proxy_impl_for_test.h"
+#include "cc/test/proxy_main_for_test.h"
+#include "cc/test/remote_proto_channel_bridge.h"
+#include "cc/test/test_hooks.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_host_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -19,11 +24,15 @@ class FakeLayerTreeHostClient;
 class FakeOutputSurface;
 class LayerImpl;
 class LayerTreeHost;
+class LayerTreeHostForTesting;
 class LayerTreeHostClient;
 class LayerTreeHostImpl;
+class RemoteChannelImplForTest;
 class TestContextProvider;
 class TestGpuMemoryBufferManager;
+class TestTaskGraphRunner;
 class TestWebGraphicsContext3D;
+class ThreadedChannelForTest;
 
 // Creates the virtual viewport layer hierarchy under the given root_layer.
 // Convenient overload of the method below that creates a scrolling layer as
@@ -43,131 +52,6 @@ void CreateVirtualViewportLayers(Layer* root_layer,
                                  const gfx::Size& scroll_bounds,
                                  LayerTreeHost* host,
                                  const LayerSettings& layer_settings);
-
-// Used by test stubs to notify the test when something interesting happens.
-class TestHooks : public AnimationDelegate {
- public:
-  TestHooks();
-  ~TestHooks() override;
-
-  void ReadSettings(const LayerTreeSettings& settings);
-
-  virtual void CreateResourceAndTileTaskWorkerPool(
-      LayerTreeHostImpl* host_impl,
-      scoped_ptr<TileTaskWorkerPool>* tile_task_worker_pool,
-      scoped_ptr<ResourcePool>* resource_pool);
-  virtual void WillBeginImplFrameOnThread(LayerTreeHostImpl* host_impl,
-                                          const BeginFrameArgs& args) {}
-  virtual void DidFinishImplFrameOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void BeginMainFrameAbortedOnThread(LayerTreeHostImpl* host_impl,
-                                             CommitEarlyOutReason reason) {}
-  virtual void WillPrepareTiles(LayerTreeHostImpl* host_impl) {}
-  virtual void BeginCommitOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void WillCommitCompleteOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void CommitCompleteOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void WillActivateTreeOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void DidActivateTreeOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void InitializedRendererOnThread(LayerTreeHostImpl* host_impl,
-                                           bool success) {}
-  virtual DrawResult PrepareToDrawOnThread(
-      LayerTreeHostImpl* host_impl,
-      LayerTreeHostImpl::FrameData* frame_data,
-      DrawResult draw_result);
-  virtual void DrawLayersOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void SwapBuffersOnThread(LayerTreeHostImpl* host_impl, bool result) {}
-  virtual void SwapBuffersCompleteOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void NotifyReadyToActivateOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void NotifyReadyToDrawOnThread(LayerTreeHostImpl* host_impl) {}
-  virtual void NotifyAllTileTasksCompleted(LayerTreeHostImpl* host_impl) {}
-  virtual void NotifyTileStateChangedOnThread(LayerTreeHostImpl* host_impl,
-                                              const Tile* tile) {}
-  virtual void AnimateLayers(LayerTreeHostImpl* host_impl,
-                             base::TimeTicks monotonic_time) {}
-  virtual void UpdateAnimationState(LayerTreeHostImpl* host_impl,
-                                    bool has_unfinished_animation) {}
-  virtual void WillAnimateLayers(LayerTreeHostImpl* host_impl,
-                                 base::TimeTicks monotonic_time) {}
-  virtual void ApplyViewportDeltas(
-      const gfx::Vector2dF& inner_delta,
-      const gfx::Vector2dF& outer_delta,
-      const gfx::Vector2dF& elastic_overscroll_delta,
-      float scale,
-      float top_controls_delta) {}
-  virtual void BeginMainFrame(const BeginFrameArgs& args) {}
-  virtual void WillBeginMainFrame() {}
-  virtual void DidBeginMainFrame() {}
-  virtual void UpdateLayerTreeHost() {}
-  virtual void DidInitializeOutputSurface() {}
-  virtual void DidFailToInitializeOutputSurface() {}
-  virtual void DidAddAnimation() {}
-  virtual void WillCommit() {}
-  virtual void DidCommit() {}
-  virtual void DidCommitAndDrawFrame() {}
-  virtual void DidCompleteSwapBuffers() {}
-  virtual void DidSetVisibleOnImplTree(LayerTreeHostImpl* host_impl,
-                                       bool visible) {}
-  virtual void ScheduleComposite() {}
-  virtual void DidSetNeedsUpdateLayers() {}
-  virtual void DidActivateSyncTree() {}
-
-  // Hooks for SchedulerClient.
-  virtual void ScheduledActionWillSendBeginMainFrame() {}
-  virtual void ScheduledActionSendBeginMainFrame() {}
-  virtual void ScheduledActionDrawAndSwapIfPossible() {}
-  virtual void ScheduledActionAnimate() {}
-  virtual void ScheduledActionCommit() {}
-  virtual void ScheduledActionBeginOutputSurfaceCreation() {}
-  virtual void ScheduledActionPrepareTiles() {}
-  virtual void ScheduledActionInvalidateOutputSurface() {}
-  virtual void SendBeginFramesToChildren(const BeginFrameArgs& args) {}
-  virtual void SendBeginMainFrameNotExpectedSoon() {}
-
-  // Hooks for ProxyImpl
-  virtual void SetThrottleFrameProductionOnImpl(bool throttle) {}
-  virtual void UpdateTopControlsStateOnImpl(TopControlsState constraints,
-                                            TopControlsState current,
-                                            bool animate) {}
-  virtual void InitializeOutputSurfaceOnImpl(OutputSurface* output_surface) {}
-  virtual void MainThreadHasStoppedFlingingOnImpl() {}
-  virtual void SetInputThrottledUntilCommitOnImpl(bool is_throttled) {}
-  virtual void SetDeferCommitsOnImpl(bool defer_commits) {}
-  virtual void BeginMainFrameAbortedOnImpl(CommitEarlyOutReason reason) {}
-  virtual void SetNeedsRedrawOnImpl(const gfx::Rect& damage_rect) {}
-  virtual void SetNeedsCommitOnImpl() {}
-  virtual void FinishAllRenderingOnImpl() {}
-  virtual void SetVisibleOnImpl(bool visible) {}
-  virtual void ReleaseOutputSurfaceOnImpl() {}
-  virtual void FinishGLOnImpl() {}
-  virtual void StartCommitOnImpl() {}
-  virtual void InitializeImplOnImpl() {}
-  virtual void WillCloseLayerTreeHostOnImpl() {}
-
-  // Hooks for ProxyMain
-  virtual void ReceivedDidCompleteSwapBuffers() {}
-  virtual void ReceivedSetRendererCapabilitiesMainCopy(
-      const RendererCapabilities& capabilities) {}
-  virtual void ReceivedBeginMainFrameNotExpectedSoon() {}
-  virtual void ReceivedDidCommitAndDrawFrame() {}
-  virtual void ReceivedSetAnimationEvents() {}
-  virtual void ReceivedDidLoseOutputSurface() {}
-  virtual void ReceivedRequestNewOutputSurface() {}
-  virtual void ReceivedDidInitializeOutputSurface(
-      bool success,
-      const RendererCapabilities& capabilities) {}
-  virtual void ReceivedDidCompletePageScaleAnimation() {}
-  virtual void ReceivedPostFrameTimingEventsOnMain() {}
-  virtual void ReceivedBeginMainFrame() {}
-
-  // Implementation of AnimationDelegate:
-  void NotifyAnimationStarted(base::TimeTicks monotonic_time,
-                              Animation::TargetProperty target_property,
-                              int group) override {}
-  void NotifyAnimationFinished(base::TimeTicks monotonic_time,
-                               Animation::TargetProperty target_property,
-                               int group) override {}
-
-  virtual void RequestNewOutputSurface() = 0;
-};
 
 class BeginTask;
 class LayerTreeHostClientForTesting;
@@ -210,14 +94,10 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   void PostSetVisibleToMainThread(bool visible);
   void PostSetNextCommitForcesRedrawToMainThread();
   void PostCompositeImmediatelyToMainThread();
+  void PostNextCommitWaitsForActivationToMainThread();
 
   void DoBeginTest();
   void Timeout();
-
-  bool verify_property_trees() const { return verify_property_trees_; }
-  void set_verify_property_trees(bool verify_property_trees) {
-    verify_property_trees_ = verify_property_trees;
-  }
 
   const LayerSettings& layer_settings() { return layer_settings_; }
 
@@ -243,15 +123,21 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   void DispatchSetNextCommitForcesRedraw();
   void DispatchDidAddAnimation();
   void DispatchCompositeImmediately();
+  void DispatchNextCommitWaitsForActivation();
+
+  void SetOutputSurfaceOnLayerTreeHost(
+      scoped_ptr<OutputSurface> output_surface);
+  scoped_ptr<OutputSurface> ReleaseOutputSurfaceOnLayerTreeHost();
+  void SetVisibleOnLayerTreeHost(bool visible);
 
   virtual void AfterTest() = 0;
   virtual void WillBeginTest();
   virtual void BeginTest() = 0;
   virtual void SetupTree();
 
-  virtual void RunTest(bool threaded, bool delegating_renderer);
+  virtual void RunTest(CompositorMode mode, bool delegating_renderer);
 
-  bool HasImplThread() { return !!impl_thread_; }
+  bool HasImplThread() const { return !!impl_thread_; }
   base::SingleThreadTaskRunner* ImplThreadTaskRunner() {
     DCHECK(task_runner_provider());
     base::SingleThreadTaskRunner* impl_thread_task_runner =
@@ -265,14 +151,9 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   Proxy* proxy() const {
     return layer_tree_host_ ? layer_tree_host_->proxy() : NULL;
   }
-  TaskRunnerProvider* task_runner_provider() const {
-    return layer_tree_host_ ? layer_tree_host_->task_runner_provider()
-                            : nullptr;
-  }
-  TaskGraphRunner* task_graph_runner() const {
-    return task_graph_runner_.get();
-  }
-
+  Proxy* remote_client_proxy() const;
+  TaskRunnerProvider* task_runner_provider() const;
+  TaskGraphRunner* task_graph_runner() const;
   bool TestEnded() const { return ended_; }
 
   LayerTreeHost* layer_tree_host();
@@ -280,7 +161,21 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   FakeOutputSurface* output_surface() { return output_surface_; }
   int LastCommittedSourceFrameNumber(LayerTreeHostImpl* impl) const;
 
+  // Use these only for tests in threaded or remote mode.
+  ProxyMainForTest* GetProxyMainForTest() const;
+  ProxyImplForTest* GetProxyImplForTest() const;
+
+  // Use this only for tests in threaded mode.
+  ThreadedChannelForTest* GetThreadedChannelForTest() const;
+
+  // Use this only for tests in remote mode.
+  RemoteChannelImplForTest* GetRemoteChannelImplForTest() const;
+
   void DestroyLayerTreeHost();
+  void DestroyRemoteClientHost() override;
+
+  void CreateRemoteClientHost(
+      const proto::CompositorMessageToImpl& proto) override;
 
   // By default, output surface recreation is synchronous.
   void RequestNewOutputSurface() override;
@@ -295,14 +190,23 @@ class LayerTreeTest : public testing::Test, public TestHooks {
     return gpu_memory_buffer_manager_.get();
   }
 
+  bool IsRemoteTest() const;
+
  private:
   LayerTreeSettings settings_;
   LayerSettings layer_settings_;
 
+  CompositorMode mode_;
+
   scoped_ptr<LayerTreeHostClientForTesting> client_;
   scoped_ptr<LayerTreeHost> layer_tree_host_;
+
+  // The LayerTreeHost created by the cc embedder on the client in remote mode.
+  scoped_ptr<LayerTreeHostForTesting> remote_client_layer_tree_host_;
+
   FakeOutputSurface* output_surface_;
   FakeExternalBeginFrameSource* external_begin_frame_source_;
+  RemoteProtoChannelBridge remote_proto_channel_bridge_;
 
   bool beginning_;
   bool end_when_begin_returns_;
@@ -311,7 +215,6 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   bool started_;
   bool ended_;
   bool delegating_renderer_;
-  bool verify_property_trees_;
 
   int timeout_seconds_;
 
@@ -319,7 +222,7 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   scoped_ptr<base::Thread> impl_thread_;
   scoped_ptr<SharedBitmapManager> shared_bitmap_manager_;
   scoped_ptr<TestGpuMemoryBufferManager> gpu_memory_buffer_manager_;
-  scoped_ptr<TaskGraphRunner> task_graph_runner_;
+  scoped_ptr<TestTaskGraphRunner> task_graph_runner_;
   base::CancelableClosure timeout_;
   scoped_refptr<TestContextProvider> compositor_contexts_;
   base::WeakPtr<LayerTreeTest> main_thread_weak_ptr_;
@@ -330,13 +233,13 @@ class LayerTreeTest : public testing::Test, public TestHooks {
 
 #define SINGLE_THREAD_DIRECT_RENDERER_TEST_F(TEST_FIXTURE_NAME) \
   TEST_F(TEST_FIXTURE_NAME, RunSingleThread_DirectRenderer) {   \
-    RunTest(false, false);                                      \
+    RunTest(CompositorMode::SINGLE_THREADED, false);            \
   }                                                             \
   class SingleThreadDirectImplNeedsSemicolon##TEST_FIXTURE_NAME {}
 
 #define SINGLE_THREAD_DELEGATING_RENDERER_TEST_F(TEST_FIXTURE_NAME) \
   TEST_F(TEST_FIXTURE_NAME, RunSingleThread_DelegatingRenderer) {   \
-    RunTest(false, true);                                           \
+    RunTest(CompositorMode::SINGLE_THREADED, true);                 \
   }                                                                 \
   class SingleThreadDelegatingImplNeedsSemicolon##TEST_FIXTURE_NAME {}
 
@@ -346,19 +249,26 @@ class LayerTreeTest : public testing::Test, public TestHooks {
 
 #define MULTI_THREAD_DIRECT_RENDERER_TEST_F(TEST_FIXTURE_NAME) \
   TEST_F(TEST_FIXTURE_NAME, RunMultiThread_DirectRenderer) {   \
-    RunTest(true, false);                                      \
+    RunTest(CompositorMode::THREADED, false);                  \
   }                                                            \
   class MultiThreadDirectImplNeedsSemicolon##TEST_FIXTURE_NAME {}
 
 #define MULTI_THREAD_DELEGATING_RENDERER_TEST_F(TEST_FIXTURE_NAME) \
   TEST_F(TEST_FIXTURE_NAME, RunMultiThread_DelegatingRenderer) {   \
-    RunTest(true, true);                                           \
+    RunTest(CompositorMode::THREADED, true);                       \
   }                                                                \
   class MultiThreadDelegatingImplNeedsSemicolon##TEST_FIXTURE_NAME {}
 
 #define MULTI_THREAD_TEST_F(TEST_FIXTURE_NAME)            \
   MULTI_THREAD_DIRECT_RENDERER_TEST_F(TEST_FIXTURE_NAME); \
   MULTI_THREAD_DELEGATING_RENDERER_TEST_F(TEST_FIXTURE_NAME)
+
+// The Remote mode tests don't need to run for delegated renderer.
+#define REMOTE_DIRECT_RENDERER_TEST_F(TEST_FIXTURE_NAME) \
+  TEST_F(TEST_FIXTURE_NAME, RunRemote_DirectRenderer) {  \
+    RunTest(CompositorMode::REMOTE, false);              \
+  }                                                      \
+  class RemoteDirectImplNeedsSemicolon##TEST_FIXTURE_NAME {}
 
 #define SINGLE_AND_MULTI_THREAD_DIRECT_RENDERER_TEST_F(TEST_FIXTURE_NAME) \
   SINGLE_THREAD_DIRECT_RENDERER_TEST_F(TEST_FIXTURE_NAME);                \

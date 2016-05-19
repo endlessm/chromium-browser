@@ -17,11 +17,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGMPathElement.h"
 
-#include "core/XLinkNames.h"
 #include "core/dom/Document.h"
 #include "core/svg/SVGAnimateMotionElement.h"
 #include "core/svg/SVGDocumentExtensions.h"

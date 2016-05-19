@@ -5,21 +5,23 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_LOCATION_BAR_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_LOCATION_BAR_VIEW_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "base/prefs/pref_member.h"
+#include "base/macros.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
-#include "chrome/browser/ssl/security_state_model.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/omnibox/chrome_omnibox_edit_controller.h"
-#include "chrome/browser/ui/toolbar/chrome_toolbar_model.h"
 #include "chrome/browser/ui/views/dropdown_bar_host.h"
 #include "chrome/browser/ui/views/dropdown_bar_host_delegate.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
+#include "components/prefs/pref_member.h"
 #include "components/search_engines/template_url_service_observer.h"
+#include "components/security_state/security_state_model.h"
 #include "components/ui/zoom/zoom_event_manager_observer.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -31,7 +33,6 @@ class ActionBoxButtonView;
 class CommandUpdater;
 class ContentSettingBubbleModelDelegate;
 class ContentSettingImageView;
-class EVBubbleView;
 class ExtensionAction;
 class GURL;
 class InstantController;
@@ -76,12 +77,6 @@ class LocationBarView : public LocationBar,
                         public TemplateURLServiceObserver,
                         public ui_zoom::ZoomEventManagerObserver {
  public:
-  // The location bar view's class name.
-  static const char kViewClassName[];
-
-  // Returns the offset used during dropdown animation.
-  int dropdown_animation_offset() const { return dropdown_animation_offset_; }
-
   class Delegate {
    public:
     // Should return the current web contents.
@@ -107,7 +102,8 @@ class LocationBarView : public LocationBar,
     virtual void ShowWebsiteSettings(
         content::WebContents* web_contents,
         const GURL& url,
-        const SecurityStateModel::SecurityInfo& security_info) = 0;
+        const security_state::SecurityStateModel::SecurityInfo&
+            security_info) = 0;
 
    protected:
     virtual ~Delegate() {}
@@ -118,8 +114,11 @@ class LocationBarView : public LocationBar,
     TEXT,
     SELECTED_TEXT,
     DEEMPHASIZED_TEXT,
-    SECURITY_TEXT,
+    EV_BUBBLE_TEXT_AND_BORDER,
   };
+
+  // The location bar view's class name.
+  static const char kViewClassName[];
 
   LocationBarView(Browser* browser,
                   Profile* profile,
@@ -128,6 +127,10 @@ class LocationBarView : public LocationBar,
                   bool is_popup_mode);
 
   ~LocationBarView() override;
+
+  // Returns the color for the location bar border in MD windows and non-MD
+  // popup windows, given the window's |incognito| state.
+  static SkColor GetBorderColor(bool incognito);
 
   // Initializes the LocationBarView.
   void Init();
@@ -138,8 +141,12 @@ class LocationBarView : public LocationBar,
 
   // Returns the appropriate color for the desired kind, based on the user's
   // system theme.
-  SkColor GetColor(SecurityStateModel::SecurityLevel security_level,
-                   ColorKind kind) const;
+  SkColor GetColor(ColorKind kind) const;
+
+  // Returns the color to be used for security text in the context of
+  // |security_level|.
+  SkColor GetSecureTextColor(
+      security_state::SecurityStateModel::SecurityLevel security_level) const;
 
   // Returns the delegate.
   Delegate* delegate() const { return delegate_; }
@@ -213,12 +220,6 @@ class LocationBarView : public LocationBar,
   OmniboxViewViews* omnibox_view() { return omnibox_view_; }
   const OmniboxViewViews* omnibox_view() const { return omnibox_view_; }
 
-  // Returns the height of the control without the top and bottom
-  // edges(i.e.  the height of the edit control inside).  If
-  // |use_preferred_size| is true this will be the preferred height,
-  // otherwise it will be the current height.
-  int GetInternalHeight(bool use_preferred_size);
-
   // Returns the position and width that the popup should be, and also the left
   // edge that the results should align themselves to (which will leave some
   // border on the left of the popup). |top_edge_overlap| specifies the number
@@ -247,6 +248,7 @@ class LocationBarView : public LocationBar,
   void GetAccessibleState(ui::AXViewState* state) override;
   gfx::Size GetPreferredSize() const override;
   void Layout() override;
+  void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
 
   // ChromeOmniboxEditController:
   void UpdateWithoutTabRestore() override;
@@ -270,14 +272,16 @@ class LocationBarView : public LocationBar,
   // |view| should add to the trailing width after the omnibox.
   int IncrementalMinimumWidth(views::View* view) const;
 
-  // Returns the thickness of any visible left and right edge, in pixels.
+  // Returns the thickness of any visible edge, in pixels.
   int GetHorizontalEdgeThickness() const;
-
-  // The same, but for the top and bottom edges.
   int GetVerticalEdgeThickness() const;
 
-  // The vertical padding to be applied to all contained views.
-  int VerticalPadding() const;
+  // Returns the total amount of space reserved above or below the content,
+  // which is the vertical edge thickness plus the padding next to it.
+  int GetVerticalEdgeThicknessWithPadding() const;
+
+  // Updates |location_icon_view_| based on the current state and theme.
+  void RefreshLocationIcon();
 
   // Updates the visibility state of the Content Blocked icons to reflect what
   // is actually blocked on the current page. Returns true if the visibility
@@ -384,7 +388,6 @@ class LocationBarView : public LocationBar,
 
   // DropdownBarHostDelegate:
   void SetFocusAndSelection(bool select_all) override;
-  void SetAnimationOffset(int offset) override;
 
   // TemplateURLServiceObserver:
   void OnTemplateURLServiceChanged() override;
@@ -402,11 +405,9 @@ class LocationBarView : public LocationBar,
   // Object used to paint the border. Not used for material design.
   scoped_ptr<views::Painter> border_painter_;
 
-  // An icon to the left of the edit field.
+  // An icon to the left of the edit field: the HTTPS lock, blank page icon,
+  // search icon, EV HTTPS bubble, etc.
   LocationIconView* location_icon_view_;
-
-  // A bubble displayed for EV HTTPS sites.
-  EVBubbleView* ev_bubble_view_;
 
   // A view to show inline autocompletion when an IME is active.  In this case,
   // we shouldn't change the text or selection inside the OmniboxView itself,
@@ -471,12 +472,6 @@ class LocationBarView : public LocationBar,
 
   // Tracks this preference to determine whether bookmark editing is allowed.
   BooleanPrefMember edit_bookmarks_enabled_;
-
-  // During dropdown animation, the host clips the widget and draws only the
-  // bottom part of it. The view needs to know the pixel offset at which we are
-  // drawing the widget so that we can draw the curved edges that attach to the
-  // toolbar in the right location.
-  int dropdown_animation_offset_;
 
   // This is a debug state variable that stores if the WebContents was null
   // during the last RefreshPageAction.

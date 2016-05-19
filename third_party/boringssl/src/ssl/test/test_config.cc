@@ -61,7 +61,6 @@ const Flag<bool> kBoolFlags[] = {
   { "-no-tls1", &TestConfig::no_tls1 },
   { "-no-ssl3", &TestConfig::no_ssl3 },
   { "-shim-writes-first", &TestConfig::shim_writes_first },
-  { "-tls-d5-bug", &TestConfig::tls_d5_bug },
   { "-expect-session-miss", &TestConfig::expect_session_miss },
   { "-expect-extended-master-secret",
     &TestConfig::expect_extended_master_secret },
@@ -76,7 +75,6 @@ const Flag<bool> kBoolFlags[] = {
   { "-fail-second-ddos-callback", &TestConfig::fail_second_ddos_callback },
   { "-handshake-never-done", &TestConfig::handshake_never_done },
   { "-use-export-context", &TestConfig::use_export_context },
-  { "-no-legacy-server-connect", &TestConfig::no_legacy_server_connect },
   { "-tls-unique", &TestConfig::tls_unique },
   { "-expect-ticket-renewal", &TestConfig::expect_ticket_renewal },
   { "-expect-no-session", &TestConfig::expect_no_session },
@@ -90,7 +88,6 @@ const Flag<bool> kBoolFlags[] = {
   { "-custom-extension-fail-add", &TestConfig::custom_extension_fail_add },
   { "-check-close-notify", &TestConfig::check_close_notify },
   { "-shim-shuts-down", &TestConfig::shim_shuts_down },
-  { "-microsoft-big-sslv3-buffer", &TestConfig::microsoft_big_sslv3_buffer },
   { "-verify-fail", &TestConfig::verify_fail },
   { "-verify-peer", &TestConfig::verify_peer },
   { "-expect-verify-result", &TestConfig::expect_verify_result },
@@ -99,6 +96,8 @@ const Flag<bool> kBoolFlags[] = {
   { "-renegotiate-ignore", &TestConfig::renegotiate_ignore },
   { "-disable-npn", &TestConfig::disable_npn },
   { "-p384-only", &TestConfig::p384_only },
+  { "-enable-all-curves", &TestConfig::enable_all_curves },
+  { "-use-sparse-dh-prime", &TestConfig::use_sparse_dh_prime },
 };
 
 const Flag<std::string> kStringFlags[] = {
@@ -144,6 +143,8 @@ const Flag<int> kIntFlags[] = {
   { "-expect-total-renegotiations", &TestConfig::expect_total_renegotiations },
   { "-expect-server-key-exchange-hash",
     &TestConfig::expect_server_key_exchange_hash },
+  { "-expect-key-exchange-info",
+    &TestConfig::expect_key_exchange_info },
 };
 
 }  // namespace

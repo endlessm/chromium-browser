@@ -35,7 +35,6 @@
 #include "core/fetch/ClientHintsPreferences.h"
 #include "core/fetch/RawResource.h"
 #include "core/fetch/ResourceLoaderOptions.h"
-#include "core/fetch/ResourcePtr.h"
 #include "core/fetch/SubstituteData.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/loader/DocumentLoadTiming.h"
@@ -56,7 +55,6 @@ class ResourceFetcher;
 class DocumentInit;
 class LocalFrame;
 class FrameLoader;
-class MHTMLArchive;
 class ResourceLoader;
 class ThreadedDataReceiver;
 
@@ -98,7 +96,6 @@ public:
     void stopLoading();
     bool isLoading() const;
     const ResourceResponse& response() const { return m_response; }
-    const ResourceError& mainDocumentError() const { return m_mainDocumentError; }
     bool isClientRedirect() const { return m_isClientRedirect; }
     void setIsClientRedirect(bool isClientRedirect) { m_isClientRedirect = isClientRedirect; }
     bool replacesCurrentHistoryItem() const { return m_replacesCurrentHistoryItem; }
@@ -124,7 +121,6 @@ public:
 
     ApplicationCacheHost* applicationCacheHost() const { return m_applicationCacheHost.get(); }
 
-    bool isRedirect() const { return m_redirectChain.size() > 1; }
     void clearRedirectChain();
     void appendRedirect(const KURL&);
 
@@ -147,7 +143,7 @@ public:
 
     bool loadingMultipartContent() const;
 
-    void startPreload(Resource::Type, FetchRequest&);
+    Resource* startPreload(Resource::Type, FetchRequest&);
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -172,17 +168,14 @@ private:
 
     bool maybeCreateArchive();
 
-    void prepareSubframeArchiveLoadIfNeeded();
-
-    void willSendRequest(ResourceRequest&, const ResourceResponse&);
     void finishedLoading(double finishTime);
     void mainReceivedError(const ResourceError&);
     void cancelLoadAfterXFrameOptionsOrCSPDenied(const ResourceResponse&);
     void redirectReceived(Resource*, ResourceRequest&, const ResourceResponse&) final;
     void updateRequest(Resource*, const ResourceRequest&) final;
     void responseReceived(Resource*, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) final;
-    void dataReceived(Resource*, const char* data, unsigned length) final;
-    void processData(const char* data, unsigned length);
+    void dataReceived(Resource*, const char* data, size_t length) final;
+    void processData(const char* data, size_t length);
     void notifyFinished(Resource*) final;
     String debugName() const override { return "DocumentLoader"; }
 
@@ -195,7 +188,7 @@ private:
     RawPtrWillBeMember<LocalFrame> m_frame;
     PersistentWillBeMember<ResourceFetcher> m_fetcher;
 
-    ResourcePtr<RawResource> m_mainResource;
+    RefPtrWillBeMember<RawResource> m_mainResource;
 
     RefPtrWillBeMember<DocumentWriter> m_writer;
 
@@ -213,14 +206,10 @@ private:
 
     ResourceResponse m_response;
 
-    ResourceError m_mainDocumentError;
-
     bool m_isClientRedirect;
     bool m_replacesCurrentHistoryItem;
 
     NavigationType m_navigationType;
-
-    RefPtrWillBeMember<MHTMLArchive> m_archive;
 
     DocumentLoadTiming m_documentLoadTiming;
 

@@ -5,6 +5,7 @@
 #include "remoting/protocol/ice_transport_channel.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/callback.h"
 #include "base/callback_helpers.h"
@@ -13,6 +14,8 @@
 #include "jingle/glue/utils.h"
 #include "net/base/net_errors.h"
 #include "remoting/protocol/channel_socket_adapter.h"
+#include "remoting/protocol/port_allocator_factory.h"
+#include "remoting/protocol/transport_context.h"
 #include "third_party/webrtc/base/network.h"
 #include "third_party/webrtc/p2p/base/constants.h"
 #include "third_party/webrtc/p2p/base/p2ptransportchannel.h"
@@ -23,10 +26,6 @@ namespace remoting {
 namespace protocol {
 
 namespace {
-
-// Try connecting ICE twice with timeout of 15 seconds for each attempt.
-const int kMaxReconnectAttempts = 2;
-const int kReconnectDelaySeconds = 15;
 
 // Utility function to map a cricket::Candidate string type to a
 // TransportRoute::RouteType enum value.
@@ -46,17 +45,13 @@ TransportRoute::RouteType CandidateTypeToTransportRouteType(
 
 }  // namespace
 
-IceTransportChannel::IceTransportChannel(cricket::PortAllocator* port_allocator,
-                                       const NetworkSettings& network_settings,
-                                       TransportRole role)
-    : port_allocator_(port_allocator),
-      network_settings_(network_settings),
-      role_(role),
-      delegate_(nullptr),
+IceTransportChannel::IceTransportChannel(
+    scoped_refptr<TransportContext> transport_context)
+    : transport_context_(transport_context),
       ice_username_fragment_(
           rtc::CreateRandomString(cricket::ICE_UFRAG_LENGTH)),
-      can_start_(false),
-      connect_attempts_left_(kMaxReconnectAttempts),
+      connect_attempts_left_(
+          transport_context->network_settings().ice_reconnect_attempts),
       weak_factory_(this) {
   DCHECK(!ice_username_fragment_.empty());
 }
@@ -64,34 +59,13 @@ IceTransportChannel::IceTransportChannel(cricket::PortAllocator* port_allocator,
 IceTransportChannel::~IceTransportChannel() {
   DCHECK(delegate_);
 
-  delegate_->OnTransportDeleted(this);
+  delegate_->OnChannelDeleted(this);
 
-  if (channel_.get()) {
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(
-        FROM_HERE, channel_.release());
-  }
-}
-
-void IceTransportChannel::OnCanStart() {
-  DCHECK(thread_checker_.CalledOnValidThread());
-
-  DCHECK(!can_start_);
-  can_start_ = true;
-
-  // If Connect() has been called then start connection.
-  if (!callback_.is_null())
-    DoStart();
-
-  // Pass pending ICE credentials and candidates to the channel.
-  if (!remote_ice_username_fragment_.empty()) {
-    channel_->SetRemoteIceCredentials(remote_ice_username_fragment_,
-                                      remote_ice_password_);
-  }
-
-  while (!pending_candidates_.empty()) {
-    channel_->AddRemoteCandidate(pending_candidates_.front());
-    pending_candidates_.pop_front();
-  }
+  auto task_runner = base::ThreadTaskRunnerHandle::Get();
+  if (channel_)
+    task_runner->DeleteSoon(FROM_HERE, channel_.release());
+  if (port_allocator_)
+    task_runner->DeleteSoon(FROM_HERE, port_allocator_.release());
 }
 
 void IceTransportChannel::Connect(const std::string& name,
@@ -107,45 +81,55 @@ void IceTransportChannel::Connect(const std::string& name,
   delegate_ = delegate;
   callback_ = callback;
 
-  if (can_start_)
-    DoStart();
-}
-
-void IceTransportChannel::DoStart() {
-  DCHECK(!channel_.get());
+  port_allocator_ =
+      transport_context_->port_allocator_factory()->CreatePortAllocator(
+          transport_context_);
 
   // Create P2PTransportChannel, attach signal handlers and connect it.
   // TODO(sergeyu): Specify correct component ID for the channel.
   channel_.reset(new cricket::P2PTransportChannel(
-      std::string(), 0, nullptr, port_allocator_));
+      std::string(), 0, nullptr, port_allocator_.get()));
   std::string ice_password = rtc::CreateRandomString(cricket::ICE_PWD_LENGTH);
   channel_->SetIceProtocolType(cricket::ICEPROTO_RFC5245);
-  channel_->SetIceRole((role_ == TransportRole::CLIENT)
+  channel_->SetIceRole((transport_context_->role() == TransportRole::CLIENT)
                            ? cricket::ICEROLE_CONTROLLING
                            : cricket::ICEROLE_CONTROLLED);
-  delegate_->OnTransportIceCredentials(this, ice_username_fragment_,
-                                            ice_password);
+  delegate_->OnChannelIceCredentials(this, ice_username_fragment_,
+                                     ice_password);
   channel_->SetIceCredentials(ice_username_fragment_, ice_password);
   channel_->SignalCandidateGathered.connect(
       this, &IceTransportChannel::OnCandidateGathered);
   channel_->SignalRouteChange.connect(
       this, &IceTransportChannel::OnRouteChange);
-  channel_->SignalReceivingState.connect(
-      this, &IceTransportChannel::OnReceivingState);
   channel_->SignalWritableState.connect(
       this, &IceTransportChannel::OnWritableState);
-  channel_->set_incoming_only(
-      !(network_settings_.flags & NetworkSettings::NAT_TRAVERSAL_OUTGOING));
+  channel_->set_incoming_only(!(transport_context_->network_settings().flags &
+                                NetworkSettings::NAT_TRAVERSAL_OUTGOING));
 
   channel_->Connect();
   channel_->MaybeStartGathering();
 
+  // Pass pending ICE credentials and candidates to the channel.
+  if (!remote_ice_username_fragment_.empty()) {
+    channel_->SetRemoteIceCredentials(remote_ice_username_fragment_,
+                                      remote_ice_password_);
+  }
+
+  while (!pending_candidates_.empty()) {
+    channel_->AddRemoteCandidate(pending_candidates_.front());
+    pending_candidates_.pop_front();
+  }
+
   --connect_attempts_left_;
 
   // Start reconnection timer.
-  reconnect_timer_.Start(
-      FROM_HERE, base::TimeDelta::FromSeconds(kReconnectDelaySeconds),
-      this, &IceTransportChannel::TryReconnect);
+  reconnect_timer_.Start(FROM_HERE,
+                         transport_context_->network_settings().ice_timeout,
+                         this, &IceTransportChannel::TryReconnect);
+
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&IceTransportChannel::NotifyConnected,
+                            weak_factory_.GetWeakPtr()));
 }
 
 void IceTransportChannel::NotifyConnected() {
@@ -154,11 +138,11 @@ void IceTransportChannel::NotifyConnected() {
       new TransportChannelSocketAdapter(channel_.get()));
   socket->SetOnDestroyedCallback(base::Bind(
       &IceTransportChannel::OnChannelDestroyed, base::Unretained(this)));
-  base::ResetAndReturn(&callback_).Run(socket.Pass());
+  base::ResetAndReturn(&callback_).Run(std::move(socket));
 }
 
 void IceTransportChannel::SetRemoteCredentials(const std::string& ufrag,
-                                              const std::string& password) {
+                                               const std::string& password) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   remote_ice_username_fragment_ = ufrag;
@@ -174,7 +158,7 @@ void IceTransportChannel::AddRemoteCandidate(
 
   // To enforce the no-relay setting, it's not enough to not produce relay
   // candidates. It's also necessary to discard remote relay candidates.
-  bool relay_allowed = (network_settings_.flags &
+  bool relay_allowed = (transport_context_->network_settings().flags &
                         NetworkSettings::NAT_TRAVERSAL_RELAY) != 0;
   if (!relay_allowed && candidate.type() == cricket::RELAY_PORT_TYPE)
     return;
@@ -200,7 +184,7 @@ void IceTransportChannel::OnCandidateGathered(
     cricket::TransportChannelImpl* channel,
     const cricket::Candidate& candidate) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  delegate_->OnTransportCandidate(this, candidate);
+  delegate_->OnChannelCandidate(this, candidate);
 }
 
 void IceTransportChannel::OnRouteChange(
@@ -211,18 +195,12 @@ void IceTransportChannel::OnRouteChange(
     NotifyRouteChanged();
 }
 
-void IceTransportChannel::OnReceivingState(cricket::TransportChannel* channel) {
-  DCHECK_EQ(channel, static_cast<cricket::TransportChannel*>(channel_.get()));
-
-  if (channel->receiving() && !callback_.is_null())
-    NotifyConnected();
-}
-
 void IceTransportChannel::OnWritableState(cricket::TransportChannel* channel) {
   DCHECK_EQ(channel, static_cast<cricket::TransportChannel*>(channel_.get()));
 
   if (channel->writable()) {
-    connect_attempts_left_ = kMaxReconnectAttempts;
+    connect_attempts_left_ =
+        transport_context_->network_settings().ice_reconnect_attempts;
     reconnect_timer_.Stop();
 
     // Route change notifications are ignored when the |channel_| is not
@@ -270,7 +248,7 @@ void IceTransportChannel::NotifyRouteChanged() {
     LOG(FATAL) << "Failed to convert local IP address.";
   }
 
-  delegate_->OnTransportRouteChange(this, route);
+  delegate_->OnChannelRouteChange(this, route);
 }
 
 void IceTransportChannel::TryReconnect() {
@@ -281,15 +259,15 @@ void IceTransportChannel::TryReconnect() {
 
     // Notify the caller that ICE connection has failed - normally that will
     // terminate Jingle connection (i.e. the transport will be destroyed).
-    delegate_->OnTransportFailed(this);
+    delegate_->OnChannelFailed(this);
     return;
   }
   --connect_attempts_left_;
 
   // Restart ICE by resetting ICE password.
   std::string ice_password = rtc::CreateRandomString(cricket::ICE_PWD_LENGTH);
-  delegate_->OnTransportIceCredentials(this, ice_username_fragment_,
-                                            ice_password);
+  delegate_->OnChannelIceCredentials(this, ice_username_fragment_,
+                                     ice_password);
   channel_->SetIceCredentials(ice_username_fragment_, ice_password);
 }
 

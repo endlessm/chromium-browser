@@ -4,6 +4,7 @@
 
 #include "components/plugins/renderer/loadable_plugin_placeholder.h"
 
+#include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/json/string_escape.h"
@@ -101,6 +102,12 @@ void LoadablePluginPlaceholder::ReplacePlugin(blink::WebPlugin* new_plugin) {
   if (!new_plugin)
     return;
   blink::WebPluginContainer* container = plugin()->container();
+  // This can occur if the container has been destroyed.
+  if (!container) {
+    new_plugin->destroy();
+    return;
+  }
+
   CHECK(container->plugin() == plugin());
   // Set the new plugin on the container before initializing it.
   container->setPlugin(new_plugin);
@@ -110,8 +117,10 @@ void LoadablePluginPlaceholder::ReplacePlugin(blink::WebPlugin* new_plugin) {
   bool plugin_needs_initialization =
       !premade_throttler_ || new_plugin != premade_throttler_->GetWebPlugin();
   if (plugin_needs_initialization && !new_plugin->initialize(container)) {
-    // We couldn't initialize the new plugin. Restore the old one and abort.
+    // Since the we couldn't initialize the new plugin, we must destroy it and
+    // restore the old one.
     container->setPlugin(plugin());
+    new_plugin->destroy();
     return;
   }
 
@@ -269,6 +278,13 @@ void LoadablePluginPlaceholder::DidFinishLoadingCallback() {
   // This is necessary to prevent a flicker.
   if (premade_throttler_ && power_saver_enabled_)
     premade_throttler_->SetHiddenForPlaceholder(true /* hidden */);
+
+  // In case our initial geometry was reported before the placeholder finished
+  // loading, request another one. Needed for correct large poster unthrottling.
+  if (plugin()) {
+    CHECK(plugin()->container());
+    plugin()->container()->reportGeometry();
+  }
 }
 
 void LoadablePluginPlaceholder::DidFinishIconRepositionForTestingCallback() {
@@ -316,20 +332,18 @@ void LoadablePluginPlaceholder::RecheckSizeAndMaybeUnthrottle() {
   DCHECK(!in_size_recheck_);
   DCHECK(finished_loading_);
 
+  base::AutoReset<bool> recheck_scope(&in_size_recheck_, true);
+
   if (!plugin())
     return;
-
-  in_size_recheck_ = true;
 
   gfx::Rect old_rect = unobscured_rect_;
 
   // Re-check the size in case the reported size was incorrect.
   plugin()->container()->reportGeometry();
 
-  if (old_rect == unobscured_rect_) {
-    in_size_recheck_ = false;
+  if (old_rect == unobscured_rect_)
     return;
-  }
 
   float zoom_factor = plugin()->container()->pageZoomFactor();
   int width = roundf(unobscured_rect_.width() / zoom_factor);
@@ -348,23 +362,24 @@ void LoadablePluginPlaceholder::RecheckSizeAndMaybeUnthrottle() {
 
     // On a size update check if we now qualify as a essential plugin.
     url::Origin content_origin = url::Origin(GetPluginParams().url);
-    bool cross_origin_main_content = false;
-    if (!render_frame()->ShouldThrottleContent(
-            render_frame()->GetWebFrame()->top()->securityOrigin(),
-            content_origin, width, height, &cross_origin_main_content)) {
+    auto status = render_frame()->GetPeripheralContentStatus(
+        render_frame()->GetWebFrame()->top()->securityOrigin(), content_origin,
+        gfx::Size(width, height));
+    if (status != content::RenderFrame::CONTENT_STATUS_PERIPHERAL) {
       MarkPluginEssential(
           heuristic_run_before_
               ? PluginInstanceThrottler::UNTHROTTLE_METHOD_BY_SIZE_CHANGE
               : PluginInstanceThrottler::UNTHROTTLE_METHOD_DO_NOT_RECORD);
 
-      if (cross_origin_main_content && !heuristic_run_before_)
+      if (!heuristic_run_before_ &&
+          status ==
+              content::RenderFrame::CONTENT_STATUS_ESSENTIAL_CROSS_ORIGIN_BIG) {
         render_frame()->WhitelistContentOrigin(content_origin);
+      }
     }
 
     heuristic_run_before_ = true;
   }
-
-  in_size_recheck_ = false;
 }
 
 }  // namespace plugins

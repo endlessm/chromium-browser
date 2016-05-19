@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <ctime>
 
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/scoped_native_library.h"
@@ -15,6 +18,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/media/webrtc_browsertest_audio.h"
 #include "chrome/browser/media/webrtc_browsertest_base.h"
 #include "chrome/browser/media/webrtc_browsertest_common.h"
@@ -622,7 +626,7 @@ void MAYBE_WebRtcAudioQualityBrowserTest::SetupAndRecordAudioCall(
     const base::FilePath& recording,
     const std::string& constraints,
     const base::TimeDelta recording_time) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_TRUE(test::HasReferenceFilesInCheckout());
   ASSERT_TRUE(ForceMicrophoneVolumeTo100Percent());
 
@@ -654,7 +658,7 @@ void MAYBE_WebRtcAudioQualityBrowserTest::SetupAndRecordAudioCall(
 void MAYBE_WebRtcAudioQualityBrowserTest::TestWithFakeDeviceGetUserMedia(
     const std::string& constraints,
     const std::string& perf_modifier) {
-  if (OnWinXp() || OnWin8()) {
+  if (OnWin8()) {
     // http://crbug.com/379798.
     LOG(ERROR) << "This test is not implemented for Windows XP/Win8.";
     return;
@@ -679,13 +683,13 @@ IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcAudioQualityBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcAudioQualityBrowserTest,
                        MANUAL_TestCallQualityWithAudioFromWebAudio) {
-  if (OnWinXp() || OnWin8()) {
+  if (OnWin8()) {
     // http://crbug.com/379798.
     LOG(ERROR) << "This test is not implemented for Windows XP/Win8.";
     return;
   }
   ASSERT_TRUE(test::HasReferenceFilesInCheckout());
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   ASSERT_TRUE(ForceMicrophoneVolumeTo100Percent());
 
@@ -754,7 +758,7 @@ void MAYBE_WebRtcAudioQualityBrowserTest::TestAutoGainControl(
     const base::FilePath::StringType& reference_filename,
     const std::string& constraints,
     const std::string& perf_modifier) {
-  if (OnWinXp() || OnWin8()) {
+  if (OnWin8()) {
     // http://crbug.com/379798.
     LOG(ERROR) << "This test is not implemented for Windows XP/Win8.";
     return;

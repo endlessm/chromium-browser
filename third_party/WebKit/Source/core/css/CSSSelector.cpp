@@ -23,7 +23,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/CSSSelector.h"
 
 #include "core/HTMLNames.h"
@@ -101,7 +100,7 @@ inline unsigned CSSSelector::specificityForOneSelector() const
     case Id:
         return 0x010000;
     case PseudoClass:
-        switch (pseudoType()) {
+        switch (getPseudoType()) {
         case PseudoHost:
         case PseudoHostContext:
             // We dynamically compute the specificity of :host and :host-context
@@ -149,7 +148,7 @@ unsigned CSSSelector::specificityForPage() const
             s += tagQName().localName() == starAtom ? 0 : 4;
             break;
         case PagePseudoClass:
-            switch (component->pseudoType()) {
+            switch (component->getPseudoType()) {
             case PseudoFirstPage:
                 s += 2;
                 break;
@@ -265,6 +264,7 @@ PseudoId CSSSelector::pseudoId(PseudoType type)
     case PseudoFullScreenAncestor:
     case PseudoSpatialNavigationFocus:
     case PseudoListBox:
+    case PseudoSlotted:
         return NOPSEUDO;
     }
 
@@ -368,6 +368,7 @@ const static NameToPseudoStruct pseudoTypeWithArgumentsMap[] = {
 {"nth-last-child",   CSSSelector::PseudoNthLastChild},
 {"nth-last-of-type", CSSSelector::PseudoNthLastOfType},
 {"nth-of-type",      CSSSelector::PseudoNthOfType},
+{"slotted",          CSSSelector::PseudoSlotted},
 };
 
 class NameToPseudoCompare {
@@ -415,7 +416,7 @@ void CSSSelector::show(int indent) const
     printf("%*sm_match: %d\n", indent, "", m_match);
     if (m_match != Tag)
         printf("%*svalue(): %s\n", indent, "", value().ascii().data());
-    printf("%*spseudoType(): %d\n", indent, "", pseudoType());
+    printf("%*sgetPseudoType(): %d\n", indent, "", getPseudoType());
     if (m_match == Tag)
         printf("%*stagQName().localName: %s\n", indent, "", tagQName().localName().ascii().data());
     printf("%*sisAttributeSelector(): %d\n", indent, "", isAttributeSelector());
@@ -482,6 +483,7 @@ void CSSSelector::updatePseudoType(const AtomicString& value, bool hasArguments)
     case PseudoWebKitCustomElement:
     case PseudoContent:
     case PseudoShadow:
+    case PseudoSlotted:
         if (m_match != PseudoElement)
             m_pseudoType = PseudoUnknown;
         break;
@@ -567,7 +569,7 @@ bool CSSSelector::operator==(const CSSSelector& other) const
             || sel1->relation() != sel2->relation()
             || sel1->m_match != sel2->m_match
             || sel1->value() != sel2->value()
-            || sel1->pseudoType() != sel2->pseudoType()
+            || sel1->getPseudoType() != sel2->getPseudoType()
             || sel1->argument() != sel2->argument()) {
             return false;
         }
@@ -603,15 +605,15 @@ String CSSSelector::selectorText(const String& rightSide) const
     while (true) {
         if (cs->m_match == Id) {
             str.append('#');
-            serializeIdentifier(cs->value(), str);
+            serializeIdentifier(cs->serializingValue(), str);
         } else if (cs->m_match == Class) {
             str.append('.');
-            serializeIdentifier(cs->value(), str);
+            serializeIdentifier(cs->serializingValue(), str);
         } else if (cs->m_match == PseudoClass || cs->m_match == PagePseudoClass) {
             str.append(':');
-            str.append(cs->value());
+            str.append(cs->serializingValue());
 
-            switch (cs->pseudoType()) {
+            switch (cs->getPseudoType()) {
             case PseudoNthChild:
             case PseudoNthLastChild:
             case PseudoNthOfType:
@@ -652,11 +654,7 @@ String CSSSelector::selectorText(const String& rightSide) const
             }
         } else if (cs->m_match == PseudoElement) {
             str.appendLiteral("::");
-            str.append(cs->value());
-            // ::content is always stored at the end of the compound.
-            if (cs->pseudoType() == PseudoContent && cs->relation() == SubSelector && cs->tagHistory()) {
-                return cs->tagHistory()->selectorText() + str.toString() + rightSide;
-            }
+            str.append(cs->serializingValue());
         } else if (cs->isAttributeSelector()) {
             str.append('[');
             const AtomicString& prefix = cs->attribute().prefix();
@@ -692,8 +690,8 @@ String CSSSelector::selectorText(const String& rightSide) const
                 break;
             }
             if (cs->m_match != AttributeSet) {
-                serializeString(cs->value(), str);
-                if (cs->attributeMatchType() == CaseInsensitive)
+                serializeString(cs->serializingValue(), str);
+                if (cs->attributeMatch() == CaseInsensitive)
                     str.appendLiteral(" i");
                 str.append(']');
             }
@@ -730,6 +728,7 @@ String CSSSelector::selectorText(const String& rightSide) const
         case SubSelector:
             ASSERT_NOT_REACHED();
         case ShadowPseudo:
+        case ShadowSlot:
             return tagHistory->selectorText(str.toString() + rightSide);
         }
     }
@@ -740,7 +739,7 @@ void CSSSelector::setAttribute(const QualifiedName& value, AttributeMatchType ma
 {
     createRareData();
     m_data.m_rareData->m_attribute = value;
-    m_data.m_rareData->m_bits.m_attributeMatchType = matchType;
+    m_data.m_rareData->m_bits.m_attributeMatch = matchType;
 }
 
 void CSSSelector::setArgument(const AtomicString& value)
@@ -777,7 +776,7 @@ static bool validateSubSelector(const CSSSelector* selector)
         break;
     }
 
-    switch (selector->pseudoType()) {
+    switch (selector->getPseudoType()) {
     case CSSSelector::PseudoEmpty:
     case CSSSelector::PseudoLink:
     case CSSSelector::PseudoVisited:
@@ -834,13 +833,13 @@ unsigned CSSSelector::computeLinkMatchType() const
     // Determine if this selector will match a link in visited, unvisited or any state, or never.
     // :visited never matches other elements than the innermost link element.
     for (const CSSSelector* current = this; current; current = current->tagHistory()) {
-        switch (current->pseudoType()) {
+        switch (current->getPseudoType()) {
         case PseudoNot:
             {
                 // :not(:visited) is equivalent to :link. Parser enforces that :not can't nest.
                 ASSERT(current->selectorList());
                 for (const CSSSelector* subSelector = current->selectorList()->first(); subSelector; subSelector = subSelector->tagHistory()) {
-                    PseudoType subType = subSelector->pseudoType();
+                    PseudoType subType = subSelector->getPseudoType();
                     if (subType == PseudoVisited)
                         linkMatchType &= ~MatchVisited;
                     else if (subType == PseudoLink)
@@ -858,7 +857,7 @@ unsigned CSSSelector::computeLinkMatchType() const
             // We don't support :link and :visited inside :-webkit-any.
             break;
         }
-        Relation relation = current->relation();
+        RelationType relation = current->relation();
         if (relation == SubSelector)
             continue;
         if (relation != Descendant && relation != Child)
@@ -882,8 +881,20 @@ bool CSSSelector::matchNth(int count) const
     return m_data.m_rareData->matchNth(count);
 }
 
+bool CSSSelector::matchesPseudoElement() const
+{
+    for (const CSSSelector* current = this; current; current = current->tagHistory()) {
+        if (current->match() == PseudoElement)
+            return true;
+        if (current->relation() != SubSelector)
+            return false;
+    }
+    return false;
+}
+
 CSSSelector::RareData::RareData(const AtomicString& value)
-    : m_value(value)
+    : m_matchingValue(value)
+    , m_serializingValue(value)
     , m_bits()
     , m_attribute(anyQName())
     , m_argument(nullAtom)

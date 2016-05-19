@@ -12,6 +12,7 @@
 #include "ash/shell.h"
 #include "ash/shell_init_params.h"
 #include "base/command_line.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/ash/chrome_screenshot_grabber.h"
@@ -67,7 +68,7 @@ void OpenAsh(gfx::AcceleratedWidget remote_window) {
 
   ash::Shell* shell = ash::Shell::CreateInstance(shell_init_params);
   shell->accelerator_controller()->SetScreenshotDelegate(
-      scoped_ptr<ash::ScreenshotDelegate>(new ChromeScreenshotGrabber).Pass());
+      scoped_ptr<ash::ScreenshotDelegate>(new ChromeScreenshotGrabber));
 #if defined(OS_CHROMEOS)
   // TODO(flackr): Investigate exposing a blocking pool task runner to chromeos.
   chromeos::AccelerometerReader::GetInstance()->Initialize(
@@ -76,7 +77,7 @@ void OpenAsh(gfx::AcceleratedWidget remote_window) {
               content::BrowserThread::GetBlockingPool()->GetSequenceToken(),
               base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
   shell->accelerator_controller()->SetImeControlDelegate(
-      scoped_ptr<ash::ImeControlDelegate>(new ImeController).Pass());
+      scoped_ptr<ash::ImeControlDelegate>(new ImeController));
   shell->high_contrast_controller()->SetEnabled(
       chromeos::AccessibilityManager::Get()->IsHighContrastEnabled());
 

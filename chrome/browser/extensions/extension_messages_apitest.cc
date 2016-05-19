@@ -2,10 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/base64.h"
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -13,6 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/messaging/incognito_connectability.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -33,6 +39,8 @@
 #include "extensions/common/api/runtime.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/value_builder.h"
+#include "extensions/test/extension_test_message_listener.h"
+#include "extensions/test/result_catcher.h"
 #include "net/cert/asn1_util.h"
 #include "net/cert/jwk_serializer.h"
 #include "net/dns/mock_host_resolver.h"
@@ -62,17 +70,17 @@ class MessageSender : public content::NotificationObserver {
     event->SetString("data", data);
     scoped_ptr<base::ListValue> arguments(new base::ListValue());
     arguments->Append(event);
-    return arguments.Pass();
+    return arguments;
   }
 
   static scoped_ptr<Event> BuildEvent(scoped_ptr<base::ListValue> event_args,
                                       Profile* profile,
                                       GURL event_url) {
     scoped_ptr<Event> event(new Event(events::TEST_ON_MESSAGE, "test.onMessage",
-                                      event_args.Pass()));
+                                      std::move(event_args)));
     event->restrict_to_browser_context = profile;
     event->event_url = event_url;
-    return event.Pass();
+    return event;
   }
 
   void Observe(int type,
@@ -107,9 +115,31 @@ class MessageSender : public content::NotificationObserver {
 };
 
 // Tests that message passing between extensions and content scripts works.
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, Messaging) {
+#if defined(MEMORY_SANITIZER)
+// https://crbug.com/582185
+#define MAYBE_Messaging DISABLED_Messaging
+#else
+#define MAYBE_Messaging Messaging
+#endif
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Messaging) {
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(RunExtensionTest("messaging/connect")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MessagingCrash) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+  ExtensionTestMessageListener ready_to_crash("ready_to_crash", true);
+  ASSERT_TRUE(LoadExtension(
+          test_data_dir_.AppendASCII("messaging/connect_crash")));
+  ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/extensions/test_file.html"));
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_TRUE(ready_to_crash.WaitUntilSatisfied());
+
+  ResultCatcher catcher;
+  CrashTab(tab);
+  EXPECT_TRUE(catcher.GetNextResult());
 }
 
 // Tests that message passing from one extension to another works.
@@ -123,11 +153,36 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MessagingExternal) {
   ASSERT_TRUE(RunExtensionTest("messaging/connect_external")) << message_;
 }
 
+// Tests that a content script can exchange messages with a tab even if there is
+// no background page.
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MessagingNoBackground) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+  ASSERT_TRUE(RunExtensionSubtest("messaging/connect_nobackground",
+                                  "page_in_main_frame.html")) << message_;
+}
+
 // Tests that messages with event_urls are only passed to extensions with
 // appropriate permissions.
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MessagingEventURL) {
   MessageSender sender;
   ASSERT_TRUE(RunExtensionTest("messaging/event_url")) << message_;
+}
+
+// Tests that messages cannot be received from the same frame.
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MessagingBackgroundOnly) {
+  ASSERT_TRUE(RunExtensionTest("messaging/background_only")) << message_;
+}
+
+// Tests whether an extension in an interstitial page can send messages to the
+// background page.
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MessagingInterstitial) {
+  net::EmbeddedTestServer https_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  https_server.SetSSLConfig(net::EmbeddedTestServer::CERT_MISMATCHED_NAME);
+  ASSERT_TRUE(https_server.Start());
+
+  ASSERT_TRUE(RunExtensionSubtest("messaging/interstitial_component",
+                                  https_server.base_url().spec(),
+                                  kFlagLoadAsComponent)) << message_;
 }
 
 // Tests connecting from a panel to its extension.
@@ -376,7 +431,7 @@ class ExternallyConnectableMessagingTest : public ExtensionApiTest {
     EXPECT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data));
     embedded_test_server()->ServeFilesFromDirectory(test_data.AppendASCII(
         "extensions/api_test/messaging/externally_connectable/sites"));
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
     host_resolver()->AddRule("*", embedded_test_server()->base_url().host());
   }
 
@@ -467,10 +522,10 @@ IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest, NotInstalled) {
   scoped_refptr<const Extension> extension =
       ExtensionBuilder()
           .SetID("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-          .SetManifest(DictionaryBuilder()
-                           .Set("name", "Fake extension")
-                           .Set("version", "1")
-                           .Set("manifest_version", 2))
+          .SetManifest(std::move(DictionaryBuilder()
+                                     .Set("name", "Fake extension")
+                                     .Set("version", "1")
+                                     .Set("manifest_version", 2)))
           .Build();
 
   ui_test_utils::NavigateToURL(browser(), chromium_org_url());
@@ -981,11 +1036,11 @@ class ExternallyConnectableMessagingWithTlsChannelIdTest :
                    base::Unretained(&request), request_context_getter));
     tls_channel_id_created_.Wait();
     // Create the expected value.
-    std::vector<uint8> spki_vector;
+    std::vector<uint8_t> spki_vector;
     if (!channel_id_key->ExportPublicKey(&spki_vector))
       return std::string();
-    base::StringPiece spki(reinterpret_cast<char*>(
-        vector_as_array(&spki_vector)), spki_vector.size());
+    base::StringPiece spki(reinterpret_cast<char*>(spki_vector.data()),
+                           spki_vector.size());
     base::DictionaryValue jwk_value;
     net::JwkSerializer::ConvertSpkiFromDerToJwk(spki, &jwk_value);
     std::string tls_channel_id_value;
@@ -1183,10 +1238,10 @@ IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest,
       ExtensionBuilder()
           // A bit scary that this works...
           .SetID("invalid")
-          .SetManifest(DictionaryBuilder()
-                           .Set("name", "Fake extension")
-                           .Set("version", "1")
-                           .Set("manifest_version", 2))
+          .SetManifest(std::move(DictionaryBuilder()
+                                     .Set("name", "Fake extension")
+                                     .Set("version", "1")
+                                     .Set("manifest_version", 2)))
           .Build();
 
   ui_test_utils::NavigateToURL(browser(), chromium_org_url());

@@ -6,6 +6,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <utility>
+
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
@@ -15,6 +17,7 @@
 #import "ui/gfx/mac/coordinate_conversion.h"
 #import "ui/gfx/mac/nswindow_frame_controls.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/native_theme/native_theme_mac.h"
 #import "ui/views/cocoa/bridged_content_view.h"
 #import "ui/views/cocoa/bridged_native_widget.h"
 #import "ui/views/cocoa/native_widget_mac_nswindow.h"
@@ -138,6 +141,8 @@ void NativeWidgetMac::InitNativeWidget(const Widget::InitParams& params) {
   bridge_->CreateLayer(params.layer_type, translucent);
 }
 
+void NativeWidgetMac::OnWidgetInitDone() {}
+
 NonClientFrameView* NativeWidgetMac::CreateNonClientFrameView() {
   return new NativeFrameView(GetWidget());
 }
@@ -193,7 +198,11 @@ void NativeWidgetMac::ReorderNativeViews() {
 }
 
 void NativeWidgetMac::ViewRemoved(View* view) {
-  NOTIMPLEMENTED();
+  // TODO(tapted): Something for drag and drop might be needed here in future.
+  // See http://crbug.com/464581. A NOTIMPLEMENTED() here makes a lot of spam,
+  // so only emit it when a drag and drop could be likely.
+  if (IsMouseButtonDown())
+    NOTIMPLEMENTED();
 }
 
 void NativeWidgetMac::SetNativeWindowProperty(const char* name, void* value) {
@@ -344,12 +353,13 @@ void NativeWidgetMac::Close() {
   // Clear the view early to suppress repaints.
   bridge_->SetRootView(NULL);
 
-  // Calling performClose: will momentarily highlight the close button, but
-  // AppKit will reject it if there is no close button.
-  SEL close_selector = ([window styleMask] & NSClosableWindowMask)
-                           ? @selector(performClose:)
-                           : @selector(close);
-  [window performSelector:close_selector withObject:nil afterDelay:0];
+  // Widget::Close() ensures [Non]ClientView::CanClose() returns true, so there
+  // is no need to call the NSWindow or its delegate's -windowShouldClose:
+  // implementation in the manner of -[NSWindow performClose:]. But,
+  // like -performClose:, first remove the window from AppKit's display
+  // list to avoid crashes like http://crbug.com/156101.
+  [window orderOut:nil];
+  [window performSelector:@selector(close) withObject:nil afterDelay:0];
 }
 
 void NativeWidgetMac::CloseNow() {
@@ -359,7 +369,7 @@ void NativeWidgetMac::CloseNow() {
   // Notify observers while |bridged_| is still valid.
   delegate_->OnNativeWidgetDestroying();
   // Reset |bridge_| to NULL before destroying it.
-  scoped_ptr<BridgedNativeWidget> bridge(bridge_.Pass());
+  scoped_ptr<BridgedNativeWidget> bridge(std::move(bridge_));
 }
 
 void NativeWidgetMac::Show() {
@@ -400,6 +410,10 @@ void NativeWidgetMac::ShowWithWindowState(ui::WindowShowState state) {
   bridge_->SetVisibilityState(state == ui::SHOW_STATE_INACTIVE
       ? BridgedNativeWidget::SHOW_INACTIVE
       : BridgedNativeWidget::SHOW_AND_ACTIVATE_WINDOW);
+
+  // Ignore the SetInitialFocus() result. BridgedContentView should get
+  // firstResponder status regardless.
+  delegate_->SetInitialFocus(state);
 }
 
 bool NativeWidgetMac::IsVisible() const {
@@ -474,7 +488,7 @@ bool NativeWidgetMac::IsFullscreen() const {
 }
 
 void NativeWidgetMac::SetOpacity(unsigned char opacity) {
-  NOTIMPLEMENTED();
+  [GetNativeWindow() setAlphaValue:opacity / 255.0];
 }
 
 void NativeWidgetMac::SetUseDragFrame(bool use_drag_frame) {
@@ -494,9 +508,15 @@ void NativeWidgetMac::RunShellDrag(View* view,
 }
 
 void NativeWidgetMac::SchedulePaintInRect(const gfx::Rect& rect) {
-  // TODO(tapted): This should use setNeedsDisplayInRect:, once the coordinate
-  // system of |rect| has been converted.
-  [GetNativeView() setNeedsDisplay:YES];
+  // |rect| is relative to client area of the window.
+  NSWindow* window = GetNativeWindow();
+  NSRect client_rect = [window contentRectForFrameRect:[window frame]];
+  NSRect target_rect = rect.ToCGRect();
+
+  // Convert to Appkit coordinate system (origin at bottom left).
+  target_rect.origin.y =
+      NSHeight(client_rect) - target_rect.origin.y - NSHeight(target_rect);
+  [GetNativeView() setNeedsDisplayInRect:target_rect];
   if (bridge_ && bridge_->layer())
     bridge_->layer()->SchedulePaint(rect);
 }
@@ -551,7 +571,7 @@ void NativeWidgetMac::SetVisibilityAnimationTransition(
 }
 
 ui::NativeTheme* NativeWidgetMac::GetNativeTheme() const {
-  return ui::NativeTheme::instance();
+  return ui::NativeThemeMac::instance();
 }
 
 void NativeWidgetMac::OnRootViewLayout() {

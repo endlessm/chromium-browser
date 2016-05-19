@@ -4,6 +4,8 @@
 
 #import "chrome/browser/ui/cocoa/framed_browser_window.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "chrome/browser/global_keyboard_shortcuts_mac.h"
@@ -250,7 +252,7 @@ const CGFloat kWindowGradientHeight = 24.0;
                            forView:(NSView*)view
                             bounds:(NSRect)bounds
               forceBlackBackground:(BOOL)forceBlackBackground {
-  ui::ThemeProvider* themeProvider = [[view window] themeProvider];
+  const ui::ThemeProvider* themeProvider = [[view window] themeProvider];
   if (!themeProvider)
     return NO;
 
@@ -341,7 +343,7 @@ const CGFloat kWindowGradientHeight = 24.0;
 }
 
 - (NSColor*)titleColor {
-  ui::ThemeProvider* themeProvider = [self themeProvider];
+  const ui::ThemeProvider* themeProvider = [self themeProvider];
   if (!themeProvider)
     return [NSColor windowFrameTextColor];
 

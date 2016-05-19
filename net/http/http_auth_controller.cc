@@ -11,7 +11,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/platform_thread.h"
 #include "net/base/auth.h"
-#include "net/base/net_util.h"
+#include "net/base/url_util.h"
 #include "net/dns/host_resolver.h"
 #include "net/http/http_auth_handler.h"
 #include "net/http/http_auth_handler_factory.h"
@@ -29,13 +29,13 @@ namespace {
 std::string AuthChallengeLogMessage(HttpResponseHeaders* headers) {
   std::string msg;
   std::string header_val;
-  void* iter = NULL;
+  size_t iter = 0;
   while (headers->EnumerateHeader(&iter, "proxy-authenticate", &header_val)) {
     msg.append("\n  Has header Proxy-Authenticate: ");
     msg.append(header_val);
   }
 
-  iter = NULL;
+  iter = 0;
   while (headers->EnumerateHeader(&iter, "www-authenticate", &header_val)) {
     msg.append("\n  Has header WWW-Authenticate: ");
     msg.append(header_val);
@@ -44,7 +44,7 @@ std::string AuthChallengeLogMessage(HttpResponseHeaders* headers) {
   // RFC 4559 requires that a proxy indicate its support of NTLM/Negotiate
   // authentication with a "Proxy-Support: Session-Based-Authentication"
   // response header.
-  iter = NULL;
+  iter = 0;
   while (headers->EnumerateHeader(&iter, "proxy-support", &header_val)) {
     msg.append("\n  Has header Proxy-Support: ");
     msg.append(header_val);

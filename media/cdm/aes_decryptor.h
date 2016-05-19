@@ -5,12 +5,14 @@
 #ifndef MEDIA_CRYPTO_AES_DECRYPTOR_H_
 #define MEDIA_CRYPTO_AES_DECRYPTOR_H_
 
+#include <stdint.h>
+
 #include <set>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"

@@ -13,17 +13,16 @@
 namespace content {
 
 VaapiTFPPicture::VaapiTFPPicture(
-    VaapiWrapper* vaapi_wrapper,
+    const scoped_refptr<VaapiWrapper>& vaapi_wrapper,
     const base::Callback<bool(void)> make_context_current,
-    int32 picture_buffer_id,
-    uint32 texture_id,
+    int32_t picture_buffer_id,
+    uint32_t texture_id,
     const gfx::Size& size)
     : VaapiPicture(picture_buffer_id, texture_id, size),
       vaapi_wrapper_(vaapi_wrapper),
       make_context_current_(make_context_current),
       x_display_(gfx::GetXDisplay()),
-      x_pixmap_(0) {
-}
+      x_pixmap_(0) {}
 
 VaapiTFPPicture::~VaapiTFPPicture() {
   if (glx_image_.get() && make_context_current_.Run()) {

@@ -5,9 +5,11 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_BROWSER_AUTOFILL_SCANNER_H_
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_AUTOFILL_SCANNER_H_
 
+#include <stddef.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 
 namespace autofill {
@@ -17,7 +19,7 @@ class AutofillField;
 // A helper class for parsing a stream of |AutofillField|'s with lookahead.
 class AutofillScanner {
  public:
-  explicit AutofillScanner(std::vector<AutofillField*>& fields);
+  explicit AutofillScanner(const std::vector<AutofillField*>& fields);
   ~AutofillScanner();
 
   // Advances the cursor by one step, if possible.
@@ -48,10 +50,10 @@ class AutofillScanner {
   std::vector<AutofillField*>::const_iterator saved_cursor_;
 
   // The beginning pointer for the stream.
-  const std::vector<AutofillField*>::iterator begin_;
+  const std::vector<AutofillField*>::const_iterator begin_;
 
   // The past-the-end pointer for the stream.
-  const std::vector<AutofillField*>::iterator end_;
+  const std::vector<AutofillField*>::const_iterator end_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillScanner);
 };

@@ -26,9 +26,7 @@
 // FFTFrame implementation using FFmpeg's RDFT algorithm,
 // suitable for use on Windows and Linux.
 
-#include "config.h"
-
-#if ENABLE(WEB_AUDIO)
+#include "wtf/build_config.h"
 
 #if USE(WEBAUDIO_FFMPEG)
 
@@ -179,4 +177,3 @@ RDFTContext* FFTFrame::contextForSize(unsigned fftSize, int trans)
 
 #endif // USE(WEBAUDIO_FFMPEG)
 
-#endif // ENABLE(WEB_AUDIO)

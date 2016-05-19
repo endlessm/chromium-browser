@@ -5,41 +5,50 @@
 #ifndef UI_OZONE_PLATFORM_DRM_HOST_DRM_DISPLAY_HOST_MANAGER_H_
 #define UI_OZONE_PLATFORM_DRM_HOST_DRM_DISPLAY_HOST_MANAGER_H_
 
-#include <queue>
-#include <set>
+#include <stdint.h>
 
+#include <map>
+#include <queue>
+
+#include "base/file_descriptor_posix.h"
 #include "base/files/scoped_file.h"
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/display/types/native_display_delegate.h"
 #include "ui/events/ozone/device/device_event.h"
 #include "ui/events/ozone/device/device_event_observer.h"
 #include "ui/events/ozone/evdev/event_factory_evdev.h"
-#include "ui/ozone/public/gpu_platform_support_host.h"
+#include "ui/ozone/platform/drm/host/gpu_thread_observer.h"
 
 namespace ui {
 
 class DeviceManager;
 class DrmDeviceHandle;
 class DrmDisplayHost;
+class DrmDisplayHostManager;
 class DrmGpuPlatformSupportHost;
 class DrmNativeDisplayDelegate;
+class GpuThreadAdapter;
 
 struct DisplaySnapshot_Params;
 
-class DrmDisplayHostManager : public DeviceEventObserver,
-                              public GpuPlatformSupportHost {
+// The portion of the DrmDisplayHostManager implementation that is agnostic
+// in how its communication with GPU-specific functionality is implemented.
+// This is used from both the IPC and the in-process versions in  MUS.
+class DrmDisplayHostManager : public DeviceEventObserver, GpuThreadObserver {
  public:
-  DrmDisplayHostManager(DrmGpuPlatformSupportHost* proxy,
+  DrmDisplayHostManager(GpuThreadAdapter* proxy,
                         DeviceManager* device_manager,
                         InputControllerEvdev* input_controller);
   ~DrmDisplayHostManager() override;
 
   DrmDisplayHost* GetDisplay(int64_t display_id);
 
+  // External API.
   void AddDelegate(DrmNativeDisplayDelegate* delegate);
   void RemoveDelegate(DrmNativeDisplayDelegate* delegate);
-
   void TakeDisplayControl(const DisplayControlCallback& callback);
   void RelinquishDisplayControl(const DisplayControlCallback& callback);
   void UpdateDisplays(const GetDisplaysCallback& callback);
@@ -47,15 +56,19 @@ class DrmDisplayHostManager : public DeviceEventObserver,
   // DeviceEventObserver overrides:
   void OnDeviceEvent(const DeviceEvent& event) override;
 
-  // GpuPlatformSupportHost:
-  void OnChannelEstablished(
-      int host_id,
-      scoped_refptr<base::SingleThreadTaskRunner> send_runner,
-      const base::Callback<void(IPC::Message*)>& send_callback) override;
-  void OnChannelDestroyed(int host_id) override;
+  // GpuThreadObserver overrides:
+  void OnGpuThreadReady() override;
+  void OnGpuThreadRetired() override;
 
-  // IPC::Listener overrides:
-  bool OnMessageReceived(const IPC::Message& message) override;
+  // Communication-free implementations of actions performed in response to
+  // messages from the GPU thread.
+  void GpuHasUpdatedNativeDisplays(
+      const std::vector<DisplaySnapshot_Params>& displays);
+  void GpuConfiguredDisplay(int64_t display_id, bool status);
+  void GpuReceivedHDCPState(int64_t display_id, bool status, HDCPState state);
+  void GpuUpdatedHDCPState(int64_t display_id, bool status);
+  void GpuTookDisplayControl(bool status);
+  void GpuRelinquishedDisplayControl(bool status);
 
  private:
   struct DisplayEvent {
@@ -67,31 +80,23 @@ class DrmDisplayHostManager : public DeviceEventObserver,
     base::FilePath path;
   };
 
-  void OnUpdateNativeDisplays(
-      const std::vector<DisplaySnapshot_Params>& displays);
-  void OnDisplayConfigured(int64_t display_id, bool status);
-
+  // Handle hotplug events sequentially.
   void ProcessEvent();
 
   // Called as a result of finishing to process the display hotplug event. These
   // are responsible for dequing the event and scheduling the next event.
   void OnAddGraphicsDevice(const base::FilePath& path,
+                           const base::FilePath& sysfs_path,
                            scoped_ptr<DrmDeviceHandle> handle);
   void OnUpdateGraphicsDevice();
   void OnRemoveGraphicsDevice(const base::FilePath& path);
-
-  void OnHDCPStateReceived(int64_t display_id, bool status, HDCPState state);
-  void OnHDCPStateUpdated(int64_t display_id, bool status);
-
-  void OnTakeDisplayControl(bool status);
-  void OnRelinquishDisplayControl(bool status);
 
   void RunUpdateDisplaysCallback(const GetDisplaysCallback& callback) const;
 
   void NotifyDisplayDelegate() const;
 
-  DrmGpuPlatformSupportHost* proxy_;  // Not owned.
-  DeviceManager* device_manager_;     // Not owned.
+  GpuThreadAdapter* proxy_;                 // Not owned.
+  DeviceManager* device_manager_;           // Not owned.
   InputControllerEvdev* input_controller_;  // Not owned.
 
   DrmNativeDisplayDelegate* delegate_ = nullptr;  // Not owned.
@@ -108,7 +113,7 @@ class DrmDisplayHostManager : public DeviceEventObserver,
   // when there is no connection to the GPU to update the displays.
   bool has_dummy_display_ = false;
 
-  ScopedVector<DrmDisplayHost> displays_;
+  std::vector<scoped_ptr<DrmDisplayHost>> displays_;
 
   GetDisplaysCallback get_displays_callback_;
 
@@ -126,8 +131,9 @@ class DrmDisplayHostManager : public DeviceEventObserver,
   // True if a display event is currently being processed on a worker thread.
   bool task_pending_ = false;
 
-  // Keeps track of all the active DRM devices.
-  std::set<base::FilePath> drm_devices_;
+  // Keeps track of all the active DRM devices. The key is the device path, the
+  // value is the sysfs path which has been resolved from the device path.
+  std::map<base::FilePath, base::FilePath> drm_devices_;
 
   // This is used to cache the primary DRM device until the channel is
   // established.

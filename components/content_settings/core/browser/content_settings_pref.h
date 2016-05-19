@@ -5,9 +5,12 @@
 #ifndef COMPONENTS_CONTENT_SETTINGS_CORE_BROWSER_CONTENT_SETTINGS_PREF_H_
 #define COMPONENTS_CONTENT_SETTINGS_CORE_BROWSER_CONTENT_SETTINGS_PREF_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "base/values.h"
@@ -48,13 +51,16 @@ class ContentSettingsPref {
                       NotifyObserversCallback notify_callback);
   ~ContentSettingsPref();
 
-  RuleIterator* GetRuleIterator(const ResourceIdentifier& resource_identifier,
-                                bool incognito) const;
+  scoped_ptr<RuleIterator> GetRuleIterator(
+      const ResourceIdentifier& resource_identifier,
+      bool incognito) const;
 
   bool SetWebsiteSetting(const ContentSettingsPattern& primary_pattern,
                          const ContentSettingsPattern& secondary_pattern,
                          const ResourceIdentifier& resource_identifier,
                          base::Value* value);
+
+  void ClearPref();
 
   void ClearAllContentSettingsRules();
 

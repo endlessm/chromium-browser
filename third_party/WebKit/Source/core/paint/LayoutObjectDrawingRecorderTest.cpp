@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/LayoutObjectDrawingRecorder.h"
 
 #include "core/layout/LayoutTestHelper.h"
@@ -13,7 +12,7 @@
 #include "platform/graphics/GraphicsLayer.h"
 #include "platform/graphics/paint/DrawingDisplayItem.h"
 #include "platform/graphics/paint/PaintController.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -66,25 +65,25 @@ TEST_F(LayoutObjectDrawingRecorderTest, Cached)
     rootPaintController().invalidateAll();
     GraphicsContext context(rootPaintController());
     LayoutRect bound = layoutView().viewRect();
-    drawNothing(context, layoutView(), PaintPhaseBlockBackground, bound);
+    drawNothing(context, layoutView(), PaintPhaseSelfBlockBackgroundOnly, bound);
     drawRect(context, layoutView(), PaintPhaseForeground, bound);
     rootPaintController().commitNewDisplayItems();
 
     EXPECT_DISPLAY_LIST(rootPaintController().displayItemList(), 2,
-        TestDisplayItem(layoutView(), DisplayItem::paintPhaseToDrawingType(PaintPhaseBlockBackground)),
+        TestDisplayItem(layoutView(), DisplayItem::paintPhaseToDrawingType(PaintPhaseSelfBlockBackgroundOnly)),
         TestDisplayItem(layoutView(), DisplayItem::paintPhaseToDrawingType(PaintPhaseForeground)));
 
-    drawNothing(context, layoutView(), PaintPhaseBlockBackground, bound);
+    drawNothing(context, layoutView(), PaintPhaseSelfBlockBackgroundOnly, bound);
     drawRect(context, layoutView(), PaintPhaseForeground, bound);
 
     EXPECT_DISPLAY_LIST(rootPaintController().newDisplayItemList(), 2,
-        TestDisplayItem(layoutView(), DisplayItem::drawingTypeToCachedDrawingType(DisplayItem::paintPhaseToDrawingType(PaintPhaseBlockBackground))),
+        TestDisplayItem(layoutView(), DisplayItem::drawingTypeToCachedDrawingType(DisplayItem::paintPhaseToDrawingType(PaintPhaseSelfBlockBackgroundOnly))),
         TestDisplayItem(layoutView(), DisplayItem::drawingTypeToCachedDrawingType(DisplayItem::paintPhaseToDrawingType(PaintPhaseForeground))));
 
     rootPaintController().commitNewDisplayItems();
 
     EXPECT_DISPLAY_LIST(rootPaintController().displayItemList(), 2,
-        TestDisplayItem(layoutView(), DisplayItem::paintPhaseToDrawingType(PaintPhaseBlockBackground)),
+        TestDisplayItem(layoutView(), DisplayItem::paintPhaseToDrawingType(PaintPhaseSelfBlockBackgroundOnly)),
         TestDisplayItem(layoutView(), DisplayItem::paintPhaseToDrawingType(PaintPhaseForeground)));
 }
 

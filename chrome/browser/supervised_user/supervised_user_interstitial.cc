@@ -4,22 +4,26 @@
 
 #include "chrome/browser/supervised_user/supervised_user_interstitial.h"
 
+#include <stddef.h>
+
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobar_delegate.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_controller.h"
@@ -36,9 +40,9 @@
 #include "ui/base/webui/jstemplate_builder.h"
 #include "ui/base/webui/web_ui_util.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/supervised_user/child_accounts/child_account_feedback_reporter_android.h"
-#else
+#elif !defined(OS_ANDROID)
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -194,37 +198,48 @@ bool SupervisedUserInterstitial::Init() {
   return true;
 }
 
-std::string SupervisedUserInterstitial::GetHTMLContents() {
+// static
+std::string SupervisedUserInterstitial::GetHTMLContents(
+    Profile* profile,
+    SupervisedUserURLFilter::FilteringBehaviorReason reason) {
   base::DictionaryValue strings;
   strings.SetString("blockPageTitle",
                     l10n_util::GetStringUTF16(IDS_BLOCK_INTERSTITIAL_TITLE));
 
   SupervisedUserService* supervised_user_service =
-      SupervisedUserServiceFactory::GetForProfile(profile_);
+      SupervisedUserServiceFactory::GetForProfile(profile);
 
   bool allow_access_requests = supervised_user_service->AccessRequestsEnabled();
   strings.SetBoolean("allowAccessRequests", allow_access_requests);
 
-  std::string profile_image_url = profile_->GetPrefs()->GetString(
+  std::string profile_image_url = profile->GetPrefs()->GetString(
       prefs::kSupervisedUserCustodianProfileImageURL);
   strings.SetString("avatarURL1x", BuildAvatarImageUrl(profile_image_url,
                                                        kAvatarSize1x));
   strings.SetString("avatarURL2x", BuildAvatarImageUrl(profile_image_url,
                                                        kAvatarSize2x));
 
-  std::string profile_image_url2 = profile_->GetPrefs()->GetString(
+  std::string profile_image_url2 = profile->GetPrefs()->GetString(
       prefs::kSupervisedUserSecondCustodianProfileImageURL);
   strings.SetString("secondAvatarURL1x", BuildAvatarImageUrl(profile_image_url2,
                                                              kAvatarSize1x));
   strings.SetString("secondAvatarURL2x", BuildAvatarImageUrl(profile_image_url2,
                                                              kAvatarSize2x));
 
-  bool is_child_account = profile_->IsChild();
+  bool is_child_account = profile->IsChild();
 
   base::string16 custodian =
       base::UTF8ToUTF16(supervised_user_service->GetCustodianName());
   base::string16 second_custodian =
       base::UTF8ToUTF16(supervised_user_service->GetSecondCustodianName());
+  base::string16 custodian_email =
+      base::UTF8ToUTF16(supervised_user_service->GetCustodianEmailAddress());
+  base::string16 second_custodian_email = base::UTF8ToUTF16(
+      supervised_user_service->GetSecondCustodianEmailAddress());
+  strings.SetString("custodianName", custodian);
+  strings.SetString("custodianEmail", custodian_email);
+  strings.SetString("secondCustodianName", second_custodian);
+  strings.SetString("secondCustodianEmail", second_custodian_email);
 
   base::string16 block_message;
   if (allow_access_requests) {
@@ -242,15 +257,15 @@ std::string SupervisedUserInterstitial::GetHTMLContents() {
         IDS_BLOCK_INTERSTITIAL_MESSAGE_ACCESS_REQUESTS_DISABLED);
   }
   strings.SetString("blockPageMessage", block_message);
-  strings.SetString("blockReasonMessage", is_child_account
-      ? l10n_util::GetStringUTF16(
-            SupervisedUserURLFilter::GetBlockMessageID(reason_))
-      : base::string16());
-
+  strings.SetString("blockReasonMessage", l10n_util::GetStringUTF16(
+      SupervisedUserURLFilter::GetBlockMessageID(
+          reason, is_child_account, second_custodian.empty())));
+  strings.SetString("blockReasonHeader", l10n_util::GetStringUTF16(
+      SupervisedUserURLFilter::GetBlockHeaderID(reason)));
   bool show_feedback = false;
 #if defined(GOOGLE_CHROME_BUILD)
-  show_feedback = is_child_account &&
-                  SupervisedUserURLFilter::ReasonIsAutomatic(reason_);
+  show_feedback =
+      is_child_account && SupervisedUserURLFilter::ReasonIsAutomatic(reason);
 #endif
   strings.SetBoolean("showFeedbackLink", show_feedback);
   strings.SetString("feedbackLink",
@@ -258,9 +273,12 @@ std::string SupervisedUserInterstitial::GetHTMLContents() {
 
   strings.SetString("backButton", l10n_util::GetStringUTF16(IDS_BACK_BUTTON));
   strings.SetString("requestAccessButton", l10n_util::GetStringUTF16(
-      is_child_account
-          ? IDS_CHILD_BLOCK_INTERSTITIAL_REQUEST_ACCESS_BUTTON
-          : IDS_BLOCK_INTERSTITIAL_REQUEST_ACCESS_BUTTON));
+      IDS_BLOCK_INTERSTITIAL_REQUEST_ACCESS_BUTTON));
+
+  strings.SetString("showDetailsLink", l10n_util::GetStringUTF16(
+      IDS_BLOCK_INTERSTITIAL_SHOW_DETAILS));
+  strings.SetString("hideDetailsLink", l10n_util::GetStringUTF16(
+        IDS_BLOCK_INTERSTITIAL_HIDE_DETAILS));
 
   base::string16 request_sent_message;
   base::string16 request_failed_message;
@@ -295,6 +313,10 @@ std::string SupervisedUserInterstitial::GetHTMLContents() {
   webui::AppendWebUiCssTextDefaults(&html);
 
   return webui::GetI18nTemplateHtml(html, &strings);
+}
+
+std::string SupervisedUserInterstitial::GetHTMLContents() {
+  return GetHTMLContents(profile_, reason_);
 }
 
 void SupervisedUserInterstitial::CommandReceived(const std::string& command) {
@@ -335,16 +357,22 @@ void SupervisedUserInterstitial::CommandReceived(const std::string& command) {
     return;
   }
 
+  SupervisedUserService* supervised_user_service =
+      SupervisedUserServiceFactory::GetForProfile(profile_);
+  base::string16 second_custodian =
+      base::UTF8ToUTF16(supervised_user_service->GetSecondCustodianName());
+
   if (command == "\"feedback\"") {
     base::string16 reason = l10n_util::GetStringUTF16(
-        SupervisedUserURLFilter::GetBlockMessageID(reason_));
+        SupervisedUserURLFilter::GetBlockMessageID(
+            reason_, true, second_custodian.empty()));
     std::string message = l10n_util::GetStringFUTF8(
         IDS_BLOCK_INTERSTITIAL_DEFAULT_FEEDBACK_TEXT, reason);
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
     ReportChildAccountFeedback(web_contents_, message, url_);
 #else
     chrome::ShowFeedbackPage(chrome::FindBrowserWithWebContents(web_contents_),
-                             message, std::string());
+                           message, std::string());
 #endif
     return;
   }

@@ -5,6 +5,7 @@
 #include "chrome/renderer/net/net_error_helper.h"
 
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
@@ -12,11 +13,11 @@
 #include "base/metrics/histogram.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/localized_error.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/grit/renderer_resources.h"
 #include "components/error_page/common/error_page_params.h"
+#include "components/error_page/common/localized_error.h"
 #include "components/error_page/common/net_error_info.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
@@ -26,6 +27,7 @@
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/resource_fetcher.h"
+#include "grit/components_resources.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
@@ -49,6 +51,7 @@ using content::kUnreachableWebDataURL;
 using error_page::DnsProbeStatus;
 using error_page::DnsProbeStatusToString;
 using error_page::ErrorPageParams;
+using error_page::LocalizedError;
 using error_page::NetErrorHelperCore;
 using error_page::OfflinePageStatus;
 
@@ -198,17 +201,11 @@ void NetErrorHelper::GenerateLocalizedErrorPage(
   } else {
     base::DictionaryValue error_strings;
     LocalizedError::GetStrings(
-        error.reason,
-        error.domain.utf8(),
-        error.unreachableURL,
-        is_failed_post,
-        error.staleCopyInCache,
-        can_show_network_diagnostics_dialog,
-        offline_page_status,
-        RenderThread::Get()->GetLocale(),
+        error.reason, error.domain.utf8(), error.unreachableURL, is_failed_post,
+        error.staleCopyInCache, can_show_network_diagnostics_dialog,
+        offline_page_status, RenderThread::Get()->GetLocale(),
         render_frame()->GetRenderView()->GetAcceptLanguages(),
-        params.Pass(),
-        &error_strings);
+        std::move(params), &error_strings);
     *reload_button_shown = error_strings.Get("reloadButton", nullptr);
     *show_saved_copy_button_shown =
         error_strings.Get("showSavedCopyButton", nullptr);

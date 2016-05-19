@@ -5,6 +5,9 @@
 #ifndef COMPONENTS_SCHEDULER_CHILD_SCHEDULER_HELPER_H_
 #define COMPONENTS_SCHEDULER_CHILD_SCHEDULER_HELPER_H_
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/time/tick_clock.h"
 #include "components/scheduler/base/task_queue_manager.h"
 #include "components/scheduler/base/task_queue_selector.h"
@@ -31,8 +34,9 @@ class SCHEDULER_EXPORT SchedulerHelper : public TaskQueueManager::Observer {
   ~SchedulerHelper() override;
 
   // TaskQueueManager::Observer implementation:
-  void OnUnregisterTaskQueue(
-      const scoped_refptr<internal::TaskQueueImpl>& queue) override;
+  void OnUnregisterTaskQueue(const scoped_refptr<TaskQueue>& queue) override;
+  void OnTriedToExecuteBlockedTask(const TaskQueue& queue,
+                                   const base::PendingTask& task) override;
 
   // Returns the default task runner.
   scoped_refptr<TaskQueue> DefaultTaskRunner();
@@ -75,6 +79,11 @@ class SCHEDULER_EXPORT SchedulerHelper : public TaskQueueManager::Observer {
     // Called when |queue| is unregistered.
     virtual void OnUnregisterTaskQueue(
         const scoped_refptr<TaskQueue>& queue) = 0;
+
+    // Called when the scheduler tried to execute a task from a disabled
+    // queue. See TaskQueue::Spec::SetShouldReportWhenExecutionBlocked.
+    virtual void OnTriedToExecuteBlockedTask(const TaskQueue& queue,
+                                             const base::PendingTask& task) = 0;
   };
 
   // Called once to set the Observer. This function is called on the main
@@ -83,9 +92,12 @@ class SCHEDULER_EXPORT SchedulerHelper : public TaskQueueManager::Observer {
   void SetObserver(Observer* observer);
 
   // Accessor methods.
+  RealTimeDomain* real_time_domain() const;
+  void RegisterTimeDomain(TimeDomain* time_domain);
+  void UnregisterTimeDomain(TimeDomain* time_domain);
   const scoped_refptr<SchedulerTqmDelegate>& scheduler_tqm_delegate() const;
-  base::TimeTicks NextPendingDelayedTaskRunTime() const;
   bool GetAndClearSystemIsQuiescentBit();
+  TaskQueue* CurrentlyExecutingTaskQueue() const;
 
   // Test helpers.
   void SetWorkBatchSizeForTesting(size_t work_batch_size);

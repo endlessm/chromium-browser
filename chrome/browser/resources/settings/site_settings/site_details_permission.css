@@ -15,11 +15,11 @@
 }
 
 .permission-header {
-  -webkit-margin-start: 6px;
+  -webkit-margin-start: -1px;
 }
 
 .permission-list {
-  -webkit-margin-end: 35px;
+  -webkit-margin-end: 7px;
 }
 
 .permission-list > paper-dropdown-menu {

@@ -4,13 +4,18 @@
 
 #include "content/common/gpu/client/gpu_jpeg_decode_accelerator_host.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/shared_memory_handle.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/waitable_event.h"
+#include "build/build_config.h"
 #include "content/common/gpu/client/gpu_channel_host.h"
 #include "content/common/gpu/gpu_messages.h"
+#include "content/common/gpu/media_messages.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_message_utils.h"
@@ -94,7 +99,7 @@ class GpuJpegDecodeAcceleratorHost::Receiver : public IPC::Listener,
 
 GpuJpegDecodeAcceleratorHost::GpuJpegDecodeAcceleratorHost(
     GpuChannelHost* channel,
-    int32 route_id,
+    int32_t route_id,
     const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner)
     : channel_(channel),
       decoder_route_id_(route_id),
@@ -127,10 +132,10 @@ bool GpuJpegDecodeAcceleratorHost::Initialize(
 
   bool succeeded = false;
   // This cannot be on IO thread because the msg is synchronous.
-  Send(new GpuMsg_CreateJpegDecoder(decoder_route_id_, &succeeded));
+  Send(new GpuChannelMsg_CreateJpegDecoder(decoder_route_id_, &succeeded));
 
   if (!succeeded) {
-    DLOG(ERROR) << "Send(GpuMsg_CreateJpegDecoder()) failed";
+    DLOG(ERROR) << "Send(GpuChannelMsg_CreateJpegDecoder()) failed";
     return false;
   }
 

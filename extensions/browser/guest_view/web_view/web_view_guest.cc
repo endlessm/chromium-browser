@@ -4,9 +4,14 @@
 
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/message_loop/message_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/browsing_data/storage_partition_http_cache_data_remover.h"
 #include "components/guest_view/browser/guest_view_event.h"
 #include "components/guest_view/browser/guest_view_manager.h"
@@ -55,6 +60,7 @@
 #include "net/base/escape.h"
 #include "net/base/net_errors.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/events/keycodes/keyboard_codes.h"
 #include "url/url_constants.h"
 
 using base::UserMetricsAction;
@@ -75,8 +81,8 @@ namespace {
 
 // Returns storage partition removal mask from web_view clearData mask. Note
 // that storage partition mask is a subset of webview's data removal mask.
-uint32 GetStoragePartitionRemovalMask(uint32 web_view_removal_mask) {
-  uint32 mask = 0;
+uint32_t GetStoragePartitionRemovalMask(uint32_t web_view_removal_mask) {
+  uint32_t mask = 0;
   if (web_view_removal_mask & webview::WEB_VIEW_REMOVE_DATA_MASK_APPCACHE)
     mask |= StoragePartition::REMOVE_DATA_MASK_APPCACHE;
   if (web_view_removal_mask & webview::WEB_VIEW_REMOVE_DATA_MASK_COOKIES)
@@ -365,8 +371,8 @@ void WebViewGuest::DidAttachToEmbedder() {
 void WebViewGuest::DidDropLink(const GURL& url) {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   args->SetString(guest_view::kUrl, url.spec());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventDropLink, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventDropLink, std::move(args))));
 }
 
 void WebViewGuest::DidInitialize(const base::DictionaryValue& create_params) {
@@ -399,9 +405,9 @@ void WebViewGuest::DidInitialize(const base::DictionaryValue& create_params) {
 }
 
 void WebViewGuest::ClearDataInternal(base::Time remove_since,
-                                     uint32 removal_mask,
+                                     uint32_t removal_mask,
                                      const base::Closure& callback) {
-  uint32 storage_partition_removal_mask =
+  uint32_t storage_partition_removal_mask =
       GetStoragePartitionRemovalMask(removal_mask);
   if (!storage_partition_removal_mask) {
     callback.Run();
@@ -420,8 +426,8 @@ void WebViewGuest::ClearDataInternal(base::Time remove_since,
 
 void WebViewGuest::GuestViewDidStopLoading() {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventLoadStop, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventLoadStop, std::move(args))));
 }
 
 void WebViewGuest::EmbedderFullscreenToggled(bool entered_fullscreen) {
@@ -475,8 +481,8 @@ void WebViewGuest::GuestSizeChangedDueToAutoSize(const gfx::Size& old_size,
   args->SetInteger(webview::kOldWidth, old_size.width());
   args->SetInteger(webview::kNewHeight, new_size.height());
   args->SetInteger(webview::kNewWidth, new_size.width());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventSizeChanged, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventSizeChanged, std::move(args))));
 }
 
 bool WebViewGuest::IsAutoSizeSupported() const {
@@ -491,8 +497,8 @@ void WebViewGuest::GuestZoomChanged(double old_zoom_level,
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   args->SetDouble(webview::kOldZoomFactor, old_zoom_factor);
   args->SetDouble(webview::kNewZoomFactor, new_zoom_factor);
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventZoomChange, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventZoomChange, std::move(args))));
 }
 
 void WebViewGuest::WillDestroy() {
@@ -501,9 +507,9 @@ void WebViewGuest::WillDestroy() {
 }
 
 bool WebViewGuest::AddMessageToConsole(WebContents* source,
-                                       int32 level,
+                                       int32_t level,
                                        const base::string16& message,
-                                       int32 line_no,
+                                       int32_t line_no,
                                        const base::string16& source_id) {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   // Log levels are from base/logging.h: LogSeverity.
@@ -511,15 +517,15 @@ bool WebViewGuest::AddMessageToConsole(WebContents* source,
   args->SetString(webview::kMessage, message);
   args->SetInteger(webview::kLine, line_no);
   args->SetString(webview::kSourceId, source_id);
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventConsoleMessage, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventConsoleMessage, std::move(args))));
   return true;
 }
 
 void WebViewGuest::CloseContents(WebContents* source) {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventClose, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventClose, std::move(args))));
 }
 
 void WebViewGuest::FindReply(WebContents* source,
@@ -569,8 +575,8 @@ void WebViewGuest::LoadProgressChanged(WebContents* source, double progress) {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   args->SetString(guest_view::kUrl, web_contents()->GetURL().spec());
   args->SetDouble(webview::kProgress, progress);
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventLoadProgress, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventLoadProgress, std::move(args))));
 }
 
 void WebViewGuest::LoadAbort(bool is_top_level,
@@ -582,8 +588,8 @@ void WebViewGuest::LoadAbort(bool is_top_level,
   args->SetString(guest_view::kUrl, url.possibly_invalid_spec());
   args->SetInteger(guest_view::kCode, error_code);
   args->SetString(guest_view::kReason, error_type);
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventLoadAbort, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventLoadAbort, std::move(args))));
 }
 
 void WebViewGuest::SetContextMenuPosition(const gfx::Point& position) {
@@ -634,16 +640,16 @@ void WebViewGuest::RendererResponsive(WebContents* source) {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   args->SetInteger(webview::kProcessId,
                    web_contents()->GetRenderProcessHost()->GetID());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventResponsive, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventResponsive, std::move(args))));
 }
 
 void WebViewGuest::RendererUnresponsive(WebContents* source) {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   args->SetInteger(webview::kProcessId,
                    web_contents()->GetRenderProcessHost()->GetID());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventUnresponsive, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventUnresponsive, std::move(args))));
 }
 
 void WebViewGuest::Observe(int type,
@@ -724,7 +730,7 @@ void WebViewGuest::Terminate() {
 }
 
 bool WebViewGuest::ClearData(base::Time remove_since,
-                             uint32 removal_mask,
+                             uint32_t removal_mask,
                              const base::Closure& callback) {
   content::RecordAction(UserMetricsAction("WebView.Guest.ClearData"));
   content::StoragePartition* partition =
@@ -786,7 +792,9 @@ void WebViewGuest::DidCommitProvisionalLoadForFrame(
     const GURL& url,
     ui::PageTransition transition_type) {
   if (!render_frame_host->GetParent()) {
-    src_ = url;
+    // For LoadDataWithBaseURL loads, |url| contains the data URL, but the
+    // virtual URL is needed in that case. So use WebContents::GetURL instead.
+    src_ = web_contents()->GetURL();
     // Handle a pending zoom if one exists.
     if (pending_zoom_factor_) {
       SetZoom(pending_zoom_factor_);
@@ -794,7 +802,7 @@ void WebViewGuest::DidCommitProvisionalLoadForFrame(
     }
   }
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
-  args->SetString(guest_view::kUrl, url.spec());
+  args->SetString(guest_view::kUrl, src_.spec());
   args->SetBoolean(guest_view::kIsTopLevel, !render_frame_host->GetParent());
   args->SetString(webview::kInternalBaseURLForDataURL,
                   web_contents()
@@ -808,8 +816,8 @@ void WebViewGuest::DidCommitProvisionalLoadForFrame(
                    web_contents()->GetController().GetEntryCount());
   args->SetInteger(webview::kInternalProcessId,
                    web_contents()->GetRenderProcessHost()->GetID());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventLoadCommit, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventLoadCommit, std::move(args))));
 
   find_helper_.CancelAllFindSessions();
 }
@@ -836,8 +844,8 @@ void WebViewGuest::DidStartProvisionalLoadForFrame(
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   args->SetString(guest_view::kUrl, validated_url.spec());
   args->SetBoolean(guest_view::kIsTopLevel, !render_frame_host->GetParent());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventLoadStart, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventLoadStart, std::move(args))));
 }
 
 void WebViewGuest::RenderProcessGone(base::TerminationStatus status) {
@@ -848,8 +856,8 @@ void WebViewGuest::RenderProcessGone(base::TerminationStatus status) {
   args->SetInteger(webview::kProcessId,
                    web_contents()->GetRenderProcessHost()->GetID());
   args->SetString(webview::kReason, TerminationStatusToString(status));
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventExit, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventExit, std::move(args))));
 }
 
 void WebViewGuest::UserAgentOverrideSet(const std::string& user_agent) {
@@ -876,14 +884,14 @@ void WebViewGuest::ReportFrameNameChange(const std::string& name) {
   name_ = name;
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
   args->SetString(webview::kName, name);
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventFrameNameChanged, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventFrameNameChanged, std::move(args))));
 }
 
 void WebViewGuest::LoadHandlerCalled() {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventContentLoad, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventContentLoad, std::move(args))));
 }
 
 void WebViewGuest::LoadRedirect(const GURL& old_url,
@@ -893,8 +901,8 @@ void WebViewGuest::LoadRedirect(const GURL& old_url,
   args->SetBoolean(guest_view::kIsTopLevel, is_top_level);
   args->SetString(webview::kNewURL, new_url.spec());
   args->SetString(webview::kOldURL, old_url.spec());
-  DispatchEventToView(
-      new GuestViewEvent(webview::kEventLoadRedirect, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventLoadRedirect, std::move(args))));
 }
 
 void WebViewGuest::PushWebViewStateToIOThread() {
@@ -1016,14 +1024,14 @@ void WebViewGuest::NavigateGuest(const std::string& src,
   // if the navigation is embedder-initiated. For browser-initiated navigations,
   // content scripts will be ready.
   if (force_navigation) {
-    SignalWhenReady(base::Bind(
-        &WebViewGuest::LoadURLWithParams, weak_ptr_factory_.GetWeakPtr(), url,
-        content::Referrer(), ui::PAGE_TRANSITION_AUTO_TOPLEVEL,
-        GlobalRequestID(), force_navigation));
+    SignalWhenReady(
+        base::Bind(&WebViewGuest::LoadURLWithParams,
+                   weak_ptr_factory_.GetWeakPtr(), url, content::Referrer(),
+                   ui::PAGE_TRANSITION_AUTO_TOPLEVEL, force_navigation));
     return;
   }
   LoadURLWithParams(url, content::Referrer(), ui::PAGE_TRANSITION_AUTO_TOPLEVEL,
-                    GlobalRequestID(), force_navigation);
+                    force_navigation);
 }
 
 bool WebViewGuest::HandleKeyboardShortcuts(
@@ -1131,11 +1139,9 @@ void WebViewGuest::ApplyAttributes(const base::DictionaryValue& params) {
   }
 }
 
-void WebViewGuest::ShowContextMenu(
-    int request_id,
-    const WebViewGuestDelegate::MenuItemVector* items) {
+void WebViewGuest::ShowContextMenu(int request_id) {
   if (web_view_guest_delegate_)
-    web_view_guest_delegate_->OnShowContextMenu(request_id, items);
+    web_view_guest_delegate_->OnShowContextMenu(request_id);
 }
 
 void WebViewGuest::SetName(const std::string& name) {
@@ -1295,7 +1301,6 @@ WebContents* WebViewGuest::OpenURLFromTab(
   // about:blank.
   if (params.disposition == CURRENT_TAB) {
     LoadURLWithParams(params.url, params.referrer, params.transition,
-                      params.transferred_global_request_id,
                       true /* force_navigation */);
     return web_contents();
   }
@@ -1353,7 +1358,6 @@ void WebViewGuest::LoadURLWithParams(
     const GURL& url,
     const content::Referrer& referrer,
     ui::PageTransition transition_type,
-    const GlobalRequestID& transferred_global_request_id,
     bool force_navigation) {
   if (!url.is_valid()) {
     LoadAbort(true /* is_top_level */, url, net::ERR_INVALID_URL,
@@ -1391,7 +1395,7 @@ void WebViewGuest::LoadURLWithParams(
   load_url_params.referrer = referrer;
   load_url_params.transition_type = transition_type;
   load_url_params.extra_headers = std::string();
-  load_url_params.transferred_global_request_id = transferred_global_request_id;
+  load_url_params.transferred_global_request_id = GlobalRequestID();
   if (is_overriding_user_agent_) {
     load_url_params.override_user_agent =
         content::NavigationController::UA_OVERRIDE_TRUE;
@@ -1491,8 +1495,8 @@ void WebViewGuest::SetFullscreenState(bool is_fullscreen) {
     // Dispatch a message so we can call document.webkitCancelFullscreen()
     // on the embedder.
     scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
-    DispatchEventToView(
-        new GuestViewEvent(webview::kEventExitFullscreen, args.Pass()));
+    DispatchEventToView(make_scoped_ptr(
+        new GuestViewEvent(webview::kEventExitFullscreen, std::move(args))));
   }
   // Since we changed fullscreen state, sending a Resize message ensures that
   // renderer/ sees the change.

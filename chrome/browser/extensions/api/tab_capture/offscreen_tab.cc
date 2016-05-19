@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "chrome/browser/extensions/api/tab_capture/tab_capture_registry.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/web_contents_sizer.h"
@@ -91,8 +92,7 @@ class WindowAdoptionAgent : protected aura::WindowObserver {
   }
 
   void FindNewParent() {
-    BrowserList* const browsers =
-        BrowserList::GetInstance(chrome::GetActiveDesktop());
+    BrowserList* const browsers = BrowserList::GetInstance();
     Browser* const active_browser =
         browsers ? browsers->GetLastActive() : nullptr;
     BrowserWindow* const active_window =

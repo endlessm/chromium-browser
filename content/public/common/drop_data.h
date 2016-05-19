@@ -9,6 +9,8 @@
 #ifndef CONTENT_PUBLIC_COMMON_DROP_DATA_H_
 #define CONTENT_PUBLIC_COMMON_DROP_DATA_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
@@ -27,10 +29,11 @@ struct CONTENT_EXPORT DropData {
     ~FileSystemFileInfo() {}
 
     GURL url;
-    int64 size;
+    int64_t size;
   };
 
   DropData();
+  DropData(const DropData& other);
   ~DropData();
 
   // Whether this drag originated from a renderer.

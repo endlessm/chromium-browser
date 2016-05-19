@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/PicturePattern.h"
 
 #include "platform/graphics/skia/SkiaUtils.h"
@@ -40,4 +39,4 @@ PassRefPtr<SkShader> PicturePattern::createShader()
         SkShader::kRepeat_TileMode, SkShader::kRepeat_TileMode, &localMatrix, &tileBounds));
 }
 
-} // namespace
+} // namespace blink

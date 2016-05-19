@@ -4,8 +4,11 @@
 
 #include "chromecast/media/audio/cast_audio_output_stream.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/macros.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_checker.h"
 #include "chromecast/base/metrics/cast_metrics_helper.h"
@@ -29,13 +32,14 @@ const int kMaxQueuedDataMs = 1000;
 MediaPipelineBackend::AudioDecoder* InitializeBackend(
     const ::media::AudioParameters& audio_params,
     MediaPipelineBackend* backend,
-    MediaPipelineBackend::Delegate* delegate) {
+    MediaPipelineBackend::Decoder::Delegate* delegate) {
   DCHECK(backend);
   DCHECK(delegate);
 
   MediaPipelineBackend::AudioDecoder* decoder = backend->CreateAudioDecoder();
   if (!decoder)
     return nullptr;
+  decoder->SetDelegate(delegate);
 
   AudioConfig audio_config;
   audio_config.codec = kCodecPCM;
@@ -48,7 +52,7 @@ MediaPipelineBackend::AudioDecoder* InitializeBackend(
   if (!decoder->SetConfig(audio_config))
     return nullptr;
 
-  if (!backend->Initialize(delegate))
+  if (!backend->Initialize())
     return nullptr;
 
   return decoder;
@@ -60,9 +64,10 @@ MediaPipelineBackend::AudioDecoder* InitializeBackend(
 // media thread (media::MediaMessageLoop::GetTaskRunner).
 // It can be created and destroyed on any thread, but all other member functions
 // must be called on a single thread.
-class CastAudioOutputStream::Backend : public MediaPipelineBackend::Delegate {
+class CastAudioOutputStream::Backend
+    : public MediaPipelineBackend::Decoder::Delegate {
  public:
-  typedef base::Callback<void(bool)> PushBufferCompletionCallback;
+  using PushBufferCompletionCallback = base::Callback<void(bool)>;
 
   Backend(const ::media::AudioParameters& audio_params)
       : audio_params_(audio_params),
@@ -137,10 +142,9 @@ class CastAudioOutputStream::Backend : public MediaPipelineBackend::Delegate {
     backend_buffer_ = decoder_buffer;
 
     completion_cb_ = completion_cb;
-    MediaPipelineBackend::BufferStatus status =
-        decoder_->PushBuffer(backend_buffer_.get());
+    BufferStatus status = decoder_->PushBuffer(backend_buffer_.get());
     if (status != MediaPipelineBackend::kBufferPending)
-      OnPushBufferComplete(decoder_, status);
+      OnPushBufferComplete(status);
   }
 
   void SetVolume(double volume) {
@@ -149,13 +153,8 @@ class CastAudioOutputStream::Backend : public MediaPipelineBackend::Delegate {
     decoder_->SetVolume(volume);
   }
 
-  // MediaPipelineBackend::Delegate implementation
-  void OnVideoResolutionChanged(MediaPipelineBackend::VideoDecoder* decoder,
-                                const Size& size) override {}
-
-  void OnPushBufferComplete(
-      MediaPipelineBackend::Decoder* decoder,
-      MediaPipelineBackend::BufferStatus status) override {
+  // MediaPipelineBackend::Decoder::Delegate implementation
+  void OnPushBufferComplete(BufferStatus status) override {
     DCHECK(thread_checker_.CalledOnValidThread());
     DCHECK_NE(status, MediaPipelineBackend::kBufferPending);
 
@@ -167,13 +166,19 @@ class CastAudioOutputStream::Backend : public MediaPipelineBackend::Delegate {
         .Run(status == MediaPipelineBackend::kBufferSuccess);
   }
 
-  void OnEndOfStream(MediaPipelineBackend::Decoder* decoder) override {}
+  void OnEndOfStream() override {}
 
-  void OnDecoderError(MediaPipelineBackend::Decoder* decoder) override {
+  void OnDecoderError() override {
     error_ = true;
     if (!completion_cb_.is_null())
-      OnPushBufferComplete(decoder_, MediaPipelineBackend::kBufferFailed);
+      OnPushBufferComplete(MediaPipelineBackend::kBufferFailed);
   }
+
+  void OnKeyStatusChanged(const std::string& key_id,
+                          CastKeyStatus key_status,
+                          uint32_t system_code) override {}
+
+  void OnVideoResolutionChanged(const Size& size) override {}
 
   base::WeakPtr<CastAudioOutputStream::Backend> GetWeakPtr() {
     return weak_factory_.GetWeakPtr();
@@ -329,7 +334,8 @@ void CastAudioOutputStream::PushBuffer() {
       std::max(base::TimeDelta(), next_push_time_ - now);
   uint32_t bytes_delay = queue_delay.InMicroseconds() *
                          audio_params_.GetBytesPerSecond() / 1000000;
-  int frame_count = source_callback_->OnMoreData(audio_bus_.get(), bytes_delay);
+  int frame_count =
+      source_callback_->OnMoreData(audio_bus_.get(), bytes_delay, 0);
   VLOG(3) << "frames_filled=" << frame_count << " with latency=" << bytes_delay;
 
   DCHECK_EQ(frame_count, audio_bus_->frames());

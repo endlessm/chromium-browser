@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/DragImage.h"
 
 #include "platform/RuntimeEnabledFeatures.h"
@@ -83,7 +82,7 @@ PassRefPtr<SkImage> DragImage::resizeAndOrientImage(PassRefPtr<SkImage> image, I
     if (orientation != DefaultImageOrientation) {
         if (orientation.usesWidthAsHeight())
             size = size.transposedSize();
-        transform *= orientation.transformFromDefault(size);
+        transform *= orientation.transformFromDefault(FloatSize(size));
     }
     transform.scaleNonUniform(imageScale.width(), imageScale.height());
 
@@ -177,6 +176,7 @@ PassOwnPtr<DragImage> DragImage::create(const KURL& url, const String& inLabel, 
     bool drawURLString = true;
     bool clipURLString = false;
     bool clipLabelString = false;
+    float maxDragLabelStringWidthDIP = kMaxDragLabelStringWidth / deviceScaleFactor;
 
     String urlString = url.string();
     String label = inLabel.stripWhiteSpace();
@@ -190,8 +190,8 @@ PassOwnPtr<DragImage> DragImage::create(const KURL& url, const String& inLabel, 
     TextRun urlRun(urlString.impl());
     IntSize labelSize(labelFont.width(labelRun), labelFont.fontMetrics().ascent() + labelFont.fontMetrics().descent());
 
-    if (labelSize.width() > kMaxDragLabelStringWidth) {
-        labelSize.setWidth(kMaxDragLabelStringWidth);
+    if (labelSize.width() > maxDragLabelStringWidthDIP) {
+        labelSize.setWidth(maxDragLabelStringWidthDIP);
         clipLabelString = true;
     }
 
@@ -202,8 +202,8 @@ PassOwnPtr<DragImage> DragImage::create(const KURL& url, const String& inLabel, 
         urlStringSize.setWidth(urlFont.width(urlRun));
         urlStringSize.setHeight(urlFont.fontMetrics().ascent() + urlFont.fontMetrics().descent());
         imageSize.setHeight(imageSize.height() + urlStringSize.height());
-        if (urlStringSize.width() > kMaxDragLabelStringWidth) {
-            imageSize.setWidth(kMaxDragLabelWidth);
+        if (urlStringSize.width() > maxDragLabelStringWidthDIP) {
+            imageSize.setWidth(maxDragLabelStringWidthDIP);
             clipURLString = true;
         } else
             imageSize.setWidth(std::max(labelSize.width(), urlStringSize.width()) + kDragLabelBorderX * 2);

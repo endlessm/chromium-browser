@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/LayoutTableRow.h"
 
 #include "core/HTMLNames.h"
@@ -251,7 +250,7 @@ void LayoutTableRow::addOverflowFromCell(const LayoutTableCell* cell)
     // the visual overflow should be determined in the coordinate system of
     // the row, that's why we shift it below.
     LayoutUnit cellOffsetLogicalTopDifference = cell->location().y() - location().y();
-    cellVisualOverflowRect.move(0, cellOffsetLogicalTopDifference);
+    cellVisualOverflowRect.move(LayoutUnit(), cellOffsetLogicalTopDifference);
 
     addVisualOverflow(cellVisualOverflowRect);
 }

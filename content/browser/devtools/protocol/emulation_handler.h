@@ -5,8 +5,8 @@
 #ifndef CONTENT_BROWSER_DEVTOOLS_PROTOCOL_EMULATION_HANDLER_H_
 #define CONTENT_BROWSER_DEVTOOLS_PROTOCOL_EMULATION_HANDLER_H_
 
+#include "base/macros.h"
 #include "content/browser/devtools/protocol/devtools_protocol_dispatcher.h"
-#include "content/browser/devtools/protocol/page_handler.h"
 #include "third_party/WebKit/public/web/WebDeviceEmulationParams.h"
 
 namespace content {
@@ -20,15 +20,12 @@ namespace page { class PageHandler; }
 
 namespace emulation {
 
-class EmulationHandler : public page::PageHandler::ScreencastListener {
+class EmulationHandler {
  public:
   using Response = DevToolsProtocolClient::Response;
 
-  explicit EmulationHandler(page::PageHandler* page_handler);
-  ~EmulationHandler() override;
-
-  // page::PageHandler::ScreencastListener implementation.
-  void ScreencastEnabledChanged() override;
+  EmulationHandler();
+  ~EmulationHandler();
 
   void SetRenderFrameHost(RenderFrameHostImpl* host);
   void Detached();
@@ -42,18 +39,20 @@ class EmulationHandler : public page::PageHandler::ScreencastListener {
                                     const std::string* configuration);
 
   Response CanEmulate(bool* result);
-  Response SetDeviceMetricsOverride(int width,
-                                    int height,
-                                    double device_scale_factor,
-                                    bool mobile,
-                                    bool fit_window,
-                                    const double* optional_scale,
-                                    const double* optional_offset_x,
-                                    const double* optional_offset_y,
-                                    const int* screen_widget,
-                                    const int* screen_height,
-                                    const int* position_x,
-                                    const int* position_y);
+  Response SetDeviceMetricsOverride(
+      int width,
+      int height,
+      double device_scale_factor,
+      bool mobile,
+      bool fit_window,
+      const double* optional_scale,
+      const double* optional_offset_x,
+      const double* optional_offset_y,
+      const int* screen_widget,
+      const int* screen_height,
+      const int* position_x,
+      const int* position_y,
+      const scoped_ptr<base::DictionaryValue>& screen_orientation);
   Response ClearDeviceMetricsOverride();
 
  private:
@@ -67,7 +66,6 @@ class EmulationHandler : public page::PageHandler::ScreencastListener {
   bool device_emulation_enabled_;
   blink::WebDeviceEmulationParams device_emulation_params_;
 
-  page::PageHandler* page_handler_;
   RenderFrameHostImpl* host_;
 
   DISALLOW_COPY_AND_ASSIGN(EmulationHandler);

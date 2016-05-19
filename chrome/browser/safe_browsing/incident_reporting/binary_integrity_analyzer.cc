@@ -5,6 +5,7 @@
 #include "chrome/browser/safe_browsing/incident_reporting/binary_integrity_analyzer.h"
 
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -14,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/safe_browsing/incident_reporting/binary_integrity_incident.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident_receiver.h"
@@ -42,7 +44,7 @@ void ClearBinaryIntegrityForFile(IncidentReceiver* incident_receiver,
       incident(new ClientIncidentReport_IncidentData_BinaryIntegrityIncident());
   incident->set_file_basename(basename);
   incident_receiver->ClearIncidentForProcess(
-      make_scoped_ptr(new BinaryIntegrityIncident(incident.Pass())));
+      make_scoped_ptr(new BinaryIntegrityIncident(std::move(incident))));
 }
 
 void RegisterBinaryIntegrityAnalysis() {

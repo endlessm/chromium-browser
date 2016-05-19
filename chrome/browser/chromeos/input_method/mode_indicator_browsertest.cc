@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "ash/shell.h"
+#include "base/macros.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/input_method/mode_indicator_controller.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -101,7 +104,8 @@ class ModeIndicatorBrowserTest : public InProcessBrowserTest {
   void InitializeIMF() {
     InputMethodManager::Get()
         ->GetInputMethodUtil()
-        ->InitXkbInputMethodsForTesting();
+        ->InitXkbInputMethodsForTesting(
+            *InputMethodWhitelist().GetSupportedInputMethods());
   }
 
  private:
@@ -168,7 +172,7 @@ IN_PROC_BROWSER_TEST_F(ModeIndicatorBrowserTest, Bounds) {
   EXPECT_EQ(mi1_bounds.height(), mi2_bounds.height());
 
   const gfx::Rect screen_bounds =
-      ash::Shell::GetScreen()->GetDisplayMatching(cursor1_bounds).work_area();
+      gfx::Screen::GetScreen()->GetDisplayMatching(cursor1_bounds).work_area();
 
   // Check if the location of the mode indicator is concidered with
   // the screen size.

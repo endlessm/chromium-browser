@@ -5,16 +5,19 @@
 #ifndef NET_HTTP_HTTP_STREAM_PARSER_H_
 #define NET_HTTP_HTTP_STREAM_PARSER_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
+#include "crypto/ec_private_key.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_errors.h"
 #include "net/base/net_export.h"
 #include "net/base/upload_progress.h"
 #include "net/log/net_log.h"
@@ -93,6 +96,9 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
   void GetSSLInfo(SSLInfo* ssl_info);
 
   void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
+
+  Error GetSignedEKMForTokenBinding(crypto::ECPrivateKey* key,
+                                    std::vector<uint8_t>* out);
 
   // Encodes the given |payload| in the chunked format to |output|.
   // Returns the number of bytes written to |output|. |output_size| should
@@ -226,10 +232,10 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
   // Indicates the content length.  If this value is less than zero
   // (and chunked_decoder_ is null), then we must read until the server
   // closes the connection.
-  int64 response_body_length_;
+  int64_t response_body_length_;
 
   // Keep track of the number of response body bytes read so far.
-  int64 response_body_read_;
+  int64_t response_body_read_;
 
   // Helper if the data is chunked.
   scoped_ptr<HttpChunkedDecoder> chunked_decoder_;

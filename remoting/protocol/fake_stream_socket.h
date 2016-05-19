@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "net/base/completion_callback.h"
@@ -79,20 +80,20 @@ class FakeStreamSocket : public P2PStreamSocket {
                     const net::CompletionCallback& callback);
   void DoWrite(const scoped_refptr<net::IOBuffer>& buf, int buf_len);
 
-  bool async_write_;
-  bool write_pending_;
-  int write_limit_;
-  int next_write_error_;
+  bool async_write_ = false;
+  bool write_pending_ = false;
+  int write_limit_ = 0;
+  int next_write_error_ = 0;
 
-  int next_read_error_;
+  int next_read_error_ = 0;
   scoped_refptr<net::IOBuffer> read_buffer_;
-  int read_buffer_size_;
+  int read_buffer_size_ = 0;
   net::CompletionCallback read_callback_;
   base::WeakPtr<FakeStreamSocket> peer_socket_;
 
   std::string written_data_;
   std::string input_data_;
-  int input_pos_;
+  int input_pos_ = 0;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   base::WeakPtrFactory<FakeStreamSocket> weak_factory_;
@@ -112,7 +113,14 @@ class FakeStreamChannelFactory : public StreamChannelFactory {
 
   void set_fail_create(bool fail_create) { fail_create_ = fail_create; }
 
+  // Enables asynchronous Write() on created channels.
+  void set_async_write(bool async_write) { async_write_ = async_write; }
+
   FakeStreamSocket* GetFakeChannel(const std::string& name);
+
+  // Pairs the socket with |peer_socket|. Deleting either of the paired sockets
+  // unpairs them.
+  void PairWith(FakeStreamChannelFactory* peer_factory);
 
   // ChannelFactory interface.
   void CreateChannel(const std::string& name,
@@ -125,11 +133,14 @@ class FakeStreamChannelFactory : public StreamChannelFactory {
                             const ChannelCreatedCallback& callback);
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-  bool asynchronous_create_;
-  std::map<std::string, base::WeakPtr<FakeStreamSocket> > channels_;
+  bool asynchronous_create_ = false;
+  std::map<std::string, base::WeakPtr<FakeStreamSocket>> channels_;
 
-  bool fail_create_;
+  bool fail_create_ = false;
 
+  bool async_write_ = false;
+
+  base::WeakPtr<FakeStreamChannelFactory> peer_factory_;
   base::WeakPtrFactory<FakeStreamChannelFactory> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeStreamChannelFactory);

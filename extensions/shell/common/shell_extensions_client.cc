@@ -6,6 +6,7 @@
 
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "extensions/common/api/generated_schemas.h"
 #include "extensions/common/common_manifest_handlers.h"
 #include "extensions/common/extension_urls.h"
@@ -115,7 +116,7 @@ scoped_ptr<FeatureProvider> ShellExtensionsClient::CreateFeatureProvider(
   } else {
     NOTREACHED();
   }
-  return provider.Pass();
+  return provider;
 }
 
 scoped_ptr<JSONFeatureProviderSource>
@@ -136,7 +137,7 @@ ShellExtensionsClient::CreateFeatureProviderSource(
     NOTREACHED();
     source.reset();
   }
-  return source.Pass();
+  return source;
 }
 
 void ShellExtensionsClient::FilterHostPermissions(

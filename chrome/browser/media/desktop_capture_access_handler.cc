@@ -4,10 +4,13 @@
 
 #include "chrome/browser/media/desktop_capture_access_handler.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/media/desktop_streams_registry.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
 #include "chrome/browser/ui/browser.h"
@@ -28,8 +31,9 @@
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/switches.h"
 #include "media/audio/audio_manager_base.h"
-#include "net/base/net_util.h"
+#include "net/base/url_util.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capture_types.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -101,10 +105,16 @@ scoped_ptr<content::MediaStreamUI> GetDevicesForDesktopCapture(
   devices->push_back(content::MediaStreamDevice(
       content::MEDIA_DESKTOP_VIDEO_CAPTURE, media_id.ToString(), "Screen"));
   if (capture_audio) {
-    // Use the special loopback device ID for system audio capture.
-    devices->push_back(content::MediaStreamDevice(
-        content::MEDIA_DESKTOP_AUDIO_CAPTURE,
-        media::AudioManagerBase::kLoopbackInputDeviceId, "System Audio"));
+    if (media_id.type == content::DesktopMediaID::TYPE_WEB_CONTENTS) {
+      devices->push_back(
+          content::MediaStreamDevice(content::MEDIA_DESKTOP_AUDIO_CAPTURE,
+                                     media_id.ToString(), "Tab audio"));
+    } else {
+      // Use the special loopback device ID for system audio capture.
+      devices->push_back(content::MediaStreamDevice(
+          content::MEDIA_DESKTOP_AUDIO_CAPTURE,
+          media::AudioManagerBase::kLoopbackInputDeviceId, "System Audio"));
+    }
   }
 
   // If required, register to display the notification for stream capture.
@@ -119,7 +129,7 @@ scoped_ptr<content::MediaStreamUI> GetDevicesForDesktopCapture(
     }
   }
 
-  return ui.Pass();
+  return ui;
 }
 
 #if !defined(OS_ANDROID)
@@ -266,7 +276,7 @@ void DesktopCaptureAccessHandler::ProcessScreenCaptureAccessRequest(
                              : content::MEDIA_DEVICE_OK;
   }
 
-  callback.Run(devices, result, ui.Pass());
+  callback.Run(devices, result, std::move(ui));
 }
 
 bool DesktopCaptureAccessHandler::SupportsStreamType(
@@ -293,7 +303,7 @@ void DesktopCaptureAccessHandler::HandleRequest(
   scoped_ptr<content::MediaStreamUI> ui;
 
   if (request.video_type != content::MEDIA_DESKTOP_VIDEO_CAPTURE) {
-    callback.Run(devices, content::MEDIA_DEVICE_INVALID_STATE, ui.Pass());
+    callback.Run(devices, content::MEDIA_DEVICE_INVALID_STATE, std::move(ui));
     return;
   }
 
@@ -330,7 +340,7 @@ void DesktopCaptureAccessHandler::HandleRequest(
 
   // Received invalid device id.
   if (media_id.type == content::DesktopMediaID::TYPE_NONE) {
-    callback.Run(devices, content::MEDIA_DEVICE_INVALID_STATE, ui.Pass());
+    callback.Run(devices, content::MEDIA_DEVICE_INVALID_STATE, std::move(ui));
     return;
   }
 
@@ -340,17 +350,32 @@ void DesktopCaptureAccessHandler::HandleRequest(
   loopback_audio_supported = true;
 #endif
 
-  // Audio is only supported for screen capture streams.
-  bool capture_audio =
+  // This value essentially from the checkbox on picker window, so it
+  // corresponds to user permission.
+  const bool audio_permitted = media_id.audio_share;
+
+  // This value essentially from whether getUserMedia requests audio stream.
+  const bool audio_requested =
+      request.audio_type == content::MEDIA_DESKTOP_AUDIO_CAPTURE;
+
+  // This value shows for a given capture type, whether the system or our code
+  // can support audio sharing. Currently audio is only supported for screen and
+  // tab/webcontents capture streams.
+  const bool audio_supported =
       (media_id.type == content::DesktopMediaID::TYPE_SCREEN &&
-       request.audio_type == content::MEDIA_DESKTOP_AUDIO_CAPTURE &&
-       loopback_audio_supported);
+       loopback_audio_supported) ||
+      media_id.type == content::DesktopMediaID::TYPE_WEB_CONTENTS;
+
+  const bool has_flag = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      extensions::switches::kEnableDesktopCaptureAudio);
+  const bool capture_audio =
+      (has_flag ? audio_permitted : true) && audio_requested && audio_supported;
 
   ui = GetDevicesForDesktopCapture(&devices, media_id, capture_audio, true,
                                    GetApplicationTitle(web_contents, extension),
                                    base::UTF8ToUTF16(original_extension_name));
 
-  callback.Run(devices, content::MEDIA_DEVICE_OK, ui.Pass());
+  callback.Run(devices, content::MEDIA_DEVICE_OK, std::move(ui));
 }
 
 void DesktopCaptureAccessHandler::UpdateMediaRequestState(

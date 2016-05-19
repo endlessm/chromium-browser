@@ -77,61 +77,87 @@ WebInspector.NetworkMapping.prototype = {
     {
         if (uiSourceCode.project().type() === WebInspector.projectTypes.FileSystem) {
             var fileSystemPath = this._fileSystemWorkspaceBinding.fileSystemPath(uiSourceCode.project().id());
-            return this.urlForPath(fileSystemPath, uiSourceCode.path());
+            return this._networkURLForFileSystemURL(fileSystemPath, uiSourceCode.url());
         }
-        return uiSourceCode.originURL();
+        return uiSourceCode.url();
     },
 
     /**
      * @param {string} url
      * @return {boolean}
      */
-    hasMappingForURL: function(url)
+    hasMappingForNetworkURL: function(url)
     {
-        return this._fileSystemMapping.hasMappingForURL(url);
+        return this._fileSystemMapping.hasMappingForNetworkURL(url);
+    },
+
+    /**
+     * @param {!WebInspector.Target} target
+     * @param {?WebInspector.ResourceTreeFrame} frame
+     * @param {string} url
+     * @return {?WebInspector.UISourceCode}
+     */
+    _networkUISourceCodeForURL: function(target, frame, url)
+    {
+        return this._workspace.uiSourceCode(WebInspector.NetworkProject.projectId(target, frame, false), url);
+    },
+
+    /**
+     * @param {!WebInspector.Target} target
+     * @param {?WebInspector.ResourceTreeFrame} frame
+     * @param {string} url
+     * @return {?WebInspector.UISourceCode}
+     */
+    _contentScriptUISourceCodeForURL: function(target, frame, url)
+    {
+        return this._workspace.uiSourceCode(WebInspector.NetworkProject.projectId(target, frame, true), url);
     },
 
     /**
      * @param {string} url
-     * @param {!WebInspector.Target} target
      * @return {?WebInspector.UISourceCode}
      */
-    _networkUISourceCodeForURL: function(url, target)
-    {
-        var splitURL = WebInspector.ParsedURL.splitURLIntoPathComponents(url);
-        var projectId = WebInspector.NetworkProject.projectId(target, splitURL[0], false);
-        var project = this._workspace.project(projectId);
-        return project ? project.uiSourceCode(splitURL.slice(1).join("/")) : null;
-    },
-
-    /**
-     * @param {string} url
-     * @param {!WebInspector.Target} target
-     * @return {?WebInspector.UISourceCode}
-     */
-    _contentScriptUISourceCodeForURL: function(url, target)
-    {
-        var splitURL = WebInspector.ParsedURL.splitURLIntoPathComponents(url);
-        var projectId = WebInspector.NetworkProject.projectId(target, splitURL[0], true);
-        var project = this._workspace.project(projectId);
-        return project ? project.uiSourceCode(splitURL.slice(1).join("/")) : null;
-    },
-
-    /**
-     * @param {string} url
-     * @param {!WebInspector.Target} target
-     * @return {?WebInspector.UISourceCode}
-     */
-    uiSourceCodeForURL: function(url, target)
+    _fileSystemUISourceCodeForURL: function(url)
     {
         var file = this._fileSystemMapping.fileForURL(url);
         if (file) {
             var projectId = WebInspector.FileSystemWorkspaceBinding.projectId(file.fileSystemPath);
-            var project = this._workspace.project(projectId);
-            return project ? project.uiSourceCode(file.filePath) : null;
+            return this._workspace.uiSourceCode(projectId, file.fileURL);
         }
+        return null;
+    },
 
-        return this._networkUISourceCodeForURL(url, target) || this._contentScriptUISourceCodeForURL(url, target);
+    /**
+     * @param {!WebInspector.Target} target
+     * @param {?WebInspector.ResourceTreeFrame} frame
+     * @param {string} url
+     * @return {?WebInspector.UISourceCode}
+     */
+    _uiSourceCodeForURL: function(target, frame, url)
+    {
+        return this._fileSystemUISourceCodeForURL(url) || this._networkUISourceCodeForURL(target, frame, url) || this._contentScriptUISourceCodeForURL(target, frame, url);
+    },
+
+    /**
+     * @param {string} url
+     * @param {!WebInspector.Script} script
+     * @return {?WebInspector.UISourceCode}
+     */
+    uiSourceCodeForScriptURL: function(url, script)
+    {
+        var frame = WebInspector.ResourceTreeFrame.fromScript(script);
+        return this._uiSourceCodeForURL(script.target(), frame, url);
+    },
+
+    /**
+     * @param {string} url
+     * @param {!WebInspector.CSSStyleSheetHeader} header
+     * @return {?WebInspector.UISourceCode}
+     */
+    uiSourceCodeForStyleURL: function(url, header)
+    {
+        var frame = WebInspector.ResourceTreeFrame.fromStyleSheet(header);
+        return this._uiSourceCodeForURL(header.target(), frame, url);
     },
 
     /**
@@ -140,12 +166,7 @@ WebInspector.NetworkMapping.prototype = {
      */
     uiSourceCodeForURLForAnyTarget: function(url)
     {
-        for (var target of WebInspector.targetManager.targets()) {
-            var result = this.uiSourceCodeForURL(url, target);
-            if (result)
-                return result;
-        }
-        return null;
+        return this._fileSystemUISourceCodeForURL(url) || WebInspector.workspace.uiSourceCodeForURL(url);
     },
 
     /**
@@ -153,9 +174,9 @@ WebInspector.NetworkMapping.prototype = {
      * @param {string} filePath
      * @return {string}
      */
-    urlForPath: function(fileSystemPath, filePath)
+    _networkURLForFileSystemURL: function(fileSystemPath, filePath)
     {
-        return this._fileSystemMapping.urlForPath(fileSystemPath, filePath);
+        return this._fileSystemMapping.networkURLForFileSystemURL(fileSystemPath, filePath);
     },
 
     /**
@@ -165,7 +186,7 @@ WebInspector.NetworkMapping.prototype = {
     addMapping: function(networkUISourceCode, uiSourceCode)
     {
         var url = this.networkURL(networkUISourceCode);
-        var path = uiSourceCode.path();
+        var path = uiSourceCode.url();
         var fileSystemPath = this._fileSystemWorkspaceBinding.fileSystemPath(uiSourceCode.project().id());
         this._fileSystemMapping.addMappingForResource(url, fileSystemPath, path);
     },

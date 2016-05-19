@@ -61,21 +61,20 @@ void RunTestCaseUsingPolicy(VerifyResult expected_result,
   ASSERT_TRUE(ReadTestDataFromPemFile(path, mappings));
 
   scoped_ptr<SignatureAlgorithm> signature_algorithm =
-      SignatureAlgorithm::CreateFromDer(InputFromString(&algorithm));
+      SignatureAlgorithm::CreateFromDer(der::Input(&algorithm));
   ASSERT_TRUE(signature_algorithm);
 
   der::BitString signature_value_bit_string;
-  der::Parser signature_value_parser(InputFromString(&signature_value));
+  der::Parser signature_value_parser((der::Input(&signature_value)));
   ASSERT_TRUE(signature_value_parser.ReadBitString(&signature_value_bit_string))
       << "The signature value is not a valid BIT STRING";
 
   bool expected_result_bool = expected_result == SUCCESS;
 
-  EXPECT_EQ(
-      expected_result_bool,
-      VerifySignedData(*signature_algorithm, InputFromString(&signed_data),
-                       signature_value_bit_string, InputFromString(&public_key),
-                       policy));
+  EXPECT_EQ(expected_result_bool,
+            VerifySignedData(*signature_algorithm, der::Input(&signed_data),
+                             signature_value_bit_string,
+                             der::Input(&public_key), policy));
 }
 
 // RunTestCase() is the same as RunTestCaseUsingPolicy(), only it uses a
@@ -176,9 +175,7 @@ TEST(VerifySignedDataTest, EcdsaPrime256v1Sha512UsingEcmqvKey) {
 }
 
 TEST(VerifySignedDataTest, RsaPkcs1Sha1KeyParamsAbsent) {
-  // TODO(eroman): This should fail! (key algoritm parsing is too permissive)
-  // See https://crbug.com/522228
-  RunTestCase(SUCCESS, "rsa-pkcs1-sha1-key-params-absent.pem");
+  RunTestCase(FAILURE, "rsa-pkcs1-sha1-key-params-absent.pem");
 }
 
 TEST(VerifySignedDataTest, RsaPssSha1Salt20UsingPssKeyNoParams) {
@@ -212,15 +209,11 @@ TEST(VerifySignedDataTest, EcdsaPrime256v1Sha512SpkiParamsNull) {
 }
 
 TEST(VerifySignedDataTest, RsaPkcs1Sha256UsingIdEaRsa) {
-  // TODO(eroman): This should fail! (shouldn't recognize this weird OID).
-  // See https://crbug.com/522228
-  RunTestCase(SUCCESS, "rsa-pkcs1-sha256-using-id-ea-rsa.pem");
+  RunTestCase(FAILURE, "rsa-pkcs1-sha256-using-id-ea-rsa.pem");
 }
 
 TEST(VerifySignedDataTest, RsaPkcs1Sha256SpkiNonNullParams) {
-  // TODO(eroman): This should fail! (shouldn't recognize bogus params in rsa
-  // SPKI). See https://crbug.com/522228
-  RunTestCase(SUCCESS, "rsa-pkcs1-sha256-spki-non-null-params.pem");
+  RunTestCase(FAILURE, "rsa-pkcs1-sha256-spki-non-null-params.pem");
 }
 
 TEST(VerifySignedDataTest, EcdsaPrime256v1Sha512UnusedBitsSignature) {

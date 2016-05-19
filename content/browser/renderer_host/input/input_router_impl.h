@@ -5,13 +5,16 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_INPUT_INPUT_ROUTER_IMPL_H_
 #define CONTENT_BROWSER_RENDERER_HOST_INPUT_INPUT_ROUTER_IMPL_H_
 
+#include <stdint.h>
+
 #include <queue>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "content/browser/renderer_host/input/gesture_event_queue.h"
 #include "content/browser/renderer_host/input/input_router.h"
+#include "content/browser/renderer_host/input/mouse_wheel_event_queue.h"
 #include "content/browser/renderer_host/input/touch_action_filter.h"
 #include "content/browser/renderer_host/input/touch_event_queue.h"
 #include "content/browser/renderer_host/input/touchpad_tap_suppression_controller.h"
@@ -38,6 +41,7 @@ struct InputEventAck;
 class CONTENT_EXPORT InputRouterImpl
     : public NON_EXPORTED_BASE(InputRouter),
       public NON_EXPORTED_BASE(GestureEventQueueClient),
+      public NON_EXPORTED_BASE(MouseWheelEventQueueClient),
       public NON_EXPORTED_BASE(TouchEventQueueClient),
       public NON_EXPORTED_BASE(TouchpadTapSuppressionControllerClient) {
  public:
@@ -68,11 +72,14 @@ class CONTENT_EXPORT InputRouterImpl
   void NotifySiteIsMobileOptimized(bool is_mobile_optimized) override;
   void RequestNotificationWhenFlushed() override;
   bool HasPendingEvents() const override;
+  void SetDeviceScaleFactor(float device_scale_factor) override;
 
   // IPC::Listener
   bool OnMessageReceived(const IPC::Message& message) override;
 
-private:
+  void SetFrameTreeNodeId(int frameTreeNodeId) override;
+
+ private:
   friend class InputRouterImplTest;
 
   // TouchpadTapSuppressionControllerClient
@@ -84,12 +91,20 @@ private:
       const TouchEventWithLatencyInfo& touch_event) override;
   void OnTouchEventAck(const TouchEventWithLatencyInfo& event,
                        InputEventAckState ack_result) override;
+  void OnFilteringTouchEvent(
+      const blink::WebTouchEvent& touch_event) override;
 
-  // GetureEventFilterClient
+  // GestureEventFilterClient
   void SendGestureEventImmediately(
       const GestureEventWithLatencyInfo& gesture_event) override;
   void OnGestureEventAck(const GestureEventWithLatencyInfo& event,
                          InputEventAckState ack_result) override;
+
+  // MouseWheelEventQueueClient
+  void SendMouseWheelEventImmediately(
+      const MouseWheelEventWithLatencyInfo& touch_event) override;
+  void OnMouseWheelEventAck(const MouseWheelEventWithLatencyInfo& event,
+                            InputEventAckState ack_result) override;
 
   bool SendMoveCaret(scoped_ptr<IPC::Message> message);
   bool SendSelectMessage(scoped_ptr<IPC::Message> message);
@@ -136,7 +151,7 @@ private:
   void ProcessInputEventAck(blink::WebInputEvent::Type event_type,
                             InputEventAckState ack_result,
                             const ui::LatencyInfo& latency_info,
-                            uint32 unique_touch_event_id,
+                            uint32_t unique_touch_event_id,
                             AckSource ack_source);
 
   // Dispatches the ack'ed event to |ack_handler_|.
@@ -164,7 +179,7 @@ private:
   // dispatch of queued touch events, or the creation of gesture events.
   void ProcessTouchAck(InputEventAckState ack_result,
                        const ui::LatencyInfo& latency,
-                       uint32 unique_touch_event_id);
+                       uint32_t unique_touch_event_id);
 
   // Called when a touch timeout-affecting bit has changed, in turn toggling the
   // touch ack timeout feature of the |touch_event_queue_| as appropriate. Input
@@ -179,11 +194,11 @@ private:
 
   int routing_id() const { return routing_id_; }
 
-
   IPC::Sender* sender_;
   InputRouterClient* client_;
   InputAckHandler* ack_handler_;
   int routing_id_;
+  int frame_tree_node_id_;
 
   // (Similar to |mouse_move_pending_|.) True while waiting for SelectRange_ACK
   // or MoveRangeSelectionExtent_ACK.
@@ -208,21 +223,6 @@ private:
   scoped_ptr<MouseEventWithLatencyInfo> next_mouse_move_;
   MouseEventWithLatencyInfo current_mouse_move_;
 
-  // (Similar to |mouse_move_pending_|.) True if a mouse wheel event was sent
-  // and we are waiting for a corresponding ack.
-  bool mouse_wheel_pending_;
-  MouseWheelEventWithLatencyInfo current_wheel_event_;
-
-  // (Similar to |next_mouse_move_|.) The next mouse wheel events to send.
-  // Unlike mouse moves, mouse wheel events received while one is pending are
-  // coalesced (by accumulating deltas) if they match the previous event in
-  // modifiers. On the Mac, in particular, mouse wheel events are received at a
-  // high rate; not waiting for the ack results in jankiness, and using the same
-  // mechanism as for mouse moves (just dropping old events when multiple ones
-  // would be queued) results in very slow scrolling.
-  typedef std::deque<MouseWheelEventWithLatencyInfo> WheelEventQueue;
-  WheelEventQueue coalesced_mouse_wheel_events_;
-
   // A queue of keyboard events. We can't trust data from the renderer so we
   // stuff key events into a queue and pop them out on ACK, feeding our copy
   // back to whatever unhandled handler instead of the returned version.
@@ -245,11 +245,14 @@ private:
   // to avoid races in bookkeeping when starting a new fling.
   int active_renderer_fling_count_;
 
+  MouseWheelEventQueue wheel_event_queue_;
   TouchEventQueue touch_event_queue_;
   GestureEventQueue gesture_event_queue_;
   TouchActionFilter touch_action_filter_;
   InputEventStreamValidator input_stream_validator_;
   InputEventStreamValidator output_stream_validator_;
+
+  float device_scale_factor_;
 
   DISALLOW_COPY_AND_ASSIGN(InputRouterImpl);
 };

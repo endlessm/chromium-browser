@@ -41,11 +41,32 @@
         'channel_transport/udp_transport_impl.cc',
         'channel_transport/udp_transport_impl.h',
       ],
+      'msvs_disabled_warnings': [
+        4302,  # cast truncation
+      ],
+      'conditions': [
+        ['OS=="win" and clang==1', {
+          'msvs_settings': {
+            'VCCLCompilerTool': {
+              'AdditionalOptions': [
+                # Disable warnings failing when compiling with Clang on Windows.
+                # https://bugs.chromium.org/p/webrtc/issues/detail?id=5366
+                '-Wno-parentheses-equality',
+                '-Wno-reorder',
+                '-Wno-tautological-constant-out-of-range-compare',
+                '-Wno-unused-private-field',
+              ],
+            },
+          },
+        }],
+      ],  # conditions.
     },
     {
-      'target_name': 'frame_generator',
+      'target_name': 'fake_video_frames',
       'type': 'static_library',
       'sources': [
+        'fake_texture_frame.cc',
+        'fake_texture_frame.h',
         'frame_generator.cc',
         'frame_generator.h',
       ],
@@ -65,8 +86,8 @@
         'rtp_file_writer.h',
       ],
       'dependencies': [
-        '<(DEPTH)/webrtc/common.gyp:webrtc_common',
         '<(DEPTH)/testing/gtest.gyp:gtest',
+        '<(webrtc_root)/common.gyp:webrtc_common',
         '<(webrtc_root)/modules/modules.gyp:rtp_rtcp',
       ],
     },
@@ -79,6 +100,7 @@
       ],
       'dependencies': [
         '<(webrtc_root)/common.gyp:webrtc_common',
+        '<(webrtc_root)/system_wrappers/system_wrappers.gyp:field_trial_default',
         '<(webrtc_root)/system_wrappers/system_wrappers.gyp:system_wrappers',
       ],
     },
@@ -114,7 +136,7 @@
       'dependencies': [
         '<(DEPTH)/testing/gtest.gyp:gtest',
         '<(DEPTH)/testing/gmock.gyp:gmock',
-        '<(webrtc_root)/common.gyp:gtest_prod',
+        '<(webrtc_root)/base/base.gyp:gtest_prod',
         '<(webrtc_root)/system_wrappers/system_wrappers.gyp:system_wrappers',
       ],
       'sources': [
@@ -124,7 +146,6 @@
         'testsupport/frame_reader.h',
         'testsupport/frame_writer.cc',
         'testsupport/frame_writer.h',
-        'testsupport/gtest_disable.h',
         'testsupport/iosfileutils.mm',
         'testsupport/mock/mock_frame_reader.h',
         'testsupport/mock/mock_frame_writer.h',

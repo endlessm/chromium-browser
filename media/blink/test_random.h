@@ -5,6 +5,8 @@
 #ifndef MEDIA_BLINK_TEST_RANDOM_H_
 #define MEDIA_BLINK_TEST_RANDOM_H_
 
+#include <stdint.h>
+
 // Vastly simplified ACM random class meant to only be used for testing.
 // This class is meant to generate predictable sequences of pseudorandom
 // numbers, unlike the classes in base/rand_util.h which are meant to generate
@@ -25,14 +27,14 @@ class TestRandom {
   }
 
   int32_t Rand() {
-    static const uint64 A = 16807;  // bits 14, 8, 7, 5, 2, 1, 0
+    static const uint64_t A = 16807;  // bits 14, 8, 7, 5, 2, 1, 0
     seed_ = static_cast<int32_t>((seed_ * A) % M);
     CHECK_GT(seed_, 0);
     return seed_;
   }
 
  private:
-  static const uint64 M = 2147483647L;  // 2^32-1
+  static const uint64_t M = 2147483647L;  // 2^32-1
   int32_t seed_;
 };
 

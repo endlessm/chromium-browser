@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/mediastream/MediaStreamComponent.h"
 
 #include "platform/UUID.h"
@@ -64,7 +63,6 @@ void MediaStreamComponent::dispose()
     m_extraData.clear();
 }
 
-#if ENABLE(WEB_AUDIO)
 void MediaStreamComponent::AudioSourceProviderImpl::wrap(WebAudioSourceProvider* provider)
 {
     MutexLocker locker(m_provideInputLock);
@@ -91,7 +89,6 @@ void MediaStreamComponent::AudioSourceProviderImpl::provideInput(AudioBus* bus, 
 
     m_webAudioSourceProvider->provideInput(webAudioData, framesToProcess);
 }
-#endif // #if ENABLE(WEB_AUDIO)
 
 DEFINE_TRACE(MediaStreamComponent)
 {

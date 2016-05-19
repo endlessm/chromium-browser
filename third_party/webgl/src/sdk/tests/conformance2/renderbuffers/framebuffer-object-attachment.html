@@ -188,6 +188,13 @@ function testDepthStencilAttachmentBehaviors() {
     checkBufferBits(gl.DEPTH_STENCIL_ATTACHMENT);
 
     debug("color + depth_stencil");
+    var texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH24_STENCIL8, size, size, 0, gl.DEPTH_STENCIL, gl.UNSIGNED_INT_24_8, null);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, texture, 0);
+    checkFramebuffer([gl.FRAMEBUFFER_COMPLETE]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, null, 0);
+
     gl.framebufferRenderbuffer(
         gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, depthStencilBuffer);
     checkFramebuffer([gl.FRAMEBUFFER_COMPLETE]);
@@ -265,7 +272,7 @@ function testFramebufferIncompleteMissingAttachment() {
 
 function testFramebufferWithImagesOfDifferentSizes() {
     debug("");
-    debug("Attachments of different sizes should be allowed");
+    debug("Attachments of different sizes should NOT be allowed");
 
     var fbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
@@ -284,10 +291,10 @@ function testFramebufferWithImagesOfDifferentSizes() {
     checkFramebuffer([gl.FRAMEBUFFER_COMPLETE]);
 
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 32, 16);
-    checkFramebuffer([gl.FRAMEBUFFER_COMPLETE]);
+    checkFramebuffer([gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS]);
     gl.bindRenderbuffer(gl.RENDERBUFFER, colorBuffer);
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA4, 16, 32);
-    checkFramebuffer([gl.FRAMEBUFFER_COMPLETE]);
+    checkFramebuffer([gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS]);
     wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
     var tex = gl.createTexture();
@@ -297,7 +304,7 @@ function testFramebufferWithImagesOfDifferentSizes() {
     wtu.glErrorShouldBe(gl, gl.NO_ERROR);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) == gl.FRAMEBUFFER_COMPLETE) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 32, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-        checkFramebuffer([gl.FRAMEBUFFER_COMPLETE]);
+        checkFramebuffer([gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS]);
     }
 
     gl.deleteTexture(tex);

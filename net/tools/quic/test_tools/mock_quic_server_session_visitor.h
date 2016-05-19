@@ -5,11 +5,11 @@
 #ifndef NET_TOOLS_QUIC_TEST_TOOLS_MOCK_QUIC_SERVER_SESSION_VISITOR_H_
 #define NET_TOOLS_QUIC_TEST_TOOLS_MOCK_QUIC_SERVER_SESSION_VISITOR_H_
 
-#include "net/tools/quic/quic_server_session.h"
+#include "base/macros.h"
+#include "net/tools/quic/quic_server_session_base.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace net {
-namespace tools {
 namespace test {
 
 class MockQuicServerSessionVisitor : public QuicServerSessionVisitor {
@@ -30,7 +30,6 @@ class MockQuicServerSessionVisitor : public QuicServerSessionVisitor {
 };
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_TEST_TOOLS_MOCK_QUIC_SERVER_SESSION_VISITOR_H_

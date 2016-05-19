@@ -4,6 +4,10 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/binary_integrity_analyzer_mac.h"
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/files/file_util.h"
 #include "base/mac/bundle_locations.h"
 #include "chrome/browser/safe_browsing/incident_reporting/binary_integrity_incident.h"
@@ -31,7 +35,7 @@ void VerifyBinaryIntegrityHelper(IncidentReceiver* incident_receiver,
       incident(new ClientIncidentReport_IncidentData_BinaryIntegrityIncident());
   if (!evaluator.PerformEvaluation(incident.get())) {
     incident_receiver->AddIncidentForProcess(
-        make_scoped_ptr(new BinaryIntegrityIncident(incident.Pass())));
+        make_scoped_ptr(new BinaryIntegrityIncident(std::move(incident))));
   } else {
     // Clear past incidents involving this bundle if the signature is
     // now valid.

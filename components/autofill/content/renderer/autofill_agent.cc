@@ -4,6 +4,10 @@
 
 #include "components/autofill/content/renderer/autofill_agent.h"
 
+#include <stddef.h>
+
+#include <tuple>
+
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -15,6 +19,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/autofill/content/common/autofill_messages.h"
 #include "components/autofill/content/renderer/form_autofill_util.h"
 #include "components/autofill/content/renderer/page_click_tracker.h"
@@ -28,14 +33,12 @@
 #include "components/autofill/core/common/form_data_predictions.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/autofill/core/common/web_element_descriptor.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/ssl_status.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "net/cert/cert_status_flags.h"
-#include "third_party/WebKit/public/platform/WebRect.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
 #include "third_party/WebKit/public/web/WebConsoleMessage.h"
 #include "third_party/WebKit/public/web/WebDataSource.h"
@@ -47,7 +50,6 @@
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebNode.h"
 #include "third_party/WebKit/public/web/WebOptionElement.h"
-#include "third_party/WebKit/public/web/WebTextAreaElement.h"
 #include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -67,7 +69,6 @@ using blink::WebLocalFrame;
 using blink::WebNode;
 using blink::WebOptionElement;
 using blink::WebString;
-using blink::WebTextAreaElement;
 using blink::WebUserGestureIndicator;
 using blink::WebVector;
 
@@ -164,15 +165,8 @@ AutofillAgent::~AutofillAgent() {}
 
 bool AutofillAgent::FormDataCompare::operator()(const FormData& lhs,
                                                 const FormData& rhs) const {
-  if (lhs.name != rhs.name)
-    return lhs.name < rhs.name;
-  if (lhs.origin != rhs.origin)
-    return lhs.origin < rhs.origin;
-  if (lhs.action != rhs.action)
-    return lhs.action < rhs.action;
-  if (lhs.is_form_tag != rhs.is_form_tag)
-    return lhs.is_form_tag < rhs.is_form_tag;
-  return false;
+  return std::tie(lhs.name, lhs.origin, lhs.action, lhs.is_form_tag) <
+         std::tie(rhs.name, rhs.origin, rhs.action, rhs.is_form_tag);
 }
 
 bool AutofillAgent::OnMessageReceived(const IPC::Message& message) {
@@ -267,11 +261,25 @@ void AutofillAgent::DidChangeScrollOffset() {
 void AutofillAgent::FocusedNodeChanged(const WebNode& node) {
   HidePopup();
 
-  if (node.isNull() || !node.isElementNode())
+  if (node.isNull() || !node.isElementNode()) {
+    if (!last_interacted_form_.isNull()) {
+      // Focus moved away from the last interacted form to somewhere else on
+      // the page.
+      Send(new AutofillHostMsg_FocusNoLongerOnForm(routing_id()));
+    }
     return;
+  }
 
   WebElement web_element = node.toConst<WebElement>();
   const WebInputElement* element = toWebInputElement(&web_element);
+
+  if (!last_interacted_form_.isNull() &&
+      (!element || last_interacted_form_ != element->form())) {
+    // The focused element is not part of the last interacted form (could be
+    // in a different form).
+    Send(new AutofillHostMsg_FocusNoLongerOnForm(routing_id()));
+    return;
+  }
 
   if (!element || !element->isEnabled() || element->isReadOnly() ||
       !element->isTextField())
@@ -531,7 +539,7 @@ void AutofillAgent::OnFillForm(int query_id, const FormData& form) {
   if (!element_.form().isNull())
     last_interacted_form_ = element_.form();
 
-  Send(new AutofillHostMsg_DidFillAutofillFormData(routing_id(),
+  Send(new AutofillHostMsg_DidFillAutofillFormData(routing_id(), form,
                                                    base::TimeTicks::Now()));
 }
 
@@ -667,7 +675,7 @@ void AutofillAgent::ShowSuggestions(const WebFormControlElement& element,
       return;
   } else {
     DCHECK(form_util::IsTextAreaElement(element));
-    if (!element.toConst<WebTextAreaElement>().suggestedValue().isEmpty())
+    if (!element.toConst<WebFormControlElement>().suggestedValue().isEmpty())
       return;
   }
 
@@ -726,10 +734,6 @@ void AutofillAgent::QueryAutofillSuggestions(
     WebFormControlElementToFormField(element, form_util::EXTRACT_VALUE, &field);
   }
 
-  gfx::RectF bounding_box_scaled = form_util::GetScaledBoundingBox(
-      render_frame()->GetRenderView()->GetWebView()->pageScaleFactor(),
-      &element_);
-
   std::vector<base::string16> data_list_values;
   std::vector<base::string16> data_list_labels;
   const WebInputElement* input_element = toWebInputElement(&element);
@@ -748,7 +752,11 @@ void AutofillAgent::QueryAutofillSuggestions(
                                        data_list_labels));
 
   Send(new AutofillHostMsg_QueryFormFieldAutofill(
-      routing_id(), autofill_query_id_, form, field, bounding_box_scaled));
+           routing_id(),
+           autofill_query_id_,
+           form,
+           field,
+           render_frame()->GetRenderView()->ElementBoundsInWindow(element_)));
 }
 
 void AutofillAgent::FillFieldWithValue(const base::string16& value,

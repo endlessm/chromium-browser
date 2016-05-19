@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/paint/FilterEffectBuilder.h"
 
 #include "core/layout/LayoutObject.h"
@@ -131,7 +130,7 @@ DEFINE_TRACE(FilterEffectBuilder)
     visitor->trace(m_referenceFilters);
 }
 
-bool FilterEffectBuilder::build(Element* element, const FilterOperations& operations, float zoom)
+bool FilterEffectBuilder::build(Element* element, const FilterOperations& operations, float zoom, const FloatSize* referenceBoxSize, const SkPaint* fillPaint, const SkPaint* strokePaint)
 {
     // Create a parent filter for shorthand filters. These have already been scaled by the CSS code for page zoom, so scale is 1.0 here.
     RefPtrWillBeRawPtr<Filter> parentFilter = Filter::create(1.0f);
@@ -141,7 +140,7 @@ bool FilterEffectBuilder::build(Element* element, const FilterOperations& operat
         FilterOperation* filterOperation = operations.operations().at(i).get();
         switch (filterOperation->type()) {
         case FilterOperation::REFERENCE: {
-            RefPtrWillBeRawPtr<Filter> referenceFilter = ReferenceFilterBuilder::build(zoom, element, previousEffect.get(), toReferenceFilterOperation(*filterOperation));
+            RefPtrWillBeRawPtr<Filter> referenceFilter = ReferenceFilterBuilder::build(zoom, element, previousEffect.get(), toReferenceFilterOperation(*filterOperation), referenceBoxSize, fillPaint, strokePaint);
             if (referenceFilter) {
                 effect = referenceFilter->lastEffect();
                 m_referenceFilters.append(referenceFilter);

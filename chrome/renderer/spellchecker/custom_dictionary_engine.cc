@@ -4,6 +4,8 @@
 
 #include "chrome/renderer/spellchecker/custom_dictionary_engine.h"
 
+#include <stddef.h>
+
 #include "base/strings/utf_string_conversions.h"
 
 CustomDictionaryEngine::CustomDictionaryEngine() {
@@ -13,6 +15,8 @@ CustomDictionaryEngine::~CustomDictionaryEngine() {
 }
 
 void CustomDictionaryEngine::Init(const std::set<std::string>& custom_words) {
+  dictionary_.clear();
+
   // SpellingMenuOberver calls UTF16ToUTF8(word) to convert words for storage,
   // synchronization, and use in the custom dictionary engine. Since
   // (UTF8ToUTF16(UTF16ToUTF8(word)) == word) holds, the engine does not need to

@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+#include <string.h>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
@@ -43,15 +46,15 @@ class RTCVideoDecoderTest : public ::testing::Test,
     supported_profile.min_resolution.SetSize(16, 16);
     supported_profile.max_resolution.SetSize(1920, 1088);
     supported_profile.profile = media::H264PROFILE_MAIN;
-    supported_profiles_.push_back(supported_profile);
+    capabilities_.supported_profiles.push_back(supported_profile);
     supported_profile.profile = media::VP8PROFILE_ANY;
-    supported_profiles_.push_back(supported_profile);
+    capabilities_.supported_profiles.push_back(supported_profile);
 
     EXPECT_CALL(*mock_gpu_factories_.get(), GetTaskRunner())
         .WillRepeatedly(Return(vda_task_runner_));
     EXPECT_CALL(*mock_gpu_factories_.get(),
-                GetVideoDecodeAcceleratorSupportedProfiles())
-        .WillRepeatedly(Return(supported_profiles_));
+                GetVideoDecodeAcceleratorCapabilities())
+        .WillRepeatedly(Return(capabilities_));
     EXPECT_CALL(*mock_gpu_factories_.get(), DoCreateVideoDecodeAccelerator())
         .WillRepeatedly(Return(mock_vda_));
     EXPECT_CALL(*mock_vda_, Initialize(_, _))
@@ -112,7 +115,7 @@ class RTCVideoDecoderTest : public ::testing::Test,
   scoped_ptr<RTCVideoDecoder> rtc_decoder_;
   webrtc::VideoCodec codec_;
   base::Thread vda_thread_;
-  media::VideoDecodeAccelerator::SupportedProfiles supported_profiles_;
+  media::VideoDecodeAccelerator::Capabilities capabilities_;
 
  private:
   scoped_refptr<base::SingleThreadTaskRunner> vda_task_runner_;
@@ -163,14 +166,6 @@ TEST_F(RTCVideoDecoderTest, DecodeReturnsErrorOnMissingFrames) {
   bool missingFrames = true;
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_ERROR,
             rtc_decoder_->Decode(input_image, missingFrames, NULL, NULL, 0));
-}
-
-TEST_F(RTCVideoDecoderTest, ResetReturnsOk) {
-  CreateDecoder(webrtc::kVideoCodecVP8);
-  Initialize();
-  EXPECT_CALL(*mock_vda_, Reset())
-      .WillOnce(Invoke(this, &RTCVideoDecoderTest::NotifyResetDone));
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, rtc_decoder_->Reset());
 }
 
 TEST_F(RTCVideoDecoderTest, ReleaseReturnsOk) {

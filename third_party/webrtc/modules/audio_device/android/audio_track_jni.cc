@@ -11,6 +11,8 @@
 #include "webrtc/modules/audio_device/android/audio_manager.h"
 #include "webrtc/modules/audio_device/android/audio_track_jni.h"
 
+#include <utility>
+
 #include <android/log.h>
 
 #include "webrtc/base/arraysize.h"
@@ -28,16 +30,16 @@ namespace webrtc {
 
 // AudioTrackJni::JavaAudioTrack implementation.
 AudioTrackJni::JavaAudioTrack::JavaAudioTrack(
-    NativeRegistration* native_reg, rtc::scoped_ptr<GlobalRef> audio_track)
-    : audio_track_(audio_track.Pass()),
+    NativeRegistration* native_reg,
+    std::unique_ptr<GlobalRef> audio_track)
+    : audio_track_(std::move(audio_track)),
       init_playout_(native_reg->GetMethodId("initPlayout", "(II)V")),
       start_playout_(native_reg->GetMethodId("startPlayout", "()Z")),
       stop_playout_(native_reg->GetMethodId("stopPlayout", "()Z")),
       set_stream_volume_(native_reg->GetMethodId("setStreamVolume", "(I)Z")),
-      get_stream_max_volume_(native_reg->GetMethodId(
-          "getStreamMaxVolume", "()I")),
-      get_stream_volume_(native_reg->GetMethodId("getStreamVolume", "()I")) {
-}
+      get_stream_max_volume_(
+          native_reg->GetMethodId("getStreamMaxVolume", "()I")),
+      get_stream_volume_(native_reg->GetMethodId("getStreamVolume", "()I")) {}
 
 AudioTrackJni::JavaAudioTrack::~JavaAudioTrack() {}
 
@@ -67,7 +69,7 @@ int AudioTrackJni::JavaAudioTrack::GetStreamVolume() {
 
 // TODO(henrika): possible extend usage of AudioManager and add it as member.
 AudioTrackJni::AudioTrackJni(AudioManager* audio_manager)
-    : j_environment_(JVM::GetInstance()->environment()),
+    : j_environment_(rtc::ScopedToUnique(JVM::GetInstance()->environment())),
       audio_parameters_(audio_manager->GetPlayoutAudioParameters()),
       direct_buffer_address_(nullptr),
       direct_buffer_capacity_in_bytes_(0),
@@ -84,14 +86,14 @@ AudioTrackJni::AudioTrackJni(AudioManager* audio_manager)
           &webrtc::AudioTrackJni::CacheDirectBufferAddress)},
       {"nativeGetPlayoutData", "(IJ)V",
       reinterpret_cast<void*>(&webrtc::AudioTrackJni::GetPlayoutData)}};
-  j_native_registration_ = j_environment_->RegisterNatives(
+  j_native_registration_ = rtc::ScopedToUnique(j_environment_->RegisterNatives(
       "org/webrtc/voiceengine/WebRtcAudioTrack",
-      native_methods, arraysize(native_methods));
+      native_methods, arraysize(native_methods)));
   j_audio_track_.reset(new JavaAudioTrack(
       j_native_registration_.get(),
-      j_native_registration_->NewObject(
+      rtc::ScopedToUnique(j_native_registration_->NewObject(
           "<init>", "(Landroid/content/Context;J)V",
-          JVM::GetInstance()->context(), PointerTojlong(this))));
+          JVM::GetInstance()->context(), PointerTojlong(this)))));
   // Detach from this thread since we want to use the checker to verify calls
   // from the Java based audio thread.
   thread_checker_java_.DetachFromThread();
@@ -200,8 +202,8 @@ void AudioTrackJni::AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) {
   const int sample_rate_hz = audio_parameters_.sample_rate();
   ALOGD("SetPlayoutSampleRate(%d)", sample_rate_hz);
   audio_device_buffer_->SetPlayoutSampleRate(sample_rate_hz);
-  const int channels = audio_parameters_.channels();
-  ALOGD("SetPlayoutChannels(%d)", channels);
+  const size_t channels = audio_parameters_.channels();
+  ALOGD("SetPlayoutChannels(%" PRIuS ")", channels);
   audio_device_buffer_->SetPlayoutChannels(channels);
 }
 

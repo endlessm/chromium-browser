@@ -56,9 +56,9 @@ if (enable_extensions) {
       "//crypto",
       "//device/bluetooth",
       "//device/usb",
+      "//extensions:extensions_resources",
       "//extensions/common/api",
       "//extensions/strings",
-      "//extensions:extensions_resources",
       "//ipc",
       "//net",
       "//third_party/boringssl",
@@ -70,15 +70,6 @@ if (enable_extensions) {
       "//ui/gfx/ipc",
       "//url",
     ]
-
-    if (is_android) {
-      deps -= [ "//device/usb" ]
-      sources -= [
-        "api/printer_provider/usb_printer_manifest_data.cc",
-        "api/printer_provider/usb_printer_manifest_data.h",
-        "api/printer_provider/usb_printer_manifest_handler.cc",
-      ]
-    }
 
     if (enable_nacl) {
       nacl_sources =

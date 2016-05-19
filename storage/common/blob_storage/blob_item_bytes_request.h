@@ -5,10 +5,10 @@
 #ifndef STORAGE_COMMON_BLOB_STORAGE_BLOB_ITEM_BYTES_REQUEST_H_
 #define STORAGE_COMMON_BLOB_STORAGE_BLOB_ITEM_BYTES_REQUEST_H_
 
+#include <stddef.h>
 #include <stdint.h>
 #include <ostream>
 
-#include "base/basictypes.h"
 #include "storage/common/blob_storage/blob_storage_constants.h"
 #include "storage/common/storage_common_export.h"
 
@@ -18,7 +18,7 @@ namespace storage {
 struct STORAGE_COMMON_EXPORT BlobItemBytesRequest {
   // Not using std::numeric_limits<T>::max() because of non-C++11 builds.
   static const size_t kInvalidIndex = SIZE_MAX;
-  static const uint64_t kInvalidSize = kuint64max;
+  static const uint64_t kInvalidSize = UINT64_MAX;
 
   static BlobItemBytesRequest CreateIPCRequest(size_t request_number,
                                                size_t renderer_item_index,

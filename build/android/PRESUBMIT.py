@@ -12,9 +12,11 @@ details on the presubmit API built into depot_tools.
 def CommonChecks(input_api, output_api):
   output = []
 
+  build_android_dir = input_api.PresubmitLocalPath()
+
   def J(*dirs):
     """Returns a path relative to presubmit directory."""
-    return input_api.os_path.join(input_api.PresubmitLocalPath(), *dirs)
+    return input_api.os_path.join(build_android_dir, *dirs)
 
   build_pys = [
       r'gyp/.*\.py$',
@@ -25,8 +27,8 @@ def CommonChecks(input_api, output_api):
       input_api,
       output_api,
       pylintrc='pylintrc',
-      # symbols has its own PRESUBMIT.py
-      black_list=build_pys + [r'pylib/symbols/.*\.py$'],
+      # devil and symbols have their own PRESUBMIT.py
+      black_list=build_pys + [r'devil/.*\.py$', r'pylib/symbols/.*\.py$'],
       extra_paths_list=[J(), J('buildbot')]))
   output.extend(input_api.canned_checks.RunPylint(
       input_api,
@@ -40,7 +42,7 @@ def CommonChecks(input_api, output_api):
 
   pylib_test_env = dict(input_api.environ)
   pylib_test_env.update({
-      'PYTHONPATH': input_api.PresubmitLocalPath(),
+      'PYTHONPATH': build_android_dir,
       'PYTHONDONTWRITEBYTECODE': '1',
   })
   output.extend(input_api.canned_checks.RunUnitTests(
@@ -48,13 +50,6 @@ def CommonChecks(input_api, output_api):
       output_api,
       unit_tests=[
           J('.', 'emma_coverage_stats_test.py'),
-          J('devil', 'android', 'fastboot_utils_test.py'),
-          J('devil', 'android', 'battery_utils_test.py'),
-          J('devil', 'android', 'device_utils_test.py'),
-          J('devil', 'android', 'md5sum_test.py'),
-          J('devil', 'android', 'logcat_monitor_test.py'),
-          J('devil', 'utils', 'cmd_helper_test.py'),
-          J('devil', 'utils', 'timeout_retry_unittest.py'),
           J('gyp', 'util', 'md5_check_test.py'),
           J('play_services', 'update_test.py'),
           J('pylib', 'base', 'test_dispatcher_unittest.py'),
@@ -64,6 +59,7 @@ def CommonChecks(input_api, output_api):
           J('pylib', 'results', 'json_results_test.py'),
       ],
       env=pylib_test_env))
+
   return output
 
 

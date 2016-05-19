@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/scoped_observer.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/webstore_installer_test.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -136,16 +139,22 @@ IN_PROC_BROWSER_TEST_F(WebstoreStartupInstallerTest, InstallFromHostedApp) {
 
   // We're forced to construct a hosted app dynamically because we need the
   // app to run on a declared URL, but we don't know the port ahead of time.
-  scoped_refptr<const Extension> hosted_app = ExtensionBuilder()
-      .SetManifest(DictionaryBuilder()
-          .Set("name", "hosted app")
-          .Set("version", "1")
-          .Set("app", DictionaryBuilder()
-              .Set("urls", ListBuilder().Append(kInstallUrl.spec()))
-              .Set("launch", DictionaryBuilder()
-                  .Set("web_url", kInstallUrl.spec())))
-          .Set("manifest_version", 2))
-      .Build();
+  scoped_refptr<const Extension> hosted_app =
+      ExtensionBuilder()
+          .SetManifest(std::move(
+              DictionaryBuilder()
+                  .Set("name", "hosted app")
+                  .Set("version", "1")
+                  .Set("app",
+                       std::move(
+                           DictionaryBuilder()
+                               .Set("urls", std::move(ListBuilder().Append(
+                                                kInstallUrl.spec())))
+                               .Set("launch",
+                                    std::move(DictionaryBuilder().Set(
+                                        "web_url", kInstallUrl.spec())))))
+                  .Set("manifest_version", 2)))
+          .Build();
   ASSERT_TRUE(hosted_app.get());
 
   ExtensionService* extension_service =

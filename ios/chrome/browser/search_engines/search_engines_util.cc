@@ -4,8 +4,10 @@
 
 #include "ios/chrome/browser/search_engines/search_engines_util.h"
 
+#include <stddef.h>
+
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/search_engines_pref_names.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"

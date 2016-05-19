@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_FRAME_OPAQUE_BROWSER_FRAME_VIEW_LAYOUT_H_
 #define CHROME_BROWSER_UI_VIEWS_FRAME_OPAQUE_BROWSER_FRAME_VIEW_LAYOUT_H_
 
+#include "base/macros.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view.h"
 #include "ui/views/layout/layout_manager.h"
 #include "ui/views/window/frame_buttons.h"
@@ -12,10 +13,6 @@
 class AvatarMenuButton;
 class NewAvatarButton;
 class OpaqueBrowserFrameViewLayoutDelegate;
-
-#if defined(ENABLE_SUPERVISED_USERS)
-class SupervisedUserAvatarLabel;
-#endif
 
 namespace views {
 class ImageButton;
@@ -28,6 +25,19 @@ class Label;
 // dependencies with Browser and classes that depend on Browser.
 class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
  public:
+  // Constants used by OpaqueBrowserFrameView as well.
+  static const int kContentEdgeShadowThickness;
+
+  // Constants public for testing only.
+  static const int kNonClientRestoredExtraThickness;
+  static const int kFrameBorderThickness;
+  static const int kTitlebarTopEdgeThickness;
+  static const int kIconLeftSpacing;
+  static const int kIconTitleSpacing;
+  static const int kCaptionSpacing;
+  static const int kCaptionButtonBottomPadding;
+  static const int kNewTabCaptionCondensedSpacing;
+
   explicit OpaqueBrowserFrameViewLayout(
       OpaqueBrowserFrameViewLayoutDelegate* delegate);
   ~OpaqueBrowserFrameViewLayout() override;
@@ -74,10 +84,10 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
   // acts as if the window is restored regardless of the real mode.
   int CaptionButtonY(bool restored) const;
 
-  // Returns the thickness of the 3D edge along the bottom of the titlebar.  If
+  // Returns the thickness of the 3D edge along the top of the titlebar.  If
   // |restored| is true, acts as if the window is restored regardless of the
   // real mode.
-  int TitlebarBottomThickness(bool restored) const;
+  int TitlebarTopThickness(bool restored) const;
 
   // Returns the bounds of the titlebar icon (or where the icon would be if
   // there was one).
@@ -110,9 +120,9 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
     ALIGN_TRAILING
   };
 
-  // Determines whether the avatar should be shown on the right side of the tab
-  // strip (instead of the usual left).
-  bool ShouldAvatarBeOnRight() const;
+  // Determines whether the incognito icon should be shown on the right side of
+  // the tab strip (instead of the usual left).
+  bool ShouldIncognitoIconBeOnRight() const;
 
   // Determines the amount of spacing between the New Tab button and the element
   // to its immediate right.
@@ -121,7 +131,7 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
   // Layout various sub-components of this view.
   void LayoutWindowControls(views::View* host);
   void LayoutTitleBar(views::View* host);
-  void LayoutAvatar(views::View* host);
+  void LayoutIncognitoIcon(views::View* host);
   void LayoutNewStyleAvatar(views::View* host);
 
   void ConfigureButton(views::View* host,
@@ -148,9 +158,6 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
   void ViewRemoved(views::View* host, views::View* view) override;
 
   OpaqueBrowserFrameViewLayoutDelegate* delegate_;
-
-  // The layout rect of the avatar icon, if visible.
-  gfx::Rect avatar_bounds_;
 
   // The bounds of the ClientView.
   gfx::Rect client_view_bounds_;
@@ -188,9 +195,6 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
   views::View* window_icon_;
   views::Label* window_title_;
 
-#if defined(ENABLE_SUPERVISED_USERS)
-  SupervisedUserAvatarLabel* supervised_user_avatar_label_;
-#endif
   AvatarMenuButton* avatar_button_;
   views::View* new_avatar_button_;
 

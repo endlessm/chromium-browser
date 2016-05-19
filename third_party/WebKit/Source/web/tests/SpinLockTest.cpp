@@ -28,23 +28,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "wtf/SpinLock.h"
 
-#include "platform/Task.h"
 #include "platform/ThreadSafeFunctional.h"
 #include "public/platform/Platform.h"
+#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebTraceLocation.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 
 static const size_t bufferSize = 16;
 
-static int lock = 0;
+static SpinLock lock;
 
 static void fillBuffer(volatile char* buffer, char fillPattern)
 {
@@ -69,9 +68,8 @@ static void changeAndCheckBuffer(volatile char* buffer)
 static void threadMain(volatile char* buffer)
 {
     for (int i = 0; i < 500000; ++i) {
-        spinLockLock(&lock);
+        SpinLock::Guard guard(lock);
         changeAndCheckBuffer(buffer);
-        spinLockUnlock(&lock);
     }
 }
 
@@ -82,8 +80,8 @@ TEST(SpinLockTest, Torture)
     OwnPtr<WebThread> thread1 = adoptPtr(Platform::current()->createThread("thread1"));
     OwnPtr<WebThread> thread2 = adoptPtr(Platform::current()->createThread("thread2"));
 
-    thread1->taskRunner()->postTask(BLINK_FROM_HERE, new Task(threadSafeBind(&threadMain, AllowCrossThreadAccess(static_cast<char*>(sharedBuffer)))));
-    thread2->taskRunner()->postTask(BLINK_FROM_HERE, new Task(threadSafeBind(&threadMain, AllowCrossThreadAccess(static_cast<char*>(sharedBuffer)))));
+    thread1->taskRunner()->postTask(BLINK_FROM_HERE, threadSafeBind(&threadMain, AllowCrossThreadAccess(static_cast<char*>(sharedBuffer))));
+    thread2->taskRunner()->postTask(BLINK_FROM_HERE, threadSafeBind(&threadMain, AllowCrossThreadAccess(static_cast<char*>(sharedBuffer))));
 
     thread1.clear();
     thread2.clear();

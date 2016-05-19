@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/parser/MediaQueryBlockWatcher.h"
 
 #include "core/css/parser/CSSParserToken.h"
@@ -16,13 +15,12 @@ MediaQueryBlockWatcher::MediaQueryBlockWatcher()
 
 void MediaQueryBlockWatcher::handleToken(const CSSParserToken& token)
 {
-    if (token.blockType() == CSSParserToken::BlockStart) {
+    if (token.getBlockType() == CSSParserToken::BlockStart) {
         ++m_blockLevel;
-    } else if (token.blockType() == CSSParserToken::BlockEnd) {
+    } else if (token.getBlockType() == CSSParserToken::BlockEnd) {
         ASSERT(m_blockLevel);
         --m_blockLevel;
     }
 }
 
-} // namespace
-
+} // namespace blink

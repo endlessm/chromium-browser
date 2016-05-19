@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/chrome_extension_function.h"
 
+#include <utility>
+
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/browser/extensions/window_controller.h"
 #include "chrome/browser/extensions/window_controller_list.h"
@@ -49,8 +51,7 @@ Browser* ChromeUIThreadExtensionFunction::GetCurrentBrowser() {
   if (web_contents) {
     Profile* profile =
         Profile::FromBrowserContext(web_contents->GetBrowserContext());
-    Browser* browser = chrome::FindAnyBrowser(
-        profile, include_incognito_, chrome::GetActiveDesktop());
+    Browser* browser = chrome::FindAnyBrowser(profile, include_incognito_);
     if (browser)
       return browser;
   }
@@ -116,7 +117,8 @@ ChromeSyncExtensionFunction::ChromeSyncExtensionFunction() {
 ChromeSyncExtensionFunction::~ChromeSyncExtensionFunction() {}
 
 ExtensionFunction::ResponseAction ChromeSyncExtensionFunction::Run() {
-  return RespondNow(RunSync() ? ArgumentList(results_.Pass()) : Error(error_));
+  return RespondNow(RunSync() ? ArgumentList(std::move(results_))
+                              : Error(error_));
 }
 
 // static

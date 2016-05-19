@@ -40,6 +40,7 @@ class FrameView;
 class PaintLayerCompositor;
 class LayoutQuote;
 class LayoutMedia;
+class ViewFragmentationContext;
 
 // LayoutView is the root of the layout tree and the Document's LayoutObject.
 //
@@ -108,9 +109,9 @@ public:
         IsFixedPosition,
     };
 
-    static ViewportConstrainedPosition viewportConstrainedPosition(EPosition position) { return position == FixedPosition ? IsFixedPosition : IsNotFixedPosition; }
-    void mapRectToPaintInvalidationBacking(const LayoutBoxModelObject* paintInvalidationContainer, LayoutRect&, ViewportConstrainedPosition, const PaintInvalidationState*) const;
-    void mapRectToPaintInvalidationBacking(const LayoutBoxModelObject* paintInvalidationContainer, LayoutRect&, const PaintInvalidationState*) const override;
+    static ViewportConstrainedPosition toViewportConstrainedPosition(EPosition position) { return position == FixedPosition ? IsFixedPosition : IsNotFixedPosition; }
+    void mapToVisibleRectInAncestorSpace(const LayoutBoxModelObject* ancestor, LayoutRect&, ViewportConstrainedPosition, const PaintInvalidationState*) const;
+    void mapToVisibleRectInAncestorSpace(const LayoutBoxModelObject* ancestor, LayoutRect&, const PaintInvalidationState*) const override;
     void adjustViewportConstrainedOffset(LayoutRect&, ViewportConstrainedPosition) const;
 
     void invalidatePaintForViewAndCompositedLayers();
@@ -142,6 +143,8 @@ public:
 
     void updateHitTestResult(HitTestResult&, const LayoutPoint&) override;
 
+    ViewFragmentationContext* fragmentationContext() const { return m_fragmentationContext.get(); }
+
     LayoutUnit pageLogicalHeight() const { return m_pageLogicalHeight; }
     void setPageLogicalHeight(LayoutUnit height)
     {
@@ -158,9 +161,6 @@ public:
     PaintLayerCompositor* compositor();
     bool usesCompositing() const;
 
-    // TODO(trchen): All pinch-zoom implementation should now use compositor raster scale based zooming,
-    // instead of LayoutView transform. Check whether we can now unify unscaledDocumentRect and documentRect.
-    IntRect unscaledDocumentRect() const;
     LayoutRect backgroundRect(LayoutBox* backgroundLayoutObject) const;
 
     IntRect documentRect() const;
@@ -183,8 +183,8 @@ public:
 
     bool backgroundIsKnownToBeOpaqueInRect(const LayoutRect& localRect) const override;
 
-    double layoutViewportWidth() const;
-    double layoutViewportHeight() const;
+    // Returns the viewport size in (CSS pixels) that vh and vw units are calculated from.
+    FloatSize viewportSizeForViewportUnits() const;
 
     void pushLayoutState(LayoutState& layoutState) { m_layoutState = &layoutState; }
     void popLayoutState() { ASSERT(m_layoutState); m_layoutState = m_layoutState->next(); }
@@ -211,7 +211,7 @@ public:
     void sendMediaPositionChangeNotifications(const IntRect& visibleRect);
 
 private:
-    void mapLocalToContainer(const LayoutBoxModelObject* paintInvalidationContainer, TransformState&, MapCoordinatesFlags = ApplyContainerFlip, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr) const override;
+    void mapLocalToAncestor(const LayoutBoxModelObject* ancestor, TransformState&, MapCoordinatesFlags = ApplyContainerFlip, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr) const override;
 
     const LayoutObject* pushMappingToContainer(const LayoutBoxModelObject* ancestorToStopAt, LayoutGeometryMap&) const override;
     void mapAbsoluteToLocalPoint(MapCoordinatesFlags, TransformState&) const override;
@@ -229,8 +229,7 @@ private:
     int viewLogicalWidthForBoxSizing() const;
     int viewLogicalHeightForBoxSizing() const;
 
-    GC_PLUGIN_IGNORE("http://crbug.com/509911")
-    FrameView* m_frameView;
+    RawPtrWillBeUntracedMember<FrameView> m_frameView;
 
     // The current selection represented as 2 boundaries.
     // Selection boundaries are represented in LayoutView by a tuple
@@ -263,6 +262,7 @@ private:
     // See the class comment for more details.
     LayoutState* m_layoutState;
 
+    OwnPtr<ViewFragmentationContext> m_fragmentationContext;
     OwnPtr<PaintLayerCompositor> m_compositor;
     RefPtr<IntervalArena> m_intervalArena;
 

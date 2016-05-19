@@ -26,7 +26,6 @@ class LayerTreeImplTest : public LayerTreeHostCommonTest {
   LayerTreeImplTest() : output_surface_(FakeOutputSurface::Create3d()) {
     LayerTreeSettings settings;
     settings.layer_transforms_should_scale_layer_contents = true;
-    settings.verify_property_trees = true;
     host_impl_.reset(new FakeLayerTreeHostImpl(settings, &task_runner_provider_,
                                                &shared_bitmap_manager_,
                                                &task_graph_runner_));
@@ -72,7 +71,7 @@ TEST_F(LayerTreeImplTest, HitTestingForSingleLayer) {
   root->SetDrawsContent(true);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -110,7 +109,6 @@ TEST_F(LayerTreeImplTest, UpdateViewportAndHitTest) {
   TestTaskGraphRunner task_graph_runner;
   FakeImplTaskRunnerProvider task_runner_provider;
   LayerTreeSettings settings;
-  settings.verify_property_trees = true;
   scoped_ptr<OutputSurface> output_surface = FakeOutputSurface::Create3d();
   scoped_ptr<FakeLayerTreeHostImpl> host_impl;
   host_impl.reset(new FakeLayerTreeHostImpl(settings, &task_runner_provider,
@@ -130,7 +128,7 @@ TEST_F(LayerTreeImplTest, UpdateViewportAndHitTest) {
   root->SetDrawsContent(true);
 
   host_impl->SetViewportSize(root->bounds());
-  host_impl->active_tree()->SetRootLayer(root.Pass());
+  host_impl->active_tree()->SetRootLayer(std::move(root));
   host_impl->UpdateNumChildrenAndDrawPropertiesForActiveTree();
   EXPECT_EQ(
       gfx::RectF(gfx::SizeF(bounds)),
@@ -170,10 +168,10 @@ TEST_F(LayerTreeImplTest, HitTestingForSingleLayerAndHud) {
   hud->SetDrawsContent(true);
 
   host_impl().active_tree()->set_hud_layer(hud.get());
-  root->AddChild(hud.Pass());
+  root->AddChild(std::move(hud));
 
   host_impl().SetViewportSize(hud_bounds);
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -227,12 +225,12 @@ TEST_F(LayerTreeImplTest, HitTestingForUninvertibleTransform) {
   root->SetDrawsContent(true);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
   // Sanity check the scenario we just created.
   ASSERT_EQ(1u, RenderSurfaceLayerList().size());
   ASSERT_EQ(1u, root_layer()->render_surface()->layer_list().size());
-  ASSERT_FALSE(root_layer()->screen_space_transform().IsInvertible());
+  ASSERT_FALSE(root_layer()->ScreenSpaceTransform().IsInvertible());
 
   // Hit testing any point should not hit the layer. If the invertible matrix is
   // accidentally ignored and treated like an identity, then the hit testing
@@ -288,7 +286,7 @@ TEST_F(LayerTreeImplTest, HitTestingForSinglePositionedLayer) {
   root->SetDrawsContent(true);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -340,7 +338,7 @@ TEST_F(LayerTreeImplTest, HitTestingForSingleRotatedLayer) {
   root->SetDrawsContent(true);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -380,6 +378,134 @@ TEST_F(LayerTreeImplTest, HitTestingForSingleRotatedLayer) {
   ASSERT_FALSE(result_layer);
 }
 
+TEST_F(LayerTreeImplTest, HitTestingClipNodeDifferentTransformAndTargetIds) {
+  // Tests hit testing on a layer whose clip node has different transform and
+  // target id.
+  gfx::Transform identity_matrix;
+  scoped_ptr<LayerImpl> root = LayerImpl::Create(host_impl().active_tree(), 1);
+  SetLayerPropertiesForTesting(root.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), gfx::Size(500, 500), true, false,
+                               true);
+  gfx::Transform translation;
+  translation.Translate(100, 100);
+  scoped_ptr<LayerImpl> render_surface =
+      LayerImpl::Create(host_impl().active_tree(), 2);
+  SetLayerPropertiesForTesting(render_surface.get(), translation,
+                               gfx::Point3F(), gfx::PointF(),
+                               gfx::Size(100, 100), true, false, true);
+
+  gfx::Transform scale_matrix;
+  scale_matrix.Scale(2, 2);
+  scoped_ptr<LayerImpl> scale = LayerImpl::Create(host_impl().active_tree(), 3);
+  SetLayerPropertiesForTesting(scale.get(), scale_matrix, gfx::Point3F(),
+                               gfx::PointF(), gfx::Size(50, 50), true, false,
+                               false);
+
+  scoped_ptr<LayerImpl> clip = LayerImpl::Create(host_impl().active_tree(), 4);
+  SetLayerPropertiesForTesting(clip.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), gfx::Size(25, 25), true, false,
+                               false);
+  clip->SetMasksToBounds(true);
+
+  scoped_ptr<LayerImpl> test = LayerImpl::Create(host_impl().active_tree(), 5);
+  SetLayerPropertiesForTesting(test.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), gfx::Size(100, 100), true, false,
+                               false);
+  test->SetDrawsContent(true);
+
+  clip->AddChild(std::move(test));
+  scale->AddChild(std::move(clip));
+  render_surface->AddChild(std::move(scale));
+  root->AddChild(std::move(render_surface));
+
+  host_impl().SetViewportSize(root->bounds());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
+  host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
+
+  gfx::PointF test_point(160.f, 160.f);
+  LayerImpl* result_layer =
+      host_impl().active_tree()->FindLayerThatIsHitByPoint(test_point);
+  EXPECT_FALSE(result_layer);
+
+  test_point = gfx::PointF(140.f, 140.f);
+  result_layer =
+      host_impl().active_tree()->FindLayerThatIsHitByPoint(test_point);
+  ASSERT_TRUE(result_layer);
+  EXPECT_EQ(5, result_layer->id());
+
+  ClipTree clip_tree = host_impl().active_tree()->property_trees()->clip_tree;
+  ClipNode* clip_node = clip_tree.Node(result_layer->clip_tree_index());
+  EXPECT_NE(clip_node->data.transform_id, clip_node->data.target_id);
+}
+
+TEST_F(LayerTreeImplTest, HitTestingSiblings) {
+  // This tests hit testing when the test point hits only one of the siblings.
+  gfx::Transform identity_matrix;
+  scoped_ptr<LayerImpl> root = LayerImpl::Create(host_impl().active_tree(), 1);
+  SetLayerPropertiesForTesting(root.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), gfx::Size(100, 100), true, false,
+                               true);
+  scoped_ptr<LayerImpl> child1 =
+      LayerImpl::Create(host_impl().active_tree(), 2);
+  SetLayerPropertiesForTesting(child1.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), gfx::Size(25, 25), true, false,
+                               false);
+  child1->SetMasksToBounds(true);
+  child1->SetDrawsContent(true);
+  scoped_ptr<LayerImpl> child2 =
+      LayerImpl::Create(host_impl().active_tree(), 3);
+  SetLayerPropertiesForTesting(child2.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), gfx::Size(75, 75), true, false,
+                               false);
+  child2->SetMasksToBounds(true);
+  child2->SetDrawsContent(true);
+  root->AddChild(std::move(child1));
+  root->AddChild(std::move(child2));
+
+  host_impl().SetViewportSize(root->bounds());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
+  host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
+
+  gfx::PointF test_point(50.f, 50.f);
+  LayerImpl* result_layer =
+      host_impl().active_tree()->FindLayerThatIsHitByPoint(test_point);
+  ASSERT_TRUE(result_layer);
+  EXPECT_EQ(3, result_layer->id());
+}
+
+TEST_F(LayerTreeImplTest, HitTestingPointOutsideMaxTextureSize) {
+  gfx::Transform identity_matrix;
+  int max_texture_size =
+      host_impl().active_tree()->resource_provider()->max_texture_size();
+  gfx::Size bounds(max_texture_size + 100, max_texture_size + 100);
+
+  scoped_ptr<LayerImpl> root = LayerImpl::Create(host_impl().active_tree(), 1);
+  SetLayerPropertiesForTesting(root.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), bounds, true, false, true);
+
+  scoped_ptr<LayerImpl> surface =
+      LayerImpl::Create(host_impl().active_tree(), 2);
+  SetLayerPropertiesForTesting(surface.get(), identity_matrix, gfx::Point3F(),
+                               gfx::PointF(), bounds, true, false, true);
+  surface->SetMasksToBounds(true);
+  surface->SetDrawsContent(true);
+
+  root->AddChild(std::move(surface));
+  host_impl().SetViewportSize(root->bounds());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
+  host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
+
+  gfx::PointF test_point(max_texture_size - 50, max_texture_size - 50);
+  LayerImpl* result_layer =
+      host_impl().active_tree()->FindLayerThatIsHitByPoint(test_point);
+  EXPECT_TRUE(result_layer);
+
+  test_point = gfx::PointF(max_texture_size + 50, max_texture_size + 50);
+  result_layer =
+      host_impl().active_tree()->FindLayerThatIsHitByPoint(test_point);
+  EXPECT_FALSE(result_layer);
+}
+
 TEST_F(LayerTreeImplTest, HitTestingForSinglePerspectiveLayer) {
   scoped_ptr<LayerImpl> root =
       LayerImpl::Create(host_impl().active_tree(), 12345);
@@ -404,7 +530,7 @@ TEST_F(LayerTreeImplTest, HitTestingForSinglePerspectiveLayer) {
   root->SetDrawsContent(true);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -468,12 +594,12 @@ TEST_F(LayerTreeImplTest, HitTestingForSimpleClippedLayer) {
     SetLayerPropertiesForTesting(child.get(), identity_matrix, transform_origin,
                                  position, bounds, true, false, false);
     child->SetDrawsContent(true);
-    clipping_layer->AddChild(child.Pass());
-    root->AddChild(clipping_layer.Pass());
+    clipping_layer->AddChild(std::move(child));
+    root->AddChild(std::move(clipping_layer));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -574,15 +700,16 @@ TEST_F(LayerTreeImplTest, HitTestingForMultiClippedRotatedLayer) {
                                  false, false);
     rotated_leaf->SetDrawsContent(true);
 
-    grand_child->AddChild(rotated_leaf.Pass());
-    child->AddChild(grand_child.Pass());
-    root->AddChild(child.Pass());
+    grand_child->AddChild(std::move(rotated_leaf));
+    child->AddChild(std::move(grand_child));
+    root->AddChild(std::move(child));
+
+    ExecuteCalculateDrawProperties(root.get());
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
-
   // (11, 89) is close to the the bottom left corner within the clip, but it is
   // not inside the layer.
   gfx::PointF test_point(11.f, 89.f);
@@ -664,12 +791,12 @@ TEST_F(LayerTreeImplTest, HitTestingForNonClippingIntermediateLayer) {
     SetLayerPropertiesForTesting(child.get(), identity_matrix, transform_origin,
                                  position, bounds, true, false, false);
     child->SetDrawsContent(true);
-    intermediate_layer->AddChild(child.Pass());
-    root->AddChild(intermediate_layer.Pass());
+    intermediate_layer->AddChild(std::move(child));
+    root->AddChild(std::move(intermediate_layer));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -750,17 +877,19 @@ TEST_F(LayerTreeImplTest, HitTestingForMultipleLayers) {
                                  false, false);
     grand_child1->SetDrawsContent(true);
 
-    child1->AddChild(grand_child1.Pass());
-    root->AddChild(child1.Pass());
-    root->AddChild(child2.Pass());
+    child1->AddChild(std::move(grand_child1));
+    root->AddChild(std::move(child1));
+    root->AddChild(std::move(child2));
+
+    ExecuteCalculateDrawProperties(root.get());
   }
 
-  LayerImpl* child1 = root->children()[0];
-  LayerImpl* child2 = root->children()[1];
-  LayerImpl* grand_child1 = child1->children()[0];
+  LayerImpl* child1 = root->children()[0].get();
+  LayerImpl* child2 = root->children()[1].get();
+  LayerImpl* grand_child1 = child1->children()[0].get();
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -870,11 +999,11 @@ int LayerTreeImplTest::HitTestSimpleTree(int root_id,
     right_child->Set3dSortingContextId(right_child_sorting_context);
   }
 
-  root->AddChild(left_child.Pass());
-  root->AddChild(right_child.Pass());
+  root->AddChild(std::move(left_child));
+  root->AddChild(std::move(right_child));
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
   CHECK_EQ(1u, RenderSurfaceLayerList().size());
 
@@ -978,17 +1107,17 @@ TEST_F(LayerTreeImplTest, HitTestingForMultipleLayersAtVaryingDepths) {
     grand_child1->SetDrawsContent(true);
     grand_child1->SetShouldFlattenTransform(false);
 
-    child1->AddChild(grand_child1.Pass());
-    root->AddChild(child1.Pass());
-    root->AddChild(child2.Pass());
+    child1->AddChild(std::move(grand_child1));
+    root->AddChild(std::move(child1));
+    root->AddChild(std::move(child2));
   }
 
-  LayerImpl* child1 = root->children()[0];
-  LayerImpl* child2 = root->children()[1];
-  LayerImpl* grand_child1 = child1->children()[0];
+  LayerImpl* child1 = root->children()[0].get();
+  LayerImpl* child2 = root->children()[1].get();
+  LayerImpl* grand_child1 = child1->children()[0].get();
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -1079,12 +1208,12 @@ TEST_F(LayerTreeImplTest, HitTestingRespectsClipParents) {
     // This should let |grand_child| "escape" |child|'s clip.
     grand_child->SetClipParent(root.get());
 
-    child->AddChild(grand_child.Pass());
-    root->AddChild(child.Pass());
+    child->AddChild(std::move(grand_child));
+    root->AddChild(std::move(child));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   gfx::PointF test_point(12.f, 52.f);
@@ -1138,13 +1267,13 @@ TEST_F(LayerTreeImplTest, HitTestingRespectsScrollParents) {
     grand_child->SetDrawsContent(true);
     grand_child->SetHasRenderSurface(true);
 
-    scroll_child->AddChild(grand_child.Pass());
-    root->AddChild(scroll_child.Pass());
-    root->AddChild(child.Pass());
+    scroll_child->AddChild(std::move(grand_child));
+    root->AddChild(std::move(scroll_child));
+    root->AddChild(std::move(child));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   gfx::PointF test_point(12.f, 52.f);
@@ -1189,7 +1318,7 @@ TEST_F(LayerTreeImplTest, HitTestingForMultipleLayerLists) {
                                  transform_origin, position, bounds, true,
                                  false, false);
     child1->SetDrawsContent(true);
-    child1->SetHasRenderSurface(true);
+    child1->SetForceRenderSurface(true);
 
     position = gfx::PointF(50.f, 10.f);
     bounds = gfx::Size(50, 50);
@@ -1197,7 +1326,7 @@ TEST_F(LayerTreeImplTest, HitTestingForMultipleLayerLists) {
                                  transform_origin, position, bounds, true,
                                  false, false);
     child2->SetDrawsContent(true);
-    child2->SetHasRenderSurface(true);
+    child2->SetForceRenderSurface(true);
 
     // Remember that grand_child is positioned with respect to its parent (i.e.
     // child1).  In screen space, the intended position is (10, 50), with size
@@ -1208,19 +1337,21 @@ TEST_F(LayerTreeImplTest, HitTestingForMultipleLayerLists) {
                                  transform_origin, position, bounds, true,
                                  false, false);
     grand_child1->SetDrawsContent(true);
-    grand_child1->SetHasRenderSurface(true);
+    grand_child1->SetForceRenderSurface(true);
 
-    child1->AddChild(grand_child1.Pass());
-    root->AddChild(child1.Pass());
-    root->AddChild(child2.Pass());
+    child1->AddChild(std::move(grand_child1));
+    root->AddChild(std::move(child1));
+    root->AddChild(std::move(child2));
+
+    ExecuteCalculateDrawProperties(root.get());
   }
 
-  LayerImpl* child1 = root->children()[0];
-  LayerImpl* child2 = root->children()[1];
-  LayerImpl* grand_child1 = child1->children()[0];
+  LayerImpl* child1 = root->children()[0].get();
+  LayerImpl* child2 = root->children()[1].get();
+  LayerImpl* grand_child1 = child1->children()[0].get();
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -1305,7 +1436,7 @@ TEST_F(LayerTreeImplTest, HitCheckingTouchHandlerRegionsForSingleLayer) {
   root->SetDrawsContent(true);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -1390,13 +1521,13 @@ TEST_F(LayerTreeImplTest,
   root->SetTouchEventHandlerRegion(touch_handler_region);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
   ASSERT_EQ(1u, RenderSurfaceLayerList().size());
   ASSERT_EQ(1u, root_layer()->render_surface()->layer_list().size());
-  ASSERT_FALSE(root_layer()->screen_space_transform().IsInvertible());
+  ASSERT_FALSE(root_layer()->ScreenSpaceTransform().IsInvertible());
 
   // Hit checking any point should not hit the touch handler region on the
   // layer. If the invertible matrix is accidentally ignored and treated like an
@@ -1463,7 +1594,7 @@ TEST_F(LayerTreeImplTest,
   root->SetTouchEventHandlerRegion(touch_handler_region);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -1535,7 +1666,7 @@ TEST_F(LayerTreeImplTest,
 
     test_layer->SetDrawsContent(true);
     test_layer->SetTouchEventHandlerRegion(touch_handler_region);
-    root->AddChild(test_layer.Pass());
+    root->AddChild(std::move(test_layer));
   }
 
   float device_scale_factor = 3.f;
@@ -1546,19 +1677,20 @@ TEST_F(LayerTreeImplTest,
   host_impl().SetViewportSize(scaled_bounds_for_root);
 
   host_impl().active_tree()->SetDeviceScaleFactor(device_scale_factor);
+  host_impl().active_tree()->SetRootLayer(std::move(root));
+  host_impl().active_tree()->SetViewportLayersFromIds(Layer::INVALID_ID, 1, 1,
+                                                      Layer::INVALID_ID);
+  host_impl().active_tree()->BuildPropertyTreesForTesting();
   host_impl().active_tree()->PushPageScaleFromMainThread(
       page_scale_factor, page_scale_factor, max_page_scale_factor);
   host_impl().active_tree()->SetPageScaleOnActiveTree(page_scale_factor);
-  host_impl().active_tree()->SetRootLayer(root.Pass());
-  host_impl().active_tree()->SetViewportLayersFromIds(Layer::INVALID_ID, 1, 1,
-                                                      Layer::INVALID_ID);
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
   // The visible content rect for test_layer is actually 100x100, even though
   // its layout size is 50x50, positioned at 25x25.
   LayerImpl* test_layer =
-      host_impl().active_tree()->root_layer()->children()[0];
+      host_impl().active_tree()->root_layer()->children()[0].get();
   ASSERT_EQ(1u, RenderSurfaceLayerList().size());
   ASSERT_EQ(1u, root_layer()->render_surface()->layer_list().size());
 
@@ -1688,12 +1820,12 @@ TEST_F(LayerTreeImplTest, HitCheckingTouchHandlerRegionsForSimpleClippedLayer) {
                                  position, bounds, true, false, false);
     child->SetDrawsContent(true);
     child->SetTouchEventHandlerRegion(touch_handler_region);
-    clipping_layer->AddChild(child.Pass());
-    root->AddChild(clipping_layer.Pass());
+    clipping_layer->AddChild(std::move(child));
+    root->AddChild(std::move(clipping_layer));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -1761,7 +1893,7 @@ TEST_F(LayerTreeImplTest, HitCheckingTouchHandlerOverlappingRegions) {
                                  false, false);
     touch_layer->SetDrawsContent(true);
     touch_layer->SetTouchEventHandlerRegion(gfx::Rect(0, 0, 50, 50));
-    root->AddChild(touch_layer.Pass());
+    root->AddChild(std::move(touch_layer));
   }
 
   {
@@ -1775,11 +1907,11 @@ TEST_F(LayerTreeImplTest, HitCheckingTouchHandlerOverlappingRegions) {
                                  transform_origin, position, bounds, true,
                                  false, false);
     notouch_layer->SetDrawsContent(true);
-    root->AddChild(notouch_layer.Pass());
+    root->AddChild(std::move(notouch_layer));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -1843,14 +1975,14 @@ TEST_F(LayerTreeImplTest, HitTestingTouchHandlerRegionsForLayerThatIsNotDrawn) {
 
     test_layer->SetDrawsContent(false);
     test_layer->SetTouchEventHandlerRegion(touch_handler_region);
-    root->AddChild(test_layer.Pass());
+    root->AddChild(std::move(test_layer));
   }
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   LayerImpl* test_layer =
-      host_impl().active_tree()->root_layer()->children()[0];
+      host_impl().active_tree()->root_layer()->children()[0].get();
   // As test_layer doesn't draw content, the layer list of root's render surface
   // should contain only the root layer.
   ASSERT_EQ(1u, RenderSurfaceLayerList().size());
@@ -1881,8 +2013,9 @@ TEST_F(LayerTreeImplTest, HitTestingTouchHandlerRegionsForLayerThatIsNotDrawn) {
 
   // We change the position of the test layer such that the test point is now
   // inside the test_layer.
-  test_layer = host_impl().active_tree()->root_layer()->children()[0];
+  test_layer = host_impl().active_tree()->root_layer()->children()[0].get();
   test_layer->SetPosition(gfx::PointF(10.f, 10.f));
+  test_layer->NoteLayerPropertyChanged();
   expected_screen_space_transform.MakeIdentity();
   expected_screen_space_transform.Translate(10.f, 10.f);
 
@@ -1915,7 +2048,7 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForSingleLayer) {
   root->SetDrawsContent(true);
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -2013,12 +2146,12 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForPartialOccludedLayers) {
                                  transform_origin, position, bounds, true,
                                  false, false);
     clipped_layer->SetDrawsContent(true);
-    clipping_layer->AddChild(clipped_layer.Pass());
-    root->AddChild(clipping_layer.Pass());
+    clipping_layer->AddChild(std::move(clipped_layer));
+    root->AddChild(std::move(clipping_layer));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -2101,7 +2234,7 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForScaledLayers) {
                                  transform_origin, position, bounds, true,
                                  false, false);
     sub_layer->SetDrawsContent(true);
-    root->AddChild(sub_layer.Pass());
+    root->AddChild(std::move(sub_layer));
   }
 
   float device_scale_factor = 3.f;
@@ -2111,12 +2244,14 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForScaledLayers) {
   host_impl().SetViewportSize(scaled_bounds_for_root);
 
   host_impl().active_tree()->SetDeviceScaleFactor(device_scale_factor);
+  host_impl().active_tree()->SetPageScaleOnActiveTree(page_scale_factor);
+  host_impl().active_tree()->SetRootLayer(std::move(root));
+  host_impl().active_tree()->SetViewportLayersFromIds(Layer::INVALID_ID, 1, 1,
+                                                      Layer::INVALID_ID);
+  host_impl().active_tree()->BuildPropertyTreesForTesting();
   host_impl().active_tree()->PushPageScaleFromMainThread(
       page_scale_factor, page_scale_factor, page_scale_factor);
   host_impl().active_tree()->SetPageScaleOnActiveTree(page_scale_factor);
-  host_impl().active_tree()->SetRootLayer(root.Pass());
-  host_impl().active_tree()->SetViewportLayersFromIds(Layer::INVALID_ID, 1, 1,
-                                                      Layer::INVALID_ID);
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   // Sanity check the scenario we just created.
@@ -2191,12 +2326,12 @@ TEST_F(LayerTreeImplTest, SelectionBoundsWithLargeTransforms) {
                                  false, false);
     grand_child->SetDrawsContent(true);
 
-    child->AddChild(grand_child.Pass());
-    root->AddChild(child.Pass());
+    child->AddChild(std::move(grand_child));
+    root->AddChild(std::move(child));
   }
 
   host_impl().SetViewportSize(root->bounds());
-  host_impl().active_tree()->SetRootLayer(root.Pass());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
   host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
 
   LayerSelection input;
@@ -2235,6 +2370,65 @@ TEST_F(LayerTreeImplTest, NumLayersSmallTree) {
   root->AddChild(LayerImpl::Create(host_impl().active_tree(), 3));
   root->child_at(1)->AddChild(LayerImpl::Create(host_impl().active_tree(), 4));
   EXPECT_EQ(4u, host_impl().active_tree()->NumLayers());
+}
+
+TEST_F(LayerTreeImplTest, DeviceScaleFactorNeedsDrawPropertiesUpdate) {
+  host_impl().active_tree()->SetDeviceScaleFactor(1.f);
+  host_impl().active_tree()->UpdateDrawProperties(false);
+  EXPECT_FALSE(host_impl().active_tree()->needs_update_draw_properties());
+  host_impl().active_tree()->SetDeviceScaleFactor(2.f);
+  EXPECT_TRUE(host_impl().active_tree()->needs_update_draw_properties());
+}
+
+TEST_F(LayerTreeImplTest, HitTestingCorrectLayerWheelListener) {
+  host_impl().active_tree()->set_event_listener_properties(
+      EventListenerClass::kMouseWheel, EventListenerProperties::kBlocking);
+  scoped_ptr<LayerImpl> root = LayerImpl::Create(host_impl().active_tree(), 1);
+  scoped_ptr<LayerImpl> left_child =
+      LayerImpl::Create(host_impl().active_tree(), 2);
+  scoped_ptr<LayerImpl> right_child =
+      LayerImpl::Create(host_impl().active_tree(), 3);
+
+  gfx::Point3F transform_origin;
+  gfx::PointF position;
+  gfx::Size bounds(100, 100);
+  {
+    gfx::Transform translate_z;
+    translate_z.Translate3d(0, 0, 10);
+    SetLayerPropertiesForTesting(root.get(), translate_z, transform_origin,
+                                 position, bounds, false, false, true);
+    root->SetDrawsContent(true);
+  }
+  {
+    gfx::Transform translate_z;
+    translate_z.Translate3d(0, 0, 10);
+    SetLayerPropertiesForTesting(left_child.get(), translate_z,
+                                 transform_origin, position, bounds, false,
+                                 false, false);
+    left_child->SetDrawsContent(true);
+  }
+  {
+    gfx::Transform translate_z;
+    translate_z.Translate3d(0, 0, 10);
+    SetLayerPropertiesForTesting(right_child.get(), translate_z,
+                                 transform_origin, position, bounds, false,
+                                 false, false);
+  }
+
+  root->AddChild(std::move(left_child));
+  root->AddChild(std::move(right_child));
+
+  host_impl().SetViewportSize(root->bounds());
+  host_impl().active_tree()->SetRootLayer(std::move(root));
+  host_impl().UpdateNumChildrenAndDrawPropertiesForActiveTree();
+  CHECK_EQ(1u, RenderSurfaceLayerList().size());
+
+  gfx::PointF test_point = gfx::PointF(1.f, 1.f);
+  LayerImpl* result_layer =
+      host_impl().active_tree()->FindLayerThatIsHitByPoint(test_point);
+
+  CHECK(result_layer);
+  EXPECT_EQ(2, result_layer->id());
 }
 
 }  // namespace

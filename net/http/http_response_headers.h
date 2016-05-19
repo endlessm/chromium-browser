@@ -5,11 +5,14 @@
 #ifndef NET_HTTP_HTTP_RESPONSE_HEADERS_H_
 #define NET_HTTP_HTTP_RESPONSE_HEADERS_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_piece.h"
 #include "net/base/net_export.h"
@@ -104,12 +107,12 @@ class NET_EXPORT HttpResponseHeaders
   // |byte_range| must have a valid, bounded range (i.e. coming from a valid
   // response or should be usable for a response).
   void UpdateWithNewRange(const HttpByteRange& byte_range,
-                          int64 resource_size,
+                          int64_t resource_size,
                           bool replace_status_line);
 
   // Creates a normalized header string.  The output will be formatted exactly
   // like so:
-  //     HTTP/<version> <status_code> <status_text>\n
+  //     HTTP/<version> <status_code>[ <status_text>]\n
   //     [<header-name>: <header-values>\n]*
   // meaning, each line is \n-terminated, and there is no extra whitespace
   // beyond the single space separators shown (of course, values can contain
@@ -138,14 +141,9 @@ class NET_EXPORT HttpResponseHeaders
   // NOTE: Do not make any assumptions about the encoding of this output
   // string.  It may be non-ASCII, and the encoding used by the server is not
   // necessarily known to us.  Do not assume that this output is UTF-8!
-  //
-  // TODO(darin): remove this method
-  //
   bool GetNormalizedHeader(const std::string& name, std::string* value) const;
 
-  // Returns the normalized status line.  For HTTP/0.9 responses (i.e.,
-  // responses that lack a status line), this is the manufactured string
-  // "HTTP/0.9 200 OK".
+  // Returns the normalized status line.
   std::string GetStatusLine() const;
 
   // Get the HTTP version of the normalized status line.
@@ -162,20 +160,38 @@ class NET_EXPORT HttpResponseHeaders
   // header appears on multiple lines, then it will appear multiple times in
   // this enumeration (in the order the header lines were received from the
   // server).  Also, a given header might have an empty value.  Initialize a
-  // 'void*' variable to NULL and pass it by address to EnumerateHeaderLines.
+  // 'size_t' variable to 0 and pass it by address to EnumerateHeaderLines.
   // Call EnumerateHeaderLines repeatedly until it returns false.  The
   // out-params 'name' and 'value' are set upon success.
-  bool EnumerateHeaderLines(void** iter,
+  bool EnumerateHeaderLines(size_t* iter,
                             std::string* name,
                             std::string* value) const;
 
   // Enumerate the values of the specified header.   If you are only interested
-  // in the first header, then you can pass NULL for the 'iter' parameter.
+  // in the first header, then you can pass nullptr for the 'iter' parameter.
   // Otherwise, to iterate across all values for the specified header,
-  // initialize a 'void*' variable to NULL and pass it by address to
+  // initialize a 'size_t' variable to 0 and pass it by address to
   // EnumerateHeader. Note that a header might have an empty value. Call
   // EnumerateHeader repeatedly until it returns false.
-  bool EnumerateHeader(void** iter,
+  //
+  // Unless a header is explicitly marked as non-coalescing (see
+  // HttpUtil::IsNonCoalescingHeader), headers that contain
+  // comma-separated lists are treated "as if" they had been sent as
+  // distinct headers. That is, a header of "Foo: a, b, c" would
+  // enumerate into distinct values of "a", "b", and "c". This is also
+  // true for headers that occur multiple times in a response; unless
+  // they are marked non-coalescing, "Foo: a, b" followed by "Foo: c"
+  // will enumerate to "a", "b", "c". Commas inside quoted strings are ignored,
+  // for example a header of 'Foo: "a, b", "c"' would enumerate as '"a, b"',
+  // '"c"'.
+  //
+  // This can cause issues for headers that might have commas in fields that
+  // aren't quoted strings, for example a header of "Foo: <a, b>, <c>" would
+  // enumerate as '<a', 'b>', '<c>', rather than as '<a, b>', '<c>'.
+  //
+  // To handle cases such as this, use GetNormalizedHeader to return the full
+  // concatenated header, and then parse manually.
+  bool EnumerateHeader(size_t* iter,
                        const base::StringPiece& name,
                        std::string* value) const;
 
@@ -259,11 +275,11 @@ class NET_EXPORT HttpResponseHeaders
 
   // Extracts the value of the Content-Length header or returns -1 if there is
   // no such header in the response.
-  int64 GetContentLength() const;
+  int64_t GetContentLength() const;
 
   // Extracts the value of the specified header or returns -1 if there is no
   // such header in the response.
-  int64 GetInt64HeaderValue(const std::string& header) const;
+  int64_t GetInt64HeaderValue(const std::string& header) const;
 
   // Extracts the values in a Content-Range header and returns true if they are
   // valid for a 206 response; otherwise returns false.
@@ -272,9 +288,9 @@ class NET_EXPORT HttpResponseHeaders
   // |*last_byte_position| = inclusive position of the last byte of the range
   // |*instance_length| = size in bytes of the object requested
   // If any of the above values is unknown, its value will be -1.
-  bool GetContentRange(int64* first_byte_position,
-                       int64* last_byte_position,
-                       int64* instance_length) const;
+  bool GetContentRange(int64_t* first_byte_position,
+                       int64_t* last_byte_position,
+                       int64_t* instance_length) const;
 
   // Returns true if the response is chunk-encoded.
   bool IsChunkEncoded() const;

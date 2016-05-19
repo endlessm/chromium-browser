@@ -15,7 +15,7 @@
       # generated cpp files must be listed explicitly in device_serial
       'type': 'none',
       'includes': [
-        '../../third_party/mojo/mojom_bindings_generator.gypi',
+        '../../mojo/mojom_bindings_generator.gypi',
       ],
       'sources': [
         'data_stream.mojom',
@@ -29,6 +29,12 @@
       'target_name': 'device_serial',
       'type': 'static_library',
       'conditions': [
+        ['chromeos==1', {
+          'dependencies': [
+            '../../chromeos/chromeos.gyp:chromeos',
+            '../../dbus/dbus.gyp:dbus',
+          ],
+        }],
         ['use_udev == 1', {
           'dependencies': [
             '../udev_linux/udev.gyp:udev_linux',
@@ -39,16 +45,43 @@
             'serial_device_enumerator_linux.h',
           ],
         }],
+        ['OS=="win"', {
+          'link_settings': {
+            'msvs_settings': {
+              'VCLinkerTool': {
+                'DelayLoadDLLs': [
+                  'setupapi.dll',
+                ],
+                'AdditionalDependencies': [
+                  'setupapi.lib',
+                ],
+              },
+            },
+          },
+          'all_dependent_settings': {
+            'msvs_settings': {
+              'VCLinkerTool': {
+                'DelayLoadDLLs': [
+                  'setupapi.dll',
+                ],
+                'AdditionalDependencies': [
+                  'setupapi.lib',
+                ],
+              },
+            },
+          },
+        }],
       ],
       'dependencies': [
         'device_serial_mojo',
+        '../../mojo/mojo_public.gyp:mojo_cpp_bindings',
         '../../net/net.gyp:net',
-        '../../third_party/mojo/mojo_public.gyp:mojo_cpp_bindings',
         '../../third_party/re2/re2.gyp:re2',
+        '../core/core.gyp:device_core',
       ],
       'export_dependent_settings': [
         'device_serial_mojo',
-        '../../third_party/mojo/mojo_public.gyp:mojo_cpp_bindings',
+        '../../mojo/mojo_public.gyp:mojo_cpp_bindings',
       ],
       'sources': [
         '<(SHARED_INTERMEDIATE_DIR)/device/serial/data_stream.mojom.cc',

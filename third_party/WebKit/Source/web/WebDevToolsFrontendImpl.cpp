@@ -28,11 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/WebDevToolsFrontendImpl.h"
 
 #include "bindings/core/v8/ScriptController.h"
 #include "bindings/core/v8/V8DevToolsHost.h"
+#include "core/frame/FrameHost.h"
 #include "core/frame/LocalFrame.h"
 #include "core/inspector/DevToolsHost.h"
 #include "public/platform/WebSecurityOrigin.h"
@@ -44,17 +44,8 @@
 namespace blink {
 
 WebDevToolsFrontend* WebDevToolsFrontend::create(
-    WebView* view,
-    WebDevToolsFrontendClient* client,
-    const WebString& applicationLocale)
-{
-    return new WebDevToolsFrontendImpl(toWebLocalFrameImpl(view->mainFrame()), client);
-}
-
-WebDevToolsFrontend* WebDevToolsFrontend::create(
     WebLocalFrame* frame,
-    WebDevToolsFrontendClient* client,
-    const WebString& applicationLocale)
+    WebDevToolsFrontendClient* client)
 {
     return new WebDevToolsFrontendImpl(toWebLocalFrameImpl(frame), client);
 }
@@ -66,10 +57,13 @@ WebDevToolsFrontendImpl::WebDevToolsFrontendImpl(
     , m_client(client)
 {
     m_webFrame->setDevToolsFrontend(this);
+    m_webFrame->frame()->host()->setDefaultPageScaleLimits(1.f, 1.f);
 }
 
 WebDevToolsFrontendImpl::~WebDevToolsFrontendImpl()
 {
+    if (m_devtoolsHost)
+        m_devtoolsHost->disconnectClient();
 }
 
 void WebDevToolsFrontendImpl::didClearWindowObject(WebLocalFrameImpl* frame)
@@ -77,6 +71,7 @@ void WebDevToolsFrontendImpl::didClearWindowObject(WebLocalFrameImpl* frame)
     if (m_webFrame == frame) {
         v8::Isolate* isolate = v8::Isolate::GetCurrent();
         ScriptState* scriptState = ScriptState::forMainWorld(m_webFrame->frame());
+        ASSERT(scriptState);
         ScriptState::Scope scope(scriptState);
 
         if (m_devtoolsHost)

@@ -5,15 +5,17 @@
 #include "chrome/browser/ui/views/app_list/win/app_list_service_win.h"
 
 #include <dwmapi.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <sstream>
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
@@ -37,6 +39,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/installer/util/browser_distribution.h"
+#include "components/prefs/pref_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
@@ -52,23 +55,13 @@
 #endif  // GOOGLE_CHROME_BUILD
 
 // static
-AppListService* AppListService::Get(chrome::HostDesktopType desktop_type) {
-  if (desktop_type == chrome::HOST_DESKTOP_TYPE_ASH) {
-    DCHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kViewerConnect));
-    return AppListServiceAsh::GetInstance();
-  }
-
+AppListService* AppListService::Get() {
   return AppListServiceWin::GetInstance();
 }
 
 // static
 void AppListService::InitAll(Profile* initial_profile,
                              const base::FilePath& profile_path) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kViewerConnect))
-    AppListServiceAsh::GetInstance()->Init(initial_profile);
-
   AppListServiceWin::GetInstance()->Init(initial_profile);
 }
 
@@ -126,7 +119,8 @@ base::string16 GetAppModelId() {
         command_line->GetSwitchValuePath(switches::kUserDataDir).AppendASCII(
             chrome::kInitialProfile);
   }
-  return ShellIntegration::GetAppListAppModelIdForProfile(initial_profile_path);
+  return shell_integration::GetAppListAppModelIdForProfile(
+      initial_profile_path);
 }
 
 #if defined(GOOGLE_CHROME_BUILD)
@@ -162,7 +156,7 @@ void SetDidRunForNDayActiveStats() {
 // |app_model_id|. This runs on the FILE thread and not in the blocking IO
 // thread pool as there are other tasks running (also on the FILE thread)
 // which fiddle with shortcut icons
-// (ShellIntegration::MigrateWin7ShortcutsOnPath). Having different threads
+// (shell_integration::MigrateWin7ShortcutsOnPath). Having different threads
 // fiddle with the same shortcuts could cause race issues.
 void CreateAppListShortcuts(
     const base::FilePath& user_data_dir,
@@ -366,7 +360,7 @@ bool AppListServiceWin::IsWarmupNeeded() {
   // Don't warm up the app list if it hasn't been used for a while. If the last
   // launch is unknown, record it as "used" on the first warmup.
   PrefService* local_state = g_browser_process->local_state();
-  int64 last_launch_time_pref =
+  int64_t last_launch_time_pref =
       local_state->GetInt64(prefs::kAppListLastLaunchTime);
   if (last_launch_time_pref == 0)
     RecordAppListLastLaunch();

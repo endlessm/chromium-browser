@@ -4,9 +4,12 @@
 
 #include "chrome/browser/plugins/plugin_infobar_delegates.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
@@ -29,19 +32,12 @@
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(ENABLE_PLUGIN_INSTALLATION)
-#if defined(OS_WIN)
-#include "base/win/metro.h"
-#endif
 #include "chrome/browser/plugins/plugin_installer.h"
 #endif
 
 #if defined(OS_WIN)
 #include <shellapi.h>
 #include "ui/base/win/shell.h"
-
-#if defined(USE_AURA)
-#include "ui/aura/remote_window_tree_host_win.h"
-#endif
 #endif
 
 using base::UserMetricsAction;
@@ -59,10 +55,11 @@ void OutdatedPluginInfoBarDelegate::Create(
   base::string16 name(plugin_metadata->name());
   infobar_service->AddInfoBar(infobar_service->CreateConfirmInfoBar(
       scoped_ptr<ConfirmInfoBarDelegate>(new OutdatedPluginInfoBarDelegate(
-          installer, plugin_metadata.Pass(),
+          installer, std::move(plugin_metadata),
           l10n_util::GetStringFUTF16(
-              (installer->state() == PluginInstaller::INSTALLER_STATE_IDLE) ?
-                  IDS_PLUGIN_OUTDATED_PROMPT : IDS_PLUGIN_DOWNLOADING,
+              (installer->state() == PluginInstaller::INSTALLER_STATE_IDLE)
+                  ? IDS_PLUGIN_OUTDATED_PROMPT
+                  : IDS_PLUGIN_DOWNLOADING,
               name)))));
 }
 
@@ -73,7 +70,7 @@ OutdatedPluginInfoBarDelegate::OutdatedPluginInfoBarDelegate(
     : ConfirmInfoBarDelegate(),
       WeakPluginInstallerObserver(installer),
       identifier_(plugin_metadata->identifier()),
-      plugin_metadata_(plugin_metadata.Pass()),
+      plugin_metadata_(std::move(plugin_metadata)),
       message_(message) {
   content::RecordAction(UserMetricsAction("OutdatedPluginInfobar.Shown"));
   std::string name = base::UTF16ToUTF8(plugin_metadata_->name());
@@ -100,6 +97,11 @@ OutdatedPluginInfoBarDelegate::OutdatedPluginInfoBarDelegate(
 
 OutdatedPluginInfoBarDelegate::~OutdatedPluginInfoBarDelegate() {
   content::RecordAction(UserMetricsAction("OutdatedPluginInfobar.Closed"));
+}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+OutdatedPluginInfoBarDelegate::GetIdentifier() const {
+  return OUTDATED_PLUGIN_INFOBAR_DELEGATE;
 }
 
 void OutdatedPluginInfoBarDelegate::InfoBarDismissed() {
@@ -205,82 +207,7 @@ void OutdatedPluginInfoBarDelegate::Replace(
       infobar,
       infobar->owner()->CreateConfirmInfoBar(
           scoped_ptr<ConfirmInfoBarDelegate>(new OutdatedPluginInfoBarDelegate(
-              installer, plugin_metadata.Pass(), message))));
+              installer, std::move(plugin_metadata), message))));
 }
-
-#if defined(OS_WIN)
-
-// PluginMetroModeInfoBarDelegate ---------------------------------------------
-
-// static
-void PluginMetroModeInfoBarDelegate::Create(
-    InfoBarService* infobar_service,
-    PluginMetroModeInfoBarDelegate::Mode mode,
-    const base::string16& name) {
-  infobar_service->AddInfoBar(
-      infobar_service->CreateConfirmInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
-          new PluginMetroModeInfoBarDelegate(mode, name))));
-}
-
-PluginMetroModeInfoBarDelegate::PluginMetroModeInfoBarDelegate(
-    PluginMetroModeInfoBarDelegate::Mode mode,
-    const base::string16& name)
-    : ConfirmInfoBarDelegate(),
-      mode_(mode),
-      name_(name) {
-}
-
-PluginMetroModeInfoBarDelegate::~PluginMetroModeInfoBarDelegate() {
-}
-
-int PluginMetroModeInfoBarDelegate::GetIconId() const {
-  return IDR_INFOBAR_PLUGIN_INSTALL;
-}
-
-base::string16 PluginMetroModeInfoBarDelegate::GetMessageText() const {
-  return l10n_util::GetStringFUTF16((mode_ == MISSING_PLUGIN) ?
-      IDS_METRO_MISSING_PLUGIN_PROMPT : IDS_METRO_NPAPI_PLUGIN_PROMPT, name_);
-}
-
-int PluginMetroModeInfoBarDelegate::GetButtons() const {
-  return BUTTON_OK;
-}
-
-base::string16 PluginMetroModeInfoBarDelegate::GetButtonLabel(
-    InfoBarButton button) const {
-  return l10n_util::GetStringUTF16(IDS_WIN_DESKTOP_RESTART);
-}
-
-void LaunchDesktopInstanceHelper(const base::string16& url) {
-  base::FilePath exe_path;
-  if (!PathService::Get(base::FILE_EXE, &exe_path))
-    return;
-  base::FilePath shortcut_path(
-      ShellIntegration::GetStartMenuShortcut(exe_path));
-
-  // Actually launching the process needs to happen in the metro viewer,
-  // otherwise it won't automatically transition to desktop.  So we have
-  // to send an IPC to the viewer to do the ShellExecute.
-  aura::RemoteWindowTreeHostWin::Instance()->HandleOpenURLOnDesktop(
-      shortcut_path, url);
-}
-
-bool PluginMetroModeInfoBarDelegate::Accept() {
-  chrome::AttemptRestartToDesktopMode();
-  return true;
-}
-
-base::string16 PluginMetroModeInfoBarDelegate::GetLinkText() const {
-  return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
-}
-
-GURL PluginMetroModeInfoBarDelegate::GetLinkURL() const {
-  return GURL(
-      (mode_ == MISSING_PLUGIN)
-          ? "https://support.google.com/chrome/?p=ib_display_in_desktop"
-          : "https://support.google.com/chrome/?p=ib_redirect_to_desktop");
-}
-
-#endif  // defined(OS_WIN)
 
 #endif  // defined(ENABLE_PLUGIN_INSTALLATION)

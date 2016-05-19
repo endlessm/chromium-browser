@@ -6,6 +6,7 @@
 
 #include <set>
 
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/views/controls/button/menu_button.h"
@@ -64,7 +65,9 @@ class ExampleMenuButton : public MenuButton, public MenuButtonListener {
 
  private:
   // MenuButtonListener:
-  void OnMenuButtonClicked(View* source, const gfx::Point& point) override;
+  void OnMenuButtonClicked(MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
   ui::SimpleMenuModel* GetMenuModel();
 
@@ -177,14 +180,14 @@ void ExampleMenuModel::ExecuteCommand(int command_id, int event_flags) {
 // ExampleMenuButton -----------------------------------------------------------
 
 ExampleMenuButton::ExampleMenuButton(const base::string16& test)
-    : MenuButton(NULL, test, this, true) {
-}
+    : MenuButton(test, this, true) {}
 
 ExampleMenuButton::~ExampleMenuButton() {
 }
 
-void ExampleMenuButton::OnMenuButtonClicked(View* source,
-                                            const gfx::Point& point) {
+void ExampleMenuButton::OnMenuButtonClicked(MenuButton* source,
+                                            const gfx::Point& point,
+                                            const ui::Event* event) {
   menu_runner_.reset(new MenuRunner(GetMenuModel(), MenuRunner::HAS_MNEMONICS));
 
   if (menu_runner_->RunMenuAt(source->GetWidget()->GetTopLevelWidget(),

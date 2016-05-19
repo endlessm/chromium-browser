@@ -5,6 +5,8 @@
 // IPC messages for extensions.
 // Multiply-included message file, hence no include guard.
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -38,6 +40,9 @@ IPC_ENUM_TRAITS_MAX_VALUE(content::SocketPermissionRequest::OperationType,
 
 IPC_ENUM_TRAITS_MAX_VALUE(extensions::UserScript::InjectionType,
                           extensions::UserScript::INJECTION_TYPE_LAST)
+
+IPC_ENUM_TRAITS_MAX_VALUE(extensions::UserScript::RunLocation,
+                          extensions::UserScript::RUN_LOCATION_LAST - 1)
 
 IPC_ENUM_TRAITS_MAX_VALUE(HostID::HostType, HostID::HOST_TYPE_LAST)
 
@@ -180,14 +185,6 @@ IPC_STRUCT_BEGIN(ExtensionMsg_ExternalConnectionInfo)
   // The URL of the frame that initiated the request.
   IPC_STRUCT_MEMBER(GURL, source_url)
 
-  // The ID of the tab that is the target of the request, or -1 if there is no
-  // target tab.
-  IPC_STRUCT_MEMBER(int, target_tab_id)
-
-  // The ID of the frame that is the target of the request, or -1 if there is
-  // no target frame (implying the message is for all frames).
-  IPC_STRUCT_MEMBER(int, target_frame_id)
-
   // The process ID of the webview that initiated the request.
   IPC_STRUCT_MEMBER(int, guest_process_id)
 
@@ -252,6 +249,8 @@ struct ExtensionMsg_PermissionSetStruct {
   ExtensionMsg_PermissionSetStruct();
   explicit ExtensionMsg_PermissionSetStruct(
       const extensions::PermissionSet& permissions);
+  ExtensionMsg_PermissionSetStruct(
+      const ExtensionMsg_PermissionSetStruct& other);
   ~ExtensionMsg_PermissionSetStruct();
 
   scoped_ptr<const extensions::PermissionSet> ToPermissionSet() const;
@@ -267,6 +266,7 @@ struct ExtensionMsg_Loaded_Params {
   ~ExtensionMsg_Loaded_Params();
   ExtensionMsg_Loaded_Params(const extensions::Extension* extension,
                              bool include_tab_permissions);
+  ExtensionMsg_Loaded_Params(const ExtensionMsg_Loaded_Params& other);
 
   // Creates a new extension from the data in this object.
   scoped_refptr<extensions::Extension> ConvertToExtension(
@@ -307,64 +307,80 @@ namespace IPC {
 template <>
 struct ParamTraits<URLPattern> {
   typedef URLPattern param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<extensions::URLPatternSet> {
   typedef extensions::URLPatternSet param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<extensions::APIPermission::ID> {
   typedef extensions::APIPermission::ID param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<extensions::APIPermissionSet> {
   typedef extensions::APIPermissionSet param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<extensions::ManifestPermissionSet> {
   typedef extensions::ManifestPermissionSet param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<HostID> {
   typedef HostID param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<ExtensionMsg_PermissionSetStruct> {
   typedef ExtensionMsg_PermissionSetStruct param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<ExtensionMsg_Loaded_Params> {
   typedef ExtensionMsg_Loaded_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -517,7 +533,7 @@ IPC_MESSAGE_CONTROL2(ExtensionMsg_WakeEventPageResponse,
 // sequence_id so that we can tell which message it is responding to.
 IPC_MESSAGE_CONTROL2(ExtensionMsg_ShouldSuspend,
                      std::string /* extension_id */,
-                     uint64 /* sequence_id */)
+                     uint64_t /* sequence_id */)
 
 // If we complete a round of ShouldSuspend->ShouldSuspendAck messages without
 // the lazy background page becoming active again, we are ready to unload. This
@@ -532,7 +548,7 @@ IPC_MESSAGE_CONTROL1(ExtensionMsg_CancelSuspend,
 // Response to the renderer for ExtensionHostMsg_GetAppInstallState.
 IPC_MESSAGE_ROUTED2(ExtensionMsg_GetAppInstallStateResponse,
                     std::string /* state */,
-                    int32 /* callback_id */)
+                    int32_t /* callback_id */)
 
 // Dispatch the Port.onConnect event for message channels.
 IPC_MESSAGE_ROUTED5(ExtensionMsg_DispatchOnConnect,
@@ -640,37 +656,45 @@ IPC_MESSAGE_ROUTED1(ExtensionHostMsg_EventAck, int /* message_id */)
 // sending messages.  If an error occurred, the opener will be notified
 // asynchronously.
 IPC_SYNC_MESSAGE_CONTROL4_1(ExtensionHostMsg_OpenChannelToExtension,
-                            int /* routing_id */,
+                            int /* frame_routing_id */,
                             ExtensionMsg_ExternalConnectionInfo,
                             std::string /* channel_name */,
                             bool /* include_tls_channel_id */,
                             int /* port_id */)
 
 IPC_SYNC_MESSAGE_CONTROL3_1(ExtensionHostMsg_OpenChannelToNativeApp,
-                            int /* routing_id */,
+                            int /* frame_routing_id */,
                             std::string /* source_extension_id */,
                             std::string /* native_app_name */,
                             int /* port_id */)
 
 // Get a port handle to the given tab.  The handle can be used for sending
 // messages to the extension.
-IPC_SYNC_MESSAGE_CONTROL3_1(ExtensionHostMsg_OpenChannelToTab,
+IPC_SYNC_MESSAGE_CONTROL4_1(ExtensionHostMsg_OpenChannelToTab,
+                            int /* frame_routing_id */,
                             ExtensionMsg_TabTargetConnectionInfo,
                             std::string /* extension_id */,
                             std::string /* channel_name */,
                             int /* port_id */)
 
+// Sent in response to ExtensionMsg_DispatchOnConnect when the port is accepted.
+// The handle is the value returned by ExtensionHostMsg_OpenChannelTo*.
+IPC_MESSAGE_CONTROL2(ExtensionHostMsg_OpenMessagePort,
+                     int /* frame_routing_id */,
+                     int /* port_id */)
+
+// Sent in response to ExtensionMsg_DispatchOnConnect and whenever the port is
+// closed. The handle is the value returned by ExtensionHostMsg_OpenChannelTo*.
+IPC_MESSAGE_CONTROL3(ExtensionHostMsg_CloseMessagePort,
+                     int /* frame_routing_id */,
+                     int /* port_id */,
+                     bool /* force_close */)
+
 // Send a message to an extension process.  The handle is the value returned
-// by ViewHostMsg_OpenChannelTo*.
+// by ExtensionHostMsg_OpenChannelTo*.
 IPC_MESSAGE_ROUTED2(ExtensionHostMsg_PostMessage,
                     int /* port_id */,
                     extensions::Message)
-
-// Send a message to an extension process.  The handle is the value returned
-// by ViewHostMsg_OpenChannelTo*.
-IPC_MESSAGE_CONTROL2(ExtensionHostMsg_CloseChannel,
-                     int /* port_id */,
-                     std::string /* error_message */)
 
 // Used to get the extension message bundle.
 IPC_SYNC_MESSAGE_CONTROL1_1(ExtensionHostMsg_GetMessageBundle,
@@ -696,22 +720,23 @@ IPC_MESSAGE_ROUTED2(ExtensionHostMsg_ContentScriptsExecuting,
 // If request id is -1, this signals that the request has already ran, and this
 // merely serves as a notification. This happens when the feature to disable
 // scripts running without user consent is not enabled.
-IPC_MESSAGE_ROUTED3(ExtensionHostMsg_RequestScriptInjectionPermission,
+IPC_MESSAGE_ROUTED4(ExtensionHostMsg_RequestScriptInjectionPermission,
                     std::string /* extension id */,
                     extensions::UserScript::InjectionType /* script type */,
-                    int64 /* request id */)
+                    extensions::UserScript::RunLocation /* run location */,
+                    int64_t /* request id */)
 
 // Sent from the browser to the renderer in reply to a
 // RequestScriptInjectionPermission message, granting permission for a script
 // script to run.
 IPC_MESSAGE_ROUTED1(ExtensionMsg_PermitScriptInjection,
-                    int64 /* request id */)
+                    int64_t /* request id */)
 
 // Sent by the renderer when a web page is checking if its app is installed.
 IPC_MESSAGE_ROUTED3(ExtensionHostMsg_GetAppInstallState,
                     GURL /* requestor_url */,
-                    int32 /* return_route_id */,
-                    int32 /* callback_id */)
+                    int32_t /* return_route_id */,
+                    int32_t /* callback_id */)
 
 // Optional Ack message sent to the browser to notify that the response to a
 // function has been processed.
@@ -721,7 +746,7 @@ IPC_MESSAGE_ROUTED1(ExtensionHostMsg_ResponseAck,
 // Response to ExtensionMsg_ShouldSuspend.
 IPC_MESSAGE_CONTROL2(ExtensionHostMsg_ShouldSuspendAck,
                      std::string /* extension_id */,
-                     uint64 /* sequence_id */)
+                     uint64_t /* sequence_id */)
 
 // Response to ExtensionMsg_Suspend, after we dispatch the suspend event.
 IPC_MESSAGE_CONTROL1(ExtensionHostMsg_SuspendAck,
@@ -791,7 +816,7 @@ IPC_MESSAGE_ROUTED4(ExtensionHostMsg_DetailedConsoleMessageAdded,
                     base::string16 /* message */,
                     base::string16 /* source */,
                     extensions::StackTrace /* stack trace */,
-                    int32 /* severity level */)
+                    int32_t /* severity level */)
 
 // Sent when a query selector request is made from the automation API.
 // acc_obj_id is the accessibility tree ID of the starting element.

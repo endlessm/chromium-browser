@@ -51,6 +51,9 @@ public:
     ~ResourceLoader() override;
     DECLARE_TRACE();
 
+    // Promptly release m_loader.
+    EAGERLY_FINALIZE();
+
     void start();
     void changeToSynchronous();
 
@@ -58,7 +61,7 @@ public:
     void cancel(const ResourceError&);
     void cancelIfNotFinishing();
 
-    Resource* cachedResource() { return m_resource; }
+    Resource* cachedResource() { return m_resource.get(); }
     const ResourceRequest& originalRequest() const { return m_originalRequest; }
 
     void setDefersLoading(bool);
@@ -90,6 +93,7 @@ public:
     bool loadingMultipartContent() const { return m_loadingMultipartContent; }
 
 private:
+    // Assumes ResourceFetcher and Resource are non-null.
     ResourceLoader(ResourceFetcher*, Resource*, const ResourceLoaderOptions&);
 
     void init(const ResourceRequest&);
@@ -130,7 +134,7 @@ private:
         ConnectionStateFailed,
     };
 
-    RawPtrWillBeMember<Resource> m_resource;
+    RefPtrWillBeMember<Resource> m_resource;
     ResourceLoaderState m_state;
 
     // Used for sanity checking to make sure we don't experience illegal state
@@ -138,6 +142,6 @@ private:
     ConnectionState m_connectionState;
 };
 
-}
+} // namespace blink
 
 #endif

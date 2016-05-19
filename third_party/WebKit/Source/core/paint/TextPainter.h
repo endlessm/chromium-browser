@@ -24,6 +24,7 @@ class GraphicsContext;
 class GraphicsContextStateSaver;
 class LayoutTextCombine;
 class LayoutObject;
+class LineLayoutItem;
 struct PaintInfo;
 class ShadowList;
 class TextRun;
@@ -34,13 +35,13 @@ class CORE_EXPORT TextPainter {
 public:
     struct Style;
 
-    TextPainter(GraphicsContext*, const Font&, const TextRun&, const LayoutPoint& textOrigin, const LayoutRect& textBounds, bool horizontal);
+    TextPainter(GraphicsContext&, const Font&, const TextRun&, const LayoutPoint& textOrigin, const LayoutRect& textBounds, bool horizontal);
     ~TextPainter();
 
     void setEmphasisMark(const AtomicString&, TextEmphasisPosition);
     void setCombinedText(LayoutTextCombine* combinedText) { m_combinedText = combinedText; }
 
-    static void updateGraphicsContext(GraphicsContext*, const Style&, bool horizontal, GraphicsContextStateSaver&);
+    static void updateGraphicsContext(GraphicsContext&, const Style&, bool horizontal, GraphicsContextStateSaver&);
 
     void paint(int startOffset, int endOffset, int length, const Style&, TextBlobPtr* cachedTextBlob = 0);
 
@@ -64,8 +65,8 @@ public:
         }
         bool operator!=(const Style& other) { return !(*this == other); }
     };
-    static Style textPaintingStyle(const LayoutObject&, const ComputedStyle&, const PaintInfo&);
-    static Style selectionPaintingStyle(const LayoutObject&, bool haveSelection, const PaintInfo&, const Style& textStyle);
+    static Style textPaintingStyle(LineLayoutItem, const ComputedStyle&, const PaintInfo&);
+    static Style selectionPaintingStyle(LineLayoutItem, bool haveSelection, const PaintInfo&, const Style& textStyle);
 
     enum RotationDirection { Counterclockwise, Clockwise };
     static AffineTransform rotation(const LayoutRect& boxRect, RotationDirection);
@@ -86,7 +87,7 @@ private:
 
     void paintEmphasisMarkForCombinedText();
 
-    GraphicsContext* m_graphicsContext;
+    GraphicsContext& m_graphicsContext;
     const Font& m_font;
     const TextRun& m_run;
     LayoutPoint m_textOrigin;

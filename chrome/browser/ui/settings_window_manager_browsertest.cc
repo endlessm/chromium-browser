@@ -4,14 +4,18 @@
 
 #include "chrome/browser/ui/settings_window_manager.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_iterator.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/settings_window_manager_observer.h"
@@ -96,9 +100,9 @@ class SettingsWindowManagerTest : public InProcessBrowserTest {
 
   void CloseNonDefaultBrowsers() {
     std::list<Browser*> browsers_to_close;
-    for (chrome::BrowserIterator it; !it.done(); it.Next()) {
-      if (*it != browser())
-        browsers_to_close.push_back(*it);
+    for (auto* b : *BrowserList::GetInstance()) {
+      if (b != browser())
+        browsers_to_close.push_back(b);
     }
     for (std::list<Browser*>::iterator iter = browsers_to_close.begin();
          iter != browsers_to_close.end(); ++iter) {

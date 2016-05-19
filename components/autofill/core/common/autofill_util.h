@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_COMMON_AUTOFILL_UTIL_H_
 #define COMPONENTS_AUTOFILL_CORE_COMMON_AUTOFILL_UTIL_H_
 
+#include <stddef.h>
+
 #include "base/strings/string16.h"
 
 namespace autofill {
@@ -35,6 +37,10 @@ bool FieldIsSuggestionSubstringStartingOnTokenBoundary(
 size_t GetTextSelectionStart(const base::string16& suggestion,
                              const base::string16& field_contents,
                              bool case_sensitive);
+
+// Returns true if running on a desktop platform. Any platform that is not
+// Android or iOS is considered desktop.
+bool IsDesktopPlatform();
 
 }  // namespace autofill
 

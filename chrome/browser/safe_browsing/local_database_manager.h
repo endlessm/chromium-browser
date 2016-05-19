@@ -8,6 +8,8 @@
 #ifndef CHROME_BROWSER_SAFE_BROWSING_LOCAL_DATABASE_MANAGER_H_
 #define CHROME_BROWSER_SAFE_BROWSING_LOCAL_DATABASE_MANAGER_H_
 
+#include <stddef.h>
+
 #include <deque>
 #include <map>
 #include <set>
@@ -17,13 +19,14 @@
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
-#include "chrome/browser/safe_browsing/database_manager.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
+#include "components/safe_browsing_db/database_manager.h"
 #include "components/safe_browsing_db/util.h"
 #include "url/gurl.h"
 
@@ -38,6 +41,7 @@ class SafeBrowsingService;
 class SafeBrowsingDatabase;
 class ClientSideDetectionService;
 class DownloadProtectionService;
+struct V4ProtocolConfig;
 
 // Implemetation that manages a local database on disk.
 //
@@ -63,9 +67,13 @@ class LocalSafeBrowsingDatabaseManager
     // Either |urls| or |full_hashes| is used to lookup database. |*_results|
     // are parallel vectors containing the results. They are initialized to
     // contain SB_THREAT_TYPE_SAFE.
+    // |url_hit_hash| and |url_metadata| are parallel vectors containing full
+    // hash and metadata of a database record provided the result. They are
+    // initialized to be empty strings.
     std::vector<GURL> urls;
     std::vector<SBThreatType> url_results;
     std::vector<std::string> url_metadata;
+    std::vector<std::string> url_hit_hash;
     std::vector<SBFullHash> full_hashes;
     std::vector<SBThreatType> full_hash_results;
 
@@ -94,7 +102,7 @@ class LocalSafeBrowsingDatabaseManager
   };
 
   // Creates the safe browsing service.  Need to initialize before using.
-  explicit LocalSafeBrowsingDatabaseManager(
+  LocalSafeBrowsingDatabaseManager(
       const scoped_refptr<SafeBrowsingService>& service);
 
   //
@@ -112,15 +120,19 @@ class LocalSafeBrowsingDatabaseManager
                         Client* client) override;
   bool CheckExtensionIDs(const std::set<std::string>& extension_ids,
                          Client* client) override;
+  bool CheckResourceUrl(const GURL& url, Client* client) override;
   bool MatchCsdWhitelistUrl(const GURL& url) override;
   bool MatchMalwareIP(const std::string& ip_address) override;
   bool MatchDownloadWhitelistUrl(const GURL& url) override;
   bool MatchDownloadWhitelistString(const std::string& str) override;
   bool MatchInclusionWhitelistUrl(const GURL& url) override;
+  bool MatchModuleWhitelistString(const std::string& str) override;
   bool IsMalwareKillSwitchOn() override;
   bool IsCsdWhitelistKillSwitchOn() override;
   void CancelCheck(Client* client) override;
-  void StartOnIOThread() override;
+  void StartOnIOThread(
+      net::URLRequestContextGetter* request_context_getter,
+      const V4ProtocolConfig& config) override;
   void StopOnIOThread(bool shutdown) override;
   bool download_protection_enabled() const override;
 
@@ -141,11 +153,10 @@ class LocalSafeBrowsingDatabaseManager
   friend class SafeBrowsingServerTest;
   friend class SafeBrowsingServiceTest;
   friend class SafeBrowsingServiceTestHelper;
-  // TODO(nparker): Rename this test to LocalSafeBrowsingDatabaseManagerTest
-  friend class SafeBrowsingDatabaseManagerTest;
-  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingDatabaseManagerTest,
+  friend class LocalDatabaseManagerTest;
+  FRIEND_TEST_ALL_PREFIXES(LocalDatabaseManagerTest,
                            GetUrlSeverestThreatType);
-  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingDatabaseManagerTest,
+  FRIEND_TEST_ALL_PREFIXES(LocalDatabaseManagerTest,
                            ServiceStopWithPendingChecks);
 
   typedef std::set<SafeBrowsingCheck*> CurrentChecks;
@@ -159,6 +170,7 @@ class LocalSafeBrowsingDatabaseManager
                 const GURL& url,
                 const std::vector<SBThreatType>& expected_threats,
                 const base::TimeTicks& start);
+    QueuedCheck(const QueuedCheck& other);
     ~QueuedCheck();
     ListType check_type;
     Client* client;
@@ -237,9 +249,10 @@ class LocalSafeBrowsingDatabaseManager
   void DatabaseLoadComplete();
 
   // Called on the database thread to add/remove chunks and host keys.
-  void AddDatabaseChunks(const std::string& list,
-                         scoped_ptr<ScopedVector<SBChunkData> > chunks,
-                         AddChunksCallback callback);
+  void AddDatabaseChunks(
+      const std::string& list,
+      scoped_ptr<std::vector<scoped_ptr<SBChunkData>>> chunks,
+      AddChunksCallback callback);
 
   void DeleteDatabaseChunks(
       scoped_ptr<std::vector<SBChunkDelete> > chunk_deletes);
@@ -281,6 +294,10 @@ class LocalSafeBrowsingDatabaseManager
   std::vector<SBPrefix> CheckExtensionIDsOnSBThread(
       const std::vector<SBPrefix>& prefixes);
 
+  // Checks all resource URL hashes on |safe_browsing_task_runner_|.
+  std::vector<SBPrefix> CheckResourceUrlOnSBThread(
+      const std::vector<SBPrefix>& prefixes);
+
   // Helper function that calls safe browsing client and cleans up |checks_|.
   void SafeBrowsingCheckDone(SafeBrowsingCheck* check);
 
@@ -297,7 +314,7 @@ class LocalSafeBrowsingDatabaseManager
   void UpdateFinished(bool success) override;
   void GetChunks(GetChunksCallback callback) override;
   void AddChunks(const std::string& list,
-                 scoped_ptr<ScopedVector<SBChunkData>> chunks,
+                 scoped_ptr<std::vector<scoped_ptr<SBChunkData>>> chunks,
                  AddChunksCallback callback) override;
   void DeleteChunks(
       scoped_ptr<std::vector<SBChunkDelete>> chunk_deletes) override;
@@ -339,6 +356,9 @@ class LocalSafeBrowsingDatabaseManager
 
   // Indicate if the unwanted software blacklist should be enabled.
   bool enable_unwanted_software_blacklist_;
+
+  // Indicate if the module whitelist should be enabled.
+  bool enable_module_whitelist_;
 
   // The sequenced task runner for running safe browsing database operations.
   scoped_refptr<base::SequencedTaskRunner> safe_browsing_task_runner_;

@@ -5,8 +5,9 @@
 """URL endpoint for a cron job to automatically run bisects."""
 
 import datetime
-import json
+import logging
 
+from dashboard import can_bisect
 from dashboard import datastore_hooks
 from dashboard import request_handler
 from dashboard import start_try_job
@@ -18,15 +19,6 @@ from dashboard.models import try_job
 # Days between successive bisect restarts.
 _BISECT_RESTART_PERIOD_DAYS = [0, 1, 7, 14]
 
-# A set of suites for which we can't do performance bisects.
-# This list currently also exists in the front-end code.
-_UNBISECTABLE_SUITES = [
-    'arc-perf-test',
-    'browser_tests',
-    'content_browsertests',
-    'sizes',
-    'v8',
-]
 
 class AutoBisectHandler(request_handler.RequestHandler):
   """URL endpoint for a cron job to automatically run bisects."""
@@ -41,8 +33,8 @@ class AutoBisectHandler(request_handler.RequestHandler):
       self.RenderHtml('result.html', _PrintStartedAndFailedBisectJobs())
       return
     datastore_hooks.SetPrivilegedRequest()
-    _RestartFailedBisectJobs()
-    utils.TickMonitoringCustomMetric('RestartFailedBisectJobs')
+    if _RestartFailedBisectJobs():
+      utils.TickMonitoringCustomMetric('RestartFailedBisectJobs')
 
 
 class NotBisectableError(Exception):
@@ -54,16 +46,29 @@ def _RestartFailedBisectJobs():
   """Restarts failed bisect jobs.
 
   Bisect jobs that ran out of retries will be deleted.
+
+  Returns:
+    True if all bisect jobs that were retried were successfully triggered,
+    and False otherwise.
   """
   bisect_jobs = try_job.TryJob.query(try_job.TryJob.status == 'failed').fetch()
+  all_successful = True
   for job in bisect_jobs:
     if job.run_count > 0:
       if job.run_count <= len(_BISECT_RESTART_PERIOD_DAYS):
         if _IsBisectJobDueForRestart(job):
+          # Start bisect right away if this is the first retry. Otherwise,
+          # try bisect with different config.
           if job.run_count == 1:
-            start_try_job.PerformBisect(job)
+            try:
+              start_try_job.PerformBisect(job)
+            except request_handler.InvalidInputError as e:
+              logging.error(e.message)
+              all_successful = False
           elif job.bug_id:
-            _RestartBisect(job)
+            restart_successful = _RestartBisect(job)
+            if not restart_successful:
+              all_successful = False
       else:
         if job.bug_id:
           comment = ('Failed to run bisect %s times.'
@@ -71,6 +76,7 @@ def _RestartFailedBisectJobs():
                      job.run_count)
           start_try_job.LogBisectResult(job.bug_id, comment)
         job.key.delete()
+  return all_successful
 
 
 def _RestartBisect(bisect_job):
@@ -78,16 +84,25 @@ def _RestartBisect(bisect_job):
 
   Args:
     bisect_job: TryJob entity with initialized bot name and config.
+
+  Returns:
+    True if the bisect was successfully triggered and False otherwise.
   """
   try:
     new_bisect_job = _MakeBisectTryJob(
         bisect_job.bug_id, bisect_job.run_count)
   except NotBisectableError:
-    return
+    return False
   bisect_job.config = new_bisect_job.config
   bisect_job.bot = new_bisect_job.bot
+  bisect_job.use_buildbucket = new_bisect_job.use_buildbucket
   bisect_job.put()
-  start_try_job.PerformBisect(bisect_job)
+  try:
+    start_try_job.PerformBisect(bisect_job)
+  except request_handler.InvalidInputError as e:
+    logging.error(e.message)
+    return False
+  return True
 
 
 def StartNewBisectForBug(bug_id):
@@ -135,15 +150,14 @@ def _MakeBisectTryJob(bug_id, run_count=0):
   if not anomalies:
     raise NotBisectableError('No Anomaly alerts found for this bug.')
 
-  # Note: This check for bisectability is parallel to that in bisect_utils.js.
   good_revision, bad_revision = _ChooseRevisionRange(anomalies)
-  if not start_try_job.IsValidRevisionForBisect(good_revision):
+  if not can_bisect.IsValidRevisionForBisect(good_revision):
     raise NotBisectableError('Invalid "good" revision: %s.' % good_revision)
-  if not start_try_job.IsValidRevisionForBisect(bad_revision):
+  if not can_bisect.IsValidRevisionForBisect(bad_revision):
     raise NotBisectableError('Invalid "bad" revision: %s.' % bad_revision)
 
   test = _ChooseTest(anomalies, run_count)
-  if not test or not _IsValidTestForBisect(test.test_path):
+  if not test or not can_bisect.IsValidTestForBisect(test.test_path):
     raise NotBisectableError('Could not select a test.')
 
   metric = start_try_job.GuessMetric(test.test_path)
@@ -222,7 +236,7 @@ def _ChooseTest(anomalies, index=0):
   index %= len(anomalies)
   anomalies.sort(cmp=_CompareAnomalyBisectability)
   for anomaly_entity in anomalies[index:]:
-    if _IsValidTestForBisect(utils.TestPath(anomaly_entity.test)):
+    if can_bisect.IsValidTestForBisect(utils.TestPath(anomaly_entity.test)):
       return anomaly_entity.test.get()
   return None
 
@@ -255,20 +269,6 @@ def _CompareAnomalyBisectability(a1, a2):
   elif a1.percent_changed < a2.percent_changed:
     return 1
   return 0
-
-
-def _IsValidTestForBisect(test_path):
-  """Checks whether a test is valid for bisect."""
-  if not test_path:
-    return False
-  path_parts = test_path.split('/')
-  if len(path_parts) < 3:
-    return False
-  if path_parts[2] in _UNBISECTABLE_SUITES:
-    return False
-  if test_path.endswith('/ref') or test_path.endswith('_ref'):
-    return False
-  return True
 
 
 def _ChooseRevisionRange(anomalies):

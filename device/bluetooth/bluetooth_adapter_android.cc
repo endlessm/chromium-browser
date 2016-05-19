@@ -77,7 +77,12 @@ bool BluetoothAdapterAndroid::IsPowered() const {
 void BluetoothAdapterAndroid::SetPowered(bool powered,
                                          const base::Closure& callback,
                                          const ErrorCallback& error_callback) {
-  NOTIMPLEMENTED();
+  if (Java_ChromeBluetoothAdapter_setPowered(AttachCurrentThread(),
+                                             j_adapter_.obj(), powered)) {
+    callback.Run();
+  } else {
+    error_callback.Run();
+  }
 }
 
 bool BluetoothAdapterAndroid::IsDiscoverable() const {
@@ -129,16 +134,27 @@ void BluetoothAdapterAndroid::RegisterAdvertisement(
   error_callback.Run(BluetoothAdvertisement::ERROR_UNSUPPORTED_PLATFORM);
 }
 
-void BluetoothAdapterAndroid::OnScanFailed(JNIEnv* env, jobject caller) {
+void BluetoothAdapterAndroid::OnAdapterStateChanged(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& caller,
+    const bool powered) {
+  NotifyAdapterStateChanged(powered);
+}
+
+void BluetoothAdapterAndroid::OnScanFailed(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& caller) {
   MarkDiscoverySessionsAsInactive();
 }
 
 void BluetoothAdapterAndroid::CreateOrUpdateDeviceOnScan(
     JNIEnv* env,
-    jobject caller,
-    const jstring& address,
-    jobject bluetooth_device_wrapper,  // Java Type: bluetoothDeviceWrapper
-    jobject advertised_uuids) {        // Java Type: List<ParcelUuid>
+    const JavaParamRef<jobject>& caller,
+    const JavaParamRef<jstring>& address,
+    const JavaParamRef<jobject>&
+        bluetooth_device_wrapper,  // Java Type: bluetoothDeviceWrapper
+    const JavaParamRef<jobject>&
+        advertised_uuids) {  // Java Type: List<ParcelUuid>
   std::string device_address = ConvertJavaStringToUTF8(env, address);
   DevicesMap::const_iterator iter = devices_.find(device_address);
 

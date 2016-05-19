@@ -20,7 +20,7 @@ class HitTestLocation;
 class LayoutObject;
 class LineLayoutBox;
 class LineLayoutBoxModel;
-class LineLayoutPaintShim;
+class LineLayoutAPIShim;
 
 enum HitTestFilter;
 
@@ -44,9 +44,20 @@ public:
     // https://crbug.com/499321
     operator LayoutObject*() const { return m_layoutObject; }
 
+    // TODO(dgrogan): Remove this when we replace the operator above with UnspecifiedBoolType.
+    bool isNull() const
+    {
+        return !m_layoutObject;
+    }
+
     bool isEqual(const LayoutObject* layoutObject) const
     {
         return m_layoutObject == layoutObject;
+    }
+
+    String debugName() const
+    {
+        return m_layoutObject->debugName();
     }
 
     bool needsLayout() const
@@ -86,7 +97,7 @@ public:
 
     bool isDescendantOf(const LineLayoutItem item) const
     {
-        return m_layoutObject->isDescendantOf(item);
+        return m_layoutObject->isDescendantOf(item.m_layoutObject);
     }
 
     void updateHitTestResult(HitTestResult& result, const LayoutPoint& point)
@@ -214,6 +225,11 @@ public:
         return m_layoutObject->isInlineBlockOrInlineTable();
     }
 
+    bool isInlineElementContinuation() const
+    {
+        return m_layoutObject->isInlineElementContinuation();
+    }
+
     bool isLayoutBlock() const
     {
         return m_layoutObject->isLayoutBlock();
@@ -234,9 +250,9 @@ public:
         return m_layoutObject->isListMarker();
     }
 
-    bool isReplaced() const
+    bool isAtomicInlineLevel() const
     {
-        return m_layoutObject->isReplaced();
+        return m_layoutObject->isAtomicInlineLevel();
     }
 
     bool isRubyRun() const
@@ -249,9 +265,24 @@ public:
         return m_layoutObject->isRubyBase();
     }
 
+    bool isSVGInline() const
+    {
+        return m_layoutObject->isSVGInline();
+    }
+
     bool isSVGInlineText() const
     {
         return m_layoutObject->isSVGInlineText();
+    }
+
+    bool isSVGText() const
+    {
+        return m_layoutObject->isSVGText();
+    }
+
+    bool isSVGTextPath() const
+    {
+        return m_layoutObject->isSVGTextPath();
     }
 
     bool isTableCell() const
@@ -304,9 +335,19 @@ public:
         return m_layoutObject->hitTest(result, locationInContainer, accumulatedOffset, filter);
     }
 
+    SelectionState getSelectionState() const
+    {
+        return m_layoutObject->getSelectionState();
+    }
+
     Color selectionBackgroundColor() const
     {
         return m_layoutObject->selectionBackgroundColor();
+    }
+
+    Color resolveColor(const ComputedStyle& styleToUse, int colorProperty)
+    {
+        return m_layoutObject->resolveColor(styleToUse, colorProperty);
     }
 
     bool isInFlowPositioned() const
@@ -327,6 +368,31 @@ public:
     LineLayoutItem previousInPreOrder(const LayoutObject* stayWithin) const
     {
         return LineLayoutItem(m_layoutObject->previousInPreOrder(stayWithin));
+    }
+
+    FloatQuad localToAbsoluteQuad(const FloatQuad& quad, MapCoordinatesFlags mode = 0, bool* wasFixed = nullptr) const
+    {
+        return m_layoutObject->localToAbsoluteQuad(quad, mode, wasFixed);
+    }
+
+    int previousOffset(int current) const
+    {
+        return m_layoutObject->previousOffset(current);
+    }
+
+    int nextOffset(int current) const
+    {
+        return m_layoutObject->nextOffset(current);
+    }
+
+    FloatPoint localToAbsolute(const FloatPoint& localPoint = FloatPoint(), MapCoordinatesFlags flags = 0) const
+    {
+        return m_layoutObject->localToAbsolute(localPoint, flags);
+    }
+
+    bool hasOverflowClip() const
+    {
+        return m_layoutObject->hasOverflowClip();
     }
 
 #ifndef NDEBUG
@@ -352,7 +418,9 @@ protected:
 private:
     LayoutObject* m_layoutObject;
 
-    friend class LineLayoutPaintShim;
+    friend class LineLayoutAPIShim;
+    friend class LineLayoutBlockFlow;
+    friend class LineLayoutRubyRun;
 };
 
 } // namespace blink

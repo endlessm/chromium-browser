@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "sync/internal_api/sync_context_proxy_impl.h"
+
+#include <utility>
+#include <vector>
+
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -11,7 +16,7 @@
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/shared_model_type_processor.h"
 #include "sync/internal_api/public/sync_context.h"
-#include "sync/internal_api/sync_context_proxy_impl.h"
+#include "sync/internal_api/public/test/fake_model_type_service.h"
 #include "sync/sessions/model_type_registry.h"
 #include "sync/test/engine/mock_nudge_handler.h"
 #include "sync/test/engine/test_directory_setter_upper.h"
@@ -19,7 +24,7 @@
 
 namespace syncer_v2 {
 
-class SyncContextProxyImplTest : public ::testing::Test {
+class SyncContextProxyImplTest : public ::testing::Test, FakeModelTypeService {
  public:
   SyncContextProxyImplTest()
       : sync_task_runner_(base::ThreadTaskRunnerHandle::Get()),
@@ -43,19 +48,21 @@ class SyncContextProxyImplTest : public ::testing::Test {
   // function simulates such an event.
   void DisableSync() { registry_.reset(); }
 
-  void Start(SharedModelTypeProcessor* processor) {
-    processor->Start(base::Bind(&SyncContextProxyImplTest::StartDone,
-                                base::Unretained(this)));
+  void OnSyncStarting(SharedModelTypeProcessor* processor) {
+    processor->OnSyncStarting(base::Bind(
+        &SyncContextProxyImplTest::OnReadyToConnect, base::Unretained(this)));
   }
 
-  void StartDone(syncer::SyncError error,
-                 scoped_ptr<ActivationContext> context) {
-    context_proxy_->ConnectTypeToSync(syncer::THEMES, context.Pass());
+  void OnReadyToConnect(syncer::SyncError error,
+                        scoped_ptr<ActivationContext> context) {
+    context_proxy_->ConnectTypeToSync(syncer::THEMES, std::move(context));
   }
 
   scoped_ptr<SharedModelTypeProcessor> CreateModelTypeProcessor() {
-    return make_scoped_ptr(new SharedModelTypeProcessor(
-        syncer::THEMES, base::WeakPtr<ModelTypeStore>()));
+    scoped_ptr<SharedModelTypeProcessor> processor =
+        make_scoped_ptr(new SharedModelTypeProcessor(syncer::THEMES, this));
+    processor->OnMetadataLoaded(make_scoped_ptr(new MetadataBatch()));
+    return processor;
   }
 
  private:
@@ -75,7 +82,7 @@ class SyncContextProxyImplTest : public ::testing::Test {
 TEST_F(SyncContextProxyImplTest, FailToConnect1) {
   scoped_ptr<SharedModelTypeProcessor> processor = CreateModelTypeProcessor();
   DisableSync();
-  Start(processor.get());
+  OnSyncStarting(processor.get());
 
   base::RunLoop run_loop_;
   run_loop_.RunUntilIdle();
@@ -85,7 +92,7 @@ TEST_F(SyncContextProxyImplTest, FailToConnect1) {
 // Try to connect a type to a SyncContext as it shuts down.
 TEST_F(SyncContextProxyImplTest, FailToConnect2) {
   scoped_ptr<SharedModelTypeProcessor> processor = CreateModelTypeProcessor();
-  Start(processor.get());
+  OnSyncStarting(processor.get());
   DisableSync();
 
   base::RunLoop run_loop_;
@@ -96,7 +103,7 @@ TEST_F(SyncContextProxyImplTest, FailToConnect2) {
 // Tests the case where the type's sync proxy shuts down first.
 TEST_F(SyncContextProxyImplTest, TypeDisconnectsFirst) {
   scoped_ptr<SharedModelTypeProcessor> processor = CreateModelTypeProcessor();
-  Start(processor.get());
+  OnSyncStarting(processor.get());
 
   base::RunLoop run_loop_;
   run_loop_.RunUntilIdle();
@@ -108,7 +115,7 @@ TEST_F(SyncContextProxyImplTest, TypeDisconnectsFirst) {
 // Tests the case where the sync thread shuts down first.
 TEST_F(SyncContextProxyImplTest, SyncDisconnectsFirst) {
   scoped_ptr<SharedModelTypeProcessor> processor = CreateModelTypeProcessor();
-  Start(processor.get());
+  OnSyncStarting(processor.get());
 
   base::RunLoop run_loop_;
   run_loop_.RunUntilIdle();
@@ -117,4 +124,4 @@ TEST_F(SyncContextProxyImplTest, SyncDisconnectsFirst) {
   DisableSync();
 }
 
-}  // namespace syncer
+}  // namespace syncer_v2

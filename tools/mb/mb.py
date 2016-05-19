@@ -27,7 +27,15 @@ import tempfile
 def main(args):
   mbw = MetaBuildWrapper()
   mbw.ParseArgs(args)
-  return mbw.args.func()
+
+  try:
+    ret = mbw.args.func()
+    if ret:
+      mbw.DumpInputFiles()
+    return ret
+  except Exception:
+    mbw.DumpInputFiles()
+    raise
 
 
 class MetaBuildWrapper(object):
@@ -141,6 +149,21 @@ class MetaBuildWrapper(object):
     subp.set_defaults(func=self.CmdHelp)
 
     self.args = parser.parse_args(argv)
+
+  def DumpInputFiles(self):
+
+    def DumpContentsOfFilePassedTo(arg):
+      attr = arg.replace('--', '').replace('-', '_')
+      path = getattr(self.args, attr, '')
+      if path and self.Exists(path):
+        print("\n# To recreate the file passed to %s:" % arg)
+        print("%% cat > %s <<EOF)" % path)
+        contents = self.ReadFile(path)
+        print(contents)
+        print("EOF\n%\n")
+
+    DumpContentsOfFilePassedTo('input_path')
+    DumpContentsOfFilePassedTo('--swarming-targets-file')
 
   def CmdAnalyze(self):
     vals = self.Lookup()
@@ -344,13 +367,15 @@ class MetaBuildWrapper(object):
     }
 
   def Lookup(self):
-    self.ReadConfigFile()
-    config = self.ConfigFromArgs()
-    if not config in self.configs:
-      raise MBErr('Config "%s" not found in %s' %
-                  (config, self.args.config_file))
+    vals = self.ReadBotConfig()
+    if not vals:
+      self.ReadConfigFile()
+      config = self.ConfigFromArgs()
+      if not config in self.configs:
+        raise MBErr('Config "%s" not found in %s' %
+                    (config, self.args.config_file))
 
-    vals = self.FlattenConfig(config)
+      vals = self.FlattenConfig(config)
 
     # Do some basic sanity checking on the config so that we
     # don't have to do this in every caller.
@@ -359,6 +384,29 @@ class MetaBuildWrapper(object):
         'Unknown meta-build type "%s"' % vals['gn_args'])
 
     return vals
+
+  def ReadBotConfig(self):
+    if not self.args.master or not self.args.builder:
+      return {}
+    path = self.PathJoin(self.chromium_src_dir, 'ios', 'build', 'bots',
+                         self.args.master, self.args.builder + '.json')
+    if not self.Exists(path):
+      return {}
+
+    contents = json.loads(self.ReadFile(path))
+    gyp_vals = contents.get('GYP_DEFINES', {})
+    if isinstance(gyp_vals, dict):
+      gyp_defines = ' '.join('%s=%s' % (k, v) for k, v in gyp_vals.items())
+    else:
+      gyp_defines = ' '.join(gyp_vals)
+    gn_args = ' '.join(contents.get('gn_args', []))
+
+    return {
+        'type': contents.get('mb_type', ''),
+        'gn_args': gn_args,
+        'gyp_defines': gyp_defines,
+        'gyp_crosscompile': False,
+    }
 
   def ReadConfigFile(self):
     if not self.Exists(self.args.config_file):
@@ -481,16 +529,28 @@ class MetaBuildWrapper(object):
       # the compile targets listed (one per line) in the file so
       # we can run them via swarming. We use ninja_to_gn.pyl to convert
       # the compile targets to the matching GN labels.
-      contents = self.ReadFile(self.args.swarming_targets_file)
-      swarming_targets = contents.splitlines()
+      path = self.args.swarming_targets_file
+      if not self.Exists(path):
+        self.WriteFailureAndRaise('"%s" does not exist' % path,
+                                  output_path=None)
+      contents = self.ReadFile(path)
+      swarming_targets = set(contents.splitlines())
       gn_isolate_map = ast.literal_eval(self.ReadFile(self.PathJoin(
           self.chromium_src_dir, 'testing', 'buildbot', 'gn_isolate_map.pyl')))
       gn_labels = []
+      err = ''
       for target in swarming_targets:
-        if not target in gn_isolate_map:
-          raise MBErr('test target "%s"  not found in %s' %
-                      (target, '//testing/buildbot/gn_isolate_map.pyl'))
-        gn_labels.append(gn_isolate_map[target]['label'])
+        target_name = self.GNTargetName(target)
+        if not target_name in gn_isolate_map:
+          err += ('test target "%s" not found\n' % target_name)
+        elif gn_isolate_map[target_name]['type'] == 'unknown':
+          err += ('test target "%s" type is unknown\n' % target_name)
+        else:
+          gn_labels.append(gn_isolate_map[target_name]['label'])
+
+      if err:
+          raise MBErr('Error: Failed to match swarming targets to %s:\n%s' %
+                      ('//testing/buildbot/gn_isolate_map.pyl', err))
 
       gn_runtime_deps_path = self.ToAbsPath(build_dir, 'runtime_deps')
 
@@ -508,24 +568,42 @@ class MetaBuildWrapper(object):
         return ret
 
     for target in swarming_targets:
-      if gn_isolate_map[target]['type'] == 'gpu_browser_test':
-        runtime_deps_target = 'browser_tests'
-      elif gn_isolate_map[target]['type'] == 'script':
+      if target.endswith('_apk'):
+        # "_apk" targets may be either android_apk or executable. The former
+        # will result in runtime_deps associated with the stamp file, while the
+        # latter will result in runtime_deps associated with the executable.
+        target_name = self.GNTargetName(target)
+        label = gn_isolate_map[target_name]['label']
+        runtime_deps_targets = [
+            target_name,
+            'obj/%s.stamp' % label.replace(':', '/')]
+      elif gn_isolate_map[target]['type'] == 'gpu_browser_test':
+        runtime_deps_targets = ['browser_tests']
+      elif (gn_isolate_map[target]['type'] == 'script' or
+            gn_isolate_map[target].get('label_type') == 'group'):
         # For script targets, the build target is usually a group,
         # for which gn generates the runtime_deps next to the stamp file
         # for the label, which lives under the obj/ directory.
         label = gn_isolate_map[target]['label']
-        runtime_deps_target = 'obj/%s.stamp' % label.replace(':', '/')
+        runtime_deps_targets = ['obj/%s.stamp' % label.replace(':', '/')]
       else:
-        runtime_deps_target = target
+        runtime_deps_targets = [target]
+
       if self.platform == 'win32':
-        deps_path = self.ToAbsPath(build_dir,
-                                   runtime_deps_target + '.exe.runtime_deps')
+        deps_paths = [
+            self.ToAbsPath(build_dir, r + '.exe.runtime_deps')
+            for r in runtime_deps_targets]
       else:
-        deps_path = self.ToAbsPath(build_dir,
-                                   runtime_deps_target + '.runtime_deps')
-      if not self.Exists(deps_path):
-          raise MBErr('did not generate %s' % deps_path)
+        deps_paths = [
+            self.ToAbsPath(build_dir, r + '.runtime_deps')
+            for r in runtime_deps_targets]
+
+      for d in deps_paths:
+        if self.Exists(d):
+          deps_path = d
+          break
+      else:
+        raise MBErr('did not generate any of %s' % ', '.join(deps_paths))
 
       command, extra_files = self.GetIsolateCommand(target, vals,
                                                     gn_isolate_map)
@@ -543,10 +621,12 @@ class MetaBuildWrapper(object):
 
     build_dir = self.args.path[0]
     target = self.args.target[0]
+    target_name = self.GNTargetName(target)
     command, extra_files = self.GetIsolateCommand(target, vals, gn_isolate_map)
 
-    label = gn_isolate_map[target]['label']
-    ret, out, _ = self.Call(['gn', 'desc', build_dir, label, 'runtime_deps'])
+    label = gn_isolate_map[target_name]['label']
+    cmd = self.GNCmd('desc', build_dir, extra_args=[label, 'runtime_deps'])
+    ret, out, _ = self.Call(cmd)
     if ret:
       return ret
 
@@ -594,12 +674,12 @@ class MetaBuildWrapper(object):
 
   def GNCmd(self, subcommand, path, gn_args='', extra_args=None):
     if self.platform == 'linux2':
-      subdir = 'linux64'
+      subdir, exe = 'linux64', 'gn'
     elif self.platform == 'darwin':
-      subdir = 'mac'
+      subdir, exe = 'mac', 'gn'
     else:
-      subdir = 'win'
-    gn_path = self.PathJoin(self.chromium_src_dir, 'buildtools', subdir, 'gn')
+      subdir, exe = 'win', 'gn.exe'
+    gn_path = self.PathJoin(self.chromium_src_dir, 'buildtools', subdir, exe)
 
     cmd = [gn_path, subcommand, path]
     gn_args = gn_args.replace("$(goma_dir)", self.args.goma_dir)
@@ -620,7 +700,8 @@ class MetaBuildWrapper(object):
   def RunGYPAnalyze(self, vals):
     output_dir = self.ParseGYPConfigPath(self.args.path[0])
     if self.args.verbose:
-      inp = self.ReadInputJSON(['files', 'targets'])
+      inp = self.ReadInputJSON(['files', 'test_targets',
+                                'additional_compile_targets'])
       self.Print()
       self.Print('analyze input:')
       self.PrintJSON(inp)
@@ -641,24 +722,33 @@ class MetaBuildWrapper(object):
     return ret
 
   def GetIsolateCommand(self, target, vals, gn_isolate_map):
+    android = 'target_os="android"' in vals['gn_args']
+
     # This needs to mirror the settings in //build/config/ui.gni:
     # use_x11 = is_linux && !use_ozone.
     # TODO(dpranke): Figure out how to keep this in sync better.
     use_x11 = (self.platform == 'linux2' and
-               not 'target_os="android"' in vals['gn_args'] and
+               not android and
                not 'use_ozone=true' in vals['gn_args'])
 
     asan = 'is_asan=true' in vals['gn_args']
     msan = 'is_msan=true' in vals['gn_args']
     tsan = 'is_tsan=true' in vals['gn_args']
 
+    target_name = self.GNTargetName(target)
+    test_type = gn_isolate_map[target_name]['type']
+
+    executable = gn_isolate_map[target_name].get('executable', target_name)
     executable_suffix = '.exe' if self.platform == 'win32' else ''
 
-    test_type = gn_isolate_map[target]['type']
     cmdline = []
     extra_files = []
 
-    if use_x11 and test_type == 'windowed_test_launcher':
+    if android:
+      # TODO(jbudorick): This won't work with instrumentation test targets.
+      # Revisit this logic when those are added to gn_isolate_map.pyl.
+      cmdline = [self.PathJoin('bin', 'run_%s' % target_name)]
+    elif use_x11 and test_type == 'windowed_test_launcher':
       extra_files = [
           'xdisplaycheck',
           '../../testing/test_env.py',
@@ -667,7 +757,7 @@ class MetaBuildWrapper(object):
       cmdline = [
         '../../testing/xvfb.py',
         '.',
-        './' + str(target),
+        './' + str(executable) + executable_suffix,
         '--brave-new-test-launcher',
         '--test-launcher-bot-mode',
         '--asan=%d' % asan,
@@ -680,7 +770,7 @@ class MetaBuildWrapper(object):
       ]
       cmdline = [
           '../../testing/test_env.py',
-          './' + str(target) + executable_suffix,
+          './' + str(executable) + executable_suffix,
           '--brave-new-test-launcher',
           '--test-launcher-bot-mode',
           '--asan=%d' % asan,
@@ -707,16 +797,18 @@ class MetaBuildWrapper(object):
       cmdline = [
           '../../testing/test_env.py',
           '../../' + self.ToSrcRelPath(gn_isolate_map[target]['script'])
-      ] + gn_isolate_map[target].get('args', [])
+      ]
     elif test_type in ('raw'):
       extra_files = []
       cmdline = [
           './' + str(target) + executable_suffix,
-      ] + gn_isolate_map[target].get('args')
+      ]
 
     else:
       self.WriteFailureAndRaise('No command line for %s found (test type %s).'
                                 % (target, test_type), output_path=None)
+
+    cmdline += gn_isolate_map[target_name].get('args', [])
 
     return cmdline, extra_files
 
@@ -757,6 +849,7 @@ class MetaBuildWrapper(object):
     # Ensure that we have an environment that only contains
     # the exact values of the GYP variables we need.
     env = os.environ.copy()
+    env['GYP_GENERATORS'] = 'ninja'
     if 'GYP_CHROMIUM_NO_ACTION' in env:
       del env['GYP_CHROMIUM_NO_ACTION']
     if 'GYP_CROSSCOMPILE' in env:
@@ -773,27 +866,20 @@ class MetaBuildWrapper(object):
     if ret:
       return ret
 
-    # TODO(dpranke): add 'test_targets' and 'additional_compile_targets'
-    # as required keys once the recipe has been converted over.
-    # See crbug.com/552146.
-    inp = self.ReadInputJSON(['files'])
+    inp = self.ReadInputJSON(['files', 'test_targets',
+                              'additional_compile_targets'])
     if self.args.verbose:
       self.Print()
       self.Print('analyze input:')
       self.PrintJSON(inp)
       self.Print()
 
-    use_new_logic = ('test_targets' in inp and
-                     'additional_compile_targets' in inp)
-    if use_new_logic:
-      # TODO(crbug.com/555273) - currently GN treats targets and
-      # additional_compile_targets identically since we can't tell the
-      # difference between a target that is a group in GN and one that isn't.
-      # We should eventually fix this and treat the two types differently.
-      targets = (set(inp['test_targets']) |
-                 set(inp['additional_compile_targets']))
-    else:
-      targets = set(inp['targets'])
+    # TODO(crbug.com/555273) - currently GN treats targets and
+    # additional_compile_targets identically since we can't tell the
+    # difference between a target that is a group in GN and one that isn't.
+    # We should eventually fix this and treat the two types differently.
+    targets = (set(inp['test_targets']) |
+               set(inp['additional_compile_targets']))
 
     output_path = self.args.output_path[0]
 
@@ -802,14 +888,11 @@ class MetaBuildWrapper(object):
     # since we can't deal with it yet.
     if (any(f.endswith('.gn') or f.endswith('.gni') for f in inp['files']) or
         'all' in targets):
-      if use_new_logic:
-        self.WriteJSON({
-              'status': 'Found dependency (all)',
-              'compile_targets': sorted(targets),
-              'test_targets': sorted(targets & set(inp['test_targets'])),
-            }, output_path)
-      else:
-        self.WriteJSON({'status': 'Found dependency (all)'}, output_path)
+      self.WriteJSON({
+            'status': 'Found dependency (all)',
+            'compile_targets': sorted(targets),
+            'test_targets': sorted(targets & set(inp['test_targets'])),
+          }, output_path)
       return 0
 
     # This shouldn't normally happen, but could due to unusual race conditions,
@@ -817,18 +900,11 @@ class MetaBuildWrapper(object):
     # the patch has landed.
     if not inp['files']:
       self.Print('Warning: No files modified in patch, bailing out early.')
-      if use_new_logic:
-        self.WriteJSON({
-              'status': 'No dependency',
-              'compile_targets': [],
-              'test_targets': [],
-            }, output_path)
-      else:
-        self.WriteJSON({
-              'status': 'No dependency',
-              'targets': [],
-              'build_targets': [],
-            }, output_path)
+      self.WriteJSON({
+            'status': 'No dependency',
+            'compile_targets': [],
+            'test_targets': [],
+          }, output_path)
       return 0
 
     ret = 0
@@ -869,32 +945,18 @@ class MetaBuildWrapper(object):
       self.RemoveFile(response_file.name)
 
     if matching_targets:
-      if use_new_logic:
-        self.WriteJSON({
-              'status': 'Found dependency',
-              'compile_targets': sorted(matching_targets),
-              'test_targets': sorted(matching_targets &
-                                     set(inp['test_targets'])),
-            }, output_path)
-      else:
-        self.WriteJSON({
+      self.WriteJSON({
             'status': 'Found dependency',
-            'targets': sorted(matching_targets),
-            'build_targets': sorted(matching_targets),
-        }, output_path)
+            'compile_targets': sorted(matching_targets),
+            'test_targets': sorted(matching_targets &
+                                   set(inp['test_targets'])),
+          }, output_path)
     else:
-      if use_new_logic:
-        self.WriteJSON({
-            'status': 'No dependency',
-            'compile_targets': [],
-            'test_targets': [],
-        }, output_path)
-      else:
-        self.WriteJSON({
-            'status': 'No dependency',
-            'targets': [],
-            'build_targets': [],
-        }, output_path)
+      self.WriteJSON({
+          'status': 'No dependency',
+          'compile_targets': [],
+          'test_targets': [],
+      }, output_path)
 
     if self.args.verbose:
       outp = json.loads(self.ReadFile(output_path))
@@ -1011,6 +1073,9 @@ class MetaBuildWrapper(object):
   def Exists(self, path):
     # This function largely exists so it can be overridden for testing.
     return os.path.exists(path)
+
+  def GNTargetName(self, target):
+    return target[:-len('_apk')] if target.endswith('_apk') else target
 
   def MaybeMakeDirectory(self, path):
     try:

@@ -15,12 +15,9 @@
 #include <vector>
 #if defined(WEBRTC_POSIX)
 #include <sys/types.h>
-#if !defined(WEBRTC_ANDROID)
-#include <ifaddrs.h>
-#else
-#include "webrtc/base/ifaddrs-android.h"
-#endif
-#endif
+#include <net/if.h>
+#include "webrtc/base/ifaddrs_converter.h"
+#endif  // defined(WEBRTC_POSIX)
 #include "webrtc/base/gunit.h"
 #if defined(WEBRTC_WIN)
 #include "webrtc/base/logging.h"  // For LOG_GLE
@@ -28,19 +25,30 @@
 
 namespace rtc {
 
+namespace {
+
 class FakeNetworkMonitor : public NetworkMonitorBase {
  public:
-  void Start() override {}
-  void Stop() override {}
+  void Start() override { started_ = true; }
+  void Stop() override { started_ = false; }
+  bool started() { return started_; }
+  AdapterType GetAdapterType(const std::string& if_name) override {
+    return ADAPTER_TYPE_UNKNOWN;
+  }
+
+ private:
+  bool started_ = false;
 };
 
 class FakeNetworkMonitorFactory : public NetworkMonitorFactory {
  public:
   FakeNetworkMonitorFactory() {}
-  NetworkMonitorInterface* CreateNetworkMonitor() {
+  NetworkMonitorInterface* CreateNetworkMonitor() override {
     return new FakeNetworkMonitor();
   }
 };
+
+}  // namespace
 
 class NetworkTest : public testing::Test, public sigslot::has_slots<>  {
  public:
@@ -49,6 +57,16 @@ class NetworkTest : public testing::Test, public sigslot::has_slots<>  {
   void OnNetworksChanged() {
     callback_called_ = true;
   }
+
+  void listenToNetworkInactive(BasicNetworkManager& network_manager) {
+    BasicNetworkManager::NetworkList networks;
+    network_manager.GetNetworks(&networks);
+    for (Network* network : networks) {
+      network->SignalInactive.connect(this, &NetworkTest::OnNetworkInactive);
+    }
+  }
+
+  void OnNetworkInactive(const Network* network) { num_networks_inactive_++; }
 
   NetworkManager::Stats MergeNetworkList(
       BasicNetworkManager& network_manager,
@@ -71,9 +89,9 @@ class NetworkTest : public testing::Test, public sigslot::has_slots<>  {
     return list;
   }
 
-  NetworkMonitorInterface* GetNetworkMonitor(
-      BasicNetworkManager& network_manager) {
-    return network_manager.network_monitor_.get();
+  FakeNetworkMonitor* GetNetworkMonitor(BasicNetworkManager& network_manager) {
+    return static_cast<FakeNetworkMonitor*>(
+        network_manager.network_monitor_.get());
   }
   void ClearNetworks(BasicNetworkManager& network_manager) {
     for (const auto& kv : network_manager.networks_map_) {
@@ -89,17 +107,64 @@ class NetworkTest : public testing::Test, public sigslot::has_slots<>  {
                                  struct ifaddrs* interfaces,
                                  bool include_ignored,
                                  NetworkManager::NetworkList* networks) {
-    network_manager.ConvertIfAddrs(interfaces, include_ignored, networks);
+    // Use the base IfAddrsConverter for test cases.
+    rtc::scoped_ptr<IfAddrsConverter> ifaddrs_converter(new IfAddrsConverter());
+    network_manager.ConvertIfAddrs(interfaces, ifaddrs_converter.get(),
+                                   include_ignored, networks);
+  }
+
+  struct sockaddr_in6* CreateIpv6Addr(const std::string& ip_string,
+                                      uint32_t scope_id) {
+    struct sockaddr_in6* ipv6_addr = new struct sockaddr_in6;
+    memset(ipv6_addr, 0, sizeof(struct sockaddr_in6));
+    ipv6_addr->sin6_family = AF_INET6;
+    ipv6_addr->sin6_scope_id = scope_id;
+    IPAddress ip;
+    IPFromString(ip_string, &ip);
+    ipv6_addr->sin6_addr = ip.ipv6_address();
+    return ipv6_addr;
+  }
+
+  // Pointers created here need to be released via ReleaseIfAddrs.
+  struct ifaddrs* AddIpv6Address(struct ifaddrs* list,
+                                 char* if_name,
+                                 const std::string& ipv6_address,
+                                 const std::string& ipv6_netmask,
+                                 uint32_t scope_id) {
+    struct ifaddrs* if_addr = new struct ifaddrs;
+    memset(if_addr, 0, sizeof(struct ifaddrs));
+    if_addr->ifa_name = if_name;
+    if_addr->ifa_addr = reinterpret_cast<struct sockaddr*>(
+        CreateIpv6Addr(ipv6_address, scope_id));
+    if_addr->ifa_netmask =
+        reinterpret_cast<struct sockaddr*>(CreateIpv6Addr(ipv6_netmask, 0));
+    if_addr->ifa_next = list;
+    if_addr->ifa_flags = IFF_RUNNING;
+    return if_addr;
+  }
+
+  void ReleaseIfAddrs(struct ifaddrs* list) {
+    struct ifaddrs* if_addr = list;
+    while (if_addr != nullptr) {
+      struct ifaddrs* next_addr = if_addr->ifa_next;
+      delete if_addr->ifa_addr;
+      delete if_addr->ifa_netmask;
+      delete if_addr;
+      if_addr = next_addr;
+    }
   }
 #endif  // defined(WEBRTC_POSIX)
 
  protected:
   bool callback_called_;
+  // Number of networks that become inactive.
+  int num_networks_inactive_ = 0;
 };
 
 class TestBasicNetworkManager : public BasicNetworkManager {
  public:
   using BasicNetworkManager::QueryDefaultLocalAddress;
+  using BasicNetworkManager::set_default_local_addresses;
 };
 
 // Test that the Network ctor works properly.
@@ -113,26 +178,6 @@ TEST_F(NetworkTest, TestNetworkConstruct) {
   EXPECT_FALSE(ipv4_network1.ignored());
 }
 
-// Tests that our ignore function works properly.
-TEST_F(NetworkTest, TestIsIgnoredNetworkIgnoresOnlyLoopbackByDefault) {
-  Network ipv4_network1("test_eth0", "Test Network Adapter 1",
-                        IPAddress(0x12345600U), 24, ADAPTER_TYPE_ETHERNET);
-  Network ipv4_network2("test_wlan0", "Test Network Adapter 2",
-                        IPAddress(0x12345601U), 16, ADAPTER_TYPE_WIFI);
-  Network ipv4_network3("test_cell0", "Test Network Adapter 3",
-                        IPAddress(0x12345602U), 16, ADAPTER_TYPE_CELLULAR);
-  Network ipv4_network4("test_vpn0", "Test Network Adapter 4",
-                        IPAddress(0x12345603U), 16, ADAPTER_TYPE_VPN);
-  Network ipv4_network5("test_lo", "Test Network Adapter 5",
-                        IPAddress(0x12345604U), 16, ADAPTER_TYPE_LOOPBACK);
-  BasicNetworkManager network_manager;
-  EXPECT_FALSE(IsIgnoredNetwork(network_manager, ipv4_network1));
-  EXPECT_FALSE(IsIgnoredNetwork(network_manager, ipv4_network2));
-  EXPECT_FALSE(IsIgnoredNetwork(network_manager, ipv4_network3));
-  EXPECT_FALSE(IsIgnoredNetwork(network_manager, ipv4_network4));
-  EXPECT_TRUE(IsIgnoredNetwork(network_manager, ipv4_network5));
-}
-
 TEST_F(NetworkTest, TestIsIgnoredNetworkIgnoresIPsStartingWith0) {
   Network ipv4_network1("test_eth0", "Test Network Adapter 1",
                         IPAddress(0x12345600U), 24, ADAPTER_TYPE_ETHERNET);
@@ -141,21 +186,6 @@ TEST_F(NetworkTest, TestIsIgnoredNetworkIgnoresIPsStartingWith0) {
   BasicNetworkManager network_manager;
   EXPECT_FALSE(IsIgnoredNetwork(network_manager, ipv4_network1));
   EXPECT_TRUE(IsIgnoredNetwork(network_manager, ipv4_network2));
-}
-
-TEST_F(NetworkTest, TestIsIgnoredNetworkIgnoresNetworksAccordingToIgnoreMask) {
-  Network ipv4_network1("test_eth0", "Test Network Adapter 1",
-                        IPAddress(0x12345600U), 24, ADAPTER_TYPE_ETHERNET);
-  Network ipv4_network2("test_wlan0", "Test Network Adapter 2",
-                        IPAddress(0x12345601U), 16, ADAPTER_TYPE_WIFI);
-  Network ipv4_network3("test_cell0", "Test Network Adapter 3",
-                        IPAddress(0x12345602U), 16, ADAPTER_TYPE_CELLULAR);
-  BasicNetworkManager network_manager;
-  network_manager.set_network_ignore_mask(
-      ADAPTER_TYPE_ETHERNET | ADAPTER_TYPE_LOOPBACK | ADAPTER_TYPE_WIFI);
-  EXPECT_TRUE(IsIgnoredNetwork(network_manager, ipv4_network1));
-  EXPECT_TRUE(IsIgnoredNetwork(network_manager, ipv4_network2));
-  EXPECT_FALSE(IsIgnoredNetwork(network_manager, ipv4_network3));
 }
 
 // TODO(phoglund): Remove when ignore list goes away.
@@ -262,6 +292,7 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
   EXPECT_TRUE(changed);
   EXPECT_EQ(stats.ipv6_network_count, 0);
   EXPECT_EQ(stats.ipv4_network_count, 1);
+  listenToNetworkInactive(manager);
   list.clear();
 
   manager.GetNetworks(&list);
@@ -276,7 +307,9 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
   EXPECT_TRUE(changed);
   EXPECT_EQ(stats.ipv6_network_count, 0);
   EXPECT_EQ(stats.ipv4_network_count, 1);
+  EXPECT_EQ(1, num_networks_inactive_);
   list.clear();
+  num_networks_inactive_ = 0;
 
   manager.GetNetworks(&list);
   EXPECT_EQ(1U, list.size());
@@ -291,6 +324,7 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
   EXPECT_TRUE(changed);
   EXPECT_EQ(stats.ipv6_network_count, 0);
   EXPECT_EQ(stats.ipv4_network_count, 2);
+  EXPECT_EQ(0, num_networks_inactive_);
   list.clear();
 
   // Verify that we get previous instances of Network objects.
@@ -308,6 +342,7 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
   EXPECT_FALSE(changed);
   EXPECT_EQ(stats.ipv6_network_count, 0);
   EXPECT_EQ(stats.ipv4_network_count, 2);
+  EXPECT_EQ(0, num_networks_inactive_);
   list.clear();
 
   // Verify that we get previous instances of Network objects.
@@ -589,10 +624,13 @@ TEST_F(NetworkTest, TestMultiplePublicNetworksOnOneInterfaceMerge) {
   }
 }
 
-// Test that DumpNetworks works.
-TEST_F(NetworkTest, TestDumpNetworks) {
+// Test that DumpNetworks does not crash.
+TEST_F(NetworkTest, TestCreateAndDumpNetworks) {
   BasicNetworkManager manager;
-  manager.DumpNetworks(true);
+  NetworkManager::NetworkList list = GetNetworks(manager, true);
+  bool changed;
+  MergeNetworkList(manager, list, &changed);
+  manager.DumpNetworks();
 }
 
 // Test that we can toggle IPv6 on and off.
@@ -699,6 +737,40 @@ TEST_F(NetworkTest, TestConvertIfAddrsNoAddress) {
   CallConvertIfAddrs(manager, &list, true, &result);
   EXPECT_TRUE(result.empty());
 }
+
+// Verify that if there are two addresses on one interface, only one network
+// is generated.
+TEST_F(NetworkTest, TestConvertIfAddrsMultiAddressesOnOneInterface) {
+  char if_name[20] = "rmnet0";
+  ifaddrs* list = nullptr;
+  list = AddIpv6Address(list, if_name, "1000:2000:3000:4000:0:0:0:1",
+                        "FFFF:FFFF:FFFF:FFFF::", 0);
+  list = AddIpv6Address(list, if_name, "1000:2000:3000:4000:0:0:0:2",
+                        "FFFF:FFFF:FFFF:FFFF::", 0);
+  NetworkManager::NetworkList result;
+  BasicNetworkManager manager;
+  CallConvertIfAddrs(manager, list, true, &result);
+  EXPECT_EQ(1U, result.size());
+  bool changed;
+  // This ensures we release the objects created in CallConvertIfAddrs.
+  MergeNetworkList(manager, result, &changed);
+  ReleaseIfAddrs(list);
+}
+
+TEST_F(NetworkTest, TestConvertIfAddrsNotRunning) {
+  ifaddrs list;
+  memset(&list, 0, sizeof(list));
+  list.ifa_name = const_cast<char*>("test_iface");
+  sockaddr ifa_addr;
+  sockaddr ifa_netmask;
+  list.ifa_addr = &ifa_addr;
+  list.ifa_netmask = &ifa_netmask;
+
+  NetworkManager::NetworkList result;
+  BasicNetworkManager manager;
+  CallConvertIfAddrs(manager, &list, true, &result);
+  EXPECT_TRUE(result.empty());
+}
 #endif  // defined(WEBRTC_POSIX)
 
 #if defined(WEBRTC_LINUX) && !defined(WEBRTC_ANDROID)
@@ -782,6 +854,49 @@ TEST_F(NetworkTest, TestMergeNetworkList) {
   EXPECT_EQ(list2[0]->GetIPs()[1], ip2);
 }
 
+// Test that MergeNetworkList successfully detects the change if
+// a network becomes inactive and then active again.
+TEST_F(NetworkTest, TestMergeNetworkListWithInactiveNetworks) {
+  BasicNetworkManager manager;
+  Network network1("test_wifi", "Test Network Adapter 1",
+                   IPAddress(0x12345600U), 24);
+  Network network2("test_eth0", "Test Network Adapter 2",
+                   IPAddress(0x00010000U), 16);
+  network1.AddIP(IPAddress(0x12345678));
+  network2.AddIP(IPAddress(0x00010004));
+  NetworkManager::NetworkList list;
+  Network* net1 = new Network(network1);
+  list.push_back(net1);
+  bool changed;
+  MergeNetworkList(manager, list, &changed);
+  EXPECT_TRUE(changed);
+  list.clear();
+  manager.GetNetworks(&list);
+  ASSERT_EQ(1U, list.size());
+  EXPECT_EQ(net1, list[0]);
+
+  list.clear();
+  Network* net2 = new Network(network2);
+  list.push_back(net2);
+  MergeNetworkList(manager, list, &changed);
+  EXPECT_TRUE(changed);
+  list.clear();
+  manager.GetNetworks(&list);
+  ASSERT_EQ(1U, list.size());
+  EXPECT_EQ(net2, list[0]);
+
+  // Now network1 is inactive. Try to merge it again.
+  list.clear();
+  list.push_back(new Network(network1));
+  MergeNetworkList(manager, list, &changed);
+  EXPECT_TRUE(changed);
+  list.clear();
+  manager.GetNetworks(&list);
+  ASSERT_EQ(1U, list.size());
+  EXPECT_TRUE(list[0]->active());
+  EXPECT_EQ(net1, list[0]);
+}
+
 // Test that the filtering logic follows the defined ruleset in network.h.
 TEST_F(NetworkTest, TestIPv6Selection) {
   InterfaceAddress ip;
@@ -830,7 +945,8 @@ TEST_F(NetworkTest, TestNetworkMonitoring) {
   FakeNetworkMonitorFactory* factory = new FakeNetworkMonitorFactory();
   NetworkMonitorFactory::SetFactory(factory);
   manager.StartUpdating();
-  NetworkMonitorInterface* network_monitor = GetNetworkMonitor(manager);
+  FakeNetworkMonitor* network_monitor = GetNetworkMonitor(manager);
+  EXPECT_TRUE(network_monitor && network_monitor->started());
   EXPECT_TRUE_WAIT(callback_called_, 1000);
   callback_called_ = false;
 
@@ -841,25 +957,46 @@ TEST_F(NetworkTest, TestNetworkMonitoring) {
   network_monitor->OnNetworksChanged();
   EXPECT_TRUE_WAIT(callback_called_, 1000);
 
-  // Network manager is stopped; the network monitor is removed.
+  // Network manager is stopped.
   manager.StopUpdating();
-  EXPECT_TRUE(GetNetworkMonitor(manager) == nullptr);
+  EXPECT_FALSE(GetNetworkMonitor(manager)->started());
 
   NetworkMonitorFactory::ReleaseFactory(factory);
 }
 
-TEST_F(NetworkTest, DefaultPrivateAddress) {
+TEST_F(NetworkTest, DefaultLocalAddress) {
+  IPAddress ip;
   TestBasicNetworkManager manager;
+  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
+                                        &NetworkTest::OnNetworksChanged);
+  FakeNetworkMonitorFactory* factory = new FakeNetworkMonitorFactory();
+  NetworkMonitorFactory::SetFactory(factory);
   manager.StartUpdating();
+  EXPECT_TRUE_WAIT(callback_called_, 1000);
+
+  // Make sure we can query default local address when an address for such
+  // address family exists.
   std::vector<Network*> networks;
   manager.GetNetworks(&networks);
+  EXPECT_TRUE(!networks.empty());
   for (auto& network : networks) {
     if (network->GetBestIP().family() == AF_INET) {
       EXPECT_TRUE(manager.QueryDefaultLocalAddress(AF_INET) != IPAddress());
-    } else if (network->GetBestIP().family() == AF_INET6) {
+    } else if (network->GetBestIP().family() == AF_INET6 &&
+               !IPIsLoopback(network->GetBestIP())) {
+      // Existence of an IPv6 loopback address doesn't mean it has IPv6 network
+      // enabled.
       EXPECT_TRUE(manager.QueryDefaultLocalAddress(AF_INET6) != IPAddress());
     }
   }
+
+  // GetDefaultLocalAddress should return the valid default address after set.
+  manager.set_default_local_addresses(GetLoopbackIP(AF_INET),
+                                      GetLoopbackIP(AF_INET6));
+  EXPECT_TRUE(manager.GetDefaultLocalAddress(AF_INET, &ip));
+  EXPECT_EQ(ip, GetLoopbackIP(AF_INET));
+  EXPECT_TRUE(manager.GetDefaultLocalAddress(AF_INET6, &ip));
+  EXPECT_EQ(ip, GetLoopbackIP(AF_INET6));
   manager.StopUpdating();
 }
 

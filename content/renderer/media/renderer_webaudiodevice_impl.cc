@@ -4,6 +4,8 @@
 
 #include "content/renderer/media/renderer_webaudiodevice_impl.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/command_line.h"
@@ -11,9 +13,9 @@
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "content/renderer/media/audio_device_factory.h"
 #include "content/renderer/render_frame_impl.h"
-#include "media/audio/audio_output_device.h"
 #include "media/audio/null_audio_sink.h"
 #include "media/base/media_switches.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
@@ -33,7 +35,8 @@ static const int kSilenceInSecondsToEnterIdleMode = 30;
 RendererWebAudioDeviceImpl::RendererWebAudioDeviceImpl(
     const media::AudioParameters& params,
     WebAudioDevice::RenderCallback* callback,
-    int session_id)
+    int session_id,
+    const url::Origin& security_origin)
     : params_(params),
       client_callback_(callback),
       session_id_(session_id),
@@ -41,19 +44,21 @@ RendererWebAudioDeviceImpl::RendererWebAudioDeviceImpl(
       null_audio_sink_(new media::NullAudioSink(task_runner_)),
       is_using_null_audio_sink_(false),
       first_buffer_after_silence_(media::AudioBus::Create(params_)),
-      is_first_buffer_after_silence_(false) {
+      is_first_buffer_after_silence_(false),
+      security_origin_(security_origin) {
   DCHECK(client_callback_);
   null_audio_sink_->Initialize(params_, this);
+  null_audio_sink_->Start();
 }
 
 RendererWebAudioDeviceImpl::~RendererWebAudioDeviceImpl() {
-  DCHECK(!output_device_);
+  DCHECK(!sink_);
 }
 
 void RendererWebAudioDeviceImpl::start() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  if (output_device_)
+  if (sink_)
     return;  // Already started.
 
   // Assumption: This method is being invoked within a V8 call stack.  CHECKs
@@ -66,11 +71,13 @@ void RendererWebAudioDeviceImpl::start() {
   WebLocalFrame* const web_frame = WebLocalFrame::frameForCurrentContext();
   RenderFrame* const render_frame =
       web_frame ? RenderFrame::FromWebFrame(web_frame) : NULL;
-  output_device_ = AudioDeviceFactory::NewOutputDevice(
+  sink_ = AudioDeviceFactory::NewAudioRendererSink(
+      AudioDeviceFactory::kSourceWebAudio,
       render_frame ? render_frame->GetRoutingID() : MSG_ROUTING_NONE,
-      session_id_, std::string(), url::Origin());
-  output_device_->Initialize(params_, this);
-  output_device_->Start();
+      session_id_, std::string(), security_origin_);
+  sink_->Initialize(params_, this);
+  sink_->Start();
+  sink_->Play();
   start_null_audio_sink_callback_.Reset(
       base::Bind(&media::NullAudioSink::Play, null_audio_sink_));
   // Note: Default behavior is to auto-play on start.
@@ -79,9 +86,9 @@ void RendererWebAudioDeviceImpl::start() {
 void RendererWebAudioDeviceImpl::stop() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  if (output_device_) {
-    output_device_->Stop();
-    output_device_ = NULL;
+  if (sink_) {
+    sink_->Stop();
+    sink_ = NULL;
   }
   null_audio_sink_->Stop();
   is_using_null_audio_sink_ = false;
@@ -94,7 +101,8 @@ double RendererWebAudioDeviceImpl::sampleRate() {
 }
 
 int RendererWebAudioDeviceImpl::Render(media::AudioBus* dest,
-                                       int audio_delay_milliseconds) {
+                                       uint32_t frames_delayed,
+                                       uint32_t frames_skipped) {
 #if defined(OS_ANDROID)
   if (is_first_buffer_after_silence_) {
     DCHECK(!is_using_null_audio_sink_);
@@ -122,13 +130,17 @@ int RendererWebAudioDeviceImpl::Render(media::AudioBus* dest,
     first_silence_time_ = base::TimeTicks();
     if (is_using_null_audio_sink_) {
       // This is called on the main render thread when audio is detected.
-      output_device_->Play();
+      DCHECK(thread_checker_.CalledOnValidThread());
       is_using_null_audio_sink_ = false;
       is_first_buffer_after_silence_ = true;
       dest->CopyTo(first_buffer_after_silence_.get());
       task_runner_->PostTask(
           FROM_HERE,
-          base::Bind(&media::NullAudioSink::Stop, null_audio_sink_));
+          base::Bind(&media::NullAudioSink::Pause, null_audio_sink_));
+      // Calling sink_->Play() may trigger reentrancy into this
+      // function, so this should be called at the end.
+      sink_->Play();
+      return dest->frames();
     }
   } else if (!is_using_null_audio_sink_) {
     // Called on the audio device thread.
@@ -137,7 +149,7 @@ int RendererWebAudioDeviceImpl::Render(media::AudioBus* dest,
       first_silence_time_ = now;
     if (now - first_silence_time_
         > base::TimeDelta::FromSeconds(kSilenceInSecondsToEnterIdleMode)) {
-      output_device_->Pause();
+      sink_->Pause();
       is_using_null_audio_sink_ = true;
       // If Stop() is called right after the task is posted, need to cancel
       // this task.

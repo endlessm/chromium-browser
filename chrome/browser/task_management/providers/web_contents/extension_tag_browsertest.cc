@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/task_management/task_management_browsertest_util.h"
 #include "chrome/common/chrome_switches.h"
@@ -59,17 +61,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionTagsTest, Basic) {
   EXPECT_EQ(1U, tracked_tags().size());
 }
 
-#if defined(OS_WIN) || defined(OS_LINUX)
-// Test disabled due to flakiness on Windows XP and Linux.
-// See bug: http://crbug.com/519333
-#define MAYBE_PreAndPostExistingTaskProviding \
-    DISABLED_PreAndPostExistingTaskProviding
-#else
-#define MAYBE_PreAndPostExistingTaskProviding PreAndPostExistingTaskProviding
-#endif
-
+// Test disabled due to flakiness. See bug: http://crbug.com/519333
 IN_PROC_BROWSER_TEST_F(ExtensionTagsTest,
-                       MAYBE_PreAndPostExistingTaskProviding) {
+                       DISABLED_PreAndPostExistingTaskProviding) {
   // Browser tests start with a single tab.
   EXPECT_EQ(1U, tracked_tags().size());
   MockWebContentsTaskManager task_manager;

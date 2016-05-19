@@ -52,19 +52,11 @@ uint32_t TimestampScaler::ToInternal(uint32_t external_timestamp,
       denominator_ = 1;
       break;
     }
-    case NetEqDecoder::kDecoderCNGswb48kHz: {
-      // Use timestamp scaling with factor 2/3 (32 kHz sample rate, but RTP
-      // timestamps run on 48 kHz).
-      // TODO(tlegrand): Remove scaling for kDecoderCNGswb48kHz once ACM has
-      // full 48 kHz support.
-      numerator_ = 2;
-      denominator_ = 3;
-      break;
-    }
     case NetEqDecoder::kDecoderAVT:
     case NetEqDecoder::kDecoderCNGnb:
     case NetEqDecoder::kDecoderCNGwb:
-    case NetEqDecoder::kDecoderCNGswb32kHz: {
+    case NetEqDecoder::kDecoderCNGswb32kHz:
+    case NetEqDecoder::kDecoderCNGswb48kHz: {
       // Do not change the timestamp scaling settings for DTMF or CNG.
       break;
     }
@@ -83,12 +75,10 @@ uint32_t TimestampScaler::ToInternal(uint32_t external_timestamp,
       internal_ref_ = external_timestamp;
       first_packet_received_ = true;
     }
-    int32_t external_diff = external_timestamp - external_ref_;
+    int64_t external_diff = external_timestamp - external_ref_;
     assert(denominator_ > 0);  // Should not be possible.
     external_ref_ = external_timestamp;
     internal_ref_ += (external_diff * numerator_) / denominator_;
-    LOG(LS_VERBOSE) << "Converting timestamp: " << external_timestamp <<
-        " -> " << internal_ref_;
     return internal_ref_;
   } else {
     // No scaling.
@@ -102,7 +92,7 @@ uint32_t TimestampScaler::ToExternal(uint32_t internal_timestamp) const {
     // Not initialized, or scale factor is 1.
     return internal_timestamp;
   } else {
-    int32_t internal_diff = internal_timestamp - internal_ref_;
+    int64_t internal_diff = internal_timestamp - internal_ref_;
     assert(numerator_ > 0);  // Should not be possible.
     // Do not update references in this method.
     // Switch |denominator_| and |numerator_| to convert the other way.

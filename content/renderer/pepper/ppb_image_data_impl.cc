@@ -18,7 +18,9 @@
 #include "ppapi/c/ppb_image_data.h"
 #include "ppapi/thunk/thunk.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColorPriv.h"
+#include "third_party/skia/include/core/SkDevice.h"
 #include "third_party/skia/include/core/SkPixmap.h"
 #include "ui/surface/transport_dib.h"
 
@@ -63,8 +65,8 @@ bool PPB_ImageData_Impl::Init(PP_ImageDataFormat format,
     return false;  // Only support this one format for now.
   if (width <= 0 || height <= 0)
     return false;
-  if (static_cast<int64>(width) * static_cast<int64>(height) >=
-      std::numeric_limits<int32>::max() / 4)
+  if (static_cast<int64_t>(width) * static_cast<int64_t>(height) >=
+      std::numeric_limits<int32_t>::max() / 4)
     return false;  // Prevent overflow of signed 32-bit ints.
 
   format_ = format;
@@ -111,7 +113,7 @@ int32_t PPB_ImageData_Impl::GetSharedMemory(base::SharedMemory** shm,
   return backend_->GetSharedMemory(shm, byte_count);
 }
 
-skia::PlatformCanvas* PPB_ImageData_Impl::GetPlatformCanvas() {
+SkCanvas* PPB_ImageData_Impl::GetPlatformCanvas() {
   return backend_->GetPlatformCanvas();
 }
 
@@ -141,7 +143,7 @@ bool ImageDataPlatformBackend::Init(PPB_ImageData_Impl* impl,
   // TODO(brettw) use init_to_zero when we implement caching.
   width_ = width;
   height_ = height;
-  uint32 buffer_size = width_ * height_ * 4;
+  uint32_t buffer_size = width_ * height_ * 4;
   scoped_ptr<base::SharedMemory> shared_memory =
       RenderThread::Get()->HostAllocateSharedMemoryBuffer(buffer_size);
   if (!shared_memory)
@@ -169,7 +171,8 @@ TransportDIB* ImageDataPlatformBackend::GetTransportDIB() const {
 void* ImageDataPlatformBackend::Map() {
   if (!mapped_canvas_) {
     const bool is_opaque = false;
-    mapped_canvas_.reset(dib_->GetPlatformCanvas(width_, height_, is_opaque));
+    mapped_canvas_ =
+        skia::AdoptRef(dib_->GetPlatformCanvas(width_, height_, is_opaque));
     if (!mapped_canvas_)
       return NULL;
   }
@@ -196,7 +199,7 @@ int32_t ImageDataPlatformBackend::GetSharedMemory(base::SharedMemory** shm,
   return PP_OK;
 }
 
-skia::PlatformCanvas* ImageDataPlatformBackend::GetPlatformCanvas() {
+SkCanvas* ImageDataPlatformBackend::GetPlatformCanvas() {
   return mapped_canvas_.get();
 }
 
@@ -239,7 +242,7 @@ void* ImageDataSimpleBackend::Map() {
     skia_bitmap_.setPixels(shared_memory_->memory());
     // Our platform bitmaps are set to opaque by default, which we don't want.
     skia_bitmap_.setAlphaType(kPremul_SkAlphaType);
-    skia_canvas_.reset(new SkCanvas(skia_bitmap_));
+    skia_canvas_ = skia::AdoptRef(new SkCanvas(skia_bitmap_));
     return skia_bitmap_.getAddr32(0, 0);
   }
   return shared_memory_->memory();
@@ -257,7 +260,7 @@ int32_t ImageDataSimpleBackend::GetSharedMemory(base::SharedMemory** shm,
   return PP_OK;
 }
 
-skia::PlatformCanvas* ImageDataSimpleBackend::GetPlatformCanvas() {
+SkCanvas* ImageDataSimpleBackend::GetPlatformCanvas() {
   return NULL;
 }
 

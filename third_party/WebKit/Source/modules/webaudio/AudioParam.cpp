@@ -23,10 +23,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AudioParam.h"
-
 #include "modules/webaudio/AudioNode.h"
 #include "modules/webaudio/AudioNodeOutput.h"
 #include "platform/FloatConversion.h"
@@ -43,7 +40,7 @@ AbstractAudioContext* AudioParamHandler::context() const
     // TODO(tkent): We can remove this dangerous function by removing
     // AbstractAudioContext dependency from AudioParamTimeline.
     ASSERT_WITH_SECURITY_IMPLICATION(deferredTaskHandler().isAudioThread());
-    return &m_context;
+    return m_context;
 }
 
 float AudioParamHandler::value()
@@ -270,4 +267,3 @@ AudioParam* AudioParam::cancelScheduledValues(double startTime, ExceptionState& 
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

@@ -5,6 +5,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
+#include "build/build_config.h"
 #include "chrome/browser/media/webrtc_browsertest_base.h"
 #include "chrome/browser/media/webrtc_browsertest_common.h"
 #include "chrome/browser/ui/browser.h"
@@ -42,16 +43,17 @@ class WebRtcSimulcastBrowserTest : public WebRtcTestBase {
   }
 };
 
-// Fails/times out on Windows and Chrome OS. http://crbug.com/452623
+// Fails/times out on Windows and Chrome OS. Flaky on Linux.
+// http://crbug.com/452623
 // MSan reports errors. http://crbug.com/452892
-#if defined(OS_WIN) || defined(OS_CHROMEOS) || defined(MEMORY_SANITIZER)
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(MEMORY_SANITIZER)
 #define MAYBE_TestVgaReturnsTwoSimulcastStreams DISABLED_TestVgaReturnsTwoSimulcastStreams
 #else
 #define MAYBE_TestVgaReturnsTwoSimulcastStreams TestVgaReturnsTwoSimulcastStreams
 #endif
 IN_PROC_BROWSER_TEST_F(WebRtcSimulcastBrowserTest,
                        MAYBE_TestVgaReturnsTwoSimulcastStreams) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kSimulcastTestPage));

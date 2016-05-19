@@ -8,7 +8,6 @@
 #include <map>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "content/common/service_worker/service_worker_types.h"
@@ -40,6 +39,7 @@ enum CacheStorageCacheOperationType {
 // A single batch operation for the Cache API.
 struct CONTENT_EXPORT CacheStorageBatchOperation {
   CacheStorageBatchOperation();
+  CacheStorageBatchOperation(const CacheStorageBatchOperation& other);
 
   CacheStorageCacheOperationType operation_type;
   ServiceWorkerFetchRequest request;
@@ -54,7 +54,9 @@ enum CacheStorageError {
   CACHE_STORAGE_ERROR_EXISTS,
   CACHE_STORAGE_ERROR_STORAGE,
   CACHE_STORAGE_ERROR_NOT_FOUND,
-  CACHE_STORAGE_ERROR_LAST = CACHE_STORAGE_ERROR_NOT_FOUND
+  CACHE_STORAGE_ERROR_QUOTA_EXCEEDED,
+  CACHE_STORAGE_ERROR_CACHE_NAME_NOT_FOUND,
+  CACHE_STORAGE_ERROR_LAST = CACHE_STORAGE_ERROR_CACHE_NAME_NOT_FOUND
 };
 
 }  // namespace content

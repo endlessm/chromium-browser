@@ -14,12 +14,13 @@
 #include "base/path_service.h"
 #include "build/build_config.h"
 #include "cc/base/switches.h"
-#include "components/test_runner/blink_test_platform_support.h"
 #include "content/common/content_constants_internal.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/layouttest_support.h"
+#include "content/public/test/ppapi_test_utils.h"
+#include "content/shell/app/blink_test_platform_support.h"
 #include "content/shell/app/shell_crash_reporter_client.h"
 #include "content/shell/browser/layout_test/layout_test_browser_main.h"
 #include "content/shell/browser/layout_test/layout_test_content_browser_client.h"
@@ -120,6 +121,9 @@ ShellMainDelegate::~ShellMainDelegate() {
 
 bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
   base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
+  int dummy;
+  if (!exit_code)
+    exit_code = &dummy;
 
 #if defined(OS_WIN)
   // Enable trace control and transport through event tracing for Windows.
@@ -140,9 +144,8 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     // If CheckLayoutSystemDeps succeeds, we don't exit early. Instead we
     // continue and try to load the fonts in BlinkTestPlatformInitialize
     // below, and then try to bring up the rest of the content module.
-    if (!test_runner::CheckLayoutSystemDeps()) {
-      if (exit_code)
-        *exit_code = 1;
+    if (!CheckLayoutSystemDeps()) {
+      *exit_code = 1;
       return true;
     }
   }
@@ -150,6 +153,12 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
   if (command_line.HasSwitch(switches::kRunLayoutTest)) {
     EnableBrowserLayoutTestMode();
 
+#if defined(ENABLE_PLUGINS)
+    if (!ppapi::RegisterBlinkTestPlugin(&command_line)) {
+      *exit_code = 1;
+      return true;
+    }
+#endif
     command_line.AppendSwitch(switches::kProcessPerTab);
     command_line.AppendSwitch(switches::kEnableLogging);
     command_line.AppendSwitch(switches::kAllowFileAccessFromFiles);
@@ -161,7 +170,8 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     command_line.AppendSwitch(switches::kSkipGpuDataLoading);
     command_line.AppendSwitchASCII(switches::kTouchEvents,
                                    switches::kTouchEventsEnabled);
-    command_line.AppendSwitchASCII(switches::kForceDeviceScaleFactor, "1.0");
+    if (!command_line.HasSwitch(switches::kForceDeviceScaleFactor))
+      command_line.AppendSwitchASCII(switches::kForceDeviceScaleFactor, "1.0");
     command_line.AppendSwitch(
         switches::kDisableGestureRequirementForMediaPlayback);
 
@@ -184,8 +194,6 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     command_line.AppendSwitch(switches::kEnableInbandTextTracks);
     command_line.AppendSwitch(switches::kMuteAudio);
 
-    command_line.AppendSwitch(cc::switches::kEnablePropertyTreeVerification);
-
     command_line.AppendSwitch(switches::kEnablePreciseMemoryInfo);
 
     command_line.AppendSwitchASCII(switches::kHostResolverRules,
@@ -197,9 +205,8 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     media::RemoveProprietaryMediaTypesAndCodecsForTests();
 #endif
 
-    if (!test_runner::BlinkTestPlatformInitialize()) {
-      if (exit_code)
-        *exit_code = 1;
+    if (!BlinkTestPlatformInitialize()) {
+      *exit_code = 1;
       return true;
     }
   }

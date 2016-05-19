@@ -7,10 +7,11 @@
 #ifndef GPU_COMMAND_BUFFER_SERVICE_GLES2_CMD_DECODER_H_
 #define GPU_COMMAND_BUFFER_SERVICE_GLES2_CMD_DECODER_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -18,6 +19,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/capabilities.h"
+#include "gpu/command_buffer/common/command_buffer_id.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/service/common_decoder.h"
 #include "gpu/gpu_export.h"
@@ -48,11 +50,29 @@ struct ContextState;
 struct DisallowedFeatures {
   DisallowedFeatures()
       : gpu_memory_manager(false),
-        npot_support(false) {
+        npot_support(false),
+        chromium_color_buffer_float_rgba(false),
+        chromium_color_buffer_float_rgb(false),
+        ext_color_buffer_float(false),
+        oes_texture_float_linear(false),
+        oes_texture_half_float_linear(false) {
+  }
+
+  void AllowExtensions() {
+    chromium_color_buffer_float_rgba = false;
+    chromium_color_buffer_float_rgb = false;
+    ext_color_buffer_float = false;
+    oes_texture_float_linear = false;
+    oes_texture_half_float_linear = false;
   }
 
   bool gpu_memory_manager;
   bool npot_support;
+  bool chromium_color_buffer_float_rgba;
+  bool chromium_color_buffer_float_rgb;
+  bool ext_color_buffer_float;
+  bool oes_texture_float_linear;
+  bool oes_texture_half_float_linear;
 };
 
 typedef base::Callback<void(const std::string& key,
@@ -64,11 +84,11 @@ class GPU_EXPORT GLES2Decoder : public base::SupportsWeakPtr<GLES2Decoder>,
                                 public CommonDecoder {
  public:
   typedef error::Error Error;
-  typedef base::Callback<bool(uint32 id)> WaitSyncPointCallback;
   typedef base::Callback<void(uint64_t release)> FenceSyncReleaseCallback;
   typedef base::Callback<bool(gpu::CommandBufferNamespace namespace_id,
-                              uint64_t command_buffer_id,
-                              uint64_t release)> WaitFenceSyncCallback;
+                              gpu::CommandBufferId command_buffer_id,
+                              uint64_t release)>
+      WaitFenceSyncCallback;
 
   // The default stencil mask, which has all bits set.  This really should be a
   // GLuint, but we can't #include gl_bindings.h in this file without causing
@@ -131,7 +151,7 @@ class GPU_EXPORT GLES2Decoder : public base::SupportsWeakPtr<GLES2Decoder>,
                           bool offscreen,
                           const gfx::Size& offscreen_size,
                           const DisallowedFeatures& disallowed_features,
-                          const std::vector<int32>& attribs) = 0;
+                          const std::vector<int32_t>& attribs) = 0;
 
   // Destroys the graphics context.
   virtual void Destroy(bool have_context) = 0;
@@ -173,12 +193,14 @@ class GPU_EXPORT GLES2Decoder : public base::SupportsWeakPtr<GLES2Decoder>,
   virtual void RestoreProgramBindings() const = 0;
   virtual void RestoreTextureState(unsigned service_id) const = 0;
   virtual void RestoreTextureUnitBindings(unsigned unit) const = 0;
+  virtual void RestoreAllExternalTextureBindingsIfNeeded() = 0;
 
   virtual void ClearAllAttributes() const = 0;
   virtual void RestoreAllAttributes() const = 0;
 
   virtual void SetIgnoreCachedStateForTest(bool ignore) = 0;
   virtual void SetForceShaderNameHashingForTest(bool force) = 0;
+  virtual uint32_t GetAndClearBackbufferClearBitsForTest();
 
   // Gets the QueryManager for this context.
   virtual QueryManager* GetQueryManager() = 0;
@@ -206,13 +228,13 @@ class GPU_EXPORT GLES2Decoder : public base::SupportsWeakPtr<GLES2Decoder>,
 
   // Get the service texture ID corresponding to a client texture ID.
   // If no such record is found then return false.
-  virtual bool GetServiceTextureId(uint32 client_texture_id,
-                                   uint32* service_texture_id);
+  virtual bool GetServiceTextureId(uint32_t client_texture_id,
+                                   uint32_t* service_texture_id);
 
   // Provides detail about a lost context if one occurred.
   virtual error::ContextLostReason GetContextLostReason() = 0;
 
-  // Clears a level sub area of a texture
+  // Clears a level sub area of a 2D texture.
   // Returns false if a GL error should be generated.
   virtual bool ClearLevel(Texture* texture,
                           unsigned target,
@@ -224,15 +246,21 @@ class GPU_EXPORT GLES2Decoder : public base::SupportsWeakPtr<GLES2Decoder>,
                           int width,
                           int height) = 0;
 
+  // Clears a level of a 3D texture.
+  // Returns false if a GL error should be generated.
+  virtual bool ClearLevel3D(Texture* texture,
+                            unsigned target,
+                            int level,
+                            unsigned format,
+                            unsigned type,
+                            int width,
+                            int height,
+                            int depth) = 0;
+
   virtual ErrorState* GetErrorState() = 0;
 
   // A callback for messages from the decoder.
   virtual void SetShaderCacheCallback(const ShaderCacheCallback& callback) = 0;
-
-  // Sets the callback for waiting on a sync point. The callback returns the
-  // scheduling status (i.e. true if the channel is still scheduled).
-  virtual void SetWaitSyncPointCallback(
-      const WaitSyncPointCallback& callback) = 0;
 
   // Sets the callback for fence sync release and wait calls. The wait call
   // returns true if the channel is still scheduled.
@@ -242,7 +270,7 @@ class GPU_EXPORT GLES2Decoder : public base::SupportsWeakPtr<GLES2Decoder>,
       const WaitFenceSyncCallback& callback) = 0;
 
   virtual void WaitForReadPixels(base::Closure callback) = 0;
-  virtual uint32 GetTextureUploadCount() = 0;
+  virtual uint32_t GetTextureUploadCount() = 0;
   virtual base::TimeDelta GetTotalTextureUploadTime() = 0;
   virtual base::TimeDelta GetTotalProcessingCommandsTime() = 0;
   virtual void AddProcessingCommandsTime(base::TimeDelta) = 0;

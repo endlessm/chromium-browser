@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/StyleSheetContents.h"
 
 #include "core/css/CSSStyleSheet.h"
@@ -35,7 +34,6 @@
 #include "core/inspector/InspectorTraceEvents.h"
 #include "platform/TraceEvent.h"
 #include "platform/weborigin/SecurityOrigin.h"
-#include "wtf/Deque.h"
 
 namespace blink {
 
@@ -238,9 +236,6 @@ bool StyleSheetContents::wrapperInsertRule(PassRefPtrWillBeRawPtr<StyleRuleBase>
     if (rule->isImportRule())
         return false;
 
-    if (rule->isMediaRule())
-        setHasMediaQueries();
-
     index -= m_importRules.size();
 
     if (index < m_namespaceRules.size() || (index == m_namespaceRules.size() && rule->isNamespaceRule())) {
@@ -267,8 +262,11 @@ bool StyleSheetContents::wrapperInsertRule(PassRefPtrWillBeRawPtr<StyleRuleBase>
 
     index -= m_namespaceRules.size();
 
-    if (rule->isFontFaceRule())
+    if (rule->isMediaRule())
+        setHasMediaQueries();
+    else if (rule->isFontFaceRule())
         setHasFontFaceRule(true);
+
     m_childRules.insert(index, rule);
     return true;
 }
@@ -314,14 +312,8 @@ void StyleSheetContents::parserAddNamespace(const AtomicString& prefix, const At
     result.storedValue->value = uri;
 }
 
-const AtomicString& StyleSheetContents::determineNamespace(const AtomicString& prefix)
+const AtomicString& StyleSheetContents::namespaceURIFromPrefix(const AtomicString& prefix)
 {
-    if (prefix.isNull())
-        return defaultNamespace();
-    if (prefix.isEmpty())
-        return emptyAtom; // No namespace. If an element/attribute has a namespace, we won't match it.
-    if (prefix == starAtom)
-        return starAtom; // We'll match any namespace.
     return m_namespaces.get(prefix);
 }
 
@@ -334,10 +326,10 @@ void StyleSheetContents::parseAuthorStyleSheet(const CSSStyleSheetResource* cach
     String sheetText = cachedStyleSheet->sheetText(mimeTypeCheck);
 
     const ResourceResponse& response = cachedStyleSheet->response();
-    m_sourceMapURL = response.httpHeaderField("SourceMap");
+    m_sourceMapURL = response.httpHeaderField(HTTPNames::SourceMap);
     if (m_sourceMapURL.isEmpty()) {
         // Try to get deprecated header.
-        m_sourceMapURL = response.httpHeaderField("X-SourceMap");
+        m_sourceMapURL = response.httpHeaderField(HTTPNames::X_SourceMap);
     }
 
     CSSParserContext context(parserContext(), UseCounter::getFrom(this));
@@ -682,4 +674,4 @@ DEFINE_TRACE(StyleSheetContents)
 #endif
 }
 
-}
+} // namespace blink

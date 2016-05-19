@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <utility>
+
 #include "mojo/public/cpp/bindings/array.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 
@@ -13,7 +16,7 @@ struct TypeConverter<Array<T>, blink::WebVector<U>> {
     Array<T> array(vector.size());
     for (size_t i = 0; i < vector.size(); ++i)
       array[i] = TypeConverter<T, U>::Convert(vector[i]);
-    return array.Pass();
+    return std::move(array);
   }
 };
 

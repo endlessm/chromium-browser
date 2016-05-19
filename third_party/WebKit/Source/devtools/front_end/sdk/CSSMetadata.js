@@ -138,6 +138,18 @@ WebInspector.CSSMetadata.canonicalPropertyName = function(name)
  * @param {string} propertyName
  * @return {boolean}
  */
+WebInspector.CSSMetadata.isCSSPropertyName = function(propertyName)
+{
+    if (propertyName.startsWith("-moz-") || propertyName.startsWith("-o-") || propertyName.startsWith("-webkit-") || propertyName.startsWith("-ms-"))
+        return true;
+    var hasSupportedProperties = WebInspector.CSSMetadata.cssPropertiesMetainfo._values.length > 0;
+    return !hasSupportedProperties || WebInspector.CSSMetadata.cssPropertiesMetainfoKeySet().hasOwnProperty(propertyName);
+}
+
+/**
+ * @param {string} propertyName
+ * @return {boolean}
+ */
 WebInspector.CSSMetadata.isPropertyInherited = function(propertyName)
 {
     return !!(WebInspector.CSSMetadata.InheritedProperties[WebInspector.CSSMetadata.canonicalPropertyName(propertyName)]
@@ -604,7 +616,15 @@ WebInspector.CSSMetadata._propertyDataMap = {
     ] },
     "-webkit-text-decoration-skip": { values: [
         "none", "objects", "spaces", "ink", "edges", "box-decoration"
-    ] }
+    ] },
+    "mix-blend-mode": { values: [
+        "normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light",
+        "difference", "exclusion", "hue", "saturation", "color", "luminosity", "unset"
+    ] },
+    "background-blend-mode": { values: [
+        "normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light",
+        "difference", "exclusion", "hue", "saturation", "color", "luminosity", "unset"
+    ] },
 }
 
 /**

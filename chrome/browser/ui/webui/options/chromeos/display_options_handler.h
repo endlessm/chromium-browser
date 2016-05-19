@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ash/display/window_tree_host_manager.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 
 namespace base {
@@ -46,22 +47,13 @@ class DisplayOptionsHandler : public ::options::OptionsPageUIHandler,
   // Enables or disables the display settings UI.
   void UpdateDisplaySettingsEnabled();
 
-  // Called when the fade-out animation for mirroring status change is finished.
-  void OnFadeOutForMirroringFinished(bool is_mirroring);
-
-  // Called when the fade-out animation for secondary display layout change is
-  // finished.  |layout| specifies the four positions of the secondary display
-  // (left/right/top/bottom), and |offset| is the offset length from the
-  // left/top edge of the primary display.
-  void OnFadeOutForDisplayLayoutFinished(int layout, int offset);
-
   // Handlers of JS messages.
   void HandleDisplayInfo(const base::ListValue* unused_args);
   void HandleMirroring(const base::ListValue* args);
   void HandleSetPrimary(const base::ListValue* args);
-  void HandleDisplayLayout(const base::ListValue* args);
+  void HandleSetDisplayLayout(const base::ListValue* args);
   void HandleSetDisplayMode(const base::ListValue* args);
-  void HandleSetOrientation(const base::ListValue* args);
+  void HandleSetRotation(const base::ListValue* args);
   void HandleSetColorProfile(const base::ListValue* args);
   void HandleSetUnifiedDesktopEnabled(const base::ListValue* args);
 

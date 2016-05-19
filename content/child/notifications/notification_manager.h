@@ -5,11 +5,15 @@
 #ifndef CONTENT_CHILD_NOTIFICATIONS_NOTIFICATION_MANAGER_H_
 #define CONTENT_CHILD_NOTIFICATIONS_NOTIFICATION_MANAGER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <vector>
 
 #include "base/id_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "content/child/notifications/notification_dispatcher.h"
@@ -18,10 +22,9 @@
 #include "content/public/child/worker_thread.h"
 #include "third_party/WebKit/public/platform/modules/notifications/WebNotificationManager.h"
 
-class SkBitmap;
-
 namespace content {
 
+struct NotificationResources;
 struct PlatformNotificationData;
 class ThreadSafeSender;
 
@@ -56,8 +59,8 @@ class NotificationManager : public blink::WebNotificationManager,
   void close(blink::WebNotificationDelegate* delegate) override;
   void closePersistent(const blink::WebSecurityOrigin& origin,
                        int64_t persistent_notification_id) override;
-  void notifyDelegateDestroyed(blink::WebNotificationDelegate* delegate)
-      override;
+  void notifyDelegateDestroyed(
+      blink::WebNotificationDelegate* delegate) override;
   blink::WebNotificationPermission checkPermission(
       const blink::WebSecurityOrigin& origin) override;
   size_t maxActions() override;
@@ -66,10 +69,9 @@ class NotificationManager : public blink::WebNotificationManager,
   bool OnMessageReceived(const IPC::Message& message);
 
  private:
-  NotificationManager(
-      ThreadSafeSender* thread_safe_sender,
-      base::SingleThreadTaskRunner* main_thread_task_runner,
-      NotificationDispatcher* notification_dispatcher);
+  NotificationManager(ThreadSafeSender* thread_safe_sender,
+                      base::SingleThreadTaskRunner* main_thread_task_runner,
+                      NotificationDispatcher* notification_dispatcher);
 
   // IPC message handlers.
   void OnDidShow(int notification_id);
@@ -88,7 +90,7 @@ class NotificationManager : public blink::WebNotificationManager,
       const blink::WebSecurityOrigin& origin,
       const blink::WebNotificationData& notification_data,
       blink::WebNotificationDelegate* delegate,
-      const SkBitmap& icon);
+      const NotificationResources& notification_resources);
 
   // To be called when a persistent notification is ready to be displayed. Will
   // inform the browser process about all available data. The |callbacks| will
@@ -97,16 +99,16 @@ class NotificationManager : public blink::WebNotificationManager,
   void DisplayPersistentNotification(
       const blink::WebSecurityOrigin& origin,
       const blink::WebNotificationData& notification_data,
-      int64 service_worker_registration_id,
+      int64_t service_worker_registration_id,
       scoped_ptr<blink::WebNotificationShowCallbacks> callbacks,
-      const SkBitmap& icon);
+      const NotificationResources& notification_resources);
 
   scoped_refptr<ThreadSafeSender> thread_safe_sender_;
   scoped_refptr<NotificationDispatcher> notification_dispatcher_;
 
   // Tracker which stores all pending Notifications, both page and persistent
   // ones, until all their associated resources have been fetched.
-  PendingNotificationsTracker pending_notifications_;
+  PendingNotificationsTracker notifications_tracker_;
 
   // Tracks pending requests for getting a list of notifications.
   IDMap<blink::WebNotificationGetCallbacks, IDMapOwnPointer>

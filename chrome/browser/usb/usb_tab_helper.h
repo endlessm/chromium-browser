@@ -5,7 +5,8 @@
 #ifndef CHROME_BROWSER_USB_USB_TAB_HELPER_H_
 #define CHROME_BROWSER_USB_USB_TAB_HELPER_H_
 
-#include "base/containers/scoped_ptr_map.h"
+#include <map>
+
 #include "base/macros.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
@@ -18,7 +19,14 @@ class PermissionProvider;
 }
 }
 
-class WebUSBPermissionProvider;
+namespace webusb {
+class WebUsbPermissionBubble;
+}
+
+struct FrameUsbServices;
+
+typedef std::map<content::RenderFrameHost*, scoped_ptr<FrameUsbServices>>
+    FrameUsbServicesMap;
 
 // Per-tab owner of USB services provided to render frames within that tab.
 class UsbTabHelper : public content::WebContentsObserver,
@@ -33,6 +41,12 @@ class UsbTabHelper : public content::WebContentsObserver,
       content::RenderFrameHost* render_frame_host,
       mojo::InterfaceRequest<device::usb::DeviceManager> request);
 
+#if !defined(OS_ANDROID)
+  void CreatePermissionBubble(
+      content::RenderFrameHost* render_frame_host,
+      mojo::InterfaceRequest<webusb::WebUsbPermissionBubble> request);
+#endif  // !defined(OS_ANDROID)
+
  private:
   explicit UsbTabHelper(content::WebContents* web_contents);
   friend class content::WebContentsUserData<UsbTabHelper>;
@@ -40,12 +54,20 @@ class UsbTabHelper : public content::WebContentsObserver,
   // content::WebContentsObserver overrides:
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
 
+  FrameUsbServices* GetFrameUsbService(
+      content::RenderFrameHost* render_frame_host);
+
   void GetPermissionProvider(
       content::RenderFrameHost* render_frame_host,
       mojo::InterfaceRequest<device::usb::PermissionProvider> request);
 
-  base::ScopedPtrMap<content::RenderFrameHost*,
-                     scoped_ptr<WebUSBPermissionProvider>> permission_provider_;
+#if !defined(OS_ANDROID)
+  void GetPermissionBubble(
+      content::RenderFrameHost* render_frame_host,
+      mojo::InterfaceRequest<webusb::WebUsbPermissionBubble> request);
+#endif  // !defined(OS_ANDROID)
+
+  FrameUsbServicesMap frame_usb_services_;
 
   DISALLOW_COPY_AND_ASSIGN(UsbTabHelper);
 };

@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLTreeBuilderSimulator.h"
 
 #include "core/HTMLNames.h"
@@ -184,4 +183,4 @@ HTMLTreeBuilderSimulator::SimulatedToken HTMLTreeBuilderSimulator::simulate(cons
     return simulatedToken;
 }
 
-}
+} // namespace blink

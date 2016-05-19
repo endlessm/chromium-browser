@@ -4,14 +4,15 @@
 
 #include "chrome/browser/ui/views/frame/browser_view.h"
 
+#include "base/macros.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/frame/browser_view_layout.h"
 #include "chrome/browser/ui/views/frame/test_with_browser_view.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/infobars/infobar_container_view.h"
-#include "chrome/browser/ui/views/layout_constants.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/common/url_constants.h"
@@ -78,11 +79,13 @@ TEST_F(BrowserViewTest, BrowserViewLayout) {
   EXPECT_EQ(top_container, browser_view()->GetBookmarkBarView()->parent());
   EXPECT_EQ(browser_view(), browser_view()->infobar_container()->parent());
 
-  // Find bar host is at the front of the view hierarchy, followed by the top
-  // container.
+  // Find bar host is at the front of the view hierarchy, followed by the
+  // infobar container and then top container.
   EXPECT_EQ(browser_view()->child_count() - 1,
             browser_view()->GetIndexOf(browser_view()->find_bar_host_view()));
   EXPECT_EQ(browser_view()->child_count() - 2,
+            browser_view()->GetIndexOf(browser_view()->infobar_container()));
+  EXPECT_EQ(browser_view()->child_count() - 3,
             browser_view()->GetIndexOf(top_container));
 
   // Verify basic layout.
@@ -122,11 +125,14 @@ TEST_F(BrowserViewTest, BrowserViewLayout) {
   EXPECT_TRUE(bookmark_bar->visible());
   EXPECT_TRUE(bookmark_bar->IsDetached());
   EXPECT_EQ(browser_view(), bookmark_bar->parent());
-  // Find bar host is still at the front of the view hierarchy, followed by
-  // the top container.
+
+  // Find bar host is still at the front of the view hierarchy, followed by the
+  // infobar container and then top container.
   EXPECT_EQ(browser_view()->child_count() - 1,
             browser_view()->GetIndexOf(browser_view()->find_bar_host_view()));
   EXPECT_EQ(browser_view()->child_count() - 2,
+            browser_view()->GetIndexOf(browser_view()->infobar_container()));
+  EXPECT_EQ(browser_view()->child_count() - 3,
             browser_view()->GetIndexOf(top_container));
 
   // Bookmark bar layout on NTP.
@@ -151,8 +157,8 @@ TEST_F(BrowserViewTest, BrowserViewLayout) {
   EXPECT_FALSE(bookmark_bar->visible());
   EXPECT_FALSE(bookmark_bar->IsDetached());
   EXPECT_EQ(top_container, bookmark_bar->parent());
-  // Top container is still second from front.
-  EXPECT_EQ(browser_view()->child_count() - 2,
+  // Top container is still third from front.
+  EXPECT_EQ(browser_view()->child_count() - 3,
             browser_view()->GetIndexOf(top_container));
 
   BookmarkBarView::DisableAnimationsForTesting(false);
@@ -160,11 +166,7 @@ TEST_F(BrowserViewTest, BrowserViewLayout) {
 
 class BrowserViewHostedAppTest : public TestWithBrowserView {
  public:
-  BrowserViewHostedAppTest()
-      : TestWithBrowserView(Browser::TYPE_POPUP,
-                            chrome::HOST_DESKTOP_TYPE_NATIVE,
-                            true) {
-  }
+  BrowserViewHostedAppTest() : TestWithBrowserView(Browser::TYPE_POPUP, true) {}
   ~BrowserViewHostedAppTest() override {}
 
  private:

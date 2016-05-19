@@ -6,16 +6,17 @@
 
 #include <string>
 
-#include "base/prefs/pref_service.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_prefs.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/sync_driver/sync_prefs.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/notification_service.h"
@@ -78,7 +79,7 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
       prefs::kSearchSuggestEnabled,
       true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   registry->RegisterStringPref(
       prefs::kContextualSearchEnabled,
       std::string(),
@@ -98,7 +99,7 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterDictionaryPref(prefs::kSafeBrowsingIncidentsSent);
   registry->RegisterBooleanPref(
       prefs::kSafeBrowsingExtendedReportingOptInAllowed, true);
-#if defined(ENABLE_GOOGLE_NOW)
+#if BUILDFLAG(ENABLE_GOOGLE_NOW)
   registry->RegisterBooleanPref(prefs::kGoogleGeolocationAccessEnabled, false);
 #endif
   // This pref is intentionally outside the above #if. That flag corresponds
@@ -138,11 +139,33 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kDevToolsRemoteEnabled, false);
 #endif
 
+  registry->RegisterBooleanPref(prefs::kDataSaverEnabled, false);
   data_reduction_proxy::RegisterSyncableProfilePrefs(registry);
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_IOS)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   // Preferences related to the avatar bubble and user manager tutorials.
   registry->RegisterIntegerPref(prefs::kProfileAvatarTutorialShown, 0);
+#endif
+
+#if defined(OS_ANDROID)
+  registry->RegisterBooleanPref(prefs::kClickedUpdateMenuItem, false);
+#endif
+
+#if defined(ENABLE_MEDIA_ROUTER)
+#if defined(GOOGLE_CHROME_BUILD)
+  registry->RegisterBooleanPref(
+      prefs::kMediaRouterCloudServicesPrefSet,
+      false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(
+      prefs::kMediaRouterEnableCloudServices,
+      false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+#endif  // defined(GOOGLE_CHROME_BUILD)
+  registry->RegisterBooleanPref(
+      prefs::kMediaRouterFirstRunFlowAcknowledged,
+      false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 #endif
 }
 

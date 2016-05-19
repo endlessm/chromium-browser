@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_CHROMEOS_CHROME_BROWSER_MAIN_CHROMEOS_H_
 #define CHROME_BROWSER_CHROMEOS_CHROME_BROWSER_MAIN_CHROMEOS_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/chrome_browser_main_linux.h"
@@ -15,8 +16,13 @@ namespace session_manager {
 class SessionManager;
 }
 
+namespace arc {
+class ArcServiceLauncher;
+}
+
 namespace chromeos {
 
+class ChromeInterfaceFactory;
 class DataPromoNotification;
 class EventRewriter;
 class EventRewriterController;
@@ -76,6 +82,12 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
   scoped_ptr<EventRewriterController> keyboard_event_rewriters_;
 
   scoped_refptr<chromeos::ExternalMetrics> external_metrics_;
+
+  scoped_ptr<arc::ArcServiceLauncher> arc_service_launcher_;
+
+#if defined(MOJO_SHELL_CLIENT)
+  scoped_ptr<ChromeInterfaceFactory> interface_factory_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(ChromeBrowserMainPartsChromeos);
 };

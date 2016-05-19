@@ -94,6 +94,8 @@ public:
 
     bool isViewportDependent() const;
 
+    bool isDeviceDependent() const;
+
     String serialize() const;
 
     PassOwnPtrWillBeRawPtr<MediaQueryExp> copy() const { return adoptPtrWillBeNoop(new MediaQueryExp(*this)); }
@@ -109,6 +111,6 @@ private:
     MediaQueryExpValue m_expValue;
 };
 
-} // namespace
+} // namespace blink
 
 #endif

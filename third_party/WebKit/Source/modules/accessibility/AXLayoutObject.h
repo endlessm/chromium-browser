@@ -56,13 +56,11 @@ public:
     // Public, overridden from AXObject.
     LayoutObject* layoutObject() const final { return m_layoutObject; }
     LayoutRect elementRect() const override;
-
-    void setLayoutObject(LayoutObject*);
     LayoutBoxModelObject* layoutBoxModelObject() const;
-    Document* topDocument() const;
     bool shouldNotifyActiveDescendant() const;
     ScrollableArea* getScrollableAreaIfScrollable() const final;
     AccessibilityRole determineAccessibilityRole() override;
+    AccessibilityRole nativeAccessibilityRoleIgnoringAria() const override;
     void checkCachedElementRect() const;
     void updateCachedElementRect() const;
 
@@ -83,7 +81,6 @@ protected:
     bool isAXLayoutObject() const override { return true; }
 
     // Check object role or purpose.
-    bool isAttachment() const override;
     bool isEditable() const override;
     bool isRichlyEditable() const override;
     bool isLinked() const override;
@@ -125,8 +122,8 @@ protected:
     AXObject* activeDescendant() const override;
     void ariaFlowToElements(AXObjectVector&) const override;
     void ariaControlsElements(AXObjectVector&) const override;
-    void deprecatedAriaDescribedbyElements(AXObjectVector&) const override;
-    void deprecatedAriaLabelledbyElements(AXObjectVector&) const override;
+    void ariaDescribedbyElements(AXObjectVector&) const override;
+    void ariaLabelledbyElements(AXObjectVector&) const override;
     void ariaOwnsElements(AXObjectVector&) const override;
 
     bool ariaHasPopup() const override;
@@ -144,11 +141,8 @@ protected:
     bool liveRegionAtomic() const override;
     bool liveRegionBusy() const override;
 
-    // Accessibility Text.
-    String deprecatedTextUnderElement(TextUnderElementMode) const override;
-
-    // Accessibility Text - (To be deprecated).
-    String deprecatedHelpText() const override;
+    // AX name calc.
+    String textAlternative(bool recursive, bool inAriaLabelledByTraversal, AXObjectSet& visited, AXNameFrom&, AXRelatedObjectVector*, NameSources*) const override;
 
     // Methods that retrieve or manipulate the current selection.
 
@@ -169,8 +163,8 @@ protected:
     AXObject* computeParentIfExists() const override;
 
     // Low-level accessibility tree exploration, only for use within the accessibility module.
-    AXObject* firstChild() const override;
-    AXObject* nextSibling() const override;
+    AXObject* rawFirstChild() const override;
+    AXObject* rawNextSibling() const override;
     void addChildren() override;
     bool canHaveChildren() const override;
     void updateChildrenIfNecessary() override;
@@ -186,7 +180,6 @@ protected:
     Document* document() const override;
     FrameView* documentFrameView() const override;
     Element* anchorElement() const override;
-    Widget* widgetForAttachmentView() const override;
 
     void setValue(const String&) override;
 
@@ -202,7 +195,6 @@ protected:
 
 private:
     AXObject* treeAncestorDisallowingChild() const;
-    bool nodeIsTextControl(const Node*) const;
     bool isTabItemSelected() const;
     bool isValidSelectionBound(const AXObject*) const;
     AXObject* accessibilityImageMapHitTest(HTMLAreaElement*, const IntPoint&) const;
@@ -216,7 +208,7 @@ private:
     void addTextFieldChildren();
     void addImageMapChildren();
     void addCanvasChildren();
-    void addAttachmentChildren();
+    void addFrameChildren();
     void addPopupChildren();
     void addRemoteSVGChildren();
     void addInlineTextBoxChildren(bool force);

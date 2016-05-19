@@ -5,11 +5,15 @@
 #include "ui/views/controls/button/custom_button.h"
 
 #include "ui/accessibility/ax_view_state.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/animation/throb_animation.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/screen.h"
+#include "ui/views/animation/ink_drop_delegate.h"
+#include "ui/views/animation/ink_drop_hover.h"
 #include "ui/views/controls/button/blue_button.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/button/image_button.h"
@@ -54,29 +58,28 @@ CustomButton* CustomButton::AsCustomButton(views::View* view) {
   return NULL;
 }
 
-CustomButton::~CustomButton() {
-}
+CustomButton::~CustomButton() {}
 
 void CustomButton::SetState(ButtonState state) {
   if (state == state_)
     return;
 
   if (animate_on_state_change_ &&
-      (!is_throbbing_ || !hover_animation_->is_animating())) {
+      (!is_throbbing_ || !hover_animation_.is_animating())) {
     is_throbbing_ = false;
     if ((state_ == STATE_HOVERED) && (state == STATE_NORMAL)) {
       // For HOVERED -> NORMAL, animate from hovered (1) to not hovered (0).
-      hover_animation_->Hide();
+      hover_animation_.Hide();
     } else if (state != STATE_HOVERED) {
       // For HOVERED -> PRESSED/DISABLED, or any transition not involving
       // HOVERED at all, simply set the state to not hovered (0).
-      hover_animation_->Reset();
+      hover_animation_.Reset();
     } else if (state_ == STATE_NORMAL) {
       // For NORMAL -> HOVERED, animate from not hovered (0) to hovered (1).
-      hover_animation_->Show();
+      hover_animation_.Show();
     } else {
       // For PRESSED/DISABLED -> HOVERED, simply set the state to hovered (1).
-      hover_animation_->Reset(1);
+      hover_animation_.Reset(1);
     }
   }
 
@@ -87,18 +90,18 @@ void CustomButton::SetState(ButtonState state) {
 
 void CustomButton::StartThrobbing(int cycles_til_stop) {
   is_throbbing_ = true;
-  hover_animation_->StartThrobbing(cycles_til_stop);
+  hover_animation_.StartThrobbing(cycles_til_stop);
 }
 
 void CustomButton::StopThrobbing() {
-  if (hover_animation_->is_animating()) {
-    hover_animation_->Stop();
+  if (hover_animation_.is_animating()) {
+    hover_animation_.Stop();
     SchedulePaint();
   }
 }
 
 void CustomButton::SetAnimationDuration(int duration) {
-  hover_animation_->SetSlideDuration(duration);
+  hover_animation_.SetSlideDuration(duration);
 }
 
 void CustomButton::SetHotTracked(bool is_hot_tracked) {
@@ -106,7 +109,7 @@ void CustomButton::SetHotTracked(bool is_hot_tracked) {
     SetState(is_hot_tracked ? STATE_HOVERED : STATE_NORMAL);
 
   if (is_hot_tracked)
-    NotifyAccessibilityEvent(ui::AX_EVENT_FOCUS, true);
+    NotifyAccessibilityEvent(ui::AX_EVENT_HOVER, true);
 }
 
 bool CustomButton::IsHotTracked() const {
@@ -117,6 +120,8 @@ bool CustomButton::IsHotTracked() const {
 // CustomButton, View overrides:
 
 void CustomButton::OnEnabledChanged() {
+  // TODO(bruthig): Is there any reason we are not calling
+  // Button::OnEnabledChanged() here?
   if (enabled() ? (state_ != STATE_DISABLED) : (state_ == STATE_DISABLED))
     return;
 
@@ -124,6 +129,9 @@ void CustomButton::OnEnabledChanged() {
     SetState(ShouldEnterHoveredState() ? STATE_HOVERED : STATE_NORMAL);
   else
     SetState(STATE_DISABLED);
+
+  if (ink_drop_delegate_)
+    ink_drop_delegate_->SetHovered(ShouldShowInkDropHover());
 }
 
 const char* CustomButton::GetClassName() const {
@@ -131,16 +139,20 @@ const char* CustomButton::GetClassName() const {
 }
 
 bool CustomButton::OnMousePressed(const ui::MouseEvent& event) {
-  if (state_ != STATE_DISABLED) {
-    if (ShouldEnterPushedState(event) && HitTestPoint(event.location()))
-      SetState(STATE_PRESSED);
-    if (request_focus_on_press_)
-      RequestFocus();
-    if (IsTriggerableEvent(event) && notify_action_ == NOTIFY_ON_PRESS) {
-      NotifyClick(event);
-      // NOTE: We may be deleted at this point (by the listener's notification
-      // handler).
-    }
+  if (state_ == STATE_DISABLED)
+    return true;
+  if (state_ != STATE_PRESSED && ShouldEnterPushedState(event) &&
+      HitTestPoint(event.location())) {
+    SetState(STATE_PRESSED);
+    if (ink_drop_delegate_)
+      ink_drop_delegate_->OnAction(views::InkDropState::ACTION_PENDING);
+  }
+  if (request_focus_on_press_)
+    RequestFocus();
+  if (IsTriggerableEvent(event) && notify_action_ == NOTIFY_ON_PRESS) {
+    NotifyClick(event);
+    // NOTE: We may be deleted at this point (by the listener's notification
+    // handler).
   }
   return true;
 }
@@ -156,26 +168,33 @@ bool CustomButton::OnMouseDragged(const ui::MouseEvent& event) {
 }
 
 void CustomButton::OnMouseReleased(const ui::MouseEvent& event) {
-  if (state_ == STATE_DISABLED)
-    return;
-
-  if (!HitTestPoint(event.location())) {
-    SetState(STATE_NORMAL);
-    return;
+  if (state_ != STATE_DISABLED) {
+    if (!HitTestPoint(event.location())) {
+      SetState(STATE_NORMAL);
+    } else {
+      SetState(STATE_HOVERED);
+      if (IsTriggerableEvent(event) && notify_action_ == NOTIFY_ON_RELEASE) {
+        NotifyClick(event);
+        // NOTE: We may be deleted at this point (by the listener's notification
+        // handler).
+        return;
+      }
+    }
   }
-
-  SetState(STATE_HOVERED);
-  if (IsTriggerableEvent(event) && notify_action_ == NOTIFY_ON_RELEASE) {
-    NotifyClick(event);
-    // NOTE: We may be deleted at this point (by the listener's notification
-    // handler).
-  }
+  if (notify_action_ == NOTIFY_ON_RELEASE)
+    OnClickCanceled(event);
 }
 
 void CustomButton::OnMouseCaptureLost() {
-  // Starting a drag results in a MouseCaptureLost, we need to ignore it.
-  if (state_ != STATE_DISABLED && !InDrag())
+  // Starting a drag results in a MouseCaptureLost. Reset button state.
+  // TODO(varkha) While in drag only reset the state with Material Design.
+  // The same logic may applies everywhere so gather any feedback and update.
+  bool reset_button_state =
+      !InDrag() || ui::MaterialDesignController::IsModeMaterial();
+  if (state_ != STATE_DISABLED && reset_button_state)
     SetState(STATE_NORMAL);
+  if (ink_drop_delegate_)
+    ink_drop_delegate_->OnAction(views::InkDropState::HIDDEN);
 }
 
 void CustomButton::OnMouseEntered(const ui::MouseEvent& event) {
@@ -233,7 +252,7 @@ void CustomButton::OnGestureEvent(ui::GestureEvent* event) {
     // STATE_NORMAL beginning the fade out animation. See
     // http://crbug.com/131184.
     SetState(STATE_HOVERED);
-    hover_animation_->Reset(1.0);
+    hover_animation_.Reset(1.0);
     NotifyClick(*event);
     event->StopPropagation();
   } else if (event->type() == ui::ET_GESTURE_TAP_DOWN &&
@@ -251,13 +270,6 @@ void CustomButton::OnGestureEvent(ui::GestureEvent* event) {
 }
 
 bool CustomButton::AcceleratorPressed(const ui::Accelerator& accelerator) {
-  // Should only handle accelerators when active. However, only top level
-  // widgets can be active, so for child widgets check if they are focused
-  // instead.
-  if ((IsChildWidget() && !FocusInChildWidget()) ||
-      (!IsChildWidget() && !GetWidget()->IsActive())) {
-    return false;
-  }
   SetState(STATE_NORMAL);
   // TODO(beng): remove once NotifyClick takes ui::Event.
   ui::MouseEvent synthetic_event(
@@ -265,6 +277,13 @@ bool CustomButton::AcceleratorPressed(const ui::Accelerator& accelerator) {
       ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   NotifyClick(synthetic_event);
   return true;
+}
+
+bool CustomButton::SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) {
+  // If this button is focused and the user presses space or enter, don't let
+  // that be treated as an accelerator.
+  return (event.key_code() == ui::VKEY_SPACE) ||
+         (event.key_code() == ui::VKEY_RETURN);
 }
 
 void CustomButton::ShowContextMenu(const gfx::Point& p,
@@ -276,6 +295,10 @@ void CustomButton::ShowContextMenu(const gfx::Point& p,
   // we won't get a mouse exited and reset state. Reset it now to be sure.
   if (state_ != STATE_DISABLED)
     SetState(STATE_NORMAL);
+  if (ink_drop_delegate_) {
+    ink_drop_delegate_->SetHovered(false);
+    ink_drop_delegate_->OnAction(InkDropState::HIDDEN);
+  }
   View::ShowContextMenu(p, source_type);
 }
 
@@ -284,6 +307,8 @@ void CustomButton::OnDragDone() {
   // (since disabled buttons may still be able to be dragged).
   if (state_ != STATE_DISABLED)
     SetState(STATE_NORMAL);
+  if (ink_drop_delegate_)
+    ink_drop_delegate_->OnAction(InkDropState::HIDDEN);
 }
 
 void CustomButton::GetAccessibleState(ui::AXViewState* state) {
@@ -311,6 +336,14 @@ void CustomButton::VisibilityChanged(View* starting_from, bool visible) {
   SetState(visible && ShouldEnterHoveredState() ? STATE_HOVERED : STATE_NORMAL);
 }
 
+scoped_ptr<InkDropHover> CustomButton::CreateInkDropHover() const {
+  return ShouldShowInkDropHover() ? Button::CreateInkDropHover() : nullptr;
+}
+
+SkColor CustomButton::GetInkDropBaseColor() const {
+  return ink_drop_base_color_;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // CustomButton, gfx::AnimationDelegate implementation:
 
@@ -324,13 +357,17 @@ void CustomButton::AnimationProgressed(const gfx::Animation* animation) {
 CustomButton::CustomButton(ButtonListener* listener)
     : Button(listener),
       state_(STATE_NORMAL),
+      hover_animation_(this),
       animate_on_state_change_(true),
       is_throbbing_(false),
       triggerable_event_flags_(ui::EF_LEFT_MOUSE_BUTTON),
       request_focus_on_press_(true),
-      notify_action_(NOTIFY_ON_RELEASE) {
-  hover_animation_.reset(new gfx::ThrobAnimation(this));
-  hover_animation_->SetSlideDuration(kHoverFadeDurationMs);
+      ink_drop_delegate_(nullptr),
+      notify_action_(NOTIFY_ON_RELEASE),
+      has_ink_drop_action_on_click_(false),
+      ink_drop_action_on_click_(InkDropState::QUICK_ACTION),
+      ink_drop_base_color_(gfx::kPlaceholderColor) {
+  hover_animation_.SetSlideDuration(kHoverFadeDurationMs);
 }
 
 void CustomButton::StateChanged() {
@@ -345,6 +382,10 @@ bool CustomButton::IsTriggerableEvent(const ui::Event& event) {
 
 bool CustomButton::ShouldEnterPushedState(const ui::Event& event) {
   return IsTriggerableEvent(event);
+}
+
+bool CustomButton::ShouldShowInkDropHover() const {
+  return enabled() && IsMouseHovered() && !InDrag();
 }
 
 bool CustomButton::ShouldEnterHoveredState() {
@@ -385,14 +426,16 @@ void CustomButton::OnBlur() {
     SetState(STATE_NORMAL);
 }
 
-bool CustomButton::IsChildWidget() const {
-  return GetWidget() && GetWidget()->GetTopLevelWidget() != GetWidget();
+void CustomButton::NotifyClick(const ui::Event& event) {
+  if (ink_drop_delegate() && has_ink_drop_action_on_click_)
+    ink_drop_delegate()->OnAction(ink_drop_action_on_click_);
+  Button::NotifyClick(event);
 }
 
-bool CustomButton::FocusInChildWidget() const {
-  return GetWidget() &&
-         GetWidget()->GetRootView()->Contains(
-             GetFocusManager()->GetFocusedView());
+void CustomButton::OnClickCanceled(const ui::Event& event) {
+  if (ink_drop_delegate())
+    ink_drop_delegate()->OnAction(views::InkDropState::HIDDEN);
+  Button::OnClickCanceled(event);
 }
 
 }  // namespace views

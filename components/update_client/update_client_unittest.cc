@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
@@ -91,10 +94,10 @@ void OnDemandTester::CheckOnDemand(Events event, const std::string& id) {
 
 class FakePingManagerImpl : public PingManager {
  public:
-  explicit FakePingManagerImpl(const Configurator& config);
+  explicit FakePingManagerImpl(const scoped_refptr<Configurator>& config);
   ~FakePingManagerImpl() override;
 
-  void OnUpdateComplete(const CrxUpdateItem* item) override;
+  void SendPing(const CrxUpdateItem* item) override;
 
   const std::vector<CrxUpdateItem>& items() const;
 
@@ -103,14 +106,14 @@ class FakePingManagerImpl : public PingManager {
   DISALLOW_COPY_AND_ASSIGN(FakePingManagerImpl);
 };
 
-FakePingManagerImpl::FakePingManagerImpl(const Configurator& config)
-    : PingManager(config) {
-}
+FakePingManagerImpl::FakePingManagerImpl(
+    const scoped_refptr<Configurator>& config)
+    : PingManager(config) {}
 
 FakePingManagerImpl::~FakePingManagerImpl() {
 }
 
-void FakePingManagerImpl::OnUpdateComplete(const CrxUpdateItem* item) {
+void FakePingManagerImpl::SendPing(const CrxUpdateItem* item) {
   items_.push_back(*item);
 }
 
@@ -137,7 +140,6 @@ class UpdateClientTest : public testing::Test {
 
  protected:
   void RunThreads();
-  void StopWorkerPool();
 
   // Returns the full path to a test file.
   static base::FilePath TestFilePath(const char* file);
@@ -178,10 +180,6 @@ void UpdateClientTest::RunThreads() {
   runloop_.Run();
 }
 
-void UpdateClientTest::StopWorkerPool() {
-  worker_pool_->pool()->Shutdown();
-}
-
 base::FilePath UpdateClientTest::TestFilePath(const char* file) {
   base::FilePath path;
   PathService::Get(base::DIR_SOURCE_ROOT, &path);
@@ -218,7 +216,8 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -227,8 +226,8 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
         const std::string& additional_attributes,
         const UpdateCheckCallback& update_check_callback) override {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "",
-                                UpdateResponse::Results()));
+          FROM_HERE,
+          base::Bind(update_check_callback, 0, UpdateResponse::Results()));
       return true;
     }
   };
@@ -238,13 +237,13 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override { EXPECT_TRUE(false); }
@@ -252,14 +251,14 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override { EXPECT_TRUE(items().empty()); }
   };
 
-  scoped_ptr<PingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<PingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   // Verify that calling Update does not set ondemand.
@@ -287,8 +286,6 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the scenario where two CRXs are checked for updates. On CRX has
@@ -325,7 +322,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -345,7 +343,9 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
             </urls>
             <manifest version='1.0' prodversionmin='11.0.1.0'>
               <packages>
-                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'/>
+                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'
+                         hash_sha256='6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd
+                                      7c9b12cb7cc067667bde87'/>
               </packages>
             </manifest>
           </updatecheck>
@@ -354,6 +354,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
       */
       UpdateResponse::Result::Manifest::Package package;
       package.name = "jebgalgnebhfojomionfpkfelancnnkf.crx";
+      package.hash_sha256 =
+          "6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd7c9b12cb7cc067667bde87";
 
       UpdateResponse::Result result;
       result.extension_id = "jebgalgnebhfojomionfpkfelancnnkf";
@@ -366,7 +368,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
       results.list.push_back(result);
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "", results));
+          FROM_HERE, base::Bind(update_check_callback, 0, results));
       return true;
     }
   };
@@ -376,13 +378,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override {
@@ -417,22 +419,22 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override {
       const auto& ping_items = items();
       EXPECT_EQ(1U, ping_items.size());
       EXPECT_EQ("jebgalgnebhfojomionfpkfelancnnkf", ping_items[0].id);
-      EXPECT_TRUE(base::Version("0.9").Equals(ping_items[0].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[0].next_version));
+      EXPECT_EQ(base::Version("0.9"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].next_version);
       EXPECT_EQ(0, ping_items[0].error_category);
       EXPECT_EQ(0, ping_items[0].error_code);
     }
   };
 
-  scoped_ptr<PingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<PingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   MockObserver observer;
@@ -470,8 +472,6 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the update check for two CRXs scenario. Both CRXs have updates.
@@ -507,7 +507,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -527,7 +528,9 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
             </urls>
             <manifest version='1.0' prodversionmin='11.0.1.0'>
               <packages>
-                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'/>
+                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'
+                         hash_sha256='6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd
+                                      7c9b12cb7cc067667bde87'/>
               </packages>
             </manifest>
           </updatecheck>
@@ -539,7 +542,9 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
             </urls>
             <manifest version='1.0' prodversionmin='11.0.1.0'>
               <packages>
-                <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'/>
+                <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'
+                         hash_sha256='813c59747e139a608b3b5fc49633affc6db574373f
+                                      309f156ea6d27229c0b3f9'/>
               </packages>
             </manifest>
           </updatecheck>
@@ -548,6 +553,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
       */
       UpdateResponse::Result::Manifest::Package package1;
       package1.name = "jebgalgnebhfojomionfpkfelancnnkf.crx";
+      package1.hash_sha256 =
+          "6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd7c9b12cb7cc067667bde87";
 
       UpdateResponse::Result result1;
       result1.extension_id = "jebgalgnebhfojomionfpkfelancnnkf";
@@ -558,6 +565,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
 
       UpdateResponse::Result::Manifest::Package package2;
       package2.name = "ihfokbkgjpifnbbojhneepfflplebdkc_1.crx";
+      package2.hash_sha256 =
+          "813c59747e139a608b3b5fc49633affc6db574373f309f156ea6d27229c0b3f9";
 
       UpdateResponse::Result result2;
       result2.extension_id = "ihfokbkgjpifnbbojhneepfflplebdkc";
@@ -571,7 +580,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
       results.list.push_back(result2);
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "", results));
+          FROM_HERE, base::Bind(update_check_callback, 0, results));
       return true;
     }
   };
@@ -581,13 +590,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override {
@@ -642,27 +651,27 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override {
       const auto& ping_items = items();
       EXPECT_EQ(2U, ping_items.size());
       EXPECT_EQ("jebgalgnebhfojomionfpkfelancnnkf", ping_items[0].id);
-      EXPECT_TRUE(base::Version("0.9").Equals(ping_items[0].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[0].next_version));
+      EXPECT_EQ(base::Version("0.9"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].next_version);
       EXPECT_EQ(0, ping_items[0].error_category);
       EXPECT_EQ(0, ping_items[0].error_code);
       EXPECT_EQ("ihfokbkgjpifnbbojhneepfflplebdkc", ping_items[1].id);
-      EXPECT_TRUE(base::Version("0.8").Equals(ping_items[1].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[1].next_version));
+      EXPECT_EQ(base::Version("0.8"), ping_items[1].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[1].next_version);
       EXPECT_EQ(0, ping_items[1].error_category);
       EXPECT_EQ(0, ping_items[1].error_code);
     }
   };
 
-  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   MockObserver observer;
@@ -708,8 +717,6 @@ TEST_F(UpdateClientTest, TwoCrxUpdate) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the scenario where there is a download timeout for the first
@@ -747,7 +754,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -767,7 +775,9 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
             </urls>
             <manifest version='1.0' prodversionmin='11.0.1.0'>
               <packages>
-                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'/>
+                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'
+                         hash_sha256='6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd
+                                      7c9b12cb7cc067667bde87'/>
               </packages>
             </manifest>
           </updatecheck>
@@ -779,7 +789,9 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
             </urls>
             <manifest version='1.0' prodversionmin='11.0.1.0'>
               <packages>
-                <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'/>
+                <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'
+                         hash_sha256='813c59747e139a608b3b5fc49633affc6db574373f
+                                      309f156ea6d27229c0b3f9'/>
               </packages>
             </manifest>
           </updatecheck>
@@ -788,6 +800,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
       */
       UpdateResponse::Result::Manifest::Package package1;
       package1.name = "jebgalgnebhfojomionfpkfelancnnkf.crx";
+      package1.hash_sha256 =
+          "6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd7c9b12cb7cc067667bde87";
 
       UpdateResponse::Result result1;
       result1.extension_id = "jebgalgnebhfojomionfpkfelancnnkf";
@@ -798,6 +812,8 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
 
       UpdateResponse::Result::Manifest::Package package2;
       package2.name = "ihfokbkgjpifnbbojhneepfflplebdkc_1.crx";
+      package2.hash_sha256 =
+          "813c59747e139a608b3b5fc49633affc6db574373f309f156ea6d27229c0b3f9";
 
       UpdateResponse::Result result2;
       result2.extension_id = "ihfokbkgjpifnbbojhneepfflplebdkc";
@@ -811,7 +827,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
       results.list.push_back(result2);
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "", results));
+          FROM_HERE, base::Bind(update_check_callback, 0, results));
       return true;
     }
   };
@@ -821,13 +837,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override {
@@ -882,27 +898,27 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override {
       const auto& ping_items = items();
       EXPECT_EQ(2U, ping_items.size());
       EXPECT_EQ("jebgalgnebhfojomionfpkfelancnnkf", ping_items[0].id);
-      EXPECT_TRUE(base::Version("0.9").Equals(ping_items[0].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[0].next_version));
+      EXPECT_EQ(base::Version("0.9"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].next_version);
       EXPECT_EQ(1, ping_items[0].error_category);  // Network error.
       EXPECT_EQ(-118, ping_items[0].error_code);
       EXPECT_EQ("ihfokbkgjpifnbbojhneepfflplebdkc", ping_items[1].id);
-      EXPECT_TRUE(base::Version("0.8").Equals(ping_items[1].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[1].next_version));
+      EXPECT_EQ(base::Version("0.8"), ping_items[1].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[1].next_version);
       EXPECT_EQ(0, ping_items[1].error_category);
       EXPECT_EQ(0, ping_items[1].error_code);
     }
   };
 
-  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   MockObserver observer;
@@ -946,8 +962,6 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the differential update scenario for one CRX.
@@ -990,7 +1004,8 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -1015,7 +1030,9 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
               </urls>
               <manifest version='1.0' prodversionmin='11.0.1.0'>
                 <packages>
-                  <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'/>
+                  <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'
+                           hash_sha256='813c59747e139a608b3b5fc49633affc6db57437
+                                        3f309f156ea6d27229c0b3f9'/>
                 </packages>
               </manifest>
             </updatecheck>
@@ -1024,6 +1041,8 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
         */
         UpdateResponse::Result::Manifest::Package package;
         package.name = "ihfokbkgjpifnbbojhneepfflplebdkc_1.crx";
+        package.hash_sha256 =
+            "813c59747e139a608b3b5fc49633affc6db574373f309f156ea6d27229c0b3f9";
         package.fingerprint = "1";
         UpdateResponse::Result result;
         result.extension_id = "ihfokbkgjpifnbbojhneepfflplebdkc";
@@ -1047,7 +1066,12 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
                 <packages>
                   <package name='ihfokbkgjpifnbbojhneepfflplebdkc_2.crx'
                            namediff='ihfokbkgjpifnbbojhneepfflplebdkc_1to2.crx'
-                           fp='22'/>
+                           hash_sha256='1af337fbd19c72db0f870753bcd7711c3ae9dcaa
+                                        0ecde26c262bad942b112990'
+                           fp='22'
+                           hashdiff_sha256='73c6e2d4f783fc4ca5481e89e0b8bfce7aec
+                                            8ead3686290c94792658ec06f2f2'
+                           />
                 </packages>
               </manifest>
             </updatecheck>
@@ -1057,6 +1081,10 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
         UpdateResponse::Result::Manifest::Package package;
         package.name = "ihfokbkgjpifnbbojhneepfflplebdkc_2.crx";
         package.namediff = "ihfokbkgjpifnbbojhneepfflplebdkc_1to2.crx";
+        package.hash_sha256 =
+            "1af337fbd19c72db0f870753bcd7711c3ae9dcaa0ecde26c262bad942b112990";
+        package.hashdiff_sha256 =
+            "73c6e2d4f783fc4ca5481e89e0b8bfce7aec8ead3686290c94792658ec06f2f2";
         package.fingerprint = "22";
         UpdateResponse::Result result;
         result.extension_id = "ihfokbkgjpifnbbojhneepfflplebdkc";
@@ -1071,7 +1099,7 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "", results));
+          FROM_HERE, base::Bind(update_check_callback, 0, results));
       return true;
     }
   };
@@ -1081,13 +1109,13 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override {
@@ -1142,27 +1170,27 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override {
       const auto& ping_items = items();
       EXPECT_EQ(2U, ping_items.size());
       EXPECT_EQ("ihfokbkgjpifnbbojhneepfflplebdkc", ping_items[0].id);
-      EXPECT_TRUE(base::Version("0.8").Equals(ping_items[0].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[0].next_version));
+      EXPECT_EQ(base::Version("0.8"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].next_version);
       EXPECT_EQ(0, ping_items[0].error_category);
       EXPECT_EQ(0, ping_items[0].error_code);
       EXPECT_EQ("ihfokbkgjpifnbbojhneepfflplebdkc", ping_items[1].id);
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[1].previous_version));
-      EXPECT_TRUE(base::Version("2.0").Equals(ping_items[1].next_version));
+      EXPECT_EQ(base::Version("1.0"), ping_items[1].previous_version);
+      EXPECT_EQ(base::Version("2.0"), ping_items[1].next_version);
       EXPECT_EQ(0, ping_items[1].diff_error_category);
       EXPECT_EQ(0, ping_items[1].diff_error_code);
     }
   };
 
-  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   MockObserver observer;
@@ -1212,8 +1240,6 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
   }
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the update scenario for one CRX where the CRX installer returns
@@ -1269,7 +1295,8 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -1289,7 +1316,9 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
             </urls>
             <manifest version='1.0' prodversionmin='11.0.1.0'>
               <packages>
-                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'/>
+                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'
+                         hash_sha256='6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd
+                                      7c9b12cb7cc067667bde87'/>
               </packages>
             </manifest>
           </updatecheck>
@@ -1298,7 +1327,8 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
       */
       UpdateResponse::Result::Manifest::Package package;
       package.name = "jebgalgnebhfojomionfpkfelancnnkf.crx";
-
+      package.hash_sha256 =
+          "6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd7c9b12cb7cc067667bde87";
       UpdateResponse::Result result;
       result.extension_id = "jebgalgnebhfojomionfpkfelancnnkf";
       result.crx_urls.push_back(GURL("http://localhost/download/"));
@@ -1310,7 +1340,7 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
       results.list.push_back(result);
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "", results));
+          FROM_HERE, base::Bind(update_check_callback, 0, results));
       return true;
     }
   };
@@ -1320,13 +1350,13 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override {
@@ -1361,22 +1391,22 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override {
       const auto& ping_items = items();
       EXPECT_EQ(1U, ping_items.size());
       EXPECT_EQ("jebgalgnebhfojomionfpkfelancnnkf", ping_items[0].id);
-      EXPECT_TRUE(base::Version("0.9").Equals(ping_items[0].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[0].next_version));
+      EXPECT_EQ(base::Version("0.9"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].next_version);
       EXPECT_EQ(3, ping_items[0].error_category);  // kInstallError.
       EXPECT_EQ(9, ping_items[0].error_code);      // kInstallerError.
     }
   };
 
-  scoped_ptr<PingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<PingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   MockObserver observer;
@@ -1406,8 +1436,6 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the fallback from differential to full update scenario for one CRX.
@@ -1450,7 +1478,8 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -1475,7 +1504,9 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
               </urls>
               <manifest version='1.0' prodversionmin='11.0.1.0'>
                 <packages>
-                  <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'/>
+                  <package name='ihfokbkgjpifnbbojhneepfflplebdkc_1.crx'
+                           hash_sha256='813c59747e139a608b3b5fc49633affc6db57437
+                                        3f309f156ea6d27229c0b3f9'/>
                 </packages>
               </manifest>
             </updatecheck>
@@ -1484,6 +1515,8 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
         */
         UpdateResponse::Result::Manifest::Package package;
         package.name = "ihfokbkgjpifnbbojhneepfflplebdkc_1.crx";
+        package.hash_sha256 =
+            "813c59747e139a608b3b5fc49633affc6db574373f309f156ea6d27229c0b3f9";
         package.fingerprint = "1";
         UpdateResponse::Result result;
         result.extension_id = "ihfokbkgjpifnbbojhneepfflplebdkc";
@@ -1507,7 +1540,12 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
                 <packages>
                   <package name='ihfokbkgjpifnbbojhneepfflplebdkc_2.crx'
                            namediff='ihfokbkgjpifnbbojhneepfflplebdkc_1to2.crx'
-                           fp='22'/>
+                           hash_sha256='1af337fbd19c72db0f870753bcd7711c3ae9dcaa
+                                        0ecde26c262bad942b112990'
+                           fp='22'
+                           hashdiff_sha256='73c6e2d4f783fc4ca5481e89e0b8bfce7aec
+                                            8ead3686290c94792658ec06f2f2'
+                           />
                 </packages>
               </manifest>
             </updatecheck>
@@ -1517,6 +1555,10 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
         UpdateResponse::Result::Manifest::Package package;
         package.name = "ihfokbkgjpifnbbojhneepfflplebdkc_2.crx";
         package.namediff = "ihfokbkgjpifnbbojhneepfflplebdkc_1to2.crx";
+        package.hash_sha256 =
+            "1af337fbd19c72db0f870753bcd7711c3ae9dcaa0ecde26c262bad942b112990";
+        package.hashdiff_sha256 =
+            "73c6e2d4f783fc4ca5481e89e0b8bfce7aec8ead3686290c94792658ec06f2f2";
         package.fingerprint = "22";
         UpdateResponse::Result result;
         result.extension_id = "ihfokbkgjpifnbbojhneepfflplebdkc";
@@ -1531,7 +1573,7 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "", results));
+          FROM_HERE, base::Bind(update_check_callback, 0, results));
       return true;
     }
   };
@@ -1541,13 +1583,13 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override {
@@ -1617,28 +1659,28 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override {
       const auto& ping_items = items();
       EXPECT_EQ(2U, ping_items.size());
       EXPECT_EQ("ihfokbkgjpifnbbojhneepfflplebdkc", ping_items[0].id);
-      EXPECT_TRUE(base::Version("0.8").Equals(ping_items[0].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[0].next_version));
+      EXPECT_EQ(base::Version("0.8"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].next_version);
       EXPECT_EQ(0, ping_items[0].error_category);
       EXPECT_EQ(0, ping_items[0].error_code);
       EXPECT_EQ("ihfokbkgjpifnbbojhneepfflplebdkc", ping_items[1].id);
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[1].previous_version));
-      EXPECT_TRUE(base::Version("2.0").Equals(ping_items[1].next_version));
+      EXPECT_EQ(base::Version("1.0"), ping_items[1].previous_version);
+      EXPECT_EQ(base::Version("2.0"), ping_items[1].next_version);
       EXPECT_TRUE(ping_items[1].diff_update_failed);
       EXPECT_EQ(1, ping_items[1].diff_error_category);  // kNetworkError.
       EXPECT_EQ(-1, ping_items[1].diff_error_code);
     }
   };
 
-  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   MockObserver observer;
@@ -1691,8 +1733,6 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
   }
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the queuing of update checks. In this scenario, two update checks are
@@ -1727,7 +1767,8 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -1736,8 +1777,8 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
         const std::string& additional_attributes,
         const UpdateCheckCallback& update_check_callback) override {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "",
-                                UpdateResponse::Results()));
+          FROM_HERE,
+          base::Bind(update_check_callback, 0, UpdateResponse::Results()));
       return true;
     }
   };
@@ -1747,13 +1788,13 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override { EXPECT_TRUE(false); }
@@ -1761,14 +1802,14 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override { EXPECT_TRUE(items().empty()); }
   };
 
-  scoped_ptr<PingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<PingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   MockObserver observer;
@@ -1797,8 +1838,6 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests the install of one CRX.
@@ -1827,7 +1866,8 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -1847,7 +1887,9 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
             </urls>
             <manifest version='1.0' prodversionmin='11.0.1.0'>
               <packages>
-                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'/>
+                <package name='jebgalgnebhfojomionfpkfelancnnkf.crx'
+                         hash_sha256='6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd
+                                      7c9b12cb7cc067667bde87'/>
               </packages>
             </manifest>
           </updatecheck>
@@ -1856,7 +1898,8 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
       */
       UpdateResponse::Result::Manifest::Package package;
       package.name = "jebgalgnebhfojomionfpkfelancnnkf.crx";
-
+      package.hash_sha256 =
+          "6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd7c9b12cb7cc067667bde87";
       UpdateResponse::Result result;
       result.extension_id = "jebgalgnebhfojomionfpkfelancnnkf";
       result.crx_urls.push_back(GURL("http://localhost/download/"));
@@ -1868,7 +1911,7 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
       results.list.push_back(result);
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "", results));
+          FROM_HERE, base::Bind(update_check_callback, 0, results));
       return true;
     }
   };
@@ -1878,13 +1921,13 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override {
@@ -1923,22 +1966,22 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override {
       const auto& ping_items = items();
       EXPECT_EQ(1U, ping_items.size());
       EXPECT_EQ("jebgalgnebhfojomionfpkfelancnnkf", ping_items[0].id);
-      EXPECT_TRUE(base::Version("0.0").Equals(ping_items[0].previous_version));
-      EXPECT_TRUE(base::Version("1.0").Equals(ping_items[0].next_version));
+      EXPECT_EQ(base::Version("0.0"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].next_version);
       EXPECT_EQ(0, ping_items[0].error_category);
       EXPECT_EQ(0, ping_items[0].error_code);
     }
   };
 
-  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   // Verify that calling Install sets ondemand.
@@ -1970,8 +2013,6 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Tests that overlapping installs of the same CRX result in an error.
@@ -2011,7 +2052,8 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
 
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -2020,8 +2062,8 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
         const std::string& additional_attributes,
         const UpdateCheckCallback& update_check_callback) override {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(update_check_callback, GURL(), 0, "",
-                                UpdateResponse::Results()));
+          FROM_HERE,
+          base::Bind(update_check_callback, 0, UpdateResponse::Results()));
       return true;
     }
   };
@@ -2031,13 +2073,13 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override { EXPECT_TRUE(false); }
@@ -2045,14 +2087,14 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
 
   class FakePingManager : public FakePingManagerImpl {
    public:
-    explicit FakePingManager(const Configurator& config)
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
         : FakePingManagerImpl(config) {}
     ~FakePingManager() override { EXPECT_TRUE(items().empty()); }
   };
 
-  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(*config()));
+  scoped_ptr<FakePingManager> ping_manager(new FakePingManager(config()));
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), ping_manager.Pass(), &FakeUpdateChecker::Create,
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
       &FakeCrxDownloader::Create));
 
   // Verify that calling Install sets ondemand.
@@ -2084,8 +2126,6 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
   RunThreads();
 
   update_client->RemoveObserver(&observer);
-
-  StopWorkerPool();
 }
 
 // Make sure that we don't get any crashes when trying to update an empty list
@@ -2105,7 +2145,8 @@ TEST_F(UpdateClientTest, EmptyIdList) {
   };
   class FakeUpdateChecker : public UpdateChecker {
    public:
-    static scoped_ptr<UpdateChecker> Create(const Configurator& config) {
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
       return scoped_ptr<UpdateChecker>(new FakeUpdateChecker());
     }
 
@@ -2122,20 +2163,20 @@ TEST_F(UpdateClientTest, EmptyIdList) {
     static scoped_ptr<CrxDownloader> Create(
         bool is_background_download,
         net::URLRequestContextGetter* context_getter,
-        const scoped_refptr<base::SequencedTaskRunner>&
-            url_fetcher_task_runner) {
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
       return scoped_ptr<CrxDownloader>(new FakeCrxDownloader());
     }
 
    private:
-    FakeCrxDownloader() : CrxDownloader(scoped_ptr<CrxDownloader>().Pass()) {}
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
     ~FakeCrxDownloader() override {}
 
     void DoStartDownload(const GURL& url) override { EXPECT_TRUE(false); }
   };
 
   scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
-      config(), make_scoped_ptr(new FakePingManagerImpl(*config())),
+      config(), make_scoped_ptr(new FakePingManagerImpl(config())),
       &FakeUpdateChecker::Create, &FakeCrxDownloader::Create));
 
   std::vector<std::string> empty_id_list;
@@ -2144,8 +2185,62 @@ TEST_F(UpdateClientTest, EmptyIdList) {
       empty_id_list, base::Bind(&DataCallbackFake::Callback),
       base::Bind(&CompletionCallbackFake::Callback, runloop.QuitClosure()));
   runloop.Run();
+}
 
-  StopWorkerPool();
+TEST_F(UpdateClientTest, SendUninstallPing) {
+  class FakeUpdateChecker : public UpdateChecker {
+   public:
+    static scoped_ptr<UpdateChecker> Create(
+        const scoped_refptr<Configurator>& config) {
+      return nullptr;
+    }
+
+    bool CheckForUpdates(
+        const std::vector<CrxUpdateItem*>& items_to_check,
+        const std::string& additional_attributes,
+        const UpdateCheckCallback& update_check_callback) override {
+      return false;
+    }
+  };
+
+  class FakeCrxDownloader : public CrxDownloader {
+   public:
+    static scoped_ptr<CrxDownloader> Create(
+        bool is_background_download,
+        net::URLRequestContextGetter* context_getter,
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
+      return nullptr;
+    }
+
+   private:
+    FakeCrxDownloader()
+        : CrxDownloader(base::ThreadTaskRunnerHandle::Get(), nullptr) {}
+    ~FakeCrxDownloader() override {}
+
+    void DoStartDownload(const GURL& url) override {}
+  };
+
+  class FakePingManager : public FakePingManagerImpl {
+   public:
+    explicit FakePingManager(const scoped_refptr<Configurator>& config)
+        : FakePingManagerImpl(config) {}
+    ~FakePingManager() override {
+      const auto& ping_items = items();
+      EXPECT_EQ(1U, ping_items.size());
+      EXPECT_EQ("jebgalgnebhfojomionfpkfelancnnkf", ping_items[0].id);
+      EXPECT_EQ(base::Version("1.0"), ping_items[0].previous_version);
+      EXPECT_EQ(base::Version("0.0"), ping_items[0].next_version);
+      EXPECT_EQ(10, ping_items[0].extra_code1);
+    }
+  };
+
+  scoped_ptr<PingManager> ping_manager(new FakePingManager(config()));
+  scoped_refptr<UpdateClient> update_client(new UpdateClientImpl(
+      config(), std::move(ping_manager), &FakeUpdateChecker::Create,
+      &FakeCrxDownloader::Create));
+
+  update_client->SendUninstallPing("jebgalgnebhfojomionfpkfelancnnkf",
+                                   base::Version("1.0"), 10);
 }
 
 }  // namespace update_client

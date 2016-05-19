@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/html/HTMLTableRowElement.h"
 
 #include "core/dom/Document.h"
 #include "core/html/HTMLParagraphElement.h"
 #include "core/html/HTMLTableElement.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
@@ -56,4 +55,4 @@ TEST(HTMLTableRowElementTest, rowIndex_inUnrelatedElementInTable)
         << "row index -1";
 }
 
-}
+} // namespace

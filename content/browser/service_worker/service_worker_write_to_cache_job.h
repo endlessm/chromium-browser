@@ -5,9 +5,12 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_WRITE_TO_CACHE_JOB_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_WRITE_TO_CACHE_JOB_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/service_worker/service_worker_disk_cache.h"
 #include "content/browser/service_worker/service_worker_version.h"
@@ -37,8 +40,9 @@ class ServiceWorkerVersions;
 // incumbent script is detected. The incumbent script is progressively compared
 // with the new script as it is read from network. Once a change is detected,
 // everything that matched is copied to disk, and from then on the script is
-// written as it continues to be read from network. If the scripts were
-// identical, the job fails so the worker can be discarded.
+// written as it continues to be read from network. If the scripts are
+// identical, the resulting ServiceWorkerScriptCacheMap's main script status is
+// set to kIdenticalScriptError.
 class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
     : public net::URLRequestJob,
       public net::URLRequest::Delegate {
@@ -49,8 +53,12 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
                                base::WeakPtr<ServiceWorkerContextCore> context,
                                ServiceWorkerVersion* version,
                                int extra_load_flags,
-                               int64 resource_id,
-                               int64 incumbent_resource_id);
+                               int64_t resource_id,
+                               int64_t incumbent_resource_id);
+
+  // The error code used when update fails because the new
+  // script is byte-by-byte identical to the incumbent script.
+  const static net::Error kIdenticalScriptError;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
@@ -59,11 +67,14 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
                            UpdateAfter24Hours);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
                            UpdateForceBypassCache);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
+                           ServiceWorkerDataRequestAnnotation);
 
   ~ServiceWorkerWriteToCacheJob() override;
 
   // net::URLRequestJob overrides
   void Start() override;
+  void StartAsync();
   void Kill() override;
   net::LoadState GetLoadState() const override;
   bool GetCharset(std::string* charset) override;
@@ -71,7 +82,7 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
   void GetResponseInfo(net::HttpResponseInfo* info) override;
   int GetResponseCode() const override;
   void SetExtraRequestHeaders(const net::HttpRequestHeaders& headers) override;
-  bool ReadRawData(net::IOBuffer* buf, int buf_size, int* bytes_read) override;
+  int ReadRawData(net::IOBuffer* buf, int buf_size) override;
 
   const net::HttpResponseInfo* http_info() const;
 
@@ -109,18 +120,22 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
   bool CheckPathRestriction(net::URLRequest* request);
 
   // Writes network data back to the script cache if needed, and notifies the
-  // script cache of fetch completion at EOF. This function might need to do
-  // asynchronous IO; if so, it signals this through setting the URLRequestJob's
-  // status to IO_PENDING. After this function returns, if the URLRequestJob
-  // isn't IO_PENDING, all of the data in |io_buffer_| has been written back to
-  // the script cache if necessary.
-  void HandleNetData(int bytes_read);
+  // script cache of fetch completion at EOF. This function returns
+  // net::IO_PENDING if the IO is to be completed asynchronously, returns a
+  // negative number that represents a corresponding net error code (other than
+  // net::IO_PENDING) if an error occurred, or returns a non-negative number
+  // that represents the number of network bytes read. If the return value is
+  // non-negative, all of the data in |io_buffer_| has been written back to the
+  // script cache if necessary.
+  int HandleNetData(int bytes_read);
 
-  void NotifyDoneHelper(const net::URLRequestStatus& status,
-                        const std::string& status_message);
+  void NotifyStartErrorHelper(const net::URLRequestStatus& status,
+                              const std::string& status_message);
 
-  void NotifyFinishedCaching(net::URLRequestStatus status,
-                             const std::string& status_message);
+  // Returns an error code that is passed in through |status| or a new one if an
+  // additional error is found.
+  net::Error NotifyFinishedCaching(net::URLRequestStatus status,
+                                   const std::string& status_message);
 
   scoped_ptr<ServiceWorkerResponseReader> CreateCacheResponseReader();
   scoped_ptr<ServiceWorkerResponseWriter> CreateCacheResponseWriter();
@@ -130,8 +145,8 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
   int io_buffer_bytes_;
   base::WeakPtr<ServiceWorkerContextCore> context_;
   GURL url_;
-  int64 resource_id_;
-  int64 incumbent_resource_id_;
+  int64_t resource_id_;
+  int64_t incumbent_resource_id_;
   scoped_ptr<net::URLRequest> net_request_;
   scoped_ptr<net::HttpResponseInfo> http_info_;
   scoped_ptr<ServiceWorkerResponseWriter> writer_;
@@ -140,6 +155,7 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
   bool has_been_killed_;
   bool did_notify_started_;
   bool did_notify_finished_;
+
   base::WeakPtrFactory<ServiceWorkerWriteToCacheJob> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerWriteToCacheJob);

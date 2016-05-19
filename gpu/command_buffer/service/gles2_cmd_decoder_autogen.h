@@ -121,16 +121,7 @@ error::Error GLES2DecoderImpl::HandleBindSampler(uint32_t immediate_data_size,
   (void)c;
   GLuint unit = static_cast<GLuint>(c.unit);
   GLuint sampler = c.sampler;
-  if (sampler == 0) {
-    glBindSampler(unit, sampler);
-    return error::kNoError;
-  }
-  if (!group_->GetSamplerServiceId(sampler, &sampler)) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION, "glBindSampler",
-                       "invalid sampler id");
-    return error::kNoError;
-  }
-  glBindSampler(unit, sampler);
+  DoBindSampler(unit, sampler);
   return error::kNoError;
 }
 
@@ -860,13 +851,7 @@ error::Error GLES2DecoderImpl::HandleDeleteSamplersImmediate(
   if (samplers == NULL) {
     return error::kOutOfBounds;
   }
-  for (GLsizei ii = 0; ii < n; ++ii) {
-    GLuint service_id = 0;
-    if (group_->GetSamplerServiceId(samplers[ii], &service_id)) {
-      glDeleteSamplers(1, &service_id);
-      group_->RemoveSamplerId(samplers[ii]);
-    }
-  }
+  DeleteSamplersHelper(n, samplers);
   return error::kNoError;
 }
 
@@ -1274,15 +1259,8 @@ error::Error GLES2DecoderImpl::HandleGenSamplersImmediate(
   if (samplers == NULL) {
     return error::kOutOfBounds;
   }
-  for (GLsizei ii = 0; ii < n; ++ii) {
-    if (group_->GetSamplerServiceId(samplers[ii], NULL)) {
-      return error::kInvalidArguments;
-    }
-  }
-  scoped_ptr<GLuint[]> service_ids(new GLuint[n]);
-  glGenSamplers(n, service_ids.get());
-  for (GLsizei ii = 0; ii < n; ++ii) {
-    group_->AddSamplerId(samplers[ii], service_ids[ii]);
+  if (!GenSamplersHelper(n, samplers)) {
+    return error::kInvalidArguments;
   }
   return error::kNoError;
 }
@@ -1748,12 +1726,7 @@ error::Error GLES2DecoderImpl::HandleGetSamplerParameterfv(
   if (result->size != 0) {
     return error::kInvalidArguments;
   }
-  if (!group_->GetSamplerServiceId(sampler, &sampler)) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION, "glGetSamplerParameterfv",
-                       "invalid sampler id");
-    return error::kNoError;
-  }
-  glGetSamplerParameterfv(sampler, pname, params);
+  DoGetSamplerParameterfv(sampler, pname, params);
   GLenum error = LOCAL_PEEK_GL_ERROR("GetSamplerParameterfv");
   if (error == GL_NO_ERROR) {
     result->SetNumResults(num_values);
@@ -1785,12 +1758,7 @@ error::Error GLES2DecoderImpl::HandleGetSamplerParameteriv(
   if (result->size != 0) {
     return error::kInvalidArguments;
   }
-  if (!group_->GetSamplerServiceId(sampler, &sampler)) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION, "glGetSamplerParameteriv",
-                       "invalid sampler id");
-    return error::kNoError;
-  }
-  glGetSamplerParameteriv(sampler, pname, params);
+  DoGetSamplerParameteriv(sampler, pname, params);
   GLenum error = LOCAL_PEEK_GL_ERROR("GetSamplerParameteriv");
   if (error == GL_NO_ERROR) {
     result->SetNumResults(num_values);
@@ -2265,8 +2233,7 @@ error::Error GLES2DecoderImpl::HandleIsSampler(uint32_t immediate_data_size,
   if (!result_dst) {
     return error::kOutOfBounds;
   }
-  GLuint service_sampler = 0;
-  *result_dst = group_->GetSamplerServiceId(sampler, &service_sampler);
+  *result_dst = DoIsSampler(sampler);
   return error::kNoError;
 }
 
@@ -2354,7 +2321,7 @@ error::Error GLES2DecoderImpl::HandleLineWidth(uint32_t immediate_data_size,
   }
   if (state_.line_width != width) {
     state_.line_width = width;
-    glLineWidth(width);
+    DoLineWidth(width);
   }
   return error::kNoError;
 }
@@ -2485,12 +2452,7 @@ error::Error GLES2DecoderImpl::HandleSamplerParameterf(
   GLuint sampler = c.sampler;
   GLenum pname = static_cast<GLenum>(c.pname);
   GLfloat param = static_cast<GLfloat>(c.param);
-  if (!group_->GetSamplerServiceId(sampler, &sampler)) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION, "glSamplerParameterf",
-                       "invalid sampler id");
-    return error::kNoError;
-  }
-  glSamplerParameterf(sampler, pname, param);
+  DoSamplerParameterf(sampler, pname, param);
   return error::kNoError;
 }
 
@@ -2516,7 +2478,6 @@ error::Error GLES2DecoderImpl::HandleSamplerParameterfvImmediate(
   if (params == NULL) {
     return error::kOutOfBounds;
   }
-  group_->GetSamplerServiceId(sampler, &sampler);
   DoSamplerParameterfv(sampler, pname, params);
   return error::kNoError;
 }
@@ -2532,12 +2493,7 @@ error::Error GLES2DecoderImpl::HandleSamplerParameteri(
   GLuint sampler = c.sampler;
   GLenum pname = static_cast<GLenum>(c.pname);
   GLint param = static_cast<GLint>(c.param);
-  if (!group_->GetSamplerServiceId(sampler, &sampler)) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION, "glSamplerParameteri",
-                       "invalid sampler id");
-    return error::kNoError;
-  }
-  glSamplerParameteri(sampler, pname, param);
+  DoSamplerParameteri(sampler, pname, param);
   return error::kNoError;
 }
 
@@ -2946,7 +2902,7 @@ error::Error GLES2DecoderImpl::HandleTexStorage3D(uint32_t immediate_data_size,
   GLsizei width = static_cast<GLsizei>(c.width);
   GLsizei height = static_cast<GLsizei>(c.height);
   GLsizei depth = static_cast<GLsizei>(c.depth);
-  glTexStorage3D(target, levels, internalFormat, width, height, depth);
+  DoTexStorage3D(target, levels, internalFormat, width, height, depth);
   return error::kNoError;
 }
 
@@ -4449,7 +4405,6 @@ error::Error GLES2DecoderImpl::HandleCopyTextureCHROMIUM(
   const gles2::cmds::CopyTextureCHROMIUM& c =
       *static_cast<const gles2::cmds::CopyTextureCHROMIUM*>(cmd_data);
   (void)c;
-  GLenum target = static_cast<GLenum>(c.target);
   GLenum source_id = static_cast<GLenum>(c.source_id);
   GLenum dest_id = static_cast<GLenum>(c.dest_id);
   GLint internalformat = static_cast<GLint>(c.internalformat);
@@ -4469,7 +4424,7 @@ error::Error GLES2DecoderImpl::HandleCopyTextureCHROMIUM(
                                     "dest_type");
     return error::kNoError;
   }
-  DoCopyTextureCHROMIUM(target, source_id, dest_id, internalformat, dest_type,
+  DoCopyTextureCHROMIUM(source_id, dest_id, internalformat, dest_type,
                         unpack_flip_y, unpack_premultiply_alpha,
                         unpack_unmultiply_alpha);
   return error::kNoError;
@@ -4481,7 +4436,6 @@ error::Error GLES2DecoderImpl::HandleCopySubTextureCHROMIUM(
   const gles2::cmds::CopySubTextureCHROMIUM& c =
       *static_cast<const gles2::cmds::CopySubTextureCHROMIUM*>(cmd_data);
   (void)c;
-  GLenum target = static_cast<GLenum>(c.target);
   GLenum source_id = static_cast<GLenum>(c.source_id);
   GLenum dest_id = static_cast<GLenum>(c.dest_id);
   GLint xoffset = static_cast<GLint>(c.xoffset);
@@ -4505,9 +4459,9 @@ error::Error GLES2DecoderImpl::HandleCopySubTextureCHROMIUM(
                        "height < 0");
     return error::kNoError;
   }
-  DoCopySubTextureCHROMIUM(target, source_id, dest_id, xoffset, yoffset, x, y,
-                           width, height, unpack_flip_y,
-                           unpack_premultiply_alpha, unpack_unmultiply_alpha);
+  DoCopySubTextureCHROMIUM(source_id, dest_id, xoffset, yoffset, x, y, width,
+                           height, unpack_flip_y, unpack_premultiply_alpha,
+                           unpack_unmultiply_alpha);
   return error::kNoError;
 }
 
@@ -4517,41 +4471,9 @@ error::Error GLES2DecoderImpl::HandleCompressedCopyTextureCHROMIUM(
   const gles2::cmds::CompressedCopyTextureCHROMIUM& c =
       *static_cast<const gles2::cmds::CompressedCopyTextureCHROMIUM*>(cmd_data);
   (void)c;
-  GLenum target = static_cast<GLenum>(c.target);
   GLenum source_id = static_cast<GLenum>(c.source_id);
   GLenum dest_id = static_cast<GLenum>(c.dest_id);
-  DoCompressedCopyTextureCHROMIUM(target, source_id, dest_id);
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderImpl::HandleCompressedCopySubTextureCHROMIUM(
-    uint32_t immediate_data_size,
-    const void* cmd_data) {
-  const gles2::cmds::CompressedCopySubTextureCHROMIUM& c =
-      *static_cast<const gles2::cmds::CompressedCopySubTextureCHROMIUM*>(
-          cmd_data);
-  (void)c;
-  GLenum target = static_cast<GLenum>(c.target);
-  GLenum source_id = static_cast<GLenum>(c.source_id);
-  GLenum dest_id = static_cast<GLenum>(c.dest_id);
-  GLint xoffset = static_cast<GLint>(c.xoffset);
-  GLint yoffset = static_cast<GLint>(c.yoffset);
-  GLint x = static_cast<GLint>(c.x);
-  GLint y = static_cast<GLint>(c.y);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  if (width < 0) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_VALUE, "glCompressedCopySubTextureCHROMIUM",
-                       "width < 0");
-    return error::kNoError;
-  }
-  if (height < 0) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_VALUE, "glCompressedCopySubTextureCHROMIUM",
-                       "height < 0");
-    return error::kNoError;
-  }
-  DoCompressedCopySubTextureCHROMIUM(target, source_id, dest_id, xoffset,
-                                     yoffset, x, y, width, height);
+  DoCompressedCopyTextureCHROMIUM(source_id, dest_id);
   return error::kNoError;
 }
 
@@ -4909,6 +4831,16 @@ error::Error GLES2DecoderImpl::HandleDrawBuffersEXTImmediate(
   return error::kNoError;
 }
 
+error::Error GLES2DecoderImpl::HandleCommitOverlayPlanesCHROMIUM(
+    uint32_t immediate_data_size,
+    const void* cmd_data) {
+  const gles2::cmds::CommitOverlayPlanesCHROMIUM& c =
+      *static_cast<const gles2::cmds::CommitOverlayPlanesCHROMIUM*>(cmd_data);
+  (void)c;
+  DoCommitOverlayPlanes();
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderImpl::HandleSwapInterval(uint32_t immediate_data_size,
                                                   const void* cmd_data) {
   const gles2::cmds::SwapInterval& c =
@@ -5029,6 +4961,29 @@ error::Error GLES2DecoderImpl::HandlePathStencilFuncCHROMIUM(
   return error::kNoError;
 }
 
+error::Error GLES2DecoderImpl::HandleCoverageModulationCHROMIUM(
+    uint32_t immediate_data_size,
+    const void* cmd_data) {
+  const gles2::cmds::CoverageModulationCHROMIUM& c =
+      *static_cast<const gles2::cmds::CoverageModulationCHROMIUM*>(cmd_data);
+  (void)c;
+  if (!features().chromium_framebuffer_mixed_samples) {
+    return error::kUnknownCommand;
+  }
+
+  GLenum components = static_cast<GLenum>(c.components);
+  if (!validators_->coverage_modulation_components.IsValid(components)) {
+    LOCAL_SET_GL_ERROR_INVALID_ENUM("glCoverageModulationCHROMIUM", components,
+                                    "components");
+    return error::kNoError;
+  }
+  if (state_.coverage_modulation != components) {
+    state_.coverage_modulation = components;
+    glCoverageModulationNV(components);
+  }
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderImpl::HandleBlendBarrierKHR(
     uint32_t immediate_data_size,
     const void* cmd_data) {
@@ -5055,6 +5010,34 @@ error::Error GLES2DecoderImpl::HandleApplyScreenSpaceAntialiasingCHROMIUM(
   }
 
   DoApplyScreenSpaceAntialiasingCHROMIUM();
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderImpl::HandleUniformMatrix4fvStreamTextureMatrixCHROMIUMImmediate(
+    uint32_t immediate_data_size,
+    const void* cmd_data) {
+  const gles2::cmds::UniformMatrix4fvStreamTextureMatrixCHROMIUMImmediate& c =
+      *static_cast<const gles2::cmds::
+                       UniformMatrix4fvStreamTextureMatrixCHROMIUMImmediate*>(
+          cmd_data);
+  (void)c;
+  GLint location = static_cast<GLint>(c.location);
+  GLboolean transpose = static_cast<GLboolean>(c.transpose);
+  uint32_t data_size;
+  if (!ComputeDataSize(1, sizeof(GLfloat), 16, &data_size)) {
+    return error::kOutOfBounds;
+  }
+  if (data_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  const GLfloat* default_value =
+      GetImmediateDataAs<const GLfloat*>(c, data_size, immediate_data_size);
+  if (default_value == NULL) {
+    return error::kOutOfBounds;
+  }
+  DoUniformMatrix4fvStreamTextureMatrixCHROMIUM(location, transpose,
+                                                default_value);
   return error::kNoError;
 }
 
@@ -5143,6 +5126,22 @@ bool GLES2DecoderImpl::SetCapabilityState(GLenum cap, bool enabled) {
       if (state_.enable_flags.cached_primitive_restart_fixed_index != enabled ||
           state_.ignore_cached_state) {
         state_.enable_flags.cached_primitive_restart_fixed_index = enabled;
+        return true;
+      }
+      return false;
+    case GL_MULTISAMPLE_EXT:
+      state_.enable_flags.multisample_ext = enabled;
+      if (state_.enable_flags.cached_multisample_ext != enabled ||
+          state_.ignore_cached_state) {
+        state_.enable_flags.cached_multisample_ext = enabled;
+        return true;
+      }
+      return false;
+    case GL_SAMPLE_ALPHA_TO_ONE_EXT:
+      state_.enable_flags.sample_alpha_to_one_ext = enabled;
+      if (state_.enable_flags.cached_sample_alpha_to_one_ext != enabled ||
+          state_.ignore_cached_state) {
+        state_.enable_flags.cached_sample_alpha_to_one_ext = enabled;
         return true;
       }
       return false;

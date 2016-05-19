@@ -5,6 +5,8 @@
 #ifndef CONTENT_RENDERER_BACKGROUND_SYNC_BACKGROUND_SYNC_CLIENT_IMPL_H_
 #define CONTENT_RENDERER_BACKGROUND_SYNC_BACKGROUND_SYNC_CLIENT_IMPL_H_
 
+#include <stdint.h>
+
 #include <map>
 
 #include "base/compiler_specific.h"
@@ -19,15 +21,13 @@ class CONTENT_EXPORT BackgroundSyncClientImpl
     : public NON_EXPORTED_BASE(BackgroundSyncServiceClient) {
  public:
   static void Create(
-      int64_t service_worker_registration_id,
       mojo::InterfaceRequest<BackgroundSyncServiceClient> request);
 
   ~BackgroundSyncClientImpl() override;
 
  private:
   using SyncCallback = mojo::Callback<void(ServiceWorkerEventStatus)>;
-  BackgroundSyncClientImpl(
-      int64_t service_worker_registration_id,
+  explicit BackgroundSyncClientImpl(
       mojo::InterfaceRequest<BackgroundSyncServiceClient> request);
 
   // BackgroundSyncServiceClient methods:
@@ -40,7 +40,6 @@ class CONTENT_EXPORT BackgroundSyncClientImpl
       BackgroundSyncError error,
       SyncRegistrationPtr registration);
 
-  int64_t service_worker_registration_id_;
   mojo::StrongBinding<BackgroundSyncServiceClient> binding_;
 
   int64_t callback_seq_num_;

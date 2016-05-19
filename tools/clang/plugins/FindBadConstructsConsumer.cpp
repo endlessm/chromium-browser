@@ -49,7 +49,7 @@ const char kNoteProtectedNonVirtualDtor[] =
     "[chromium-style] Protected non-virtual destructor declared here";
 
 bool TypeHasNonTrivialDtor(const Type* type) {
-  if (const CXXRecordDecl* cxx_r = type->getPointeeCXXRecordDecl())
+  if (const CXXRecordDecl* cxx_r = type->getAsCXXRecordDecl())
     return !cxx_r->hasTrivialDestructor();
 
   return false;
@@ -288,7 +288,7 @@ void FindBadConstructsConsumer::CheckCtorDtorWeight(
         // The current check is buggy. An implicit copy constructor does not
         // have an inline body, so this check never fires for classes with a
         // user-declared out-of-line constructor.
-        if (it->hasInlineBody()) {
+        if (it->hasInlineBody() && options_.check_implicit_copy_ctors) {
           if (it->isCopyConstructor() &&
               !record->hasUserDeclaredCopyConstructor()) {
             // In general, implicit constructors are generated on demand.  But
@@ -563,9 +563,9 @@ void FindBadConstructsConsumer::CountType(const Type* type,
       // Simplifying; the whole class isn't trivial if the dtor is, but
       // we use this as a signal about complexity.
       if (TypeHasNonTrivialDtor(type))
-        (*trivial_member)++;
-      else
         (*non_trivial_member)++;
+      else
+        (*trivial_member)++;
       break;
     }
     case Type::TemplateSpecialization: {
@@ -606,8 +606,8 @@ void FindBadConstructsConsumer::CountType(const Type* type,
       break;
     }
     default: {
-      // Stupid assumption: anything we see that isn't the above is one of
-      // the 20 integer types.
+      // Stupid assumption: anything we see that isn't the above is a POD
+      // or reference type.
       (*trivial_member)++;
       break;
     }

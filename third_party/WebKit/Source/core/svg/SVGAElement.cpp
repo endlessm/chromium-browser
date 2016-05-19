@@ -20,8 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGAElement.h"
 
 #include "core/SVGNames.h"
@@ -91,9 +89,11 @@ void SVGAElement::svgAttributeChanged(const QualifiedName& attrName)
         bool wasLink = isLink();
         setIsLink(!hrefString().isNull());
 
-        if (wasLink != isLink())
-            setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::LinkColorChange));
-
+        if (wasLink || isLink()) {
+            pseudoStateChanged(CSSSelector::PseudoLink);
+            pseudoStateChanged(CSSSelector::PseudoVisited);
+            pseudoStateChanged(CSSSelector::PseudoAnyLink);
+        }
         return;
     }
 
@@ -198,9 +198,8 @@ bool SVGAElement::isKeyboardFocusable() const
 {
     if (isFocusable() && Element::supportsFocus())
         return SVGElement::isKeyboardFocusable();
-
-    if (isLink())
-        return document().frameHost()->chromeClient().tabsToLinks();
+    if (isLink() && !document().frameHost()->chromeClient().tabsToLinks())
+        return false;
     return SVGElement::isKeyboardFocusable();
 }
 

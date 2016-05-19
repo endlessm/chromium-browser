@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AudioDestinationNode.h"
-
 #include "modules/webaudio/AbstractAudioContext.h"
 #include "modules/webaudio/AudioNodeInput.h"
 #include "modules/webaudio/AudioNodeOutput.h"
@@ -54,9 +51,22 @@ void AudioDestinationHandler::render(AudioBus* sourceBus, AudioBus* destinationB
     // This will take care of all AudioNodes because they all process within this scope.
     DenormalDisabler denormalDisabler;
 
+    // Need to check if the context actually alive. Otherwise the subsequent
+    // steps will fail. If the context is not alive somehow, return immediately
+    // and do nothing.
+    //
+    // TODO(hongchan): because the context can go away while rendering, so this
+    // check cannot guarantee the safe execution of the following steps.
+    ASSERT(context());
+    if (!context())
+        return;
+
     context()->deferredTaskHandler().setAudioThread(currentThread());
 
-    if (!context()->isDestinationInitialized()) {
+    // If the destination node is not initialized, pass the silence to the final
+    // audio destination (one step before the FIFO). This check is for the case
+    // where the destination is in the middle of tearing down process.
+    if (!isInitialized()) {
         destinationBus->zero();
         return;
     }
@@ -114,4 +124,3 @@ unsigned long AudioDestinationNode::maxChannelCount() const
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

@@ -4,11 +4,15 @@
 
 #include "chrome/browser/sync/test/integration/sync_test.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <limits>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/guid.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
@@ -23,6 +27,7 @@
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -77,7 +82,6 @@
 #include "net/base/network_change_notifier.h"
 #include "net/base/port_util.h"
 #include "net/cookies/cookie_monster.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -103,6 +107,36 @@ const char kSyncServerCommandLine[] = "sync-server-command-line";
 }
 
 namespace {
+
+// Helper class to ensure a profile is registered before the manager is
+// notified of creation.
+class SyncProfileDelegate : public Profile::Delegate {
+ public:
+  explicit SyncProfileDelegate(
+      const base::Callback<void(Profile*)>& on_profile_created_callback)
+      : on_profile_created_callback_(on_profile_created_callback) {}
+  ~SyncProfileDelegate() override {}
+
+  void OnProfileCreated(Profile* profile,
+                        bool success,
+                        bool is_new_profile) override {
+    g_browser_process->profile_manager()->RegisterTestingProfile(profile,
+                                                                 true,
+                                                                 false);
+
+    // Perform any custom work needed before the profile is initialized.
+    if (!on_profile_created_callback_.is_null())
+      on_profile_created_callback_.Run(profile);
+
+    g_browser_process->profile_manager()->OnProfileCreated(profile, success,
+                                                           is_new_profile);
+  }
+
+ private:
+  base::Callback<void(Profile*)> on_profile_created_callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(SyncProfileDelegate);
+};
 
 // Helper class that checks whether a sync test server is running or not.
 class SyncServerStatusChecker : public net::URLFetcherDelegate {
@@ -203,10 +237,8 @@ SyncTest::SyncTest(TestType test_type)
       num_clients_ = 2;
       break;
     }
-    case MULTIPLE_CLIENT: {
-      num_clients_ = 3;
-      break;
-    }
+    default:
+      NOTREACHED() << "Invalid test type specified.";
   }
 }
 
@@ -308,6 +340,40 @@ bool SyncTest::CreateGaiaAccount(const std::string& username,
   return entry->GetHttpStatusCode() == 200;
 }
 
+void SyncTest::CreateProfile(int index) {
+  tmp_profile_paths_[index] = new base::ScopedTempDir();
+  if (UsingExternalServers() && num_clients_ > 1) {
+    // For multi profile UI signin, profile paths should be outside user data
+    // dir to allow signing-in multiple profiles to same account. Otherwise, we
+    // get an error that the profile has already signed in on this device.
+    CHECK(tmp_profile_paths_[index]->CreateUniqueTempDir());
+  } else {
+    // Create new profiles in user data dir so that other profiles can know
+    // about it. This is needed in tests such as supervised user cases which
+    // assume browser->profile() as the custodian profile.
+    base::FilePath user_data_dir;
+    PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+    CHECK(
+      tmp_profile_paths_[index]->CreateUniqueTempDirUnderPath(user_data_dir));
+  }
+  base::FilePath profile_path = tmp_profile_paths_[index]->path();
+  if (UsingExternalServers()) {
+    // If running against an EXTERNAL_LIVE_SERVER, we signin profiles using real
+    // GAIA server. This requires creating profiles with no test hooks.
+    InitializeProfile(index, MakeProfileForUISignin(profile_path));
+  } else {
+    // Without need of real GAIA authentication, we create new test profiles.
+    // For test profiles, a custom delegate needs to be used to do the
+    // initialization work before the profile is registered.
+    profile_delegates_[index].reset(new SyncProfileDelegate(base::Bind(
+            &SyncTest::InitializeProfile, base::Unretained(this), index)));
+    MakeTestProfile(profile_path, index);
+  }
+
+  // Once profile initialization has kicked off, wait for it to finish.
+  WaitForDataModels(GetProfile(index));
+}
+
 // Called when the ProfileManager has created a profile.
 // static
 void SyncTest::CreateProfileCallback(const base::Closure& quit_closure,
@@ -328,22 +394,7 @@ void SyncTest::CreateProfileCallback(const base::Closure& quit_closure,
 // UI signin we need profiles in unique user data dir's and we need to use
 // ProfileManager::CreateProfileAsync() for proper profile creation.
 // static
-Profile* SyncTest::MakeProfileForUISignin(
-    const base::FilePath::StringType name,
-    bool path_outside_user_data_dir) {
-  // For multi profile UI signin, profile paths should be outside user data dir.
-  // Otherwise, we get an error that the profile has already signed in on this
-  // device.
-  // Note that prefix |name| is implemented only on Win. On other platforms the
-  // com.google.Chrome.XXXXXX prefix is used.
-  base::FilePath profile_path;
-  if (path_outside_user_data_dir) {
-    CHECK(base::CreateNewTempDirectory(name, &profile_path));
-  } else {
-    PathService::Get(chrome::DIR_USER_DATA, &profile_path);
-    profile_path = profile_path.Append(name);
-  }
-
+Profile* SyncTest::MakeProfileForUISignin(base::FilePath profile_path) {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   base::RunLoop run_loop;
   ProfileManager::CreateCallback create_callback = base::Bind(
@@ -357,19 +408,9 @@ Profile* SyncTest::MakeProfileForUISignin(
   return profile_manager->GetProfileByPath(profile_path);
 }
 
-Profile* SyncTest::MakeProfile(const base::FilePath::StringType name) {
-  base::FilePath path;
-  // Create new profiles in user data dir so that other profiles can know about
-  // it. This is needed in tests such as supervised user cases which assume
-  // browser->profile() as the custodian profile.
-  PathService::Get(chrome::DIR_USER_DATA, &path);
-  path = path.Append(name);
-
-  if (!base::PathExists(path))
-    CHECK(base::CreateDirectory(path));
-
+Profile* SyncTest::MakeTestProfile(base::FilePath profile_path, int index) {
   if (!preexisting_preferences_file_contents_.empty()) {
-    base::FilePath pref_path(path.Append(chrome::kPreferencesFilename));
+    base::FilePath pref_path(profile_path.Append(chrome::kPreferencesFilename));
     const char* contents = preexisting_preferences_file_contents_.c_str();
     size_t contents_length = preexisting_preferences_file_contents_.size();
     if (!base::WriteFile(pref_path, contents, contents_length)) {
@@ -378,10 +419,8 @@ Profile* SyncTest::MakeProfile(const base::FilePath::StringType name) {
   }
 
   Profile* profile =
-      Profile::CreateProfile(path, NULL, Profile::CREATE_MODE_SYNCHRONOUS);
-  g_browser_process->profile_manager()->RegisterTestingProfile(profile,
-                                                               true,
-                                                               true);
+      Profile::CreateProfile(profile_path, profile_delegates_[index].get(),
+                             Profile::CREATE_MODE_SYNCHRONOUS);
   return profile;
 }
 
@@ -441,13 +480,15 @@ bool SyncTest::SetupClients() {
 
   // Create the required number of sync profiles, browsers and clients.
   profiles_.resize(num_clients_);
+  profile_delegates_.resize(num_clients_ + 1); // + 1 for the verifier.
+  tmp_profile_paths_.resize(num_clients_);
   browsers_.resize(num_clients_);
   clients_.resize(num_clients_);
   invalidation_forwarders_.resize(num_clients_);
   sync_refreshers_.resize(num_clients_);
   fake_server_invalidation_services_.resize(num_clients_);
   for (int i = 0; i < num_clients_; ++i) {
-    InitializeInstance(i);
+    CreateProfile(i);
   }
 
   // Verifier account is not useful when running against external servers.
@@ -456,13 +497,13 @@ bool SyncTest::SetupClients() {
 
   // Create the verifier profile.
   if (use_verifier_) {
-    verifier_ = MakeProfile(FILE_PATH_LITERAL("Verifier"));
-    bookmarks::test::WaitForBookmarkModelToLoad(
-        BookmarkModelFactory::GetForProfile(verifier()));
-    ui_test_utils::WaitForHistoryToLoad(HistoryServiceFactory::GetForProfile(
-        verifier(), ServiceAccessType::EXPLICIT_ACCESS));
-    search_test_utils::WaitForTemplateURLServiceToLoad(
-        TemplateURLServiceFactory::GetForProfile(verifier()));
+    base::FilePath user_data_dir;
+    PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+    profile_delegates_[num_clients_].reset(
+        new SyncProfileDelegate(base::Callback<void(Profile*)>()));
+    verifier_ = MakeTestProfile(
+        user_data_dir.Append(FILE_PATH_LITERAL("Verifier")), num_clients_);
+    WaitForDataModels(verifier());
   }
   // Error cases are all handled by LOG(FATAL) messages. So there is not really
   // a case that returns false.  In case we failed to create a verifier profile,
@@ -470,26 +511,12 @@ bool SyncTest::SetupClients() {
   return true;
 }
 
-void SyncTest::InitializeInstance(int index) {
-  base::FilePath::StringType profile_name =
-      base::StringPrintf(FILE_PATH_LITERAL("Profile%d"), index);
-  // If running against an EXTERNAL_LIVE_SERVER, we need to signin profiles
-  // using real GAIA server. This requires creating profiles with no test hooks.
-  if (UsingExternalServers()) {
-    bool path_outside_user_data_dir = (num_clients_ > 1);
-    profiles_[index] =
-        MakeProfileForUISignin(profile_name, path_outside_user_data_dir);
-  } else {
-    // Without need of real GAIA authentication, we create new test profiles.
-    profiles_[index] = MakeProfile(profile_name);
-  }
-
-  EXPECT_FALSE(GetProfile(index) == NULL) << "Could not create Profile "
-                                          << index << ".";
+void SyncTest::InitializeProfile(int index, Profile* profile) {
+  DCHECK(profile);
+  profiles_[index] = profile;
 
   // CheckInitialState() assumes that no windows are open at startup.
-  browsers_[index] = new Browser(Browser::CreateParams(
-      GetProfile(index), chrome::GetActiveDesktop()));
+  browsers_[index] = new Browser(Browser::CreateParams(GetProfile(index)));
 
   EXPECT_FALSE(GetBrowser(index) == NULL) << "Could not create Browser "
                                           << index << ".";
@@ -522,13 +549,6 @@ void SyncTest::InitializeInstance(int index) {
   EXPECT_FALSE(GetClient(index) == NULL) << "Could not create Client "
                                          << index << ".";
   InitializeInvalidations(index);
-
-  bookmarks::test::WaitForBookmarkModelToLoad(
-      BookmarkModelFactory::GetForProfile(GetProfile(index)));
-  ui_test_utils::WaitForHistoryToLoad(HistoryServiceFactory::GetForProfile(
-      GetProfile(index), ServiceAccessType::EXPLICIT_ACCESS));
-  search_test_utils::WaitForTemplateURLServiceToLoad(
-      TemplateURLServiceFactory::GetForProfile(GetProfile(index)));
 }
 
 void SyncTest::InitializeInvalidations(int index) {
@@ -622,7 +642,7 @@ bool SyncTest::SetupSync() {
     // be removed. http://crbug.com/484388
     for (int i = 0; i < num_clients_; ++i) {
       LoginUIServiceFactory::GetForProfile(GetProfile(i))->
-          SyncConfirmationUIClosed(false /* configure_sync_first */);
+          SyncConfirmationUIClosed(LoginUIService::SYNC_WITH_DEFAULT_SETTINGS);
     }
   }
 
@@ -680,6 +700,15 @@ void SyncTest::SetUpInProcessBrowserTestFixture() {
 
 void SyncTest::TearDownInProcessBrowserTestFixture() {
   mock_host_resolver_override_.reset();
+}
+
+void SyncTest::WaitForDataModels(Profile* profile) {
+  bookmarks::test::WaitForBookmarkModelToLoad(
+      BookmarkModelFactory::GetForProfile(profile));
+  ui_test_utils::WaitForHistoryToLoad(HistoryServiceFactory::GetForProfile(
+      profile, ServiceAccessType::EXPLICIT_ACCESS));
+  search_test_utils::WaitForTemplateURLServiceToLoad(
+      TemplateURLServiceFactory::GetForProfile(profile));
 }
 
 void SyncTest::ReadPasswordFile() {
@@ -790,7 +819,6 @@ void SyncTest::DecideServerType() {
       switch (test_type_) {
         case SINGLE_CLIENT:
         case TWO_CLIENT:
-        case MULTIPLE_CLIENT:
           server_type_ = IN_PROCESS_FAKE_SERVER;
           break;
         default:
@@ -856,7 +884,7 @@ bool SyncTest::SetUpLocalPythonTestServer() {
     LOG(ERROR) << "Could not find valid xmpp_port value";
     return false;
   }
-  if ((xmpp_port <= 0) || (xmpp_port > kuint16max)) {
+  if ((xmpp_port <= 0) || (xmpp_port > std::numeric_limits<uint16_t>::max())) {
     LOG(ERROR) << "Invalid xmpp port: " << xmpp_port;
     return false;
   }

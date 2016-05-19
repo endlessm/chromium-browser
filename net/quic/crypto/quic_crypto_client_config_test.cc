@@ -156,12 +156,16 @@ TEST(QuicCryptoClientConfigTest, InchoateChlo) {
   QuicCryptoNegotiatedParameters params;
   CryptoHandshakeMessage msg;
   QuicServerId server_id("www.google.com", 80, PRIVACY_MODE_DISABLED);
-  config.FillInchoateClientHello(server_id, QuicVersionMax(), &state,
+  MockRandom rand;
+  config.FillInchoateClientHello(server_id, QuicVersionMax(), &state, &rand,
                                  &params, &msg);
 
   QuicTag cver;
   EXPECT_EQ(QUIC_NO_ERROR, msg.GetUint32(kVER, &cver));
   EXPECT_EQ(QuicVersionToQuicTag(QuicVersionMax()), cver);
+  StringPiece proof_nonce;
+  EXPECT_TRUE(msg.GetStringPiece(kNONP, &proof_nonce));
+  EXPECT_EQ(string(32, 'r'), proof_nonce);
 }
 
 TEST(QuicCryptoClientConfigTest, PreferAesGcm) {
@@ -178,12 +182,39 @@ TEST(QuicCryptoClientConfigTest, InchoateChloSecure) {
   QuicCryptoNegotiatedParameters params;
   CryptoHandshakeMessage msg;
   QuicServerId server_id("www.google.com", 443, PRIVACY_MODE_DISABLED);
-  config.FillInchoateClientHello(server_id, QuicVersionMax(), &state,
+  MockRandom rand;
+  config.FillInchoateClientHello(server_id, QuicVersionMax(), &state, &rand,
                                  &params, &msg);
 
   QuicTag pdmd;
   EXPECT_EQ(QUIC_NO_ERROR, msg.GetUint32(kPDMD, &pdmd));
   EXPECT_EQ(kX509, pdmd);
+  StringPiece scid;
+  EXPECT_FALSE(msg.GetStringPiece(kSCID, &scid));
+}
+
+TEST(QuicCryptoClientConfigTest, InchoateChloSecureWithSCID) {
+  QuicCryptoClientConfig::CachedState state;
+  CryptoHandshakeMessage scfg;
+  scfg.set_tag(kSCFG);
+  uint64_t future = 1;
+  scfg.SetValue(kEXPY, future);
+  scfg.SetStringPiece(kSCID, "12345678");
+  string details;
+  state.SetServerConfig(scfg.GetSerialized().AsStringPiece(),
+                        QuicWallTime::FromUNIXSeconds(0), &details);
+
+  QuicCryptoClientConfig config(CryptoTestUtils::ProofVerifierForTesting());
+  QuicCryptoNegotiatedParameters params;
+  CryptoHandshakeMessage msg;
+  QuicServerId server_id("www.google.com", 443, PRIVACY_MODE_DISABLED);
+  MockRandom rand;
+  config.FillInchoateClientHello(server_id, QuicVersionMax(), &state, &rand,
+                                 &params, &msg);
+
+  StringPiece scid;
+  EXPECT_TRUE(msg.GetStringPiece(kSCID, &scid));
+  EXPECT_EQ("12345678", scid);
 }
 
 TEST(QuicCryptoClientConfigTest, InchoateChloSecureNoEcdsa) {
@@ -193,7 +224,8 @@ TEST(QuicCryptoClientConfigTest, InchoateChloSecureNoEcdsa) {
   QuicCryptoNegotiatedParameters params;
   CryptoHandshakeMessage msg;
   QuicServerId server_id("www.google.com", 443, PRIVACY_MODE_DISABLED);
-  config.FillInchoateClientHello(server_id, QuicVersionMax(), &state,
+  MockRandom rand;
+  config.FillInchoateClientHello(server_id, QuicVersionMax(), &state, &rand,
                                  &params, &msg);
 
   QuicTag pdmd;
@@ -210,16 +242,10 @@ TEST(QuicCryptoClientConfigTest, FillClientHello) {
   MockRandom rand;
   CryptoHandshakeMessage chlo;
   QuicServerId server_id("www.google.com", 80, PRIVACY_MODE_DISABLED);
-  config.FillClientHello(server_id,
-                         kConnectionId,
-                         QuicVersionMax(),
-                         &state,
-                         QuicWallTime::Zero(),
-                         &rand,
+  config.FillClientHello(server_id, kConnectionId, QuicVersionMax(), &state,
+                         QuicWallTime::Zero(), &rand,
                          nullptr,  // channel_id_key
-                         &params,
-                         &chlo,
-                         &error_details);
+                         &params, &chlo, &error_details);
 
   // Verify that certain QuicTags have been set correctly in the CHLO.
   QuicTag cver;

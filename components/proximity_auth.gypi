@@ -17,9 +17,9 @@
         ':cryptauth_proto',
         ':proximity_auth_logging',
         '../base/base.gyp:base',
-        '../base/base.gyp:base_prefs',
         '../device/bluetooth/bluetooth.gyp:device_bluetooth',
         '../net/net.gyp:net',
+        'prefs/prefs.gyp:prefs',
       ],
       'sources': [
         "proximity_auth/authenticator.h",
@@ -172,8 +172,6 @@
         '../net/net.gyp:net',
       ],
       'sources': [
-        "proximity_auth/cryptauth/base64url.cc",
-        "proximity_auth/cryptauth/base64url.h",
         "proximity_auth/cryptauth/cryptauth_access_token_fetcher.h",
         "proximity_auth/cryptauth/cryptauth_access_token_fetcher_impl.cc",
         "proximity_auth/cryptauth/cryptauth_access_token_fetcher_impl.h",
@@ -198,6 +196,8 @@
         "proximity_auth/cryptauth/pref_names.h",
         "proximity_auth/cryptauth/secure_message_delegate.cc",
         "proximity_auth/cryptauth/secure_message_delegate.h",
+        "proximity_auth/cryptauth/switches.cc",
+        "proximity_auth/cryptauth/switches.h",
         "proximity_auth/cryptauth/sync_scheduler.cc",
         "proximity_auth/cryptauth/sync_scheduler.h",
         "proximity_auth/cryptauth/sync_scheduler_impl.cc",

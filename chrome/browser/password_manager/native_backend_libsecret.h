@@ -9,8 +9,8 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/time/time.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
@@ -71,11 +71,14 @@ class NativeBackendLibsecret : public PasswordStoreX::NativeBackend,
       base::Time delete_begin,
       base::Time delete_end,
       password_manager::PasswordStoreChangeList* changes) override;
+  bool DisableAutoSignInForAllLogins(
+      password_manager::PasswordStoreChangeList* changes) override;
   bool GetLogins(const autofill::PasswordForm& form,
                  ScopedVector<autofill::PasswordForm>* forms) override;
   bool GetAutofillableLogins(
       ScopedVector<autofill::PasswordForm>* forms) override;
   bool GetBlacklistLogins(ScopedVector<autofill::PasswordForm>* forms) override;
+  bool GetAllLogins(ScopedVector<autofill::PasswordForm>* forms) override;
 
  private:
   enum TimestampToCompare {

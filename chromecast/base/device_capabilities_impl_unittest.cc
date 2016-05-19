@@ -5,7 +5,9 @@
 #include "chromecast/base/device_capabilities_impl.h"
 
 #include <string>
+#include <utility>
 
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/values.h"
@@ -44,7 +46,7 @@ class FakeCapabilityManagerSimple : public DeviceCapabilities::Validator {
         accept_changes_(accept_changes) {
     capabilities->Register(key, this);
     if (init_value)
-      SetValidatedValue(key, init_value.Pass());
+      SetValidatedValue(key, std::move(init_value));
   }
 
   // Unregisters itself as Validator.
@@ -54,9 +56,9 @@ class FakeCapabilityManagerSimple : public DeviceCapabilities::Validator {
 
   void Validate(const std::string& path,
                 scoped_ptr<base::Value> proposed_value) override {
-    ASSERT_TRUE(path.find(key_) == 0);
+    ASSERT_EQ(path.find(key_), 0ul);
     if (accept_changes_)
-      SetValidatedValue(path, proposed_value.Pass());
+      SetValidatedValue(path, std::move(proposed_value));
   }
 
  private:
@@ -93,7 +95,7 @@ class FakeCapabilityManagerComplex : public DeviceCapabilities::Validator {
 // OnCapabilitiesChanged() without encountering deadlocks/unexpected behavior.
 class FakeCapabilitiesObserver : public DeviceCapabilities::Observer {
  public:
-  FakeCapabilitiesObserver(DeviceCapabilities* capabilities)
+  explicit FakeCapabilitiesObserver(DeviceCapabilities* capabilities)
       : capabilities_(capabilities), removed_as_observer(false) {
     capabilities_->AddCapabilitiesObserver(this);
   }
@@ -203,7 +205,7 @@ void TestBasicOperations(DeviceCapabilities* capabilities) {
   // Write capability again. Provides way of checking that this function
   // ran and was successful.
   scoped_ptr<base::Value> new_value = GetSampleDefaultCapabilityNewValue();
-  capabilities->SetCapability(key, new_value.Pass());
+  capabilities->SetCapability(key, std::move(new_value));
 }
 
 // See TestBasicOperations() comment.
@@ -345,6 +347,20 @@ TEST_F(DeviceCapabilitiesImplTest, DisplaySupportedAndSetCapability) {
   EXPECT_FALSE(capabilities()->DisplaySupported());
 }
 
+// Tests HiResAudioSupported() and updating this value through SetCapability()
+TEST_F(DeviceCapabilitiesImplTest, HiResAudioSupportedAndSetCapability) {
+  FakeCapabilityManagerSimple manager(
+      capabilities(), DeviceCapabilities::kKeyHiResAudioSupported,
+      make_scoped_ptr(new base::FundamentalValue(true)), true);
+
+  EXPECT_TRUE(capabilities()->HiResAudioSupported());
+  capabilities()->SetCapability(
+      DeviceCapabilities::kKeyHiResAudioSupported,
+      make_scoped_ptr(new base::FundamentalValue(false)));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(capabilities()->HiResAudioSupported());
+}
+
 // Tests SetCapability() for a default capability when the capability's manager
 // rejects the proposed change.
 TEST_F(DeviceCapabilitiesImplTest, SetCapabilityInvalid) {
@@ -399,7 +415,7 @@ TEST_F(DeviceCapabilitiesImplTest, SetCapabilityNotifiesObservers) {
   capabilities()->SetCapability(key, GetSampleDefaultCapabilityNewValue());
 
   // 3rd call
-  capabilities()->SetCapability(key, init_value.Pass());
+  capabilities()->SetCapability(key, std::move(init_value));
   base::RunLoop().RunUntilIdle();
 }
 
@@ -434,8 +450,8 @@ TEST_F(DeviceCapabilitiesImplTest, SetCapabilityDictionary) {
   scoped_ptr<base::Value> init_value =
       DeserializeFromJson(kSampleDictionaryCapability);
   ASSERT_TRUE(init_value);
-  FakeCapabilityManagerSimple manager(capabilities(), key, init_value.Pass(),
-                                      true);
+  FakeCapabilityManagerSimple manager(capabilities(), key,
+                                      std::move(init_value), true);
 
   capabilities()->SetCapability(
       "dummy_dictionary_key.dummy_field_bool",
@@ -466,8 +482,8 @@ TEST_F(DeviceCapabilitiesImplTest, SetCapabilityDictionaryInvalid) {
   scoped_ptr<base::Value> init_value =
       DeserializeFromJson(kSampleDictionaryCapability);
   ASSERT_TRUE(init_value);
-  FakeCapabilityManagerSimple manager(capabilities(), key, init_value.Pass(),
-                                      false);
+  FakeCapabilityManagerSimple manager(capabilities(), key,
+                                      std::move(init_value), false);
 
   capabilities()->SetCapability(
       "dummy_dictionary_key.dummy_field_bool",

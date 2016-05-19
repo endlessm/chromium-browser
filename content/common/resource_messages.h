@@ -7,6 +7,9 @@
 // NOTE: All messages must send an |int request_id| as their first parameter.
 
 // Multiply-included message file, hence no include guard.
+
+#include <stdint.h>
+
 #include "base/memory/shared_memory.h"
 #include "base/process/process.h"
 #include "content/common/content_param_traits_macros.h"
@@ -36,40 +39,50 @@ namespace IPC {
 template <>
 struct ParamTraits<scoped_refptr<net::HttpResponseHeaders> > {
   typedef scoped_refptr<net::HttpResponseHeaders> param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct CONTENT_EXPORT ParamTraits<storage::DataElement> {
   typedef storage::DataElement param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<scoped_refptr<content::ResourceDevToolsInfo> > {
   typedef scoped_refptr<content::ResourceDevToolsInfo> param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<net::LoadTimingInfo> {
   typedef net::LoadTimingInfo param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
 struct ParamTraits<scoped_refptr<content::ResourceRequestBody> > {
   typedef scoped_refptr<content::ResourceRequestBody> param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -115,6 +128,7 @@ IPC_STRUCT_TRAITS_BEGIN(content::ResourceResponseInfo)
   IPC_STRUCT_TRAITS_MEMBER(mime_type)
   IPC_STRUCT_TRAITS_MEMBER(charset)
   IPC_STRUCT_TRAITS_MEMBER(security_info)
+  IPC_STRUCT_TRAITS_MEMBER(has_major_certificate_errors)
   IPC_STRUCT_TRAITS_MEMBER(content_length)
   IPC_STRUCT_TRAITS_MEMBER(encoded_data_length)
   IPC_STRUCT_TRAITS_MEMBER(appcache_id)
@@ -162,6 +176,10 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
   // only be done if there really is no way to determine the correct value.
   IPC_STRUCT_MEMBER(GURL, first_party_for_cookies)
 
+  // The origin of the context which initiated the request, which will be used
+  // for cookie checks like 'First-Party-Only'.
+  IPC_STRUCT_MEMBER(url::Origin, request_initiator)
+
   // The referrer to use (may be empty).
   IPC_STRUCT_MEMBER(GURL, referrer)
 
@@ -192,7 +210,7 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
   IPC_STRUCT_MEMBER(net::RequestPriority, priority)
 
   // Used by plugin->browser requests to get the correct net::URLRequestContext.
-  IPC_STRUCT_MEMBER(uint32, request_context)
+  IPC_STRUCT_MEMBER(uint32_t, request_context)
 
   // Indicates which frame (or worker context) the request is being loaded into,
   // or kAppCacheNoHostId.
@@ -204,6 +222,10 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
   // Indicates which frame (or worker context) the request is being loaded into,
   // or kInvalidServiceWorkerProviderId.
   IPC_STRUCT_MEMBER(int, service_worker_provider_id)
+
+  // True if the request originated from a Service Worker, e.g. due to a
+  // fetch() in the Service Worker script.
+  IPC_STRUCT_MEMBER(bool, originated_from_service_worker)
 
   // True if the request should not be handled by the ServiceWorker.
   IPC_STRUCT_MEMBER(bool, skip_service_worker)
@@ -276,6 +298,11 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
   // Whether or not to request a LoFi version of the resource or let the browser
   // decide.
   IPC_STRUCT_MEMBER(content::LoFiState, lofi_state)
+
+  // PlzNavigate: the stream url associated with a navigation. Used to get
+  // access to the body of the response that has already been fetched by the
+  // browser.
+  IPC_STRUCT_MEMBER(GURL, resource_body_stream_url)
 IPC_STRUCT_END()
 
 // Parameters for a ResourceMsg_RequestComplete
@@ -296,7 +323,7 @@ IPC_STRUCT_BEGIN(ResourceMsg_RequestCompleteData)
   IPC_STRUCT_MEMBER(base::TimeTicks, completion_time)
 
   // Total amount of data received from the network.
-  IPC_STRUCT_MEMBER(int64, encoded_data_length)
+  IPC_STRUCT_MEMBER(int64_t, encoded_data_length)
 IPC_STRUCT_END()
 
 // Resource messages sent from the browser to the renderer.
@@ -314,8 +341,8 @@ IPC_MESSAGE_CONTROL2(ResourceMsg_ReceivedCachedMetadata,
 // Sent as upload progress is being made.
 IPC_MESSAGE_CONTROL3(ResourceMsg_UploadProgress,
                      int /* request_id */,
-                     int64 /* position */,
-                     int64 /* size */)
+                     int64_t /* position */,
+                     int64_t /* size */)
 
 // Sent when the request has been redirected.  The receiver is expected to
 // respond with either a FollowRedirect message (if the redirect is to be
@@ -341,6 +368,25 @@ IPC_MESSAGE_CONTROL4(ResourceMsg_SetDataBuffer,
                      base::SharedMemoryHandle /* shm_handle */,
                      int /* shm_size */,
                      base::ProcessId /* renderer_pid */)
+
+// A message that always precedes ResourceMsg_DataReceived. Exists to help debug
+// https://code.google.com/p/chromium/issues/detail?id=527588.
+IPC_MESSAGE_CONTROL2(ResourceMsg_DataReceivedDebug,
+                     int /* request_id */,
+                     int /* data_offset */)
+IPC_MESSAGE_CONTROL4(ResourceMsg_DataReceivedDebug2,
+                     int /* request_id */,
+                     int /* data_offset */,
+                     int /* data_length */,
+                     int /* encoded_data_length */)
+
+// Sent when a chunk of data from a resource request is ready, and the resource
+// is expected to be small enough to fit in the inlined buffer.
+// The data is sent as a part of IPC message.
+IPC_MESSAGE_CONTROL3(ResourceMsg_InlinedDataChunkReceived,
+                     int /* request_id */,
+                     std::vector<char> /* data */,
+                     int /* encoded_data_length */)
 
 // Sent when some data from a resource request is ready.  The data offset and
 // length specify a byte range into the shared memory buffer provided by the

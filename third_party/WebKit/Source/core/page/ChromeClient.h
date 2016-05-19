@@ -35,6 +35,7 @@
 #include "platform/PopupMenu.h"
 #include "platform/heap/Handle.h"
 #include "platform/scroll/ScrollTypes.h"
+#include "public/platform/WebEventListenerProperties.h"
 #include "public/platform/WebFocusType.h"
 #include "wtf/Forward.h"
 #include "wtf/PassOwnPtr.h"
@@ -62,8 +63,9 @@ class IntRect;
 class LocalFrame;
 class Node;
 class Page;
+class PaintArtifact;
 class PopupOpeningObserver;
-class WebCompositorAnimationTimeline;
+class CompositorAnimationTimeline;
 class WebFrameScheduler;
 
 struct CompositedSelection;
@@ -90,7 +92,6 @@ public:
     virtual void takeFocus(WebFocusType) = 0;
 
     virtual void focusedNodeChanged(Node*, Node*) = 0;
-    virtual void focusedFrameChanged(LocalFrame*) = 0;
 
     virtual bool hadFormInteraction() const = 0;
 
@@ -145,8 +146,6 @@ public:
     // End methods used by HostWindow.
     virtual Cursor lastSetCursorForTesting() const = 0;
 
-    virtual void scheduleAnimationForFrame(LocalFrame*) { }
-
     virtual void dispatchViewportPropertiesDidChange(const ViewportDescription&) const { }
 
     virtual void contentsSizeChanged(LocalFrame*, const IntSize&) const = 0;
@@ -187,8 +186,12 @@ public:
     // one. Otherwise it sets it for the WebViewImpl.
     virtual void attachRootGraphicsLayer(GraphicsLayer*, LocalFrame* localRoot) = 0;
 
-    virtual void attachCompositorAnimationTimeline(WebCompositorAnimationTimeline*, LocalFrame* localRoot) { }
-    virtual void detachCompositorAnimationTimeline(WebCompositorAnimationTimeline*, LocalFrame* localRoot) { }
+    // In Slimming Paint v2, called when the paint artifact is updated, to allow
+    // the underlying web widget to composite it.
+    virtual void didPaint(const PaintArtifact&) { }
+
+    virtual void attachCompositorAnimationTimeline(CompositorAnimationTimeline*, LocalFrame* localRoot) { }
+    virtual void detachCompositorAnimationTimeline(CompositorAnimationTimeline*, LocalFrame* localRoot) { }
 
     virtual void enterFullScreenForElement(Element*) { }
     virtual void exitFullScreenForElement(Element*) { }
@@ -196,7 +199,10 @@ public:
     virtual void clearCompositedSelection() { }
     virtual void updateCompositedSelection(const CompositedSelection&) { }
 
-    virtual void needTouchEvents(bool) = 0;
+    virtual void setEventListenerProperties(WebEventListenerClass, WebEventListenerProperties) = 0;
+    virtual WebEventListenerProperties eventListenerProperties(WebEventListenerClass) const = 0;
+    virtual void setHaveScrollEventHandlers(bool) = 0;
+    virtual bool haveScrollEventHandlers() const = 0;
 
     virtual void setTouchAction(TouchAction) = 0;
 

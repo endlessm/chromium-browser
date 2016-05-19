@@ -54,11 +54,14 @@ static const char kMicrodumpBegin[] = "-----BEGIN BREAKPAD MICRODUMP-----";
 static const char kMicrodumpEnd[] = "-----END BREAKPAD MICRODUMP-----";
 static const char kOsKey[] = ": O ";
 static const char kCpuKey[] = ": C ";
+static const char kGpuKey[] = ": G ";
 static const char kMmapKey[] = ": M ";
 static const char kStackKey[] = ": S ";
 static const char kStackFirstLineKey[] = ": S 0 ";
 static const char kArmArchitecture[] = "arm";
 static const char kArm64Architecture[] = "arm64";
+static const char kX86Architecture[] = "x86";
+static const char kGpuUnknown[] = "UNKNOWN";
 
 template<typename T>
 T HexStrToL(const string& str) {
@@ -119,6 +122,12 @@ void MicrodumpContext::SetContextARM(MDRawContextARM* arm) {
 void MicrodumpContext::SetContextARM64(MDRawContextARM64* arm64) {
   DumpContext::SetContextFlags(MD_CONTEXT_ARM64);
   DumpContext::SetContextARM64(arm64);
+  valid_ = true;
+}
+
+void MicrodumpContext::SetContextX86(MDRawContextX86* x86) {
+  DumpContext::SetContextFlags(MD_CONTEXT_X86);
+  DumpContext::SetContextX86(x86);
   valid_ = true;
 }
 
@@ -204,12 +213,11 @@ Microdump::Microdump(const string& contents)
       in_microdump = true;
       continue;
     }
-    if (line.find(kMicrodumpEnd) != string::npos) {
-      break;
-    }
-
     if (!in_microdump) {
       continue;
+    }
+    if (line.find(kMicrodumpEnd) != string::npos) {
+      break;
     }
 
     size_t pos;
@@ -289,8 +297,25 @@ Microdump::Microdump(const string& contents)
         MDRawContextARM64* arm = new MDRawContextARM64();
         memcpy(arm, &cpu_state_raw[0], cpu_state_raw.size());
         context_->SetContextARM64(arm);
+      } else if (strcmp(arch.c_str(), kX86Architecture) == 0) {
+        if (cpu_state_raw.size() != sizeof(MDRawContextX86)) {
+          std::cerr << "Malformed CPU context. Got " << cpu_state_raw.size() <<
+              " bytes instead of " << sizeof(MDRawContextX86) << std::endl;
+          continue;
+        }
+        MDRawContextX86* x86 = new MDRawContextX86();
+        memcpy(x86, &cpu_state_raw[0], cpu_state_raw.size());
+        context_->SetContextX86(x86);
       } else {
         std::cerr << "Unsupported architecture: " << arch << std::endl;
+      }
+    } else if ((pos = line.find(kGpuKey)) != string::npos) {
+      string gpu_str(line, pos + strlen(kGpuKey));
+      if (strcmp(gpu_str.c_str(), kGpuUnknown) != 0) {
+        std::istringstream gpu_tokens(gpu_str);
+        std::getline(gpu_tokens, system_info_->gl_version, '|');
+        std::getline(gpu_tokens, system_info_->gl_vendor, '|');
+        std::getline(gpu_tokens, system_info_->gl_renderer, '|');
       }
     } else if ((pos = line.find(kMmapKey)) != string::npos) {
       string mmap_line(line, pos + strlen(kMmapKey));

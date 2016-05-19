@@ -7,8 +7,8 @@
 
 #include <map>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/synchronization/lock.h"
 #include "media/base/media_export.h"
 #include "media/base/player_tracker.h"
@@ -35,6 +35,7 @@ class MEDIA_EXPORT PlayerTrackerImpl : public PlayerTracker {
   struct PlayerCallbacks {
     PlayerCallbacks(const base::Closure& new_key_cb,
                     const base::Closure& cdm_unset_cb);
+    PlayerCallbacks(const PlayerCallbacks& other);
     ~PlayerCallbacks();
 
     base::Closure new_key_cb;

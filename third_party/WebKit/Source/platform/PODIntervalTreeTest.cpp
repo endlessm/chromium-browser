@@ -25,15 +25,13 @@
 
 // Tests for the interval tree class.
 
-#include "config.h"
 #include "platform/PODIntervalTree.h"
 
 #include "platform/Logging.h"
 #include "platform/testing/TreeTestHelpers.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/Vector.h"
 #include "wtf/text/WTFString.h"
-
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -43,12 +41,12 @@ using TreeTestHelpers::nextRandom;
 #ifndef NDEBUG
 template<>
 struct ValueToString<float> {
-    static String string(const float& value) { return String::number(value); }
+    static String toString(const float& value) { return String::number(value); }
 };
 
 template<>
 struct ValueToString<void*> {
-    static String string(void* const& value)
+    static String toString(void* const& value)
     {
         return String::format("0x%p", value);
     }
@@ -89,7 +87,7 @@ TEST(PODIntervalTreeTest, TestQueryAgainstZeroSizeInterval)
 #ifndef NDEBUG
 template<>
 struct ValueToString<int*> {
-    static String string(int* const& value)
+    static String toString(int* const& value)
     {
         return String::format("0x%p", value);
     }
@@ -132,7 +130,7 @@ public:
 #ifndef NDEBUG
 template<>
 struct ValueToString<UserData1> {
-    static String string(const UserData1& value)
+    static String toString(const UserData1& value)
     {
         return String("[UserData1 a=") + String::number(value.a) + " b=" + String::number(value.b) + "]";
     }
@@ -189,7 +187,7 @@ private:
 #ifndef NDEBUG
 template<>
 struct ValueToString<EndpointType1> {
-    static String string(const EndpointType1& value)
+    static String toString(const EndpointType1& value)
     {
         return String("[EndpointType1 value=") + String::number(value.value()) + "]";
     }
@@ -210,7 +208,7 @@ TEST(PODIntervalTreeTest, TestTreeDoesNotRequireMostOperators)
 #ifndef NDEBUG
 template<>
 struct ValueToString<int> {
-    static String string(const int& value) { return String::number(value); }
+    static String toString(const int& value) { return String::number(value); }
 };
 #endif
 

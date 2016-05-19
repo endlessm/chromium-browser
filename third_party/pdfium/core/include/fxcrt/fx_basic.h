@@ -7,10 +7,13 @@
 #ifndef CORE_INCLUDE_FXCRT_FX_BASIC_H_
 #define CORE_INCLUDE_FXCRT_FX_BASIC_H_
 
-#include "fx_memory.h"
-#include "fx_stream.h"
-#include "fx_string.h"
-#include "fx_system.h"
+#include <algorithm>
+#include <memory>
+
+#include "core/include/fxcrt/fx_memory.h"
+#include "core/include/fxcrt/fx_stream.h"
+#include "core/include/fxcrt/fx_string.h"
+#include "core/include/fxcrt/fx_system.h"
 
 // The FX_ArraySize(arr) macro returns the # of elements in an array arr.
 // The expression is a compile-time constant, and therefore can be
@@ -27,163 +30,188 @@
 template <typename T, size_t N>
 char(&ArraySizeHelper(T(&array)[N]))[N];
 
+// Used with std::unique_ptr to FX_Free raw memory.
+struct FxFreeDeleter {
+  inline void operator()(void* ptr) const { FX_Free(ptr); }
+};
+
+// Used with std::unique_ptr to Release() objects that can't be deleted.
+template <class T>
+struct ReleaseDeleter {
+  inline void operator()(T* ptr) const { ptr->Release(); }
+};
+
 class CFX_BinaryBuf {
  public:
   CFX_BinaryBuf();
-  CFX_BinaryBuf(FX_STRSIZE size);
+  explicit CFX_BinaryBuf(FX_STRSIZE size);
 
-  ~CFX_BinaryBuf();
+  uint8_t* GetBuffer() const { return m_pBuffer.get(); }
+  FX_STRSIZE GetSize() const { return m_DataSize; }
 
   void Clear();
-
   void EstimateSize(FX_STRSIZE size, FX_STRSIZE alloc_step = 0);
-
   void AppendBlock(const void* pBuf, FX_STRSIZE size);
-
-  void AppendFill(uint8_t byte, FX_STRSIZE count);
-
   void AppendString(const CFX_ByteStringC& str) {
     AppendBlock(str.GetPtr(), str.GetLength());
   }
 
-  inline void AppendByte(uint8_t byte) {
-    if (m_AllocSize <= m_DataSize) {
-      ExpandBuf(1);
-    }
-    m_pBuffer[m_DataSize++] = byte;
+  void AppendByte(uint8_t byte) {
+    ExpandBuf(1);
+    m_pBuffer.get()[m_DataSize++] = byte;
   }
 
   void InsertBlock(FX_STRSIZE pos, const void* pBuf, FX_STRSIZE size);
-
-  void AttachData(void* pBuf, FX_STRSIZE size);
-
-  void CopyData(const void* pBuf, FX_STRSIZE size);
-
-  void TakeOver(CFX_BinaryBuf& other);
-
   void Delete(int start_index, int count);
 
-  uint8_t* GetBuffer() const { return m_pBuffer; }
+  // Takes ownership of |pBuf|.
+  void AttachData(uint8_t* pBuf, FX_STRSIZE size);
 
-  FX_STRSIZE GetSize() const { return m_DataSize; }
-
-  CFX_ByteStringC GetByteString() const;
-
-  void DetachBuffer();
+  // Releases ownership of |m_pBuffer| and returns it.
+  uint8_t* DetachBuffer();
 
  protected:
-  FX_STRSIZE m_AllocStep;
-
-  uint8_t* m_pBuffer;
-
-  FX_STRSIZE m_DataSize;
-
-  FX_STRSIZE m_AllocSize;
-
   void ExpandBuf(FX_STRSIZE size);
+
+  FX_STRSIZE m_AllocStep;
+  FX_STRSIZE m_AllocSize;
+  FX_STRSIZE m_DataSize;
+  std::unique_ptr<uint8_t, FxFreeDeleter> m_pBuffer;
 };
+
 class CFX_ByteTextBuf : public CFX_BinaryBuf {
  public:
-  void operator=(const CFX_ByteStringC& str);
-
   void AppendChar(int ch) { AppendByte((uint8_t)ch); }
+  FX_STRSIZE GetLength() const { return m_DataSize; }
+  CFX_ByteStringC GetByteString() const;
 
   CFX_ByteTextBuf& operator<<(int i);
-
   CFX_ByteTextBuf& operator<<(FX_DWORD i);
-
   CFX_ByteTextBuf& operator<<(double f);
-
   CFX_ByteTextBuf& operator<<(const CFX_ByteStringC& lpsz);
-
   CFX_ByteTextBuf& operator<<(const CFX_ByteTextBuf& buf);
-
-  FX_STRSIZE GetLength() const { return m_DataSize; }
 };
+
 class CFX_WideTextBuf : public CFX_BinaryBuf {
  public:
-  void operator=(const FX_WCHAR* lpsz);
-
-  void operator=(const CFX_WideStringC& str);
-
   void AppendChar(FX_WCHAR wch);
-
-  CFX_WideTextBuf& operator<<(int i);
-
-  CFX_WideTextBuf& operator<<(double f);
-
-  CFX_WideTextBuf& operator<<(const FX_WCHAR* lpsz);
-
-  CFX_WideTextBuf& operator<<(const CFX_WideStringC& str);
-  CFX_WideTextBuf& operator<<(const CFX_WideString& str);
-
-  CFX_WideTextBuf& operator<<(const CFX_WideTextBuf& buf);
-
   FX_STRSIZE GetLength() const { return m_DataSize / sizeof(FX_WCHAR); }
-
-  FX_WCHAR* GetBuffer() const { return (FX_WCHAR*)m_pBuffer; }
+  FX_WCHAR* GetBuffer() const {
+    return reinterpret_cast<FX_WCHAR*>(m_pBuffer.get());
+  }
+  CFX_WideStringC GetWideString() const;
 
   void Delete(int start_index, int count) {
     CFX_BinaryBuf::Delete(start_index * sizeof(FX_WCHAR),
                           count * sizeof(FX_WCHAR));
   }
 
-  CFX_WideStringC GetWideString() const;
+  CFX_WideTextBuf& operator<<(int i);
+  CFX_WideTextBuf& operator<<(double f);
+  CFX_WideTextBuf& operator<<(const FX_WCHAR* lpsz);
+  CFX_WideTextBuf& operator<<(const CFX_WideStringC& str);
+  CFX_WideTextBuf& operator<<(const CFX_WideString& str);
+  CFX_WideTextBuf& operator<<(const CFX_WideTextBuf& buf);
 };
 
-class IFX_BufferArchive {
+#ifdef PDF_ENABLE_XFA
+class CFX_ArchiveSaver {
  public:
-  IFX_BufferArchive(FX_STRSIZE size);
-  virtual ~IFX_BufferArchive() {}
+  CFX_ArchiveSaver() : m_pStream(NULL) {}
 
-  virtual void Clear();
+  CFX_ArchiveSaver& operator<<(uint8_t i);
 
-  FX_BOOL Flush();
+  CFX_ArchiveSaver& operator<<(int i);
 
-  int32_t AppendBlock(const void* pBuf, size_t size);
+  CFX_ArchiveSaver& operator<<(FX_DWORD i);
 
-  int32_t AppendByte(uint8_t byte);
+  CFX_ArchiveSaver& operator<<(FX_FLOAT i);
 
-  int32_t AppendDWord(FX_DWORD i);
+  CFX_ArchiveSaver& operator<<(double i);
 
-  int32_t AppendString(const CFX_ByteStringC& lpsz);
+  CFX_ArchiveSaver& operator<<(const CFX_ByteStringC& bstr);
+
+  CFX_ArchiveSaver& operator<<(const FX_WCHAR* bstr);
+
+  CFX_ArchiveSaver& operator<<(const CFX_WideString& wstr);
+
+  void Write(const void* pData, FX_STRSIZE dwSize);
+
+  intptr_t GetLength() { return m_SavingBuf.GetSize(); }
+
+  const uint8_t* GetBuffer() { return m_SavingBuf.GetBuffer(); }
+
+  void SetStream(IFX_FileStream* pStream) { m_pStream = pStream; }
 
  protected:
-  virtual FX_BOOL DoWork(const void* pBuf, size_t size) = 0;
+  CFX_BinaryBuf m_SavingBuf;
 
-  FX_STRSIZE m_BufSize;
-
-  uint8_t* m_pBuffer;
-
-  FX_STRSIZE m_Length;
+  IFX_FileStream* m_pStream;
 };
-
-class CFX_FileBufferArchive : public IFX_BufferArchive {
+class CFX_ArchiveLoader {
  public:
-  CFX_FileBufferArchive(FX_STRSIZE size = 32768);
-  ~CFX_FileBufferArchive() override;
+  CFX_ArchiveLoader(const uint8_t* pData, FX_DWORD dwSize);
 
-  void Clear() override;
-  FX_BOOL AttachFile(IFX_StreamWrite* pFile, FX_BOOL bTakeover = FALSE);
+  CFX_ArchiveLoader& operator>>(uint8_t& i);
+
+  CFX_ArchiveLoader& operator>>(int& i);
+
+  CFX_ArchiveLoader& operator>>(FX_DWORD& i);
+
+  CFX_ArchiveLoader& operator>>(FX_FLOAT& i);
+
+  CFX_ArchiveLoader& operator>>(double& i);
+
+  CFX_ArchiveLoader& operator>>(CFX_ByteString& bstr);
+
+  CFX_ArchiveLoader& operator>>(CFX_WideString& wstr);
+
+  FX_BOOL IsEOF();
+
+  FX_BOOL Read(void* pBuf, FX_DWORD dwSize);
+
+ protected:
+  FX_DWORD m_LoadingPos;
+
+  const uint8_t* m_pLoadingBuf;
+
+  FX_DWORD m_LoadingSize;
+};
+#endif  // PDF_ENABLE_XFA
+
+class CFX_FileBufferArchive {
+ public:
+  CFX_FileBufferArchive();
+
+  void Clear();
+  bool Flush();
+  int32_t AppendBlock(const void* pBuf, size_t size);
+  int32_t AppendByte(uint8_t byte);
+  int32_t AppendDWord(FX_DWORD i);
+  int32_t AppendString(const CFX_ByteStringC& lpsz);
+
+  // |pFile| must outlive the CFX_FileBufferArchive.
+  void AttachFile(IFX_StreamWrite* pFile);
 
  private:
-  FX_BOOL DoWork(const void* pBuf, size_t size) override;
+  static const size_t kBufSize = 32768;
 
+  size_t m_Length;
+  std::unique_ptr<uint8_t, FxFreeDeleter> m_pBuffer;
   IFX_StreamWrite* m_pFile;
-  FX_BOOL m_bTakeover;
 };
 
-struct CFX_CharMap {
-  static CFX_CharMap* GetDefaultMapper(int32_t codepage = 0);
+class CFX_CharMap {
+ public:
+  static CFX_ByteString GetByteString(FX_WORD codepage,
+                                      const CFX_WideString& wstr);
 
-  CFX_WideString (*m_GetWideString)(CFX_CharMap* pMap,
-                                    const CFX_ByteString& bstr);
+  static CFX_WideString GetWideString(FX_WORD codepage,
+                                      const CFX_ByteString& bstr);
 
-  CFX_ByteString (*m_GetByteString)(CFX_CharMap* pMap,
-                                    const CFX_WideString& wstr);
-
-  int32_t (*m_GetCodePage)();
+  CFX_CharMap() = delete;
 };
+
 class CFX_UTF8Decoder {
  public:
   CFX_UTF8Decoder() { m_PendingBytes = 0; }
@@ -369,12 +397,18 @@ class CFX_ArrayTemplate : public CFX_BasicArray {
     return -1;
   }
 };
-typedef CFX_ArrayTemplate<uint8_t> CFX_ByteArray;
-typedef CFX_ArrayTemplate<FX_WORD> CFX_WordArray;
 typedef CFX_ArrayTemplate<FX_DWORD> CFX_DWordArray;
-typedef CFX_ArrayTemplate<void*> CFX_PtrArray;
-typedef CFX_ArrayTemplate<FX_FILESIZE> CFX_FileSizeArray;
 
+#ifdef PDF_ENABLE_XFA
+typedef CFX_ArrayTemplate<CFX_WideStringC> CFX_WideStringCArray;
+typedef CFX_ArrayTemplate<FX_WORD> CFX_WordArray;
+typedef CFX_ArrayTemplate<FX_FLOAT> CFX_FloatArray;
+typedef CFX_ArrayTemplate<uint8_t> CFX_ByteArray;
+typedef CFX_ArrayTemplate<int32_t> CFX_Int32Array;
+typedef CFX_ArrayTemplate<void*> CFX_PtrArray;
+#endif  // PDF_ENABLE_XFA
+
+#ifdef PDF_ENABLE_XFA
 template <class ObjectClass>
 class CFX_ObjectArray : public CFX_BasicArray {
  public:
@@ -543,33 +577,26 @@ class CFX_SegmentedArray : public CFX_BaseSegmentedArray {
     return *(ElementType*)CFX_BaseSegmentedArray::GetAt(index);
   }
 };
+#endif  // PDF_ENABLE_XFA
+
 template <class DataType, int FixedSize>
 class CFX_FixedBufGrow {
  public:
-  CFX_FixedBufGrow() : m_pData(NULL) {}
-  CFX_FixedBufGrow(int data_size) : m_pData(NULL) {
+  explicit CFX_FixedBufGrow(int data_size) {
     if (data_size > FixedSize) {
-      m_pData = FX_Alloc(DataType, data_size);
-    } else {
-      FXSYS_memset(m_Data, 0, sizeof(DataType) * FixedSize);
+      m_pGrowData.reset(FX_Alloc(DataType, data_size));
+      return;
     }
+    FXSYS_memset(m_FixedData, 0, sizeof(DataType) * FixedSize);
   }
-  void SetDataSize(int data_size) {
-    FX_Free(m_pData);
-    m_pData = NULL;
-    if (data_size > FixedSize) {
-      m_pData = FX_Alloc(DataType, data_size);
-    } else {
-      FXSYS_memset(m_Data, 0, sizeof(DataType) * FixedSize);
-    }
-  }
-  ~CFX_FixedBufGrow() { FX_Free(m_pData); }
-  operator DataType*() { return m_pData ? m_pData : m_Data; }
+  operator DataType*() { return m_pGrowData ? m_pGrowData.get() : m_FixedData; }
 
  private:
-  DataType m_Data[FixedSize];
-  DataType* m_pData;
+  DataType m_FixedData[FixedSize];
+  std::unique_ptr<DataType, FxFreeDeleter> m_pGrowData;
 };
+
+#ifdef PDF_ENABLE_XFA
 class CFX_MapPtrToPtr {
  protected:
   struct CAssoc {
@@ -635,35 +662,43 @@ class CFX_MapPtrToPtr {
   CAssoc* GetAssocAt(void* key, FX_DWORD& hash) const;
 };
 
-class CFX_CMapByteStringToPtr {
+template <class KeyType, class ValueType>
+class CFX_MapPtrTemplate : public CFX_MapPtrToPtr {
  public:
-  CFX_CMapByteStringToPtr();
+  CFX_MapPtrTemplate() : CFX_MapPtrToPtr(10) {}
 
-  ~CFX_CMapByteStringToPtr();
+  FX_BOOL Lookup(KeyType key, ValueType& rValue) const {
+    void* pValue = NULL;
+    if (!CFX_MapPtrToPtr::Lookup((void*)(uintptr_t)key, pValue)) {
+      return FALSE;
+    }
+    rValue = (ValueType)(uintptr_t)pValue;
+    return TRUE;
+  }
 
-  void RemoveAll();
+  ValueType& operator[](KeyType key) {
+    return (ValueType&)CFX_MapPtrToPtr::operator[]((void*)(uintptr_t)key);
+  }
 
-  FX_POSITION GetStartPosition() const;
+  void SetAt(KeyType key, ValueType newValue) {
+    CFX_MapPtrToPtr::SetAt((void*)(uintptr_t)key, (void*)(uintptr_t)newValue);
+  }
+
+  FX_BOOL RemoveKey(KeyType key) {
+    return CFX_MapPtrToPtr::RemoveKey((void*)(uintptr_t)key);
+  }
 
   void GetNextAssoc(FX_POSITION& rNextPosition,
-                    CFX_ByteString& rKey,
-                    void*& rValue) const;
-
-  void* GetNextValue(FX_POSITION& rNextPosition) const;
-
-  FX_BOOL Lookup(const CFX_ByteStringC& key, void*& rValue) const;
-
-  void SetAt(const CFX_ByteStringC& key, void* value);
-
-  void RemoveKey(const CFX_ByteStringC& key);
-
-  int GetCount() const;
-
-  void AddValue(const CFX_ByteStringC& key, void* pValue);
-
- private:
-  CFX_BaseSegmentedArray m_Buffer;
+                    KeyType& rKey,
+                    ValueType& rValue) const {
+    void* pKey = NULL;
+    void* pValue = NULL;
+    CFX_MapPtrToPtr::GetNextAssoc(rNextPosition, pKey, pValue);
+    rKey = (KeyType)(uintptr_t)pKey;
+    rValue = (ValueType)(uintptr_t)pValue;
+  }
 };
+#endif  // PDF_ENABLE_XFA
 class CFX_PtrList {
  protected:
   struct CNode {
@@ -884,7 +919,7 @@ class CFX_CountRef {
 
   void operator=(void* p) {
     FXSYS_assert(p == 0);
-    if (m_pObject == NULL) {
+    if (!m_pObject) {
       return;
     }
     m_pObject->m_RefCount--;
@@ -898,12 +933,12 @@ class CFX_CountRef {
 
   operator const ObjClass*() const { return m_pObject; }
 
-  FX_BOOL IsNull() const { return m_pObject == NULL; }
+  FX_BOOL IsNull() const { return !m_pObject; }
 
-  FX_BOOL NotNull() const { return m_pObject != NULL; }
+  FX_BOOL NotNull() const { return !IsNull(); }
 
   ObjClass* GetModify() {
-    if (m_pObject == NULL) {
+    if (!m_pObject) {
       m_pObject = new CountedObj;
       m_pObject->m_RefCount = 1;
     } else if (m_pObject->m_RefCount > 1) {
@@ -916,7 +951,7 @@ class CFX_CountRef {
   }
 
   void SetNull() {
-    if (m_pObject == NULL) {
+    if (!m_pObject) {
       return;
     }
     m_pObject->m_RefCount--;
@@ -951,16 +986,6 @@ class CFX_AutoRestorer {
   const T m_OldValue;
 };
 
-struct FxFreeDeleter {
-  inline void operator()(void* ptr) const { FX_Free(ptr); }
-};
-
-// Used with nonstd::unique_ptr to Release() objects that can't be deleted.
-template <class T>
-struct ReleaseDeleter {
-  inline void operator()(T* ptr) const { ptr->Release(); }
-};
-
 #define FX_DATALIST_LENGTH 1024
 template <size_t unit>
 class CFX_SortListArray {
@@ -991,7 +1016,7 @@ class CFX_SortListArray {
       return;
     }
     while (nCount > 0) {
-      int32_t temp_count = FX_MIN(nCount, FX_DATALIST_LENGTH);
+      int32_t temp_count = std::min(nCount, FX_DATALIST_LENGTH);
       DataList list;
       list.data = FX_Alloc2D(uint8_t, temp_count, unit);
       list.start = nStart;
@@ -1071,7 +1096,7 @@ class CFX_ListArrayTemplate {
 
   T2& operator[](int32_t nIndex) {
     uint8_t* data = m_Data.GetAt(nIndex);
-    FXSYS_assert(data != NULL);
+    FXSYS_assert(data);
     return (T2&)(*(volatile T2*)data);
   }
 
@@ -1082,18 +1107,16 @@ class CFX_ListArrayTemplate {
 };
 typedef CFX_ListArrayTemplate<CFX_SortListArray<sizeof(FX_FILESIZE)>,
                               FX_FILESIZE> CFX_FileSizeListArray;
-typedef CFX_ListArrayTemplate<CFX_SortListArray<sizeof(FX_DWORD)>, FX_DWORD>
-    CFX_DWordListArray;
-typedef enum {
-  Ready,
-  ToBeContinued,
-  Found,
-  NotFound,
-  Failed,
-  Done
-} FX_ProgressiveStatus;
-#define ProgressiveStatus FX_ProgressiveStatus
-#define FX_NAMESPACE_DECLARE(namespace, type) namespace ::type
+
+#ifdef PDF_ENABLE_XFA
+class IFX_Unknown {
+ public:
+  virtual ~IFX_Unknown() {}
+  virtual FX_DWORD Release() = 0;
+  virtual FX_DWORD AddRef() = 0;
+};
+#define FX_IsOdd(a) ((a)&1)
+#endif  // PDF_ENABLE_XFA
 
 class CFX_Vector_3by1 {
  public:

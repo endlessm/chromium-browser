@@ -6,17 +6,17 @@
 #define COMPONENTS_SCHEDULER_BASE_LAZY_NOW_H_
 
 #include "base/time/time.h"
+#include "components/scheduler/scheduler_export.h"
 
 namespace base {
 class TickClock;
 }
 
 namespace scheduler {
-namespace internal {
 
 // Now() is somewhat expensive so it makes sense not to call Now() unless we
 // really need to.
-class LazyNow {
+class SCHEDULER_EXPORT LazyNow {
  public:
   explicit LazyNow(base::TimeTicks now) : tick_clock_(nullptr), now_(now) {
     DCHECK(!now.is_null());
@@ -31,7 +31,6 @@ class LazyNow {
   base::TimeTicks now_;
 };
 
-}  // namespace internal
 }  // namespace scheduler
 
 #endif  // COMPONENTS_SCHEDULER_BASE_LAZY_NOW_H_

@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/testing/v8/WebCoreTestSupport.h"
 
 #include "bindings/core/v8/V8Internals.h"
@@ -78,4 +77,4 @@ void resetInternalsObject(v8::Local<v8::Context> context)
     InternalSettings::from(*page)->resetToConsistentState();
 }
 
-}
+} // namespace WebCoreTestSupport

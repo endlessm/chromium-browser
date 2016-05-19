@@ -5,6 +5,9 @@
 #ifndef CHROMECAST_PUBLIC_AVSETTINGS_H_
 #define CHROMECAST_PUBLIC_AVSETTINGS_H_
 
+#include <stdint.h>
+
+#include "output_restrictions.h"
 #include "task_runner.h"
 
 namespace chromecast {
@@ -32,6 +35,32 @@ class AvSettings {
     DTS_HD = 1 << 2,
     EAC3 = 1 << 3,
     LPCM = 1 << 4,
+  };
+
+  // Defines the type of audio volume control of the device.
+  enum AudioVolumeControlType {
+    UNKNOWN_VOLUME,
+
+    // MASTER_VOLUME: Devices of CEC audio controls is a master volume system,
+    // i.e the system volume is changed, but not attenuated,
+    // e.g. normal TVs, audio devices.
+    MASTER_VOLUME,
+
+    // ATTENUATION_VOLUME: Devices which do not do CEC audio controls,
+    // e.g. Chromecast.
+    ATTENUATION_VOLUME,
+
+    // FIXED_VOLUME: Devices which have fixed volume, e.g. Nexus Player.
+    FIXED_VOLUME,
+  };
+
+  // Defines the status of platform wake-on-cast feature.
+  enum WakeOnCastStatus {
+    WAKE_ON_CAST_UNKNOWN,  // Should only been used very rarely when platform
+                           // has error to get the status.
+    WAKE_ON_CAST_NOT_SUPPORTED,  // Platform doesn't support wake-on-cast.
+    WAKE_ON_CAST_DISABLED,
+    WAKE_ON_CAST_ENABLED,
   };
 
   enum Event {
@@ -63,6 +92,25 @@ class AvSettings {
     // On this event, GetScreenResolution() will be called on the thread where
     // Initialize() was called.
     SCREEN_INFO_CHANGED = 3,
+
+    // This event should be fired whenever the active output restrictions on the
+    // device outputs change. On this event, GetOutputRestrictions() will be
+    // called on the thread where Initialize() was called.
+    OUTPUT_RESTRICTIONS_CHANGED = 4,
+
+    // This event shall be fired whenever the type of volume control provided
+    // by the device is changed, for e.g., when the device is connected or
+    // disconnected to HDMI sinks
+    AUDIO_VOLUME_CONTROL_TYPE_CHANGED = 5,
+
+    // This event shall be fired whenever wake-on-cast status is changed by
+    // platform.
+    WAKE_ON_CAST_CHANGED = 6,
+
+    // This event shall be fired whenever the volume step interval provided
+    // by the device is changed, for e.g. when connecting to an AVR setup
+    // where step interval should be 1%.
+    AUDIO_VOLUME_STEP_INTERVAL_CHANGED = 7,
 
     // This event should be fired when the device is connected to HDMI sinks.
     HDMI_CONNECTED = 100,
@@ -127,12 +175,24 @@ class AvSettings {
   // Returns true if successful.
   virtual bool KeepSystemAwake(int time_ms) = 0;
 
-  // Whether or not the device is a master volume system, i.e the system volume
-  // is changed, but not attenuated. For example, normal TVs, devices of CEC
-  // audio controls, and audio devices are master volume systems.
-  // The counter examples are Chromecast (which doesn't do CEC audio controls)
-  // and Nexus Player (which has volume fixed).
-  virtual bool IsMasterVolumeDevice() = 0;
+  // Returns the type of volume control, i.e. MASTER_VOLUME, FIXED_VOLUME or
+  // ATTENUATION_VOLUME. For example, normal TVs, devices of CEC audio
+  // controls, and audio devices are master volume systems. The counter
+  // examples are Chromecast (which doesn't do CEC audio controls) and
+  // Nexus Player which is fixed volume.
+  virtual AudioVolumeControlType GetAudioVolumeControlType() = 0;
+
+  // Retrieves the volume step interval in range [0.0, 1.0] that specifies how
+  // much volume to change per step, e.g. 0.05 = 5%. Returns true if a valid
+  // interval is specified by platform; returns false if interval should defer
+  // to default values.
+  //
+  // Current default volume step intervals per control type are as follows:
+  //  - MASTER_VOLUME: 0.05 (5%)
+  //  - ATTENUATION_VOLUME: 0.02 (2%)
+  //  - FIXED_VOLUME: 0.01 (1%)
+  //  - UNKNOWN_VOLUME: 0.01 (1%)
+  virtual bool GetAudioVolumeStepInterval(float* step_inteval) = 0;
 
   // Returns the current volume level, which must be from 0.0 (inclusive) to
   // 1.0 (inclusive).
@@ -162,6 +222,26 @@ class AvSettings {
   // Retrieves the resolution of screen of the device (or HDMI sinks).
   // Returns true if it gets resolution successfully.
   virtual bool GetScreenResolution(int* width, int* height) = 0;
+
+  // If supported, retrieves the restrictions active on the device outputs (as
+  // specified by the PlayReady CDM; see output_restrictions.h). If reporting
+  // output restrictions is unsupported, should return false.
+  virtual bool GetOutputRestrictions(
+      OutputRestrictions* output_restrictions) = 0;
+
+  // If supported, sets which output restrictions should be active on the device
+  // (as specified by the PlayReady CDM; see output_restrictions.h). The device
+  // should try to apply these restrictions and fire OUTPUT_RESTRICTIONS_CHANGED
+  // if they result in a change of active restrictions.
+  virtual void ApplyOutputRestrictions(
+      const OutputRestrictions& restrictions) = 0;
+
+  // Returns current Wake-On-Cast status from platform.
+  virtual WakeOnCastStatus GetWakeOnCastStatus() = 0;
+
+  // Enables/Disables Wake-On-Cast status.
+  // Returns false if failed or not supported.
+  virtual bool EnableWakeOnCast(bool enabled) = 0;
 };
 
 }  // namespace chromecast

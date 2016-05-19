@@ -5,23 +5,23 @@
 #ifndef UI_VIEWS_CONTROLS_BUTTON_CUSTOM_BUTTON_H_
 #define UI_VIEWS_CONTROLS_BUTTON_CUSTOM_BUTTON_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/events/event_constants.h"
 #include "ui/gfx/animation/animation_delegate.h"
+#include "ui/gfx/animation/throb_animation.h"
+#include "ui/views/animation/ink_drop_state.h"
 #include "ui/views/controls/button/button.h"
 
-namespace gfx {
-class ThrobAnimation;
-}
-
 namespace views {
+
+class InkDropDelegate;
 
 // A button with custom rendering. The base of ImageButton and LabelButton.
 // Note that this type of button is not focusable by default and will not be
 // part of the focus chain.  Call SetFocusable(true) to make it part of the
 // focus chain.
-class VIEWS_EXPORT CustomButton : public Button,
-                                  public gfx::AnimationDelegate {
+class VIEWS_EXPORT CustomButton : public Button, public gfx::AnimationDelegate {
  public:
   // An enum describing the events on which a button should notify its listener.
   enum NotifyAction {
@@ -72,6 +72,8 @@ class VIEWS_EXPORT CustomButton : public Button,
     notify_action_ = notify_action;
   }
 
+  void set_ink_drop_base_color(SkColor color) { ink_drop_base_color_ = color; }
+
   void SetHotTracked(bool is_hot_tracked);
   bool IsHotTracked() const;
 
@@ -89,11 +91,14 @@ class VIEWS_EXPORT CustomButton : public Button,
   bool OnKeyReleased(const ui::KeyEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
+  bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
   void ShowContextMenu(const gfx::Point& p,
                        ui::MenuSourceType source_type) override;
   void OnDragDone() override;
   void GetAccessibleState(ui::AXViewState* state) override;
   void VisibilityChanged(View* starting_from, bool is_visible) override;
+  scoped_ptr<InkDropHover> CreateInkDropHover() const override;
+  SkColor GetInkDropBaseColor() const override;
 
   // Overridden from gfx::AnimationDelegate:
   void AnimationProgressed(const gfx::Animation* animation) override;
@@ -117,28 +122,41 @@ class VIEWS_EXPORT CustomButton : public Button,
   // we simply return IsTriggerableEvent(event).
   virtual bool ShouldEnterPushedState(const ui::Event& event);
 
+  // Returns true if hover effect should be visible.
+  virtual bool ShouldShowInkDropHover() const;
+
+  void set_has_ink_drop_action_on_click(bool has_ink_drop_action_on_click) {
+    has_ink_drop_action_on_click_ = has_ink_drop_action_on_click;
+  }
+
   // Returns true if the button should enter hovered state; that is, if the
   // mouse is over the button, and no other window has capture (which would
   // prevent the button from receiving MouseExited events and updating its
   // state). This does not take into account enabled state.
   bool ShouldEnterHoveredState();
 
+  InkDropDelegate* ink_drop_delegate() const { return ink_drop_delegate_; }
+  void set_ink_drop_delegate(InkDropDelegate* ink_drop_delegate) {
+    ink_drop_delegate_ = ink_drop_delegate;
+  }
+
   // Overridden from View:
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
   void OnBlur() override;
 
-  // The button state (defined in implementation)
-  ButtonState state_;
+  // Overridden from Button:
+  void NotifyClick(const ui::Event& event) override;
+  void OnClickCanceled(const ui::Event& event) override;
 
-  // Hover animation.
-  scoped_ptr<gfx::ThrobAnimation> hover_animation_;
+  const gfx::ThrobAnimation& hover_animation() const {
+    return hover_animation_;
+  }
 
  private:
-  // Returns true if this is not a top level widget. Virtual for tests.
-  virtual bool IsChildWidget() const;
-  // Returns true if the focus is not in a top level widget. Virtual for tests.
-  virtual bool FocusInChildWidget() const;
+  ButtonState state_;
+
+  gfx::ThrobAnimation hover_animation_;
 
   // Should we animate when the state changes? Defaults to true.
   bool animate_on_state_change_;
@@ -152,8 +170,25 @@ class VIEWS_EXPORT CustomButton : public Button,
   // See description above setter.
   bool request_focus_on_press_;
 
+  // Animation delegate for the ink drop ripple effect. It is owned by a
+  // descendant class and needs to be reset before an instance of the concrete
+  // CustomButton is destroyed.
+  InkDropDelegate* ink_drop_delegate_;
+
   // The event on which the button should notify its listener.
   NotifyAction notify_action_;
+
+  // True when a button click should trigger an animation action on
+  // |ink_drop_delegate_|.
+  // TODO(bruthig): Use an InkDropAction enum and drop the flag.
+  bool has_ink_drop_action_on_click_;
+
+  // The animation action to trigger on the |ink_drop_delegate_| when the button
+  // is clicked.
+  InkDropState ink_drop_action_on_click_;
+
+  // The color of the ripple and hover.
+  SkColor ink_drop_base_color_;
 
   DISALLOW_COPY_AND_ASSIGN(CustomButton);
 };

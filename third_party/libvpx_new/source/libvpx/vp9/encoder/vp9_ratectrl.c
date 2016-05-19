@@ -500,6 +500,12 @@ void vp9_rc_update_rate_correction_factors(VP9_COMP *cpi) {
   else
     cpi->rc.rc_1_frame = 0;
 
+  // Turn off oscilation detection in the case of massive overshoot.
+  if (cpi->rc.rc_1_frame == -1 && cpi->rc.rc_2_frame == 1 &&
+      correction_factor > 1000) {
+    cpi->rc.rc_2_frame = 0;
+  }
+
   if (correction_factor > 102) {
     // We are not already at the worst allowable quality
     correction_factor = (int)(100 + ((correction_factor - 100) *
@@ -833,10 +839,16 @@ static int rc_pick_q_and_bounds_one_pass_vbr(const VP9_COMP *cpi,
   ASSIGN_MINQ_TABLE(cm->bit_depth, inter_minq);
 
   if (frame_is_intra_only(cm)) {
-    // Handle the special case for key frames forced when we have reached
-    // the maximum key frame interval. Here force the Q to a range
-    // based on the ambient Q to reduce the risk of popping.
-    if (rc->this_key_frame_forced) {
+    if (oxcf->rc_mode == VPX_Q) {
+      int qindex = cq_level;
+      double q = vp9_convert_qindex_to_q(qindex, cm->bit_depth);
+      int delta_qindex = vp9_compute_qdelta(rc, q, q * 0.25,
+                                            cm->bit_depth);
+      active_best_quality = VPXMAX(qindex + delta_qindex, rc->best_quality);
+    } else if (rc->this_key_frame_forced) {
+      // Handle the special case for key frames forced when we have reached
+      // the maximum key frame interval. Here force the Q to a range
+      // based on the ambient Q to reduce the risk of popping.
       int qindex = rc->last_boosted_qindex;
       double last_boosted_q = vp9_convert_qindex_to_q(qindex, cm->bit_depth);
       int delta_qindex = vp9_compute_qdelta(rc, last_boosted_q,
@@ -886,17 +898,28 @@ static int rc_pick_q_and_bounds_one_pass_vbr(const VP9_COMP *cpi,
       active_best_quality = active_best_quality * 15 / 16;
 
     } else if (oxcf->rc_mode == VPX_Q) {
-      if (!cpi->refresh_alt_ref_frame) {
-        active_best_quality = cq_level;
-      } else {
-        active_best_quality = get_gf_active_quality(rc, q, cm->bit_depth);
-      }
+      int qindex = cq_level;
+      double q = vp9_convert_qindex_to_q(qindex, cm->bit_depth);
+      int delta_qindex;
+      if (cpi->refresh_alt_ref_frame)
+        delta_qindex = vp9_compute_qdelta(rc, q, q * 0.40, cm->bit_depth);
+      else
+        delta_qindex = vp9_compute_qdelta(rc, q, q * 0.50, cm->bit_depth);
+      active_best_quality = VPXMAX(qindex + delta_qindex, rc->best_quality);
     } else {
       active_best_quality = get_gf_active_quality(rc, q, cm->bit_depth);
     }
   } else {
     if (oxcf->rc_mode == VPX_Q) {
-      active_best_quality = cq_level;
+      int qindex = cq_level;
+      double q = vp9_convert_qindex_to_q(qindex, cm->bit_depth);
+      double delta_rate[FIXED_GF_INTERVAL] =
+          {0.50, 1.0, 0.85, 1.0, 0.70, 1.0, 0.85, 1.0};
+      int delta_qindex =
+          vp9_compute_qdelta(rc, q,
+                             q * delta_rate[cm->current_video_frame %
+                             FIXED_GF_INTERVAL], cm->bit_depth);
+      active_best_quality = VPXMAX(qindex + delta_qindex, rc->best_quality);
     } else {
       // Use the lower of active_worst_quality and recent/average Q.
       if (cm->current_video_frame > 1)
@@ -1075,7 +1098,7 @@ static int rc_pick_q_and_bounds_two_pass(const VP9_COMP *cpi,
       if (!cpi->refresh_alt_ref_frame) {
         active_best_quality = cq_level;
       } else {
-       active_best_quality = get_gf_active_quality(rc, q, cm->bit_depth);
+        active_best_quality = get_gf_active_quality(rc, q, cm->bit_depth);
 
         // Modify best quality for second level arfs. For mode VPX_Q this
         // becomes the baseline frame q.
@@ -1257,8 +1280,12 @@ static void update_golden_frame_stats(VP9_COMP *cpi) {
     rc->frames_since_golden = 0;
 
     // If we are not using alt ref in the up and coming group clear the arf
-    // active flag.
-    if (!rc->source_alt_ref_pending) {
+    // active flag. In multi arf group case, if the index is not 0 then
+    // we are overlaying a mid group arf so should not reset the flag.
+    if (cpi->oxcf.pass == 2) {
+      if (!rc->source_alt_ref_pending && (cpi->twopass.gf_group.index == 0))
+        rc->source_alt_ref_active = 0;
+    } else if (!rc->source_alt_ref_pending) {
       rc->source_alt_ref_active = 0;
     }
 
@@ -1309,9 +1336,9 @@ void vp9_rc_postencode_update(VP9_COMP *cpi, uint64_t bytes_used) {
       }
     }
   } else {
-    if (rc->is_src_frame_alt_ref ||
-        !(cpi->refresh_golden_frame || cpi->refresh_alt_ref_frame) ||
-        (cpi->use_svc && oxcf->rc_mode == VPX_CBR)) {
+    if ((cpi->use_svc && oxcf->rc_mode == VPX_CBR) ||
+        (!rc->is_src_frame_alt_ref &&
+         !(cpi->refresh_golden_frame || cpi->refresh_alt_ref_frame))) {
       rc->last_q[INTER_FRAME] = qindex;
       rc->avg_frame_qindex[INTER_FRAME] =
         ROUND_POWER_OF_TWO(3 * rc->avg_frame_qindex[INTER_FRAME] + qindex, 2);
@@ -1558,7 +1585,7 @@ void vp9_rc_get_svc_params(VP9_COMP *cpi) {
   VP9_COMMON *const cm = &cpi->common;
   RATE_CONTROL *const rc = &cpi->rc;
   int target = rc->avg_frame_bandwidth;
-  const int layer = LAYER_IDS_TO_IDX(cpi->svc.spatial_layer_id,
+  int layer = LAYER_IDS_TO_IDX(cpi->svc.spatial_layer_id,
       cpi->svc.temporal_layer_id, cpi->svc.number_temporal_layers);
 
   if ((cm->current_video_frame == 0) ||
@@ -1573,8 +1600,10 @@ void vp9_rc_get_svc_params(VP9_COMP *cpi) {
       cpi->ref_frame_flags &=
           (~VP9_LAST_FLAG & ~VP9_GOLD_FLAG & ~VP9_ALT_FLAG);
     } else if (is_one_pass_cbr_svc(cpi)) {
-      cpi->svc.layer_context[layer].is_key_frame = 1;
       reset_temporal_layer_to_zero(cpi);
+      layer = LAYER_IDS_TO_IDX(cpi->svc.spatial_layer_id,
+           cpi->svc.temporal_layer_id, cpi->svc.number_temporal_layers);
+      cpi->svc.layer_context[layer].is_key_frame = 1;
       cpi->ref_frame_flags &=
                 (~VP9_LAST_FLAG & ~VP9_GOLD_FLAG & ~VP9_ALT_FLAG);
       // Assumption here is that LAST_FRAME is being updated for a keyframe.
@@ -1716,29 +1745,36 @@ void vp9_rc_set_gf_interval_range(const VP9_COMP *const cpi,
                                   RATE_CONTROL *const rc) {
   const VP9EncoderConfig *const oxcf = &cpi->oxcf;
 
-  // Set Maximum gf/arf interval
-  rc->max_gf_interval = oxcf->max_gf_interval;
-  rc->min_gf_interval = oxcf->min_gf_interval;
-  if (rc->min_gf_interval == 0)
-    rc->min_gf_interval = vp9_rc_get_default_min_gf_interval(
-        oxcf->width, oxcf->height, cpi->framerate);
-  if (rc->max_gf_interval == 0)
-    rc->max_gf_interval = vp9_rc_get_default_max_gf_interval(
-        cpi->framerate, rc->min_gf_interval);
+  // Special case code for 1 pass fixed Q mode tests
+  if ((oxcf->pass == 0) && (oxcf->rc_mode == VPX_Q)) {
+    rc->max_gf_interval = FIXED_GF_INTERVAL;
+    rc->min_gf_interval = FIXED_GF_INTERVAL;
+    rc->static_scene_max_gf_interval = FIXED_GF_INTERVAL;
+  } else {
+    // Set Maximum gf/arf interval
+    rc->max_gf_interval = oxcf->max_gf_interval;
+    rc->min_gf_interval = oxcf->min_gf_interval;
+    if (rc->min_gf_interval == 0)
+      rc->min_gf_interval = vp9_rc_get_default_min_gf_interval(
+          oxcf->width, oxcf->height, cpi->framerate);
+    if (rc->max_gf_interval == 0)
+      rc->max_gf_interval = vp9_rc_get_default_max_gf_interval(
+          cpi->framerate, rc->min_gf_interval);
 
-  // Extended interval for genuinely static scenes
-  rc->static_scene_max_gf_interval = MAX_LAG_BUFFERS * 2;
+    // Extended interval for genuinely static scenes
+    rc->static_scene_max_gf_interval = MAX_LAG_BUFFERS * 2;
 
-  if (is_altref_enabled(cpi)) {
-    if (rc->static_scene_max_gf_interval > oxcf->lag_in_frames - 1)
-      rc->static_scene_max_gf_interval = oxcf->lag_in_frames - 1;
+    if (is_altref_enabled(cpi)) {
+      if (rc->static_scene_max_gf_interval > oxcf->lag_in_frames - 1)
+        rc->static_scene_max_gf_interval = oxcf->lag_in_frames - 1;
+    }
+
+    if (rc->max_gf_interval > rc->static_scene_max_gf_interval)
+      rc->max_gf_interval = rc->static_scene_max_gf_interval;
+
+    // Clamp min to max
+    rc->min_gf_interval = VPXMIN(rc->min_gf_interval, rc->max_gf_interval);
   }
-
-  if (rc->max_gf_interval > rc->static_scene_max_gf_interval)
-    rc->max_gf_interval = rc->static_scene_max_gf_interval;
-
-  // Clamp min to max
-  rc->min_gf_interval = VPXMIN(rc->min_gf_interval, rc->max_gf_interval);
 }
 
 void vp9_rc_update_framerate(VP9_COMP *cpi) {

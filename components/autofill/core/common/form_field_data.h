@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_COMMON_FORM_FIELD_DATA_H_
 #define COMPONENTS_AUTOFILL_CORE_COMMON_FORM_FIELD_DATA_H_
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/i18n/rtl.h"
@@ -28,6 +30,7 @@ struct FormFieldData {
   };
 
   FormFieldData();
+  FormFieldData(const FormFieldData& other);
   ~FormFieldData();
 
   // Returns true if two form fields are the same, not counting the value.
@@ -43,7 +46,11 @@ struct FormFieldData {
   base::string16 value;
   std::string form_control_type;
   std::string autocomplete_attribute;
-  size_t max_length;
+  // Note: we use uint64_t instead of size_t because this struct is sent over
+  // IPC which could span 32 & 64 bit processes. We chose uint64_t instead of
+  // uint32_t to maintain compatibility with old code which used size_t
+  // (base::Pickle used to serialize that as 64 bit).
+  uint64_t max_length;
   bool is_autofilled;
   bool is_checked;
   bool is_checkable;

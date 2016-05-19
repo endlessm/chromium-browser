@@ -2,42 +2,40 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ui/gl/gl_surface_osmesa.h"
+
+#include <algorithm>
+
 #include "base/logging.h"
 #include "base/numerics/safe_math.h"
 #include "third_party/mesa/src/include/GL/osmesa.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
-#include "ui/gl/gl_surface_osmesa.h"
 #include "ui/gl/scoped_make_current.h"
 
 namespace gfx {
 
-GLSurfaceOSMesa::GLSurfaceOSMesa(OSMesaSurfaceFormat format,
+GLSurfaceOSMesa::GLSurfaceOSMesa(GLSurface::Format format,
                                  const gfx::Size& size)
-    : size_(size) {
-  switch (format) {
-    case OSMesaSurfaceFormatBGRA:
-      format_ = OSMESA_BGRA;
-      break;
-    case OSMesaSurfaceFormatRGBA:
-      format_ = OSMESA_RGBA;
-      break;
-  }
+    : size_(size),
+      format_(format) {
   // Implementations of OSMesa surface do not support having a 0 size. In such
   // cases use a (1, 1) surface.
   if (size_.GetArea() == 0)
     size_.SetSize(1, 1);
 }
 
-bool GLSurfaceOSMesa::Initialize() {
-  return Resize(size_, 1.f);
+bool GLSurfaceOSMesa::Initialize(GLSurface::Format format) {
+  return Resize(size_, 1.f, true);
 }
 
 void GLSurfaceOSMesa::Destroy() {
   buffer_.reset();
 }
 
-bool GLSurfaceOSMesa::Resize(const gfx::Size& new_size, float scale_factor) {
+bool GLSurfaceOSMesa::Resize(const gfx::Size& new_size,
+                             float scale_factor,
+                             bool has_alpha) {
   scoped_ptr<ui::ScopedMakeCurrent> scoped_make_current;
   GLContext* current_context = GLContext::GetCurrent();
   bool was_current =
@@ -49,7 +47,7 @@ bool GLSurfaceOSMesa::Resize(const gfx::Size& new_size, float scale_factor) {
   }
 
   // Preserve the old buffer.
-  scoped_ptr<int32[]> old_buffer(buffer_.release());
+  scoped_ptr<int32_t[]> old_buffer(buffer_.release());
 
   base::CheckedNumeric<int> checked_size = sizeof(buffer_[0]);
   checked_size *= new_size.width();
@@ -58,7 +56,7 @@ bool GLSurfaceOSMesa::Resize(const gfx::Size& new_size, float scale_factor) {
     return false;
 
   // Allocate a new one.
-  buffer_.reset(new int32[new_size.GetArea()]);
+  buffer_.reset(new int32_t[new_size.GetArea()]);
   if (!buffer_.get())
     return false;
 
@@ -97,7 +95,7 @@ void* GLSurfaceOSMesa::GetHandle() {
   return buffer_.get();
 }
 
-unsigned GLSurfaceOSMesa::GetFormat() {
+GLSurface::Format GLSurfaceOSMesa::GetFormat() {
   return format_;
 }
 
@@ -112,7 +110,7 @@ gfx::SwapResult GLSurfaceOSMesaHeadless::SwapBuffers() {
 }
 
 GLSurfaceOSMesaHeadless::GLSurfaceOSMesaHeadless()
-    : GLSurfaceOSMesa(OSMesaSurfaceFormatBGRA, gfx::Size(1, 1)) {
+    : GLSurfaceOSMesa(SURFACE_OSMESA_BGRA, gfx::Size(1, 1)) {
 }
 
 GLSurfaceOSMesaHeadless::~GLSurfaceOSMesaHeadless() { Destroy(); }

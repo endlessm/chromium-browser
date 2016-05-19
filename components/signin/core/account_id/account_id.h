@@ -5,12 +5,14 @@
 #ifndef COMPONENTS_SIGNIN_CORE_ACCOUNT_ID_ACCOUNT_ID_H_
 #define COMPONENTS_SIGNIN_CORE_ACCOUNT_ID_ACCOUNT_ID_H_
 
+#include <stddef.h>
+
 #include <string>
 #include "base/containers/hash_tables.h"
 
 // Type that contains enough information to identify user.
 //
-// TODO (alemate): we are in the process of moving away from std::string as a
+// TODO(alemate): we are in the process of moving away from std::string as a
 // type for storing user identifier to AccountId. At this time GaiaId is mostly
 // empty, so this type is used as a replacement for e-mail string.
 // But in near future AccountId will become full feature user identifier.
@@ -33,6 +35,9 @@ class AccountId {
   const std::string& GetGaiaId() const;
   const std::string& GetUserEmail() const;
 
+  // This returns prefixed GaiaId string to be used as a storage key.
+  const std::string GetGaiaIdKey() const;
+
   void SetGaiaId(const std::string& gaia_id);
   void SetUserEmail(const std::string& email);
 
@@ -45,8 +50,13 @@ class AccountId {
   static AccountId FromUserEmailGaiaId(const std::string& user_email,
                                        const std::string& gaia_id);
 
-  // std::string Serialize() const;
-  // static AccountId Deserialize(const std::string& serialized);
+  // These are (for now) unstable and cannot be used to store serialized data to
+  // persistent storage. Only in-memory storage is safe.
+  // Serialize() returns JSON dictionary,
+  // Deserialize() restores AccountId after serialization.
+  std::string Serialize() const;
+  static bool Deserialize(const std::string& serialized,
+                          AccountId* out_account_id);
 
  private:
   AccountId();

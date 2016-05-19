@@ -4,8 +4,11 @@
 
 #include "chrome/browser/chromeos/attestation/platform_verification_flow.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/time/time.h"
@@ -154,9 +157,7 @@ PlatformVerificationFlow::PlatformVerificationFlow()
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   scoped_ptr<ServerProxy> attestation_ca_client(new AttestationCAClient());
   default_attestation_flow_.reset(new AttestationFlow(
-      async_caller_,
-      cryptohome_client_,
-      attestation_ca_client.Pass()));
+      async_caller_, cryptohome_client_, std::move(attestation_ca_client)));
   attestation_flow_ = default_attestation_flow_.get();
   default_delegate_.reset(new DefaultDelegate());
   delegate_ = default_delegate_.get();

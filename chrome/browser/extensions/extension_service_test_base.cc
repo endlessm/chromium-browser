@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/extension_service_test_base.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted.h"
@@ -11,6 +13,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_garbage_collector_factory.h"
@@ -56,7 +59,7 @@ scoped_ptr<TestingProfile> BuildTestingProfile(
     scoped_ptr<syncable_prefs::PrefServiceSyncable> prefs(
         factory.CreateSyncable(registry.get()));
     chrome::RegisterUserProfilePrefs(registry.get());
-    profile_builder.SetPrefService(prefs.Pass());
+    profile_builder.SetPrefService(std::move(prefs));
   }
 
   if (params.profile_is_supervised)
@@ -74,6 +77,10 @@ ExtensionServiceTestBase::ExtensionServiceInitParams::
       is_first_run(true),
       profile_is_supervised(false) {
 }
+
+ExtensionServiceTestBase::ExtensionServiceInitParams::
+    ExtensionServiceInitParams(const ExtensionServiceInitParams& other) =
+        default;
 
 ExtensionServiceTestBase::ExtensionServiceTestBase()
     : thread_bundle_(new content::TestBrowserThreadBundle(kThreadOptions)),

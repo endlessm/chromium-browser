@@ -4,6 +4,7 @@
 
 #include "chrome/test/base/test_browser_window.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "ui/gfx/geometry/rect.h"
@@ -93,6 +94,10 @@ gfx::Rect TestBrowserWindow::GetBounds() const {
   return gfx::Rect();
 }
 
+gfx::Size TestBrowserWindow::GetContentsSize() const {
+  return gfx::Size();
+}
+
 bool TestBrowserWindow::IsMaximized() const {
   return false;
 }
@@ -110,17 +115,6 @@ bool TestBrowserWindow::IsFullscreen() const {
 }
 
 bool TestBrowserWindow::IsFullscreenBubbleVisible() const {
-  return false;
-}
-
-bool TestBrowserWindow::SupportsFullscreenWithToolbar() const {
-  return false;
-}
-
-void TestBrowserWindow::UpdateFullscreenWithToolbar(bool with_toolbar) {
-}
-
-bool TestBrowserWindow::IsFullscreenWithToolbar() const {
   return false;
 }
 
@@ -168,15 +162,6 @@ autofill::SaveCardBubbleView* TestBrowserWindow::ShowSaveCreditCardBubble(
     content::WebContents* contents,
     autofill::SaveCardBubbleController* controller,
     bool user_gesture) {
-  return nullptr;
-}
-
-bool TestBrowserWindow::IsProfileResetBubbleSupported() const {
-  return false;
-}
-
-GlobalErrorBubbleViewBase* TestBrowserWindow::ShowProfileResetBubble(
-    const base::WeakPtr<ProfileResetGlobalError>& global_error) {
   return nullptr;
 }
 

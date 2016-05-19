@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "chrome/browser/chromeos/login/easy_unlock/bootstrap_user_context_initializer.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
@@ -27,7 +28,7 @@ namespace chromeos {
 namespace {
 
 const char kFakeGaiaId[] = "123456";
-const char kFakeUser[] = "test_user@example.com";
+const char kFakeUser[] = "test_user@consumer.example.com";
 const char kFakeSid[] = "fake-sid";
 const char kFakeLsid[] = "fake-lsid";
 const char kFakeRefreshToken[] = "fake-refresh-token";

@@ -2,13 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <map>
 
+#include "base/i18n/rtl.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/rand_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "cc/playback/display_item_list.h"
 #include "cc/playback/display_item_list_settings.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -22,9 +27,11 @@
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/events/scoped_target_handler.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/transform.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/native/native_view_host.h"
@@ -182,7 +189,7 @@ void ScrambleTree(views::View* view) {
 class ScopedRTL {
  public:
   ScopedRTL() {
-    locale_ = l10n_util::GetApplicationLocale(std::string());
+    locale_ = base::i18n::GetConfiguredLocale();
     base::i18n::SetICUDefaultLocale("he");
   }
   ~ScopedRTL() { base::i18n::SetICUDefaultLocale(locale_); }
@@ -202,6 +209,7 @@ class TestView : public View {
  public:
   TestView()
       : View(),
+        did_layout_(false),
         delete_on_pressed_(false),
         did_paint_(false),
         native_theme_(NULL),
@@ -211,6 +219,7 @@ class TestView : public View {
   // Reset all test state
   void Reset() {
     did_change_bounds_ = false;
+    did_layout_ = false;
     last_mouse_event_type_ = 0;
     location_.SetPoint(0, 0);
     received_mouse_enter_ = false;
@@ -239,6 +248,11 @@ class TestView : public View {
     return can_process_events_within_subtree_;
   }
 
+  void Layout() override {
+    did_layout_ = true;
+    View::Layout();
+  }
+
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
@@ -255,6 +269,9 @@ class TestView : public View {
   // OnBoundsChanged.
   bool did_change_bounds_;
   gfx::Rect new_bounds_;
+
+  // Layout.
+  bool did_layout_;
 
   // MouseEvent.
   int last_mouse_event_type_;
@@ -276,6 +293,35 @@ class TestView : public View {
   // Value to return from CanProcessEventsWithinSubtree().
   bool can_process_events_within_subtree_;
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// Layout
+////////////////////////////////////////////////////////////////////////////////
+
+TEST_F(ViewTest, LayoutCalledInvalidateAndOriginChanges) {
+  TestView parent;
+  TestView* child = new TestView;
+  gfx::Rect parent_rect(0, 0, 100, 100);
+  parent.SetBoundsRect(parent_rect);
+
+  parent.Reset();
+  // |AddChildView| invalidates parent's layout.
+  parent.AddChildView(child);
+  // Change rect so that only rect's origin is affected.
+  parent.SetBoundsRect(parent_rect + gfx::Vector2d(10, 0));
+
+  EXPECT_TRUE(parent.did_layout_);
+
+  // After child layout is invalidated, parent and child must be laid out
+  // during parent->BoundsChanged(...) call.
+  parent.Reset();
+  child->Reset();
+
+  child->InvalidateLayout();
+  parent.SetBoundsRect(parent_rect + gfx::Vector2d(20, 0));
+  EXPECT_TRUE(parent.did_layout_);
+  EXPECT_TRUE(child->did_layout_);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // OnBoundsChanged
@@ -487,6 +533,164 @@ TEST_F(ViewTest, PaintEmptyView) {
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v11->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintWithMovedViewUsesCache) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect pixel_rect = gfx::Rect(1, 1);
+  float device_scale_factor = 1.f;
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  EXPECT_TRUE(v1->did_paint_);
+  v1->Reset();
+  // The visual rects for (clip, drawing, transform) should be in layer space.
+  gfx::Rect expected_visual_rect_in_layer_space(10, 11, 12, 13);
+  int item_index = 3;
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index));
+
+  // If invalidation doesn't intersect v1, we paint with the cache.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  EXPECT_FALSE(v1->did_paint_);
+  v1->Reset();
+
+  // If invalidation does intersect v1, we don't paint with the cache.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, v1->bounds()));
+  EXPECT_TRUE(v1->did_paint_);
+  v1->Reset();
+
+  // Moving the view should still use the cache when the invalidation doesn't
+  // intersect v1.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  v1->SetX(9);
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  EXPECT_FALSE(v1->did_paint_);
+  v1->Reset();
+  item_index = 3;
+  expected_visual_rect_in_layer_space.SetRect(9, 11, 12, 13);
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index));
+
+  // Moving the view should not use the cache when painting without
+  // invalidation.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  v1->SetX(8);
+  root_view->Paint(ui::PaintContext(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect),
+      ui::PaintContext::CLONE_WITHOUT_INVALIDATION));
+  EXPECT_TRUE(v1->did_paint_);
+  v1->Reset();
+  item_index = 3;
+  expected_visual_rect_in_layer_space.SetRect(8, 11, 12, 13);
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index));
+}
+
+TEST_F(ViewTest, PaintWithMovedViewUsesCacheInRTL) {
+  ScopedRTL rtl;
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect pixel_rect = gfx::Rect(1, 1);
+  float device_scale_factor = 1.f;
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  EXPECT_TRUE(v1->did_paint_);
+  v1->Reset();
+  // The visual rects for (clip, drawing, transform) should be in layer space.
+  // x: 25 - 10(x) - 12(width) = 3
+  gfx::Rect expected_visual_rect_in_layer_space(3, 11, 12, 13);
+  int item_index = 3;
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index));
+
+  // If invalidation doesn't intersect v1, we paint with the cache.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  EXPECT_FALSE(v1->did_paint_);
+  v1->Reset();
+
+  // If invalidation does intersect v1, we don't paint with the cache.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, v1->bounds()));
+  EXPECT_TRUE(v1->did_paint_);
+  v1->Reset();
+
+  // Moving the view should still use the cache when the invalidation doesn't
+  // intersect v1.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  v1->SetX(9);
+  root_view->Paint(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  EXPECT_FALSE(v1->did_paint_);
+  v1->Reset();
+  item_index = 3;
+  // x: 25 - 9(x) - 12(width) = 4
+  expected_visual_rect_in_layer_space.SetRect(4, 11, 12, 13);
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index));
+
+  // Moving the view should not use the cache when painting without
+  // invalidation.
+  list = cc::DisplayItemList::Create(pixel_rect, cc::DisplayItemListSettings());
+  v1->SetX(8);
+  root_view->Paint(ui::PaintContext(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect),
+      ui::PaintContext::CLONE_WITHOUT_INVALIDATION));
+  EXPECT_TRUE(v1->did_paint_);
+  v1->Reset();
+  item_index = 3;
+  // x: 25 - 8(x) - 12(width) = 5
+  expected_visual_rect_in_layer_space.SetRect(5, 11, 12, 13);
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index++));
+  EXPECT_EQ(expected_visual_rect_in_layer_space,
+            list->VisualRectForTesting(item_index));
 }
 
 TEST_F(ViewTest, PaintWithUnknownInvalidation) {
@@ -1898,6 +2102,80 @@ bool TestView::AcceleratorPressed(const ui::Accelerator& accelerator) {
   return true;
 }
 
+// On non-ChromeOS aura there is extra logic to determine whether a view should
+// handle accelerators or not (see View::CanHandleAccelerators for details).
+// This test targets that extra logic, but should also work on other platforms.
+TEST_F(ViewTest, HandleAccelerator) {
+  ui::Accelerator return_accelerator(ui::VKEY_RETURN, ui::EF_NONE);
+  TestView* view = new TestView();
+  view->Reset();
+  view->AddAccelerator(return_accelerator);
+  EXPECT_EQ(view->accelerator_count_map_[return_accelerator], 0);
+
+  // Create a window and add the view as its child.
+  scoped_ptr<Widget> widget(new Widget);
+  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
+  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  params.bounds = gfx::Rect(0, 0, 100, 100);
+  widget->Init(params);
+  View* root = widget->GetRootView();
+  root->AddChildView(view);
+  widget->Show();
+
+  FocusManager* focus_manager = widget->GetFocusManager();
+  ASSERT_TRUE(focus_manager);
+
+#if defined(USE_AURA) && !defined(OS_CHROMEOS)
+  // When a non-child view is not active, it shouldn't handle accelerators.
+  EXPECT_FALSE(widget->IsActive());
+  EXPECT_FALSE(focus_manager->ProcessAccelerator(return_accelerator));
+  EXPECT_EQ(0, view->accelerator_count_map_[return_accelerator]);
+#endif
+
+  // When a non-child view is active, it should handle accelerators.
+  view->accelerator_count_map_[return_accelerator] = 0;
+  widget->Activate();
+  EXPECT_TRUE(widget->IsActive());
+  EXPECT_TRUE(focus_manager->ProcessAccelerator(return_accelerator));
+  EXPECT_EQ(1, view->accelerator_count_map_[return_accelerator]);
+
+  // Add a child view associated with a child widget.
+  TestView* child_view = new TestView();
+  child_view->Reset();
+  child_view->AddAccelerator(return_accelerator);
+  EXPECT_EQ(child_view->accelerator_count_map_[return_accelerator], 0);
+  view->AddChildView(child_view);
+  Widget* child_widget = new Widget;
+  Widget::InitParams child_params =
+      CreateParams(Widget::InitParams::TYPE_CONTROL);
+  child_params.parent = widget->GetNativeView();
+  child_widget->Init(child_params);
+  child_widget->SetContentsView(child_view);
+
+  FocusManager* child_focus_manager = child_widget->GetFocusManager();
+  ASSERT_TRUE(child_focus_manager);
+
+  // When a child view is in focus, it should handle accelerators.
+  child_view->accelerator_count_map_[return_accelerator] = 0;
+  view->accelerator_count_map_[return_accelerator] = 0;
+  child_focus_manager->SetFocusedView(child_view);
+  EXPECT_FALSE(child_view->GetWidget()->IsActive());
+  EXPECT_TRUE(child_focus_manager->ProcessAccelerator(return_accelerator));
+  EXPECT_EQ(1, child_view->accelerator_count_map_[return_accelerator]);
+  EXPECT_EQ(0, view->accelerator_count_map_[return_accelerator]);
+
+#if defined(USE_AURA) && !defined(OS_CHROMEOS)
+  // When a child view is not in focus, its parent should handle accelerators.
+  child_view->accelerator_count_map_[return_accelerator] = 0;
+  view->accelerator_count_map_[return_accelerator] = 0;
+  child_focus_manager->ClearFocus();
+  EXPECT_FALSE(child_view->GetWidget()->IsActive());
+  EXPECT_TRUE(child_focus_manager->ProcessAccelerator(return_accelerator));
+  EXPECT_EQ(0, child_view->accelerator_count_map_[return_accelerator]);
+  EXPECT_EQ(1, view->accelerator_count_map_[return_accelerator]);
+#endif
+}
+
 // TODO: these tests were initially commented out when getting aura to
 // run. Figure out if still valuable and either nuke or fix.
 #if 0
@@ -2169,11 +2447,11 @@ TEST_F(ViewTest, MAYBE_NativeViewHierarchyChanged) {
   EXPECT_EQ(NULL, observer_view->toplevel());
 
   child->SetContentsView(observer_view);
-  EXPECT_EQ(toplevel1, observer_view->toplevel());
+  EXPECT_EQ(toplevel1.get(), observer_view->toplevel());
 
   Widget::ReparentNativeView(child->GetNativeView(),
                              toplevel2->GetNativeView());
-  EXPECT_EQ(toplevel2, observer_view->toplevel());
+  EXPECT_EQ(toplevel2.get(), observer_view->toplevel());
 
   observer_view->parent()->RemoveChildView(observer_view);
   EXPECT_EQ(NULL, observer_view->toplevel());
@@ -3228,12 +3506,8 @@ TEST_F(ViewTest, GetViewByID) {
   View::Views views;
   v1.GetViewsInGroup(kGroup, &views);
   EXPECT_EQ(2U, views.size());
-
-  View::Views::const_iterator i(std::find(views.begin(), views.end(), &v3));
-  EXPECT_NE(views.end(), i);
-
-  i = std::find(views.begin(), views.end(), &v4);
-  EXPECT_NE(views.end(), i);
+  EXPECT_NE(views.cend(), std::find(views.cbegin(), views.cend(), &v3));
+  EXPECT_NE(views.cend(), std::find(views.cbegin(), views.cend(), &v4));
 }
 
 TEST_F(ViewTest, AddExistingChild) {
@@ -3392,6 +3666,10 @@ class ViewLayerTest : public ViewsTestBase {
   }
 
   Widget* widget() { return widget_; }
+
+ protected:
+  // Accessors to View internals.
+  void SchedulePaintOnParent(View* view) { view->SchedulePaintOnParent(); }
 
  private:
   Widget* widget_;
@@ -3785,6 +4063,50 @@ TEST_F(ViewLayerTest, DontPaintChildrenWithLayers) {
   EXPECT_TRUE(content_view->painted());
 }
 
+TEST_F(ViewLayerTest, NoCrashWhenParentlessViewSchedulesPaintOnParent) {
+  TestView v;
+  SchedulePaintOnParent(&v);
+}
+
+TEST_F(ViewLayerTest, ScheduledRectsInParentAfterSchedulingPaint) {
+  TestView parent_view;
+  parent_view.SetBounds(10, 10, 100, 100);
+
+  TestView* child_view = new TestView;
+  child_view->SetBounds(5, 6, 10, 20);
+  parent_view.AddChildView(child_view);
+
+  parent_view.scheduled_paint_rects_.clear();
+  SchedulePaintOnParent(child_view);
+  ASSERT_EQ(1U, parent_view.scheduled_paint_rects_.size());
+  EXPECT_EQ(gfx::Rect(5, 6, 10, 20),
+            parent_view.scheduled_paint_rects_.front());
+}
+
+TEST_F(ViewLayerTest, ParentPaintWhenSwitchingPaintToLayerFromFalseToTrue) {
+  TestView parent_view;
+  parent_view.SetBounds(10, 11, 12, 13);
+
+  TestView* child_view = new TestView;
+  parent_view.AddChildView(child_view);
+
+  parent_view.scheduled_paint_rects_.clear();
+  child_view->SetPaintToLayer(true);
+  EXPECT_EQ(1U, parent_view.scheduled_paint_rects_.size());
+}
+
+TEST_F(ViewLayerTest, NoParentPaintWhenSwitchingPaintToLayerFromTrueToTrue) {
+  TestView parent_view;
+  parent_view.SetBounds(10, 11, 12, 13);
+
+  TestView* child_view = new TestView;
+  child_view->SetPaintToLayer(true);
+  parent_view.AddChildView(child_view);
+
+  parent_view.scheduled_paint_rects_.clear();
+  EXPECT_EQ(0U, parent_view.scheduled_paint_rects_.size());
+}
+
 // Tests that the visibility of child layers are updated correctly when a View's
 // visibility changes.
 TEST_F(ViewLayerTest, VisibilityChildLayers) {
@@ -3921,7 +4243,7 @@ TEST_F(ViewLayerTest, RecreateLayerZOrder) {
   const std::vector<ui::Layer*>& child_layers_post = v->layer()->children();
   ASSERT_EQ(3u, child_layers_post.size());
   EXPECT_EQ(v1->layer(), child_layers_post[0]);
-  EXPECT_EQ(v1_old_layer, child_layers_post[1]);
+  EXPECT_EQ(v1_old_layer.get(), child_layers_post[1]);
   EXPECT_EQ(v2->layer(), child_layers_post[2]);
 }
 
@@ -3952,7 +4274,7 @@ TEST_F(ViewLayerTest, RecreateLayerZOrderWidgetParent) {
   const std::vector<ui::Layer*>& child_layers_post = root_layer->children();
   ASSERT_EQ(3u, child_layers_post.size());
   EXPECT_EQ(v1->layer(), child_layers_post[0]);
-  EXPECT_EQ(v1_old_layer, child_layers_post[1]);
+  EXPECT_EQ(v1_old_layer.get(), child_layers_post[1]);
   EXPECT_EQ(v2->layer(), child_layers_post[2]);
 }
 
@@ -4097,6 +4419,151 @@ TEST_F(ViewTest, OnNativeThemeChanged) {
   EXPECT_EQ(widget->GetNativeTheme(), test_view_child_2->native_theme_);
 
   widget->CloseNow();
+}
+
+class TestEventHandler : public ui::EventHandler {
+ public:
+  TestEventHandler(TestView* view) : view_(view), had_mouse_event_(false) {}
+  ~TestEventHandler() override {}
+
+  void OnMouseEvent(ui::MouseEvent* event) override {
+    // The |view_| should have received the event first.
+    EXPECT_EQ(ui::ET_MOUSE_PRESSED, view_->last_mouse_event_type_);
+    had_mouse_event_ = true;
+  }
+
+  TestView* view_;
+  bool had_mouse_event_;
+};
+
+TEST_F(ViewTest, ScopedTargetHandlerReceivesEvents) {
+  TestView* v = new TestView();
+  v->SetBoundsRect(gfx::Rect(0, 0, 300, 300));
+
+  scoped_ptr<Widget> widget(new Widget);
+  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
+  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  params.bounds = gfx::Rect(50, 50, 350, 350);
+  widget->Init(params);
+  View* root = widget->GetRootView();
+  root->AddChildView(v);
+  v->Reset();
+  {
+    TestEventHandler handler(v);
+    ui::ScopedTargetHandler scoped_target_handler(v, &handler);
+    // View's target EventHandler should be set to the |scoped_target_handler|.
+    EXPECT_EQ(&scoped_target_handler,
+              v->SetTargetHandler(&scoped_target_handler));
+
+    EXPECT_EQ(ui::ET_UNKNOWN, v->last_mouse_event_type_);
+    gfx::Point p(10, 120);
+    ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, p, p, ui::EventTimeForNow(),
+                           ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
+    root->OnMousePressed(pressed);
+
+    // Both the View |v| and the |handler| should have received the event.
+    EXPECT_EQ(ui::ET_MOUSE_PRESSED, v->last_mouse_event_type_);
+    EXPECT_TRUE(handler.had_mouse_event_);
+  }
+
+  // The View should continue receiving events after the |handler| is deleted.
+  v->Reset();
+  ui::MouseEvent released(ui::ET_MOUSE_RELEASED, gfx::Point(), gfx::Point(),
+                          ui::EventTimeForNow(), 0, 0);
+  root->OnMouseReleased(released);
+  EXPECT_EQ(ui::ET_MOUSE_RELEASED, v->last_mouse_event_type_);
+}
+
+// See comment above test for details.
+class WidgetWithCustomTheme : public Widget {
+ public:
+  explicit WidgetWithCustomTheme(ui::NativeTheme* theme) : theme_(theme) {}
+  ~WidgetWithCustomTheme() override {}
+
+  // Widget:
+  const ui::NativeTheme* GetNativeTheme() const override { return theme_; }
+
+ private:
+  ui::NativeTheme* theme_;
+
+  DISALLOW_COPY_AND_ASSIGN(WidgetWithCustomTheme);
+};
+
+// See comment above test for details.
+class ViewThatAddsViewInOnNativeThemeChanged : public View {
+ public:
+  ViewThatAddsViewInOnNativeThemeChanged() { SetPaintToLayer(true); }
+  ~ViewThatAddsViewInOnNativeThemeChanged() override {}
+
+  bool on_native_theme_changed_called() const {
+    return on_native_theme_changed_called_;
+  }
+
+  // View:
+  void OnNativeThemeChanged(const ui::NativeTheme* theme) override {
+    on_native_theme_changed_called_ = true;
+    GetWidget()->GetRootView()->AddChildView(new View);
+  }
+
+ private:
+  bool on_native_theme_changed_called_ = false;
+
+  DISALLOW_COPY_AND_ASSIGN(ViewThatAddsViewInOnNativeThemeChanged);
+};
+
+// See comment above test for details.
+class TestNativeTheme : public ui::NativeTheme {
+ public:
+  TestNativeTheme() {}
+  ~TestNativeTheme() override {}
+
+  // ui::NativeTheme:
+  SkColor GetSystemColor(ColorId color_id) const override {
+    return SK_ColorRED;
+  }
+  gfx::Size GetPartSize(Part part,
+                        State state,
+                        const ExtraParams& extra) const override {
+    return gfx::Size();
+  }
+  void Paint(SkCanvas* canvas,
+             Part part,
+             State state,
+             const gfx::Rect& rect,
+             const ExtraParams& extra) const override {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TestNativeTheme);
+};
+
+// Creates and adds a new child view to |parent| that has a layer.
+void AddViewWithChildLayer(View* parent) {
+  View* child = new View;
+  child->SetPaintToLayer(true);
+  parent->AddChildView(child);
+}
+
+// This test does the following:
+// . creates a couple of views with layers added to the root.
+// . Add a view that overrides OnNativeThemeChanged(). In
+//   OnNativeThemeChanged() another view is added.
+// This sequence triggered DCHECKs or crashes previously. This tests verifies
+// that doesn't happen. Reason for crash was OnNativeThemeChanged() was called
+// before the layer hierarchy was updated. OnNativeThemeChanged() should be
+// called after the layer hierarchy matches the view hierarchy.
+TEST_F(ViewTest, CrashOnAddFromFromOnNativeThemeChanged) {
+  TestNativeTheme theme;
+  WidgetWithCustomTheme widget(&theme);
+  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
+  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  params.bounds = gfx::Rect(50, 50, 350, 350);
+  widget.Init(params);
+
+  AddViewWithChildLayer(widget.GetRootView());
+  ViewThatAddsViewInOnNativeThemeChanged* v =
+      new ViewThatAddsViewInOnNativeThemeChanged;
+  widget.GetRootView()->AddChildView(v);
+  EXPECT_TRUE(v->on_native_theme_changed_called());
 }
 
 }  // namespace views

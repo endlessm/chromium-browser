@@ -7,8 +7,8 @@
 
 #include <map>
 
-#include "base/basictypes.h"
 #include "base/id_map.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "ipc/ipc_listener.h"
@@ -34,6 +34,7 @@ class EmbeddedWorkerDispatcher : public IPC::Listener {
 
   void OnStartWorker(const EmbeddedWorkerMsg_StartWorker_Params& params);
   void OnStopWorker(int embedded_worker_id);
+  void OnResumeAfterDownload(int embedded_worker_id);
 
   IDMap<WorkerWrapper, IDMapOwnPointer> workers_;
   std::map<int /* embedded_worker_id */, base::TimeTicks> stop_worker_times_;

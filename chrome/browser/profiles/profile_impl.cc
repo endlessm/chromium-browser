@@ -4,6 +4,8 @@
 
 #include "chrome/browser/profiles/profile_impl.h"
 
+#include <stddef.h>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -17,8 +19,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
-#include "base/prefs/json_pref_store.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -28,6 +28,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/version.h"
+#include "build/build_config.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
 #include "chrome/browser/background_sync/background_sync_controller_factory.h"
 #include "chrome/browser/background_sync/background_sync_controller_impl.h"
@@ -73,6 +74,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
@@ -85,8 +87,9 @@
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/metrics/metrics_service.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
-#include "components/omnibox/browser/shortcuts_backend.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/json_pref_store.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/proxy_config/pref_proxy_config_tracker.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/signin_pref_names.h"
@@ -119,7 +122,7 @@
 #include "components/user_manager/user_manager.h"
 #endif
 
-#if defined(ENABLE_BACKGROUND)
+#if BUILDFLAG(ENABLE_BACKGROUND)
 #include "chrome/browser/background/background_mode_manager.h"
 #endif
 
@@ -317,14 +320,13 @@ Profile* Profile::CreateProfile(const base::FilePath& path,
 }
 
 // static
-const char* const ProfileImpl::kPrefExitTypeNormal = "Normal";
+const char ProfileImpl::kPrefExitTypeNormal[] = "Normal";
 
 // static
 void ProfileImpl::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kSavingBrowserHistoryDisabled, false);
   registry->RegisterBooleanPref(prefs::kAllowDeletingBrowserHistory, true);
-  registry->RegisterBooleanPref(prefs::kSigninAllowed, true);
   registry->RegisterBooleanPref(prefs::kForceGoogleSafeSearch, false);
   registry->RegisterBooleanPref(prefs::kForceYouTubeSafetyMode, false);
   registry->RegisterBooleanPref(prefs::kRecordHistory, false);
@@ -455,19 +457,14 @@ ProfileImpl::ProfileImpl(
       g_browser_process->safe_browsing_service());
   if (safe_browsing_service.get()) {
     pref_validation_delegate_ =
-        safe_browsing_service->CreatePreferenceValidationDelegate(this).Pass();
+        safe_browsing_service->CreatePreferenceValidationDelegate(this);
   }
 
   {
     prefs_ = chrome_prefs::CreateProfilePrefs(
-        path_,
-        sequenced_task_runner,
-        pref_validation_delegate_.get(),
-        profile_policy_connector_->policy_service(),
-        supervised_user_settings,
-        CreateExtensionPrefStore(this, false),
-        pref_registry_,
-        async_prefs).Pass();
+        path_, sequenced_task_runner, pref_validation_delegate_.get(),
+        profile_policy_connector_->policy_service(), supervised_user_settings,
+        CreateExtensionPrefStore(this, false), pref_registry_, async_prefs);
     // Register on BrowserContext.
     user_prefs::UserPrefs::Set(this, prefs_.get());
   }
@@ -546,7 +543,7 @@ void ProfileImpl::DoFinalInit() {
           local_state,
           BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO)));
 
-#if defined(ENABLE_BACKGROUND)
+#if BUILDFLAG(ENABLE_BACKGROUND)
   // Initialize the BackgroundModeManager - this has to be done here before
   // InitExtensions() is called because it relies on receiving notifications
   // when extensions are loaded. BackgroundModeManager is not needed under
@@ -562,7 +559,7 @@ void ProfileImpl::DoFinalInit() {
     if (g_browser_process->background_mode_manager())
       g_browser_process->background_mode_manager()->RegisterProfile(this);
   }
-#endif  // defined(ENABLE_BACKGROUND)
+#endif  // BUILDFLAG(ENABLE_BACKGROUND)
 
   base::FilePath cookie_path = GetPath();
   cookie_path = cookie_path.Append(chrome::kCookieFilename);
@@ -648,7 +645,7 @@ void ProfileImpl::DoFinalInit() {
 
   PushMessagingServiceImpl::InitializeForProfile(this);
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_IOS)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   signin_ui_util::InitializePrefsForProfile(this);
 #endif
 }
@@ -749,6 +746,7 @@ Profile* ProfileImpl::GetOffTheRecordProfile() {
 
 void ProfileImpl::DestroyOffTheRecordProfile() {
   off_the_record_profile_.reset();
+  otr_prefs_->ClearMutableValues();
 #if defined(ENABLE_EXTENSIONS)
   ExtensionPrefValueMapFactory::GetForBrowserContext(this)->
       ClearAllIncognitoSessionOnlyPreferences();
@@ -921,10 +919,9 @@ net::URLRequestContextGetter* ProfileImpl::CreateRequestContext(
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) {
   return io_data_.CreateMainRequestContextGetter(
-      protocol_handlers,
-      request_interceptors.Pass(),
-      g_browser_process->local_state(),
-      g_browser_process->io_thread()).get();
+                     protocol_handlers, std::move(request_interceptors),
+                     g_browser_process->io_thread())
+      .get();
 }
 
 net::URLRequestContextGetter* ProfileImpl::GetRequestContext() {
@@ -977,10 +974,9 @@ ProfileImpl::CreateRequestContextForStoragePartition(
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) {
   return io_data_.CreateIsolatedAppRequestContextGetter(
-      partition_path,
-      in_memory,
-      protocol_handlers,
-      request_interceptors.Pass()).get();
+                     partition_path, in_memory, protocol_handlers,
+                     std::move(request_interceptors))
+      .get();
 }
 
 net::SSLConfigService* ProfileImpl::GetSSLConfigService() {

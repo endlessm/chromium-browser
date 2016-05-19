@@ -5,11 +5,13 @@
 #ifndef REMOTING_CLIENT_PLUGIN_PEPPER_VIDEO_RENDERER_3D_H_
 #define REMOTING_CLIENT_PLUGIN_PEPPER_VIDEO_RENDERER_3D_H_
 
+#include <stdint.h>
+
 #include <deque>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "ppapi/cpp/graphics_3d.h"
 #include "ppapi/cpp/instance_handle.h"
@@ -43,6 +45,7 @@ class PepperVideoRenderer3D : public PepperVideoRenderer,
   // VideoRenderer interface.
   void OnSessionConfig(const protocol::SessionConfig& config) override;
   protocol::VideoStub* GetVideoStub() override;
+  protocol::FrameConsumer* GetFrameConsumer() override;
 
   // protocol::VideoStub interface.
   void ProcessVideoPacket(scoped_ptr<VideoPacket> packet,

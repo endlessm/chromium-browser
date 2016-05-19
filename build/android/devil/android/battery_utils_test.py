@@ -10,20 +10,17 @@ Unit tests for the contents of battery_utils.py
 # pylint: disable=protected-access,unused-argument
 
 import logging
-import os
-import sys
 import unittest
 
+from devil import devil_env
 from devil.android import battery_utils
 from devil.android import device_errors
 from devil.android import device_utils
 from devil.android import device_utils_test
 from devil.utils import mock_calls
-from pylib import constants
 
-sys.path.append(os.path.join(
-    constants.DIR_SOURCE_ROOT, 'third_party', 'pymock'))
-import mock # pylint: disable=F0401
+with devil_env.SysPath(devil_env.PYMOCK_PATH):
+  import mock # pylint: disable=import-error
 
 _DUMPSYS_OUTPUT = [
     '9,0,i,uid,1000,test_package1',
@@ -247,12 +244,43 @@ class BatteryUtilsGetPowerData(BatteryUtilsTest):
 class BatteryUtilsChargeDevice(BatteryUtilsTest):
 
   @mock.patch('time.sleep', mock.Mock())
-  def testChargeDeviceToLevel(self):
+  def testChargeDeviceToLevel_pass(self):
     with self.assertCalls(
         (self.call.battery.SetCharging(True)),
         (self.call.battery.GetBatteryInfo(), {'level': '50'}),
         (self.call.battery.GetBatteryInfo(), {'level': '100'})):
       self.battery.ChargeDeviceToLevel(95)
+
+  @mock.patch('time.sleep', mock.Mock())
+  def testChargeDeviceToLevel_failureSame(self):
+    with self.assertCalls(
+        (self.call.battery.SetCharging(True)),
+        (self.call.battery.GetBatteryInfo(), {'level': '50'}),
+        (self.call.battery.GetBatteryInfo(), {'level': '50'}),
+
+        (self.call.battery.GetBatteryInfo(), {'level': '50'})):
+      with self.assertRaises(device_errors.DeviceChargingError):
+        old_max = battery_utils._MAX_CHARGE_ERROR
+        try:
+          battery_utils._MAX_CHARGE_ERROR = 2
+          self.battery.ChargeDeviceToLevel(95)
+        finally:
+          battery_utils._MAX_CHARGE_ERROR = old_max
+
+  @mock.patch('time.sleep', mock.Mock())
+  def testChargeDeviceToLevel_failureDischarge(self):
+    with self.assertCalls(
+        (self.call.battery.SetCharging(True)),
+        (self.call.battery.GetBatteryInfo(), {'level': '50'}),
+        (self.call.battery.GetBatteryInfo(), {'level': '49'}),
+        (self.call.battery.GetBatteryInfo(), {'level': '48'})):
+      with self.assertRaises(device_errors.DeviceChargingError):
+        old_max = battery_utils._MAX_CHARGE_ERROR
+        try:
+          battery_utils._MAX_CHARGE_ERROR = 2
+          self.battery.ChargeDeviceToLevel(95)
+        finally:
+          battery_utils._MAX_CHARGE_ERROR = old_max
 
 
 class BatteryUtilsDischargeDevice(BatteryUtilsTest):
@@ -314,8 +342,8 @@ class BatteryUtilsDischargeDevice(BatteryUtilsTest):
 class BatteryUtilsGetBatteryInfoTest(BatteryUtilsTest):
 
   def testGetBatteryInfo_normal(self):
-    with self.assertCall(
-        self.call.device.RunShellCommand(
+    with self.assertCalls(
+        (self.call.device.RunShellCommand(
             ['dumpsys', 'battery'], check_return=True),
         [
           'Current Battery Service state:',
@@ -323,7 +351,7 @@ class BatteryUtilsGetBatteryInfoTest(BatteryUtilsTest):
           '  USB powered: true',
           '  level: 100',
           '  temperature: 321',
-        ]):
+        ])):
       self.assertEquals(
           {
             'AC powered': 'false',
@@ -334,9 +362,9 @@ class BatteryUtilsGetBatteryInfoTest(BatteryUtilsTest):
           self.battery.GetBatteryInfo())
 
   def testGetBatteryInfo_nothing(self):
-    with self.assertCall(
-        self.call.device.RunShellCommand(
-            ['dumpsys', 'battery'], check_return=True), []):
+    with self.assertCalls(
+        (self.call.device.RunShellCommand(
+            ['dumpsys', 'battery'], check_return=True), [])):
       self.assertEquals({}, self.battery.GetBatteryInfo())
 
 

@@ -5,11 +5,13 @@
 #include "content/browser/appcache/appcache_service_impl.h"
 
 #include <functional>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/thread_task_runner_handle.h"
@@ -255,9 +257,10 @@ void AppCacheServiceImpl::GetInfoHelper::OnAllInfo(
 
 class AppCacheServiceImpl::CheckResponseHelper : AsyncHelper {
  public:
-  CheckResponseHelper(
-      AppCacheServiceImpl* service, const GURL& manifest_url, int64 cache_id,
-      int64 response_id)
+  CheckResponseHelper(AppCacheServiceImpl* service,
+                      const GURL& manifest_url,
+                      int64_t cache_id,
+                      int64_t response_id)
       : AsyncHelper(service, net::CompletionCallback()),
         manifest_url_(manifest_url),
         cache_id_(cache_id),
@@ -265,8 +268,7 @@ class AppCacheServiceImpl::CheckResponseHelper : AsyncHelper {
         kIOBufferSize(32 * 1024),
         expected_total_size_(0),
         amount_headers_read_(0),
-        amount_data_read_(0) {
-  }
+        amount_data_read_(0) {}
 
   void Start() override {
     service_->storage()->LoadOrCreateGroup(manifest_url_, this);
@@ -286,8 +288,8 @@ class AppCacheServiceImpl::CheckResponseHelper : AsyncHelper {
 
   // Inputs describing what to check.
   GURL manifest_url_;
-  int64 cache_id_;
-  int64 response_id_;
+  int64_t cache_id_;
+  int64_t response_id_;
 
   // Internals used to perform the checks.
   const int kIOBufferSize;
@@ -295,7 +297,7 @@ class AppCacheServiceImpl::CheckResponseHelper : AsyncHelper {
   scoped_ptr<AppCacheResponseReader> response_reader_;
   scoped_refptr<HttpResponseInfoIOBuffer> info_buffer_;
   scoped_refptr<net::IOBuffer> data_buffer_;
-  int64 expected_total_size_;
+  int64_t expected_total_size_;
   int amount_headers_read_;
   int amount_data_read_;
   DISALLOW_COPY_AND_ASSIGN(CheckResponseHelper);
@@ -388,7 +390,7 @@ void AppCacheServiceImpl::CheckResponseHelper::OnReadDataComplete(int result) {
 
 AppCacheStorageReference::AppCacheStorageReference(
     scoped_ptr<AppCacheStorage> storage)
-    : storage_(storage.Pass()) {}
+    : storage_(std::move(storage)) {}
 AppCacheStorageReference::~AppCacheStorageReference() {}
 
 // AppCacheServiceImpl -------
@@ -468,8 +470,8 @@ void AppCacheServiceImpl::Reinitialize() {
 
   // Inform observers of about this and give them a chance to
   // defer deletion of the old storage object.
-  scoped_refptr<AppCacheStorageReference>
-      old_storage_ref(new AppCacheStorageReference(storage_.Pass()));
+  scoped_refptr<AppCacheStorageReference> old_storage_ref(
+      new AppCacheStorageReference(std::move(storage_)));
   FOR_EACH_OBSERVER(Observer, observers_,
                     OnServiceReinitialized(old_storage_ref.get()));
 
@@ -498,8 +500,8 @@ void AppCacheServiceImpl::DeleteAppCachesForOrigin(
 }
 
 void AppCacheServiceImpl::CheckAppCacheResponse(const GURL& manifest_url,
-                                            int64 cache_id,
-                                            int64 response_id) {
+                                                int64_t cache_id,
+                                                int64_t response_id) {
   CheckResponseHelper* helper = new CheckResponseHelper(
       this, manifest_url, cache_id, response_id);
   helper->Start();

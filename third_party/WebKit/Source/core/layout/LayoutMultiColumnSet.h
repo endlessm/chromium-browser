@@ -73,6 +73,7 @@ public:
         return m_fragmentainerGroups[fragmentainerGroupIndexAtFlowThreadOffset(flowThreadOffset)];
     }
     const MultiColumnFragmentainerGroup& fragmentainerGroupAtVisualPoint(const LayoutPoint&) const;
+    const MultiColumnFragmentainerGroupList& fragmentainerGroups() const { return m_fragmentainerGroups; }
 
     bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectLayoutMultiColumnSet || LayoutBlockFlow::isOfType(type); }
     bool canHaveChildren() const final { return false; }
@@ -82,6 +83,10 @@ public:
     LayoutUnit pageLogicalHeightForOffset(LayoutUnit) const;
     LayoutUnit pageRemainingLogicalHeightForOffset(LayoutUnit, PageBoundaryRule) const;
     bool isPageLogicalHeightKnown() const;
+    LayoutUnit tallestUnbreakableLogicalHeight() const { return m_tallestUnbreakableLogicalHeight; }
+    void propagateTallestUnbreakableLogicalHeight(LayoutUnit value) { m_tallestUnbreakableLogicalHeight = std::max(value, m_tallestUnbreakableLogicalHeight); }
+
+    LayoutUnit nextLogicalTopForUnbreakableContent(LayoutUnit flowThreadOffset, LayoutUnit contentLogicalHeight) const;
 
     LayoutFlowThread* flowThread() const { return m_flowThread; }
 
@@ -91,7 +96,13 @@ public:
     LayoutMultiColumnSet* nextSiblingMultiColumnSet() const;
     LayoutMultiColumnSet* previousSiblingMultiColumnSet() const;
 
+    // Return true if we have a fragmentainer group that can hold a column at the specified flow thread block offset.
+    bool hasFragmentainerGroupForColumnAt(LayoutUnit bottomOffsetInFlowThread) const;
+
     MultiColumnFragmentainerGroup& appendNewFragmentainerGroup();
+
+    // Logical top relative to the content edge of the multicol container.
+    LayoutUnit logicalTopFromMulticolContentEdge() const;
 
     LayoutUnit logicalTopInFlowThread() const;
     LayoutUnit logicalBottomInFlowThread() const;
@@ -114,10 +125,13 @@ public:
     // (Re-)calculate the column height if it's auto. This is first and foremost needed by sets that
     // are to balance the column height, but even when it isn't to be balanced, this is necessary if
     // the multicol container's height is constrained.
-    bool recalculateColumnHeight(BalancedColumnHeightCalculation);
+    bool recalculateColumnHeight();
 
     // Reset previously calculated column height. Will mark for layout if needed.
     void resetColumnHeight();
+
+    void storeOldPosition() { m_oldLogicalTop = logicalTop(); }
+    bool isInitialHeightCalculated() const { return m_initialHeightCalculated; }
 
     // Layout of flow thread content that's to be rendered inside this column set begins. This
     // happens at the beginning of flow thread layout, and when advancing from a previous column set
@@ -128,6 +142,8 @@ public:
     // finished. This happens at end of flow thread layout, and when advancing to the next column
     // set or spanner.
     void endFlow(LayoutUnit offsetInFlowThread);
+
+    void layout() override;
 
     void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const final;
 
@@ -168,6 +184,19 @@ private:
 
     MultiColumnFragmentainerGroupList m_fragmentainerGroups;
     LayoutFlowThread* m_flowThread;
+
+    // Height of the tallest piece of unbreakable content. This is the minimum column logical height
+    // required to avoid fragmentation where it shouldn't occur (inside unbreakable content, between
+    // orphans and widows, etc.). We only store this so that outer fragmentation contexts (if any)
+    // can query this when calculating their own minimum. Note that we don't store this value in
+    // every fragmentainer group (but rather here, in the column set), since we only need the
+    // largest one among them.
+    LayoutUnit m_tallestUnbreakableLogicalHeight;
+
+    // Logical top in previous layout pass.
+    LayoutUnit m_oldLogicalTop;
+
+    bool m_initialHeightCalculated;
 };
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutMultiColumnSet, isLayoutMultiColumnSet());

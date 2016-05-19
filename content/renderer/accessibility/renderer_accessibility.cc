@@ -4,6 +4,9 @@
 
 #include "content/renderer/accessibility/renderer_accessibility.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <queue>
 
 #include "base/bind.h"
@@ -11,6 +14,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "content/common/accessibility_messages.h"
 #include "content/renderer/accessibility/blink_ax_enum_conversion.h"
 #include "content/renderer/render_frame_impl.h"
@@ -66,6 +70,15 @@ RendererAccessibility::RendererAccessibility(RenderFrameImpl* render_frame)
       ack_pending_(false),
       reset_token_(0),
       weak_factory_(this) {
+  // There's only one AXObjectCache for the root of a local frame tree,
+  // so if this frame's parent is local we can safely do nothing.
+  if (render_frame_ &&
+      render_frame_->GetWebFrame() &&
+      render_frame_->GetWebFrame()->parent() &&
+      render_frame_->GetWebFrame()->parent()->isWebLocalFrame()) {
+    return;
+  }
+
   WebView* web_view = render_frame_->GetRenderView()->GetWebView();
   WebSettings* settings = web_view->settings();
   settings->setAccessibilityEnabled(true);
@@ -192,7 +205,7 @@ void RendererAccessibility::HandleAXEvent(
   acc_event.event_type = event;
 
   // Discard duplicate accessibility events.
-  for (uint32 i = 0; i < pending_events_.size(); ++i) {
+  for (uint32_t i = 0; i < pending_events_.size(); ++i) {
     if (pending_events_[i].id == acc_event.id &&
         pending_events_[i].event_type == acc_event.event_type) {
       return;
@@ -267,7 +280,11 @@ void RendererAccessibility::SendPendingAccessibilityEvents() {
     AccessibilityHostMsg_EventParams event_msg;
     event_msg.event_type = event.event_type;
     event_msg.id = event.id;
-    serializer_.SerializeChanges(obj, &event_msg.update);
+    if (!serializer_.SerializeChanges(obj, &event_msg.update)) {
+      LOG(ERROR) << "Failed to serialize one accessibility event.";
+      continue;
+    }
+
     event_msgs.push_back(event_msg);
 
     // For each node in the update, set the location in our map from
@@ -292,10 +309,15 @@ void RendererAccessibility::SendPendingAccessibilityEvents() {
 void RendererAccessibility::SendLocationChanges() {
   std::vector<AccessibilityHostMsg_LocationChangeParams> messages;
 
+  // Update layout on the root of the tree.
+  WebAXObject root = tree_source_.GetRoot();
+  if (!root.updateLayoutAndCheckValidity())
+    return;
+
   // Do a breadth-first explore of the whole blink AX tree.
   base::hash_map<int, gfx::Rect> new_locations;
   std::queue<WebAXObject> objs_to_explore;
-  objs_to_explore.push(tree_source_.GetRoot());
+  objs_to_explore.push(root);
   while (objs_to_explore.size()) {
     WebAXObject obj = objs_to_explore.front();
     objs_to_explore.pop();

@@ -16,7 +16,6 @@
 #include "vp9/encoder/vp9_extend.h"
 #include "vpx_dsp/vpx_dsp_common.h"
 
-#define SMALL_FRAME_FB_IDX 7
 #define SMALL_FRAME_WIDTH  32
 #define SMALL_FRAME_HEIGHT 16
 
@@ -25,13 +24,24 @@ void vp9_init_layer_context(VP9_COMP *const cpi) {
   const VP9EncoderConfig *const oxcf = &cpi->oxcf;
   int mi_rows = cpi->common.mi_rows;
   int mi_cols = cpi->common.mi_cols;
-  int sl, tl;
+  int sl, tl, i;
   int alt_ref_idx = svc->number_spatial_layers;
 
   svc->spatial_layer_id = 0;
   svc->temporal_layer_id = 0;
   svc->first_spatial_layer_to_encode = 0;
   svc->rc_drop_superframe = 0;
+  svc->force_zero_mode_spatial_ref = 0;
+  svc->use_base_mv = 0;
+  svc->current_superframe = 0;
+  for (i = 0; i < REF_FRAMES; ++i)
+    svc->ref_frame_index[i] = -1;
+  for (sl = 0; sl < oxcf->ss_number_layers; ++sl) {
+    cpi->svc.ext_frame_flags[sl] = 0;
+    cpi->svc.ext_lst_fb_idx[sl] = 0;
+    cpi->svc.ext_gld_fb_idx[sl] = 1;
+    cpi->svc.ext_alt_fb_idx[sl] = 2;
+  }
 
   if (cpi->oxcf.error_resilient_mode == 0 && cpi->oxcf.pass == 2) {
     if (vpx_realloc_frame_buffer(&cpi->svc.empty_frame.img,
@@ -278,7 +288,8 @@ void vp9_restore_layer_context(VP9_COMP *const cpi) {
   cpi->alt_ref_source = lc->alt_ref_source;
   // Reset the frames_since_key and frames_to_key counters to their values
   // before the layer restore. Keep these defined for the stream (not layer).
-  if (cpi->svc.number_temporal_layers > 1) {
+  if (cpi->svc.number_temporal_layers > 1 ||
+      (cpi->svc.number_spatial_layers > 1 && !is_two_pass_svc(cpi))) {
     cpi->rc.frames_since_key = old_frame_since_key;
     cpi->rc.frames_to_key = old_frame_to_key;
   }
@@ -352,6 +363,8 @@ void vp9_inc_frame_in_layer(VP9_COMP *const cpi) {
                               cpi->svc.number_temporal_layers];
   ++lc->current_video_frame_in_layer;
   ++lc->frames_from_key_frame;
+  if (cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 1)
+    ++cpi->svc.current_superframe;
 }
 
 int vp9_is_upper_layer_key_frame(const VP9_COMP *const cpi) {
@@ -403,7 +416,9 @@ static void set_flags_and_fb_idx_for_temporal_mode3(VP9_COMP *const cpi) {
       cpi->ref_frame_flags = VP9_LAST_FLAG;
     } else if (cpi->svc.layer_context[temporal_id].is_key_frame) {
       // base layer is a key frame.
-      cpi->ref_frame_flags = VP9_GOLD_FLAG;
+      cpi->ref_frame_flags = VP9_LAST_FLAG;
+      cpi->ext_refresh_last_frame = 0;
+      cpi->ext_refresh_golden_frame = 1;
     } else {
       cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
     }
@@ -418,40 +433,52 @@ static void set_flags_and_fb_idx_for_temporal_mode3(VP9_COMP *const cpi) {
   } else {
     if (frame_num_within_temporal_struct == 1) {
       // the first tl2 picture
-      if (!spatial_id) {
+      if (spatial_id == cpi->svc.number_spatial_layers - 1) {  // top layer
+        cpi->ext_refresh_frame_flags_pending = 1;
+        if (!spatial_id)
+          cpi->ref_frame_flags = VP9_LAST_FLAG;
+        else
+          cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
+      } else if (!spatial_id) {
         cpi->ext_refresh_frame_flags_pending = 1;
         cpi->ext_refresh_alt_ref_frame = 1;
         cpi->ref_frame_flags = VP9_LAST_FLAG;
       } else if (spatial_id < cpi->svc.number_spatial_layers - 1) {
         cpi->ext_refresh_frame_flags_pending = 1;
         cpi->ext_refresh_alt_ref_frame = 1;
-        cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
-      } else {  // Top layer
-        cpi->ext_refresh_frame_flags_pending = 0;
         cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
       }
     } else {
       //  The second tl2 picture
-      if (!spatial_id) {
+      if (spatial_id == cpi->svc.number_spatial_layers - 1) {  // top layer
+        cpi->ext_refresh_frame_flags_pending = 1;
+        if (!spatial_id)
+        cpi->ref_frame_flags = VP9_LAST_FLAG;
+        else
+          cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
+      } else if (!spatial_id) {
         cpi->ext_refresh_frame_flags_pending = 1;
         cpi->ref_frame_flags = VP9_LAST_FLAG;
-        cpi->ext_refresh_last_frame = 1;
-      } else if (spatial_id < cpi->svc.number_spatial_layers - 1) {
+        cpi->ext_refresh_alt_ref_frame = 1;
+      } else {  // top layer
         cpi->ext_refresh_frame_flags_pending = 1;
         cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
-        cpi->ext_refresh_last_frame = 1;
-      } else {  // top layer
-        cpi->ext_refresh_frame_flags_pending = 0;
-        cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
+        cpi->ext_refresh_alt_ref_frame = 1;
       }
     }
   }
   if (temporal_id == 0) {
     cpi->lst_fb_idx = spatial_id;
-    if (spatial_id)
+    if (spatial_id) {
+      if (cpi->svc.layer_context[temporal_id].is_key_frame) {
+        cpi->lst_fb_idx = spatial_id - 1;
+        cpi->gld_fb_idx = spatial_id;
+      } else {
       cpi->gld_fb_idx = spatial_id - 1;
-    else
+      }
+    } else {
       cpi->gld_fb_idx = 0;
+    }
     cpi->alt_fb_idx = 0;
   } else if (temporal_id == 1) {
     cpi->lst_fb_idx = spatial_id;
@@ -464,7 +491,7 @@ static void set_flags_and_fb_idx_for_temporal_mode3(VP9_COMP *const cpi) {
   } else {
     cpi->lst_fb_idx = cpi->svc.number_spatial_layers + spatial_id;
     cpi->gld_fb_idx = cpi->svc.number_spatial_layers + spatial_id - 1;
-    cpi->alt_fb_idx = 0;
+    cpi->alt_fb_idx = cpi->svc.number_spatial_layers + spatial_id;
   }
 }
 
@@ -486,7 +513,9 @@ static void set_flags_and_fb_idx_for_temporal_mode2(VP9_COMP *const cpi) {
       cpi->ref_frame_flags = VP9_LAST_FLAG;
     } else if (cpi->svc.layer_context[temporal_id].is_key_frame) {
       // base layer is a key frame.
-      cpi->ref_frame_flags = VP9_GOLD_FLAG;
+      cpi->ref_frame_flags = VP9_LAST_FLAG;
+      cpi->ext_refresh_last_frame = 0;
+      cpi->ext_refresh_golden_frame = 1;
     } else {
       cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
     }
@@ -502,10 +531,16 @@ static void set_flags_and_fb_idx_for_temporal_mode2(VP9_COMP *const cpi) {
 
   if (temporal_id == 0) {
     cpi->lst_fb_idx = spatial_id;
-    if (spatial_id)
+    if (spatial_id) {
+      if (cpi->svc.layer_context[temporal_id].is_key_frame) {
+        cpi->lst_fb_idx = spatial_id - 1;
+        cpi->gld_fb_idx = spatial_id;
+      } else {
       cpi->gld_fb_idx = spatial_id - 1;
-    else
+      }
+    } else {
       cpi->gld_fb_idx = 0;
+    }
     cpi->alt_fb_idx = 0;
   } else if (temporal_id == 1) {
     cpi->lst_fb_idx = spatial_id;
@@ -527,20 +562,31 @@ static void set_flags_and_fb_idx_for_temporal_mode_noLayering(
   if (!spatial_id) {
     cpi->ref_frame_flags = VP9_LAST_FLAG;
   } else if (cpi->svc.layer_context[0].is_key_frame) {
-    cpi->ref_frame_flags = VP9_GOLD_FLAG;
+    cpi->ref_frame_flags = VP9_LAST_FLAG;
+    cpi->ext_refresh_last_frame = 0;
+    cpi->ext_refresh_golden_frame = 1;
   } else {
     cpi->ref_frame_flags = VP9_LAST_FLAG | VP9_GOLD_FLAG;
   }
   cpi->lst_fb_idx = spatial_id;
-  if (spatial_id)
+  if (spatial_id) {
+    if (cpi->svc.layer_context[0].is_key_frame) {
+      cpi->lst_fb_idx = spatial_id - 1;
+      cpi->gld_fb_idx = spatial_id;
+    } else {
     cpi->gld_fb_idx = spatial_id - 1;
-  else
+    }
+  } else {
     cpi->gld_fb_idx = 0;
+  }
 }
 
 int vp9_one_pass_cbr_svc_start_layer(VP9_COMP *const cpi) {
   int width = 0, height = 0;
   LAYER_CONTEXT *lc = NULL;
+  if (cpi->svc.number_spatial_layers > 1)
+    cpi->svc.use_base_mv = 1;
+  cpi->svc.force_zero_mode_spatial_ref = 1;
 
   if (cpi->svc.temporal_layering_mode == VP9E_TEMPORAL_LAYERING_MODE_0212) {
     set_flags_and_fb_idx_for_temporal_mode3(cpi);
@@ -558,6 +604,8 @@ int vp9_one_pass_cbr_svc_start_layer(VP9_COMP *const cpi) {
     // Note that the check (cpi->ext_refresh_frame_flags_pending == 0) is
     // needed to support the case where the frame flags may be passed in via
     // vpx_codec_encode(), which can be used for the temporal-only svc case.
+    // TODO(marpan): Consider adding an enc_config parameter to better handle
+    // this case.
     if (cpi->ext_refresh_frame_flags_pending == 0) {
       int sl;
       cpi->svc.spatial_layer_id = cpi->svc.spatial_layer_to_encode;
@@ -595,6 +643,8 @@ int vp9_one_pass_cbr_svc_start_layer(VP9_COMP *const cpi) {
 }
 
 #if CONFIG_SPATIAL_SVC
+#define SMALL_FRAME_FB_IDX 7
+
 int vp9_svc_start_frame(VP9_COMP *const cpi) {
   int width = 0, height = 0;
   LAYER_CONTEXT *lc;
@@ -705,7 +755,8 @@ int vp9_svc_start_frame(VP9_COMP *const cpi) {
   return 0;
 }
 
-#endif
+#undef SMALL_FRAME_FB_IDX
+#endif  // CONFIG_SPATIAL_SVC
 
 struct lookahead_entry *vp9_svc_lookahead_pop(VP9_COMP *const cpi,
                                               struct lookahead_ctx *ctx,

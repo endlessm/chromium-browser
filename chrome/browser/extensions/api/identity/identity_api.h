@@ -15,6 +15,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/identity/extension_token_key.h"
 #include "chrome/browser/extensions/api/identity/gaia_web_auth_flow.h"
 #include "chrome/browser/extensions/api/identity/identity_mint_queue.h"
@@ -59,6 +60,7 @@ class IdentityTokenCacheValue {
   explicit IdentityTokenCacheValue(const IssueAdviceInfo& issue_advice);
   IdentityTokenCacheValue(const std::string& token,
                           base::TimeDelta time_to_live);
+  IdentityTokenCacheValue(const IdentityTokenCacheValue& other);
   ~IdentityTokenCacheValue();
 
   // Order of these entries is used to determine whether or not new

@@ -17,9 +17,7 @@
 namespace content {
 
 RendererMainPlatformDelegate::RendererMainPlatformDelegate(
-    const MainFunctionParams& parameters)
-    : parameters_(parameters) {
-}
+    const MainFunctionParams& parameters) {}
 
 RendererMainPlatformDelegate::~RendererMainPlatformDelegate() {
 }
@@ -32,7 +30,7 @@ void RendererMainPlatformDelegate::PlatformUninitialize() {
 
 bool RendererMainPlatformDelegate::EnableSandbox() {
   // The setuid sandbox is started in the zygote process: zygote_main_linux.cc
-  // http://code.google.com/p/chromium/wiki/LinuxSUIDSandbox
+  // https://chromium.googlesource.com/chromium/src/+/master/docs/linux_suid_sandbox.md
   //
   // Anything else is started in InitializeSandbox().
   LinuxSandbox::InitializeSandbox();

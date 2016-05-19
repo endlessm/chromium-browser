@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_timeouts.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
@@ -31,7 +34,6 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
-#include "net/base/net_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "url/gurl.h"
 
@@ -88,7 +90,7 @@ class TabRestoreTest : public InProcessBrowserTest {
 
  protected:
   void SetUpOnMainThread() override {
-    active_browser_list_ = BrowserList::GetInstance(chrome::GetActiveDesktop());
+    active_browser_list_ = BrowserList::GetInstance();
     InProcessBrowserTest::SetUpOnMainThread();
   }
 
@@ -411,7 +413,7 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreIntoSameWindow) {
 // Tests that a duplicate history entry is not created when we restore a page
 // to an existing SiteInstance.  (Bug 1230446)
 IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWithExistingSiteInstance) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL http_url1(embedded_test_server()->GetURL("/title1.html"));
   GURL http_url2(embedded_test_server()->GetURL("/title2.html"));
@@ -458,9 +460,11 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWithExistingSiteInstance) {
 
 // See crbug.com/248574
 #if defined(OS_WIN)
-#define MAYBE_RestoreCrossSiteWithExistingSiteInstance DISABLED_RestoreCrossSiteWithExistingSiteInstance
+#define MAYBE_RestoreCrossSiteWithExistingSiteInstance \
+  DISABLED_RestoreCrossSiteWithExistingSiteInstance
 #else
-#define MAYBE_RestoreCrossSiteWithExistingSiteInstance RestoreCrossSiteWithExistingSiteInstance
+#define MAYBE_RestoreCrossSiteWithExistingSiteInstance \
+  RestoreCrossSiteWithExistingSiteInstance
 #endif
 
 // Tests that the SiteInstances used for entries in a restored tab's history
@@ -468,7 +472,7 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreWithExistingSiteInstance) {
 // already exists.  (Bug 1204135)
 IN_PROC_BROWSER_TEST_F(TabRestoreTest,
                        MAYBE_RestoreCrossSiteWithExistingSiteInstance) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL http_url1(embedded_test_server()->GetURL("/title1.html"));
   GURL http_url2(embedded_test_server()->GetURL("/title2.html"));
@@ -591,7 +595,7 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreTabWithSpecialURL) {
 // Restore tab with special URL in its navigation history, go back to that
 // entry and see that it loads properly. See http://crbug.com/31905
 IN_PROC_BROWSER_TEST_F(TabRestoreTest, RestoreTabWithSpecialURLOnBack) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   const GURL http_url(embedded_test_server()->GetURL("/title1.html"));
 

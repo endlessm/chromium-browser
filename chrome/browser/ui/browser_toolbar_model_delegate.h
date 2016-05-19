@@ -5,20 +5,20 @@
 #ifndef CHROME_BROWSER_UI_BROWSER_TOOLBAR_MODEL_DELEGATE_H_
 #define CHROME_BROWSER_UI_BROWSER_TOOLBAR_MODEL_DELEGATE_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "chrome/browser/ui/toolbar/toolbar_model_delegate.h"
+#include "base/macros.h"
+#include "chrome/browser/ui/toolbar/chrome_toolbar_model_delegate.h"
 
 class Browser;
 
 // Implementation of ToolbarModelDelegate which uses an instance of
 // Browser in order to fulfil its duties.
-class BrowserToolbarModelDelegate : public ToolbarModelDelegate {
+class BrowserToolbarModelDelegate : public ChromeToolbarModelDelegate {
  public:
   explicit BrowserToolbarModelDelegate(Browser* browser);
   ~BrowserToolbarModelDelegate() override;
 
-  // ToolbarModelDelegate:
+  // ChromeToolbarModelDelegate:
   content::WebContents* GetActiveWebContents() const override;
 
  private:

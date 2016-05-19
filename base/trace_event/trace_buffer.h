@@ -5,6 +5,9 @@
 #ifndef BASE_TRACE_EVENT_TRACE_BUFFER_H_
 #define BASE_TRACE_EVENT_TRACE_BUFFER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/base_export.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_impl.h"
@@ -16,14 +19,14 @@ namespace trace_event {
 // TraceBufferChunk is the basic unit of TraceBuffer.
 class BASE_EXPORT TraceBufferChunk {
  public:
-  explicit TraceBufferChunk(uint32 seq);
+  explicit TraceBufferChunk(uint32_t seq);
   ~TraceBufferChunk();
 
-  void Reset(uint32 new_seq);
+  void Reset(uint32_t new_seq);
   TraceEvent* AddTraceEvent(size_t* event_index);
   bool IsFull() const { return next_free_ == kTraceBufferChunkSize; }
 
-  uint32 seq() const { return seq_; }
+  uint32_t seq() const { return seq_; }
   size_t capacity() const { return kTraceBufferChunkSize; }
   size_t size() const { return next_free_; }
 
@@ -35,8 +38,6 @@ class BASE_EXPORT TraceBufferChunk {
     DCHECK(index < size());
     return &chunk_[index];
   }
-
-  scoped_ptr<TraceBufferChunk> Clone() const;
 
   void EstimateTraceMemoryOverhead(TraceEventMemoryOverhead* overhead);
 
@@ -50,7 +51,7 @@ class BASE_EXPORT TraceBufferChunk {
   size_t next_free_;
   scoped_ptr<TraceEventMemoryOverhead> cached_overhead_estimate_;
   TraceEvent chunk_[kTraceBufferChunkSize];
-  uint32 seq_;
+  uint32_t seq_;
 };
 
 // TraceBuffer holds the events as they are collected.
@@ -70,7 +71,6 @@ class BASE_EXPORT TraceBuffer {
   // For iteration. Each TraceBuffer can only be iterated once.
   virtual const TraceBufferChunk* NextChunk() = 0;
 
-  virtual scoped_ptr<TraceBuffer> CloneForIteration() const = 0;
 
   // Computes an estimate of the size of the buffer, including all the retained
   // objects.

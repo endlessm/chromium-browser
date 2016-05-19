@@ -5,7 +5,7 @@
 #ifndef CONTENT_BROWSER_SPEECH_SPEECH_RECOGNIZER_IMPL_H_
 #define CONTENT_BROWSER_SPEECH_SPEECH_RECOGNIZER_IMPL_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/browser/speech/endpointer/endpointer.h"
 #include "content/browser/speech/speech_recognition_engine.h"
@@ -81,6 +81,7 @@ class CONTENT_EXPORT SpeechRecognizerImpl
 
   struct FSMEventArgs {
     explicit FSMEventArgs(FSMEvent event_value);
+    FSMEventArgs(const FSMEventArgs& other);
     ~FSMEventArgs();
 
     FSMEvent event;

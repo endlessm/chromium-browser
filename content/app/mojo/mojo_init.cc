@@ -4,10 +4,12 @@
 
 #include "content/app/mojo/mojo_init.h"
 
+#include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
+#include "content/public/common/content_switches.h"
 #include "ipc/ipc_channel.h"
-#include "third_party/mojo/src/mojo/edk/embedder/embedder.h"
+#include "mojo/edk/embedder/embedder.h"
 
 namespace content {
 
@@ -16,8 +18,8 @@ namespace {
 class MojoInitializer {
  public:
   MojoInitializer() {
-    mojo::embedder::SetMaxMessageSize(IPC::Channel::kMaximumMessageSize);
-    mojo::embedder::Init();
+    mojo::edk::SetMaxMessageSize(IPC::Channel::kMaximumMessageSize);
+    mojo::edk::Init();
   }
 };
 

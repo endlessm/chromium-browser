@@ -4,11 +4,11 @@
 
 #include "components/metrics/stability_metrics_helper.h"
 
-#include "base/basictypes.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
 #include "components/metrics/proto/system_profile.pb.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
+#include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace metrics {

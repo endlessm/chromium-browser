@@ -16,7 +16,7 @@ namespace scheduler {
 WebSchedulerImpl::WebSchedulerImpl(
     ChildScheduler* child_scheduler,
     scoped_refptr<SingleThreadIdleTaskRunner> idle_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> loading_task_runner,
+    scoped_refptr<TaskQueue> loading_task_runner,
     scoped_refptr<TaskQueue> timer_task_runner)
     : child_scheduler_(child_scheduler),
       idle_task_runner_(idle_task_runner),
@@ -85,20 +85,6 @@ blink::WebTaskRunner* WebSchedulerImpl::loadingTaskRunner() {
 
 blink::WebTaskRunner* WebSchedulerImpl::timerTaskRunner() {
   return timer_web_task_runner_.get();
-}
-
-void WebSchedulerImpl::postTimerTaskAt(
-    const blink::WebTraceLocation& web_location,
-    blink::WebTaskRunner::Task* task,
-    double monotonicTime) {
-  DCHECK(timer_task_runner_);
-  tracked_objects::Location location(web_location.functionName(),
-                                     web_location.fileName(), -1, nullptr);
-  timer_task_runner_->PostDelayedTaskAt(
-      location,
-      base::Bind(&WebTaskRunnerImpl::runTask,
-                 base::Passed(scoped_ptr<blink::WebTaskRunner::Task>(task))),
-      base::TimeTicks() + base::TimeDelta::FromSecondsD(monotonicTime));
 }
 
 blink::WebPassOwnPtr<blink::WebViewScheduler>

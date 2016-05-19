@@ -4,6 +4,8 @@
 
 #include "components/omnibox/browser/suggestion_answer.h"
 
+#include <stddef.h>
+
 #include "base/i18n/rtl.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -196,7 +198,7 @@ scoped_ptr<SuggestionAnswer> SuggestionAnswer::ParseAnswer(
       !ImageLine::ParseImageLine(second_line_json, &result->second_line_))
     return nullptr;
 
-  return result.Pass();
+  return result;
 }
 
 bool SuggestionAnswer::Equals(const SuggestionAnswer& answer) const {

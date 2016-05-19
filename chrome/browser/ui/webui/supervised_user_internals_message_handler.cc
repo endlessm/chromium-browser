@@ -4,8 +4,14 @@
 
 #include "chrome/browser/ui/webui/supervised_user_internals_message_handler.h"
 
+#include <utility>
+
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
@@ -33,8 +39,8 @@ base::ListValue* AddSection(base::ListValue* parent_list,
   section->SetString("title", title);
   // Grab a raw pointer to the result before |Pass()|ing it on.
   base::ListValue* result = section_contents.get();
-  section->Set("data", section_contents.Pass());
-  parent_list->Append(section.Pass());
+  section->Set("data", std::move(section_contents));
+  parent_list->Append(std::move(section));
   return result;
 }
 
@@ -46,7 +52,7 @@ void AddSectionEntry(base::ListValue* section_list,
   entry->SetString("stat_name", name);
   entry->SetBoolean("stat_value", value);
   entry->SetBoolean("is_valid", true);
-  section_list->Append(entry.Pass());
+  section_list->Append(std::move(entry));
 }
 
 // Adds a string entry to a section (created with |AddSection| above).
@@ -57,7 +63,7 @@ void AddSectionEntry(base::ListValue* section_list,
   entry->SetString("stat_name", name);
   entry->SetString("stat_value", value);
   entry->SetBoolean("is_valid", true);
-  section_list->Append(entry.Pass());
+  section_list->Append(std::move(entry));
 }
 
 std::string FilteringBehaviorToString(
@@ -94,6 +100,8 @@ std::string FilteringBehaviorReasonToString(
       return "Blacklist";
     case SupervisedUserURLFilter::MANUAL:
       return "Manual";
+    case SupervisedUserURLFilter::WHITELIST:
+      return "Whitelist";
   }
   return "Unknown/invalid";
 }
@@ -218,10 +226,11 @@ void SupervisedUserInternalsMessageHandler::HandleTryURL(
 
   SupervisedUserURLFilter* filter =
       GetSupervisedUserService()->GetURLFilterForUIThread();
+  std::map<std::string, base::string16> whitelists =
+      filter->GetMatchingWhitelistTitles(url);
   filter->GetFilteringBehaviorForURLWithAsyncChecks(
-      url,
-      base::Bind(&SupervisedUserInternalsMessageHandler::OnTryURLResult,
-                 weak_factory_.GetWeakPtr()));
+      url, base::Bind(&SupervisedUserInternalsMessageHandler::OnTryURLResult,
+                      weak_factory_.GetWeakPtr(), whitelists));
 }
 
 void SupervisedUserInternalsMessageHandler::SendBasicInfo() {
@@ -263,7 +272,7 @@ void SupervisedUserInternalsMessageHandler::SendBasicInfo() {
   }
 
   base::DictionaryValue result;
-  result.Set("sections", section_list.Pass());
+  result.Set("sections", std::move(section_list));
   web_ui()->CallJavascriptFunction(
       "chrome.supervised_user_internals.receiveBasicInfo", result);
 
@@ -283,12 +292,25 @@ void SupervisedUserInternalsMessageHandler::SendSupervisedUserSettings(
 }
 
 void SupervisedUserInternalsMessageHandler::OnTryURLResult(
+    const std::map<std::string, base::string16>& whitelists,
     SupervisedUserURLFilter::FilteringBehavior behavior,
     SupervisedUserURLFilter::FilteringBehaviorReason reason,
     bool uncertain) {
+  std::vector<std::string> whitelists_list;
+  for (const auto& whitelist : whitelists) {
+    whitelists_list.push_back(
+        base::StringPrintf("%s: %s", whitelist.first.c_str(),
+                           base::UTF16ToUTF8(whitelist.second).c_str()));
+  }
+  std::string whitelists_str = base::JoinString(whitelists_list, "; ");
+  base::DictionaryValue result;
+  result.SetString("allowResult",
+                   FilteringBehaviorToString(behavior, uncertain));
+  result.SetBoolean("manual", reason == SupervisedUserURLFilter::MANUAL &&
+                                  behavior == SupervisedUserURLFilter::ALLOW);
+  result.SetString("whitelists", whitelists_str);
   web_ui()->CallJavascriptFunction(
-      "chrome.supervised_user_internals.receiveTryURLResult",
-      base::StringValue(FilteringBehaviorToString(behavior, uncertain)));
+      "chrome.supervised_user_internals.receiveTryURLResult", result);
 }
 
 void SupervisedUserInternalsMessageHandler::OnURLChecked(

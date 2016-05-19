@@ -31,7 +31,6 @@
 #include "bindings/core/v8/V8HiddenValue.h"
 #include "bindings/core/v8/WrapperTypeInfo.h"
 #include "core/CoreExport.h"
-#include "core/inspector/ScriptDebuggerBase.h"
 #include "gin/public/isolate_holder.h"
 #include "gin/public/v8_idle_task_runner.h"
 #include "wtf/HashMap.h"
@@ -43,8 +42,8 @@
 namespace blink {
 
 class DOMDataStore;
+class ThreadDebugger;
 class StringCache;
-class V8Debugger;
 struct WrapperTypeInfo;
 
 typedef WTF::Vector<DOMDataStore*> DOMDataStoreList;
@@ -77,8 +76,6 @@ public:
 
     bool destructionPending() const { return m_destructionPending; }
     v8::Isolate* isolate() { return m_isolateHolder->isolate(); }
-
-    v8::Local<v8::FunctionTemplate> toStringTemplate();
 
     StringCache* stringCache() { return m_stringCache.get(); }
 
@@ -114,9 +111,6 @@ public:
     v8::Local<v8::Context> ensureScriptRegexpContext();
     void clearScriptRegexpContext();
 
-    const char* previousSamplingState() const { return m_previousSamplingState; }
-    void setPreviousSamplingState(const char* name) { m_previousSamplingState = name; }
-
     // EndOfScopeTasks are run by V8RecursionScope when control is returning
     // to C++ from script, after executing a script task (e.g. callback,
     // event) or microtasks (e.g. promise). This is explicitly needed for
@@ -125,7 +119,8 @@ public:
     void runEndOfScopeTasks();
     void clearEndOfScopeTasks();
 
-    void setScriptDebugger(PassOwnPtr<ScriptDebuggerBase>);
+    void setThreadDebugger(PassOwnPtr<ThreadDebugger>);
+    ThreadDebugger* threadDebugger();
 
 private:
     V8PerIsolateData();
@@ -140,13 +135,10 @@ private:
     OwnPtr<gin::IsolateHolder> m_isolateHolder;
     DOMTemplateMap m_domTemplateMapForMainWorld;
     DOMTemplateMap m_domTemplateMapForNonMainWorld;
-    ScopedPersistent<v8::FunctionTemplate> m_toStringTemplate;
     OwnPtr<StringCache> m_stringCache;
     OwnPtr<V8HiddenValue> m_hiddenValue;
     ScopedPersistent<v8::Value> m_liveRoot;
     RefPtr<ScriptState> m_scriptRegexpScriptState;
-
-    const char* m_previousSamplingState;
 
     bool m_constructorMode;
     friend class ConstructorMode;
@@ -161,7 +153,7 @@ private:
     bool m_performingMicrotaskCheckpoint;
 
     Vector<OwnPtr<EndOfScopeTask>> m_endOfScopeTasks;
-    OwnPtr<ScriptDebuggerBase> m_scriptDebugger;
+    OwnPtr<ThreadDebugger> m_threadDebugger;
 };
 
 } // namespace blink

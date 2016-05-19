@@ -5,10 +5,12 @@
 #include "net/url_request/url_request_context_builder.h"
 
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/thread_task_runner_handle.h"
@@ -28,6 +30,7 @@
 #include "net/http/http_server_properties_manager.h"
 #include "net/http/transport_security_persister.h"
 #include "net/http/transport_security_state.h"
+#include "net/quic/quic_stream_factory.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/default_channel_id_store.h"
 #include "net/ssl/ssl_config_service_defaults.h"
@@ -149,7 +152,7 @@ class ContainerURLRequestContext : public URLRequestContext {
 
   void set_transport_security_persister(
       scoped_ptr<TransportSecurityPersister> transport_security_persister) {
-    transport_security_persister_ = transport_security_persister.Pass();
+    transport_security_persister_ = std::move(transport_security_persister);
   }
 
  private:
@@ -175,25 +178,23 @@ URLRequestContextBuilder::HttpNetworkSessionParams::HttpNetworkSessionParams()
       host_mapping_rules(NULL),
       testing_fixed_http_port(0),
       testing_fixed_https_port(0),
-      next_protos(NextProtosDefaults()),
-      use_alternative_services(true),
+      enable_spdy31(true),
+      enable_http2(true),
+      parse_alternative_services(false),
+      enable_alternative_service_with_different_host(false),
       enable_quic(false),
-      quic_store_server_configs_in_properties(false),
+      quic_max_server_configs_stored_in_properties(0),
       quic_delay_tcp_race(false),
       quic_max_number_of_lossy_connections(0),
-      quic_packet_loss_threshold(1.0f) {}
+      quic_prefer_aes(false),
+      quic_packet_loss_threshold(1.0f),
+      quic_idle_connection_timeout_seconds(kIdleConnectionTimeoutSeconds),
+      quic_close_sessions_on_ip_change(false),
+      quic_migrate_sessions_on_network_change(false),
+      quic_migrate_sessions_early(false) {}
 
 URLRequestContextBuilder::HttpNetworkSessionParams::~HttpNetworkSessionParams()
 {}
-
-URLRequestContextBuilder::SchemeFactory::SchemeFactory(
-    const std::string& auth_scheme,
-    HttpAuthHandlerFactory* auth_handler_factory)
-    : scheme(auth_scheme), factory(auth_handler_factory) {
-}
-
-URLRequestContextBuilder::SchemeFactory::~SchemeFactory() {
-}
 
 URLRequestContextBuilder::URLRequestContextBuilder()
     : data_enabled_(false),
@@ -240,19 +241,19 @@ void URLRequestContextBuilder::DisableHttpCache() {
 
 void URLRequestContextBuilder::SetSpdyAndQuicEnabled(bool spdy_enabled,
                                                      bool quic_enabled) {
-  http_network_session_params_.next_protos =
-      NextProtosWithSpdyAndQuic(spdy_enabled, quic_enabled);
+  http_network_session_params_.enable_spdy31 = spdy_enabled;
+  http_network_session_params_.enable_http2 = spdy_enabled;
   http_network_session_params_.enable_quic = quic_enabled;
 }
 
 void URLRequestContextBuilder::SetCertVerifier(
     scoped_ptr<CertVerifier> cert_verifier) {
-  cert_verifier_ = cert_verifier.Pass();
+  cert_verifier_ = std::move(cert_verifier);
 }
 
 void URLRequestContextBuilder::SetInterceptors(
-    ScopedVector<URLRequestInterceptor> url_request_interceptors) {
-  url_request_interceptors_ = url_request_interceptors.Pass();
+    std::vector<scoped_ptr<URLRequestInterceptor>> url_request_interceptors) {
+  url_request_interceptors_ = std::move(url_request_interceptors);
 }
 
 void URLRequestContextBuilder::SetCookieAndChannelIdStores(
@@ -260,7 +261,7 @@ void URLRequestContextBuilder::SetCookieAndChannelIdStores(
       scoped_ptr<ChannelIDService> channel_id_service) {
   DCHECK(cookie_store);
   cookie_store_ = cookie_store;
-  channel_id_service_ = channel_id_service.Pass();
+  channel_id_service_ = std::move(channel_id_service);
 }
 
 void URLRequestContextBuilder::SetFileTaskRunner(
@@ -268,9 +269,14 @@ void URLRequestContextBuilder::SetFileTaskRunner(
   file_task_runner_ = task_runner;
 }
 
+void URLRequestContextBuilder::SetHttpAuthHandlerFactory(
+    scoped_ptr<HttpAuthHandlerFactory> factory) {
+  http_auth_handler_factory_ = std::move(factory);
+}
+
 void URLRequestContextBuilder::SetHttpServerProperties(
     scoped_ptr<HttpServerProperties> http_server_properties) {
-  http_server_properties_ = http_server_properties.Pass();
+  http_server_properties_ = std::move(http_server_properties);
 }
 
 scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
@@ -283,7 +289,7 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
 
   if (!network_delegate_)
     network_delegate_.reset(new BasicNetworkDelegate);
-  storage->set_network_delegate(network_delegate_.Pass());
+  storage->set_network_delegate(std::move(network_delegate_));
 
   if (net_log_) {
     // Unlike the other builder parameters, |net_log_| is not owned by the
@@ -296,7 +302,7 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   if (!host_resolver_) {
     host_resolver_ = HostResolver::CreateDefaultResolver(context->net_log());
   }
-  storage->set_host_resolver(host_resolver_.Pass());
+  storage->set_host_resolver(std::move(host_resolver_));
 
   if (!proxy_service_) {
     // TODO(willchan): Switch to using this code when
@@ -309,26 +315,24 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
     }
 #endif  // !defined(OS_LINUX) && !defined(OS_ANDROID)
     proxy_service_ = ProxyService::CreateUsingSystemProxyResolver(
-        proxy_config_service_.Pass(),
+        std::move(proxy_config_service_),
         0,  // This results in using the default value.
         context->net_log());
   }
-  storage->set_proxy_service(proxy_service_.Pass());
+  storage->set_proxy_service(std::move(proxy_service_));
 
   storage->set_ssl_config_service(new SSLConfigServiceDefaults);
-  scoped_ptr<HttpAuthHandlerRegistryFactory> http_auth_handler_registry_factory(
-      HttpAuthHandlerRegistryFactory::CreateDefault(context->host_resolver()));
-  for (size_t i = 0; i < extra_http_auth_handlers_.size(); ++i) {
-    http_auth_handler_registry_factory->RegisterSchemeFactory(
-        extra_http_auth_handlers_[i].scheme,
-        extra_http_auth_handlers_[i].factory);
+
+  if (!http_auth_handler_factory_) {
+    http_auth_handler_factory_ =
+        HttpAuthHandlerRegistryFactory::CreateDefault(context->host_resolver());
   }
-  storage->set_http_auth_handler_factory(
-      http_auth_handler_registry_factory.Pass());
+
+  storage->set_http_auth_handler_factory(std::move(http_auth_handler_factory_));
 
   if (cookie_store_) {
     storage->set_cookie_store(cookie_store_.get());
-    storage->set_channel_id_service(channel_id_service_.Pass());
+    storage->set_channel_id_service(std::move(channel_id_service_));
   } else {
     storage->set_cookie_store(new CookieMonster(NULL, NULL));
     // TODO(mmenke):  This always creates a file thread, even when it ends up
@@ -338,8 +342,7 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   }
 
   if (sdch_enabled_) {
-    storage->set_sdch_manager(
-        scoped_ptr<net::SdchManager>(new SdchManager()).Pass());
+    storage->set_sdch_manager(scoped_ptr<net::SdchManager>(new SdchManager()));
   }
 
   storage->set_transport_security_state(
@@ -354,14 +357,14 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   }
 
   if (http_server_properties_) {
-    storage->set_http_server_properties(http_server_properties_.Pass());
+    storage->set_http_server_properties(std::move(http_server_properties_));
   } else {
     storage->set_http_server_properties(
         scoped_ptr<HttpServerProperties>(new HttpServerPropertiesImpl()));
   }
 
   if (cert_verifier_) {
-    storage->set_cert_verifier(cert_verifier_.Pass());
+    storage->set_cert_verifier(std::move(cert_verifier_));
   } else {
     storage->set_cert_verifier(CertVerifier::CreateDefault());
   }
@@ -387,24 +390,40 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
       http_network_session_params_.testing_fixed_http_port;
   network_session_params.testing_fixed_https_port =
       http_network_session_params_.testing_fixed_https_port;
-  network_session_params.use_alternative_services =
-      http_network_session_params_.use_alternative_services;
-  network_session_params.trusted_spdy_proxy =
-      http_network_session_params_.trusted_spdy_proxy;
-  network_session_params.next_protos = http_network_session_params_.next_protos;
+  network_session_params.enable_spdy31 =
+      http_network_session_params_.enable_spdy31;
+  network_session_params.enable_http2 =
+      http_network_session_params_.enable_http2;
+  network_session_params.parse_alternative_services =
+      http_network_session_params_.parse_alternative_services;
+  network_session_params.enable_alternative_service_with_different_host =
+      http_network_session_params_
+          .enable_alternative_service_with_different_host;
   network_session_params.enable_quic = http_network_session_params_.enable_quic;
-  network_session_params.quic_store_server_configs_in_properties =
-      http_network_session_params_.quic_store_server_configs_in_properties;
+  network_session_params.quic_max_server_configs_stored_in_properties =
+      http_network_session_params_.quic_max_server_configs_stored_in_properties;
   network_session_params.quic_delay_tcp_race =
       http_network_session_params_.quic_delay_tcp_race;
   network_session_params.quic_max_number_of_lossy_connections =
       http_network_session_params_.quic_max_number_of_lossy_connections;
   network_session_params.quic_packet_loss_threshold =
       http_network_session_params_.quic_packet_loss_threshold;
+  network_session_params.quic_idle_connection_timeout_seconds =
+      http_network_session_params_.quic_idle_connection_timeout_seconds;
   network_session_params.quic_connection_options =
       http_network_session_params_.quic_connection_options;
-  network_session_params.ssl_session_cache_shard =
-      http_network_session_params_.ssl_session_cache_shard;
+  network_session_params.quic_host_whitelist =
+      http_network_session_params_.quic_host_whitelist;
+  network_session_params.quic_close_sessions_on_ip_change =
+      http_network_session_params_.quic_close_sessions_on_ip_change;
+  network_session_params.quic_migrate_sessions_on_network_change =
+      http_network_session_params_.quic_migrate_sessions_on_network_change;
+  network_session_params.quic_user_agent_id =
+      http_network_session_params_.quic_user_agent_id;
+  network_session_params.quic_prefer_aes =
+      http_network_session_params_.quic_prefer_aes;
+  network_session_params.quic_migrate_sessions_early =
+      http_network_session_params_.quic_migrate_sessions_early;
 
   storage->set_http_network_session(
       make_scoped_ptr(new HttpNetworkSession(network_session_params)));
@@ -412,9 +431,13 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   scoped_ptr<HttpTransactionFactory> http_transaction_factory;
   if (http_cache_enabled_) {
     scoped_ptr<HttpCache::BackendFactory> http_cache_backend;
-    if (http_cache_params_.type == HttpCacheParams::DISK) {
+    if (http_cache_params_.type != HttpCacheParams::IN_MEMORY) {
+      BackendType backend_type =
+          http_cache_params_.type == HttpCacheParams::DISK
+              ? CACHE_BACKEND_DEFAULT
+              : CACHE_BACKEND_SIMPLE;
       http_cache_backend.reset(new HttpCache::DefaultBackend(
-          DISK_CACHE, CACHE_BACKEND_DEFAULT, http_cache_params_.path,
+          DISK_CACHE, backend_type, http_cache_params_.path,
           http_cache_params_.max_size, context->GetFileTaskRunner()));
     } else {
       http_cache_backend =
@@ -422,12 +445,12 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
     }
 
     http_transaction_factory.reset(new HttpCache(
-        storage->http_network_session(), http_cache_backend.Pass(), true));
+        storage->http_network_session(), std::move(http_cache_backend), true));
   } else {
     http_transaction_factory.reset(
         new HttpNetworkLayer(storage->http_network_session()));
   }
-  storage->set_http_transaction_factory(http_transaction_factory.Pass());
+  storage->set_http_transaction_factory(std::move(http_transaction_factory));
 
   URLRequestJobFactoryImpl* job_factory = new URLRequestJobFactoryImpl;
   if (data_enabled_)
@@ -456,18 +479,17 @@ scoped_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   if (!url_request_interceptors_.empty()) {
     // Set up interceptors in the reverse order.
 
-    for (ScopedVector<net::URLRequestInterceptor>::reverse_iterator i =
-             url_request_interceptors_.rbegin();
+    for (auto i = url_request_interceptors_.rbegin();
          i != url_request_interceptors_.rend(); ++i) {
       top_job_factory.reset(new net::URLRequestInterceptingJobFactory(
-          top_job_factory.Pass(), make_scoped_ptr(*i)));
+          std::move(top_job_factory), std::move(*i)));
     }
-    url_request_interceptors_.weak_clear();
+    url_request_interceptors_.clear();
   }
-  storage->set_job_factory(top_job_factory.Pass());
+  storage->set_job_factory(std::move(top_job_factory));
   // TODO(willchan): Support sdch.
 
-  return context.Pass();
+  return std::move(context);
 }
 
 }  // namespace net

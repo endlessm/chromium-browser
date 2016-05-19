@@ -123,6 +123,10 @@ typedef void (
 #define GL_RGB_YCBCR_422_CHROMIUM 0x78FB
 #endif
 
+#ifndef GL_RGB_YCBCR_420V_CHROMIUM
+#define GL_RGB_YCBCR_420V_CHROMIUM 0x78FC
+#endif
+
 #ifdef GL_GLEXT_PROTOTYPES
 GL_APICALL GLuint GL_APIENTRY glCreateGpuMemoryBufferImageCHROMIUM(
     GLsizei width,
@@ -363,7 +367,6 @@ typedef void (GL_APIENTRYP PFNGLBLITFRAMEBUFFERCHROMIUMPROC) (GLint srcX0, GLint
 
 #ifdef GL_GLEXT_PROTOTYPES
 GL_APICALL void GL_APIENTRY glCopyTextureCHROMIUM(
-    GLenum target,
     GLenum source_id,
     GLenum dest_id,
     GLint internalformat,
@@ -373,7 +376,6 @@ GL_APICALL void GL_APIENTRY glCopyTextureCHROMIUM(
     GLboolean unpack_unmultiply_alpha);
 
 GL_APICALL void GL_APIENTRY glCopySubTextureCHROMIUM(
-    GLenum target,
     GLenum source_id,
     GLenum dest_id,
     GLint xoffset,
@@ -387,7 +389,6 @@ GL_APICALL void GL_APIENTRY glCopySubTextureCHROMIUM(
     GLboolean unpack_unmultiply_alpha);
 #endif
 typedef void(GL_APIENTRYP PFNGLCOPYTEXTURECHROMIUMPROC)(
-    GLenum target,
     GLenum source_id,
     GLenum dest_id,
     GLint internalformat,
@@ -397,7 +398,6 @@ typedef void(GL_APIENTRYP PFNGLCOPYTEXTURECHROMIUMPROC)(
     GLboolean unpack_unmultiply_alpha);
 
 typedef void(GL_APIENTRYP PFNGLCOPYSUBTEXTURECHROMIUMPROC)(
-    GLenum target,
     GLenum source_id,
     GLenum dest_id,
     GLint xoffset,
@@ -416,32 +416,10 @@ typedef void(GL_APIENTRYP PFNGLCOPYSUBTEXTURECHROMIUMPROC)(
 #define GL_CHROMIUM_compressed_copy_texture 1
 #ifdef GL_GLEXT_PROTOTYPES
 GL_APICALL void GL_APIENTRY glCompressedCopyTextureCHROMIUM(
-    GLenum target, GLenum source_id, GLenum dest_id);
-
-GL_APICALL void GL_APIENTRY glCompressedCopySubTextureCHROMIUM(
-    GLenum target,
-    GLenum source_id,
-    GLenum dest_id,
-    GLint xoffset,
-    GLint yoffset,
-    GLint x,
-    GLint y,
-    GLsizei width,
-    GLsizei height);
+    GLenum source_id, GLenum dest_id);
 #endif
 typedef void(GL_APIENTRYP PFNGLCOMPRESSEDCOPYTEXTURECHROMIUMPROC)(
-    GLenum target, GLenum source_id, GLenum dest_id);
-
-typedef void(GL_APIENTRYP PFNGLCOMPRESSEDCOPYSUBTEXTURECHROMIUMPROC)(
-    GLenum target,
-    GLenum source_id,
-    GLenum dest_id,
-    GLint xoffset,
-    GLint yoffset,
-    GLint x,
-    GLint y,
-    GLsizei width,
-    GLsizei height);
+    GLenum source_id, GLenum dest_id);
 #endif  /* GL_CHROMIUM_compressed_copy_texture */
 
 /* GL_CHROMIUM_lose_context */
@@ -653,8 +631,10 @@ typedef void (GL_APIENTRYP PFNGLDRAWBUFFERSEXTPROC) (
 #ifndef GL_CHROMIUM_resize
 #define GL_CHROMIUM_resize 1
 #ifdef GL_GLEXT_PROTOTYPES
-GL_APICALL void GL_APIENTRY glResizeCHROMIUM(
-    GLuint width, GLuint height, GLfloat scale_factor);
+GL_APICALL void GL_APIENTRY glResizeCHROMIUM(GLuint width,
+                                             GLuint height,
+                                             GLfloat scale_factor,
+                                             GLboolean alpha);
 #endif
 typedef void (GL_APIENTRYP PFNGLRESIZECHROMIUMPROC) (
     GLuint width, GLuint height);
@@ -684,12 +664,20 @@ GL_APICALL GLuint GL_APIENTRY glInsertSyncPointCHROMIUM();
 GL_APICALL GLuint64 GL_APIENTRY glInsertFenceSyncCHROMIUM();
 GL_APICALL void GL_APIENTRY glGenSyncTokenCHROMIUM(GLuint64 fence_sync,
                                                    GLbyte* sync_token);
+GL_APICALL void GL_APIENTRY glGenUnverifiedSyncTokenCHROMIUM(
+    GLuint64 fence_sync, GLbyte* sync_token);
+GL_APICALL void GL_APIENTRY glVerifySyncTokensCHROMIUM(GLbyte **sync_tokens,
+                                                       GLsizei count);
 GL_APICALL void GL_APIENTRY glWaitSyncTokenCHROMIUM(const GLbyte* sync_token);
 #endif
 typedef GLuint (GL_APIENTRYP PFNGLINSERTSYNCPOINTCHROMIUMPROC) ();
 typedef GLuint64 (GL_APIENTRYP PFNGLINSERTFENCESYNCCHROMIUMPROC) ();
 typedef void (GL_APIENTRYP PFNGLGENSYNCTOKENCHROMIUMPROC) (GLuint64 fence_sync,
                                                            GLbyte* sync_token);
+typedef void (GL_APIENTRYP PFNGLGENUNVERIFIEDSYNCTOKENCHROMIUMPROC) (
+    GLuint64 fence_sync, GLbyte* sync_token);
+typedef void (GL_APIENTRYP PFNGLVERIFYSYNCTOKENSCHROMIUMPROC) (
+    GLbyte **sync_tokens, GLsizei count);
 typedef void (GL_APIENTRYP PFNGLWAITSYNCTOKENCHROMIUM) (
     const GLbyte* sync_tokens);
 #endif  /* GL_CHROMIUM_sync_point */
@@ -795,13 +783,34 @@ typedef void(GL_APIENTRYP PFNGLSCHEDULEOVERLAYPLANECHROMIUMPROC)(
 
 #ifndef GL_CHROMIUM_schedule_ca_layer
 #define GL_CHROMIUM_schedule_ca_layer 1
+
+#ifndef GL_CA_LAYER_EDGE_LEFT_CHROMIUM
+#define GL_CA_LAYER_EDGE_LEFT_CHROMIUM 0x1
+#endif
+
+#ifndef GL_CA_LAYER_EDGE_RIGHT_CHROMIUM
+#define GL_CA_LAYER_EDGE_RIGHT_CHROMIUM 0x2
+#endif
+
+#ifndef GL_CA_LAYER_EDGE_BOTTOM_CHROMIUM
+#define GL_CA_LAYER_EDGE_BOTTOM_CHROMIUM 0x4
+#endif
+
+#ifndef GL_CA_LAYER_EDGE_TOP_CHROMIUM
+#define GL_CA_LAYER_EDGE_TOP_CHROMIUM 0x8
+#endif
+
 #ifdef GL_GLEXT_PROTOTYPES
 GL_APICALL void GL_APIENTRY
 glScheduleCALayerCHROMIUM(GLuint contents_texture_id,
                           const GLfloat* contents_rect,
                           GLfloat opacity,
                           GLuint background_color,
-                          const GLfloat* bounds_size,
+                          GLuint edge_aa_mask,
+                          const GLfloat* bounds_rect,
+                          GLboolean is_clipped,
+                          const GLfloat* clip_rect,
+                          GLint sorting_context_id,
                           const GLfloat* transform);
 #endif
 typedef void(GL_APIENTRYP PFNGLSCHEDULECALAYERCHROMIUMPROC)(
@@ -809,7 +818,11 @@ typedef void(GL_APIENTRYP PFNGLSCHEDULECALAYERCHROMIUMPROC)(
     const GLfloat* contents_rect,
     GLfloat opacity,
     GLuint background_color,
-    const GLfloat* bounds_size,
+    GLuint edge_aa_mask,
+    const GLfloat* bounds_rect,
+    GLboolean is_clipped,
+    const GLfloat* clip_rect,
+    GLint sorting_context_id,
     const GLfloat* transform);
 #endif /* GL_CHROMIUM_schedule_ca_layer */
 
@@ -1162,6 +1175,57 @@ typedef void(GL_APIENTRYP PFNGLPROGRAMPATHFRAGMENTINPUTGENCHROMIUMPROC)(
 #endif
 
 #endif /* GL_CHROMIUM_path_rendering */
+
+
+#ifndef GL_EXT_multisample_compatibility
+#define GL_EXT_multisample_compatibility 1
+#define GL_MULTISAMPLE_EXT 0x809D
+#define GL_SAMPLE_ALPHA_TO_ONE_EXT 0x809F
+#endif /* GL_EXT_multisample_compatiblity */
+
+#ifndef GL_EXT_blend_func_extended
+#define GL_EXT_blend_func_extended 1
+
+#ifdef GL_GLEXT_PROTOTYPES
+GL_APICALL void GL_APIENTRY glBindFragDataLocationIndexedEXT(GLuint program,
+                                                             GLuint colorNumber,
+                                                             GLuint index,
+                                                             const char* name);
+GL_APICALL void GL_APIENTRY glBindFragDataLocationEXT(GLuint program,
+                                                      GLuint colorNumber,
+                                                      const char* name);
+GL_APICALL GLint GL_APIENTRY glGetFragDataIndexEXT(GLuint program,
+                                                   const char* name);
+#endif
+
+typedef void(GL_APIENTRYP PFNGLBINDFRAGDATALOCATIONINDEXEDEXT)(
+    GLuint program,
+    GLuint colorNumber,
+    GLuint index,
+    const char* name);
+typedef void(GL_APIENTRYP PFNGLBINDFRAGDATALOCATIONEXT)(GLuint program,
+                                                        GLuint colorNumber,
+                                                        const char* name);
+typedef GLint(GL_APIENTRYP PFNGLGETFRAGDATAINDEXEXT)(GLuint program,
+                                                     const GLchar* name);
+
+#define GL_SRC_ALPHA_SATURATE_EXT 0x0308
+#define GL_SRC1_ALPHA_EXT 0x8589  // OpenGL 1.5 token value
+#define GL_SRC1_COLOR_EXT 0x88F9
+#define GL_ONE_MINUS_SRC1_COLOR_EXT 0x88FA
+#define GL_ONE_MINUS_SRC1_ALPHA_EXT 0x88FB
+#define GL_MAX_DUAL_SOURCE_DRAW_BUFFERS_EXT 0x88FC
+#endif /* GL_EXT_blend_func_extended */
+
+#ifndef GL_CHROMIUM_framebuffer_mixed_samples
+#define GL_CHROMIUM_framebuffer_mixed_samples 1
+typedef void(GL_APIENTRYP PFNGLCOVERAGEMODULATIONCHROMIUMPROC)(
+    GLenum components);
+#ifdef GL_GLEXT_PROTOTYPES
+GL_APICALL void GL_APIENTRY glCoverageModulationCHROMIUM(GLenum components);
+#endif
+#define GL_COVERAGE_MODULATION_CHROMIUM 0x9332
+#endif /* GL_CHROMIUM_framebuffer_mixed_samples */
 
 #ifdef __cplusplus
 }

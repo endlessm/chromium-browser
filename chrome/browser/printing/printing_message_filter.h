@@ -5,10 +5,14 @@
 #ifndef CHROME_BROWSER_PRINTING_PRINTING_MESSAGE_FILTER_H_
 #define CHROME_BROWSER_PRINTING_PRINTING_MESSAGE_FILTER_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "base/prefs/pref_member.h"
+#include "base/macros.h"
+#include "build/build_config.h"
+#include "components/prefs/pref_member.h"
 #include "content/public/browser/browser_message_filter.h"
 
 #if defined(OS_WIN)
@@ -47,12 +51,6 @@ class PrintingMessageFilter : public content::BrowserMessageFilter {
 
  private:
   ~PrintingMessageFilter() override;
-
-#if defined(OS_WIN)
-  // Used to pass resulting EMF from renderer to browser in printing.
-  void OnDuplicateSection(base::SharedMemoryHandle renderer_handle,
-                          base::SharedMemoryHandle* browser_handle);
-#endif
 
 #if defined(OS_CHROMEOS) || defined(OS_ANDROID)
   // Used to ask the browser allocate a temporary file for the renderer
@@ -102,7 +100,7 @@ class PrintingMessageFilter : public content::BrowserMessageFilter {
 
 #if defined(ENABLE_PRINT_PREVIEW)
   // Check to see if print preview has been cancelled.
-  void OnCheckForCancel(int32 preview_ui_id,
+  void OnCheckForCancel(int32_t preview_ui_id,
                         int preview_request_id,
                         bool* cancel);
 #endif

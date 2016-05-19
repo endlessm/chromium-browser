@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/text/QuotedPrintable.h"
 
 #include "wtf/ASCIICType.h"
@@ -152,4 +151,4 @@ void quotedPrintableDecode(const char* data, size_t dataLength, Vector<char>& ou
     }
 }
 
-}
+} // namespace blink

@@ -23,6 +23,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/installer/setup/install_worker.h"
+#include "chrome/installer/setup/installer_crash_reporting.h"
 #include "chrome/installer/setup/setup_constants.h"
 #include "chrome/installer/setup/setup_util.h"
 #include "chrome/installer/setup/update_active_setup_version_work_item.h"
@@ -187,6 +188,8 @@ installer::InstallStatus InstallNewVersion(
   installer_state.UpdateStage(installer::BUILDING);
 
   current_version->reset(installer_state.GetCurrentVersion(original_state));
+  installer::SetCurrentVersionCrashKey(current_version->get());
+
   scoped_ptr<WorkItemList> install_list(WorkItem::CreateWorkItemList());
 
   AddInstallWorkItems(original_state,
@@ -208,7 +211,7 @@ installer::InstallStatus InstallNewVersion(
     installer_state.UpdateStage(installer::ROLLINGBACK);
     installer::InstallStatus result =
         base::PathExists(new_chrome_exe) && current_version->get() &&
-        new_version.Equals(*current_version->get()) ?
+        new_version == *current_version->get() ?
         installer::SAME_VERSION_REPAIR_FAILED :
         installer::INSTALL_FAILED;
     LOG(ERROR) << "Install failed, rolling back... result: " << result;
@@ -222,28 +225,28 @@ installer::InstallStatus InstallNewVersion(
   installer::RefreshElevationPolicy();
 
   if (!current_version->get()) {
-    VLOG(1) << "First install of version " << new_version.GetString();
+    VLOG(1) << "First install of version " << new_version;
     return installer::FIRST_INSTALL_SUCCESS;
   }
 
-  if (new_version.Equals(**current_version)) {
-    VLOG(1) << "Install repaired of version " << new_version.GetString();
+  if (new_version == **current_version) {
+    VLOG(1) << "Install repaired of version " << new_version;
     return installer::INSTALL_REPAIRED;
   }
 
-  if (new_version.CompareTo(**current_version) > 0) {
+  if (new_version > **current_version) {
     if (base::PathExists(new_chrome_exe)) {
-      VLOG(1) << "Version updated to " << new_version.GetString()
-              << " while running " << (*current_version)->GetString();
+      VLOG(1) << "Version updated to " << new_version
+              << " while running " << **current_version;
       return installer::IN_USE_UPDATED;
     }
-    VLOG(1) << "Version updated to " << new_version.GetString();
+    VLOG(1) << "Version updated to " << new_version;
     return installer::NEW_VERSION_UPDATED;
   }
 
   LOG(ERROR) << "Not sure how we got here while updating"
-             << ", new version: " << new_version.GetString()
-             << ", old version: " << (*current_version)->GetString();
+             << ", new version: " << new_version
+             << ", old version: " << **current_version;
 
   return installer::INSTALL_FAILED;
 }
@@ -337,15 +340,12 @@ void CreateOrUpdateShortcuts(
   bool do_not_create_desktop_shortcut = false;
   bool do_not_create_quick_launch_shortcut = false;
   bool do_not_create_taskbar_shortcut = false;
-  bool alternate_desktop_shortcut = false;
   prefs.GetBool(master_preferences::kDoNotCreateDesktopShortcut,
                 &do_not_create_desktop_shortcut);
   prefs.GetBool(master_preferences::kDoNotCreateQuickLaunchShortcut,
                 &do_not_create_quick_launch_shortcut);
   prefs.GetBool(master_preferences::kDoNotCreateTaskbarShortcut,
                 &do_not_create_taskbar_shortcut);
-  prefs.GetBool(master_preferences::kAltShortcutText,
-                &alternate_desktop_shortcut);
 
   BrowserDistribution* dist = product.distribution();
 
@@ -377,28 +377,9 @@ void CreateOrUpdateShortcuts(
 
   if (!do_not_create_desktop_shortcut ||
       shortcut_operation == ShellUtil::SHELL_SHORTCUT_REPLACE_EXISTING) {
-    const base::string16 alternate_shortcut_name =
-        dist->GetShortcutName(BrowserDistribution::SHORTCUT_CHROME_ALTERNATE);
-
-    ShellUtil::ShortcutProperties desktop_properties(base_properties);
-    if (alternate_desktop_shortcut && !alternate_shortcut_name.empty())
-      desktop_properties.set_shortcut_name(alternate_shortcut_name);
     ExecuteAndLogShortcutOperation(
-        ShellUtil::SHORTCUT_LOCATION_DESKTOP, dist, desktop_properties,
+        ShellUtil::SHORTCUT_LOCATION_DESKTOP, dist, base_properties,
         shortcut_operation);
-
-    // On update there is no harm in always trying to update the alternate
-    // Desktop shortcut (if it exists for this distribution).
-    if (!alternate_desktop_shortcut &&
-        shortcut_operation == ShellUtil::SHELL_SHORTCUT_REPLACE_EXISTING &&
-        !alternate_shortcut_name.empty()) {
-      desktop_properties.set_shortcut_name(
-          dist->GetShortcutName(
-              BrowserDistribution::SHORTCUT_CHROME_ALTERNATE));
-      ExecuteAndLogShortcutOperation(
-          ShellUtil::SHORTCUT_LOCATION_DESKTOP, dist, desktop_properties,
-          shortcut_operation);
-    }
   }
 
   if (!do_not_create_quick_launch_shortcut ||
@@ -413,11 +394,6 @@ void CreateOrUpdateShortcuts(
   }
 
   ShellUtil::ShortcutProperties start_menu_properties(base_properties);
-  // IMPORTANT: Only the default (no arguments and default browserappid) browser
-  // shortcut in the Start menu (Start screen on Win8+) should be made dual
-  // mode and that prior to Windows 10 only.
-  if (InstallUtil::ShouldInstallMetroProperties())
-    start_menu_properties.set_dual_mode(true);
   if (shortcut_operation == ShellUtil::SHELL_SHORTCUT_CREATE_ALWAYS ||
       shortcut_operation ==
           ShellUtil::SHELL_SHORTCUT_CREATE_IF_NO_SYSTEM_LEVEL) {
@@ -648,14 +624,19 @@ void HandleOsUpgradeForBrowser(const installer::InstallerState& installer_state,
   }
 }
 
-// NOTE: Should the work done here, on Active Setup, change: kActiveSetupVersion
-// in update_active_setup_version_work_item.cc needs to be increased for Active
-// Setup to invoke this again for all users of this install. It may also be
-// invoked again when a system-level chrome install goes through an OS upgrade.
+// NOTE: Should the work done here, on Active Setup, change:
+// kActiveSetupMajorVersion in update_active_setup_version_work_item.cc needs to
+// be increased for Active Setup to invoke this again for all users of this
+// install. It may also be invoked again when a system-level chrome install goes
+// through an OS upgrade.
 void HandleActiveSetupForBrowser(const base::FilePath& installation_root,
                                  const installer::Product& chrome,
                                  bool force) {
   DCHECK(chrome.is_chrome());
+
+  NoRollbackWorkItemList cleanup_list;
+  AddCleanupDeprecatedPerUserRegistrationsWorkItems(chrome, &cleanup_list);
+  cleanup_list.Do();
 
   // Only create shortcuts on Active Setup if the first run sentinel is not
   // present for this user (as some shortcuts used to be installed on first

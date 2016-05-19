@@ -7,6 +7,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "ui/views/context_menu_controller.h"
@@ -16,9 +17,9 @@ class AvatarMenuButton;
 class BrowserRootView;
 class BrowserView;
 class NativeBrowserFrame;
-class NewAvatarButton;
 class NonClientFrameView;
 class SystemMenuModelBuilder;
+class ThemeService;
 
 namespace gfx {
 class FontList;
@@ -28,7 +29,6 @@ class Rect;
 namespace ui {
 class EventHandler;
 class MenuModel;
-class ThemeProvider;
 }
 
 namespace views {
@@ -48,9 +48,6 @@ class BrowserFrame
 
   // Initialize the frame (creates the underlying native window).
   void InitBrowserFrame();
-
-  // Sets the ThemeProvider returned from GetThemeProvider().
-  void SetThemeProvider(scoped_ptr<ui::ThemeProvider> provider);
 
   // Determine the distance of the left edge of the minimize button from the
   // left edge of the window. Used in our Non-Client View's Layout.
@@ -96,12 +93,16 @@ class BrowserFrame
   void GetWindowPlacement(gfx::Rect* bounds,
                           ui::WindowShowState* show_state) const;
 
+  // Called when BrowserView creates all it's child views.
+  void OnBrowserViewInitViewsComplete();
+
   // Overridden from views::Widget:
   views::internal::RootView* CreateRootView() override;
   views::NonClientFrameView* CreateNonClientFrameView() override;
   bool GetAccelerator(int command_id,
                       ui::Accelerator* accelerator) const override;
-  ui::ThemeProvider* GetThemeProvider() const override;
+  const ui::ThemeProvider* GetThemeProvider() const override;
+  const ui::NativeTheme* GetNativeTheme() const override;
   void SchedulePaintInRect(const gfx::Rect& rect) override;
   void OnNativeWidgetActivationChanged(bool active) override;
 
@@ -111,10 +112,7 @@ class BrowserFrame
                               ui::MenuSourceType source_type) override;
 
   AvatarMenuButton* GetAvatarMenuButton();
-
-#if defined(FRAME_AVATAR_BUTTON)
-  NewAvatarButton* GetNewAvatarMenuButton();
-#endif
+  views::View* GetNewAvatarMenuButton();
 
   // Returns the menu model. BrowserFrame owns the returned model.
   // Note that in multi user mode this will upon each call create a new model.
@@ -140,12 +138,7 @@ class BrowserFrame
   // NativeBrowserFrame::UsesNativeSystemMenu() returns false.
   scoped_ptr<views::MenuRunner> menu_runner_;
 
-  // SetThemeProvider() triggers setting both |owned_theme_provider_| and
-  // |theme_provider_|. Initially |theme_provider_| is set to the ThemeService
-  // and |owned_theme_provider_| is null (as ThemeServices lifetime is managed
-  // externally).
-  scoped_ptr<ui::ThemeProvider> owned_theme_provider_;
-  ui::ThemeProvider* theme_provider_;
+  const ThemeService* theme_service_;
 
   scoped_ptr<ui::EventHandler> browser_command_handler_;
 

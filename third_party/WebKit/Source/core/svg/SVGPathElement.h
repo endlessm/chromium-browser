@@ -25,10 +25,11 @@
 #include "core/svg/SVGAnimatedNumber.h"
 #include "core/svg/SVGAnimatedPath.h"
 #include "core/svg/SVGGeometryElement.h"
-#include "core/svg/SVGPathByteStream.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
+
+class StylePath;
 
 class SVGPathElement final : public SVGGeometryElement {
     DEFINE_WRAPPERTYPEINFO();
@@ -41,16 +42,25 @@ public:
     PassRefPtrWillBeRawPtr<SVGPointTearOff> getPointAtLength(float distance);
     unsigned getPathSegAtLength(float distance);
 
-    SVGAnimatedNumber* pathLength() { return m_pathLength.get(); }
+    SVGAnimatedPath* path() const { return m_path.get(); }
+    SVGAnimatedNumber* pathLength() const { return m_pathLength.get(); }
+    float pathLengthScaleFactor() const;
 
-    const SVGPathByteStream& pathByteStream() const { return m_path->currentValue()->byteStream(); }
+    const SVGPathByteStream& pathByteStream() const;
+
+    bool isPresentationAttribute(const QualifiedName&) const override;
+    bool isPresentationAttributeWithSVGDOM(const QualifiedName&) const override;
 
     DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit SVGPathElement(Document&);
 
+    const StylePath* stylePath() const;
+
     void svgAttributeChanged(const QualifiedName&) override;
+
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override;
 
     Node::InsertionNotificationRequest insertedInto(ContainerNode*) override;
     void removedFrom(ContainerNode*) override;

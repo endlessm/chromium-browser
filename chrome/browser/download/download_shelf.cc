@@ -43,7 +43,7 @@ using content::DownloadItem;
 namespace {
 
 // Delay before we show a transient download.
-const int64 kDownloadShowDelayInSeconds = 2;
+const int64_t kDownloadShowDelayInSeconds = 2;
 
 // Get the opacity based on |animation_progress|, with values in [0.0, 1.0].
 // Range of return value is [0, 255].
@@ -80,7 +80,7 @@ void DownloadShelf::PaintDownloadProgress(
   SkPaint bg_paint;
   bg_paint.setStyle(SkPaint::kFill_Style);
   SkColor indicator_color =
-      theme_provider.GetColor(ThemeProperties::COLOR_THROBBER_SPINNING);
+      theme_provider.GetColor(ThemeProperties::COLOR_TAB_THROBBER_SPINNING);
   bg_paint.setColor(SkColorSetA(indicator_color, 0x33));
   bg_paint.setAntiAlias(true);
   const SkScalar kCenterPoint = kProgressIndicatorSize / 2.f;
@@ -229,7 +229,7 @@ void DownloadShelf::ShowDownload(DownloadItem* download) {
   }
 }
 
-void DownloadShelf::ShowDownloadById(int32 download_id) {
+void DownloadShelf::ShowDownloadById(int32_t download_id) {
   content::DownloadManager* download_manager = GetDownloadManager();
   if (!download_manager)
     return;

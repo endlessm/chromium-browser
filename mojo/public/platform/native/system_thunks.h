@@ -8,6 +8,7 @@
 #define MOJO_PUBLIC_PLATFORM_NATIVE_SYSTEM_THUNKS_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "mojo/public/c/system/core.h"
 
@@ -101,6 +102,18 @@ struct MojoSystemThunks {
                           void** buffer,
                           MojoMapBufferFlags flags);
   MojoResult (*UnmapBuffer)(void* buffer);
+
+  MojoResult (*CreateWaitSet)(MojoHandle* wait_set);
+  MojoResult (*AddHandle)(MojoHandle wait_set,
+                          MojoHandle handle,
+                          MojoHandleSignals signals);
+  MojoResult (*RemoveHandle)(MojoHandle wait_set,
+                             MojoHandle handle);
+  MojoResult (*GetReadyHandles)(MojoHandle wait_set,
+                                uint32_t* count,
+                                MojoHandle* handles,
+                                MojoResult* results,
+                                struct MojoHandleSignalsState* signals_states);
 };
 #pragma pack(pop)
 
@@ -127,7 +140,11 @@ inline MojoSystemThunks MojoMakeSystemThunks() {
                                     MojoCreateSharedBuffer,
                                     MojoDuplicateBufferHandle,
                                     MojoMapBuffer,
-                                    MojoUnmapBuffer};
+                                    MojoUnmapBuffer,
+                                    MojoCreateWaitSet,
+                                    MojoAddHandle,
+                                    MojoRemoveHandle,
+                                    MojoGetReadyHandles};
   return system_thunks;
 }
 #endif

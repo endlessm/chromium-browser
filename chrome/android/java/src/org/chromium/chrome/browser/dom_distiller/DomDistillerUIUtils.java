@@ -99,13 +99,16 @@ public final class DomDistillerUIUtils {
     @CalledByNative
     public static void closePanel(boolean animate) {
         if (sManagerDelegate == null) return;
-        sManagerDelegate.closePanel(StateChangeReason.CLOSE_BUTTON, animate);
+        sManagerDelegate.closeReaderPanel(StateChangeReason.CLOSE_BUTTON, animate);
     }
 
     /**
      * Clear static references to objects.
+     * @param delegate The delegate requesting the destoy. This prevents different managers in
+     * document mode from accidentally clearing a reference it doesn't own.
      */
-    public static void destroy() {
+    public static void destroy(ReaderModeManagerDelegate delegate) {
+        if (delegate != sManagerDelegate) return;
         sManagerDelegate = null;
     }
 

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/child/child_process.h"
@@ -58,6 +59,9 @@ class MediaStreamVideoRendererSinkTest : public testing::Test {
     media_stream_video_renderer_sink_ = nullptr;
     registry_.reset();
     blink::WebHeap::collectAllGarbageForTesting();
+
+    // Let the message loop run to finish destroying the pool.
+    base::RunLoop().RunUntilIdle();
   }
 
   MOCK_METHOD1(RepaintCallback, void(const scoped_refptr<media::VideoFrame>&));

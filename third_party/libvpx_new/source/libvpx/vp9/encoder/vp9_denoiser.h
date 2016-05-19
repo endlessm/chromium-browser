@@ -23,7 +23,8 @@ extern "C" {
 
 typedef enum vp9_denoiser_decision {
   COPY_BLOCK,
-  FILTER_BLOCK
+  FILTER_BLOCK,
+  FILTER_ZEROMV_BLOCK
 } VP9_DENOISER_DECISION;
 
 typedef enum vp9_denoiser_level {
@@ -54,11 +55,12 @@ void vp9_denoiser_update_frame_info(VP9_DENOISER *denoiser,
 
 void vp9_denoiser_denoise(VP9_DENOISER *denoiser, MACROBLOCK *mb,
                           int mi_row, int mi_col, BLOCK_SIZE bs,
-                          PICK_MODE_CONTEXT *ctx);
+                          PICK_MODE_CONTEXT *ctx ,
+                          VP9_DENOISER_DECISION *denoiser_decision);
 
 void vp9_denoiser_reset_frame_stats(PICK_MODE_CONTEXT *ctx);
 
-void vp9_denoiser_update_frame_stats(MB_MODE_INFO *mbmi,
+void vp9_denoiser_update_frame_stats(MODE_INFO *mi,
                                      unsigned int sse, PREDICTION_MODE mode,
                                      PICK_MODE_CONTEXT *ctx);
 
@@ -73,7 +75,8 @@ int vp9_denoiser_alloc(VP9_DENOISER *denoiser, int width, int height,
 // This function is used by both c and sse2 denoiser implementations.
 // Define it as a static function within the scope where vp9_denoiser.h
 // is referenced.
-static int total_adj_strong_thresh(BLOCK_SIZE bs, int increase_denoising) {
+static INLINE int total_adj_strong_thresh(BLOCK_SIZE bs,
+                                          int increase_denoising) {
   return (1 << num_pels_log2_lookup[bs]) * (increase_denoising ? 3 : 2);
 }
 #endif

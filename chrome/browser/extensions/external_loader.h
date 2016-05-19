@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_EXTENSIONS_EXTERNAL_LOADER_H_
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 
@@ -56,6 +57,9 @@ class ExternalLoader : public base::RefCountedThreadSafe<ExternalLoader> {
 
   // Notifies the provider that the list of extensions has been loaded.
   virtual void LoadFinished();
+
+  // Notifies the provider that the list of extensions has been updated.
+  virtual void OnUpdated(scoped_ptr<base::DictionaryValue> updated_prefs);
 
   // Used for passing the list of extensions from the method that loads them
   // to |LoadFinished|. To ensure thread safety, the rules are the following:

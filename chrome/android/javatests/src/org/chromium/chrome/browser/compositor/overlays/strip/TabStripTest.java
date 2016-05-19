@@ -4,13 +4,10 @@
 
 package org.chromium.chrome.browser.compositor.overlays.strip;
 
-import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_TABLET;
-
 import android.content.pm.ActivityInfo;
 import android.test.suitebuilder.annotation.LargeTest;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.compositor.layouts.components.CompositorButton;
@@ -20,6 +17,7 @@ import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
+import org.chromium.chrome.test.util.ChromeRestriction;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.TabStripUtils;
 import org.chromium.content.browser.test.util.CallbackHelper;
@@ -42,7 +40,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testInitialState() throws InterruptedException {
         getInstrumentation().waitForIdleSync();
@@ -55,7 +53,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip", "Main"})
     public void testNewTabButtonWithOneTab() throws InterruptedException {
         getInstrumentation().waitForIdleSync();
@@ -78,7 +76,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testNewTabButtonWithManyTabs() throws InterruptedException {
         ChromeTabUtils.newTabsFromMenu(getInstrumentation(), getActivity(), 3);
@@ -108,7 +106,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testNewTabFromMenu() throws InterruptedException {
         getInstrumentation().waitForIdleSync();
@@ -125,13 +123,9 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * activates the incognito TabStrip.
      * @throws InterruptedException
      */
-    /*
-     * @LargeTest
-     * @Restriction(RESTRICTION_TYPE_TABLET)
-     * @Feature({"TabStrip"})
-     * Bug crbug.com/258495
-     */
-    @DisabledTest
+    @LargeTest
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
+    @Feature({"TabStrip"})
     public void testNewIncognitoTabFromMenuAtNormalStrip() throws InterruptedException {
         getInstrumentation().waitForIdleSync();
         assertFalse("Expected normal strip to be selected",
@@ -152,7 +146,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testSelectWithTwoTabs() throws InterruptedException {
         ChromeTabUtils.newTabFromMenu(getInstrumentation(), getActivity());
@@ -171,23 +165,21 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * also check that the visible tab ordering is correct.
      * @throws InterruptedException
      */
-    /*
-     * @LargeTest
-     * @Restriction(RESTRICTION_TYPE_TABLET)
-     * @Feature({"TabStrip"})
-     * Bug crbug.com/258495
-     */
-    @DisabledTest
+    @LargeTest
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
+    @Feature({"TabStrip"})
     public void testSelectWithManyTabs() throws InterruptedException {
         ChromeTabUtils.newTabsFromMenu(getInstrumentation(), getActivity(), 4);
         getInstrumentation().waitForIdleSync();
         assertEquals("The last tab is not selected",
                 getActivity().getCurrentTabModel().index(), 4);
         compareAllTabStripsWithModel();
-        selectTab(false, getActivity().getCurrentTabModel().getTabAt(2).getId());
+        // Note: if the tab is not visible, this will fail. Currently that's not a problem, because
+        // the devices we test on are wide enough.
+        selectTab(false, getActivity().getCurrentTabModel().getTabAt(0).getId());
         getInstrumentation().waitForIdleSync();
         assertEquals("The middle tab is not selected",
-                getActivity().getCurrentTabModel().index(), 2);
+                getActivity().getCurrentTabModel().index(), 0);
         compareAllTabStripsWithModel();
     }
 
@@ -197,7 +189,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testCloseTabWithTwoTabs() throws InterruptedException {
         ChromeTabUtils.newTabFromMenu(getInstrumentation(), getActivity());
@@ -224,11 +216,9 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testCloseTabWithManyTabs() throws InterruptedException {
-        getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-
         ChromeTabUtils.newTabsFromMenu(getInstrumentation(), getActivity(), 4);
         getInstrumentation().waitForIdleSync();
         assertEquals("There are not five tabs present",
@@ -236,7 +226,9 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
         assertEquals("The last tab is not selected",
                 getActivity().getCurrentTabModel().index(), 4);
         int initialSelectedId = getActivity().getActivityTab().getId();
-        closeTab(false, getActivity().getCurrentTabModel().getTabAt(2).getId());
+        // Note: if the tab is not visible, this will fail. Currently that's not a problem, because
+        // the devices we test on are wide enough.
+        closeTab(false, getActivity().getCurrentTabModel().getTabAt(0).getId());
         getInstrumentation().waitForIdleSync();
         assertEquals("There are not four tabs present",
                 getActivity().getCurrentTabModel().getCount(), 4);
@@ -253,7 +245,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testCloseSelectedTab() throws InterruptedException {
         ChromeTabUtils.newTabFromMenu(getInstrumentation(), getActivity());
@@ -280,7 +272,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testCloseAllTabsFromTabMenuClosesAllTabs() throws InterruptedException {
         // 1. Create a second tab
@@ -322,7 +314,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testTabMenuDismissedOnOrientationChange() throws InterruptedException {
         // 1. Set orientation to portrait
@@ -351,13 +343,10 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * and normal TabStrips.
      * @throws InterruptedException
      */
-    /*
-     * @LargeTest
-     * @Restriction(RESTRICTION_TYPE_TABLET)
-     * @Feature({"TabStrip"})
-     * Bug crbug.com/258495
-     */
-    @DisabledTest
+
+    @LargeTest
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
+    @Feature({"TabStrip"})
     public void testToggleIncognitoMode() throws InterruptedException {
         getInstrumentation().waitForIdleSync();
         assertFalse("Expected normal strip to be selected",
@@ -385,7 +374,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      */
     @LargeTest
     @Feature({"TabStrip"})
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     public void testCloseLastIncognitoTab() throws InterruptedException {
         getInstrumentation().waitForIdleSync();
         assertFalse("Expected normal strip to be selected",
@@ -410,7 +399,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      */
     @LargeTest
     @Feature({"TabStrip"})
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     public void testCloseAllIncognitoTabsFromTabMenu() throws InterruptedException {
         //1. Create two incognito tabs
         getInstrumentation().waitForIdleSync();
@@ -455,7 +444,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @throws InterruptedException
      */
     @LargeTest
-    @Restriction(RESTRICTION_TYPE_TABLET)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
     public void testTabSelectionViewDoesNotBreakModelSwitch() throws InterruptedException {
         getInstrumentation().waitForIdleSync();

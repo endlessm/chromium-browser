@@ -40,7 +40,7 @@ scoped_ptr<icu::Collator> CreateCollator(const std::string& locale) {
   if (!collator || !U_SUCCESS(error))
     return nullptr;
   collator->setStrength(icu::Collator::PRIMARY);
-  return collator.Pass();
+  return collator;
 }
 
 }  // namespace
@@ -144,6 +144,16 @@ void TranslateUIDelegate::UpdateOriginalLanguageIndex(size_t language_index) {
   original_language_index_ = language_index;
 }
 
+void TranslateUIDelegate::UpdateOriginalLanguage(
+    const std::string& language_code) {
+  for (size_t i = 0; i < languages_.size(); ++i) {
+    if (languages_[i].first.compare(language_code) == 0) {
+      UpdateOriginalLanguageIndex(i);
+      return;
+    }
+  }
+}
+
 size_t TranslateUIDelegate::GetTargetLanguageIndex() const {
   return target_language_index_;
 }
@@ -155,6 +165,16 @@ void TranslateUIDelegate::UpdateTargetLanguageIndex(size_t language_index) {
   DCHECK_LT(language_index, GetNumberOfLanguages());
   UMA_HISTOGRAM_BOOLEAN(kModifyTargetLang, true);
   target_language_index_ = language_index;
+}
+
+void TranslateUIDelegate::UpdateTargetLanguage(
+    const std::string& language_code) {
+  for (size_t i = 0; i < languages_.size(); ++i) {
+    if (languages_[i].first.compare(language_code) == 0) {
+      UpdateTargetLanguageIndex(i);
+      return;
+    }
+  }
 }
 
 std::string TranslateUIDelegate::GetLanguageCodeAt(size_t index) const {
@@ -176,7 +196,9 @@ std::string TranslateUIDelegate::GetOriginalLanguageCode() const {
 }
 
 std::string TranslateUIDelegate::GetTargetLanguageCode() const {
-  return GetLanguageCodeAt(GetTargetLanguageIndex());
+  return (GetTargetLanguageIndex() == kNoIndex)
+             ? translate::kUnknownLanguageCode
+             : GetLanguageCodeAt(GetTargetLanguageIndex());
 }
 
 void TranslateUIDelegate::Translate() {
@@ -200,7 +222,7 @@ void TranslateUIDelegate::RevertTranslation() {
 }
 
 void TranslateUIDelegate::TranslationDeclined(bool explicitly_closed) {
-  if (!translate_driver_->IsOffTheRecord()) {
+  if (explicitly_closed && !translate_driver_->IsOffTheRecord()) {
     const std::string& language = GetOriginalLanguageCode();
     prefs_->ResetTranslationAcceptedCount(language);
     prefs_->IncrementTranslationDeniedCount(language);
@@ -212,13 +234,14 @@ void TranslateUIDelegate::TranslationDeclined(bool explicitly_closed) {
   // when getting a LANGUAGE_DETERMINED from the page, which happens when a load
   // stops. That could happen multiple times, including after the user already
   // declined the translation.)
-  if (translate_manager_) {
+  if (explicitly_closed && translate_manager_) {
     translate_manager_->GetLanguageState().set_translation_declined(true);
     UMA_HISTOGRAM_BOOLEAN(kDeclineTranslate, true);
   }
 
-  if (!explicitly_closed)
+  if (!explicitly_closed) {
     UMA_HISTOGRAM_BOOLEAN(kDeclineTranslateDismissUI, true);
+  }
 }
 
 bool TranslateUIDelegate::IsLanguageBlocked() {

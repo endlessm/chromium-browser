@@ -25,7 +25,6 @@ import imp
 import optparse
 import os
 
-import util
 
 
 # The default agent directory.
@@ -92,6 +91,8 @@ def parse_options(argv):
                     '--agent-dirs=dir1,dir2,dir3. Directory |%s| is the default'
                     ' agent directory and will always be checked.'
                     % DEFAULT_AGENT_DIR)
+  parser.add_option('--target', dest='target', default='android', type='string',
+                    help='chose tracing target (android or linux)')
 
   options, categories = parser.parse_args(argv[1:])
 
@@ -137,7 +138,7 @@ def write_trace_html(html_filename, script_dir, agents):
 
   html_file.write(html_suffix)
   html_file.close()
-  print('\n    wrote file://%s\n' % os.path.abspath(html_filename))
+  print '\n    wrote file://%s\n' % os.path.abspath(html_filename)
 
 
 def create_agents(options, categories):

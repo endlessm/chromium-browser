@@ -6,11 +6,10 @@
 
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/translate/core/browser/translate_infobar_delegate.h"
-#include "grit/components_strings.h"
 #include "ios/chrome/browser/translate/translate_infobar_tags.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#include "ios/public/provider/chrome/browser/string_provider.h"
 #import "ios/public/provider/chrome/browser/ui/infobar_view_delegate.h"
 #import "ios/public/provider/chrome/browser/ui/infobar_view_protocol.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -44,8 +43,8 @@
     [infoBarView addLeftIcon:icon.ToUIImage()];
   // Main text.
   const bool autodeterminedSourceLanguage =
-      _translateInfoBarDelegate->original_language_index() ==
-      translate::TranslateInfoBarDelegate::kNoIndex;
+      _translateInfoBarDelegate->original_language_code() ==
+      translate::kUnknownLanguageCode;
   bool swappedLanguageButtons;
   std::vector<base::string16> strings;
   translate::TranslateInfoBarDelegate::GetAfterTranslateStrings(
@@ -56,12 +55,11 @@
   NSString* label3 = autodeterminedSourceLanguage
                          ? @""
                          : base::SysUTF16ToNSString(strings[2]);
-  base::string16 stdOriginal = _translateInfoBarDelegate->language_name_at(
-      _translateInfoBarDelegate->original_language_index());
+  base::string16 stdOriginal =
+      _translateInfoBarDelegate->original_language_name();
   NSString* original = base::SysUTF16ToNSString(stdOriginal);
-  NSString* target =
-      base::SysUTF16ToNSString(_translateInfoBarDelegate->language_name_at(
-          _translateInfoBarDelegate->target_language_index()));
+  NSString* target = base::SysUTF16ToNSString(
+      _translateInfoBarDelegate->target_language_name());
   base::scoped_nsobject<NSString> label(
       [[NSString alloc] initWithFormat:@"%@ %@ %@%@ %@.", label1, original,
                                        label2, label3, target]);
@@ -72,8 +70,7 @@
                               action:@selector(infoBarButtonDidPress:)];
   // Other buttons.
   NSString* buttonRevert = l10n_util::GetNSString(IDS_TRANSLATE_INFOBAR_REVERT);
-  NSString* buttonOptions = base::SysUTF16ToNSString(
-      ios::GetChromeBrowserProvider()->GetStringProvider()->GetDoneString());
+  NSString* buttonOptions = l10n_util::GetNSString(IDS_DONE);
   [infoBarView addButton1:buttonOptions
                      tag1:TranslateInfoBarIOSTag::AFTER_DONE
                   button2:buttonRevert

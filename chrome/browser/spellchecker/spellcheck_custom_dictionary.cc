@@ -4,7 +4,9 @@
 
 #include "chrome/browser/spellchecker/spellcheck_custom_dictionary.h"
 
+#include <stddef.h>
 #include <functional>
+#include <utility>
 
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
@@ -94,14 +96,14 @@ int SanitizeWordsToAdd(const std::set<std::string>& existing,
                        std::set<std::string>* to_add) {
   DCHECK(to_add);
   // Do not add duplicate words.
-  std::set<std::string> new_words =
-      base::STLSetDifference<std::set<std::string>>(*to_add, existing);
+  std::vector<std::string> new_words =
+      base::STLSetDifference<std::vector<std::string>>(*to_add, existing);
   int result = VALID_CHANGE;
   if (to_add->size() != new_words.size())
     result |= DETECTED_DUPLICATE_WORDS;
   // Do not add invalid words.
   std::set<std::string> valid_new_words;
-  for (const std::string& word : new_words) {
+  for (const auto& word : new_words) {
     if (IsValidWord(word))
       valid_new_words.insert(valid_new_words.end(), word);
   }
@@ -228,7 +230,7 @@ bool SpellcheckCustomDictionary::AddWord(const std::string& word) {
   Apply(*dictionary_change);
   Notify(*dictionary_change);
   Sync(*dictionary_change);
-  Save(dictionary_change.Pass());
+  Save(std::move(dictionary_change));
   return result == VALID_CHANGE;
 }
 
@@ -240,7 +242,7 @@ bool SpellcheckCustomDictionary::RemoveWord(const std::string& word) {
   Apply(*dictionary_change);
   Notify(*dictionary_change);
   Sync(*dictionary_change);
-  Save(dictionary_change.Pass());
+  Save(std::move(dictionary_change));
   return result == VALID_CHANGE;
 }
 
@@ -292,8 +294,8 @@ syncer::SyncMergeResult SpellcheckCustomDictionary::MergeDataAndStartSyncing(
   DCHECK(sync_processor.get());
   DCHECK(sync_error_handler.get());
   DCHECK_EQ(syncer::DICTIONARY, type);
-  sync_processor_ = sync_processor.Pass();
-  sync_error_handler_ = sync_error_handler.Pass();
+  sync_processor_ = std::move(sync_processor);
+  sync_error_handler_ = std::move(sync_error_handler);
 
   // Build a list of words to add locally.
   scoped_ptr<Change> to_change_locally(new Change);
@@ -311,7 +313,7 @@ syncer::SyncMergeResult SpellcheckCustomDictionary::MergeDataAndStartSyncing(
   // Add remote words locally.
   Apply(*to_change_locally);
   Notify(*to_change_locally);
-  Save(to_change_locally.Pass());
+  Save(std::move(to_change_locally));
 
   // Send local changes to the sync server.
   syncer::SyncMergeResult result(type);
@@ -331,13 +333,10 @@ syncer::SyncDataList SpellcheckCustomDictionary::GetAllSyncData(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(syncer::DICTIONARY, type);
   syncer::SyncDataList data;
-  std::string word;
   size_t i = 0;
-  for (auto it = words_.begin();
-       it != words_.end() &&
-       i < chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS;
-       ++it, ++i) {
-    word = *it;
+  for (const auto& word : words_) {
+    if (i++ >= chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS)
+      break;
     sync_pb::EntitySpecifics specifics;
     specifics.mutable_dictionary()->set_word(word);
     data.push_back(syncer::SyncData::CreateLocalData(word, word, specifics));
@@ -374,7 +373,7 @@ syncer::SyncError SpellcheckCustomDictionary::ProcessSyncChanges(
   dictionary_change->Sanitize(GetWords());
   Apply(*dictionary_change);
   Notify(*dictionary_change);
-  Save(dictionary_change.Pass());
+  Save(std::move(dictionary_change));
 
   return syncer::SyncError();
 }
@@ -443,12 +442,8 @@ void SpellcheckCustomDictionary::Apply(const Change& dictionary_change) {
     words_.insert(dictionary_change.to_add().begin(),
                   dictionary_change.to_add().end());
   }
-  if (!dictionary_change.to_remove().empty()) {
-    std::set<std::string> updated_words =
-        base::STLSetDifference<std::set<std::string>>(
-            words_, dictionary_change.to_remove());
-    std::swap(words_, updated_words);
-  }
+  for (const auto& word : dictionary_change.to_remove())
+    words_.erase(word);
 }
 
 void SpellcheckCustomDictionary::FixInvalidFile(
@@ -491,9 +486,9 @@ syncer::SyncError SpellcheckCustomDictionary::Sync(
   syncer::SyncChangeList sync_change_list;
   int i = 0;
 
-  for (auto it = dictionary_change.to_add().begin();
-       it != dictionary_change.to_add().end() && i < upload_size; ++it, ++i) {
-    const std::string& word = *it;
+  for (const auto& word : dictionary_change.to_add()) {
+    if (i++ >= upload_size)
+      break;
     sync_pb::EntitySpecifics specifics;
     specifics.mutable_dictionary()->set_word(word);
     sync_change_list.push_back(syncer::SyncChange(

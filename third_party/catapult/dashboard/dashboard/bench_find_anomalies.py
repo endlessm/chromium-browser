@@ -66,22 +66,22 @@ _EXPERIMENTAL_FUNCTIONS = {
     'find_change_points_default': find_change_points_exp.RunFindChangePoints,
     'find_change_points_absolute_change_threshold':
         find_change_points_exp.FindChangePointsWithAbsoluteChangeThreshold,
-    'segment_size_4': lambda(test, series):
+    'segment_size_4': lambda test, series:
                       find_change_points_exp.RunFindChangePoints(
                           test, series, min_segment_size=4),
-    'segment_size_8': lambda(test, series):
+    'segment_size_8': lambda test, series:
                       find_change_points_exp.RunFindChangePoints(
                           test, series, min_segment_size=8),
-    'steppiness_0_1': lambda(test, series):
+    'steppiness_0_1': lambda test, series:
                       find_change_points_exp.RunFindChangePoints(
                           test, series, min_steppiness=0.1),
-    'steppiness_0_5': lambda(test, series):
+    'steppiness_0_5': lambda test, series:
                       find_change_points_exp.RunFindChangePoints(
                           test, series, min_steppiness=0.5),
-    'std_dev_2': lambda(test, series):
+    'std_dev_2': lambda test, series:
                  find_change_points_exp.RunFindChangePoints(
                      test, series, multiple_of_std_dev=2.0),
-    'std_dev_3': lambda(test, series):
+    'std_dev_3': lambda test, series:
                  find_change_points_exp.RunFindChangePoints(
                      test, series, multiple_of_std_dev=3.0),
 }
@@ -138,7 +138,7 @@ class TestBench(ndb.Model):
 
 class SimulateAlertProcessingPipeline(pipeline.Pipeline):
 
-  def run(self, bench_name, test_bench_id):
+  def run(self, bench_name, test_bench_id):  # pylint: disable=invalid-name
     """Runs one experimental alerting function for one TestBench entity.
 
     Args:
@@ -173,7 +173,8 @@ class SimulateAlertProcessingPipeline(pipeline.Pipeline):
 
 class GenerateComparisonReportPipeline(pipeline.Pipeline):
 
-  def run(self, bench_name, description, simulation_results):
+  def run(  # pylint: disable=invalid-name
+      self, bench_name, description, simulation_results):
     """"Generates a comparison report between experimental and base results.
 
     Args:
@@ -319,11 +320,11 @@ def _GraphLink(test_key, rev):
 
 class RunExperimentalChunkPipeline(pipeline.Pipeline):
 
-  def run(self, bench_name, test_bench_ids):
+  def run(self, bench_name, test_bench_ids):  # pylint: disable=invalid-name
     """Runs the experimental find_change_points on each TestBench entity.
 
     This runs SimulateAlertProcessing in parallel and returns a list of
-    the combinded results.
+    the combined results.
 
     Args:
       bench_name: A string bench name.
@@ -342,7 +343,7 @@ class RunExperimentalChunkPipeline(pipeline.Pipeline):
 
 class RunExperimentalPipeline(pipeline.Pipeline):
 
-  def run(self, bench_name, description):
+  def run(self, bench_name, description):  # pylint: disable=invalid-name
     """The root pipeline that start simulation tasks and generating report.
 
     This spawns tasks to spawn more tasks that run simulation and executes the
@@ -395,7 +396,7 @@ def BenchFindChangePoints(bench_name, description):
 
   Raises:
     ValueError: The input was not valid.
-    Exception: Not enough data valable.
+    Exception: Not enough data available.
   """
   if bench_name not in _EXPERIMENTAL_FUNCTIONS:
     raise ValueError('%s is not a valid find anomalies bench function.' %
@@ -481,7 +482,8 @@ def _UpdateInvalidAndConfirmedAnomalyRevs(test_bench):
   # Start rev for getting Anomalies should be at min_segment_size.
   test = test_bench.test.get()
   config_dict = anomaly_config.GetAnomalyConfigDict(test)
-  min_segment_size = config_dict.get('min_segment_size')
+  min_segment_size = config_dict.get(
+      'min_segment_size', find_change_points.MIN_SEGMENT_SIZE)
   start_index = min(min_segment_size, len(test_bench.data_series)) - 1
   start_rev = test_bench.data_series[start_index][0]
 

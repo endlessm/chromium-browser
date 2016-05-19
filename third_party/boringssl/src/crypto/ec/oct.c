@@ -68,6 +68,7 @@
 #include <openssl/ec.h>
 
 #include <openssl/bn.h>
+#include <openssl/bytestring.h>
 #include <openssl/err.h>
 
 #include "internal.h"
@@ -90,17 +91,9 @@ static size_t ec_GFp_simple_point2oct(const EC_GROUP *group,
   }
 
   if (EC_POINT_is_at_infinity(group, point)) {
-    /* encodes to a single 0 octet */
-    if (buf != NULL) {
-      if (len < 1) {
-        OPENSSL_PUT_ERROR(EC, EC_R_BUFFER_TOO_SMALL);
-        return 0;
-      }
-      buf[0] = 0;
-    }
-    return 1;
+    OPENSSL_PUT_ERROR(EC, EC_R_POINT_AT_INFINITY);
+    goto err;
   }
-
 
   /* ret := required output buffer length */
   field_len = BN_num_bytes(&group->field);
@@ -117,7 +110,7 @@ static size_t ec_GFp_simple_point2oct(const EC_GROUP *group,
     if (ctx == NULL) {
       ctx = new_ctx = BN_CTX_new();
       if (ctx == NULL) {
-        return 0;
+        goto err;
       }
     }
 
@@ -193,23 +186,11 @@ static int ec_GFp_simple_oct2point(const EC_GROUP *group, EC_POINT *point,
   form = buf[0];
   y_bit = form & 1;
   form = form & ~1U;
-  if ((form != 0) && (form != POINT_CONVERSION_COMPRESSED) &&
-      (form != POINT_CONVERSION_UNCOMPRESSED)) {
+  if ((form != POINT_CONVERSION_COMPRESSED &&
+       form != POINT_CONVERSION_UNCOMPRESSED) ||
+      (form == POINT_CONVERSION_UNCOMPRESSED && y_bit)) {
     OPENSSL_PUT_ERROR(EC, EC_R_INVALID_ENCODING);
     return 0;
-  }
-  if ((form == 0 || form == POINT_CONVERSION_UNCOMPRESSED) && y_bit) {
-    OPENSSL_PUT_ERROR(EC, EC_R_INVALID_ENCODING);
-    return 0;
-  }
-
-  if (form == 0) {
-    if (len != 1) {
-      OPENSSL_PUT_ERROR(EC, EC_R_INVALID_ENCODING);
-      return 0;
-    }
-
-    return EC_POINT_set_to_infinity(group, point);
   }
 
   field_len = BN_num_bytes(&group->field);
@@ -261,12 +242,6 @@ static int ec_GFp_simple_oct2point(const EC_GROUP *group, EC_POINT *point,
     }
   }
 
-  /* test required by X9.62 */
-  if (!EC_POINT_is_on_curve(group, point, ctx)) {
-    OPENSSL_PUT_ERROR(EC, EC_R_POINT_IS_NOT_ON_CURVE);
-    goto err;
-  }
-
   ret = 1;
 
 err:
@@ -292,6 +267,17 @@ size_t EC_POINT_point2oct(const EC_GROUP *group, const EC_POINT *point,
     return 0;
   }
   return ec_GFp_simple_point2oct(group, point, form, buf, len, ctx);
+}
+
+int EC_POINT_point2cbb(CBB *out, const EC_GROUP *group, const EC_POINT *point,
+                       point_conversion_form_t form, BN_CTX *ctx) {
+  size_t len = EC_POINT_point2oct(group, point, form, NULL, 0, ctx);
+  if (len == 0) {
+    return 0;
+  }
+  uint8_t *p;
+  return CBB_add_space(out, &p, len) &&
+         EC_POINT_point2oct(group, point, form, p, len, ctx) == len;
 }
 
 int ec_GFp_simple_set_compressed_coordinates(const EC_GROUP *group,

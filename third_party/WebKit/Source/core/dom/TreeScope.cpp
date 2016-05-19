@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/TreeScope.h"
 
 #include "core/HTMLNames.h"
@@ -185,6 +184,7 @@ void TreeScope::addElementById(const AtomicString& elementId, Element* element)
     m_elementsById->add(elementId, element);
     m_idTargetObserverRegistry->notifyObservers(elementId);
 }
+
 
 void TreeScope::removeElementById(const AtomicString& elementId, Element* element)
 {
@@ -415,8 +415,10 @@ void TreeScope::adoptIfNeeded(Node& node)
     ASSERT_WITH_SECURITY_IMPLICATION(!node.m_deletionHasBegun);
 #endif
     TreeScopeAdopter adopter(node, *this);
-    if (adopter.needsScopeChange())
+    if (adopter.needsScopeChange()) {
+        ScriptForbiddenScope forbidScript;
         adopter.execute();
+    }
 }
 
 Element* TreeScope::adjustedFocusedElement() const

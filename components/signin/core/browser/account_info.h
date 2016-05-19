@@ -10,6 +10,7 @@
 // Information about a specific account.
 struct AccountInfo {
   AccountInfo();
+  AccountInfo(const AccountInfo& other);
   ~AccountInfo();
 
   std::string account_id;  // The account ID used by OAuth2TokenService.
@@ -23,6 +24,9 @@ struct AccountInfo {
   bool is_child_account;
 
   bool IsValid() const;
+  // Updates the empty fields of |this| with |other|. Returns whether at least
+  // one field was updated.
+  bool UpdateWith(const AccountInfo& other);
 };
 
 #endif  // COMPONENTS_SIGNIN_CORE_BROWSER_ACCOUNT_INFO_H_

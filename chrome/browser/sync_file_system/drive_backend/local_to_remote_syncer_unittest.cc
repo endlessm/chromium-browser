@@ -4,10 +4,13 @@
 
 #include "chrome/browser/sync_file_system/drive_backend/local_to_remote_syncer.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_constants.h"
@@ -69,12 +72,10 @@ class LocalToRemoteSyncerTest : public testing::Test {
         kSyncRootFolderTitle));
     remote_change_processor_.reset(new FakeRemoteChangeProcessor);
 
-    context_.reset(new SyncEngineContext(fake_drive_service.Pass(),
-                                         drive_uploader.Pass(),
-                                         nullptr /* task_logger */,
-                                         base::ThreadTaskRunnerHandle::Get(),
-                                         base::ThreadTaskRunnerHandle::Get(),
-                                         nullptr /* worker_pool */));
+    context_.reset(new SyncEngineContext(
+        std::move(fake_drive_service), std::move(drive_uploader),
+        nullptr /* task_logger */, base::ThreadTaskRunnerHandle::Get(),
+        base::ThreadTaskRunnerHandle::Get(), nullptr /* worker_pool */));
     context_->SetRemoteChangeProcessor(remote_change_processor_.get());
 
     RegisterSyncableFileSystem();
@@ -220,7 +221,7 @@ class LocalToRemoteSyncerTest : public testing::Test {
     EXPECT_EQ(google_apis::HTTP_SUCCESS,
               fake_drive_helper_->SearchByTitle(
                   parent_folder_id, title, &entries));
-    return entries.Pass();
+    return entries;
   }
 
   std::string GetFileIDForParentAndTitle(const std::string& parent_folder_id,

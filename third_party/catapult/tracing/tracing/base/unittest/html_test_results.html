@@ -12,27 +12,30 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/ui/base/utils.html">
 
 <style>
-  x-tr-b-unittest-test-results
+  x-tr-b-unittest-test-results {
     display: flex;
     flex-direction: column;
+    flex: 0 0 auto;
   }
 
-  x-tr-b-unittest-test-results > x-html-test-case-result.dark {
+  x-tr-b-unittest-test-results > x-html-test-case-result.dark > #summary {
     background-color: #eee;
   }
 
   x-html-test-case-result {
     display: block;
   }
-  x-html-test-case-result > #title,
-  x-html-test-case-result > #status,
+  x-html-test-case-result > #summary > #title,
+  x-html-test-case-result > #summary > #status,
   x-html-test-case-result > #details > x-html-test-case-error > #message,
   x-html-test-case-result > #details > x-html-test-case-error > #stack,
-  x-html-test-case-result > #details > x-html-test-case-error > #return-value {
+  x-html-test-case-result > #details > x-html-test-case-error > #return-value,
+  x-html-test-case-result > #details > x-html-test-case-flaky > #message {
     -webkit-user-select: auto;
   }
 
-  x-html-test-case-result > #details > x-html-test-case-error {
+  x-html-test-case-result > #details > x-html-test-case-error,
+  x-html-test-case-result > #details > x-html-test-case-flaky {
     display: block;
     border: 1px solid grey;
     border-radius: 5px;
@@ -41,7 +44,8 @@ found in the LICENSE file.
   }
 
   x-html-test-case-result > #details > x-html-test-case-error > #message,
-  x-html-test-case-result > #details > x-html-test-case-error > #stack {
+  x-html-test-case-result > #details > x-html-test-case-error > #stack,
+  x-html-test-case-result > #details > x-html-test-case-flaky > #message {
     white-space: pre;
   }
 
@@ -66,6 +70,10 @@ found in the LICENSE file.
     font-weight: bold;
   }
 
+  .unittest-flaky {
+    color: darkorange;
+  }
+
   .unittest-exception {
     color: red;
     font-weight: bold;
@@ -78,14 +86,20 @@ found in the LICENSE file.
   }
 </style>
 <template id="x-html-test-case-result-template">
-  <span id="title"></span>&nbsp;
-  <span id="status"></span>&nbsp;
-  <span id="return-value"></span>
+  <div id="summary">
+    <span id="title"></span>&nbsp;
+    <span id="status"></span>&nbsp;
+    <span id="return-value"></span>
+  </div>
   <div id="details"></div>
 </template>
 
 <template id="x-html-test-case-error-template">
   <div id="stack"></div>
+</template>
+
+<template id="x-html-test-case-flaky-template">
+  <div id="message"></div>
 </template>
 
 <script>
@@ -166,14 +180,19 @@ tr.exportTo('tr.b.unittest', function() {
       this.updateColorAndStatus_();
     },
 
+    addFlaky: function() {
+      var flakyEl = document.createElement('x-html-test-case-flaky');
+      flakyEl.appendChild(tr.ui.b.instantiateTemplate(
+          '#x-html-test-case-flaky-template', THIS_DOC));
+      flakyEl.querySelector('#message').textContent = 'FLAKY';
+      this.querySelector('#details').appendChild(flakyEl);
+      this.updateColorAndStatus_();
+    },
+
     addHTMLOutput: function(element) {
       var htmlResultEl = document.createElement('x-html-test-case-html-result');
       htmlResultEl.appendChild(element);
       this.querySelector('#details').appendChild(htmlResultEl);
-
-      var bounds = element.getBoundingClientRect();
-      assert(bounds.width !== 0, 'addHTMLOutput element as 0 width');
-      assert(bounds.height !== 0, 'addHTMLOutput element has 0 height');
     },
 
     updateHTMLOutputDisplayState_: function() {
@@ -189,6 +208,10 @@ tr.exportTo('tr.b.unittest', function() {
 
     get hadErrors() {
       return !!this.querySelector('x-html-test-case-error');
+    },
+
+    get isFlaky() {
+      return !!this.querySelector('x-html-test-case-flaky');
     },
 
     get duration() {
@@ -216,6 +239,9 @@ tr.exportTo('tr.b.unittest', function() {
       if (this.hadErrors) {
         colorCls = 'unittest-failed';
         status = 'failed';
+      } else if (this.isFlaky) {
+        colorCls = 'unittest-flaky';
+        status = 'flaky';
       } else if (this.testStatus_ == TestStatus.PENDING) {
         colorCls = 'unittest-pending';
         status = 'pending';
@@ -258,10 +284,12 @@ tr.exportTo('tr.b.unittest', function() {
     __proto__: HTMLUnknownElement.prototype,
 
     decorate: function() {
+      this.testCaseResultsByCaseGUID_ = {};
       this.currentTestCaseStartTime_ = undefined;
       this.totalRunTime_ = 0;
       this.numTestsThatPassed_ = 0;
       this.numTestsThatFailed_ = 0;
+      this.numFlakyTests_ = 0;
       this.showHTMLOutput_ = false;
       this.showPendingAndPassedTests_ = false;
       this.linkifyCallback_ = undefined;
@@ -300,7 +328,7 @@ tr.exportTo('tr.b.unittest', function() {
       this.showPendingAndPassedTests_ = showPendingAndPassedTests;
 
       var testCaseResults = this.querySelectorAll('x-html-test-case-result');
-      for (var i = 0; i < testCaseResults.length; i++)
+      for (var i = testCaseResults.length - 1; i >= 0; i--)
         this.updateDisplayStateForResult_(testCaseResults[i]);
     },
 
@@ -317,47 +345,32 @@ tr.exportTo('tr.b.unittest', function() {
         display = '';
       }
       res.style.display = display;
+    },
 
-      // This bit of mess gives res objects a dark class based on whether their
-      // last visible sibling was not dark. It relies on the
-      // updateDisplayStateForResult_ being called on all previous siblings of
-      // an element before being called on the element itself. Yay induction.
-      var dark;
-      if (!res.previousSibling) {
-        dark = true;
-      } else {
-        var lastVisible;
-        for (var cur = res.previousSibling;
-             cur;
-             cur = cur.previousSibling) {
-          if (cur.style.display == '') {
-            lastVisible = cur;
-            break;
-          }
-        }
-        if (lastVisible) {
-          dark = !lastVisible.classList.contains('dark');
-        } else {
-          dark = true;
-        }
-      }
+    willRunTests: function(testCases) {
+      this.timeAtBeginningOfTest_ = window.performance.now();
+      testCases.forEach(function(testCase, i) {
+        var testCaseResult = new HTMLTestCaseResult();
+        testCaseResult.showHTMLOutput = this.showHTMLOutput_;
+        testCaseResult.testCase = testCase;
+        if ((i % 2) === 0)
+          testCaseResult.classList.add('dark');
 
-      if (dark)
-        res.classList.add('dark');
-      else
-        res.classList.remove('dark');
+        var href = this.getHRefForTestCase(testCase);
+        if (href)
+          testCaseResult.testCaseHRef = href;
+        testCaseResult.testStatus = TestStatus.PENDING;
+        this.testCaseResultsByCaseGUID_[testCase.guid] = testCaseResult;
+        this.appendChild(testCaseResult);
+        this.updateDisplayStateForResult_(testCaseResult);
+      }, this);
     },
 
     willRunTest: function(testCase) {
-      this.currentTestCaseResult_ = new HTMLTestCaseResult();
-      this.currentTestCaseResult_.showHTMLOutput = this.showHTMLOutput_;
-      this.currentTestCaseResult_.testCase = testCase;
-      var href = this.getHRefForTestCase(testCase);
-      if (href)
-        this.currentTestCaseResult_.testCaseHRef = href;
-      this.currentTestCaseResult_.testStatus = TestStatus.RUNNING;
+      this.currentTestCaseResult_ = this.testCaseResultsByCaseGUID_[
+          testCase.guid];
       this.currentTestCaseStartTime_ = window.performance.now();
-      this.appendChild(this.currentTestCaseResult_);
+      this.currentTestCaseResult_.testStatus = TestStatus.RUNNING;
       this.updateDisplayStateForResult_(this.currentTestCaseResult_);
       this.log_(testCase.fullyQualifiedName + ': ');
     },
@@ -380,31 +393,40 @@ tr.exportTo('tr.b.unittest', function() {
       this.updateDisplayStateForResult_(this.currentTestCaseResult_);
     },
 
+    setCurrentTestFlaky: function() {
+      this.currentTestCaseResult_.addFlaky();
+      this.updateDisplayStateForResult_(this.currentTestCaseResult_);
+    },
+
     setReturnValueFromCurrentTest: function(returnValue) {
       this.currentTestCaseResult_.testReturnValue = returnValue;
     },
 
     didCurrentTestEnd: function() {
+      var now = window.performance.now();
       var testCaseResult = this.currentTestCaseResult_;
-      var testCaseDuration = window.performance.now() -
-          this.currentTestCaseStartTime_;
+      var testCaseDuration = now - this.currentTestCaseStartTime_;
       this.currentTestCaseResult_.testStatus = TestStatus.DONE_RUNNING;
       testCaseResult.duration = testCaseDuration;
-      this.totalRunTime_ += testCaseDuration;
+      this.totalRunTime_ = now - this.timeAtBeginningOfTest_;
+      var resultString;
       if (testCaseResult.hadErrors) {
-        this.log_('[FAILED]\n');
+        resultString = 'FAILED';
         this.numTestsThatFailed_ += 1;
         tr.b.dispatchSimpleEvent(this, 'testfailed');
+      } else if (testCaseResult.isFlaky) {
+        resultString = 'FLAKY';
+        this.numFlakyTests_ += 1;
+        tr.b.dispatchSimpleEvent(this, 'testflaky');
       } else {
-        this.log_('[PASSED]\n');
+        resultString = 'PASSED';
         this.numTestsThatPassed_ += 1;
         tr.b.dispatchSimpleEvent(this, 'testpassed');
       }
+      this.log_('[' + resultString + ']\n');
 
-      if (this.headless_) {
-        this.notifyTestResultToDevServer_(testCaseResult.hadErrors ?
-                                          'FAILED' : 'PASSED');
-      }
+      if (this.headless_)
+        this.notifyTestResultToDevServer_(resultString);
 
       this.updateDisplayStateForResult_(this.currentTestCaseResult_);
       this.currentTestCaseResult_ = undefined;
@@ -420,6 +442,7 @@ tr.exportTo('tr.b.unittest', function() {
       return {
         numTestsThatPassed: this.numTestsThatPassed_,
         numTestsThatFailed: this.numTestsThatFailed_,
+        numFlakyTests: this.numFlakyTests_,
         totalRunTime: this.totalRunTime_
       };
     },
@@ -432,11 +455,14 @@ tr.exportTo('tr.b.unittest', function() {
     },
 
     notifyTestCompletionToDevServer_: function() {
-      if (this.numTestsThatPassed_ + this.numTestsThatFailed_ == 0)
+      if (this.numTestsThatPassed_ + this.numTestsThatFailed_ +
+          this.numFlakyTests_ == 0) {
         return;
+      }
       var data = this.numTestsThatFailed_ == 0 ? 'ALL_PASSED' : 'HAD_FAILURES';
       data += '\nPassed tests: ' + this.numTestsThatPassed_ +
-              '  Failed tests: ' + this.numTestsThatFailed_;
+              '  Failed tests: ' + this.numTestsThatFailed_ +
+              '  Flaky tests: ' + this.numFlakyTests_;
 
       tr.b.postAsync('/tracing/notify_tests_completed', data);
     },

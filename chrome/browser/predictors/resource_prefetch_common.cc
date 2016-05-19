@@ -5,14 +5,15 @@
 #include "chrome/browser/predictors/resource_prefetch_common.h"
 
 #include <stdlib.h>
+#include <tuple>
 
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
 #include "chrome/browser/net/prediction_options.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -173,12 +174,8 @@ bool NavigationID::is_valid() const {
 
 bool NavigationID::operator<(const NavigationID& rhs) const {
   DCHECK(is_valid() && rhs.is_valid());
-  if (render_process_id != rhs.render_process_id)
-    return render_process_id < rhs.render_process_id;
-  else if (render_frame_id != rhs.render_frame_id)
-    return render_frame_id < rhs.render_frame_id;
-  else
-    return main_frame_url < rhs.main_frame_url;
+  return std::tie(render_process_id, render_frame_id, main_frame_url) <
+    std::tie(rhs.render_process_id, rhs.render_frame_id, rhs.main_frame_url);
 }
 
 bool NavigationID::operator==(const NavigationID& rhs) const {
@@ -206,6 +203,9 @@ ResourcePrefetchPredictorConfig::ResourcePrefetchPredictorConfig()
       max_prefetches_inflight_per_host_per_navigation(3) {
 }
 
+ResourcePrefetchPredictorConfig::ResourcePrefetchPredictorConfig(
+    const ResourcePrefetchPredictorConfig& other) = default;
+
 ResourcePrefetchPredictorConfig::~ResourcePrefetchPredictorConfig() {
 }
 
@@ -230,7 +230,8 @@ bool ResourcePrefetchPredictorConfig::IsURLPrefetchingEnabled(
     Profile* profile) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!profile || !profile->GetPrefs() ||
-      !chrome_browser_net::CanPrefetchAndPrerenderUI(profile->GetPrefs())) {
+      chrome_browser_net::CanPrefetchAndPrerenderUI(profile->GetPrefs()) !=
+      chrome_browser_net::NetworkPredictionStatus::ENABLED) {
     return false;
   }
   return (mode & URL_PREFETCHING) > 0;
@@ -240,7 +241,8 @@ bool ResourcePrefetchPredictorConfig::IsHostPrefetchingEnabled(
     Profile* profile) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!profile || !profile->GetPrefs() ||
-      !chrome_browser_net::CanPrefetchAndPrerenderUI(profile->GetPrefs())) {
+      chrome_browser_net::CanPrefetchAndPrerenderUI(profile->GetPrefs()) !=
+      chrome_browser_net::NetworkPredictionStatus::ENABLED) {
     return false;
   }
   return (mode & HOST_PRFETCHING) > 0;

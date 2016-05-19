@@ -8,7 +8,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import" href="/tracing/model/attribute.html">
-<link rel="import" href="/tracing/model/memory_allocator_dump.html">
+<link rel="import" href="/tracing/model/memory_dump_test_utils.html">
 <link rel="import"
     href="/tracing/ui/analysis/memory_dump_sub_view_test_utils.html">
 <link rel="import" href="/tracing/ui/analysis/memory_dump_sub_view_util.html">
@@ -19,15 +19,18 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  var MemoryAllocatorDump = tr.model.MemoryAllocatorDump;
-  var ScalarAttribute = tr.model.ScalarAttribute;
+  var newAllocatorDump = tr.model.MemoryDumpTestUtils.newAllocatorDump;
   var StringAttribute = tr.model.StringAttribute;
   var VMRegion = tr.model.VMRegion;
-  var AggregationMode = tr.ui.analysis.MemoryColumn.AggregationMode;
+  var TitleColumn = tr.ui.analysis.TitleColumn;
+  var MemoryColumn = tr.ui.analysis.MemoryColumn;
+  var ScalarMemoryColumn = tr.ui.analysis.ScalarMemoryColumn;
+  var AggregationMode = MemoryColumn.AggregationMode;
   var addGlobalMemoryDump = tr.ui.analysis.addGlobalMemoryDump;
   var addProcessMemoryDump = tr.ui.analysis.addProcessMemoryDump;
   var checkAttributes = tr.ui.analysis.checkAttributes;
   var checkSizeAttributes = tr.ui.analysis.checkSizeAttributes;
+  var checkColumns = tr.ui.analysis.checkColumns;
   var isElementDisplayed = tr.ui.analysis.isElementDisplayed;
 
   function createVMRegions() {
@@ -105,11 +108,9 @@ tr.b.unittest.testSuite(function() {
 
       // This is here so that we could test that tracing is discounted from the
       // 'Native heap' category.
-      var tracingDump = new MemoryAllocatorDump(pmd1, 'tracing');
-      tracingDump.addAttribute('size', new ScalarAttribute('bytes', 500));
-      tracingDump.addAttribute('resident_size',
-          new ScalarAttribute('bytes', 32));
-      pmd1.memoryAllocatorDumps = [tracingDump];
+      pmd1.memoryAllocatorDumps = [
+        newAllocatorDump(pmd1, 'tracing', { size: 500, resident_size: 32 })
+      ];
 
       // Second timestamp.
       var gmd2 = addGlobalMemoryDump(model, 42);
@@ -197,36 +198,20 @@ tr.b.unittest.testSuite(function() {
     });
   }
 
-  function checkColumns(columns, expectedAggregationMode) {
-    var EXPECTED_COLUMN_NAMES = [
-      'Mapped file',
-      'Start address',
-      'Virtual size',
-      'Protection flags',
-      'PSS',
-      'Private dirty',
-      'Swapped'
-    ];
-
-    // First two columns don't change value over time (no aggregation).
-    var VARIABLE_CELLS_START_INDEX = 2;
-
-    // Check column names.
-    assert.lengthOf(columns, EXPECTED_COLUMN_NAMES.length);
-    for (var i = 0; i < EXPECTED_COLUMN_NAMES.length; i++)
-      assert.equal(columns[i].title, EXPECTED_COLUMN_NAMES[i]);
-
-    // Check aggregation modes.
-    for (var i = 0; i < EXPECTED_COLUMN_NAMES.length; i++) {
-      assert.strictEqual(columns[i].aggregationMode,
-          i < VARIABLE_CELLS_START_INDEX ? undefined : expectedAggregationMode);
-    }
-  }
+  var EXPECTED_COLUMNS = [
+    { title: 'Mapped file', type: TitleColumn, noAggregation: true },
+    { title: 'Start address', type: MemoryColumn, noAggregation: true },
+    { title: 'Virtual size', type: ScalarMemoryColumn },
+    { title: 'Protection flags', type: MemoryColumn },
+    { title: 'PSS', type: ScalarMemoryColumn },
+    { title: 'Private dirty', type: ScalarMemoryColumn },
+    { title: 'Swapped', type: ScalarMemoryColumn }
+  ];
 
   function checkRow(columns, row, expectedTitle, expectedStartAddress,
       expectedVirtualSize, expectedProtectionFlags,
       expectedProportionalResidentValues, expectedPrivateDirtyResidentValues,
-      expectedSwappedValues, expectedSubRowCount, expectedDefinedValues) {
+      expectedSwappedValues, expectedSubRowCount, expectedContexts) {
     assert.equal(columns[0].formatTitle(row), expectedTitle);
     checkAttributes(row, columns[1], expectedStartAddress, StringAttribute, '');
     checkSizeAttributes(row, columns[2], expectedVirtualSize);
@@ -241,10 +226,10 @@ tr.b.unittest.testSuite(function() {
     else
       assert.lengthOf(row.subRows, expectedSubRowCount);
 
-    if (expectedDefinedValues)
-      assert.deepEqual(tr.b.asArray(row.defined), expectedDefinedValues);
+    if (expectedContexts)
+      assert.deepEqual(tr.b.asArray(row.contexts), expectedContexts);
     else
-      assert.isUndefined(row.defined);
+      assert.isUndefined(row.contexts);
   }
 
   test('instantiate_empty', function() {
@@ -272,7 +257,7 @@ tr.b.unittest.testSuite(function() {
 
     var table = viewEl.$.table;
     var columns = table.tableColumns;
-    checkColumns(columns, undefined /* no aggregation */);
+    checkColumns(columns, EXPECTED_COLUMNS, undefined /* no aggregation */);
     var rows = table.tableRows;
     assert.lengthOf(rows, 1);
 
@@ -300,7 +285,7 @@ tr.b.unittest.testSuite(function() {
     var discountedTracingOverheadRow = nativeHeapRow.subRows[3];
     checkRow(columns, discountedTracingOverheadRow,
         '[discounted tracing overhead]', undefined, [-500], undefined, [-32],
-        [-32], undefined, undefined, [true]);
+        [-32], undefined, undefined, [vmRegions[0][6]]);
 
     var filesRow = totalRow.subRows[2];
     checkRow(columns, filesRow, 'Files', [undefined], [538968064], [undefined],
@@ -312,12 +297,14 @@ tr.b.unittest.testSuite(function() {
 
     var mmapChromeRow = soRow.subRows[0];
     checkRow(columns, mmapChromeRow, '/lib/chrome.so', ['0000000000010000'],
-        [536870912], ['r-x'], [8192], undefined, undefined, undefined, [true]);
+        [536870912], ['r-xp'], [8192], undefined, undefined, undefined,
+        [vmRegions[0][0]]);
 
     var mmapLibX11Row = soRow.subRows[1];
     checkRow(columns, mmapLibX11Row,
         '/usr/lib/x86_64-linux-gnu/libX11.so.6.3.0', ['00007f996fd80000'],
-        [2097152], ['---'], [0], undefined, undefined, undefined, [true]);
+        [2097152], ['---p'], [0], undefined, undefined, undefined,
+        [vmRegions[0][1]]);
   });
 
   test('instantiate_multipleDiff', function() {
@@ -336,7 +323,7 @@ tr.b.unittest.testSuite(function() {
 
     var table = viewEl.$.table;
     var columns = table.tableColumns;
-    checkColumns(columns, AggregationMode.DIFF);
+    checkColumns(columns, EXPECTED_COLUMNS, AggregationMode.DIFF);
     var rows = table.tableRows;
     assert.lengthOf(rows, 1);
 
@@ -367,7 +354,7 @@ tr.b.unittest.testSuite(function() {
     checkRow(columns, discountedTracingOverheadRow,
         '[discounted tracing overhead]', undefined, [-500, undefined],
         undefined, [-32, undefined], [-32, undefined], undefined, undefined,
-        [true, undefined]);
+        [vmRegions[0][6], undefined]);
 
     var filesRow = totalRow.subRows[2];
     checkRow(columns, filesRow, 'Files', [undefined], [538968064, 1073741824],
@@ -381,14 +368,14 @@ tr.b.unittest.testSuite(function() {
 
     var mmapChromeRow = soRow.subRows[0];
     checkRow(columns, mmapChromeRow, '/lib/chrome.so', ['0000000000010000'],
-        [536870912, 536870912], ['r-x', 'r-x'], [8192, 9216], undefined,
-        undefined, undefined, [true, true]);
+        [536870912, 536870912], ['r-xp', 'r-xp'], [8192, 9216], undefined,
+        undefined, undefined, [vmRegions[0][0], vmRegions[1][0]]);
 
     var mmapLibX11Row = soRow.subRows[1];
     checkRow(columns, mmapLibX11Row,
         '/usr/lib/x86_64-linux-gnu/libX11.so.6.3.0', ['00007f996fd80000'],
-        [2097152, undefined], ['---', undefined], [0, undefined], undefined,
-        undefined, undefined, [true, undefined]);
+        [2097152, undefined], ['---p', undefined], [0, undefined], undefined,
+        undefined, undefined, [vmRegions[0][1], undefined]);
 
     var otherRow = totalRow.subRows[3];
     checkRow(columns, otherRow, 'Other', [undefined], [undefined, 1], undefined,
@@ -397,7 +384,7 @@ tr.b.unittest.testSuite(function() {
     var anotherMapRow = otherRow.subRows[0];
     checkRow(columns, anotherMapRow, 'another-map', ['00bad00bad00bad0'],
         [undefined, 1], undefined, [undefined, 1], [undefined, 1],
-        [undefined, 1], undefined, [undefined, true]);
+        [undefined, 1], undefined, [undefined, vmRegions[1][6]]);
   });
 
   test('instantiate_multipleMax', function() {
@@ -417,7 +404,7 @@ tr.b.unittest.testSuite(function() {
     // Just check that the aggregation mode was propagated to the columns.
     var table = viewEl.$.table;
     var columns = table.tableColumns;
-    checkColumns(columns, AggregationMode.MAX);
+    checkColumns(columns, EXPECTED_COLUMNS, AggregationMode.MAX);
     var rows = table.tableRows;
     assert.lengthOf(rows, 1);
   });
@@ -440,7 +427,7 @@ tr.b.unittest.testSuite(function() {
     // Just check that the table has the right shape.
     var table = viewEl.$.table;
     var columns = table.tableColumns;
-    checkColumns(columns, AggregationMode.DIFF);
+    checkColumns(columns, EXPECTED_COLUMNS, AggregationMode.DIFF);
     var rows = table.tableRows;
     assert.lengthOf(rows, 1);
   });

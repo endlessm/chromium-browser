@@ -20,7 +20,6 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include "config.h"
 #include "core/xmlhttprequest/XMLHttpRequest.h"
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
@@ -39,6 +38,7 @@
 #include "core/dom/XMLDocument.h"
 #include "core/editing/serializers/Serialization.h"
 #include "core/events/Event.h"
+#include "core/events/ProgressEvent.h"
 #include "core/fetch/CrossOriginAccessControl.h"
 #include "core/fetch/FetchInitiatorTypeNames.h"
 #include "core/fetch/FetchUtils.h"
@@ -47,8 +47,8 @@
 #include "core/fileapi/File.h"
 #include "core/fileapi/FileReaderLoader.h"
 #include "core/fileapi/FileReaderLoaderClient.h"
+#include "core/frame/Deprecation.h"
 #include "core/frame/Settings.h"
-#include "core/frame/UseCounter.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/html/FormData.h"
 #include "core/html/HTMLDocument.h"
@@ -60,9 +60,10 @@
 #include "core/page/ChromeClient.h"
 #include "core/page/Page.h"
 #include "core/streams/Stream.h"
-#include "core/xmlhttprequest/XMLHttpRequestProgressEvent.h"
 #include "core/xmlhttprequest/XMLHttpRequestUpload.h"
 #include "platform/FileMetadata.h"
+#include "platform/HTTPNames.h"
+#include "platform/Histogram.h"
 #include "platform/Logging.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/SharedBuffer.h"
@@ -71,7 +72,6 @@
 #include "platform/network/ParsedContentType.h"
 #include "platform/network/ResourceError.h"
 #include "platform/network/ResourceRequest.h"
-#include "public/platform/Platform.h"
 #include "public/platform/WebURLRequest.h"
 #include "wtf/Assertions.h"
 #include "wtf/StdLibExtras.h"
@@ -99,11 +99,6 @@ public:
 private:
     int* const m_level;
 };
-
-bool isSetCookieHeader(const AtomicString& name)
-{
-    return equalIgnoringCase(name, "set-cookie") || equalIgnoringCase(name, "set-cookie2");
-}
 
 void replaceCharsetInMediaType(String& mediaType, const String& charsetValue)
 {
@@ -191,8 +186,8 @@ XMLHttpRequest* XMLHttpRequest::create(ScriptState* scriptState)
 {
     ExecutionContext* context = scriptState->executionContext();
     DOMWrapperWorld& world = scriptState->world();
-    RefPtr<SecurityOrigin> securityOrigin = world.isIsolatedWorld() ? world.isolatedWorldSecurityOrigin() : nullptr;
-    XMLHttpRequest* xmlHttpRequest = new XMLHttpRequest(context, securityOrigin);
+    RefPtr<SecurityOrigin> isolatedWorldSecurityOrigin = world.isIsolatedWorld() ? world.isolatedWorldSecurityOrigin() : nullptr;
+    XMLHttpRequest* xmlHttpRequest = new XMLHttpRequest(context, isolatedWorldSecurityOrigin);
     xmlHttpRequest->suspendIfNeeded();
 
     return xmlHttpRequest;
@@ -206,7 +201,7 @@ XMLHttpRequest* XMLHttpRequest::create(ExecutionContext* context)
     return xmlHttpRequest;
 }
 
-XMLHttpRequest::XMLHttpRequest(ExecutionContext* context, PassRefPtr<SecurityOrigin> securityOrigin)
+XMLHttpRequest::XMLHttpRequest(ExecutionContext* context, PassRefPtr<SecurityOrigin> isolatedWorldSecurityOrigin)
     : ActiveDOMObject(context)
     , m_timeoutMilliseconds(0)
     , m_state(UNSENT)
@@ -215,7 +210,7 @@ XMLHttpRequest::XMLHttpRequest(ExecutionContext* context, PassRefPtr<SecurityOri
     , m_exceptionCode(0)
     , m_progressEventThrottle(XMLHttpRequestProgressEventThrottle::create(this))
     , m_responseTypeCode(ResponseTypeDefault)
-    , m_securityOrigin(securityOrigin)
+    , m_isolatedWorldSecurityOrigin(isolatedWorldSecurityOrigin)
     , m_eventDispatchRecursionLevel(0)
     , m_async(true)
     , m_includeCredentials(false)
@@ -246,7 +241,7 @@ Document* XMLHttpRequest::document() const
 
 SecurityOrigin* XMLHttpRequest::securityOrigin() const
 {
-    return m_securityOrigin ? m_securityOrigin.get() : executionContext()->securityOrigin();
+    return m_isolatedWorldSecurityOrigin ? m_isolatedWorldSecurityOrigin.get() : executionContext()->securityOrigin();
 }
 
 XMLHttpRequest::State XMLHttpRequest::readyState() const
@@ -366,7 +361,7 @@ DOMArrayBuffer* XMLHttpRequest::responseArrayBuffer()
     if (!m_responseArrayBuffer) {
         if (m_binaryResponseBuilder && m_binaryResponseBuilder->size()) {
             RefPtr<DOMArrayBuffer> buffer = DOMArrayBuffer::createUninitialized(m_binaryResponseBuilder->size(), 1);
-            if (!m_binaryResponseBuilder->getAsBytes(buffer->data(), buffer->byteLength())) {
+            if (!m_binaryResponseBuilder->getAsBytes(buffer->data(), static_cast<size_t>(buffer->byteLength()))) {
                 // m_binaryResponseBuilder failed to allocate an ArrayBuffer.
                 // We need to crash the renderer since there's no way defined in
                 // the spec to tell this to the user.
@@ -488,17 +483,11 @@ void XMLHttpRequest::trackProgress(long long length)
 {
     m_receivedLength += length;
 
-    if (m_state != LOADING) {
-        changeState(LOADING);
-    } else {
-        // Dispatch a readystatechange event because many applications use
-        // it to track progress although this is not specified.
-        //
-        // FIXME: Stop dispatching this event for progress tracking.
-        dispatchReadyStateChangeEvent();
-    }
-    if (m_async)
+    changeState(LOADING);
+    if (m_async) {
+        // readyStateChange event is fired as well.
         dispatchProgressEventFromSnapshot(EventTypeNames::progress);
+    }
 }
 
 void XMLHttpRequest::changeState(State newState)
@@ -514,8 +503,6 @@ void XMLHttpRequest::dispatchReadyStateChangeEvent()
     if (!executionContext())
         return;
 
-    // We need this protection because dispatchReadyStateChangeEvent may
-    // dispatch multiple events.
     ScopedEventDispatchProtect protect(&m_eventDispatchRecursionLevel);
     if (m_async || (m_state <= OPENED || m_state == DONE)) {
         TRACE_EVENT1("devtools.timeline", "XHRReadyStateChange", "data", InspectorXhrReadyStateChangeEvent::data(executionContext(), this));
@@ -548,7 +535,7 @@ void XMLHttpRequest::setWithCredentials(bool value, ExceptionState& exceptionSta
     // FIXME: According to XMLHttpRequest Level 2 we should throw InvalidAccessError exception here.
     // However for time being only print warning message to warn web developers.
     if (!m_async)
-        UseCounter::countDeprecation(executionContext(), UseCounter::SyncXHRWithCredentials);
+        Deprecation::countDeprecation(executionContext(), UseCounter::SyncXHRWithCredentials);
 
     m_includeCredentials = value;
 }
@@ -621,7 +608,7 @@ void XMLHttpRequest::open(const AtomicString& method, const KURL& url, bool asyn
         // Refer : https://xhr.spec.whatwg.org/#sync-warning
         // Use count for XHR synchronous requests on main thread only.
         if (!document()->processingBeforeUnload())
-            UseCounter::countDeprecation(executionContext(), UseCounter::XMLHttpRequestSynchronousInNonWorkerOutsideBeforeUnload);
+            Deprecation::countDeprecation(executionContext(), UseCounter::XMLHttpRequestSynchronousInNonWorkerOutsideBeforeUnload);
     }
 
     m_method = FetchUtils::normalizeMethod(method);
@@ -694,7 +681,7 @@ void XMLHttpRequest::send(const ArrayBufferOrArrayBufferViewOrBlobOrDocumentOrSt
 
 bool XMLHttpRequest::areMethodAndURLValidForSend()
 {
-    return m_method != "GET" && m_method != "HEAD" && m_url.protocolIsInHTTPFamily();
+    return m_method != HTTPNames::GET && m_method != HTTPNames::HEAD && m_url.protocolIsInHTTPFamily();
 }
 
 void XMLHttpRequest::send(Document* document, ExceptionState& exceptionState)
@@ -712,8 +699,8 @@ void XMLHttpRequest::send(Document* document, ExceptionState& exceptionState)
         // FIXME: Per https://xhr.spec.whatwg.org/#dom-xmlhttprequest-send the
         // Content-Type header and whether to serialize as HTML or XML should
         // depend on |document->isHTMLDocument()|.
-        if (getRequestHeader("Content-Type").isEmpty())
-            setRequestHeaderInternal("Content-Type", "application/xml;charset=UTF-8");
+        if (getRequestHeader(HTTPNames::Content_Type).isEmpty())
+            setRequestHeaderInternal(HTTPNames::Content_Type, "application/xml;charset=UTF-8");
 
         String body = createMarkup(document);
 
@@ -733,12 +720,12 @@ void XMLHttpRequest::send(const String& body, ExceptionState& exceptionState)
     RefPtr<EncodedFormData> httpBody;
 
     if (!body.isNull() && areMethodAndURLValidForSend()) {
-        String contentType = getRequestHeader("Content-Type");
+        String contentType = getRequestHeader(HTTPNames::Content_Type);
         if (contentType.isEmpty()) {
-            setRequestHeaderInternal("Content-Type", "text/plain;charset=UTF-8");
+            setRequestHeaderInternal(HTTPNames::Content_Type, "text/plain;charset=UTF-8");
         } else {
             replaceCharsetInMediaType(contentType, "UTF-8");
-            m_requestHeaders.set("Content-Type", AtomicString(contentType));
+            m_requestHeaders.set(HTTPNames::Content_Type, AtomicString(contentType));
         }
 
         httpBody = EncodedFormData::create(UTF8Encoding().encode(body, WTF::EntitiesForUnencodables));
@@ -757,10 +744,10 @@ void XMLHttpRequest::send(Blob* body, ExceptionState& exceptionState)
     RefPtr<EncodedFormData> httpBody;
 
     if (areMethodAndURLValidForSend()) {
-        if (getRequestHeader("Content-Type").isEmpty()) {
+        if (getRequestHeader(HTTPNames::Content_Type).isEmpty()) {
             const String& blobType = body->type();
             if (!blobType.isEmpty() && isValidContentType(blobType)) {
-                setRequestHeaderInternal("Content-Type", AtomicString(blobType));
+                setRequestHeaderInternal(HTTPNames::Content_Type, AtomicString(blobType));
             }
         }
 
@@ -794,9 +781,9 @@ void XMLHttpRequest::send(FormData* body, ExceptionState& exceptionState)
     if (areMethodAndURLValidForSend()) {
         httpBody = body->encodeMultiPartFormData();
 
-        if (getRequestHeader("Content-Type").isEmpty()) {
+        if (getRequestHeader(HTTPNames::Content_Type).isEmpty()) {
             AtomicString contentType = AtomicString("multipart/form-data; boundary=", AtomicString::ConstructFromLiteral) + httpBody->boundary().data();
-            setRequestHeaderInternal("Content-Type", contentType);
+            setRequestHeaderInternal(HTTPNames::Content_Type, contentType);
         }
     }
 
@@ -859,7 +846,7 @@ void XMLHttpRequest::throwForLoadFailureIfNeeded(ExceptionState& exceptionState,
 void XMLHttpRequest::createRequest(PassRefPtr<EncodedFormData> httpBody, ExceptionState& exceptionState)
 {
     // Only GET request is supported for blob URL.
-    if (m_url.protocolIs("blob") && m_method != "GET") {
+    if (m_url.protocolIs("blob") && m_method != HTTPNames::GET) {
         handleNetworkError();
 
         if (!m_async) {
@@ -876,7 +863,7 @@ void XMLHttpRequest::createRequest(PassRefPtr<EncodedFormData> httpBody, Excepti
         dispatchProgressEvent(EventTypeNames::loadstart, 0, 0);
         if (httpBody && m_upload) {
             uploadEvents = m_upload->hasEventListeners();
-            m_upload->dispatchEvent(XMLHttpRequestProgressEvent::create(EventTypeNames::loadstart));
+            m_upload->dispatchEvent(ProgressEvent::create(EventTypeNames::loadstart, false, 0, 0));
         }
     }
 
@@ -893,12 +880,13 @@ void XMLHttpRequest::createRequest(PassRefPtr<EncodedFormData> httpBody, Excepti
     request.setHTTPMethod(m_method);
     request.setRequestContext(WebURLRequest::RequestContextXMLHttpRequest);
     request.setFetchCredentialsMode(m_includeCredentials ? WebURLRequest::FetchCredentialsModeInclude : WebURLRequest::FetchCredentialsModeSameOrigin);
+    request.setSkipServiceWorker(m_isolatedWorldSecurityOrigin);
 
     InspectorInstrumentation::willLoadXHR(&executionContext, this, this, m_method, m_url, m_async, httpBody ? httpBody->deepCopy() : nullptr, m_requestHeaders, m_includeCredentials);
 
     if (httpBody) {
-        ASSERT(m_method != "GET");
-        ASSERT(m_method != "HEAD");
+        ASSERT(m_method != HTTPNames::GET);
+        ASSERT(m_method != HTTPNames::HEAD);
         request.setHTTPBody(httpBody);
     }
 
@@ -933,12 +921,9 @@ void XMLHttpRequest::createRequest(PassRefPtr<EncodedFormData> httpBody, Excepti
         if (m_upload)
             request.setReportUploadProgress(true);
 
-        // ThreadableLoader::create can return null here, for example if we're no longer attached to a page.
-        // This is true while running onunload handlers.
-        // FIXME: Maybe we need to be able to send XMLHttpRequests from onunload, <http://bugs.webkit.org/show_bug.cgi?id=10904>.
-        // FIXME: Maybe create() can return null for other reasons too?
         ASSERT(!m_loader);
-        m_loader = ThreadableLoader::create(executionContext, this, request, options, resourceLoaderOptions);
+        m_loader = ThreadableLoader::create(executionContext, this, options, resourceLoaderOptions);
+        m_loader->start(request);
 
         return;
     }
@@ -1218,7 +1203,8 @@ void XMLHttpRequest::setRequestHeaderInternal(const AtomicString& name, const At
     if (!normalizedValue.isEmpty() && !isValidHTTPFieldContentRFC7230(normalizedValue))
         headerValueCategory = HeaderValueInvalid;
 
-    Platform::current()->histogramEnumeration("Blink.XHR.setRequestHeader.HeaderValueCategoryInRFC7230", headerValueCategory, HeaderValueCategoryByRFC7230End);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(EnumerationHistogram, headerValueCategoryHistogram, new EnumerationHistogram("Blink.XHR.setRequestHeader.HeaderValueCategoryInRFC7230", HeaderValueCategoryByRFC7230End));
+    headerValueCategoryHistogram.count(headerValueCategory);
 }
 
 const AtomicString& XMLHttpRequest::getRequestHeader(const AtomicString& name) const
@@ -1234,16 +1220,15 @@ String XMLHttpRequest::getAllResponseHeaders() const
     StringBuilder stringBuilder;
 
     HTTPHeaderSet accessControlExposeHeaderSet;
-    parseAccessControlExposeHeadersAllowList(m_response.httpHeaderField("Access-Control-Expose-Headers"), accessControlExposeHeaderSet);
+    parseAccessControlExposeHeadersAllowList(m_response.httpHeaderField(HTTPNames::Access_Control_Expose_Headers), accessControlExposeHeaderSet);
     HTTPHeaderMap::const_iterator end = m_response.httpHeaderFields().end();
     for (HTTPHeaderMap::const_iterator it = m_response.httpHeaderFields().begin(); it!= end; ++it) {
-        // Hide Set-Cookie header fields from the XMLHttpRequest client for these reasons:
-        //     1) If the client did have access to the fields, then it could read HTTP-only
-        //        cookies; those cookies are supposed to be hidden from scripts.
-        //     2) There's no known harm in hiding Set-Cookie header fields entirely; we don't
-        //        know any widely used technique that requires access to them.
-        //     3) Firefox has implemented this policy.
-        if (isSetCookieHeader(it->key) && !securityOrigin()->canLoadLocalResources())
+        // Hide any headers whose name is a forbidden response-header name.
+        // This is required for all kinds of filtered responses.
+        //
+        // TODO: Consider removing canLoadLocalResources() call.
+        // crbug.com/567527
+        if (FetchUtils::isForbiddenResponseHeaderName(it->key) && !securityOrigin()->canLoadLocalResources())
             continue;
 
         if (!m_sameOriginRequest && !isOnAccessControlResponseHeaderWhitelist(it->key) && !accessControlExposeHeaderSet.contains(it->key))
@@ -1266,13 +1251,13 @@ const AtomicString& XMLHttpRequest::getResponseHeader(const AtomicString& name) 
         return nullAtom;
 
     // See comment in getAllResponseHeaders above.
-    if (isSetCookieHeader(name) && !securityOrigin()->canLoadLocalResources()) {
+    if (FetchUtils::isForbiddenResponseHeaderName(name) && !securityOrigin()->canLoadLocalResources()) {
         logConsoleError(executionContext(), "Refused to get unsafe header \"" + name + "\"");
         return nullAtom;
     }
 
     HTTPHeaderSet accessControlExposeHeaderSet;
-    parseAccessControlExposeHeadersAllowList(m_response.httpHeaderField("Access-Control-Expose-Headers"), accessControlExposeHeaderSet);
+    parseAccessControlExposeHeadersAllowList(m_response.httpHeaderField(HTTPNames::Access_Control_Expose_Headers), accessControlExposeHeaderSet);
 
     if (!m_sameOriginRequest && !isOnAccessControlResponseHeaderWhitelist(name) && !accessControlExposeHeaderSet.contains(name)) {
         logConsoleError(executionContext(), "Refused to get unsafe header \"" + name + "\"");
@@ -1288,7 +1273,7 @@ AtomicString XMLHttpRequest::finalResponseMIMEType() const
         return overriddenType;
 
     if (m_response.isHTTP())
-        return extractMIMETypeFromMediaType(m_response.httpHeaderField("Content-Type"));
+        return extractMIMETypeFromMediaType(m_response.httpHeaderField(HTTPNames::Content_Type));
 
     return m_response.mimeType();
 }
@@ -1525,7 +1510,7 @@ void XMLHttpRequest::didReceiveResponse(unsigned long identifier, const Resource
 
     m_response = response;
     if (!m_mimeTypeOverride.isEmpty()) {
-        m_response.setHTTPHeaderField("Content-Type", m_mimeTypeOverride);
+        m_response.setHTTPHeaderField(HTTPNames::Content_Type, m_mimeTypeOverride);
         m_finalResponseCharset = extractCharsetFromMediaType(m_mimeTypeOverride);
     }
 
@@ -1675,6 +1660,7 @@ void XMLHttpRequest::resume()
 void XMLHttpRequest::stop()
 {
     InspectorInstrumentation::didFailXHRLoading(executionContext(), this, this, m_method, m_url);
+    m_progressEventThrottle->stop();
     internalAbort();
 }
 

@@ -4,7 +4,10 @@
 
 #include "ui/ozone/platform/drm/gpu/drm_thread.h"
 
+#include <utility>
+
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/thread_task_runner_handle.h"
 #include "ui/ozone/platform/drm/gpu/drm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
@@ -51,7 +54,7 @@ class GbmDeviceGenerator : public DrmDeviceGenerator {
                                         base::File file,
                                         bool is_primary_device) override {
     scoped_refptr<DrmDevice> drm =
-        new GbmDevice(path, file.Pass(), is_primary_device);
+        new GbmDevice(path, std::move(file), is_primary_device);
     if (drm->Initialize(use_atomic_))
       return drm;
 
@@ -73,7 +76,10 @@ DrmThread::~DrmThread() {
 }
 
 void DrmThread::Start() {
-  if (!StartWithOptions(base::Thread::Options(base::MessageLoop::TYPE_IO, 0)))
+  base::Thread::Options thread_options;
+  thread_options.message_loop_type = base::MessageLoop::TYPE_IO;
+  thread_options.priority = base::ThreadPriority::DISPLAY;
+  if (!StartWithOptions(thread_options))
     LOG(FATAL) << "Failed to create DRM thread";
 }
 
@@ -103,6 +109,12 @@ void DrmThread::CreateBuffer(gfx::AcceleratedWidget widget,
   *buffer = GbmBuffer::CreateBuffer(gbm, format, size, usage);
 }
 
+void DrmThread::GetScanoutFormats(
+    gfx::AcceleratedWidget widget,
+    std::vector<gfx::BufferFormat>* scanout_formats) {
+  display_manager_->GetScanoutFormats(widget, scanout_formats);
+}
+
 void DrmThread::SchedulePageFlip(gfx::AcceleratedWidget widget,
                                  const std::vector<OverlayPlane>& planes,
                                  const SwapCompletionCallback& callback) {
@@ -127,8 +139,8 @@ void DrmThread::GetVSyncParameters(
 void DrmThread::CreateWindow(gfx::AcceleratedWidget widget) {
   scoped_ptr<DrmWindow> window(
       new DrmWindow(widget, device_manager_.get(), screen_manager_.get()));
-  window->Initialize();
-  screen_manager_->AddWindow(widget, window.Pass());
+  window->Initialize(buffer_generator_.get());
+  screen_manager_->AddWindow(widget, std::move(window));
 }
 
 void DrmThread::DestroyWindow(gfx::AcceleratedWidget widget) {
@@ -160,8 +172,8 @@ void DrmThread::CheckOverlayCapabilities(
     const base::Callback<void(gfx::AcceleratedWidget,
                               const std::vector<OverlayCheck_Params>&)>&
         callback) {
-  callback.Run(widget, screen_manager_->GetWindow(widget)
-                           ->TestPageFlip(overlays, buffer_generator_.get()));
+  callback.Run(widget,
+               screen_manager_->GetWindow(widget)->TestPageFlip(overlays));
 }
 
 void DrmThread::RefreshNativeDisplays(

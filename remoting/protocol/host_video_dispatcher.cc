@@ -4,9 +4,14 @@
 
 #include "remoting/protocol/host_video_dispatcher.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "net/socket/stream_socket.h"
+#include "remoting/base/compound_buffer.h"
 #include "remoting/base/constants.h"
+#include "remoting/proto/video.pb.h"
+#include "remoting/protocol/message_pipe.h"
 #include "remoting/protocol/message_serialization.h"
 #include "remoting/protocol/video_feedback_stub.h"
 
@@ -14,27 +19,21 @@ namespace remoting {
 namespace protocol {
 
 HostVideoDispatcher::HostVideoDispatcher()
-    : ChannelDispatcherBase(kVideoChannelName),
-      parser_(
-          base::Bind(&HostVideoDispatcher::OnVideoAck, base::Unretained(this)),
-          reader()),
-      video_feedback_stub_(nullptr) {
-}
-
-HostVideoDispatcher::~HostVideoDispatcher() {
-}
+    : ChannelDispatcherBase(kVideoChannelName) {}
+HostVideoDispatcher::~HostVideoDispatcher() {}
 
 void HostVideoDispatcher::ProcessVideoPacket(scoped_ptr<VideoPacket> packet,
                                              const base::Closure& done) {
-  writer()->Write(SerializeAndFrameMessage(*packet), done);
+  message_pipe()->Send(packet.get(), done);
 }
 
-void HostVideoDispatcher::OnVideoAck(scoped_ptr<VideoAck> ack,
-                                     const base::Closure& done) {
+void HostVideoDispatcher::OnIncomingMessage(
+    scoped_ptr<CompoundBuffer> message) {
+  scoped_ptr<VideoAck> ack = ParseMessage<VideoAck>(message.get());
+  if (!ack)
+    return;
   if (video_feedback_stub_)
-    video_feedback_stub_->ProcessVideoAck(ack.Pass());
-
-  done.Run();
+    video_feedback_stub_->ProcessVideoAck(std::move(ack));
 }
 
 }  // namespace protocol

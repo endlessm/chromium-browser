@@ -4,6 +4,8 @@
 
 #include "chrome/common/extensions/api/input_ime/input_components_handler.h"
 
+#include <stddef.h>
+
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -26,6 +28,9 @@ InputComponentInfo::InputComponentInfo()
       shortcut_ctrl(false),
       shortcut_shift(false) {
 }
+
+InputComponentInfo::InputComponentInfo(const InputComponentInfo& other) =
+    default;
 
 InputComponentInfo::~InputComponentInfo() {}
 

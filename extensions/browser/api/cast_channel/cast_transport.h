@@ -8,6 +8,7 @@
 #include <queue>
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/threading/thread_checker.h"
@@ -124,6 +125,7 @@ class CastTransportImpl : public CastTransport, public base::NonThreadSafe {
     explicit WriteRequest(const std::string& namespace_,
                           const std::string& payload,
                           const net::CompletionCallback& callback);
+    WriteRequest(const WriteRequest& other);
     ~WriteRequest();
 
     // Namespace of the serialized message.

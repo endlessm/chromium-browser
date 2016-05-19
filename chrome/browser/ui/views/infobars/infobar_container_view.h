@@ -5,12 +5,17 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_INFOBARS_INFOBAR_CONTAINER_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_INFOBARS_INFOBAR_CONTAINER_VIEW_H_
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "components/infobars/core/infobar_container.h"
 #include "ui/views/accessible_pane_view.h"
+#include "ui/views/view_targeter_delegate.h"
 
 // The views-specific implementation of InfoBarContainer.
 class InfoBarContainerView : public views::AccessiblePaneView,
-                             public infobars::InfoBarContainer {
+                             public infobars::InfoBarContainer,
+                             public views::ViewTargeterDelegate {
  public:
   static const char kViewClassName[];
 
@@ -28,6 +33,10 @@ class InfoBarContainerView : public views::AccessiblePaneView,
   void PlatformSpecificAddInfoBar(infobars::InfoBar* infobar,
                                   size_t position) override;
   void PlatformSpecificRemoveInfoBar(infobars::InfoBar* infobar) override;
+
+  // ViewTargeterDelegate:
+  bool DoesIntersectRect(const View* target,
+                         const gfx::Rect& rect) const override;
 
   DISALLOW_COPY_AND_ASSIGN(InfoBarContainerView);
 };

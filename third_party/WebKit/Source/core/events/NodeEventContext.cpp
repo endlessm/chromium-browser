@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/events/NodeEventContext.h"
 
 #include "core/dom/TouchList.h"
@@ -67,4 +66,4 @@ void NodeEventContext::handleLocalEvents(Event& event) const
     m_node->handleLocalEvents(event);
 }
 
-}
+} // namespace blink

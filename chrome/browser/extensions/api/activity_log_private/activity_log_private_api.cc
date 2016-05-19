@@ -4,14 +4,18 @@
 
 #include "chrome/browser/extensions/api/activity_log_private/activity_log_private_api.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/lazy_instance.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/event_router_forwarder.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/common/extensions/api/activity_log_private.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/extension_system_provider.h"
 #include "extensions/browser/extensions_browser_client.h"
@@ -89,9 +93,9 @@ void ActivityLogAPI::OnExtensionActivity(scoped_refptr<Action> activity) {
   value->Append(activity_arg->ToValue().release());
   scoped_ptr<Event> event(new Event(
       events::ACTIVITY_LOG_PRIVATE_ON_EXTENSION_ACTIVITY,
-      activity_log_private::OnExtensionActivity::kEventName, value.Pass()));
+      activity_log_private::OnExtensionActivity::kEventName, std::move(value)));
   event->restrict_to_browser_context = browser_context_;
-  EventRouter::Get(browser_context_)->BroadcastEvent(event.Pass());
+  EventRouter::Get(browser_context_)->BroadcastEvent(std::move(event));
 }
 
 bool ActivityLogPrivateGetExtensionActivitiesFunction::RunAsync() {
@@ -181,8 +185,8 @@ bool ActivityLogPrivateDeleteActivitiesFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   // Put the arguments in the right format.
-  std::vector<int64> action_ids;
-  int64 value;
+  std::vector<int64_t> action_ids;
+  int64_t value;
   for (size_t i = 0; i < params->activity_ids.size(); i++) {
     if (base::StringToInt64(params->activity_ids[i], &value))
       action_ids.push_back(value);

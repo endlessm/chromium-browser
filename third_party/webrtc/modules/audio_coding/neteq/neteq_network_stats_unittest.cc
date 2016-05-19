@@ -8,8 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
+
 #include "testing/gmock/include/gmock/gmock.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/audio_coding/neteq/tools/neteq_external_decoder_test.h"
 #include "webrtc/modules/audio_coding/neteq/tools/rtp_generator.h"
 
@@ -85,10 +86,10 @@ class NetEqNetworkStatsTest : public NetEqExternalDecoderTest {
   static const int kMaxOutputSize = 960;  // 10 ms * 48 kHz * 2 channels.
 
 enum logic {
-  IGNORE,
-  EQUAL,
-  SMALLER_THAN,
-  LARGER_THAN,
+  kIgnore,
+  kEqual,
+  kSmallerThan,
+  kLargerThan,
 };
 
 struct NetEqNetworkStatsCheck {
@@ -143,13 +144,13 @@ struct NetEqNetworkStatsCheck {
 
 #define CHECK_NETEQ_NETWORK_STATS(x)\
   switch (expects.x) {\
-    case EQUAL:\
+    case kEqual:\
       EXPECT_EQ(stats.x, expects.stats_ref.x);\
       break;\
-    case SMALLER_THAN:\
+    case kSmallerThan:\
       EXPECT_LT(stats.x, expects.stats_ref.x);\
       break;\
-    case LARGER_THAN:\
+    case kLargerThan:\
       EXPECT_GT(stats.x, expects.stats_ref.x);\
       break;\
     default:\
@@ -204,18 +205,18 @@ struct NetEqNetworkStatsCheck {
   void DecodeFecTest() {
     external_decoder_->set_fec_enabled(false);
     NetEqNetworkStatsCheck expects = {
-      IGNORE,  // current_buffer_size_ms
-      IGNORE,  // preferred_buffer_size_ms
-      IGNORE,  // jitter_peaks_found
-      EQUAL,  // packet_loss_rate
-      EQUAL,  // packet_discard_rate
-      EQUAL,  // expand_rate
-      EQUAL,  // voice_expand_rate
-      IGNORE,  // preemptive_rate
-      EQUAL,  // accelerate_rate
-      EQUAL,  // decoded_fec_rate
-      IGNORE,  // clockdrift_ppm
-      EQUAL,  // added_zero_samples
+      kIgnore,  // current_buffer_size_ms
+      kIgnore,  // preferred_buffer_size_ms
+      kIgnore,  // jitter_peaks_found
+      kEqual,  // packet_loss_rate
+      kEqual,  // packet_discard_rate
+      kEqual,  // expand_rate
+      kEqual,  // voice_expand_rate
+      kIgnore,  // preemptive_rate
+      kEqual,  // accelerate_rate
+      kEqual,  // decoded_fec_rate
+      kIgnore,  // clockdrift_ppm
+      kEqual,  // added_zero_samples
       {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
     };
     RunTest(50, expects);
@@ -237,18 +238,18 @@ struct NetEqNetworkStatsCheck {
 
   void NoiseExpansionTest() {
     NetEqNetworkStatsCheck expects = {
-      IGNORE,  // current_buffer_size_ms
-      IGNORE,  // preferred_buffer_size_ms
-      IGNORE,  // jitter_peaks_found
-      EQUAL,  // packet_loss_rate
-      EQUAL,  // packet_discard_rate
-      EQUAL,  // expand_rate
-      EQUAL,  // speech_expand_rate
-      IGNORE,  // preemptive_rate
-      EQUAL,  // accelerate_rate
-      EQUAL,  // decoded_fec_rate
-      IGNORE,  // clockdrift_ppm
-      EQUAL,  // added_zero_samples
+      kIgnore,  // current_buffer_size_ms
+      kIgnore,  // preferred_buffer_size_ms
+      kIgnore,  // jitter_peaks_found
+      kEqual,  // packet_loss_rate
+      kEqual,  // packet_discard_rate
+      kEqual,  // expand_rate
+      kEqual,  // speech_expand_rate
+      kIgnore,  // preemptive_rate
+      kEqual,  // accelerate_rate
+      kEqual,  // decoded_fec_rate
+      kIgnore,  // clockdrift_ppm
+      kEqual,  // added_zero_samples
       {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
     };
     RunTest(50, expects);
@@ -263,7 +264,7 @@ struct NetEqNetworkStatsCheck {
   MockAudioDecoder* external_decoder_;
   const int samples_per_ms_;
   const size_t frame_size_samples_;
-  rtc::scoped_ptr<test::RtpGenerator> rtp_generator_;
+  std::unique_ptr<test::RtpGenerator> rtp_generator_;
   WebRtcRTPHeader rtp_header_;
   uint32_t last_lost_time_;
   uint32_t packet_loss_interval_;

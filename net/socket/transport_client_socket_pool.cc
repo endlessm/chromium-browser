@@ -5,6 +5,7 @@
 #include "net/socket/transport_client_socket_pool.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/lazy_instance.h"
@@ -60,11 +61,9 @@ static base::LazyInstance<base::TimeTicks>::Leaky
 TransportSocketParams::TransportSocketParams(
     const HostPortPair& host_port_pair,
     bool disable_resolver_cache,
-    bool ignore_limits,
     const OnHostResolutionCallback& host_resolution_callback,
     CombineConnectAndWritePolicy combine_connect_and_write_if_supported)
     : destination_(host_port_pair),
-      ignore_limits_(ignore_limits),
       host_resolution_callback_(host_resolution_callback),
       combine_connect_and_write_(combine_connect_and_write_if_supported) {
   if (disable_resolver_cache)
@@ -195,6 +194,7 @@ base::TimeDelta TransportConnectJobHelper::HistogramDuration(
 TransportConnectJob::TransportConnectJob(
     const std::string& group_name,
     RequestPriority priority,
+    ClientSocketPool::RespectLimits respect_limits,
     const scoped_refptr<TransportSocketParams>& params,
     base::TimeDelta timeout_duration,
     ClientSocketFactory* client_socket_factory,
@@ -204,6 +204,7 @@ TransportConnectJob::TransportConnectJob(
     : ConnectJob(group_name,
                  timeout_duration,
                  priority,
+                 respect_limits,
                  delegate,
                  BoundNetLog::Make(net_log, NetLog::SOURCE_CONNECT_JOB)),
       helper_(params, client_socket_factory, host_resolver, &connect_timing_),
@@ -282,7 +283,7 @@ int TransportConnectJob::DoTransportConnect() {
   if (last_connect_time.is_null()) {
     interval_between_connects_ = CONNECT_INTERVAL_GT_20MS;
   } else {
-    int64 interval = (now - last_connect_time).InMilliseconds();
+    int64_t interval = (now - last_connect_time).InMilliseconds();
     if (interval <= 10)
       interval_between_connects_ = CONNECT_INTERVAL_LE_10MS;
     else if (interval <= 20)
@@ -382,7 +383,7 @@ int TransportConnectJob::DoTransportConnectComplete(int result) {
         break;
     }
 
-    SetSocket(transport_socket_.Pass());
+    SetSocket(std::move(transport_socket_));
   } else {
     // Failure will be returned via |GetAdditionalErrorState|, so save
     // connection attempts from both sockets for use there.
@@ -452,7 +453,7 @@ void TransportConnectJob::DoIPv6FallbackTransportConnectComplete(int result) {
     connect_timing_.connect_start = fallback_connect_start_time_;
     helper_.HistogramDuration(
         TransportConnectJobHelper::CONNECTION_LATENCY_IPV4_WINS_RACE);
-    SetSocket(fallback_transport_socket_.Pass());
+    SetSocket(std::move(fallback_transport_socket_));
     helper_.set_next_state(TransportConnectJobHelper::STATE_NONE);
   } else {
     // Failure will be returned via |GetAdditionalErrorState|, so save
@@ -486,15 +487,10 @@ TransportClientSocketPool::TransportConnectJobFactory::NewConnectJob(
     const std::string& group_name,
     const PoolBase::Request& request,
     ConnectJob::Delegate* delegate) const {
-  return scoped_ptr<ConnectJob>(
-      new TransportConnectJob(group_name,
-                              request.priority(),
-                              request.params(),
-                              ConnectionTimeout(),
-                              client_socket_factory_,
-                              host_resolver_,
-                              delegate,
-                              net_log_));
+  return scoped_ptr<ConnectJob>(new TransportConnectJob(
+      group_name, request.priority(), request.respect_limits(),
+      request.params(), ConnectionTimeout(), client_socket_factory_,
+      host_resolver_, delegate, net_log_));
 }
 
 base::TimeDelta
@@ -522,20 +518,20 @@ TransportClientSocketPool::TransportClientSocketPool(
 
 TransportClientSocketPool::~TransportClientSocketPool() {}
 
-int TransportClientSocketPool::RequestSocket(
-    const std::string& group_name,
-    const void* params,
-    RequestPriority priority,
-    ClientSocketHandle* handle,
-    const CompletionCallback& callback,
-    const BoundNetLog& net_log) {
+int TransportClientSocketPool::RequestSocket(const std::string& group_name,
+                                             const void* params,
+                                             RequestPriority priority,
+                                             RespectLimits respect_limits,
+                                             ClientSocketHandle* handle,
+                                             const CompletionCallback& callback,
+                                             const BoundNetLog& net_log) {
   const scoped_refptr<TransportSocketParams>* casted_params =
       static_cast<const scoped_refptr<TransportSocketParams>*>(params);
 
   NetLogTcpClientSocketPoolRequestedSocket(net_log, casted_params);
 
-  return base_.RequestSocket(group_name, *casted_params, priority, handle,
-                             callback, net_log);
+  return base_.RequestSocket(group_name, *casted_params, priority,
+                             respect_limits, handle, callback, net_log);
 }
 
 void TransportClientSocketPool::NetLogTcpClientSocketPoolRequestedSocket(
@@ -579,7 +575,7 @@ void TransportClientSocketPool::ReleaseSocket(
     const std::string& group_name,
     scoped_ptr<StreamSocket> socket,
     int id) {
-  base_.ReleaseSocket(group_name, socket.Pass(), id);
+  base_.ReleaseSocket(group_name, std::move(socket), id);
 }
 
 void TransportClientSocketPool::FlushWithError(int error) {

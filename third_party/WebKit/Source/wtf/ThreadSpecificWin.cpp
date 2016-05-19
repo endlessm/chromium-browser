@@ -19,13 +19,13 @@
  *
  */
 
-#include "config.h"
 #include "ThreadSpecific.h"
 
 #if OS(WIN)
 
 #include "StdLibExtras.h"
 #include "ThreadingPrimitives.h"
+#include "wtf/Allocator.h"
 #include "wtf/DoublyLinkedList.h"
 
 namespace WTF {
@@ -43,6 +43,8 @@ static Mutex& destructorsMutex()
 }
 
 class PlatformThreadSpecificKey : public DoublyLinkedListNode<PlatformThreadSpecificKey> {
+    USING_FAST_MALLOC(PlatformThreadSpecificKey);
+    WTF_MAKE_NONCOPYABLE(PlatformThreadSpecificKey);
 public:
     friend class DoublyLinkedListNode<PlatformThreadSpecificKey>;
 

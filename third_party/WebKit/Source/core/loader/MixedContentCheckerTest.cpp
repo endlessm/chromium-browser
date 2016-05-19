@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/loader/MixedContentChecker.h"
 
+#include "core/loader/EmptyClients.h"
 #include "core/testing/DummyPageHolder.h"
+#include "platform/network/ResourceResponse.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/SecurityOrigin.h"
+#include "testing/gmock/include/gmock/gmock-generated-function-mockers.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/RefPtr.h"
-
 #include <base/macros.h>
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -32,7 +33,7 @@ TEST(MixedContentCheckerTest, IsMixedContent)
         {"https://example.com/foo", "ws://google.com/foo", true},
     };
 
-    for (size_t i = 0; i < arraysize(cases); ++i) {
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(cases); ++i) {
         const char* origin = cases[i].origin;
         const char* target = cases[i].target;
         bool expectation = cases[i].expectation;
@@ -66,6 +67,45 @@ TEST(MixedContentCheckerTest, ContextTypeForInspector)
     blockableMixedContent.setFrameType(WebURLRequest::FrameTypeAuxiliary);
     blockableMixedContent.setRequestContext(WebURLRequest::RequestContextImage);
     EXPECT_EQ(MixedContentChecker::ContextTypeOptionallyBlockable, MixedContentChecker::contextTypeForInspector(&dummyPageHolder->frame(), blockableMixedContent));
+}
+
+namespace {
+
+    class MockFrameLoaderClient : public EmptyFrameLoaderClient {
+    public:
+        MockFrameLoaderClient()
+            : EmptyFrameLoaderClient()
+        {
+        }
+        MOCK_METHOD4(didDisplayContentWithCertificateErrors, void(const KURL&, const CString&, const WebURL&, const CString&));
+        MOCK_METHOD4(didRunContentWithCertificateErrors, void(const KURL&, const CString&, const WebURL&, const CString&));
+    };
+
+} // namespace
+
+TEST(MixedContentCheckerTest, HandleCertificateError)
+{
+    MockFrameLoaderClient* client = new MockFrameLoaderClient;
+    OwnPtr<DummyPageHolder> dummyPageHolder = DummyPageHolder::create(IntSize(1, 1), nullptr, adoptPtrWillBeNoop(client));
+
+    KURL mainResourceUrl(KURL(), "https://example.test");
+    KURL displayedUrl(KURL(), "https://example-displayed.test");
+    KURL ranUrl(KURL(), "https://example-ran.test");
+
+    dummyPageHolder->frame().document()->setURL(mainResourceUrl);
+    ResourceResponse response1;
+    response1.setURL(ranUrl);
+    response1.setSecurityInfo("security info1");
+    EXPECT_CALL(*client, didRunContentWithCertificateErrors(ranUrl, response1.getSecurityInfo(), WebURL(mainResourceUrl), CString()));
+    MixedContentChecker::handleCertificateError(&dummyPageHolder->frame(), response1, WebURLRequest::FrameTypeNone, WebURLRequest::RequestContextScript);
+
+    ResourceResponse response2;
+    WebURLRequest::RequestContext requestContext = WebURLRequest::RequestContextImage;
+    ASSERT_EQ(MixedContentChecker::ContextTypeOptionallyBlockable, MixedContentChecker::contextTypeFromContext(requestContext, &dummyPageHolder->frame()));
+    response2.setURL(displayedUrl);
+    response2.setSecurityInfo("security info2");
+    EXPECT_CALL(*client, didDisplayContentWithCertificateErrors(displayedUrl, response2.getSecurityInfo(), WebURL(mainResourceUrl), CString()));
+    MixedContentChecker::handleCertificateError(&dummyPageHolder->frame(), response2, WebURLRequest::FrameTypeNone, requestContext);
 }
 
 } // namespace blink

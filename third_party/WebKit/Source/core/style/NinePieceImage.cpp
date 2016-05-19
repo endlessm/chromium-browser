@@ -21,7 +21,6 @@
  *
  */
 
-#include "config.h"
 #include "core/style/NinePieceImage.h"
 
 #include "core/style/DataEquivalency.h"
@@ -87,4 +86,4 @@ bool NinePieceImageData::operator==(const NinePieceImageData& other) const
         && verticalRule == other.verticalRule;
 }
 
-}
+} // namespace blink

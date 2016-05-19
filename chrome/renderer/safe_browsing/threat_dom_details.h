@@ -11,36 +11,35 @@
 
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "content/public/renderer/render_view_observer.h"
+#include "content/public/renderer/render_frame_observer.h"
 
 struct SafeBrowsingHostMsg_ThreatDOMDetails_Node;
 
 namespace safe_browsing {
 
-// There is one ThreatDOMDetails per RenderView.
-class ThreatDOMDetails : public content::RenderViewObserver {
+// There is one ThreatDOMDetails per RenderFrame.
+class ThreatDOMDetails : public content::RenderFrameObserver {
  public:
   // An upper limit on the number of nodes we collect. Not const for the test.
-  static uint32 kMaxNodes;
+  static uint32_t kMaxNodes;
 
-  static ThreatDOMDetails* Create(content::RenderView* render_view);
+  static ThreatDOMDetails* Create(content::RenderFrame* render_frame);
   ~ThreatDOMDetails() override;
 
   // Begins extracting resource urls for the page currently loaded in
-  // this object's RenderView.
+  // this object's RenderFrame.
   // Exposed for testing.
   void ExtractResources(
       std::vector<SafeBrowsingHostMsg_ThreatDOMDetails_Node>* resources);
 
  private:
-  // Creates a ThreatDOMDetails for the specified RenderView.
+  // Creates a ThreatDOMDetails for the specified RenderFrame.
   // The ThreatDOMDetails should be destroyed prior to destroying
-  // the RenderView.
-  explicit ThreatDOMDetails(content::RenderView* render_view);
+  // the RenderFrame.
+  explicit ThreatDOMDetails(content::RenderFrame* render_frame);
 
-  // RenderViewObserver implementation.
+  // RenderFrameObserver implementation.
   bool OnMessageReceived(const IPC::Message& message) override;
 
   void OnGetThreatDOMDetails();

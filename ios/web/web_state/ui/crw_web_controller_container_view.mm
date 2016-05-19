@@ -160,10 +160,8 @@
   if (![_webViewContentView isEqual:webViewContentView]) {
     [_webViewContentView removeFromSuperview];
     _webViewContentView.reset([webViewContentView retain]);
-    if (_webViewContentView) {
-      DCHECK(![_webViewContentView superview]);
-      [self addSubview:_webViewContentView];
-    }
+    [_webViewContentView setFrame:self.bounds];
+    [self addSubview:_webViewContentView];
   }
 }
 

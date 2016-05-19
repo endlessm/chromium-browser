@@ -8,8 +8,10 @@
 
 import argparse
 import imp
+import json
 import os
 import pprint
+import re
 import sys
 
 # Disable lint check for finding modules:
@@ -28,7 +30,7 @@ def _GetDirAbove(dirname):
 # Manually check for the command-line flag. (This isn't quite right, since it
 # ignores, e.g., "--", but it's close enough.)
 if "--use_bundled_pylibs" in sys.argv[1:]:
-  sys.path.insert(0, os.path.join(_GetDirAbove("public"), "public/third_party"))
+  sys.path.insert(0, os.path.join(_GetDirAbove("mojo"), "third_party"))
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "pylib"))
@@ -36,36 +38,34 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 from mojom.error import Error
 import mojom.fileutil as fileutil
 from mojom.generate.data import OrderedModuleFromData
+from mojom.generate import template_expander
 from mojom.parse.parser import Parse
 from mojom.parse.translate import Translate
 
+
+_BUILTIN_GENERATORS = {
+  "c++": "mojom_cpp_generator.py",
+  "javascript": "mojom_js_generator.py",
+  "java": "mojom_java_generator.py",
+}
 
 def LoadGenerators(generators_string):
   if not generators_string:
     return []  # No generators.
 
   script_dir = os.path.dirname(os.path.abspath(__file__))
-  generators = []
+  generators = {}
   for generator_name in [s.strip() for s in generators_string.split(",")]:
-    # "Built-in" generators:
-    if generator_name.lower() == "c++":
+    language = generator_name.lower()
+    if language in _BUILTIN_GENERATORS:
       generator_name = os.path.join(script_dir, "generators",
-                                    "mojom_cpp_generator.py")
-    elif generator_name.lower() == "javascript":
-      generator_name = os.path.join(script_dir, "generators",
-                                    "mojom_js_generator.py")
-    elif generator_name.lower() == "java":
-      generator_name = os.path.join(script_dir, "generators",
-                                    "mojom_java_generator.py")
-    # Specified generator python module:
-    elif generator_name.endswith(".py"):
-      pass
+                                    _BUILTIN_GENERATORS[language])
     else:
       print "Unknown generator name %s" % generator_name
       sys.exit(1)
     generator_module = imp.load_source(os.path.basename(generator_name)[:-3],
                                        generator_name)
-    generators.append(generator_module)
+    generators[language] = generator_module
   return generators
 
 
@@ -89,6 +89,20 @@ class MojomProcessor(object):
     self._should_generate = should_generate
     self._processed_files = {}
     self._parsed_files = {}
+    self._typemap = {}
+
+  def LoadTypemaps(self, typemaps):
+    # Support some very simple single-line comments in typemap JSON.
+    comment_expr = r"^\s*//.*$"
+    def no_comments(line):
+      return not re.match(comment_expr, line)
+    for filename in typemaps:
+      with open(filename) as f:
+        typemaps = json.loads("".join(filter(no_comments, f.readlines())))
+        for language, typemap in typemaps.iteritems():
+          language_map = self._typemap.get(language, {})
+          language_map.update(typemap)
+          self._typemap[language] = language_map
 
   def ProcessFile(self, args, remaining_args, generator_modules, filename):
     self._ParseFileAndImports(filename, args.import_directories, [])
@@ -126,8 +140,10 @@ class MojomProcessor(object):
     module.path = module.path.replace('\\', '/')
 
     if self._should_generate(filename):
-      for generator_module in generator_modules:
-        generator = generator_module.Generator(module, args.output_dir)
+      for language, generator_module in generator_modules.iteritems():
+        generator = generator_module.Generator(
+            module, args.output_dir, typemap=self._typemap.get(language, {}),
+            variant=args.variant, bytecode_path=args.bytecode_path)
         filtered_args = []
         if hasattr(generator_module, 'GENERATOR_PREFIX'):
           prefix = '--' + generator_module.GENERATOR_PREFIX + '_'
@@ -175,37 +191,78 @@ class MojomProcessor(object):
     self._parsed_files[filename] = tree
 
 
-def main():
-  parser = argparse.ArgumentParser(
-      description="Generate bindings from mojom files.")
-  parser.add_argument("filename", nargs="+",
-                      help="mojom input file")
-  parser.add_argument("-d", "--depth", dest="depth", default=".",
-                      help="depth from source root")
-  parser.add_argument("-o", "--output_dir", dest="output_dir", default=".",
-                      help="output directory for generated files")
-  parser.add_argument("-g", "--generators", dest="generators_string",
-                      metavar="GENERATORS",
-                      default="c++,javascript,java",
-                      help="comma-separated list of generators")
-  parser.add_argument("--debug_print_intermediate", action="store_true",
-                      help="print the intermediate representation")
-  parser.add_argument("-I", dest="import_directories", action="append",
-                      metavar="directory", default=[],
-                      help="add a directory to be searched for import files")
-  parser.add_argument("--use_bundled_pylibs", action="store_true",
-                      help="use Python modules bundled in the SDK")
-  (args, remaining_args) = parser.parse_known_args()
+def _Generate(args, remaining_args):
+  if args.variant == "none":
+    args.variant = None
 
   generator_modules = LoadGenerators(args.generators_string)
 
   fileutil.EnsureDirectoryExists(args.output_dir)
 
   processor = MojomProcessor(lambda filename: filename in args.filename)
+  processor.LoadTypemaps(set(args.typemaps))
   for filename in args.filename:
     processor.ProcessFile(args, remaining_args, generator_modules, filename)
 
   return 0
+
+
+def _Precompile(args, _):
+  generator_modules = LoadGenerators(",".join(_BUILTIN_GENERATORS.keys()))
+
+  template_expander.PrecompileTemplates(generator_modules, args.output_dir)
+  return 0
+
+
+
+def main():
+  parser = argparse.ArgumentParser(
+      description="Generate bindings from mojom files.")
+  parser.add_argument("--use_bundled_pylibs", action="store_true",
+                      help="use Python modules bundled in the SDK")
+
+  subparsers = parser.add_subparsers()
+  generate_parser = subparsers.add_parser(
+      "generate", description="Generate bindings from mojom files.")
+  generate_parser.add_argument("filename", nargs="+",
+                               help="mojom input file")
+  generate_parser.add_argument("-d", "--depth", dest="depth", default=".",
+                               help="depth from source root")
+  generate_parser.add_argument("-o", "--output_dir", dest="output_dir",
+                               default=".",
+                               help="output directory for generated files")
+  generate_parser.add_argument("--debug_print_intermediate",
+                               action="store_true",
+                               help="print the intermediate representation")
+  generate_parser.add_argument("-g", "--generators",
+                               dest="generators_string",
+                               metavar="GENERATORS",
+                               default="c++,javascript,java",
+                               help="comma-separated list of generators")
+  generate_parser.add_argument(
+      "-I", dest="import_directories", action="append", metavar="directory",
+      default=[], help="add a directory to be searched for import files")
+  generate_parser.add_argument("--typemap", action="append", metavar="TYPEMAP",
+                               default=[], dest="typemaps",
+                               help="apply TYPEMAP to generated output")
+  generate_parser.add_argument("--variant", dest="variant", default=None,
+                               help="output a named variant of the bindings")
+  generate_parser.add_argument(
+      "--bytecode_path", type=str, required=True, help=(
+          "the path from which to load template bytecode; to generate template "
+          "bytecode, run %s precompile BYTECODE_PATH" % os.path.basename(
+              sys.argv[0])))
+  generate_parser.set_defaults(func=_Generate)
+
+  precompile_parser = subparsers.add_parser("precompile",
+      description="Precompile templates for the mojom bindings generator.")
+  precompile_parser.add_argument(
+      "-o", "--output_dir", dest="output_dir", default=".",
+      help="output directory for precompiled templates")
+  precompile_parser.set_defaults(func=_Precompile)
+
+  args, remaining_args = parser.parse_known_args()
+  return args.func(args, remaining_args)
 
 
 if __name__ == "__main__":

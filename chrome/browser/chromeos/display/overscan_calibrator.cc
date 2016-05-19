@@ -4,6 +4,10 @@
 
 #include "chrome/browser/chromeos/display/overscan_calibrator.h"
 
+#include <stdint.h>
+
+#include <limits>
+
 #include "ash/display/display_info.h"
 #include "ash/display/display_manager.h"
 #include "ash/display/window_tree_host_manager.h"
@@ -25,10 +29,10 @@ namespace {
 const float kArrowOpacity = 0.8;
 
 // The height in pixel for the arrows to show the overscan calibration.
-const int kCalibrationArrowHeight = 50;
+const int kCalibrationArrowHeight = 70;
 
 // The gap between the boundary and calibration arrows.
-const int kArrowGapWidth = 20;
+const int kArrowGapWidth = 0;
 
 // Draw the arrow for the overscan calibration to |canvas|.
 void DrawTriangle(int x_offset,
@@ -38,15 +42,19 @@ void DrawTriangle(int x_offset,
   // Draw triangular arrows.
   SkPaint content_paint;
   content_paint.setStyle(SkPaint::kFill_Style);
-  content_paint.setColor(SkColorSetA(SK_ColorBLACK, kuint8max * kArrowOpacity));
+  content_paint.setColor(SkColorSetA(
+      SK_ColorBLACK, std::numeric_limits<uint8_t>::max() * kArrowOpacity));
   SkPaint border_paint;
   border_paint.setStyle(SkPaint::kStroke_Style);
-  border_paint.setColor(SkColorSetA(SK_ColorWHITE, kuint8max * kArrowOpacity));
+  border_paint.setColor(SkColorSetA(
+      SK_ColorWHITE, std::numeric_limits<uint8_t>::max() * kArrowOpacity));
 
   SkPath base_path;
-  base_path.moveTo(0, SkIntToScalar(-kCalibrationArrowHeight));
-  base_path.lineTo(SkIntToScalar(-kCalibrationArrowHeight), 0);
-  base_path.lineTo(SkIntToScalar(kCalibrationArrowHeight), 0);
+  base_path.moveTo(0, 0);
+  base_path.lineTo(SkIntToScalar(-kCalibrationArrowHeight),
+                   SkIntToScalar(-kCalibrationArrowHeight));
+  base_path.lineTo(SkIntToScalar(kCalibrationArrowHeight),
+                   SkIntToScalar(-kCalibrationArrowHeight));
   base_path.close();
 
   SkPath path;

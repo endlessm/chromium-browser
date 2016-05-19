@@ -5,6 +5,7 @@
 #include "chrome/browser/tab_contents/navigation_metrics_recorder.h"
 
 #include "base/metrics/histogram_macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "components/navigation_metrics/navigation_metrics.h"
 #include "components/rappor/rappor_utils.h"
@@ -19,7 +20,6 @@
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
-#include "chrome/browser/metro_utils/metro_chrome_win.h"
 #endif
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(NavigationMetricsRecorder);
@@ -47,24 +47,4 @@ void NavigationMetricsRecorder::DidNavigateMainFrame(
                                             "Navigation.Scheme.Data",
                                             details.previous_url);
   }
-}
-
-void NavigationMetricsRecorder::DidStartLoading() {
-#if defined(OS_WIN) && defined(USE_ASH)
-  content::RenderViewHost* rvh = web_contents()->GetRenderViewHost();
-
-  if (rvh && base::win::GetVersion() >= base::win::VERSION_WIN8) {
-    content::RenderWidgetHostView* rwhv = rvh->GetWidget()->GetView();
-    if (rwhv) {
-      gfx::NativeView native_view = rwhv->GetNativeView();
-      if (native_view) {
-        chrome::HostDesktopType desktop =
-            chrome::GetHostDesktopTypeForNativeView(native_view);
-        UMA_HISTOGRAM_ENUMERATION("Win8.PageLoad",
-                                  chrome::GetWin8Environment(desktop),
-                                  chrome::WIN_8_ENVIRONMENT_MAX);
-      }
-    }
-  }
-#endif
 }

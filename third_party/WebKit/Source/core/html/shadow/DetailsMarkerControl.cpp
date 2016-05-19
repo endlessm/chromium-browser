@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/shadow/DetailsMarkerControl.h"
 
 #include "core/HTMLNames.h"
@@ -59,4 +58,4 @@ HTMLSummaryElement* DetailsMarkerControl::summaryElement()
     return toHTMLSummaryElement(shadowHost());
 }
 
-}
+} // namespace blink

@@ -4,9 +4,9 @@
 
 #include "content/public/common/web_preferences.h"
 
-#include "base/basictypes.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "third_party/WebKit/public/web/WebSettings.h"
 #include "third_party/icu/source/common/unicode/uchar.h"
 
@@ -17,51 +17,37 @@ namespace content {
 // "Zyyy" is the ISO 15924 script code for undetermined script aka Common.
 const char kCommonScript[] = "Zyyy";
 
-#define STATIC_ASSERT_MATCHING_ENUMS(content_name, blink_name)         \
-    static_assert(                                                     \
-        static_cast<int>(content_name) == static_cast<int>(blink_name), \
-        "mismatching enums: " #content_name)
+#define STATIC_ASSERT_ENUM(a, b)                            \
+  static_assert(static_cast<int>(a) == static_cast<int>(b), \
+                "mismatching enums: " #a)
 
-STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_MAC,
-                             WebSettings::EditingBehaviorMac);
-STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_WIN,
-                             WebSettings::EditingBehaviorWin);
-STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_UNIX,
-                             WebSettings::EditingBehaviorUnix);
-STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_ANDROID,
-                             WebSettings::EditingBehaviorAndroid);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_MAC, WebSettings::EditingBehaviorMac);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_WIN, WebSettings::EditingBehaviorWin);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_UNIX, WebSettings::EditingBehaviorUnix);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_ANDROID,
+                   WebSettings::EditingBehaviorAndroid);
 
-STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_DEFAULT,
-                             WebSettings::V8CacheOptionsDefault);
-STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_NONE,
-                             WebSettings::V8CacheOptionsNone);
-STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_PARSE,
-                             WebSettings::V8CacheOptionsParse);
-STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_CODE,
-                             WebSettings::V8CacheOptionsCode);
-STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_LAST,
-                             WebSettings::V8CacheOptionsCode);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_DEFAULT,
+                   WebSettings::V8CacheOptionsDefault);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_NONE, WebSettings::V8CacheOptionsNone);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_PARSE, WebSettings::V8CacheOptionsParse);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_CODE, WebSettings::V8CacheOptionsCode);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_LAST, WebSettings::V8CacheOptionsCode);
 
-STATIC_ASSERT_MATCHING_ENUMS(IMAGE_ANIMATION_POLICY_ALLOWED,
-                             WebSettings::ImageAnimationPolicyAllowed);
-STATIC_ASSERT_MATCHING_ENUMS(IMAGE_ANIMATION_POLICY_ANIMATION_ONCE,
-                             WebSettings::ImageAnimationPolicyAnimateOnce);
-STATIC_ASSERT_MATCHING_ENUMS(IMAGE_ANIMATION_POLICY_NO_ANIMATION,
-                             WebSettings::ImageAnimationPolicyNoAnimation);
+STATIC_ASSERT_ENUM(IMAGE_ANIMATION_POLICY_ALLOWED,
+                   WebSettings::ImageAnimationPolicyAllowed);
+STATIC_ASSERT_ENUM(IMAGE_ANIMATION_POLICY_ANIMATION_ONCE,
+                   WebSettings::ImageAnimationPolicyAnimateOnce);
+STATIC_ASSERT_ENUM(IMAGE_ANIMATION_POLICY_NO_ANIMATION,
+                   WebSettings::ImageAnimationPolicyNoAnimation);
 
-STATIC_ASSERT_MATCHING_ENUMS(ui::POINTER_TYPE_NONE,
-                             WebSettings::PointerTypeNone);
-STATIC_ASSERT_MATCHING_ENUMS(ui::POINTER_TYPE_COARSE,
-                             WebSettings::PointerTypeCoarse);
-STATIC_ASSERT_MATCHING_ENUMS(ui::POINTER_TYPE_FINE,
-                             WebSettings::PointerTypeFine);
+STATIC_ASSERT_ENUM(ui::POINTER_TYPE_NONE, blink::PointerTypeNone);
+STATIC_ASSERT_ENUM(ui::POINTER_TYPE_COARSE, blink::PointerTypeCoarse);
+STATIC_ASSERT_ENUM(ui::POINTER_TYPE_FINE, blink::PointerTypeFine);
 
-STATIC_ASSERT_MATCHING_ENUMS(ui::HOVER_TYPE_NONE,
-                             WebSettings::HoverTypeNone);
-STATIC_ASSERT_MATCHING_ENUMS(ui::HOVER_TYPE_ON_DEMAND,
-                             WebSettings::HoverTypeOnDemand);
-STATIC_ASSERT_MATCHING_ENUMS(ui::HOVER_TYPE_HOVER,
-                             WebSettings::HoverTypeHover);
+STATIC_ASSERT_ENUM(ui::HOVER_TYPE_NONE, blink::HoverTypeNone);
+STATIC_ASSERT_ENUM(ui::HOVER_TYPE_ON_DEMAND, blink::HoverTypeOnDemand);
+STATIC_ASSERT_ENUM(ui::HOVER_TYPE_HOVER, blink::HoverTypeHover);
 
 WebPreferences::WebPreferences()
     : default_font_size(16),
@@ -90,20 +76,15 @@ WebPreferences::WebPreferences()
       xslt_enabled(true),
       xss_auditor_enabled(true),
       dns_prefetching_enabled(true),
+      data_saver_enabled(false),
       local_storage_enabled(false),
       databases_enabled(false),
       application_cache_enabled(false),
       tabs_to_links(true),
       caret_browsing_enabled(false),
       hyperlink_auditing_enabled(true),
-      is_online(true),
-      net_info_connection_type(net::NetworkChangeNotifier::CONNECTION_NONE),
-      net_info_max_bandwidth_mbps(
-          net::NetworkChangeNotifier::GetMaxBandwidthForConnectionSubtype(
-              net::NetworkChangeNotifier::SUBTYPE_NONE)),
       allow_universal_access_from_file_urls(false),
       allow_file_access_from_file_urls(false),
-      webaudio_enabled(false),
       experimental_webgl_enabled(false),
       pepper_3d_enabled(false),
       flash_3d_enabled(true),
@@ -113,10 +94,10 @@ WebPreferences::WebPreferences()
       privileged_webgl_extensions_enabled(false),
       webgl_errors_to_console_enabled(true),
       mock_scrollbars_enabled(false),
-      asynchronous_spell_checking_enabled(true),
       unified_textchecker_enabled(false),
       accelerated_2d_canvas_enabled(false),
       minimum_accelerated_2d_canvas_size(257 * 256),
+      disable_2d_canvas_copy_on_write(false),
       antialiased_2d_canvas_disabled(false),
       antialiased_clips_2d_canvas_enabled(false),
       accelerated_2d_canvas_msaa_sample_count(0),
@@ -128,6 +109,7 @@ WebPreferences::WebPreferences()
       disable_reading_from_canvas(false),
       strict_mixed_content_checking(false),
       strict_powerful_feature_restrictions(false),
+      allow_geolocation_on_insecure_origins(false),
       strictly_block_blockable_mixed_content(false),
       block_mixed_plugin_content(false),
       password_echo_enabled(false),
@@ -177,10 +159,11 @@ WebPreferences::WebPreferences()
       use_solid_color_scrollbars(false),
       navigate_on_drag_drop(true),
       v8_cache_options(V8_CACHE_OPTIONS_DEFAULT),
-      slimming_paint_v2_enabled(false),
+      inert_visual_viewport(false),
       cookie_enabled(true),
       pepper_accelerated_video_decode_enabled(false),
       animation_policy(IMAGE_ANIMATION_POLICY_ALLOWED),
+      user_gesture_required_for_presentation(true),
 #if defined(OS_ANDROID)
       text_autosizing_enabled(true),
       font_scale_factor(1.0f),
@@ -224,6 +207,8 @@ WebPreferences::WebPreferences()
   pictograph_font_family_map[kCommonScript] =
       base::ASCIIToUTF16("Times New Roman");
 }
+
+WebPreferences::WebPreferences(const WebPreferences& other) = default;
 
 WebPreferences::~WebPreferences() {
 }

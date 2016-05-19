@@ -11,7 +11,6 @@
 #include "content/common/p2p_messages.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/socket/stream_socket.h"
 
 namespace {
@@ -120,7 +119,7 @@ void P2PSocketHostTcpServer::OnAccepted(int result) {
 void P2PSocketHostTcpServer::Send(const net::IPEndPoint& to,
                                   const std::vector<char>& data,
                                   const rtc::PacketOptions& options,
-                                  uint64 packet_id) {
+                                  uint64_t packet_id) {
   NOTREACHED();
   OnError();
 }

@@ -10,6 +10,10 @@
 #include "core/include/fxcrt/fx_string.h"
 #include "core/include/fxcrt/fx_system.h"
 
+#ifdef PDF_ENABLE_XFA
+#include "xfa/include/fxjse/fxjse.h"
+#endif  // PDF_ENABLE_XFA
+
 class CPDFDoc_Environment;
 class CPDFSDK_Annot;
 class CPDFSDK_Document;
@@ -147,6 +151,13 @@ class IJS_Runtime {
   virtual int Execute(IJS_Context* cc,
                       const wchar_t* script,
                       CFX_WideString* info) = 0;
+
+#ifdef PDF_ENABLE_XFA
+  virtual FX_BOOL GetHValueByName(const CFX_ByteStringC& utf8Name,
+                                  FXJSE_HVALUE hValue) = 0;
+  virtual FX_BOOL SetHValueByName(const CFX_ByteStringC& utf8Name,
+                                  FXJSE_HVALUE hValue) = 0;
+#endif  // PDF_ENABLE_XFA
 
  protected:
   IJS_Runtime() {}

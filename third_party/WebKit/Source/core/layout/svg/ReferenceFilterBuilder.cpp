@@ -25,7 +25,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/svg/ReferenceFilterBuilder.h"
 
 #include "core/dom/Element.h"
@@ -70,7 +69,7 @@ void ReferenceFilterBuilder::clearDocumentResourceReference(const FilterOperatio
 }
 #endif
 
-PassRefPtrWillBeRawPtr<Filter> ReferenceFilterBuilder::build(float zoom, Element* element, FilterEffect* previousEffect, const ReferenceFilterOperation& filterOperation)
+PassRefPtrWillBeRawPtr<Filter> ReferenceFilterBuilder::build(float zoom, Element* element, FilterEffect* previousEffect, const ReferenceFilterOperation& filterOperation, const FloatSize* referenceBoxSize, const SkPaint* fillPaint, const SkPaint* strokePaint)
 {
     TreeScope* treeScope = &element->treeScope();
 
@@ -101,7 +100,9 @@ PassRefPtrWillBeRawPtr<Filter> ReferenceFilterBuilder::build(float zoom, Element
     SVGFilterElement& filterElement = toSVGFilterElement(*filter);
 
     FloatRect referenceBox;
-    if (element->inDocument() && element->layoutObject() && element->layoutObject()->enclosingLayer()) {
+    if (referenceBoxSize) {
+        referenceBox = FloatRect(FloatPoint(), *referenceBoxSize);
+    } else if (element->inDocument() && element->layoutObject() && element->layoutObject()->enclosingLayer()) {
         FloatSize size(element->layoutObject()->enclosingLayer()->physicalBoundingBoxIncludingReflectionAndStackingChildren(LayoutPoint()).size());
         referenceBox = FloatRect(FloatPoint(), size);
     }
@@ -113,7 +114,7 @@ PassRefPtrWillBeRawPtr<Filter> ReferenceFilterBuilder::build(float zoom, Element
     if (!previousEffect)
         previousEffect = result->sourceGraphic();
 
-    SVGFilterBuilder builder(previousEffect);
+    SVGFilterBuilder builder(previousEffect, nullptr, fillPaint, strokePaint);
     builder.buildGraph(result.get(), filterElement, referenceBox);
 
     result->setLastEffect(builder.lastEffect());

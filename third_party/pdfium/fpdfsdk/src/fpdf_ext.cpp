@@ -6,8 +6,12 @@
 
 #include "public/fpdf_ext.h"
 
-#include "../include/fsdk_define.h"
 #include "core/include/fxcrt/fx_xml.h"
+#include "fpdfsdk/include/fsdk_define.h"
+
+#ifdef PDF_ENABLE_XFA
+#include "fpdfsdk/include/fpdfxfa/fpdfxfa_doc.h"
+#endif  // PDF_ENABLE_XFA
 
 #define FPDFSDK_UNSUPPORT_CALL 100
 
@@ -16,7 +20,6 @@ class CFSDK_UnsupportInfo_Adapter {
   CFSDK_UnsupportInfo_Adapter(UNSUPPORT_INFO* unsp_info) {
     m_unsp_info = unsp_info;
   }
-  //  FX_BOOL NeedToPauseNow();
   void ReportError(int nErrorType);
 
  private:
@@ -66,7 +69,7 @@ void CheckUnSupportAnnot(CPDF_Document* pDoc, const CPDF_Annot* pPDFAnnot) {
     const CPDF_Dictionary* pAnnotDict = pPDFAnnot->GetAnnotDict();
     CFX_ByteString cbString;
     if (pAnnotDict->KeyExist("IT"))
-      cbString = pAnnotDict->GetString("IT");
+      cbString = pAnnotDict->GetStringBy("IT");
     if (cbString.Compare("Img") != 0)
       FPDF_UnSupportError(FPDF_UNSP_ANNOT_SCREEN_MEDIA);
   } else if (cbSubType.Compare("Movie") == 0) {
@@ -81,7 +84,7 @@ void CheckUnSupportAnnot(CPDF_Document* pDoc, const CPDF_Annot* pPDFAnnot) {
     const CPDF_Dictionary* pAnnotDict = pPDFAnnot->GetAnnotDict();
     CFX_ByteString cbString;
     if (pAnnotDict->KeyExist("FT")) {
-      cbString = pAnnotDict->GetString("FT");
+      cbString = pAnnotDict->GetStringBy("FT");
     }
     if (cbString.Compare("Sig") == 0) {
       FPDF_UnSupportError(FPDF_UNSP_ANNOT_SIG);
@@ -96,7 +99,7 @@ FX_BOOL CheckSharedForm(const CXML_Element* pElement, CFX_ByteString cbName) {
     CFX_ByteString space, name;
     CFX_WideString value;
     pElement->GetAttrByIndex(i, space, name, value);
-    if (space == FX_BSTRC("xmlns") && name == FX_BSTRC("adhocwf") &&
+    if (space == "xmlns" && name == "adhocwf" &&
         value == L"http://ns.adobe.com/AcrobatAdhocWorkflow/1.0/") {
       CXML_Element* pVersion = pElement->GetElement("adhocwf", cbName);
       if (!pVersion)
@@ -147,18 +150,18 @@ void CheckUnSupportError(CPDF_Document* pDoc, FX_DWORD err_code) {
       return;
     }
     if (pRootDict->KeyExist("Names")) {
-      CPDF_Dictionary* pNameDict = pRootDict->GetDict("Names");
+      CPDF_Dictionary* pNameDict = pRootDict->GetDictBy("Names");
       if (pNameDict && pNameDict->KeyExist("EmbeddedFiles")) {
         FPDF_UnSupportError(FPDF_UNSP_DOC_ATTACHMENT);
         return;
       }
       if (pNameDict && pNameDict->KeyExist("JavaScript")) {
-        CPDF_Dictionary* pJSDict = pNameDict->GetDict("JavaScript");
-        CPDF_Array* pArray = pJSDict ? pJSDict->GetArray("Names") : NULL;
+        CPDF_Dictionary* pJSDict = pNameDict->GetDictBy("JavaScript");
+        CPDF_Array* pArray = pJSDict ? pJSDict->GetArrayBy("Names") : NULL;
         if (pArray) {
           int nCount = pArray->GetCount();
           for (int i = 0; i < nCount; i++) {
-            CFX_ByteString cbStr = pArray->GetString(i);
+            CFX_ByteString cbStr = pArray->GetStringAt(i);
             if (cbStr.Compare("com.adobe.acrobat.SharedReview.Register") == 0) {
               FPDF_UnSupportError(FPDF_UNSP_DOC_SHAREDREVIEW);
               return;
@@ -175,12 +178,14 @@ void CheckUnSupportError(CPDF_Document* pDoc, FX_DWORD err_code) {
   if (pElement)
     CheckSharedForm(pElement, "workflowType");
 
+#ifndef PDF_ENABLE_XFA
   // XFA Forms
   CPDF_InterForm* pInterForm = new CPDF_InterForm(pDoc, FALSE);
   if (pInterForm->HasXFAForm()) {
     FPDF_UnSupportError(FPDF_UNSP_DOC_XFAFORM);
   }
   delete pInterForm;
+#endif  // PDF_ENABLE_XFA
 }
 
 DLLEXPORT int FPDFDoc_GetPageMode(FPDF_DOCUMENT document) {

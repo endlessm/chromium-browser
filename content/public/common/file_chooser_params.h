@@ -9,6 +9,7 @@
 
 #include "base/files/file_path.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "url/gurl.h"
 
@@ -17,6 +18,7 @@ namespace content {
 // Struct used by WebContentsDelegate.
 struct CONTENT_EXPORT FileChooserParams {
   FileChooserParams();
+  FileChooserParams(const FileChooserParams& other);
   ~FileChooserParams();
 
   enum Mode {

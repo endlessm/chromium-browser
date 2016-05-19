@@ -34,14 +34,19 @@ public class WebappLauncherActivity extends Activity {
     public static final String ACTION_START_WEBAPP =
             "com.google.android.apps.chrome.webapps.WebappManager.ACTION_START_WEBAPP";
 
-    private static final String TAG = "cr.webapps";
+    private static final String TAG = "webapps";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+        WebappInfo webappInfo = WebappInfo.create(getIntent());
+        if (webappInfo == null) {
+            super.onCreate(null);
+            ApiCompatibilityUtils.finishAndRemoveTask(this);
+            return;
+        }
 
+        super.onCreate(savedInstanceState);
         Intent intent = getIntent();
-        WebappInfo webappInfo = WebappInfo.create(intent);
         String webappId = webappInfo.id();
         String webappUrl = webappInfo.uri().toString();
         int webappSource = webappInfo.source();
@@ -73,7 +78,7 @@ public class WebappLauncherActivity extends Activity {
                 launchIntent.setAction(Intent.ACTION_VIEW);
                 launchIntent.setData(Uri.parse(WebappActivity.WEBAPP_SCHEME + "://" + webappId));
             } else {
-                Log.e(TAG, "Shortcut (" + webappUrl + ") opened in Chrome.");
+                Log.e(TAG, "Shortcut (%s) opened in Chrome.", webappUrl);
 
                 // The shortcut data doesn't match the current encoding.  Change the intent action
                 // launch the URL with a VIEW Intent in the regular browser.

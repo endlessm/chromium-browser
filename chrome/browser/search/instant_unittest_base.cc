@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/instant_service.h"
@@ -41,7 +42,7 @@ void InstantUnitTestBase::TearDown() {
   BrowserWithTestWindowTest::TearDown();
 }
 
-#if !defined(OS_IOS) && !defined(OS_ANDROID)
+#if !defined(OS_ANDROID)
 void InstantUnitTestBase::SetUpWithoutQueryExtraction() {
   SetUpHelper();
 }
@@ -53,9 +54,8 @@ void InstantUnitTestBase::SetUserSelectedDefaultSearchProvider(
   data.SetShortName(base::UTF8ToUTF16(base_url));
   data.SetKeyword(base::UTF8ToUTF16(base_url));
   data.SetURL(base_url + "url?bar={searchTerms}");
-  data.instant_url = base_url +
-      "instant?{google:omniboxStartMarginParameter}{google:forceInstantResults}"
-      "foo=foo#foo=foo&strk";
+  data.instant_url =
+      base_url + "instant?{google:forceInstantResults}foo=foo#foo=foo&strk";
   data.new_tab_url = base_url + "newtab";
   data.alternate_urls.push_back(base_url + "alt#quux={searchTerms}");
   data.search_terms_replacement_key = "strk";

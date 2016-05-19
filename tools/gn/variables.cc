@@ -391,6 +391,49 @@ const char kArgs_Help[] =
     "\n"
     "  See also \"gn help action\" and \"gn help action_foreach\".\n";
 
+const char kAssertNoDeps[] = "assert_no_deps";
+const char kAssertNoDeps_HelpShort[] =
+    "assert_no_deps: [label pattern list] Ensure no deps on these targets.";
+const char kAssertNoDeps_Help[] =
+    "assert_no_deps: Ensure no deps on these targets.\n"
+    "\n"
+    "  A list of label patterns.\n"
+    "\n"
+    "  This list is a list of patterns that must not match any of the\n"
+    "  transitive dependencies of the target. These include all public,\n"
+    "  private, and data dependencies, and cross shared library boundaries.\n"
+    "  This allows you to express that undesirable code isn't accidentally\n"
+    "  added to downstream dependencies in a way that might otherwise be\n"
+    "  difficult to notice.\n"
+    "\n"
+    "  Checking does not cross executable boundaries. If a target depends on\n"
+    "  an executable, it's assumed that the executable is a tool that is\n"
+    "  producing part of the build rather than something that is linked and\n"
+    "  distributed. This allows assert_no_deps to express what is distributed\n"
+    "  in the final target rather than depend on the internal build steps\n"
+    "  (which may include non-distributable code).\n"
+    "\n"
+    "  See \"gn help label_pattern\" for the format of the entries in the\n"
+    "  list. These patterns allow blacklisting individual targets or whole\n"
+    "  directory hierarchies.\n"
+    "\n"
+    "  Sometimes it is desirable to enforce that many targets have no\n"
+    "  dependencies on a target or set of targets. One efficient way to\n"
+    "  express this is to create a group with the assert_no_deps rule on\n"
+    "  it, and make that group depend on all targets you want to apply that\n"
+    "  assertion to.\n"
+    "\n"
+    "Example\n"
+    "\n"
+    "  executable(\"doom_melon\") {\n"
+    "    deps = [ \"//foo:bar\" ]\n"
+    "    ...\n"
+    "    assert_no_deps = [\n"
+    "      \"//evil/*\",  # Don't link any code from the evil directory.\n"
+    "      \"//foo:test_support\",  # This target is also disallowed.\n"
+    "    ]\n"
+    "  }\n";
+
 const char kCflags[] = "cflags";
 const char kCflags_HelpShort[] =
     "cflags: [string list] Flags passed to all C compiler variants.";
@@ -404,23 +447,24 @@ const char kCommonCflagsHelp[] =
     "\n"
     "  To target one of these variants individually, use \"cflags_c\",\n"
     "  \"cflags_cc\", \"cflags_objc\", and \"cflags_objcc\",\n"
-    "  respectively.\n"
+    "  respectively. These variant-specific versions of cflags* will be\n"
+    "  appended on the compiler command line after \"cflags\".\n"
     "\n"
-    "  These variant-specific versions of cflags* will be appended to the\n"
-    "  \"cflags\".\n"
+    "  See also \"asmflags\" for flags for assembly-language files.\n"
     COMMON_ORDERING_HELP;
 const char* kCflags_Help = kCommonCflagsHelp;
 
 const char kAsmflags[] = "asmflags";
 const char kAsmflags_HelpShort[] =
-    "asmflags: [string list] Flags passed to any assembly compiler.";
+    "asmflags: [string list] Flags passed to the assembler.";
 const char* kAsmflags_Help =
-    "asmflags: Flags passed to any assembly compiler.\n"
+    "asmflags: Flags passed to the assembler.\n"
     "\n"
     "  A list of strings.\n"
     "\n"
     "  \"asmflags\" are passed to any invocation of a tool that takes an\n"
-    "  .asm or .S file as input.\n";
+    "  .asm or .S file as input.\n"
+    COMMON_ORDERING_HELP;
 
 const char kCflagsC[] = "cflags_c";
 const char kCflagsC_HelpShort[] =
@@ -722,14 +766,31 @@ const char kDeps_Help[] =
     "\n"
     "  A list of target labels.\n"
     "\n"
-    "  Specifies private dependencies of a target. Shared and dynamic\n"
-    "  libraries will be linked into the current target.\n"
+    "  Specifies private dependencies of a target. Private dependencies are\n"
+    "  propagated up the dependency tree and linked to dependant targets, but\n"
+    "  do not grant the ability to include headers from the dependency.\n"
+    "  Public configs are not forwarded.\n"
     "\n"
-    "  These dependencies are private in that it does not grant dependent\n"
-    "  targets the ability to include headers from the dependency, and direct\n"
-    "  dependent configs are not forwarded.\n"
+    "Details of dependency propagation\n"
     "\n"
-    "  See also \"public_deps\" and \"data_deps\".\n";
+    "  Source sets, shared libraries, and non-complete static libraries\n"
+    "  will be propagated up the dependency tree across groups, non-complete\n"
+    "  static libraries and source sets.\n"
+    "\n"
+    "  Executables, shared libraries, and complete static libraries will\n"
+    "  link all propagated targets and stop propagation. Actions and copy\n"
+    "  steps also stop propagation, allowing them to take a library as an\n"
+    "  input but not force dependants to link to it.\n"
+    "\n"
+    "  Propagation of all_dependent_configs and public_configs happens\n"
+    "  independently of target type. all_dependent_configs are always\n"
+    "  propagated across all types of targets, and public_configs\n"
+    "  are always propagated across public deps of all types of targets.\n"
+    "\n"
+    "  Data dependencies are propagated differently. See\n"
+    "  \"gn help data_deps\" and \"gn help runtime_deps\".\n"
+    "\n"
+    "  See also \"public_deps\".\n";
 
 const char kIncludeDirs[] = "include_dirs";
 const char kIncludeDirs_HelpShort[] =
@@ -843,6 +904,12 @@ const char kLdflags_Help[] =
     "  uniquified so each one is only passed once (the first instance of it\n" \
     "  will be the one used).\n"
 
+#define LIBS_AND_LIB_DIRS_ORDERING_HELP \
+    "\n" \
+    "  For \"libs\" and \"lib_dirs\" only, the values propagated from\n" \
+    "  dependencies (as described above) are applied last assuming they\n" \
+    "  are not already in the list.\n"
+
 const char kLibDirs[] = "lib_dirs";
 const char kLibDirs_HelpShort[] =
     "lib_dirs: [directory list] Additional library directories.";
@@ -856,6 +923,7 @@ const char kLibDirs_Help[] =
     "  will be treated as being relative to the current build file.\n"
     COMMON_LIB_INHERITANCE_HELP
     COMMON_ORDERING_HELP
+    LIBS_AND_LIB_DIRS_ORDERING_HELP
     "\n"
     "Example\n"
     "\n"
@@ -867,32 +935,45 @@ const char kLibs_HelpShort[] =
 const char kLibs_Help[] =
     "libs: Additional libraries to link.\n"
     "\n"
-    "  A list of strings.\n"
+    "  A list of library names or library paths.\n"
     "\n"
-    "  These files will be passed to the linker, which will generally search\n"
-    "  the library include path. Unlike a normal list of files, they will be\n"
-    "  passed to the linker unmodified rather than being treated as file\n"
-    "  names relative to the current build file. Generally you would set\n"
-    "  the \"lib_dirs\" so your library is found. If you need to specify\n"
-    "  a path, you can use \"rebase_path\" to convert a path to be relative\n"
-    "  to the build directory.\n"
-    "\n"
-    "  When constructing the linker command, the \"lib_prefix\" attribute of\n"
-    "  the linker tool in the current toolchain will be prepended to each\n"
-    "  library. So your BUILD file should not specify the switch prefix\n"
-    "  (like \"-l\").\n"
-    "\n"
-    "  Libraries ending in \".framework\" will be special-cased: the switch\n"
-    "  \"-framework\" will be prepended instead of the lib_prefix, and the\n"
-    "  \".framework\" suffix will be trimmed. This is to support the way Mac\n"
-    "  links framework dependencies.\n"
+    "  These libraries will be linked into the final binary (executable or\n"
+    "  shared library) containing the current target.\n"
     COMMON_LIB_INHERITANCE_HELP
+    "\n"
+    "Types of libs\n"
+    "\n"
+    "  There are several different things that can be expressed in libs:\n"
+    "\n"
+    "  File paths\n"
+    "      Values containing '/' will be treated as references to files in\n"
+    "      the checkout. They will be rebased to be relative to the build\n"
+    "      directory and specified in the \"libs\" for linker tools. This\n"
+    "      facility should be used for libraries that are checked in to the\n"
+    "      version control. For libraries that are generated by the build,\n"
+    "      use normal GN deps to link them.\n"
+    "\n"
+    "  System libraries\n"
+    "      Values not containing '/' will be treated as system library names.\n"
+    "      These will be passed unmodified to the linker and prefixed with\n"
+    "      the \"lib_prefix\" attribute of the linker tool. Generally you\n"
+    "      would set the \"lib_dirs\" so the given library is found. Your\n"
+    "      BUILD.gn file should not specify the switch (like \"-l\"): this\n"
+    "      will be encoded in the \"lib_prefix\" of the tool.\n"
+    "\n"
+    "  Apple frameworks\n"
+    "      System libraries ending in \".framework\" will be special-cased:\n"
+    "      the switch \"-framework\" will be prepended instead of the\n"
+    "      lib_prefix, and the \".framework\" suffix will be trimmed. This is\n"
+    "      to support the way Mac links framework dependencies.\n"
     COMMON_ORDERING_HELP
+    LIBS_AND_LIB_DIRS_ORDERING_HELP
     "\n"
     "Examples\n"
     "\n"
     "  On Windows:\n"
     "    libs = [ \"ctl3d.lib\" ]\n"
+    "\n"
     "  On Linux:\n"
     "    libs = [ \"ld\" ]\n";
 
@@ -1122,9 +1203,9 @@ const char kPublicDeps_HelpShort[] =
 const char kPublicDeps_Help[] =
     "public_deps: Declare public dependencies.\n"
     "\n"
-    "  Public dependencies are like private dependencies (\"deps\") but\n"
-    "  additionally express that the current target exposes the listed deps\n"
-    "  as part of its public API.\n"
+    "  Public dependencies are like private dependencies (see\n"
+    "  \"gn help deps\") but additionally express that the current target\n"
+    "  exposes the listed deps as part of its public API.\n"
     "\n"
     "  This has several ramifications:\n"
     "\n"
@@ -1373,6 +1454,8 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(AllDependentConfigs)
     INSERT_VARIABLE(AllowCircularIncludesFrom)
     INSERT_VARIABLE(Args)
+    INSERT_VARIABLE(Asmflags)
+    INSERT_VARIABLE(AssertNoDeps)
     INSERT_VARIABLE(Cflags)
     INSERT_VARIABLE(CflagsC)
     INSERT_VARIABLE(CflagsCC)

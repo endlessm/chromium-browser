@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "components/autofill/core/common/autofill_switches.h"
 
 namespace autofill {
@@ -70,10 +71,6 @@ const char kEnableSingleClickAutofill[]     = "enable-single-click-autofill";
 // Enables suggestions with substring matching instead of prefix matching.
 const char kEnableSuggestionsWithSubstringMatch[] =
     "enable-suggestions-with-substring-match";
-
-// Enables syncing usage counts and last use dates of Wallet addresses and
-// cards.
-const char kEnableWalletMetadataSync[]      = "enable-wallet-metadata-sync";
 
 // Ignores autocomplete="off" for Autofill data (profiles + credit cards).
 const char kIgnoreAutocompleteOffForAutofill[] =

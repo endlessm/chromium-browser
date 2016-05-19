@@ -9,6 +9,8 @@
 #ifndef MOJO_PUBLIC_C_SYSTEM_MESSAGE_PIPE_H_
 #define MOJO_PUBLIC_C_SYSTEM_MESSAGE_PIPE_H_
 
+#include <stdint.h>
+
 #include "mojo/public/c/system/macros.h"
 #include "mojo/public/c/system/system_export.h"
 #include "mojo/public/c/system/types.h"
@@ -18,17 +20,26 @@
 //   |uint32_t struct_size|: Set to the size of the
 //       |MojoCreateMessagePipeOptions| struct. (Used to allow for future
 //       extensions.)
-//   |MojoCreateMessagePipeOptionsFlags flags|: Reserved for future use.
+//   |MojoCreateMessagePipeOptionsFlags flags|: Used to specify different modes
+//       of operation.
 //       |MOJO_CREATE_MESSAGE_PIPE_OPTIONS_FLAG_NONE|: No flags; default mode.
+//       |MOJO_CREATE_MESSAGE_PIPE_OPTIONS_FLAG_TRANSFERABLE|: The message pipe
+//           can be sent over another pipe after it's been read, written or
+//           waited. This mode makes message pipes use more resources (one OS
+//           pipe each), so only specify if this functionality is required.
 
 typedef uint32_t MojoCreateMessagePipeOptionsFlags;
 
 #ifdef __cplusplus
 const MojoCreateMessagePipeOptionsFlags
     MOJO_CREATE_MESSAGE_PIPE_OPTIONS_FLAG_NONE = 0;
+const MojoCreateMessagePipeOptionsFlags
+    MOJO_CREATE_MESSAGE_PIPE_OPTIONS_FLAG_TRANSFERABLE = 1;
 #else
 #define MOJO_CREATE_MESSAGE_PIPE_OPTIONS_FLAG_NONE \
   ((MojoCreateMessagePipeOptionsFlags)0)
+#define MOJO_CREATE_MESSAGE_PIPE_OPTIONS_FLAG_TRANSFERABLE \
+  ((MojoCreateMessagePipeOptionsFlags)1)
 #endif
 
 MOJO_STATIC_ASSERT(MOJO_ALIGNOF(int64_t) == 8, "int64_t has weird alignment");

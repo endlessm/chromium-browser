@@ -23,16 +23,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/graphics/GraphicsLayer.h"
 
 #include "SkImageFilter.h"
 #include "SkMatrix44.h"
+#include "base/trace_event/trace_event_argument.h"
+#include "cc/layers/layer.h"
 #include "platform/DragImage.h"
+#include "platform/JSONValues.h"
 #include "platform/TraceEvent.h"
+#include "platform/animation/CompositorAnimation.h"
 #include "platform/geometry/FloatRect.h"
 #include "platform/geometry/LayoutRect.h"
 #include "platform/graphics/BitmapImage.h"
+#include "platform/graphics/CompositorFactory.h"
+#include "platform/graphics/CompositorFilterOperations.h"
 #include "platform/graphics/FirstPaintInvalidationTracking.h"
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/GraphicsLayerFactory.h"
@@ -44,20 +49,21 @@
 #include "platform/scroll/ScrollableArea.h"
 #include "platform/text/TextStream.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebCompositorAnimation.h"
 #include "public/platform/WebCompositorSupport.h"
-#include "public/platform/WebFilterOperations.h"
 #include "public/platform/WebFloatPoint.h"
 #include "public/platform/WebFloatRect.h"
-#include "public/platform/WebGraphicsLayerDebugInfo.h"
 #include "public/platform/WebLayer.h"
 #include "public/platform/WebPoint.h"
 #include "public/platform/WebSize.h"
 #include "wtf/CurrentTime.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashSet.h"
+#include "wtf/MathExtras.h"
+#include "wtf/text/StringUTF8Adaptor.h"
 #include "wtf/text/WTFString.h"
 #include <algorithm>
+#include <cmath>
+#include <utility>
 
 #ifndef NDEBUG
 #include <stdio.h>
@@ -69,6 +75,7 @@ static bool s_drawDebugRedFill = true;
 
 // TODO(wangxianzhu): Remove this when we no longer invalidate rects.
 struct PaintInvalidationTrackingInfo {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     Vector<FloatRect> invalidationRects;
     Vector<String> invalidationObjects;
 };
@@ -90,7 +97,6 @@ GraphicsLayer::GraphicsLayer(GraphicsLayerClient* client)
     , m_backgroundColor(Color::transparent)
     , m_opacity(1)
     , m_blendMode(WebBlendModeNormal)
-    , m_scrollBlocksOn(WebScrollBlocksOnNone)
     , m_hasTransformOrigin(false)
     , m_contentsOpaque(false)
     , m_shouldFlattenTransform(true)
@@ -113,7 +119,7 @@ GraphicsLayer::GraphicsLayer(GraphicsLayerClient* client)
     , m_paintCount(0)
     , m_contentsLayer(0)
     , m_contentsLayerId(0)
-    , m_scrollableArea(0)
+    , m_scrollableArea(nullptr)
     , m_3dRenderingContext(0)
 {
 #if ENABLE(ASSERT)
@@ -124,11 +130,7 @@ GraphicsLayer::GraphicsLayer(GraphicsLayerClient* client)
     m_contentLayerDelegate = adoptPtr(new ContentLayerDelegate(this));
     m_layer = adoptPtr(Platform::current()->compositorSupport()->createContentLayer(m_contentLayerDelegate.get()));
     m_layer->layer()->setDrawsContent(m_drawsContent && m_contentsVisible);
-    m_layer->layer()->setWebLayerClient(this);
-    m_layer->setAutomaticallyComputeRasterScale(true);
-
-    // TODO(rbyers): Expose control over this to the web - crbug.com/489802:
-    setScrollBlocksOn(WebScrollBlocksOnStartTouch | WebScrollBlocksOnWheelEvent);
+    m_layer->layer()->setLayerClient(this);
 }
 
 GraphicsLayer::~GraphicsLayer()
@@ -153,6 +155,13 @@ GraphicsLayer::~GraphicsLayer()
 
     resetTrackedPaintInvalidations();
     ASSERT(!m_parent);
+}
+
+LayoutRect GraphicsLayer::visualRect() const
+{
+    LayoutRect bounds = LayoutRect(FloatPoint(), size());
+    bounds.move(offsetFromLayoutObjectWithSubpixelAccumulation());
+    return bounds;
 }
 
 void GraphicsLayer::setDrawDebugRedFillForTesting(bool enabled)
@@ -293,18 +302,50 @@ void GraphicsLayer::setOffsetDoubleFromLayoutObject(const DoubleSize& offset, Sh
         setNeedsDisplay();
 }
 
-void GraphicsLayer::paint(GraphicsContext& context, const IntRect* clip)
+LayoutSize GraphicsLayer::offsetFromLayoutObjectWithSubpixelAccumulation() const
 {
-    ASSERT(clip || RuntimeEnabledFeatures::slimmingPaintSynchronizedPaintingEnabled());
+    return LayoutSize(offsetFromLayoutObject()) + client()->subpixelAccumulation();
+}
+
+IntRect GraphicsLayer::interestRect()
+{
+    return m_previousInterestRect;
+}
+
+void GraphicsLayer::paint(const IntRect* interestRect, GraphicsContext::DisabledMode disabledMode)
+{
+    if (paintWithoutCommit(interestRect, disabledMode))
+        paintController().commitNewDisplayItems(offsetFromLayoutObjectWithSubpixelAccumulation());
+}
+
+bool GraphicsLayer::paintWithoutCommit(const IntRect* interestRect, GraphicsContext::DisabledMode disabledMode)
+{
     ASSERT(drawsContent());
 
     if (!m_client)
-        return;
+        return false;
     if (firstPaintInvalidationTrackingEnabled())
         m_debugInfo.clearAnnotatedInvalidateRects();
     incrementPaintCount();
+
+    IntRect newInterestRect;
+    if (!interestRect) {
+        newInterestRect = m_client->computeInterestRect(this, m_previousInterestRect);
+        interestRect = &newInterestRect;
+    }
+
+    if (!paintController().subsequenceCachingIsDisabled()
+        && !m_client->needsRepaint()
+        && !paintController().cacheIsEmpty()
+        && m_previousInterestRect == *interestRect) {
+        ASSERT(!paintController().hasInvalidations());
+        return false;
+    }
+
+    GraphicsContext context(paintController(), disabledMode);
+
 #ifndef NDEBUG
-    if (m_paintController && contentsOpaque() && s_drawDebugRedFill) {
+    if (contentsOpaque() && s_drawDebugRedFill) {
         FloatRect rect(FloatPoint(), size());
         if (!DrawingRecorder::useCachedDrawingIfPossible(context, *this, DisplayItem::DebugRedFill)) {
             DrawingRecorder recorder(context, *this, DisplayItem::DebugRedFill, rect);
@@ -312,15 +353,25 @@ void GraphicsLayer::paint(GraphicsContext& context, const IntRect* clip)
         }
     }
 #endif
-    m_client->paintContents(this, context, m_paintingPhase, clip);
+
+    m_previousInterestRect = *interestRect;
+    m_client->paintContents(this, context, m_paintingPhase, *interestRect);
     notifyFirstPaintToClient();
+    return true;
 }
 
 void GraphicsLayer::notifyFirstPaintToClient()
 {
     if (!m_painted) {
-        m_painted = true;
-        m_client->notifyFirstPaint();
+        DisplayItemList& itemList = m_paintController->newDisplayItemList();
+        for (DisplayItem& item : itemList) {
+            DisplayItem::Type type = item.type();
+            if (DisplayItem::isDrawingType(type) && type != DisplayItem::DocumentBackground && type != DisplayItem::DebugRedFill && static_cast<const DrawingDisplayItem&>(item).picture()) {
+                m_painted = true;
+                m_client->notifyFirstPaint();
+                break;
+            }
+        }
     }
     if (!m_textPainted && m_paintController->textPainted()) {
         m_textPainted = true;
@@ -382,7 +433,7 @@ void GraphicsLayer::updateContentsRect()
 
     if (m_contentsClippingMaskLayer) {
         if (m_contentsClippingMaskLayer->size() != m_contentsRect.size()) {
-            m_contentsClippingMaskLayer->setSize(m_contentsRect.size());
+            m_contentsClippingMaskLayer->setSize(FloatSize(m_contentsRect.size()));
             m_contentsClippingMaskLayer->setNeedsDisplay();
         }
         m_contentsClippingMaskLayer->setPosition(FloatPoint());
@@ -441,7 +492,7 @@ void GraphicsLayer::setupContentsLayer(WebLayer* contentsLayer)
     m_contentsLayer = contentsLayer;
     m_contentsLayerId = m_contentsLayer->id();
 
-    m_contentsLayer->setWebLayerClient(this);
+    m_contentsLayer->setLayerClient(this);
     m_contentsLayer->setTransformOrigin(FloatPoint3D());
     m_contentsLayer->setUseParentBackfaceVisibility(true);
 
@@ -470,13 +521,6 @@ void GraphicsLayer::clearContentsLayerIfUnregistered()
 GraphicsLayerDebugInfo& GraphicsLayer::debugInfo()
 {
     return m_debugInfo;
-}
-
-WebGraphicsLayerDebugInfo* GraphicsLayer::takeDebugInfoFor(WebLayer* layer)
-{
-    GraphicsLayerDebugInfo* clone = m_debugInfo.clone();
-    clone->setDebugName(debugName(layer));
-    return clone;
 }
 
 WebLayer* GraphicsLayer::contentsLayerIfRegistered()
@@ -536,7 +580,7 @@ static bool compareFloatRects(const FloatRect& a, const FloatRect& b)
 template <typename T>
 static PassRefPtr<JSONArray> pointAsJSONArray(const T& point)
 {
-    RefPtr<JSONArray> array = adoptRef(new JSONArray);
+    RefPtr<JSONArray> array = JSONArray::create();
     array->pushNumber(point.x());
     array->pushNumber(point.y());
     return array;
@@ -545,7 +589,7 @@ static PassRefPtr<JSONArray> pointAsJSONArray(const T& point)
 template <typename T>
 static PassRefPtr<JSONArray> sizeAsJSONArray(const T& size)
 {
-    RefPtr<JSONArray> array = adoptRef(new JSONArray);
+    RefPtr<JSONArray> array = JSONArray::create();
     array->pushNumber(size.width());
     array->pushNumber(size.height());
     return array;
@@ -554,7 +598,7 @@ static PassRefPtr<JSONArray> sizeAsJSONArray(const T& size)
 template <typename T>
 static PassRefPtr<JSONArray> rectAsJSONArray(const T& rect)
 {
-    RefPtr<JSONArray> array = adoptRef(new JSONArray);
+    RefPtr<JSONArray> array = JSONArray::create();
     array->pushNumber(rect.x());
     array->pushNumber(rect.y());
     array->pushNumber(rect.width());
@@ -569,9 +613,9 @@ static double roundCloseToZero(double number)
 
 static PassRefPtr<JSONArray> transformAsJSONArray(const TransformationMatrix& t)
 {
-    RefPtr<JSONArray> array = adoptRef(new JSONArray);
+    RefPtr<JSONArray> array = JSONArray::create();
     {
-        RefPtr<JSONArray> row = adoptRef(new JSONArray);
+        RefPtr<JSONArray> row = JSONArray::create();
         row->pushNumber(roundCloseToZero(t.m11()));
         row->pushNumber(roundCloseToZero(t.m12()));
         row->pushNumber(roundCloseToZero(t.m13()));
@@ -579,7 +623,7 @@ static PassRefPtr<JSONArray> transformAsJSONArray(const TransformationMatrix& t)
         array->pushArray(row);
     }
     {
-        RefPtr<JSONArray> row = adoptRef(new JSONArray);
+        RefPtr<JSONArray> row = JSONArray::create();
         row->pushNumber(roundCloseToZero(t.m21()));
         row->pushNumber(roundCloseToZero(t.m22()));
         row->pushNumber(roundCloseToZero(t.m23()));
@@ -587,7 +631,7 @@ static PassRefPtr<JSONArray> transformAsJSONArray(const TransformationMatrix& t)
         array->pushArray(row);
     }
     {
-        RefPtr<JSONArray> row = adoptRef(new JSONArray);
+        RefPtr<JSONArray> row = JSONArray::create();
         row->pushNumber(roundCloseToZero(t.m31()));
         row->pushNumber(roundCloseToZero(t.m32()));
         row->pushNumber(roundCloseToZero(t.m33()));
@@ -595,7 +639,7 @@ static PassRefPtr<JSONArray> transformAsJSONArray(const TransformationMatrix& t)
         array->pushArray(row);
     }
     {
-        RefPtr<JSONArray> row = adoptRef(new JSONArray);
+        RefPtr<JSONArray> row = JSONArray::create();
         row->pushNumber(roundCloseToZero(t.m41()));
         row->pushNumber(roundCloseToZero(t.m42()));
         row->pushNumber(roundCloseToZero(t.m43()));
@@ -614,7 +658,7 @@ static String pointerAsString(const void* ptr)
 
 PassRefPtr<JSONObject> GraphicsLayer::layerTreeAsJSON(LayerTreeFlags flags, RenderingContextMap& renderingContextMap) const
 {
-    RefPtr<JSONObject> json = adoptRef(new JSONObject);
+    RefPtr<JSONObject> json = JSONObject::create();
 
     if (flags & LayerTreeIncludesDebugInfo) {
         json->setString("this", pointerAsString(this));
@@ -686,7 +730,7 @@ PassRefPtr<JSONObject> GraphicsLayer::layerTreeAsJSON(LayerTreeFlags flags, Rend
             Vector<FloatRect>& rects = it->value.invalidationRects;
             if (!rects.isEmpty()) {
                 std::sort(rects.begin(), rects.end(), &compareFloatRects);
-                RefPtr<JSONArray> rectsJSON = adoptRef(new JSONArray);
+                RefPtr<JSONArray> rectsJSON = JSONArray::create();
                 for (auto& rect : rects) {
                     if (rect.isEmpty())
                         continue;
@@ -699,7 +743,7 @@ PassRefPtr<JSONObject> GraphicsLayer::layerTreeAsJSON(LayerTreeFlags flags, Rend
         if (flags & LayerTreeIncludesPaintInvalidationObjects) {
             Vector<String>& clients = it->value.invalidationObjects;
             if (!clients.isEmpty()) {
-                RefPtr<JSONArray> clientsJSON = adoptRef(new JSONArray);
+                RefPtr<JSONArray> clientsJSON = JSONArray::create();
                 for (auto& clientString : clients)
                     clientsJSON->pushString(clientString);
                 json->setArray("paintInvalidationClients", clientsJSON);
@@ -708,7 +752,7 @@ PassRefPtr<JSONObject> GraphicsLayer::layerTreeAsJSON(LayerTreeFlags flags, Rend
     }
 
     if ((flags & LayerTreeIncludesPaintingPhases) && m_paintingPhase) {
-        RefPtr<JSONArray> paintingPhasesJSON = adoptRef(new JSONArray);
+        RefPtr<JSONArray> paintingPhasesJSON = JSONArray::create();
         if (m_paintingPhase & GraphicsLayerPaintBackground)
             paintingPhasesJSON->pushString("GraphicsLayerPaintBackground");
         if (m_paintingPhase & GraphicsLayerPaintForeground)
@@ -733,16 +777,23 @@ PassRefPtr<JSONObject> GraphicsLayer::layerTreeAsJSON(LayerTreeFlags flags, Rend
 
     if (flags & (LayerTreeIncludesDebugInfo | LayerTreeIncludesCompositingReasons)) {
         bool debug = flags & LayerTreeIncludesDebugInfo;
-        RefPtr<JSONArray> compositingReasonsJSON = adoptRef(new JSONArray);
+        RefPtr<JSONArray> compositingReasonsJSON = JSONArray::create();
         for (size_t i = 0; i < kNumberOfCompositingReasons; ++i) {
             if (m_debugInfo.compositingReasons() & kCompositingReasonStringMap[i].reason)
                 compositingReasonsJSON->pushString(debug ? kCompositingReasonStringMap[i].description : kCompositingReasonStringMap[i].shortName);
         }
         json->setArray("compositingReasons", compositingReasonsJSON);
+
+        RefPtr<JSONArray> squashingDisallowedReasonsJSON = JSONArray::create();
+        for (size_t i = 0; i < kNumberOfSquashingDisallowedReasons; ++i) {
+            if (m_debugInfo.squashingDisallowedReasons() & kSquashingDisallowedReasonStringMap[i].reason)
+                squashingDisallowedReasonsJSON->pushString(debug ? kSquashingDisallowedReasonStringMap[i].description : kSquashingDisallowedReasonStringMap[i].shortName);
+        }
+        json->setArray("squashingDisallowedReasons", squashingDisallowedReasonsJSON);
     }
 
     if (m_children.size()) {
-        RefPtr<JSONArray> childrenJSON = adoptRef(new JSONArray);
+        RefPtr<JSONArray> childrenJSON = JSONArray::create();
         for (size_t i = 0; i < m_children.size(); i++)
             childrenJSON->pushObject(m_children[i]->layerTreeAsJSON(flags, renderingContextMap));
         json->setArray("children", childrenJSON);
@@ -758,7 +809,12 @@ String GraphicsLayer::layerTreeAsText(LayerTreeFlags flags) const
     return json->toPrettyJSONString();
 }
 
-String GraphicsLayer::debugName(WebLayer* webLayer) const
+static const cc::Layer* ccLayerForWebLayer(const WebLayer* webLayer)
+{
+    return webLayer ? webLayer->ccLayer() : nullptr;
+}
+
+String GraphicsLayer::debugName(cc::Layer* layer) const
 {
     String name;
     if (!m_client)
@@ -766,17 +822,17 @@ String GraphicsLayer::debugName(WebLayer* webLayer) const
 
     String highlightDebugName;
     for (size_t i = 0; i < m_linkHighlights.size(); ++i) {
-        if (webLayer == m_linkHighlights[i]->layer()) {
+        if (layer == ccLayerForWebLayer(m_linkHighlights[i]->layer())) {
             highlightDebugName = "LinkHighlight[" + String::number(i) + "] for " + m_client->debugName(this);
             break;
         }
     }
 
-    if (webLayer == m_contentsLayer) {
+    if (layer->id() == m_contentsLayerId) {
         name = "ContentsLayer for " + m_client->debugName(this);
     } else if (!highlightDebugName.isEmpty()) {
         name = highlightDebugName;
-    } else if (webLayer == m_layer->layer()) {
+    } else if (layer == ccLayerForWebLayer(m_layer->layer())) {
         name = m_client->debugName(this);
     } else {
         ASSERT_NOT_REACHED();
@@ -787,6 +843,11 @@ String GraphicsLayer::debugName(WebLayer* webLayer) const
 void GraphicsLayer::setCompositingReasons(CompositingReasons reasons)
 {
     m_debugInfo.setCompositingReasons(reasons);
+}
+
+void GraphicsLayer::setSquashingDisallowedReasons(SquashingDisallowedReasons reasons)
+{
+    m_debugInfo.setSquashingDisallowedReasons(reasons);
 }
 
 void GraphicsLayer::setOwnerNodeId(int nodeId)
@@ -820,7 +881,7 @@ void GraphicsLayer::setSize(const FloatSize& size)
 #ifndef NDEBUG
     // The red debug fill needs to be invalidated if the layer resizes.
     if (m_paintController)
-        m_paintController->invalidateUntracked(displayItemClient());
+        m_paintController->invalidateUntracked(*this);
 #endif
 }
 
@@ -947,12 +1008,12 @@ void GraphicsLayer::setContentsClippingMaskLayer(GraphicsLayer* contentsClipping
 void GraphicsLayer::setBackfaceVisibility(bool visible)
 {
     m_backfaceVisibility = visible;
-    m_layer->setDoubleSided(m_backfaceVisibility);
+    platformLayer()->setDoubleSided(m_backfaceVisibility);
 }
 
 void GraphicsLayer::setOpacity(float opacity)
 {
-    float clampedOpacity = std::max(std::min(opacity, 1.0f), 0.0f);
+    float clampedOpacity = clampTo(opacity, 0.0f, 1.0f);
     m_opacity = clampedOpacity;
     platformLayer()->setOpacity(opacity);
 }
@@ -963,14 +1024,6 @@ void GraphicsLayer::setBlendMode(WebBlendMode blendMode)
         return;
     m_blendMode = blendMode;
     platformLayer()->setBlendMode(blendMode);
-}
-
-void GraphicsLayer::setScrollBlocksOn(WebScrollBlocksOn scrollBlocksOn)
-{
-    if (m_scrollBlocksOn == scrollBlocksOn)
-        return;
-    m_scrollBlocksOn = scrollBlocksOn;
-    platformLayer()->setScrollBlocksOn(scrollBlocksOn);
 }
 
 void GraphicsLayer::setIsRootForIsolatedGroup(bool isolated)
@@ -1002,7 +1055,7 @@ void GraphicsLayer::setNeedsDisplay()
     for (size_t i = 0; i < m_linkHighlights.size(); ++i)
         m_linkHighlights[i]->invalidate();
 
-    paintController()->invalidateAll();
+    paintController().invalidateAll();
     if (isTrackingPaintInvalidations())
         trackPaintInvalidationObject("##ALL##");
 }
@@ -1021,9 +1074,12 @@ void GraphicsLayer::setNeedsDisplayInRect(const IntRect& rect, PaintInvalidation
         m_linkHighlights[i]->invalidate();
 }
 
-void GraphicsLayer::invalidateDisplayItemClient(const DisplayItemClientWrapper& displayItemClient, PaintInvalidationReason paintInvalidationReason, const IntRect* visualRect)
+void GraphicsLayer::invalidateDisplayItemClient(const DisplayItemClient& displayItemClient, PaintInvalidationReason)
 {
-    paintController()->invalidate(displayItemClient, paintInvalidationReason, visualRect);
+    if (!drawsContent())
+        return;
+
+    paintController().invalidate(displayItemClient);
     if (isTrackingPaintInvalidations())
         trackPaintInvalidationObject(displayItemClient.debugName());
 }
@@ -1066,15 +1122,11 @@ void GraphicsLayer::setContentsToImage(Image* image, RespectImageOrientationEnum
     setContentsTo(m_imageLayer ? m_imageLayer->layer() : 0);
 }
 
-bool GraphicsLayer::addAnimation(PassOwnPtr<WebCompositorAnimation> popAnimation)
+bool GraphicsLayer::addAnimation(PassOwnPtr<CompositorAnimation> animation)
 {
-    OwnPtr<WebCompositorAnimation> animation(popAnimation);
     ASSERT(animation);
     platformLayer()->setAnimationDelegate(this);
-
-    // Remove any existing animations with the same animation id and target property.
-    platformLayer()->removeAnimation(animation->id(), animation->targetProperty());
-    return platformLayer()->addAnimation(animation.leakPtr());
+    return platformLayer()->addAnimation(animation->releaseCCAnimation());
 }
 
 void GraphicsLayer::pauseAnimation(int animationId, double timeOffset)
@@ -1087,6 +1139,11 @@ void GraphicsLayer::removeAnimation(int animationId)
     platformLayer()->removeAnimation(animationId);
 }
 
+void GraphicsLayer::abortAnimation(int animationId)
+{
+    platformLayer()->abortAnimation(animationId);
+}
+
 WebLayer* GraphicsLayer::platformLayer() const
 {
     return m_layer->layer();
@@ -1095,21 +1152,17 @@ WebLayer* GraphicsLayer::platformLayer() const
 void GraphicsLayer::setFilters(const FilterOperations& filters)
 {
     SkiaImageFilterBuilder builder;
-    OwnPtr<WebFilterOperations> webFilters = adoptPtr(Platform::current()->compositorSupport()->createFilterOperations());
-    FilterOutsets outsets = filters.outsets();
-    builder.setCropOffset(FloatSize(outsets.left(), outsets.top()));
+    OwnPtr<CompositorFilterOperations> webFilters = adoptPtr(CompositorFactory::current().createFilterOperations());
     builder.buildFilterOperations(filters, webFilters.get());
-    m_layer->layer()->setFilters(*webFilters);
+    m_layer->layer()->setFilters(webFilters->asFilterOperations());
 }
 
 void GraphicsLayer::setBackdropFilters(const FilterOperations& filters)
 {
     SkiaImageFilterBuilder builder;
-    OwnPtr<WebFilterOperations> webFilters = adoptPtr(Platform::current()->compositorSupport()->createFilterOperations());
-    FilterOutsets outsets = filters.outsets();
-    builder.setCropOffset(FloatSize(outsets.left(), outsets.top()));
+    OwnPtr<CompositorFilterOperations> webFilters = adoptPtr(CompositorFactory::current().createFilterOperations());
     builder.buildFilterOperations(filters, webFilters.get());
-    m_layer->layer()->setBackgroundFilters(*webFilters);
+    m_layer->layer()->setBackgroundFilters(webFilters->asFilterOperations());
 }
 
 void GraphicsLayer::setFilterQuality(SkFilterQuality filterQuality)
@@ -1130,7 +1183,7 @@ void GraphicsLayer::addLinkHighlight(LinkHighlight* linkHighlight)
 {
     ASSERT(linkHighlight && !m_linkHighlights.contains(linkHighlight));
     m_linkHighlights.append(linkHighlight);
-    linkHighlight->layer()->setWebLayerClient(this);
+    linkHighlight->layer()->setLayerClient(this);
     updateChildList();
 }
 
@@ -1167,6 +1220,12 @@ void GraphicsLayer::notifyAnimationFinished(double, int group)
         m_scrollableArea->notifyCompositorAnimationFinished(group);
 }
 
+void GraphicsLayer::notifyAnimationAborted(double, int group)
+{
+    if (m_scrollableArea)
+        m_scrollableArea->notifyCompositorAnimationAborted(group);
+}
+
 void GraphicsLayer::didScroll()
 {
     if (m_scrollableArea) {
@@ -1178,11 +1237,31 @@ void GraphicsLayer::didScroll()
     }
 }
 
-PaintController* GraphicsLayer::paintController()
+scoped_refptr<base::trace_event::ConvertableToTraceFormat> GraphicsLayer::TakeDebugInfo(cc::Layer* layer)
 {
+    scoped_refptr<base::trace_event::TracedValue> tracedValue = m_debugInfo.asTracedValue();
+    tracedValue->SetString("layer_name", WTF::StringUTF8Adaptor(debugName(layer)).asStringPiece());
+    return tracedValue;
+}
+
+PaintController& GraphicsLayer::paintController()
+{
+    RELEASE_ASSERT(drawsContent());
     if (!m_paintController)
         m_paintController = PaintController::create();
-    return m_paintController.get();
+    return *m_paintController;
+}
+
+void GraphicsLayer::setElementId(uint64_t id)
+{
+    if (WebLayer* layer = platformLayer())
+        layer->setElementId(id);
+}
+
+void GraphicsLayer::setCompositorMutableProperties(uint32_t properties)
+{
+    if (WebLayer* layer = platformLayer())
+        layer->setCompositorMutableProperties(properties);
 }
 
 } // namespace blink

@@ -45,8 +45,8 @@ WebInspector.ResourceScriptMapping = function(debuggerModel, workspace, networkM
     this._workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeRemoved, this._uiSourceCodeRemoved, this);
     this._networkMapping = networkMapping;
     this._debuggerWorkspaceBinding = debuggerWorkspaceBinding;
-    /** @type {!Set.<string>} */
-    this._boundURLs = new Set();
+    /** @type {!Array.<!WebInspector.UISourceCode>} */
+    this._boundUISourceCodes = [];
 
     /** @type {!Map.<!WebInspector.UISourceCode, !WebInspector.ResourceScriptFile>} */
     this._uiSourceCodeToScriptFile = new Map();
@@ -159,7 +159,7 @@ WebInspector.ResourceScriptMapping.prototype = {
         var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
         if (!this._networkMapping.networkURL(uiSourceCode))
             return;
-        if (uiSourceCode.project().isServiceProject())
+        if (uiSourceCode.isFromServiceProject())
             return;
 
         var scripts = this._scriptsForUISourceCode(uiSourceCode);
@@ -177,7 +177,7 @@ WebInspector.ResourceScriptMapping.prototype = {
         var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
         if (!this._networkMapping.networkURL(uiSourceCode))
             return;
-        if (uiSourceCode.project().isServiceProject())
+        if (uiSourceCode.isFromServiceProject())
             return;
 
         this._unbindUISourceCode(uiSourceCode);
@@ -186,19 +186,7 @@ WebInspector.ResourceScriptMapping.prototype = {
     /**
      * @param {!WebInspector.UISourceCode} uiSourceCode
      */
-    _hasMergedToVM: function(uiSourceCode)
-    {
-        var scripts = this._scriptsForUISourceCode(uiSourceCode);
-        if (!scripts.length)
-            return;
-        for (var i = 0; i < scripts.length; ++i)
-            this._debuggerWorkspaceBinding.updateLocations(scripts[i]);
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     */
-    _hasDivergedFromVM: function(uiSourceCode)
+    _updateLocations: function(uiSourceCode)
     {
         var scripts = this._scriptsForUISourceCode(uiSourceCode);
         if (!scripts.length)
@@ -215,7 +203,7 @@ WebInspector.ResourceScriptMapping.prototype = {
     {
         if (script.isAnonymousScript())
             return null;
-        return this._networkMapping.uiSourceCodeForURL(script.sourceURL, this._target);
+        return this._networkMapping.uiSourceCodeForScriptURL(script.sourceURL, script);
     },
 
     /**
@@ -250,7 +238,7 @@ WebInspector.ResourceScriptMapping.prototype = {
         for (var i = 0; i < scripts.length; ++i)
             this._debuggerWorkspaceBinding.updateLocations(scripts[i]);
         this._debuggerWorkspaceBinding.setSourceMapping(this._target, uiSourceCode, this);
-        this._boundURLs.add(this._networkMapping.networkURL(uiSourceCode));
+        this._boundUISourceCodes.push(uiSourceCode);
     },
 
     /**
@@ -264,19 +252,15 @@ WebInspector.ResourceScriptMapping.prototype = {
             this._setScriptFile(uiSourceCode, null);
         }
         this._debuggerWorkspaceBinding.setSourceMapping(this._target, uiSourceCode, null);
+        this._boundUISourceCodes.remove(uiSourceCode);
     },
 
     _debuggerReset: function()
     {
-        var boundURLs = this._boundURLs.valuesArray();
-        for (var i = 0; i < boundURLs.length; ++i)
-        {
-            var uiSourceCode = this._networkMapping.uiSourceCodeForURL(boundURLs[i], this._target);
-            if (!uiSourceCode)
-                continue;
-            this._unbindUISourceCode(uiSourceCode);
-        }
-        this._boundURLs.clear();
+        var sourceCodes = this._boundUISourceCodes;
+        this._boundUISourceCodes = [];
+        sourceCodes.forEach(this._unbindUISourceCode.bind(this));
+        console.assert(!this._uiSourceCodeToScriptFile.size);
     },
 
     dispose: function()
@@ -303,7 +287,7 @@ WebInspector.ResourceScriptFile = function(resourceScriptMapping, uiSourceCode, 
     this._uiSourceCode = uiSourceCode;
     this._uiSourceCode.forceLoadOnCheckContent();
 
-    if (this._uiSourceCode.contentType() === WebInspector.resourceTypes.Script)
+    if (this._uiSourceCode.contentType().isScript())
         this._script = scripts[0];
 
     this._uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this);
@@ -336,7 +320,7 @@ WebInspector.ResourceScriptFile.prototype = {
             return false;
         if (typeof this._scriptSource === "undefined")
             return false;
-        if (!this._uiSourceCode.workingCopy().startsWith(this._scriptSource))
+        if (!this._uiSourceCode.workingCopy().startsWith(this._scriptSource.trimRight()))
             return true;
         var suffix = this._uiSourceCode.workingCopy().substr(this._scriptSource.length);
         return !!suffix.length && !suffix.match(WebInspector.Script.sourceURLRegex);
@@ -367,21 +351,20 @@ WebInspector.ResourceScriptFile.prototype = {
          */
         function scriptSourceWasSet(error, errorData)
         {
-            if (!error)
+            if (!error && !errorData)
                 this._scriptSource = source;
             this._update();
 
-            if (!error)
+            if (!error && !errorData)
                 return;
             var warningLevel = WebInspector.Console.MessageLevel.Warning;
             if (!errorData) {
                 WebInspector.console.addMessage(WebInspector.UIString("LiveEdit failed: %s", error), warningLevel);
                 return;
             }
-            var compileError = errorData.compileError;
-            if (compileError) {
-                var messageText = WebInspector.UIString("LiveEdit compile failed: %s", compileError.message);
-                this._uiSourceCode.addMessage(WebInspector.UISourceCode.Message.Level.Error, messageText, compileError.lineNumber - 1, compileError.columnNumber + 1);
+            if (errorData) {
+                var messageText = WebInspector.UIString("LiveEdit compile failed: %s", errorData.message);
+                this._uiSourceCode.addLineMessage(WebInspector.UISourceCode.Message.Level.Error, messageText, errorData.lineNumber - 1, errorData.columnNumber + 1);
             } else {
                 WebInspector.console.addMessage(WebInspector.UIString("Unknown LiveEdit error: %s; %s", JSON.stringify(errorData), error), warningLevel);
             }
@@ -399,7 +382,7 @@ WebInspector.ResourceScriptFile.prototype = {
     _divergeFromVM: function()
     {
         this._isDivergingFromVM = true;
-        this._resourceScriptMapping._hasDivergedFromVM(this._uiSourceCode);
+        this._resourceScriptMapping._updateLocations(this._uiSourceCode);
         delete this._isDivergingFromVM;
         this._hasDivergedFromVM = true;
         this.dispatchEventToListeners(WebInspector.ResourceScriptFile.Events.DidDivergeFromVM, this._uiSourceCode);
@@ -409,7 +392,7 @@ WebInspector.ResourceScriptFile.prototype = {
     {
         delete this._hasDivergedFromVM;
         this._isMergingToVM = true;
-        this._resourceScriptMapping._hasMergedToVM(this._uiSourceCode);
+        this._resourceScriptMapping._updateLocations(this._uiSourceCode);
         delete this._isMergingToVM;
         this.dispatchEventToListeners(WebInspector.ResourceScriptFile.Events.DidMergeToVM, this._uiSourceCode);
     },
@@ -440,11 +423,11 @@ WebInspector.ResourceScriptFile.prototype = {
 
     checkMapping: function()
     {
-        if (!this._script)
+        if (!this._script || typeof this._scriptSource !== "undefined") {
+            this._mappingCheckedForTest();
             return;
-        if (typeof this._scriptSource !== "undefined")
-            return;
-        this._script.requestContent(callback.bind(this));
+        }
+        this._script.requestContent().then(callback.bind(this));
 
         /**
          * @param {?string} source
@@ -454,8 +437,11 @@ WebInspector.ResourceScriptFile.prototype = {
         {
             this._scriptSource = source;
             this._update();
+            this._mappingCheckedForTest();
         }
     },
+
+    _mappingCheckedForTest: function() { },
 
     /**
      * @return {?WebInspector.Target}
@@ -481,6 +467,14 @@ WebInspector.ResourceScriptFile.prototype = {
         if (!this._script)
             return;
         this._script.addSourceMapURL(sourceMapURL);
+    },
+
+    /**
+     * @return {boolean}
+     */
+    hasSourceMapURL: function()
+    {
+        return this._script && !!this._script.sourceMapURL;
     },
 
     __proto__: WebInspector.Object.prototype

@@ -101,6 +101,25 @@
       ],
     },
     {
+      # GN version: //ppapi:blink_test_plugin
+      'target_name': 'blink_test_plugin',
+      'type': 'loadable_module',
+      'sources': [
+        'tests/blink_test_plugin.cc',
+      ],
+      'dependencies': [
+        'ppapi.gyp:ppapi_cpp',
+        'ppapi_internal.gyp:ppapi_shared',
+      ],
+      'conditions': [
+        ['OS=="mac"', {
+          'mac_bundle': 1,
+          'product_name': 'blink_test_plugin',
+          'product_extension': 'plugin',
+        }],
+      ],
+    },
+    {
       # GN version: //ppapi/proxy:test_support
       #             //ppapi/shared_impl:test_support
       'target_name': 'ppapi_unittest_shared',
@@ -145,14 +164,6 @@
         'proxy/ppapi_perftests.cc',
         'proxy/ppp_messaging_proxy_perftest.cc',
       ],
-      'conditions': [
-        # See http://crbug.com/162998#c4 for why this is needed.
-        ['OS=="linux" and use_allocator!="none"', {
-          'dependencies': [
-            '../base/allocator/allocator.gyp:allocator',
-          ],
-        }],
-      ],
     },
     {
       # GN version: //ppapi:ppapi_unittests
@@ -172,6 +183,7 @@
         '../ipc/ipc.gyp:ipc',
         '../ipc/ipc.gyp:test_support_ipc',
         '../media/media.gyp:shared_memory_support',
+        '../skia/skia.gyp:skia',
         '../testing/gmock.gyp:gmock',
         '../testing/gtest.gyp:gtest',
         '../ui/surface/surface.gyp:surface',
@@ -210,17 +222,6 @@
         'shared_impl/thread_aware_callback_unittest.cc',
         'shared_impl/time_conversion_unittest.cc',
         'shared_impl/var_tracker_unittest.cc',
-      ],
-      'conditions': [
-        [ 'os_posix == 1 and OS != "mac" and OS != "android" and OS != "ios"', {
-          'conditions': [
-            [ 'use_allocator!="none"', {
-              'dependencies': [
-                '../base/allocator/allocator.gyp:allocator',
-              ],
-            }],
-          ],
-        }],
       ],
     },
     {
@@ -329,6 +330,16 @@
       ],
       'sources': [
         'examples/audio/audio.cc',
+      ],
+    },
+    {
+      'target_name': 'ppapi_example_audio_encode',
+      'dependencies': [
+        'ppapi_example_skeleton',
+        'ppapi.gyp:ppapi_cpp',
+      ],
+      'sources': [
+        'examples/audio_encode/audio_encode.cc',
       ],
     },
     {
@@ -652,5 +663,20 @@
     },
     # Adding a new PPAPI example? Don't forget to update the GN build.
     # See //ppapi/examples/BUILD.gn
+  ],
+  'conditions': [
+    ['test_isolation_mode != "noop"', {
+      'targets': [
+        {
+          'target_name': 'ppapi_unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'ppapi_unittests',
+          ],
+          'includes': [ '../build/isolate.gypi' ],
+          'sources': [ 'ppapi_unittests.isolate' ],
+        },
+      ],
+    }],
   ],
 }

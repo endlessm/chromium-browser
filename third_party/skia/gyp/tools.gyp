@@ -17,9 +17,9 @@
       'target_name': 'tools',
       'type': 'none',
       'dependencies': [
-        'bitmap_region_decoder',
         'chrome_fuzz',
-        'filter',
+        'dump_record',
+        'get_images_from_skps',
         'gpuveto',
         'imgblur',
         'imgconv',
@@ -27,10 +27,8 @@
         'lua_app',
         'lua_pictures',
         'pinspect',
-        'render_pdfs',
         'skdiff',
         'skhello',
-        'skpdiff',
         'skpinfo',
         'skpmaker',
         'test_image_decoder',
@@ -45,28 +43,48 @@
             ],
           },
         ],
+        [ 'skia_os == "android"',
+          {
+            'dependencies': [
+               # Build this by default to catch compile errors more quickly, since
+               # the only other time this code is exercised in the android framework
+              'android_utils',
+            ],
+          },
+        ],
       ],
     },
     {
-      'target_name': 'bitmap_region_decoder',
+      'target_name': 'android_utils',
       'type': 'static_library',
-      'sources': [
-        '../tools/android/SkBitmapRegionCanvas.cpp',
-        '../tools/android/SkBitmapRegionCodec.cpp',
-        '../tools/android/SkBitmapRegionDecoder.cpp',
-      ],
-      'include_dirs': [
-        '../include/private',
-        '../src/codec',
-      ],
       'dependencies': [
-        'skia_lib.gyp:skia_lib',
+        'core.gyp:core',
+      ],
+      'sources': [
+        '../tools/android/SkAndroidSDKCanvas.h',
+        '../tools/android/SkAndroidSDKCanvas.cpp',
       ],
       'direct_dependent_settings': {
         'include_dirs': [
           '../tools/android',
         ],
       },
+    },
+    {
+        'target_name': 'dump_record',
+        'type': 'executable',
+        'sources': [
+            '../tools/dump_record.cpp',
+            '../tools/DumpRecord.cpp',
+         ],
+         'include_dirs': [
+            '../include/private',
+            '../src/core',
+         ],
+         'dependencies': [
+            'flags.gyp:flags',
+            'skia_lib.gyp:skia_lib',
+         ],
     },
     {
       'target_name': 'chrome_fuzz',
@@ -118,6 +136,7 @@
       'sources': [
         '../tools/sk_tool_utils.cpp',
         '../tools/sk_tool_utils_font.cpp',
+        '../tools/random_parse_path.cpp',
       ],
       'include_dirs': [
         '../include/private',
@@ -156,65 +175,6 @@
       ],
       'dependencies': [
         'skia_lib.gyp:skia_lib',
-      ],
-    },
-    {
-      'target_name': 'skpdiff',
-      'type': 'executable',
-      'sources': [
-        '../tools/skpdiff/skpdiff_main.cpp',
-        '../tools/skpdiff/SkDiffContext.cpp',
-        '../tools/skpdiff/SkImageDiffer.cpp',
-        '../tools/skpdiff/SkPMetric.cpp',
-        '../tools/skpdiff/skpdiff_util.cpp',
-      ],
-      'include_dirs': [
-        '../include/private',
-        '../src/core/', # needed for SkTLList.h
-        '../tools/',    # needed for picture_utils::replace_char
-      ],
-      'dependencies': [
-        'flags.gyp:flags',
-        'skia_lib.gyp:skia_lib',
-        'tools.gyp:picture_utils',
-      ],
-      'cflags': [
-        '-O3',
-      ],
-      'conditions': [
-        [ 'skia_os in ["linux", "freebsd", "openbsd", "solaris", "chromeos"]', {
-          'link_settings': {
-            'libraries': [
-              '-lrt',
-              '-pthread',
-            ],
-          },
-        }],
-        ['skia_opencl', {
-          'sources': [
-            '../tools/skpdiff/SkCLImageDiffer.cpp',
-            '../tools/skpdiff/SkDifferentPixelsMetric_opencl.cpp',
-          ],
-          'conditions': [
-            [ 'skia_os == "mac"', {
-              'link_settings': {
-                'libraries': [
-                  '$(SDKROOT)/System/Library/Frameworks/OpenCL.framework',
-                ]
-              }
-            }, {
-              'link_settings': {
-                'libraries': [
-                  '-lOpenCL',
-                ],
-              },
-            }],
-          ],
-        }, { # !skia_opencl
-          'sources': [
-            '../tools/skpdiff/SkDifferentPixelsMetric_cpu.cpp',
-          ],
-        }],
       ],
     },
     {
@@ -306,18 +266,15 @@
       ],
     },
     {
-        'target_name': 'lazy_decode_bitmap',
-        'type': 'static_library',
-        'sources': [ '../tools/LazyDecodeBitmap.cpp' ],
-        'include_dirs': [
-            '../include/private',
-            '../src/core',
-            '../src/lazy',
-        ],
-        'dependencies': [
+        'target_name': 'get_images_from_skps',
+        'type': 'executable',
+        'sources': [
+            '../tools/get_images_from_skps.cpp',
+         ],
+         'dependencies': [
             'flags.gyp:flags',
-            'skia_lib.gyp:skia_lib'
-        ],
+            'skia_lib.gyp:skia_lib',
+         ],
     },
     {
       'target_name': 'gpuveto',
@@ -331,7 +288,6 @@
         '../src/images',
       ],
       'dependencies': [
-        'lazy_decode_bitmap',
         'flags.gyp:flags',
         'skia_lib.gyp:skia_lib',
       ],
@@ -373,7 +329,6 @@
         '../src/core/',
       ],
       'dependencies': [
-        'lazy_decode_bitmap',
         'effects.gyp:effects',
         'flags.gyp:flags',
         'images.gyp:images',
@@ -382,99 +337,6 @@
         'pdf.gyp:pdf',
         'ports.gyp:ports',
         'skia_lib.gyp:skia_lib',
-      ],
-    },
-    {
-      'target_name': 'picture_renderer',
-      'type': 'static_library',
-      'sources': [
-        '../tools/PictureRenderer.h',
-        '../tools/PictureRenderer.cpp',
-      ],
-      'include_dirs': [
-        '../include/private',
-        '../src/core',
-        '../src/images',
-        '../src/lazy',
-        '../src/pipe/utils/',
-        '../src/utils/',
-      ],
-      'dependencies': [
-        'lazy_decode_bitmap',
-        'flags.gyp:flags',
-        'jsoncpp.gyp:jsoncpp',
-        'skia_lib.gyp:skia_lib',
-        'tools.gyp:picture_utils',
-      ],
-      'conditions': [
-        ['skia_gpu == 1',
-          {
-            'include_dirs' : [
-              '../src/gpu',
-            ],
-            'dependencies': [
-              'gputest.gyp:skgputest',
-            ],
-            'export_dependent_settings': [
-                'gputest.gyp:skgputest',
-            ],
-          },
-        ],
-      ],
-    },
-    {
-      'target_name': 'render_pdfs',
-      'type': 'executable',
-      'sources': [
-        '../tools/render_pdfs_main.cpp',
-      ],
-      'include_dirs': [
-        '../include/private',
-        '../src/core',
-        '../src/pipe/utils/',
-        '../src/utils/',
-      ],
-      'dependencies': [
-        'flags.gyp:flags',
-        'pdf.gyp:pdf',
-        'skia_lib.gyp:skia_lib',
-        'tools.gyp:picture_utils',
-        'tools.gyp:proc_stats',
-      ],
-      'conditions': [
-        ['skia_win_debuggers_path and skia_os == "win"',
-          {
-            'dependencies': [
-              'tools.gyp:win_dbghelp',
-            ],
-          },
-        ],
-        # VS static libraries don't have a linker option. We must set a global
-        # project linker option, or add it to each executable.
-        ['skia_win_debuggers_path and skia_os == "win" and '
-         'skia_arch_type == "x86_64"',
-          {
-            'msvs_settings': {
-              'VCLinkerTool': {
-                'AdditionalDependencies': [
-                  '<(skia_win_debuggers_path)/x64/DbgHelp.lib',
-                ],
-              },
-            },
-          },
-        ],
-        ['skia_win_debuggers_path and skia_os == "win" and '
-         'skia_arch_type == "x86"',
-          {
-            'msvs_settings': {
-              'VCLinkerTool': {
-                'AdditionalDependencies': [
-                  '<(skia_win_debuggers_path)/DbgHelp.lib',
-                ],
-              },
-            },
-          },
-        ],
       ],
     },
     {
@@ -500,7 +362,6 @@
         '../tools/pinspect.cpp',
       ],
       'dependencies': [
-        'lazy_decode_bitmap',
         'flags.gyp:flags',
         'skia_lib.gyp:skia_lib',
       ],
@@ -514,28 +375,6 @@
       'dependencies': [
         'flags.gyp:flags',
         'skia_lib.gyp:skia_lib',
-      ],
-    },
-    {
-      'target_name': 'filter',
-      'type': 'executable',
-      'include_dirs' : [
-        '../include/private',
-        '../src/core',
-        '../src/utils/debugger',
-      ],
-      'sources': [
-        '../tools/filtermain.cpp',
-        '../src/utils/debugger/SkDrawCommand.h',
-        '../src/utils/debugger/SkDrawCommand.cpp',
-        '../src/utils/debugger/SkDebugCanvas.h',
-        '../src/utils/debugger/SkDebugCanvas.cpp',
-        '../src/utils/debugger/SkObjectParser.h',
-        '../src/utils/debugger/SkObjectParser.cpp',
-      ],
-      'dependencies': [
-        'skia_lib.gyp:skia_lib',
-        'tools.gyp:picture_utils',
       ],
     },
     {
@@ -560,6 +399,27 @@
       },
     },
     {
+      'target_name': 'url_data_manager',
+      'type': 'static_library',
+      'sources': [
+        '../tools/UrlDataManager.h',
+        '../tools/UrlDataManager.cpp',
+      ],
+      'dependencies': [
+        'skia_lib.gyp:skia_lib',
+      ],
+      'include_dirs': [
+         '../include/private',
+         '../src/core',
+      ],
+      'direct_dependent_settings': {
+        'include_dirs': [
+          '../include/private',
+          '../tools', 
+        ],
+      },
+    },
+    {
       'target_name': 'whitelist_typefaces',
       'type': 'executable',
       'sources': [
@@ -570,6 +430,19 @@
       ],
     },
     {
+      'target_name': 'thermal_manager',
+      'type': 'static_library',
+      'sources': [
+        '../tools/ThermalManager.cpp',
+      ],
+      'dependencies': [
+        'skia_lib.gyp:skia_lib',
+      ],
+      'direct_dependent_settings': {
+        'include_dirs': [ '../tools', ],
+      },
+    },
+    {
       'target_name': 'test_public_includes',
       'type': 'static_library',
       # Ensure that our public headers don't have unused params so that clients
@@ -577,6 +450,7 @@
       'cflags!': [ '-Wno-unused-parameter' ],
       'variables': {
         'includes_to_test': [
+          '<(skia_include_path)/android',
           '<(skia_include_path)/animator',
           '<(skia_include_path)/c',
           '<(skia_include_path)/codec',
@@ -586,7 +460,6 @@
           '<(skia_include_path)/gpu',
           '<(skia_include_path)/images',
           '<(skia_include_path)/pathops',
-          '<(skia_include_path)/pipe',
           '<(skia_include_path)/ports',
           '<(skia_include_path)/svg/parser',
           '<(skia_include_path)/utils',
@@ -611,6 +484,7 @@
           '<(skia_include_path)/views/SkOSWindow_Unix.h',
           '<(skia_include_path)/views/SkOSWindow_Win.h',
           '<(skia_include_path)/views/SkWindow.h',
+          '<(skia_include_path)/gpu/vk',
         ],
       },
       'include_dirs': [

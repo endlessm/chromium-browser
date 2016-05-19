@@ -9,7 +9,6 @@
 
 #include <algorithm>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -17,7 +16,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
-
+#include "net/base/url_util.h"
 
 namespace net {
 
@@ -41,6 +40,14 @@ static size_t FindStringEnd(const std::string& line, size_t start, char delim) {
 
 
 // HttpUtil -------------------------------------------------------------------
+
+// static
+std::string HttpUtil::SpecForRequest(const GURL& url) {
+  // We may get ftp scheme when fetching ftp resources through proxy.
+  DCHECK(url.is_valid() && (url.SchemeIsHTTPOrHTTPS() || url.SchemeIs("ftp") ||
+                            url.SchemeIsWSOrWSS()));
+  return SimplifyUrlForRequest(url).spec();
+}
 
 // static
 void HttpUtil::ParseContentType(const std::string& content_type_str,
@@ -210,7 +217,7 @@ bool HttpUtil::ParseRangeHeader(const std::string& ranges_specifier,
     HttpByteRange range;
     // Try to obtain first-byte-pos.
     if (!first_byte_pos.empty()) {
-      int64 first_byte_position = -1;
+      int64_t first_byte_position = -1;
       if (!base::StringToInt64(first_byte_pos, &first_byte_position))
         return false;
       range.set_first_byte_position(first_byte_position);
@@ -225,7 +232,7 @@ bool HttpUtil::ParseRangeHeader(const std::string& ranges_specifier,
 
     // We have last-byte-pos or suffix-byte-range-spec in this case.
     if (!last_byte_pos.empty()) {
-      int64 last_byte_position;
+      int64_t last_byte_position;
       if (!base::StringToInt64(last_byte_pos, &last_byte_position))
         return false;
       if (range.HasFirstBytePosition())
@@ -343,6 +350,24 @@ bool HttpUtil::IsValidHeaderValue(const std::string& value) {
   // Just a sanity check: disallow NUL and CRLF.
   return value.find('\0') == std::string::npos &&
       value.find("\r\n") == std::string::npos;
+}
+
+// static
+bool HttpUtil::IsValidHeaderValueRFC7230(const base::StringPiece& value) {
+  // This empty string is a valid header-value.
+  if (value.empty())
+    return true;
+
+  // Check leading/trailing whitespaces.
+  if (IsLWS(value[0]) || IsLWS(value[value.size() - 1]))
+    return false;
+
+  // Check each octet is |field-vchar|, |SP| or |HTAB|.
+  for (unsigned char c : value) {
+    if (c == 0x7F || (c < 0x20 && c != '\t'))
+      return false;
+  }
+  return true;
 }
 
 // static
@@ -842,6 +867,8 @@ HttpUtil::ValuesIterator::ValuesIterator(
   values_.set_quote_chars("\'\"");
 }
 
+HttpUtil::ValuesIterator::ValuesIterator(const ValuesIterator& other) = default;
+
 HttpUtil::ValuesIterator::~ValuesIterator() {
 }
 
@@ -877,6 +904,9 @@ HttpUtil::NameValuePairsIterator::NameValuePairsIterator(
     std::string::const_iterator end,
     char delimiter)
     : NameValuePairsIterator(begin, end, delimiter, VALUES_NOT_OPTIONAL) {}
+
+HttpUtil::NameValuePairsIterator::NameValuePairsIterator(
+    const NameValuePairsIterator& other) = default;
 
 HttpUtil::NameValuePairsIterator::~NameValuePairsIterator() {}
 

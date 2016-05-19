@@ -25,6 +25,8 @@ android_library("system") {
 
 android_library("bindings") {
   java_files = [
+    "bindings/src/org/chromium/mojo/bindings/AssociatedInterfaceNotSupported.java",
+    "bindings/src/org/chromium/mojo/bindings/AssociatedInterfaceRequestNotSupported.java",
     "bindings/src/org/chromium/mojo/bindings/AutoCloseableRouter.java",
     "bindings/src/org/chromium/mojo/bindings/BindingsHelper.java",
     "bindings/src/org/chromium/mojo/bindings/Callbacks.java",
@@ -55,6 +57,7 @@ android_library("bindings") {
 
   deps = [
     ":system",
+    "//base:base_java",
   ]
 
   srcjar_deps = [ "../interfaces/bindings:bindings_java_sources" ]

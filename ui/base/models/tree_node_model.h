@@ -5,15 +5,16 @@
 #ifndef UI_BASE_MODELS_TREE_NODE_MODEL_H_
 #define UI_BASE_MODELS_TREE_NODE_MODEL_H_
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <vector>
 
-#include "base/basictypes.h"
-#include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "ui/base/models/tree_model.h"
 
@@ -68,7 +69,9 @@ class TreeNode : public TreeModelNode {
   explicit TreeNode(const base::string16& title)
       : title_(title), parent_(NULL) {}
 
-  ~TreeNode() override {}
+  ~TreeNode() override {
+    STLDeleteElements(&children_);
+  }
 
   // Adds |node| as a child of this node, at |index|.
   virtual void Add(NodeType* node, int index) {
@@ -90,7 +93,7 @@ class TreeNode : public TreeModelNode {
         std::find(children_.begin(), children_.end(), node);
     DCHECK(i != children_.end());
     node->parent_ = NULL;
-    children_.weak_erase(i);
+    children_.erase(i);
     return node;
   }
 
@@ -98,7 +101,7 @@ class TreeNode : public TreeModelNode {
   void RemoveAll() {
     for (size_t i = 0; i < children_.size(); ++i)
       children_[i]->parent_ = NULL;
-    children_.weak_clear();
+    children_.clear();
   }
 
   // Removes all existing children without deleting the nodes and adds all nodes
@@ -167,7 +170,7 @@ class TreeNode : public TreeModelNode {
   }
 
  protected:
-  std::vector<NodeType*>& children() { return children_.get(); }
+  std::vector<NodeType*>& children() { return children_; }
 
  private:
   // Title displayed in the tree.
@@ -177,7 +180,7 @@ class TreeNode : public TreeModelNode {
   NodeType* parent_;
 
   // This node's children.
-  ScopedVector<NodeType> children_;
+  std::vector<NodeType*> children_;
 
   DISALLOW_COPY_AND_ASSIGN(TreeNode);
 };

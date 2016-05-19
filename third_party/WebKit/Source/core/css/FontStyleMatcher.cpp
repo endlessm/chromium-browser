@@ -25,7 +25,6 @@
  */
 
 
-#include "config.h"
 #include "core/css/FontStyleMatcher.h"
 
 #include "core/css/CSSSegmentedFontFace.h"
@@ -138,4 +137,4 @@ bool FontStyleMatcher::isCandidateBetter(CSSSegmentedFontFace *candidate, CSSSeg
     return false;
 }
 
-}
+} // namespace blink

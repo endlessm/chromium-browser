@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
@@ -428,6 +429,8 @@ void ToolbarActionViewDelegateBridge::DoShowContextMenu() {
   // Also reset the context menu, since it has a dependency on the backing
   // controller (which owns its model).
   contextMenuController_.reset();
+  // Remove any lingering observations.
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (BOOL)isAnimating {
@@ -566,8 +569,8 @@ void ToolbarActionViewDelegateBridge::DoShowContextMenu() {
                                    yRadius:2] fill];
 }
 
-- (ui::ThemeProvider*)themeProviderForWindow:(NSWindow*)window {
-  ui::ThemeProvider* themeProvider = [window themeProvider];
+- (const ui::ThemeProvider*)themeProviderForWindow:(NSWindow*)window {
+  const ui::ThemeProvider* themeProvider = [window themeProvider];
   if (!themeProvider)
     themeProvider =
         [[browserActionsController_ browser]->window()->GetNativeWindow()

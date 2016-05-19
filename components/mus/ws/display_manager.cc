@@ -5,7 +5,9 @@
 #include "components/mus/ws/display_manager.h"
 
 #include "base/numerics/safe_conversions.h"
+#include "build/build_config.h"
 #include "cc/output/compositor_frame.h"
+#include "cc/output/copy_output_request.h"
 #include "cc/output/delegated_frame_data.h"
 #include "cc/quads/render_pass.h"
 #include "cc/quads/shared_quad_state.h"
@@ -20,15 +22,16 @@
 #include "components/mus/ws/server_window_surface.h"
 #include "components/mus/ws/server_window_surface_manager.h"
 #include "components/mus/ws/window_coordinate_conversions.h"
-#include "mojo/application/public/cpp/application_connection.h"
-#include "mojo/application/public/cpp/application_impl.h"
 #include "mojo/converters/geometry/geometry_type_converters.h"
 #include "mojo/converters/input_events/input_events_type_converters.h"
 #include "mojo/converters/input_events/mojo_extended_key_event_data.h"
 #include "mojo/converters/surfaces/surfaces_type_converters.h"
 #include "mojo/converters/surfaces/surfaces_utils.h"
 #include "mojo/converters/transform/transform_type_converters.h"
+#include "mojo/shell/public/cpp/connection.h"
+#include "mojo/shell/public/cpp/connector.h"
 #include "third_party/skia/include/core/SkXfermode.h"
+#include "ui/base/cursor/cursor_loader.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/gfx/display.h"
@@ -41,6 +44,8 @@
 #include "ui/platform_window/x11/x11_window.h"
 #elif defined(OS_ANDROID)
 #include "ui/platform_window/android/platform_window_android.h"
+#elif defined(USE_OZONE)
+#include "ui/ozone/public/ozone_platform.h"
 #endif
 
 using mojo::Rect;
@@ -86,33 +91,34 @@ void DrawWindowTree(cc::RenderPass* pass,
                    combined_opacity, referenced_window_ids);
   }
 
+  if (!window->surface_manager() || !window->surface_manager()->ShouldDraw())
+    return;
+
   // If an ancestor has already referenced this window, then we do not need
   // to create a SurfaceDrawQuad for it.
   const bool draw_default_surface =
       default_surface && (referenced_window_ids->count(window->id()) == 0);
 
   ServerWindowSurface* underlay_surface =
-      window->surface_manager()
-          ? window->surface_manager()->GetUnderlaySurface()
-          : nullptr;
+      window->surface_manager()->GetUnderlaySurface();
   if (!draw_default_surface && !underlay_surface)
     return;
 
-  const gfx::Rect bounds_at_origin(window->bounds().size());
-
-  gfx::Transform quad_to_target_transform;
-  quad_to_target_transform.Translate(absolute_bounds.x(), absolute_bounds.y());
-
-  cc::SharedQuadState* sqs = pass->CreateAndAppendSharedQuadState();
-  // TODO(fsamuel): These clipping and visible rects are incorrect. They need
-  // to be populated from CompositorFrame structs.
-  sqs->SetAll(
-      quad_to_target_transform, bounds_at_origin.size() /* layer_bounds */,
-      bounds_at_origin /* visible_layer_bounds */,
-      bounds_at_origin /* clip_rect */, false /* is_clipped */,
-      window->opacity(), SkXfermode::kSrc_Mode, 0 /* sorting-context_id */);
-
   if (draw_default_surface) {
+    gfx::Transform quad_to_target_transform;
+    quad_to_target_transform.Translate(absolute_bounds.x(),
+                                       absolute_bounds.y());
+
+    cc::SharedQuadState* sqs = pass->CreateAndAppendSharedQuadState();
+
+    const gfx::Rect bounds_at_origin(window->bounds().size());
+    // TODO(fsamuel): These clipping and visible rects are incorrect. They need
+    // to be populated from CompositorFrame structs.
+    sqs->SetAll(
+        quad_to_target_transform, bounds_at_origin.size() /* layer_bounds */,
+        bounds_at_origin /* visible_layer_bounds */,
+        bounds_at_origin /* clip_rect */, false /* is_clipped */,
+        window->opacity(), SkXfermode::kSrc_Mode, 0 /* sorting-context_id */);
     auto quad = pass->CreateAndAppendDrawQuad<cc::SurfaceDrawQuad>();
     quad->SetAll(sqs, bounds_at_origin /* rect */,
                  gfx::Rect() /* opaque_rect */,
@@ -120,6 +126,20 @@ void DrawWindowTree(cc::RenderPass* pass,
                  default_surface->id());
   }
   if (underlay_surface) {
+    const gfx::Rect underlay_absolute_bounds =
+        absolute_bounds - window->underlay_offset();
+    gfx::Transform quad_to_target_transform;
+    quad_to_target_transform.Translate(underlay_absolute_bounds.x(),
+                                       underlay_absolute_bounds.y());
+    cc::SharedQuadState* sqs = pass->CreateAndAppendSharedQuadState();
+    const gfx::Rect bounds_at_origin(
+        underlay_surface->last_submitted_frame_size());
+    sqs->SetAll(
+        quad_to_target_transform, bounds_at_origin.size() /* layer_bounds */,
+        bounds_at_origin /* visible_layer_bounds */,
+        bounds_at_origin /* clip_rect */, false /* is_clipped */,
+        window->opacity(), SkXfermode::kSrc_Mode, 0 /* sorting-context_id */);
+
     auto quad = pass->CreateAndAppendDrawQuad<cc::SurfaceDrawQuad>();
     quad->SetAll(sqs, bounds_at_origin /* rect */,
                  gfx::Rect() /* opaque_rect */,
@@ -135,27 +155,27 @@ DisplayManagerFactory* DisplayManager::factory_ = nullptr;
 
 // static
 DisplayManager* DisplayManager::Create(
-    mojo::ApplicationImpl* app_impl,
+    mojo::Connector* connector,
     const scoped_refptr<GpuState>& gpu_state,
     const scoped_refptr<SurfacesState>& surfaces_state) {
-  if (factory_) {
-    return factory_->CreateDisplayManager(app_impl, gpu_state,
-                                          surfaces_state);
-  }
-  return new DefaultDisplayManager(app_impl, gpu_state,
-                                   surfaces_state);
+  if (factory_)
+    return factory_->CreateDisplayManager(connector, gpu_state, surfaces_state);
+  return new DefaultDisplayManager(connector, gpu_state, surfaces_state);
 }
 
 DefaultDisplayManager::DefaultDisplayManager(
-    mojo::ApplicationImpl* app_impl,
+    mojo::Connector* connector,
     const scoped_refptr<GpuState>& gpu_state,
     const scoped_refptr<SurfacesState>& surfaces_state)
-    : app_impl_(app_impl),
+    : connector_(connector),
       gpu_state_(gpu_state),
       surfaces_state_(surfaces_state),
       delegate_(nullptr),
       draw_timer_(false, false),
       frame_pending_(false),
+#if !defined(OS_ANDROID)
+      cursor_loader_(ui::CursorLoader::Create()),
+#endif
       weak_factory_(this) {
   metrics_.size_in_pixels = mojo::Size::New();
   metrics_.size_in_pixels->width = 1024;
@@ -171,7 +191,10 @@ void DefaultDisplayManager::Init(DisplayManagerDelegate* delegate) {
 #elif defined(USE_X11)
   platform_window_.reset(new ui::X11Window(this));
 #elif defined(OS_ANDROID)
-  platform_window_.reset(new ui::PlatformWindowAndroid(this));
+  platform_window_. reset(new ui::PlatformWindowAndroid(this));
+#elif defined(USE_OZONE)
+  platform_window_ =
+      ui::OzonePlatform::GetInstance()->CreatePlatformWindow(this, bounds);
 #else
   NOTREACHED() << "Unsupported platform";
 #endif
@@ -212,8 +235,34 @@ void DefaultDisplayManager::SetTitle(const base::string16& title) {
   platform_window_->SetTitle(title);
 }
 
+void DefaultDisplayManager::SetCapture() {
+  platform_window_->SetCapture();
+}
+
+void DefaultDisplayManager::ReleaseCapture() {
+  platform_window_->ReleaseCapture();
+}
+
+void DefaultDisplayManager::SetCursorById(int32_t cursor_id) {
+#if !defined(OS_ANDROID)
+  // TODO(erg): This still isn't sufficient, and will only use native cursors
+  // that chrome would use, not custom image cursors. For that, we should
+  // delegate to the window manager to load images from resource packs.
+  //
+  // We probably also need to deal with different DPIs.
+  ui::Cursor cursor(cursor_id);
+  cursor_loader_->SetPlatformCursor(&cursor);
+  platform_window_->SetCursor(cursor.platform());
+#endif
+}
+
 const mojom::ViewportMetrics& DefaultDisplayManager::GetViewportMetrics() {
   return metrics_;
+}
+
+mojom::Rotation DefaultDisplayManager::GetRotation() {
+  // TODO(sky): implement me.
+  return mojom::Rotation::VALUE_0;
 }
 
 void DefaultDisplayManager::UpdateTextInputState(
@@ -238,8 +287,8 @@ void DefaultDisplayManager::Draw() {
   frame_pending_ = true;
   if (top_level_display_client_) {
     top_level_display_client_->SubmitCompositorFrame(
-        frame.Pass(), base::Bind(&DefaultDisplayManager::DidDraw,
-                                 weak_factory_.GetWeakPtr()));
+        std::move(frame), base::Bind(&DefaultDisplayManager::DidDraw,
+                                     weak_factory_.GetWeakPtr()));
   }
   dirty_rect_ = gfx::Rect();
 }
@@ -293,11 +342,11 @@ DefaultDisplayManager::GenerateCompositorFrame() {
 
   scoped_ptr<cc::DelegatedFrameData> frame_data(new cc::DelegatedFrameData);
   frame_data->device_scale_factor = metrics_.device_pixel_ratio;
-  frame_data->render_pass_list.push_back(render_pass.Pass());
+  frame_data->render_pass_list.push_back(std::move(render_pass));
 
   scoped_ptr<cc::CompositorFrame> frame(new cc::CompositorFrame);
-  frame->delegated_frame_data = frame_data.Pass();
-  return frame.Pass();
+  frame->delegated_frame_data = std::move(frame_data);
+  return frame;
 }
 
 void DefaultDisplayManager::OnBoundsChanged(const gfx::Rect& new_bounds) {
@@ -310,23 +359,15 @@ void DefaultDisplayManager::OnDamageRect(const gfx::Rect& damaged_region) {
 }
 
 void DefaultDisplayManager::DispatchEvent(ui::Event* event) {
-  mojom::EventPtr mojo_event(mojom::Event::From(*event));
-  delegate_->OnEvent(mojo_event.Pass());
-
-  switch (event->type()) {
-    case ui::ET_MOUSE_PRESSED:
-    case ui::ET_TOUCH_PRESSED:
-      platform_window_->SetCapture();
-      break;
-    case ui::ET_MOUSE_RELEASED:
-    case ui::ET_TOUCH_RELEASED:
-      platform_window_->ReleaseCapture();
-      break;
-    default:
-      break;
+  if (event->IsMouseEvent()) {
+    delegate_->OnEvent(ui::PointerEvent(*event->AsMouseEvent()));
+  } else if (event->IsTouchEvent()) {
+    delegate_->OnEvent(ui::PointerEvent(*event->AsTouchEvent()));
+  } else {
+    delegate_->OnEvent(*event);
   }
 
-#if defined(USE_X11)
+#if defined(USE_X11) || defined(USE_OZONE)
   // We want to emulate the WM_CHAR generation behaviour of Windows.
   //
   // On Linux, we've previously inserted characters by having
@@ -343,17 +384,10 @@ void DefaultDisplayManager::DispatchEvent(ui::Event* event) {
     ui::KeyEvent char_event(key_press_event->GetCharacter(),
                             key_press_event->key_code(),
                             key_press_event->flags());
-
     DCHECK_EQ(key_press_event->GetCharacter(), char_event.GetCharacter());
     DCHECK_EQ(key_press_event->key_code(), char_event.key_code());
     DCHECK_EQ(key_press_event->flags(), char_event.flags());
-
-    char_event.SetExtendedKeyEventData(
-        make_scoped_ptr(new mojo::MojoExtendedKeyEventData(
-            key_press_event->GetLocatedWindowsKeyboardCode(),
-            key_press_event->GetText(), key_press_event->GetUnmodifiedText())));
-
-    delegate_->OnEvent(mojom::Event::From(char_event));
+    delegate_->OnEvent(char_event);
   }
 #endif
 }
@@ -369,7 +403,9 @@ void DefaultDisplayManager::OnClosed() {
 void DefaultDisplayManager::OnWindowStateChanged(
     ui::PlatformWindowState new_state) {}
 
-void DefaultDisplayManager::OnLostCapture() {}
+void DefaultDisplayManager::OnLostCapture() {
+  delegate_->OnNativeCaptureLost();
+}
 
 void DefaultDisplayManager::OnAcceleratedWidgetAvailable(
     gfx::AcceleratedWidget widget,
@@ -388,6 +424,12 @@ void DefaultDisplayManager::OnAcceleratedWidgetDestroyed() {
 }
 
 void DefaultDisplayManager::OnActivationChanged(bool active) {}
+
+void DefaultDisplayManager::RequestCopyOfOutput(
+    scoped_ptr<cc::CopyOutputRequest> output_request) {
+  if (top_level_display_client_)
+    top_level_display_client_->RequestCopyOfOutput(std::move(output_request));
+}
 
 }  // namespace ws
 

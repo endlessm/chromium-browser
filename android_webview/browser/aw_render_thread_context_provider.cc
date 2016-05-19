@@ -53,13 +53,13 @@ AwRenderThreadContextProvider::AwRenderThreadContextProvider(
   blink::WebGraphicsContext3D::Attributes attributes;
   attributes.antialias = false;
   attributes.depth = false;
-  attributes.stencil = false;
+  attributes.stencil = true;
   attributes.shareResources = true;
   attributes.noAutomaticFlushes = true;
   gpu::gles2::ContextCreationAttribHelper attribs_for_gles2;
   gpu_blink::WebGraphicsContext3DImpl::ConvertAttributes(attributes,
                                                          &attribs_for_gles2);
-  attribs_for_gles2.lose_context_when_out_of_memory = true;
+  attribs_for_gles2.lose_context_when_out_of_memory = false;
 
   context_.reset(gpu::GLInProcessContext::Create(
       service,

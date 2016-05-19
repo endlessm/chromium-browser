@@ -6,10 +6,12 @@
 #define CHROME_BROWSER_UI_VIEWS_AUTOFILL_SAVE_CARD_BUBBLE_VIEWS_H_
 
 #include "base/macros.h"
+#include "chrome/browser/ui/autofill/save_card_bubble_controller.h"
 #include "chrome/browser/ui/autofill/save_card_bubble_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/link_listener.h"
+#include "ui/views/controls/styled_label_listener.h"
 
 namespace content {
 class WebContents;
@@ -18,11 +20,10 @@ class WebContents;
 namespace views {
 class LabelButton;
 class Link;
+class StyledLabel;
 }
 
 namespace autofill {
-
-class SaveCardBubbleController;
 
 // This class displays the "Save credit card?" bubble that is shown when the
 // user submits a form with a credit card number that Autofill has not
@@ -30,7 +31,8 @@ class SaveCardBubbleController;
 class SaveCardBubbleViews : public SaveCardBubbleView,
                             public LocationBarBubbleDelegateView,
                             public views::ButtonListener,
-                            public views::LinkListener {
+                            public views::LinkListener,
+                            public views::StyledLabelListener {
  public:
   // Bubble will be anchored to |anchor_view|.
   SaveCardBubbleViews(views::View* anchor_view,
@@ -42,10 +44,15 @@ class SaveCardBubbleViews : public SaveCardBubbleView,
   // SaveCardBubbleView
   void Hide() override;
 
+  // views::BubbleDelegateView
+  scoped_ptr<views::View> CreateFootnoteView() override;
+
+  // views::View
+  gfx::Size GetPreferredSize() const override;
+
   // views::WidgetDelegate
   views::View* GetInitiallyFocusedView() override;
   base::string16 GetWindowTitle() const override;
-  bool ShouldShowWindowTitle() const override;
   void WindowClosing() override;
 
   // views::ButtonListener
@@ -54,8 +61,15 @@ class SaveCardBubbleViews : public SaveCardBubbleView,
   // views::LinkListener
   void LinkClicked(views::Link* source, int event_flags) override;
 
+  // views::StyledLabelListener
+  void StyledLabelLinkClicked(views::StyledLabel* label,
+                              const gfx::Range& range,
+                              int event_flags) override;
+
  private:
   ~SaveCardBubbleViews() override;
+
+  scoped_ptr<views::View> CreateMainContentView();
 
   // views::BubbleDelegateView
   void Init() override;

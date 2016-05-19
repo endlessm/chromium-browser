@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGResourceClipper.h"
 
 #include "core/SVGNames.h"
@@ -160,7 +159,7 @@ bool LayoutSVGResourceClipper::asPath(const AffineTransform& animatedLocalTransf
 }
 
 PassRefPtr<const SkPicture> LayoutSVGResourceClipper::createContentPicture(AffineTransform& contentTransformation, const FloatRect& targetBoundingBox,
-    GraphicsContext* context)
+    GraphicsContext& context)
 {
     ASSERT(frame());
 
@@ -179,7 +178,7 @@ PassRefPtr<const SkPicture> LayoutSVGResourceClipper::createContentPicture(Affin
     // userSpaceOnUse units (http://crbug.com/294900).
     FloatRect bounds = strokeBoundingBox();
 
-    SkPictureBuilder pictureBuilder(bounds, nullptr, context);
+    SkPictureBuilder pictureBuilder(bounds, nullptr, &context);
 
     for (SVGElement* childElement = Traversal<SVGElement>::firstChild(*element()); childElement; childElement = Traversal<SVGElement>::nextSibling(*childElement)) {
         LayoutObject* layoutObject = childElement->layoutObject();
@@ -213,7 +212,7 @@ PassRefPtr<const SkPicture> LayoutSVGResourceClipper::createContentPicture(Affin
         // - masker/filter not applied when laying out the children
         // - fill is set to the initial fill paint server (solid, black)
         // - stroke is set to the initial stroke paint server (none)
-        PaintInfo info(&pictureBuilder.context(), LayoutRect::infiniteIntRect(), PaintPhaseForeground, GlobalPaintNormalPhase, PaintLayerPaintingRenderingClipPathAsMask);
+        PaintInfo info(pictureBuilder.context(), LayoutRect::infiniteIntRect(), PaintPhaseForeground, GlobalPaintNormalPhase, PaintLayerPaintingRenderingClipPathAsMask);
         layoutObject->paint(info, IntPoint());
     }
 
@@ -292,4 +291,4 @@ FloatRect LayoutSVGResourceClipper::resourceBoundingBox(const LayoutObject* obje
     return m_clipBoundaries;
 }
 
-}
+} // namespace blink

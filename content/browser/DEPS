@@ -1,7 +1,10 @@
 include_rules = [
   # Allow inclusion of specific components that we depend on. We may only
   # depend on components which we share with the mojo html_viewer.
+  "+components/leveldb/public/interfaces",
   "+components/mime_util",
+  "+components/mus/public/interfaces",
+  "+components/mus/public",
   "+components/scheduler/common",
   "+components/tracing",
   "+components/url_formatter",
@@ -11,15 +14,18 @@ include_rules = [
   "+device/battery",  # For battery status service.
   "+device/vibration",  # For Vibration API
   "+gin/v8_initializer.h",
+  "+media/media_features.h",
   "+media/audio",  # For audio input for speech input feature.
+  "+media/capture",  # For Video Device monitoring in Mac.
   "+media/base",  # For Android JNI registration.
+  "+media/capture",  # For Device Monitoring
   "+media/filters",  # For reporting GPU decoding UMA.
   "+media/midi",  # For Web MIDI API
   "+media/mojo",  # For mojo media services.
-  "+media/capture/video",  # For Video Device monitoring in Mac.
   "+mojo",
   "+sql",
   "+ui/aura_extra",
+  "+ui/views/mus",  # http://crbug.com/555767
   "+ui/webui",
   "+win8/util",
 
@@ -84,6 +90,8 @@ include_rules = [
   "+third_party/WebKit/public/web/WebPopupType.h",
   "+third_party/WebKit/public/web/WebSandboxFlags.h",
   "+third_party/WebKit/public/web/WebSerializedScriptValueVersion.h",
+  "+third_party/WebKit/public/web/WebSharedWorkerCreationContextType.h",
+  "+third_party/WebKit/public/web/WebSharedWorkerCreationErrors.h",
   "+third_party/WebKit/public/web/WebTextDirection.h",
   "+third_party/WebKit/public/web/WebTextInputType.h",
   "+third_party/WebKit/public/web/WebTreeScopeType.h",

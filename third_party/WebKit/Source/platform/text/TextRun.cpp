@@ -23,7 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/text/TextRun.h"
 
 #include "platform/fonts/Character.h"
@@ -31,14 +30,13 @@
 namespace blink {
 
 struct ExpectedTextRunSize {
+    DISALLOW_NEW();
     const void* pointer;
     int integers[2];
     float float1;
     float float2;
     float float3;
     uint32_t bitfields : 10;
-    bool b;
-    RefPtr<TextRun::RenderingContext> renderingContext;
     TabSize tabSize;
 };
 
@@ -59,15 +57,4 @@ void TextRun::setText(const String& string)
         m_data.characters16 = string.characters16();
 }
 
-#if ENABLE(ASSERT)
-void TextRun::setCodePath(TextCodePath codePath)
-{
-    // ASSERT that the string does not contain any codepoints requiring the
-    // complex text path when set to ForceSimple.
-    ASSERT(codePath != ForceSimple || is8Bit() || Character::
-        characterRangeCodePath(characters16(), length()) == SimplePath);
-    m_codePath = codePath;
-}
-#endif // ENABLE(ASSERT)
-
-}
+} // namespace blink

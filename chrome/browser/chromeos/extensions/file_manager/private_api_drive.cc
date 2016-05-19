@@ -6,6 +6,7 @@
 
 #include <map>
 #include <set>
+#include <utility>
 
 #include "base/command_line.h"
 #include "chrome/browser/browser_process.h"
@@ -96,7 +97,9 @@ void FillEntryPropertiesValueForDrive(const drive::ResourceEntry& entry_proto,
     DriveApiUrlGenerator url_generator(
         (GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction)),
         (GURL(
-            google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction)));
+            google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction)),
+        (GURL(google_apis::DriveApiUrlGenerator::
+                  kBaseThumbnailUrlForProduction)));
     properties->thumbnail_url.reset(new std::string(
         url_generator.GetThumbnailUrl(entry_proto.resource_id(),
                                       500 /* width */, 500 /* height */,
@@ -367,7 +370,8 @@ class SingleEntryPropertiesGetterForDrive {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(!callback_.is_null());
 
-    callback_.Run(properties_.Pass(), drive::FileErrorToBaseFileError(error));
+    callback_.Run(std::move(properties_),
+                  drive::FileErrorToBaseFileError(error));
     BrowserThread::DeleteSoon(BrowserThread::UI, FROM_HERE, this);
   }
 
@@ -429,13 +433,27 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
     }
 
     ProvidedFileSystemInterface::MetadataFieldMask field_mask =
-        ProvidedFileSystemInterface::METADATA_FIELD_DEFAULT;
-    // TODO(mtomasz): Add other fields. All of them should be requested on
-    // demand. crbug.com/413161.
+        ProvidedFileSystemInterface::METADATA_FIELD_NONE;
+    if (names_.find(api::file_manager_private::ENTRY_PROPERTY_NAME_SIZE) !=
+        names_.end()) {
+      field_mask |= ProvidedFileSystemInterface::METADATA_FIELD_SIZE;
+    }
+    if (names_.find(
+            api::file_manager_private::ENTRY_PROPERTY_NAME_MODIFICATIONTIME) !=
+        names_.end()) {
+      field_mask |=
+          ProvidedFileSystemInterface::METADATA_FIELD_MODIFICATION_TIME;
+    }
+    if (names_.find(
+            api::file_manager_private::ENTRY_PROPERTY_NAME_CONTENTMIMETYPE) !=
+        names_.end()) {
+      field_mask |= ProvidedFileSystemInterface::METADATA_FIELD_MIME_TYPE;
+    }
     if (names_.find(
             api::file_manager_private::ENTRY_PROPERTY_NAME_THUMBNAILURL) !=
-        names_.end())
+        names_.end()) {
       field_mask |= ProvidedFileSystemInterface::METADATA_FIELD_THUMBNAIL;
+    }
 
     parser.file_system()->GetMetadata(
         parser.file_path(), field_mask,
@@ -453,15 +471,31 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
       return;
     }
 
-    properties_->size.reset(new double(metadata->size));
-    properties_->modification_time.reset(
-        new double(metadata->modification_time.ToJsTime()));
+    if (names_.find(api::file_manager_private::ENTRY_PROPERTY_NAME_SIZE) !=
+        names_.end()) {
+      properties_->size.reset(new double(*metadata->size.get()));
+    }
 
-    if (!metadata->thumbnail.empty())
-      properties_->thumbnail_url.reset(new std::string(metadata->thumbnail));
-    if (!metadata->mime_type.empty()) {
+    if (names_.find(
+            api::file_manager_private::ENTRY_PROPERTY_NAME_MODIFICATIONTIME) !=
+        names_.end()) {
+      properties_->modification_time.reset(
+          new double(metadata->modification_time->ToJsTime()));
+    }
+
+    if (names_.find(
+            api::file_manager_private::ENTRY_PROPERTY_NAME_CONTENTMIMETYPE) !=
+            names_.end() &&
+        metadata->mime_type.get()) {
       properties_->content_mime_type.reset(
-          new std::string(metadata->mime_type));
+          new std::string(*metadata->mime_type));
+    }
+
+    if (names_.find(
+            api::file_manager_private::ENTRY_PROPERTY_NAME_THUMBNAILURL) !=
+            names_.end() &&
+        metadata->thumbnail.get()) {
+      properties_->thumbnail_url.reset(new std::string(*metadata->thumbnail));
     }
 
     CompleteGetEntryProperties(base::File::FILE_OK);
@@ -471,7 +505,7 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(!callback_.is_null());
 
-    callback_.Run(properties_.Pass(), result);
+    callback_.Run(std::move(properties_), result);
     BrowserThread::DeleteSoon(BrowserThread::UI, FROM_HERE, this);
   }
 
@@ -1068,7 +1102,9 @@ void FileManagerPrivateInternalGetDownloadUrlFunction::OnGetResourceEntry(
 
   DriveApiUrlGenerator url_generator(
       (GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction)),
-      (GURL(google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction)));
+      (GURL(google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction)),
+      (GURL(
+          google_apis::DriveApiUrlGenerator::kBaseThumbnailUrlForProduction)));
   download_url_ = url_generator.GenerateDownloadFileUrl(entry->resource_id());
 
   ProfileOAuth2TokenService* oauth2_token_service =

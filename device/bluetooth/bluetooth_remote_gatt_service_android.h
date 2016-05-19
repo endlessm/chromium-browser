@@ -11,6 +11,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "device/bluetooth/bluetooth_gatt_service.h"
 #include "device/bluetooth/bluetooth_uuid.h"
 
@@ -36,7 +37,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceAndroid
       BluetoothAdapterAndroid* adapter,
       BluetoothDeviceAndroid* device,
       jobject /* BluetoothGattServiceWrapper */ bluetooth_gatt_service_wrapper,
-      const std::string& instanceId,
+      const std::string& instance_id,
       jobject /* ChromeBluetoothDevice */ chrome_bluetooth_device);
 
   ~BluetoothRemoteGattServiceAndroid() override;
@@ -78,19 +79,21 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceAndroid
                   const ErrorCallback& error_callback) override;
 
   // Creates a Bluetooth GATT characteristic object and adds it to
-  // |characteristics_| if it is not already there.
+  // |characteristics_|, DCHECKing that it has not already been created.
   void CreateGattRemoteCharacteristic(
       JNIEnv* env,
-      jobject caller,
-      const jstring& instanceId,
-      jobject /* BluetoothGattCharacteristicWrapper */
+      const base::android::JavaParamRef<jobject>& caller,
+      const base::android::JavaParamRef<jstring>& instance_id,
+      const base::android::JavaParamRef<
+          jobject>& /* BluetoothGattCharacteristicWrapper */
       bluetooth_gatt_characteristic_wrapper,
-      jobject /* ChromeBluetoothDevice */ chrome_bluetooth_device);
+      const base::android::JavaParamRef<
+          jobject>& /* ChromeBluetoothDevice */ chrome_bluetooth_device);
 
  private:
   BluetoothRemoteGattServiceAndroid(BluetoothAdapterAndroid* adapter,
                                     BluetoothDeviceAndroid* device,
-                                    const std::string& instanceId);
+                                    const std::string& instance_id);
 
   // Populates |characteristics_| from Java objects if necessary.
   void EnsureCharacteristicsCreated() const;
@@ -107,7 +110,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceAndroid
   BluetoothDeviceAndroid* device_;
 
   // Adapter unique instance ID.
-  std::string instanceId_;
+  std::string instance_id_;
 
   // Map of characteristics, keyed by characteristic identifier.
   base::ScopedPtrHashMap<std::string,

@@ -5,6 +5,9 @@
 #ifndef COMPONENTS_HISTORY_CORE_BROWSER_HISTORY_TYPES_H_
 #define COMPONENTS_HISTORY_CORE_BROWSER_HISTORY_TYPES_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <deque>
 #include <map>
 #include <set>
@@ -12,8 +15,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/containers/stack_container.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_vector.h"
 #include "base/strings/string16.h"
@@ -36,9 +39,9 @@ class URLDatabase;
 // Container for a list of URLs.
 typedef std::vector<GURL> RedirectList;
 
-typedef int64 FaviconBitmapID; // Identifier for a bitmap in a favicon.
-typedef int64 SegmentID;  // URL segments for the most visited view.
-typedef int64 IconMappingID; // For page url and icon mapping.
+typedef int64_t FaviconBitmapID;  // Identifier for a bitmap in a favicon.
+typedef int64_t SegmentID;        // URL segments for the most visited view.
+typedef int64_t IconMappingID;    // For page url and icon mapping.
 
 // The enumeration of all possible sources of visits is listed below.
 // The source will be propagated along with a URL or a visit item
@@ -56,7 +59,7 @@ enum VisitSource {
   SOURCE_SAFARI_IMPORTED = 5,
 };
 
-typedef int64 VisitID;
+typedef int64_t VisitID;
 // Structure to hold the mapping between each visit's id and its source.
 typedef std::map<VisitID, VisitSource> VisitSourceMap;
 
@@ -272,8 +275,8 @@ struct QueryOptions {
   // Helpers to get the effective parameters values, since a value of 0 means
   // "unspecified".
   int EffectiveMaxCount() const;
-  int64 EffectiveBeginTime() const;
-  int64 EffectiveEndTime() const;
+  int64_t EffectiveBeginTime() const;
+  int64_t EffectiveEndTime() const;
 };
 
 // QueryURLResult -------------------------------------------------------------
@@ -296,7 +299,7 @@ struct QueryURLResult {
 // HistoryBackend::GetVisibleVisitCountToHost.
 struct VisibleVisitCountToHostResult {
   // Indicates whether the call to HistoryBackend::GetVisibleVisitCountToHost
-  // was successfull or not. If false, then both |count| and |first_visit| are
+  // was successful or not. If false, then both |count| and |first_visit| are
   // undefined.
   bool success;
   int count;
@@ -312,6 +315,7 @@ struct MostVisitedURL {
   MostVisitedURL(const GURL& url,
                  const base::string16& title,
                  const base::Time& last_forced_time);
+  MostVisitedURL(const MostVisitedURL& other);
   ~MostVisitedURL();
 
   GURL url;
@@ -340,7 +344,7 @@ struct FilteredURL {
     // The number of visits, as seen by the Most Visited NTP pane.
     unsigned int visits;
     // The total number of seconds that the page was open.
-    int64 duration_opened;
+    int64_t duration_opened;
     // The time when the page was last visited.
     base::Time last_visit_time;
   };
@@ -375,6 +379,7 @@ struct HistoryAddPageArgs {
                      ui::PageTransition transition,
                      VisitSource source,
                      bool did_replace_entry);
+  HistoryAddPageArgs(const HistoryAddPageArgs& other);
   ~HistoryAddPageArgs();
 
   GURL url;
@@ -396,6 +401,7 @@ typedef std::vector<FilteredURL> FilteredURLList;
 // Used by TopSites to store the thumbnails.
 struct Images {
   Images();
+  Images(const Images& other);
   ~Images();
 
   scoped_refptr<base::RefCountedMemory> thumbnail;
@@ -414,6 +420,7 @@ typedef std::vector<MostVisitedURLWithRank> MostVisitedURLWithRankList;
 
 struct TopSitesDelta {
   TopSitesDelta();
+  TopSitesDelta(const TopSitesDelta& other);
   ~TopSitesDelta();
 
   MostVisitedURLList deleted;
@@ -451,6 +458,9 @@ class MostVisitedThumbnails
 
 // Map from host to visit count, sorted by visit count descending.
 typedef std::vector<std::pair<std::string, int>> TopHostsList;
+
+// Map from origins to a count of matching URLs.
+typedef std::map<GURL, int> OriginCountMap;
 
 // Statistics -----------------------------------------------------------------
 
@@ -501,6 +511,7 @@ struct FaviconBitmapIDSize {
 // Defines a favicon bitmap stored in the history backend.
 struct FaviconBitmap {
   FaviconBitmap();
+  FaviconBitmap(const FaviconBitmap& other);
   ~FaviconBitmap();
 
   // The unique id of the bitmap.
@@ -524,6 +535,7 @@ struct FaviconBitmap {
 
 struct ExpireHistoryArgs {
   ExpireHistoryArgs();
+  ExpireHistoryArgs(const ExpireHistoryArgs& other);
   ~ExpireHistoryArgs();
 
   // Sets |begin_time| and |end_time| to the beginning and end of the day (in

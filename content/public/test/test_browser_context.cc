@@ -4,10 +4,12 @@
 
 #include "content/public/test/test_browser_context.h"
 
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "base/test/null_task_runner.h"
-#include "content/public/browser/background_sync_controller.h"
 #include "content/public/test/mock_resource_context.h"
+#include "content/test/mock_background_sync_controller.h"
 #include "content/test/mock_ssl_host_state_delegate.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -55,11 +57,6 @@ base::FilePath TestBrowserContext::TakePath() {
 void TestBrowserContext::SetSpecialStoragePolicy(
     storage::SpecialStoragePolicy* policy) {
   special_storage_policy_ = policy;
-}
-
-void TestBrowserContext::SetBackgroundSyncController(
-    scoped_ptr<BackgroundSyncController> controller) {
-  background_sync_controller_ = controller.Pass();
 }
 
 base::FilePath TestBrowserContext::GetPath() const {
@@ -141,6 +138,9 @@ PermissionManager* TestBrowserContext::GetPermissionManager() {
 }
 
 BackgroundSyncController* TestBrowserContext::GetBackgroundSyncController() {
+  if (!background_sync_controller_)
+    background_sync_controller_.reset(new MockBackgroundSyncController());
+
   return background_sync_controller_.get();
 }
 

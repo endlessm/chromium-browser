@@ -15,8 +15,10 @@ import android.view.View.OnCreateContextMenuListener;
 
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.share.ShareHelper;
 import org.chromium.content.browser.ContentViewCore;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -60,21 +62,28 @@ public class ContextMenuHelper implements OnCreateContextMenuListener, OnMenuIte
      * @param params          The {@link ContextMenuParams} that indicate what menu items to show.
      */
     @CalledByNative
-    private void showContextMenu(ContentViewCore contentViewCore, ContextMenuParams params) {
+    private boolean showContextMenu(ContentViewCore contentViewCore, ContextMenuParams params) {
         final View view = contentViewCore.getContainerView();
 
         if (!shouldShowMenu(params)
                 || view == null
                 || view.getVisibility() != View.VISIBLE
                 || view.getParent() == null) {
-            return;
+            return false;
         }
 
         mCurrentContextMenuParams = params;
 
         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         view.setOnCreateContextMenuListener(this);
-        view.showContextMenu();
+        if (view.showContextMenu()) {
+            WebContents webContents = contentViewCore.getWebContents();
+            RecordHistogram.recordBooleanHistogram(
+                    "ContextMenu.Shown", webContents != null);
+            if (webContents != null) webContents.onContextMenuOpened();
+            return true;
+        }
+        return false;
     }
 
     /**

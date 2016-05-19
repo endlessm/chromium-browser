@@ -42,18 +42,19 @@
 
 namespace blink {
 
-class InjectedScriptManager;
-class InspectorBackendDispatcher;
-class InspectorFrontend;
-class InspectorFrontendChannel;
-class InspectorStateClient;
 class InstrumentingAgents;
 class WorkerDebuggerAgent;
 class WorkerGlobalScope;
 class WorkerRuntimeAgent;
 class WorkerThreadDebugger;
 
-class WorkerInspectorController : public RefCountedWillBeGarbageCollectedFinalized<WorkerInspectorController>, public InspectorRuntimeAgent::Client {
+namespace protocol {
+class Dispatcher;
+class Frontend;
+class FrontendChannel;
+}
+
+class WorkerInspectorController final : public RefCountedWillBeGarbageCollectedFinalized<WorkerInspectorController>, public InspectorRuntimeAgent::Client {
     WTF_MAKE_NONCOPYABLE(WorkerInspectorController);
     USING_FAST_MALLOC_WILL_BE_REMOVED(WorkerInspectorController);
 public:
@@ -79,16 +80,18 @@ private:
     void resumeStartup() override;
     bool isRunRequired() override;
 
+    class PageInspectorProxy;
+    friend WTF::OwnedPtrDeleter<PageInspectorProxy>;
+
+    protocol::FrontendChannel* frontendChannel() const;
+
     RawPtrWillBeMember<WorkerGlobalScope> m_workerGlobalScope;
-    OwnPtr<InspectorStateClient> m_stateClient;
-    OwnPtrWillBeMember<InspectorCompositeState> m_state;
     RefPtrWillBeMember<InstrumentingAgents> m_instrumentingAgents;
-    OwnPtrWillBeMember<InjectedScriptManager> m_injectedScriptManager;
-    OwnPtr<WorkerThreadDebugger> m_workerThreadDebugger;
+    WorkerThreadDebugger* m_workerThreadDebugger;
     InspectorAgentRegistry m_agents;
-    OwnPtr<InspectorFrontendChannel> m_frontendChannel;
-    OwnPtr<InspectorFrontend> m_frontend;
-    RefPtrWillBeMember<InspectorBackendDispatcher> m_backendDispatcher;
+    OwnPtrWillBeMember<PageInspectorProxy> m_pageInspectorProxy;
+    OwnPtr<protocol::Frontend> m_frontend;
+    RefPtr<protocol::Dispatcher> m_backendDispatcher;
     RawPtrWillBeMember<WorkerDebuggerAgent> m_workerDebuggerAgent;
     RawPtrWillBeMember<WorkerRuntimeAgent> m_workerRuntimeAgent;
     OwnPtr<InspectorTaskRunner> m_inspectorTaskRunner;
@@ -96,6 +99,6 @@ private:
     bool m_paused;
 };
 
-}
+} // namespace blink
 
 #endif // WorkerInspectorController_h

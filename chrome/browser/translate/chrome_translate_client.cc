@@ -8,8 +8,9 @@
 
 #include "base/logging.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
+#include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -23,7 +24,7 @@
 #include "chrome/browser/ui/translate/translate_bubble_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
-#include "components/translate/content/browser/browser_cld_data_provider_factory.h"
+#include "components/prefs/pref_service.h"
 #include "components/translate/content/common/cld_data_source.h"
 #include "components/translate/content/common/translate_messages.h"
 #include "components/translate/core/browser/language_state.h"
@@ -34,6 +35,7 @@
 #include "components/translate/core/browser/translate_manager.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #include "components/translate/core/common/language_detection_details.h"
+#include "components/variations/service/variations_service.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
@@ -58,14 +60,13 @@ ChromeTranslateClient::ChromeTranslateClient(content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents),
       translate_driver_(&web_contents->GetController()),
       translate_manager_(
-          new translate::TranslateManager(this, prefs::kAcceptLanguages)),
-      cld_data_provider_(
-          translate::BrowserCldDataProviderFactory::Get()->
-            CreateBrowserCldDataProvider(web_contents)) {
+          new translate::TranslateManager(this, prefs::kAcceptLanguages)) {
   translate_driver_.AddObserver(this);
   translate_driver_.set_translate_manager(translate_manager_.get());
   // Customization: for the standalone data source, we configure the path to
   // CLD data immediately on startup.
+  // TODO(andrewhayden): This belongs in the data source implementation, not
+  // here.
   if (translate::CldDataSource::IsUsingStandaloneDataSource() &&
       !g_cld_file_path_initialized_) {
     DVLOG(1) << "Initializing CLD file path for the first time.";
@@ -98,8 +99,21 @@ ChromeTranslateClient::CreateTranslatePrefs(PrefService* prefs) {
 #else
   const char* preferred_languages_prefs = NULL;
 #endif
-  return scoped_ptr<translate::TranslatePrefs>(new translate::TranslatePrefs(
-      prefs, prefs::kAcceptLanguages, preferred_languages_prefs));
+  scoped_ptr<translate::TranslatePrefs> translate_prefs(
+      new translate::TranslatePrefs(prefs, prefs::kAcceptLanguages,
+                                    preferred_languages_prefs));
+
+  // We need to obtain the country here, since it comes from VariationsService.
+  // components/ does not have access to that.
+  DCHECK(g_browser_process);
+  variations::VariationsService* variations_service =
+      g_browser_process->variations_service();
+  if (variations_service) {
+    translate_prefs->SetCountry(
+        variations_service->GetStoredPermanentCountry());
+  }
+
+  return translate_prefs;
 }
 
 // static
@@ -151,11 +165,8 @@ void ChromeTranslateClient::GetTranslateLanguages(
     }
   }
 
-  std::string accept_languages_str = prefs->GetString(prefs::kAcceptLanguages);
-  std::vector<std::string> accept_languages_list = base::SplitString(
-      accept_languages_str, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   *target =
-      translate::TranslateManager::GetTargetLanguage(accept_languages_list);
+      translate::TranslateManager::GetTargetLanguage(translate_prefs.get());
 }
 
 translate::TranslateManager* ChromeTranslateClient::GetTranslateManager() {
@@ -262,10 +273,6 @@ void ChromeTranslateClient::ShowReportLanguageDetectionErrorUI(
 #endif  // defined(OS_ANDROID)
 }
 
-bool ChromeTranslateClient::OnMessageReceived(const IPC::Message& message) {
-  return cld_data_provider_->OnMessageReceived(message);
-}
-
 void ChromeTranslateClient::WebContentsDestroyed() {
   // Translation process can be interrupted.
   // Destroying the TranslateManager now guarantees that it never has to deal
@@ -306,7 +313,7 @@ void ChromeTranslateClient::ShowBubble(
     translate::TranslateStep step,
     translate::TranslateErrors::Type error_type) {
 // The bubble is implemented only on the desktop platforms.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !defined(OS_ANDROID)
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents());
 
   // |browser| might be NULL when testing. In this case, Show(...) should be
@@ -324,10 +331,8 @@ void ChromeTranslateClient::ShowBubble(
   // because the bubble takes the focus from the other widgets including the
   // browser windows. So it is checked that |browser| is the last activated
   // browser, not is now activated.
-  if (browser !=
-      chrome::FindLastActiveWithHostDesktopType(browser->host_desktop_type())) {
+  if (browser != chrome::FindLastActive())
     return;
-  }
 
   // During auto-translating, the bubble should not be shown.
   if (step == translate::TRANSLATE_STEP_TRANSLATING ||

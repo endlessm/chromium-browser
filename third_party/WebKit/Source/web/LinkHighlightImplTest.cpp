@@ -22,7 +22,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/LinkHighlightImpl.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -42,12 +41,12 @@
 #include "public/web/WebFrameClient.h"
 #include "public/web/WebInputEvent.h"
 #include "public/web/WebViewClient.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/WebInputEventConversion.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/WebViewImpl.h"
 #include "web/tests/FrameTestHelpers.h"
 #include "wtf/PassOwnPtr.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -119,7 +118,7 @@ public:
     FakeWebFrameClient m_fakeWebFrameClient;
 };
 
-WebViewClient* compositingWebViewClient()
+FakeCompositingWebViewClient* compositingWebViewClient()
 {
     DEFINE_STATIC_LOCAL(FakeCompositingWebViewClient, client, ());
     return &client;
@@ -201,7 +200,6 @@ TEST(LinkHighlightImplTest, resetLayerTreeView)
 
     // Mimic the logic from RenderWidget::Close:
     webViewImpl->willCloseLayerTreeView();
-    webViewClient.clear();
     webViewHelper.reset();
 
     Platform::current()->unitTestSupport()->unregisterAllMockedURLs();

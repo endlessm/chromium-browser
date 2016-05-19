@@ -7,8 +7,8 @@ package org.chromium.chrome.browser.webapps;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.os.Environment;
 import android.test.suitebuilder.annotation.SmallTest;
-import android.text.TextUtils;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
@@ -16,12 +16,11 @@ import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.chrome.test.util.browser.TabLoadObserver;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.net.test.EmbeddedTestServer;
 
 import java.util.concurrent.Callable;
 
@@ -61,8 +60,7 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
             + "<title>" + META_APP_NAME_PAGE_TITLE + "</title>"
             + "</head><body>Webapp capable</body></html>");
 
-    private static final String MANIFEST_URL =
-            TestHttpServerClient.getUrl("chrome/test/data/webapps/manifest_test_page.html");
+    private static final String MANIFEST_PATH = "/chrome/test/data/webapps/manifest_test_page.html";
     private static final String MANIFEST_TITLE = "Web app banner test page";
 
     private static class TestShortcutHelperDelegate extends ShortcutHelper.Delegate {
@@ -127,7 +125,7 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
 
     @SmallTest
     @Feature("{Webapp}")
-    public void testAddWebappShortcuts() throws InterruptedException {
+    public void testAddWebappShortcuts() throws Exception {
         // Add a webapp shortcut and make sure the intent's parameters make sense.
         addShortcutToURL(WEBAPP_HTML, WEBAPP_TITLE, "");
         Intent firedIntent = mShortcutHelperDelegate.mBroadcastedIntent;
@@ -153,7 +151,7 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
 
     @SmallTest
     @Feature("{Webapp}")
-    public void testAddBookmarkShortcut() throws InterruptedException {
+    public void testAddBookmarkShortcut() throws Exception {
         addShortcutToURL(NORMAL_HTML, NORMAL_TITLE, "");
 
         // Make sure the intent's parameters make sense.
@@ -168,7 +166,7 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
 
     @SmallTest
     @Feature("{Webapp}")
-    public void testAddWebappShortcutsWithoutTitleEdit() throws InterruptedException {
+    public void testAddWebappShortcutsWithoutTitleEdit() throws Exception {
         // Add a webapp shortcut using the page's title.
         addShortcutToURL(WEBAPP_HTML, WEBAPP_TITLE, "");
         Intent firedIntent = mShortcutHelperDelegate.mBroadcastedIntent;
@@ -177,7 +175,7 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
 
     @SmallTest
     @Feature("{Webapp}")
-    public void testAddWebappShortcutsWithTitleEdit() throws InterruptedException {
+    public void testAddWebappShortcutsWithTitleEdit() throws Exception {
         // Add a webapp shortcut with a custom title.
         addShortcutToURL(WEBAPP_HTML, WEBAPP_TITLE, EDITED_WEBAPP_TITLE);
         Intent firedIntent = mShortcutHelperDelegate.mBroadcastedIntent;
@@ -186,7 +184,7 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
 
     @SmallTest
     @Feature("{Webapp}")
-    public void testAddWebappShortcutsWithApplicationName() throws InterruptedException {
+    public void testAddWebappShortcutsWithApplicationName() throws Exception {
         addShortcutToURL(META_APP_NAME_HTML, META_APP_NAME_PAGE_TITLE, "");
         Intent firedIntent = mShortcutHelperDelegate.mBroadcastedIntent;
         assertEquals(META_APP_NAME_TITLE, firedIntent.getStringExtra(Intent.EXTRA_SHORTCUT_NAME));
@@ -194,41 +192,37 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
 
     @SmallTest
     @Feature("{Webapp}")
-    public void testAddWebappShortcutSplashScreenIcon() throws InterruptedException {
-        // Sets the overriden factory to observer splash screen update.
-        final TestDataStorageFactory dataStorageFactory = new TestDataStorageFactory();
-        WebappDataStorage.setFactoryForTests(dataStorageFactory);
+    public void testAddWebappShortcutSplashScreenIcon() throws Exception {
+        EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        try {
+            // Sets the overriden factory to observer splash screen update.
+            final TestDataStorageFactory dataStorageFactory = new TestDataStorageFactory();
+            WebappDataStorage.setFactoryForTests(dataStorageFactory);
 
-        addShortcutToURL(MANIFEST_URL, MANIFEST_TITLE, "");
+            addShortcutToURL(testServer.getURL(MANIFEST_PATH), MANIFEST_TITLE, "");
 
-        // Make sure that the splash screen image was downloaded.
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return dataStorageFactory.mSplashImage != null;
-            }
-        }));
+            // Make sure that the splash screen image was downloaded.
+            CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+                @Override
+                public boolean isSatisfied() {
+                    return dataStorageFactory.mSplashImage != null;
+                }
+            });
 
-        // Test that bitmap sizes match expectations.
-        int idealSize = mActivity.getResources().getDimensionPixelSize(
-                R.dimen.webapp_splash_image_size_ideal);
-        assertEquals(idealSize, dataStorageFactory.mSplashImage.getWidth());
-        assertEquals(idealSize, dataStorageFactory.mSplashImage.getHeight());
+            // Test that bitmap sizes match expectations.
+            int idealSize = mActivity.getResources().getDimensionPixelSize(
+                    R.dimen.webapp_splash_image_size_ideal);
+            assertEquals(idealSize, dataStorageFactory.mSplashImage.getWidth());
+            assertEquals(idealSize, dataStorageFactory.mSplashImage.getHeight());
+        } finally {
+            testServer.stopAndDestroyServer();
+        }
     }
 
     private void addShortcutToURL(String url, final String expectedPageTitle, final String title)
-            throws InterruptedException {
-        final Tab activeTab = mActivity.getActivityTab();
-        TabLoadObserver observer = new TabLoadObserver(activeTab, url) {
-            @Override
-            public boolean isSatisfied() {
-                // The page title is often updated over several iterations.  Wait until the right
-                // one appears.
-                return super.isSatisfied()
-                        && TextUtils.equals(activeTab.getTitle(), expectedPageTitle);
-            }
-        };
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(observer));
+            throws Exception {
+        new TabLoadObserver(mActivity.getActivityTab(), expectedPageTitle, null).fullyLoadUrl(url);
 
         // Add the shortcut.
         Callable<AddToHomescreenDialogHelper> callable =
@@ -255,12 +249,12 @@ public class AddToHomescreenDialogHelperTest extends ChromeActivityTestCaseBase<
                 ThreadUtils.runOnUiThreadBlockingNoException(callable);
 
         // Make sure that the shortcut was added.
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return mShortcutHelperDelegate.mBroadcastedIntent != null;
             }
-        }));
+        });
 
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override

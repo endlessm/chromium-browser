@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/wake_lock/ScreenWakeLock.h"
 
 #include "core/dom/DOMImplementation.h"
@@ -15,9 +14,9 @@
 #include "public/platform/WebPageVisibilityState.h"
 #include "public/platform/WebUnitTestSupport.h"
 #include "public/platform/modules/wake_lock/WebWakeLockClient.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gtest/gtest.h>
 
 namespace {
 

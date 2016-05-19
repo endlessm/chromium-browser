@@ -5,14 +5,16 @@
 #include "chrome/browser/net/chrome_network_delegate.h"
 
 #include <stdint.h>
+#include <utility>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_member.h"
 #include "base/run_loop.h"
 #include "base/test/histogram_tester.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/net/safe_search_util.h"
@@ -25,6 +27,8 @@
 #include "components/data_usage/core/data_use_aggregator.h"
 #include "components/data_usage/core/data_use_amortizer.h"
 #include "components/data_usage/core/data_use_annotator.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
+#include "components/prefs/pref_member.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/content_switches.h"
@@ -39,10 +43,6 @@
 
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/event_router_forwarder.h"
-#endif
-
-#if !defined(OS_IOS)
-#include "components/data_use_measurement/core/data_use_user_data.h"
 #endif
 
 namespace {
@@ -93,7 +93,7 @@ scoped_ptr<net::URLRequest> RequestURL(
   }
   request->Start();
   base::RunLoop().RunUntilIdle();
-  return request.Pass();
+  return request;
 }
 
 // A fake DataUseAggregator for testing that only counts how many times its
@@ -197,7 +197,6 @@ class ChromeNetworkDelegateTest : public testing::Test {
 // DataUse.TrafficSize.System.Dimensions and DataUse.MessageSize.ServiceName
 // histograms. AppState and ConnectionType dimensions are always Foreground and
 // NotCellular respectively.
-#if !defined(OS_IOS)
 TEST_F(ChromeNetworkDelegateTest, DataUseMeasurementServiceTest) {
   Initialize();
   base::HistogramTester histogram_tester;
@@ -282,14 +281,12 @@ TEST_F(ChromeNetworkDelegateTest, DataUseMeasurementUserTestWithRedirect) {
   histogram_tester.ExpectTotalCount("DataUse.MessageSize.Suggestions", 0);
 }
 
-#endif
-
-TEST_F(ChromeNetworkDelegateTest, DisableFirstPartyOnlyCookiesIffFlagDisabled) {
+TEST_F(ChromeNetworkDelegateTest, DisableSameSiteCookiesIffFlagDisabled) {
   Initialize();
   EXPECT_FALSE(network_delegate()->AreExperimentalCookieFeaturesEnabled());
 }
 
-TEST_F(ChromeNetworkDelegateTest, EnableFirstPartyOnlyCookiesIffFlagEnabled) {
+TEST_F(ChromeNetworkDelegateTest, EnableSameSiteCookiesIffFlagEnabled) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableExperimentalWebPlatformFeatures);
   Initialize();
@@ -355,7 +352,7 @@ class ChromeNetworkDelegateSafeSearchTest : public testing::Test {
     network_delegate->set_force_google_safe_search(&force_google_safe_search_);
     network_delegate->set_force_youtube_safety_mode(
         &force_youtube_safety_mode_);
-    return network_delegate.Pass();
+    return std::move(network_delegate);
   }
 
   void SetSafeSearch(bool google_safe_search,
@@ -451,7 +448,7 @@ class ChromeNetworkDelegatePrivacyModeTest : public testing::Test {
     scoped_ptr<ChromeNetworkDelegate> network_delegate(
         new ChromeNetworkDelegate(forwarder(), &enable_referrers_));
     network_delegate->set_cookie_settings(cookie_settings_);
-    return network_delegate.Pass();
+    return network_delegate;
   }
 
   void SetDelegate(net::NetworkDelegate* delegate) {

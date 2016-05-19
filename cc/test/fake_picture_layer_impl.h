@@ -5,6 +5,8 @@
 #ifndef CC_TEST_FAKE_PICTURE_LAYER_IMPL_H_
 #define CC_TEST_FAKE_PICTURE_LAYER_IMPL_H_
 
+#include <stddef.h>
+
 #include "base/memory/scoped_ptr.h"
 #include "cc/layers/picture_layer_impl.h"
 #include "cc/playback/display_list_raster_source.h"
@@ -112,14 +114,6 @@ class FakePictureLayerImpl : public PictureLayerImpl {
 
   const Region& invalidation() const { return invalidation_; }
   void set_invalidation(const Region& region) { invalidation_ = region; }
-
-  gfx::Rect visible_rect_for_tile_priority() {
-    return visible_rect_for_tile_priority_;
-  }
-
-  gfx::Transform screen_space_transform_for_tile_priority() {
-    return screen_space_transform_for_tile_priority_;
-  }
 
   gfx::Rect viewport_rect_for_tile_priority_in_content_space() {
     return viewport_rect_for_tile_priority_in_content_space_;

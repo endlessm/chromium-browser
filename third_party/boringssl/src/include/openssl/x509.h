@@ -618,12 +618,10 @@ OPENSSL_EXPORT int X509_signature_print(BIO *bp,X509_ALGOR *alg, ASN1_STRING *si
 
 OPENSSL_EXPORT int X509_sign(X509 *x, EVP_PKEY *pkey, const EVP_MD *md);
 OPENSSL_EXPORT int X509_sign_ctx(X509 *x, EVP_MD_CTX *ctx);
-/* int X509_http_nbio(OCSP_REQ_CTX *rctx, X509 **pcert); */
 OPENSSL_EXPORT int X509_REQ_sign(X509_REQ *x, EVP_PKEY *pkey, const EVP_MD *md);
 OPENSSL_EXPORT int X509_REQ_sign_ctx(X509_REQ *x, EVP_MD_CTX *ctx);
 OPENSSL_EXPORT int X509_CRL_sign(X509_CRL *x, EVP_PKEY *pkey, const EVP_MD *md);
 OPENSSL_EXPORT int X509_CRL_sign_ctx(X509_CRL *x, EVP_MD_CTX *ctx);
-/* int X509_CRL_http_nbio(OCSP_REQ_CTX *rctx, X509_CRL **pcrl); */
 OPENSSL_EXPORT int NETSCAPE_SPKI_sign(NETSCAPE_SPKI *x, EVP_PKEY *pkey, const EVP_MD *md);
 
 OPENSSL_EXPORT int X509_pubkey_digest(const X509 *data,const EVP_MD *type,
@@ -787,7 +785,7 @@ DECLARE_ASN1_FUNCTIONS(X509_CERT_PAIR)
  * |x|. */
 OPENSSL_EXPORT X509 *X509_up_ref(X509 *x);
 
-OPENSSL_EXPORT int X509_get_ex_new_index(long argl, void *argp, CRYPTO_EX_new *new_func,
+OPENSSL_EXPORT int X509_get_ex_new_index(long argl, void *argp, CRYPTO_EX_unused *unused,
 	     CRYPTO_EX_dup *dup_func, CRYPTO_EX_free *free_func);
 OPENSSL_EXPORT int X509_set_ex_data(X509 *r, int idx, void *arg);
 OPENSSL_EXPORT void *X509_get_ex_data(X509 *r, int idx);

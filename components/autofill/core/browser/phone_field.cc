@@ -4,7 +4,11 @@
 
 #include "components/autofill/core/browser/phone_field.h"
 
+#include <string.h>
+#include <utility>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
@@ -40,80 +44,88 @@ PhoneField::~PhoneField() {}
 // :N means field is limited to N characters, otherwise it is unlimited.
 // (pattern <field>)? means pattern is optional and matched separately.
 const PhoneField::Parser PhoneField::kPhoneFieldGrammars[] = {
-  // Country code: <cc> Area Code: <ac> Phone: <phone> (- <suffix>
-  // (Ext: <ext>)?)?
-  { REGEX_COUNTRY, FIELD_COUNTRY_CODE, 0 },
-  { REGEX_AREA, FIELD_AREA_CODE, 0 },
-  { REGEX_PHONE, FIELD_PHONE, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // \( <ac> \) <phone>:3 <suffix>:4 (Ext: <ext>)?
-  { REGEX_AREA_NOTEXT, FIELD_AREA_CODE, 3 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 3 },
-  { REGEX_PHONE, FIELD_SUFFIX, 4 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <cc> <ac>:3 - <phone>:3 - <suffix>:4 (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_COUNTRY_CODE, 0 },
-  { REGEX_PHONE, FIELD_AREA_CODE, 3 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 3 },
-  { REGEX_SUFFIX_SEPARATOR, FIELD_SUFFIX, 4 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <cc>:3 <ac>:3 <phone>:3 <suffix>:4 (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_COUNTRY_CODE, 3 },
-  { REGEX_PHONE, FIELD_AREA_CODE, 3 },
-  { REGEX_PHONE, FIELD_PHONE, 3 },
-  { REGEX_PHONE, FIELD_SUFFIX, 4 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Area Code: <ac> Phone: <phone> (- <suffix> (Ext: <ext>)?)?
-  { REGEX_AREA, FIELD_AREA_CODE, 0 },
-  { REGEX_PHONE, FIELD_PHONE, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <ac> <phone>:3 <suffix>:4 (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_AREA_CODE, 0 },
-  { REGEX_PHONE, FIELD_PHONE, 3 },
-  { REGEX_PHONE, FIELD_SUFFIX, 4 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <cc> \( <ac> \) <phone> (- <suffix> (Ext: <ext>)?)?
-  { REGEX_PHONE, FIELD_COUNTRY_CODE, 0 },
-  { REGEX_AREA_NOTEXT, FIELD_AREA_CODE, 0 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: \( <ac> \) <phone> (- <suffix> (Ext: <ext>)?)?
-  { REGEX_PHONE, FIELD_COUNTRY_CODE, 0 },
-  { REGEX_AREA_NOTEXT, FIELD_AREA_CODE, 0 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <cc> - <ac> - <phone> - <suffix> (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_COUNTRY_CODE, 0 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_AREA_CODE, 0 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 0 },
-  { REGEX_SUFFIX_SEPARATOR, FIELD_SUFFIX, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <ac> Prefix: <phone> Suffix: <suffix> (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_AREA_CODE, 0 },
-  { REGEX_PREFIX, FIELD_PHONE, 0 },
-  { REGEX_SUFFIX, FIELD_SUFFIX, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <ac> - <phone>:3 - <suffix>:4 (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_AREA_CODE, 0 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 3 },
-  { REGEX_SUFFIX_SEPARATOR, FIELD_SUFFIX, 4 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <cc> - <ac> - <phone> (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_COUNTRY_CODE, 0 },
-  { REGEX_PREFIX_SEPARATOR, FIELD_AREA_CODE, 0 },
-  { REGEX_SUFFIX_SEPARATOR, FIELD_PHONE, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <ac> - <phone> (Ext: <ext>)?
-  { REGEX_AREA, FIELD_AREA_CODE, 0 },
-  { REGEX_PHONE, FIELD_PHONE, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <cc>:3 - <phone>:10 (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_COUNTRY_CODE, 3 },
-  { REGEX_PHONE, FIELD_PHONE, 10 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
-  // Phone: <phone> (Ext: <ext>)?
-  { REGEX_PHONE, FIELD_PHONE, 0 },
-  { REGEX_SEPARATOR, FIELD_NONE, 0 },
+    // Country code: <cc> Area Code: <ac> Phone: <phone> (- <suffix>
+    // (Ext: <ext>)?)?
+    {REGEX_COUNTRY, FIELD_COUNTRY_CODE, 0},
+    {REGEX_AREA, FIELD_AREA_CODE, 0},
+    {REGEX_PHONE, FIELD_PHONE, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // \( <ac> \) <phone>:3 <suffix>:4 (Ext: <ext>)?
+    {REGEX_AREA_NOTEXT, FIELD_AREA_CODE, 3},
+    {REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 3},
+    {REGEX_PHONE, FIELD_SUFFIX, 4},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <cc> <ac>:3 - <phone>:3 - <suffix>:4 (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_COUNTRY_CODE, 0},
+    {REGEX_PHONE, FIELD_AREA_CODE, 3},
+    {REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 3},
+    {REGEX_SUFFIX_SEPARATOR, FIELD_SUFFIX, 4},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <cc>:3 <ac>:3 <phone>:3 <suffix>:4 (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_COUNTRY_CODE, 3},
+    {REGEX_PHONE, FIELD_AREA_CODE, 3},
+    {REGEX_PHONE, FIELD_PHONE, 3},
+    {REGEX_PHONE, FIELD_SUFFIX, 4},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Area Code: <ac> Phone: <phone> (- <suffix> (Ext: <ext>)?)?
+    {REGEX_AREA, FIELD_AREA_CODE, 0},
+    {REGEX_PHONE, FIELD_PHONE, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <ac> <phone>:3 <suffix>:4 (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_AREA_CODE, 0},
+    {REGEX_PHONE, FIELD_PHONE, 3},
+    {REGEX_PHONE, FIELD_SUFFIX, 4},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <cc> \( <ac> \) <phone> (- <suffix> (Ext: <ext>)?)?
+    {REGEX_PHONE, FIELD_COUNTRY_CODE, 0},
+    {REGEX_AREA_NOTEXT, FIELD_AREA_CODE, 0},
+    {REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: \( <ac> \) <phone> (- <suffix> (Ext: <ext>)?)?
+    {REGEX_PHONE, FIELD_COUNTRY_CODE, 0},
+    {REGEX_AREA_NOTEXT, FIELD_AREA_CODE, 0},
+    {REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <cc> - <ac> - <phone> - <suffix> (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_COUNTRY_CODE, 0},
+    {REGEX_PREFIX_SEPARATOR, FIELD_AREA_CODE, 0},
+    {REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 0},
+    {REGEX_SUFFIX_SEPARATOR, FIELD_SUFFIX, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Area code: <ac>:3 Prefix: <prefix>:3 Suffix: <suffix>:4 (Ext: <ext>)?
+    {REGEX_AREA, FIELD_AREA_CODE, 3},
+    {REGEX_PREFIX, FIELD_PHONE, 3},
+    {REGEX_SUFFIX, FIELD_SUFFIX, 4},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <ac> Prefix: <phone> Suffix: <suffix> (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_AREA_CODE, 0},
+    {REGEX_PREFIX, FIELD_PHONE, 0},
+    {REGEX_SUFFIX, FIELD_SUFFIX, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <ac> - <phone>:3 - <suffix>:4 (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_AREA_CODE, 0},
+    {REGEX_PREFIX_SEPARATOR, FIELD_PHONE, 3},
+    {REGEX_SUFFIX_SEPARATOR, FIELD_SUFFIX, 4},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <cc> - <ac> - <phone> (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_COUNTRY_CODE, 0},
+    {REGEX_PREFIX_SEPARATOR, FIELD_AREA_CODE, 0},
+    {REGEX_SUFFIX_SEPARATOR, FIELD_PHONE, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <ac> - <phone> (Ext: <ext>)?
+    {REGEX_AREA, FIELD_AREA_CODE, 0},
+    {REGEX_PHONE, FIELD_PHONE, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <cc>:3 - <phone>:10 (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_COUNTRY_CODE, 3},
+    {REGEX_PHONE, FIELD_PHONE, 10},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Ext: <ext>
+    {REGEX_EXTENSION, FIELD_EXTENSION, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
+    // Phone: <phone> (Ext: <ext>)?
+    {REGEX_PHONE, FIELD_PHONE, 0},
+    {REGEX_SEPARATOR, FIELD_NONE, 0},
 };
 
 // static
@@ -192,28 +204,27 @@ scoped_ptr<FormField> PhoneField::Parse(AutofillScanner* scanner) {
                   kPhoneExtensionRe,
                   &phone_field->parsed_phone_fields_[FIELD_EXTENSION]);
 
-  return phone_field.Pass();
+  return std::move(phone_field);
 }
 
-bool PhoneField::ClassifyField(ServerFieldTypeMap* map) const {
-  bool ok = true;
-
+void PhoneField::AddClassifications(
+    FieldCandidatesMap* field_candidates) const {
   DCHECK(parsed_phone_fields_[FIELD_PHONE]);  // Phone was correctly parsed.
 
   if ((parsed_phone_fields_[FIELD_COUNTRY_CODE]) ||
       (parsed_phone_fields_[FIELD_AREA_CODE]) ||
       (parsed_phone_fields_[FIELD_SUFFIX])) {
     if (parsed_phone_fields_[FIELD_COUNTRY_CODE]) {
-      ok = ok && AddClassification(parsed_phone_fields_[FIELD_COUNTRY_CODE],
-                                   PHONE_HOME_COUNTRY_CODE,
-                                   map);
+      AddClassification(parsed_phone_fields_[FIELD_COUNTRY_CODE],
+                        PHONE_HOME_COUNTRY_CODE, kBasePhoneParserScore,
+                        field_candidates);
     }
 
     ServerFieldType field_number_type = PHONE_HOME_NUMBER;
     if (parsed_phone_fields_[FIELD_AREA_CODE]) {
-      ok = ok && AddClassification(parsed_phone_fields_[FIELD_AREA_CODE],
-                                   PHONE_HOME_CITY_CODE,
-                                   map);
+      AddClassification(parsed_phone_fields_[FIELD_AREA_CODE],
+                        PHONE_HOME_CITY_CODE, kBasePhoneParserScore,
+                        field_candidates);
     } else if (parsed_phone_fields_[FIELD_COUNTRY_CODE]) {
       // Only if we can find country code without city code, it means the phone
       // number include city code.
@@ -221,23 +232,26 @@ bool PhoneField::ClassifyField(ServerFieldTypeMap* map) const {
     }
     // We tag the prefix as PHONE_HOME_NUMBER, then when filling the form
     // we fill only the prefix depending on the size of the input field.
-    ok = ok && AddClassification(parsed_phone_fields_[FIELD_PHONE],
-                                 field_number_type,
-                                 map);
+    AddClassification(parsed_phone_fields_[FIELD_PHONE], field_number_type,
+                      kBasePhoneParserScore, field_candidates);
     // We tag the suffix as PHONE_HOME_NUMBER, then when filling the form
     // we fill only the suffix depending on the size of the input field.
     if (parsed_phone_fields_[FIELD_SUFFIX]) {
-      ok = ok && AddClassification(parsed_phone_fields_[FIELD_SUFFIX],
-                                   PHONE_HOME_NUMBER,
-                                   map);
+      AddClassification(parsed_phone_fields_[FIELD_SUFFIX], PHONE_HOME_NUMBER,
+                        kBasePhoneParserScore, field_candidates);
     }
   } else {
-    ok = AddClassification(parsed_phone_fields_[FIELD_PHONE],
-                           PHONE_HOME_WHOLE_NUMBER,
-                           map);
+    AddClassification(parsed_phone_fields_[FIELD_PHONE],
+                      PHONE_HOME_WHOLE_NUMBER, kBasePhoneParserScore,
+                      field_candidates);
   }
 
-  return ok;
+  if (parsed_phone_fields_[FIELD_EXTENSION]) {
+    // TODO(crbug.com/589211): Change from UNKNOWN_TYPE to the proper
+    // ServerFieldType once the new phone suffix is checked in.
+    AddClassification(parsed_phone_fields_[FIELD_EXTENSION], UNKNOWN_TYPE,
+                      kBasePhoneParserScore, field_candidates);
+  }
 }
 
 PhoneField::PhoneField() {

@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 #include "chrome/browser/extensions/api/activity_log_private/activity_log_private_api.h"
@@ -13,6 +12,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/prefs/pref_service.h"
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/extension_builder.h"
 
@@ -149,10 +149,10 @@ TEST_F(ActivityLogEnabledTest, WatchdogSwitch) {
 
   scoped_refptr<Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
-                       .Set("name", "Watchdog Extension ")
-                       .Set("version", "1.0.0")
-                       .Set("manifest_version", 2))
+          .SetManifest(std::move(DictionaryBuilder()
+                                     .Set("name", "Watchdog Extension ")
+                                     .Set("version", "1.0.0")
+                                     .Set("manifest_version", 2)))
           .SetID(kExtensionID)
           .Build();
   extension_service1->AddExtension(extension.get());
@@ -206,10 +206,10 @@ TEST_F(ActivityLogEnabledTest, WatchdogSwitch) {
 
   scoped_refptr<Extension> extension2 =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
-                       .Set("name", "Watchdog Extension ")
-                       .Set("version", "1.0.0")
-                       .Set("manifest_version", 2))
+          .SetManifest(std::move(DictionaryBuilder()
+                                     .Set("name", "Watchdog Extension ")
+                                     .Set("version", "1.0.0")
+                                     .Set("manifest_version", 2)))
           .SetID("fpofdchlamddhnajleknffcbmnjfahpg")
           .Build();
   extension_service1->AddExtension(extension.get());
@@ -255,10 +255,10 @@ TEST_F(ActivityLogEnabledTest, AppAndCommandLine) {
   // Enable the extension.
   scoped_refptr<Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
-                       .Set("name", "Watchdog Extension ")
-                       .Set("version", "1.0.0")
-                       .Set("manifest_version", 2))
+          .SetManifest(std::move(DictionaryBuilder()
+                                     .Set("name", "Watchdog Extension ")
+                                     .Set("version", "1.0.0")
+                                     .Set("manifest_version", 2)))
           .SetID(kExtensionID)
           .Build();
   extension_service->AddExtension(extension.get());

@@ -7,8 +7,8 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chromeos/chromeos_export.h"
@@ -17,6 +17,8 @@
 #include "chromeos/login/auth/extended_authenticator.h"
 #include "chromeos/login/auth/user_context.h"
 #include "google_apis/gaia/google_service_auth_error.h"
+
+class AccountId;
 
 namespace net {
 class URLRequestContextGetter;
@@ -55,6 +57,7 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer {
     ~Delegate() override {}
     virtual void WhiteListCheckFailed(const std::string& email) = 0;
     virtual void PolicyLoadFailed() = 0;
+    virtual void SetAuthFlowOffline(bool offline) = 0;
   };
 
   LoginPerformer(scoped_refptr<base::TaskRunner> task_runner,
@@ -116,7 +119,7 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer {
   // Check if user is allowed to sign in on device. |wildcard_match| will
   // contain additional information whether this user is explicitly listed or
   // not (may be relevant for extension-based sign-in).
-  virtual bool IsUserWhitelisted(const std::string& user_id,
+  virtual bool IsUserWhitelisted(const AccountId& account_id,
                                  bool* wildcard_match) = 0;
 
  protected:
@@ -131,7 +134,7 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer {
   // Either |success_callback| or |failure_callback| should be called upon this
   // check.
   virtual void RunOnlineWhitelistCheck(
-      const std::string& user_id,
+      const AccountId& account_id,
       bool wildcard_match,
       const std::string& refresh_token,
       const base::Closure& success_callback,
@@ -150,14 +153,14 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer {
   virtual UserContext TransformSupervisedKey(const UserContext& context) = 0;
 
   // Set up sign-in flow for supervised user.
-  virtual void SetupSupervisedUserFlow(const std::string& user_id) = 0;
+  virtual void SetupSupervisedUserFlow(const AccountId& account_id) = 0;
 
   // Set up sign-in flow for Easy Unlock.
-  virtual void SetupEasyUnlockUserFlow(const std::string& user_id) = 0;
+  virtual void SetupEasyUnlockUserFlow(const AccountId& account_id) = 0;
 
-  // Run policy check for |user_id|. If something is wrong, delegate's
+  // Run policy check for |account_id|. If something is wrong, delegate's
   // PolicyLoadFailed is called.
-  virtual bool CheckPolicyForUser(const std::string& user_id) = 0;
+  virtual bool CheckPolicyForUser(const AccountId& account_id) = 0;
 
   // Look up browser context to use during signin.
   virtual content::BrowserContext* GetSigninContext() = 0;

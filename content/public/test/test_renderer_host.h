@@ -5,8 +5,12 @@
 #ifndef CONTENT_PUBLIC_TEST_TEST_RENDERER_HOST_H_
 #define CONTENT_PUBLIC_TEST_TEST_RENDERER_HOST_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -74,6 +78,9 @@ class RenderFrameHostTester {
   // Gives tests access to RenderFrameHostImpl::OnCreateChild. The returned
   // RenderFrameHost is owned by the parent RenderFrameHost.
   virtual RenderFrameHost* AppendChild(const std::string& frame_name) = 0;
+
+  // Gives tests access to RenderFrameHostImpl::OnDetach. Destroys |this|.
+  virtual void Detach() = 0;
 
   // Simulates a renderer-initiated navigation to |url| starting in the
   // RenderFrameHost.
@@ -155,7 +162,7 @@ class RenderViewHostTester {
   virtual bool CreateTestRenderView(const base::string16& frame_name,
                                     int opener_frame_route_id,
                                     int proxy_routing_id,
-                                    int32 max_page_id,
+                                    int32_t max_page_id,
                                     bool created_with_opener) = 0;
 
   // Makes the WasHidden/WasShown calls to the RenderWidget that

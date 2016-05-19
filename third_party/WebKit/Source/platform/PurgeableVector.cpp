@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/PurgeableVector.h"
 
 #include "public/platform/Platform.h"
@@ -37,6 +36,7 @@
 #include "wtf/Assertions.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
+#include "wtf/text/WTFString.h"
 
 #include <cstring>
 

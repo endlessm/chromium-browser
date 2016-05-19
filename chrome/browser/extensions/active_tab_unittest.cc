@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <string>
+#include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
@@ -49,11 +50,11 @@ scoped_refptr<const Extension> CreateTestExtension(
   if (has_tab_capture_permission)
     permissions.Append("tabCapture");
   return ExtensionBuilder()
-      .SetManifest(DictionaryBuilder()
-          .Set("name", "Extension with ID " + id)
-          .Set("version", "1.0")
-          .Set("manifest_version", 2)
-          .Set("permissions", permissions))
+      .SetManifest(std::move(DictionaryBuilder()
+                                 .Set("name", "Extension with ID " + id)
+                                 .Set("version", "1.0")
+                                 .Set("manifest_version", 2)
+                                 .Set("permissions", std::move(permissions))))
       .SetID(id)
       .Build();
 }
@@ -108,8 +109,8 @@ class ActiveTabTest : public ChromeRenderViewHostTestHarness {
                  PermittedFeature feature,
                  int tab_id) {
     const PermissionsData* permissions_data = extension->permissions_data();
-    bool script = permissions_data->CanAccessPage(
-        extension.get(), url, tab_id, -1, NULL);
+    bool script =
+        permissions_data->CanAccessPage(extension.get(), url, tab_id, nullptr);
     bool capture = HasTabsPermission(extension, tab_id) &&
                    permissions_data->CanCaptureVisiblePage(tab_id, NULL);
     switch (feature) {

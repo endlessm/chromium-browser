@@ -3,8 +3,10 @@
 // found in the LICENSE file.
 
 #include <openssl/evp.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-#include "base/stl_util.h"
 #include "components/webcrypto/algorithms/rsa.h"
 #include "components/webcrypto/algorithms/util.h"
 #include "components/webcrypto/blink_key_handle.h"
@@ -49,9 +51,9 @@ Status CommonEncryptDecrypt(InitFunc init_func,
   crypto::ScopedEVP_PKEY_CTX ctx(EVP_PKEY_CTX_new(pkey, NULL));
 
   if (!init_func(ctx.get()) ||
-      1 != EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) ||
-      1 != EVP_PKEY_CTX_set_rsa_oaep_md(ctx.get(), digest) ||
-      1 != EVP_PKEY_CTX_set_rsa_mgf1_md(ctx.get(), digest)) {
+      !EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) ||
+      !EVP_PKEY_CTX_set_rsa_oaep_md(ctx.get(), digest) ||
+      !EVP_PKEY_CTX_set_rsa_mgf1_md(ctx.get(), digest)) {
     return Status::OperationError();
   }
 
@@ -80,8 +82,8 @@ Status CommonEncryptDecrypt(InitFunc init_func,
   buffer->resize(outlen);
 
   // Do the actual encryption/decryption.
-  if (!encrypt_decrypt_func(ctx.get(), vector_as_array(buffer), &outlen,
-                            data.bytes(), data.byte_length())) {
+  if (!encrypt_decrypt_func(ctx.get(), buffer->data(), &outlen, data.bytes(),
+                            data.byte_length())) {
     return Status::OperationError();
   }
   buffer->resize(outlen);

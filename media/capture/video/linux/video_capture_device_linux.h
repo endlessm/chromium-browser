@@ -10,10 +10,13 @@
 #ifndef MEDIA_VIDEO_CAPTURE_LINUX_VIDEO_CAPTURE_DEVICE_LINUX_H_
 #define MEDIA_VIDEO_CAPTURE_LINUX_VIDEO_CAPTURE_DEVICE_LINUX_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
+#include "base/macros.h"
 #include "base/threading/thread.h"
 #include "media/base/video_capture_types.h"
 #include "media/capture/video/video_capture_device.h"
@@ -25,8 +28,7 @@ class V4L2CaptureDelegate;
 // Linux V4L2 implementation of VideoCaptureDevice.
 class VideoCaptureDeviceLinux : public VideoCaptureDevice {
  public:
-  static VideoPixelFormat V4l2FourCcToChromiumPixelFormat(
-      uint32 v4l2_fourcc);
+  static VideoPixelFormat V4l2FourCcToChromiumPixelFormat(uint32_t v4l2_fourcc);
   static std::list<uint32_t> GetListOfUsableFourCCs(bool favour_mjpeg);
 
   explicit VideoCaptureDeviceLinux(const Name& device_name);

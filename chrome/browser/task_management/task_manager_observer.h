@@ -5,15 +5,19 @@
 #ifndef CHROME_BROWSER_TASK_MANAGEMENT_TASK_MANAGER_OBSERVER_H_
 #define CHROME_BROWSER_TASK_MANAGEMENT_TASK_MANAGER_OBSERVER_H_
 
+#include <stdint.h>
+
 #include <vector>
 
+#include "base/macros.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 
 namespace task_management {
 
 class TaskManagerInterface;
 
-typedef int64 TaskId;
+typedef int64_t TaskId;
 typedef std::vector<TaskId> TaskIdList;
 
 // Defines a list of types of resources that an observer needs to be refreshed
@@ -30,6 +34,16 @@ enum RefreshType {
   REFRESH_TYPE_NACL              = 1 << 7,
   REFRESH_TYPE_IDLE_WAKEUPS      = 1 << 8,
   REFRESH_TYPE_HANDLES           = 1 << 9,
+
+  // Whether an observer is interested in knowing if a process is foregrounded
+  // or backgrounded.
+  REFRESH_TYPE_PRIORITY          = 1 << 10,
+
+#if defined(OS_LINUX)
+  // For observers interested in getting the number of open file descriptors of
+  // processes.
+  REFRESH_TYPE_FD_COUNT          = 1 << 11,
+#endif  // defined(OS_LINUX)
 };
 
 // Defines the interface for observers of the task manager.
@@ -50,7 +64,7 @@ class TaskManagerObserver {
   // 4- Upon the removal of the observer from the task manager, the task manager
   // will update its refresh time and the calculated resources to be the minimum
   // required value of all the remaining observers.
-  TaskManagerObserver(base::TimeDelta refresh_time, int64 resources_flags);
+  TaskManagerObserver(base::TimeDelta refresh_time, int64_t resources_flags);
   virtual ~TaskManagerObserver();
 
   // Notifies the observer that a chrome task with |id| has started and the task
@@ -76,7 +90,7 @@ class TaskManagerObserver {
     return desired_refresh_time_;
   }
 
-  int64 desired_resources_flags() const { return desired_resources_flags_; }
+  int64_t desired_resources_flags() const { return desired_resources_flags_; }
 
  protected:
   TaskManagerInterface* observed_task_manager() const {
@@ -99,7 +113,7 @@ class TaskManagerObserver {
 
   // The flags that contain the resources that this observer needs to be
   // calculated on each refresh.
-  int64 desired_resources_flags_;
+  int64_t desired_resources_flags_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskManagerObserver);
 };

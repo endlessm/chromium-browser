@@ -6,13 +6,16 @@
 #define MEDIA_BASE_ANDROID_MEDIA_DRM_BRIDGE_H_
 
 #include <jni.h>
+#include <stdint.h>
 #include <string>
 #include <vector>
 
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "media/base/android/provision_fetcher.h"
 #include "media/base/cdm_promise_adapter.h"
 #include "media/base/media_export.h"
 #include "media/base/media_keys.h"
@@ -36,7 +39,7 @@ class MEDIA_EXPORT MediaDrmBridge : public MediaKeys, public PlayerTracker {
  public:
   // TODO(ddorwin): These are specific to Widevine. http://crbug.com/459400
   enum SecurityLevel {
-    SECURITY_LEVEL_NONE = 0,
+    SECURITY_LEVEL_DEFAULT = 0,
     SECURITY_LEVEL_1 = 1,
     SECURITY_LEVEL_3 = 3,
   };
@@ -72,22 +75,25 @@ class MEDIA_EXPORT MediaDrmBridge : public MediaKeys, public PlayerTracker {
   // are not handled by Chrome explicitly.
   static std::vector<std::string> GetPlatformKeySystemNames();
 
-  // Returns a MediaDrmBridge instance if |key_system| is supported, or a NULL
-  // pointer otherwise.
-  // TODO(xhwang): Is it okay not to update session expiration info?
+  // Returns a MediaDrmBridge instance if |key_system| and |security_level| are
+  // supported, and nullptr otherwise. The default security level will be used
+  // if |security_level| is SECURITY_LEVEL_DEFAULT.
   static scoped_refptr<MediaDrmBridge> Create(
       const std::string& key_system,
+      SecurityLevel security_level,
+      const CreateFetcherCB& create_fetcher_cb,
       const SessionMessageCB& session_message_cb,
       const SessionClosedCB& session_closed_cb,
       const LegacySessionErrorCB& legacy_session_error_cb,
       const SessionKeysChangeCB& session_keys_change_cb,
       const SessionExpirationUpdateCB& session_expiration_update_cb);
 
-  // Returns a MediaDrmBridge instance if |key_system| is supported, or a NULL
-  // otherwise. No session callbacks are provided. This is used when we need to
-  // use MediaDrmBridge without creating any sessions.
+  // Same as Create() except that no session callbacks are provided. This is
+  // used when we need to use MediaDrmBridge without creating any sessions.
   static scoped_refptr<MediaDrmBridge> CreateWithoutSessionSupport(
-      const std::string& key_system);
+      const std::string& key_system,
+      SecurityLevel security_level,
+      const CreateFetcherCB& create_fetcher_cb);
 
   // MediaKeys implementation.
   void SetServerCertificate(
@@ -120,15 +126,6 @@ class MEDIA_EXPORT MediaDrmBridge : public MediaKeys, public PlayerTracker {
                      const base::Closure& cdm_unset_cb) override;
   void UnregisterPlayer(int registration_id) override;
 
-  // Returns true if |security_level| is successfully set, or false otherwise.
-  // Call this function right after Create() and before any other calls.
-  // Note:
-  // - If this function is not called, the default security level of the device
-  //   will be used.
-  // - It's recommended to call this function only once on a MediaDrmBridge
-  //   object. Calling this function multiples times may cause errors.
-  bool SetSecurityLevel(SecurityLevel security_level);
-
   // Helper function to determine whether a protected surface is needed for the
   // video playback.
   bool IsProtectedSurfaceRequired();
@@ -142,9 +139,11 @@ class MEDIA_EXPORT MediaDrmBridge : public MediaKeys, public PlayerTracker {
                                  const std::string& session_id);
   void RejectPromise(uint32_t promise_id, const std::string& error_message);
 
-  // Returns a MediaCrypto object if it's already created. Returns a null object
-  // otherwise.
-  base::android::ScopedJavaLocalRef<jobject> GetMediaCrypto();
+  // Returns a MediaCrypto object. Can only be called after |j_media_crypto_|
+  // is set.
+  // TODO(xhwang): This is only used by MediaSourcePlayer et al. Remove this
+  // method when MediaSourcePlayer is deprecated.
+  jobject GetMediaCrypto();
 
   // Registers a callback which will be called when MediaCrypto is ready.
   // Can be called on any thread. Only one callback should be registered.
@@ -157,70 +156,100 @@ class MEDIA_EXPORT MediaDrmBridge : public MediaKeys, public PlayerTracker {
   // only do minimal work and then post tasks to avoid reentrancy issues.
 
   // Called by Java after a MediaCrypto object is created.
-  void OnMediaCryptoReady(JNIEnv* env, jobject j_media_drm);
+  void OnMediaCryptoReady(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      const base::android::JavaParamRef<jobject>& j_media_crypto);
+
+  // Called by Java when we need to send a provisioning request,
+  void OnStartProvisioning(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      const base::android::JavaParamRef<jstring>& j_default_url,
+      const base::android::JavaParamRef<jbyteArray>& j_request_data);
 
   // Callbacks to resolve the promise for |promise_id|.
-  void OnPromiseResolved(JNIEnv* env, jobject j_media_drm, jint j_promise_id);
-  void OnPromiseResolvedWithSession(JNIEnv* env,
-                                    jobject j_media_drm,
-                                    jint j_promise_id,
-                                    jbyteArray j_session_id);
+  void OnPromiseResolved(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      jint j_promise_id);
+  void OnPromiseResolvedWithSession(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      jint j_promise_id,
+      const base::android::JavaParamRef<jbyteArray>& j_session_id);
 
   // Callback to reject the promise for |promise_id| with |error_message|.
   // Note: No |system_error| is available from MediaDrm.
   // TODO(xhwang): Implement Exception code.
-  void OnPromiseRejected(JNIEnv* env,
-                         jobject j_media_drm,
-                         jint j_promise_id,
-                         jstring j_error_message);
+  void OnPromiseRejected(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      jint j_promise_id,
+      const base::android::JavaParamRef<jstring>& j_error_message);
 
   // Session event callbacks.
 
-  // TODO(xhwang): Remove |j_legacy_destination_url| when prefixed EME support
-  // is removed.
-  void OnSessionMessage(JNIEnv* env,
-                        jobject j_media_drm,
-                        jbyteArray j_session_id,
-                        jint j_message_type,
-                        jbyteArray j_message,
-                        jstring j_legacy_destination_url);
-  void OnSessionClosed(JNIEnv* env,
-                       jobject j_media_drm,
-                       jbyteArray j_session_id);
+  // TODO(xhwang): Remove |j_legacy_destination_url| now that prefixed EME
+  // support is removed. http://crbug.com/249976
+  void OnSessionMessage(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      const base::android::JavaParamRef<jbyteArray>& j_session_id,
+      jint j_message_type,
+      const base::android::JavaParamRef<jbyteArray>& j_message,
+      const base::android::JavaParamRef<jstring>& j_legacy_destination_url);
+  void OnSessionClosed(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      const base::android::JavaParamRef<jbyteArray>& j_session_id);
 
-  void OnSessionKeysChange(JNIEnv* env,
-                           jobject j_media_drm,
-                           jbyteArray j_session_id,
-                           jobjectArray j_keys_info,
-                           bool has_additional_usable_key);
+  void OnSessionKeysChange(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      const base::android::JavaParamRef<jbyteArray>& j_session_id,
+      const base::android::JavaParamRef<jobjectArray>& j_keys_info,
+      bool has_additional_usable_key);
 
   // |expiry_time_ms| is the new expiration time for the keys in the session.
   // The time is in milliseconds, relative to the Unix epoch. A time of 0
   // indicates that the keys never expire.
-  void OnSessionExpirationUpdate(JNIEnv* env,
-                                 jobject j_media_drm,
-                                 jbyteArray j_session_id,
-                                 jlong expiry_time_ms);
+  void OnSessionExpirationUpdate(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      const base::android::JavaParamRef<jbyteArray>& j_session_id,
+      jlong expiry_time_ms);
 
   // Called by the CDM when an error occurred in session |j_session_id|
   // unrelated to one of the MediaKeys calls that accept a |promise|.
   // Note:
   // - This method is only for supporting prefixed EME API.
+  //   TODO(ddorwin): Remove it now. https://crbug.com/249976
   // - This method will be ignored by unprefixed EME. All errors reported
   //   in this method should probably also be reported by one of other methods.
-  void OnLegacySessionError(JNIEnv* env,
-                            jobject j_media_drm,
-                            jbyteArray j_session_id,
-                            jstring j_error_message);
+  void OnLegacySessionError(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_media_drm,
+      const base::android::JavaParamRef<jbyteArray>& j_session_id,
+      const base::android::JavaParamRef<jstring>& j_error_message);
 
   // Called by the java object when credential reset is completed.
-  void OnResetDeviceCredentialsCompleted(JNIEnv* env, jobject, bool success);
+  void OnResetDeviceCredentialsCompleted(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>&,
+      bool success);
 
  private:
   // For DeleteSoon() in DeleteOnCorrectThread().
   friend class base::DeleteHelper<MediaDrmBridge>;
 
-  MediaDrmBridge(const std::vector<uint8>& scheme_uuid,
+  // Constructs a MediaDrmBridge for |scheme_uuid| and |security_level|. The
+  // default security level will be used if |security_level| is
+  // SECURITY_LEVEL_DEFAULT. Sessions should not be created if session callbacks
+  // are null.
+  MediaDrmBridge(const std::vector<uint8_t>& scheme_uuid,
+                 SecurityLevel security_level,
+                 const CreateFetcherCB& create_fetcher_cb,
                  const SessionMessageCB& session_message_cb,
                  const SessionClosedCB& session_closed_cb,
                  const LegacySessionErrorCB& legacy_session_error_cb,
@@ -234,15 +263,40 @@ class MEDIA_EXPORT MediaDrmBridge : public MediaKeys, public PlayerTracker {
   // Get the security level of the media.
   SecurityLevel GetSecurityLevel();
 
-  // A helper method that calculates the |media_crypto_ready_cb_| arguments and
-  // run this callback.
-  void NotifyMediaCryptoReady(const MediaCryptoReadyCB& cb);
+  // A helper method to create a JavaObjectPtr.
+  JavaObjectPtr CreateJavaObjectPtr(jobject object);
+
+  // A helper method that is called when MediaCrypto is ready.
+  void NotifyMediaCryptoReady(JavaObjectPtr j_media_crypto);
+
+  // Sends HTTP provisioning request to a provisioning server.
+  void SendProvisioningRequest(const std::string& default_url,
+                               const std::string& request_data);
+
+  // Process the data received by provisioning server.
+  void ProcessProvisionResponse(bool success, const std::string& response);
 
   // UUID of the key system.
-  std::vector<uint8> scheme_uuid_;
+  std::vector<uint8_t> scheme_uuid_;
 
   // Java MediaDrm instance.
   base::android::ScopedJavaGlobalRef<jobject> j_media_drm_;
+
+  // Java MediaCrypto instance. Possible values are:
+  // !j_media_crypto_:
+  //   MediaCrypto creation has not been notified via NotifyMediaCryptoReady().
+  // !j_media_crypto_->is_null():
+  //   MediaCrypto creation succeeded and it has been notified.
+  // j_media_crypto_->is_null():
+  //   MediaCrypto creation failed and it has been notified.
+  JavaObjectPtr j_media_crypto_;
+
+  // The callback to create a ProvisionFetcher.
+  CreateFetcherCB create_fetcher_cb_;
+
+  // The ProvisionFetcher that requests and receives provisioning data.
+  // Non-null iff when a provision request is pending.
+  scoped_ptr<ProvisionFetcher> provision_fetcher_;
 
   // Callbacks for firing session events.
   SessionMessageCB session_message_cb_;
@@ -257,8 +311,7 @@ class MEDIA_EXPORT MediaDrmBridge : public MediaKeys, public PlayerTracker {
 
   PlayerTrackerImpl player_tracker_;
 
-  // TODO(xhwang): Host a CdmPromiseAdapter directly. No need to use scoped_ptr.
-  scoped_ptr<CdmPromiseAdapter> cdm_promise_adapter_;
+  CdmPromiseAdapter cdm_promise_adapter_;
 
   // Default task runner.
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;

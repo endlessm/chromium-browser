@@ -128,6 +128,7 @@
             'installer/util/language_selector_unittest.cc',
             'installer/util/legacy_firewall_manager_win_unittest.cc',
             'installer/util/logging_installer_unittest.cc',
+            'installer/util/lzma_file_allocator_unittest.cc',
             'installer/util/lzma_util_unittest.cc',
             'installer/util/master_preferences_unittest.cc',
             'installer/util/move_tree_work_item_unittest.cc',
@@ -137,6 +138,7 @@
             'installer/util/registry_test_data.cc',
             'installer/util/registry_test_data.h',
             'installer/util/run_all_unittests.cc',
+            "installer/util/scoped_user_protocol_entry_unittest.cc",
             'installer/util/self_cleaning_temp_dir_unittest.cc',
             'installer/util/set_reg_value_work_item_unittest.cc',
             'installer/util/shell_util_unittest.cc',
@@ -210,33 +212,21 @@
           ],
         },
         {
-          # GN version: //chrome/installer/setup
-          'target_name': 'setup',
-          'type': 'executable',
+          # GN version: //chrome/installer/setup:lib
+          'target_name': 'setup_lib',
+          'type': 'static_library',
           'dependencies': [
             'installer_util',
             'installer_util_strings',
             '../base/base.gyp:base',
-            '../chrome/common_constants.gyp:common_constants',
             '../chrome/common_constants.gyp:version_header',
-            '../chrome_elf/chrome_elf.gyp:chrome_elf_constants',
             '../components/components.gyp:crash_component',
-            '../rlz/rlz.gyp:rlz_lib',
-            '../third_party/zlib/zlib.gyp:zlib',
           ],
           'include_dirs': [
             '..',
             '<(INTERMEDIATE_DIR)',
-            '<(SHARED_INTERMEDIATE_DIR)/setup',
           ],
-          'direct_dependent_settings': {
-            'include_dirs': [
-              '<(SHARED_INTERMEDIATE_DIR)/setup',
-            ],
-          },
           'sources': [
-            '<(SHARED_INTERMEDIATE_DIR)/chrome/installer/util/installer_util_strings.rc',
-            'installer/mini_installer/chrome.release',
             'installer/setup/app_launcher_installer.cc',
             'installer/setup/app_launcher_installer.h',
             'installer/setup/archive_patch_helper.cc',
@@ -247,20 +237,50 @@
             'installer/setup/install_worker.h',
             'installer/setup/installer_crash_reporter_client.cc',
             'installer/setup/installer_crash_reporter_client.h',
-            'installer/setup/setup.ico',
-            'installer/setup/setup.rc',
+            'installer/setup/installer_crash_reporting.cc',
+            'installer/setup/installer_crash_reporting.h',
+            'installer/setup/installer_metrics.cc',
+            'installer/setup/installer_metrics.h',
             'installer/setup/setup_constants.cc',
             'installer/setup/setup_constants.h',
+            'installer/setup/setup_util.cc',
+            'installer/setup/setup_util.h',
+            'installer/setup/update_active_setup_version_work_item.cc',
+            'installer/setup/update_active_setup_version_work_item.h',
+          ],
+        },
+        {
+          # GN version: //chrome/installer/setup
+          'target_name': 'setup',
+          'type': 'executable',
+          'dependencies': [
+            'setup_lib',
+            '../chrome/common_constants.gyp:common_constants',
+            '../chrome/common_constants.gyp:version_header',
+            '../chrome_elf/chrome_elf.gyp:chrome_elf_constants',
+            '../components/components.gyp:crash_component',
+            '../rlz/rlz.gyp:rlz_lib',
+            '../third_party/zlib/zlib.gyp:zlib',
+          ],
+          'defines': [
+            'COMPILE_CONTENT_STATICALLY',
+          ],
+          'include_dirs': [
+            '..',
+            '<(INTERMEDIATE_DIR)',
+            '<(SHARED_INTERMEDIATE_DIR)/setup',
+          ],
+          'sources': [
+            '<(SHARED_INTERMEDIATE_DIR)/chrome/installer/util/installer_util_strings.rc',
+            '../content/public/common/content_switches.cc',
+            'installer/setup/setup.ico',
+            'installer/setup/setup.rc',
             'installer/setup/setup_exe_version.rc.version',
             'installer/setup/setup_main.cc',
             'installer/setup/setup_main.h',
             'installer/setup/setup_resource.h',
-            'installer/setup/setup_util.cc',
-            'installer/setup/setup_util.h',
             'installer/setup/uninstall.cc',
             'installer/setup/uninstall.h',
-            'installer/setup/update_active_setup_version_work_item.cc',
-            'installer/setup/update_active_setup_version_work_item.h',
           ],
           'msvs_settings': {
             'VCLinkerTool': {
@@ -309,11 +329,6 @@
                 },
               },
             }],
-            ['win_use_allocator_shim==1', {
-              'dependencies': [
-                '<(allocator_target)',
-              ],
-            }],
           ],
         },
         {
@@ -321,9 +336,7 @@
           'target_name': 'setup_unittests',
           'type': 'executable',
           'dependencies': [
-            'installer_util',
-            'installer_util_strings',
-            '../base/base.gyp:base',
+            'setup_lib',
             '../base/base.gyp:base_i18n',
             '../base/base.gyp:test_support_base',
             '../testing/gmock.gyp:gmock',
@@ -333,12 +346,8 @@
             '..',
             '<(INTERMEDIATE_DIR)',
           ],
-          # TODO(robertshield): Move the items marked with "Move to lib"
-          # below into a separate lib and then link both setup.exe and
-          # setup_unittests.exe against that.
           'sources': [
             '<(SHARED_INTERMEDIATE_DIR)/chrome/installer/util/installer_util_strings.rc',
-            'installer/mini_installer/chrome.release',  # Move to lib
             'installer/mini_installer/appid.h',
             'installer/mini_installer/chrome_appid.cc',
             'installer/mini_installer/configuration.cc',
@@ -354,34 +363,14 @@
             'installer/mini_installer/mini_string_test.cc',
             'installer/mini_installer/regkey.cc',
             'installer/mini_installer/regkey.h',
-            'installer/setup/app_launcher_installer.cc',  # Move to lib
-            'installer/setup/app_launcher_installer.h',  # Move to lib
-            'installer/setup/archive_patch_helper.cc',  # Move to lib
-            'installer/setup/archive_patch_helper.h',   # Move to lib
             'installer/setup/archive_patch_helper_unittest.cc',
-            'installer/setup/install.cc',               # Move to lib
-            'installer/setup/install.h',                # Move to lib
             'installer/setup/install_unittest.cc',
-            'installer/setup/install_worker.cc',        # Move to lib
-            'installer/setup/install_worker.h',         # Move to lib
             'installer/setup/install_worker_unittest.cc',
             'installer/setup/memory_unittest.cc',
             'installer/setup/run_all_unittests.cc',
-            'installer/setup/setup_constants.cc',       # Move to lib
-            'installer/setup/setup_constants.h',        # Move to lib
-            'installer/setup/setup_util.cc',
             'installer/setup/setup_util_unittest.cc',
             'installer/setup/setup_util_unittest.h',
-            'installer/setup/update_active_setup_version_work_item.cc',  # Move to lib
-            'installer/setup/update_active_setup_version_work_item.h',   # Move to lib
             'installer/setup/update_active_setup_version_work_item_unittest.cc',
-          ],
-          'conditions': [
-            ['win_use_allocator_shim==1', {
-              'dependencies': [
-                '<(allocator_target)',
-              ],
-            }],
           ],
           # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
           'msvs_disabled_warnings': [ 4267, ],
@@ -1053,6 +1042,7 @@
                 'installer/mac/dirpatcher.sh',
                 'installer/mac/dmgdiffer.sh',
                 'installer/mac/pkg-dmg',
+                'installer/mac/sign_installer_tools.sh',
               ],
               'conditions': [
                 ['mac_keystone==1', {

@@ -32,7 +32,6 @@
  * SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/canvas2d/CanvasPathMethods.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -323,4 +322,4 @@ void CanvasPathMethods::rect(float x, float y, float width, float height)
 
     m_path.addRect(FloatRect(x, y, width, height));
 }
-}
+} // namespace blink

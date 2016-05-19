@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/V8CSSStyleDeclaration.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -40,7 +39,6 @@
 #include "core/css/CSSValue.h"
 #include "core/css/parser/CSSParser.h"
 #include "core/events/EventTarget.h"
-#include "core/frame/UseCounter.h"
 #include "wtf/ASCIICType.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
@@ -48,6 +46,7 @@
 #include "wtf/Vector.h"
 #include "wtf/text/StringBuilder.h"
 #include "wtf/text/StringConcatenate.h"
+#include <algorithm>
 
 using namespace WTF;
 
@@ -80,7 +79,7 @@ static bool hasCSSPropertyNamePrefix(const String& propertyName, const char* pre
     return false;
 }
 
-static CSSPropertyID parseCSSPropertyID(v8::Isolate* isolate, const String& propertyName)
+static CSSPropertyID parseCSSPropertyID(const String& propertyName)
 {
     unsigned length = propertyName.length();
     if (!length)
@@ -92,12 +91,7 @@ static CSSPropertyID parseCSSPropertyID(v8::Isolate* isolate, const String& prop
     unsigned i = 0;
     bool hasSeenDash = false;
 
-    if (hasCSSPropertyNamePrefix(propertyName, "css")) {
-        i += 3;
-        // getComputedStyle(elem).cssX is a non-standard behaviour
-        // Measure this behaviour as CSSXGetComputedStyleQueries.
-        UseCounter::countIfNotPrivateScript(isolate, callingExecutionContext(isolate), UseCounter::CSSXGetComputedStyleQueries);
-    } else if (hasCSSPropertyNamePrefix(propertyName, "webkit"))
+    if (hasCSSPropertyNamePrefix(propertyName, "webkit"))
         builder.append('-');
     else if (isASCIIUpper(propertyName[0]))
         return CSSPropertyInvalid;
@@ -136,7 +130,7 @@ static CSSPropertyID parseCSSPropertyID(v8::Isolate* isolate, const String& prop
 // Example: 'backgroundPositionY' -> 'background-position-y'
 //
 // Also, certain prefixes such as 'css-' are stripped.
-static CSSPropertyID cssPropertyInfo(v8::Local<v8::String> v8PropertyName, v8::Isolate* isolate)
+static CSSPropertyID cssPropertyInfo(v8::Local<v8::String> v8PropertyName)
 {
     String propertyName = toCoreString(v8PropertyName);
     typedef HashMap<String, CSSPropertyID> CSSPropertyIDMap;
@@ -145,7 +139,7 @@ static CSSPropertyID cssPropertyInfo(v8::Local<v8::String> v8PropertyName, v8::I
     if (iter != map.end())
         return iter->value;
 
-    CSSPropertyID unresolvedProperty = parseCSSPropertyID(isolate, propertyName);
+    CSSPropertyID unresolvedProperty = parseCSSPropertyID(propertyName);
     map.add(propertyName, unresolvedProperty);
     ASSERT(!unresolvedProperty || CSSPropertyMetadata::isEnabledProperty(unresolvedProperty));
     return unresolvedProperty;
@@ -186,7 +180,7 @@ void V8CSSStyleDeclaration::namedPropertyQueryCustom(v8::Local<v8::Name> v8Name,
         return;
     // NOTE: cssPropertyInfo lookups incur several mallocs.
     // Successful lookups have the same cost the first time, but are cached.
-    if (cssPropertyInfo(v8Name.As<v8::String>(), info.GetIsolate())) {
+    if (cssPropertyInfo(v8Name.As<v8::String>())) {
         v8SetReturnValueInt(info, 0);
         return;
     }
@@ -195,7 +189,7 @@ void V8CSSStyleDeclaration::namedPropertyQueryCustom(v8::Local<v8::Name> v8Name,
 void V8CSSStyleDeclaration::namedPropertyGetterCustom(v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info)
 {
     // Search the style declaration.
-    CSSPropertyID unresolvedProperty = cssPropertyInfo(name.As<v8::String>(), info.GetIsolate());
+    CSSPropertyID unresolvedProperty = cssPropertyInfo(name.As<v8::String>());
 
     // Do not handle non-property names.
     if (!unresolvedProperty)
@@ -203,6 +197,7 @@ void V8CSSStyleDeclaration::namedPropertyGetterCustom(v8::Local<v8::Name> name, 
     CSSPropertyID resolvedProperty = resolveCSSPropertyID(unresolvedProperty);
 
     CSSStyleDeclaration* impl = V8CSSStyleDeclaration::toImpl(info.Holder());
+    // TODO(leviw): This API doesn't support custom properties.
     RefPtrWillBeRawPtr<CSSValue> cssValue = impl->getPropertyCSSValueInternal(resolvedProperty);
     if (cssValue) {
         v8SetReturnValueStringOrNull(info, cssValue->cssText(), info.GetIsolate());
@@ -218,13 +213,14 @@ void V8CSSStyleDeclaration::namedPropertySetterCustom(v8::Local<v8::Name> name, 
     if (!name->IsString())
         return;
     CSSStyleDeclaration* impl = V8CSSStyleDeclaration::toImpl(info.Holder());
-    CSSPropertyID unresolvedProperty = cssPropertyInfo(name.As<v8::String>(), info.GetIsolate());
+    CSSPropertyID unresolvedProperty = cssPropertyInfo(name.As<v8::String>());
     if (!unresolvedProperty)
         return;
 
     TOSTRING_VOID(V8StringResource<TreatNullAsNullString>, propertyValue, value);
     ExceptionState exceptionState(ExceptionState::SetterContext, getPropertyName(resolveCSSPropertyID(unresolvedProperty)), "CSSStyleDeclaration", info.Holder(), info.GetIsolate());
-    impl->setPropertyInternal(unresolvedProperty, propertyValue, false, exceptionState);
+    // TODO(leviw): This API doesn't support custom properties.
+    impl->setPropertyInternal(unresolvedProperty, String(), propertyValue, false, exceptionState);
 
     if (exceptionState.throwIfNeeded())
         return;

@@ -10,11 +10,12 @@
 
 #include "webrtc/modules/audio_device/android/audio_manager.h"
 
+#include <utility>
+
 #include <android/log.h>
 
 #include "webrtc/base/arraysize.h"
 #include "webrtc/base/checks.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/audio_device/android/audio_common.h"
 #include "webrtc/modules/utility/include/helpers_android.h"
 
@@ -29,15 +30,16 @@ namespace webrtc {
 
 // AudioManager::JavaAudioManager implementation
 AudioManager::JavaAudioManager::JavaAudioManager(
-    NativeRegistration* native_reg, rtc::scoped_ptr<GlobalRef> audio_manager)
-    : audio_manager_(audio_manager.Pass()),
+    NativeRegistration* native_reg,
+    std::unique_ptr<GlobalRef> audio_manager)
+    : audio_manager_(std::move(audio_manager)),
       init_(native_reg->GetMethodId("init", "()Z")),
       dispose_(native_reg->GetMethodId("dispose", "()V")),
       is_communication_mode_enabled_(
           native_reg->GetMethodId("isCommunicationModeEnabled", "()Z")),
       is_device_blacklisted_for_open_sles_usage_(
-          native_reg->GetMethodId(
-              "isDeviceBlacklistedForOpenSLESUsage", "()Z")) {
+          native_reg->GetMethodId("isDeviceBlacklistedForOpenSLESUsage",
+                                  "()Z")) {
   ALOGD("JavaAudioManager::ctor%s", GetThreadInfo().c_str());
 }
 
@@ -64,7 +66,7 @@ bool AudioManager::JavaAudioManager::IsDeviceBlacklistedForOpenSLESUsage() {
 
 // AudioManager implementation
 AudioManager::AudioManager()
-    : j_environment_(JVM::GetInstance()->environment()),
+    : j_environment_(rtc::ScopedToUnique(JVM::GetInstance()->environment())),
       audio_layer_(AudioDeviceModule::kPlatformDefaultAudio),
       initialized_(false),
       hardware_aec_(false),
@@ -78,14 +80,14 @@ AudioManager::AudioManager()
       {"nativeCacheAudioParameters",
        "(IIZZZZIIJ)V",
        reinterpret_cast<void*>(&webrtc::AudioManager::CacheAudioParameters)}};
-  j_native_registration_ = j_environment_->RegisterNatives(
+  j_native_registration_ = rtc::ScopedToUnique(j_environment_->RegisterNatives(
       "org/webrtc/voiceengine/WebRtcAudioManager",
-      native_methods, arraysize(native_methods));
+      native_methods, arraysize(native_methods)));
   j_audio_manager_.reset(new JavaAudioManager(
       j_native_registration_.get(),
-      j_native_registration_->NewObject(
+      rtc::ScopedToUnique(j_native_registration_->NewObject(
           "<init>", "(Landroid/content/Context;J)V",
-          JVM::GetInstance()->context(), PointerTojlong(this))));
+          JVM::GetInstance()->context(), PointerTojlong(this)))));
 }
 
 AudioManager::~AudioManager() {
@@ -211,9 +213,9 @@ void AudioManager::OnCacheAudioParameters(JNIEnv* env,
   hardware_ns_ = hardware_ns;
   low_latency_playout_ = low_latency_output;
   // TODO(henrika): add support for stereo output.
-  playout_parameters_.reset(sample_rate, channels,
+  playout_parameters_.reset(sample_rate, static_cast<size_t>(channels),
                             static_cast<size_t>(output_buffer_size));
-  record_parameters_.reset(sample_rate, channels,
+  record_parameters_.reset(sample_rate, static_cast<size_t>(channels),
                            static_cast<size_t>(input_buffer_size));
 }
 

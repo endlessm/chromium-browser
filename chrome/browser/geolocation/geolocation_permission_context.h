@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_GEOLOCATION_GEOLOCATION_PERMISSION_CONTEXT_H_
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "chrome/browser/geolocation/geolocation_permission_context_extensions.h"
 #include "chrome/browser/permissions/permission_context_base.h"
 
@@ -28,7 +29,6 @@ class GeolocationPermissionContext  : public PermissionContextBase {
                         const PermissionRequestID& id,
                         const GURL& requesting_origin,
                         const GURL& embedding_origin,
-                        bool user_gesture,
                         const BrowserPermissionCallback& callback) override;
 
   // Adds special logic when called through an extension.

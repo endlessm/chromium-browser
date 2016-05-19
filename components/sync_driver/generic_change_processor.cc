@@ -4,8 +4,10 @@
 
 #include "components/sync_driver/generic_change_processor.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "base/location.h"
 #include "base/strings/string_number_conversions.h"
@@ -64,7 +66,7 @@ void SetAttachmentMetadata(const syncer::AttachmentIdList& attachment_ids,
 }
 
 syncer::SyncData BuildRemoteSyncData(
-    int64 sync_id,
+    int64_t sync_id,
     const syncer::BaseNode& read_node,
     const syncer::AttachmentServiceProxy& attachment_service_proxy) {
   const syncer::AttachmentIdList& attachment_ids = read_node.GetAttachmentIds();
@@ -116,7 +118,8 @@ GenericChangeProcessor::GenericChangeProcessor(
     }
     attachment_service_ =
         sync_client->GetSyncApiComponentFactory()->CreateAttachmentService(
-            attachment_store.Pass(), *user_share, store_birthday, type, this);
+            std::move(attachment_store), *user_share, store_birthday, type,
+            this);
     attachment_service_weak_ptr_factory_.reset(
         new base::WeakPtrFactory<syncer::AttachmentService>(
             attachment_service_.get()));
@@ -137,7 +140,7 @@ GenericChangeProcessor::~GenericChangeProcessor() {
 
 void GenericChangeProcessor::ApplyChangesFromSyncModel(
     const syncer::BaseTransaction* trans,
-    int64 model_version,
+    int64_t model_version,
     const syncer::ImmutableChangeRecordList& changes) {
   DCHECK(CalledOnValidThread());
   DCHECK(syncer_changes_.empty());
@@ -257,10 +260,10 @@ syncer::SyncError GenericChangeProcessor::GetAllSyncDataReturnError(
   // TODO(akalin): We'll have to do a tree traversal for bookmarks.
   DCHECK_NE(type_, syncer::BOOKMARKS);
 
-  std::vector<int64> child_ids;
+  std::vector<int64_t> child_ids;
   root.GetChildIds(&child_ids);
 
-  for (std::vector<int64>::iterator it = child_ids.begin();
+  for (std::vector<int64_t>::iterator it = child_ids.begin();
        it != child_ids.end(); ++it) {
     syncer::ReadNode sync_child_node(&trans);
     if (sync_child_node.InitByIdLookup(*it) !=
@@ -595,7 +598,7 @@ syncer::SyncError GenericChangeProcessor::HandleActionUpdate(
       syncer::Cryptographer* crypto = trans.GetCryptographer();
       syncer::ModelTypeSet encrypted_types(trans.GetEncryptedTypes());
       const sync_pb::EntitySpecifics& specifics =
-          sync_node->GetEntry()->GetSpecifics();
+          sync_node->GetEntitySpecifics();
       CHECK(specifics.has_encrypted());
       const bool can_decrypt = crypto->CanDecrypt(specifics.encrypted());
       const bool agreement = encrypted_types.Has(type_);

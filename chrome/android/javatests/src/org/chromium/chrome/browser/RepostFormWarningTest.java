@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser;
 
+import android.os.Environment;
 import android.support.v7.app.AlertDialog;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.test.suitebuilder.annotation.SmallTest;
@@ -12,11 +13,11 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.net.test.EmbeddedTestServer;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeoutException;
@@ -29,6 +30,8 @@ public class RepostFormWarningTest extends ChromeActivityTestCaseBase<ChromeActi
     private Tab mTab;
     // Callback helper that manages waiting for pageloads to finish.
     private TestCallbackHelperContainer mCallbackHelper;
+
+    private EmbeddedTestServer mTestServer;
 
     public RepostFormWarningTest() {
         super(ChromeActivity.class);
@@ -45,6 +48,14 @@ public class RepostFormWarningTest extends ChromeActivityTestCaseBase<ChromeActi
 
         mTab = getActivity().getActivityTab();
         mCallbackHelper = new TestCallbackHelperContainer(mTab.getContentViewCore());
+        mTestServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+    }
+
+    @Override
+    public void tearDown() throws Exception {
+        mTestServer.stopAndDestroyServer();
+        super.tearDown();
     }
 
     /** Verifies that the form resubmission warning is not displayed upon first POST navigation. */
@@ -58,7 +69,7 @@ public class RepostFormWarningTest extends ChromeActivityTestCaseBase<ChromeActi
 
         // Verify that the form resubmission warning was not shown.
         assertNull("Form resubmission warning shown upon first load.",
-                RepostFormWarningDialog.getCurrentDialog());
+                RepostFormWarningDialog.getCurrentDialogForTesting());
     }
 
     /** Verifies that confirming the form reload performs the reload. */
@@ -79,7 +90,7 @@ public class RepostFormWarningTest extends ChromeActivityTestCaseBase<ChromeActi
 
         // Verify that the reference to the dialog in RepostFormWarningDialog was cleared.
         assertNull("Form resubmission warning dialog was not dismissed correctly.",
-                RepostFormWarningDialog.getCurrentDialog());
+                RepostFormWarningDialog.getCurrentDialogForTesting());
     }
 
     /**
@@ -110,35 +121,65 @@ public class RepostFormWarningTest extends ChromeActivityTestCaseBase<ChromeActi
 
         // Verify that the reference to the dialog in RepostFormWarningDialog was cleared.
         assertNull("Form resubmission warning dialog was not dismissed correctly.",
-                RepostFormWarningDialog.getCurrentDialog());
+                RepostFormWarningDialog.getCurrentDialogForTesting());
+    }
+
+    /**
+     * Verifies that destroying the Tab dismisses the form resubmission dialog.
+     */
+    @SmallTest
+    @Feature({"Navigation"})
+    public void testFormResubmissionTabDestroyed() throws Throwable {
+        // Load the url posting data for the first time.
+        postNavigation();
+        mCallbackHelper.getOnPageFinishedHelper().waitForCallback(0);
+
+        // Trigger a reload and wait for the warning to be displayed.
+        reload();
+        waitForRepostFormWarningDialog();
+
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                getActivity().getCurrentTabModel().closeTab(mTab);
+            }
+        });
+
+        CriteriaHelper.pollForUIThreadCriteria(
+                new Criteria("Form resubmission dialog not dismissed correctly") {
+                    @Override
+                    public boolean isSatisfied() {
+                        return RepostFormWarningDialog.getCurrentDialogForTesting() == null;
+                    }
+                });
     }
 
     private AlertDialog waitForRepostFormWarningDialog() throws InterruptedException {
-        assertTrue("Form resubmission warning not shown", CriteriaHelper.pollForUIThreadCriteria(
-                new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(
+                new Criteria("Form resubmission warning not shown") {
                     @Override
                     public boolean isSatisfied() {
-                        return RepostFormWarningDialog.getCurrentDialog() != null;
+                        return RepostFormWarningDialog.getCurrentDialogForTesting() != null;
                     }
-                }));
+                });
         return ThreadUtils.runOnUiThreadBlockingNoException(new Callable<AlertDialog>() {
             @Override
             public AlertDialog call() throws Exception {
-                return (AlertDialog) RepostFormWarningDialog.getCurrentDialog();
+                return (AlertDialog) RepostFormWarningDialog.getCurrentDialogForTesting();
             }
         });
     }
 
     /** Performs a POST navigation in mTab. */
     private void postNavigation() throws Throwable {
-        final String url = "chrome/test/data/empty.html";
+        final String url = "/chrome/test/data/empty.html";
         final byte[] postData = new byte[] { 42 };
 
         runTestOnUiThread(new Runnable() {
             @Override
             public void run() {
                 mTab.loadUrl(LoadUrlParams.createLoadHttpPostParams(
-                        TestHttpServerClient.getUrl(url), postData));
+                        mTestServer.getURL(url), postData));
             }
         });
     }

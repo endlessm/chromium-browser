@@ -5,8 +5,11 @@
 #ifndef UI_APP_LIST_VIEWS_APPS_CONTAINER_VIEW_H_
 #define UI_APP_LIST_VIEWS_APPS_CONTAINER_VIEW_H_
 
+#include <stddef.h>
+
 #include <vector>
 
+#include "base/macros.h"
 #include "ui/app_list/app_list_folder_item.h"
 #include "ui/app_list/views/app_list_page.h"
 #include "ui/app_list/views/top_icon_animation_view.h"
@@ -104,7 +107,6 @@ class AppsContainerView : public AppListPage, public TopIconAnimationObserver {
 
   void PrepareToShowApps(AppListFolderItem* folder_item);
 
-  AppListModel* model_;
   AppsGridView* apps_grid_view_;  // Owned by views hierarchy.
   AppListFolderView* app_list_folder_view_;  // Owned by views hierarchy.
   FolderBackgroundView* folder_background_view_;  // Owned by views hierarchy.

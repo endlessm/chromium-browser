@@ -4,6 +4,10 @@
 
 #include "sync/sessions/data_type_tracker.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+
 #include "base/logging.h"
 #include "sync/internal_api/public/base/invalidation_interface.h"
 #include "sync/sessions/nudge_tracker.h"
@@ -198,7 +202,7 @@ void DataTypeTracker::FillGetUpdatesTriggersMessage(
   msg->set_server_dropped_hints(
       !pending_invalidations_.empty() &&
       (*pending_invalidations_.begin())->IsUnknownVersion());
-  msg->set_client_dropped_hints(last_dropped_invalidation_);
+  msg->set_client_dropped_hints(!!last_dropped_invalidation_);
   msg->set_local_modification_nudges(local_nudge_count_);
   msg->set_datatype_refresh_nudges(local_refresh_request_count_);
   msg->set_initial_sync_in_progress(initial_sync_required_);

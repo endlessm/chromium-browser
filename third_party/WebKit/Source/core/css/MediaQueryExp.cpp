@@ -27,7 +27,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/MediaQueryExp.h"
 
 #include "core/css/parser/CSSParserToken.h"
@@ -174,7 +173,22 @@ bool MediaQueryExp::isViewportDependent() const
         || m_mediaFeature == minAspectRatioMediaFeature
         || m_mediaFeature == devicePixelRatioMediaFeature
         || m_mediaFeature == resolutionMediaFeature
-        || m_mediaFeature == maxAspectRatioMediaFeature;
+        || m_mediaFeature == maxAspectRatioMediaFeature
+        || m_mediaFeature == maxDevicePixelRatioMediaFeature
+        || m_mediaFeature == minDevicePixelRatioMediaFeature;
+}
+
+bool MediaQueryExp::isDeviceDependent() const
+{
+    return m_mediaFeature == deviceAspectRatioMediaFeature
+        || m_mediaFeature == deviceWidthMediaFeature
+        || m_mediaFeature == deviceHeightMediaFeature
+        || m_mediaFeature == minDeviceAspectRatioMediaFeature
+        || m_mediaFeature == minDeviceWidthMediaFeature
+        || m_mediaFeature == minDeviceHeightMediaFeature
+        || m_mediaFeature == maxDeviceAspectRatioMediaFeature
+        || m_mediaFeature == maxDeviceWidthMediaFeature
+        || m_mediaFeature == maxDeviceHeightMediaFeature;
 }
 
 MediaQueryExp::MediaQueryExp(const MediaQueryExp& other)
@@ -303,4 +317,4 @@ String MediaQueryExpValue::cssText() const
     return output.toString();
 }
 
-} // namespace
+} // namespace blink

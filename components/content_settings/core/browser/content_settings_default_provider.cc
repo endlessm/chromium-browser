@@ -8,13 +8,9 @@
 #include <vector>
 
 #include "base/auto_reset.h"
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_registry.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/website_settings_info.h"
@@ -23,6 +19,9 @@
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "url/gurl.h"
 
 namespace content_settings {
@@ -30,16 +29,13 @@ namespace content_settings {
 namespace {
 
 // Obsolete prefs to be removed from the pref file.
-// TODO(msramek): Remove this cleanup code after two releases (i.e. in M48).
-const char kObsoleteDefaultContentSettings[] =
-    "profile.default_content_settings";
-const char kObsoleteMigratedDefaultContentSettings[] =
-    "profile.migrated_default_content_settings";
-const char kObsoleteMigratedDefaultMediaStreamSetting[] =
-    "profile.migrated_default_media_stream_content_settings";
 // TODO(msramek): Remove this cleanup code after two releases (i.e. in M50).
 const char kObsoleteMetroSwitchToDesktopSetting[] =
     "profile.default_content_setting_values.metro_switch_to_desktop";
+
+// TODO(msramek): Remove this cleanup code after two releases (i.e. in M51).
+const char kObsoleteMediaStreamSetting[] =
+    "profile.default_content_setting_values.media_stream";
 
 ContentSetting GetDefaultValue(const WebsiteSettingsInfo* info) {
   const base::Value* initial_default = info->initial_default_value();
@@ -97,29 +93,14 @@ void DefaultProvider::RegisterProfilePrefs(
 
   // Obsolete prefs -------------------------------------------------------
 
-  // The deprecated dictionary preference.
-  registry->RegisterDictionaryPref(
-      kObsoleteDefaultContentSettings,
-      new base::DictionaryValue(),
-      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-
-  // Whether the deprecated dictionary preference has already been migrated
-  // into the individual preferences in this profile.
-  registry->RegisterBooleanPref(
-      kObsoleteMigratedDefaultContentSettings,
-      false,
-      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-
-  // Whether the deprecated mediastream default setting has already been
-  // migrated into microphone and camera default settings.
-  registry->RegisterBooleanPref(kObsoleteMigratedDefaultMediaStreamSetting,
-                                false);
-
   // The removed content settings type METRO_SWITCH_TO_DESKTOP.
   registry->RegisterIntegerPref(
       kObsoleteMetroSwitchToDesktopSetting,
       0,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+
+  // The removed content settings type MEDIASTREAM.
+  registry->RegisterIntegerPref(kObsoleteMediaStreamSetting, 0);
 }
 
 DefaultProvider::DefaultProvider(PrefService* prefs, bool incognito)
@@ -194,6 +175,16 @@ DefaultProvider::DefaultProvider(PrefService* prefs, bool incognito)
       IntToContentSetting(prefs_->GetInteger(
           GetPrefName(CONTENT_SETTINGS_TYPE_PUSH_MESSAGING))),
       CONTENT_SETTING_NUM_SETTINGS);
+  UMA_HISTOGRAM_ENUMERATION(
+      "ContentSettings.DefaultKeygenSetting",
+      IntToContentSetting(prefs_->GetInteger(
+          GetPrefName(CONTENT_SETTINGS_TYPE_KEYGEN))),
+      CONTENT_SETTING_NUM_SETTINGS);
+  UMA_HISTOGRAM_ENUMERATION(
+      "ContentSettings.DefaultWebBluetoothGuardSetting",
+      IntToContentSetting(prefs_->GetInteger(
+          GetPrefName(CONTENT_SETTINGS_TYPE_BLUETOOTH_GUARD))),
+      CONTENT_SETTING_NUM_SETTINGS);
 
   pref_change_registrar_.Init(prefs_);
   PrefChangeRegistrar::NamedChangeCallback callback = base::Bind(
@@ -222,14 +213,15 @@ bool DefaultProvider::SetWebsiteSetting(
     return false;
   }
 
-  // The default settings may not be directly modified for OTR sessions.
-  // Instead, they are synced to the main profile's setting.
-  if (is_incognito_)
-    return false;
-
   // Put |in_value| in a scoped pointer to ensure that it gets cleaned up
   // properly if we don't pass on the ownership.
   scoped_ptr<base::Value> value(in_value);
+
+  // The default settings may not be directly modified for OTR sessions.
+  // Instead, they are synced to the main profile's setting.
+  if (is_incognito_)
+    return true;
+
   {
     base::AutoReset<bool> auto_reset(&updating_preferences_, true);
     // Lock the memory map access, so that values are not read by
@@ -251,18 +243,23 @@ bool DefaultProvider::SetWebsiteSetting(
   return true;
 }
 
-RuleIterator* DefaultProvider::GetRuleIterator(
+scoped_ptr<RuleIterator> DefaultProvider::GetRuleIterator(
     ContentSettingsType content_type,
     const ResourceIdentifier& resource_identifier,
     bool incognito) const {
+  // The default provider never has incognito-specific settings.
+  if (incognito)
+    return scoped_ptr<RuleIterator>(new EmptyRuleIterator());
+
   base::AutoLock lock(lock_);
   if (resource_identifier.empty()) {
     auto it(default_settings_.find(content_type));
     if (it != default_settings_.end())
-      return new DefaultRuleIterator(it->second);
+      return scoped_ptr<RuleIterator>(
+          new DefaultRuleIterator(it->second.get()));
     NOTREACHED();
   }
-  return new EmptyRuleIterator();
+  return scoped_ptr<RuleIterator>(new EmptyRuleIterator());
 }
 
 void DefaultProvider::ClearAllContentSettingsRules(
@@ -297,12 +294,9 @@ bool DefaultProvider::IsValueEmptyOrDefault(ContentSettingsType content_type,
 
 void DefaultProvider::ChangeSetting(ContentSettingsType content_type,
                                     base::Value* value) {
-  if (!value) {
-    default_settings_.set(content_type,
-                          ContentSettingToValue(GetDefaultValue(content_type)));
-  } else {
-    default_settings_.set(content_type, make_scoped_ptr(value->DeepCopy()));
-  }
+  default_settings_[content_type] =
+      value ? make_scoped_ptr(value->DeepCopy())
+            : ContentSettingToValue(GetDefaultValue(content_type));
 }
 
 void DefaultProvider::WriteToPref(ContentSettingsType content_type,
@@ -363,14 +357,12 @@ void DefaultProvider::OnPreferenceChanged(const std::string& name) {
 scoped_ptr<base::Value> DefaultProvider::ReadFromPref(
     ContentSettingsType content_type) {
   int int_value = prefs_->GetInteger(GetPrefName(content_type));
-  return ContentSettingToValue(IntToContentSetting(int_value)).Pass();
+  return ContentSettingToValue(IntToContentSetting(int_value));
 }
 
 void DefaultProvider::DiscardObsoletePreferences() {
-  prefs_->ClearPref(kObsoleteDefaultContentSettings);
-  prefs_->ClearPref(kObsoleteMigratedDefaultContentSettings);
-  prefs_->ClearPref(kObsoleteMigratedDefaultMediaStreamSetting);
   prefs_->ClearPref(kObsoleteMetroSwitchToDesktopSetting);
+  prefs_->ClearPref(kObsoleteMediaStreamSetting);
 }
 
 }  // namespace content_settings

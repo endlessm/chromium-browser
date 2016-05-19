@@ -4,7 +4,6 @@
 
 #include "ppapi/shared_impl/ppb_trace_event_impl.h"
 
-#include "base/basictypes.h"
 #include "base/threading/platform_thread.h"
 #include "base/trace_event/trace_event.h"
 #include "ppapi/thunk/thunk.h"
@@ -46,7 +45,7 @@ void TraceEventImpl::AddTraceEvent(int8_t phase,
       phase,
       static_cast<const unsigned char*>(category_enabled),
       name,
-      id,
+      trace_event_internal::kGlobalScope, id,
       num_args,
       arg_names,
       arg_types,
@@ -77,7 +76,7 @@ void TraceEventImpl::AddTraceEventWithThreadIdAndTimestamp(
           phase,
           static_cast<const unsigned char*>(category_enabled),
           name,
-          id,
+          trace_event_internal::kGlobalScope, id,
           trace_event_internal::kNoId,
           thread_id,
           base::TimeTicks::FromInternalValue(timestamp),

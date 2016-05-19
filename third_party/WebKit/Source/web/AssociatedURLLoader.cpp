@@ -28,9 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/AssociatedURLLoader.h"
 
+#include "core/dom/ContextLifecycleObserver.h"
 #include "core/fetch/CrossOriginAccessControl.h"
 #include "core/fetch/FetchUtils.h"
 #include "core/loader/DocumentThreadableLoader.h"
@@ -113,7 +113,7 @@ const HTTPHeaderSet& HTTPResponseHeaderValidator::blockedHeaders()
     return m_blockedHeaders;
 }
 
-}
+} // namespace
 
 // This class bridges the interface differences between WebCore and WebKit loader clients.
 // It forwards its ThreadableLoaderClient notifications to a WebURLLoaderClient.
@@ -248,13 +248,20 @@ void AssociatedURLLoader::ClientAdapter::didFinishLoading(unsigned long identifi
     if (!m_client)
         return;
 
-    m_client->didFinishLoading(m_loader, finishTime, WebURLLoaderClient::kUnknownEncodedDataLength);
+    m_loader->clientAdapterDone();
+
+    auto client = m_client;
+    m_client = nullptr;
+    client->didFinishLoading(m_loader, finishTime, WebURLLoaderClient::kUnknownEncodedDataLength);
+    // |this| may be dead here.
 }
 
 void AssociatedURLLoader::ClientAdapter::didFail(const ResourceError& error)
 {
     if (!m_client)
         return;
+
+    m_loader->clientAdapterDone();
 
     m_didFail = true;
     m_error = WebURLError(error);
@@ -265,11 +272,6 @@ void AssociatedURLLoader::ClientAdapter::didFail(const ResourceError& error)
 void AssociatedURLLoader::ClientAdapter::didFailRedirectCheck()
 {
     didFail(ResourceError());
-}
-
-void AssociatedURLLoader::ClientAdapter::setDelayedError(const ResourceError& error)
-{
-    didFail(error);
 }
 
 void AssociatedURLLoader::ClientAdapter::enableErrorNotifications()
@@ -285,15 +287,49 @@ void AssociatedURLLoader::ClientAdapter::notifyError(Timer<ClientAdapter>* timer
 {
     ASSERT_UNUSED(timer, timer == &m_errorTimer);
 
-    m_client->didFail(m_loader, m_error);
+    if (!m_client)
+        return;
+
+    auto client = m_client;
+    m_client = nullptr;
+    client->didFail(m_loader, m_error);
+    // |this| may be dead here.
 }
 
+class AssociatedURLLoader::Observer final : public GarbageCollectedFinalized<Observer>, public ContextLifecycleObserver {
+    USING_GARBAGE_COLLECTED_MIXIN(Observer);
+public:
+    Observer(AssociatedURLLoader* parent, Document* document)
+        : ContextLifecycleObserver(document)
+        , m_parent(parent)
+    {
+    }
+
+    void dispose()
+    {
+        m_parent = nullptr;
+        clearContext();
+    }
+
+    void contextDestroyed() override
+    {
+        if (m_parent)
+            m_parent->documentDestroyed();
+    }
+
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        ContextLifecycleObserver::trace(visitor);
+    }
+
+    AssociatedURLLoader* m_parent;
+};
+
 AssociatedURLLoader::AssociatedURLLoader(PassRefPtrWillBeRawPtr<WebLocalFrameImpl> frameImpl, const WebURLLoaderOptions& options)
-    : m_frameImpl(frameImpl)
+    : m_client(nullptr)
     , m_options(options)
-    , m_client(0)
+    , m_observer(new Observer(this, frameImpl->frame()->document()))
 {
-    ASSERT(m_frameImpl);
 }
 
 AssociatedURLLoader::~AssociatedURLLoader()
@@ -301,16 +337,17 @@ AssociatedURLLoader::~AssociatedURLLoader()
     cancel();
 }
 
-#define STATIC_ASSERT_MATCHING_ENUM(webkit_name, webcore_name) \
-    static_assert(static_cast<int>(webkit_name) == static_cast<int>(webcore_name), "mismatching enum values")
+#define STATIC_ASSERT_ENUM(a, b)                              \
+    static_assert(static_cast<int>(a) == static_cast<int>(b), \
+        "mismatching enum: " #a)
 
-STATIC_ASSERT_MATCHING_ENUM(WebURLLoaderOptions::CrossOriginRequestPolicyDeny, DenyCrossOriginRequests);
-STATIC_ASSERT_MATCHING_ENUM(WebURLLoaderOptions::CrossOriginRequestPolicyUseAccessControl, UseAccessControl);
-STATIC_ASSERT_MATCHING_ENUM(WebURLLoaderOptions::CrossOriginRequestPolicyAllow, AllowCrossOriginRequests);
+STATIC_ASSERT_ENUM(WebURLLoaderOptions::CrossOriginRequestPolicyDeny, DenyCrossOriginRequests);
+STATIC_ASSERT_ENUM(WebURLLoaderOptions::CrossOriginRequestPolicyUseAccessControl, UseAccessControl);
+STATIC_ASSERT_ENUM(WebURLLoaderOptions::CrossOriginRequestPolicyAllow, AllowCrossOriginRequests);
 
-STATIC_ASSERT_MATCHING_ENUM(WebURLLoaderOptions::ConsiderPreflight, ConsiderPreflight);
-STATIC_ASSERT_MATCHING_ENUM(WebURLLoaderOptions::ForcePreflight, ForcePreflight);
-STATIC_ASSERT_MATCHING_ENUM(WebURLLoaderOptions::PreventPreflight, PreventPreflight);
+STATIC_ASSERT_ENUM(WebURLLoaderOptions::ConsiderPreflight, ConsiderPreflight);
+STATIC_ASSERT_ENUM(WebURLLoaderOptions::ForcePreflight, ForcePreflight);
+STATIC_ASSERT_ENUM(WebURLLoaderOptions::PreventPreflight, PreventPreflight);
 
 void AssociatedURLLoader::loadSynchronously(const WebURLRequest& request, WebURLResponse& response, WebURLError& error, WebData& data)
 {
@@ -319,17 +356,17 @@ void AssociatedURLLoader::loadSynchronously(const WebURLRequest& request, WebURL
 
 void AssociatedURLLoader::loadAsynchronously(const WebURLRequest& request, WebURLLoaderClient* client)
 {
-    ASSERT(!m_loader);
     ASSERT(!m_client);
+    ASSERT(!m_loader);
+    ASSERT(!m_clientAdapter);
 
-    m_client = client;
-    ASSERT(m_client);
+    ASSERT(client);
 
     bool allowLoad = true;
     WebURLRequest newRequest(request);
     if (m_options.untrustedHTTP) {
         WebString method = newRequest.httpMethod();
-        allowLoad = isValidHTTPToken(method) && FetchUtils::isUsefulMethod(method);
+        allowLoad = m_observer && isValidHTTPToken(method) && FetchUtils::isUsefulMethod(method);
         if (allowLoad) {
             newRequest.setHTTPMethod(FetchUtils::normalizeMethod(method));
             HTTPRequestHeaderValidator validator;
@@ -338,7 +375,8 @@ void AssociatedURLLoader::loadAsynchronously(const WebURLRequest& request, WebUR
         }
     }
 
-    m_clientAdapter = ClientAdapter::create(this, m_client, m_options);
+    m_client = client;
+    m_clientAdapter = ClientAdapter::create(this, client, m_options);
 
     if (allowLoad) {
         ThreadableLoaderOptions options;
@@ -357,24 +395,45 @@ void AssociatedURLLoader::loadAsynchronously(const WebURLRequest& request, WebUR
             newRequest.setRequestContext(WebURLRequest::RequestContextInternal);
         }
 
-        Document* webcoreDocument = m_frameImpl->frame()->document();
-        ASSERT(webcoreDocument);
-        m_loader = DocumentThreadableLoader::create(*webcoreDocument, m_clientAdapter.get(), webcoreRequest, options, resourceLoaderOptions);
+        Document* document = toDocument(m_observer->lifecycleContext());
+        ASSERT(document);
+        m_loader = DocumentThreadableLoader::create(*document, m_clientAdapter.get(), options, resourceLoaderOptions);
+        m_loader->start(webcoreRequest);
     }
 
     if (!m_loader) {
         // FIXME: return meaningful error codes.
-        m_clientAdapter->setDelayedError(ResourceError());
+        m_clientAdapter->didFail(ResourceError());
     }
     m_clientAdapter->enableErrorNotifications();
 }
 
 void AssociatedURLLoader::cancel()
 {
-    if (m_clientAdapter)
-        m_clientAdapter->clearClient();
-    if (m_loader)
+    disposeObserver();
+    cancelLoader();
+    m_client = nullptr;
+}
+
+void AssociatedURLLoader::clientAdapterDone()
+{
+    disposeObserver();
+    m_client = nullptr;
+}
+
+void AssociatedURLLoader::cancelLoader()
+{
+    if (!m_clientAdapter)
+        return;
+
+    // Prevent invocation of the WebURLLoaderClient methods.
+    m_clientAdapter->clearClient();
+
+    if (m_loader) {
         m_loader->cancel();
+        m_loader.clear();
+    }
+    m_clientAdapter.clear();
 }
 
 void AssociatedURLLoader::setDefersLoading(bool defersLoading)
@@ -386,6 +445,46 @@ void AssociatedURLLoader::setDefersLoading(bool defersLoading)
 void AssociatedURLLoader::setLoadingTaskRunner(blink::WebTaskRunner*)
 {
     // TODO(alexclarke): Maybe support this one day if it proves worthwhile.
+}
+
+void AssociatedURLLoader::documentDestroyed()
+{
+    disposeObserver();
+    cancelLoader();
+
+    if (!m_client)
+        return;
+
+    WebURLLoaderClient* client = m_client;
+    m_client = nullptr;
+    client->didFail(this, ResourceError());
+    // |this| may be dead here.
+}
+
+void AssociatedURLLoader::disposeObserver()
+{
+    if (!m_observer)
+        return;
+
+    // TODO(tyoshino): Remove this assert once Document is fixed so that
+    // contextDestroyed() is invoked for all kinds of Documents.
+    //
+    // Currently, the method of detecting Document destruction implemented here
+    // doesn't work for all kinds of Documents. In case we reached here after
+    // the Oilpan is destroyed, we just crash the renderer process to prevent
+    // UaF.
+    //
+    // We could consider just skipping the rest of code in case
+    // ThreadState::current() is null. However, the fact we reached here
+    // without cancelling the loader means that it's possible there're some
+    // non-Blink non-on-heap objects still facing on-heap Blink objects. E.g.
+    // there could be a WebURLLoader instance behind the
+    // DocumentThreadableLoader instance. So, for safety, we chose to just
+    // crash here.
+    RELEASE_ASSERT(ThreadState::current());
+
+    m_observer->dispose();
+    m_observer = nullptr;
 }
 
 } // namespace blink

@@ -4,11 +4,15 @@
 
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/task_runner.h"
@@ -52,8 +56,9 @@ class CertificateProviderService::CertKeyProviderImpl
       certificate_provider::ThreadSafeCertificateMap* certificate_map);
   ~CertKeyProviderImpl() override;
 
-  bool GetCertificateKey(const net::X509Certificate& cert,
-                         scoped_ptr<net::SSLPrivateKey>* private_key) override;
+  bool GetCertificateKey(
+      const net::X509Certificate& cert,
+      scoped_refptr<net::SSLPrivateKey>* private_key) override;
 
  private:
   const scoped_refptr<base::SequencedTaskRunner> service_task_runner_;
@@ -104,7 +109,6 @@ class CertificateProviderService::SSLPrivateKey : public net::SSLPrivateKey {
       const CertificateInfo& cert_info,
       const scoped_refptr<base::SequencedTaskRunner>& service_task_runner,
       const base::WeakPtr<CertificateProviderService>& service);
-  ~SSLPrivateKey() override;
 
   // net::SSLPrivateKey:
   Type GetType() override;
@@ -115,6 +119,8 @@ class CertificateProviderService::SSLPrivateKey : public net::SSLPrivateKey {
                   const SignCallback& callback) override;
 
  private:
+  ~SSLPrivateKey() override;
+
   static void SignDigestOnServiceTaskRunner(
       const base::WeakPtr<CertificateProviderService>& service,
       const std::string& extension_id,
@@ -150,7 +156,7 @@ CertificateProviderService::CertKeyProviderImpl::~CertKeyProviderImpl() {}
 
 bool CertificateProviderService::CertKeyProviderImpl::GetCertificateKey(
     const net::X509Certificate& cert,
-    scoped_ptr<net::SSLPrivateKey>* private_key) {
+    scoped_refptr<net::SSLPrivateKey>* private_key) {
   bool is_currently_provided = false;
   CertificateInfo info;
   std::string extension_id;
@@ -159,8 +165,9 @@ bool CertificateProviderService::CertKeyProviderImpl::GetCertificateKey(
   if (!is_currently_provided)
     return false;
 
-  private_key->reset(
-      new SSLPrivateKey(extension_id, info, service_task_runner_, service_));
+  *private_key =
+      new SSLPrivateKey(extension_id, info, service_task_runner_, service_);
+
   return true;
 }
 
@@ -216,10 +223,6 @@ CertificateProviderService::SSLPrivateKey::SSLPrivateKey(
   // This constructor is called on |service_task_runner|. Only subsequent calls
   // to member functions have to be on a common thread.
   thread_checker_.DetachFromThread();
-}
-
-CertificateProviderService::SSLPrivateKey::~SSLPrivateKey() {
-  DCHECK(thread_checker_.CalledOnValidThread());
 }
 
 CertificateProviderService::SSLPrivateKey::Type
@@ -279,6 +282,10 @@ void CertificateProviderService::SSLPrivateKey::SignDigest(
                             hash, input.as_string(), bound_callback));
 }
 
+CertificateProviderService::SSLPrivateKey::~SSLPrivateKey() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+}
+
 void CertificateProviderService::SSLPrivateKey::DidSignDigest(
     const SignCallback& callback,
     net::Error error,
@@ -307,7 +314,7 @@ void CertificateProviderService::SetDelegate(scoped_ptr<Delegate> delegate) {
   DCHECK(!delegate_);
   DCHECK(delegate);
 
-  delegate_ = delegate.Pass();
+  delegate_ = std::move(delegate);
   cert_key_provider_.reset(
       new CertKeyProviderImpl(base::ThreadTaskRunnerHandle::Get(),
                               weak_factory_.GetWeakPtr(), &certificate_map_));

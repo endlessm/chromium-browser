@@ -5,9 +5,9 @@
 #include "net/ssl/openssl_ssl_util.h"
 
 #include <errno.h>
-
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/lazy_instance.h"
@@ -16,6 +16,7 @@
 #include "base/values.h"
 #include "crypto/openssl_util.h"
 #include "net/base/net_errors.h"
+#include "net/ssl/ssl_connection_status_flags.h"
 
 namespace net {
 
@@ -69,7 +70,6 @@ int MapOpenSSLErrorSSL(uint32_t error_code) {
     case SSL_R_UNKNOWN_KEY_EXCHANGE_TYPE:
     case SSL_R_UNKNOWN_SSL_VERSION:
       return ERR_NOT_IMPLEMENTED;
-    case SSL_R_UNSUPPORTED_SSL_VERSION:
     case SSL_R_NO_CIPHER_MATCH:
     case SSL_R_NO_SHARED_CIPHER:
     case SSL_R_TLSV1_ALERT_INSUFFICIENT_SECURITY:
@@ -94,38 +94,6 @@ int MapOpenSSLErrorSSL(uint32_t error_code) {
       return ERR_SSL_UNRECOGNIZED_NAME_ALERT;
     case SSL_R_BAD_DH_P_LENGTH:
       return ERR_SSL_WEAK_SERVER_EPHEMERAL_DH_KEY;
-    // SSL_R_UNKNOWN_PROTOCOL is reported if premature application data is
-    // received (see http://crbug.com/42538), and also if all the protocol
-    // versions supported by the server were disabled in this socket instance.
-    // Mapped to ERR_SSL_PROTOCOL_ERROR for compatibility with other SSL sockets
-    // in the former scenario.
-    case SSL_R_UNKNOWN_PROTOCOL:
-    case SSL_R_SSL_HANDSHAKE_FAILURE:
-    case SSL_R_DECRYPTION_FAILED:
-    case SSL_R_DECRYPTION_FAILED_OR_BAD_RECORD_MAC:
-    case SSL_R_DH_PUBLIC_VALUE_LENGTH_IS_WRONG:
-    case SSL_R_DIGEST_CHECK_FAILED:
-    case SSL_R_ENCRYPTED_LENGTH_TOO_LONG:
-    case SSL_R_ERROR_IN_RECEIVED_CIPHER_LIST:
-    case SSL_R_EXCESSIVE_MESSAGE_SIZE:
-    case SSL_R_EXTRA_DATA_IN_MESSAGE:
-    case SSL_R_GOT_A_FIN_BEFORE_A_CCS:
-    case SSL_R_INVALID_COMMAND:
-    case SSL_R_INVALID_TICKET_KEYS_LENGTH:
-    // SSL_do_handshake reports this error when the server responds to a
-    // ClientHello with a fatal close_notify alert.
-    case SSL_R_SSLV3_ALERT_CLOSE_NOTIFY:
-    case SSL_R_SSLV3_ALERT_UNEXPECTED_MESSAGE:
-    case SSL_R_SSLV3_ALERT_NO_CERTIFICATE:
-    case SSL_R_SSLV3_ALERT_ILLEGAL_PARAMETER:
-    case SSL_R_TLSV1_ALERT_DECODE_ERROR:
-    case SSL_R_TLSV1_ALERT_DECRYPTION_FAILED:
-    case SSL_R_TLSV1_ALERT_EXPORT_RESTRICTION:
-    case SSL_R_TLSV1_ALERT_INTERNAL_ERROR:
-    case SSL_R_TLSV1_ALERT_NO_RENEGOTIATION:
-    case SSL_R_TLSV1_ALERT_RECORD_OVERFLOW:
-    case SSL_R_TLSV1_ALERT_USER_CANCELLED:
-      return ERR_SSL_PROTOCOL_ERROR;
     case SSL_R_CERTIFICATE_VERIFY_FAILED:
       // The only way that the certificate verify callback can fail is if
       // the leaf certificate changed during a renegotiation.
@@ -145,7 +113,6 @@ int MapOpenSSLErrorSSL(uint32_t error_code) {
       return ERR_SSL_PROTOCOL_ERROR;
     }
     default:
-      LOG(WARNING) << "Unmapped error reason: " << ERR_GET_REASON(error_code);
       return ERR_SSL_PROTOCOL_ERROR;
   }
 }
@@ -166,7 +133,7 @@ scoped_ptr<base::Value> NetLogOpenSSLErrorCallback(
     dict->SetString("file", error_info.file);
   if (error_info.line != 0)
     dict->SetInteger("line", error_info.line);
-  return dict.Pass();
+  return std::move(dict);
 }
 
 }  // namespace
@@ -237,6 +204,44 @@ NetLog::ParametersCallback CreateNetLogOpenSSLErrorCallback(
     const OpenSSLErrorInfo& error_info) {
   return base::Bind(&NetLogOpenSSLErrorCallback,
                     net_error, ssl_error, error_info);
+}
+
+int GetNetSSLVersion(SSL* ssl) {
+  switch (SSL_version(ssl)) {
+    case TLS1_VERSION:
+      return SSL_CONNECTION_VERSION_TLS1;
+    case TLS1_1_VERSION:
+      return SSL_CONNECTION_VERSION_TLS1_1;
+    case TLS1_2_VERSION:
+      return SSL_CONNECTION_VERSION_TLS1_2;
+    default:
+      NOTREACHED();
+      return SSL_CONNECTION_VERSION_UNKNOWN;
+  }
+}
+
+ScopedX509 OSCertHandleToOpenSSL(X509Certificate::OSCertHandle os_handle) {
+#if defined(USE_OPENSSL_CERTS)
+  return ScopedX509(X509Certificate::DupOSCertHandle(os_handle));
+#else  // !defined(USE_OPENSSL_CERTS)
+  std::string der_encoded;
+  if (!X509Certificate::GetDEREncoded(os_handle, &der_encoded))
+    return ScopedX509();
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(der_encoded.data());
+  return ScopedX509(d2i_X509(NULL, &bytes, der_encoded.size()));
+#endif  // defined(USE_OPENSSL_CERTS)
+}
+
+ScopedX509Stack OSCertHandlesToOpenSSL(
+    const X509Certificate::OSCertHandles& os_handles) {
+  ScopedX509Stack stack(sk_X509_new_null());
+  for (size_t i = 0; i < os_handles.size(); i++) {
+    ScopedX509 x509 = OSCertHandleToOpenSSL(os_handles[i]);
+    if (!x509)
+      return nullptr;
+    sk_X509_push(stack.get(), x509.release());
+  }
+  return stack;
 }
 
 }  // namespace net

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/DoubleStyleInterpolation.h"
 
 #include "core/css/CSSValueList.h"
@@ -153,4 +152,4 @@ PassRefPtr<DoubleStyleInterpolation> DoubleStyleInterpolation::maybeCreateFromMo
         id, true, InterpolationRange::RangeAll, startRotationType == MotionRotationAuto));
 }
 
-}
+} // namespace blink

@@ -5,9 +5,11 @@
 #ifndef DEVICE_HID_HID_CONNECTION_H_
 #define DEVICE_HID_HID_CONNECTION_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "device/hid/hid_device_info.h"
@@ -95,6 +97,7 @@ class HidConnection : public base::RefCountedThreadSafe<HidConnection> {
 
 struct PendingHidReport {
   PendingHidReport();
+  PendingHidReport(const PendingHidReport& other);
   ~PendingHidReport();
 
   scoped_refptr<net::IOBuffer> buffer;
@@ -103,6 +106,7 @@ struct PendingHidReport {
 
 struct PendingHidRead {
   PendingHidRead();
+  PendingHidRead(const PendingHidRead& other);
   ~PendingHidRead();
 
   HidConnection::ReadCallback callback;

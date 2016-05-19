@@ -34,12 +34,7 @@ public class CronetTestFramework {
     public static final String POST_DATA_KEY = "postData";
     public static final String CACHE_KEY = "cache";
     public static final String SDCH_KEY = "sdch";
-
     public static final String LIBRARY_INIT_KEY = "libraryInit";
-    /**
-      * Skips library initialization.
-      */
-    public static final String LIBRARY_INIT_SKIP = "skip";
 
     // Uses disk cache.
     public static final String CACHE_DISK = "disk";
@@ -54,18 +49,26 @@ public class CronetTestFramework {
     public static final String SDCH_ENABLE = "enable";
 
     /**
-      * Initializes Cronet Async API only.
-      */
-    public static final String LIBRARY_INIT_CRONET_ONLY = "cronetOnly";
+     * Library init type strings to use along with {@link LIBRARY_INIT_KEY}.
+     * If unspecified, {@link LibraryInitType.CRONET} will be used.
+     */
+    public static final class LibraryInitType {
+        // Initializes Cronet Async API.
+        public static final String CRONET = "cronet";
+        // Initializes Cronet legacy API.
+        public static final String LEGACY = "legacy";
+        // Initializes Cronet HttpURLConnection API.
+        public static final String HTTP_URL_CONNECTION = "http_url_connection";
+        // Do not initialize.
+        public static final String NONE = "none";
 
-    /**
-      * Initializes Cronet HttpURLConnection Wrapper API.
-      */
-    public static final String LIBRARY_INIT_WRAPPER = "wrapperOnly";
+        private LibraryInitType() {}
+    }
 
     public URLStreamHandlerFactory mStreamHandlerFactory;
     public CronetEngine mCronetEngine;
-    @SuppressWarnings("deprecation") HttpUrlRequestFactory mRequestFactory;
+    @SuppressWarnings("deprecation")
+    HttpUrlRequestFactory mRequestFactory;
 
     private final String[] mCommandLine;
     private final Context mContext;
@@ -103,7 +106,6 @@ public class CronetTestFramework {
             String appUrl, String[] commandLine, Context context, CronetEngine.Builder builder) {
         mCommandLine = commandLine;
         mContext = context;
-        prepareTestStorage();
 
         // Print out extra arguments passed in starting this activity.
         if (commandLine != null) {
@@ -118,38 +120,41 @@ public class CronetTestFramework {
         mCronetEngineBuilder = initializeCronetEngineBuilderWithPresuppliedBuilder(builder);
 
         String initString = getCommandLineArg(LIBRARY_INIT_KEY);
-        if (LIBRARY_INIT_SKIP.equals(initString)) {
-            return;
+
+        if (initString == null) {
+            initString = LibraryInitType.CRONET;
         }
 
-        mCronetEngine = initCronetEngine();
-
-        if (LIBRARY_INIT_WRAPPER.equals(initString)) {
-            mStreamHandlerFactory = mCronetEngine.createURLStreamHandlerFactory();
-        }
-
-        // Start collecting metrics.
-        mCronetEngine.getGlobalMetricsDeltas();
-
-        if (LIBRARY_INIT_CRONET_ONLY.equals(initString)) {
-            return;
-        }
-
-        mRequestFactory = initRequestFactory();
-        if (appUrl != null) {
-            startWithURL(appUrl);
+        switch (initString) {
+            case LibraryInitType.NONE:
+                break;
+            case LibraryInitType.LEGACY:
+                mRequestFactory = initRequestFactory();
+                if (appUrl != null) {
+                    startWithURL(appUrl);
+                }
+                break;
+            case LibraryInitType.HTTP_URL_CONNECTION:
+                mCronetEngine = initCronetEngine();
+                mStreamHandlerFactory = mCronetEngine.createURLStreamHandlerFactory();
+                break;
+            default:
+                mCronetEngine = initCronetEngine();
+                // Start collecting metrics.
+                mCronetEngine.getGlobalMetricsDeltas();
+                break;
         }
     }
 
     /**
      * Prepares the path for the test storage (http cache, QUIC server info).
      */
-    private void prepareTestStorage() {
-        File storage = new File(getTestStorageDirectory(mContext));
+    public static void prepareTestStorage(Context context) {
+        File storage = new File(getTestStorageDirectory(context));
         if (storage.exists()) {
             assertTrue(recursiveDelete(storage));
         }
-        ensureTestStorageExists(mContext);
+        ensureTestStorageExists(context);
     }
 
     /**
@@ -180,7 +185,7 @@ public class CronetTestFramework {
     }
 
     @SuppressFBWarnings("NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE")
-    private boolean recursiveDelete(File path) {
+    private static boolean recursiveDelete(File path) {
         if (path.isDirectory()) {
             for (File c : path.listFiles()) {
                 if (!recursiveDelete(c)) {
@@ -269,7 +274,7 @@ public class CronetTestFramework {
 
     @SuppressWarnings("deprecation")
     public void startWithURL(String url) {
-        Log.i(TAG, "Cronet started: " + url);
+        Log.i(TAG, "Cronet started: %s", url);
         mUrl = url;
 
         HashMap<String, String> headers = new HashMap<String, String>();

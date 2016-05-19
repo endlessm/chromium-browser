@@ -4,6 +4,8 @@
 
 #include "content/browser/download/download_file_factory.h"
 
+#include <utility>
+
 #include "content/browser/download/download_file_impl.h"
 
 namespace content {
@@ -11,17 +13,18 @@ namespace content {
 DownloadFileFactory::~DownloadFileFactory() {}
 
 DownloadFile* DownloadFileFactory::CreateFile(
-    scoped_ptr<DownloadSaveInfo> save_info,
+    const DownloadSaveInfo& save_info,
     const base::FilePath& default_downloads_directory,
     const GURL& url,
     const GURL& referrer_url,
     bool calculate_hash,
-    scoped_ptr<ByteStreamReader> stream,
+    base::File file,
+    scoped_ptr<ByteStreamReader> byte_stream,
     const net::BoundNetLog& bound_net_log,
     base::WeakPtr<DownloadDestinationObserver> observer) {
-  return new DownloadFileImpl(
-      save_info.Pass(), default_downloads_directory, url, referrer_url,
-      calculate_hash, stream.Pass(), bound_net_log, observer);
+  return new DownloadFileImpl(save_info, default_downloads_directory, url,
+                              referrer_url, calculate_hash, std::move(file),
+                              std::move(byte_stream), bound_net_log, observer);
 }
 
 }  // namespace content

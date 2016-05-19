@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/text/UnicodeUtilities.h"
 
 #include "wtf/text/CharacterNames.h"
@@ -412,4 +411,4 @@ bool checkKanaStringsEqual(const UChar* firstData, unsigned firstLength, const U
     }
 }
 
-}
+} // namespace blink

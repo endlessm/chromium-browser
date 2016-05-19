@@ -2,8 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Provides the web interface for adding and editing sheriff rotations."""
+"""Provides the web interface for adding and editing stored configs."""
 
+# TODO(qyearsley): If a namespaced config is set, don't show/edit
+# the non-namespaced configs. If a non-namespaced config is set,
+# don't show or edit the namespaced configs.
+
+import difflib
 import json
 
 from google.appengine.api import app_identity
@@ -18,18 +23,17 @@ from dashboard import xsrf
 
 _NOTIFICATION_EMAIL_BODY = """
 The configuration of %(hostname)s was changed by %(user)s.
-Here are the new values:
 
 Key: %(key)s
 
-Non-namespaced value:
-%(value)s
+Non-namespaced value diff:
+%(value_diff)s
 
-Externally-visible value:
-%(external_value)s
+Externally-visible value diff:
+%(external_value_diff)s
 
-Internal-only value:
-%(internal_value)s
+Internal-only value diff:
+%(internal_value_diff)s
 """
 
 # TODO(qyearsley): Make this customizable by storing the value in datastore.
@@ -74,45 +78,68 @@ class EditSiteConfigHandler(request_handler.RequestHandler):
       self.RenderHtml('edit_site_config.html', {})
       return
 
-    value = self.request.get('value').strip()
-    external_value = self.request.get('external_value').strip()
-    internal_value = self.request.get('internal_value').strip()
+    new_value_json = self.request.get('value').strip()
+    new_external_value_json = self.request.get('external_value').strip()
+    new_internal_value_json = self.request.get('internal_value').strip()
+
     template_params = {
         'key': key,
-        'value': value,
-        'external_value': external_value,
-        'internal_value': internal_value,
+        'value': new_value_json,
+        'external_value': new_external_value_json,
+        'internal_value': new_internal_value_json,
     }
 
     try:
-      if value:
-        stored_object.Set(key, json.loads(value))
-      if external_value:
-        namespaced_stored_object.SetExternal(key, json.loads(external_value))
-      if internal_value:
-        namespaced_stored_object.Set(key, json.loads(internal_value))
+      new_value = json.loads(new_value_json or 'null')
+      new_external_value = json.loads(new_external_value_json or 'null')
+      new_internal_value = json.loads(new_internal_value_json or 'null')
     except ValueError:
       template_params['error'] = 'Invalid JSON in at least one field.'
+      self.RenderHtml('edit_site_config.html', template_params)
+      return
 
-    _SendNotificationEmail(key, template_params)
+    old_value = stored_object.Get(key)
+    old_external_value = namespaced_stored_object.GetExternal(key)
+    old_internal_value = namespaced_stored_object.Get(key)
+
+    stored_object.Set(key, new_value)
+    namespaced_stored_object.SetExternal(key, new_external_value)
+    namespaced_stored_object.Set(key, new_internal_value)
+
+    _SendNotificationEmail(
+        key, old_value, old_external_value, old_internal_value,
+        new_value, new_external_value, new_internal_value)
+
     self.RenderHtml('edit_site_config.html', template_params)
 
 
-def _SendNotificationEmail(key, email_body_params):
+def _SendNotificationEmail(
+    key, old_value, old_external_value, old_internal_value,
+    new_value, new_external_value, new_internal_value):
   user_email = users.get_current_user().email()
   subject = 'Config "%s" changed by %s' % (key, user_email)
-  email_body_params.update({
+  email_body = _NOTIFICATION_EMAIL_BODY % {
+      'key': key,
+      'value_diff': _DiffJson(old_value, new_value),
+      'external_value_diff': _DiffJson(old_external_value, new_external_value),
+      'internal_value_diff': _DiffJson(old_internal_value, new_internal_value),
       'hostname': app_identity.get_default_version_hostname(),
-      'user': user_email,
-  })
-  body = _NOTIFICATION_EMAIL_BODY % email_body_params
+      'user': users.get_current_user().email(),
+  }
   mail.send_mail(
-      sender=_SENDER_ADDRESS, to=_NOTIFICATION_ADDRESS,
-      subject=subject, body=body)
+      sender=_SENDER_ADDRESS,
+      to=_NOTIFICATION_ADDRESS,
+      subject=subject,
+      body=email_body)
+
+
+def _DiffJson(obj1, obj2):
+  """Returns a string diff of two JSON-serializable objects."""
+  differ = difflib.Differ()
+  return '\n'.join(differ.compare(
+      _FormatJson(obj1).splitlines(),
+      _FormatJson(obj2).splitlines()))
 
 
 def _FormatJson(obj):
-  if not obj:
-    return ''
   return json.dumps(obj, indent=2, sort_keys=True)
-

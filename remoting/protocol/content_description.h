@@ -28,8 +28,7 @@ class ContentDescription {
   static const char kChromotingContentName[];
 
   ContentDescription(scoped_ptr<CandidateSessionConfig> config,
-                     scoped_ptr<buzz::XmlElement> authenticator_message,
-                     const std::string& quic_config_message);
+                     scoped_ptr<buzz::XmlElement> authenticator_message);
   ~ContentDescription();
 
   const CandidateSessionConfig* config() const {
@@ -40,19 +39,15 @@ class ContentDescription {
     return authenticator_message_.get();
   }
 
-  const std::string& quic_config_message() const {
-    return quic_config_message_;
-  }
-
   buzz::XmlElement* ToXml() const;
 
   static scoped_ptr<ContentDescription> ParseXml(
-      const buzz::XmlElement* element);
+      const buzz::XmlElement* element,
+      bool webrtc_transport);
 
  private:
   scoped_ptr<const CandidateSessionConfig> candidate_config_;
   scoped_ptr<const buzz::XmlElement> authenticator_message_;
-  std::string quic_config_message_;
 
   static bool ParseChannelConfigs(const buzz::XmlElement* const element,
                                   const char tag_name[],

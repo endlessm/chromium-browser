@@ -31,6 +31,7 @@
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "wtf/Forward.h"
+#include "wtf/build_config.h"
 
 namespace blink {
 
@@ -77,7 +78,39 @@ enum OpacityMode {
 
 enum AccelerationHint {
     PreferAcceleration,
+    // The PreferAccelerationAfterVisibilityChange hint suggests we should switch back to acceleration
+    // in the context of the canvas becoming visible again.
+    PreferAccelerationAfterVisibilityChange,
     PreferNoAcceleration,
+};
+
+enum SnapshotReason {
+    SnapshotReasonUnknown,
+    SnapshotReasonGetImageData,
+    SnapshotReasonCopyToWebGLTexture,
+    SnapshotReasonPaint,
+    SnapshotReasonToDataURL,
+    SnapshotReasonToBlob,
+    SnapshotReasonCanvasListenerCapture,
+    SnapshotReasonDrawImage,
+    SnapshotReasonCreatePattern,
+};
+
+// Note: enum used directly for histogram, values must not change
+enum DisableDeferralReason {
+    DisableDeferralReasonUnknown = 0, // Should not appear in production histograms
+    DisableDeferralReasonExpensiveOverdrawHeuristic = 1,
+    DisableDeferralReasonUsingTextureBackedPattern = 2,
+    DisableDeferralReasonDrawImageOfVideo = 3,
+    DisableDeferralReasonDrawImageOfAnimated2dCanvas = 4,
+    DisableDeferralReasonSubPixelTextAntiAliasingSupport = 5,
+    DisableDeferralReasonCount,
+};
+
+enum FlushReason {
+    FlushReasonUnknown,
+    FlushReasonInitialClear,
+    FlushReasonDrawImageOfWebGL,
 };
 
 enum ImageInitializationMode {

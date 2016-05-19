@@ -6,6 +6,7 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
 #include "content/browser/dom_storage/session_storage_namespace_impl.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
@@ -188,7 +189,7 @@ gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
 }
 
 void TestRenderWidgetHostView::OnSwapCompositorFrame(
-    uint32 output_surface_id,
+    uint32_t output_surface_id,
     scoped_ptr<cc::CompositorFrame> frame) {
   did_swap_compositor_frame_ = true;
 }
@@ -211,27 +212,23 @@ gfx::NativeViewId TestRenderWidgetHostView::GetParentForWindowlessPlugin()
 }
 #endif
 
-TestRenderViewHost::TestRenderViewHost(
-    SiteInstance* instance,
-    RenderViewHostDelegate* delegate,
-    RenderWidgetHostDelegate* widget_delegate,
-    int32 routing_id,
-    int32 main_frame_routing_id,
-    bool swapped_out)
+TestRenderViewHost::TestRenderViewHost(SiteInstance* instance,
+                                       scoped_ptr<RenderWidgetHostImpl> widget,
+                                       RenderViewHostDelegate* delegate,
+                                       int32_t main_frame_routing_id,
+                                       bool swapped_out)
     : RenderViewHostImpl(instance,
+                         std::move(widget),
                          delegate,
-                         widget_delegate,
-                         routing_id,
                          main_frame_routing_id,
                          swapped_out,
-                         false /* hidden */,
                          false /* has_initialized_audio_host */),
       delete_counter_(NULL),
       opener_frame_route_id_(MSG_ROUTING_NONE) {
   // TestRenderWidgetHostView installs itself into this->view_ in its
   // constructor, and deletes itself when TestRenderWidgetHostView::Destroy() is
   // called.
-  new TestRenderWidgetHostView(this);
+  new TestRenderWidgetHostView(GetWidget());
 }
 
 TestRenderViewHost::~TestRenderViewHost() {
@@ -243,7 +240,7 @@ bool TestRenderViewHost::CreateTestRenderView(
     const base::string16& frame_name,
     int opener_frame_route_id,
     int proxy_route_id,
-    int32 max_page_id,
+    int32_t max_page_id,
     bool window_was_created_with_opener) {
   FrameReplicationState replicated_state;
   replicated_state.name = base::UTF16ToUTF8(frame_name);
@@ -254,11 +251,11 @@ bool TestRenderViewHost::CreateTestRenderView(
 bool TestRenderViewHost::CreateRenderView(
     int opener_frame_route_id,
     int proxy_route_id,
-    int32 max_page_id,
+    int32_t max_page_id,
     const FrameReplicationState& replicated_frame_state,
     bool window_was_created_with_opener) {
   DCHECK(!IsRenderViewLive());
-  set_renderer_initialized(true);
+  GetWidget()->set_renderer_initialized(true);
   DCHECK(IsRenderViewLive());
   opener_frame_route_id_ = opener_frame_route_id;
   RenderFrameHost* main_frame = GetMainFrame();
@@ -273,11 +270,11 @@ MockRenderProcessHost* TestRenderViewHost::GetProcess() const {
 }
 
 void TestRenderViewHost::SimulateWasHidden() {
-  WasHidden();
+  GetWidget()->WasHidden();
 }
 
 void TestRenderViewHost::SimulateWasShown() {
-  WasShown(ui::LatencyInfo());
+  GetWidget()->WasShown(ui::LatencyInfo());
 }
 
 WebPreferences TestRenderViewHost::TestComputeWebkitPrefs() {

@@ -21,12 +21,14 @@ const char kFetchScriptError[] =
 
 ServiceWorkerFetchRequest::ServiceWorkerFetchRequest()
     : mode(FETCH_REQUEST_MODE_NO_CORS),
+      is_main_resource_load(false),
       request_context_type(REQUEST_CONTEXT_TYPE_UNSPECIFIED),
       frame_type(REQUEST_CONTEXT_FRAME_TYPE_NONE),
       blob_size(0),
       credentials_mode(FETCH_CREDENTIALS_MODE_OMIT),
       redirect_mode(FetchRedirectMode::FOLLOW_MODE),
-      is_reload(false) {}
+      is_reload(false),
+      fetch_type(ServiceWorkerFetchType::FETCH) {}
 
 ServiceWorkerFetchRequest::ServiceWorkerFetchRequest(
     const GURL& url,
@@ -35,6 +37,7 @@ ServiceWorkerFetchRequest::ServiceWorkerFetchRequest(
     const Referrer& referrer,
     bool is_reload)
     : mode(FETCH_REQUEST_MODE_NO_CORS),
+      is_main_resource_load(false),
       request_context_type(REQUEST_CONTEXT_TYPE_UNSPECIFIED),
       frame_type(REQUEST_CONTEXT_FRAME_TYPE_NONE),
       url(url),
@@ -44,7 +47,11 @@ ServiceWorkerFetchRequest::ServiceWorkerFetchRequest(
       referrer(referrer),
       credentials_mode(FETCH_CREDENTIALS_MODE_OMIT),
       redirect_mode(FetchRedirectMode::FOLLOW_MODE),
-      is_reload(is_reload) {}
+      is_reload(is_reload),
+      fetch_type(ServiceWorkerFetchType::FETCH) {}
+
+ServiceWorkerFetchRequest::ServiceWorkerFetchRequest(
+    const ServiceWorkerFetchRequest& other) = default;
 
 ServiceWorkerFetchRequest::~ServiceWorkerFetchRequest() {}
 
@@ -62,7 +69,7 @@ ServiceWorkerResponse::ServiceWorkerResponse(
     blink::WebServiceWorkerResponseType response_type,
     const ServiceWorkerHeaderMap& headers,
     const std::string& blob_uuid,
-    uint64 blob_size,
+    uint64_t blob_size,
     const GURL& stream_url,
     blink::WebServiceWorkerResponseError error)
     : url(url),
@@ -73,8 +80,10 @@ ServiceWorkerResponse::ServiceWorkerResponse(
       blob_uuid(blob_uuid),
       blob_size(blob_size),
       stream_url(stream_url),
-      error(error) {
-}
+      error(error) {}
+
+ServiceWorkerResponse::ServiceWorkerResponse(
+    const ServiceWorkerResponse& other) = default;
 
 ServiceWorkerResponse::~ServiceWorkerResponse() {}
 

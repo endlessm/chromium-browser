@@ -4,16 +4,19 @@
 
 #include "chrome/browser/safe_browsing/download_protection_service.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/prefs/pref_service.h"
+#include "base/rand_util.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -23,8 +26,10 @@
 #include "base/task/cancelable_task_tracker.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_service_factory.h"
+#include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/download_feedback_service.h"
@@ -41,6 +46,7 @@
 #include "chrome/common/url_constants.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/page_navigator.h"
@@ -63,7 +69,9 @@
 using content::BrowserThread;
 
 namespace {
-static const int64 kDownloadRequestTimeoutMs = 7000;
+static const int64_t kDownloadRequestTimeoutMs = 7000;
+// We sample 1% of whitelisted downloads to still send out download pings.
+static const double kWhitelistDownloadSampleRate = 0.01;
 }  // namespace
 
 namespace safe_browsing {
@@ -190,7 +198,7 @@ class DownloadSBClient
     hit_report.post_data = post_data;
     hit_report.is_extended_reporting = is_extended_reporting_;
     hit_report.is_metrics_reporting_active =
-        safe_browsing::IsMetricsReportingActive();
+        ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled();
 
     ui_manager_->MaybeReportSafeBrowsingHit(hit_report);
   }
@@ -287,6 +295,10 @@ class DownloadProtectionService::CheckClientDownloadRequest
         finished_(false),
         type_(ClientDownloadRequest::WIN_EXECUTABLE),
         start_time_(base::TimeTicks::Now()),
+        skipped_url_whitelist_(false),
+        skipped_certificate_whitelist_(false),
+        is_extended_reporting_(false),
+        is_incognito_(false),
         weakptr_factory_(this) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     item_->AddObserver(this);
@@ -296,6 +308,14 @@ class DownloadProtectionService::CheckClientDownloadRequest
     DVLOG(2) << "Starting SafeBrowsing download check for: "
              << item_->DebugString(true);
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    if (item_->GetBrowserContext()) {
+      Profile* profile =
+          Profile::FromBrowserContext(item_->GetBrowserContext());
+      is_extended_reporting_ = profile &&
+             profile->GetPrefs()->GetBoolean(
+                 prefs::kSafeBrowsingExtendedReportingEnabled);
+      is_incognito_ = item_->GetBrowserContext()->IsOffTheRecord();
+    }
     // TODO(noelutz): implement some cache to make sure we don't issue the same
     // request over and over again if a user downloads the same binary multiple
     // times.
@@ -329,7 +349,37 @@ class DownloadProtectionService::CheckClientDownloadRequest
       StartExtractZipFeatures();
 #if defined(OS_MACOSX)
     } else if (item_->GetTargetFilePath().MatchesExtension(
-                  FILE_PATH_LITERAL(".dmg"))) {
+                   FILE_PATH_LITERAL(".dmg")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".img")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".iso")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".smi")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".cdr")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".dart")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".dc42")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".diskcopy42")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".dmgpart")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".dvdr")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".imgpart")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".ndif")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".sparsebundle")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".sparseimage")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".toast")) ||
+               item_->GetTargetFilePath().MatchesExtension(
+                   FILE_PATH_LITERAL(".udif"))) {
       StartExtractDmgFeatures();
 #endif
     } else {
@@ -664,8 +714,24 @@ class DownloadProtectionService::CheckClientDownloadRequest
   }
 #endif  // defined(OS_MACOSX)
 
-  static void RecordCountOfSignedOrWhitelistedDownload() {
-    UMA_HISTOGRAM_COUNTS("SBClientDownload.SignedOrWhitelistedDownload", 1);
+  enum WhitelistType {
+    NO_WHITELIST_MATCH,
+    URL_WHITELIST,
+    SIGNATURE_WHITELIST,
+    WHITELIST_TYPE_MAX
+  };
+
+  static void RecordCountOfWhitelistedDownload(WhitelistType type) {
+    UMA_HISTOGRAM_ENUMERATION("SBClientDownload.CheckWhitelistResult",
+                              type,
+                              WHITELIST_TYPE_MAX);
+  }
+
+  virtual bool ShouldSampleWhitelistedDownload() {
+    // We currently sample 1% whitelisted downloads from users who opted
+    // in extended reporting and are not in incognito mode.
+    return service_ && is_extended_reporting_ && !is_incognito_ &&
+        base::RandDouble() < service_->whitelist_sample_rate();
   }
 
   void CheckWhitelists() {
@@ -680,39 +746,51 @@ class DownloadProtectionService::CheckClientDownloadRequest
     // TODO(asanka): This may acquire a lock on the SB DB on the IO thread.
     if (url.is_valid() && database_manager_->MatchDownloadWhitelistUrl(url)) {
       DVLOG(2) << url << " is on the download whitelist.";
-      RecordCountOfSignedOrWhitelistedDownload();
-      // TODO(grt): Continue processing without uploading so that
-      // ClientDownloadRequest callbacks can be run even for this type of safe
-      // download.
-      PostFinishTask(SAFE, REASON_WHITELISTED_URL);
-      return;
+      RecordCountOfWhitelistedDownload(URL_WHITELIST);
+      if (ShouldSampleWhitelistedDownload()) {
+        skipped_url_whitelist_ = true;
+      } else {
+        // TODO(grt): Continue processing without uploading so that
+        // ClientDownloadRequest callbacks can be run even for this type of safe
+        // download.
+        PostFinishTask(SAFE, REASON_WHITELISTED_URL);
+        return;
+      }
     }
 
+    bool should_sample_for_certificate = ShouldSampleWhitelistedDownload();
     if (signature_info_.trusted()) {
-      RecordCountOfSignedOrWhitelistedDownload();
       for (int i = 0; i < signature_info_.certificate_chain_size(); ++i) {
         if (CertificateChainIsWhitelisted(
                 signature_info_.certificate_chain(i))) {
-          // TODO(grt): Continue processing without uploading so that
-          // ClientDownloadRequest callbacks can be run even for this type of
-          // safe download.
-          PostFinishTask(SAFE, REASON_TRUSTED_EXECUTABLE);
-          return;
+          RecordCountOfWhitelistedDownload(SIGNATURE_WHITELIST);
+          if (should_sample_for_certificate) {
+            skipped_certificate_whitelist_ = true;
+            break;
+          } else {
+            // TODO(grt): Continue processing without uploading so that
+            // ClientDownloadRequest callbacks can be run even for this type of
+            // safe download.
+            PostFinishTask(SAFE, REASON_TRUSTED_EXECUTABLE);
+            return;
+          }
         }
       }
     }
+
+    RecordCountOfWhitelistedDownload(NO_WHITELIST_MATCH);
 
     if (!pingback_enabled_) {
       PostFinishTask(UNKNOWN, REASON_PING_DISABLED);
       return;
     }
 
-  // The URLFetcher is owned by the UI thread, so post a message to
-  // start the pingback.
-  BrowserThread::PostTask(
-      BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(&CheckClientDownloadRequest::GetTabRedirects, this));
+    // The URLFetcher is owned by the UI thread, so post a message to
+    // start the pingback.
+    BrowserThread::PostTask(
+        BrowserThread::UI,
+        FROM_HERE,
+        base::Bind(&CheckClientDownloadRequest::GetTabRedirects, this));
   }
 
   void GetTabRedirects() {
@@ -776,17 +854,9 @@ class DownloadProtectionService::CheckClientDownloadRequest
     // before sending it.
     if (!service_)
       return;
-    bool is_extended_reporting = false;
-    if (item_->GetBrowserContext()) {
-      Profile* profile =
-          Profile::FromBrowserContext(item_->GetBrowserContext());
-      is_extended_reporting = profile &&
-                              profile->GetPrefs()->GetBoolean(
-                                  prefs::kSafeBrowsingExtendedReportingEnabled);
-    }
 
     ClientDownloadRequest request;
-    if (is_extended_reporting) {
+    if (is_extended_reporting_) {
       request.mutable_population()->set_user_population(
           ChromeUserPopulation::EXTENDED_REPORTING);
     } else {
@@ -796,6 +866,8 @@ class DownloadProtectionService::CheckClientDownloadRequest
     request.set_url(SanitizeUrl(item_->GetUrlChain().back()));
     request.mutable_digests()->set_sha256(item_->GetHash());
     request.set_length(item_->GetReceivedBytes());
+    request.set_skipped_url_whitelist(skipped_url_whitelist_);
+    request.set_skipped_certificate_whitelist(skipped_certificate_whitelist_);
     for (size_t i = 0; i < item_->GetUrlChain().size(); ++i) {
       ClientDownloadRequest::Resource* resource = request.add_resources();
       resource->set_url(SanitizeUrl(item_->GetUrlChain()[i]));
@@ -1014,6 +1086,10 @@ class DownloadProtectionService::CheckClientDownloadRequest
   base::TimeTicks start_time_;  // Used for stats.
   base::TimeTicks timeout_start_time_;
   base::TimeTicks request_start_time_;
+  bool skipped_url_whitelist_;
+  bool skipped_certificate_whitelist_;
+  bool is_extended_reporting_;
+  bool is_incognito_;
   base::WeakPtrFactory<CheckClientDownloadRequest> weakptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(CheckClientDownloadRequest);
@@ -1026,9 +1102,10 @@ DownloadProtectionService::DownloadProtectionService(
       enabled_(false),
       binary_feature_extractor_(new BinaryFeatureExtractor()),
       download_request_timeout_ms_(kDownloadRequestTimeoutMs),
-      feedback_service_(new DownloadFeedbackService(
-          request_context_getter, BrowserThread::GetBlockingPool())) {
-
+      feedback_service_(
+          new DownloadFeedbackService(request_context_getter_.get(),
+                                      BrowserThread::GetBlockingPool())),
+      whitelist_sample_rate_(kWhitelistDownloadSampleRate) {
   if (sb_service) {
     ui_manager_ = sb_service->ui_manager();
     database_manager_ = sb_service->database_manager();
@@ -1061,7 +1138,7 @@ void DownloadProtectionService::ParseManualBlacklistFlag() {
       command_line->GetSwitchValueASCII(switches::kSbManualDownloadBlacklist);
   for (const std::string& hash_hex : base::SplitString(
            flag_val, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
-    std::vector<uint8> bytes;
+    std::vector<uint8_t> bytes;
     if (base::HexStringToBytes(hash_hex, &bytes) && bytes.size() == 32) {
       manual_blacklist_hashes_.insert(
           std::string(bytes.begin(), bytes.end()));

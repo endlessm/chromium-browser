@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "chrome/browser/shell_integration.h"
 #include "ui/base/page_transition_types.h"
 
@@ -28,8 +29,8 @@ class ExternalProtocolHandler {
   // Delegate to allow unit testing to provide different behavior.
   class Delegate {
    public:
-    virtual ShellIntegration::DefaultProtocolClientWorker* CreateShellWorker(
-        ShellIntegration::DefaultWebClientObserver* observer,
+    virtual shell_integration::DefaultProtocolClientWorker* CreateShellWorker(
+        shell_integration::DefaultWebClientObserver* observer,
         const std::string& protocol) = 0;
     virtual BlockState GetBlockState(const std::string& scheme) = 0;
     virtual void BlockRequest() = 0;

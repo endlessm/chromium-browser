@@ -4,10 +4,14 @@
 
 #include "chrome/browser/extensions/extension_creator_filter.h"
 
-#include <vector>
+#include <stddef.h>
+
 #include <set>
+#include <vector>
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -41,9 +45,8 @@ bool ExtensionCreatorFilter::ShouldPackageFile(
       return false;
   }
 
-  base::FilePath::CharType first_character = base_name.value()[0];
-  base::FilePath::CharType last_character =
-      base_name.value()[base_name.value().length() - 1];
+  base::FilePath::CharType first_character = base_name.value().front();
+  base::FilePath::CharType last_character = base_name.value().back();
 
   // dotfile
   if (first_character == '.') {

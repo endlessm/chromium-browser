@@ -7,8 +7,8 @@ package org.chromium.chrome.browser.externalnav;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
-import android.os.StrictMode;
 import android.os.SystemClock;
 import android.provider.Browser;
 import android.text.TextUtils;
@@ -18,15 +18,16 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.Log;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.UrlConstants;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.chrome.browser.util.UrlUtilities;
 import org.chromium.ui.base.PageTransition;
 
 import java.net.URI;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -39,11 +40,10 @@ public class ExternalNavigationHandler {
     private static final String TAG = "UrlHandler";
     private static final String SCHEME_WTAI = "wtai://wp/";
     private static final String SCHEME_WTAI_MC = "wtai://wp/mc;";
+    private static final String SCHEME_SMS = "sms:";
 
     @VisibleForTesting
     public static final String EXTRA_BROWSER_FALLBACK_URL = "browser_fallback_url";
-    @VisibleForTesting
-    static boolean sReportingDisabledForTests = false;
 
     private final ExternalNavigationDelegate mDelegate;
 
@@ -65,10 +65,10 @@ public class ExternalNavigationHandler {
     /**
      * A constructor for UrlHandler.
      *
-     * @param activity The activity to launch an external intent from.
+     * @param tab The tab that initiated the external intent.
      */
-    public ExternalNavigationHandler(ChromeActivity activity) {
-        this(new ExternalNavigationDelegateImpl(activity));
+    public ExternalNavigationHandler(Tab tab) {
+        this(new ExternalNavigationDelegateImpl(tab));
     }
 
     /**
@@ -91,7 +91,7 @@ public class ExternalNavigationHandler {
         try {
             intent = Intent.parseUri(params.getUrl(), Intent.URI_INTENT_SCHEME);
         } catch (Exception ex) {
-            Log.w(TAG, "Bad URI " + params.getUrl(), ex);
+            Log.w(TAG, "Bad URI %s", params.getUrl(), ex);
             return OverrideUrlLoadingResult.NO_OVERRIDE;
         }
 
@@ -108,7 +108,8 @@ public class ExternalNavigationHandler {
         long time = SystemClock.elapsedRealtime();
         OverrideUrlLoadingResult result = shouldOverrideUrlLoadingInternal(
                 params, intent, hasBrowserFallbackUrl, browserFallbackUrl);
-        maybeLogExecutionTime(time);
+        RecordHistogram.recordTimesHistogram("Android.StrictMode.OverrideUrlLoadingTime",
+                SystemClock.elapsedRealtime() - time, TimeUnit.MILLISECONDS);
 
         if (result == OverrideUrlLoadingResult.NO_OVERRIDE && hasBrowserFallbackUrl
                 && (params.getRedirectHandler() == null
@@ -119,11 +120,19 @@ public class ExternalNavigationHandler {
         return result;
     }
 
-    private void maybeLogExecutionTime(long time) {
-        if (!sReportingDisabledForTests) {
-            RecordHistogram.recordTimesHistogram("Android.StrictMode.OverrideUrlLoadingTime",
-                    SystemClock.elapsedRealtime() - time, TimeUnit.MILLISECONDS);
+    private boolean intentsHaveSameResolvers(Intent intent, Intent previousIntent) {
+        HashSet<ComponentName> previousHandlers = new HashSet<>();
+        for (ResolveInfo r : mDelegate.queryIntentActivities(previousIntent)) {
+            previousHandlers.add(new ComponentName(r.activityInfo.packageName,
+                    r.activityInfo.name));
         }
+        for (ResolveInfo r : mDelegate.queryIntentActivities(intent)) {
+            if (!previousHandlers.contains(new ComponentName(
+                    r.activityInfo.packageName, r.activityInfo.name))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private OverrideUrlLoadingResult shouldOverrideUrlLoadingInternal(
@@ -173,7 +182,7 @@ public class ExternalNavigationHandler {
         // to Chrome.  This check should happen for reloads, navigations, etc..., which is why
         // it occurs before the subsequent blocks.
         if (params.getUrl().startsWith("file:")
-                && mDelegate.shouldRequestFileAccess(params.getTab())) {
+                && mDelegate.shouldRequestFileAccess(params.getUrl(), params.getTab())) {
             mDelegate.startFileIntent(
                     intent, params.getReferrerUrl(), params.getTab(),
                     params.shouldCloseContentsOnOverrideUrlLoadingAndLaunchIntent());
@@ -265,16 +274,18 @@ public class ExternalNavigationHandler {
             return OverrideUrlLoadingResult.NO_OVERRIDE;
         }
 
-        boolean canResolveActivity = false;
-        // Temporarily allowing disk access while fixing. TODO: http://crbug.com/527415
-        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
-        StrictMode.allowThreadDiskWrites();
-        try {
-            canResolveActivity = mDelegate.canResolveActivity(intent);
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
+        // Sanitize the Intent, ensuring web pages can not bypass browser
+        // security (only access to BROWSABLE activities).
+        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        intent.setComponent(null);
+        Intent selector = intent.getSelector();
+        if (selector != null) {
+            selector.addCategory(Intent.CATEGORY_BROWSABLE);
+            selector.setComponent(null);
         }
 
+        List<ResolveInfo> resolvingInfos = mDelegate.queryIntentActivities(intent);
+        boolean canResolveActivity = resolvingInfos.size() > 0;
         // check whether the intent can be resolved. If not, we will see
         // whether we can download it from the Market.
         if (!canResolveActivity) {
@@ -306,14 +317,8 @@ public class ExternalNavigationHandler {
             intent.removeExtra(EXTRA_BROWSER_FALLBACK_URL);
         }
 
-        // sanitize the Intent, ensuring web pages can not bypass browser
-        // security (only access to BROWSABLE activities).
-        intent.addCategory(Intent.CATEGORY_BROWSABLE);
-        intent.setComponent(null);
-        Intent selector = intent.getSelector();
-        if (selector != null) {
-            selector.addCategory(Intent.CATEGORY_BROWSABLE);
-            selector.setComponent(null);
+        if (intent.getPackage() == null && params.getUrl().startsWith(SCHEME_SMS)) {
+            intent.setPackage(getDefaultSmsPackageName(resolvingInfos));
         }
 
         // Set the Browser application ID to us in case the user chooses Chrome
@@ -331,9 +336,9 @@ public class ExternalNavigationHandler {
         // handlers. If webkit can't handle it internally, we need to call
         // startActivityIfNeeded or startActivity.
         if (!isExternalProtocol) {
-            if (!mDelegate.isSpecializedHandlerAvailable(intent)) {
+            if (!mDelegate.isSpecializedHandlerAvailable(resolvingInfos)) {
                 return OverrideUrlLoadingResult.NO_OVERRIDE;
-            } else if (params.getReferrerUrl() != null && isLink) {
+            } else if (params.getReferrerUrl() != null && (isLink || isFormSubmit)) {
                 // Current URL has at least one specialized handler available. For navigations
                 // within the same host, keep the navigation inside the browser unless the set of
                 // available apps to handle the new navigation is different. http://crbug.com/463138
@@ -349,11 +354,6 @@ public class ExternalNavigationHandler {
 
                 if (currentUri != null && previousUri != null
                         && TextUtils.equals(currentUri.getHost(), previousUri.getHost())) {
-
-                    if (isFormSubmit && !isRedirectFromFormSubmit) {
-                        return OverrideUrlLoadingResult.NO_OVERRIDE;
-                    }
-
                     Intent previousIntent;
                     try {
                         previousIntent = Intent.parseUri(
@@ -363,12 +363,7 @@ public class ExternalNavigationHandler {
                     }
 
                     if (previousIntent != null)  {
-                        List<ComponentName> currentHandlers = mDelegate.queryIntentActivities(
-                                intent);
-                        List<ComponentName> previousHandlers = mDelegate.queryIntentActivities(
-                                previousIntent);
-
-                        if (previousHandlers.containsAll(currentHandlers)) {
+                        if (intentsHaveSameResolvers(intent, previousIntent)) {
                             return OverrideUrlLoadingResult.NO_OVERRIDE;
                         }
                     }
@@ -385,8 +380,13 @@ public class ExternalNavigationHandler {
                         params.shouldCloseContentsOnOverrideUrlLoadingAndLaunchIntent());
                 return OverrideUrlLoadingResult.OVERRIDE_WITH_ASYNC_ACTION;
             } else {
+                // Some third-party app launched Chrome with an intent, and the URL got redirected.
+                // The user has explicitly chosen Chrome over other intent handlers, so stay in
+                // Chrome unless there was a new intent handler after redirection or Chrome cannot
+                // handle it any more.
                 if (params.getRedirectHandler() != null && incomingIntentRedirect) {
-                    if (!params.getRedirectHandler().hasNewResolver(intent)) {
+                    if (!isExternalProtocol
+                            && !params.getRedirectHandler().hasNewResolver(intent)) {
                         return OverrideUrlLoadingResult.NO_OVERRIDE;
                     }
                 }
@@ -442,11 +442,30 @@ public class ExternalNavigationHandler {
         if (url.startsWith(SCHEME_WTAI_MC)) return true;
         try {
             Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
-            return intent.getPackage() != null || mDelegate.canResolveActivity(intent);
+            return intent.getPackage() != null
+                    || mDelegate.queryIntentActivities(intent).size() > 0;
         } catch (Exception ex) {
             // Ignore the error.
-            Log.w(TAG, "Bad URI " + url, ex);
+            Log.w(TAG, "Bad URI %s", url, ex);
         }
         return false;
+    }
+
+    /**
+     * Dispatch SMS intents to the default SMS application if applicable.
+     * Most SMS apps refuse to send SMS if not set as default SMS application.
+     *
+     * @param resolvingComponentNames The list of ComponentName that resolves the current intent.
+     */
+    private String getDefaultSmsPackageName(List<ResolveInfo> resolvingComponentNames) {
+        String defaultSmsPackageName = mDelegate.getDefaultSmsPackageName();
+        if (defaultSmsPackageName == null) return null;
+        // Makes sure that the default SMS app actually resolves the intent.
+        for (ResolveInfo resolveInfo : resolvingComponentNames) {
+            if (defaultSmsPackageName.equals(resolveInfo.activityInfo.packageName)) {
+                return defaultSmsPackageName;
+            }
+        }
+        return null;
     }
 }

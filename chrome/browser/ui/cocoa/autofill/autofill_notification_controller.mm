@@ -15,7 +15,7 @@
 #include "chrome/browser/ui/chrome_style.h"
 #include "chrome/browser/ui/cocoa/autofill/autofill_dialog_constants.h"
 #import "chrome/browser/ui/cocoa/autofill/autofill_tooltip_controller.h"
-#include "grit/theme_resources.h"
+#include "grit/components_scaled_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "ui/base/cocoa/controls/hyperlink_text_view.h"
 
@@ -74,14 +74,14 @@
     base::scoped_nsobject<AutofillNotificationView> view(
         [[AutofillNotificationView alloc] initWithFrame:NSZeroRect]);
     [view setBackgroundColor:
-        gfx::SkColorToCalibratedNSColor(notification->GetBackgroundColor())];
+        skia::SkColorToCalibratedNSColor(notification->GetBackgroundColor())];
     [view setBorderColor:
-        gfx::SkColorToCalibratedNSColor(notification->GetBorderColor())];
+        skia::SkColorToCalibratedNSColor(notification->GetBorderColor())];
     [self setView:view];
 
     textview_.reset([[HyperlinkTextView alloc] initWithFrame:NSZeroRect]);
     NSColor* textColor =
-        gfx::SkColorToCalibratedNSColor(notification->GetTextColor());
+        skia::SkColorToCalibratedNSColor(notification->GetTextColor());
     [textview_ setMessage:base::SysUTF16ToNSString(notification->display_text())
                  withFont:[NSFont labelFontOfSize:[[textview_ font] pointSize]]
              messageColor:textColor];

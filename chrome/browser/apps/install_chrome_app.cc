@@ -4,8 +4,8 @@
 
 #include "chrome/browser/apps/install_chrome_app.h"
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/webstore_install_with_prompt.h"
@@ -80,8 +80,7 @@ void InstallChromeApp(const std::string& app_id) {
   // At the moment InstallChromeApp() is called immediately after handling
   // startup URLs, so a browser is guaranteed to be created. If that changes we
   // may need to start a browser or browser session here.
-  Browser* browser =
-      BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_NATIVE)->get(0);
+  Browser* browser = BrowserList::GetInstance()->get(0);
   DCHECK(browser);
 
   content::OpenURLParams params(GetAppInstallUrl(app_id),

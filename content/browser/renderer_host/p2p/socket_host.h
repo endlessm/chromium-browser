@@ -5,6 +5,10 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_P2P_SOCKET_HOST_H_
 #define CONTENT_BROWSER_RENDERER_HOST_P2P_SOCKET_HOST_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/common/content_export.h"
 #include "content/common/p2p_socket_type.h"
@@ -27,33 +31,6 @@ struct PacketOptions;
 namespace content {
 class P2PMessageThrottler;
 
-namespace packet_processing_helpers {
-
-// This method can handle only RTP packet, otherwise this method must not be
-// called. It will try to do, 1. update absolute send time extension header
-// if present with current time and 2. update HMAC in RTP packet.
-// If abs_send_time is 0, ApplyPacketOption will get current time from system.
-CONTENT_EXPORT bool ApplyPacketOptions(char* data,
-                                       size_t length,
-                                       const rtc::PacketOptions& options,
-                                       uint32 abs_send_time);
-
-// Helper method which finds RTP ofset and length if the packet is encapsulated
-// in a TURN Channel Message or TURN Send Indication message.
-CONTENT_EXPORT bool GetRtpPacketStartPositionAndLength(
-    const char* data,
-    size_t length,
-    size_t* rtp_start_pos,
-    size_t* rtp_packet_length);
-
-// Helper method which updates absoulute send time extension if present.
-CONTENT_EXPORT bool UpdateRtpAbsSendTimeExtension(char* rtp,
-                                                  size_t length,
-                                                  int extension_id,
-                                                  uint32 abs_send_time);
-
-}  // packet_processing_helpers
-
 // Base class for P2P sockets.
 class CONTENT_EXPORT P2PSocketHost {
  public:
@@ -75,7 +52,7 @@ class CONTENT_EXPORT P2PSocketHost {
   virtual void Send(const net::IPEndPoint& to,
                     const std::vector<char>& data,
                     const rtc::PacketOptions& options,
-                    uint64 packet_id) = 0;
+                    uint64_t packet_id) = 0;
 
   virtual P2PSocketHost* AcceptIncomingTcpConnection(
       const net::IPEndPoint& remote_address, int id) = 0;
@@ -142,7 +119,7 @@ class CONTENT_EXPORT P2PSocketHost {
   void DumpRtpPacket(const char* packet, size_t length, bool incoming);
 
   // A helper to dump the packet on the IO thread.
-  void DumpRtpPacketOnIOThread(scoped_ptr<uint8[]> packet_header,
+  void DumpRtpPacketOnIOThread(scoped_ptr<uint8_t[]> packet_header,
                                size_t header_length,
                                size_t packet_length,
                                bool incoming);
@@ -150,8 +127,8 @@ class CONTENT_EXPORT P2PSocketHost {
   // Used by subclasses to track the metrics of delayed bytes and packets.
   void IncrementDelayedPackets();
   void IncrementTotalSentPackets();
-  void IncrementDelayedBytes(uint32 size);
-  void DecrementDelayedBytes(uint32 size);
+  void IncrementDelayedBytes(uint32_t size);
+  void DecrementDelayedBytes(uint32_t size);
 
   IPC::Sender* message_sender_;
   int id_;
@@ -165,13 +142,13 @@ class CONTENT_EXPORT P2PSocketHost {
  private:
   // Track total delayed packets for calculating how many packets are
   // delayed by system at the end of call.
-  uint32 send_packets_delayed_total_;
-  uint32 send_packets_total_;
+  uint32_t send_packets_delayed_total_;
+  uint32_t send_packets_total_;
 
   // Track the maximum of consecutive delayed bytes caused by system's
   // EWOULDBLOCK.
-  int32 send_bytes_delayed_max_;
-  int32 send_bytes_delayed_cur_;
+  int32_t send_bytes_delayed_max_;
+  int32_t send_bytes_delayed_cur_;
 
   base::WeakPtrFactory<P2PSocketHost> weak_ptr_factory_;
 

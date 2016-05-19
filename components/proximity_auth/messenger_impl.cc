@@ -4,6 +4,9 @@
 
 #include "components/proximity_auth/messenger_impl.h"
 
+#include <utility>
+
+#include "base/base64url.h"
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -11,7 +14,6 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/proximity_auth/connection.h"
-#include "components/proximity_auth/cryptauth/base64url.h"
 #include "components/proximity_auth/logging/logging.h"
 #include "components/proximity_auth/messenger_observer.h"
 #include "components/proximity_auth/remote_status_update.h"
@@ -67,8 +69,8 @@ std::string GetMessageType(const base::DictionaryValue& message) {
 
 MessengerImpl::MessengerImpl(scoped_ptr<Connection> connection,
                              scoped_ptr<SecureContext> secure_context)
-    : connection_(connection.Pass()),
-      secure_context_(secure_context.Pass()),
+    : connection_(std::move(connection)),
+      secure_context_(std::move(secure_context)),
       weak_ptr_factory_(this) {
   DCHECK(connection_->IsConnected());
   connection_->AddObserver(this);
@@ -119,7 +121,9 @@ void MessengerImpl::RequestDecryption(const std::string& challenge) {
 
   const std::string encrypted_message_data = challenge;
   std::string encrypted_message_data_base64;
-  Base64UrlEncode(encrypted_message_data, &encrypted_message_data_base64);
+  base::Base64UrlEncode(encrypted_message_data,
+                        base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                        &encrypted_message_data_base64);
 
   base::DictionaryValue message;
   message.SetString(kTypeKey, kMessageTypeDecryptRequest);
@@ -268,7 +272,9 @@ void MessengerImpl::HandleDecryptResponseMessage(
   std::string decrypted_data;
   if (!message.GetString(kDataKey, &base64_data) || base64_data.empty()) {
     PA_LOG(ERROR) << "Decrypt response missing '" << kDataKey << "' value.";
-  } else if (!Base64UrlDecode(base64_data, &decrypted_data)) {
+  } else if (!base::Base64UrlDecode(
+                 base64_data, base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+                 &decrypted_data)) {
     PA_LOG(ERROR) << "Unable to base64-decode decrypt response.";
   }
 

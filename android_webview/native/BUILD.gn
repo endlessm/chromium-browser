@@ -7,8 +7,9 @@ import("//build/config/android/rules.gni")
 
 source_set("native") {
   deps = [
+    ":native_jni",
     "//android_webview/common:version",
-    "//base:base_static",
+    "//base",
     "//base/third_party/dynamic_annotations:dynamic_annotations",
     "//cc:cc",
     "//components/autofill/content/browser:browser",
@@ -21,14 +22,16 @@ source_set("native") {
     "//skia",
     "//storage/browser",
     "//storage/common",
+    "//third_party/boringssl",
     "//ui/base",
     "//ui/gfx",
     "//ui/gfx/geometry:geometry",
-    "//third_party/boringssl",
-    ":native_jni",
   ]
 
-  include_dirs = [ "//skia/config" ]
+  include_dirs = [
+    "//skia/config",
+    "//third_party/protobuf",
+  ]
 
   sources = [
     "android_protocol_handler.cc",
@@ -47,6 +50,8 @@ source_set("native") {
     "aw_contents_client_bridge.h",
     "aw_contents_io_thread_client_impl.cc",
     "aw_contents_io_thread_client_impl.h",
+    "aw_contents_lifecycle_notifier.cc",
+    "aw_contents_lifecycle_notifier.h",
     "aw_contents_statics.cc",
     "aw_contents_statics.h",
     "aw_debug.cc",
@@ -63,6 +68,8 @@ source_set("native") {
     "aw_media_url_interceptor.h",
     "aw_message_port_service_impl.cc",
     "aw_message_port_service_impl.h",
+    "aw_metrics_switch.cc",
+    "aw_metrics_switch.h",
     "aw_pdf_exporter.cc",
     "aw_pdf_exporter.h",
     "aw_picture.cc",
@@ -102,6 +109,8 @@ source_set("native") {
     "permission/simple_permission_request.h",
     "state_serializer.cc",
     "state_serializer.h",
+    "token_binding_manager_bridge.cc",
+    "token_binding_manager_bridge.h",
   ]
   if (enable_video_hole) {
     deps += [ "//components/external_video_surface:external_video_surface" ]
@@ -118,6 +127,7 @@ generate_jni("native_jni") {
     "../java/src/org/chromium/android_webview/AwContentsBackgroundThreadClient.java",
     "../java/src/org/chromium/android_webview/AwContentsClientBridge.java",
     "../java/src/org/chromium/android_webview/AwContentsIoThreadClient.java",
+    "../java/src/org/chromium/android_webview/AwContentsLifecycleNotifier.java",
     "../java/src/org/chromium/android_webview/AwContentsStatics.java",
     "../java/src/org/chromium/android_webview/AwCookieManager.java",
     "../java/src/org/chromium/android_webview/AwDebug.java",
@@ -125,11 +135,13 @@ generate_jni("native_jni") {
     "../java/src/org/chromium/android_webview/AwFormDatabase.java",
     "../java/src/org/chromium/android_webview/AwHttpAuthHandler.java",
     "../java/src/org/chromium/android_webview/AwMessagePortService.java",
+    "../java/src/org/chromium/android_webview/AwMetricsServiceClient.java",
     "../java/src/org/chromium/android_webview/AwPdfExporter.java",
     "../java/src/org/chromium/android_webview/AwPicture.java",
     "../java/src/org/chromium/android_webview/AwQuotaManagerBridge.java",
     "../java/src/org/chromium/android_webview/AwResource.java",
     "../java/src/org/chromium/android_webview/AwSettings.java",
+    "../java/src/org/chromium/android_webview/AwTokenBindingManager.java",
     "../java/src/org/chromium/android_webview/AwWebContentsDelegate.java",
     "../java/src/org/chromium/android_webview/AwWebResourceResponse.java",
     "../java/src/org/chromium/android_webview/InputStreamUtil.java",

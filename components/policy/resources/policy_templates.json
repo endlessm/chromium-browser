@@ -62,6 +62,9 @@
 #     where the value of the policy can be entered. 'main' policies on
 #     Windows ignore this. Policies on Mac are using this instead of caption.
 #
+# Non-translateable strings should be tagged using <ph name="..."></ph> as
+# described in https://www.chromium.org/developers/tools-we-use-in-chromium/grit/grit-users-guide
+#
 # Generated grd names:
 #   Each name has two parts: the second part is either CAPTION, DESC or LABEL,
 #   and the first part identifies the item the text applies to:
@@ -87,7 +90,7 @@
 #   numbers can be any string that does not contain ':' or '-' characters.
 #
 #   Currently supported product names:
-#       'chrome_frame', 'chrome_os', 'android', 'ios',
+#       'chrome_frame', 'chrome_os', 'android', 'ios', 'webview_android',
 #       'chrome.win', 'chrome.linux', 'chrome.mac', 'chrome.*'
 #     For example if 'chrome.*:5-10' is specified for a policy, then it should
 #     be read as:
@@ -134,7 +137,7 @@
 #   persistent IDs for all fields (but not for groups!) are needed. These are
 #   specified by the 'id' keys of each policy. NEVER CHANGE EXISTING IDs,
 #   because doing so would break the deployed wire format!
-#   For your editing convenience: highest ID currently used: 310
+#   For your editing convenience: highest ID currently used: 320
 #
 # Placeholders:
 #   The following placeholder strings are automatically substituted:
@@ -154,7 +157,7 @@
 #   cloud), if the optional key 'default_for_enterprise_users' is set, its value
 #   is applied as mandatory policy unless a different setting is received from
 #   the cloud.
-#
+
   'risk_tag_definitions' : [
     # All following tags are ordered by severity of their impact.
     # TODO(fhorschig|tnagel): Revisit user-descriptions after reviews.
@@ -357,7 +360,7 @@
         'chrome.*:8-',
         'chrome_os:11-',
         'android:30-',
-        'ios:34-',
+        'ios:34-47',
       ],
       'features': {
         'can_be_recommended': True,
@@ -698,6 +701,27 @@
           If this setting is disabled and outgoing UDP connections are filtered by the firewall, then this machine can only connect to host machines within the local network.''',
         },
         {
+          'name': 'RemoteAccessHostClientDomain',
+          'type': 'string',
+          'schema': { 'type': 'string' },
+          'supported_on': ['chrome.*:22-', 'chrome_os:41-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': False,
+          },
+          'example_value': 'my-awesome-domain.com',
+          'id': 316,
+          'caption': '''Configure the required domain name for remote access clients''',
+          'tags': [],
+          'desc': '''Configures the required client domain name that will be imposed on remote access clients and prevents users from changing it.
+
+          If this setting is enabled, then only clients from the specified domain can connect to the host.
+
+          If this setting is disabled or not set, then the default policy for the connection type is applied. For remote assistance, this allows clients from any domain can connect to the host; for anytime remote access, only the host owner can connect.
+
+          See also RemoteAccessHostDomain.''',
+        },
+        {
           'name': 'RemoteAccessHostFirewallTraversal',
           'type': 'main',
           'schema': { 'type': 'boolean' },
@@ -735,7 +759,9 @@
 
           If this setting is enabled, then hosts can be shared only using accounts registered on the specified domain name.
 
-          If this setting is disabled or not set, then hosts can be shared using any account.''',
+          If this setting is disabled or not set, then hosts can be shared using any account.
+
+          See also RemoteAccessHostClientDomain.''',
         },
         {
           'name': 'RemoteAccessHostRequireTwoFactor',
@@ -1132,7 +1158,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'can_be_recommended': True,
@@ -1185,7 +1211,7 @@
         'chrome.*:8-',
         'chrome_os:11-',
         'android:30-',
-        'ios:34-',
+        'ios:34-47',
       ],
       'features': {
         'can_be_recommended': True,
@@ -1579,7 +1605,7 @@
             'chrome.*:10-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -1639,7 +1665,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -1675,7 +1701,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -1702,7 +1728,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -1729,7 +1755,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -1772,7 +1798,7 @@
         'chrome.*:18-',
         'chrome_os:18-',
         'android:30-',
-        'ios:34-',
+        'ios:34-47',
       ],
       'future': True,
       'features': {
@@ -1854,7 +1880,7 @@
           'name': 'AuthServerWhitelist',
           'type': 'string',
           'schema': { 'type': 'string' },
-          'supported_on': ['chrome.*:9-','android:46-'],
+          'supported_on': ['chrome.*:9-','android:46-','webview_android:49-'],
           'features': {
             'dynamic_refresh': False,
             'per_profile': False,
@@ -1909,18 +1935,18 @@
           'name': 'AuthAndroidNegotiateAccountType',
           'type': 'string',
           'schema': { 'type': 'string' },
-          'supported_on': ['android:46-'],
+          'supported_on': ['android:46-','webview_android:49-'],
           'features': {
             'dynamic_refresh': False,
             'per_profile': False,
           },
           'example_value': 'com.example.spnego',
           'id': 305,
-          'caption': '''Account type for HTTP Negotiate authentication''',
+          'caption': '''Account type for <ph name="HTTP_NEGOTIATE">HTTP Negotiate</ph> authentication''',
           'tags': [],
-          'desc': '''Specifies the account type of the accounts provided by the Android authentication app that supports HTTP Negotiate authentication (e.g. Kerberos authentication). This information should be available from the supplier of the authentication app. For more details see https://goo.gl/hajyfN.
+          'desc': '''Specifies the account type of the accounts provided by the Android authentication app that supports <ph name="HTTP_NEGOTIATE">HTTP Negotiate</ph> authentication (e.g. Kerberos authentication). This information should be available from the supplier of the authentication app. For more details see https://goo.gl/hajyfN.
 
-          If no setting is provided, HTTP Negotiate authentication is disabled on Android.''',
+          If no setting is provided, <ph name="HTTP_NEGOTIATE">HTTP Negotiate</ph> authentication is disabled on Android.''',
         },
         {
           'name': 'AllowCrossOriginAuthPrompt',
@@ -2421,7 +2447,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -2454,7 +2480,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -2476,7 +2502,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -2500,7 +2526,7 @@
             'chrome.*:8-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -2786,7 +2812,7 @@
             'chrome.*:10-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -2927,7 +2953,7 @@
           'supported_on': [
             'chrome.*:10-',
             'chrome_os:11-',
-            'ios:34-',
+            'ios:34-47',
             'android:33-',
           ],
           'features': {
@@ -3050,6 +3076,70 @@
           If this policy is left not set, 'PromptOnAccess' will be used and the user will be able to change it.''',
         },
         {
+          'name': 'DefaultWebBluetoothGuardSetting',
+          'type': 'int-enum',
+          'schema': {
+            'type': 'integer',
+            'enum': [ 2, 3 ],
+          },
+          'items': [
+            {
+              'name': 'BlockWebBluetooth',
+              'value': 2,
+              'caption': '''Do not allow any site to request access to Bluetooth devices via the Web Bluetooth API''',
+            },
+            {
+              'name': 'AskWebBluetooth',
+              'value': 3,
+              'caption': '''Allow sites to ask the user to grant access to a nearby Bluetooth device''',
+            },
+          ],
+          'supported_on': ['chrome_os:50-', 'android:50-', 'chrome.*:50-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': True,
+          },
+          'example_value': 2,
+          'id': 320,
+          'caption': '''Control use of the Web Bluetooth API''',
+          'tags': ['website-sharing'],
+          'desc': '''Allows you to set whether websites are allowed to get access to nearby Bluetooth devices. Access can be completely blocked, or the user can be asked every time a website wants to get access to nearby Bluetooth devices.
+
+          If this policy is left not set, '3' will be used, and the user will be able to change it.''',
+        },
+        {
+          'name': 'DefaultKeygenSetting',
+          'type': 'int-enum',
+          'schema': {
+            'type': 'integer',
+            'enum': [ 1, 2 ],
+          },
+          'items': [
+            {
+              'name': 'AllowKeygen',
+              'value': 1,
+              'caption': '''Allow all sites to use key generation''',
+            },
+            {
+              'name': 'BlockKeygen',
+              'value': 2,
+              'caption': '''Do not allow any site to use key generation''',
+            },
+          ],
+          'supported_on': ['chrome.*:49-', 'chrome_os:49-', 'android:49-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': True,
+          },
+          'example_value': 2,
+          'id': 313,
+          'caption': '''Default key generation setting''',
+          'tags': ['system-security', 'website-sharing', 'local-data-access'],
+          'desc': '''Allows you to set whether websites are allowed to use key generation. Using key generation can be either allowed for all websites or denied for all websites.
+
+          If this policy is left not set, 'BlockKeygen' will be used and the user will be able to change it.''',
+        },
+        {
           'name': 'AutoSelectCertificateForUrls',
           'type': 'list',
           'schema': {
@@ -3082,7 +3172,7 @@
             'chrome.*:11-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -3107,7 +3197,7 @@
             'chrome.*:11-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -3132,7 +3222,7 @@
             'chrome.*:11-',
             'chrome_os:11-',
             'android:30-',
-            'ios:34-',
+            'ios:34-47',
           ],
           'features': {
             'dynamic_refresh': True,
@@ -3231,6 +3321,46 @@
           If this policy is left not set the global default value will be used for all sites either from the 'DefaultJavaScriptSetting' policy if it is set, or the user's personal configuration otherwise.''',
         },
         {
+          'name': 'KeygenAllowedForUrls',
+          'type': 'list',
+          'schema': {
+            'type': 'array',
+            'items': { 'type': 'string' },
+          },
+          'supported_on': ['chrome.*:49-', 'chrome_os:49-', 'android:49-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': True,
+          },
+          'example_value': ['https://www.example.com', '[*.]example.edu'],
+          'id': 314,
+          'caption': '''Allow key generation on these sites''',
+          'tags': ['system-security', 'website-sharing', 'local-data-access'],
+          'desc': '''Allows you to set a list of url patterns that specify sites which are allowed to use key generation. If a url pattern is in 'KeygenBlockedForUrls', that overrides these exceptions.
+
+          If this policy is left not set the global default value will be used for all sites either from the 'DefaultKeygenSetting' policy if it is set, or the user's personal configuration otherwise.''',
+        },
+        {
+          'name': 'KeygenBlockedForUrls',
+          'type': 'list',
+          'schema': {
+            'type': 'array',
+            'items': { 'type': 'string' },
+          },
+          'supported_on': ['chrome.*:49-', 'chrome_os:49-', 'android:49-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': True,
+          },
+          'example_value': ['https://www.example.com', '[*.]example.edu'],
+          'id': 315,
+          'caption': '''Block key generation on these sites''',
+          'tags': ['system-security', 'website-sharing', 'local-data-access'],
+          'desc': '''Allows you to set a list of url patterns that specify sites which are not allowed to use key generation. If a url pattern is in 'KeygenAllowedForUrls', this policy overrides these exceptions.
+
+          If this policy is left not set the global default value will be used for all sites either from the 'DefaultKeygenSetting' policy if it is set, or the user's personal configuration otherwise.''',
+        },
+        {
           'name': 'PluginsAllowedForUrls',
           'type': 'list',
           'schema': {
@@ -3280,7 +3410,7 @@
           'supported_on': [
             'chrome.*:11-',
             'chrome_os:11-',
-            'ios:34-',
+            'ios:34-47',
             'android:34-',
           ],
           'features': {
@@ -3344,7 +3474,7 @@
           'supported_on': [
             'chrome.*:11-',
             'chrome_os:11-',
-            'ios:34-',
+            'ios:34-47',
             'android:34-',
           ],
           'features': {
@@ -3801,7 +3931,7 @@
         'chrome.*:12-',
         'chrome_os:12-',
         'android:30-',
-        'ios:34-',
+        'ios:34-47',
       ],
       'features': {
         'can_be_recommended': True,
@@ -4161,7 +4291,8 @@
         'chrome.*:15-',
         'chrome_os:15-',
         'android:30-',
-        'ios:34-',
+        'webview_android:47-',
+        'ios:34-47',
       ],
       'features': {
         'dynamic_refresh': True,
@@ -4185,6 +4316,8 @@
 
       Exceptions can be defined in the URL whitelist policy. These policies are limited to 1000 entries; subsequent entries will be ignored.
 
+      Note that it is not recommended to block internal 'chrome://*' URLs since this may lead to unexpected errors.
+
       If this policy is not set no URL will be blacklisted in the browser.''',
     },
     {
@@ -4198,7 +4331,8 @@
         'chrome.*:15-',
         'chrome_os:15-',
         'android:30-',
-        'ios:34-',
+        'webview_android:47-',
+        'ios:34-47',
       ],
       'features': {
         'dynamic_refresh': True,
@@ -4405,7 +4539,7 @@
         }
       }
 
-      Printers connected to Google Cloud Print are considered "cloud", the rest of the printers are classified as "local".
+      Printers connected to <ph name="CLOUD_PRINT_NAME">Google Cloud Print</ph> are considered <ph name="PRINTER_TYPE_CLOUD">"cloud"</ph>, the rest of the printers are classified as <ph name="PRINTER_TYPE_LOCAL">"local"</ph>.
       Omitting a field means all values match, for example, not specifying connectivity will cause Print Preview to initiate the discovery of all kinds of printers, local and cloud.
       Regular expression patterns must follow the JavaScript RegExp syntax and matches are case sensistive.''',
     },
@@ -4422,9 +4556,9 @@
       'id': 118,
       'caption': '''Disable TLS False Start''',
       'tags': [],
-      'desc': '''Specifies whether the TLS False Start optimization should be disabled. For historical reasons, this policy is named DisableSSLRecordSplitting.
+      'desc': '''Specifies whether the <ph name="TLS_FALSE_START">TLS False Start</ph> optimization should be disabled. For historical reasons, this policy is named DisableSSLRecordSplitting.
 
-      If the policy is not set, or is set to false, then TLS False Start will be enabled. If it is set to true, TLS False Start will be disabled.''',
+      If the policy is not set, or is set to false, then <ph name="TLS_FALSE_START">TLS False Start</ph> will be enabled. If it is set to true, <ph name="TLS_FALSE_START">TLS False Start</ph> will be disabled.''',
     },
     {
       'name': 'EnableOnlineRevocationChecks',
@@ -4936,7 +5070,7 @@
         'type': 'array',
         'items': { 'type': 'string' },
       },
-      'supported_on': ['chrome_os:19-'],
+      'supported_on': ['chrome_os:19-40'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -4953,7 +5087,7 @@
       'name': 'DeviceIdleLogoutTimeout',
       'type': 'int',
       'schema': { 'type': 'integer' },
-      'supported_on': ['chrome_os:19-'],
+      'supported_on': ['chrome_os:19-40'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -4972,7 +5106,7 @@
       'name': 'DeviceIdleLogoutWarningDuration',
       'type': 'int',
       'schema': { 'type': 'integer' },
-      'supported_on': ['chrome_os:19-'],
+      'supported_on': ['chrome_os:19-40'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -4991,7 +5125,7 @@
       'name': 'DeviceLoginScreenSaverId',
       'type': 'string',
       'schema': { 'type': 'string' },
-      'supported_on': ['chrome_os:19-'],
+      'supported_on': ['chrome_os:19-40'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5008,7 +5142,7 @@
       'name': 'DeviceLoginScreenSaverTimeout',
       'type': 'int',
       'schema': { 'type': 'integer' },
-      'supported_on': ['chrome_os:19-'],
+      'supported_on': ['chrome_os:19-40'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5030,7 +5164,7 @@
         'type': 'array',
         'items': { 'type': 'string' },
       },
-      'supported_on': ['chrome_os:19-'],
+      'supported_on': ['chrome_os:19-40'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -6996,7 +7130,7 @@
       'id': 191,
       'caption': '''System wide flags to be applied on <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> start-up''',
       'tags': [],
-      'desc': '''Specifies the flags that should be applied to <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> when it starts. The specified flags are applied before <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> is started even for the sign-in screen.''',
+      'desc': '''Specifies the flags that should be applied to <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> when it starts. The specified flags are applied on the login screen only. Flags set via this policy do not propagate into user sessions.''',
     },
     {
       'name': 'UptimeLimit',
@@ -7052,7 +7186,7 @@
       'name': 'VariationsRestrictParameter',
       'type': 'string',
       'schema': { 'type': 'string' },
-      'supported_on': ['chrome.*:27-', 'android:34-', 'ios:35-'],
+      'supported_on': ['chrome.*:27-', 'android:34-', 'ios:35-47'],
       'features': {
         'dynamic_refresh': False,
         'per_profile': False,
@@ -7318,6 +7452,27 @@
 
           If set to true or not configured, supervised users can be created and managed by this user.'''
         },
+        {
+          # SupervisedUserContentProviderEnabled is never accessed through the policy framework, but is
+          # instead directly accessed as an Android App Restriction (see SupervisedUserContentProvider.java).
+          # It, however, needs to be here both because this is the source of the list of Chrome's App
+          # Restrictions on Android, and to avoid possible future naming conflicts with policies.
+          'name': 'SupervisedUserContentProviderEnabled',
+          'type': 'main',
+          'schema': { 'type': 'boolean' },
+          'supported_on': ['android:49-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile' : True,
+          },
+          'example_value': True,
+          'id': 312,
+          'caption': '''Enable the supervised user content provider''',
+          'tags': [],
+          'desc': '''If true and the user is a supervised user then other Android apps can query the user's web restrictions through a content provider.
+
+          If false or unset then the content provider returns no information.'''
+        },
       ],
     },
     {
@@ -7340,7 +7495,7 @@
       },
       'supported_on': [
         'android:30-',
-        'ios:35-',
+        'ios:35-47',
         'chrome.*:37-',
         'chrome_os:37-',
       ],
@@ -7375,15 +7530,18 @@
       'desc': '''Configures a list of managed bookmarks.
 
       The policy consists of a list of bookmarks whereas each bookmark is a
-      dictionary containing the keys "name" and "url" which hold the bookmark's
-      name and its target. A subfolder may be configured by defining a bookmark
-      without an "url" key but with an additional "children" key which itself
-      contains a list of bookmarks as defined above (some of which may be
-      folders again). <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>
-      amends incomplete URLs as if they were submitted via the Omnibox, for
-      example "google.com" becomes "https://google.com/".
+      dictionary containing the keys <ph name="NAME">"name"</ph> and <ph
+      name="URL">"url"</ph> which hold the bookmark's name and its target. A
+      subfolder may be configured by defining a bookmark without an <ph
+      name="URL">"url"</ph> key but with an additional <ph
+      name="CHILDREN">"children"</ph> key which itself contains a list of
+      bookmarks as defined above (some of which may be folders again). <ph
+      name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> amends incomplete URLs
+      as if they were submitted via the Omnibox, for example <ph
+      name="GOOGLE_COM">"google.com"</ph> becomes <ph
+      name="HTTPS_GOOGLE_COM">"https://google.com/"</ph>.
 
-      These bookmarks are placed in a Managed bookmarks folder that can't be modified by the user, but the user can choose to hide it from the bookmark bar. Managed bookmarks are not synced to the user account and can't be modified by extensions.''',
+      These bookmarks are placed in a "Managed bookmarks" folder that can't be modified by the user, but the user can choose to hide it from the bookmark bar. Managed bookmarks are not synced to the user account and can't be modified by extensions.''',
     },
     {
       'name': 'DataCompressionProxyEnabled',
@@ -7710,17 +7868,11 @@
       'schema': {
         'type': 'string',
         'enum': [
-          'tls1',
           'tls1.1',
           'tls1.2',
         ],
       },
       'items': [
-        {
-          'name': 'TLSv1',
-          'value': 'tls1',
-          'caption': 'TLS 1.0',
-        },
         {
           'name': 'TLSv1.1',
           'value': 'tls1.1',
@@ -7733,10 +7885,10 @@
         },
       ],
       'supported_on': [
-        'chrome.*:45-47',
-        'chrome_os:45-47',
-        'android:45-47',
-        'ios:45-47',
+        'chrome.*:50-52',
+        'chrome_os:50-52',
+        'android:50-52',
+        'ios:50-52',
       ],
       'features': {
         'dynamic_refresh': True,
@@ -7745,16 +7897,14 @@
       'example_value': 'tls1.1',
       'id': 280,
       'caption': '''Minimum TLS version to fallback to''',
-      'tags': [],
-      'desc': '''Warning: The TLS 1.0 version fallback will be removed from <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> after version 47 (around January 2016) and the "tls1" option will stop working then.
+      'tags': ['system-security'],
+      'desc': '''Warning: The TLS version fallback will be removed from <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> after version 52 (around September 2016) and this policy will stop working then.
 
-      When a TLS handshake fails, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will retry the connection with a lesser version of TLS in order to work around bugs in HTTPS servers. This setting configures the version at which this fallback process will stop. If a server performs version negotiation correctly (i.e. without breaking the connection) then this setting doesn't apply. Regardless, the resulting connection must still comply with SSLVersionMin.
+      When a TLS handshake fails, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> would previously retry the connection with a lesser version of TLS in order to work around bugs in HTTPS servers. This setting configures the version at which this fallback process will stop. If a server performs version negotiation correctly (i.e. without breaking the connection) then this setting doesn't apply. Regardless, the resulting connection must still comply with SSLVersionMin.
 
-      If this policy is not configured then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> uses a default minimum version which is TLS 1.0 in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 44 and TLS 1.1 in later versions. Note this does not disable support for TLS 1.0, only whether <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will work around buggy servers which cannot negotiate versions correctly.
+      If this policy is not configured or if it is set to "tls1.2" then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> no longer performs this fallback. Note this does not disable support for older TLS versions, only whether <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will work around buggy servers which cannot negotiate versions correctly.
 
-      Otherwise it may be set to one of the following values: "tls1", "tls1.1" or "tls1.2". If compatibility with a buggy server must be maintained, this may be set to "tls1". This is a stopgap measure and the server should be rapidly fixed.
-
-      A setting of "tls1.2" disables all fallback but this may have a significant compatibility impact.''',
+      Otherwise, if compatibility with a buggy server must be maintained, this policy may be set to "tls1.1". This is a stopgap measure and the server should be rapidly fixed.''',
     },
     {
       'name': 'RC4Enabled',
@@ -8000,6 +8150,122 @@
       If this policy is set to false or unset, Unified Desktop will be
       disabled. In this case, the user cannot enable the feature.''',
     },
+    {
+      'name': 'DisplayRotationDefault',
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 0, 1, 2, 3 ],
+      },
+      'items': [
+        {
+          'name': 'ROTATE_0',
+          'value': 0,
+          'caption': '''Rotate screen by 0 degrees''',
+        },
+        {
+          'name': 'ROTATE_90',
+          'value': 1,
+          'caption': '''Rotate screen clockwise by 90 degrees''',
+        },
+        {
+          'name': 'ROTATE_180',
+          'value': 2,
+          'caption': '''Rotate screen by 180 degrees''',
+        },
+        {
+          'name': 'ROTATE_270',
+          'value': 3,
+          'caption': '''Rotate screen clockwise by 270 degrees''',
+        },
+      ],
+      'supported_on': ['chrome_os:48-'],
+      'device_only': True,
+      'features': {
+        'can_be_recommended': False,
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value': 1,
+      'id': 311,
+      'caption': '''Set default display rotation, reapplied on every reboot''',
+      'tags': [],
+      'desc': '''If this policy is set, each display is rotated to the
+      specified orientation on every reboot, and the first time it is connected
+      after the policy value has changed. Users may change the display
+      rotation via the settings page after logging in, but their
+      setting will be overridden by the policy value at the next reboot.
+
+      This policy applies to both the primary and all secondary displays.
+
+      If the policy is not set, the default value is 0 degrees and the user is
+      free to change it. In this case, the default value is not reapplied at
+      restart.''',
+    },
+    {
+      'name': 'ArcEnabled',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:50-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value': False,
+      'id': 317,
+      'default_for_enterprise_users': False,
+      'caption': '''Enable ARC''',
+      'tags': [],
+      'desc':
+      '''When this policy is set to true, ARC will be enabled for the user
+      (subject to additional policy settings checks - ARC will still be
+      unavailable if either ephemeral mode or multiple sign-in is enabled
+      in the current user session).
+
+      If this setting is disabled or not configured then enterprise users are
+      unable to use ARC.''',
+    },
+    {
+      'name': 'ArcApplicationPolicy',
+      'type': 'string',
+      'schema': { 'type': 'string' },
+      'supported_on': ['chrome_os:50-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value': '',
+      'id': 318,
+      'caption': '''Configure ARC apps''',
+      'tags': [],
+      'desc':
+      '''Specifies the ARC application policy as JSON string which can be
+      handed-off as-is to the ARC runtime. At the moment, this setting is used
+      solely to specify force-installation of the apps.
+
+      If this policy is left not set, no apps are installed automatically.'''
+    },
+    {
+      'name': 'AllowKioskAppControlChromeVersion',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:51-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': True,
+      'id': 319,
+      'caption': '''Allow the auto launched with zero delay kiosk app to control <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> version''',
+      'tags': [],
+      'desc': '''Whether to allow the auto launched with zero delay kiosk app to control <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> version.
+
+      This policy controls whether to allow the auto launched with zero delay kiosk app to control <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> version by declaring a required_platform_version in its manifest and use it as the auto update target version prefix.
+
+      If the policy is set to true, the value of required_platform_version manifest key of the auto launched with zero delay kiosk app is used as auto update target version prefix.
+
+      If the policy is not configured or set to false, the required_platform_version manifest key is ignored and auto update proceeds as normal.''',
+    },
   ],
   'messages': {
     # Messages that are not associated to any policies.
@@ -8026,6 +8292,10 @@
     'doc_android_restriction_name': {
       'desc': '''Caption text of the field 'android restriction name' in the summary chart of a policy in the generated documentation''',
       'text': '''Android restriction name:'''
+    },
+    'doc_android_webview_restriction_name': {
+      'desc': '''Caption text of the field 'android webview restriction name' in the summary chart of a policy in the generated documentation''',
+      'text': '''Android WebView restriction name:'''
     },
     'doc_supported_on': {
       'desc': '''Caption text of the list of 'products, platforms and versions where this policy is supported' in the summary chart of a policy in the generated documentation''',
@@ -8055,7 +8325,7 @@
       'desc': '''Introduction text for the generated policy documentation''',
       'text': '''Both Chromium and Google Chrome support the same set of
       policies. Please note that this document may include policies that are
-      targeted for unreleased software versions (i.e. their 'supported on' entry
+      targeted for unreleased software versions (i.e. their 'Supported on' entry
       refers to an unreleased version) and that such policies are subject to
       change or removal without prior notice.
 

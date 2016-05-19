@@ -6,8 +6,10 @@
 
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/compositor_switches.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/gfx_paths.h"
 #include "ui/gl/test/gl_surface_test_support.h"
 
@@ -30,8 +32,10 @@ void CompositorTestSuite::Initialize() {
   gfx::RegisterPathProvider();
 
 #if defined(OS_WIN)
-  gfx::InitDeviceScaleFactor(1.0f);
+  gfx::SetDefaultDeviceScaleFactor(1.0f);
 #endif
+
+  ui::Layer::InitializeUILayerSettings();
 
   message_loop_.reset(new base::MessageLoopForUI);
 }

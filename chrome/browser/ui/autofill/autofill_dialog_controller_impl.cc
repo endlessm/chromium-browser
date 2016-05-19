@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -14,9 +15,7 @@
 #include "base/i18n/rtl.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
+#include "base/macros.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -49,6 +48,7 @@
 #include "components/autofill/core/browser/autofill_data_model.h"
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "components/autofill/core/browser/country_names.h"
 #include "components/autofill/core/browser/detail_input.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
@@ -58,6 +58,9 @@
 #include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/geolocation_provider.h"
 #include "content/public/browser/navigation_controller.h"
@@ -158,8 +161,8 @@ base::string16 GetInfoFromInputs(const FieldValueMap& inputs,
     info = it->second;
 
   if (!info.empty() && type.html_type() == HTML_TYPE_COUNTRY_CODE) {
-    info = base::ASCIIToUTF16(AutofillCountry::GetCountryCode(
-        info, g_browser_process->GetApplicationLocale()));
+    info =
+        base::ASCIIToUTF16(CountryNames::GetInstance()->GetCountryCode(info));
   }
 
   return info;
@@ -238,9 +241,8 @@ ServerFieldType CountryTypeForSection(DialogSection section) {
 
 ValidityMessage GetPhoneValidityMessage(const base::string16& country_name,
                                         const base::string16& number) {
-  std::string region = AutofillCountry::GetCountryCode(
-      country_name,
-      g_browser_process->GetApplicationLocale());
+  std::string region =
+      CountryNames::GetInstance()->GetCountryCode(country_name);
   i18n::PhoneObject phone_object(number, region);
   ValidityMessage phone_message(base::string16(), true);
 
@@ -422,13 +424,10 @@ void AutofillDialogControllerImpl::Show() {
   dialog_shown_timestamp_ = base::Time::Now();
 
   // Determine what field types should be included in the dialog.
-  bool has_types = false;
-  bool has_sections = false;
-  form_structure_.ParseFieldTypesFromAutocompleteAttributes(
-      &has_types, &has_sections);
+  form_structure_.ParseFieldTypesFromAutocompleteAttributes();
 
   // Fail if the author didn't specify autocomplete types.
-  if (!has_types) {
+  if (!form_structure_.has_author_specified_types()) {
     callback_.Run(
         AutofillClient::AutocompleteResultErrorDisabled,
         base::ASCIIToUTF16("Form is missing autocomplete attributes."),
@@ -442,7 +441,8 @@ void AutofillDialogControllerImpl::Show() {
   bool has_credit_card_field = false;
   for (size_t i = 0; i < form_structure_.field_count(); ++i) {
     AutofillType type = form_structure_.field(i)->Type();
-    if (type.html_type() != HTML_TYPE_UNKNOWN && type.group() == CREDIT_CARD) {
+    if (type.html_type() != HTML_TYPE_UNSPECIFIED &&
+        type.group() == CREDIT_CARD) {
       has_credit_card_field = true;
       break;
     }
@@ -627,8 +627,8 @@ void AutofillDialogControllerImpl::ResetSectionInput(DialogSection section) {
     } else if (!it->initial_value.empty() &&
                (it->type == ADDRESS_BILLING_COUNTRY ||
                 it->type == ADDRESS_HOME_COUNTRY)) {
-      GetValidator()->LoadRules(AutofillCountry::GetCountryCode(
-          it->initial_value, g_browser_process->GetApplicationLocale()));
+      GetValidator()->LoadRules(
+          CountryNames::GetInstance()->GetCountryCode(it->initial_value));
     }
   }
 }
@@ -1432,9 +1432,8 @@ bool AutofillDialogControllerImpl::HandleKeyPressEventInInput(
 void AutofillDialogControllerImpl::ShowNewCreditCardBubble(
     scoped_ptr<CreditCard> new_card,
     scoped_ptr<AutofillProfile> billing_profile) {
-  NewCreditCardBubbleController::Show(web_contents(),
-                                      new_card.Pass(),
-                                      billing_profile.Pass());
+  NewCreditCardBubbleController::Show(web_contents(), std::move(new_card),
+                                      std::move(billing_profile));
 }
 
 void AutofillDialogControllerImpl::SubmitButtonDelayBegin() {
@@ -1919,8 +1918,7 @@ std::string AutofillDialogControllerImpl::CountryCodeForSection(
     country = outputs[CountryTypeForSection(section)];
   }
 
-  return AutofillCountry::GetCountryCode(
-      country, g_browser_process->GetApplicationLocale());
+  return CountryNames::GetInstance()->GetCountryCode(country);
 }
 
 bool AutofillDialogControllerImpl::RebuildInputsForCountry(
@@ -1931,8 +1929,8 @@ bool AutofillDialogControllerImpl::RebuildInputsForCountry(
   if (!model)
     return false;
 
-  std::string country_code = AutofillCountry::GetCountryCode(
-      country_name, g_browser_process->GetApplicationLocale());
+  std::string country_code =
+      CountryNames::GetInstance()->GetCountryCode(country_name);
   DCHECK(CanAcceptCountry(section, country_code));
 
   if (view_ && !should_clobber) {
@@ -1950,8 +1948,8 @@ bool AutofillDialogControllerImpl::RebuildInputsForCountry(
                         MutableAddressLanguageCodeForSection(section));
 
   if (!country_code.empty()) {
-    GetValidator()->LoadRules(AutofillCountry::GetCountryCode(
-        country_name, g_browser_process->GetApplicationLocale()));
+    GetValidator()->LoadRules(
+        CountryNames::GetInstance()->GetCountryCode(country_name));
   }
 
   return true;
@@ -2305,7 +2303,8 @@ void AutofillDialogControllerImpl::MaybeShowCreditCardBubble() {
     billing_profile.reset(new AutofillProfile(*profile));
   }
 
-  ShowNewCreditCardBubble(newly_saved_card_.Pass(), billing_profile.Pass());
+  ShowNewCreditCardBubble(std::move(newly_saved_card_),
+                          std::move(billing_profile));
 }
 
 void AutofillDialogControllerImpl::OnSubmitButtonDelayEnd() {

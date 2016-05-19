@@ -8,6 +8,7 @@
 #include "base/file_descriptor_posix.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
+#include "build/build_config.h"
 #include "components/nacl/common/nacl_messages.h"
 #include "components/nacl/common/nacl_types.h"
 #include "components/nacl/loader/nacl_trusted_listener.h"
@@ -77,9 +78,6 @@ void NonSfiListener::OnStart(const nacl::NaClStartParams& params) {
   // Random number source initialization.
   nonsfi_set_urandom_fd(base::GetUrandomFD());
 
-  // In Non-SFI mode, PPAPI proxy must be enabled.
-  CHECK(params.enable_ipc_proxy);
-
   // In Non-SFI mode, we neither intercept nor rewrite the message using
   // NaClIPCAdapter, and the channels are connected between the plugin and
   // the hosts directly. So, the IPC::Channel instances will be created in
@@ -114,7 +112,6 @@ void NonSfiListener::OnStart(const nacl::NaClStartParams& params) {
   CHECK(!params.enable_debug_stub);
   CHECK(params.debug_stub_server_bound_socket.fd == -1);
 
-  CHECK(params.imc_bootstrap_handle == IPC::InvalidPlatformFileForTransit());
   CHECK(params.irt_handle == IPC::InvalidPlatformFileForTransit());
   CHECK(params.debug_stub_server_bound_socket ==
         IPC::InvalidPlatformFileForTransit());

@@ -11,11 +11,11 @@
 #include "webrtc/test/frame_generator_capturer.h"
 
 #include "webrtc/base/criticalsection.h"
-#include "webrtc/test/frame_generator.h"
+#include "webrtc/base/platform_thread.h"
 #include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/system_wrappers/include/event_wrapper.h"
 #include "webrtc/system_wrappers/include/sleep.h"
-#include "webrtc/system_wrappers/include/thread_wrapper.h"
+#include "webrtc/test/frame_generator.h"
 #include "webrtc/video_send_stream.h"
 
 namespace webrtc {
@@ -65,6 +65,7 @@ FrameGeneratorCapturer::FrameGeneratorCapturer(Clock* clock,
       clock_(clock),
       sending_(false),
       tick_(EventTimerWrapper::Create()),
+      thread_(FrameGeneratorCapturer::Run, this, "FrameGeneratorCapturer"),
       frame_generator_(frame_generator),
       target_fps_(target_fps),
       first_frame_capture_time_(-1) {
@@ -76,8 +77,7 @@ FrameGeneratorCapturer::FrameGeneratorCapturer(Clock* clock,
 FrameGeneratorCapturer::~FrameGeneratorCapturer() {
   Stop();
 
-  if (thread_.get() != NULL)
-    thread_->Stop();
+  thread_.Stop();
 }
 
 bool FrameGeneratorCapturer::Init() {
@@ -88,15 +88,8 @@ bool FrameGeneratorCapturer::Init() {
 
   if (!tick_->StartTimer(true, 1000 / target_fps_))
     return false;
-  thread_ = ThreadWrapper::CreateThread(FrameGeneratorCapturer::Run, this,
-                                        "FrameGeneratorCapturer");
-  if (thread_.get() == NULL)
-    return false;
-  if (!thread_->Start()) {
-    thread_.reset();
-    return false;
-  }
-  thread_->SetPriority(webrtc::kHighPriority);
+  thread_.Start();
+  thread_.SetPriority(rtc::kHighPriority);
   return true;
 }
 

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/page/PagePopupController.h"
 
 #include "core/page/PagePopup.h"
@@ -70,9 +69,9 @@ void PagePopupController::closePopup()
 
 void PagePopupController::selectFontsFromOwnerDocument(Document* targetDocument)
 {
-    if (!targetDocument || !m_popupClient)
-        return;
-    m_popupClient->selectFontsFromOwnerDocument(*targetDocument);
+    ASSERT(targetDocument);
+    if (m_popupClient)
+        m_popupClient->selectFontsFromOwnerDocument(*targetDocument);
 }
 
 String PagePopupController::localizeNumberString(const String& numberString)
@@ -114,11 +113,6 @@ String PagePopupController::formatWeek(int year, int weekNumber, const String& l
 void PagePopupController::clearPagePopupClient()
 {
     m_popupClient = nullptr;
-}
-
-void PagePopupController::histogramEnumeration(const String& name, int sample, int boundaryValue)
-{
-    Platform::current()->histogramEnumeration(name.utf8().data(), sample, boundaryValue);
 }
 
 void PagePopupController::setWindowRect(int x, int y, int width, int height)

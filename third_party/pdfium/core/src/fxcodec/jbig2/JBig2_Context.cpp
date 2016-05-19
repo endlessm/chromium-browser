@@ -4,17 +4,22 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "JBig2_Context.h"
+#include "core/src/fxcodec/jbig2/JBig2_Context.h"
 
+#include <algorithm>
 #include <list>
+#include <utility>
+#include <vector>
 
-#include "JBig2_ArithDecoder.h"
-#include "JBig2_GrdProc.h"
-#include "JBig2_GrrdProc.h"
-#include "JBig2_HtrdProc.h"
-#include "JBig2_PddProc.h"
-#include "JBig2_SddProc.h"
-#include "JBig2_TrdProc.h"
+#include "core/src/fxcodec/jbig2/JBig2_ArithDecoder.h"
+#include "core/src/fxcodec/jbig2/JBig2_BitStream.h"
+#include "core/src/fxcodec/jbig2/JBig2_GrdProc.h"
+#include "core/src/fxcodec/jbig2/JBig2_GrrdProc.h"
+#include "core/src/fxcodec/jbig2/JBig2_HtrdProc.h"
+#include "core/src/fxcodec/jbig2/JBig2_HuffmanTable_Standard.h"
+#include "core/src/fxcodec/jbig2/JBig2_PddProc.h"
+#include "core/src/fxcodec/jbig2/JBig2_SddProc.h"
+#include "core/src/fxcodec/jbig2/JBig2_TrdProc.h"
 
 namespace {
 
@@ -133,7 +138,7 @@ int32_t CJBig2_Context::decode_EmbedOrgnazation(IFX_Pause* pPause) {
 int32_t CJBig2_Context::decode_RandomOrgnazation_FirstPage(IFX_Pause* pPause) {
   int32_t nRet;
   while (m_pStream->getByteLeft() > JBIG2_MIN_SEGMENT_SIZE) {
-    nonstd::unique_ptr<CJBig2_Segment> pSegment(new CJBig2_Segment);
+    std::unique_ptr<CJBig2_Segment> pSegment(new CJBig2_Segment);
     nRet = parseSegmentHeader(pSegment.get());
     if (nRet != JBIG2_SUCCESS) {
       return nRet;
@@ -372,7 +377,7 @@ int32_t CJBig2_Context::ProcessingParseSegmentData(CJBig2_Segment* pSegment,
       return parseGenericRefinementRegion(pSegment);
     case 48: {
       FX_WORD wTemp;
-      nonstd::unique_ptr<JBig2PageInfo> pPageInfo(new JBig2PageInfo);
+      std::unique_ptr<JBig2PageInfo> pPageInfo(new JBig2PageInfo);
       if (m_pStream->readInteger(&pPageInfo->m_dwWidth) != 0 ||
           m_pStream->readInteger(&pPageInfo->m_dwHeight) != 0 ||
           m_pStream->readInteger(&pPageInfo->m_dwResolutionX) != 0 ||
@@ -431,7 +436,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
   if (m_pStream->readShortInteger(&wFlags) != 0)
     return JBIG2_ERROR_TOO_SHORT;
 
-  nonstd::unique_ptr<CJBig2_SDDProc> pSymbolDictDecoder(new CJBig2_SDDProc);
+  std::unique_ptr<CJBig2_SDDProc> pSymbolDictDecoder(new CJBig2_SDDProc);
   pSymbolDictDecoder->SDHUFF = wFlags & 0x0001;
   pSymbolDictDecoder->SDREFAGG = (wFlags >> 1) & 0x0001;
   pSymbolDictDecoder->SDTEMPLATE = (wFlags >> 10) & 0x0003;
@@ -477,7 +482,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
     }
   }
 
-  nonstd::unique_ptr<CJBig2_Image*, FxFreeDeleter> SDINSYMS;
+  std::unique_ptr<CJBig2_Image*, FxFreeDeleter> SDINSYMS;
   if (pSymbolDictDecoder->SDNUMINSYMS != 0) {
     SDINSYMS.reset(FX_Alloc(CJBig2_Image*, pSymbolDictDecoder->SDNUMINSYMS));
     FX_DWORD dwTemp = 0;
@@ -494,11 +499,11 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
   }
   pSymbolDictDecoder->SDINSYMS = SDINSYMS.get();
 
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B1;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B2;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B3;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B4;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B5;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B1;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B2;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B3;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B4;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B5;
   if (pSymbolDictDecoder->SDHUFF == 1) {
     if (cSDHUFFDH == 2 || cSDHUFFDW == 2)
       return JBIG2_ERROR_FATAL;
@@ -516,7 +521,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
       pSymbolDictDecoder->SDHUFFDH = Table_B5.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pSymbolDictDecoder->SDHUFFDH = pSeg->m_Result.ht;
@@ -533,7 +538,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
       pSymbolDictDecoder->SDHUFFDW = Table_B3.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pSymbolDictDecoder->SDHUFFDW = pSeg->m_Result.ht;
@@ -545,7 +550,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
       pSymbolDictDecoder->SDHUFFBMSIZE = Table_B1.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pSymbolDictDecoder->SDHUFFBMSIZE = pSeg->m_Result.ht;
@@ -560,7 +565,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
         pSymbolDictDecoder->SDHUFFAGGINST = Table_B1.get();
       } else {
         CJBig2_Segment* pSeg =
-            findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+            findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
         if (!pSeg)
           return JBIG2_ERROR_FATAL;
         pSymbolDictDecoder->SDHUFFAGGINST = pSeg->m_Result.ht;
@@ -602,7 +607,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
     for (auto it = m_pSymbolDictCache->begin(); it != m_pSymbolDictCache->end();
          ++it) {
       if (it->first == key) {
-        nonstd::unique_ptr<CJBig2_SymbolDict> copy(it->second->DeepCopy());
+        std::unique_ptr<CJBig2_SymbolDict> copy(it->second->DeepCopy());
         pSegment->m_Result.sd = copy.release();
         m_pSymbolDictCache->push_front(*it);
         m_pSymbolDictCache->erase(it);
@@ -613,7 +618,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
   }
   if (!cache_hit) {
     if (bUseGbContext) {
-      nonstd::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
+      std::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
           new CJBig2_ArithDecoder(m_pStream.get()));
       pSegment->m_Result.sd = pSymbolDictDecoder->decode_Arith(
           pArithDecoder.get(), &gbContext, &grContext);
@@ -630,7 +635,7 @@ int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment* pSegment,
       m_pStream->alignByte();
     }
     if (m_bIsGlobal && kSymbolDictCacheMaxSize > 0) {
-      nonstd::unique_ptr<CJBig2_SymbolDict> value =
+      std::unique_ptr<CJBig2_SymbolDict> value =
           pSegment->m_Result.sd->DeepCopy();
       while (m_pSymbolDictCache->size() >= kSymbolDictCacheMaxSize) {
         delete m_pSymbolDictCache->back().second;
@@ -656,7 +661,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
     return JBIG2_ERROR_TOO_SHORT;
   }
 
-  nonstd::unique_ptr<CJBig2_TRDProc> pTRD(new CJBig2_TRDProc);
+  std::unique_ptr<CJBig2_TRDProc> pTRD(new CJBig2_TRDProc);
   pTRD->SBW = ri.width;
   pTRD->SBH = ri.height;
   pTRD->SBHUFF = wFlags & 0x0001;
@@ -717,7 +722,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
     }
   }
 
-  nonstd::unique_ptr<CJBig2_Image*, FxFreeDeleter> SBSYMS;
+  std::unique_ptr<CJBig2_Image*, FxFreeDeleter> SBSYMS;
   if (pTRD->SBNUMSYMS > 0) {
     SBSYMS.reset(FX_Alloc(CJBig2_Image*, pTRD->SBNUMSYMS));
     dwTemp = 0;
@@ -736,7 +741,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
     pTRD->SBSYMS = NULL;
   }
 
-  nonstd::unique_ptr<JBig2HuffmanCode, FxFreeDeleter> SBSYMCODES;
+  std::unique_ptr<JBig2HuffmanCode, FxFreeDeleter> SBSYMCODES;
   if (pTRD->SBHUFF == 1) {
     SBSYMCODES.reset(
         decodeSymbolIDHuffmanTable(m_pStream.get(), pTRD->SBNUMSYMS));
@@ -753,17 +758,17 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
     pTRD->SBSYMCODELEN = (uint8_t)dwTemp;
   }
 
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B1;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B6;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B7;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B8;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B9;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B10;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B11;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B12;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B13;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B14;
-  nonstd::unique_ptr<CJBig2_HuffmanTable> Table_B15;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B1;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B6;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B7;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B8;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B9;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B10;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B11;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B12;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B13;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B14;
+  std::unique_ptr<CJBig2_HuffmanTable> Table_B15;
   if (pTRD->SBHUFF == 1) {
     if (cSBHUFFFS == 2 || cSBHUFFRDW == 2 || cSBHUFFRDH == 2 ||
         cSBHUFFRDX == 2 || cSBHUFFRDY == 2) {
@@ -782,7 +787,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFFS = Table_B7.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFFS = pSeg->m_Result.ht;
@@ -804,7 +809,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFDS = Table_B10.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFDS = pSeg->m_Result.ht;
@@ -826,7 +831,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFDT = Table_B13.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFDT = pSeg->m_Result.ht;
@@ -843,7 +848,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFRDW = Table_B15.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFRDW = pSeg->m_Result.ht;
@@ -864,7 +869,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFRDH = Table_B15.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFRDH = pSeg->m_Result.ht;
@@ -885,7 +890,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFRDX = Table_B15.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFRDX = pSeg->m_Result.ht;
@@ -906,7 +911,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFRDY = Table_B15.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFRDY = pSeg->m_Result.ht;
@@ -918,24 +923,24 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
       pTRD->SBHUFFRSIZE = Table_B1.get();
     } else {
       CJBig2_Segment* pSeg =
-          findReferredSegmentByTypeAndIndex(pSegment, 53, ++nIndex);
+          findReferredSegmentByTypeAndIndex(pSegment, 53, nIndex++);
       if (!pSeg)
         return JBIG2_ERROR_FATAL;
       pTRD->SBHUFFRSIZE = pSeg->m_Result.ht;
     }
   }
-  nonstd::unique_ptr<JBig2ArithCtx, FxFreeDeleter> grContext;
+  std::unique_ptr<JBig2ArithCtx, FxFreeDeleter> grContext;
   if (pTRD->SBREFINE == 1) {
     const size_t size = GetRefAggContextSize(pTRD->SBRTEMPLATE);
     grContext.reset(FX_Alloc(JBig2ArithCtx, size));
     JBIG2_memset(grContext.get(), 0, sizeof(JBig2ArithCtx) * size);
   }
   if (pTRD->SBHUFF == 0) {
-    nonstd::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
+    std::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
         new CJBig2_ArithDecoder(m_pStream.get()));
     pSegment->m_nResultType = JBIG2_IMAGE_POINTER;
     pSegment->m_Result.im =
-        pTRD->decode_Arith(pArithDecoder.get(), grContext.get());
+        pTRD->decode_Arith(pArithDecoder.get(), grContext.get(), nullptr);
     if (!pSegment->m_Result.im)
       return JBIG2_ERROR_FATAL;
     m_pStream->alignByte();
@@ -967,7 +972,7 @@ int32_t CJBig2_Context::parseTextRegion(CJBig2_Segment* pSegment) {
 int32_t CJBig2_Context::parsePatternDict(CJBig2_Segment* pSegment,
                                          IFX_Pause* pPause) {
   uint8_t cFlags;
-  nonstd::unique_ptr<CJBig2_PDDProc> pPDD(new CJBig2_PDDProc);
+  std::unique_ptr<CJBig2_PDDProc> pPDD(new CJBig2_PDDProc);
   if (m_pStream->read1Byte(&cFlags) != 0 ||
       m_pStream->read1Byte(&pPDD->HDPW) != 0 ||
       m_pStream->read1Byte(&pPDD->HDPH) != 0 ||
@@ -982,10 +987,10 @@ int32_t CJBig2_Context::parsePatternDict(CJBig2_Segment* pSegment,
   pSegment->m_nResultType = JBIG2_PATTERN_DICT_POINTER;
   if (pPDD->HDMMR == 0) {
     const size_t size = GetHuffContextSize(pPDD->HDTEMPLATE);
-    nonstd::unique_ptr<JBig2ArithCtx, FxFreeDeleter> gbContext(
+    std::unique_ptr<JBig2ArithCtx, FxFreeDeleter> gbContext(
         FX_Alloc(JBig2ArithCtx, size));
     JBIG2_memset(gbContext.get(), 0, sizeof(JBig2ArithCtx) * size);
-    nonstd::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
+    std::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
         new CJBig2_ArithDecoder(m_pStream.get()));
     pSegment->m_Result.pd =
         pPDD->decode_Arith(pArithDecoder.get(), gbContext.get(), pPause);
@@ -1007,7 +1012,7 @@ int32_t CJBig2_Context::parseHalftoneRegion(CJBig2_Segment* pSegment,
                                             IFX_Pause* pPause) {
   uint8_t cFlags;
   JBig2RegionInfo ri;
-  nonstd::unique_ptr<CJBig2_HTRDProc> pHRD(new CJBig2_HTRDProc);
+  std::unique_ptr<CJBig2_HTRDProc> pHRD(new CJBig2_HTRDProc);
   if (parseRegionInfo(&ri) != JBIG2_SUCCESS ||
       m_pStream->read1Byte(&cFlags) != 0 ||
       m_pStream->readInteger(&pHRD->HGW) != 0 ||
@@ -1048,10 +1053,10 @@ int32_t CJBig2_Context::parseHalftoneRegion(CJBig2_Segment* pSegment,
   pSegment->m_nResultType = JBIG2_IMAGE_POINTER;
   if (pHRD->HMMR == 0) {
     const size_t size = GetHuffContextSize(pHRD->HTEMPLATE);
-    nonstd::unique_ptr<JBig2ArithCtx, FxFreeDeleter> gbContext(
+    std::unique_ptr<JBig2ArithCtx, FxFreeDeleter> gbContext(
         FX_Alloc(JBig2ArithCtx, size));
     JBIG2_memset(gbContext.get(), 0, sizeof(JBig2ArithCtx) * size);
-    nonstd::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
+    std::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
         new CJBig2_ArithDecoder(m_pStream.get()));
     pSegment->m_Result.im =
         pHRD->decode_Arith(pArithDecoder.get(), gbContext.get(), pPause);
@@ -1085,7 +1090,7 @@ int32_t CJBig2_Context::parseHalftoneRegion(CJBig2_Segment* pSegment,
 int32_t CJBig2_Context::parseGenericRegion(CJBig2_Segment* pSegment,
                                            IFX_Pause* pPause) {
   if (!m_pGRD) {
-    nonstd::unique_ptr<CJBig2_GRDProc> pGRD(new CJBig2_GRDProc);
+    std::unique_ptr<CJBig2_GRDProc> pGRD(new CJBig2_GRDProc);
     uint8_t cFlags;
     if (parseRegionInfo(&m_ri) != JBIG2_SUCCESS ||
         m_pStream->read1Byte(&cFlags) != 0) {
@@ -1115,7 +1120,7 @@ int32_t CJBig2_Context::parseGenericRegion(CJBig2_Segment* pSegment,
       }
     }
     pGRD->USESKIP = 0;
-    m_pGRD = nonstd::move(pGRD);
+    m_pGRD = std::move(pGRD);
   }
   pSegment->m_nResultType = JBIG2_IMAGE_POINTER;
   if (m_pGRD->MMR == 0) {
@@ -1198,7 +1203,7 @@ int32_t CJBig2_Context::parseGenericRefinementRegion(CJBig2_Segment* pSegment) {
       m_pStream->read1Byte(&cFlags) != 0) {
     return JBIG2_ERROR_TOO_SHORT;
   }
-  nonstd::unique_ptr<CJBig2_GRRDProc> pGRRD(new CJBig2_GRRDProc);
+  std::unique_ptr<CJBig2_GRRDProc> pGRRD(new CJBig2_GRRDProc);
   pGRRD->GRW = ri.width;
   pGRRD->GRH = ri.height;
   pGRRD->GRTEMPLATE = cFlags & 0x01;
@@ -1232,10 +1237,10 @@ int32_t CJBig2_Context::parseGenericRefinementRegion(CJBig2_Segment* pSegment) {
   pGRRD->GRREFERENCEDX = 0;
   pGRRD->GRREFERENCEDY = 0;
   const size_t size = GetRefAggContextSize(pGRRD->GRTEMPLATE);
-  nonstd::unique_ptr<JBig2ArithCtx, FxFreeDeleter> grContext(
+  std::unique_ptr<JBig2ArithCtx, FxFreeDeleter> grContext(
       FX_Alloc(JBig2ArithCtx, size));
   JBIG2_memset(grContext.get(), 0, sizeof(JBig2ArithCtx) * size);
-  nonstd::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
+  std::unique_ptr<CJBig2_ArithDecoder> pArithDecoder(
       new CJBig2_ArithDecoder(m_pStream.get()));
   pSegment->m_nResultType = JBIG2_IMAGE_POINTER;
   pSegment->m_Result.im = pGRRD->decode(pArithDecoder.get(), grContext.get());
@@ -1262,12 +1267,13 @@ int32_t CJBig2_Context::parseGenericRefinementRegion(CJBig2_Segment* pSegment) {
 
 int32_t CJBig2_Context::parseTable(CJBig2_Segment* pSegment) {
   pSegment->m_nResultType = JBIG2_HUFFMAN_TABLE_POINTER;
-  pSegment->m_Result.ht = new CJBig2_HuffmanTable(m_pStream.get());
-  if (!pSegment->m_Result.ht->isOK()) {
-    delete pSegment->m_Result.ht;
-    pSegment->m_Result.ht = NULL;
+  pSegment->m_Result.ht = nullptr;
+  std::unique_ptr<CJBig2_HuffmanTable> pHuff(
+      new CJBig2_HuffmanTable(m_pStream.get()));
+  if (!pHuff->IsOK())
     return JBIG2_ERROR_FATAL;
-  }
+
+  pSegment->m_Result.ht = pHuff.release();
   m_pStream->alignByte();
   return JBIG2_SUCCESS;
 }
@@ -1295,7 +1301,7 @@ JBig2HuffmanCode* CJBig2_Context::decodeSymbolIDHuffmanTable(
   }
   huffman_assign_code(runcodes, runcodes_len, kRunCodesSize);
 
-  nonstd::unique_ptr<JBig2HuffmanCode, FxFreeDeleter> SBSYMCODES(
+  std::unique_ptr<JBig2HuffmanCode, FxFreeDeleter> SBSYMCODES(
       FX_Alloc(JBig2HuffmanCode, SBNUMSYMS));
   int32_t run;
   int32_t i = 0;

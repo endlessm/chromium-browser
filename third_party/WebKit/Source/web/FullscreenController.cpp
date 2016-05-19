@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/FullscreenController.h"
 
 #include "core/dom/Document.h"
@@ -37,7 +36,6 @@
 #include "core/frame/PageScaleConstraintsSet.h"
 #include "core/html/HTMLMediaElement.h"
 #include "core/html/HTMLVideoElement.h"
-#include "platform/LayoutTestSupport.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "public/platform/WebLayerTreeView.h"
 #include "public/web/WebFrameClient.h"
@@ -54,6 +52,7 @@ PassOwnPtrWillBeRawPtr<FullscreenController> FullscreenController::create(WebVie
 
 FullscreenController::FullscreenController(WebViewImpl* webViewImpl)
     : m_webViewImpl(webViewImpl)
+    , m_haveEnteredFullscreen(false)
     , m_exitFullscreenPageScaleFactor(0)
     , m_isCancelingFullScreen(false)
 {
@@ -71,15 +70,12 @@ void FullscreenController::didEnterFullScreen()
     if (!m_fullScreenFrame)
         return;
 
-    if (!m_exitFullscreenPageScaleFactor) {
-        m_exitFullscreenPageScaleFactor = m_webViewImpl->pageScaleFactor();
-        m_exitFullscreenScrollOffset = m_webViewImpl->mainFrame()->scrollOffset();
-        m_exitFullscreenVisualViewportOffset = m_webViewImpl->visualViewportOffset();
-
+    if (!m_haveEnteredFullscreen) {
         updatePageScaleConstraints(false);
         m_webViewImpl->setPageScaleFactor(1.0f);
         m_webViewImpl->mainFrame()->setScrollOffset(WebSize());
         m_webViewImpl->setVisualViewportOffset(FloatPoint());
+        m_haveEnteredFullscreen = true;
     }
 
     Fullscreen::from(document).didEnterFullScreenForElement(element.get());
@@ -87,15 +83,8 @@ void FullscreenController::didEnterFullScreen()
 
     if (isHTMLVideoElement(element)) {
         HTMLVideoElement* videoElement = toHTMLVideoElement(element);
-        if (videoElement->usesOverlayFullscreenVideo()) {
-            if (videoElement->webMediaPlayer()
-                // FIXME: There is no embedder-side handling in layout test mode.
-                && !LayoutTestSupport::isRunningLayoutTest()) {
-                videoElement->webMediaPlayer()->enterFullscreen();
-            }
-            if (m_webViewImpl->layerTreeView())
-                m_webViewImpl->layerTreeView()->setHasTransparentBackground(true);
-        }
+        if (videoElement->usesOverlayFullscreenVideo() && m_webViewImpl->layerTreeView())
+            m_webViewImpl->layerTreeView()->setHasTransparentBackground(true);
     }
 }
 
@@ -118,13 +107,12 @@ void FullscreenController::didExitFullScreen()
                 if (isHTMLVideoElement(element) && m_webViewImpl->layerTreeView())
                     m_webViewImpl->layerTreeView()->setHasTransparentBackground(m_webViewImpl->isTransparent());
 
-                if (m_exitFullscreenPageScaleFactor) {
+                if (m_haveEnteredFullscreen) {
                     updatePageScaleConstraints(true);
                     m_webViewImpl->setPageScaleFactor(m_exitFullscreenPageScaleFactor);
                     m_webViewImpl->mainFrame()->setScrollOffset(WebSize(m_exitFullscreenScrollOffset));
                     m_webViewImpl->setVisualViewportOffset(m_exitFullscreenVisualViewportOffset);
-                    m_exitFullscreenPageScaleFactor = 0;
-                    m_exitFullscreenScrollOffset = IntSize();
+                    m_haveEnteredFullscreen = false;
                 }
 
                 fullscreen->didExitFullScreenForElement(0);
@@ -148,6 +136,15 @@ void FullscreenController::enterFullScreenForElement(Element* element)
         m_provisionalFullScreenElement = element;
         didEnterFullScreen();
         return;
+    }
+
+    // We need to store these values here rather than didEnterFullScreen since
+    // by the time the latter is called, a Resize has already occured, clamping
+    // the scroll offset.
+    if (!m_haveEnteredFullscreen) {
+        m_exitFullscreenPageScaleFactor = m_webViewImpl->pageScaleFactor();
+        m_exitFullscreenScrollOffset = m_webViewImpl->mainFrame()->scrollOffset();
+        m_exitFullscreenVisualViewportOffset = m_webViewImpl->visualViewportOffset();
     }
 
     // We need to transition to fullscreen mode.
@@ -188,7 +185,7 @@ void FullscreenController::updatePageScaleConstraints(bool removeConstraints)
     PageScaleConstraints fullscreenConstraints;
     if (!removeConstraints) {
         fullscreenConstraints = PageScaleConstraints(1.0, 1.0, 1.0);
-        fullscreenConstraints.layoutSize = IntSize(m_webViewImpl->size());
+        fullscreenConstraints.layoutSize = FloatSize(m_webViewImpl->size());
     }
     m_webViewImpl->pageScaleConstraintsSet().setFullscreenConstraints(fullscreenConstraints);
     m_webViewImpl->pageScaleConstraintsSet().computeFinalConstraints();

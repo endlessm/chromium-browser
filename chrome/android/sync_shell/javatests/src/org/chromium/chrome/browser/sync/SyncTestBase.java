@@ -16,13 +16,18 @@ import org.chromium.chrome.browser.signin.SigninManager;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.chrome.test.util.browser.signin.SigninTestUtil;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
+import org.chromium.content.browser.test.util.Criteria;
+import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.sync.AndroidSyncSettings;
 import org.chromium.sync.ModelType;
 import org.chromium.sync.test.util.MockSyncContentResolverDelegate;
 
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Base class for common functionality between sync tests.
@@ -42,8 +47,26 @@ public class SyncTestBase extends ChromeActivityTestCaseBase<ChromeActivity> {
                 ModelType.TYPED_URLS,
             }));
 
+    protected abstract class DataCriteria<T> extends Criteria {
+        public DataCriteria() {
+            super("Sync data criteria not met.");
+        }
+
+        public abstract boolean isSatisfied(List<T> data);
+
+        public abstract List<T> getData() throws Exception;
+
+        @Override
+        public boolean isSatisfied() {
+            try {
+                return isSatisfied(getData());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     protected Context mContext;
-    protected SyncController mSyncController;
     protected FakeServerHelper mFakeServerHelper;
     protected ProfileSyncService mProfileSyncService;
     protected MockSyncContentResolverDelegate mSyncContentResolver;
@@ -72,9 +95,8 @@ public class SyncTestBase extends ChromeActivityTestCaseBase<ChromeActivity> {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                mSyncController = SyncController.get(mContext);
                 // Ensure SyncController is registered with the new AndroidSyncSettings.
-                AndroidSyncSettings.registerObserver(mContext, mSyncController);
+                AndroidSyncSettings.registerObserver(mContext, SyncController.get(mContext));
                 mFakeServerHelper = FakeServerHelper.get();
             }
         });
@@ -101,7 +123,7 @@ public class SyncTestBase extends ChromeActivityTestCaseBase<ChromeActivity> {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                mSyncController.stop();
+                mProfileSyncService.requestStop();
                 FakeServerHelper.deleteFakeServer();
             }
         });
@@ -125,9 +147,6 @@ public class SyncTestBase extends ChromeActivityTestCaseBase<ChromeActivity> {
     protected Account setUpTestAccountAndSignInToSync() throws InterruptedException {
         Account account = setUpTestAccount();
         signIn(account);
-        SyncTestUtil.verifySyncIsActiveForAccount(mContext, account);
-        assertTrue("Sync everything should be enabled",
-                SyncTestUtil.isSyncEverythingEnabled(mContext));
         return account;
     }
 
@@ -135,38 +154,62 @@ public class SyncTestBase extends ChromeActivityTestCaseBase<ChromeActivity> {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                SyncController.get(mContext).start();
+                mProfileSyncService.requestStart();
             }
         });
-        SyncTestUtil.waitForSyncActive(mContext);
+    }
+
+    protected void startSyncAndWait() throws InterruptedException {
+        startSync();
+        SyncTestUtil.waitForSyncActive();
     }
 
     protected void stopSync() {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                SyncController.get(mContext).stop();
+                mProfileSyncService.requestStop();
             }
         });
         getInstrumentation().waitForIdleSync();
     }
 
-    protected void signIn(final Account account) {
+    protected void signIn(final Account account) throws InterruptedException {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                mSyncController.signIn(getActivity(), account.name);
+                SigninManager.get(mContext).signIn(account, null, null);
             }
         });
+        SyncTestUtil.verifySyncIsActiveForAccount(mContext, account);
     }
 
     protected void signOut() throws InterruptedException {
+        final Semaphore s = new Semaphore(0);
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                SigninManager.get(mContext).signOut(getActivity(), null);
+                SigninManager.get(mContext).signOut(new Runnable() {
+                    @Override
+                    public void run() {
+                        s.release();
+                    }
+                });
             }
         });
+        assertTrue(s.tryAcquire(SyncTestUtil.TIMEOUT_MS, TimeUnit.MILLISECONDS));
+        SyncTestUtil.verifySyncIsSignedOut(mContext);
+    }
+
+    protected void clearServerData() throws InterruptedException {
+        mFakeServerHelper.clearServerData();
+        SyncTestUtil.triggerSync();
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria("Timed out waiting for sync to stop.") {
+            @Override
+            public boolean isSatisfied() {
+                return !ProfileSyncService.get().isSyncRequested();
+            }
+        }, SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
     }
 
     protected void disableDataType(final int modelType) {
@@ -179,5 +222,9 @@ public class SyncTestBase extends ChromeActivityTestCaseBase<ChromeActivity> {
                 mProfileSyncService.setPreferredDataTypes(false, preferredTypes);
             }
         });
+    }
+
+    protected void pollForCriteria(Criteria criteria) throws InterruptedException {
+        CriteriaHelper.pollForCriteria(criteria, SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
     }
 }

@@ -3,9 +3,11 @@
 // found in the LICENSE file.
 
 #include <windows.h>
+#include <stddef.h>
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/process/memory.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -212,7 +214,7 @@ BOOL DisconnectWindowWin::OnDialogMessage(HWND hwnd,
       RECT rect;
       GetClientRect(hwnd_, &rect);
       {
-        base::win::ScopedSelectObject border(hdc, border_pen_);
+        base::win::ScopedSelectObject border(hdc, border_pen_.get());
         base::win::ScopedSelectObject brush(hdc, GetStockObject(NULL_BRUSH));
         RoundRect(hdc, rect.left, rect.top, rect.right - 1, rect.bottom - 1,
                   kWindowBorderRadius, kWindowBorderRadius);

@@ -2,24 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
-#include "HTTPParsers.h"
+#include "platform/network/HTTPParsers.h"
 
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/MathExtras.h"
 #include "wtf/text/AtomicString.h"
 
-#include <gtest/gtest.h>
-
 namespace blink {
-
-namespace {
-
-size_t parseHTTPHeader(const char* data, String& failureReason, AtomicString& nameStr, AtomicString& valueStr)
-{
-    return blink::parseHTTPHeader(data, strlen(data), failureReason, nameStr, valueStr);
-}
-
-} // namespace
 
 TEST(HTTPParsersTest, ParseCacheControl)
 {
@@ -103,125 +92,6 @@ TEST(HTTPParsersTest, ParseCacheControl)
     EXPECT_TRUE(std::isnan(header.maxAge));
 }
 
-TEST(HTTPParsersTest, parseHTTPHeaderSimple)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(12u, parseHTTPHeader("foo:   bar\r\notherdata", failureReason, name, value));
-    EXPECT_TRUE(failureReason.isEmpty());
-    EXPECT_EQ("foo", name.string());
-    EXPECT_EQ("bar", value.string());
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderEmptyName)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader(": bar\r\notherdata", failureReason, name, value));
-    EXPECT_EQ("Header name is missing", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderEmptyValue)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(7u, parseHTTPHeader("foo: \r\notherdata", failureReason, name, value));
-    EXPECT_TRUE(failureReason.isEmpty());
-    EXPECT_EQ("foo", name.string());
-    EXPECT_TRUE(value.isEmpty());
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderInvalidName)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("\xfa: \r\notherdata", failureReason, name, value));
-    EXPECT_EQ("Invalid UTF-8 sequence in header name", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderInvalidValue)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("foo: \xfa\r\notherdata", failureReason, name, value));
-    EXPECT_EQ("Invalid UTF-8 sequence in header value", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderEmpty)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("", failureReason, name, value));
-    EXPECT_EQ("Unterminated header name", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderEmptyLine)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(2u, parseHTTPHeader("\r\notherdata", failureReason, name, value));
-    EXPECT_TRUE(failureReason.isEmpty());
-    EXPECT_TRUE(name.isNull());
-    EXPECT_TRUE(value.isNull());
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderUnexpectedCRinName)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("foo\rotherdata\n", failureReason, name, value));
-    EXPECT_EQ("Unexpected CR in name at foo", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderUnexpectedLFinName)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("foo\notherdata\n", failureReason, name, value));
-    EXPECT_EQ("Unexpected LF in name at foo", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderUnexpectedLFinValue)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("foo: bar\notherdata\n", failureReason, name, value));
-    EXPECT_EQ("Unexpected LF in value at bar", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderNoLFAtEndOfLine)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("foo: bar\r", failureReason, name, value));
-    EXPECT_EQ("LF doesn't follow CR after value at ", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderNoLF)
-{
-    String failureReason;
-    AtomicString name, value;
-    EXPECT_EQ(0u, parseHTTPHeader("foo: bar\rhoge\r\n", failureReason, name, value));
-    EXPECT_EQ("LF doesn't follow CR after value at hoge\r\n", failureReason);
-}
-
-TEST(HTTPParsersTest, parseHTTPHeaderTwoLines)
-{
-    const char data[] = "foo: bar\r\nhoge: fuga\r\nxxx";
-    String failureReason;
-    AtomicString name, value;
-
-    EXPECT_EQ(10u, parseHTTPHeader(data, failureReason, name, value));
-    EXPECT_TRUE(failureReason.isEmpty());
-    EXPECT_EQ("foo", name.string());
-    EXPECT_EQ("bar", value.string());
-
-    EXPECT_EQ(12u, parseHTTPHeader(data + 10, failureReason, name, value));
-    EXPECT_TRUE(failureReason.isEmpty());
-    EXPECT_EQ("hoge", name.string());
-    EXPECT_EQ("fuga", value.string());
-}
-
 TEST(HTTPParsersTest, CommaDelimitedHeaderSet)
 {
     CommaDelimitedHeaderSet set1;
@@ -263,5 +133,36 @@ TEST(HTTPParsersTest, HTTPFieldContent)
     EXPECT_FALSE(blink::isValidHTTPFieldContentRFC7230(String(hiraganaA)));
 }
 
-} // namespace blink
+TEST(HTTPParsersTest, ExtractMIMETypeFromMediaType)
+{
+    const AtomicString textHtml("text/html", AtomicString::ConstructFromLiteral);
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text/html; charset=iso-8859-1")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text/html ; charset=iso-8859-1")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text/html,text/plain")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text/html , text/plain")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text/html\t,\ttext/plain")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString(" text/html   ")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("\ttext/html \t")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("\r\ntext/html\r\n")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text/html,text/plain;charset=iso-8859-1")));
+    EXPECT_EQ(emptyString(), extractMIMETypeFromMediaType(AtomicString(", text/html")));
+    EXPECT_EQ(emptyString(), extractMIMETypeFromMediaType(AtomicString("; text/html")));
 
+    // Preserves case.
+    EXPECT_EQ("tExt/hTMl", extractMIMETypeFromMediaType(AtomicString("tExt/hTMl")));
+
+    // If no normalization is required, the same AtomicString should be returned.
+    const AtomicString& passthrough = extractMIMETypeFromMediaType(textHtml);
+    EXPECT_EQ(textHtml.impl(), passthrough.impl());
+
+    // These tests cover current behavior, but are not necessarily
+    // expected/wanted behavior. (See FIXME in implementation.)
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text / html")));
+    // U+2003, EM SPACE (UTF-8: E2 80 83)
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString::fromUTF8("text\xE2\x80\x83/ html")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text\r\n/\nhtml")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("text\n/\nhtml")));
+    EXPECT_EQ(textHtml, extractMIMETypeFromMediaType(AtomicString("t e x t / h t m l")));
+}
+
+} // namespace blink

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "media/base/media_switches.h"
 
 namespace switches {
@@ -11,6 +12,10 @@ const char kAudioBufferSize[] = "audio-buffer-size";
 
 // Set number of threads to use for video decoding.
 const char kVideoThreads[] = "video-threads";
+
+// Suspend media pipeline on background tabs.
+const char kEnableMediaSuspend[] = "enable-media-suspend";
+const char kDisableMediaSuspend[] = "disable-media-suspend";
 
 #if defined(OS_ANDROID)
 // Sets the MediaSource player that uses UI thread for frame processing.
@@ -92,11 +97,6 @@ const char kWaveOutBuffers[] = "waveout-buffers";
 const char kUseCras[] = "use-cras";
 #endif
 
-// Enables the audio thread hang monitor.  Allows us to find users in the field
-// who have stuck audio threads.  See crbug.com/422522 and crbug.com/478932.
-// TODO(dalecurtis): This should be removed once those issues are resolved.
-const char kEnableAudioHangMonitor[] = "enable-audio-hang-monitor";
-
 // Use fake device for Media Stream to replace actual camera and microphone.
 const char kUseFakeDeviceForMediaStream[] = "use-fake-device-for-media-stream";
 
@@ -130,3 +130,11 @@ const char kDisableRTCSmoothnessAlgorithm[] =
     "disable-rtc-smoothness-algorithm";
 
 }  // namespace switches
+
+namespace media {
+
+// Use shared block-based buffering for media.
+const base::Feature kUseNewMediaCache{"use-new-media-cache",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
+
+}  // namespace media

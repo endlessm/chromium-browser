@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -624,7 +627,7 @@ TEST_F(ProfileManagerTest, LastOpenedProfiles) {
   ASSERT_EQ(0U, last_opened_profiles.size());
 
   // Create a browser for profile1.
-  Browser::CreateParams profile1_params(profile1, chrome::GetActiveDesktop());
+  Browser::CreateParams profile1_params(profile1);
   scoped_ptr<Browser> browser1a(
       chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
 
@@ -633,7 +636,7 @@ TEST_F(ProfileManagerTest, LastOpenedProfiles) {
   EXPECT_EQ(profile1, last_opened_profiles[0]);
 
   // And for profile2.
-  Browser::CreateParams profile2_params(profile2, chrome::GetActiveDesktop());
+  Browser::CreateParams profile2_params(profile2);
   scoped_ptr<Browser> browser2(
       chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
 
@@ -686,12 +689,12 @@ TEST_F(ProfileManagerTest, LastOpenedProfilesAtShutdown) {
   ASSERT_TRUE(profile2);
 
   // Create a browser for profile1.
-  Browser::CreateParams profile1_params(profile1, chrome::GetActiveDesktop());
+  Browser::CreateParams profile1_params(profile1);
   scoped_ptr<Browser> browser1(
       chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
 
   // And for profile2.
-  Browser::CreateParams profile2_params(profile2, chrome::GetActiveDesktop());
+  Browser::CreateParams profile2_params(profile2);
   scoped_ptr<Browser> browser2(
       chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
 
@@ -736,7 +739,7 @@ TEST_F(ProfileManagerTest, LastOpenedProfilesDoesNotContainIncognito) {
   ASSERT_EQ(0U, last_opened_profiles.size());
 
   // Create a browser for profile1.
-  Browser::CreateParams profile1_params(profile1, chrome::GetActiveDesktop());
+  Browser::CreateParams profile1_params(profile1);
   scoped_ptr<Browser> browser1(
       chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
 
@@ -745,8 +748,7 @@ TEST_F(ProfileManagerTest, LastOpenedProfilesDoesNotContainIncognito) {
   EXPECT_EQ(profile1, last_opened_profiles[0]);
 
   // And for profile2.
-  Browser::CreateParams profile2_params(profile1->GetOffTheRecordProfile(),
-                                        chrome::GetActiveDesktop());
+  Browser::CreateParams profile2_params(profile1->GetOffTheRecordProfile());
   scoped_ptr<Browser> browser2a(
       chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
 
@@ -796,7 +798,7 @@ TEST_F(ProfileManagerTest, EphemeralProfilesDontEndUpAsLastProfile) {
   EXPECT_NE(profile, last_used_profile);
 
   // Create a browser for the profile.
-  Browser::CreateParams profile_params(profile, chrome::GetActiveDesktop());
+  Browser::CreateParams profile_params(profile);
   scoped_ptr<Browser> browser(
       chrome::CreateBrowserWithTestWindowForParams(&profile_params));
   last_used_profile = profile_manager->GetLastUsedProfile();
@@ -838,19 +840,16 @@ TEST_F(ProfileManagerTest, EphemeralProfilesDontEndUpAsLastOpenedAtShutdown) {
   ASSERT_TRUE(ephemeral_profile2);
 
   // Create a browser for profile1.
-  Browser::CreateParams profile1_params(normal_profile,
-                                        chrome::GetActiveDesktop());
+  Browser::CreateParams profile1_params(normal_profile);
   scoped_ptr<Browser> browser1(
       chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
 
   // Create browsers for the ephemeral profile.
-  Browser::CreateParams profile2_params(ephemeral_profile1,
-                                        chrome::GetActiveDesktop());
+  Browser::CreateParams profile2_params(ephemeral_profile1);
   scoped_ptr<Browser> browser2(
       chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
 
-  Browser::CreateParams profile3_params(ephemeral_profile2,
-                                        chrome::GetActiveDesktop());
+  Browser::CreateParams profile3_params(ephemeral_profile2);
   scoped_ptr<Browser> browser3(
       chrome::CreateBrowserWithTestWindowForParams(&profile3_params));
 

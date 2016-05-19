@@ -10,15 +10,12 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/update_client/update_response.h"
 #include "url/gurl.h"
 
 class GURL;
-
-namespace net {
-class URLRequestContextGetter;
-}
 
 namespace update_client {
 
@@ -28,12 +25,10 @@ struct CrxUpdateItem;
 class UpdateChecker {
  public:
   using UpdateCheckCallback =
-      base::Callback<void(const GURL& original_url,
-                          int error,
-                          const std::string& error_message,
-                          const UpdateResponse::Results& results)>;
+      base::Callback<void(int error, const UpdateResponse::Results& results)>;
 
-  using Factory = scoped_ptr<UpdateChecker>(*)(const Configurator& config);
+  using Factory =
+      scoped_ptr<UpdateChecker> (*)(const scoped_refptr<Configurator>& config);
 
   virtual ~UpdateChecker() {}
 
@@ -45,7 +40,8 @@ class UpdateChecker {
       const std::string& additional_attributes,
       const UpdateCheckCallback& update_check_callback) = 0;
 
-  static scoped_ptr<UpdateChecker> Create(const Configurator& config);
+  static scoped_ptr<UpdateChecker> Create(
+      const scoped_refptr<Configurator>& config);
 
  protected:
   UpdateChecker() {}

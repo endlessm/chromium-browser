@@ -105,6 +105,7 @@ Informationen zum Datenschutz finden Sie in der Google-Datenschutzerklärung (ht
 <translation id="337167041784729019">Statistiken anzeigen</translation>
 <translation id="3385242214819933234">Ungültiger Hostinhaber</translation>
 <translation id="3403830762023901068">Gemäß den Richtlinieneinstellungen können Sie diesen Computer nicht als Chromoting-Host verwenden. Wenden Sie sich für weitere Hilfe an Ihren Systemadministrator.</translation>
+<translation id="3423542133075182604">Remoting-Prozess für Sicherheitsschlüssel</translation>
 <translation id="3581045510967524389">Es konnte keine Verbindung zum Netzwerk hergestellt werden. Überprüfen Sie, ob Ihr Gerät online ist.</translation>
 <translation id="3596628256176442606">Dieser Dienst ermöglicht eingehende Verbindungen von Chromoting-Clients.</translation>
 <translation id="3606997049964069799">Sie sind nicht in Chromium angemeldet. Melden Sie sich an und versuchen Sie es erneut.</translation>
@@ -153,6 +154,7 @@ Host</translation>
 Desktop Host</translation>
 <translation id="4619978527973181021">Akzeptieren und installieren</translation>
 <translation id="4647791084836149355">Cardboard-Ansicht anzeigen</translation>
+<translation id="4703302905453407178">Eine erforderliche Komponente funktioniert nicht mehr. Bitte melden Sie dieses Problem an die Entwickler.</translation>
 <translation id="4703799847237267011">Ihre Chromoting-Sitzung wurde beendet.</translation>
 <translation id="4736223761657662401">Verlauf "Verbindungen"</translation>
 <translation id="4741792197137897469">Fehler bei der Authentifizierung. Melden Sie sich erneut in Chrome an.</translation>

@@ -6,17 +6,19 @@
 #define COMPONENTS_LEVELDB_PROTO_PROTO_DATABASE_IMPL_H_
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/sequenced_task_runner.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_checker.h"
-#include "base/strings/string_split.h"
 #include "components/leveldb_proto/leveldb_database.h"
 #include "components/leveldb_proto/proto_database.h"
 
@@ -89,7 +91,7 @@ template <typename T>
 void RunLoadCallback(const typename ProtoDatabase<T>::LoadCallback& callback,
                      const bool* success,
                      scoped_ptr<std::vector<T>> entries) {
-  callback.Run(*success, entries.Pass());
+  callback.Run(*success, std::move(entries));
 }
 
 template <typename T>
@@ -166,7 +168,7 @@ ProtoDatabaseImpl<T>::ProtoDatabaseImpl(
 template <typename T>
 ProtoDatabaseImpl<T>::~ProtoDatabaseImpl() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  if (!task_runner_->DeleteSoon(FROM_HERE, db_.release()))
+  if (db_.get() && !task_runner_->DeleteSoon(FROM_HERE, db_.release()))
     DLOG(WARNING) << "Proto database will not be deleted.";
 }
 
@@ -187,7 +189,15 @@ void ProtoDatabaseImpl<T>::Destroy(
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(db_);
   DCHECK(!database_dir_.empty());
-  db_.reset();
+
+  // Note that |db_| should be released from task runner.
+  if (!task_runner_->DeleteSoon(FROM_HERE, db_.release())) {
+    DLOG(WARNING) << "Proto database will not be deleted.";
+    callback.Run(false);
+    return;
+  }
+
+  // After |db_| is released, we can now wipe out the database directory.
   bool* success = new bool(false);
   task_runner_->PostTaskAndReply(
       FROM_HERE, base::Bind(DestroyFromTaskRunner, database_dir_, success),

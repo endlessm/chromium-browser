@@ -4,6 +4,9 @@
 
 #include "chrome/browser/chromeos/launcher_search_provider/launcher_search_provider_service.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/memory/scoped_vector.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/launcher_search_provider/launcher_search_provider_service_factory.h"
@@ -55,7 +58,7 @@ void Service::OnQueryStarted(app_list::LauncherSearchProvider* provider,
   CacheListenerExtensionIds();
   for (const ExtensionId extension_id : *cached_listener_extension_ids_.get()) {
     // Convert query_id_ to string here since queryId is defined as string in
-    // javascript side API while we use uint32 internally to generate it.
+    // javascript side API while we use uint32_t internally to generate it.
     event_router->DispatchEventToExtension(
         extension_id,
         make_scoped_ptr(new extensions::Event(
@@ -133,7 +136,7 @@ void Service::SetSearchResults(
     search_result->set_title(base::UTF8ToUTF16(result->title));
     search_results.push_back(search_result);
   }
-  provider_->SetSearchResults(extension->id(), search_results.Pass());
+  provider_->SetSearchResults(extension->id(), std::move(search_results));
 }
 
 bool Service::IsQueryRunning() const {

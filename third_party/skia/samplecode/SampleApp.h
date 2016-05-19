@@ -33,14 +33,13 @@ class SampleWindow : public SkOSWindow {
 public:
     enum DeviceType {
         kRaster_DeviceType,
-        kPicture_DeviceType,
 #if SK_SUPPORT_GPU
         kGPU_DeviceType,
 #if SK_ANGLE
         kANGLE_DeviceType,
 #endif // SK_ANGLE
 #if SK_COMMAND_BUFFER
-        kCommandBuffer_DeviceType,
+        kCommandBufferES2_DeviceType,
 #endif // SK_COMMAND_BUFFER
 #endif // SK_SUPPORT_GPU
         kDeviceTypeCnt
@@ -54,7 +53,7 @@ public:
             case kANGLE_DeviceType:
     #endif // SK_ANGLE
     #if SK_COMMAND_BUFFER
-            case kCommandBuffer_DeviceType:
+            case kCommandBufferES2_DeviceType:
     #endif // SK_COMMAND_BUFFER
                 return true;
             default:
@@ -119,6 +118,7 @@ public:
     void draw(SkCanvas*) override;
 
     void setDeviceType(DeviceType type);
+    void setDeviceColorType(SkColorType, SkColorProfileType);
     void toggleRendering();
     void toggleSlideshow();
     void toggleFPS();
@@ -181,6 +181,7 @@ private:
     SkAutoTUnref<SkDocument> fPDFDocument;
 
     bool fUseClip;
+    bool fUsePicture;
     bool fAnimating;
     bool fRotate;
     bool fPerspAnim;
@@ -190,12 +191,6 @@ private:
     double fMeasureFPS_Time;
     bool fMagnify;
     int fTilingMode;
-
-
-    SkOSMenu::TriState fPipeState;  // Mixed uses a tiled pipe
-                                    // On uses a normal pipe
-                                    // Off uses no pipe
-    int  fUsePipeMenuItemID;
 
     // The following are for the 'fatbits' drawing
     // Latest position of the mouse.

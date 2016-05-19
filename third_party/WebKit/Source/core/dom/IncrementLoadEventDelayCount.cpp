@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/dom/IncrementLoadEventDelayCount.h"
 
 #include "core/dom/Document.h"
@@ -31,4 +30,4 @@ void IncrementLoadEventDelayCount::documentChanged(Document& newDocument)
     m_document->decrementLoadEventDelayCount();
     m_document = &newDocument;
 }
-}
+} // namespace blink

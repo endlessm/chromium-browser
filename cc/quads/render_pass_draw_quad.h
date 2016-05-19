@@ -5,7 +5,8 @@
 #ifndef CC_QUADS_RENDER_PASS_DRAW_QUAD_H_
 #define CC_QUADS_RENDER_PASS_DRAW_QUAD_H_
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
 #include "base/memory/scoped_ptr.h"
 #include "cc/base/cc_export.h"
 #include "cc/output/filter_operations.h"
@@ -18,6 +19,7 @@ namespace cc {
 class CC_EXPORT RenderPassDrawQuad : public DrawQuad {
  public:
   RenderPassDrawQuad();
+  RenderPassDrawQuad(const RenderPassDrawQuad& other);
   ~RenderPassDrawQuad() override;
 
   void SetNew(const SharedQuadState* shared_quad_state,

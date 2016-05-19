@@ -4,9 +4,12 @@
 
 #include "google_apis/gaia/oauth2_token_service.h"
 
+#include <stdint.h>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
@@ -31,6 +34,9 @@ OAuth2TokenService::RequestParameters::RequestParameters(
       account_id(account_id),
       scopes(scopes) {
 }
+
+OAuth2TokenService::RequestParameters::RequestParameters(
+    const RequestParameters& other) = default;
 
 OAuth2TokenService::RequestParameters::~RequestParameters() {
 }
@@ -159,7 +165,7 @@ class OAuth2TokenService::Fetcher : public OAuth2AccessTokenConsumer {
   void InformWaitingRequests();
   void InformWaitingRequestsAndDelete();
   static bool ShouldRetry(const GoogleServiceAuthError& error);
-  int64 ComputeExponentialBackOffMilliseconds(int retry_num);
+  int64_t ComputeExponentialBackOffMilliseconds(int retry_num);
 
   // |oauth2_token_service_| remains valid for the life of this Fetcher, since
   // this Fetcher is destructed in the dtor of the OAuth2TokenService or is
@@ -304,10 +310,10 @@ void OAuth2TokenService::Fetcher::OnGetTokenFailure(
 
 // Returns an exponential backoff in milliseconds including randomness less than
 // 1000 ms when retrying fetching an OAuth2 access token.
-int64 OAuth2TokenService::Fetcher::ComputeExponentialBackOffMilliseconds(
+int64_t OAuth2TokenService::Fetcher::ComputeExponentialBackOffMilliseconds(
     int retry_num) {
   DCHECK(retry_num < max_fetch_retry_num_);
-  int64 exponential_backoff_in_seconds = 1 << retry_num;
+  int64_t exponential_backoff_in_seconds = 1 << retry_num;
   // Returns a backoff with randomness < 1000ms
   return (exponential_backoff_in_seconds + base::RandDouble()) * 1000;
 }
@@ -504,7 +510,7 @@ OAuth2TokenService::StartRequestForClientWithContext(
         error,
         std::string(),
         base::Time()));
-    return request.Pass();
+    return std::move(request);
   }
 
   RequestParameters request_parameters(client_id,
@@ -526,7 +532,7 @@ OAuth2TokenService::StartRequestForClientWithContext(
                      client_secret,
                      scopes);
   }
-  return request.Pass();
+  return std::move(request);
 }
 
 void OAuth2TokenService::FetchOAuth2Token(RequestImpl* request,

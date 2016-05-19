@@ -5,7 +5,17 @@
 #ifndef ANDROID_WEBVIEW_RENDERER_AW_RENDER_FRAME_EXT_H_
 #define ANDROID_WEBVIEW_RENDERER_AW_RENDER_FRAME_EXT_H_
 
+#include "base/macros.h"
 #include "content/public/renderer/render_frame_observer.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gfx/geometry/size_f.h"
+
+namespace blink {
+enum WebMeaningfulLayout;
+class WebFrameWidget;
+class WebView;
+}
 
 namespace android_webview {
 
@@ -19,9 +29,30 @@ class AwRenderFrameExt : public content::RenderFrameObserver {
  private:
   ~AwRenderFrameExt() override;
 
-  // RenderFrame::Observer:
+  // RenderFrameObserver:
   void DidCommitProvisionalLoad(bool is_new_navigation,
                                 bool is_same_page_navigation) override;
+
+  bool OnMessageReceived(const IPC::Message& message) override;
+  void FocusedNodeChanged(const blink::WebNode& node) override;
+
+  void OnDocumentHasImagesRequest(int id);
+  void OnDoHitTest(const gfx::PointF& touch_center,
+                   const gfx::SizeF& touch_area);
+
+  void OnSetTextZoomFactor(float zoom_factor);
+
+  void OnResetScrollAndScaleState();
+
+  void OnSetInitialPageScale(double page_scale_factor);
+
+  void OnSetBackgroundColor(SkColor c);
+
+  void OnSmoothScroll(int target_x, int target_y, int duration_ms);
+
+  blink::WebView* GetWebView();
+  blink::WebFrameWidget* GetWebFrameWidget();
+
   DISALLOW_COPY_AND_ASSIGN(AwRenderFrameExt);
 };
 

@@ -4,6 +4,8 @@
 
 #include "components/rappor/bloom_filter.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "third_party/smhasher/src/City.h"
 
@@ -43,20 +45,13 @@ void BloomFilter::SetString(const std::string& str) {
   }
 }
 
-void BloomFilter::SetBytesForTesting(const ByteVector& bytes) {
-  DCHECK_EQ(bytes_.size(), bytes.size());
-  for (size_t i = 0; i < bytes_.size(); ++i) {
-    bytes_[i] = bytes[i];
-  }
-}
-
 namespace internal {
 
 uint64_t GetBloomBits(uint32_t bytes_size,
                       uint32_t hash_function_count,
                       uint32_t hash_seed_offset,
                       const std::string& str) {
-  // Make sure result fits in uint64.
+  // Make sure result fits in uint64_t.
   DCHECK_LE(bytes_size, 8u);
   uint64_t output = 0;
   const uint32_t bits_size = bytes_size * 8;

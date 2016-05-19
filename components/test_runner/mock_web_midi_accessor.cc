@@ -4,11 +4,12 @@
 
 #include "components/test_runner/mock_web_midi_accessor.h"
 
+#include "base/macros.h"
 #include "components/test_runner/test_interfaces.h"
 #include "components/test_runner/test_runner.h"
 #include "components/test_runner/web_test_delegate.h"
 #include "components/test_runner/web_test_runner.h"
-#include "third_party/WebKit/public/platform/WebMIDIAccessorClient.h"
+#include "third_party/WebKit/public/platform/modules/webmidi/WebMIDIAccessorClient.h"
 
 namespace test_runner {
 

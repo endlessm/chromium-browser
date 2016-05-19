@@ -4,13 +4,17 @@
 
 #include "extensions/common/extension_api.h"
 
+#include <stddef.h>
+
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
@@ -199,19 +203,26 @@ TEST(ExtensionAPITest, APIFeatures) {
 }
 
 TEST(ExtensionAPITest, IsAnyFeatureAvailableToContext) {
-  scoped_refptr<const Extension> app = ExtensionBuilder()
-    .SetManifest(DictionaryBuilder()
-      .Set("name", "app")
-      .Set("app", DictionaryBuilder()
-        .Set("background", DictionaryBuilder()
-          .Set("scripts", ListBuilder().Append("background.js"))))
-      .Set("version", "1")
-      .Set("manifest_version", 2)).Build();
-  scoped_refptr<const Extension> extension = ExtensionBuilder()
-    .SetManifest(DictionaryBuilder()
-      .Set("name", "extension")
-      .Set("version", "1")
-      .Set("manifest_version", 2)).Build();
+  scoped_refptr<const Extension> app =
+      ExtensionBuilder()
+          .SetManifest(std::move(
+              DictionaryBuilder()
+                  .Set("name", "app")
+                  .Set("app", std::move(DictionaryBuilder().Set(
+                                  "background",
+                                  std::move(DictionaryBuilder().Set(
+                                      "scripts", std::move(ListBuilder().Append(
+                                                     "background.js")))))))
+                  .Set("version", "1")
+                  .Set("manifest_version", 2)))
+          .Build();
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder()
+          .SetManifest(std::move(DictionaryBuilder()
+                                     .Set("name", "extension")
+                                     .Set("version", "1")
+                                     .Set("manifest_version", 2)))
+          .Build();
 
   struct {
     std::string api_full_name;
@@ -801,7 +812,7 @@ TEST(ExtensionAPITest, NoPermissions) {
   scoped_ptr<ExtensionAPI> extension_api(
       ExtensionAPI::CreateWithDefaultConfiguration());
   scoped_refptr<Extension> extension =
-      BuildExtension(ExtensionBuilder().Pass()).Build();
+      BuildExtension(ExtensionBuilder()).Build();
 
   for (size_t i = 0; i < arraysize(kTests); ++i) {
     EXPECT_EQ(kTests[i].expect_success,
@@ -820,10 +831,10 @@ TEST(ExtensionAPITest, ManifestKeys) {
       ExtensionAPI::CreateWithDefaultConfiguration());
 
   scoped_refptr<Extension> extension =
-      BuildExtension(ExtensionBuilder().Pass())
-      .MergeManifest(DictionaryBuilder().Set("browser_action",
-                                             DictionaryBuilder().Pass()))
-      .Build();
+      BuildExtension(ExtensionBuilder())
+          .MergeManifest(
+              DictionaryBuilder().Set("browser_action", DictionaryBuilder()))
+          .Build();
 
   EXPECT_TRUE(extension_api->IsAvailable("browserAction",
                                          extension.get(),

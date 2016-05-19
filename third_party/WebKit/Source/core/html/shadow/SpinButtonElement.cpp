@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/shadow/SpinButtonElement.h"
 
 #include "core/HTMLNames.h"
@@ -190,13 +189,13 @@ void SpinButtonElement::doStepAction(int amount)
 void SpinButtonElement::releaseCapture(EventDispatch eventDispatch)
 {
     stopRepeatingTimer();
-    if (m_capturing) {
-        if (LocalFrame* frame = document().frame()) {
-            frame->eventHandler().setCapturingMouseEventsNode(nullptr);
-            m_capturing = false;
-            if (Page* page = document().page())
-                page->chromeClient().unregisterPopupOpeningObserver(this);
-        }
+    if (!m_capturing)
+        return;
+    if (LocalFrame* frame = document().frame()) {
+        frame->eventHandler().setCapturingMouseEventsNode(nullptr);
+        m_capturing = false;
+        if (Page* page = document().page())
+            page->chromeClient().unregisterPopupOpeningObserver(this);
     }
     if (m_spinButtonOwner)
         m_spinButtonOwner->spinButtonDidReleaseMouseCapture(eventDispatch);
@@ -216,8 +215,8 @@ bool SpinButtonElement::matchesReadWritePseudoClass() const
 void SpinButtonElement::startRepeatingTimer()
 {
     m_pressStartingState = m_upDownState;
-    ScrollbarTheme* theme = ScrollbarTheme::theme();
-    m_repeatingTimer.start(theme->initialAutoscrollTimerDelay(), theme->autoscrollTimerDelay(), BLINK_FROM_HERE);
+    ScrollbarTheme& theme = ScrollbarTheme::theme();
+    m_repeatingTimer.start(theme.initialAutoscrollTimerDelay(), theme.autoscrollTimerDelay(), BLINK_FROM_HERE);
 }
 
 void SpinButtonElement::stopRepeatingTimer()
@@ -263,4 +262,4 @@ DEFINE_TRACE(SpinButtonElement)
     HTMLDivElement::trace(visitor);
 }
 
-}
+} // namespace blink

@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/strings/string_number_conversions.h"
 #include "content/common/ax_content_node_data.h"
+
+#include <algorithm>
+
+#include "base/strings/string_number_conversions.h"
 
 using base::IntToString;
 
@@ -29,6 +32,8 @@ typename std::vector<std::pair<FirstType, SecondType>>::const_iterator
 
 AXContentNodeData::AXContentNodeData() {
 }
+
+AXContentNodeData::AXContentNodeData(const AXContentNodeData& other) = default;
 
 AXContentNodeData::~AXContentNodeData() {
 }
@@ -58,8 +63,8 @@ bool AXContentNodeData::GetContentIntAttribute(
   return false;
 }
 
-void AXContentNodeData::AddContentIntAttribute(
-    AXContentIntAttribute attribute, int32 value) {
+void AXContentNodeData::AddContentIntAttribute(AXContentIntAttribute attribute,
+                                               int32_t value) {
   content_int_attributes.push_back(std::make_pair(attribute, value));
 }
 

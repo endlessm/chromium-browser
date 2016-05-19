@@ -384,7 +384,7 @@ static int aes_ecb_cipher(EVP_CIPHER_CTX *ctx, uint8_t *out, const uint8_t *in,
 
 static int aes_ctr_cipher(EVP_CIPHER_CTX *ctx, uint8_t *out, const uint8_t *in,
                           size_t len) {
-  unsigned int num = ctx->num;
+  unsigned num = (unsigned)ctx->num;
   EVP_AES_KEY *dat = (EVP_AES_KEY *)ctx->cipher_data;
 
   if (dat->stream.ctr) {
@@ -394,7 +394,7 @@ static int aes_ctr_cipher(EVP_CIPHER_CTX *ctx, uint8_t *out, const uint8_t *in,
     CRYPTO_ctr128_encrypt(in, out, len, &dat->ks, ctx->iv, ctx->buf, &num,
                           dat->block);
   }
-  ctx->num = (size_t)num;
+  ctx->num = (int)num;
   return 1;
 }
 
@@ -1652,7 +1652,7 @@ static int aead_aes_ctr_hmac_sha256_seal(const EVP_AEAD_CTX *ctx, uint8_t *out,
 
   if (in_len + aes_ctx->tag_len < in_len ||
       /* This input is so large it would overflow the 32-bit block counter. */
-      in_len_64 >= (OPENSSL_U64(1) << 32) * AES_BLOCK_SIZE) {
+      in_len_64 >= (UINT64_C(1) << 32) * AES_BLOCK_SIZE) {
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_TOO_LARGE);
     return 0;
   }

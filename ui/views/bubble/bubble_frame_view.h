@@ -5,9 +5,9 @@
 #ifndef UI_VIEWS_BUBBLE_BUBBLE_FRAME_VIEW_H_
 #define UI_VIEWS_BUBBLE_BUBBLE_FRAME_VIEW_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/window/non_client_view.h"
@@ -30,12 +30,9 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   // Internal class name.
   static const char kViewClassName[];
 
-  explicit BubbleFrameView(const gfx::Insets& content_margins);
+  BubbleFrameView(const gfx::Insets& title_margins,
+                  const gfx::Insets& content_margins);
   ~BubbleFrameView() override;
-
-  // Insets to make bubble contents align horizontal with the bubble title.
-  // NOTE: this does not take into account whether a title actually exists.
-  static gfx::Insets GetTitleInsets();
 
   // Creates a close button used in the corner of the dialog.
   static LabelButton* CreateCloseButton(ButtonListener* listener);
@@ -75,7 +72,9 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
 
   gfx::Insets content_margins() const { return content_margins_; }
 
-  void SetTitlebarExtraView(View* view);
+  void SetTitlebarExtraView(scoped_ptr<View> view);
+
+  void SetFootnoteView(scoped_ptr<View> view);
 
   // Given the size of the contents and the rect to point at, returns the bounds
   // of the bubble window. The bubble's arrow location may change if the bubble
@@ -83,6 +82,8 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   gfx::Rect GetUpdatedWindowBounds(const gfx::Rect& anchor_rect,
                                    gfx::Size client_size,
                                    bool adjust_if_offscreen);
+
+  bool close_button_clicked() const { return close_button_clicked_; }
 
  protected:
   // Returns the available screen bounds if the frame were to show in |rect|.
@@ -93,6 +94,7 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
 
  private:
   FRIEND_TEST_ALL_PREFIXES(BubbleFrameViewTest, GetBoundsForClientView);
+  FRIEND_TEST_ALL_PREFIXES(BubbleDelegateTest, CloseReasons);
 
   // Mirrors the bubble's arrow location on the |vertical| or horizontal axis,
   // if the generated window bounds don't fit in the monitor bounds.
@@ -111,6 +113,9 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   // The bubble border.
   BubbleBorder* bubble_border_;
 
+  // Margins around the title label.
+  gfx::Insets title_margins_;
+
   // Margins between the content and the inside of the border, in pixels.
   gfx::Insets content_margins_;
 
@@ -122,6 +127,12 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   // When supplied, this view is placed in the titlebar between the title and
   // (x) close button.
   View* titlebar_extra_view_;
+
+  // A view to contain the footnote view, if it exists.
+  View* footnote_container_;
+
+  // Whether the close button was clicked.
+  bool close_button_clicked_;
 
   DISALLOW_COPY_AND_ASSIGN(BubbleFrameView);
 };

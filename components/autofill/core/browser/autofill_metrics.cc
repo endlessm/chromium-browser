@@ -249,17 +249,19 @@ void LogUMAHistogramLongTimes(const std::string& name,
 // [0, |num_possible_metrics|).
 void LogTypeQualityMetric(const std::string& base_name,
                           AutofillMetrics::FieldTypeQualityMetric metric,
-                          ServerFieldType field_type) {
+                          ServerFieldType field_type,
+                          bool observed_submission) {
   DCHECK_LT(metric, AutofillMetrics::NUM_FIELD_TYPE_QUALITY_METRICS);
 
-  LogUMAHistogramEnumeration(base_name, metric,
+  const std::string suffix(observed_submission ? "" : ".NoSubmission");
+  LogUMAHistogramEnumeration(base_name + suffix, metric,
                              AutofillMetrics::NUM_FIELD_TYPE_QUALITY_METRICS);
 
   int field_type_group_metric = GetFieldTypeGroupMetric(field_type, metric);
   int num_field_type_group_metrics =
       AutofillMetrics::NUM_FIELD_TYPE_QUALITY_METRICS *
       NUM_FIELD_TYPE_GROUPS_FOR_METRICS;
-  LogUMAHistogramEnumeration(base_name + ".ByFieldType",
+  LogUMAHistogramEnumeration(base_name + ".ByFieldType" + suffix,
                              field_type_group_metric,
                              num_field_type_group_metrics);
 }
@@ -267,10 +269,30 @@ void LogTypeQualityMetric(const std::string& base_name,
 }  // namespace
 
 // static
+void AutofillMetrics::LogCardUploadDecisionMetric(
+    CardUploadDecisionMetric metric) {
+  DCHECK_LT(metric, NUM_CARD_UPLOAD_DECISION_METRICS);
+  UMA_HISTOGRAM_ENUMERATION("Autofill.CardUploadDecisionExpanded", metric,
+                            NUM_CARD_UPLOAD_DECISION_METRICS);
+}
+
+// static
 void AutofillMetrics::LogCreditCardInfoBarMetric(InfoBarMetric metric) {
   DCHECK_LT(metric, NUM_INFO_BAR_METRICS);
   UMA_HISTOGRAM_ENUMERATION("Autofill.CreditCardInfoBar", metric,
                             NUM_INFO_BAR_METRICS);
+}
+
+// static
+void AutofillMetrics::LogSaveCardPromptMetric(SaveCardPromptMetric metric,
+                                              bool is_uploading,
+                                              bool is_reshow) {
+  DCHECK_LT(metric, NUM_SAVE_CARD_PROMPT_METRICS);
+  std::string destination = is_uploading ? ".Upload" : ".Local";
+  std::string show = is_reshow ? ".Reshows" : ".FirstShow";
+  LogUMAHistogramEnumeration(
+      "Autofill.SaveCreditCardPrompt" + destination + show, metric,
+      NUM_SAVE_CARD_PROMPT_METRICS);
 }
 
 // static
@@ -508,20 +530,26 @@ void AutofillMetrics::LogDeveloperEngagementMetric(
 
 // static
 void AutofillMetrics::LogHeuristicTypePrediction(FieldTypeQualityMetric metric,
-                                                 ServerFieldType field_type) {
-  LogTypeQualityMetric("Autofill.Quality.HeuristicType", metric, field_type);
+                                                 ServerFieldType field_type,
+                                                 bool observed_submission) {
+  LogTypeQualityMetric("Autofill.Quality.HeuristicType", metric, field_type,
+                       observed_submission);
 }
 
 // static
 void AutofillMetrics::LogOverallTypePrediction(FieldTypeQualityMetric metric,
-                                               ServerFieldType field_type) {
-  LogTypeQualityMetric("Autofill.Quality.PredictedType", metric, field_type);
+                                               ServerFieldType field_type,
+                                               bool observed_submission) {
+  LogTypeQualityMetric("Autofill.Quality.PredictedType", metric, field_type,
+                       observed_submission);
 }
 
 // static
 void AutofillMetrics::LogServerTypePrediction(FieldTypeQualityMetric metric,
-                                              ServerFieldType field_type) {
-  LogTypeQualityMetric("Autofill.Quality.ServerType", metric, field_type);
+                                              ServerFieldType field_type,
+                                              bool observed_submission) {
+  LogTypeQualityMetric("Autofill.Quality.ServerType", metric, field_type,
+                       observed_submission);
 }
 
 // static
@@ -622,11 +650,18 @@ void AutofillMetrics::LogAutocompleteSuggestionAcceptedIndex(int index) {
 }
 
 // static
-void AutofillMetrics::LogNumberOfEditedAutofilledFieldsAtSubmission(
-    size_t num_edited_autofilled_fields) {
-  UMA_HISTOGRAM_COUNTS_1000(
-      "Autofill.NumberOfEditedAutofilledFieldsAtSubmission",
-      num_edited_autofilled_fields);
+void AutofillMetrics::LogNumberOfEditedAutofilledFields(
+    size_t num_edited_autofilled_fields,
+    bool observed_submission) {
+  if (observed_submission) {
+    UMA_HISTOGRAM_COUNTS_1000(
+        "Autofill.NumberOfEditedAutofilledFieldsAtSubmission",
+        num_edited_autofilled_fields);
+  } else {
+    UMA_HISTOGRAM_COUNTS_1000(
+        "Autofill.NumberOfEditedAutofilledFieldsAtSubmission.NoSubmission",
+        num_edited_autofilled_fields);
+  }
 }
 
 // static
@@ -646,22 +681,6 @@ void AutofillMetrics::LogAutofillFormSubmittedState(
     AutofillFormSubmittedState state) {
   UMA_HISTOGRAM_ENUMERATION("Autofill.FormSubmittedState", state,
                             AUTOFILL_FORM_SUBMITTED_STATE_ENUM_SIZE);
-}
-
-// static
-void AutofillMetrics::LogPayloadCompressionRatio(
-    int compression_ratio,
-    AutofillDownloadManager::RequestType type) {
-  switch (type) {
-    case AutofillDownloadManager::REQUEST_QUERY:
-      UMA_HISTOGRAM_PERCENTAGE("Autofill.PayloadCompressionRatio.Query",
-                               compression_ratio);
-      break;
-    case AutofillDownloadManager::REQUEST_UPLOAD:
-      UMA_HISTOGRAM_PERCENTAGE("Autofill.PayloadCompressionRatio.Upload",
-                               compression_ratio);
-      break;
-  }
 }
 
 AutofillMetrics::FormEventLogger::FormEventLogger(bool is_for_credit_card)

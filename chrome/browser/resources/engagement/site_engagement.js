@@ -9,20 +9,34 @@ define('main', [
     'chrome/browser/ui/webui/engagement/site_engagement.mojom',
     'content/public/renderer/service_provider',
 ], function(connection, siteEngagementMojom, serviceProvider) {
-
   return function() {
     var uiHandler = connection.bindHandleToProxy(
         serviceProvider.connectToService(
             siteEngagementMojom.SiteEngagementUIHandler.name),
         siteEngagementMojom.SiteEngagementUIHandler);
 
-    // Populate engagement table.
-    uiHandler.getSiteEngagementInfo().then(function(response) {
-      // Round each score to 2 decimal places.
-      response.info.forEach(function(x) {
-        x.score = Number(Math.round(x.score * 100) / 100);
-      });
-      $('engagement-table').engagementInfo = response.info;
+    var engagementTable = $('engagement-table');
+    var updateInterval = null;
+
+    engagementTable.addEventListener('score-edited', function(e) {
+      var detail = e.detail;
+      uiHandler.setSiteEngagementScoreForOrigin(detail.origin, detail.score);
+      clearInterval(updateInterval);
+      updateInterval = setInterval(updateEngagementTable, 5000);
     });
+
+    var updateEngagementTable = function() {
+      // Populate engagement table.
+      uiHandler.getSiteEngagementInfo().then(function(response) {
+        // Round each score to 2 decimal places.
+        response.info.forEach(function(x) {
+          x.score = Number(Math.round(x.score * 100) / 100);
+        });
+        engagementTable.engagementInfo = response.info;
+      });
+
+    };
+    updateEngagementTable();
+    updateInterval = setInterval(updateEngagementTable, 5000);
   };
 });

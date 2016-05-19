@@ -4,6 +4,8 @@
 
 #include "content/renderer/service_worker/service_worker_context_client.h"
 
+#include <utility>
+
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
@@ -25,10 +27,12 @@
 #include "content/child/thread_safe_sender.h"
 #include "content/child/webmessageportchannel_impl.h"
 #include "content/common/devtools_messages.h"
+#include "content/common/geofencing_messages.h"
 #include "content/common/message_port_messages.h"
 #include "content/common/mojo/service_registry_impl.h"
 #include "content/common/service_worker/embedded_worker_messages.h"
 #include "content/common/service_worker/service_worker_messages.h"
+#include "content/public/common/push_event_payload.h"
 #include "content/public/common/referrer.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/public/renderer/document_state.h"
@@ -39,10 +43,12 @@
 #include "content/renderer/service_worker/service_worker_type_util.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebCrossOriginServiceWorkerClient.h"
 #include "third_party/WebKit/public/platform/WebMessagePortChannel.h"
 #include "third_party/WebKit/public/platform/WebPassOwnPtr.h"
 #include "third_party/WebKit/public/platform/WebReferrerPolicy.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/modules/background_sync/WebSyncRegistration.h"
 #include "third_party/WebKit/public/platform/modules/notifications/WebNotificationData.h"
@@ -94,6 +100,7 @@ class WebServiceWorkerNetworkProviderImpl
             static_cast<DataSourceExtraData*>(data_source->extraData()));
     scoped_ptr<RequestExtraData> extra_data(new RequestExtraData);
     extra_data->set_service_worker_provider_id(provider->provider_id());
+    extra_data->set_originated_from_service_worker(true);
     request.setExtraData(extra_data.release());
   }
 };
@@ -106,7 +113,7 @@ void SendPostMessageToClientOnMainThread(
     scoped_ptr<blink::WebMessagePortChannelArray> channels) {
   sender->Send(new ServiceWorkerHostMsg_PostMessageToClient(
       routing_id, uuid, message,
-      WebMessagePortChannelImpl::ExtractMessagePortIDs(channels.Pass())));
+      WebMessagePortChannelImpl::ExtractMessagePortIDs(std::move(channels))));
 }
 
 void SendCrossOriginMessageToClientOnMainThread(
@@ -116,7 +123,7 @@ void SendCrossOriginMessageToClientOnMainThread(
     scoped_ptr<blink::WebMessagePortChannelArray> channels) {
   sender->Send(new MessagePortHostMsg_PostMessage(
       message_port_id, MessagePortMessage(message),
-      WebMessagePortChannelImpl::ExtractMessagePortIDs(channels.Pass())));
+      WebMessagePortChannelImpl::ExtractMessagePortIDs(std::move(channels))));
 }
 
 blink::WebURLRequest::FetchRequestMode GetBlinkFetchRequestMode(
@@ -215,7 +222,7 @@ ServiceWorkerContextClient::ThreadSpecificInstance() {
 
 ServiceWorkerContextClient::ServiceWorkerContextClient(
     int embedded_worker_id,
-    int64 service_worker_version_id,
+    int64_t service_worker_version_id,
     const GURL& service_worker_scope,
     const GURL& script_url,
     int worker_devtools_agent_route_id)
@@ -247,15 +254,20 @@ void ServiceWorkerContextClient::OnMessageReceived(
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ServiceWorkerContextClient, message)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_ActivateEvent, OnActivateEvent)
+    IPC_MESSAGE_HANDLER(ServiceWorkerMsg_ExtendableMessageEvent,
+                        OnExtendableMessageEvent)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_FetchEvent, OnFetchEvent)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_InstallEvent, OnInstallEvent)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_NotificationClickEvent,
                         OnNotificationClickEvent)
+    IPC_MESSAGE_HANDLER(ServiceWorkerMsg_NotificationCloseEvent,
+                        OnNotificationCloseEvent)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_PushEvent, OnPushEvent)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_GeofencingEvent, OnGeofencingEvent)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_MessageToWorker, OnPostMessage)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_CrossOriginMessageToWorker,
                         OnCrossOriginMessageToWorker)
+    IPC_MESSAGE_HANDLER(ServiceWorkerMsg_DidGetClient, OnDidGetClient)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_DidGetClients, OnDidGetClients)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_OpenWindowResponse,
                         OnOpenWindowResponse)
@@ -277,14 +289,24 @@ void ServiceWorkerContextClient::OnMessageReceived(
 }
 
 void ServiceWorkerContextClient::BindServiceRegistry(
-    mojo::InterfaceRequest<mojo::ServiceProvider> services,
-    mojo::ServiceProviderPtr exposed_services) {
-  context_->service_registry.Bind(services.Pass());
-  context_->service_registry.BindRemoteServiceProvider(exposed_services.Pass());
+    mojo::shell::mojom::InterfaceProviderRequest services,
+    mojo::shell::mojom::InterfaceProviderPtr exposed_services) {
+  context_->service_registry.Bind(std::move(services));
+  context_->service_registry.BindRemoteServiceProvider(
+      std::move(exposed_services));
 }
 
 blink::WebURL ServiceWorkerContextClient::scope() const {
   return service_worker_scope_;
+}
+
+void ServiceWorkerContextClient::getClient(
+    const blink::WebString& id,
+    blink::WebServiceWorkerClientCallbacks* callbacks) {
+  DCHECK(callbacks);
+  int request_id = context_->client_callbacks.Add(callbacks);
+  Send(new ServiceWorkerHostMsg_GetClient(
+      GetRoutingID(), request_id, base::UTF16ToUTF8(base::StringPiece16(id))));
 }
 
 void ServiceWorkerContextClient::getClients(
@@ -369,8 +391,8 @@ void ServiceWorkerContextClient::workerContextStarted(
   context_->service_registry.ServiceRegistry::AddService(
       base::Bind(&ServicePortDispatcherImpl::Create,
                  context_->proxy_weak_factory.GetWeakPtr()));
-  context_->service_registry.ServiceRegistry::AddService(base::Bind(
-      &BackgroundSyncClientImpl::Create, registration_info.registration_id));
+  context_->service_registry.ServiceRegistry::AddService(
+      base::Bind(&BackgroundSyncClientImpl::Create));
 
   SetRegistrationInServiceWorkerGlobalScope(registration_info, version_attrs);
 
@@ -444,10 +466,8 @@ void ServiceWorkerContextClient::reportException(
     int column_number,
     const blink::WebString& source_url) {
   Send(new EmbeddedWorkerHostMsg_ReportException(
-      embedded_worker_id_,
-      error_message,
-      line_number,
-      column_number, GURL(source_url)));
+      embedded_worker_id_, error_message, line_number, column_number,
+      blink::WebStringToGURL(source_url)));
 }
 
 void ServiceWorkerContextClient::reportConsoleMessage(
@@ -461,25 +481,33 @@ void ServiceWorkerContextClient::reportConsoleMessage(
   params.message_level = level;
   params.message = message;
   params.line_number = line_number;
-  params.source_url = GURL(source_url);
+  params.source_url = blink::WebStringToGURL(source_url);
 
   Send(new EmbeddedWorkerHostMsg_ReportConsoleMessage(
       embedded_worker_id_, params));
 }
 
 void ServiceWorkerContextClient::sendDevToolsMessage(
+    int session_id,
     int call_id,
     const blink::WebString& message,
     const blink::WebString& state_cookie) {
   DevToolsAgent::SendChunkedProtocolMessage(
-      sender_.get(), worker_devtools_agent_route_id_,
-      call_id, message.utf8(), state_cookie.utf8());
+      sender_.get(), worker_devtools_agent_route_id_, session_id, call_id,
+      message.utf8(), state_cookie.utf8());
 }
 
 void ServiceWorkerContextClient::didHandleActivateEvent(
     int request_id,
     blink::WebServiceWorkerEventResult result) {
   Send(new ServiceWorkerHostMsg_ActivateEventFinished(
+      GetRoutingID(), request_id, result));
+}
+
+void ServiceWorkerContextClient::didHandleExtendableMessageEvent(
+    int request_id,
+    blink::WebServiceWorkerEventResult result) {
+  Send(new ServiceWorkerHostMsg_ExtendableMessageEventFinished(
       GetRoutingID(), request_id, result));
 }
 
@@ -517,7 +545,14 @@ void ServiceWorkerContextClient::didHandleNotificationClickEvent(
     int request_id,
     blink::WebServiceWorkerEventResult result) {
   Send(new ServiceWorkerHostMsg_NotificationClickEventFinished(
-      GetRoutingID(), request_id));
+      GetRoutingID(), request_id, result));
+}
+
+void ServiceWorkerContextClient::didHandleNotificationCloseEvent(
+    int request_id,
+    blink::WebServiceWorkerEventResult result) {
+  Send(new ServiceWorkerHostMsg_NotificationCloseEventFinished(
+      GetRoutingID(), request_id, result));
 }
 
 void ServiceWorkerContextClient::didHandlePushEvent(
@@ -535,9 +570,9 @@ void ServiceWorkerContextClient::didHandleSyncEvent(
   if (!callback)
     return;
   if (result == blink::WebServiceWorkerEventResultCompleted) {
-    callback->Run(SERVICE_WORKER_EVENT_STATUS_COMPLETED);
+    callback->Run(ServiceWorkerEventStatus::COMPLETED);
   } else {
-    callback->Run(SERVICE_WORKER_EVENT_STATUS_REJECTED);
+    callback->Run(ServiceWorkerEventStatus::REJECTED);
   }
   context_->sync_event_callbacks.Remove(request_id);
 }
@@ -561,8 +596,8 @@ ServiceWorkerContextClient::createServiceWorkerNetworkProvider(
   // and ownership is transferred to the DataSource.
   DataSourceExtraData* extra_data = new DataSourceExtraData();
   data_source->setExtraData(extra_data);
-  ServiceWorkerNetworkProvider::AttachToDocumentState(
-      extra_data, provider.Pass());
+  ServiceWorkerNetworkProvider::AttachToDocumentState(extra_data,
+                                                      std::move(provider));
 
   // Blink is responsible for deleting the returned object.
   return new WebServiceWorkerNetworkProviderImpl();
@@ -650,9 +685,11 @@ void ServiceWorkerContextClient::claim(
 }
 
 void ServiceWorkerContextClient::registerForeignFetchScopes(
-    const blink::WebVector<blink::WebURL>& sub_scopes) {
+    const blink::WebVector<blink::WebURL>& sub_scopes,
+    const blink::WebVector<blink::WebSecurityOrigin>& origins) {
   Send(new ServiceWorkerHostMsg_RegisterForeignFetchScopes(
-      GetRoutingID(), std::vector<GURL>(sub_scopes.begin(), sub_scopes.end())));
+      GetRoutingID(), std::vector<GURL>(sub_scopes.begin(), sub_scopes.end()),
+      std::vector<url::Origin>(origins.begin(), origins.end())));
 }
 
 void ServiceWorkerContextClient::DispatchSyncEvent(
@@ -701,6 +738,19 @@ void ServiceWorkerContextClient::OnActivateEvent(int request_id) {
   proxy_->dispatchActivateEvent(request_id);
 }
 
+void ServiceWorkerContextClient::OnExtendableMessageEvent(
+    int request_id,
+    const base::string16& message,
+    const std::vector<TransferredMessagePort>& sent_message_ports,
+    const std::vector<int>& new_routing_ids) {
+  TRACE_EVENT0("ServiceWorker",
+               "ServiceWorkerContextClient::OnExtendableMessageEvent");
+  blink::WebMessagePortChannelArray ports =
+      WebMessagePortChannelImpl::CreatePorts(
+          sent_message_ports, new_routing_ids, main_thread_task_runner_);
+  proxy_->dispatchExtendableMessageEvent(request_id, message, ports);
+}
+
 void ServiceWorkerContextClient::OnInstallEvent(int request_id) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerContextClient::OnInstallEvent");
@@ -729,14 +779,20 @@ void ServiceWorkerContextClient::OnFetchEvent(
       blink::WebString::fromUTF8(request.referrer.url.spec()),
       request.referrer.policy);
   webRequest.setMode(GetBlinkFetchRequestMode(request.mode));
+  webRequest.setIsMainResourceLoad(request.is_main_resource_load);
   webRequest.setCredentialsMode(
       GetBlinkFetchCredentialsMode(request.credentials_mode));
   webRequest.setRedirectMode(GetBlinkFetchRedirectMode(request.redirect_mode));
   webRequest.setRequestContext(
       GetBlinkRequestContext(request.request_context_type));
   webRequest.setFrameType(GetBlinkFrameType(request.frame_type));
+  webRequest.setClientId(blink::WebString::fromUTF8(request.client_id));
   webRequest.setIsReload(request.is_reload);
-  proxy_->dispatchFetchEvent(request_id, webRequest);
+  if (request.fetch_type == ServiceWorkerFetchType::FOREIGN_FETCH) {
+    proxy_->dispatchForeignFetchEvent(request_id, webRequest);
+  } else {
+    proxy_->dispatchFetchEvent(request_id, webRequest);
+  }
 }
 
 void ServiceWorkerContextClient::OnNotificationClickEvent(
@@ -753,11 +809,26 @@ void ServiceWorkerContextClient::OnNotificationClickEvent(
       action_index);
 }
 
+void ServiceWorkerContextClient::OnNotificationCloseEvent(
+    int request_id,
+    int64_t persistent_notification_id,
+    const PlatformNotificationData& notification_data) {
+  TRACE_EVENT0("ServiceWorker",
+               "ServiceWorkerContextClient::OnNotificationCloseEvent");
+  proxy_->dispatchNotificationCloseEvent(
+      request_id, persistent_notification_id,
+      ToWebNotificationData(notification_data));
+}
+
 void ServiceWorkerContextClient::OnPushEvent(int request_id,
-                                             const std::string& data) {
+                                             const PushEventPayload& payload) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerContextClient::OnPushEvent");
-  proxy_->dispatchPushEvent(request_id, blink::WebString::fromUTF8(data));
+  // Only set data to be a valid string if the payload had decrypted data.
+  blink::WebString data;
+  if (!payload.is_null)
+    data.assign(blink::WebString::fromUTF8(payload.data));
+  proxy_->dispatchPushEvent(request_id, data);
 }
 
 void ServiceWorkerContextClient::OnGeofencingEvent(
@@ -769,8 +840,8 @@ void ServiceWorkerContextClient::OnGeofencingEvent(
                "ServiceWorkerContextClient::OnGeofencingEvent");
   proxy_->dispatchGeofencingEvent(
       request_id, event_type, blink::WebString::fromUTF8(region_id), region);
-  Send(new ServiceWorkerHostMsg_GeofencingEventFinished(GetRoutingID(),
-                                                        request_id));
+  Send(new ServiceWorkerHostMsg_GeofencingEventFinished(
+      GetRoutingID(), request_id, blink::WebServiceWorkerEventResultCompleted));
 }
 
 void ServiceWorkerContextClient::OnPostMessage(
@@ -812,6 +883,26 @@ void ServiceWorkerContextClient::OnCrossOriginMessageToWorker(
   proxy_->dispatchCrossOriginMessageEvent(web_client, message, ports);
 }
 
+void ServiceWorkerContextClient::OnDidGetClient(
+    int request_id,
+    const ServiceWorkerClientInfo& client) {
+  TRACE_EVENT0("ServiceWorker", "ServiceWorkerContextClient::OnDidGetClient");
+  blink::WebServiceWorkerClientCallbacks* callbacks =
+      context_->client_callbacks.Lookup(request_id);
+  if (!callbacks) {
+    NOTREACHED() << "Got stray response: " << request_id;
+    return;
+  }
+  scoped_ptr<blink::WebServiceWorkerClientInfo> web_client;
+  if (!client.IsEmpty()) {
+    DCHECK(client.IsValid());
+    web_client.reset(new blink::WebServiceWorkerClientInfo(
+        ToWebServiceWorkerClientInfo(client)));
+  }
+  callbacks->onSuccess(blink::adoptWebPtr(web_client.release()));
+  context_->client_callbacks.Remove(request_id);
+}
+
 void ServiceWorkerContextClient::OnDidGetClients(
     int request_id, const std::vector<ServiceWorkerClientInfo>& clients) {
   TRACE_EVENT0("ServiceWorker",
@@ -849,7 +940,7 @@ void ServiceWorkerContextClient::OnOpenWindowResponse(
     web_client.reset(new blink::WebServiceWorkerClientInfo(
         ToWebServiceWorkerClientInfo(client)));
   }
-  callbacks->onSuccess(adoptWebPtr(web_client.release()));
+  callbacks->onSuccess(blink::adoptWebPtr(web_client.release()));
   context_->client_callbacks.Remove(request_id);
 }
 
@@ -865,7 +956,7 @@ void ServiceWorkerContextClient::OnOpenWindowError(
     return;
   }
   callbacks->onError(blink::WebServiceWorkerError(
-      blink::WebServiceWorkerError::ErrorTypeUnknown,
+      blink::WebServiceWorkerError::ErrorTypeNavigation,
       blink::WebString::fromUTF8(message)));
   context_->client_callbacks.Remove(request_id);
 }
@@ -885,7 +976,7 @@ void ServiceWorkerContextClient::OnFocusClientResponse(
     scoped_ptr<blink::WebServiceWorkerClientInfo> web_client (
         new blink::WebServiceWorkerClientInfo(
             ToWebServiceWorkerClientInfo(client)));
-    callback->onSuccess(adoptWebPtr(web_client.release()));
+    callback->onSuccess(blink::adoptWebPtr(web_client.release()));
   } else {
     callback->onError(blink::WebServiceWorkerError(
         blink::WebServiceWorkerError::ErrorTypeNotFound,
@@ -912,7 +1003,7 @@ void ServiceWorkerContextClient::OnNavigateClientResponse(
     web_client.reset(new blink::WebServiceWorkerClientInfo(
         ToWebServiceWorkerClientInfo(client)));
   }
-  callbacks->onSuccess(adoptWebPtr(web_client.release()));
+  callbacks->onSuccess(blink::adoptWebPtr(web_client.release()));
   context_->client_callbacks.Remove(request_id);
 }
 
@@ -928,7 +1019,7 @@ void ServiceWorkerContextClient::OnNavigateClientError(int request_id,
   }
   std::string message = "Cannot navigate to URL: " + url.spec();
   callbacks->onError(blink::WebServiceWorkerError(
-      blink::WebServiceWorkerError::ErrorTypeUnknown,
+      blink::WebServiceWorkerError::ErrorTypeNavigation,
       blink::WebString::fromUTF8(message)));
   context_->client_callbacks.Remove(request_id);
 }

@@ -5,9 +5,11 @@
 #ifndef MEDIA_CDM_CDM_WRAPPER_H_
 #define MEDIA_CDM_CDM_WRAPPER_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "media/cdm/api/content_decryption_module.h"
 #include "media/cdm/supported_cdm_versions.h"
 
@@ -320,5 +322,7 @@ static_assert(cdm::ContentDecryptionModule::kVersion ==
               "ensure cdm wrapper templates have old version support");
 
 }  // namespace media
+
+#undef PLATFORM_DCHECK
 
 #endif  // MEDIA_CDM_CDM_WRAPPER_H_

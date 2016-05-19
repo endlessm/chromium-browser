@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/layout/HitTestCache.h"
 
+#include "platform/Histogram.h"
 #include "public/platform/Platform.h"
 
 namespace blink {
@@ -29,7 +29,8 @@ bool HitTestCache::lookupCachedResult(HitTestResult& hitResult, uint64_t domTree
             }
         }
     }
-    Platform::current()->histogramEnumeration("Event.HitTest", static_cast<int>(metric), static_cast<int>(HitHistogramMetric::MAX_HIT_METRIC));
+    DEFINE_STATIC_LOCAL(EnumerationHistogram, hitTestHistogram, ("Event.HitTest", static_cast<int32_t>(HitHistogramMetric::MAX_HIT_METRIC)));
+    hitTestHistogram.count(static_cast<int32_t>(metric));
     return result;
 }
 

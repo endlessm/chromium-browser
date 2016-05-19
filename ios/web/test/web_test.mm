@@ -4,6 +4,8 @@
 
 #import "ios/web/test/web_test.h"
 
+#include <utility>
+
 #include "base/base64.h"
 #include "base/strings/stringprintf.h"
 #import "base/test/ios/wait_util.h"
@@ -13,7 +15,6 @@
 #include "ios/web/public/active_state_manager.h"
 #include "ios/web/public/referrer.h"
 #import "ios/web/public/web_state/ui/crw_web_delegate.h"
-#import "ios/web/web_state/js/crw_js_invoke_parameter_queue.h"
 #import "ios/web/web_state/ui/crw_wk_web_view_web_controller.h"
 #import "ios/web/web_state/web_state_impl.h"
 #include "third_party/ocmock/OCMock/OCMock.h"
@@ -36,19 +37,21 @@ namespace web {
 
 #pragma mark -
 
-WebTest::WebTest() {}
+WebTest::WebTest() : web_client_(make_scoped_ptr(new TestWebClient)) {}
 WebTest::~WebTest() {}
 
 void WebTest::SetUp() {
   PlatformTest::SetUp();
-  web::SetWebClient(&client_);
   BrowserState::GetActiveStateManager(&browser_state_)->SetActive(true);
 }
 
 void WebTest::TearDown() {
   BrowserState::GetActiveStateManager(&browser_state_)->SetActive(false);
-  web::SetWebClient(nullptr);
   PlatformTest::TearDown();
+}
+
+TestWebClient* WebTest::GetWebClient() {
+  return static_cast<TestWebClient*>(web_client_.Get());
 }
 
 #pragma mark -
@@ -83,24 +86,14 @@ void WebTestWithWebController::LoadHtml(NSString* html) {
 }
 
 void WebTestWithWebController::LoadHtml(const std::string& html) {
-  NSString* load_check = [NSString stringWithFormat:
-      @"<p style=\"display: none;\">%d</p>", s_html_load_count++];
-
+  NSString* load_check = CreateLoadCheck();
   std::string marked_html = html + [load_check UTF8String];
   std::string encoded_html;
   base::Base64Encode(marked_html, &encoded_html);
-  GURL url("data:text/html;base64," + encoded_html);
+  GURL url("data:text/html;charset=utf8;base64," + encoded_html);
   LoadURL(url);
 
-  // Data URLs sometimes lock up navigation, so if the loaded page is not the
-  // one expected, reset the web view. In some cases, document or document.body
-  // does not exist either; also reset in those cases.
-  NSString* inner_html = RunJavaScript(
-      @"(document && document.body && document.body.innerHTML) || 'undefined'");
-  if ([inner_html rangeOfString:load_check].location == NSNotFound) {
-    [webController_ setWebUsageEnabled:NO];
-    [webController_ setWebUsageEnabled:YES];
-    [webController_ triggerPendingLoad];
+  if (ResetPageIfNavigationStalled(load_check)) {
     LoadHtml(html);
   }
 }
@@ -154,7 +147,7 @@ void WebTestWithWebController::WaitForBackgroundTasks() {
     if (processed_a_task_)  // Set in TaskObserver method.
       activitySeen = true;
 
-  } while (activitySeen || !MessageQueueIsEmpty());
+  } while (activitySeen);
   messageLoop->RemoveTaskObserver(this);
 }
 
@@ -163,15 +156,6 @@ void WebTestWithWebController::WaitForCondition(ConditionBlock condition) {
   DCHECK(messageLoop);
   base::test::ios::WaitUntilCondition(condition, messageLoop,
                                       base::TimeDelta::FromSeconds(10));
-}
-
-bool WebTestWithWebController::MessageQueueIsEmpty() const {
-  // Using this check rather than polymorphism because polymorphising
-  // Chrome*WebViewWebTest would be overengineering. Chrome*WebViewWebTest
-  // inherits from WebTestWithWebController.
-  return [webController_ webViewType] == web::WK_WEB_VIEW_TYPE ||
-      [static_cast<CRWUIWebViewWebController*>(webController_)
-          jsInvokeParameterQueue].isEmpty;
 }
 
 NSString* WebTestWithWebController::EvaluateJavaScriptAsString(
@@ -239,6 +223,12 @@ NSString* WebTestWithWebController::RunJavaScript(NSString* script) {
   return [dictionary objectForKey:@"result"];
 }
 
+CRWWebController* WebTestWithWebController::CreateWebController() {
+  scoped_ptr<WebStateImpl> web_state_impl(new WebStateImpl(GetBrowserState()));
+  return [[CRWWKWebViewWebController alloc]
+      initWithWebState:std::move(web_state_impl)];
+}
+
 void WebTestWithWebController::WillProcessTask(
     const base::PendingTask& pending_task) {
   // Nothing to do.
@@ -249,63 +239,22 @@ void WebTestWithWebController::DidProcessTask(
   processed_a_task_ = true;
 }
 
-#pragma mark -
-
-CRWWebController* WebTestWithUIWebViewWebController::CreateWebController() {
-  scoped_ptr<WebStateImpl> web_state_impl(new WebStateImpl(GetBrowserState()));
-  return [[TestWebController alloc] initWithWebState:web_state_impl.Pass()];
+bool WebTestWithWebController::ResetPageIfNavigationStalled(
+    NSString* load_check) {
+  NSString* inner_html = RunJavaScript(
+      @"(document && document.body && document.body.innerHTML) || 'undefined'");
+  if ([inner_html rangeOfString:load_check].location == NSNotFound) {
+    [webController_ setWebUsageEnabled:NO];
+    [webController_ setWebUsageEnabled:YES];
+    [webController_ triggerPendingLoad];
+    return true;
+  }
+  return false;
 }
 
-void WebTestWithUIWebViewWebController::LoadCommands(NSString* commands,
-                                                     const GURL& origin_url,
-                                                     BOOL user_is_interacting) {
-  [static_cast<CRWUIWebViewWebController*>(webController_)
-      respondToMessageQueue:commands
-          userIsInteracting:user_is_interacting
-                  originURL:origin_url];
-}
-
-#pragma mark -
-
-CRWWebController* WebTestWithWKWebViewWebController::CreateWebController() {
-  scoped_ptr<WebStateImpl> web_state_impl(new WebStateImpl(GetBrowserState()));
-  return [[CRWWKWebViewWebController alloc] initWithWebState:
-      web_state_impl.Pass()];
+NSString* WebTestWithWebController::CreateLoadCheck() {
+  return [NSString stringWithFormat:@"<p style=\"display: none;\">%d</p>",
+                                    s_html_load_count++];
 }
 
 }  // namespace web
-
-#pragma mark -
-
-// Declare CRWUIWebViewWebController's (private) implementation of
-// UIWebViewDelegate.
-@interface CRWUIWebViewWebController(TestProtocolDeclaration)<UIWebViewDelegate>
-@end
-
-@implementation TestWebController {
-  BOOL _interceptRequest;
-  BOOL _requestIntercepted;
-  BOOL _invokeShouldStartLoadWithRequestNavigationTypeDone;
-}
-
-@synthesize interceptRequest = _interceptRequest;
-@synthesize requestIntercepted = _requestIntercepted;
-@synthesize invokeShouldStartLoadWithRequestNavigationTypeDone =
-    _invokeShouldStartLoadWithRequestNavigationTypeDone;
-
-- (BOOL)webView:(UIWebView*)webView
-    shouldStartLoadWithRequest:(NSURLRequest*)request
-                navigationType:(UIWebViewNavigationType)navigationType {
-  _invokeShouldStartLoadWithRequestNavigationTypeDone = false;
-  // Conditionally block the request to open a webpage.
-  if (_interceptRequest) {
-    _requestIntercepted = true;
-    return false;
-  }
-  BOOL result = [super webView:webView
-      shouldStartLoadWithRequest:request
-                  navigationType:navigationType];
-  _invokeShouldStartLoadWithRequestNavigationTypeDone = true;
-  return result;
-}
-@end

@@ -7,6 +7,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/content_browser_client.h"
@@ -35,8 +36,8 @@ class ShellURLRequestContextGetter : public net::URLRequestContextGetter {
   ShellURLRequestContextGetter(
       bool ignore_certificate_errors,
       const base::FilePath& base_path,
-      base::MessageLoop* io_loop,
-      base::MessageLoop* file_loop,
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> file_task_runner,
       ProtocolHandlerMap* protocol_handlers,
       URLRequestInterceptorScopedVector request_interceptors,
       net::NetLog* net_log);
@@ -60,8 +61,8 @@ class ShellURLRequestContextGetter : public net::URLRequestContextGetter {
  private:
   bool ignore_certificate_errors_;
   base::FilePath base_path_;
-  base::MessageLoop* io_loop_;
-  base::MessageLoop* file_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
+  scoped_refptr<base::SingleThreadTaskRunner> file_task_runner_;
   net::NetLog* net_log_;
 
   scoped_ptr<net::ProxyConfigService> proxy_config_service_;

@@ -6,7 +6,6 @@
 #define BASE_BIND_H_
 
 #include "base/bind_internal.h"
-#include "base/callback_internal.h"
 
 // -----------------------------------------------------------------------------
 // Usage documentation
@@ -47,49 +46,47 @@
 
 namespace base {
 
-template <typename Functor>
-base::Callback<
-    typename internal::BindState<
-        typename internal::FunctorTraits<Functor>::RunnableType,
-        typename internal::FunctorTraits<Functor>::RunType,
-        internal::TypeList<>>::UnboundRunType>
-Bind(Functor functor) {
-  // Typedefs for how to store and run the functor.
-  typedef typename internal::FunctorTraits<Functor>::RunnableType RunnableType;
-  typedef typename internal::FunctorTraits<Functor>::RunType RunType;
+namespace internal {
 
-  typedef internal::BindState<RunnableType, RunType,
-                              internal::TypeList<>> BindState;
+// Don't use Alias Template directly here to avoid a compile error on MSVC2013.
+template <typename Functor, typename... Args>
+struct MakeUnboundRunTypeImpl {
+  using Type =
+      typename BindState<
+          typename FunctorTraits<Functor>::RunnableType,
+          typename FunctorTraits<Functor>::RunType,
+          Args...>::UnboundRunType;
+};
 
-  return Callback<typename BindState::UnboundRunType>(
-      new BindState(internal::MakeRunnable(functor)));
-}
+}  // namespace internal
 
 template <typename Functor, typename... Args>
-base::Callback<
-    typename internal::BindState<
-        typename internal::FunctorTraits<Functor>::RunnableType,
-        typename internal::FunctorTraits<Functor>::RunType,
-        internal::TypeList<
-            typename internal::CallbackParamTraits<Args>::StorageType...>>
-            ::UnboundRunType>
-Bind(Functor functor, const Args&... args) {
-  // Typedefs for how to store and run the functor.
-  typedef typename internal::FunctorTraits<Functor>::RunnableType RunnableType;
-  typedef typename internal::FunctorTraits<Functor>::RunType RunType;
+using MakeUnboundRunType =
+    typename internal::MakeUnboundRunTypeImpl<Functor, Args...>::Type;
+
+template <typename Functor, typename... Args>
+base::Callback<MakeUnboundRunType<Functor, Args...>>
+Bind(Functor functor, Args&&... args) {
+  // Type aliases for how to store and run the functor.
+  using RunnableType = typename internal::FunctorTraits<Functor>::RunnableType;
+  using RunType = typename internal::FunctorTraits<Functor>::RunType;
 
   // Use RunnableType::RunType instead of RunType above because our
-  // checks should below for bound references need to know what the actual
+  // checks below for bound references need to know what the actual
   // functor is going to interpret the argument as.
-  typedef typename RunnableType::RunType BoundRunType;
+  using BoundRunType = typename RunnableType::RunType;
+
+  using BoundArgs =
+      internal::TakeTypeListItem<sizeof...(Args),
+                                 internal::ExtractArgs<BoundRunType>>;
 
   // Do not allow binding a non-const reference parameter. Non-const reference
   // parameters are disallowed by the Google style guide.  Also, binding a
   // non-const reference parameter can make for subtle bugs because the
   // invoked function will receive a reference to the stored copy of the
   // argument and not the original.
-  static_assert(!internal::HasNonConstReferenceParam<BoundRunType>::value,
-                "do_not_bind_functions_with_nonconst_ref");
+  static_assert(!internal::HasNonConstReferenceItem<BoundArgs>::value,
+                "do not bind functions with nonconst ref");
 
   const bool is_method = internal::HasIsMethodTag<RunnableType>::value;
 
@@ -98,19 +95,16 @@ Bind(Functor functor, const Args&... args) {
   // methods. We also disallow binding of an array as the method's target
   // object.
   static_assert(!internal::BindsArrayToFirstArg<is_method, Args...>::value,
-                "first_bound_argument_to_method_cannot_be_array");
+                "first bound argument to method cannot be array");
   static_assert(
       !internal::HasRefCountedParamAsRawPtr<is_method, Args...>::value,
-      "a_parameter_is_refcounted_type_and_needs_scoped_refptr");
+      "a parameter is a refcounted type and needs scoped_refptr");
 
-  typedef internal::BindState<
-      RunnableType, RunType,
-      internal::TypeList<
-          typename internal::CallbackParamTraits<Args>::StorageType...>>
-      BindState;
+  using BindState = internal::BindState<RunnableType, RunType, Args...>;
 
   return Callback<typename BindState::UnboundRunType>(
-      new BindState(internal::MakeRunnable(functor), args...));
+      new BindState(internal::MakeRunnable(functor),
+                    std::forward<Args>(args)...));
 }
 
 }  // namespace base

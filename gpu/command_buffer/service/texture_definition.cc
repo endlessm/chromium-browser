@@ -4,6 +4,8 @@
 
 #include "gpu/command_buffer/service/texture_definition.h"
 
+#include <stdint.h>
+
 #include <list>
 
 #include "base/lazy_instance.h"
@@ -17,6 +19,7 @@
 #include "ui/gl/scoped_binders.h"
 
 #if !defined(OS_MACOSX)
+#include "base/macros.h"
 #include "ui/gl/gl_surface_egl.h"
 #endif
 
@@ -385,11 +388,13 @@ void TextureDefinition::UpdateTextureInternal(Texture* texture) const {
   if (defined_) {
     texture->face_infos_.resize(1);
     texture->face_infos_[0].level_infos.resize(1);
-    texture->SetLevelInfo(NULL, level_info_.target, 0,
+    texture->SetLevelInfo(level_info_.target, 0,
                           level_info_.internal_format, level_info_.width,
                           level_info_.height, level_info_.depth,
                           level_info_.border, level_info_.format,
                           level_info_.type, level_info_.cleared_rect);
+    texture->face_infos_[0].level_infos.resize(
+        texture->face_infos_[0].num_mip_levels);
   }
 
   if (image_buffer_.get()) {
@@ -402,10 +407,10 @@ void TextureDefinition::UpdateTextureInternal(Texture* texture) const {
 
   texture->target_ = target_;
   texture->SetImmutable(immutable_);
-  texture->min_filter_ = min_filter_;
-  texture->mag_filter_ = mag_filter_;
-  texture->wrap_s_ = wrap_s_;
-  texture->wrap_t_ = wrap_t_;
+  texture->sampler_state_.min_filter = min_filter_;
+  texture->sampler_state_.mag_filter = mag_filter_;
+  texture->sampler_state_.wrap_s = wrap_s_;
+  texture->sampler_state_.wrap_t = wrap_t_;
   texture->usage_ = usage_;
 }
 
@@ -435,10 +440,10 @@ void TextureDefinition::UpdateTexture(Texture* texture) const {
 
 bool TextureDefinition::Matches(const Texture* texture) const {
   DCHECK(target_ == texture->target());
-  if (texture->min_filter_ != min_filter_ ||
-      texture->mag_filter_ != mag_filter_ ||
-      texture->wrap_s_ != wrap_s_ ||
-      texture->wrap_t_ != wrap_t_ ||
+  if (texture->sampler_state_.min_filter != min_filter_ ||
+      texture->sampler_state_.mag_filter != mag_filter_ ||
+      texture->sampler_state_.wrap_s != wrap_s_ ||
+      texture->sampler_state_.wrap_t != wrap_t_ ||
       texture->SafeToRenderFrom() != SafeToRenderFrom()) {
     return false;
   }

@@ -4,6 +4,9 @@
 
 #include "components/guest_view/browser/guest_view_event.h"
 
+#include <utility>
+
+#include "base/logging.h"
 #include "components/guest_view/browser/guest_view_base.h"
 #include "components/guest_view/browser/guest_view_manager.h"
 
@@ -11,18 +14,15 @@ namespace guest_view {
 
 GuestViewEvent::GuestViewEvent(const std::string& name,
                                scoped_ptr<base::DictionaryValue> args)
-    : name_(name),
-      args_(args.Pass()) {
-}
+    : name_(name), args_(std::move(args)) {}
 
 GuestViewEvent::~GuestViewEvent() {
 }
 
 void GuestViewEvent::Dispatch(GuestViewBase* guest, int instance_id) {
-  GuestViewManager::FromBrowserContext(guest->browser_context())->
-      DispatchEvent(name_, args_.Pass(), guest, instance_id);
-
-  delete this;
+  DCHECK(args_) << "Dispatch was probably invoked twice!";
+  GuestViewManager::FromBrowserContext(guest->browser_context())
+      ->DispatchEvent(name_, std::move(args_), guest, instance_id);
 }
 
 }  // namespace guest_view

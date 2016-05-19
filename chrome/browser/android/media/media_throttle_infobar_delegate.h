@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 
 namespace content {
@@ -40,6 +41,7 @@ class MediaThrottleInfoBarDelegate : public ConfirmInfoBarDelegate {
       const DecodeRequestGrantedCallback& callback);
 
   // ConfirmInfoBarDelegate:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   MediaThrottleInfoBarDelegate* AsMediaThrottleInfoBarDelegate() override;
   base::string16 GetMessageText() const override;
   int GetIconId() const override;

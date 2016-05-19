@@ -4,18 +4,16 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/formfiller/FormFiller.h"
-#include "../../include/formfiller/FFL_FormFiller.h"
-#include "../../include/formfiller/FFL_ListBox.h"
-//#include "../../include/formfiller/FFL_Module.h"
-#include "../../include/formfiller/FFL_IFormFiller.h"
-//#include "../../include/formfiller/FFL_Undo.h"
-#include "../../include/formfiller/FFL_CBA_Fontmap.h"
+#include "fpdfsdk/include/formfiller/FFL_ListBox.h"
+
+#include "fpdfsdk/include/formfiller/FFL_CBA_Fontmap.h"
+#include "fpdfsdk/include/formfiller/FFL_FormFiller.h"
+#include "fpdfsdk/include/formfiller/FFL_IFormFiller.h"
+#include "fpdfsdk/include/fsdk_common.h"
+#include "fpdfsdk/include/fsdk_mgr.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ListBox.h"
 
 #define FFL_DEFAULTLISTBOXFONTSIZE 12.0f
-
-/* ------------------------------- CFFL_ListBox -------------------------------
- */
 
 CFFL_ListBox::CFFL_ListBox(CPDFDoc_Environment* pApp, CPDFSDK_Annot* pWidget)
     : CFFL_FormFiller(pApp, pWidget), m_pFontMap(NULL) {}
@@ -27,7 +25,6 @@ CFFL_ListBox::~CFFL_ListBox() {
 PWL_CREATEPARAM CFFL_ListBox::GetCreateParam() {
   PWL_CREATEPARAM cp = CFFL_FormFiller::GetCreateParam();
 
-  ASSERT(m_pWidget != NULL);
   FX_DWORD dwFieldFlag = m_pWidget->GetFieldFlags();
 
   if (dwFieldFlag & FIELDFLAG_MULTISELECT) {
@@ -39,10 +36,8 @@ PWL_CREATEPARAM CFFL_ListBox::GetCreateParam() {
   if (cp.dwFlags & PWS_AUTOFONTSIZE)
     cp.fFontSize = FFL_DEFAULTLISTBOXFONTSIZE;
 
-  if (!m_pFontMap) {
+  if (!m_pFontMap)
     m_pFontMap = new CBA_FontMap(m_pWidget, m_pApp->GetSysHandler());
-    m_pFontMap->Initial();
-  }
   cp.pFontMap = m_pFontMap;
 
   return cp;
@@ -54,7 +49,6 @@ CPWL_Wnd* CFFL_ListBox::NewPDFWindow(const PWL_CREATEPARAM& cp,
   pWnd->AttachFFLData(this);
   pWnd->Create(cp);
 
-  ASSERT(m_pApp != NULL);
   CFFL_IFormFiller* pIFormFiller = m_pApp->GetIFormFiller();
   pWnd->SetFillerNotify(pIFormFiller);
 
@@ -117,7 +111,7 @@ FX_BOOL CFFL_ListBox::IsDataChanged(CPDFSDK_PageView* pPageView) {
 }
 
 void CFFL_ListBox::SaveData(CPDFSDK_PageView* pPageView) {
-  ASSERT(m_pWidget != NULL);
+  ASSERT(m_pWidget);
 
   if (CPWL_ListBox* pListBox = (CPWL_ListBox*)GetPDFWindow(pPageView, FALSE)) {
     CFX_IntArray aOldSelect, aNewSelect;
@@ -163,7 +157,6 @@ void CFFL_ListBox::GetActionData(CPDFSDK_PageView* pPageView,
       } else {
         if (CPWL_ListBox* pListBox =
                 (CPWL_ListBox*)GetPDFWindow(pPageView, FALSE)) {
-          ASSERT(m_pWidget != NULL);
           int32_t nCurSel = pListBox->GetCurSel();
           if (nCurSel >= 0)
             fa.sValue = m_pWidget->GetOptionLabel(nCurSel);
@@ -175,7 +168,6 @@ void CFFL_ListBox::GetActionData(CPDFSDK_PageView* pPageView,
       if (m_pWidget->GetFieldFlags() & FIELDFLAG_MULTISELECT) {
         fa.sValue = L"";
       } else {
-        ASSERT(m_pWidget != NULL);
         int32_t nCurSel = m_pWidget->GetSelectedIndex(0);
         if (nCurSel >= 0)
           fa.sValue = m_pWidget->GetOptionLabel(nCurSel);
@@ -191,7 +183,7 @@ void CFFL_ListBox::SetActionData(CPDFSDK_PageView* pPageView,
                                  const PDFSDK_FieldAction& fa) {}
 
 void CFFL_ListBox::SaveState(CPDFSDK_PageView* pPageView) {
-  ASSERT(pPageView != NULL);
+  ASSERT(pPageView);
 
   if (CPWL_ListBox* pListBox = (CPWL_ListBox*)GetPDFWindow(pPageView, FALSE)) {
     for (int32_t i = 0, sz = pListBox->GetCount(); i < sz; i++) {
@@ -221,8 +213,9 @@ CPWL_Wnd* CFFL_ListBox::ResetPDFWindow(CPDFSDK_PageView* pPageView,
   if (bRestoreValue) {
     RestoreState(pPageView);
     pRet = GetPDFWindow(pPageView, FALSE);
-  } else
+  } else {
     pRet = GetPDFWindow(pPageView, TRUE);
+  }
 
   m_pWidget->UpdateField();
 

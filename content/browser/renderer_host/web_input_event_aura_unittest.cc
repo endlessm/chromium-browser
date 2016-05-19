@@ -4,7 +4,11 @@
 
 #include "content/browser/renderer_host/web_input_event_aura.h"
 
-#include "base/basictypes.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/event.h"
@@ -161,7 +165,7 @@ TEST(WebInputEventAuraTest, TestMakeWebKeyboardEventKeyPadKeyCode) {
   struct TestCase {
     ui::DomCode dom_code;         // The physical key (location).
     ui::KeyboardCode ui_keycode;  // The virtual key code.
-    uint32 x_keysym;              // The X11 keysym.
+    uint32_t x_keysym;            // The X11 keysym.
     bool expected_result;         // true if the event has "isKeyPad" modifier.
   } kTesCases[] = {
       {ui::DomCode::DIGIT0, ui::VKEY_0, XK(0), false},
@@ -421,7 +425,7 @@ TEST(WebInputEventAuraTest, TestMakeWebMouseEvent) {
               webkit_event.pointerType);
     EXPECT_EQ(0, webkit_event.tiltX);
     EXPECT_EQ(0, webkit_event.tiltY);
-    EXPECT_FLOAT_EQ(0.0f, webkit_event.force);
+    EXPECT_TRUE(std::isnan(webkit_event.force));
     EXPECT_EQ(123, webkit_event.x);
     EXPECT_EQ(123, webkit_event.windowX);
     EXPECT_EQ(321, webkit_event.y);
@@ -474,7 +478,7 @@ TEST(WebInputEventAuraTest, TestMakeWebMouseWheelEvent) {
               webkit_event.pointerType);
     EXPECT_EQ(0, webkit_event.tiltX);
     EXPECT_EQ(0, webkit_event.tiltY);
-    EXPECT_FLOAT_EQ(0.0f, webkit_event.force);
+    EXPECT_TRUE(std::isnan(webkit_event.force));
     EXPECT_EQ(123, webkit_event.x);
     EXPECT_EQ(123, webkit_event.windowX);
     EXPECT_EQ(321, webkit_event.y);
@@ -499,7 +503,7 @@ TEST(WebInputEventAuraTest, TestMakeWebMouseWheelEvent) {
               webkit_event.pointerType);
     EXPECT_EQ(0, webkit_event.tiltX);
     EXPECT_EQ(0, webkit_event.tiltY);
-    EXPECT_FLOAT_EQ(0.0f, webkit_event.force);
+    EXPECT_TRUE(std::isnan(webkit_event.force));
     EXPECT_EQ(123, webkit_event.x);
     EXPECT_EQ(123, webkit_event.windowX);
     EXPECT_EQ(321, webkit_event.y);

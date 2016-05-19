@@ -9,11 +9,13 @@
 #include <vector>
 
 #include "tools/gn/label_ptr.h"
+#include "tools/gn/lib_file.h"
 #include "tools/gn/unique_vector.h"
 
 class BuildSettings;
 class Err;
 class Label;
+class LabelPattern;
 class SourceDir;
 class SourceFile;
 class Value;
@@ -29,6 +31,14 @@ bool ExtractListOfRelativeFiles(const BuildSettings* build_settings,
                                 const SourceDir& current_dir,
                                 std::vector<SourceFile>* files,
                                 Err* err);
+
+// Extracts a list of libraries. When they contain a "/" they are treated as
+// source paths and are otherwise treated as plain strings.
+bool ExtractListOfLibs(const BuildSettings* build_settings,
+                       const Value& value,
+                       const SourceDir& current_dir,
+                       std::vector<LibFile>* libs,
+                       Err* err);
 
 // Looks for a list of source directories relative to a given current dir.
 bool ExtractListOfRelativeDirs(const BuildSettings* build_settings,
@@ -70,5 +80,10 @@ bool ExtractRelativeFile(const BuildSettings* build_settings,
                          const SourceDir& current_dir,
                          SourceFile* file,
                          Err* err);
+
+bool ExtractListOfLabelPatterns(const Value& value,
+                                const SourceDir& current_dir,
+                                std::vector<LabelPattern>* patterns,
+                                Err* err);
 
 #endif  // TOOLS_GN_VALUE_EXTRACTORS_H_

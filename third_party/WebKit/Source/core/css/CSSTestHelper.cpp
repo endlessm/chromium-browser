@@ -27,7 +27,6 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSTestHelper.h"
 
 #include "core/css/CSSRuleList.h"
@@ -35,9 +34,8 @@
 #include "core/css/RuleSet.h"
 #include "core/css/StyleSheetContents.h"
 #include "core/dom/Document.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/text/WTFString.h"
-
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -50,6 +48,11 @@ CSSTestHelper::CSSTestHelper()
     m_document = Document::create();
     TextPosition position;
     m_styleSheet = CSSStyleSheet::createInline(m_document.get(), KURL(), position, "UTF-8");
+}
+
+CSSRuleList* CSSTestHelper::cssRules()
+{
+    return m_styleSheet->cssRules().get();
 }
 
 RuleSet& CSSTestHelper::ruleSet()

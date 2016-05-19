@@ -55,15 +55,12 @@ def attribute_context(interface, attribute):
 
     # [CheckSecurity]
     is_do_not_check_security = 'DoNotCheckSecurity' in extended_attributes
-    is_check_security_for_frame = (
-        has_extended_attribute_value(interface, 'CheckSecurity', 'Frame') and
+    is_check_security_for_receiver = (
+        has_extended_attribute_value(interface, 'CheckSecurity', 'Receiver') and
         not is_do_not_check_security)
-    is_check_security_for_node = (
-        has_extended_attribute_value(attribute, 'CheckSecurity', 'Node'))
-    is_check_security_for_window = (
-        has_extended_attribute_value(interface, 'CheckSecurity', 'Window') and
-        not is_do_not_check_security)
-    if is_check_security_for_frame or is_check_security_for_node or is_check_security_for_window:
+    is_check_security_for_return_value = (
+        has_extended_attribute_value(attribute, 'CheckSecurity', 'ReturnValue'))
+    if is_check_security_for_receiver or is_check_security_for_return_value:
         includes.add('bindings/core/v8/BindingSecurity.h')
     # [Constructor]
     # TODO(yukishiino): Constructors are much like methods although constructors
@@ -97,6 +94,13 @@ def attribute_context(interface, attribute):
     if cached_attribute_validation_method or keep_alive_for_gc:
         includes.add('bindings/core/v8/V8HiddenValue.h')
 
+    if 'RuntimeEnabled' in extended_attributes:
+        includes.add('platform/RuntimeEnabledFeatures.h')
+
+    if 'OriginTrialEnabled' in extended_attributes:
+        includes.add('core/inspector/ConsoleMessage.h')
+        includes.add('core/origin_trials/OriginTrials.h')
+
     context = {
         'access_control_list': access_control_list(interface, attribute),
         'activity_logging_world_list_for_getter': v8_utilities.activity_logging_world_list(attribute, 'Getter'),  # [ActivityLogging]
@@ -104,7 +108,6 @@ def attribute_context(interface, attribute):
         'activity_logging_world_check': v8_utilities.activity_logging_world_check(attribute),  # [ActivityLogging]
         'argument_cpp_type': idl_type.cpp_type_args(used_as_rvalue_type=True),
         'cached_attribute_validation_method': cached_attribute_validation_method,
-        'conditional_string': v8_utilities.conditional_string(attribute),
         'constructor_type': constructor_type,
         'cpp_name': cpp_name(attribute),
         'cpp_type': idl_type.cpp_type,
@@ -117,11 +120,11 @@ def attribute_context(interface, attribute):
         'has_custom_setter': has_custom_setter(attribute),
         'has_setter': has_setter(attribute),
         'idl_type': str(idl_type),  # need trailing [] on array for Dictionary::ConversionContext::setConversionType
+        'is_origin_trial_enabled': v8_utilities.origin_trial_enabled_function(attribute) or v8_utilities.origin_trial_enabled_function(interface),  # [OriginTrialEnabled]
         'is_call_with_execution_context': has_extended_attribute_value(attribute, 'CallWith', 'ExecutionContext'),
         'is_call_with_script_state': has_extended_attribute_value(attribute, 'CallWith', 'ScriptState'),
-        'is_check_security_for_frame': is_check_security_for_frame,
-        'is_check_security_for_node': is_check_security_for_node,
-        'is_check_security_for_window': is_check_security_for_window,
+        'is_check_security_for_receiver': is_check_security_for_receiver,
+        'is_check_security_for_return_value': is_check_security_for_return_value,
         'is_custom_element_callbacks': is_custom_element_callbacks,
         # TODO(yukishiino): Make all DOM attributes accessor-type properties.
         'is_data_type_property': constructor_type or interface.name == 'Window' or interface.name == 'Location',
@@ -146,6 +149,9 @@ def attribute_context(interface, attribute):
         'on_instance': v8_utilities.on_instance(interface, attribute),
         'on_interface': v8_utilities.on_interface(interface, attribute),
         'on_prototype': v8_utilities.on_prototype(interface, attribute),
+        'origin_trial_enabled': v8_utilities.origin_trial_enabled_function(attribute),  # [OriginTrialEnabled]
+        'origin_trial_enabled_per_interface': v8_utilities.origin_trial_enabled_function(interface),  # [OriginTrialEnabled]
+        'origin_trial_name': extended_attributes.get('OriginTrialEnabled'),  # [OriginTrialEnabled]
         'use_output_parameter_for_result': idl_type.use_output_parameter_for_result,
         'measure_as': v8_utilities.measure_as(attribute, interface),  # [MeasureAs]
         'name': attribute.name,
@@ -342,7 +348,7 @@ def setter_context(interface, attribute, context):
     is_setter_raises_exception = (
         'RaisesException' in extended_attributes and
         extended_attributes['RaisesException'] in [None, 'Setter'])
-    # [TypeChecking=Interface] / [LegacyInterfaceTypeChecking]
+    # [LegacyInterfaceTypeChecking]
     has_type_checking_interface = (
         not is_legacy_interface_type_checking(interface, attribute) and
         idl_type.is_wrapper_type)
@@ -509,7 +515,7 @@ def is_constructor_attribute(attribute):
 
 
 def update_constructor_attribute_context(interface, attribute, context):
-    context['needs_constructor_getter_callback'] = context['measure_as'] or context['deprecate_as']
+    context['needs_constructor_getter_callback'] = context['measure_as'] or context['deprecate_as'] or context['origin_trial_name']
     # When the attribute name is the same as the interface name, do not generate
     # callback functions for each attribute and use
     # {{cpp_class}}ConstructorAttributeSetterCallback.  Otherwise, generate

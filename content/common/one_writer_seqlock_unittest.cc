@@ -7,8 +7,10 @@
 #include <stdlib.h>
 
 #include "base/atomic_ref_count.h"
+#include "base/macros.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "base/threading/platform_thread.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -59,7 +61,12 @@ class BasicSeqLockTestThread : public PlatformThread::Delegate {
   DISALLOW_COPY_AND_ASSIGN(BasicSeqLockTestThread);
 };
 
-TEST(OneWriterSeqLockTest, ManyThreads) {
+#if defined(OS_ANDROID)
+#define MAYBE_ManyThreads FLAKY_ManyThreads
+#else
+#define MAYBE_ManyThreads ManyThreads
+#endif
+TEST(OneWriterSeqLockTest, MAYBE_ManyThreads) {
   content::OneWriterSeqLock seqlock;
   TestData data = { 0, 0, 0 };
   base::AtomicRefCount ready = 0;

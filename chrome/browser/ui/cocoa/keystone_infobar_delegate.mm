@@ -10,9 +10,9 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #import "chrome/browser/mac/keystone_glue.h"
@@ -26,6 +26,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -51,6 +52,7 @@ class KeystonePromotionInfoBarDelegate : public ConfirmInfoBarDelegate {
   void SetCanExpire() { can_expire_ = true; }
 
   // ConfirmInfoBarDelegate
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   int GetIconId() const override;
   bool ShouldExpire(const NavigationDetails& details) const override;
   base::string16 GetMessageText() const override;
@@ -102,6 +104,11 @@ KeystonePromotionInfoBarDelegate::KeystonePromotionInfoBarDelegate(
 }
 
 KeystonePromotionInfoBarDelegate::~KeystonePromotionInfoBarDelegate() {
+}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+KeystonePromotionInfoBarDelegate::GetIdentifier() const {
+  return KEYSTONE_PROMOTION_INFOBAR_DELEGATE;
 }
 
 int KeystonePromotionInfoBarDelegate::GetIconId() const {

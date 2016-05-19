@@ -11,6 +11,8 @@
 #include "GrTexture.h"
 #include "SkImageFilter.h"
 
+class GrSingleOwner;
+
 class SK_API GrTextureProvider {
 public:
     ///////////////////////////////////////////////////////////////////////////
@@ -27,11 +29,11 @@ public:
      *                  implies tightly packed rows. For compressed pixel configs, this
      *                  field is ignored.
      */
-    GrTexture* createTexture(const GrSurfaceDesc& desc, bool budgeted, const void* srcData,
+    GrTexture* createTexture(const GrSurfaceDesc& desc, SkBudgeted budgeted, const void* srcData,
                              size_t rowBytes);
 
     /** Shortcut for creating a texture with no initial data to upload. */
-    GrTexture* createTexture(const GrSurfaceDesc& desc, bool budgeted) {
+    GrTexture* createTexture(const GrSurfaceDesc& desc, SkBudgeted budgeted) {
         return this->createTexture(desc, budgeted, NULL, 0);
     }
 
@@ -42,15 +44,7 @@ public:
     }
 
     /** Finds a texture by unique key. If the texture is found it is ref'ed and returned. */
-    GrTexture* findAndRefTextureByUniqueKey(const GrUniqueKey& key) {
-        GrGpuResource* resource = this->findAndRefResourceByUniqueKey(key);
-        if (resource) {
-            GrTexture* texture = static_cast<GrSurface*>(resource)->asTexture();
-            SkASSERT(texture);
-            return texture;
-        }
-        return NULL;
-    }
+    GrTexture* findAndRefTextureByUniqueKey(const GrUniqueKey& key);
 
     /**
      * Determines whether a texture is associated with the unique key. If the texture is found it
@@ -70,31 +64,6 @@ public:
      */
     GrTexture* createApproxTexture(const GrSurfaceDesc&);
 
-    enum SizeConstraint {
-        kExact_SizeConstraint,
-        kApprox_SizeConstraint,
-    };
-
-    GrTexture* createTexture(const GrSurfaceDesc& desc, SizeConstraint constraint) {
-        switch (constraint) {
-            case kExact_SizeConstraint:
-                return this->createTexture(desc, true);
-            case kApprox_SizeConstraint:
-                return this->createApproxTexture(desc);
-        }
-        sk_throw();
-        return nullptr;
-    }
-
-    static SizeConstraint FromImageFilter(SkImageFilter::SizeConstraint constraint) {
-        if (SkImageFilter::kExact_SizeConstraint == constraint) {
-            return kExact_SizeConstraint;
-        } else {
-            SkASSERT(SkImageFilter::kApprox_SizeConstraint == constraint);
-            return kApprox_SizeConstraint;
-        }
-    }
-
     /** Legacy function that no longer should be used. */
     enum ScratchTexMatch {
         kExact_ScratchTexMatch,
@@ -104,7 +73,7 @@ public:
         if (kApprox_ScratchTexMatch == match) {
             return this->createApproxTexture(desc);
         } else {
-            return this->createTexture(desc, true);
+            return this->createTexture(desc, SkBudgeted::kYes);
         }
     }
 
@@ -129,12 +98,12 @@ public:
      * the client will resolve to a texture). Currently wrapped render targets
      * always use the kBorrow_GrWrapOwnership semantics.
      *
-     * @return GrTexture object or NULL on failure.
+     * @return GrRenderTarget object or NULL on failure.
      */
      GrRenderTarget* wrapBackendRenderTarget(const GrBackendRenderTargetDesc& desc);
 
 protected:
-    GrTextureProvider(GrGpu* gpu, GrResourceCache* cache) : fCache(cache), fGpu(gpu) {}
+    GrTextureProvider(GrGpu* gpu, GrResourceCache* cache, GrSingleOwner* singleOwner);
 
     /**
      * Assigns a unique key to a resource. If the key is associated with another resource that
@@ -186,6 +155,9 @@ protected:
 private:
     GrResourceCache* fCache;
     GrGpu* fGpu;
+
+    // In debug builds we guard against improper thread handling
+    SkDEBUGCODE(mutable GrSingleOwner* fSingleOwner;)
 };
 
 #endif

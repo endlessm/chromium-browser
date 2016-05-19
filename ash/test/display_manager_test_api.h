@@ -5,10 +5,13 @@
 #ifndef ASH_TEST_DISPLAY_MANAGER_TEST_API_H_
 #define ASH_TEST_DISPLAY_MANAGER_TEST_API_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "ash/display/display_layout.h"
+#include "base/macros.h"
 #include "ui/display/types/display_constants.h"
 
 namespace gfx {
@@ -45,21 +48,21 @@ class DisplayManagerTestApi {
 
   // Set the 1st display as an internal display and returns the display Id for
   // the internal display.
-  int64 SetFirstDisplayAsInternalDisplay();
+  int64_t SetFirstDisplayAsInternalDisplay();
 
   // Don't update the display when the root window's size was changed.
   void DisableChangeDisplayUponHostResize();
 
   // Sets the available color profiles for |display_id|.
   void SetAvailableColorProfiles(
-      int64 display_id,
+      int64_t display_id,
       const std::vector<ui::ColorCalibrationProfile>& profiles);
 
  private:
   friend class ScopedSetInternalDisplayId;
   // Sets the display id for internal display and
   // update the display mode list if necessary.
-  void SetInternalDisplayId(int64 id);
+  void SetInternalDisplayId(int64_t id);
 
   DisplayManager* display_manager_;  // not owned
 
@@ -77,7 +80,7 @@ class ScopedDisable125DSFForUIScaling {
 
 class ScopedSetInternalDisplayId {
  public:
-  ScopedSetInternalDisplayId(int64 id);
+  ScopedSetInternalDisplayId(int64_t id);
   ~ScopedSetInternalDisplayId();
 
  private:
@@ -85,7 +88,23 @@ class ScopedSetInternalDisplayId {
 };
 
 // Sets the display mode that matches the |resolution| for |display_id|.
-bool SetDisplayResolution(int64 display_id, const gfx::Size& resolution);
+bool SetDisplayResolution(int64_t display_id, const gfx::Size& resolution);
+
+// Swap the primary display with the secondary.
+void SwapPrimaryDisplay();
+
+// Creates the dislpay layout from position and offset for the current
+// display list. If you simply want to create a new layout that is
+// independent of current displays, use DisplayLayoutBuilder or simply
+// create a new DisplayLayout and set display id fields (primary, ids
+// in placement) manually.
+scoped_ptr<DisplayLayout> CreateDisplayLayout(
+    DisplayPlacement::Position position,
+    int offset);
+
+// Creates the DisplayIdList from ints.
+DisplayIdList CreateDisplayIdList2(int64_t id1, int64_t id2);
+DisplayIdList CreateDisplayIdListN(size_t count, ...);
 
 }  // namespace test
 }  // namespace ash

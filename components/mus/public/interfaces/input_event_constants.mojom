@@ -12,34 +12,34 @@ enum EventType {
   POINTER_DOWN,
   POINTER_MOVE,
   POINTER_UP,
+  MOUSE_EXIT,
   WHEEL,
 };
 
 // This mirrors ui::EventFlags
 // TODO(morrita): Use shift operator once it is available.
-enum EventFlags {
-  NONE                =      0,
-  CAPS_LOCK_DOWN      =      1,
-  SHIFT_DOWN          =      2,
-  CONTROL_DOWN        =      4,
-  ALT_DOWN            =      8,
-  LEFT_MOUSE_BUTTON   =     16,
-  MIDDLE_MOUSE_BUTTON =     32,
-  RIGHT_MOUSE_BUTTON  =     64,
-  COMMAND_DOWN        =    128,
-  EXTENDED            =    256,
-  IS_SYNTHESIZED      =    512,
-  ALTGR_DOWN          =   1024,
-  MOD3_DOWN           =   2048
-};
+const int32 kEventFlagNone               = 0x00000;
+const int32 kEventFlagIsSynthesized      = 0x00001;
+const int32 kEventFlagShiftDown          = 0x00002;
+const int32 kEventFlagControlDown        = 0x00004;
+const int32 kEventFlagAltDown            = 0x00008;
+const int32 kEventFlagCommandDown        = 0x00010;
+const int32 kEventFlagAltgrDown          = 0x00020;
+const int32 kEventFlagMod3Down           = 0x00040;
+const int32 kEventFlagNumLockOn          = 0x00080;
+const int32 kEventFlagCapsLockOn         = 0x00100;
+const int32 kEventFlagScrollLockOn       = 0x00200;
+const int32 kEventFlagLeftMouseButton    = 0x00400;
+const int32 kEventFlagMiddleMouseButton  = 0x00800;
+const int32 kEventFlagRightMouseButton   = 0x01000;
+const int32 kEventFlagBackMouseButton    = 0x02000;
+const int32 kEventFlagForwardMouseButton = 0x04000;
 
-enum MouseEventFlags {
-  IS_DOUBLE_CLICK     =  65536,
-  IS_TRIPLE_CLICK     = 131072,
-  IS_NON_CLIENT       = 262144,
+const int32 kMouseEventFlagIsDoubleClick = 0x08000;
+const int32 kMouseEventFlagIsTripleClick = 0x10000;
+const int32 kMouseEventFlagIsNonClient   = 0x20000;
 
-  // TODO(erg): Move accessibility flags and maybe synthetic touch events here.
-};
+// TODO(erg): Move accessibility flags and maybe synthetic touch events here.
 
 enum PointerKind {
   MOUSE,

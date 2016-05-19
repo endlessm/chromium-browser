@@ -4,8 +4,13 @@
 
 #include "components/variations/study_filtering.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
 #include <vector>
 
+#include "base/macros.h"
 #include "base/strings/string_split.h"
 #include "components/variations/processed_study.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -15,7 +20,7 @@ namespace variations {
 namespace {
 
 // Converts |time| to Study proto format.
-int64 TimeToProtoTime(const base::Time& time) {
+int64_t TimeToProtoTime(const base::Time& time) {
   return (time - base::Time::UnixEpoch()).InSeconds();
 }
 
@@ -115,7 +120,7 @@ TEST(VariationsStudyFilteringTest, CheckStudyFormFactor) {
     }
 
     if (i < arraysize(form_factors)) {
-      const int index = arraysize(form_factors) - i - 1;;
+      const int index = arraysize(form_factors) - i - 1;
       filter.add_form_factor(form_factors[index]);
       form_factor_added[index] = true;
     }

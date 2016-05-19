@@ -19,7 +19,8 @@
 
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "snapshot/cpu_context.h"
 #include "snapshot/memory_snapshot.h"
 #include "snapshot/thread_snapshot.h"
@@ -47,11 +48,14 @@ class ThreadSnapshotWin final : public ThreadSnapshot {
   //!     the thread.
   //! \param[in] process_reader_thread The thread within the ProcessReaderWin
   //!     for which the snapshot should be created.
+  //! \param[in] gather_indirectly_referenced_memory If `true`, adds extra
+  //!     memory regions to the snapshot pointed to by the thread's stack.
   //!
   //! \return `true` if the snapshot could be created, `false` otherwise with
   //!     an appropriate message logged.
   bool Initialize(ProcessReaderWin* process_reader,
-                  const ProcessReaderWin::Thread& process_reader_thread);
+                  const ProcessReaderWin::Thread& process_reader_thread,
+                  bool gather_indirectly_referenced_memory);
 
   // ThreadSnapshot:
 
@@ -75,6 +79,7 @@ class ThreadSnapshotWin final : public ThreadSnapshot {
   internal::MemorySnapshotWin teb_;
   ProcessReaderWin::Thread thread_;
   InitializationStateDcheck initialized_;
+  PointerVector<internal::MemorySnapshotWin> pointed_to_memory_;
 
   DISALLOW_COPY_AND_ASSIGN(ThreadSnapshotWin);
 };

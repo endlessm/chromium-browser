@@ -7,6 +7,9 @@
 // Note: The order of header includes is important, as we want both pre-Vista
 // and post-Vista data structures to be defined, specifically
 // PIP_ADAPTER_ADDRESSES and PMIB_IF_ROW2.
+
+#include <limits.h>
+#include <stddef.h>
 #include <winsock2.h>
 #include <ws2def.h>
 #include <ws2ipdef.h>
@@ -22,7 +25,6 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/win/windows_version.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/base/net_util.h"
 
 #if defined(ENABLE_RLZ)
 #include "rlz/lib/machine_id.h"

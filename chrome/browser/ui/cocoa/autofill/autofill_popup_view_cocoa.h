@@ -6,11 +6,13 @@
 #define CHROME_BROWSER_UI_COCOA_AUTOFILL_AUTOFILL_POPUP_VIEW_COCOA_H_
 
 #import <Cocoa/Cocoa.h>
+#include <stddef.h>
 
 #import "chrome/browser/ui/cocoa/autofill/autofill_popup_base_view_cocoa.h"
 
 namespace autofill {
 class AutofillPopupController;
+class AutofillPopupViewCocoaDelegate;
 }  // namespace autofill
 
 // Draws the native Autofill popup view on Mac.
@@ -18,11 +20,14 @@ class AutofillPopupController;
  @private
   // The cross-platform controller for this view.
   autofill::AutofillPopupController* controller_;  // weak
+  // The delegate back to the AutofillPopupViewBridge.
+  autofill::AutofillPopupViewCocoaDelegate* delegate_;  // weak
 }
 
 // Designated initializer.
 - (id)initWithController:(autofill::AutofillPopupController*)controller
-                   frame:(NSRect)frame;
+                   frame:(NSRect)frame
+                delegate:(autofill::AutofillPopupViewCocoaDelegate*)delegate;
 
 // Informs the view that its controller has been (or will imminently be)
 // destroyed.

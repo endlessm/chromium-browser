@@ -85,7 +85,7 @@
             'proto_in_dir': 'test',
             # Workaround to protect against gyp's pathname relativization when
             # this file is included by modules.gyp.
-            'proto_out_protected': 'webrtc/audio_processing',
+            'proto_out_protected': 'webrtc/modules/audio_processing',
             'proto_out_dir': '<(proto_out_protected)',
           },
           'includes': [ '../../build/protoc.gypi', ],
@@ -128,7 +128,11 @@
             '<(webrtc_root)/test/test.gyp:test_support',
             '<(DEPTH)/third_party/gflags/gflags.gyp:gflags',
           ],
-          'sources': [ 'test/audioproc_float.cc', ],
+          'sources': [
+            'test/audio_file_processor.cc',
+            'test/audio_file_processor.h',
+            'test/audioproc_float.cc',
+          ],
         },
         {
           'target_name': 'unpack_aecdump',

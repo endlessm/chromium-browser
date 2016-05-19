@@ -5,6 +5,8 @@
 #ifndef NET_HTTP_HTTP_AUTH_CACHE_H_
 #define NET_HTTP_HTTP_AUTH_CACHE_H_
 
+#include <stddef.h>
+
 #include <list>
 #include <string>
 
@@ -29,6 +31,7 @@ class NET_EXPORT_PRIVATE HttpAuthCache {
  public:
   class NET_EXPORT_PRIVATE Entry {
    public:
+    Entry(const Entry& other);
     ~Entry();
 
     const GURL& origin() const {

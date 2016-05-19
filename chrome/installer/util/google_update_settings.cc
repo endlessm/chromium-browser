@@ -4,8 +4,11 @@
 
 #include "chrome/installer/util/google_update_settings.h"
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <limits>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -34,6 +37,8 @@ using installer::InstallationState;
 const wchar_t GoogleUpdateSettings::kPoliciesKey[] =
     L"SOFTWARE\\Policies\\Google\\Update";
 const wchar_t GoogleUpdateSettings::kUpdatePolicyValue[] = L"UpdateDefault";
+const wchar_t GoogleUpdateSettings::kDownloadPreferencePolicyValue[] =
+    L"DownloadPreference";
 const wchar_t GoogleUpdateSettings::kUpdateOverrideValuePrefix[] = L"Update";
 const wchar_t GoogleUpdateSettings::kCheckPeriodOverrideMinutes[] =
     L"AutoUpdateCheckPeriodMinutes";
@@ -389,7 +394,7 @@ int GoogleUpdateSettings::GetLastRunTime() {
   base::string16 time_s;
   if (!ReadGoogleUpdateStrKey(google_update::kRegLastRunTimeField, &time_s))
     return -1;
-  int64 time_i;
+  int64_t time_i;
   if (!base::StringToInt64(time_s, &time_i))
     return -1;
   base::TimeDelta td =
@@ -398,7 +403,7 @@ int GoogleUpdateSettings::GetLastRunTime() {
 }
 
 bool GoogleUpdateSettings::SetLastRunTime() {
-  int64 time = base::Time::NowFromSystemTime().ToInternalValue();
+  int64_t time = base::Time::NowFromSystemTime().ToInternalValue();
   return WriteGoogleUpdateStrKey(google_update::kRegLastRunTimeField,
                                  base::Int64ToString16(time));
 }
@@ -766,6 +771,30 @@ bool GoogleUpdateSettings::ReenableAutoupdates() {
 #endif
   // Non Google Chrome isn't going to autoupdate.
   return true;
+}
+
+// Reads and sanitizes the value of
+// "HKLM\SOFTWARE\Policies\Google\Update\DownloadPreference". A valid
+// group policy option must be a single alpha numeric word of up to 32
+// characters.
+base::string16 GoogleUpdateSettings::GetDownloadPreference() {
+  RegKey policy_key;
+  base::string16 value;
+  if (policy_key.Open(HKEY_LOCAL_MACHINE, kPoliciesKey, KEY_QUERY_VALUE) ==
+          ERROR_SUCCESS &&
+      policy_key.ReadValue(kDownloadPreferencePolicyValue, &value) ==
+          ERROR_SUCCESS) {
+    // Validates that |value| matches `[a-zA-z]{0-32}`.
+    const size_t kMaxValueLength = 32;
+    if (value.size() > kMaxValueLength)
+      return base::string16();
+    for (auto ch : value) {
+      if (!base::IsAsciiAlpha(ch))
+        return base::string16();
+    }
+    return value;
+  }
+  return base::string16();
 }
 
 void GoogleUpdateSettings::RecordChromeUpdatePolicyHistograms() {

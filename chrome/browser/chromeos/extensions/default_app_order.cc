@@ -4,11 +4,14 @@
 
 #include "chrome/browser/chromeos/extensions/default_app_order.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
@@ -34,7 +37,6 @@ const char kImportDefaultOrderAttr[] = "import_default_order";
 const char* const kDefaultAppOrder[] = {
     extension_misc::kChromeAppId,
     extensions::kWebStoreAppId,
-    extension_misc::kGoogleSearchAppId,
     extension_misc::kYoutubeAppId,
     extension_misc::kGmailAppId,
     "ejjicmeblgpmajnghnpcppodonldlgfn",  // Calendar
@@ -74,7 +76,7 @@ scoped_ptr<base::ListValue> ReadExternalOrdinalFile(
   }
 
   scoped_ptr<base::ListValue> ordinal_list_value =
-      base::ListValue::From(value.Pass());
+      base::ListValue::From(std::move(value));
   if (!ordinal_list_value)
     LOG(WARNING) << "Expect a JSON list in file " << path.value();
 

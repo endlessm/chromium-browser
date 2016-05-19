@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/TextInsertionBaseCommand.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -82,4 +81,4 @@ bool canAppendNewLineFeedToSelection(const VisibleSelection& selection)
     return event->text().length();
 }
 
-}
+} // namespace blink

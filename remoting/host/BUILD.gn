@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/allocator.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//build/util/version.gni")
@@ -80,8 +79,8 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
       "//remoting/protocol",
       "//remoting/resources",
       "//ui/base",
-      "//ui/events/platform",
       "//ui/events:dom_keycode_converter",
+      "//ui/events/platform",
     ]
 
     if (enable_configuration_policy) {
@@ -193,14 +192,7 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
     }
 
     if (enable_webrtc) {
-      deps += [
-        # TODO(GYP): crbug.com/481633. We should probably not have to depend on
-        # libjingle_webrtc; that should be pulled in automatically by
-        # libpeerconnection instead.
-        "//third_party/libjingle:libjingle_webrtc",
-        "//third_party/libjingle:libpeerconnection",
-        "//third_party/webrtc/modules/desktop_capture",
-      ]
+      deps += [ "//third_party/webrtc/modules/desktop_capture" ]
 
       sources +=
           rebase_path(remoting_host_srcs_gypi_values.remoting_cast_sources,
@@ -213,8 +205,6 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
     testonly = true
 
     sources = [
-      "fake_desktop_capturer.cc",
-      "fake_desktop_capturer.h",
       "fake_desktop_environment.cc",
       "fake_desktop_environment.h",
       "fake_host_extension.cc",
@@ -257,7 +247,6 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
       "audio_pump_unittest.cc",
       "audio_silence_detector_unittest.cc",
       "backoff_timer_unittest.cc",
-      "capture_scheduler_unittest.cc",
       "chromeos/aura_desktop_capturer_unittest.cc",
       "chromeos/clipboard_aura_unittest.cc",
       "chromoting_host_context_unittest.cc",
@@ -269,7 +258,6 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
       "desktop_shape_tracker_unittest.cc",
       "gcd_rest_client_unittest.cc",
       "gcd_state_updater_unittest.cc",
-      "gnubby_auth_handler_posix_unittest.cc",
       "heartbeat_sender_unittest.cc",
       "host_change_notification_listener_unittest.cc",
       "host_config_unittest.cc",
@@ -282,6 +270,7 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
       "linux/unicode_to_keysym_unittest.cc",
       "linux/x_server_clipboard_unittest.cc",
       "local_input_monitor_unittest.cc",
+      "mouse_cursor_monitor_proxy_unittest.cc",
       "mouse_shape_pump_unittest.cc",
       "native_messaging/native_messaging_reader_unittest.cc",
       "native_messaging/native_messaging_writer_unittest.cc",
@@ -294,6 +283,8 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
       "resizing_host_observer_unittest.cc",
       "resources_unittest.cc",
       "screen_resolution_unittest.cc",
+      "security_key/gnubby_auth_handler_linux_unittest.cc",
+      "security_key/gnubby_extension_session_unittest.cc",
       "server_log_entry_host_unittest.cc",
       "setup/me2me_native_messaging_host_unittest.cc",
       "setup/oauth_helper_unittest.cc",
@@ -302,7 +293,6 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
       "third_party_auth_config_unittest.cc",
       "token_validator_factory_impl_unittest.cc",
       "touch_injector_win_unittest.cc",
-      "video_frame_pump_unittest.cc",
       "video_frame_recorder_unittest.cc",
       "win/rdp_client_unittest.cc",
       "win/worker_process_launcher_unittest.cc",
@@ -320,9 +310,9 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
     deps = [
       ":host",
       ":test_support",
-      "//remoting/host/setup",
       "//remoting/host/it2me:common",
       "//remoting/host/native_messaging",
+      "//remoting/host/setup",
       "//remoting/proto",
       "//skia",
       "//testing/gmock",
@@ -346,7 +336,7 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
                          [
                            remoting_srcs_gypi_values.daemon_controller_guid,
                            remoting_srcs_gypi_values.rdp_desktop_session_guid,
-                           version_full,
+                           chrome_version_full,
                          ],
                          "value")
     daemon_controller_clsid = clsids[0]
@@ -525,8 +515,8 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
         ]
 
         deps = [
-          ":remoting_me2me_host_static",
           ":credits",
+          ":remoting_me2me_host_static",
           "//build/config/sanitizers:deps",
         ]
       }
@@ -543,8 +533,8 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
           "//base",
           "//remoting/base:breakpad",
           "//remoting/host",
-          "//remoting/host/setup",
           "//remoting/host/native_messaging",
+          "//remoting/host/setup",
         ]
 
         configs += [ "//build/config/compiler:wexit_time_destructors" ]
@@ -556,9 +546,7 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
                     "$remoting_version_patch" + "." + "$chrome_version_build" +
                     "." + "$chrome_version_patch" ]
 
-        if (is_linux && use_allocator != "none") {
-          deps += [ "//base/allocator" ]
-        } else if (is_mac || is_win) {
+        if (is_mac || is_win) {
           assert(false, "not implemented on mac or win yet")
         }
       }
@@ -586,8 +574,7 @@ if (is_mac) {  # TODO(GYP) Mac build of remoting host.
         deb_filename,
         changes_filename,
 
-        # TODO(GYP): These files will only be present if we're stripping
-        # binaries. We need to support linux_dump_symbols for this.
+        # TODO(GYP): Check that these are generated by build_deb.py.
         #"$root_build_dir/remoting_me2me_host.debug",
         #"$root_build_dir/remoting_start_host.debug",
         #"$root_build_dir/native_messaging_host.debug",

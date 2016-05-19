@@ -18,8 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGTSpanElement.h"
 
 #include "core/SVGNames.h"
@@ -51,4 +49,4 @@ bool SVGTSpanElement::layoutObjectIsNeeded(const ComputedStyle& style)
     return false;
 }
 
-}
+} // namespace blink

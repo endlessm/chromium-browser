@@ -6,15 +6,17 @@
 import sys
 
 from core import path_util
-sys.path.append(path_util.GetTelemetryDir())
+from core import trybot_command
+sys.path.insert(1, path_util.GetTelemetryDir())
 
 from telemetry import benchmark_runner
 
 from chrome_telemetry_build import chromium_config
 
+
 def main():
   config = chromium_config.ChromiumConfig()
-  return benchmark_runner.main(config)
+  return benchmark_runner.main(config, [trybot_command.Trybot])
 
 if __name__ == '__main__':
   sys.exit(main())

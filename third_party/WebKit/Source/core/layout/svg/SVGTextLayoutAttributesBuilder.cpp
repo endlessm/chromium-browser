@@ -17,8 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/SVGTextLayoutAttributesBuilder.h"
 
 #include "core/layout/svg/LayoutSVGInline.h"
@@ -237,4 +235,4 @@ DEFINE_TRACE(SVGTextLayoutAttributesBuilder::TextPosition)
     visitor->trace(element);
 }
 
-}
+} // namespace blink

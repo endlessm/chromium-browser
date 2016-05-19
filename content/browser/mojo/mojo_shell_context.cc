@@ -4,6 +4,8 @@
 
 #include "content/browser/mojo/mojo_shell_context.h"
 
+#include <utility>
+
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/path_service.h"
@@ -11,6 +13,8 @@
 #include "base/thread_task_runner_handle.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/common/gpu/gpu_process_launch_causes.h"
+#include "content/common/mojo/mojo_shell_connection_impl.h"
+#include "content/common/mojo/static_application_loader.h"
 #include "content/common/process_control.mojom.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -18,24 +22,22 @@
 #include "content/public/browser/utility_process_host_client.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/service_registry.h"
-#include "mojo/application/public/cpp/application_delegate.h"
 #include "mojo/common/url_type_converters.h"
-#include "mojo/package_manager/package_manager_impl.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/bindings/string.h"
 #include "mojo/shell/application_loader.h"
-#include "mojo/shell/connect_to_application_params.h"
+#include "mojo/shell/connect_params.h"
 #include "mojo/shell/identity.h"
-#include "mojo/shell/static_application_loader.h"
-
-#if defined(ENABLE_MOJO_MEDIA_IN_BROWSER_PROCESS) || \
-    defined(ENABLE_MOJO_MEDIA_IN_GPU_PROCESS)
-#include "media/mojo/services/mojo_media_application.h"
-#endif
+#include "mojo/shell/native_runner.h"
+#include "mojo/shell/public/cpp/shell_client.h"
+#include "mojo/shell/public/interfaces/shell.mojom.h"
+#include "mojo/shell/runner/host/in_process_native_runner.h"
 
 namespace content {
 
 namespace {
+
+const char kBrowserAppUrl[] = "exe:chrome";
 
 // An extra set of apps to register on initialization, if set by a test.
 const MojoShellContext::StaticApplicationMap* g_applications_for_test;
@@ -52,7 +54,7 @@ void StartUtilityProcessOnIOThread(
   process_host->StartMojoMode();
 
   ServiceRegistry* services = process_host->GetServiceRegistry();
-  services->ConnectToRemoteService(request.Pass());
+  services->ConnectToRemoteService(std::move(request));
 }
 
 void OnApplicationLoaded(const GURL& url, bool success) {
@@ -69,9 +71,9 @@ class DefaultApplicationLoader : public mojo::shell::ApplicationLoader {
 
  private:
   // mojo::shell::ApplicationLoader:
-  void Load(
-      const GURL& url,
-      mojo::InterfaceRequest<mojo::Application> application_request) override {}
+  void Load(const GURL& url,
+            mojo::InterfaceRequest<mojo::shell::mojom::ShellClient> request)
+                override {}
 
   DISALLOW_COPY_AND_ASSIGN(DefaultApplicationLoader);
 };
@@ -87,16 +89,16 @@ class UtilityProcessLoader : public mojo::shell::ApplicationLoader {
 
  private:
   // mojo::shell::ApplicationLoader:
-  void Load(
-      const GURL& url,
-      mojo::InterfaceRequest<mojo::Application> application_request) override {
+  void Load(const GURL& url,
+            mojo::InterfaceRequest<mojo::shell::mojom::ShellClient> request)
+                override {
     ProcessControlPtr process_control;
     auto process_request = mojo::GetProxy(&process_control);
     BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                             base::Bind(&StartUtilityProcessOnIOThread,
                                        base::Passed(&process_request),
                                        process_name_, use_sandbox_));
-    process_control->LoadApplication(url.spec(), application_request.Pass(),
+    process_control->LoadApplication(url.spec(), std::move(request),
                                      base::Bind(&OnApplicationLoaded, url));
   }
 
@@ -120,7 +122,8 @@ void RequestGpuProcessControl(mojo::InterfaceRequest<ProcessControl> request) {
   // process is dead. In that case, |request| will be dropped and application
   // load requests through ProcessControl will also fail. Make sure we handle
   // these cases correctly.
-  process_host->GetServiceRegistry()->ConnectToRemoteService(request.Pass());
+  process_host->GetServiceRegistry()->ConnectToRemoteService(
+      std::move(request));
 }
 
 // Forwards the load request to the GPU process.
@@ -131,15 +134,15 @@ class GpuProcessLoader : public mojo::shell::ApplicationLoader {
 
  private:
   // mojo::shell::ApplicationLoader:
-  void Load(
-      const GURL& url,
-      mojo::InterfaceRequest<mojo::Application> application_request) override {
+  void Load(const GURL& url,
+            mojo::InterfaceRequest<mojo::shell::mojom::ShellClient> request)
+                override {
     ProcessControlPtr process_control;
     auto process_request = mojo::GetProxy(&process_control);
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         base::Bind(&RequestGpuProcessControl, base::Passed(&process_request)));
-    process_control->LoadApplication(url.spec(), application_request.Pass(),
+    process_control->LoadApplication(url.spec(), std::move(request),
                                      base::Bind(&OnApplicationLoaded, url));
   }
 
@@ -160,14 +163,13 @@ class MojoShellContext::Proxy {
   void ConnectToApplication(
       const GURL& url,
       const GURL& requestor_url,
-      mojo::InterfaceRequest<mojo::ServiceProvider> request,
-      mojo::ServiceProviderPtr exposed_services,
-      const mojo::shell::CapabilityFilter& filter,
-      const mojo::Shell::ConnectToApplicationCallback& callback) {
+      mojo::shell::mojom::InterfaceProviderRequest request,
+      mojo::shell::mojom::InterfaceProviderPtr exposed_services,
+      const mojo::shell::mojom::Connector::ConnectCallback& callback) {
     if (task_runner_ == base::ThreadTaskRunnerHandle::Get()) {
       if (shell_context_) {
         shell_context_->ConnectToApplicationOnOwnThread(
-            url, requestor_url, request.Pass(), exposed_services.Pass(), filter,
+            url, requestor_url, std::move(request), std::move(exposed_services),
             callback);
       }
     } else {
@@ -178,7 +180,7 @@ class MojoShellContext::Proxy {
           base::Bind(&MojoShellContext::ConnectToApplicationOnOwnThread,
                      base::Unretained(shell_context_), url, requestor_url,
                      base::Passed(&request), base::Passed(&exposed_services),
-                     filter, callback));
+                     callback));
     }
   }
 
@@ -201,12 +203,16 @@ void MojoShellContext::SetApplicationsForTest(
 MojoShellContext::MojoShellContext() {
   proxy_.Get().reset(new Proxy(this));
 
-  // Construct with an empty filepath since mojo: urls can't be registered now
-  // the url scheme registry is locked.
-  scoped_ptr<mojo::package_manager::PackageManagerImpl> package_manager(
-      new mojo::package_manager::PackageManagerImpl(base::FilePath(), nullptr));
-  application_manager_.reset(
-      new mojo::shell::ApplicationManager(package_manager.Pass()));
+  scoped_refptr<base::SingleThreadTaskRunner> file_task_runner =
+      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE);
+  bool register_mojo_url_schemes = false;
+
+  scoped_ptr<mojo::shell::NativeRunnerFactory> native_runner_factory(
+      new mojo::shell::InProcessNativeRunnerFactory(
+          BrowserThread::GetBlockingPool()));
+  application_manager_.reset(new mojo::shell::ApplicationManager(
+      std::move(native_runner_factory), file_task_runner.get(),
+      register_mojo_url_schemes, nullptr));
 
   application_manager_->set_default_loader(
       scoped_ptr<mojo::shell::ApplicationLoader>(new DefaultApplicationLoader));
@@ -222,7 +228,7 @@ MojoShellContext::MojoShellContext() {
   for (const auto& entry : apps) {
     application_manager_->SetLoaderForURL(
         scoped_ptr<mojo::shell::ApplicationLoader>(
-            new mojo::shell::StaticApplicationLoader(entry.second)),
+            new StaticApplicationLoader(entry.second)),
         entry.first);
   }
 
@@ -248,52 +254,55 @@ MojoShellContext::MojoShellContext() {
         app.first);
   }
 
-#if (ENABLE_MOJO_MEDIA_IN_BROWSER_PROCESS)
-  application_manager_->SetLoaderForURL(
-      scoped_ptr<mojo::shell::ApplicationLoader>(
-          new mojo::shell::StaticApplicationLoader(
-              base::Bind(&media::MojoMediaApplication::CreateApp))),
-      GURL("mojo:media"));
-#elif(ENABLE_MOJO_MEDIA_IN_GPU_PROCESS)
+#if (ENABLE_MOJO_MEDIA_IN_GPU_PROCESS)
   application_manager_->SetLoaderForURL(
       scoped_ptr<mojo::shell::ApplicationLoader>(new GpuProcessLoader()),
       GURL("mojo:media"));
 #endif
+
+  if (!IsRunningInMojoShell()) {
+    MojoShellConnectionImpl::Create(
+        application_manager_->InitInstanceForEmbedder(GURL(kBrowserAppUrl)));
+  }
 }
 
 MojoShellContext::~MojoShellContext() {
+  if (!IsRunningInMojoShell())
+    MojoShellConnectionImpl::Destroy();
 }
 
 // static
 void MojoShellContext::ConnectToApplication(
     const GURL& url,
     const GURL& requestor_url,
-    mojo::InterfaceRequest<mojo::ServiceProvider> request,
-    mojo::ServiceProviderPtr exposed_services,
-    const mojo::shell::CapabilityFilter& filter,
-    const mojo::Shell::ConnectToApplicationCallback& callback) {
-  proxy_.Get()->ConnectToApplication(url, requestor_url, request.Pass(),
-                                     exposed_services.Pass(), filter, callback);
+    mojo::shell::mojom::InterfaceProviderRequest request,
+    mojo::shell::mojom::InterfaceProviderPtr exposed_services,
+    const mojo::shell::mojom::Connector::ConnectCallback& callback) {
+  proxy_.Get()->ConnectToApplication(url, requestor_url, std::move(request),
+                                     std::move(exposed_services), callback);
 }
 
 void MojoShellContext::ConnectToApplicationOnOwnThread(
     const GURL& url,
     const GURL& requestor_url,
-    mojo::InterfaceRequest<mojo::ServiceProvider> request,
-    mojo::ServiceProviderPtr exposed_services,
-    const mojo::shell::CapabilityFilter& filter,
-    const mojo::Shell::ConnectToApplicationCallback& callback) {
-  scoped_ptr<mojo::shell::ConnectToApplicationParams> params(
-      new mojo::shell::ConnectToApplicationParams);
-  params->set_source(
-      mojo::shell::Identity(requestor_url, std::string(),
-                            mojo::shell::GetPermissiveCapabilityFilter()));
-  params->SetTarget(mojo::shell::Identity(url, std::string(), filter));
-  params->set_services(request.Pass());
-  params->set_exposed_services(exposed_services.Pass());
-  params->set_on_application_end(base::Bind(&base::DoNothing));
+    mojo::shell::mojom::InterfaceProviderRequest request,
+    mojo::shell::mojom::InterfaceProviderPtr exposed_services,
+    const mojo::shell::mojom::Connector::ConnectCallback& callback) {
+  scoped_ptr<mojo::shell::ConnectParams> params(new mojo::shell::ConnectParams);
+  // TODO(beng): kUserRoot is obviously wrong.
+  // TODO(beng): We need to set a permissive filter here temporarily because
+  //             content is known as a bogus system: URL that the application
+  //             manager doesn't understand.
+  mojo::shell::Identity source_id(
+      requestor_url, std::string(), mojo::shell::mojom::Connector::kUserRoot);
+  source_id.SetFilter(mojo::shell::GetPermissiveCapabilityFilter());
+  params->set_source(source_id);
+  params->set_target(mojo::shell::Identity(
+      url, std::string(), mojo::shell::mojom::Connector::kUserRoot));
+  params->set_remote_interfaces(std::move(request));
+  params->set_local_interfaces(std::move(exposed_services));
   params->set_connect_callback(callback);
-  application_manager_->ConnectToApplication(params.Pass());
+  application_manager_->Connect(std::move(params));
 }
 
 }  // namespace content

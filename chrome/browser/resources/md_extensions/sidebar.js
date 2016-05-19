@@ -23,11 +23,40 @@ cr.define('extensions', function() {
     updateAllExtensions: assertNotReached,
   };
 
+  /** @interface */
+  var SidebarScrollDelegate = function() {};
+
+  SidebarScrollDelegate.prototype = {
+    /** Scrolls to the extensions section. */
+    scrollToExtensions: assertNotReached,
+
+    /** Scrolls to the apps section. */
+    scrollToApps: assertNotReached,
+
+    /** Scrolls to the websites section. */
+    scrollToWebsites: assertNotReached,
+  };
+
   var Sidebar = Polymer({
     is: 'extensions-sidebar',
 
     properties: {
       inDevMode: {
+        type: Boolean,
+        value: false,
+      },
+
+      hideExtensionsButton: {
+        type: Boolean,
+        value: false,
+      },
+
+      hideAppsButton: {
+        type: Boolean,
+        value: false,
+      },
+
+      hideWebsitesButton: {
         type: Boolean,
         value: false,
       },
@@ -39,22 +68,48 @@ cr.define('extensions', function() {
 
     /** @param {extensions.SidebarDelegate} delegate */
     setDelegate: function(delegate) {
+      /** @private {extensions.SidebarDelegate} */
       this.delegate_ = delegate;
     },
 
+    /** @param {extensions.SidebarScrollDelegate} scrollDelegate */
+    setScrollDelegate: function(scrollDelegate) {
+      /** @private {extensions.SidebarScrollDelegate} */
+      this.scrollDelegate_ = scrollDelegate;
+    },
+
+    /** @private */
+    onExtensionsTap_: function() {
+      this.scrollDelegate_.scrollToExtensions();
+    },
+
+    /** @private */
+    onAppsTap_: function() {
+      this.scrollDelegate_.scrollToApps();
+    },
+
+    /** @private */
+    onWebsitesTap_: function() {
+      this.scrollDelegate_.scrollToWebsites();
+    },
+
+    /** @private */
     onDevModeChange_: function() {
       this.delegate_.setProfileInDevMode(
           this.$['developer-mode-checkbox'].checked);
     },
 
+    /** @private */
     onLoadUnpackedTap_: function() {
       this.delegate_.loadUnpacked();
     },
 
+    /** @private */
     onPackTap_: function() {
       this.delegate_.packExtension();
     },
 
+    /** @private */
     onUpdateNowTap_: function() {
       this.delegate_.updateAllExtensions();
     },
@@ -63,6 +118,7 @@ cr.define('extensions', function() {
   return {
     Sidebar: Sidebar,
     SidebarDelegate: SidebarDelegate,
+    SidebarScrollDelegate: SidebarScrollDelegate,
   };
 });
 

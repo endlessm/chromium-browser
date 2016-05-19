@@ -29,7 +29,11 @@ def PnaclTool(toolname, arch='le32', msys=True):
     ext = '.bat'
   else:
     ext = ''
-  if IsBCArch(arch):
+  if toolname in ['llvm-mc']:
+    # Some tools, like llvm-mc, don't need or have a special pnacl- prefix
+    # binary.
+    base = toolname
+  elif IsBCArch(arch):
     base = 'pnacl-' + toolname
   else:
     base = '-'.join([TargetArch(arch), 'nacl', toolname])
@@ -625,17 +629,34 @@ def SubzeroRuntimeCommands(arch, out_dir):
   directory, and .o files are created in the out_dir directory.  If arch isn't
   among a whitelist, an empty list of commands is returned.
   """
+  AsmSourceBase = None
   # LlcArchArgs contains arguments extracted from pnacl-translate.py.
   if arch == 'x86-32-linux':
-    LlcArchArgs = [ '-mtriple=i686-linux-gnu', '-mcpu=pentium4m']
+    Triple = 'i686-linux-gnu'
+    LlcArchArgs = [ '-mcpu=pentium4m']
   elif arch == 'x86-32':
-    LlcArchArgs = [ '-mtriple=i686-none-nacl-gnu', '-mcpu=pentium4m']
+    Triple = 'i686-none-nacl-gnu'
+    LlcArchArgs = [ '-mcpu=pentium4m']
+  elif arch == 'x86-32-nonsfi':
+    Triple = 'i686-linux-gnu'
+    LlcArchArgs = [ '-mcpu=pentium4m', '-relocation-model=pic',
+                    '-force-tls-non-pic', '-malign-double']
+    AsmSourceBase = 'szrt_asm_x8632'
+  elif arch == 'x86-64-linux':
+    Triple = 'x86_64-none-linux-gnux32'
+    LlcArchArgs = [ '-mcpu=x86-64']
+  elif arch == 'x86-64':
+    Triple = 'x86_64-none-nacl'
+    LlcArchArgs = [ '-mcpu=x86-64']
   elif arch == 'arm-linux':
-    LlcArchArgs = [ '-mtriple=arm-linux-gnu', '-mcpu=cortex-a9']
+    Triple = 'arm-linux-gnu'
+    LlcArchArgs = [ '-mcpu=cortex-a9']
   elif arch == 'arm':
-    LlcArchArgs = [ '-mtriple=arm-none-nacl-gnu', '-mcpu=cortex-a9']
+    Triple = 'arm-none-nacl-gnu'
+    LlcArchArgs = [ '-mcpu=cortex-a9']
   else:
     return []
+  LlcArchArgs.append('-mtriple=' + Triple)
   return [
     command.Command([
         PnaclTool('clang'), '-O2',
@@ -657,7 +678,15 @@ def SubzeroRuntimeCommands(arch, out_dir):
         '-o', os.path.join(out_dir, 'szrt_ll.o'),
         command.path.join('%(subzero_src)s', 'runtime', 'szrt_ll.ll')] +
         LlcArchArgs),
-    ]
+    ] + ([
+      command.Command([
+        PnaclTool('llvm-mc'),
+        '-filetype=obj',
+        '-triple=' + Triple,
+        '--defsym', 'NONSFI=1',
+        '-o', os.path.join(out_dir, AsmSourceBase + '.o'),
+        command.path.join('%(subzero_src)s', 'runtime', AsmSourceBase + '.s')])
+    ] if IsNonSFIArch(arch) else [])
 
 def TranslatorLibs(arch, is_canonical, no_nacl_gcc):
   setjmp_arch = arch
@@ -817,17 +846,23 @@ def TranslatorLibs(arch, is_canonical, no_nacl_gcc):
   return libs
 
 def UnsandboxedRuntime(arch, is_canonical):
-  assert arch in ('arm-linux', 'x86-32-linux', 'x86-32-mac')
+  assert arch in ('arm-linux', 'x86-32-linux', 'x86-32-mac', 'x86-64-linux')
 
-  prefix = {
-    'arm-linux': 'arm-linux-gnueabihf-',
-    'x86-32-linux': '',
-    'x86-32-mac': '',
+  compiler = {
+    'arm-linux': 'arm-linux-gnueabihf-gcc',
+    'x86-32-linux': 'gcc',
+    'x86-32-mac': 'gcc',
+    # x86-64 can't use gcc because the gcc available in the bots does not
+    # support x32. clang is good enough for the task, and it is available in
+    # the bots.
+    'x86-64-linux': '%(abs_target_lib_compiler)s/bin/clang',
   }[arch]
+
   arch_cflags = {
     'arm-linux': ['-mcpu=cortex-a9', '-D__arm_nonsfi_linux__'],
     'x86-32-linux': ['-m32'],
     'x86-32-mac': ['-m32'],
+    'x86-64-linux': ['-mx32'],
   }[arch]
 
   libs = {
@@ -848,16 +883,16 @@ def UnsandboxedRuntime(arch, is_canonical):
               # even on non-Linux systems is OK.
               # TODO(dschuff): this include path breaks the input encapsulation
               # for build rules.
-              command.Command([prefix + 'gcc'] + arch_cflags + ['-O2', '-Wall',
+              command.Command([compiler] + arch_cflags + ['-O2', '-Wall',
                   '-Werror', '-I%(top_srcdir)s/..',
                   '-DNACL_LINUX=1', '-DDEFINE_MAIN',
                   '-c', command.path.join('%(support)s', 'irt_interfaces.c'),
                   '-o', command.path.join('%(output)s', 'unsandboxed_irt.o')]),
-              command.Command([prefix + 'gcc'] + arch_cflags + ['-O2', '-Wall',
+              command.Command([compiler] + arch_cflags + ['-O2', '-Wall',
                   '-Werror', '-I%(top_srcdir)s/..',
                   '-c', command.path.join('%(support)s', 'irt_random.c'),
                   '-o', command.path.join('%(output)s', 'irt_random.o')]),
-              command.Command([prefix + 'gcc'] + arch_cflags + ['-O2', '-Wall',
+              command.Command([compiler] + arch_cflags + ['-O2', '-Wall',
                   '-Werror', '-I%(top_srcdir)s/..',
                   '-c', command.path.join('%(untrusted)s', 'irt_query_list.c'),
                   '-o', command.path.join('%(output)s', 'irt_query_list.o')]),

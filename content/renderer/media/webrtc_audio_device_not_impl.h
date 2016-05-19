@@ -5,8 +5,10 @@
 #ifndef CONTENT_RENDERER_MEDIA_WEBRTC_AUDIO_DEVICE_NOT_IMPL_H_
 #define CONTENT_RENDERER_MEDIA_WEBRTC_AUDIO_DEVICE_NOT_IMPL_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "third_party/webrtc/modules/audio_device/include/audio_device.h"
@@ -29,7 +31,7 @@ class CONTENT_EXPORT WebRtcAudioDeviceNotImpl
   // Only adding very basic support for now without triggering any callback
   // in the webrtc::AudioDeviceObserver interface.
   int64_t TimeUntilNextProcess() override;
-  int32_t Process() override;
+  void Process() override;
 
   // Methods in webrtc::AudioDeviceModule which are not yet implemented.
   // The idea is that we can move methods from this class to the real

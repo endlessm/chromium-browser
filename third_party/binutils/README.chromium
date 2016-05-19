@@ -13,7 +13,8 @@ They were built from binutils-2.25 using the "build-all.sh" script on a Ubuntu
 Precise.
 
 The script creates chroots for 32bit and 64bit Ubuntu Precise and then builds
-binutils inside the roots.
+binutils inside the roots. It also builds tcmalloc and links binutils with it
+to improve the speed of LTO.
 
 Version 2.25 was released on Wed, 24 Dec 2014
 
@@ -26,6 +27,12 @@ Local patches:
    https://sourceware.org/git/gitweb.cgi?p=binutils-gdb.git;a=commit;h=3c537f7fdb11f02f7082749f3f21dfdd2c2025e8
    (Landed upstream Thu, 5 Feb 2015 - should be in 2.26)
 
+ * long-plt.patch for http://crbug.com/554017 from upstream change
+   https://sourceware.org/git/gitweb.cgi?p=binutils-gdb.git;a=commit;h=ce3e49806d505721e0875e704de0b6fcba7660ed
+   (Landed upstream Thu, 17 Dec 2015 - should be in 2.27)
+   The local patch has been backported to 2.25. The patch in the upstream
+   repository currently applies cleanly to the 2.26 branch.
+
  * (build-all.sh|build-one.sh|upload.sh) scripts for building the binutils
    binaries and uploading them to Google storage.
 
@@ -37,7 +44,9 @@ To upgrade binutils, use the following steps:
  * Remove any patches which have been merged upstream from build-all.sh
  * Update this README.chromium file
  * Run build-all.sh
- * Run upload.sh
+ * Run upload.sh. Note: you will need write access to
+   gs://chromium-binutils bucket on Google Cloud Storage. To get the
+   access, subscribe to the internal chrome-team mailing list.
  * Wait for goma to have new binutils deployed (see http://go/ma).
     Please notify {ukai,yyanagisawa,shinyak}@chromium.org and await
     confirmation.

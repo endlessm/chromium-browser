@@ -42,7 +42,9 @@ OPENSSL_EXPORT void CRYPTO_library_init(void);
 
 /* Deprecated functions. */
 
-#define OPENSSL_VERSION_TEXT "BoringSSL"
+/* OPENSSL_VERSION_TEXT contains a string the identifies the version of
+ * “OpenSSL”. node.js requires a version number in this text. */
+#define OPENSSL_VERSION_TEXT "OpenSSL 1.0.2 (compatible; BoringSSL)"
 
 #define SSLEAY_VERSION 0
 
@@ -59,6 +61,9 @@ OPENSSL_EXPORT int CRYPTO_malloc_init(void);
 
 /* ENGINE_load_builtin_engines does nothing. */
 OPENSSL_EXPORT void ENGINE_load_builtin_engines(void);
+
+/* OPENSSL_load_builtin_modules does nothing. */
+OPENSSL_EXPORT void OPENSSL_load_builtin_modules(void);
 
 
 #if defined(__cplusplus)

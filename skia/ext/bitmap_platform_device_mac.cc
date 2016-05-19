@@ -5,6 +5,7 @@
 #include "skia/ext/bitmap_platform_device_mac.h"
 
 #import <ApplicationServices/ApplicationServices.h>
+#include <stddef.h>
 #include <time.h>
 
 #include "base/mac/mac_util.h"
@@ -16,11 +17,23 @@
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "third_party/skia/include/core/SkTypes.h"
-#include "third_party/skia/include/core/SkUtils.h"
 
 namespace skia {
 
 namespace {
+
+// Returns true if it is unsafe to attempt to allocate an offscreen buffer
+// given these dimensions.
+bool RasterDeviceTooBigToAllocate(int width, int height) {
+
+#ifndef SKIA_EXT_RASTER_DEVICE_ALLOCATION_MAX
+#define SKIA_EXT_RASTER_DEVICE_ALLOCATION_MAX    (2 * 256 * 1024 * 1024)
+#endif
+
+    int bytesPerPixel = 4;
+    int64_t bytes = (int64_t)width * height * bytesPerPixel;
+    return bytes > SKIA_EXT_RASTER_DEVICE_ALLOCATION_MAX;
+}
 
 static CGContextRef CGContextForData(void* data, int width, int height) {
 #define HAS_ARGB_SHIFTS(a, r, g, b) \
@@ -99,7 +112,7 @@ static void LoadTransformToCGContext(CGContextRef context,
   transformed_matrix.setTranslateY(ty + (SkScalar)height);
 
   CGAffineTransform cg_matrix =
-      gfx::SkMatrixToCGAffineTransform(transformed_matrix);
+      skia::SkMatrixToCGAffineTransform(transformed_matrix);
 
   // Load final transform into context.
   CGContextConcatCTM(context, cg_matrix);
@@ -113,7 +126,7 @@ static void LoadClippingRegionToCGContext(CGContextRef context,
     // region can be empty, in which case everything will be clipped.
     SkRect rect;
     rect.setEmpty();
-    CGContextClipToRect(context, gfx::SkRectToCGRect(rect));
+    CGContextClipToRect(context, skia::SkRectToCGRect(rect));
   } else if (region.isRect()) {
     // CoreGraphics applies the current transform to clip rects, which is
     // unwanted. Inverse-transform the rect before sending it to CG. This only
@@ -129,7 +142,7 @@ static void LoadClippingRegionToCGContext(CGContextRef context,
     t.mapRect(&rect);
     SkIRect irect;
     rect.round(&irect);
-    CGContextClipToRect(context, gfx::SkIRectToCGRect(irect));
+    CGContextClipToRect(context, skia::SkIRectToCGRect(irect));
   } else {
     // It is complex.
     SkPath path;

@@ -30,6 +30,10 @@ namespace rappor {
 class RapporService;
 }
 
+namespace sync_driver {
+class SyncService;
+}
+
 class GURL;
 class PrefService;
 
@@ -100,6 +104,9 @@ class AutofillClient {
   // Gets the preferences associated with the client.
   virtual PrefService* GetPrefs() = 0;
 
+  // Gets the sync service associated with the client.
+  virtual sync_driver::SyncService* GetSyncService() = 0;
+
   // Gets the IdentityProvider associated with the client (for OAuth2).
   virtual IdentityProvider* GetIdentityProvider() = 0;
 
@@ -118,15 +125,17 @@ class AutofillClient {
                                 base::WeakPtr<CardUnmaskDelegate> delegate) = 0;
   virtual void OnUnmaskVerificationResult(PaymentsRpcResult result) = 0;
 
-  // Runs |callback| if the credit card should be imported as personal
-  // data. |metric_logger| can be used to log user actions.
-  virtual void ConfirmSaveCreditCardLocally(const base::Closure& callback) = 0;
+  // Runs |callback| if the |card| should be imported as personal data.
+  // |metric_logger| can be used to log user actions.
+  virtual void ConfirmSaveCreditCardLocally(const CreditCard& card,
+                                            const base::Closure& callback) = 0;
 
-  // Runs |callback| if the credit card should be uploaded to Payments. Displays
-  // the contents of |legal_message| to the user.
+  // Runs |callback| if the |card| should be uploaded to Payments. Displays the
+  // contents of |legal_message| to the user.
   virtual void ConfirmSaveCreditCardToCloud(
-      const base::Closure& callback,
-      scoped_ptr<base::DictionaryValue> legal_message) = 0;
+      const CreditCard& card,
+      scoped_ptr<base::DictionaryValue> legal_message,
+      const base::Closure& callback) = 0;
 
   // Gathers risk data and provides it to |callback|.
   virtual void LoadRiskData(

@@ -7,11 +7,11 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_NOTE_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_NOTE_H_
 
-#include "PWL_Button.h"
-#include "PWL_Edit.h"
-#include "PWL_ListCtrl.h"
-#include "PWL_ScrollBar.h"
-#include "PWL_Wnd.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Button.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ListCtrl.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ScrollBar.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 class CPWL_Label;
 class CPWL_Note;
@@ -89,7 +89,7 @@ class CPWL_Note_Icon : public CPWL_Wnd {
  protected:
   // CPWL_Wnd
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
 
  private:
   int32_t m_nType;
@@ -103,7 +103,7 @@ class CPWL_Note_CloseBox : public CPWL_Button {
  protected:
   // CPWL_Button
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag) override;
   FX_BOOL OnLButtonUp(const CPDF_Point& point, FX_DWORD nFlag) override;
 
@@ -119,7 +119,7 @@ class CPWL_Note_LBBox : public CPWL_Wnd {
  protected:
   // CPWL_Wnd
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
 };
 
 class CPWL_Note_RBBox : public CPWL_Wnd {
@@ -130,7 +130,7 @@ class CPWL_Note_RBBox : public CPWL_Wnd {
  protected:
   // CPWL_Wnd
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
 };
 
 class CPWL_Note_Edit : public CPWL_Edit {
@@ -173,7 +173,7 @@ class CPWL_Note_Options : public CPWL_Wnd {
   void RePosChildWnd() override;
   void CreateChildWnd(const PWL_CREATEPARAM& cp) override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   void SetTextColor(const CPWL_Color& color) override;
 
  private:
@@ -307,12 +307,6 @@ class CPWL_Note : public CPWL_NoteItem {
   CFX_WideString GetReplyString() const;
   void SetReplyString(const CFX_WideString& string);
 
-  // 0-normal / 1-caption / 2-leftbottom corner / 3-rightbottom corner / 4-close
-  // / 5-options
-  int32_t NoteHitTest(const CPDF_Point& point) const;
-  CPDF_Rect GetCaptionRect() const { return m_rcCaption; }
-  IPopup_Note* GetPopupNote() const { return m_pPopupNote; }
-
   // CPWL_NoteItem
   void SetSubjectName(const CFX_WideString& sName) override;
   void SetAuthorName(const CFX_WideString& sName) override;
@@ -350,9 +344,7 @@ class CPWL_Note : public CPWL_NoteItem {
   IPWL_NoteNotify* m_pNoteNotify;
   FX_BOOL m_bResizing;
   PWL_SCROLL_INFO m_OldScrollInfo;
-  CPDF_Rect m_rcCaption;
-  FX_BOOL m_bEnalbleNotify;
-  IPopup_Note* m_pPopupNote;
+  FX_BOOL m_bEnableNotify;
   CFX_WideString m_sReplyString;
 };
 

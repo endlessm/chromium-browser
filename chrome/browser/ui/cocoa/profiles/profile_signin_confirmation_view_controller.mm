@@ -4,6 +4,8 @@
 
 #import "chrome/browser/ui/cocoa/profiles/profile_signin_confirmation_view_controller.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -28,6 +30,7 @@
 #import "ui/base/cocoa/controls/hyperlink_button_cell.h"
 #import "ui/base/cocoa/controls/hyperlink_text_view.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/native_theme/native_theme_mac.h"
 
 namespace {
 
@@ -91,7 +94,7 @@ NSTextView* AddTextView(
       [[HyperlinkTextView alloc] initWithFrame:NSZeroRect]);
   NSFont* font = ui::ResourceBundle::GetSharedInstance().GetFont(
       font_style).GetNativeFont();
-  NSColor* linkColor = gfx::SkColorToCalibratedNSColor(
+  NSColor* linkColor = skia::SkColorToCalibratedNSColor(
       chrome_style::GetLinkColor());
   NSMutableString* finalMessage = [NSMutableString stringWithString:
                                              base::SysUTF16ToNSString(message)];
@@ -102,7 +105,7 @@ NSTextView* AddTextView(
               withFont:font
           messageColor:[NSColor blackColor]];
   [textView addLinkRange:NSMakeRange(offset, [linkString length])
-                 withURL:@"about:blank"  // using a link here is bad ui
+                 withURL:nil
                linkColor:linkColor];
   RemoveUnderlining(textView, offset, link.size());
   [textView setDelegate:delegate];
@@ -244,13 +247,17 @@ NSTextField* AddTextField(
   // Now setup the prompt and explanation text using the computed width.
 
   // Prompt box.
-  [promptBox_ setBorderColor:gfx::SkColorToCalibratedNSColor(
-      ui::GetSigninConfirmationPromptBarColor(
-          ui::kSigninConfirmationPromptBarBorderAlpha))];
+  [promptBox_
+      setBorderColor:skia::SkColorToCalibratedNSColor(
+                         ui::GetSigninConfirmationPromptBarColor(
+                             ui::NativeThemeMac::instance(),
+                             ui::kSigninConfirmationPromptBarBorderAlpha))];
   [promptBox_ setBorderWidth:kDialogAlertBarBorderWidth];
-  [promptBox_ setFillColor:gfx::SkColorToCalibratedNSColor(
-      ui::GetSigninConfirmationPromptBarColor(
-          ui::kSigninConfirmationPromptBarBackgroundAlpha))];
+  [promptBox_
+      setFillColor:skia::SkColorToCalibratedNSColor(
+                       ui::GetSigninConfirmationPromptBarColor(
+                           ui::NativeThemeMac::instance(),
+                           ui::kSigninConfirmationPromptBarBackgroundAlpha))];
   [promptBox_ setBoxType:NSBoxCustom];
   [promptBox_ setTitlePosition:NSNoTitle];
   [[self view] addSubview:promptBox_];

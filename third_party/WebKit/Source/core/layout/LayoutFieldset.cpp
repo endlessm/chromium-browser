@@ -21,7 +21,6 @@
  *
  */
 
-#include "config.h"
 #include "core/layout/LayoutFieldset.h"
 
 #include "core/CSSPropertyNames.h"
@@ -47,7 +46,7 @@ void LayoutFieldset::computePreferredLogicalWidths()
         int legendMinWidth = legend->minPreferredLogicalWidth();
 
         Length legendMarginLeft = legend->style()->marginLeft();
-        Length legendMarginRight = legend->style()->marginLeft();
+        Length legendMarginRight = legend->style()->marginRight();
 
         if (legendMarginLeft.isFixed())
             legendMinWidth += legendMarginLeft.value();
@@ -102,7 +101,7 @@ LayoutObject* LayoutFieldset::layoutSpecialExcludedChild(bool relayoutChildren, 
 
         setLogicalLeftForChild(*legend, logicalLeft);
 
-        LayoutUnit fieldsetBorderBefore = borderBefore();
+        LayoutUnit fieldsetBorderBefore = LayoutUnit(borderBefore());
         LayoutUnit legendLogicalHeight = logicalHeightForChild(*legend);
 
         LayoutUnit legendLogicalTop;
@@ -136,8 +135,10 @@ LayoutBox* LayoutFieldset::findInFlowLegend() const
         if (legend->isFloatingOrOutOfFlowPositioned())
             continue;
 
-        if (isHTMLLegendElement(legend->node()))
-            return toLayoutBox(legend);
+        if (isHTMLLegendElement(legend->node())) {
+            if (legend->isBox())
+                return toLayoutBox(legend);
+        }
     }
     return nullptr;
 }

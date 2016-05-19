@@ -8,7 +8,6 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace net {
-namespace tools {
 namespace test {
 
 TEST(QuicEpollClockTest, ApproximateNowInUsec) {
@@ -37,14 +36,11 @@ TEST(QuicEpollClockTest, NowInUsec) {
   QuicEpollClock clock(&epoll_server);
 
   epoll_server.set_now_in_usec(1000000);
-  EXPECT_EQ(1000000,
-            clock.Now().Subtract(QuicTime::Zero()).ToMicroseconds());
+  EXPECT_EQ(1000000, clock.Now().Subtract(QuicTime::Zero()).ToMicroseconds());
 
   epoll_server.AdvanceBy(5);
-  EXPECT_EQ(1000005,
-            clock.Now().Subtract(QuicTime::Zero()).ToMicroseconds());
+  EXPECT_EQ(1000005, clock.Now().Subtract(QuicTime::Zero()).ToMicroseconds());
 }
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net

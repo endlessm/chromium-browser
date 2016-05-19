@@ -4,12 +4,15 @@
 
 #include "chrome/browser/extensions/api/bluetooth_low_energy/bluetooth_low_energy_api.h"
 
+#include <stdint.h>
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/bluetooth_low_energy/bluetooth_api_advertisement.h"
 #include "chrome/browser/extensions/api/bluetooth_low_energy/utils.h"
 #include "chrome/common/extensions/api/bluetooth_low_energy.h"
@@ -36,24 +39,29 @@ const char kErrorAdapterNotInitialized[] =
     "Could not initialize Bluetooth adapter";
 const char kErrorAlreadyConnected[] = "Already connected";
 const char kErrorAlreadyNotifying[] = "Already notifying";
+const char kErrorAttributeLengthInvalid[] = "Attribute length invalid";
 const char kErrorAuthenticationFailed[] = "Authentication failed";
 const char kErrorCanceled[] = "Request canceled";
+const char kErrorConnectionCongested[] = "Connection congested";
 const char kErrorGattNotSupported[] = "Operation not supported by this service";
 const char kErrorHigherSecurity[] = "Higher security needed";
 const char kErrorInProgress[] = "In progress";
 const char kErrorInsufficientAuthorization[] = "Insufficient authorization";
+const char kErrorInsufficientEncryption[] = "Insufficient encryption";
+const char kErrorInvalidAdvertisementLength[] = "Invalid advertisement length";
 const char kErrorInvalidLength[] = "Invalid attribute value length";
 const char kErrorNotConnected[] = "Not connected";
 const char kErrorNotFound[] = "Instance not found";
 const char kErrorNotNotifying[] = "Not notifying";
+const char kErrorOffsetInvalid[] = "Offset invalid";
 const char kErrorOperationFailed[] = "Operation failed";
 const char kErrorPermissionDenied[] = "Permission denied";
 const char kErrorPlatformNotSupported[] =
     "This operation is not supported on the current platform";
+const char kErrorRequestNotSupported[] = "Request not supported";
 const char kErrorTimeout[] = "Operation timed out";
 const char kErrorUnsupportedDevice[] =
     "This device is not supported on the current platform";
-const char kErrorInvalidAdvertisementLength[] = "Invalid advertisement length";
 const char kStatusAdvertisementAlreadyExists[] =
     "An advertisement is already advertising";
 const char kStatusAdvertisementDoesNotExist[] =
@@ -64,36 +72,46 @@ const char kStatusAdvertisementDoesNotExist[] =
 // passed |BluetoothLowEnergyEventRouter::kStatusSuccess|.
 std::string StatusToString(BluetoothLowEnergyEventRouter::Status status) {
   switch (status) {
-    case BluetoothLowEnergyEventRouter::kStatusErrorPermissionDenied:
-      return kErrorPermissionDenied;
-    case BluetoothLowEnergyEventRouter::kStatusErrorNotFound:
-      return kErrorNotFound;
     case BluetoothLowEnergyEventRouter::kStatusErrorAlreadyConnected:
       return kErrorAlreadyConnected;
     case BluetoothLowEnergyEventRouter::kStatusErrorAlreadyNotifying:
       return kErrorAlreadyNotifying;
-    case BluetoothLowEnergyEventRouter::kStatusErrorNotConnected:
-      return kErrorNotConnected;
-    case BluetoothLowEnergyEventRouter::kStatusErrorInsufficientAuthorization:
-      return kErrorInsufficientAuthorization;
-    case BluetoothLowEnergyEventRouter::kStatusErrorNotNotifying:
-      return kErrorNotNotifying;
-    case BluetoothLowEnergyEventRouter::kStatusErrorInProgress:
-      return kErrorInProgress;
+    case BluetoothLowEnergyEventRouter::kStatusErrorAttributeLengthInvalid:
+      return kErrorAttributeLengthInvalid;
     case BluetoothLowEnergyEventRouter::kStatusErrorAuthenticationFailed:
       return kErrorAuthenticationFailed;
-    case BluetoothLowEnergyEventRouter::kStatusErrorHigherSecurity:
-      return kErrorHigherSecurity;
     case BluetoothLowEnergyEventRouter::kStatusErrorCanceled:
       return kErrorCanceled;
+    case BluetoothLowEnergyEventRouter::kStatusErrorConnectionCongested:
+      return kErrorConnectionCongested;
+    case BluetoothLowEnergyEventRouter::kStatusErrorGattNotSupported:
+      return kErrorGattNotSupported;
+    case BluetoothLowEnergyEventRouter::kStatusErrorHigherSecurity:
+      return kErrorHigherSecurity;
+    case BluetoothLowEnergyEventRouter::kStatusErrorInProgress:
+      return kErrorInProgress;
+    case BluetoothLowEnergyEventRouter::kStatusErrorInsufficientAuthorization:
+      return kErrorInsufficientAuthorization;
+    case BluetoothLowEnergyEventRouter::kStatusErrorInsufficientEncryption:
+      return kErrorInsufficientEncryption;
+    case BluetoothLowEnergyEventRouter::kStatusErrorInvalidLength:
+      return kErrorInvalidLength;
+    case BluetoothLowEnergyEventRouter::kStatusErrorNotConnected:
+      return kErrorNotConnected;
+    case BluetoothLowEnergyEventRouter::kStatusErrorNotFound:
+      return kErrorNotFound;
+    case BluetoothLowEnergyEventRouter::kStatusErrorNotNotifying:
+      return kErrorNotNotifying;
+    case BluetoothLowEnergyEventRouter::kStatusErrorOffsetInvalid:
+      return kErrorOffsetInvalid;
+    case BluetoothLowEnergyEventRouter::kStatusErrorPermissionDenied:
+      return kErrorPermissionDenied;
+    case BluetoothLowEnergyEventRouter::kStatusErrorRequestNotSupported:
+      return kErrorRequestNotSupported;
     case BluetoothLowEnergyEventRouter::kStatusErrorTimeout:
       return kErrorTimeout;
     case BluetoothLowEnergyEventRouter::kStatusErrorUnsupportedDevice:
       return kErrorUnsupportedDevice;
-    case BluetoothLowEnergyEventRouter::kStatusErrorInvalidLength:
-      return kErrorInvalidLength;
-    case BluetoothLowEnergyEventRouter::kStatusErrorGattNotSupported:
-      return kErrorGattNotSupported;
     case BluetoothLowEnergyEventRouter::kStatusSuccess:
       NOTREACHED();
       break;
@@ -616,7 +634,7 @@ bool BluetoothLowEnergyWriteCharacteristicValueFunction::DoWork() {
       apibtle::WriteCharacteristicValue::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get() != NULL);
 
-  std::vector<uint8> value(params->value.begin(), params->value.end());
+  std::vector<uint8_t> value(params->value.begin(), params->value.end());
   event_router->WriteCharacteristicValue(
       extension(),
       params->characteristic_id,
@@ -807,7 +825,7 @@ bool BluetoothLowEnergyWriteDescriptorValueFunction::DoWork() {
       apibtle::WriteDescriptorValue::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get() != NULL);
 
-  std::vector<uint8> value(params->value.begin(), params->value.end());
+  std::vector<uint8_t> value(params->value.begin(), params->value.end());
   event_router->WriteDescriptorValue(
       extension(),
       params->descriptor_id,
@@ -932,21 +950,20 @@ bool BluetoothLowEnergyRegisterAdvertisementFunction::DoWork() {
                     ADVERTISEMENT_TYPE_PERIPHERAL));
 
   advertisement_data->set_service_uuids(
-      params->advertisement.service_uuids.Pass());
+      std::move(params->advertisement.service_uuids));
   advertisement_data->set_solicit_uuids(
-      params->advertisement.solicit_uuids.Pass());
+      std::move(params->advertisement.solicit_uuids));
   if (params->advertisement.manufacturer_data) {
     advertisement_data->set_manufacturer_data(
-        CreateManufacturerData(params->advertisement.manufacturer_data.get())
-            .Pass());
+        CreateManufacturerData(params->advertisement.manufacturer_data.get()));
   }
   if (params->advertisement.service_data) {
     advertisement_data->set_service_data(
-        CreateServiceData(params->advertisement.service_data.get()).Pass());
+        CreateServiceData(params->advertisement.service_data.get()));
   }
 
   event_router->adapter()->RegisterAdvertisement(
-      advertisement_data.Pass(),
+      std::move(advertisement_data),
       base::Bind(
           &BluetoothLowEnergyRegisterAdvertisementFunction::SuccessCallback,
           this),

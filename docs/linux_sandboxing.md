@@ -140,8 +140,7 @@ for 'dynamic' since dynamic transitions are a little obscure in SELinux)
 
 Sandboxing can make developing harder, see:
 
-*   [this page](https://code.google.com/p/chromium/wiki/LinuxSUIDSandboxDevelopment)
-    for the `setuid` sandbox
+*   [this page](linux_suid_sandbox_development.md) for the `setuid` sandbox
 *   [this page](http://www.chromium.org/for-testers/bug-reporting-guidelines/hanging-tabs)
     for triggering crashes
 *   [this page for debugging tricks](linux_debugging.md)
@@ -149,4 +148,4 @@ Sandboxing can make developing harder, see:
 ## See also
 
 *   [LinuxSandboxIPC](linux_sandbox_ipc.md)
-*   [How Chromium's Linux sandbox affects Native Client](https://code.google.com/p/nativeclient/wiki/LinuxOuterSandbox)
+*   [How Chromium's Linux sandbox affects Native Client](https://chromium.googlesource.com/native_client/src/native_client.git/+/master/docs/linux_outer_sandbox.md)

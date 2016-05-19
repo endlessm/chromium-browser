@@ -11,8 +11,10 @@
 #include "base/path_service.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_result_codes.h"
 #include "chrome/common/crash_keys.h"
 #include "chrome/common/env_vars.h"
@@ -31,7 +33,7 @@
 #include "policy/policy_constants.h"
 #endif
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include "components/upload_list/crash_upload_list.h"
 #include "components/version_info/version_info_values.h"
 #endif
@@ -64,7 +66,7 @@ ChromeCrashReporterClient::ChromeCrashReporterClient() {}
 
 ChromeCrashReporterClient::~ChromeCrashReporterClient() {}
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN)
 void ChromeCrashReporterClient::SetCrashReporterClientIdFromGUID(
     const std::string& client_guid) {
   crash_keys::SetMetricsClientIdFromGUID(client_guid);
@@ -160,7 +162,7 @@ bool ChromeCrashReporterClient::GetDeferredUploadsSupported(
   Version update_version = GoogleUpdateSettings::GetGoogleUpdateVersion(
       !is_per_user_install);
   if (!update_version.IsValid() ||
-      update_version.IsOlderThan(std::string(kMinUpdateVersion)))
+      update_version < base::Version(kMinUpdateVersion))
     return false;
 
   return true;
@@ -250,7 +252,7 @@ bool ChromeCrashReporterClient::ReportingIsEnforcedByPolicy(
 }
 #endif  // defined(OS_WIN)
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
 void ChromeCrashReporterClient::GetProductNameAndVersion(
     const char** product_name,
     const char** version) {
@@ -278,6 +280,11 @@ base::FilePath ChromeCrashReporterClient::GetReporterLogFilename() {
 
 bool ChromeCrashReporterClient::GetCrashDumpLocation(
     base::FilePath* crash_dir) {
+#if defined(OS_WIN)
+  // TODO(scottmg): Consider supporting --user-data-dir. See
+  // https://crbug.com/565446.
+  return chrome::GetDefaultCrashDumpLocation(crash_dir);
+#else
   // By setting the BREAKPAD_DUMP_LOCATION environment variable, an alternate
   // location to write breakpad crash dumps can be set.
   scoped_ptr<base::Environment> env(base::Environment::Create());
@@ -289,20 +296,11 @@ bool ChromeCrashReporterClient::GetCrashDumpLocation(
   }
 
   return PathService::Get(chrome::DIR_CRASH_DUMPS, crash_dir);
+#endif
 }
 
 size_t ChromeCrashReporterClient::RegisterCrashKeys() {
-  // Note: On Windows this only affects the EXE. A separate invocation from
-  // child_process_logging_win.cc registers crash keys for Chrome.dll.
-#if defined(OS_WIN) && defined(COMPONENT_BUILD)
-  // On Windows, this is not called in a component build, as in that case a
-  // single copy of 'base' is shared by the EXE and the various DLLs, and that
-  // copy is configured by child_process_logging_win.cc.
-  NOTREACHED();
-  return 0;
-#else
   return crash_keys::RegisterChromeCrashKeys();
-#endif
 }
 
 bool ChromeCrashReporterClient::IsRunningUnattended() {

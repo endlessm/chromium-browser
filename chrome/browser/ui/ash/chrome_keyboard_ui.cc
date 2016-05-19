@@ -4,9 +4,12 @@
 
 #include "chrome/browser/ui/ash/chrome_keyboard_ui.h"
 
+#include <utility>
+
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
+#include "base/macros.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
 #include "content/public/browser/host_zoom_map.h"
@@ -96,9 +99,9 @@ class AshKeyboardControllerObserver
     scoped_ptr<extensions::Event> event(new extensions::Event(
         extensions::events::VIRTUAL_KEYBOARD_PRIVATE_ON_BOUNDS_CHANGED,
         virtual_keyboard_private::OnBoundsChanged::kEventName,
-        event_args.Pass()));
+        std::move(event_args)));
     event->restrict_to_browser_context = context_;
-    router->BroadcastEvent(event.Pass());
+    router->BroadcastEvent(std::move(event));
   }
 
  private:
@@ -140,7 +143,7 @@ void ChromeKeyboardUI::RequestAudioInput(
 }
 
 void ChromeKeyboardUI::SetupWebContents(content::WebContents* contents) {
-  extensions::SetViewType(contents, extensions::VIEW_TYPE_VIRTUAL_KEYBOARD);
+  extensions::SetViewType(contents, extensions::VIEW_TYPE_COMPONENT);
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       contents);
   Observe(contents);
@@ -217,7 +220,8 @@ void ChromeKeyboardUI::SetUpdateInputType(ui::TextInputType type) {
   scoped_ptr<extensions::Event> event(new extensions::Event(
       extensions::events::VIRTUAL_KEYBOARD_PRIVATE_ON_TEXT_INPUT_BOX_FOCUSED,
       virtual_keyboard_private::OnTextInputBoxFocused::kEventName,
-      event_args.Pass()));
+      std::move(event_args)));
   event->restrict_to_browser_context = browser_context();
-  router->DispatchEventToExtension(kVirtualKeyboardExtensionID, event.Pass());
+  router->DispatchEventToExtension(kVirtualKeyboardExtensionID,
+                                   std::move(event));
 }

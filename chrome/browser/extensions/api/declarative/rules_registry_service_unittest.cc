@@ -4,6 +4,9 @@
 
 #include "extensions/browser/api/declarative/rules_registry_service.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
 #include "chrome/test/base/testing_profile.h"
@@ -105,7 +108,7 @@ TEST_F(RulesRegistryServiceTest, TestConstructionAndMultiThreading) {
                                                    .Set("manifest_version", 2)
                                                    .Build();
   scoped_refptr<Extension> extension = ExtensionBuilder()
-                                           .SetManifest(manifest.Pass())
+                                           .SetManifest(std::move(manifest))
                                            .SetID(kExtensionId)
                                            .Build();
   registry_service.SimulateExtensionUninstalled(extension.get());

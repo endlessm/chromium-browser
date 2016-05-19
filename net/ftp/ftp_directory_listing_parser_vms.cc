@@ -55,7 +55,7 @@ bool ParseVmsFilename(const base::string16& raw_filename,
   return true;
 }
 
-bool ParseVmsFilesize(const base::string16& input, int64* size) {
+bool ParseVmsFilesize(const base::string16& input, int64_t* size) {
   if (base::ContainsOnlyChars(input, base::ASCIIToUTF16("*"))) {
     // Response consisting of asterisks means unknown size.
     *size = -1;
@@ -80,7 +80,7 @@ bool ParseVmsFilesize(const base::string16& input, int64* size) {
   if (parts.size() != 2)
     return false;
 
-  int64 blocks_used, blocks_allocated;
+  int64_t blocks_used, blocks_allocated;
   if (!base::StringToInt64(parts[0], &blocks_used))
     return false;
   if (!base::StringToInt64(parts[1], &blocks_allocated))
@@ -113,7 +113,7 @@ bool LooksLikeVmsFileProtectionListingPart(const base::string16& input) {
 bool LooksLikeVmsFileProtectionListing(const base::string16& input) {
   if (input.length() < 2)
     return false;
-  if (input[0] != '(' || input[input.length() - 1] != ')')
+  if (input.front() != '(' || input.back() != ')')
     return false;
 
   // We expect four parts of the file protection listing: for System, Owner,
@@ -133,7 +133,7 @@ bool LooksLikeVmsFileProtectionListing(const base::string16& input) {
 bool LooksLikeVmsUserIdentificationCode(const base::string16& input) {
   if (input.length() < 2)
     return false;
-  return input[0] == '[' && input[input.length() - 1] == ']';
+  return input.front() == '[' && input.back() == ']';
 }
 
 bool LooksLikeVMSError(const base::string16& text) {

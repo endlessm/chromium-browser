@@ -13,12 +13,14 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/autofill/core/common/autofill_data_validation.h"
 #include "components/autofill/core/common/autofill_regexes.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/autofill_util.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_field_data.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
@@ -32,7 +34,6 @@
 #include "third_party/WebKit/public/web/WebNode.h"
 #include "third_party/WebKit/public/web/WebOptionElement.h"
 #include "third_party/WebKit/public/web/WebSelectElement.h"
-#include "third_party/WebKit/public/web/WebTextAreaElement.h"
 
 using blink::WebDocument;
 using blink::WebElement;
@@ -45,7 +46,6 @@ using blink::WebLabelElement;
 using blink::WebNode;
 using blink::WebOptionElement;
 using blink::WebSelectElement;
-using blink::WebTextAreaElement;
 using blink::WebString;
 using blink::WebVector;
 
@@ -61,6 +61,10 @@ enum FieldFilterMask {
   FILTER_NONE                      = 0,
   FILTER_DISABLED_ELEMENTS         = 1 << 0,
   FILTER_READONLY_ELEMENTS         = 1 << 1,
+  // Filters non-focusable elements with the exception of select elements, which
+  // are sometimes made non-focusable because they are present for accessibility
+  // while a prettier, non-<select> dropdown is shown. We still want to autofill
+  // the non-focusable <select>.
   FILTER_NON_FOCUSABLE_ELEMENTS    = 1 << 2,
   FILTER_ALL_NON_EDITABLE_ELEMENTS = FILTER_DISABLED_ELEMENTS |
                                      FILTER_READONLY_ELEMENTS |
@@ -364,9 +368,22 @@ base::string16 InferLabelFromPlaceholder(const WebFormControlElement& element) {
   return base::string16();
 }
 
+// Helper for |InferLabelForElement()| that infers a label, from
+// the value attribute when it is present and user has not typed in (if
+// element's value attribute is same as the element's value).
+base::string16 InferLabelFromValueAttr(const WebFormControlElement& element) {
+  CR_DEFINE_STATIC_LOCAL(WebString, kValue, ("value"));
+  if (element.hasAttribute(kValue) && element.getAttribute(kValue) ==
+      element.value()) {
+    return element.getAttribute(kValue);
+  }
+
+  return base::string16();
+}
+
 // Helper for |InferLabelForElement()| that infers a label, if possible, from
 // enclosing list item,
-// e.g. <li>Some Text<input ...><input ...><input ...></tr>
+// e.g. <li>Some Text<input ...><input ...><input ...></li>
 base::string16 InferLabelFromListItem(const WebFormControlElement& element) {
   WebNode parent = element.parentNode();
   CR_DEFINE_STATIC_LOCAL(WebString, kListItem, ("li"));
@@ -376,6 +393,24 @@ base::string16 InferLabelFromListItem(const WebFormControlElement& element) {
   }
 
   if (!parent.isNull() && HasTagName(parent, kListItem))
+    return FindChildText(parent);
+
+  return base::string16();
+}
+
+// Helper for |InferLabelForElement()| that infers a label, if possible, from
+// enclosing label,
+// e.g. <label>Some Text<input ...><input ...><input ...></label>
+base::string16 InferLabelFromEnclosingLabel(
+    const WebFormControlElement& element) {
+  WebNode parent = element.parentNode();
+  CR_DEFINE_STATIC_LOCAL(WebString, kLabel, ("label"));
+  while (!parent.isNull() && parent.isElementNode() &&
+         !parent.to<WebElement>().hasHTMLTagName(kLabel)) {
+    parent = parent.parentNode();
+  }
+
+  if (!parent.isNull() && HasTagName(parent, kLabel))
     return FindChildText(parent);
 
   return base::string16();
@@ -634,23 +669,35 @@ std::vector<std::string> AncestorTagNames(
   return tag_names;
 }
 
+bool IsLabelValid(base::StringPiece16 inferred_label,
+    const std::vector<base::char16>& stop_words) {
+  // If |inferred_label| has any character other than those in |stop_words|.
+  auto first_non_stop_word = std::find_if(inferred_label.begin(),
+      inferred_label.end(), [&stop_words](base::char16 c) {
+          return !ContainsValue(stop_words, c);
+      });
+  return first_non_stop_word != inferred_label.end();
+}
+
 // Infers corresponding label for |element| from surrounding context in the DOM,
 // e.g. the contents of the preceding <p> tag or text element.
-base::string16 InferLabelForElement(const WebFormControlElement& element) {
+base::string16 InferLabelForElement(const WebFormControlElement& element,
+    const std::vector<base::char16>& stop_words) {
   base::string16 inferred_label;
+
   if (IsCheckableElement(toWebInputElement(&element))) {
     inferred_label = InferLabelFromNext(element);
-    if (!inferred_label.empty())
+    if (IsLabelValid(inferred_label, stop_words))
       return inferred_label;
   }
 
   inferred_label = InferLabelFromPrevious(element);
-  if (!inferred_label.empty())
+  if (IsLabelValid(inferred_label, stop_words))
     return inferred_label;
 
   // If we didn't find a label, check for placeholder text.
   inferred_label = InferLabelFromPlaceholder(element);
-  if (!inferred_label.empty())
+  if (IsLabelValid(inferred_label, stop_words))
     return inferred_label;
 
   // For all other searches that involve traversing up the tree, the search
@@ -662,11 +709,13 @@ base::string16 InferLabelForElement(const WebFormControlElement& element) {
       continue;
 
     seen_tag_names.insert(tag_name);
-    if (tag_name == "DIV") {
+    if (tag_name == "LABEL") {
+      inferred_label = InferLabelFromEnclosingLabel(element);
+    } else if (tag_name == "DIV") {
       inferred_label = InferLabelFromDivTable(element);
     } else if (tag_name == "TD") {
       inferred_label = InferLabelFromTableColumn(element);
-      if (inferred_label.empty())
+      if (!IsLabelValid(inferred_label, stop_words))
         inferred_label = InferLabelFromTableRow(element);
     } else if (tag_name == "DD") {
       inferred_label = InferLabelFromDefinitionList(element);
@@ -676,11 +725,16 @@ base::string16 InferLabelForElement(const WebFormControlElement& element) {
       break;
     }
 
-    if (!inferred_label.empty())
-      break;
+    if (IsLabelValid(inferred_label, stop_words))
+      return inferred_label;
   }
 
-  return inferred_label;
+  // If we didn't find a label, check the value attr used as the placeholder.
+  inferred_label = InferLabelFromValueAttr(element);
+  if (IsLabelValid(inferred_label, stop_words))
+    return inferred_label;
+  else
+    return base::string16();
 }
 
 // Fills |option_strings| with the values of the <option> elements present in
@@ -751,18 +805,26 @@ void ForEachMatchingFormFieldCommon(
 
     bool is_initiating_element = (*element == initiating_element);
 
-    // Only autofill empty fields and the field that initiated the filling,
-    // i.e. the field the user is currently editing and interacting with.
+    // Only autofill empty fields (or those with the field's default value
+    // attribute) and the field that initiated the filling, i.e. the field the
+    // user is currently editing and interacting with.
     const WebInputElement* input_element = toWebInputElement(element);
+    CR_DEFINE_STATIC_LOCAL(WebString, kValue, ("value"));
     if (!force_override && !is_initiating_element &&
-        ((IsAutofillableInputElement(input_element) ||
-          IsTextAreaElement(*element)) &&
-         !element->value().isEmpty()))
+        // A text field, with a non-empty value that is NOT the value of the
+        // input field's "value" attribute, is skipped.
+        (IsAutofillableInputElement(input_element) ||
+         IsTextAreaElement(*element)) &&
+        !element->value().isEmpty() &&
+        (!element->hasAttribute(kValue) ||
+         element->getAttribute(kValue) != element->value()))
       continue;
 
     if (((filters & FILTER_DISABLED_ELEMENTS) && !element->isEnabled()) ||
         ((filters & FILTER_READONLY_ELEMENTS) && element->isReadOnly()) ||
-        ((filters & FILTER_NON_FOCUSABLE_ELEMENTS) && !element->isFocusable()))
+        // See description for FILTER_NON_FOCUSABLE_ELEMENTS.
+        ((filters & FILTER_NON_FOCUSABLE_ELEMENTS) && !element->isFocusable() &&
+         !IsSelectElement(*element)))
       continue;
 
     callback(data.fields[i], is_initiating_element, element);
@@ -1034,6 +1096,18 @@ bool FormOrFieldsetsToFormData(
     }
   }
 
+  // List of characters a label can't be entirely made of (this list can grow).
+  // Since the term |stop_words| is a known text processing concept we use here
+  // it to refer to such characters. They are not to be confused with words.
+  std::vector<base::char16> stop_words;
+  stop_words.push_back(static_cast<base::char16>(' '));
+  stop_words.push_back(static_cast<base::char16>('*'));
+  stop_words.push_back(static_cast<base::char16>(':'));
+  stop_words.push_back(static_cast<base::char16>('-'));
+  stop_words.push_back(static_cast<base::char16>(L'\u2013'));
+  stop_words.push_back(static_cast<base::char16>('('));
+  stop_words.push_back(static_cast<base::char16>(')'));
+
   // Loop through the form control elements, extracting the label text from
   // the DOM.  We use the |fields_extracted| vector to make sure we assign the
   // extracted label to the correct field, as it's possible |form_fields| will
@@ -1046,8 +1120,10 @@ bool FormOrFieldsetsToFormData(
       continue;
 
     const WebFormControlElement& control_element = control_elements[i];
-    if (form_fields[field_idx]->label.empty())
-      form_fields[field_idx]->label = InferLabelForElement(control_element);
+    if (form_fields[field_idx]->label.empty()) {
+      form_fields[field_idx]->label = InferLabelForElement(control_element,
+                                                           stop_words);
+    }
     TruncateString(&form_fields[field_idx]->label, kMaxDataLength);
 
     if (field && *form_control_element == control_element)
@@ -1070,7 +1146,7 @@ bool UnownedFormElementsAndFieldSetsToFormData(
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field) {
-  form->origin = document.url();
+  form->origin = GetCanonicalOriginForDocument(document);
   form->is_form_tag = false;
 
   return FormOrFieldsetsToFormData(nullptr, element, fieldsets,
@@ -1094,7 +1170,8 @@ bool ExtractFormData(const WebFormElement& form_element, FormData* data) {
   return WebFormElementToFormData(
       form_element, WebFormControlElement(),
       static_cast<form_util::ExtractMask>(form_util::EXTRACT_VALUE |
-                                          form_util::EXTRACT_OPTION_TEXT),
+                                          form_util::EXTRACT_OPTION_TEXT |
+                                          form_util::EXTRACT_OPTIONS),
       data, NULL);
 }
 
@@ -1102,12 +1179,16 @@ bool IsFormVisible(blink::WebFrame* frame,
                    const GURL& canonical_action,
                    const GURL& canonical_origin,
                    const FormData& form_data) {
-  const GURL frame_url = GURL(frame->document().url().string().utf8());
+  const GURL frame_origin = GetCanonicalOriginForDocument(frame->document());
   blink::WebVector<WebFormElement> forms;
   frame->document().forms(forms);
 
-#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
-  const bool action_is_empty = canonical_action == canonical_origin;
+#if !defined(OS_ANDROID)
+  // Omitting the action attribute would result in |canonical_origin| for
+  // hierarchical schemes like http:, and in an empty URL for non-hierarchical
+  // schemes like about: or data: etc.
+  const bool action_is_empty = canonical_action.is_empty()
+                               || canonical_action == canonical_origin;
 #endif
 
   // Since empty or unspecified action fields are automatically set to page URL,
@@ -1121,9 +1202,9 @@ bool IsFormVisible(blink::WebFrame* frame,
       continue;
 
     GURL iter_canonical_action = GetCanonicalActionForForm(form);
-#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
-    bool form_action_is_empty = iter_canonical_action == frame_url;
-
+#if !defined(OS_ANDROID)
+    bool form_action_is_empty = iter_canonical_action.is_empty() ||
+                                iter_canonical_action == frame_origin;
     if (action_is_empty != form_action_is_empty)
       continue;
 
@@ -1139,7 +1220,7 @@ bool IsFormVisible(blink::WebFrame* frame,
         return true;  // Form still exists.
       }
     }
-#else  // OS_MACOSX or OS_ANDROID
+#else  // OS_ANDROID
     if (canonical_action == iter_canonical_action) {
       return true;  // Form still exists.
     }
@@ -1346,13 +1427,13 @@ bool WebFormElementToFormData(
     return false;
 
   form->name = GetFormIdentifier(form_element);
-  form->origin = frame->document().url();
+  form->origin = GetCanonicalOriginForDocument(frame->document());
   form->action = frame->document().completeURL(form_element.action());
 
   // If the completed URL is not valid, just use the action we get from
   // WebKit.
   if (!form->action.is_valid())
-    form->action = GURL(form_element.action());
+    form->action = GURL(blink::WebStringToGURL(form_element.action()));
 
   WebVector<WebFormControlElement> control_elements;
   form_element.getFormControlElements(control_elements);
@@ -1401,40 +1482,74 @@ bool UnownedCheckoutFormElementsAndFieldSetsToFormData(
     FormFieldData* field) {
   // Only attempt formless Autofill on checkout flows. This avoids the many
   // false positives found on the non-checkout web. See
-  // http://crbug.com/462375. For now this early abort only applies to
-  // English-language pages, because the regex is not translated. Note that
-  // an empty "lang" attribute counts as English. A potential problem is that
-  // this only checks document.title(), but should actually check the main
-  // frame's title. Thus it may make bad decisions for iframes.
+  // http://crbug.com/462375.
   WebElement html_element = document.documentElement();
+
+  // For now this restriction only applies to English-language pages, because
+  // the keywords are not translated. Note that an empty "lang" attribute
+  // counts as English.
   std::string lang;
   if (!html_element.isNull())
     lang = html_element.getAttribute("lang").utf8();
-  if (lang.empty() ||
-      base::StartsWith(lang, "en", base::CompareCase::INSENSITIVE_ASCII)) {
-    std::string title(base::UTF16ToUTF8(base::string16(document.title())));
-    const char* const kKeywords[] = {
-      "payment",
-      "checkout",
-      "address",
-      "delivery",
-      "shipping",
-    };
-
-    bool found = false;
-    for (const auto& keyword : kKeywords) {
-      if (title.find(keyword) != base::string16::npos) {
-        found = true;
-        break;
-      }
-    }
-    if (!found)
-      return false;
+  if (!lang.empty() &&
+      !base::StartsWith(lang, "en", base::CompareCase::INSENSITIVE_ASCII)) {
+    return UnownedFormElementsAndFieldSetsToFormData(
+        fieldsets, control_elements, element, document, extract_mask, form,
+        field);
   }
 
+  // A potential problem is that this only checks document.title(), but should
+  // actually check the main frame's title. Thus it may make bad decisions for
+  // iframes.
+  base::string16 title(base::ToLowerASCII(base::string16(document.title())));
+
+  // Don't check the path for url's without a standard format path component,
+  // such as data:.
+  std::string path;
+  GURL url(document.url());
+  if (url.IsStandard())
+    path = base::ToLowerASCII(url.path());
+
+  const char* const kKeywords[] = {
+    "payment",
+    "checkout",
+    "address",
+    "delivery",
+    "shipping",
+    "wallet"
+  };
+
+  for (const auto& keyword : kKeywords) {
+    // Compare char16 elements of |title| with char elements of |keyword| using
+    // operator==.
+    auto title_pos = std::search(title.begin(), title.end(),
+                                 keyword, keyword + strlen(keyword));
+    if (title_pos != title.end() ||
+        path.find(keyword) != std::string::npos) {
+      form->is_formless_checkout = true;
+      // Found a keyword: treat this as an unowned form.
+      return UnownedFormElementsAndFieldSetsToFormData(
+          fieldsets, control_elements, element, document, extract_mask, form,
+          field);
+    }
+  }
+
+  // Since it's not a checkout flow, only add fields that have a non-"off"
+  // autocomplete attribute to the formless autofill.
+  CR_DEFINE_STATIC_LOCAL(WebString, kOffAttribute, ("off"));
+  std::vector<WebFormControlElement> elements_with_autocomplete;
+  for (const WebFormControlElement& element : control_elements) {
+    blink::WebString autocomplete = element.getAttribute("autocomplete");
+    if (autocomplete.length() && autocomplete != kOffAttribute)
+      elements_with_autocomplete.push_back(element);
+  }
+
+  if (elements_with_autocomplete.empty())
+    return false;
+
   return UnownedFormElementsAndFieldSetsToFormData(
-      fieldsets, control_elements, element, document, extract_mask, form,
-      field);
+      fieldsets, elements_with_autocomplete, element, document, extract_mask,
+      form, field);
 }
 
 bool UnownedPasswordFormElementsAndFieldSetsToFormData(
@@ -1631,14 +1746,6 @@ bool IsWebElementEmpty(const blink::WebElement& root) {
       return false;
   }
   return true;
-}
-
-gfx::RectF GetScaledBoundingBox(float scale, WebElement* element) {
-  gfx::Rect bounding_box(element->boundsInViewportSpace());
-  return gfx::RectF(bounding_box.x() * scale,
-                    bounding_box.y() * scale,
-                    bounding_box.width() * scale,
-                    bounding_box.height() * scale);
 }
 
 void PreviewSuggestion(const base::string16& suggestion,

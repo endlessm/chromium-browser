@@ -35,7 +35,6 @@
 #include "platform/graphics/GraphicsTypes.h"
 #include "platform/graphics/GraphicsTypes3D.h"
 #include "platform/graphics/ImageBufferSurface.h"
-#include "platform/graphics/paint/DisplayItemClient.h"
 #include "platform/transforms/AffineTransform.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "wtf/Forward.h"
@@ -73,7 +72,7 @@ public:
     static PassOwnPtr<ImageBuffer> create(const IntSize&, OpacityMode = NonOpaque, ImageInitializationMode = InitializeImagePixels);
     static PassOwnPtr<ImageBuffer> create(PassOwnPtr<ImageBufferSurface>);
 
-    ~ImageBuffer();
+    virtual ~ImageBuffer();
 
     void setClient(ImageBufferClient* client) { m_client = client; }
 
@@ -91,11 +90,12 @@ public:
     void setFilterQuality(SkFilterQuality filterQuality) { m_surface->setFilterQuality(filterQuality); }
     void setIsHidden(bool hidden) { m_surface->setIsHidden(hidden); }
 
-    // Called by subclasses of ImageBufferSurface to install a new canvas object
-    void resetCanvas(SkCanvas*) const;
+    // Called by subclasses of ImageBufferSurface to install a new canvas object.
+    // Virtual for mocking
+    virtual void resetCanvas(SkCanvas*) const;
 
     SkCanvas* canvas() const;
-    void disableDeferral() const;
+    void disableDeferral(DisableDeferralReason) const;
 
     // Called at the end of a task that rendered a whole frame
     void finalizeFrame(const FloatRect &dirtyRect);
@@ -122,22 +122,24 @@ public:
 
     bool copyRenderingResultsFromDrawingBuffer(DrawingBuffer*, SourceDrawingBuffer);
 
-    void flush(); // process deferred draw commands immediately
-    void flushGpu(); // Like flush(), but flushes all the way down to the Gpu context if the surface is accelerated
+    void flush(FlushReason); // process deferred draw commands immediately
+    void flushGpu(FlushReason); // Like flush(), but flushes all the way down to the Gpu context if the surface is accelerated
 
     void notifySurfaceInvalid();
 
-    PassRefPtr<SkImage> newSkImageSnapshot(AccelerationHint) const;
-    PassRefPtr<Image> newImageSnapshot(AccelerationHint = PreferNoAcceleration) const;
+    PassRefPtr<SkImage> newSkImageSnapshot(AccelerationHint, SnapshotReason) const;
+    PassRefPtr<Image> newImageSnapshot(AccelerationHint = PreferNoAcceleration, SnapshotReason = SnapshotReasonUnknown) const;
 
-    DisplayItemClient displayItemClient() const { return toDisplayItemClient(this); }
-    String debugName() const { return "ImageBuffer"; }
+    void draw(GraphicsContext&, const FloatRect&, const FloatRect*, SkXfermode::Mode);
 
-    void draw(GraphicsContext*, const FloatRect&, const FloatRect*, SkXfermode::Mode);
+    void updateGPUMemoryUsage() const;
+    static intptr_t getGlobalGPUMemoryUsage() { return s_globalGPUMemoryUsage; }
+    intptr_t getGPUMemoryUsage() { return m_gpuMemoryUsage; }
 
-private:
+protected:
     ImageBuffer(PassOwnPtr<ImageBufferSurface>);
 
+private:
     enum SnapshotState {
         InitialSnapshotState,
         DidAcquireSnapshot,
@@ -146,9 +148,13 @@ private:
     mutable SnapshotState m_snapshotState;
     OwnPtr<ImageBufferSurface> m_surface;
     ImageBufferClient* m_client;
+
+    mutable intptr_t m_gpuMemoryUsage;
+    static intptr_t s_globalGPUMemoryUsage;
 };
 
 struct ImageDataBuffer {
+    STACK_ALLOCATED();
     ImageDataBuffer(const IntSize& size, const unsigned char* data) : m_data(data), m_size(size) { }
     String PLATFORM_EXPORT toDataURL(const String& mimeType, const double& quality) const;
     bool PLATFORM_EXPORT encodeImage(const String& mimeType, const double& quality, Vector<unsigned char>* encodedImage) const;

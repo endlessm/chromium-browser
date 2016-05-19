@@ -6,17 +6,17 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/dns_probe_service.h"
 #include "chrome/browser/net/net_error_diagnostics_dialog.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/localized_error.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "components/error_page/common/net_error_info.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -25,13 +25,13 @@
 #include "net/base/net_errors.h"
 #include "url/gurl.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/android/offline_pages/offline_page_model_factory.h"
 #include "chrome/browser/android/tab_android.h"
 #include "components/offline_pages/offline_page_feature.h"
 #include "components/offline_pages/offline_page_item.h"
 #include "components/offline_pages/offline_page_model.h"
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 using content::BrowserContext;
 using content::BrowserThread;
@@ -131,9 +131,9 @@ void NetErrorTabHelper::DidStartProvisionalLoadForFrame(
 
   is_error_page_ = is_error_page;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   SetOfflinePageInfo(render_frame_host, validated_url);
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 }
 
 void NetErrorTabHelper::DidCommitProvisionalLoadForFrame(
@@ -185,10 +185,10 @@ bool NetErrorTabHelper::OnMessageReceived(
   IPC_BEGIN_MESSAGE_MAP(NetErrorTabHelper, message)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_RunNetworkDiagnostics,
                         RunNetworkDiagnostics)
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_ShowOfflinePages, ShowOfflinePages)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_LoadOfflineCopy, LoadOfflineCopy)
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -296,7 +296,7 @@ void NetErrorTabHelper::RunNetworkDiagnosticsHelper(
   ShowNetworkDiagnosticsDialog(web_contents(), sanitized_url);
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 void NetErrorTabHelper::SetOfflinePageInfo(
     content::RenderFrameHost* render_frame_host,
     const GURL& url) {
@@ -354,6 +354,6 @@ bool NetErrorTabHelper::IsFromErrorPage() const {
   return entry && (entry->GetPageType() == content::PAGE_TYPE_ERROR);
 }
 
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 }  // namespace chrome_browser_net

@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <string>
+#include <utility>
 
 #include "base/callback_forward.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -72,31 +75,35 @@ class AppDataMigratorTest : public testing::Test {
 scoped_refptr<const Extension> GetTestExtension(bool platform_app) {
   scoped_refptr<const Extension> app;
   if (platform_app) {
-    app = ExtensionBuilder()
-              .SetManifest(
-                   DictionaryBuilder()
-                       .Set("name", "test app")
-                       .Set("version", "1")
-                       .Set("app", DictionaryBuilder().Set(
-                                       "background",
-                                       DictionaryBuilder().Set(
-                                           "scripts", ListBuilder().Append(
-                                                          "background.js"))))
-                       .Set("permissions",
-                            ListBuilder().Append("unlimitedStorage")))
-              .Build();
+    app =
+        ExtensionBuilder()
+            .SetManifest(std::move(
+                DictionaryBuilder()
+                    .Set("name", "test app")
+                    .Set("version", "1")
+                    .Set("app",
+                         std::move(DictionaryBuilder().Set(
+                             "background",
+                             std::move(DictionaryBuilder().Set(
+                                 "scripts", std::move(ListBuilder().Append(
+                                                "background.js")))))))
+                    .Set("permissions",
+                         std::move(ListBuilder().Append("unlimitedStorage")))))
+            .Build();
   } else {
-    app = ExtensionBuilder()
-              .SetManifest(DictionaryBuilder()
-                               .Set("name", "test app")
-                               .Set("version", "1")
-                               .Set("app", DictionaryBuilder().Set(
-                                               "launch",
-                                               DictionaryBuilder().Set(
-                                                   "local_path", "index.html")))
-                               .Set("permissions",
-                                    ListBuilder().Append("unlimitedStorage")))
-              .Build();
+    app =
+        ExtensionBuilder()
+            .SetManifest(std::move(
+                DictionaryBuilder()
+                    .Set("name", "test app")
+                    .Set("version", "1")
+                    .Set("app",
+                         std::move(DictionaryBuilder().Set(
+                             "launch", std::move(DictionaryBuilder().Set(
+                                           "local_path", "index.html")))))
+                    .Set("permissions",
+                         std::move(ListBuilder().Append("unlimitedStorage")))))
+            .Build();
   }
   return app;
 }
@@ -104,7 +111,7 @@ scoped_refptr<const Extension> GetTestExtension(bool platform_app) {
 void MigrationCallback() {
 }
 
-void DidWrite(base::File::Error status, int64 bytes, bool complete) {
+void DidWrite(base::File::Error status, int64_t bytes, bool complete) {
   base::MessageLoop::current()->QuitWhenIdle();
 }
 

@@ -6,6 +6,7 @@
 
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "storage/browser/fileapi/file_system_url.h"
 
@@ -23,7 +24,7 @@ base::FilePath NormalizeFilePath(const base::FilePath& path) {
     return path;
 
   base::FilePath::StringType path_str = path.StripTrailingSeparators().value();
-  if (!base::FilePath::IsSeparator(path_str[path_str.length() - 1]))
+  if (!base::FilePath::IsSeparator(path_str.back()))
     path_str.append(FILE_PATH_LITERAL("/"));
 
   return base::FilePath(path_str).NormalizePathSeparators();

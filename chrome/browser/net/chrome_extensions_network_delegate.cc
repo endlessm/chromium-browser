@@ -4,6 +4,9 @@
 
 #include "chrome/browser/net/chrome_extensions_network_delegate.h"
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "net/base/net_errors.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -31,7 +34,7 @@ enum RequestStatus { REQUEST_STARTED, REQUEST_DONE };
 // for a particular RenderFrame.
 void NotifyEPMRequestStatus(RequestStatus status,
                             void* profile_id,
-                            uint64 request_id,
+                            uint64_t request_id,
                             int process_id,
                             int render_frame_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -109,7 +112,6 @@ class ChromeExtensionsNetworkDelegateImpl
   void OnResponseStarted(net::URLRequest* request) override;
   void OnCompleted(net::URLRequest* request, bool started) override;
   void OnURLRequestDestroyed(net::URLRequest* request) override;
-  void OnURLRequestJobOrphaned(net::URLRequest* request) override;
   void OnPACScriptError(int line_number, const base::string16& error) override;
   net::NetworkDelegate::AuthRequiredResponse OnAuthRequired(
       net::URLRequest* request,
@@ -237,12 +239,6 @@ void ChromeExtensionsNetworkDelegateImpl::OnURLRequestDestroyed(
       profile_, request);
 }
 
-void ChromeExtensionsNetworkDelegateImpl::OnURLRequestJobOrphaned(
-    net::URLRequest* request) {
-  ExtensionWebRequestEventRouter::GetInstance()->OnURLRequestJobOrphaned(
-      profile_, request);
-}
-
 void ChromeExtensionsNetworkDelegateImpl::OnPACScriptError(
     int line_number,
     const base::string16& error) {
@@ -344,10 +340,6 @@ void ChromeExtensionsNetworkDelegate::OnCompleted(
 }
 
 void ChromeExtensionsNetworkDelegate::OnURLRequestDestroyed(
-    net::URLRequest* request) {
-}
-
-void ChromeExtensionsNetworkDelegate::OnURLRequestJobOrphaned(
     net::URLRequest* request) {
 }
 

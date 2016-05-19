@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebInputEvent.h"
 
 #include "platform/KeyboardCodes.h"
@@ -55,7 +54,7 @@ struct SameSizeAsWebMouseWheelEvent : public SameSizeAsWebMouseEvent {
 };
 
 struct SameSizeAsWebGestureEvent : public SameSizeAsWebInputEvent {
-    int gestureData[11];
+    int gestureData[12];
 };
 
 struct SameSizeAsWebTouchEvent : public SameSizeAsWebInputEvent {

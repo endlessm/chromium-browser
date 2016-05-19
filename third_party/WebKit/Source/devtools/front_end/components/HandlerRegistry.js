@@ -122,10 +122,7 @@ WebInspector.HandlerRegistry.prototype = {
         if (!contentProvider.contentURL())
             return;
 
-        var contentType = contentProvider.contentType();
-        if (contentType !== WebInspector.resourceTypes.Document &&
-            contentType !== WebInspector.resourceTypes.Stylesheet &&
-            contentType !== WebInspector.resourceTypes.Script)
+        if (!contentProvider.contentType().isDocumentOrScriptOrStyleSheet())
             return;
 
         /**
@@ -152,7 +149,7 @@ WebInspector.HandlerRegistry.prototype = {
                     uiSourceCode.commitWorkingCopy();
                 return;
             }
-            contentProvider.requestContent(doSave.bind(null, forceSaveAs));
+            contentProvider.requestContent().then(doSave.bind(null, forceSaveAs));
         }
 
         contextMenu.appendSeparator();

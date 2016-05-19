@@ -9,8 +9,10 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
+#include "net/quic/quic_bug_tracker.h"
 #include "net/spdy/spdy_http_utils.h"
 
 using base::FilePath;
@@ -19,7 +21,19 @@ using base::StringPiece;
 using std::string;
 
 namespace net {
-namespace tools {
+
+QuicInMemoryCache::ServerPushInfo::ServerPushInfo(
+    GURL request_url,
+    const SpdyHeaderBlock& headers,
+    net::SpdyPriority priority,
+    string body)
+    : request_url(request_url),
+      headers(headers),
+      priority(priority),
+      body(body) {}
+
+QuicInMemoryCache::ServerPushInfo::ServerPushInfo(const ServerPushInfo& other) =
+    default;
 
 QuicInMemoryCache::Response::Response() : response_type_(REGULAR_RESPONSE) {}
 
@@ -35,6 +49,8 @@ const QuicInMemoryCache::Response* QuicInMemoryCache::GetResponse(
     StringPiece path) const {
   ResponseMap::const_iterator it = responses_.find(GetKey(host, path));
   if (it == responses_.end()) {
+    DVLOG(1) << "Get response for resource failed: host " << host << " path "
+             << path;
     if (default_response_.get()) {
       return default_response_.get();
     }
@@ -42,6 +58,8 @@ const QuicInMemoryCache::Response* QuicInMemoryCache::GetResponse(
   }
   return it->second;
 }
+
+typedef QuicInMemoryCache::ServerPushInfo ServerPushInfo;
 
 void QuicInMemoryCache::AddSimpleResponse(StringPiece host,
                                           StringPiece path,
@@ -54,6 +72,16 @@ void QuicInMemoryCache::AddSimpleResponse(StringPiece host,
   AddResponse(host, path, response_headers, body);
 }
 
+void QuicInMemoryCache::AddSimpleResponseWithServerPushResources(
+    StringPiece host,
+    StringPiece path,
+    int response_code,
+    StringPiece body,
+    list<ServerPushInfo> push_resources) {
+  AddSimpleResponse(host, path, response_code, body);
+  MaybeAddServerPushResources(host, path, push_resources);
+}
+
 void QuicInMemoryCache::AddDefaultResponse(Response* response) {
   default_response_.reset(response);
 }
@@ -62,33 +90,42 @@ void QuicInMemoryCache::AddResponse(StringPiece host,
                                     StringPiece path,
                                     const SpdyHeaderBlock& response_headers,
                                     StringPiece response_body) {
-  AddResponseImpl(host, path, REGULAR_RESPONSE, response_headers,
-                  response_body);
+  AddResponseImpl(host, path, REGULAR_RESPONSE, response_headers, response_body,
+                  SpdyHeaderBlock());
+}
+
+void QuicInMemoryCache::AddResponse(StringPiece host,
+                                    StringPiece path,
+                                    const SpdyHeaderBlock& response_headers,
+                                    StringPiece response_body,
+                                    const SpdyHeaderBlock& response_trailers) {
+  AddResponseImpl(host, path, REGULAR_RESPONSE, response_headers, response_body,
+                  response_trailers);
 }
 
 void QuicInMemoryCache::AddSpecialResponse(StringPiece host,
                                            StringPiece path,
                                            SpecialResponseType response_type) {
-  AddResponseImpl(host, path, response_type, SpdyHeaderBlock(), "");
+  AddResponseImpl(host, path, response_type, SpdyHeaderBlock(), "",
+                  SpdyHeaderBlock());
 }
 
 QuicInMemoryCache::QuicInMemoryCache() {}
 
 void QuicInMemoryCache::ResetForTests() {
   STLDeleteValues(&responses_);
+  server_push_resources_.clear();
 }
 
 void QuicInMemoryCache::InitializeFromDirectory(const string& cache_directory) {
   if (cache_directory.empty()) {
-    LOG(DFATAL) << "cache_directory must not be empty.";
+    QUIC_BUG << "cache_directory must not be empty.";
     return;
   }
   VLOG(1) << "Attempting to initialize QuicInMemoryCache from directory: "
           << cache_directory;
   FilePath directory(FilePath::FromUTF8Unsafe(cache_directory));
-  base::FileEnumerator file_list(directory,
-                                 true,
-                                 base::FileEnumerator::FILES);
+  base::FileEnumerator file_list(directory, true, base::FileEnumerator::FILES);
 
   for (FilePath file_iter = file_list.Next(); !file_iter.empty();
        file_iter = file_list.Next()) {
@@ -107,8 +144,8 @@ void QuicInMemoryCache::InitializeFromDirectory(const string& cache_directory) {
     string file_contents;
     base::ReadFileToString(file_iter, &file_contents);
     int file_len = static_cast<int>(file_contents.length());
-    int headers_end = HttpUtil::LocateEndOfHeaders(file_contents.data(),
-                                                   file_len);
+    int headers_end =
+        HttpUtil::LocateEndOfHeaders(file_contents.data(), file_len);
     if (headers_end < 1) {
       LOG(DFATAL) << "Headers invalid or empty, ignoring: " << file;
       continue;
@@ -138,7 +175,7 @@ void QuicInMemoryCache::InitializeFromDirectory(const string& cache_directory) {
     size_t path_start = base.find_first_of('/');
     StringPiece host(StringPiece(base).substr(0, path_start));
     StringPiece path(StringPiece(base).substr(path_start));
-    if (path[path.length() - 1] == ',') {
+    if (path.back() == ',') {
       path.remove_suffix(1);
     }
     StringPiece body(file_contents.data() + headers_end,
@@ -147,6 +184,16 @@ void QuicInMemoryCache::InitializeFromDirectory(const string& cache_directory) {
     CreateSpdyHeadersFromHttpResponse(*response_headers, HTTP2, &header_block);
     AddResponse(host, path, header_block, body);
   }
+}
+
+list<ServerPushInfo> QuicInMemoryCache::GetServerPushResources(
+    string request_url) {
+  list<ServerPushInfo> resources;
+  auto resource_range = server_push_resources_.equal_range(request_url);
+  for (auto it = resource_range.first; it != resource_range.second; ++it) {
+    resources.push_back(it->second);
+  }
+  return resources;
 }
 
 QuicInMemoryCache::~QuicInMemoryCache() {
@@ -158,17 +205,19 @@ void QuicInMemoryCache::AddResponseImpl(
     StringPiece path,
     SpecialResponseType response_type,
     const SpdyHeaderBlock& response_headers,
-    StringPiece response_body) {
+    StringPiece response_body,
+    const SpdyHeaderBlock& response_trailers) {
+  DCHECK(!host.empty()) << "Host must be populated, e.g. \"www.google.com\"";
   string key = GetKey(host, path);
-  VLOG(1) << "Adding response for: " << key;
   if (ContainsKey(responses_, key)) {
-    LOG(DFATAL) << "Response for '" << key << "' already exists!";
+    QUIC_BUG << "Response for '" << key << "' already exists!";
     return;
   }
   Response* new_response = new Response();
   new_response->set_response_type(response_type);
   new_response->set_headers(response_headers);
   new_response->set_body(response_body);
+  new_response->set_trailers(response_trailers);
   responses_[key] = new_response;
 }
 
@@ -176,5 +225,46 @@ string QuicInMemoryCache::GetKey(StringPiece host, StringPiece path) const {
   return host.as_string() + path.as_string();
 }
 
-}  // namespace tools
+void QuicInMemoryCache::MaybeAddServerPushResources(
+    StringPiece request_host,
+    StringPiece request_path,
+    list<ServerPushInfo> push_resources) {
+  string request_url = request_host.as_string() + request_path.as_string();
+
+  for (const auto& push_resource : push_resources) {
+    if (PushResourceExistsInCache(request_url, push_resource)) {
+      continue;
+    }
+
+    DVLOG(1) << "Add request-resource association.";
+    server_push_resources_.insert(std::make_pair(request_url, push_resource));
+    string host = push_resource.request_url.host();
+    if (host.empty()) {
+      host = request_host.as_string();
+    }
+    string path = push_resource.request_url.path();
+    if (responses_.find(GetKey(host, path)) == responses_.end()) {
+      // Add a server push response to responses map, if it is not in the map.
+      SpdyHeaderBlock headers = push_resource.headers;
+      StringPiece body = push_resource.body;
+      DVLOG(1) << "Add response for push resource: host " << host << " path "
+               << path << " body " << body;
+      AddResponse(host, path, headers, body);
+    }
+  }
+}
+
+bool QuicInMemoryCache::PushResourceExistsInCache(string original_request_url,
+                                                  ServerPushInfo resource) {
+  auto resource_range =
+      server_push_resources_.equal_range(original_request_url);
+  for (auto it = resource_range.first; it != resource_range.second; ++it) {
+    ServerPushInfo push_resource = it->second;
+    if (push_resource.request_url.spec() == resource.request_url.spec()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace net

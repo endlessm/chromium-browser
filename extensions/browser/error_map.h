@@ -5,12 +5,14 @@
 #ifndef EXTENSIONS_BROWSER_ERROR_MAP_H_
 #define EXTENSIONS_BROWSER_ERROR_MAP_H_
 
+#include <stddef.h>
+
 #include <deque>
 #include <map>
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "extensions/browser/extension_error.h"
 
@@ -31,6 +33,7 @@ class ErrorMap {
            int restrict_to_type,
            const std::set<int>& restrict_to_ids,
            bool restrict_to_incognito);
+    Filter(const Filter& other);
     ~Filter();
 
     // Convenience methods to get a specific type of filter. Prefer these over

@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef SYNC_INTERNAL_API_PUBLIC_ENGINE_STATUS_SUMMARY_H_
-#define SYNC_INTERNAL_API_PUBLIC_ENGINE_STATUS_SUMMARY_H_
+#ifndef SYNC_INTERNAL_API_PUBLIC_ENGINE_SYNC_STATUS_H_
+#define SYNC_INTERNAL_API_PUBLIC_ENGINE_SYNC_STATUS_H_
 
 #include <string>
+#include <vector>
 
 #include "base/time/time.h"
 #include "sync/base/sync_export.h"
@@ -23,6 +24,7 @@ namespace syncer {
 // DictionaryValue used to populate the about:sync summary tab.
 struct SYNC_EXPORT SyncStatus {
   SyncStatus();
+  SyncStatus(const SyncStatus& other);
   ~SyncStatus();
 
   // TODO(akalin): Replace this with a NotificationsDisabledReason
@@ -95,4 +97,4 @@ struct SYNC_EXPORT SyncStatus {
 
 }  // namespace syncer
 
-#endif  // SYNC_INTERNAL_API_PUBLIC_ENGINE_STATUS_SUMMARY_H_
+#endif  // SYNC_INTERNAL_API_PUBLIC_ENGINE_SYNC_STATUS_H_

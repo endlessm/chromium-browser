@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSFontFeatureValue.h"
 
 #include "wtf/text/StringBuilder.h"
@@ -52,4 +51,4 @@ bool CSSFontFeatureValue::equals(const CSSFontFeatureValue& other) const
     return m_tag == other.m_tag && m_value == other.m_value;
 }
 
-}
+} // namespace blink

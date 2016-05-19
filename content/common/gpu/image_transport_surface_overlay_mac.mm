@@ -4,12 +4,14 @@
 
 #include "content/common/gpu/image_transport_surface_overlay_mac.h"
 
-#include <algorithm>
 #include <CoreGraphics/CoreGraphics.h>
 #include <IOSurface/IOSurface.h>
 #include <OpenGL/CGLRenderers.h>
 #include <OpenGL/CGLTypes.h>
 #include <OpenGL/gl.h>
+#include <stddef.h>
+
+#include <algorithm>
 
 // This type consistently causes problem on Mac, and needs to be dealt with
 // in a systemic way.
@@ -18,15 +20,16 @@
 typedef void* GLeglImageOES;
 #endif
 
-#include "base/command_line.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "content/common/gpu/gpu_messages.h"
+#include "base/trace_event/trace_event.h"
+#include "content/common/gpu/accelerated_surface_buffers_swapped_params_mac.h"
+#include "content/common/gpu/buffer_presented_params_mac.h"
+#include "content/common/gpu/ca_layer_partial_damage_tree_mac.h"
+#include "content/common/gpu/ca_layer_tree_mac.h"
 #include "ui/accelerated_widget_mac/io_surface_context.h"
-#include "ui/accelerated_widget_mac/surface_handle_types.h"
 #include "ui/base/cocoa/animation_utils.h"
 #include "ui/base/cocoa/remote_layer_api.h"
-#include "ui/base/ui_base_switches.h"
-#include "ui/gfx/geometry/dip_util.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/transform.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_fence.h"
@@ -56,16 +59,6 @@ const double kVSyncIntervalFractionForDisplayCallback = 0.5;
 // they come.
 const double kMaximumVSyncsBetweenSwapsForSmoothAnimation = 1.5;
 
-// When selecting a CALayer to re-use for partial damage, this is the maximum
-// fraction of the merged layer's pixels that may be not-updated by the swap
-// before we consider the CALayer to not be a good enough match, and create a
-// new one.
-const float kMaximumPartialDamageWasteFraction = 1.2f;
-
-// The maximum number of partial damage layers that may be created before we
-// give up and remove them all (doing full damage in the process).
-const size_t kMaximumPartialDamageLayers = 8;
-
 void CheckGLErrors(const char* msg) {
   GLenum gl_error;
   while ((gl_error = glGetError()) != GL_NO_ERROR) {
@@ -91,144 +84,6 @@ scoped_refptr<gfx::GLSurface> ImageTransportSurfaceCreateNativeSurface(
   return new ImageTransportSurfaceOverlayMac(manager, stub, handle);
 }
 
-class ImageTransportSurfaceOverlayMac::OverlayPlane {
- public:
-  static linked_ptr<OverlayPlane> CreateWithFrameRect(
-      int z_order,
-      int io_surface_id,
-      base::ScopedCFTypeRef<IOSurfaceRef> io_surface,
-      const gfx::RectF& pixel_frame_rect,
-      const gfx::RectF& contents_rect) {
-    gfx::Transform transform;
-    transform.Translate(pixel_frame_rect.x(), pixel_frame_rect.y());
-    return linked_ptr<OverlayPlane>(
-        new OverlayPlane(z_order, io_surface_id, io_surface, contents_rect, 1.f,
-                         base::ScopedCFTypeRef<CGColorRef>(),
-                         pixel_frame_rect.size(), transform, pixel_frame_rect));
-  }
-
-  static linked_ptr<OverlayPlane> CreateWithTransform(
-      int z_order,
-      int io_surface_id,
-      base::ScopedCFTypeRef<IOSurfaceRef> io_surface,
-      const gfx::RectF& contents_rect,
-      float opacity,
-      base::ScopedCFTypeRef<CGColorRef> background_color,
-      const gfx::SizeF& bounds_size,
-      const gfx::Transform& transform) {
-    gfx::RectF pixel_frame_rect = gfx::RectF(bounds_size);
-    transform.TransformRect(&pixel_frame_rect);
-    return linked_ptr<OverlayPlane>(new OverlayPlane(
-        z_order, io_surface_id, io_surface, contents_rect, opacity,
-        background_color, bounds_size, transform, pixel_frame_rect));
-  }
-
-  ~OverlayPlane() { DCHECK(!ca_layer); }
-
-  const int z_order;
-  base::scoped_nsobject<CALayer> ca_layer;
-
-  // The IOSurface to set the CALayer's contents to.
-  const int io_surface_id;
-  const base::ScopedCFTypeRef<IOSurfaceRef> io_surface;
-  const gfx::RectF contents_rect;
-  float opacity;
-  const base::ScopedCFTypeRef<CGColorRef> background_color;
-  const gfx::SizeF bounds_size;
-  const gfx::Transform transform;
-
-  const gfx::RectF pixel_frame_rect;
-
-  bool layer_needs_update;
-
-  static bool Compare(const linked_ptr<OverlayPlane>& a,
-                      const linked_ptr<OverlayPlane>& b) {
-    return (a->z_order < b->z_order);
-  }
-
-  void TakeCALayerFrom(OverlayPlane* other_plane) {
-    ca_layer.swap(other_plane->ca_layer);
-  }
-
-  void UpdateProperties() {
-    if (layer_needs_update) {
-      [ca_layer setOpaque:YES];
-
-      id new_contents = static_cast<id>(io_surface.get());
-      if ([ca_layer contents] == new_contents && z_order == 0) {
-        [ca_layer setContentsChanged];
-      } else {
-        [ca_layer setContents:new_contents];
-      }
-      [ca_layer setContentsRect:contents_rect.ToCGRect()];
-
-      [ca_layer setOpacity:opacity];
-      if (background_color) {
-        [ca_layer setBackgroundColor:background_color];
-      } else {
-        [ca_layer setBackgroundColor:CGColorGetConstantColor(kCGColorClear)];
-      }
-
-      [ca_layer setAnchorPoint:CGPointZero];
-      [ca_layer setBounds:gfx::RectF(bounds_size).ToCGRect()];
-      CATransform3D ca_transform;
-      transform.matrix().asColMajord(&ca_transform.m11);
-      [ca_layer setTransform:ca_transform];
-    }
-    static bool show_borders =
-        base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kShowMacOverlayBorders);
-    if (show_borders) {
-      base::ScopedCFTypeRef<CGColorRef> color;
-      if (!layer_needs_update) {
-        // Green represents contents that are unchanged across frames.
-        color.reset(CGColorCreateGenericRGB(0, 1, 0, 1));
-      } else if (z_order != 0) {
-        // Pink represents overlay planes
-        color.reset(CGColorCreateGenericRGB(1, 0, 1, 1));
-      } else {
-        // Red represents damaged contents.
-        color.reset(CGColorCreateGenericRGB(1, 0, 0, 1));
-      }
-      [ca_layer setBorderWidth:1];
-      [ca_layer setBorderColor:color];
-    }
-    layer_needs_update = false;
-  }
-
-  void Destroy() {
-    if (!ca_layer)
-      return;
-    [ca_layer setContents:nil];
-    [ca_layer removeFromSuperlayer];
-    [ca_layer setBorderWidth:0];
-    [ca_layer setBorderColor:CGColorGetConstantColor(kCGColorClear)];
-    [ca_layer setBackgroundColor:CGColorGetConstantColor(kCGColorClear)];
-    ca_layer.reset();
-  }
-
- private:
-  OverlayPlane(int z_order,
-               int io_surface_id,
-               base::ScopedCFTypeRef<IOSurfaceRef> io_surface,
-               const gfx::RectF& contents_rect,
-               float opacity,
-               base::ScopedCFTypeRef<CGColorRef> background_color,
-               const gfx::SizeF& bounds_size,
-               const gfx::Transform& transform,
-               const gfx::RectF& pixel_frame_rect)
-      : z_order(z_order),
-        io_surface_id(io_surface_id),
-        io_surface(io_surface),
-        contents_rect(contents_rect),
-        opacity(opacity),
-        background_color(background_color),
-        bounds_size(bounds_size),
-        transform(transform),
-        pixel_frame_rect(pixel_frame_rect),
-        layer_needs_update(true) {}
-};
-
 class ImageTransportSurfaceOverlayMac::PendingSwap {
  public:
   PendingSwap() {}
@@ -238,8 +93,8 @@ class ImageTransportSurfaceOverlayMac::PendingSwap {
   float scale_factor;
   gfx::Rect pixel_damage_rect;
 
-  linked_ptr<OverlayPlane> root_plane;
-  std::vector<linked_ptr<OverlayPlane>> overlay_planes;
+  scoped_ptr<CALayerPartialDamageTree> partial_damage_tree;
+  scoped_ptr<CALayerTree> ca_layer_tree;
   std::vector<ui::LatencyInfo> latency_info;
 
   // A fence object, and the CGL context it was issued in.
@@ -264,7 +119,6 @@ ImageTransportSurfaceOverlayMac::ImageTransportSurfaceOverlayMac(
       scale_factor_(1),
       gl_renderer_id_(0),
       vsync_parameters_valid_(false),
-      next_ca_layer_z_order_(1),
       display_pending_swap_timer_(true, false),
       weak_factory_(this) {
   helper_.reset(new ImageTransportHelper(this, manager, stub, handle));
@@ -276,8 +130,9 @@ ImageTransportSurfaceOverlayMac::~ImageTransportSurfaceOverlayMac() {
   Destroy();
 }
 
-bool ImageTransportSurfaceOverlayMac::Initialize() {
-  if (!helper_->Initialize())
+bool ImageTransportSurfaceOverlayMac::Initialize(
+    gfx::GLSurface::Format format) {
+  if (!helper_->Initialize(format))
     return false;
 
   // Create the CAContext to send this to the GPU process, and the layer for
@@ -297,15 +152,8 @@ bool ImageTransportSurfaceOverlayMac::Initialize() {
 void ImageTransportSurfaceOverlayMac::Destroy() {
   DisplayAndClearAllPendingSwaps();
 
-  if (current_root_plane_.get())
-    current_root_plane_->Destroy();
-  current_root_plane_.reset();
-  for (auto& plane : current_partial_damage_planes_)
-    plane->Destroy();
-  current_partial_damage_planes_.clear();
-  for (auto& plane : current_overlay_planes_)
-    plane->Destroy();
-  current_overlay_planes_.clear();
+  current_partial_damage_tree_.reset();
+  current_ca_layer_tree_.reset();
 }
 
 bool ImageTransportSurfaceOverlayMac::IsOffscreen() {
@@ -315,7 +163,6 @@ bool ImageTransportSurfaceOverlayMac::IsOffscreen() {
 gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
     const gfx::Rect& pixel_damage_rect) {
   TRACE_EVENT0("gpu", "ImageTransportSurfaceOverlayMac::SwapBuffersInternal");
-  next_ca_layer_z_order_ = 1;
 
   // Use the same concept of 'now' for the entire function. The duration of
   // this function only affect the result if this function lasts across a vsync
@@ -346,9 +193,8 @@ gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
   new_swap->pixel_size = pixel_size_;
   new_swap->scale_factor = scale_factor_;
   new_swap->pixel_damage_rect = pixel_damage_rect;
-  new_swap->root_plane = pending_root_plane_;
-  pending_root_plane_ = linked_ptr<OverlayPlane>();
-  new_swap->overlay_planes.swap(pending_overlay_planes_);
+  new_swap->partial_damage_tree.swap(pending_partial_damage_tree_);
+  new_swap->ca_layer_tree.swap(pending_ca_layer_tree_);
   new_swap->latency_info.swap(latency_info_);
 
   // A flush is required to ensure that all content appears in the layer.
@@ -427,21 +273,30 @@ void ImageTransportSurfaceOverlayMac::DisplayFirstPendingSwapImmediately() {
     CheckGLErrors("while deleting active fence");
   }
 
-  // Update the plane lists.
+  // Update the CALayer hierarchy.
   {
-    // Sort the input planes by z-index, and remove any overlays from the
-    // damage rect.
     gfx::RectF pixel_damage_rect = gfx::RectF(swap->pixel_damage_rect);
-    std::sort(swap->overlay_planes.begin(), swap->overlay_planes.end(),
-              OverlayPlane::Compare);
-    for (auto& plane : swap->overlay_planes)
-      pixel_damage_rect.Subtract(plane->pixel_frame_rect);
-
     ScopedCAActionDisabler disabler;
-    UpdateRootAndPartialDamagePlanes(swap->root_plane, pixel_damage_rect);
-    UpdateOverlayPlanes(swap->overlay_planes);
-    UpdateCALayerTree();
-    swap->overlay_planes.clear();
+    if (swap->ca_layer_tree) {
+      swap->ca_layer_tree->CommitScheduledCALayers(
+          ca_root_layer_.get(), std::move(current_ca_layer_tree_),
+          swap->scale_factor);
+      current_ca_layer_tree_.swap(swap->ca_layer_tree);
+      current_partial_damage_tree_.reset();
+    } else if (swap->partial_damage_tree) {
+      swap->partial_damage_tree->CommitCALayers(
+          ca_root_layer_.get(), std::move(current_partial_damage_tree_),
+          swap->scale_factor, swap->pixel_damage_rect);
+      current_partial_damage_tree_.swap(swap->partial_damage_tree);
+      current_ca_layer_tree_.reset();
+    } else {
+      TRACE_EVENT0("gpu", "Blank frame: No overlays or CALayers");
+      [ca_root_layer_ setSublayers:nil];
+      current_partial_damage_tree_.reset();
+      current_ca_layer_tree_.reset();
+    }
+    swap->ca_layer_tree.reset();
+    swap->partial_damage_tree.reset();
   }
 
   // Update the latency info to reflect the swap time.
@@ -455,13 +310,12 @@ void ImageTransportSurfaceOverlayMac::DisplayFirstPendingSwapImmediately() {
   }
 
   // Send acknowledgement to the browser.
-  GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params params;
+  AcceleratedSurfaceBuffersSwappedParams params;
   if (use_remote_layer_api_) {
-    params.surface_handle =
-        ui::SurfaceHandleFromCAContextID([ca_context_ contextId]);
-  } else {
-    params.surface_handle =
-        ui::SurfaceHandleFromIOSurfaceID(current_root_plane_->io_surface_id);
+    params.ca_context_id = [ca_context_ contextId];
+  } else if (current_partial_damage_tree_) {
+    params.io_surface.reset(IOSurfaceCreateMachPort(
+        current_partial_damage_tree_->RootLayerIOSurface()));
   }
   params.size = swap->pixel_size;
   params.scale_factor = swap->scale_factor;
@@ -470,191 +324,6 @@ void ImageTransportSurfaceOverlayMac::DisplayFirstPendingSwapImmediately() {
 
   // Remove this from the queue, and reset any callback timers.
   pending_swaps_.pop_front();
-}
-
-void ImageTransportSurfaceOverlayMac::UpdateOverlayPlanes(
-    const std::vector<linked_ptr<OverlayPlane>>& new_overlay_planes) {
-  std::list<linked_ptr<OverlayPlane>> old_overlay_planes;
-  old_overlay_planes.swap(current_overlay_planes_);
-
-  // Move the new overlay planes into the |current_overlay_planes_| list,
-  // cannibalizing from the old |current_overlay_planes_| as much as possible.
-  for (auto& new_plane : new_overlay_planes) {
-    if (!old_overlay_planes.empty()) {
-      new_plane->TakeCALayerFrom(old_overlay_planes.front().get());
-      old_overlay_planes.pop_front();
-    }
-    current_overlay_planes_.push_back(new_plane);
-  }
-
-  // Destroy any of the previous |current_overlay_planes_| that we couldn't
-  // cannibalize.
-  for (auto& old_plane : old_overlay_planes)
-    old_plane->Destroy();
-}
-
-void ImageTransportSurfaceOverlayMac::UpdateRootAndPartialDamagePlanes(
-    const linked_ptr<OverlayPlane>& new_root_plane,
-    const gfx::RectF& pixel_damage_rect) {
-  std::list<linked_ptr<OverlayPlane>> old_partial_damage_planes;
-  old_partial_damage_planes.swap(current_partial_damage_planes_);
-  linked_ptr<OverlayPlane> plane_for_swap;
-
-  // If there is no new root plane, destroy the old one.
-  if (!new_root_plane.get()) {
-    for (auto& old_plane : old_partial_damage_planes)
-      old_plane->Destroy();
-    if (current_root_plane_.get())
-      current_root_plane_->Destroy();
-    current_root_plane_.reset();
-    return;
-  }
-
-  // If the frame's size changed, if we haven't updated the root layer, if
-  // we have full damage, or if we don't support remote layers, then use the
-  // root layer directly.
-  if (!use_remote_layer_api_ || !current_root_plane_.get() ||
-      current_root_plane_->pixel_frame_rect !=
-          new_root_plane->pixel_frame_rect ||
-      pixel_damage_rect == new_root_plane->pixel_frame_rect) {
-    plane_for_swap = new_root_plane;
-  }
-
-  // Walk though the existing partial damage layers and see if there is one that
-  // is appropriate to re-use.
-  if (!plane_for_swap.get() && !pixel_damage_rect.IsEmpty()) {
-    gfx::RectF plane_to_reuse_dip_enlarged_rect;
-
-    // Find the last partial damage plane to re-use the CALayer from. Grow the
-    // new rect for this layer to include this damage, and all nearby partial
-    // damage layers.
-    linked_ptr<OverlayPlane> plane_to_reuse;
-    for (auto& old_plane : old_partial_damage_planes) {
-      gfx::RectF dip_enlarged_rect = old_plane->pixel_frame_rect;
-      dip_enlarged_rect.Union(pixel_damage_rect);
-
-      // Compute the fraction of the pixels that would not be updated by this
-      // swap. If it is too big, try another layer.
-      float waste_fraction = dip_enlarged_rect.size().GetArea() * 1.f /
-                             pixel_damage_rect.size().GetArea();
-      if (waste_fraction > kMaximumPartialDamageWasteFraction)
-        continue;
-
-      plane_to_reuse = old_plane;
-      plane_to_reuse_dip_enlarged_rect.Union(dip_enlarged_rect);
-    }
-
-    if (plane_to_reuse.get()) {
-      gfx::RectF enlarged_contents_rect = plane_to_reuse_dip_enlarged_rect;
-      enlarged_contents_rect.Scale(
-          1. / new_root_plane->pixel_frame_rect.width(),
-          1. / new_root_plane->pixel_frame_rect.height());
-
-      plane_for_swap = OverlayPlane::CreateWithFrameRect(
-          0, new_root_plane->io_surface_id, new_root_plane->io_surface,
-          plane_to_reuse_dip_enlarged_rect, enlarged_contents_rect);
-
-      plane_for_swap->TakeCALayerFrom(plane_to_reuse.get());
-      if (plane_to_reuse != old_partial_damage_planes.back())
-        [plane_for_swap->ca_layer removeFromSuperlayer];
-    }
-  }
-
-  // If we haven't found an appropriate layer to re-use, create a new one, if
-  // we haven't already created too many.
-  if (!plane_for_swap.get() && !pixel_damage_rect.IsEmpty() &&
-      old_partial_damage_planes.size() < kMaximumPartialDamageLayers) {
-    gfx::RectF contents_rect = gfx::RectF(pixel_damage_rect);
-    contents_rect.Scale(1. / new_root_plane->pixel_frame_rect.width(),
-                        1. / new_root_plane->pixel_frame_rect.height());
-    plane_for_swap = OverlayPlane::CreateWithFrameRect(
-        0, new_root_plane->io_surface_id, new_root_plane->io_surface,
-        pixel_damage_rect, contents_rect);
-  }
-
-  // And if we still don't have a layer, use the root layer.
-  if (!plane_for_swap.get() && !pixel_damage_rect.IsEmpty())
-    plane_for_swap = new_root_plane;
-
-  // Walk all old partial damage planes. Remove anything that is now completely
-  // covered, and move everything else into the new
-  // |current_partial_damage_planes_|.
-  for (auto& old_plane : old_partial_damage_planes) {
-    // Intersect the planes' frames with the new root plane to ensure that
-    // they don't get kept alive inappropriately.
-    gfx::RectF old_plane_frame_rect = old_plane->pixel_frame_rect;
-    old_plane_frame_rect.Intersect(new_root_plane->pixel_frame_rect);
-
-    if (plane_for_swap.get() &&
-        plane_for_swap->pixel_frame_rect.Contains(old_plane_frame_rect)) {
-      old_plane->Destroy();
-    } else {
-      DCHECK(old_plane->ca_layer);
-      current_partial_damage_planes_.push_back(old_plane);
-    }
-  }
-
-  // Finally, add the new swap's plane at the back of the list, if it exists.
-  if (plane_for_swap == new_root_plane) {
-    if (current_root_plane_.get()) {
-      plane_for_swap->TakeCALayerFrom(current_root_plane_.get());
-    } else {
-      plane_for_swap->ca_layer = ca_root_layer_;
-    }
-    current_root_plane_ = new_root_plane;
-  } else if (plane_for_swap.get()) {
-    current_partial_damage_planes_.push_back(plane_for_swap);
-  }
-}
-
-void ImageTransportSurfaceOverlayMac::UpdateCALayerTree() {
-  if (!use_remote_layer_api_) {
-    DCHECK(current_overlay_planes_.empty());
-    DCHECK(current_partial_damage_planes_.empty());
-    return;
-  }
-
-  // Allocate new CALayers as needed. Overlay layers are always added to the
-  // back of the list.
-  CALayer* first_overlay_ca_layer = nil;
-  for (auto& plane : current_overlay_planes_) {
-    if (!plane->ca_layer) {
-      plane->ca_layer.reset([[CALayer alloc] init]);
-      [ca_root_layer_ addSublayer:plane->ca_layer];
-    }
-    if (!first_overlay_ca_layer)
-      first_overlay_ca_layer = plane->ca_layer;
-  }
-  // Partial damage layers are inserted below the overlay layers.
-  for (auto& plane : current_partial_damage_planes_) {
-    if (!plane->ca_layer) {
-      DCHECK(plane == current_partial_damage_planes_.back());
-      plane->ca_layer.reset([[CALayer alloc] init]);
-    }
-    if (![plane->ca_layer superlayer]) {
-      DCHECK(plane == current_partial_damage_planes_.back());
-      if (first_overlay_ca_layer) {
-        [ca_root_layer_ insertSublayer:plane->ca_layer
-                                 below:first_overlay_ca_layer];
-      } else {
-        [ca_root_layer_ addSublayer:plane->ca_layer];
-      }
-    }
-  }
-
-  // Update CALayer contents, frames, and borders.
-  if (current_root_plane_.get())
-    current_root_plane_->UpdateProperties();
-  for (auto& plane : current_partial_damage_planes_)
-    plane->UpdateProperties();
-  for (auto& plane : current_overlay_planes_)
-    plane->UpdateProperties();
-  [ca_root_layer_ setTransform:CATransform3DMakeScale(1 / scale_factor_,
-                                                      1 / scale_factor_, 1)];
-
-  DCHECK_EQ(
-      static_cast<size_t>([[ca_root_layer_ sublayers] count]),
-      current_partial_damage_planes_.size() + current_overlay_planes_.size());
 }
 
 void ImageTransportSurfaceOverlayMac::DisplayAndClearAllPendingSwaps() {
@@ -739,19 +408,22 @@ bool ImageTransportSurfaceOverlayMac::ScheduleOverlayPlane(
     gl::GLImage* image,
     const gfx::Rect& pixel_frame_rect,
     const gfx::RectF& crop_rect) {
-  DCHECK_EQ(transform, gfx::OVERLAY_TRANSFORM_NONE);
-  if (transform != gfx::OVERLAY_TRANSFORM_NONE)
+  if (transform != gfx::OVERLAY_TRANSFORM_NONE) {
+    DLOG(ERROR) << "Invalid overlay plane transform.";
     return false;
-
-  linked_ptr<OverlayPlane> plane = OverlayPlane::CreateWithFrameRect(
-      z_order, static_cast<gl::GLImageIOSurface*>(image)->io_surface_id().id,
+  }
+  if (z_order) {
+    DLOG(ERROR) << "Invalid non-zero Z order.";
+    return false;
+  }
+  if (pending_partial_damage_tree_) {
+    DLOG(ERROR) << "Only one overlay per swap is allowed.";
+    return false;
+  }
+  pending_partial_damage_tree_.reset(new CALayerPartialDamageTree(
+      use_remote_layer_api_,
       static_cast<gl::GLImageIOSurface*>(image)->io_surface(),
-      gfx::RectF(pixel_frame_rect), crop_rect);
-  if (z_order == 0)
-    pending_root_plane_ = plane;
-  else
-    pending_overlay_planes_.push_back(plane);
-
+      pixel_frame_rect));
   return true;
 }
 
@@ -760,40 +432,31 @@ bool ImageTransportSurfaceOverlayMac::ScheduleCALayer(
     const gfx::RectF& contents_rect,
     float opacity,
     unsigned background_color,
-    const gfx::SizeF& bounds_size,
-    const gfx::Transform& transform) {
-  // Extract the IOSurface, if this layer is not just a solid color.
-  int io_surface_id = 0;
+    unsigned edge_aa_mask,
+    const gfx::RectF& rect,
+    bool is_clipped,
+    const gfx::RectF& clip_rect,
+    const gfx::Transform& transform,
+    int sorting_context_id) {
   base::ScopedCFTypeRef<IOSurfaceRef> io_surface;
   if (contents_image) {
-    io_surface_id =
-        static_cast<gl::GLImageIOSurface*>(contents_image)->io_surface_id().id;
     io_surface =
         static_cast<gl::GLImageIOSurface*>(contents_image)->io_surface();
   }
-
-  // Convert the RGBA SkColor to an sRGB CGColorRef.
-  CGFloat rgba_color_components[4] = {
-      SkColorGetR(background_color) / 255.,
-      SkColorGetG(background_color) / 255.,
-      SkColorGetB(background_color) / 255.,
-      SkColorGetA(background_color) / 255.,
-  };
-  base::ScopedCFTypeRef<CGColorRef> srgb_background_color(CGColorCreate(
-      CGColorSpaceCreateWithName(kCGColorSpaceSRGB), rgba_color_components));
-
-  pending_overlay_planes_.push_back(OverlayPlane::CreateWithTransform(
-      next_ca_layer_z_order_++, io_surface_id, io_surface, contents_rect,
-      opacity, srgb_background_color, bounds_size, transform));
-  return true;
+  if (!pending_ca_layer_tree_)
+    pending_ca_layer_tree_.reset(new CALayerTree);
+  return pending_ca_layer_tree_->ScheduleCALayer(
+      is_clipped, gfx::ToEnclosingRect(clip_rect), sorting_context_id,
+      transform, io_surface, contents_rect, gfx::ToEnclosingRect(rect),
+      background_color, edge_aa_mask, opacity);
 }
 
 bool ImageTransportSurfaceOverlayMac::IsSurfaceless() const {
   return true;
 }
 
-void ImageTransportSurfaceOverlayMac::OnBufferPresented(
-    const AcceleratedSurfaceMsg_BufferPresented_Params& params) {
+void ImageTransportSurfaceOverlayMac::BufferPresented(
+    const BufferPresentedParams& params) {
   vsync_timebase_ = params.vsync_timebase;
   vsync_interval_ = params.vsync_interval;
   vsync_parameters_valid_ = (vsync_interval_ != base::TimeDelta());
@@ -807,7 +470,8 @@ void ImageTransportSurfaceOverlayMac::OnBufferPresented(
 }
 
 bool ImageTransportSurfaceOverlayMac::Resize(const gfx::Size& pixel_size,
-                                             float scale_factor) {
+                                             float scale_factor,
+                                             bool has_alpha) {
   // Flush through any pending frames.
   DisplayAndClearAllPendingSwaps();
   pixel_size_ = pixel_size;

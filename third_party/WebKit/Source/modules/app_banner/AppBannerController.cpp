@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/app_banner/AppBannerController.h"
 
 #include "core/EventTypeNames.h"
@@ -28,8 +27,9 @@ void AppBannerController::willShowInstallBannerPrompt(int requestId, WebAppBanne
 
     // dispatchEvent() returns whether the default behavior can happen. In other
     // words, it returns false if preventDefault() was called.
-    *reply = frame->domWindow()->dispatchEvent(BeforeInstallPromptEvent::create(EventTypeNames::beforeinstallprompt, frame->document(), wtfPlatforms, requestId, client))
-        ? WebAppBannerPromptReply::None : WebAppBannerPromptReply::Cancel;
+    *reply = frame->domWindow()->dispatchEvent(BeforeInstallPromptEvent::create(EventTypeNames::beforeinstallprompt, frame->document(), wtfPlatforms, requestId, client)) == DispatchEventResult::NotCanceled
+        ? WebAppBannerPromptReply::None
+        : WebAppBannerPromptReply::Cancel;
 }
 
 } // namespace blink

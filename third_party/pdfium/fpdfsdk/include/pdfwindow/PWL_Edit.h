@@ -7,12 +7,11 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_EDIT_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_EDIT_H_
 
-#include "PWL_EditCtrl.h"
-#include "PWL_Wnd.h"
 #include "core/include/fxcrt/fx_basic.h"
+#include "fpdfsdk/include/fxedit/fx_edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_EditCtrl.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
-class CPWL_Edit;
-class IPWL_Filler_Notify;
 class IPWL_SpellCheck;
 
 class IPWL_Filler_Notify {
@@ -33,6 +32,14 @@ class IPWL_Filler_Notify {
                                  FX_BOOL& bRC,
                                  FX_BOOL& bExit,
                                  FX_DWORD nFlag) = 0;
+#ifdef PDF_ENABLE_XFA
+  virtual void OnPopupPreOpen(void* pPrivateData,
+                              FX_BOOL& bExit,
+                              FX_DWORD nFlag) = 0;
+  virtual void OnPopupPostOpen(void* pPrivateData,
+                               FX_BOOL& bExit,
+                               FX_DWORD nFlag) = 0;
+#endif  // PDF_ENABLE_XFA
 };
 
 class CPWL_Edit : public CPWL_EditCtrl, public IFX_Edit_OprNotify {
@@ -48,7 +55,7 @@ class CPWL_Edit : public CPWL_EditCtrl, public IFX_Edit_OprNotify {
   CPDF_Rect GetClientRect() const override;
   void GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag) override;
   FX_BOOL OnLButtonDblClk(const CPDF_Point& point, FX_DWORD nFlag) override;
   FX_BOOL OnRButtonUp(const CPDF_Point& point, FX_DWORD nFlag) override;
@@ -103,10 +110,10 @@ class CPWL_Edit : public CPWL_EditCtrl, public IFX_Edit_OprNotify {
     m_pFillerNotify = pNotify;
   }
 
-  void GeneratePageObjects(CPDF_PageObjects* pPageObjects,
+  void GeneratePageObjects(CPDF_PageObjectHolder* pObjectHolder,
                            const CPDF_Point& ptOffset,
                            CFX_ArrayTemplate<CPDF_TextObject*>& ObjArray);
-  void GeneratePageObjects(CPDF_PageObjects* pPageObjects,
+  void GeneratePageObjects(CPDF_PageObjectHolder* pObjectHolder,
                            const CPDF_Point& ptOffset);
 
  protected:

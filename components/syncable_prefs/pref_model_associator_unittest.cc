@@ -5,8 +5,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/values.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/syncable_prefs/pref_model_associator.h"
 #include "components/syncable_prefs/pref_model_associator_client.h"
 #include "components/syncable_prefs/pref_service_mock_factory.h"
@@ -34,16 +34,6 @@ class TestPrefModelAssociatorClient : public PrefModelAssociatorClient {
   bool IsMergeableDictionaryPreference(
       const std::string& pref_name) const override {
     return pref_name == kDictionaryPrefName;
-  }
-
-  bool IsMigratedPreference(const std::string& new_pref_name,
-                            std::string* old_pref_name) const override {
-    return false;
-  }
-
-  bool IsOldMigratedPreference(const std::string& old_pref_name,
-                               std::string* new_pref_name) const override {
-    return false;
   }
 
  private:

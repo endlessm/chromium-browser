@@ -7,14 +7,15 @@
 
 #include "platform/PlatformExport.h"
 #include "wtf/Alignment.h"
+#include "wtf/Allocator.h"
 #include "wtf/Compiler.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/TypeTraits.h"
-#include "wtf/Utility.h"
 #include "wtf/Vector.h"
 #include <cstddef>
 #include <iterator>
+#include <utility>
 
 namespace blink {
 
@@ -37,11 +38,14 @@ namespace blink {
 // artifact of the implementation.
 
 class PLATFORM_EXPORT ContiguousContainerBase {
+    DISALLOW_NEW();
     WTF_MAKE_NONCOPYABLE(ContiguousContainerBase);
 protected:
     explicit ContiguousContainerBase(size_t maxObjectSize);
-    ContiguousContainerBase(size_t maxObjectSize, size_t initialSizeBytes);
+    ContiguousContainerBase(ContiguousContainerBase&&);
     ~ContiguousContainerBase();
+
+    ContiguousContainerBase& operator=(ContiguousContainerBase&&);
 
     size_t size() const { return m_elements.size(); }
     bool isEmpty() const { return !size(); }
@@ -50,7 +54,8 @@ protected:
     size_t memoryUsageInBytes() const;
 
     // These do not invoke constructors or destructors.
-    void* allocate(size_t objectSize);
+    void reserveInitialCapacity(size_t, const char* typeName);
+    void* allocate(size_t objectSize, const char* typeName);
     void removeLast();
     void clear();
     void swap(ContiguousContainerBase&);
@@ -60,7 +65,7 @@ protected:
 private:
     class Buffer;
 
-    Buffer* allocateNewBufferForNextAllocation(size_t);
+    Buffer* allocateNewBufferForNextAllocation(size_t, const char* typeName);
 
     Vector<OwnPtr<Buffer>> m_buffers;
     unsigned m_endIndex;
@@ -83,6 +88,7 @@ private:
     // things. The whole random access iterator interface is a bit much.
     template <typename BaseIterator, typename ValueType>
     class IteratorWrapper : public std::iterator<std::forward_iterator_tag, ValueType> {
+        DISALLOW_NEW();
     public:
         IteratorWrapper() {}
         bool operator==(const IteratorWrapper& other) const { return m_it == other.m_it; }
@@ -105,10 +111,16 @@ public:
     using reverse_iterator = IteratorWrapper<Vector<void*>::reverse_iterator, BaseElementType>;
     using const_reverse_iterator = IteratorWrapper<Vector<void*>::const_reverse_iterator, const BaseElementType>;
 
-    explicit ContiguousContainer(size_t maxObjectSize)
-        : ContiguousContainerBase(align(maxObjectSize)) {}
+    explicit ContiguousContainer(size_t maxObjectSize) : ContiguousContainerBase(align(maxObjectSize)) {}
+
     ContiguousContainer(size_t maxObjectSize, size_t initialSizeBytes)
-        : ContiguousContainerBase(align(maxObjectSize), initialSizeBytes) {}
+        : ContiguousContainer(maxObjectSize)
+    {
+        reserveInitialCapacity(std::max(maxObjectSize, initialSizeBytes), WTF_HEAP_PROFILER_TYPE_NAME(BaseElementType));
+    }
+
+    ContiguousContainer(ContiguousContainer&& source)
+        : ContiguousContainerBase(std::move(source)) {}
 
     ~ContiguousContainer()
     {
@@ -116,6 +128,16 @@ public:
             (void)element; // MSVC incorrectly reports this variable as unused.
             element.~BaseElementType();
         }
+    }
+
+    ContiguousContainer& operator=(ContiguousContainer&& source)
+    {
+        // Must clear in the derived class to ensure that element destructors
+        // care called.
+        clear();
+
+        ContiguousContainerBase::operator=(std::move(source));
+        return *this;
     }
 
     using ContiguousContainerBase::size;
@@ -148,7 +170,7 @@ public:
         static_assert(alignment % WTF_ALIGN_OF(DerivedElementType) == 0,
             "Derived type requires stronger alignment.");
         size_t allocSize = align(sizeof(DerivedElementType));
-        return *new (allocate(allocSize)) DerivedElementType(WTF::forward<Args>(args)...);
+        return *new (allocate(allocSize)) DerivedElementType(std::forward<Args>(args)...);
     }
 
     void removeLast()
@@ -181,6 +203,11 @@ public:
     }
 
 private:
+    void* allocate(size_t objectSize)
+    {
+        return ContiguousContainerBase::allocate(objectSize, WTF_HEAP_PROFILER_TYPE_NAME(BaseElementType));
+    }
+
     static size_t align(size_t size)
     {
         size_t alignedSize = alignment * ((size + alignment - 1) / alignment);

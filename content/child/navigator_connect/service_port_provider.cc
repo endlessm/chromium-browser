@@ -4,6 +4,8 @@
 
 #include "content/child/navigator_connect/service_port_provider.h"
 
+#include <utility>
+
 #include "base/lazy_instance.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner_util.h"
@@ -23,7 +25,7 @@ namespace {
 void ConnectToServiceOnMainThread(
     mojo::InterfaceRequest<ServicePortService> ptr) {
   ChildThreadImpl::current()->service_registry()->ConnectToRemoteService(
-      ptr.Pass());
+      std::move(ptr));
 }
 
 }  // namespace
@@ -107,8 +109,8 @@ void ServicePortProvider::OnConnectResult(
     scoped_ptr<blink::WebServicePortConnectCallbacks> callbacks,
     ServicePortConnectResult result,
     int32_t port_id) {
-  if (result == SERVICE_PORT_CONNECT_RESULT_ACCEPT) {
-    callbacks->onSuccess(new blink::WebServicePortID(port_id));
+  if (result == ServicePortConnectResult::ACCEPT) {
+    callbacks->onSuccess(port_id);
   } else {
     callbacks->onError();
   }
@@ -122,9 +124,7 @@ ServicePortServicePtr& ServicePortProvider::GetServicePortServicePtr() {
                                                base::Passed(&request)));
 
     // Setup channel for browser to post events back to this class.
-    ServicePortServiceClientPtr client_ptr;
-    binding_.Bind(GetProxy(&client_ptr));
-    service_port_service_->SetClient(client_ptr.Pass());
+    service_port_service_->SetClient(binding_.CreateInterfacePtrAndBind());
   }
   return service_port_service_;
 }

@@ -26,6 +26,7 @@
 #ifndef HTMLSelectElement_h
 #define HTMLSelectElement_h
 
+#include "base/gtest_prod_util.h"
 #include "core/CoreExport.h"
 #include "core/html/HTMLContentElement.h"
 #include "core/html/HTMLFormControlElementWithState.h"
@@ -42,7 +43,7 @@ class HTMLOptionElementOrHTMLOptGroupElement;
 class HTMLElementOrLong;
 class PopupMenu;
 
-class CORE_EXPORT HTMLSelectElement final : public HTMLFormControlElementWithState, public TypeAheadDataSource {
+class CORE_EXPORT HTMLSelectElement final : public HTMLFormControlElementWithState, private TypeAheadDataSource {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<HTMLSelectElement> create(Document&);
@@ -60,12 +61,16 @@ public:
     String validationMessage() const override;
     bool valueMissing() const override;
 
+    String defaultToolTip() const override;
     void resetImpl() override;
 
     unsigned length() const;
+    void setLength(unsigned, ExceptionState&);
 
     unsigned size() const { return m_size; }
+    void setSize(unsigned);
     bool multiple() const { return m_multiple; }
+    void setMultiple(bool);
 
     bool usesMenuList() const;
 
@@ -88,23 +93,19 @@ public:
     void invalidateSelectedItems();
     void updateListItemSelectedStates();
 
-    const WillBeHeapVector<RawPtrWillBeMember<HTMLElement>>& listItems() const;
+    using ListItems = WillBeHeapVector<RawPtrWillBeMember<HTMLElement>>;
+    const ListItems& listItems() const;
 
     void accessKeyAction(bool sendMouseEvents) override;
     void accessKeySetSelectedIndex(int);
 
-    void setMultiple(bool);
-
-    void setSize(unsigned);
-
     void setOption(unsigned index, HTMLOptionElement*, ExceptionState&);
-    void setLength(unsigned, ExceptionState&);
 
     Element* namedItem(const AtomicString& name);
     HTMLOptionElement* item(unsigned index);
 
     void scrollToSelection();
-    void scrollToIndex(int listIndex);
+    void scrollToOption(HTMLOptionElement*);
 
     void listBoxSelectItem(int listIndex, bool allowMultiplySelections, bool shift, bool fireOnChangeNow = true);
 
@@ -114,12 +115,13 @@ public:
     void listBoxOnChange();
     int optionToListIndex(int optionIndex) const;
     int activeSelectionEndListIndex() const;
-    void setActiveSelectionAnchorIndex(int);
-    void setActiveSelectionEndIndex(int);
+    HTMLOptionElement* activeSelectionEnd() const;
+    void setActiveSelectionAnchor(HTMLOptionElement*);
+    void setActiveSelectionEnd(HTMLOptionElement*);
 
     // For use in the implementation of HTMLOptionElement.
     void optionSelectionStateChanged(HTMLOptionElement*, bool optionIsSelected);
-    void optionInserted(const HTMLOptionElement&, bool optionIsSelected);
+    void optionInserted(HTMLOptionElement&, bool optionIsSelected);
     void optionRemoved(const HTMLOptionElement&);
     bool anonymousIndexedSetter(unsigned, PassRefPtrWillBeRawPtr<HTMLOptionElement>, ExceptionState&);
 
@@ -180,7 +182,7 @@ private:
     FormControlState saveFormControlState() const override;
     void restoreFormControlState(const FormControlState&) override;
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     bool isPresentationAttribute(const QualifiedName&) const override;
 
     LayoutObject* createLayoutObject(const ComputedStyle&) override;
@@ -200,8 +202,6 @@ private:
     // Returns the first selected OPTION, or nullptr.
     HTMLOptionElement* selectedOption() const;
 
-    InsertionNotificationRequest insertedInto(ContainerNode*) override;
-
     bool isOptionalFormControl() const override { return !isRequiredFormControl(); }
     bool isRequiredFormControl() const override;
 
@@ -210,13 +210,16 @@ private:
     enum SelectOptionFlag {
         DeselectOtherOptions = 1 << 0,
         DispatchInputAndChangeEvent = 1 << 1,
+        MakeOptionDirty = 1 << 2,
     };
     typedef unsigned SelectOptionFlags;
     void selectOption(int optionIndex, SelectOptionFlags = 0);
+    void selectOption(HTMLOptionElement*, SelectOptionFlags = 0);
+    void selectOption(HTMLOptionElement*, int optionIndex, SelectOptionFlags);
     void deselectItemsWithoutValidation(HTMLElement* elementToExclude = 0);
     void parseMultipleAttribute(const AtomicString&);
-    int lastSelectedListIndex() const;
-    void updateSelectedState(int listIndex, bool multi, bool shift);
+    HTMLOptionElement* lastSelectedOption() const;
+    void updateSelectedState(HTMLOptionElement*, bool multi, bool shift);
     void menuListDefaultEventHandler(Event*);
     void handlePopupOpenKeyboardEvent(Event*);
     bool shouldOpenPopupForKeyDownEvent(KeyboardEvent*);
@@ -231,14 +234,15 @@ private:
         SkipBackwards = -1,
         SkipForwards = 1
     };
-    int nextValidIndex(int listIndex, SkipDirection, int skip) const;
-    int nextSelectableListIndex(int startIndex) const;
-    int previousSelectableListIndex(int startIndex) const;
-    int firstSelectableListIndex() const;
-    int lastSelectableListIndex() const;
-    int nextSelectableListIndexPageAway(int startIndex, SkipDirection) const;
-    int listIndexForEventTargetOption(const Event&);
+    HTMLOptionElement* nextValidOption(int listIndex, SkipDirection, int skip) const;
+    HTMLOptionElement* nextSelectableOption(HTMLOptionElement*) const;
+    HTMLOptionElement* previousSelectableOption(HTMLOptionElement*) const;
+    HTMLOptionElement* firstSelectableOption() const;
+    HTMLOptionElement* lastSelectableOption() const;
+    HTMLOptionElement* nextSelectableOptionPageAway(HTMLOptionElement*, SkipDirection) const;
+    HTMLOptionElement* eventTargetOption(const Event&);
     AutoscrollController* autoscrollController() const;
+    void scrollToOptionTask();
 
     void childrenChanged(const ChildrenChange&) override;
     bool areAuthorShadowsAllowed() const override { return false; }
@@ -249,15 +253,17 @@ private:
     int optionCount() const override;
     String optionAtIndex(int index) const override;
 
-    // m_listItems contains HTMLOptionElement, HTMLOptGroupElement, and HTMLHRElement objects.
-    mutable WillBeHeapVector<RawPtrWillBeMember<HTMLElement>> m_listItems;
+    // m_listItems contains HTMLOptionElement, HTMLOptGroupElement, and
+    // HTMLHRElement objects.
+    mutable ListItems m_listItems;
     Vector<bool> m_lastOnChangeSelection;
     Vector<bool> m_cachedStateForActiveSelection;
     TypeAhead m_typeAhead;
     unsigned m_size;
     RefPtrWillBeMember<HTMLOptionElement> m_lastOnChangeOption;
-    int m_activeSelectionAnchorIndex;
-    int m_activeSelectionEndIndex;
+    RefPtrWillBeMember<HTMLOptionElement> m_activeSelectionAnchor;
+    RefPtrWillBeMember<HTMLOptionElement> m_activeSelectionEnd;
+    RefPtrWillBeMember<HTMLOptionElement> m_optionToScrollTo;
     bool m_multiple;
     bool m_activeSelectionState;
     mutable bool m_shouldRecalcListItems;
@@ -267,6 +273,11 @@ private:
     RefPtrWillBeMember<PopupMenu> m_popup;
     int m_indexToSelectOnCancel;
     bool m_popupIsVisible;
+
+    FRIEND_TEST_ALL_PREFIXES(HTMLSelectElementTest, FirstSelectableOption);
+    FRIEND_TEST_ALL_PREFIXES(HTMLSelectElementTest, LastSelectableOption);
+    FRIEND_TEST_ALL_PREFIXES(HTMLSelectElementTest, NextSelectableOption);
+    FRIEND_TEST_ALL_PREFIXES(HTMLSelectElementTest, PreviousSelectableOption);
 };
 
 } // namespace blink

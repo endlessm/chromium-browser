@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/page/NetworkStateNotifier.h"
 
 #include "core/dom/CrossThreadTask.h"
@@ -39,7 +38,7 @@ namespace blink {
 
 NetworkStateNotifier& networkStateNotifier()
 {
-    AtomicallyInitializedStaticReference(NetworkStateNotifier, networkStateNotifier, new NetworkStateNotifier);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(NetworkStateNotifier, networkStateNotifier, new NetworkStateNotifier);
     return networkStateNotifier;
 }
 
@@ -128,6 +127,8 @@ void NetworkStateNotifier::setWebConnectionImpl(WebConnectionType type, double m
     ASSERT(isMainThread());
 
     MutexLocker locker(m_mutex);
+    m_initialized = true;
+
     if (m_type == type && m_maxBandwidthMbps == maxBandwidthMbps)
         return;
     m_type = type;

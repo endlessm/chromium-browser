@@ -7,11 +7,12 @@
 #ifndef COMPONENTS_SAFE_BROWSING_DB_UTIL_H_
 #define COMPONENTS_SAFE_BROWSING_DB_UTIL_H_
 
+#include <stdint.h>
+
 #include <cstring>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
 
@@ -46,11 +47,15 @@ enum SBThreatType {
   // Url detected by the client-side malware IP list. This IP list is part
   // of the client side detection model.
   SB_THREAT_TYPE_CLIENT_SIDE_MALWARE_URL,
+
+  // Url leads to a blacklisted resource script. Note that no warnings should be
+  // shown on this threat type, but an incident report might be sent.
+  SB_THREAT_TYPE_BLACKLISTED_RESOURCE,
 };
 
 
 // A truncated hash's type.
-typedef uint32 SBPrefix;
+typedef uint32_t SBPrefix;
 
 // A full hash.
 union SBFullHash {
@@ -64,12 +69,16 @@ struct SBFullHashResult {
   // TODO(shess): Refactor to allow ListType here.
   int list_id;
   std::string metadata;
+  // Used only for V4 results. The cache lifetime for this result. The response
+  // must not be cached for more than this duration to avoid false positives.
+  base::TimeDelta cache_duration;
 };
 
 // Caches individual response from GETHASH request.
 struct SBCachedFullHashResult {
   SBCachedFullHashResult();
   explicit SBCachedFullHashResult(const base::Time& in_expire_after);
+  SBCachedFullHashResult(const SBCachedFullHashResult& other);
   ~SBCachedFullHashResult();
 
   base::Time expire_after;
@@ -93,9 +102,12 @@ extern const char kIPBlacklist[];
 extern const char kUnwantedUrlList[];
 // SafeBrowsing off-domain inclusion whitelist list name.
 extern const char kInclusionWhitelist[];
-// This array must contain all Safe Browsing lists.
-extern const char* kAllLists[9];
-
+// SafeBrowsing module whitelist list name.
+extern const char kModuleWhitelist[];
+// Blacklisted resource URLs list name.
+extern const char kResourceBlacklist[];
+/// This array must contain all Safe Browsing lists.
+extern const char* kAllLists[11];
 
 enum ListType {
   INVALID = -1,
@@ -119,8 +131,11 @@ enum ListType {
   // See above comment.  Leave 15 available.
   INCLUSIONWHITELIST = 16,
   // See above comment.  Leave 17 available.
+  MODULEWHITELIST = 18,
+  // See above comment. Leave 19 available.
+  RESOURCEBLACKLIST = 20,
+  // See above comment.  Leave 21 available.
 };
-
 
 inline bool SBFullHashEqual(const SBFullHash& a, const SBFullHash& b) {
   return !memcmp(a.full_hash, b.full_hash, sizeof(a.full_hash));
@@ -148,6 +163,15 @@ bool GetListName(ListType list_id, std::string* list);
 void CanonicalizeUrl(const GURL& url, std::string* canonicalized_hostname,
                      std::string* canonicalized_path,
                      std::string* canonicalized_query);
+
+
+// Generate the set of full hashes to check for |url|.  If
+// |include_whitelist_hashes| is true we will generate additional path-prefixes
+// to match against the csd whitelist.  E.g., if the path-prefix /foo is on the
+// whitelist it should also match /foo/bar which is not the case for all the
+// other lists.  We'll also always add a pattern for the empty path.
+void UrlToFullHashes(const GURL& url, bool include_whitelist_hashes,
+                     std::vector<SBFullHash>* full_hashes);
 
 // Given a URL, returns all the hosts we need to check.  They are returned
 // in order of size (i.e. b.c is first, then a.b.c).

@@ -5,9 +5,11 @@
 #include <queue>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/desktop_capture/desktop_capture_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/media/fake_desktop_media_list.h"
@@ -52,6 +54,7 @@ class FakeDesktopMediaPicker : public DesktopMediaPicker {
             const base::string16& app_name,
             const base::string16& target_name,
             scoped_ptr<DesktopMediaList> model,
+            bool request_audio,
             const DoneCallback& done_callback) override {
     if (!expectation_->cancelled) {
       // Post a task to call the callback asynchronously.
@@ -190,7 +193,7 @@ IN_PROC_BROWSER_TEST_F(DesktopCaptureApiTest, DISABLED_Delegation) {
   EXPECT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data));
   embedded_test_server()->ServeFilesFromDirectory(test_data.AppendASCII(
       "extensions/api_test/desktop_capture_delegate"));
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
   host_resolver()->AddRule("*", embedded_test_server()->base_url().host());
 
   // Load extension.

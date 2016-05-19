@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/PlatformEventController.h"
 
 #include "core/page/Page.h"
@@ -61,7 +60,7 @@ void PlatformEventController::pageVisibilityChanged()
     if (!m_hasEventListener)
         return;
 
-    if (page()->visibilityState() == PageVisibilityStateVisible)
+    if (page()->isPageVisible())
         startUpdating();
     else
         stopUpdating();

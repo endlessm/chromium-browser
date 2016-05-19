@@ -4,9 +4,11 @@
 
 #include "components/drive/file_system.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
-#include "base/prefs/pref_service.h"
 #include "components/drive/change_list_loader.h"
 #include "components/drive/directory_loader.h"
 #include "components/drive/drive.pb.h"
@@ -32,6 +34,7 @@
 #include "components/drive/resource_entry_conversion.h"
 #include "components/drive/search_metadata.h"
 #include "components/drive/sync_client.h"
+#include "components/prefs/pref_service.h"
 #include "google_apis/drive/drive_api_parser.h"
 
 namespace drive {
@@ -91,7 +94,7 @@ void RunGetResourceEntryCallback(const GetResourceEntryCallback& callback,
 
   if (error != FILE_ERROR_OK)
     entry.reset();
-  callback.Run(error, entry.Pass());
+  callback.Run(error, std::move(entry));
 }
 
 // Used to implement Pin().
@@ -151,11 +154,10 @@ void RunMarkMountedCallback(const MarkMountedCallback& callback,
 
 // Callback for ResourceMetadata::GetLargestChangestamp.
 // |callback| must not be null.
-void OnGetLargestChangestamp(
-    FileSystemMetadata metadata,  // Will be modified.
-    const GetFilesystemMetadataCallback& callback,
-    const int64* largest_changestamp,
-    FileError error) {
+void OnGetLargestChangestamp(FileSystemMetadata metadata,  // Will be modified.
+                             const GetFilesystemMetadataCallback& callback,
+                             const int64_t* largest_changestamp,
+                             FileError error) {
   DCHECK(!callback.is_null());
 
   metadata.largest_changestamp = *largest_changestamp;
@@ -204,7 +206,7 @@ void GetPathFromResourceIdAfterGetPath(base::FilePath* file_path,
 }
 
 bool FreeDiskSpaceIfNeededForOnBlockingPool(internal::FileCache* cache,
-                                            int64 num_bytes) {
+                                            int64_t num_bytes) {
   return cache->FreeDiskSpaceIfNeededFor(num_bytes);
 }
 
@@ -229,7 +231,7 @@ void FilterHostedDocuments(const ReadDirectoryEntriesCallback& callback,
     }
     entries.swap(filtered);
   }
-  callback.Run(entries.Pass());
+  callback.Run(std::move(entries));
 }
 
 // Adapter for using FileOperationCallback as google_apis::EntryActionCallback.
@@ -520,7 +522,7 @@ void FileSystem::TouchFile(const base::FilePath& file_path,
 }
 
 void FileSystem::TruncateFile(const base::FilePath& file_path,
-                              int64 length,
+                              int64_t length,
                               const FileOperationCallback& callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
@@ -901,7 +903,7 @@ void FileSystem::GetMetadata(
   metadata.last_update_check_time = last_update_check_time_;
   metadata.last_update_check_error = last_update_check_error_;
 
-  int64* largest_changestamp = new int64(0);
+  int64_t* largest_changestamp = new int64_t(0);
   base::PostTaskAndReplyWithResult(
       blocking_task_runner_.get(),
       FROM_HERE,
@@ -1039,7 +1041,7 @@ void FileSystem::GetPathFromResourceId(const std::string& resource_id,
 }
 
 void FileSystem::FreeDiskSpaceIfNeededFor(
-    int64 num_bytes,
+    int64_t num_bytes,
     const FreeDiskSpaceCallback& callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());

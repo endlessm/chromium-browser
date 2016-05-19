@@ -5,7 +5,9 @@
 #ifndef UI_NATIVE_THEME_NATIVE_THEME_H_
 #define UI_NATIVE_THEME_NATIVE_THEME_H_
 
+#include "base/macros.h"
 #include "base/observer_list.h"
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/native_theme/native_theme_export.h"
@@ -46,12 +48,14 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kCheckbox,
     kInnerSpinButton,
     kMenuList,
+    kMenuPopupBackground,
+#if defined(OS_WIN)
     kMenuCheck,
     kMenuCheckBackground,
     kMenuPopupArrow,
-    kMenuPopupBackground,
     kMenuPopupGutter,
     kMenuPopupSeparator,
+#endif
     kMenuItemBackground,
     kProgressBar,
     kPushButton,
@@ -128,6 +132,7 @@ class NATIVE_THEME_EXPORT NativeTheme {
 
   struct MenuItemExtraParams {
     bool is_selected;
+    int corner_radius;
   };
 
   struct MenuListExtraParams {
@@ -192,7 +197,9 @@ class NATIVE_THEME_EXPORT NativeTheme {
     int classic_state;  // Used on Windows when uxtheme is not available.
   };
 
-  union ExtraParams {
+  union NATIVE_THEME_EXPORT ExtraParams {
+    ExtraParams();
+
     ButtonExtraParams button;
     InnerSpinButtonExtraParams inner_spin;
     MenuArrowExtraParams menu_arrow;
@@ -258,6 +265,8 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_BlueButtonHoverColor,
     kColorId_BlueButtonShadowColor,
     kColorId_CallToActionColor,
+    kColorId_MdTextButtonEnabledColor,
+    kColorId_MdTextButtonDisabledColor,
     // MenuItem
     kColorId_EnabledMenuItemForegroundColor,
     kColorId_DisabledMenuItemForegroundColor,
@@ -322,9 +331,6 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_ResultsTableNormalUrl,
     kColorId_ResultsTableHoveredUrl,
     kColorId_ResultsTableSelectedUrl,
-    kColorId_ResultsTableNormalDivider,
-    kColorId_ResultsTableHoveredDivider,
-    kColorId_ResultsTableSelectedDivider,
     // Positive text refers to good (often rendered in green) text, such as the
     // stock value went up.
     kColorId_ResultsTablePositiveText,
@@ -347,12 +353,13 @@ class NATIVE_THEME_EXPORT NativeTheme {
   // Return a color from the system theme.
   virtual SkColor GetSystemColor(ColorId color_id) const = 0;
 
-  // Returns a shared instance of the native theme.
-  // The returned object should not be deleted by the caller.  This function
-  // is not thread safe and should only be called from the UI thread.
-  // Each port of NativeTheme should provide its own implementation of this
-  // function, returning the port's subclass.
-  static NativeTheme* instance();
+  // Returns a shared instance of the native theme that should be used for web
+  // rendering. Do not use it in a normal application context (i.e. browser).
+  // The returned object should not be deleted by the caller. This function is
+  // not thread safe and should only be called from the UI thread. Each port of
+  // NativeTheme should provide its own implementation of this function,
+  // returning the port's subclass.
+  static NativeTheme* GetInstanceForWeb();
 
   // Add or remove observers to be notified when the native theme changes.
   void AddObserver(NativeThemeObserver* observer);

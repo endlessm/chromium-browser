@@ -17,15 +17,20 @@ import sys
 import tempfile
 import time
 
+sys.path.append(os.path.join(sys.path[0], '..', '..',
+    'third_party', 'catapult', 'devil'))
+from devil.android import device_errors
+from devil.android import device_utils
+from devil.android import flag_changer
+from devil.android import forwarder
+from devil.android.sdk import intent
+
 sys.path.append(os.path.join(sys.path[0], '..', '..', 'build', 'android'))
 from pylib import constants
-from pylib import flag_changer
-from pylib import forwarder
-from pylib.device import device_errors
-from pylib.device import device_utils
-from pylib.device import intent
 
-sys.path.append(os.path.join(sys.path[0], '..', '..', 'tools', 'telemetry'))
+sys.path.append(os.path.join(sys.path[0], '..', '..', 'tools', 'perf'))
+from chrome_telemetry_build import chromium_config
+sys.path.append(chromium_config.GetTelemetryDir())
 from telemetry.internal.util import webpagereplay
 
 sys.path.append(os.path.join(sys.path[0], '..', '..',
@@ -79,7 +84,7 @@ class WprManager(object):
   def Start(self):
     """Set up the device and host for WPR."""
     self.Stop()
-    #TODO(azarchs): make self._InstallTestCa() work
+    # TODO(lizeb,pasko): make self._InstallTestCa() work
     self._BringUpWpr()
     self._StartForwarder()
 
@@ -87,7 +92,7 @@ class WprManager(object):
     """Clean up the device and host's WPR setup."""
     self._StopForwarder()
     self._StopWpr()
-    #TODO(azarchs): make self._RemoveTestCa() work
+    # TODO(lizeb,pasko): make self._RemoveTestCa() work
 
   def __enter__(self):
     self.Start()

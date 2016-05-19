@@ -357,7 +357,7 @@ scoped_ptr<base::DictionaryValue> ConstructAboutInformation(
 
   if (!service) {
     summary_string.SetValue("Sync service does not exist");
-    return about_info.Pass();
+    return about_info;
   }
 
   syncer::SyncStatus full_status;
@@ -391,7 +391,7 @@ scoped_ptr<base::DictionaryValue> ConstructAboutInformation(
       GetTimeStr(token_status.next_token_request_time, "not scheduled"));
 
   last_synced.SetValue(service->GetLastSyncedTimeString());
-  is_setup_complete.SetValue(service->HasSyncSetupCompleted());
+  is_setup_complete.SetValue(service->IsFirstSetupComplete());
   backend_initialization.SetValue(
       service->GetBackendInitializationStateString());
   if (is_status_valid) {
@@ -525,7 +525,7 @@ scoped_ptr<base::DictionaryValue> ConstructAboutInformation(
 
   about_info->Set("type_status", service->GetTypeStatusMap());
 
-  return about_info.Pass();
+  return about_info;
 }
 
 }  // namespace sync_ui_util

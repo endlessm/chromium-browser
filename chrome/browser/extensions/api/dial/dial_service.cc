@@ -4,11 +4,12 @@
 
 #include "chrome/browser/extensions/api/dial/dial_service.h"
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <set>
 #include <utility>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -18,6 +19,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/dial/dial_device_data.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
@@ -68,7 +70,7 @@ const int kDialResponseTimeoutSecs = 2;
 const char kDialRequestAddress[] = "239.255.255.250";
 
 // The UDP port number for discovery.
-const uint16 kDialRequestPort = 1900;
+const uint16_t kDialRequestPort = 1900;
 
 // The DIAL service type as part of the search request.
 const char kDialSearchType[] = "urn:dial-multiscreen-org:service:dial:1";
@@ -461,7 +463,7 @@ void DialServiceImpl::StartDiscovery() {
 
 void DialServiceImpl::SendNetworkList(const NetworkInterfaceList& networks) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  typedef std::pair<uint32, net::AddressFamily> InterfaceIndexAddressFamily;
+  typedef std::pair<uint32_t, net::AddressFamily> InterfaceIndexAddressFamily;
   std::set<InterfaceIndexAddressFamily> interface_index_addr_family_seen;
   std::vector<IPAddressNumber> ip_addresses;
 
@@ -530,7 +532,7 @@ void DialServiceImpl::BindAndAddSocket(const IPAddressNumber& bind_ip_address) {
   scoped_ptr<DialServiceImpl::DialSocket> dial_socket(CreateDialSocket());
   if (dial_socket->CreateAndBindSocket(bind_ip_address, net_log_,
                                        net_log_source_))
-    dial_sockets_.push_back(dial_socket.release());
+    dial_sockets_.push_back(std::move(dial_socket));
 }
 
 scoped_ptr<DialServiceImpl::DialSocket> DialServiceImpl::CreateDialSocket() {
@@ -539,7 +541,7 @@ scoped_ptr<DialServiceImpl::DialSocket> DialServiceImpl::CreateDialSocket() {
           base::Bind(&DialServiceImpl::NotifyOnDiscoveryRequest, AsWeakPtr()),
           base::Bind(&DialServiceImpl::NotifyOnDeviceDiscovered, AsWeakPtr()),
           base::Bind(&DialServiceImpl::NotifyOnError, AsWeakPtr())));
-  return dial_socket.Pass();
+  return dial_socket;
 }
 
 void DialServiceImpl::SendOneRequest() {
@@ -552,12 +554,9 @@ void DialServiceImpl::SendOneRequest() {
   num_requests_sent_++;
   VLOG(2) << "Sending request " << num_requests_sent_ << "/"
           << max_requests_;
-  for (ScopedVector<DialServiceImpl::DialSocket>::iterator iter =
-           dial_sockets_.begin();
-       iter != dial_sockets_.end();
-       ++iter) {
-    if (!((*iter)->IsClosed()))
-      (*iter)->SendOneRequest(send_address_, send_buffer_);
+  for (const auto& socket : dial_sockets_) {
+    if (!socket->IsClosed())
+      socket->SendOneRequest(send_address_, send_buffer_);
   }
 }
 
@@ -618,10 +617,8 @@ void DialServiceImpl::FinishDiscovery() {
 }
 
 bool DialServiceImpl::HasOpenSockets() {
-  for (ScopedVector<DialSocket>::const_iterator iter = dial_sockets_.begin();
-       iter != dial_sockets_.end();
-       ++iter) {
-    if (!((*iter)->IsClosed()))
+  for (const auto& socket : dial_sockets_) {
+    if (!socket->IsClosed())
       return true;
   }
   return false;

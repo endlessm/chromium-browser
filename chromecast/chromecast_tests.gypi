@@ -4,7 +4,8 @@
 
 {
   'variables': {
-    'chromium_code': 1
+    'chromium_code': 1,
+    'use_alsa%': 0,
   },
   'targets': [
     {
@@ -12,12 +13,15 @@
       'type': '<(gtest_target_type)',
       'dependencies': [
         'cast_base',
+        'cast_component',
         'cast_crypto',
         '../base/base.gyp:run_all_unittests',
         '../testing/gmock.gyp:gmock',
         '../testing/gtest.gyp:gtest',
       ],
       'sources': [
+        'base/bind_to_task_runner_unittest.cc',
+        'base/component/component_unittest.cc',
         'base/device_capabilities_impl_unittest.cc',
         'base/error_codes_unittest.cc',
         'base/path_utils_unittest.cc',
@@ -94,7 +98,6 @@
       'type': 'none',
       'dependencies': [
         'cast_base_unittests',
-        'cast_crash_unittests',
         '../base/base.gyp:base_unittests',
         '../content/content_shell_and_tests.gyp:content_unittests',
         '../crypto/crypto.gyp:crypto_unittests',
@@ -112,7 +115,7 @@
         '../url/url.gyp:url_unittests',
       ],
       'conditions': [
-        ['target_arch=="arm" and OS!="android"', {
+        ['OS=="linux" and is_cast_desktop_build==0', {
           'variables': {
             'filters': [
               # Run net_unittests first to avoid random failures due to slow python startup
@@ -154,13 +157,18 @@
               'url_unittests --gtest_filter=-URLCanonTest.DoAppendUTF8Invalid',
             ],
           },
-        }, { # else "x86" or "android"
+        }, { # else desktop or android
           'variables': {
             'filters': [
               # Disable PipelineIntegrationTest.BasicPlayback_MediaSource_VP9_WebM (not supported)
               'media_unittests --gtest_filter=-PipelineIntegrationTest.BasicPlayback_MediaSource_VP9_WebM',
             ],
           }
+        }],
+        ['OS=="linux"', {
+          'dependencies': [
+            'cast_crash_unittests',
+          ],
         }],
         ['disable_display==0', {
           'dependencies': [
@@ -169,24 +177,24 @@
         }],
         ['OS!="android"', {
           'dependencies': [
-            'cast_renderer_media_unittests',
             'cast_shell_unittests',
             'cast_shell_browser_test',
             'media/media.gyp:cast_media_unittests',
           ],
           'variables': {
             'filters': [
-              'cast_shell_browser_test --no-sandbox --disable-gpu',
+              # --enable-local-file-accesses => to load sample media files
+              # --test-launcher-jobs=1 => so internal code can bind to port
+              'cast_shell_browser_test --no-sandbox --enable-local-file-accesses --enable-cma-media-pipeline --ozone-platform=cast --test-launcher-jobs=1',
             ],
           },
-        }],
-        ['disable_display==1', {
-          'variables': {
-            'filters': [
-              # These are not supported by the backend right now. b/21737919
-              'cast_media_unittests --gtest_filter=-AudioVideoPipelineDeviceTest.VorbisPlayback:AudioVideoPipelineDeviceTest.WebmPlayback',
-            ],
-          }
+          'conditions': [
+            ['use_alsa==1', {
+              'dependencies': [
+                'media/media.gyp:alsa_cma_backend_unittests',
+              ],
+            }],
+          ],
         }],
       ],
       'includes': ['build/tests/test_list.gypi'],
@@ -218,17 +226,6 @@
           'includes': ['../build/apk_test.gypi'],
         },  # end of target 'cast_base_unittests_apk'
         {
-          'target_name': 'cast_crash_unittests_apk',
-          'type': 'none',
-          'dependencies': [
-            'cast_crash_unittests',
-          ],
-          'variables': {
-            'test_suite_name': 'cast_crash_unittests',
-          },
-          'includes': ['../build/apk_test.gypi'],
-        },  # end of target 'cast_crash_unittests_apk'
-        {
           'target_name': 'cast_android_tests',
           'type': 'none',
           'dependencies': ['cast_android_tests_generator'],
@@ -254,7 +251,6 @@
           },
           'dependencies': [
             'cast_base_unittests_apk',
-            'cast_crash_unittests_apk',
             '../base/base.gyp:base_unittests_apk',
             '../cc/cc_tests.gyp:cc_unittests_apk',
             '../ipc/ipc.gyp:ipc_tests_apk',
@@ -263,7 +259,7 @@
             '../net/net.gyp:net_unittests_apk',
             '../sql/sql.gyp:sql_unittests_apk',
             '../sync/sync.gyp:sync_unit_tests_apk',
-            '../ui/events/events.gyp:events_unittests_apk',
+            '../ui/events/events_unittests.gyp:events_unittests_apk',
             '../ui/gfx/gfx_tests.gyp:gfx_unittests_apk',
           ],
           'includes': ['build/tests/test_list.gypi'],
@@ -308,22 +304,6 @@
       ],  # end of targets
     }, {  # OS!="android"
       'targets': [
-        {
-          'target_name': 'cast_renderer_media_unittests',
-          'type': '<(gtest_target_type)',
-          'dependencies': [
-            'cast_shell_media',
-            '../base/base.gyp:run_all_unittests',
-            '../testing/gmock.gyp:gmock',
-            '../testing/gtest.gyp:gtest',
-          ],
-          'sources': [
-            'renderer/media/demuxer_stream_adapter_unittest.cc',
-            'renderer/media/demuxer_stream_for_test.cc',
-            'renderer/media/demuxer_stream_for_test.h',
-            'renderer/media/multi_demuxer_stream_adapter_unittest.cc',
-          ],
-        },  # end of cast_renderer_media_unittests
         # GN target: //chromecast/browser:test_support
         {
           'target_name': 'cast_shell_test_support',
@@ -333,9 +313,13 @@
           ],
           'dependencies': [
             'cast_shell_core',
+            '../content/content_shell_and_tests.gyp:content_browser_test_base',
             '../content/content_shell_and_tests.gyp:content_browser_test_support',
+            '../mojo/mojo_public.gyp:mojo_cpp_bindings',
             '../testing/gtest.gyp:gtest',
-            '../third_party/mojo/mojo_public.gyp:mojo_cpp_bindings',
+          ],
+          'export_dependent_settings': [
+            '../content/content_shell_and_tests.gyp:content_browser_test_base',
           ],
           'sources': [
             'browser/test/chromecast_browser_test.cc',

@@ -6,6 +6,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/strings/string_number_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
@@ -40,8 +41,7 @@ void AvatarMenuActionsDesktop::AddNewProfile(ProfileMetrics::ProfileAdd type) {
 
   Browser* settings_browser = browser_;
   if (!settings_browser) {
-    const Browser::CreateParams params(ProfileManager::GetLastUsedProfile(),
-                                       chrome::GetActiveDesktop());
+    const Browser::CreateParams params(ProfileManager::GetLastUsedProfile());
     settings_browser = new Browser(params);
   }
   chrome::ShowSettingsSubPage(settings_browser, chrome::kCreateProfileSubPage);
@@ -51,8 +51,7 @@ void AvatarMenuActionsDesktop::AddNewProfile(ProfileMetrics::ProfileAdd type) {
 void AvatarMenuActionsDesktop::EditProfile(Profile* profile, size_t index) {
   Browser* settings_browser = browser_;
   if (!settings_browser) {
-    settings_browser = new Browser(
-        Browser::CreateParams(profile, chrome::GetActiveDesktop()));
+    settings_browser = new Browser(Browser::CreateParams(profile));
   }
   // TODO(davidben): The manageProfile page only allows editting the profile
   // associated with the browser it is opened in. AvatarMenuActionsDesktop

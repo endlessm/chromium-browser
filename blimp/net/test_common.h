@@ -5,9 +5,20 @@
 #ifndef BLIMP_NET_TEST_COMMON_H_
 #define BLIMP_NET_TEST_COMMON_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
+#include "base/memory/scoped_ptr.h"
+#include "blimp/common/proto/blimp_message.pb.h"
+#include "blimp/net/blimp_connection.h"
 #include "blimp/net/blimp_message_processor.h"
+#include "blimp/net/blimp_transport.h"
+#include "blimp/net/connection_error_observer.h"
+#include "blimp/net/connection_handler.h"
+#include "blimp/net/packet_reader.h"
+#include "blimp/net/packet_writer.h"
 #include "net/socket/stream_socket.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -27,6 +38,28 @@ MATCHER_P(BufferEquals, expected, "") {
   return expected == std::string(arg->data(), expected.size());
 }
 
+// Checks if two proto messages are the same.
+MATCHER_P(EqualsProto, message, "") {
+  std::string expected_serialized;
+  std::string actual_serialized;
+  message.SerializeToString(&expected_serialized);
+  arg.SerializeToString(&actual_serialized);
+  return expected_serialized == actual_serialized;
+}
+
+// Checks if the contents of a buffer are an exact match with BlimpMessage.
+// arg (type: net::DrainableIOBuffer*) The buffer to check.
+// message (type: BlimpMessage) The message to compare with |arg|.
+MATCHER_P(BufferEqualsProto, message, "") {
+  BlimpMessage actual_message;
+  actual_message.ParseFromArray(arg->data(), message.ByteSize());
+  std::string expected_serialized;
+  std::string actual_serialized;
+  message.SerializeToString(&expected_serialized);
+  actual_message.SerializeToString(&actual_serialized);
+  return expected_serialized == actual_serialized;
+}
+
 // GMock action that writes data from a string to an IOBuffer.
 //
 //   buf_idx (template parameter 0): 0-based index of the IOBuffer arg.
@@ -35,6 +68,30 @@ ACTION_TEMPLATE(FillBufferFromString,
                 HAS_1_TEMPLATE_PARAMS(int, buf_idx),
                 AND_1_VALUE_PARAMS(str)) {
   memcpy(testing::get<buf_idx>(args)->data(), str.data(), str.size());
+}
+
+// Returns true if |buf| has a prefix of |str|.
+// Behavior is undefined if len(buf) < len(str).
+bool BufferStartsWith(net::GrowableIOBuffer* buf, const std::string& str);
+
+// GMock action that writes data from a BlimpMessage to a GrowableIOBuffer.
+// Advances the buffer's |offset| to the end of the message.
+//
+//   buf_idx (template parameter 0): 0-based index of the IOBuffer arg.
+//   message: the blimp message containing data to be written to the IOBuffer
+ACTION_TEMPLATE(FillBufferFromMessage,
+                HAS_1_TEMPLATE_PARAMS(int, buf_idx),
+                AND_1_VALUE_PARAMS(message)) {
+  message->SerializeToArray(testing::get<buf_idx>(args)->data(),
+                            message->ByteSize());
+  testing::get<buf_idx>(args)->set_offset(message->ByteSize());
+}
+
+// Calls |set_offset()| for a GrowableIOBuffer.
+ACTION_TEMPLATE(SetBufferOffset,
+                HAS_1_TEMPLATE_PARAMS(int, buf_idx),
+                AND_1_VALUE_PARAMS(offset)) {
+  testing::get<buf_idx>(args)->set_offset(offset);
 }
 
 // Formats a string-based representation of a BlimpMessage header.
@@ -47,8 +104,8 @@ class MockStreamSocket : public net::StreamSocket {
 
   MOCK_METHOD3(Read, int(net::IOBuffer*, int, const net::CompletionCallback&));
   MOCK_METHOD3(Write, int(net::IOBuffer*, int, const net::CompletionCallback&));
-  MOCK_METHOD1(SetReceiveBufferSize, int(int32));
-  MOCK_METHOD1(SetSendBufferSize, int(int32));
+  MOCK_METHOD1(SetReceiveBufferSize, int(int32_t));
+  MOCK_METHOD1(SetSendBufferSize, int(int32_t));
   MOCK_METHOD1(Connect, int(const net::CompletionCallback&));
   MOCK_METHOD0(Disconnect, void());
   MOCK_CONST_METHOD0(IsConnected, bool());
@@ -60,7 +117,7 @@ class MockStreamSocket : public net::StreamSocket {
   MOCK_METHOD0(SetOmniboxSpeculation, void());
   MOCK_CONST_METHOD0(WasEverUsed, bool());
   MOCK_CONST_METHOD0(UsingTCPFastOpen, bool());
-  MOCK_CONST_METHOD0(NumBytesRead, int64());
+  MOCK_CONST_METHOD0(NumBytesRead, int64_t());
   MOCK_CONST_METHOD0(GetConnectTimeMicros, base::TimeDelta());
   MOCK_CONST_METHOD0(WasNpnNegotiated, bool());
   MOCK_CONST_METHOD0(GetNegotiatedProtocol, net::NextProto());
@@ -69,6 +126,73 @@ class MockStreamSocket : public net::StreamSocket {
   MOCK_METHOD0(ClearConnectionAttempts, void());
   MOCK_METHOD1(AddConnectionAttempts, void(const net::ConnectionAttempts&));
   MOCK_CONST_METHOD0(GetTotalReceivedBytes, int64_t());
+};
+
+class MockTransport : public BlimpTransport {
+ public:
+  MockTransport();
+  ~MockTransport() override;
+
+  MOCK_METHOD1(Connect, void(const net::CompletionCallback& callback));
+  MOCK_METHOD0(TakeConnectionPtr, BlimpConnection*());
+
+  scoped_ptr<BlimpConnection> TakeConnection() override;
+  const std::string GetName() const override;
+};
+
+class MockConnectionHandler : public ConnectionHandler {
+ public:
+  MockConnectionHandler();
+  ~MockConnectionHandler() override;
+
+  MOCK_METHOD1(HandleConnectionPtr, void(BlimpConnection* connection));
+  void HandleConnection(scoped_ptr<BlimpConnection> connection) override;
+};
+
+class MockPacketReader : public PacketReader {
+ public:
+  MockPacketReader();
+  ~MockPacketReader() override;
+
+  MOCK_METHOD2(ReadPacket,
+               void(const scoped_refptr<net::GrowableIOBuffer>&,
+                    const net::CompletionCallback&));
+};
+
+class MockPacketWriter : public PacketWriter {
+ public:
+  MockPacketWriter();
+  ~MockPacketWriter() override;
+
+  MOCK_METHOD2(WritePacket,
+               void(scoped_refptr<net::DrainableIOBuffer>,
+                    const net::CompletionCallback&));
+};
+
+class MockBlimpConnection : public BlimpConnection {
+ public:
+  MockBlimpConnection();
+  ~MockBlimpConnection() override;
+
+  MOCK_METHOD1(SetConnectionErrorObserver,
+               void(ConnectionErrorObserver* observer));
+
+  MOCK_METHOD1(SetIncomingMessageProcessor,
+               void(BlimpMessageProcessor* processor));
+
+  MOCK_METHOD1(AddConnectionErrorObserver, void(ConnectionErrorObserver*));
+
+  MOCK_METHOD1(RemoveConnectionErrorObserver, void(ConnectionErrorObserver*));
+
+  MOCK_METHOD0(GetOutgoingMessageProcessor, BlimpMessageProcessor*(void));
+};
+
+class MockConnectionErrorObserver : public ConnectionErrorObserver {
+ public:
+  MockConnectionErrorObserver();
+  ~MockConnectionErrorObserver() override;
+
+  MOCK_METHOD1(OnConnectionError, void(int error));
 };
 
 class MockBlimpMessageProcessor : public BlimpMessageProcessor {
@@ -86,10 +210,6 @@ class MockBlimpMessageProcessor : public BlimpMessageProcessor {
                void(const BlimpMessage& message,
                     const net::CompletionCallback& callback));
 };
-
-// Returns true if |buf| has a prefix of |str|.
-// Behavior is undefined if len(buf) < len(str).
-bool BufferStartsWith(net::GrowableIOBuffer* buf, const std::string& str);
 
 }  // namespace blimp
 

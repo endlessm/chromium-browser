@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/plugins/plugin_finder.h"
@@ -21,6 +22,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/web_contents.h"
+#include "grit/components_strings.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/simple_menu_model.h"
@@ -154,8 +156,9 @@ gfx::Size ContentSettingBubbleContents::GetPreferredSize() const {
   gfx::Size preferred_size(views::View::GetPreferredSize());
   int preferred_width =
       (!content_setting_bubble_model_->bubble_content().domain_lists.empty() &&
-       (kMinMultiLineContentsWidth > preferred_size.width())) ?
-      kMinMultiLineContentsWidth : preferred_size.width();
+       (kMinMultiLineContentsWidth > preferred_size.width()))
+          ? kMinMultiLineContentsWidth
+          : preferred_size.width();
   preferred_size.set_width(std::min(preferred_width, kMaxContentsWidth));
   return preferred_size;
 }
@@ -167,6 +170,7 @@ void ContentSettingBubbleContents::UpdateMenuLabel(
        it != media_menus_.end(); ++it) {
     if (it->second->type == type) {
       it->first->SetText(base::UTF8ToUTF16(label));
+      it->first->Layout();
       return;
     }
   }
@@ -278,8 +282,7 @@ void ContentSettingBubbleContents::Init() {
   }
 
   // Layout code for the media device menus.
-  if (content_setting_bubble_model_->content_type() ==
-      CONTENT_SETTINGS_TYPE_MEDIASTREAM) {
+  if (content_setting_bubble_model_->AsMediaStreamBubbleModel()) {
     const int kMediaMenuColumnSetId = 4;
     views::ColumnSet* menu_column_set =
         layout->AddColumnSet(kMediaMenuColumnSetId);
@@ -303,8 +306,7 @@ void ContentSettingBubbleContents::Init() {
       label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 
       views::MenuButton* menu_button = new views::MenuButton(
-          NULL, base::UTF8ToUTF16((i->second.selected_device.name)),
-          this, true);
+          base::UTF8ToUTF16((i->second.selected_device.name)), this, true);
       menu_button->SetStyle(views::Button::STYLE_BUTTON);
       menu_button->SetHorizontalAlignment(gfx::ALIGN_LEFT);
       menu_button->set_animate_on_state_change(false);
@@ -337,7 +339,7 @@ void ContentSettingBubbleContents::Init() {
     }
   }
 
-  UpdateMenuButtonSizes(GetNativeTheme());
+  UpdateMenuButtonSizes();
 
   const gfx::FontList& domain_font =
       ui::ResourceBundle::GetSharedInstance().GetFontList(
@@ -409,12 +411,6 @@ void ContentSettingBubbleContents::DidNavigateMainFrame(
   GetWidget()->Close();
 }
 
-void ContentSettingBubbleContents::OnNativeThemeChanged(
-    const ui::NativeTheme* theme) {
-  views::BubbleDelegateView::OnNativeThemeChanged(theme);
-  UpdateMenuButtonSizes(theme);
-}
-
 void ContentSettingBubbleContents::ButtonPressed(views::Button* sender,
                                                  const ui::Event& event) {
   RadioGroup::const_iterator i(
@@ -454,27 +450,25 @@ void ContentSettingBubbleContents::LinkClicked(views::Link* source,
 }
 
 void ContentSettingBubbleContents::OnMenuButtonClicked(
-    views::View* source,
-    const gfx::Point& point) {
-    MediaMenuPartsMap::iterator j(media_menus_.find(
-        static_cast<views::MenuButton*>(source)));
-    DCHECK(j != media_menus_.end());
-    menu_runner_.reset(new views::MenuRunner(j->second->menu_model.get(),
-                                             views::MenuRunner::HAS_MNEMONICS));
+    views::MenuButton* source,
+    const gfx::Point& point,
+    const ui::Event* event) {
+  MediaMenuPartsMap::iterator j(
+      media_menus_.find(static_cast<views::MenuButton*>(source)));
+  DCHECK(j != media_menus_.end());
+  menu_runner_.reset(new views::MenuRunner(j->second->menu_model.get(),
+                                           views::MenuRunner::HAS_MNEMONICS));
 
-    gfx::Point screen_location;
-    views::View::ConvertPointToScreen(j->first, &screen_location);
-    ignore_result(
-        menu_runner_->RunMenuAt(source->GetWidget(),
-                                j->first,
-                                gfx::Rect(screen_location, j->first->size()),
-                                views::MENU_ANCHOR_TOPLEFT,
-                                ui::MENU_SOURCE_NONE));
+  gfx::Point screen_location;
+  views::View::ConvertPointToScreen(j->first, &screen_location);
+  ignore_result(menu_runner_->RunMenuAt(
+      source->GetWidget(), j->first,
+      gfx::Rect(screen_location, j->first->size()), views::MENU_ANCHOR_TOPLEFT,
+      ui::MENU_SOURCE_NONE));
 }
 
-void ContentSettingBubbleContents::UpdateMenuButtonSizes(
-    const ui::NativeTheme* theme) {
-  const views::MenuConfig config = views::MenuConfig(theme);
+void ContentSettingBubbleContents::UpdateMenuButtonSizes() {
+  const views::MenuConfig& config = views::MenuConfig::instance();
   const int margins = config.item_left_margin + config.check_width +
                       config.label_to_arrow_padding + config.arrow_width +
                       config.arrow_to_edge_padding;

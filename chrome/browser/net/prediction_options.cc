@@ -5,10 +5,10 @@
 #include "chrome/browser/net/prediction_options.h"
 
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/network_change_notifier.h"
 
@@ -18,16 +18,20 @@ namespace {
 
 // Since looking up preferences and current network connection are presumably
 // both cheap, we do not cache them here.
-bool CanPrefetchAndPrerender(int network_prediction_options) {
+NetworkPredictionStatus CanPrefetchAndPrerender(
+    int network_prediction_options) {
   switch (network_prediction_options) {
     case NETWORK_PREDICTION_ALWAYS:
-      return true;
-    case NETWORK_PREDICTION_NEVER:
-      return false;
+    case NETWORK_PREDICTION_WIFI_ONLY:
+      if (net::NetworkChangeNotifier::IsConnectionCellular(
+                 net::NetworkChangeNotifier::GetConnectionType())) {
+        return NetworkPredictionStatus::DISABLED_DUE_TO_NETWORK;
+      } else {
+        return NetworkPredictionStatus::ENABLED;
+      }
     default:
-      DCHECK_EQ(NETWORK_PREDICTION_WIFI_ONLY, network_prediction_options);
-      return !net::NetworkChangeNotifier::IsConnectionCellular(
-                 net::NetworkChangeNotifier::GetConnectionType());
+      DCHECK_EQ(NETWORK_PREDICTION_NEVER, network_prediction_options);
+      return NetworkPredictionStatus::DISABLED_ALWAYS;
   }
 }
 
@@ -47,14 +51,15 @@ void RegisterPredictionOptionsProfilePrefs(
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 }
 
-bool CanPrefetchAndPrerenderIO(ProfileIOData* profile_io_data) {
+NetworkPredictionStatus CanPrefetchAndPrerenderIO(
+    ProfileIOData* profile_io_data) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(profile_io_data);
   return CanPrefetchAndPrerender(
       profile_io_data->network_prediction_options()->GetValue());
 }
 
-bool CanPrefetchAndPrerenderUI(PrefService* prefs) {
+NetworkPredictionStatus CanPrefetchAndPrerenderUI(PrefService* prefs) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(prefs);
   return CanPrefetchAndPrerender(

@@ -26,9 +26,13 @@
 #ifndef PlatformEvent_h
 #define PlatformEvent_h
 
+#include "wtf/Allocator.h"
+#include "wtf/Noncopyable.h"
+
 namespace blink {
 
 class PlatformEvent {
+    DISALLOW_NEW();
 public:
     enum Type {
         NoType = 0,

@@ -5,7 +5,7 @@
 #ifndef CONTENT_CHILD_CHILD_PROCESS_H_
 #define CONTENT_CHILD_CHILD_PROCESS_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
@@ -33,6 +33,7 @@ class CONTENT_EXPORT ChildProcess {
   // Child processes should have an object that derives from this class.
   // Normally you would immediately call set_main_thread after construction.
   ChildProcess();
+  explicit ChildProcess(base::ThreadPriority io_thread_priority);
   virtual ~ChildProcess();
 
   // May be NULL if the main thread hasn't been set explicitly.

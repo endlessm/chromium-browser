@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+GEN_INCLUDE(['options_browsertest_base.js']);
+
 /**
  * TestFixture for content settings exception area WebUI testing.
  * @extends {testing.Test}
@@ -16,13 +18,14 @@ ContentSettingsExceptionAreaWebUITest.prototype = {
   browsePreload: 'chrome://settings-frame/contentExceptions',
 };
 
-GEN('#if defined(OS_CHROMEOS)');
+// See crbug.com/579666 for OS_LINUX and crbug.com/588586 for Windows.
+GEN('#if defined(OS_CHROMEOS) || defined(OS_LINUX) || defined(OS_WINDOWS)');
 GEN('#define MAYBE_testOpenContentSettingsExceptionArea ' +
         'DISABLED_testOpenContentSettingsExceptionArea');
 GEN('#else');
 GEN('#define MAYBE_testOpenContentSettingsExceptionArea ' +
         'testOpenContentSettingsExceptionArea');
-GEN('#endif  // defined(OS_CHROMEOS)');
+GEN('#endif  // defined(OS_CHROMEOS) || defined(OS_LINUX)');
 // Test opening the content settings exception area has correct location.
 TEST_F('ContentSettingsExceptionAreaWebUITest',
        'MAYBE_testOpenContentSettingsExceptionArea', function() {
@@ -37,13 +40,30 @@ TEST_F('ContentSettingsExceptionAreaWebUITest',
 function ContentSettingsExceptionsAreaAsyncWebUITest() {}
 
 ContentSettingsExceptionsAreaAsyncWebUITest.prototype = {
-  __proto__: testing.Test.prototype,
+  __proto__: OptionsBrowsertestBase.prototype,
 
   /** @override */
   browsePreload: 'chrome://settings-frame/contentExceptions',
 
   /** @override */
   isAsync: true,
+
+  /** @override */
+  setUp: function() {
+    OptionsBrowsertestBase.prototype.setUp.call(this);
+
+    // Enable when failure is resolved.
+    // AX_TEXT_01: http://crbug.com/570562
+    this.accessibilityAuditConfig.ignoreSelectors(
+        'controlsWithoutLabel',
+        '#content-settings-exceptions-area > .content-area > *');
+
+    // Enable when failure is resolved.
+    // AX_TEXT_04: http://crbug.com/570563
+    this.accessibilityAuditConfig.ignoreSelectors(
+        'linkWithUnclearPurpose',
+        '#content-settings-exceptions-area > .action-area > *');
+  },
 };
 
 // Adds and removes a location content setting exception.

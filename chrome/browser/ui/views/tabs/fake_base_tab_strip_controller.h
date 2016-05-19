@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_TABS_FAKE_BASE_TAB_STRIP_CONTROLLER_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
 #include "ui/base/models/list_selection_model.h"
 
@@ -17,6 +18,7 @@ class FakeBaseTabStripController : public TabStripController {
   ~FakeBaseTabStripController() override;
 
   void AddTab(int index, bool is_active);
+  void AddPinnedTab(int index, bool is_active);
   void RemoveTab(int index);
 
   void set_tab_strip(TabStrip* tab_strip) { tab_strip_ = tab_strip; }

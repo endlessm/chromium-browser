@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSKeyframeRule.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -51,6 +50,8 @@ CSSKeyframeRule::~CSSKeyframeRule()
 
 void CSSKeyframeRule::setKeyText(const String& keyText, ExceptionState& exceptionState)
 {
+    CSSStyleSheet::RuleMutationScope(this);
+
     if (!m_keyframe->setKeyText(keyText))
         exceptionState.throwDOMException(SyntaxError, "The key '" + keyText + "' is invalid and cannot be parsed");
 

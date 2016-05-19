@@ -12,7 +12,6 @@
 namespace blink {
 
 class ExecutionContext;
-class SyncRegistrationOptions;
 class ScriptPromise;
 class ScriptState;
 class ServiceWorkerRegistration;
@@ -24,8 +23,6 @@ public:
     {
         return new SyncManager(registration);
     }
-
-    unsigned long minAllowablePeriod();
 
     ScriptPromise registerFunction(ScriptState*, ExecutionContext*, const String&);
     ScriptPromise getTags(ScriptState*);

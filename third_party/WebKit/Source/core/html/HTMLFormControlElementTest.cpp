@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/html/HTMLFormControlElement.h"
 
 #include "core/frame/FrameView.h"
@@ -11,7 +10,7 @@
 #include "core/layout/LayoutObject.h"
 #include "core/loader/EmptyClients.h"
 #include "core/testing/DummyPageHolder.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -39,7 +38,7 @@ void HTMLFormControlElementTest::SetUp()
 
 TEST_F(HTMLFormControlElementTest, customValidationMessageTextDirection)
 {
-    document().documentElement()->setInnerHTML("<body><input required id=input></body>", ASSERT_NO_EXCEPTION);
+    document().documentElement()->setInnerHTML("<body><input pattern='abc' value='def' id=input></body>", ASSERT_NO_EXCEPTION);
     document().view()->updateAllLifecyclePhases();
 
     HTMLInputElement* input = toHTMLInputElement(document().getElementById("input"));
@@ -47,7 +46,7 @@ TEST_F(HTMLFormControlElementTest, customValidationMessageTextDirection)
     input->setAttribute(HTMLNames::titleAttr, AtomicString::fromUTF8("\xD8\xB9\xD8\xB1\xD8\xA8\xD9\x89"));
 
     String message = input->validationMessage().stripWhiteSpace();
-    String subMessage = String();
+    String subMessage = input->validationSubMessage().stripWhiteSpace();
     TextDirection messageDir = RTL;
     TextDirection subMessageDir = LTR;
 
@@ -58,10 +57,18 @@ TEST_F(HTMLFormControlElementTest, customValidationMessageTextDirection)
     input->layoutObject()->mutableStyleRef().setDirection(RTL);
     input->findCustomValidationMessageTextDirection(message, messageDir, subMessage, subMessageDir);
     EXPECT_EQ(RTL, messageDir);
-    EXPECT_EQ(RTL, subMessageDir);
+    EXPECT_EQ(LTR, subMessageDir);
 
     input->setCustomValidity(String::fromUTF8("Main message."));
     message = input->validationMessage().stripWhiteSpace();
+    subMessage = input->validationSubMessage().stripWhiteSpace();
+    input->findCustomValidationMessageTextDirection(message, messageDir, subMessage, subMessageDir);
+    EXPECT_EQ(LTR, messageDir);
+    EXPECT_EQ(LTR, subMessageDir);
+
+    input->setCustomValidity(String());
+    message = input->validationMessage().stripWhiteSpace();
+    subMessage = input->validationSubMessage().stripWhiteSpace();
     input->findCustomValidationMessageTextDirection(message, messageDir, subMessage, subMessageDir);
     EXPECT_EQ(LTR, messageDir);
     EXPECT_EQ(RTL, subMessageDir);

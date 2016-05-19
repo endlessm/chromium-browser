@@ -5,12 +5,13 @@
 #include "chrome/browser/metrics/variations/chrome_variations_service_client.h"
 
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/channel_info.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 #include "chrome/browser/upgrade_detector_impl.h"
 #endif
 
@@ -18,21 +19,17 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #endif
 
-#if defined(OS_ANDROID)
-#include "components/variations/android/variations_seed_bridge.h"
-#endif  // OS_ANDROID
-
 namespace {
 
 // Gets the version number to use for variations seed simulation. Must be called
 // on a thread where IO is allowed.
 base::Version GetVersionForSimulation() {
-#if !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   const base::Version installed_version =
       UpgradeDetectorImpl::GetCurrentlyInstalledVersion();
   if (installed_version.IsValid())
     return installed_version;
-#endif  // !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_CHROMEOS)
+#endif  // !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 
   // TODO(asvitkine): Get the version that will be used on restart instead of
   // the current version on Android, iOS and ChromeOS.
@@ -81,15 +78,6 @@ bool ChromeVariationsServiceClient::OverridesRestrictParameter(
 #else
   return false;
 #endif
-}
-
-variations::VariationsFirstRunSeedCallback
-ChromeVariationsServiceClient::GetVariationsFirstRunSeedCallback() {
-#if defined(OS_ANDROID)
-  return base::Bind(&variations::android::GetVariationsFirstRunSeed);
-#else   // OS_ANDROID
-  return variations::VariationsFirstRunSeedCallback();
-#endif  // OS_ANDROID
 }
 
 void ChromeVariationsServiceClient::OnInitialStartup() {

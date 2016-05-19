@@ -30,7 +30,17 @@ static const int gWidth = 640;
 static const int gHeight = 480;
 
 ////////////////////////////////////////////////////////////////////////////////
-static void test_cache(skiatest::Reporter* reporter, GrContext* context, SkCanvas* canvas) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceCacheCache, reporter, context) {
+    GrSurfaceDesc desc;
+    desc.fConfig = kSkia8888_GrPixelConfig;
+    desc.fFlags = kRenderTarget_GrSurfaceFlag;
+    desc.fWidth = gWidth;
+    desc.fHeight = gHeight;
+    SkImageInfo info = SkImageInfo::MakeN32Premul(gWidth, gHeight);
+    SkAutoTUnref<SkSurface> surface(SkSurface::NewRenderTarget(context,
+                                                               SkBudgeted::kNo, info));
+    SkCanvas* canvas = surface->getCanvas();
+
     const SkIRect size = SkIRect::MakeWH(gWidth, gHeight);
 
     SkBitmap src;
@@ -70,7 +80,7 @@ static void test_cache(skiatest::Reporter* reporter, GrContext* context, SkCanva
     context->setResourceCacheLimits(oldMaxNum, oldMaxBytes);
 }
 
-static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* context) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceCacheStencilBuffers, reporter, context) {
     GrSurfaceDesc smallDesc;
     smallDesc.fFlags = kRenderTarget_GrSurfaceFlag;
     smallDesc.fConfig = kSkia8888_GrPixelConfig;
@@ -81,12 +91,12 @@ static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* contex
     GrTextureProvider* cache = context->textureProvider();
     GrResourceProvider* resourceProvider = context->resourceProvider();
     // Test that two budgeted RTs with the same desc share a stencil buffer.
-    SkAutoTUnref<GrTexture> smallRT0(cache->createTexture(smallDesc, true));
+    SkAutoTUnref<GrTexture> smallRT0(cache->createTexture(smallDesc, SkBudgeted::kYes));
     if (smallRT0 && smallRT0->asRenderTarget()) {
         resourceProvider->attachStencilAttachment(smallRT0->asRenderTarget());
     }
 
-    SkAutoTUnref<GrTexture> smallRT1(cache->createTexture(smallDesc, true));
+    SkAutoTUnref<GrTexture> smallRT1(cache->createTexture(smallDesc, SkBudgeted::kYes));
     if (smallRT1 && smallRT1->asRenderTarget()) {
         resourceProvider->attachStencilAttachment(smallRT1->asRenderTarget());
     }
@@ -98,7 +108,7 @@ static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* contex
                     resourceProvider->attachStencilAttachment(smallRT1->asRenderTarget()));
 
     // An unbudgeted RT with the same desc should also share.
-    SkAutoTUnref<GrTexture> smallRT2(cache->createTexture(smallDesc, false));
+    SkAutoTUnref<GrTexture> smallRT2(cache->createTexture(smallDesc, SkBudgeted::kNo));
     if (smallRT2 && smallRT2->asRenderTarget()) {
         resourceProvider->attachStencilAttachment(smallRT2->asRenderTarget());
     }
@@ -115,7 +125,7 @@ static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* contex
     bigDesc.fWidth = 400;
     bigDesc.fHeight = 200;
     bigDesc.fSampleCnt = 0;
-    SkAutoTUnref<GrTexture> bigRT(cache->createTexture(bigDesc, false));
+    SkAutoTUnref<GrTexture> bigRT(cache->createTexture(bigDesc, SkBudgeted::kNo));
     if (bigRT && bigRT->asRenderTarget()) {
         resourceProvider->attachStencilAttachment(bigRT->asRenderTarget());
     }
@@ -129,7 +139,7 @@ static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* contex
         // An RT with a different sample count should not share. 
         GrSurfaceDesc smallMSAADesc = smallDesc;
         smallMSAADesc.fSampleCnt = 4;
-        SkAutoTUnref<GrTexture> smallMSAART0(cache->createTexture(smallMSAADesc, false));
+        SkAutoTUnref<GrTexture> smallMSAART0(cache->createTexture(smallMSAADesc, SkBudgeted::kNo));
         if (smallMSAART0 && smallMSAART0->asRenderTarget()) {
             resourceProvider->attachStencilAttachment(smallMSAART0->asRenderTarget());
         }
@@ -145,7 +155,7 @@ static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* contex
                         resourceProvider->attachStencilAttachment(smallRT0->asRenderTarget()) !=
                         resourceProvider->attachStencilAttachment(smallMSAART0->asRenderTarget()));
         // A second MSAA RT should share with the first MSAA RT.
-        SkAutoTUnref<GrTexture> smallMSAART1(cache->createTexture(smallMSAADesc, false));
+        SkAutoTUnref<GrTexture> smallMSAART1(cache->createTexture(smallMSAADesc, SkBudgeted::kNo));
         if (smallMSAART1 && smallMSAART1->asRenderTarget()) {
             resourceProvider->attachStencilAttachment(smallMSAART1->asRenderTarget());
         }
@@ -161,8 +171,9 @@ static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* contex
             smallMSAART0 && smallMSAART0->asRenderTarget() &&
             smallMSAART0->asRenderTarget()->numColorSamples() < 8) {
             smallMSAADesc.fSampleCnt = 8;
-            smallMSAART1.reset(cache->createTexture(smallMSAADesc, false));
-            SkAutoTUnref<GrTexture> smallMSAART1(cache->createTexture(smallMSAADesc, false));
+            smallMSAART1.reset(cache->createTexture(smallMSAADesc, SkBudgeted::kNo));
+            SkAutoTUnref<GrTexture> smallMSAART1(
+                    cache->createTexture(smallMSAADesc, SkBudgeted::kNo));
             if (smallMSAART1 && smallMSAART1->asRenderTarget()) {
                 resourceProvider->attachStencilAttachment(smallMSAART1->asRenderTarget());
             }
@@ -176,8 +187,8 @@ static void test_stencil_buffers(skiatest::Reporter* reporter, GrContext* contex
     }
 }
 
-static void test_wrapped_resources(skiatest::Reporter* reporter, GrContext* context) {
-    const GrGpu* gpu = context->getGpu();
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceCacheWrappedResources, reporter, context) {
+    GrGpu* gpu = context->getGpu();
     // this test is only valid for GL
     if (!gpu || !gpu->glContextForTesting()) {
         return;
@@ -559,7 +570,7 @@ void test_unbudgeted_to_scratch(skiatest::Reporter* reporter);
         // Since this resource is unbudgeted, it should not be reachable as scratch.
         REPORTER_ASSERT(reporter, resource->resourcePriv().getScratchKey() == key);
         REPORTER_ASSERT(reporter, !resource->cacheAccess().isScratch());
-        REPORTER_ASSERT(reporter, !resource->resourcePriv().isBudgeted());
+        REPORTER_ASSERT(reporter, SkBudgeted::kNo == resource->resourcePriv().isBudgeted());
         REPORTER_ASSERT(reporter, nullptr == cache->findAndRefScratchResource(key, TestResource::kDefaultSize, 0));
         REPORTER_ASSERT(reporter, 1 == cache->getResourceCount());
         REPORTER_ASSERT(reporter, size == cache->getResourceBytes());
@@ -576,7 +587,7 @@ void test_unbudgeted_to_scratch(skiatest::Reporter* reporter);
         REPORTER_ASSERT(reporter, resource);
         REPORTER_ASSERT(reporter, resource->resourcePriv().getScratchKey() == key);
         REPORTER_ASSERT(reporter, resource->cacheAccess().isScratch());
-        REPORTER_ASSERT(reporter, resource->resourcePriv().isBudgeted());
+        REPORTER_ASSERT(reporter, SkBudgeted::kYes == resource->resourcePriv().isBudgeted());
 
         if (0 == i) {
             // If made unbudgeted, it should return to original state: ref'ed and unbudgeted. Try 
@@ -591,7 +602,7 @@ void test_unbudgeted_to_scratch(skiatest::Reporter* reporter);
             REPORTER_ASSERT(reporter, size == cache->getBudgetedResourceBytes());
             REPORTER_ASSERT(reporter, !resource->resourcePriv().getScratchKey().isValid());
             REPORTER_ASSERT(reporter, !resource->cacheAccess().isScratch());
-            REPORTER_ASSERT(reporter, resource->resourcePriv().isBudgeted());
+            REPORTER_ASSERT(reporter, SkBudgeted::kYes == resource->resourcePriv().isBudgeted());
 
             // now when it is unrefed it should die since it has no key.
             resource->unref();
@@ -1284,30 +1295,7 @@ static void test_abandoned(skiatest::Reporter* reporter) {
     resource->resourcePriv().removeUniqueKey();
 }
 
-////////////////////////////////////////////////////////////////////////////////
-DEF_GPUTEST(ResourceCache, reporter, factory) {
-    for (int type = 0; type < GrContextFactory::kLastGLContextType; ++type) {
-        GrContextFactory::GLContextType glType = static_cast<GrContextFactory::GLContextType>(type);
-        if (!GrContextFactory::IsRenderingGLContext(glType)) {
-            continue;
-        }
-        GrContext* context = factory->get(glType);
-        if (nullptr == context) {
-            continue;
-        }
-        GrSurfaceDesc desc;
-        desc.fConfig = kSkia8888_GrPixelConfig;
-        desc.fFlags = kRenderTarget_GrSurfaceFlag;
-        desc.fWidth = gWidth;
-        desc.fHeight = gHeight;
-        SkImageInfo info = SkImageInfo::MakeN32Premul(gWidth, gHeight);
-        SkAutoTUnref<SkSurface> surface(SkSurface::NewRenderTarget(context,
-                                                                   SkSurface::kNo_Budgeted, info));
-        test_cache(reporter, context, surface->getCanvas());
-        test_stencil_buffers(reporter, context);
-        test_wrapped_resources(reporter, context);
-    }
-
+DEF_GPUTEST(ResourceCacheMisc, reporter, factory) {
     // The below tests create their own mock contexts.
     test_no_key(reporter);
     test_budgeting(reporter);

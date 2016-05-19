@@ -17,7 +17,6 @@
     Boston, MA 02110-1301, USA.
 */
 
-#include "config.h"
 #include "core/layout/PointerEventsHitRules.h"
 
 #include "wtf/Assertions.h"
@@ -119,6 +118,6 @@ PointerEventsHitRules::PointerEventsHitRules(EHitTesting hitTesting, const HitTe
     }
 }
 
-}
+} // namespace blink
 
 // vim:ts=4:noet

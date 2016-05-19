@@ -6,6 +6,7 @@
 
 #include "base/test/sequenced_worker_pool_owner.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "ui/gfx/geometry/rect_f.h"
 
 namespace autofill {
 
@@ -14,9 +15,7 @@ TestAutofillDriver::TestAutofillDriver()
           new base::SequencedWorkerPoolOwner(4, "TestAutofillDriver")),
       url_request_context_(NULL) {}
 
-TestAutofillDriver::~TestAutofillDriver() {
-  blocking_pool_owner_->pool()->Shutdown();
-}
+TestAutofillDriver::~TestAutofillDriver() {}
 
 bool TestAutofillDriver::IsOffTheRecord() const {
   return false;
@@ -71,6 +70,11 @@ void TestAutofillDriver::RendererShouldPreviewFieldWithValue(
 }
 
 void TestAutofillDriver::PopupHidden() {
+}
+
+gfx::RectF TestAutofillDriver::TransformBoundingBoxToViewportCoordinates(
+    const gfx::RectF& bounding_box) {
+  return bounding_box;
 }
 
 }  // namespace autofill

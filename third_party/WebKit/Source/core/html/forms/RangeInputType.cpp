@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/forms/RangeInputType.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -306,6 +305,13 @@ String RangeInputType::sanitizeValue(const String& proposedValue) const
     StepRange stepRange(createStepRange(RejectAny));
     const Decimal proposedNumericValue = parseToNumber(proposedValue, stepRange.defaultValue());
     return serializeForNumberType(stepRange.clampValue(proposedNumericValue));
+}
+
+void RangeInputType::warnIfValueIsInvalid(const String& value) const
+{
+    if (value.isEmpty() || !element().sanitizeValue(value).isEmpty())
+        return;
+    addWarningToConsole("The specified value %s is not a valid number. The value must match to the following regular expression: -?(\\d+|\\d+\\.\\d+|\\.\\d+)([eE][-+]?\\d+)?", value);
 }
 
 void RangeInputType::disabledAttributeChanged()

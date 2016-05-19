@@ -4,6 +4,8 @@
 
 #include "components/update_client/update_response.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/memory/scoped_ptr.h"
@@ -26,22 +28,26 @@ UpdateResponse::~UpdateResponse() {
 
 UpdateResponse::Results::Results() : daystart_elapsed_seconds(kNoDaystart) {
 }
+UpdateResponse::Results::Results(const Results& other) = default;
 UpdateResponse::Results::~Results() {
 }
 
 UpdateResponse::Result::Result() {
 }
-
+UpdateResponse::Result::Result(const Result& other) = default;
 UpdateResponse::Result::~Result() {
 }
 
 UpdateResponse::Result::Manifest::Manifest() {
 }
+UpdateResponse::Result::Manifest::Manifest(const Manifest& other) = default;
 UpdateResponse::Result::Manifest::~Manifest() {
 }
 
 UpdateResponse::Result::Manifest::Package::Package() : size(0), sizediff(0) {
 }
+UpdateResponse::Result::Manifest::Package::Package(const Package& other) =
+    default;
 UpdateResponse::Result::Manifest::Package::~Package() {
 }
 

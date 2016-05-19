@@ -2,11 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 import argparse
-import os
 import sys
-import traceback
 
-import perf_insights
 from perf_insights import corpus_driver_cmdline
 from perf_insights import corpus_query
 from perf_insights import map_runner
@@ -36,7 +33,7 @@ def Main(argv):
       description='Bulk trace processing')
   corpus_driver_cmdline.AddArguments(parser)
   parser.add_argument('--query')
-  parser.add_argument('map_file')
+  parser.add_argument('map_function_handle')
   parser.add_argument('-j', '--jobs', type=int,
                       default=map_runner.AUTO_JOB_COUNT)
   parser.add_argument('-o', '--output-file')
@@ -45,9 +42,6 @@ def Main(argv):
 
   args = parser.parse_args(argv[1:])
   corpus_driver = corpus_driver_cmdline.GetCorpusDriver(parser, args)
-
-  if not os.path.exists(args.map_file):
-    parser.error('Map does not exist.')
 
   if args.query == 'help':
     parser.exit(_CORPUS_QUERY_HELP)
@@ -63,8 +57,18 @@ def Main(argv):
 
   output_formatter = json_output_formatter.JSONOutputFormatter(ofile)
 
-  map_function_handle = function_handle.FunctionHandle(
-      filename=os.path.abspath(args.map_file))
+  try:
+    map_function_handle = function_handle.FunctionHandle.FromUserFriendlyString(
+        args.map_function_handle)
+  except function_handle.UserFriendlyStringInvalidError:
+    error_lines = [
+        'The map_traces command-line API has changed! You must now specify the',
+        'filenames to load and the map function name, separated by :. For '
+        'example, a mapper in',
+        'foo.html called Foo would be written as foo.html:Foo .'
+    ]
+    parser.error('\n'.join(error_lines))
+
   try:
     trace_handles = corpus_driver.GetTraceHandlesMatchingQuery(query)
     runner = map_runner.MapRunner(trace_handles, map_function_handle,

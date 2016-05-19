@@ -28,12 +28,12 @@
 
 #include "core/layout/LayoutBlock.h"
 #include "core/layout/OrderIterator.h"
-#include "core/style/GridResolvedPosition.h"
+#include "core/style/GridPositionsResolver.h"
 
 namespace blink {
 
 struct ContentAlignmentData;
-struct GridCoordinate;
+struct GridArea;
 struct GridSpan;
 class GridTrack;
 
@@ -109,16 +109,17 @@ private:
 
     class GridIterator;
     struct GridSizingData;
-    void computeUsedBreadthOfGridTracks(GridTrackSizingDirection, GridSizingData&, LayoutUnit& baseSizesWithoutMaximization, LayoutUnit& growthLimitsWithoutMaximization);
+    enum AvailableSpaceType {AvailableSpaceDefinite, AvailableSpaceIndefinite};
+    void computeUsedBreadthOfGridTracks(GridTrackSizingDirection, GridSizingData&, LayoutUnit& baseSizesWithoutMaximization, LayoutUnit& growthLimitsWithoutMaximization, AvailableSpaceType);
     LayoutUnit computeUsedBreadthOfMinLength(const GridLength&, LayoutUnit maxBreadth) const;
     LayoutUnit computeUsedBreadthOfMaxLength(const GridLength&, LayoutUnit usedBreadth, LayoutUnit maxBreadth) const;
     void resolveContentBasedTrackSizingFunctions(GridTrackSizingDirection, GridSizingData&);
 
-    void ensureGridSize(size_t maximumRowIndex, size_t maximumColumnIndex);
-    void insertItemIntoGrid(LayoutBox&, const GridCoordinate&);
+    void ensureGridSize(size_t maximumRowSize, size_t maximumColumnSize);
+    void insertItemIntoGrid(LayoutBox&, const GridArea&);
     void placeItemsOnGrid();
     void populateExplicitGridAndOrderIterator();
-    PassOwnPtr<GridCoordinate> createEmptyGridAreaAtSpecifiedPositionsOutsideGrid(const LayoutBox&, GridTrackSizingDirection, const GridSpan& specifiedPositions) const;
+    PassOwnPtr<GridArea> createEmptyGridAreaAtSpecifiedPositionsOutsideGrid(const LayoutBox&, GridTrackSizingDirection, const GridSpan& specifiedPositions) const;
     void placeSpecifiedMajorAxisItemsOnGrid(const Vector<LayoutBox*>&);
     void placeAutoMajorAxisItemsOnGrid(const Vector<LayoutBox*>&);
     void placeAutoMajorAxisItemOnGrid(LayoutBox&, std::pair<size_t, size_t>& autoPlacementCursor);
@@ -157,7 +158,7 @@ private:
     LayoutUnit columnAxisOffsetForChild(const LayoutBox&) const;
     ContentAlignmentData computeContentPositionAndDistributionOffset(GridTrackSizingDirection, const LayoutUnit& availableFreeSpace, unsigned numberOfGridTracks) const;
     LayoutPoint findChildLogicalPosition(const LayoutBox&, GridSizingData&) const;
-    GridCoordinate cachedGridCoordinate(const LayoutBox&) const;
+    GridArea cachedGridArea(const LayoutBox&) const;
     GridSpan cachedGridSpan(const LayoutBox&, GridTrackSizingDirection) const;
 
     LayoutUnit gridAreaBreadthForChild(const LayoutBox& child, GridTrackSizingDirection, const Vector<GridTrack>&) const;
@@ -205,13 +206,16 @@ private:
     bool m_gridIsDirty;
     Vector<LayoutUnit> m_rowPositions;
     Vector<LayoutUnit> m_columnPositions;
-    HashMap<const LayoutBox*, GridCoordinate> m_gridItemCoordinate;
+    HashMap<const LayoutBox*, GridArea> m_gridItemArea;
     OrderIterator m_orderIterator;
     Vector<LayoutBox*> m_gridItemsOverflowingGridArea;
     HashMap<const LayoutBox*, size_t> m_gridItemsIndexesMap;
 
     LayoutUnit m_minContentHeight { -1 };
     LayoutUnit m_maxContentHeight { -1 };
+
+    int m_smallestRowStart;
+    int m_smallestColumnStart;
 };
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutGrid, isLayoutGrid());

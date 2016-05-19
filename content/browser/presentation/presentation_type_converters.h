@@ -17,6 +17,9 @@ CONTENT_EXPORT presentation::PresentationErrorType PresentationErrorTypeToMojo(
 CONTENT_EXPORT presentation::PresentationConnectionState
 PresentationConnectionStateToMojo(PresentationConnectionState state);
 
+CONTENT_EXPORT presentation::PresentationConnectionCloseReason
+PresentationConnectionCloseReasonToMojo(
+    PresentationConnectionCloseReason reason);
 }  // namespace content
 
 namespace mojo {
@@ -30,7 +33,7 @@ struct TypeConverter<presentation::PresentationSessionInfoPtr,
         presentation::PresentationSessionInfo::New());
     output->url = input.presentation_url;
     output->id = input.presentation_id;
-    return output.Pass();
+    return output;
   }
 };
 
@@ -52,7 +55,7 @@ struct TypeConverter<presentation::PresentationErrorPtr,
         presentation::PresentationError::New());
     output->error_type = PresentationErrorTypeToMojo(input.error_type);
     output->message = input.message;
-    return output.Pass();
+    return output;
   }
 };
 

@@ -9,9 +9,11 @@
 #ifndef NET_TOOLS_QUIC_QUIC_TIME_WAIT_LIST_MANAGER_H_
 #define NET_TOOLS_QUIC_QUIC_TIME_WAIT_LIST_MANAGER_H_
 
+#include <stddef.h>
+
 #include <deque>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "net/base/linked_hash_map.h"
 #include "net/quic/quic_blocked_writer_interface.h"
 #include "net/quic/quic_connection.h"
@@ -20,7 +22,6 @@
 #include "net/quic/quic_protocol.h"
 
 namespace net {
-namespace tools {
 
 class QuicServerSessionVisitor;
 
@@ -148,6 +149,8 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
                      QuicTime time_added_,
                      bool connection_rejected_statelessly);
 
+    ConnectionIdData(const ConnectionIdData& other);
+
     ~ConnectionIdData();
 
     int num_packets;
@@ -185,7 +188,6 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
   DISALLOW_COPY_AND_ASSIGN(QuicTimeWaitListManager);
 };
 
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_QUIC_TIME_WAIT_LIST_MANAGER_H_

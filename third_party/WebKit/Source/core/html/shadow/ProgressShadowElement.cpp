@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/html/shadow/ProgressShadowElement.h"
 
 #include "core/HTMLNames.h"
@@ -96,4 +94,4 @@ void ProgressValueElement::setWidthPercentage(double width)
 
 DEFINE_NODE_FACTORY(ProgressValueElement)
 
-}
+} // namespace blink

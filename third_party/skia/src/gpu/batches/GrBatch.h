@@ -16,6 +16,7 @@
 
 class GrCaps;
 class GrBatchFlushState;
+class GrRenderTarget;
 
 /**
  * GrBatch is the base class for all Ganesh deferred geometry generators.  To facilitate
@@ -31,6 +32,10 @@ class GrBatchFlushState;
  * If there are any possible optimizations which might require knowing more about the full state of
  * the draw, ie whether or not the GrBatch is allowed to tweak alpha for coverage, then this
  * information will be communicated to the GrBatch prior to geometry generation.
+ *
+ * The bounds of the batch must contain all the vertices in device space *irrespective* of the clip.
+ * The bounds are used in determining which clip elements must be applied and thus the bounds cannot
+ * in turn depend upon the clip.
  */
 #define GR_BATCH_SPEW 0
 #if GR_BATCH_SPEW
@@ -48,10 +53,10 @@ class GrBatchFlushState;
         return kClassID; \
     }
 
-class GrBatch : public GrNonAtomicRef {
+class GrBatch : public GrNonAtomicRef<GrBatch> {
 public:
     GrBatch(uint32_t classID);
-    ~GrBatch() override;
+    virtual ~GrBatch();
 
     virtual const char* name() const = 0;
 
@@ -109,6 +114,9 @@ public:
     /** Used for spewing information about batches when debugging. */
     virtual SkString dumpInfo() const = 0;
 
+    /** Can remove this when multi-draw-buffer lands */
+    virtual GrRenderTarget* renderTarget() const = 0;
+
 protected:
     // NOTE, compute some bounds, even if extremely conservative.  Do *NOT* setLargest on the bounds
     // rect because we outset it for dst copy textures
@@ -151,7 +159,6 @@ private:
     static int32_t                      gCurrBatchUniqueID;
 #endif
     static int32_t                      gCurrBatchClassID;
-    typedef GrNonAtomicRef INHERITED;
 };
 
 #endif

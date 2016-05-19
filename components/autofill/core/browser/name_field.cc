@@ -4,6 +4,7 @@
 
 #include "components/autofill/core/browser/name_field.h"
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -22,8 +23,7 @@ class FullNameField : public NameField {
   static scoped_ptr<FullNameField> Parse(AutofillScanner* scanner);
 
  protected:
-  // FormField:
-  bool ClassifyField(ServerFieldTypeMap* map) const override;
+  void AddClassifications(FieldCandidatesMap* field_candidates) const override;
 
  private:
   explicit FullNameField(AutofillField* field);
@@ -43,8 +43,7 @@ class FirstLastNameField : public NameField {
   static scoped_ptr<FirstLastNameField> Parse(AutofillScanner* scanner);
 
  protected:
-  // FormField:
-  bool ClassifyField(ServerFieldTypeMap* map) const override;
+  void AddClassifications(FieldCandidatesMap* field_candidates) const override;
 
  private:
   FirstLastNameField();
@@ -72,8 +71,7 @@ scoped_ptr<FormField> NameField::Parse(AutofillScanner* scanner) {
 }
 
 // This is overriden in concrete subclasses.
-bool NameField::ClassifyField(ServerFieldTypeMap* map) const {
-  return false;
+void NameField::AddClassifications(FieldCandidatesMap* field_candidates) const {
 }
 
 // static
@@ -95,8 +93,9 @@ scoped_ptr<FullNameField> FullNameField::Parse(AutofillScanner* scanner) {
   return NULL;
 }
 
-bool FullNameField::ClassifyField(ServerFieldTypeMap* map) const {
-  return AddClassification(field_, NAME_FULL, map);
+void FullNameField::AddClassifications(
+    FieldCandidatesMap* field_candidates) const {
+  AddClassification(field_, NAME_FULL, kBaseNameParserScore, field_candidates);
 }
 
 FullNameField::FullNameField(AutofillField* field) : field_(field) {
@@ -121,7 +120,7 @@ scoped_ptr<FirstLastNameField> FirstLastNameField::ParseSpecificName(
       v->last_name_ = next;
     }
 
-    return v.Pass();
+    return v;
   }
 
   scanner->Rewind();
@@ -184,7 +183,7 @@ scoped_ptr<FirstLastNameField> FirstLastNameField::ParseComponentNames(
   // Consider the match to be successful if we detected both first and last name
   // fields.
   if (v->first_name_ && v->last_name_)
-    return v.Pass();
+    return v;
 
   scanner->Rewind();
   return NULL;
@@ -206,12 +205,15 @@ FirstLastNameField::FirstLastNameField()
       middle_initial_(false) {
 }
 
-bool FirstLastNameField::ClassifyField(ServerFieldTypeMap* map) const {
-  bool ok = AddClassification(first_name_, NAME_FIRST, map);
-  ok = ok && AddClassification(last_name_, NAME_LAST, map);
-  ServerFieldType type = middle_initial_ ? NAME_MIDDLE_INITIAL : NAME_MIDDLE;
-  ok = ok && AddClassification(middle_name_, type, map);
-  return ok;
+void FirstLastNameField::AddClassifications(
+    FieldCandidatesMap* field_candidates) const {
+  AddClassification(first_name_, NAME_FIRST, kBaseNameParserScore,
+                    field_candidates);
+  AddClassification(last_name_, NAME_LAST, kBaseNameParserScore,
+                    field_candidates);
+  const ServerFieldType type =
+      middle_initial_ ? NAME_MIDDLE_INITIAL : NAME_MIDDLE;
+  AddClassification(middle_name_, type, kBaseNameParserScore, field_candidates);
 }
 
 }  // namespace autofill

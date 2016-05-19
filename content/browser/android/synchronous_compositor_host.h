@@ -5,6 +5,9 @@
 #ifndef CONTENT_BROWSER_ANDROID_SYNCHRONOUS_COMPOSITOR_HOST_H_
 #define CONTENT_BROWSER_ANDROID_SYNCHRONOUS_COMPOSITOR_HOST_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
@@ -50,11 +53,17 @@ class SynchronousCompositorHost : public SynchronousCompositorBase {
       const blink::WebInputEvent& input_event) override;
   void BeginFrame(const cc::BeginFrameArgs& args) override;
   bool OnMessageReceived(const IPC::Message& message) override;
+  void DidBecomeCurrent() override;
 
  private:
+  class ScopedSendZeroMemory;
+  struct SharedMemoryWithSize;
+  friend class ScopedSetZeroMemory;
   friend class SynchronousCompositorBase;
+
   SynchronousCompositorHost(RenderWidgetHostViewAndroid* rwhva,
-                            SynchronousCompositorClient* client);
+                            SynchronousCompositorClient* client,
+                            bool use_in_proc_software_draw);
   void PopulateCommonParams(SyncCompositorCommonBrowserParams* params);
   void ProcessCommonParams(const SyncCompositorCommonRendererParams& params);
   void UpdateNeedsBeginFrames();
@@ -63,26 +72,32 @@ class SynchronousCompositorHost : public SynchronousCompositorBase {
                     const DidOverscrollParams& over_scroll_params);
   void SendAsyncCompositorStateIfNeeded();
   void UpdateStateTask();
+  bool DemandDrawSwInProc(SkCanvas* canvas);
+  void SetSoftwareDrawSharedMemoryIfNeeded(size_t stride, size_t buffer_size);
+  void SendZeroMemory();
 
   RenderWidgetHostViewAndroid* const rwhva_;
   SynchronousCompositorClient* const client_;
   const scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
   const int routing_id_;
   IPC::Sender* const sender_;
+  const bool use_in_process_zero_copy_software_draw_;
 
   bool is_active_;
   size_t bytes_limit_;
   cc::ReturnedResourceArray returned_resources_;
+  scoped_ptr<SharedMemoryWithSize> software_draw_shm_;
 
   // Updated by both renderer and browser.
   gfx::ScrollOffset root_scroll_offset_;
+  bool root_scroll_offset_updated_by_browser_;
 
   // From renderer.
   uint32_t renderer_param_version_;
   bool need_animate_scroll_;
-  bool need_invalidate_;
+  uint32_t need_invalidate_count_;
   bool need_begin_frame_;
-  bool did_activate_pending_tree_;
+  uint32_t did_activate_pending_tree_count_;
 
   base::WeakPtrFactory<SynchronousCompositorHost> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(SynchronousCompositorHost);

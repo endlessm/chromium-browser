@@ -1,7 +1,6 @@
 {% from "macros.tmpl" import license %}
 {{ license() }}
 
-#include "config.h"
 #include "InternalSettingsGenerated.h"
 
 #include "core/page/Page.h"
@@ -34,5 +33,10 @@ void InternalSettingsGenerated::set{{setting.name|upper_first}}({{setting.type|t
     m_page->settings().set{{setting.name|upper_first}}({{setting.name}});
 }
 {% endfor %}
+
+DEFINE_TRACE(InternalSettingsGenerated)
+{
+    visitor->trace(m_page);
+}
 
 } // namespace blink

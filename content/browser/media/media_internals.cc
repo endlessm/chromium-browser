@@ -4,10 +4,15 @@
 
 #include "content/browser/media/media_internals.h"
 
+#include <stddef.h>
+#include <utility>
+
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -205,7 +210,7 @@ void AudioLogImpl::SendWebContentsTitle(int component_id,
                                         int render_frame_id) {
   scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   StoreComponentMetadata(component_id, dict.get());
-  SendWebContentsTitleHelper(FormatCacheKey(component_id), dict.Pass(),
+  SendWebContentsTitleHelper(FormatCacheKey(component_id), std::move(dict),
                              render_process_id, render_frame_id);
 }
 
@@ -276,20 +281,15 @@ class MediaInternals::MediaInternalsUMAHandler {
 
  private:
   struct PipelineInfo {
-    media::PipelineStatus last_pipeline_status;
-    bool has_audio;
-    bool has_video;
-    bool video_dds;
-    bool video_decoder_changed;
+    bool has_pipeline = false;
+    media::PipelineStatus last_pipeline_status = media::PIPELINE_OK;
+    bool has_audio = false;
+    bool has_video = false;
+    bool video_dds = false;
+    bool video_decoder_changed = false;
     std::string audio_codec_name;
     std::string video_codec_name;
     std::string video_decoder;
-    PipelineInfo()
-        : last_pipeline_status(media::PIPELINE_OK),
-          has_audio(false),
-          has_video(false),
-          video_dds(false),
-          video_decoder_changed(false) {}
   };
 
   // Helper function to report PipelineStatus associated with a player to UMA.
@@ -319,6 +319,10 @@ void MediaInternals::MediaInternalsUMAHandler::SavePlayerState(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   PlayerInfoMap& player_info = renderer_info_[render_process_id];
   switch (event.type) {
+    case media::MediaLogEvent::PIPELINE_STATE_CHANGED: {
+      player_info[event.id].has_pipeline = true;
+      break;
+    }
     case media::MediaLogEvent::PIPELINE_ERROR: {
       int status;
       event.params.GetInteger("pipeline_error", &status);
@@ -399,6 +403,12 @@ std::string MediaInternals::MediaInternalsUMAHandler::GetUMANameForAVStream(
 void MediaInternals::MediaInternalsUMAHandler::ReportUMAForPipelineStatus(
     const PipelineInfo& player_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  // Don't log pipeline status for players which don't actually have a pipeline;
+  // e.g., the Android MediaSourcePlayer implementation.
+  if (!player_info.has_pipeline)
+    return;
+
   if (player_info.has_video && player_info.has_audio) {
     base::LinearHistogram::FactoryGet(
         GetUMANameForAVStream(player_info), 1, media::PIPELINE_STATUS_MAX,
@@ -584,6 +594,10 @@ void MediaInternals::UpdateVideoCaptureDeviceCapabilities(
 
   for (const auto& video_capture_device_info : video_capture_device_infos) {
     base::ListValue* format_list = new base::ListValue();
+    // TODO(nisse): Representing format information as a string, to be
+    // parsed by the javascript handler, is brittle. Consider passing
+    // a list of mappings instead.
+
     for (const auto& format : video_capture_device_info.supported_formats)
       format_list->AppendString(media::VideoCaptureFormat::ToString(format));
 

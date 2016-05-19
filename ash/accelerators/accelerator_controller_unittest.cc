@@ -151,10 +151,6 @@ class DummyImeControlDelegate : public ImeControlDelegate {
   int handle_switch_ime_count() const {
     return handle_switch_ime_count_;
   }
-  ui::Accelerator RemapAccelerator(
-      const ui::Accelerator& accelerator) override {
-    return ui::Accelerator(accelerator);
-  }
 
  private:
   int handle_next_ime_count_;
@@ -650,8 +646,9 @@ TEST_F(AcceleratorControllerTest, CenterWindowAccelerator) {
 
   // Center the window using accelerator.
   GetController()->PerformActionIfEnabled(WINDOW_POSITION_CENTER);
-  gfx::Rect work_area =
-      Shell::GetScreen()->GetDisplayNearestWindow(window.get()).work_area();
+  gfx::Rect work_area = gfx::Screen::GetScreen()
+                            ->GetDisplayNearestWindow(window.get())
+                            .work_area();
   gfx::Rect bounds = window->GetBoundsInScreen();
   EXPECT_NEAR(bounds.x() - work_area.x(),
               work_area.right() - bounds.right(),
@@ -868,7 +865,7 @@ TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
   {
     TestVolumeControlDelegate* delegate = new TestVolumeControlDelegate;
     ash::Shell::GetInstance()->system_tray_delegate()->SetVolumeControlDelegate(
-        scoped_ptr<VolumeControlDelegate>(delegate).Pass());
+        scoped_ptr<VolumeControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_volume_mute_count());
     EXPECT_TRUE(ProcessInController(volume_mute));
     EXPECT_EQ(1, delegate->handle_volume_mute_count());
@@ -890,7 +887,7 @@ TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
     DummyBrightnessControlDelegate* delegate =
         new DummyBrightnessControlDelegate;
     GetController()->SetBrightnessControlDelegate(
-        scoped_ptr<BrightnessControlDelegate>(delegate).Pass());
+        scoped_ptr<BrightnessControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_brightness_down_count());
     EXPECT_TRUE(ProcessInController(brightness_down));
     EXPECT_EQ(1, delegate->handle_brightness_down_count());
@@ -912,7 +909,7 @@ TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
     DummyKeyboardBrightnessControlDelegate* delegate =
         new DummyKeyboardBrightnessControlDelegate;
     GetController()->SetKeyboardBrightnessControlDelegate(
-        scoped_ptr<KeyboardBrightnessControlDelegate>(delegate).Pass());
+        scoped_ptr<KeyboardBrightnessControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_keyboard_brightness_down_count());
     EXPECT_TRUE(ProcessInController(alt_brightness_down));
     EXPECT_EQ(1, delegate->handle_keyboard_brightness_down_count());
@@ -1054,7 +1051,7 @@ TEST_F(AcceleratorControllerTest, ImeGlobalAccelerators) {
     EXPECT_FALSE(ProcessInController(hangul));
     DummyImeControlDelegate* delegate = new DummyImeControlDelegate;
     GetController()->SetImeControlDelegate(
-        scoped_ptr<ImeControlDelegate>(delegate).Pass());
+        scoped_ptr<ImeControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_previous_ime_count());
     EXPECT_TRUE(ProcessInController(control_space_down));
     EXPECT_EQ(1, delegate->handle_previous_ime_count());
@@ -1084,7 +1081,7 @@ TEST_F(AcceleratorControllerTest, ImeGlobalAccelerators) {
 
     DummyImeControlDelegate* delegate = new DummyImeControlDelegate;
     GetController()->SetImeControlDelegate(
-        scoped_ptr<ImeControlDelegate>(delegate).Pass());
+        scoped_ptr<ImeControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_next_ime_count());
     EXPECT_FALSE(ProcessInController(shift_alt_press));
     EXPECT_TRUE(ProcessInController(shift_alt));
@@ -1146,7 +1143,7 @@ TEST_F(AcceleratorControllerTest, ImeGlobalAccelerators) {
 
     DummyImeControlDelegate* delegate = new DummyImeControlDelegate;
     GetController()->SetImeControlDelegate(
-        scoped_ptr<ImeControlDelegate>(delegate).Pass());
+        scoped_ptr<ImeControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_next_ime_count());
     EXPECT_FALSE(ProcessInController(shift_alt_press));
     EXPECT_TRUE(ProcessInController(shift_alt));
@@ -1192,7 +1189,7 @@ TEST_F(AcceleratorControllerTest, ImeGlobalAcceleratorsWorkaround139556) {
 TEST_F(AcceleratorControllerTest, ImeGlobalAcceleratorsNoConflict) {
   DummyImeControlDelegate* delegate = new DummyImeControlDelegate;
   GetController()->SetImeControlDelegate(
-      scoped_ptr<ImeControlDelegate>(delegate).Pass());
+      scoped_ptr<ImeControlDelegate>(delegate));
   ui::test::EventGenerator& generator = GetEventGenerator();
 
   // Correct sequence of a conflicting accelerator must not trigger next IME.
@@ -1408,7 +1405,7 @@ TEST_F(AcceleratorControllerTest, DisallowedAtModalWindow) {
     DummyBrightnessControlDelegate* delegate =
         new DummyBrightnessControlDelegate;
     GetController()->SetBrightnessControlDelegate(
-        scoped_ptr<BrightnessControlDelegate>(delegate).Pass());
+        scoped_ptr<BrightnessControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_brightness_down_count());
     EXPECT_TRUE(ProcessInController(brightness_down));
     EXPECT_EQ(1, delegate->handle_brightness_down_count());
@@ -1428,7 +1425,7 @@ TEST_F(AcceleratorControllerTest, DisallowedAtModalWindow) {
     EXPECT_TRUE(ProcessInController(volume_up));
     TestVolumeControlDelegate* delegate = new TestVolumeControlDelegate;
     ash::Shell::GetInstance()->system_tray_delegate()->SetVolumeControlDelegate(
-        scoped_ptr<VolumeControlDelegate>(delegate).Pass());
+        scoped_ptr<VolumeControlDelegate>(delegate));
     EXPECT_EQ(0, delegate->handle_volume_mute_count());
     EXPECT_TRUE(ProcessInController(volume_mute));
     EXPECT_EQ(1, delegate->handle_volume_mute_count());
@@ -1495,7 +1492,7 @@ class DeprecatedAcceleratorTester : public AcceleratorControllerTest {
     // For testing the deprecated and new IME shortcuts.
     DummyImeControlDelegate* delegate = new DummyImeControlDelegate;
     GetController()->SetImeControlDelegate(
-        scoped_ptr<ImeControlDelegate>(delegate).Pass());
+        scoped_ptr<ImeControlDelegate>(delegate));
   }
 
   ui::Accelerator CreateAccelerator(const AcceleratorData& data) const {
@@ -1522,7 +1519,8 @@ class DeprecatedAcceleratorTester : public AcceleratorControllerTest {
   }
 
   void RemoveAllNotifications() const {
-    message_center()->RemoveAllNotifications(false);
+    message_center()->RemoveAllNotifications(
+        false /* by_user */, message_center::MessageCenter::RemoveType::ALL);
   }
 
   message_center::MessageCenter* message_center() const {

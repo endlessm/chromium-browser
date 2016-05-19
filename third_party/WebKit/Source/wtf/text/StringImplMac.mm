@@ -18,7 +18,6 @@
  *
  */
 
-#include "config.h"
 #include "wtf/text/StringImpl.h"
 
 #import <CoreFoundation/CFBase.h>
@@ -45,4 +44,4 @@ StringImpl::operator NSString *()
     return HardAutorelease(createCFString().leakRef());
 }
 
-}
+} // namespace WTF

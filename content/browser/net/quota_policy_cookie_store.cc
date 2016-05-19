@@ -6,7 +6,6 @@
 
 #include <list>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
@@ -155,7 +154,7 @@ net::CookieStore* CreateCookieStore(const CookieStoreConfig& config) {
     if (!background_task_runner.get()) {
       background_task_runner =
           BrowserThread::GetBlockingPool()->GetSequencedTaskRunner(
-              BrowserThread::GetBlockingPool()->GetSequenceToken());
+              base::SequencedWorkerPool::GetSequenceToken());
     }
 
     scoped_refptr<net::SQLitePersistentCookieStore> sqlite_store(
@@ -181,6 +180,9 @@ net::CookieStore* CreateCookieStore(const CookieStoreConfig& config) {
       cookie_monster->SetPersistSessionCookies(true);
     }
   }
+
+  if (!config.cookieable_schemes.empty())
+    cookie_monster->SetCookieableSchemes(config.cookieable_schemes);
 
   return cookie_monster;
 }

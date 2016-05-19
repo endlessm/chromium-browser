@@ -5,6 +5,8 @@
 #ifndef MEDIA_BASE_MOCK_FILTERS_H_
 #define MEDIA_BASE_MOCK_FILTERS_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/callback.h"
@@ -86,15 +88,17 @@ class MockVideoDecoder : public VideoDecoder {
 
   // VideoDecoder implementation.
   virtual std::string GetDisplayName() const;
-  MOCK_METHOD4(Initialize,
+  MOCK_METHOD5(Initialize,
                void(const VideoDecoderConfig& config,
                     bool low_delay,
+                    CdmContext* cdm_context,
                     const InitCB& init_cb,
                     const OutputCB& output_cb));
   MOCK_METHOD2(Decode, void(const scoped_refptr<DecoderBuffer>& buffer,
                             const DecodeCB&));
   MOCK_METHOD1(Reset, void(const base::Closure&));
   MOCK_CONST_METHOD0(HasAlpha, bool());
+  MOCK_CONST_METHOD0(CanReadWithoutStalling, bool());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockVideoDecoder);
@@ -107,8 +111,9 @@ class MockAudioDecoder : public AudioDecoder {
 
   // AudioDecoder implementation.
   virtual std::string GetDisplayName() const;
-  MOCK_METHOD3(Initialize,
+  MOCK_METHOD4(Initialize,
                void(const AudioDecoderConfig& config,
+                    CdmContext* cdm_context,
                     const InitCB& init_cb,
                     const OutputCB& output_cb));
   MOCK_METHOD2(Decode,
@@ -129,7 +134,7 @@ class MockVideoRenderer : public VideoRenderer {
   MOCK_METHOD9(Initialize,
                void(DemuxerStream* stream,
                     const PipelineStatusCB& init_cb,
-                    const SetCdmReadyCB& set_cdm_ready_cb,
+                    CdmContext* cdm_context,
                     const StatisticsCB& statistics_cb,
                     const BufferingStateCB& buffering_state_cb,
                     const base::Closure& ended_cb,
@@ -153,7 +158,7 @@ class MockAudioRenderer : public AudioRenderer {
   MOCK_METHOD8(Initialize,
                void(DemuxerStream* stream,
                     const PipelineStatusCB& init_cb,
-                    const SetCdmReadyCB& set_cdm_ready_cb,
+                    CdmContext* cdm_context,
                     const StatisticsCB& statistics_cb,
                     const BufferingStateCB& buffering_state_cb,
                     const base::Closure& ended_cb,

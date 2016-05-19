@@ -2,13 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("../../mojo_sdk.gni")
-
 # Depend on this target to use the types etc defined in the system without
 # linking against a specific implementation of the system. To link against a
 # particular implementation, use the :for_component or
 # :for_shared_library targets, depending on the type of target you are.
-mojo_sdk_source_set("system") {
+source_set("system") {
   sources = [
     "buffer.h",
     "core.h",
@@ -18,6 +16,7 @@ mojo_sdk_source_set("system") {
     "message_pipe.h",
     "system_export.h",
     "types.h",
+    "wait_set.h",
   ]
 }
 
@@ -39,7 +38,7 @@ group("for_shared_library") {
   ]
   if (is_component_build) {
     deps = [
-      "//third_party/mojo/src/mojo/edk/system",
+      "//mojo/edk/system",
     ]
   } else {
     deps = [
@@ -54,7 +53,7 @@ group("for_component") {
   ]
   if (is_component_build) {
     deps = [
-      "//third_party/mojo/src/mojo/edk/system",
+      "//mojo/edk/system",
     ]
   }
 }

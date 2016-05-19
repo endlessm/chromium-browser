@@ -129,6 +129,11 @@ bool QuicConnectionPeer::IsSilentCloseEnabled(QuicConnection* connection) {
 }
 
 // static
+bool QuicConnectionPeer::IsMultipathEnabled(QuicConnection* connection) {
+  return connection->multipath_enabled_;
+}
+
+// static
 void QuicConnectionPeer::SwapCrypters(QuicConnection* connection,
                                       QuicFramer* framer) {
   QuicFramerPeer::SwapCrypters(framer, &connection->framer_);
@@ -260,6 +265,11 @@ void QuicConnectionPeer::SetPacketsBetweenMtuProbes(QuicConnection* connection,
 void QuicConnectionPeer::SetNextMtuProbeAt(QuicConnection* connection,
                                            QuicPacketNumber number) {
   connection->next_mtu_probe_at_ = number;
+}
+
+// static
+void QuicConnectionPeer::EnableAckDecimation(QuicConnection* connection) {
+  connection->ack_decimation_enabled_ = true;
 }
 
 }  // namespace test

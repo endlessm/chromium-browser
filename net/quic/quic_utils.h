@@ -7,12 +7,26 @@
 #ifndef NET_QUIC_QUIC_UTILS_H_
 #define NET_QUIC_QUIC_UTILS_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
+#include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "net/base/int128.h"
 #include "net/base/net_export.h"
 #include "net/quic/quic_protocol.h"
+
+#ifdef _MSC_VER
+// MSVC 2013 and prior don't have alignof or aligned(); they have __alignof and
+// a __declspec instead.
+#define QUIC_ALIGN_OF __alignof
+#define QUIC_ALIGNED(X) __declspec(align(X))
+#else
+#define QUIC_ALIGN_OF alignof
+#define QUIC_ALIGNED(X) __attribute__((aligned(X)))
+#endif  // _MSC_VER
 
 namespace net {
 
@@ -25,7 +39,7 @@ class NET_EXPORT_PRIVATE QuicUtils {
 
   // Returns the 64 bit FNV1a hash of the data.  See
   // http://www.isthe.com/chongo/tech/comp/fnv/index.html#FNV-param
-  static uint64 FNV1a_64_Hash(const char* data, int len);
+  static uint64_t FNV1a_64_Hash(const char* data, int len);
 
   // returns the 128 bit FNV1a hash of the data.  See
   // http://www.isthe.com/chongo/tech/comp/fnv/index.html#FNV-param
@@ -37,10 +51,6 @@ class NET_EXPORT_PRIVATE QuicUtils {
                                     int len1,
                                     const char* data2,
                                     int len2);
-
-  // returns the 128 bit FNV1a hash of the |data|, starting with the
-  // previous hash.
-  static uint128 IncrementalHash(uint128 hash, const char* data, size_t len);
 
   // FindMutualTag sets |out_result| to the first tag in the priority list that
   // is also in the other list and returns true. If there is no intersection it
@@ -59,7 +69,7 @@ class NET_EXPORT_PRIVATE QuicUtils {
 
   // SerializeUint128 writes the first 96 bits of |v| in little-endian form
   // to |out|.
-  static void SerializeUint128Short(uint128 v, uint8* out);
+  static void SerializeUint128Short(uint128 v, uint8_t* out);
 
   // Returns the name of the QuicRstStreamErrorCode as a char*
   static const char* StreamErrorToString(QuicRstStreamErrorCode error);
@@ -95,7 +105,30 @@ class NET_EXPORT_PRIVATE QuicUtils {
     return reinterpret_cast<char*>(data);
   }
 
-  static QuicPriority HighestPriority();
+  // Deletes all the sub-frames contained in |frames|.
+  static void DeleteFrames(QuicFrames* frames);
+
+  // Deletes all the QuicStreamFrames for the specified |stream_id|.
+  static void RemoveFramesForStream(QuicFrames* frames, QuicStreamId stream_id);
+
+  // Deletes and clears all the frames and the packet from serialized packet.
+  static void ClearSerializedPacket(SerializedPacket* serialized_packet);
+
+  // Returns a packed representation of |path_id| and |packet_number| in which
+  // the highest byte is set to |path_id| and the lower 7 bytes are the lower
+  // 7 bytes of |packet_number|.
+  static uint64_t PackPathIdAndPacketNumber(QuicPathId path_id,
+                                            QuicPacketNumber packet_number);
+
+  // Allocates a new char[] of size |packet.encrypted_length| and copies in
+  // |packet.encrypted_buffer|.
+  static char* CopyBuffer(const SerializedPacket& packet);
+
+  // Determines and returns change type of address change from |old_address| to
+  // |new_address|.
+  static PeerAddressChangeType DetermineAddressChangeType(
+      const IPEndPoint& old_address,
+      const IPEndPoint& new_address);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(QuicUtils);

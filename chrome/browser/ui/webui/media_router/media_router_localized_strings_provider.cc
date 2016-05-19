@@ -15,6 +15,8 @@ const char kLocalizedStringsFile[] = "strings.js";
 
 void AddMediaRouterStrings(content::WebUIDataSource* html_source) {
   html_source->AddLocalizedString("mediaRouterTitle", IDS_MEDIA_ROUTER_TITLE);
+  html_source->AddLocalizedString("learnMoreText",
+                                  IDS_MEDIA_ROUTER_LEARN_MORE);
 }
 
 void AddRouteDetailsStrings(content::WebUIDataSource* html_source) {
@@ -22,6 +24,8 @@ void AddRouteDetailsStrings(content::WebUIDataSource* html_source) {
       IDS_MEDIA_ROUTER_CASTING_ACTIVITY_STATUS);
   html_source->AddLocalizedString("stopCastingButton",
       IDS_MEDIA_ROUTER_STOP_CASTING_BUTTON);
+  html_source->AddLocalizedString("startCastingButton",
+                                  IDS_MEDIA_ROUTER_START_CASTING_BUTTON);
 }
 
 void AddIssuesStrings(content::WebUIDataSource* html_source) {
@@ -29,13 +33,27 @@ void AddIssuesStrings(content::WebUIDataSource* html_source) {
                                   IDS_MEDIA_ROUTER_DISMISS_BUTTON);
   html_source->AddLocalizedString("issueHeader",
                                   IDS_MEDIA_ROUTER_ISSUE_HEADER);
-  html_source->AddLocalizedString("learnMoreButton",
-                                  IDS_MEDIA_ROUTER_LEARN_MORE_BUTTON);
 }
 
 void AddMediaRouterContainerStrings(content::WebUIDataSource* html_source) {
+  html_source->AddLocalizedString("firstRunFlowButton",
+                                  IDS_MEDIA_ROUTER_FIRST_RUN_FLOW_BUTTON);
+  html_source->AddLocalizedString("firstRunFlowText",
+                                  IDS_MEDIA_ROUTER_FIRST_RUN_FLOW_TEXT);
+  html_source->AddLocalizedString("firstRunFlowTitle",
+                                  IDS_MEDIA_ROUTER_FIRST_RUN_FLOW_TITLE);
+#if defined(GOOGLE_CHROME_BUILD)
+  html_source->AddLocalizedString("firstRunFlowCloudPrefText",
+      IDS_MEDIA_ROUTER_FIRST_RUN_FLOW_CLOUD_PREF_TEXT);
+#endif  // defined(GOOGLE_CHROME_BUILD)
+  html_source->AddLocalizedString("autoCastMode",
+                                  IDS_MEDIA_ROUTER_AUTO_CAST_MODE);
   html_source->AddLocalizedString("deviceMissing",
                                   IDS_MEDIA_ROUTER_DEVICE_MISSING);
+  html_source->AddLocalizedString("searchInputLabel",
+                                  IDS_MEDIA_ROUTER_SEARCH_LABEL);
+  html_source->AddLocalizedString("searchNoMatches",
+                                  IDS_MEDIA_ROUTER_SEARCH_NO_MATCHES);
   html_source->AddLocalizedString("selectCastModeHeader",
       IDS_MEDIA_ROUTER_SELECT_CAST_MODE_HEADER);
   html_source->AddLocalizedString("shareYourScreenSubheading",

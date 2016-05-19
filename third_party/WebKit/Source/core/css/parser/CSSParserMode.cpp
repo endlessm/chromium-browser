@@ -24,7 +24,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/parser/CSSParserMode.h"
 
 #include "core/dom/Document.h"
@@ -46,7 +45,7 @@ CSSParserContext::CSSParserContext(const Document& document, UseCounter* useCoun
     : m_baseURL(baseURL.isNull() ? document.baseURL() : baseURL)
     , m_charset(charset)
     , m_mode(document.inQuirksMode() ? HTMLQuirksMode : HTMLStandardMode)
-    , m_referrer(m_baseURL.strippedForUseAsReferrer(), document.referrerPolicy())
+    , m_referrer(m_baseURL.strippedForUseAsReferrer(), document.getReferrerPolicy())
     , m_isHTMLDocument(document.isHTMLDocument())
     , m_useLegacyBackgroundSizeShorthandBehavior(document.settings() ? document.settings()->useLegacyBackgroundSizeShorthandBehavior() : false)
     , m_shouldCheckContentSecurityPolicy(DoNotCheckContentSecurityPolicy)

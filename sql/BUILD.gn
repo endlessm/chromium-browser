@@ -8,6 +8,8 @@ component("sql") {
   sources = [
     "connection.cc",
     "connection.h",
+    "connection_memory_dump_provider.cc",
+    "connection_memory_dump_provider.h",
     "error_delegate_util.cc",
     "error_delegate_util.h",
     "init_status.h",
@@ -30,8 +32,8 @@ component("sql") {
 
   deps = [
     "//base",
-    "//third_party/sqlite",
     "//base/third_party/dynamic_annotations",
+    "//third_party/sqlite",
   ]
 }
 
@@ -46,8 +48,10 @@ source_set("test_support") {
     "test/test_helpers.h",
   ]
 
-  deps = [
+  public_deps = [
     ":sql",
+  ]
+  deps = [
     "//base",
     "//testing/gtest",
     "//third_party/sqlite",
@@ -62,15 +66,6 @@ source_set("redirection_header") {
 
   sources = [
     "correct_sql_test_base.h",
-  ]
-}
-
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("sql_unittests_run") {
-  testonly = true
-  deps = [
-    ":sql_unittests",
   ]
 }
 
@@ -100,10 +95,9 @@ test("sql_unittests") {
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
-    ":sql",
     ":redirection_header",
+    ":sql",
     ":test_support",
-    "//base/allocator",
     "//base/test:test_support",
     "//testing/gtest",
     "//third_party/sqlite",

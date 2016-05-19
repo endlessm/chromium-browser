@@ -18,12 +18,11 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLSummaryElement.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/HTMLNames.h"
-#include "core/dom/shadow/ComposedTreeTraversal.h"
+#include "core/dom/shadow/FlatTreeTraversal.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/events/KeyboardEvent.h"
 #include "core/html/HTMLContentElement.h"
@@ -149,4 +148,4 @@ bool HTMLSummaryElement::willRespondToMouseClickEvents()
     return HTMLElement::willRespondToMouseClickEvents();
 }
 
-}
+} // namespace blink

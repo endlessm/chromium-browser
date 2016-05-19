@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_PUSH_MESSAGING_PUSH_MESSAGING_PERMISSION_CONTEXT_H_
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "chrome/browser/permissions/permission_context_base.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 
@@ -29,7 +30,6 @@ class PushMessagingPermissionContext : public PermissionContextBase {
                         const PermissionRequestID& id,
                         const GURL& requesting_origin,
                         const GURL& embedding_origin,
-                        bool user_gesture,
                         const BrowserPermissionCallback& callback) override;
   bool IsRestrictedToSecureOrigins() const override;
 
@@ -38,8 +38,7 @@ class PushMessagingPermissionContext : public PermissionContextBase {
                            DecidePermission);
   FRIEND_TEST_ALL_PREFIXES(PushMessagingPermissionContextTest,
                            DecidePushPermission);
-  FRIEND_TEST_ALL_PREFIXES(PushMessagingPermissionContextTest,
-                           InsecureOrigin);
+  FRIEND_TEST_ALL_PREFIXES(PushMessagingPermissionContextTest, InsecureOrigin);
 
   // Used to decide the permission for push, once the permission for
   // Notification has been granted/denied.

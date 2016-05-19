@@ -14,16 +14,17 @@
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/autofill/core/common/password_form_generation_data.h"
 #include "components/autofill/core/common/password_generation_util.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "google_apis/gaia/gaia_urls.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebFormElement.h"
 #include "third_party/WebKit/public/web/WebInputElement.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -50,34 +51,44 @@ bool GetAccountCreationPasswordFields(
         passwords->push_back(*input_element);
     }
   }
-
-  // This may be too lenient, but we assume that any form with at least three
-  // input elements where at least one of them is a password is an account
-  // creation form.
-  if (!passwords->empty() && num_input_elements >= 3) {
-    // We trim |passwords| because occasionally there are forms where the
-    // security question answers are put in password fields and we don't want
-    // to fill those.
-    if (passwords->size() > 2)
-      passwords->resize(2);
-
-    return true;
-  }
-
-  return false;
+  return !passwords->empty();
 }
 
 bool ContainsURL(const std::vector<GURL>& urls, const GURL& url) {
   return std::find(urls.begin(), urls.end(), url) != urls.end();
 }
 
-bool ContainsForm(const std::vector<FormData>& forms,
-                  const PasswordForm& form) {
+const PasswordFormGenerationData* FindFormGenerationData(
+    const std::vector<PasswordFormGenerationData>& forms,
+    const PasswordForm& form) {
   for (const auto& form_it : forms) {
-    if (form_it.SameFormAs(form.form_data))
-      return true;
+    if (form_it.name == form.form_data.name && form_it.action == form.action)
+      return &form_it;
   }
-  return false;
+  return nullptr;
+}
+
+// This function returns a vector of password fields into which Chrome should
+// fill the generated password. It assumes that |field_data| describes the field
+// where Chrome shows the password generation prompt. It returns no more
+// than 2 elements.
+std::vector<blink::WebInputElement> FindPasswordElementsForGeneration(
+    const std::vector<blink::WebInputElement>& all_password_elements,
+    const base::string16& field_name) {
+  auto iter =
+      std::find_if(all_password_elements.begin(), all_password_elements.end(),
+                   [&field_name](const blink::WebInputElement& input) {
+                     return input.nameForAutofill() == field_name;
+                   });
+  std::vector<blink::WebInputElement> passwords;
+
+  // We copy not more than 2 fields because occasionally there are forms where
+  // the security question answers are put in password fields and we don't want
+  // to fill those.
+  for (; iter != all_password_elements.end() && passwords.size() < 2; ++iter) {
+    passwords.push_back(*iter);
+  }
+  return passwords;
 }
 
 void CopyElementValueToOtherInputElements(
@@ -102,6 +113,9 @@ PasswordGenerationAgent::AccountCreationFormData::AccountCreationFormData(
     : form(password_form),
       password_elements(passwords) {}
 
+PasswordGenerationAgent::AccountCreationFormData::AccountCreationFormData(
+    const AccountCreationFormData& other) = default;
+
 PasswordGenerationAgent::AccountCreationFormData::~AccountCreationFormData() {}
 
 PasswordGenerationAgent::PasswordGenerationAgent(
@@ -109,6 +123,7 @@ PasswordGenerationAgent::PasswordGenerationAgent(
     PasswordAutofillAgent* password_agent)
     : content::RenderFrameObserver(render_frame),
       password_is_generated_(false),
+      is_manually_triggered_(false),
       password_edited_(false),
       generation_popup_shown_(false),
       editing_popup_shown_(false),
@@ -240,8 +255,10 @@ bool PasswordGenerationAgent::OnMessageReceived(const IPC::Message& message) {
                         OnFormNotBlacklisted)
     IPC_MESSAGE_HANDLER(AutofillMsg_GeneratedPasswordAccepted,
                         OnPasswordAccepted)
-    IPC_MESSAGE_HANDLER(AutofillMsg_AccountCreationFormsDetected,
-                        OnAccountCreationFormsDetected)
+    IPC_MESSAGE_HANDLER(AutofillMsg_FoundFormsEligibleForGeneration,
+                        OnFormsEligibleForGenerationFound);
+    IPC_MESSAGE_HANDLER(AutofillMsg_UserTriggeredGeneratePassword,
+                        OnUserTriggeredGeneratePassword);
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -271,10 +288,10 @@ void PasswordGenerationAgent::OnPasswordAccepted(
   }
 }
 
-void PasswordGenerationAgent::OnAccountCreationFormsDetected(
-    const std::vector<FormData>& forms) {
-  generation_enabled_forms_.insert(
-      generation_enabled_forms_.end(), forms.begin(), forms.end());
+void PasswordGenerationAgent::OnFormsEligibleForGenerationFound(
+    const std::vector<autofill::PasswordFormGenerationData>& forms) {
+  generation_enabled_forms_.insert(generation_enabled_forms_.end(),
+                                   forms.begin(), forms.end());
   DetermineGenerationElement();
 }
 
@@ -296,6 +313,7 @@ void PasswordGenerationAgent::DetermineGenerationElement() {
   // (e.g. password saving is disabled).
   for (auto& possible_form_data : possible_account_creation_forms_) {
     PasswordForm* possible_password_form = possible_form_data.form.get();
+    const PasswordFormGenerationData* generation_data = nullptr;
     if (base::CommandLine::ForCurrentProcess()->HasSwitch(
             switches::kLocalHeuristicsOnlyForPasswordGeneration)) {
       VLOG(2) << "Bypassing additional checks.";
@@ -304,24 +322,37 @@ void PasswordGenerationAgent::DetermineGenerationElement() {
       VLOG(2) << "Have not received confirmation that password form isn't "
                << "blacklisted";
       continue;
-    } else if (!ContainsForm(generation_enabled_forms_,
-                             *possible_password_form)) {
-      if (AutocompleteAttributesSetForGeneration(*possible_password_form)) {
-        VLOG(2) << "Ignoring lack of Autofill signal due to Autocomplete "
-                << "attributes";
-        password_generation::LogPasswordGenerationEvent(
-            password_generation::AUTOCOMPLETE_ATTRIBUTES_ENABLED_GENERATION);
-      } else {
-        VLOG(2) << "Have not received confirmation from Autofill that form is "
-                << "used for account creation";
-        continue;
+    } else {
+      generation_data = FindFormGenerationData(generation_enabled_forms_,
+                                               *possible_password_form);
+      if (!generation_data) {
+        if (AutocompleteAttributesSetForGeneration(*possible_password_form)) {
+          VLOG(2) << "Ignoring lack of Autofill signal due to Autocomplete "
+                  << "attributes";
+          password_generation::LogPasswordGenerationEvent(
+              password_generation::AUTOCOMPLETE_ATTRIBUTES_ENABLED_GENERATION);
+        } else {
+          VLOG(2)
+              << "Have not received confirmation from Autofill that form is "
+              << "used for account creation";
+          continue;
+        }
       }
     }
 
     VLOG(2) << "Password generation eligible form found";
-    generation_form_data_.reset(
-        new AccountCreationFormData(possible_form_data.form,
-                                    possible_form_data.password_elements));
+    std::vector<blink::WebInputElement> password_elements =
+        generation_data ? FindPasswordElementsForGeneration(
+                              possible_form_data.password_elements,
+                              generation_data->generation_field.name)
+                        : possible_form_data.password_elements;
+    if (password_elements.empty()) {
+      // It might be if JavaScript changes field names.
+      VLOG(2) << "Fields for generation are not found";
+      return;
+    }
+    generation_form_data_.reset(new AccountCreationFormData(
+        possible_form_data.form, std::move(password_elements)));
     generation_element_ = generation_form_data_->password_elements[0];
     generation_element_.setAttribute("aria-autocomplete", "list");
     password_generation::LogPasswordGenerationEvent(
@@ -411,34 +442,58 @@ bool PasswordGenerationAgent::TextDidChangeInTextField(
 }
 
 void PasswordGenerationAgent::ShowGenerationPopup() {
-  gfx::RectF bounding_box_scaled = form_util::GetScaledBoundingBox(
-      render_frame()->GetRenderView()->GetWebView()->pageScaleFactor(),
-      &generation_element_);
-
   Send(new AutofillHostMsg_ShowPasswordGenerationPopup(
       routing_id(),
-      bounding_box_scaled,
+      render_frame()->GetRenderView()->ElementBoundsInWindow(
+          generation_element_),
       generation_element_.maxLength(),
+      generation_element_.nameForAutofill(),
+      is_manually_triggered_,
       *generation_form_data_->form));
-
   generation_popup_shown_ = true;
 }
 
 void PasswordGenerationAgent::ShowEditingPopup() {
-  gfx::RectF bounding_box_scaled = form_util::GetScaledBoundingBox(
-      render_frame()->GetRenderView()->GetWebView()->pageScaleFactor(),
-      &generation_element_);
-
   Send(new AutofillHostMsg_ShowPasswordEditingPopup(
-      routing_id(),
-      bounding_box_scaled,
-      *generation_form_data_->form));
-
+           routing_id(),
+           render_frame()->GetRenderView()->ElementBoundsInWindow(
+               generation_element_),
+           *generation_form_data_->form));
   editing_popup_shown_ = true;
 }
 
 void PasswordGenerationAgent::HidePopup() {
   Send(new AutofillHostMsg_HidePasswordGenerationPopup(routing_id()));
+}
+
+void PasswordGenerationAgent::OnUserTriggeredGeneratePassword() {
+  blink::WebDocument doc = render_frame()->GetWebFrame()->document();
+  if (doc.isNull())
+    return;
+
+  blink::WebElement focused_element = doc.focusedElement();
+  const blink::WebInputElement* element = toWebInputElement(&focused_element);
+  if (!element || !element->isPasswordField())
+    return;
+
+  blink::WebFormElement form = element->form();
+  if (form.isNull())
+    return;
+
+  scoped_ptr<PasswordForm> password_form(
+      CreatePasswordFormFromWebForm(form, nullptr, nullptr));
+  if (!password_form)
+    return;
+
+  generation_element_ = *element;
+  std::vector<blink::WebInputElement> password_elements;
+  GetAccountCreationPasswordFields(form, &password_elements);
+  password_elements = FindPasswordElementsForGeneration(
+      password_elements, element->nameForAutofill());
+  generation_form_data_.reset(new AccountCreationFormData(
+      make_linked_ptr(password_form.release()), password_elements));
+  is_manually_triggered_ = true;
+  ShowGenerationPopup();
 }
 
 }  // namespace autofill

@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/geometry/FloatPoint.h"
 
 #include <ApplicationServices/ApplicationServices.h>
@@ -40,4 +39,4 @@ FloatPoint::operator CGPoint() const
     return CGPointMake(m_x, m_y);
 }
 
-}
+} // namespace blink

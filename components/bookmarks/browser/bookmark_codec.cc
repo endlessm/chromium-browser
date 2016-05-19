@@ -4,6 +4,8 @@
 
 #include "components/bookmarks/browser/bookmark_codec.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/json/json_string_value_serializer.h"
@@ -19,24 +21,25 @@ using base::Time;
 
 namespace bookmarks {
 
-const char* BookmarkCodec::kRootsKey = "roots";
-const char* BookmarkCodec::kRootFolderNameKey = "bookmark_bar";
-const char* BookmarkCodec::kOtherBookmarkFolderNameKey = "other";
+const char BookmarkCodec::kRootsKey[] = "roots";
+const char BookmarkCodec::kRootFolderNameKey[] = "bookmark_bar";
+const char BookmarkCodec::kOtherBookmarkFolderNameKey[] = "other";
 // The value is left as 'synced' for historical reasons.
-const char* BookmarkCodec::kMobileBookmarkFolderNameKey = "synced";
-const char* BookmarkCodec::kVersionKey = "version";
-const char* BookmarkCodec::kChecksumKey = "checksum";
-const char* BookmarkCodec::kIdKey = "id";
-const char* BookmarkCodec::kTypeKey = "type";
-const char* BookmarkCodec::kNameKey = "name";
-const char* BookmarkCodec::kDateAddedKey = "date_added";
-const char* BookmarkCodec::kURLKey = "url";
-const char* BookmarkCodec::kDateModifiedKey = "date_modified";
-const char* BookmarkCodec::kChildrenKey = "children";
-const char* BookmarkCodec::kMetaInfo = "meta_info";
-const char* BookmarkCodec::kSyncTransactionVersion = "sync_transaction_version";
-const char* BookmarkCodec::kTypeURL = "url";
-const char* BookmarkCodec::kTypeFolder = "folder";
+const char BookmarkCodec::kMobileBookmarkFolderNameKey[] = "synced";
+const char BookmarkCodec::kVersionKey[] = "version";
+const char BookmarkCodec::kChecksumKey[] = "checksum";
+const char BookmarkCodec::kIdKey[] = "id";
+const char BookmarkCodec::kTypeKey[] = "type";
+const char BookmarkCodec::kNameKey[] = "name";
+const char BookmarkCodec::kDateAddedKey[] = "date_added";
+const char BookmarkCodec::kURLKey[] = "url";
+const char BookmarkCodec::kDateModifiedKey[] = "date_modified";
+const char BookmarkCodec::kChildrenKey[] = "children";
+const char BookmarkCodec::kMetaInfo[] = "meta_info";
+const char BookmarkCodec::kSyncTransactionVersion[] =
+    "sync_transaction_version";
+const char BookmarkCodec::kTypeURL[] = "url";
+const char BookmarkCodec::kTypeFolder[] = "folder";
 
 // Current version of the file.
 static const int kCurrentVersion = 1;

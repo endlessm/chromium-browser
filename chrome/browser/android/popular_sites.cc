@@ -4,13 +4,14 @@
 
 #include "chrome/browser/android/popular_sites.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task_runner_util.h"
@@ -24,6 +25,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"
@@ -37,7 +39,7 @@ namespace {
 const char kPopularSitesURLFormat[] = "https://www.gstatic.com/chrome/ntp/%s";
 const char kPopularSitesServerFilenameFormat[] = "suggested_sites_%s_%s.json";
 const char kPopularSitesDefaultCountryCode[] = "DEFAULT";
-const char kPopularSitesDefaultVersion[] = "3";
+const char kPopularSitesDefaultVersion[] = "5";
 const char kPopularSitesLocalFilename[] = "suggested_sites.json";
 const int kPopularSitesRedownloadIntervalHours = 24;
 
@@ -172,7 +174,7 @@ scoped_ptr<std::vector<PopularSites::Site>> ReadAndParseJsonFile(
                                         GURL(thumbnail_url)));
   }
 
-  return sites.Pass();
+  return sites;
 }
 
 }  // namespace

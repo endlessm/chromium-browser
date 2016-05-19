@@ -4,6 +4,8 @@
 
 #include "sync/api/entity_data.h"
 
+#include <algorithm>
+
 #include "base/logging.h"
 
 namespace syncer_v2 {
@@ -12,7 +14,7 @@ EntityData::EntityData() {}
 EntityData::~EntityData() {}
 
 void EntityData::Swap(EntityData* other) {
-  server_id.swap(other->server_id);
+  id.swap(other->id);
   client_tag_hash.swap(other->client_tag_hash);
   non_unique_name.swap(other->non_unique_name);
 
@@ -23,6 +25,12 @@ void EntityData::Swap(EntityData* other) {
 
   parent_id.swap(other->parent_id);
   unique_position.Swap(&other->unique_position);
+}
+
+EntityDataPtr EntityData::PassToPtr() {
+  EntityDataPtr target;
+  target.swap_value(this);
+  return target;
 }
 
 void EntityDataTraits::SwapValue(EntityData* dest, EntityData* src) {

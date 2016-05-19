@@ -28,13 +28,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/graphics/UnacceleratedImageBufferSurface.h"
 
-#include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkDevice.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "wtf/PassRefPtr.h"
+
+class SkCanvas;
 
 namespace blink {
 
@@ -64,7 +63,7 @@ bool UnacceleratedImageBufferSurface::isValid() const
     return m_surface;
 }
 
-PassRefPtr<SkImage> UnacceleratedImageBufferSurface::newImageSnapshot(AccelerationHint)
+PassRefPtr<SkImage> UnacceleratedImageBufferSurface::newImageSnapshot(AccelerationHint, SnapshotReason)
 {
     return adoptRef(m_surface->newImageSnapshot());
 }

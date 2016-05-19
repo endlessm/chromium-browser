@@ -21,25 +21,34 @@ enum class WebBluetoothError {
     ServiceNoLongerExists,
     CharacteristicNoLongerExists,
     // NetworkError:
-    GATTOperationInProgress,
-    GATTNotPaired,
-    DeviceNoLongerInRange,
-    ConnectUnknownError,
     ConnectAlreadyInProgress,
-    ConnectUnknownFailure,
-    ConnectAuthFailed,
+    ConnectAttributeLengthInvalid,
     ConnectAuthCanceled,
+    ConnectAuthFailed,
     ConnectAuthRejected,
     ConnectAuthTimeout,
+    ConnectConnectionCongested,
+    ConnectInsufficientEncryption,
+    ConnectOffsetInvalid,
+    ConnectReadNotPermitted,
+    ConnectRequestNotSupported,
+    ConnectUnknownError,
+    ConnectUnknownFailure,
     ConnectUnsupportedDevice,
+    ConnectWriteNotPermitted,
+    DeviceNoLongerInRange,
+    GATTNotPaired,
+    GATTOperationInProgress,
     UntranslatedConnectErrorCode,
     // NotFoundError:
     NoBluetoothAdapter,
     ChosenDeviceVanished,
     ChooserCancelled,
+    ChooserDisabled,
     ChooserDeniedPermission,
     ServiceNotFound,
     CharacteristicNotFound,
+    NoCharacteristicsFound,
     // NotSupportedError:
     GATTUnknownError,
     GATTUnknownFailure,
@@ -48,10 +57,16 @@ enum class WebBluetoothError {
     GATTUntranslatedErrorCode,
     // SecurityError:
     GATTNotAuthorized,
+    BlacklistedCharacteristicUUID,
+    BlacklistedRead,
+    BlacklistedWrite,
+    NotAllowedToAccessService,
+    RequestDeviceWithBlacklistedUUID,
+    RequestDeviceWithUniqueOrigin,
     RequestDeviceWithoutFrame,
     // SyntaxError:
 
-    ENUM_MAX_VALUE = GATTNotAuthorized,
+    ENUM_MAX_VALUE = RequestDeviceWithoutFrame,
 };
 
 } // namespace blink

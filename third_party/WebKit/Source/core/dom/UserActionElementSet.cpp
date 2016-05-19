@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/UserActionElementSet.h"
 
 #include "core/dom/Element.h"
@@ -125,4 +124,4 @@ DEFINE_TRACE(UserActionElementSet)
 #endif
 }
 
-}
+} // namespace blink

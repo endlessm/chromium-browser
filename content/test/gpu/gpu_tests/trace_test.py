@@ -7,8 +7,7 @@ import page_sets
 
 from telemetry.page import page_test
 from telemetry.timeline import model as model_module
-from telemetry.timeline import tracing_category_filter
-from telemetry.timeline import tracing_options
+from telemetry.timeline import tracing_config
 
 TOPLEVEL_GL_CATEGORY = 'gpu_toplevel'
 TOPLEVEL_SERVICE_CATEGORY = 'disabled-by-default-gpu.service'
@@ -23,6 +22,16 @@ test_harness_script = r"""
   domAutomationController.setAutomationId = function(id) {}
 
   domAutomationController.send = function(msg) {
+    // Issue a read pixel to synchronize the gpu process to ensure
+    // the asynchronous category enabling is finished.
+    var canvas = document.createElement("canvas")
+    canvas.width = 1;
+    canvas.height = 1;
+    var gl = canvas.getContext("webgl");
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    var id = new Uint8Array(4);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, id);
+
     domAutomationController._finished = true;
   }
 
@@ -35,7 +44,7 @@ class TraceValidatorBase(gpu_test_base.ValidatorBase):
     raise NotImplementedError("GetCategoryName() Not implemented!")
 
   def ValidateAndMeasurePage(self, page, tab, results):
-    timeline_data = tab.browser.platform.tracing_controller.Stop()
+    timeline_data = tab.browser.platform.tracing_controller.StopTracing()
     timeline_model = model_module.TimelineModel(timeline_data)
 
     category_name = self.GetCategoryName()
@@ -52,11 +61,11 @@ class TraceValidatorBase(gpu_test_base.ValidatorBase):
     options.AppendExtraBrowserArgs('--enable-logging')
 
   def WillNavigateToPage(self, page, tab):
-    cat_string = ','.join(TOPLEVEL_CATEGORIES)
-    cat_filter = tracing_category_filter.TracingCategoryFilter(cat_string)
-    options = tracing_options.TracingOptions()
-    options.enable_chrome_trace = True
-    tab.browser.platform.tracing_controller.Start(options, cat_filter, 60)
+    config = tracing_config.TracingConfig()
+    for cat in TOPLEVEL_CATEGORIES:
+      config.tracing_category_filter.AddDisabledByDefault(cat)
+    config.enable_chrome_trace = True
+    tab.browser.platform.tracing_controller.StartTracing(config, 60)
 
   def _FormatException(self, category):
     return 'Trace markers for GPU category was not found: %s' % category

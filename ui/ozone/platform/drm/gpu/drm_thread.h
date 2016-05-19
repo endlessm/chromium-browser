@@ -5,6 +5,9 @@
 #ifndef UI_OZONE_PLATFORM_DRM_GPU_DRM_THREAD_H_
 #define UI_OZONE_PLATFORM_DRM_GPU_DRM_THREAD_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
@@ -56,6 +59,8 @@ class DrmThread : public base::Thread {
                     gfx::BufferUsage usage,
                     scoped_refptr<GbmBuffer>* buffer);
 
+  void GetScanoutFormats(gfx::AcceleratedWidget widget,
+                         std::vector<gfx::BufferFormat>* scanout_formats);
   void SchedulePageFlip(gfx::AcceleratedWidget widget,
                         const std::vector<OverlayPlane>& planes,
                         const SwapCompletionCallback& callback);

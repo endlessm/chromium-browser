@@ -8,6 +8,8 @@
 #include "platform/geometry/DoubleSize.h"
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/IntPoint.h"
+#include "wtf/Allocator.h"
+#include "wtf/Forward.h"
 #include <algorithm>
 
 namespace blink {
@@ -15,6 +17,7 @@ namespace blink {
 class LayoutPoint;
 
 class PLATFORM_EXPORT DoublePoint {
+    DISALLOW_NEW();
 public:
     DoublePoint()
         : m_x(0)
@@ -96,6 +99,10 @@ public:
         return DoublePoint(m_x * scale, m_y * scale);
     }
 
+#ifndef NDEBUG
+    String toString() const;
+#endif
+
 private:
     double m_x, m_y;
 };
@@ -169,6 +176,6 @@ inline DoubleSize toDoubleSize(const DoublePoint& a)
     return DoubleSize(a.x(), a.y());
 }
 
-}
+} // namespace blink
 
 #endif

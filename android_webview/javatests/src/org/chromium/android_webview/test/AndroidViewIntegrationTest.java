@@ -4,7 +4,6 @@
 
 package org.chromium.android_webview.test;
 
-import android.graphics.Color;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
@@ -16,7 +15,6 @@ import org.chromium.android_webview.AwLayoutSizer;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.GraphicsTestUtils;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.ui.gfx.DeviceDisplayInfo;
 
@@ -300,8 +298,6 @@ public class AndroidViewIntegrationTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
-    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
-    @ParameterizedTest.Set
     public void testViewIsNotBlankInWrapContentsMode() throws Throwable {
         final TestAwContentsClient contentsClient = new TestAwContentsClient();
         final AwTestContainerView testContainerView =
@@ -324,7 +320,7 @@ public class AndroidViewIntegrationTest extends AwTestBase {
                 mOnContentSizeChangedHelper, expectedWidthCss, expectedHeightCss, false);
 
         GraphicsTestUtils.pollForBackgroundColor(
-                testContainerView.getAwContents(), Color.rgb(0x22, 0x77, 0x88));
+                testContainerView.getAwContents(), 0xFF227788);
     }
 
     @SmallTest

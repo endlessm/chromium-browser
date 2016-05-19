@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebPerformance.h"
 
 #include "core/timing/Performance.h"
@@ -184,6 +183,11 @@ double WebPerformance::firstTextPaint() const
 double WebPerformance::firstImagePaint() const
 {
     return millisecondsToSeconds(m_private->timing()->firstImagePaint());
+}
+
+double WebPerformance::firstContentfulPaint() const
+{
+    return millisecondsToSeconds(m_private->timing()->firstContentfulPaint());
 }
 
 WebPerformance::WebPerformance(const PassRefPtrWillBeRawPtr<Performance>& performance)

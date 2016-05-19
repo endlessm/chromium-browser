@@ -180,7 +180,7 @@ ChromeLauncherAppMenuItems AppWindowLauncherItemController::GetApplicationList(
         index == 0 /* has_leading_separator */));
     ++index;
   }
-  return items.Pass();
+  return items;
 }
 
 ash::ShelfItemDelegate::PerformedAction
@@ -245,7 +245,11 @@ ash::ShelfMenuModel* AppWindowLauncherItemController::CreateApplicationMenu(
 bool AppWindowLauncherItemController::IsDraggable() {
   if (type() == TYPE_APP_PANEL)
     return true;
-  return launcher_controller()->CanPin() ? true : false;
+  return CanPin();
+}
+
+bool AppWindowLauncherItemController::CanPin() const {
+  return launcher_controller()->CanPin(app_id());
 }
 
 bool AppWindowLauncherItemController::ShouldShowTooltip() {

@@ -21,11 +21,15 @@ void HpackStaticTable::Initialize(const HpackStaticEntry* static_entry_table,
   int total_insertions = 0;
   for (const HpackStaticEntry* it = static_entry_table;
        it != static_entry_table + static_entry_count; ++it) {
-    static_entries_.push_back(HpackEntry(StringPiece(it->name, it->name_len),
-                                         StringPiece(it->value, it->value_len),
-                                         true,  // is_static
-                                         total_insertions));
-    CHECK(static_index_.insert(&static_entries_.back()).second);
+    static_entries_.push_back(
+        HpackEntry(base::StringPiece(it->name, it->name_len),
+                   base::StringPiece(it->value, it->value_len),
+                   true,  // is_static
+                   total_insertions));
+    HpackEntry* entry = &static_entries_.back();
+    CHECK(static_index_.insert(entry).second);
+    // Multiple static entries may have the same name, so inserts may fail.
+    static_name_index_.insert(make_pair(entry->name(), entry));
 
     ++total_insertions;
   }

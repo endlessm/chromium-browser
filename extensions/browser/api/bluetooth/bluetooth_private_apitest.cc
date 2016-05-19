@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
 #include "device/bluetooth/test/mock_bluetooth_device.h"
@@ -107,9 +110,9 @@ class BluetoothPrivateApiTest : public ExtensionApiTest {
         bt_private::OnPairing::Create(pairing_event);
     scoped_ptr<Event> event(new Event(events::BLUETOOTH_PRIVATE_ON_PAIRING,
                                       bt_private::OnPairing::kEventName,
-                                      args.Pass()));
-    EventRouter::Get(browser()->profile())->DispatchEventToExtension(
-        kTestExtensionId, event.Pass());
+                                      std::move(args)));
+    EventRouter::Get(browser()->profile())
+        ->DispatchEventToExtension(kTestExtensionId, std::move(event));
   }
 
   void DispatchAuthorizePairingEvent() {
@@ -133,7 +136,7 @@ class BluetoothPrivateApiTest : public ExtensionApiTest {
     auto session_ptr = scoped_ptr<NiceMock<MockBluetoothDiscoverySession>>(
         mock_discovery_session_);
 
-    callback.Run(session_ptr.Pass());
+    callback.Run(std::move(session_ptr));
   }
 
  protected:

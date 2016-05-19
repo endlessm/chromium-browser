@@ -5,7 +5,7 @@
 #ifndef COMPONENTS_METRICS_NET_NETWORK_METRICS_PROVIDER_H_
 #define COMPONENTS_METRICS_NET_NETWORK_METRICS_PROVIDER_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/metrics/metrics_provider.h"
@@ -29,7 +29,7 @@ class NetworkMetricsProvider
 
  private:
   // MetricsProvider:
-  void OnDidCreateMetricsLog() override;
+  void ProvideGeneralMetrics(ChromeUserMetricsExtension* uma_proto) override;
   void ProvideSystemProfileMetrics(SystemProfileProto* system_profile) override;
 
   // ConnectionTypeObserver:

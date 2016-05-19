@@ -4,22 +4,35 @@
 
 #include "content/browser/memory/memory_message_filter.h"
 
-#include "content/browser/memory/memory_pressure_controller.h"
+#include "content/browser/memory/memory_pressure_controller_impl.h"
 #include "content/common/memory_messages.h"
 
 namespace content {
 
-MemoryMessageFilter::MemoryMessageFilter()
-    : BrowserMessageFilter(MemoryMsgStart) {}
+MemoryMessageFilter::MemoryMessageFilter(
+    const BrowserChildProcessHost* child_process_host,
+    ProcessType process_type)
+    : BrowserMessageFilter(MemoryMsgStart),
+      process_host_(child_process_host),
+      process_type_(process_type) {
+  DCHECK_NE(process_type_, PROCESS_TYPE_RENDERER);
+}
+
+MemoryMessageFilter::MemoryMessageFilter(
+    const RenderProcessHost* render_process_host)
+    : BrowserMessageFilter(MemoryMsgStart),
+      process_host_(render_process_host),
+      process_type_(PROCESS_TYPE_RENDERER) {}
 
 MemoryMessageFilter::~MemoryMessageFilter() {}
 
 void MemoryMessageFilter::OnFilterAdded(IPC::Sender* sender) {
-  MemoryPressureController::GetInstance()->OnMemoryMessageFilterAdded(this);
+  MemoryPressureControllerImpl::GetInstance()->OnMemoryMessageFilterAdded(this);
 }
 
 void MemoryMessageFilter::OnChannelClosing() {
-  MemoryPressureController::GetInstance()->OnMemoryMessageFilterRemoved(this);
+  MemoryPressureControllerImpl::GetInstance()
+      ->OnMemoryMessageFilterRemoved(this);
 }
 
 bool MemoryMessageFilter::OnMessageReceived(const IPC::Message& message) {

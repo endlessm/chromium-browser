@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/events/WindowEventContext.h"
 
 #include "core/dom/Document.h"
@@ -64,4 +63,4 @@ DEFINE_TRACE(WindowEventContext)
     visitor->trace(m_target);
 }
 
-}
+} // namespace blink

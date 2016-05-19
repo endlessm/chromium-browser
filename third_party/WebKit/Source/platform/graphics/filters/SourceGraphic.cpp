@@ -18,8 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "platform/graphics/filters/SourceGraphic.h"
 
 #include "platform/graphics/filters/Filter.h"
@@ -42,12 +40,6 @@ SourceGraphic::~SourceGraphic()
 PassRefPtrWillBeRawPtr<SourceGraphic> SourceGraphic::create(Filter* filter)
 {
     return adoptRefWillBeNoop(new SourceGraphic(filter));
-}
-
-const AtomicString& SourceGraphic::effectName()
-{
-    DEFINE_STATIC_LOCAL(const AtomicString, s_effectName, ("SourceGraphic", AtomicString::ConstructFromLiteral));
-    return s_effectName;
 }
 
 FloatRect SourceGraphic::determineAbsolutePaintRect(const FloatRect& requestedRect)

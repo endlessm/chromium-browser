@@ -7,6 +7,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_snapshot_manager.h"
+#include "base/metrics/statistics_recorder.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/pickle.h"
 #include "base/values.h"
@@ -60,12 +61,16 @@ HistogramDeltaSerialization::~HistogramDeltaSerialization() {
 }
 
 void HistogramDeltaSerialization::PrepareAndSerializeDeltas(
-    std::vector<std::string>* serialized_deltas) {
+    std::vector<std::string>* serialized_deltas,
+    bool include_persistent) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   serialized_deltas_ = serialized_deltas;
   // Note: Before serializing, we set the kIPCSerializationSourceFlag for all
   // the histograms, so that the receiving process can distinguish them from the
   // local histograms.
   histogram_snapshot_manager_.PrepareDeltas(
+      StatisticsRecorder::begin(include_persistent), StatisticsRecorder::end(),
       Histogram::kIPCSerializationSourceFlag, Histogram::kNoFlags);
   serialized_deltas_ = NULL;
 }
@@ -84,6 +89,7 @@ void HistogramDeltaSerialization::DeserializeAndAddSamples(
 void HistogramDeltaSerialization::RecordDelta(
     const HistogramBase& histogram,
     const HistogramSamples& snapshot) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_NE(0, snapshot.TotalCount());
 
   Pickle pickle;
@@ -95,16 +101,22 @@ void HistogramDeltaSerialization::RecordDelta(
 
 void HistogramDeltaSerialization::InconsistencyDetected(
     HistogramBase::Inconsistency problem) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   inconsistencies_histogram_->Add(problem);
 }
 
 void HistogramDeltaSerialization::UniqueInconsistencyDetected(
     HistogramBase::Inconsistency problem) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   inconsistencies_unique_histogram_->Add(problem);
 }
 
 void HistogramDeltaSerialization::InconsistencyDetectedInLoggedCount(
     int amount) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   inconsistent_snapshot_histogram_->Add(std::abs(amount));
 }
 

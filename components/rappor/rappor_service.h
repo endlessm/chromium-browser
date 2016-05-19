@@ -5,13 +5,15 @@
 #ifndef COMPONENTS_RAPPOR_RAPPOR_SERVICE_H_
 #define COMPONENTS_RAPPOR_RAPPOR_SERVICE_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
 #include "components/metrics/daily_event.h"
@@ -34,7 +36,7 @@ class RapporReports;
 
 // This class provides an interface for recording samples for rappor metrics,
 // and periodically generates and uploads reports based on the collected data.
-class RapporService {
+class RapporService : public base::SupportsWeakPtr<RapporService> {
  public:
   // Constructs a RapporService.
   // Calling code is responsible for ensuring that the lifetime of

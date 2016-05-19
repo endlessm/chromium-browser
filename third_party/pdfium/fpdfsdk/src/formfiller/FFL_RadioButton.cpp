@@ -4,13 +4,11 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/formfiller/FormFiller.h"
-#include "../../include/formfiller/FFL_FormFiller.h"
-#include "../../include/formfiller/FFL_RadioButton.h"
-//#include "../include/FFL_Undo.h"
+#include "fpdfsdk/include/formfiller/FFL_RadioButton.h"
 
-/* ------------------------------- CFFL_RadioButton
- * ------------------------------- */
+#include "fpdfsdk/include/formfiller/FFL_FormFiller.h"
+#include "fpdfsdk/include/fsdk_mgr.h"
+#include "fpdfsdk/include/pdfwindow/PWL_SpecialButton.h"
 
 CFFL_RadioButton::CFFL_RadioButton(CPDFDoc_Environment* pApp,
                                    CPDFSDK_Annot* pWidget)
@@ -23,7 +21,6 @@ CPWL_Wnd* CFFL_RadioButton::NewPDFWindow(const PWL_CREATEPARAM& cp,
   CPWL_RadioButton* pWnd = new CPWL_RadioButton();
   pWnd->Create(cp);
 
-  ASSERT(m_pWidget != NULL);
   pWnd->SetCheck(m_pWidget->IsChecked());
 
   return pWnd;
@@ -48,10 +45,8 @@ FX_BOOL CFFL_RadioButton::OnChar(CPDFSDK_Annot* pAnnot,
     case FWL_VKEY_Return:
     case FWL_VKEY_Space: {
       CFFL_IFormFiller* pIFormFiller = m_pApp->GetIFormFiller();
-      ASSERT(pIFormFiller != NULL);
-
       CPDFSDK_PageView* pPageView = pAnnot->GetPageView();
-      ASSERT(pPageView != NULL);
+      ASSERT(pPageView);
 
       FX_BOOL bReset = FALSE;
       FX_BOOL bExit = FALSE;
@@ -95,8 +90,6 @@ FX_BOOL CFFL_RadioButton::OnLButtonUp(CPDFSDK_PageView* pPageView,
 }
 
 FX_BOOL CFFL_RadioButton::IsDataChanged(CPDFSDK_PageView* pPageView) {
-  ASSERT(m_pWidget != NULL);
-
   if (CPWL_RadioButton* pWnd =
           (CPWL_RadioButton*)GetPDFWindow(pPageView, FALSE)) {
     return pWnd->IsChecked() != m_pWidget->IsChecked();
@@ -106,16 +99,12 @@ FX_BOOL CFFL_RadioButton::IsDataChanged(CPDFSDK_PageView* pPageView) {
 }
 
 void CFFL_RadioButton::SaveData(CPDFSDK_PageView* pPageView) {
-  ASSERT(m_pWidget != NULL);
-
   if (CPWL_RadioButton* pWnd =
           (CPWL_RadioButton*)GetPDFWindow(pPageView, FALSE)) {
     FX_BOOL bNewChecked = pWnd->IsChecked();
 
     if (bNewChecked) {
       CPDF_FormField* pField = m_pWidget->GetFormField();
-      ASSERT(pField != NULL);
-
       for (int32_t i = 0, sz = pField->CountControls(); i < sz; i++) {
         if (CPDF_FormControl* pCtrl = pField->GetControl(i)) {
           if (pCtrl->IsChecked()) {

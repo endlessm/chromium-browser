@@ -4,7 +4,10 @@
 
 #include "media/capture/video/linux/video_capture_device_chromeos.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -56,8 +59,7 @@ class VideoCaptureDeviceChromeOS::ScreenObserverDelegate
 
   void AddObserverOnUIThread() {
     DCHECK(ui_task_runner_->BelongsToCurrentThread());
-    gfx::Screen* screen =
-        gfx::Screen::GetScreenByType(gfx::SCREEN_TYPE_ALTERNATE);
+    gfx::Screen* screen = gfx::Screen::GetScreen();
     if (screen) {
       screen->AddObserver(this);
       SendDisplayRotation(screen->GetPrimaryDisplay());
@@ -66,8 +68,7 @@ class VideoCaptureDeviceChromeOS::ScreenObserverDelegate
 
   void RemoveObserverOnUIThread() {
     DCHECK(ui_task_runner_->BelongsToCurrentThread());
-    gfx::Screen* screen =
-        gfx::Screen::GetScreenByType(gfx::SCREEN_TYPE_ALTERNATE);
+    gfx::Screen* screen = gfx::Screen::GetScreen();
     if (screen)
       screen->RemoveObserver(this);
   }

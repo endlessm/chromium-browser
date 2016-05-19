@@ -5,13 +5,15 @@
 #ifndef CHROME_BROWSER_PASSWORD_MANAGER_PASSWORD_STORE_PROXY_MAC_H_
 #define CHROME_BROWSER_PASSWORD_MANAGER_PASSWORD_STORE_PROXY_MAC_H_
 
+#include <string>
 #include <vector>
 
-#include "base/prefs/pref_member.h"
+#include "base/macros.h"
 #include "base/threading/thread.h"
 #include "components/password_manager/core/browser/keychain_migration_status_mac.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_member.h"
 
 namespace crypto {
 class AppleKeychain;
@@ -37,7 +39,7 @@ class PasswordStoreProxyMac : public password_manager::PasswordStore {
       PrefService* prefs);
 
   bool Init(const syncer::SyncableService::StartSyncFlare& flare) override;
-  void Shutdown() override;
+  void ShutdownOnUIThread() override;
   scoped_refptr<base::SingleThreadTaskRunner> GetBackgroundTaskRunner()
       override;
 
@@ -74,17 +76,22 @@ class PasswordStoreProxyMac : public password_manager::PasswordStore {
       const autofill::PasswordForm& form) override;
   password_manager::PasswordStoreChangeList RemoveLoginImpl(
       const autofill::PasswordForm& form) override;
+  password_manager::PasswordStoreChangeList RemoveLoginsByOriginAndTimeImpl(
+      const url::Origin& origin,
+      base::Time delete_begin,
+      base::Time delete_end) override;
   password_manager::PasswordStoreChangeList RemoveLoginsCreatedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
   password_manager::PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
+  password_manager::PasswordStoreChangeList DisableAutoSignInForAllLoginsImpl()
+      override;
   bool RemoveStatisticsCreatedBetweenImpl(base::Time delete_begin,
                                           base::Time delete_end) override;
   ScopedVector<autofill::PasswordForm> FillMatchingLogins(
-      const autofill::PasswordForm& form,
-      AuthorizationPromptPolicy prompt_policy) override;
+      const autofill::PasswordForm& form) override;
   bool FillAutofillableLogins(
       ScopedVector<autofill::PasswordForm>* forms) override;
   bool FillBlacklistLogins(
@@ -92,7 +99,7 @@ class PasswordStoreProxyMac : public password_manager::PasswordStore {
   void AddSiteStatsImpl(
       const password_manager::InteractionsStats& stats) override;
   void RemoveSiteStatsImpl(const GURL& origin_domain) override;
-  ScopedVector<password_manager::InteractionsStats> GetSiteStatsImpl(
+  std::vector<scoped_ptr<password_manager::InteractionsStats>> GetSiteStatsImpl(
       const GURL& origin_domain) override;
 
   scoped_refptr<PasswordStoreMac> password_store_mac_;

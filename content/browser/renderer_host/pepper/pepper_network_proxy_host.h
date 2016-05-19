@@ -5,10 +5,13 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_PEPPER_PEPPER_NETWORK_PROXY_HOST_H_
 #define CONTENT_BROWSER_RENDERER_HOST_PEPPER_PEPPER_NETWORK_PROXY_HOST_H_
 
+#include <stdint.h>
+
 #include <queue>
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/common/content_export.h"
 #include "net/proxy/proxy_service.h"
@@ -45,6 +48,7 @@ class CONTENT_EXPORT PepperNetworkProxyHost : public ppapi::host::ResourceHost {
   // DidGetUIThreadData, which sets allowed_ and proxy_service_.
   struct UIThreadData {
     UIThreadData();
+    UIThreadData(const UIThreadData& other);
     ~UIThreadData();
     bool is_allowed;
     scoped_refptr<net::URLRequestContextGetter> context_getter;

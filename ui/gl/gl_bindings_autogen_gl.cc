@@ -40,6 +40,7 @@ void DriverGL::InitializeStaticBindings() {
   fn.glBindFragDataLocationFn = 0;
   fn.glBindFragDataLocationIndexedFn = 0;
   fn.glBindFramebufferEXTFn = 0;
+  fn.glBindImageTextureEXTFn = 0;
   fn.glBindRenderbufferEXTFn = 0;
   fn.glBindSamplerFn = 0;
   fn.glBindTextureFn =
@@ -95,6 +96,7 @@ void DriverGL::InitializeStaticBindings() {
   fn.glCopyTexSubImage2DFn = reinterpret_cast<glCopyTexSubImage2DProc>(
       GetGLProcAddress("glCopyTexSubImage2D"));
   fn.glCopyTexSubImage3DFn = 0;
+  fn.glCoverageModulationNVFn = 0;
   fn.glCoverFillPathInstancedNVFn = 0;
   fn.glCoverFillPathNVFn = 0;
   fn.glCoverStrokePathInstancedNVFn = 0;
@@ -202,6 +204,7 @@ void DriverGL::InitializeStaticBindings() {
   fn.glGetFenceivNVFn = 0;
   fn.glGetFloatvFn =
       reinterpret_cast<glGetFloatvProc>(GetGLProcAddress("glGetFloatv"));
+  fn.glGetFragDataIndexFn = 0;
   fn.glGetFragDataLocationFn = 0;
   fn.glGetFramebufferAttachmentParameterivEXTFn = 0;
   fn.glGetGraphicsResetStatusARBFn = 0;
@@ -296,6 +299,7 @@ void DriverGL::InitializeStaticBindings() {
   fn.glMapBufferRangeFn = 0;
   fn.glMatrixLoadfEXTFn = 0;
   fn.glMatrixLoadIdentityEXTFn = 0;
+  fn.glMemoryBarrierEXTFn = 0;
   fn.glPathCommandsNVFn = 0;
   fn.glPathParameterfNVFn = 0;
   fn.glPathParameteriNVFn = 0;
@@ -481,6 +485,8 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
       extensions.find("GL_APPLE_fence ") != std::string::npos;
   ext.b_GL_APPLE_vertex_array_object =
       extensions.find("GL_APPLE_vertex_array_object ") != std::string::npos;
+  ext.b_GL_ARB_blend_func_extended =
+      extensions.find("GL_ARB_blend_func_extended ") != std::string::npos;
   ext.b_GL_ARB_draw_buffers =
       extensions.find("GL_ARB_draw_buffers ") != std::string::npos;
   ext.b_GL_ARB_draw_instanced =
@@ -497,6 +503,8 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
       extensions.find("GL_ARB_program_interface_query ") != std::string::npos;
   ext.b_GL_ARB_robustness =
       extensions.find("GL_ARB_robustness ") != std::string::npos;
+  ext.b_GL_ARB_shader_image_load_store =
+      extensions.find("GL_ARB_shader_image_load_store ") != std::string::npos;
   ext.b_GL_ARB_sync = extensions.find("GL_ARB_sync ") != std::string::npos;
   ext.b_GL_ARB_texture_storage =
       extensions.find("GL_ARB_texture_storage ") != std::string::npos;
@@ -509,6 +517,8 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
       std::string::npos;
   ext.b_GL_CHROMIUM_glgetstringi_hack =
       extensions.find("GL_CHROMIUM_glgetstringi_hack ") != std::string::npos;
+  ext.b_GL_EXT_blend_func_extended =
+      extensions.find("GL_EXT_blend_func_extended ") != std::string::npos;
   ext.b_GL_EXT_debug_marker =
       extensions.find("GL_EXT_debug_marker ") != std::string::npos;
   ext.b_GL_EXT_direct_state_access =
@@ -525,6 +535,8 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
       extensions.find("GL_EXT_framebuffer_multisample ") != std::string::npos;
   ext.b_GL_EXT_framebuffer_object =
       extensions.find("GL_EXT_framebuffer_object ") != std::string::npos;
+  ext.b_GL_EXT_gpu_shader4 =
+      extensions.find("GL_EXT_gpu_shader4 ") != std::string::npos;
   ext.b_GL_EXT_map_buffer_range =
       extensions.find("GL_EXT_map_buffer_range ") != std::string::npos;
   ext.b_GL_EXT_multisampled_render_to_texture =
@@ -534,10 +546,14 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
       extensions.find("GL_EXT_occlusion_query_boolean ") != std::string::npos;
   ext.b_GL_EXT_robustness =
       extensions.find("GL_EXT_robustness ") != std::string::npos;
+  ext.b_GL_EXT_shader_image_load_store =
+      extensions.find("GL_EXT_shader_image_load_store ") != std::string::npos;
   ext.b_GL_EXT_texture_storage =
       extensions.find("GL_EXT_texture_storage ") != std::string::npos;
   ext.b_GL_EXT_timer_query =
       extensions.find("GL_EXT_timer_query ") != std::string::npos;
+  ext.b_GL_EXT_unpack_subimage =
+      extensions.find("GL_EXT_unpack_subimage ") != std::string::npos;
   ext.b_GL_IMG_multisampled_render_to_texture =
       extensions.find("GL_IMG_multisampled_render_to_texture ") !=
       std::string::npos;
@@ -550,6 +566,8 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
   ext.b_GL_NV_blend_equation_advanced =
       extensions.find("GL_NV_blend_equation_advanced ") != std::string::npos;
   ext.b_GL_NV_fence = extensions.find("GL_NV_fence ") != std::string::npos;
+  ext.b_GL_NV_framebuffer_mixed_samples =
+      extensions.find("GL_NV_framebuffer_mixed_samples ") != std::string::npos;
   ext.b_GL_NV_path_rendering =
       extensions.find("GL_NV_path_rendering ") != std::string::npos;
   ext.b_GL_OES_EGL_image =
@@ -601,16 +619,23 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
   }
 
   debug_fn.glBindFragDataLocationFn = 0;
-  if (ver->IsAtLeastGL(3u, 0u)) {
+  if (ver->IsAtLeastGL(3u, 0u) || ext.b_GL_ARB_blend_func_extended) {
     fn.glBindFragDataLocationFn = reinterpret_cast<glBindFragDataLocationProc>(
         GetGLProcAddress("glBindFragDataLocation"));
+  } else if (ext.b_GL_EXT_gpu_shader4 || ext.b_GL_EXT_blend_func_extended) {
+    fn.glBindFragDataLocationFn = reinterpret_cast<glBindFragDataLocationProc>(
+        GetGLProcAddress("glBindFragDataLocationEXT"));
   }
 
   debug_fn.glBindFragDataLocationIndexedFn = 0;
-  if (ver->IsAtLeastGL(3u, 3u)) {
+  if (ver->IsAtLeastGL(3u, 3u) || ext.b_GL_ARB_blend_func_extended) {
     fn.glBindFragDataLocationIndexedFn =
         reinterpret_cast<glBindFragDataLocationIndexedProc>(
             GetGLProcAddress("glBindFragDataLocationIndexed"));
+  } else if (ext.b_GL_EXT_blend_func_extended) {
+    fn.glBindFragDataLocationIndexedFn =
+        reinterpret_cast<glBindFragDataLocationIndexedProc>(
+            GetGLProcAddress("glBindFragDataLocationIndexedEXT"));
   }
 
   debug_fn.glBindFramebufferEXTFn = 0;
@@ -620,6 +645,16 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
   } else if (ext.b_GL_EXT_framebuffer_object) {
     fn.glBindFramebufferEXTFn = reinterpret_cast<glBindFramebufferEXTProc>(
         GetGLProcAddress("glBindFramebufferEXT"));
+  }
+
+  debug_fn.glBindImageTextureEXTFn = 0;
+  if (ver->IsAtLeastGL(4u, 2u) || ver->IsAtLeastGLES(3u, 1u) ||
+      ext.b_GL_ARB_shader_image_load_store) {
+    fn.glBindImageTextureEXTFn = reinterpret_cast<glBindImageTextureEXTProc>(
+        GetGLProcAddress("glBindImageTexture"));
+  } else if (ext.b_GL_EXT_shader_image_load_store) {
+    fn.glBindImageTextureEXTFn = reinterpret_cast<glBindImageTextureEXTProc>(
+        GetGLProcAddress("glBindImageTextureEXT"));
   }
 
   debug_fn.glBindRenderbufferEXTFn = 0;
@@ -761,6 +796,12 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
   if (!ver->is_es || ver->IsAtLeastGLES(3u, 0u)) {
     fn.glCopyTexSubImage3DFn = reinterpret_cast<glCopyTexSubImage3DProc>(
         GetGLProcAddress("glCopyTexSubImage3D"));
+  }
+
+  debug_fn.glCoverageModulationNVFn = 0;
+  if (ext.b_GL_NV_framebuffer_mixed_samples) {
+    fn.glCoverageModulationNVFn = reinterpret_cast<glCoverageModulationNVProc>(
+        GetGLProcAddress("glCoverageModulationNV"));
   }
 
   debug_fn.glCoverFillPathInstancedNVFn = 0;
@@ -1157,6 +1198,15 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
         GetGLProcAddress("glGetFenceivNV"));
   }
 
+  debug_fn.glGetFragDataIndexFn = 0;
+  if (ver->IsAtLeastGL(3u, 3u) || ext.b_GL_ARB_blend_func_extended) {
+    fn.glGetFragDataIndexFn = reinterpret_cast<glGetFragDataIndexProc>(
+        GetGLProcAddress("glGetFragDataIndex"));
+  } else if (ext.b_GL_EXT_blend_func_extended) {
+    fn.glGetFragDataIndexFn = reinterpret_cast<glGetFragDataIndexProc>(
+        GetGLProcAddress("glGetFragDataIndexEXT"));
+  }
+
   debug_fn.glGetFragDataLocationFn = 0;
   if (ver->IsAtLeastGL(3u, 0u) || ver->IsAtLeastGLES(3u, 0u)) {
     fn.glGetFragDataLocationFn = reinterpret_cast<glGetFragDataLocationProc>(
@@ -1529,6 +1579,16 @@ void DriverGL::InitializeDynamicBindings(GLContext* context) {
     fn.glMatrixLoadIdentityEXTFn =
         reinterpret_cast<glMatrixLoadIdentityEXTProc>(
             GetGLProcAddress("glMatrixLoadIdentityEXT"));
+  }
+
+  debug_fn.glMemoryBarrierEXTFn = 0;
+  if (ver->IsAtLeastGL(4u, 2u) || ver->IsAtLeastGLES(3u, 1u) ||
+      ext.b_GL_ARB_shader_image_load_store) {
+    fn.glMemoryBarrierEXTFn = reinterpret_cast<glMemoryBarrierEXTProc>(
+        GetGLProcAddress("glMemoryBarrier"));
+  } else if (ext.b_GL_EXT_shader_image_load_store) {
+    fn.glMemoryBarrierEXTFn = reinterpret_cast<glMemoryBarrierEXTProc>(
+        GetGLProcAddress("glMemoryBarrierEXT"));
   }
 
   debug_fn.glPathCommandsNVFn = 0;
@@ -2070,6 +2130,21 @@ static void GL_BINDING_CALL Debug_glBindFramebufferEXT(GLenum target,
   g_driver_gl.debug_fn.glBindFramebufferEXTFn(target, framebuffer);
 }
 
+static void GL_BINDING_CALL Debug_glBindImageTextureEXT(GLuint index,
+                                                        GLuint texture,
+                                                        GLint level,
+                                                        GLboolean layered,
+                                                        GLint layer,
+                                                        GLenum access,
+                                                        GLint format) {
+  GL_SERVICE_LOG("glBindImageTextureEXT"
+                 << "(" << index << ", " << texture << ", " << level << ", "
+                 << GLEnums::GetStringBool(layered) << ", " << layer << ", "
+                 << GLEnums::GetStringEnum(access) << ", " << format << ")");
+  g_driver_gl.debug_fn.glBindImageTextureEXTFn(index, texture, level, layered,
+                                               layer, access, format);
+}
+
 static void GL_BINDING_CALL Debug_glBindRenderbufferEXT(GLenum target,
                                                         GLuint renderbuffer) {
   GL_SERVICE_LOG("glBindRenderbufferEXT"
@@ -2482,6 +2557,12 @@ static void GL_BINDING_CALL Debug_glCopyTexSubImage3D(GLenum target,
                  << ")");
   g_driver_gl.debug_fn.glCopyTexSubImage3DFn(target, level, xoffset, yoffset,
                                              zoffset, x, y, width, height);
+}
+
+static void GL_BINDING_CALL Debug_glCoverageModulationNV(GLenum components) {
+  GL_SERVICE_LOG("glCoverageModulationNV"
+                 << "(" << GLEnums::GetStringEnum(components) << ")");
+  g_driver_gl.debug_fn.glCoverageModulationNVFn(components);
 }
 
 static void GL_BINDING_CALL
@@ -3188,6 +3269,15 @@ static void GL_BINDING_CALL Debug_glGetFloatv(GLenum pname, GLfloat* params) {
   g_driver_gl.debug_fn.glGetFloatvFn(pname, params);
 }
 
+static GLint GL_BINDING_CALL Debug_glGetFragDataIndex(GLuint program,
+                                                      const char* name) {
+  GL_SERVICE_LOG("glGetFragDataIndex"
+                 << "(" << program << ", " << name << ")");
+  GLint result = g_driver_gl.debug_fn.glGetFragDataIndexFn(program, name);
+  GL_SERVICE_LOG("GL_RESULT: " << result);
+  return result;
+}
+
 static GLint GL_BINDING_CALL Debug_glGetFragDataLocation(GLuint program,
                                                          const char* name) {
   GL_SERVICE_LOG("glGetFragDataLocation"
@@ -3883,6 +3973,12 @@ static void GL_BINDING_CALL Debug_glMatrixLoadIdentityEXT(GLenum matrixMode) {
   GL_SERVICE_LOG("glMatrixLoadIdentityEXT"
                  << "(" << GLEnums::GetStringEnum(matrixMode) << ")");
   g_driver_gl.debug_fn.glMatrixLoadIdentityEXTFn(matrixMode);
+}
+
+static void GL_BINDING_CALL Debug_glMemoryBarrierEXT(GLbitfield barriers) {
+  GL_SERVICE_LOG("glMemoryBarrierEXT"
+                 << "(" << barriers << ")");
+  g_driver_gl.debug_fn.glMemoryBarrierEXTFn(barriers);
 }
 
 static void GL_BINDING_CALL Debug_glPathCommandsNV(GLuint path,
@@ -5125,6 +5221,10 @@ void DriverGL::InitializeDebugBindings() {
     debug_fn.glBindFramebufferEXTFn = fn.glBindFramebufferEXTFn;
     fn.glBindFramebufferEXTFn = Debug_glBindFramebufferEXT;
   }
+  if (!debug_fn.glBindImageTextureEXTFn) {
+    debug_fn.glBindImageTextureEXTFn = fn.glBindImageTextureEXTFn;
+    fn.glBindImageTextureEXTFn = Debug_glBindImageTextureEXT;
+  }
   if (!debug_fn.glBindRenderbufferEXTFn) {
     debug_fn.glBindRenderbufferEXTFn = fn.glBindRenderbufferEXTFn;
     fn.glBindRenderbufferEXTFn = Debug_glBindRenderbufferEXT;
@@ -5272,6 +5372,10 @@ void DriverGL::InitializeDebugBindings() {
   if (!debug_fn.glCopyTexSubImage3DFn) {
     debug_fn.glCopyTexSubImage3DFn = fn.glCopyTexSubImage3DFn;
     fn.glCopyTexSubImage3DFn = Debug_glCopyTexSubImage3D;
+  }
+  if (!debug_fn.glCoverageModulationNVFn) {
+    debug_fn.glCoverageModulationNVFn = fn.glCoverageModulationNVFn;
+    fn.glCoverageModulationNVFn = Debug_glCoverageModulationNV;
   }
   if (!debug_fn.glCoverFillPathInstancedNVFn) {
     debug_fn.glCoverFillPathInstancedNVFn = fn.glCoverFillPathInstancedNVFn;
@@ -5591,6 +5695,10 @@ void DriverGL::InitializeDebugBindings() {
     debug_fn.glGetFloatvFn = fn.glGetFloatvFn;
     fn.glGetFloatvFn = Debug_glGetFloatv;
   }
+  if (!debug_fn.glGetFragDataIndexFn) {
+    debug_fn.glGetFragDataIndexFn = fn.glGetFragDataIndexFn;
+    fn.glGetFragDataIndexFn = Debug_glGetFragDataIndex;
+  }
   if (!debug_fn.glGetFragDataLocationFn) {
     debug_fn.glGetFragDataLocationFn = fn.glGetFragDataLocationFn;
     fn.glGetFragDataLocationFn = Debug_glGetFragDataLocation;
@@ -5877,6 +5985,10 @@ void DriverGL::InitializeDebugBindings() {
   if (!debug_fn.glMatrixLoadIdentityEXTFn) {
     debug_fn.glMatrixLoadIdentityEXTFn = fn.glMatrixLoadIdentityEXTFn;
     fn.glMatrixLoadIdentityEXTFn = Debug_glMatrixLoadIdentityEXT;
+  }
+  if (!debug_fn.glMemoryBarrierEXTFn) {
+    debug_fn.glMemoryBarrierEXTFn = fn.glMemoryBarrierEXTFn;
+    fn.glMemoryBarrierEXTFn = Debug_glMemoryBarrierEXT;
   }
   if (!debug_fn.glPathCommandsNVFn) {
     debug_fn.glPathCommandsNVFn = fn.glPathCommandsNVFn;
@@ -6417,6 +6529,17 @@ void GLApiBase::glBindFramebufferEXTFn(GLenum target, GLuint framebuffer) {
   driver_->fn.glBindFramebufferEXTFn(target, framebuffer);
 }
 
+void GLApiBase::glBindImageTextureEXTFn(GLuint index,
+                                        GLuint texture,
+                                        GLint level,
+                                        GLboolean layered,
+                                        GLint layer,
+                                        GLenum access,
+                                        GLint format) {
+  driver_->fn.glBindImageTextureEXTFn(index, texture, level, layered, layer,
+                                      access, format);
+}
+
 void GLApiBase::glBindRenderbufferEXTFn(GLenum target, GLuint renderbuffer) {
   driver_->fn.glBindRenderbufferEXTFn(target, renderbuffer);
 }
@@ -6690,6 +6813,10 @@ void GLApiBase::glCopyTexSubImage3DFn(GLenum target,
                                       GLsizei height) {
   driver_->fn.glCopyTexSubImage3DFn(target, level, xoffset, yoffset, zoffset, x,
                                     y, width, height);
+}
+
+void GLApiBase::glCoverageModulationNVFn(GLenum components) {
+  driver_->fn.glCoverageModulationNVFn(components);
 }
 
 void GLApiBase::glCoverFillPathInstancedNVFn(GLsizei numPaths,
@@ -7103,6 +7230,10 @@ void GLApiBase::glGetFloatvFn(GLenum pname, GLfloat* params) {
   driver_->fn.glGetFloatvFn(pname, params);
 }
 
+GLint GLApiBase::glGetFragDataIndexFn(GLuint program, const char* name) {
+  return driver_->fn.glGetFragDataIndexFn(program, name);
+}
+
 GLint GLApiBase::glGetFragDataLocationFn(GLuint program, const char* name) {
   return driver_->fn.glGetFragDataLocationFn(program, name);
 }
@@ -7496,6 +7627,10 @@ void GLApiBase::glMatrixLoadfEXTFn(GLenum matrixMode, const GLfloat* m) {
 
 void GLApiBase::glMatrixLoadIdentityEXTFn(GLenum matrixMode) {
   driver_->fn.glMatrixLoadIdentityEXTFn(matrixMode);
+}
+
+void GLApiBase::glMemoryBarrierEXTFn(GLbitfield barriers) {
+  driver_->fn.glMemoryBarrierEXTFn(barriers);
 }
 
 void GLApiBase::glPathCommandsNVFn(GLuint path,
@@ -8293,6 +8428,18 @@ void TraceGLApi::glBindFramebufferEXTFn(GLenum target, GLuint framebuffer) {
   gl_api_->glBindFramebufferEXTFn(target, framebuffer);
 }
 
+void TraceGLApi::glBindImageTextureEXTFn(GLuint index,
+                                         GLuint texture,
+                                         GLint level,
+                                         GLboolean layered,
+                                         GLint layer,
+                                         GLenum access,
+                                         GLint format) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glBindImageTextureEXT")
+  gl_api_->glBindImageTextureEXTFn(index, texture, level, layered, layer,
+                                   access, format);
+}
+
 void TraceGLApi::glBindRenderbufferEXTFn(GLenum target, GLuint renderbuffer) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glBindRenderbufferEXT")
   gl_api_->glBindRenderbufferEXTFn(target, renderbuffer);
@@ -8604,6 +8751,11 @@ void TraceGLApi::glCopyTexSubImage3DFn(GLenum target,
   TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glCopyTexSubImage3D")
   gl_api_->glCopyTexSubImage3DFn(target, level, xoffset, yoffset, zoffset, x, y,
                                  width, height);
+}
+
+void TraceGLApi::glCoverageModulationNVFn(GLenum components) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glCoverageModulationNV")
+  gl_api_->glCoverageModulationNVFn(components);
 }
 
 void TraceGLApi::glCoverFillPathInstancedNVFn(GLsizei numPaths,
@@ -9104,6 +9256,11 @@ void TraceGLApi::glGetFloatvFn(GLenum pname, GLfloat* params) {
   gl_api_->glGetFloatvFn(pname, params);
 }
 
+GLint TraceGLApi::glGetFragDataIndexFn(GLuint program, const char* name) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glGetFragDataIndex")
+  return gl_api_->glGetFragDataIndexFn(program, name);
+}
+
 GLint TraceGLApi::glGetFragDataLocationFn(GLuint program, const char* name) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glGetFragDataLocation")
   return gl_api_->glGetFragDataLocationFn(program, name);
@@ -9571,6 +9728,11 @@ void TraceGLApi::glMatrixLoadfEXTFn(GLenum matrixMode, const GLfloat* m) {
 void TraceGLApi::glMatrixLoadIdentityEXTFn(GLenum matrixMode) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glMatrixLoadIdentityEXT")
   gl_api_->glMatrixLoadIdentityEXTFn(matrixMode);
+}
+
+void TraceGLApi::glMemoryBarrierEXTFn(GLbitfield barriers) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceGLAPI::glMemoryBarrierEXT")
+  gl_api_->glMemoryBarrierEXTFn(barriers);
 }
 
 void TraceGLApi::glPathCommandsNVFn(GLuint path,
@@ -10508,6 +10670,19 @@ void NoContextGLApi::glBindFramebufferEXTFn(GLenum target, GLuint framebuffer) {
       << "Trying to call glBindFramebufferEXT() without current GL context";
 }
 
+void NoContextGLApi::glBindImageTextureEXTFn(GLuint index,
+                                             GLuint texture,
+                                             GLint level,
+                                             GLboolean layered,
+                                             GLint layer,
+                                             GLenum access,
+                                             GLint format) {
+  NOTREACHED()
+      << "Trying to call glBindImageTextureEXT() without current GL context";
+  LOG(ERROR)
+      << "Trying to call glBindImageTextureEXT() without current GL context";
+}
+
 void NoContextGLApi::glBindRenderbufferEXTFn(GLenum target,
                                              GLuint renderbuffer) {
   NOTREACHED()
@@ -10845,6 +11020,13 @@ void NoContextGLApi::glCopyTexSubImage3DFn(GLenum target,
       << "Trying to call glCopyTexSubImage3D() without current GL context";
   LOG(ERROR)
       << "Trying to call glCopyTexSubImage3D() without current GL context";
+}
+
+void NoContextGLApi::glCoverageModulationNVFn(GLenum components) {
+  NOTREACHED()
+      << "Trying to call glCoverageModulationNV() without current GL context";
+  LOG(ERROR)
+      << "Trying to call glCoverageModulationNV() without current GL context";
 }
 
 void NoContextGLApi::glCoverFillPathInstancedNVFn(
@@ -11413,6 +11595,14 @@ void NoContextGLApi::glGetFenceivNVFn(GLuint fence,
 void NoContextGLApi::glGetFloatvFn(GLenum pname, GLfloat* params) {
   NOTREACHED() << "Trying to call glGetFloatv() without current GL context";
   LOG(ERROR) << "Trying to call glGetFloatv() without current GL context";
+}
+
+GLint NoContextGLApi::glGetFragDataIndexFn(GLuint program, const char* name) {
+  NOTREACHED()
+      << "Trying to call glGetFragDataIndex() without current GL context";
+  LOG(ERROR)
+      << "Trying to call glGetFragDataIndex() without current GL context";
+  return 0;
 }
 
 GLint NoContextGLApi::glGetFragDataLocationFn(GLuint program,
@@ -11986,6 +12176,13 @@ void NoContextGLApi::glMatrixLoadIdentityEXTFn(GLenum matrixMode) {
       << "Trying to call glMatrixLoadIdentityEXT() without current GL context";
   LOG(ERROR)
       << "Trying to call glMatrixLoadIdentityEXT() without current GL context";
+}
+
+void NoContextGLApi::glMemoryBarrierEXTFn(GLbitfield barriers) {
+  NOTREACHED()
+      << "Trying to call glMemoryBarrierEXT() without current GL context";
+  LOG(ERROR)
+      << "Trying to call glMemoryBarrierEXT() without current GL context";
 }
 
 void NoContextGLApi::glPathCommandsNVFn(GLuint path,

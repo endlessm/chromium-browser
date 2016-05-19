@@ -5,13 +5,12 @@
 #ifndef CONTENT_RENDERER_RESIZING_MODE_SELECTOR_H_
 #define CONTENT_RENDERER_RESIZING_MODE_SELECTOR_H_
 
-#include "base/basictypes.h"
-
-struct ViewMsg_Resize_Params;
+#include "base/macros.h"
 
 namespace content {
 
 class RenderWidget;
+struct ResizeParams;
 
 // Enables switching between two modes of resizing:
 // 1) The "normal" (asynchronous) resizing, which involves sending messages to
@@ -26,8 +25,7 @@ class ResizingModeSelector {
  public:
   ResizingModeSelector();
   bool NeverUsesSynchronousResize() const;
-  bool ShouldAbortOnResize(RenderWidget* widget,
-                           const ViewMsg_Resize_Params& params);
+  bool ShouldAbortOnResize(RenderWidget* widget, const ResizeParams& params);
 
   void set_is_synchronous_mode(bool mode);
   bool is_synchronous_mode() const;

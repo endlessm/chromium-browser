@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/app_list/app_context_menu_delegate.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow_delegate.h"
@@ -28,7 +29,7 @@ class ExtensionRegistry;
 
 namespace app_list {
 
-class AppContextMenu;
+class ExtensionAppContextMenu;
 
 class AppResult : public SearchResult,
                   public extensions::IconImage::Observer,
@@ -83,7 +84,7 @@ class AppResult : public SearchResult,
 
   bool is_platform_app_;
   scoped_ptr<extensions::IconImage> icon_;
-  scoped_ptr<AppContextMenu> context_menu_;
+  scoped_ptr<ExtensionAppContextMenu> context_menu_;
   scoped_ptr<ExtensionEnableFlow> extension_enable_flow_;
 
   extensions::ExtensionRegistry* extension_registry_;

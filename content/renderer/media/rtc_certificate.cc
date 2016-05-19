@@ -27,8 +27,8 @@ const blink::WebRTCKeyParams& RTCCertificate::keyParams() const {
   return key_params_;
 }
 
-double RTCCertificate::expires() const {
-  return static_cast<double>(certificate_->expires_timestamp_ns());
+uint64_t RTCCertificate::expires() const {
+  return certificate_->Expires();
 }
 
 const rtc::scoped_refptr<rtc::RTCCertificate>&

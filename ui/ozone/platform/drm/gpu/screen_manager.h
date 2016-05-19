@@ -5,12 +5,13 @@
 #ifndef UI_OZONE_PLATFORM_DRM_GPU_SCREEN_MANAGER_H_
 #define UI_OZONE_PLATFORM_DRM_GPU_SCREEN_MANAGER_H_
 
+#include <stdint.h>
+
 #include "base/containers/scoped_ptr_hash_map.h"
 #include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/ozone/ozone_export.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_controller.h"
 
 typedef struct _drmModeModeInfo drmModeModeInfo;
@@ -28,7 +29,7 @@ class DrmWindow;
 class ScanoutBufferGenerator;
 
 // Responsible for keeping track of active displays and configuring them.
-class OZONE_EXPORT ScreenManager {
+class ScreenManager {
  public:
   ScreenManager(ScanoutBufferGenerator* surface_generator);
   virtual ~ScreenManager();
@@ -79,8 +80,8 @@ class OZONE_EXPORT ScreenManager {
   void UpdateControllerToWindowMapping();
 
  private:
-  typedef ScopedVector<HardwareDisplayController> HardwareDisplayControllers;
-
+  typedef std::vector<scoped_ptr<HardwareDisplayController>>
+      HardwareDisplayControllers;
   typedef base::ScopedPtrHashMap<gfx::AcceleratedWidget, scoped_ptr<DrmWindow>>
       WidgetToWindowMap;
 

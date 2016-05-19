@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_APP_MODAL_VIEWS_JAVASCRIPT_APP_MODAL_DIALOG_VIEWS_H_
 #define COMPONENTS_APP_MODAL_VIEWS_JAVASCRIPT_APP_MODAL_DIALOG_VIEWS_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/app_modal/native_app_modal_dialog.h"
 #include "ui/views/window/dialog_delegate.h"
@@ -45,7 +46,7 @@ class JavaScriptAppModalDialogViews : public NativeAppModalDialog,
   ui::ModalType GetModalType() const override;
   views::View* GetContentsView() override;
   views::View* GetInitiallyFocusedView() override;
-  void OnClosed() override;
+  void WindowClosing() override;
   views::Widget* GetWidget() override;
   const views::Widget* GetWidget() const override;
 

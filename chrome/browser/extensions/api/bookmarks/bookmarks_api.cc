@@ -4,6 +4,9 @@
 
 #include "chrome/browser/extensions/api/bookmarks/bookmarks_api.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/i18n/file_util_icu.h"
@@ -11,7 +14,6 @@
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/sha1.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -19,6 +21,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_html_writer.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
@@ -39,6 +42,7 @@
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/bookmarks/managed/managed_bookmark_service.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_service.h"
@@ -47,10 +51,6 @@
 #include "extensions/browser/extension_function_dispatcher.h"
 #include "extensions/browser/notification_types.h"
 #include "ui/base/l10n/l10n_util.h"
-
-#if defined(OS_WIN)
-#include "ui/aura/remote_window_tree_host_win.h"
-#endif
 
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
@@ -116,7 +116,7 @@ ManagedBookmarkService* BookmarksFunction::GetManagedBookmarkService() {
 }
 
 bool BookmarksFunction::GetBookmarkIdAsInt64(const std::string& id_string,
-                                             int64* id) {
+                                             int64_t* id) {
   if (base::StringToInt64(id_string, id))
     return true;
 
@@ -126,7 +126,7 @@ bool BookmarksFunction::GetBookmarkIdAsInt64(const std::string& id_string,
 
 const BookmarkNode* BookmarksFunction::GetBookmarkNodeFromId(
     const std::string& id_string) {
-  int64 id;
+  int64_t id;
   if (!GetBookmarkIdAsInt64(id_string, &id))
     return NULL;
 
@@ -142,7 +142,7 @@ const BookmarkNode* BookmarksFunction::CreateBookmarkNode(
     BookmarkModel* model,
     const CreateDetails& details,
     const BookmarkNode::MetaInfoMap* meta_info) {
-  int64 parentId;
+  int64_t parentId;
 
   if (!details.parent_id.get()) {
     // Optional, default to "other bookmarks".
@@ -261,8 +261,8 @@ void BookmarkEventRouter::DispatchEvent(
     scoped_ptr<base::ListValue> event_args) {
   EventRouter* event_router = EventRouter::Get(browser_context_);
   if (event_router) {
-    event_router->BroadcastEvent(make_scoped_ptr(
-        new extensions::Event(histogram_value, event_name, event_args.Pass())));
+    event_router->BroadcastEvent(make_scoped_ptr(new extensions::Event(
+        histogram_value, event_name, std::move(event_args))));
   }
 }
 
@@ -569,12 +569,12 @@ bool BookmarksSearchFunction::RunOnReady() {
 
 // static
 bool BookmarksRemoveFunction::ExtractIds(const base::ListValue* args,
-                                         std::list<int64>* ids,
+                                         std::list<int64_t>* ids,
                                          bool* invalid_id) {
   std::string id_string;
   if (!args->GetString(0, &id_string))
     return false;
-  int64 id;
+  int64_t id;
   if (base::StringToInt64(id_string, &id))
     ids->push_back(id);
   else
@@ -590,7 +590,7 @@ bool BookmarksRemoveFunction::RunOnReady() {
       bookmarks::Remove::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  int64 id;
+  int64_t id;
   if (!GetBookmarkIdAsInt64(params->id, &id))
     return false;
 
@@ -628,7 +628,7 @@ bool BookmarksCreateFunction::RunOnReady() {
 
 // static
 bool BookmarksMoveFunction::ExtractIds(const base::ListValue* args,
-                                       std::list<int64>* ids,
+                                       std::list<int64_t>* ids,
                                        bool* invalid_id) {
   // For now, Move accepts ID parameters in the same way as an Update.
   return BookmarksUpdateFunction::ExtractIds(args, ids, invalid_id);
@@ -657,7 +657,7 @@ bool BookmarksMoveFunction::RunOnReady() {
     // Optional, defaults to current parent.
     parent = node->parent();
   } else {
-    int64 parentId;
+    int64_t parentId;
     if (!GetBookmarkIdAsInt64(*params->destination.parent_id, &parentId))
       return false;
 
@@ -689,7 +689,7 @@ bool BookmarksMoveFunction::RunOnReady() {
 
 // static
 bool BookmarksUpdateFunction::ExtractIds(const base::ListValue* args,
-                                         std::list<int64>* ids,
+                                         std::list<int64_t>* ids,
                                          bool* invalid_id) {
   // For now, Update accepts ID parameters in the same way as an Remove.
   return BookmarksRemoveFunction::ExtractIds(args, ids, invalid_id);
@@ -794,11 +794,6 @@ void BookmarksIOFunction::ShowSelectFileDialog(
   gfx::NativeWindow owning_window = web_contents ?
       platform_util::GetTopLevel(web_contents->GetNativeView())
           : NULL;
-#if defined(OS_WIN)
-  if (!owning_window &&
-      chrome::GetActiveDesktop() == chrome::HOST_DESKTOP_TYPE_ASH)
-    owning_window = aura::RemoteWindowTreeHostWin::Instance()->GetAshWindow();
-#endif
   // |web_contents| can be NULL (for background pages), which is fine. In such
   // a case if file-selection dialogs are forbidden by policy, we will not
   // show an InfoBar, which is better than letting one appear out of the blue.

@@ -46,14 +46,14 @@ void SkMatrixImageFilter::flatten(SkWriteBuffer& buffer) const {
 SkMatrixImageFilter::~SkMatrixImageFilter() {
 }
 
-bool SkMatrixImageFilter::onFilterImage(Proxy* proxy,
-                                        const SkBitmap& source,
-                                        const Context& ctx,
-                                        SkBitmap* result,
-                                        SkIPoint* offset) const {
+bool SkMatrixImageFilter::onFilterImageDeprecated(Proxy* proxy,
+                                                  const SkBitmap& source,
+                                                  const Context& ctx,
+                                                  SkBitmap* result,
+                                                  SkIPoint* offset) const {
     SkBitmap src = source;
     SkIPoint srcOffset = SkIPoint::Make(0, 0);
-    if (!this->filterInput(0, proxy, source, ctx, &src, &srcOffset)) {
+    if (!this->filterInputDeprecated(0, proxy, source, ctx, &src, &srcOffset)) {
         return false;
     }
 
@@ -97,30 +97,30 @@ void SkMatrixImageFilter::computeFastBounds(const SkRect& src, SkRect* dst) cons
         getInput(0)->computeFastBounds(src, &bounds);
     }
     fTransform.mapRect(dst, bounds);
-    dst->join(bounds);   // Work around for skia:3194
 }
 
-bool SkMatrixImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
-                                         SkIRect* dst) const {
-    SkMatrix transformInverse;
-    if (!fTransform.invert(&transformInverse)) {
-        return false;
-    }
+void SkMatrixImageFilter::onFilterNodeBounds(const SkIRect& src, const SkMatrix& ctm,
+                                             SkIRect* dst, MapDirection direction) const {
     SkMatrix matrix;
     if (!ctm.invert(&matrix)) {
-        return false;
+        *dst = src;
+        return;
     }
-    matrix.postConcat(transformInverse);
+    if (kForward_MapDirection == direction) {
+        matrix.postConcat(fTransform);
+    } else {
+        SkMatrix transformInverse;
+        if (!fTransform.invert(&transformInverse)) {
+            *dst = src;
+            return;
+        }
+        matrix.postConcat(transformInverse);
+    }
     matrix.postConcat(ctm);
     SkRect floatBounds;
     matrix.mapRect(&floatBounds, SkRect::Make(src));
     SkIRect bounds = floatBounds.roundOut();
-    if (getInput(0) && !getInput(0)->filterBounds(bounds, ctm, &bounds)) {
-        return false;
-    }
-
     *dst = bounds;
-    return true;
 }
 
 #ifndef SK_IGNORE_TO_STRING

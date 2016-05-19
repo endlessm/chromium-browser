@@ -5,8 +5,11 @@
 #ifndef REMOTING_HOST_CLIENT_SESSION_H_
 #define REMOTING_HOST_CLIENT_SESSION_H_
 
+#include <stdint.h>
+
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner_helpers.h"
@@ -14,9 +17,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "remoting/host/client_session_control.h"
-#include "remoting/host/gnubby_auth_handler.h"
 #include "remoting/host/host_extension_session_manager.h"
-#include "remoting/host/mouse_clamping_filter.h"
 #include "remoting/host/remote_input_filter.h"
 #include "remoting/protocol/clipboard_echo_filter.h"
 #include "remoting/protocol/clipboard_filter.h"
@@ -26,6 +27,7 @@
 #include "remoting/protocol/input_event_tracker.h"
 #include "remoting/protocol/input_filter.h"
 #include "remoting/protocol/input_stub.h"
+#include "remoting/protocol/mouse_input_filter.h"
 #include "remoting/protocol/pairing_registry.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 
@@ -41,7 +43,6 @@ class DesktopEnvironmentFactory;
 class InputInjector;
 class MouseShapePump;
 class ScreenControls;
-class VideoFramePump;
 
 // A ClientSession keeps a reference to a connection to a client, and maintains
 // per-client state.
@@ -57,9 +58,8 @@ class ClientSession
     // Called after authentication has started.
     virtual void OnSessionAuthenticating(ClientSession* client) = 0;
 
-    // Called after authentication has finished successfully. Returns true if
-    // the connection is allowed, or false otherwise.
-    virtual bool OnSessionAuthenticated(ClientSession* client) = 0;
+    // Called after authentication has finished successfully.
+    virtual void OnSessionAuthenticated(ClientSession* client) = 0;
 
     // Called after we've finished connecting all channels.
     virtual void OnSessionChannelsConnected(ClientSession* client) = 0;
@@ -85,19 +85,13 @@ class ClientSession
 
   // |event_handler| and |desktop_environment_factory| must outlive |this|.
   // All |HostExtension|s in |extensions| must outlive |this|.
-  ClientSession(
-      EventHandler* event_handler,
-      scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> video_encode_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> network_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
-      scoped_ptr<protocol::ConnectionToClient> connection,
-      DesktopEnvironmentFactory* desktop_environment_factory,
-      const base::TimeDelta& max_duration,
-      scoped_refptr<protocol::PairingRegistry> pairing_registry,
-      const std::vector<HostExtension*>& extensions);
+  ClientSession(EventHandler* event_handler,
+                scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner,
+                scoped_ptr<protocol::ConnectionToClient> connection,
+                DesktopEnvironmentFactory* desktop_environment_factory,
+                const base::TimeDelta& max_duration,
+                scoped_refptr<protocol::PairingRegistry> pairing_registry,
+                const std::vector<HostExtension*>& extensions);
   ~ClientSession() override;
 
   // Returns the set of capabilities negotiated between client and host.
@@ -122,6 +116,7 @@ class ClientSession
       protocol::ConnectionToClient* connection) override;
   void OnConnectionClosed(protocol::ConnectionToClient* connection,
                           protocol::ErrorCode error) override;
+  void OnCreateVideoEncoder(scoped_ptr<VideoEncoder>* encoder) override;
   void OnInputEventReceived(protocol::ConnectionToClient* connection,
                             int64_t timestamp) override;
   void OnRouteChange(protocol::ConnectionToClient* connection,
@@ -134,8 +129,6 @@ class ClientSession
   void OnLocalMouseMoved(const webrtc::DesktopVector& position) override;
   void SetDisableInputs(bool disable_inputs) override;
   void ResetVideoPipeline() override;
-
-  void SetGnubbyAuthHandlerForTesting(GnubbyAuthHandler* gnubby_auth_handler);
 
   protocol::ConnectionToClient* connection() const {
     return connection_.get();
@@ -150,6 +143,8 @@ class ClientSession
  private:
   // Creates a proxy for sending clipboard events to the client.
   scoped_ptr<protocol::ClipboardStub> CreateClipboardProxy();
+
+  void OnScreenSizeChanged(const webrtc::DesktopSize& size);
 
   EventHandler* event_handler_;
 
@@ -174,7 +169,7 @@ class ClientSession
   RemoteInputFilter remote_input_filter_;
 
   // Filter used to clamp mouse events to the current display dimensions.
-  MouseClampingFilter mouse_clamping_filter_;
+  protocol::MouseInputFilter mouse_clamping_filter_;
 
   // Filter to used to stop clipboard items sent from the client being echoed
   // back to it.  It is the final element in the clipboard (client -> host)
@@ -199,17 +194,12 @@ class ClientSession
   base::OneShotTimer max_duration_timer_;
 
   scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner_;
-  scoped_refptr<base::SingleThreadTaskRunner> input_task_runner_;
-  scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner_;
-  scoped_refptr<base::SingleThreadTaskRunner> video_encode_task_runner_;
-  scoped_refptr<base::SingleThreadTaskRunner> network_task_runner_;
-  scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
 
-  // Pumps for audio, video and mouse shape.
-  // |video_frame_pump_| and |mouse_shape_pump_| may be nullptr if the video
+  // Objects responsible for sending video, audio and mouse shape.
+  // |video_stream_| and |mouse_shape_pump_| may be nullptr if the video
   // stream is handled by an extension, see ResetVideoPipeline().
   scoped_ptr<AudioPump> audio_pump_;
-  scoped_ptr<VideoFramePump> video_frame_pump_;
+  scoped_ptr<protocol::VideoStream> video_stream_;
   scoped_ptr<MouseShapePump> mouse_shape_pump_;
 
   // The set of all capabilities supported by the client.
@@ -229,9 +219,6 @@ class ClientSession
 
   // The pairing registry for PIN-less authentication.
   scoped_refptr<protocol::PairingRegistry> pairing_registry_;
-
-  // Used to proxy gnubby auth traffic.
-  scoped_ptr<GnubbyAuthHandler> gnubby_auth_handler_;
 
   // Used to manage extension functionality.
   scoped_ptr<HostExtensionSessionManager> extension_manager_;

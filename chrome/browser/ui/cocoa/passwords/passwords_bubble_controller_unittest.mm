@@ -14,8 +14,10 @@
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
 #include "chrome/browser/ui/cocoa/passwords/base_passwords_controller_test.h"
 #import "chrome/browser/ui/cocoa/passwords/manage_passwords_view_controller.h"
-#import "chrome/browser/ui/cocoa/passwords/pending_password_view_controller.h"
+#import "chrome/browser/ui/cocoa/passwords/save_pending_password_view_controller.h"
+#import "chrome/browser/ui/cocoa/passwords/update_pending_password_view_controller.h"
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
+#include "chrome/browser/ui/passwords/manage_passwords_ui_controller_mock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -33,9 +35,13 @@ class ManagePasswordsBubbleControllerTest
     if (!controller_) {
       controller_ = [[ManagePasswordsBubbleController alloc]
           initWithParentWindow:browser()->window()->GetNativeWindow()
-                         model:model()];
+                         model:GetModelAndCreateIfNull()];
     }
     return controller_;
+  }
+
+  ManagePasswordsBubbleModel::DisplayReason GetDisplayReason() const override {
+    return ManagePasswordsBubbleModel::USER_ACTION;
   }
 
  private:
@@ -43,13 +49,13 @@ class ManagePasswordsBubbleControllerTest
 };
 
 TEST_F(ManagePasswordsBubbleControllerTest, PendingStateShouldHavePendingView) {
-  model()->set_state(password_manager::ui::PENDING_PASSWORD_STATE);
-  EXPECT_EQ([ManagePasswordsBubblePendingViewController class],
+  SetUpSavePendingState(false);
+  EXPECT_EQ([SavePendingPasswordViewController class],
             [[controller() currentController] class]);
 }
 
 TEST_F(ManagePasswordsBubbleControllerTest, DismissingShouldCloseWindow) {
-  model()->set_state(password_manager::ui::PENDING_PASSWORD_STATE);
+  SetUpSavePendingState(false);
   [controller() showWindow:nil];
 
   // Turn off animations so that closing happens immediately.
@@ -63,9 +69,23 @@ TEST_F(ManagePasswordsBubbleControllerTest, DismissingShouldCloseWindow) {
 }
 
 TEST_F(ManagePasswordsBubbleControllerTest, ManageStateShouldHaveManageView) {
-  model()->set_state(password_manager::ui::MANAGE_STATE);
-  EXPECT_EQ([ManagePasswordsBubbleManageViewController class],
+  SetUpManageState();
+  EXPECT_EQ([ManagePasswordsViewController class],
             [[controller() currentController] class]);
+}
+
+TEST_F(ManagePasswordsBubbleControllerTest,
+       PendingStateShouldHaveUpdatePendingView) {
+  SetUpUpdatePendingState(false);
+  EXPECT_EQ([UpdatePendingPasswordViewController class],
+            [[controller() currentController] class]);
+}
+
+TEST_F(ManagePasswordsBubbleControllerTest, ClearModelOnClose) {
+  SetUpUpdatePendingState(false);
+  EXPECT_TRUE(controller().model);
+  [controller() close];
+  EXPECT_FALSE(controller().model);
 }
 
 }  // namespace

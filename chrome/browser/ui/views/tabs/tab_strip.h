@@ -9,6 +9,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
@@ -57,10 +58,6 @@ class TabStrip : public views::View,
                  public views::ViewTargeterDelegate,
                  public TabController {
  public:
-  // The vertical offset of the tab strip button. This offset applies only to
-  // restored windows.
-  static const int kNewTabButtonVerticalOffset;
-
   explicit TabStrip(TabStripController* controller);
   ~TabStrip() override;
 
@@ -135,6 +132,10 @@ class TabStrip : public views::View,
   const gfx::Rect& ideal_bounds(int tab_data_index) {
     return tabs_.ideal_bounds(tab_data_index);
   }
+
+  // Max x-coordinate the tabstrip draws at, which is the right edge of the new
+  // tab button.
+  int max_x() const { return newtab_button_bounds_.right(); }
 
   // Returns the Tab at |index|.
   Tab* tab_at(int index) const { return tabs_.view_at(index); }
@@ -230,6 +231,8 @@ class TabStrip : public views::View,
   void OnMouseEventInTab(views::View* source,
                          const ui::MouseEvent& event) override;
   bool ShouldPaintTab(const Tab* tab, gfx::Rect* clip) override;
+  bool CanPaintThrobberToLayer() const override;
+  bool IsIncognito() const override;
   bool IsImmersiveStyle() const override;
   int GetBackgroundResourceId(bool* custom_image) const override;
   void UpdateTabAccessibilityState(const Tab* tab,
@@ -306,9 +309,6 @@ class TabStrip : public views::View,
   };
 
   void Init();
-
-  // Creates and returns a new tab. The caller owners the returned tab.
-  Tab* CreateTab();
 
   // Invoked from |AddTabAt| after the newly created tab has been inserted.
   void StartInsertTabAnimation(int model_index);

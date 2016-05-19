@@ -37,8 +37,8 @@
 #include "core/animation/EffectModel.h"
 #include "core/dom/Element.h"
 #include "platform/Timer.h"
+#include "platform/animation/CompositorAnimationTimeline.h"
 #include "platform/heap/Handle.h"
-#include "public/platform/WebCompositorAnimationTimeline.h"
 #include "wtf/RefPtr.h"
 #include "wtf/Vector.h"
 
@@ -48,8 +48,9 @@ class Document;
 class AnimationEffect;
 
 // AnimationTimeline is constructed and owned by Document, and tied to its lifecycle.
-class CORE_EXPORT AnimationTimeline : public GarbageCollectedFinalized<AnimationTimeline>, public ScriptWrappable {
+class CORE_EXPORT AnimationTimeline final : public GarbageCollectedFinalized<AnimationTimeline>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
+    USING_PRE_FINALIZER(AnimationTimeline, dispose);
 public:
     class PlatformTiming : public GarbageCollectedFinalized<PlatformTiming> {
     public:
@@ -62,6 +63,7 @@ public:
 
     static AnimationTimeline* create(Document*, PlatformTiming* = nullptr);
     ~AnimationTimeline();
+    void dispose();
 
     void serviceAnimations(TimingUpdateReason);
     void scheduleNextService();
@@ -92,7 +94,7 @@ public:
     void setPlaybackRate(double);
     double playbackRate() const;
 
-    WebCompositorAnimationTimeline* compositorTimeline() const { return m_compositorTimeline.get(); }
+    CompositorAnimationTimeline* compositorTimeline() const { return m_compositorTimeline.get(); }
 
     Document* document() { return m_document.get(); }
 #if !ENABLE(OILPAN)
@@ -124,7 +126,7 @@ private:
     Member<PlatformTiming> m_timing;
     double m_lastCurrentTimeInternal;
 
-    OwnPtr<WebCompositorAnimationTimeline> m_compositorTimeline;
+    OwnPtr<CompositorAnimationTimeline> m_compositorTimeline;
 
     class AnimationTimelineTiming final : public PlatformTiming {
     public:

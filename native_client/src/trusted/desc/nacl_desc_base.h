@@ -84,6 +84,7 @@ enum NaClDescTypeTag {
   NACL_DESC_BOUND_SOCKET,
   NACL_DESC_CONNECTED_SOCKET,
   NACL_DESC_SHM,
+  NACL_DESC_SHM_MACH,
   NACL_DESC_MUTEX,
   NACL_DESC_CONDVAR,
   NACL_DESC_SEMAPHORE,
@@ -181,18 +182,6 @@ struct NaClDescVtbl {
                    int                      prot,
                    int                      flags,
                    nacl_off64_t             offset) NACL_WUR;
-
-#if NACL_WINDOWS
-  /*
-   * UnmapUnsafe really unmaps and leaves a hole in the address space.
-   * It is intended for use by Map (through the effector interface) to
-   * clear out memory according to the memory object that is backing
-   * the memory, prior to putting new memory in place.
-   */
-  int (*UnmapUnsafe)(struct NaClDesc          *vself,
-                     void                     *start_addr,
-                     size_t                   len) NACL_WUR;
-#endif
 
   ssize_t (*Read)(struct NaClDesc *vself,
                   void            *buf,
@@ -527,9 +516,6 @@ int NaClDescInternalizeCtor(struct NaClDesc *vself,
 
 /* utility routines */
 
-/* Unmap memory, leaving an unallocated hole in address space. */
-void NaClDescUnmapUnsafe(struct NaClDesc *desc, void *addr, size_t length);
-
 int32_t NaClAbiStatHostDescStatXlateCtor(struct nacl_abi_stat    *dst,
                                          nacl_host_stat_t const  *src);
 
@@ -561,17 +547,6 @@ uintptr_t NaClDescMapNotImplemented(struct NaClDesc         *vself,
                                     int                     prot,
                                     int                     flags,
                                     nacl_off64_t            offset);
-
-#if NACL_WINDOWS
-int NaClDescUnmapUnsafeNotImplemented(struct NaClDesc  *vself,
-                                      void             *start_addr,
-                                      size_t           len);
-/* This is an initializer for use when defining NaClDescVtbl structs. */
-# define NACL_DESC_UNMAP_NOT_IMPLEMENTED \
-    NaClDescUnmapUnsafeNotImplemented,
-#else
-# define NACL_DESC_UNMAP_NOT_IMPLEMENTED /* empty */
-#endif
 
 ssize_t NaClDescReadNotImplemented(struct NaClDesc  *vself,
                                    void             *buf,

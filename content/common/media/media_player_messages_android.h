@@ -5,12 +5,11 @@
 // IPC messages for android media player.
 // Multiply-included message file, hence no include guard.
 
-#include "base/basictypes.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
-#include "content/common/media/media_player_messages_enums_android.h"
 #include "ipc/ipc_message_macros.h"
 #include "media/base/android/demuxer_stream_player_params.h"
+#include "media/blink/renderer_media_player_interface.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "url/gurl.h"
 
@@ -69,6 +68,7 @@ IPC_STRUCT_BEGIN(MediaPlayerHostMsg_Initialize_Params)
   IPC_STRUCT_MEMBER(GURL, first_party_for_cookies)
   IPC_STRUCT_MEMBER(GURL, frame_url)
   IPC_STRUCT_MEMBER(bool, allow_credentials)
+  IPC_STRUCT_MEMBER(int, delegate_id)
 IPC_STRUCT_END()
 
 // Chrome for Android seek message sequence is:
@@ -215,8 +215,8 @@ IPC_MESSAGE_ROUTED2(MediaPlayerHostMsg_Pause,
                     int /* player_id */,
                     bool /* is_media_related_action */)
 
-// Release player resources, but keep the object for future usage.
-IPC_MESSAGE_ROUTED1(MediaPlayerHostMsg_Release, int /* player_id */)
+// Release player resources after it was suspended.
+IPC_MESSAGE_ROUTED1(MediaPlayerHostMsg_SuspendAndRelease, int /* player_id */)
 
 // Perform a seek.
 IPC_MESSAGE_ROUTED2(MediaPlayerHostMsg_Seek,

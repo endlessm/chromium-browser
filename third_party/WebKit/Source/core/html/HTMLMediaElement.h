@@ -26,27 +26,23 @@
 #ifndef HTMLMediaElement_h
 #define HTMLMediaElement_h
 
+#include "bindings/core/v8/ScriptPromise.h"
 #include "core/CoreExport.h"
 #include "core/dom/ActiveDOMObject.h"
+#include "core/dom/ExceptionCode.h"
 #include "core/events/GenericEventQueue.h"
 #include "core/html/AutoplayExperimentHelper.h"
 #include "core/html/HTMLElement.h"
 #include "core/html/track/TextTrack.h"
 #include "platform/Supplementable.h"
+#include "platform/audio/AudioSourceProvider.h"
+#include "public/platform/WebAudioSourceProviderClient.h"
 #include "public/platform/WebMediaPlayerClient.h"
 #include "public/platform/WebMimeRegistry.h"
 
-#if ENABLE(WEB_AUDIO)
-#include "platform/audio/AudioSourceProvider.h"
-#include "public/platform/WebAudioSourceProviderClient.h"
-#endif
-
 namespace blink {
 
-#if ENABLE(WEB_AUDIO)
 class AudioSourceProviderClient;
-class WebAudioSourceProvider;
-#endif
 class AudioTrackList;
 class ContentType;
 class CueTimeline;
@@ -58,11 +54,13 @@ class KURL;
 class MediaControls;
 class MediaError;
 class HTMLMediaSource;
+class ScriptState;
 class TextTrackContainer;
 class TextTrackList;
 class TimeRanges;
 class URLRegistry;
 class VideoTrackList;
+class WebAudioSourceProvider;
 class WebInbandTextTrack;
 class WebLayer;
 
@@ -71,15 +69,18 @@ class CORE_EXPORT HTMLMediaElement : public HTMLElement, public WillBeHeapSupple
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLMediaElement);
     WILL_BE_USING_PRE_FINALIZER(HTMLMediaElement, dispose);
 public:
-    static WebMimeRegistry::SupportsType supportsType(const ContentType&, const String& keySystem = String());
+    static WebMimeRegistry::SupportsType supportsType(const ContentType&);
+
+    enum class RecordMetricsBehavior {
+        DoNotRecord,
+        DoRecord
+    };
 
     static void setMediaStreamRegistry(URLRegistry*);
     static bool isMediaStreamURL(const String& url);
 
     DECLARE_VIRTUAL_TRACE();
-#if ENABLE(WEB_AUDIO)
     void clearWeakMembers(Visitor*);
-#endif
     WebMediaPlayer* webMediaPlayer() const
     {
         return m_webMediaPlayer.get();
@@ -94,8 +95,7 @@ public:
 
     enum DelayedActionType {
         LoadMediaResource = 1 << 0,
-        LoadTextTrackResource = 1 << 1,
-        TextTrackChangesNotification = 1 << 2
+        LoadTextTrackResource = 1 << 1
     };
     void scheduleDelayedAction(DelayedActionType);
 
@@ -119,11 +119,11 @@ public:
 
     TimeRanges* buffered() const;
     void load();
-    String canPlayType(const String& mimeType, const String& keySystem = String()) const;
+    String canPlayType(const String& mimeType) const;
 
     // ready state
     enum ReadyState { HAVE_NOTHING, HAVE_METADATA, HAVE_CURRENT_DATA, HAVE_FUTURE_DATA, HAVE_ENOUGH_DATA };
-    ReadyState readyState() const;
+    ReadyState getReadyState() const;
     bool seeking() const;
 
     // playback state
@@ -140,11 +140,11 @@ public:
     TimeRanges* seekable() const;
     bool ended() const;
     bool autoplay() const;
-    enum class RecordMetricsBehavior { DoNotRecord, DoRecord };
     bool shouldAutoplay(const RecordMetricsBehavior = RecordMetricsBehavior::DoNotRecord);
     bool loop() const;
     void setLoop(bool);
-    void play();
+    ScriptPromise playForBindings(ScriptState*);
+    Nullable<ExceptionCode> play();
     void pause();
     void requestRemotePlayback();
     void requestRemotePlaybackControl();
@@ -158,7 +158,7 @@ public:
     void durationChanged(double duration, bool requestSeek);
 
     // controls
-    bool shouldShowControls() const;
+    bool shouldShowControls(const RecordMetricsBehavior = RecordMetricsBehavior::DoNotRecord) const;
     double volume() const;
     void setVolume(double, ExceptionState&);
     bool muted() const;
@@ -233,12 +233,10 @@ public:
     // ActiveDOMObject functions.
     bool hasPendingActivity() const final;
 
-#if ENABLE(WEB_AUDIO)
     AudioSourceProviderClient* audioSourceNode() { return m_audioSourceNode; }
     void setAudioSourceNode(AudioSourceProviderClient*);
 
     AudioSourceProvider& audioSourceProvider() { return m_audioSourceProvider; }
-#endif
 
     enum InvalidURLAction { DoNothing, Complain };
     bool isSafeToLoadURL(const KURL&, InvalidURLAction);
@@ -268,7 +266,7 @@ protected:
     void dispose();
 #endif
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     void finishParsingChildren() final;
     bool isURLAttribute(const Attribute&) const override;
     void attach(const AttachContext& = AttachContext()) override;
@@ -277,7 +275,7 @@ protected:
     virtual KURL posterImageURL() const { return KURL(); }
 
     enum DisplayMode { Unknown, Poster, Video };
-    DisplayMode displayMode() const { return m_displayMode; }
+    DisplayMode getDisplayMode() const { return m_displayMode; }
     virtual void setDisplayMode(DisplayMode mode) { m_displayMode = mode; }
 
 private:
@@ -350,13 +348,12 @@ private:
     void prepareForLoad();
     void loadInternal();
     void selectMediaResource();
-    void loadResource(const KURL&, ContentType&, const String& keySystem);
+    void loadResource(const KURL&, ContentType&);
     void startPlayerLoad();
     void setPlayerPreload();
     WebMediaPlayer::LoadType loadType() const;
     void scheduleNextSourceChild();
     void loadNextSourceChild();
-    void userCancelledLoad();
     void clearMediaPlayer(int flags);
     void clearMediaPlayerAndAudioSourceProviderClientWithoutLocking();
     bool havePotentialSourceChild();
@@ -366,7 +363,7 @@ private:
     void waitForSourceChange();
     void prepareToPlay();
 
-    KURL selectNextSourceChild(ContentType*, String* keySystem, InvalidURLAction);
+    KURL selectNextSourceChild(ContentType*, InvalidURLAction);
 
     void mediaLoadingFailed(WebMediaPlayer::NetworkState);
 
@@ -382,6 +379,9 @@ private:
 
     // This does not check user gesture restrictions.
     void playInternal();
+
+    // This does not change the buffering strategy.
+    void pauseInternal();
 
     // If we are about to enter a paused state, call this to record
     // autoplay metrics.  If we were already in a stopped state, then
@@ -453,10 +453,20 @@ private:
     // TODO(liberato): remove once autoplay gesture override experiment concludes.
     void triggerAutoplayViewportCheckForTesting();
 
-    Timer<HTMLMediaElement> m_loadTimer;
-    Timer<HTMLMediaElement> m_progressEventTimer;
-    Timer<HTMLMediaElement> m_playbackProgressTimer;
-    Timer<HTMLMediaElement> m_audioTracksTimer;
+    void scheduleResolvePlayPromises();
+    void scheduleRejectPlayPromises(ExceptionCode);
+    void scheduleNotifyPlaying();
+
+    void resolvePlayPromises();
+    // TODO(mlamouri): this is used for cancellable tasks because we can't pass
+    // parameters.
+    void rejectPlayPromises();
+    void rejectPlayPromises(ExceptionCode, const String&);
+
+    UnthrottledTimer<HTMLMediaElement> m_loadTimer;
+    UnthrottledTimer<HTMLMediaElement> m_progressEventTimer;
+    UnthrottledTimer<HTMLMediaElement> m_playbackProgressTimer;
+    UnthrottledTimer<HTMLMediaElement> m_audioTracksTimer;
     PersistentWillBeMember<TimeRanges> m_playedTimeRanges;
     OwnPtrWillBeMember<GenericEventQueue> m_asyncEventQueue;
 
@@ -524,7 +534,7 @@ private:
     typedef unsigned PendingActionFlags;
     PendingActionFlags m_pendingActionFlags;
 
-    // FIXME: MediaElement has way too many state bits.
+    // FIXME: HTMLMediaElement has way too many state bits.
     bool m_userGestureRequiredForPlay : 1;
     bool m_playing : 1;
     bool m_shouldDelayLoadEvent : 1;
@@ -542,12 +552,9 @@ private:
 
     bool m_closedCaptionsVisible : 1;
 
-    bool m_completelyLoaded : 1;
     bool m_havePreparedToPlay : 1;
-    bool m_delayingLoadForPreloadNone : 1;
 
     bool m_tracksAreReady : 1;
-    bool m_haveVisibleTextTrack : 1;
     bool m_processingPreferenceChange : 1;
     bool m_remoteRoutesAvailable : 1;
     bool m_playingRemotely : 1;
@@ -564,7 +571,11 @@ private:
 
     OwnPtrWillBeMember<CueTimeline> m_cueTimeline;
 
-#if ENABLE(WEB_AUDIO)
+    PersistentHeapVectorWillBeHeapVector<Member<ScriptPromiseResolver>> m_playResolvers;
+    OwnPtr<CancellableTaskFactory> m_playPromiseResolveTask;
+    OwnPtr<CancellableTaskFactory> m_playPromiseRejectTask;
+    ExceptionCode m_playPromiseErrorCode;
+
     // This is a weak reference, since m_audioSourceNode holds a reference to us.
     // FIXME: Oilpan: Consider making this a strongly traced pointer with oilpan where strong cycles are not a problem.
     GC_PLUGIN_IGNORE("http://crbug.com/404577")
@@ -618,11 +629,11 @@ private:
     };
 
     AudioSourceProviderImpl m_audioSourceProvider;
-#endif
 
     friend class Internals;
     friend class TrackDisplayUpdateScope;
     friend class AutoplayExperimentHelper;
+    friend class MediaControlsTest;
 
     AutoplayExperimentHelper m_autoplayHelper;
 

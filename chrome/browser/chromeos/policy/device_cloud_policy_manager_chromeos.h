@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -73,6 +73,9 @@ class DeviceCloudPolicyManagerChromeOS : public CloudPolicyManager {
   void SetDeviceRequisition(const std::string& requisition);
   bool IsRemoraRequisition() const;
   bool IsSharkRequisition() const;
+
+  // If set, the device will start the enterprise enrollment OOBE.
+  void SetDeviceEnrollmentAutoStart();
 
   // CloudPolicyManager:
   void Shutdown() override;

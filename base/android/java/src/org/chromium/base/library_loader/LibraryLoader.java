@@ -170,16 +170,30 @@ public class LibraryLoader {
      * detrimental to the startup time.
      */
     public void asyncPrefetchLibrariesToMemory() {
-        if (!mPrefetchLibraryHasBeenCalled.compareAndSet(false, true)) return;
+        final boolean coldStart = mPrefetchLibraryHasBeenCalled.compareAndSet(false, true);
         new AsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackground(Void... params) {
                 TraceEvent.begin("LibraryLoader.asyncPrefetchLibrariesToMemory");
-                boolean success = nativeForkAndPrefetchNativeLibrary();
-                if (!success) {
-                    Log.w(TAG, "Forking a process to prefetch the native library failed.");
+                int percentage = nativePercentageOfResidentNativeLibraryCode();
+                boolean success = false;
+                if (coldStart) {
+                    success = nativeForkAndPrefetchNativeLibrary();
+                    if (!success) {
+                        Log.w(TAG, "Forking a process to prefetch the native library failed.");
+                    }
                 }
-                RecordHistogram.recordBooleanHistogram("LibraryLoader.PrefetchStatus", success);
+                // As this runs in a background thread, it can be called before histograms are
+                // initialized. In this instance, histograms are dropped.
+                RecordHistogram.initialize();
+                if (coldStart) {
+                    RecordHistogram.recordBooleanHistogram("LibraryLoader.PrefetchStatus", success);
+                }
+                if (percentage != -1) {
+                    String histogram = "LibraryLoader.PercentageOfResidentCodeBeforePrefetch"
+                            + (coldStart ? ".ColdStartup" : ".WarmStartup");
+                    RecordHistogram.recordPercentageHistogram(histogram, percentage);
+                }
                 TraceEvent.end("LibraryLoader.asyncPrefetchLibrariesToMemory");
                 return null;
             }
@@ -452,4 +466,8 @@ public class LibraryLoader {
     // process to prefetch these pages and waits for it. The new process then
     // terminates. This is blocking.
     private static native boolean nativeForkAndPrefetchNativeLibrary();
+
+    // Returns the percentage of the native library code page that are currently reseident in
+    // memory.
+    private static native int nativePercentageOfResidentNativeLibraryCode();
 }

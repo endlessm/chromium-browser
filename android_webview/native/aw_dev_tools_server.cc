@@ -4,6 +4,8 @@
 
 #include "android_webview/native/aw_dev_tools_server.h"
 
+#include <utility>
+
 #include "android_webview/common/aw_content_client.h"
 #include "android_webview/native/aw_contents.h"
 #include "base/bind.h"
@@ -95,14 +97,14 @@ class UnixDomainServerSocketFactory
  private:
   // devtools_http_handler::DevToolsHttpHandler::ServerSocketFactory.
   scoped_ptr<net::ServerSocket> CreateForHttpServer() override {
-    scoped_ptr<net::ServerSocket> socket(
+    scoped_ptr<net::UnixDomainServerSocket> socket(
         new net::UnixDomainServerSocket(
             base::Bind(&content::CanUserConnectToDevTools),
             true /* use_abstract_namespace */));
-    if (socket->ListenWithAddressAndPort(socket_name_, 0, kBackLog) != net::OK)
+    if (socket->BindAndListen(socket_name_, kBackLog) != net::OK)
       return scoped_ptr<net::ServerSocket>();
 
-    return socket;
+    return std::move(socket);
   }
 
   scoped_ptr<net::ServerSocket> CreateForTethering(std::string* name) override {
@@ -110,11 +112,12 @@ class UnixDomainServerSocketFactory
         kTetheringSocketName, getpid(), ++last_tethering_socket_);
     scoped_ptr<net::UnixDomainServerSocket> socket(
         new net::UnixDomainServerSocket(
-            base::Bind(&content::CanUserConnectToDevTools), true));
-    if (socket->ListenWithAddressAndPort(*name, 0, kBackLog) != net::OK)
+            base::Bind(&content::CanUserConnectToDevTools),
+            true /* use_abstract_namespace */));
+    if (socket->BindAndListen(*name, kBackLog) != net::OK)
       return scoped_ptr<net::ServerSocket>();
 
-    return socket.Pass();
+    return std::move(socket);
   }
 
   std::string socket_name_;
@@ -142,13 +145,10 @@ void AwDevToolsServer::Start() {
       new UnixDomainServerSocketFactory(
           base::StringPrintf(kSocketNameFormat, getpid())));
   devtools_http_handler_.reset(new DevToolsHttpHandler(
-      factory.Pass(),
+      std::move(factory),
       base::StringPrintf(kFrontEndURL, content::GetWebKitRevision().c_str()),
-      new AwDevToolsServerDelegate(),
-      base::FilePath(),
-      base::FilePath(),
-      GetProduct(),
-      GetUserAgent()));
+      new AwDevToolsServerDelegate(), base::FilePath(), base::FilePath(),
+      GetProduct(), GetUserAgent()));
 }
 
 void AwDevToolsServer::Stop() {

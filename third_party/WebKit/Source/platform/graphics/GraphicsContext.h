@@ -34,8 +34,8 @@
 #include "platform/geometry/FloatRoundedRect.h"
 #include "platform/graphics/DashArray.h"
 #include "platform/graphics/DrawLooperBuilder.h"
-#include "platform/graphics/ImageOrientation.h"
 #include "platform/graphics/GraphicsContextState.h"
+#include "platform/graphics/ImageOrientation.h"
 #include "platform/graphics/skia/SkiaUtils.h"
 #include "third_party/skia/include/core/SkMetaData.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
@@ -60,6 +60,7 @@ namespace blink {
 class ImageBuffer;
 class KURL;
 class PaintController;
+class Path;
 
 class PLATFORM_EXPORT GraphicsContext {
     WTF_MAKE_NONCOPYABLE(GraphicsContext); USING_FAST_MALLOC(GraphicsContext);
@@ -162,9 +163,11 @@ public:
     void drawImage(Image*, const IntRect&, SkXfermode::Mode = SkXfermode::kSrcOver_Mode, RespectImageOrientationEnum = DoNotRespectImageOrientation);
     void drawImage(Image*, const FloatRect& destRect, const FloatRect& srcRect, SkXfermode::Mode = SkXfermode::kSrcOver_Mode, RespectImageOrientationEnum = DoNotRespectImageOrientation);
 
+    void drawTiledImage(Image*, const FloatRect& destRect, const FloatPoint& srcPoint, const FloatSize& tileSize,
+        SkXfermode::Mode = SkXfermode::kSrcOver_Mode, const FloatSize& repeatSpacing = FloatSize());
     void drawTiledImage(Image*, const IntRect& destRect, const IntPoint& srcPoint, const IntSize& tileSize,
         SkXfermode::Mode = SkXfermode::kSrcOver_Mode, const IntSize& repeatSpacing = IntSize());
-    void drawTiledImage(Image*, const IntRect& destRect, const IntRect& srcRect,
+    void drawTiledImage(Image*, const FloatRect& destRect, const FloatRect& srcRect,
         const FloatSize& tileScaleFactor, Image::TileRule hRule = Image::StretchTile, Image::TileRule vRule = Image::StretchTile,
         SkXfermode::Mode = SkXfermode::kSrcOver_Mode);
 
@@ -176,7 +179,7 @@ public:
 
     void clip(const IntRect& rect) { clipRect(rect); }
     void clip(const FloatRect& rect) { clipRect(rect); }
-    void clipRoundedRect(const FloatRoundedRect&, SkRegion::Op = SkRegion::kIntersect_Op);
+    void clipRoundedRect(const FloatRoundedRect&, SkRegion::Op = SkRegion::kIntersect_Op, AntiAliasingMode = AntiAliased);
     void clipOut(const IntRect& rect) { clipRect(rect, NotAntiAliased, SkRegion::kDifference_Op); }
     void clipOut(const FloatRect& rect) { clipRect(rect, NotAntiAliased, SkRegion::kDifference_Op); }
     void clipOut(const Path&);
@@ -231,7 +234,9 @@ public:
         LeftEdge = 1 << 4
     };
     typedef unsigned Edges;
-    void drawInnerShadow(const FloatRoundedRect&, const Color& shadowColor, const IntSize shadowOffset, int shadowBlur, int shadowSpread, Edges clippedEdges = NoEdge);
+    void drawInnerShadow(const FloatRoundedRect&, const Color& shadowColor,
+        const FloatSize& shadowOffset, float shadowBlur, float shadowSpread,
+        Edges clippedEdges = NoEdge);
 
     const SkPaint& fillPaint() const { return immutableState()->fillPaint(); }
 
@@ -245,9 +250,16 @@ public:
 
     SkFilterQuality computeFilterQuality(Image*, const FloatRect& dest, const FloatRect& src) const;
 
-    // URL drawing
+    // Sets target URL of a clickable area.
     void setURLForRect(const KURL&, const IntRect&);
+
+    // Sets destination of a URL fragment (in a URL pointing to the same web page) of a clickable area.
+    // When the area is clicked, the page should be scrolled to the location set by setURLDestinationLocation()
+    // for the destination whose name equals the fragment.
     void setURLFragmentForRect(const String& name, const IntRect&);
+
+    // Sets location of a URL destination (a.k.a. anchor) in the page.
+    void setURLDestinationLocation(const String& name, const IntPoint&);
 
     static void adjustLineToPixelBoundaries(FloatPoint& p1, FloatPoint& p2, float strokeWidth, StrokeStyle);
 
@@ -333,10 +345,6 @@ private:
 
     // null indicates painting is contextDisabled. Never delete this object.
     SkCanvas* m_canvas;
-
-    // This stores the canvas object used to construct the GraphicsContext, if any. It is only
-    // used when Slimming Paint is active.
-    SkCanvas* m_originalCanvas;
 
     PaintController& m_paintController;
 

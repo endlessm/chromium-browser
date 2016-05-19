@@ -4,15 +4,18 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/last_download_finder.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <functional>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -23,6 +26,7 @@
 #include "chrome/common/safe_browsing/download_protection_util.h"
 #include "components/history/core/browser/download_constants.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -38,12 +42,12 @@ namespace {
 // functions that follow.
 
 // Returns the end time of a download represented by a DownloadRow.
-int64 GetEndTime(const history::DownloadRow& row) {
+int64_t GetEndTime(const history::DownloadRow& row) {
   return row.end_time.ToJavaTime();
 }
 
 // Returns the end time of a download represented by a DownloadDetails.
-int64 GetEndTime(const ClientIncidentReport_DownloadDetails& details) {
+int64_t GetEndTime(const ClientIncidentReport_DownloadDetails& details) {
   return details.download_time_msec();
 }
 
@@ -234,7 +238,7 @@ scoped_ptr<LastDownloadFinder> LastDownloadFinder::Create(
   // Return NULL if there is no work to do.
   if (finder->profile_states_.empty())
     return scoped_ptr<LastDownloadFinder>();
-  return finder.Pass();
+  return finder;
 }
 
 LastDownloadFinder::LastDownloadFinder()
@@ -294,7 +298,7 @@ void LastDownloadFinder::OnMetadataQuery(
   if (details) {
     if (IsMostInterestingBinary(*details, details_.get(),
                                 most_recent_binary_row_)) {
-      details_ = details.Pass();
+      details_ = std::move(details);
       most_recent_binary_row_.end_time = base::Time();
     }
     iter->second = WAITING_FOR_NON_BINARY_HISTORY;
@@ -393,7 +397,7 @@ void LastDownloadFinder::ReportResults() {
                                     non_binary_details.get());
   }
 
-  callback_.Run(binary_details.Pass(), non_binary_details.Pass());
+  callback_.Run(std::move(binary_details), std::move(non_binary_details));
   // Do not touch this LastDownloadFinder after running the callback, since it
   // may have been deleted.
 }

@@ -11,6 +11,7 @@ import pipes
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,15 +21,15 @@ import zipfile
 import md5_check  # pylint: disable=relative-import
 
 sys.path.append(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-from pylib import constants
+from pylib.constants import host_paths
 
-COLORAMA_ROOT = os.path.join(constants.DIR_SOURCE_ROOT,
+COLORAMA_ROOT = os.path.join(host_paths.DIR_SOURCE_ROOT,
                              'third_party', 'colorama', 'src')
 # aapt should ignore OWNERS files in addition the default ignore pattern.
 AAPT_IGNORE_PATTERN = ('!OWNERS:!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:' +
                        '!CVS:!thumbs.db:!picasa.ini:!*~:!*.d.stamp')
-HERMETIC_TIMESTAMP = (2001, 1, 1, 0, 0, 0)
-HERMETIC_FILE_ATTR = (0644 << 16L)
+_HERMETIC_TIMESTAMP = (2001, 1, 1, 0, 0, 0)
+_HERMETIC_FILE_ATTR = (0644 << 16L)
 
 
 @contextlib.contextmanager
@@ -77,6 +78,17 @@ def FindInDirectories(directories, filename_filter):
 
 
 def ParseGnList(gn_string):
+  # TODO(brettw) bug 573132: This doesn't handle GN escaping properly, so any
+  # weird characters like $ or \ in the strings will be corrupted.
+  #
+  # The code should import build/gn_helpers.py and then do:
+  #   parser = gn_helpers.GNValueParser(gn_string)
+  #   return return parser.ParseList()
+  # As of this writing, though, there is a CastShell build script that sends
+  # JSON through this function, and using correct GN parsing corrupts that.
+  #
+  # We need to be consistent about passing either JSON or GN lists through
+  # this function.
   return ast.literal_eval(gn_string)
 
 
@@ -198,6 +210,14 @@ def CheckZipPath(name):
     raise Exception('Absolute zip path: %s' % name)
 
 
+def IsSymlink(zip_file, name):
+  zi = zip_file.getinfo(name)
+
+  # The two high-order bytes of ZipInfo.external_attr represent
+  # UNIX permissions and file type bits.
+  return stat.S_ISLNK(zi.external_attr >> 16L)
+
+
 def ExtractAll(zip_path, path=None, no_clobber=True, pattern=None,
                predicate=None):
   if path is None:
@@ -221,15 +241,47 @@ def ExtractAll(zip_path, path=None, no_clobber=True, pattern=None,
           raise Exception(
               'Path already exists from zip: %s %s %s'
               % (zip_path, name, output_path))
-      z.extract(name, path)
+      if IsSymlink(z, name):
+        dest = os.path.join(path, name)
+        MakeDirectory(os.path.dirname(dest))
+        os.symlink(z.read(name), dest)
+      else:
+        z.extract(name, path)
 
 
-def CreateHermeticZipInfo(zip_path):
-  """Creates a ZipInfo with a zero'ed out timestamp."""
+def AddToZipHermetic(zip_file, zip_path, src_path=None, data=None,
+                     compress=None):
+  """Adds a file to the given ZipFile with a hard-coded modified time.
+
+  Args:
+    zip_file: ZipFile instance to add the file to.
+    zip_path: Destination path within the zip file.
+    src_path: Path of the source file. Mutually exclusive with |data|.
+    data: File data as a string.
+    compress: Whether to enable compression. Default is take from ZipFile
+        constructor.
+  """
+  assert (src_path is None) != (data is None), (
+      '|src_path| and |data| are mutually exclusive.')
   CheckZipPath(zip_path)
-  zipinfo = zipfile.ZipInfo(filename=zip_path, date_time=HERMETIC_TIMESTAMP)
-  zipinfo.external_attr = HERMETIC_FILE_ATTR
-  return zipinfo
+  zipinfo = zipfile.ZipInfo(filename=zip_path, date_time=_HERMETIC_TIMESTAMP)
+  zipinfo.external_attr = _HERMETIC_FILE_ATTR
+
+  if src_path:
+    with file(src_path) as f:
+      data = f.read()
+
+  # zipfile will deflate even when it makes the file bigger. To avoid
+  # growing files, disable compression at an arbitrary cut off point.
+  if len(data) < 16:
+    compress = False
+
+  # None converts to ZIP_STORED, when passed explicitly rather than the
+  # default passed to the ZipFile constructor.
+  compress_type = zip_file.compression
+  if compress is not None:
+    compress_type = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
+  zip_file.writestr(zipinfo, data, compress_type)
 
 
 def DoZip(inputs, output, base_dir=None):
@@ -250,9 +302,7 @@ def DoZip(inputs, output, base_dir=None):
   input_tuples.sort(key=lambda tup: tup[0])
   with zipfile.ZipFile(output, 'w') as outfile:
     for zip_path, fs_path in input_tuples:
-      with file(fs_path) as f:
-        contents = f.read()
-      outfile.writestr(CreateHermeticZipInfo(zip_path), contents)
+      AddToZipHermetic(outfile, zip_path, src_path=fs_path)
 
 
 def ZipDir(output, base_dir):
@@ -276,14 +326,18 @@ def MergeZips(output, inputs, exclude_patterns=None, path_transform=None):
   with zipfile.ZipFile(output, 'w') as out_zip:
     for in_file in inputs:
       with zipfile.ZipFile(in_file, 'r') as in_zip:
-        for name in in_zip.namelist():
+        in_zip._expected_crc = None
+        for info in in_zip.infolist():
           # Ignore directories.
-          if name[-1] == '/':
+          if info.filename[-1] == '/':
             continue
-          dst_name = path_transform(name, in_file)
+          # Don't validate CRCs. ijar sets them all to 0.
+          if hasattr(info, 'CRC'):
+            del info.CRC
+          dst_name = path_transform(info.filename, in_file)
           already_added = dst_name in added_names
           if not already_added and not MatchesGlob(dst_name, exclude_patterns):
-            out_zip.writestr(CreateHermeticZipInfo(dst_name), in_zip.read(name))
+            AddToZipHermetic(out_zip, dst_name, data=in_zip.read(info))
             added_names.add(dst_name)
 
 
@@ -344,9 +398,9 @@ def GetPythonDependencies():
 
   abs_module_paths = map(os.path.abspath, module_paths)
 
-  assert os.path.isabs(constants.DIR_SOURCE_ROOT)
+  assert os.path.isabs(host_paths.DIR_SOURCE_ROOT)
   non_system_module_paths = [
-      p for p in abs_module_paths if p.startswith(constants.DIR_SOURCE_ROOT)]
+      p for p in abs_module_paths if p.startswith(host_paths.DIR_SOURCE_ROOT)]
   def ConvertPycToPy(s):
     if s.endswith('.pyc'):
       return s[:-1]

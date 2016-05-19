@@ -6,15 +6,16 @@
 
 #include <set>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/persistent_pref_store.h"
-#include "base/prefs/pref_store_observer_mock.h"
-#include "base/prefs/testing_pref_store.h"
 #include "base/values.h"
+#include "components/prefs/persistent_pref_store.h"
+#include "components/prefs/pref_store_observer_mock.h"
+#include "components/prefs/testing_pref_store.h"
 #include "components/user_prefs/tracked/segregated_pref_store.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -80,7 +81,7 @@ class SegregatedPrefStoreTest : public testing::Test {
  protected:
   scoped_ptr<PersistentPrefStore::ReadErrorDelegate> GetReadErrorDelegate() {
     EXPECT_TRUE(read_error_delegate_);
-    return read_error_delegate_.Pass();
+    return std::move(read_error_delegate_);
   }
 
   PrefStoreObserverMock observer_;

@@ -26,12 +26,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/PageRuleCollector.h"
 
 #include "core/css/StylePropertySet.h"
 #include "core/css/StyleRule.h"
 #include "core/css/resolver/StyleResolverState.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -93,7 +93,7 @@ static bool checkPageSelectorComponents(const CSSSelector* selector, bool isLeft
                 return false;
         }
 
-        CSSSelector::PseudoType pseudoType = component->pseudoType();
+        CSSSelector::PseudoType pseudoType = component->getPseudoType();
         if ((pseudoType == CSSSelector::PseudoLeftPage && !isLeftPage)
             || (pseudoType == CSSSelector::PseudoRightPage && isLeftPage)
             || (pseudoType == CSSSelector::PseudoFirstPage && !isFirstPage))

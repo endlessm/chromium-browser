@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/accessibility/AXImageMapLink.h"
 
 #include "core/dom/ElementTraversal.h"
@@ -61,6 +60,7 @@ HTMLMapElement* AXImageMapLink::mapElement() const
 
 AXObject* AXImageMapLink::computeParent() const
 {
+    ASSERT(!isDetached());
     if (m_parent)
         return m_parent;
 
@@ -100,30 +100,6 @@ KURL AXImageMapLink::url() const
         return KURL();
 
     return areaElement()->href();
-}
-
-String AXImageMapLink::deprecatedAccessibilityDescription() const
-{
-    const AtomicString& ariaLabel = getAttribute(aria_labelAttr);
-    if (!ariaLabel.isEmpty())
-        return ariaLabel;
-    const AtomicString& alt = getAttribute(altAttr);
-    if (!alt.isEmpty())
-        return alt;
-
-    return String();
-}
-
-String AXImageMapLink::deprecatedTitle(TextUnderElementMode mode) const
-{
-    const AtomicString& title = getAttribute(titleAttr);
-    if (!title.isEmpty())
-        return title;
-    const AtomicString& summary = getAttribute(summaryAttr);
-    if (!summary.isEmpty())
-        return summary;
-
-    return String();
 }
 
 LayoutRect AXImageMapLink::elementRect() const

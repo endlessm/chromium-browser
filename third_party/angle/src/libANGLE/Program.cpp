@@ -222,20 +222,12 @@ VariableLocation::VariableLocation(const std::string &name, unsigned int element
 {
 }
 
-LinkedVarying::LinkedVarying()
-{
-}
-
-LinkedVarying::LinkedVarying(const std::string &name, GLenum type, GLsizei size, const std::string &semanticName,
-                             unsigned int semanticIndex, unsigned int semanticIndexCount)
-    : name(name), type(type), size(size), semanticName(semanticName), semanticIndex(semanticIndex), semanticIndexCount(semanticIndexCount)
-{
-}
-
 Program::Data::Data()
-    : mAttachedFragmentShader(nullptr),
+    : mLabel(),
+      mAttachedFragmentShader(nullptr),
       mAttachedVertexShader(nullptr),
-      mTransformFeedbackBufferMode(GL_INTERLEAVED_ATTRIBS)
+      mTransformFeedbackBufferMode(GL_INTERLEAVED_ATTRIBS),
+      mBinaryRetrieveableHint(false)
 {
 }
 
@@ -250,6 +242,11 @@ Program::Data::~Data()
     {
         mAttachedFragmentShader->release();
     }
+}
+
+const std::string &Program::Data::getLabel()
+{
+    return mLabel;
 }
 
 const LinkedUniform *Program::Data::getUniformByName(const std::string &name) const
@@ -335,6 +332,16 @@ Program::~Program()
     unlink(true);
 
     SafeDelete(mProgram);
+}
+
+void Program::setLabel(const std::string &label)
+{
+    mData.mLabel = label;
+}
+
+const std::string &Program::getLabel() const
+{
+    return mData.mLabel;
 }
 
 bool Program::attachShader(Shader *shader)
@@ -799,6 +806,18 @@ GLint Program::getBinaryLength() const
     }
 
     return length;
+}
+
+void Program::setBinaryRetrievableHint(bool retrievable)
+{
+    // TODO(jmadill) : replace with dirty bits
+    mProgram->setBinaryRetrievableHint(retrievable);
+    mData.mBinaryRetrieveableHint = retrievable;
+}
+
+bool Program::getBinaryRetrievableHint() const
+{
+    return mData.mBinaryRetrieveableHint;
 }
 
 void Program::release()
@@ -2358,7 +2377,7 @@ void Program::defineUniformBlock(const sh::InterfaceBlock &interfaceBlock, GLenu
     // Track the first and last uniform index to determine the range of active uniforms in the
     // block.
     size_t firstBlockUniformIndex = mData.mUniforms.size();
-    defineUniformBlockMembers(interfaceBlock.fields, "", blockIndex);
+    defineUniformBlockMembers(interfaceBlock.fields, interfaceBlock.fieldPrefix(), blockIndex);
     size_t lastBlockUniformIndex = mData.mUniforms.size();
 
     std::vector<unsigned int> blockUniformIndexes;
@@ -2491,7 +2510,7 @@ void Program::getUniformInternal(GLint location, DestT *dataOut) const
         return;
     }
 
-    int components = VariableComponentCount(uniform.type) * uniform.elementCount();
+    int components = VariableComponentCount(uniform.type);
 
     switch (componentType)
     {

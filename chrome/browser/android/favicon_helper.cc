@@ -5,6 +5,7 @@
 #include "chrome/browser/android/favicon_helper.h"
 
 #include <jni.h>
+#include <stddef.h>
 
 #include <vector>
 
@@ -23,7 +24,7 @@
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon/core/favicon_util.h"
 #include "components/favicon_base/favicon_util.h"
-#include "components/sync_driver/open_tabs_ui_delegate.h"
+#include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/FaviconHelper_jni.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -136,18 +137,18 @@ FaviconHelper::FaviconHelper() {
   cancelable_task_tracker_.reset(new base::CancelableTaskTracker());
 }
 
-void FaviconHelper::Destroy(JNIEnv* env, jobject obj) {
+void FaviconHelper::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
 jboolean FaviconHelper::GetLocalFaviconImageForURL(
     JNIEnv* env,
-    jobject obj,
-    jobject j_profile,
-    jstring j_page_url,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& j_profile,
+    const JavaParamRef<jstring>& j_page_url,
     jint j_icon_types,
     jint j_desired_size_in_pixel,
-    jobject j_favicon_image_callback) {
+    const JavaParamRef<jobject>& j_favicon_image_callback) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile);
   DCHECK(profile);
   if (!profile)
@@ -179,9 +180,9 @@ jboolean FaviconHelper::GetLocalFaviconImageForURL(
 
 ScopedJavaLocalRef<jobject> FaviconHelper::GetSyncedFaviconImageForURL(
     JNIEnv* env,
-    jobject obj,
-    jobject jprofile,
-    jstring j_page_url) {
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& jprofile,
+    const JavaParamRef<jstring>& j_page_url) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
   DCHECK(profile);
 
@@ -210,14 +211,15 @@ ScopedJavaLocalRef<jobject> FaviconHelper::GetSyncedFaviconImageForURL(
   return gfx::ConvertToJavaBitmap(&favicon_bitmap);
 }
 
-void FaviconHelper::EnsureIconIsAvailable(JNIEnv* env,
-                                          jobject obj,
-                                          jobject j_profile,
-                                          jobject j_web_contents,
-                                          jstring j_page_url,
-                                          jstring j_icon_url,
-                                          jboolean j_is_large_icon,
-                                          jobject j_availability_callback) {
+void FaviconHelper::EnsureIconIsAvailable(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& j_profile,
+    const JavaParamRef<jobject>& j_web_contents,
+    const JavaParamRef<jstring>& j_page_url,
+    const JavaParamRef<jstring>& j_icon_url,
+    jboolean j_is_large_icon,
+    const JavaParamRef<jobject>& j_availability_callback) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile);
   DCHECK(profile);
   content::WebContents* web_contents =

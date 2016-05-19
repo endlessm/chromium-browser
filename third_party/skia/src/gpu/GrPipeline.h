@@ -24,11 +24,24 @@ class GrBatch;
 class GrDeviceCoordTexture;
 class GrPipelineBuilder;
 
+struct GrBatchToXPOverrides {
+    GrBatchToXPOverrides()
+    : fUsePLSDstRead(false) {}
+
+    bool fUsePLSDstRead;
+};
+
+struct GrPipelineOptimizations {
+    GrProcOptInfo fColorPOI;
+    GrProcOptInfo fCoveragePOI;
+    GrBatchToXPOverrides fOverrides;
+};
+
 /**
  * Class that holds an optimized version of a GrPipelineBuilder. It is meant to be an immutable
  * class, and contains all data needed to set the state for a gpu draw.
  */
-class GrPipeline : public GrNonAtomicRef {
+class GrPipeline : public GrNonAtomicRef<GrPipeline> {
 public:
     ///////////////////////////////////////////////////////////////////////////
     /// @name Creation
@@ -36,14 +49,13 @@ public:
     struct CreateArgs {
         const GrPipelineBuilder*    fPipelineBuilder;
         const GrCaps*               fCaps;
-        GrProcOptInfo               fColorPOI;
-        GrProcOptInfo               fCoveragePOI;
+        GrPipelineOptimizations     fOpts;
         const GrScissorState*       fScissor;
         GrXferProcessor::DstTexture fDstTexture;
     };
 
     /** Creates a pipeline into a pre-allocated buffer */
-    static GrPipeline* CreateAt(void* memory, const CreateArgs&, GrPipelineOptimizations*);
+    static GrPipeline* CreateAt(void* memory, const CreateArgs&, GrXPOverridesForBatch*);
 
     /// @}
 
@@ -94,7 +106,15 @@ public:
     }
     int numFragmentProcessors() const { return fFragmentProcessors.count(); }
 
-    const GrXferProcessor* getXferProcessor() const { return fXferProcessor.get(); }
+    const GrXferProcessor& getXferProcessor() const {
+        if (fXferProcessor.get()) {
+            return *fXferProcessor.get();
+        } else {
+            // A null xp member means the common src-over case. GrXferProcessor's ref'ing
+            // mechanism is not thread safe so we do not hold a ref on this global.
+            return GrPorterDuffXPFactory::SimpleSrcOverXP();
+        }
+    }
 
     const GrFragmentProcessor& getColorFragmentProcessor(int idx) const {
         SkASSERT(idx < this->numColorFragmentProcessors());
@@ -127,7 +147,7 @@ public:
     bool snapVerticesToPixelCenters() const { return SkToBool(fFlags & kSnapVertices_Flag); }
 
     GrXferBarrierType xferBarrierType(const GrCaps& caps) const {
-        return fXferProcessor->xferBarrierType(fRenderTarget.get(), caps);
+        return this->getXferProcessor().xferBarrierType(fRenderTarget.get(), caps);
     }
 
     /**
@@ -141,6 +161,7 @@ public:
     ///////////////////////////////////////////////////////////////////////////
 
     bool readsFragPosition() const { return fReadsFragPosition; }
+    bool ignoresCoverage() const { return fIgnoresCoverage; }
 
 private:
     GrPipeline() { /** Initialized in factory function*/ }
@@ -180,6 +201,7 @@ private:
     ProgramXferProcessor                fXferProcessor;
     FragmentProcessorArray              fFragmentProcessors;
     bool                                fReadsFragPosition;
+    bool                                fIgnoresCoverage;
 
     // This value is also the index in fFragmentProcessors where coverage processors begin.
     int                                 fNumColorProcessors;

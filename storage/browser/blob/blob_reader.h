@@ -5,6 +5,7 @@
 #ifndef STORAGE_BROWSER_BLOB_BLOB_READER_H_
 #define STORAGE_BROWSER_BLOB_BLOB_READER_H_
 
+#include <stddef.h>
 #include <stdint.h>
 #include <map>
 #include <vector>
@@ -107,7 +108,10 @@ class STORAGE_EXPORT BlobReader {
 
   // Returns the total size of the blob. This is populated after CalculateSize
   // is called.
-  uint64_t total_size() const { return total_size_; }
+  uint64_t total_size() const {
+    DCHECK(total_size_calculated_);
+    return total_size_;
+  }
 
  protected:
   friend class BlobDataHandle;

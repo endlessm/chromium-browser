@@ -32,38 +32,17 @@
 #include <string.h>
 
 #include "internal.h"
+#include "../internal.h"
 
 
 typedef uint8_t u8;
 typedef uint64_t u64;
 typedef int64_t s64;
-typedef __uint128_t uint128_t;
-typedef __int128_t int128_t;
 
 /* The underlying field. P256 operates over GF(2^256-2^224+2^192+2^96-1). We
  * can serialise an element of this field into 32 bytes. We call this an
  * felem_bytearray. */
 typedef u8 felem_bytearray[32];
-
-/* These are the parameters of P256, taken from FIPS 186-3, page 86. These
- * values are big-endian. */
-static const felem_bytearray nistp256_curve_params[5] = {
-    {0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01, /* p */
-     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-    {0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01, /* a = -3 */
-     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-     0xfc}, /* b */
-    {0x5a, 0xc6, 0x35, 0xd8, 0xaa, 0x3a, 0x93, 0xe7, 0xb3, 0xeb, 0xbd, 0x55,
-     0x76, 0x98, 0x86, 0xbc, 0x65, 0x1d, 0x06, 0xb0, 0xcc, 0x53, 0xb0, 0xf6,
-     0x3b, 0xce, 0x3c, 0x3e, 0x27, 0xd2, 0x60, 0x4b},
-    {0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, /* x */
-     0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2, 0x77, 0x03, 0x7d, 0x81,
-     0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96},
-    {0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b, /* y */
-     0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e, 0x16, 0x2b, 0xce, 0x33, 0x57,
-     0x6b, 0x31, 0x5e, 0xce, 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5}};
 
 /* The representation of field elements.
  * ------------------------------------
@@ -99,10 +78,10 @@ static const u64 bottom63bits = 0x7ffffffffffffffful;
 /* bin32_to_felem takes a little-endian byte array and converts it into felem
  * form. This assumes that the CPU is little-endian. */
 static void bin32_to_felem(felem out, const u8 in[32]) {
-  out[0] = *((u64 *)&in[0]);
-  out[1] = *((u64 *)&in[8]);
-  out[2] = *((u64 *)&in[16]);
-  out[3] = *((u64 *)&in[24]);
+  out[0] = *((const u64 *)&in[0]);
+  out[1] = *((const u64 *)&in[8]);
+  out[2] = *((const u64 *)&in[16]);
+  out[3] = *((const u64 *)&in[24]);
 }
 
 /* smallfelem_to_bin32 takes a smallfelem and serialises into a little endian,
@@ -1312,8 +1291,8 @@ static void point_add_small(smallfelem x3, smallfelem y3, smallfelem z3,
  *
  * Tables for other points have table[i] = iG for i in 0 .. 16. */
 
-/* gmul is the table of precomputed base points */
-static const smallfelem gmul[2][16][3] = {
+/* g_pre_comp is the table of precomputed base points */
+static const smallfelem g_pre_comp[2][16][3] = {
     {{{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
      {{0xf4a13945d898c296, 0x77037d812deb33a0, 0xf8bce6e563a440f2,
        0x6b17d1f2e12c4247},
@@ -1476,7 +1455,7 @@ static void select_point(const u64 idx, unsigned int size,
   memset(outlimbs, 0, 3 * sizeof(smallfelem));
 
   for (i = 0; i < size; i++) {
-    const u64 *inlimbs = (u64 *)&pre_comp[i][0][0];
+    const u64 *inlimbs = (const u64 *)&pre_comp[i][0][0];
     u64 mask = i ^ idx;
     mask |= mask >> 4;
     mask |= mask >> 2;
@@ -1505,8 +1484,7 @@ static char get_bit(const felem_bytearray in, int i) {
 static void batch_mul(felem x_out, felem y_out, felem z_out,
                       const felem_bytearray scalars[],
                       const unsigned num_points, const u8 *g_scalar,
-                      const int mixed, const smallfelem pre_comp[][17][3],
-                      const smallfelem g_pre_comp[2][16][3]) {
+                      const int mixed, const smallfelem pre_comp[][17][3]) {
   int i, skip;
   unsigned num, gen_mul = (g_scalar != NULL);
   felem nq[3], ftmp;
@@ -1598,56 +1576,10 @@ static void batch_mul(felem x_out, felem y_out, felem z_out,
   felem_assign(z_out, nq[2]);
 }
 
-/* Precomputation for the group generator. */
-typedef struct {
-  smallfelem g_pre_comp[2][16][3];
-} NISTP256_PRE_COMP;
-
 /******************************************************************************/
 /*
  * OPENSSL EC_METHOD FUNCTIONS
  */
-
-int ec_GFp_nistp256_group_init(EC_GROUP *group) {
-  int ret = ec_GFp_simple_group_init(group);
-  group->a_is_minus3 = 1;
-  return ret;
-}
-
-int ec_GFp_nistp256_group_set_curve(EC_GROUP *group, const BIGNUM *p,
-                                    const BIGNUM *a, const BIGNUM *b,
-                                    BN_CTX *ctx) {
-  int ret = 0;
-  BN_CTX *new_ctx = NULL;
-  BIGNUM *curve_p, *curve_a, *curve_b;
-
-  if (ctx == NULL) {
-    if ((ctx = new_ctx = BN_CTX_new()) == NULL) {
-      return 0;
-    }
-  }
-  BN_CTX_start(ctx);
-  if (((curve_p = BN_CTX_get(ctx)) == NULL) ||
-      ((curve_a = BN_CTX_get(ctx)) == NULL) ||
-      ((curve_b = BN_CTX_get(ctx)) == NULL)) {
-    goto err;
-  }
-  BN_bin2bn(nistp256_curve_params[0], sizeof(felem_bytearray), curve_p);
-  BN_bin2bn(nistp256_curve_params[1], sizeof(felem_bytearray), curve_a);
-  BN_bin2bn(nistp256_curve_params[2], sizeof(felem_bytearray), curve_b);
-  if (BN_cmp(curve_p, p) ||
-      BN_cmp(curve_a, a) ||
-      BN_cmp(curve_b, b)) {
-    OPENSSL_PUT_ERROR(EC, EC_R_WRONG_CURVE_PARAMETERS);
-    goto err;
-  }
-  ret = ec_GFp_simple_group_set_curve(group, p, a, b, ctx);
-
-err:
-  BN_CTX_end(ctx);
-  BN_CTX_free(new_ctx);
-  return ret;
-}
 
 /* Takes the Jacobian coordinates (X, Y, Z) of a point and returns (X', Y') =
  * (X/Z^2, Y/Z^3). */
@@ -1707,12 +1639,16 @@ static void make_points_affine(size_t num, smallfelem points[][3],
       (void (*)(void *, const void *))smallfelem_assign);
 }
 
-/* Computes scalar*generator + \sum scalars[i]*points[i], ignoring NULL
- * values Result is stored in r (r can equal one of the inputs). */
 int ec_GFp_nistp256_points_mul(const EC_GROUP *group, EC_POINT *r,
-                               const BIGNUM *scalar, size_t num,
-                               const EC_POINT *points[],
-                               const BIGNUM *scalars[], BN_CTX *ctx) {
+                               const BIGNUM *g_scalar, const EC_POINT *p_,
+                               const BIGNUM *p_scalar_, BN_CTX *ctx) {
+  /* TODO: This function used to take |points| and |scalars| as arrays of
+   * |num| elements. The code below should be simplified to work in terms of |p|
+   * and |p_scalar|. */
+  size_t num = p_ != NULL ? 1 : 0;
+  const EC_POINT **points = p_ != NULL ? &p_ : NULL;
+  BIGNUM const *const *scalars = p_ != NULL ? &p_scalar_ : NULL;
+
   int ret = 0;
   int j;
   int mixed = 0;
@@ -1724,12 +1660,9 @@ int ec_GFp_nistp256_points_mul(const EC_GROUP *group, EC_POINT *r,
   smallfelem *tmp_smallfelems = NULL;
   felem_bytearray tmp;
   unsigned i, num_bytes;
-  int have_pre_comp = 0;
   size_t num_points = num;
   smallfelem x_in, y_in, z_in;
   felem x_out, y_out, z_out;
-  const smallfelem(*g_pre_comp)[16][3] = NULL;
-  EC_POINT *generator = NULL;
   const EC_POINT *p = NULL;
   const BIGNUM *p_scalar = NULL;
 
@@ -1748,34 +1681,6 @@ int ec_GFp_nistp256_points_mul(const EC_GROUP *group, EC_POINT *r,
     goto err;
   }
 
-  if (scalar != NULL) {
-    /* try to use the standard precomputation */
-    g_pre_comp = &gmul[0];
-    generator = EC_POINT_new(group);
-    if (generator == NULL) {
-      goto err;
-    }
-    /* get the generator from precomputation */
-    if (!smallfelem_to_BN(x, g_pre_comp[0][1][0]) ||
-        !smallfelem_to_BN(y, g_pre_comp[0][1][1]) ||
-        !smallfelem_to_BN(z, g_pre_comp[0][1][2])) {
-      OPENSSL_PUT_ERROR(EC, ERR_R_BN_LIB);
-      goto err;
-    }
-    if (!ec_point_set_Jprojective_coordinates_GFp(group, generator, x, y, z,
-                                                  ctx)) {
-      goto err;
-    }
-    if (0 == EC_POINT_cmp(group, generator, group->generator, ctx)) {
-      /* precomputation matches generator */
-      have_pre_comp = 1;
-    } else {
-      /* we don't have valid precomputation: treat the generator as a
-       * random point. */
-      num_points++;
-    }
-  }
-
   if (num_points > 0) {
     if (num_points >= 3) {
       /* unless we precompute multiples for just one or two points,
@@ -1783,7 +1688,7 @@ int ec_GFp_nistp256_points_mul(const EC_GROUP *group, EC_POINT *r,
       mixed = 1;
     }
     secrets = OPENSSL_malloc(num_points * sizeof(felem_bytearray));
-    pre_comp = OPENSSL_malloc(num_points * 17 * 3 * sizeof(smallfelem));
+    pre_comp = OPENSSL_malloc(num_points * sizeof(smallfelem[17][3]));
     if (mixed) {
       tmp_smallfelems =
           OPENSSL_malloc((num_points * 17 + 1) * sizeof(smallfelem));
@@ -1802,14 +1707,14 @@ int ec_GFp_nistp256_points_mul(const EC_GROUP *group, EC_POINT *r,
       if (i == num) {
         /* we didn't have a valid precomputation, so we pick the generator. */
         p = EC_GROUP_get0_generator(group);
-        p_scalar = scalar;
+        p_scalar = g_scalar;
       } else {
         /* the i^th point */
         p = points[i];
         p_scalar = scalars[i];
       }
       if (p_scalar != NULL && p != NULL) {
-        /* reduce scalar to 0 <= scalar < 2^256 */
+        /* reduce g_scalar to 0 <= g_scalar < 2^256 */
         if (BN_num_bits(p_scalar) > 256 || BN_is_negative(p_scalar)) {
           /* this is an unusual input, and we don't guarantee
            * constant-timeness. */
@@ -1851,32 +1756,25 @@ int ec_GFp_nistp256_points_mul(const EC_GROUP *group, EC_POINT *r,
     }
   }
 
-  /* the scalar for the generator */
-  if (scalar != NULL && have_pre_comp) {
+  if (g_scalar != NULL) {
     memset(g_secret, 0, sizeof(g_secret));
-    /* reduce scalar to 0 <= scalar < 2^256 */
-    if (BN_num_bits(scalar) > 256 || BN_is_negative(scalar)) {
+    /* reduce g_scalar to 0 <= g_scalar < 2^256 */
+    if (BN_num_bits(g_scalar) > 256 || BN_is_negative(g_scalar)) {
       /* this is an unusual input, and we don't guarantee
        * constant-timeness. */
-      if (!BN_nnmod(tmp_scalar, scalar, &group->order, ctx)) {
+      if (!BN_nnmod(tmp_scalar, g_scalar, &group->order, ctx)) {
         OPENSSL_PUT_ERROR(EC, ERR_R_BN_LIB);
         goto err;
       }
       num_bytes = BN_bn2bin(tmp_scalar, tmp);
     } else {
-      num_bytes = BN_bn2bin(scalar, tmp);
+      num_bytes = BN_bn2bin(g_scalar, tmp);
     }
     flip_endian(g_secret, tmp, num_bytes);
-    /* do the multiplication with generator precomputation */
-    batch_mul(x_out, y_out, z_out, (const felem_bytearray(*))secrets,
-              num_points, g_secret, mixed, (const smallfelem(*)[17][3])pre_comp,
-              g_pre_comp);
-  } else {
-    /* do the multiplication without generator precomputation */
-    batch_mul(x_out, y_out, z_out, (const felem_bytearray(*))secrets,
-              num_points, NULL, mixed, (const smallfelem(*)[17][3])pre_comp,
-              NULL);
   }
+  batch_mul(x_out, y_out, z_out, (const felem_bytearray(*))secrets,
+            num_points, g_scalar != NULL ? g_secret : NULL, mixed,
+            (const smallfelem(*)[17][3])pre_comp);
 
   /* reduce the output to its unique minimal representation */
   felem_contract(x_in, x_out);
@@ -1892,7 +1790,6 @@ int ec_GFp_nistp256_points_mul(const EC_GROUP *group, EC_POINT *r,
 
 err:
   BN_CTX_end(ctx);
-  EC_POINT_free(generator);
   BN_CTX_free(new_ctx);
   OPENSSL_free(secrets);
   OPENSSL_free(pre_comp);
@@ -1902,13 +1799,13 @@ err:
 
 const EC_METHOD *EC_GFp_nistp256_method(void) {
   static const EC_METHOD ret = {
-      ec_GFp_nistp256_group_init,
+      ec_GFp_simple_group_init,
       ec_GFp_simple_group_finish,
-      ec_GFp_simple_group_clear_finish,
-      ec_GFp_simple_group_copy, ec_GFp_nistp256_group_set_curve,
+      ec_GFp_simple_group_copy,
+      ec_GFp_simple_group_set_curve,
       ec_GFp_nistp256_point_get_affine_coordinates,
       ec_GFp_nistp256_points_mul,
-      0 /* precompute_mult */,
+      0 /* check_pub_key_order */,
       ec_GFp_simple_field_mul, ec_GFp_simple_field_sqr,
       0 /* field_encode */, 0 /* field_decode */, 0 /* field_set_to_one */
   };

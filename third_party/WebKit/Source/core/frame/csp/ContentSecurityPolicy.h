@@ -123,6 +123,16 @@ public:
         WillNotThrowException
     };
 
+    // This covers the possible values of a violation's 'resource', as defined in
+    // https://w3c.github.io/webappsec-csp/#violation-resource. By the time we
+    // generate a report, we're guaranteed that the value isn't 'null', so we don't
+    // need that state in this enum.
+    enum ViolationType {
+        InlineViolation,
+        EvalViolation,
+        URLViolation
+    };
+
     static PassRefPtrWillBeRawPtr<ContentSecurityPolicy> create()
     {
         return adoptRefWillBeNoop(new ContentSecurityPolicy());
@@ -149,6 +159,7 @@ public:
     // an exception, ContentSecurityPolicy does not log a violation
     // message to the console because it would be redundant.
     bool allowEval(ScriptState* = nullptr, ReportingStatus = SendReport, ExceptionStatus = WillNotThrowException) const;
+    bool allowDynamic() const;
     bool allowPluginType(const String& type, const String& typeAttribute, const KURL&, ReportingStatus = SendReport) const;
     // Checks whether the plugin type should be allowed in the given
     // document; enforces the CSP rule that PluginDocuments inherit
@@ -192,7 +203,7 @@ public:
     void usesScriptHashAlgorithms(uint8_t ContentSecurityPolicyHashAlgorithm);
     void usesStyleHashAlgorithms(uint8_t ContentSecurityPolicyHashAlgorithm);
 
-    ReflectedXSSDisposition reflectedXSSDisposition() const;
+    ReflectedXSSDisposition getReflectedXSSDisposition() const;
 
     bool didSetReferrerPolicy() const;
 
@@ -226,7 +237,7 @@ public:
     // If a frame is passed in, the report will be sent using it as a context. If no frame is
     // passed in, the report will be sent via this object's |m_executionContext| (or dropped
     // on the floor if no such context is available).
-    void reportViolation(const String& directiveText, const String& effectiveDirective, const String& consoleMessage, const KURL& blockedURL, const Vector<String>& reportEndpoints, const String& header, LocalFrame* = nullptr);
+    void reportViolation(const String& directiveText, const String& effectiveDirective, const String& consoleMessage, const KURL& blockedURL, const Vector<String>& reportEndpoints, const String& header, ViolationType, LocalFrame* = nullptr);
 
     void reportBlockedScriptExecutionToInspector(const String& directiveText) const;
 
@@ -237,7 +248,7 @@ public:
     String evalDisabledErrorMessage() const;
 
     void setInsecureRequestsPolicy(SecurityContext::InsecureRequestsPolicy);
-    SecurityContext::InsecureRequestsPolicy insecureRequestsPolicy() const { return m_insecureRequestsPolicy; }
+    SecurityContext::InsecureRequestsPolicy getInsecureRequestsPolicy() const { return m_insecureRequestsPolicy; }
 
     bool urlMatchesSelf(const KURL&) const;
     bool protocolMatchesSelf(const KURL&) const;
@@ -301,6 +312,6 @@ private:
     String m_selfProtocol;
 };
 
-}
+} // namespace blink
 
 #endif

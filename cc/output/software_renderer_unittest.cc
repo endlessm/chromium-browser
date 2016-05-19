@@ -4,6 +4,8 @@
 
 #include "cc/output/software_renderer.h"
 
+#include <stdint.h>
+
 #include "base/run_loop.h"
 #include "cc/output/compositor_frame_metadata.h"
 #include "cc/output/copy_output_request.h"
@@ -31,8 +33,8 @@ class SoftwareRendererTest : public testing::Test, public RendererClient {
  public:
   void InitializeRenderer(
       scoped_ptr<SoftwareOutputDevice> software_output_device) {
-    output_surface_ = FakeOutputSurface::CreateSoftware(
-        software_output_device.Pass());
+    output_surface_ =
+        FakeOutputSurface::CreateSoftware(std::move(software_output_device));
     CHECK(output_surface_->BindToClient(&output_surface_client_));
 
     shared_bitmap_manager_.reset(new TestSharedBitmapManager());
@@ -69,7 +71,7 @@ class SoftwareRendererTest : public testing::Test, public RendererClient {
                           device_viewport_rect,
                           false);
     loop.Run();
-    return bitmap_result.Pass();
+    return bitmap_result;
   }
 
   static void SaveBitmapResult(scoped_ptr<SkBitmap>* bitmap_result,
@@ -123,7 +125,7 @@ TEST_F(SoftwareRendererTest, SolidColorQuad) {
       shared_quad_state, outer_rect, outer_rect, SK_ColorYELLOW, false);
 
   RenderPassList list;
-  list.push_back(root_render_pass.Pass());
+  list.push_back(std::move(root_render_pass));
 
   float device_scale_factor = 1.f;
   gfx::Rect device_viewport_rect(outer_size);
@@ -195,7 +197,7 @@ TEST_F(SoftwareRendererTest, TileQuad) {
                      outer_size, false, false);
 
   RenderPassList list;
-  list.push_back(root_render_pass.Pass());
+  list.push_back(std::move(root_render_pass));
 
   float device_scale_factor = 1.f;
   gfx::Rect device_viewport_rect(outer_size);
@@ -257,7 +259,7 @@ TEST_F(SoftwareRendererTest, TileQuadVisibleRect) {
   quad->visible_rect = visible_rect;
 
   RenderPassList list;
-  list.push_back(root_render_pass.Pass());
+  list.push_back(std::move(root_render_pass));
 
   float device_scale_factor = 1.f;
   gfx::Rect device_viewport_rect(tile_size);

@@ -3,17 +3,17 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/input_method/input_method_persistence.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/test/test_utils.h"
 
 namespace chromeos {
@@ -31,6 +31,8 @@ void Append_en_US_InputMethods(std::vector<std::string>* out) {
   out->push_back("xkb:us:dvorak:eng");
   out->push_back("xkb:us:dvp:eng");
   out->push_back("xkb:us:colemak:eng");
+  out->push_back("xkb:us:workman:eng");
+  out->push_back("xkb:us:workman-intl:eng");
   chromeos::input_method::InputMethodManager::Get()->MigrateInputMethods(out);
 }
 
@@ -70,9 +72,7 @@ class FocusPODWaiter {
 
  private:
   OobeUI* GetOobeUI() {
-    OobeUI* oobe_ui =
-        static_cast<chromeos::LoginDisplayHostImpl*>(
-            chromeos::LoginDisplayHostImpl::default_host())->GetOobeUI();
+    OobeUI* oobe_ui = LoginDisplayHost::default_host()->GetOobeUI();
     CHECK(oobe_ui);
     return oobe_ui;
   }

@@ -5,10 +5,14 @@
 #ifndef IOS_WEB_WEB_STATE_WEB_STATE_IMPL_H_
 #define IOS_WEB_WEB_STATE_WEB_STATE_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -115,7 +119,7 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   // Called when the page requests a credential.
   void OnCredentialsRequested(int request_id,
                               const GURL& source_url,
-                              bool suppress_ui,
+                              bool unmediated,
                               const std::vector<std::string>& federations,
                               bool user_interaction);
 
@@ -245,6 +249,7 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
                     uint32_t max_bitmap_size,
                     bool bypass_cache,
                     const ImageDownloadCallback& callback) override;
+  base::WeakPtr<WebState> AsWeakPtr() override;
 
   // Adds |interstitial|'s view to the web controller's content view.
   void ShowWebInterstitial(WebInterstitialImpl* interstitial);
@@ -335,6 +340,11 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
 
   // Callbacks associated to command prefixes.
   std::map<std::string, ScriptCommandCallback> script_command_callbacks_;
+
+  // Member variables should appear before the WeakPtrFactory<> to ensure that
+  // any WeakPtrs to WebStateImpl are invalidated before its member variable's
+  // destructors are executed, rendering them invalid.
+  base::WeakPtrFactory<WebState> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(WebStateImpl);
 };

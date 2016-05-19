@@ -42,6 +42,7 @@
 #ifndef WTF_ThreadSpecific_h
 #define WTF_ThreadSpecific_h
 
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/Partitions.h"
 #include "wtf/StdLibExtras.h"
@@ -63,6 +64,7 @@ WTF_EXPORT void ThreadSpecificThreadExit();
 #endif
 
 template<typename T> class ThreadSpecific {
+    USING_FAST_MALLOC(ThreadSpecific);
     WTF_MAKE_NONCOPYABLE(ThreadSpecific);
 public:
     ThreadSpecific();
@@ -260,7 +262,7 @@ inline ThreadSpecific<T>::operator T*()
     if (!ptr) {
         // Set up thread-specific value's memory pointer before invoking constructor, in case any function it calls
         // needs to access the value, to avoid recursion.
-        ptr = static_cast<T*>(Partitions::fastZeroedMalloc(sizeof(T)));
+        ptr = static_cast<T*>(Partitions::fastZeroedMalloc(sizeof(T), WTF_HEAP_PROFILER_TYPE_NAME(T)));
         set(ptr);
         new (NotNull, ptr) T;
     }

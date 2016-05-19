@@ -42,8 +42,6 @@ public:
                                                SkScalar sigmaX,
                                                SkScalar sigmaY);
 
-    virtual ~GrMatrixConvolutionEffect();
-
     const SkIRect& bounds() const { return fBounds; }
     const SkISize& kernelSize() const { return fKernelSize; }
     const float* kernelOffset() const { return fKernelOffset; }
@@ -66,9 +64,9 @@ private:
                               GrTextureDomain::Mode tileMode,
                               bool convolveAlpha);
 
-    GrGLFragmentProcessor* onCreateGLInstance() const override;
+    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
 
-    void onGetGLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override;
+    void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override;
 
     bool onIsEqual(const GrFragmentProcessor&) const override;
 

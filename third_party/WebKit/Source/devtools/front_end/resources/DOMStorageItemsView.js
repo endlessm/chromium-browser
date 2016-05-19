@@ -26,11 +26,11 @@
 
 /**
  * @constructor
- * @extends {WebInspector.DataGridContainerWidget}
+ * @extends {WebInspector.VBox}
  */
 WebInspector.DOMStorageItemsView = function(domStorage)
 {
-    WebInspector.DataGridContainerWidget.call(this);
+    WebInspector.VBox.call(this);
 
     this.domStorage = domStorage;
 
@@ -175,7 +175,7 @@ WebInspector.DOMStorageItemsView.prototype = {
             return;
 
         this._dataGrid = this._dataGridForDOMStorageItems(items);
-        this.appendDataGrid(this._dataGrid);
+        this._dataGrid.asWidget().show(this.element);
         this.deleteButton.setVisible(this._dataGrid.rootNode().children.length > 1);
     },
 
@@ -216,7 +216,6 @@ WebInspector.DOMStorageItemsView.prototype = {
             return;
 
         this._deleteCallback(this._dataGrid.selectedNode);
-        this._dataGrid.changeNodeAfterDeletion();
     },
 
     _refreshButtonClicked: function(event)
@@ -259,5 +258,5 @@ WebInspector.DOMStorageItemsView.prototype = {
             this.domStorage.removeItem(node.data.key);
     },
 
-    __proto__: WebInspector.DataGridContainerWidget.prototype
+    __proto__: WebInspector.VBox.prototype
 }

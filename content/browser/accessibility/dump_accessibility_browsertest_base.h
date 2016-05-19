@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "base/debug/leak_annotations.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "content/browser/accessibility/accessibility_tree_formatter.h"
 #include "content/public/test/content_browser_test.h"
 
@@ -29,6 +31,9 @@ class DumpAccessibilityTestBase : public ContentBrowserTest {
   void RunTest(const base::FilePath file_path, const char* file_dir);
 
  protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override;
+  void SetUpOnMainThread() override;
+
   //
   // For subclasses to override:
   //
@@ -77,14 +82,31 @@ class DumpAccessibilityTestBase : public ContentBrowserTest {
   // until the given string (e.g., "text") appears in the resulting dump.
   // A test can make some changes to the document, then append a magic string
   // indicating that the test is done, and this framework will wait for that
-  // string to appear before comparing the results.
+  // string to appear before comparing the results. There can be multiple
+  // @WAIT-FOR: directives.
   void ParseHtmlForExtraDirectives(
       const std::string& test_html,
       std::vector<AccessibilityTreeFormatter::Filter>* filters,
-      std::string* wait_for);
+      std::vector<std::string>* wait_for);
+
+  // Create the right AccessibilityTreeFormatter subclass.
+  AccessibilityTreeFormatter* CreateAccessibilityTreeFormatter();
+
+  void RunTestForPlatform(const base::FilePath file_path, const char* file_dir);
 
   // The default filters plus the filters loaded from the test file.
   std::vector<AccessibilityTreeFormatter::Filter> filters_;
+
+#if defined(LEAK_SANITIZER) && !defined(OS_NACL)
+  // http://crbug.com/568674
+  ScopedLeakSanitizerDisabler lsan_disabler;
+#endif
+
+  // The current AccessibilityTreeFormatter.
+  scoped_ptr<AccessibilityTreeFormatter> formatter_;
+
+  // Whether we're doing a native pass or internal/blink tree pass.
+  bool is_blink_pass_;
 };
 
 }  // namespace content

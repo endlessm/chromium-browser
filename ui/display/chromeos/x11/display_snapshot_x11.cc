@@ -18,6 +18,7 @@ DisplaySnapshotX11::DisplaySnapshotX11(
     bool has_overscan,
     std::string display_name,
     const std::vector<const DisplayMode*>& modes,
+    const std::vector<uint8_t>& edid,
     const DisplayMode* current_mode,
     const DisplayMode* native_mode,
     RROutput output,
@@ -30,7 +31,11 @@ DisplaySnapshotX11::DisplaySnapshotX11(
                       is_aspect_preserving_scaling,
                       has_overscan,
                       display_name,
+                      // TODO(jdufault): Figure out if we can get the file
+                      //                 descriptor that maps to the device.
+                      base::FilePath(),
                       modes,
+                      edid,
                       current_mode,
                       native_mode),
       output_(output),

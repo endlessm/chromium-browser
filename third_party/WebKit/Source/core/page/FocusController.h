@@ -46,14 +46,15 @@ class InputDeviceCapabilities;
 class LocalFrame;
 class Node;
 class Page;
+class RemoteFrame;
 
 class CORE_EXPORT FocusController final : public NoBaseWillBeGarbageCollectedFinalized<FocusController> {
     WTF_MAKE_NONCOPYABLE(FocusController); USING_FAST_MALLOC_WILL_BE_REMOVED(FocusController);
 public:
     static PassOwnPtrWillBeRawPtr<FocusController> create(Page*);
 
-    void setFocusedFrame(PassRefPtrWillBeRawPtr<Frame>);
-    void focusDocumentView(PassRefPtrWillBeRawPtr<Frame>);
+    void setFocusedFrame(PassRefPtrWillBeRawPtr<Frame>, bool notifyEmbedder = true);
+    void focusDocumentView(PassRefPtrWillBeRawPtr<Frame>, bool notifyEmbedder = true);
     LocalFrame* focusedFrame() const;
     Frame* focusedOrMainFrame() const;
 
@@ -68,7 +69,8 @@ public:
 
     bool setInitialFocus(WebFocusType);
     bool advanceFocus(WebFocusType type, InputDeviceCapabilities* sourceCapabilities = nullptr) { return advanceFocus(type, false, sourceCapabilities); }
-    Element* findFocusableElement(WebFocusType, Node&);
+    bool advanceFocusAcrossFrames(WebFocusType, RemoteFrame* from, LocalFrame* to, InputDeviceCapabilities* sourceCapabilities = nullptr);
+    Element* findFocusableElementInShadowHost(const Element& shadowHost);
 
     bool setFocusedElement(Element*, PassRefPtrWillBeRawPtr<Frame>, const FocusParams&);
     // |setFocusedElement| variant with SelectionBehaviorOnFocus::None,
@@ -86,9 +88,11 @@ public:
 private:
     explicit FocusController(Page*);
 
+    Element* findFocusableElement(WebFocusType, Element&);
+
     bool advanceFocus(WebFocusType, bool initialFocus, InputDeviceCapabilities* sourceCapabilities = nullptr);
     bool advanceFocusDirectionally(WebFocusType);
-    bool advanceFocusInDocumentOrder(WebFocusType, bool initialFocus, InputDeviceCapabilities* sourceCapabilities);
+    bool advanceFocusInDocumentOrder(LocalFrame*, Element* start, WebFocusType, bool initialFocus, InputDeviceCapabilities* sourceCapabilities);
 
     bool advanceFocusDirectionallyInContainer(Node* container, const LayoutRect& startingRect, WebFocusType);
     void findFocusCandidateInContainer(Node& container, const LayoutRect& startingRect, WebFocusType, FocusCandidate& closest);

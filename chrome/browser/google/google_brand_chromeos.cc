@@ -2,18 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/task_runner_util.h"
 #include "base/threading/worker_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/system/statistics_provider.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace google_brand {
@@ -31,7 +30,7 @@ std::string ReadBrandFromFile() {
   base::FilePath brand_file_path(kRLZBrandFilePath);
   if (!base::ReadFileToString(brand_file_path, &brand))
     LOG(WARNING) << "Brand code file missing: " << brand_file_path.value();
-  base::TrimWhitespace(brand, base::TRIM_ALL, &brand);
+  base::TrimWhitespaceASCII(brand, base::TRIM_ALL, &brand);
   return brand;
 }
 

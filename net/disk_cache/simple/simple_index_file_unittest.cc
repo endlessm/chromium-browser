@@ -108,14 +108,14 @@ class SimpleIndexFileTest : public testing::Test {
 
 TEST_F(SimpleIndexFileTest, Serialize) {
   SimpleIndex::EntrySet entries;
-  static const uint64 kHashes[] = { 11, 22, 33 };
+  static const uint64_t kHashes[] = {11, 22, 33};
   static const size_t kNumHashes = arraysize(kHashes);
   EntryMetadata metadata_entries[kNumHashes];
 
-  SimpleIndexFile::IndexMetadata index_metadata(static_cast<uint64>(kNumHashes),
-                                                456);
+  SimpleIndexFile::IndexMetadata index_metadata(
+      static_cast<uint64_t>(kNumHashes), 456);
   for (size_t i = 0; i < kNumHashes; ++i) {
-    uint64 hash = kHashes[i];
+    uint64_t hash = kHashes[i];
     metadata_entries[i] = EntryMetadata(Time(), hash);
     SimpleIndex::InsertInEntrySet(hash, metadata_entries[i], &entries);
   }
@@ -181,16 +181,16 @@ TEST_F(SimpleIndexFileTest, WriteThenLoadIndex) {
   ASSERT_TRUE(cache_dir.CreateUniqueTempDir());
 
   SimpleIndex::EntrySet entries;
-  static const uint64 kHashes[] = { 11, 22, 33 };
+  static const uint64_t kHashes[] = {11, 22, 33};
   static const size_t kNumHashes = arraysize(kHashes);
   EntryMetadata metadata_entries[kNumHashes];
   for (size_t i = 0; i < kNumHashes; ++i) {
-    uint64 hash = kHashes[i];
+    uint64_t hash = kHashes[i];
     metadata_entries[i] = EntryMetadata(Time(), hash);
     SimpleIndex::InsertInEntrySet(hash, metadata_entries[i], &entries);
   }
 
-  const uint64 kCacheSize = 456U;
+  const uint64_t kCacheSize = 456U;
   net::TestClosure closure;
   {
     WrappedSimpleIndexFile simple_index_file(cache_dir.path());
@@ -292,8 +292,8 @@ TEST_F(SimpleIndexFileTest, SimpleCacheUpgrade) {
   // thread after that.
   MessageLoopHelper helper;
   CallbackTest cb_shutdown(&helper, false);
-  cache_thread.task_runner()->PostTask(
-      FROM_HERE,
+  cache_thread.task_runner()->PostTaskAndReply(
+      FROM_HERE, base::Bind(&base::DoNothing),
       base::Bind(&CallbackTest::Run, base::Unretained(&cb_shutdown), net::OK));
   helper.WaitUntilCacheIoFinished(1);
 

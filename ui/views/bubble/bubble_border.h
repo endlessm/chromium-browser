@@ -5,15 +5,18 @@
 #ifndef UI_VIEWS_BUBBLE_BUBBLE_BORDER_H_
 #define UI_VIEWS_BUBBLE_BUBBLE_BORDER_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 
+class SkPath;
+
 namespace gfx {
+class Path;
 class Rect;
 }
 
@@ -204,6 +207,13 @@ class VIEWS_EXPORT BubbleBorder : public Border {
   // Gets the arrow offset to use.
   int GetArrowOffset(const gfx::Size& border_size) const;
 
+  // Retreives the arrow path given |view_bounds|. |view_bounds| should be local
+  // bounds of the view.
+  // Returns false if |path| is unchanged, which is the case when there is no
+  // painted arrow.
+  // The returned path does not account for arrow stroke and shadow.
+  bool GetArrowPath(const gfx::Rect& view_bounds, gfx::Path* path) const;
+
   // Overridden from Border:
   void Paint(const View& view, gfx::Canvas* canvas) override;
   gfx::Insets GetInsets() const override;
@@ -220,6 +230,8 @@ class VIEWS_EXPORT BubbleBorder : public Border {
   gfx::Size GetSizeForContentsSize(const gfx::Size& contents_size) const;
   gfx::ImageSkia* GetArrowImage() const;
   gfx::Rect GetArrowRect(const gfx::Rect& bounds) const;
+  void GetArrowPathFromArrowBounds(const gfx::Rect& arrow_bounds,
+                                   SkPath* path) const;
   void DrawArrow(gfx::Canvas* canvas, const gfx::Rect& arrow_bounds) const;
 
   internal::BorderImages* GetImagesForTest() const;

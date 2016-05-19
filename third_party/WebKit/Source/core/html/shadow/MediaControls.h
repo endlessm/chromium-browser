@@ -66,7 +66,7 @@ public:
     void startedCasting();
     void stoppedCasting();
     void refreshCastButtonVisibility();
-    void showOverlayCastButton();
+    void showOverlayCastButtonIfNeeded();
     // Update cast button visibility, but don't try to update our panel
     // button visibility for space.
     void refreshCastButtonVisibilityWithoutUpdate();
@@ -157,6 +157,6 @@ private:
 
 DEFINE_ELEMENT_TYPE_CASTS(MediaControls, isMediaControls());
 
-}
+} // namespace blink
 
 #endif

@@ -5,6 +5,9 @@
 #ifndef NET_SPDY_SPDY_FRAMER_H_
 #define NET_SPDY_SPDY_FRAMER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -19,8 +22,6 @@
 #include "net/spdy/spdy_alt_svc_wire_format.h"
 #include "net/spdy/spdy_header_block.h"
 #include "net/spdy/spdy_protocol.h"
-
-// TODO(akalin): Remove support for CREDENTIAL frames.
 
 typedef struct z_stream_s z_stream;  // Forward declaration for zlib.
 
@@ -50,27 +51,25 @@ class SpdyFramerPeer;
 class NET_EXPORT_PRIVATE SettingsFlagsAndId {
  public:
   static SettingsFlagsAndId FromWireFormat(SpdyMajorVersion version,
-                                           uint32 wire);
+                                           uint32_t wire);
 
   SettingsFlagsAndId() : flags_(0), id_(0) {}
 
   // TODO(hkhalil): restrict to enums instead of free-form ints.
-  SettingsFlagsAndId(uint8 flags, uint32 id);
+  SettingsFlagsAndId(uint8_t flags, uint32_t id);
 
-  uint32 GetWireFormat(SpdyMajorVersion version) const;
+  uint32_t GetWireFormat(SpdyMajorVersion version) const;
 
-  uint32 id() const { return id_; }
-  uint8 flags() const { return flags_; }
+  uint32_t id() const { return id_; }
+  uint8_t flags() const { return flags_; }
 
  private:
-  static void ConvertFlagsAndIdForSpdy2(uint32* val);
-
-  uint8 flags_;
-  uint32 id_;
+  uint8_t flags_;
+  uint32_t id_;
 };
 
 // SettingsMap has unique (flags, value) pair for given SpdySettingsIds ID.
-typedef std::pair<SpdySettingsFlags, uint32> SettingsFlagsAndValue;
+typedef std::pair<SpdySettingsFlags, uint32_t> SettingsFlagsAndValue;
 typedef std::map<SpdySettingsIds, SettingsFlagsAndValue> SettingsMap;
 
 // SpdyFramerVisitorInterface is a set of callbacks for the SpdyFramer.
@@ -176,7 +175,7 @@ class NET_EXPORT_PRIVATE SpdyFramerVisitorInterface {
 
   // Called when a complete setting within a SETTINGS frame has been parsed and
   // validated.
-  virtual void OnSetting(SpdySettingsIds id, uint8 flags, uint32 value) = 0;
+  virtual void OnSetting(SpdySettingsIds id, uint8_t flags, uint32_t value) = 0;
 
   // Called when a SETTINGS frame is received with the ACK flag set.
   virtual void OnSettingsAck() {}
@@ -196,13 +195,13 @@ class NET_EXPORT_PRIVATE SpdyFramerVisitorInterface {
   // OnControlFrameHeaderData().
   // |stream_id| The stream receiving the header.
   // |has_priority| Whether or not the headers frame included a priority value,
-  //     and, if protocol version >= HTTP2, stream dependency info.
-  // |priority| If |has_priority| is true and protocol version > SPDY3,
-  //     priority value for the receiving stream, else 0.
+  //     and, if protocol version == HTTP2, stream dependency info.
+  // |priority| If |has_priority| is true, then priority value for the receiving
+  //     stream, otherwise 0.
   // |parent_stream_id| If |has_priority| is true and protocol
-  //     version >= HTTP2, the parent stream of the receiving stream, else 0.
+  //     version == HTTP2, the parent stream of the receiving stream, else 0.
   // |exclusive| If |has_priority| is true and protocol
-  //     version >= HTTP2, the exclusivity of dependence on the parent stream,
+  //     version == HTTP2, the exclusivity of dependence on the parent stream,
   //     else false.
   // |fin| Whether FIN flag is set in frame headers.
   // |end| False if HEADERs frame is to be followed by a CONTINUATION frame,
@@ -262,7 +261,7 @@ class NET_EXPORT_PRIVATE SpdyFramerVisitorInterface {
   // Called when a PRIORITY frame is received.
   virtual void OnPriority(SpdyStreamId stream_id,
                           SpdyStreamId parent_stream_id,
-                          uint8 weight,
+                          uint8_t weight,
                           bool exclusive) {}
 
   // Called when a frame type we don't recognize is received.
@@ -318,6 +317,7 @@ class NET_EXPORT_PRIVATE SpdyFramer {
     SPDY_CONTROL_FRAME_HEADER_BLOCK,
     SPDY_GOAWAY_FRAME_PAYLOAD,
     SPDY_RST_STREAM_FRAME_PAYLOAD,
+    SPDY_SETTINGS_FRAME_HEADER,
     SPDY_SETTINGS_FRAME_PAYLOAD,
     SPDY_ALTSVC_FRAME_PAYLOAD,
   };
@@ -547,16 +547,14 @@ class NET_EXPORT_PRIVATE SpdyFramer {
 
   bool probable_http_response() const { return probable_http_response_; }
 
-  SpdyPriority GetLowestPriority() const {
-    return protocol_version_ < SPDY3 ? 3 : 7;
-  }
+  SpdyPriority GetLowestPriority() const { return 7; }
 
   SpdyPriority GetHighestPriority() const { return 0; }
 
   // Interpolates SpdyPriority values into SPDY4/HTTP2 priority weights,
   // and vice versa.
-  static uint8 MapPriorityToWeight(SpdyPriority priority);
-  static SpdyPriority MapWeightToPriority(uint8 weight);
+  static uint8_t MapPriorityToWeight(SpdyPriority priority);
+  static SpdyPriority MapWeightToPriority(uint8_t weight);
 
   // Deliver the given control frame's compressed headers block to the visitor
   // in decompressed form, in chunks. Returns true if the visitor has
@@ -567,7 +565,7 @@ class NET_EXPORT_PRIVATE SpdyFramer {
       size_t len);
 
   // Updates the maximum size of the header encoder compression table.
-  void UpdateHeaderEncoderTableSize(uint32 value);
+  void UpdateHeaderEncoderTableSize(uint32_t value);
 
   // Returns the maximum size of the header encoder compression table.
   size_t header_encoder_table_size() const;
@@ -632,6 +630,7 @@ class NET_EXPORT_PRIVATE SpdyFramer {
   size_t ProcessDataFramePayload(const char* data, size_t len);
   size_t ProcessGoAwayFramePayload(const char* data, size_t len);
   size_t ProcessRstStreamFramePayload(const char* data, size_t len);
+  size_t ProcessSettingsFrameHeader(const char* data, size_t len);
   size_t ProcessSettingsFramePayload(const char* data, size_t len);
   size_t ProcessAltSvcFramePayload(const char* data, size_t len);
   size_t ProcessIgnoredControlFramePayload(/*const char* data,*/ size_t len);
@@ -734,7 +733,7 @@ class NET_EXPORT_PRIVATE SpdyFramer {
   SpdyFrameType current_frame_type_;
 
   // The total length of the frame currently being read, including frame header.
-  uint32 current_frame_length_;
+  uint32_t current_frame_length_;
 
   // The stream ID field of the frame currently being read, if applicable.
   SpdyStreamId current_frame_stream_id_;
@@ -768,7 +767,7 @@ class NET_EXPORT_PRIVATE SpdyFramer {
   const SpdyMajorVersion protocol_version_;
 
   // The flags field of the frame currently being read.
-  uint8 current_frame_flags_;
+  uint8_t current_frame_flags_;
 
   // Determines whether HPACK or gzip compression is used.
   bool enable_compression_;

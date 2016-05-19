@@ -24,7 +24,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/TreeScopeStyleSheetCollection.h"
 
 #include "core/css/CSSStyleSheet.h"
@@ -175,4 +174,4 @@ DEFINE_TRACE(TreeScopeStyleSheetCollection)
     StyleSheetCollection::trace(visitor);
 }
 
-}
+} // namespace blink

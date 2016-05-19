@@ -15,6 +15,8 @@ import subprocess
 
 import devil.android.sdk.keyevent
 from devil.android.sdk import version_codes
+from devil.constants import exit_codes
+
 
 keyevent = devil.android.sdk.keyevent
 
@@ -242,44 +244,35 @@ def GetOutDirectory(build_type=None):
       GetBuildType() if build_type is None else build_type))
 
 
-def _Memoize(func):
-  def Wrapper():
-    try:
-      return func._result
-    except AttributeError:
-      func._result = func()
-      return func._result
-  return Wrapper
+def CheckOutputDirectory():
+  """Checks that CHROMIUM_OUT_DIR or CHROMIUM_OUTPUT_DIR is set.
+
+  If neither are set, but the current working directory is a build directory,
+  then CHROMIUM_OUTPUT_DIR is set to the current working directory.
+
+  Raises:
+    Exception: If no output directory is detected.
+  """
+  output_dir = os.environ.get('CHROMIUM_OUTPUT_DIR')
+  out_dir = os.environ.get('CHROMIUM_OUT_DIR')
+  if not output_dir and not out_dir:
+    # If CWD is an output directory, then assume it's the desired one.
+    if os.path.exists('build.ninja'):
+      output_dir = os.getcwd()
+      SetOutputDirectory(output_dir)
+    else:
+      raise Exception('Neither CHROMIUM_OUTPUT_DIR nor CHROMIUM_OUT_DIR '
+                      'has been set')
 
 
-def SetAdbPath(adb_path):
-  os.environ['ADB_PATH'] = adb_path
-
-
+# TODO(jbudorick): Convert existing callers to AdbWrapper.GetAdbPath() and
+# remove this.
 def GetAdbPath():
-  # Check if a custom adb path as been set. If not, try to find adb
-  # on the system.
-  if os.environ.get('ADB_PATH'):
-    return os.environ.get('ADB_PATH')
-  else:
-    return _FindAdbPath()
+  from devil.android.sdk import adb_wrapper
+  return adb_wrapper.AdbWrapper.GetAdbPath()
 
-
-@_Memoize
-def _FindAdbPath():
-  if os.environ.get('ANDROID_SDK_ROOT'):
-    return 'adb'
-  # If envsetup.sh hasn't been sourced and there's no adb in the path,
-  # set it here.
-  try:
-    with file(os.devnull, 'w') as devnull:
-      subprocess.call(['adb', 'version'], stdout=devnull, stderr=devnull)
-    return 'adb'
-  except OSError:
-    logging.debug('No adb found in $PATH, fallback to checked in binary.')
-    return os.path.join(ANDROID_SDK_ROOT, 'platform-tools', 'adb')
 
 # Exit codes
-ERROR_EXIT_CODE = 1
-INFRA_EXIT_CODE = 87
-WARNING_EXIT_CODE = 88
+ERROR_EXIT_CODE = exit_codes.ERROR
+INFRA_EXIT_CODE = exit_codes.INFRA
+WARNING_EXIT_CODE = exit_codes.WARNING

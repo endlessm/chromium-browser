@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/html/track/CueTimeline.h"
 
 #include "core/events/Event.h"
@@ -151,7 +150,7 @@ void CueTimeline::updateActiveCues(double movieTime)
 
     // The user agent must synchronously unset [the text track cue active] flag
     // whenever ... the media element's readyState is changed back to HAVE_NOTHING.
-    if (mediaElement.readyState() != HTMLMediaElement::HAVE_NOTHING && mediaElement.webMediaPlayer())
+    if (mediaElement.getReadyState() != HTMLMediaElement::HAVE_NOTHING && mediaElement.webMediaPlayer())
         currentCues = m_cueTree.allOverlaps(m_cueTree.createInterval(movieTime, movieTime));
 
     CueList previousCues;

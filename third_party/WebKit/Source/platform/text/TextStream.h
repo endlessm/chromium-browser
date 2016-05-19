@@ -44,7 +44,8 @@ class LayoutPoint;
 class LayoutRect;
 class LayoutSize;
 
-class PLATFORM_EXPORT TextStream {
+class PLATFORM_EXPORT TextStream final {
+    STACK_ALLOCATED();
 public:
     struct FormatNumberRespectingIntegers {
         FormatNumberRespectingIntegers(double number) : value(number) { }
@@ -99,6 +100,6 @@ TextStream& operator<<(TextStream& ts, const Vector<Item>& vector)
     return ts;
 }
 
-}
+} // namespace blink
 
 #endif

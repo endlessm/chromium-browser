@@ -12,7 +12,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 
-#include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
+#include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/system_wrappers/include/sleep.h"
 
 namespace webrtc {
@@ -130,6 +130,11 @@ int32_t FakeEncoder::SetChannelParameters(uint32_t packet_loss, int64_t rtt) {
 int32_t FakeEncoder::SetRates(uint32_t new_target_bitrate, uint32_t framerate) {
   target_bitrate_kbps_ = new_target_bitrate;
   return 0;
+}
+
+const char* FakeEncoder::kImplementationName = "fake_encoder";
+const char* FakeEncoder::ImplementationName() const {
+  return kImplementationName;
 }
 
 FakeH264Encoder::FakeH264Encoder(Clock* clock)

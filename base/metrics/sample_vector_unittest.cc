@@ -4,6 +4,9 @@
 
 #include "base/metrics/sample_vector.h"
 
+#include <limits.h>
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/memory/scoped_ptr.h"
@@ -20,7 +23,7 @@ TEST(SampleVectorTest, AccumulateTest) {
   ranges.set_range(0, 1);
   ranges.set_range(1, 5);
   ranges.set_range(2, 10);
-  SampleVector samples(&ranges);
+  SampleVector samples(1, &ranges);
 
   samples.Accumulate(1, 200);
   samples.Accumulate(2, -300);
@@ -41,6 +44,33 @@ TEST(SampleVectorTest, AccumulateTest) {
   EXPECT_EQ(samples.TotalCount(), samples.redundant_count());
 }
 
+TEST(SampleVectorTest, Accumulate_LargeValuesDontOverflow) {
+  // Custom buckets: [1, 250000000) [250000000, 500000000)
+  BucketRanges ranges(3);
+  ranges.set_range(0, 1);
+  ranges.set_range(1, 250000000);
+  ranges.set_range(2, 500000000);
+  SampleVector samples(1, &ranges);
+
+  samples.Accumulate(240000000, 200);
+  samples.Accumulate(249999999, -300);
+  EXPECT_EQ(-100, samples.GetCountAtIndex(0));
+
+  samples.Accumulate(250000000, 200);
+  EXPECT_EQ(200, samples.GetCountAtIndex(1));
+
+  EXPECT_EQ(23000000300LL, samples.sum());
+  EXPECT_EQ(100, samples.redundant_count());
+  EXPECT_EQ(samples.TotalCount(), samples.redundant_count());
+
+  samples.Accumulate(250000000, -100);
+  EXPECT_EQ(100, samples.GetCountAtIndex(1));
+
+  EXPECT_EQ(-1999999700LL, samples.sum());
+  EXPECT_EQ(0, samples.redundant_count());
+  EXPECT_EQ(samples.TotalCount(), samples.redundant_count());
+}
+
 TEST(SampleVectorTest, AddSubtractTest) {
   // Custom buckets: [0, 1) [1, 2) [2, 3) [3, INT_MAX)
   BucketRanges ranges(5);
@@ -50,7 +80,7 @@ TEST(SampleVectorTest, AddSubtractTest) {
   ranges.set_range(3, 3);
   ranges.set_range(4, INT_MAX);
 
-  SampleVector samples1(&ranges);
+  SampleVector samples1(1, &ranges);
   samples1.Accumulate(0, 100);
   samples1.Accumulate(2, 100);
   samples1.Accumulate(4, 100);
@@ -58,7 +88,7 @@ TEST(SampleVectorTest, AddSubtractTest) {
   EXPECT_EQ(300, samples1.TotalCount());
   EXPECT_EQ(samples1.redundant_count(), samples1.TotalCount());
 
-  SampleVector samples2(&ranges);
+  SampleVector samples2(2, &ranges);
   samples2.Accumulate(1, 200);
   samples2.Accumulate(2, 200);
   samples2.Accumulate(4, 200);
@@ -91,7 +121,7 @@ TEST(SampleVectorDeathTest, BucketIndexTest) {
   // [0, 1) [1, 2) [2, 4) [4, 8) [8, 16) [16, 32) [32, 64) [64, INT_MAX)
   BucketRanges ranges(9);
   Histogram::InitializeBucketRanges(1, 64, &ranges);
-  SampleVector samples(&ranges);
+  SampleVector samples(1, &ranges);
 
   // Normal case
   samples.Accumulate(0, 1);
@@ -113,7 +143,7 @@ TEST(SampleVectorDeathTest, BucketIndexTest) {
   ranges2.set_range(0, 1);
   ranges2.set_range(1, 5);
   ranges2.set_range(2, 10);
-  SampleVector samples2(&ranges2);
+  SampleVector samples2(2, &ranges2);
 
   // Normal case.
   samples2.Accumulate(1, 1);
@@ -134,7 +164,7 @@ TEST(SampleVectorDeathTest, AddSubtractBucketNotMatchTest) {
   ranges1.set_range(0, 1);
   ranges1.set_range(1, 3);
   ranges1.set_range(2, 5);
-  SampleVector samples1(&ranges1);
+  SampleVector samples1(1, &ranges1);
 
   // Custom buckets 2: [0, 1) [1, 3) [3, 6) [6, 7)
   BucketRanges ranges2(5);
@@ -143,7 +173,7 @@ TEST(SampleVectorDeathTest, AddSubtractBucketNotMatchTest) {
   ranges2.set_range(2, 3);
   ranges2.set_range(3, 6);
   ranges2.set_range(4, 7);
-  SampleVector samples2(&ranges2);
+  SampleVector samples2(2, &ranges2);
 
   samples2.Accumulate(1, 100);
   samples1.Add(samples2);
@@ -209,7 +239,7 @@ TEST(SampleVectorIteratorTest, IterateTest) {
   EXPECT_TRUE(it.Done());
 
   // Create iterator from SampleVector.
-  SampleVector samples(&ranges);
+  SampleVector samples(1, &ranges);
   samples.Accumulate(0, 0);
   samples.Accumulate(1, 1);
   samples.Accumulate(2, 2);
@@ -239,7 +269,7 @@ TEST(SampleVectorIteratorDeathTest, IterateDoneTest) {
   ranges.set_range(2, 2);
   ranges.set_range(3, 3);
   ranges.set_range(4, INT_MAX);
-  SampleVector samples(&ranges);
+  SampleVector samples(1, &ranges);
 
   scoped_ptr<SampleCountIterator> it = samples.Iterator();
 

@@ -11,9 +11,11 @@
 
 #include <mfidl.h>
 #include <mfreadwrite.h>
+#include <stdint.h>
 
 #include <vector>
 
+#include "base/macros.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/win/scoped_comptr.h"
@@ -50,7 +52,7 @@ class MEDIA_EXPORT VideoCaptureDeviceMFWin : public base::NonThreadSafe,
   void StopAndDeAllocate() override;
 
   // Captured new video data.
-  void OnIncomingCapturedData(const uint8* data,
+  void OnIncomingCapturedData(const uint8_t* data,
                               int length,
                               int rotation,
                               const base::TimeTicks& time_stamp);

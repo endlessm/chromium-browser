@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "public/web/win/WebFontRendering.h"
 
 #include "platform/fonts/FontCache.h"
@@ -16,9 +15,10 @@ void WebFontRendering::setUseDirectWrite(bool useDirectWrite)
 }
 
 // static
-void WebFontRendering::setDirectWriteFactory(IDWriteFactory* factory)
+void WebFontRendering::setSkiaFontManager(SkFontMgr* fontMgr)
 {
-    FontCache::setDirectWriteFactory(factory);
+    WTF::adopted(fontMgr);
+    FontCache::setFontManager(RefPtr<SkFontMgr>(fontMgr));
 }
 
 // static

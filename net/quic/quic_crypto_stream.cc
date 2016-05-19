@@ -15,6 +15,7 @@
 
 using std::string;
 using base::StringPiece;
+using net::SpdyPriority;
 
 namespace net {
 
@@ -51,15 +52,12 @@ void QuicCryptoStream::OnDataAvailable() {
     }
     StringPiece data(static_cast<char*>(iov.iov_base), iov.iov_len);
     if (!crypto_framer_.ProcessInput(data)) {
-      CloseConnection(crypto_framer_.error());
+      CloseConnectionWithDetails(crypto_framer_.error(),
+                                 crypto_framer_.error_detail());
       return;
     }
     sequencer()->MarkConsumed(iov.iov_len);
   }
-}
-
-QuicPriority QuicCryptoStream::EffectivePriority() const {
-  return QuicUtils::HighestPriority();
 }
 
 void QuicCryptoStream::SendHandshakeMessage(
@@ -77,22 +75,32 @@ void QuicCryptoStream::SendHandshakeMessage(
   WriteOrBufferData(string(data.data(), data.length()), false, listener);
 }
 
-bool QuicCryptoStream::ExportKeyingMaterial(
-    StringPiece label,
-    StringPiece context,
-    size_t result_len,
-    string* result) const {
+bool QuicCryptoStream::ExportKeyingMaterial(StringPiece label,
+                                            StringPiece context,
+                                            size_t result_len,
+                                            string* result) const {
   if (!handshake_confirmed()) {
     DLOG(ERROR) << "ExportKeyingMaterial was called before forward-secure"
                 << "encryption was established.";
     return false;
   }
   return CryptoUtils::ExportKeyingMaterial(
-      crypto_negotiated_params_.subkey_secret,
-      label,
-      context,
-      result_len,
+      crypto_negotiated_params_.subkey_secret, label, context, result_len,
       result);
+}
+
+bool QuicCryptoStream::ExportTokenBindingKeyingMaterial(string* result) const {
+  if (!encryption_established()) {
+    QUIC_BUG << "ExportTokenBindingKeyingMaterial was called before initial"
+             << "encryption was established.";
+    return false;
+  }
+  if (!FLAGS_quic_save_initial_subkey_secret) {
+    return false;
+  }
+  return CryptoUtils::ExportKeyingMaterial(
+      crypto_negotiated_params_.initial_subkey_secret, "EXPORTER-Token-Binding",
+      /* context= */ "", 32, result);
 }
 
 const QuicCryptoNegotiatedParameters&

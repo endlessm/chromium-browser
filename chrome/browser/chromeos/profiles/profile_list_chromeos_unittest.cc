@@ -6,6 +6,7 @@
 
 #include "ash/ash_switches.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
@@ -89,10 +90,8 @@ class ProfileListChromeOSTest : public testing::Test {
     EXPECT_EQ(0, change_count());
 
     // Reset the menu.
-    avatar_menu_.reset(new AvatarMenu(
-        manager()->profile_info_cache(),
-        mock_observer_.get(),
-        NULL));
+    avatar_menu_.reset(new AvatarMenu(manager()->profile_attributes_storage(),
+                                      mock_observer_.get(), nullptr));
     avatar_menu_->RebuildMenu();
     EXPECT_EQ(0, change_count());
     return avatar_menu_.get();

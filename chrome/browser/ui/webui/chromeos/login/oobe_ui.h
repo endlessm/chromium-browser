@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -93,6 +94,7 @@ class OobeUI : public OobeDisplay,
   static const char kScreenControllerPairing[];
   static const char kScreenHostPairing[];
   static const char kScreenDeviceDisabled[];
+  static const char kScreenUnrecoverableCryptohomeError[];
 
   OobeUI(content::WebUI* web_ui, const GURL& url);
   ~OobeUI() override;

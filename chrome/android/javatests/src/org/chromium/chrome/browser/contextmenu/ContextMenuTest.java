@@ -7,16 +7,14 @@ package org.chromium.chrome.browser.contextmenu;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.os.Environment;
 import android.test.suitebuilder.annotation.LargeTest;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.view.ContextMenu;
 import android.view.KeyEvent;
 
-import junit.framework.Assert;
-
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
@@ -24,13 +22,14 @@ import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
 import org.chromium.chrome.browser.download.DownloadTestBase;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.chrome.test.util.browser.contextmenu.ContextMenuUtils;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnPageFinishedHelper;
 import org.chromium.content.browser.test.util.TestTouchUtils;
+import org.chromium.net.test.EmbeddedTestServer;
 
 import java.io.IOException;
 import java.util.concurrent.Callable;
@@ -41,12 +40,29 @@ import java.util.concurrent.TimeoutException;
  */
 @CommandLineFlags.Add(ChromeSwitches.GOOGLE_BASE_URL + "=http://example.com/")
 public class ContextMenuTest extends DownloadTestBase {
-    private static final String TEST_URL = TestHttpServerClient.getUrl(
-            "chrome/test/data/android/contextmenu/context_menu_test.html");
+    private static final String TEST_PATH =
+            "/chrome/test/data/android/contextmenu/context_menu_test.html";
+
+    private EmbeddedTestServer mTestServer;
+    private String mTestUrl;
+
+    @Override
+    protected void setUp() throws Exception {
+        mTestServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestUrl = mTestServer.getURL(TEST_PATH);
+        super.setUp();
+    }
+
+    @Override
+    protected void tearDown() throws Exception {
+        mTestServer.stopAndDestroyServer();
+        super.tearDown();
+    }
 
     @Override
     public void startMainActivity() throws InterruptedException {
-        startMainActivityWithURL(TEST_URL);
+        startMainActivityWithURL(mTestUrl);
         assertWaitForPageScaleFactorMatch(0.5f);
     }
 
@@ -108,8 +124,8 @@ public class ContextMenuTest extends DownloadTestBase {
 
         callback.waitForCallback(callbackCount);
 
-        String expectedUrl = TestHttpServerClient.getUrl(
-                "chrome/test/data/android/contextmenu/test_image.png");
+        String expectedUrl = mTestServer.getURL(
+                "/chrome/test/data/android/contextmenu/test_image.png");
 
         String actualUrl = ThreadUtils.runOnUiThreadBlockingNoException(new Callable<String>() {
             @Override
@@ -156,13 +172,12 @@ public class ContextMenuTest extends DownloadTestBase {
         assertFalse("Context menu did not have window focus", getActivity().hasWindowFocus());
 
         getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
-        Assert.assertTrue("Activity did not regain focus.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return getActivity().hasWindowFocus();
-                    }
-                }));
+        CriteriaHelper.pollForCriteria(new Criteria("Activity did not regain focus.") {
+            @Override
+            public boolean isSatisfied() {
+                return getActivity().hasWindowFocus();
+            }
+        });
     }
 
     @MediumTest
@@ -175,13 +190,12 @@ public class ContextMenuTest extends DownloadTestBase {
 
         TestTouchUtils.singleClickView(getInstrumentation(), tab.getView(), 0, 0);
 
-        Assert.assertTrue("Activity did not regain focus.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
-                    @Override
-                    public boolean isSatisfied() {
-                        return getActivity().hasWindowFocus();
-                    }
-                }));
+        CriteriaHelper.pollForCriteria(new Criteria("Activity did not regain focus.") {
+            @Override
+            public boolean isSatisfied() {
+                return getActivity().hasWindowFocus();
+            }
+        });
     }
 
     @MediumTest
@@ -209,16 +223,12 @@ public class ContextMenuTest extends DownloadTestBase {
         saveMediaFromContextMenu("testImage", R.id.contextmenu_save_image, "test_image.png");
     }
 
-    /*
-     * Long-pressing on a video tag doesn't show a context menu, so this test fails.
-     * Bug: http://crbug.com/514745
-     *
-     * @LargeTest
-     * @Feature({"Browser"})
-     */
-    @DisabledTest
+    @LargeTest
+    @Feature({"Browser"})
     public void testSaveVideo()
             throws InterruptedException, TimeoutException, SecurityException, IOException {
+        // Click the video to enable playback
+        DOMUtils.clickNode(this, getActivity().getCurrentContentViewCore(), "videoDOMElement");
         saveMediaFromContextMenu("videoDOMElement", R.id.contextmenu_save_video, "test.mp4");
     }
 
@@ -247,13 +257,13 @@ public class ContextMenuTest extends DownloadTestBase {
         // Wait for any new tab animation to finish if we're being driven by the compositor.
         final LayoutManager layoutDriver = getActivity()
                 .getCompositorViewHolder().getLayoutManager();
-        assertTrue("Background tab animation not finished.",
-                CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(
+                new Criteria("Background tab animation not finished.") {
                     @Override
                     public boolean isSatisfied() {
                         return layoutDriver.getActiveLayout().shouldDisplayContentOverlay();
                     }
-                }));
+                });
 
         ContextMenuUtils.selectContextMenuItem(this, tab, "testLink2",
                 R.id.contextmenu_open_in_new_tab);
@@ -263,15 +273,15 @@ public class ContextMenuTest extends DownloadTestBase {
         assertEquals("Number of open tabs does not match", numOpenedTabs, tabModel.getCount());
 
         // Verify the Url is still the same of Parent page.
-        assertEquals(TEST_URL, getActivity().getActivityTab().getUrl());
+        assertEquals(mTestUrl, getActivity().getActivityTab().getUrl());
 
         // Verify that the background tabs were opened in the expected order.
-        String newTabUrl = TestHttpServerClient.getUrl(
-                "chrome/test/data/android/contextmenu/test_link.html");
+        String newTabUrl = mTestServer.getURL(
+                "/chrome/test/data/android/contextmenu/test_link.html");
         assertEquals(newTabUrl, tabModel.getTabAt(indexOfLinkPage).getUrl());
 
-        String imageUrl = TestHttpServerClient.getUrl(
-                "chrome/test/data/android/contextmenu/test_link2.html");
+        String imageUrl = mTestServer.getURL(
+                "/chrome/test/data/android/contextmenu/test_link2.html");
         assertEquals(imageUrl, tabModel.getTabAt(indexOfLinkPage2).getUrl());
     }
 
@@ -280,10 +290,11 @@ public class ContextMenuTest extends DownloadTestBase {
             SecurityException, IOException {
         // Select "save [image/video]" in that menu.
         Tab tab = getActivity().getActivityTab();
+        int callCount = getChromeDownloadCallCount();
         ContextMenuUtils.selectContextMenuItem(this, tab, mediaDOMElement, saveMenuID);
 
         // Wait for the download to complete and see if we got the right file
-        assertTrue(waitForChromeDownloadToFinish());
+        assertTrue(waitForChromeDownloadToFinish(callCount));
         checkLastDownload(expectedFilename);
     }
 

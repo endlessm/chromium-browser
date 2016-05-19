@@ -6,13 +6,8 @@ var BatterySettings = Polymer({
   is: 'battery-settings',
 
   properties: {
-    /**
-     * The system's battery percentage.
-     */
-    batteryPercent: {
-      type: Number,
-      observer: 'batteryPercentChanged',
-    },
+    /** The system's battery percentage. */
+    batteryPercent: Number,
 
     /**
      * A string representing a value in the
@@ -31,57 +26,60 @@ var BatterySettings = Polymer({
      */
     batteryStateOptions: {
       type: Array,
-      value: function() { return ['Full', 'Charging', 'Disharging',
+      value: function() { return ['Full', 'Charging', 'Discharging',
                                   'Not Present']; },
     },
 
     /**
-     * A string representing a value in the
-     * PowerSupplyProperties_ExternalPower enumeration.
+     * Example charging devices that can be connected. Chargers are split
+     * between dedicated chargers (which will always provide power if no
+     * higher-power dedicated charger is connected) and dual-role USB chargers
+     * (which only provide power if configured as a source and no dedicated
+     * charger is connected).
      */
-    externalPower: {
-      type: String,
-      observer: 'externalPowerChanged',
-    },
-
-    /**
-     * An array representing the external power options.
-     * The names are ordered based on the
-     * PowerSupplyProperties_ExternalPower enumeration. These values must be
-     * in sync.
-     */
-    externalPowerOptions: {
+    powerSourceOptions: {
       type: Array,
-      value: function() { return ['AC', 'USB (Low Power)', 'Disconnected']; }
+      value: function() {
+        return [
+          {id: '0', name: 'AC Charger 1', type: 'DedicatedCharger',
+           port: 0, connected: false, power: 'high'},
+          {id: '1', name: 'AC Charger 2', type: 'DedicatedCharger',
+           port: 0, connected: false, power: 'high'},
+          {id: '2', name: 'USB Charger 1', type: 'DedicatedCharger',
+           port: 0, connected: false, power: 'low', variablePower: true},
+          {id: '3', name: 'USB Charger 2', type: 'DedicatedCharger',
+           port: 0, connected: false, power: 'low', variablePower: true},
+          {id: '4', name: 'Dual-role USB 1', type: 'DualRoleUSB',
+           port: 0, connected: false, power: 'low'},
+          {id: '5', name: 'Dual-role USB 2', type: 'DualRoleUSB',
+           port: 1, connected: false, power: 'low'},
+          {id: '6', name: 'Dual-role USB 3', type: 'DualRoleUSB',
+           port: 2, connected: false, power: 'low'},
+          {id: '7', name: 'Dual-role USB 4', type: 'DualRoleUSB',
+           port: 3, connected: false, power: 'low'},
+        ];
+      },
     },
 
-    /**
-     * A string representing the time left until the battery is discharged.
-     */
-    timeUntilEmpty: {
-      type: String,
-      observer: 'timeUntilEmptyChanged',
-    },
+    /** The ID of the current power source, or the empty string. */
+    selectedPowerSourceId: String,
 
-    /**
-     * A string representing the time left until the battery is at 100%.
-     */
-    timeUntilFull: {
-      type: String,
-      observer: 'timeUntilFullChanged',
-    },
+    /** A string representing the time left until the battery is discharged. */
+    timeUntilEmpty: String,
 
-    /**
-     * The title for the settings section.
-     */
+    /** A string representing the time left until the battery is at 100%. */
+    timeUntilFull: String,
+
+    /** The title for the settings section. */
     title: {
       type: String,
+      value: 'Power',
     },
   },
 
-  ready: function() {
-    this.title = 'Power';
-  },
+  observers: [
+    'powerSourcesChanged(powerSourceOptions.*)',
+  ],
 
   initialize: function() {
     if (!this.initialized) {
@@ -90,42 +88,74 @@ var BatterySettings = Polymer({
     }
   },
 
-  batteryPercentChanged: function(percent, oldPercent) {
-    if (oldPercent != undefined)
-      chrome.send('updateBatteryPercent', [parseInt(percent)]);
+  onBatteryPercentChange: function(e) {
+    this.percent = parseInt(e.target.value);
+    if (!isNaN(this.percent))
+      chrome.send('updateBatteryPercent', [this.percent]);
   },
 
-  batteryStateChanged: function(state) {
+  onSetAsSourceTap: function(e) {
+    chrome.send('updatePowerSourceId', [e.model.item.id]);
+  },
+
+  batteryStateChanged: function(batteryState) {
     // Find the index of the selected battery state.
-    var index = this.batteryStateOptions.indexOf(state);
-    if (index >= 0)
-      chrome.send('updateBatteryState', [index]);
+    var index = this.batteryStateOptions.indexOf(batteryState);
+    if (index < 0)
+      return;
+    chrome.send('updateBatteryState', [index]);
   },
 
-  externalPowerChanged: function(source) {
-    // Find the index of the selected power source.
-    var index = this.externalPowerOptions.indexOf(source);
-    if (index >= 0)
-      chrome.send('updateExternalPower', [index]);
+  powerSourcesChanged: function() {
+    var connectedPowerSources =
+        this.powerSourceOptions.filter(function(source) {
+          return source.connected;
+        });
+    chrome.send('updatePowerSources', [connectedPowerSources]);
   },
 
-  timeUntilEmptyChanged: function(time, oldTime) {
-    if (oldTime != undefined)
-      chrome.send('updateTimeToEmpty', [parseInt(time)]);
+  onTimeUntilEmptyChange: function(e) {
+    this.timeUntilEmpty = parseInt(e.target.value);
+    if (!isNaN(this.timeUntilEmpty))
+      chrome.send('updateTimeToEmpty', [this.timeUntilEmpty]);
   },
 
-  timeUntilFullChanged: function(time, oldTime) {
-    if (oldTime != undefined)
-      chrome.send('updateTimeToFull', [parseInt(time)]);
+  onTimeUntilFullChange: function(e) {
+    this.timeUntilFull = parseInt(e.target.value);
+    if (!isNaN(this.timeUntilFull))
+      chrome.send('updateTimeToFull', [this.timeUntilFull]);
   },
 
   updatePowerProperties: function(power_properties) {
     this.batteryPercent = power_properties.battery_percent;
     this.batteryState =
         this.batteryStateOptions[power_properties.battery_state];
-    this.externalPower =
-        this.externalPowerOptions[power_properties.external_power];
     this.timeUntilEmpty = power_properties.battery_time_to_empty_sec;
     this.timeUntilFull = power_properties.battery_time_to_full_sec;
-  }
+    this.selectedPowerSourceId = power_properties.external_power_source_id;
+  },
+
+  isBatteryPresent: function() {
+    return this.batteryState != 'Not Present';
+  },
+
+  isDualRole: function(source) {
+    return source.type == 'DualRoleUSB';
+  },
+
+  isSelectedSource: function(source) {
+    return source.id == this.selectedPowerSourceId;
+  },
+
+  canAmpsChange: function(type) {
+    return type == 'USB';
+  },
+
+  canBecomeSource: function(source, selectedId, powerSourceOptionsChange) {
+    if (!source.connected || !this.isDualRole(source))
+      return false;
+    return !this.powerSourceOptions.some(function(source) {
+      return source.connected && source.type == 'DedicatedCharger';
+    });
+  },
 });

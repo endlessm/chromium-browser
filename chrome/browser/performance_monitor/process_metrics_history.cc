@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/process/process_metrics.h"
+#include "build/build_config.h"
 #include "content/public/common/process_type.h"
 
 #if defined(OS_MACOSX)
@@ -34,6 +35,9 @@ const float kHighCPUUtilizationThreshold = 90.0f;
 ProcessMetricsHistory::ProcessMetricsHistory()
     : last_update_sequence_(0), cpu_usage_(0.0), trace_trigger_handle_(-1) {
 }
+
+ProcessMetricsHistory::ProcessMetricsHistory(
+    const ProcessMetricsHistory& other) = default;
 
 ProcessMetricsHistory::~ProcessMetricsHistory() {
 }

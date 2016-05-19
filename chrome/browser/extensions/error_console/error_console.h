@@ -5,12 +5,16 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_ERROR_CONSOLE_ERROR_CONSOLE_H_
 #define CHROME_BROWSER_EXTENSIONS_ERROR_CONSOLE_ERROR_CONSOLE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/scoped_observer.h"
 #include "base/threading/thread_checker.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/error_map.h"
@@ -178,7 +182,7 @@ class ErrorConsole : public KeyedService,
   ErrorMap errors_;
 
   // The default mask to use if an Extension does not have specific settings.
-  int32 default_mask_;
+  int32_t default_mask_;
 
   // The profile with which the ErrorConsole is associated. Only collect errors
   // from extensions and RenderViews associated with this Profile (and it's

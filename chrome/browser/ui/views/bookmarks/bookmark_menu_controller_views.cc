@@ -4,7 +4,6 @@
 
 #include "chrome/browser/ui/views/bookmarks/bookmark_menu_controller_views.h"
 
-#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_stats.h"
@@ -12,6 +11,7 @@
 #include "chrome/browser/ui/views/bookmarks/bookmark_menu_controller_observer.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_menu_delegate.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/user_metrics.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -62,8 +62,6 @@ void BookmarkMenuController::RunMenuAt(BookmarkBarView* bookmark_bar) {
                                         bounds,
                                         anchor,
                                         ui::MENU_SOURCE_NONE));
-  if (!for_drop_)
-    delete this;
 }
 
 void BookmarkMenuController::Cancel() {
@@ -140,10 +138,6 @@ bool BookmarkMenuController::ShowContextMenu(MenuItemView* source,
   return menu_delegate_->ShowContextMenu(source, id, p, source_type);
 }
 
-void BookmarkMenuController::DropMenuClosed(MenuItemView* menu) {
-  delete this;
-}
-
 bool BookmarkMenuController::CanDrag(MenuItemView* menu) {
   return menu_delegate_->CanDrag(menu);
 }
@@ -155,6 +149,11 @@ void BookmarkMenuController::WriteDragData(MenuItemView* sender,
 
 int BookmarkMenuController::GetDragOperations(MenuItemView* sender) {
   return menu_delegate_->GetDragOperations(sender);
+}
+
+void BookmarkMenuController::OnMenuClosed(views::MenuItemView* menu,
+                                          views::MenuRunner::RunResult result) {
+  delete this;
 }
 
 views::MenuItemView* BookmarkMenuController::GetSiblingMenu(

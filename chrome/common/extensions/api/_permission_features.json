@@ -123,7 +123,7 @@
       "F155646B5D1CA545F7E1E4E20D573DFDD44C2540",  // Google Cast Beta
       "16CA7A47AAE4BE49B1E75A6B960C3875E945B264",  // Google Cast Stable
       "C17CD9E6868D7B9C67926E0EC612EA25C768418F",  // http://crbug.com/457908
-      "EF2AB692559EA97C3BBDEA018A8C45F92457BD4E"   // http://crbug.com/457908
+      "226CF815E39A363090A1E547D53063472B8279FA"   // http://crbug.com/574889
     ]
   }],
   "certificateProvider": {
@@ -157,7 +157,8 @@
       "4AC2B6C63C6480D150DFDA13E4A5956EB1D0DDBB",  // http://crbug.com/407693
       "81986D4F846CEDDDB962643FA501D1780DD441BB",  // http://crbug.com/407693
       "B620CF4203315F9F2E046EDED22C7571A935958D",  // http://crbug.com/510270
-      "B206D8716769728278D2D300349C6CB7D7DE2EF9"   // http://crbug.com/510270
+      "B206D8716769728278D2D300349C6CB7D7DE2EF9",  // http://crbug.com/510270
+      "F0CA817739BF63A227F634D6BF570C34CC6E676E"   // http://crbug.com/557054
     ]
   },
   "clipboardRead": {
@@ -318,7 +319,7 @@
       "F155646B5D1CA545F7E1E4E20D573DFDD44C2540",  // Google Cast Beta
       "16CA7A47AAE4BE49B1E75A6B960C3875E945B264",  // Google Cast Stable
       "C17CD9E6868D7B9C67926E0EC612EA25C768418F",  // http://crbug.com/457908
-      "EF2AB692559EA97C3BBDEA018A8C45F92457BD4E"   // http://crbug.com/457908
+      "226CF815E39A363090A1E547D53063472B8279FA"   // http://crbug.com/574889
 
     ]
   },
@@ -351,7 +352,9 @@
       "657FEC7E77355CA205B0E226586621F86B33F611",  // http://crbug.com/246857
       "5894126C625EF31852F215ED301A5FF1F9B7D026",  // http://crbug.com/246857
       "8DAE23A10703C926B21862B2F318FB4E110B17BD",  // http://crbug.com/487455
-      "34412790FC81BC9B563CBE599ED10ABF26B209F7"   // http://crbug.com/509149
+      "34412790FC81BC9B563CBE599ED10ABF26B209F7",  // http://crbug.com/509149
+      "7F782E724FF51789B54DA82C7363DAB5043C1677",  // http://crbug.com/570127
+      "2C18988BCDC297196D5D6893005175DA1BC1E893"   // http://crbug.com/570127
     ]
   },
   "experienceSamplingPrivate": {
@@ -511,13 +514,19 @@
     "channel": "trunk",
     "extension_types": ["extension"]
   },
-  "input": {
+  "input": [{
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app"],
     // TODO(kalman): Um what does this inply?
     "inplies_full_url_access": true,
     "platforms": ["chromeos"]
-  },
+  }, {
+    "channel": "dev",
+    "extension_types": ["extension", "legacy_packaged_app"],
+    // TODO(kalman): Um what does this inply?
+    "inplies_full_url_access": true,
+    "platforms": ["win", "linux"]
+  }],
   "inputMethodPrivate": [{
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app", "platform_app"],
@@ -649,7 +658,7 @@
     "channel": "stable",
     "extension_types": ["extension"],
     "whitelist": [
-      "EF2AB692559EA97C3BBDEA018A8C45F92457BD4E",  // http://crbug.com/448569
+      "226CF815E39A363090A1E547D53063472B8279FA",  // http://crbug.com/574889
       "C17CD9E6868D7B9C67926E0EC612EA25C768418F",  // http://crbug.com/448569
       "A45DABDB47A31CC812E5490AB748C7D05E2D32E9",  // http://crbug.com/448569
       "BFEE2E3B80BE21A645E63E9346DFC383E7CB3BDA",  // http://crbug.com/448569
@@ -698,7 +707,7 @@
       "C449A798C495E6CF7D6AF10162113D564E67AD12",  // CRD Dogfood
       "01E9FFA9A8F3C18271FE91BEE46207F3B81755CC",  // Pre-release CRD
       "97B23E01B2AA064E8332EE43A7A85C628AADC3F2",  // Sample app_remoting app.
-      "EF2AB692559EA97C3BBDEA018A8C45F92457BD4E",  // http://crbug.com/504940
+      "226CF815E39A363090A1E547D53063472B8279FA",  // http://crbug.com/574889
       "C17CD9E6868D7B9C67926E0EC612EA25C768418F",  // http://crbug.com/504940
       "A45DABDB47A31CC812E5490AB748C7D05E2D32E9",  // http://crbug.com/504940
       "BFEE2E3B80BE21A645E63E9346DFC383E7CB3BDA",  // http://crbug.com/504940
@@ -721,7 +730,8 @@
       "9193D3A51E2FE33B496CDA53EA330423166E7F02",  // http://crbug.com/397691
       "F9119B8B18C7C82B51E7BC6FF816B694F2EC3E89",  // http://crbug.com/397691
       "C17CD9E6868D7B9C67926E0EC612EA25C768418F",  // http://crbug.com/457908
-      "EF2AB692559EA97C3BBDEA018A8C45F92457BD4E"   // http://crbug.com/457908
+      "226CF815E39A363090A1E547D53063472B8279FA",  // http://crbug.com/457908
+      "1BFB3A47AA4A1E1C4714D919217602685CDD0FA7"   // http://crbug.com/574600
     ]
   },
   {
@@ -901,11 +911,6 @@
     "extension_types": ["platform_app"],
     "location": "component"
   },
-  "searchEnginesPrivate": {
-    "channel": "trunk",
-    "extension_types": ["extension", "platform_app"],
-    "location": "component"
-  },
   "screensaver": {
     "channel": "stable",
     "extension_types": ["legacy_packaged_app", "hosted_app", "platform_app"]
@@ -914,11 +919,19 @@
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app"]
   },
-  "settingsPrivate": {
+  "settingsPrivate": [{
     "channel": "trunk",
     "extension_types": ["extension", "platform_app"],
     "location": "component"
   },
+  {
+    "channel": "stable",
+    "extension_types": ["extension"],
+    "whitelist": [
+      "63ED55E43214C211F82122ED56407FF1A807F2A3",  // Media Router Dev
+      "226CF815E39A363090A1E547D53063472B8279FA"   // Media Router Release
+    ]
+  }],
   "signedInDevices": {
     "channel": "dev",
     "extension_types": ["extension", "legacy_packaged_app", "platform_app"]

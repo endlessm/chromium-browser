@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "cc/resources/ui_resource_bitmap.h"
 #include "cc/test/fake_layer_tree_host_client.h"
 #include "cc/test/test_task_graph_runner.h"
@@ -49,8 +52,8 @@ class TestResourceManagerImpl : public ResourceManagerImpl {
     small_bitmap.setImmutable();
 
     OnResourceReady(NULL, NULL, res_type, res_id,
-                    gfx::ConvertToJavaBitmap(&small_bitmap).obj(), 0, 0, 0, 0,
-                    0, 0, 0, 0);
+                    gfx::ConvertToJavaBitmap(&small_bitmap), 0, 0, 0, 0, 0, 0,
+                    0, 0);
   }
 
  protected:
@@ -69,8 +72,9 @@ const ui::SystemUIResourceType kTestResourceType = ui::OVERSCROLL_GLOW;
 
 class MockLayerTreeHost : public cc::LayerTreeHost {
  public:
-  MockLayerTreeHost(cc::LayerTreeHost::InitParams* params)
-      : cc::LayerTreeHost(params) {}
+  MockLayerTreeHost(cc::LayerTreeHost::InitParams* params,
+                    cc::CompositorMode mode)
+      : cc::LayerTreeHost(params, mode) {}
 
   MOCK_METHOD1(CreateUIResource, cc::UIResourceId(cc::UIResourceClient*));
   MOCK_METHOD1(DeleteUIResource, void(cc::UIResourceId));
@@ -92,7 +96,8 @@ class ResourceManagerTest : public testing::Test {
     params.client = &fake_client_;
     params.settings = &settings;
     params.task_graph_runner = &task_graph_runner_;
-    host_.reset(new MockLayerTreeHost(&params));
+    host_.reset(new MockLayerTreeHost(&params,
+                                      cc::CompositorMode::SINGLE_THREADED));
     resource_manager_.Init(host_.get());
   }
 

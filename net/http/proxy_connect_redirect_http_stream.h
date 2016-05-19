@@ -57,7 +57,10 @@ class ProxyConnectRedirectHttpStream : public HttpStream {
   void GetSSLInfo(SSLInfo* ssl_info) override;
   void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info) override;
   bool GetRemoteEndpoint(IPEndPoint* endpoint) override;
+  Error GetSignedEKMForTokenBinding(crypto::ECPrivateKey* key,
+                                    std::vector<uint8_t>* out) override;
   void Drain(HttpNetworkSession* session) override;
+  void PopulateNetErrorDetails(NetErrorDetails* details) override;
 
   // This function may be called.
   void SetPriority(RequestPriority priority) override;

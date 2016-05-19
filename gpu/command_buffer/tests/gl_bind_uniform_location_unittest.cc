@@ -5,6 +5,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2extchromium.h>
+#include <stdint.h>
 
 #include "gpu/command_buffer/tests/gl_manager.h"
 #include "gpu/command_buffer/tests/gl_test_utils.h"
@@ -93,7 +94,7 @@ TEST_P(BindUniformLocationTest, Basic) {
 
   glDrawArrays(GL_TRIANGLES, 0, 6);
 
-  static const uint8 expected[] = { 64, 128, 192, 255 };
+  static const uint8_t expected[] = {64, 128, 192, 255};
   EXPECT_TRUE(
       GLTestHelper::CheckPixels(0, 0, kResolution, kResolution, 1, expected));
 
@@ -260,12 +261,145 @@ TEST_P(BindUniformLocationTest, Compositor) {
 
   glDrawArrays(GL_TRIANGLES, 0, 6);
 
-  static const uint8 expected[] = { 204, 204, 204, 204 };
+  static const uint8_t expected[] = {204, 204, 204, 204};
   EXPECT_TRUE(
       GLTestHelper::CheckPixels(0, 0, kResolution, kResolution, 1, expected));
 
   GLTestHelper::CheckGLError("no errors", __LINE__);
 
+}
+
+TEST_P(BindUniformLocationTest, UnusedUniformUpdate) {
+  ASSERT_TRUE(GLTestHelper::HasExtension("GL_CHROMIUM_bind_uniform_location"));
+
+  // clang-format off
+  static const char* kVertexShaderString = SHADER(
+      attribute vec4 a_position;
+      void main() {
+        gl_Position = a_position;
+      }
+  );
+  static const char* kFragmentShaderString = SHADER(
+      precision mediump float;
+      uniform vec4 u_colorA;
+      uniform float u_colorU;
+      uniform vec4 u_colorC;
+      void main() {
+        gl_FragColor = u_colorA + u_colorC;
+      }
+  );
+  // clang-format on
+  const GLint kColorULocation = 1;
+  const GLint kNonexistingLocation = 5;
+  const GLint kUnboundLocation = 6;
+
+  GLuint vertex_shader =
+      GLTestHelper::LoadShader(GL_VERTEX_SHADER, kVertexShaderString);
+  GLuint fragment_shader =
+      GLTestHelper::LoadShader(GL_FRAGMENT_SHADER, kFragmentShaderString);
+  GLuint program = glCreateProgram();
+  glBindUniformLocationCHROMIUM(program, kColorULocation, "u_colorU");
+  // The non-existing uniform should behave like existing, but optimized away
+  // uniform.
+  glBindUniformLocationCHROMIUM(program, kNonexistingLocation, "nonexisting");
+  // Let A and C be assigned automatic locations.
+  glAttachShader(program, vertex_shader);
+  glAttachShader(program, fragment_shader);
+  glLinkProgram(program);
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  EXPECT_EQ(1, linked);
+  glUseProgram(program);
+
+  // No errors on bound locations, since caller does not know
+  // if the driver optimizes them away or not.
+  glUniform1f(kColorULocation, 0.25f);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // No errors on bound locations of names that do not exist
+  // in the shader. Otherwise it would be inconsistent wrt the
+  // optimization case.
+  glUniform1f(kNonexistingLocation, 0.25f);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // The above are equal to updating -1.
+  glUniform1f(-1, 0.25f);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // No errors when updating with other type either.
+  // The type can not be known with the non-existing case.
+  glUniform2f(kColorULocation, 0.25f, 0.25f);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+  glUniform2f(kNonexistingLocation, 0.25f, 0.25f);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+  glUniform2f(-1, 0.25f, 0.25f);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
+
+  // Ensure that driver or ANGLE has optimized the variable
+  // away and the test tests what it is supposed to.
+  EXPECT_EQ(-1, glGetUniformLocation(program, "u_colorU"));
+
+  // The bound location gets marked as used and the driver
+  // does not allocate other variables to that location.
+  EXPECT_NE(kColorULocation, glGetUniformLocation(program, "u_colorA"));
+  EXPECT_NE(kColorULocation, glGetUniformLocation(program, "u_colorC"));
+  EXPECT_NE(kNonexistingLocation, glGetUniformLocation(program, "u_colorA"));
+  EXPECT_NE(kNonexistingLocation, glGetUniformLocation(program, "u_colorC"));
+
+  // Unintuitive: while specifying value works, getting the value does not.
+  GLfloat get_result = 0.0f;
+  glGetUniformfv(program, kColorULocation, &get_result);
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_OPERATION), glGetError());
+  glGetUniformfv(program, kNonexistingLocation, &get_result);
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_OPERATION), glGetError());
+  glGetUniformfv(program, -1, &get_result);
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_OPERATION), glGetError());
+
+  // Updating an unbound, non-existing location still causes
+  // an error.
+  glUniform1f(kUnboundLocation, 0.25f);
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_OPERATION), glGetError());
+}
+
+// Test for a bug where using a sampler caused GL error if the program had
+// uniforms that were optimized away by the driver. This was only a problem with
+// glBindUniformLocationCHROMIUM implementation. This could be reproed by
+// binding the sampler to a location higher than the amount of active uniforms.
+TEST_P(BindUniformLocationTest, UseSamplerWhenUnusedUniforms) {
+  enum {
+    kTexLocation = 54
+  };
+  // clang-format off
+  static const char* vertexShaderString = SHADER(
+      void main() {
+        gl_Position = vec4(0);
+      }
+  );
+  static const char* fragmentShaderString = SHADER(
+      uniform sampler2D tex;
+      void main() {
+        gl_FragColor = texture2D(tex, vec2(1));
+      }
+  );
+  // clang-format on
+  GLuint vs = GLTestHelper::CompileShader(GL_VERTEX_SHADER, vertexShaderString);
+  GLuint fs = GLTestHelper::CompileShader(GL_FRAGMENT_SHADER,
+                                          fragmentShaderString);
+
+  GLuint program = glCreateProgram();
+  glBindUniformLocationCHROMIUM(program, kTexLocation, "tex");
+
+  glAttachShader(program, vs);
+  glAttachShader(program, fs);
+
+  glLinkProgram(program);
+
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  EXPECT_NE(0, linked);
+  glUseProgram(program);
+  glUniform1i(kTexLocation, 0);
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError());
 }
 
 INSTANTIATE_TEST_CASE_P(WithAndWithoutShaderNameMapping,

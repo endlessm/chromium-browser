@@ -24,7 +24,7 @@ public class CronetUrlTest extends CronetTestBase {
     @SmallTest
     @Feature({"Cronet"})
     public void testLoadUrl() throws Exception {
-        CronetTestFramework testFramework = startCronetTestFrameworkWithUrl(URL);
+        CronetTestFramework testFramework = startCronetTestFrameworkForLegacyApi(URL);
 
         // Make sure that the URL is set as expected.
         assertEquals(URL, testFramework.getUrl());
@@ -34,7 +34,7 @@ public class CronetUrlTest extends CronetTestBase {
     @SmallTest
     @Feature({"Cronet"})
     public void testInvalidUrl() throws Exception {
-        CronetTestFramework testFramework = startCronetTestFrameworkWithUrl("127.0.0.1:8000");
+        CronetTestFramework testFramework = startCronetTestFrameworkForLegacyApi("127.0.0.1:8000");
 
         // The load should fail.
         assertEquals(0, testFramework.getHttpStatusCode());
@@ -43,7 +43,8 @@ public class CronetUrlTest extends CronetTestBase {
     @SmallTest
     @Feature({"Cronet"})
     public void testPostData() throws Exception {
-        String[] commandLineArgs = {CronetTestFramework.POST_DATA_KEY, "test"};
+        String[] commandLineArgs = {CronetTestFramework.POST_DATA_KEY, "test",
+                CronetTestFramework.LIBRARY_INIT_KEY, CronetTestFramework.LibraryInitType.LEGACY};
         CronetTestFramework testFramework =
                 startCronetTestFrameworkWithUrlAndCommandLineArgs(URL, commandLineArgs);
 
@@ -54,6 +55,7 @@ public class CronetUrlTest extends CronetTestBase {
 
     @SmallTest
     @Feature({"Cronet"})
+    @OnlyRunNativeCronet // No NetLog from HttpURLConnection
     public void testNetLog() throws Exception {
         Context context = getContext();
         File directory = new File(PathUtils.getDataDirectory(context));
@@ -94,7 +96,7 @@ public class CronetUrlTest extends CronetTestBase {
     @SmallTest
     @Feature({"Cronet"})
     public void testCalledByNativeException() throws Exception {
-        CronetTestFramework testFramework = startCronetTestFrameworkWithUrl(URL);
+        CronetTestFramework testFramework = startCronetTestFrameworkForLegacyApi(URL);
 
         HashMap<String, String> headers = new HashMap<String, String>();
         BadHttpUrlRequestListener listener = new BadHttpUrlRequestListener();
@@ -113,7 +115,7 @@ public class CronetUrlTest extends CronetTestBase {
     @SmallTest
     @Feature({"Cronet"})
     public void testSetUploadDataWithNullContentType() throws Exception {
-        CronetTestFramework testFramework = startCronetTestFrameworkWithUrl(URL);
+        CronetTestFramework testFramework = startCronetTestFrameworkForLegacyApi(URL);
 
         HashMap<String, String> headers = new HashMap<String, String>();
         BadHttpUrlRequestListener listener = new BadHttpUrlRequestListener();
@@ -135,10 +137,8 @@ public class CronetUrlTest extends CronetTestBase {
     public void testLegacyLoadUrl() throws Exception {
         CronetEngine.Builder builder = new CronetEngine.Builder(getContext());
         builder.enableLegacyMode(true);
-        // TODO(mef) fix tests so that library isn't loaded for legacy stack
 
-        CronetTestFramework testFramework =
-                startCronetTestFrameworkWithUrlAndCronetEngineBuilder(URL, builder);
+        CronetTestFramework testFramework = startCronetTestFrameworkForLegacyApi(URL);
 
         // Make sure that the URL is set as expected.
         assertEquals(URL, testFramework.getUrl());
@@ -148,7 +148,7 @@ public class CronetUrlTest extends CronetTestBase {
     @SmallTest
     @Feature({"Cronet"})
     public void testRequestHead() throws Exception {
-        CronetTestFramework testFramework = startCronetTestFrameworkWithUrl(URL);
+        CronetTestFramework testFramework = startCronetTestFrameworkForLegacyApi(URL);
 
         HashMap<String, String> headers = new HashMap<String, String>();
         TestHttpUrlRequestListener listener = new TestHttpUrlRequestListener();

@@ -43,7 +43,7 @@ class H264VideoToolboxDecoder : public H264Decoder {
 
   int Release() override;
 
-  int Reset() override;
+  const char* ImplementationName() const override;
 
  private:
   int ResetDecompressionSession();

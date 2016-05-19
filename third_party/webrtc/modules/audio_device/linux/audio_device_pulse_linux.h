@@ -11,11 +11,13 @@
 #ifndef WEBRTC_AUDIO_DEVICE_AUDIO_DEVICE_PULSE_LINUX_H
 #define WEBRTC_AUDIO_DEVICE_AUDIO_DEVICE_PULSE_LINUX_H
 
+#include <memory>
+
+#include "webrtc/base/platform_thread.h"
+#include "webrtc/base/thread_checker.h"
 #include "webrtc/modules/audio_device/audio_device_generic.h"
 #include "webrtc/modules/audio_device/linux/audio_mixer_manager_pulse_linux.h"
 #include "webrtc/system_wrappers/include/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/include/thread_wrapper.h"
-#include "webrtc/base/thread_checker.h"
 
 #include <X11/Xlib.h>
 #include <pulse/pulseaudio.h>
@@ -284,8 +286,9 @@ private:
     EventWrapper& _recStartEvent;
     EventWrapper& _playStartEvent;
 
-    rtc::scoped_ptr<ThreadWrapper> _ptrThreadPlay;
-    rtc::scoped_ptr<ThreadWrapper> _ptrThreadRec;
+    // TODO(pbos): Remove unique_ptr and use directly without resetting.
+    std::unique_ptr<rtc::PlatformThread> _ptrThreadPlay;
+    std::unique_ptr<rtc::PlatformThread> _ptrThreadRec;
     int32_t _id;
 
     AudioMixerManagerLinuxPulse _mixerManager;

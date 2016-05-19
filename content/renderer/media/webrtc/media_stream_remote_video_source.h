@@ -5,12 +5,13 @@
 #ifndef CONTENT_RENDERER_MEDIA_WEBRTC_MEDIA_STREAM_REMOTE_VIDEO_SOURCE_H_
 #define CONTENT_RENDERER_MEDIA_WEBRTC_MEDIA_STREAM_REMOTE_VIDEO_SOURCE_H_
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "content/common/content_export.h"
 #include "content/renderer/media/media_stream_video_source.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamSource.h"
-#include "third_party/libjingle/source/talk/app/webrtc/mediastreaminterface.h"
+#include "third_party/webrtc/api/mediastreaminterface.h"
 
 namespace content {
 
@@ -25,6 +26,11 @@ class CONTENT_EXPORT MediaStreamRemoteVideoSource
  public:
   MediaStreamRemoteVideoSource(scoped_ptr<TrackObserver> observer);
   ~MediaStreamRemoteVideoSource() override;
+
+  // Should be called when the remote video track this source originates from is
+  // no longer received on a PeerConnection. This cleans up the references to
+  // the webrtc::MediaStreamTrackInterface instance held by |observer_|.
+  void OnSourceTerminated();
 
  protected:
   // Implements MediaStreamVideoSource.

@@ -5,9 +5,9 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_APP_LIST_START_PAGE_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_APP_LIST_START_PAGE_HANDLER_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/prefs/pref_change_registrar.h"
+#include "base/macros.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/web_ui_message_handler.h"
 
 namespace base {

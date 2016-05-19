@@ -5,6 +5,7 @@
 #ifndef CONTENT_CHILD_MOJO_MOJO_APPLICATION_H_
 #define CONTENT_CHILD_MOJO_MOJO_APPLICATION_H_
 
+#include "base/macros.h"
 #include "content/common/mojo/channel_init.h"
 #include "content/common/mojo/service_registry_impl.h"
 #include "ipc/ipc_platform_file.h"
@@ -37,9 +38,7 @@ class MojoApplication {
   void OnActivate(const IPC::PlatformFileForTransit& file);
 
   scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
-
   ChannelInit channel_init_;
-
   ServiceRegistryImpl service_registry_;
 
   DISALLOW_COPY_AND_ASSIGN(MojoApplication);

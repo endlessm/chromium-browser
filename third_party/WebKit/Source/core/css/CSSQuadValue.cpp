@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/CSSQuadValue.h"
 
 #include "wtf/text/StringBuilder.h"
@@ -16,7 +15,7 @@ String CSSQuadValue::customCSSText() const
     String bottom = m_bottom->cssText();
     String left = m_left->cssText();
 
-    if (m_serializationType == SerializationType::SerializeAsRect)
+    if (m_serializationType == TypeForSerialization::SerializeAsRect)
         return "rect(" + top + ' ' + right + ' ' + bottom + ' ' + left + ')';
 
     StringBuilder result;
@@ -47,4 +46,4 @@ DEFINE_TRACE_AFTER_DISPATCH(CSSQuadValue)
     CSSValue::traceAfterDispatch(visitor);
 }
 
-}
+} // namespace blink

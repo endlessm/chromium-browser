@@ -6,7 +6,6 @@
 
 #include "base/android/jni_string.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -14,6 +13,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/infobars/core/infobar.h"
+#include "components/prefs/pref_service.h"
 #include "components/url_formatter/elide_url.h"
 #include "grit/components_strings.h"
 #include "jni/FullscreenInfoBarDelegate_jni.h"
@@ -53,10 +53,16 @@ FullscreenInfoBarDelegate::~FullscreenInfoBarDelegate() {
 }
 
 void FullscreenInfoBarDelegate::CloseFullscreenInfoBar(
-    JNIEnv* env, jobject obj) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   j_delegate_.Reset();
   if (infobar() && infobar()->owner())
     infobar()->owner()->RemoveInfoBar(infobar());
+}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+FullscreenInfoBarDelegate::GetIdentifier() const {
+  return FULLSCREEN_INFOBAR_DELEGATE;
 }
 
 int FullscreenInfoBarDelegate::GetIconId() const {

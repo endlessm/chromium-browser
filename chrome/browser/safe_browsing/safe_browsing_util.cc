@@ -4,6 +4,8 @@
 
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
 
+#include <utility>
+
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/safe_browsing/chunk.pb.h"
@@ -22,8 +24,8 @@ namespace safe_browsing {
 SBChunkData::SBChunkData() {
 }
 
-SBChunkData::SBChunkData(ChunkData* raw_data)
-    : chunk_data_(raw_data) {
+SBChunkData::SBChunkData(scoped_ptr<ChunkData> data)
+    : chunk_data_(std::move(data)) {
   DCHECK(chunk_data_.get());
 }
 
@@ -128,6 +130,8 @@ SBListChunkRanges::SBListChunkRanges(const std::string& n)
 // SBChunkDelete ---------------------------------------------------------------
 
 SBChunkDelete::SBChunkDelete() : is_sub_del(false) {}
+
+SBChunkDelete::SBChunkDelete(const SBChunkDelete& other) = default;
 
 SBChunkDelete::~SBChunkDelete() {}
 

@@ -4,6 +4,8 @@
 
 #include "chrome/test/remoting/remote_desktop_browsertest.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
@@ -208,7 +210,8 @@ content::WebContents* RemoteDesktopBrowserTest::LaunchChromotingApp(
   // The active WebContents instance should be the source of the LOAD_STOP
   // notification.
   content::NavigationController* controller =
-      content::Source<content::NavigationController>(observer.source()).ptr();
+      content::Source<content::NavigationController>(
+          observer.matched_source()).ptr();
 
   content::WebContents* web_contents = controller->GetWebContents();
   _ASSERT_TRUE(web_contents);
@@ -261,8 +264,8 @@ void RemoteDesktopBrowserTest::Authorize() {
   observer.Wait();
 
   content::NavigationController* controller =
-      content::Source<content::NavigationController>(observer.source()).ptr();
-
+      content::Source<content::NavigationController>(
+          observer.matched_source()).ptr();
   content::WebContents* web_contents = controller->GetWebContents();
   _ASSERT_TRUE(web_contents);
 
@@ -311,16 +314,24 @@ void RemoteDesktopBrowserTest::Approve() {
 
     // There is nothing for the V2 app to approve because the chromoting test
     // account has already been granted permissions.
+    //
     // TODO(weitaosu): Revoke the permission at the beginning of the test so
     // that we can test first-time experience here.
+    //
+    // TODO(jamiewalch): Remove the elapsed time logging once this has run a few
+    // times on the bots.
+    base::Time start = base::Time::Now();
     ConditionalTimeoutWaiter waiter(
-        base::TimeDelta::FromSeconds(7),
+        base::TimeDelta::FromSeconds(10),
         base::TimeDelta::FromSeconds(1),
         base::Bind(
             &RemoteDesktopBrowserTest::IsAuthenticatedInWindow,
             active_web_contents()));
-
-    ASSERT_TRUE(waiter.Wait());
+    bool result = waiter.Wait();
+    base::TimeDelta elapsed = base::Time::Now() - start;
+    LOG(INFO) << "*** IsAuthenticatedInWindow took "
+              << elapsed.InSeconds() << "s";
+    ASSERT_TRUE(result);
   } else {
     ASSERT_EQ("accounts.google.com", GetCurrentURL().host());
 
@@ -585,10 +596,13 @@ void RemoteDesktopBrowserTest::ConnectToRemoteHost(
   EXPECT_FALSE(host_id.empty());
   std::string element_id = "host_" + host_id;
 
-  // Verify the host is online.
-  std::string host_div_class = ExecuteScriptAndExtractString(
-      "document.getElementById('" + element_id + "').parentNode.className");
-  EXPECT_NE(std::string::npos, host_div_class.find("host-online"));
+  // Wait for the hosts to be online. Try 3 times each spanning 20 seconds
+  // successively for 60 seconds.
+  ConditionalTimeoutWaiter hostOnlineWaiter(
+      base::TimeDelta::FromSeconds(60), base::TimeDelta::FromSeconds(20),
+      base::Bind(&RemoteDesktopBrowserTest::IsHostOnline,
+                 base::Unretained(this), host_id));
+  EXPECT_TRUE(hostOnlineWaiter.Wait());
 
   ClickOnControl(element_id);
 
@@ -814,6 +828,18 @@ void RemoteDesktopBrowserTest::WaitForConnection() {
   // CONNECTED. Wait for 2 seconds for the client to become ready.
   // TODO(weitaosu): Find a way to detect when the client is truly ready.
   TimeoutWaiter(base::TimeDelta::FromSeconds(2)).Wait();
+}
+
+bool RemoteDesktopBrowserTest::IsHostOnline(const std::string& host_id) {
+
+  ExecuteScript("remoting.hostList.refreshAndDisplay()");
+
+ // Verify the host is online.
+  std::string element_id = "host_" + host_id;
+  std::string host_div_class = ExecuteScriptAndExtractString(
+      "document.getElementById('" + element_id + "').parentNode.className");
+
+  return (std::string::npos != host_div_class.find("host-online"));
 }
 
 bool RemoteDesktopBrowserTest::IsLocalHostReady() {

@@ -5,6 +5,9 @@
 #ifndef CONTENT_COMMON_GPU_CLIENT_COMMAND_BUFFER_PROXY_IMPL_H_
 #define CONTENT_COMMON_GPU_CLIENT_COMMAND_BUFFER_PROXY_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <queue>
 #include <string>
@@ -13,11 +16,13 @@
 #include "base/compiler_specific.h"
 #include "base/containers/hash_tables.h"
 #include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "gpu/command_buffer/client/gpu_control.h"
 #include "gpu/command_buffer/common/command_buffer.h"
+#include "gpu/command_buffer/common/command_buffer_id.h"
 #include "gpu/command_buffer/common/command_buffer_shared.h"
 #include "gpu/command_buffer/common/gpu_memory_allocation.h"
 #include "ipc/ipc_listener.h"
@@ -64,8 +69,8 @@ class CommandBufferProxyImpl
       const std::string& msg, int id)> GpuConsoleMessageCallback;
 
   CommandBufferProxyImpl(GpuChannelHost* channel,
-                         int32 route_id,
-                         int32 stream_id);
+                         int32_t route_id,
+                         int32_t stream_id);
   ~CommandBufferProxyImpl() override;
 
   // Sends an IPC message to create a GpuVideoDecodeAccelerator. Creates and
@@ -91,39 +96,34 @@ class CommandBufferProxyImpl
   // CommandBuffer implementation:
   bool Initialize() override;
   State GetLastState() override;
-  int32 GetLastToken() override;
-  void Flush(int32 put_offset) override;
-  void OrderingBarrier(int32 put_offset) override;
-  void WaitForTokenInRange(int32 start, int32 end) override;
-  void WaitForGetOffsetInRange(int32 start, int32 end) override;
-  void SetGetBuffer(int32 shm_id) override;
+  int32_t GetLastToken() override;
+  void Flush(int32_t put_offset) override;
+  void OrderingBarrier(int32_t put_offset) override;
+  void WaitForTokenInRange(int32_t start, int32_t end) override;
+  void WaitForGetOffsetInRange(int32_t start, int32_t end) override;
+  void SetGetBuffer(int32_t shm_id) override;
   scoped_refptr<gpu::Buffer> CreateTransferBuffer(size_t size,
-                                                  int32* id) override;
-  void DestroyTransferBuffer(int32 id) override;
+                                                  int32_t* id) override;
+  void DestroyTransferBuffer(int32_t id) override;
 
   // gpu::GpuControl implementation:
   gpu::Capabilities GetCapabilities() override;
-  int32 CreateImage(ClientBuffer buffer,
-                    size_t width,
-                    size_t height,
-                    unsigned internal_format) override;
-  void DestroyImage(int32 id) override;
-  int32 CreateGpuMemoryBufferImage(size_t width,
-                                   size_t height,
-                                   unsigned internal_format,
-                                   unsigned usage) override;
-  uint32 InsertSyncPoint() override;
-  uint32_t InsertFutureSyncPoint() override;
-  void RetireSyncPoint(uint32_t sync_point) override;
-  void SignalSyncPoint(uint32 sync_point,
-                       const base::Closure& callback) override;
-  void SignalQuery(uint32 query, const base::Closure& callback) override;
-  void SetSurfaceVisible(bool visible) override;
-  uint32 CreateStreamTexture(uint32 texture_id) override;
+  int32_t CreateImage(ClientBuffer buffer,
+                      size_t width,
+                      size_t height,
+                      unsigned internal_format) override;
+  void DestroyImage(int32_t id) override;
+  int32_t CreateGpuMemoryBufferImage(size_t width,
+                                     size_t height,
+                                     unsigned internal_format,
+                                     unsigned usage) override;
+  void SignalQuery(uint32_t query, const base::Closure& callback) override;
   void SetLock(base::Lock* lock) override;
   bool IsGpuChannelLost() override;
+  void EnsureWorkVisible() override;
   gpu::CommandBufferNamespace GetNamespaceID() const override;
-  uint64_t GetCommandBufferID() const override;
+  gpu::CommandBufferId GetCommandBufferID() const override;
+  int32_t GetExtraCommandBufferData() const override;
   uint64_t GenerateFenceSyncRelease() override;
   bool IsFenceSyncRelease(uint64_t release) override;
   bool IsFenceSyncFlushed(uint64_t release) override;
@@ -161,19 +161,20 @@ class CommandBufferProxyImpl
   // CommandBufferProxyImpl implementation.
   gpu::error::Error GetLastError() override;
 
-  int32 route_id() const { return route_id_; }
+  int32_t route_id() const { return route_id_; }
 
-  int32 stream_id() const { return stream_id_; }
+  int32_t stream_id() const { return stream_id_; }
 
   GpuChannelHost* channel() const { return channel_; }
 
   base::SharedMemoryHandle GetSharedStateHandle() const {
     return shared_state_shm_->handle();
   }
+  uint32_t CreateStreamTexture(uint32_t texture_id);
 
  private:
-  typedef std::map<int32, scoped_refptr<gpu::Buffer> > TransferBufferMap;
-  typedef base::hash_map<uint32, base::Closure> SignalTaskMap;
+  typedef std::map<int32_t, scoped_refptr<gpu::Buffer>> TransferBufferMap;
+  typedef base::hash_map<uint32_t, base::Closure> SignalTaskMap;
 
   void CheckLock() {
     if (lock_)
@@ -190,7 +191,7 @@ class CommandBufferProxyImpl
   void OnDestroyed(gpu::error::ContextLostReason reason,
                    gpu::error::Error error);
   void OnConsoleMessage(const GPUCommandBufferConsoleMessage& message);
-  void OnSignalAck(uint32 id);
+  void OnSignalAck(uint32_t id);
   void OnSwapBuffersCompleted(const std::vector<ui::LatencyInfo>& latency_info,
                               gfx::SwapResult result);
   void OnUpdateVSyncParameters(base::TimeTicks timebase,
@@ -201,6 +202,16 @@ class CommandBufferProxyImpl
 
   // Updates the highest verified release fence sync.
   void UpdateVerifiedReleases(uint32_t verified_flush);
+
+  // Loses the context after we received an invalid message from the GPU
+  // process. Will call the lost context callback reentrantly if any.
+  void InvalidGpuMessage();
+
+  // Loses the context after we received an invalid reply from the GPU
+  // process. Will post a task to call the lost context callback if any.
+  void InvalidGpuReply();
+
+  void InvalidGpuReplyOnClientThread();
 
   // The shared memory area used to update state.
   gpu::CommandBufferSharedState* shared_state() const;
@@ -219,12 +230,12 @@ class CommandBufferProxyImpl
   // |*this| is owned by |*channel_| and so is always outlived by it, so using a
   // raw pointer is ok.
   GpuChannelHost* channel_;
-  const uint64_t command_buffer_id_;
-  const int32 route_id_;
-  const int32 stream_id_;
-  uint32 flush_count_;
-  int32 last_put_offset_;
-  int32 last_barrier_put_offset_;
+  const gpu::CommandBufferId command_buffer_id_;
+  const int32_t route_id_;
+  const int32_t stream_id_;
+  uint32_t flush_count_;
+  int32_t last_put_offset_;
+  int32_t last_barrier_put_offset_;
 
   // Next generated fence sync.
   uint64_t next_fence_sync_release_;
@@ -243,7 +254,7 @@ class CommandBufferProxyImpl
   GpuConsoleMessageCallback console_message_callback_;
 
   // Tasks to be invoked in SignalSyncPoint responses.
-  uint32 next_signal_id_;
+  uint32_t next_signal_id_;
   SignalTaskMap signal_tasks_;
 
   gpu::Capabilities capabilities_;
@@ -252,6 +263,9 @@ class CommandBufferProxyImpl
 
   SwapBuffersCompletionCallback swap_buffers_completion_callback_;
   UpdateVSyncParametersCallback update_vsync_parameters_completion_callback_;
+
+  base::WeakPtr<CommandBufferProxyImpl> weak_this_;
+  scoped_refptr<base::SequencedTaskRunner> callback_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(CommandBufferProxyImpl);
 };

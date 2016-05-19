@@ -121,6 +121,15 @@ monospace
 -webkit-pictograph
 
 //
+// font-display
+//
+//auto
+//block
+swap
+fallback
+optional
+
+//
 //
 // *-color
 //
@@ -179,8 +188,9 @@ windowtext
 currentcolor
 grey
 //
-// colors in non strict mode
--webkit-text mode=QuirksOrUASheet
+// Value used to implement the behavior in:
+// https://quirks.spec.whatwg.org/#the-tables-inherit-color-from-body-quirk
+-internal-quirk-inherit
 //
 // background-repeat
 //
@@ -487,6 +497,8 @@ space-between
 space-around
 space-evenly
 // stretch
+unsafe
+safe
 
 // align-items / align-self
 // flex-start
@@ -505,6 +517,8 @@ space-evenly
 // space-around
 // space-evenly
 // stretch
+// unsafe
+// safe
 
 
 // flex-flow
@@ -939,8 +953,8 @@ self-end
 // flex-end
 // left
 // right
-true
-safe
+// unsafe
+// safe
 legacy
 
 // scroll-behavior
@@ -955,6 +969,7 @@ scroll-position
 // all
 // initial
 // inherit
+revert
 unset
 
 // background-image, etc.
@@ -1044,5 +1059,21 @@ mandatory
 proximity
 from-image
 
+// containment
+paint
+style
+layout
+
+// grid auto-repeat
+auto-fill
+auto-fit
+
 var
 -internal-variable-value
+
+// break-before, break-after, break-inside
+avoid-page
+page
+recto
+verso
+avoid-column

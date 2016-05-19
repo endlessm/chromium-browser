@@ -32,23 +32,23 @@
 #define MHTMLArchive_h
 
 #include "platform/heap/Handle.h"
+#include "wtf/HashMap.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefCounted.h"
 #include "wtf/RefPtr.h"
 #include "wtf/Vector.h"
+#include "wtf/text/StringHash.h"
 
 namespace blink {
 
 class ArchiveResource;
 class KURL;
-class MHTMLParser;
 class SharedBuffer;
 
 struct SerializedResource;
 
 class PLATFORM_EXPORT MHTMLArchive final : public RefCountedWillBeGarbageCollectedFinalized<MHTMLArchive> {
 public:
-    static PassRefPtrWillBeRawPtr<MHTMLArchive> create();
     static PassRefPtrWillBeRawPtr<MHTMLArchive> create(const KURL&, SharedBuffer*);
     ~MHTMLArchive();
 
@@ -58,15 +58,11 @@ public:
         UseBinaryEncoding
     };
 
-    // Generates a random/unique boundary that can be used as a separator of
-    // MHTML parts.
-    static String generateMHTMLBoundary();
-
     // Generates an MHTML header and appends it to |outputBuffer|.
     //
     // Same |boundary| needs to used for all generateMHTMLHeader and
     // generateMHTMLPart and generateMHTMLFooter calls that belong to the same
-    // MHTML document (see also generateMHTMLBoundary method).
+    // MHTML document (see also rfc1341, section 7.2.1, "boundary" description).
     static void generateMHTMLHeader(
         const String& boundary, const String& title, const String& mimeType,
         SharedBuffer& outputBuffer);
@@ -76,52 +72,41 @@ public:
     //
     // Same |boundary| needs to used for all generateMHTMLHeader and
     // generateMHTMLPart and generateMHTMLFooter calls that belong to the same
-    // MHTML document (see also generateMHTMLBoundary method).
+    // MHTML document (see also rfc1341, section 7.2.1, "boundary" description).
+    //
+    // If |contentID| is non-empty, then it will be used as a Content-ID header.
+    // See rfc2557 - section 8.3 - "Use of the Content-ID header and CID URLs".
     static void generateMHTMLPart(
-        const String& boundary, EncodingPolicy, const SerializedResource&,
+        const String& boundary, const String& contentID,
+        EncodingPolicy, const SerializedResource&,
         SharedBuffer& outputBuffer);
 
     // Generates an MHTML footer and appends it to |outputBuffer|.
     //
     // Same |boundary| needs to used for all generateMHTMLHeader and
     // generateMHTMLPart and generateMHTMLFooter calls that belong to the same
-    // MHTML document (see also generateMHTMLBoundary method).
+    // MHTML document (see also rfc1341, section 7.2.1, "boundary" description).
     static void generateMHTMLFooter(
         const String& boundary,
         SharedBuffer& outputBuffer);
 
-    // Generates and returns a full MHTML document.
-    static PassRefPtr<SharedBuffer> generateMHTMLData(
-        const Vector<SerializedResource>&, EncodingPolicy,
-        const String& title, const String& mimeType);
-
-    typedef WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>> SubArchiveResources;
-    typedef WillBeHeapVector<RefPtrWillBeMember<MHTMLArchive>> SubFrameArchives;
+    typedef WillBeHeapHashMap<String, RefPtrWillBeMember<ArchiveResource>> SubArchiveResources;
 
     ArchiveResource* mainResource() { return m_mainResource.get(); }
-    const SubArchiveResources& subresources() const { return m_subresources; }
-    const SubFrameArchives& subframeArchives() const { return m_subframeArchives; }
+    ArchiveResource* subresourceForURL(const KURL&) const;
 
     DECLARE_TRACE();
 
 private:
-    friend class MHTMLParser;
     MHTMLArchive();
 
     void setMainResource(PassRefPtrWillBeRawPtr<ArchiveResource>);
-    void addSubresource(PassRefPtrWillBeRawPtr<ArchiveResource>);
-    void addSubframeArchive(PassRefPtrWillBeRawPtr<MHTMLArchive>);
-
-#if !ENABLE(OILPAN)
-    void clearAllSubframeArchives();
-    void clearAllSubframeArchivesImpl(SubFrameArchives* clearedArchives);
-#endif
+    void addSubresource(ArchiveResource*);
 
     RefPtrWillBeMember<ArchiveResource> m_mainResource;
     SubArchiveResources m_subresources;
-    SubFrameArchives m_subframeArchives;
 };
 
-}
+} // namespace blink
 
 #endif

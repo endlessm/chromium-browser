@@ -11,6 +11,7 @@
 #include "ash/shell_delegate.h"
 #include "ash/test/test_session_state_delegate.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 
@@ -35,7 +36,6 @@ class TestShellDelegate : public ShellDelegate {
   bool IsIncognitoAllowed() const override;
   bool IsMultiProfilesEnabled() const override;
   bool IsRunningInForcedAppMode() const override;
-  bool IsMultiAccountEnabled() const override;
   bool CanShowWindowForUser(aura::Window* window) const override;
   bool IsForceMaximizeOnFirstRun() const override;
   void PreInit() override;
@@ -67,7 +67,7 @@ class TestShellDelegate : public ShellDelegate {
   void SetMediaCaptureState(MediaCaptureState state);
   void SetForceMaximizeOnFirstRun(bool maximize) {
     force_maximize_on_first_run_ = maximize;
-  };
+  }
 
  private:
   int num_exit_requests_;
@@ -78,8 +78,6 @@ class TestShellDelegate : public ShellDelegate {
 
   base::ObserverList<ash::VirtualKeyboardStateObserver>
       keyboard_state_observer_list_;
-
-  TestSessionStateDelegate* test_session_state_delegate_;  // Not owned.
 
   DISALLOW_COPY_AND_ASSIGN(TestShellDelegate);
 };

@@ -7,13 +7,11 @@
 #include <map>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/strings/string_piece.h"
 #include "net/spdy/hpack/hpack_encoder.h"
 #include "net/spdy/hpack/hpack_input_stream.h"
 #include "net/spdy/hpack/hpack_output_stream.h"
-#include "net/spdy/spdy_headers_handler_interface.h"
 #include "net/spdy/spdy_protocol.h"
 #include "net/spdy/spdy_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -24,37 +22,6 @@ namespace test {
 
 using base::StringPiece;
 using std::string;
-
-// A test implementation of SpdyHeadersHandlerInterface.
-class TestHeadersHandler : public SpdyHeadersHandlerInterface {
- public:
-  TestHeadersHandler() : header_bytes_parsed_(0) {}
-
-  void OnHeaderBlockStart() override { block_.clear(); }
-
-  void OnHeader(StringPiece key, StringPiece value) override {
-    auto it = block_.find(key);
-    if (it == block_.end()) {
-      block_[key] = value;
-    } else {
-      string new_value = it->second.as_string();
-      new_value.append((key == "cookie") ? "; " : string(1, '\0'));
-      value.AppendToString(&new_value);
-      block_.ReplaceOrAppendHeader(key, new_value);
-    }
-  }
-
-  void OnHeaderBlockEnd(size_t header_bytes_parsed) override {
-    header_bytes_parsed_ = header_bytes_parsed;
-  }
-
-  const SpdyHeaderBlock& decoded_block() const { return block_; }
-  size_t header_bytes_parsed() { return header_bytes_parsed_; }
-
- private:
-  SpdyHeaderBlock block_;
-  size_t header_bytes_parsed_;
-};
 
 class HpackDecoderPeer {
  public:
@@ -91,8 +58,7 @@ const size_t kLiteralBound = 1024;
 
 class HpackDecoderTest : public ::testing::TestWithParam<bool> {
  protected:
-  HpackDecoderTest()
-      : decoder_(ObtainHpackHuffmanTable()), decoder_peer_(&decoder_) {}
+  HpackDecoderTest() : decoder_(), decoder_peer_(&decoder_) {}
 
   bool DecodeHeaderBlock(StringPiece str) {
     if (GetParam()) {

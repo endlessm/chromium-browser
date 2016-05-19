@@ -8,7 +8,7 @@
 #include <set>
 
 #include "base/macros.h"
-#include "components/mus/public/cpp/types.h"
+#include "components/mus/common/types.h"
 
 namespace mus {
 namespace ws {
@@ -22,11 +22,14 @@ enum class OperationType {
   ADD_WINDOW,
   DELETE_WINDOW,
   EMBED,
+  RELEASE_CAPTURE,
   REMOVE_TRANSIENT_WINDOW_FROM_PARENT,
   REMOVE_WINDOW_FROM_PARENT,
   REORDER_WINDOW,
+  SET_CAPTURE,
   SET_FOCUS,
   SET_WINDOW_BOUNDS,
+  SET_WINDOW_PREDEFINED_CURSOR,
   SET_WINDOW_PROPERTY,
   SET_WINDOW_VISIBILITY,
 };

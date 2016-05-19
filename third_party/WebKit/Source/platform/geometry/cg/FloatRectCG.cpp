@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/geometry/FloatRect.h"
 
 #include <ApplicationServices/ApplicationServices.h>
@@ -40,4 +39,4 @@ FloatRect::operator CGRect() const
     return CGRectMake(x(), y(), width(), height());
 }
 
-}
+} // namespace blink

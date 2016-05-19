@@ -8,6 +8,7 @@
 #include <map>
 #include <set>
 
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
@@ -135,8 +136,9 @@ class AutofillDialogViews : public AutofillDialogView,
   void OnPerformAction(views::Combobox* combobox) override;
 
   // views::MenuButtonListener implementation.
-  void OnMenuButtonClicked(views::View* source,
-                           const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
  protected:
   // Exposed for testing.
@@ -334,6 +336,7 @@ class AutofillDialogViews : public AutofillDialogView,
   // section. None of the member pointers are owned.
   struct DetailsGroup {
     explicit DetailsGroup(DialogSection section);
+    DetailsGroup(const DetailsGroup& other);
     ~DetailsGroup();
 
     // The section this group is associated with.

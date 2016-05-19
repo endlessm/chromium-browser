@@ -49,7 +49,7 @@ WebInspector.InspectorView = function()
     this._tabbedPane.registerRequiredCSS("components/inspectorViewTabbedPane.css");
     this._tabbedPane.element.classList.add("inspector-view-tabbed-pane");
     this._tabbedPane.setTabSlider(true);
-    this._tabbedPane.setAllowTabReorder(true, false, 200);
+    this._tabbedPane.setAllowTabReorder(true, false);
     this._tabbedPane.addEventListener(WebInspector.TabbedPane.EventTypes.TabOrderChanged, this._persistPanelOrder, this);
     this._tabOrderSetting = WebInspector.settings.createSetting("InspectorView.panelOrder", {});
     this._drawerSplitWidget.setMainWidget(this._tabbedPane);
@@ -172,6 +172,9 @@ WebInspector.InspectorView.prototype = {
     addPanel: function(panelDescriptor)
     {
         var weight = this._tabOrderSetting.get()[panelDescriptor.name()];
+        // Keep in sync with _persistPanelOrder().
+        if (weight)
+            weight = Math.max(0, Math.round(weight / 10) - 1);
         this._innerAddPanel(panelDescriptor, weight);
     },
 
@@ -324,10 +327,8 @@ WebInspector.InspectorView.prototype = {
     {
         delete this._panelForShowPromise;
 
-        if (this._currentPanelLocked) {
-            console.error("Current panel is locked");
+        if (this._currentPanelLocked)
             return this._currentPanel;
-        }
 
         if (!suppressBringToFront)
             InspectorFrontendHost.bringToFront();
@@ -347,6 +348,7 @@ WebInspector.InspectorView.prototype = {
         this._pushToHistory(panel.name);
         WebInspector.userMetrics.panelShown(panel.name);
         panel.focus();
+
         return panel;
     },
 
@@ -384,6 +386,15 @@ WebInspector.InspectorView.prototype = {
     closeDrawer: function()
     {
         this._drawer.closeDrawer();
+    },
+
+    /**
+     * @param {boolean} minimized
+     */
+    setDrawerMinimized: function(minimized)
+    {
+        this._drawerSplitWidget.setSidebarMinimized(minimized);
+        this._drawerSplitWidget.setResizable(!minimized);
     },
 
     /**

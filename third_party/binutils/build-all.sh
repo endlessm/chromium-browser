@@ -35,26 +35,33 @@ if ! gpg --verify binutils-$VERSION.tar.bz2.sig; then
   exit 1
 fi
 
-
-if [ ! -d binutils-$VERSION ]; then
-  # Extract the source
-  tar jxf binutils-$VERSION.tar.bz2
-
-  # Patch the source
-  (
-    cd binutils-$VERSION
-    echo "unlock-thin.patch"
-    echo "=================================="
-    patch -p1 < ../unlock-thin.patch
-    echo "----------------------------------"
-    echo
-    echo "plugin-dso-fix.patch"
-    echo "=================================="
-    patch -p1 < ../plugin-dso-fix.patch
-    echo "----------------------------------"
-    echo
-  )
+if [ ! -d gperftools ]; then
+  git clone --branch gperftools-2.4 https://github.com/gperftools/gperftools
 fi
+
+# Extract the source
+rm -rf binutils-$VERSION
+tar jxf binutils-$VERSION.tar.bz2
+
+# Patch the source
+(
+  cd binutils-$VERSION
+  echo "unlock-thin.patch"
+  echo "=================================="
+  patch -p1 < ../unlock-thin.patch
+  echo "----------------------------------"
+  echo
+  echo "plugin-dso-fix.patch"
+  echo "=================================="
+  patch -p1 < ../plugin-dso-fix.patch
+  echo "----------------------------------"
+  echo
+  echo "long-plt.patch"
+  echo "=================================="
+  patch -p1 < ../long-plt.patch
+  echo "----------------------------------"
+  echo
+)
 
 for ARCH in i386 amd64; do
   if [ ! -d precise-chroot-$ARCH ]; then
@@ -65,9 +72,10 @@ for ARCH in i386 amd64; do
     echo ""
     echo "Building chroot for $ARCH"
     echo "============================="
+    GPERFTOOLS_DEPS=autoconf,automake,libtool
     sudo debootstrap \
         --arch=$ARCH \
-        --include=build-essential,flex,bison \
+        --include=build-essential,flex,bison,$GPERFTOOLS_DEPS \
         precise precise-chroot-$ARCH
     echo "============================="
   fi
@@ -83,6 +91,7 @@ for ARCH in i386 amd64; do
   sudo mkdir -p "$BUILDDIR"
   sudo cp -a binutils-$VERSION "$BUILDDIR"
   sudo cp -a build-one.sh "$BUILDDIR"
+  sudo cp -a gperftools "$BUILDDIR"
 
   # Do the build
   PREFIX=

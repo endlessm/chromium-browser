@@ -35,7 +35,7 @@ public class WebappSplashScreenThemeColorTest extends WebappActivityTestBase {
         Intent intent = super.createIntent();
         intent.putExtra(ShortcutHelper.EXTRA_URL, "http://localhost");
         // This is setting Color.Magenta with 50% opacity.
-        intent.putExtra(ShortcutHelper.EXTRA_THEME_COLOR, (long) Color.argb(128, 255, 0, 255));
+        intent.putExtra(ShortcutHelper.EXTRA_THEME_COLOR, 0x80FF00FFL);
         return intent;
     }
 
@@ -63,13 +63,13 @@ public class WebappSplashScreenThemeColorTest extends WebappActivityTestBase {
         });
 
         // Waits for theme-color to change so the test doesn't rely on system timing.
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    return getActivity().getWindow().getStatusBarColor()
-                            == ColorUtils.getDarkenedColorForStatusBar(Color.GREEN);
-                }
-            }));
+        CriteriaHelper.pollForCriteria(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return getActivity().getWindow().getStatusBarColor()
+                        == ColorUtils.getDarkenedColorForStatusBar(Color.GREEN);
+            }
+        });
     }
 
     @SmallTest

@@ -4,15 +4,15 @@
 
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
 
+#include <utility>
+
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/user_metrics.h"
-#include "components/page_load_metrics/browser/page_load_metrics_macros.h"
+#include "components/page_load_metrics/browser/page_load_metrics_util.h"
 #include "components/page_load_metrics/common/page_load_metrics_messages.h"
 #include "components/page_load_metrics/common/page_load_timing.h"
-#include "components/rappor/rappor_service.h"
-#include "components/rappor/rappor_utils.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_handle.h"
@@ -22,6 +22,7 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
+#include "ui/base/page_transition_types.h"
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(
     page_load_metrics::MetricsWebContentsObserver);
@@ -33,10 +34,9 @@ namespace {
 // The url we see from the renderer side is not always the same as what
 // we see from the browser side (e.g. chrome://newtab). We want to be
 // sure here that we aren't logging UMA for internal pages.
-bool IsRelevantNavigation(
-    content::NavigationHandle* navigation_handle,
-    const GURL& browser_url,
-    const std::string& mime_type) {
+bool IsRelevantNavigation(content::NavigationHandle* navigation_handle,
+                          const GURL& browser_url,
+                          const std::string& mime_type) {
   DCHECK(navigation_handle->HasCommitted());
   return navigation_handle->IsInMainFrame() &&
          !navigation_handle->IsSamePage() &&
@@ -46,124 +46,202 @@ bool IsRelevantNavigation(
          (mime_type == "text/html" || mime_type == "application/xhtml+xml");
 }
 
+// If second is non-zero, first must also be non-zero and less than or equal to
+// second.
+bool EventsInOrder(base::TimeDelta first, base::TimeDelta second) {
+  if (second.is_zero()) {
+    return true;
+  }
+  return !first.is_zero() && first <= second;
+}
+
 bool IsValidPageLoadTiming(const PageLoadTiming& timing) {
   if (timing.IsEmpty())
     return false;
 
   // If we have a non-empty timing, it should always have a navigation start.
   if (timing.navigation_start.is_null()) {
-    NOTREACHED();
+    DLOG(FATAL) << "Received null navigation_start.";
     return false;
   }
 
-  // If we have a DOM content loaded event, we should have a response start.
-  if (!timing.dom_content_loaded_event_start.is_zero() &&
-      timing.response_start > timing.dom_content_loaded_event_start) {
-    NOTREACHED();
+  // Verify proper ordering between the various timings.
+
+  if (!EventsInOrder(timing.response_start,
+                     timing.dom_content_loaded_event_start)) {
+    // We sometimes get a zero response_start with a non-zero DCL. See
+    // crbug.com/590212.
+    DLOG(ERROR) << "Invalid response_start " << timing.response_start
+                << " for dom_content_loaded_event_start "
+                << timing.dom_content_loaded_event_start;
     return false;
   }
 
-  // If we have a load event, we should have both a response start and a DCL.
-  // TODO(csharrison) crbug.com/536203 shows that sometimes we can get a load
-  // event without a DCL. Figure out if we can change this condition to use a
-  // NOTREACHED in the condition.
-  if (!timing.load_event_start.is_zero() &&
-      (timing.dom_content_loaded_event_start.is_zero() ||
-       timing.response_start > timing.load_event_start ||
-       timing.dom_content_loaded_event_start > timing.load_event_start)) {
+  if (!EventsInOrder(timing.dom_content_loaded_event_start,
+                     timing.load_event_start)) {
+    // TODO(csharrison) crbug.com/536203 shows that sometimes we can get a load
+    // event without a DCL. Figure out if we can change this condition to use a
+    // DLOG(FATAL) in the condition.
+    DLOG(ERROR) << "Invalid dom_content_loaded_event_start "
+                << timing.dom_content_loaded_event_start
+                << " for load_event_start " << timing.load_event_start;
+    return false;
+  }
+
+  if (!EventsInOrder(timing.response_start, timing.first_layout)) {
+    // We sometimes get a zero response_start with a non-zero first layout. See
+    // crbug.com/590212.
+    DLOG(ERROR) << "Invalid response_start " << timing.response_start
+                << " for first_layout " << timing.first_layout;
+    return false;
+  }
+
+  if (!EventsInOrder(timing.first_layout, timing.first_paint)) {
+    DLOG(FATAL) << "Invalid first_layout " << timing.first_layout
+                << " for first_paint " << timing.first_paint;
+    return false;
+  }
+
+  if (!EventsInOrder(timing.first_paint, timing.first_text_paint)) {
+    DLOG(FATAL) << "Invalid first_paint " << timing.first_paint
+                << " for first_text_paint " << timing.first_text_paint;
+    return false;
+  }
+
+  if (!EventsInOrder(timing.first_paint, timing.first_image_paint)) {
+    DLOG(FATAL) << "Invalid first_paint " << timing.first_paint
+                << " for first_image_paint " << timing.first_image_paint;
+    return false;
+  }
+
+  if (!EventsInOrder(timing.first_paint, timing.first_contentful_paint)) {
+    DLOG(FATAL) << "Invalid first_paint " << timing.first_paint
+                << " for first_contentful_paint "
+                << timing.first_contentful_paint;
     return false;
   }
 
   return true;
 }
 
-base::Time WallTimeFromTimeTicks(const base::TimeTicks& time) {
-  return base::Time::FromDoubleT(
-      (time - base::TimeTicks::UnixEpoch()).InSecondsF());
-}
-
 void RecordInternalError(InternalErrorLoadEvent event) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "PageLoad.Events.InternalError", event, ERR_LAST_ENTRY);
+  UMA_HISTOGRAM_ENUMERATION(internal::kErrorEvents, event, ERR_LAST_ENTRY);
 }
 
-base::TimeDelta GetFirstContentfulPaint(const PageLoadTiming& timing) {
-  if (timing.first_text_paint.is_zero())
-    return timing.first_image_paint;
-  if (timing.first_image_paint.is_zero())
-    return timing.first_text_paint;
-  return std::min(timing.first_text_paint, timing.first_image_paint);
-}
-
-// The number of buckets in the bitfield histogram. These buckets are described
-// in rappor.xml in PageLoad.CoarseTiming.NavigationToFirstContentfulPaint.
-// The bucket flag is defined by 1 << bucket_index, and is the bitfield
-// representing which timing bucket the page load falls into, i.e. 000010
-// would be the bucket flag showing that the page took between 2 and 4 seconds
-// to load.
-const size_t kNumRapporHistogramBuckets = 6;
-
-uint64_t RapporHistogramBucketIndex(const base::TimeDelta& time) {
-  int64 seconds = time.InSeconds();
-  if (seconds < 2)
-    return 0;
-  if (seconds < 4)
-    return 1;
-  if (seconds < 8)
-    return 2;
-  if (seconds < 16)
-    return 3;
-  if (seconds < 32)
-    return 4;
-  return 5;
+UserAbortType AbortTypeForPageTransition(ui::PageTransition transition) {
+  if (ui::PageTransitionCoreTypeIs(transition, ui::PAGE_TRANSITION_RELOAD))
+    return ABORT_RELOAD;
+  if (transition & ui::PAGE_TRANSITION_FORWARD_BACK)
+    return ABORT_FORWARD_BACK;
+  if (ui::PageTransitionIsNewNavigation(transition))
+    return ABORT_NEW_NAVIGATION;
+  DLOG(FATAL)
+      << "AbortTypeForPageTransition received unexpected ui::PageTransition: "
+      << transition;
+  return ABORT_OTHER;
 }
 
 }  // namespace
 
+namespace internal {
+
+const char kErrorEvents[] = "PageLoad.Events.InternalError";
+const char kAbortChainSizeReload[] =
+    "PageLoad.Internal.ProvisionalAbortChainSize.Reload";
+const char kAbortChainSizeForwardBack[] =
+    "PageLoad.Internal.ProvisionalAbortChainSize.ForwardBack";
+const char kAbortChainSizeNewNavigation[] =
+    "PageLoad.Internal.ProvisionalAbortChainSize.NewNavigation";
+
+}  // namespace internal
+
 PageLoadTracker::PageLoadTracker(
     bool in_foreground,
     PageLoadMetricsEmbedderInterface* embedder_interface,
-    base::ObserverList<PageLoadMetricsObserver, true>* observers)
-    : has_commit_(false),
+    content::NavigationHandle* navigation_handle,
+    int abort_chain_size)
+    : renderer_tracked_(false),
+      navigation_start_(navigation_handle->NavigationStart()),
+      abort_type_(ABORT_NONE),
       started_in_foreground_(in_foreground),
-      embedder_interface_(embedder_interface),
-      observers_(observers) {}
+      aborted_chain_size_(abort_chain_size),
+      embedder_interface_(embedder_interface) {
+  embedder_interface_->RegisterObservers(this);
+  for (const auto& observer : observers_) {
+    observer->OnStart(navigation_handle);
+  }
+}
 
 PageLoadTracker::~PageLoadTracker() {
-  if (has_commit_) {
-    RecordTimingHistograms();
-    RecordRappor();
+  const PageLoadExtraInfo info = GetPageLoadMetricsInfo();
+  if (!info.time_to_commit.is_zero() && renderer_tracked() &&
+      timing_.IsEmpty()) {
+    RecordInternalError(ERR_NO_IPCS_RECEIVED);
+  }
+  for (const auto& observer : observers_) {
+    observer->OnComplete(timing_, info);
+  }
+}
+
+void PageLoadTracker::LogAbortChainHistograms(
+    ui::PageTransition committed_transition) {
+  if (aborted_chain_size_ == 0)
+    return;
+  switch (AbortTypeForPageTransition(committed_transition)) {
+    case ABORT_RELOAD:
+      UMA_HISTOGRAM_COUNTS(internal::kAbortChainSizeReload,
+                           aborted_chain_size_);
+      return;
+    case ABORT_FORWARD_BACK:
+      UMA_HISTOGRAM_COUNTS(internal::kAbortChainSizeForwardBack,
+                           aborted_chain_size_);
+      return;
+    case ABORT_NEW_NAVIGATION:
+      UMA_HISTOGRAM_COUNTS(internal::kAbortChainSizeNewNavigation,
+                           aborted_chain_size_);
+      return;
+    default:
+      DLOG(FATAL)
+          << "LogAbortChainHistograms received unexpected ui::PageTransition: "
+          << committed_transition;
+      return;
   }
 }
 
 void PageLoadTracker::WebContentsHidden() {
   // Only log the first time we background in a given page load.
-  if (started_in_foreground_ && background_time_.is_null())
+  if (background_time_.is_null())
     background_time_ = base::TimeTicks::Now();
 }
 
 void PageLoadTracker::WebContentsShown() {
   // Only log the first time we foreground in a given page load.
-  // Don't log foreground time if we started foregrounded.
-  if (!started_in_foreground_ && foreground_time_.is_null())
+  if (foreground_time_.is_null())
     foreground_time_ = base::TimeTicks::Now();
 }
 
 void PageLoadTracker::Commit(content::NavigationHandle* navigation_handle) {
-  has_commit_ = true;
-  url_ = navigation_handle->GetURL();
-  // We log the event that this load started. Because we don't know if a load is
-  // relevant or if it will commit before now, we have to log this event at
-  // commit time.
-  RecordCommittedEvent(COMMITTED_LOAD_STARTED, !started_in_foreground_);
+  // TODO(bmcquade): To improve accuracy, consider adding commit time to
+  // NavigationHandle. Taking a timestamp here should be close enough for now.
+  commit_time_ = base::TimeTicks::Now();
+  committed_url_ = navigation_handle->GetURL();
+  for (const auto& observer : observers_) {
+    observer->OnCommit(navigation_handle);
+  }
+  LogAbortChainHistograms(navigation_handle->GetPageTransition());
+}
 
-  FOR_EACH_OBSERVER(PageLoadMetricsObserver, *observers_,
-                    OnCommit(navigation_handle));
+void PageLoadTracker::FailedProvisionalLoad(
+    content::NavigationHandle* navigation_handle) {
+  for (const auto& observer : observers_) {
+    observer->OnFailedProvisionalLoad(navigation_handle);
+  }
 }
 
 void PageLoadTracker::Redirect(content::NavigationHandle* navigation_handle) {
-  FOR_EACH_OBSERVER(PageLoadMetricsObserver, *observers_,
-                    OnRedirect(navigation_handle));
+  for (const auto& observer : observers_) {
+    observer->OnRedirect(navigation_handle);
+  }
 }
 
 bool PageLoadTracker::UpdateTiming(const PageLoadTiming& new_timing) {
@@ -185,196 +263,89 @@ bool PageLoadTracker::HasBackgrounded() {
   return !started_in_foreground_ || !background_time_.is_null();
 }
 
+void PageLoadTracker::set_renderer_tracked(bool renderer_tracked) {
+  renderer_tracked_ = renderer_tracked;
+}
+
+void PageLoadTracker::AddObserver(
+    scoped_ptr<PageLoadMetricsObserver> observer) {
+  observers_.push_back(std::move(observer));
+}
+
 PageLoadExtraInfo PageLoadTracker::GetPageLoadMetricsInfo() {
   base::TimeDelta first_background_time;
   base::TimeDelta first_foreground_time;
-  if (!background_time_.is_null() && started_in_foreground_) {
-    first_background_time =
-        WallTimeFromTimeTicks(background_time_) - timing_.navigation_start;
+  base::TimeDelta time_to_abort;
+  base::TimeDelta time_to_commit;
+  if (!background_time_.is_null())
+    first_background_time = background_time_ - navigation_start_;
+  if (!foreground_time_.is_null())
+    first_foreground_time = foreground_time_ - navigation_start_;
+  if (abort_type_ != ABORT_NONE) {
+    DCHECK_GT(abort_time_, navigation_start_);
+    time_to_abort = abort_time_ - navigation_start_;
+  } else {
+    DCHECK(abort_time_.is_null());
   }
-  if (!foreground_time_.is_null() && !started_in_foreground_) {
-    first_foreground_time =
-        WallTimeFromTimeTicks(foreground_time_) - timing_.navigation_start;
+  if (!committed_url_.is_empty()) {
+    DCHECK_GT(commit_time_, navigation_start_);
+    time_to_commit = commit_time_ - navigation_start_;
+  } else {
+    DCHECK(commit_time_.is_null());
   }
   return PageLoadExtraInfo(first_background_time, first_foreground_time,
-                           started_in_foreground_);
+                           started_in_foreground_, committed_url_,
+                           time_to_commit, abort_type_, time_to_abort);
 }
 
-const GURL& PageLoadTracker::GetCommittedURL() {
-  DCHECK(has_commit_);
-  return url_;
+void PageLoadTracker::NotifyAbort(UserAbortType abort_type,
+                                  base::TimeTicks timestamp) {
+  DCHECK_NE(abort_type, ABORT_NONE);
+  // Use UpdateAbort to update an already notified PageLoadTracker.
+  if (abort_type_ != ABORT_NONE)
+    return;
+
+  UpdateAbortInternal(abort_type, timestamp);
 }
 
-// Blink calculates navigation start using TimeTicks, but converts to epoch time
-// in its public API. Thus, to compare time values to navigation start, we
-// calculate the current time since the epoch using TimeTicks, and convert to
-// Time. This method is similar to how blink converts TimeTicks to epoch time.
-// There may be slight inaccuracies due to inter-process timestamps, but
-// this solution is the best we have right now.
-//
-// returns a TimeDelta which is
-//  - Infinity if we were never backgrounded
-//  - null (TimeDelta()) if we started backgrounded
-//  - elapsed time to first background if we started in the foreground and
-//    backgrounded.
-base::TimeDelta PageLoadTracker::GetBackgroundDelta() {
-  if (started_in_foreground_) {
-    if (background_time_.is_null())
-      return base::TimeDelta::Max();
-    return WallTimeFromTimeTicks(background_time_) - timing_.navigation_start;
-  }
-  return base::TimeDelta();
+void PageLoadTracker::UpdateAbort(UserAbortType abort_type,
+                                  base::TimeTicks timestamp) {
+  DCHECK_NE(abort_type, ABORT_NONE);
+  DCHECK_NE(abort_type, ABORT_OTHER);
+  DCHECK_EQ(abort_type_, ABORT_OTHER);
+
+  // For some aborts (e.g. navigations), the initiated timestamp can be earlier
+  // than the timestamp that aborted the load. Taking the minimum gives the
+  // closest user initiated time known.
+  UpdateAbortInternal(abort_type, std::min(abort_time_, timestamp));
 }
 
-void PageLoadTracker::RecordTimingHistograms() {
-  DCHECK(has_commit_);
-  if (timing_.IsEmpty()) {
-    RecordInternalError(ERR_NO_IPCS_RECEIVED);
+bool PageLoadTracker::IsLikelyProvisionalAbort(
+    base::TimeTicks abort_cause_time) {
+  // Note that |abort_cause_time - abort_time| can be negative.
+  return abort_type_ == ABORT_OTHER &&
+         (abort_cause_time - abort_time_).InMilliseconds() < 100;
+}
+
+void PageLoadTracker::UpdateAbortInternal(UserAbortType abort_type,
+                                          base::TimeTicks timestamp) {
+  // When a provisional navigation commits, that navigation's start time is
+  // interpreted as the abort time for other provisional loads in the tab.
+  // However, this only makes sense if the committed load started after the
+  // aborted provisional loads started. Thus we ignore cases where the committed
+  // load started before the aborted provisional load, as this would result in
+  // recording a negative time-to-abort. The real issue here is that we have to
+  // infer the cause of aborts. It would be better if the navigation code could
+  // instead report the actual cause of an aborted navigation. See crbug/571647
+  // for details.
+  if (timestamp <= navigation_start_) {
+    RecordInternalError(ERR_ABORT_BEFORE_NAVIGATION_START);
+    abort_type_ = ABORT_NONE;
+    abort_time_ = base::TimeTicks();
     return;
   }
-
-  PageLoadExtraInfo info = GetPageLoadMetricsInfo();
-  FOR_EACH_OBSERVER(PageLoadMetricsObserver, *observers_,
-                    OnComplete(timing_, info));
-
-  base::TimeDelta background_delta = GetBackgroundDelta();
-
-  if (!timing_.dom_content_loaded_event_start.is_zero()) {
-    if (timing_.dom_content_loaded_event_start < background_delta) {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.Timing2.NavigationToDOMContentLoadedEventFired",
-          timing_.dom_content_loaded_event_start);
-    } else {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.Timing2.NavigationToDOMContentLoadedEventFired.Background",
-          timing_.dom_content_loaded_event_start);
-    }
-  }
-  if (!timing_.load_event_start.is_zero()) {
-    if (timing_.load_event_start < background_delta) {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToLoadEventFired",
-                          timing_.load_event_start);
-    } else {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.Timing2.NavigationToLoadEventFired.Background",
-          timing_.load_event_start);
-    }
-  }
-  if (timing_.first_layout.is_zero()) {
-    RecordCommittedEvent(COMMITTED_LOAD_FAILED_BEFORE_FIRST_LAYOUT,
-                         HasBackgrounded());
-  } else {
-    if (timing_.first_layout < background_delta) {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstLayout",
-                          timing_.first_layout);
-      RecordCommittedEvent(COMMITTED_LOAD_SUCCESSFUL_FIRST_LAYOUT, false);
-    } else {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstLayout.Background",
-                          timing_.first_layout);
-      RecordCommittedEvent(COMMITTED_LOAD_SUCCESSFUL_FIRST_LAYOUT, true);
-    }
-  }
-  if (!timing_.first_paint.is_zero()) {
-    if (timing_.first_paint < background_delta) {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstPaint",
-                          timing_.first_paint);
-    } else {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstPaint.Background",
-                          timing_.first_paint);
-    }
-  }
-  if (!timing_.first_text_paint.is_zero()) {
-    if (timing_.first_text_paint < background_delta) {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstTextPaint",
-                          timing_.first_text_paint);
-    } else {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.Timing2.NavigationToFirstTextPaint.Background",
-          timing_.first_text_paint);
-    }
-  }
-  if (!timing_.first_image_paint.is_zero()) {
-    if (timing_.first_image_paint < background_delta) {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstImagePaint",
-                          timing_.first_image_paint);
-    } else {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.Timing2.NavigationToFirstImagePaint.Background",
-          timing_.first_image_paint);
-    }
-  }
-  base::TimeDelta first_contentful_paint = GetFirstContentfulPaint(timing_);
-  if (!first_contentful_paint.is_zero()) {
-    if (first_contentful_paint < background_delta) {
-      PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstContentfulPaint",
-                          first_contentful_paint);
-    } else {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.Timing2.NavigationToFirstContentfulPaint.Background",
-          first_contentful_paint);
-    }
-  }
-
-  // Log time to first foreground / time to first background. Log counts that we
-  // started a relevant page load in the foreground / background.
-  if (!background_time_.is_null()) {
-    PAGE_LOAD_HISTOGRAM("PageLoad.Timing2.NavigationToFirstBackground",
-                        background_delta);
-  } else if (!foreground_time_.is_null()) {
-    PAGE_LOAD_HISTOGRAM(
-        "PageLoad.Timing2.NavigationToFirstForeground",
-        WallTimeFromTimeTicks(foreground_time_) - timing_.navigation_start);
-  }
-}
-
-void PageLoadTracker::RecordProvisionalEvent(ProvisionalLoadEvent event) {
-  if (HasBackgrounded()) {
-    UMA_HISTOGRAM_ENUMERATION("PageLoad.Events.Provisional.Background", event,
-                              PROVISIONAL_LOAD_LAST_ENTRY);
-  } else {
-    UMA_HISTOGRAM_ENUMERATION("PageLoad.Events.Provisional", event,
-                              PROVISIONAL_LOAD_LAST_ENTRY);
-  }
-}
-
-// RecordCommittedEvent needs a backgrounded input because we need to special
-// case a few events that need either precise timing measurements, or different
-// logic than simply "Did I background before logging this event?"
-void PageLoadTracker::RecordCommittedEvent(CommittedLoadEvent event,
-                                           bool backgrounded) {
-  if (backgrounded) {
-    UMA_HISTOGRAM_ENUMERATION("PageLoad.Events.Committed.Background", event,
-                              COMMITTED_LOAD_LAST_ENTRY);
-  } else {
-    UMA_HISTOGRAM_ENUMERATION("PageLoad.Events.Committed", event,
-                              COMMITTED_LOAD_LAST_ENTRY);
-  }
-}
-
-void PageLoadTracker::RecordRappor() {
-  DCHECK(!GetCommittedURL().is_empty());
-  rappor::RapporService* rappor_service =
-      embedder_interface_->GetRapporService();
-  if (!rappor_service)
-    return;
-  base::TimeDelta first_contentful_paint = GetFirstContentfulPaint(timing_);
-  // Log the eTLD+1 of sites that show poor loading performance.
-  if (!first_contentful_paint.is_zero() &&
-      first_contentful_paint < GetBackgroundDelta()) {
-    scoped_ptr<rappor::Sample> sample =
-        rappor_service->CreateSample(rappor::UMA_RAPPOR_TYPE);
-    sample->SetStringField("Domain", rappor::GetDomainAndRegistrySampleFromGURL(
-                                         GetCommittedURL()));
-    uint64_t bucket_index = RapporHistogramBucketIndex(first_contentful_paint);
-    sample->SetFlagsField("Bucket", uint64_t(1) << bucket_index,
-                          kNumRapporHistogramBuckets);
-    // The IsSlow flag is just a one bit boolean if the first layout was > 10s.
-    sample->SetFlagsField("IsSlow", first_contentful_paint.InSecondsF() >= 10,
-                          1);
-    rappor_service->RecordSampleObj(
-        "PageLoad.CoarseTiming.NavigationToFirstContentfulPaint",
-        sample.Pass());
-  }
+  abort_type_ = abort_type;
+  abort_time_ = timestamp;
 }
 
 // static
@@ -383,7 +354,7 @@ MetricsWebContentsObserver::MetricsWebContentsObserver(
     scoped_ptr<PageLoadMetricsEmbedderInterface> embedder_interface)
     : content::WebContentsObserver(web_contents),
       in_foreground_(false),
-      embedder_interface_(embedder_interface.Pass()) {}
+      embedder_interface_(std::move(embedder_interface)) {}
 
 MetricsWebContentsObserver* MetricsWebContentsObserver::CreateForWebContents(
     content::WebContents* web_contents,
@@ -392,29 +363,15 @@ MetricsWebContentsObserver* MetricsWebContentsObserver::CreateForWebContents(
 
   MetricsWebContentsObserver* metrics = FromWebContents(web_contents);
   if (!metrics) {
-    metrics =
-        new MetricsWebContentsObserver(web_contents, embedder_interface.Pass());
+    metrics = new MetricsWebContentsObserver(web_contents,
+                                             std::move(embedder_interface));
     web_contents->SetUserData(UserDataKey(), metrics);
   }
   return metrics;
 }
 
 MetricsWebContentsObserver::~MetricsWebContentsObserver() {
-  // Reset PageLoadTrackers so observers get final notifications.
-  committed_load_.reset();
-  provisional_loads_.clear();
-  FOR_EACH_OBSERVER(PageLoadMetricsObserver, observers_,
-                    OnPageLoadMetricsGoingAway());
-}
-
-void MetricsWebContentsObserver::AddObserver(
-    PageLoadMetricsObserver* observer) {
-  observers_.AddObserver(observer);
-}
-
-void MetricsWebContentsObserver::RemoveObserver(
-    PageLoadMetricsObserver* observer) {
-  observers_.RemoveObserver(observer);
+  NotifyAbortAllLoads(ABORT_CLOSE);
 }
 
 bool MetricsWebContentsObserver::OnMessageReceived(
@@ -436,6 +393,10 @@ void MetricsWebContentsObserver::DidStartNavigation(
     return;
   if (embedder_interface_->IsPrerendering(web_contents()))
     return;
+
+  int abort_chain_size =
+      NotifyAbortedProvisionalLoadsNewNavigation(navigation_handle);
+
   // We can have two provisional loads in some cases. E.g. a same-site
   // navigation can have a concurrent cross-process navigation started
   // from the omnibox.
@@ -443,10 +404,10 @@ void MetricsWebContentsObserver::DidStartNavigation(
   // Passing raw pointers to observers_ and embedder_interface_ is safe because
   // the MetricsWebContentsObserver owns them both list and they are torn down
   // after the PageLoadTracker.
-  provisional_loads_.insert(
-      navigation_handle,
-      make_scoped_ptr(new PageLoadTracker(
-          in_foreground_, embedder_interface_.get(), &observers_)));
+  provisional_loads_.insert(std::make_pair(
+      navigation_handle, make_scoped_ptr(new PageLoadTracker(
+                             in_foreground_, embedder_interface_.get(),
+                             navigation_handle, abort_chain_size))));
 }
 
 void MetricsWebContentsObserver::DidFinishNavigation(
@@ -455,7 +416,9 @@ void MetricsWebContentsObserver::DidFinishNavigation(
     return;
 
   scoped_ptr<PageLoadTracker> finished_nav(
-      provisional_loads_.take_and_erase(navigation_handle));
+      std::move(provisional_loads_[navigation_handle]));
+  provisional_loads_.erase(navigation_handle);
+
   // There's a chance a navigation could have started before we were added to a
   // tab. Bail out early if this is the case.
   if (!finished_nav)
@@ -464,33 +427,56 @@ void MetricsWebContentsObserver::DidFinishNavigation(
   // Handle a pre-commit error here. Navigations that result in an error page
   // will be ignored. Note that downloads/204s will result in HasCommitted()
   // returning false.
+  // TODO(csharrison): Track changes to NavigationHandle for signals when this
+  // is the case (HTTP response headers).
   if (!navigation_handle->HasCommitted()) {
+    finished_nav->FailedProvisionalLoad(navigation_handle);
+
     net::Error error = navigation_handle->GetNetErrorCode();
-    finished_nav->RecordProvisionalEvent(
-        error == net::OK ? PROVISIONAL_LOAD_STOPPED
-        : error == net::ERR_ABORTED ? PROVISIONAL_LOAD_ERR_ABORTED
-        : PROVISIONAL_LOAD_ERR_FAILED_NON_ABORT);
+
+    // net::OK: This case occurs when the NavigationHandle finishes and reports
+    // !HasCommitted(), but reports no net::Error. This should not occur
+    // pre-PlzNavigate, but afterwards it should represent the navigation
+    // stopped by the user before it was ready to commit.
+    // net::ERR_ABORTED: An aborted provisional load has error net::ERR_ABORTED.
+    // Note that this can come from some non user-initiated errors, such as
+    // downloads, or 204 responses. See crbug.com/542369.
+    if ((error == net::OK) || (error == net::ERR_ABORTED)) {
+      finished_nav->NotifyAbort(ABORT_OTHER, base::TimeTicks::Now());
+      aborted_provisional_loads_.push_back(std::move(finished_nav));
+    }
+
     return;
   }
-  finished_nav->RecordProvisionalEvent(PROVISIONAL_LOAD_COMMITTED);
 
   // Don't treat a same-page nav as a new page load.
   if (navigation_handle->IsSamePage())
     return;
 
-  // Eagerly log the previous UMA even if we don't care about the current
-  // navigation.
-  committed_load_.reset();
+  // Notify other loads that they may have been aborted by this committed load.
+  // Note that by using the committed navigation start as the abort cause, we
+  // lose data on provisional loads that were aborted by other provisional
+  // loads. Those will either be listed as ABORT_OTHER or as being aborted by
+  // this load.
+  NotifyAbortAllLoadsWithTimestamp(
+      AbortTypeForPageTransition(navigation_handle->GetPageTransition()),
+      navigation_handle->NavigationStart());
+
+  committed_load_ = std::move(finished_nav);
+  aborted_provisional_loads_.clear();
 
   const GURL& browser_url = web_contents()->GetLastCommittedURL();
   const std::string& mime_type = web_contents()->GetContentsMimeType();
   DCHECK(!browser_url.is_empty());
   DCHECK(!mime_type.empty());
-  if (!IsRelevantNavigation(navigation_handle, browser_url, mime_type))
-    return;
+  committed_load_->set_renderer_tracked(
+      IsRelevantNavigation(navigation_handle, browser_url, mime_type));
 
-  committed_load_ = finished_nav.Pass();
   committed_load_->Commit(navigation_handle);
+}
+
+void MetricsWebContentsObserver::NavigationStopped() {
+  NotifyAbortAllLoads(ABORT_STOP);
 }
 
 void MetricsWebContentsObserver::DidRedirectNavigation(
@@ -523,18 +509,75 @@ void MetricsWebContentsObserver::WasHidden() {
 
 // This will occur when the process for the main RenderFrameHost exits, either
 // normally or from a crash. We eagerly log data from the last committed load if
-// we have one.
+// we have one. Don't notify aborts here because this is probably not user
+// initiated. If it is (e.g. browser shutdown), other code paths will take care
+// of notifying.
 void MetricsWebContentsObserver::RenderProcessGone(
     base::TerminationStatus status) {
+  // Other code paths will be run for normal renderer shutdown. Note that we
+  // sometimes get the STILL_RUNNING value on fast shutdown.
+  if (status == base::TERMINATION_STATUS_NORMAL_TERMINATION ||
+      status == base::TERMINATION_STATUS_STILL_RUNNING) {
+    return;
+  }
+
+  // If this is a crash, eagerly log the aborted provisional loads and the
+  // committed load. |provisional_loads_| don't need to be destroyed here
+  // because their lifetime is tied to the NavigationHandle.
   committed_load_.reset();
+  aborted_provisional_loads_.clear();
+}
+
+void MetricsWebContentsObserver::NotifyAbortAllLoads(UserAbortType abort_type) {
+  NotifyAbortAllLoadsWithTimestamp(abort_type, base::TimeTicks::Now());
+}
+
+void MetricsWebContentsObserver::NotifyAbortAllLoadsWithTimestamp(
+    UserAbortType abort_type,
+    base::TimeTicks timestamp) {
+  if (committed_load_)
+    committed_load_->NotifyAbort(abort_type, timestamp);
+  for (const auto& kv : provisional_loads_) {
+    kv.second->NotifyAbort(abort_type, timestamp);
+  }
+  for (const auto& tracker : aborted_provisional_loads_) {
+    if (tracker->IsLikelyProvisionalAbort(timestamp))
+      tracker->UpdateAbort(abort_type, timestamp);
+  }
+  aborted_provisional_loads_.clear();
+}
+
+int MetricsWebContentsObserver::NotifyAbortedProvisionalLoadsNewNavigation(
+    content::NavigationHandle* new_navigation) {
+  // If there are multiple aborted loads that can be attributed to this one,
+  // just count the latest one for simplicity. Other loads will fall into the
+  // OTHER bucket, though there shouldn't be very many.
+  if (aborted_provisional_loads_.size() == 0)
+    return 0;
+  if (aborted_provisional_loads_.size() > 1)
+    RecordInternalError(ERR_NAVIGATION_SIGNALS_MULIPLE_ABORTED_LOADS);
+
+  scoped_ptr<PageLoadTracker> last_aborted_load =
+      std::move(aborted_provisional_loads_.back());
+  aborted_provisional_loads_.pop_back();
+
+  base::TimeTicks timestamp = new_navigation->NavigationStart();
+  int chain_size = 0;
+  if (last_aborted_load->IsLikelyProvisionalAbort(timestamp)) {
+    last_aborted_load->UpdateAbort(ABORT_UNKNOWN_NAVIGATION, timestamp);
+    chain_size = last_aborted_load->aborted_chain_size() + 1;
+  }
+
+  aborted_provisional_loads_.clear();
+  return chain_size;
 }
 
 void MetricsWebContentsObserver::OnTimingUpdated(
     content::RenderFrameHost* render_frame_host,
     const PageLoadTiming& timing) {
   bool error = false;
-  if (!committed_load_) {
-    RecordInternalError(ERR_IPC_WITH_NO_COMMITTED_LOAD);
+  if (!committed_load_ || !committed_load_->renderer_tracked()) {
+    RecordInternalError(ERR_IPC_WITH_NO_RELEVANT_LOAD);
     error = true;
   }
 

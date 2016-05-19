@@ -5,12 +5,13 @@
 #ifndef NET_BASE_IP_ENDPOINT_H_
 #define NET_BASE_IP_ENDPOINT_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "net/base/address_family.h"
-#include "net/base/ip_address_number.h"
+#include "net/base/ip_address.h"
 #include "net/base/net_export.h"
 #include "net/base/sys_addrinfo.h"
 
@@ -25,10 +26,12 @@ class NET_EXPORT IPEndPoint {
  public:
   IPEndPoint();
   ~IPEndPoint();
+  // DEPRECATED(crbug.com/496258): Use the ctor that takes IPAddress instead.
   IPEndPoint(const IPAddressNumber& address, uint16_t port);
+  IPEndPoint(const IPAddress& address, uint16_t port);
   IPEndPoint(const IPEndPoint& endpoint);
 
-  const IPAddressNumber& address() const { return address_; }
+  const IPAddress& address() const { return address_; }
   uint16_t port() const { return port_; }
 
   // Returns AddressFamily of the address.
@@ -54,18 +57,19 @@ class NET_EXPORT IPEndPoint {
   bool FromSockAddr(const struct sockaddr* address, socklen_t address_length)
       WARN_UNUSED_RESULT;
 
-  // Returns value as a string (e.g. "127.0.0.1:80"). The IP address must be
-  // valid.
+  // Returns value as a string (e.g. "127.0.0.1:80"). Returns the empty string
+  // when |address_| is invalid (the port will be ignored).
   std::string ToString() const;
 
-  // As above, but without port.
+  // As above, but without port. Returns the empty string when address_ is
+  // invalid.
   std::string ToStringWithoutPort() const;
 
   bool operator<(const IPEndPoint& that) const;
   bool operator==(const IPEndPoint& that) const;
 
  private:
-  IPAddressNumber address_;
+  IPAddress address_;
   uint16_t port_;
 };
 

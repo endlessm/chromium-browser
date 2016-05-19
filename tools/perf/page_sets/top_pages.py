@@ -4,6 +4,8 @@
 from telemetry.page import page as page_module
 from telemetry.page import shared_page_state
 
+from page_sets.login_helpers import google_login
+
 
 class TopPages(page_module.Page):
 
@@ -54,14 +56,16 @@ class GmailPage(TopPages):
     super(GmailPage, self).__init__(
         url='https://mail.google.com/mail/',
         page_set=page_set,
-        credentials='google',
         shared_page_state_class=shared_page_state_class)
 
   def RunNavigateSteps(self, action_runner):
+    google_login.LoginGoogleAccount(action_runner, 'google3',
+                                    self.credentials_path)
     super(GmailPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition(
         'window.gmonkey !== undefined &&'
-        'document.getElementById("gb") !== null')
+        'document.getElementById("gb") !== null',
+        timeout_in_seconds=120)
 
 
 class GoogleCalendarPage(TopPages):
@@ -97,7 +101,7 @@ class GoogleDocPage(TopPages):
   def __init__(self, page_set,
                shared_page_state_class=shared_page_state.SharedPageState):
     super(GoogleDocPage, self).__init__(
-        # pylint: disable=C0301
+        # pylint: disable=line-too-long
         url='https://docs.google.com/document/d/1X-IKNjtEnx-WW5JIKRLsyhz5sbsat3mfTpAPUSX3_s4/view',
         page_set=page_set,
         name='Docs  (1 open document tab)',
@@ -169,7 +173,7 @@ class WordpressPage(TopPages):
   def __init__(self, page_set,
                shared_page_state_class=shared_page_state.SharedPageState):
     super(WordpressPage, self).__init__(
-        # pylint: disable=C0301
+        # pylint: disable=line-too-long
         url='http://en.blog.wordpress.com/2012/09/04/freshly-pressed-editors-picks-for-august-2012/',
         page_set=page_set,
         name='Wordpress',
@@ -178,7 +182,7 @@ class WordpressPage(TopPages):
   def RunNavigateSteps(self, action_runner):
     super(WordpressPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForElement(
-        # pylint: disable=C0301
+        # pylint: disable=line-too-long
         'a[href="http://en.blog.wordpress.com/2012/08/30/new-themes-able-and-sight/"]')
 
 

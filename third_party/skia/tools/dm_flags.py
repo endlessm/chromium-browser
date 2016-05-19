@@ -37,6 +37,7 @@ def get_args(bot):
 
   if '-GCE-' in bot:
     configs.append('sp-8888')
+    configs.extend(['twice-8888', '2ndpic-8888'])
     configs.extend(['remote-8888', 'remote_cache-8888'])
 
   if '-TSAN' not in bot:
@@ -67,81 +68,26 @@ def get_args(bot):
   # NP is running out of RAM when we run all these modes.  skia:3255
   if 'NexusPlayer' not in bot:
     configs.extend(mode + '-8888' for mode in
-                   ['serialize', 'tiles_rt', 'pipe'])
+                   ['serialize', 'tiles_rt', 'pic'])
 
   if 'ANGLE' in bot:
     configs.append('angle')
+
+  # We want to run gpudft on atleast the mali 400
+  if 'GalaxyS3' in bot:
+      configs.append('gpudft')
+
   args.append('--config')
   args.extend(configs)
 
-  # Run tests and gms everywhere,
-  # and image decoding tests everywhere except GPU bots.
+  # Run tests, gms, and image decoding tests everywhere.
   # TODO: remove skp from default --src list?
-  if 'GPU' in bot:
-    args.extend('--src tests gm'.split(' '))
-  else:
-    args.extend('--src tests gm image'.split(' '))
+  args.extend('--src tests gm image'.split(' '))
 
   if 'GalaxyS' in bot:
     args.extend(('--threads', '0'))
 
   blacklist = []
-
-  # Several of the newest version bmps fail on SkImageDecoder
-  blacklist.extend('_ image decode pal8os2v2.bmp'.split(' '))
-  blacklist.extend('_ image decode pal8v4.bmp'.split(' '))
-  blacklist.extend('_ image decode pal8v5.bmp'.split(' '))
-  blacklist.extend('_ image decode rgb16-565.bmp'.split(' '))
-  blacklist.extend('_ image decode rgb16-565pal.bmp'.split(' '))
-  blacklist.extend('_ image decode rgb32-111110.bmp'.split(' '))
-  blacklist.extend('_ image decode rgb32bf.bmp'.split(' '))
-  blacklist.extend('_ image decode rgba32.bmp'.split(' '))
-  blacklist.extend('_ image decode rgba32abf.bmp'.split(' '))
-  blacklist.extend('_ image decode rgb24largepal.bmp'.split(' '))
-  blacklist.extend('_ image decode pal8os2v2-16.bmp'.split(' '))
-  blacklist.extend('_ image decode pal8oversizepal.bmp'.split(' '))
-  blacklist.extend('_ image decode pal4rletrns.bmp'.split(' '))
-  blacklist.extend('_ image decode pal8rletrns.bmp'.split(' '))
-  blacklist.extend('_ image decode 4bpp-pixeldata-cropped.bmp'.split(' '))
-  blacklist.extend('_ image decode 8bpp-pixeldata-cropped.bmp'.split(' '))
-  blacklist.extend('_ image decode 24bpp-pixeldata-cropped.bmp'.split(' '))
-  blacklist.extend('_ image decode 32bpp-pixeldata-cropped.bmp'.split(' '))
-  blacklist.extend('_ image subset rgb24largepal.bmp'.split(' '))
-  blacklist.extend('_ image subset pal8os2v2-16.bmp'.split(' '))
-  blacklist.extend('_ image subset pal8oversizepal.bmp'.split(' '))
-  blacklist.extend('_ image subset 4bpp-pixeldata-cropped.bmp'.split(' '))
-  blacklist.extend('_ image subset 8bpp-pixeldata-cropped.bmp'.split(' '))
-  blacklist.extend('_ image subset 24bpp-pixeldata-cropped.bmp'.split(' '))
-  blacklist.extend('_ image subset 32bpp-pixeldata-cropped.bmp'.split(' '))
-
-  # New ico files that fail on SkImageDecoder
-  blacklist.extend('_ image decode Hopstarter-Mac-Folders-Apple.ico'.split(' '))
-
-  # Incomplete image tests that fail on SkImageDecoder
-  blacklist.extend('_ image decode inc0.gif'.split(' '))
-  blacklist.extend('_ image decode inc1.gif'.split(' '))
-  blacklist.extend('_ image decode incInterlaced.gif'.split(' '))
-  blacklist.extend('_ image decode inc0.jpg'.split(' '))
-  blacklist.extend('_ image decode incGray.jpg'.split(' '))
-  blacklist.extend('_ image decode inc0.wbmp'.split(' '))
-  blacklist.extend('_ image decode inc1.wbmp'.split(' '))
-  blacklist.extend('_ image decode inc0.webp'.split(' '))
-  blacklist.extend('_ image decode inc1.webp'.split(' '))
-  blacklist.extend('_ image decode inc0.ico'.split(' '))
-  blacklist.extend('_ image decode inc1.ico'.split(' '))
-  blacklist.extend('_ image decode inc0.png'.split(' '))
-  blacklist.extend('_ image decode inc1.png'.split(' '))
-  blacklist.extend('_ image decode inc2.png'.split(' '))
-  blacklist.extend('_ image decode inc12.png'.split(' '))
-  blacklist.extend('_ image decode inc13.png'.split(' '))
-  blacklist.extend('_ image decode inc14.png'.split(' '))
-  blacklist.extend('_ image subset inc0.webp'.split(' '))
-  blacklist.extend('_ image subset inc1.webp'.split(' '))
-
-  # Leon doesn't care about this, so why run it?
-  if 'Win' in bot:
-    blacklist.extend('_ image decode _'.split(' '))
-    blacklist.extend('_ image subset _'.split(' '))
 
   # Certain gm's on win7 gpu and pdf are never finishing and keeping the test
   # running forever
@@ -150,8 +96,6 @@ def get_args(bot):
     blacklist.extend('pdf gm _ fontmgr_iter_factory'.split(' '))
 
   if 'Valgrind' in bot:
-    # PDF + .webp -> jumps depending on uninitialized memory.  skia:3505
-    blacklist.extend('pdf _ _ .webp'.split(' '))
     # These take 18+ hours to run.
     blacklist.extend('pdf gm _ fontmgr_iter'.split(' '))
     blacklist.extend('pdf _ _ PANO_20121023_214540.jpg'.split(' '))
@@ -161,8 +105,6 @@ def get_args(bot):
 
   if 'iOS' in bot:
     blacklist.extend('gpu skp _ _ msaa skp _ _'.split(' '))
-    blacklist.extend('gpu image decode _ msaa image decode _'.split(' '))
-    blacklist.extend('gpu image subset _ msaa image subset _'.split(' '))
     blacklist.extend('msaa16 gm _ tilemodesProcess'.split(' '))
 
   # the 32-bit GCE bots run out of memory in DM when running these large images
@@ -171,29 +113,75 @@ def get_args(bot):
     blacklist.extend('_ image _ interlaced2.png'.split(' '))
     blacklist.extend('_ image _ interlaced3.png'.split(' '))
 
-  if blacklist:
-    args.append('--blacklist')
-    args.extend(blacklist)
+  # skia:4095
+  for test in ['not_native32_bitmap_config',
+               'bleed_image',
+               'bleed_alpha_image',
+               'bleed_alpha_image_shader',
+               'blend',
+               'c_gms',
+               'colortype',
+               'colortype_xfermodes',
+               'colorwheelnative',
+               'drawfilter',
+               'fontmgr_bounds_0.75_0',
+               'fontmgr_bounds_1_-0.25',
+               'fontmgr_bounds',
+               'fontmgr_match',
+               'fontmgr_iter',
+               'lightingshader',
+               'localmatriximagefilter',
+               'path_stroke_with_zero_length',
+               'textblobgeometrychange',
+               'verylargebitmap',              # Windows only.
+               'verylarge_picture_image']:     # Windows only.
+    blacklist.extend(['serialize-8888', 'gm', '_', test])
+  # skia:4769
+  for test in ['blend',
+               'drawfilter',
+               'path_stroke_with_zero_length',
+               'textblobgeometrychange']:
+    blacklist.extend([    'sp-8888', 'gm', '_', test])
+    blacklist.extend([   'pic-8888', 'gm', '_', test])
+    blacklist.extend(['2ndpic-8888', 'gm', '_', test])
+  for test in ['patch_primitive']:
+    blacklist.extend(['sp-8888', 'gm', '_', test])
+  # skia:4703
+  for test in ['image-cacherator-from-picture',
+               'image-cacherator-from-raster',
+               'image-cacherator-from-ctable']:
+    blacklist.extend([       'sp-8888', 'gm', '_', test])
+    blacklist.extend([      'pic-8888', 'gm', '_', test])
+    blacklist.extend([   '2ndpic-8888', 'gm', '_', test])
+    blacklist.extend(['serialize-8888', 'gm', '_', test])
+
+  # Extensions for RAW images
+  r = ["arw", "cr2", "dng", "nef", "nrw", "orf", "raf", "rw2", "pef", "srw",
+       "ARW", "CR2", "DNG", "NEF", "NRW", "ORF", "RAF", "RW2", "PEF", "SRW"]
+
+  # skbug.com/4888
+  # Blacklist RAW images on GPU tests until we can resolve failures
+  if 'GPU' in bot:
+    for raw_ext in r:
+      blacklist.extend(('_ image _ .%s' % raw_ext).split(' '))
+
+  # Blacklist RAW images on Win32 tests due to out-of-memory issue
+  if 'Win' in bot and not '64' in bot:
+    for raw_ext in r:
+      blacklist.extend(('_ image _ .%s' % raw_ext).split(' '))
 
   match = []
   if 'Valgrind' in bot: # skia:3021
     match.append('~Threaded')
-  if 'TSAN' in bot: # skia:3562
-    match.append('~Math')
 
   if 'GalaxyS3' in bot:  # skia:1699
     match.append('~WritePixels')
 
-  # skia:3249: these images flakily don't decode on Android.
-  if 'Android' in bot:
-    match.append('~tabl_mozilla_0')
-    match.append('~desk_yahoonews_0')
+  if 'AndroidOne' in bot:  # skia:4711
+    match.append('~WritePixels')
 
   if 'NexusPlayer' in bot:
     match.append('~ResourceCache')
-
-  if 'iOS' in bot:
-    match.append('~WritePixels')
 
   if 'GalaxyS4' in bot:  # skia:4079
     match.append('~imagefiltersclipped')
@@ -202,9 +190,24 @@ def get_args(bot):
     match.append('~bleed_image')  # skia:4367
     match.append('~ReadPixels')  # skia:4368
 
+  if 'ANGLE' in bot and 'Debug' in bot:
+    match.append('~GLPrograms') # skia:4717
+
+  if 'MSAN' in bot:
+    match.extend(['~Once', '~Shared'])  # Not sure what's up with these tests.
+
+  if blacklist:
+    args.append('--blacklist')
+    args.extend(blacklist)
+
   if match:
     args.append('--match')
     args.extend(match)
+
+  # These bots run out of memory running RAW codec tests. Do not run them in
+  # parallel
+  if 'NexusPlayer' in bot or 'Nexus5' in bot or 'Nexus9' in bot:
+    args.append('--noRAW_threading')
 
   return args
 cov_end = lineno()   # Don't care about code coverage past here.
@@ -215,15 +218,18 @@ def self_test():
   args = {}
   cases = [
     'Pretend-iOS-Bot',
+    'Test-Android-GCC-AndroidOne-GPU-Mali400MP2-Arm7-Release',
     'Test-Android-GCC-Nexus9-GPU-TegraK1-Arm64-Debug',
     'Test-Android-GCC-GalaxyS3-GPU-Mali400-Arm7-Debug',
     'Test-Android-GCC-GalaxyS4-GPU-SGX544-Arm7-Release',
     'Test-Android-GCC-Nexus7-GPU-Tegra3-Arm7-Release',
     'Test-Android-GCC-NexusPlayer-CPU-SSSE3-x86-Release',
     'Test-Ubuntu-GCC-ShuttleA-GPU-GTX550Ti-x86_64-Release-Valgrind',
+    'Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug-MSAN',
     'Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-TSAN',
     'Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-Valgrind',
     'Test-Win7-MSVC-ShuttleA-GPU-HD2000-x86-Debug-ANGLE',
+    'Test-Mac10.8-Clang-MacMini4.1-CPU-SSE4-x86_64-Release',
   ]
 
   cov = coverage.coverage()

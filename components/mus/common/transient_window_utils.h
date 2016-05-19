@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_MUS_COMMON_TRANSIENT_WINDOW_UTILS_H_
 #define COMPONENTS_MUS_COMMON_TRANSIENT_WINDOW_UTILS_H_
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "components/mus/public/interfaces/mus_constants.mojom.h"
@@ -76,7 +78,7 @@ bool AdjustStackingForTransientWindows(T** child,
   FindCommonTransientAncestor(child, target);
 
   // When stacking above skip to the topmost transient descendant of the target.
-  if (*direction == mojom::ORDER_DIRECTION_ABOVE &&
+  if (*direction == mojom::OrderDirection::ABOVE &&
       !HasTransientAncestor(*child, *target)) {
     const std::vector<T*>& siblings((*child)->parent()->children());
     size_t target_i =
@@ -114,7 +116,7 @@ void RestackTransientDescendants(T* window,
     if ((*it) != window && HasTransientAncestor(*it, window)) {
       T* old_stacking_target = *GetStackingTarget(*it);
       *GetStackingTarget(*it) = window;
-      Reorder(*it, window, mojom::ORDER_DIRECTION_ABOVE);
+      Reorder(*it, window, mojom::OrderDirection::ABOVE);
       *GetStackingTarget(*it) = old_stacking_target;
     }
   }

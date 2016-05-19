@@ -5,13 +5,14 @@
 #ifndef UI_OZONE_PLATFORM_DRM_GPU_HARDWARE_DISPLAY_PLANE_MANAGER_LEGACY_H_
 #define UI_OZONE_PLATFORM_DRM_GPU_HARDWARE_DISPLAY_PLANE_MANAGER_LEGACY_H_
 
-#include "ui/ozone/ozone_export.h"
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_plane_manager.h"
 
 namespace ui {
 
-class OZONE_EXPORT HardwareDisplayPlaneManagerLegacy
-    : public HardwareDisplayPlaneManager {
+class HardwareDisplayPlaneManagerLegacy : public HardwareDisplayPlaneManager {
  public:
   HardwareDisplayPlaneManagerLegacy();
   ~HardwareDisplayPlaneManagerLegacy() override;
@@ -20,7 +21,7 @@ class OZONE_EXPORT HardwareDisplayPlaneManagerLegacy
   bool Commit(HardwareDisplayPlaneList* plane_list,
               bool test_only) override;
 
- private:
+ protected:
   bool SetPlaneData(HardwareDisplayPlaneList* plane_list,
                     HardwareDisplayPlane* hw_plane,
                     const OverlayPlane& overlay,
@@ -28,6 +29,7 @@ class OZONE_EXPORT HardwareDisplayPlaneManagerLegacy
                     const gfx::Rect& src_rect,
                     CrtcController* crtc) override;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(HardwareDisplayPlaneManagerLegacy);
 };
 

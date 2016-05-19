@@ -5,6 +5,8 @@
 #ifndef ANDROID_WEBVIEW_BROWSER_AW_CONTENTS_IO_THREAD_CLIENT_H_
 #define ANDROID_WEBVIEW_BROWSER_AW_CONTENTS_IO_THREAD_CLIENT_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/callback_forward.h"
@@ -64,6 +66,10 @@ class AwContentsIoThreadClient {
   static scoped_ptr<AwContentsIoThreadClient> FromID(int render_process_id,
                                                      int render_frame_id);
 
+  // Returns the global thread client for service worker related callbacks.
+  // An empty scoped_ptr is a valid return value.
+  static scoped_ptr<AwContentsIoThreadClient> GetServiceWorkerIoThreadClient();
+
   // Called on the IO thread when a subframe is created.
   static void SubFrameCreated(int render_process_id,
                               int parent_render_frame_id,
@@ -98,7 +104,7 @@ class AwContentsIoThreadClient {
                            const std::string& user_agent,
                            const std::string& content_disposition,
                            const std::string& mime_type,
-                           int64 content_length) = 0;
+                           int64_t content_length) = 0;
 
   // Called when a new login request is detected. See the documentation for
   // WebViewClient.onReceivedLoginRequest for arguments. Note that |account|

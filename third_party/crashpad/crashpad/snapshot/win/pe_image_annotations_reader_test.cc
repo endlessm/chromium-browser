@@ -21,9 +21,9 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
 #include "gtest/gtest.h"
@@ -31,7 +31,6 @@
 #include "snapshot/win/process_reader_win.h"
 #include "test/paths.h"
 #include "test/win/child_launcher.h"
-#include "test/win/win_multiprocess.h"
 #include "util/file/file_io.h"
 #include "util/win/process_info.h"
 

@@ -22,8 +22,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "platform/graphics/ContentLayerDelegate.h"
 
 #include "platform/EventTracer.h"
@@ -32,20 +30,18 @@
 #include "platform/TracedValue.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/graphics/GraphicsContext.h"
+#include "platform/graphics/GraphicsLayer.h"
 #include "platform/graphics/paint/PaintArtifactToSkCanvas.h"
 #include "platform/graphics/paint/PaintController.h"
-#include "platform/transforms/AffineTransform.h"
-#include "platform/transforms/TransformationMatrix.h"
 #include "public/platform/WebDisplayItemList.h"
-#include "public/platform/WebFloatRect.h"
 #include "public/platform/WebRect.h"
-#include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPicture.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace blink {
 
-ContentLayerDelegate::ContentLayerDelegate(GraphicsContextPainter* painter)
-    : m_painter(painter)
+ContentLayerDelegate::ContentLayerDelegate(GraphicsLayer* graphicsLayer)
+    : m_graphicsLayer(graphicsLayer)
 {
 }
 
@@ -53,74 +49,65 @@ ContentLayerDelegate::~ContentLayerDelegate()
 {
 }
 
-PassRefPtr<TracedValue> toTracedValue(const WebRect& clip)
-{
-    RefPtr<TracedValue> tracedValue = TracedValue::create();
-    tracedValue->beginArray("clip_rect");
-    tracedValue->pushInteger(clip.x);
-    tracedValue->pushInteger(clip.y);
-    tracedValue->pushInteger(clip.width);
-    tracedValue->pushInteger(clip.height);
-    tracedValue->endArray();
-    return tracedValue;
-}
-
-static void paintArtifactToWebDisplayItemList(WebDisplayItemList* list, const PaintArtifact& artifact, const WebRect& bounds)
+static void paintArtifactToWebDisplayItemList(WebDisplayItemList* list, const PaintArtifact& artifact, const gfx::Rect& bounds)
 {
     if (RuntimeEnabledFeatures::slimmingPaintV2Enabled()) {
         // This is a temporary path to paint the artifact using the paint chunk
         // properties. Ultimately, we should instead split the artifact into
         // separate layers and send those to the compositor, instead of sending
         // one big flat SkPicture.
-        SkRect skBounds = SkRect::MakeXYWH(bounds.x, bounds.y, bounds.width, bounds.height);
+        SkRect skBounds = SkRect::MakeXYWH(bounds.x(), bounds.y(), bounds.width(), bounds.height());
         RefPtr<SkPicture> picture = paintArtifactToSkPicture(artifact, skBounds);
-        // TODO(wkorman): Pass actual visual rect with the drawing item.
-        list->appendDrawingItem(IntRect(), picture.get());
+        list->appendDrawingItem(WebRect(bounds.x(), bounds.y(), bounds.width(), bounds.height()), picture.get());
         return;
     }
     artifact.appendToWebDisplayItemList(list);
 }
 
-void ContentLayerDelegate::paintContents(
-    WebDisplayItemList* webDisplayItemList, const WebRect& clip,
-    WebContentLayerClient::PaintingControlSetting paintingControl)
+gfx::Rect ContentLayerDelegate::paintableRegion()
 {
-    TRACE_EVENT1("blink,benchmark", "ContentLayerDelegate::paintContents", "clip_rect", toTracedValue(clip));
+    IntRect interestRect = m_graphicsLayer->interestRect();
+    return gfx::Rect(interestRect.x(), interestRect.y(), interestRect.width(), interestRect.height());
+}
 
-    // TODO(pdr): Remove when slimming paint v2 is further along. This is only
-    // here so the browser is usable during development and does not crash due
-    // to committing the new display items twice.
-    if (RuntimeEnabledFeatures::slimmingPaintSynchronizedPaintingEnabled()) {
-        paintArtifactToWebDisplayItemList(webDisplayItemList, m_painter->paintController()->paintArtifact(), clip);
-        return;
-    }
+void ContentLayerDelegate::paintContents(
+    WebDisplayItemList* webDisplayItemList, WebContentLayerClient::PaintingControlSetting paintingControl)
+{
+    TRACE_EVENT0("blink,benchmark", "ContentLayerDelegate::paintContents");
 
-    PaintController* paintController = m_painter->paintController();
-    ASSERT(paintController);
-    paintController->setDisplayItemConstructionIsDisabled(
+    PaintController& paintController = m_graphicsLayer->paintController();
+    paintController.setDisplayItemConstructionIsDisabled(
         paintingControl == WebContentLayerClient::DisplayListConstructionDisabled);
+    paintController.setSubsequenceCachingIsDisabled(
+        paintingControl == WebContentLayerClient::SubsequenceCachingDisabled);
 
     // We also disable caching when Painting or Construction are disabled. In both cases we would like
     // to compare assuming the full cost of recording, not the cost of re-using cached content.
-    if (paintingControl != WebContentLayerClient::PaintDefaultBehavior)
-        paintController->invalidateAll();
+    if (paintingControl != WebContentLayerClient::PaintDefaultBehavior
+        && paintingControl != WebContentLayerClient::PaintDefaultBehaviorForTest
+        && paintingControl != WebContentLayerClient::SubsequenceCachingDisabled)
+        paintController.invalidateAll();
 
     GraphicsContext::DisabledMode disabledMode = GraphicsContext::NothingDisabled;
     if (paintingControl == WebContentLayerClient::DisplayListPaintingDisabled
         || paintingControl == WebContentLayerClient::DisplayListConstructionDisabled)
         disabledMode = GraphicsContext::FullyDisabled;
-    GraphicsContext context(*paintController, disabledMode);
 
-    IntRect interestRect = clip;
-    m_painter->paint(context, &interestRect);
+    // Anything other than PaintDefaultBehavior is for testing. In non-testing scenarios,
+    // it is an error to call GraphicsLayer::paint. Actual painting occurs in FrameView::synchronizedPaint;
+    // this method merely copies the painted output to the WebDisplayItemList.
+    if (paintingControl != PaintDefaultBehavior)
+        m_graphicsLayer->paint(nullptr, disabledMode);
 
-    paintController->commitNewDisplayItems();
-    paintArtifactToWebDisplayItemList(webDisplayItemList, paintController->paintArtifact(), clip);
+    paintArtifactToWebDisplayItemList(webDisplayItemList, paintController.paintArtifact(), paintableRegion());
+
+    paintController.setDisplayItemConstructionIsDisabled(false);
+    paintController.setSubsequenceCachingIsDisabled(false);
 }
 
 size_t ContentLayerDelegate::approximateUnsharedMemoryUsage() const
 {
-    return m_painter->paintController()->approximateUnsharedMemoryUsage();
+    return m_graphicsLayer->paintController().approximateUnsharedMemoryUsage();
 }
 
 } // namespace blink

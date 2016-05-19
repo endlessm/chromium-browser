@@ -222,7 +222,7 @@ body.platform-linux {
     content: "";
     position: absolute;
     width: 8px;
-    border-right: 2px dotted rgba(255, 255, 255, 0.4);
+    border-bottom: 2px dotted rgba(255, 255, 255, 0.4);
     top: 2px;
     left: 4px;
 }
@@ -383,6 +383,7 @@ body.platform-linux {
     background-clip: padding-box;
     will-change: transform;
     text-rendering: optimizeLegibility;
+    pointer-events: none;
 }
 
 .element-info {
@@ -406,6 +407,7 @@ body.platform-linux {
 .element-description {
     flex: 1 1;
     word-wrap: break-word;
+    word-break: break-all;
 }
 
 .dimensions {
@@ -471,7 +473,9 @@ function _drawGrid(context, rulerAtRight, rulerAtBottom)
 
     context.save();
 
-    var pageFactor = pageZoomFactor;
+    var pageFactor = pageZoomFactor * pageScaleFactor;
+    var scrollX = window.scrollX * pageScaleFactor;
+    var scrollY = window.scrollY * pageScaleFactor;
     function zoom(x)
     {
         return Math.round(x * pageFactor);
@@ -597,27 +601,24 @@ function _drawGrid(context, rulerAtRight, rulerAtBottom)
     context.restore();
 }
 
-function drawViewSize(drawViewSizeWithGrid)
+function drawViewSize()
 {
-    var drawGridBoolean = drawViewSizeWithGrid === "true";
     var text = viewportSize.width + "px \u00D7 " + viewportSize.height + "px";
     context.save();
     context.font = "20px ";
     switch (platform) {
-    case "windows": context.font = "14px Consolas"; break;
-    case "mac": context.font = "14px Menlo"; break;
+    case "windows": context.font = "14px Consolas, Lucida Console"; break;
+    case "mac": context.font = "14px Menlo, Monaco"; break;
     case "linux": context.font = "14px dejavu sans mono"; break;
     }
 
     var frameWidth = canvasWidth;
     var textWidth = context.measureText(text).width;
     context.fillStyle = gridBackgroundColor;
-    context.fillRect(frameWidth - textWidth - 12, drawGridBoolean ? 15 : 0, frameWidth, 25);
+    context.fillRect(frameWidth - textWidth - 12, 0, frameWidth, 25);
     context.fillStyle = darkGridColor;
-    context.fillText(text, frameWidth - textWidth - 6, drawGridBoolean ? 33 : 18);
+    context.fillText(text, frameWidth - textWidth - 6, 18);
     context.restore();
-    if (drawGridBoolean)
-        _drawGrid(context);
 }
 
 function resetCanvas(canvasElement)
@@ -634,6 +635,7 @@ function reset(resetData)
 {
     window.viewportSize = resetData.viewportSize;
     window.deviceScaleFactor = resetData.deviceScaleFactor;
+    window.pageScaleFactor = resetData.pageScaleFactor;
     window.pageZoomFactor = resetData.pageZoomFactor;
     window.scrollX = Math.round(resetData.scrollX);
     window.scrollY = Math.round(resetData.scrollY);
@@ -766,13 +768,12 @@ function _createMaterialTooltip(parentElement, bounds, contentElement, withArrow
     var arrowRadius = 8;
     var pageMargin = 2;
 
-    var boxX = Math.max(pageMargin, bounds.minX + (bounds.maxX - bounds.minX) / 2 - titleWidth / 2);
-    boxX = Math.min(boxX, canvasWidth - titleWidth - pageMargin);
+    var boxX = Math.min(bounds.minX, canvasWidth - titleWidth - pageMargin);
 
     var boxY = bounds.minY - arrowRadius - titleHeight;
     var onTop = true;
     if (boxY < 0) {
-        boxY = bounds.maxY + arrowRadius;
+        boxY = Math.min(canvasHeight - titleHeight, bounds.maxY + arrowRadius);
         onTop = false;
     } else if (bounds.minY > canvasHeight) {
         boxY = canvasHeight - arrowRadius - titleHeight;
@@ -784,13 +785,11 @@ function _createMaterialTooltip(parentElement, bounds, contentElement, withArrow
         return;
 
     var tooltipArrow = tooltipContainer.createChild("div", "material-tooltip-arrow");
-    // Center arrow if possible. Otherwise, try the bounds of the element.
-    var arrowX = bounds.minX + (bounds.maxX - bounds.minX) / 2 - arrowRadius;
+    // Left align arrow to the tooltip but ensure it is pointing to the element.
     var tooltipBorderRadius = 2;
-    if (arrowX < pageMargin + tooltipBorderRadius)
-        arrowX = bounds.maxX - arrowRadius * 2;
-    else if (arrowX + arrowRadius * 2 > canvasWidth - pageMargin - tooltipBorderRadius)
-        arrowX = bounds.minX;
+    var arrowX = boxX + arrowRadius + tooltipBorderRadius;
+    if (arrowX < bounds.minX)
+        arrowX = bounds.minX + arrowRadius;
     // Hide arrow if element is completely off the sides of the page.
     var arrowHidden = arrowX < pageMargin + tooltipBorderRadius || arrowX + arrowRadius * 2 > canvasWidth - pageMargin - tooltipBorderRadius;
     tooltipArrow.classList.toggle("hidden", arrowHidden);
@@ -1547,10 +1546,14 @@ LayoutEditor.prototype = {
     _onMouseWheel: function(event)
     {
         event.preventDefault();
-        if (event.wheelDelta > 0)
-            InspectorOverlayHost.previousSelector();
-        else
+        this._mouseWheelDelta = (this._mouseWheelDelta || 0) + event.wheelDelta;
+        if (this._mouseWheelDelta >= 120) {
             InspectorOverlayHost.nextSelector();
+            this._mouseWheelDelta = 0;
+        } else if (this._mouseWheelDelta <= -120) {
+            InspectorOverlayHost.previousSelector();
+            this._mouseWheelDelta = 0;
+        }
     },
 
     /**

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/renderer/extensions/chrome_extensions_dispatcher_delegate.h"
@@ -48,11 +50,13 @@ class RendererPermissionsPolicyDelegateTest : public testing::Test {
 
 scoped_refptr<const Extension> CreateTestExtension(const std::string& id) {
   return ExtensionBuilder()
-      .SetManifest(DictionaryBuilder()
-          .Set("name", "Extension with ID " + id)
-          .Set("version", "1.0")
-          .Set("manifest_version", 2)
-          .Set("permissions", ListBuilder().Append("<all_urls>")))
+      .SetManifest(
+          std::move(DictionaryBuilder()
+                        .Set("name", "Extension with ID " + id)
+                        .Set("version", "1.0")
+                        .Set("manifest_version", 2)
+                        .Set("permissions",
+                             std::move(ListBuilder().Append("<all_urls>")))))
       .SetID(id)
       .Build();
 }
@@ -66,8 +70,9 @@ TEST_F(RendererPermissionsPolicyDelegateTest, CannotScriptWebstore) {
   scoped_refptr<const Extension> extension(CreateTestExtension("a"));
   std::string error;
 
-  EXPECT_TRUE(extension->permissions_data()->CanAccessPage(
-      extension.get(), kAnyUrl, -1, -1, &error)) << error;
+  EXPECT_TRUE(extension->permissions_data()->CanAccessPage(extension.get(),
+                                                           kAnyUrl, -1, &error))
+      << error;
 
   // Pretend we are in the webstore process. We should not be able to execute
   // script.
@@ -76,7 +81,7 @@ TEST_F(RendererPermissionsPolicyDelegateTest, CannotScriptWebstore) {
   RendererExtensionRegistry::Get()->Insert(webstore_extension.get());
   extension_dispatcher_->OnActivateExtension(extensions::kWebStoreAppId);
   EXPECT_FALSE(extension->permissions_data()->CanAccessPage(
-      extension.get(), kAnyUrl, -1, -1, &error))
+      extension.get(), kAnyUrl, -1, &error))
       << error;
 }
 

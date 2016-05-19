@@ -4,6 +4,8 @@
 
 #include "ui/events/event.h"
 
+#include <utility>
+
 #if defined(USE_X11)
 #include <X11/extensions/XInput2.h>
 #include <X11/keysym.h>
@@ -15,6 +17,7 @@
 
 #include "base/metrics/histogram.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/dom/dom_code.h"
@@ -30,8 +33,12 @@
 #if defined(USE_X11)
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"
 #elif defined(USE_OZONE)
-#include "ui/events/ozone/layout/keyboard_layout_engine.h"
-#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
+#include "ui/events/ozone/layout/keyboard_layout_engine.h"  // nogncheck
+#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"  // nogncheck
+#endif
+
+#if defined(OS_WIN)
+#include "ui/events/keycodes/platform_key_map_win.h"
 #endif
 
 namespace {
@@ -56,6 +63,12 @@ std::string EventTypeName(ui::EventType type) {
     CASE_TYPE(ET_TOUCH_MOVED);
     CASE_TYPE(ET_TOUCH_CANCELLED);
     CASE_TYPE(ET_DROP_TARGET_EVENT);
+    CASE_TYPE(ET_POINTER_DOWN);
+    CASE_TYPE(ET_POINTER_MOVED);
+    CASE_TYPE(ET_POINTER_UP);
+    CASE_TYPE(ET_POINTER_CANCELLED);
+    CASE_TYPE(ET_POINTER_ENTERED);
+    CASE_TYPE(ET_POINTER_EXITED);
     CASE_TYPE(ET_GESTURE_SCROLL_BEGIN);
     CASE_TYPE(ET_GESTURE_SCROLL_END);
     CASE_TYPE(ET_GESTURE_SCROLL_UPDATE);
@@ -142,6 +155,11 @@ scoped_ptr<Event> Event::Clone(const Event& event) {
         new GestureEvent(static_cast<const GestureEvent&>(event)));
   }
 
+  if (event.IsPointerEvent()) {
+    return make_scoped_ptr(
+        new PointerEvent(static_cast<const PointerEvent&>(event)));
+  }
+
   if (event.IsScrollEvent()) {
     return make_scoped_ptr(
         new ScrollEvent(static_cast<const ScrollEvent&>(event)));
@@ -163,6 +181,36 @@ GestureEvent* Event::AsGestureEvent() {
 const GestureEvent* Event::AsGestureEvent() const {
   CHECK(IsGestureEvent());
   return static_cast<const GestureEvent*>(this);
+}
+
+MouseEvent* Event::AsMouseEvent() {
+  CHECK(IsMouseEvent());
+  return static_cast<MouseEvent*>(this);
+}
+
+const MouseEvent* Event::AsMouseEvent() const {
+  CHECK(IsMouseEvent());
+  return static_cast<const MouseEvent*>(this);
+}
+
+PointerEvent* Event::AsPointerEvent() {
+  CHECK(IsPointerEvent());
+  return static_cast<PointerEvent*>(this);
+}
+
+const PointerEvent* Event::AsPointerEvent() const {
+  CHECK(IsPointerEvent());
+  return static_cast<const PointerEvent*>(this);
+}
+
+TouchEvent* Event::AsTouchEvent() {
+  CHECK(IsTouchEvent());
+  return static_cast<TouchEvent*>(this);
+}
+
+const TouchEvent* Event::AsTouchEvent() const {
+  CHECK(IsTouchEvent());
+  return static_cast<const TouchEvent*>(this);
 }
 
 bool Event::HasNativeEvent() const {
@@ -521,12 +569,7 @@ TouchEvent::TouchEvent(const base::NativeEvent& native_event)
       rotation_angle_(GetTouchAngle(native_event)),
       may_cause_scrolling_(false),
       should_remove_native_touch_id_mapping_(false),
-      pointer_details_(PointerDetails(EventPointerType::POINTER_TYPE_TOUCH,
-                                      GetTouchRadiusX(native_event),
-                                      GetTouchRadiusY(native_event),
-                                      GetTouchForce(native_event),
-                                      /* tilt_x */ 0.0f,
-                                      /* tilt_y */ 0.0f)) {
+      pointer_details_(GetTouchPointerDetailsFromNative(native_event)) {
   latency()->AddLatencyNumberWithTimestamp(
       INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT, 0, 0,
       base::TimeTicks::FromInternalValue(time_stamp().ToInternalValue()), 1);
@@ -615,9 +658,9 @@ void TouchEvent::UpdateForRootTransform(
   bool success = gfx::DecomposeTransform(&decomp, inverted_root_transform);
   DCHECK(success);
   if (decomp.scale[0])
-    pointer_details_.radius_x_ *= decomp.scale[0];
+    pointer_details_.radius_x *= decomp.scale[0];
   if (decomp.scale[1])
-    pointer_details_.radius_y_ *= decomp.scale[1];
+    pointer_details_.radius_y *= decomp.scale[1];
 }
 
 void TouchEvent::DisableSynchronousHandling() {
@@ -632,6 +675,73 @@ void TouchEvent::FixRotationAngle() {
   while (rotation_angle_ >= 180)
     rotation_angle_ -= 180;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// PointerEvent
+
+PointerEvent::PointerEvent(const PointerEvent& pointer_event)
+    : LocatedEvent(pointer_event),
+      pointer_id_(pointer_event.pointer_id()),
+      details_(pointer_event.pointer_details()) {}
+
+PointerEvent::PointerEvent(const MouseEvent& mouse_event)
+    : LocatedEvent(mouse_event),
+      pointer_id_(kMousePointerId),
+      details_(mouse_event.pointer_details()) {
+  switch (mouse_event.type()) {
+    case ET_MOUSE_PRESSED:
+      SetType(ET_POINTER_DOWN);
+      break;
+
+    case ET_MOUSE_DRAGGED:
+    case ET_MOUSE_MOVED:
+      SetType(ET_POINTER_MOVED);
+      break;
+
+    case ET_MOUSE_ENTERED:
+      SetType(ET_POINTER_ENTERED);
+      break;
+
+    case ET_MOUSE_EXITED:
+      SetType(ET_POINTER_EXITED);
+      break;
+
+    case ET_MOUSE_RELEASED:
+      SetType(ET_POINTER_UP);
+      break;
+
+    default:
+      NOTREACHED();
+  }
+}
+
+PointerEvent::PointerEvent(const TouchEvent& touch_event)
+    : LocatedEvent(touch_event),
+      pointer_id_(touch_event.touch_id()),
+      details_(touch_event.pointer_details()) {
+  switch (touch_event.type()) {
+    case ET_TOUCH_PRESSED:
+      SetType(ET_POINTER_DOWN);
+      break;
+
+    case ET_TOUCH_MOVED:
+      SetType(ET_POINTER_MOVED);
+      break;
+
+    case ET_TOUCH_RELEASED:
+      SetType(ET_POINTER_UP);
+      break;
+
+    case ET_TOUCH_CANCELLED:
+      SetType(ET_POINTER_CANCELLED);
+      break;
+
+    default:
+      NOTREACHED();
+  }
+}
+
+const int PointerEvent::kMousePointerId = std::numeric_limits<int32_t>::max();
 
 ////////////////////////////////////////////////////////////////////////////////
 // KeyEvent
@@ -694,6 +804,8 @@ KeyEvent::KeyEvent(const base::NativeEvent& native_event)
   // Only Windows has native character events.
   if (is_char_)
     key_ = DomKey::FromCharacter(native_event.wParam);
+  else
+    key_ = PlatformKeyMap::DomCodeAndFlagsToDomKeyStatic(code_, flags());
 #endif
 }
 
@@ -761,7 +873,7 @@ KeyEvent& KeyEvent::operator=(const KeyEvent& rhs) {
 KeyEvent::~KeyEvent() {}
 
 void KeyEvent::SetExtendedKeyEventData(scoped_ptr<ExtendedKeyEventData> data) {
-  extended_key_event_data_ = data.Pass();
+  extended_key_event_data_ = std::move(data);
 }
 
 void KeyEvent::ApplyLayout() const {
@@ -829,14 +941,10 @@ base::char16 KeyEvent::GetCharacter() const {
       // For a control character, key_ contains the corresponding printable
       // character. To preserve existing behaviour for now, return the control
       // character here; this will likely change -- see e.g. crbug.com/471488.
-      if (ucs2_character >= 0x40 && ucs2_character <= 0x7A)
+      if (ucs2_character >= 0x20 && ucs2_character <= 0x7E)
         return ucs2_character & 0x1F;
       if (ucs2_character == '\r')
         return '\n';
-      // Transitionally, if key_ contains another control character, return it.
-      if (ucs2_character >= 0 && ucs2_character <= 0x1F)
-        return ucs2_character;
-      return 0;
     }
     return ucs2_character;
   }
@@ -869,7 +977,7 @@ bool KeyEvent::IsUnicodeKeyCode() const {
   // Check whether the user is using the numeric keypad with num-lock off.
   // In that case, EF_EXTENDED will not be set; if it is set, the key event
   // originated from the relevant non-numpad dedicated key, e.g. [Insert].
-  return (!(flags() & EF_EXTENDED) &&
+  return (!(flags() & EF_IS_EXTENDED_KEY) &&
           (key == VKEY_INSERT || key == VKEY_END  || key == VKEY_DOWN ||
            key == VKEY_NEXT   || key == VKEY_LEFT || key == VKEY_CLEAR ||
            key == VKEY_RIGHT  || key == VKEY_HOME || key == VKEY_UP ||
@@ -904,7 +1012,7 @@ KeyboardCode KeyEvent::GetLocatedWindowsKeyboardCode() const {
   return NonLocatedToLocatedKeyboardCode(key_code_, code_);
 }
 
-uint16 KeyEvent::GetConflatedWindowsKeyCode() const {
+uint16_t KeyEvent::GetConflatedWindowsKeyCode() const {
   if (is_char_)
     return key_.ToCharacter();
   return key_code_;
@@ -918,7 +1026,12 @@ std::string KeyEvent::GetCodeString() const {
 // ScrollEvent
 
 ScrollEvent::ScrollEvent(const base::NativeEvent& native_event)
-    : MouseEvent(native_event) {
+    : MouseEvent(native_event),
+      x_offset_(0.0f),
+      y_offset_(0.0f),
+      x_offset_ordinal_(0.0f),
+      y_offset_ordinal_(0.0f),
+      finger_count_(0) {
   if (type() == ET_SCROLL) {
     GetScrollOffsets(native_event,
                      &x_offset_, &y_offset_,

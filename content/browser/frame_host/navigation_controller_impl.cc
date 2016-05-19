@@ -35,6 +35,8 @@
 
 #include "content/browser/frame_host/navigation_controller_impl.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
@@ -74,9 +76,9 @@
 #include "content/public/browser/user_metrics.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_constants.h"
+#include "content/public/common/content_features.h"
 #include "media/base/mime_util.h"
 #include "net/base/escape.h"
-#include "net/base/net_util.h"
 #include "skia/ext/platform_canvas.h"
 #include "url/url_constants.h"
 
@@ -143,13 +145,6 @@ void ConfigureEntriesForRestore(
 // between two NavigationEntries.
 bool ShouldKeepOverride(const NavigationEntry* last_entry) {
   return last_entry && last_entry->GetIsOverridingUserAgent();
-}
-
-// Helper method for FrameTree::ForEach to set the nav_entry_id on each current
-// RenderFrameHost in the tree.
-bool SetFrameNavEntryID(int nav_entry_id, FrameTreeNode* node) {
-  node->current_frame_host()->set_nav_entry_id(nav_entry_id);
-  return true;
 }
 
 }  // namespace
@@ -277,7 +272,8 @@ void NavigationControllerImpl::Restore(
   needs_reload_ = true;
   entries_.reserve(entries->size());
   for (auto& entry : *entries)
-    entries_.push_back(NavigationEntryImpl::FromNavigationEntry(entry.Pass()));
+    entries_.push_back(
+        NavigationEntryImpl::FromNavigationEntry(std::move(entry)));
 
   // At this point, the |entries| is full of empty scoped_ptrs, so it can be
   // cleared out safely.
@@ -288,6 +284,29 @@ void NavigationControllerImpl::Restore(
 }
 
 void NavigationControllerImpl::Reload(bool check_for_repost) {
+  ReloadInternal(check_for_repost, RELOAD);
+}
+void NavigationControllerImpl::ReloadToRefreshContent(bool check_for_repost) {
+  if (base::FeatureList::IsEnabled(
+        features::kNonValidatingReloadOnRefreshContent)) {
+    // Cause this reload to behave like NAVIGATION_TYPE_SAME_PAGE (e.g., enter
+    // in the omnibox), so that the main resource is cache-validated but all
+    // other resources use the cache as much as possible.  This requires
+    // navigating to the current URL in a new pending entry.
+    // TODO(toyoshim): Introduce a new ReloadType for this behavior if it
+    // becomes the default.
+    NavigationEntryImpl* last_committed = GetLastCommittedEntry();
+
+    // If the last committed entry does not exist, or a repost check dialog is
+    // really needed, use a standard reload instead.
+    if (last_committed &&
+        !(check_for_repost && last_committed->GetHasPostData())) {
+      LoadURL(last_committed->GetURL(), last_committed->GetReferrer(),
+              last_committed->GetTransitionType(),
+              last_committed->extra_headers());
+      return;
+    }
+  }
   ReloadInternal(check_for_repost, RELOAD);
 }
 void NavigationControllerImpl::ReloadIgnoringCache(bool check_for_repost) {
@@ -421,7 +440,8 @@ bool NavigationControllerImpl::IsInitialBlankNavigation() const {
 }
 
 NavigationEntryImpl* NavigationControllerImpl::GetEntryWithPageID(
-  SiteInstance* instance, int32 page_id) const {
+    SiteInstance* instance,
+    int32_t page_id) const {
   int index = GetEntryIndexWithPageID(instance, page_id);
   return (index != -1) ? entries_[index].get() : nullptr;
 }
@@ -437,7 +457,7 @@ void NavigationControllerImpl::LoadEntry(
   // When navigating to a new page, we don't know for sure if we will actually
   // end up leaving the current page.  The new page load could for example
   // result in a download or a 'no content' response (e.g., a mailto: URL).
-  SetPendingEntry(entry.Pass());
+  SetPendingEntry(std::move(entry));
   NavigateToPendingEntry(NO_RELOAD);
 }
 
@@ -549,7 +569,7 @@ void NavigationControllerImpl::TakeScreenshot() {
 void NavigationControllerImpl::SetScreenshotManager(
     scoped_ptr<NavigationEntryScreenshotManager> manager) {
   if (manager.get())
-    screenshot_manager_ = manager.Pass();
+    screenshot_manager_ = std::move(manager);
   else
     screenshot_manager_.reset(new NavigationEntryScreenshotManager(this));
 }
@@ -796,6 +816,9 @@ void NavigationControllerImpl::LoadURLWithParams(const LoadURLParams& params) {
     case LOAD_TYPE_DATA:
       entry->SetBaseURLForDataURL(params.base_url_for_data_url);
       entry->SetVirtualURL(params.virtual_url_for_data_url);
+#if defined(OS_ANDROID)
+      entry->SetDataURLAsString(params.data_url_as_string);
+#endif
       entry->SetCanLoadLocalResources(params.can_load_local_resources);
       break;
     default:
@@ -803,7 +826,7 @@ void NavigationControllerImpl::LoadURLWithParams(const LoadURLParams& params) {
       break;
   };
 
-  LoadEntry(entry.Pass());
+  LoadEntry(std::move(entry));
 }
 
 bool NavigationControllerImpl::RendererDidNavigate(
@@ -864,7 +887,7 @@ bool NavigationControllerImpl::RendererDidNavigate(
       RendererDidNavigateToSamePage(rfh, params);
       break;
     case NAVIGATION_TYPE_NEW_SUBFRAME:
-      RendererDidNavigateNewSubframe(rfh, params);
+      RendererDidNavigateNewSubframe(rfh, params, details->did_replace_entry);
       break;
     case NAVIGATION_TYPE_AUTO_SUBFRAME:
       if (!RendererDidNavigateAutoSubframe(rfh, params))
@@ -960,8 +983,9 @@ bool NavigationControllerImpl::RendererDidNavigate(
   // committed anything in this navigation or not). This allows things like
   // state and title updates from RenderFrames to apply to the latest relevant
   // NavigationEntry.
-  delegate_->GetFrameTree()->ForEach(
-      base::Bind(&SetFrameNavEntryID, active_entry->GetUniqueID()));
+  int nav_entry_id = active_entry->GetUniqueID();
+  for (FrameTreeNode* node : delegate_->GetFrameTree()->Nodes())
+    node->current_frame_host()->set_nav_entry_id(nav_entry_id);
   return true;
 }
 
@@ -1147,7 +1171,7 @@ void NavigationControllerImpl::RendererDidNavigateToNewPage(
     last_committed_entry_index_ = -1;
   }
 
-  InsertOrReplaceEntry(new_entry.Pass(), replace_entry);
+  InsertOrReplaceEntry(std::move(new_entry), replace_entry);
 }
 
 void NavigationControllerImpl::RendererDidNavigateToExistingPage(
@@ -1246,7 +1270,8 @@ void NavigationControllerImpl::RendererDidNavigateToSamePage(
 
 void NavigationControllerImpl::RendererDidNavigateNewSubframe(
     RenderFrameHostImpl* rfh,
-    const FrameHostMsg_DidCommitProvisionalLoad_Params& params) {
+    const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
+    bool replace_entry) {
   DCHECK(ui::PageTransitionCoreTypeIs(params.transition,
                                       ui::PAGE_TRANSITION_MANUAL_SUBFRAME));
 
@@ -1276,7 +1301,7 @@ void NavigationControllerImpl::RendererDidNavigateNewSubframe(
   }
 
   new_entry->SetPageID(params.page_id);
-  InsertOrReplaceEntry(new_entry.Pass(), false);
+  InsertOrReplaceEntry(std::move(new_entry), replace_entry);
 }
 
 bool NavigationControllerImpl::RendererDidNavigateAutoSubframe(
@@ -1479,7 +1504,7 @@ void NavigationControllerImpl::CopyStateFromAndPrune(
   // new and existing navigations in the tab's current SiteInstances are
   // identified properly.
   NavigationEntryImpl* last_committed = GetLastCommittedEntry();
-  int32 site_max_page_id =
+  int32_t site_max_page_id =
       delegate_->GetMaxPageIDForSiteInstance(last_committed->site_instance());
   delegate_->CopyMaxPageIDsFrom(source->delegate()->GetWebContents());
   delegate_->UpdateMaxPageIDForSiteInstance(last_committed->site_instance(),
@@ -1551,11 +1576,11 @@ void NavigationControllerImpl::SetSessionStorageNamespace(
   CHECK(successful_insert) << "Cannot replace existing SessionStorageNamespace";
 }
 
-void NavigationControllerImpl::SetMaxRestoredPageID(int32 max_id) {
+void NavigationControllerImpl::SetMaxRestoredPageID(int32_t max_id) {
   max_restored_page_id_ = max_id;
 }
 
-int32 NavigationControllerImpl::GetMaxRestoredPageID() const {
+int32_t NavigationControllerImpl::GetMaxRestoredPageID() const {
   return max_restored_page_id_;
 }
 
@@ -1576,21 +1601,25 @@ NavigationControllerImpl::GetSessionStorageNamespace(SiteInstance* instance) {
             browser_context_, instance->GetSiteURL());
   }
 
-  SessionStorageNamespaceMap::const_iterator it =
-      session_storage_namespace_map_.find(partition_id);
-  if (it != session_storage_namespace_map_.end())
-    return it->second.get();
-
-  // Create one if no one has accessed session storage for this partition yet.
-  //
   // TODO(ajwong): Should this use the |partition_id| directly rather than
   // re-lookup via |instance|?  http://crbug.com/142685
   StoragePartition* partition =
-              BrowserContext::GetStoragePartition(browser_context_, instance);
+      BrowserContext::GetStoragePartition(browser_context_, instance);
+  DOMStorageContextWrapper* context_wrapper =
+      static_cast<DOMStorageContextWrapper*>(partition->GetDOMStorageContext());
+
+  SessionStorageNamespaceMap::const_iterator it =
+      session_storage_namespace_map_.find(partition_id);
+  if (it != session_storage_namespace_map_.end()) {
+    // Ensure that this namespace actually belongs to this partition.
+    DCHECK(static_cast<SessionStorageNamespaceImpl*>(it->second.get())->
+        IsFromContext(context_wrapper));
+    return it->second.get();
+  }
+
+  // Create one if no one has accessed session storage for this partition yet.
   SessionStorageNamespaceImpl* session_storage_namespace =
-      new SessionStorageNamespaceImpl(
-          static_cast<DOMStorageContextWrapper*>(
-              partition->GetDOMStorageContext()));
+      new SessionStorageNamespaceImpl(context_wrapper);
   session_storage_namespace_map_[partition_id] = session_storage_namespace;
 
   return session_storage_namespace;
@@ -1668,9 +1697,9 @@ void NavigationControllerImpl::InsertOrReplaceEntry(
 
   // When replacing, don't prune the forward history.
   if (replace && current_size > 0) {
-    int32 page_id = entry->GetPageID();
+    int32_t page_id = entry->GetPageID();
 
-    entries_[last_committed_entry_index_] = entry.Pass();
+    entries_[last_committed_entry_index_] = std::move(entry);
 
     // This is a new page ID, so we need everybody to know about it.
     delegate_->UpdateMaxPageID(page_id);
@@ -1697,8 +1726,8 @@ void NavigationControllerImpl::InsertOrReplaceEntry(
 
   PruneOldestEntryIfFull();
 
-  int32 page_id = entry->GetPageID();
-  entries_.push_back(entry.Pass());
+  int32_t page_id = entry->GetPageID();
+  entries_.push_back(std::move(entry));
   last_committed_entry_index_ = static_cast<int>(entries_.size()) - 1;
 
   // This is a new page ID, so we need everybody to know about it.
@@ -1847,19 +1876,37 @@ void NavigationControllerImpl::FindFramesToNavigate(
     return;
 
   // Schedule a load in this frame if the new item isn't for the same item
-  // sequence number in the same SiteInstance.
-  // TODO(creis): Handle null SiteInstances during session restore.
+  // sequence number in the same SiteInstance. Newly restored items may not have
+  // a SiteInstance yet, in which case it will be assigned on first commit.
   if (!old_item ||
       new_item->item_sequence_number() != old_item->item_sequence_number() ||
-      new_item->site_instance() != old_item->site_instance()) {
+      (new_item->site_instance() != nullptr &&
+       new_item->site_instance() != old_item->site_instance())) {
     if (old_item &&
         new_item->document_sequence_number() ==
             old_item->document_sequence_number()) {
       same_document_loads->push_back(std::make_pair(frame, new_item));
+
+      // TODO(avi, creis): This is a bug; we should not return here. Rather, we
+      // should continue on and navigate all child frames which have also
+      // changed. This bug is the cause of <https://crbug.com/542299>, which is
+      // a NC_IN_PAGE_NAVIGATION renderer kill.
+      //
+      // However, this bug is a bandaid over a deeper and worse problem. Doing a
+      // pushState immediately after loading a subframe is a race, one that no
+      // web page author expects. If we fix this bug, many large websites break.
+      // For example, see <https://crbug.com/598043> and the spec discussion at
+      // <https://github.com/whatwg/html/issues/1191>.
+      //
+      // For now, we accept this bug, and hope to resolve the race in a
+      // different way that will one day allow us to fix this.
+      return;
     } else {
       different_document_loads->push_back(std::make_pair(frame, new_item));
+      // For a different document, the subframes will be destroyed, so there's
+      // no need to consider them.
+      return;
     }
-    return;
   }
 
   for (size_t i = 0; i < frame->child_count(); i++) {
@@ -1937,7 +1984,7 @@ void NavigationControllerImpl::FinishRestore(int selected_index,
   DCHECK(selected_index >= 0 && selected_index < GetEntryCount());
   ConfigureEntriesForRestore(&entries_, type);
 
-  SetMaxRestoredPageID(static_cast<int32>(GetEntryCount()));
+  SetMaxRestoredPageID(static_cast<int32_t>(GetEntryCount()));
 
   last_committed_entry_index_ = selected_index;
 }
@@ -1977,8 +2024,8 @@ void NavigationControllerImpl::DiscardTransientEntry() {
   transient_entry_index_ = -1;
 }
 
-int NavigationControllerImpl::GetEntryIndexWithPageID(
-    SiteInstance* instance, int32 page_id) const {
+int NavigationControllerImpl::GetEntryIndexWithPageID(SiteInstance* instance,
+                                                      int32_t page_id) const {
   for (int i = static_cast<int>(entries_.size()) - 1; i >= 0; --i) {
     if ((entries_[i]->site_instance() == instance) &&
         (entries_[i]->GetPageID() == page_id))
@@ -2010,7 +2057,7 @@ void NavigationControllerImpl::SetTransientEntry(
     index = last_committed_entry_index_ + 1;
   DiscardTransientEntry();
   entries_.insert(entries_.begin() + index,
-                  NavigationEntryImpl::FromNavigationEntry(entry.Pass()));
+                  NavigationEntryImpl::FromNavigationEntry(std::move(entry)));
   transient_entry_index_ = index;
   delegate_->NotifyNavigationStateChanged(INVALIDATE_TYPE_ALL);
 }
@@ -2027,7 +2074,7 @@ void NavigationControllerImpl::InsertEntriesFrom(
       // NavigationEntries, it will not be safe to share them with another tab.
       // Must have a version of Clone that recreates them.
       entries_.insert(entries_.begin() + insert_index++,
-                      source.entries_[i]->Clone().Pass());
+                      source.entries_[i]->Clone());
     }
   }
 }

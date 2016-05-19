@@ -5,6 +5,9 @@
 #ifndef MEDIA_RENDERERS_SKCANVAS_VIDEO_RENDERER_H_
 #define MEDIA_RENDERERS_SKCANVAS_VIDEO_RENDERER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
@@ -44,7 +47,7 @@ class MEDIA_EXPORT SkCanvasVideoRenderer {
   void Paint(const scoped_refptr<VideoFrame>& video_frame,
              SkCanvas* canvas,
              const gfx::RectF& dest_rect,
-             uint8 alpha,
+             uint8_t alpha,
              SkXfermode::Mode mode,
              VideoRotation video_rotation,
              const Context3D& context_3d);

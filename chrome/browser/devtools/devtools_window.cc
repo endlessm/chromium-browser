@@ -8,8 +8,8 @@
 
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/certificate_viewer.h"
@@ -20,7 +20,6 @@
 #include "chrome/browser/task_management/web_contents_tags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
-#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -33,6 +32,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "components/ui/zoom/page_zoom.h"
 #include "components/ui/zoom/zoom_controller.h"
@@ -67,6 +67,9 @@ typedef std::vector<DevToolsWindow*> DevToolsWindows;
 base::LazyInstance<DevToolsWindows>::Leaky g_instances =
     LAZY_INSTANCE_INITIALIZER;
 
+base::LazyInstance<std::vector<base::Callback<void(DevToolsWindow*)>>>::Leaky
+    g_creation_callbacks = LAZY_INSTANCE_INITIALIZER;
+
 static const char kKeyUpEventName[] = "keyup";
 static const char kKeyDownEventName[] = "keydown";
 
@@ -75,11 +78,11 @@ bool FindInspectedBrowserAndTabIndex(
   if (!inspected_web_contents)
     return false;
 
-  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
-    int tab_index = it->tab_strip_model()->GetIndexOfWebContents(
-        inspected_web_contents);
+  for (auto* b : *BrowserList::GetInstance()) {
+    int tab_index =
+        b->tab_strip_model()->GetIndexOfWebContents(inspected_web_contents);
     if (tab_index != TabStripModel::kNoTab) {
-      *browser = *it;
+      *browser = b;
       *tab = tab_index;
       return true;
     }
@@ -303,6 +306,23 @@ DevToolsWindow::ObserverWithAccessor::~ObserverWithAccessor() {
 
 const char DevToolsWindow::kDevToolsApp[] = "DevToolsApp";
 
+// static
+void DevToolsWindow::AddCreationCallbackForTest(
+    const CreationCallback& callback) {
+  g_creation_callbacks.Get().push_back(callback);
+}
+
+// static
+void DevToolsWindow::RemoveCreationCallbackForTest(
+    const CreationCallback& callback) {
+  for (size_t i = 0; i < g_creation_callbacks.Get().size(); ++i) {
+    if (g_creation_callbacks.Get().at(i).Equals(callback)) {
+      g_creation_callbacks.Get().erase(g_creation_callbacks.Get().begin() + i);
+      return;
+    }
+  }
+}
+
 DevToolsWindow::~DevToolsWindow() {
   life_stage_ = kClosing;
 
@@ -520,7 +540,6 @@ void DevToolsWindow::InspectElement(
     int y) {
   scoped_refptr<DevToolsAgentHost> agent(
       DevToolsAgentHost::GetOrCreateFor(inspected_frame_host));
-  agent->InspectElement(x, y);
   bool should_measure_time = FindDevToolsWindow(agent.get()) == NULL;
   base::TimeTicks start_time = base::TimeTicks::Now();
   // TODO(loislo): we should initiate DevTools window opening from within
@@ -531,6 +550,8 @@ void DevToolsWindow::InspectElement(
     OpenDevToolsWindow(Profile::FromBrowserContext(agent->GetBrowserContext()),
                        agent);
   }
+
+  agent->InspectElement(x, y);
 
   DevToolsWindow* window = FindDevToolsWindow(agent.get());
   if (should_measure_time && window)
@@ -740,6 +761,11 @@ DevToolsWindow::DevToolsWindow(Profile* profile,
   // so that it shows up in the task manager.
   task_management::WebContentsTags::CreateForDevToolsContents(
       main_web_contents_);
+
+  std::vector<base::Callback<void(DevToolsWindow*)>> copy(
+      g_creation_callbacks.Get());
+  for (const auto& callback : copy)
+    callback.Run(this);
 }
 
 // static
@@ -1098,10 +1124,7 @@ void DevToolsWindow::OpenInNewTab(const std::string& url) {
       ui::PAGE_TRANSITION_LINK, false);
   WebContents* inspected_web_contents = GetInspectedWebContents();
   if (!inspected_web_contents || !inspected_web_contents->OpenURL(params)) {
-    chrome::HostDesktopType host_desktop_type =
-        browser_ ? browser_->host_desktop_type() : chrome::GetActiveDesktop();
-
-    chrome::ScopedTabbedBrowserDisplayer displayer(profile_, host_desktop_type);
+    chrome::ScopedTabbedBrowserDisplayer displayer(profile_);
     chrome::AddSelectedTabWithURL(displayer.browser(), GURL(url),
                                   ui::PAGE_TRANSITION_LINK);
   }
@@ -1176,10 +1199,7 @@ void DevToolsWindow::CreateDevToolsBrowser() {
     dev_tools_defaults->SetBoolean("always_on_top", false);
   }
 
-  browser_ = new Browser(Browser::CreateParams::CreateForDevTools(
-      profile_,
-      chrome::GetHostDesktopTypeForNativeView(
-          main_web_contents_->GetNativeView())));
+  browser_ = new Browser(Browser::CreateParams::CreateForDevTools(profile_));
   browser_->tab_strip_model()->AddWebContents(
       main_web_contents_, -1, ui::PAGE_TRANSITION_AUTO_TOPLEVEL,
       TabStripModel::ADD_ACTIVE);

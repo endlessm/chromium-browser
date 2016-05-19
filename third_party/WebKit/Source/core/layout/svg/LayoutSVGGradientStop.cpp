@@ -17,8 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/LayoutSVGGradientStop.h"
 
 #include "core/layout/svg/LayoutSVGResourceContainer.h"
@@ -68,4 +66,4 @@ SVGGradientElement* LayoutSVGGradientStop::gradientElement() const
     return isSVGGradientElement(*parentNode) ? toSVGGradientElement(parentNode) : 0;
 }
 
-}
+} // namespace blink

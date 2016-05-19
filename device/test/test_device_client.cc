@@ -4,8 +4,14 @@
 
 #include "device/test/test_device_client.h"
 
-#include "device/hid/hid_service.h"
-#include "device/usb/usb_service.h"
+#include "build/build_config.h"
+
+// This file unconditionally includes these headers despite conditionally
+// depending on the corresponding targets. The code below needs the destructors
+// of the classes defined even when the classes are never instantiated.
+// TODO: This should probably be done more explicitly to avoid ambiguity.
+#include "device/hid/hid_service.h"  // nogncheck
+#include "device/usb/usb_service.h"  // nogncheck
 
 namespace device {
 

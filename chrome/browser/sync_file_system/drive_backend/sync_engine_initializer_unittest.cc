@@ -4,8 +4,13 @@
 
 #include "chrome/browser/sync_file_system/drive_backend/sync_engine_initializer.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_constants.h"
@@ -29,7 +34,7 @@ namespace drive_backend {
 
 namespace {
 
-const int64 kInitialLargestChangeID = 1234;
+const int64_t kInitialLargestChangeID = 1234;
 
 }  // namespace
 
@@ -53,12 +58,10 @@ class SyncEngineInitializerTest : public testing::Test {
     fake_drive_service_ = fake_drive_service.get();
 
     sync_context_.reset(new SyncEngineContext(
-        fake_drive_service.Pass(),
-        scoped_ptr<drive::DriveUploaderInterface>(),
-        nullptr /* task_logger */,
+        std::move(fake_drive_service),
+        scoped_ptr<drive::DriveUploaderInterface>(), nullptr /* task_logger */,
         base::ThreadTaskRunnerHandle::Get(),
-        base::ThreadTaskRunnerHandle::Get(),
-        nullptr /* worker_pool */));
+        base::ThreadTaskRunnerHandle::Get(), nullptr /* worker_pool */));
 
     sync_task_manager_.reset(new SyncTaskManager(
         base::WeakPtr<SyncTaskManager::Client>(),
@@ -142,7 +145,7 @@ class SyncEngineInitializerTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
 
     EXPECT_EQ(google_apis::HTTP_CREATED, error);
-    return entry.Pass();
+    return entry;
   }
 
   scoped_ptr<google_apis::FileResource> CreateRemoteSyncRoot() {
@@ -159,11 +162,11 @@ class SyncEngineInitializerTest : public testing::Test {
       EXPECT_EQ(google_apis::HTTP_NO_CONTENT, error);
     }
 
-    return sync_root.Pass();
+    return sync_root;
   }
 
   std::string GetSyncRootFolderID() {
-    int64 sync_root_tracker_id = metadata_database_->GetSyncRootTrackerID();
+    int64_t sync_root_tracker_id = metadata_database_->GetSyncRootTrackerID();
     FileTracker sync_root_tracker;
     EXPECT_TRUE(metadata_database_->FindTrackerByTrackerID(
         sync_root_tracker_id, &sync_root_tracker));

@@ -23,7 +23,6 @@
  *
  */
 
-#include "config.h"
 #include "core/dom/ScriptedAnimationController.h"
 
 #include "core/css/MediaQueryListListener.h"
@@ -207,4 +206,4 @@ void ScriptedAnimationController::scheduleAnimationIfNeeded()
         frameView->scheduleAnimation();
 }
 
-}
+} // namespace blink

@@ -4,6 +4,8 @@
 
 #include "cc/test/solid_color_content_layer_client.h"
 
+#include <stddef.h>
+
 #include "cc/playback/display_item_list_settings.h"
 #include "cc/playback/drawing_display_item.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -15,11 +17,15 @@
 
 namespace cc {
 
+gfx::Rect SolidColorContentLayerClient::PaintableRegion() {
+  return gfx::Rect(size_);
+}
+
 scoped_refptr<DisplayItemList>
 SolidColorContentLayerClient::PaintContentsToDisplayList(
-    const gfx::Rect& clip,
     PaintingControlSetting painting_control) {
   SkPictureRecorder recorder;
+  gfx::Rect clip(PaintableRegion());
   skia::RefPtr<SkCanvas> canvas =
       skia::SharePtr(recorder.beginRecording(gfx::RectToSkRect(clip)));
 
@@ -35,11 +41,9 @@ SolidColorContentLayerClient::PaintContentsToDisplayList(
   settings.use_cached_picture = false;
   scoped_refptr<DisplayItemList> display_list =
       DisplayItemList::Create(clip, settings);
-  auto* item = display_list->CreateAndAppendItem<DrawingDisplayItem>();
 
-  skia::RefPtr<SkPicture> picture =
-      skia::AdoptRef(recorder.endRecordingAsPicture());
-  item->SetNew(picture.Pass());
+  display_list->CreateAndAppendItem<DrawingDisplayItem>(
+      clip, skia::AdoptRef(recorder.endRecordingAsPicture()));
 
   display_list->Finalize();
   return display_list;

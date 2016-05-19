@@ -9,6 +9,8 @@
 #ifndef MOJO_PUBLIC_CPP_SYSTEM_MACROS_H_
 #define MOJO_PUBLIC_CPP_SYSTEM_MACROS_H_
 
+#include <stddef.h>
+
 #include "mojo/public/c/system/macros.h"  // Symbols exposed.
 
 // A macro to disallow the copy constructor and operator= functions.
@@ -30,16 +32,16 @@ char(&ArraySizeHelper(const T(&array)[N]))[N];
 }  // namespace mojo
 #define MOJO_ARRAYSIZE(array) (sizeof(::mojo::internal::ArraySizeHelper(array)))
 
-// Used to make a type move-only. See Chromium's base/move.h for more
+// Used to make a type non-copyable. See Chromium's base/move.h for more
 // details. The MoveOnlyTypeForCPP03 typedef is for Chromium's base/callback.h
-// to tell that this type is move-only.
+// to tell that this type is move-only, allowing these types to be bound or
+// passed to Callbacks.
 #define MOJO_MOVE_ONLY_TYPE(type)                                              \
  private:                                                                      \
-  type(type&);                                                                 \
-  void operator=(type&);                                                       \
+  type(const type&) = delete;                                                  \
+  void operator=(const type&) = delete;                                        \
                                                                                \
  public:                                                                       \
-  type&& Pass() MOJO_WARN_UNUSED_RESULT { return static_cast<type&&>(*this); } \
   typedef void MoveOnlyTypeForCPP03;                                           \
                                                                                \
  private:

@@ -4,11 +4,14 @@
 
 #include "chrome/common/service_process_util.h"
 
+#include <stdint.h>
+
 #include <algorithm>
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/path_service.h"
 #include "base/sha1.h"
@@ -17,6 +20,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/version.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -27,13 +31,17 @@
 #include "google_apis/gaia/gaia_switches.h"
 #include "ui/base/ui_base_switches.h"
 
+#if defined(OS_WIN)
+#include "components/startup_metric_utils/common/pre_read_field_trial_utils_win.h"
+#endif  // defined(OS_WIN)
+
 #if !defined(OS_MACOSX)
 
 namespace {
 
 // This should be more than enough to hold a version string assuming each part
-// of the version string is an int64.
-const uint32 kMaxVersionStringLength = 256;
+// of the version string is an int64_t.
+const uint32_t kMaxVersionStringLength = 256;
 
 // The structure that gets written to shared memory.
 struct ServiceProcessSharedData {
@@ -156,6 +164,12 @@ scoped_ptr<base::CommandLine> CreateServiceProcessCommandLine() {
   scoped_ptr<base::CommandLine> command_line(new base::CommandLine(exe_path));
   command_line->AppendSwitchASCII(switches::kProcessType,
                                   switches::kServiceProcess);
+
+#if defined(OS_WIN)
+  if (startup_metric_utils::GetPreReadOptions().use_prefetch_argument)
+    command_line->AppendArg(switches::kPrefetchArgumentOther);
+#endif  // defined(OS_WIN)
+
   static const char* const kSwitchesToCopy[] = {
     switches::kCloudPrintSetupProxy,
     switches::kCloudPrintURL,
@@ -178,7 +192,7 @@ scoped_ptr<base::CommandLine> CreateServiceProcessCommandLine() {
   command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
                                  kSwitchesToCopy,
                                  arraysize(kSwitchesToCopy));
-  return command_line.Pass();
+  return command_line;
 }
 
 ServiceProcessState::ServiceProcessState() : state_(NULL) {
@@ -247,7 +261,7 @@ bool ServiceProcessState::CreateSharedData() {
   if (!shared_mem_service_data.get())
     return false;
 
-  uint32 alloc_size = sizeof(ServiceProcessSharedData);
+  uint32_t alloc_size = sizeof(ServiceProcessSharedData);
   // TODO(viettrungluu): Named shared memory is deprecated (crbug.com/345734).
   if (!shared_mem_service_data->CreateNamedDeprecated
           (GetServiceProcessSharedMemName(), true, alloc_size))

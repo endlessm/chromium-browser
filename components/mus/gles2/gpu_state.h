@@ -9,18 +9,24 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
+#include "components/mus/gles2/command_buffer_driver_manager.h"
+#include "components/mus/gles2/command_buffer_task_runner.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/config/gpu_info.h"
 #include "ui/gl/gl_share_group.h"
 
+namespace {
+class WaitableEvent;
+}
+
 namespace mus {
 
 // We need to share these across all CommandBuffer instances so that contexts
 // they create can share resources with each other via mailboxes.
-class GpuState : public base::RefCounted<GpuState> {
+class GpuState : public base::RefCountedThreadSafe<GpuState> {
  public:
-  explicit GpuState(bool hardware_rendering_available);
+  GpuState();
 
   // We run the CommandBufferImpl on the control_task_runner, which forwards
   // most method class to the CommandBufferDriver, which runs on the "driver",
@@ -29,7 +35,15 @@ class GpuState : public base::RefCounted<GpuState> {
     return control_thread_.task_runner();
   }
 
-  void StopControlThread();
+  void StopThreads();
+
+  CommandBufferTaskRunner* command_buffer_task_runner() const {
+    return command_buffer_task_runner_.get();
+  }
+
+  CommandBufferDriverManager* driver_manager() const {
+    return driver_manager_.get();
+  }
 
   // These objects are intended to be used on the "driver" thread (i.e., the
   // thread on which GpuImpl instances are created).
@@ -50,10 +64,18 @@ class GpuState : public base::RefCounted<GpuState> {
   }
 
  private:
-  friend class base::RefCounted<GpuState>;
+  friend class base::RefCountedThreadSafe<GpuState>;
   ~GpuState();
 
+  void InitializeOnGpuThread(base::WaitableEvent* event);
+
+  // |gpu_thread_| is for executing OS GL calls.
+  base::Thread gpu_thread_;
+  // |control_thread_| is for mojo incoming calls of CommandBufferImpl.
   base::Thread control_thread_;
+
+  scoped_refptr<CommandBufferTaskRunner> command_buffer_task_runner_;
+  scoped_ptr<CommandBufferDriverManager> driver_manager_;
   scoped_ptr<gpu::SyncPointManager> sync_point_manager_;
   scoped_refptr<gfx::GLShareGroup> share_group_;
   scoped_refptr<gpu::gles2::MailboxManager> mailbox_manager_;

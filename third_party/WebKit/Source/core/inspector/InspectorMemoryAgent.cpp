@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/inspector/InspectorMemoryAgent.h"
 
 #include "core/inspector/InstanceCounters.h"
@@ -48,7 +47,7 @@ void InspectorMemoryAgent::getDOMCounters(ErrorString*, int* documents, int* nod
 }
 
 InspectorMemoryAgent::InspectorMemoryAgent()
-    : InspectorBaseAgent<InspectorMemoryAgent, InspectorFrontend::Memory>("Memory")
+    : InspectorBaseAgent<InspectorMemoryAgent, protocol::Frontend::Memory>("Memory")
 {
 }
 

@@ -114,7 +114,7 @@ void ApppendEventDetails(const WebTouchEvent& event, std::string* result) {
                 "{\n Touches: %u, Cancelable: %d, CausesScrolling: %d,"
                 " uniqueTouchEventId: %u\n[\n",
                 event.touchesLength, event.cancelable,
-                event.causesScrollingIfUncanceled, event.uniqueTouchEventId);
+                event.movedBeyondSlopRegion, event.uniqueTouchEventId);
   for (unsigned i = 0; i < event.touchesLength; ++i)
     ApppendTouchPointDetails(event.touches[i], result);
   result->append(" ]\n}");
@@ -240,7 +240,7 @@ void Coalesce(const WebTouchEvent& event_to_coalesce, WebTouchEvent* event) {
     if (old_event.touches[i_old].state == blink::WebTouchPoint::StateMoved)
       event->touches[i].state = blink::WebTouchPoint::StateMoved;
   }
-  event->causesScrollingIfUncanceled |= old_event.causesScrollingIfUncanceled;
+  event->movedBeyondSlopRegion |= old_event.movedBeyondSlopRegion;
 }
 
 bool CanCoalesce(const WebGestureEvent& event_to_coalesce,
@@ -439,7 +439,7 @@ size_t WebInputEventTraits::GetSize(WebInputEvent::Type type) {
 ScopedWebInputEvent WebInputEventTraits::Clone(const WebInputEvent& event) {
   ScopedWebInputEvent scoped_event;
   Apply(WebInputEventClone(), event.type, event, &scoped_event);
-  return scoped_event.Pass();
+  return scoped_event;
 }
 
 void WebInputEventTraits::Delete(WebInputEvent* event) {
@@ -492,7 +492,8 @@ bool WebInputEventTraits::WillReceiveAckFromRenderer(
   }
 }
 
-uint32 WebInputEventTraits::GetUniqueTouchEventId(const WebInputEvent& event) {
+uint32_t WebInputEventTraits::GetUniqueTouchEventId(
+    const WebInputEvent& event) {
   if (WebInputEvent::isTouchEventType(event.type)) {
     return static_cast<const WebTouchEvent&>(event).uniqueTouchEventId;
   }

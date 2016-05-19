@@ -4,9 +4,13 @@
 
 #include "components/scheduler/child/idle_helper.h"
 
+#include <utility>
+
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "cc/test/ordered_simple_task_runner.h"
+#include "components/scheduler/base/real_time_domain.h"
 #include "components/scheduler/base/task_queue.h"
 #include "components/scheduler/base/task_queue_manager.h"
 #include "components/scheduler/base/test_time_source.h"
@@ -132,10 +136,10 @@ scoped_refptr<SchedulerTqmDelegate> CreateTaskRunnerDelegate(
     scoped_ptr<TestTimeSource> test_time_source) {
   if (message_loop)
     return SchedulerTqmDelegateImpl::Create(message_loop,
-                                            test_time_source.Pass());
+                                            std::move(test_time_source));
 
   return SchedulerTqmDelegateForTest::Create(mock_task_runner,
-                                             test_time_source.Pass());
+                                             std::move(test_time_source));
 }
 
 };  // namespace
@@ -844,8 +848,9 @@ TEST_F(IdleHelperTest, TestLongIdlePeriodPaused) {
   idle_helper_->EnableLongIdlePeriod();
   CheckIdlePeriodStateIs("in_long_idle_period_paused");
   // There shouldn't be any delayed tasks posted by the idle helper when paused.
-  EXPECT_EQ(base::TimeTicks(),
-            scheduler_helper_->NextPendingDelayedTaskRunTime());
+  base::TimeTicks next_pending_delayed_task;
+  EXPECT_FALSE(scheduler_helper_->real_time_domain()->NextScheduledRunTime(
+      &next_pending_delayed_task));
 
   // Posting a task should transition us to the an active state.
   max_idle_task_reposts = 2;
@@ -865,8 +870,8 @@ TEST_F(IdleHelperTest, TestLongIdlePeriodPaused) {
 
   // Once all task have been run we should go back to the paused state.
   CheckIdlePeriodStateIs("in_long_idle_period_paused");
-  EXPECT_EQ(base::TimeTicks(),
-            scheduler_helper_->NextPendingDelayedTaskRunTime());
+  EXPECT_FALSE(scheduler_helper_->real_time_domain()->NextScheduledRunTime(
+      &next_pending_delayed_task));
 
   idle_helper_->EndIdlePeriod();
   CheckIdlePeriodStateIs("not_in_idle_period");

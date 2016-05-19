@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/CSSValueInterpolationType.h"
 
 #include "core/animation/InterpolationEnvironment.h"
+#include "core/animation/StringKeyframe.h"
 #include "core/css/resolver/StyleBuilder.h"
 
 namespace blink {
@@ -36,12 +36,12 @@ private:
 DEFINE_NON_INTERPOLABLE_VALUE_TYPE(CSSValueNonInterpolableValue);
 DEFINE_NON_INTERPOLABLE_VALUE_TYPE_CASTS(CSSValueNonInterpolableValue);
 
-PassOwnPtr<InterpolationValue> CSSValueInterpolationType::maybeConvertSingle(const PropertySpecificKeyframe& keyframe, const InterpolationEnvironment&, const UnderlyingValue&, ConversionCheckers&) const
+InterpolationValue CSSValueInterpolationType::maybeConvertSingle(const PropertySpecificKeyframe& keyframe, const InterpolationEnvironment&, const InterpolationValue&, ConversionCheckers&) const
 {
     if (keyframe.isNeutral())
         return nullptr;
 
-    return InterpolationValue::create(*this, InterpolableList::create(0), CSSValueNonInterpolableValue::create(toCSSPropertySpecificKeyframe(keyframe).value()));
+    return InterpolationValue(InterpolableList::create(0), CSSValueNonInterpolableValue::create(toCSSPropertySpecificKeyframe(keyframe).value()));
 }
 
 void CSSValueInterpolationType::apply(const InterpolableValue&, const NonInterpolableValue* nonInterpolableValue, InterpolationEnvironment& environment) const

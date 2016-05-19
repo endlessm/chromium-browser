@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSToLengthConversionData.h"
 
 #include "core/css/CSSHelper.h"
@@ -69,8 +68,7 @@ float CSSToLengthConversionData::FontSizes::ch() const
 }
 
 CSSToLengthConversionData::ViewportSize::ViewportSize(const LayoutView* layoutView)
-    : m_width(layoutView ? layoutView->layoutViewportWidth() : 0)
-    , m_height(layoutView ? layoutView->layoutViewportHeight() : 0)
+    : m_size(layoutView ? layoutView->viewportSizeForViewportUnits() : DoubleSize())
 {
 }
 

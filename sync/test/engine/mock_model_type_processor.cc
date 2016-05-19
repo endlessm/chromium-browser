@@ -4,6 +4,9 @@
 
 #include "sync/test/engine/mock_model_type_processor.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "sync/engine/commit_queue.h"
 
@@ -15,12 +18,12 @@ MockModelTypeProcessor::MockModelTypeProcessor() : is_synchronous_(true) {
 MockModelTypeProcessor::~MockModelTypeProcessor() {
 }
 
-void MockModelTypeProcessor::OnConnect(scoped_ptr<CommitQueue> commit_queue) {
+void MockModelTypeProcessor::ConnectSync(scoped_ptr<CommitQueue> commit_queue) {
   NOTREACHED();
 }
 
 void MockModelTypeProcessor::OnCommitCompleted(
-    const DataTypeState& type_state,
+    const sync_pb::DataTypeState& type_state,
     const CommitResponseDataList& response_list) {
   base::Closure task =
       base::Bind(&MockModelTypeProcessor::OnCommitCompletedImpl,
@@ -33,14 +36,12 @@ void MockModelTypeProcessor::OnCommitCompleted(
 }
 
 void MockModelTypeProcessor::OnUpdateReceived(
-    const DataTypeState& type_state,
-    const UpdateResponseDataList& response_list,
-    const UpdateResponseDataList& pending_updates) {
+    const sync_pb::DataTypeState& type_state,
+    const UpdateResponseDataList& response_list) {
   base::Closure task = base::Bind(&MockModelTypeProcessor::OnUpdateReceivedImpl,
                                   base::Unretained(this),
                                   type_state,
-                                  response_list,
-                                  pending_updates);
+                                  response_list);
   pending_tasks_.push_back(task);
   if (is_synchronous_)
     RunQueuedTasks();
@@ -62,50 +63,58 @@ void MockModelTypeProcessor::RunQueuedTasks() {
 CommitRequestData MockModelTypeProcessor::CommitRequest(
     const std::string& tag_hash,
     const sync_pb::EntitySpecifics& specifics) {
-  const int64 base_version = GetBaseVersion(tag_hash);
+  const int64_t base_version = GetBaseVersion(tag_hash);
 
-  CommitRequestData data;
+  EntityData data;
 
   if (HasServerAssignedId(tag_hash)) {
     data.id = GetServerAssignedId(tag_hash);
   }
 
   data.client_tag_hash = tag_hash;
-  data.sequence_number = GetNextSequenceNumber(tag_hash);
-  data.deleted = false;
   data.specifics = specifics;
-  data.base_version = base_version;
 
   // These fields are not really used for much, but we set them anyway
   // to make this item look more realistic.
-  data.ctime = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
-  data.mtime = data.ctime + base::TimeDelta::FromSeconds(base_version);
+  data.creation_time = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
+  data.modification_time =
+      data.creation_time + base::TimeDelta::FromSeconds(base_version);
   data.non_unique_name = "Name: " + tag_hash;
 
-  return data;
+  CommitRequestData request_data;
+  request_data.entity = data.PassToPtr();
+  request_data.sequence_number = GetNextSequenceNumber(tag_hash);
+  request_data.base_version = base_version;
+
+  return request_data;
 }
 
 CommitRequestData MockModelTypeProcessor::DeleteRequest(
     const std::string& tag_hash) {
-  const int64 base_version = GetBaseVersion(tag_hash);
-  CommitRequestData data;
+  const int64_t base_version = GetBaseVersion(tag_hash);
+
+  EntityData data;
 
   if (HasServerAssignedId(tag_hash)) {
     data.id = GetServerAssignedId(tag_hash);
   }
 
   data.client_tag_hash = tag_hash;
-  data.sequence_number = GetNextSequenceNumber(tag_hash);
-  data.base_version = base_version;
-  data.mtime = data.ctime + base::TimeDelta::FromSeconds(base_version);
-  data.deleted = true;
 
   // These fields have little or no effect on behavior.  We set them anyway to
   // make the test more realistic.
-  data.ctime = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
+  data.creation_time = base::Time::UnixEpoch() + base::TimeDelta::FromDays(1);
   data.non_unique_name = "Name deleted";
 
-  return data;
+  data.modification_time =
+      data.creation_time + base::TimeDelta::FromSeconds(base_version);
+
+  CommitRequestData request_data;
+  request_data.entity = data.PassToPtr();
+  request_data.sequence_number = GetNextSequenceNumber(tag_hash);
+  request_data.base_version = base_version;
+
+  return request_data;
 }
 
 size_t MockModelTypeProcessor::GetNumUpdateResponses() const {
@@ -118,13 +127,8 @@ UpdateResponseDataList MockModelTypeProcessor::GetNthUpdateResponse(
   return received_update_responses_[n];
 }
 
-UpdateResponseDataList MockModelTypeProcessor::GetNthPendingUpdates(
-    size_t n) const {
-  DCHECK_LT(n, GetNumUpdateResponses());
-  return received_pending_updates_[n];
-}
-
-DataTypeState MockModelTypeProcessor::GetNthTypeStateReceivedInUpdateResponse(
+sync_pb::DataTypeState
+MockModelTypeProcessor::GetNthTypeStateReceivedInUpdateResponse(
     size_t n) const {
   DCHECK_LT(n, GetNumUpdateResponses());
   return type_states_received_on_update_[n];
@@ -140,7 +144,8 @@ CommitResponseDataList MockModelTypeProcessor::GetNthCommitResponse(
   return received_commit_responses_[n];
 }
 
-DataTypeState MockModelTypeProcessor::GetNthTypeStateReceivedInCommitResponse(
+sync_pb::DataTypeState
+MockModelTypeProcessor::GetNthTypeStateReceivedInCommitResponse(
     size_t n) const {
   DCHECK_LT(n, GetNumCommitResponses());
   return type_states_received_on_commit_[n];
@@ -177,7 +182,7 @@ CommitResponseData MockModelTypeProcessor::GetCommitResponse(
 }
 
 void MockModelTypeProcessor::OnCommitCompletedImpl(
-    const DataTypeState& type_state,
+    const sync_pb::DataTypeState& type_state,
     const CommitResponseDataList& response_list) {
   received_commit_responses_.push_back(response_list);
   type_states_received_on_commit_.push_back(type_state);
@@ -192,26 +197,25 @@ void MockModelTypeProcessor::OnCommitCompletedImpl(
 }
 
 void MockModelTypeProcessor::OnUpdateReceivedImpl(
-    const DataTypeState& type_state,
-    const UpdateResponseDataList& response_list,
-    const UpdateResponseDataList& pending_updates) {
+    const sync_pb::DataTypeState& type_state,
+    const UpdateResponseDataList& response_list) {
   received_update_responses_.push_back(response_list);
-  received_pending_updates_.push_back(pending_updates);
   type_states_received_on_update_.push_back(type_state);
   for (UpdateResponseDataList::const_iterator it = response_list.begin();
        it != response_list.end(); ++it) {
-    update_response_items_.insert(std::make_pair(it->client_tag_hash, *it));
+    const std::string client_tag_hash = it->entity->client_tag_hash;
+    update_response_items_.insert(std::make_pair(client_tag_hash, *it));
 
     // Server wins.  Set the model's base version.
-    SetBaseVersion(it->client_tag_hash, it->response_version);
-    SetServerAssignedId(it->client_tag_hash, it->id);
+    SetBaseVersion(client_tag_hash, it->response_version);
+    SetServerAssignedId(client_tag_hash, it->entity->id);
   }
 }
 
 // Fetches the sequence number as of the most recent update request.
-int64 MockModelTypeProcessor::GetCurrentSequenceNumber(
+int64_t MockModelTypeProcessor::GetCurrentSequenceNumber(
     const std::string& tag_hash) const {
-  std::map<const std::string, int64>::const_iterator it =
+  std::map<const std::string, int64_t>::const_iterator it =
       sequence_numbers_.find(tag_hash);
   if (it == sequence_numbers_.end()) {
     return 0;
@@ -222,17 +226,17 @@ int64 MockModelTypeProcessor::GetCurrentSequenceNumber(
 
 // The model thread should be sending us items with strictly increasing
 // sequence numbers.  Here's where we emulate that behavior.
-int64 MockModelTypeProcessor::GetNextSequenceNumber(
+int64_t MockModelTypeProcessor::GetNextSequenceNumber(
     const std::string& tag_hash) {
-  int64 sequence_number = GetCurrentSequenceNumber(tag_hash);
+  int64_t sequence_number = GetCurrentSequenceNumber(tag_hash);
   sequence_number++;
   sequence_numbers_[tag_hash] = sequence_number;
   return sequence_number;
 }
 
-int64 MockModelTypeProcessor::GetBaseVersion(
+int64_t MockModelTypeProcessor::GetBaseVersion(
     const std::string& tag_hash) const {
-  std::map<const std::string, int64>::const_iterator it =
+  std::map<const std::string, int64_t>::const_iterator it =
       base_versions_.find(tag_hash);
   if (it == base_versions_.end()) {
     return kUncommittedVersion;
@@ -242,7 +246,7 @@ int64 MockModelTypeProcessor::GetBaseVersion(
 }
 
 void MockModelTypeProcessor::SetBaseVersion(const std::string& tag_hash,
-                                            int64 version) {
+                                            int64_t version) {
   base_versions_[tag_hash] = version;
 }
 
@@ -262,4 +266,4 @@ void MockModelTypeProcessor::SetServerAssignedId(const std::string& tag_hash,
   assigned_ids_[tag_hash] = id;
 }
 
-}  // namespace syncer
+}  // namespace syncer_v2

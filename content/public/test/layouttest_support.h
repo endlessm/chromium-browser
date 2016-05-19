@@ -5,6 +5,8 @@
 #ifndef CONTENT_PUBLIC_TEST_LAYOUTTEST_SUPPORT_H_
 #define CONTENT_PUBLIC_TEST_LAYOUTTEST_SUPPORT_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -15,7 +17,6 @@
 class GURL;
 
 namespace blink {
-class WebBatteryStatus;
 class WebDeviceMotionData;
 class WebDeviceOrientationData;
 class WebGamepad;
@@ -76,9 +77,6 @@ void SetMockDeviceMotionData(const blink::WebDeviceMotionData& data);
 // Sets WebDeviceOrientationData that should be used when registering
 // a listener through BlinkPlatformImpl::setDeviceOrientationListener().
 void SetMockDeviceOrientationData(const blink::WebDeviceOrientationData& data);
-
-// Notifies blink that battery status has changed.
-void MockBatteryStatusChanged(const blink::WebBatteryStatus& status);
 
 // Returns the length of the local session history of a render view.
 int GetLocalSessionHistoryLength(RenderView* render_view);

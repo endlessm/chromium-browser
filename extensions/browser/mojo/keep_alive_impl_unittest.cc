@@ -4,6 +4,9 @@
 
 #include "extensions/browser/mojo/keep_alive_impl.h"
 
+#include <utility>
+
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "content/public/browser/notification_service.h"
@@ -25,17 +28,17 @@ class KeepAliveTest : public ExtensionsTest {
     message_loop_.reset(new base::MessageLoop);
     extension_ =
         ExtensionBuilder()
-            .SetManifest(
-                 DictionaryBuilder()
-                     .Set("name", "app")
-                     .Set("version", "1")
-                     .Set("manifest_version", 2)
-                     .Set("app",
-                          DictionaryBuilder().Set(
-                              "background",
-                              DictionaryBuilder().Set(
-                                  "scripts",
-                                  ListBuilder().Append("background.js")))))
+            .SetManifest(std::move(
+                DictionaryBuilder()
+                    .Set("name", "app")
+                    .Set("version", "1")
+                    .Set("manifest_version", 2)
+                    .Set("app",
+                         std::move(DictionaryBuilder().Set(
+                             "background",
+                             std::move(DictionaryBuilder().Set(
+                                 "scripts", std::move(ListBuilder().Append(
+                                                "background.js")))))))))
             .SetID("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             .Build();
   }
@@ -53,7 +56,8 @@ class KeepAliveTest : public ExtensionsTest {
   }
 
   void CreateKeepAlive(mojo::InterfaceRequest<KeepAlive> request) {
-    KeepAliveImpl::Create(browser_context(), extension_.get(), request.Pass());
+    KeepAliveImpl::Create(browser_context(), extension_.get(),
+                          std::move(request));
   }
 
   const Extension* extension() { return extension_.get(); }
@@ -106,16 +110,16 @@ TEST_F(KeepAliveTest, UnloadExtension) {
 
   scoped_refptr<const Extension> other_extension =
       ExtensionBuilder()
-          .SetManifest(
-               DictionaryBuilder()
-                   .Set("name", "app")
-                   .Set("version", "1")
-                   .Set("manifest_version", 2)
-                   .Set("app", DictionaryBuilder().Set(
-                                   "background",
-                                   DictionaryBuilder().Set(
-                                       "scripts",
-                                       ListBuilder().Append("background.js")))))
+          .SetManifest(std::move(
+              DictionaryBuilder()
+                  .Set("name", "app")
+                  .Set("version", "1")
+                  .Set("manifest_version", 2)
+                  .Set("app", std::move(DictionaryBuilder().Set(
+                                  "background",
+                                  std::move(DictionaryBuilder().Set(
+                                      "scripts", std::move(ListBuilder().Append(
+                                                     "background.js")))))))))
           .SetID("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
           .Build();
 

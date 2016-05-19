@@ -70,6 +70,21 @@ order to create the illusion of depth.
 TODO(jbroman): Explain flattening, etc., once it exists in the paint properties.
 ***
 
+### Clips
+
+Each paint chunk is associated with a [clip node](ClipPaintPropertyNode.h),
+which defines the raster region that will be applied on the canvas when
+the chunk is rastered.
+
+Each clip node has:
+
+* A float rect with (optionally) rounded corner radius.
+* An associated transform node, which the clip rect is based on.
+
+The raster region defined by a node is the rounded rect transformed to the
+root space, intersects with the raster region defined by its parent clip node
+(if not root).
+
 ### Effects
 
 Each paint chunk is associated with an [effect node](EffectPaintPropertyNode.h),
@@ -125,17 +140,7 @@ emit display items to a `PaintController` (using `GraphicsContext`).
 
 #### [CachedDisplayItem](CachedDisplayItem.h)
 
-The type `DisplayItem::CachedSubsequence` indicates that the previous frame's
-display item list contains a contiguous sequence of display items which should
-be reused in place of this `CachedDisplayItem`.
-
-*** note
-Support for cached subsequences for SPv2 is planned, but not yet fully
-implemented.
-***
-
-Other cached display items refer to a single `DrawingDisplayItem` with a
-corresponding type which should be reused in place of this `CachedDisplayItem`.
+See [Display item caching](../../../core/paint/README.md#paint-result-caching).
 
 #### [DrawingDisplayItem](DrawingDisplayItem.h)
 
@@ -149,7 +154,7 @@ TODO(jbroman): Describe how these work, once we've worked out what happens to
 them in SPv2.
 ***
 
-## Display item list
+## Paint controller
 
 Callers use `GraphicsContext` (via its drawing methods, and its
 `paintController()` accessor) and scoped recorder classes, which emit items into
@@ -170,3 +175,16 @@ At this point, the paint artifact is ready to be drawn or composited.
 *** aside
 TODO(jbroman): Explain invalidation.
 ***
+
+## Paint artifact compositor
+
+The [`PaintArtifactCompositor`](PaintArtifactCompositor.h) is responsible for
+consuming the `PaintArtifact` produced by the `PaintController`, and converting
+it into a form suitable for the compositor to consume.
+
+At present, `PaintArtifactCompositor` creates a cc layer tree, with one layer
+for each paint chunk. In the future, it is expected that we will use heuristics
+to combine paint chunks into a smaller number of layers.
+
+The owner of the `PaintArtifactCompositor` (e.g. `WebView`) can then attach its
+root layer to the overall layer hierarchy to be displayed to the user.

@@ -44,10 +44,8 @@ PixelTest::~PixelTest() {}
 bool PixelTest::RunPixelTest(RenderPassList* pass_list,
                              const base::FilePath& ref_file,
                              const PixelComparator& comparator) {
-  return RunPixelTestWithReadbackTarget(pass_list,
-                                        pass_list->back(),
-                                        ref_file,
-                                        comparator);
+  return RunPixelTestWithReadbackTarget(pass_list, pass_list->back().get(),
+                                        ref_file, comparator);
 }
 
 bool PixelTest::RunPixelTestWithReadbackTarget(
@@ -74,7 +72,7 @@ bool PixelTest::RunPixelTestWithReadbackTargetAndArea(
                      run_loop.QuitClosure()));
   if (copy_rect)
     request->set_area(*copy_rect);
-  target->copy_requests.push_back(request.Pass());
+  target->copy_requests.push_back(std::move(request));
 
   float device_scale_factor = 1.f;
   gfx::Rect device_viewport_rect =
@@ -100,7 +98,7 @@ bool PixelTest::RunPixelTestWithReadbackTargetAndArea(
 void PixelTest::ReadbackResult(base::Closure quit_run_loop,
                                scoped_ptr<CopyOutputResult> result) {
   ASSERT_TRUE(result->HasBitmap());
-  result_bitmap_ = result->TakeBitmap().Pass();
+  result_bitmap_ = result->TakeBitmap();
   quit_run_loop.Run();
 }
 
@@ -172,7 +170,7 @@ void PixelTest::EnableExternalStencilTest() {
 
 void PixelTest::SetUpSoftwareRenderer() {
   scoped_ptr<SoftwareOutputDevice> device(new PixelTestSoftwareOutputDevice());
-  output_surface_.reset(new PixelTestOutputSurface(device.Pass()));
+  output_surface_.reset(new PixelTestOutputSurface(std::move(device)));
   output_surface_->BindToClient(output_surface_client_.get());
   shared_bitmap_manager_.reset(new TestSharedBitmapManager());
   resource_provider_ = ResourceProvider::Create(

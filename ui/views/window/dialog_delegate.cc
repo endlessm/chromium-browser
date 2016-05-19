@@ -4,13 +4,18 @@
 
 #include "ui/views/window/dialog_delegate.h"
 
+#include <utility>
+
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/button/label_button.h"
+#include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/window/dialog_client_view.h"
@@ -191,22 +196,19 @@ NonClientFrameView* DialogDelegate::CreateNonClientFrameView(Widget* widget) {
 
 // static
 NonClientFrameView* DialogDelegate::CreateDialogFrameView(Widget* widget) {
-  BubbleFrameView* frame = new BubbleFrameView(gfx::Insets());
-#if defined(OS_MACOSX)
-  // On Mac, dialogs have no border stroke and use a shadow provided by the OS.
-  const BubbleBorder::Shadow kShadow = BubbleBorder::NO_ASSETS;
-#else
+  BubbleFrameView* frame =
+      new BubbleFrameView(gfx::Insets(kPanelVertMargin, kButtonHEdgeMarginNew,
+                                      0, kButtonHEdgeMarginNew),
+                          gfx::Insets());
   const BubbleBorder::Shadow kShadow = BubbleBorder::SMALL_SHADOW;
-#endif
   scoped_ptr<BubbleBorder> border(
-      new BubbleBorder(BubbleBorder::FLOAT, kShadow, SK_ColorRED));
+      new BubbleBorder(BubbleBorder::FLOAT, kShadow, gfx::kPlaceholderColor));
   border->set_use_theme_background_color(true);
-  frame->SetBubbleBorder(border.Pass());
+  frame->SetBubbleBorder(std::move(border));
   DialogDelegate* delegate = widget->widget_delegate()->AsDialogDelegate();
   if (delegate) {
-    View* titlebar_view = delegate->CreateTitlebarExtraView();
-    if (titlebar_view)
-      frame->SetTitlebarExtraView(titlebar_view);
+    frame->SetTitlebarExtraView(
+        make_scoped_ptr(delegate->CreateTitlebarExtraView()));
   }
   return frame;
 }

@@ -141,7 +141,7 @@ const float kHideDuration = 0.7;
   [self initializeLabelAndButton];
 }
 
-- (void)positionInWindowAtTop:(CGFloat)maxY width:(CGFloat)maxWidth {
+- (void)positionInWindowAtTop:(CGFloat)maxY {
   NSRect windowFrame = [self window].frame;
   NSRect ownerWindowFrame = [owner_ window].frame;
   NSPoint origin;
@@ -244,7 +244,7 @@ const float kHideDuration = 0.7;
                   messageColor:[NSColor blackColor]];
   if ([exitLinkText length] != 0) {
     [exitLabel_.get() addLinkRange:NSMakeRange(0, [exitLinkText length])
-                           withURL:@"about:blank"  // using link here is bad ui
+                           withURL:nil
                          linkColor:[NSColor blueColor]];
   }
   [exitLabel_.get() setAlignment:NSRightTextAlignment];

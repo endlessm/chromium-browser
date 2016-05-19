@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/base_paths.h"
@@ -9,9 +11,11 @@
 #include "base/files/file_util.h"
 #include "base/hash.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -67,13 +71,9 @@ class PDFExtensionTest : public ExtensionApiTest,
  public:
   ~PDFExtensionTest() override {}
 
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kDisablePdfMaterialUI);
-  }
-
   void SetUpOnMainThread() override {
     ExtensionApiTest::SetUpOnMainThread();
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
   }
 
   void TearDownOnMainThread() override {
@@ -345,6 +345,16 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, ZoomManager) {
   RunTestsInFile("zoom_manager_test.js", "test.pdf");
 }
 
+IN_PROC_BROWSER_TEST_F(PDFExtensionTest, Elements) {
+  // Although this test file does not require a PDF to be loaded, loading the
+  // elements without loading a PDF is difficult.
+  RunTestsInFile("material_elements_test.js", "test.pdf");
+}
+
+IN_PROC_BROWSER_TEST_F(PDFExtensionTest, ToolbarManager) {
+  RunTestsInFile("toolbar_manager_test.js", "test.pdf");
+}
+
 IN_PROC_BROWSER_TEST_F(PDFExtensionTest, Title) {
   RunTestsInFile("title_test.js", "test-title.pdf");
 }
@@ -502,59 +512,3 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, PdfZoomWithoutBubble) {
 #endif
 }
 
-class MaterialPDFExtensionTest : public PDFExtensionTest {
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kEnablePdfMaterialUI);
-  }
-};
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, Basic) {
-  RunTestsInFile("basic_test_material.js", "test.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, BasicPlugin) {
-  RunTestsInFile("basic_plugin_test.js", "test.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, Viewport) {
-  RunTestsInFile("viewport_test.js", "test.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, Bookmark) {
-  RunTestsInFile("bookmarks_test.js", "test-bookmarks.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, Navigator) {
-  RunTestsInFile("navigator_test.js", "test.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, ParamsParser) {
-  RunTestsInFile("params_parser_test.js", "test.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, ZoomManager) {
-  RunTestsInFile("zoom_manager_test.js", "test.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, Elements) {
-  // Although this test file does not require a PDF to be loaded, loading the
-  // elements without loading a PDF is difficult.
-  RunTestsInFile("material_elements_test.js", "test.pdf");
-}
-
-// TODO(tsergeant): Verify that flake is fixed. http://crbug.com/550015
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, ToolbarManager) {
-  RunTestsInFile("toolbar_manager_test.js", "test.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, Title) {
-  RunTestsInFile("title_test.js", "test-title.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, WhitespaceTitle) {
-  RunTestsInFile("whitespace_title_test.js", "test-whitespace-title.pdf");
-}
-
-IN_PROC_BROWSER_TEST_F(MaterialPDFExtensionTest, PageChange) {
-  RunTestsInFile("page_change_test.js", "test-bookmarks.pdf");
-}

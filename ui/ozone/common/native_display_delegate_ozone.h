@@ -5,6 +5,8 @@
 #ifndef UI_OZONE_COMMON_NATIVE_DISPLAY_DELEGATE_OZONE_H_
 #define UI_OZONE_COMMON_NATIVE_DISPLAY_DELEGATE_OZONE_H_
 
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "ui/display/types/native_display_delegate.h"
@@ -51,7 +53,7 @@ class NativeDisplayDelegateOzone : public NativeDisplayDelegate {
   void RemoveObserver(NativeDisplayObserver* observer) override;
 
  private:
-  ScopedVector<DisplaySnapshot> displays_;
+  std::vector<scoped_ptr<DisplaySnapshot>> displays_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeDisplayDelegateOzone);
 };

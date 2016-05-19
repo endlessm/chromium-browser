@@ -4,15 +4,49 @@
 
 #include "content/renderer/raster_worker_pool.h"
 
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "base/strings/stringprintf.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/trace_event/trace_event.h"
+#include "cc/base/math_util.h"
+#include "cc/raster/task_category.h"
 
 namespace content {
+namespace {
+
+// A thread which forwards to RasterWorkerPool::Run with the runnable
+// categories.
+class RasterWorkerPoolThread : public base::SimpleThread {
+ public:
+  RasterWorkerPoolThread(const std::string& name_prefix,
+                         const Options& options,
+                         RasterWorkerPool* pool,
+                         std::vector<cc::TaskCategory> categories,
+                         base::ConditionVariable* has_ready_to_run_tasks_cv)
+      : SimpleThread(name_prefix, options),
+        pool_(pool),
+        categories_(categories),
+        has_ready_to_run_tasks_cv_(has_ready_to_run_tasks_cv) {}
+
+  void Run() override { pool_->Run(categories_, has_ready_to_run_tasks_cv_); }
+
+ private:
+  RasterWorkerPool* const pool_;
+  const std::vector<cc::TaskCategory> categories_;
+  base::ConditionVariable* const has_ready_to_run_tasks_cv_;
+};
+
+}  // namespace
 
 // A sequenced task runner which posts tasks to a RasterWorkerPool.
 class RasterWorkerPool::RasterWorkerPoolSequencedTaskRunner
     : public base::SequencedTaskRunner {
  public:
-  RasterWorkerPoolSequencedTaskRunner(cc::TaskGraphRunner* task_graph_runner)
+  explicit RasterWorkerPoolSequencedTaskRunner(
+      cc::TaskGraphRunner* task_graph_runner)
       : task_graph_runner_(task_graph_runner),
         namespace_token_(task_graph_runner->GetNamespaceToken()) {}
 
@@ -44,7 +78,11 @@ class RasterWorkerPool::RasterWorkerPoolSequencedTaskRunner
       if (!graph_.nodes.empty())
         dependencies = 1;
 
-      cc::TaskGraph::Node node(graph_task.get(), 0, dependencies);
+      // Treat any tasks that are enqueued through the SequencedTaskRunner as
+      // FOREGROUND priority. We don't have enough information to know the
+      // actual priority of such tasks, so we run them as soon as possible.
+      cc::TaskGraph::Node node(graph_task.get(), cc::TASK_CATEGORY_FOREGROUND,
+                               0u /* priority */, dependencies);
       if (dependencies) {
         graph_.edges.push_back(
             cc::TaskGraph::Edge(graph_.nodes.back().task, node.task));
@@ -63,11 +101,11 @@ class RasterWorkerPool::RasterWorkerPoolSequencedTaskRunner
                                               &completed_tasks_);
   };
 
-  cc::TaskGraphRunner* const task_graph_runner_;
-
   // Lock to exclusively access all the following members that are used to
   // implement the SequencedTaskRunner interfaces.
   base::Lock lock_;
+
+  cc::TaskGraphRunner* task_graph_runner_;
   // Namespace used to schedule tasks in the task graph runner.
   cc::NamespaceToken namespace_token_;
   // List of tasks currently queued up for execution.
@@ -80,29 +118,69 @@ class RasterWorkerPool::RasterWorkerPoolSequencedTaskRunner
 };
 
 RasterWorkerPool::RasterWorkerPool()
-    : namespace_token_(task_graph_runner_.GetNamespaceToken()) {}
+    : namespace_token_(GetNamespaceToken()),
+      has_ready_to_run_foreground_tasks_cv_(&lock_),
+      has_ready_to_run_background_tasks_cv_(&lock_),
+      has_namespaces_with_finished_running_tasks_cv_(&lock_),
+      shutdown_(false) {}
 
-void RasterWorkerPool::Start(
-    int num_threads,
-    const base::SimpleThread::Options& thread_options) {
+void RasterWorkerPool::Start(int num_threads) {
   DCHECK(threads_.empty());
-  while (threads_.size() < static_cast<size_t>(num_threads)) {
-    scoped_ptr<base::DelegateSimpleThread> thread(
-        new base::DelegateSimpleThread(
-            this, base::StringPrintf("CompositorTileWorker%u",
-                                     static_cast<unsigned>(threads_.size() + 1))
-                      .c_str(),
-            thread_options));
+
+  // Start |num_threads| threads for foreground work, including nonconcurrent
+  // foreground work.
+  std::vector<cc::TaskCategory> foreground_categories;
+  foreground_categories.push_back(cc::TASK_CATEGORY_NONCONCURRENT_FOREGROUND);
+  foreground_categories.push_back(cc::TASK_CATEGORY_FOREGROUND);
+
+  for (int i = 0; i < num_threads; i++) {
+    scoped_ptr<base::SimpleThread> thread(new RasterWorkerPoolThread(
+        base::StringPrintf("CompositorTileWorker%u",
+                           static_cast<unsigned>(threads_.size() + 1))
+            .c_str(),
+        base::SimpleThread::Options(), this, foreground_categories,
+        &has_ready_to_run_foreground_tasks_cv_));
     thread->Start();
-    threads_.push_back(thread.Pass());
+    threads_.push_back(std::move(thread));
   }
+
+  // Start a single thread for background work.
+  std::vector<cc::TaskCategory> background_categories;
+  background_categories.push_back(cc::TASK_CATEGORY_BACKGROUND);
+
+  // Use background priority for background thread.
+  base::SimpleThread::Options thread_options;
+#if !defined(OS_MACOSX)
+  thread_options.set_priority(base::ThreadPriority::BACKGROUND);
+#endif
+
+  scoped_ptr<base::SimpleThread> thread(new RasterWorkerPoolThread(
+      base::StringPrintf("CompositorTileWorker%u",
+                         static_cast<unsigned>(threads_.size() + 1))
+          .c_str(),
+      thread_options, this, background_categories,
+      &has_ready_to_run_background_tasks_cv_));
+  thread->Start();
+  threads_.push_back(std::move(thread));
 }
 
 void RasterWorkerPool::Shutdown() {
-  task_graph_runner_.WaitForTasksToFinishRunning(namespace_token_);
-  task_graph_runner_.CollectCompletedTasks(namespace_token_, &completed_tasks_);
+  WaitForTasksToFinishRunning(namespace_token_);
+  CollectCompletedTasks(namespace_token_, &completed_tasks_);
   // Shutdown raster threads.
-  task_graph_runner_.Shutdown();
+  {
+    base::AutoLock lock(lock_);
+
+    DCHECK(!work_queue_.HasReadyToRunTasks());
+    DCHECK(!work_queue_.HasAnyNamespaces());
+
+    DCHECK(!shutdown_);
+    shutdown_ = true;
+
+    // Wake up all workers so they exit.
+    has_ready_to_run_foreground_tasks_cv_.Broadcast();
+    has_ready_to_run_background_tasks_cv_.Broadcast();
+  }
   while (!threads_.empty()) {
     threads_.back()->Join();
     threads_.pop_back();
@@ -118,7 +196,7 @@ bool RasterWorkerPool::PostDelayedTask(
 
   // Remove completed tasks.
   DCHECK(completed_tasks_.empty());
-  task_graph_runner_.CollectCompletedTasks(namespace_token_, &completed_tasks_);
+  CollectCompletedTasksWithLockAcquired(namespace_token_, &completed_tasks_);
 
   cc::Task::Vector::iterator end = std::remove_if(
       tasks_.begin(), tasks_.end(), [this](const scoped_refptr<cc::Task>& e) {
@@ -130,10 +208,15 @@ bool RasterWorkerPool::PostDelayedTask(
 
   tasks_.push_back(make_scoped_refptr(new ClosureTask(task)));
   graph_.Reset();
-  for (const auto& graph_task : tasks_)
-    graph_.nodes.push_back(cc::TaskGraph::Node(graph_task.get(), 0, 0));
+  for (const auto& graph_task : tasks_) {
+    // Delayed tasks are assigned FOREGROUND category, ensuring that they run as
+    // soon as possible once their delay has expired.
+    graph_.nodes.push_back(
+        cc::TaskGraph::Node(graph_task.get(), cc::TASK_CATEGORY_FOREGROUND,
+                            0u /* priority */, 0u /* dependencies */));
+  }
 
-  task_graph_runner_.ScheduleTasks(namespace_token_, &graph_);
+  ScheduleTasksWithLockAcquired(namespace_token_, &graph_);
   completed_tasks_.clear();
   return true;
 }
@@ -142,17 +225,202 @@ bool RasterWorkerPool::RunsTasksOnCurrentThread() const {
   return true;
 }
 
-// Overridden from base::DelegateSimpleThread::Delegate:
-void RasterWorkerPool::Run() {
-  task_graph_runner_.Run();
+void RasterWorkerPool::Run(const std::vector<cc::TaskCategory>& categories,
+                           base::ConditionVariable* has_ready_to_run_tasks_cv) {
+  base::AutoLock lock(lock_);
+
+  while (true) {
+    if (!RunTaskWithLockAcquired(categories)) {
+      // We are no longer running tasks, which may allow another category to
+      // start running. Signal other worker threads.
+      SignalHasReadyToRunTasksWithLockAcquired();
+
+      // Exit when shutdown is set and no more tasks are pending.
+      if (shutdown_)
+        break;
+
+      // Wait for more tasks.
+      has_ready_to_run_tasks_cv->Wait();
+      continue;
+    }
+  }
+}
+
+void RasterWorkerPool::FlushForTesting() {
+  base::AutoLock lock(lock_);
+
+  while (!work_queue_.HasFinishedRunningTasksInAllNamespaces()) {
+    has_namespaces_with_finished_running_tasks_cv_.Wait();
+  }
 }
 
 scoped_refptr<base::SequencedTaskRunner>
 RasterWorkerPool::CreateSequencedTaskRunner() {
-  return new RasterWorkerPoolSequencedTaskRunner(&task_graph_runner_);
+  return new RasterWorkerPoolSequencedTaskRunner(this);
 }
 
 RasterWorkerPool::~RasterWorkerPool() {}
+
+cc::NamespaceToken RasterWorkerPool::GetNamespaceToken() {
+  base::AutoLock lock(lock_);
+  return work_queue_.GetNamespaceToken();
+}
+
+void RasterWorkerPool::ScheduleTasks(cc::NamespaceToken token,
+                                     cc::TaskGraph* graph) {
+  TRACE_EVENT2("disabled-by-default-cc.debug",
+               "RasterWorkerPool::ScheduleTasks", "num_nodes",
+               graph->nodes.size(), "num_edges", graph->edges.size());
+  {
+    base::AutoLock lock(lock_);
+    ScheduleTasksWithLockAcquired(token, graph);
+  }
+}
+
+void RasterWorkerPool::ScheduleTasksWithLockAcquired(cc::NamespaceToken token,
+                                                     cc::TaskGraph* graph) {
+  DCHECK(token.IsValid());
+  DCHECK(!cc::TaskGraphWorkQueue::DependencyMismatch(graph));
+  DCHECK(!shutdown_);
+
+  work_queue_.ScheduleTasks(token, graph);
+
+  // There may be more work available, so wake up another worker thread.
+  SignalHasReadyToRunTasksWithLockAcquired();
+}
+
+void RasterWorkerPool::WaitForTasksToFinishRunning(cc::NamespaceToken token) {
+  TRACE_EVENT0("disabled-by-default-cc.debug",
+               "RasterWorkerPool::WaitForTasksToFinishRunning");
+
+  DCHECK(token.IsValid());
+
+  {
+    base::AutoLock lock(lock_);
+    base::ThreadRestrictions::ScopedAllowWait allow_wait;
+
+    auto* task_namespace = work_queue_.GetNamespaceForToken(token);
+
+    if (!task_namespace)
+      return;
+
+    while (!work_queue_.HasFinishedRunningTasksInNamespace(task_namespace))
+      has_namespaces_with_finished_running_tasks_cv_.Wait();
+
+    // There may be other namespaces that have finished running tasks, so wake
+    // up another origin thread.
+    has_namespaces_with_finished_running_tasks_cv_.Signal();
+  }
+}
+
+void RasterWorkerPool::CollectCompletedTasks(
+    cc::NamespaceToken token,
+    cc::Task::Vector* completed_tasks) {
+  TRACE_EVENT0("disabled-by-default-cc.debug",
+               "RasterWorkerPool::CollectCompletedTasks");
+
+  {
+    base::AutoLock lock(lock_);
+    CollectCompletedTasksWithLockAcquired(token, completed_tasks);
+  }
+}
+
+void RasterWorkerPool::CollectCompletedTasksWithLockAcquired(
+    cc::NamespaceToken token,
+    cc::Task::Vector* completed_tasks) {
+  DCHECK(token.IsValid());
+  work_queue_.CollectCompletedTasks(token, completed_tasks);
+}
+
+bool RasterWorkerPool::RunTaskWithLockAcquired(
+    const std::vector<cc::TaskCategory>& categories) {
+  for (const auto& category : categories) {
+    if (ShouldRunTaskForCategoryWithLockAcquired(category)) {
+      RunTaskInCategoryWithLockAcquired(category);
+      return true;
+    }
+  }
+  return false;
+}
+
+void RasterWorkerPool::RunTaskInCategoryWithLockAcquired(
+    cc::TaskCategory category) {
+  TRACE_EVENT0("toplevel", "TaskGraphRunner::RunTask");
+
+  lock_.AssertAcquired();
+
+  auto prioritized_task = work_queue_.GetNextTaskToRun(category);
+  cc::Task* task = prioritized_task.task;
+
+  // There may be more work available, so wake up another worker thread.
+  SignalHasReadyToRunTasksWithLockAcquired();
+
+  // Call WillRun() before releasing |lock_| and running task.
+  task->WillRun();
+
+  {
+    base::AutoUnlock unlock(lock_);
+
+    task->RunOnWorkerThread();
+  }
+
+  // This will mark task as finished running.
+  task->DidRun();
+
+  work_queue_.CompleteTask(prioritized_task);
+
+  // If namespace has finished running all tasks, wake up origin threads.
+  if (work_queue_.HasFinishedRunningTasksInNamespace(
+          prioritized_task.task_namespace))
+    has_namespaces_with_finished_running_tasks_cv_.Signal();
+}
+
+bool RasterWorkerPool::ShouldRunTaskForCategoryWithLockAcquired(
+    cc::TaskCategory category) {
+  lock_.AssertAcquired();
+
+  if (!work_queue_.HasReadyToRunTasksForCategory(category))
+    return false;
+
+  if (category == cc::TASK_CATEGORY_BACKGROUND) {
+    // Only run background tasks if there are no foreground tasks running or
+    // ready to run.
+    size_t num_running_foreground_tasks =
+        work_queue_.NumRunningTasksForCategory(
+            cc::TASK_CATEGORY_NONCONCURRENT_FOREGROUND) +
+        work_queue_.NumRunningTasksForCategory(cc::TASK_CATEGORY_FOREGROUND);
+    bool has_ready_to_run_foreground_tasks =
+        work_queue_.HasReadyToRunTasksForCategory(
+            cc::TASK_CATEGORY_NONCONCURRENT_FOREGROUND) ||
+        work_queue_.HasReadyToRunTasksForCategory(cc::TASK_CATEGORY_FOREGROUND);
+
+    if (num_running_foreground_tasks > 0 || has_ready_to_run_foreground_tasks)
+      return false;
+  }
+
+  // Enforce that only one nonconcurrent task runs at a time.
+  if (category == cc::TASK_CATEGORY_NONCONCURRENT_FOREGROUND &&
+      work_queue_.NumRunningTasksForCategory(
+          cc::TASK_CATEGORY_NONCONCURRENT_FOREGROUND) > 0) {
+    return false;
+  }
+
+  return true;
+}
+
+void RasterWorkerPool::SignalHasReadyToRunTasksWithLockAcquired() {
+  lock_.AssertAcquired();
+
+  if (ShouldRunTaskForCategoryWithLockAcquired(cc::TASK_CATEGORY_FOREGROUND) ||
+      ShouldRunTaskForCategoryWithLockAcquired(
+          cc::TASK_CATEGORY_NONCONCURRENT_FOREGROUND)) {
+    has_ready_to_run_foreground_tasks_cv_.Signal();
+  }
+
+  if (ShouldRunTaskForCategoryWithLockAcquired(cc::TASK_CATEGORY_BACKGROUND)) {
+    has_ready_to_run_background_tasks_cv_.Signal();
+  }
+}
 
 RasterWorkerPool::ClosureTask::ClosureTask(const base::Closure& closure)
     : closure_(closure) {}
@@ -161,7 +429,7 @@ RasterWorkerPool::ClosureTask::ClosureTask(const base::Closure& closure)
 void RasterWorkerPool::ClosureTask::RunOnWorkerThread() {
   closure_.Run();
   closure_.Reset();
-};
+}
 
 RasterWorkerPool::ClosureTask::~ClosureTask() {}
 

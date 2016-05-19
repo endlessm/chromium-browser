@@ -26,6 +26,8 @@ class TransportChannelImpl;
 namespace remoting {
 namespace protocol {
 
+class TransportContext;
+
 class IceTransportChannel : public sigslot::has_slots<> {
  public:
   class Delegate {
@@ -35,37 +37,33 @@ class IceTransportChannel : public sigslot::has_slots<> {
 
     // Called to pass ICE credentials to the session. Used only for STANDARD
     // version of ICE, see SetIceVersion().
-    virtual void OnTransportIceCredentials(IceTransportChannel* transport,
+    virtual void OnChannelIceCredentials(IceTransportChannel* transport,
                                            const std::string& ufrag,
                                            const std::string& password) = 0;
 
     // Called when the transport generates a new candidate that needs
     // to be passed to the AddRemoteCandidate() method on the remote
     // end of the connection.
-    virtual void OnTransportCandidate(IceTransportChannel* transport,
+    virtual void OnChannelCandidate(IceTransportChannel* transport,
                                       const cricket::Candidate& candidate) = 0;
 
     // Called when transport route changes. Can be called even before
     // the transport is connected.
-    virtual void OnTransportRouteChange(IceTransportChannel* transport,
+    virtual void OnChannelRouteChange(IceTransportChannel* transport,
                                         const TransportRoute& route) = 0;
 
-    // Called when when the transport has failed to connect or reconnect.
-    virtual void OnTransportFailed(IceTransportChannel* transport) = 0;
+    // Called when when the channel has failed to connect or reconnect.
+    virtual void OnChannelFailed(IceTransportChannel* transport) = 0;
 
-    // Called when the transport is about to be deleted.
-    virtual void OnTransportDeleted(IceTransportChannel* transport) = 0;
+    // Called when the channel is about to be deleted.
+    virtual void OnChannelDeleted(IceTransportChannel* transport) = 0;
   };
 
   typedef base::Callback<void(scoped_ptr<P2PDatagramSocket>)> ConnectedCallback;
 
-  IceTransportChannel(cricket::PortAllocator* port_allocator,
-                      const NetworkSettings& network_settings,
-                      TransportRole role);
+  explicit IceTransportChannel(
+      scoped_refptr<TransportContext> transport_context);
   ~IceTransportChannel() override;
-
-  // Called by IceTransport when it has fresh Jingle info.
-  void OnCanStart();
 
   // Connects the channel and calls the |callback| after that.
   void Connect(const std::string& name,
@@ -87,7 +85,9 @@ class IceTransportChannel : public sigslot::has_slots<> {
   bool is_connected() const;
 
  private:
-  void DoStart();
+  void OnPortAllocatorCreated(
+      scoped_ptr<cricket::PortAllocator> port_allocator);
+
   void NotifyConnected();
 
   // Signal handlers for cricket::TransportChannel.
@@ -95,7 +95,6 @@ class IceTransportChannel : public sigslot::has_slots<> {
                            const cricket::Candidate& candidate);
   void OnRouteChange(cricket::TransportChannel* channel,
                      const cricket::Candidate& candidate);
-  void OnReceivingState(cricket::TransportChannel* channel);
   void OnWritableState(cricket::TransportChannel* channel);
 
   // Callback for TransportChannelSocketAdapter to notify when the socket is
@@ -107,16 +106,14 @@ class IceTransportChannel : public sigslot::has_slots<> {
   // Tries to connect by restarting ICE. Called by |reconnect_timer_|.
   void TryReconnect();
 
-  cricket::PortAllocator* port_allocator_;
-  NetworkSettings network_settings_;
-  TransportRole role_;
+  scoped_refptr<TransportContext> transport_context_;
 
   std::string name_;
-  Delegate* delegate_;
+  Delegate* delegate_ = nullptr;
   ConnectedCallback callback_;
   std::string ice_username_fragment_;
 
-  bool can_start_;
+  scoped_ptr<cricket::PortAllocator> port_allocator_;
 
   std::string remote_ice_username_fragment_;
   std::string remote_ice_password_;

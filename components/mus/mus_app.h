@@ -5,21 +5,26 @@
 #ifndef COMPONENTS_MUS_MUS_APP_H_
 #define COMPONENTS_MUS_MUS_APP_H_
 
-#include <set>
+#include <stdint.h>
 
+#include <string>
+#include <vector>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "components/mus/public/interfaces/display.mojom.h"
 #include "components/mus/public/interfaces/gpu.mojom.h"
+#include "components/mus/public/interfaces/window_manager_factory.mojom.h"
 #include "components/mus/public/interfaces/window_tree.mojom.h"
 #include "components/mus/public/interfaces/window_tree_host.mojom.h"
 #include "components/mus/ws/connection_manager_delegate.h"
-#include "mojo/application/public/cpp/app_lifetime_helper.h"
-#include "mojo/application/public/cpp/application_delegate.h"
-#include "mojo/application/public/cpp/interface_factory.h"
-#include "mojo/common/weak_binding_set.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/services/tracing/public/cpp/tracing_impl.h"
+#include "mojo/shell/public/cpp/interface_factory.h"
+#include "mojo/shell/public/cpp/shell_client.h"
 
 namespace mojo {
-class ApplicationImpl;
+class Connector;
 }
 
 namespace ui {
@@ -33,11 +38,16 @@ class SurfacesState;
 
 namespace ws {
 class ConnectionManager;
+class ForwardingWindowManager;
+class WindowTreeFactory;
 }
 
 class MandolineUIServicesApp
-    : public mojo::ApplicationDelegate,
+    : public mojo::ShellClient,
       public ws::ConnectionManagerDelegate,
+      public mojo::InterfaceFactory<mojom::DisplayManager>,
+      public mojo::InterfaceFactory<mojom::WindowManagerFactoryService>,
+      public mojo::InterfaceFactory<mojom::WindowTreeFactory>,
       public mojo::InterfaceFactory<mojom::WindowTreeHostFactory>,
       public mojo::InterfaceFactory<mojom::Gpu>,
       public mojom::WindowTreeHostFactory {
@@ -46,41 +56,63 @@ class MandolineUIServicesApp
   ~MandolineUIServicesApp() override;
 
  private:
-  // ApplicationDelegate:
-  void Initialize(mojo::ApplicationImpl* app) override;
-  bool ConfigureIncomingConnection(
-      mojo::ApplicationConnection* connection) override;
+  // Holds InterfaceRequests received before the first WindowTreeHost Display
+  // has been established.
+  struct PendingRequest;
+
+  void InitializeResources(mojo::Connector* connector);
+
+  // mojo::ShellClient:
+  void Initialize(mojo::Connector* connector, const std::string& url,
+                  uint32_t id, uint32_t user_id) override;
+  bool AcceptConnection(mojo::Connection* connection) override;
 
   // ConnectionManagerDelegate:
+  void OnFirstRootConnectionCreated() override;
   void OnNoMoreRootConnections() override;
   ws::ClientConnection* CreateClientConnectionForEmbedAtWindow(
       ws::ConnectionManager* connection_manager,
       mojo::InterfaceRequest<mojom::WindowTree> tree_request,
-      ConnectionSpecificId creator_id,
-      const ws::WindowId& root_id,
+      ws::ServerWindow* root,
       uint32_t policy_bitmask,
       mojom::WindowTreeClientPtr client) override;
 
+  // mojo::InterfaceFactory<mojom::DisplayManager> implementation.
+  void Create(mojo::Connection* connection,
+              mojo::InterfaceRequest<mojom::DisplayManager> request) override;
+
+  // mojo::InterfaceFactory<mojom::WindowManagerFactoryService> implementation.
+  void Create(mojo::Connection* connection,
+              mojo::InterfaceRequest<mojom::WindowManagerFactoryService>
+                  request) override;
+
+  // mojo::InterfaceFactory<mojom::WindowTreeFactory>:
+  void Create(
+      mojo::Connection* connection,
+      mojo::InterfaceRequest<mojom::WindowTreeFactory> request) override;
+
   // mojo::InterfaceFactory<mojom::WindowTreeHostFactory>:
   void Create(
-      mojo::ApplicationConnection* connection,
+      mojo::Connection* connection,
       mojo::InterfaceRequest<mojom::WindowTreeHostFactory> request) override;
 
   // mojo::InterfaceFactory<mojom::Gpu> implementation.
-  void Create(mojo::ApplicationConnection* connection,
+  void Create(mojo::Connection* connection,
               mojo::InterfaceRequest<mojom::Gpu> request) override;
 
   // mojom::WindowTreeHostFactory implementation.
   void CreateWindowTreeHost(mojo::InterfaceRequest<mojom::WindowTreeHost> host,
-                            mojom::WindowTreeHostClientPtr host_client,
-                            mojom::WindowTreeClientPtr tree_client,
-                            mojom::WindowManagerPtr window_manager) override;
+                            mojom::WindowTreeClientPtr tree_client) override;
 
-  mojo::WeakBindingSet<mojom::WindowTreeHostFactory> factory_bindings_;
-  mojo::ApplicationImpl* app_impl_;
+  mojo::BindingSet<mojom::WindowTreeHostFactory> factory_bindings_;
+  mojo::Connector* connector_;
   scoped_ptr<ws::ConnectionManager> connection_manager_;
   scoped_refptr<GpuState> gpu_state_;
   scoped_ptr<ui::PlatformEventSource> event_source_;
+  mojo::TracingImpl tracing_;
+  using PendingRequests = std::vector<scoped_ptr<PendingRequest>>;
+  PendingRequests pending_requests_;
+  scoped_ptr<ws::WindowTreeFactory> window_tree_factory_;
 
   // Surfaces
   scoped_refptr<SurfacesState> surfaces_state_;

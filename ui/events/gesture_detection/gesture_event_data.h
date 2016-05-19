@@ -5,6 +5,8 @@
 #ifndef UI_EVENTS_GESTURE_DETECTION_GESTURE_EVENT_DATA_H_
 #define UI_EVENTS_GESTURE_DETECTION_GESTURE_EVENT_DATA_H_
 
+#include <stddef.h>
+
 #include "base/time/time.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/gesture_detection/gesture_detection_export.h"
@@ -28,6 +30,7 @@ struct GESTURE_DETECTION_EXPORT GestureEventData {
                    const gfx::RectF& bounding_box,
                    int flags);
   GestureEventData(EventType type, const GestureEventData&);
+  GestureEventData(const GestureEventData& other);
 
   EventType type() const { return details.type(); }
 

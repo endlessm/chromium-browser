@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media/cast/logging/encoding_event_subscriber.h"
+
+#include <stdint.h>
+#include <utility>
+
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "media/cast/cast_environment.h"
-#include "media/cast/logging/encoding_event_subscriber.h"
 #include "media/cast/logging/logging_defines.h"
 #include "media/cast/test/fake_single_thread_task_runner.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -19,7 +23,7 @@ using media::cast::proto::LogMetadata;
 
 namespace {
 
-int64 InMilliseconds(base::TimeTicks event_time) {
+int64_t InMilliseconds(base::TimeTicks event_time) {
   return (event_time - base::TimeTicks()).InMilliseconds();
 }
 
@@ -33,12 +37,11 @@ class EncodingEventSubscriberTest : public ::testing::Test {
   EncodingEventSubscriberTest()
       : testing_clock_(new base::SimpleTestTickClock()),
         task_runner_(new test::FakeSingleThreadTaskRunner(testing_clock_)),
-        cast_environment_(new CastEnvironment(
-            scoped_ptr<base::TickClock>(testing_clock_).Pass(),
-            task_runner_,
-            task_runner_,
-            task_runner_)),
-        first_rtp_timestamp_(0) {}
+        cast_environment_(
+            new CastEnvironment(scoped_ptr<base::TickClock>(testing_clock_),
+                                task_runner_,
+                                task_runner_,
+                                task_runner_)) {}
 
   void Init(EventMediaType event_media_type) {
     DCHECK(!event_subscriber_);
@@ -54,7 +57,8 @@ class EncodingEventSubscriberTest : public ::testing::Test {
   void GetEventsAndReset() {
     event_subscriber_->GetEventsAndReset(
         &metadata_, &frame_events_, &packet_events_);
-    first_rtp_timestamp_ = metadata_.first_rtp_timestamp();
+    first_rtp_timestamp_ =
+        RtpTimeTicks().Expand(metadata_.first_rtp_timestamp());
   }
 
   base::SimpleTestTickClock* testing_clock_;  // Owned by CastEnvironment.
@@ -64,7 +68,7 @@ class EncodingEventSubscriberTest : public ::testing::Test {
   FrameEventList frame_events_;
   PacketEventList packet_events_;
   LogMetadata metadata_;
-  RtpTimestamp first_rtp_timestamp_;
+  RtpTimeTicks first_rtp_timestamp_;
 };
 
 TEST_F(EncodingEventSubscriberTest, FrameEventTruncating) {
@@ -80,25 +84,28 @@ TEST_F(EncodingEventSubscriberTest, FrameEventTruncating) {
     capture_begin_event->timestamp = now;
     capture_begin_event->type = FRAME_CAPTURE_BEGIN;
     capture_begin_event->media_type = VIDEO_EVENT;
-    capture_begin_event->rtp_timestamp = i * 100;
-    cast_environment_->logger()->DispatchFrameEvent(capture_begin_event.Pass());
+    capture_begin_event->rtp_timestamp =
+        RtpTimeTicks().Expand<uint32_t>(i * 100);
+    cast_environment_->logger()->DispatchFrameEvent(
+        std::move(capture_begin_event));
 
     scoped_ptr<FrameEvent> capture_end_event(new FrameEvent());
     capture_end_event->timestamp = now;
     capture_end_event->type = FRAME_CAPTURE_END;
     capture_end_event->media_type = VIDEO_EVENT;
-    capture_end_event->rtp_timestamp = i * 100;
+    capture_end_event->rtp_timestamp = RtpTimeTicks().Expand<uint32_t>(i * 100);
     capture_end_event->width = width;
     capture_end_event->height = height;
-    cast_environment_->logger()->DispatchFrameEvent(capture_end_event.Pass());
+    cast_environment_->logger()->DispatchFrameEvent(
+        std::move(capture_end_event));
 
     scoped_ptr<FrameEvent> decoded_event(new FrameEvent());
     decoded_event->timestamp = now;
     decoded_event->type = FRAME_DECODED;
     decoded_event->media_type = VIDEO_EVENT;
-    decoded_event->rtp_timestamp = i * 100;
+    decoded_event->rtp_timestamp = RtpTimeTicks().Expand<uint32_t>(i * 100);
     decoded_event->frame_id = 0;
-    cast_environment_->logger()->DispatchFrameEvent(decoded_event.Pass());
+    cast_environment_->logger()->DispatchFrameEvent(std::move(decoded_event));
 
     width += 160;
     height += 90;
@@ -130,12 +137,12 @@ TEST_F(EncodingEventSubscriberTest, PacketEventTruncating) {
     receive_event->timestamp = now;
     receive_event->type = PACKET_RECEIVED;
     receive_event->media_type = AUDIO_EVENT;
-    receive_event->rtp_timestamp = i * 100;
+    receive_event->rtp_timestamp = RtpTimeTicks().Expand<uint32_t>(i * 100);
     receive_event->frame_id = 0;
     receive_event->packet_id = i;
     receive_event->max_packet_id = 10;
     receive_event->size = 123;
-    cast_environment_->logger()->DispatchPacketEvent(receive_event.Pass());
+    cast_environment_->logger()->DispatchPacketEvent(std::move(receive_event));
   }
 
   GetEventsAndReset();
@@ -145,18 +152,65 @@ TEST_F(EncodingEventSubscriberTest, PacketEventTruncating) {
   EXPECT_EQ(1000u, packet_events_.back()->relative_rtp_timestamp());
 }
 
+TEST_F(EncodingEventSubscriberTest, TooManyProtos) {
+  Init(VIDEO_EVENT);
+  size_t num_frame_event_protos = 3;
+  size_t num_packet_event_protos = kMaxProtosPerFrame - num_frame_event_protos;
+  base::TimeTicks now(testing_clock_->NowTicks());
+
+  for (size_t i = 0; i < num_frame_event_protos; i++) {
+    for (int j = 0; j < kMaxEventsPerProto; j++) {
+      scoped_ptr<FrameEvent> capture_begin_event(new FrameEvent());
+      capture_begin_event->timestamp = now;
+      capture_begin_event->type = FRAME_CAPTURE_BEGIN;
+      capture_begin_event->media_type = VIDEO_EVENT;
+      capture_begin_event->rtp_timestamp = RtpTimeTicks();
+      cast_environment_->logger()->DispatchFrameEvent(
+          std::move(capture_begin_event));
+    }
+  }
+
+  for (size_t i = 0; i < num_packet_event_protos; i++) {
+    for (int j = 0; j < kMaxEventsPerProto; j++) {
+      scoped_ptr<PacketEvent> receive_event(new PacketEvent());
+      receive_event->timestamp = now;
+      receive_event->type = PACKET_RECEIVED;
+      receive_event->media_type = VIDEO_EVENT;
+      receive_event->rtp_timestamp = RtpTimeTicks();
+      receive_event->frame_id = 0;
+      receive_event->packet_id = 0;
+      receive_event->max_packet_id = 10;
+      receive_event->size = 123;
+      cast_environment_->logger()->DispatchPacketEvent(
+          std::move(receive_event));
+    }
+  }
+
+  scoped_ptr<FrameEvent> capture_begin_event(new FrameEvent());
+  capture_begin_event->timestamp = now;
+  capture_begin_event->type = FRAME_CAPTURE_BEGIN;
+  capture_begin_event->media_type = VIDEO_EVENT;
+  capture_begin_event->rtp_timestamp = RtpTimeTicks();
+  cast_environment_->logger()->DispatchFrameEvent(
+      std::move(capture_begin_event));
+
+  GetEventsAndReset();
+  EXPECT_EQ(num_frame_event_protos, frame_events_.size());
+  EXPECT_EQ(num_packet_event_protos, packet_events_.size());
+}
+
 TEST_F(EncodingEventSubscriberTest, EventFiltering) {
   Init(VIDEO_EVENT);
 
   base::TimeTicks now(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   scoped_ptr<FrameEvent> video_event(new FrameEvent());
   video_event->timestamp = now;
   video_event->type = FRAME_DECODED;
   video_event->media_type = VIDEO_EVENT;
   video_event->rtp_timestamp = rtp_timestamp;
   video_event->frame_id = 0;
-  cast_environment_->logger()->DispatchFrameEvent(video_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(video_event));
 
   // This is an AUDIO_EVENT and shouldn't be processed by the subscriber.
   scoped_ptr<FrameEvent> audio_event(new FrameEvent());
@@ -165,7 +219,7 @@ TEST_F(EncodingEventSubscriberTest, EventFiltering) {
   audio_event->media_type = AUDIO_EVENT;
   audio_event->rtp_timestamp = rtp_timestamp;
   audio_event->frame_id = 0;
-  cast_environment_->logger()->DispatchFrameEvent(audio_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(audio_event));
 
   GetEventsAndReset();
 
@@ -186,25 +240,25 @@ TEST_F(EncodingEventSubscriberTest, EventFiltering) {
 TEST_F(EncodingEventSubscriberTest, FrameEvent) {
   Init(VIDEO_EVENT);
   base::TimeTicks now(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   scoped_ptr<FrameEvent> decode_event(new FrameEvent());
   decode_event->timestamp = now;
   decode_event->type = FRAME_DECODED;
   decode_event->media_type = VIDEO_EVENT;
   decode_event->rtp_timestamp = rtp_timestamp;
   decode_event->frame_id = 0;
-  cast_environment_->logger()->DispatchFrameEvent(decode_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(decode_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(1u, frame_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp - first_rtp_timestamp_;
   FrameEventList::iterator it = frame_events_.begin();
 
   linked_ptr<AggregatedFrameEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->event_type_size());
   EXPECT_EQ(media::cast::proto::FRAME_DECODED, event->event_type(0));
@@ -221,7 +275,7 @@ TEST_F(EncodingEventSubscriberTest, FrameEvent) {
 TEST_F(EncodingEventSubscriberTest, FrameEventDelay) {
   Init(AUDIO_EVENT);
   base::TimeTicks now(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   int delay_ms = 100;
   scoped_ptr<FrameEvent> playout_event(new FrameEvent());
   playout_event->timestamp = now;
@@ -230,18 +284,18 @@ TEST_F(EncodingEventSubscriberTest, FrameEventDelay) {
   playout_event->rtp_timestamp = rtp_timestamp;
   playout_event->frame_id = 0;
   playout_event->delay_delta = base::TimeDelta::FromMilliseconds(delay_ms);
-  cast_environment_->logger()->DispatchFrameEvent(playout_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(playout_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(1u, frame_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp - first_rtp_timestamp_;
   FrameEventList::iterator it = frame_events_.begin();
 
   linked_ptr<AggregatedFrameEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->event_type_size());
   EXPECT_EQ(media::cast::proto::FRAME_PLAYOUT, event->event_type(0));
@@ -256,7 +310,7 @@ TEST_F(EncodingEventSubscriberTest, FrameEventDelay) {
 TEST_F(EncodingEventSubscriberTest, FrameEventSize) {
   Init(VIDEO_EVENT);
   base::TimeTicks now(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   int size = 123;
   bool key_frame = true;
   int target_bitrate = 1024;
@@ -273,18 +327,18 @@ TEST_F(EncodingEventSubscriberTest, FrameEventSize) {
   encode_event->target_bitrate = target_bitrate;
   encode_event->encoder_cpu_utilization = encoder_cpu_utilization;
   encode_event->idealized_bitrate_utilization = idealized_bitrate_utilization;
-  cast_environment_->logger()->DispatchFrameEvent(encode_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(encode_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(1u, frame_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp - first_rtp_timestamp_;
   FrameEventList::iterator it = frame_events_.begin();
 
   linked_ptr<AggregatedFrameEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->event_type_size());
   EXPECT_EQ(media::cast::proto::FRAME_ENCODED, event->event_type(0));
@@ -302,8 +356,8 @@ TEST_F(EncodingEventSubscriberTest, FrameEventSize) {
 
 TEST_F(EncodingEventSubscriberTest, MultipleFrameEvents) {
   Init(AUDIO_EVENT);
-  RtpTimestamp rtp_timestamp1 = 100;
-  RtpTimestamp rtp_timestamp2 = 200;
+  RtpTimeTicks rtp_timestamp1 = RtpTimeTicks().Expand(UINT32_C(100));
+  RtpTimeTicks rtp_timestamp2 = rtp_timestamp1.Expand(UINT32_C(200));
   base::TimeTicks now1(testing_clock_->NowTicks());
   scoped_ptr<FrameEvent> playout_event(new FrameEvent());
   playout_event->timestamp = now1;
@@ -312,7 +366,7 @@ TEST_F(EncodingEventSubscriberTest, MultipleFrameEvents) {
   playout_event->rtp_timestamp = rtp_timestamp1;
   playout_event->frame_id = 0;
   playout_event->delay_delta = base::TimeDelta::FromMilliseconds(100);
-  cast_environment_->logger()->DispatchFrameEvent(playout_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(playout_event));
 
   task_runner_->Sleep(base::TimeDelta::FromMilliseconds(20));
   base::TimeTicks now2(testing_clock_->NowTicks());
@@ -325,7 +379,7 @@ TEST_F(EncodingEventSubscriberTest, MultipleFrameEvents) {
   encode_event->size = 123;
   encode_event->encoder_cpu_utilization = 0.44;
   encode_event->idealized_bitrate_utilization = 0.55;
-  cast_environment_->logger()->DispatchFrameEvent(encode_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(encode_event));
 
   task_runner_->Sleep(base::TimeDelta::FromMilliseconds(20));
   base::TimeTicks now3(testing_clock_->NowTicks());
@@ -335,18 +389,18 @@ TEST_F(EncodingEventSubscriberTest, MultipleFrameEvents) {
   decode_event->media_type = AUDIO_EVENT;
   decode_event->rtp_timestamp = rtp_timestamp1;
   decode_event->frame_id = 0;
-  cast_environment_->logger()->DispatchFrameEvent(decode_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(decode_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(2u, frame_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp1 - first_rtp_timestamp_;
   FrameEventList::iterator it = frame_events_.begin();
 
   linked_ptr<AggregatedFrameEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp1 - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(2, event->event_type_size());
   EXPECT_EQ(media::cast::proto::FRAME_PLAYOUT, event->event_type(0));
@@ -358,12 +412,12 @@ TEST_F(EncodingEventSubscriberTest, MultipleFrameEvents) {
 
   EXPECT_FALSE(event->has_key_frame());
 
-  relative_rtp_timestamp = rtp_timestamp2 - first_rtp_timestamp_;
   ++it;
 
   event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp2 - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->event_type_size());
   EXPECT_EQ(media::cast::proto::FRAME_ENCODED, event->event_type(0));
@@ -379,7 +433,7 @@ TEST_F(EncodingEventSubscriberTest, MultipleFrameEvents) {
 TEST_F(EncodingEventSubscriberTest, PacketEvent) {
   Init(AUDIO_EVENT);
   base::TimeTicks now(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   int packet_id = 2;
   int size = 100;
   scoped_ptr<PacketEvent> receive_event(new PacketEvent());
@@ -391,18 +445,18 @@ TEST_F(EncodingEventSubscriberTest, PacketEvent) {
   receive_event->packet_id = packet_id;
   receive_event->max_packet_id = 10;
   receive_event->size = size;
-  cast_environment_->logger()->DispatchPacketEvent(receive_event.Pass());
+  cast_environment_->logger()->DispatchPacketEvent(std::move(receive_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(1u, packet_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp - first_rtp_timestamp_;
   PacketEventList::iterator it = packet_events_.begin();
 
   linked_ptr<AggregatedPacketEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->base_packet_event_size());
   const BasePacketEvent& base_event = event->base_packet_event(0);
@@ -421,7 +475,7 @@ TEST_F(EncodingEventSubscriberTest, PacketEvent) {
 TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForPacket) {
   Init(VIDEO_EVENT);
   base::TimeTicks now1(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   int packet_id = 2;
   int size = 100;
   scoped_ptr<PacketEvent> send_event(new PacketEvent());
@@ -433,7 +487,7 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForPacket) {
   send_event->packet_id = packet_id;
   send_event->max_packet_id = 10;
   send_event->size = size;
-  cast_environment_->logger()->DispatchPacketEvent(send_event.Pass());
+  cast_environment_->logger()->DispatchPacketEvent(std::move(send_event));
 
   task_runner_->Sleep(base::TimeDelta::FromMilliseconds(20));
   base::TimeTicks now2(testing_clock_->NowTicks());
@@ -446,18 +500,18 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForPacket) {
   retransmit_event->packet_id = packet_id;
   retransmit_event->max_packet_id = 10;
   retransmit_event->size = size;
-  cast_environment_->logger()->DispatchPacketEvent(retransmit_event.Pass());
+  cast_environment_->logger()->DispatchPacketEvent(std::move(retransmit_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(1u, packet_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp - first_rtp_timestamp_;
   PacketEventList::iterator it = packet_events_.begin();
 
   linked_ptr<AggregatedPacketEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->base_packet_event_size());
   const BasePacketEvent& base_event = event->base_packet_event(0);
@@ -475,7 +529,7 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForPacket) {
 TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForFrame) {
   Init(VIDEO_EVENT);
   base::TimeTicks now1(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   int packet_id_1 = 2;
   int packet_id_2 = 3;
   int size = 100;
@@ -488,7 +542,7 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForFrame) {
   send_event->packet_id = packet_id_1;
   send_event->max_packet_id = 10;
   send_event->size = size;
-  cast_environment_->logger()->DispatchPacketEvent(send_event.Pass());
+  cast_environment_->logger()->DispatchPacketEvent(std::move(send_event));
 
   task_runner_->Sleep(base::TimeDelta::FromMilliseconds(20));
   base::TimeTicks now2(testing_clock_->NowTicks());
@@ -501,18 +555,18 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForFrame) {
   retransmit_event->packet_id = packet_id_2;
   retransmit_event->max_packet_id = 10;
   retransmit_event->size = size;
-  cast_environment_->logger()->DispatchPacketEvent(retransmit_event.Pass());
+  cast_environment_->logger()->DispatchPacketEvent(std::move(retransmit_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(1u, packet_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp - first_rtp_timestamp_;
   PacketEventList::iterator it = packet_events_.begin();
 
   linked_ptr<AggregatedPacketEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(2, event->base_packet_event_size());
   const BasePacketEvent& base_event = event->base_packet_event(0);
@@ -535,8 +589,8 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEventsForFrame) {
 TEST_F(EncodingEventSubscriberTest, MultiplePacketEvents) {
   Init(VIDEO_EVENT);
   base::TimeTicks now1(testing_clock_->NowTicks());
-  RtpTimestamp rtp_timestamp_1 = 100;
-  RtpTimestamp rtp_timestamp_2 = 200;
+  RtpTimeTicks rtp_timestamp_1 = RtpTimeTicks().Expand(UINT32_C(100));
+  RtpTimeTicks rtp_timestamp_2 = rtp_timestamp_1.Expand(UINT32_C(200));
   int packet_id_1 = 2;
   int packet_id_2 = 3;
   int size = 100;
@@ -549,7 +603,7 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEvents) {
   send_event->packet_id = packet_id_1;
   send_event->max_packet_id = 10;
   send_event->size = size;
-  cast_environment_->logger()->DispatchPacketEvent(send_event.Pass());
+  cast_environment_->logger()->DispatchPacketEvent(std::move(send_event));
 
   task_runner_->Sleep(base::TimeDelta::FromMilliseconds(20));
   base::TimeTicks now2(testing_clock_->NowTicks());
@@ -562,18 +616,18 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEvents) {
   retransmit_event->packet_id = packet_id_2;
   retransmit_event->max_packet_id = 10;
   retransmit_event->size = size;
-  cast_environment_->logger()->DispatchPacketEvent(retransmit_event.Pass());
+  cast_environment_->logger()->DispatchPacketEvent(std::move(retransmit_event));
 
   GetEventsAndReset();
 
   ASSERT_EQ(2u, packet_events_.size());
 
-  RtpTimestamp relative_rtp_timestamp = rtp_timestamp_1 - first_rtp_timestamp_;
   PacketEventList::iterator it = packet_events_.begin();
 
   linked_ptr<AggregatedPacketEvent> event = *it;
 
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp_1 - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->base_packet_event_size());
   const BasePacketEvent& base_event = event->base_packet_event(0);
@@ -584,12 +638,12 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEvents) {
   ASSERT_EQ(1, base_event.event_timestamp_ms_size());
   EXPECT_EQ(InMilliseconds(now1), base_event.event_timestamp_ms(0));
 
-  relative_rtp_timestamp = rtp_timestamp_2 - first_rtp_timestamp_;
   ++it;
   ASSERT_TRUE(it != packet_events_.end());
 
   event = *it;
-  EXPECT_EQ(relative_rtp_timestamp, event->relative_rtp_timestamp());
+  EXPECT_EQ((rtp_timestamp_2 - first_rtp_timestamp_).lower_32_bits(),
+            event->relative_rtp_timestamp());
 
   ASSERT_EQ(1, event->base_packet_event_size());
   const BasePacketEvent& base_event_2 = event->base_packet_event(0);
@@ -601,9 +655,9 @@ TEST_F(EncodingEventSubscriberTest, MultiplePacketEvents) {
   EXPECT_EQ(InMilliseconds(now2), base_event_2.event_timestamp_ms(0));
 }
 
-TEST_F(EncodingEventSubscriberTest, FirstRtpTimestamp) {
+TEST_F(EncodingEventSubscriberTest, FirstRtpTimeTicks) {
   Init(VIDEO_EVENT);
-  RtpTimestamp rtp_timestamp = 12345;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(12345));
   base::TimeTicks now(testing_clock_->NowTicks());
 
   scoped_ptr<FrameEvent> capture_begin_event(new FrameEvent());
@@ -611,16 +665,18 @@ TEST_F(EncodingEventSubscriberTest, FirstRtpTimestamp) {
   capture_begin_event->type = FRAME_CAPTURE_BEGIN;
   capture_begin_event->media_type = VIDEO_EVENT;
   capture_begin_event->rtp_timestamp = rtp_timestamp;
-  cast_environment_->logger()->DispatchFrameEvent(capture_begin_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(
+      std::move(capture_begin_event));
 
   scoped_ptr<FrameEvent> capture_end_event(new FrameEvent());
   capture_end_event->timestamp = now;
   capture_end_event->type = FRAME_CAPTURE_END;
   capture_end_event->media_type = VIDEO_EVENT;
-  capture_end_event->rtp_timestamp = rtp_timestamp + 30;
+  capture_end_event->rtp_timestamp =
+      rtp_timestamp + RtpTimeDelta::FromTicks(30);
   capture_end_event->width = 1280;
   capture_end_event->height = 720;
-  cast_environment_->logger()->DispatchFrameEvent(capture_end_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(capture_end_event));
 
   GetEventsAndReset();
 
@@ -635,23 +691,24 @@ TEST_F(EncodingEventSubscriberTest, FirstRtpTimestamp) {
   EXPECT_EQ(1280, (*it)->width());
   EXPECT_EQ(720, (*it)->height());
 
-  rtp_timestamp = 67890;
+  rtp_timestamp = rtp_timestamp.Expand(UINT32_C(67890));
 
   capture_begin_event.reset(new FrameEvent());
   capture_begin_event->timestamp = now;
   capture_begin_event->type = FRAME_CAPTURE_BEGIN;
   capture_begin_event->media_type = VIDEO_EVENT;
   capture_begin_event->rtp_timestamp = rtp_timestamp;
-  cast_environment_->logger()->DispatchFrameEvent(capture_begin_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(
+      std::move(capture_begin_event));
 
   GetEventsAndReset();
 
   EXPECT_EQ(rtp_timestamp, first_rtp_timestamp_);
 }
 
-TEST_F(EncodingEventSubscriberTest, RelativeRtpTimestampWrapAround) {
+TEST_F(EncodingEventSubscriberTest, RelativeRtpTimeTicksWrapAround) {
   Init(VIDEO_EVENT);
-  RtpTimestamp rtp_timestamp = 0xffffffff - 20;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks() - RtpTimeDelta::FromTicks(20);
   base::TimeTicks now(testing_clock_->NowTicks());
 
   scoped_ptr<FrameEvent> capture_begin_event(new FrameEvent());
@@ -659,17 +716,19 @@ TEST_F(EncodingEventSubscriberTest, RelativeRtpTimestampWrapAround) {
   capture_begin_event->type = FRAME_CAPTURE_BEGIN;
   capture_begin_event->media_type = VIDEO_EVENT;
   capture_begin_event->rtp_timestamp = rtp_timestamp;
-  cast_environment_->logger()->DispatchFrameEvent(capture_begin_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(
+      std::move(capture_begin_event));
 
-  // RtpTimestamp has now wrapped around.
+  // RtpTimeTicks has now wrapped around.
   scoped_ptr<FrameEvent> capture_end_event(new FrameEvent());
   capture_end_event->timestamp = now;
   capture_end_event->type = FRAME_CAPTURE_END;
   capture_end_event->media_type = VIDEO_EVENT;
-  capture_end_event->rtp_timestamp = rtp_timestamp + 30;
+  capture_end_event->rtp_timestamp =
+      rtp_timestamp + RtpTimeDelta::FromTicks(30);
   capture_end_event->width = 1280;
   capture_end_event->height = 720;
-  cast_environment_->logger()->DispatchFrameEvent(capture_end_event.Pass());
+  cast_environment_->logger()->DispatchFrameEvent(std::move(capture_end_event));
 
   GetEventsAndReset();
 
@@ -686,7 +745,7 @@ TEST_F(EncodingEventSubscriberTest, RelativeRtpTimestampWrapAround) {
 
 TEST_F(EncodingEventSubscriberTest, MaxEventsPerProto) {
   Init(VIDEO_EVENT);
-  RtpTimestamp rtp_timestamp = 100;
+  RtpTimeTicks rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(100));
   for (int i = 0; i < kMaxEventsPerProto + 1; i++) {
     scoped_ptr<FrameEvent> ack_event(new FrameEvent());
     ack_event->timestamp = testing_clock_->NowTicks();
@@ -694,7 +753,7 @@ TEST_F(EncodingEventSubscriberTest, MaxEventsPerProto) {
     ack_event->media_type = VIDEO_EVENT;
     ack_event->rtp_timestamp = rtp_timestamp;
     ack_event->frame_id = 0;
-    cast_environment_->logger()->DispatchFrameEvent(ack_event.Pass());
+    cast_environment_->logger()->DispatchFrameEvent(std::move(ack_event));
 
     task_runner_->Sleep(base::TimeDelta::FromMilliseconds(30));
   }
@@ -719,7 +778,7 @@ TEST_F(EncodingEventSubscriberTest, MaxEventsPerProto) {
     send_event->packet_id = i;
     send_event->max_packet_id = kMaxPacketsPerFrame;
     send_event->size = 123;
-    cast_environment_->logger()->DispatchPacketEvent(send_event.Pass());
+    cast_environment_->logger()->DispatchPacketEvent(std::move(send_event));
 
     task_runner_->Sleep(base::TimeDelta::FromMilliseconds(30));
   }
@@ -750,7 +809,7 @@ TEST_F(EncodingEventSubscriberTest, MaxEventsPerProto) {
     send_event->packet_id = 0;
     send_event->max_packet_id = 0;
     send_event->size = 123;
-    cast_environment_->logger()->DispatchPacketEvent(send_event.Pass());
+    cast_environment_->logger()->DispatchPacketEvent(std::move(send_event));
 
     task_runner_->Sleep(base::TimeDelta::FromMilliseconds(30));
   }

@@ -12,6 +12,7 @@ enum WebGLExtensionName {
     ANGLEInstancedArraysName,
     CHROMIUMSubscribeUniformName,
     EXTBlendMinMaxName,
+    EXTColorBufferFloatName,
     EXTDisjointTimerQueryName,
     EXTFragDepthName,
     EXTShaderTextureLODName,
@@ -36,6 +37,6 @@ enum WebGLExtensionName {
     WebGLLoseContextName,
     WebGLExtensionNameCount, // Must be the last entry
 };
-}
+} // namespace blink
 
 #endif // WebGLExtensionName_h

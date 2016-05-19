@@ -31,9 +31,11 @@
 #ifndef DateTimeChooserImpl_h
 #define DateTimeChooserImpl_h
 
-#if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
 #include "core/html/forms/DateTimeChooser.h"
 #include "core/page/PagePopupClient.h"
+#include "wtf/build_config.h"
+
+#if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
 
 namespace blink {
 
@@ -55,7 +57,6 @@ public:
 private:
     DateTimeChooserImpl(ChromeClientImpl*, DateTimeChooserClient*, const DateTimeChooserParameters&);
     // PagePopupClient functions:
-    IntSize contentSize() override;
     void writeDocument(SharedBuffer*) override;
     void selectFontsFromOwnerDocument(Document&) override { }
     Locale& locale() override;
@@ -66,13 +67,13 @@ private:
     void didClosePopup() override;
 
     RawPtrWillBeMember<ChromeClientImpl> m_chromeClient;
-    DateTimeChooserClient* m_client;
+    RawPtrWillBeMember<DateTimeChooserClient> m_client;
     PagePopup* m_popup;
     DateTimeChooserParameters m_parameters;
     OwnPtr<Locale> m_locale;
 };
 
-}
+} // namespace blink
 
 #endif // ENABLE(INPUT_MULTIPLE_FIELDS_UI)
 

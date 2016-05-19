@@ -4,8 +4,10 @@
 
 #include "media/cast/net/rtp/rtp_packetizer.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "media/cast/net/pacing/paced_sender.h"
@@ -19,8 +21,8 @@ namespace cast {
 
 namespace {
 static const int kPayload = 127;
-static const uint32 kTimestampMs = 10;
-static const uint16 kSeqNum = 33;
+static const uint32_t kTimestampMs = 10;
+static const uint16_t kSeqNum = 33;
 static const int kMaxPacketLength = 1500;
 static const int kSsrc = 0x12345;
 static const unsigned int kFrameSize = 5000;
@@ -34,8 +36,7 @@ class TestRtpPacketTransport : public PacketSender {
         packets_sent_(0),
         expected_number_of_packets_(0),
         expected_packet_id_(0),
-        expected_frame_id_(0),
-        expected_rtp_timestamp_(0) {}
+        expected_frame_id_(0) {}
 
   void VerifyRtpHeader(const RtpCastHeader& rtp_header) {
     VerifyCommonRtpHeader(rtp_header);
@@ -67,7 +68,7 @@ class TestRtpPacketTransport : public PacketSender {
     ++packets_sent_;
     RtpParser parser(kSsrc, kPayload);
     RtpCastHeader rtp_header;
-    const uint8* payload_data;
+    const uint8_t* payload_data;
     size_t payload_size;
     parser.ParsePacket(&packet->data[0], packet->data.size(), &rtp_header,
                        &payload_data, &payload_size);
@@ -77,7 +78,12 @@ class TestRtpPacketTransport : public PacketSender {
     return true;
   }
 
-  int64 GetBytesSent() final { return 0; }
+  int64_t GetBytesSent() final { return 0; }
+
+  void StartReceiving(
+      const PacketReceiverCallbackWithStatus& packet_receiver) final {}
+
+  void StopReceiving() final {}
 
   size_t number_of_packets_received() const { return packets_sent_; }
 
@@ -85,19 +91,19 @@ class TestRtpPacketTransport : public PacketSender {
     expected_number_of_packets_ = expected_number_of_packets;
   }
 
-  void set_rtp_timestamp(uint32 rtp_timestamp) {
+  void set_rtp_timestamp(RtpTimeTicks rtp_timestamp) {
     expected_rtp_timestamp_ = rtp_timestamp;
   }
 
   RtpPacketizerConfig config_;
-  uint32 sequence_number_;
+  uint32_t sequence_number_;
   size_t packets_sent_;
   size_t number_of_packets_;
   size_t expected_number_of_packets_;
   // Assuming packets arrive in sequence.
   int expected_packet_id_;
-  uint32 expected_frame_id_;
-  uint32 expected_rtp_timestamp_;
+  uint32_t expected_frame_id_;
+  RtpTimeTicks expected_rtp_timestamp_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestRtpPacketTransport);
@@ -120,9 +126,9 @@ class RtpPacketizerTest : public ::testing::Test {
         pacer_.get(), &packet_storage_, config_));
     video_frame_.dependency = EncodedFrame::DEPENDENT;
     video_frame_.frame_id = 0;
-    video_frame_.referenced_frame_id = kStartFrameId;
+    video_frame_.referenced_frame_id = video_frame_.frame_id - 1;
     video_frame_.data.assign(kFrameSize, 123);
-    video_frame_.rtp_timestamp = 0x0055aa11;
+    video_frame_.rtp_timestamp = RtpTimeTicks().Expand(UINT32_C(0x0055aa11));
   }
 
   void RunTasks(int during_ms) {

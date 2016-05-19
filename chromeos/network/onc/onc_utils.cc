@@ -4,6 +4,9 @@
 
 #include "chromeos/network/onc/onc_utils.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/base64.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
@@ -160,7 +163,7 @@ scoped_ptr<base::DictionaryValue> Decrypt(const std::string& passphrase,
     return nullptr;
   }
 
-  return new_root.Pass();
+  return new_root;
 }
 
 std::string GetSourceAsString(ONCSource source) {
@@ -768,7 +771,7 @@ net::ProxyServer ConvertOncProxyLocationToHostPort(
   return net::ProxyServer(
       proxy_server.scheme(),
       net::HostPortPair(proxy_server.host_port_pair().host(),
-                        static_cast<uint16>(port)));
+                        static_cast<uint16_t>(port)));
 }
 
 void AppendProxyServerForScheme(const base::DictionaryValue& onc_manual,
@@ -909,7 +912,7 @@ scoped_ptr<base::DictionaryValue> ConvertOncProxySettingsToProxyConfig(
   } else {
     NOTREACHED();
   }
-  return proxy_dict.Pass();
+  return proxy_dict;
 }
 
 scoped_ptr<base::DictionaryValue> ConvertProxyConfigToOncProxySettings(
@@ -982,7 +985,7 @@ scoped_ptr<base::DictionaryValue> ConvertProxyConfigToOncProxySettings(
       return nullptr;
     }
   }
-  return proxy_settings.Pass();
+  return proxy_settings;
 }
 
 }  // namespace onc

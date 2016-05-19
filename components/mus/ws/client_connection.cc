@@ -8,12 +8,11 @@
 #include "components/mus/ws/window_tree_impl.h"
 
 namespace mus {
-
 namespace ws {
 
 ClientConnection::ClientConnection(scoped_ptr<WindowTreeImpl> service,
                                    mojom::WindowTreeClient* client)
-    : service_(service.Pass()), client_(client) {}
+    : service_(std::move(service)), client_(client) {}
 
 ClientConnection::~ClientConnection() {}
 
@@ -22,16 +21,29 @@ DefaultClientConnection::DefaultClientConnection(
     ConnectionManager* connection_manager,
     mojo::InterfaceRequest<mojom::WindowTree> service_request,
     mojom::WindowTreeClientPtr client)
-    : ClientConnection(service_impl.Pass(), client.get()),
+    : ClientConnection(std::move(service_impl), client.get()),
       connection_manager_(connection_manager),
-      binding_(service(), service_request.Pass()),
-      client_(client.Pass()) {
+      binding_(service(), std::move(service_request)),
+      client_(std::move(client)) {
   binding_.set_connection_error_handler(
       [this]() { connection_manager_->OnConnectionError(this); });
 }
 
 DefaultClientConnection::~DefaultClientConnection() {}
 
-}  // namespace ws
+void DefaultClientConnection::SetIncomingMethodCallProcessingPaused(
+    bool paused) {
+  if (paused)
+    binding_.PauseIncomingMethodCallProcessing();
+  else
+    binding_.ResumeIncomingMethodCallProcessing();
+}
 
+mojom::WindowManager* DefaultClientConnection::GetWindowManager() {
+  client_->GetWindowManager(
+      GetProxy(&window_manager_internal_, client_.associated_group()));
+  return window_manager_internal_.get();
+}
+
+}  // namespace ws
 }  // namespace mus

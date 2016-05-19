@@ -30,44 +30,45 @@
 
 namespace blink {
 
-enum PathParsingMode {
-    NormalizedParsing,
-    UnalteredParsing
-};
-
 class SVGPathConsumer;
-class SVGPathSource;
 
-class CORE_EXPORT SVGPathParser final {
-    WTF_MAKE_NONCOPYABLE(SVGPathParser);
+namespace SVGPathParser {
+
+template<typename SourceType, typename ConsumerType>
+inline bool parsePath(SourceType& source, ConsumerType& consumer)
+{
+    while (source.hasMoreData()) {
+        PathSegmentData segment = source.parseSegment();
+        if (segment.command == PathSegUnknown)
+            return false;
+
+        consumer.emitSegment(segment);
+    }
+    return true;
+}
+
+} // namespace SVGPathParser
+
+class SVGPathNormalizer {
     STACK_ALLOCATED();
 public:
-    SVGPathParser(SVGPathSource* source, SVGPathConsumer* consumer)
-        : m_source(source)
-        , m_consumer(consumer)
+    SVGPathNormalizer(SVGPathConsumer* consumer)
+        : m_consumer(consumer)
+        , m_lastCommand(PathSegUnknown)
     {
-        ASSERT(m_source);
         ASSERT(m_consumer);
     }
 
-    bool parsePathDataFromSource(PathParsingMode pathParsingMode, bool checkForInitialMoveTo = true)
-    {
-        ASSERT(m_source);
-        ASSERT(m_consumer);
-        if (checkForInitialMoveTo && !initialCommandIsMoveTo())
-            return false;
-        if (pathParsingMode == NormalizedParsing)
-            return parseAndNormalizePath();
-        return parsePath();
-    }
+    void emitSegment(const PathSegmentData&);
 
 private:
-    bool initialCommandIsMoveTo();
-    bool parsePath();
-    bool parseAndNormalizePath();
+    bool decomposeArcToCubic(const FloatPoint& currentPoint, const PathSegmentData&);
 
-    SVGPathSource* m_source;
     SVGPathConsumer* m_consumer;
+    FloatPoint m_controlPoint;
+    FloatPoint m_currentPoint;
+    FloatPoint m_subPathPoint;
+    SVGPathSegType m_lastCommand;
 };
 
 } // namespace blink

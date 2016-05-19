@@ -4,17 +4,21 @@
 
 #include "chrome/browser/extensions/error_console/error_console.h"
 
+#include <stddef.h>
+
 #include "base/files/file_path.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/prefs/pref_service.h"
 #include "extensions/browser/extension_error.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
@@ -221,7 +225,7 @@ class ErrorConsoleBrowserTest : public ExtensionBrowserTest {
 
   const GURL& GetTestURL() {
     if (test_url_.is_empty()) {
-      CHECK(embedded_test_server()->InitializeAndWaitUntilReady());
+      CHECK(embedded_test_server()->Start());
       test_url_ = embedded_test_server()->GetURL(kTestingPage);
     }
     return test_url_;

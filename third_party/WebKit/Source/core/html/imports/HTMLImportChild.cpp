@@ -28,11 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/imports/HTMLImportChild.h"
 
 #include "core/css/StyleSheetList.h"
 #include "core/dom/Document.h"
+#include "core/dom/StyleEngine.h"
 #include "core/dom/custom/CustomElement.h"
 #include "core/dom/custom/CustomElementMicrotaskImportStep.h"
 #include "core/dom/custom/CustomElementSyncMicrotaskQueue.h"
@@ -67,7 +67,7 @@ void HTMLImportChild::ownerInserted()
 {
     if (!m_loader->isDone())
         return;
-    root()->document()->styleResolverChanged();
+    root()->document()->styleEngine().resolverChanged(FullStyleUpdate);
 }
 
 void HTMLImportChild::didShareLoader()
@@ -103,6 +103,7 @@ void HTMLImportChild::didFinishUpgradingCustomElements()
 
 void HTMLImportChild::dispose()
 {
+    invalidateCustomElementMicrotaskStep();
     if (parent())
         parent()->removeChild(this);
 

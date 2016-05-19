@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_MUS_PUBLIC_CPP_SCOPED_WINDOW_PTR_H_
 #define COMPONENTS_MUS_PUBLIC_CPP_SCOPED_WINDOW_PTR_H_
 
+#include "base/macros.h"
 #include "components/mus/public/cpp/window_observer.h"
 
 namespace mus {
@@ -16,8 +17,11 @@ class ScopedWindowPtr : public WindowObserver {
   explicit ScopedWindowPtr(Window* window);
   ~ScopedWindowPtr() override;
 
-  // Destroys |window|. If |window| is the root of the WindowManager than the
+  // Destroys |window|. If |window| is a root of the WindowManager than the
   // WindowManager is destroyed (which in turn destroys |window|).
+  //
+  // NOTE: this function (and class) are only useful for clients that only
+  // ever have a single root.
   static void DeleteWindowOrWindowManager(Window* window);
 
   Window* window() { return window_; }

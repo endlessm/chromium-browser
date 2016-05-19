@@ -26,23 +26,39 @@ class MediaSink {
             const std::string& name,
             const IconType icon_type);
 
+  MediaSink(const MediaSink& other);
+
   ~MediaSink();
 
   const MediaSink::Id& id() const { return sink_id_; }
   const std::string& name() const { return name_; }
-  MediaSink::IconType icon_type() const { return icon_type_; }
+  void set_description(const std::string& description) {
+    description_ = description;
+  }
+  const std::string& description() const { return description_; }
+  void set_domain(const std::string& domain) {
+    domain_ = domain;
+  }
+  const std::string& domain() const { return domain_; }
+  IconType icon_type() const { return icon_type_; }
 
   bool Equals(const MediaSink& other) const;
-  bool Empty() const;
 
  private:
   // Unique identifier for the MediaSink.
   MediaSink::Id sink_id_;
+
   // Descriptive name of the MediaSink.
-  // Optional, can use an empty string if no sink name is available.
   std::string name_;
+
+  // Optional description of the MediaSink.
+  std::string description_;
+
+  // Optional domain of the MediaSink.
+  std::string domain_;
+
   // The type of icon that corresponds with the MediaSink.
-  MediaSink::IconType icon_type_;
+  IconType icon_type_;
 };
 
 }  // namespace media_router

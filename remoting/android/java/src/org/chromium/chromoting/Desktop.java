@@ -31,26 +31,45 @@ import android.view.inputmethod.InputMethodManager;
 import org.chromium.chromoting.cardboard.DesktopActivity;
 import org.chromium.chromoting.help.HelpContext;
 import org.chromium.chromoting.help.HelpSingleton;
-import org.chromium.chromoting.jni.JniInterface;
+import org.chromium.chromoting.jni.Client;
 
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
 /**
  * A simple screen that does nothing except display a DesktopView and notify it of rotations.
  */
-public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibilityChangeListener {
+public class Desktop
+        extends AppCompatActivity implements View.OnSystemUiVisibilityChangeListener,
+                                             CapabilityManager.CapabilitiesChangedListener {
+    /** Used to set/store the selected input mode. */
+    public enum InputMode {
+        UNKNOWN,
+        TRACKPAD,
+        TOUCH;
+
+        public boolean isSet() {
+            return this != UNKNOWN;
+        }
+    }
+
     /**
      * Preference used for displaying an interestitial dialog only when the user first accesses the
      * Cardboard function.
      */
     private static final String PREFERENCE_CARDBOARD_DIALOG_SEEN = "cardboard_dialog_seen";
 
+    /** Preference used to track the last input mode selected by the user. */
+    private static final String PREFERENCE_INPUT_MODE = "input_mode";
+
     /** The amount of time to wait to hide the Actionbar after user input is seen. */
     private static final int ACTIONBAR_AUTO_HIDE_DELAY_MS = 3000;
 
     /** The surface that displays the remote host's desktop feed. */
     private DesktopView mRemoteHostDesktop;
+
+    private Client mClient;
 
     /** Set of pressed keys for which we've sent TextEvent. */
     private Set<Integer> mPressedTextKeys = new TreeSet<Integer>();
@@ -59,6 +78,9 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
 
     /** Flag to indicate whether the current activity is switching to Cardboard desktop activity. */
     private boolean mSwitchToCardboardDesktopActivity;
+
+    /** Flag to indicate whether to manually hide the system UI when the OSK is dismissed. */
+    private boolean mHideSystemUIOnSoftKeyboardDismiss = false;
 
     /** Indicates whether a Soft Input UI (such as a keyboard) is visible. */
     private boolean mSoftInputVisible = false;
@@ -69,17 +91,27 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
     /** The Toolbar instance backing our SupportActionBar. */
     private Toolbar mToolbar;
 
+    /** Tracks the current input mode (e.g. trackpad/touch). */
+    private InputMode mInputMode = InputMode.UNKNOWN;
+
+    /** Indicates whether the remote host supports touch injection. */
+    private CapabilityManager.HostCapability mHostTouchCapability =
+            CapabilityManager.HostCapability.UNKNOWN;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.desktop);
 
+        mClient = Client.getInstance();
+
         mToolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(mToolbar);
 
         mRemoteHostDesktop = (DesktopView) findViewById(R.id.desktop_view);
         mRemoteHostDesktop.setDesktop(this);
+        mRemoteHostDesktop.setClient(mClient);
         mSwitchToCardboardDesktopActivity = false;
 
         getSupportActionBar().setDisplayShowTitleEnabled(false);
@@ -97,9 +129,11 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
         View decorView = getWindow().getDecorView();
         decorView.setOnSystemUiVisibilityChangeListener(this);
 
-        mActivityLifecycleListener = CapabilityManager.getInstance().onActivityAcceptingListener(
+        mActivityLifecycleListener = mClient.getCapabilityManager().onActivityAcceptingListener(
                 this, Capabilities.CAST_CAPABILITY);
         mActivityLifecycleListener.onActivityCreated(this, savedInstanceState);
+
+        mInputMode = getInitialInputModeValue();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             attachKeyboardVisibilityListener();
@@ -134,8 +168,9 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
     protected void onStart() {
         super.onStart();
         mActivityLifecycleListener.onActivityStarted(this);
-        JniInterface.enableVideoChannel(true);
+        mClient.enableVideoChannel(true);
         mRemoteHostDesktop.attachRedrawCallback();
+        mClient.getCapabilityManager().addListener(this);
     }
 
     @Override
@@ -143,7 +178,7 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
         if (isFinishing()) mActivityLifecycleListener.onActivityPaused(this);
         super.onPause();
         if (!mSwitchToCardboardDesktopActivity) {
-            JniInterface.enableVideoChannel(false);
+            mClient.enableVideoChannel(false);
         }
         stopActionBarAutoHideTimer();
     }
@@ -152,18 +187,19 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
     public void onResume() {
         super.onResume();
         mActivityLifecycleListener.onActivityResumed(this);
-        JniInterface.enableVideoChannel(true);
+        mClient.enableVideoChannel(true);
         startActionBarAutoHideTimer();
     }
 
     @Override
     protected void onStop() {
+        mClient.getCapabilityManager().removeListener(this);
         mActivityLifecycleListener.onActivityStopped(this);
         super.onStop();
         if (mSwitchToCardboardDesktopActivity) {
             mSwitchToCardboardDesktopActivity = false;
         } else {
-            JniInterface.enableVideoChannel(false);
+            mClient.enableVideoChannel(false);
         }
     }
 
@@ -214,12 +250,65 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
             });
         }
 
-        // TODO(joedow): Remove this line when touch input mode has been implemented.
-        menu.findItem(R.id.actionbar_input_mode).setVisible(false);
-
         ChromotingUtil.tintMenuIcons(this, menu);
 
+        // Wait to set the input mode until after the default tinting has been applied.
+        setInputMode(mInputMode);
+
         return super.onCreateOptionsMenu(menu);
+    }
+
+    private InputMode getInitialInputModeValue() {
+        // Load the previously-selected input mode from Preferences.
+        // TODO(joedow): Evaluate and determine if we should use a different input mode based on
+        //               a device characteristic such as screen size.
+        InputMode inputMode = InputMode.TRACKPAD;
+        String previousInputMode =
+                getPreferences(MODE_PRIVATE)
+                        .getString(PREFERENCE_INPUT_MODE, inputMode.name());
+
+        try {
+            inputMode = InputMode.valueOf(previousInputMode);
+        } catch (IllegalArgumentException ex) {
+            // Invalid or unexpected value was found, just use the default mode.
+        }
+
+        return inputMode;
+    }
+
+    private void setInputMode(InputMode inputMode) {
+        Menu menu = mToolbar.getMenu();
+        MenuItem trackpadModeMenuItem = menu.findItem(R.id.actionbar_trackpad_mode);
+        MenuItem touchModeMenuItem = menu.findItem(R.id.actionbar_touch_mode);
+        if (inputMode == InputMode.TRACKPAD) {
+            trackpadModeMenuItem.setVisible(true);
+            touchModeMenuItem.setVisible(false);
+        } else if (inputMode == InputMode.TOUCH) {
+            touchModeMenuItem.setVisible(true);
+            trackpadModeMenuItem.setVisible(false);
+        } else {
+            assert false : "Unreached";
+            return;
+        }
+
+        mInputMode = inputMode;
+        getPreferences(MODE_PRIVATE)
+                .edit()
+                .putString(PREFERENCE_INPUT_MODE, mInputMode.name())
+                .apply();
+
+        mRemoteHostDesktop.changeInputMode(mInputMode, mHostTouchCapability);
+    }
+
+    @Override
+    public void onCapabilitiesChanged(List<String> newCapabilities) {
+        if (newCapabilities.contains(Capabilities.TOUCH_CAPABILITY)) {
+            mHostTouchCapability = CapabilityManager.HostCapability.SUPPORTED;
+        } else {
+            mHostTouchCapability = CapabilityManager.HostCapability.UNSUPPORTED;
+        }
+
+        mRemoteHostDesktop.changeInputMode(mInputMode, mHostTouchCapability);
     }
 
     // Any time an onTouchListener is attached, a lint warning about filtering touch events is
@@ -306,6 +395,8 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
     }
 
     public void showActionBar() {
+        mHideSystemUIOnSoftKeyboardDismiss = false;
+
         // Request exit from any fullscreen mode. The action-bar controls will be shown in response
         // to the SystemUiVisibility notification. The visibility of the action-bar should be tied
         // to the fullscreen state of the system, so there's no need to explicitly show it here.
@@ -358,6 +449,12 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
         // and still allow the system to hide the ActionBar normally when no keyboard is present.
         if (mSoftInputVisible) {
             hideActionBarWithoutSystemUi();
+
+            // Android OSes prior to Marshmallow do not call onSystemUiVisibilityChange after the
+            // OSK is dismissed if the user has interacted with the status bar.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                mHideSystemUIOnSoftKeyboardDismiss = true;
+            }
         }
     }
 
@@ -378,6 +475,16 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
             onCardboardItemSelected();
             return true;
         }
+        if (id == R.id.actionbar_trackpad_mode) {
+            // When the trackpad icon is tapped, we want to switch the input mode to touch.
+            setInputMode(InputMode.TOUCH);
+            return true;
+        }
+        if (id == R.id.actionbar_touch_mode) {
+            // When the touch icon is tapped, we want to switch the input mode to trackpad.
+            setInputMode(InputMode.TRACKPAD);
+            return true;
+        }
         if (id == R.id.actionbar_keyboard) {
             ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).toggleSoftInput(0, 0);
             return true;
@@ -387,7 +494,7 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
             return true;
         }
         if (id == R.id.actionbar_disconnect || id == android.R.id.home) {
-            JniInterface.disconnectFromHost();
+            mClient.destroy();
             return true;
         }
         if (id == R.id.actionbar_send_ctrl_alt_del) {
@@ -397,10 +504,10 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
                 KeyEvent.KEYCODE_FORWARD_DEL,
             };
             for (int key : keys) {
-                JniInterface.sendKeyEvent(0, key, true);
+                mClient.sendKeyEvent(0, key, true);
             }
             for (int key : keys) {
-                JniInterface.sendKeyEvent(0, key, false);
+                mClient.sendKeyEvent(0, key, false);
             }
             return true;
         }
@@ -443,6 +550,20 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
                 mSoftInputVisible = (bottom < mMaxBottomValue);
                 mRemoteHostDesktop.onSoftInputMethodVisibilityChanged(
                         mSoftInputVisible, new Rect(left, top, right, bottom));
+
+                if (!mSoftInputVisible && mHideSystemUIOnSoftKeyboardDismiss) {
+                    // Queue a task which will run after the current action (OSK dismiss) has
+                    // completed, otherwise the hide request will not take effect.
+                    new Handler().post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (mHideSystemUIOnSoftKeyboardDismiss) {
+                                mHideSystemUIOnSoftKeyboardDismiss = false;
+                                hideActionBar();
+                            }
+                        }
+                    });
+                }
             }
         });
     }
@@ -493,7 +614,7 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
 
         // Dispatch the back button to the system to handle navigation
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            JniInterface.disconnectFromHost();
+            mClient.destroy();
             return super.dispatchKeyEvent(event);
         }
 
@@ -505,7 +626,7 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
         // the keyboard layout selected on the client doesn't affect the key
         // codes sent to the host.
         if (event.getDeviceId() != KeyCharacterMap.VIRTUAL_KEYBOARD) {
-            return JniInterface.sendKeyEvent(event.getScanCode(), 0, pressed);
+            return mClient.sendKeyEvent(event.getScanCode(), 0, pressed);
         }
 
         // Events received from software keyboards generate TextEvent in two
@@ -516,7 +637,7 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
         // correspond to what user sees on the screen, while physical keyboard
         // acts as if it is connected to the remote host.
         if (event.getAction() == KeyEvent.ACTION_MULTIPLE) {
-            JniInterface.sendTextEvent(event.getCharacters());
+            mClient.sendTextEvent(event.getCharacters());
             return true;
         }
 
@@ -530,7 +651,7 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
         if (pressed && unicode != 0 && no_modifiers) {
             mPressedTextKeys.add(keyCode);
             int[] codePoints = { unicode };
-            JniInterface.sendTextEvent(new String(codePoints, 0, 1));
+            mClient.sendTextEvent(new String(codePoints, 0, 1));
             return true;
         }
 
@@ -545,28 +666,28 @@ public class Desktop extends AppCompatActivity implements View.OnSystemUiVisibil
             // third-party keyboards that may still generate these events. See
             // https://source.android.com/devices/input/keyboard-devices.html#legacy-unsupported-keys
             case KeyEvent.KEYCODE_AT:
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_2, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_2, pressed);
                 return true;
 
             case KeyEvent.KEYCODE_POUND:
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_3, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_3, pressed);
                 return true;
 
             case KeyEvent.KEYCODE_STAR:
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_8, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_8, pressed);
                 return true;
 
             case KeyEvent.KEYCODE_PLUS:
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
-                JniInterface.sendKeyEvent(0, KeyEvent.KEYCODE_EQUALS, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_SHIFT_LEFT, pressed);
+                mClient.sendKeyEvent(0, KeyEvent.KEYCODE_EQUALS, pressed);
                 return true;
 
             default:
                 // We try to send all other key codes to the host directly.
-                return JniInterface.sendKeyEvent(0, keyCode, pressed);
+                return mClient.sendKeyEvent(0, keyCode, pressed);
         }
     }
 }

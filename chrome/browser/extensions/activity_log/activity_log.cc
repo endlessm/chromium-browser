@@ -4,13 +4,16 @@
 
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 
+#include <stddef.h>
 #include <set>
+#include <utility>
 #include <vector>
 
 #include "base/command_line.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_checker.h"
@@ -36,7 +39,7 @@
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/one_shot_event.h"
-#include "third_party/re2/re2/re2.h"
+#include "third_party/re2/src/re2/re2.h"
 #include "url/gurl.h"
 
 namespace constants = activity_log_constants;
@@ -583,7 +586,7 @@ void ActivityLog::OnApiEventDispatched(const std::string& extension_id,
                                             base::Time::Now(),
                                             Action::ACTION_API_EVENT,
                                             event_name);
-  action->set_args(event_args.Pass());
+  action->set_args(std::move(event_args));
   LogAction(action);
 }
 
@@ -595,7 +598,7 @@ void ActivityLog::OnApiFunctionCalled(const std::string& extension_id,
                                             base::Time::Now(),
                                             Action::ACTION_API_CALL,
                                             api_name);
-  action->set_args(args.Pass());
+  action->set_args(std::move(args));
   LogAction(action);
 }
 
@@ -618,7 +621,7 @@ void ActivityLog::GetFilteredActions(
 
 // DELETE ACTIONS. -------------------------------------------------------------
 
-void ActivityLog::RemoveActions(const std::vector<int64>& action_ids) {
+void ActivityLog::RemoveActions(const std::vector<int64_t>& action_ids) {
   if (!database_policy_)
     return;
   database_policy_->RemoveActions(action_ids);

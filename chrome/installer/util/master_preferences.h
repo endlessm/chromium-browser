@@ -12,7 +12,9 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 
 namespace base {
 class DictionaryValue;
@@ -35,7 +37,6 @@ const char kDefaultMasterPrefs[] = "master_preferences";
 //
 // {
 //   "distribution": {
-//      "alternate_shortcut_text": false,
 //      "create_all_shortcuts": true,
 //      "import_bookmarks": false,
 //      "import_bookmarks_from_file": "c:\\path",

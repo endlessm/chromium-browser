@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/ScheduledAction.h"
 
 #include "bindings/core/v8/ScriptController.h"
@@ -136,7 +135,7 @@ void ScheduledAction::execute(WorkerGlobalScope* worker)
         createLocalHandlesForArgs(&info);
         V8ScriptRunner::callFunction(m_function.newLocal(m_scriptState->isolate()), worker, m_scriptState->context()->Global(), info.size(), info.data(), m_scriptState->isolate());
     } else {
-        worker->script()->evaluate(m_code);
+        worker->scriptController()->evaluate(m_code);
     }
 }
 

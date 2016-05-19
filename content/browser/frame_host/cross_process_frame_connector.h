@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_FRAME_HOST_CROSS_PROCESS_FRAME_CONNECTOR_H_
 #define CONTENT_BROWSER_FRAME_HOST_CROSS_PROCESS_FRAME_CONNECTOR_H_
 
+#include <stdint.h>
+
 #include "cc/output/compositor_frame.h"
 #include "content/common/content_export.h"
 #include "ui/gfx/geometry/rect.h"
@@ -22,9 +24,6 @@ struct SurfaceSequence;
 namespace IPC {
 class Message;
 }
-
-struct FrameHostMsg_CompositorFrameSwappedACK_Params;
-struct FrameHostMsg_ReclaimCompositorResources_Params;
 
 namespace content {
 class RenderFrameProxyHost;
@@ -85,11 +84,6 @@ class CONTENT_EXPORT CrossProcessFrameConnector {
 
   void RenderProcessGone();
 
-  virtual void ChildFrameCompositorFrameSwapped(
-      uint32 output_surface_id,
-      int host_id,
-      int route_id,
-      scoped_ptr<cc::CompositorFrame> frame);
   virtual void SetChildFrameSurface(const cc::SurfaceId& surface_id,
                                     const gfx::Size& frame_size,
                                     float scale_factor,
@@ -99,19 +93,23 @@ class CONTENT_EXPORT CrossProcessFrameConnector {
   float device_scale_factor() const { return device_scale_factor_; }
   void GetScreenInfo(blink::WebScreenInfo* results);
   void UpdateCursor(const WebCursor& cursor);
+  gfx::Point TransformPointToRootCoordSpace(const gfx::Point& point,
+                                            cc::SurfaceId surface_id);
 
   // Determines whether the root RenderWidgetHostView (and thus the current
   // page) has focus.
   bool HasFocus();
 
+  // Exposed for tests.
+  RenderWidgetHostViewBase* GetRootRenderWidgetHostViewForTesting() {
+    return GetRootRenderWidgetHostView();
+  }
+
  private:
   // Handlers for messages received from the parent frame.
-  void OnCompositorFrameSwappedACK(
-      const FrameHostMsg_CompositorFrameSwappedACK_Params& params);
-  void OnReclaimCompositorResources(
-      const FrameHostMsg_ReclaimCompositorResources_Params& params);
   void OnForwardInputEvent(const blink::WebInputEvent* event);
   void OnFrameRectChanged(const gfx::Rect& frame_rect);
+  void OnVisibilityChanged(bool visible);
   void OnInitializeChildFrame(gfx::Rect frame_rect, float scale_factor);
   void OnSatisfySequence(const cc::SurfaceSequence& sequence);
   void OnRequireSequence(const cc::SurfaceId& id,

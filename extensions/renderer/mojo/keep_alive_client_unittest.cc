@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
+#include "base/macros.h"
 #include "extensions/common/mojo/keep_alive.mojom.h"
 #include "extensions/renderer/api_test_base.h"
 #include "grit/extensions_renderer_resources.h"
@@ -19,14 +22,15 @@ class TestKeepAlive : public KeepAlive {
  public:
   TestKeepAlive(const base::Closure& on_destruction,
                 mojo::InterfaceRequest<KeepAlive> keep_alive)
-      : on_destruction_(on_destruction), binding_(this, keep_alive.Pass()) {}
+      : on_destruction_(on_destruction),
+        binding_(this, std::move(keep_alive)) {}
 
   ~TestKeepAlive() override { on_destruction_.Run(); }
 
   static void Create(const base::Closure& on_creation,
                      const base::Closure& on_destruction,
                      mojo::InterfaceRequest<KeepAlive> keep_alive) {
-    new TestKeepAlive(on_destruction, keep_alive.Pass());
+    new TestKeepAlive(on_destruction, std::move(keep_alive));
     on_creation.Run();
   }
 

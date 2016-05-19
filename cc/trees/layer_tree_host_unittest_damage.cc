@@ -33,6 +33,7 @@ class LayerTreeHostDamageTestSetNeedsRedraw
 
     layer_tree_host()->SetRootLayer(root);
     LayerTreeHostDamageTest::SetupTree();
+    client_.set_bounds(root->bounds());
   }
 
   void BeginTest() override {
@@ -95,6 +96,7 @@ class LayerTreeHostDamageTestSetViewportSize
 
     layer_tree_host()->SetRootLayer(root);
     LayerTreeHostDamageTest::SetupTree();
+    client_.set_bounds(root->bounds());
   }
 
   void BeginTest() override {
@@ -167,6 +169,7 @@ class LayerTreeHostDamageTestNoDamageDoesNotSwap
 
     layer_tree_host()->SetRootLayer(root);
     LayerTreeHostDamageTest::SetupTree();
+    client_.set_bounds(root->bounds());
   }
 
   DrawResult PrepareToDrawOnThread(LayerTreeHostImpl* host_impl,
@@ -251,6 +254,7 @@ class LayerTreeHostDamageTestForcedFullDamage : public LayerTreeHostDamageTest {
     root_->AddChild(child_);
     layer_tree_host()->SetRootLayer(root_);
     LayerTreeHostDamageTest::SetupTree();
+    client_.set_bounds(root_->bounds());
   }
 
   DrawResult PrepareToDrawOnThread(LayerTreeHostImpl* host_impl,
@@ -363,6 +367,7 @@ class LayerTreeHostScrollbarDamageTest : public LayerTreeHostDamageTest {
     EXPECT_FALSE(content_rect.Intersects(scrollbar_rect));
 
     LayerTreeHostDamageTest::SetupTree();
+    client_.set_bounds(root_layer->bounds());
   }
 
  private:
@@ -410,8 +415,8 @@ class LayerTreeHostDamageTestScrollbarDoesDamage
     ++did_swaps_;
     EXPECT_TRUE(result);
     LayerImpl* root = host_impl->active_tree()->root_layer();
-    LayerImpl* scroll_clip_layer = root->children()[0];
-    LayerImpl* scroll_layer = scroll_clip_layer->children()[0];
+    LayerImpl* scroll_clip_layer = root->children()[0].get();
+    LayerImpl* scroll_layer = scroll_clip_layer->children()[0].get();
     switch (did_swaps_) {
       case 1:
         // Test that modifying the position of the content layer (not
@@ -503,8 +508,8 @@ class LayerTreeHostDamageTestScrollbarCommitDoesNoDamage
     ++did_swaps_;
     EXPECT_TRUE(result);
     LayerImpl* root = host_impl->active_tree()->root_layer();
-    LayerImpl* scroll_clip_layer = root->children()[0];
-    LayerImpl* scroll_layer = scroll_clip_layer->children()[0];
+    LayerImpl* scroll_clip_layer = root->children()[0].get();
+    LayerImpl* scroll_layer = scroll_clip_layer->children()[0].get();
     switch (did_swaps_) {
       case 1:
         // Scroll on the thread.  This should damage the scrollbar for the

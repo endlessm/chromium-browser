@@ -4,18 +4,22 @@
 
 #include "sync/syncable/directory_backing_store.h"
 
-#include "build/build_config.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #include <limits>
+#include <unordered_set>
 
 #include "base/base64.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "sql/connection.h"
 #include "sql/error_delegate_util.h"
 #include "sql/statement.h"
@@ -34,7 +38,10 @@ namespace syncer {
 namespace syncable {
 
 // Increment this version whenever updating DB tables.
-const int32 kCurrentDBVersion = 89;
+const int32_t kCurrentDBVersion = 90;
+
+// The current database page size in Kilobytes.
+const int32_t kCurrentPageSizeKB = 32768;
 
 // Iterate over the fields of |entry| and bind each to |statement| for
 // updating.  Returns the number of args bound.
@@ -171,7 +178,7 @@ scoped_ptr<EntryKernel> UnpackEntry(sql::Statement* statement,
     return scoped_ptr<EntryKernel>();
   }
 
-  return kernel.Pass();
+  return kernel;
 }
 
 namespace {
@@ -256,8 +263,9 @@ void UploadModelTypeEntryCount(const int total_specifics_copies,
 
 DirectoryBackingStore::DirectoryBackingStore(const string& dir_name)
     : dir_name_(dir_name),
-      database_page_size_(32768),
-      needs_column_refresh_(false) {
+      database_page_size_(kCurrentPageSizeKB),
+      needs_metas_column_refresh_(false),
+      needs_share_info_column_refresh_(false) {
   DCHECK(base::ThreadTaskRunnerHandle::IsSet());
   ResetAndCreateConnection();
 }
@@ -265,9 +273,10 @@ DirectoryBackingStore::DirectoryBackingStore(const string& dir_name)
 DirectoryBackingStore::DirectoryBackingStore(const string& dir_name,
                                              sql::Connection* db)
     : dir_name_(dir_name),
-      database_page_size_(32768),
+      database_page_size_(kCurrentPageSizeKB),
       db_(db),
-      needs_column_refresh_(false) {
+      needs_metas_column_refresh_(false),
+      needs_share_info_column_refresh_(false) {
   DCHECK(base::ThreadTaskRunnerHandle::IsSet());
 }
 
@@ -407,13 +416,19 @@ bool DirectoryBackingStore::OpenInMemory() {
 }
 
 bool DirectoryBackingStore::InitializeTables() {
-  int page_size = 0;
-  if (GetDatabasePageSize(&page_size) && page_size == 4096) {
-    IncreasePageSizeTo32K();
-  }
+  if (!UpdatePageSizeIfNecessary())
+    return false;
+
   sql::Transaction transaction(db_.get());
   if (!transaction.Begin())
     return false;
+
+  if (!db_->DoesTableExist("share_version")) {
+    // Delete the existing database (if any), and create a fresh one.
+    DropAllTables();
+    if (!CreateTables())
+      return false;
+  }
 
   int version_on_disk = GetVersion();
 
@@ -459,7 +474,7 @@ bool DirectoryBackingStore::InitializeTables() {
       version_on_disk = 74;
   }
 
-  // Version 75 migrated from int64-based timestamps to per-datatype tokens.
+  // Version 75 migrated from int64_t-based timestamps to per-datatype tokens.
   if (version_on_disk == 74) {
     if (MigrateVersion74To75())
       version_on_disk = 75;
@@ -496,7 +511,7 @@ bool DirectoryBackingStore::InitializeTables() {
       version_on_disk = 80;
   }
 
-  // Version 81 replaces the int64 server_position_in_parent_field
+  // Version 81 replaces the int64_t server_position_in_parent_field
   // with a blob server_ordinal_in_parent field.
   if (version_on_disk == 80) {
     if (MigrateVersion80To81())
@@ -552,35 +567,24 @@ bool DirectoryBackingStore::InitializeTables() {
       version_on_disk = 89;
   }
 
+  // Version 90 migration removes several columns from share_info table.
+  if (version_on_disk == 89) {
+    if (MigrateVersion89To90())
+      version_on_disk = 90;
+  }
+
   // If one of the migrations requested it, drop columns that aren't current.
   // It's only safe to do this after migrating all the way to the current
   // version.
-  if (version_on_disk == kCurrentDBVersion && needs_column_refresh_) {
+  if (version_on_disk == kCurrentDBVersion && needs_column_refresh()) {
     if (!RefreshColumns())
-      version_on_disk = 0;
-  }
-
-  // A final, alternative catch-all migration to simply re-sync everything.
-  if (version_on_disk != kCurrentDBVersion) {
-    if (version_on_disk > kCurrentDBVersion)
-      return false;
-
-    // Fallback (re-sync everything) migration path.
-    DVLOG(1) << "Old/null sync database, version " << version_on_disk;
-    // Delete the existing database (if any), and create a fresh one.
-    DropAllTables();
-    if (!CreateTables())
       return false;
   }
 
-  sql::Statement s(db_->GetUniqueStatement(
-          "SELECT db_create_version, db_create_time FROM share_info"));
-  if (!s.Step())
+  // In case of error, let the caller decide whether to re-sync from scratch
+  // with a new database.
+  if (version_on_disk != kCurrentDBVersion)
     return false;
-  string db_create_version = s.ColumnString(0);
-  int db_create_time = s.ColumnInt(1);
-  DVLOG(1) << "DB created at " << db_create_time << " by version " <<
-      db_create_version;
 
   return transaction.Commit();
 }
@@ -589,55 +593,58 @@ bool DirectoryBackingStore::InitializeTables() {
 // the currently used columns then copying all rows from the old tables into
 // this new one.  The tables are then rearranged so the new replaces the old.
 bool DirectoryBackingStore::RefreshColumns() {
-  DCHECK(needs_column_refresh_);
+  DCHECK(needs_metas_column_refresh_ || needs_share_info_column_refresh_);
 
-  // Create a new table named temp_metas.
-  SafeDropTable("temp_metas");
-  if (!CreateMetasTable(true))
-    return false;
+  if (needs_metas_column_refresh_) {
+    // Create a new table named temp_metas.
+    SafeDropTable("temp_metas");
+    if (!CreateMetasTable(true))
+      return false;
 
-  // Populate temp_metas from metas.
-  //
-  // At this point, the metas table may contain columns belonging to obsolete
-  // schema versions.  This statement explicitly lists only the columns that
-  // belong to the current schema version, so the obsolete columns will be
-  // effectively dropped once we rename temp_metas over top of metas.
-  std::string query = "INSERT INTO temp_metas (";
-  AppendColumnList(&query);
-  query.append(") SELECT ");
-  AppendColumnList(&query);
-  query.append(" FROM metas");
-  if (!db_->Execute(query.c_str()))
-    return false;
+    // Populate temp_metas from metas.
+    //
+    // At this point, the metas table may contain columns belonging to obsolete
+    // schema versions.  This statement explicitly lists only the columns that
+    // belong to the current schema version, so the obsolete columns will be
+    // effectively dropped once we rename temp_metas over top of metas.
+    std::string query = "INSERT INTO temp_metas (";
+    AppendColumnList(&query);
+    query.append(") SELECT ");
+    AppendColumnList(&query);
+    query.append(" FROM metas");
+    if (!db_->Execute(query.c_str()))
+      return false;
 
-  // Drop metas.
-  SafeDropTable("metas");
+    // Drop metas.
+    SafeDropTable("metas");
 
-  // Rename temp_metas -> metas.
-  if (!db_->Execute("ALTER TABLE temp_metas RENAME TO metas"))
-    return false;
+    // Rename temp_metas -> metas.
+    if (!db_->Execute("ALTER TABLE temp_metas RENAME TO metas"))
+      return false;
 
-  // Repeat the process for share_info.
-  SafeDropTable("temp_share_info");
-  if (!CreateShareInfoTable(true))
-    return false;
+    needs_metas_column_refresh_ = false;
+  }
 
-  // TODO(rlarocque, 124140): Remove notification_state.
-  if (!db_->Execute(
-          "INSERT INTO temp_share_info (id, name, store_birthday, "
-          "db_create_version, db_create_time, next_id, cache_guid,"
-          "notification_state, bag_of_chips) "
-          "SELECT id, name, store_birthday, db_create_version, "
-          "db_create_time, next_id, cache_guid, notification_state, "
-          "bag_of_chips "
-          "FROM share_info"))
-    return false;
+  if (needs_share_info_column_refresh_) {
+    // Repeat the process for share_info.
+    SafeDropTable("temp_share_info");
+    if (!CreateShareInfoTable(true))
+      return false;
 
-  SafeDropTable("share_info");
-  if (!db_->Execute("ALTER TABLE temp_share_info RENAME TO share_info"))
-    return false;
+    if (!db_->Execute(
+            "INSERT INTO temp_share_info (id, name, store_birthday, "
+            "cache_guid, bag_of_chips) "
+            "SELECT id, name, store_birthday, cache_guid, bag_of_chips "
+            "FROM share_info"))
+      return false;
 
-  needs_column_refresh_ = false;
+    SafeDropTable("share_info");
+    if (!db_->Execute("ALTER TABLE temp_share_info RENAME TO share_info"))
+      return false;
+
+    needs_share_info_column_refresh_ = false;
+  }
+
   return true;
 }
 
@@ -650,7 +657,7 @@ bool DirectoryBackingStore::LoadEntries(Directory::MetahandlesMap* handles_map,
   select.append(" FROM metas");
   int total_specifics_copies = 0;
   int model_type_entry_count[MODEL_TYPE_COUNT];
-  for (int i = FIRST_REAL_MODEL_TYPE; i < MODEL_TYPE_COUNT; ++i) {
+  for (int i = 0; i < MODEL_TYPE_COUNT; ++i) {
     model_type_entry_count[i] = 0;
   }
 
@@ -662,11 +669,15 @@ bool DirectoryBackingStore::LoadEntries(Directory::MetahandlesMap* handles_map,
     if (!kernel)
       return false;
 
-    int64 handle = kernel->ref(META_HANDLE);
+    int64_t handle = kernel->ref(META_HANDLE);
     if (SafeToPurgeOnLoading(*kernel)) {
       metahandles_to_purge->insert(handle);
     } else {
-      ++model_type_entry_count[kernel->GetModelType()];
+      ModelType model_type = kernel->GetModelType();
+      if (!IsRealDataType(model_type)) {
+        model_type = kernel->GetServerModelType();
+      }
+      ++model_type_entry_count[model_type];
       (*handles_map)[handle] = kernel.release();
     }
   }
@@ -776,7 +787,8 @@ void DirectoryBackingStore::DropAllTables() {
   SafeDropTable("extended_attributes");
   SafeDropTable("models");
   SafeDropTable("temp_models");
-  needs_column_refresh_ = false;
+  needs_metas_column_refresh_ = false;
+  needs_share_info_column_refresh_ = false;
 }
 
 // static
@@ -819,7 +831,7 @@ bool DirectoryBackingStore::MigrateToSpecifics(
   sql::Statement update(db_->GetUniqueStatement(update_sql.c_str()));
 
   while (query.Step()) {
-    int64 metahandle = query.ColumnInt64(0);
+    int64_t metahandle = query.ColumnInt64(0);
     std::string new_value_bytes;
     query.ColumnBlobAsString(1, &new_value_bytes);
     sync_pb::EntitySpecifics new_value;
@@ -864,7 +876,7 @@ bool DirectoryBackingStore::MigrateVersion67To68() {
   //   string SERVER_NAME
   // No data migration is necessary, but we should do a column refresh.
   SetVersion(68);
-  needs_column_refresh_ = true;
+  needs_metas_column_refresh_ = true;
   return true;
 }
 
@@ -877,7 +889,7 @@ bool DirectoryBackingStore::MigrateVersion69To70() {
   if (!db_->Execute(
           "ALTER TABLE metas ADD COLUMN unique_client_tag varchar"))
     return false;
-  needs_column_refresh_ = true;
+  needs_metas_column_refresh_ = true;
 
   if (!db_->Execute(
           "UPDATE metas SET unique_server_tag = singleton_tag"))
@@ -958,7 +970,7 @@ bool DirectoryBackingStore::MigrateVersion68To69() {
     return false;
 
   SetVersion(69);
-  needs_column_refresh_ = true;  // Trigger deletion of old columns.
+  needs_metas_column_refresh_ = true;  // Trigger deletion of old columns.
   return true;
 }
 
@@ -976,7 +988,7 @@ bool DirectoryBackingStore::MigrateVersion70To71() {
     if (!fetch.Step())
       return false;
 
-    int64 last_sync_timestamp = fetch.ColumnInt64(0);
+    int64_t last_sync_timestamp = fetch.ColumnInt64(0);
     bool initial_sync_ended = fetch.ColumnBool(1);
 
     // Verify there were no additional rows returned.
@@ -1138,7 +1150,7 @@ bool DirectoryBackingStore::MigrateVersion75To76() {
   //   autofill_profiles_added_during_migration
   // No data migration is necessary, but we should do a column refresh.
   SetVersion(76);
-  needs_column_refresh_ = true;
+  needs_share_info_column_refresh_ = true;
   return true;
 }
 
@@ -1207,8 +1219,8 @@ bool DirectoryBackingStore::MigrateVersion79To80() {
 }
 
 bool DirectoryBackingStore::MigrateVersion80To81() {
-  if(!db_->Execute(
-         "ALTER TABLE metas ADD COLUMN server_ordinal_in_parent BLOB"))
+  if (!db_->Execute(
+          "ALTER TABLE metas ADD COLUMN server_ordinal_in_parent BLOB"))
     return false;
 
   sql::Statement get_positions(db_->GetUniqueStatement(
@@ -1218,21 +1230,21 @@ bool DirectoryBackingStore::MigrateVersion80To81() {
       "UPDATE metas SET server_ordinal_in_parent = ?"
       "WHERE metahandle = ?"));
 
-  while(get_positions.Step()) {
-    int64 metahandle = get_positions.ColumnInt64(0);
-    int64 position = get_positions.ColumnInt64(1);
+  while (get_positions.Step()) {
+    int64_t metahandle = get_positions.ColumnInt64(0);
+    int64_t position = get_positions.ColumnInt64(1);
 
     const std::string& ordinal = Int64ToNodeOrdinal(position).ToInternalValue();
     put_ordinals.BindBlob(0, ordinal.data(), ordinal.length());
     put_ordinals.BindInt64(1, metahandle);
 
-    if(!put_ordinals.Run())
+    if (!put_ordinals.Run())
       return false;
     put_ordinals.Reset(true);
   }
 
   SetVersion(81);
-  needs_column_refresh_ = true;
+  needs_metas_column_refresh_ = true;
   return true;
 }
 
@@ -1340,7 +1352,7 @@ bool DirectoryBackingStore::MigrateVersion85To86() {
       "WHERE metahandle = ?"));
 
   while (get.Step()) {
-    int64 metahandle = get.ColumnInt64(0);
+    int64_t metahandle = get.ColumnInt64(0);
 
     std::string id_string;
     get.ColumnBlobAsString(1, &id_string);
@@ -1387,11 +1399,11 @@ bool DirectoryBackingStore::MigrateVersion85To86() {
         // when we see updates for this item.  That should ensure that commonly
         // modified items will end up with the proper tag values eventually.
         unique_bookmark_tag = syncable::GenerateSyncableBookmarkHash(
-            std::string(), // cache_guid left intentionally blank.
+            std::string(),  // cache_guid left intentionally blank.
             id_string.substr(1));
       }
 
-      int64 int_position = NodeOrdinalToInt64(ordinal);
+      int64_t int_position = NodeOrdinalToInt64(ordinal);
       position = UniquePosition::FromInt64(int_position, unique_bookmark_tag);
     } else {
       // Leave bookmark_tag and position at their default (invalid) values.
@@ -1410,7 +1422,7 @@ bool DirectoryBackingStore::MigrateVersion85To86() {
   }
 
   SetVersion(86);
-  needs_column_refresh_ = true;
+  needs_metas_column_refresh_ = true;
   return true;
 }
 
@@ -1422,7 +1434,7 @@ bool DirectoryBackingStore::MigrateVersion86To87() {
     return false;
   }
   SetVersion(87);
-  needs_column_refresh_ = true;
+  needs_metas_column_refresh_ = true;
   return true;
 }
 
@@ -1443,12 +1455,25 @@ bool DirectoryBackingStore::MigrateVersion88To89() {
     return false;
   }
   SetVersion(89);
-  needs_column_refresh_ = true;
+  needs_metas_column_refresh_ = true;
+  return true;
+}
+
+bool DirectoryBackingStore::MigrateVersion89To90() {
+  // This change removed 4 columns from meta_info:
+  //   db_create_version
+  //   db_create_time
+  //   next_id
+  //   notification_state
+  // No data migration is necessary, but we should do a column refresh.
+  SetVersion(90);
+  needs_share_info_column_refresh_ = true;
   return true;
 }
 
 bool DirectoryBackingStore::CreateTables() {
   DVLOG(1) << "First run, creating tables";
+
   // Create two little tables share_version and share_info
   if (!db_->Execute(
           "CREATE TABLE share_version ("
@@ -1477,24 +1502,13 @@ bool DirectoryBackingStore::CreateTables() {
             "(?, "  // id
             "?, "   // name
             "?, "   // store_birthday
-            "?, "   // db_create_version
-            "?, "   // db_create_time
-            "-2, "  // next_id
             "?, "   // cache_guid
-            // TODO(rlarocque, 124140): Remove notification_state field.
-            "?, "   // notification_state
             "?);"));  // bag_of_chips
     s.BindString(0, dir_name_);                   // id
     s.BindString(1, dir_name_);                   // name
     s.BindString(2, std::string());               // store_birthday
-    // TODO(akalin): Remove this unused db_create_version field. (Or
-    // actually use it for something.) http://crbug.com/118356
-    s.BindString(3, "Unknown");                   // db_create_version
-    s.BindInt(4, static_cast<int32>(time(0)));    // db_create_time
-    s.BindString(5, GenerateCacheGUID());         // cache_guid
-    // TODO(rlarocque, 124140): Remove this unused notification-state field.
-    s.BindBlob(6, NULL, 0);                       // notification_state
-    s.BindBlob(7, NULL, 0);                       // bag_of_chips
+    s.BindString(3, GenerateCacheGUID());         // cache_guid
+    s.BindBlob(4, NULL, 0);                       // bag_of_chips
     if (!s.Run())
       return false;
   }
@@ -1508,7 +1522,7 @@ bool DirectoryBackingStore::CreateTables() {
 
   {
     // Insert the entry for the root into the metas table.
-    const int64 now = TimeToProtoTime(base::Time::Now());
+    const int64_t now = TimeToProtoTime(base::Time::Now());
     sql::Statement s(db_->GetUniqueStatement(
             "INSERT INTO metas "
             "( id, metahandle, is_dir, ctime, mtime ) "
@@ -1600,12 +1614,7 @@ bool DirectoryBackingStore::CreateShareInfoTable(bool is_temporary) {
       "id TEXT primary key, "
       "name TEXT, "
       "store_birthday TEXT, "
-      "db_create_version TEXT, "
-      "db_create_time INT, "
-      "next_id INT default -2, "
       "cache_guid TEXT, "
-      // TODO(rlarocque, 124140): Remove notification_state field.
-      "notification_state BLOB, "
       "bag_of_chips BLOB"
       ")");
   return db_->Execute(query.c_str());
@@ -1634,8 +1643,7 @@ bool DirectoryBackingStore::CreateShareInfoTableVersion71(
 bool DirectoryBackingStore::VerifyReferenceIntegrity(
     const Directory::MetahandlesMap* handles_map) {
   TRACE_EVENT0("sync", "SyncDatabaseIntegrityCheck");
-  using namespace syncable;
-  typedef base::hash_set<std::string> IdsSet;
+  typedef std::unordered_set<std::string> IdsSet;
 
   IdsSet ids_set;
   bool is_ok = true;
@@ -1705,10 +1713,16 @@ bool DirectoryBackingStore::GetDatabasePageSize(int* page_size) {
   return true;
 }
 
-bool DirectoryBackingStore::IncreasePageSizeTo32K() {
-  if (!db_->Execute("PRAGMA page_size=32768;") || !Vacuum()) {
+bool DirectoryBackingStore::UpdatePageSizeIfNecessary() {
+  int page_size;
+  if (!GetDatabasePageSize(&page_size))
     return false;
-  }
+  if (page_size == kCurrentPageSizeKB)
+    return true;
+  std::string update_page_size = base::StringPrintf(
+    "PRAGMA page_size=%i;", kCurrentPageSizeKB);
+  if (!db_->Execute(update_page_size.c_str()) || !Vacuum())
+    return false;
   return true;
 }
 
@@ -1721,7 +1735,7 @@ bool DirectoryBackingStore::Vacuum() {
 }
 
 bool DirectoryBackingStore::needs_column_refresh() const {
-  return needs_column_refresh_;
+  return needs_metas_column_refresh_ || needs_share_info_column_refresh_;
 }
 
 void DirectoryBackingStore::ResetAndCreateConnection() {
@@ -1731,9 +1745,10 @@ void DirectoryBackingStore::ResetAndCreateConnection() {
   db_->set_cache_size(32);
   db_->set_page_size(database_page_size_);
 
-  // TODO(shess): Sync corruption tests interact poorly with mmap, disable for
-  // now.  http://crbug.com/533682
+  // TODO(shess): The current mitigation for http://crbug.com/537742 stores
+  // state in the meta table, which this database does not use.
   db_->set_mmap_disabled();
+
   if (!catastrophic_error_handler_.is_null())
     SetCatastrophicErrorHandler(catastrophic_error_handler_);
 }

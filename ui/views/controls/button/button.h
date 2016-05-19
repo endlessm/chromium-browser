@@ -5,8 +5,9 @@
 #ifndef UI_VIEWS_CONTROLS_BUTTON_BUTTON_H_
 #define UI_VIEWS_CONTROLS_BUTTON_BUTTON_H_
 
+#include "base/macros.h"
 #include "ui/native_theme/native_theme.h"
-#include "ui/views/view.h"
+#include "ui/views/animation/ink_drop_host_view.h"
 
 namespace views {
 
@@ -25,7 +26,7 @@ class VIEWS_EXPORT ButtonListener {
 
 // A View representing a button. Depending on the specific type, the button
 // could be implemented by a native control or custom rendered.
-class VIEWS_EXPORT Button : public View {
+class VIEWS_EXPORT Button : public InkDropHostView {
  public:
   ~Button() override;
 
@@ -68,6 +69,11 @@ class VIEWS_EXPORT Button : public View {
 
   // Cause the button to notify the listener that a click occurred.
   virtual void NotifyClick(const ui::Event& event);
+
+  // Called when a button gets released without triggering an action.
+  // Note: This is only wired up for mouse button events and not gesture
+  // events.
+  virtual void OnClickCanceled(const ui::Event& event);
 
   // The button's listener. Notified when clicked.
   ButtonListener* listener_;

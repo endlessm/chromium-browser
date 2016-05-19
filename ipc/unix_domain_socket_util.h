@@ -5,9 +5,8 @@
 #ifndef IPC_UNIX_DOMAIN_SOCKET_UTIL_H_
 #define IPC_UNIX_DOMAIN_SOCKET_UTIL_H_
 
+#include <stddef.h>
 #include <sys/types.h>
-
-#include <string>
 
 #include "ipc/ipc_export.h"
 

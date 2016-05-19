@@ -21,16 +21,25 @@ import subprocess
 import sys
 import time
 
+# Import _strptime before threaded code. datetime.datetime.strptime is
+# threadsafe except for the initial import of the _strptime module.
+# See crbug.com/584730 and https://bugs.python.org/issue7980.
+import _strptime  # pylint: disable=unused-import
+
+import devil_chromium
+from devil import devil_env
 from devil.android import battery_utils
 from devil.android import device_blacklist
 from devil.android import device_errors
 from devil.android import device_temp_file
 from devil.android import device_utils
+from devil.android.sdk import keyevent
 from devil.android.sdk import version_codes
 from devil.utils import run_tests_helper
 from devil.utils import timeout_retry
 from pylib import constants
 from pylib import device_settings
+from pylib.constants import host_paths
 
 _SYSTEM_WEBVIEW_PATHS = ['/system/app/webview', '/system/app/WebViewGoogle']
 _CHROME_PACKAGE_REGEX = re.compile('.*chrom.*')
@@ -103,7 +112,8 @@ def ProvisionDevice(device, blacklist, options):
 
   try:
     if should_run_phase(_PHASES.WIPE):
-      if options.chrome_specific_wipe:
+      if (options.chrome_specific_wipe or device.IsUserBuild() or
+          device.build_version_sdk >= version_codes.MARSHMALLOW):
         run_phase(WipeChromeData)
       else:
         run_phase(WipeDevice)
@@ -124,12 +134,14 @@ def ProvisionDevice(device, blacklist, options):
   except device_errors.CommandTimeoutError:
     logging.exception('Timed out waiting for device %s. Adding to blacklist.',
                       str(device))
-    blacklist.Extend([str(device)], reason='provision_timeout')
+    if blacklist:
+      blacklist.Extend([str(device)], reason='provision_timeout')
 
   except device_errors.CommandFailedError:
     logging.exception('Failed to provision device %s. Adding to blacklist.',
                       str(device))
-    blacklist.Extend([str(device)], reason='provision_failure')
+    if blacklist:
+      blacklist.Extend([str(device)], reason='provision_failure')
 
 def CheckExternalStorage(device):
   """Checks that storage is writable and if not makes it writable.
@@ -171,19 +183,25 @@ def WipeChromeData(device, options):
     return
 
   try:
-    device.EnableRoot()
-    _UninstallIfMatch(device, _CHROME_PACKAGE_REGEX,
-                      constants.PACKAGE_INFO['chrome_stable'].package)
-    _WipeUnderDirIfMatch(device, '/data/app-lib/', _CHROME_PACKAGE_REGEX)
-    _WipeUnderDirIfMatch(device, '/data/tombstones/', _TOMBSTONE_REGEX)
+    if device.IsUserBuild():
+      _UninstallIfMatch(device, _CHROME_PACKAGE_REGEX,
+                        constants.PACKAGE_INFO['chrome_stable'].package)
+      device.RunShellCommand('rm -rf %s/*' % device.GetExternalStoragePath(),
+                             check_return=True)
+      device.RunShellCommand('rm -rf /data/local/tmp/*', check_return=True)
+    else:
+      device.EnableRoot()
+      _UninstallIfMatch(device, _CHROME_PACKAGE_REGEX,
+                        constants.PACKAGE_INFO['chrome_stable'].package)
+      _WipeUnderDirIfMatch(device, '/data/app-lib/', _CHROME_PACKAGE_REGEX)
+      _WipeUnderDirIfMatch(device, '/data/tombstones/', _TOMBSTONE_REGEX)
 
-    _WipeFileOrDir(device, '/data/local.prop')
-    _WipeFileOrDir(device, '/data/local/chrome-command-line')
-    _WipeFileOrDir(device, '/data/local/.config/')
-    _WipeFileOrDir(device, '/data/local/tmp/')
-
-    device.RunShellCommand('rm -rf %s/*' % device.GetExternalStoragePath(),
-                           check_return=True)
+      _WipeFileOrDir(device, '/data/local.prop')
+      _WipeFileOrDir(device, '/data/local/chrome-command-line')
+      _WipeFileOrDir(device, '/data/local/.config/')
+      _WipeFileOrDir(device, '/data/local/tmp/')
+      device.RunShellCommand('rm -rf %s/*' % device.GetExternalStoragePath(),
+                             check_return=True)
   except device_errors.CommandFailedError:
     logging.exception('Possible failure while wiping the device. '
                       'Attempting to continue.')
@@ -246,7 +264,10 @@ def SetProperties(device, options):
   except device_errors.CommandFailedError as e:
     logging.warning(str(e))
 
-  _ConfigureLocalProperties(device, options.enable_java_debug)
+  if not device.IsUserBuild():
+    _ConfigureLocalProperties(device, options.enable_java_debug)
+  else:
+    logging.warning('Cannot configure properties in user builds.')
   device_settings.ConfigureContentSettings(
       device, device_settings.DETERMINISTIC_DEVICE_SETTINGS)
   if options.disable_location:
@@ -284,6 +305,9 @@ def SetProperties(device, options):
     else:
       logging.warning('Cannot remove system webview from a non-rooted device')
 
+  # Some device types can momentarily disappear after setting properties.
+  device.adb.WaitForDevice()
+
 
 def _ConfigureLocalProperties(device, java_debug=True):
   """Set standard readonly testing device properties prior to reboot."""
@@ -311,12 +335,18 @@ def _ConfigureLocalProperties(device, java_debug=True):
 
 
 def FinishProvisioning(device, options):
+  # The lockscreen can't be disabled on user builds, so send a keyevent
+  # to unlock it.
+  if device.IsUserBuild():
+    device.SendKeyEvent(keyevent.KEYCODE_MENU)
+
   if options.min_battery_level is not None:
+    battery = battery_utils.BatteryUtils(device)
     try:
-      battery = battery_utils.BatteryUtils(device)
       battery.ChargeDeviceToLevel(options.min_battery_level)
-    except device_errors.CommandFailedError:
-      logging.exception('Unable to charge device to specified level.')
+    except device_errors.DeviceChargingError:
+      device.Reboot()
+      battery.ChargeDeviceToLevel(options.min_battery_level)
 
   if options.max_battery_temp is not None:
     try:
@@ -351,10 +381,14 @@ def FinishProvisioning(device, options):
       return False
 
   # Sometimes the date is not set correctly on the devices. Retry on failure.
-  if not timeout_retry.WaitFor(_set_and_verify_date, wait_period=1,
-                               max_tries=2):
-    raise device_errors.CommandFailedError(
-        'Failed to set date & time.', device_serial=str(device))
+  if device.IsUserBuild():
+    # TODO(bpastene): Figure out how to set the date & time on user builds.
+    pass
+  else:
+    if not timeout_retry.WaitFor(
+        _set_and_verify_date, wait_period=1, max_tries=2):
+      raise device_errors.CommandFailedError(
+          'Failed to set date & time.', device_serial=str(device))
 
   props = device.RunShellCommand('getprop', check_return=True)
   for prop in props:
@@ -365,10 +399,14 @@ def FinishProvisioning(device, options):
 
 def _UninstallIfMatch(device, pattern, app_to_keep):
   installed_packages = device.RunShellCommand(['pm', 'list', 'packages'])
+  installed_system_packages = [
+      pkg.split(':')[1] for pkg in device.RunShellCommand(['pm', 'list',
+                                                           'packages', '-s'])]
   for package_output in installed_packages:
     package = package_output.split(":")[1]
     if pattern.match(package) and not package == app_to_keep:
-      device.Uninstall(package)
+      if not device.IsUserBuild() or package not in installed_system_packages:
+        device.Uninstall(package)
 
 
 def _WipeUnderDirIfMatch(device, path, pattern):
@@ -397,7 +435,7 @@ def _PushAndLaunchAdbReboot(device, target):
   device.KillAll('adb_reboot', blocking=True, timeout=2, quiet=True)
   # Push adb_reboot
   logging.info('  Pushing adb_reboot ...')
-  adb_reboot = os.path.join(constants.DIR_SOURCE_ROOT,
+  adb_reboot = os.path.join(host_paths.DIR_SOURCE_ROOT,
                             'out/%s/adb_reboot' % target)
   device.PushChangedFiles([(adb_reboot, '/data/local/tmp/')])
   # Launch adb_reboot
@@ -412,7 +450,7 @@ def _LaunchHostHeartbeat():
   KillHostHeartbeat()
   # Launch a new host_heartbeat
   logging.info('Spawning host heartbeat...')
-  subprocess.Popen([os.path.join(constants.DIR_SOURCE_ROOT,
+  subprocess.Popen([os.path.join(host_paths.DIR_SOURCE_ROOT,
                                  'build/android/host_heartbeat.py')])
 
 def KillHostHeartbeat():
@@ -439,6 +477,8 @@ def main():
   parser.add_argument('-d', '--device', metavar='SERIAL',
                       help='the serial number of the device to be provisioned'
                       ' (the default is to provision all devices attached)')
+  parser.add_argument('--adb-path',
+                      help='Absolute path to the adb binary to use.')
   parser.add_argument('--blacklist-file', help='Device blacklist JSON file.')
   parser.add_argument('--phase', action='append', choices=_PHASES.ALL,
                       dest='phases',
@@ -487,6 +527,16 @@ def main():
   constants.SetBuildType(args.target)
 
   run_tests_helper.SetLogLevel(args.verbose)
+
+  devil_custom_deps = None
+  if args.adb_path:
+    devil_custom_deps = {
+      'adb': {
+        devil_env.GetPlatform(): [args.adb_path],
+      },
+    }
+
+  devil_chromium.Initialize(custom_deps=devil_custom_deps)
 
   return ProvisionDevices(args)
 

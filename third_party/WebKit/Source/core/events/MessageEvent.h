@@ -57,7 +57,7 @@ public:
     }
     static PassRefPtrWillBeRawPtr<MessageEvent> create(PassOwnPtr<MessagePortChannelArray> channels, PassRefPtr<SerializedScriptValue> data, const String& origin = String(), const String& lastEventId = String(), PassRefPtrWillBeRawPtr<EventTarget> source = nullptr, const String& suborigin = String())
     {
-        return adoptRefWillBeNoop(new MessageEvent(data, origin, lastEventId, source, channels, suborigin));
+        return adoptRefWillBeNoop(new MessageEvent(data, origin, lastEventId, source, std::move(channels), suborigin));
     }
     static PassRefPtrWillBeRawPtr<MessageEvent> create(const String& data, const String& origin = String(), const String& suborigin = String())
     {
@@ -94,7 +94,7 @@ public:
         DataTypeBlob,
         DataTypeArrayBuffer
     };
-    DataType dataType() const { return m_dataType; }
+    DataType getDataType() const { return m_dataType; }
     ScriptValue dataAsScriptValue() const { ASSERT(m_dataType == DataTypeScriptValue); return m_dataAsScriptValue; }
     SerializedScriptValue* dataAsSerializedScriptValue() const { ASSERT(m_dataType == DataTypeSerializedScriptValue); return m_dataAsSerializedScriptValue.get(); }
     String dataAsString() const { ASSERT(m_dataType == DataTypeString); return m_dataAsString; }

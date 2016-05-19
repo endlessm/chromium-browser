@@ -4,12 +4,12 @@
 
 #include "components/data_usage/core/data_use_aggregator.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/stl_util.h"
+#include "build/build_config.h"
 #include "components/data_usage/core/data_use.h"
-#include "components/data_usage/core/data_use_amortizer.h"
-#include "components/data_usage/core/data_use_annotator.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/network_change_notifier.h"
 #include "net/url_request/url_request.h"
@@ -22,8 +22,8 @@ namespace data_usage {
 
 DataUseAggregator::DataUseAggregator(scoped_ptr<DataUseAnnotator> annotator,
                                      scoped_ptr<DataUseAmortizer> amortizer)
-    : annotator_(annotator.Pass()),
-      amortizer_(amortizer.Pass()),
+    : annotator_(std::move(annotator)),
+      amortizer_(std::move(amortizer)),
       connection_type_(net::NetworkChangeNotifier::GetConnectionType()),
       weak_ptr_factory_(this) {
 #if defined(OS_ANDROID)
@@ -60,15 +60,18 @@ void DataUseAggregator::ReportDataUse(net::URLRequest* request,
                   connection_type_, mcc_mnc_, tx_bytes, rx_bytes));
 
   if (!annotator_) {
-    PassDataUseToAmortizer(data_use.Pass());
+    PassDataUseToAmortizer(std::move(data_use));
     return;
   }
 
-  // TODO(sclittle): Instead of binding a new callback every time, re-use the
-  // same callback every time.
-  annotator_->Annotate(
-      request, data_use.Pass(),
-      base::Bind(&DataUseAggregator::PassDataUseToAmortizer, GetWeakPtr()));
+  // As an optimization, re-use a lazily initialized callback object for every
+  // call into |annotator_|, so that a new callback object doesn't have to be
+  // allocated and held onto every time.
+  if (annotation_callback_.is_null()) {
+    annotation_callback_ =
+        base::Bind(&DataUseAggregator::PassDataUseToAmortizer, GetWeakPtr());
+  }
+  annotator_->Annotate(request, std::move(data_use), annotation_callback_);
 }
 
 void DataUseAggregator::ReportOffTheRecordDataUse(int64_t tx_bytes,
@@ -105,28 +108,25 @@ void DataUseAggregator::PassDataUseToAmortizer(scoped_ptr<DataUse> data_use) {
   DCHECK(data_use);
 
   if (!amortizer_) {
-    OnAmortizationComplete(data_use.Pass());
+    OnAmortizationComplete(std::move(data_use));
     return;
   }
 
-  // TODO(sclittle): Instead of binding a new callback every time, re-use the
-  // same callback every time.
-  amortizer_->AmortizeDataUse(
-      data_use.Pass(),
-      base::Bind(&DataUseAggregator::OnAmortizationComplete, GetWeakPtr()));
+  // As an optimization, re-use a lazily initialized callback object for every
+  // call into |amortizer_|, so that a new callback object doesn't have to be
+  // allocated and held onto every time. This also allows the |amortizer_| to
+  // combine together similar DataUse objects in its buffer if applicable.
+  if (amortization_callback_.is_null()) {
+    amortization_callback_ =
+        base::Bind(&DataUseAggregator::OnAmortizationComplete, GetWeakPtr());
+  }
+  amortizer_->AmortizeDataUse(std::move(data_use), amortization_callback_);
 }
 
 void DataUseAggregator::OnAmortizationComplete(
     scoped_ptr<DataUse> amortized_data_use) {
   DCHECK(thread_checker_.CalledOnValidThread());
-
-  // Pass Observers a sequence of const DataUse pointers instead of using the
-  // buffer directly in order to prevent Observers from modifying the DataUse
-  // objects.
-  // TODO(sclittle): Change the observer interface to take in a const DataUse&.
-  std::vector<const DataUse*> const_sequence(1, amortized_data_use.get());
-  DCHECK(!ContainsValue(const_sequence, nullptr));
-  FOR_EACH_OBSERVER(Observer, observer_list_, OnDataUse(const_sequence));
+  FOR_EACH_OBSERVER(Observer, observer_list_, OnDataUse(*amortized_data_use));
 }
 
 }  // namespace data_usage

@@ -4,9 +4,10 @@
 
 #include "chrome/browser/sync/sync_global_error.h"
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/sync/profile_sync_service_mock.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/browser/sync/sync_global_error_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
@@ -62,7 +63,7 @@ class SyncGlobalErrorTest : public BrowserWithTestWindowTest {
   ~SyncGlobalErrorTest() override {}
 
   void SetUp() override {
-    profile_.reset(ProfileSyncServiceMock::MakeSignedInTestingProfile());
+    profile_ = MakeSignedInTestingProfile();
 
     BrowserWithTestWindowTest::SetUp();
   }
@@ -77,7 +78,7 @@ class SyncGlobalErrorTest : public BrowserWithTestWindowTest {
 
 // Utility function to test that SyncGlobalError behaves correctly for the given
 // error condition.
-void VerifySyncGlobalErrorResult(NiceMock<ProfileSyncServiceMock>* service,
+void VerifySyncGlobalErrorResult(ProfileSyncServiceMock* service,
                                  FakeLoginUIService* login_ui_service,
                                  Browser* browser,
                                  SyncErrorController* error,
@@ -85,8 +86,8 @@ void VerifySyncGlobalErrorResult(NiceMock<ProfileSyncServiceMock>* service,
                                  GoogleServiceAuthError::State error_state,
                                  bool is_signed_in,
                                  bool is_error) {
-  EXPECT_CALL(*service, HasSyncSetupCompleted())
-              .WillRepeatedly(Return(is_signed_in));
+  EXPECT_CALL(*service, IsFirstSetupComplete())
+      .WillRepeatedly(Return(is_signed_in));
 
   GoogleServiceAuthError auth_error(error_state);
   EXPECT_CALL(*service, GetAuthError()).WillRepeatedly(ReturnRef(auth_error));
@@ -119,11 +120,12 @@ void VerifySyncGlobalErrorResult(NiceMock<ProfileSyncServiceMock>* service,
   }
 }
 
-} // namespace
+}  // namespace
 
 // Test that SyncGlobalError shows an error if a passphrase is required.
 TEST_F(SyncGlobalErrorTest, PassphraseGlobalError) {
-  NiceMock<ProfileSyncServiceMock> service(profile());
+  ProfileSyncServiceMock service(
+      CreateProfileSyncServiceParamsForTest(profile()));
 
   FakeLoginUIService* login_ui_service = static_cast<FakeLoginUIService*>(
       LoginUIServiceFactory::GetInstance()->SetTestingFactoryAndUse(

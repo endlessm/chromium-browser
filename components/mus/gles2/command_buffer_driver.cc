@@ -4,15 +4,16 @@
 
 #include "components/mus/gles2/command_buffer_driver.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
-#include "base/macros.h"
 #include "base/memory/shared_memory.h"
-#include "base/process/process_handle.h"
-#include "components/mus/gles2/command_buffer_type_conversions.h"
+#include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "components/mus/gles2/gpu_memory_tracker.h"
 #include "components/mus/gles2/gpu_state.h"
 #include "components/mus/gles2/mojo_buffer_backing.h"
-#include "gpu/command_buffer/common/value_state.h"
 #include "gpu/command_buffer/service/command_buffer_service.h"
 #include "gpu/command_buffer/service/context_group.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
@@ -20,7 +21,7 @@
 #include "gpu/command_buffer/service/image_factory.h"
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
-#include "gpu/command_buffer/service/memory_tracking.h"
+#include "gpu/command_buffer/service/query_manager.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/command_buffer/service/transfer_buffer_manager.h"
 #include "gpu/command_buffer/service/valuebuffer_manager.h"
@@ -35,53 +36,63 @@
 
 namespace mus {
 
+namespace {
+
+// The first time polling a fence, delay some extra time to allow other
+// stubs to process some work, or else the timing of the fences could
+// allow a pattern of alternating fast and slow frames to occur.
+const int64_t kHandleMoreWorkPeriodMs = 2;
+const int64_t kHandleMoreWorkPeriodBusyMs = 1;
+
+// Prevents idle work from being starved.
+const int64_t kMaxTimeSinceIdleMs = 10;
+
+}  // namespace
+
 CommandBufferDriver::Client::~Client() {}
 
-CommandBufferDriver::CommandBufferDriver(scoped_refptr<GpuState> gpu_state)
-    : client_(nullptr), gpu_state_(gpu_state), weak_factory_(this) {}
+CommandBufferDriver::CommandBufferDriver(
+    gpu::CommandBufferNamespace command_buffer_namespace,
+    gpu::CommandBufferId command_buffer_id,
+    gfx::AcceleratedWidget widget,
+    scoped_refptr<GpuState> gpu_state)
+    : command_buffer_namespace_(command_buffer_namespace),
+      command_buffer_id_(command_buffer_id),
+      widget_(widget),
+      client_(nullptr),
+      gpu_state_(gpu_state),
+      previous_processed_num_(0),
+      weak_factory_(this) {
+  DCHECK_EQ(base::ThreadTaskRunnerHandle::Get(),
+            gpu_state_->command_buffer_task_runner()->task_runner());
+}
 
 CommandBufferDriver::~CommandBufferDriver() {
+  DCHECK(CalledOnValidThread());
   DestroyDecoder();
 }
 
-void CommandBufferDriver::Initialize(
-    mojo::InterfacePtrInfo<mojom::CommandBufferSyncClient> sync_client,
-    mojo::InterfacePtrInfo<mojom::CommandBufferLostContextObserver>
-        loss_observer,
+bool CommandBufferDriver::Initialize(
     mojo::ScopedSharedBufferHandle shared_state,
     mojo::Array<int32_t> attribs) {
-  sync_client_ = mojo::MakeProxy(sync_client.Pass());
-  loss_observer_ = mojo::MakeProxy(loss_observer.Pass());
-  bool success = DoInitialize(shared_state.Pass(), attribs.Pass());
-  mojom::GpuCapabilitiesPtr capabilities =
-      success ? mojom::GpuCapabilities::From(decoder_->GetCapabilities())
-              : nullptr;
-  sync_client_->DidInitialize(success, capabilities.Pass());
-}
-
-bool CommandBufferDriver::MakeCurrent() {
-  if (!decoder_)
-    return false;
-  if (decoder_->MakeCurrent())
-    return true;
-  DLOG(ERROR) << "Context lost because MakeCurrent failed.";
-  gpu::error::ContextLostReason reason =
-      static_cast<gpu::error::ContextLostReason>(
-          decoder_->GetContextLostReason());
-  command_buffer_->SetContextLostReason(reason);
-  command_buffer_->SetParseError(gpu::error::kLostContext);
-  OnContextLost(reason);
-  return false;
-}
-
-bool CommandBufferDriver::DoInitialize(
-    mojo::ScopedSharedBufferHandle shared_state,
-    mojo::Array<int32_t> attribs) {
+  DCHECK(CalledOnValidThread());
   gpu::gles2::ContextCreationAttribHelper attrib_helper;
   if (!attrib_helper.Parse(attribs.storage()))
     return false;
 
-  surface_ = gfx::GLSurface::CreateOffscreenGLSurface(gfx::Size(1, 1));
+  const bool offscreen = widget_ == gfx::kNullAcceleratedWidget;
+  if (offscreen) {
+    surface_ = gfx::GLSurface::CreateOffscreenGLSurface(gfx::Size(1, 1));
+  } else {
+    surface_ = gfx::GLSurface::CreateViewGLSurface(widget_);
+    gfx::VSyncProvider* vsync_provider =
+        surface_ ? surface_->GetVSyncProvider() : nullptr;
+    if (vsync_provider) {
+      vsync_provider->GetVSyncParameters(
+          base::Bind(&CommandBufferDriver::OnUpdateVSyncParameters,
+                     weak_factory_.GetWeakPtr()));
+    }
+  }
 
   if (!surface_.get())
     return false;
@@ -113,9 +124,10 @@ bool CommandBufferDriver::DoInitialize(
   decoder_.reset(::gpu::gles2::GLES2Decoder::Create(context_group.get()));
   scheduler_.reset(new gpu::GpuScheduler(command_buffer_.get(), decoder_.get(),
                                          decoder_.get()));
+  sync_point_order_data_ = gpu::SyncPointOrderData::Create();
+  sync_point_client_ = gpu_state_->sync_point_manager()->CreateSyncPointClient(
+      sync_point_order_data_, GetNamespaceID(), command_buffer_id_);
   decoder_->set_engine(scheduler_.get());
-  decoder_->SetWaitSyncPointCallback(base::Bind(
-      &CommandBufferDriver::OnWaitSyncPoint, base::Unretained(this)));
   decoder_->SetFenceSyncReleaseCallback(base::Bind(
       &CommandBufferDriver::OnFenceSyncRelease, base::Unretained(this)));
   decoder_->SetWaitFenceSyncCallback(base::Bind(
@@ -123,8 +135,7 @@ bool CommandBufferDriver::DoInitialize(
 
   gpu::gles2::DisallowedFeatures disallowed_features;
 
-  const bool offscreen = true;
-  std::vector<int32> attrib_vector;
+  std::vector<int32_t> attrib_vector;
   attrib_helper.Serialize(&attrib_vector);
   if (!decoder_->Initialize(surface_, context_, offscreen, gfx::Size(1, 1),
                             disallowed_features, attrib_vector))
@@ -141,64 +152,57 @@ bool CommandBufferDriver::DoInitialize(
 
   const size_t kSize = sizeof(gpu::CommandBufferSharedState);
   scoped_ptr<gpu::BufferBacking> backing(
-      MojoBufferBacking::Create(shared_state.Pass(), kSize));
+      MojoBufferBacking::Create(std::move(shared_state), kSize));
   if (!backing)
     return false;
 
-  command_buffer_->SetSharedStateBuffer(backing.Pass());
+  command_buffer_->SetSharedStateBuffer(std::move(backing));
+  gpu_state_->driver_manager()->AddDriver(this);
   return true;
 }
 
 void CommandBufferDriver::SetGetBuffer(int32_t buffer) {
+  DCHECK(CalledOnValidThread());
   command_buffer_->SetGetBuffer(buffer);
 }
 
 void CommandBufferDriver::Flush(int32_t put_offset) {
-  if (!context_)
+  DCHECK(CalledOnValidThread());
+  if (!MakeCurrent())
     return;
-  if (!context_->MakeCurrent(surface_.get())) {
-    DLOG(WARNING) << "Context lost";
-    OnContextLost(gpu::error::kUnknown);
-    return;
-  }
-  command_buffer_->Flush(put_offset);
-}
 
-void CommandBufferDriver::MakeProgress(int32_t last_get_offset) {
-  // TODO(piman): handle out-of-order.
-  sync_client_->DidMakeProgress(
-      mojom::CommandBufferState::From(command_buffer_->GetLastState()));
+  command_buffer_->Flush(put_offset);
+  ProcessPendingAndIdleWork();
 }
 
 void CommandBufferDriver::RegisterTransferBuffer(
     int32_t id,
     mojo::ScopedSharedBufferHandle transfer_buffer,
     uint32_t size) {
+  DCHECK(CalledOnValidThread());
   // Take ownership of the memory and map it into this process.
   // This validates the size.
   scoped_ptr<gpu::BufferBacking> backing(
-      MojoBufferBacking::Create(transfer_buffer.Pass(), size));
+      MojoBufferBacking::Create(std::move(transfer_buffer), size));
   if (!backing) {
     DVLOG(0) << "Failed to map shared memory.";
     return;
   }
-  command_buffer_->RegisterTransferBuffer(id, backing.Pass());
+  command_buffer_->RegisterTransferBuffer(id, std::move(backing));
 }
 
 void CommandBufferDriver::DestroyTransferBuffer(int32_t id) {
+  DCHECK(CalledOnValidThread());
   command_buffer_->DestroyTransferBuffer(id);
-}
-
-void CommandBufferDriver::Echo(const mojo::Callback<void()>& callback) {
-  callback.Run();
 }
 
 void CommandBufferDriver::CreateImage(int32_t id,
                                       mojo::ScopedHandle memory_handle,
-                                      int32 type,
+                                      int32_t type,
                                       mojo::SizePtr size,
                                       int32_t format,
                                       int32_t internal_format) {
+  DCHECK(CalledOnValidThread());
   if (!MakeCurrent())
     return;
 
@@ -241,11 +245,10 @@ void CommandBufferDriver::CreateImage(int32_t id,
     return;
   }
 
-  base::SharedMemoryHandle handle;
 #if defined(OS_WIN)
-  handle = base::SharedMemoryHandle(platform_handle, base::GetCurrentProcId());
+  base::SharedMemoryHandle handle(platform_handle, base::GetCurrentProcId());
 #else
-  handle = base::FileDescriptor(platform_handle, false);
+  base::FileDescriptor handle(platform_handle, false);
 #endif
 
   scoped_refptr<gl::GLImageSharedMemory> image =
@@ -262,6 +265,7 @@ void CommandBufferDriver::CreateImage(int32_t id,
 }
 
 void CommandBufferDriver::DestroyImage(int32_t id) {
+  DCHECK(CalledOnValidThread());
   gpu::gles2::ImageManager* image_manager = decoder_->GetImageManager();
   if (!image_manager->LookupImage(id)) {
     LOG(ERROR) << "Image with ID doesn't exist.";
@@ -272,36 +276,184 @@ void CommandBufferDriver::DestroyImage(int32_t id) {
   image_manager->RemoveImage(id);
 }
 
-void CommandBufferDriver::OnParseError() {
-  gpu::CommandBuffer::State state = command_buffer_->GetLastState();
-  OnContextLost(state.context_lost_reason);
-}
-
-bool CommandBufferDriver::OnWaitSyncPoint(uint32_t sync_point) {
-  if (!sync_point)
-    return true;
-  if (gpu_state_->sync_point_manager()->IsSyncPointRetired(sync_point))
-    return true;
-  scheduler_->SetScheduled(false);
-  gpu_state_->sync_point_manager()->AddSyncPointCallback(
-      sync_point, base::Bind(&CommandBufferDriver::OnSyncPointRetired,
-                             weak_factory_.GetWeakPtr()));
+bool CommandBufferDriver::IsScheduled() const {
+  DCHECK(CalledOnValidThread());
   return scheduler_->scheduled();
 }
 
+bool CommandBufferDriver::HasUnprocessedCommands() const {
+  DCHECK(CalledOnValidThread());
+  if (command_buffer_) {
+    gpu::CommandBuffer::State state = GetLastState();
+    return command_buffer_->GetPutOffset() != state.get_offset &&
+        !gpu::error::IsError(state.error);
+  }
+  return false;
+}
+
+gpu::Capabilities CommandBufferDriver::GetCapabilities() const {
+  DCHECK(CalledOnValidThread());
+  return decoder_->GetCapabilities();
+}
+
+gpu::CommandBuffer::State CommandBufferDriver::GetLastState() const {
+  DCHECK(CalledOnValidThread());
+  return command_buffer_->GetLastState();
+}
+
+uint32_t CommandBufferDriver::GetUnprocessedOrderNum() const {
+  DCHECK(CalledOnValidThread());
+  return sync_point_order_data_->unprocessed_order_num();
+}
+
+uint32_t CommandBufferDriver::GetProcessedOrderNum() const {
+  DCHECK(CalledOnValidThread());
+  return sync_point_order_data_->processed_order_num();
+}
+
+bool CommandBufferDriver::MakeCurrent() {
+  DCHECK(CalledOnValidThread());
+  if (!decoder_)
+    return false;
+  if (decoder_->MakeCurrent())
+    return true;
+  DLOG(ERROR) << "Context lost because MakeCurrent failed.";
+  gpu::error::ContextLostReason reason =
+      static_cast<gpu::error::ContextLostReason>(
+          decoder_->GetContextLostReason());
+  command_buffer_->SetContextLostReason(reason);
+  command_buffer_->SetParseError(gpu::error::kLostContext);
+  OnContextLost(reason);
+  return false;
+}
+
+void CommandBufferDriver::ProcessPendingAndIdleWork() {
+  DCHECK(CalledOnValidThread());
+  scheduler_->ProcessPendingQueries();
+  ScheduleDelayedWork(
+      base::TimeDelta::FromMilliseconds(kHandleMoreWorkPeriodMs));
+}
+
+void CommandBufferDriver::ScheduleDelayedWork(base::TimeDelta delay) {
+  DCHECK(CalledOnValidThread());
+  const bool has_more_work =
+      scheduler_->HasPendingQueries() || scheduler_->HasMoreIdleWork();
+  if (!has_more_work) {
+    last_idle_time_ = base::TimeTicks();
+    return;
+  }
+
+  const base::TimeTicks current_time = base::TimeTicks();
+  // |process_delayed_work_time_| is set if processing of delayed work is
+  // already scheduled. Just update the time if already scheduled.
+  if (!process_delayed_work_time_.is_null()) {
+    process_delayed_work_time_ = current_time + delay;
+    return;
+  }
+
+  // Idle when no messages are processed between now and when PollWork is
+  // called.
+  previous_processed_num_ =
+      gpu_state_->driver_manager()->GetProcessedOrderNum();
+
+  if (last_idle_time_.is_null())
+    last_idle_time_ = current_time;
+
+    // scheduled() returns true after passing all unschedule fences and this is
+    // when we can start performing idle work. Idle work is done synchronously
+    // so we can set delay to 0 and instead poll for more work at the rate idle
+    // work is performed. This also ensures that idle work is done as
+    // efficiently as possible without any unnecessary delays.
+  if (scheduler_->scheduled() && scheduler_->HasMoreIdleWork())
+    delay = base::TimeDelta();
+
+  process_delayed_work_time_ = current_time + delay;
+  gpu_state_->command_buffer_task_runner()->task_runner()->PostDelayedTask(
+      FROM_HERE,
+      base::Bind(&CommandBufferDriver::PollWork, weak_factory_.GetWeakPtr()),
+      delay);
+}
+
+void CommandBufferDriver::PollWork() {
+  DCHECK(CalledOnValidThread());
+  // Post another delayed task if we have not yet reached the time at which
+  // we should process delayed work.
+  base::TimeTicks current_time = base::TimeTicks::Now();
+  DCHECK(!process_delayed_work_time_.is_null());
+  if (process_delayed_work_time_ > current_time) {
+    gpu_state_->command_buffer_task_runner()->task_runner()->PostDelayedTask(
+      FROM_HERE,
+      base::Bind(&CommandBufferDriver::PollWork, weak_factory_.GetWeakPtr()),
+      process_delayed_work_time_ - current_time);
+    return;
+  }
+  process_delayed_work_time_ = base::TimeTicks();
+  PerformWork();
+}
+
+void CommandBufferDriver::PerformWork() {
+  DCHECK(CalledOnValidThread());
+  if (!MakeCurrent())
+    return;
+
+  if (scheduler_) {
+    const uint32_t current_unprocessed_num =
+        gpu_state_->driver_manager()->GetUnprocessedOrderNum();
+    // We're idle when no messages were processed or scheduled.
+    bool is_idle = (previous_processed_num_ == current_unprocessed_num);
+    if (!is_idle && !last_idle_time_.is_null()) {
+      base::TimeDelta time_since_idle =
+          base::TimeTicks::Now() - last_idle_time_;
+      base::TimeDelta max_time_since_idle =
+          base::TimeDelta::FromMilliseconds(kMaxTimeSinceIdleMs);
+      // Force idle when it's been too long since last time we were idle.
+      if (time_since_idle > max_time_since_idle)
+        is_idle = true;
+    }
+
+    if (is_idle) {
+      last_idle_time_ = base::TimeTicks::Now();
+      scheduler_->PerformIdleWork();
+    }
+    scheduler_->ProcessPendingQueries();
+  }
+
+  ScheduleDelayedWork(
+      base::TimeDelta::FromMilliseconds(kHandleMoreWorkPeriodBusyMs));
+}
+
+void CommandBufferDriver::DestroyDecoder() {
+  DCHECK(CalledOnValidThread());
+  if (decoder_) {
+    gpu_state_->driver_manager()->RemoveDriver(this);
+    bool have_context = decoder_->MakeCurrent();
+    decoder_->Destroy(have_context);
+    decoder_.reset();
+  }
+}
+
+void CommandBufferDriver::OnUpdateVSyncParameters(
+    const base::TimeTicks timebase,
+    const base::TimeDelta interval) {
+  DCHECK(CalledOnValidThread());
+  if (client_) {
+    client_->UpdateVSyncParameters(timebase.ToInternalValue(),
+                                   interval.ToInternalValue());
+  }
+}
+
 void CommandBufferDriver::OnFenceSyncRelease(uint64_t release) {
-  // TODO(dyen): Implement once CommandBufferID has been figured out and
-  // we have a SyncPointClient. It would probably look like what is commented
-  // out below:
-  // if (!sync_point_client_->client_state()->IsFenceSyncReleased(release))
-  //   sync_point_client_->ReleaseFenceSync(release);
-  NOTIMPLEMENTED();
+  DCHECK(CalledOnValidThread());
+  if (!sync_point_client_->client_state()->IsFenceSyncReleased(release))
+    sync_point_client_->ReleaseFenceSync(release);
 }
 
 bool CommandBufferDriver::OnWaitFenceSync(
     gpu::CommandBufferNamespace namespace_id,
-    uint64_t command_buffer_id,
+    gpu::CommandBufferId command_buffer_id,
     uint64_t release) {
+  DCHECK(CalledOnValidThread());
+  DCHECK(IsScheduled());
   gpu::SyncPointManager* sync_point_manager = gpu_state_->sync_point_manager();
   DCHECK(sync_point_manager);
 
@@ -312,37 +464,37 @@ bool CommandBufferDriver::OnWaitFenceSync(
   if (!release_state)
     return true;
 
-  if (release_state->IsFenceSyncReleased(release))
-    return true;
-
-  // TODO(dyen): Implement once CommandBufferID has been figured out and
-  // we have a SyncPointClient. It would probably look like what is commented
-  // out below:
-  // scheduler_->SetScheduled(false);
-  // sync_point_client_->Wait(
-  //     release_state.get(),
-  //     release,
-  //     base::Bind(&CommandBufferDriver::OnSyncPointRetired,
-  //                weak_factory_.GetWeakPtr()));
-  NOTIMPLEMENTED();
+  scheduler_->SetScheduled(false);
+  sync_point_client_->Wait(
+      release_state.get(),
+      release,
+      base::Bind(&gpu::GpuScheduler::SetScheduled,
+                 scheduler_->AsWeakPtr(), true));
   return scheduler_->scheduled();
 }
 
-void CommandBufferDriver::OnSyncPointRetired() {
-  scheduler_->SetScheduled(true);
+void CommandBufferDriver::OnParseError() {
+  DCHECK(CalledOnValidThread());
+  gpu::CommandBuffer::State state = GetLastState();
+  OnContextLost(state.context_lost_reason);
 }
 
 void CommandBufferDriver::OnContextLost(uint32_t reason) {
-  loss_observer_->DidLoseContext(reason);
-  client_->DidLoseContext();
+  DCHECK(CalledOnValidThread());
+  if (client_)
+    client_->DidLoseContext(reason);
 }
 
-void CommandBufferDriver::DestroyDecoder() {
-  if (decoder_) {
-    bool have_context = decoder_->MakeCurrent();
-    decoder_->Destroy(have_context);
-    decoder_.reset();
-  }
+void CommandBufferDriver::SignalQuery(uint32_t query_id,
+                                      const base::Closure& callback) {
+  DCHECK(CalledOnValidThread());
+
+  gpu::gles2::QueryManager* query_manager = decoder_->GetQueryManager();
+  gpu::gles2::QueryManager::Query* query = query_manager->GetQuery(query_id);
+  if (query)
+    query->AddCallback(callback);
+  else
+    callback.Run();
 }
 
 }  // namespace mus

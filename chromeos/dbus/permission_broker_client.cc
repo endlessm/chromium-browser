@@ -4,7 +4,11 @@
 
 #include "chromeos/dbus/permission_broker_client.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -18,11 +22,14 @@ using permission_broker::kPermissionBrokerServiceName;
 using permission_broker::kPermissionBrokerServicePath;
 using permission_broker::kReleaseTcpPort;
 using permission_broker::kReleaseUdpPort;
-using permission_broker::kRequestPathAccess;
 using permission_broker::kRequestTcpPortAccess;
 using permission_broker::kRequestUdpPortAccess;
 
 namespace chromeos {
+
+namespace {
+const char kNoResponseError[] = "org.chromium.Error.NoResponse";
+}
 
 class PermissionBrokerClientImpl : public PermissionBrokerClient {
  public:
@@ -38,32 +45,21 @@ class PermissionBrokerClientImpl : public PermissionBrokerClient {
                                   weak_ptr_factory_.GetWeakPtr(), callback));
   }
 
-  void RequestPathAccess(const std::string& path,
-                         const int interface_id,
-                         const ResultCallback& callback) override {
-    dbus::MethodCall method_call(kPermissionBrokerInterface,
-                                 kRequestPathAccess);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendString(path);
-    writer.AppendInt32(interface_id);
-    proxy_->CallMethod(&method_call,
-                       dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-                       base::Bind(&PermissionBrokerClientImpl::OnResponse,
-                                  weak_ptr_factory_.GetWeakPtr(), callback));
-  }
-
   void OpenPath(const std::string& path,
-                const OpenPathCallback& callback) override {
+                const OpenPathCallback& callback,
+                const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(kPermissionBrokerInterface, kOpenPath);
     dbus::MessageWriter writer(&method_call);
     writer.AppendString(path);
-    proxy_->CallMethod(
+    proxy_->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::Bind(&PermissionBrokerClientImpl::OnOpenPathResponse,
-                   weak_ptr_factory_.GetWeakPtr(), callback));
+                   weak_ptr_factory_.GetWeakPtr(), callback),
+        base::Bind(&PermissionBrokerClientImpl::OnError,
+                   weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
-  void RequestTcpPortAccess(uint16 port,
+  void RequestTcpPortAccess(uint16_t port,
                             const std::string& interface,
                             const dbus::FileDescriptor& lifeline_fd,
                             const ResultCallback& callback) override {
@@ -78,7 +74,7 @@ class PermissionBrokerClientImpl : public PermissionBrokerClient {
                                   weak_ptr_factory_.GetWeakPtr(), callback));
   }
 
-  void RequestUdpPortAccess(uint16 port,
+  void RequestUdpPortAccess(uint16_t port,
                             const std::string& interface,
                             const dbus::FileDescriptor& lifeline_fd,
                             const ResultCallback& callback) override {
@@ -93,7 +89,7 @@ class PermissionBrokerClientImpl : public PermissionBrokerClient {
                                   weak_ptr_factory_.GetWeakPtr(), callback));
   }
 
-  void ReleaseTcpPort(uint16 port,
+  void ReleaseTcpPort(uint16_t port,
                       const std::string& interface,
                       const ResultCallback& callback) override {
     dbus::MethodCall method_call(kPermissionBrokerInterface, kReleaseTcpPort);
@@ -105,7 +101,7 @@ class PermissionBrokerClientImpl : public PermissionBrokerClient {
                                   weak_ptr_factory_.GetWeakPtr(), callback));
   }
 
-  void ReleaseUdpPort(uint16 port,
+  void ReleaseUdpPort(uint16_t port,
                       const std::string& interface,
                       const ResultCallback& callback) override {
     dbus::MethodCall method_call(kPermissionBrokerInterface, kReleaseUdpPort);
@@ -144,15 +140,23 @@ class PermissionBrokerClientImpl : public PermissionBrokerClient {
   void OnOpenPathResponse(const OpenPathCallback& callback,
                           dbus::Response* response) {
     dbus::FileDescriptor fd;
+    dbus::MessageReader reader(response);
+    if (!reader.PopFileDescriptor(&fd))
+      LOG(WARNING) << "Could not parse response: " << response->ToString();
+    callback.Run(std::move(fd));
+  }
+
+  void OnError(const ErrorCallback& callback, dbus::ErrorResponse* response) {
+    std::string error_name;
+    std::string error_message;
     if (response) {
       dbus::MessageReader reader(response);
-      if (!reader.PopFileDescriptor(&fd))
-        LOG(WARNING) << "Could not parse response: " << response->ToString();
+      error_name = response->GetErrorName();
+      reader.PopString(&error_message);
     } else {
-      LOG(WARNING) << "Access request method call failed.";
+      error_name = kNoResponseError;
     }
-
-    callback.Run(fd.Pass());
+    callback.Run(error_name, error_message);
   }
 
   dbus::ObjectProxy* proxy_;

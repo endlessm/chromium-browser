@@ -5,7 +5,9 @@
 #ifndef MEDIA_AUDIO_AUDIO_DEVICE_THREAD_H_
 #define MEDIA_AUDIO_AUDIO_DEVICE_THREAD_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/shared_memory.h"
@@ -50,16 +52,17 @@ class MEDIA_EXPORT AudioDeviceThread {
     // before Process can be called.
     virtual void MapSharedMemory() = 0;
 
-    // Called whenever we receive notifications about pending data.
-    virtual void Process(uint32 pending_data) = 0;
+    // Called whenever we receive notifications about pending input data.
+    virtual void Process(uint32_t pending_data) = 0;
 
    protected:
     // Protected so that derived classes can access directly.
     // The variables are 'const' since values are calculated/set in the
     // constructor and must never change.
     const AudioParameters audio_parameters_;
-    const int samples_per_ms_;
-    const int bytes_per_ms_;
+    const double samples_per_ms_;
+    const double bytes_per_ms_;
+    const uint32_t bytes_per_frame_;
 
     base::SharedMemory shared_memory_;
     const int memory_length_;

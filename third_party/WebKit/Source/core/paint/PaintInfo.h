@@ -51,13 +51,10 @@ class LayoutObject;
 class PaintInvalidationState;
 
 struct CORE_EXPORT PaintInfo {
-    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
-    PaintInfo(GraphicsContext* newContext, const IntRect& cullRect, PaintPhase newPhase, GlobalPaintFlags globalPaintFlags, PaintLayerFlags paintFlags,
-        LayoutObject* newPaintingRoot = nullptr, const LayoutBoxModelObject* newPaintContainer = nullptr)
+    PaintInfo(GraphicsContext& newContext, const IntRect& cullRect, PaintPhase newPhase, GlobalPaintFlags globalPaintFlags,
+        PaintLayerFlags paintFlags, const LayoutBoxModelObject* newPaintContainer = nullptr)
         : context(newContext)
         , phase(newPhase)
-        , paintingRoot(newPaintingRoot)
-        , paintInvalidationState(nullptr)
         , m_cullRect(cullRect)
         , m_paintContainer(newPaintContainer)
         , m_paintFlags(paintFlags)
@@ -65,9 +62,27 @@ struct CORE_EXPORT PaintInfo {
     {
     }
 
-    void updatePaintingRootForChildren(const LayoutObject*);
+    PaintInfo(GraphicsContext& newContext, const PaintInfo& copyOtherFieldsFrom)
+        : context(newContext)
+        , phase(copyOtherFieldsFrom.phase)
+        , m_cullRect(copyOtherFieldsFrom.m_cullRect)
+        , m_paintContainer(copyOtherFieldsFrom.m_paintContainer)
+        , m_paintFlags(copyOtherFieldsFrom.m_paintFlags)
+        , m_globalPaintFlags(copyOtherFieldsFrom.m_globalPaintFlags)
+    { }
 
-    bool shouldPaintWithinRoot(const LayoutObject*) const;
+    // Creates a PaintInfo for painting descendants. See comments about the paint phases
+    // in PaintPhase.h for details.
+    // TODO(wangxianzhu): Actually use this method.
+    PaintInfo forDescendants() const
+    {
+        PaintInfo result(*this);
+        if (phase == PaintPhaseDescendantOutlinesOnly)
+            result.phase = PaintPhaseOutline;
+        else if (phase == PaintPhaseDescendantBlockBackgroundsOnly)
+            result.phase = PaintPhaseBlockBackground;
+        return result;
+    }
 
     bool isRenderingClipPathAsMaskImage() const { return m_paintFlags & PaintLayerPaintingRenderingClipPathAsMask; }
 
@@ -89,11 +104,8 @@ struct CORE_EXPORT PaintInfo {
     void updateCullRect(const AffineTransform& localToParentTransform);
 
     // FIXME: Introduce setters/getters at some point. Requires a lot of changes throughout layout/.
-    GraphicsContext* context;
+    GraphicsContext& context;
     PaintPhase phase;
-    LayoutObject* paintingRoot; // used to draw just one element and its visual kids
-    // TODO(wangxianzhu): Populate it.
-    PaintInvalidationState* paintInvalidationState;
 
 private:
     CullRect m_cullRect;

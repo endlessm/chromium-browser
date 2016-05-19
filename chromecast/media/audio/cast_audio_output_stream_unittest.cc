@@ -2,11 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chromecast/media/audio/cast_audio_output_stream.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/synchronization/waitable_event.h"
 #include "chromecast/base/metrics/cast_metrics_test_helper.h"
 #include "chromecast/media/audio/cast_audio_manager.h"
-#include "chromecast/media/audio/cast_audio_output_stream.h"
 #include "chromecast/media/base/media_message_loop.h"
 #include "chromecast/media/cma/backend/media_pipeline_backend_default.h"
 #include "chromecast/public/media/cast_decoder_buffer.h"
@@ -46,7 +52,11 @@ class FakeAudioDecoder : public MediaPipelineBackend::AudioDecoder {
         delegate_(nullptr) {}
   ~FakeAudioDecoder() override {}
 
-  // MediaPipelineBackend::AudioDecoder overrides.
+  // MediaPipelineBackend::AudioDecoder implementation:
+  void SetDelegate(Delegate* delegate) override {
+    DCHECK(delegate);
+    delegate_ = delegate;
+  }
   BufferStatus PushBuffer(CastDecoderBuffer* buffer) override {
     last_buffer_ = buffer;
     ++pushed_buffer_count_;
@@ -61,7 +71,7 @@ class FakeAudioDecoder : public MediaPipelineBackend::AudioDecoder {
         return MediaPipelineBackend::kBufferFailed;
       case PIPELINE_STATUS_ASYNC_ERROR:
         pending_push_ = true;
-        delegate_->OnDecoderError(this);
+        delegate_->OnDecoderError();
         return MediaPipelineBackend::kBufferPending;
       default:
         NOTREACHED();
@@ -84,16 +94,12 @@ class FakeAudioDecoder : public MediaPipelineBackend::AudioDecoder {
   void set_pipeline_status(PipelineStatus status) {
     if (status == PIPELINE_STATUS_OK && pending_push_) {
       pending_push_ = false;
-      delegate_->OnPushBufferComplete(this,
-                                      MediaPipelineBackend::kBufferSuccess);
+      delegate_->OnPushBufferComplete(MediaPipelineBackend::kBufferSuccess);
     }
     pipeline_status_ = status;
   }
   unsigned pushed_buffer_count() const { return pushed_buffer_count_; }
   CastDecoderBuffer* last_buffer() { return last_buffer_; }
-  void set_delegate(MediaPipelineBackend::Delegate* delegate) {
-    delegate_ = delegate;
-  }
 
  private:
   AudioConfig config_;
@@ -103,7 +109,7 @@ class FakeAudioDecoder : public MediaPipelineBackend::AudioDecoder {
   bool pending_push_;
   int pushed_buffer_count_;
   CastDecoderBuffer* last_buffer_;
-  MediaPipelineBackend::Delegate* delegate_;
+  Delegate* delegate_;
 };
 
 class FakeMediaPipelineBackend : public MediaPipelineBackend {
@@ -124,10 +130,7 @@ class FakeMediaPipelineBackend : public MediaPipelineBackend {
     return nullptr;
   }
 
-  bool Initialize(Delegate* delegate) override {
-    audio_decoder_->set_delegate(delegate);
-    return true;
-  }
+  bool Initialize() override { return true; }
   bool Start(int64_t start_pts) override {
     EXPECT_EQ(kStateStopped, state_);
     state_ = kStateRunning;
@@ -168,7 +171,8 @@ class FakeAudioSourceCallback
 
   // ::media::AudioOutputStream::AudioSourceCallback overrides.
   int OnMoreData(::media::AudioBus* audio_bus,
-                 uint32 total_bytes_delay) override {
+                 uint32_t total_bytes_delay,
+                 uint32_t frames_skipped) override {
     audio_bus->Zero();
     return audio_bus->frames();
   }
@@ -194,7 +198,7 @@ class FakeAudioManager : public CastAudioManager {
         new FakeMediaPipelineBackend());
     // Cache the backend locally to be used by tests.
     media_pipeline_backend_ = backend.get();
-    return backend.Pass();
+    return std::move(backend);
   }
   void ReleaseOutputStream(::media::AudioOutputStream* stream) override {
     DCHECK(media_pipeline_backend_);

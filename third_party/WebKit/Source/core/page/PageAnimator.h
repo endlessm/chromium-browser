@@ -18,13 +18,12 @@ class CORE_EXPORT PageAnimator final : public RefCountedWillBeGarbageCollected<P
 public:
     static PassRefPtrWillBeRawPtr<PageAnimator> create(Page&);
     DECLARE_TRACE();
-    void scheduleVisualUpdate(LocalFrame* = 0);
+    void scheduleVisualUpdate(LocalFrame*);
     void serviceScriptedAnimations(double monotonicAnimationStartTime);
 
     bool isServicingAnimations() const { return m_servicingAnimations; }
 
     // See documents of methods with the same names in FrameView class.
-    void updateLifecycleToCompositingCleanPlusScrolling(LocalFrame& rootFrame);
     void updateAllLifecyclePhases(LocalFrame& rootFrame);
     AnimationClock& clock() { return m_animationClock; }
 
@@ -37,6 +36,6 @@ private:
     AnimationClock m_animationClock;
 };
 
-}
+} // namespace blink
 
 #endif // PageAnimator_h

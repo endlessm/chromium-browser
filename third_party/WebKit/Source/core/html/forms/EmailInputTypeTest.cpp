@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/html/forms/EmailInputType.h"
 
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -25,7 +24,7 @@ void expectToFail(const String& source)
     EXPECT_FALSE(EmailInputType::isValidEmailAddress(EmailInputType::convertEmailAddressToASCII(source)));
 }
 
-}
+} // namespace
 
 TEST(EmailInputTypeTest, ConvertEmailAddressToASCII)
 {

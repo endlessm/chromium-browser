@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/geometry/DoubleRect.h"
 
 #include "platform/geometry/FloatRect.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/geometry/LayoutRect.h"
+
+#include "wtf/text/WTFString.h"
 
 namespace blink {
 
@@ -54,5 +55,11 @@ void DoubleRect::scale(float sx, float sy)
     m_size.setHeight(height() * sy);
 }
 
+#ifndef NDEBUG
+String DoubleRect::toString() const
+{
+    return String::format("%s %s", location().toString().ascii().data(), size().toString().ascii().data());
+}
+#endif
 
 } // namespace blink

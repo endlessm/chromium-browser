@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/app_list/test/chrome_app_list_test_support.h"
 
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -56,15 +57,10 @@ app_list::AppListModel* GetAppListModel(AppListService* service) {
              service->GetCurrentAppListProfile())->GetModel();
 }
 
-AppListService* GetAppListService() {
-  // TODO(tapted): Consider testing ash explicitly on the win-ash trybot.
-  return AppListService::Get(chrome::GetActiveDesktop());
-}
-
 AppListServiceImpl* GetAppListServiceImpl() {
   // AppListServiceImpl is the only subclass of AppListService, which has pure
   // virtuals. So this must either be NULL, or an AppListServiceImpl.
-  return static_cast<AppListServiceImpl*>(GetAppListService());
+  return static_cast<AppListServiceImpl*>(AppListService::Get());
 }
 
 Profile* CreateSecondProfileAsync() {

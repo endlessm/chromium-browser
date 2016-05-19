@@ -4,6 +4,9 @@
 
 #include "components/history/core/browser/visit_database.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <limits>
 #include <map>
@@ -13,7 +16,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "components/history/core/browser/url_database.h"
-#include "components/history/core/browser/visit_filter.h"
 #include "sql/statement.h"
 #include "ui/base/page_transition_types.h"
 #include "url/url_constants.h"
@@ -311,11 +313,11 @@ bool VisitDatabase::GetAllVisitsInRange(base::Time begin_time,
       "ORDER BY visit_time LIMIT ?"));
 
   // See GetVisibleVisitsInRange for more info on how these times are bound.
-  int64 end = end_time.ToInternalValue();
+  int64_t end = end_time.ToInternalValue();
   statement.BindInt64(0, begin_time.ToInternalValue());
-  statement.BindInt64(1, end ? end : std::numeric_limits<int64>::max());
-  statement.BindInt64(2,
-      max_results ? max_results : std::numeric_limits<int64>::max());
+  statement.BindInt64(1, end ? end : std::numeric_limits<int64_t>::max());
+  statement.BindInt64(
+      2, max_results ? max_results : std::numeric_limits<int64_t>::max());
 
   return FillVisitVector(statement, visits);
 }
@@ -336,13 +338,13 @@ bool VisitDatabase::GetVisitsInRangeForTransition(
       "ORDER BY visit_time LIMIT ?"));
 
   // See GetVisibleVisitsInRange for more info on how these times are bound.
-  int64 end = end_time.ToInternalValue();
+  int64_t end = end_time.ToInternalValue();
   statement.BindInt64(0, begin_time.ToInternalValue());
-  statement.BindInt64(1, end ? end : std::numeric_limits<int64>::max());
+  statement.BindInt64(1, end ? end : std::numeric_limits<int64_t>::max());
   statement.BindInt(2, ui::PAGE_TRANSITION_CORE_MASK);
   statement.BindInt(3, transition);
-  statement.BindInt64(4,
-      max_results ? max_results : std::numeric_limits<int64>::max());
+  statement.BindInt64(
+      4, max_results ? max_results : std::numeric_limits<int64_t>::max());
 
   return FillVisitVector(statement, visits);
 }
@@ -369,39 +371,6 @@ bool VisitDatabase::GetVisibleVisitsInRange(const QueryOptions& options,
   statement.BindInt(6, ui::PAGE_TRANSITION_KEYWORD_GENERATED);
 
   return FillVisitVectorWithOptions(statement, options, visits);
-}
-
-void VisitDatabase::GetDirectVisitsDuringTimes(const VisitFilter& time_filter,
-                                                int max_results,
-                                                VisitVector* visits) {
-  visits->clear();
-  if (max_results)
-    visits->reserve(max_results);
-  for (VisitFilter::TimeVector::const_iterator it = time_filter.times().begin();
-       it != time_filter.times().end(); ++it) {
-    sql::Statement statement(GetDB().GetCachedStatement(SQL_FROM_HERE,
-        "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
-        "WHERE visit_time >= ? AND visit_time < ? "
-        "AND (transition & ?) != 0 "  // CHAIN_START
-        "AND (transition & ?) IN (?, ?) "  // TYPED or AUTO_BOOKMARK only
-        "ORDER BY visit_time DESC, id DESC"));
-
-    statement.BindInt64(0, it->first.ToInternalValue());
-    statement.BindInt64(1, it->second.ToInternalValue());
-    statement.BindInt(2, ui::PAGE_TRANSITION_CHAIN_START);
-    statement.BindInt(3, ui::PAGE_TRANSITION_CORE_MASK);
-    statement.BindInt(4, ui::PAGE_TRANSITION_TYPED);
-    statement.BindInt(5, ui::PAGE_TRANSITION_AUTO_BOOKMARK);
-
-    while (statement.Step()) {
-      VisitRow visit;
-      FillVisitRow(statement, &visit);
-      visits->push_back(visit);
-
-      if (max_results > 0 && static_cast<int>(visits->size()) >= max_results)
-        return;
-    }
-  }
 }
 
 VisitID VisitDatabase::GetMostRecentVisitForURL(URLID url_id,
@@ -477,8 +446,10 @@ bool VisitDatabase::GetRedirectToVisit(VisitID to_visit,
     sql::Statement statement(GetDB().GetCachedStatement(SQL_FROM_HERE,
         "SELECT u.url "
         "FROM visits v JOIN urls u ON v.url = u.id "
-        "WHERE v.id = ?"));
+        "WHERE v.id = ? AND (v.transition & ?) != 0"));
     statement.BindInt64(0, row.referring_visit);
+    statement.BindInt64(1, (ui::PAGE_TRANSITION_IS_REDIRECT_MASK |
+                            ui::PAGE_TRANSITION_CHAIN_START));
 
     if (!statement.Step())
       return false;

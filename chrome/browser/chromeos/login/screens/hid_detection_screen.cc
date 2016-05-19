@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/login/screens/hid_detection_screen.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
@@ -182,8 +184,8 @@ void HIDDetectionScreen::DisplayPinCode(device::BluetoothDevice* device,
   SendKeyboardDeviceNotification();
 }
 
-void HIDDetectionScreen::DisplayPasskey(
-    device::BluetoothDevice* device, uint32 passkey) {
+void HIDDetectionScreen::DisplayPasskey(device::BluetoothDevice* device,
+                                        uint32_t passkey) {
   VLOG(1) << "DisplayPassKey id = " << device->GetDeviceID()
           << " name = " << device->GetName();
   std::string pincode = base::UintToString(passkey);
@@ -192,8 +194,8 @@ void HIDDetectionScreen::DisplayPasskey(
   DisplayPinCode(device, pincode);
 }
 
-void HIDDetectionScreen::KeysEntered(
-    device::BluetoothDevice* device, uint32 entered) {
+void HIDDetectionScreen::KeysEntered(device::BluetoothDevice* device,
+                                     uint32_t entered) {
   VLOG(1) << "Number of keys entered " << entered;
   GetContextEditor()
       .SetBoolean(kContextKeyNumKeysEnteredExpected, true)
@@ -201,8 +203,8 @@ void HIDDetectionScreen::KeysEntered(
   SendKeyboardDeviceNotification();
 }
 
-void HIDDetectionScreen::ConfirmPasskey(
-    device::BluetoothDevice* device, uint32 passkey) {
+void HIDDetectionScreen::ConfirmPasskey(device::BluetoothDevice* device,
+                                        uint32_t passkey) {
   VLOG(1) << "Confirm Passkey";
   device->CancelPairing();
 }
@@ -533,7 +535,7 @@ void HIDDetectionScreen::UpdateBTDevices() {
 void HIDDetectionScreen::OnStartDiscoverySession(
     scoped_ptr<device::BluetoothDiscoverySession> discovery_session) {
   VLOG(1) << "BT Discovery session started";
-  discovery_session_ = discovery_session.Pass();
+  discovery_session_ = std::move(discovery_session);
   UpdateDevices();
 }
 

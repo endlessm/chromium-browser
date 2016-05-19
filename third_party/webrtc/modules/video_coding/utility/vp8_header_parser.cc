@@ -7,12 +7,9 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include <stdint.h>
-#include <stdio.h>
+#include "webrtc/modules/video_coding/utility/vp8_header_parser.h"
 
-#include "webrtc/modules/video_coding/utility/include/vp8_header_parser.h"
-
-#include "webrtc/system_wrappers/include/logging.h"
+#include "webrtc/base/logging.h"
 
 namespace webrtc {
 
@@ -46,12 +43,12 @@ static void VP8LoadNewBytes(VP8BitReader* const br) {
     const uint32_t in_bits = *(const uint32_t*)(br->buf_);
     br->buf_ += BITS >> 3;
 #if defined(WEBRTC_ARCH_BIG_ENDIAN)
-      bits = static_cast<uint32_t>(in_bits);
-      if (BITS != 8 * sizeof(uint32_t))
-        bits >>= (8 * sizeof(uint32_t) - BITS);
+    bits = static_cast<uint32_t>(in_bits);
+    if (BITS != 8 * sizeof(uint32_t))
+      bits >>= (8 * sizeof(uint32_t) - BITS);
 #else
-      bits = BSwap32(in_bits);
-      bits >>= 32 - BITS;
+    bits = BSwap32(in_bits);
+    bits >>= 32 - BITS;
 #endif
     br->value_ = bits | (br->value_ << BITS);
     br->bits_ += BITS;
@@ -63,12 +60,12 @@ static void VP8LoadNewBytes(VP8BitReader* const br) {
 static void VP8InitBitReader(VP8BitReader* const br,
                              const uint8_t* const start,
                              const uint8_t* const end) {
-  br->range_   = 255 - 1;
-  br->buf_     = start;
+  br->range_ = 255 - 1;
+  br->buf_ = start;
   br->buf_end_ = end;
-  br->value_   = 0;
-  br->bits_    = -8;   // To load the very first 8bits.
-  br->eof_     = 0;
+  br->value_ = 0;
+  br->bits_ = -8;  // To load the very first 8bits.
+  br->eof_ = 0;
   VP8LoadNewBytes(br);
 }
 
@@ -125,7 +122,7 @@ static void ParseSegmentHeader(VP8BitReader* br) {
       int s;
       VP8Get(br);
       for (s = 0; s < NUM_MB_SEGMENTS; ++s) {
-       VP8Get(br) ? VP8GetSignedValue(br, 7) : 0;
+        VP8Get(br) ? VP8GetSignedValue(br, 7) : 0;
       }
       for (s = 0; s < NUM_MB_SEGMENTS; ++s) {
         VP8Get(br) ? VP8GetSignedValue(br, 6) : 0;

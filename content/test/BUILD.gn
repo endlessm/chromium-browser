@@ -3,11 +3,11 @@
 # found in the LICENSE file.
 
 import("//build/config/chrome_build.gni")
+import("//build/config/compiler/compiler.gni")
 import("//build/config/crypto.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//build_overrides/v8.gni")
-import("//media/media_options.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 import("//testing/test.gni")
 
@@ -43,12 +43,13 @@ source_set("test_support") {
     "//testing/gtest",
     "//ui/accessibility:ax_gen",
     "//ui/base",
-    "//ui/base/ime",
     "//ui/base:test_support",
+    "//ui/base:ui_data_pack",
+    "//ui/base/ime",
     "//ui/events:dom_keycode_converter",
     "//ui/events:events_base",
-    "//ui/events:test_support",
     "//ui/events:gesture_detection",
+    "//ui/events:test_support",
     "//ui/gfx:test_support",
     "//ui/gl",
     "//ui/gl:test_support",
@@ -56,116 +57,7 @@ source_set("test_support") {
     "//url",
   ]
 
-  if (!is_ios) {
-    sources =
-        rebase_path(content_tests_gypi_values.test_support_content_sources,
-                    ".",
-                    "//content")
-
-    public_deps += [ "//third_party/WebKit/public:blink" ]
-    deps += [
-      ":content_test_mojo_bindings",
-      "//components/scheduler:scheduler",
-      "//components/scheduler:test_support",
-      "//content/browser/speech/proto",
-      "//content/public/child",
-      "//content/gpu",
-      "//content/public/plugin",
-      "//content/public/renderer",
-      "//content/public/utility",
-      "//content/shell:pak",
-      "//cc",
-      "//cc:test_support",
-      "//ipc/mojo",
-      "//media",
-      "//mojo/application/public/cpp:cpp_for_chromium",
-      "//mojo/environment:chromium",
-      "//ppapi/host",
-      "//ppapi/proxy",
-      "//ppapi/proxy:test_support",
-      "//ppapi/shared_impl",
-      "//ppapi/shared_impl:test_support",
-      "//storage/browser",
-      "//storage/common",
-      "//ui/compositor:test_support",
-      "//ui/surface",
-      "//v8",
-    ]
-
-    if (enable_plugins) {
-      deps += [ "//content/ppapi_plugin" ]
-    }
-
-    if (enable_webrtc) {
-      sources += [
-        "../renderer/media/mock_data_channel_impl.cc",
-        "../renderer/media/mock_data_channel_impl.h",
-        "../renderer/media/mock_media_stream_dispatcher.cc",
-        "../renderer/media/mock_media_stream_dispatcher.h",
-        "../renderer/media/mock_peer_connection_impl.cc",
-        "../renderer/media/mock_peer_connection_impl.h",
-        "../renderer/media/mock_web_rtc_peer_connection_handler_client.cc",
-        "../renderer/media/mock_web_rtc_peer_connection_handler_client.h",
-        "../renderer/media/webrtc/mock_peer_connection_dependency_factory.cc",
-        "../renderer/media/webrtc/mock_peer_connection_dependency_factory.h",
-      ]
-
-      deps += [
-        "//third_party/libjingle:libjingle_webrtc",
-        "//third_party/libjingle:libpeerconnection",
-        "//third_party/webrtc/modules/video_capture",
-      ]
-    }
-    if (!enable_plugins) {
-      sources -= [ "ppapi_unittest.cc" ]
-    }
-
-    if (use_glib) {
-      configs += [ "//build/config/linux:glib" ]
-    }
-
-    if (use_aura) {
-      deps += [
-        "//ui/aura:test_support",
-        "//ui/resources:ui_test_pak",
-        "//ui/wm",
-      ]
-    }
-
-    if (use_aura || is_mac) {
-      deps += [
-        "//ui/compositor",
-        "//third_party/libvpx_new",
-      ]
-
-      sources += [
-        "../browser/compositor/test/no_transport_image_transport_factory.cc",
-        "../browser/compositor/test/no_transport_image_transport_factory.h",
-      ]
-    }
-
-    if (use_ozone) {
-      deps += [ "//ui/ozone" ]
-    }
-
-    if (is_win) {
-      deps += [
-        "//content:sandbox_helper_win",
-        "//third_party/iaccessible2",
-      ]
-    }
-
-    if (is_android) {
-      deps += [
-        "//ui/android",
-        "//ui/shell_dialogs",
-      ]
-    }
-
-    if (is_win) {
-      deps += [ "//sandbox" ]
-    }
-  } else {  # is_ios
+  if (is_ios) {
     sources = [
       "public/test/content_test_suite_base.cc",
       "public/test/mock_notification_observer.cc",
@@ -179,12 +71,133 @@ source_set("test_support") {
       "test/test_content_browser_client.cc",
       "test/test_content_client.cc",
     ]
+  } else {
+    sources =
+        rebase_path(content_tests_gypi_values.test_support_content_sources,
+                    ".",
+                    "//content")
+
+    if (is_android) {
+      sources -= [
+        "mock_google_streaming_server.cc",
+        "mock_google_streaming_server.h",
+      ]
+    }
+    public_deps += [ "//third_party/WebKit/public:blink" ]
+    deps += [
+      ":content_test_mojo_bindings",
+      "//cc",
+      "//cc:test_support",
+      "//components/scheduler:scheduler",
+      "//components/scheduler:test_support",
+      "//content/browser/speech/proto",
+      "//content/gpu",
+      "//content/public/child",
+      "//content/public/plugin",
+      "//content/public/renderer",
+      "//content/public/utility",
+      "//content/shell:pak",
+      "//ipc:test_support",
+      "//ipc/mojo",
+      "//media",
+      "//mojo/edk/test:test_support",
+      "//mojo/environment:chromium",
+      "//mojo/shell/public/cpp:cpp_for_chromium",
+      "//storage/browser",
+      "//storage/common",
+      "//ui/compositor:test_support",
+      "//ui/surface",
+      "//v8",
+    ]
   }
+
+  if (enable_plugins) {
+    deps += [
+      "//content/ppapi_plugin",
+      "//ppapi/host",
+      "//ppapi/proxy",
+      "//ppapi/proxy:test_support",
+      "//ppapi/shared_impl",
+      "//ppapi/shared_impl:test_support",
+    ]
+  } else if (!is_ios) {
+    sources -= [ "ppapi_unittest.cc" ]
+  }
+
+  if (enable_webrtc) {
+    sources += [
+      "../renderer/media/mock_data_channel_impl.cc",
+      "../renderer/media/mock_data_channel_impl.h",
+      "../renderer/media/mock_media_stream_dispatcher.cc",
+      "../renderer/media/mock_media_stream_dispatcher.h",
+      "../renderer/media/mock_peer_connection_impl.cc",
+      "../renderer/media/mock_peer_connection_impl.h",
+      "../renderer/media/mock_web_rtc_peer_connection_handler_client.cc",
+      "../renderer/media/mock_web_rtc_peer_connection_handler_client.h",
+      "../renderer/media/webrtc/mock_peer_connection_dependency_factory.cc",
+      "../renderer/media/webrtc/mock_peer_connection_dependency_factory.h",
+    ]
+
+    deps += [
+      "//third_party/libjingle:libjingle_webrtc",
+      "//third_party/libjingle:libpeerconnection",
+      "//third_party/webrtc/modules/video_capture",
+    ]
+  }
+
+  if (use_glib) {
+    configs += [ "//build/config/linux:glib" ]
+  }
+
+  if (use_aura) {
+    deps += [
+      "//ui/aura:test_support",
+      "//ui/resources:ui_test_pak",
+      "//ui/wm",
+    ]
+  }
+
+  if (use_aura || is_mac) {
+    deps += [
+      "//third_party/libvpx_new",
+      "//ui/compositor",
+    ]
+
+    sources += [
+      "../browser/compositor/test/no_transport_image_transport_factory.cc",
+      "../browser/compositor/test/no_transport_image_transport_factory.h",
+    ]
+  }
+
+  if (use_ozone) {
+    deps += [ "//ui/ozone" ]
+  }
+
+  if (is_win) {
+    deps += [
+      "//content:sandbox_helper_win",
+      "//third_party/iaccessible2",
+    ]
+  }
+
+  if (is_android) {
+    deps += [
+      "//ui/android",
+      "//ui/shell_dialogs",
+    ]
+  }
+
+  if (is_win) {
+    deps += [ "//sandbox" ]
+  }
+
   if (v8_use_external_startup_data) {
     deps += [ "//gin:gin" ]
   }
 }
 
+# browsertest_support can be used by targets that run content_shell based
+# browser tests.
 source_set("browsertest_support") {
   testonly = true
 
@@ -215,6 +228,39 @@ source_set("browsertest_support") {
   configs += [ "//v8:external_startup_data" ]
 }
 
+# browsertest_base can be used by any browser test target.
+source_set("browsertest_base") {
+  testonly = true
+
+  sources = [
+    "../public/test/browser_test.h",
+    "../public/test/browser_test_base.cc",
+    "../public/test/browser_test_base.h",
+    "../public/test/browser_test_utils.cc",
+    "../public/test/browser_test_utils.h",
+  ]
+
+  public_deps = [
+    "//content/public/browser",
+    "//content/public/common",
+  ]
+  deps = [
+    "//base:base",
+    "//net:test_support",
+    "//testing/gtest",
+    "//ui/base",
+    "//ui/base:test_support",
+    "//ui/base/ime",
+    "//ui/events:dom_keycode_converter",
+    "//ui/events:events_base",
+    "//ui/events:gesture_detection",
+    "//ui/resources",
+  ]
+  if (!is_ios) {
+    public_deps += [ "//third_party/WebKit/public:blink" ]
+  }
+}
+
 mojom("content_test_mojo_bindings") {
   sources = [
     "../public/test/test_mojo_service.mojom",
@@ -242,9 +288,10 @@ if (!is_ios) {
       "//cc/blink",
       "//components/test_runner:test_runner",
       "//content/public/common",
+      "//mojo/edk/test:test_support",
       "//skia",
-      "//v8",
       "//ui/accessibility:ax_gen",
+      "//v8",
     ]
 
     if (is_android) {
@@ -296,9 +343,19 @@ if (is_android) {
 
 # TODO(GYP): Delete this after we've converted everything to GN.
 # The _run targets exist only for compatibility w/ GYP.
-group("content_browsertests_run") {
+group("content_site_isolation_browsertests_run") {
   testonly = true
   deps = [
+    ":content_browsertests",
+  ]
+}
+
+group("content_site_isolation_browsertests") {
+  testonly = true
+  data = [
+    "//testing/buildbot/filters/site-per-process.content_browsertests.filter",
+  ]
+  data_deps = [
     ":content_browsertests",
   ]
 }
@@ -310,16 +367,14 @@ test("content_browsertests") {
 
   if (is_android || is_linux || is_mac || is_win) {
     data = [
+      "$root_out_dir/content_shell.pak",
       "data/",
       "//net/data/",
       "//media/test/data/",
     ]
 
-    if (is_android) {
-      data += [ "$root_out_dir/content_shell_assets/content_shell.pak" ]
-    } else {
+    if (!is_android) {
       data += [
-        "$root_out_dir/content_shell.pak",
         "//net/tools/testserver/",
         "//ppapi/tests/test_case.html",
         "//ppapi/tests/test_page.css",
@@ -335,16 +390,18 @@ test("content_browsertests") {
         ]
       }
       if (is_win) {
-        data += [ "$root_out_dir/plugins/np_test_netscape_plugin.dll" ]
+        # TODO(GYP): Add this once //content/shell:copy_test_netscape_plugin
+        # exists.
+        #data += [ "$root_out_dir/plugins/np_test_netscape_plugin.dll" ]
+
+        if (symbol_level != 0) {
+          data += [ "$root_out_dir/content_browsertests.exe.pdb" ]
+        }
       }
     }
   }
 
   defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
-
-  if (proprietary_codecs && enable_hevc_demuxing) {
-    defines += [ "ENABLE_HEVC_DEMUXING" ]
-  }
 
   configs += [
     "//build/config:precompiled_headers",
@@ -352,17 +409,17 @@ test("content_browsertests") {
   ]
 
   deps = [
+    ":browsertest_base",
     ":browsertest_support",
     ":web_ui_test_mojo_bindings",
-    "//base/allocator",
     "//base/test:test_support",
+    "//content:resources",
     "//content/browser/background_sync:background_sync_proto",
     "//content/common:mojo_bindings",
     "//content/gpu",
     "//content/public/common",
     "//content/public/plugin",
     "//content/public/renderer",
-    "//content:resources",
     "//content/shell:content_shell_lib",
     "//content/shell:pak",
     "//content/test:test_support",
@@ -372,22 +429,19 @@ test("content_browsertests") {
     "//gin",
     "//gpu",
     "//ipc:test_support",
+    "//media:media_features",
+    "//media:shared_memory_support",
     "//media:test_support",
     "//media/audio:test_support",
     "//media/base:test_support",
-    "//media:shared_memory_support",
-    "//mojo/application/public/cpp:cpp_for_chromium",
+    "//mojo/edk/system",
+    "//mojo/edk/test:test_support",
     "//mojo/environment:chromium",
     "//mojo/public/cpp/bindings",
     "//mojo/public/js",
+    "//mojo/shell/public/cpp:cpp_for_chromium",
     "//mojo/test:test_support",
     "//net:test_support",
-    "//ppapi/host",
-    "//ppapi/proxy",
-    "//ppapi/proxy:ipc",
-    "//ppapi/shared_impl",
-    "//third_party/mojo/src/mojo/edk/system",
-    "//third_party/mojo/src/mojo/edk/test:test_support",
     "//testing/gmock",
     "//testing/gtest",
     "//third_party/WebKit/public:blink",
@@ -408,9 +462,18 @@ test("content_browsertests") {
   ]
 
   data_deps = [
-    "//ppapi:ppapi_tests",
     "//third_party/mesa:osmesa",
   ]
+
+  if (enable_plugins) {
+    deps += [
+      "//ppapi/host",
+      "//ppapi/proxy",
+      "//ppapi/proxy:ipc",
+      "//ppapi/shared_impl",
+    ]
+    data_deps += [ "//ppapi:ppapi_tests" ]
+  }
 
   if (is_win) {
     sources +=
@@ -429,11 +492,6 @@ test("content_browsertests") {
     libs = [ "oleacc.lib" ]
   }
 
-  if (is_linux) {
-    sources -=
-        [ "../browser/accessibility/dump_accessibility_tree_browsertest.cc" ]
-  }
-
   if (is_android) {
     sources += rebase_path(
             content_tests_gypi_values.content_browsertests_android_sources,
@@ -441,17 +499,15 @@ test("content_browsertests") {
             "//content")
     sources -=
         [ "../browser/battery_status/battery_monitor_impl_browsertest.cc" ]
-    deps -= [ "//device/battery" ]
     deps += [
-      "//content/shell/android:content_shell_jni_headers",
-      "//content/shell:content_shell_lib",
-      "//testing/android/native_test:native_test_support",
-    ]
-    apk_deps = [
       ":content_browsertests_java",
       ":content_browsertests_manifest",
+      "//content/shell:content_shell_lib",
       "//content/shell/android:content_shell_assets",
+      "//content/shell/android:content_shell_jni_headers",
+      "//testing/android/native_test:native_test_support",
     ]
+    deps -= [ "//device/battery" ]
     android_manifest =
         "${target_gen_dir}/content_browsertests_manifest/AndroidManifest.xml"
     isolate_file = "//content/content_browsertests.isolate"
@@ -520,15 +576,6 @@ test("content_browsertests") {
   }
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("content_unittests_run") {
-  testonly = true
-  deps = [
-    ":content_unittests",
-  ]
-}
-
 test("content_unittests") {
   defines = []
   sources = rebase_path(content_tests_gypi_values.content_unittests_sources,
@@ -537,23 +584,17 @@ test("content_unittests") {
 
   if (is_android || is_linux || is_mac || is_win) {
     data = [
+      "$root_out_dir/content_shell.pak",
       "data/",
       "//net/data/ssl/certificates/",
       "//media/test/data/",
     ]
-
-    if (is_android) {
-      data += [ "$root_out_dir/content_shell_assets/content_shell.pak" ]
-    } else {
-      data += [ "$root_out_dir/content_shell.pak" ]
-    }
   }
 
   configs += [ "//build/config:precompiled_headers" ]
 
   deps = [
     ":test_support",
-    "//base/allocator",
     "//base/test:test_support",
     "//content/browser/background_sync:background_sync_proto",
     "//content/browser/cache_storage:cache_storage_proto",
@@ -567,6 +608,8 @@ test("content_unittests") {
     "//crypto",
     "//device/battery",
     "//device/battery:mojo_bindings",
+    "//device/bluetooth",
+    "//mojo/edk/test:test_support",
     "//mojo/environment:chromium",
     "//mojo/public/cpp/bindings",
     "//net:extras",
@@ -576,7 +619,6 @@ test("content_unittests") {
     "//sql:test_support",
     "//testing/gmock",
     "//testing/gtest",
-    "//third_party/mojo/src/mojo/edk/test:test_support",
     "//third_party/re2",
     "//ui/accessibility",
     "//ui/base",
@@ -602,8 +644,8 @@ test("content_unittests") {
       "//gpu",
       "//gpu:test_support",
       "//ipc:test_support",
-      "//media:test_support",
       "//media:shared_memory_support",
+      "//media:test_support",
       "//media/audio:test_support",
       "//media/base:test_support",
       "//media/midi:midi",
@@ -643,6 +685,7 @@ test("content_unittests") {
       "//third_party/libjingle:libjingle_webrtc",
       "//third_party/libjingle:libpeerconnection",
       "//third_party/webrtc/modules/video_capture",
+      "//ui/shell_dialogs:shell_dialogs",
     ]
 
     if (is_linux || is_mac || is_win) {
@@ -656,8 +699,9 @@ test("content_unittests") {
           [ "../browser/media/capture/desktop_capture_device_aura_unittest.cc" ]
     }
 
-    if (is_android) {
+    if (is_android || is_chromecast) {
       sources -= [
+        "../renderer/media/audio_track_recorder_unittest.cc",
         "../renderer/media/media_recorder_handler_unittest.cc",
         "../renderer/media/video_track_recorder_unittest.cc",
       ]
@@ -707,7 +751,7 @@ test("content_unittests") {
     ]
     deps -= [ "//device/battery" ]
 
-    apk_deps = [
+    deps += [
       "//base:base_java_unittest_support",
       "//content/public/android:content_java",
       "//v8:v8_external_startup_data_assets",
@@ -756,10 +800,7 @@ test("content_unittests") {
   }
 
   if (use_ozone) {
-    deps += [
-      "//ui/ozone",
-      "//ui/ozone:ozone_base",
-    ]
+    deps += [ "//ui/ozone" ]
   } else {
     sources -=
         [ "../browser/compositor/software_output_device_ozone_unittest.cc" ]
@@ -777,12 +818,11 @@ test("content_perftests") {
     "../test/run_all_perftests.cc",
   ]
   deps = [
-    "//base/allocator",
     "//base/test:test_support",
+    "//cc",
     "//content/public/browser",
     "//content/public/common",
     "//content/test:test_support",
-    "//cc",
     "//skia",
     "//testing/gtest",
     "//testing/perf",
@@ -795,24 +835,15 @@ test("content_perftests") {
   }
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("content_gl_tests_run") {
-  testonly = true
-  deps = [
-    ":content_gl_tests",
-  ]
-}
-
 test("content_gl_tests") {
   sources = [
     "../common/gpu/client/gl_helper_unittest.cc",
     "../common/gpu/client/gpu_in_process_context_tests.cc",
+    "run_all_gl_tests.cc",
   ]
 
   deps = [
     ":test_support",
-    "//base/allocator",
     "//base/test:test_support",
     "//content/public/common",
     "//gpu/blink",
@@ -829,7 +860,7 @@ test("content_gl_tests") {
   ]
 
   if (is_android) {
-    apk_deps = [
+    deps += [
       "//content/public/test/android:content_java_test_support",
       "//content/shell/android:content_shell_assets",
     ]
@@ -844,11 +875,11 @@ test("content_gl_tests") {
 test("content_gl_benchmark") {
   sources = [
     "../common/gpu/client/gl_helper_benchmark.cc",
+    "run_gl_benchmark.cc",
   ]
 
   deps = [
     ":test_support",
-    "//base/allocator",
     "//base/test:test_support",
     "//content/public/common",
     "//gpu/blink",
@@ -860,4 +891,46 @@ test("content_gl_benchmark") {
     "//ui/gl",
     "//ui/gl:test_support",
   ]
+}
+
+if (is_android) {
+  # TODO(GYP): Port Windows and ChromeOS logic.
+  test("video_decode_accelerator_unittest") {
+    deps = [
+      "//base",
+      "//content",
+      "//media",
+      "//testing/gtest",
+      "//ui/base",
+      "//ui/gfx",
+      "//ui/gfx:test_support",
+      "//ui/gfx/geometry",
+      "//ui/gl",
+      "//ui/gl:test_support",
+    ]
+    configs += [ "//third_party/khronos:khronos_headers" ]
+    sources = [
+      "//content/common/gpu/media/video_accelerator_unittest_helpers.h",
+    ]
+    if (is_android) {
+      sources += [ "//content/common/gpu/media/android_video_decode_accelerator_unittest.cc" ]
+    } else {
+      sources += [
+        "//content/common/gpu/media/rendering_helper.cc",
+        "//content/common/gpu/media/rendering_helper.h",
+        "//content/common/gpu/media/video_decode_accelerator_unittest.cc",
+      ]
+    }
+
+    if (is_android) {
+      deps += [
+        "//gpu:test_support",
+        "//media/base/android",
+        "//media/base/android:media_java",
+        "//media/capture/video/android:capture_java",
+        "//testing/gmock",
+        "//ui/android:ui_java",
+      ]
+    }
+  }
 }

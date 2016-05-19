@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/permissions/permissions_api_helpers.h"
 
+#include <stddef.h>
+
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/values.h"
@@ -58,7 +60,7 @@ scoped_ptr<Permissions> PackPermissionSet(const PermissionSet& set) {
   for (const URLPattern& pattern : set.explicit_hosts())
     permissions->origins->push_back(pattern.GetAsString());
 
-  return permissions.Pass();
+  return permissions;
 }
 
 scoped_ptr<const PermissionSet> UnpackPermissionSet(

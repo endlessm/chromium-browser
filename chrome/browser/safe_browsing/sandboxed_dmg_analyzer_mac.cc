@@ -4,6 +4,8 @@
 
 #include "chrome/browser/safe_browsing/sandboxed_dmg_analyzer_mac.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "chrome/common/chrome_utility_messages.h"
 #include "chrome/common/safe_browsing/zip_analyzer_results.h"
@@ -66,6 +68,14 @@ void SandboxedDMGAnalyzer::StartAnalysis() {
   utility_process_host_->Send(new ChromeUtilityMsg_StartupPing);
 }
 
+void SandboxedDMGAnalyzer::OnProcessCrashed(int exit_code) {
+  OnAnalysisFinished(zip_analyzer::Results());
+}
+
+void SandboxedDMGAnalyzer::OnProcessLaunchFailed() {
+  OnAnalysisFinished(zip_analyzer::Results());
+}
+
 bool SandboxedDMGAnalyzer::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(SandboxedDMGAnalyzer, message)
@@ -92,7 +102,7 @@ void SandboxedDMGAnalyzer::OnUtilityProcessStarted() {
 
   utility_process_host_->Send(
       new ChromeUtilityMsg_AnalyzeDmgFileForDownloadProtection(
-          IPC::TakeFileHandleForProcess(file_.Pass(), utility_process)));
+          IPC::TakeFileHandleForProcess(std::move(file_), utility_process)));
 }
 
 void SandboxedDMGAnalyzer::OnAnalysisFinished(

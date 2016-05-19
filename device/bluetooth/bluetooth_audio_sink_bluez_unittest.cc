@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/bind.h"
@@ -82,7 +85,8 @@ class TestAudioSinkObserver : public BluetoothAudioSink::Observer {
 class BluetoothAudioSinkBlueZTest : public testing::Test {
  public:
   void SetUp() override {
-    bluez::BluezDBusManager::Initialize(NULL, true);
+    bluez::BluezDBusManager::Initialize(nullptr /* bus */,
+                                        true /* use_dbus_stub */);
 
     callback_count_ = 0;
     error_callback_count_ = 0;
@@ -128,6 +132,7 @@ class BluetoothAudioSinkBlueZTest : public testing::Test {
     BluetoothAdapterFactory::GetAdapter(
         base::Bind(&BluetoothAudioSinkBlueZTest::GetAdapterCallback,
                    base::Unretained(this)));
+    base::MessageLoop::current()->Run();
   }
 
   // Called whenever BluetoothAdapter is retrieved successfully.
@@ -148,6 +153,11 @@ class BluetoothAudioSinkBlueZTest : public testing::Test {
 
     // Resets callback_count_.
     --callback_count_;
+
+    if (base::MessageLoop::current() &&
+        base::MessageLoop::current()->is_running()) {
+      base::MessageLoop::current()->QuitWhenIdle();
+    }
   }
 
   // Registers BluetoothAudioSinkBlueZ with default codec and capabilities.

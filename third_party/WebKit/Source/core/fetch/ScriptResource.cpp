@@ -24,7 +24,6 @@
     pages from the web. It has a memory cache for these objects.
 */
 
-#include "config.h"
 #include "core/fetch/ScriptResource.h"
 
 #include "core/fetch/FetchRequest.h"
@@ -33,23 +32,22 @@
 #include "core/fetch/ResourceFetcher.h"
 #include "platform/MIMETypeRegistry.h"
 #include "platform/SharedBuffer.h"
-#include "platform/network/HTTPParsers.h"
 #include "public/platform/WebProcessMemoryDump.h"
 
 namespace blink {
 
-ResourcePtr<ScriptResource> ScriptResource::fetch(FetchRequest& request, ResourceFetcher* fetcher)
+PassRefPtrWillBeRawPtr<ScriptResource> ScriptResource::fetch(FetchRequest& request, ResourceFetcher* fetcher)
 {
     ASSERT(request.resourceRequest().frameType() == WebURLRequest::FrameTypeNone);
     request.mutableResourceRequest().setRequestContext(WebURLRequest::RequestContextScript);
-    ResourcePtr<ScriptResource> resource = toScriptResource(fetcher->requestResource(request, ScriptResourceFactory()));
+    RefPtrWillBeRawPtr<ScriptResource> resource = toScriptResource(fetcher->requestResource(request, ScriptResourceFactory()));
     if (resource && !request.integrityMetadata().isEmpty())
         resource->setIntegrityMetadata(request.integrityMetadata());
-    return resource;
+    return resource.release();
 }
 
 ScriptResource::ScriptResource(const ResourceRequest& resourceRequest, const String& charset)
-    : TextResource(resourceRequest, Script, "application/javascript", charset), m_integrityChecked(false)
+    : TextResource(resourceRequest, Script, "application/javascript", charset), m_integrityDisposition(ScriptIntegrityDisposition::NotChecked)
 {
     DEFINE_STATIC_LOCAL(const AtomicString, acceptScript, ("*/*", AtomicString::ConstructFromLiteral));
 
@@ -65,11 +63,11 @@ ScriptResource::~ScriptResource()
 
 void ScriptResource::didAddClient(ResourceClient* client)
 {
-    ASSERT(client->resourceClientType() == ScriptResourceClient::expectedType());
+    ASSERT(ScriptResourceClient::isExpectedType(client));
     Resource::didAddClient(client);
 }
 
-void ScriptResource::appendData(const char* data, unsigned length)
+void ScriptResource::appendData(const char* data, size_t length)
 {
     Resource::appendData(data, length);
     ResourceClientWalker<ScriptResourceClient> walker(m_clients);
@@ -82,43 +80,43 @@ void ScriptResource::onMemoryDump(WebMemoryDumpLevelOfDetail levelOfDetail, WebP
     Resource::onMemoryDump(levelOfDetail, memoryDump);
     const String name = getMemoryDumpName() + "/decoded_script";
     auto dump = memoryDump->createMemoryAllocatorDump(name);
-    dump->addScalar("size", "bytes", m_script.string().sizeInBytes());
+    dump->addScalar("size", "bytes", m_script.currentSizeInBytes());
     memoryDump->addSuballocation(dump->guid(), String(WTF::Partitions::kAllocatedObjectPoolName));
 }
 
-AtomicString ScriptResource::mimeType() const
-{
-    return extractMIMETypeFromMediaType(m_response.httpHeaderField("Content-Type")).lower();
-}
-
-const String& ScriptResource::script()
+const CompressibleString& ScriptResource::script()
 {
     ASSERT(!isPurgeable());
     ASSERT(isLoaded());
 
-    if (!m_script && m_data) {
+    if (m_script.isNull() && m_data) {
         String script = decodedText();
         m_data.clear();
         // We lie a it here and claim that script counts as encoded data (even though it's really decoded data).
         // That's because the MemoryCache thinks that it can clear out decoded data by calling destroyDecodedData(),
         // but we can't destroy script in destroyDecodedData because that's our only copy of the data!
         setEncodedSize(script.sizeInBytes());
-        m_script = AtomicString(script);
+        m_script = CompressibleString(script.impl());
     }
 
-    return m_script.string();
+    return m_script;
 }
 
 void ScriptResource::destroyDecodedDataForFailedRevalidation()
 {
-    m_script = AtomicString();
+    m_script = CompressibleString();
 }
 
 bool ScriptResource::mimeTypeAllowedByNosniff() const
 {
-    return parseContentTypeOptionsHeader(m_response.httpHeaderField("X-Content-Type-Options")) != ContentTypeOptionsNosniff || MIMETypeRegistry::isSupportedJavaScriptMIMEType(mimeType());
+    return parseContentTypeOptionsHeader(m_response.httpHeaderField(HTTPNames::X_Content_Type_Options)) != ContentTypeOptionsNosniff || MIMETypeRegistry::isSupportedJavaScriptMIMEType(httpContentType());
 }
 
+void ScriptResource::setIntegrityDisposition(ScriptIntegrityDisposition disposition)
+{
+    ASSERT(disposition != ScriptIntegrityDisposition::NotChecked);
+    m_integrityDisposition = disposition;
+}
 bool ScriptResource::mustRefetchDueToIntegrityMetadata(const FetchRequest& request) const
 {
     if (request.integrityMetadata().isEmpty())

@@ -43,9 +43,6 @@ char kTSanDefaultSuppressions[] =
 // Test-only race, won't fix.
 "race:tracked_objects::ThreadData::ShutdownSingleThreadedCleanup\n"
 
-// http://crbug.com/115540
-"race:*GetCurrentThreadIdentifier\n"
-
 // http://crbug.com/120808
 "race:base/threading/watchdog.cc\n"
 
@@ -128,10 +125,6 @@ char kTSanDefaultSuppressions[] =
 // http://crbug.com/272095
 "race:base::g_top_manager\n"
 
-// http://crbug.com/273047
-"race:base::*::g_lazy_tls_ptr\n"
-"race:IPC::SyncChannel::ReceivedSyncMsgQueue::lazy_tls_ptr_\n"
-
 // http://crbug.com/280466
 "race:content::WebRtcAudioCapturer::SetCapturerSource\n"
 
@@ -143,9 +136,6 @@ char kTSanDefaultSuppressions[] =
 
 // http://crbug.com/310851
 "race:net::ProxyResolverV8Tracing::Job::~Job\n"
-
-// http://crbug.com/313726
-"race:CallbackWasCalled\n"
 
 // http://crbug.com/327330
 "race:PrepareTextureMailbox\n"
@@ -163,9 +153,6 @@ char kTSanDefaultSuppressions[] =
 
 // http://crbug.com/329225
 "race:blink::currentTimeFunction\n"
-
-// http://crbug.com/329460
-"race:extensions::InfoMap::AddExtension\n"
 
 // http://crbug.com/333244
 "race:content::"
@@ -195,13 +182,6 @@ char kTSanDefaultSuppressions[] =
 
 // http://crbug.com/345240
 "race:WTF::s_shutdown\n"
-
-// http://crbug.com/345245
-"race:jingle_glue::JingleThreadWrapper::~JingleThreadWrapper\n"
-"race:webrtc::voe::Channel::UpdatePacketDelay\n"
-"race:webrtc::voe::Channel::GetDelayEstimate\n"
-"race:webrtc::VCMCodecDataBase::DeregisterReceiveCodec\n"
-"race:webrtc::GainControlImpl::set_stream_analog_level\n"
 
 // http://crbug.com/345618
 "race:WebCore::AudioDestinationNode::render\n"
@@ -261,9 +241,6 @@ char kTSanDefaultSuppressions[] =
 // http://crbug.com/388730
 "race:g_next_user_script_id\n"
 
-// http://crbug.com/389098
-"race:webrtc::voe::TransmitMixer::EnableStereoChannelSwapping\n"
-
 // http://crbug.com/397022
 "deadlock:"
 "base::trace_event::TraceEventTestFixture_ThreadOnceBlocking_Test::TestBody\n"
@@ -287,12 +264,9 @@ char kTSanDefaultSuppressions[] =
 // https://crbug.com/448203
 "race:blink::RemoteFrame::detach\n"
 
+// Lock inversion in third party code, won't fix.
 // https://crbug.com/455638
 "deadlock:dbus::Bus::ShutdownAndBlock\n"
-
-// https://crbug.com/455665
-"race:mojo::common::*::tick_clock\n"
-"race:mojo::common::internal::NowTicks\n"
 
 // https://crbug.com/459429
 "race:randomnessPid\n"
@@ -300,8 +274,11 @@ char kTSanDefaultSuppressions[] =
 // https://crbug.com/454655
 "race:content::BrowserTestBase::PostTaskToInProcessRendererAndWait\n"
 
-// https://crbug.com/539315
-"race:MojoCreateMessagePipe\n"
+// https://crbug.com/569682
+"race:blink::ThreadState::visitStackRoots\n"
+
+// http://crbug.com/582274
+"race:usrsctp_close\n"
 
 // End of suppressions.
 ;  // Please keep this semicolon.

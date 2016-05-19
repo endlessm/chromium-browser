@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
 #include <stdlib.h>
 
 #include "base/process/memory.h"
-
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkTypes.h"
 
 // This implementation of sk_malloc_flags() and friends is similar to
@@ -23,8 +24,7 @@ static inline void* throw_on_failure(size_t size, void* p) {
     return p;
 }
 
-void sk_throw() {
-    SkASSERT(!"sk_throw");
+void sk_abort_no_print() {
     abort();
 }
 

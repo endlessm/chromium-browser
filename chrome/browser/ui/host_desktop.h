@@ -5,17 +5,14 @@
 #ifndef CHROME_BROWSER_UI_HOST_DESKTOP_H_
 #define CHROME_BROWSER_UI_HOST_DESKTOP_H_
 
+#include "build/build_config.h"
 #include "ui/gfx/native_widget_types.h"
 
 class Browser;
 
 namespace chrome {
 
-// A value that specifies what desktop environment hosts a particular piece of
-// UI. You should almost never manually hardcode one of these enums manually,
-// please refer to the following document for details on getting the right
-// HostDesktopType:
-// http://sites.google.com/a/chromium.org/dev/developers/design-documents/aura/multi-desktop
+// TODO(scottmg): This file is being removed: http://crbug.com/558054.
 enum HostDesktopType {
   HOST_DESKTOP_TYPE_FIRST = 0,
 

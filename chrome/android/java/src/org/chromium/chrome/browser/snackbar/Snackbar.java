@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.snackbar;
 
+import android.graphics.Bitmap;
+
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarController;
 
 /**
@@ -13,10 +15,21 @@ import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarController;
  *
  *   SnackbarManager.showSnackbar(
  *           Snackbar.make("Closed example.com", controller)
- *           .setAction("undo", actionData)
- *           .setDuration(3000));
+ *           .setAction("undo", actionData));
  */
 public class Snackbar {
+    /**
+     * Snackbars that are created as an immediate response to user's action. These snackbars are
+     * managed in a stack and will be swiped away altogether after timeout.
+     */
+    public static final int TYPE_ACTION = 0;
+
+    /**
+     * Snackbars that are for notification purposes. These snackbars are stored in a queue and thus
+     * are of lower priority, compared to {@link #TYPE_ACTION}. Notification snackbars are dismissed
+     * one by one.
+     */
+    public static final int TYPE_NOTIFICATION = 1;
 
     private SnackbarController mController;
     private CharSequence mText;
@@ -26,19 +39,24 @@ public class Snackbar {
     private int mBackgroundColor;
     private boolean mSingleLine = true;
     private int mDurationMs;
+    private Bitmap mProfileImage;
+    private int mType;
 
     // Prevent instantiation.
     private Snackbar() {}
 
     /**
      * Creates and returns a snackbar to display the given text.
+     *
      * @param text The text to show on the snackbar.
      * @param controller The SnackbarController to receive callbacks about the snackbar's state.
+     * @param type Type of the snackbar. Either {@link #TYPE_ACTION} or {@link #TYPE_NOTIFICATION}.
      */
-    public static Snackbar make(CharSequence text, SnackbarController controller) {
+    public static Snackbar make(CharSequence text, SnackbarController controller, int type) {
         Snackbar s = new Snackbar();
         s.mText = text;
         s.mController = controller;
+        s.mType = type;
         return s;
     }
 
@@ -54,13 +72,23 @@ public class Snackbar {
     /**
      * Sets the action button to show on the snackbar.
      * @param actionText The text to show on the button. If null, the button will not be shown.
-     * @param actionData An object to be passed to {@linkSnackbarController#onAction} or
+     * @param actionData An object to be passed to {@link SnackbarController#onAction} or
      *        {@link SnackbarController#onDismissNoAction} when the button is pressed or the
      *        snackbar is dismissed.
      */
     public Snackbar setAction(String actionText, Object actionData) {
         mActionText = actionText;
         mActionData = actionData;
+        return this;
+    }
+
+    /**
+     * Sets the identity profile image that will be displayed at the beginning of the snackbar.
+     * If null, there won't be a profile image. The ability to have an icon is exclusive to
+     * identity snackbars.
+     */
+    public Snackbar setProfileImage(Bitmap profileImage) {
+        mProfileImage = profileImage;
         return this;
     }
 
@@ -122,5 +150,19 @@ public class Snackbar {
      */
     int getBackgroundColor() {
         return mBackgroundColor;
+    }
+
+    /**
+     * If method returns null, then no profileImage will be shown in snackbar.
+     */
+    Bitmap getProfileImage() {
+        return mProfileImage;
+    }
+
+    /**
+     * @return Whether the snackbar is of {@link #TYPE_ACTION}.
+     */
+    boolean isTypeAction() {
+        return mType == TYPE_ACTION;
     }
 }

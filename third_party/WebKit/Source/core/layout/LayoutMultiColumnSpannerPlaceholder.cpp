@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/layout/LayoutMultiColumnSpannerPlaceholder.h"
 
 namespace blink {
@@ -91,6 +90,11 @@ void LayoutMultiColumnSpannerPlaceholder::layout()
 {
     ASSERT(needsLayout());
 
+    // The placeholder, like any other block level object, has its logical top calculated and set
+    // before layout. Copy this to the actual column-span:all object before laying it out, so that
+    // it gets paginated correctly, in case we have an enclosing fragmentation context.
+    m_layoutObjectInFlowThread->setLogicalTop(logicalTop());
+
     // Lay out the actual column-span:all element.
     m_layoutObjectInFlowThread->layoutIfNeeded();
 
@@ -133,4 +137,4 @@ bool LayoutMultiColumnSpannerPlaceholder::nodeAtPoint(HitTestResult& result, con
     return !m_layoutObjectInFlowThread->hasSelfPaintingLayer() && m_layoutObjectInFlowThread->nodeAtPoint(result, locationInContainer, accumulatedOffset, action);
 }
 
-}
+} // namespace blink

@@ -42,6 +42,8 @@
         'translate/core/browser/translate_error_details.h',
         'translate/core/browser/translate_event_details.cc',
         'translate/core/browser/translate_event_details.h',
+        'translate/core/browser/translate_experiment.cc',
+        'translate/core/browser/translate_experiment.h',
         'translate/core/browser/translate_language_list.cc',
         'translate/core/browser/translate_language_list.h',
         'translate/core/browser/translate_manager.cc',
@@ -233,6 +235,7 @@
     ['OS == "ios"', {
       'targets': [
         {
+          # GN version: //components/translate/ios/browser
           'target_name': 'translate_ios_browser',
           'type': 'static_library',
           'include_dirs': [
@@ -261,6 +264,7 @@
           ],
         },
         {
+          # GN version: //components/translate/ios/browser:injected_js
           'target_name': 'translate_ios_injected_js',
           'type': 'none',
           'sources': [

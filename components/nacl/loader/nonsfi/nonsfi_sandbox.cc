@@ -7,13 +7,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/net.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -75,9 +75,10 @@ ResultExpr RestrictFcntlCommands() {
   // the return value of F_GETFL, so we need to allow O_ACCMODE in
   // addition to O_NONBLOCK.
   const uint64_t kAllowedMask = O_ACCMODE | O_NONBLOCK;
-  return If((cmd == F_SETFD && long_arg == FD_CLOEXEC) || cmd == F_GETFL ||
-                (cmd == F_SETFL && (long_arg & ~kAllowedMask) == 0),
-            Allow()).Else(CrashSIGSYS());
+  return If(AnyOf(AllOf(cmd == F_SETFD, long_arg == FD_CLOEXEC), cmd == F_GETFL,
+                  AllOf(cmd == F_SETFL, (long_arg & ~kAllowedMask) == 0)),
+            Allow())
+      .Else(CrashSIGSYS());
 }
 
 ResultExpr RestrictClone() {
@@ -114,11 +115,11 @@ ResultExpr RestrictPrctl() {
 
 #if defined(__i386__)
 ResultExpr RestrictSocketcall() {
-  // We only allow socketpair, sendmsg, and recvmsg.
+  // We only allow shutdown(), sendmsg(), and recvmsg().
   const Arg<int> call(0);
-  return If(
-      call == SYS_SHUTDOWN || call == SYS_SENDMSG || call == SYS_RECVMSG,
-      Allow()).Else(CrashSIGSYS());
+  return Switch(call)
+      .CASES((SYS_SHUTDOWN, SYS_SENDMSG, SYS_RECVMSG), Allow())
+      .Default(CrashSIGSYS());
 }
 #endif
 
@@ -138,20 +139,24 @@ ResultExpr RestrictMmap() {
   // so we do not need to allow PROT_EXEC in mmap.
   const uint64_t kAllowedProtMask = PROT_READ | PROT_WRITE;
   const Arg<int> prot(2), flags(3);
-  return If((prot & ~kAllowedProtMask) == 0 && (flags & ~kAllowedFlagMask) == 0,
-            Allow()).Else(CrashSIGSYS());
+  return If(AllOf((prot & ~kAllowedProtMask) == 0,
+                  (flags & ~kAllowedFlagMask) == 0),
+            Allow())
+      .Else(CrashSIGSYS());
 }
 
 ResultExpr RestrictTgkill(int policy_pid) {
   const Arg<int> tgid(0), tid(1), signum(2);
   // Only sending SIGUSR1 to a thread in the same process is allowed.
-  return If(tgid == policy_pid &&
-            // Arg does not support a greater-than operator, so two separate
-            // checks are needed to ensure tid is positive.
-            tid != 0 &&
-            (tid & (1u << 31)) == 0 &&  // tid is non-negative.
-            signum == LINUX_SIGUSR1,
-            Allow()).Else(CrashSIGSYS());
+  return If(AllOf(
+                tgid == policy_pid,
+                // Arg does not support a greater-than operator, so two separate
+                // checks are needed to ensure tid is positive.
+                tid != 0,
+                (tid & (1u << 31)) == 0,  // tid is non-negative.
+                signum == LINUX_SIGUSR1),
+            Allow())
+      .Else(CrashSIGSYS());
 }
 
 bool IsGracefullyDenied(int sysno) {
@@ -332,7 +337,7 @@ bool InitializeBPFSandbox(base::ScopedFD proc_fd) {
   bool sandbox_is_initialized = content::InitializeSandbox(
       scoped_ptr<sandbox::bpf_dsl::Policy>(
           new nacl::nonsfi::NaClNonSfiBPFSandboxPolicy()),
-      proc_fd.Pass());
+      std::move(proc_fd));
   if (!sandbox_is_initialized)
     return false;
   RunSandboxSanityChecks();

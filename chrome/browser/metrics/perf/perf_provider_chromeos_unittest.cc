@@ -4,10 +4,12 @@
 
 #include "chrome/browser/metrics/perf/perf_provider_chromeos.h"
 
+#include <stdint.h>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/test/test_simple_task_runner.h"
@@ -113,7 +115,7 @@ class TestIncognitoObserver : public WindowedIncognitoObserver {
       bool incognito_launched) {
     scoped_ptr<TestIncognitoObserver> observer(new TestIncognitoObserver);
     observer->set_incognito_launched(incognito_launched);
-    return observer.Pass();
+    return std::move(observer);
   }
 
  private:
@@ -128,8 +130,11 @@ class TestPerfProvider : public PerfProvider {
   TestPerfProvider() {}
 
   using PerfProvider::ParseOutputProtoIfValid;
+  using PerfProvider::OnSessionRestoreDone;
+  using PerfProvider::Deactivate;
   using PerfProvider::collection_params;
   using PerfProvider::command_selector;
+  using PerfProvider::timer;
 
  private:
   std::vector<SampledProfile> stored_profiles_;
@@ -153,6 +158,7 @@ class PerfProviderTest : public testing::Test {
     chromeos::DBusThreadManager::Initialize();
 
     perf_provider_.reset(new TestPerfProvider);
+    perf_provider_->Init();
 
     // PerfProvider requires the user to be logged in.
     chromeos::LoginState::Get()->SetLoggedInState(
@@ -201,9 +207,7 @@ TEST_F(PerfProviderTest, NoPerfData) {
 
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      std::vector<uint8_t>(),
+      std::move(sampled_profile), kPerfSuccess, std::vector<uint8_t>(),
       std::vector<uint8_t>());
 
   std::vector<SampledProfile> stored_profiles;
@@ -216,10 +220,8 @@ TEST_F(PerfProviderTest, PerfDataProtoOnly) {
 
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      SerializeMessageToVector(perf_data_proto_),
-      std::vector<uint8_t>());
+      std::move(sampled_profile), kPerfSuccess,
+      SerializeMessageToVector(perf_data_proto_), std::vector<uint8_t>());
 
   std::vector<SampledProfile> stored_profiles;
   EXPECT_TRUE(perf_provider_->GetSampledProfiles(&stored_profiles));
@@ -241,9 +243,7 @@ TEST_F(PerfProviderTest, PerfStatProtoOnly) {
 
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      std::vector<uint8_t>(),
+      std::move(sampled_profile), kPerfSuccess, std::vector<uint8_t>(),
       SerializeMessageToVector(perf_stat_proto_));
 
   std::vector<SampledProfile> stored_profiles;
@@ -266,8 +266,7 @@ TEST_F(PerfProviderTest, BothPerfDataProtoAndPerfStatProto) {
 
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
+      std::move(sampled_profile), kPerfSuccess,
       SerializeMessageToVector(perf_data_proto_),
       SerializeMessageToVector(perf_stat_proto_));
 
@@ -282,10 +281,8 @@ TEST_F(PerfProviderTest, InvalidPerfOutputResult) {
 
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfFailure,
-      SerializeMessageToVector(perf_data_proto_),
-      std::vector<uint8_t>());
+      std::move(sampled_profile), kPerfFailure,
+      SerializeMessageToVector(perf_data_proto_), std::vector<uint8_t>());
 
   // Should not have been stored.
   std::vector<SampledProfile> stored_profiles;
@@ -300,19 +297,15 @@ TEST_F(PerfProviderTest, MultipleCalls) {
 
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      SerializeMessageToVector(perf_data_proto_),
-      std::vector<uint8_t>());
+      std::move(sampled_profile), kPerfSuccess,
+      SerializeMessageToVector(perf_data_proto_), std::vector<uint8_t>());
 
   sampled_profile.reset(new SampledProfile);
   sampled_profile->set_trigger_event(SampledProfile::RESTORE_SESSION);
   sampled_profile->set_ms_after_restore(3000);
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      std::vector<uint8_t>(),
+      std::move(sampled_profile), kPerfSuccess, std::vector<uint8_t>(),
       SerializeMessageToVector(perf_stat_proto_));
 
   sampled_profile.reset(new SampledProfile);
@@ -321,18 +314,14 @@ TEST_F(PerfProviderTest, MultipleCalls) {
   sampled_profile->set_ms_after_resume(1500);
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      SerializeMessageToVector(perf_data_proto_),
-      std::vector<uint8_t>());
+      std::move(sampled_profile), kPerfSuccess,
+      SerializeMessageToVector(perf_data_proto_), std::vector<uint8_t>());
 
   sampled_profile.reset(new SampledProfile);
   sampled_profile->set_trigger_event(SampledProfile::PERIODIC_COLLECTION);
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      std::vector<uint8_t>(),
+      std::move(sampled_profile), kPerfSuccess, std::vector<uint8_t>(),
       SerializeMessageToVector(perf_stat_proto_));
 
   std::vector<SampledProfile> stored_profiles;
@@ -383,10 +372,8 @@ TEST_F(PerfProviderTest, IncognitoWindowOpened) {
 
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      SerializeMessageToVector(perf_data_proto_),
-      std::vector<uint8_t>());
+      std::move(sampled_profile), kPerfSuccess,
+      SerializeMessageToVector(perf_data_proto_), std::vector<uint8_t>());
 
   std::vector<SampledProfile> stored_profiles1;
   EXPECT_TRUE(perf_provider_->GetSampledProfiles(&stored_profiles1));
@@ -405,9 +392,7 @@ TEST_F(PerfProviderTest, IncognitoWindowOpened) {
   sampled_profile->set_ms_after_restore(3000);
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      std::vector<uint8_t>(),
+      std::move(sampled_profile), kPerfSuccess, std::vector<uint8_t>(),
       SerializeMessageToVector(perf_stat_proto_));
 
   std::vector<SampledProfile> stored_profiles2;
@@ -428,10 +413,8 @@ TEST_F(PerfProviderTest, IncognitoWindowOpened) {
   // An incognito window opens.
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(true),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      SerializeMessageToVector(perf_data_proto_),
-      std::vector<uint8_t>());
+      std::move(sampled_profile), kPerfSuccess,
+      SerializeMessageToVector(perf_data_proto_), std::vector<uint8_t>());
 
   std::vector<SampledProfile> stored_profiles_empty;
   EXPECT_FALSE(perf_provider_->GetSampledProfiles(&stored_profiles_empty));
@@ -441,9 +424,7 @@ TEST_F(PerfProviderTest, IncognitoWindowOpened) {
   // Incognito window is still open.
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(true),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      std::vector<uint8_t>(),
+      std::move(sampled_profile), kPerfSuccess, std::vector<uint8_t>(),
       SerializeMessageToVector(perf_stat_proto_));
 
   EXPECT_FALSE(perf_provider_->GetSampledProfiles(&stored_profiles_empty));
@@ -455,10 +436,8 @@ TEST_F(PerfProviderTest, IncognitoWindowOpened) {
   // Incognito window closes.
   perf_provider_->ParseOutputProtoIfValid(
       TestIncognitoObserver::CreateWithIncognitoLaunched(false),
-      sampled_profile.Pass(),
-      kPerfSuccess,
-      SerializeMessageToVector(perf_data_proto_),
-      std::vector<uint8_t>());
+      std::move(sampled_profile), kPerfSuccess,
+      SerializeMessageToVector(perf_data_proto_), std::vector<uint8_t>());
 
   std::vector<SampledProfile> stored_profiles3;
   EXPECT_TRUE(perf_provider_->GetSampledProfiles(&stored_profiles3));
@@ -755,6 +734,14 @@ class PerfProviderCollectionParamsTest : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(PerfProviderCollectionParamsTest);
 };
 
+TEST_F(PerfProviderCollectionParamsTest, Commands_InitializedAfterVariations) {
+  TestPerfProvider perf_provider;
+  EXPECT_TRUE(perf_provider.command_selector().odds().empty());
+  // Init would be called after VariationsService is initialized.
+  perf_provider.Init();
+  EXPECT_FALSE(perf_provider.command_selector().odds().empty());
+}
+
 TEST_F(PerfProviderCollectionParamsTest, Commands_EmptyExperiment) {
   std::vector<RandomSelector::WeightAndValue> default_cmds =
       internal::GetDefaultCommandsForCpu(GetCPUIdentity());
@@ -765,6 +752,8 @@ TEST_F(PerfProviderCollectionParamsTest, Commands_EmptyExperiment) {
       "ChromeOSWideProfilingCollection", "group_name"));
 
   TestPerfProvider perf_provider;
+  EXPECT_TRUE(perf_provider.command_selector().odds().empty());
+  perf_provider.Init();
   EXPECT_EQ(default_cmds, perf_provider.command_selector().odds());
 }
 
@@ -789,6 +778,8 @@ TEST_F(PerfProviderCollectionParamsTest, Commands_InvalidValues) {
       "ChromeOSWideProfilingCollection", "group_name"));
 
   TestPerfProvider perf_provider;
+  EXPECT_TRUE(perf_provider.command_selector().odds().empty());
+  perf_provider.Init();
   EXPECT_EQ(default_cmds, perf_provider.command_selector().odds());
 }
 
@@ -813,6 +804,8 @@ TEST_F(PerfProviderCollectionParamsTest, Commands_Override) {
       "ChromeOSWideProfilingCollection", "group_name"));
 
   TestPerfProvider perf_provider;
+  EXPECT_TRUE(perf_provider.command_selector().odds().empty());
+  perf_provider.Init();
 
   std::vector<WeightAndValue> expected_cmds;
   expected_cmds.push_back(WeightAndValue(50.0, "perf record foo"));
@@ -836,8 +829,22 @@ TEST_F(PerfProviderCollectionParamsTest, Parameters_Override) {
       "ChromeOSWideProfilingCollection", "group_name"));
 
   TestPerfProvider perf_provider;
-
   const auto& parsed_params = perf_provider.collection_params();
+
+  // Not initialized yet:
+  EXPECT_NE(base::TimeDelta::FromSeconds(15),
+            parsed_params.collection_duration());
+  EXPECT_NE(base::TimeDelta::FromHours(1),
+            parsed_params.periodic_interval());
+  EXPECT_NE(1, parsed_params.resume_from_suspend().sampling_factor());
+  EXPECT_NE(base::TimeDelta::FromSeconds(10),
+            parsed_params.resume_from_suspend().max_collection_delay());
+  EXPECT_NE(2, parsed_params.restore_session().sampling_factor());
+  EXPECT_NE(base::TimeDelta::FromSeconds(20),
+            parsed_params.restore_session().max_collection_delay());
+
+  perf_provider.Init();
+
   EXPECT_EQ(base::TimeDelta::FromSeconds(15),
             parsed_params.collection_duration());
   EXPECT_EQ(base::TimeDelta::FromHours(1),
@@ -848,6 +855,36 @@ TEST_F(PerfProviderCollectionParamsTest, Parameters_Override) {
   EXPECT_EQ(2, parsed_params.restore_session().sampling_factor());
   EXPECT_EQ(base::TimeDelta::FromSeconds(20),
             parsed_params.restore_session().max_collection_delay());
+}
+
+// Setting "::SamplingFactor" to zero should disable the trigger.
+// Otherwise, it could cause a div-by-zero crash.
+TEST_F(PerfProviderCollectionParamsTest, ZeroSamplingFactorDisablesTrigger) {
+  std::map<std::string, std::string> params;
+  params.insert(std::make_pair("ResumeFromSuspend::SamplingFactor", "0"));
+  params.insert(std::make_pair("RestoreSession::SamplingFactor", "0"));
+  ASSERT_TRUE(variations::AssociateVariationParams(
+      "ChromeOSWideProfilingCollection", "group_name", params));
+  ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
+      "ChromeOSWideProfilingCollection", "group_name"));
+
+  TestPerfProvider perf_provider;
+  chromeos::PowerManagerClient::Observer& pm_observer = perf_provider;
+  perf_provider.Init();
+
+  // Cancel the background collection.
+  perf_provider.Deactivate();
+  EXPECT_FALSE(perf_provider.timer().IsRunning())
+      << "Sanity: timer should not be running.";
+
+  // Calling SuspendDone or OnSessionRestoreDone should not start the timer
+  // that triggers collection.
+
+  pm_observer.SuspendDone(base::TimeDelta::FromMinutes(10));
+  EXPECT_FALSE(perf_provider.timer().IsRunning());
+
+  perf_provider.OnSessionRestoreDone(100);
+  EXPECT_FALSE(perf_provider.timer().IsRunning());
 }
 
 }  // namespace metrics

@@ -5,7 +5,11 @@
 #ifndef NET_QUIC_CRYPTO_NULL_DECRYPTER_H_
 #define NET_QUIC_CRYPTO_NULL_DECRYPTER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "net/base/net_export.h"
 #include "net/quic/crypto/quic_decrypter.h"
 
@@ -24,7 +28,8 @@ class NET_EXPORT_PRIVATE NullDecrypter : public QuicDecrypter {
   // QuicDecrypter implementation
   bool SetKey(base::StringPiece key) override;
   bool SetNoncePrefix(base::StringPiece nonce_prefix) override;
-  bool DecryptPacket(QuicPacketNumber packet_number,
+  bool DecryptPacket(QuicPathId path_id,
+                     QuicPacketNumber packet_number,
                      const base::StringPiece& associated_data,
                      const base::StringPiece& ciphertext,
                      char* output,
@@ -34,12 +39,12 @@ class NET_EXPORT_PRIVATE NullDecrypter : public QuicDecrypter {
   base::StringPiece GetNoncePrefix() const override;
 
   const char* cipher_name() const override;
-  uint32 cipher_id() const override;
+  uint32_t cipher_id() const override;
 
  private:
   bool ReadHash(QuicDataReader* reader, uint128* hash);
-  uint128 ComputeHash(const base::StringPiece& data1,
-                      const base::StringPiece& data2) const;
+  uint128 ComputeHash(const base::StringPiece data1,
+                      const base::StringPiece data2) const;
 
   DISALLOW_COPY_AND_ASSIGN(NullDecrypter);
 };

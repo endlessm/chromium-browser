@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSFontFace.h"
 
 #include "core/css/CSSFontFaceSource.h"
@@ -34,6 +33,7 @@
 #include "core/frame/UseCounter.h"
 #include "platform/fonts/FontDescription.h"
 #include "platform/fonts/SimpleFontData.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -63,6 +63,9 @@ void CSSFontFace::fontLoaded(RemoteFontFaceSource* source)
     if (loadStatus() == FontFace::Loading) {
         if (source->isValid()) {
             setLoadStatus(FontFace::Loaded);
+        } else if (source->getDisplayPeriod() == RemoteFontFaceSource::FailurePeriod) {
+            m_sources.clear();
+            setLoadStatus(FontFace::Error);
         } else {
             m_sources.removeFirst();
             load();
@@ -70,15 +73,15 @@ void CSSFontFace::fontLoaded(RemoteFontFaceSource* source)
     }
 
     if (m_segmentedFontFace)
-        m_segmentedFontFace->fontLoaded(this);
+        m_segmentedFontFace->fontFaceInvalidated();
 }
 
-void CSSFontFace::fontLoadWaitLimitExceeded(RemoteFontFaceSource* source)
+void CSSFontFace::didBecomeVisibleFallback(RemoteFontFaceSource* source)
 {
     if (!isValid() || source != m_sources.first())
         return;
     if (m_segmentedFontFace)
-        m_segmentedFontFace->fontLoadWaitLimitExceeded(this);
+        m_segmentedFontFace->fontFaceInvalidated();
 }
 
 PassRefPtr<SimpleFontData> CSSFontFace::getFontData(const FontDescription& fontDescription)
@@ -163,7 +166,7 @@ void CSSFontFace::load(const FontDescription& fontDescription)
     setLoadStatus(FontFace::Error);
 }
 
-void CSSFontFace::setLoadStatus(FontFace::LoadStatus newStatus)
+void CSSFontFace::setLoadStatus(FontFace::LoadStatusType newStatus)
 {
     ASSERT(m_fontFace);
     if (newStatus == FontFace::Error)
@@ -260,4 +263,4 @@ DEFINE_TRACE(CSSFontFace)
     visitor->trace(m_fontFace);
 }
 
-}
+} // namespace blink

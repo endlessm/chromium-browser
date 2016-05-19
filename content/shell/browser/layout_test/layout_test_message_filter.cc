@@ -4,6 +4,8 @@
 
 #include "content/shell/browser/layout_test/layout_test_message_filter.h"
 
+#include <stddef.h>
+
 #include "base/files/file_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/public/browser/child_process_security_policy.h"
@@ -19,7 +21,7 @@
 #include "content/shell/browser/shell_network_delegate.h"
 #include "content/shell/common/layout_test/layout_test_messages.h"
 #include "net/base/net_errors.h"
-#include "net/cookies/cookie_monster.h"
+#include "net/cookies/cookie_store.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "storage/browser/database/database_tracker.h"
@@ -48,6 +50,7 @@ void LayoutTestMessageFilter::OverrideThreadForMessage(
   if (message.type() == LayoutTestHostMsg_ClearAllDatabases::ID)
     *thread = BrowserThread::FILE;
   if (message.type() == LayoutTestHostMsg_SimulateWebNotificationClick::ID ||
+      message.type() == LayoutTestHostMsg_SimulateWebNotificationClose::ID ||
       message.type() == LayoutTestHostMsg_SetPermission::ID ||
       message.type() == LayoutTestHostMsg_ResetPermissions::ID ||
       message.type() == LayoutTestHostMsg_SetBluetoothAdapter::ID)
@@ -65,6 +68,8 @@ bool LayoutTestMessageFilter::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_SetDatabaseQuota, OnSetDatabaseQuota)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_SimulateWebNotificationClick,
                         OnSimulateWebNotificationClick)
+    IPC_MESSAGE_HANDLER(LayoutTestHostMsg_SimulateWebNotificationClose,
+                        OnSimulateWebNotificationClose)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_AcceptAllCookies, OnAcceptAllCookies)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_DeleteAllCookies, OnDeleteAllCookies)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_SetPermission, OnSetPermission)
@@ -119,14 +124,21 @@ void LayoutTestMessageFilter::OnSimulateWebNotificationClick(
     manager->SimulateClick(title, action_index);
 }
 
+void LayoutTestMessageFilter::OnSimulateWebNotificationClose(
+    const std::string& title, bool by_user) {
+  LayoutTestNotificationManager* manager =
+      LayoutTestContentBrowserClient::Get()->GetLayoutTestNotificationManager();
+  if (manager)
+    manager->SimulateClose(title, by_user);
+}
+
 void LayoutTestMessageFilter::OnAcceptAllCookies(bool accept) {
   ShellNetworkDelegate::SetAcceptAllCookies(accept);
 }
 
 void LayoutTestMessageFilter::OnDeleteAllCookies() {
   request_context_getter_->GetURLRequestContext()->cookie_store()
-      ->GetCookieMonster()
-      ->DeleteAllAsync(net::CookieMonster::DeleteCallback());
+      ->DeleteAllAsync(net::CookieStore::DeleteCallback());
 }
 
 void LayoutTestMessageFilter::OnSetPermission(const std::string& name,
@@ -136,7 +148,9 @@ void LayoutTestMessageFilter::OnSetPermission(const std::string& name,
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   content::PermissionType type;
-  if (name == "midi-sysex") {
+  if (name == "midi") {
+    type = PermissionType::MIDI;
+  } else if (name == "midi-sysex") {
     type = PermissionType::MIDI_SYSEX;
   } else if (name == "push-messaging") {
     type = PermissionType::PUSH_MESSAGING;

@@ -8,16 +8,18 @@
 #include <string>
 
 #import <Cocoa/Cocoa.h>
+#include <stddef.h>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_member.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/cocoa/omnibox/omnibox_view_mac.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/omnibox/chrome_omnibox_edit_controller.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/prefs/pref_member.h"
 #include "components/ui/zoom/zoom_event_manager_observer.h"
 
 @class AutocompleteTextField;
@@ -30,6 +32,7 @@ class LocationIconDecoration;
 class ManagePasswordsDecoration;
 class PageActionDecoration;
 class Profile;
+class SaveCreditCardDecoration;
 class SelectedKeywordDecoration;
 class StarDecoration;
 class TranslateDecoration;
@@ -96,7 +99,7 @@ class LocationBarViewMac : public LocationBar,
   // false when the change in zoom for the active tab wasn't an explicit user
   // action (e.g. switching tabs, creating a new tab, creating a new browser).
   // Additionally, |can_show_bubble| will only be true when the bubble wouldn't
-  // be obscured by other UI (wrench menu) or redundant (+/- from wrench).
+  // be obscured by other UI (app menu) or redundant (+/- from app menu).
   void ZoomChangedForActiveTab(bool can_show_bubble);
 
   // Checks if the bookmark star should be enabled or not.
@@ -105,6 +108,10 @@ class LocationBarViewMac : public LocationBar,
   // Get the point in window coordinates on the star for the bookmark bubble to
   // aim at. Only works if IsStarEnabled returns YES.
   NSPoint GetBookmarkBubblePoint() const;
+
+  // Get the point in window coordinates in the save credit card icon for the
+  //  save credit card bubble to aim at.
+  NSPoint GetSaveCreditCardBubblePoint() const;
 
   // Get the point in window coordinates on the star for the Translate bubble to
   // aim at.
@@ -225,6 +232,9 @@ class LocationBarViewMac : public LocationBar,
   // A decoration that shows a lock icon and ev-cert label in a bubble
   // on the left.
   scoped_ptr<EVBubbleDecoration> ev_bubble_decoration_;
+
+  // Save credit card icon on the right side of the omnibox.
+  scoped_ptr<SaveCreditCardDecoration> save_credit_card_decoration_;
 
   // Bookmark star right of page actions.
   scoped_ptr<StarDecoration> star_decoration_;

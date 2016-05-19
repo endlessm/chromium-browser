@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AnalyserNode.h"
-
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/ExceptionCode.h"
@@ -179,12 +176,12 @@ double AnalyserNode::smoothingTimeConstant() const
 
 void AnalyserNode::getFloatFrequencyData(DOMFloat32Array* array)
 {
-    analyserHandler().getFloatFrequencyData(array);
+    analyserHandler().getFloatFrequencyData(array, context()->currentTime());
 }
 
 void AnalyserNode::getByteFrequencyData(DOMUint8Array* array)
 {
-    analyserHandler().getByteFrequencyData(array);
+    analyserHandler().getByteFrequencyData(array, context()->currentTime());
 }
 
 void AnalyserNode::getFloatTimeDomainData(DOMFloat32Array* array)
@@ -199,4 +196,3 @@ void AnalyserNode::getByteTimeDomainData(DOMUint8Array* array)
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

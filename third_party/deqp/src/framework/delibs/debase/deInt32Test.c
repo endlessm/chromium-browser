@@ -76,6 +76,15 @@ void deInt32_selfTest (void)
 	deRandom_init(&rnd, 0xdeadbeefu-1);
 
 	/* Test deClz32(). */
+	{
+		int i;
+		for (i = 0; i < 32; i++)
+		{
+			DE_TEST_ASSERT(deClz32(1u << i) == 31-i);
+			DE_TEST_ASSERT(deClz32((1u << i) | ((1u << i)-1u)) == 31-i);
+		}
+	}
+
 	DE_TEST_ASSERT(deClz32(0) == 32);
 	DE_TEST_ASSERT(deClz32(1) == 31);
 	DE_TEST_ASSERT(deClz32(0xF1) == 24);
@@ -85,6 +94,22 @@ void deInt32_selfTest (void)
 	DE_TEST_ASSERT(deClz32(0x20000000) == 2);
 	DE_TEST_ASSERT(deClz32(0x40000000) == 1);
 	DE_TEST_ASSERT(deClz32(0x80000000) == 0);
+
+	/* Test deCtz32(). */
+	{
+		int i;
+		for (i = 0; i < 32; i++)
+		{
+			DE_TEST_ASSERT(deCtz32(1u << i) == i);
+			DE_TEST_ASSERT(deCtz32(~((1u << i)-1u)) == i);
+		}
+	}
+
+	DE_TEST_ASSERT(deCtz32(0) == 32);
+	DE_TEST_ASSERT(deCtz32(1) == 0);
+	DE_TEST_ASSERT(deCtz32(0x3F4) == 2);
+	DE_TEST_ASSERT(deCtz32(0x3F40) == 6);
+	DE_TEST_ASSERT(deCtz32(0xFFFFFFFF) == 0);
 
 	/* Test simple inputs for dePop32(). */
 	DE_TEST_ASSERT(dePop32(0u) == 0);
@@ -168,6 +193,11 @@ void deInt32_selfTest (void)
 	DE_TEST_ASSERT(deSignExtendTo32((int)0x184A0, 17) == (int)0xFFFF84A0);
 	DE_TEST_ASSERT(deSignExtendTo32((int)0x7A016601, 32) == (int)0x7A016601);
 	DE_TEST_ASSERT(deSignExtendTo32((int)0x8A016601, 32) == (int)0x8A016601);
+
+	DE_TEST_ASSERT(deReverseBytes32(0x11223344) == 0x44332211);
+	DE_TEST_ASSERT(deReverseBytes32(0xfecddeef) == 0xefdecdfe);
+	DE_TEST_ASSERT(deReverseBytes16(0x1122) == 0x2211);
+	DE_TEST_ASSERT(deReverseBytes16(0xdeef) == 0xefde);
 }
 
 DE_END_EXTERN_C

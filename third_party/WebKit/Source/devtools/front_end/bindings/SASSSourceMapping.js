@@ -32,19 +32,17 @@
  * @constructor
  * @implements {WebInspector.CSSSourceMapping}
  * @param {!WebInspector.CSSStyleModel} cssModel
- * @param {!WebInspector.Workspace} workspace
  * @param {!WebInspector.NetworkMapping} networkMapping
  * @param {!WebInspector.NetworkProject} networkProject
  */
-WebInspector.SASSSourceMapping = function(cssModel, workspace, networkMapping, networkProject)
+WebInspector.SASSSourceMapping = function(cssModel, networkMapping, networkProject)
 {
     this._cssModel = cssModel;
-    this._workspace = workspace;
     this._networkProject = networkProject;
     this._reset();
     WebInspector.moduleSetting("cssSourceMapsEnabled").addChangeListener(this._toggleSourceMapSupport, this);
     this._cssModel.addEventListener(WebInspector.CSSStyleModel.Events.StyleSheetChanged, this._styleSheetChanged, this);
-    this._workspace.addEventListener(WebInspector.Workspace.Events.ProjectRemoved, this._reset, this);
+    cssModel.target().resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.MainFrameNavigated, this._reset, this);
     this._networkMapping = networkMapping;
 }
 
@@ -87,7 +85,7 @@ WebInspector.SASSSourceMapping.prototype = {
         var completeSourceMapURL = WebInspector.ParsedURL.completeURL(header.sourceURL, header.sourceMapURL);
         if (!completeSourceMapURL)
             return;
-        this._loadSourceMap(completeSourceMapURL, header.sourceURL, sourceMapLoaded.bind(this));
+        this._loadSourceMap(completeSourceMapURL, header, sourceMapLoaded.bind(this));
 
         /**
          * @param {?WebInspector.SourceMap} sourceMap
@@ -117,10 +115,10 @@ WebInspector.SASSSourceMapping.prototype = {
 
     /**
      * @param {string} completeSourceMapURL
-     * @param {string} sourceURL
+     * @param {!WebInspector.CSSStyleSheetHeader} header
      * @param {function(?WebInspector.SourceMap)} callback
      */
-    _loadSourceMap: function(completeSourceMapURL, sourceURL, callback)
+    _loadSourceMap: function(completeSourceMapURL, header, callback)
     {
         var sourceMap = this._sourceMapByURL[completeSourceMapURL];
         if (sourceMap) {
@@ -137,7 +135,7 @@ WebInspector.SASSSourceMapping.prototype = {
         pendingCallbacks = [callback];
         this._pendingSourceMapLoadingCallbacks[completeSourceMapURL] = pendingCallbacks;
 
-        WebInspector.SourceMap.load(completeSourceMapURL, sourceURL, sourceMapLoaded.bind(this));
+        WebInspector.SourceMap.load(completeSourceMapURL, header.sourceURL, sourceMapLoaded.bind(this));
 
         /**
          * @param {?WebInspector.SourceMap} sourceMap
@@ -157,9 +155,9 @@ WebInspector.SASSSourceMapping.prototype = {
             var sources = sourceMap ? sourceMap.sources() : [];
             for (var i = 0; i < sources.length; ++i) {
                 var sassURL = sources[i];
-                if (!this._networkMapping.hasMappingForURL(sassURL)) {
-                    var contentProvider = sourceMap.sourceContentProvider(sassURL, WebInspector.resourceTypes.Stylesheet);
-                    this._networkProject.addFileForURL(sassURL, contentProvider);
+                if (!this._networkMapping.hasMappingForNetworkURL(sassURL)) {
+                    var contentProvider = sourceMap.sourceContentProvider(sassURL, WebInspector.resourceTypes.SourceMapStyleSheet);
+                    this._networkProject.addFileForURL(sassURL, contentProvider, WebInspector.ResourceTreeFrame.fromStyleSheet(header));
                 }
             }
 
@@ -181,7 +179,7 @@ WebInspector.SASSSourceMapping.prototype = {
         var entry = sourceMap.findEntry(rawLocation.lineNumber, rawLocation.columnNumber);
         if (!entry || !entry.sourceURL)
             return null;
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(entry.sourceURL, rawLocation.target());
+        var uiSourceCode = this._networkMapping.uiSourceCodeForStyleURL(entry.sourceURL, rawLocation.header());
         if (!uiSourceCode)
             return null;
         return uiSourceCode.uiLocation(entry.sourceLineNumber, entry.sourceColumnNumber);

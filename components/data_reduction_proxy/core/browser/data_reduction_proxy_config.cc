@@ -4,10 +4,13 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 
+#include <stddef.h>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
@@ -231,7 +234,7 @@ DataReductionProxyConfig::DataReductionProxyConfig(
     : secure_proxy_allowed_(params::ShouldUseSecureProxyByDefault()),
       unreachable_(false),
       enabled_by_user_(false),
-      config_values_(config_values.Pass()),
+      config_values_(std::move(config_values)),
       net_log_(net_log),
       configurator_(configurator),
       event_creator_(event_creator),
@@ -830,6 +833,11 @@ bool DataReductionProxyConfig::ShouldEnableLoFiMode(
   }
 
   return enable_lofi;
+}
+
+bool DataReductionProxyConfig::enabled_by_user_and_reachable() const {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  return enabled_by_user_ && !unreachable_;
 }
 
 bool DataReductionProxyConfig::ShouldEnableLoFiModeInternal(

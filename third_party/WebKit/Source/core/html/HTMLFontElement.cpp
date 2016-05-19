@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLFontElement.h"
 
 #include "core/CSSPropertyNames.h"
@@ -196,4 +195,4 @@ void HTMLFontElement::collectStyleForPresentationAttribute(const QualifiedName& 
     }
 }
 
-}
+} // namespace blink

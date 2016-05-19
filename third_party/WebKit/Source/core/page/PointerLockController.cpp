@@ -22,7 +22,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/page/PointerLockController.h"
 
 #include "core/dom/Element.h"
@@ -52,6 +51,8 @@ void PointerLockController::requestPointerLock(Element* target)
         enqueueEvent(EventTypeNames::pointerlockerror, target);
         return;
     }
+
+    UseCounter::countCrossOriginIframe(target->document(), UseCounter::ElementRequestPointerLockIframe);
 
     if (target->document().isSandboxed(SandboxPointerLock)) {
         // FIXME: This message should be moved off the console once a solution to https://bugs.webkit.org/show_bug.cgi?id=103274 exists.

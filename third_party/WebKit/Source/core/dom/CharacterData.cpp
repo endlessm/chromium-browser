@@ -19,7 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/CharacterData.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -170,7 +169,7 @@ void CharacterData::setDataAndUpdate(const String& newData, unsigned offsetOfRep
         toText(this)->updateTextLayoutObject(offsetOfReplacedData, oldLength, recalcStyleBehavior);
 
     if (source != UpdateFromParser) {
-        if (nodeType() == PROCESSING_INSTRUCTION_NODE)
+        if (getNodeType() == PROCESSING_INSTRUCTION_NODE)
             toProcessingInstruction(this)->didAttributeChanged();
 
         if (document().frame())

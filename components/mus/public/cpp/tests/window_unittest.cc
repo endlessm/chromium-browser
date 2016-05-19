@@ -4,13 +4,17 @@
 
 #include "components/mus/public/cpp/window.h"
 
+#include <limits.h>
+#include <stdint.h>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "components/mus/common/util.h"
 #include "components/mus/public/cpp/lib/window_private.h"
 #include "components/mus/public/cpp/property_type_converters.h"
 #include "components/mus/public/cpp/tests/test_window.h"
-#include "components/mus/public/cpp/util.h"
 #include "components/mus/public/cpp/window_observer.h"
 #include "components/mus/public/cpp/window_property.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -107,12 +111,15 @@ TEST_F(WindowTest, GetChildById) {
 
 TEST_F(WindowTest, DrawnAndVisible) {
   TestWindow w1;
+  EXPECT_FALSE(w1.visible());
+  w1.SetVisible(true);
   EXPECT_TRUE(w1.visible());
   EXPECT_FALSE(w1.IsDrawn());
 
   WindowPrivate(&w1).set_drawn(true);
 
   TestWindow w11;
+  w11.SetVisible(true);
   w1.AddChild(&w11);
   EXPECT_TRUE(w11.visible());
   EXPECT_TRUE(w11.IsDrawn());
@@ -123,8 +130,8 @@ TEST_F(WindowTest, DrawnAndVisible) {
 }
 
 namespace {
-DEFINE_WINDOW_PROPERTY_KEY(int, kIntKey, -2);
-DEFINE_WINDOW_PROPERTY_KEY(const char*, kStringKey, "squeamish");
+MUS_DEFINE_WINDOW_PROPERTY_KEY(int, kIntKey, -2);
+MUS_DEFINE_WINDOW_PROPERTY_KEY(const char*, kStringKey, "squeamish");
 }
 
 TEST_F(WindowTest, Property) {
@@ -172,7 +179,7 @@ class TestProperty {
 
 TestProperty* TestProperty::last_deleted_ = NULL;
 
-DEFINE_OWNED_WINDOW_PROPERTY_KEY(TestProperty, kOwnedKey, NULL);
+MUS_DEFINE_OWNED_WINDOW_PROPERTY_KEY(TestProperty, kOwnedKey, NULL);
 
 }  // namespace
 
@@ -509,11 +516,11 @@ TEST_F(WindowObserverTest, Order) {
     ASSERT_EQ(2U, changes.size());
     EXPECT_EQ(&w11, changes[0].window);
     EXPECT_EQ(&w13, changes[0].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_ABOVE, changes[0].direction);
+    EXPECT_EQ(mojom::OrderDirection::ABOVE, changes[0].direction);
 
     EXPECT_EQ(&w11, changes[1].window);
     EXPECT_EQ(&w13, changes[1].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_ABOVE, changes[1].direction);
+    EXPECT_EQ(mojom::OrderDirection::ABOVE, changes[1].direction);
   }
 
   {
@@ -529,11 +536,11 @@ TEST_F(WindowObserverTest, Order) {
     ASSERT_EQ(2U, changes.size());
     EXPECT_EQ(&w11, changes[0].window);
     EXPECT_EQ(&w12, changes[0].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_BELOW, changes[0].direction);
+    EXPECT_EQ(mojom::OrderDirection::BELOW, changes[0].direction);
 
     EXPECT_EQ(&w11, changes[1].window);
     EXPECT_EQ(&w12, changes[1].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_BELOW, changes[1].direction);
+    EXPECT_EQ(mojom::OrderDirection::BELOW, changes[1].direction);
   }
 
   {
@@ -541,7 +548,7 @@ TEST_F(WindowObserverTest, Order) {
 
     // Move w11 above w12.
     // Resulting order: w12. w11, w13
-    w11.Reorder(&w12, mojom::ORDER_DIRECTION_ABOVE);
+    w11.Reorder(&w12, mojom::OrderDirection::ABOVE);
     EXPECT_EQ(&w12, w1.children().front());
     EXPECT_EQ(&w13, w1.children().back());
 
@@ -549,11 +556,11 @@ TEST_F(WindowObserverTest, Order) {
     ASSERT_EQ(2U, changes.size());
     EXPECT_EQ(&w11, changes[0].window);
     EXPECT_EQ(&w12, changes[0].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_ABOVE, changes[0].direction);
+    EXPECT_EQ(mojom::OrderDirection::ABOVE, changes[0].direction);
 
     EXPECT_EQ(&w11, changes[1].window);
     EXPECT_EQ(&w12, changes[1].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_ABOVE, changes[1].direction);
+    EXPECT_EQ(mojom::OrderDirection::ABOVE, changes[1].direction);
   }
 
   {
@@ -561,7 +568,7 @@ TEST_F(WindowObserverTest, Order) {
 
     // Move w11 below w12.
     // Resulting order: w11, w12, w13
-    w11.Reorder(&w12, mojom::ORDER_DIRECTION_BELOW);
+    w11.Reorder(&w12, mojom::OrderDirection::BELOW);
     EXPECT_EQ(&w11, w1.children().front());
     EXPECT_EQ(&w13, w1.children().back());
 
@@ -569,11 +576,11 @@ TEST_F(WindowObserverTest, Order) {
     ASSERT_EQ(2U, changes.size());
     EXPECT_EQ(&w11, changes[0].window);
     EXPECT_EQ(&w12, changes[0].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_BELOW, changes[0].direction);
+    EXPECT_EQ(mojom::OrderDirection::BELOW, changes[0].direction);
 
     EXPECT_EQ(&w11, changes[1].window);
     EXPECT_EQ(&w12, changes[1].relative_window);
-    EXPECT_EQ(mojom::ORDER_DIRECTION_BELOW, changes[1].direction);
+    EXPECT_EQ(mojom::OrderDirection::BELOW, changes[1].direction);
   }
 }
 
@@ -688,6 +695,8 @@ class VisibilityChangeObserver : public WindowObserver {
 
 TEST_F(WindowObserverTest, SetVisible) {
   TestWindow w1;
+  EXPECT_FALSE(w1.visible());
+  w1.SetVisible(true);
   EXPECT_TRUE(w1.visible());
   {
     // Change wisibility from true to false and make sure we get notifications.
@@ -709,8 +718,10 @@ TEST_F(WindowObserverTest, SetVisible) {
 
 TEST_F(WindowObserverTest, SetVisibleParent) {
   TestWindow parent;
+  parent.SetVisible(true);
   WindowPrivate(&parent).set_id(1);
   TestWindow child;
+  child.SetVisible(true);
   WindowPrivate(&child).set_id(2);
   parent.AddChild(&child);
   EXPECT_TRUE(parent.visible());
@@ -729,8 +740,10 @@ TEST_F(WindowObserverTest, SetVisibleParent) {
 
 TEST_F(WindowObserverTest, SetVisibleChild) {
   TestWindow parent;
+  parent.SetVisible(true);
   WindowPrivate(&parent).set_id(1);
   TestWindow child;
+  child.SetVisible(true);
   WindowPrivate(&child).set_id(2);
   parent.AddChild(&child);
   EXPECT_TRUE(parent.visible());
@@ -972,39 +985,39 @@ TEST_F(WindowTest, TransientWindowsGroupAbove) {
   EXPECT_EQ(w22, parent->children().back());
   EXPECT_EQ("1 11 2 21 211 212 213 22", ChildWindowIDsAsString(parent.get()));
 
-  w11->Reorder(w2.get(), mojom::ORDER_DIRECTION_ABOVE);
+  w11->Reorder(w2.get(), mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 21 211 212 213 22 1 11", ChildWindowIDsAsString(parent.get()));
 
-  w21->Reorder(w1.get(), mojom::ORDER_DIRECTION_ABOVE);
+  w21->Reorder(w1.get(), mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w22, parent->children().back());
   EXPECT_EQ("1 11 2 21 211 212 213 22", ChildWindowIDsAsString(parent.get()));
 
-  w21->Reorder(w22, mojom::ORDER_DIRECTION_ABOVE);
+  w21->Reorder(w22, mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w213, parent->children().back());
   EXPECT_EQ("1 11 2 22 21 211 212 213", ChildWindowIDsAsString(parent.get()));
 
-  w11->Reorder(w21, mojom::ORDER_DIRECTION_ABOVE);
+  w11->Reorder(w21, mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 211 212 213 1 11", ChildWindowIDsAsString(parent.get()));
 
-  w213->Reorder(w21, mojom::ORDER_DIRECTION_ABOVE);
+  w213->Reorder(w21, mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 213 211 212 1 11", ChildWindowIDsAsString(parent.get()));
 
   // No change when stacking a transient parent above its transient child.
-  w21->Reorder(w211, mojom::ORDER_DIRECTION_ABOVE);
+  w21->Reorder(w211, mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 213 211 212 1 11", ChildWindowIDsAsString(parent.get()));
 
   // This tests that the order in children_ array rather than in
   // transient_children_ array is used when reinserting transient children.
   // If transient_children_ array was used '22' would be following '21'.
-  w2->Reorder(w1.get(), mojom::ORDER_DIRECTION_ABOVE);
+  w2->Reorder(w1.get(), mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w212, parent->children().back());
   EXPECT_EQ("1 11 2 22 21 213 211 212", ChildWindowIDsAsString(parent.get()));
 
-  w11->Reorder(w213, mojom::ORDER_DIRECTION_ABOVE);
+  w11->Reorder(w213, mojom::OrderDirection::ABOVE);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 213 211 212 1 11", ChildWindowIDsAsString(parent.get()));
 }
@@ -1050,36 +1063,36 @@ TEST_F(WindowTest, TransientWindowsGroupBelow) {
   EXPECT_EQ(w22, parent->children().back());
   EXPECT_EQ("1 11 2 21 211 212 213 22", ChildWindowIDsAsString(parent.get()));
 
-  w21->Reorder(w1.get(), mojom::ORDER_DIRECTION_BELOW);
+  w21->Reorder(w1.get(), mojom::OrderDirection::BELOW);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 21 211 212 213 22 1 11", ChildWindowIDsAsString(parent.get()));
 
-  w11->Reorder(w2.get(), mojom::ORDER_DIRECTION_BELOW);
+  w11->Reorder(w2.get(), mojom::OrderDirection::BELOW);
   EXPECT_EQ(w22, parent->children().back());
   EXPECT_EQ("1 11 2 21 211 212 213 22", ChildWindowIDsAsString(parent.get()));
 
-  w22->Reorder(w21, mojom::ORDER_DIRECTION_BELOW);
+  w22->Reorder(w21, mojom::OrderDirection::BELOW);
   EXPECT_EQ(w213, parent->children().back());
   EXPECT_EQ("1 11 2 22 21 211 212 213", ChildWindowIDsAsString(parent.get()));
 
-  w21->Reorder(w11, mojom::ORDER_DIRECTION_BELOW);
+  w21->Reorder(w11, mojom::OrderDirection::BELOW);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 211 212 213 1 11", ChildWindowIDsAsString(parent.get()));
 
-  w213->Reorder(w211, mojom::ORDER_DIRECTION_BELOW);
+  w213->Reorder(w211, mojom::OrderDirection::BELOW);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 213 211 212 1 11", ChildWindowIDsAsString(parent.get()));
 
   // No change when stacking a transient parent below its transient child.
-  w21->Reorder(w211, mojom::ORDER_DIRECTION_BELOW);
+  w21->Reorder(w211, mojom::OrderDirection::BELOW);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 213 211 212 1 11", ChildWindowIDsAsString(parent.get()));
 
-  w1->Reorder(w2.get(), mojom::ORDER_DIRECTION_BELOW);
+  w1->Reorder(w2.get(), mojom::OrderDirection::BELOW);
   EXPECT_EQ(w212, parent->children().back());
   EXPECT_EQ("1 11 2 22 21 213 211 212", ChildWindowIDsAsString(parent.get()));
 
-  w213->Reorder(w11, mojom::ORDER_DIRECTION_BELOW);
+  w213->Reorder(w11, mojom::OrderDirection::BELOW);
   EXPECT_EQ(w11, parent->children().back());
   EXPECT_EQ("2 22 21 213 211 212 1 11", ChildWindowIDsAsString(parent.get()));
 }

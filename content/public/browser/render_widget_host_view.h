@@ -5,14 +5,14 @@
 #ifndef CONTENT_PUBLIC_BROWSER_RENDER_WIDGET_HOST_VIEW_H_
 #define CONTENT_PUBLIC_BROWSER_RENDER_WIDGET_HOST_VIEW_H_
 
-#include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
+#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkRegion.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "ui/gfx/native_widget_types.h"
 
 class GURL;
@@ -64,6 +64,19 @@ class CONTENT_EXPORT RenderWidgetHostView {
 
   // Retrieves the last known scroll position.
   virtual gfx::Vector2dF GetLastScrollOffset() const = 0;
+
+  // Coordinate points received from a renderer process need to be transformed
+  // to the top-level frame's coordinate space. For coordinates received from
+  // the top-level frame's renderer this is a no-op as they are already
+  // properly transformed; however, coordinates received from an out-of-process
+  // iframe renderer process require transformation.
+  virtual gfx::Point TransformPointToRootCoordSpace(
+      const gfx::Point& point) = 0;
+
+  // A floating point variant of the above. PointF values will be snapped to
+  // integral points before transformation.
+  virtual gfx::PointF TransformPointToRootCoordSpaceF(
+      const gfx::PointF& point) = 0;
 
   // Retrieves the native view used to contain plugins and identify the
   // renderer in IPC messages.

@@ -7,6 +7,8 @@
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
 #include <mach/shared_region.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <sys/sysctl.h>
 
 #include "base/containers/hash_tables.h"
@@ -81,6 +83,9 @@ SystemMemoryInfoKB::SystemMemoryInfoKB() {
   total = 0;
   free = 0;
 }
+
+SystemMemoryInfoKB::SystemMemoryInfoKB(const SystemMemoryInfoKB& other) =
+    default;
 
 // Getting a mach task from a pid for another process requires permissions in
 // general, so there doesn't really seem to be a way to do these (and spinning
@@ -284,7 +289,7 @@ double ProcessMetrics::GetCPUUsage() {
   timeradd(&system_timeval, &task_timeval, &task_timeval);
 
   TimeTicks time = TimeTicks::Now();
-  int64 task_time = TimeValToMicroseconds(task_timeval);
+  int64_t task_time = TimeValToMicroseconds(task_timeval);
 
   if (last_system_time_ == 0) {
     // First call, just set the last values.
@@ -293,8 +298,8 @@ double ProcessMetrics::GetCPUUsage() {
     return 0;
   }
 
-  int64 system_time_delta = task_time - last_system_time_;
-  int64 time_delta = (time - last_cpu_time_).InMicroseconds();
+  int64_t system_time_delta = task_time - last_system_time_;
+  int64_t time_delta = (time - last_cpu_time_).InMicroseconds();
   DCHECK_NE(0U, time_delta);
   if (time_delta == 0)
     return 0;

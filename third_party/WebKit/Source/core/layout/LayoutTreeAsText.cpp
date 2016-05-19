@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/LayoutTreeAsText.h"
 
 #include "core/HTMLNames.h"
@@ -107,7 +106,7 @@ static String getTagName(Node* n)
 {
     if (n->isDocumentNode())
         return "";
-    if (n->nodeType() == Node::COMMENT_NODE)
+    if (n->getNodeType() == Node::COMMENT_NODE)
         return "COMMENT";
     return n->nodeName();
 }
@@ -216,8 +215,8 @@ void LayoutTreeAsText::writeLayoutObject(TextStream& ts, const LayoutObject& o, 
         r.move(0, -toLayoutTableCell(o.containingBlock())->intrinsicPaddingBefore());
 
     if (o.isLayoutView()) {
-        r.setWidth(toLayoutView(o).viewWidth(IncludeScrollbars));
-        r.setHeight(toLayoutView(o).viewHeight(IncludeScrollbars));
+        r.setWidth(LayoutUnit(toLayoutView(o).viewWidth(IncludeScrollbars)));
+        r.setHeight(LayoutUnit(toLayoutView(o).viewHeight(IncludeScrollbars)));
     }
 
     ts << " " << r;
@@ -306,7 +305,7 @@ void LayoutTreeAsText::writeLayoutObject(TextStream& ts, const LayoutObject& o, 
 
     if (o.isTableCell()) {
         const LayoutTableCell& c = toLayoutTableCell(o);
-        ts << " [r=" << c.rowIndex() << " c=" << c.col() << " rs=" << c.rowSpan() << " cs=" << c.colSpan() << "]";
+        ts << " [r=" << c.rowIndex() << " c=" << c.absoluteColumnIndex() << " rs=" << c.rowSpan() << " cs=" << c.colSpan() << "]";
     }
 
     if (o.isDetailsMarker()) {
@@ -410,7 +409,7 @@ static void writeInlineBox(TextStream& ts, const InlineBox& box, int indent)
 {
     writeIndent(ts, indent);
     ts << "+ ";
-    ts << box.boxName() << " {" << box.layoutObject().debugName() << "}"
+    ts << box.boxName() << " {" << box.getLineLayoutItem().debugName() << "}"
         << " pos=(" << box.x() << "," << box.y() << ")"
         << " size=(" << box.width() << "," << box.height() << ")"
         << " baseline=" << box.baselinePosition(AlphabeticBaseline)

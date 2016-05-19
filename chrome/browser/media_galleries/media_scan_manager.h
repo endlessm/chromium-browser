@@ -9,8 +9,8 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
@@ -69,6 +69,7 @@ class MediaScanManager : public extensions::ExtensionRegistryObserver {
  private:
   struct ScanObservers {
     ScanObservers();
+    ScanObservers(const ScanObservers& other);
     ~ScanObservers();
     MediaScanManagerObserver* observer;
     std::set<std::string /*extension id*/> scanning_extensions;

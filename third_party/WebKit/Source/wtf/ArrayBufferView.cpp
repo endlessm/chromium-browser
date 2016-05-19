@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "ArrayBufferView.h"
 
 #include "ArrayBuffer.h"
@@ -92,4 +91,4 @@ const char* ArrayBufferView::typeName()
     return "Unknown";
 }
 
-}
+} // namespace WTF

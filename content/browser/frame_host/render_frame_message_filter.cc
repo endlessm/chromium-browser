@@ -5,6 +5,10 @@
 #include "content/browser/frame_host/render_frame_message_filter.h"
 
 #include "base/command_line.h"
+#include "base/macros.h"
+#include "base/metrics/field_trial.h"
+#include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
@@ -17,6 +21,7 @@
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/GLES2/gl2extchromium.h"
+#include "net/cookies/cookie_options.h"
 #include "net/cookies/cookie_store.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -41,11 +46,14 @@ namespace {
 const int kPluginsRefreshThresholdInSeconds = 3;
 #endif
 
+const char kEnforceStrictSecureExperiment[] = "StrictSecureCookies";
+
 void CreateChildFrameOnUI(
     int process_id,
     int parent_routing_id,
     blink::WebTreeScopeType scope,
     const std::string& frame_name,
+    const std::string& frame_unique_name,
     blink::WebSandboxFlags sandbox_flags,
     const blink::WebFrameOwnerProperties& frame_owner_properties,
     int new_routing_id) {
@@ -56,7 +64,7 @@ void CreateChildFrameOnUI(
   // processing a subframe creation message.
   if (render_frame_host) {
     render_frame_host->OnCreateChildFrame(new_routing_id, scope, frame_name,
-                                          sandbox_flags,
+                                          frame_unique_name, sandbox_flags,
                                           frame_owner_properties);
   }
 }
@@ -295,6 +303,8 @@ bool RenderFrameMessageFilter::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(FrameHostMsg_CookiesEnabled, OnCookiesEnabled)
     IPC_MESSAGE_HANDLER(FrameHostMsg_Are3DAPIsBlocked, OnAre3DAPIsBlocked)
     IPC_MESSAGE_HANDLER(FrameHostMsg_DidLose3DContext, OnDidLose3DContext)
+    IPC_MESSAGE_HANDLER_GENERIC(FrameHostMsg_RenderProcessGone,
+                                OnRenderProcessGone())
 #if defined(ENABLE_PLUGINS)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(FrameHostMsg_GetPlugins, OnGetPlugins)
     IPC_MESSAGE_HANDLER(FrameHostMsg_GetPluginInfo, OnGetPluginInfo)
@@ -318,18 +328,15 @@ bool RenderFrameMessageFilter::OnMessageReceived(const IPC::Message& message) {
 }
 
 void RenderFrameMessageFilter::OnCreateChildFrame(
-    int parent_routing_id,
-    blink::WebTreeScopeType scope,
-    const std::string& frame_name,
-    blink::WebSandboxFlags sandbox_flags,
-    const blink::WebFrameOwnerProperties& frame_owner_properties,
+    const FrameHostMsg_CreateChildFrame_Params& params,
     int* new_routing_id) {
   *new_routing_id = render_widget_helper_->GetNextRoutingID();
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      base::Bind(&CreateChildFrameOnUI, render_process_id_, parent_routing_id,
-                 scope, frame_name, sandbox_flags, frame_owner_properties,
-                 *new_routing_id));
+      base::Bind(&CreateChildFrameOnUI, render_process_id_,
+                 params.parent_routing_id, params.scope, params.frame_name,
+                 params.frame_unique_name, params.sandbox_flags,
+                 params.frame_owner_properties, *new_routing_id));
 }
 
 void RenderFrameMessageFilter::OnSetCookie(int render_frame_id,
@@ -345,14 +352,20 @@ void RenderFrameMessageFilter::OnSetCookie(int render_frame_id,
   }
 
   net::CookieOptions options;
+  bool experimental_web_platform_features_enabled =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableExperimentalWebPlatformFeatures);
+  const std::string enforce_strict_secure_group =
+      base::FieldTrialList::FindFullName(kEnforceStrictSecureExperiment);
+  if (experimental_web_platform_features_enabled ||
+      base::StartsWith(enforce_strict_secure_group, "Enabled",
+                       base::CompareCase::INSENSITIVE_ASCII)) {
+    options.set_enforce_strict_secure();
+  }
   if (GetContentClient()->browser()->AllowSetCookie(
           url, first_party_for_cookies, cookie, resource_context_,
-          render_process_id_, render_frame_id, &options)) {
+          render_process_id_, render_frame_id, options)) {
     net::URLRequestContext* context = GetRequestContextForURL(url);
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kEnableExperimentalWebPlatformFeatures)) {
-      options.set_enforce_prefixes();
-    }
     // Pass a null callback since we don't care about when the 'set' completes.
     context->cookie_store()->SetCookieWithOptionsAsync(
         url, cookie, options, net::CookieStore::SetCookiesCallback());
@@ -379,10 +392,13 @@ void RenderFrameMessageFilter::OnGetCookies(int render_frame_id,
   base::debug::Alias(url_buf);
 
   net::URLRequestContext* context = GetRequestContextForURL(url);
-  context->cookie_store()->GetAllCookiesForURLAsync(
-      url, base::Bind(&RenderFrameMessageFilter::CheckPolicyForCookies, this,
-                      render_frame_id, url, first_party_for_cookies,
-                      reply_msg));
+
+  net::CookieOptions options;
+  options.set_include_same_site();
+  context->cookie_store()->GetCookieListWithOptionsAsync(
+      url, options,
+      base::Bind(&RenderFrameMessageFilter::CheckPolicyForCookies, this,
+                 render_frame_id, url, first_party_for_cookies, reply_msg));
 }
 
 void RenderFrameMessageFilter::OnCookiesEnabled(
@@ -407,14 +423,12 @@ void RenderFrameMessageFilter::CheckPolicyForCookies(
   net::URLRequestContext* context = GetRequestContextForURL(url);
   // Check the policy for get cookies, and pass cookie_list to the
   // TabSpecificContentSetting for logging purpose.
-  if (GetContentClient()->browser()->AllowGetCookie(
+  if (context &&
+      GetContentClient()->browser()->AllowGetCookie(
           url, first_party_for_cookies, cookie_list, resource_context_,
           render_process_id_, render_frame_id)) {
-    // Gets the cookies from cookie store if allowed.
-    context->cookie_store()->GetCookiesWithOptionsAsync(
-        url, net::CookieOptions(),
-        base::Bind(&RenderFrameMessageFilter::SendGetCookiesResponse,
-                   this, reply_msg));
+    SendGetCookiesResponse(reply_msg,
+                           net::CookieStore::BuildCookieLine(cookie_list));
   } else {
     SendGetCookiesResponse(reply_msg, std::string());
   }
@@ -456,6 +470,14 @@ void RenderFrameMessageFilter::OnDidLose3DContext(
       top_origin_url, guilt);
 }
 
+void RenderFrameMessageFilter::OnRenderProcessGone() {
+  // FrameHostMessage_RenderProcessGone is a synthetic IPC message used by
+  // RenderProcessHostImpl to clean things up after a crash (it's injected
+  // downstream of this filter). Allowing it to proceed would enable a renderer
+  // to fake its own death; instead, actually kill the renderer.
+  bad_message::ReceivedBadMessage(
+      this, bad_message::RFMF_RENDERER_FAKED_ITS_OWN_DEATH);
+}
 
 #if defined(ENABLE_PLUGINS)
 
@@ -558,7 +580,7 @@ void RenderFrameMessageFilter::OnOpenChannelToPepperPlugin(
 
 void RenderFrameMessageFilter::OnDidCreateOutOfProcessPepperInstance(
     int plugin_child_id,
-    int32 pp_instance,
+    int32_t pp_instance,
     PepperRendererInstanceData instance_data,
     bool is_external) {
   // It's important that we supply the render process ID ourselves based on the
@@ -584,7 +606,7 @@ void RenderFrameMessageFilter::OnDidCreateOutOfProcessPepperInstance(
 
 void RenderFrameMessageFilter::OnDidDeleteOutOfProcessPepperInstance(
     int plugin_child_id,
-    int32 pp_instance,
+    int32_t pp_instance,
     bool is_external) {
   if (is_external) {
     // We provide the BrowserPpapiHost to the embedder, so it's safe to cast.
@@ -610,7 +632,7 @@ void RenderFrameMessageFilter::OnOpenChannelToPpapiBroker(
 
 void RenderFrameMessageFilter::OnPluginInstanceThrottleStateChange(
     int plugin_child_id,
-    int32 pp_instance,
+    int32_t pp_instance,
     bool is_throttled) {
   // Feature is only implemented for non-external Plugins.
   PpapiPluginProcessHost::OnPluginInstanceThrottleStateChange(

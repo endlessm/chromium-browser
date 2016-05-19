@@ -56,15 +56,31 @@ public:
     void setDefersLoading(bool) override;
     void setLoadingTaskRunner(blink::WebTaskRunner*) override;
 
+    // Called by |m_observer| to handle destruction of the Document associated
+    // with the frame given to the constructor.
+    void documentDestroyed();
+
+    // Called by ClientAdapter to handle completion of loading.
+    void clientAdapterDone();
+
 private:
-
     class ClientAdapter;
+    class Observer;
 
-    RefPtrWillBePersistent<WebLocalFrameImpl> m_frameImpl;
-    WebURLLoaderOptions m_options;
+    void cancelLoader();
+    void disposeObserver();
+
     WebURLLoaderClient* m_client;
+    WebURLLoaderOptions m_options;
+
+    // An adapter which converts the DocumentThreadableLoaderClient method
+    // calls into the WebURLLoaderClient method calls.
     OwnPtr<ClientAdapter> m_clientAdapter;
     RefPtr<DocumentThreadableLoader> m_loader;
+
+    // A ContextLifecycleObserver for cancelling |m_loader| when the Document
+    // is detached.
+    Persistent<Observer> m_observer;
 };
 
 } // namespace blink

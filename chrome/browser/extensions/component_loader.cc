@@ -15,6 +15,7 @@
 #include "base/profiler/scoped_profile.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/component_extensions_whitelist/whitelist.h"
 #include "chrome/browser/extensions/data_deleter.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -27,6 +28,8 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/features.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/crx_file/id_util.h"
 #include "components/signin/core/browser/signin_manager.h"
@@ -64,10 +67,6 @@
 #include "content/public/browser/storage_partition.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "storage/browser/fileapi/file_system_context.h"
-#endif
-
-#if defined(ENABLE_APP_LIST)
-#include "chrome/grit/chromium_strings.h"
 #endif
 
 #if defined(ENABLE_APP_LIST) && defined(OS_CHROMEOS)
@@ -110,7 +109,7 @@ LoadManifestOnFileThread(
   bool localized = extension_l10n_util::LocalizeExtension(
       root_directory, manifest.get(), &error);
   CHECK(localized) << error;
-  return manifest.Pass();
+  return manifest;
 }
 
 bool IsNormalSession() {
@@ -385,7 +384,7 @@ void ComponentLoader::AddNetworkSpeechSynthesisExtension() {
 }
 
 void ComponentLoader::AddGoogleNowExtension() {
-#if defined(ENABLE_GOOGLE_NOW)
+#if BUILDFLAG(ENABLE_GOOGLE_NOW)
   const char kEnablePrefix[] = "Enable";
   const char kFieldTrialName[] = "GoogleNow";
   std::string enable_prefix(kEnablePrefix);
@@ -421,7 +420,7 @@ void ComponentLoader::AddGoogleNowExtension() {
   } else {
     DeleteData(google_now_manifest_id, root_directory);
   }
-#endif  // defined(ENABLE_GOOGLE_NOW)
+#endif  // BUILDFLAG(ENABLE_GOOGLE_NOW)
 }
 
 #if defined(OS_CHROMEOS)
@@ -578,6 +577,9 @@ void ComponentLoader::AddDefaultComponentExtensions(
 
 void ComponentLoader::AddDefaultComponentExtensionsForKioskMode(
     bool skip_session_components) {
+  // Do not add component extensions that have background pages here -- add them
+  // to AddDefaultComponentExtensionsWithBackgroundPagesForKioskMode.
+
   // No component extension for kiosk app launch splash screen.
   if (skip_session_components)
     return;
@@ -587,6 +589,8 @@ void ComponentLoader::AddDefaultComponentExtensionsForKioskMode(
 
   // Add virtual keyboard.
   AddKeyboardApp();
+
+  AddDefaultComponentExtensionsWithBackgroundPagesForKioskMode();
 
 #if defined(ENABLE_PLUGINS)
   Add(pdf_extension_util::GetManifest(),
@@ -670,6 +674,9 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
         base::FilePath(extension_misc::kConnectivityDiagnosticsPath));
     Add(IDR_CONNECTIVITY_DIAGNOSTICS_LAUNCHER_MANIFEST,
         base::FilePath(extension_misc::kConnectivityDiagnosticsLauncherPath));
+
+    Add(IDR_ARC_SUPPORT_MANIFEST,
+        base::FilePath(FILE_PATH_LITERAL("chromeos/arc_support")));
   }
 
   // Load ChromeVox extension now if spoken feedback is enabled.
@@ -688,6 +695,23 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
 
   Add(IDR_CRYPTOTOKEN_MANIFEST,
       base::FilePath(FILE_PATH_LITERAL("cryptotoken")));
+}
+
+void ComponentLoader::
+    AddDefaultComponentExtensionsWithBackgroundPagesForKioskMode() {
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
+
+  // Component extensions with background pages are not enabled during tests
+  // because they generate a lot of background behavior that can interfere.
+  if (!enable_background_extensions_during_testing &&
+      (command_line->HasSwitch(switches::kTestType) ||
+       command_line->HasSwitch(
+           switches::kDisableComponentExtensionsWithBackgroundPages))) {
+    return;
+  }
+
+  AddHangoutServicesExtension();
 }
 
 void ComponentLoader::DeleteData(int manifest_resource_id,

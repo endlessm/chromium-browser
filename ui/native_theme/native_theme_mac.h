@@ -5,13 +5,14 @@
 #ifndef UI_NATIVE_THEME_NATIVE_THEME_MAC_H_
 #define UI_NATIVE_THEME_NATIVE_THEME_MAC_H_
 
+#include "base/macros.h"
 #include "ui/native_theme/native_theme_base.h"
 #include "ui/native_theme/native_theme_export.h"
 
 namespace ui {
 
 // Mac implementation of native theme support.
-class NativeThemeMac : public NativeThemeBase {
+class NATIVE_THEME_EXPORT NativeThemeMac : public NativeThemeBase {
  public:
   static NativeThemeMac* instance();
 
@@ -19,18 +20,6 @@ class NativeThemeMac : public NativeThemeBase {
   SkColor GetSystemColor(ColorId color_id) const override;
 
   // Overridden from NativeThemeBase:
-  void PaintScrollbarTrack(SkCanvas* canvas,
-                           Part part,
-                           State state,
-                           const ScrollbarTrackExtraParams& extra_params,
-                           const gfx::Rect& rect) const override;
-  void PaintScrollbarThumb(SkCanvas* sk_canvas,
-                           Part part,
-                           State state,
-                           const gfx::Rect& rect) const override;
-  void PaintScrollbarCorner(SkCanvas* canvas,
-                            State state,
-                            const gfx::Rect& rect) const override;
   void PaintMenuPopupBackground(
       SkCanvas* canvas,
       const gfx::Size& size,
@@ -39,7 +28,7 @@ class NativeThemeMac : public NativeThemeBase {
       SkCanvas* canvas,
       State state,
       const gfx::Rect& rect,
-      const MenuListExtraParams& menu_list) const override;
+      const MenuItemExtraParams& menu_item) const override;
 
  private:
   NativeThemeMac();

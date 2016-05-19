@@ -4,15 +4,19 @@
 
 #include "content/public/test/browser_test_base.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/debug/stack_trace.h"
 #include "base/i18n/icu_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/sys_info.h"
 #include "base/test/test_timeouts.h"
+#include "build/build_config.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/public/app/content_main.h"
@@ -23,7 +27,7 @@
 #include "content/public/test/test_utils.h"
 #include "content/test/content_browser_sanity_checker.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
+#include "net/base/network_interfaces.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/compositor/compositor_switches.h"
@@ -144,11 +148,8 @@ BrowserTestBase::BrowserTestBase()
   base::mac::SetOverrideAmIBundled(true);
 #endif
 
-#if defined(USE_AURA)
-#if defined(USE_X11)
+#if defined(USE_AURA) && defined(USE_X11)
   aura::test::SetUseOverrideRedirectWindowByDefault(true);
-#endif
-  aura::test::InitializeAuraEventGeneratorDelegate();
 #endif
 
 #if defined(OS_POSIX)
@@ -199,6 +200,11 @@ void BrowserTestBase::SetUp() {
   if (use_software_compositing_)
     command_line->AppendSwitch(switches::kDisableGpu);
 
+  // The layout of windows on screen is unpredictable during tests, so disable
+  // occlusion when running browser tests.
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kDisableBackgroundingOccludedWindowsForTesting);
+
 #if defined(USE_AURA)
   // Most tests do not need pixel output, so we don't produce any. The command
   // line can override this behaviour to allow for visual debugging.
@@ -215,6 +221,8 @@ void BrowserTestBase::SetUp() {
   // us to, or it's requested on the command line.
   if (!enable_pixel_output_ && !use_software_compositing_)
     command_line->AppendSwitch(switches::kDisableGLDrawingForTests);
+
+  aura::test::InitializeAuraEventGeneratorDelegate();
 #endif
 
   bool use_osmesa = true;

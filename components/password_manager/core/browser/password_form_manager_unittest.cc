@@ -2,14 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "components/password_manager/core/browser/password_form_manager.h"
+
+#include <map>
+#include <utility>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_manager.h"
+#include "components/autofill/core/browser/proto/server.pb.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/browser/test_autofill_driver.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
@@ -17,7 +22,6 @@
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/credentials_filter.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
-#include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_driver.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
@@ -27,8 +31,13 @@
 #include "components/password_manager/core/browser/stub_password_manager_client.h"
 #include "components/password_manager/core/browser/stub_password_manager_driver.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 using autofill::PasswordForm;
 using base::ASCIIToUTF16;
@@ -52,16 +61,17 @@ ACTION_P4(InvokeConsumer, form1, form2, form3, form4) {
   result.push_back(make_scoped_ptr(new PasswordForm(form2)));
   result.push_back(make_scoped_ptr(new PasswordForm(form3)));
   result.push_back(make_scoped_ptr(new PasswordForm(form4)));
-  arg0->OnGetPasswordStoreResults(result.Pass());
+  arg0->OnGetPasswordStoreResults(std::move(result));
 }
 
 MATCHER_P(CheckUsername, username_value, "Username incorrect") {
   return arg.username_value == username_value;
 }
 
-MATCHER_P2(CheckUploadFormStructure,
+MATCHER_P3(CheckUploadFormStructure,
            form_signature,
            expected_types,
+           expected_generation_types,
            "Upload form structure is incorrect") {
   if (form_signature != arg.FormSignature()) {
     // An unexpected form is uploaded.
@@ -74,15 +84,35 @@ MATCHER_P2(CheckUploadFormStructure,
         return false;
       }
     } else {
-      if (field->possible_types().size() != 1) {
-        // Currently we expect only one type per field.
+      if (field->possible_types().size() > 1) {
+        // Currently we expect not more than 1 type per field.
         return false;
       }
-      if (expected_types.find(field->name)->second !=
-          *field->possible_types().begin()) {
-        // An unexpected field type is found.
-        return false;
+
+      if (field->possible_types().empty()) {
+        if (expected_types.find(field->name) != expected_types.end())
+          // A vote is expected but not found.
+          return false;
+      } else {
+        if (expected_types.find(field->name)->second !=
+            *field->possible_types().begin()) {
+          // An unexpected field type is found.
+          return false;
+        }
       }
+    }
+
+    if (expected_generation_types.find(field->name) ==
+        expected_generation_types.end()) {
+      if (field->generation_type() !=
+          autofill::AutofillUploadContents::Field::NO_GENERATION)
+        // Unexpected generation event is found.
+        return false;
+    } else {
+      if (expected_generation_types.find(field->name)->second !=
+          field->generation_type())
+        // Unexpected generation event is found.
+        return false;
     }
   }
   return true;
@@ -96,15 +126,15 @@ class MockAutofillDownloadManager : public autofill::AutofillDownloadManager {
  public:
   MockAutofillDownloadManager(
       autofill::AutofillDriver* driver,
-      PrefService* pref_service,
       autofill::AutofillDownloadManager::Observer* observer)
-      : AutofillDownloadManager(driver, pref_service, observer) {}
+      : AutofillDownloadManager(driver, observer) {}
 
-  MOCK_METHOD4(StartUploadRequest,
+  MOCK_METHOD5(StartUploadRequest,
                bool(const autofill::FormStructure&,
                     bool,
                     const autofill::ServerFieldTypeSet&,
-                    const std::string&));
+                    const std::string&,
+                    bool));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockAutofillDownloadManager);
@@ -134,14 +164,9 @@ class MockPasswordManagerDriver : public StubPasswordManagerDriver {
     scoped_ptr<TestingPrefServiceSimple> prefs(new TestingPrefServiceSimple());
     prefs->registry()->RegisterBooleanPref(autofill::prefs::kAutofillEnabled,
                                            true);
-    prefs->registry()->RegisterDoublePref(
-        autofill::prefs::kAutofillPositiveUploadRate, 1);
-    prefs->registry()->RegisterDoublePref(
-        autofill::prefs::kAutofillNegativeUploadRate, 1);
-    test_autofill_client_.SetPrefs(prefs.Pass());
+    test_autofill_client_.SetPrefs(std::move(prefs));
     mock_autofill_download_manager_ = new MockAutofillDownloadManager(
-        &test_autofill_driver_, test_autofill_client_.GetPrefs(),
-        &mock_autofill_manager_);
+        &test_autofill_driver_, &mock_autofill_manager_);
     // AutofillManager takes ownership of |mock_autofill_download_manager_|.
     mock_autofill_manager_.SetDownloadManager(mock_autofill_download_manager_);
   }
@@ -181,7 +206,7 @@ class MockStoreResultFilter : public CredentialsFilter {
   ScopedVector<autofill::PasswordForm> FilterResults(
       ScopedVector<autofill::PasswordForm> results) const override {
     FilterResultsPtr(&results);
-    return results.Pass();
+    return results;
   }
 };
 
@@ -311,17 +336,15 @@ class PasswordFormManagerTest : public testing::Test {
 
   void TearDown() override {
     if (mock_store_.get())
-      mock_store_->Shutdown();
+      mock_store_->ShutdownOnUIThread();
   }
 
   MockPasswordStore* mock_store() const { return mock_store_.get(); }
 
   void SimulateMatchingPhase(PasswordFormManager* p,
                              ResultOfSimulatedMatchingMask result) {
-    const PasswordStore::AuthorizationPromptPolicy auth_policy =
-        PasswordStore::DISALLOW_PROMPT;
-    EXPECT_CALL(*mock_store(), GetLogins(p->observed_form(), auth_policy, p));
-    p->FetchDataFromPasswordStore(auth_policy);
+    EXPECT_CALL(*mock_store(), GetLogins(p->observed_form(), p));
+    p->FetchDataFromPasswordStore();
     if (result == RESULT_NO_MATCH) {
       p->OnGetPasswordStoreResults(ScopedVector<PasswordForm>());
       return;
@@ -334,7 +357,7 @@ class PasswordFormManagerTest : public testing::Test {
     if (result & RESULT_PSL_MATCH) {
       result_form.push_back(new PasswordForm(psl_saved_match_));
     }
-    p->OnGetPasswordStoreResults(result_form.Pass());
+    p->OnGetPasswordStoreResults(std::move(result_form));
   }
 
   // Save saved_match() for observed_form() where |observed_form_data|,
@@ -370,7 +393,7 @@ class PasswordFormManagerTest : public testing::Test {
             : base::string16();
 
     form_manager.SimulateFetchMatchingLoginsFromPasswordStore();
-    form_manager.OnGetPasswordStoreResults(result.Pass());
+    form_manager.OnGetPasswordStoreResults(std::move(result));
     std::string expected_login_signature;
     autofill::FormStructure observed_structure(observed_form_data);
     autofill::FormStructure pending_structure(saved_match()->form_data);
@@ -394,16 +417,22 @@ class PasswordFormManagerTest : public testing::Test {
       expected_types[saved_match()->password_element] =
           autofill::NOT_ACCOUNT_CREATION_PASSWORD;
     }
+
+    std::map<base::string16,
+             autofill::AutofillUploadContents::Field::PasswordGenerationType>
+        expected_generation_types;
+
     if (field_type) {
       EXPECT_CALL(
           *client()->mock_driver()->mock_autofill_download_manager(),
-          StartUploadRequest(
-              CheckUploadFormStructure(pending_structure.FormSignature(),
-                                       expected_types),
-              false, expected_available_field_types, expected_login_signature));
+          StartUploadRequest(CheckUploadFormStructure(
+                                 pending_structure.FormSignature(),
+                                 expected_types, expected_generation_types),
+                             false, expected_available_field_types,
+                             expected_login_signature, true));
     } else {
       EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
-                  StartUploadRequest(_, _, _, _))
+                  StartUploadRequest(_, _, _, _, _))
           .Times(0);
     }
     form_manager.ProvisionallySave(
@@ -468,16 +497,21 @@ class PasswordFormManagerTest : public testing::Test {
     std::string observed_form_signature =
         autofill::FormStructure(observed_form()->form_data).FormSignature();
 
+    std::map<base::string16,
+             autofill::AutofillUploadContents::Field::PasswordGenerationType>
+        expected_generation_types;
+
     std::string expected_login_signature;
     if (field_type == autofill::NEW_PASSWORD) {
       autofill::FormStructure pending_structure(saved_match()->form_data);
       expected_login_signature = pending_structure.FormSignature();
     }
-    EXPECT_CALL(
-        *client()->mock_driver()->mock_autofill_download_manager(),
-        StartUploadRequest(
-            CheckUploadFormStructure(observed_form_signature, expected_types),
-            false, expected_available_field_types, expected_login_signature));
+    EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+                StartUploadRequest(CheckUploadFormStructure(
+                                       observed_form_signature, expected_types,
+                                       expected_generation_types),
+                                   false, expected_available_field_types,
+                                   expected_login_signature, true));
 
     switch (field_type) {
       case autofill::NEW_PASSWORD:
@@ -492,6 +526,94 @@ class PasswordFormManagerTest : public testing::Test {
       default:
         NOTREACHED();
     }
+  }
+
+  // The user types username and generates password on SignUp or change password
+  // form. The password generation might be triggered automatically or manually.
+  // This function checks that correct vote is uploaded on server.
+  void GeneratedVoteUploadTest(bool is_manual_generation,
+                               bool is_change_password_form) {
+    SCOPED_TRACE(testing::Message()
+                 << "is_manual_generation=" << is_manual_generation
+                 << " is_change_password_form=" << is_change_password_form);
+    PasswordForm form(*observed_form());
+    form.form_data = saved_match()->form_data;
+
+    if (is_change_password_form) {
+      // Turn |form| to a change password form.
+      form.new_password_element = ASCIIToUTF16("NewPasswd");
+
+      autofill::FormFieldData field;
+      field.label = ASCIIToUTF16("password");
+      field.name = ASCIIToUTF16("NewPasswd");
+      field.form_control_type = "password";
+      form.form_data.fields.push_back(field);
+    }
+
+    // Create submitted form.
+    PasswordForm submitted_form(form);
+    submitted_form.preferred = true;
+    submitted_form.username_value = saved_match()->username_value;
+    submitted_form.password_value = saved_match()->password_value;
+
+    if (is_change_password_form) {
+      submitted_form.new_password_value =
+          saved_match()->password_value + ASCIIToUTF16("1");
+    }
+
+    PasswordFormManager form_manager(password_manager(), client(),
+                                     client()->driver(), form, false);
+
+    ScopedVector<PasswordForm> result;
+    form_manager.SimulateFetchMatchingLoginsFromPasswordStore();
+    form_manager.OnGetPasswordStoreResults(std::move(result));
+
+    autofill::ServerFieldTypeSet expected_available_field_types;
+    expected_available_field_types.insert(autofill::UNKNOWN_TYPE);
+    expected_available_field_types.insert(autofill::PASSWORD);
+
+    form_manager.set_is_manual_generation(is_manual_generation);
+    base::string16 generation_element = is_change_password_form
+                                            ? form.new_password_element
+                                            : form.password_element;
+    form_manager.set_generation_element(generation_element);
+    form_manager.set_has_generated_password(true);
+
+    std::map<base::string16, autofill::ServerFieldType> expected_types;
+    expected_types[generation_element] = autofill::PASSWORD;
+
+    // Figure out expected generation event type.
+    autofill::AutofillUploadContents::Field::PasswordGenerationType
+      expected_generation_type =
+        is_manual_generation
+            ? (is_change_password_form
+                ? autofill::AutofillUploadContents::Field::
+                    MANUALLY_TRIGGERED_GENERATION_ON_CHANGE_PASSWORD_FORM
+                : autofill::AutofillUploadContents::Field::
+                    MANUALLY_TRIGGERED_GENERATION_ON_SIGN_UP_FORM)
+            : (is_change_password_form
+                ? autofill::AutofillUploadContents::Field::
+                    AUTOMATICALLY_TRIGGERED_GENERATION_ON_CHANGE_PASSWORD_FORM
+                : autofill::AutofillUploadContents::Field::
+                    AUTOMATICALLY_TRIGGERED_GENERATION_ON_SIGN_UP_FORM);
+
+    std::map<base::string16,
+             autofill::AutofillUploadContents::Field::PasswordGenerationType>
+        expected_generation_types;
+    expected_generation_types[generation_element] = expected_generation_type;
+
+    autofill::FormStructure form_structure(submitted_form.form_data);
+
+    EXPECT_CALL(
+        *client()->mock_driver()->mock_autofill_download_manager(),
+        StartUploadRequest(
+            CheckUploadFormStructure(form_structure.FormSignature(),
+                                     expected_types, expected_generation_types),
+            false, expected_available_field_types, std::string(), true));
+
+    form_manager.ProvisionallySave(
+        submitted_form, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+    form_manager.Save();
   }
 
   PasswordForm* observed_form() { return &observed_form_; }
@@ -653,7 +775,7 @@ TEST_F(PasswordFormManagerTest, TestBlacklistMatching) {
   result.push_back(new PasswordForm(blacklisted_not_match2));
   result.push_back(new PasswordForm(blacklisted_match));
   result.push_back(new PasswordForm(*saved_match()));
-  form_manager.OnGetPasswordStoreResults(result.Pass());
+  form_manager.OnGetPasswordStoreResults(std::move(result));
   EXPECT_TRUE(form_manager.IsBlacklisted());
   EXPECT_THAT(form_manager.blacklisted_matches(),
               ElementsAre(Pointee(blacklisted_match)));
@@ -682,7 +804,7 @@ TEST_F(PasswordFormManagerTest, AutofillBlacklisted) {
   EXPECT_CALL(*client()->mock_driver(), FillPasswordForm(_))
       .WillOnce(SaveArg<0>(&fill_data));
 
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
   EXPECT_EQ(1u, form_manager()->blacklisted_matches().size());
   EXPECT_TRUE(form_manager()->IsBlacklisted());
   EXPECT_EQ(1u, form_manager()->best_matches().size());
@@ -733,8 +855,9 @@ TEST_F(PasswordFormManagerTest, PSLMatchedCredentialsMetadataUpdated) {
   autofill::ServerFieldTypeSet expected_available_field_types;
   expected_available_field_types.insert(autofill::USERNAME);
   expected_available_field_types.insert(autofill::ACCOUNT_CREATION_PASSWORD);
-  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
-              StartUploadRequest(_, false, expected_available_field_types, _))
+  EXPECT_CALL(
+      *client()->mock_driver()->mock_autofill_download_manager(),
+      StartUploadRequest(_, false, expected_available_field_types, _, true))
       .Times(1);
   EXPECT_CALL(*mock_store(), AddLogin(_))
       .WillOnce(SaveArg<0>(&actual_saved_form));
@@ -889,7 +1012,7 @@ TEST_F(PasswordFormManagerTest, TestIgnoreResult_SSL) {
   saved_form.ssl_valid = kObservedFormSSLValid;
   result.push_back(new PasswordForm(saved_form));
   form_manager.SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager.OnGetPasswordStoreResults(result.Pass());
+  form_manager.OnGetPasswordStoreResults(std::move(result));
 
   // Make sure we don't match a PasswordForm if it was originally saved on
   // an SSL-valid page and we are now on a page with invalid certificate.
@@ -912,7 +1035,7 @@ TEST_F(PasswordFormManagerTest, TestIgnoreResult_Paths) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager.SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager.OnGetPasswordStoreResults(result.Pass());
+  form_manager.OnGetPasswordStoreResults(std::move(result));
 
   // Different paths for action / origin are okay.
   EXPECT_FALSE(form_manager.best_matches().empty());
@@ -932,7 +1055,7 @@ TEST_F(PasswordFormManagerTest, TestIgnoreResult_IgnoredCredentials) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager.SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager.OnGetPasswordStoreResults(result.Pass());
+  form_manager.OnGetPasswordStoreResults(std::move(result));
 
   // Results should be ignored if the client requests it.
   EXPECT_TRUE(form_manager.best_matches().empty());
@@ -995,7 +1118,7 @@ TEST_F(PasswordFormManagerTest, TestAlternateUsername_NoChange) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   // The saved match has the right username already.
   PasswordForm login(*observed_form());
@@ -1013,6 +1136,8 @@ TEST_F(PasswordFormManagerTest, TestAlternateUsername_NoChange) {
       .WillOnce(SaveArg<0>(&saved_result));
   EXPECT_CALL(*mock_store(), UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store(), AddLogin(_)).Times(0);
+  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+              StartUploadRequest(_, false, _, _, true));
 
   form_manager()->Save();
   // Should be only one password stored, and should not have
@@ -1032,7 +1157,7 @@ TEST_F(PasswordFormManagerTest, TestAlternateUsername_OtherUsername) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   // The saved match has the right username already.
   PasswordForm login(*observed_form());
@@ -1081,7 +1206,7 @@ TEST_F(PasswordFormManagerTest, TestSendNotBlacklistedMessage_Credentials) {
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
   ScopedVector<PasswordForm> simulated_results;
   simulated_results.push_back(CreateSavedMatch(false));
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
 }
 
 TEST_F(PasswordFormManagerTest,
@@ -1099,7 +1224,7 @@ TEST_F(PasswordFormManagerTest,
   form_manager.SimulateFetchMatchingLoginsFromPasswordStore();
   ScopedVector<PasswordForm> simulated_results;
   simulated_results.push_back(CreateSavedMatch(false));
-  form_manager.OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager.OnGetPasswordStoreResults(std::move(simulated_results));
 }
 
 TEST_F(PasswordFormManagerTest,
@@ -1111,30 +1236,54 @@ TEST_F(PasswordFormManagerTest,
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
   ScopedVector<PasswordForm> simulated_results;
   simulated_results.push_back(CreateSavedMatch(true));
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
 }
 
-TEST_F(PasswordFormManagerTest, TestForceInclusionOfGeneratedPasswords_Match) {
-  // Simulate having two matches for this origin, one of which was from a form
-  // with different HTML tags for elements. Because of scoring differences,
-  // only the first form will be sent to Autofill().
-  EXPECT_CALL(*client()->mock_driver(), AllowPasswordGenerationForForm(_));
-
+TEST_F(PasswordFormManagerTest, TestBestCredentialsByEachUsernameAreIncluded) {
+  // Simulate having several matches, with 3 different usernames. Some of the
+  // matches are PSL matches. One match for each username should be chosen.
   ScopedVector<PasswordForm> simulated_results;
-  simulated_results.push_back(CreateSavedMatch(false));
-  simulated_results.push_back(CreateSavedMatch(false));
-  simulated_results[1]->username_value = ASCIIToUTF16("other@gmail.com");
+  // Add a best scoring match. It should be in |best_matches| and chosen as a
+  // prefferred match.
+  simulated_results.push_back(new PasswordForm(*saved_match()));
+  // Add a match saved on another form, it has lower score. It should not be in
+  // |best_matches|.
+  simulated_results.push_back(new PasswordForm(*saved_match()));
   simulated_results[1]->password_element = ASCIIToUTF16("signup_password");
   simulated_results[1]->username_element = ASCIIToUTF16("signup_username");
+  // Add a match saved on another form with a different username. It should be
+  // in |best_matches|.
+  simulated_results.push_back(new PasswordForm(*saved_match()));
+  auto username1 = simulated_results[0]->username_value + ASCIIToUTF16("1");
+  simulated_results[2]->username_value = username1;
+  simulated_results[2]->password_element = ASCIIToUTF16("signup_password");
+  simulated_results[2]->username_element = ASCIIToUTF16("signup_username");
+  // Add a PSL match, it should not be in |best_matches|.
+  simulated_results.push_back(new PasswordForm(*psl_saved_match()));
+  // Add a PSL match with a different username. It should be in |best_matches|.
+  simulated_results.push_back(new PasswordForm(*psl_saved_match()));
+  auto username2 = simulated_results[0]->username_value + ASCIIToUTF16("2");
+  simulated_results[4]->username_value = username2;
+
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
 
   autofill::PasswordFormFillData fill_data;
   EXPECT_CALL(*client()->mock_driver(), FillPasswordForm(_))
       .WillOnce(SaveArg<0>(&fill_data));
 
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
-  EXPECT_EQ(1u, form_manager()->best_matches().size());
-  EXPECT_TRUE(fill_data.additional_logins.empty());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
+  const autofill::PasswordFormMap& best_matches =
+      form_manager()->best_matches();
+  EXPECT_EQ(3u, best_matches.size());
+  EXPECT_NE(best_matches.end(),
+            best_matches.find(saved_match()->username_value));
+  EXPECT_EQ(*saved_match(),
+            *best_matches.find(saved_match()->username_value)->second);
+  EXPECT_NE(best_matches.end(), best_matches.find(username1));
+  EXPECT_NE(best_matches.end(), best_matches.find(username2));
+
+  EXPECT_EQ(*saved_match(), *form_manager()->preferred_match());
+  EXPECT_EQ(2u, fill_data.additional_logins.size());
 }
 
 TEST_F(PasswordFormManagerTest,
@@ -1156,7 +1305,7 @@ TEST_F(PasswordFormManagerTest,
   EXPECT_CALL(*client()->mock_driver(), FillPasswordForm(_))
       .WillOnce(SaveArg<0>(&fill_data));
 
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
   EXPECT_EQ(2u, form_manager()->best_matches().size());
   EXPECT_EQ(1u, fill_data.additional_logins.size());
 }
@@ -1240,11 +1389,8 @@ TEST_F(PasswordFormManagerTest, TestUpdateIncompleteCredentials) {
   PasswordFormManager form_manager(password_manager(), client(),
                                    client()->driver(), encountered_form, false);
 
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
-  EXPECT_CALL(*mock_store(),
-              GetLogins(encountered_form, auth_policy, &form_manager));
-  form_manager.FetchDataFromPasswordStore(auth_policy);
+  EXPECT_CALL(*mock_store(), GetLogins(encountered_form, &form_manager));
+  form_manager.FetchDataFromPasswordStore();
 
   // Password store only has these incomplete credentials.
   scoped_ptr<PasswordForm> incomplete_form(new PasswordForm());
@@ -1271,8 +1417,8 @@ TEST_F(PasswordFormManagerTest, TestUpdateIncompleteCredentials) {
 
   // Feed the incomplete credentials to the manager.
   ScopedVector<PasswordForm> simulated_results;
-  simulated_results.push_back(incomplete_form.Pass());
-  form_manager.OnGetPasswordStoreResults(simulated_results.Pass());
+  simulated_results.push_back(std::move(incomplete_form));
+  form_manager.OnGetPasswordStoreResults(std::move(simulated_results));
 
   form_manager.ProvisionallySave(
       complete_form, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
@@ -1308,7 +1454,7 @@ TEST_F(PasswordFormManagerTest, TestScoringPublicSuffixMatch) {
   EXPECT_CALL(*client()->mock_driver(), FillPasswordForm(_))
       .WillOnce(SaveArg<0>(&fill_data));
 
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
   EXPECT_TRUE(fill_data.additional_logins.empty());
   EXPECT_EQ(1u, form_manager()->best_matches().size());
   EXPECT_TRUE(
@@ -1337,7 +1483,7 @@ TEST_F(PasswordFormManagerTest, AndroidCredentialsAreAutofilled) {
   ScopedVector<PasswordForm> simulated_results;
   simulated_results.push_back(new PasswordForm(android_login));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
   EXPECT_TRUE(fill_data.additional_logins.empty());
   EXPECT_FALSE(fill_data.wait_for_username);
   EXPECT_EQ(1u, form_manager()->best_matches().size());
@@ -1407,14 +1553,14 @@ TEST_F(PasswordFormManagerTest, AndroidCredentialsAreProtected) {
   EXPECT_CALL(*client()->mock_driver(), FillPasswordForm(_))
       .WillOnce(SaveArg<0>(&fill_data));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
 
   EXPECT_FALSE(fill_data.wait_for_username);
   EXPECT_EQ(1u, fill_data.additional_logins.size());
 
   std::vector<PasswordForm*> actual_matches;
   for (const auto& username_match_pair : form_manager()->best_matches())
-    actual_matches.push_back(username_match_pair.second);
+    actual_matches.push_back(username_match_pair.second.get());
   EXPECT_THAT(actual_matches,
               UnorderedPasswordFormElementsAre(expected_matches.get()));
 }
@@ -1547,7 +1693,7 @@ TEST_F(PasswordFormManagerTest, CorrectlyUpdatePasswordsWithSameUsername) {
   result.push_back(new PasswordForm(first));
   result.push_back(new PasswordForm(second));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   // We always take the first credential with a particular username, regardless
   // of which ones are labeled preferred.
@@ -1568,6 +1714,8 @@ TEST_F(PasswordFormManagerTest, CorrectlyUpdatePasswordsWithSameUsername) {
       .WillOnce(SaveArg<0>(&saved_result));
   EXPECT_CALL(*mock_store(), UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store(), AddLogin(_)).Times(0);
+  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+              StartUploadRequest(_, false, _, _, true));
 
   form_manager()->Save();
 
@@ -1590,8 +1738,9 @@ TEST_F(PasswordFormManagerTest, UploadFormData_NewPassword) {
   autofill::ServerFieldTypeSet expected_available_field_types;
   expected_available_field_types.insert(autofill::USERNAME);
   expected_available_field_types.insert(autofill::PASSWORD);
-  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
-              StartUploadRequest(_, false, expected_available_field_types, _));
+  EXPECT_CALL(
+      *client()->mock_driver()->mock_autofill_download_manager(),
+      StartUploadRequest(_, false, expected_available_field_types, _, true));
   form_manager.ProvisionallySave(
       form_to_save, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
   form_manager.Save();
@@ -1606,7 +1755,7 @@ TEST_F(PasswordFormManagerTest, UploadFormData_NewPassword) {
   expected_available_field_types.insert(autofill::USERNAME);
   expected_available_field_types.insert(autofill::PASSWORD);
   EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
-              StartUploadRequest(_, _, expected_available_field_types, _))
+              StartUploadRequest(_, _, expected_available_field_types, _, true))
       .Times(0);
   blacklist_form_manager.PermanentlyBlacklist();
   Mock::VerifyAndClearExpectations(&blacklist_form_manager);
@@ -1697,26 +1846,21 @@ TEST_F(PasswordFormManagerTest, DriverDeletedBeforeStoreDone) {
   PasswordFormManager form_manager(password_manager(), client(),
                                    client()->driver(), *form, false);
 
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
-  EXPECT_CALL(*mock_store(), GetLogins(*form, auth_policy, &form_manager));
-  form_manager.FetchDataFromPasswordStore(auth_policy);
+  EXPECT_CALL(*mock_store(), GetLogins(*form, &form_manager));
+  form_manager.FetchDataFromPasswordStore();
 
   // Suddenly, the frame and its driver disappear.
   client()->KillDriver();
 
   ScopedVector<PasswordForm> simulated_results;
-  simulated_results.push_back(form.Pass());
-  form_manager.OnGetPasswordStoreResults(simulated_results.Pass());
+  simulated_results.push_back(std::move(form));
+  form_manager.OnGetPasswordStoreResults(std::move(simulated_results));
 }
 
 TEST_F(PasswordFormManagerTest, PreferredMatchIsUpToDate) {
   // Check that preferred_match() is always a member of best_matches().
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
-  EXPECT_CALL(*mock_store(),
-              GetLogins(*observed_form(), auth_policy, form_manager()));
-  form_manager()->FetchDataFromPasswordStore(auth_policy);
+  EXPECT_CALL(*mock_store(), GetLogins(*observed_form(), form_manager()));
+  form_manager()->FetchDataFromPasswordStore();
 
   ScopedVector<PasswordForm> simulated_results;
   scoped_ptr<PasswordForm> form(new PasswordForm(*observed_form()));
@@ -1729,13 +1873,13 @@ TEST_F(PasswordFormManagerTest, PreferredMatchIsUpToDate) {
   generated_form->password_value = ASCIIToUTF16("password2");
   generated_form->preferred = true;
 
-  simulated_results.push_back(generated_form.Pass());
-  simulated_results.push_back(form.Pass());
+  simulated_results.push_back(std::move(generated_form));
+  simulated_results.push_back(std::move(form));
 
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
   EXPECT_EQ(1u, form_manager()->best_matches().size());
   EXPECT_EQ(form_manager()->preferred_match(),
-            form_manager()->best_matches().begin()->second);
+            form_manager()->best_matches().begin()->second.get());
   // Make sure to access all fields of preferred_match; this way if it was
   // deleted, ASAN might notice it.
   PasswordForm dummy(*form_manager()->preferred_match());
@@ -1854,7 +1998,7 @@ TEST_F(PasswordFormManagerTest, TestSuggestingPasswordChangeForms) {
   EXPECT_CALL(*client()->mock_driver(), FillPasswordForm(_))
       .WillOnce(SaveArg<0>(&fill_data));
 
-  manager_creds.OnGetPasswordStoreResults(simulated_results.Pass());
+  manager_creds.OnGetPasswordStoreResults(std::move(simulated_results));
   EXPECT_EQ(1u, manager_creds.best_matches().size());
   EXPECT_EQ(0u, fill_data.additional_logins.size());
   EXPECT_TRUE(fill_data.wait_for_username);
@@ -1995,8 +2139,8 @@ TEST_F(PasswordFormManagerTest, WipeStoreCopyIfOutdated_BeforeStoreCallback) {
                                    client()->driver(), form, false);
 
   // Do not notify the store observer after this GetLogins call.
-  EXPECT_CALL(*mock_store(), GetLogins(_, _, _));
-  form_manager.FetchDataFromPasswordStore(PasswordStore::DISALLOW_PROMPT);
+  EXPECT_CALL(*mock_store(), GetLogins(_, _));
+  form_manager.FetchDataFromPasswordStore();
 
   PasswordForm submitted_form(form);
   submitted_form.password_value += ASCIIToUTF16("add stuff, make it different");
@@ -2026,10 +2170,10 @@ TEST_F(PasswordFormManagerTest, WipeStoreCopyIfOutdated_NotOutdated) {
   form_related2.username_value = ASCIIToUTF16("test");
   PasswordForm form_unrelated(form);
   form_unrelated.username_value = ASCIIToUTF16("test.else");
-  EXPECT_CALL(*mock_store(), GetLogins(_, _, _))
-      .WillOnce(testing::WithArg<2>(
+  EXPECT_CALL(*mock_store(), GetLogins(_, _))
+      .WillOnce(testing::WithArg<1>(
           InvokeConsumer(form, form_related, form_related2, form_unrelated)));
-  form_manager.FetchDataFromPasswordStore(PasswordStore::DISALLOW_PROMPT);
+  form_manager.FetchDataFromPasswordStore();
 
   form_manager.ProvisionallySave(
       form, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
@@ -2056,10 +2200,10 @@ TEST_F(PasswordFormManagerTest, WipeStoreCopyIfOutdated_Outdated) {
   form_related2.username_value = ASCIIToUTF16("test");
   PasswordForm form_unrelated(form);
   form_unrelated.username_value = ASCIIToUTF16("test.else");
-  EXPECT_CALL(*mock_store(), GetLogins(_, _, _))
-      .WillOnce(testing::WithArg<2>(
+  EXPECT_CALL(*mock_store(), GetLogins(_, _))
+      .WillOnce(testing::WithArg<1>(
           InvokeConsumer(form, form_related, form_related2, form_unrelated)));
-  form_manager.FetchDataFromPasswordStore(PasswordStore::DISALLOW_PROMPT);
+  form_manager.FetchDataFromPasswordStore();
 
   PasswordForm submitted_form(form);
   submitted_form.password_value += ASCIIToUTF16("add stuff, make it different");
@@ -2082,7 +2226,7 @@ TEST_F(PasswordFormManagerTest, RemoveNoUsernameAccounts) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   PasswordForm submitted_form(*observed_form());
   submitted_form.preferred = true;
@@ -2106,7 +2250,7 @@ TEST_F(PasswordFormManagerTest, NotRemovePSLNoUsernameAccounts) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   PasswordForm submitted_form(*observed_form());
   submitted_form.preferred = true;
@@ -2128,7 +2272,7 @@ TEST_F(PasswordFormManagerTest, NotRemoveCredentialsWithUsername) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   PasswordForm submitted_form(*observed_form());
   submitted_form.preferred = true;
@@ -2150,7 +2294,7 @@ TEST_F(PasswordFormManagerTest, NotRemoveCredentialsWithDiferrentPassword) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   PasswordForm submitted_form(*observed_form());
   submitted_form.preferred = true;
@@ -2172,7 +2316,7 @@ TEST_F(PasswordFormManagerTest, SaveNoUsernameEvenIfWithUsernamePresent) {
   ScopedVector<PasswordForm> result;
   result.push_back(new PasswordForm(*saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   PasswordForm submitted_form(*observed_form());
   submitted_form.preferred = true;
@@ -2195,7 +2339,7 @@ TEST_F(PasswordFormManagerTest, NotRemoveOnUpdate) {
   saved_form.preferred = false;
   result.push_back(new PasswordForm(saved_form));
   form_manager()->SimulateFetchMatchingLoginsFromPasswordStore();
-  form_manager()->OnGetPasswordStoreResults(result.Pass());
+  form_manager()->OnGetPasswordStoreResults(std::move(result));
 
   PasswordForm submitted_form(*observed_form());
   submitted_form.preferred = true;
@@ -2205,6 +2349,8 @@ TEST_F(PasswordFormManagerTest, NotRemoveOnUpdate) {
   EXPECT_CALL(*mock_store(),
               UpdateLogin(CheckUsername(saved_match()->username_value)));
   EXPECT_CALL(*mock_store(), RemoveLogin(_)).Times(0);
+  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+              StartUploadRequest(_, false, _, _, true));
 
   form_manager()->ProvisionallySave(
       submitted_form, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
@@ -2212,11 +2358,8 @@ TEST_F(PasswordFormManagerTest, NotRemoveOnUpdate) {
 }
 
 TEST_F(PasswordFormManagerTest, GenerationStatusChangedWithPassword) {
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
-  EXPECT_CALL(*mock_store(),
-              GetLogins(*observed_form(), auth_policy, form_manager()));
-  form_manager()->FetchDataFromPasswordStore(auth_policy);
+  EXPECT_CALL(*mock_store(), GetLogins(*observed_form(), form_manager()));
+  form_manager()->FetchDataFromPasswordStore();
 
   scoped_ptr<PasswordForm> generated_form(new PasswordForm(*observed_form()));
   generated_form->type = PasswordForm::TYPE_GENERATED;
@@ -2228,8 +2371,8 @@ TEST_F(PasswordFormManagerTest, GenerationStatusChangedWithPassword) {
   submitted_form.password_value = ASCIIToUTF16("password3");
 
   ScopedVector<PasswordForm> simulated_results;
-  simulated_results.push_back(generated_form.Pass());
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  simulated_results.push_back(std::move(generated_form));
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
 
   form_manager()->ProvisionallySave(
       submitted_form, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
@@ -2245,11 +2388,8 @@ TEST_F(PasswordFormManagerTest, GenerationStatusChangedWithPassword) {
 TEST_F(PasswordFormManagerTest, GenerationStatusNotUpdatedIfPasswordUnchanged) {
   base::HistogramTester histogram_tester;
 
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
-  EXPECT_CALL(*mock_store(),
-              GetLogins(*observed_form(), auth_policy, form_manager()));
-  form_manager()->FetchDataFromPasswordStore(auth_policy);
+  EXPECT_CALL(*mock_store(), GetLogins(*observed_form(), form_manager()));
+  form_manager()->FetchDataFromPasswordStore();
 
   scoped_ptr<PasswordForm> generated_form(new PasswordForm(*observed_form()));
   generated_form->type = PasswordForm::TYPE_GENERATED;
@@ -2260,8 +2400,8 @@ TEST_F(PasswordFormManagerTest, GenerationStatusNotUpdatedIfPasswordUnchanged) {
   PasswordForm submitted_form(*generated_form);
 
   ScopedVector<PasswordForm> simulated_results;
-  simulated_results.push_back(generated_form.Pass());
-  form_manager()->OnGetPasswordStoreResults(simulated_results.Pass());
+  simulated_results.push_back(std::move(generated_form));
+  form_manager()->OnGetPasswordStoreResults(std::move(simulated_results));
 
   form_manager()->ProvisionallySave(
       submitted_form, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
@@ -2278,30 +2418,28 @@ TEST_F(PasswordFormManagerTest, GenerationStatusNotUpdatedIfPasswordUnchanged) {
 
 TEST_F(PasswordFormManagerTest,
        FetchMatchingLoginsFromPasswordStore_Reentrance) {
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
-  EXPECT_CALL(*mock_store(), GetLogins(form_manager()->observed_form(),
-                                       auth_policy, form_manager()))
+  EXPECT_CALL(*mock_store(),
+              GetLogins(form_manager()->observed_form(), form_manager()))
       .Times(2);
-  form_manager()->FetchDataFromPasswordStore(auth_policy);
-  form_manager()->FetchDataFromPasswordStore(auth_policy);
+  form_manager()->FetchDataFromPasswordStore();
+  form_manager()->FetchDataFromPasswordStore();
 
   // First response from the store, should be ignored.
   scoped_ptr<PasswordForm> saved_form(new PasswordForm(*saved_match()));
   saved_form->username_value = ASCIIToUTF16("a@gmail.com");
   ScopedVector<PasswordForm> results;
-  results.push_back(saved_form.Pass());
-  form_manager()->OnGetPasswordStoreResults(results.Pass());
+  results.push_back(std::move(saved_form));
+  form_manager()->OnGetPasswordStoreResults(std::move(results));
   EXPECT_TRUE(form_manager()->best_matches().empty());
 
   // Second response from the store should not be ignored.
   saved_form.reset(new PasswordForm(*saved_match()));
   saved_form->username_value = ASCIIToUTF16("b@gmail.com");
-  results.push_back(saved_form.Pass());
+  results.push_back(std::move(saved_form));
   saved_form.reset(new PasswordForm(*saved_match()));
   saved_form->username_value = ASCIIToUTF16("c@gmail.com");
-  results.push_back(saved_form.Pass());
-  form_manager()->OnGetPasswordStoreResults(results.Pass());
+  results.push_back(std::move(saved_form));
+  form_manager()->OnGetPasswordStoreResults(std::move(results));
   EXPECT_EQ(2U, form_manager()->best_matches().size());
 }
 
@@ -2332,8 +2470,8 @@ TEST_F(PasswordFormManagerTest, ProcessFrame_DriverBeforeMatching) {
 
   // Ask store for logins, but store should not respond yet.
   EXPECT_CALL(*mock_store(),
-              GetLogins(form_manager()->observed_form(), _, form_manager()));
-  form_manager()->FetchDataFromPasswordStore(PasswordStore::DISALLOW_PROMPT);
+              GetLogins(form_manager()->observed_form(), form_manager()));
+  form_manager()->FetchDataFromPasswordStore();
 
   // Now add the extra driver.
   form_manager()->ProcessFrame(extra_driver.AsWeakPtr());
@@ -2341,8 +2479,8 @@ TEST_F(PasswordFormManagerTest, ProcessFrame_DriverBeforeMatching) {
   // Password store responds.
   scoped_ptr<PasswordForm> match(new PasswordForm(*saved_match()));
   ScopedVector<PasswordForm> result_form;
-  result_form.push_back(match.Pass());
-  form_manager()->OnGetPasswordStoreResults(result_form.Pass());
+  result_form.push_back(std::move(match));
+  form_manager()->OnGetPasswordStoreResults(std::move(result_form));
 }
 
 TEST_F(PasswordFormManagerTest, ProcessFrame_StoreUpdatesCausesAutofill) {
@@ -2354,8 +2492,7 @@ TEST_F(PasswordFormManagerTest, ProcessFrame_StoreUpdatesCausesAutofill) {
 TEST_F(PasswordFormManagerTest, UpdateFormManagers_IsCalled) {
   // Let |password_manager()| create one additional PasswordFormManager.
   PasswordStoreConsumer* consumer = nullptr;  // Will point to the new PFM.
-  EXPECT_CALL(*mock_store(), GetLogins(_, _, _))
-      .WillOnce(SaveArg<2>(&consumer));
+  EXPECT_CALL(*mock_store(), GetLogins(_, _)).WillOnce(SaveArg<1>(&consumer));
   PasswordForm form;
   std::vector<PasswordForm> observed;
   observed.push_back(form);
@@ -2373,7 +2510,7 @@ TEST_F(PasswordFormManagerTest, UpdateFormManagers_IsCalled) {
 
   // Firing Save() should cause PasswordManager::UpdateFormManagers to make the
   // additional PFM to call the password store again.
-  EXPECT_CALL(*mock_store(), GetLogins(_, _, _));
+  EXPECT_CALL(*mock_store(), GetLogins(_, _));
   form_manager()->Save();
 }
 
@@ -2413,6 +2550,8 @@ TEST_F(PasswordFormManagerTest, TestUpdatePSLMatchedCredentials) {
   EXPECT_CALL(*mock_store(), UpdateLogin(_))
       .WillOnce(testing::SaveArg<0>(&new_credentials[0]))
       .WillOnce(testing::SaveArg<0>(&new_credentials[1]));
+  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+              StartUploadRequest(_, false, _, _, true));
 
   form_manager.Save();
   Mock::VerifyAndClearExpectations(mock_store());
@@ -2460,6 +2599,8 @@ TEST_F(PasswordFormManagerTest,
   PasswordForm new_credentials;
   EXPECT_CALL(*mock_store(), UpdateLogin(_))
       .WillOnce(testing::SaveArg<0>(&new_credentials));
+  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+              StartUploadRequest(_, false, _, _, true));
 
   form_manager.Save();
   Mock::VerifyAndClearExpectations(mock_store());
@@ -2496,6 +2637,8 @@ TEST_F(PasswordFormManagerTest,
   PasswordForm new_credentials;
   EXPECT_CALL(*mock_store(), UpdateLogin(_))
       .WillOnce(testing::SaveArg<0>(&new_credentials));
+  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+              StartUploadRequest(_, false, _, _, true));
 
   form_manager.Save();
   Mock::VerifyAndClearExpectations(mock_store());
@@ -2542,19 +2685,16 @@ TEST_F(PasswordFormManagerTest, TestNotUpdateWhenOnlyPSLMatched) {
 
 #if !defined(OS_IOS) && !defined(OS_ANDROID)
 TEST_F(PasswordFormManagerTest, FetchStatistics) {
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
   InteractionsStats stats;
   stats.origin_domain = observed_form()->origin.GetOrigin();
   stats.username_value = saved_match()->username_value;
   stats.dismissal_count = 5;
-  EXPECT_CALL(*mock_store(),
-              GetLogins(*observed_form(), auth_policy, form_manager()));
+  EXPECT_CALL(*mock_store(), GetLogins(*observed_form(), form_manager()));
   std::vector<InteractionsStats*> db_stats;
   db_stats.push_back(new InteractionsStats(stats));
   EXPECT_CALL(*mock_store(), GetSiteStatsMock(stats.origin_domain))
       .WillOnce(Return(db_stats));
-  form_manager()->FetchDataFromPasswordStore(auth_policy);
+  form_manager()->FetchDataFromPasswordStore();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_THAT(form_manager()->interactions_stats(),
@@ -2562,14 +2702,263 @@ TEST_F(PasswordFormManagerTest, FetchStatistics) {
 }
 #else
 TEST_F(PasswordFormManagerTest, DontFetchStatistics) {
-  const PasswordStore::AuthorizationPromptPolicy auth_policy =
-      PasswordStore::DISALLOW_PROMPT;
-  EXPECT_CALL(*mock_store(),
-              GetLogins(*observed_form(), auth_policy, form_manager()));
+  EXPECT_CALL(*mock_store(), GetLogins(*observed_form(), form_manager()));
   EXPECT_CALL(*mock_store(), GetSiteStatsMock(_)).Times(0);
-  form_manager()->FetchDataFromPasswordStore(auth_policy);
+  form_manager()->FetchDataFromPasswordStore();
   base::RunLoop().RunUntilIdle();
 }
 #endif
+
+TEST_F(PasswordFormManagerTest,
+       TestSavingOnChangePasswordFormGenerationNoStoredForms) {
+  client()->set_is_update_password_ui_enabled(true);
+  SimulateMatchingPhase(form_manager(), RESULT_NO_MATCH);
+  form_manager()->set_has_generated_password(true);
+
+  // User submits change password form and there is no stored credentials.
+  PasswordForm credentials = *observed_form();
+  credentials.username_element.clear();
+  credentials.password_value = saved_match()->password_value;
+  credentials.new_password_element = ASCIIToUTF16("NewPasswd");
+  credentials.new_password_value = ASCIIToUTF16("new_password");
+  credentials.preferred = true;
+  form_manager()->ProvisionallySave(
+      credentials, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+
+  // Successful login. The PasswordManager would instruct PasswordFormManager
+  // to save, which should know this is a new login.
+  EXPECT_TRUE(form_manager()->IsNewLogin());
+  // Make sure the credentials that would be submitted on successful login
+  // are going to match submitted form.
+  EXPECT_EQ(observed_form()->origin.spec(),
+            form_manager()->pending_credentials().origin.spec());
+  EXPECT_EQ(observed_form()->signon_realm,
+            form_manager()->pending_credentials().signon_realm);
+  EXPECT_EQ(observed_form()->action,
+            form_manager()->pending_credentials().action);
+  EXPECT_TRUE(form_manager()->pending_credentials().preferred);
+  EXPECT_EQ(ASCIIToUTF16("new_password"),
+            form_manager()->pending_credentials().password_value);
+  EXPECT_EQ(base::string16(),
+            form_manager()->pending_credentials().username_value);
+  EXPECT_TRUE(
+      form_manager()->pending_credentials().new_password_element.empty());
+  EXPECT_TRUE(form_manager()->pending_credentials().new_password_value.empty());
+}
+
+TEST_F(PasswordFormManagerTest, TestUpdatingOnChangePasswordFormGeneration) {
+  client()->set_is_update_password_ui_enabled(true);
+  SimulateMatchingPhase(form_manager(), RESULT_SAVED_MATCH);
+  form_manager()->set_has_generated_password(true);
+
+  // User submits credentials for the change password form, and old password is
+  // coincide with password from an existing credentials, so stored credentials
+  // should be updated.
+  PasswordForm credentials = *observed_form();
+  credentials.username_element.clear();
+  credentials.password_value = saved_match()->password_value;
+  credentials.new_password_element = ASCIIToUTF16("NewPasswd");
+  credentials.new_password_value = ASCIIToUTF16("new_password");
+  credentials.preferred = true;
+  form_manager()->ProvisionallySave(
+      credentials, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+
+  EXPECT_FALSE(form_manager()->IsNewLogin());
+  // Make sure the credentials that would be submitted on successful login
+  // are going to match the stored entry in the db.
+  EXPECT_EQ(saved_match()->origin.spec(),
+            form_manager()->pending_credentials().origin.spec());
+  EXPECT_EQ(saved_match()->signon_realm,
+            form_manager()->pending_credentials().signon_realm);
+  EXPECT_EQ(observed_form()->action,
+            form_manager()->pending_credentials().action);
+  EXPECT_TRUE(form_manager()->pending_credentials().preferred);
+  EXPECT_EQ(ASCIIToUTF16("new_password"),
+            form_manager()->pending_credentials().password_value);
+  EXPECT_EQ(saved_match()->username_value,
+            form_manager()->pending_credentials().username_value);
+  EXPECT_TRUE(
+      form_manager()->pending_credentials().new_password_element.empty());
+  EXPECT_TRUE(form_manager()->pending_credentials().new_password_value.empty());
+}
+
+TEST_F(PasswordFormManagerTest,
+       TestSavingOnChangePasswordFormGenerationNoMatchedForms) {
+  client()->set_is_update_password_ui_enabled(true);
+  SimulateMatchingPhase(form_manager(), RESULT_SAVED_MATCH);
+  form_manager()->set_has_generated_password(true);
+
+  // User submits credentials for the change password form, and old password is
+  // not coincide with password from existing credentials, so new credentials
+  // should be saved.
+  PasswordForm credentials = *observed_form();
+  credentials.username_element.clear();
+  credentials.password_value =
+      saved_match()->password_value + ASCIIToUTF16("1");
+  credentials.new_password_element = ASCIIToUTF16("NewPasswd");
+  credentials.new_password_value = ASCIIToUTF16("new_password");
+  credentials.preferred = true;
+  form_manager()->ProvisionallySave(
+      credentials, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+
+  EXPECT_TRUE(form_manager()->IsNewLogin());
+  // Make sure the credentials that would be submitted on successful login
+  // are going to match submitted form.
+  EXPECT_EQ(observed_form()->origin.spec(),
+            form_manager()->pending_credentials().origin.spec());
+  EXPECT_EQ(observed_form()->signon_realm,
+            form_manager()->pending_credentials().signon_realm);
+  EXPECT_EQ(observed_form()->action,
+            form_manager()->pending_credentials().action);
+  EXPECT_TRUE(form_manager()->pending_credentials().preferred);
+  EXPECT_EQ(ASCIIToUTF16("new_password"),
+            form_manager()->pending_credentials().password_value);
+  EXPECT_EQ(base::string16(),
+            form_manager()->pending_credentials().username_value);
+  EXPECT_TRUE(
+      form_manager()->pending_credentials().new_password_element.empty());
+  EXPECT_TRUE(form_manager()->pending_credentials().new_password_value.empty());
+}
+
+TEST_F(PasswordFormManagerTest,
+       TestUploadVotesForPasswordChangeFormsWithTwoFields) {
+  // Turn |observed_form_| into change password form with only 2 fields: an old
+  // password and a new password.
+  observed_form()->username_element.clear();
+  observed_form()->new_password_element = ASCIIToUTF16("NewPasswd");
+  autofill::FormFieldData field;
+  field.label = ASCIIToUTF16("password");
+  field.name = ASCIIToUTF16("Passwd");
+  field.form_control_type = "password";
+  observed_form()->form_data.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("new password");
+  field.name = ASCIIToUTF16("NewPasswd");
+  observed_form()->form_data.fields.push_back(field);
+
+  client()->set_is_update_password_ui_enabled(true);
+  PasswordFormManager form_manager(password_manager(), client(),
+                                   client()->driver(), *observed_form(), false);
+
+  SimulateMatchingPhase(&form_manager, RESULT_SAVED_MATCH);
+
+  // User submits current and new credentials to the observed form.
+  PasswordForm submitted_form(*observed_form());
+  submitted_form.password_value = saved_match()->password_value;
+  submitted_form.new_password_value = ASCIIToUTF16("test2");
+  submitted_form.preferred = true;
+  form_manager.ProvisionallySave(
+      submitted_form, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+
+  // Successful login. The PasswordManager would instruct PasswordFormManager
+  // to update.
+  EXPECT_FALSE(form_manager.IsNewLogin());
+  EXPECT_TRUE(form_manager.is_possible_change_password_form_without_username());
+
+  // By now, the PasswordFormManager should have promoted the new password
+  // value already to be the current password, and should no longer maintain
+  // any info about the new password value.
+  EXPECT_EQ(submitted_form.new_password_value,
+            form_manager.pending_credentials().password_value);
+  EXPECT_TRUE(form_manager.pending_credentials().new_password_value.empty());
+
+  std::map<base::string16, autofill::ServerFieldType> expected_types;
+  expected_types[observed_form()->password_element] = autofill::PASSWORD;
+  expected_types[observed_form()->new_password_element] =
+      autofill::NEW_PASSWORD;
+
+  autofill::ServerFieldTypeSet expected_available_field_types;
+  expected_available_field_types.insert(autofill::PASSWORD);
+  expected_available_field_types.insert(autofill::NEW_PASSWORD);
+
+  std::string observed_form_signature =
+      autofill::FormStructure(observed_form()->form_data).FormSignature();
+
+  std::string expected_login_signature =
+      autofill::FormStructure(saved_match()->form_data).FormSignature();
+
+  std::map<base::string16,
+           autofill::AutofillUploadContents::Field::PasswordGenerationType>
+      expected_generation_types;
+
+  EXPECT_CALL(*client()->mock_driver()->mock_autofill_download_manager(),
+              StartUploadRequest(CheckUploadFormStructure(
+                                     observed_form_signature, expected_types,
+                                     expected_generation_types),
+                                 false, expected_available_field_types,
+                                 expected_login_signature, true));
+
+  form_manager.Update(*saved_match());
+}
+
+TEST_F(PasswordFormManagerTest, GeneratedVoteUpload) {
+  // Automatic generation, sign-up form.
+  GeneratedVoteUploadTest(false, false);
+  // Automatic generation, change password form.
+  GeneratedVoteUploadTest(false, true);
+  // Manual generation, sign-up form.
+  GeneratedVoteUploadTest(true, false);
+  // Manual generation, change password form.
+  GeneratedVoteUploadTest(true, true);
+}
+
+TEST_F(PasswordFormManagerTest, TestSavingAPIFormsWithSamePassword) {
+  // Turn |observed_form| and |saved_match| to API created forms.
+  observed_form()->username_element.clear();
+  observed_form()->type = autofill::PasswordForm::TYPE_API;
+  saved_match()->username_element.clear();
+  saved_match()->type = autofill::PasswordForm::TYPE_API;
+
+  PasswordFormManager form_manager(password_manager(), client(),
+                                   client()->driver(), *observed_form(), false);
+  SimulateMatchingPhase(&form_manager, RESULT_SAVED_MATCH);
+
+  // User submits new credentials with the same password as in already saved
+  // one.
+  PasswordForm credentials(*observed_form());
+  credentials.username_value =
+      saved_match()->username_value + ASCIIToUTF16("1");
+  credentials.password_value = saved_match()->password_value;
+  credentials.preferred = true;
+
+  form_manager.ProvisionallySave(
+      credentials, PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+
+  EXPECT_TRUE(form_manager.IsNewLogin());
+
+  PasswordForm new_credentials;
+  EXPECT_CALL(*mock_store(), AddLogin(_))
+      .WillOnce(SaveArg<0>(&new_credentials));
+
+  form_manager.Save();
+  Mock::VerifyAndClearExpectations(mock_store());
+
+  EXPECT_EQ(saved_match()->username_value + ASCIIToUTF16("1"),
+            new_credentials.username_value);
+  EXPECT_EQ(saved_match()->password_value, new_credentials.password_value);
+  EXPECT_EQ(base::string16(), new_credentials.username_element);
+  EXPECT_EQ(autofill::PasswordForm::TYPE_API, new_credentials.type);
+}
+
+TEST_F(PasswordFormManagerTest, FederatedCredentialsFiltered) {
+  PasswordForm federated(*saved_match());
+  federated.password_value.clear();
+  federated.federation_origin =
+      url::Origin(GURL("https://accounts.google.com"));
+
+  EXPECT_CALL(*mock_store(),
+              GetLogins(form_manager()->observed_form(), form_manager()));
+  form_manager()->FetchDataFromPasswordStore();
+
+  ScopedVector<PasswordForm> results;
+  results.push_back(new PasswordForm(federated));
+  results.push_back(new PasswordForm(*saved_match()));
+  form_manager()->OnGetPasswordStoreResults(std::move(results));
+
+  EXPECT_EQ(1u, form_manager()->federated_matches().size());
+  EXPECT_EQ(*form_manager()->federated_matches()[0], federated);
+  EXPECT_EQ(1u, form_manager()->best_matches().size());
+  EXPECT_EQ(*(form_manager()->best_matches().begin()->second), *saved_match());
+}
 
 }  // namespace password_manager

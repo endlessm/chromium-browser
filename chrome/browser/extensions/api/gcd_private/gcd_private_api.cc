@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/api/gcd_private/gcd_private_api.h"
 
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/extensions/api/gcd_private/privet_v3_context_getter.h"
@@ -223,7 +224,7 @@ void GcdPrivateAPIImpl::RemoveSessionDelayed(int session_id) {
 scoped_ptr<base::ListValue> GcdPrivateAPIImpl::GetPrefetchedSSIDList() {
   scoped_ptr<base::ListValue> retval(new base::ListValue);
 
-  return retval.Pass();
+  return retval;
 }
 
 

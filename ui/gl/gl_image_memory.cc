@@ -4,6 +4,8 @@
 
 #include "ui/gl/gl_image_memory.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
@@ -225,7 +227,7 @@ scoped_ptr<uint8_t[]> GLES2RGBData(const gfx::Size& size,
   *data_format = GL_RGB;
   *data_type = GL_UNSIGNED_BYTE;
   *data_row_length = size.width();
-  return gles2_rgb_data.Pass();
+  return gles2_rgb_data;
 }
 
 scoped_ptr<uint8_t[]> GLES2Data(const gfx::Size& size,
@@ -259,7 +261,8 @@ scoped_ptr<uint8_t[]> GLES2Data(const gfx::Size& size,
     case BufferFormat::R_8: {
       size_t gles2_data_stride =
           RowSizeForBufferFormat(size.width(), format, 0);
-      if (stride == gles2_data_stride)
+      if (stride == gles2_data_stride ||
+          gfx::g_driver_gl.ext.b_GL_EXT_unpack_subimage)
         return nullptr;  // No data conversion needed
 
       scoped_ptr<uint8_t[]> gles2_data(
@@ -269,7 +272,7 @@ scoped_ptr<uint8_t[]> GLES2Data(const gfx::Size& size,
                gles2_data_stride);
       }
       *data_row_length = size.width();
-      return gles2_data.Pass();
+      return gles2_data;
     }
     case BufferFormat::ATC:
     case BufferFormat::ATCIA:

@@ -82,7 +82,7 @@ component("app_list") {
     "//ui/base",
     "//ui/base/ime",
     "//ui/compositor",
-    "//ui/events:events_base",
+    "//ui/events",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/resources",
@@ -245,35 +245,26 @@ if (is_linux && !is_chromeos) {
         "//content",
         "//content/public/browser",
         "//skia",
-        "//url",
         "//ui/base",
         "//ui/events",
         "//ui/resources",
         "//ui/resources:ui_test_pak",
         "//ui/views",
-        "//ui/views_content_client",
         "//ui/views/controls/webview",
+        "//ui/views_content_client",
+        "//url",
       ]
       if (is_win) {
         configs -= [ "//build/config/win:console" ]
         configs += [ "//build/config/win:windowed" ]
 
         deps += [
-          "//sandbox",
           "//content:sandbox_helper_win",
+          "//sandbox",
         ]
       }
     }
   }
-}
-
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("app_list_unittests_run") {
-  testonly = true
-  deps = [
-    ":app_list_unittests",
-  ]
 }
 
 test("app_list_unittests") {
@@ -307,9 +298,9 @@ test("app_list_unittests") {
     "//testing/gtest",
     "//ui/base",
     "//ui/compositor",
-    "//ui/events",
     "//ui/events:test_support",
-    "//ui/gl",
+    "//ui/gfx:test_support",
+    "//ui/gl:test_support",
     "//ui/resources",
     "//ui/resources:ui_test_pak",
   ]

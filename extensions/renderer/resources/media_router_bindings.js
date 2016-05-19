@@ -29,6 +29,8 @@ define('media_router_bindings', [
   function sinkToMojo_(sink) {
     return new mediaRouterMojom.MediaSink({
       'name': sink.friendlyName,
+      'description': sink.description,
+      'domain': sink.domain,
       'sink_id': sink.id,
       'icon_type': sinkIconTypeToMojo(sink.iconType),
     });
@@ -73,8 +75,10 @@ define('media_router_bindings', [
       'icon_url': route.iconUrl,
       'is_local': route.isLocal,
       'custom_controller_path': route.customControllerPath,
-      // TODO(imcheng): Remove logic when extension always sets the field.
-      'for_display': route.forDisplay == undefined ? true : route.forDisplay
+      // Begin newly added properties, followed by the milestone they were
+      // added.  The guard should be safe to remove N+2 milestones later.
+      'for_display': route.forDisplay, // M47
+      'off_the_record': !!route.offTheRecord  // M50
     });
   }
 
@@ -103,20 +107,80 @@ define('media_router_bindings', [
    * @return {!mediaRouterMojom.MediaRouter.PresentationConnectionState}
    */
   function presentationConnectionStateToMojo_(state) {
+    var PresentationConnectionState =
+        mediaRouterMojom.MediaRouter.PresentationConnectionState;
     switch (state) {
+      case 'connecting':
+        return PresentationConnectionState.CONNECTING;
       case 'connected':
-        return
-            mediaRouterMojom.MediaRouter.PresentationConnectionState.CONNECTED;
+        return PresentationConnectionState.CONNECTED;
       case 'closed':
-        return mediaRouterMojom.MediaRouter.PresentationConnectionState.CLOSED;
+        return PresentationConnectionState.CLOSED;
       case 'terminated':
-        return
-            mediaRouterMojom.MediaRouter.PresentationConnectionState.TERMINATED;
+        return PresentationConnectionState.TERMINATED;
       default:
         console.error('Unknown presentation connection state: ' + state);
-        return
-            mediaRouterMojom.MediaRouter.PresentationConnectionState.TERMINATED;
+        return PresentationConnectionState.TERMINATED;
     }
+  }
+
+  /**
+   * Converts presentation connection close reason to Mojo enum value.
+   * @param {!string} reason
+   * @return {!mediaRouterMojom.MediaRouter.PresentationConnectionCloseReason}
+   */
+  function presentationConnectionCloseReasonToMojo_(reason) {
+    var PresentationConnectionCloseReason =
+        mediaRouterMojom.MediaRouter.PresentationConnectionCloseReason;
+    switch (reason) {
+      case 'error':
+        return PresentationConnectionCloseReason.CONNECTION_ERROR;
+      case 'closed':
+        return PresentationConnectionCloseReason.CLOSED;
+      case 'went_away':
+        return PresentationConnectionCloseReason.WENT_AWAY;
+      default:
+        console.error('Unknown presentation connection close reason : ' +
+            reason);
+        return PresentationConnectionCloseReason.CONNECTION_ERROR;
+    }
+  }
+
+  /**
+   * Parses the given route request Error object and converts it to the
+   * corresponding result code.
+   * @param {!Error} error
+   * @return {!mediaRouterMojom.RouteRequestResultCode}
+   */
+  function getRouteRequestResultCode_(error) {
+    if (error.message.startsWith('timeout'))
+      return mediaRouterMojom.RouteRequestResultCode.TIMED_OUT;
+    else
+      return mediaRouterMojom.RouteRequestResultCode.UNKNOWN_ERROR;
+  }
+
+  /**
+   * Creates and returns a successful route response from given route.
+   * @param {!MediaRoute} route
+   * @return {!Object}
+   */
+  function toSuccessRouteResponse_(route) {
+    return {
+        route: routeToMojo_(route),
+        result_code: mediaRouterMojom.RouteRequestResultCode.OK
+    };
+  }
+
+  /**
+   * Creates and returns a error route response from given Error object
+   * @param {!Error} error
+   * @return {!Object}
+   */
+  function toErrorRouteResponse_(error) {
+    return {
+        error_text: 'Error creating route: ' + error.message,
+        result_code: getRouteRequestResultCode_(error)
+    };
   }
 
   /**
@@ -201,9 +265,13 @@ define('media_router_bindings', [
    * updated.
    * @param {!string} sourceUrn
    * @param {!Array<!MediaSink>} sinks
+   * @param {Array<string>=} opt_origins
    */
-  MediaRouter.prototype.onSinksReceived = function(sourceUrn, sinks) {
-    this.service_.onSinksReceived(sourceUrn, sinks.map(sinkToMojo_));
+  MediaRouter.prototype.onSinksReceived = function(sourceUrn, sinks,
+      opt_origins) {
+    // TODO(imcheng): Make origins required in M52+.
+    this.service_.onSinksReceived(sourceUrn, sinks.map(sinkToMojo_),
+        opt_origins || []);
   };
 
   /**
@@ -280,9 +348,23 @@ define('media_router_bindings', [
    * Called by the provider manager when the set of active routes
    * has been updated.
    * @param {!Array<MediaRoute>} routes The active set of media routes.
+   * @param {string=} opt_sourceUrn The sourceUrn associated with this route
+   *     query. This parameter is optional and can be empty.
+   * @param {Array<string>=} opt_joinableRouteIds The active set of joinable
+   *     media routes. This parameter is optional and can be empty.
    */
-  MediaRouter.prototype.onRoutesUpdated = function(routes) {
-    this.service_.onRoutesUpdated(routes.map(routeToMojo_));
+  MediaRouter.prototype.onRoutesUpdated =
+      function(routes, opt_sourceUrn, opt_joinableRouteIds) {
+    // TODO(boetger): This check allows backward compatibility with the Cast SDK
+    // and can be removed when the Cast SDK is updated.
+    if (typeof(opt_sourceUrn) != 'string') {
+      opt_sourceUrn = '';
+    }
+
+    this.service_.onRoutesUpdated(
+        routes.map(routeToMojo_),
+        opt_sourceUrn || '',
+        opt_joinableRouteIds || []);
   };
 
   /**
@@ -297,13 +379,26 @@ define('media_router_bindings', [
   /**
    * Called by the provider manager when the state of a presentation connected
    * to a route has changed.
-   * @param {!string} routeId
-   * @param {!string} state
+   * @param {string} routeId
+   * @param {string} state
    */
   MediaRouter.prototype.onPresentationConnectionStateChanged =
       function(routeId, state) {
     this.service_.onPresentationConnectionStateChanged(
         routeId, presentationConnectionStateToMojo_(state));
+  };
+
+  /**
+   * Called by the provider manager when the state of a presentation connected
+   * to a route has closed.
+   * @param {string} routeId
+   * @param {string} reason
+   * @param {string} message
+   */
+  MediaRouter.prototype.onPresentationConnectionClosed =
+      function(routeId, reason, message) {
+    this.service_.onPresentationConnectionClosed(
+        routeId, presentationConnectionCloseReasonToMojo_(reason), message);
   };
 
   /**
@@ -326,7 +421,7 @@ define('media_router_bindings', [
     /**
      * @type {function(string)}
      */
-    this.closeRoute = null;
+    this.terminateRoute = null;
 
     /**
      * @type {function(string)}
@@ -362,7 +457,7 @@ define('media_router_bindings', [
     /**
      * @type {function(string)}
      */
-    this.onPresentationSessionDetached = null;
+    this.detachRoute = null;
 
     /**
      * @type {function()}
@@ -373,6 +468,16 @@ define('media_router_bindings', [
      * @type {function()}
      */
     this.stopObservingMediaRoutes = null;
+
+    /**
+     * @type {function()}
+     */
+    this.connectRouteByRouteId = null;
+
+    /**
+     * @type {function()}
+     */
+    this.enableMdnsDiscovery = null;
   };
 
   /**
@@ -414,12 +519,14 @@ define('media_router_bindings', [
       'sendRouteBinaryMessage',
       'listenForRouteMessages',
       'stopListeningForRouteMessages',
-      'onPresentationSessionDetached',
-      'closeRoute',
+      'detachRoute',
+      'terminateRoute',
       'joinRoute',
       'createRoute',
       'stopObservingMediaSinks',
-      'startObservingMediaRoutes'
+      'startObservingMediaRoutes',
+      'connectRouteByRouteId',
+      'enableMdnsDiscovery',
     ];
     requiredHandlers.forEach(function(nextHandler) {
       if (handlers[nextHandler] === undefined) {
@@ -458,19 +565,26 @@ define('media_router_bindings', [
    *     requesting presentation. TODO(mfoltz): Remove.
    * @param {!string} origin Origin of site requesting presentation.
    * @param {!number} tabId ID of tab requesting presentation.
+   * @param {!number} timeoutMillis If positive, the timeout duration for the
+   *     request, measured in seconds. Otherwise, the default duration will be
+   *     used.
+   * @param {!boolean} offTheRecord If true, the route is being requested by
+   *     an off the record (incognito) profile.
    * @return {!Promise.<!Object>} A Promise resolving to an object describing
    *     the newly created media route, or rejecting with an error message on
    *     failure.
    */
   MediaRouteProvider.prototype.createRoute =
-      function(sourceUrn, sinkId, presentationId, origin, tabId) {
+      function(sourceUrn, sinkId, presentationId, origin, tabId,
+          timeoutMillis, offTheRecord) {
     return this.handlers_.createRoute(
-        sourceUrn, sinkId, presentationId, origin, tabId)
+        sourceUrn, sinkId, presentationId, origin, tabId, timeoutMillis,
+        offTheRecord)
         .then(function(route) {
-          return {route: routeToMojo_(route)};
-        }.bind(this))
-        .catch(function(err) {
-          return {error_text: 'Error creating route: ' + err.message};
+          return toSuccessRouteResponse_(route);
+        },
+        function(err) {
+          return toErrorRouteResponse_(err);
         });
   };
 
@@ -482,27 +596,63 @@ define('media_router_bindings', [
    * @param {!string} presentationId Presentation ID to join.
    * @param {!string} origin Origin of site requesting join.
    * @param {!number} tabId ID of tab requesting join.
+   * @param {!number} timeoutMillis If positive, the timeout duration for the
+   *     request, measured in seconds. Otherwise, the default duration will be
+   *     used.
+   * @param {!boolean} offTheRecord If true, the route is being requested by
+   *     an off the record (incognito) profile.
    * @return {!Promise.<!Object>} A Promise resolving to an object describing
    *     the newly created media route, or rejecting with an error message on
    *     failure.
    */
   MediaRouteProvider.prototype.joinRoute =
-      function(sourceUrn, presentationId, origin, tabId) {
-    return this.handlers_.joinRoute(sourceUrn, presentationId, origin, tabId)
-        .then(function(newRoute) {
-          return {route: routeToMojo_(newRoute)};
+      function(sourceUrn, presentationId, origin, tabId, timeoutMillis,
+               offTheRecord) {
+    return this.handlers_.joinRoute(
+        sourceUrn, presentationId, origin, tabId, timeoutMillis, offTheRecord)
+        .then(function(route) {
+          return toSuccessRouteResponse_(route);
         },
         function(err) {
-          return {error_text: 'Error joining route: ' + err.message};
+          return toErrorRouteResponse_(err);
         });
   };
 
   /**
-   * Closes the route specified by |routeId|.
+   * Handles a request via the Presentation API to join an existing route given
+   * by |sourceUrn| and |routeId|. |origin| and |tabId| are used for
+   * validating same-origin/tab scope.
+   * @param {!string} sourceUrn Media source to render.
+   * @param {!string} routeId Route ID to join.
+   * @param {!string} presentationId Presentation ID to join.
+   * @param {!string} origin Origin of site requesting join.
+   * @param {!number} tabId ID of tab requesting join.
+   * @param {!number} timeoutMillis If positive, the timeout duration for the
+   *     request, measured in seconds. Otherwise, the default duration will be
+   *     used.
+   * @return {!Promise.<!Object>} A Promise resolving to an object describing
+   *     the newly created media route, or rejecting with an error message on
+   *     failure.
+   */
+  MediaRouteProvider.prototype.connectRouteByRouteId =
+      function(sourceUrn, routeId, presentationId, origin, tabId,
+          timeoutMillis) {
+    return this.handlers_.connectRouteByRouteId(
+        sourceUrn, routeId, presentationId, origin, tabId, timeoutMillis)
+        .then(function(route) {
+          return toSuccessRouteResponse_(route);
+        },
+        function(err) {
+          return toErrorRouteResponse_(err);
+        });
+  };
+
+  /**
+   * Terminates the route specified by |routeId|.
    * @param {!string} routeId
    */
-  MediaRouteProvider.prototype.closeRoute = function(routeId) {
-    this.handlers_.closeRoute(routeId);
+  MediaRouteProvider.prototype.terminateRoute = function(routeId) {
+    this.handlers_.terminateRoute(routeId);
   };
 
   /**
@@ -566,29 +716,38 @@ define('media_router_bindings', [
   };
 
   /**
-   * Indicates that the presentation session that was connected to |routeId| is
-   * no longer connected to it.
+   * Indicates that the presentation connection that was connected to |routeId|
+   * is no longer connected to it.
    * @param {!string} routeId
    */
-  MediaRouteProvider.prototype.onPresentationSessionDetached = function(
+  MediaRouteProvider.prototype.detachRoute = function(
       routeId) {
-    this.handlers_.onPresentationSessionDetached(routeId);
+    this.handlers_.detachRoute(routeId);
   };
 
   /**
    * Requests that the provider manager start sending information about active
    * media routes to the Media Router.
+   * @param {!string} sourceUrn
    */
-  MediaRouteProvider.prototype.startObservingMediaRoutes = function() {
-    this.handlers_.startObservingMediaRoutes();
+  MediaRouteProvider.prototype.startObservingMediaRoutes = function(sourceUrn) {
+    this.handlers_.startObservingMediaRoutes(sourceUrn);
   };
 
   /**
    * Requests that the provider manager stop sending information about active
    * media routes to the Media Router.
+   * @param {!string} sourceUrn
    */
-  MediaRouteProvider.prototype.stopObservingMediaRoutes = function() {
-    this.handlers_.stopObservingMediaRoutes();
+  MediaRouteProvider.prototype.stopObservingMediaRoutes = function(sourceUrn) {
+    this.handlers_.stopObservingMediaRoutes(sourceUrn);
+  };
+
+  /**
+   * Enables mDNS device discovery.
+   */
+  MediaRouteProvider.prototype.enableMdnsDiscovery = function() {
+    this.handlers_.enableMdnsDiscovery();
   };
 
   mediaRouter = new MediaRouter(connector.bindHandleToProxy(

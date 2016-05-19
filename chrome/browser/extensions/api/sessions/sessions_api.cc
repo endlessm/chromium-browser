@@ -4,11 +4,12 @@
 
 #include "chrome/browser/extensions/api/sessions/sessions_api.h"
 
+#include <stddef.h>
+#include <utility>
 #include <vector>
 
 #include "base/i18n/rtl.h"
 #include "base/lazy_instance.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -30,9 +31,10 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/prefs/pref_service.h"
 #include "components/sessions/content/content_live_tab.h"
-#include "components/sync_driver/glue/synced_session.h"
-#include "components/sync_driver/open_tabs_ui_delegate.h"
+#include "components/sync_sessions/open_tabs_ui_delegate.h"
+#include "components/sync_sessions/synced_session.h"
 #include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_function_dispatcher.h"
@@ -105,8 +107,8 @@ scoped_ptr<tabs::Tab> CreateTabModelHelper(
   // has highlighted, since you can select tabs without bringing them into the
   // foreground).
   tab_struct->active = index == selected_index;
-  ExtensionTabUtil::ScrubTabForExtension(extension, tab_struct.get());
-  return tab_struct.Pass();
+  ExtensionTabUtil::ScrubTabForExtension(extension, nullptr, tab_struct.get());
+  return tab_struct;
 }
 
 scoped_ptr<windows::Window> CreateWindowModelHelper(
@@ -115,14 +117,14 @@ scoped_ptr<windows::Window> CreateWindowModelHelper(
     const windows::WindowType& type,
     const windows::WindowState& state) {
   scoped_ptr<windows::Window> window_struct(new windows::Window);
-  window_struct->tabs = tabs.Pass();
+  window_struct->tabs = std::move(tabs);
   window_struct->session_id.reset(new std::string(session_id));
   window_struct->incognito = false;
   window_struct->always_on_top = false;
   window_struct->focused = false;
   window_struct->type = type;
   window_struct->state = state;
-  return window_struct.Pass();
+  return window_struct;
 }
 
 scoped_ptr<api::sessions::Session> CreateSessionModelHelper(
@@ -132,12 +134,12 @@ scoped_ptr<api::sessions::Session> CreateSessionModelHelper(
   scoped_ptr<api::sessions::Session> session_struct(new api::sessions::Session);
   session_struct->last_modified = last_modified;
   if (tab)
-    session_struct->tab = tab.Pass();
+    session_struct->tab = std::move(tab);
   else if (window)
-    session_struct->window = window.Pass();
+    session_struct->window = std::move(window);
   else
     NOTREACHED();
-  return session_struct.Pass();
+  return session_struct;
 }
 
 bool is_tab_entry(const sessions::TabRestoreService::Entry* entry) {
@@ -175,7 +177,7 @@ SessionsGetRecentlyClosedFunction::CreateWindowModel(
                        window.selected_tab_index).release()));
   }
 
-  return CreateWindowModelHelper(tabs.Pass(), base::IntToString(session_id),
+  return CreateWindowModelHelper(std::move(tabs), base::IntToString(session_id),
                                  windows::WINDOW_TYPE_NORMAL,
                                  windows::WINDOW_STATE_NORMAL);
 }
@@ -199,9 +201,8 @@ SessionsGetRecentlyClosedFunction::CreateSessionModel(
     default:
       NOTREACHED();
   }
-  return CreateSessionModelHelper(entry->timestamp.ToTimeT(),
-                                  tab.Pass(),
-                                  window.Pass());
+  return CreateSessionModelHelper(entry->timestamp.ToTimeT(), std::move(tab),
+                                  std::move(window));
 }
 
 bool SessionsGetRecentlyClosedFunction::RunSync() {
@@ -325,7 +326,7 @@ scoped_ptr<windows::Window> SessionsGetDevicesFunction::CreateWindowModel(
   }
 
   scoped_ptr<windows::Window> window_struct(
-      CreateWindowModelHelper(tabs.Pass(), session_id, type, state));
+      CreateWindowModelHelper(std::move(tabs), session_id, type, state));
   // TODO(dwankri): Dig deeper to resolve bounds not being optional, so closed
   // windows in GetRecentlyClosed can have set values in Window helper.
   window_struct->left.reset(new int(window.bounds.x()));
@@ -333,7 +334,7 @@ scoped_ptr<windows::Window> SessionsGetDevicesFunction::CreateWindowModel(
   window_struct->width.reset(new int(window.bounds.width()));
   window_struct->height.reset(new int(window.bounds.height()));
 
-  return window_struct.Pass();
+  return window_struct;
 }
 
 scoped_ptr<api::sessions::Session>
@@ -344,9 +345,9 @@ SessionsGetDevicesFunction::CreateSessionModel(
   // There is a chance that after pruning uninteresting tabs the window will be
   // empty.
   return !window_model ? scoped_ptr<api::sessions::Session>()
-      : CreateSessionModelHelper(window.timestamp.ToTimeT(),
-                                 scoped_ptr<tabs::Tab>(),
-                                 window_model.Pass());
+                       : CreateSessionModelHelper(window.timestamp.ToTimeT(),
+                                                  scoped_ptr<tabs::Tab>(),
+                                                  std::move(window_model));
 }
 
 scoped_ptr<api::sessions::Device> SessionsGetDevicesFunction::CreateDeviceModel(
@@ -372,7 +373,7 @@ scoped_ptr<api::sessions::Device> SessionsGetDevicesFunction::CreateDeviceModel(
       device_struct->sessions.push_back(make_linked_ptr(
           session_model.release()));
   }
-  return device_struct.Pass();
+  return device_struct;
 }
 
 bool SessionsGetDevicesFunction::RunSync() {
@@ -418,13 +419,11 @@ void SessionsRestoreFunction::SetInvalidIdError(const std::string& invalid_id) {
 
 void SessionsRestoreFunction::SetResultRestoredTab(
     content::WebContents* contents) {
-  scoped_ptr<base::DictionaryValue> tab_value(
-      ExtensionTabUtil::CreateTabValue(contents, extension()));
-  scoped_ptr<tabs::Tab> tab(tabs::Tab::FromValue(*tab_value));
-  scoped_ptr<api::sessions::Session> restored_session(CreateSessionModelHelper(
-      base::Time::Now().ToTimeT(),
-      tab.Pass(),
-      scoped_ptr<windows::Window>()));
+  scoped_ptr<tabs::Tab> tab(
+      ExtensionTabUtil::CreateTabObject(contents, extension()));
+  scoped_ptr<api::sessions::Session> restored_session(
+      CreateSessionModelHelper(base::Time::Now().ToTimeT(), std::move(tab),
+                               scoped_ptr<windows::Window>()));
   results_ = Restore::Results::Create(*restored_session);
 }
 
@@ -439,16 +438,13 @@ bool SessionsRestoreFunction::SetResultRestoredWindow(int window_id) {
   scoped_ptr<windows::Window> window(windows::Window::FromValue(
       *window_value));
   results_ = Restore::Results::Create(*CreateSessionModelHelper(
-      base::Time::Now().ToTimeT(),
-      scoped_ptr<tabs::Tab>(),
-      window.Pass()));
+      base::Time::Now().ToTimeT(), scoped_ptr<tabs::Tab>(), std::move(window)));
   return true;
 }
 
 bool SessionsRestoreFunction::RestoreMostRecentlyClosed(Browser* browser) {
   sessions::TabRestoreService* tab_restore_service =
       TabRestoreServiceFactory::GetForProfile(GetProfile());
-  chrome::HostDesktopType host_desktop_type = browser->host_desktop_type();
   sessions::TabRestoreService::Entries entries = tab_restore_service->entries();
 
   if (entries.empty()) {
@@ -461,7 +457,7 @@ bool SessionsRestoreFunction::RestoreMostRecentlyClosed(Browser* browser) {
       BrowserLiveTabContext::FindContextForWebContents(
           browser->tab_strip_model()->GetActiveWebContents());
   std::vector<sessions::LiveTab*> restored_tabs =
-      tab_restore_service->RestoreMostRecentEntry(context, host_desktop_type);
+      tab_restore_service->RestoreMostRecentEntry(context);
   DCHECK(restored_tabs.size());
 
   sessions::ContentLiveTab* first_tab =
@@ -479,7 +475,6 @@ bool SessionsRestoreFunction::RestoreLocalSession(const SessionId& session_id,
                                                   Browser* browser) {
   sessions::TabRestoreService* tab_restore_service =
       TabRestoreServiceFactory::GetForProfile(GetProfile());
-  chrome::HostDesktopType host_desktop_type = browser->host_desktop_type();
   sessions::TabRestoreService::Entries entries = tab_restore_service->entries();
 
   if (entries.empty()) {
@@ -503,8 +498,7 @@ bool SessionsRestoreFunction::RestoreLocalSession(const SessionId& session_id,
       BrowserLiveTabContext::FindContextForWebContents(
           browser->tab_strip_model()->GetActiveWebContents());
   std::vector<sessions::LiveTab*> restored_tabs =
-      tab_restore_service->RestoreEntryById(context, session_id.id(),
-                                            host_desktop_type, UNKNOWN);
+      tab_restore_service->RestoreEntryById(context, session_id.id(), UNKNOWN);
   // If the ID is invalid, restored_tabs will be empty.
   if (!restored_tabs.size()) {
     SetInvalidIdError(session_id.ToString());
@@ -570,10 +564,9 @@ bool SessionsRestoreFunction::RestoreForeignSession(const SessionId& session_id,
     return false;
   }
 
-  chrome::HostDesktopType host_desktop_type = browser->host_desktop_type();
   // Only restore one window at a time.
   std::vector<Browser*> browsers = SessionRestore::RestoreForeignSessionWindows(
-      GetProfile(), host_desktop_type, window, window + 1);
+      GetProfile(), window, window + 1);
   // Will always create one browser because we only restore one window per call.
   DCHECK_EQ(1u, browsers.size());
   return SetResultRestoredWindow(ExtensionTabUtil::GetWindowId(browsers[0]));
@@ -583,8 +576,7 @@ bool SessionsRestoreFunction::RunSync() {
   scoped_ptr<Restore::Params> params(Restore::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
 
-  Browser* browser = chrome::FindBrowserWithProfile(
-      GetProfile(), chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser* browser = chrome::FindBrowserWithProfile(GetProfile());
   if (!browser) {
     SetError(kNoBrowserToRestoreSession);
     return false;
@@ -630,7 +622,7 @@ void SessionsEventRouter::TabRestoreServiceChanged(
   scoped_ptr<base::ListValue> args(new base::ListValue());
   EventRouter::Get(profile_)->BroadcastEvent(make_scoped_ptr(
       new Event(events::SESSIONS_ON_CHANGED,
-                api::sessions::OnChanged::kEventName, args.Pass())));
+                api::sessions::OnChanged::kEventName, std::move(args))));
 }
 
 void SessionsEventRouter::TabRestoreServiceDestroyed(

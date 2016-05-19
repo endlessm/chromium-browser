@@ -9,15 +9,16 @@
  */
 
 #include <stddef.h>  // size_t
+
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/audio_processing/debug.pb.h"
 #include "webrtc/base/checks.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_audio/channel_buffer.h"
 #include "webrtc/modules/audio_coding/neteq/tools/resample_input_audio_file.h"
+#include "webrtc/modules/audio_processing/debug.pb.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
 #include "webrtc/modules/audio_processing/test/protobuf_utils.h"
 #include "webrtc/modules/audio_processing/test/test_utils.h"
@@ -28,7 +29,7 @@ namespace test {
 
 namespace {
 
-void MaybeResetBuffer(rtc::scoped_ptr<ChannelBuffer<float>>* buffer,
+void MaybeResetBuffer(std::unique_ptr<ChannelBuffer<float>>* buffer,
                       const StreamConfig& config) {
   auto& buffer_ref = *buffer;
   if (!buffer_ref.get() || buffer_ref->num_frames() != config.num_frames() ||
@@ -101,11 +102,11 @@ class DebugDumpGenerator {
   const int reverse_file_channels_;
 
   // Buffer for APM input/output.
-  rtc::scoped_ptr<ChannelBuffer<float>> input_;
-  rtc::scoped_ptr<ChannelBuffer<float>> reverse_;
-  rtc::scoped_ptr<ChannelBuffer<float>> output_;
+  std::unique_ptr<ChannelBuffer<float>> input_;
+  std::unique_ptr<ChannelBuffer<float>> reverse_;
+  std::unique_ptr<ChannelBuffer<float>> output_;
 
-  rtc::scoped_ptr<AudioProcessing> apm_;
+  std::unique_ptr<AudioProcessing> apm_;
 
   const std::string dump_file_name_;
 };
@@ -181,7 +182,7 @@ void DebugDumpGenerator::SetOutputChannels(int channels) {
 }
 
 void DebugDumpGenerator::StartRecording() {
-  apm_->StartDebugRecording(dump_file_name_.c_str());
+  apm_->StartDebugRecording(dump_file_name_.c_str(), -1);
 }
 
 void DebugDumpGenerator::Process(size_t num_blocks) {
@@ -250,11 +251,11 @@ class DebugDumpTest : public ::testing::Test {
   void ConfigureApm(const audioproc::Config& msg);
 
   // Buffer for APM input/output.
-  rtc::scoped_ptr<ChannelBuffer<float>> input_;
-  rtc::scoped_ptr<ChannelBuffer<float>> reverse_;
-  rtc::scoped_ptr<ChannelBuffer<float>> output_;
+  std::unique_ptr<ChannelBuffer<float>> input_;
+  std::unique_ptr<ChannelBuffer<float>> reverse_;
+  std::unique_ptr<ChannelBuffer<float>> output_;
 
-  rtc::scoped_ptr<AudioProcessing> apm_;
+  std::unique_ptr<AudioProcessing> apm_;
 
   StreamConfig input_config_;
   StreamConfig reverse_config_;
@@ -327,7 +328,8 @@ void DebugDumpTest::OnStreamEvent(const audioproc::Stream& msg) {
   else
     apm_->set_stream_key_pressed(true);
 
-  ASSERT_EQ(input_config_.num_channels(), msg.input_channel_size());
+  ASSERT_EQ(input_config_.num_channels(),
+            static_cast<size_t>(msg.input_channel_size()));
   ASSERT_EQ(input_config_.num_frames() * sizeof(float),
             msg.input_channel(0).size());
 
@@ -341,7 +343,8 @@ void DebugDumpTest::OnStreamEvent(const audioproc::Stream& msg) {
                                 output_config_, output_->channels()));
 
   // Check that output of APM is bit-exact to the output in the dump.
-  ASSERT_EQ(output_config_.num_channels(), msg.output_channel_size());
+  ASSERT_EQ(output_config_.num_channels(),
+            static_cast<size_t>(msg.output_channel_size()));
   ASSERT_EQ(output_config_.num_frames() * sizeof(float),
             msg.output_channel(0).size());
   for (int i = 0; i < msg.output_channel_size(); ++i) {
@@ -355,7 +358,8 @@ void DebugDumpTest::OnReverseStreamEvent(const audioproc::ReverseStream& msg) {
   ASSERT_TRUE(apm_.get());
 
   ASSERT_GT(msg.channel_size(), 0);
-  ASSERT_EQ(reverse_config_.num_channels(), msg.channel_size());
+  ASSERT_EQ(reverse_config_.num_channels(),
+            static_cast<size_t>(msg.channel_size()));
   ASSERT_EQ(reverse_config_.num_frames() * sizeof(float),
             msg.channel(0).size());
 

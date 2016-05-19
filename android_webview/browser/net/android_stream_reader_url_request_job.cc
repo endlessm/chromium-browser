@@ -5,6 +5,7 @@
 #include "android_webview/browser/net/android_stream_reader_url_request_job.h"
 
 #include <string>
+#include <utility>
 
 #include "android_webview/browser/input_stream.h"
 #include "android_webview/browser/net/input_stream_reader.h"
@@ -16,13 +17,12 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/io_buffer.h"
 #include "net/base/mime_util.h"
-#include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
 #include "net/http/http_util.h"
@@ -54,11 +54,10 @@ const char kHTTPNotFoundText[] = "Not Found";
 class InputStreamReaderWrapper :
     public base::RefCountedThreadSafe<InputStreamReaderWrapper> {
  public:
-  InputStreamReaderWrapper(
-      scoped_ptr<InputStream> input_stream,
-      scoped_ptr<InputStreamReader> input_stream_reader)
-      : input_stream_(input_stream.Pass()),
-        input_stream_reader_(input_stream_reader.Pass()) {
+  InputStreamReaderWrapper(scoped_ptr<InputStream> input_stream,
+                           scoped_ptr<InputStreamReader> input_stream_reader)
+      : input_stream_(std::move(input_stream)),
+        input_stream_reader_(std::move(input_stream_reader)) {
     DCHECK(input_stream_);
     DCHECK(input_stream_reader_);
   }
@@ -90,7 +89,8 @@ AndroidStreamReaderURLRequestJob::AndroidStreamReaderURLRequestJob(
     net::NetworkDelegate* network_delegate,
     scoped_ptr<Delegate> delegate)
     : URLRequestJob(request, network_delegate),
-      delegate_(delegate.Pass()),
+      range_parse_result_(net::OK),
+      delegate_(std::move(delegate)),
       weak_factory_(this) {
   DCHECK(delegate_);
 }
@@ -101,7 +101,8 @@ AndroidStreamReaderURLRequestJob::AndroidStreamReaderURLRequestJob(
     scoped_ptr<DelegateObtainer> delegate_obtainer,
     bool)
     : URLRequestJob(request, network_delegate),
-      delegate_obtainer_(delegate_obtainer.Pass()),
+      range_parse_result_(net::OK),
+      delegate_obtainer_(std::move(delegate_obtainer)),
       weak_factory_(this) {
   DCHECK(delegate_obtainer_);
 }
@@ -126,8 +127,8 @@ void OpenInputStreamOnWorkerThread(
 
   scoped_ptr<InputStream> input_stream = delegate->OpenInputStream(env, url);
   job_thread_task_runner->PostTask(
-      FROM_HERE, base::Bind(callback, base::Passed(delegate.Pass()),
-                            base::Passed(input_stream.Pass())));
+      FROM_HERE, base::Bind(callback, base::Passed(std::move(delegate)),
+                            base::Passed(std::move(input_stream))));
 }
 
 } // namespace
@@ -141,7 +142,10 @@ void AndroidStreamReaderURLRequestJob::Start() {
         base::Bind(&AndroidStreamReaderURLRequestJob::DelegateObtained,
                    weak_factory_.GetWeakPtr()));
   } else {
-    DoStart();
+    // Run DoStart asynchronously to avoid re-entering the delegate.
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&AndroidStreamReaderURLRequestJob::DoStart,
+                              weak_factory_.GetWeakPtr()));
   }
 }
 
@@ -161,7 +165,7 @@ void AndroidStreamReaderURLRequestJob::OnInputStreamOpened(
       scoped_ptr<android_webview::InputStream> input_stream) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(returned_delegate);
-  delegate_ = returned_delegate.Pass();
+  delegate_ = std::move(returned_delegate);
 
   if (!input_stream) {
     bool restart_required = false;
@@ -169,8 +173,6 @@ void AndroidStreamReaderURLRequestJob::OnInputStreamOpened(
     if (restart_required) {
       NotifyRestartRequired();
     } else {
-      // Clear the IO_PENDING status set in Start().
-      SetStatus(net::URLRequestStatus());
       HeadersComplete(kHTTPNotFound, kHTTPNotFoundText);
     }
     return;
@@ -182,7 +184,7 @@ void AndroidStreamReaderURLRequestJob::OnInputStreamOpened(
 
   DCHECK(!input_stream_reader_wrapper_.get());
   input_stream_reader_wrapper_ = new InputStreamReaderWrapper(
-      input_stream.Pass(), input_stream_reader.Pass());
+      std::move(input_stream), std::move(input_stream_reader));
 
   PostTaskAndReplyWithResult(
       GetWorkerThreadRunner(),
@@ -196,51 +198,33 @@ void AndroidStreamReaderURLRequestJob::OnInputStreamOpened(
 
 void AndroidStreamReaderURLRequestJob::OnReaderSeekCompleted(int result) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  // Clear the IO_PENDING status set in Start().
-  SetStatus(net::URLRequestStatus());
   if (result >= 0) {
     set_expected_content_size(result);
     HeadersComplete(kHTTPOk, kHTTPOkText);
   } else {
-    NotifyDone(net::URLRequestStatus(net::URLRequestStatus::FAILED, result));
+    NotifyStartError(
+        net::URLRequestStatus(net::URLRequestStatus::FAILED, result));
   }
 }
 
 void AndroidStreamReaderURLRequestJob::OnReaderReadCompleted(int result) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  // The URLRequest API contract requires that:
-  // * NotifyDone be called once, to set the status code, indicate the job is
-  //   finished (there will be no further IO),
-  // * NotifyReadComplete be called if false is returned from ReadRawData to
-  //   indicate that the IOBuffer will not be used by the job anymore.
-  // There might be multiple calls to ReadRawData (and thus multiple calls to
-  // NotifyReadComplete), which is why NotifyDone is called only on errors
-  // (result < 0) and end of data (result == 0).
-  if (result == 0) {
-    NotifyDone(net::URLRequestStatus());
-  } else if (result < 0) {
-    NotifyDone(net::URLRequestStatus(net::URLRequestStatus::FAILED, result));
-  } else {
-    // Clear the IO_PENDING status.
-    SetStatus(net::URLRequestStatus());
-  }
-  NotifyReadComplete(result);
+
+  ReadRawDataComplete(result);
 }
 
 base::TaskRunner* AndroidStreamReaderURLRequestJob::GetWorkerThreadRunner() {
   return static_cast<base::TaskRunner*>(BrowserThread::GetBlockingPool());
 }
 
-bool AndroidStreamReaderURLRequestJob::ReadRawData(net::IOBuffer* dest,
-                                                   int dest_size,
-                                                   int* bytes_read) {
+int AndroidStreamReaderURLRequestJob::ReadRawData(net::IOBuffer* dest,
+                                                  int dest_size) {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (!input_stream_reader_wrapper_.get()) {
     // This will happen if opening the InputStream fails in which case the
     // error is communicated by setting the HTTP response status header rather
     // than failing the request during the header fetch phase.
-    *bytes_read = 0;
-    return true;
+    return 0;
   }
 
   PostTaskAndReplyWithResult(
@@ -251,9 +235,7 @@ bool AndroidStreamReaderURLRequestJob::ReadRawData(net::IOBuffer* dest,
       base::Bind(&AndroidStreamReaderURLRequestJob::OnReaderReadCompleted,
                  weak_factory_.GetWeakPtr()));
 
-  SetStatus(net::URLRequestStatus(net::URLRequestStatus::IO_PENDING,
-                                  net::ERR_IO_PENDING));
-  return false;
+  return net::ERR_IO_PENDING;
 }
 
 bool AndroidStreamReaderURLRequestJob::GetMimeType(
@@ -264,10 +246,6 @@ bool AndroidStreamReaderURLRequestJob::GetMimeType(
 
   if (!input_stream_reader_wrapper_.get())
     return false;
-
-  // Since it's possible for this call to alter the InputStream a
-  // Seek or ReadRawData operation running in the background is not permitted.
-  DCHECK(!request_->status().is_io_pending());
 
   return delegate_->GetMimeType(
       env, request(), input_stream_reader_wrapper_->input_stream(), mime_type);
@@ -303,10 +281,11 @@ void AndroidStreamReaderURLRequestJob::DelegateObtained(
 
 void AndroidStreamReaderURLRequestJob::DoStart() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  // Start reading asynchronously so that all error reporting and data
-  // callbacks happen as they would for network requests.
-  SetStatus(net::URLRequestStatus(net::URLRequestStatus::IO_PENDING,
-                                  net::ERR_IO_PENDING));
+  if (range_parse_result_ != net::OK) {
+    NotifyStartError(net::URLRequestStatus(net::URLRequestStatus::FAILED,
+                                           range_parse_result_));
+    return;
+  }
 
   // This could be done in the InputStreamReader but would force more
   // complex synchronization in the delegate.
@@ -383,19 +362,18 @@ void AndroidStreamReaderURLRequestJob::SetExtraRequestHeaders(
     const net::HttpRequestHeaders& headers) {
   std::string range_header;
   if (headers.GetHeader(net::HttpRequestHeaders::kRange, &range_header)) {
-    // We only extract the "Range" header so that we know how many bytes in the
-    // stream to skip and how many to read after that.
+    // This job only cares about the Range header so that we know how many bytes
+    // in the stream to skip and how many to read after that. Note that
+    // validation is deferred to DoStart(), because NotifyStartError() is not
+    // legal to call since the job has not started.
     std::vector<net::HttpByteRange> ranges;
     if (net::HttpUtil::ParseRangeHeader(range_header, &ranges)) {
-      if (ranges.size() == 1) {
+      if (ranges.size() == 1)
         byte_range_ = ranges[0];
-      } else {
-        // We don't support multiple range requests in one single URL request,
-        // because we need to do multipart encoding here.
-        NotifyDone(
-            net::URLRequestStatus(net::URLRequestStatus::FAILED,
-                                  net::ERR_REQUEST_RANGE_NOT_SATISFIABLE));
-      }
+    } else {
+      // We don't support multiple range requests in one single URL request,
+      // because we need to do multipart encoding here.
+      range_parse_result_ = net::ERR_REQUEST_RANGE_NOT_SATISFIABLE;
     }
   }
 }

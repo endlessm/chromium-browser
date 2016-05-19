@@ -18,8 +18,6 @@
  *
  */
 
-#include "config.h"
-
 #include "core/layout/LayoutMeter.h"
 
 #include "core/html/HTMLMeterElement.h"
@@ -54,7 +52,7 @@ void LayoutMeter::updateLogicalWidth()
     LayoutBox::updateLogicalWidth();
 
     IntSize frameSize = LayoutTheme::theme().meterSizeForBounds(*this, pixelSnappedIntRect(frameRect()));
-    setLogicalWidth(isHorizontalWritingMode() ? frameSize.width() : frameSize.height());
+    setLogicalWidth(LayoutUnit(isHorizontalWritingMode() ? frameSize.width() : frameSize.height()));
 }
 
 void LayoutMeter::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop, LogicalExtentComputedValues& computedValues) const
@@ -67,7 +65,7 @@ void LayoutMeter::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logi
     else
         frame.setWidth(computedValues.m_extent);
     IntSize frameSize = LayoutTheme::theme().meterSizeForBounds(*this, pixelSnappedIntRect(frame));
-    computedValues.m_extent = isHorizontalWritingMode() ? frameSize.height() : frameSize.width();
+    computedValues.m_extent = LayoutUnit(isHorizontalWritingMode() ? frameSize.height() : frameSize.width());
 }
 
 void LayoutMeter::updateFromElement()

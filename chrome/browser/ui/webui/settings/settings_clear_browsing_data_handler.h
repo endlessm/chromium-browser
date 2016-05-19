@@ -7,10 +7,10 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_vector.h"
-#include "base/prefs/pref_member.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/settings/md_settings_ui.h"
+#include "components/prefs/pref_member.h"
 
 namespace base {
 class ListValue;
@@ -43,8 +43,7 @@ class ClearBrowsingDataHandler : public SettingsPageUIHandler,
   // Updates UI when the pref to allow clearing history changes.
   virtual void OnBrowsingHistoryPrefChanged();
 
-  // If non-null it means removal is in progress. BrowsingDataRemover takes care
-  // of deleting itself when done.
+  // If non-null it means removal is in progress.
   BrowsingDataRemover* remover_;
 
   // Keeps track of whether clearing LSO data is supported.

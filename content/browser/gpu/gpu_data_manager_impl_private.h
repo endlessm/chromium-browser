@@ -5,6 +5,9 @@
 #ifndef CONTENT_BROWSER_GPU_GPU_DATA_MANAGER_IMPL_PRIVATE_H_
 #define CONTENT_BROWSER_GPU_GPU_DATA_MANAGER_IMPL_PRIVATE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <list>
 #include <map>
 #include <set>
@@ -12,9 +15,11 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/singleton.h"
 #include "base/observer_list_threadsafe.h"
+#include "build/build_config.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "gpu/config/gpu_blacklist.h"
 #include "gpu/config/gpu_driver_bug_list.h"
@@ -44,7 +49,6 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
   void RequestVideoMemoryUsageStatsUpdate() const;
   bool ShouldUseSwiftShader() const;
   void RegisterSwiftShaderPath(const base::FilePath& path);
-  bool ShouldUseWarp() const;
   void AddObserver(GpuDataManagerObserver* observer);
   void RemoveObserver(GpuDataManagerObserver* observer);
   void UnblockDomainFrom3DAPIs(const GURL& url);
@@ -114,7 +118,7 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
   void SetDisplayCount(unsigned int display_count);
   unsigned int GetDisplayCount() const;
 
-  bool UpdateActiveGpu(uint32 vendor_id, uint32 device_id);
+  bool UpdateActiveGpu(uint32_t vendor_id, uint32_t device_id);
 
   void OnGpuProcessInitFailure();
 
@@ -133,8 +137,6 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
                            SwiftShaderRendering);
   FRIEND_TEST_ALL_PREFIXES(GpuDataManagerImplPrivateTest,
                            SwiftShaderRendering2);
-  FRIEND_TEST_ALL_PREFIXES(GpuDataManagerImplPrivateTest,
-                           WarpEnabledOverridesSwiftShader);
   FRIEND_TEST_ALL_PREFIXES(GpuDataManagerImplPrivateTest,
                            GpuInfoUpdate);
   FRIEND_TEST_ALL_PREFIXES(GpuDataManagerImplPrivateTest,
@@ -210,13 +212,6 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
   // Try to switch to SwiftShader rendering, if possible and necessary.
   void EnableSwiftShaderIfNecessary();
 
-  // Try to switch to WARP rendering if the GPU hardware is not supported or
-  // absent, and if we are trying to run in Windows Metro mode.
-  void EnableWarpIfNecessary();
-
-  // Use only for testing, forces |use_warp_| to true.
-  void ForceWarpModeForTesting();
-
   // Helper to extract the domain from a given URL.
   std::string GetDomainFromURL(const GURL& url) const;
 
@@ -227,7 +222,7 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
                                    base::Time at_time);
   GpuDataManagerImpl::DomainBlockStatus Are3DAPIsBlockedAtTime(
       const GURL& url, base::Time at_time) const;
-  int64 GetBlockAllDomainsDurationInMs() const;
+  int64_t GetBlockAllDomainsDurationInMs() const;
 
   bool complete_gpu_info_already_requested_;
 
@@ -246,8 +241,6 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
   std::vector<LogMessage> log_messages_;
 
   bool use_swiftshader_;
-
-  bool use_warp_;
 
   base::FilePath swiftshader_path_;
 
@@ -272,10 +265,17 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
 
   bool gpu_process_accessible_;
 
+  // True if Initialize() has been completed.
+  bool is_initialized_;
+
   // True if all future Initialize calls should be ignored.
   bool finalized_;
 
   std::string disabled_extensions_;
+
+  // If one tries to call a member before initialization then it is defered
+  // until Initialize() is completed.
+  std::vector<base::Closure> post_init_tasks_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuDataManagerImplPrivate);
 };

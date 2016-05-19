@@ -24,19 +24,6 @@
 
 #include "vpx_dsp/vpx_dsp_common.h"
 
-static INLINE int read_uniform(vpx_reader *r, int n) {
-  int l = get_unsigned_bits(n);
-  int m = (1 << l) - n;
-  int v = vpx_read_literal(r, l-1);
-
-  assert(l != 0);
-
-  if (v < m)
-    return v;
-  else
-    return (v << 1) - m + vpx_read_literal(r, 1);
-}
-
 static PREDICTION_MODE read_intra_mode(vpx_reader *r, const vpx_prob *p) {
   return (PREDICTION_MODE)vpx_read_tree(r, vp10_intra_mode_tree, p);
 }
@@ -100,6 +87,8 @@ static TX_SIZE read_tx_size(VP10_COMMON *cm, MACROBLOCKD *xd,
   TX_MODE tx_mode = cm->tx_mode;
   BLOCK_SIZE bsize = xd->mi[0]->mbmi.sb_type;
   const TX_SIZE max_tx_size = max_txsize_lookup[bsize];
+  if (xd->lossless[xd->mi[0]->mbmi.segment_id])
+    return TX_4X4;
   if (allow_select && tx_mode == TX_MODE_SELECT && bsize >= BLOCK_8X8)
     return read_selected_tx_size(cm, xd, max_tx_size, r);
   else
@@ -246,38 +235,6 @@ static int read_skip(VP10_COMMON *cm, const MACROBLOCKD *xd,
   }
 }
 
-static void read_palette_mode_info(VP10_COMMON *const cm,
-                                   MACROBLOCKD *const xd,
-                                   vpx_reader *r) {
-  MODE_INFO *const mi = xd->mi[0];
-  MB_MODE_INFO *const mbmi = &mi->mbmi;
-  const MODE_INFO *above_mi = xd->above_mi;
-  const MODE_INFO *left_mi  = xd->left_mi;
-  const BLOCK_SIZE bsize = mbmi->sb_type;
-  int i, palette_ctx = 0;
-
-  if (above_mi)
-    palette_ctx += (above_mi->mbmi.palette_mode_info.palette_size[0] > 0);
-  if (left_mi)
-    palette_ctx += (left_mi->mbmi.palette_mode_info.palette_size[0] > 0);
-  if (vpx_read(r, vp10_default_palette_y_mode_prob[bsize - BLOCK_8X8]
-                                                   [palette_ctx])) {
-    int n;
-    PALETTE_MODE_INFO *pmi = &mbmi->palette_mode_info;
-
-    pmi->palette_size[0] =
-        vpx_read_tree(r, vp10_palette_size_tree,
-                      vp10_default_palette_y_size_prob[bsize - BLOCK_8X8]) + 2;
-    n = pmi->palette_size[0];
-
-    for (i = 0; i < n; ++i)
-      pmi->palette_colors[i] = vpx_read_literal(r, cm->bit_depth);
-
-    xd->plane[0].color_index_map[0] = read_uniform(r, n);
-    assert(xd->plane[0].color_index_map[0] < n);
-  }
-}
-
 static void read_intra_frame_mode_info(VP10_COMMON *const cm,
                                        MACROBLOCKD *const xd,
                                        int mi_row, int mi_col, vpx_reader *r) {
@@ -327,11 +284,19 @@ static void read_intra_frame_mode_info(VP10_COMMON *const cm,
 
   mbmi->uv_mode = read_intra_mode_uv(cm, xd, r, mbmi->mode);
 
-  mbmi->palette_mode_info.palette_size[0] = 0;
-  mbmi->palette_mode_info.palette_size[1] = 0;
-  if (bsize >= BLOCK_8X8 && cm->allow_screen_content_tools &&
-      mbmi->mode == DC_PRED)
-    read_palette_mode_info(cm, xd, r);
+  if (mbmi->tx_size < TX_32X32 &&
+      cm->base_qindex > 0 && !mbmi->skip &&
+      !segfeature_active(&cm->seg, mbmi->segment_id, SEG_LVL_SKIP)) {
+    FRAME_COUNTS *counts = xd->counts;
+    TX_TYPE tx_type_nom = intra_mode_to_tx_type_context[mbmi->mode];
+    mbmi->tx_type = vpx_read_tree(
+        r, vp10_ext_tx_tree,
+        cm->fc->intra_ext_tx_prob[mbmi->tx_size][tx_type_nom]);
+    if (counts)
+      ++counts->intra_ext_tx[mbmi->tx_size][tx_type_nom][mbmi->tx_type];
+  } else {
+    mbmi->tx_type = DCT_DCT;
+  }
 }
 
 static int read_mv_component(vpx_reader *r,
@@ -495,9 +460,6 @@ static void read_intra_block_mode_info(VP10_COMMON *const cm,
   }
 
   mbmi->uv_mode = read_intra_mode_uv(cm, xd, r, mbmi->mode);
-
-  mbmi->palette_mode_info.palette_size[0] = 0;
-  mbmi->palette_mode_info.palette_size[1] = 0;
 }
 
 static INLINE int is_mv_valid(const MV *mv) {
@@ -691,6 +653,28 @@ static void read_inter_frame_mode_info(VP10Decoder *const pbi,
     read_inter_block_mode_info(pbi, xd, mi, mi_row, mi_col, r);
   else
     read_intra_block_mode_info(cm, xd, mi, r);
+
+  if (mbmi->tx_size < TX_32X32 &&
+      cm->base_qindex > 0 && !mbmi->skip &&
+      !segfeature_active(&cm->seg, mbmi->segment_id, SEG_LVL_SKIP)) {
+    FRAME_COUNTS *counts = xd->counts;
+    if (inter_block) {
+      mbmi->tx_type = vpx_read_tree(
+          r, vp10_ext_tx_tree,
+          cm->fc->inter_ext_tx_prob[mbmi->tx_size]);
+      if (counts)
+        ++counts->inter_ext_tx[mbmi->tx_size][mbmi->tx_type];
+    } else {
+      const TX_TYPE tx_type_nom = intra_mode_to_tx_type_context[mbmi->mode];
+      mbmi->tx_type = vpx_read_tree(
+          r, vp10_ext_tx_tree,
+          cm->fc->intra_ext_tx_prob[mbmi->tx_size][tx_type_nom]);
+      if (counts)
+        ++counts->intra_ext_tx[mbmi->tx_size][tx_type_nom][mbmi->tx_type];
+    }
+  } else {
+    mbmi->tx_type = DCT_DCT;
+  }
 }
 
 void vp10_read_mode_info(VP10Decoder *const pbi, MACROBLOCKD *xd,

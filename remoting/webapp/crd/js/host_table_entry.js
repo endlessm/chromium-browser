@@ -90,7 +90,7 @@ remoting.HostTableEntry.prototype.getHTML_ = function() {
       '<span class="warning-overlay"></span>' +
       '<img src="icon_host.webp">' +
     '</div>' +
-    '<div class="box-spacer">' +
+    '<div class="box-spacer host-list-clip">' +
       '<a class="host-name-label" href="#""></a>' +
       '<input class="host-rename-input" type="text" hidden/>' +
     '</div>' +
@@ -134,7 +134,7 @@ remoting.HostTableEntry.prototype.createDom_ = function() {
   }
 };
 
-/** @return {base.Disposable} @private */
+/** @private */
 remoting.HostTableEntry.prototype.registerButton_ = function(
     /** HTMLElement */ button, /** Function */ callback) {
   var onKeyDown = function(/** Event */ e) {

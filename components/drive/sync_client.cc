@@ -4,6 +4,8 @@
 
 #include "components/drive/sync_client.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/bind.h"
@@ -133,6 +135,7 @@ FileError GetParentResourceEntry(ResourceMetadata* metadata,
 
 SyncClient::SyncTask::SyncTask()
     : state(SUSPENDED), context(BACKGROUND), should_run_again(false) {}
+SyncClient::SyncTask::SyncTask(const SyncTask& other) = default;
 SyncClient::SyncTask::~SyncTask() {}
 
 SyncClient::SyncClient(base::SequencedTaskRunner* blocking_task_runner,

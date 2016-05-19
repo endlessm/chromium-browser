@@ -21,13 +21,15 @@
 
 #include <string>
 
+#include <stdint.h>
+
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/singleton.h"
 #include "content/public/browser/android/download_controller_android.h"
-#include "content/public/browser/download_item.h"
 #include "net/cookies/cookie_monster.h"
 #include "url/gurl.h"
 
@@ -41,8 +43,7 @@ class DeferredDownloadObserver;
 class RenderViewHost;
 class WebContents;
 
-class DownloadControllerAndroidImpl : public DownloadControllerAndroid,
-                                      public DownloadItem::Observer {
+class DownloadControllerAndroidImpl : public DownloadControllerAndroid {
  public:
   static DownloadControllerAndroidImpl* GetInstance();
 
@@ -56,9 +57,9 @@ class DownloadControllerAndroidImpl : public DownloadControllerAndroid,
 
   // DownloadControllerAndroid implementation.
   void AcquireFileAccessPermission(
-      int render_process_id,
-      int render_view_id,
+      WebContents* web_contents,
       const AcquireFileAccessPermissionCallback& callback) override;
+  void SetDefaultDownloadFileName(const std::string& file_name) override;
 
  private:
   // Used to store all the information about an Android download.
@@ -71,7 +72,7 @@ class DownloadControllerAndroidImpl : public DownloadControllerAndroid,
     GURL url;
     // The original URL before any redirection by the server for this URL.
     GURL original_url;
-    int64 total_bytes;
+    int64_t total_bytes;
     std::string content_disposition;
     std::string original_mime_type;
     std::string user_agent;
@@ -141,6 +142,8 @@ class DownloadControllerAndroidImpl : public DownloadControllerAndroid,
   JavaObject* GetJavaObject();
 
   JavaObject* java_object_;
+
+  std::string default_file_name_;
 
   ScopedVector<DeferredDownloadObserver> deferred_downloads_;
 

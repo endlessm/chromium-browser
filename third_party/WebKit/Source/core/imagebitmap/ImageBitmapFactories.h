@@ -34,33 +34,36 @@
 #include "bindings/core/v8/ScriptPromise.h"
 #include "bindings/core/v8/ScriptPromiseResolver.h"
 #include "bindings/core/v8/ScriptState.h"
+#include "bindings/core/v8/UnionTypesCore.h"
 #include "core/fileapi/FileReaderLoader.h"
 #include "core/fileapi/FileReaderLoaderClient.h"
+#include "core/imagebitmap/ImageBitmapOptions.h"
 #include "platform/Supplementable.h"
 #include "platform/geometry/IntRect.h"
-#include "wtf/Forward.h"
-#include "wtf/HashSet.h"
 
 namespace blink {
 
 class Blob;
 class EventTarget;
 class ExceptionState;
-class ImageBitmap;
-class ImageData;
 class ExecutionContext;
+class ImageBitmapSource;
+class ImageBitmapOptions;
+class ImageSource;
+class WebTaskRunner;
+
+typedef HTMLImageElementOrHTMLVideoElementOrHTMLCanvasElementOrBlobOrImageDataOrImageBitmap ImageBitmapSourceUnion;
 
 class ImageBitmapFactories final : public NoBaseWillBeGarbageCollectedFinalized<ImageBitmapFactories>, public WillBeHeapSupplement<LocalDOMWindow>, public WillBeHeapSupplement<WorkerGlobalScope> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(ImageBitmapFactories);
     USING_FAST_MALLOC_WILL_BE_REMOVED(ImageBitmapFactories);
 
 public:
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, Blob*, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, Blob*, int sx, int sy, int sw, int sh, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, ImageData*, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, ImageData*, int sx, int sy, int sw, int sh, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, ImageBitmap*, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, ImageBitmap*, int sx, int sy, int sw, int sh, ExceptionState&);
+    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, const ImageBitmapSourceUnion&, ExceptionState&);
+    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, const ImageBitmapSourceUnion&, const ImageBitmapOptions&, ExceptionState&);
+    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, const ImageBitmapSourceUnion&, int sx, int sy, int sw, int sh, ExceptionState&);
+    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, const ImageBitmapSourceUnion&, int sx, int sy, int sw, int sh, const ImageBitmapOptions&, ExceptionState&);
+    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, ImageBitmapSource*, int sx, int sy, int sw, int sh, const ImageBitmapOptions&, ExceptionState&);
 
     virtual ~ImageBitmapFactories() { }
 
@@ -72,9 +75,9 @@ protected:
 private:
     class ImageBitmapLoader final : public GarbageCollectedFinalized<ImageBitmapLoader>, public FileReaderLoaderClient {
     public:
-        static ImageBitmapLoader* create(ImageBitmapFactories& factory, const IntRect& cropRect, ScriptState* scriptState)
+        static ImageBitmapLoader* create(ImageBitmapFactories& factory, const IntRect& cropRect, const ImageBitmapOptions& options, ScriptState* scriptState)
         {
-            return new ImageBitmapLoader(factory, cropRect, scriptState);
+            return new ImageBitmapLoader(factory, cropRect, scriptState, options);
         }
 
         void loadBlobAsync(ExecutionContext*, Blob*);
@@ -85,9 +88,13 @@ private:
         ~ImageBitmapLoader() override { }
 
     private:
-        ImageBitmapLoader(ImageBitmapFactories&, const IntRect&, ScriptState*);
+        ImageBitmapLoader(ImageBitmapFactories&, const IntRect&, ScriptState*, const ImageBitmapOptions&);
 
         void rejectPromise();
+
+        void scheduleAsyncImageBitmapDecoding();
+        void decodeImageOnDecoderThread(WebTaskRunner*);
+        void resolvePromiseOnOriginalThread(PassOwnPtr<ImageSource>);
 
         // FileReaderLoaderClient
         void didStartLoading() override { }
@@ -99,6 +106,7 @@ private:
         RawPtrWillBeMember<ImageBitmapFactories> m_factory;
         Member<ScriptPromiseResolver> m_resolver;
         IntRect m_cropRect;
+        ImageBitmapOptions m_options;
     };
 
     static ImageBitmapFactories& from(EventTarget&);

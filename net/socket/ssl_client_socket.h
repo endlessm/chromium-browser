@@ -5,6 +5,8 @@
 #ifndef NET_SOCKET_SSL_CLIENT_SOCKET_H_
 #define NET_SOCKET_SSL_CLIENT_SOCKET_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/gtest_prod_util.h"
@@ -15,9 +17,18 @@
 #include "net/socket/stream_socket.h"
 #include "net/ssl/ssl_failure_state.h"
 
+namespace base {
+class FilePath;
+class SequencedTaskRunner;
+}
+
+namespace crypto {
+class ECPrivateKey;
+}
+
 namespace net {
 
-class CertPolicyEnforcer;
+class CTPolicyEnforcer;
 class CertVerifier;
 class ChannelIDService;
 class CTVerifier;
@@ -35,26 +46,26 @@ struct SSLClientSocketContext {
         channel_id_service(NULL),
         transport_security_state(NULL),
         cert_transparency_verifier(NULL),
-        cert_policy_enforcer(NULL) {}
+        ct_policy_enforcer(NULL) {}
 
   SSLClientSocketContext(CertVerifier* cert_verifier_arg,
                          ChannelIDService* channel_id_service_arg,
                          TransportSecurityState* transport_security_state_arg,
                          CTVerifier* cert_transparency_verifier_arg,
-                         CertPolicyEnforcer* cert_policy_enforcer_arg,
+                         CTPolicyEnforcer* ct_policy_enforcer_arg,
                          const std::string& ssl_session_cache_shard_arg)
       : cert_verifier(cert_verifier_arg),
         channel_id_service(channel_id_service_arg),
         transport_security_state(transport_security_state_arg),
         cert_transparency_verifier(cert_transparency_verifier_arg),
-        cert_policy_enforcer(cert_policy_enforcer_arg),
+        ct_policy_enforcer(ct_policy_enforcer_arg),
         ssl_session_cache_shard(ssl_session_cache_shard_arg) {}
 
   CertVerifier* cert_verifier;
   ChannelIDService* channel_id_service;
   TransportSecurityState* transport_security_state;
   CTVerifier* cert_transparency_verifier;
-  CertPolicyEnforcer* cert_policy_enforcer;
+  CTPolicyEnforcer* ct_policy_enforcer;
   // ssl_session_cache_shard is an opaque string that identifies a shard of the
   // SSL session cache. SSL sockets with the same ssl_session_cache_shard may
   // resume each other's SSL sessions but we'll never sessions between shards.
@@ -114,9 +125,16 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
 
   static const char* NextProtoStatusToString(const NextProtoStatus status);
 
-  // Export SSL key material to be logged to the specified file if platform
-  // uses OpenSSL. Must be called before SSLClientSockets are created.
-  static void SetSSLKeyLogFile(const std::string& ssl_keylog_file);
+  // Log SSL key material to |path| on |task_runner|. Must be called before any
+  // SSLClientSockets are created.
+  //
+  // TODO(davidben): Switch this to a parameter on the SSLClientSocketContext
+  // once https://crbug.com/458365 is resolved. This will require splitting
+  // SSLKeyLogger into an interface, built with OS_NACL and a non-NaCl
+  // SSLKeyLoggerImpl.
+  static void SetSSLKeyLogFile(
+      const base::FilePath& path,
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner);
 
   // Returns true if |error| is OK or |load_flags| ignores certificate errors
   // and |error| is a certificate error.
@@ -129,6 +147,16 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   // Returns the ChannelIDService used by this socket, or NULL if
   // channel ids are not supported.
   virtual ChannelIDService* GetChannelIDService() const = 0;
+
+  // Signs the EKM value for Token Binding with |*key| and puts it in |*out|.
+  // Returns a net error code.
+  virtual Error GetSignedEKMForTokenBinding(crypto::ECPrivateKey* key,
+                                            std::vector<uint8_t>* out) = 0;
+
+  // This method is only for debugging crbug.com/548423 and will be removed when
+  // that bug is closed. This returns the channel ID key that was used when
+  // establishing the connection (or NULL if no channel ID was used).
+  virtual crypto::ECPrivateKey* GetChannelIDKey() const = 0;
 
   // Returns the state of the handshake when it failed, or |SSL_FAILURE_NONE| if
   // the handshake succeeded. This is used to classify causes of the TLS version
@@ -169,7 +197,7 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   // Section 9.2 of the HTTP/2 specification.  Note that the server might still
   // pick an inadequate cipher suite.
   static bool HasCipherAdequateForHTTP2(
-      const std::vector<uint16>& cipher_suites);
+      const std::vector<uint16_t>& cipher_suites);
 
   // Determine if the TLS version required by Section 9.2 of the HTTP/2
   // specification is enabled.  Note that the server might still pick an

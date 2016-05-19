@@ -29,7 +29,6 @@
  *
  */
 
-#include "config.h"
 #include "core/loader/PingLoader.h"
 
 #include "core/dom/Document.h"
@@ -40,6 +39,7 @@
 #include "core/frame/FrameConsole.h"
 #include "core/frame/LocalFrame.h"
 #include "core/inspector/InspectorInstrumentation.h"
+#include "core/inspector/InspectorTraceEvents.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
 #include "core/loader/MixedContentChecker.h"
@@ -73,7 +73,7 @@ void PingLoader::loadImage(LocalFrame* frame, const KURL& url)
     }
 
     ResourceRequest request(url);
-    request.setHTTPHeaderField("Cache-Control", "max-age=0");
+    request.setHTTPHeaderField(HTTPNames::Cache_Control, "max-age=0");
     finishPingRequestInitialization(request, frame);
 
     FetchInitiatorInfo initiatorInfo;
@@ -85,24 +85,22 @@ void PingLoader::loadImage(LocalFrame* frame, const KURL& url)
 void PingLoader::sendLinkAuditPing(LocalFrame* frame, const KURL& pingURL, const KURL& destinationURL)
 {
     ResourceRequest request(pingURL);
-    request.setHTTPMethod("POST");
+    request.setHTTPMethod(HTTPNames::POST);
     request.setHTTPContentType("text/ping");
     request.setHTTPBody(EncodedFormData::create("PING"));
-    request.setHTTPHeaderField("Cache-Control", "max-age=0");
+    request.setHTTPHeaderField(HTTPNames::Cache_Control, "max-age=0");
     finishPingRequestInitialization(request, frame);
 
     RefPtr<SecurityOrigin> pingOrigin = SecurityOrigin::create(pingURL);
     // addAdditionalRequestHeaders() will have added a referrer for same origin requests,
-    // but the spec omits the referrer for same origin.
-    if (frame->document()->securityOrigin()->isSameSchemeHostPort(pingOrigin.get()))
-        request.clearHTTPReferrer();
+    // but the spec omits the referrer.
+    request.clearHTTPReferrer();
 
-    request.setHTTPHeaderField("Ping-To", AtomicString(destinationURL.string()));
+    request.setHTTPHeaderField(HTTPNames::Ping_To, AtomicString(destinationURL.string()));
 
     // Ping-From follows the same rules as the default referrer beahavior for subresource requests.
-    // FIXME: Should Ping-From obey ReferrerPolicy?
     if (!SecurityPolicy::shouldHideReferrer(pingURL, frame->document()->url().string()))
-        request.setHTTPHeaderField("Ping-From", AtomicString(frame->document()->url().string()));
+        request.setHTTPHeaderField(HTTPNames::Ping_From, AtomicString(frame->document()->url().string()));
 
     FetchInitiatorInfo initiatorInfo;
     initiatorInfo.name = FetchInitiatorTypeNames::ping;
@@ -112,7 +110,7 @@ void PingLoader::sendLinkAuditPing(LocalFrame* frame, const KURL& pingURL, const
 void PingLoader::sendViolationReport(LocalFrame* frame, const KURL& reportURL, PassRefPtr<EncodedFormData> report, ViolationReportType type)
 {
     ResourceRequest request(reportURL);
-    request.setHTTPMethod("POST");
+    request.setHTTPMethod(HTTPNames::POST);
     request.setHTTPContentType(type == ContentSecurityPolicyViolationReport ? "application/csp-report" : "application/json");
     request.setHTTPBody(report);
     finishPingRequestInitialization(request, frame);
@@ -140,6 +138,7 @@ PingLoader::PingLoader(LocalFrame* frame, ResourceRequest& request, const FetchI
 {
     frame->loader().client()->didDispatchPingLoader(request.url());
 
+    TRACE_EVENT_INSTANT1("devtools.timeline", "ResourceSendRequest", TRACE_EVENT_SCOPE_THREAD, "data", InspectorSendRequestEvent::data(m_identifier, frame, request));
     InspectorInstrumentation::willSendRequest(frame, m_identifier, frame->loader().documentLoader(), request, ResourceResponse(), initiatorInfo);
 
     m_loader = adoptPtr(Platform::current()->createURLLoader());
@@ -171,6 +170,7 @@ void PingLoader::dispose()
 void PingLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& response)
 {
     if (LocalFrame* frame = this->frame()) {
+        TRACE_EVENT_INSTANT1("devtools.timeline", "ResourceFinish", TRACE_EVENT_SCOPE_THREAD, "data", InspectorResourceFinishEvent::data(m_identifier, 0, true));
         const ResourceResponse& resourceResponse = response.toResourceResponse();
         InspectorInstrumentation::didReceiveResourceResponse(frame, m_identifier, 0, resourceResponse, 0);
         didFailLoading(frame);
@@ -180,29 +180,37 @@ void PingLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& respons
 
 void PingLoader::didReceiveData(WebURLLoader*, const char*, int, int)
 {
-    if (LocalFrame* frame = this->frame())
+    if (LocalFrame* frame = this->frame()) {
+        TRACE_EVENT_INSTANT1("devtools.timeline", "ResourceFinish", TRACE_EVENT_SCOPE_THREAD, "data", InspectorResourceFinishEvent::data(m_identifier, 0, true));
         didFailLoading(frame);
+    }
     dispose();
 }
 
 void PingLoader::didFinishLoading(WebURLLoader*, double, int64_t)
 {
-    if (LocalFrame* frame = this->frame())
+    if (LocalFrame* frame = this->frame()) {
+        TRACE_EVENT_INSTANT1("devtools.timeline", "ResourceFinish", TRACE_EVENT_SCOPE_THREAD, "data", InspectorResourceFinishEvent::data(m_identifier, 0, true));
         didFailLoading(frame);
+    }
     dispose();
 }
 
 void PingLoader::didFail(WebURLLoader*, const WebURLError& resourceError)
 {
-    if (LocalFrame* frame = this->frame())
+    if (LocalFrame* frame = this->frame()) {
+        TRACE_EVENT_INSTANT1("devtools.timeline", "ResourceFinish", TRACE_EVENT_SCOPE_THREAD, "data", InspectorResourceFinishEvent::data(m_identifier, 0, true));
         didFailLoading(frame);
+    }
     dispose();
 }
 
 void PingLoader::timeout(Timer<PingLoader>*)
 {
-    if (LocalFrame* frame = this->frame())
+    if (LocalFrame* frame = this->frame()) {
+        TRACE_EVENT_INSTANT1("devtools.timeline", "ResourceFinish", TRACE_EVENT_SCOPE_THREAD, "data", InspectorResourceFinishEvent::data(m_identifier, 0, true));
         didFailLoading(frame);
+    }
     dispose();
 }
 

@@ -4,6 +4,8 @@
 
 #include "cc/layers/video_layer_impl.h"
 
+#include <stddef.h>
+
 #include "cc/layers/video_frame_provider_client_impl.h"
 #include "cc/output/context_provider.h"
 #include "cc/output/output_surface.h"
@@ -93,7 +95,7 @@ TEST(VideoLayerImplTest, OccludesOtherLayers) {
 
   // Create a video layer with no frame on top of another layer.
   scoped_ptr<LayerImpl> layer_impl = LayerImpl::Create(active_tree, 3);
-  layer_impl->SetHasRenderSurface(true);
+  layer_impl->SetForceRenderSurface(true);
   layer_impl->SetBounds(layer_size);
   layer_impl->SetDrawsContent(true);
   const auto& draw_properties = layer_impl->draw_properties();
@@ -105,8 +107,8 @@ TEST(VideoLayerImplTest, OccludesOtherLayers) {
   video_layer_impl->SetDrawsContent(true);
   video_layer_impl->SetContentsOpaque(true);
 
-  layer_impl->AddChild(video_layer_impl.Pass());
-  active_tree->SetRootLayer(layer_impl.Pass());
+  layer_impl->AddChild(std::move(video_layer_impl));
+  active_tree->SetRootLayer(std::move(layer_impl));
 
   active_tree->BuildPropertyTreesForTesting();
 
@@ -341,6 +343,7 @@ TEST(VideoLayerImplTest, NativeYUVFrameGeneratesYUVQuad) {
           mailbox_holder, mailbox_holder, mailbox_holder,
           base::Bind(EmptyCallback), gfx::Size(10, 10), gfx::Rect(10, 10),
           gfx::Size(10, 10), base::TimeDelta());
+  ASSERT_TRUE(video_frame);
   video_frame->metadata()->SetBoolean(media::VideoFrameMetadata::ALLOW_OVERLAY,
                                       true);
   FakeVideoFrameProvider provider;

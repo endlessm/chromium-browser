@@ -4,11 +4,13 @@
 
 #include "chrome/browser/notifications/extension_welcome_notification.h"
 
+#include <stdint.h>
+
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -18,6 +20,7 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "sync/api/fake_sync_change_processor.h"
 #include "sync/api/sync_error_factory_mock.h"
@@ -195,10 +198,10 @@ class ExtensionWelcomeNotificationTest : public testing::Test {
   void SetBooleanPref(const char* path, bool value) const {
     profile_->GetPrefs()->SetBoolean(path, value);
   }
-  int64 GetInt64Pref(const char* path) const {
+  int64_t GetInt64Pref(const char* path) const {
     return profile_->GetPrefs()->GetInt64(path);
   }
-  void SetInt64Pref(const char* path, int64 value) const {
+  void SetInt64Pref(const char* path, int64_t value) const {
     profile_->GetPrefs()->SetInt64(path, value);
   }
 

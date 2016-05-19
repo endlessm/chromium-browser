@@ -8,10 +8,12 @@
 
 #include "GrFragmentProcessor.h"
 #include "GrCoordTransform.h"
-#include "gl/GrGLFragmentProcessor.h"
+#include "GrInvariantOutput.h"
+#include "GrProcOptInfo.h"
+#include "glsl/GrGLSLFragmentProcessor.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramBuilder.h"
 #include "glsl/GrGLSLProgramDataManager.h"
+#include "glsl/GrGLSLUniformHandler.h"
 #include "effects/GrConstColorProcessor.h"
 #include "effects/GrXfermodeFragmentProcessor.h"
 
@@ -50,11 +52,11 @@ bool GrFragmentProcessor::isEqual(const GrFragmentProcessor& that,
     return true;
 }
 
-GrGLFragmentProcessor* GrFragmentProcessor::createGLInstance() const {
-    GrGLFragmentProcessor* glFragProc = this->onCreateGLInstance();
+GrGLSLFragmentProcessor* GrFragmentProcessor::createGLSLInstance() const {
+    GrGLSLFragmentProcessor* glFragProc = this->onCreateGLSLInstance();
     glFragProc->fChildProcessors.push_back_n(fChildProcessors.count());
     for (int i = 0; i < fChildProcessors.count(); ++i) {
-        glFragProc->fChildProcessors[i] = fChildProcessors[i]->createGLInstance();
+        glFragProc->fChildProcessors[i] = fChildProcessors[i]->createGLSLInstance();
     }
     return glFragProc;
 }
@@ -147,23 +149,21 @@ const GrFragmentProcessor* GrFragmentProcessor::MulOutputByInputUnpremulColor(
         const char* name() const override { return "Premultiply"; }
 
     private:
-        GrGLFragmentProcessor* onCreateGLInstance() const override {
-            class GLFP : public GrGLFragmentProcessor {
+        GrGLSLFragmentProcessor* onCreateGLSLInstance() const override {
+            class GLFP : public GrGLSLFragmentProcessor {
             public:
-                GLFP() {}
-
                 void emitCode(EmitArgs& args) override {
-                    GrGLSLFragmentBuilder* fsBuilder = args.fBuilder->getFragmentShaderBuilder();
+                    GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
                     this->emitChild(0, nullptr, args);
-                    fsBuilder->codeAppendf("%s.rgb *= %s.rgb;", args.fOutputColor,
+                    fragBuilder->codeAppendf("%s.rgb *= %s.rgb;", args.fOutputColor,
                                                                 args.fInputColor);
-                    fsBuilder->codeAppendf("%s *= %s.a;", args.fOutputColor, args.fInputColor);
+                    fragBuilder->codeAppendf("%s *= %s.a;", args.fOutputColor, args.fInputColor);
                 }
             };
             return new GLFP;
         }
 
-        void onGetGLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override {}
+        void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override {}
 
         bool onIsEqual(const GrFragmentProcessor&) const override { return true; }
 
@@ -220,15 +220,16 @@ const GrFragmentProcessor* GrFragmentProcessor::OverrideInput(const GrFragmentPr
 
         const char* name() const override { return "Replace Color"; }
 
-        GrGLFragmentProcessor* onCreateGLInstance() const override {
-            class GLFP : public GrGLFragmentProcessor {
+        GrGLSLFragmentProcessor* onCreateGLSLInstance() const override {
+            class GLFP : public GrGLSLFragmentProcessor {
             public:
                 GLFP() : fHaveSetColor(false) {}
                 void emitCode(EmitArgs& args) override {
                     const char* colorName;
-                    fColorUni = args.fBuilder->addUniform(GrGLSLProgramBuilder::kFragment_Visibility,
-                                                          kVec4f_GrSLType, kDefault_GrSLPrecision,
-                                                          "Color", &colorName);
+                    fColorUni = args.fUniformHandler->addUniform(kFragment_GrShaderFlag,
+                                                                 kVec4f_GrSLType,
+                                                                 kDefault_GrSLPrecision,
+                                                                 "Color", &colorName);
                     this->emitChild(0, colorName, args);
                 }
 
@@ -259,7 +260,8 @@ const GrFragmentProcessor* GrFragmentProcessor::OverrideInput(const GrFragmentPr
         }
 
     private:
-        void onGetGLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override {}
+        void onGetGLSLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override
+        {}
 
         bool onIsEqual(const GrFragmentProcessor& that) const override {
             return fColor == that.cast<ReplaceInputFragmentProcessor>().fColor;
@@ -297,10 +299,9 @@ const GrFragmentProcessor* GrFragmentProcessor::RunInSeries(const GrFragmentProc
 
         const char* name() const override { return "Series"; }
 
-        GrGLFragmentProcessor* onCreateGLInstance() const override {
-            class GLFP : public GrGLFragmentProcessor {
+        GrGLSLFragmentProcessor* onCreateGLSLInstance() const override {
+            class GLFP : public GrGLSLFragmentProcessor {
             public:
-                GLFP() {}
                 void emitCode(EmitArgs& args) override {
                     SkString input(args.fInputColor);
                     for (int i = 0; i < this->numChildProcessors() - 1; ++i) {
@@ -317,7 +318,7 @@ const GrFragmentProcessor* GrFragmentProcessor::RunInSeries(const GrFragmentProc
         }
 
     private:
-        void onGetGLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override {}
+        void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override {}
 
         bool onIsEqual(const GrFragmentProcessor&) const override { return true; }
 

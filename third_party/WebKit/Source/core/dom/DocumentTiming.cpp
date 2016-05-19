@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/dom/DocumentTiming.h"
 
 #include "core/dom/Document.h"
@@ -72,27 +71,6 @@ void DocumentTiming::markFirstLayout()
 {
     m_firstLayout = monotonicallyIncreasingTime();
     TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstLayout", m_firstLayout, "frame", frame());
-    notifyDocumentTimingChanged();
-}
-
-void DocumentTiming::markFirstPaint()
-{
-    m_firstPaint = monotonicallyIncreasingTime();
-    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstPaint", m_firstPaint, "frame", frame());
-    notifyDocumentTimingChanged();
-}
-
-void DocumentTiming::markFirstTextPaint()
-{
-    m_firstTextPaint = monotonicallyIncreasingTime();
-    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstTextPaint", m_firstTextPaint, "frame", frame());
-    notifyDocumentTimingChanged();
-}
-
-void DocumentTiming::markFirstImagePaint()
-{
-    m_firstImagePaint = monotonicallyIncreasingTime();
-    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstImagePaint", m_firstImagePaint, "frame", frame());
     notifyDocumentTimingChanged();
 }
 

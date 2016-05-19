@@ -5,12 +5,14 @@
 #ifndef GOOGLE_APIS_GAIA_OAUTH2_TOKEN_SERVICE_H_
 #define GOOGLE_APIS_GAIA_OAUTH2_TOKEN_SERVICE_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -296,6 +298,7 @@ class OAuth2TokenService : public base::NonThreadSafe {
     RequestParameters(const std::string& client_id,
                       const std::string& account_id,
                       const ScopeSet& scopes);
+    RequestParameters(const RequestParameters& other);
     ~RequestParameters();
     bool operator<(const RequestParameters& params) const;
 

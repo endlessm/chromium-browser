@@ -23,7 +23,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/LayoutTable.h"
 
 #include "core/HTMLNames.h"
@@ -67,7 +66,7 @@ LayoutTable::LayoutTable(Element* element)
     , m_borderEnd(0)
 {
     ASSERT(!childrenInline());
-    m_columnPos.fill(0, 1);
+    m_effectiveColumnPositions.fill(0, 1);
 }
 
 LayoutTable::~LayoutTable()
@@ -84,7 +83,7 @@ void LayoutTable::styleDidChange(StyleDifference diff, const ComputedStyle* oldS
     // In the collapsed border model, there is no cell spacing.
     m_hSpacing = collapseBorders() ? 0 : style()->horizontalBorderSpacing();
     m_vSpacing = collapseBorders() ? 0 : style()->verticalBorderSpacing();
-    m_columnPos[0] = m_hSpacing;
+    m_effectiveColumnPositions[0] = m_hSpacing;
 
     if (!m_tableLayout || style()->isFixedTableLayout() != oldFixedTableLayout) {
         if (m_tableLayout)
@@ -253,6 +252,12 @@ void LayoutTable::removeColumn(const LayoutTableCol*)
     setNeedsSectionRecalc();
 }
 
+bool LayoutTable::isLogicalWidthAuto() const
+{
+    Length styleLogicalWidth = style()->logicalWidth();
+    return (!styleLogicalWidth.isSpecified() || !styleLogicalWidth.isPositive()) && !styleLogicalWidth.isIntrinsic();
+}
+
 void LayoutTable::updateLogicalWidth()
 {
     recalcSectionsIfNeeded();
@@ -273,7 +278,7 @@ void LayoutTable::updateLogicalWidth()
     LayoutUnit containerWidthInInlineDirection = hasPerpendicularContainingBlock ? perpendicularContainingBlockLogicalHeight() : availableLogicalWidth;
 
     Length styleLogicalWidth = style()->logicalWidth();
-    if ((styleLogicalWidth.isSpecified() && styleLogicalWidth.isPositive()) || styleLogicalWidth.isIntrinsic()) {
+    if (!isLogicalWidthAuto()) {
         setLogicalWidth(convertStyleLogicalWidthToComputedWidth(styleLogicalWidth, containerWidthInInlineDirection));
     } else {
         // Subtract out any fixed margins from our available width for auto width tables.
@@ -282,30 +287,30 @@ void LayoutTable::updateLogicalWidth()
         LayoutUnit marginTotal = marginStart + marginEnd;
 
         // Subtract out our margins to get the available content width.
-        LayoutUnit availableContentLogicalWidth = std::max<LayoutUnit>(0, containerWidthInInlineDirection - marginTotal);
+        LayoutUnit availableContentLogicalWidth = (containerWidthInInlineDirection - marginTotal).clampNegativeToZero();
         if (shrinkToAvoidFloats() && cb->isLayoutBlockFlow() && toLayoutBlockFlow(cb)->containsFloats() && !hasPerpendicularContainingBlock)
             availableContentLogicalWidth = shrinkLogicalWidthToAvoidFloats(marginStart, marginEnd, toLayoutBlockFlow(cb));
 
         // Ensure we aren't bigger than our available width.
-        setLogicalWidth(std::min<int>(availableContentLogicalWidth, maxPreferredLogicalWidth()));
+        setLogicalWidth(LayoutUnit(std::min(availableContentLogicalWidth, maxPreferredLogicalWidth()).floor()));
     }
 
     // Ensure we aren't bigger than our max-width style.
     Length styleMaxLogicalWidth = style()->logicalMaxWidth();
     if ((styleMaxLogicalWidth.isSpecified() && !styleMaxLogicalWidth.isNegative()) || styleMaxLogicalWidth.isIntrinsic()) {
         LayoutUnit computedMaxLogicalWidth = convertStyleLogicalWidthToComputedWidth(styleMaxLogicalWidth, availableLogicalWidth);
-        setLogicalWidth(std::min<int>(logicalWidth(), computedMaxLogicalWidth));
+        setLogicalWidth(LayoutUnit(std::min(logicalWidth(), computedMaxLogicalWidth).floor()));
     }
 
     // Ensure we aren't smaller than our min preferred width. This MUST be done after 'max-width' as
-    // we ignore it if it means we wouldn't accomodate our content.
-    setLogicalWidth(std::max<int>(logicalWidth(), minPreferredLogicalWidth()));
+    // we ignore it if it means we wouldn't accommodate our content.
+    setLogicalWidth(LayoutUnit(std::max(logicalWidth(), minPreferredLogicalWidth()).floor()));
 
     // Ensure we aren't smaller than our min-width style.
     Length styleMinLogicalWidth = style()->logicalMinWidth();
     if ((styleMinLogicalWidth.isSpecified() && !styleMinLogicalWidth.isNegative()) || styleMinLogicalWidth.isIntrinsic()) {
         LayoutUnit computedMinLogicalWidth = convertStyleLogicalWidthToComputedWidth(styleMinLogicalWidth, availableLogicalWidth);
-        setLogicalWidth(std::max<int>(logicalWidth(), computedMinLogicalWidth));
+        setLogicalWidth(LayoutUnit(std::max(logicalWidth(), computedMinLogicalWidth).floor()));
     }
 
     // Finally, with our true width determined, compute our margins for real.
@@ -314,11 +319,11 @@ void LayoutTable::updateLogicalWidth()
     setMarginStart(marginValues.m_start);
     setMarginEnd(marginValues.m_end);
 
-    // We should NEVER shrink the table below the min-content logical width, or else the table can't accomodate
+    // We should NEVER shrink the table below the min-content logical width, or else the table can't accommodate
     // its own content which doesn't match CSS nor what authors expect.
     // FIXME: When we convert to sub-pixel layout for tables we can remove the int conversion
     // https://code.google.com/p/chromium/issues/detail?id=241198
-    ASSERT(logicalWidth().toInt() >= minPreferredLogicalWidth().toInt());
+    ASSERT(logicalWidth().floor() >= minPreferredLogicalWidth().floor());
 }
 
 // This method takes a ComputedStyle's logical width, min-width, or max-width length and computes its actual value.
@@ -328,7 +333,7 @@ LayoutUnit LayoutTable::convertStyleLogicalWidthToComputedWidth(const Length& st
         return computeIntrinsicLogicalWidthUsing(styleLogicalWidth, availableWidth, bordersPaddingAndSpacingInRowDirection());
 
     // HTML tables' width styles already include borders and paddings, but CSS tables' width styles do not.
-    LayoutUnit borders = 0;
+    LayoutUnit borders;
     bool isCSSTable = !isHTMLTableElement(node());
     if (isCSSTable && styleLogicalWidth.isSpecified() && styleLogicalWidth.isPositive() && style()->boxSizing() == CONTENT_BOX)
         borders = borderStart() + borderEnd() + (collapseBorders() ? LayoutUnit() : paddingStart() + paddingEnd());
@@ -341,7 +346,7 @@ LayoutUnit LayoutTable::convertStyleLogicalHeightToComputedHeight(const Length& 
     LayoutUnit borderAndPaddingBefore = borderBefore() + (collapseBorders() ? LayoutUnit() : paddingBefore());
     LayoutUnit borderAndPaddingAfter = borderAfter() + (collapseBorders() ? LayoutUnit() : paddingAfter());
     LayoutUnit borderAndPadding = borderAndPaddingBefore + borderAndPaddingAfter;
-    LayoutUnit computedLogicalHeight = 0;
+    LayoutUnit computedLogicalHeight;
     if (styleLogicalHeight.isFixed()) {
         // HTML tables size as though CSS height includes border/padding, CSS tables do not.
         LayoutUnit borders = LayoutUnit();
@@ -349,7 +354,7 @@ LayoutUnit LayoutTable::convertStyleLogicalHeightToComputedHeight(const Length& 
         if (isHTMLTableElement(node()) || style()->boxSizing() == BORDER_BOX) {
             borders = borderAndPadding;
         }
-        computedLogicalHeight = styleLogicalHeight.value() - borders;
+        computedLogicalHeight = LayoutUnit(styleLogicalHeight.value() - borders);
     } else if (styleLogicalHeight.hasPercent()) {
         computedLogicalHeight = computePercentageLogicalHeight(styleLogicalHeight);
     } else if (styleLogicalHeight.isIntrinsic()) {
@@ -357,7 +362,7 @@ LayoutUnit LayoutTable::convertStyleLogicalHeightToComputedHeight(const Length& 
     } else {
         ASSERT_NOT_REACHED();
     }
-    return std::max<LayoutUnit>(0, computedLogicalHeight);
+    return computedLogicalHeight.clampNegativeToZero();
 }
 
 void LayoutTable::layoutCaption(LayoutTableCaption& caption)
@@ -437,7 +442,7 @@ void LayoutTable::layout()
         LayoutUnit oldLogicalWidth = logicalWidth();
         LayoutUnit oldLogicalHeight = logicalHeight();
 
-        setLogicalHeight(0);
+        setLogicalHeight(LayoutUnit());
         updateLogicalWidth();
 
         if (logicalWidth() != oldLogicalWidth) {
@@ -451,8 +456,8 @@ void LayoutTable::layout()
         // if ( oldWidth != width() || columns.size() + 1 != columnPos.size() )
         m_tableLayout->layout();
 
-        LayoutUnit totalSectionLogicalHeight = 0;
-        LayoutUnit oldTableLogicalTop = 0;
+        LayoutUnit totalSectionLogicalHeight;
+        LayoutUnit oldTableLogicalTop;
         for (unsigned i = 0; i < m_captions.size(); i++)
             oldTableLogicalTop += m_captions[i]->logicalHeight() + m_captions[i]->marginBefore() + m_captions[i]->marginAfter();
 
@@ -496,7 +501,7 @@ void LayoutTable::layout()
 
         setLogicalHeight(logicalHeight() + borderAndPaddingBefore);
 
-        LayoutUnit computedLogicalHeight = 0;
+        LayoutUnit computedLogicalHeight;
 
         Length logicalHeightLength = style()->logicalHeight();
         if (logicalHeightLength.isIntrinsic() || (logicalHeightLength.isSpecified() && logicalHeightLength.isPositive()))
@@ -525,7 +530,7 @@ void LayoutTable::layout()
             setLogicalHeight(logicalHeight() + computedLogicalHeight);
         }
 
-        LayoutUnit sectionLogicalLeft = style()->isLeftToRightDirection() ? borderStart() : borderEnd();
+        LayoutUnit sectionLogicalLeft = LayoutUnit(style()->isLeftToRightDirection() ? borderStart() : borderEnd());
         if (!collapsing)
             sectionLogicalLeft += style()->isLeftToRightDirection() ? paddingStart() : paddingEnd();
 
@@ -655,11 +660,11 @@ void LayoutTable::subtractCaptionRect(LayoutRect& rect) const
         if (style()->isHorizontalWritingMode()) {
             rect.setHeight(rect.height() - captionLogicalHeight);
             if (captionIsBefore)
-                rect.move(0, captionLogicalHeight);
+                rect.move(LayoutUnit(), captionLogicalHeight);
         } else {
             rect.setWidth(rect.width() - captionLogicalHeight);
             if (captionIsBefore)
-                rect.move(captionLogicalHeight, 0);
+                rect.move(captionLogicalHeight, LayoutUnit());
         }
     }
 }
@@ -729,12 +734,12 @@ LayoutTableSection* LayoutTable::topNonEmptySection() const
     return section;
 }
 
-void LayoutTable::splitColumn(unsigned position, unsigned firstSpan)
+void LayoutTable::splitEffectiveColumn(unsigned index, unsigned firstSpan)
 {
-    // We split the column at "position", taking "firstSpan" cells from the span.
-    ASSERT(m_columns[position].span > firstSpan);
-    m_columns.insert(position, ColumnStruct(firstSpan));
-    m_columns[position + 1].span -= firstSpan;
+    // We split the column at |index|, taking |firstSpan| cells from the span.
+    ASSERT(m_effectiveColumns[index].span > firstSpan);
+    m_effectiveColumns.insert(index, firstSpan);
+    m_effectiveColumns[index + 1].span -= firstSpan;
 
     // Propagate the change in our columns representation to the sections that don't need
     // cell recalc. If they do, they will be synced up directly with m_columns later.
@@ -746,16 +751,16 @@ void LayoutTable::splitColumn(unsigned position, unsigned firstSpan)
         if (section->needsCellRecalc())
             continue;
 
-        section->splitColumn(position, firstSpan);
+        section->splitEffectiveColumn(index, firstSpan);
     }
 
-    m_columnPos.grow(numEffCols() + 1);
+    m_effectiveColumnPositions.grow(numEffectiveColumns() + 1);
 }
 
-void LayoutTable::appendColumn(unsigned span)
+void LayoutTable::appendEffectiveColumn(unsigned span)
 {
-    unsigned newColumnIndex = m_columns.size();
-    m_columns.append(ColumnStruct(span));
+    unsigned newColumnIndex = m_effectiveColumns.size();
+    m_effectiveColumns.append(span);
 
     // Unless the table has cell(s) with colspan that exceed the number of columns afforded
     // by the other rows in the table we can use the fast path when mapping columns to effective columns.
@@ -771,10 +776,10 @@ void LayoutTable::appendColumn(unsigned span)
         if (section->needsCellRecalc())
             continue;
 
-        section->appendColumn(newColumnIndex);
+        section->appendEffectiveColumn(newColumnIndex);
     }
 
-    m_columnPos.grow(numEffCols() + 1);
+    m_effectiveColumnPositions.grow(numEffectiveColumns() + 1);
 }
 
 LayoutTableCol* LayoutTable::firstColumn() const
@@ -801,7 +806,7 @@ void LayoutTable::updateColumnCache() const
     m_columnLayoutObjectsValid = true;
 }
 
-LayoutTableCol* LayoutTable::slowColElement(unsigned col, bool* startEdge, bool* endEdge) const
+LayoutTable::ColAndColGroup LayoutTable::slowColElementAtAbsoluteColumn(unsigned absoluteColumnIndex) const
 {
     ASSERT(m_hasColElements);
 
@@ -811,20 +816,32 @@ LayoutTableCol* LayoutTable::slowColElement(unsigned col, bool* startEdge, bool*
     unsigned columnCount = 0;
     for (unsigned i = 0; i < m_columnLayoutObjects.size(); i++) {
         LayoutTableCol* columnLayoutObject = m_columnLayoutObjects[i];
+        ASSERT(!columnLayoutObject->isTableColumnGroupWithColumnChildren());
         unsigned span = columnLayoutObject->span();
         unsigned startCol = columnCount;
         ASSERT(span >= 1);
         unsigned endCol = columnCount + span - 1;
         columnCount += span;
-        if (columnCount > col) {
-            if (startEdge)
-                *startEdge = startCol == col;
-            if (endEdge)
-                *endEdge = endCol == col;
-            return columnLayoutObject;
+        if (columnCount > absoluteColumnIndex) {
+            ColAndColGroup colAndColGroup;
+            bool isAtStartEdge = startCol == absoluteColumnIndex;
+            bool isAtEndEdge = endCol == absoluteColumnIndex;
+            if (columnLayoutObject->isTableColumnGroup()) {
+                colAndColGroup.colgroup = columnLayoutObject;
+                colAndColGroup.adjoinsStartBorderOfColGroup = isAtStartEdge;
+                colAndColGroup.adjoinsEndBorderOfColGroup = isAtEndEdge;
+            } else {
+                colAndColGroup.col = columnLayoutObject;
+                colAndColGroup.colgroup = columnLayoutObject->enclosingColumnGroup();
+                if (colAndColGroup.colgroup) {
+                    colAndColGroup.adjoinsStartBorderOfColGroup = isAtStartEdge && !colAndColGroup.col->previousSibling();
+                    colAndColGroup.adjoinsEndBorderOfColGroup = isAtEndEdge && !colAndColGroup.col->nextSibling();
+                }
+            }
+            return colAndColGroup;
         }
     }
-    return nullptr;
+    return ColAndColGroup();
 }
 
 void LayoutTable::recalcSections() const
@@ -884,14 +901,14 @@ void LayoutTable::recalcSections() const
     for (LayoutObject* child = firstChild(); child; child = child->nextSibling()) {
         if (child->isTableSection()) {
             LayoutTableSection* section = toLayoutTableSection(child);
-            unsigned sectionCols = section->numColumns();
+            unsigned sectionCols = section->numEffectiveColumns();
             if (sectionCols > maxCols)
                 maxCols = sectionCols;
         }
     }
 
-    m_columns.resize(maxCols);
-    m_columnPos.resize(maxCols + 1);
+    m_effectiveColumns.resize(maxCols);
+    m_effectiveColumnPositions.resize(maxCols + 1);
 
     ASSERT(selfNeedsLayout());
 
@@ -904,7 +921,7 @@ int LayoutTable::calcBorderStart() const
         return LayoutBlock::borderStart();
 
     // Determined by the first cell of the first row. See the CSS 2.1 spec, section 17.6.2.
-    if (!numEffCols())
+    if (!numEffectiveColumns())
         return 0;
 
     int borderWidth = 0;
@@ -915,14 +932,14 @@ int LayoutTable::calcBorderStart() const
     if (tableStartBorder.style() > BHIDDEN)
         borderWidth = tableStartBorder.width();
 
-    if (LayoutTableCol* column = colElement(0)) {
+    // TODO(dgrogan): This logic doesn't properly account for the first column in the first column-group case.
+    if (LayoutTableCol* column = colElementAtAbsoluteColumn(0).innermostColOrColGroup()) {
         // FIXME: We don't account for direction on columns and column groups.
         const BorderValue& columnAdjoiningBorder = column->style()->borderStart();
         if (columnAdjoiningBorder.style() == BHIDDEN)
             return 0;
         if (columnAdjoiningBorder.style() > BHIDDEN)
             borderWidth = std::max(borderWidth, columnAdjoiningBorder.width());
-        // FIXME: This logic doesn't properly account for the first column in the first column-group case.
     }
 
     if (const LayoutTableSection* topNonEmptySection = this->topNonEmptySection()) {
@@ -958,7 +975,7 @@ int LayoutTable::calcBorderEnd() const
         return LayoutBlock::borderEnd();
 
     // Determined by the last cell of the first row. See the CSS 2.1 spec, section 17.6.2.
-    if (!numEffCols())
+    if (!numEffectiveColumns())
         return 0;
 
     int borderWidth = 0;
@@ -969,15 +986,16 @@ int LayoutTable::calcBorderEnd() const
     if (tableEndBorder.style() > BHIDDEN)
         borderWidth = tableEndBorder.width();
 
-    unsigned endColumn = numEffCols() - 1;
-    if (LayoutTableCol* column = colElement(endColumn)) {
+    unsigned endColumn = numEffectiveColumns() - 1;
+
+    // TODO(dgrogan): This logic doesn't properly account for the last column in the last column-group case.
+    if (LayoutTableCol* column = colElementAtAbsoluteColumn(endColumn).innermostColOrColGroup()) {
         // FIXME: We don't account for direction on columns and column groups.
         const BorderValue& columnAdjoiningBorder = column->style()->borderEnd();
         if (columnAdjoiningBorder.style() == BHIDDEN)
             return 0;
         if (columnAdjoiningBorder.style() > BHIDDEN)
             borderWidth = std::max(borderWidth, columnAdjoiningBorder.width());
-        // FIXME: This logic doesn't properly account for the last column in the last column-group case.
     }
 
     if (const LayoutTableSection* topNonEmptySection = this->topNonEmptySection()) {
@@ -1196,7 +1214,7 @@ LayoutTableCell* LayoutTable::cellAbove(const LayoutTableCell* cell) const
 
     // Look up the cell in the section's grid, which requires effective col index
     if (section) {
-        unsigned effCol = colToEffCol(cell->col());
+        unsigned effCol = absoluteColumnToEffectiveColumn(cell->absoluteColumnIndex());
         LayoutTableSection::CellStruct& aboveCell = section->cellAt(rAbove, effCol);
         return aboveCell.primaryCell();
     }
@@ -1223,7 +1241,7 @@ LayoutTableCell* LayoutTable::cellBelow(const LayoutTableCell* cell) const
 
     // Look up the cell in the section's grid, which requires effective col index
     if (section) {
-        unsigned effCol = colToEffCol(cell->col());
+        unsigned effCol = absoluteColumnToEffectiveColumn(cell->absoluteColumnIndex());
         LayoutTableSection::CellStruct& belowCell = section->cellAt(rBelow, effCol);
         return belowCell.primaryCell();
     }
@@ -1235,7 +1253,7 @@ LayoutTableCell* LayoutTable::cellBefore(const LayoutTableCell* cell) const
     recalcSectionsIfNeeded();
 
     LayoutTableSection* section = cell->section();
-    unsigned effCol = colToEffCol(cell->col());
+    unsigned effCol = absoluteColumnToEffectiveColumn(cell->absoluteColumnIndex());
     if (!effCol)
         return nullptr;
 
@@ -1248,8 +1266,8 @@ LayoutTableCell* LayoutTable::cellAfter(const LayoutTableCell* cell) const
 {
     recalcSectionsIfNeeded();
 
-    unsigned effCol = colToEffCol(cell->col() + cell->colSpan());
-    if (effCol >= numEffCols())
+    unsigned effCol = absoluteColumnToEffectiveColumn(cell->absoluteColumnIndex() + cell->colSpan());
+    if (effCol >= numEffectiveColumns())
         return nullptr;
     return cell->section()->primaryCellAt(cell->rowIndex(), effCol);
 }
@@ -1344,7 +1362,7 @@ bool LayoutTable::nodeAtPoint(HitTestResult& result, const HitTestLocation& loca
     LayoutRect boundsRect(adjustedLocation, size());
     if (visibleToHitTestRequest(result.hitTestRequest()) && (action == HitTestBlockBackground || action == HitTestChildBlockBackground) && locationInContainer.intersects(boundsRect)) {
         updateHitTestResult(result, flipForWritingMode(locationInContainer.point() - toLayoutSize(adjustedLocation)));
-        if (!result.addNodeToListBasedTestResult(node(), locationInContainer, boundsRect))
+        if (result.addNodeToListBasedTestResult(node(), locationInContainer, boundsRect) == StopHitTesting)
             return true;
     }
 
@@ -1353,7 +1371,7 @@ bool LayoutTable::nodeAtPoint(HitTestResult& result, const HitTestLocation& loca
 
 LayoutTable* LayoutTable::createAnonymousWithParent(const LayoutObject* parent)
 {
-    RefPtr<ComputedStyle> newStyle = ComputedStyle::createAnonymousStyleWithDisplay(parent->styleRef(), TABLE);
+    RefPtr<ComputedStyle> newStyle = ComputedStyle::createAnonymousStyleWithDisplay(parent->styleRef(), parent->isLayoutInline() ? INLINE_TABLE : TABLE);
     LayoutTable* newTable = new LayoutTable(nullptr);
     newTable->setDocumentForAnonymous(&parent->document());
     newTable->setStyle(newStyle.release());
@@ -1396,8 +1414,9 @@ void LayoutTable::invalidatePaintOfSubtreesIfNeeded(PaintInvalidationState& chil
             continue;
         for (LayoutTableRow* row = toLayoutTableSection(section)->firstRow(); row; row = row->nextRow()) {
             for (LayoutTableCell* cell = row->firstCell(); cell; cell = cell->nextCell()) {
-                LayoutTableCol* column = colElement(cell->col());
-                LayoutTableCol* columnGroup = column ? column->enclosingColumnGroup() : 0;
+                ColAndColGroup colAndColGroup = colElementAtAbsoluteColumn(cell->absoluteColumnIndex());
+                LayoutTableCol* column = colAndColGroup.col;
+                LayoutTableCol* columnGroup = colAndColGroup.colgroup;
                 // Table cells paint container's background on the container's backing instead of its own (if any),
                 // so we must invalidate it by the containers.
                 bool invalidated = false;
@@ -1448,4 +1467,4 @@ LayoutUnit LayoutTable::paddingRight() const
     return LayoutBlock::paddingRight();
 }
 
-}
+} // namespace blink

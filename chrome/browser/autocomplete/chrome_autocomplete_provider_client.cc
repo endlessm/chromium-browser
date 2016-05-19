@@ -4,8 +4,11 @@
 
 #include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 
-#include "base/prefs/pref_service.h"
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/autocomplete/in_memory_url_index_factory.h"
 #include "chrome/browser/autocomplete/shortcuts_backend_factory.h"
@@ -20,10 +23,10 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/prefs/pref_service.h"
 #include "components/sync_driver/sync_service_utils.h"
 #include "content/public/browser/notification_service.h"
 
@@ -198,10 +201,6 @@ bool ChromeAutocompleteProviderClient::IsOffTheRecord() const {
 
 bool ChromeAutocompleteProviderClient::SearchSuggestEnabled() const {
   return profile_->GetPrefs()->GetBoolean(prefs::kSearchSuggestEnabled);
-}
-
-bool ChromeAutocompleteProviderClient::BookmarkBarIsVisible() const {
-  return profile_->GetPrefs()->GetBoolean(bookmarks::prefs::kShowBookmarkBar);
 }
 
 bool ChromeAutocompleteProviderClient::TabSyncEnabledAndUnencrypted() const {

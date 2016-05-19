@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_SYNC_DRIVER_FAKE_SYNC_CLIENT_H_
 #define COMPONENTS_SYNC_DRIVER_FAKE_SYNC_CLIENT_H_
 
+#include "base/macros.h"
 #include "components/sync_driver/sync_client.h"
 
 namespace sync_driver {
@@ -17,23 +18,24 @@ class FakeSyncClient : public SyncClient {
   explicit FakeSyncClient(SyncApiComponentFactory* factory);
   ~FakeSyncClient() override;
 
-  void Initialize(SyncService* sync_service) override;
+  void Initialize() override;
 
   SyncService* GetSyncService() override;
   PrefService* GetPrefService() override;
   bookmarks::BookmarkModel* GetBookmarkModel() override;
   favicon::FaviconService* GetFaviconService() override;
   history::HistoryService* GetHistoryService() override;
-  scoped_refptr<password_manager::PasswordStore> GetPasswordStore() override;
-  ClearBrowsingDataCallback GetClearBrowsingDataCallback() override;
   base::Closure GetPasswordStateChangedCallback() override;
+  sync_driver::SyncApiComponentFactory::RegisterDataTypesMethod
+  GetRegisterPlatformTypesCallback() override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
-  scoped_refptr<autofill::AutofillWebDataService> GetWebDataService() override;
   BookmarkUndoService* GetBookmarkUndoServiceIfExists() override;
   invalidation::InvalidationService* GetInvalidationService() override;
   scoped_refptr<syncer::ExtensionsActivity> GetExtensionsActivity() override;
   sync_sessions::SyncSessionsClient* GetSyncSessionsClient() override;
   base::WeakPtr<syncer::SyncableService> GetSyncableServiceForType(
+      syncer::ModelType type) override;
+  base::WeakPtr<syncer_v2::ModelTypeService> GetModelTypeServiceForType(
       syncer::ModelType type) override;
   scoped_refptr<syncer::ModelSafeWorker> CreateModelWorkerForGroup(
       syncer::ModelSafeGroup group,

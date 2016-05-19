@@ -6,6 +6,7 @@
 #define EXTENSIONS_BROWSER_API_MANAGEMENT_MANAGEMENT_API_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "base/strings/string16.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -113,9 +114,6 @@ class ManagementSetEnabledFunction : public UIThreadExtensionFunction {
 
   ManagementSetEnabledFunction();
 
-  void InstallUIProceed();
-  void InstallUIAbort(bool user_initiated);
-
  protected:
   ~ManagementSetEnabledFunction() override;
 
@@ -123,6 +121,8 @@ class ManagementSetEnabledFunction : public UIThreadExtensionFunction {
   ResponseAction Run() override;
 
  private:
+  void OnInstallPromptDone(bool did_accept);
+
   void OnRequirementsChecked(const std::vector<std::string>& requirements);
 
   std::string extension_id_;

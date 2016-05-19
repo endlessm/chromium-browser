@@ -5,15 +5,15 @@
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "core/include/fxcrt/fx_ext.h"
-#include "fx_fpf.h"
+#include "core/src/fxge/android/fx_fpf.h"
 
 #if _FX_OS_ == _FX_ANDROID_
 #define FPF_SKIAMATCHWEIGHT_NAME1 62
 #define FPF_SKIAMATCHWEIGHT_NAME2 60
 #define FPF_SKIAMATCHWEIGHT_1 16
 #define FPF_SKIAMATCHWEIGHT_2 8
-#include "fpf_skiafontmgr.h"
-#include "fpf_skiafont.h"
+#include "core/src/fxge/android/fpf_skiafont.h"
+#include "core/src/fxge/android/fpf_skiafontmgr.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,11 +37,10 @@ static void FPF_SkiaStream_Close(FXFT_Stream stream) {}
 #ifdef __cplusplus
 };
 #endif
-typedef struct _FPF_SKIAFONTMAP {
+struct FPF_SKIAFONTMAP {
   FX_DWORD dwFamily;
   FX_DWORD dwSubSt;
-} FPF_SKIAFONTMAP, *FPF_LPSKIAFONTMAP;
-typedef FPF_SKIAFONTMAP const* FPF_LPCSKIAFONTMAP;
+};
 static const FPF_SKIAFONTMAP g_SkiaFontmap[] = {
     {0x58c5083, 0xc8d2e345},  {0x5dfade2, 0xe1633081},
     {0x684317d, 0xe1633081},  {0x14ee2d13, 0xc8d2e345},
@@ -60,7 +59,7 @@ FX_DWORD FPF_SkiaGetSubstFont(FX_DWORD dwHash) {
   int32_t iEnd = sizeof(g_SkiaFontmap) / sizeof(FPF_SKIAFONTMAP);
   while (iStart <= iEnd) {
     int32_t iMid = (iStart + iEnd) / 2;
-    FPF_LPCSKIAFONTMAP pItem = &g_SkiaFontmap[iMid];
+    const FPF_SKIAFONTMAP* pItem = &g_SkiaFontmap[iMid];
     if (dwHash < pItem->dwFamily) {
       iEnd = iMid - 1;
     } else if (dwHash > pItem->dwFamily) {
@@ -81,7 +80,7 @@ FX_DWORD FPF_SkiaGetSansFont(FX_DWORD dwHash) {
   int32_t iEnd = sizeof(g_SkiaSansFontMap) / sizeof(FPF_SKIAFONTMAP);
   while (iStart <= iEnd) {
     int32_t iMid = (iStart + iEnd) / 2;
-    FPF_LPCSKIAFONTMAP pItem = &g_SkiaSansFontMap[iMid];
+    const FPF_SKIAFONTMAP* pItem = &g_SkiaSansFontMap[iMid];
     if (dwHash < pItem->dwFamily) {
       iEnd = iMid - 1;
     } else if (dwHash > pItem->dwFamily) {
@@ -217,28 +216,21 @@ static FX_BOOL FPF_SkiaMaybeArabic(const CFX_ByteStringC& bsFacename) {
 }
 CFPF_SkiaFontMgr::CFPF_SkiaFontMgr() : m_bLoaded(FALSE), m_FTLibrary(NULL) {}
 CFPF_SkiaFontMgr::~CFPF_SkiaFontMgr() {
-  void* pkey = NULL;
-  CFPF_SkiaFont* pValue = NULL;
-  FX_POSITION pos = m_FamilyFonts.GetStartPosition();
-  while (pos) {
-    m_FamilyFonts.GetNextAssoc(pos, pkey, (void*&)pValue);
-    if (pValue) {
-      pValue->Release();
-    }
+  for (const auto& pair : m_FamilyFonts) {
+    if (pair.second)
+      pair.second->Release();
   }
-  m_FamilyFonts.RemoveAll();
-  for (int32_t i = m_FontFaces.GetUpperBound(); i >= 0; i--) {
-    CFPF_SkiaFontDescriptor* pFont =
-        (CFPF_SkiaFontDescriptor*)m_FontFaces.ElementAt(i);
-    delete pFont;
+  m_FamilyFonts.clear();
+  for (auto it = m_FontFaces.rbegin(); it != m_FontFaces.rend(); ++it) {
+    delete *it;
   }
-  m_FontFaces.RemoveAll();
+  m_FontFaces.clear();
   if (m_FTLibrary) {
     FXFT_Done_FreeType(m_FTLibrary);
   }
 }
 FX_BOOL CFPF_SkiaFontMgr::InitFTLibrary() {
-  if (m_FTLibrary == NULL) {
+  if (!m_FTLibrary) {
     FXFT_Init_FreeType(&m_FTLibrary);
   }
   return m_FTLibrary != NULL;
@@ -247,7 +239,7 @@ void CFPF_SkiaFontMgr::LoadSystemFonts() {
   if (m_bLoaded) {
     return;
   }
-  ScanPath(FX_BSTRC("/system/fonts"));
+  ScanPath("/system/fonts");
   OutputSystemFonts();
   m_bLoaded = TRUE;
 }
@@ -259,12 +251,10 @@ IFPF_Font* CFPF_SkiaFontMgr::CreateFont(const CFX_ByteStringC& bsFamilyname,
                                         FX_DWORD dwStyle,
                                         FX_DWORD dwMatch) {
   FX_DWORD dwHash = FPF_SKIAGetFamilyHash(bsFamilyname, dwStyle, uCharset);
-  IFPF_Font* pFont = NULL;
-  if (m_FamilyFonts.Lookup((void*)(uintptr_t)dwHash, (void*&)pFont)) {
-    if (pFont) {
-      return pFont->Retain();
-    }
-  }
+  auto it = m_FamilyFonts.find(dwHash);
+  if (it != m_FamilyFonts.end() && it->second)
+    return it->second->Retain();
+
   FX_DWORD dwFaceName = FPF_SKIANormalizeFontName(bsFamilyname);
   FX_DWORD dwSubst = FPF_SkiaGetSubstFont(dwFaceName);
   FX_DWORD dwSubstSans = FPF_SkiaGetSansFont(dwFaceName);
@@ -280,8 +270,8 @@ IFPF_Font* CFPF_SkiaFontMgr::CreateFont(const CFX_ByteStringC& bsFamilyname,
   int32_t nItem = -1;
   int32_t nMax = -1;
   int32_t nGlyphNum = 0;
-  for (int32_t i = m_FontFaces.GetUpperBound(); i >= 0; i--) {
-    CFPF_SkiaPathFont* pFontDes = (CFPF_SkiaPathFont*)m_FontFaces.ElementAt(i);
+  for (auto it = m_FontFaces.rbegin(); it != m_FontFaces.rend(); ++it) {
+    CFPF_SkiaPathFont* pFontDes = static_cast<CFPF_SkiaPathFont*>(*it);
     if (!(pFontDes->m_dwCharsets & FPF_SkiaGetCharset(uCharset))) {
       continue;
     }
@@ -314,28 +304,27 @@ IFPF_Font* CFPF_SkiaFontMgr::CreateFont(const CFX_ByteStringC& bsFamilyname,
     if (uCharset == FXFONT_DEFAULT_CHARSET || bMaybeSymbol) {
       if (nFind > nMax && bMatchedName) {
         nMax = nFind;
-        nItem = i;
+        nItem = it - m_FontFaces.rbegin();
       }
     } else if (FPF_SkiaIsCJK(uCharset)) {
       if (bMatchedName || pFontDes->m_iGlyphNum > nGlyphNum) {
-        nItem = i;
+        nItem = it - m_FontFaces.rbegin();
         nGlyphNum = pFontDes->m_iGlyphNum;
       }
     } else if (nFind > nMax) {
       nMax = nFind;
-      nItem = i;
+      nItem = it - m_FontFaces.rbegin();
     }
     if (nExpectVal <= nFind) {
-      nItem = i;
+      nItem = it - m_FontFaces.rbegin();
       break;
     }
   }
   if (nItem > -1) {
-    CFPF_SkiaFontDescriptor* pFontDes =
-        (CFPF_SkiaFontDescriptor*)m_FontFaces.ElementAt(nItem);
+    CFPF_SkiaFontDescriptor* pFontDes = m_FontFaces[nItem];
     CFPF_SkiaFont* pFont = new CFPF_SkiaFont;
     if (pFont->InitFont(this, pFontDes, bsFamilyname, dwStyle, uCharset)) {
-      m_FamilyFonts.SetAt((void*)(uintptr_t)dwHash, (void*)pFont);
+      m_FamilyFonts[dwHash] = pFont;
       return pFont->Retain();
     }
     pFont->Release();
@@ -416,13 +405,13 @@ void CFPF_SkiaFontMgr::ScanPath(const CFX_ByteStringC& path) {
   FX_BOOL bFolder = FALSE;
   while (FX_GetNextFile(handle, filename, bFolder)) {
     if (bFolder) {
-      if (filename == FX_BSTRC(".") || filename == FX_BSTRC("..")) {
+      if (filename == "." || filename == "..") {
         continue;
       }
     } else {
       CFX_ByteString ext = filename.Right(4);
       ext.MakeLower();
-      if (ext != FX_BSTRC(".ttf") && ext != FX_BSTRC(".ttc")) {
+      if (ext != ".ttf" && ext != ".ttc" && ext != ".otf") {
         continue;
       }
     }
@@ -443,7 +432,7 @@ void CFPF_SkiaFontMgr::ScanFile(const CFX_ByteStringC& file) {
     CFPF_SkiaPathFont* pFontDesc = new CFPF_SkiaPathFont;
     pFontDesc->SetPath(file.GetCStr());
     ReportFace(face, pFontDesc);
-    m_FontFaces.Add(pFontDesc);
+    m_FontFaces.push_back(pFontDesc);
     FXFT_Done_Face(face);
   }
 }

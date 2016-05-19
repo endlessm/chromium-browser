@@ -70,6 +70,13 @@ bool GLContextEGL::Initialize(
     context_attributes = kContextAttributes;
   }
 
+  if (!eglBindAPI(EGL_OPENGL_ES_API)) {
+    LOG(ERROR) << "eglBindApi failed with error "
+               << GetLastEGLErrorString();
+    return false;
+  }
+
+
   context_ = eglCreateContext(
       display_,
       config_,
@@ -215,13 +222,5 @@ bool GLContextEGL::WasAllocatedUsingRobustnessExtension() {
 GLContextEGL::~GLContextEGL() {
   Destroy();
 }
-
-#if !defined(OS_ANDROID)
-bool GLContextEGL::GetTotalGpuMemory(size_t* bytes) {
-  DCHECK(bytes);
-  *bytes = 0;
-  return false;
-}
-#endif
 
 }  // namespace gfx

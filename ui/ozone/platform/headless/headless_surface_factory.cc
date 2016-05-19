@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/stl_util.h"
+#include "base/macros.h"
 #include "base/threading/worker_pool.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -16,6 +16,7 @@
 #include "ui/gfx/vsync_provider.h"
 #include "ui/ozone/platform/headless/headless_window.h"
 #include "ui/ozone/platform/headless/headless_window_manager.h"
+#include "ui/ozone/public/native_pixmap.h"
 #include "ui/ozone/public/surface_ozone_canvas.h"
 
 namespace ui {
@@ -26,8 +27,7 @@ void WriteDataToFile(const base::FilePath& location, const SkBitmap& bitmap) {
   DCHECK(!location.empty());
   std::vector<unsigned char> png_data;
   gfx::PNGCodec::FastEncodeBGRASkBitmap(bitmap, true, &png_data);
-  base::WriteFile(location,
-                  reinterpret_cast<const char*>(vector_as_array(&png_data)),
+  base::WriteFile(location, reinterpret_cast<const char*>(png_data.data()),
                   png_data.size());
 }
 
@@ -65,6 +65,36 @@ class FileSurface : public SurfaceOzoneCanvas {
   skia::RefPtr<SkSurface> surface_;
 };
 
+class TestPixmap : public ui::NativePixmap {
+ public:
+  TestPixmap(gfx::BufferFormat format) : format_(format) {}
+
+  void* GetEGLClientBuffer() const override { return nullptr; }
+  int GetDmaBufFd() const override { return -1; }
+  int GetDmaBufPitch() const override { return 0; }
+  gfx::BufferFormat GetBufferFormat() const override { return format_; }
+  gfx::Size GetBufferSize() const override { return gfx::Size(); }
+  bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
+                            int plane_z_order,
+                            gfx::OverlayTransform plane_transform,
+                            const gfx::Rect& display_bounds,
+                            const gfx::RectF& crop_rect) override {
+    return true;
+  }
+  void SetProcessingCallback(
+      const ProcessingCallback& processing_callback) override {}
+  gfx::NativePixmapHandle ExportHandle() override {
+    return gfx::NativePixmapHandle();
+  }
+
+ private:
+  ~TestPixmap() override {}
+
+  gfx::BufferFormat format_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestPixmap);
+};
+
 }  // namespace
 
 HeadlessSurfaceFactory::HeadlessSurfaceFactory()
@@ -86,6 +116,14 @@ bool HeadlessSurfaceFactory::LoadEGLGLES2Bindings(
     AddGLLibraryCallback add_gl_library,
     SetGLGetProcAddressProcCallback set_gl_get_proc_address) {
   return false;
+}
+
+scoped_refptr<NativePixmap> HeadlessSurfaceFactory::CreateNativePixmap(
+    gfx::AcceleratedWidget widget,
+    gfx::Size size,
+    gfx::BufferFormat format,
+    gfx::BufferUsage usage) {
+  return new TestPixmap(format);
 }
 
 }  // namespace ui

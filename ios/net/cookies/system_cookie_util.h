@@ -5,13 +5,11 @@
 #ifndef IOS_NET_COOKIES_SYSTEM_COOKIE_UTIL_H_
 #define IOS_NET_COOKIES_SYSTEM_COOKIE_UTIL_H_
 
+#include <stddef.h>
+
 #include "net/cookies/canonical_cookie.h"
 
-#if defined(__OBJC__)
 @class NSHTTPCookie;
-#else
-class NSHTTPCookie;
-#endif
 
 namespace base {
 class Time;

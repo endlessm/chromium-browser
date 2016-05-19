@@ -5,10 +5,11 @@
 #ifndef BASE_DEBUG_PROFILER_H_
 #define BASE_DEBUG_PROFILER_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 
 // The Profiler functions allow usage of the underlying sampling based
 // profiler. If the application has not been built with the necessary
@@ -36,6 +37,9 @@ BASE_EXPORT void RestartProfilingAfterFork();
 
 // Returns true iff this executable is instrumented with the Syzygy profiler.
 BASE_EXPORT bool IsBinaryInstrumented();
+
+// Returns true iff this executable supports profiling.
+BASE_EXPORT bool IsProfilingSupported();
 
 // There's a class of profilers that use "return address swizzling" to get a
 // hook on function exits. This class of profilers uses some form of entry hook,

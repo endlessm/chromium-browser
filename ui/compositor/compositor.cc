@@ -4,8 +4,11 @@
 
 #include "ui/compositor/compositor.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <deque>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -14,6 +17,10 @@
 #include "base/strings/string_util.h"
 #include "base/sys_info.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
+#include "cc/animation/animation_host.h"
+#include "cc/animation/animation_id_provider.h"
+#include "cc/animation/animation_timeline.h"
 #include "cc/base/switches.h"
 #include "cc/input/input_handler.h"
 #include "cc/layers/layer.h"
@@ -112,6 +119,8 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
       !command_line->HasSwitch(switches::kUIDisablePartialSwap);
 #if defined(OS_WIN)
   settings.renderer_settings.finish_rendering_on_resize = true;
+#elif defined(OS_MACOSX)
+  settings.renderer_settings.release_overlay_resources_on_swap_complete = true;
 #endif
 
   // These flags should be mirrored by renderer versions in content/renderer/.
@@ -135,12 +144,10 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
   settings.initial_debug_state.SetRecordRenderingStats(
       command_line->HasSwitch(cc::switches::kEnableGpuBenchmarking));
 
-  settings.use_property_trees =
-      command_line->HasSwitch(cc::switches::kEnableCompositorPropertyTrees);
   settings.use_zero_copy = IsUIZeroCopyEnabled();
 
-  settings.renderer_settings.use_rgba_4444_textures =
-      command_line->HasSwitch(switches::kUIEnableRGBA4444Textures);
+  if (command_line->HasSwitch(switches::kUIEnableRGBA4444Textures))
+    settings.renderer_settings.preferred_tile_format = cc::RGBA_4444;
 
   // UI compositor always uses partial raster if not using zero-copy. Zero copy
   // doesn't currently support partial raster.
@@ -165,8 +172,8 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
   // thread.
   settings.image_decode_tasks_enabled = false;
 
-  settings.use_compositor_animation_timelines =
-      command_line->HasSwitch(switches::kUIEnableCompositorAnimationTimelines);
+  settings.use_compositor_animation_timelines = !command_line->HasSwitch(
+      switches::kUIDisableCompositorAnimationTimelines);
 
 #if !defined(OS_ANDROID)
   // TODO(sohanjg): Revisit this memory usage in tile manager.
@@ -189,6 +196,12 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
   host_ = cc::LayerTreeHost::CreateSingleThreaded(this, &params);
   UMA_HISTOGRAM_TIMES("GPU.CreateBrowserCompositor",
                       base::TimeTicks::Now() - before_create);
+
+  if (settings.use_compositor_animation_timelines) {
+    animation_timeline_ = cc::AnimationTimeline::Create(
+        cc::AnimationIdProvider::NextTimelineId());
+    host_->animation_host()->AddAnimationTimeline(animation_timeline_.get());
+  }
   host_->SetRootLayer(root_web_layer_);
   host_->set_surface_id_namespace(surface_id_allocator_->id_namespace());
   host_->SetVisible(true);
@@ -209,6 +222,9 @@ Compositor::~Compositor() {
   if (root_layer_)
     root_layer_->ResetCompositor();
 
+  if (animation_timeline_)
+    host_->animation_host()->RemoveAnimationTimeline(animation_timeline_.get());
+
   // Stop all outstanding draws before telling the ContextFactory to tear
   // down any contexts that the |host_| may rely upon.
   host_.reset();
@@ -219,7 +235,7 @@ Compositor::~Compositor() {
 void Compositor::SetOutputSurface(
     scoped_ptr<cc::OutputSurface> output_surface) {
   output_surface_requested_ = false;
-  host_->SetOutputSurface(output_surface.Pass());
+  host_->SetOutputSurface(std::move(output_surface));
 }
 
 void Compositor::ScheduleDraw() {
@@ -235,6 +251,10 @@ void Compositor::SetRootLayer(Layer* root_layer) {
   root_web_layer_->RemoveAllChildren();
   if (root_layer_)
     root_layer_->SetCompositor(this, root_web_layer_);
+}
+
+cc::AnimationTimeline* Compositor::GetAnimationTimeline() const {
+  return animation_timeline_.get();
 }
 
 void Compositor::SetHostHasTransparentBackground(
@@ -269,7 +289,7 @@ void Compositor::DisableSwapUntilResize() {
 void Compositor::SetLatencyInfo(const ui::LatencyInfo& latency_info) {
   scoped_ptr<cc::SwapPromise> swap_promise(
       new cc::LatencyInfoSwapPromise(latency_info));
-  host_->QueueSwapPromise(swap_promise.Pass());
+  host_->QueueSwapPromise(std::move(swap_promise));
 }
 
 void Compositor::SetScaleAndSize(float scale, const gfx::Size& size_in_pixel) {

@@ -124,8 +124,8 @@ OPENSSL_EXPORT int RSA_generate_multi_prime_key(RSA *rsa, int bits,
  * It returns 1 on success or zero on error.
  *
  * The |padding| argument must be one of the |RSA_*_PADDING| values. If in
- * doubt, |RSA_PKCS1_PADDING| is the most common but |RSA_PKCS1_OAEP_PADDING|
- * is the most secure. */
+ * doubt, use |RSA_PKCS1_OAEP_PADDING| for new protocols but
+ * |RSA_PKCS1_PADDING| is most common. */
 OPENSSL_EXPORT int RSA_encrypt(RSA *rsa, size_t *out_len, uint8_t *out,
                                size_t max_out, const uint8_t *in, size_t in_len,
                                int padding);
@@ -137,8 +137,14 @@ OPENSSL_EXPORT int RSA_encrypt(RSA *rsa, size_t *out_len, uint8_t *out,
  * It returns 1 on success or zero on error.
  *
  * The |padding| argument must be one of the |RSA_*_PADDING| values. If in
- * doubt, |RSA_PKCS1_PADDING| is the most common but |RSA_PKCS1_OAEP_PADDING|
- * is the most secure. */
+ * doubt, use |RSA_PKCS1_OAEP_PADDING| for new protocols.
+ *
+ * Passing |RSA_PKCS1_PADDING| into this function is deprecated and insecure. If
+ * implementing a protocol using RSAES-PKCS1-V1_5, use |RSA_NO_PADDING| and then
+ * check padding in constant-time combined with a swap to a random session key
+ * or other mitigation. See "Chosen Ciphertext Attacks Against Protocols Based
+ * on the RSA Encryption Standard PKCS #1", Daniel Bleichenbacher, Advances in
+ * Cryptology (Crypto '98). */
 OPENSSL_EXPORT int RSA_decrypt(RSA *rsa, size_t *out_len, uint8_t *out,
                                size_t max_out, const uint8_t *in, size_t in_len,
                                int padding);
@@ -147,8 +153,8 @@ OPENSSL_EXPORT int RSA_decrypt(RSA *rsa, size_t *out_len, uint8_t *out,
  * |rsa| and writes the encrypted data to |to|. The |to| buffer must have at
  * least |RSA_size| bytes of space. It returns the number of bytes written, or
  * -1 on error. The |padding| argument must be one of the |RSA_*_PADDING|
- * values. If in doubt, |RSA_PKCS1_PADDING| is the most common but
- * |RSA_PKCS1_OAEP_PADDING| is the most secure.
+ * values. If in doubt, use |RSA_PKCS1_OAEP_PADDING| for new protocols but
+ * |RSA_PKCS1_PADDING| is most common.
  *
  * WARNING: this function is dangerous because it breaks the usual return value
  * convention. Use |RSA_encrypt| instead. */
@@ -156,37 +162,25 @@ OPENSSL_EXPORT int RSA_public_encrypt(size_t flen, const uint8_t *from,
                                       uint8_t *to, RSA *rsa, int padding);
 
 /* RSA_private_decrypt decrypts |flen| bytes from |from| with the public key in
- * |rsa| and writes the plaintext to |to|. The |to| buffer must have at
- * least |RSA_size| bytes of space. It returns the number of bytes written, or
- * -1 on error. The |padding| argument must be one of the |RSA_*_PADDING|
- * values. If in doubt, |RSA_PKCS1_PADDING| is the most common but
- * |RSA_PKCS1_OAEP_PADDING| is the most secure.
+ * |rsa| and writes the plaintext to |to|. The |to| buffer must have at least
+ * |RSA_size| bytes of space. It returns the number of bytes written, or -1 on
+ * error. The |padding| argument must be one of the |RSA_*_PADDING| values. If
+ * in doubt, use |RSA_PKCS1_OAEP_PADDING| for new protocols. Passing
+ * |RSA_PKCS1_PADDING| into this function is deprecated and insecure. See
+ * |RSA_decrypt|.
  *
  * WARNING: this function is dangerous because it breaks the usual return value
  * convention. Use |RSA_decrypt| instead. */
 OPENSSL_EXPORT int RSA_private_decrypt(size_t flen, const uint8_t *from,
                                        uint8_t *to, RSA *rsa, int padding);
 
-/* RSA_message_index_PKCS1_type_2 performs the first step of a PKCS #1 padding
- * check for decryption. If the |from_len| bytes pointed to at |from| are a
- * valid PKCS #1 message, it returns one and sets |*out_index| to the start of
- * the unpadded message. The unpadded message is a suffix of the input and has
- * length |from_len - *out_index|. Otherwise, it returns zero and sets
- * |*out_index| to zero. This function runs in time independent of the input
- * data and is intended to be used directly to avoid Bleichenbacher's attack.
- *
- * WARNING: This function behaves differently from the usual OpenSSL convention
- * in that it does NOT put an error on the queue in the error case. */
-OPENSSL_EXPORT int RSA_message_index_PKCS1_type_2(const uint8_t *from,
-                                                  size_t from_len,
-                                                  size_t *out_index);
-
 
 /* Signing / Verification */
 
-/* RSA_sign signs |in_len| bytes of digest from |in| with |rsa| and writes, at
- * most, |RSA_size(rsa)| bytes to |out|. On successful return, the actual
- * number of bytes written is written to |*out_len|.
+/* RSA_sign signs |in_len| bytes of digest from |in| with |rsa| using
+ * RSASSA-PKCS1-v1_5. It writes, at most, |RSA_size(rsa)| bytes to |out|. On
+ * successful return, the actual number of bytes written is written to
+ * |*out_len|.
  *
  * The |hash_nid| argument identifies the hash function used to calculate |in|
  * and is embedded in the resulting signature. For example, it might be
@@ -204,13 +198,14 @@ OPENSSL_EXPORT int RSA_sign(int hash_nid, const uint8_t *in,
  * It returns 1 on success or zero on error.
  *
  * The |padding| argument must be one of the |RSA_*_PADDING| values. If in
- * doubt, |RSA_PKCS1_PADDING| is the most common. */
+ * doubt, |RSA_PKCS1_PADDING| is the most common but |RSA_PKCS1_PSS_PADDING|
+ * (via the |EVP_PKEY| interface) is preferred for new protocols. */
 OPENSSL_EXPORT int RSA_sign_raw(RSA *rsa, size_t *out_len, uint8_t *out,
                                 size_t max_out, const uint8_t *in,
                                 size_t in_len, int padding);
 
-/* RSA_verify verifies that |sig_len| bytes from |sig| are a valid, PKCS#1
- * signature of |msg_len| bytes at |msg| by |rsa|.
+/* RSA_verify verifies that |sig_len| bytes from |sig| are a valid,
+ * RSASSA-PKCS1-v1_5 signature of |msg_len| bytes at |msg| by |rsa|.
  *
  * The |hash_nid| argument identifies the hash function used to calculate |in|
  * and is embedded in the resulting signature in order to prevent hash
@@ -231,7 +226,8 @@ OPENSSL_EXPORT int RSA_verify(int hash_nid, const uint8_t *msg, size_t msg_len,
  * It returns 1 on success or zero on error.
  *
  * The |padding| argument must be one of the |RSA_*_PADDING| values. If in
- * doubt, |RSA_PKCS1_PADDING| is the most common. */
+ * doubt, |RSA_PKCS1_PADDING| is the most common but |RSA_PKCS1_PSS_PADDING|
+ * (via the |EVP_PKEY| interface) is preferred for new protocols. */
 OPENSSL_EXPORT int RSA_verify_raw(RSA *rsa, size_t *out_len, uint8_t *out,
                                   size_t max_out, const uint8_t *in,
                                   size_t in_len, int padding);
@@ -240,7 +236,9 @@ OPENSSL_EXPORT int RSA_verify_raw(RSA *rsa, size_t *out_len, uint8_t *out,
  * |rsa| and writes the encrypted data to |to|. The |to| buffer must have at
  * least |RSA_size| bytes of space. It returns the number of bytes written, or
  * -1 on error. The |padding| argument must be one of the |RSA_*_PADDING|
- * values. If in doubt, |RSA_PKCS1_PADDING| is the most common.
+ * values. If in doubt, |RSA_PKCS1_PADDING| is the most common but
+ * |RSA_PKCS1_PSS_PADDING| (via the |EVP_PKEY| interface) is preferred for new
+ * protocols.
  *
  * WARNING: this function is dangerous because it breaks the usual return value
  * convention. Use |RSA_sign_raw| instead. */
@@ -251,7 +249,9 @@ OPENSSL_EXPORT int RSA_private_encrypt(size_t flen, const uint8_t *from,
  * public key in |rsa| and writes the plaintext to |to|. The |to| buffer must
  * have at least |RSA_size| bytes of space. It returns the number of bytes
  * written, or -1 on error. The |padding| argument must be one of the
- * |RSA_*_PADDING| values. If in doubt, |RSA_PKCS1_PADDING| is the most common.
+ * |RSA_*_PADDING| values. If in doubt, |RSA_PKCS1_PADDING| is the most common
+ * but |RSA_PKCS1_PSS_PADDING| (via the |EVP_PKEY| interface) is preferred for
+ * new protocols.
  *
  * WARNING: this function is dangerous because it breaks the usual return value
  * convention. Use |RSA_verify_raw| instead. */
@@ -386,7 +386,7 @@ OPENSSL_EXPORT int RSA_private_key_to_bytes(uint8_t **out_bytes,
  * See |ex_data.h| for details. */
 
 OPENSSL_EXPORT int RSA_get_ex_new_index(long argl, void *argp,
-                                        CRYPTO_EX_new *new_func,
+                                        CRYPTO_EX_unused *unused,
                                         CRYPTO_EX_dup *dup_func,
                                         CRYPTO_EX_free *free_func);
 OPENSSL_EXPORT int RSA_set_ex_data(RSA *r, int idx, void *arg);
@@ -441,10 +441,10 @@ OPENSSL_EXPORT RSA *RSA_generate_key(int bits, unsigned long e, void *callback,
 
 /* d2i_RSAPublicKey parses an ASN.1, DER-encoded, RSA public key from |len|
  * bytes at |*inp|. If |out| is not NULL then, on exit, a pointer to the result
- * is in |*out|. If |*out| is already non-NULL on entry then the result is
- * written directly into |*out|, otherwise a fresh |RSA| is allocated. On
- * successful exit, |*inp| is advanced past the DER structure. It returns the
- * result or NULL on error. */
+ * is in |*out|. Note that, even if |*out| is already non-NULL on entry, it
+ * will not be written to. Rather, a fresh |RSA| is allocated and the previous
+ * one is freed. On successful exit, |*inp| is advanced past the DER structure.
+ * It returns the result or NULL on error. */
 OPENSSL_EXPORT RSA *d2i_RSAPublicKey(RSA **out, const uint8_t **inp, long len);
 
 /* i2d_RSAPublicKey marshals |in| to an ASN.1, DER structure. If |outp| is not
@@ -455,10 +455,10 @@ OPENSSL_EXPORT int i2d_RSAPublicKey(const RSA *in, uint8_t **outp);
 
 /* d2i_RSAPrivateKey parses an ASN.1, DER-encoded, RSA private key from |len|
  * bytes at |*inp|. If |out| is not NULL then, on exit, a pointer to the result
- * is in |*out|. If |*out| is already non-NULL on entry then the result is
- * written directly into |*out|, otherwise a fresh |RSA| is allocated. On
- * successful exit, |*inp| is advanced past the DER structure. It returns the
- * result or NULL on error. */
+ * is in |*out|. Note that, even if |*out| is already non-NULL on entry, it
+ * will not be written to. Rather, a fresh |RSA| is allocated and the previous
+ * one is freed. On successful exit, |*inp| is advanced past the DER structure.
+ * It returns the result or NULL on error. */
 OPENSSL_EXPORT RSA *d2i_RSAPrivateKey(RSA **out, const uint8_t **inp, long len);
 
 /* i2d_RSAPrivateKey marshals |in| to an ASN.1, DER structure. If |outp| is not

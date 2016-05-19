@@ -4,12 +4,13 @@
 
 #include "net/base/layered_network_delegate.h"
 
+#include <utility>
+
 namespace net {
 
 LayeredNetworkDelegate::LayeredNetworkDelegate(
     scoped_ptr<NetworkDelegate> nested_network_delegate)
-    : nested_network_delegate_(nested_network_delegate.Pass()) {
-}
+    : nested_network_delegate_(std::move(nested_network_delegate)) {}
 
 LayeredNetworkDelegate::~LayeredNetworkDelegate() {
 }
@@ -27,33 +28,6 @@ void LayeredNetworkDelegate::OnBeforeURLRequestInternal(
     URLRequest* request,
     const CompletionCallback& callback,
     GURL* new_url) {
-}
-
-void LayeredNetworkDelegate::OnResolveProxy(const GURL& url,
-                                            int load_flags,
-                                            const ProxyService& proxy_service,
-                                            ProxyInfo* result) {
-  OnResolveProxyInternal(url, load_flags, proxy_service, result);
-  nested_network_delegate_->NotifyResolveProxy(url, load_flags, proxy_service,
-                                               result);
-}
-
-void LayeredNetworkDelegate::OnResolveProxyInternal(
-    const GURL& url,
-    int load_flags,
-    const ProxyService& proxy_service,
-    ProxyInfo* result) {
-}
-
-void LayeredNetworkDelegate::OnProxyFallback(const ProxyServer& bad_proxy,
-                                             int net_error) {
-  OnProxyFallbackInternal(bad_proxy, net_error);
-  nested_network_delegate_->NotifyProxyFallback(bad_proxy, net_error);
-}
-
-void LayeredNetworkDelegate::OnProxyFallbackInternal(
-    const ProxyServer& bad_proxy,
-    int net_error) {
 }
 
 int LayeredNetworkDelegate::OnBeforeSendHeaders(
@@ -175,12 +149,6 @@ void LayeredNetworkDelegate::OnURLRequestDestroyedInternal(
     URLRequest* request) {
 }
 
-void LayeredNetworkDelegate::OnURLRequestJobOrphaned(URLRequest* request) {
-  // This hook is only added to debug https://crbug.com/289715, so there is no
-  // need for a OnURLRequestJobOrphanedInternal hook.
-  nested_network_delegate_->NotifyURLRequestJobOrphaned(request);
-}
-
 void LayeredNetworkDelegate::OnPACScriptError(int line_number,
                                               const base::string16& error) {
   OnPACScriptErrorInternal(line_number, error);
@@ -262,8 +230,15 @@ bool LayeredNetworkDelegate::OnAreExperimentalCookieFeaturesEnabled() const {
   return nested_network_delegate_->AreExperimentalCookieFeaturesEnabled();
 }
 
+bool LayeredNetworkDelegate::OnAreStrictSecureCookiesEnabled() const {
+  OnAreStrictSecureCookiesEnabledInternal();
+  return nested_network_delegate_->AreStrictSecureCookiesEnabled();
+}
+
 void LayeredNetworkDelegate::OnAreExperimentalCookieFeaturesEnabledInternal()
     const {}
+
+void LayeredNetworkDelegate::OnAreStrictSecureCookiesEnabledInternal() const {}
 
 bool LayeredNetworkDelegate::
     OnCancelURLRequestWithPolicyViolatingReferrerHeader(

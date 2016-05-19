@@ -8,6 +8,7 @@
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/synchronization/lock.h"
+#include "base/trace_event/trace_event.h"
 #include "cc/base/simple_enclosed_region.h"
 #include "cc/layers/texture_layer_client.h"
 #include "cc/layers/texture_layer_impl.h"
@@ -128,7 +129,7 @@ void TextureLayer::SetTextureMailboxInternal(
   // If we never commited the mailbox, we need to release it here.
   if (mailbox.IsValid()) {
     holder_ref_ =
-        TextureMailboxHolder::Create(mailbox, release_callback.Pass());
+        TextureMailboxHolder::Create(mailbox, std::move(release_callback));
   } else {
     holder_ref_ = nullptr;
   }
@@ -150,8 +151,8 @@ void TextureLayer::SetTextureMailbox(
     scoped_ptr<SingleReleaseCallback> release_callback) {
   bool requires_commit = true;
   bool allow_mailbox_reuse = false;
-  SetTextureMailboxInternal(
-      mailbox, release_callback.Pass(), requires_commit, allow_mailbox_reuse);
+  SetTextureMailboxInternal(mailbox, std::move(release_callback),
+                            requires_commit, allow_mailbox_reuse);
 }
 
 static void IgnoreReleaseCallback(const gpu::SyncToken& sync_token, bool lost) {
@@ -170,8 +171,8 @@ void TextureLayer::SetTextureMailboxWithoutReleaseCallback(
   bool allow_mailbox_reuse = true;
   if (mailbox.IsValid())
     release = SingleReleaseCallback::Create(base::Bind(&IgnoreReleaseCallback));
-  SetTextureMailboxInternal(
-      mailbox, release.Pass(), requires_commit, allow_mailbox_reuse);
+  SetTextureMailboxInternal(mailbox, std::move(release), requires_commit,
+                            allow_mailbox_reuse);
 }
 
 void TextureLayer::SetNeedsDisplayRect(const gfx::Rect& dirty_rect) {
@@ -212,10 +213,8 @@ bool TextureLayer::Update() {
       // Already within a commit, no need to do another one immediately.
       bool requires_commit = false;
       bool allow_mailbox_reuse = false;
-      SetTextureMailboxInternal(mailbox,
-                                release_callback.Pass(),
-                                requires_commit,
-                                allow_mailbox_reuse);
+      SetTextureMailboxInternal(mailbox, std::move(release_callback),
+                                requires_commit, allow_mailbox_reuse);
       updated = true;
     }
   }
@@ -228,6 +227,7 @@ bool TextureLayer::Update() {
 
 void TextureLayer::PushPropertiesTo(LayerImpl* layer) {
   Layer::PushPropertiesTo(layer);
+  TRACE_EVENT0("cc", "TextureLayer::PushPropertiesTo");
 
   TextureLayerImpl* texture_layer = static_cast<TextureLayerImpl*>(layer);
   texture_layer->SetFlipped(flipped_);
@@ -246,7 +246,7 @@ void TextureLayer::PushPropertiesTo(LayerImpl* layer) {
       release_callback_impl = holder->GetCallbackForImplThread();
     }
     texture_layer->SetTextureMailbox(texture_mailbox,
-                                     release_callback_impl.Pass());
+                                     std::move(release_callback_impl));
     needs_set_mailbox_ = false;
   }
 }
@@ -267,7 +267,7 @@ TextureLayer::TextureMailboxHolder::TextureMailboxHolder(
     scoped_ptr<SingleReleaseCallback> release_callback)
     : internal_references_(0),
       mailbox_(mailbox),
-      release_callback_(release_callback.Pass()),
+      release_callback_(std::move(release_callback)),
       sync_token_(mailbox.sync_token()),
       is_lost_(false) {}
 
@@ -280,7 +280,7 @@ TextureLayer::TextureMailboxHolder::Create(
     const TextureMailbox& mailbox,
     scoped_ptr<SingleReleaseCallback> release_callback) {
   return make_scoped_ptr(new MainThreadReference(
-      new TextureMailboxHolder(mailbox, release_callback.Pass())));
+      new TextureMailboxHolder(mailbox, std::move(release_callback))));
 }
 
 void TextureLayer::TextureMailboxHolder::Return(

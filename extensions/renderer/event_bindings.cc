@@ -4,10 +4,11 @@
 
 #include "extensions/renderer/event_bindings.h"
 
+#include <stdint.h>
+
 #include <map>
 #include <utility>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
@@ -266,14 +267,14 @@ void EventBindings::AttachFilteredEvent(
       args.GetReturnValue().Set(static_cast<int32_t>(-1));
       return;
     }
-    filter = base::DictionaryValue::From(filter_value.Pass());
+    filter = base::DictionaryValue::From(std::move(filter_value));
   }
 
   // Hold onto a weak reference to |filter| so that it can be used after passing
   // ownership to |event_filter|.
   base::DictionaryValue* filter_weak = filter.get();
   int id = g_event_filter.Get().AddEventMatcher(
-      event_name, ParseEventMatcher(filter.Pass()));
+      event_name, ParseEventMatcher(std::move(filter)));
   attached_matcher_ids_.insert(id);
 
   // Only send IPCs the first time a filter gets added.
@@ -341,7 +342,7 @@ void EventBindings::MatchAgainstEventFilter(
 scoped_ptr<EventMatcher> EventBindings::ParseEventMatcher(
     scoped_ptr<base::DictionaryValue> filter) {
   return make_scoped_ptr(new EventMatcher(
-      filter.Pass(), context()->GetRenderFrame()->GetRoutingID()));
+      std::move(filter), context()->GetRenderFrame()->GetRoutingID()));
 }
 
 void EventBindings::OnInvalidated() {

@@ -7,8 +7,15 @@ import("//testing/test.gni")
 component("blimp_common") {
   sources = [
     "blimp_common_export.h",
+    "compositor/blimp_image_serialization_processor.cc",
+    "compositor/blimp_image_serialization_processor.h",
     "compositor/blimp_task_graph_runner.cc",
     "compositor/blimp_task_graph_runner.h",
+    "compositor/webp_decoder.cc",
+    "compositor/webp_decoder.h",
+    "create_blimp_message.cc",
+    "create_blimp_message.h",
+    "protocol_version.h",
   ]
 
   defines = [ "BLIMP_COMMON_IMPLEMENTATION=1" ]
@@ -18,7 +25,22 @@ component("blimp_common") {
     "//blimp/common/proto",
     "//cc",
     "//skia",
+    "//third_party/libwebp",
     "//ui/gfx/geometry",
     "//ui/gl",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+
+  sources = [
+    "create_blimp_message_unittest.cc",
+  ]
+
+  deps = [
+    ":blimp_common",
+    "//blimp/common/proto",
+    "//testing/gtest",
   ]
 }

@@ -30,6 +30,8 @@ public:
         ASSERT(!item || item.isLayoutBlockFlow());
     }
 
+    explicit LineLayoutBlockFlow(std::nullptr_t) : LineLayoutBox(nullptr) { }
+
     LineLayoutBlockFlow() { }
 
     LineLayoutItem firstChild() const
@@ -41,9 +43,9 @@ public:
         return LineLayoutItem(toBlockFlow()->lastChild());
     }
 
-    LayoutUnit startAlignedOffsetForLine(LayoutUnit position, bool shouldIndentText)
+    LayoutUnit startAlignedOffsetForLine(LayoutUnit position, IndentTextOrNot indentText)
     {
-        return toBlockFlow()->startAlignedOffsetForLine(position, shouldIndentText);
+        return toBlockFlow()->startAlignedOffsetForLine(position, indentText);
     }
 
     LayoutUnit textIndentOffset() const
@@ -58,7 +60,7 @@ public:
 
     LayoutUnit logicalWidthForChild(LineLayoutBox child) const
     {
-        return toBlockFlow()->logicalWidthForChild(*toLayoutBox(child));
+        return toBlockFlow()->logicalWidthForChild(*toLayoutBox(child.layoutObject()));
     }
 
     LayoutUnit marginStartForChild(const LayoutBoxModelObject& child) const
@@ -68,7 +70,7 @@ public:
 
     LayoutUnit marginStartForChild(LineLayoutBox child) const
     {
-        return toBlockFlow()->marginStartForChild(*toLayoutBoxModelObject(child));
+        return toBlockFlow()->marginStartForChild(*toLayoutBoxModelObject(child.layoutObject()));
     }
 
     LayoutUnit marginEndForChild(const LayoutBoxModelObject& child) const
@@ -78,7 +80,7 @@ public:
 
     LayoutUnit marginEndForChild(LineLayoutBox child) const
     {
-        return toBlockFlow()->marginEndForChild(*toLayoutBoxModelObject(child));
+        return toBlockFlow()->marginEndForChild(*toLayoutBoxModelObject(child.layoutObject()));
     }
 
     LayoutUnit marginBeforeForChild(const LayoutBoxModelObject& child) const
@@ -103,12 +105,12 @@ public:
 
     void setStaticInlinePositionForChild(LineLayoutBox box, LayoutUnit inlinePosition)
     {
-        toBlockFlow()->setStaticInlinePositionForChild(*toLayoutBox(box), inlinePosition);
+        toBlockFlow()->setStaticInlinePositionForChild(*toLayoutBox(box.layoutObject()), inlinePosition);
     }
 
-    void updateStaticInlinePositionForChild(LineLayoutBox box, LayoutUnit logicalTop)
+    void updateStaticInlinePositionForChild(LineLayoutBox box, LayoutUnit logicalTop, IndentTextOrNot indentText = DoNotIndentText)
     {
-        toBlockFlow()->updateStaticInlinePositionForChild(*toLayoutBox(box), logicalTop);
+        toBlockFlow()->updateStaticInlinePositionForChild(*toLayoutBox(box.layoutObject()), logicalTop, indentText);
     }
 
     FloatingObject* insertFloatingObject(LayoutBox& box)
@@ -118,7 +120,7 @@ public:
 
     FloatingObject* insertFloatingObject(LineLayoutBox box)
     {
-        return toBlockFlow()->insertFloatingObject(*toLayoutBox(box));
+        return toBlockFlow()->insertFloatingObject(*toLayoutBox(box.layoutObject()));
     }
 
     bool positionNewFloats(LineWidth* width)
@@ -131,9 +133,9 @@ public:
         return toBlockFlow()->positionNewFloatOnLine(newFloat, lastFloatFromPreviousLine, lineInfo, lineWidth);
     }
 
-    LayoutUnit nextFloatLogicalBottomBelow(LayoutUnit logicalHeight, ShapeOutsideFloatOffsetMode offsetMode = ShapeOutsideFloatMarginBoxOffset) const
+    LayoutUnit nextFloatLogicalBottomBelow(LayoutUnit logicalHeight) const
     {
-        return toBlockFlow()->nextFloatLogicalBottomBelow(logicalHeight, offsetMode);
+        return toBlockFlow()->nextFloatLogicalBottomBelow(logicalHeight);
     }
 
     FloatingObject* lastFloatFromPreviousLine() const
@@ -166,14 +168,39 @@ public:
         return toBlockFlow()->logicalWidthForFloat(floatingObject);
     }
 
-    LayoutUnit logicalRightOffsetForLine(LayoutUnit position, bool shouldIndentText, LayoutUnit logicalHeight = 0) const
+    LayoutUnit logicalRightOffsetForLine(LayoutUnit position, IndentTextOrNot indentText, LayoutUnit logicalHeight = LayoutUnit()) const
     {
-        return toBlockFlow()->logicalRightOffsetForLine(position, shouldIndentText, logicalHeight);
+        return toBlockFlow()->logicalRightOffsetForLine(position, indentText, logicalHeight);
     }
 
-    LayoutUnit logicalLeftOffsetForLine(LayoutUnit position, bool shouldIndentText, LayoutUnit logicalHeight = 0) const
+    LayoutUnit logicalLeftOffsetForLine(LayoutUnit position, IndentTextOrNot indentText, LayoutUnit logicalHeight = LayoutUnit()) const
     {
-        return toBlockFlow()->logicalLeftOffsetForLine(position, shouldIndentText, logicalHeight);
+        return toBlockFlow()->logicalLeftOffsetForLine(position, indentText, logicalHeight);
+    }
+
+    void setHasMarkupTruncation(bool b)
+    {
+        toBlockFlow()->setHasMarkupTruncation(b);
+    }
+
+    LayoutUnit logicalWidth()
+    {
+        return toBlockFlow()->logicalWidth();
+    }
+
+    LineBoxList* lineBoxes()
+    {
+        return toBlockFlow()->lineBoxes();
+    }
+
+    bool containsFloats() const
+    {
+        return toBlockFlow()->containsFloats();
+    }
+
+    LayoutBlock* blockBeforeWithinSelectionRoot(LayoutSize& offset) const
+    {
+        return toBlockFlow()->blockBeforeWithinSelectionRoot(offset);
     }
 
 private:

@@ -35,7 +35,7 @@ namespace media_router {
 class MediaRoute;
 class MediaSinksObserver;
 class PresentationFrameManager;
-class PresentationSessionStateObserver;
+class RouteRequestResult;
 
 // Implementation of PresentationServiceDelegate that interfaces an
 // instance of WebContents with the Chrome Media Router. It uses the Media
@@ -107,9 +107,12 @@ class PresentationServiceDelegateImpl
       const std::string& presentation_id,
       const content::PresentationSessionStartedCallback& success_cb,
       const content::PresentationSessionErrorCallback& error_cb) override;
-  void CloseSession(int render_process_id,
-                    int render_frame_id,
-                    const std::string& presentation_id) override;
+  void CloseConnection(int render_process_id,
+                       int render_frame_id,
+                       const std::string& presentation_id) override;
+  void Terminate(int render_process_id,
+                 int render_frame_id,
+                 const std::string& presentation_id) override;
   void ListenForSessionMessages(
       int render_process_id,
       int render_frame_id,
@@ -120,17 +123,17 @@ class PresentationServiceDelegateImpl
                    const content::PresentationSessionInfo& session,
                    scoped_ptr<content::PresentationSessionMessage> message,
                    const SendMessageCallback& send_message_cb) override;
-  void ListenForSessionStateChange(
+  void ListenForConnectionStateChange(
       int render_process_id,
       int render_frame_id,
-      const content::SessionStateChangedCallback& state_changed_cb) override;
+      const content::PresentationSessionInfo& connection,
+      const content::PresentationConnectionStateChangedCallback&
+          state_changed_cb) override;
 
   // Callback invoked when a default PresentationRequest is started from a
   // browser-initiated dialog.
   void OnRouteResponse(const PresentationRequest& request,
-                       const MediaRoute* route,
-                       const std::string& presentation_id,
-                       const std::string& error);
+                       const RouteRequestResult& result);
 
   // Adds / removes an observer for listening to default PresentationRequest
   // changes. This class does not own |observer|. When |observer| is about to
@@ -184,9 +187,7 @@ class PresentationServiceDelegateImpl
       const content::PresentationSessionInfo& session,
       const content::PresentationSessionStartedCallback& success_cb,
       const content::PresentationSessionErrorCallback& error_cb,
-      const MediaRoute* route,
-      const std::string& presentation_id,
-      const std::string& error_text);
+      const RouteRequestResult& result);
 
   void OnStartSessionSucceeded(
       int render_process_id,

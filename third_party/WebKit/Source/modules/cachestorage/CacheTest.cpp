@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/cachestorage/Cache.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -16,15 +15,17 @@
 #include "core/dom/Document.h"
 #include "core/frame/Frame.h"
 #include "core/testing/DummyPageHolder.h"
+#include "modules/fetch/FetchFormDataConsumerHandle.h"
 #include "modules/fetch/GlobalFetch.h"
 #include "modules/fetch/Request.h"
 #include "modules/fetch/Response.h"
+#include "modules/fetch/ResponseInit.h"
 #include "public/platform/WebURLResponse.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerCache.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/OwnPtr.h"
 
 #include <algorithm>
-#include <gtest/gtest.h>
 #include <string>
 
 namespace blink {
@@ -631,7 +632,8 @@ TEST_F(CacheStorageTest, Add)
     ScriptState::Scope scope(scriptState());
     OwnPtrWillBeRawPtr<ScopedFetcherForTests> fetcher = ScopedFetcherForTests::create();
     const String url = "http://www.cacheadd.test/";
-    const KURL kurl(ParsedURLString, url);
+    const String contentType = "text/plain";
+    const String content = "hello cache";
 
     ErrorWebCacheForTests* testCache;
     Cache* cache = createCache(fetcher.get(), testCache = new NotImplementedErrorCache());
@@ -639,9 +641,7 @@ TEST_F(CacheStorageTest, Add)
     fetcher->setExpectedFetchUrl(&url);
 
     Request* request = newRequestFromUrl(url);
-    WebServiceWorkerResponse webResponse;
-    webResponse.setURL(kurl);
-    Response* response = Response::create(executionContext(), webResponse);
+    Response* response = Response::create(executionContext(), FetchFormDataConsumerHandle::create(content), contentType, ResponseInit(), exceptionState());
     fetcher->setResponse(response);
 
     WebVector<WebServiceWorkerCache::BatchOperation> expectedPutOperations(size_t(1));

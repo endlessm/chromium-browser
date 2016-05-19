@@ -8,7 +8,8 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/color_utils.h"
 
@@ -26,6 +27,9 @@ class ThemeProperties {
   enum OverwritableByUserThemeProperty {
     COLOR_FRAME,
     COLOR_FRAME_INACTIVE,
+    // Instead of using the INCOGNITO variants directly, most code should
+    // use the original color ID in an incognito-aware context (such as
+    // GetDefaultColor).
     COLOR_FRAME_INCOGNITO,
     COLOR_FRAME_INCOGNITO_INACTIVE,
     COLOR_TOOLBAR,
@@ -79,12 +83,34 @@ class ThemeProperties {
   // OverwritableByUserThemeProperties.
   enum NotOverwritableByUserThemeProperty {
     COLOR_CONTROL_BACKGROUND = 1000,
-    COLOR_TOOLBAR_SEPARATOR,
+
+    // The color of the line separating the bottom of the toolbar from the
+    // contents.
+    COLOR_TOOLBAR_BOTTOM_SEPARATOR,
 
     // The color of a normal toolbar button's icon.
     COLOR_TOOLBAR_BUTTON_ICON,
     // The color of a disabled toolbar button's icon.
     COLOR_TOOLBAR_BUTTON_ICON_INACTIVE,
+
+    // The color of the line separating the top of the toolbar from the region
+    // above. For a tabbed browser window, this is the line along the bottom
+    // edge of the tabstrip.
+    COLOR_TOOLBAR_TOP_SEPARATOR,
+
+    // The color of a background tab, as well as the new tab button.
+    COLOR_BACKGROUND_TAB,
+
+    // Colors used for the detached (NTP) bookmark bar.
+    COLOR_DETACHED_BOOKMARK_BAR_BACKGROUND,
+    COLOR_DETACHED_BOOKMARK_BAR_SEPARATOR,
+
+    // The throbber colors for tabs or anything on a toolbar (currently, only
+    // the download shelf). If you're adding a throbber elsewhere, such as in
+    // a dialog or bubble, you likely want
+    // NativeTheme::kColorId_ThrobberSpinningColor.
+    COLOR_TAB_THROBBER_SPINNING,
+    COLOR_TAB_THROBBER_WAITING,
 
     // These colors don't have constant default values. They are derived from
     // the runtime value of other colors.
@@ -93,8 +119,6 @@ class ThemeProperties {
     COLOR_NTP_SECTION_HEADER_RULE,
     COLOR_NTP_SECTION_HEADER_RULE_LIGHT,
     COLOR_NTP_TEXT_LIGHT,
-    COLOR_THROBBER_SPINNING,
-    COLOR_THROBBER_WAITING,
 #if defined(ENABLE_SUPERVISED_USERS)
     COLOR_SUPERVISED_USER_LABEL,
     COLOR_SUPERVISED_USER_LABEL_BACKGROUND,
@@ -143,11 +167,11 @@ class ThemeProperties {
 
   // Returns the default tint for the given tint |id| TINT_* enum value.
   // Returns an HSL value of {-1, -1, -1} if |id| is invalid.
-  static color_utils::HSL GetDefaultTint(int id);
+  static color_utils::HSL GetDefaultTint(int id, bool otr);
 
   // Returns the default color for the given color |id| COLOR_* enum value.
-  // Returns SK_ColorRED if |id| is invalid.
-  static SkColor GetDefaultColor(int id);
+  // Returns gfx::kPlaceholderColor if |id| is invalid.
+  static SkColor GetDefaultColor(int id, bool otr);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(ThemeProperties);

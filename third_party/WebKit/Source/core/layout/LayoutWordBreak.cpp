@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/layout/LayoutWordBreak.h"
 
 #include "core/html/HTMLElement.h"
@@ -41,4 +40,4 @@ bool LayoutWordBreak::isWordBreak() const
     return true;
 }
 
-}
+} // namespace blink

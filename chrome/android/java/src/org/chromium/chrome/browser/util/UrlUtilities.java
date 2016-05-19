@@ -192,6 +192,15 @@ public class UrlUtilities {
     }
 
     /**
+     * Determines whether or not the given URLs have the same host.
+     * Unlike the above sameDomainOrHost(...) method, this does a simpler host matching, so
+     * http://news.google.com and http://finance.google.com do not have the same host.
+     */
+    public static boolean sameHost(String primaryUrl, String secondaryUrl) {
+        return nativeSameHost(primaryUrl, secondaryUrl);
+    }
+
+    /**
      * This function works by calling net::registry_controlled_domains::GetDomainAndRegistry
      *
      * @param uri A URI
@@ -206,6 +215,20 @@ public class UrlUtilities {
     public static String getDomainAndRegistry(String uri, boolean includePrivateRegistries) {
         if (TextUtils.isEmpty(uri)) return uri;
         return nativeGetDomainAndRegistry(uri, includePrivateRegistries);
+    }
+
+    /** @return whether two URLs match, ignoring the #fragment. */
+    @VisibleForTesting
+    public static boolean urlsMatchIgnoringFragments(String url, String url2) {
+        if (TextUtils.equals(url, url2)) return true;
+        return nativeUrlsMatchIgnoringFragments(url, url2);
+    }
+
+    /** @return whether the #fragmant differs in two URLs. */
+    @VisibleForTesting
+    public static boolean urlsFragmentsDiffer(String url, String url2) {
+        if (TextUtils.equals(url, url2)) return false;
+        return nativeUrlsFragmentsDiffer(url, url2);
     }
 
     // Patterns used in validateIntentUrl.
@@ -243,7 +266,7 @@ public class UrlUtilities {
                 return validateIntentUrl(url.replace("intent:#Intent;", "intent://foo/#Intent;"));
             }
 
-            Log.d(TAG, "Could not parse url '" + url + "': " + e.toString());
+            Log.d(TAG, "Could not parse url '%s': %s", url, e.toString());
             return false;
         }
 
@@ -255,7 +278,7 @@ public class UrlUtilities {
 
         String hostname = parsed.getHost();
         if (hostname == null) {
-            Log.d(TAG, "hostname was null for '" + url + "'");
+            Log.d(TAG, "hostname was null for '%s'", url);
             return false;
         }
         Matcher m = DNS_HOSTNAME_PATTERN.matcher(hostname);
@@ -301,8 +324,7 @@ public class UrlUtilities {
         if (parts.length < 3
                 || !parts[0].equals("Intent")
                 || !parts[parts.length - 1].equals("end")) {
-            Log.d(TAG, "Invalid fragment (not enough parts, lacking Intent, "
-                    + "or lacking end)");
+            Log.d(TAG, "Invalid fragment (not enough parts, lacking Intent, or lacking end)");
             return false;
         }
 
@@ -317,33 +339,33 @@ public class UrlUtilities {
             // component, or scheme contains (unencoded) "=".
             String[] pair = parts[i].split("=");
             if (2 != pair.length) {
-                Log.d(TAG, "Invalid key=value pair '" + parts[i] + "'");
+                Log.d(TAG, "Invalid key=value pair '%s'", parts[i]);
                 return false;
             }
 
             m = JAVA_PACKAGE_NAME_PATTERN.matcher(pair[1]);
             if (pair[0].equals("package")) {
                 if (seenPackage || !m.matches()) {
-                    Log.d(TAG, "Invalid package '" + pair[1] + "'");
+                    Log.d(TAG, "Invalid package '%s'", pair[1]);
                     return false;
                 }
                 seenPackage = true;
             } else if (pair[0].equals("action")) {
                 if (seenAction || !m.matches()) {
-                    Log.d(TAG, "Invalid action '" + pair[1] + "'");
+                    Log.d(TAG, "Invalid action '%s'", pair[1]);
                     return false;
                 }
                 seenAction = true;
             } else if (pair[0].equals("category")) {
                 if (seenCategory || !m.matches()) {
-                    Log.d(TAG, "Invalid category '" + pair[1] + "'");
+                    Log.d(TAG, "Invalid category '%s'", pair[1]);
                     return false;
                 }
                 seenCategory = true;
             } else if (pair[0].equals("component")) {
                 Matcher componentMatcher = ANDROID_COMPONENT_NAME_PATTERN.matcher(pair[1]);
                 if (seenComponent || !componentMatcher.matches()) {
-                    Log.d(TAG, "Invalid component '" + pair[1] + "'");
+                    Log.d(TAG, "Invalid component '%s'", pair[1]);
                     return false;
                 }
                 seenComponent = true;
@@ -351,7 +373,7 @@ public class UrlUtilities {
                 if (seenScheme) return false;
                 Matcher schemeMatcher = URL_SCHEME_PATTERN.matcher(pair[1]);
                 if (!schemeMatcher.matches()) {
-                    Log.d(TAG, "Invalid scheme '" + pair[1] + "'");
+                    Log.d(TAG, "Invalid scheme '%s'", pair[1]);
                     return false;
                 }
                 seenScheme = true;
@@ -369,6 +391,7 @@ public class UrlUtilities {
 
     private static native boolean nativeSameDomainOrHost(String primaryUrl, String secondaryUrl,
             boolean includePrivateRegistries);
+    private static native boolean nativeSameHost(String primaryUrl, String secondaryUrl);
     private static native String nativeGetDomainAndRegistry(String url,
             boolean includePrivateRegistries);
     public static native boolean nativeIsGoogleSearchUrl(String url);
@@ -376,4 +399,6 @@ public class UrlUtilities {
     public static native String nativeFormatUrlForSecurityDisplay(String url);
     public static native String nativeFormatUrlForSecurityDisplayOmitScheme(String url);
     private static native String nativeFixupUrl(String url, String desiredTld);
+    private static native boolean nativeUrlsMatchIgnoringFragments(String url, String url2);
+    private static native boolean nativeUrlsFragmentsDiffer(String url, String url2);
 }

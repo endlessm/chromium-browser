@@ -5,6 +5,7 @@
 #include "components/test_runner/mock_credential_manager_client.h"
 
 #include "third_party/WebKit/public/platform/WebCredential.h"
+#include "third_party/WebKit/public/platform/WebPassOwnPtr.h"
 
 namespace test_runner {
 
@@ -33,10 +34,11 @@ void MockCredentialManagerClient::dispatchRequireUserMediation(
 }
 
 void MockCredentialManagerClient::dispatchGet(
-    bool zeroClickOnly,
+    bool zero_click_only,
+    bool include_passwords,
     const blink::WebVector<blink::WebURL>& federations,
     RequestCallbacks* callbacks) {
-  callbacks->onSuccess(credential_.get());
+  callbacks->onSuccess(adoptWebPtr(credential_.release()));
   delete callbacks;
 }
 

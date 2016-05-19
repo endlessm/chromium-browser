@@ -6,13 +6,18 @@
 
 #include <dlfcn.h>
 #include <EGL/egl.h>
+#include <utility>
 
 #include "base/callback_helpers.h"
+#include "base/macros.h"
 #include "chromecast/public/cast_egl_platform.h"
 #include "chromecast/public/graphics_types.h"
+#include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/geometry/quad_f.h"
+#include "ui/gfx/vsync_provider.h"
 #include "ui/ozone/platform/cast/surface_ozone_egl_cast.h"
 #include "ui/ozone/public/native_pixmap.h"
+#include "ui/ozone/public/surface_ozone_canvas.h"
 
 using chromecast::CastEglPlatform;
 
@@ -37,7 +42,34 @@ gfx::Size GetMinDisplaySize() {
   return gfx::Size(1280, 720);
 }
 
+class DummySurface : public SurfaceOzoneCanvas {
+ public:
+  DummySurface() {}
+  ~DummySurface() override {}
+
+  // SurfaceOzoneCanvas implementation:
+  skia::RefPtr<SkSurface> GetSurface() override { return surface_; }
+
+  void ResizeCanvas(const gfx::Size& viewport_size) override {
+    surface_ = skia::AdoptRef(SkSurface::NewRaster(SkImageInfo::MakeN32Premul(
+        viewport_size.width(), viewport_size.height())));
+  }
+
+  void PresentCanvas(const gfx::Rect& damage) override {}
+
+  scoped_ptr<gfx::VSyncProvider> CreateVSyncProvider() override {
+    return nullptr;
+  }
+
+ private:
+  skia::RefPtr<SkSurface> surface_;
+
+  DISALLOW_COPY_AND_ASSIGN(DummySurface);
+};
+
 }  // namespace
+
+SurfaceFactoryCast::SurfaceFactoryCast() : SurfaceFactoryCast(nullptr) {}
 
 SurfaceFactoryCast::SurfaceFactoryCast(scoped_ptr<CastEglPlatform> egl_platform)
     : state_(kUninitialized),
@@ -46,8 +78,9 @@ SurfaceFactoryCast::SurfaceFactoryCast(scoped_ptr<CastEglPlatform> egl_platform)
       window_(0),
       display_size_(GetInitialDisplaySize()),
       new_display_size_(GetInitialDisplaySize()),
-      egl_platform_(egl_platform.Pass()) {
-}
+      egl_platform_(std::move(egl_platform)),
+      overlay_count_(0),
+      previous_frame_overlay_count_(0) {}
 
 SurfaceFactoryCast::~SurfaceFactoryCast() {
   ShutdownHardware();
@@ -69,7 +102,8 @@ void SurfaceFactoryCast::InitializeHardware() {
 
 void SurfaceFactoryCast::TerminateDisplay() {
   void* egl_lib_handle = egl_platform_->GetEglLibrary();
-  DCHECK(egl_lib_handle);
+  if (!egl_lib_handle)
+    return;
 
   EGLGetDisplayFn get_display =
       reinterpret_cast<EGLGetDisplayFn>(dlsym(egl_lib_handle, "eglGetDisplay"));
@@ -94,6 +128,39 @@ void SurfaceFactoryCast::ShutdownHardware() {
   egl_platform_->ShutdownHardware();
 
   state_ = kUninitialized;
+}
+
+void SurfaceFactoryCast::OnSwapBuffers() {
+  DCHECK(overlay_count_ == 0 || overlay_count_ == 1);
+
+  // Logging for overlays to help diagnose bugs when nothing is visible on
+  // screen.  Logging this every frame would be overwhelming, so we just
+  // log on the transitions from 0 overlays -> 1 overlay and vice versa.
+  if (overlay_count_ == 0 && previous_frame_overlay_count_ != 0) {
+    LOG(INFO) << "Overlays deactivated";
+  } else if (overlay_count_ != 0 && previous_frame_overlay_count_ == 0) {
+    LOG(INFO) << "Overlays activated: " << overlay_bounds_.ToString();
+  } else if (overlay_count_ == previous_frame_overlay_count_ &&
+             overlay_bounds_ != previous_frame_overlay_bounds_) {
+    LOG(INFO) << "Overlay geometry changed to " << overlay_bounds_.ToString();
+  }
+
+  previous_frame_overlay_count_ = overlay_count_;
+  previous_frame_overlay_bounds_ = overlay_bounds_;
+  overlay_count_ = 0;
+}
+
+void SurfaceFactoryCast::OnOverlayScheduled(const gfx::Rect& display_bounds) {
+  ++overlay_count_;
+  overlay_bounds_ = display_bounds;
+}
+
+scoped_ptr<SurfaceOzoneCanvas> SurfaceFactoryCast::CreateCanvasForWidget(
+    gfx::AcceleratedWidget widget) {
+  // Software canvas support only in headless mode
+  if (egl_platform_)
+    return nullptr;
+  return make_scoped_ptr<SurfaceOzoneCanvas>(new DummySurface());
 }
 
 intptr_t SurfaceFactoryCast::GetNativeDisplay() {
@@ -170,43 +237,36 @@ void SurfaceFactoryCast::ChildDestroyed() {
     DestroyWindow();
 }
 
-const int32* SurfaceFactoryCast::GetEGLSurfaceProperties(
-    const int32* desired_list) {
-  return egl_platform_->GetEGLSurfaceProperties(desired_list);
-}
-
 scoped_refptr<NativePixmap> SurfaceFactoryCast::CreateNativePixmap(
-    gfx::AcceleratedWidget w,
+    gfx::AcceleratedWidget widget,
     gfx::Size size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage) {
   class CastPixmap : public NativePixmap {
    public:
-    CastPixmap() {}
+    CastPixmap(SurfaceFactoryCast* parent) : parent_(parent) {}
 
-    void* GetEGLClientBuffer() override {
+    void* GetEGLClientBuffer() const override {
       // TODO(halliwell): try to implement this through CastEglPlatform.
       return nullptr;
     }
-    int GetDmaBufFd() override { return 0; }
-    int GetDmaBufPitch() override { return 0; }
-    gfx::BufferFormat GetBufferFormat() override {
-      return gfx::BufferFormat::LAST;
+    int GetDmaBufFd() const override { return -1; }
+    int GetDmaBufPitch() const override { return 0; }
+    gfx::BufferFormat GetBufferFormat() const override {
+      return gfx::BufferFormat::BGRA_8888;
     }
+    gfx::Size GetBufferSize() const override { return gfx::Size(); }
+
     bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
                               int plane_z_order,
                               gfx::OverlayTransform plane_transform,
                               const gfx::Rect& display_bounds,
                               const gfx::RectF& crop_rect) override {
+      parent_->OnOverlayScheduled(display_bounds);
       return true;
     }
     void SetProcessingCallback(
         const ProcessingCallback& processing_callback) override {}
-    scoped_refptr<NativePixmap> GetProcessedPixmap(
-        gfx::Size target_size,
-        gfx::BufferFormat target_format) override {
-      return nullptr;
-    }
     gfx::NativePixmapHandle ExportHandle() override {
       return gfx::NativePixmapHandle();
     }
@@ -214,9 +274,11 @@ scoped_refptr<NativePixmap> SurfaceFactoryCast::CreateNativePixmap(
    private:
     ~CastPixmap() override {}
 
+    SurfaceFactoryCast* parent_;
+
     DISALLOW_COPY_AND_ASSIGN(CastPixmap);
   };
-  return make_scoped_refptr(new CastPixmap);
+  return make_scoped_refptr(new CastPixmap(this));
 }
 
 bool SurfaceFactoryCast::LoadEGLGLES2Bindings(

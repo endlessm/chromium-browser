@@ -4,6 +4,8 @@
 
 #include "chrome/test/ppapi/ppapi_test.h"
 
+#include <stdint.h>
+
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
@@ -12,6 +14,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -33,6 +36,7 @@
 #include "media/base/media_switches.h"
 #include "net/base/filename_util.h"
 #include "net/base/test_data_directory.h"
+#include "net/test/spawned_test_server/spawned_test_server.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
 #include "ui/gl/gl_switches.h"
 
@@ -175,9 +179,8 @@ void PPAPITestBase::RunTest(const std::string& test_case) {
 void PPAPITestBase::RunTestViaHTTP(const std::string& test_case) {
   base::FilePath document_root;
   ASSERT_TRUE(ui_test_utils::GetRelativeBuildDirectory(&document_root));
-  net::SpawnedTestServer http_server(net::SpawnedTestServer::TYPE_HTTP,
-                                     net::SpawnedTestServer::kLocalhost,
-                                     document_root);
+  net::EmbeddedTestServer http_server;
+  http_server.AddDefaultHandlers(document_root);
   ASSERT_TRUE(http_server.Start());
   RunTestURL(GetTestURL(http_server, test_case, std::string()));
 }
@@ -185,18 +188,13 @@ void PPAPITestBase::RunTestViaHTTP(const std::string& test_case) {
 void PPAPITestBase::RunTestWithSSLServer(const std::string& test_case) {
   base::FilePath http_document_root;
   ASSERT_TRUE(ui_test_utils::GetRelativeBuildDirectory(&http_document_root));
-  net::SpawnedTestServer http_server(net::SpawnedTestServer::TYPE_HTTP,
-                                     net::SpawnedTestServer::kLocalhost,
-                                     http_document_root);
-  net::SpawnedTestServer ssl_server(net::SpawnedTestServer::TYPE_HTTPS,
-                                    net::BaseTestServer::SSLOptions(),
-                                    http_document_root);
-  // Start the servers in parallel.
-  ASSERT_TRUE(http_server.StartInBackground());
-  ASSERT_TRUE(ssl_server.StartInBackground());
-  // Wait until they are both finished before continuing.
-  ASSERT_TRUE(http_server.BlockUntilStarted());
-  ASSERT_TRUE(ssl_server.BlockUntilStarted());
+  net::EmbeddedTestServer http_server;
+  http_server.AddDefaultHandlers(http_document_root);
+  net::EmbeddedTestServer ssl_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  ssl_server.AddDefaultHandlers(http_document_root);
+
+  ASSERT_TRUE(http_server.Start());
+  ASSERT_TRUE(ssl_server.Start());
 
   uint16_t port = ssl_server.host_port_pair().port();
   RunTestURL(GetTestURL(http_server,
@@ -207,18 +205,13 @@ void PPAPITestBase::RunTestWithSSLServer(const std::string& test_case) {
 void PPAPITestBase::RunTestWithWebSocketServer(const std::string& test_case) {
   base::FilePath http_document_root;
   ASSERT_TRUE(ui_test_utils::GetRelativeBuildDirectory(&http_document_root));
-  net::SpawnedTestServer http_server(net::SpawnedTestServer::TYPE_HTTP,
-                                     net::SpawnedTestServer::kLocalhost,
-                                     http_document_root);
+  net::EmbeddedTestServer http_server;
+  http_server.AddDefaultHandlers(http_document_root);
   net::SpawnedTestServer ws_server(net::SpawnedTestServer::TYPE_WS,
                                    net::SpawnedTestServer::kLocalhost,
                                    net::GetWebSocketTestDataDirectory());
-  // Start the servers in parallel.
-  ASSERT_TRUE(http_server.StartInBackground());
-  ASSERT_TRUE(ws_server.StartInBackground());
-  // Wait until they are both finished before continuing.
-  ASSERT_TRUE(http_server.BlockUntilStarted());
-  ASSERT_TRUE(ws_server.BlockUntilStarted());
+  ASSERT_TRUE(http_server.Start());
+  ASSERT_TRUE(ws_server.Start());
 
   std::string host = ws_server.host_port_pair().HostForURL();
   uint16_t port = ws_server.host_port_pair().port();
@@ -266,11 +259,10 @@ void PPAPITestBase::RunTestURL(const GURL& test_url) {
   EXPECT_STREQ("PASS", handler.message().c_str());
 }
 
-GURL PPAPITestBase::GetTestURL(
-    const net::SpawnedTestServer& http_server,
-    const std::string& test_case,
-    const std::string& extra_params) {
-  std::string query = BuildQuery("files/test_case.html?", test_case);
+GURL PPAPITestBase::GetTestURL(const net::EmbeddedTestServer& http_server,
+                               const std::string& test_case,
+                               const std::string& extra_params) {
+  std::string query = BuildQuery("/test_case.html?", test_case);
   if (!extra_params.empty())
     query = base::StringPrintf("%s&%s", query.c_str(), extra_params.c_str());
 

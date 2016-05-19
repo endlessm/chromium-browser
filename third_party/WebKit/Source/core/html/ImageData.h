@@ -32,6 +32,8 @@
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "core/CoreExport.h"
 #include "core/dom/DOMTypedArray.h"
+#include "core/imagebitmap/ImageBitmapSource.h"
+#include "platform/geometry/IntRect.h"
 #include "platform/geometry/IntSize.h"
 #include "platform/heap/Handle.h"
 #include "wtf/RefPtr.h"
@@ -39,8 +41,9 @@
 namespace blink {
 
 class ExceptionState;
+class ImageBitmapOptions;
 
-class CORE_EXPORT ImageData final : public GarbageCollectedFinalized<ImageData>, public ScriptWrappable {
+class CORE_EXPORT ImageData final : public GarbageCollectedFinalized<ImageData>, public ScriptWrappable, public ImageBitmapSource {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static ImageData* create(const IntSize&);
@@ -54,6 +57,10 @@ public:
     int height() const { return m_size.height(); }
     const DOMUint8ClampedArray* data() const { return m_data.get(); }
     DOMUint8ClampedArray* data() { return m_data.get(); }
+
+    // ImageBitmapSource implementation
+    IntSize bitmapSourceSize() const override { return m_size; }
+    ScriptPromise createImageBitmap(ScriptState*, EventTarget&, int sx, int sy, int sw, int sh, const ImageBitmapOptions&, ExceptionState&) override;
 
     DEFINE_INLINE_TRACE() { }
 

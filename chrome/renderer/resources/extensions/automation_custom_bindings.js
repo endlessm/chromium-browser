@@ -22,6 +22,10 @@ var DestroyAccessibilityTree =
 var GetIntAttribute = nativeAutomationInternal.GetIntAttribute;
 var StartCachingAccessibilityTrees =
     nativeAutomationInternal.StartCachingAccessibilityTrees;
+var AddTreeChangeObserver = nativeAutomationInternal.AddTreeChangeObserver;
+var RemoveTreeChangeObserver =
+    nativeAutomationInternal.RemoveTreeChangeObserver;
+var GetFocus = nativeAutomationInternal.GetFocus;
 var schema = GetSchemaAdditions();
 
 /**
@@ -53,9 +57,36 @@ automationUtil.storeTreeCallback = function(id, callback) {
 
 /**
  * Global list of tree change observers.
- * @type {Array<TreeChangeObserver>}
+ * @type {Object<number, TreeChangeObserver>}
  */
-automationUtil.treeChangeObservers = [];
+automationUtil.treeChangeObserverMap = {};
+
+/**
+ * The id of the next tree change observer.
+ * @type {number}
+ */
+automationUtil.nextTreeChangeObserverId = 1;
+
+/**
+ * @type {AutomationNode} The current focused node. This is only updated
+ *   when calling automationUtil.updateFocusedNode.
+ */
+automationUtil.focusedNode = null;
+
+/**
+ * Update automationUtil.focusedNode to be the node that currently has focus.
+ */
+automationUtil.updateFocusedNode = function() {
+  automationUtil.focusedNode = null;
+  var focusedNodeInfo = GetFocus(DESKTOP_TREE_ID);
+  if (!focusedNodeInfo)
+    return;
+  var tree = AutomationRootNode.getOrCreate(focusedNodeInfo.treeId);
+  if (tree) {
+    automationUtil.focusedNode =
+        privates(tree).impl.get(focusedNodeInfo.nodeId);
+  }
+};
 
 automation.registerCustomHook(function(bindingsAPI) {
   var apiFunctions = bindingsAPI.apiFunctions;
@@ -109,23 +140,33 @@ automation.registerCustomHook(function(bindingsAPI) {
     }
   });
 
+  apiFunctions.setHandleRequest('getFocus', function(callback) {
+    automationUtil.updateFocusedNode();
+    callback(automationUtil.focusedNode);
+  });
+
   function removeTreeChangeObserver(observer) {
-    var observers = automationUtil.treeChangeObservers;
-    for (var i = 0; i < observers.length; i++) {
-      if (observer == observers[i])
-        observers.splice(i, 1);
+    for (var id in automationUtil.treeChangeObserverMap) {
+      if (automationUtil.treeChangeObserverMap[id] == observer) {
+        RemoveTreeChangeObserver(id);
+        delete automationUtil.treeChangeObserverMap[id];
+        return;
+      }
     }
   }
   apiFunctions.setHandleRequest('removeTreeChangeObserver', function(observer) {
     removeTreeChangeObserver(observer);
   });
 
-  function addTreeChangeObserver(observer) {
+  function addTreeChangeObserver(filter, observer) {
     removeTreeChangeObserver(observer);
-    automationUtil.treeChangeObservers.push(observer);
+    var id = automationUtil.nextTreeChangeObserverId++;
+    AddTreeChangeObserver(id, filter);
+    automationUtil.treeChangeObserverMap[id] = observer;
   }
-  apiFunctions.setHandleRequest('addTreeChangeObserver', function(observer) {
-    addTreeChangeObserver(observer);
+  apiFunctions.setHandleRequest('addTreeChangeObserver',
+      function(filter, observer) {
+    addTreeChangeObserver(filter, observer);
   });
 
   apiFunctions.setHandleRequest('setDocumentSelection', function(params) {
@@ -147,7 +188,44 @@ automation.registerCustomHook(function(bindingsAPI) {
 
 });
 
-automationInternal.onTreeChange.addListener(function(treeID,
+automationInternal.onChildTreeID.addListener(function(treeID,
+                                                      nodeID) {
+  var tree = AutomationRootNode.getOrCreate(treeID);
+  if (!tree)
+    return;
+
+  var node = privates(tree).impl.get(nodeID);
+  if (!node)
+    return;
+
+  // A WebView in the desktop tree has a different AX tree as its child.
+  // When we encounter a WebView with a child AX tree id that we don't
+  // currently have cached, explicitly request that AX tree from the
+  // browser process and set up a callback when it loads to attach that
+  // tree as a child of this node and fire appropriate events.
+  var childTreeID = GetIntAttribute(treeID, nodeID, 'childTreeId');
+  if (!childTreeID)
+    return;
+
+  var subroot = AutomationRootNode.get(childTreeID);
+  if (!subroot) {
+    automationUtil.storeTreeCallback(childTreeID, function(root) {
+      privates(root).impl.setHostNode(node);
+
+      if (root.docLoaded)
+        privates(root).impl.dispatchEvent(schema.EventType.loadComplete);
+
+      privates(node).impl.dispatchEvent(schema.EventType.childrenChanged);
+    });
+
+    automationInternal.enableFrame(childTreeID);
+  } else {
+    privates(subroot).impl.setHostNode(node);
+  }
+});
+
+automationInternal.onTreeChange.addListener(function(observerID,
+                                                     treeID,
                                                      nodeID,
                                                      changeType) {
   var tree = AutomationRootNode.getOrCreate(treeID);
@@ -158,60 +236,56 @@ automationInternal.onTreeChange.addListener(function(treeID,
   if (!node)
     return;
 
-  if (node.role == 'webView' || node.role == 'embeddedObject') {
-    // A WebView in the desktop tree has a different AX tree as its child.
-    // When we encounter a WebView with a child AX tree id that we don't
-    // currently have cached, explicitly request that AX tree from the
-    // browser process and set up a callback when it loads to attach that
-    // tree as a child of this node and fire appropriate events.
-    var childTreeID = GetIntAttribute(treeID, nodeID, 'childTreeId');
-    if (!childTreeID)
-      return;
+  var observer = automationUtil.treeChangeObserverMap[observerID];
+  if (!observer)
+    return;
 
-    var subroot = AutomationRootNode.get(childTreeID);
-    if (!subroot) {
-      automationUtil.storeTreeCallback(childTreeID, function(root) {
-        privates(root).impl.setHostNode(node);
-
-        if (root.docLoaded)
-          privates(root).impl.dispatchEvent(schema.EventType.loadComplete);
-
-        privates(node).impl.dispatchEvent(schema.EventType.childrenChanged);
-      });
-
-      automationInternal.enableFrame(childTreeID);
-    } else {
-      privates(subroot).impl.setHostNode(node);
-    }
-  }
-
-  var treeChange = {target: node, type: changeType};
-
-  // Make a copy of the observers in case one of these callbacks tries
-  // to change the list of observers.
-  var observers = automationUtil.treeChangeObservers.slice();
-  for (var i = 0; i < observers.length; i++) {
-    try {
-      observers[i](treeChange);
-    } catch (e) {
-      exceptionHandler.handle('Error in tree change observer for ' +
-          treeChange.type, e);
-    }
-  }
-
-  if (changeType == schema.TreeChangeType.nodeRemoved) {
-    privates(tree).impl.remove(nodeID);
+  try {
+    observer({target: node, type: changeType});
+  } catch (e) {
+    exceptionHandler.handle('Error in tree change observer for ' +
+        treeChange.type, e);
   }
 });
 
-// Listen to the automationInternal.onAccessibilityEvent event, which is
-// essentially a proxy for the AccessibilityHostMsg_Events IPC from the
-// renderer.
-automationInternal.onAccessibilityEvent.addListener(function(data) {
-  var id = data.treeID;
+automationInternal.onNodesRemoved.addListener(function(treeID, nodeIDs) {
+  var tree = AutomationRootNode.getOrCreate(treeID);
+  if (!tree)
+    return;
+
+  for (var i = 0; i < nodeIDs.length; i++) {
+    privates(tree).impl.remove(nodeIDs[i]);
+  }
+});
+
+/**
+ * Dispatch accessibility events fired on individual nodes to its
+ * corresponding AutomationNode. Handle focus events specially
+ * (see below).
+ */
+automationInternal.onAccessibilityEvent.addListener(function(eventParams) {
+  var id = eventParams.treeID;
   var targetTree = AutomationRootNode.getOrCreate(id);
 
-  if (!privates(targetTree).impl.onAccessibilityEvent(data))
+  // When we get a focus event, ignore the actual event target, and instead
+  // check what node has focus globally. If that represents a focus change,
+  // fire a focus event on the correct target.
+  if (eventParams.eventType == schema.EventType.focus) {
+    var previousFocusedNode = automationUtil.focusedNode;
+    automationUtil.updateFocusedNode();
+    if (automationUtil.focusedNode &&
+        automationUtil.focusedNode == previousFocusedNode) {
+      return;
+    }
+
+    if (automationUtil.focusedNode) {
+      targetTree = automationUtil.focusedNode.root;
+      eventParams.treeID = privates(targetTree).impl.treeID;
+      eventParams.targetID = privates(automationUtil.focusedNode).impl.id;
+    }
+  }
+
+  if (!privates(targetTree).impl.onAccessibilityEvent(eventParams))
     return;
 
   // If we're not waiting on a callback to getTree(), we can early out here.

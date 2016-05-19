@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/webui/settings/md_settings_ui.h"
 
 namespace base {
@@ -22,8 +23,8 @@ namespace content {
 class WebUIDataSource;
 }
 
-class AutomaticProfileResetter;
 class BrandcodeConfigFetcher;
+class Profile;
 class ProfileResetter;
 class ResettableSettingsSnapshot;
 
@@ -32,29 +33,37 @@ namespace settings {
 // Handler for
 //  1) 'Reset Profile Settings' dialog
 //  2) 'Powerwash' dialog (ChromeOS only)
-class ResetSettingsHandler
-    : public SettingsPageUIHandler,
-      public base::SupportsWeakPtr<ResetSettingsHandler> {
+class ResetSettingsHandler : public SettingsPageUIHandler {
  public:
-  explicit ResetSettingsHandler(
-      content::WebUIDataSource* html_source, content::WebUI* web_ui);
   ~ResetSettingsHandler() override;
+
+  static ResetSettingsHandler* Create(
+      content::WebUIDataSource* html_source, Profile* profile);
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
 
- private:
+ protected:
+  ResetSettingsHandler(Profile* profile, bool allow_powerwash);
+
+  // Overriden in tests to substitute with a test version of ProfileResetter.
+  virtual ProfileResetter* GetResetter();
+
   // Javascript callback to start clearing data.
   void HandleResetProfileSettings(const base::ListValue* value);
 
+ private:
   // Closes the dialog once all requested settings has been reset.
   void OnResetProfileSettingsDone(bool send_feedback);
 
-  // Called when the confirmation box appears.
+  // Called when the reset profile dialog is shown.
   void OnShowResetProfileDialog(const base::ListValue* value);
 
-  // Called when the confirmation box disappears.
+  // Called when the reset profile dialog is hidden.
   void OnHideResetProfileDialog(const base::ListValue* value);
+
+  // Called when the reset profile banner is shown.
+  void OnHideResetProfileBanner(const base::ListValue* value);
 
   // Called when BrandcodeConfigFetcher completed fetching settings.
   void OnSettingsFetched();
@@ -78,13 +87,7 @@ class ResetSettingsHandler
   bool allow_powerwash_ = false;
 #endif  // defined(OS_CHROMEOS)
 
-  // Destroyed with the Profile, thus it should outlive us. This will be NULL if
-  // the underlying profile is off-the-record (e.g. in Guest mode on Chrome OS).
-  AutomaticProfileResetter* automatic_profile_resetter_ = nullptr;
-
-  // Records whether or not the Profile Reset confirmation dialog was opened at
-  // least once during the lifetime of the settings page.
-  bool has_shown_confirmation_dialog_ = false;
+  Profile* const profile_;
 
   scoped_ptr<ProfileResetter> resetter_;
 
@@ -95,6 +98,8 @@ class ResetSettingsHandler
 
   // Contains Chrome brand code; empty for organic Chrome.
   std::string brandcode_;
+
+  base::WeakPtrFactory<ResetSettingsHandler> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ResetSettingsHandler);
 };

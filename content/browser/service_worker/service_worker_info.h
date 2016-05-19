@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_INFO_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_INFO_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/time/time.h"
@@ -30,18 +32,19 @@ struct CONTENT_EXPORT ServiceWorkerVersionInfo {
   ServiceWorkerVersionInfo(ServiceWorkerVersion::RunningStatus running_status,
                            ServiceWorkerVersion::Status status,
                            const GURL& script_url,
-                           int64 registration_id,
-                           int64 version_id,
+                           int64_t registration_id,
+                           int64_t version_id,
                            int process_id,
                            int thread_id,
                            int devtools_agent_route_id);
+  ServiceWorkerVersionInfo(const ServiceWorkerVersionInfo& other);
   ~ServiceWorkerVersionInfo();
 
   ServiceWorkerVersion::RunningStatus running_status;
   ServiceWorkerVersion::Status status;
   GURL script_url;
-  int64 registration_id;
-  int64 version_id;
+  int64_t registration_id;
+  int64_t version_id;
   int process_id;
   int thread_id;
   int devtools_agent_route_id;
@@ -56,21 +59,22 @@ struct CONTENT_EXPORT ServiceWorkerRegistrationInfo {
   enum ForceUpdateOnPageLoad { IS_NOT_FORCED, IS_FORCED };
   ServiceWorkerRegistrationInfo();
   ServiceWorkerRegistrationInfo(const GURL& pattern,
-                                int64 registration_id,
+                                int64_t registration_id,
                                 DeleteFlag delete_flag);
   ServiceWorkerRegistrationInfo(
       const GURL& pattern,
-      int64 registration_id,
+      int64_t registration_id,
       DeleteFlag delete_flag,
       ForceUpdateOnPageLoad force_update_on_page_load,
       const ServiceWorkerVersionInfo& active_version,
       const ServiceWorkerVersionInfo& waiting_version,
       const ServiceWorkerVersionInfo& installing_version,
       int64_t active_version_total_size_bytes);
+  ServiceWorkerRegistrationInfo(const ServiceWorkerRegistrationInfo& other);
   ~ServiceWorkerRegistrationInfo();
 
   GURL pattern;
-  int64 registration_id;
+  int64_t registration_id;
   DeleteFlag delete_flag;
   ForceUpdateOnPageLoad force_update_on_page_load;
   ServiceWorkerVersionInfo active_version;

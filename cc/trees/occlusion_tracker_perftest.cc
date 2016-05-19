@@ -4,6 +4,8 @@
 
 #include "cc/trees/occlusion_tracker.h"
 
+#include <stddef.h>
+
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "cc/debug/lap_timer.h"
@@ -45,8 +47,8 @@ class OcclusionTrackerPerfTest : public testing::Test {
     host_impl_->InitializeRenderer(output_surface_.get());
 
     scoped_ptr<LayerImpl> root_layer = LayerImpl::Create(active_tree(), 1);
-    root_layer->SetHasRenderSurface(true);
-    active_tree()->SetRootLayer(root_layer.Pass());
+    root_layer->SetForceRenderSurface(true);
+    active_tree()->SetRootLayer(std::move(root_layer));
   }
 
   LayerTreeImpl* active_tree() { return host_impl_->active_tree(); }
@@ -90,7 +92,8 @@ TEST_F(OcclusionTrackerPerfTest, UnoccludedContentRect_FullyOccluded) {
   opaque_layer->SetContentsOpaque(true);
   opaque_layer->SetDrawsContent(true);
   opaque_layer->SetBounds(viewport_rect.size());
-  active_tree()->root_layer()->AddChild(opaque_layer.Pass());
+  active_tree()->root_layer()->AddChild(std::move(opaque_layer));
+  active_tree()->BuildPropertyTreesForTesting();
 
   bool update_lcd_text = false;
   active_tree()->UpdateDrawProperties(update_lcd_text);
@@ -159,9 +162,10 @@ TEST_F(OcclusionTrackerPerfTest, UnoccludedContentRect_10OpaqueLayers) {
     opaque_layer->SetBounds(
         gfx::Size(viewport_rect.width() / 2, viewport_rect.height() / 2));
     opaque_layer->SetPosition(gfx::PointF(i, i));
-    active_tree()->root_layer()->AddChild(opaque_layer.Pass());
+    active_tree()->root_layer()->AddChild(std::move(opaque_layer));
   }
 
+  active_tree()->BuildPropertyTreesForTesting();
   bool update_lcd_text = false;
   active_tree()->UpdateDrawProperties(update_lcd_text);
   const LayerImplList& rsll = active_tree()->RenderSurfaceLayerList();

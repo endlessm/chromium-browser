@@ -7,8 +7,8 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "components/invalidation/impl/gcm_network_channel_delegate.h"
@@ -96,12 +96,6 @@ class INVALIDATION_EXPORT GCMNetworkChannel
   void OnConnectionStateChanged(bool online);
   void UpdateGcmChannelState(bool online);
   void UpdateHttpChannelState(bool online);
-  // Base64 encoding/decoding with URL safe alphabet.
-  // http://tools.ietf.org/html/rfc4648#page-7
-  static void Base64EncodeURLSafe(const std::string& input,
-                                  std::string* output);
-  static bool Base64DecodeURLSafe(const std::string& input,
-                                  std::string* output);
 
   scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
   scoped_ptr<GCMNetworkChannelDelegate> delegate_;

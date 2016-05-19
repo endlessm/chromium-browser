@@ -9,7 +9,7 @@
 #include "ash/shell_observer.h"
 #include "ash/wm/lock_state_observer.h"
 #include "ash/wm/session_state_animator.h"
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -39,6 +39,12 @@ class ASH_EXPORT LockStateControllerDelegate {
  public:
   LockStateControllerDelegate() {}
   virtual ~LockStateControllerDelegate() {}
+
+  // Returns true if the lock screen webpage instance is loading.
+  // TODO(jdufault): Remove this method once crbug.com/452599 is resolved. We
+  // proxy the IsLoading method call into this delegate because ash forbids all
+  // icnludes from content/.
+  virtual bool IsLoading() const = 0;
 
   virtual void RequestLockScreen() = 0;
   virtual void RequestShutdown() = 0;

@@ -404,6 +404,7 @@ const char kAcceptedHostnameProperty[] = "AcceptedHostname";
 const char kNameServersProperty[] = "NameServers";
 const char kDelegatedPrefixProperty[] = "DelegatedPrefix";
 const char kDelegatedPrefixLengthProperty[] = "DelegatedPrefixLength";
+const char kLeaseDurationSecondsProperty[] = "LeaseDurationSeconds";
 
 // IPConfig type options.
 const char kTypeIPv4[] = "ipv4";
@@ -525,6 +526,7 @@ const char kReceiveByteCountProperty[] = "ReceiveByteCount";
 const char kSIMPresentProperty[] = "Cellular.SIMPresent";
 const char kSupportedCarriersProperty[] = "Cellular.SupportedCarriers";
 const char kTransmitByteCountProperty[] = "TransmitByteCount";
+const char kWifiSupportedFrequenciesProperty[] = "WiFi.SupportedFrequencies";
 
 // Technology types (augments "Flimflam type options" above).
 const char kTypeEthernetEap[] = "etherneteap";

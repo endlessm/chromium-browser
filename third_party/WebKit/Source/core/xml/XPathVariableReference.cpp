@@ -24,7 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/xml/XPathVariableReference.h"
 
 #include "core/xml/XPathValue.h"
@@ -48,5 +47,5 @@ Value VariableReference::evaluate(EvaluationContext& context) const
     return bindings.get(m_name);
 }
 
-}
-}
+} // namespace XPath
+} // namespace blink

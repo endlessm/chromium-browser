@@ -48,8 +48,10 @@ const std::vector<VarT> &GetShaderVariables(const std::vector<VarT> *variableLis
     return *variableList;
 }
 
+}  // anonymous namespace
+
 // true if varying x has a higher priority in packing than y
-bool CompareVarying(const sh::Varying &x, const sh::Varying &y)
+bool CompareShaderVar(const sh::ShaderVariable &x, const sh::ShaderVariable &y)
 {
     if (x.type == y.type)
     {
@@ -70,9 +72,7 @@ bool CompareVarying(const sh::Varying &x, const sh::Varying &y)
     return gl::VariableSortOrder(x.type) < gl::VariableSortOrder(y.type);
 }
 
-}  // anonymous namespace
-
-Shader::Data::Data(GLenum shaderType) : mShaderType(shaderType), mShaderVersion(100)
+Shader::Data::Data(GLenum shaderType) : mLabel(), mShaderType(shaderType), mShaderVersion(100)
 {
 }
 
@@ -101,6 +101,16 @@ Shader::Shader(ResourceManager *manager,
 Shader::~Shader()
 {
     SafeDelete(mImplementation);
+}
+
+void Shader::setLabel(const std::string &label)
+{
+    mData.mLabel = label;
+}
+
+const std::string &Shader::getLabel() const
+{
+    return mData.mLabel;
 }
 
 GLuint Shader::getHandle() const
@@ -170,6 +180,17 @@ int Shader::getTranslatedSourceLength() const
     return (static_cast<int>(mData.mTranslatedSource.length()) + 1);
 }
 
+int Shader::getTranslatedSourceWithDebugInfoLength() const
+{
+    const std::string &debugInfo = mImplementation->getDebugInfo();
+    if (debugInfo.empty())
+    {
+        return 0;
+    }
+
+    return (static_cast<int>(debugInfo.length()) + 1);
+}
+
 void Shader::getSourceImpl(const std::string &source, GLsizei bufSize, GLsizei *length, char *buffer)
 {
     int index = 0;
@@ -200,7 +221,7 @@ void Shader::getTranslatedSource(GLsizei bufSize, GLsizei *length, char *buffer)
 
 void Shader::getTranslatedSourceWithDebugInfo(GLsizei bufSize, GLsizei *length, char *buffer) const
 {
-    std::string debugInfo(mImplementation->getDebugInfo());
+    const std::string &debugInfo = mImplementation->getDebugInfo();
     getSourceImpl(debugInfo, bufSize, length, buffer);
 }
 
@@ -293,7 +314,7 @@ void Shader::compile(Compiler *compiler)
         ASSERT(mData.mShaderType == GL_FRAGMENT_SHADER);
 
         // TODO(jmadill): Figure out why we only sort in the FS, and if we need to.
-        std::sort(mData.mVaryings.begin(), mData.mVaryings.end(), CompareVarying);
+        std::sort(mData.mVaryings.begin(), mData.mVaryings.end(), CompareShaderVar);
         mData.mActiveOutputVariables =
             GetActiveShaderVariables(ShGetOutputVariables(compilerHandle));
     }

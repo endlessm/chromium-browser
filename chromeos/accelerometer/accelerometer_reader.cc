@@ -4,6 +4,9 @@
 
 #include "chromeos/accelerometer/accelerometer_reader.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -11,6 +14,7 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -87,7 +91,7 @@ const int kSizeOfReading = kDataSize * kNumberOfAxes;
 bool ReadFileToInt(const base::FilePath& path, int* value) {
   std::string s;
   DCHECK(value);
-  if (!base::ReadFileToString(path, &s, kMaxAsciiUintLength)) {
+  if (!base::ReadFileToStringWithMaxSize(path, &s, kMaxAsciiUintLength)) {
     return false;
   }
   base::TrimWhitespaceASCII(s, base::TRIM_ALL, &s);
@@ -231,8 +235,8 @@ void AccelerometerFileReader::Initialize(
   // file on detecting the device.
   if (base::IsDirectoryEmpty(base::FilePath(kAccelerometerDevicePath))) {
     if (base::SysInfo::IsRunningOnChromeOS()) {
-      LOG(ERROR) << "Accelerometer device directory is empty at "
-                 << kAccelerometerDevicePath;
+      LOG(WARNING) << "Accelerometer device directory is empty at "
+                   << kAccelerometerDevicePath;
     }
     return;
   }
@@ -444,7 +448,7 @@ void AccelerometerFileReader::ReadFileAndNotify() {
     }
     for (AccelerometerSource source : reading_data.sources) {
       DCHECK(configuration_.has[source]);
-      int16* values = reinterpret_cast<int16*>(reading);
+      int16_t* values = reinterpret_cast<int16_t*>(reading);
       update_->Set(source, values[configuration_.index[source][0]] *
                                configuration_.scale[source][0],
                    values[configuration_.index[source][1]] *

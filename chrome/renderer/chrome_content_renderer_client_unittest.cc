@@ -4,9 +4,12 @@
 
 #include "chrome/renderer/chrome_content_renderer_client.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/renderer/searchbox/search_bouncer.h"
 #include "content/public/common/webplugininfo.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -68,7 +71,7 @@ const char kChatAppURL3[] = "https://foo.plus.sandbox.google.com/hangouts/foo";
 #if !defined(DISABLE_NACL)
 bool AllowsDevInterfaces(const WebPluginParams& params) {
   for (size_t i = 0; i < params.attributeNames.size(); ++i) {
-    if (params.attributeNames[i] == WebString::fromUTF8("@dev"))
+    if (params.attributeNames[i] == "@dev")
       return true;
   }
   return false;

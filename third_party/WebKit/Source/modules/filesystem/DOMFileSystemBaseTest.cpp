@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/filesystem/DOMFileSystemBase.h"
 
 #include "core/fileapi/File.h"
-#include "public/platform/Platform.h"
-#include "public/platform/WebUnitTestSupport.h"
-#include <gtest/gtest.h>
+#include "platform/testing/UnitTestHelpers.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 
 namespace blink {
@@ -17,7 +15,7 @@ class DOMFileSystemBaseTest : public ::testing::Test {
 public:
     DOMFileSystemBaseTest()
     {
-        m_filePath = Platform::current()->unitTestSupport()->webKitRootDir();
+        m_filePath = testing::blinkRootDir();
         m_filePath.append("/Source/modules/filesystem/DOMFileSystemBaseTest.cpp");
         getFileMetadata(m_filePath, m_fileMetadata);
         m_fileMetadata.platformPath = m_filePath;
@@ -36,7 +34,7 @@ TEST_F(DOMFileSystemBaseTest, externalFilesystemFilesAreUserVisible)
     File* file = DOMFileSystemBase::createFile(m_fileMetadata, rootUrl, FileSystemTypeExternal, "DOMFileSystemBaseTest.cpp");
     EXPECT_TRUE(file);
     EXPECT_TRUE(file->hasBackingFile());
-    EXPECT_EQ(File::IsUserVisible, file->userVisibility());
+    EXPECT_EQ(File::IsUserVisible, file->getUserVisibility());
     EXPECT_EQ("DOMFileSystemBaseTest.cpp", file->name());
     EXPECT_EQ(m_filePath, file->path());
 }
@@ -48,7 +46,7 @@ TEST_F(DOMFileSystemBaseTest, temporaryFilesystemFilesAreNotUserVisible)
     File* file = DOMFileSystemBase::createFile(m_fileMetadata, rootUrl, FileSystemTypeTemporary, "UserVisibleName.txt");
     EXPECT_TRUE(file);
     EXPECT_TRUE(file->hasBackingFile());
-    EXPECT_EQ(File::IsNotUserVisible, file->userVisibility());
+    EXPECT_EQ(File::IsNotUserVisible, file->getUserVisibility());
     EXPECT_EQ("UserVisibleName.txt", file->name());
     EXPECT_EQ(m_filePath, file->path());
 }
@@ -60,7 +58,7 @@ TEST_F(DOMFileSystemBaseTest, persistentFilesystemFilesAreNotUserVisible)
     File* file = DOMFileSystemBase::createFile(m_fileMetadata, rootUrl, FileSystemTypePersistent, "UserVisibleName.txt");
     EXPECT_TRUE(file);
     EXPECT_TRUE(file->hasBackingFile());
-    EXPECT_EQ(File::IsNotUserVisible, file->userVisibility());
+    EXPECT_EQ(File::IsNotUserVisible, file->getUserVisibility());
     EXPECT_EQ("UserVisibleName.txt", file->name());
     EXPECT_EQ(m_filePath, file->path());
 }

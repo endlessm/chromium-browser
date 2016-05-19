@@ -4,8 +4,6 @@
 
 package org.chromium.chrome.browser.crash;
 
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.annotations.SuppressFBWarnings;
@@ -25,7 +23,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Calendar;
 
 /**
  * Unittests for {@link MinidumpUploadCallable}.
@@ -118,12 +115,14 @@ public class MinidumpUploadCallableTest extends CrashTestCase {
             implements CrashReportingPermissionManager {
         private final boolean mIsPermitted;
         private final boolean mIsUserPermitted;
+        private final boolean mIsCommandLineDisabled;
         private final boolean mIsLimited;
 
         MockCrashReportingPermissionManager(boolean isPermitted,
-                boolean isUserPermitted, boolean isLimited) {
+                boolean isUserPermitted, boolean isCommandLineDisabled, boolean isLimited) {
             mIsPermitted = isPermitted;
             mIsUserPermitted = isUserPermitted;
+            mIsCommandLineDisabled = isCommandLineDisabled;
             mIsLimited = isLimited;
         }
 
@@ -133,8 +132,18 @@ public class MinidumpUploadCallableTest extends CrashTestCase {
         }
 
         @Override
+        public boolean isUmaUploadPermitted() {
+            return mIsPermitted;
+        }
+
+        @Override
         public boolean isUploadUserPermitted() {
             return mIsUserPermitted;
+        }
+
+        @Override
+        public boolean isUploadCommandLineDisabled() {
+            return mIsCommandLineDisabled;
         }
 
         @Override
@@ -147,18 +156,10 @@ public class MinidumpUploadCallableTest extends CrashTestCase {
      * This class calls |getInstrumentation| which cannot be done in a static context.
      */
     private class MockMinidumpUploadCallable extends MinidumpUploadCallable {
-        private Calendar mCalendar;
-
         MockMinidumpUploadCallable(
                 HttpURLConnectionFactory httpURLConnectionFactory,
                 CrashReportingPermissionManager permManager) {
-            super(mTestUpload, mUploadLog, httpURLConnectionFactory, permManager,
-                    PreferenceManager.getDefaultSharedPreferences(
-                            getInstrumentation().getTargetContext()));
-            mCalendar = Calendar.getInstance();
-            mCalendar.clear();
-            mCalendar.set(Calendar.YEAR, 2014);
-            mCalendar.set(Calendar.DAY_OF_YEAR, 14);
+            super(mTestUpload, mUploadLog, httpURLConnectionFactory, permManager);
         }
     }
 
@@ -192,7 +193,7 @@ public class MinidumpUploadCallableTest extends CrashTestCase {
     @Feature({"Android-AppBase"})
     public void testCallWhenCurrentlyPermitted() throws Exception {
         CrashReportingPermissionManager testPermManager =
-                new MockCrashReportingPermissionManager(true, true, false);
+                new MockCrashReportingPermissionManager(true, true, false, false);
 
         HttpURLConnectionFactory httpURLConnectionFactory = new TestHttpURLConnectionFactory();
 
@@ -208,22 +209,37 @@ public class MinidumpUploadCallableTest extends CrashTestCase {
     @Feature({"Android-AppBase"})
     public void testCallNotPermittedByUser() throws Exception {
         CrashReportingPermissionManager testPermManager =
-                new MockCrashReportingPermissionManager(false, false, false);
+                new MockCrashReportingPermissionManager(false, false, false, false);
 
         HttpURLConnectionFactory httpURLConnectionFactory = new FailHttpURLConnectionFactory();
 
         MinidumpUploadCallable minidumpUploadCallable =
                 new MockMinidumpUploadCallable(httpURLConnectionFactory, testPermManager);
-        assertEquals(MinidumpUploadCallable.UPLOAD_DISABLED,
+        assertEquals(MinidumpUploadCallable.UPLOAD_USER_DISABLED,
                 minidumpUploadCallable.call().intValue());
         assertTrue(mExpectedFileAfterUpload.exists());
     }
 
     @SmallTest
     @Feature({"Android-AppBase"})
+    public void testCallNotPermittedByCommandLine() throws Exception {
+        CrashReportingPermissionManager testPermManager =
+                new MockCrashReportingPermissionManager(true, true, true, false);
+
+        HttpURLConnectionFactory httpURLConnectionFactory = new FailHttpURLConnectionFactory();
+
+        MinidumpUploadCallable minidumpUploadCallable =
+                new MockMinidumpUploadCallable(httpURLConnectionFactory, testPermManager);
+        assertEquals(MinidumpUploadCallable.UPLOAD_COMMANDLINE_DISABLED,
+                minidumpUploadCallable.call().intValue());
+        assertFalse(mExpectedFileAfterUpload.exists());
+    }
+
+    @SmallTest
+    @Feature({"Android-AppBase"})
     public void testCallPermittedButNotUnderCurrentCircumstances() throws Exception {
         CrashReportingPermissionManager testPermManager =
-                new MockCrashReportingPermissionManager(false, true, false);
+                new MockCrashReportingPermissionManager(false, true, false, false);
 
         HttpURLConnectionFactory httpURLConnectionFactory = new FailHttpURLConnectionFactory();
 
@@ -238,7 +254,7 @@ public class MinidumpUploadCallableTest extends CrashTestCase {
     @Feature({"Android-AppBase"})
     public void testCrashUploadConstrainted() throws Exception {
         CrashReportingPermissionManager testPermManager =
-                new MockCrashReportingPermissionManager(true, true, true);
+                new MockCrashReportingPermissionManager(true, true, false, true);
 
         HttpURLConnectionFactory httpURLConnectionFactory = new TestHttpURLConnectionFactory();
 
@@ -247,17 +263,6 @@ public class MinidumpUploadCallableTest extends CrashTestCase {
         assertEquals(MinidumpUploadCallable.UPLOAD_FAILURE,
                 minidumpUploadCallable.call().intValue());
         assertFalse(mExpectedFileAfterUpload.exists());
-    }
-
-    private void setUpCrashPreferences(int lastDay, int count, int lastWeek, long totalSize) {
-        SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(
-                getInstrumentation().getTargetContext());
-        pref.edit()
-                .putInt(MinidumpUploadCallable.PREF_LAST_UPLOAD_DAY, lastDay)
-                .putInt(MinidumpUploadCallable.PREF_DAY_UPLOAD_COUNT, count)
-                .putInt(MinidumpUploadCallable.PREF_LAST_UPLOAD_WEEK, lastWeek)
-                .putLong(MinidumpUploadCallable.PREF_WEEK_UPLOAD_SIZE, totalSize)
-                .apply();
     }
 
     private void extendUploadFile(int numBytes) throws FileNotFoundException, IOException {

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/cocoa/browser_window_controller.h"
@@ -14,10 +13,4 @@ BrowserWindow* BrowserWindow::CreateBrowserWindow(Browser* browser) {
   BrowserWindowController* controller =
       [[BrowserWindowController alloc] initWithBrowser:browser];
   return [controller browserWindow];
-}
-
-// static
-chrome::HostDesktopType BrowserWindow::AdjustHostDesktopType(
-    chrome::HostDesktopType desktop_type) {
-  return desktop_type;
 }

@@ -9,6 +9,7 @@
 #include <set>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/browser/bookmarks/bookmark_stats.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_context_menu.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
@@ -80,7 +81,11 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   // the first child of |node| to show in the menu.
   void SetActiveMenu(const bookmarks::BookmarkNode* node, int start_index);
 
-  bookmarks::BookmarkModel* GetBookmarkModel();
+  bookmarks::BookmarkModel* GetBookmarkModel() {
+    return const_cast<bookmarks::BookmarkModel*>(
+        const_cast<const BookmarkMenuDelegate*>(this)->GetBookmarkModel());
+  }
+  const bookmarks::BookmarkModel* GetBookmarkModel() const;
   bookmarks::ManagedBookmarkService* GetManagedBookmarkService();
 
   // Returns the menu.
@@ -131,10 +136,11 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   void BookmarkNodeFaviconChanged(bookmarks::BookmarkModel* model,
                                   const bookmarks::BookmarkNode* node) override;
 
-  // BookmarkContextMenu::Observer methods.
+  // BookmarkContextMenuObserver methods.
   void WillRemoveBookmarks(
       const std::vector<const bookmarks::BookmarkNode*>& bookmarks) override;
   void DidRemoveBookmarks() override;
+  void OnContextMenuClosed() override;
 
  private:
   friend class BookmarkMenuDelegateTest;
@@ -142,6 +148,9 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   typedef std::map<int, const bookmarks::BookmarkNode*> MenuIDToNodeMap;
   typedef std::map<const bookmarks::BookmarkNode*, views::MenuItemView*>
       NodeToMenuMap;
+
+  // Returns whether the menu should close id 'delete' is selected.
+  bool ShouldCloseOnRemove(const bookmarks::BookmarkNode* node) const;
 
   // Creates a menu. This uses BuildMenu() to recursively populate the menu.
   views::MenuItemView* CreateMenu(const bookmarks::BookmarkNode* parent,

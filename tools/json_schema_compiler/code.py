@@ -29,8 +29,11 @@ class Code(object):
     strip_right: whether or not trailing whitespace should be stripped.
     """
 
-    prefix = indent_level * ' ' if indent_level else ''.join(
-        self._line_prefixes)
+    if line:
+      prefix = indent_level * ' ' if indent_level else ''.join(
+          self._line_prefixes)
+    else:
+      prefix = ''
 
     if strip_right:
       line = line.rstrip()
@@ -128,7 +131,7 @@ class Code(object):
       else:
         line = comment[0:max_len]
         comment = comment[max_len:]
-      return line, comment
+      return line, comment.lstrip()
 
     # First line has the full maximum length.
     if not new_line and self._code:
@@ -169,6 +172,14 @@ class Code(object):
         self._code[i].value = line.value % d
         self._code[i].substitute = False
     return self
+
+  def TrimTrailingNewlines(self):
+    """Removes any trailing empty Line objects.
+    """
+    while self._code:
+      if self._code[-1].value != '':
+        return
+      self._code = self._code[:-1]
 
   def Render(self):
     """Renders Code as a string.

@@ -17,13 +17,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGFEConvolveMatrixElement.h"
 
 #include "core/SVGNames.h"
 #include "core/dom/Document.h"
-#include "core/svg/SVGDocumentExtensions.h"
-#include "core/svg/SVGParserUtilities.h"
 #include "core/svg/graphics/filters/SVGFilterBuilder.h"
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/IntPoint.h"
@@ -50,24 +47,33 @@ public:
         return adoptRefWillBeNoop(new SVGAnimatedOrder(contextElement));
     }
 
-    void setBaseValueAsString(const String&, SVGParsingError&) override;
+    SVGParsingError setBaseValueAsString(const String&) override;
 
 protected:
     SVGAnimatedOrder(SVGElement* contextElement)
         : SVGAnimatedIntegerOptionalInteger(contextElement, SVGNames::orderAttr, 0, 0)
     {
     }
+
+    static SVGParsingError checkValue(SVGParsingError parseStatus, int value)
+    {
+        if (parseStatus != SVGParseStatus::NoError)
+            return parseStatus;
+        if (value < 0)
+            return SVGParseStatus::NegativeValue;
+        if (value == 0)
+            return SVGParseStatus::ZeroValue;
+        return SVGParseStatus::NoError;
+    }
 };
 
-void SVGAnimatedOrder::setBaseValueAsString(const String& value, SVGParsingError& parseError)
+SVGParsingError SVGAnimatedOrder::setBaseValueAsString(const String& value)
 {
-    SVGAnimatedIntegerOptionalInteger::setBaseValueAsString(value, parseError);
-
-    ASSERT(contextElement());
-    if (parseError == NoError && (firstInteger()->baseValue()->value() < 1 || secondInteger()->baseValue()->value() < 1)) {
-        contextElement()->document().accessSVGExtensions().reportWarning(
-            "feConvolveMatrix: problem parsing order=\"" + value + "\".");
-    }
+    SVGParsingError parseStatus = SVGAnimatedIntegerOptionalInteger::setBaseValueAsString(value);
+    // Check for semantic errors.
+    parseStatus = checkValue(parseStatus, firstInteger()->baseValue()->value());
+    parseStatus = checkValue(parseStatus, secondInteger()->baseValue()->value());
+    return parseStatus;
 }
 
 inline SVGFEConvolveMatrixElement::SVGFEConvolveMatrixElement(Document& document)

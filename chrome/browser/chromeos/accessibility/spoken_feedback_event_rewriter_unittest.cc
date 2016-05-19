@@ -6,6 +6,7 @@
 
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "base/macros.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/events/event.h"
@@ -53,7 +54,8 @@ class TestDelegate : public SpokenFeedbackEventRewriterDelegate {
     return is_spoken_feedback_enabled_;
   }
 
-  bool DispatchKeyEventToChromeVox(const ui::KeyEvent& key_event) override {
+  bool DispatchKeyEventToChromeVox(const ui::KeyEvent& key_event,
+                                   bool capture) override {
     return dispatch_result_;
   }
 

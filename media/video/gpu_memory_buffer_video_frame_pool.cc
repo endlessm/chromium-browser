@@ -6,6 +6,8 @@
 
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <algorithm>
 #include <list>
@@ -15,6 +17,7 @@
 #include "base/bind.h"
 #include "base/containers/stack_container.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/memory_dump_provider.h"
@@ -46,7 +49,6 @@ class GpuMemoryBufferVideoFramePool::PoolImpl
       : media_task_runner_(media_task_runner),
         worker_task_runner_(worker_task_runner),
         gpu_factories_(gpu_factories),
-        texture_target_(gpu_factories->ImageTextureTarget()),
         output_format_(PIXEL_FORMAT_UNKNOWN) {
     DCHECK(media_task_runner_);
     DCHECK(worker_task_runner_);
@@ -81,9 +83,24 @@ class GpuMemoryBufferVideoFramePool::PoolImpl
   // All the resources needed to compose a frame.
   struct FrameResources {
     explicit FrameResources(const gfx::Size& size) : size(size) {}
-    bool in_use = true;
-    gfx::Size size;
+    void SetIsInUse(bool in_use) { in_use_ = in_use; }
+    bool IsInUse() const {
+      if (in_use_)
+        return true;
+      for (const PlaneResource& plane_resource : plane_resources) {
+        if (plane_resource.gpu_memory_buffer &&
+            plane_resource.gpu_memory_buffer->IsInUseByMacOSWindowServer()) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    const gfx::Size size;
     PlaneResource plane_resources[VideoFrame::kMaxPlanes];
+
+   private:
+    bool in_use_ = true;
   };
 
   // Copy |video_frame| data into |frame_resouces|
@@ -146,7 +163,6 @@ class GpuMemoryBufferVideoFramePool::PoolImpl
   // Pool of resources.
   std::list<FrameResources*> resources_pool_;
 
-  const unsigned texture_target_;
   // TODO(dcastagna): change the following type from VideoPixelFormat to
   // BufferFormat.
   VideoPixelFormat output_format_;
@@ -186,8 +202,7 @@ unsigned ImageInternalFormat(VideoPixelFormat format, size_t plane) {
       return GL_RED_EXT;
     case PIXEL_FORMAT_NV12:
       DCHECK_LE(plane, 1u);
-      DLOG(WARNING) << "NV12 format not supported yet";
-      return 0;  // TODO(andresantoso): Implement extension for NV12.
+      return GL_RGB_YCBCR_420V_CHROMIUM;
     case PIXEL_FORMAT_UYVY:
       DCHECK_EQ(0u, plane);
       return GL_RGB_YCBCR_422_CHROMIUM;
@@ -225,9 +240,9 @@ int RowsPerCopy(size_t plane, VideoPixelFormat format, int width) {
 void CopyRowsToI420Buffer(int first_row,
                           int rows,
                           int bytes_per_row,
-                          const uint8* source,
+                          const uint8_t* source,
                           int source_stride,
-                          uint8* output,
+                          uint8_t* output,
                           int dest_stride,
                           const base::Closure& done) {
   TRACE_EVENT2("media", "CopyRowsToI420Buffer", "bytes_per_row", bytes_per_row,
@@ -248,9 +263,9 @@ void CopyRowsToNV12Buffer(int first_row,
                           int rows,
                           int bytes_per_row,
                           const scoped_refptr<VideoFrame>& source_frame,
-                          uint8* dest_y,
+                          uint8_t* dest_y,
                           int dest_stride_y,
-                          uint8* dest_uv,
+                          uint8_t* dest_uv,
                           int dest_stride_uv,
                           const base::Closure& done) {
   TRACE_EVENT2("media", "CopyRowsToNV12Buffer", "bytes_per_row", bytes_per_row,
@@ -283,7 +298,7 @@ void CopyRowsToUYVYBuffer(int first_row,
                           int rows,
                           int width,
                           const scoped_refptr<VideoFrame>& source_frame,
-                          uint8* output,
+                          uint8_t* output,
                           int dest_stride,
                           const base::Closure& done) {
   TRACE_EVENT2("media", "CopyRowsToUYVYBuffer", "bytes_per_row", width * 2,
@@ -369,6 +384,12 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CreateHardwareFrame(
     case PIXEL_FORMAT_RGB32:
     case PIXEL_FORMAT_MJPEG:
     case PIXEL_FORMAT_MT21:
+    case PIXEL_FORMAT_YUV420P9:
+    case PIXEL_FORMAT_YUV422P9:
+    case PIXEL_FORMAT_YUV444P9:
+    case PIXEL_FORMAT_YUV420P10:
+    case PIXEL_FORMAT_YUV422P10:
+    case PIXEL_FORMAT_YUV444P10:
     case PIXEL_FORMAT_UNKNOWN:
       frame_ready_cb.Run(video_frame);
       return;
@@ -391,7 +412,7 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CreateHardwareFrame(
 bool GpuMemoryBufferVideoFramePool::PoolImpl::OnMemoryDump(
     const base::trace_event::MemoryDumpArgs& args,
     base::trace_event::ProcessMemoryDump* pmd) {
-  const uint64 tracing_process_id =
+  const uint64_t tracing_process_id =
       base::trace_event::MemoryDumpManager::GetInstance()
           ->GetTracingProcessId();
   const int kImportance = 2;
@@ -412,7 +433,7 @@ bool GpuMemoryBufferVideoFramePool::PoolImpl::OnMemoryDump(
                         buffer_size_in_bytes);
         dump->AddScalar("free_size",
                         base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-                        frame_resources->in_use ? 0 : buffer_size_in_bytes);
+                        frame_resources->IsInUse() ? 0 : buffer_size_in_bytes);
         base::trace_event::MemoryAllocatorDumpGuid shared_buffer_guid =
             gfx::GetGpuMemoryBufferGUIDForTracing(tracing_process_id,
                                                   buffer_id);
@@ -537,8 +558,11 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
   // Set up the planes creating the mailboxes needed to refer to the textures.
   for (size_t i = 0; i < num_planes; i += planes_per_copy) {
     PlaneResource& plane_resource = frame_resources->plane_resources[i];
+    const gfx::BufferFormat buffer_format =
+        GpuMemoryBufferFormat(output_format_, i);
+    unsigned texture_target = gpu_factories_->ImageTextureTarget(buffer_format);
     // Bind the texture and create or rebind the image.
-    gles2->BindTexture(texture_target_, plane_resource.texture_id);
+    gles2->BindTexture(texture_target, plane_resource.texture_id);
 
     if (plane_resource.gpu_memory_buffer && !plane_resource.image_id) {
       const size_t width =
@@ -549,19 +573,22 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
           plane_resource.gpu_memory_buffer->AsClientBuffer(), width, height,
           ImageInternalFormat(output_format_, i));
     } else if (plane_resource.image_id) {
-      gles2->ReleaseTexImage2DCHROMIUM(texture_target_,
-                                       plane_resource.image_id);
+      gles2->ReleaseTexImage2DCHROMIUM(texture_target, plane_resource.image_id);
     }
     if (plane_resource.image_id)
-      gles2->BindTexImage2DCHROMIUM(texture_target_, plane_resource.image_id);
+      gles2->BindTexImage2DCHROMIUM(texture_target, plane_resource.image_id);
     mailbox_holders[i] = gpu::MailboxHolder(plane_resource.mailbox,
-                                            gpu::SyncToken(), texture_target_);
+                                            gpu::SyncToken(), texture_target);
   }
 
   // Insert a sync_token, this is needed to make sure that the textures the
   // mailboxes refer to will be used only after all the previous commands posted
   // in the command buffer have been processed.
-  gpu::SyncToken sync_token(gles2->InsertSyncPointCHROMIUM());
+  const GLuint64 fence_sync = gles2->InsertFenceSyncCHROMIUM();
+  gles2->OrderingBarrierCHROMIUM();
+
+  gpu::SyncToken sync_token;
+  gles2->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
   for (size_t i = 0; i < num_planes; i += planes_per_copy)
     mailbox_holders[i].sync_token = sync_token;
 
@@ -580,7 +607,8 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
           mailbox_holders[VideoFrame::kVPlane], release_mailbox_callback,
           coded_size, gfx::Rect(visible_size), video_frame->natural_size(),
           video_frame->timestamp());
-      if (video_frame->metadata()->IsTrue(VideoFrameMetadata::ALLOW_OVERLAY))
+      if (frame &&
+          video_frame->metadata()->IsTrue(VideoFrameMetadata::ALLOW_OVERLAY))
         frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
       break;
     case PIXEL_FORMAT_NV12:
@@ -589,10 +617,17 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
           output_format_, mailbox_holders[VideoFrame::kYPlane],
           release_mailbox_callback, coded_size, gfx::Rect(visible_size),
           video_frame->natural_size(), video_frame->timestamp());
-      frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
+      if (frame)
+        frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
       break;
     default:
       NOTREACHED();
+  }
+
+  if (!frame) {
+    release_mailbox_callback.Run(gpu::SyncToken());
+    frame_ready_cb.Run(video_frame);
+    return;
   }
 
   base::TimeTicks render_time;
@@ -601,6 +636,9 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
     frame->metadata()->SetTimeTicks(VideoFrameMetadata::REFERENCE_TIME,
                                     render_time);
   }
+
+  frame->metadata()->SetBoolean(VideoFrameMetadata::READ_LOCK_FENCES_ENABLED,
+                                true);
 
   frame_ready_cb.Run(frame);
 }
@@ -627,9 +665,9 @@ GpuMemoryBufferVideoFramePool::PoolImpl::GetOrCreateFrameResources(
   auto it = resources_pool_.begin();
   while (it != resources_pool_.end()) {
     FrameResources* frame_resources = *it;
-    if (!frame_resources->in_use) {
+    if (!frame_resources->IsInUse()) {
       if (AreFrameResourcesCompatible(frame_resources, size)) {
-        frame_resources->in_use = true;
+        frame_resources->SetIsInUse(true);
         return frame_resources;
       } else {
         resources_pool_.erase(it++);
@@ -663,14 +701,15 @@ GpuMemoryBufferVideoFramePool::PoolImpl::GetOrCreateFrameResources(
         plane_resource.size, buffer_format,
         gfx::BufferUsage::GPU_READ_CPU_READ_WRITE);
 
+    unsigned texture_target = gpu_factories_->ImageTextureTarget(buffer_format);
     gles2->GenTextures(1, &plane_resource.texture_id);
-    gles2->BindTexture(texture_target_, plane_resource.texture_id);
-    gles2->TexParameteri(texture_target_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    gles2->TexParameteri(texture_target_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    gles2->TexParameteri(texture_target_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    gles2->TexParameteri(texture_target_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    gles2->BindTexture(texture_target, plane_resource.texture_id);
+    gles2->TexParameteri(texture_target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    gles2->TexParameteri(texture_target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gles2->TexParameteri(texture_target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gles2->TexParameteri(texture_target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     gles2->GenMailboxCHROMIUM(plane_resource.mailbox.name);
-    gles2->ProduceTextureCHROMIUM(texture_target_, plane_resource.mailbox.name);
+    gles2->ProduceTextureCHROMIUM(texture_target, plane_resource.mailbox.name);
   }
   return frame_resources;
 }
@@ -717,7 +756,7 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::ReturnFrameResources(
   // This minimizes the chances of locking the buffer that might be
   // still needed for drawing.
   std::swap(*it, resources_pool_.back());
-  frame_resources->in_use = false;
+  frame_resources->SetIsInUse(false);
 }
 
 GpuMemoryBufferVideoFramePool::GpuMemoryBufferVideoFramePool() {}

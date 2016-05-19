@@ -8,6 +8,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.app.Activity;
+import android.app.FragmentManager;
 import android.graphics.Color;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -16,10 +17,10 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.firstrun.AccountFirstRunView;
 import org.chromium.chrome.browser.firstrun.ProfileDataCache;
 import org.chromium.chrome.browser.signin.AccountAdder;
-import org.chromium.chrome.browser.sync.ui.ConfirmAccountChangeFragment;
+import org.chromium.chrome.browser.signin.AccountSigninView;
+import org.chromium.chrome.browser.signin.SigninManager;
 import org.chromium.sync.AndroidSyncSettings.AndroidSyncSettingsObserver;
 
 /**
@@ -73,6 +74,11 @@ public class RecentTabsPromoView extends FrameLayout implements AndroidSyncSetti
          * @return A ProfileDataCache to retrieve user account info.
          */
         public ProfileDataCache getProfileDataCache();
+
+        /**
+        * @return the access point of creating this view.
+        */
+        public int getAccessPoint();
     }
 
     /**
@@ -88,6 +94,11 @@ public class RecentTabsPromoView extends FrameLayout implements AndroidSyncSetti
          * Called when user attempts to create a new account.
          */
         void onNewAccount();
+
+        /**
+         * Called when a user cancels the account sign in process.
+         */
+        void onAccountSelectionCancelled();
     }
 
     private static final int PROMO_TYPE_SIGN_IN = 0;
@@ -166,7 +177,7 @@ public class RecentTabsPromoView extends FrameLayout implements AndroidSyncSetti
         }
 
         if (animate && mPromoType == PROMO_TYPE_SIGN_IN) {
-            ((AccountFirstRunView) mPromo).switchToSignedMode();
+            ((AccountSigninView) mPromo).switchToSignedMode();
         }
 
         final View oldPromo = mPromo;
@@ -239,24 +250,17 @@ public class RecentTabsPromoView extends FrameLayout implements AndroidSyncSetti
     }
 
     private View createSignInPromoView() {
-        AccountFirstRunView signInPromoView = (AccountFirstRunView)
-                LayoutInflater.from(getContext()).inflate(R.layout.fre_choose_account, this, false);
+        AccountSigninView signInPromoView = (AccountSigninView) LayoutInflater.from(getContext())
+                .inflate(R.layout.account_signin_view, this, false);
         signInPromoView.init(mModel.getProfileDataCache());
         signInPromoView.getLayoutParams().height = LayoutParams.WRAP_CONTENT;
         ((FrameLayout.LayoutParams) signInPromoView.getLayoutParams()).gravity = Gravity.CENTER;
-        signInPromoView.configureForRecentTabsPage();
-        signInPromoView.setCanCancel(false);
-        signInPromoView.setListener(new AccountFirstRunView.Listener() {
-            @Override
-            public void onAccountSelectionConfirmed(String accountName) {
-                if (mUserActionListener != null) mUserActionListener.onAccountSelectionConfirmed();
-
-                ConfirmAccountChangeFragment.confirmSyncAccount(accountName, mActivity);
-            }
-
+        signInPromoView.configureForRecentTabsOrBookmarksPage();
+        signInPromoView.setListener(new AccountSigninView.Listener() {
             @Override
             public void onAccountSelectionCanceled() {
-                assert false : "Button should be hidden";
+                assert mUserActionListener != null;
+                mUserActionListener.onAccountSelectionCancelled();
             }
 
             @Override
@@ -267,13 +271,11 @@ public class RecentTabsPromoView extends FrameLayout implements AndroidSyncSetti
             }
 
             @Override
-            public void onSigningInCompleted(String accountName) {
-                assert false : "Button should be hidden";
-            }
+            public void onAccountSelected(String accountName, boolean settingsClicked) {
+                assert !settingsClicked : "Settings should be hidden in RecentTabsPromoView.";
 
-            @Override
-            public void onSettingsButtonClicked(String accountName) {
-                assert false : "Button should be hidden";
+                if (mUserActionListener != null) mUserActionListener.onAccountSelectionConfirmed();
+                SigninManager.get(mActivity).signIn(accountName, mActivity, null);
             }
 
             @Override
@@ -282,7 +284,13 @@ public class RecentTabsPromoView extends FrameLayout implements AndroidSyncSetti
                 assert false : "No forced accounts in SignInPromoView";
             }
         });
-
+        signInPromoView.setDelegate(new AccountSigninView.Delegate() {
+            @Override
+            public FragmentManager getFragmentManager() {
+                return mActivity.getFragmentManager();
+            }
+        });
+        SigninManager.logSigninStartAccessPoint(mModel.getAccessPoint());
         return signInPromoView;
     }
 }

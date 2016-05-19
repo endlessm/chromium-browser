@@ -20,9 +20,6 @@ const char kDisableAffiliationBasedMatching[] =
 // Disable dropping the credential used to sync passwords.
 const char kDisableDropSyncCredential[] = "disable-drop-sync-credential";
 
-// Disable both saving and filling for the sync signin form.
-const char kDisableManagerForSyncSignin[] = "disable-manager-for-sync-signin";
-
 // Disallow autofilling of the sync credential.
 const char kDisallowAutofillSyncCredential[] =
     "disallow-autofill-sync-credential";
@@ -38,25 +35,8 @@ const char kDisallowAutofillSyncCredentialForReauth[] =
 const char kEnableAffiliationBasedMatching[] =
     "enable-affiliation-based-matching";
 
-// Disables the save-password prompt. Passwords are then saved automatically,
-// without asking the user.
-const char kEnableAutomaticPasswordSaving[] =
-    "enable-automatic-password-saving";
-
 // Enable dropping the credential used to sync passwords.
 const char kEnableDropSyncCredential[] = "enable-drop-sync-credential";
-
-// Enable saving and filling for the sync signin form. Currently the default
-// behavior.
-const char kEnableManagerForSyncSignin[] = "enable-manager-for-sync-signin";
-
-// Enable supporting of updating password in the password manager on a password
-// change form submit.
-const char kEnablePasswordChangeSupport[] = "enable-password-change-support";
-
-// Enable a context menu item in the password field that allows the user
-// to manually enforce saving of their password.
-const char kEnablePasswordForceSaving[] = "enable-password-force-saving";
 
 }  // namespace switches
 

@@ -5,6 +5,7 @@
 #include "extensions/browser/api/declarative_webrequest/webrequest_action.h"
 
 #include <limits>
+#include <utility>
 
 #include "base/lazy_instance.h"
 #include "base/logging.h"
@@ -27,7 +28,7 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_util.h"
 #include "net/url_request/url_request.h"
-#include "third_party/re2/re2/re2.h"
+#include "third_party/re2/src/re2/re2.h"
 
 using content::ResourceRequestInfo;
 
@@ -60,7 +61,7 @@ scoped_ptr<helpers::RequestCookie> ParseRequestCookie(
     result->name.reset(new std::string(tmp));
   if (dict->GetString(keys::kValueKey, &tmp))
     result->value.reset(new std::string(tmp));
-  return result.Pass();
+  return result;
 }
 
 void ParseResponseCookieImpl(const base::DictionaryValue* dict,
@@ -90,7 +91,7 @@ scoped_ptr<helpers::ResponseCookie> ParseResponseCookie(
     const base::DictionaryValue* dict) {
   scoped_ptr<helpers::ResponseCookie> result(new helpers::ResponseCookie);
   ParseResponseCookieImpl(dict, result.get());
-  return result.Pass();
+  return result;
 }
 
 scoped_ptr<helpers::FilterResponseCookie> ParseFilterResponseCookie(
@@ -107,7 +108,7 @@ scoped_ptr<helpers::FilterResponseCookie> ParseFilterResponseCookie(
     result->age_lower_bound.reset(new int(int_tmp));
   if (dict->GetBoolean(keys::kSessionCookieKey, &bool_tmp))
     result->session_cookie.reset(new bool(bool_tmp));
-  return result.Pass();
+  return result;
 }
 
 // Helper function for WebRequestActions that can be instantiated by just
@@ -159,7 +160,7 @@ scoped_refptr<const WebRequestAction> CreateRedirectRequestByRegExAction(
     return scoped_refptr<const WebRequestAction>(NULL);
   }
   return scoped_refptr<const WebRequestAction>(
-      new WebRequestRedirectByRegExAction(from_pattern.Pass(), to));
+      new WebRequestRedirectByRegExAction(std::move(from_pattern), to));
 }
 
 scoped_refptr<const WebRequestAction> CreateSetRequestHeaderAction(
@@ -506,9 +507,11 @@ bool WebRequestAction::HasPermission(const InfoMap* extension_info_map,
       permission_check = WebRequestPermissions::REQUIRE_HOST_PERMISSION;
       break;
   }
+  // TODO(devlin): Pass in the real tab id here.
   return WebRequestPermissions::CanExtensionAccessURL(
-      extension_info_map, extension_id, request->url(), crosses_incognito,
-      permission_check);
+             extension_info_map, extension_id, request->url(), -1,
+             crosses_incognito,
+             permission_check) == PermissionsData::ACCESS_ALLOWED;
 }
 
 // static
@@ -698,7 +701,7 @@ WebRequestRedirectByRegExAction::WebRequestRedirectByRegExAction(
                        ACTION_REDIRECT_BY_REGEX_DOCUMENT,
                        std::numeric_limits<int>::min(),
                        STRATEGY_DEFAULT),
-      from_pattern_(from_pattern.Pass()),
+      from_pattern_(std::move(from_pattern)),
       to_pattern_(to_pattern.data(), to_pattern.size()) {}
 
 WebRequestRedirectByRegExAction::~WebRequestRedirectByRegExAction() {}
@@ -967,7 +970,7 @@ WebRequestRemoveResponseHeaderAction::CreateDelta(
 
   LinkedPtrEventResponseDelta result(
       new helpers::EventResponseDelta(extension_id, extension_install_time));
-  void* iter = NULL;
+  size_t iter = 0;
   std::string current_value;
   while (headers->EnumerateHeader(&iter, name_, &current_value)) {
     if (has_value_ && !base::EqualsCaseInsensitiveASCII(current_value, value_))

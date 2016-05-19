@@ -5,6 +5,8 @@
 // windows.h must be first otherwise Win8 SDK breaks.
 #include <windows.h>
 #include <LM.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <wincred.h>
 
 // SECURITY_WIN32 must be defined in order to get
@@ -19,7 +21,6 @@
 #include "base/bind_helpers.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/worker_pool.h"
 #include "base/time/time.h"
@@ -28,6 +29,7 @@
 #include "chrome/grit/chromium_strings.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -65,7 +67,7 @@ struct PasswordCheckPrefs {
   void Read(PrefService* local_state);
   void Write(PrefService* local_state);
 
-  int64 pref_last_changed_;
+  int64_t pref_last_changed_;
   bool blank_password_;
 };
 
@@ -83,7 +85,7 @@ void PasswordCheckPrefs::Write(PrefService* local_state) {
                         pref_last_changed_);
 }
 
-int64 GetPasswordLastChanged(const WCHAR* username) {
+int64_t GetPasswordLastChanged(const WCHAR* username) {
   LPUSER_INFO_1 user_info = NULL;
   DWORD age = 0;
 
@@ -104,7 +106,7 @@ int64 GetPasswordLastChanged(const WCHAR* username) {
 
 bool CheckBlankPasswordWithPrefs(const WCHAR* username,
                                  PasswordCheckPrefs* prefs) {
-  int64 last_changed = GetPasswordLastChanged(username);
+  int64_t last_changed = GetPasswordLastChanged(username);
 
   // If we cannot determine when the password was last changed
   // then assume the password is not blank
@@ -235,7 +237,7 @@ bool AuthenticateUser(gfx::NativeWindow window) {
   base::string16 password_prompt =
       l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_AUTHENTICATION_PROMPT);
   HANDLE handle = INVALID_HANDLE_VALUE;
-  int tries = 0;
+  size_t tries = 0;
   bool use_displayname = false;
   bool use_principalname = false;
   DWORD logon_result = 0;

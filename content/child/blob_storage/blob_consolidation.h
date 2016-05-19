@@ -5,6 +5,9 @@
 #ifndef CONTENT_CHILD_BLOB_STORAGE_BLOB_CONSOLIDATION_H_
 #define CONTENT_CHILD_BLOB_STORAGE_BLOB_CONSOLIDATION_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -42,6 +45,7 @@ class CONTENT_EXPORT BlobConsolidation {
     ConsolidatedItem(storage::DataElement::Type type,
                      uint64_t offset,
                      uint64_t length);
+    ConsolidatedItem(const ConsolidatedItem& other);
     ~ConsolidatedItem();
 
     storage::DataElement::Type type;

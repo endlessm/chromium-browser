@@ -4,22 +4,28 @@
 
 #include "components/autofill/core/browser/personal_data_manager.h"
 
+#include <stddef.h>
 #include <algorithm>
+#include <list>
+#include <map>
+#include <string>
+#include <utility>
 
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/timezone.h"
-#include "base/metrics/field_trial.h"
-#include "base/prefs/pref_service.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/address_i18n.h"
 #include "components/autofill/core/browser/autofill-inl.h"
 #include "components/autofill/core/browser/autofill_country.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
+#include "components/autofill/core/browser/country_data.h"
+#include "components/autofill/core/browser/country_names.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
 #include "components/autofill/core/browser/phone_number.h"
@@ -28,6 +34,7 @@
 #include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/autofill_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/signin_pref_names.h"
@@ -189,30 +196,9 @@ static bool CompareVotes(const std::pair<std::string, int>& a,
   return a.second < b.second;
 }
 
-// Ranks two data models according to their recency of use. Currently this will
-// place all server (Wallet) cards and addresses below all locally saved ones,
-// which is probably not what we want. TODO(estade): figure out relative ranking
-// of server data.
-bool RankByMfu(const AutofillDataModel* a, const AutofillDataModel* b) {
-  if (a->use_count() != b->use_count())
-    return a->use_count() > b->use_count();
-
-  // Ties are broken by MRU.
-  return a->use_date() > b->use_date();
-}
-
-// Returns whether sorting autofill profile suggestions by frecency is enabled.
-bool IsAutofillProfileSortingByFrecencyEnabled() {
-  const std::string group_name =
-      base::FieldTrialList::FindFullName(kFrecencyFieldTrialName);
-  return base::StartsWith(group_name, kFrecencyFieldTrialStateEnabled,
-                          base::CompareCase::SENSITIVE);
-}
-
 }  // namespace
 
 const char kFrecencyFieldTrialName[] = "AutofillProfileOrderByFrecency";
-const char kFrecencyFieldTrialStateEnabled[] = "Enabled";
 const char kFrecencyFieldTrialLimitParam[] = "limit";
 
 PersonalDataManager::PersonalDataManager(const std::string& app_locale)
@@ -233,6 +219,8 @@ void PersonalDataManager::Init(scoped_refptr<AutofillWebDataService> database,
                                AccountTrackerService* account_tracker,
                                SigninManagerBase* signin_manager,
                                bool is_off_the_record) {
+  CountryNames::SetLocaleString(app_locale_);
+
   database_ = database;
   SetPrefService(pref_service);
   account_tracker_ = account_tracker;
@@ -347,152 +335,17 @@ void PersonalDataManager::RemoveObserver(
 
 bool PersonalDataManager::ImportFormData(
     const FormStructure& form,
+    bool should_return_local_card,
     scoped_ptr<CreditCard>* imported_credit_card) {
-  scoped_ptr<AutofillProfile> imported_profile(new AutofillProfile);
-  scoped_ptr<CreditCard> local_imported_credit_card(new CreditCard);
-
-  const std::string origin = form.source_url().spec();
-  imported_profile->set_origin(origin);
-  local_imported_credit_card->set_origin(origin);
-
-  // Parse the form and construct a profile based on the information that is
-  // possible to import.
-  int importable_credit_card_fields = 0;
-
-  // Detect and discard forms with multiple fields of the same type.
-  // TODO(isherman): Some types are overlapping but not equal, e.g. phone number
-  // parts, address parts.
-  std::set<ServerFieldType> types_seen;
-
-  // We only set complete phone, so aggregate phone parts in these vars and set
-  // complete at the end.
-  PhoneNumber::PhoneCombineHelper home;
-
-  for (size_t i = 0; i < form.field_count(); ++i) {
-    const AutofillField* field = form.field(i);
-    base::string16 value;
-    base::TrimWhitespace(field->value, base::TRIM_ALL, &value);
-
-    // If we don't know the type of the field, or the user hasn't entered any
-    // information into the field, then skip it.
-    if (!field->IsFieldFillable() || value.empty())
-      continue;
-
-    AutofillType field_type = field->Type();
-    ServerFieldType server_field_type = field_type.GetStorableType();
-    FieldTypeGroup group(field_type.group());
-
-    // There can be multiple email fields (e.g. in the case of 'confirm email'
-    // fields) but they must all contain the same value, else the profile is
-    // invalid.
-    if (server_field_type == EMAIL_ADDRESS) {
-      if (types_seen.count(server_field_type) &&
-          imported_profile->GetRawInfo(EMAIL_ADDRESS) != value) {
-        imported_profile.reset();
-        break;
-      }
-    }
-
-    // If the |field_type| and |value| don't pass basic validity checks then
-    // abandon the import.
-    if (!IsValidFieldTypeAndValue(types_seen, server_field_type, value)) {
-      imported_profile.reset();
-      local_imported_credit_card.reset();
-      break;
-    }
-
-    types_seen.insert(server_field_type);
-
-    if (group == CREDIT_CARD) {
-      if (base::LowerCaseEqualsASCII(field->form_control_type, "month")) {
-        DCHECK_EQ(CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR, server_field_type);
-        local_imported_credit_card->SetInfoForMonthInputType(value);
-      } else {
-        local_imported_credit_card->SetInfo(field_type, value, app_locale_);
-      }
-      ++importable_credit_card_fields;
-    } else {
-      // We need to store phone data in the variables, before building the whole
-      // number at the end. The rest of the fields are set "as is".
-      // If the fields are not the phone fields in question home.SetInfo() is
-      // going to return false.
-      if (!home.SetInfo(field_type, value))
-        imported_profile->SetInfo(field_type, value, app_locale_);
-
-      // Reject profiles with invalid country information.
-      if (server_field_type == ADDRESS_HOME_COUNTRY &&
-          !value.empty() &&
-          imported_profile->GetRawInfo(ADDRESS_HOME_COUNTRY).empty()) {
-        imported_profile.reset();
-        break;
-      }
-    }
-  }
-
-  // Construct the phone number. Reject the profile if the number is invalid.
-  if (imported_profile.get() && !home.IsEmpty()) {
-    base::string16 constructed_number;
-    if (!home.ParseNumber(*imported_profile, app_locale_,
-                          &constructed_number) ||
-        !imported_profile->SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER),
-                                   constructed_number,
-                                   app_locale_)) {
-      imported_profile.reset();
-    }
-  }
-
-  // Reject the profile if minimum address and validation requirements are not
-  // met.
-  if (imported_profile.get() &&
-      !IsValidLearnableProfile(*imported_profile, app_locale_))
-    imported_profile.reset();
-
-  // Reject the credit card if we did not detect enough filled credit card
-  // fields or if the credit card number does not seem to be valid.
-  if (local_imported_credit_card.get() &&
-      !local_imported_credit_card->IsComplete()) {
-    local_imported_credit_card.reset();
-  }
-
-  // Don't import if we already have this info.
-  // Don't present an infobar if we have already saved this card number.
-  bool merged_credit_card = false;
-  if (local_imported_credit_card) {
-    for (CreditCard* card : local_credit_cards_) {
-      // Make a local copy so that the data in |local_credit_cards_| isn't
-      // modified directly by the UpdateFromImportedCard() call.
-      CreditCard card_copy(*card);
-      if (card_copy.UpdateFromImportedCard(*local_imported_credit_card.get(),
-                                           app_locale_)) {
-        merged_credit_card = true;
-        UpdateCreditCard(card_copy);
-        local_imported_credit_card.reset();
-        break;
-      }
-    }
-  }
-
-  // Also don't offer to save if we already have this stored as a full wallet
-  // card. Note that we will offer to save masked server cards, as long as
-  // the user re-typed the info by hand. See AutofillManager's
-  // |recently_unmasked_cards_|.
-  if (local_imported_credit_card) {
-    for (CreditCard* card : server_credit_cards_) {
-      if (card->record_type() == CreditCard::FULL_SERVER_CARD &&
-          local_imported_credit_card->IsLocalDuplicateOfServerCard(*card)) {
-        local_imported_credit_card.reset();
-        break;
-      }
-    }
-  }
-
-  if (imported_profile.get()) {
-    // We always save imported profiles.
-    SaveImportedProfile(*imported_profile);
-  }
-  *imported_credit_card = local_imported_credit_card.Pass();
-
-  if (imported_profile.get() || *imported_credit_card || merged_credit_card)
+  // We try the same |form| for both credit card and address import/update.
+  // - ImportCreditCard may update an existing card, or fill
+  //   |imported_credit_card| with an extracted card. See .h for details of
+  //   |should_return_local_card|.
+  bool cc_import =
+      ImportCreditCard(form, should_return_local_card, imported_credit_card);
+  // - ImportAddressProfile may eventually save or update an address profile.
+  bool address_import = ImportAddressProfile(form);
+  if (cc_import || address_import)
     return true;
 
   FOR_EACH_OBSERVER(PersonalDataManagerObserver, observers_,
@@ -798,16 +651,13 @@ std::vector<Suggestion> PersonalDataManager::GetProfileSuggestions(
 
   std::vector<AutofillProfile*> profiles = GetProfiles(true);
 
-  if (IsAutofillProfileSortingByFrecencyEnabled()) {
-    base::Time comparison_time = base::Time::Now();
-    std::sort(profiles.begin(), profiles.end(),
-              [comparison_time](const AutofillDataModel* a,
-                                const AutofillDataModel* b) {
-                return a->CompareFrecency(b, comparison_time);
-              });
-  } else {
-    std::sort(profiles.begin(), profiles.end(), RankByMfu);
-  }
+  // Rank the suggestions by frecency (see AutofillDataModel for details).
+  base::Time comparison_time = base::Time::Now();
+  std::sort(profiles.begin(), profiles.end(),
+            [comparison_time](const AutofillDataModel* a,
+                              const AutofillDataModel* b) {
+              return a->CompareFrecency(b, comparison_time);
+            });
 
   std::vector<Suggestion> suggestions;
   // Match based on a prefix search.
@@ -932,39 +782,25 @@ std::vector<Suggestion> PersonalDataManager::GetCreditCardSuggestions(
     }
   }
 
-  cards_to_suggest.sort(RankByMfu);
+  // Rank the suggestions by frecency (see AutofillDataModel for details).
+  base::Time comparison_time = base::Time::Now();
+  cards_to_suggest.sort([comparison_time](const AutofillDataModel* a,
+                                          const AutofillDataModel* b) {
+    return a->CompareFrecency(b, comparison_time);
+  });
 
   // Prefix matches should precede other token matches.
   if (IsFeatureSubstringMatchEnabled()) {
-    substring_matched_cards.sort(RankByMfu);
+    substring_matched_cards.sort([comparison_time](const AutofillDataModel* a,
+                                                   const AutofillDataModel* b) {
+      return a->CompareFrecency(b, comparison_time);
+    });
     cards_to_suggest.insert(cards_to_suggest.end(),
                             substring_matched_cards.begin(),
                             substring_matched_cards.end());
   }
 
-  // De-dupe card suggestions. Full server cards shadow local cards, and
-  // local cards shadow masked server cards.
-  for (auto outer_it = cards_to_suggest.begin();
-       outer_it != cards_to_suggest.end();
-       ++outer_it) {
-    if ((*outer_it)->record_type() == CreditCard::FULL_SERVER_CARD) {
-      for (auto inner_it = cards_to_suggest.begin();
-           inner_it != cards_to_suggest.end();) {
-        auto inner_it_copy = inner_it++;
-        if ((*inner_it_copy)->IsLocalDuplicateOfServerCard(**outer_it))
-          cards_to_suggest.erase(inner_it_copy);
-      }
-    } else if ((*outer_it)->record_type() == CreditCard::LOCAL_CARD) {
-      for (auto inner_it = cards_to_suggest.begin();
-           inner_it != cards_to_suggest.end();) {
-        auto inner_it_copy = inner_it++;
-        if ((*inner_it_copy)->record_type() == CreditCard::MASKED_SERVER_CARD &&
-            (*outer_it)->IsLocalDuplicateOfServerCard(**inner_it_copy)) {
-          cards_to_suggest.erase(inner_it_copy);
-        }
-      }
-    }
-  }
+  DedupeCreditCardSuggestions(&cards_to_suggest);
 
   std::vector<Suggestion> suggestions;
   for (const CreditCard* credit_card : cards_to_suggest) {
@@ -1071,6 +907,15 @@ std::string PersonalDataManager::MergeProfile(
       // verified profile, just drop it.
       matching_profile_found = true;
       guid = existing_profile->guid();
+
+      // We set the modification date so that immediate requests for profiles
+      // will properly reflect the fact that this profile has been modified
+      // recently. After writing to the database and refreshing the local copies
+      // the profile will have a very slightly newer time reflecting what's
+      // actually stored in the database.
+      existing_profile->set_modification_date(base::Time::Now());
+
+      existing_profile->RecordAndLogUse();
     }
     merged_profiles->push_back(*existing_profile);
   }
@@ -1078,6 +923,9 @@ std::string PersonalDataManager::MergeProfile(
   // If the new profile was not merged with an existing one, add it to the list.
   if (!matching_profile_found) {
     merged_profiles->push_back(new_profile);
+    // Similar to updating merged profiles above, set the modification date on
+    // new profiles.
+    merged_profiles->back().set_modification_date(base::Time::Now());
     AutofillMetrics::LogProfileActionOnFormSubmitted(
         AutofillMetrics::NEW_PROFILE_CREATED);
   }
@@ -1128,6 +976,35 @@ const std::string& PersonalDataManager::GetDefaultCountryCodeForNewAddress()
 
 bool PersonalDataManager::IsExperimentalWalletIntegrationEnabled() const {
   return pref_service_->GetBoolean(prefs::kAutofillWalletSyncExperimentEnabled);
+}
+
+// static
+void PersonalDataManager::DedupeCreditCardSuggestions(
+    std::list<const CreditCard*>* cards_to_suggest) {
+  for (auto outer_it = cards_to_suggest->begin();
+       outer_it != cards_to_suggest->end(); ++outer_it) {
+    // If considering a full server card, look for local cards that are
+    // duplicates of it and remove them.
+    if ((*outer_it)->record_type() == CreditCard::FULL_SERVER_CARD) {
+      for (auto inner_it = cards_to_suggest->begin();
+           inner_it != cards_to_suggest->end();) {
+        auto inner_it_copy = inner_it++;
+        if ((*inner_it_copy)->IsLocalDuplicateOfServerCard(**outer_it))
+          cards_to_suggest->erase(inner_it_copy);
+      }
+      // If considering a local card, look for masked server cards that are
+      // duplicates of it and remove them.
+    } else if ((*outer_it)->record_type() == CreditCard::LOCAL_CARD) {
+      for (auto inner_it = cards_to_suggest->begin();
+           inner_it != cards_to_suggest->end();) {
+        auto inner_it_copy = inner_it++;
+        if ((*inner_it_copy)->record_type() == CreditCard::MASKED_SERVER_CARD &&
+            (*outer_it)->IsLocalDuplicateOfServerCard(**inner_it_copy)) {
+          cards_to_suggest->erase(inner_it_copy);
+        }
+      }
+    }
+  }
 }
 
 void PersonalDataManager::SetProfiles(std::vector<AutofillProfile>* profiles) {
@@ -1257,16 +1134,18 @@ std::string PersonalDataManager::SaveImportedProfile(
   if (is_off_the_record_)
     return std::string();
 
-  // ...or server profile.
-  for (AutofillProfile* profile : server_profiles_) {
-    if (imported_profile.IsSubsetOf(*profile, app_locale_))
+  // Don't save a web profile if the data in the profile is a subset of a
+  // server profile, but do record the fact that it was used.
+  for (const AutofillProfile* profile : server_profiles_) {
+    if (imported_profile.IsSubsetOf(*profile, app_locale_)) {
+      RecordUseOf(*profile);
       return profile->guid();
+    }
   }
 
   std::vector<AutofillProfile> profiles;
-  std::string guid =
-      MergeProfile(imported_profile, web_profiles_.get(), app_locale_,
-                   &profiles);
+  std::string guid = MergeProfile(imported_profile, web_profiles_.get(),
+                                  app_locale_, &profiles);
   SetProfiles(&profiles);
   return guid;
 }
@@ -1321,8 +1200,8 @@ std::string PersonalDataManager::MostCommonCountryCodeFromProfiles() const {
   // TODO(estade): can we make this GetProfiles() instead? It seems to cause
   // errors in tests on mac trybots. See http://crbug.com/57221
   const std::vector<AutofillProfile*>& profiles = web_profiles();
-  std::vector<std::string> country_codes;
-  AutofillCountry::GetAvailableCountries(&country_codes);
+  const std::vector<std::string>& country_codes =
+      CountryDataMap::GetInstance()->country_codes();
   for (size_t i = 0; i < profiles.size(); ++i) {
     std::string country_code = base::ToUpperASCII(base::UTF16ToASCII(
         profiles[i]->GetRawInfo(ADDRESS_HOME_COUNTRY)));
@@ -1352,6 +1231,181 @@ void PersonalDataManager::EnabledPrefChanged() {
     ResetFullServerCards();
   }
   NotifyPersonalDataChanged();
+}
+
+bool PersonalDataManager::ImportAddressProfile(const FormStructure& form) {
+  // The candidate for profile import. There are many ways for the candidate to
+  // be rejected (see everywhere this function returns false).
+  AutofillProfile candidate_profile;
+  candidate_profile.set_origin(form.source_url().spec());
+
+  // We only set complete phone, so aggregate phone parts in these vars and set
+  // complete at the end.
+  PhoneNumber::PhoneCombineHelper combined_phone;
+
+  // Used to detect and discard address forms with multiple fields of the same
+  // type.
+  std::set<ServerFieldType> types_seen;
+
+  // Go through each |form| field and attempt to constitute a valid profile.
+  for (const AutofillField* field : form) {
+    base::string16 value;
+    base::TrimWhitespace(field->value, base::TRIM_ALL, &value);
+
+    // If we don't know the type of the field, or the user hasn't entered any
+    // information into the field, then skip it.
+    if (!field->IsFieldFillable() || value.empty())
+      continue;
+
+    AutofillType field_type = field->Type();
+
+    // Credit card fields are handled by ImportCreditCard().
+    if (field_type.group() == CREDIT_CARD)
+      continue;
+
+    // There can be multiple email fields (e.g. in the case of 'confirm email'
+    // fields) but they must all contain the same value, else the profile is
+    // invalid.
+    ServerFieldType server_field_type = field_type.GetStorableType();
+    if (server_field_type == EMAIL_ADDRESS &&
+        types_seen.count(server_field_type) &&
+        candidate_profile.GetRawInfo(EMAIL_ADDRESS) != value)
+      return false;
+
+    // If the field type and |value| don't pass basic validity checks then
+    // abandon the import.
+    if (!IsValidFieldTypeAndValue(types_seen, server_field_type, value))
+      return false;
+    types_seen.insert(server_field_type);
+
+    // We need to store phone data in the variables, before building the whole
+    // number at the end. If |value| is not from a phone field, home.SetInfo()
+    // returns false and data is stored directly in |candidate_profile|.
+    if (!combined_phone.SetInfo(field_type, value))
+      candidate_profile.SetInfo(field_type, value, app_locale_);
+
+    // Reject profiles with invalid country information.
+    if (server_field_type == ADDRESS_HOME_COUNTRY &&
+        candidate_profile.GetRawInfo(ADDRESS_HOME_COUNTRY).empty())
+      return false;
+  }
+
+  // Construct the phone number. Reject the whole profile if the number is
+  // invalid.
+  if (!combined_phone.IsEmpty()) {
+    base::string16 constructed_number;
+    if (!combined_phone.ParseNumber(candidate_profile, app_locale_,
+                                    &constructed_number) ||
+        !candidate_profile.SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER),
+                                   constructed_number, app_locale_)) {
+      return false;
+    }
+  }
+
+  // Reject the profile if minimum address and validation requirements are not
+  // met.
+  if (!IsValidLearnableProfile(candidate_profile, app_locale_))
+    return false;
+
+  SaveImportedProfile(candidate_profile);
+  return true;
+}
+
+bool PersonalDataManager::ImportCreditCard(
+    const FormStructure& form,
+    bool should_return_local_card,
+    scoped_ptr<CreditCard>* imported_credit_card) {
+  DCHECK(!imported_credit_card->get());
+
+  // The candidate for credit card import. There are many ways for the candidate
+  // to be rejected (see everywhere this function returns false, below).
+  CreditCard candidate_credit_card;
+  candidate_credit_card.set_origin(form.source_url().spec());
+
+  std::set<ServerFieldType> types_seen;
+  for (const AutofillField* field : form) {
+    base::string16 value;
+    base::TrimWhitespace(field->value, base::TRIM_ALL, &value);
+
+    // If we don't know the type of the field, or the user hasn't entered any
+    // information into the field, then skip it.
+    if (!field->IsFieldFillable() || value.empty())
+      continue;
+
+    AutofillType field_type = field->Type();
+    // Field was not identified as a credit card field.
+    if (field_type.group() != CREDIT_CARD)
+      continue;
+
+    // If we've seen the same credit card field type twice in the same form,
+    // abort credit card import/update.
+    ServerFieldType server_field_type = field_type.GetStorableType();
+    if (types_seen.count(server_field_type))
+      return false;
+    types_seen.insert(server_field_type);
+
+    // If |field| is an HTML5 month input, handle it as a special case.
+    if (base::LowerCaseEqualsASCII(field->form_control_type, "month")) {
+      DCHECK_EQ(CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR, server_field_type);
+      candidate_credit_card.SetInfoForMonthInputType(value);
+      continue;
+    }
+
+    // CreditCard handles storing the |value| according to |field_type|.
+    bool saved = candidate_credit_card.SetInfo(field_type, value, app_locale_);
+
+    // Saving with the option text (here |value|) may fail for the expiration
+    // month. Attempt to save with the option value. First find the index of the
+    // option text in the select options and try the corresponding value.
+    if (!saved && server_field_type == CREDIT_CARD_EXP_MONTH) {
+      for (size_t i = 0; i < field->option_contents.size(); ++i) {
+        if (value == field->option_contents[i]) {
+          candidate_credit_card.SetInfo(field_type, field->option_values[i],
+                                        app_locale_);
+          break;
+        }
+      }
+    }
+  }
+
+  // Reject the credit card if we did not detect enough filled credit card
+  // fields (such as valid number, month, year).
+  if (!candidate_credit_card.IsComplete())
+    return false;
+
+  // Attempt to merge with an existing credit card. Don't present a prompt if we
+  // have already saved this card number, unless |should_return_local_card| is
+  // true which indicates that upload is enabled. In this case, it's useful to
+  // present the upload prompt to the user to promote the card from a local card
+  // to a synced server card.
+  for (const CreditCard* card : local_credit_cards_) {
+    // Make a local copy so that the data in |local_credit_cards_| isn't
+    // modified directly by the UpdateFromImportedCard() call.
+    CreditCard card_copy(*card);
+    if (card_copy.UpdateFromImportedCard(candidate_credit_card,
+                                         app_locale_)) {
+      UpdateCreditCard(card_copy);
+      // If we should not return the local card, return that we merged it,
+      // without setting |imported_credit_card|.
+      if (!should_return_local_card)
+        return true;
+
+      break;
+    }
+  }
+
+  // Also don't offer to save if we already have this stored as a server card.
+  // We only check the number because if the new card has the same number as the
+  // server card, upload is guaranteed to fail. There's no mechanism for entries
+  // with the same number but different names or expiration dates as there is
+  // for local cards.
+  for (const CreditCard* card : server_credit_cards_) {
+    if (candidate_credit_card.HasSameNumberAs(*card))
+      return false;
+  }
+
+  imported_credit_card->reset(new CreditCard(candidate_credit_card));
+  return true;
 }
 
 const std::vector<AutofillProfile*>& PersonalDataManager::GetProfiles(

@@ -17,7 +17,7 @@ import org.chromium.base.annotations.CalledByNative;
  * Utility class for providing platform functionalities.
  */
 public class PlatformUtil {
-    private static final String TAG = "cr.PlatformUtil";
+    private static final String TAG = "PlatformUtil";
 
     @CalledByNative
     private static void launchExternalProtocol(String url) {
@@ -28,7 +28,7 @@ public class PlatformUtil {
         try {
             context.startActivity(intent);
         } catch (ActivityNotFoundException e) {
-            Log.e(TAG, "cannot find activity to launch " + url, e);
+            Log.e(TAG, "cannot find activity to launch %s", url, e);
         }
     }
 }

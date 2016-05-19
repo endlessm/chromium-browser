@@ -33,7 +33,7 @@ void WebMStreamParser::Init(
     bool ignore_text_tracks,
     const EncryptedMediaInitDataCB& encrypted_media_init_data_cb,
     const NewMediaSegmentCB& new_segment_cb,
-    const base::Closure& end_of_segment_cb,
+    const EndMediaSegmentCB& end_of_segment_cb,
     const scoped_refptr<MediaLog>& media_log) {
   DCHECK_EQ(state_, kWaitingForInit);
   DCHECK(init_cb_.is_null());
@@ -61,13 +61,11 @@ void WebMStreamParser::Flush() {
   byte_queue_.Reset();
   if (cluster_parser_)
     cluster_parser_->Reset();
-  if (state_ == kParsingClusters) {
+  if (state_ == kParsingClusters)
     ChangeState(kParsingHeaders);
-    end_of_segment_cb_.Run();
-  }
 }
 
-bool WebMStreamParser::Parse(const uint8* buf, int size) {
+bool WebMStreamParser::Parse(const uint8_t* buf, int size) {
   DCHECK_NE(state_, kWaitingForInit);
 
   if (state_ == kError)
@@ -77,7 +75,7 @@ bool WebMStreamParser::Parse(const uint8* buf, int size) {
 
   int result = 0;
   int bytes_parsed = 0;
-  const uint8* cur = NULL;
+  const uint8_t* cur = NULL;
   int cur_size = 0;
 
   byte_queue_.Peek(&cur, &cur_size);
@@ -120,17 +118,17 @@ void WebMStreamParser::ChangeState(State new_state) {
   state_ = new_state;
 }
 
-int WebMStreamParser::ParseInfoAndTracks(const uint8* data, int size) {
+int WebMStreamParser::ParseInfoAndTracks(const uint8_t* data, int size) {
   DVLOG(2) << "ParseInfoAndTracks()";
   DCHECK(data);
   DCHECK_GT(size, 0);
 
-  const uint8* cur = data;
+  const uint8_t* cur = data;
   int cur_size = size;
   int bytes_parsed = 0;
 
   int id;
-  int64 element_size;
+  int64_t element_size;
   int result = WebMParseElementHeader(cur, cur_size, &id, &element_size);
 
   if (result <= 0)
@@ -201,7 +199,7 @@ int WebMStreamParser::ParseInfoAndTracks(const uint8* data, int size) {
   InitParameters params(kInfiniteDuration());
 
   if (info_parser.duration() > 0) {
-    int64 duration_in_us = info_parser.duration() * timecode_scale_in_us;
+    int64_t duration_in_us = info_parser.duration() * timecode_scale_in_us;
     params.duration = base::TimeDelta::FromMicroseconds(duration_in_us);
   }
 
@@ -247,7 +245,7 @@ int WebMStreamParser::ParseInfoAndTracks(const uint8* data, int size) {
   return bytes_parsed;
 }
 
-int WebMStreamParser::ParseCluster(const uint8* data, int size) {
+int WebMStreamParser::ParseCluster(const uint8_t* data, int size) {
   if (!cluster_parser_)
     return -1;
 
@@ -276,7 +274,7 @@ int WebMStreamParser::ParseCluster(const uint8* data, int size) {
 }
 
 void WebMStreamParser::OnEncryptedMediaInitData(const std::string& key_id) {
-  std::vector<uint8> key_id_vector(key_id.begin(), key_id.end());
+  std::vector<uint8_t> key_id_vector(key_id.begin(), key_id.end());
   encrypted_media_init_data_cb_.Run(EmeInitDataType::WEBM, key_id_vector);
 }
 

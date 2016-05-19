@@ -694,10 +694,10 @@ TEST_P(GLES2DecoderTest2, IsTransformFeedbackInvalidArgsBadSharedMemoryId) {
 }
 
 TEST_P(GLES2DecoderTest2, LineWidthValidArgs) {
-  EXPECT_CALL(*gl_, LineWidth(0.5f));
+  EXPECT_CALL(*gl_, LineWidth(2.0f));
   SpecializedSetup<cmds::LineWidth, 0>(true);
   cmds::LineWidth cmd;
-  cmd.Init(0.5f);
+  cmd.Init(2.0f);
   EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 }
@@ -836,7 +836,7 @@ TEST_P(GLES2DecoderTest2, SamplerParameterfvImmediateValidArgs) {
   GLfloat temp[1] = {
       GL_NEAREST,
   };
-  cmd.Init(kServiceSamplerId, GL_TEXTURE_MAG_FILTER, &temp[0]);
+  cmd.Init(client_sampler_id_, GL_TEXTURE_MAG_FILTER, &temp[0]);
   EXPECT_CALL(*gl_, SamplerParameterf(kServiceSamplerId, GL_TEXTURE_MAG_FILTER,
                                       *reinterpret_cast<GLfloat*>(
                                           ImmediateDataAddress(&cmd))));
@@ -867,7 +867,7 @@ TEST_P(GLES2DecoderTest2, SamplerParameterivImmediateValidArgs) {
   GLint temp[1] = {
       GL_NEAREST,
   };
-  cmd.Init(kServiceSamplerId, GL_TEXTURE_MAG_FILTER, &temp[0]);
+  cmd.Init(client_sampler_id_, GL_TEXTURE_MAG_FILTER, &temp[0]);
   EXPECT_CALL(*gl_, SamplerParameteri(
                         kServiceSamplerId, GL_TEXTURE_MAG_FILTER,
                         *reinterpret_cast<GLint*>(ImmediateDataAddress(&cmd))));
@@ -906,7 +906,7 @@ TEST_P(GLES2DecoderTest2, ScissorInvalidArgs3_0) {
 }
 
 TEST_P(GLES2DecoderTest2, ShaderSourceBucketValidArgs) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kValidStrEnd = 0;
@@ -918,7 +918,7 @@ TEST_P(GLES2DecoderTest2, ShaderSourceBucketValidArgs) {
 }
 
 TEST_P(GLES2DecoderTest2, ShaderSourceBucketInvalidArgs) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kValidStrEnd = 0;
@@ -935,7 +935,7 @@ TEST_P(GLES2DecoderTest2, ShaderSourceBucketInvalidArgs) {
 }
 
 TEST_P(GLES2DecoderTest2, ShaderSourceBucketInvalidHeader) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kValidStrEnd = 0;
@@ -953,7 +953,7 @@ TEST_P(GLES2DecoderTest2, ShaderSourceBucketInvalidHeader) {
 }
 
 TEST_P(GLES2DecoderTest2, ShaderSourceBucketInvalidStringEnding) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kInvalidStrEnd = '*';
@@ -1211,20 +1211,8 @@ TEST_P(GLES2DecoderTest2, TexParameterivImmediateInvalidArgs1_0) {
   EXPECT_EQ(GL_INVALID_ENUM, GetGLError());
 }
 
-TEST_P(GLES2DecoderTest2, TexStorage3DValidArgs) {
-  EXPECT_CALL(*gl_, TexStorage3D(GL_TEXTURE_3D, 2, GL_RGB565, 4, 5, 6));
-  SpecializedSetup<cmds::TexStorage3D, 0>(true);
-  cmds::TexStorage3D cmd;
-  cmd.Init(GL_TEXTURE_3D, 2, GL_RGB565, 4, 5, 6);
-  decoder_->set_unsafe_es3_apis_enabled(true);
-  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
-  EXPECT_EQ(GL_NO_ERROR, GetGLError());
-  decoder_->set_unsafe_es3_apis_enabled(false);
-  EXPECT_EQ(error::kUnknownCommand, ExecuteCmd(cmd));
-}
-
 TEST_P(GLES2DecoderTest2, TransformFeedbackVaryingsBucketValidArgs) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kValidStrEnd = 0;
@@ -1238,7 +1226,7 @@ TEST_P(GLES2DecoderTest2, TransformFeedbackVaryingsBucketValidArgs) {
 }
 
 TEST_P(GLES2DecoderTest2, TransformFeedbackVaryingsBucketInvalidArgs) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kValidStrEnd = 0;
@@ -1255,7 +1243,7 @@ TEST_P(GLES2DecoderTest2, TransformFeedbackVaryingsBucketInvalidArgs) {
 }
 
 TEST_P(GLES2DecoderTest2, TransformFeedbackVaryingsBucketInvalidHeader) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kValidStrEnd = 0;
@@ -1273,7 +1261,7 @@ TEST_P(GLES2DecoderTest2, TransformFeedbackVaryingsBucketInvalidHeader) {
 }
 
 TEST_P(GLES2DecoderTest2, TransformFeedbackVaryingsBucketInvalidStringEnding) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const char kSource0[] = "hello";
   const char* kSource[] = {kSource0};
   const char kInvalidStrEnd = '*';
@@ -1445,32 +1433,17 @@ TEST_P(GLES2DecoderTest2, Uniform4ivImmediateValidArgs) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 }
 
-TEST_P(GLES2DecoderTest2, UniformMatrix2fvImmediateValidArgs) {
-  cmds::UniformMatrix2fvImmediate& cmd =
-      *GetImmediateAs<cmds::UniformMatrix2fvImmediate>();
-  EXPECT_CALL(*gl_,
-              UniformMatrix2fv(1, 2, false, reinterpret_cast<GLfloat*>(
-                                                ImmediateDataAddress(&cmd))));
-  SpecializedSetup<cmds::UniformMatrix2fvImmediate, 0>(true);
-  GLfloat temp[4 * 2] = {
-      0,
-  };
-  cmd.Init(1, 2, &temp[0]);
-  EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(temp)));
-  EXPECT_EQ(GL_NO_ERROR, GetGLError());
-}
-
 TEST_P(GLES2DecoderTest2, UniformMatrix2x3fvImmediateValidArgs) {
   cmds::UniformMatrix2x3fvImmediate& cmd =
       *GetImmediateAs<cmds::UniformMatrix2x3fvImmediate>();
   EXPECT_CALL(*gl_,
-              UniformMatrix2x3fv(1, 2, false, reinterpret_cast<GLfloat*>(
-                                                  ImmediateDataAddress(&cmd))));
+              UniformMatrix2x3fv(1, 2, true, reinterpret_cast<GLfloat*>(
+                                                 ImmediateDataAddress(&cmd))));
   SpecializedSetup<cmds::UniformMatrix2x3fvImmediate, 0>(true);
   GLfloat temp[6 * 2] = {
       0,
   };
-  cmd.Init(1, 2, &temp[0]);
+  cmd.Init(1, 2, true, &temp[0]);
   decoder_->set_unsafe_es3_apis_enabled(true);
   EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(temp)));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());

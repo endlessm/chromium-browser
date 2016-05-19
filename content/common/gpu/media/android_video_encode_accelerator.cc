@@ -14,7 +14,7 @@
 #include "content/common/gpu/gpu_channel.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
-#include "media/base/android/media_codec_bridge.h"
+#include "media/base/android/media_codec_util.h"
 #include "media/base/bitstream_buffer.h"
 #include "media/base/limits.h"
 #include "media/video/picture.h"
@@ -22,7 +22,6 @@
 #include "ui/gl/android/scoped_java_surface.h"
 #include "ui/gl/gl_bindings.h"
 
-using media::MediaCodecBridge;
 using media::VideoCodecBridge;
 using media::VideoFrame;
 
@@ -83,7 +82,7 @@ static bool GetSupportedColorFormatForMime(const std::string& mime,
   if (mime.empty())
     return false;
 
-  std::set<int> formats = MediaCodecBridge::GetEncoderColorFormats(mime);
+  std::set<int> formats = media::MediaCodecUtil::GetEncoderColorFormats(mime);
   if (formats.count(COLOR_FORMAT_YUV420_SEMIPLANAR) > 0)
     *pixel_format = COLOR_FORMAT_YUV420_SEMIPLANAR;
   else if (formats.count(COLOR_FORMAT_YUV420_PLANAR) > 0)
@@ -96,8 +95,6 @@ static bool GetSupportedColorFormatForMime(const std::string& mime,
 
 AndroidVideoEncodeAccelerator::AndroidVideoEncodeAccelerator()
     : num_buffers_at_codec_(0),
-      num_output_buffers_(-1),
-      output_buffers_capacity_(0),
       last_set_bitrate_(0) {}
 
 AndroidVideoEncodeAccelerator::~AndroidVideoEncodeAccelerator() {
@@ -124,6 +121,11 @@ AndroidVideoEncodeAccelerator::GetSupportedProfiles() {
   };
 
   for (const auto& supported_codec : kSupportedCodecs) {
+    if (supported_codec.codec == media::kCodecVP8 &&
+        !media::MediaCodecUtil::IsVp8EncoderAvailable()) {
+      continue;
+    }
+
     if (VideoCodecBridge::IsKnownUnaccelerated(supported_codec.codec,
                                                media::MEDIA_CODEC_ENCODER)) {
       continue;
@@ -146,7 +148,7 @@ bool AndroidVideoEncodeAccelerator::Initialize(
     media::VideoPixelFormat format,
     const gfx::Size& input_visible_size,
     media::VideoCodecProfile output_profile,
-    uint32 initial_bitrate,
+    uint32_t initial_bitrate,
     Client* client) {
   DVLOG(3) << __PRETTY_FUNCTION__ << " format: " << format
            << ", input_visible_size: " << input_visible_size.ToString()
@@ -157,7 +159,7 @@ bool AndroidVideoEncodeAccelerator::Initialize(
 
   client_ptr_factory_.reset(new base::WeakPtrFactory<Client>(client));
 
-  if (!(media::MediaCodecBridge::SupportsSetParameters() &&
+  if (!(media::MediaCodecUtil::SupportsSetParameters() &&
         format == media::PIXEL_FORMAT_I420)) {
     DLOG(ERROR) << "Unexpected combo: " << format << ", " << output_profile;
     return false;
@@ -165,17 +167,24 @@ bool AndroidVideoEncodeAccelerator::Initialize(
 
   std::string mime_type;
   media::VideoCodec codec;
+  // The client should be prepared to feed at least this many frames into the
+  // encoder before being returned any output frames, since the encoder may
+  // need to hold onto some subset of inputs as reference pictures.
+  uint32_t frame_input_count;
   if (output_profile == media::VP8PROFILE_ANY) {
     codec = media::kCodecVP8;
     mime_type = "video/x-vnd.on2.vp8";
+    frame_input_count = 1;
   } else if (output_profile == media::H264PROFILE_BASELINE ||
              output_profile == media::H264PROFILE_MAIN) {
     codec = media::kCodecH264;
     mime_type = "video/avc";
+    frame_input_count = 30;
   } else {
     return false;
   }
 
+  frame_size_ = input_visible_size;
   last_set_bitrate_ = initial_bitrate;
 
   // Only consider using MediaCodec if it's likely backed by hardware.
@@ -203,15 +212,16 @@ bool AndroidVideoEncodeAccelerator::Initialize(
     return false;
   }
 
-  num_output_buffers_ = media_codec_->GetOutputBuffersCount();
-  output_buffers_capacity_ = media_codec_->GetOutputBuffersCapacity();
+  // Conservative upper bound for output buffer size: decoded size + 2KB.
+  const size_t output_buffer_capacity =
+      VideoFrame::AllocationSize(format, input_visible_size) + 2048;
   base::MessageLoop::current()->PostTask(
       FROM_HERE,
       base::Bind(&VideoEncodeAccelerator::Client::RequireBitstreamBuffers,
                  client_ptr_factory_->GetWeakPtr(),
-                 num_output_buffers_,
+                 frame_input_count,
                  input_visible_size,
-                 output_buffers_capacity_));
+                 output_buffer_capacity));
   return true;
 }
 
@@ -239,7 +249,8 @@ void AndroidVideoEncodeAccelerator::Encode(
   DCHECK(thread_checker_.CalledOnValidThread());
   RETURN_ON_FAILURE(frame->format() == media::PIXEL_FORMAT_I420,
                     "Unexpected format", kInvalidArgumentError);
-
+  RETURN_ON_FAILURE(frame->visible_rect().size() == frame_size_,
+                    "Unexpected resolution", kInvalidArgumentError);
   // MediaCodec doesn't have a way to specify stride for non-Packed formats, so
   // we insist on being called with packed frames and no cropping :(
   RETURN_ON_FAILURE(frame->row_bytes(VideoFrame::kYPlane) ==
@@ -261,16 +272,13 @@ void AndroidVideoEncodeAccelerator::UseOutputBitstreamBuffer(
     const media::BitstreamBuffer& buffer) {
   DVLOG(3) << __PRETTY_FUNCTION__ << ": bitstream_buffer_id=" << buffer.id();
   DCHECK(thread_checker_.CalledOnValidThread());
-  RETURN_ON_FAILURE(buffer.size() >= media_codec_->GetOutputBuffersCapacity(),
-                    "Output buffers too small!",
-                    kInvalidArgumentError);
   available_bitstream_buffers_.push_back(buffer);
   DoIOTask();
 }
 
 void AndroidVideoEncodeAccelerator::RequestEncodingParametersChange(
-    uint32 bitrate,
-    uint32 framerate) {
+    uint32_t bitrate,
+    uint32_t framerate) {
   DVLOG(3) << __PRETTY_FUNCTION__ << ": bitrate: " << bitrate
            << ", framerate: " << framerate;
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -330,9 +338,11 @@ void AndroidVideoEncodeAccelerator::QueueInput() {
   }
   scoped_refptr<VideoFrame> frame = base::get<0>(input);
 
-  uint8* buffer = NULL;
+  uint8_t* buffer = NULL;
   size_t capacity = 0;
-  media_codec_->GetInputBuffer(input_buf_index, &buffer, &capacity);
+  status = media_codec_->GetInputBuffer(input_buf_index, &buffer, &capacity);
+  RETURN_ON_FAILURE(status == media::MEDIA_CODEC_OK, "GetInputBuffer failed.",
+                    kPlatformFailureError);
 
   size_t queued_size =
       VideoFrame::AllocationSize(media::PIXEL_FORMAT_I420, frame->coded_size());
@@ -340,10 +350,11 @@ void AndroidVideoEncodeAccelerator::QueueInput() {
                     "Failed to get input buffer: " << input_buf_index,
                     kPlatformFailureError);
 
-  uint8* dst_y = buffer;
+  uint8_t* dst_y = buffer;
   int dst_stride_y = frame->stride(VideoFrame::kYPlane);
-  uint8* dst_uv = buffer + frame->stride(VideoFrame::kYPlane) *
-                               frame->rows(VideoFrame::kYPlane);
+  uint8_t* dst_uv =
+      buffer +
+      frame->stride(VideoFrame::kYPlane) * frame->rows(VideoFrame::kYPlane);
   int dst_stride_uv = frame->stride(VideoFrame::kUPlane) * 2;
   // Why NV12?  Because COLOR_FORMAT_YUV420_SEMIPLANAR.  See comment at other
   // mention of that constant.
@@ -373,28 +384,13 @@ void AndroidVideoEncodeAccelerator::QueueInput() {
   pending_frames_.pop();
 }
 
-bool AndroidVideoEncodeAccelerator::DoOutputBuffersSuffice() {
-  // If this returns false ever, then the VEA::Client interface will need to
-  // grow a DismissBitstreamBuffer() call, and VEA::Client impls will have to be
-  // prepared to field multiple requests to RequireBitstreamBuffers().
-  int count = media_codec_->GetOutputBuffersCount();
-  size_t capacity = media_codec_->GetOutputBuffersCapacity();
-  bool ret = count <= num_output_buffers_ &&
-      capacity <= output_buffers_capacity_;
-  LOG_IF(ERROR, !ret) << "Need more/bigger buffers; before: "
-                      << num_output_buffers_ << "x" << output_buffers_capacity_
-                      << ", now: " << count << "x" << capacity;
-  UMA_HISTOGRAM_BOOLEAN("Media.AVEA.OutputBuffersSuffice", ret);
-  return ret;
-}
-
 void AndroidVideoEncodeAccelerator::DequeueOutput() {
   if (!client_ptr_factory_->GetWeakPtr() ||
       available_bitstream_buffers_.empty() || num_buffers_at_codec_ == 0) {
     return;
   }
 
-  int32 buf_index = 0;
+  int32_t buf_index = 0;
   size_t offset = 0;
   size_t size = 0;
   bool key_frame = false;
@@ -410,11 +406,12 @@ void AndroidVideoEncodeAccelerator::DequeueOutput() {
         // Unreachable because of previous statement, but included for clarity.
         return;
 
-      case media::MEDIA_CODEC_OUTPUT_FORMAT_CHANGED:  // Fall-through.
-      case media::MEDIA_CODEC_OUTPUT_BUFFERS_CHANGED:
-        RETURN_ON_FAILURE(DoOutputBuffersSuffice(),
-                          "Bitstream now requires more/larger buffers",
+      case media::MEDIA_CODEC_OUTPUT_FORMAT_CHANGED:
+        RETURN_ON_FAILURE(false, "Unexpected output format change",
                           kPlatformFailureError);
+        break;
+
+      case media::MEDIA_CODEC_OUTPUT_BUFFERS_CHANGED:
         break;
 
       case media::MEDIA_CODEC_OK:
@@ -439,7 +436,10 @@ void AndroidVideoEncodeAccelerator::DequeueOutput() {
                                                  << shm->mapped_size(),
                     kPlatformFailureError);
 
-  media_codec_->CopyFromOutputBuffer(buf_index, offset, shm->memory(), size);
+  media::MediaCodecStatus status = media_codec_->CopyFromOutputBuffer(
+      buf_index, offset, shm->memory(), size);
+  RETURN_ON_FAILURE(status == media::MEDIA_CODEC_OK,
+                    "CopyFromOutputBuffer failed", kPlatformFailureError);
   media_codec_->ReleaseOutputBuffer(buf_index, false);
   --num_buffers_at_codec_;
 

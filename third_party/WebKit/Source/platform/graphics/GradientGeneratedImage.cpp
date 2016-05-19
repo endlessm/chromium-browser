@@ -23,7 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/graphics/GradientGeneratedImage.h"
 
 #include "platform/geometry/FloatRect.h"
@@ -44,10 +43,10 @@ void GradientGeneratedImage::draw(SkCanvas* canvas, const SkPaint& paint, const 
     canvas->drawRect(SkRect::MakeWH(m_size.width(), m_size.height()), gradientPaint);
 }
 
-void GradientGeneratedImage::drawTile(GraphicsContext* context, const FloatRect& srcRect)
+void GradientGeneratedImage::drawTile(GraphicsContext& context, const FloatRect& srcRect)
 {
-    context->setFillGradient(m_gradient);
-    context->fillRect(srcRect);
+    context.setFillGradient(m_gradient);
+    context.fillRect(srcRect);
 }
 
 } // namespace blink

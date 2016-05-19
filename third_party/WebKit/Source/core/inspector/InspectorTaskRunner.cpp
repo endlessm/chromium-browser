@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/inspector/InspectorTaskRunner.h"
 
 #include "wtf/Deque.h"
@@ -33,7 +32,7 @@ public:
         MutexLocker lock(m_mutex);
         if (m_queue.isEmpty())
             return nullptr;
-        return m_queue.takeFirst();
+        return m_queue.takeFirst().release();
     }
     void append(PassOwnPtr<Task> task)
     {
@@ -81,4 +80,4 @@ void InspectorTaskRunner::v8InterruptCallback(v8::Isolate*, void* data)
     runner->runPendingTasks();
 }
 
-}
+} // namespace blink

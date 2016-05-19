@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGNumberTearOff.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -54,4 +52,4 @@ void SVGNumberTearOff::setValue(float f, ExceptionState& exceptionState)
     commitChange();
 }
 
-}
+} // namespace blink

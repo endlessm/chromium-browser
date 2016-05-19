@@ -5,17 +5,18 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/base64.html">
 <link rel="import" href="/tracing/base/color_scheme.html">
-<link rel="import" href="/tracing/base/quad.html">
 <link rel="import" href="/tracing/base/range.html">
-<link rel="import" href="/tracing/base/units/units.html">
 <link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/extras/importer/trace_code_entry.html">
 <link rel="import" href="/tracing/extras/importer/trace_code_map.html">
 <link rel="import" href="/tracing/extras/importer/v8/codemap.html">
 <link rel="import" href="/tracing/importer/importer.html">
 <link rel="import" href="/tracing/model/attribute.html">
+<link rel="import" href="/tracing/model/clock_sync_record.html">
 <link rel="import" href="/tracing/model/comment_box_annotation.html">
+<link rel="import" href="/tracing/model/constants.html">
 <link rel="import" href="/tracing/model/counter_series.html">
 <link rel="import" href="/tracing/model/flow_event.html">
 <link rel="import" href="/tracing/model/global_memory_dump.html">
@@ -25,8 +26,10 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/model.html">
 <link rel="import" href="/tracing/model/process_memory_dump.html">
 <link rel="import" href="/tracing/model/rect_annotation.html">
+<link rel="import" href="/tracing/model/scoped_id.html">
 <link rel="import" href="/tracing/model/slice_group.html">
 <link rel="import" href="/tracing/model/x_marker_annotation.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <script>
 'use strict';
@@ -36,6 +39,7 @@ found in the LICENSE file.
  * into the provided model.
  */
 tr.exportTo('tr.e.importer', function() {
+  var Base64 = tr.b.Base64;
   var deepCopy = tr.b.deepCopy;
   var ColorScheme = tr.b.ColorScheme;
 
@@ -48,12 +52,39 @@ tr.exportTo('tr.e.importer', function() {
     }
   }
 
-  var timestampFromUs = tr.b.u.Units.timestampFromUs;
-  var maybeTimestampFromUs = tr.b.u.Units.maybeTimestampFromUs;
+  var timestampFromUs = tr.v.Unit.timestampFromUs;
+  var maybeTimestampFromUs = tr.v.Unit.maybeTimestampFromUs;
 
   var PRODUCER = 'producer';
   var CONSUMER = 'consumer';
   var STEP = 'step';
+
+  var MEMORY_DUMP_LEVELS_OF_DETAIL = [undefined, 'light', 'detailed'];
+  var GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX = 'global/';
+
+  // See tr.model.MemoryAllocatorDump 'weak' field and
+  // base::trace_event::MemoryAllocatorDump::Flags::WEAK in the Chromium
+  // codebase.
+  var WEAK_MEMORY_ALLOCATOR_DUMP_FLAG = 1 << 0;
+
+  // Object type name patterns for various compilers.
+  var OBJECT_TYPE_NAME_PATTERNS = [
+    {
+      // Clang.
+      prefix: 'const char *WTF::getStringWithTypeName() [T = ',
+      suffix: ']'
+    },
+    {
+      // GCC.
+      prefix: 'const char* WTF::getStringWithTypeName() [with T = ',
+      suffix: ']'
+    },
+    {
+      // Microsoft Visual C++
+      prefix: 'const char *__cdecl WTF::getStringWithTypeName<',
+      suffix: '>(void)'
+    }
+  ];
 
   function TraceEventImporter(model, eventData) {
     this.importPriority = 1;
@@ -75,8 +106,11 @@ tr.exportTo('tr.e.importer', function() {
     this.v8ProcessCodeMaps_ = {};
     this.v8ProcessRootStackFrame_ = {};
 
-    // Dump ID -> {global: (event | undefined), process: [events]}
+    // Dump ID -> PID -> [process memory dump events].
     this.allMemoryDumpEvents_ = {};
+
+    // PID -> Object type ID -> Object type name.
+    this.objectTypeNameMap_ = {};
 
     if (typeof(eventData) === 'string' || eventData instanceof String) {
       eventData = eventData.trim();
@@ -112,9 +146,9 @@ tr.exportTo('tr.e.importer', function() {
       this.systemTraceEvents_ = container.systemTraceEvents;
 
       // Some trace_event implementations put battor power traces as a
-      // huge string inside container.battorLogAsString. If we see that, pull
+      // huge string inside container.powerTraceAsString. If we see that, pull
       // it out. It will be picked up by extractSubtraces later on.
-      this.battorData_ = container.battorLogAsString;
+      this.battorData_ = container.powerTraceAsString;
 
       // Sampling data.
       this.sampleEvents_ = container.samples;
@@ -123,7 +157,7 @@ tr.exportTo('tr.e.importer', function() {
       // Some implementations specify displayTimeUnit
       if (container.displayTimeUnit) {
         var unitName = container.displayTimeUnit;
-        var unit = tr.b.u.TimeDisplayModes[unitName];
+        var unit = tr.v.TimeDisplayModes[unitName];
         if (unit === undefined) {
           throw new Error('Unit ' + unitName + ' is not supported.');
         }
@@ -131,7 +165,7 @@ tr.exportTo('tr.e.importer', function() {
       }
 
       var knownFieldNames = {
-        battorLogAsString: true,
+        powerTraceAsString: true,
         samples: true,
         stackFrames: true,
         systemTraceEvents: true,
@@ -144,6 +178,10 @@ tr.exportTo('tr.e.importer', function() {
           continue;
         this.model_.metadata.push({name: fieldName,
           value: container[fieldName]});
+        if (fieldName === 'metadata' && container[fieldName]['highres-ticks']) {
+          this.model_.isTimeHighResolution =
+              container[fieldName]['highres-ticks'];
+        }
       }
     }
   }
@@ -181,6 +219,10 @@ tr.exportTo('tr.e.importer', function() {
 
   TraceEventImporter.prototype = {
     __proto__: tr.importer.Importer.prototype,
+
+    get importerName() {
+      return 'TraceEventImporter';
+    },
 
     extractSubtraces: function() {
       var systemEventsTmp = this.systemTraceEvents_;
@@ -442,8 +484,18 @@ tr.exportTo('tr.e.importer', function() {
                 '\' metadata event'
           });
         } else {
-          this.importStackFrames_(
-              stackFrames, 'p' + event.pid + ':', true /* addRootFrame */);
+          this.importStackFrames_(stackFrames, 'p' + event.pid + ':');
+        }
+      } else if (event.name === 'typeNames') {
+        var objectTypeNameMap = event.args.typeNames;
+        if (objectTypeNameMap === undefined) {
+          this.model_.importWarning({
+            type: 'metadata_parse_error',
+            message: 'No mapping from object type IDs to names found in a \'' +
+                event.name + '\' metadata event'
+          });
+        } else {
+          this.importObjectTypeNameMap_(objectTypeNameMap, event.pid);
         }
       } else {
         this.model_.importWarning({
@@ -630,42 +682,78 @@ tr.exportTo('tr.e.importer', function() {
       this.model_.samples.push(sample);
     },
 
-    getOrCreateMemoryDumpEvents_: function(dumpId) {
-      if (this.allMemoryDumpEvents_[dumpId] === undefined) {
-        this.allMemoryDumpEvents_[dumpId] = {
-          global: undefined,
-          process: []
-        };
-      }
-      return this.allMemoryDumpEvents_[dumpId];
-    },
-
     processMemoryDumpEvent: function(event) {
-      if (event.id === undefined) {
+      if (event.ph !== 'v')
+        throw new Error('Invalid memory dump event phase "' + event.ph + '".');
+
+      var dumpId = event.id;
+      if (dumpId === undefined) {
         this.model_.importWarning({
           type: 'memory_dump_parse_error',
-          message: event.ph + ' phase event without a dump ID.'
+          message: 'Memory dump event (phase \'' + event.ph +
+              '\') without a dump ID.'
         });
         return;
       }
-      var events = this.getOrCreateMemoryDumpEvents_(event.id);
 
-      if (event.ph === 'v') {
-        // Add a process memory dump.
-        events.process.push(event);
-      } else if (event.ph === 'V') {
-        // Add a global memory dump (unless already present).
-        if (events.global !== undefined) {
-          this.model_.importWarning({
-            type: 'memory_dump_parse_error',
-            message: 'Multiple V phase events with the same dump ID.'
-          });
-          return;
-        }
-        events.global = event;
-      } else {
-        throw new Error('Invalid memory dump event phase "' + event.ph + '".');
+      var pid = event.pid;
+      if (pid === undefined) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'Memory dump event (phase\'' + event.ph + '\', dump ID \'' +
+              dumpId + '\') without a PID.'
+        });
+        return;
       }
+
+      // Dump ID -> PID -> [process memory dump events].
+      var allEvents = this.allMemoryDumpEvents_;
+
+      // PID -> [process memory dump events].
+      var dumpIdEvents = allEvents[dumpId];
+      if (dumpIdEvents === undefined)
+        allEvents[dumpId] = dumpIdEvents = {};
+
+      // [process memory dump events].
+      var processEvents = dumpIdEvents[pid];
+      if (processEvents === undefined)
+        dumpIdEvents[pid] = processEvents = [];
+
+      processEvents.push(event);
+    },
+
+    processClockSyncEvent: function(event) {
+      if (event.ph !== 'c')
+        throw new Error('Invalid clock sync event phase "' + event.ph + '".');
+
+      var sync_id = event.args.sync_id;
+      var issue_start_ts = event.args.issue_ts;
+      var issue_end_ts = event.ts;
+
+      if (sync_id === undefined) {
+        this.model_.importWarning({
+          type: 'clock_sync_parse_error',
+          message: 'Clock sync at time ' + issue_end_ts + ' without an ID.'
+        });
+        return;
+      }
+
+      if (issue_start_ts === undefined) {
+        this.model_.importWarning({
+          type: 'clock_sync_parse_error',
+          message: 'Clock sync at time ' + issue_end_ts + ' with ID ' +
+              sync_id + ' without a start timestamp.'
+        });
+        return;
+      }
+
+      var clock_sync_args = {
+        duration: timestampFromUs(issue_end_ts - issue_start_ts)
+      };
+      this.model_.clockSyncRecords.push(new tr.model.PingPongClockSyncRecord(
+        sync_id, timestampFromUs(issue_start_ts),
+        timestampFromUs(issue_end_ts - issue_start_ts)
+      ));
     },
 
     /**
@@ -673,28 +761,44 @@ tr.exportTo('tr.e.importer', function() {
      * model_.
      */
     importEvents: function() {
-      var csr = new tr.ClockSyncRecord('ftrace_importer', 0, {});
+      var csr = new tr.model.InstantClockSyncRecord('ftrace_importer', 0, {});
       this.model_.clockSyncRecords.push(csr);
-      if (this.stackFrameEvents_) {
-        this.importStackFrames_(
-            this.stackFrameEvents_, 'g', false /* addRootFrame */);
-      }
+      if (this.stackFrameEvents_)
+        this.importStackFrames_(this.stackFrameEvents_, 'g');
 
       if (this.traceAnnotations_)
         this.importAnnotations_();
 
+      var importOptions = this.model_.importOptions;
+      var trackDetailedModelStats = importOptions.trackDetailedModelStats;
+
+      var modelStats = this.model_.stats;
+      modelStats.size = 0;
+
       var events = this.events_;
       for (var eI = 0; eI < events.length; eI++) {
         var event = events[eI];
+
         if (event.args === '__stripped__') {
           event.argsStripped = true;
           event.args = undefined;
         }
 
+        var eventSizeInBytes;
+        if (trackDetailedModelStats)
+          eventSizeInBytes = JSON.stringify(event).length;
+        else
+          eventSizeInBytes = undefined;
+
         if (event.ph === 'B' || event.ph === 'E') {
+          modelStats.willProcessBasicTraceEvent(
+              'begin_end (non-comopact)', event.cat, event.name,
+              eventSizeInBytes);
           this.processDurationEvent(event);
 
         } else if (event.ph === 'X') {
+          modelStats.willProcessBasicTraceEvent(
+              'begin_end (compact)', event.cat, event.name, eventSizeInBytes);
           var slice = this.processCompleteEvent(event);
           // TODO(yuhaoz): If Chrome supports creating other events with flow,
           // we will need to call processFlowEvent for them also.
@@ -705,32 +809,52 @@ tr.exportTo('tr.e.importer', function() {
         } else if (event.ph === 'b' || event.ph === 'e' || event.ph === 'n' ||
                    event.ph === 'S' || event.ph === 'F' || event.ph === 'T' ||
                    event.ph === 'p') {
+          modelStats.willProcessBasicTraceEvent(
+              'async', event.cat, event.name, eventSizeInBytes);
           this.processAsyncEvent(event);
 
         // Note, I is historic. The instant event marker got changed, but we
         // want to support loading old trace files so we have both I and i.
         } else if (event.ph === 'I' || event.ph === 'i' || event.ph === 'R') {
+          modelStats.willProcessBasicTraceEvent(
+              'instant', event.cat, event.name, eventSizeInBytes);
           this.processInstantEvent(event);
 
         } else if (event.ph === 'P') {
+          modelStats.willProcessBasicTraceEvent(
+              'samples', event.cat, event.name, eventSizeInBytes);
           this.processTraceSampleEvent(event);
-
         } else if (event.ph === 'C') {
+          modelStats.willProcessBasicTraceEvent(
+              'counters', event.cat, event.name, eventSizeInBytes);
           this.processCounterEvent(event);
-
         } else if (event.ph === 'M') {
+          modelStats.willProcessBasicTraceEvent(
+              'metadata', event.cat, event.name, eventSizeInBytes);
           this.processMetadataEvent(event);
 
         } else if (event.ph === 'N' || event.ph === 'D' || event.ph === 'O') {
+          modelStats.willProcessBasicTraceEvent(
+              'objects', event.cat, event.name, eventSizeInBytes);
           this.processObjectEvent(event);
 
         } else if (event.ph === 's' || event.ph === 't' || event.ph === 'f') {
+          modelStats.willProcessBasicTraceEvent(
+              'flows', event.cat, event.name, eventSizeInBytes);
           this.processFlowEvent(event);
 
-        } else if (event.ph === 'v' || event.ph === 'V') {
+        } else if (event.ph === 'v') {
+          modelStats.willProcessBasicTraceEvent(
+              'memory_dumps', event.cat, event.name, eventSizeInBytes);
           this.processMemoryDumpEvent(event);
 
+        } else if (event.ph === 'c') {
+          modelStats.willProcessBasicTraceEvent(
+              'clock_sync', event.cat, event.name, eventSizeInBytes);
+          this.processClockSyncEvent(event);
         } else {
+          modelStats.willProcessBasicTraceEvent(
+              'unknown', event.cat, event.name, eventSizeInBytes);
           this.model_.importWarning({
             type: 'parse_error',
             message: 'Unrecognized event phase: ' +
@@ -746,25 +870,8 @@ tr.exportTo('tr.e.importer', function() {
       });
     },
 
-    importStackFrames_: function(rawStackFrames, idPrefix, addRootFrame) {
+    importStackFrames_: function(rawStackFrames, idPrefix) {
       var model = this.model_;
-
-      var rootStackFrame;
-      if (addRootFrame) {
-        // In certain cases (heap dumps), we need to be able to distinguish
-        // between an empty and an undefined stack trace. To this end, we add
-        // an auxiliary root stack frame which is common to all stack frames
-        // in a process. An empty stack trace is then represented by setting
-        // the root stack frame as the leaf stack frame (of the relevant model
-        // object with an associated empty stack trace, e.g. HeapEntry in the
-        // case of heap dumps).
-        rootStackFrame = new tr.model.StackFrame(
-            undefined /* parentFrame */, idPrefix, undefined /* title */,
-            undefined /* colorId */);
-        model.addStackFrame(rootStackFrame);
-      } else {
-        rootStackFrame = undefined;
-      }
 
       for (var id in rawStackFrames) {
         var rawStackFrame = rawStackFrames[id];
@@ -787,7 +894,7 @@ tr.exportTo('tr.e.importer', function() {
         var parentId = rawStackFrame.parent;
         var parentStackFrame;
         if (parentId === undefined) {
-          parentStackFrame = rootStackFrame;
+          parentStackFrame = undefined;
         } else {
           var parentFullId = idPrefix + parentId;
           parentStackFrame = model.stackFrames[parentFullId];
@@ -798,11 +905,58 @@ tr.exportTo('tr.e.importer', function() {
                   ' for stack frame \'' + stackFrame.name + '\' (ID ' + fullId +
                   ').'
             });
-            parentStackFrame = rootStackFrame;
           }
         }
         stackFrame.parentFrame = parentStackFrame;
       }
+    },
+
+    importObjectTypeNameMap_: function(rawObjectTypeNameMap, pid) {
+      if (pid in this.objectTypeNameMap_) {
+        this.model_.importWarning({
+          type: 'metadata_parse_error',
+          message: 'Mapping from object type IDs to names provided for pid=' +
+              pid + ' multiple times.'
+        });
+        return;
+      }
+
+      var objectTypeNamePrefix = undefined;
+      var objectTypeNameSuffix = undefined;
+      var objectTypeNameMap = {};
+      for (var objectTypeId in rawObjectTypeNameMap) {
+        var rawObjectTypeName = rawObjectTypeNameMap[objectTypeId];
+
+        // If we haven't figured out yet which compiler the object type names
+        // come from, we try to do it now.
+        if (objectTypeNamePrefix === undefined) {
+          for (var i = 0; i < OBJECT_TYPE_NAME_PATTERNS.length; i++) {
+            var pattern = OBJECT_TYPE_NAME_PATTERNS[i];
+            if (rawObjectTypeName.startsWith(pattern.prefix) &&
+                rawObjectTypeName.endsWith(pattern.suffix)) {
+              objectTypeNamePrefix = pattern.prefix;
+              objectTypeNameSuffix = pattern.suffix;
+              break;
+            }
+          }
+        }
+
+        if (objectTypeNamePrefix !== undefined &&
+            rawObjectTypeName.startsWith(objectTypeNamePrefix) &&
+            rawObjectTypeName.endsWith(objectTypeNameSuffix)) {
+          // With compiler-specific prefix and suffix (automatically annotated
+          // object types).
+          objectTypeNameMap[objectTypeId] = rawObjectTypeName.substring(
+               objectTypeNamePrefix.length,
+               rawObjectTypeName.length - objectTypeNameSuffix.length);
+        } else {
+          // Without compiler-specific prefix and suffix (manually annotated
+          // object types and '[unknown]').
+          objectTypeNameMap[objectTypeId] = rawObjectTypeName;
+        }
+      }
+
+      this.objectTypeNameMap_[pid] = objectTypeNameMap;
     },
 
     importAnnotations_: function() {
@@ -928,14 +1082,6 @@ tr.exportTo('tr.e.importer', function() {
       }
     },
 
-    /**
-     * Called by the model to join references between objects, after final model
-     * bounds have been computed.
-     */
-    joinRefs: function() {
-      this.joinObjectRefs_();
-    },
-
     createAsyncSlices_: function() {
       if (this.allAsyncEvents_.length === 0)
         return;
@@ -951,6 +1097,7 @@ tr.exportTo('tr.e.importer', function() {
       // Group nestable async events by ID. Events with the same ID should
       // belong to the same parent async event.
       var nestableAsyncEventsByKey = {};
+      var nestableMeasureAsyncEventsByKey = {};
       for (var i = 0; i < this.allAsyncEvents_.length; i++) {
         var asyncEventState = this.allAsyncEvents_[i];
         var event = asyncEventState.event;
@@ -985,6 +1132,19 @@ tr.exportTo('tr.e.importer', function() {
           });
           continue;
         }
+
+        if (event.cat === 'blink.user_timing') {
+          var matched = /([^\/:]+):([^\/:]+)\/?(.*)/.exec(event.name);
+          if (matched !== null) {
+            var key = matched[1] + ':' + event.cat;
+            event.args = JSON.parse(Base64.atob(matched[3]) || '{}');
+            if (nestableMeasureAsyncEventsByKey[key] === undefined)
+              nestableMeasureAsyncEventsByKey[key] = [];
+            nestableMeasureAsyncEventsByKey[key].push(asyncEventState);
+            continue;
+          }
+        }
+
         var key = event.cat + ':' + event.id;
         if (nestableAsyncEventsByKey[key] === undefined)
            nestableAsyncEventsByKey[key] = [];
@@ -993,153 +1153,11 @@ tr.exportTo('tr.e.importer', function() {
       // Handle legacy async events.
       this.createLegacyAsyncSlices_(legacyEvents);
 
+      // Parse nestable measure async events into AsyncSlices.
+      this.createNestableAsyncSlices_(nestableMeasureAsyncEventsByKey);
+
       // Parse nestable async events into AsyncSlices.
-      for (var key in nestableAsyncEventsByKey) {
-        var eventStateEntries = nestableAsyncEventsByKey[key];
-        // Stack of enclosing BEGIN events.
-        var parentStack = [];
-        for (var i = 0; i < eventStateEntries.length; ++i) {
-          var eventStateEntry = eventStateEntries[i];
-          // If this is the end of an event, match it to the start.
-          if (eventStateEntry.event.ph === 'e') {
-            // Walk up the parent stack to find the corresponding BEGIN for
-            // this END.
-            var parentIndex = -1;
-            for (var k = parentStack.length - 1; k >= 0; --k) {
-              if (parentStack[k].event.name === eventStateEntry.event.name) {
-                parentIndex = k;
-                break;
-              }
-            }
-            if (parentIndex === -1) {
-              // Unmatched end.
-              eventStateEntry.finished = false;
-            } else {
-              parentStack[parentIndex].end = eventStateEntry;
-              // Pop off all enclosing unmatched BEGINs util parentIndex.
-              while (parentIndex < parentStack.length) {
-                parentStack.pop();
-              }
-            }
-          }
-          // Inherit the current parent.
-          if (parentStack.length > 0)
-            eventStateEntry.parentEntry = parentStack[parentStack.length - 1];
-          if (eventStateEntry.event.ph === 'b')
-            parentStack.push(eventStateEntry);
-        }
-        var topLevelSlices = [];
-        for (var i = 0; i < eventStateEntries.length; ++i) {
-          var eventStateEntry = eventStateEntries[i];
-          // Skip matched END, as its slice will be created when we
-          // encounter its corresponding BEGIN.
-          if (eventStateEntry.event.ph === 'e' &&
-              eventStateEntry.finished === undefined) {
-            continue;
-          }
-          var startState = undefined;
-          var endState = undefined;
-          var sliceArgs = eventStateEntry.event.args || {};
-          var sliceError = undefined;
-          if (eventStateEntry.event.ph === 'n') {
-            startState = eventStateEntry;
-            endState = eventStateEntry;
-          } else if (eventStateEntry.event.ph === 'b') {
-            if (eventStateEntry.end === undefined) {
-              // Unmatched BEGIN. End it when last event with this ID ends.
-              eventStateEntry.end =
-                  eventStateEntries[eventStateEntries.length - 1];
-              sliceError =
-                  'Slice has no matching END. End time has been adjusted.';
-              this.model_.importWarning({
-                type: 'async_slice_parse_error',
-                message: 'Nestable async BEGIN event at ' +
-                    eventStateEntry.event.ts + ' with name=' +
-                    eventStateEntry.event.name +
-                    ' and id=' + eventStateEntry.event.id + ' was unmatched.'
-              });
-            } else {
-              // Include args for both END and BEGIN for a matched pair.
-              function concatenateArguments(args1, args2) {
-                if (args1.params === undefined || args2.params === undefined)
-                  return tr.b.concatenateObjects(args1, args2);
-                // Make an argument object to hold the combined params.
-                var args3 = {};
-                args3.params = tr.b.concatenateObjects(args1.params,
-                                                       args2.params);
-                return tr.b.concatenateObjects(args1, args2, args3);
-              }
-              var endArgs = eventStateEntry.end.event.args || {};
-              sliceArgs = concatenateArguments(sliceArgs, endArgs);
-            }
-            startState = eventStateEntry;
-            endState = eventStateEntry.end;
-          } else {
-            // Unmatched END. Start it at the first event with this ID starts.
-            sliceError =
-                'Slice has no matching BEGIN. Start time has been adjusted.';
-            this.model_.importWarning({
-              type: 'async_slice_parse_error',
-              message: 'Nestable async END event at ' +
-                  eventStateEntry.event.ts + ' with name=' +
-                  eventStateEntry.event.name +
-                  ' and id=' + eventStateEntry.event.id + ' was unmatched.'
-            });
-            startState = eventStateEntries[0];
-            endState = eventStateEntry;
-          }
-
-          var isTopLevel = (eventStateEntry.parentEntry === undefined);
-          var asyncSliceConstructor =
-             tr.model.AsyncSlice.getConstructor(
-                eventStateEntry.event.cat,
-                eventStateEntry.event.name);
-
-          var thread_start = undefined;
-          var thread_duration = undefined;
-          if (startState.event.tts && startState.event.use_async_tts) {
-            thread_start = timestampFromUs(startState.event.tts);
-            if (endState.event.tts) {
-              var thread_end = timestampFromUs(endState.event.tts);
-              thread_duration = thread_end - thread_start;
-            }
-          }
-
-          var slice = new asyncSliceConstructor(
-              eventStateEntry.event.cat,
-              eventStateEntry.event.name,
-              getEventColor(endState.event),
-              timestampFromUs(startState.event.ts),
-              sliceArgs,
-              timestampFromUs(endState.event.ts - startState.event.ts),
-              isTopLevel,
-              thread_start,
-              thread_duration,
-              startState.event.argsStripped);
-
-          slice.startThread = startState.thread;
-          slice.endThread = endState.thread;
-
-          slice.startStackFrame = this.getStackFrameForEvent_(startState.event);
-          slice.endStackFrame = this.getStackFrameForEvent_(endState.event);
-
-          slice.id = key;
-          if (sliceError !== undefined)
-            slice.error = sliceError;
-          eventStateEntry.slice = slice;
-          // Add the slice to the topLevelSlices array if there is no parent.
-          // Otherwise, add the slice to the subSlices of its parent.
-          if (isTopLevel) {
-            topLevelSlices.push(slice);
-          } else if (eventStateEntry.parentEntry.slice !== undefined) {
-            eventStateEntry.parentEntry.slice.subSlices.push(slice);
-          }
-        }
-        for (var si = 0; si < topLevelSlices.length; si++) {
-          topLevelSlices[si].startThread.asyncSliceGroup.push(
-              topLevelSlices[si]);
-        }
-      }
+      this.createNestableAsyncSlices_(nestableAsyncEventsByKey);
     },
 
     createLegacyAsyncSlices_: function(legacyEvents) {
@@ -1300,6 +1318,156 @@ tr.exportTo('tr.e.importer', function() {
 
             delete asyncEventStatesByNameThenID[name][id];
           }
+        }
+      }
+    },
+
+    createNestableAsyncSlices_: function(nestableEventsByKey) {
+      for (var key in nestableEventsByKey) {
+        var eventStateEntries = nestableEventsByKey[key];
+        // Stack of enclosing BEGIN events.
+        var parentStack = [];
+        for (var i = 0; i < eventStateEntries.length; ++i) {
+          var eventStateEntry = eventStateEntries[i];
+          // If this is the end of an event, match it to the start.
+          if (eventStateEntry.event.ph === 'e') {
+            // Walk up the parent stack to find the corresponding BEGIN for
+            // this END.
+            var parentIndex = -1;
+            for (var k = parentStack.length - 1; k >= 0; --k) {
+              if (parentStack[k].event.name === eventStateEntry.event.name) {
+                parentIndex = k;
+                break;
+              }
+            }
+            if (parentIndex === -1) {
+              // Unmatched end.
+              eventStateEntry.finished = false;
+            } else {
+              parentStack[parentIndex].end = eventStateEntry;
+              // Pop off all enclosing unmatched BEGINs util parentIndex.
+              while (parentIndex < parentStack.length) {
+                parentStack.pop();
+              }
+            }
+          }
+          // Inherit the current parent.
+          if (parentStack.length > 0)
+            eventStateEntry.parentEntry = parentStack[parentStack.length - 1];
+          if (eventStateEntry.event.ph === 'b') {
+            parentStack.push(eventStateEntry);
+          }
+        }
+        var topLevelSlices = [];
+        for (var i = 0; i < eventStateEntries.length; ++i) {
+          var eventStateEntry = eventStateEntries[i];
+          // Skip matched END, as its slice will be created when we
+          // encounter its corresponding BEGIN.
+          if (eventStateEntry.event.ph === 'e' &&
+              eventStateEntry.finished === undefined) {
+            continue;
+          }
+          var startState = undefined;
+          var endState = undefined;
+          var sliceArgs = eventStateEntry.event.args || {};
+          var sliceError = undefined;
+          if (eventStateEntry.event.ph === 'n') {
+            startState = eventStateEntry;
+            endState = eventStateEntry;
+          } else if (eventStateEntry.event.ph === 'b') {
+            if (eventStateEntry.end === undefined) {
+              // Unmatched BEGIN. End it when last event with this ID ends.
+              eventStateEntry.end =
+                eventStateEntries[eventStateEntries.length - 1];
+              sliceError =
+                'Slice has no matching END. End time has been adjusted.';
+              this.model_.importWarning({
+                type: 'async_slice_parse_error',
+                message: 'Nestable async BEGIN event at ' +
+                  eventStateEntry.event.ts + ' with name=' +
+                  eventStateEntry.event.name +
+                  ' and id=' + eventStateEntry.event.id + ' was unmatched.'
+              });
+            } else {
+              // Include args for both END and BEGIN for a matched pair.
+              function concatenateArguments(args1, args2) {
+                if (args1.params === undefined || args2.params === undefined)
+                  return tr.b.concatenateObjects(args1, args2);
+                // Make an argument object to hold the combined params.
+                var args3 = {};
+                args3.params = tr.b.concatenateObjects(args1.params,
+                                                       args2.params);
+                return tr.b.concatenateObjects(args1, args2, args3);
+              }
+              var endArgs = eventStateEntry.end.event.args || {};
+              sliceArgs = concatenateArguments(sliceArgs, endArgs);
+            }
+            startState = eventStateEntry;
+            endState = eventStateEntry.end;
+          } else {
+            // Unmatched END. Start it at the first event with this ID starts.
+            sliceError =
+              'Slice has no matching BEGIN. Start time has been adjusted.';
+            this.model_.importWarning({
+              type: 'async_slice_parse_error',
+              message: 'Nestable async END event at ' +
+                eventStateEntry.event.ts + ' with name=' +
+                eventStateEntry.event.name +
+                ' and id=' + eventStateEntry.event.id + ' was unmatched.'
+            });
+            startState = eventStateEntries[0];
+            endState = eventStateEntry;
+          }
+
+          var isTopLevel = (eventStateEntry.parentEntry === undefined);
+          var asyncSliceConstructor =
+              tr.model.AsyncSlice.getConstructor(
+                eventStateEntry.event.cat,
+                eventStateEntry.event.name);
+
+          var thread_start = undefined;
+          var thread_duration = undefined;
+          if (startState.event.tts && startState.event.use_async_tts) {
+            thread_start = timestampFromUs(startState.event.tts);
+            if (endState.event.tts) {
+              var thread_end = timestampFromUs(endState.event.tts);
+              thread_duration = thread_end - thread_start;
+            }
+          }
+
+          var slice = new asyncSliceConstructor(
+            eventStateEntry.event.cat,
+            eventStateEntry.event.name,
+            getEventColor(endState.event),
+            timestampFromUs(startState.event.ts),
+            sliceArgs,
+            timestampFromUs(endState.event.ts - startState.event.ts),
+            isTopLevel,
+            thread_start,
+            thread_duration,
+            startState.event.argsStripped);
+
+          slice.startThread = startState.thread;
+          slice.endThread = endState.thread;
+
+          slice.startStackFrame = this.getStackFrameForEvent_(startState.event);
+          slice.endStackFrame = this.getStackFrameForEvent_(endState.event);
+
+          slice.id = key;
+          if (sliceError !== undefined)
+            slice.error = sliceError;
+          eventStateEntry.slice = slice;
+          // Add the slice to the topLevelSlices array if there is no parent.
+          // Otherwise, add the slice to the subSlices of its parent.
+          if (isTopLevel) {
+            topLevelSlices.push(slice);
+          } else if (eventStateEntry.parentEntry.slice !== undefined) {
+            eventStateEntry.parentEntry.slice.subSlices.push(slice);
+          }
+        }
+        for (var si = 0; si < topLevelSlices.length; si++) {
+          topLevelSlices[si].startThread.asyncSliceGroup.push(
+            topLevelSlices[si]);
         }
       }
     },
@@ -1604,6 +1772,8 @@ tr.exportTo('tr.e.importer', function() {
 
       function processEvent(objectEventState) {
         var event = objectEventState.event;
+        var scopedId = new tr.model.ScopedId(
+            event.scope || tr.model.OBJECT_DEFAULT_SCOPE, event.id);
         var thread = objectEventState.thread;
         if (event.name === undefined) {
           this.model_.importWarning({
@@ -1613,7 +1783,7 @@ tr.exportTo('tr.e.importer', function() {
           });
         }
 
-        if (event.id === undefined) {
+        if (scopedId.id === undefined) {
           this.model_.importWarning({
             type: 'object_parse_error',
             message: 'While processing ' + JSON.stringify(event) + ': ' +
@@ -1626,12 +1796,12 @@ tr.exportTo('tr.e.importer', function() {
         if (event.ph === 'N') {
           try {
             instance = process.objects.idWasCreated(
-                event.id, event.cat, event.name, ts);
+                scopedId, event.cat, event.name, ts);
           } catch (e) {
             this.model_.importWarning({
               type: 'object_parse_error',
               message: 'While processing create of ' +
-                  event.id + ' at ts=' + ts + ': ' + e
+                  scopedId + ' at ts=' + ts + ': ' + e
             });
             return;
           }
@@ -1639,7 +1809,7 @@ tr.exportTo('tr.e.importer', function() {
           if (event.args.snapshot === undefined) {
             this.model_.importWarning({
               type: 'object_parse_error',
-              message: 'While processing ' + event.id + ' at ts=' + ts + ': ' +
+              message: 'While processing ' + scopedId + ' at ts=' + ts + ': ' +
                   'Snapshots must have args: {snapshot: ...}'
             });
             return;
@@ -1663,28 +1833,27 @@ tr.exportTo('tr.e.importer', function() {
               baseTypename = undefined;
             }
             snapshot = process.objects.addSnapshot(
-                event.id, cat, event.name, ts,
-                args, baseTypename);
+                scopedId, cat, event.name, ts, args, baseTypename);
             snapshot.snapshottedOnThread = thread;
           } catch (e) {
             this.model_.importWarning({
               type: 'object_parse_error',
               message: 'While processing snapshot of ' +
-                  event.id + ' at ts=' + ts + ': ' + e
+                  scopedId + ' at ts=' + ts + ': ' + e
             });
             return;
           }
           instance = snapshot.objectInstance;
         } else if (event.ph === 'D') {
           try {
-            process.objects.idWasDeleted(event.id, event.cat, event.name, ts);
-            var instanceMap = process.objects.getOrCreateInstanceMap_(event.id);
+            process.objects.idWasDeleted(scopedId, event.cat, event.name, ts);
+            var instanceMap = process.objects.getOrCreateInstanceMap_(scopedId);
             instance = instanceMap.lastInstance;
           } catch (e) {
             this.model_.importWarning({
               type: 'object_parse_error',
               message: 'While processing delete of ' +
-                  event.id + ' at ts=' + ts + ': ' + e
+                  scopedId + ' at ts=' + ts + ': ' + e
             });
             return;
           }
@@ -1762,9 +1931,11 @@ tr.exportTo('tr.e.importer', function() {
         else
           baseTypename = undefined;
 
+        var scope = containingSnapshot.objectInstance.scopedId.scope;
+
         try {
           res = process.objects.addSnapshot(
-              id, cat,
+              new tr.model.ScopedId(scope, id), cat,
               name, containingSnapshot.ts,
               implicitSnapshot, baseTypename);
         } catch (e) {
@@ -1835,370 +2006,584 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     createMemoryDumps_: function() {
-      tr.b.iterItems(this.allMemoryDumpEvents_, function(id, events) {
-        // Calculate the range of the global memory dump.
-        var range = new tr.b.Range();
-        if (events.global !== undefined)
-          range.addValue(timestampFromUs(events.global.ts));
-        for (var i = 0; i < events.process.length; i++)
-          range.addValue(timestampFromUs(events.process[i].ts));
+      for (var dumpId in this.allMemoryDumpEvents_)
+        this.createGlobalMemoryDump_(this.allMemoryDumpEvents_[dumpId], dumpId);
+    },
 
-        // Create the global memory dump.
-        var globalMemoryDump = new tr.model.GlobalMemoryDump(
-            this.model_, range.min);
-        globalMemoryDump.duration = range.range;
-        this.model_.globalMemoryDumps.push(globalMemoryDump);
+    createGlobalMemoryDump_: function(dumpIdEvents, dumpId) {
+      // 1. Create a GlobalMemoryDump for the provided process memory dump
+      // the events, all of which have the same dump ID.
 
-        // Create individual process memory dumps.
-        if (events.process.length === 0) {
+      // Calculate the range of the global memory dump.
+      var globalRange = new tr.b.Range();
+      for (var pid in dumpIdEvents) {
+        var processEvents = dumpIdEvents[pid];
+        for (var i = 0; i < processEvents.length; i++)
+          globalRange.addValue(timestampFromUs(processEvents[i].ts));
+      }
+      if (globalRange.isEmpty)
+        throw new Error('Internal error: Global memory dump without events');
+
+      // Create the global memory dump.
+      var globalMemoryDump = new tr.model.GlobalMemoryDump(
+          this.model_, globalRange.min);
+      globalMemoryDump.duration = globalRange.range;
+      this.model_.globalMemoryDumps.push(globalMemoryDump);
+
+      var globalMemoryAllocatorDumpsByFullName = {};
+      var levelOfDetailIndices = {};
+      var allMemoryAllocatorDumpsByGuid = {};
+
+      // 2. Create a ProcessMemoryDump for each PID in the provided process
+      // memory dump events. Everything except for edges between memory
+      // allocator dumps is parsed from the process memory dump trace events at
+      // this step.
+      for (var pid in dumpIdEvents) {
+        this.createProcessMemoryDump_(globalMemoryDump,
+            globalMemoryAllocatorDumpsByFullName, levelOfDetailIndices,
+            allMemoryAllocatorDumpsByGuid, dumpIdEvents[pid], pid, dumpId);
+      }
+
+      // 3. Set the level of detail and memory allocator dumps of the
+      // GlobalMemoryDump, which come from the process memory dump trace
+      // events parsed in the prebvious step.
+      globalMemoryDump.levelOfDetail =
+          MEMORY_DUMP_LEVELS_OF_DETAIL[levelOfDetailIndices.global];
+
+      // Find the root allocator dumps and establish the parent links of
+      // the global memory dump.
+      globalMemoryDump.memoryAllocatorDumps =
+          this.inferMemoryAllocatorDumpTree_(
+              globalMemoryAllocatorDumpsByFullName);
+
+      // 4. Finally, parse the edges between all memory allocator dumps within
+      // the GlobalMemoryDump. This can only be done once all memory allocator
+      // dumps have been parsed (i.e. it is necessary to iterate over the
+      // process memory dump trace events once more).
+      this.parseMemoryDumpAllocatorEdges_(allMemoryAllocatorDumpsByGuid,
+          dumpIdEvents, dumpId);
+    },
+
+    createProcessMemoryDump_: function(globalMemoryDump,
+        globalMemoryAllocatorDumpsByFullName, levelOfDetailIndices,
+        allMemoryAllocatorDumpsByGuid, processEvents, pid, dumpId) {
+      // Calculate the range of the process memory dump.
+      var processRange = new tr.b.Range();
+      for (var i = 0; i < processEvents.length; i++)
+        processRange.addValue(timestampFromUs(processEvents[i].ts));
+      if (processRange.isEmpty)
+        throw new Error('Internal error: Process memory dump without events');
+
+      // Create the process memory dump.
+      var process = this.model_.getOrCreateProcess(pid);
+      var processMemoryDump = new tr.model.ProcessMemoryDump(
+          globalMemoryDump, process, processRange.min);
+      processMemoryDump.duration = processRange.range;
+      process.memoryDumps.push(processMemoryDump);
+      globalMemoryDump.processMemoryDumps[pid] = processMemoryDump;
+
+      var processMemoryAllocatorDumpsByFullName = {};
+
+      // Parse all process memory dump trace events for the newly created
+      // ProcessMemoryDump.
+      for (var i = 0; i < processEvents.length; i++) {
+        var processEvent = processEvents[i];
+
+        var dumps = processEvent.args.dumps;
+        if (dumps === undefined) {
           this.model_.importWarning({
-              type: 'memory_dump_parse_error',
-              message: 'No process memory dumps associated with global memory' +
-                  ' dump ' + id + '.'
+            type: 'memory_dump_parse_error',
+            message: '\'dumps\' field not found in a process memory dump' +
+                ' event for PID=' + pid + ' and dump ID=' + dumpId + '.'
+          });
+          continue;
+        }
+
+        // Totals, VM regions, and heap dumps for the newly created
+        // ProcessMemoryDump should be present in at most one event, so they
+        // can be added to the ProcessMemoryDump immediately.
+        this.parseMemoryDumpTotals_(processMemoryDump, dumps, pid, dumpId);
+        this.parseMemoryDumpVmRegions_(processMemoryDump, dumps, pid, dumpId);
+        this.parseMemoryDumpHeapDumps_(processMemoryDump, dumps, pid, dumpId);
+
+        // All process memory dump trace events for the newly created
+        // ProcessMemoryDump must be processed before level of detail and
+        // allocator dumps can be added to it.
+        this.parseMemoryDumpLevelOfDetail_(levelOfDetailIndices, dumps, pid,
+            dumpId);
+        this.parseMemoryDumpAllocatorDumps_(processMemoryDump, globalMemoryDump,
+            processMemoryAllocatorDumpsByFullName,
+            globalMemoryAllocatorDumpsByFullName,
+            allMemoryAllocatorDumpsByGuid, dumps, pid, dumpId);
+      }
+
+      processMemoryDump.levelOfDetail =
+          MEMORY_DUMP_LEVELS_OF_DETAIL[levelOfDetailIndices.process];
+      delete levelOfDetailIndices.process;  // Reused for all process dumps.
+
+      // Find the root allocator dumps and establish the parent links of
+      // the process memory dump.
+      processMemoryDump.memoryAllocatorDumps =
+          this.inferMemoryAllocatorDumpTree_(
+              processMemoryAllocatorDumpsByFullName);
+    },
+
+    parseMemoryDumpTotals_: function(processMemoryDump, dumps, pid, dumpId) {
+      var rawTotals = dumps.process_totals;
+      if (rawTotals === undefined)
+        return;
+
+      if (processMemoryDump.totals !== undefined) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'Process totals provided multiple times for' +
+              ' process memory dump for PID=' + pid +
+              ' and dump ID=' + dumpId + '.'
+        });
+        return;
+      }
+
+      var totals = {};
+      var platformSpecificTotals = undefined;
+
+      for (var rawTotalName in rawTotals) {
+        var rawTotalValue = rawTotals[rawTotalName];
+        if (rawTotalValue === undefined)
+          continue;
+
+        // Total resident bytes.
+        if (rawTotalName === 'resident_set_bytes') {
+          totals.residentBytes = parseInt(rawTotalValue, 16);
+          continue;
+        }
+
+        // Peak resident bytes.
+        if (rawTotalName === 'peak_resident_set_bytes') {
+          totals.peakResidentBytes = parseInt(rawTotalValue, 16);
+          continue;
+        }
+        if (rawTotalName === 'is_peak_rss_resetable') {
+          totals.arePeakResidentBytesResettable = !!rawTotalValue;
+          continue;
+        }
+
+        // OS-specific totals (e.g. private resident on Mac).
+        if (platformSpecificTotals === undefined) {
+          platformSpecificTotals = {};
+          totals.platformSpecific = platformSpecificTotals;
+        }
+        platformSpecificTotals[rawTotalName] = parseInt(rawTotalValue, 16);
+      }
+
+      // Either both peak_resident_set_bytes and is_peak_rss_resetable should
+      // be present in the trace, or neither.
+      if (totals.peakResidentBytes === undefined &&
+          totals.arePeakResidentBytesResettable !== undefined) {
+        this.model_.importWarning({
+            type: 'memory_dump_parse_error',
+            message: 'Optional field peak_resident_set_bytes found' +
+                ' but is_peak_rss_resetable not found in' +
+                ' process memory dump for PID=' + pid +
+                ' and dump ID=' + dumpId + '.'
+        });
+      }
+      if (totals.arePeakResidentBytesResettable !== undefined &&
+          totals.peakResidentBytes === undefined) {
+        this.model_.importWarning({
+            type: 'memory_dump_parse_error',
+            message: 'Optional field is_peak_rss_resetable found' +
+                ' but peak_resident_set_bytes not found in' +
+                ' process memory dump for PID=' + pid +
+                ' and dump ID=' + dumpId + '.'
+        });
+      }
+
+      processMemoryDump.totals = totals;
+    },
+
+    parseMemoryDumpVmRegions_: function(processMemoryDump, dumps, pid, dumpId) {
+      var rawProcessMmaps = dumps.process_mmaps;
+      if (rawProcessMmaps === undefined)
+        return;
+
+      var rawVmRegions = rawProcessMmaps.vm_regions;
+      if (rawVmRegions === undefined)
+        return;
+
+      if (processMemoryDump.vmRegions !== undefined) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'VM regions provided multiple times for' +
+              ' process memory dump for PID=' + pid +
+              ' and dump ID=' + dumpId + '.'
+        });
+        return;
+      }
+
+      function parseByteStat(rawValue) {
+        if (rawValue === undefined)
+          return undefined;
+        return parseInt(rawValue, 16);
+      }
+
+      var vmRegions = new Array(rawVmRegions.length);
+
+      for (var i = 0; i < rawVmRegions.length; i++) {
+        var rawVmRegion = rawVmRegions[i];
+
+        // See //base/trace_event/process_memory_maps.cc in Chromium.
+        var byteStats = new tr.model.VMRegionByteStats(
+            parseByteStat(rawVmRegion.bs.pc),
+            parseByteStat(rawVmRegion.bs.pd),
+            parseByteStat(rawVmRegion.bs.sc),
+            parseByteStat(rawVmRegion.bs.sd),
+            parseByteStat(rawVmRegion.bs.pss),
+            parseByteStat(rawVmRegion.bs.sw));
+
+        vmRegions[i] = new tr.model.VMRegion(
+            parseInt(rawVmRegion.sa, 16),  // startAddress
+            parseInt(rawVmRegion.sz, 16),  // sizeInBytes
+            rawVmRegion.pf,  // protectionFlags
+            rawVmRegion.mf,  // mappedFile
+            byteStats);
+      }
+
+      processMemoryDump.vmRegions = vmRegions;
+    },
+
+    parseMemoryDumpHeapDumps_: function(processMemoryDump, dumps, pid, dumpId) {
+      var rawHeapDumps = dumps.heaps;
+      if (rawHeapDumps === undefined)
+        return;
+
+      if (processMemoryDump.heapDumps !== undefined) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'Heap dumps provided multiple times for' +
+              ' process memory dump for PID=' + pid +
+              ' and dump ID=' + dumpId + '.'
+        });
+        return;
+      }
+
+      var model = this.model_;
+      var idPrefix = 'p' + pid + ':';
+      var heapDumps = {};
+
+      var objectTypeNameMap = this.objectTypeNameMap_[pid];
+      if (objectTypeNameMap === undefined) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'Missing mapping from object type IDs to names.'
+        });
+      }
+
+      for (var allocatorName in rawHeapDumps) {
+        var entries = rawHeapDumps[allocatorName].entries;
+        if (entries === undefined || entries.length === 0) {
+          this.model_.importWarning({
+            type: 'memory_dump_parse_error',
+            message: 'No heap entries in a ' + allocatorName +
+                ' heap dump for PID=' + pid + ' and dump ID=' + dumpId + '.'
+          });
+          continue;
+        }
+
+        // The old format always starts with a {size: <total>} entry.
+        // See https://goo.gl/WYStil
+        // TODO(petrcermak): Remove support for the old format once the new
+        // format has been around long enough.
+        var isOldFormat = entries[0].bt === undefined;
+        if (!isOldFormat && objectTypeNameMap === undefined) {
+          // Mapping from object type IDs to names must be provided in the new
+          // format.
+          continue;
+        }
+
+        var heapDump = new tr.model.HeapDump(processMemoryDump, allocatorName);
+
+        for (var i = 0; i < entries.length; i++) {
+          var entry = entries[i];
+          var leafStackFrameIndex = entry.bt;
+          var leafStackFrame;
+
+          // There are two possible mappings from leaf stack frame indices
+          // (provided in the trace) to the corresponding stack frames
+          // depending on the format.
+          if (isOldFormat) {
+            // Old format:
+            //   Undefined index        -> / (root)
+            //   Defined index for /A/B -> /A/B/<self>
+            if (leafStackFrameIndex === undefined) {
+              leafStackFrame = undefined /* root */;
+            } else {
+              // Get the leaf stack frame corresponding to the provided index.
+              var leafStackFrameId = idPrefix + leafStackFrameIndex;
+              if (leafStackFrameIndex === '') {
+                leafStackFrame = undefined /* root */;
+              } else {
+                leafStackFrame = model.stackFrames[leafStackFrameId];
+                if (leafStackFrame === undefined) {
+                  this.model_.importWarning({
+                    type: 'memory_dump_parse_error',
+                    message: 'Missing leaf stack frame (ID ' +
+                        leafStackFrameId + ') of heap entry ' + i + ' (size ' +
+                        size + ') in a ' + allocatorName +
+                        ' heap dump for PID=' + pid + '.'
+                  });
+                  continue;
+                }
+              }
+
+              // Inject an artificial <self> leaf stack frame.
+              leafStackFrameId += ':self';
+              if (model.stackFrames[leafStackFrameId] !== undefined) {
+                // The frame might already exist if there are multiple process
+                // memory dumps (for the same process) in the trace.
+                leafStackFrame = model.stackFrames[leafStackFrameId];
+              } else {
+                leafStackFrame = new tr.model.StackFrame(
+                    leafStackFrame, leafStackFrameId, '<self>',
+                    undefined /* colorId */);
+                model.addStackFrame(leafStackFrame);
+              }
+            }
+          } else {
+            // New format:
+            //   Undefined index        -> (invalid value)
+            //   Defined index for /A/B -> /A/B
+            if (leafStackFrameIndex === undefined) {
+              this.model_.importWarning({
+                type: 'memory_dump_parse_error',
+                message: 'Missing stack frame ID of heap entry ' + i +
+                    ' (size ' + size + ') in a ' + allocatorName +
+                    ' heap dump for PID=' + pid + '.'
+              });
+              continue;
+            }
+
+            // Get the leaf stack frame corresponding to the provided index.
+            var leafStackFrameId = idPrefix + leafStackFrameIndex;
+            if (leafStackFrameIndex === '') {
+              leafStackFrame = undefined /* root */;
+            } else {
+              leafStackFrame = model.stackFrames[leafStackFrameId];
+              if (leafStackFrame === undefined) {
+                this.model_.importWarning({
+                  type: 'memory_dump_parse_error',
+                  message: 'Missing leaf stack frame (ID ' + leafStackFrameId +
+                      ') of heap entry ' + i + ' (size ' + size + ') in a ' +
+                      allocatorName + ' heap dump for PID=' + pid + '.'
+                });
+                continue;
+              }
+            }
+          }
+
+          var objectTypeId = entry.type;
+          var objectTypeName;
+          if (objectTypeId === undefined) {
+            objectTypeName = undefined /* total over all types */;
+          } else if (objectTypeNameMap === undefined) {
+            // This can only happen when the old format is used.
+            continue;
+          } else {
+            objectTypeName = objectTypeNameMap[objectTypeId];
+            if (objectTypeName === undefined) {
+              this.model_.importWarning({
+                type: 'memory_dump_parse_error',
+                message: 'Missing object type name (ID ' + objectTypeId +
+                    ') of heap entry ' + i + ' (size ' + size + ') in a ' +
+                    allocatorName + ' heap dump for pid=' + pid + '.'
+              });
+              continue;
+            }
+          }
+
+          var size = parseInt(entry.size, 16);
+          heapDump.addEntry(leafStackFrame, objectTypeName, size);
+        }
+
+        // Throw away heap dumps with no entries. This can happen if all raw
+        // entries in the trace are skipped for some reason (e.g. invalid leaf
+        // stack frame ID).
+        if (heapDump.entries.length > 0)
+          heapDumps[allocatorName] = heapDump;
+      }
+
+      if (Object.keys(heapDumps).length > 0)
+        processMemoryDump.heapDumps = heapDumps;
+    },
+
+    parseMemoryDumpLevelOfDetail_: function(levelOfDetailIndices, dumps, pid,
+        dumpId) {
+      var rawLevelOfDetail = dumps.level_of_detail;
+
+      // Determine the index of the level of detail of the dump.
+      var index = MEMORY_DUMP_LEVELS_OF_DETAIL.indexOf(rawLevelOfDetail);
+      if (index < 0) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'unknown level of detail \'' + rawLevelOfDetail +
+              '\' of process memory dump for PID=' + pid +
+              ' and dump ID=' + dumpId + '.'
+        });
+        return;
+      }
+
+      // If the process memory dump events have different levels of detail
+      // (for the particular process and/or globally), show a warning and use
+      // the highest level.
+
+      if (levelOfDetailIndices.process === undefined) {
+        levelOfDetailIndices.process = index;
+      } else if (index !== levelOfDetailIndices.process) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'diffent levels of detail provided for process memory' +
+              ' dump for PID=' + pid + ' (dump ID=' + dumpId + ').'
+        });
+        levelOfDetailIndices.process =
+            Math.max(levelOfDetailIndices.process, index);
+      }
+
+      if (levelOfDetailIndices.global === undefined) {
+        levelOfDetailIndices.global = index;
+      } else if (index !== levelOfDetailIndices.global) {
+        this.model_.importWarning({
+          type: 'memory_dump_parse_error',
+          message: 'diffent levels of detail provided for global memory' +
+              ' dump (dump ID=' + dumpId + ').'
+        });
+        levelOfDetailIndices.global =
+            Math.max(levelOfDetailIndices.global, index);
+      }
+    },
+
+    parseMemoryDumpAllocatorDumps_: function(processMemoryDump,
+        globalMemoryDump, processMemoryAllocatorDumpsByFullName,
+        globalMemoryAllocatorDumpsByFullName, allMemoryAllocatorDumpsByGuid,
+        dumps, pid, dumpId) {
+      var rawAllocatorDumps = dumps.allocators;
+      if (rawAllocatorDumps === undefined)
+        return;
+
+      // Construct the MemoryAllocatorDump objects without parent links
+      // and add them to the processMemoryAllocatorDumpsByName and
+      // globalMemoryAllocatorDumpsByName indices appropriately.
+      for (var fullName in rawAllocatorDumps) {
+        var rawAllocatorDump = rawAllocatorDumps[fullName];
+
+        // Every memory allocator dump should have a GUID. If not, then
+        // it cannot be associated with any edges.
+        var guid = rawAllocatorDump.guid;
+        if (guid === undefined) {
+          this.model_.importWarning({
+            type: 'memory_dump_parse_error',
+            message: 'Memory allocator dump ' + fullName + ' for PID=' + pid +
+                ' and dump ID=' + dumpId + ' does not have a GUID.'
           });
         }
 
-        var allMemoryAllocatorDumpsByGuid = {};
-        var globalMemoryAllocatorDumpsByFullName = {};
+        // A memory allocator dump can have optional flags.
+        var flags = rawAllocatorDump.flags || 0;
+        var isWeakDump = !!(flags & WEAK_MEMORY_ALLOCATOR_DUMP_FLAG);
 
-        var LEVELS_OF_DETAIL = [undefined, 'light', 'detailed'];
-        var globalLevelOfDetailIndex = undefined;
+        // Determine if this is a global memory allocator dump (check if
+        // it's prefixed with 'global/').
+        var containerMemoryDump;
+        var dstIndex;
+        if (fullName.startsWith(GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX)) {
+          // Global memory allocator dump.
+          fullName = fullName.substring(
+              GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX.length);
+          containerMemoryDump = globalMemoryDump;
+          dstIndex = globalMemoryAllocatorDumpsByFullName;
+        } else {
+          // Process memory allocator dump.
+          containerMemoryDump = processMemoryDump;
+          dstIndex = processMemoryAllocatorDumpsByFullName;
+        }
 
-        events.process.forEach(function(processEvent) {
-          var pid = processEvent.pid;
-          if (pid in globalMemoryDump.processMemoryDumps) {
+        // Construct or retrieve a memory allocator dump with the provided
+        // GUID.
+        var allocatorDump = allMemoryAllocatorDumpsByGuid[guid];
+        if (allocatorDump === undefined) {
+          if (fullName in dstIndex) {
             this.model_.importWarning({
               type: 'memory_dump_parse_error',
-              message: 'Multiple process memory dumps with pid=' + pid +
-                  ' for dump id ' + id + '.'
+              message: 'Multiple GUIDs provided for' +
+                  ' memory allocator dump ' + fullName + ': ' +
+                  dstIndex[fullName].guid + ', ' + guid + ' (ignored) for' +
+                  ' PID=' + pid + ' and dump ID=' + dumpId + '.'
             });
-            return;
+            continue;
           }
-
-          var dumps = processEvent.args.dumps;
-          if (dumps === undefined) {
+          allocatorDump = new tr.model.MemoryAllocatorDump(
+              containerMemoryDump, fullName, guid);
+          allocatorDump.weak = isWeakDump;
+          dstIndex[fullName] = allocatorDump;
+          if (guid !== undefined)
+            allMemoryAllocatorDumpsByGuid[guid] = allocatorDump;
+        } else {
+          // A memory allocator dump with this GUID has already been
+          // dumped (so we will only add new attributes). Check that it
+          // belonged to the same process or was also global.
+          if (allocatorDump.containerMemoryDump !== containerMemoryDump) {
             this.model_.importWarning({
-                type: 'memory_dump_parse_error',
-                message: 'dumps not found in process memory dump for ' +
-                    'pid=' + pid + ' and dump id=' + id + '.'
+            type: 'memory_dump_parse_error',
+            message: 'Memory allocator dump ' + fullName +
+                ' (GUID=' + guid + ') for PID=' + pid + ' and dump ID=' +
+                dumpId + ' dumped in different contexts.'
             });
-            return;
+            continue;
           }
-
-          var process = this.model_.getOrCreateProcess(pid);
-          var processMemoryDump = new tr.model.ProcessMemoryDump(
-              globalMemoryDump, process,
-              timestampFromUs(processEvent.ts));
-
-          // Determine the level of detail of the dump.
-          var processLevelOfDetail = dumps.level_of_detail;
-          var processLevelOfDetailIndex = LEVELS_OF_DETAIL.indexOf(
-              processLevelOfDetail);
-          if (processLevelOfDetailIndex < 0) {
+          // Check that the names of the memory allocator dumps match.
+          if (allocatorDump.fullName !== fullName) {
             this.model_.importWarning({
-              type: 'memory_dump_parse_error',
-              message: 'unknown level of detail \'' + processLevelOfDetail +
-                  '\' of process memory dump for pid=' + pid +
-                  ' and dump id=' + id + '.'
+            type: 'memory_dump_parse_error',
+            message: 'Memory allocator dump with GUID=' + guid + ' for PID=' +
+                pid + ' and dump ID=' + dumpId + ' has multiple names: ' +
+                allocatorDump.fullName + ', ' + fullName + ' (ignored).'
             });
-          } else {
-            processMemoryDump.levelOfDetail = processLevelOfDetail;
-            if (globalLevelOfDetailIndex === undefined) {
-              globalLevelOfDetailIndex = processLevelOfDetailIndex;
-            } else if (globalLevelOfDetailIndex !== processLevelOfDetailIndex) {
-              // If the process memory dumps have different levels of detail,
-              // show a warning and use the highest level.
-              this.model_.importWarning({
-                type: 'memory_dump_parse_error',
-                message: 'diffent levels of detail of process memory dumps ' +
-                    'for dump id=' + id + '.'
-              });
-              globalLevelOfDetailIndex = Math.max(
-                  globalLevelOfDetailIndex, processLevelOfDetailIndex);
-            }
+            continue;
           }
-
-          // Parse the totals.
-          var rawTotals = dumps.process_totals;
-          if (rawTotals !== undefined) {
-            processMemoryDump.totals = {};
-
-            // Total resident bytes (mandatory).
-            if (rawTotals.resident_set_bytes !== undefined) {
-              processMemoryDump.totals.residentBytes = parseInt(
-                  rawTotals.resident_set_bytes, 16);
-            }
-
-            // Peak resident bytes (optional).
-            if (rawTotals.peak_resident_set_bytes !== undefined) {
-              if (rawTotals.is_peak_rss_resetable === undefined) {
-                this.model_.importWarning({
-                    type: 'memory_dump_parse_error',
-                    message: 'Optional field peak_resident_set_bytes found' +
-                        ' but is_peak_rss_resetable not found in' +
-                        ' process memory dump for pid=' + pid +
-                        ' and dump id=' + id + '.'
-                });
-              }
-              processMemoryDump.totals.peakResidentBytes = parseInt(
-                  rawTotals.peak_resident_set_bytes, 16);
-            }
-            if (rawTotals.is_peak_rss_resetable !== undefined) {
-              if (rawTotals.peak_resident_set_bytes === undefined) {
-                this.model_.importWarning({
-                    type: 'memory_dump_parse_error',
-                    message: 'Optional field is_peak_rss_resetable found' +
-                        ' but peak_resident_set_bytes not found in' +
-                        ' process memory dump for pid=' + pid +
-                        ' and dump id=' + id + '.'
-                });
-              }
-              processMemoryDump.totals.arePeakResidentBytesResettable =
-                  !!rawTotals.is_peak_rss_resetable;
-            }
+          if (!isWeakDump) {
+            // A MemoryAllocatorDump is non-weak if at least one process dumped
+            // it without WEAK_MEMORY_ALLOCATOR_DUMP_FLAG.
+            allocatorDump.weak = false;
           }
-          if (processMemoryDump.totals === undefined ||
-              processMemoryDump.totals.residentBytes === undefined) {
+        }
+
+        // Add all new attributes to the memory allocator dump.
+        var attributes = rawAllocatorDump.attrs;
+        if (attributes === undefined) {
+          this.model_.importWarning({
+            type: 'memory_dump_parse_error',
+            message: 'Memory allocator dump ' + fullName + ' (GUID=' + guid +
+                ') for PID=' + pid + ' and dump ID=' + dumpId +
+                ' does not have attributes.'
+          });
+          attributes = {};
+        }
+
+        for (var attrName in attributes) {
+          if (attrName in allocatorDump.attributes) {
+            // Skip existing attributes of the memory allocator dump.
             this.model_.importWarning({
-                type: 'memory_dump_parse_error',
-                message: 'Mandatory field resident_set_bytes not found in' +
-                    ' process memory dump for pid=' + pid +
-                    ' and dump id=' + id + '.'
+            type: 'memory_dump_parse_error',
+            message: 'Multiple values provided for attribute ' + attrName +
+                ' of memory allocator dump ' + fullName + ' (GUID=' + guid +
+                ') for PID=' + pid + ' and dump ID=' + dumpId + '.'
             });
+            continue;
           }
 
-          // Populate the vmRegions, if present.
-          if (dumps.process_mmaps && dumps.process_mmaps.vm_regions) {
-            function parseByteStat(rawValue) {
-              if (rawValue === undefined)
-                return undefined;
-              return parseInt(rawValue, 16);
-            }
-
-            processMemoryDump.vmRegions = dumps.process_mmaps.vm_regions.map(
-              function(rawRegion) {
-                // See //base/trace_event/process_memory_maps.cc in Chromium.
-                var byteStats = new tr.model.VMRegionByteStats(
-                  parseByteStat(rawRegion.bs.pc),
-                  parseByteStat(rawRegion.bs.pd),
-                  parseByteStat(rawRegion.bs.sc),
-                  parseByteStat(rawRegion.bs.sd),
-                  parseByteStat(rawRegion.bs.pss),
-                  parseByteStat(rawRegion.bs.sw)
-                );
-                return new tr.model.VMRegion(
-                    parseInt(rawRegion.sa, 16),  // startAddress
-                    parseInt(rawRegion.sz, 16),  // sizeInBytes
-                    rawRegion.pf,  // protectionFlags
-                    rawRegion.mf,  // mappedFile
-                    byteStats
-                );
-              }
-            );
-          }
-
-          // Gather the process and global memory allocator dumps, if present.
-          var processMemoryAllocatorDumpsByFullName = {};
-          if (dumps.allocators !== undefined) {
-            // Construct the MemoryAllocatorDump objects without parent links
-            // and add them to the processMemoryAllocatorDumpsByName and
-            // globalMemoryAllocatorDumpsByName indices appropriately.
-            tr.b.iterItems(dumps.allocators,
-                function(fullName, rawAllocatorDump) {
-              // Every memory allocator dump should have a GUID. If not, then
-              // it cannot be associated with any edges.
-              var guid = rawAllocatorDump.guid;
-              if (guid === undefined) {
-                this.model_.importWarning({
-                  type: 'memory_dump_parse_error',
-                  message: 'Memory allocator dump ' + fullName +
-                      ' from pid=' + pid + ' does not have a GUID.'
-                });
-              }
-
-              // Determine if this is a global memory allocator dump (check if
-              // it's prefixed with 'global/').
-              var GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX = 'global/';
-              var containerMemoryDump;
-              var dstIndex;
-              if (fullName.startsWith(GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX)) {
-                // Global memory allocator dump.
-                fullName = fullName.substring(
-                    GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX.length);
-                containerMemoryDump = globalMemoryDump;
-                dstIndex = globalMemoryAllocatorDumpsByFullName;
-              } else {
-                // Process memory allocator dump.
-                containerMemoryDump = processMemoryDump;
-                dstIndex = processMemoryAllocatorDumpsByFullName;
-              }
-
-              // Construct or retrieve a memory allocator dump with the provided
-              // GUID.
-              var allocatorDump = allMemoryAllocatorDumpsByGuid[guid];
-              if (allocatorDump === undefined) {
-                if (fullName in dstIndex) {
-                  this.model_.importWarning({
-                    type: 'memory_dump_parse_error',
-                    message: 'Multiple GUIDs provided for' +
-                        ' memory allocator dump ' + fullName + ': ' +
-                        dstIndex[fullName].guid + ', ' + guid + ' (ignored).'
-                  });
-                  return;
-                }
-                allocatorDump = new tr.model.MemoryAllocatorDump(
-                    containerMemoryDump, fullName, guid);
-                dstIndex[fullName] = allocatorDump;
-                if (guid !== undefined)
-                  allMemoryAllocatorDumpsByGuid[guid] = allocatorDump;
-              } else {
-                // A memory allocator dump with this GUID has already been
-                // dumped (so we will only add new attributes). Check that it
-                // belonged to the same process or was also global.
-                if (allocatorDump.containerMemoryDump !== containerMemoryDump) {
-                  this.model_.importWarning({
-                  type: 'memory_dump_parse_error',
-                  message: 'Memory allocator dump ' + fullName +
-                      ' (GUID=' + guid + ') dumped in different contexts.'
-                  });
-                  return;
-                }
-                // Check that the names of the memory allocator dumps match.
-                if (allocatorDump.fullName !== fullName) {
-                  this.model_.importWarning({
-                  type: 'memory_dump_parse_error',
-                  message: 'Memory allocator dump with GUID=' + guid +
-                      ' has multiple names: ' + allocatorDump.fullName +
-                      ', ' + fullName + ' (ignored).'
-                  });
-                  return;
-                }
-              }
-
-              // Add all new attributes to the memory allocator dump.
-              var attributes = rawAllocatorDump.attrs;
-              if (attributes === undefined) {
-                this.model_.importWarning({
-                  type: 'memory_dump_parse_error',
-                  message: 'Memory allocator dump ' + fullName +
-                      ' from pid=' + pid + ' (GUID=' + guid + ') does not' +
-                      ' have attributes.'
-                });
-                attributes = {};
-              }
-
-              tr.b.iterItems(attributes, function(attrName, attrArgs) {
-                if (attrName in allocatorDump.attributes) {
-                  // Skip existing attributes of the memory allocator dump.
-                  this.model_.importWarning({
-                  type: 'memory_dump_parse_error',
-                  message: 'Multiple values provided for attribute ' +
-                      attrName + ' of memory allocator dump ' + fullName +
-                      ' (GUID=' + guid + ').'
-                  });
-                  return;
-                }
-                var attrValue =
-                    tr.model.Attribute.fromDictIfPossible(attrArgs);
-                allocatorDump.addAttribute(attrName, attrValue);
-              }, this);
-            }, this);
-          }
-
-          // Find the root allocator dumps and establish the parent links of
-          // the process memory dump.
-          processMemoryDump.memoryAllocatorDumps =
-              this.inferMemoryAllocatorDumpTree_(
-                  processMemoryAllocatorDumpsByFullName);
-
-          // Parse heap dumps (if present).
-          if (dumps.heaps !== undefined) {
-            processMemoryDump.heapDumps = tr.b.mapItems(dumps.heaps,
-                this.parseHeapDump_.bind(this, processMemoryDump));
-          }
-
-          process.memoryDumps.push(processMemoryDump);
-          globalMemoryDump.processMemoryDumps[pid] = processMemoryDump;
-        }, this);
-
-        globalMemoryDump.levelOfDetail =
-            LEVELS_OF_DETAIL[globalLevelOfDetailIndex];
-
-        // Find the root allocator dumps and establish the parent links of
-        // the global memory dump.
-        globalMemoryDump.memoryAllocatorDumps =
-            this.inferMemoryAllocatorDumpTree_(
-                globalMemoryAllocatorDumpsByFullName);
-
-        // Set up edges between memory allocator dumps.
-        events.process.forEach(function(processEvent) {
-          var dumps = processEvent.args.dumps;
-          if (dumps === undefined)
-            return;
-
-          var edges = dumps.allocators_graph;
-          if (edges === undefined)
-            return;
-
-          edges.forEach(function(rawEdge) {
-            var sourceGuid = rawEdge.source;
-            var sourceDump = allMemoryAllocatorDumpsByGuid[sourceGuid];
-            if (sourceDump === undefined) {
-              this.model_.importWarning({
-                type: 'memory_dump_parse_error',
-                message: 'Edge is missing source memory allocator dump (GUID=' +
-                    sourceGuid + ')'
-              });
-              return;
-            }
-
-            var targetGuid = rawEdge.target;
-            var targetDump = allMemoryAllocatorDumpsByGuid[targetGuid];
-            if (targetDump === undefined) {
-              this.model_.importWarning({
-                type: 'memory_dump_parse_error',
-                message: 'Edge is missing target memory allocator dump (GUID=' +
-                    targetGuid + ')'
-              });
-              return;
-            }
-
-            var importance = rawEdge.importance;
-            var edge = new tr.model.MemoryAllocatorDumpLink(
-                sourceDump, targetDump, importance);
-
-            switch (rawEdge.type) {
-              case 'ownership':
-                if (sourceDump.owns !== undefined) {
-                  this.model_.importWarning({
-                    type: 'memory_dump_parse_error',
-                    message: 'Memory allocator dump ' + sourceDump.fullName +
-                        ' (GUID=' + sourceGuid + ') already owns a memory' +
-                        ' allocator dump (' +
-                        sourceDump.owns.target.fullName + ').'
-                  });
-                  return;
-                }
-                sourceDump.owns = edge;
-                targetDump.ownedBy.push(edge);
-                break;
-
-              case 'retention':
-                sourceDump.retains.push(edge);
-                targetDump.retainedBy.push(edge);
-                break;
-
-              default:
-                this.model_.importWarning({
-                  type: 'memory_dump_parse_error',
-                  message: 'Invalid edge type: ' + rawEdge.type +
-                      ' (source=' + sourceGuid + ', target=' + targetGuid +
-                      ', importance=' + importance + ').'
-                });
-            }
-          }, this);
-        }, this);
-      }, this);
+          var attrArgs = attributes[attrName];
+          var attrValue = tr.model.Attribute.fromDictIfPossible(attrArgs);
+          allocatorDump.addAttribute(attrName, attrValue);
+        }
+      }
     },
 
     inferMemoryAllocatorDumpTree_: function(memoryAllocatorDumpsByFullName) {
@@ -2206,7 +2591,8 @@ tr.exportTo('tr.e.importer', function() {
 
       var fullNames = Object.keys(memoryAllocatorDumpsByFullName);
       fullNames.sort();
-      fullNames.forEach(function(fullName) {
+      for (var i = 0; i < fullNames.length; i++) {
+        var fullName = fullNames[i];
         var allocatorDump = memoryAllocatorDumpsByFullName[fullName];
 
         // This is a loop because we might need to build implicit
@@ -2232,6 +2618,38 @@ tr.exportTo('tr.e.importer', function() {
             parentAlreadyExisted = false;
             parentAllocatorDump = new tr.model.MemoryAllocatorDump(
                 allocatorDump.containerMemoryDump, parentFullName);
+            if (allocatorDump.weak !== false) {
+              // If we are inferring a parent dump (e.g. 'root/parent') of a
+              // current dump (e.g. 'root/parent/current') which is weak (or
+              // was also inferred and we don't know yet whether it's weak or
+              // not), then we clear the weak flag on the parent dump because
+              // we don't know yet whether it should be weak or non-weak:
+              //
+              //   * We can't mark the parent as non-weak straightaway because
+              //     the parent might have no non-weak descendants (in which
+              //     case we want the inferred parent to be weak, so that it
+              //     would be later removed like the current dump).
+              //   * We can't mark the parent as weak immediately either. If we
+              //     did and later encounter a non-weak child of the parent
+              //     (e.g. 'root/parent/another_child'), then we couldn't
+              //     retroactively mark the inferred parent dump as non-weak
+              //     because we couldn't tell whether the parent dump was
+              //     dumped in the trace as weak (in which case it should stay
+              //     weak and be subsequently removed) or whether it was
+              //     inferred as weak (in which case it should be changed to
+              //     non-weak).
+              //
+              // Therefore, we defer marking the inferred parent as
+              // weak/non-weak. If an inferred parent dump does not have any
+              // non-weak child, it will be marked as weak at the end of this
+              // method.
+              //
+              // Note that this should not be confused with the recursive
+              // propagation of the weak flag from parent dumps to their
+              // children and from owned dumps to their owners, which is
+              // performed in GlobalMemoryDump.prototype.removeWeakDumps().
+              parentAllocatorDump.weak = undefined;
+            }
             memoryAllocatorDumpsByFullName[parentFullName] =
                 parentAllocatorDump;
           }
@@ -2242,144 +2660,115 @@ tr.exportTo('tr.e.importer', function() {
 
           // If the parent already existed, then its ancestors were/will be
           // constructed in another iteration of the forEach loop.
-          if (parentAlreadyExisted)
+          if (parentAlreadyExisted) {
+            if (!allocatorDump.weak) {
+              // If the current dump is non-weak, then we must ensure that all
+              // its inferred ancestors are also non-weak.
+              while (parentAllocatorDump !== undefined &&
+                     parentAllocatorDump.weak === undefined) {
+                parentAllocatorDump.weak = false;
+                parentAllocatorDump = parentAllocatorDump.parent;
+              }
+            }
             break;
+          }
 
           fullName = parentFullName;
           allocatorDump = parentAllocatorDump;
         }
-      }, this);
+      }
+
+      // All inferred ancestor dumps that have a non-weak child have already
+      // been marked as non-weak. We now mark the rest as weak.
+      for (var fullName in memoryAllocatorDumpsByFullName) {
+        var allocatorDump = memoryAllocatorDumpsByFullName[fullName];
+        if (allocatorDump.weak === undefined)
+          allocatorDump.weak = true;
+      }
 
       return rootAllocatorDumps;
     },
 
-    parseHeapDump_: function(processMemoryDump, allocatorName, rawHeapDump) {
-      var pid = processMemoryDump.process.pid;
-      var entries = rawHeapDump.entries;
-      if (entries === undefined) {
-        this.model_.importWarning({
-          type: 'memory_dump_parse_error',
-          message: 'Missing heap entries in a ' + allocatorName +
-              ' heap dump for pid=' + pid + '.'
-        });
-        return undefined;
-      }
+    parseMemoryDumpAllocatorEdges_: function(allMemoryAllocatorDumpsByGuid,
+        dumpIdEvents, dumpId) {
+      for (var pid in dumpIdEvents) {
+        var processEvents = dumpIdEvents[pid];
 
-      var model = this.model_;
-      var heapDump = new tr.model.HeapDump(processMemoryDump, allocatorName);
-      var idPrefix = 'p' + pid + ':';
+        for (var i = 0; i < processEvents.length; i++) {
+          var processEvent = processEvents[i];
 
-      for (var i = 0; i < entries.length; i++) {
-        var entry = entries[i];
-        var type = entry.type;
-        if (type !== undefined) {
-          // Heap dump entries with specified object type ID need to be ignored
-          // for the time being because Chrome doesn't dump the mapping from
-          // object type IDs to object type names yet. See crbug.com/524631.
-          continue;
-        }
-        var size = parseInt(entry.size, 16);
-        var leafStackFrameIndex = entry.bt;
-        var leafStackFrame;
-        if (leafStackFrameIndex === undefined) {
-          leafStackFrame = undefined;
-        } else {
-          var leafStackFrameId = idPrefix + leafStackFrameIndex;
-          leafStackFrame = model.stackFrames[leafStackFrameId];
-          if (leafStackFrame === undefined) {
-            this.model_.importWarning({
-              type: 'memory_dump_parse_error',
-              message: 'Missing leaf stack frame (ID ' + leafStackFrameId +
-                  ') of heap entry ' + i + ' (size ' + size + ') in a ' +
-                  allocatorName + ' heap dump for pid=' + pid + '.'
-            });
+          var dumps = processEvent.args.dumps;
+          if (dumps === undefined)
             continue;
+
+          var rawEdges = dumps.allocators_graph;
+          if (rawEdges === undefined)
+            continue;
+
+          for (var j = 0; j < rawEdges.length; j++) {
+            var rawEdge = rawEdges[j];
+
+            var sourceGuid = rawEdge.source;
+            var sourceDump = allMemoryAllocatorDumpsByGuid[sourceGuid];
+            if (sourceDump === undefined) {
+              this.model_.importWarning({
+                type: 'memory_dump_parse_error',
+                message: 'Edge for PID=' + pid + ' and dump ID=' + dumpId +
+                    ' is missing source memory allocator dump (GUID=' +
+                    sourceGuid + ').'
+              });
+              continue;
+            }
+
+            var targetGuid = rawEdge.target;
+            var targetDump = allMemoryAllocatorDumpsByGuid[targetGuid];
+            if (targetDump === undefined) {
+              this.model_.importWarning({
+                type: 'memory_dump_parse_error',
+                message: 'Edge for PID=' + pid + ' and dump ID=' + dumpId +
+                    ' is missing target memory allocator dump (GUID=' +
+                    targetGuid + ').'
+              });
+              continue;
+            }
+
+            var importance = rawEdge.importance;
+            var edge = new tr.model.MemoryAllocatorDumpLink(
+                sourceDump, targetDump, importance);
+
+            switch (rawEdge.type) {
+              case 'ownership':
+                if (sourceDump.owns !== undefined) {
+                  this.model_.importWarning({
+                    type: 'memory_dump_parse_error',
+                    message: 'Memory allocator dump ' + sourceDump.fullName +
+                        ' (GUID=' + sourceGuid + ') already owns a memory' +
+                        ' allocator dump (' +
+                        sourceDump.owns.target.fullName + ').'
+                  });
+                } else {
+                  sourceDump.owns = edge;
+                  targetDump.ownedBy.push(edge);
+                }
+                break;
+
+              case 'retention':
+                sourceDump.retains.push(edge);
+                targetDump.retainedBy.push(edge);
+                break;
+
+              default:
+                this.model_.importWarning({
+                  type: 'memory_dump_parse_error',
+                  message: 'Invalid edge type: ' + rawEdge.type +
+                      ' (PID=' + pid + ', dump ID=' + dumpId +
+                      ', source=' + sourceGuid + ', target=' + targetGuid +
+                      ', importance=' + importance + ').'
+                });
+            }
           }
         }
-        heapDump.addEntry(leafStackFrame, size);
       }
-      return heapDump;
-    },
-
-    joinObjectRefs_: function() {
-      tr.b.iterItems(this.model_.processes, function(pid, process) {
-        this.joinObjectRefsForProcess_(process);
-      }, this);
-    },
-
-    joinObjectRefsForProcess_: function(process) {
-      // Iterate the world, looking for id_refs
-      var patchupsToApply = [];
-      tr.b.iterItems(process.threads, function(tid, thread) {
-        thread.asyncSliceGroup.slices.forEach(function(item) {
-          this.searchItemForIDRefs_(
-              patchupsToApply, process.objects, 'start', item);
-        }, this);
-        thread.sliceGroup.slices.forEach(function(item) {
-          this.searchItemForIDRefs_(
-              patchupsToApply, process.objects, 'start', item);
-        }, this);
-      }, this);
-      process.objects.iterObjectInstances(function(instance) {
-        instance.snapshots.forEach(function(item) {
-          this.searchItemForIDRefs_(
-              patchupsToApply, process.objects, 'ts', item);
-        }, this);
-      }, this);
-
-      // Change all the fields pointing at id_refs to their real values.
-      patchupsToApply.forEach(function(patchup) {
-        patchup.object[patchup.field] = patchup.value;
-      });
-    },
-
-    searchItemForIDRefs_: function(patchupsToApply, objectCollection,
-                                   itemTimestampField, item) {
-      if (!item.args)
-        throw new Error('item is missing its args');
-
-      function handleField(object, fieldName, fieldValue) {
-        if (!fieldValue || (!fieldValue.id_ref && !fieldValue.idRef))
-          return;
-
-        var id = fieldValue.id_ref || fieldValue.idRef;
-        var ts = item[itemTimestampField];
-        var snapshot = objectCollection.getSnapshotAt(id, ts);
-        if (!snapshot)
-          return;
-
-        // We have to delay the actual change to the new value until after all
-        // refs have been located. Otherwise, we could end up recursing in
-        // ways we definitely didn't intend.
-        patchupsToApply.push({object: object,
-          field: fieldName,
-          value: snapshot});
-      }
-      function iterObjectFieldsRecursively(object) {
-        if (!(object instanceof Object))
-          return;
-
-        if ((object instanceof tr.model.ObjectSnapshot) ||
-            (object instanceof Float32Array) ||
-            (object instanceof tr.b.Quad))
-          return;
-
-        if (object instanceof Array) {
-          for (var i = 0; i < object.length; i++) {
-            handleField(object, i, object[i]);
-            iterObjectFieldsRecursively(object[i]);
-          }
-          return;
-        }
-
-        for (var key in object) {
-          var value = object[key];
-          handleField(object, key, value);
-          iterObjectFieldsRecursively(value);
-        }
-      }
-
-      iterObjectFieldsRecursively(item.args);
     }
   };
 

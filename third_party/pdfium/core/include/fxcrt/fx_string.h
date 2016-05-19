@@ -10,13 +10,12 @@
 #include <stdint.h>  // For intptr_t.
 #include <algorithm>
 
-#include "fx_memory.h"
-#include "fx_system.h"
+#include "core/include/fxcrt/fx_memory.h"
+#include "core/include/fxcrt/fx_system.h"
 
 class CFX_BinaryBuf;
 class CFX_ByteString;
 class CFX_WideString;
-struct CFX_CharMap;
 
 // An immutable string with caller-provided storage which must outlive the
 // string itself.
@@ -135,7 +134,6 @@ inline bool operator==(const char* lhs, const CFX_ByteStringC& rhs) {
 inline bool operator!=(const char* lhs, const CFX_ByteStringC& rhs) {
   return rhs != lhs;
 }
-#define FX_BSTRC(str) CFX_ByteStringC(str, sizeof str - 1)
 #define FXBSTR_ID(c1, c2, c3, c4) ((c1 << 24) | (c2 << 16) | (c3 << 8) | (c4))
 
 // A mutable string with shared buffers using copy-on-write semantics that
@@ -289,8 +287,6 @@ class CFX_ByteString {
   FX_STRSIZE Remove(FX_CHAR ch);
 
   CFX_WideString UTF8Decode() const;
-
-  void ConvertFrom(const CFX_WideString& str, CFX_CharMap* pCharMap = NULL);
 
   FX_DWORD GetID(FX_STRSIZE start_pos = 0) const;
 
@@ -562,7 +558,10 @@ class CFX_WideString {
 
   ~CFX_WideString();
 
-  static CFX_WideString FromLocal(const char* str, FX_STRSIZE len = -1);
+  static CFX_WideString FromLocal(const CFX_ByteString& str);
+
+  static CFX_WideString FromCodePage(const CFX_ByteString& str,
+                                     FX_WORD codepage);
 
   static CFX_WideString FromUTF8(const char* str, FX_STRSIZE len);
 
@@ -686,8 +685,6 @@ class CFX_WideString {
 
   CFX_ByteString UTF16LE_Encode() const;
 
-  void ConvertFrom(const CFX_ByteString& str, CFX_CharMap* pCharMap = NULL);
-
  protected:
   class StringData {
    public:
@@ -795,9 +792,7 @@ inline bool operator!=(const wchar_t* lhs, const CFX_WideString& rhs) {
 inline bool operator!=(const CFX_WideStringC& lhs, const CFX_WideString& rhs) {
   return rhs != lhs;
 }
-FX_FLOAT FX_atof(const CFX_ByteStringC& str);
-void FX_atonum(const CFX_ByteStringC& str, FX_BOOL& bInteger, void* pData);
-FX_STRSIZE FX_ftoa(FX_FLOAT f, FX_CHAR* buf);
+
 CFX_ByteString FX_UTF8Encode(const FX_WCHAR* pwsStr, FX_STRSIZE len);
 inline CFX_ByteString FX_UTF8Encode(const CFX_WideStringC& wsStr) {
   return FX_UTF8Encode(wsStr.GetPtr(), wsStr.GetLength());
@@ -805,5 +800,12 @@ inline CFX_ByteString FX_UTF8Encode(const CFX_WideStringC& wsStr) {
 inline CFX_ByteString FX_UTF8Encode(const CFX_WideString& wsStr) {
   return FX_UTF8Encode(wsStr.c_str(), wsStr.GetLength());
 }
+
+FX_FLOAT FX_atof(const CFX_ByteStringC& str);
+inline FX_FLOAT FX_atof(const CFX_WideStringC& wsStr) {
+  return FX_atof(FX_UTF8Encode(wsStr.GetPtr(), wsStr.GetLength()));
+}
+void FX_atonum(const CFX_ByteStringC& str, FX_BOOL& bInteger, void* pData);
+FX_STRSIZE FX_ftoa(FX_FLOAT f, FX_CHAR* buf);
 
 #endif  // CORE_INCLUDE_FXCRT_FX_STRING_H_

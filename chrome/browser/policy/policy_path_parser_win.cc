@@ -3,11 +3,13 @@
 // found in the LICENSE file.
 
 #include <shlobj.h>
+#include <stddef.h>
 #include <wtsapi32.h>
 #pragma comment(lib, "wtsapi32.lib")
 
 #include "chrome/browser/policy/policy_path_parser.h"
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
@@ -71,13 +73,13 @@ base::FilePath::StringType ExpandPathVariables(
     return result;
   // Sanitize quotes in case of any around the whole string.
   if (result.length() > 1 &&
-      ((result[0] == L'"' && result[result.length() - 1] == L'"') ||
-       (result[0] == L'\'' && result[result.length() - 1] == L'\''))) {
+      ((result.front() == L'"' && result.back() == L'"') ||
+       (result.front() == L'\'' && result.back() == L'\''))) {
     // Strip first and last char which should be matching quotes now.
     result = result.substr(1, result.length() - 2);
   }
   // First translate all path variables we recognize.
-  for (int i = 0; i < arraysize(win_folder_mapping); ++i) {
+  for (size_t i = 0; i < arraysize(win_folder_mapping); ++i) {
     size_t position = result.find(win_folder_mapping[i].name);
     if (position != std::wstring::npos) {
       WCHAR path[MAX_PATH];

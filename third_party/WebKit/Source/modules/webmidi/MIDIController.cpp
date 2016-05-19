@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/webmidi/MIDIController.h"
 
 #include "modules/webmidi/MIDIAccessInitializer.h"
@@ -56,14 +55,14 @@ PassOwnPtrWillBeRawPtr<MIDIController> MIDIController::create(PassOwnPtr<MIDICli
     return adoptPtrWillBeNoop(new MIDIController(client));
 }
 
-void MIDIController::requestSysexPermission(MIDIAccessInitializer* initializer)
+void MIDIController::requestPermission(MIDIAccessInitializer* initializer, const MIDIOptions& options)
 {
-    m_client->requestSysexPermission(initializer);
+    m_client->requestPermission(initializer, options);
 }
 
-void MIDIController::cancelSysexPermissionRequest(MIDIAccessInitializer* initializer)
+void MIDIController::cancelPermissionRequest(MIDIAccessInitializer* initializer)
 {
-    m_client->cancelSysexPermissionRequest(initializer);
+    m_client->cancelPermissionRequest(initializer);
 }
 
 void provideMIDITo(LocalFrame& frame, PassOwnPtr<MIDIClient> client)

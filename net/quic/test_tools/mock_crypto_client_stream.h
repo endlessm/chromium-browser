@@ -7,8 +7,11 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "net/quic/crypto/crypto_handshake.h"
 #include "net/quic/crypto/crypto_protocol.h"
+#include "net/quic/crypto/proof_verifier_chromium.h"
+#include "net/quic/quic_client_session_base.h"
 #include "net/quic/quic_crypto_client_stream.h"
 #include "net/quic/quic_session.h"
 
@@ -41,7 +44,7 @@ class MockCryptoClientStream : public QuicCryptoClientStream {
       ProofVerifyContext* verify_context,
       QuicCryptoClientConfig* crypto_config,
       HandshakeMode handshake_mode,
-      const ProofVerifyDetails* proof_verify_details_);
+      const ProofVerifyDetailsChromium* proof_verify_details_);
   ~MockCryptoClientStream() override;
 
   // CryptoFramerVisitorInterface implementation.
@@ -58,9 +61,9 @@ class MockCryptoClientStream : public QuicCryptoClientStream {
 
  private:
   void SetConfigNegotiated();
-  QuicClientSessionBase* client_session();
 
-  const ProofVerifyDetails* proof_verify_details_;
+  const QuicServerId server_id_;
+  const ProofVerifyDetailsChromium* proof_verify_details_;
 
   DISALLOW_COPY_AND_ASSIGN(MockCryptoClientStream);
 };

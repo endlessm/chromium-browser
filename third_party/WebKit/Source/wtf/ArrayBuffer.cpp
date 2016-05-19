@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "wtf/ArrayBuffer.h"
 
 #include "wtf/ArrayBufferView.h"
@@ -103,4 +102,4 @@ void ArrayBuffer::removeView(ArrayBufferView* view)
     view->m_prevView = view->m_nextView = 0;
 }
 
-}
+} // namespace WTF

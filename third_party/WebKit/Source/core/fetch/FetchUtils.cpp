@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/fetch/FetchUtils.h"
 
 #include "platform/network/HTTPHeaderMap.h"
@@ -70,7 +69,7 @@ ForbiddenHeaderNames::ForbiddenHeaderNames()
 
 const ForbiddenHeaderNames& ForbiddenHeaderNames::get()
 {
-    AtomicallyInitializedStaticReference(const ForbiddenHeaderNames, instance, new ForbiddenHeaderNames);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(const ForbiddenHeaderNames, instance, new ForbiddenHeaderNames);
     return instance;
 }
 
@@ -91,10 +90,13 @@ bool FetchUtils::isSimpleHeader(const AtomicString& name, const AtomicString& va
     // `Content-Type` and value, once parsed, is one of
     // `application/x-www-form-urlencoded`, `multipart/form-data`, and
     // `text/plain`."
+    // Treat 'Save-Data' as a simple header, since it is added by Chrome when
+    // Data Saver feature is enabled.
 
     if (equalIgnoringCase(name, "accept")
         || equalIgnoringCase(name, "accept-language")
-        || equalIgnoringCase(name, "content-language"))
+        || equalIgnoringCase(name, "content-language")
+        || equalIgnoringCase(name, "save-data"))
         return true;
 
     if (equalIgnoringCase(name, "content-type")) {

@@ -4,11 +4,16 @@
 
 #include "content/renderer/media/media_stream_audio_processor.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "content/public/common/content_switches.h"
 #include "content/renderer/media/media_stream_audio_processor_options.h"
 #include "content/renderer/media/rtc_media_constraints.h"
@@ -18,7 +23,7 @@
 #include "media/base/audio_fifo.h"
 #include "media/base/channel_layout.h"
 #include "third_party/WebKit/public/platform/WebMediaConstraints.h"
-#include "third_party/libjingle/source/talk/app/webrtc/mediaconstraintsinterface.h"
+#include "third_party/webrtc/api/mediaconstraintsinterface.h"
 #include "third_party/webrtc/modules/audio_processing/typing_detection.h"
 
 namespace content {
@@ -97,15 +102,8 @@ void RecordProcessingState(AudioTrackProcessingStates state) {
 }
 
 bool IsDelayAgnosticAecEnabled() {
-  // Note: It's important to query the field trial state first, to ensure that
-  // UMA reports the correct group.
-  const std::string group_name =
-      base::FieldTrialList::FindFullName("UseDelayAgnosticAEC");
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kDisableDelayAgnosticAec))
-    return false;
-
-  return (group_name == "Enabled" || group_name == "DefaultEnabled");
+  return !command_line->HasSwitch(switches::kDisableDelayAgnosticAec);
 }
 
 // Checks if the default minimum starting volume value for the AGC is overridden
@@ -414,7 +412,7 @@ void MediaStreamAudioProcessor::OnAecDumpFile(
   DCHECK(file.IsValid());
 
   if (audio_processing_)
-    StartEchoCancellationDump(audio_processing_.get(), file.Pass());
+    StartEchoCancellationDump(audio_processing_.get(), std::move(file));
   else
     file.Close();
 }
@@ -434,8 +432,13 @@ void MediaStreamAudioProcessor::OnPlayoutData(media::AudioBus* audio_bus,
                                               int sample_rate,
                                               int audio_delay_milliseconds) {
   DCHECK(render_thread_checker_.CalledOnValidThread());
-  DCHECK(audio_processing_->echo_control_mobile()->is_enabled() ^
-         audio_processing_->echo_cancellation()->is_enabled());
+#if defined(OS_ANDROID) || defined(OS_IOS)
+  DCHECK(audio_processing_->echo_control_mobile()->is_enabled());
+  DCHECK(!audio_processing_->echo_cancellation()->is_enabled());
+#else
+  DCHECK(!audio_processing_->echo_control_mobile()->is_enabled());
+  DCHECK(audio_processing_->echo_cancellation()->is_enabled());
+#endif
 
   TRACE_EVENT0("audio", "MediaStreamAudioProcessor::OnPlayoutData");
   DCHECK_LT(audio_delay_milliseconds,
@@ -483,8 +486,7 @@ void MediaStreamAudioProcessor::InitializeAudioProcessingModule(
 
   // Audio mirroring can be enabled even though audio processing is otherwise
   // disabled.
-  audio_mirroring_ = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogAudioMirroring);
+  audio_mirroring_ = audio_constraints.GetGoogAudioMirroring();
 
 #if defined(OS_IOS)
   // On iOS, VPIO provides built-in AGC and AEC.
@@ -493,28 +495,24 @@ void MediaStreamAudioProcessor::InitializeAudioProcessingModule(
 #else
   const bool echo_cancellation =
       audio_constraints.GetEchoCancellationProperty();
-  const bool goog_agc = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogAutoGainControl);
+  const bool goog_agc = audio_constraints.GetGoogAutoGainControl();
 #endif
 
 #if defined(OS_IOS) || defined(OS_ANDROID)
   const bool goog_experimental_aec = false;
   const bool goog_typing_detection = false;
 #else
-  const bool goog_experimental_aec = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogExperimentalEchoCancellation);
-  const bool goog_typing_detection = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogTypingNoiseDetection);
+  const bool goog_experimental_aec =
+      audio_constraints.GetGoogExperimentalEchoCancellation();
+  const bool goog_typing_detection =
+      audio_constraints.GetGoogTypingNoiseDetection();
 #endif
 
-  const bool goog_ns = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogNoiseSuppression);
-  const bool goog_experimental_ns = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogExperimentalNoiseSuppression);
-  const bool goog_beamforming = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogBeamforming);
-  const bool goog_high_pass_filter = audio_constraints.GetProperty(
-      MediaAudioConstraints::kGoogHighpassFilter);
+  const bool goog_ns = audio_constraints.GetGoogNoiseSuppression();
+  const bool goog_experimental_ns =
+      audio_constraints.GetGoogExperimentalNoiseSuppression();
+  const bool goog_beamforming = audio_constraints.GetGoogBeamforming();
+  const bool goog_high_pass_filter = audio_constraints.GetGoogHighpassFilter();
   // Return immediately if no goog constraint is enabled.
   if (!echo_cancellation && !goog_experimental_aec && !goog_ns &&
       !goog_high_pass_filter && !goog_typing_detection &&
@@ -541,8 +539,7 @@ void MediaStreamAudioProcessor::InitializeAudioProcessingModule(
   }
 
   // If the experimental AGC is enabled, check for overridden config params.
-  if (audio_constraints.GetProperty(
-          MediaAudioConstraints::kGoogExperimentalAutoGainControl)) {
+  if (audio_constraints.GetGoogExperimentalAutoGainControl()) {
     int startup_min_volume = 0;
     if (GetStartupMinVolumeForAgc(&startup_min_volume)) {
       config.Set<webrtc::ExperimentalAgc>(
@@ -705,7 +702,7 @@ int MediaStreamAudioProcessor::ProcessData(const float* const* process_ptrs,
 
   base::subtle::Atomic32 render_delay_ms =
       base::subtle::Acquire_Load(&render_delay_ms_);
-  int64 capture_delay_ms = capture_delay.InMilliseconds();
+  int64_t capture_delay_ms = capture_delay.InMilliseconds();
   DCHECK_LT(capture_delay_ms,
             std::numeric_limits<base::subtle::Atomic32>::max());
   int total_delay_ms =  capture_delay_ms + render_delay_ms;

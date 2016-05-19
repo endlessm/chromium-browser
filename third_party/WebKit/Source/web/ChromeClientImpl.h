@@ -61,7 +61,6 @@ public:
     bool canTakeFocus(WebFocusType) override;
     void takeFocus(WebFocusType) override;
     void focusedNodeChanged(Node* fromNode, Node* toNode) override;
-    void focusedFrameChanged(LocalFrame*) override;
     bool hadFormInteraction() const override;
     Page* createWindow(
         LocalFrame*, const FrameLoadRequest&, const WindowFeatures&, NavigationPolicy, ShouldSetOpener) override;
@@ -93,9 +92,9 @@ public:
     bool tabsToLinks() override;
     IntRect windowResizerRect() const override;
     void invalidateRect(const IntRect&) override;
-    void scheduleAnimation() override;
-    void scheduleAnimationForFrame(LocalFrame* localRoot) override;
+    void scheduleAnimation(Widget*) override;
     IntRect viewportToScreen(const IntRect&) const override;
+    float windowToViewportScalar(const float) const override;
     WebScreenInfo screenInfo() const override;
     void contentsSizeChanged(LocalFrame*, const IntSize&) const override;
     void pageScaleFactorChanged() const override;
@@ -112,7 +111,10 @@ public:
     void enumerateChosenDirectory(FileChooser*) override;
     void setCursor(const Cursor&, LocalFrame* localRoot) override;
     Cursor lastSetCursorForTesting() const override;
-    void needTouchEvents(bool needTouchEvents) override;
+    void setEventListenerProperties(WebEventListenerClass, WebEventListenerProperties) override;
+    WebEventListenerProperties eventListenerProperties(WebEventListenerClass) const override;
+    void setHaveScrollEventHandlers(bool hasEventHandlers) override;
+    bool haveScrollEventHandlers() const override;
     void setTouchAction(TouchAction) override;
 
     GraphicsLayerFactory* graphicsLayerFactory() const override;
@@ -120,8 +122,10 @@ public:
     // Pass 0 as the GraphicsLayer to detatch the root layer.
     void attachRootGraphicsLayer(GraphicsLayer*, LocalFrame* localRoot) override;
 
-    void attachCompositorAnimationTimeline(WebCompositorAnimationTimeline*, LocalFrame* localRoot) override;
-    void detachCompositorAnimationTimeline(WebCompositorAnimationTimeline*, LocalFrame* localRoot) override;
+    void didPaint(const PaintArtifact&) override;
+
+    void attachCompositorAnimationTimeline(CompositorAnimationTimeline*, LocalFrame* localRoot) override;
+    void detachCompositorAnimationTimeline(CompositorAnimationTimeline*, LocalFrame* localRoot) override;
 
     void enterFullScreenForElement(Element*) override;
     void exitFullScreenForElement(Element*) override;
@@ -134,7 +138,7 @@ public:
     String acceptLanguages() override;
 
     // ChromeClientImpl:
-    void setCursorForPlugin(const WebCursorInfo&);
+    void setCursorForPlugin(const WebCursorInfo&, LocalFrame* localRoot);
     void setNewWindowNavigationPolicy(WebNavigationPolicy);
     void setCursorOverridden(bool);
 

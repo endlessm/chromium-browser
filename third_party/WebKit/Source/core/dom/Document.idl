@@ -56,19 +56,19 @@ interface Document : Node {
     [NewObject] Comment createComment(DOMString data);
     [NewObject, RaisesException] ProcessingInstruction createProcessingInstruction(DOMString target, DOMString data);
 
-    [NewObject, CustomElementCallbacks, RaisesException, TypeChecking=Interface] Node importNode(Node node, optional boolean deep = false);
-    [RaisesException, CustomElementCallbacks, TypeChecking=Interface] Node adoptNode(Node node);
+    [NewObject, CustomElementCallbacks, RaisesException] Node importNode(Node node, optional boolean deep = false);
+    [RaisesException, CustomElementCallbacks] Node adoptNode(Node node);
 
     [NewObject, RaisesException, MeasureAs=DocumentCreateAttribute] Attr createAttribute(DOMString localName);
     [NewObject, RaisesException, MeasureAs=DocumentCreateAttributeNS] Attr createAttributeNS(DOMString? namespaceURI, DOMString qualifiedName);
 
-    [NewObject, RaisesException] Event createEvent(DOMString eventType);
+    [NewObject, RaisesException, CallWith=ExecutionContext] Event createEvent(DOMString eventType);
 
     [NewObject] Range createRange();
 
     // NodeFilter.SHOW_ALL = 0xFFFFFFFF
-    [NewObject, RaisesException, TypeChecking=Interface] NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 0xFFFFFFFF, optional NodeFilter? filter = null);
-    [NewObject, RaisesException, TypeChecking=Interface] TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 0xFFFFFFFF, optional NodeFilter? filter = null);
+    [NewObject] NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 0xFFFFFFFF, optional NodeFilter? filter = null);
+    [NewObject] TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 0xFFFFFFFF, optional NodeFilter? filter = null);
 
     // FIXME: CDATASection has been removed from the spec. crbug.com/437205
     [RaisesException, MeasureAs=DocumentCreateCDATASection] CDATASection createCDATASection(DOMString data);
@@ -91,15 +91,14 @@ interface Document : Node {
     [PutForwards=href, Unforgeable] readonly attribute Location? location;
     [RaisesException=Setter] attribute DOMString domain;
     readonly attribute DOMString referrer;
-    // FIXME: cookie should not have [TreatNullAs=NullString].
-    [TreatNullAs=NullString, RaisesException] attribute DOMString cookie;
+    [RaisesException] attribute DOMString cookie;
     readonly attribute DOMString lastModified;
     readonly attribute DocumentReadyState readyState;
 
     // DOM tree accessors
     [CustomElementCallbacks] attribute DOMString title;
     [CustomElementCallbacks] attribute DOMString dir;
-    [RaisesException=Setter, CustomElementCallbacks, PerWorldBindings, TypeChecking=Interface] attribute HTMLElement? body;
+    [RaisesException=Setter, CustomElementCallbacks, PerWorldBindings] attribute HTMLElement? body;
     readonly attribute HTMLHeadElement? head;
     [SameObject] readonly attribute HTMLCollection images;
     [SameObject] readonly attribute HTMLCollection embeds;
@@ -114,8 +113,8 @@ interface Document : Node {
     // FIXME: There are two open() methods in the spec.
     [Custom, CustomElementCallbacks, RaisesException] void open();
     [RaisesException] void close();
-    [CallWith=ActiveWindow, CustomElementCallbacks, RaisesException] void write(DOMString... text);
-    [CallWith=ActiveWindow, CustomElementCallbacks, RaisesException] void writeln(DOMString... text);
+    [CallWith=FirstWindow, CustomElementCallbacks, RaisesException] void write(DOMString... text);
+    [CallWith=FirstWindow, CustomElementCallbacks, RaisesException] void writeln(DOMString... text);
 
     // user interaction
     [ImplementedAs=domWindow] readonly attribute Window? defaultView;
@@ -168,17 +167,17 @@ interface Document : Node {
     // Touch Events
     // http://rawgit.com/w3c/touch-events/v1-errata/touchevents.html#extensions-to-the-document-interface
     // FIXME: The arguments should not be optional.
-    [RuntimeEnabled=Touch, Measure] Touch createTouch([Default=Undefined] optional Window window,
-                                                      [Default=Undefined] optional EventTarget target,
-                                                      [Default=Undefined] optional long identifier,
-                                                      [Default=Undefined] optional unrestricted double pageX,
-                                                      [Default=Undefined] optional unrestricted double pageY,
-                                                      [Default=Undefined] optional unrestricted double screenX,
-                                                      [Default=Undefined] optional unrestricted double screenY,
-                                                      [Default=Undefined] optional unrestricted double radiusX,
-                                                      [Default=Undefined] optional unrestricted double radiusY,
-                                                      [Default=Undefined] optional unrestricted float rotationAngle,
-                                                      [Default=Undefined] optional unrestricted float force);
+    [RuntimeEnabled=Touch, Measure, LegacyInterfaceTypeChecking] Touch createTouch([Default=Undefined] optional Window window,
+                                                                                   [Default=Undefined] optional EventTarget target,
+                                                                                   [Default=Undefined] optional long identifier,
+                                                                                   [Default=Undefined] optional unrestricted double pageX,
+                                                                                   [Default=Undefined] optional unrestricted double pageY,
+                                                                                   [Default=Undefined] optional unrestricted double screenX,
+                                                                                   [Default=Undefined] optional unrestricted double screenY,
+                                                                                   [Default=Undefined] optional unrestricted double radiusX,
+                                                                                   [Default=Undefined] optional unrestricted double radiusY,
+                                                                                   [Default=Undefined] optional unrestricted float rotationAngle,
+                                                                                   [Default=Undefined] optional unrestricted float force);
     [RuntimeEnabled=Touch] TouchList createTouchList(Touch... touches);
 
     // Custom Elements
@@ -196,7 +195,6 @@ interface Document : Node {
     readonly attribute VisibilityState visibilityState;
 
     // Non-standard APIs
-    [MeasureAs=DocumentDefaultCharset, TreatReturnedNullStringAs=Undefined] readonly attribute DOMString defaultCharset;
     [MeasureAs=DocumentCaretRangeFromPoint] Range caretRangeFromPoint([Default=Undefined] optional long x, [Default=Undefined] optional long y);
 
     // Deprecated prefixed page visibility API.

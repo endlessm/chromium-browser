@@ -13,6 +13,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
@@ -53,7 +54,8 @@ class MEDIA_EXPORT MediaSourcePlayer : public MediaPlayerAndroid,
   void Pause(bool is_media_related_action) override;
   void SeekTo(base::TimeDelta timestamp) override;
   void Release() override;
-  void SetVolume(double volume) override;
+  bool HasVideo() const override;
+  bool HasAudio() const override;
   int GetVideoWidth() override;
   int GetVideoHeight() override;
   base::TimeDelta GetCurrentTime() override;
@@ -73,6 +75,9 @@ class MEDIA_EXPORT MediaSourcePlayer : public MediaPlayerAndroid,
 
  private:
   friend class MediaSourcePlayerTest;
+
+  // MediaPlayerAndroid implementation
+  void UpdateEffectiveVolumeInternal(double effective_volume) override;
 
   // Update the current timestamp.
   void UpdateTimestamps(base::TimeDelta current_presentation_timestamp,
@@ -109,10 +114,6 @@ class MEDIA_EXPORT MediaSourcePlayer : public MediaPlayerAndroid,
   // Called to decode more data.
   void DecodeMoreAudio();
   void DecodeMoreVideo();
-
-  // Functions check whether audio/video is present.
-  bool HasVideo() const;
-  bool HasAudio() const;
 
   // Functions that check whether audio/video stream has reached end of output
   // or are not present in player configuration.

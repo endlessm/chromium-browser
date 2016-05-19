@@ -5,7 +5,7 @@
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "core/include/fxcrt/fx_basic.h"
-#include "plex.h"
+#include "core/src/fxcrt/plex.h"
 
 CFX_PtrList::CFX_PtrList(int nBlockSize)
     : m_pNodeHead(NULL),
@@ -17,7 +17,7 @@ CFX_PtrList::CFX_PtrList(int nBlockSize)
 FX_POSITION CFX_PtrList::AddTail(void* newElement) {
   CNode* pNewNode = NewNode(m_pNodeTail, NULL);
   pNewNode->data = newElement;
-  if (m_pNodeTail != NULL) {
+  if (m_pNodeTail) {
     m_pNodeTail->pNext = pNewNode;
   } else {
     m_pNodeHead = pNewNode;
@@ -28,7 +28,7 @@ FX_POSITION CFX_PtrList::AddTail(void* newElement) {
 FX_POSITION CFX_PtrList::AddHead(void* newElement) {
   CNode* pNewNode = NewNode(NULL, m_pNodeHead);
   pNewNode->data = newElement;
-  if (m_pNodeHead != NULL) {
+  if (m_pNodeHead) {
     m_pNodeHead->pPrev = pNewNode;
   } else {
     m_pNodeTail = pNewNode;
@@ -37,13 +37,13 @@ FX_POSITION CFX_PtrList::AddHead(void* newElement) {
   return (FX_POSITION)pNewNode;
 }
 FX_POSITION CFX_PtrList::InsertAfter(FX_POSITION position, void* newElement) {
-  if (position == NULL) {
+  if (!position) {
     return AddTail(newElement);
   }
   CNode* pOldNode = (CNode*)position;
   CNode* pNewNode = NewNode(pOldNode, pOldNode->pNext);
   pNewNode->data = newElement;
-  if (pOldNode->pNext != NULL) {
+  if (pOldNode->pNext) {
     pOldNode->pNext->pPrev = pNewNode;
   } else {
     m_pNodeTail = pNewNode;
@@ -81,7 +81,7 @@ void CFX_PtrList::RemoveAll() {
 }
 CFX_PtrList::CNode* CFX_PtrList::NewNode(CFX_PtrList::CNode* pPrev,
                                          CFX_PtrList::CNode* pNext) {
-  if (m_pNodeFree == NULL) {
+  if (!m_pNodeFree) {
     CFX_Plex* pNewBlock =
         CFX_Plex::Create(m_pBlocks, m_nBlockSize, sizeof(CNode));
     CNode* pNode = (CNode*)pNewBlock->data();
@@ -91,7 +91,6 @@ CFX_PtrList::CNode* CFX_PtrList::NewNode(CFX_PtrList::CNode* pPrev,
       m_pNodeFree = pNode;
     }
   }
-  ASSERT(m_pNodeFree != NULL);
   CFX_PtrList::CNode* pNode = m_pNodeFree;
   m_pNodeFree = m_pNodeFree->pNext;
   pNode->pPrev = pPrev;
@@ -117,14 +116,10 @@ FX_POSITION CFX_PtrList::FindIndex(int nIndex) const {
 }
 FX_POSITION CFX_PtrList::Find(void* searchValue, FX_POSITION startAfter) const {
   CNode* pNode = (CNode*)startAfter;
-  if (pNode == NULL) {
-    pNode = m_pNodeHead;
-  } else {
-    pNode = pNode->pNext;
-  }
-  for (; pNode != NULL; pNode = pNode->pNext)
-    if (pNode->data == searchValue) {
+  pNode = pNode ? pNode->pNext : m_pNodeHead;
+  for (; pNode; pNode = pNode->pNext) {
+    if (pNode->data == searchValue)
       return (FX_POSITION)pNode;
-    }
+  }
   return NULL;
 }

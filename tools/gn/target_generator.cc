@@ -4,6 +4,8 @@
 
 #include "tools/gn/target_generator.h"
 
+#include <stddef.h>
+
 #include "tools/gn/action_target_generator.h"
 #include "tools/gn/binary_target_generator.h"
 #include "tools/gn/build_settings.h"
@@ -46,6 +48,9 @@ void TargetGenerator::Run() {
     return;
 
   if (!FillTestonly())
+    return;
+
+  if (!FillAssertNoDeps())
     return;
 
   if (!Visibility::FillItemVisibility(target_, scope_, err_))
@@ -260,6 +265,15 @@ bool TargetGenerator::FillTestonly() {
     if (!value->VerifyTypeIs(Value::BOOLEAN, err_))
       return false;
     target_->set_testonly(value->boolean_value());
+  }
+  return true;
+}
+
+bool TargetGenerator::FillAssertNoDeps() {
+  const Value* value = scope_->GetValue(variables::kAssertNoDeps, true);
+  if (value) {
+    return ExtractListOfLabelPatterns(*value, scope_->GetSourceDir(),
+                                      &target_->assert_no_deps(), err_);
   }
   return true;
 }

@@ -4,10 +4,11 @@
 
 #include "google_apis/gaia/oauth2_mint_token_flow.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
@@ -95,6 +96,8 @@ static GoogleServiceAuthError CreateAuthError(const net::URLFetcher* source) {
 }  // namespace
 
 IssueAdviceInfoEntry::IssueAdviceInfoEntry() {}
+IssueAdviceInfoEntry::IssueAdviceInfoEntry(const IssueAdviceInfoEntry& other) =
+    default;
 IssueAdviceInfoEntry::~IssueAdviceInfoEntry() {}
 
 bool IssueAdviceInfoEntry::operator ==(const IssueAdviceInfoEntry& rhs) const {
@@ -115,6 +118,8 @@ OAuth2MintTokenFlow::Parameters::Parameters(
       device_id(device_id),
       mode(mode_arg) {
 }
+
+OAuth2MintTokenFlow::Parameters::Parameters(const Parameters& other) = default;
 
 OAuth2MintTokenFlow::Parameters::~Parameters() {}
 

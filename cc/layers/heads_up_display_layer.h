@@ -7,11 +7,17 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "cc/base/cc_export.h"
 #include "cc/layers/layer.h"
+#include "third_party/skia/include/core/SkTypeface.h"
 
 namespace cc {
+
+namespace proto {
+class LayerNode;
+}  // namespace proto
 
 class CC_EXPORT HeadsUpDisplayLayer : public Layer {
  public:
@@ -23,12 +29,19 @@ class CC_EXPORT HeadsUpDisplayLayer : public Layer {
 
   scoped_ptr<LayerImpl> CreateLayerImpl(LayerTreeImpl* tree_impl) override;
 
+  void SetTypeForProtoSerialization(proto::LayerNode* proto) const override;
+
+  // Layer overrides.
+  void PushPropertiesTo(LayerImpl* layer) override;
+
  protected:
   explicit HeadsUpDisplayLayer(const LayerSettings& settings);
   bool HasDrawableContent() const override;
 
  private:
   ~HeadsUpDisplayLayer() override;
+
+  skia::RefPtr<SkTypeface> typeface_;
 
   DISALLOW_COPY_AND_ASSIGN(HeadsUpDisplayLayer);
 };

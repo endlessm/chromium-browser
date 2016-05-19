@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
-
 #include "core/editing/EditingStrategy.h"
 
 #include "core/editing/EditingTestBase.h"
@@ -28,10 +26,10 @@ TEST_F(EditingStrategyTest, caretMaxOffset)
     EXPECT_EQ(1, EditingStrategy::caretMaxOffset(*one->firstChild()));
     EXPECT_EQ(2, EditingStrategy::caretMaxOffset(*two->firstChild()));
 
-    EXPECT_EQ(2, EditingInComposedTreeStrategy::caretMaxOffset(*host));
-    EXPECT_EQ(1, EditingInComposedTreeStrategy::caretMaxOffset(*one));
-    EXPECT_EQ(1, EditingInComposedTreeStrategy::caretMaxOffset(*one->firstChild()));
-    EXPECT_EQ(2, EditingInComposedTreeStrategy::caretMaxOffset(*two->firstChild()));
+    EXPECT_EQ(2, EditingInFlatTreeStrategy::caretMaxOffset(*host));
+    EXPECT_EQ(1, EditingInFlatTreeStrategy::caretMaxOffset(*one));
+    EXPECT_EQ(1, EditingInFlatTreeStrategy::caretMaxOffset(*one->firstChild()));
+    EXPECT_EQ(2, EditingInFlatTreeStrategy::caretMaxOffset(*two->firstChild()));
 }
 
 } // namespace blink

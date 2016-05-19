@@ -93,7 +93,7 @@ goog.scope(function() {
     es3fShaderBuiltinVarTests.getVectorsFromComps = function(pname) {
         var value = /** @type {number} */ (gl.getParameter(pname));
         assertMsgOptions(value%4 === 0, 'Expected value to be divisible by 4.', false, true);
-        return value;
+        return value / 4;
     };
 
     /**
@@ -156,7 +156,7 @@ goog.scope(function() {
         shaderExecutor.useProgram();
 
         shaderExecutorResult = shaderExecutor.execute(1, null);
-        result = new Uint32Array(shaderExecutorResult[0].buffer)[0];
+        result = new Int32Array(shaderExecutorResult[0].buffer)[0];
 
         bufferedLogToConsole(this.m_varName + ' = ' + result);
 

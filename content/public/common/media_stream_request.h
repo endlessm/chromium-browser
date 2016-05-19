@@ -5,11 +5,12 @@
 #ifndef CONTENT_PUBLIC_COMMON_MEDIA_STREAM_REQUEST_H_
 #define CONTENT_PUBLIC_COMMON_MEDIA_STREAM_REQUEST_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/common/content_export.h"
@@ -78,6 +79,7 @@ enum MediaStreamRequestResult {
   MEDIA_DEVICE_TRACK_START_FAILURE = 10,
   MEDIA_DEVICE_NOT_SUPPORTED = 11,
   MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN = 12,
+  MEDIA_DEVICE_KILL_SWITCH_ON = 13,
   NUM_MEDIA_REQUEST_RESULTS
 };
 
@@ -103,6 +105,8 @@ struct CONTENT_EXPORT MediaStreamDevice {
       int sample_rate,
       int channel_layout,
       int frames_per_buffer);
+
+  MediaStreamDevice(const MediaStreamDevice& other);
 
   ~MediaStreamDevice();
 
@@ -132,6 +136,7 @@ struct CONTENT_EXPORT MediaStreamDevice {
     AudioDeviceParameters(int sample_rate,
                           int channel_layout,
                           int frames_per_buffer);
+    AudioDeviceParameters(const AudioDeviceParameters& other);
 
     ~AudioDeviceParameters();
 
@@ -200,6 +205,8 @@ struct CONTENT_EXPORT MediaStreamRequest {
       const std::string& requested_video_device_id,
       MediaStreamType audio_type,
       MediaStreamType video_type);
+
+  MediaStreamRequest(const MediaStreamRequest& other);
 
   ~MediaStreamRequest();
 

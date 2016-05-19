@@ -7,8 +7,9 @@
 
 #include <set>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_controller_base.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "content/public/browser/notification_observer.h"
@@ -157,6 +158,8 @@ class FullscreenController : public ExclusiveAccessControllerBase {
   // Notifies the tab that it has been forced out of fullscreen mode if
   // necessary.
   void NotifyTabExclusiveAccessLost() override;
+
+  void RecordBubbleReshowsHistogram(int bubble_reshow_count) override;
 
   void ToggleFullscreenModeInternal(FullscreenInternalOption option);
   void EnterFullscreenModeInternal(FullscreenInternalOption option);

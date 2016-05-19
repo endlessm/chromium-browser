@@ -4,9 +4,15 @@
 
 #include "ui/native_theme/native_theme.h"
 
+#include <cstring>
+
 #include "ui/native_theme/native_theme_observer.h"
 
 namespace ui {
+
+NativeTheme::ExtraParams::ExtraParams() {
+  memset(this, 0, sizeof(*this));
+}
 
 void NativeTheme::SetScrollbarColors(unsigned inactive_color,
                                      unsigned active_color,
@@ -15,9 +21,6 @@ void NativeTheme::SetScrollbarColors(unsigned inactive_color,
   thumb_active_color_ = active_color;
   track_color_ = track_color;
 }
-
-// NativeTheme::instance() is implemented in the platform specific source files,
-// such as native_theme_win.cc or native_theme_linux.cc
 
 void NativeTheme::AddObserver(NativeThemeObserver* observer) {
   native_theme_observers_.AddObserver(observer);

@@ -4,45 +4,28 @@
 
 package org.chromium.chrome.browser.util;
 
-import android.content.ComponentName;
-import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ResolveInfo;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.TransactionTooLargeException;
 import android.support.v4.app.BundleCompat;
 
 import org.chromium.base.Log;
 import org.chromium.base.VisibleForTesting;
 
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Utilities dealing with extracting information from intents.
  */
 public class IntentUtils {
-    private static final String TAG = "cr_IntentUtils";
+    private static final String TAG = "IntentUtils";
 
     /** See {@link #isIntentTooLarge(Intent)}. */
     private static final int MAX_INTENT_SIZE_THRESHOLD = 750000;
-
-    /**
-     * Retrieves a list of components that would handle the given intent.
-     * @param context The application context.
-     * @param intent The intent which we are interested in.
-     * @return The list of component names.
-     */
-    public static List<ComponentName> getIntentHandlers(Context context, Intent intent) {
-        List<ResolveInfo> list = context.getPackageManager().queryIntentActivities(intent, 0);
-        List<ComponentName> nameList = new ArrayList<ComponentName>();
-        for (ResolveInfo r : list) {
-            nameList.add(new ComponentName(r.activityInfo.packageName, r.activityInfo.name));
-        }
-        return nameList;
-    }
 
     /**
      * Just like {@link Intent#getBooleanExtra(String, boolean)} but doesn't throw exceptions.
@@ -66,6 +49,19 @@ public class IntentUtils {
         } catch (Throwable t) {
             // Catches un-parceling exceptions.
             Log.e(TAG, "getIntExtra failed on intent " + intent);
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Just like {@link Bundle#getInt(String, int)} but doesn't throw exceptions.
+     */
+    public static int safeGetInt(Bundle bundle, String name, int defaultValue) {
+        try {
+            return bundle.getInt(name, defaultValue);
+        } catch (Throwable t) {
+            // Catches un-parceling exceptions.
+            Log.e(TAG, "getInt failed on bundle " + bundle);
             return defaultValue;
         }
     }

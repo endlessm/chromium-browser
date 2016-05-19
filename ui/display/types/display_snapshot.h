@@ -5,8 +5,12 @@
 #ifndef UI_DISPLAY_TYPES_DISPLAY_SNAPSHOT_H_
 #define UI_DISPLAY_TYPES_DISPLAY_SNAPSHOT_H_
 
+#include <stdint.h>
+
 #include <vector>
 
+#include "base/files/file_path.h"
+#include "base/macros.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/display/types/display_mode.h"
 #include "ui/gfx/geometry/point.h"
@@ -26,7 +30,9 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
                   bool is_aspect_preserving_scaling,
                   bool has_overscan,
                   std::string display_name,
+                  const base::FilePath& sys_path,
                   const std::vector<const DisplayMode*>& modes,
+                  const std::vector<uint8_t>& edid,
                   const DisplayMode* current_mode,
                   const DisplayMode* native_mode);
   virtual ~DisplaySnapshot();
@@ -39,6 +45,7 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
   }
   bool has_overscan() const { return has_overscan_; }
   std::string display_name() const { return display_name_; }
+  const base::FilePath& sys_path() const { return sys_path_; }
 
   int64_t display_id() const { return display_id_; }
 
@@ -47,6 +54,7 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
   int64_t product_id() const { return product_id_; }
 
   const std::vector<const DisplayMode*>& modes() const { return modes_; }
+  const std::vector<uint8_t>& edid() const { return edid_; }
 
   void set_current_mode(const DisplayMode* mode) { current_mode_ = mode; }
   void set_origin(const gfx::Point& origin) { origin_ = origin; }
@@ -75,7 +83,13 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
 
   std::string display_name_;
 
+  base::FilePath sys_path_;
+
   std::vector<const DisplayMode*> modes_;  // Not owned.
+
+  // The display's EDID. It can be empty if nothing extracted such as in the
+  // case of a virtual display.
+  std::vector<uint8_t> edid_;
 
   // Mode currently being used by the output.
   const DisplayMode* current_mode_;

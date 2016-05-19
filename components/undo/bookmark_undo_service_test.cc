@@ -4,6 +4,9 @@
 
 #include "components/undo/bookmark_undo_service.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
@@ -27,7 +30,6 @@ class BookmarkUndoServiceTest : public testing::Test {
   BookmarkUndoService* GetUndoService();
 
  private:
-  scoped_ptr<bookmarks::TestBookmarkClient> test_bookmark_client_;
   scoped_ptr<bookmarks::BookmarkModel> bookmark_model_;
   scoped_ptr<BookmarkUndoService> bookmark_undo_service_;
 
@@ -37,11 +39,9 @@ class BookmarkUndoServiceTest : public testing::Test {
 BookmarkUndoServiceTest::BookmarkUndoServiceTest() {}
 
 void BookmarkUndoServiceTest::SetUp() {
-  DCHECK(!test_bookmark_client_);
   DCHECK(!bookmark_model_);
   DCHECK(!bookmark_undo_service_);
-  test_bookmark_client_.reset(new bookmarks::TestBookmarkClient);
-  bookmark_model_ = test_bookmark_client_->CreateModel();
+  bookmark_model_ = bookmarks::TestBookmarkClient::CreateModel();
   bookmark_undo_service_.reset(new BookmarkUndoService);
   bookmark_undo_service_->Start(bookmark_model_.get());
   bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model_.get());
@@ -59,10 +59,8 @@ void BookmarkUndoServiceTest::TearDown() {
   // Implement two-phase KeyedService shutdown for test KeyedServices.
   bookmark_undo_service_->Shutdown();
   bookmark_model_->Shutdown();
-  test_bookmark_client_->Shutdown();
   bookmark_undo_service_.reset();
   bookmark_model_.reset();
-  test_bookmark_client_.reset();
 }
 
 TEST_F(BookmarkUndoServiceTest, AddBookmark) {

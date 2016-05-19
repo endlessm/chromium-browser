@@ -2,10 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
 #include "base/guid.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/credit_card.h"
@@ -241,6 +244,41 @@ TEST(CreditCardTest, IsLocalDuplicateOfServerCard) {
               a.IsLocalDuplicateOfServerCard(b)) << " when comparing cards "
                   << a.Label() << " and " << b.Label();
   }
+}
+
+TEST(CreditCardTest, HasSameNumberAs) {
+  CreditCard a(base::GenerateGUID(), std::string());
+  CreditCard b(base::GenerateGUID(), std::string());
+
+  // Empty cards have the same empty number.
+  EXPECT_TRUE(a.HasSameNumberAs(b));
+  EXPECT_TRUE(b.HasSameNumberAs(a));
+
+  // Same number.
+  a.set_record_type(CreditCard::LOCAL_CARD);
+  a.SetRawInfo(CREDIT_CARD_NUMBER, ASCIIToUTF16("4111111111111111"));
+  a.set_record_type(CreditCard::LOCAL_CARD);
+  b.SetRawInfo(CREDIT_CARD_NUMBER, ASCIIToUTF16("4111111111111111"));
+  EXPECT_TRUE(a.HasSameNumberAs(b));
+  EXPECT_TRUE(b.HasSameNumberAs(a));
+
+  // Local cards shouldn't match even if the last 4 are the same.
+  a.set_record_type(CreditCard::LOCAL_CARD);
+  a.SetRawInfo(CREDIT_CARD_NUMBER, ASCIIToUTF16("4111111111111111"));
+  a.set_record_type(CreditCard::LOCAL_CARD);
+  b.SetRawInfo(CREDIT_CARD_NUMBER, ASCIIToUTF16("4111222222221111"));
+  EXPECT_FALSE(a.HasSameNumberAs(b));
+  EXPECT_FALSE(b.HasSameNumberAs(a));
+
+  // Likewise if one is an unmasked server card.
+  a.set_record_type(CreditCard::FULL_SERVER_CARD);
+  EXPECT_FALSE(a.HasSameNumberAs(b));
+  EXPECT_FALSE(b.HasSameNumberAs(a));
+
+  // But if one is a masked card, then they should.
+  b.set_record_type(CreditCard::MASKED_SERVER_CARD);
+  EXPECT_TRUE(a.HasSameNumberAs(b));
+  EXPECT_TRUE(b.HasSameNumberAs(a));
 }
 
 TEST(CreditCardTest, Compare) {

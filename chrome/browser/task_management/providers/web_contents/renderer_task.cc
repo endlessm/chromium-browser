@@ -4,6 +4,8 @@
 
 #include "chrome/browser/task_management/providers/web_contents/renderer_task.h"
 
+#include <utility>
+
 #include "base/i18n/rtl.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -11,8 +13,6 @@
 #include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/process_resource_usage.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_info_cache.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_management/task_manager_observer.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/render_process_host.h"
@@ -35,7 +35,7 @@ ProcessResourceUsage* CreateRendererResourcesSampler(
       render_process_host->GetServiceRegistry();
   if (service_registry)
     service_registry->ConnectToRemoteService(mojo::GetProxy(&service));
-  return new ProcessResourceUsage(service.Pass());
+  return new ProcessResourceUsage(std::move(service));
 }
 
 // Gets the profile name associated with the browser context of the given
@@ -44,19 +44,15 @@ base::string16 GetRendererProfileName(
     const content::RenderProcessHost* render_process_host) {
   Profile* profile =
       Profile::FromBrowserContext(render_process_host->GetBrowserContext());
-  DCHECK(profile);
-  ProfileInfoCache& cache =
-      g_browser_process->profile_manager()->GetProfileInfoCache();
-  size_t index =
-      cache.GetIndexOfProfileWithPath(profile->GetOriginalProfile()->GetPath());
-  if (index != std::string::npos)
-    return cache.GetNameOfProfileAtIndex(index);
-
-  return base::string16();
+  return Task::GetProfileNameFromProfile(profile);
 }
 
-inline bool IsRendererResourceSamplingDisabled(int64 flags) {
+inline bool IsRendererResourceSamplingDisabled(int64_t flags) {
   return (flags & (REFRESH_TYPE_V8_MEMORY | REFRESH_TYPE_WEBCACHE_STATS)) == 0;
+}
+
+std::string GetRapporSampleName(content::WebContents* web_contents) {
+  return web_contents->GetVisibleURL().GetOrigin().spec();
 }
 
 }  // namespace
@@ -65,7 +61,10 @@ RendererTask::RendererTask(const base::string16& title,
                            const gfx::ImageSkia* icon,
                            content::WebContents* web_contents,
                            content::RenderProcessHost* render_process_host)
-    : Task(title, icon, render_process_host->GetHandle()),
+    : Task(title,
+           GetRapporSampleName(web_contents),
+           icon,
+           render_process_host->GetHandle()),
       web_contents_(web_contents),
       render_process_host_(render_process_host),
       renderer_resources_sampler_(
@@ -91,6 +90,10 @@ RendererTask::~RendererTask() {
       RemoveObserver(this);
 }
 
+void RendererTask::UpdateRapporSampleName() {
+  set_rappor_sample_name(GetRapporSampleName(web_contents()));
+}
+
 void RendererTask::Activate() {
   if (!web_contents_->GetDelegate())
     return;
@@ -99,7 +102,7 @@ void RendererTask::Activate() {
 }
 
 void RendererTask::Refresh(const base::TimeDelta& update_interval,
-                           int64 refresh_flags) {
+                           int64_t refresh_flags) {
   Task::Refresh(update_interval, refresh_flags);
 
   if (IsRendererResourceSamplingDisabled(refresh_flags))
@@ -111,9 +114,9 @@ void RendererTask::Refresh(const base::TimeDelta& update_interval,
   // having valid values).
   renderer_resources_sampler_->Refresh(base::Closure());
 
-  v8_memory_allocated_ = base::saturated_cast<int64>(
+  v8_memory_allocated_ = base::saturated_cast<int64_t>(
       renderer_resources_sampler_->GetV8MemoryAllocated());
-  v8_memory_used_ = base::saturated_cast<int64>(
+  v8_memory_used_ = base::saturated_cast<int64_t>(
       renderer_resources_sampler_->GetV8MemoryUsed());
   webcache_stats_ = renderer_resources_sampler_->GetWebCoreCacheStats();
 }
@@ -130,11 +133,11 @@ base::string16 RendererTask::GetProfileName() const {
   return profile_name_;
 }
 
-int64 RendererTask::GetV8MemoryAllocated() const {
+int64_t RendererTask::GetV8MemoryAllocated() const {
   return v8_memory_allocated_;
 }
 
-int64 RendererTask::GetV8MemoryUsed() const {
+int64_t RendererTask::GetV8MemoryUsed() const {
   return v8_memory_used_;
 }
 
@@ -146,12 +149,13 @@ blink::WebCache::ResourceTypeStats RendererTask::GetWebCacheStats() const {
   return webcache_stats_;
 }
 
-void RendererTask::OnFaviconAvailable(const gfx::Image& image) {
-}
-
 void RendererTask::OnFaviconUpdated(favicon::FaviconDriver* favicon_driver,
-                                    bool icon_url_changed) {
-  UpdateFavicon();
+                                    NotificationIconType notification_icon_type,
+                                    const GURL& icon_url,
+                                    bool icon_url_changed,
+                                    const gfx::Image& image) {
+  if (notification_icon_type == NON_TOUCH_16_DIP)
+    UpdateFavicon();
 }
 
 // static

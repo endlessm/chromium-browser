@@ -4,6 +4,9 @@
 
 #include "media/capture/video/android/video_capture_device_android.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/strings/string_number_conversions.h"
@@ -57,7 +60,7 @@ void VideoCaptureDeviceAndroid::AllocateAndStart(
     base::AutoLock lock(lock_);
     if (state_ != kIdle)
       return;
-    client_ = client.Pass();
+    client_ = std::move(client);
     got_first_frame_ = false;
   }
 
@@ -131,11 +134,12 @@ void VideoCaptureDeviceAndroid::StopAndDeAllocate() {
   Java_VideoCapture_deallocate(env, j_capture_.obj());
 }
 
-void VideoCaptureDeviceAndroid::OnFrameAvailable(JNIEnv* env,
-                                                 jobject obj,
-                                                 jbyteArray data,
-                                                 jint length,
-                                                 jint rotation) {
+void VideoCaptureDeviceAndroid::OnFrameAvailable(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jbyteArray>& data,
+    jint length,
+    jint rotation) {
   DVLOG(3) << "VideoCaptureDeviceAndroid::OnFrameAvailable: length =" << length;
 
   base::AutoLock lock(lock_);
@@ -160,7 +164,7 @@ void VideoCaptureDeviceAndroid::OnFrameAvailable(JNIEnv* env,
   if (expected_next_frame_time_ <= current_time) {
     expected_next_frame_time_ += frame_interval_;
 
-    client_->OnIncomingCapturedData(reinterpret_cast<uint8*>(buffer), length,
+    client_->OnIncomingCapturedData(reinterpret_cast<uint8_t*>(buffer), length,
                                     capture_format_, rotation,
                                     base::TimeTicks::Now());
   }
@@ -169,8 +173,8 @@ void VideoCaptureDeviceAndroid::OnFrameAvailable(JNIEnv* env,
 }
 
 void VideoCaptureDeviceAndroid::OnError(JNIEnv* env,
-                                        jobject obj,
-                                        jstring message) {
+                                        const JavaParamRef<jobject>& obj,
+                                        const JavaParamRef<jstring>& message) {
   SetErrorState(FROM_HERE,
                 base::android::ConvertJavaStringToUTF8(env, message));
 }

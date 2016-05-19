@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 
@@ -102,6 +103,9 @@ class CastMetricsHelper {
   // This function could be called multiple times (in unittests), and
   // CastMetricsHelper only honors the last one.
   virtual void SetRecordActionCallback(const RecordActionCallback& callback);
+
+  // Sets an all-0's session ID for running browser tests.
+  void SetDummySessionIdForTesting();
 
  protected:
   // Creates a CastMetricsHelper instance with no task runner. This should only

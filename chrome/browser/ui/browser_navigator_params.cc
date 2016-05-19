@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/browser_navigator_params.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/page_navigator.h"
@@ -129,6 +130,8 @@ NavigateParams::NavigateParams(Profile* a_profile,
       created_with_opener(false) {
 }
 
+NavigateParams::NavigateParams(const NavigateParams& other) = default;
+
 NavigateParams::~NavigateParams() {}
 
 void FillNavigateParamsFromOpenURLParams(NavigateParams* nav_params,
@@ -141,8 +144,6 @@ void FillNavigateParamsFromOpenURLParams(NavigateParams* nav_params,
   nav_params->disposition = params.disposition;
   nav_params->trusted_source = false;
   nav_params->is_renderer_initiated = params.is_renderer_initiated;
-  nav_params->transferred_global_request_id =
-      params.transferred_global_request_id;
   nav_params->should_replace_current_entry =
       params.should_replace_current_entry;
   nav_params->uses_post = params.uses_post;

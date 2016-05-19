@@ -7,6 +7,7 @@
 #include "base/auto_reset.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/trace_event/trace_event.h"
+#include "cc/animation/animation_events.h"
 #include "cc/debug/benchmark_instrumentation.h"
 #include "cc/debug/devtools_instrumentation.h"
 #include "cc/output/context_provider.h"
@@ -25,22 +26,17 @@ namespace cc {
 scoped_ptr<Proxy> SingleThreadProxy::Create(
     LayerTreeHost* layer_tree_host,
     LayerTreeHostSingleThreadClient* client,
-    TaskRunnerProvider* task_runner_provider,
-    scoped_ptr<BeginFrameSource> external_begin_frame_source) {
+    TaskRunnerProvider* task_runner_provider) {
   return make_scoped_ptr(
-      new SingleThreadProxy(layer_tree_host, client, task_runner_provider,
-                            external_begin_frame_source.Pass()));
+      new SingleThreadProxy(layer_tree_host, client, task_runner_provider));
 }
 
-SingleThreadProxy::SingleThreadProxy(
-    LayerTreeHost* layer_tree_host,
-    LayerTreeHostSingleThreadClient* client,
-    TaskRunnerProvider* task_runner_provider,
-    scoped_ptr<BeginFrameSource> external_begin_frame_source)
+SingleThreadProxy::SingleThreadProxy(LayerTreeHost* layer_tree_host,
+                                     LayerTreeHostSingleThreadClient* client,
+                                     TaskRunnerProvider* task_runner_provider)
     : layer_tree_host_(layer_tree_host),
       client_(client),
       task_runner_provider_(task_runner_provider),
-      external_begin_frame_source_(external_begin_frame_source.Pass()),
       next_frame_is_newly_committed_frame_(false),
 #if DCHECK_IS_ON()
       inside_impl_frame_(false),
@@ -56,27 +52,32 @@ SingleThreadProxy::SingleThreadProxy(
   DCHECK(task_runner_provider_);
   DCHECK(task_runner_provider_->IsMainThread());
   DCHECK(layer_tree_host);
+}
 
-  if (layer_tree_host->settings().single_thread_proxy_scheduler &&
+void SingleThreadProxy::Start(
+    scoped_ptr<BeginFrameSource> external_begin_frame_source) {
+  DebugScopedSetImplThread impl(task_runner_provider_);
+  external_begin_frame_source_ = std::move(external_begin_frame_source);
+
+  if (layer_tree_host_->settings().single_thread_proxy_scheduler &&
       !scheduler_on_impl_thread_) {
     SchedulerSettings scheduler_settings(
-        layer_tree_host->settings().ToSchedulerSettings());
+        layer_tree_host_->settings().ToSchedulerSettings());
     scheduler_settings.commit_to_active_tree = CommitToActiveTree();
 
     scoped_ptr<CompositorTimingHistory> compositor_timing_history(
         new CompositorTimingHistory(
+            scheduler_settings.using_synchronous_renderer_compositor,
             CompositorTimingHistory::BROWSER_UMA,
-            layer_tree_host->rendering_stats_instrumentation()));
+            layer_tree_host_->rendering_stats_instrumentation()));
 
-    scheduler_on_impl_thread_ = Scheduler::Create(
-        this, scheduler_settings, layer_tree_host_->id(),
-        task_runner_provider_->MainThreadTaskRunner(),
-        external_begin_frame_source_.get(), compositor_timing_history.Pass());
+    scheduler_on_impl_thread_ =
+        Scheduler::Create(this, scheduler_settings, layer_tree_host_->id(),
+                          task_runner_provider_->MainThreadTaskRunner(),
+                          external_begin_frame_source_.get(),
+                          std::move(compositor_timing_history));
   }
-}
 
-void SingleThreadProxy::Start() {
-  DebugScopedSetImplThread impl(task_runner_provider_);
   layer_tree_host_impl_ = layer_tree_host_->CreateLayerTreeHostImpl(this);
 }
 
@@ -98,7 +99,7 @@ void SingleThreadProxy::FinishAllRendering() {
 
 bool SingleThreadProxy::IsStarted() const {
   DCHECK(task_runner_provider_->IsMainThread());
-  return layer_tree_host_impl_;
+  return !!layer_tree_host_impl_;
 }
 
 bool SingleThreadProxy::CommitToActiveTree() const {
@@ -353,11 +354,6 @@ void SingleThreadProxy::Stop() {
   layer_tree_host_ = NULL;
 }
 
-void SingleThreadProxy::OnResourcelessSoftareDrawStateChanged(
-    bool resourceless_draw) {
-  NOTREACHED();
-}
-
 void SingleThreadProxy::OnCanDrawStateChanged(bool can_draw) {
   TRACE_EVENT1(
       "cc", "SingleThreadProxy::OnCanDrawStateChanged", "can_draw", can_draw);
@@ -386,10 +382,12 @@ void SingleThreadProxy::SetNeedsRedrawOnImplThread() {
     scheduler_on_impl_thread_->SetNeedsRedraw();
 }
 
-void SingleThreadProxy::SetNeedsAnimateOnImplThread() {
+void SingleThreadProxy::SetNeedsOneBeginImplFrameOnImplThread() {
+  TRACE_EVENT0("cc",
+               "SingleThreadProxy::SetNeedsOneBeginImplFrameOnImplThread");
   client_->ScheduleComposite();
   if (scheduler_on_impl_thread_)
-    scheduler_on_impl_thread_->SetNeedsAnimate();
+    scheduler_on_impl_thread_->SetNeedsOneBeginImplFrame();
 }
 
 void SingleThreadProxy::SetNeedsPrepareTilesOnImplThread() {
@@ -419,12 +417,12 @@ void SingleThreadProxy::SetVideoNeedsBeginFrames(bool needs_begin_frames) {
 }
 
 void SingleThreadProxy::PostAnimationEventsToMainThreadOnImplThread(
-    scoped_ptr<AnimationEventsVector> events) {
+    scoped_ptr<AnimationEvents> events) {
   TRACE_EVENT0(
       "cc", "SingleThreadProxy::PostAnimationEventsToMainThreadOnImplThread");
   DCHECK(task_runner_provider_->IsImplThread());
   DebugScopedSetMainThread main(task_runner_provider_);
-  layer_tree_host_->SetAnimationEvents(events.Pass());
+  layer_tree_host_->SetAnimationEvents(std::move(events));
 }
 
 bool SingleThreadProxy::IsInsideDraw() { return inside_draw_; }
@@ -482,11 +480,6 @@ void SingleThreadProxy::SetEstimatedParentDrawTime(base::TimeDelta draw_time) {
     scheduler_on_impl_thread_->SetEstimatedParentDrawTime(draw_time);
 }
 
-void SingleThreadProxy::SetMaxSwapsPendingOnImplThread(int max) {
-  if (scheduler_on_impl_thread_)
-    scheduler_on_impl_thread_->SetMaxSwapsPending(max);
-}
-
 void SingleThreadProxy::DidSwapBuffersOnImplThread() {
   TRACE_EVENT0("cc", "SingleThreadProxy::DidSwapBuffersOnImplThread");
   if (scheduler_on_impl_thread_)
@@ -502,15 +495,16 @@ void SingleThreadProxy::DidSwapBuffersCompleteOnImplThread() {
   layer_tree_host_->DidCompleteSwapBuffers();
 }
 
-void SingleThreadProxy::OnDrawForOutputSurface() {
+void SingleThreadProxy::OnDrawForOutputSurface(
+    bool resourceless_software_draw) {
   NOTREACHED() << "Implemented by ThreadProxy for synchronous compositor.";
 }
 
 void SingleThreadProxy::PostFrameTimingEventsOnImplThread(
     scoped_ptr<FrameTimingTracker::CompositeTimingSet> composite_events,
     scoped_ptr<FrameTimingTracker::MainFrameTimingSet> main_frame_events) {
-  layer_tree_host_->RecordFrameTimingEvents(composite_events.Pass(),
-                                            main_frame_events.Pass());
+  layer_tree_host_->RecordFrameTimingEvents(std::move(composite_events),
+                                            std::move(main_frame_events));
 }
 
 void SingleThreadProxy::CompositeImmediately(base::TimeTicks frame_begin_time) {
@@ -717,6 +711,7 @@ void SingleThreadProxy::SetAuthoritativeVSyncInterval(
 }
 
 void SingleThreadProxy::WillBeginImplFrame(const BeginFrameArgs& args) {
+  DebugScopedSetImplThread impl(task_runner_provider_);
 #if DCHECK_IS_ON()
   DCHECK(!inside_impl_frame_)
       << "WillBeginImplFrame called while already inside an impl frame!";
@@ -836,12 +831,6 @@ DrawResult SingleThreadProxy::ScheduledActionDrawAndSwapForced() {
 void SingleThreadProxy::ScheduledActionCommit() {
   DebugScopedSetMainThread main(task_runner_provider_);
   DoCommit();
-}
-
-void SingleThreadProxy::ScheduledActionAnimate() {
-  TRACE_EVENT0("cc", "ScheduledActionAnimate");
-  DebugScopedSetImplThread impl(task_runner_provider_);
-  layer_tree_host_impl_->Animate();
 }
 
 void SingleThreadProxy::ScheduledActionActivateSyncTree() {

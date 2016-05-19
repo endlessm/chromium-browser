@@ -5,6 +5,9 @@
 
 #include "chrome/browser/guest_view/web_view/chrome_web_view_guest_delegate.h"
 
+#include <utility>
+
+#include "build/build_config.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/profiles/profile.h"
@@ -64,8 +67,8 @@ bool ChromeWebViewGuestDelegate::HandleContextMenu(
       MenuModelToValue(pending_menu_->menu_model());
   args->Set(webview::kContextMenuItems, items.release());
   args->SetInteger(webview::kRequestId, request_id);
-  web_view_guest()->DispatchEventToView(
-      new GuestViewEvent(webview::kEventContextMenuShow, args.Pass()));
+  web_view_guest()->DispatchEventToView(make_scoped_ptr(
+      new GuestViewEvent(webview::kEventContextMenuShow, std::move(args))));
   return true;
 }
 
@@ -93,13 +96,11 @@ scoped_ptr<base::ListValue> ChromeWebViewGuestDelegate::MenuModelToValue(
     item_value->SetString(webview::kMenuItemLabel, menu_model.GetLabelAt(i));
     items->Append(item_value);
   }
-  return items.Pass();
+  return items;
 }
 
-void ChromeWebViewGuestDelegate::OnShowContextMenu(
-    int request_id,
-    const MenuItemVector* items) {
-  if (!pending_menu_.get())
+void ChromeWebViewGuestDelegate::OnShowContextMenu(int request_id) {
+  if (!pending_menu_)
     return;
 
   // Make sure this was the correct request.
@@ -107,11 +108,10 @@ void ChromeWebViewGuestDelegate::OnShowContextMenu(
     return;
 
   // TODO(lazyboy): Implement.
-  DCHECK(!items);
 
   ContextMenuDelegate* menu_delegate =
       ContextMenuDelegate::FromWebContents(guest_web_contents());
-  menu_delegate->ShowMenu(pending_menu_.Pass());
+  menu_delegate->ShowMenu(std::move(pending_menu_));
 }
 
 bool ChromeWebViewGuestDelegate::ShouldHandleFindRequestsForEmbedder() const {

@@ -11,6 +11,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
@@ -200,6 +201,11 @@ void VideoTrackAdapter::VideoFrameResolutionAdapter::DeliverFrame(
     const base::TimeTicks& estimated_capture_time) {
   DCHECK(io_thread_checker_.CalledOnValidThread());
 
+  if (!frame) {
+    DLOG(ERROR) << "Incoming frame is not valid.";
+    return;
+  }
+
   double frame_rate;
   if (!frame->metadata()->GetDouble(media::VideoFrameMetadata::FRAME_RATE,
                                     &frame_rate)) {
@@ -262,6 +268,8 @@ void VideoTrackAdapter::VideoFrameResolutionAdapter::DeliverFrame(
 
     video_frame =
         media::VideoFrame::WrapVideoFrame(frame, region_in_frame, desired_size);
+    if (!video_frame)
+      return;
     video_frame->AddDestructionObserver(
         base::Bind(&ReleaseOriginalFrame, frame));
 
@@ -490,7 +498,7 @@ void VideoTrackAdapter::DeliverFrameOnIO(
 
 void VideoTrackAdapter::CheckFramesReceivedOnIO(
     const OnMutedCallback& set_muted_state_callback,
-    uint64 old_frame_counter_snapshot) {
+    uint64_t old_frame_counter_snapshot) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   if (!monitoring_frame_rate_)

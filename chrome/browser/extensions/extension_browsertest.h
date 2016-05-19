@@ -12,6 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/test/scoped_path_override.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_test_notification_observer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -201,24 +202,7 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
                                     install_source,
                                     browser(),
                                     creation_flags,
-                                    false,
                                     false);
-  }
-
-  const extensions::Extension* InstallEphemeralAppWithSourceAndFlags(
-      const base::FilePath& path,
-      int expected_change,
-      extensions::Manifest::Location install_source,
-      extensions::Extension::InitFromValueFlags creation_flags) {
-    return InstallOrUpdateExtension(std::string(),
-                                    path,
-                                    INSTALL_UI_TYPE_NONE,
-                                    expected_change,
-                                    install_source,
-                                    browser(),
-                                    creation_flags,
-                                    false,
-                                    true);
   }
 
   // Begins install process but simulates a user cancel.
@@ -241,12 +225,6 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
   // Wait for the number of visible page actions to change to |count|.
   bool WaitForPageActionVisibilityChangeTo(int count) {
     return observer_->WaitForPageActionVisibilityChangeTo(count);
-  }
-
-  // Waits until an extension is installed and loaded. Returns true if an
-  // install happened before timeout.
-  bool WaitForExtensionInstall() {
-    return observer_->WaitForExtensionInstall();
   }
 
   // Wait for an extension install error to be raised. Returns true if an
@@ -381,8 +359,7 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
       extensions::Manifest::Location install_source,
       Browser* browser,
       extensions::Extension::InitFromValueFlags creation_flags,
-      bool wait_for_idle,
-      bool is_ephemeral);
+      bool wait_for_idle);
 
   // Make the current channel "dev" for the duration of the test.
   extensions::ScopedCurrentChannel current_channel_;

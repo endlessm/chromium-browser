@@ -8,13 +8,13 @@
   'variables': { 'enable_wexit_time_destructors': 1, },
   'dependencies': [
     '../base/base.gyp:base',
-    '../base/base.gyp:base_prefs',
     '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations',
     '../crypto/crypto.gyp:crypto',
     '../sdch/sdch.gyp:sdch',
     '../third_party/protobuf/protobuf.gyp:protobuf_lite',
     '../third_party/zlib/zlib.gyp:zlib',
     'net_derived_sources',
+    'net_features',
     'net_quic_proto',
     'net_resources',
   ],
@@ -95,6 +95,9 @@
     ['disable_ftp_support!=1', {
       'sources': ['<@(net_ftp_support_sources)']
     }],
+    ['enable_bidirectional_stream==1', {
+      'sources': ['<@(net_bidirectional_stream_sources)']
+    }],
     ['enable_built_in_dns==1', {
       'defines': [
         'ENABLE_BUILT_IN_DNS',
@@ -121,6 +124,8 @@
           'quic/crypto/aes_128_gcm_12_encrypter_nss.cc',
           'quic/crypto/chacha20_poly1305_decrypter_nss.cc',
           'quic/crypto/chacha20_poly1305_encrypter_nss.cc',
+          'quic/crypto/chacha20_poly1305_rfc7539_decrypter_nss.cc',
+          'quic/crypto/chacha20_poly1305_rfc7539_encrypter_nss.cc',
           'quic/crypto/channel_id_nss.cc',
           'quic/crypto/p256_key_exchange_nss.cc',
           'quic/crypto/proof_source_chromium_nss.cc',
@@ -130,9 +135,20 @@
           'socket/ssl_client_socket_nss.h',
           'socket/ssl_server_socket_nss.cc',
           'socket/ssl_server_socket_nss.h',
+          'ssl/token_binding_nss.cc',
         ],
         'dependencies': [
           '../third_party/boringssl/boringssl.gyp:boringssl',
+        ],
+        'conditions': [
+          ['chromecast==1 and use_nss_certs==1', {
+            'sources': [
+              'ssl/ssl_platform_key_chromecast.cc',
+            ],
+            'sources!': [
+              'ssl/ssl_platform_key_nss.cc',
+            ],
+          }],
         ],
       },
       {  # else !use_openssl: remove the unneeded files and depend on NSS.
@@ -148,6 +164,8 @@
           'quic/crypto/aes_128_gcm_12_encrypter_openssl.cc',
           'quic/crypto/chacha20_poly1305_decrypter_openssl.cc',
           'quic/crypto/chacha20_poly1305_encrypter_openssl.cc',
+          'quic/crypto/chacha20_poly1305_rfc7539_decrypter_openssl.cc',
+          'quic/crypto/chacha20_poly1305_rfc7539_encrypter_openssl.cc',
           'quic/crypto/channel_id_openssl.cc',
           'quic/crypto/p256_key_exchange_openssl.cc',
           'quic/crypto/proof_source_chromium_openssl.cc',
@@ -163,10 +181,17 @@
           'ssl/openssl_ssl_util.h',
           'ssl/ssl_client_session_cache_openssl.cc',
           'ssl/ssl_client_session_cache_openssl.h',
+          'ssl/ssl_key_logger.cc',
+          'ssl/ssl_key_logger.h',
           'ssl/ssl_platform_key.h',
           'ssl/ssl_platform_key_nss.cc',
+          'ssl/ssl_platform_key_task_runner.cc',
+          'ssl/ssl_platform_key_task_runner.h',
+          'ssl/test_ssl_private_key.cc',
+          'ssl/test_ssl_private_key.h',
           'ssl/threaded_ssl_private_key.cc',
           'ssl/threaded_ssl_private_key.h',
+          'ssl/token_binding_openssl.cc',
         ],
       },
     ],

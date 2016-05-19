@@ -23,18 +23,13 @@
 
 #include "core/css/CSSPrimitiveValue.h"
 #include "core/svg/SVGLengthContext.h"
+#include "core/svg/SVGParsingError.h"
 #include "core/svg/properties/SVGProperty.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
 
-class ExceptionState;
 class QualifiedName;
-
-enum SVGLengthNegativeValuesMode {
-    AllowNegativeLengths,
-    ForbidNegativeLengths
-};
 
 class SVGLengthTearOff;
 
@@ -53,10 +48,6 @@ public:
     PassRefPtrWillBeRawPtr<SVGPropertyBase> cloneForAnimation(const String&) const override;
 
     CSSPrimitiveValue::UnitType typeWithCalcResolved() const { return m_value->typeWithCalcResolved(); }
-    CSSPrimitiveValue::UnitType cssUnitTypeQuirk() const
-    {
-        return m_value->typeWithCalcResolved();
-    }
     void setUnitType(CSSPrimitiveValue::UnitType);
     SVGLengthMode unitMode() const { return static_cast<SVGLengthMode>(m_unitMode); }
 
@@ -72,6 +63,8 @@ public:
         m_value = CSSPrimitiveValue::create(value, m_value->typeWithCalcResolved());
     }
 
+    CSSPrimitiveValue* asCSSPrimitiveValue() const { return m_value.get(); }
+
     // Resolves LengthTypePercentage into a normalized floating point number (full value is 1.0).
     float valueAsPercentage() const;
 
@@ -82,21 +75,13 @@ public:
     float scaleByPercentage(float) const;
 
     String valueAsString() const override;
-    void setValueAsString(const String&, ExceptionState&);
+    SVGParsingError setValueAsString(const String&);
 
     void newValueSpecifiedUnits(CSSPrimitiveValue::UnitType, float valueInSpecifiedUnits);
     void convertToSpecifiedUnits(CSSPrimitiveValue::UnitType, const SVGLengthContext&);
 
     // Helper functions
-    static inline bool isRelativeUnit(CSSPrimitiveValue::UnitType unitType)
-    {
-        return unitType == CSSPrimitiveValue::UnitType::Percentage
-            || unitType == CSSPrimitiveValue::UnitType::Ems
-            || unitType == CSSPrimitiveValue::UnitType::Exs
-            || unitType == CSSPrimitiveValue::UnitType::Rems
-            || unitType == CSSPrimitiveValue::UnitType::Chs;
-    }
-    inline bool isRelative() const { return isRelativeUnit(m_value->typeWithCalcResolved()); }
+    inline bool isRelative() const { return CSSPrimitiveValue::isRelativeUnit(m_value->typeWithCalcResolved()); }
 
     bool isZero() const
     {
@@ -104,6 +89,7 @@ public:
     }
 
     static SVGLengthMode lengthModeForAnimatedLengthAttribute(const QualifiedName&);
+    static bool negativeValuesForbiddenForAnimatedLengthAttribute(const QualifiedName&);
 
     void add(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement*) override;
     void calculateAnimatedValue(SVGAnimationElement*, float percentage, unsigned repeatCount, PassRefPtrWillBeRawPtr<SVGPropertyBase> from, PassRefPtrWillBeRawPtr<SVGPropertyBase> to, PassRefPtrWillBeRawPtr<SVGPropertyBase> toAtEndOfDurationValue, SVGElement* contextElement) override;

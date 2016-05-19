@@ -4,13 +4,16 @@
 
 #include "chrome/browser/profile_resetter/resettable_settings_snapshot.h"
 
-#include "base/json/json_writer.h"
-#include "base/prefs/pref_service.h"
+#include "base/guid.h"
+#include "base/md5.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/cancellation_flag.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profile_resetter/profile_reset_report.pb.h"
+#include "chrome/browser/profile_resetter/reset_report_uploader.h"
+#include "chrome/browser/profile_resetter/reset_report_uploader_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/common/channel_info.h"
@@ -18,8 +21,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/feedback/feedback_data.h"
-#include "components/feedback/feedback_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
@@ -27,23 +29,7 @@
 #include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
-using feedback::FeedbackData;
-
 namespace {
-
-// Feedback bucket labels.
-const char kProfileResetPromptBucket[] = "SamplingOfSettingsResetPrompt";
-const char kProfileResetWebUIBucket[] = "ProfileResetReport";
-
-// Dictionary keys for feedback report.
-const char kDefaultSearchEnginePath[] = "default_search_engine";
-const char kEnabledExtensions[] = "enabled_extensions";
-const char kHomepageIsNewTabPage[] = "homepage_is_ntp";
-const char kHomepagePath[] = "homepage";
-const char kShortcuts[] = "shortcuts";
-const char kShowHomeButton[] = "show_home_button";
-const char kStartupTypePath[] = "startup_type";
-const char kStartupURLPath[] = "startup_urls";
 
 template <class StringType>
 void AddPair(base::ListValue* list,
@@ -89,6 +75,10 @@ ResettableSettingsSnapshot::ResettableSettingsSnapshot(
 
   // ExtensionSet is sorted but it seems to be an implementation detail.
   std::sort(enabled_extensions_.begin(), enabled_extensions_.end());
+
+  // Calculate the MD5 sum of the GUID to make sure that no part of the GUID
+  // contains information identifying the sender of the report.
+  guid_ = base::MD5String(base::GenerateGUID());
 }
 
 ResettableSettingsSnapshot::~ResettableSettingsSnapshot() {
@@ -161,89 +151,66 @@ void ResettableSettingsSnapshot::SetShortcutsAndReport(
     callback.Run();
 }
 
-std::string SerializeSettingsReport(const ResettableSettingsSnapshot& snapshot,
-                                    int field_mask) {
+scoped_ptr<reset_report::ChromeResetReport> SerializeSettingsReportToProto(
+    const ResettableSettingsSnapshot& snapshot,
+    int field_mask) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  base::DictionaryValue dict;
+  scoped_ptr<reset_report::ChromeResetReport> report(
+      new reset_report::ChromeResetReport());
 
   if (field_mask & ResettableSettingsSnapshot::STARTUP_MODE) {
-    base::ListValue* list = new base::ListValue;
-    const std::vector<GURL>& urls = snapshot.startup_urls();
-    for (std::vector<GURL>::const_iterator i = urls.begin();
-         i != urls.end(); ++i)
-      list->AppendString(i->spec());
-    dict.Set(kStartupURLPath, list);
-    dict.SetInteger(kStartupTypePath, snapshot.startup_type());
+    for (const auto& url : snapshot.startup_urls())
+      report->add_startup_url_path(url.spec());
+    switch (snapshot.startup_type()) {
+      case SessionStartupPref::DEFAULT:
+        report->set_startup_type(
+            reset_report::ChromeResetReport_SessionStartupType_DEFAULT);
+        break;
+      case SessionStartupPref::LAST:
+        report->set_startup_type(
+            reset_report::ChromeResetReport_SessionStartupType_LAST);
+        break;
+      case SessionStartupPref::URLS:
+        report->set_startup_type(
+            reset_report::ChromeResetReport_SessionStartupType_URLS);
+        break;
+    }
   }
 
   if (field_mask & ResettableSettingsSnapshot::HOMEPAGE) {
-    dict.SetString(kHomepagePath, snapshot.homepage());
-    dict.SetBoolean(kHomepageIsNewTabPage, snapshot.homepage_is_ntp());
-    dict.SetBoolean(kShowHomeButton, snapshot.show_home_button());
+    report->set_homepage_path(snapshot.homepage());
+    report->set_homepage_is_new_tab_page(snapshot.homepage_is_ntp());
+    report->set_show_home_button(snapshot.show_home_button());
   }
 
   if (field_mask & ResettableSettingsSnapshot::DSE_URL)
-    dict.SetString(kDefaultSearchEnginePath, snapshot.dse_url());
+    report->set_default_search_engine_path(snapshot.dse_url());
 
   if (field_mask & ResettableSettingsSnapshot::EXTENSIONS) {
-    base::ListValue* list = new base::ListValue;
-    const ResettableSettingsSnapshot::ExtensionList& extensions =
-        snapshot.enabled_extensions();
-    for (ResettableSettingsSnapshot::ExtensionList::const_iterator i =
-         extensions.begin(); i != extensions.end(); ++i) {
-      // Replace "\"" to simplify server-side analysis.
-      std::string ext_name;
-      base::ReplaceChars(i->second, "\"", "\'", &ext_name);
-      list->AppendString(i->first + ";" + ext_name);
+    for (const auto& enabled_extension : snapshot.enabled_extensions()) {
+      reset_report::ChromeResetReport_Extension* new_extension =
+          report->add_enabled_extensions();
+      new_extension->set_extension_id(enabled_extension.first);
+      new_extension->set_extension_name(enabled_extension.second);
     }
-    dict.Set(kEnabledExtensions, list);
   }
 
   if (field_mask & ResettableSettingsSnapshot::SHORTCUTS) {
-    base::ListValue* list = new base::ListValue;
-    const std::vector<ShortcutCommand>& shortcuts = snapshot.shortcuts();
-    for (std::vector<ShortcutCommand>::const_iterator i = shortcuts.begin();
-         i != shortcuts.end(); ++i) {
-      base::string16 arguments;
-      // Replace "\"" to simplify server-side analysis.
-      base::ReplaceChars(i->second, base::ASCIIToUTF16("\""),
-                         base::ASCIIToUTF16("\'"), &arguments);
-      list->AppendString(arguments);
-    }
-    dict.Set(kShortcuts, list);
+    for (const auto& shortcut_command : snapshot.shortcuts())
+      report->add_shortcuts(base::UTF16ToUTF8(shortcut_command.second));
   }
+
+  report->set_guid(snapshot.guid());
 
   static_assert(ResettableSettingsSnapshot::ALL_FIELDS == 31,
                 "new field needs to be serialized here");
-
-  std::string json;
-  base::JSONWriter::Write(dict, &json);
-  return json;
+  return report;
 }
 
-void SendSettingsFeedback(const std::string& report,
-                          Profile* profile,
-                          SnapshotCaller caller) {
-  scoped_refptr<FeedbackData> feedback_data = new FeedbackData();
-  std::string bucket;
-  switch (caller) {
-    case PROFILE_RESET_WEBUI:
-      bucket = kProfileResetWebUIBucket;
-      break;
-    case PROFILE_RESET_PROMPT:
-      bucket = kProfileResetPromptBucket;
-      break;
-  }
-  feedback_data->set_category_tag(bucket);
-  feedback_data->set_description(report);
-
-  feedback_data->set_image(make_scoped_ptr(new std::string));
-  feedback_data->set_context(profile);
-
-  feedback_data->set_page_url("");
-  feedback_data->set_user_email("");
-
-  feedback_util::SendReport(feedback_data);
+void SendSettingsFeedbackProto(const reset_report::ChromeResetReport& report,
+                               Profile* profile) {
+  ResetReportUploaderFactory::GetForBrowserContext(profile)
+      ->DispatchReport(report);
 }
 
 scoped_ptr<base::ListValue> GetReadableFeedbackForSnapshot(
@@ -365,5 +332,5 @@ scoped_ptr<base::ListValue> GetReadableFeedbackForSnapshot(
             l10n_util::GetStringUTF16(IDS_RESET_PROFILE_SETTINGS_EXTENSIONS),
             extension_names);
   }
-  return list.Pass();
+  return list;
 }

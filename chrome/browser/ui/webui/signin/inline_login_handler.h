@@ -5,8 +5,13 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SIGNIN_INLINE_LOGIN_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SIGNIN_INLINE_LOGIN_HANDLER_H_
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/web_ui_message_handler.h"
+
+namespace signin_metrics {
+enum class AccessPoint;
+}
 
 // The base class handler for the inline login WebUI.
 class InlineLoginHandler : public content::WebUIMessageHandler {
@@ -27,6 +32,10 @@ class InlineLoginHandler : public content::WebUIMessageHandler {
   };
 
  private:
+  // Record correspond sign in user action for an access point.
+  void RecordSigninUserActionForAccessPoint(
+      signin_metrics::AccessPoint access_point);
+
   // JS callback to prepare for starting auth.
   void HandleInitializeMessage(const base::ListValue* args);
 

@@ -26,14 +26,17 @@ class GbmBuffer : public GbmBufferBase {
       gfx::BufferFormat format,
       const gfx::Size& size,
       gfx::BufferUsage usage);
+  gfx::BufferFormat GetFormat() const { return format_; }
   gfx::BufferUsage GetUsage() const { return usage_; }
 
  private:
   GbmBuffer(const scoped_refptr<GbmDevice>& gbm,
             gbm_bo* bo,
+            gfx::BufferFormat format,
             gfx::BufferUsage usage);
   ~GbmBuffer() override;
 
+  gfx::BufferFormat format_;
   gfx::BufferUsage usage_;
 
   DISALLOW_COPY_AND_ASSIGN(GbmBuffer);
@@ -46,15 +49,13 @@ class GbmPixmap : public NativePixmap {
   bool InitializeFromBuffer(const scoped_refptr<GbmBuffer>& buffer);
   void SetProcessingCallback(
       const ProcessingCallback& processing_callback) override;
-  scoped_refptr<NativePixmap> GetProcessedPixmap(
-      gfx::Size target_size,
-      gfx::BufferFormat target_format) override;
 
   // NativePixmap:
-  void* GetEGLClientBuffer() override;
-  int GetDmaBufFd() override;
-  int GetDmaBufPitch() override;
-  gfx::BufferFormat GetBufferFormat() override;
+  void* GetEGLClientBuffer() const override;
+  int GetDmaBufFd() const override;
+  int GetDmaBufPitch() const override;
+  gfx::BufferFormat GetBufferFormat() const override;
+  gfx::Size GetBufferSize() const override;
   bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
                             int plane_z_order,
                             gfx::OverlayTransform plane_transform,
@@ -66,10 +67,8 @@ class GbmPixmap : public NativePixmap {
 
  private:
   ~GbmPixmap() override;
-  bool ShouldApplyProcessing(const gfx::Rect& display_bounds,
-                             const gfx::RectF& crop_rect,
-                             gfx::Size* target_size,
-                             gfx::BufferFormat* target_format);
+  scoped_refptr<ScanoutBuffer> ProcessBuffer(const gfx::Size& size,
+                                             uint32_t format);
 
   scoped_refptr<GbmBuffer> buffer_;
   base::ScopedFD dma_buf_;
@@ -77,6 +76,9 @@ class GbmPixmap : public NativePixmap {
 
   GbmSurfaceFactory* surface_manager_;
 
+  // OverlayValidator can request scaling or format conversions as needed for
+  // this Pixmap. This holds the processed buffer.
+  scoped_refptr<GbmPixmap> processed_pixmap_;
   ProcessingCallback processing_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(GbmPixmap);

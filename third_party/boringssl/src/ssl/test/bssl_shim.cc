@@ -12,6 +12,10 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
+#if !defined(__STDC_FORMAT_MACROS)
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <openssl/base.h>
 
 #if !defined(OPENSSL_WINDOWS)
@@ -20,7 +24,7 @@
 #include <netinet/tcp.h>
 #include <signal.h>
 #include <sys/socket.h>
-#include <sys/types.h>
+#include <sys/time.h>
 #include <unistd.h>
 #else
 #include <io.h>
@@ -32,8 +36,8 @@
 #pragma comment(lib, "Ws2_32.lib")
 #endif
 
+#include <inttypes.h>
 #include <string.h>
-#include <sys/types.h>
 
 #include <openssl/bio.h>
 #include <openssl/buf.h>
@@ -121,9 +125,10 @@ static const TestConfig *GetConfigPtr(const SSL *ssl) {
   return (const TestConfig *)SSL_get_ex_data(ssl, g_config_index);
 }
 
-static bool SetTestState(SSL *ssl, std::unique_ptr<TestState> async) {
-  if (SSL_set_ex_data(ssl, g_state_index, (void *)async.get()) == 1) {
-    async.release();
+static bool SetTestState(SSL *ssl, std::unique_ptr<TestState> state) {
+  // |SSL_set_ex_data| takes ownership of |state| only on success.
+  if (SSL_set_ex_data(ssl, g_state_index, state.get()) == 1) {
+    state.release();
     return true;
   }
   return false;
@@ -222,13 +227,12 @@ static ssl_private_key_result_t AsyncPrivateKeyDecrypt(
     abort();
   }
 
-  EVP_PKEY *pkey = test_state->private_key.get();
-  if (pkey->type != EVP_PKEY_RSA || pkey->pkey.rsa == NULL) {
+  RSA *rsa = EVP_PKEY_get0_RSA(test_state->private_key.get());
+  if (rsa == NULL) {
     fprintf(stderr,
             "AsyncPrivateKeyDecrypt called with incorrect key type.\n");
     abort();
   }
-  RSA *rsa = pkey->pkey.rsa;
   test_state->private_key_result.resize(RSA_size(rsa));
   if (!RSA_decrypt(rsa, out_len, test_state->private_key_result.data(),
                    RSA_size(rsa), in, in_len, RSA_NO_PADDING)) {
@@ -728,6 +732,26 @@ static ScopedSSL_CTX SetupCtx(const TestConfig *config) {
   }
 
   ScopedDH dh(DH_get_2048_256(NULL));
+
+  if (config->use_sparse_dh_prime) {
+    // This prime number is 2^1024 + 643 – a value just above a power of two.
+    // Because of its form, values modulo it are essentially certain to be one
+    // byte shorter. This is used to test padding of these values.
+    if (BN_hex2bn(
+            &dh->p,
+            "1000000000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000000000000000000000000000000000000000000000028"
+            "3") == 0 ||
+        !BN_set_word(dh->g, 2)) {
+      return nullptr;
+    }
+    BN_free(dh->q);
+    dh->q = NULL;
+    dh->priv_length = 0;
+  }
+
   if (!dh || !SSL_CTX_set_tmp_dh(ssl_ctx.get(), dh.get())) {
     return nullptr;
   }
@@ -1070,6 +1094,15 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume) {
     return false;
   }
 
+  if (config->expect_key_exchange_info != 0) {
+    uint32_t info = SSL_SESSION_get_key_exchange_info(SSL_get_session(ssl));
+    if (static_cast<uint32_t>(config->expect_key_exchange_info) != info) {
+      fprintf(stderr, "key_exchange_info was %" PRIu32 ", wanted %" PRIu32 "\n",
+              info, static_cast<uint32_t>(config->expect_key_exchange_info));
+      return false;
+    }
+  }
+
   if (!config->is_server) {
     /* Clients should expect a peer certificate chain iff this was not a PSK
      * cipher suite. */
@@ -1142,15 +1175,6 @@ static bool DoExchange(ScopedSSL_SESSION *out_session, SSL_CTX *ssl_ctx,
   }
   if (config->no_ssl3) {
     SSL_set_options(ssl.get(), SSL_OP_NO_SSLv3);
-  }
-  if (config->tls_d5_bug) {
-    SSL_set_options(ssl.get(), SSL_OP_TLS_D5_BUG);
-  }
-  if (config->microsoft_big_sslv3_buffer) {
-    SSL_set_options(ssl.get(), SSL_OP_MICROSOFT_BIG_SSLV3_BUFFER);
-  }
-  if (config->no_legacy_server_connect) {
-    SSL_clear_options(ssl.get(), SSL_OP_LEGACY_SERVER_CONNECT);
   }
   if (!config->expected_channel_id.empty()) {
     SSL_enable_tls_channel_id(ssl.get());
@@ -1226,6 +1250,15 @@ static bool DoExchange(ScopedSSL_SESSION *out_session, SSL_CTX *ssl_ctx,
   if (config->p384_only) {
     int nid = NID_secp384r1;
     if (!SSL_set1_curves(ssl.get(), &nid, 1)) {
+      return false;
+    }
+  }
+  if (config->enable_all_curves) {
+    static const int kAllCurves[] = {
+        NID_X9_62_prime256v1, NID_secp384r1, NID_secp521r1, NID_x25519,
+    };
+    if (!SSL_set1_curves(ssl.get(), kAllCurves,
+                         sizeof(kAllCurves) / sizeof(kAllCurves[0]))) {
       return false;
     }
   }

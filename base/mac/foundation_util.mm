@@ -4,6 +4,7 @@
 
 #include "base/mac/foundation_util.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -11,8 +12,10 @@
 #include "base/logging.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/mac_logging.h"
+#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/sys_string_conversions.h"
+#include "build/build_config.h"
 
 #if !defined(OS_IOS)
 extern "C" {
@@ -162,7 +165,7 @@ FilePath GetAppBundlePath(const FilePath& exec_name) {
 
   // The first component may be "/" or "//", etc. Only append '/' if it doesn't
   // already end in '/'.
-  if (bundle_name[bundle_name.length() - 1] != '/')
+  if (bundle_name.back() != '/')
     bundle_name += '/';
 
   // Go through the remaining components.

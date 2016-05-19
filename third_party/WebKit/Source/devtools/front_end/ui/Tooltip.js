@@ -9,13 +9,12 @@
 WebInspector.Tooltip = function(doc)
 {
     this.element = doc.body.createChild("div");
-    this._shadowRoot = WebInspector.createShadowRootWithCoreStyles(this.element);
-    this._shadowRoot.appendChild(WebInspector.Widget.createStyleElement("ui/tooltip.css"));
+    this._shadowRoot = WebInspector.createShadowRootWithCoreStyles(this.element, "ui/tooltip.css");
 
     this._tooltipElement = this._shadowRoot.createChild("div", "tooltip");
     doc.addEventListener("mousemove", this._mouseMove.bind(this), true);
     doc.addEventListener("mousedown", this._hide.bind(this, true), true);
-    doc.addEventListener("mouseleave", this._hide.bind(this, true), true);
+    doc.addEventListener("mouseleave", this._hide.bind(this, false), true);
     doc.addEventListener("keydown", this._hide.bind(this, true), true);
     WebInspector.zoomManager.addEventListener(WebInspector.ZoomManager.Events.ZoomChanged, this._reset, this);
     doc.defaultView.addEventListener("resize", this._reset.bind(this), false);
@@ -34,12 +33,12 @@ WebInspector.Tooltip.prototype = {
      */
     _mouseMove: function(event)
     {
-        var path = event.deepPath ? event.deepPath : event.path;
+        var path = event.path;
         if (!path || event.buttons !== 0)
             return;
 
         if (this._anchorElement && path.indexOf(this._anchorElement) === -1)
-            this._hide();
+            this._hide(false);
 
         for (var element of path) {
             if (element === this._anchorElement) {
@@ -126,7 +125,7 @@ WebInspector.Tooltip.prototype = {
     },
 
     /**
-     * @param {boolean=} removeInstant
+     * @param {boolean} removeInstant
      */
     _hide: function(removeInstant)
     {

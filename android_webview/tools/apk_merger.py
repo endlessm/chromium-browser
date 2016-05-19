@@ -121,7 +121,8 @@ def RemoveMetafiles(tmp_apk):
 
 
 def SignAndAlignApk(tmp_apk, signed_tmp_apk, new_apk, zipalign_path,
-                    keystore_path, key_name, key_password):
+                    keystore_path, key_name, key_password,
+                    page_align_shared_libraries):
   try:
     finalize_apk.JarSigner(
       keystore_path,
@@ -133,7 +134,10 @@ def SignAndAlignApk(tmp_apk, signed_tmp_apk, new_apk, zipalign_path,
     raise ApkMergeFailure('Failed to sign APK: ' + e.output)
 
   try:
-    finalize_apk.AlignApk(zipalign_path, signed_tmp_apk, new_apk)
+    finalize_apk.AlignApk(zipalign_path,
+                          page_align_shared_libraries,
+                          signed_tmp_apk,
+                          new_apk)
   except build_utils.CalledProcessError as e:
     raise ApkMergeFailure('Failed to align APK: ' + e.output)
 
@@ -150,6 +154,9 @@ def main():
   parser.add_argument('--keystore_path', required=True, type=os.path.abspath)
   parser.add_argument('--key_name', required=True)
   parser.add_argument('--key_password', required=True)
+  parser.add_argument('--shared_library', required=True)
+  parser.add_argument('--page-align-shared-libraries', action='store_true')
+  parser.add_argument('--uncompress-shared-libraries', action='store_true')
   args = parser.parse_args()
 
   tmp_dir = tempfile.mkdtemp()
@@ -163,7 +170,10 @@ def main():
   # setting the compression level of the file
   expected_files = {'snapshot_blob_32.bin': ['-0'],
                     'natives_blob_32.bin': ['-0'],
-                    'libwebviewchromium.so': []}
+                    args.shared_library: []}
+
+  if args.uncompress_shared_libraries:
+    expected_files[args.shared_library] += ['-0']
 
   try:
     shutil.copyfile(args.apk_64bit, tmp_apk)
@@ -172,10 +182,11 @@ def main():
     UnpackApk(args.apk_64bit, tmp_dir_64)
     UnpackApk(args.apk_32bit, tmp_dir_32)
 
+    # TODO(sgurun) remove WebViewPlatformBridge.apk from this list crbug/580678
     dcmp = filecmp.dircmp(
         tmp_dir_64,
         tmp_dir_32,
-        ignore=['META-INF', 'AndroidManifest.xml'])
+        ignore=['META-INF', 'AndroidManifest.xml', 'WebViewPlatformBridge.apk'])
 
     diff_files = GetDiffFiles(dcmp, tmp_dir_32)
 
@@ -188,7 +199,8 @@ def main():
     AddDiffFiles(diff_files, tmp_dir_32, tmp_apk, expected_files)
 
     SignAndAlignApk(tmp_apk, signed_tmp_apk, new_apk, args.zipalign_path,
-        args.keystore_path, args.key_name, args.key_password)
+                    args.keystore_path, args.key_name, args.key_password,
+                    args.page_align_shared_libraries)
 
   except ApkMergeFailure as e:
     print e

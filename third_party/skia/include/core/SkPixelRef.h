@@ -9,15 +9,15 @@
 #define SkPixelRef_DEFINED
 
 #include "../private/SkAtomics.h"
+#include "../private/SkMutex.h"
+#include "../private/SkTDArray.h"
 #include "SkBitmap.h"
 #include "SkFilterQuality.h"
 #include "SkImageInfo.h"
-#include "../private/SkMutex.h"
 #include "SkPixmap.h"
 #include "SkRefCnt.h"
 #include "SkSize.h"
 #include "SkString.h"
-#include "SkTDArray.h"
 
 class SkColorTable;
 class SkData;
@@ -381,6 +381,7 @@ private:
 
     bool isPreLocked() const { return fPreLocked; }
     friend class SkImage_Raster;
+    friend class SkSpecialImage_Raster;
 
     // When copying a bitmap to another with the same shape and config, we can safely
     // clone the pixelref generation ID too, which makes them equivalent under caching.

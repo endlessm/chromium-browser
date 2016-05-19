@@ -8,9 +8,11 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <utility>
 
 #include "base/logging.h"
 #include "net/base/net_errors.h"
+#include "net/base/sockaddr_storage.h"
 #include "net/socket/socket_posix.h"
 #include "net/socket/unix_domain_client_socket_posix.h"
 
@@ -21,7 +23,7 @@ namespace {
 // Intended for use as SetterCallbacks in Accept() helper methods.
 void SetStreamSocket(scoped_ptr<StreamSocket>* socket,
                      scoped_ptr<SocketPosix> accepted_socket) {
-  socket->reset(new UnixDomainClientSocket(accepted_socket.Pass()));
+  socket->reset(new UnixDomainClientSocket(std::move(accepted_socket)));
 }
 
 void SetSocketDescriptor(SocketDescriptor* socket,
@@ -66,13 +68,19 @@ int UnixDomainServerSocket::Listen(const IPEndPoint& address, int backlog) {
 }
 
 int UnixDomainServerSocket::ListenWithAddressAndPort(
-    const std::string& unix_domain_path,
-    uint16 port_unused,
+    const std::string& address_string,
+    uint16_t port,
     int backlog) {
+  NOTIMPLEMENTED();
+  return ERR_NOT_IMPLEMENTED;
+}
+
+int UnixDomainServerSocket::BindAndListen(const std::string& socket_path,
+                                          int backlog) {
   DCHECK(!listen_socket_);
 
   SockaddrStorage address;
-  if (!UnixDomainClientSocket::FillAddress(unix_domain_path,
+  if (!UnixDomainClientSocket::FillAddress(socket_path,
                                            use_abstract_namespace_,
                                            &address)) {
     return ERR_ADDRESS_INVALID;
@@ -88,7 +96,7 @@ int UnixDomainServerSocket::ListenWithAddressAndPort(
   DCHECK_NE(ERR_IO_PENDING, rv);
   if (rv != OK) {
     PLOG(ERROR)
-        << "Could not bind unix domain socket to " << unix_domain_path
+        << "Could not bind unix domain socket to " << socket_path
         << (use_abstract_namespace_ ? " (with abstract namespace)" : "");
     return rv;
   }
@@ -182,7 +190,7 @@ bool UnixDomainServerSocket::AuthenticateAndGetStreamSocket(
     return false;
   }
 
-  setter_callback.Run(accept_socket_.Pass());
+  setter_callback.Run(std::move(accept_socket_));
   return true;
 }
 

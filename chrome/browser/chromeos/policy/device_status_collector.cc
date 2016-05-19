@@ -4,11 +4,12 @@
 
 #include "chrome/browser/chromeos/policy/device_status_collector.h"
 
+#include <stddef.h>
 #include <stdint.h>
+#include <sys/statvfs.h>
 #include <cstdio>
 #include <limits>
 #include <sstream>
-#include <sys/statvfs.h>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -17,11 +18,9 @@
 #include "base/format_macros.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/sys_info.h"
@@ -43,6 +42,9 @@
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/system/statistics_provider.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
@@ -96,7 +98,7 @@ const char kCPUTempFilePattern[] = "temp*_input";
 
 // Determine the day key (milliseconds since epoch for corresponding day in UTC)
 // for a given |timestamp|.
-int64 TimestampToDayKey(Time timestamp) {
+int64_t TimestampToDayKey(Time timestamp) {
   Time::Exploded exploded;
   timestamp.LocalMidnight().LocalExplode(&exploded);
   return (Time::FromUTCExploded(exploded) - Time::UnixEpoch()).InMilliseconds();
@@ -118,7 +120,8 @@ std::vector<em::VolumeInfo> GetVolumeInfo(
                             stat.f_frsize);
       result.push_back(info);
     } else {
-      LOG(ERROR) << "Unable to get volume status for " << mount_point;
+      LOG_IF(ERROR, !mount_point.empty()) << "Unable to get volume status for "
+                                          << mount_point;
     }
   }
   return result;
@@ -187,7 +190,7 @@ std::vector<em::CPUTempInfo> ReadCPUTempInfo() {
 
       // Read temperature in millidegree Celsius.
       std::string temperature_string;
-      int32 temperature = 0;
+      int32_t temperature = 0;
       if (base::ReadFileToString(temperature_path, &temperature_string) &&
           sscanf(temperature_string.c_str(), "%d", &temperature) == 1) {
         // CPU temp in millidegree Celsius to Celsius
@@ -223,7 +226,7 @@ GetCurrentKioskDeviceLocalAccount(chromeos::CrosSettings* settings) {
     if (AccountId::FromUserEmail(device_local_account.user_id) ==
         user->GetAccountId()) {
       return make_scoped_ptr(
-          new policy::DeviceLocalAccount(device_local_account)).Pass();
+          new policy::DeviceLocalAccount(device_local_account));
     }
   }
   LOG(WARNING) << "Kiosk app not found in list of device-local accounts";
@@ -311,7 +314,7 @@ DeviceStatusCollector::DeviceStatusCollector(
   // reacquire the location on every user session change or browser crash.
   content::Geoposition position;
   std::string timestamp_str;
-  int64 timestamp;
+  int64_t timestamp;
   const base::DictionaryValue* location =
       local_state_->GetDictionary(prefs::kDeviceLocation);
   if (location->GetDouble(kLatitude, &position.latitude) &&
@@ -446,16 +449,16 @@ void DeviceStatusCollector::PruneStoredActivityPeriods(Time base_time) {
                             TimestampToDayKey(max_time));
 }
 
-void DeviceStatusCollector::TrimStoredActivityPeriods(int64 min_day_key,
+void DeviceStatusCollector::TrimStoredActivityPeriods(int64_t min_day_key,
                                                       int min_day_trim_duration,
-                                                      int64 max_day_key) {
+                                                      int64_t max_day_key) {
   const base::DictionaryValue* activity_times =
       local_state_->GetDictionary(prefs::kDeviceActivityTimes);
 
   scoped_ptr<base::DictionaryValue> copy(activity_times->DeepCopy());
   for (base::DictionaryValue::Iterator it(*activity_times); !it.IsAtEnd();
        it.Advance()) {
-    int64 timestamp;
+    int64_t timestamp;
     if (base::StringToInt64(it.key(), &timestamp)) {
       // Remove data that is too old, or too far in the future.
       if (timestamp >= min_day_key && timestamp < max_day_key) {
@@ -487,7 +490,7 @@ void DeviceStatusCollector::AddActivePeriod(Time start, Time end) {
   Time midnight = start.LocalMidnight();
   while (midnight < end) {
     midnight += TimeDelta::FromDays(1);
-    int64 activity = (std::min(end, midnight) - start).InMilliseconds();
+    int64_t activity = (std::min(end, midnight) - start).InMilliseconds();
     std::string day_key = base::Int64ToString(TimestampToDayKey(start));
     int previous_activity = 0;
     activity_times->GetInteger(day_key, &previous_activity);
@@ -537,7 +540,7 @@ DeviceStatusCollector::GetAutoLaunchedKioskSessionInfo() {
     if (chromeos::KioskAppManager::Get()->GetApp(account->kiosk_app_id,
                                                  &current_app) &&
         current_app.was_auto_launched_with_zero_delay) {
-      return account.Pass();
+      return account;
     }
   }
   // No auto-launched kiosk session active.
@@ -602,7 +605,7 @@ void DeviceStatusCollector::ReceiveCPUStatistics(const std::string& stats) {
     //
     // We only care about the first four numbers: user_time, nice_time,
     // sys_time, and idle_time.
-    uint64 user = 0, nice = 0, system = 0, idle = 0;
+    uint64_t user = 0, nice = 0, system = 0, idle = 0;
     int vals = sscanf(stats.c_str(),
                       "cpu %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64, &user,
                       &nice, &system, &idle);
@@ -610,9 +613,9 @@ void DeviceStatusCollector::ReceiveCPUStatistics(const std::string& stats) {
 
     // The values returned from /proc/stat are cumulative totals, so calculate
     // the difference between the last sample and this one.
-    uint64 active = user + nice + system;
-    uint64 total = active + idle;
-    uint64 last_total = last_cpu_active_ + last_cpu_idle_;
+    uint64_t active = user + nice + system;
+    uint64_t total = active + idle;
+    uint64_t last_total = last_cpu_active_ + last_cpu_idle_;
     DCHECK_GE(active, last_cpu_active_);
     DCHECK_GE(idle, last_cpu_idle_);
     DCHECK_GE(total, last_total);
@@ -654,13 +657,13 @@ void DeviceStatusCollector::GetActivityTimes(
 
   for (base::DictionaryValue::Iterator it(*activity_times); !it.IsAtEnd();
        it.Advance()) {
-    int64 start_timestamp;
+    int64_t start_timestamp;
     int activity_milliseconds;
     if (base::StringToInt64(it.key(), &start_timestamp) &&
         it.value().GetAsInteger(&activity_milliseconds)) {
       // This is correct even when there are leap seconds, because when a leap
       // second occurs, two consecutive seconds have the same timestamp.
-      int64 end_timestamp = start_timestamp + Time::kMillisecondsPerDay;
+      int64_t end_timestamp = start_timestamp + Time::kMillisecondsPerDay;
 
       em::ActiveTimePeriod* active_period = request->add_active_period();
       em::TimePeriod* period = active_period->mutable_time_period();
@@ -977,7 +980,7 @@ std::string DeviceStatusCollector::GetAppVersion(
 
 void DeviceStatusCollector::OnSubmittedSuccessfully() {
   TrimStoredActivityPeriods(last_reported_day_, duration_for_last_reported_day_,
-                            std::numeric_limits<int64>::max());
+                            std::numeric_limits<int64_t>::max());
 }
 
 void DeviceStatusCollector::OnOSVersion(const std::string& version) {

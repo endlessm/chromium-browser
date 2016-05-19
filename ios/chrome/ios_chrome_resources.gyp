@@ -5,9 +5,9 @@
 {
   'variables': {
     'chromium_code': 1,
-    'grit_base_dir': '<(SHARED_INTERMEDIATE_DIR)',
-    'grit_out_dir': '<(grit_base_dir)/ios/chrome',
+    'grit_out_dir': '<(SHARED_INTERMEDIATE_DIR)/ios/chrome',
     'ui_string_overrider_inputs': [
+      '<(SHARED_INTERMEDIATE_DIR)/components/strings/grit/components_locale_settings.h',
       '<(SHARED_INTERMEDIATE_DIR)/components/strings/grit/components_strings.h',
       '<(SHARED_INTERMEDIATE_DIR)/ios/chrome/grit/ios_strings.h',
     ],
@@ -35,62 +35,70 @@
       'target_name': 'ios_chrome_resources',
       'type': 'none',
       'dependencies': [
+        'ios_resources_gen',
         'ios_strings_gen',
         'ios_theme_resources_gen',
       ],
     },
     {
+      # GN version: //ios/chrome/app/strings
       'target_name': 'ios_strings_gen',
       'type': 'none',
       'hard_dependency': 1,
       'actions': [
         {
-          'action_name': 'generate_ios_locale_settings',
-          'variables': {
-            'grit_whitelist': '',
-            'grit_grd_file': 'app/strings/ios_locale_settings.grd',
-          },
-          'includes': [ '../../build/grit_action.gypi' ],
-        },
-        {
+          # GN version: //ios/chrome/app/strings:ios_strings
           'action_name': 'generate_ios_strings',
           'variables': {
-            'grit_whitelist': '',
             'grit_grd_file': 'app/strings/ios_strings.grd',
           },
           'includes': [ '../../build/grit_action.gypi' ],
         },
         {
+          # GN version: //ios/chrome/app/strings:ios_chromium_strings
           'action_name': 'generate_ios_chromium_strings',
           'variables': {
-            'grit_whitelist': '',
             'grit_grd_file': 'app/strings/ios_chromium_strings.grd',
           },
           'includes': [ '../../build/grit_action.gypi' ],
         },
         {
+          # GN version: //ios/chrome/app/strings:ios_google_chrome_strings
           'action_name': 'generate_ios_google_chrome_strings',
           'variables': {
-            'grit_whitelist': '',
             'grit_grd_file': 'app/strings/ios_google_chrome_strings.grd',
           },
           'includes': [ '../../build/grit_action.gypi' ],
         },
       ],
-      'includes': [ '../../build/grit_target.gypi' ],
-      # Override the exported include-dirs; ios/chrome/grit/ios_*strings.h
-      # should only be referenceable as ios/chrome/grit to allow DEPS-time
-      # checking of usage.
       'direct_dependent_settings': {
         'include_dirs': [
-          '<(grit_base_dir)',
+          '<(SHARED_INTERMEDIATE_DIR)',
         ],
-        'include_dirs!': [
-          '<(grit_out_dir)',
-        ],
-      }
+      },
     },
     {
+      # GN version: //ios/chrome/app/resources
+      'target_name': 'ios_resources_gen',
+      'type': 'none',
+      'hard_dependency': 1,
+      'actions': [
+        {
+          'action_name': 'ios_resources',
+          'variables': {
+            'grit_grd_file': 'app/resources/ios_resources.grd',
+          },
+          'includes': [ '../../build/grit_action.gypi' ],
+        },
+      ],
+      'direct_dependent_settings': {
+        'include_dirs': [
+          '<(SHARED_INTERMEDIATE_DIR)',
+        ],
+      },
+    },
+    {
+      # GN version: //ios/chrome/app/theme
       'target_name': 'ios_theme_resources_gen',
       'type': 'none',
       'hard_dependency': 1,
@@ -98,21 +106,14 @@
         {
           'action_name': 'ios_theme_resources',
           'variables': {
-            'grit_whitelist': '',
             'grit_grd_file': 'app/theme/ios_theme_resources.grd',
           },
           'includes': [ '../../build/grit_action.gypi' ],
         },
       ],
-      'includes': [ '../../build/grit_target.gypi' ],
-      # Override the exported include-dirs; ios_theme_resources.h should only be
-      # referencable as ios/chrome/grit/ to allow DEPS-time checking of usage.
       'direct_dependent_settings': {
         'include_dirs': [
-          '<(grit_base_dir)',
-        ],
-        'include_dirs!': [
-          '<(grit_out_dir)',
+          '<(SHARED_INTERMEDIATE_DIR)',
         ],
       },
     },
@@ -133,7 +134,7 @@
             'repack_locales_path': 'tools/build/ios_repack_locales.py',
           },
           'inputs': [
-            'tools/build/ios_repack_locales.py',
+            '<(repack_locales_path)',
             '<!@pymod_do_main(ios_repack_locales -i '
               '-s <(SHARED_INTERMEDIATE_DIR) '
               '-x <(SHARED_INTERMEDIATE_DIR)/repack_ios '
@@ -148,7 +149,7 @@
           ],
           'action': [
             'python',
-            'tools/build/ios_repack_locales.py',
+            '<(repack_locales_path)',
             '-x', '<(SHARED_INTERMEDIATE_DIR)/repack_ios',
             '-s', '<(SHARED_INTERMEDIATE_DIR)',
             '-b', '<(branding_path_component)',
@@ -196,6 +197,7 @@
           'variables': {
             'pak_inputs': [
               '<(SHARED_INTERMEDIATE_DIR)/components/components_resources.pak',
+              '<(SHARED_INTERMEDIATE_DIR)/ios/chrome/ios_resources.pak',
               '<(SHARED_INTERMEDIATE_DIR)/net/net_resources.pak',
               '<(SHARED_INTERMEDIATE_DIR)/ui/resources/webui_resources.pak',
             ],

@@ -11,6 +11,7 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
@@ -26,18 +27,9 @@
 class ImmersiveModeControllerAshTest : public TestWithBrowserView {
  public:
   ImmersiveModeControllerAshTest()
-      : TestWithBrowserView(Browser::TYPE_TABBED,
-                            chrome::HOST_DESKTOP_TYPE_ASH,
-                            false) {
-  }
-  ImmersiveModeControllerAshTest(
-      Browser::Type browser_type,
-      chrome::HostDesktopType host_desktop_type,
-      bool hosted_app)
-      : TestWithBrowserView(browser_type,
-                            host_desktop_type,
-                            hosted_app) {
-  }
+      : TestWithBrowserView(Browser::TYPE_TABBED, false) {}
+  ImmersiveModeControllerAshTest(Browser::Type browser_type, bool hosted_app)
+      : TestWithBrowserView(browser_type, hosted_app) {}
   ~ImmersiveModeControllerAshTest() override {}
 
   // TestWithBrowserView override:
@@ -271,14 +263,33 @@ TEST_F(ImmersiveModeControllerAshTest, TabAndBrowserFullscreen) {
   EXPECT_TRUE(controller()->ShouldHideTabIndicators());
 }
 
+// Ensure the circular tab-loading throbbers are not painted as layers in
+// immersive fullscreen, since the tab strip may animate in or out without
+// moving the layers.
+TEST_F(ImmersiveModeControllerAshTest, LayeredSpinners) {
+  AddTab(browser(), GURL("about:blank"));
+
+  TabStrip* tabstrip = browser_view()->tabstrip();
+
+  // Immersive fullscreen starts out disabled; layers are OK.
+  EXPECT_FALSE(browser_view()->GetWidget()->IsFullscreen());
+  EXPECT_FALSE(controller()->IsEnabled());
+  EXPECT_TRUE(tabstrip->CanPaintThrobberToLayer());
+
+  ToggleFullscreen();
+  EXPECT_TRUE(browser_view()->GetWidget()->IsFullscreen());
+  EXPECT_TRUE(controller()->IsEnabled());
+  EXPECT_FALSE(tabstrip->CanPaintThrobberToLayer());
+
+  ToggleFullscreen();
+  EXPECT_TRUE(tabstrip->CanPaintThrobberToLayer());
+}
+
 class ImmersiveModeControllerAshTestHostedApp
     : public ImmersiveModeControllerAshTest {
  public:
   ImmersiveModeControllerAshTestHostedApp()
-      : ImmersiveModeControllerAshTest(Browser::TYPE_POPUP,
-                                       chrome::HOST_DESKTOP_TYPE_ASH,
-                                       true) {
-  }
+      : ImmersiveModeControllerAshTest(Browser::TYPE_POPUP, true) {}
   ~ImmersiveModeControllerAshTestHostedApp() override {}
 
  private:

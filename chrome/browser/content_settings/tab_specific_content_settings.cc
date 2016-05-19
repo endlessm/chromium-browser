@@ -8,9 +8,9 @@
 
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browsing_data/browsing_data_appcache_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_cookie_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_database_helper.h"
@@ -33,6 +33,7 @@
 #include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_details.h"
@@ -239,9 +240,6 @@ bool TabSpecificContentSettings::IsContentBlocked(
   DCHECK_NE(CONTENT_SETTINGS_TYPE_NOTIFICATIONS, content_type)
       << "Notifications settings handled by "
       << "ContentSettingsNotificationsImageModel";
-  DCHECK_NE(CONTENT_SETTINGS_TYPE_MEDIASTREAM, content_type)
-      << "The Mediastream content setting is deprecated. "
-      << "Call IsContentBlocked for camera and microphone settings instead.";
 
   if (content_type == CONTENT_SETTINGS_TYPE_IMAGES ||
       content_type == CONTENT_SETTINGS_TYPE_JAVASCRIPT ||
@@ -253,7 +251,8 @@ bool TabSpecificContentSettings::IsContentBlocked(
       content_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA ||
       content_type == CONTENT_SETTINGS_TYPE_PPAPI_BROKER ||
       content_type == CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS ||
-      content_type == CONTENT_SETTINGS_TYPE_MIDI_SYSEX) {
+      content_type == CONTENT_SETTINGS_TYPE_MIDI_SYSEX ||
+      content_type == CONTENT_SETTINGS_TYPE_KEYGEN) {
     const auto& it = content_settings_status_.find(content_type);
     if (it != content_settings_status_.end())
       return it->second.blocked;
@@ -278,9 +277,8 @@ void TabSpecificContentSettings::SetBlockageHasBeenIndicated(
 bool TabSpecificContentSettings::IsContentAllowed(
     ContentSettingsType content_type) const {
   // This method currently only returns meaningful values for the content type
-  // cookies, mediastream, PPAPI broker, and downloads.
+  // cookies, media, PPAPI broker, downloads, and MIDI sysex.
   if (content_type != CONTENT_SETTINGS_TYPE_COOKIES &&
-      content_type != CONTENT_SETTINGS_TYPE_MEDIASTREAM &&
       content_type != CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC &&
       content_type != CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA &&
       content_type != CONTENT_SETTINGS_TYPE_PPAPI_BROKER &&
@@ -522,6 +520,16 @@ void TabSpecificContentSettings::OnGeolocationPermissionSet(
       content::NotificationService::NoDetails());
 }
 
+void TabSpecificContentSettings::OnDidUseKeygen(const GURL& origin_url) {
+  HostContentSettingsMap* map = HostContentSettingsMapFactory::GetForProfile(
+      Profile::FromBrowserContext(web_contents()->GetBrowserContext()));
+  GURL url = web_contents()->GetLastCommittedURL();
+  if (map->GetContentSetting(url, url, CONTENT_SETTINGS_TYPE_KEYGEN,
+                             std::string()) != CONTENT_SETTING_ALLOW) {
+    OnContentBlocked(CONTENT_SETTINGS_TYPE_KEYGEN);
+  }
+}
+
 #if defined(OS_ANDROID) || defined(OS_CHROMEOS)
 void TabSpecificContentSettings::OnProtectedMediaIdentifierPermissionSet(
     const GURL& requesting_origin,
@@ -750,6 +758,7 @@ bool TabSpecificContentSettings::OnMessageReceived(
   IPC_BEGIN_MESSAGE_MAP(TabSpecificContentSettings, message)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_ContentBlocked,
                         OnContentBlockedWithDetail)
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_DidUseKeygen, OnDidUseKeygen)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -834,7 +843,6 @@ void TabSpecificContentSettings::BlockAllContentForTesting() {
   for (const content_settings::ContentSettingsInfo* info : *registry) {
     ContentSettingsType type = info->website_settings_info()->type();
     if (type != CONTENT_SETTINGS_TYPE_GEOLOCATION &&
-        type != CONTENT_SETTINGS_TYPE_MEDIASTREAM &&
         type != CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC &&
         type != CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA) {
       OnContentBlocked(type);

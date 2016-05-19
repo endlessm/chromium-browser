@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "components/password_manager/content/common/credential_manager_messages.h"
 #include "components/password_manager/content/renderer/credential_manager_client.h"
 #include "content/public/test/render_view_test.h"
@@ -10,6 +12,7 @@
 #include "third_party/WebKit/public/platform/WebCredential.h"
 #include "third_party/WebKit/public/platform/WebCredentialManagerClient.h"
 #include "third_party/WebKit/public/platform/WebCredentialManagerError.h"
+#include "third_party/WebKit/public/platform/WebPassOwnPtr.h"
 #include "third_party/WebKit/public/platform/WebPasswordCredential.h"
 
 namespace password_manager {
@@ -45,7 +48,7 @@ class CredentialManagerClientTest : public content::RenderViewTest {
   // returns false, and the |request_id| is set to -1.
   //
   // Clears any pending messages upon return.
-  bool ExtractRequestId(uint32 message_id, int& request_id) {
+  bool ExtractRequestId(uint32_t message_id, int& request_id) {
     request_id = -1;
     const IPC::Message* message = sink().GetFirstMessageMatching(message_id);
     if (!message)
@@ -67,7 +70,7 @@ class CredentialManagerClientTest : public content::RenderViewTest {
       }
 
       case CredentialManagerHostMsg_RequestCredential::ID: {
-        base::Tuple<int, bool, std::vector<GURL>> param;
+        base::Tuple<int, bool, bool, std::vector<GURL>> param;
         CredentialManagerHostMsg_RequestCredential::Read(message, &param);
         request_id = base::get<0>(param);
         break;
@@ -109,7 +112,7 @@ class TestNotificationCallbacks
 
   void onSuccess() override { test_->set_callback_succeeded(true); }
 
-  void onError(blink::WebCredentialManagerError* reason) override {
+  void onError(blink::WebCredentialManagerError reason) override {
     test_->set_callback_errored(true);
   }
 
@@ -125,11 +128,11 @@ class TestRequestCallbacks
 
   ~TestRequestCallbacks() override {}
 
-  void onSuccess(blink::WebCredential*) override {
+  void onSuccess(blink::WebPassOwnPtr<blink::WebCredential>) override {
     test_->set_callback_succeeded(true);
   }
 
-  void onError(blink::WebCredentialManagerError* reason) override {
+  void onError(blink::WebCredentialManagerError reason) override {
     test_->set_callback_errored(true);
   }
 
@@ -179,7 +182,7 @@ TEST_F(CredentialManagerClientTest, SendRequestCredential) {
 
   scoped_ptr<TestRequestCallbacks> callbacks(new TestRequestCallbacks(this));
   std::vector<GURL> federations;
-  client_->dispatchGet(false, federations, callbacks.release());
+  client_->dispatchGet(false, true, federations, callbacks.release());
 
   EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_RequestCredential::ID,
                                request_id));
@@ -198,7 +201,7 @@ TEST_F(CredentialManagerClientTest, SendRequestCredentialEmpty) {
 
   scoped_ptr<TestRequestCallbacks> callbacks(new TestRequestCallbacks(this));
   std::vector<GURL> federations;
-  client_->dispatchGet(false, federations, callbacks.release());
+  client_->dispatchGet(false, true, federations, callbacks.release());
 
   EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_RequestCredential::ID,
                                request_id));

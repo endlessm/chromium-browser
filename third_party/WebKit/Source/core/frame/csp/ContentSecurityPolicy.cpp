@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 
-#include "bindings/core/v8/ScriptCallStackFactory.h"
+#include "bindings/core/v8/ScriptCallStack.h"
 #include "bindings/core/v8/ScriptController.h"
 #include "core/dom/DOMStringList.h"
 #include "core/dom/Document.h"
@@ -42,7 +41,6 @@
 #include "core/frame/csp/SourceListDirective.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "core/inspector/InspectorInstrumentation.h"
-#include "core/inspector/ScriptCallStack.h"
 #include "core/loader/DocumentLoader.h"
 #include "core/loader/PingLoader.h"
 #include "platform/JSONValues.h"
@@ -138,13 +136,6 @@ static UseCounter::Feature getUseCounterType(ContentSecurityPolicyHeaderType typ
     }
     ASSERT_NOT_REACHED();
     return UseCounter::NumberOfFeatures;
-}
-
-static ReferrerPolicy mergeReferrerPolicies(ReferrerPolicy a, ReferrerPolicy b)
-{
-    if (a != b)
-        return ReferrerPolicyNever;
-    return a;
 }
 
 ContentSecurityPolicy::ContentSecurityPolicy()
@@ -285,10 +276,10 @@ void ContentSecurityPolicy::addPolicyFromHeaderValue(const String& header, Conte
         //        ^                  ^
         OwnPtr<CSPDirectiveList> policy = CSPDirectiveList::create(this, begin, position, type, source);
 
-        if (type != ContentSecurityPolicyHeaderTypeReport && policy->didSetReferrerPolicy()) {
-            // FIXME: We need a 'ReferrerPolicyUnset' enum to avoid confusing code like this.
-            m_referrerPolicy = didSetReferrerPolicy() ? mergeReferrerPolicies(m_referrerPolicy, policy->referrerPolicy()) : policy->referrerPolicy();
-        }
+        // When a referrer policy has already been set, the most recent
+        // one takes precedence.
+        if (type != ContentSecurityPolicyHeaderTypeReport && policy->didSetReferrerPolicy())
+            m_referrerPolicy = policy->getReferrerPolicy();
 
         if (!policy->allowEval(0, SuppressReport) && m_disableEvalErrorMessage.isNull())
             m_disableEvalErrorMessage = policy->evalDisabledErrorMessage();
@@ -471,6 +462,17 @@ bool ContentSecurityPolicy::allowEval(ScriptState* scriptState, ContentSecurityP
     return isAllowedByAllWithStateAndExceptionStatus<&CSPDirectiveList::allowEval>(m_policies, scriptState, reportingStatus, exceptionStatus);
 }
 
+bool ContentSecurityPolicy::allowDynamic() const
+{
+    if (!experimentalFeaturesEnabled())
+        return false;
+    for (const auto& policy : m_policies) {
+        if (!policy->allowDynamic())
+            return false;
+    }
+    return true;
+}
+
 String ContentSecurityPolicy::evalDisabledErrorMessage() const
 {
     for (const auto& policy : m_policies) {
@@ -629,12 +631,12 @@ bool ContentSecurityPolicy::isActive() const
     return !m_policies.isEmpty();
 }
 
-ReflectedXSSDisposition ContentSecurityPolicy::reflectedXSSDisposition() const
+ReflectedXSSDisposition ContentSecurityPolicy::getReflectedXSSDisposition() const
 {
     ReflectedXSSDisposition disposition = ReflectedXSSUnset;
     for (const auto& policy : m_policies) {
-        if (policy->reflectedXSSDisposition() > disposition)
-            disposition = std::max(disposition, policy->reflectedXSSDisposition());
+        if (policy->getReflectedXSSDisposition() > disposition)
+            disposition = std::max(disposition, policy->getReflectedXSSDisposition());
     }
     return disposition;
 }
@@ -717,22 +719,21 @@ static void gatherSecurityPolicyViolationEventData(SecurityPolicyViolationEventI
     if (!SecurityOrigin::isSecure(document->url()) && document->loader())
         init.setStatusCode(document->loader()->response().httpStatusCode());
 
-    RefPtrWillBeRawPtr<ScriptCallStack> stack = currentScriptCallStack(1);
-    if (!stack || !stack->size())
+    RefPtr<ScriptCallStack> stack = ScriptCallStack::capture(1);
+    if (!stack || stack->isEmpty())
         return;
 
-    const ScriptCallFrame& callFrame = stack->at(0);
-
-    if (callFrame.lineNumber()) {
-        KURL source = KURL(ParsedURLString, callFrame.sourceURL());
+    if (stack->topLineNumber()) {
+        KURL source = KURL(ParsedURLString, stack->topSourceURL());
         init.setSourceFile(stripURLForUseInReport(document, source));
-        init.setLineNumber(callFrame.lineNumber());
-        init.setColumnNumber(callFrame.columnNumber());
+        init.setLineNumber(stack->topLineNumber());
+        init.setColumnNumber(stack->topColumnNumber());
     }
 }
 
-void ContentSecurityPolicy::reportViolation(const String& directiveText, const String& effectiveDirective, const String& consoleMessage, const KURL& blockedURL, const Vector<String>& reportEndpoints, const String& header, LocalFrame* contextFrame)
+void ContentSecurityPolicy::reportViolation(const String& directiveText, const String& effectiveDirective, const String& consoleMessage, const KURL& blockedURL, const Vector<String>& reportEndpoints, const String& header, ViolationType violationType, LocalFrame* contextFrame)
 {
+    ASSERT(violationType == URLViolation || blockedURL.isEmpty());
     ASSERT((m_executionContext && !contextFrame) || (equalIgnoringCase(effectiveDirective, ContentSecurityPolicy::FrameAncestors) && contextFrame));
 
     // FIXME: Support sending reports from worker.
@@ -775,7 +776,17 @@ void ContentSecurityPolicy::reportViolation(const String& directiveText, const S
     cspReport->setString("violated-directive", violationData.violatedDirective());
     cspReport->setString("effective-directive", violationData.effectiveDirective());
     cspReport->setString("original-policy", violationData.originalPolicy());
-    cspReport->setString("blocked-uri", violationData.blockedURI());
+    switch (violationType) {
+    case InlineViolation:
+        cspReport->setString("blocked-uri", "inline");
+        break;
+    case EvalViolation:
+        cspReport->setString("blocked-uri", "eval");
+        break;
+    case URLViolation:
+        cspReport->setString("blocked-uri", violationData.blockedURI());
+        break;
+    }
     if (!violationData.sourceFile().isEmpty() && violationData.lineNumber()) {
         cspReport->setString("source-file", violationData.sourceFile());
         cspReport->setNumber("line-number", violationData.lineNumber());

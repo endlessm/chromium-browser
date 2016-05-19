@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "build/build_config.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/view_ids.h"
@@ -140,12 +141,10 @@ gfx::Range FindBarHost::GetSelectedRange() {
 
 void FindBarHost::UpdateUIForFindResult(const FindNotificationDetails& result,
                                         const base::string16& find_text) {
-  // Make sure match count is clear. It may get set again in UpdateForResult
-  // if enough data is available.
-  find_bar_view()->ClearMatchCount();
-
   if (!find_text.empty())
     find_bar_view()->UpdateForResult(result, find_text);
+  else
+    find_bar_view()->ClearMatchCount();
 
   // We now need to check if the window is obscuring the search results.
   MoveWindowIfNecessary(result.selection_rect());
@@ -300,21 +299,14 @@ gfx::Rect FindBarHost::GetDialogPosition(gfx::Rect avoid_overlapping_rect) {
   gfx::Rect new_pos = FindBarController::GetLocationForFindbarView(
       view_location, widget_bounds, avoid_overlapping_rect);
 
-  // While we are animating, the Find window will grow bottoms up so we need to
-  // re-position the widget so that it appears to grow out of the toolbar.
-  if (animation_offset() > 0)
-    new_pos.Offset(0, std::min(0, -animation_offset()));
-
   return new_pos;
 }
 
 void FindBarHost::SetDialogPosition(const gfx::Rect& new_pos) {
+  DropdownBarHost::SetDialogPosition(new_pos);
+
   if (new_pos.IsEmpty())
     return;
-
-  if (!host()->IsVisible())
-    host()->Show();
-  host()->SetBounds(new_pos);
 
   // Tell the immersive mode controller about the find bar's new bounds. The
   // immersive mode controller uses the bounds to keep the top-of-window views

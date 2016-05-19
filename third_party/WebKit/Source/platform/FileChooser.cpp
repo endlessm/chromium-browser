@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/FileChooser.h"
 
 namespace blink {
@@ -87,4 +86,4 @@ Vector<String> FileChooserSettings::acceptTypes() const
     return acceptTypes;
 }
 
-}
+} // namespace blink

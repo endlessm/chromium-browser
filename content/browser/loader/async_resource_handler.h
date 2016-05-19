@@ -5,12 +5,16 @@
 #ifndef CONTENT_BROWSER_LOADER_ASYNC_RESOURCE_HANDLER_H_
 #define CONTENT_BROWSER_LOADER_ASYNC_RESOURCE_HANDLER_H_
 
+#include <stdint.h>
+
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/timer/timer.h"
 #include "content/browser/loader/resource_handler.h"
 #include "content/browser/loader/resource_message_delegate.h"
+#include "net/base/io_buffer.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -52,6 +56,8 @@ class AsyncResourceHandler : public ResourceHandler,
   void OnDataDownloaded(int bytes_downloaded) override;
 
  private:
+  class InliningHelper;
+
   // IPC message handlers:
   void OnFollowRedirect(int request_id);
   void OnDataReceivedACK(int request_id);
@@ -62,6 +68,9 @@ class AsyncResourceHandler : public ResourceHandler,
   bool EnsureResourceBufferIsInitialized();
   void ResumeIfDeferred();
   void OnDefer();
+  bool CheckForSufficientResource();
+  int CalculateEncodedDataLengthToReport();
+  void RecordHistogram();
 
   scoped_refptr<ResourceBuffer> buffer_;
   ResourceDispatcherHostImpl* rdh_;
@@ -76,9 +85,12 @@ class AsyncResourceHandler : public ResourceHandler,
 
   bool has_checked_for_sufficient_resources_;
   bool sent_received_response_msg_;
-  bool sent_first_data_msg_;
+  bool sent_data_buffer_msg_;
 
-  uint64 last_upload_position_;
+  scoped_ptr<InliningHelper> inlining_helper_;
+  base::TimeTicks response_started_ticks_;
+
+  uint64_t last_upload_position_;
   bool waiting_for_upload_progress_ack_;
   base::TimeTicks last_upload_ticks_;
   base::RepeatingTimer progress_timer_;

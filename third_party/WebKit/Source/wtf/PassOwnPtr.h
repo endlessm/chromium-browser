@@ -27,6 +27,8 @@
 #ifndef WTF_PassOwnPtr_h
 #define WTF_PassOwnPtr_h
 
+#include "wtf/Allocator.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/OwnPtrCommon.h"
 
 namespace WTF {
@@ -37,8 +39,9 @@ template <typename T> PassOwnPtr<T> adoptPtr(T*);
 template <typename T> PassOwnPtr<T[]> adoptArrayPtr(T*);
 
 template <typename T> class PassOwnPtr {
+    DISALLOW_NEW();
 public:
-    typedef typename RemoveExtent<T>::Type ValueType;
+    typedef typename std::remove_extent<T>::type ValueType;
     typedef ValueType* PtrType;
 
     PassOwnPtr() : m_ptr(nullptr) {}
@@ -74,35 +77,15 @@ public:
 private:
     explicit PassOwnPtr(PtrType ptr) : m_ptr(ptr) {}
 
-    PassOwnPtr& operator=(const PassOwnPtr&)
-    {
-        static_assert(!sizeof(T*), "PassOwnPtr should never be assigned to");
-        return *this;
-    }
+    PassOwnPtr& operator=(const PassOwnPtr&) = delete;
 
     // We should never have two OwnPtrs for the same underlying object
     // (otherwise we'll get double-destruction), so these equality operators
     // should never be needed.
-    template <typename U> bool operator==(const PassOwnPtr<U>&) const
-    {
-        static_assert(!sizeof(U*), "OwnPtrs should never be equal");
-        return false;
-    }
-    template <typename U> bool operator!=(const PassOwnPtr<U>&) const
-    {
-        static_assert(!sizeof(U*), "OwnPtrs should never be equal");
-        return false;
-    }
-    template <typename U> bool operator==(const OwnPtr<U>&) const
-    {
-        static_assert(!sizeof(U*), "OwnPtrs should never be equal");
-        return false;
-    }
-    template <typename U> bool operator!=(const OwnPtr<U>&) const
-    {
-        static_assert(!sizeof(U*), "OwnPtrs should never be equal");
-        return false;
-    }
+    template <typename U> bool operator==(const PassOwnPtr<U>&) const = delete;
+    template <typename U> bool operator!=(const PassOwnPtr<U>&) const = delete;
+    template <typename U> bool operator==(const OwnPtr<U>&) const = delete;
+    template <typename U> bool operator!=(const OwnPtr<U>&) const = delete;
 
     mutable PtrType m_ptr;
 };
@@ -111,7 +94,7 @@ template <typename T>
 template <typename U> inline PassOwnPtr<T>::PassOwnPtr(const PassOwnPtr<U>& o, EnsurePtrConvertibleArgDefn(U, T))
     : m_ptr(o.leakPtr())
 {
-    static_assert(!IsArray<T>::value, "pointers to array must never be converted");
+    static_assert(!std::is_array<T>::value, "pointers to array must never be converted");
 }
 
 template <typename T> inline typename PassOwnPtr<T>::PtrType PassOwnPtr<T>::leakPtr() const
@@ -153,7 +136,7 @@ template <typename T> inline PassOwnPtr<T[]> adoptArrayPtr(T* ptr)
 
 template <typename T, typename U> inline PassOwnPtr<T> static_pointer_cast(const PassOwnPtr<U>& p)
 {
-    static_assert(!IsArray<T>::value, "pointers to array must never be converted");
+    static_assert(!std::is_array<T>::value, "pointers to array must never be converted");
     return adoptPtr(static_cast<T*>(p.leakPtr()));
 }
 

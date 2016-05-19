@@ -10,7 +10,9 @@
 
 #include "webrtc/base/buffer.h"
 
+#include <algorithm>
 #include <cassert>
+#include <utility>
 
 namespace rtc {
 
@@ -22,7 +24,9 @@ Buffer::Buffer(const Buffer& buf) : Buffer(buf.data(), buf.size()) {
 }
 
 Buffer::Buffer(Buffer&& buf)
-    : size_(buf.size()), capacity_(buf.capacity()), data_(buf.data_.Pass()) {
+    : size_(buf.size()),
+      capacity_(buf.capacity()),
+      data_(std::move(buf.data_)) {
   assert(IsConsistent());
   buf.OnMovedFrom();
 }

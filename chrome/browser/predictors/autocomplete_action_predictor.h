@@ -6,7 +6,9 @@
 #define CHROME_BROWSER_PREDICTORS_AUTOCOMPLETE_ACTION_PREDICTOR_H_
 
 #include <map>
+#include <tuple>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -122,6 +124,7 @@ class AutocompleteActionPredictor
 
   struct TransitionalMatch {
     TransitionalMatch();
+    TransitionalMatch(const TransitionalMatch& other);
     ~TransitionalMatch();
 
     base::string16 user_text;
@@ -137,8 +140,7 @@ class AutocompleteActionPredictor
     GURL url;
 
     bool operator<(const DBCacheKey& rhs) const {
-      return (user_text != rhs.user_text) ?
-          (user_text < rhs.user_text) :  (url < rhs.url);
+      return std::tie(user_text, url) < std::tie(rhs.user_text, rhs.url);
     }
 
     bool operator==(const DBCacheKey& rhs) const {

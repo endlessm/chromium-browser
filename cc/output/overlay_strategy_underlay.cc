@@ -20,8 +20,7 @@ OverlayStrategyUnderlay::~OverlayStrategyUnderlay() {}
 
 bool OverlayStrategyUnderlay::Attempt(ResourceProvider* resource_provider,
                                       RenderPassList* render_passes,
-                                      OverlayCandidateList* candidate_list,
-                                      gfx::Rect* damage_rect) {
+                                      OverlayCandidateList* candidate_list) {
   QuadList& quad_list = render_passes->back()->quad_list;
   for (auto it = quad_list.begin(); it != quad_list.end(); ++it) {
     OverlayCandidate candidate;
@@ -39,6 +38,8 @@ bool OverlayStrategyUnderlay::Attempt(ResourceProvider* resource_provider,
     // If the candidate can be handled by an overlay, create a pass for it. We
     // need to switch out the video quad with a black transparent one.
     if (new_candidate_list.back().overlay_handled) {
+      new_candidate_list.back().is_unoccluded =
+          !OverlayCandidate::IsOccluded(candidate, quad_list.cbegin(), it);
       const SharedQuadState* shared_quad_state = it->shared_quad_state;
       gfx::Rect rect = it->visible_rect;
       SolidColorDrawQuad* replacement =

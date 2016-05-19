@@ -30,18 +30,17 @@ void IndexedDBDatabaseCallbacks::OnForcedClose() {
   dispatcher_host_ = NULL;
 }
 
-void IndexedDBDatabaseCallbacks::OnVersionChange(int64 old_version,
-                                                        int64 new_version) {
+void IndexedDBDatabaseCallbacks::OnVersionChange(int64_t old_version,
+                                                 int64_t new_version) {
   if (!dispatcher_host_.get())
     return;
 
-  dispatcher_host_->Send(new IndexedDBMsg_DatabaseCallbacksIntVersionChange(
+  dispatcher_host_->Send(new IndexedDBMsg_DatabaseCallbacksVersionChange(
       ipc_thread_id_, ipc_database_callbacks_id_, old_version, new_version));
 }
 
-void IndexedDBDatabaseCallbacks::OnAbort(
-    int64 host_transaction_id,
-    const IndexedDBDatabaseError& error) {
+void IndexedDBDatabaseCallbacks::OnAbort(int64_t host_transaction_id,
+                                         const IndexedDBDatabaseError& error) {
   if (!dispatcher_host_.get())
     return;
 
@@ -54,7 +53,7 @@ void IndexedDBDatabaseCallbacks::OnAbort(
       error.message()));
 }
 
-void IndexedDBDatabaseCallbacks::OnComplete(int64 host_transaction_id) {
+void IndexedDBDatabaseCallbacks::OnComplete(int64_t host_transaction_id) {
   if (!dispatcher_host_.get())
     return;
 

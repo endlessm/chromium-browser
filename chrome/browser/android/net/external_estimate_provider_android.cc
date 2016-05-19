@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include "base/android/context_utils.h"
 #include "base/message_loop/message_loop.h"
 #include "content/public/browser/browser_thread.h"
 #include "jni/ExternalEstimateProviderAndroid_jni.h"
@@ -14,11 +15,12 @@ namespace chrome {
 namespace android {
 
 ExternalEstimateProviderAndroid::ExternalEstimateProviderAndroid()
-    : task_runner_(nullptr), delegate_(nullptr), weak_factory_(this) {
+    : task_runner_(nullptr),
+      delegate_(nullptr),
+      weak_factory_(this) {
   if (base::MessageLoop::current())
     task_runner_ = base::MessageLoop::current()->task_runner();
   JNIEnv* env = base::android::AttachCurrentThread();
-  DCHECK(j_external_estimate_provider_.is_null());
   j_external_estimate_provider_.Reset(
       Java_ExternalEstimateProviderAndroid_create(
           env, base::android::GetApplicationContext(),
@@ -31,6 +33,9 @@ ExternalEstimateProviderAndroid::ExternalEstimateProviderAndroid()
 ExternalEstimateProviderAndroid::~ExternalEstimateProviderAndroid() {
   DCHECK(thread_checker_.CalledOnValidThread());
   net::NetworkChangeNotifier::RemoveConnectionTypeObserver(this);
+  Java_ExternalEstimateProviderAndroid_destroy(
+      base::android::AttachCurrentThread(),
+      j_external_estimate_provider_.obj());
 }
 
 bool ExternalEstimateProviderAndroid::GetRTT(base::TimeDelta* rtt) const {
@@ -39,7 +44,7 @@ bool ExternalEstimateProviderAndroid::GetRTT(base::TimeDelta* rtt) const {
   int32_t milliseconds =
       Java_ExternalEstimateProviderAndroid_getRTTMilliseconds(
           env, j_external_estimate_provider_.obj());
-  DCHECK(milliseconds >= no_value_);
+  DCHECK_GE(milliseconds, no_value_);
   if (milliseconds == no_value_)
     return false;
   *rtt = base::TimeDelta::FromMilliseconds(milliseconds);
@@ -53,7 +58,7 @@ bool ExternalEstimateProviderAndroid::GetDownstreamThroughputKbps(
   int32_t kbps =
       Java_ExternalEstimateProviderAndroid_getDownstreamThroughputKbps(
           env, j_external_estimate_provider_.obj());
-  DCHECK(kbps >= no_value_);
+  DCHECK_GE(kbps, no_value_);
   if (kbps == no_value_)
     return false;
   *downstream_throughput_kbps = kbps;
@@ -66,7 +71,7 @@ bool ExternalEstimateProviderAndroid::GetUpstreamThroughputKbps(
   JNIEnv* env = base::android::AttachCurrentThread();
   int32_t kbps = Java_ExternalEstimateProviderAndroid_getUpstreamThroughputKbps(
       env, j_external_estimate_provider_.obj());
-  DCHECK(kbps >= no_value_);
+  DCHECK_GE(kbps, no_value_);
   if (kbps == no_value_)
     return false;
   *upstream_throughput_kbps = kbps;
@@ -80,7 +85,7 @@ bool ExternalEstimateProviderAndroid::GetTimeSinceLastUpdate(
   int32_t seconds =
       Java_ExternalEstimateProviderAndroid_getTimeSinceLastUpdateSeconds(
           env, j_external_estimate_provider_.obj());
-  DCHECK(seconds >= no_value_);
+  DCHECK_GE(seconds, no_value_);
   if (seconds == no_value_) {
     *time_since_last_update = base::TimeDelta::Max();
     return false;
@@ -107,9 +112,19 @@ void ExternalEstimateProviderAndroid::OnConnectionTypeChanged(
 }
 
 void ExternalEstimateProviderAndroid::
-    NotifyExternalEstimateProviderAndroidUpdate(JNIEnv* env, jobject obj) {
+    NotifyExternalEstimateProviderAndroidUpdate(
+        JNIEnv* env,
+        const JavaParamRef<jobject>& obj) {
   if (!task_runner_)
     return;
+
+  // Note that creating a weak pointer is safe even on a background thread,
+  // because this method is called from the same critical section as the Java
+  // destroy() method (so this object can't be destroyed while we're in this
+  // method), and the factory itself isn't bound to a thread, just the weak
+  // pointers are (but they are bound to the thread they're *dereferenced* on,
+  // which is the task runner thread). Once we are outside of the critical
+  // section, the weak pointer will be invalidated if the object is destroyed.
   task_runner_->PostTask(
       FROM_HERE,
       base::Bind(

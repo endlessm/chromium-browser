@@ -21,8 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/LayoutSVGInlineText.h"
 
 #include "core/css/CSSFontSelector.h"
@@ -60,14 +58,6 @@ static PassRefPtr<StringImpl> applySVGWhitespaceRules(PassRefPtr<StringImpl> str
     return newString.release();
 }
 
-static float squaredDistanceToClosestPoint(const FloatRect& rect, const FloatPoint& point)
-{
-    FloatPoint closestPoint;
-    closestPoint.setX(std::max(std::min(point.x(), rect.maxX()), rect.x()));
-    closestPoint.setY(std::max(std::min(point.y(), rect.maxY()), rect.y()));
-    return (point - closestPoint).diagonalLengthSquared();
-}
-
 LayoutSVGInlineText::LayoutSVGInlineText(Node* n, PassRefPtr<StringImpl> string)
     : LayoutText(n, applySVGWhitespaceRules(string, false))
     , m_scalingFactor(1)
@@ -98,8 +88,10 @@ void LayoutSVGInlineText::styleDidChange(StyleDifference diff, const ComputedSty
         return;
 
     // The text metrics may be influenced by style changes.
-    if (LayoutSVGText* textLayoutObject = LayoutSVGText::locateLayoutSVGTextAncestor(this))
+    if (LayoutSVGText* textLayoutObject = LayoutSVGText::locateLayoutSVGTextAncestor(this)) {
+        textLayoutObject->setNeedsTextMetricsUpdate();
         textLayoutObject->setNeedsLayoutAndFullPaintInvalidation(LayoutInvalidationReason::StyleChange);
+    }
 }
 
 InlineTextBox* LayoutSVGInlineText::createTextBox(int start, unsigned short length)
@@ -179,25 +171,17 @@ PositionWithAffinity LayoutSVGInlineText::positionForPoint(const LayoutPoint& po
     const SVGTextFragment* closestDistanceFragment = nullptr;
     SVGInlineTextBox* closestDistanceBox = nullptr;
 
-    AffineTransform fragmentTransform;
     for (InlineTextBox* box = firstTextBox(); box; box = box->nextTextBox()) {
         if (!box->isSVGInlineTextBox())
             continue;
 
         SVGInlineTextBox* textBox = toSVGInlineTextBox(box);
-        Vector<SVGTextFragment>& fragments = textBox->textFragments();
-
-        unsigned textFragmentsSize = fragments.size();
-        for (unsigned i = 0; i < textFragmentsSize; ++i) {
-            const SVGTextFragment& fragment = fragments.at(i);
-            FloatRect fragmentRect(fragment.x, fragment.y - baseline, fragment.width, fragment.height);
-            fragment.buildFragmentTransform(fragmentTransform);
-            if (!fragmentTransform.isIdentity())
-                fragmentRect = fragmentTransform.mapRect(fragmentRect);
+        for (const SVGTextFragment& fragment : textBox->textFragments()) {
+            FloatRect fragmentRect = fragment.boundingBox(baseline);
 
             float distance = 0;
             if (!fragmentRect.contains(absolutePoint))
-                distance = squaredDistanceToClosestPoint(fragmentRect, absolutePoint);
+                distance = fragmentRect.squaredDistanceTo(absolutePoint);
 
             if (distance <= closestDistance) {
                 closestDistance = distance;
@@ -211,7 +195,7 @@ PositionWithAffinity LayoutSVGInlineText::positionForPoint(const LayoutPoint& po
     if (!closestDistanceFragment)
         return createPositionWithAffinity(0);
 
-    int offset = closestDistanceBox->offsetForPositionInFragment(*closestDistanceFragment, absolutePoint.x() - closestDistancePosition, true);
+    int offset = closestDistanceBox->offsetForPositionInFragment(*closestDistanceFragment, LayoutUnit(absolutePoint.x() - closestDistancePosition), true);
     return createPositionWithAffinity(offset + closestDistanceBox->start(), offset > 0 ? VP_UPSTREAM_IF_POSSIBLE : TextAffinity::Downstream);
 }
 
@@ -263,4 +247,4 @@ PassRefPtr<StringImpl> LayoutSVGInlineText::originalText() const
     return applySVGWhitespaceRules(result, style() && style()->whiteSpace() == PRE);
 }
 
-}
+} // namespace blink

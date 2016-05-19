@@ -10,6 +10,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "extensions/browser/extension_prefs_observer.h"
 #include "extensions/common/view_type.h"
@@ -244,6 +245,9 @@ class ExtensionsBrowserClient {
   // Returns a new UpdateClient.
   virtual scoped_refptr<update_client::UpdateClient> CreateUpdateClient(
       content::BrowserContext* context);
+
+  // Returns the tab id for a given |web_contents|.
+  virtual int GetTabIdForWebContents(content::WebContents* web_contents);
 
   // Returns the single instance of |this|.
   static ExtensionsBrowserClient* Get();

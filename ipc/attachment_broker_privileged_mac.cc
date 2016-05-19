@@ -4,6 +4,8 @@
 
 #include "ipc/attachment_broker_privileged_mac.h"
 
+#include <stdint.h>
+
 #include "base/mac/scoped_mach_port.h"
 #include "base/memory/shared_memory.h"
 #include "base/process/port_provider_mac.h"
@@ -41,13 +43,18 @@ kern_return_t SendMachPort(mach_port_t endpoint,
   send_msg.data.disposition = disposition;
   send_msg.data.type = MACH_MSG_PORT_DESCRIPTOR;
 
-  return mach_msg(&send_msg.header,
-                  MACH_SEND_MSG | MACH_SEND_TIMEOUT,
-                  send_msg.header.msgh_size,
-                  0,                // receive limit
-                  MACH_PORT_NULL,   // receive name
-                  0,                // timeout
-                  MACH_PORT_NULL);  // notification port
+  kern_return_t kr =
+      mach_msg(&send_msg.header, MACH_SEND_MSG | MACH_SEND_TIMEOUT,
+               send_msg.header.msgh_size,
+               0,                // receive limit
+               MACH_PORT_NULL,   // receive name
+               0,                // timeout
+               MACH_PORT_NULL);  // notification port
+
+  if (kr != KERN_SUCCESS)
+    mach_port_deallocate(mach_task_self(), endpoint);
+
+  return kr;
 }
 
 }  // namespace
@@ -284,7 +291,7 @@ base::mac::ScopedMachSendRight AttachmentBrokerPrivilegedMac::ExtractNamedRight(
   mach_port_t extracted_right = MACH_PORT_NULL;
   mach_msg_type_name_t extracted_right_type;
   kern_return_t kr =
-      mach_port_extract_right(task_port, named_right, MACH_MSG_TYPE_COPY_SEND,
+      mach_port_extract_right(task_port, named_right, MACH_MSG_TYPE_MOVE_SEND,
                               &extracted_right, &extracted_right_type);
   if (kr != KERN_SUCCESS) {
     LogError(ERROR_EXTRACT_SOURCE_RIGHT);
@@ -293,14 +300,6 @@ base::mac::ScopedMachSendRight AttachmentBrokerPrivilegedMac::ExtractNamedRight(
 
   DCHECK_EQ(static_cast<mach_msg_type_name_t>(MACH_MSG_TYPE_PORT_SEND),
             extracted_right_type);
-
-  // Decrement the reference count of the send right from the source process.
-  kr = mach_port_mod_refs(task_port, named_right, MACH_PORT_RIGHT_SEND, -1);
-  if (kr != KERN_SUCCESS) {
-    LogError(ERROR_DECREASE_REF);
-    // Failure does not actually affect attachment brokering, so there's no need
-    // to return |MACH_PORT_NULL|.
-  }
 
   return base::mac::ScopedMachSendRight(extracted_right);
 }

@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/LayoutObjectChildList.h"
 
 #include "core/dom/AXObjectCache.h"
@@ -74,19 +73,21 @@ LayoutObject* LayoutObjectChildList::removeChildNode(LayoutObject* owner, Layout
     if (oldChild->isBox())
         toLayoutBox(oldChild)->deleteLineBoxWrapper();
 
-    // If oldChild is the start or end of the selection, then clear the selection to
-    // avoid problems of invalid pointers.
-    // FIXME: The FrameSelection should be responsible for this when it
-    // is notified of DOM mutations.
-    if (!owner->documentBeingDestroyed() && oldChild->isSelectionBorder())
-        owner->view()->clearSelection();
 
-    if (!owner->documentBeingDestroyed())
+    if (!owner->documentBeingDestroyed()) {
+        // If oldChild is the start or end of the selection, then clear the selection to
+        // avoid problems of invalid pointers.
+        // FIXME: The FrameSelection should be responsible for this when it
+        // is notified of DOM mutations.
+        if (oldChild->isSelectionBorder())
+            owner->view()->clearSelection();
+
         owner->notifyOfSubtreeChange();
 
-    if (!owner->documentBeingDestroyed() && notifyLayoutObject) {
-        LayoutCounter::layoutObjectSubtreeWillBeDetached(oldChild);
-        oldChild->willBeRemovedFromTree();
+        if (notifyLayoutObject) {
+            LayoutCounter::layoutObjectSubtreeWillBeDetached(oldChild);
+            oldChild->willBeRemovedFromTree();
+        }
     }
 
     // WARNING: There should be no code running between willBeRemovedFromTree and the actual removal below.
@@ -99,9 +100,9 @@ LayoutObject* LayoutObjectChildList::removeChildNode(LayoutObject* owner, Layout
         oldChild->nextSibling()->setPreviousSibling(oldChild->previousSibling());
 
     if (firstChild() == oldChild)
-        setFirstChild(oldChild->nextSibling());
+        m_firstChild = oldChild->nextSibling();
     if (lastChild() == oldChild)
-        setLastChild(oldChild->previousSibling());
+        m_lastChild = oldChild->previousSibling();
 
     oldChild->setPreviousSibling(nullptr);
     oldChild->setNextSibling(nullptr);
@@ -135,7 +136,7 @@ void LayoutObjectChildList::insertChildNode(LayoutObject* owner, LayoutObject* n
     newChild->setParent(owner);
 
     if (firstChild() == beforeChild)
-        setFirstChild(newChild);
+        m_firstChild = newChild;
 
     if (beforeChild) {
         LayoutObject* previousSibling = beforeChild->previousSibling();
@@ -148,7 +149,7 @@ void LayoutObjectChildList::insertChildNode(LayoutObject* owner, LayoutObject* n
         if (lastChild())
             lastChild()->setNextSibling(newChild);
         newChild->setPreviousSibling(lastChild());
-        setLastChild(newChild);
+        m_lastChild = newChild;
     }
 
     if (!owner->documentBeingDestroyed() && notifyLayoutObject) {
@@ -186,7 +187,8 @@ void LayoutObjectChildList::invalidatePaintOnRemoval(LayoutObject& oldChild)
         oldChild.view()->setShouldDoFullPaintInvalidation();
         return;
     }
-    oldChild.invalidatePaintOfPreviousPaintInvalidationRect(*oldChild.containerForPaintInvalidation(), PaintInvalidationLayoutObjectRemoval);
+    oldChild.enclosingLayer()->setNeedsRepaint();
+    oldChild.invalidatePaintOfPreviousPaintInvalidationRect(oldChild.containerForPaintInvalidation(), PaintInvalidationLayoutObjectRemoval);
 }
 
 } // namespace blink

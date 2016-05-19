@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/SVGMatrixTearOff.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -180,4 +179,4 @@ PassRefPtrWillBeRawPtr<SVGMatrixTearOff> SVGMatrixTearOff::rotateFromVector(doub
     return create(copy);
 }
 
-}
+} // namespace blink

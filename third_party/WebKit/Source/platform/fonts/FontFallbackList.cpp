@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/fonts/FontFallbackList.h"
 
 #include "platform/FontFamilyNames.h"
@@ -75,7 +74,7 @@ void FontFallbackList::releaseFontData()
             FontCache::fontCache()->releaseFontData(toSimpleFontData(m_fontList[i]));
         }
     }
-    m_shapeCache.clear();
+    m_shapeCache.clear(); // Clear the weak pointer to the cache instance.
 }
 
 bool FontFallbackList::loadingCustomFonts() const
@@ -153,33 +152,23 @@ const SimpleFontData* FontFallbackList::determinePrimarySimpleFontData(const Fon
 
 PassRefPtr<FontData> FontFallbackList::getFontData(const FontDescription& fontDescription, int& familyIndex) const
 {
-    RefPtr<FontData> result;
+    const FontFamily* currFamily = &fontDescription.family();
+    for (int i = 0; currFamily && i < familyIndex; i++)
+        currFamily = currFamily->next();
 
-    int startIndex = familyIndex;
-    const FontFamily* startFamily = &fontDescription.family();
-    for (int i = 0; startFamily && i < startIndex; i++)
-        startFamily = startFamily->next();
-    const FontFamily* currFamily = startFamily;
-    while (currFamily && !result) {
+    for (; currFamily; currFamily = currFamily->next()) {
         familyIndex++;
         if (currFamily->family().length()) {
+            RefPtr<FontData> result;
             if (m_fontSelector)
                 result = m_fontSelector->getFontData(fontDescription, currFamily->family());
-
             if (!result)
                 result = FontCache::fontCache()->getFontData(fontDescription, currFamily->family());
+            if (result)
+                return result.release();
         }
-        currFamily = currFamily->next();
     }
-
-    if (!currFamily)
-        familyIndex = cAllFamiliesScanned;
-
-    if (result || startIndex)
-        return result.release();
-
-    // If it's the primary font that we couldn't find, we try the following. In all other cases, we will
-    // just use per-character system fallback.
+    familyIndex = cAllFamiliesScanned;
 
     if (m_fontSelector) {
         // Try the user's preferred standard font.
@@ -206,15 +195,8 @@ FallbackListCompositeKey FontFallbackList::compositeKey(const FontDescription& f
                 if (FontPlatformData* platformData = FontCache::fontCache()->getFontPlatformData(fontDescription, params))
                     result = FontCache::fontCache()->fontDataFromFontPlatformData(platformData);
             }
-
-            // Include loading state and version when constructing key, that way if called when a font is loading
-            // and then again once it has been loaded or updated different keys are produced.
-            if (result) {
-                FontCacheKey cacheKey = fontDescription.cacheKey(params, FontTraits(0),
-                    result->isLoading() || result->isLoadingFallback(),
-                    m_fontSelector ? m_fontSelector->version() : 0);
-                key.add(cacheKey);
-            }
+            if (result)
+                key.add(fontDescription.cacheKey(params));
         }
         currentFamily = currentFamily->next();
     }

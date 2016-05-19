@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/notifications/NotificationPermissionClient.h"
 
 #include "core/dom/Document.h"
@@ -33,4 +32,4 @@ void provideNotificationPermissionClientTo(LocalFrame& frame, PassOwnPtrWillBeRa
     frame.provideSupplement(NotificationPermissionClient::supplementName(), client);
 }
 
-}
+} // namespace blink

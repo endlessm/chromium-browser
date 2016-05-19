@@ -4,8 +4,8 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "codec_int.h"
 #include "core/include/fxcodec/fx_codec.h"
+#include "core/src/fxcodec/codec/codec_int.h"
 #include "third_party/lcms2-2.6/include/lcms2.h"
 
 const FX_DWORD N_COMPONENT_LAB = 3;
@@ -102,16 +102,16 @@ void* IccLib_CreateTransform(const unsigned char* pSrcProfileData,
   CLcmsCmm* pCmm = NULL;
   nSrcComponents = 0;
   srcProfile = cmsOpenProfileFromMem((void*)pSrcProfileData, dwSrcProfileSize);
-  if (srcProfile == NULL) {
+  if (!srcProfile) {
     return NULL;
   }
-  if (pDstProfileData == NULL && dwDstProfileSize == 0 && nDstComponents == 3) {
+  if (!pDstProfileData && dwDstProfileSize == 0 && nDstComponents == 3) {
     dstProfile = cmsCreate_sRGBProfile();
   } else {
     dstProfile =
         cmsOpenProfileFromMem((void*)pDstProfileData, dwDstProfileSize);
   }
-  if (dstProfile == NULL) {
+  if (!dstProfile) {
     cmsCloseProfile(srcProfile);
     return NULL;
   }
@@ -153,7 +153,7 @@ void* IccLib_CreateTransform(const unsigned char* pSrcProfileData,
     default:
       break;
   }
-  if (hTransform == NULL) {
+  if (!hTransform) {
     cmsCloseProfile(srcProfile);
     cmsCloseProfile(dstProfile);
     return NULL;
@@ -176,7 +176,7 @@ void* IccLib_CreateTransform_sRGB(const unsigned char* pProfileData,
                                 0, 3, intent, dwSrcFormat);
 }
 void IccLib_DestroyTransform(void* pTransform) {
-  if (pTransform == NULL) {
+  if (!pTransform) {
     return;
   }
   cmsDeleteTransform(((CLcmsCmm*)pTransform)->m_hTransform);
@@ -186,7 +186,7 @@ void IccLib_Translate(void* pTransform,
                       FX_DWORD nSrcComponents,
                       FX_FLOAT* pSrcValues,
                       FX_FLOAT* pDestValues) {
-  if (pTransform == NULL) {
+  if (!pTransform) {
     return;
   }
   CLcmsCmm* p = (CLcmsCmm*)pTransform;
@@ -242,7 +242,7 @@ void* CreateProfile_Gray(double gamma) {
     return NULL;
   }
   cmsToneCurve* curve = cmsBuildGamma(NULL, gamma);
-  if (curve == NULL) {
+  if (!curve) {
     return NULL;
   }
   void* profile = cmsCreateGrayProfile(D50, curve);
@@ -250,7 +250,7 @@ void* CreateProfile_Gray(double gamma) {
   return profile;
 }
 ICodec_IccModule::IccCS GetProfileCSFromHandle(void* pProfile) {
-  if (pProfile == NULL) {
+  if (!pProfile) {
     return ICodec_IccModule::IccCS_Unknown;
   }
   switch (cmsGetColorSpace(pProfile)) {
@@ -286,7 +286,7 @@ ICodec_IccModule::IccCS CCodec_IccModule::GetProfileCS(
   ICodec_IccModule::IccCS cs;
   cmsHPROFILE hProfile =
       cmsOpenProfileFromMem((void*)pProfileData, dwProfileSize);
-  if (hProfile == NULL) {
+  if (!hProfile) {
     return IccCS_Unknown;
   }
   cs = GetProfileCSFromHandle(hProfile);
@@ -296,7 +296,7 @@ ICodec_IccModule::IccCS CCodec_IccModule::GetProfileCS(
   return cs;
 }
 ICodec_IccModule::IccCS CCodec_IccModule::GetProfileCS(IFX_FileRead* pFile) {
-  if (pFile == NULL) {
+  if (!pFile) {
     return IccCS_Unknown;
   }
   ICodec_IccModule::IccCS cs;
@@ -424,11 +424,13 @@ void* CCodec_IccModule::CreateProfile(ICodec_IccModule::IccParam* pIccParam,
         case IccCS_Gray:
           text.Format("%lf", pIccParam->Gamma);
           break;
-        default:;
+        default:
+          break;
       }
       MD5ComputeID(text.GetBuffer(0), text.GetLength(), ID);
       break;
-    default:;
+    default:
+      break;
   }
   key.AppendBlock(ID, 16);
   CFX_ByteString ProfileKey(key.GetBuffer(), key.GetSize());
@@ -476,11 +478,11 @@ void* CCodec_IccModule::CreateTransform(
   ASSERT(pInputParam && pOutputParam);
   CFX_ByteStringKey key;
   void* pInputProfile = CreateProfile(pInputParam, Icc_CLASS_INPUT, &key);
-  if (pInputProfile == NULL) {
+  if (!pInputProfile) {
     return NULL;
   }
   void* pOutputProfile = CreateProfile(pOutputParam, Icc_CLASS_OUTPUT, &key);
-  if (pOutputProfile == NULL) {
+  if (!pOutputProfile) {
     return NULL;
   }
   FX_DWORD dwInputProfileType =

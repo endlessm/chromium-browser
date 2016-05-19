@@ -28,15 +28,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableValueTestHelper.h"
 
 #include "core/layout/ClipPathOperation.h"
 #include "core/style/BasicShapes.h"
 #include "platform/transforms/ScaleTransformOperation.h"
 #include "platform/transforms/TranslateTransformOperation.h"
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include <sstream>
 #include <string>
 
@@ -63,7 +62,7 @@ TEST_F(AnimationAnimatableValueTestHelperTest, PrintTo)
         PrintToString(AnimatableColor::create(Color(0x000000FF), Color(0xFFFF0000))));
 
     EXPECT_THAT(
-        PrintToString(const_cast<AnimatableValue*>(AnimatableValue::neutralValue())),
+        PrintToString(AnimatableValue::neutralValue().get()),
         testing::StartsWith("AnimatableNeutral@"));
 
     EXPECT_THAT(

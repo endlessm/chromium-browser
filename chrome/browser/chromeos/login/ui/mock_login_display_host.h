@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_UI_MOCK_LOGIN_DISPLAY_HOST_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_UI_MOCK_LOGIN_DISPLAY_HOST_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -19,6 +19,7 @@ class MockLoginDisplayHost : public LoginDisplayHost {
 
   MOCK_METHOD1(CreateLoginDisplay, LoginDisplay*(LoginDisplay::Delegate*));
   MOCK_CONST_METHOD0(GetNativeWindow, gfx::NativeWindow(void));
+  MOCK_CONST_METHOD0(GetOobeUI, OobeUI*(void));
   MOCK_CONST_METHOD0(GetWebUILoginView, WebUILoginView*(void));
   MOCK_METHOD0(BeforeSessionStart, void(void));
   MOCK_METHOD0(Finalize, void(void));

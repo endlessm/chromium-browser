@@ -4,6 +4,9 @@
 
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 
+#include <utility>
+
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/extensions/active_script_controller.h"
@@ -157,12 +160,13 @@ const Extension* ExtensionContextMenuModelTest::AddExtensionWithHostPermission(
   manifest.Set("name", name)
       .Set("version", "1")
       .Set("manifest_version", 2)
-      .Set(action_key, DictionaryBuilder().Pass());
+      .Set(action_key, DictionaryBuilder());
   if (!host_permission.empty())
-    manifest.Set("permissions", ListBuilder().Append(host_permission));
+    manifest.Set("permissions",
+                 std::move(ListBuilder().Append(host_permission)));
   scoped_refptr<const Extension> extension =
       ExtensionBuilder()
-          .SetManifest(manifest.Pass())
+          .SetManifest(std::move(manifest))
           .SetID(crx_file::id_util::GenerateId(name))
           .SetLocation(location)
           .Build();
@@ -174,7 +178,7 @@ const Extension* ExtensionContextMenuModelTest::AddExtensionWithHostPermission(
 
 Browser* ExtensionContextMenuModelTest::GetBrowser() {
   if (!browser_) {
-    Browser::CreateParams params(profile(), chrome::GetActiveDesktop());
+    Browser::CreateParams params(profile());
     test_window_.reset(new TestBrowserWindow());
     params.window = test_window_.get();
     browser_.reset(new Browser(params));
@@ -226,11 +230,12 @@ TEST_F(ExtensionContextMenuModelTest, ComponentExtensionContextMenu) {
 
   std::string name("component");
   scoped_ptr<base::DictionaryValue> manifest =
-      DictionaryBuilder().Set("name", name)
-                         .Set("version", "1")
-                         .Set("manifest_version", 2)
-                         .Set("browser_action", DictionaryBuilder().Pass())
-                         .Build();
+      DictionaryBuilder()
+          .Set("name", name)
+          .Set("version", "1")
+          .Set("manifest_version", 2)
+          .Set("browser_action", DictionaryBuilder())
+          .Build();
 
   {
     scoped_refptr<const Extension> extension =
@@ -265,7 +270,7 @@ TEST_F(ExtensionContextMenuModelTest, ComponentExtensionContextMenu) {
     manifest->SetString("options_page", "options_page.html");
     scoped_refptr<const Extension> extension =
         ExtensionBuilder()
-            .SetManifest(manifest.Pass())
+            .SetManifest(std::move(manifest))
             .SetID(crx_file::id_util::GenerateId("component_opts"))
             .SetLocation(Manifest::COMPONENT)
             .Build();
@@ -517,7 +522,7 @@ TEST_F(ExtensionContextMenuModelTest, TestPageAccessSubmenu) {
   int run_count = 0;
   base::Closure increment_run_count(base::Bind(&Increment, &run_count));
   active_script_controller->RequestScriptInjectionForTesting(
-      extension, increment_run_count);
+      extension, UserScript::DOCUMENT_IDLE, increment_run_count);
 
   ExtensionContextMenuModel menu(extension, GetBrowser(),
                                  ExtensionContextMenuModel::VISIBLE, nullptr);
@@ -577,7 +582,7 @@ TEST_F(ExtensionContextMenuModelTest, TestPageAccessSubmenu) {
 
   // Request another run.
   active_script_controller->RequestScriptInjectionForTesting(
-      extension, increment_run_count);
+      extension, UserScript::DOCUMENT_IDLE, increment_run_count);
 
   // Change the mode to be "Run on all sites".
   menu.ExecuteCommand(kRunOnAllSites, 0);
@@ -607,7 +612,7 @@ TEST_F(ExtensionContextMenuModelTest, TestPageAccessSubmenu) {
   EXPECT_TRUE(menu.IsCommandIdChecked(kRunOnAllSites));
 
   active_script_controller->RequestScriptInjectionForTesting(
-      extension, increment_run_count);
+      extension, UserScript::DOCUMENT_IDLE, increment_run_count);
 
   // Return the mode to "Run on click".
   menu.ExecuteCommand(kRunOnClick, 0);

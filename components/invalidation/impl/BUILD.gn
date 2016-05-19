@@ -1,6 +1,7 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+
 if (is_android) {
   import("//build/config/android/rules.gni")
 }
@@ -31,6 +32,27 @@ source_set("impl") {
     "unacked_invalidation_set.cc",
     "unacked_invalidation_set.h",
   ]
+
+  public_deps = [
+    "//components/invalidation/public",
+  ]
+  deps = [
+    "//base",
+    "//base:i18n",
+    "//components/data_use_measurement/core",
+    "//components/gcm_driver",
+    "//components/keyed_service/core",
+    "//components/pref_registry",
+    "//components/prefs",
+    "//components/signin/core/browser",
+    "//google_apis",
+    "//jingle:notifier",
+    "//net:net",
+
+    # TODO(sync): Remove this (http://crbug.com/133352);
+    "//third_party/protobuf:protobuf_lite",
+  ]
+
   if (!is_android) {
     sources += [
       "gcm_invalidation_bridge.cc",
@@ -62,26 +84,8 @@ source_set("impl") {
       "ticl_settings_provider.cc",
       "ticl_settings_provider.h",
     ]
+    deps += [ "//components/gcm_driver/common" ]
   }
-  public_deps = [
-    "//components/invalidation/public",
-  ]
-  deps = [
-    "//base",
-    "//base:i18n",
-    "//base:prefs",
-    "//components/data_use_measurement/core",
-    "//components/gcm_driver",
-    "//components/keyed_service/core",
-    "//components/pref_registry",
-    "//components/signin/core/browser",
-    "//google_apis",
-    "//jingle:notifier",
-    "//net:net",
-
-    # TODO(sync): Remove this (http://crbug.com/133352);
-    "//third_party/protobuf:protobuf_lite",
-  ]
 
   if (is_android) {
     sources += [
@@ -102,6 +106,8 @@ source_set("unit_tests") {
   deps = [
     ":impl",
     ":test_support",
+    "//base",
+    "//components/prefs",
     "//testing/gmock",
     "//testing/gtest",
   ]
@@ -113,6 +119,7 @@ source_set("unit_tests") {
     # Non-Android tests.
     sources += [
       "fake_invalidator_unittest.cc",
+      "gcm_invalidation_bridge_unittest.cc",
       "gcm_network_channel_unittest.cc",
       "invalidation_notifier_unittest.cc",
       "invalidator_registrar_unittest.cc",
@@ -129,6 +136,13 @@ source_set("unit_tests") {
       "ticl_profile_settings_provider_unittest.cc",
       "unacked_invalidation_set_unittest.cc",
     ]
+    deps += [
+      "//components/gcm_driver:test_support",
+      "//components/pref_registry:test_support",
+      "//components/signin/core/browser:test_support",
+      "//google_apis:test_support",
+      "//net",
+    ]
   }
 }
 
@@ -137,6 +151,8 @@ static_library("test_support") {
   sources = [
     "fake_invalidation_handler.cc",
     "fake_invalidation_handler.h",
+    "fake_invalidation_service.cc",
+    "fake_invalidation_service.h",
     "fake_invalidation_state_tracker.cc",
     "fake_invalidation_state_tracker.h",
     "fake_invalidator.cc",
@@ -162,10 +178,13 @@ static_library("test_support") {
     "//base",
     "//components/gcm_driver:test_support",
     "//components/keyed_service/core",
+    "//components/signin/core/browser:test_support",
     "//google_apis",
+    "//google_apis:test_support",
     "//jingle:notifier",
     "//net",
     "//testing/gmock",
+    "//testing/gtest",
 
     # TODO(sync): Remove this (http://crbug.com/133352);
     "//third_party/protobuf:protobuf_lite",

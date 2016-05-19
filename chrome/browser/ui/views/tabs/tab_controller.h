@@ -93,7 +93,15 @@ class TabController {
   // set to the clip (if |clip| is empty means no clip).
   virtual bool ShouldPaintTab(const Tab* tab, gfx::Rect* clip) = 0;
 
-  // Returns true if tabs painted in the rectangular light-bar style.
+  // Returns true if tab loading throbbers can be painted to a composited layer.
+  // This can only be done when the TabController can guarantee that nothing
+  // in the same window will redraw on top of the the favicon area of any tab.
+  virtual bool CanPaintThrobberToLayer() const = 0;
+
+  // Returns true if the tabs are in an incognito window.
+  virtual bool IsIncognito() const = 0;
+
+  // Returns true if tabs should be painted in the rectangular light-bar style.
   virtual bool IsImmersiveStyle() const = 0;
 
   // Returns the resource ID for the image to use as the tab background.
@@ -103,7 +111,7 @@ class TabController {
 
   // Adds private information to the tab's accessibility state.
   virtual void UpdateTabAccessibilityState(const Tab* tab,
-                                        ui::AXViewState* state) = 0;
+                                           ui::AXViewState* state) = 0;
 
  protected:
   virtual ~TabController() {}

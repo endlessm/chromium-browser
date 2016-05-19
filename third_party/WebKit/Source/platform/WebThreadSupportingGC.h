@@ -9,6 +9,7 @@
 #include "public/platform/Platform.h"
 #include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
@@ -25,18 +26,19 @@ namespace blink {
 // WebThreadSupportingGC usually internally creates and owns WebThread unless
 // an existing WebThread is given via createForThread.
 class PLATFORM_EXPORT WebThreadSupportingGC final {
+    USING_FAST_MALLOC(WebThreadSupportingGC);
     WTF_MAKE_NONCOPYABLE(WebThreadSupportingGC);
 public:
     static PassOwnPtr<WebThreadSupportingGC> create(const char* name);
     static PassOwnPtr<WebThreadSupportingGC> createForThread(WebThread*);
     ~WebThreadSupportingGC();
 
-    void postTask(const WebTraceLocation& location, WebTaskRunner::Task* task)
+    void postTask(const WebTraceLocation& location, PassOwnPtr<Closure> task)
     {
         m_thread->taskRunner()->postTask(location, task);
     }
 
-    void postDelayedTask(const WebTraceLocation& location, WebTaskRunner::Task* task, long long delayMs)
+    void postDelayedTask(const WebTraceLocation& location, PassOwnPtr<Closure> task, long long delayMs)
     {
         m_thread->taskRunner()->postDelayedTask(location, task, delayMs);
     }
@@ -77,6 +79,6 @@ private:
     OwnPtr<WebThread> m_owningThread;
 };
 
-}
+} // namespace blink
 
 #endif

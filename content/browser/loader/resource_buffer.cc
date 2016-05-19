@@ -54,28 +54,16 @@ bool ResourceBuffer::Initialize(int buffer_size,
   min_alloc_size_ = min_allocation_size;
   max_alloc_size_ = max_allocation_size;
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  return shared_mem_.CreateAndMapAnonymousMach(buf_size_);
-#else
   return shared_mem_.CreateAndMapAnonymous(buf_size_);
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
 }
 
 bool ResourceBuffer::IsInitialized() const {
   return shared_mem_.memory() != NULL;
 }
 
-bool ResourceBuffer::ShareToProcess(
-    base::ProcessHandle process_handle,
-    base::SharedMemoryHandle* shared_memory_handle,
-    int* shared_memory_size) {
+base::SharedMemory& ResourceBuffer::GetSharedMemory() {
   CHECK(IsInitialized());
-
-  if (!shared_mem_.ShareToProcess(process_handle, shared_memory_handle))
-    return false;
-
-  *shared_memory_size = buf_size_;
-  return true;
+  return shared_mem_;
 }
 
 bool ResourceBuffer::CanAllocate() const {

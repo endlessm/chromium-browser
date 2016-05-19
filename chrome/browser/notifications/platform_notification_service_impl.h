@@ -9,20 +9,24 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_set>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/notifications/notification.h"
+#include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/platform_notification_service.h"
 #include "content/public/common/persistent_notification_status.h"
 
 class NotificationDelegate;
 class NotificationUIManager;
-class Profile;
 
 namespace content {
 class BrowserContext;
+struct NotificationResources;
 }
 
 namespace gcm {
@@ -34,9 +38,26 @@ class PushMessagingBrowserTest;
 class PlatformNotificationServiceImpl
     : public content::PlatformNotificationService {
  public:
+  // Things you can do to a notification.
+  enum NotificationOperation {
+    NOTIFICATION_CLICK,
+    NOTIFICATION_CLOSE,
+    NOTIFICATION_SETTINGS
+  };
+
   // Returns the active instance of the service in the browser process. Safe to
   // be called from any thread.
   static PlatformNotificationServiceImpl* GetInstance();
+
+  // Load the profile corresponding to |profile_id| and perform the
+  // |operation| on the given notification once it has been loaded.
+  void ProcessPersistentNotificationOperation(
+      NotificationOperation operation,
+      const std::string& profile_id,
+      bool incognito,
+      const GURL& origin,
+      int64_t persistent_notification_id,
+      int action_index);
 
   // To be called when a persistent notification has been clicked on. The
   // Service Worker associated with the registration will be started if
@@ -51,11 +72,10 @@ class PlatformNotificationServiceImpl
   // associated with the notification has to be pruned from the database in this
   // case, to make sure that it continues to be in sync. Must be called on the
   // UI thread.
-  void OnPersistentNotificationClose(
-      content::BrowserContext* browser_context,
-      int64_t persistent_notification_id,
-      const GURL& origin,
-      bool by_user) const;
+  void OnPersistentNotificationClose(content::BrowserContext* browser_context,
+                                     int64_t persistent_notification_id,
+                                     const GURL& origin,
+                                     bool by_user);
 
   // Returns the Notification UI Manager through which notifications can be
   // displayed to the user. Can be overridden for testing.
@@ -76,16 +96,16 @@ class PlatformNotificationServiceImpl
   void DisplayNotification(
       content::BrowserContext* browser_context,
       const GURL& origin,
-      const SkBitmap& icon,
       const content::PlatformNotificationData& notification_data,
+      const content::NotificationResources& notification_resources,
       scoped_ptr<content::DesktopNotificationDelegate> delegate,
       base::Closure* cancel_callback) override;
   void DisplayPersistentNotification(
       content::BrowserContext* browser_context,
       int64_t persistent_notification_id,
       const GURL& origin,
-      const SkBitmap& icon,
-      const content::PlatformNotificationData& notification_data) override;
+      const content::PlatformNotificationData& notification_data,
+      const content::NotificationResources& notification_resources) override;
   void ClosePersistentNotification(
       content::BrowserContext* browser_context,
       int64_t persistent_notification_id) override;
@@ -112,8 +132,8 @@ class PlatformNotificationServiceImpl
   Notification CreateNotificationFromData(
       Profile* profile,
       const GURL& origin,
-      const SkBitmap& icon,
       const content::PlatformNotificationData& notification_data,
+      const content::NotificationResources& notification_resources,
       NotificationDelegate* delegate) const;
 
   // Overrides the Notification UI Manager to use to |manager|. Only to be
@@ -124,12 +144,20 @@ class PlatformNotificationServiceImpl
   base::string16 DisplayNameForContextMessage(Profile* profile,
                                               const GURL& origin) const;
 
+  // Platforms that display native notification interact with them through this
+  // object.
+  scoped_ptr<NotificationUIManager> native_notification_ui_manager_;
+
   // Weak reference. Ownership maintains with the test.
   NotificationUIManager* notification_ui_manager_for_tests_;
 
   // Mapping between a persistent notification id and the id of the associated
   // message_center::Notification object. Must only be used on the UI thread.
   std::map<int64_t, std::string> persistent_notifications_;
+
+  // Tracks the id of persistent notifications that have been closed
+  // programmatically to avoid dispatching close events for them.
+  std::unordered_set<int64_t> closed_notifications_;
 
   DISALLOW_COPY_AND_ASSIGN(PlatformNotificationServiceImpl);
 };

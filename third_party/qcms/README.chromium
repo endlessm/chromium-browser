@@ -117,6 +117,30 @@ The following changes have been made since qcms was imported:
    - https://code.google.com/p/chromium/issues/detail?id=551568
  - Minimize transform RMS in qcms_transform_data_rgb(a)_out_lut
    - https://code.google.com/p/chromium/issues/detail?id=532910
+ - Allow negative XYZ for display profiles on the APPLE port
+   - https://code.google.com/p/chromium/issues/detail?id=562951
+ - Add a color profile white point transform api
+   - https://code.google.com/p/chromium/issues/detail?id=564355
+ - Compute the pole and zero values needed by lut_inverse_interp16 once
+   - https://code.google.com/p/chromium/issues/detail?id=505793
+ - Store the profile media white point during iccread.c
+   - https://code.google.com/p/chromium/issues/detail?id=565222
+ - Add an API to check for profile media white point
+   - https://code.google.com/p/chromium/issues/detail?id=565222
+ - Add a qcms_profile_get_white_point() api
+   - https://code.google.com/p/chromium/issues/detail?id=565222
+ - Set the media white point of the sRGB profile
+   - https://code.google.com/p/chromium/issues/detail?id=565222
+ - Don't build QCMS on Android and iOS
+   - https://code.google.com/p/chromium/issues/detail?id=577155
+ - Fix para curve tag interval paramater use
+   - https://code.google.com/p/chromium/issues/detail?id=580920
+ - Verify internal sRGB profile tristimulus match the standard sRGB profile
+   - https://code.google.com/p/chromium/issues/detail?id=580917
+ - Expose unsigned short version of TRC curve
+   - https://code.google.com/p/chromium/issues/detail?id=495196
+ - Add qcms_profile_ntsc_relative_gamut_size api
+   - https://code.google.com/p/chromium/issues/detail?id=582870
 
 For the Chromium changes, since the import, in a patch format run:
   git diff b8456f38 src

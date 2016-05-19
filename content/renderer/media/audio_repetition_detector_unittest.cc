@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <map>
 
 #include "base/bind.h"
@@ -288,10 +290,11 @@ TEST_F(AudioRepetitionDetectorTest, NotFullLengthPattern) {
                arraysize(kTestSignal), kSampleRateHz);
 }
 
-TEST_F(AudioRepetitionDetectorTest, ZerosCountOrNot) {
+TEST_F(AudioRepetitionDetectorTest, DcCountOrNot) {
   const int kLookbackTimes[] = {3};
-  const float kTestSignal_1[] = {0, 0, 0, 0, 0, 0};
-  const float kTestSignal_2[] = {0, 1, 2, 0, 1, 2};
+  const float kDc = 1.2345f;
+  const float kTestSignal_1[] = {kDc, kDc, kDc, kDc, kDc, kDc};
+  const float kTestSignal_2[] = {kDc, 1, 2, kDc, 1, 2};
   const ExpectedCount kExpectedCounts_1[] = {
       // Full zeros won't count.
       {3, 0},

@@ -5,6 +5,8 @@
 #ifndef TOOLS_GN_FILESYSTEM_UTILS_H_
 #define TOOLS_GN_FILESYSTEM_UTILS_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/files/file_path.h"
@@ -111,8 +113,15 @@ bool MakeAbsolutePathRelativeIfPossible(const base::StringPiece& source_root,
                                         const base::StringPiece& path,
                                         std::string* dest);
 
-// Collapses "." and sequential "/"s and evaluates "..".
-void NormalizePath(std::string* path);
+// Collapses "." and sequential "/"s and evaluates "..". |path| may be
+// system-absolute, source-absolute, or relative. If |path| is source-absolute
+// and |source_root| is non-empty, |path| may be system absolute after this
+// function returns, if |path| references the filesystem outside of
+// |source_root| (ex. path = "//.."). In this case on Windows, |path| will have
+// a leading slash. Otherwise, |path| will retain its relativity. |source_root|
+// must not end with a slash.
+void NormalizePath(std::string* path,
+                   const base::StringPiece& source_root = base::StringPiece());
 
 // Converts slashes to backslashes for Windows. Keeps the string unchanged
 // for other systems.
@@ -153,6 +162,18 @@ SourceDir SourceDirForCurrentDirectory(const base::FilePath& source_root);
 // output. This will be the empty string to indicate that the toolchain outputs
 // go in the root build directory. Otherwise, the result will end in a slash.
 std::string GetOutputSubdirName(const Label& toolchain_label, bool is_default);
+
+// Returns true if the contents of the file and stream given are equal, false
+// otherwise.
+bool ContentsEqual(const base::FilePath& file_path, const std::string& data);
+
+// Writes given stream contents to the given file if it differs from existing
+// file contents. Returns true if new contents was successfully written or
+// existing file contents doesn't need updating, false on write error. |err| is
+// set on write error if not nullptr.
+bool WriteFileIfChanged(const base::FilePath& file_path,
+                        const std::string& data,
+                        Err* err);
 
 // -----------------------------------------------------------------------------
 

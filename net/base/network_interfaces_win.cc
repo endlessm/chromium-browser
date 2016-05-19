@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/base/net_util.h"
+#include "net/base/network_interfaces_win.h"
 
-#include <iphlpapi.h>
-#include <wlanapi.h>
+#pragma comment(lib, "iphlpapi.lib")
 
 #include <algorithm>
 
@@ -22,7 +21,6 @@
 #include "net/base/escape.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/base/network_interfaces_win.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -181,10 +179,11 @@ bool GetNetworkListImpl(NetworkInterfaceList* networks,
               int prefix_family = prefix->Address.lpSockaddr->sa_family;
               IPEndPoint network_endpoint;
               if (prefix_family == family &&
-                  network_endpoint.FromSockAddr(prefix->Address.lpSockaddr,
+                  network_endpoint.FromSockAddr(
+                      prefix->Address.lpSockaddr,
                       prefix->Address.iSockaddrLength) &&
-                  IPNumberMatchesPrefix(endpoint.address(),
-                                        network_endpoint.address(),
+                  IPNumberMatchesPrefix(endpoint.address().bytes(),
+                                        network_endpoint.address().bytes(),
                                         prefix->PrefixLength)) {
                 prefix_length =
                     std::max<size_t>(prefix_length, prefix->PrefixLength);
@@ -215,11 +214,12 @@ bool GetNetworkListImpl(NetworkInterfaceList* networks,
               ip_address_attributes |= IP_ADDRESS_ATTRIBUTE_DEPRECATED;
             }
           }
-          networks->push_back(NetworkInterface(
-              adapter->AdapterName,
-              base::SysWideToNativeMB(adapter->FriendlyName), index,
-              GetNetworkInterfaceType(adapter->IfType), endpoint.address(),
-              prefix_length, ip_address_attributes));
+          networks->push_back(
+              NetworkInterface(adapter->AdapterName,
+                               base::SysWideToNativeMB(adapter->FriendlyName),
+                               index, GetNetworkInterfaceType(adapter->IfType),
+                               endpoint.address().bytes(), prefix_length,
+                               ip_address_attributes));
         }
       }
     }

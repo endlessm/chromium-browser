@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <sstream>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 
@@ -1291,5 +1294,24 @@ TEST_F(FilePathTest, PrintTo) {
   base::PrintTo(fp, &ss);
   EXPECT_EQ("foo", ss.str());
 }
+
+// Test GetHFSDecomposedForm should return empty result for invalid UTF-8
+// strings.
+#if defined(OS_MACOSX)
+TEST_F(FilePathTest, GetHFSDecomposedFormWithInvalidInput) {
+  const FilePath::CharType* cases[] = {
+    FPL("\xc3\x28"),
+    FPL("\xe2\x82\x28"),
+    FPL("\xe2\x28\xa1"),
+    FPL("\xf0\x28\x8c\xbc"),
+    FPL("\xf0\x28\x8c\x28"),
+  };
+  for (const auto& invalid_input : cases) {
+    FilePath::StringType observed = FilePath::GetHFSDecomposedForm(
+        invalid_input);
+    EXPECT_TRUE(observed.empty());
+  }
+}
+#endif
 
 }  // namespace base

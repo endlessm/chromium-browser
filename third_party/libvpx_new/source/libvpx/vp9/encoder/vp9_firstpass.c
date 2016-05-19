@@ -396,7 +396,7 @@ static void first_pass_motion_search(VP9_COMP *cpi, MACROBLOCK *x,
   MV tmp_mv = {0, 0};
   MV ref_mv_full = {ref_mv->row >> 3, ref_mv->col >> 3};
   int num00, tmp_err, n;
-  const BLOCK_SIZE bsize = xd->mi[0]->mbmi.sb_type;
+  const BLOCK_SIZE bsize = xd->mi[0]->sb_type;
   vp9_variance_fn_ptr_t v_fn_ptr = cpi->fn_ptr[bsize];
   const int new_mv_mode_penalty = NEW_MV_MODE_PENALTY;
 
@@ -636,7 +636,6 @@ void vp9_first_pass(VP9_COMP *cpi, const struct lookahead_entry *source) {
     MV best_ref_mv = {0, 0};
 
     // Reset above block coeffs.
-    xd->up_available = (mb_row != 0);
     recon_yoffset = (mb_row * recon_y_stride * 16);
     recon_uvoffset = (mb_row * recon_uv_stride * uv_mb_height);
 
@@ -662,9 +661,8 @@ void vp9_first_pass(VP9_COMP *cpi, const struct lookahead_entry *source) {
       xd->plane[0].dst.buf = new_yv12->y_buffer + recon_yoffset;
       xd->plane[1].dst.buf = new_yv12->u_buffer + recon_uvoffset;
       xd->plane[2].dst.buf = new_yv12->v_buffer + recon_uvoffset;
-      xd->left_available = (mb_col != 0);
-      xd->mi[0]->mbmi.sb_type = bsize;
-      xd->mi[0]->mbmi.ref_frame[0] = INTRA_FRAME;
+      xd->mi[0]->sb_type = bsize;
+      xd->mi[0]->ref_frame[0] = INTRA_FRAME;
       set_mi_row_col(xd, &tile,
                      mb_row << 1, num_8x8_blocks_high_lookup[bsize],
                      mb_col << 1, num_8x8_blocks_wide_lookup[bsize],
@@ -672,8 +670,8 @@ void vp9_first_pass(VP9_COMP *cpi, const struct lookahead_entry *source) {
 
       // Do intra 16x16 prediction.
       x->skip_encode = 0;
-      xd->mi[0]->mbmi.mode = DC_PRED;
-      xd->mi[0]->mbmi.tx_size = use_dc_pred ?
+      xd->mi[0]->mode = DC_PRED;
+      xd->mi[0]->tx_size = use_dc_pred ?
          (bsize >= BLOCK_16X16 ? TX_16X16 : TX_8X8) : TX_4X4;
       vp9_encode_intra_block_plane(x, bsize, 0);
       this_error = vpx_get_mb_ss(x->plane[0].src_diff);
@@ -897,11 +895,11 @@ void vp9_first_pass(VP9_COMP *cpi, const struct lookahead_entry *source) {
           mv.row *= 8;
           mv.col *= 8;
           this_error = motion_error;
-          xd->mi[0]->mbmi.mode = NEWMV;
-          xd->mi[0]->mbmi.mv[0].as_mv = mv;
-          xd->mi[0]->mbmi.tx_size = TX_4X4;
-          xd->mi[0]->mbmi.ref_frame[0] = LAST_FRAME;
-          xd->mi[0]->mbmi.ref_frame[1] = NONE;
+          xd->mi[0]->mode = NEWMV;
+          xd->mi[0]->mv[0].as_mv = mv;
+          xd->mi[0]->tx_size = TX_4X4;
+          xd->mi[0]->ref_frame[0] = LAST_FRAME;
+          xd->mi[0]->ref_frame[1] = NONE;
           vp9_build_inter_predictors_sby(xd, mb_row << 1, mb_col << 1, bsize);
           vp9_encode_sby_pass1(x, bsize);
           sum_mvr += mv.row;
@@ -1722,15 +1720,13 @@ static void allocate_gf_group_bits(VP9_COMP *cpi, int64_t gf_group_bits,
       gf_group->update_type[0] = OVERLAY_UPDATE;
       gf_group->rf_level[0] = INTER_NORMAL;
       gf_group->bit_allocation[0] = 0;
-      gf_group->arf_update_idx[0] = arf_buffer_indices[0];
-      gf_group->arf_ref_idx[0] = arf_buffer_indices[0];
     } else {
       gf_group->update_type[0] = GF_UPDATE;
       gf_group->rf_level[0] = GF_ARF_STD;
       gf_group->bit_allocation[0] = gf_arf_bits;
-      gf_group->arf_update_idx[0] = arf_buffer_indices[0];
-      gf_group->arf_ref_idx[0] = arf_buffer_indices[0];
     }
+    gf_group->arf_update_idx[0] = arf_buffer_indices[0];
+    gf_group->arf_ref_idx[0] = arf_buffer_indices[0];
 
     // Step over the golden frame / overlay frame
     if (EOF == input_stats(twopass, &frame_stats))
@@ -1941,13 +1937,12 @@ static void define_gf_group(VP9_COMP *cpi, FIRSTPASS_STATS *this_frame) {
       // At high Q when there are few bits to spare we are better with a longer
       // interval to spread the cost of the GF.
       active_max_gf_interval = 12 + VPXMIN(4, (int_lbq / 6));
-      if (active_max_gf_interval < active_min_gf_interval)
-        active_max_gf_interval = active_min_gf_interval;
 
-      if (active_max_gf_interval > rc->max_gf_interval)
-        active_max_gf_interval = rc->max_gf_interval;
+      // We have: active_min_gf_interval <= rc->max_gf_interval
       if (active_max_gf_interval < active_min_gf_interval)
         active_max_gf_interval = active_min_gf_interval;
+      else if (active_max_gf_interval > rc->max_gf_interval)
+        active_max_gf_interval = rc->max_gf_interval;
     }
   }
 
@@ -2265,6 +2260,8 @@ static int test_candidate_kf(TWO_PASS *twopass,
   return is_viable_kf;
 }
 
+#define FRAMES_TO_CHECK_DECAY 8
+
 static void find_next_key_frame(VP9_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   int i, j;
   RATE_CONTROL *const rc = &cpi->rc;
@@ -2283,7 +2280,7 @@ static void find_next_key_frame(VP9_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   double boost_score = 0.0;
   double kf_mod_err = 0.0;
   double kf_group_err = 0.0;
-  double recent_loop_decay[8] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  double recent_loop_decay[FRAMES_TO_CHECK_DECAY];
 
   vp9_zero(next_frame);
 
@@ -2309,6 +2306,10 @@ static void find_next_key_frame(VP9_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   twopass->kf_group_error_left = 0;  // Group modified error score.
 
   kf_mod_err = calculate_modified_err(cpi, twopass, oxcf, this_frame);
+
+  // Initialize the decay rates for the recent frames to check
+  for (j = 0; j < FRAMES_TO_CHECK_DECAY; ++j)
+    recent_loop_decay[j] = 1.0;
 
   // Find the next keyframe.
   i = 0;
@@ -2336,9 +2337,9 @@ static void find_next_key_frame(VP9_COMP *cpi, FIRSTPASS_STATS *this_frame) {
       // We want to know something about the recent past... rather than
       // as used elsewhere where we are concerned with decay in prediction
       // quality since the last GF or KF.
-      recent_loop_decay[i % 8] = loop_decay_rate;
+      recent_loop_decay[i % FRAMES_TO_CHECK_DECAY] = loop_decay_rate;
       decay_accumulator = 1.0;
-      for (j = 0; j < 8; ++j)
+      for (j = 0; j < FRAMES_TO_CHECK_DECAY; ++j)
         decay_accumulator *= recent_loop_decay[j];
 
       // Special check for transition or high motion followed by a

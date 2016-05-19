@@ -6,9 +6,9 @@
 
 #include <limits>
 
-#include "codec_int.h"
+#include "core/src/fxcodec/codec/codec_int.h"
+#include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "../../../testing/fx_string_testhelpers.h"
 
 static const OPJ_OFF_T kSkipError = static_cast<OPJ_OFF_T>(-1);
 static const OPJ_SIZE_T kReadError = static_cast<OPJ_SIZE_T>(-1);
@@ -474,8 +474,6 @@ TEST(fxcodec, YUV420ToRGB) {
   u.h = 16;
   u.prec = 8;
   u.bpp = 8;
-  u.data = FX_Alloc(OPJ_INT32, u.w * u.h);
-  memset(u.data, 0, u.w * u.h * sizeof(OPJ_INT32));
   opj_image_comp_t v;
   memset(&v, 0, sizeof(v));
   v.dx = 1;
@@ -484,8 +482,6 @@ TEST(fxcodec, YUV420ToRGB) {
   v.h = 16;
   v.prec = 8;
   v.bpp = 8;
-  v.data = FX_Alloc(OPJ_INT32, v.w * v.h);
-  memset(v.data, 0, v.w * v.h * sizeof(OPJ_INT32));
   opj_image_comp_t y;
   memset(&y, 0, sizeof(y));
   y.dx = 1;
@@ -500,14 +496,8 @@ TEST(fxcodec, YUV420ToRGB) {
   const struct {
     OPJ_UINT32 w;
     bool expected;
-  } cases[] = {{0, false},
-               {1, false},
-               {30, false},
-               {31, true},
-               {32, true},
-               {33, true},
-               {34, false},
-               {UINT_MAX, false}};
+  } cases[] = {{0, false}, {1, false},  {30, false}, {31, true},
+               {32, true}, {33, false}, {34, false}, {UINT_MAX, false}};
   for (int i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
     y.w = cases[i].w;
     y.h = y.w;

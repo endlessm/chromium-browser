@@ -18,7 +18,7 @@
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_util.h"
@@ -77,7 +77,7 @@ class DownloadItemViewMd : public views::ButtonListener,
   void StopDownloadProgress();
 
   // Returns the base color for text on this download item, based on |theme|.
-  static SkColor GetTextColorForThemeProvider(ui::ThemeProvider* theme);
+  static SkColor GetTextColorForThemeProvider(const ui::ThemeProvider* theme);
 
   // IconManager::Client interface.
   void OnExtractIconComplete(gfx::Image* icon);
@@ -175,6 +175,9 @@ class DownloadItemViewMd : public views::ButtonListener,
     return mode_ == DANGEROUS_MODE || mode_ == MALICIOUS_MODE;
   }
 
+  // Clears or shows the warning dialog as per the state of |model_|.
+  void ToggleWarningDialog();
+
   // Reverts from dangerous mode to normal download mode.
   void ClearWarningDialog();
 
@@ -212,6 +215,9 @@ class DownloadItemViewMd : public views::ButtonListener,
   void AnimateStateTransition(State from,
                               State to,
                               gfx::SlideAnimation* animation);
+
+  // Callback for |progress_timer_|.
+  void ProgressTimerFired();
 
   // Returns the base text color.
   SkColor GetTextColor();
@@ -285,9 +291,6 @@ class DownloadItemViewMd : public views::ButtonListener,
 
   // Whether the dangerous mode label has been sized yet.
   bool dangerous_download_label_sized_;
-
-  // The size of the buttons.  Cached so animation works when hidden.
-  mutable gfx::Size cached_button_size_;
 
   // Whether we are currently disabled as part of opening the downloaded file.
   bool disabled_while_opening_;

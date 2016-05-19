@@ -6,20 +6,18 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/strings/string_number_conversions.h"
+#include "chrome/browser/android/data_usage/data_use_tab_model.h"
+#include "chrome/browser/android/data_usage/external_data_use_observer.h"
+#include "components/variations/variations_associated_data.h"
 
 namespace {
 
-// Indicates the maximum number of tracking session history to maintain per tab.
-const size_t kMaxSessionsPerTab = 5;
-
-// Indicates the expiration duration in seconds for a closed tab entry, after
-// which it can be sweeped from history.
-const unsigned int kClosedTabExpirationDurationSeconds = 30;  // 30 seconds.
-
-// Indicates the expiration duration in seconds for an open tab entry, after
-// which it can be sweeped from history.
-const unsigned int kOpenTabExpirationDurationSeconds =
-    60 * 60 * 24 * 5;  // 5 days.
+const char kUMATrackingSessionLifetimeHistogram[] =
+    "DataUsage.TabModel.TrackingSessionLifetime";
+const char kUMAOldInactiveSessionRemovalDurationHistogram[] =
+    "DataUsage.TabModel.OldInactiveSessionRemovalDuration";
 
 }  // namespace
 
@@ -27,27 +25,14 @@ namespace chrome {
 
 namespace android {
 
-size_t TabDataUseEntry::GetMaxSessionsPerTabForTests() {
-  return kMaxSessionsPerTab;
+TabDataUseEntry::TabDataUseEntry(DataUseTabModel* tab_model)
+    : is_custom_tab_package_match_(false), tab_model_(tab_model) {
+  DCHECK(tab_model_);
 }
-
-unsigned int TabDataUseEntry::GetClosedTabExpirationDurationSecondsForTests() {
-  return kClosedTabExpirationDurationSeconds;
-}
-
-unsigned int TabDataUseEntry::GetOpenTabExpirationDurationSecondsForTests() {
-  return kOpenTabExpirationDurationSeconds;
-}
-
-TabDataUseEntry::TabDataUseEntry() {}
 
 TabDataUseEntry::TabDataUseEntry(const TabDataUseEntry& other) = default;
 
 TabDataUseEntry::~TabDataUseEntry() {}
-
-base::TimeTicks TabDataUseEntry::Now() const {
-  return base::TimeTicks::Now();
-}
 
 bool TabDataUseEntry::StartTracking(const std::string& label) {
   DCHECK(!label.empty());
@@ -59,7 +44,7 @@ bool TabDataUseEntry::StartTracking(const std::string& label) {
   // TODO(rajendrant): Explore ability to handle changes in label for current
   // session.
 
-  sessions_.push_back(TabDataUseTrackingSession(label, Now()));
+  sessions_.push_back(TabDataUseTrackingSession(label, tab_model_->NowTicks()));
 
   CompactSessionHistory();
   return true;
@@ -74,30 +59,40 @@ bool TabDataUseEntry::EndTracking() {
   if (back_iterator == sessions_.rend())
     return false;
 
-  back_iterator->end_time = Now();
+  back_iterator->end_time = tab_model_->NowTicks();
+
+  UMA_HISTOGRAM_CUSTOM_TIMES(
+      kUMATrackingSessionLifetimeHistogram,
+      back_iterator->end_time - back_iterator->start_time,
+      base::TimeDelta::FromSeconds(1), base::TimeDelta::FromHours(1), 50);
+
   return true;
+}
+
+bool TabDataUseEntry::EndTrackingWithLabel(const std::string& label) {
+  if (!sessions_.empty() && sessions_.back().label == label)
+    return EndTracking();
+  return false;
 }
 
 void TabDataUseEntry::OnTabCloseEvent() {
   DCHECK(!IsTrackingDataUse());
-  tab_close_time_ = Now();
+  tab_close_time_ = tab_model_->NowTicks();
 }
 
 bool TabDataUseEntry::IsExpired() const {
-  const base::TimeTicks now = Now();
+  const base::TimeTicks now = tab_model_->NowTicks();
 
   if (!tab_close_time_.is_null()) {
     // Closed tab entry.
     return ((now - tab_close_time_) >
-            base::TimeDelta::FromSeconds(kClosedTabExpirationDurationSeconds));
+            tab_model_->closed_tab_expiration_duration());
   }
 
   const base::TimeTicks latest_session_time = GetLatestStartOrEndTime();
   if (latest_session_time.is_null() ||
       ((now - latest_session_time) >
-       base::TimeDelta::FromSeconds(kOpenTabExpirationDurationSeconds))) {
-    // TODO(rajendrant): Add UMA to track deletion of entries corresponding to
-    // existing tabs.
+       tab_model_->open_tab_expiration_duration())) {
     return true;
   }
   return false;
@@ -145,10 +140,31 @@ const base::TimeTicks TabDataUseEntry::GetLatestStartOrEndTime() const {
   return back_iterator->start_time;
 }
 
+const std::string TabDataUseEntry::GetActiveTrackingSessionLabel() const {
+  TabSessions::const_reverse_iterator back_iterator = sessions_.rbegin();
+  if (back_iterator == sessions_.rend() || !IsTrackingDataUse())
+    return std::string();
+  return back_iterator->label;
+}
+
+void TabDataUseEntry::set_custom_tab_package_match(
+    bool is_custom_tab_package_match) {
+  DCHECK(IsTrackingDataUse());
+  DCHECK(!GetActiveTrackingSessionLabel().empty());
+  is_custom_tab_package_match_ = is_custom_tab_package_match;
+}
+
 void TabDataUseEntry::CompactSessionHistory() {
-  // TODO(rajendrant): Add UMA to track how often old sessions are lost.
-  while (sessions_.size() > kMaxSessionsPerTab)
+  while (sessions_.size() > tab_model_->max_sessions_per_tab()) {
+    const auto& front = sessions_.front();
+    DCHECK(!front.end_time.is_null());
+    // Track how often old sessions are lost.
+    UMA_HISTOGRAM_CUSTOM_TIMES(kUMAOldInactiveSessionRemovalDurationHistogram,
+                               tab_model_->NowTicks() - front.end_time,
+                               base::TimeDelta::FromSeconds(1),
+                               base::TimeDelta::FromHours(1), 50);
     sessions_.pop_front();
+  }
 }
 
 }  // namespace android

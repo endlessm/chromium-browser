@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "cc/layers/texture_layer.h"
 #include "cc/layers/texture_layer_client.h"
@@ -63,7 +63,7 @@ class TestPlugin : public blink::WebPlugin, public cc::TextureLayerClient {
   NPObject* scriptableObject() override;
   bool canProcessDrag() const override;
   bool supportsKeyboardFocus() const override;
-  void layoutIfNeeded() override {}
+  void updateAllLifecyclePhases() override {}
   void paint(blink::WebCanvas* canvas, const blink::WebRect& rect) override {}
   void updateGeometry(const blink::WebRect& window_rect,
                       const blink::WebRect& clip_rect,
@@ -73,8 +73,9 @@ class TestPlugin : public blink::WebPlugin, public cc::TextureLayerClient {
   void updateFocus(bool focus, blink::WebFocusType focus_type) override {}
   void updateVisibility(bool visibility) override {}
   bool acceptsInputEvents() override;
-  bool handleInputEvent(const blink::WebInputEvent& event,
-                        blink::WebCursorInfo& info) override;
+  blink::WebInputEventResult handleInputEvent(
+      const blink::WebInputEvent& event,
+      blink::WebCursorInfo& info) override;
   bool handleDragStatusUpdate(blink::WebDragStatus drag_status,
                               const blink::WebDragData& data,
                               blink::WebDragOperationsMask mask,
@@ -84,11 +85,6 @@ class TestPlugin : public blink::WebPlugin, public cc::TextureLayerClient {
   void didReceiveData(const char* data, int data_length) override {}
   void didFinishLoading() override {}
   void didFailLoading(const blink::WebURLError& error) override {}
-  void didFinishLoadingFrameRequest(const blink::WebURL& url,
-                                    void* notify_data) override {}
-  void didFailLoadingFrameRequest(const blink::WebURL& url,
-                                  void* notify_data,
-                                  const blink::WebURLError& error) override {}
   bool isPlaceholder() override;
 
   // cc::TextureLayerClient methods:

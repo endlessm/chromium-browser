@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -95,7 +96,7 @@ class TestKeyboardUI : public KeyboardUI {
   }
 
   // Overridden from KeyboardUI:
-  bool HasKeyboardWindow() const override { return window_; }
+  bool HasKeyboardWindow() const override { return !!window_; }
   bool ShouldWindowOverscroll(aura::Window* window) const override {
     return true;
   }
@@ -610,6 +611,24 @@ TEST_F(KeyboardControllerAnimationTest, ContainerShowWhileHide) {
   EXPECT_TRUE(keyboard_window()->IsVisible());
   EXPECT_EQ(1.0, layer->opacity());
   EXPECT_EQ(gfx::Transform(), layer->transform());
+}
+
+// Test for crbug.com/568274.
+TEST_F(KeyboardControllerTest, FloatingKeyboardShowOnFirstTap) {
+  aura::Window* container(controller()->GetContainerWindow());
+  aura::Window* keyboard(ui()->GetKeyboardWindow());
+  root_window()->AddChild(container);
+  controller()->SetKeyboardMode(FLOATING);
+  container->AddChild(keyboard);
+  // Mock focus on an input field.
+  ui()->GetInputMethod()->ShowImeIfNeeded();
+  // Mock set keyboard size from javascript side. In floating mode, virtual
+  // keyboard's size is decided by client.
+  gfx::Rect new_bounds(0, 50, 50, 50);
+  keyboard->SetBounds(new_bounds);
+  ASSERT_EQ(new_bounds, container->bounds());
+  EXPECT_TRUE(keyboard->IsVisible());
+  EXPECT_TRUE(container->IsVisible());
 }
 
 }  // namespace keyboard

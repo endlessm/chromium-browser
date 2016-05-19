@@ -4,9 +4,13 @@
 
 #include "chrome/browser/themes/browser_theme_pack.h"
 
+#include <limits.h>
+#include <stddef.h>
+
 #include <limits>
 
 #include "base/files/file.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/stl_util.h"
@@ -16,6 +20,7 @@
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/common/extensions/manifest_handlers/theme_handler.h"
 #include "components/crx_file/id_util.h"
@@ -26,6 +31,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/geometry/safe_integer_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image.h"
@@ -43,10 +49,10 @@ namespace {
 // Version number of the current theme pack. We just throw out and rebuild
 // theme packs that aren't int-equal to this. Increment this number if you
 // change default theme assets.
-const int kThemePackVersion = 36;
+const int kThemePackVersion = 39;
 
 // IDs that are in the DataPack won't clash with the positive integer
-// uint16. kHeaderID should always have the maximum value because we want the
+// uint16_t. kHeaderID should always have the maximum value because we want the
 // "header" to be written last. That way we can detect whether the pack was
 // successfully written and ignore and regenerate if it was only partially
 // written (i.e. chrome crashed on a different thread while writing the pack).
@@ -172,39 +178,6 @@ PersistingImagesTable kPersistingImages[] = {
 };
 const size_t kPersistingImagesLength = arraysize(kPersistingImages);
 
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-// Persistent theme ids for Windows.
-const int PRS_THEME_FRAME_DESKTOP = 100;
-const int PRS_THEME_FRAME_INACTIVE_DESKTOP = 101;
-const int PRS_THEME_FRAME_INCOGNITO_DESKTOP = 102;
-const int PRS_THEME_FRAME_INCOGNITO_INACTIVE_DESKTOP = 103;
-const int PRS_THEME_TOOLBAR_DESKTOP = 104;
-const int PRS_THEME_TAB_BACKGROUND_DESKTOP = 105;
-const int PRS_THEME_TAB_BACKGROUND_INCOGNITO_DESKTOP = 106;
-
-// Persistent theme to resource id mapping for Windows AURA.
-PersistingImagesTable kPersistingImagesDesktopAura[] = {
-  { PRS_THEME_FRAME_DESKTOP, IDR_THEME_FRAME_DESKTOP,
-    "theme_frame" },
-  { PRS_THEME_FRAME_INACTIVE_DESKTOP, IDR_THEME_FRAME_INACTIVE_DESKTOP,
-    "theme_frame_inactive" },
-  { PRS_THEME_FRAME_INCOGNITO_DESKTOP, IDR_THEME_FRAME_INCOGNITO_DESKTOP,
-    "theme_frame_incognito" },
-  { PRS_THEME_FRAME_INCOGNITO_INACTIVE_DESKTOP,
-    IDR_THEME_FRAME_INCOGNITO_INACTIVE_DESKTOP,
-    "theme_frame_incognito_inactive" },
-  { PRS_THEME_TOOLBAR_DESKTOP, IDR_THEME_TOOLBAR_DESKTOP,
-    "theme_toolbar" },
-  { PRS_THEME_TAB_BACKGROUND_DESKTOP, IDR_THEME_TAB_BACKGROUND_DESKTOP,
-    "theme_tab_background" },
-  { PRS_THEME_TAB_BACKGROUND_INCOGNITO_DESKTOP,
-    IDR_THEME_TAB_BACKGROUND_INCOGNITO_DESKTOP,
-    "theme_tab_background_incognito" },
-};
-const size_t kPersistingImagesDesktopAuraLength =
-    arraysize(kPersistingImagesDesktopAura);
-#endif
-
 int GetPersistentIDByNameHelper(const std::string& key,
                                 const PersistingImagesTable* image_table,
                                 size_t image_table_size) {
@@ -231,13 +204,6 @@ int GetPersistentIDByIDR(int idr) {
       int prs_id = kPersistingImages[i].persistent_id;
       (*lookup_table)[idr] = prs_id;
     }
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-    for (size_t i = 0; i < kPersistingImagesDesktopAuraLength; ++i) {
-      int idr = kPersistingImagesDesktopAura[i].idr_id;
-      int prs_id = kPersistingImagesDesktopAura[i].persistent_id;
-      (*lookup_table)[idr] = prs_id;
-    }
-#endif
   }
   std::map<int,int>::iterator it = lookup_table->find(idr);
   return (it == lookup_table->end()) ? -1 : it->second;
@@ -251,12 +217,6 @@ int GetMaxPersistentId() {
       if (kPersistingImages[i].persistent_id > max_prs_id)
         max_prs_id = kPersistingImages[i].persistent_id;
     }
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-    for (size_t i = 0; i < kPersistingImagesDesktopAuraLength; ++i) {
-      if (kPersistingImagesDesktopAura[i].persistent_id > max_prs_id)
-        max_prs_id = kPersistingImagesDesktopAura[i].persistent_id;
-    }
-#endif
   }
   return max_prs_id;
 }
@@ -369,13 +329,6 @@ IntToIntTable kFrameTintMap[] = {
   { PRS_THEME_FRAME_INCOGNITO, ThemeProperties::TINT_FRAME_INCOGNITO },
   { PRS_THEME_FRAME_INCOGNITO_INACTIVE,
     ThemeProperties::TINT_FRAME_INCOGNITO_INACTIVE },
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-  { PRS_THEME_FRAME_DESKTOP, ThemeProperties::TINT_FRAME },
-  { PRS_THEME_FRAME_INACTIVE_DESKTOP, ThemeProperties::TINT_FRAME_INACTIVE },
-  { PRS_THEME_FRAME_INCOGNITO_DESKTOP, ThemeProperties::TINT_FRAME_INCOGNITO },
-  { PRS_THEME_FRAME_INCOGNITO_INACTIVE_DESKTOP,
-    ThemeProperties::TINT_FRAME_INCOGNITO_INACTIVE },
-#endif
 };
 
 // Mapping used in GenerateTabBackgroundImages() to associate what frame image
@@ -383,11 +336,6 @@ IntToIntTable kFrameTintMap[] = {
 IntToIntTable kTabBackgroundMap[] = {
   { PRS_THEME_TAB_BACKGROUND, PRS_THEME_FRAME },
   { PRS_THEME_TAB_BACKGROUND_INCOGNITO, PRS_THEME_FRAME_INCOGNITO },
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-  { PRS_THEME_TAB_BACKGROUND_DESKTOP, PRS_THEME_FRAME_DESKTOP },
-  { PRS_THEME_TAB_BACKGROUND_INCOGNITO_DESKTOP,
-    PRS_THEME_FRAME_INCOGNITO_DESKTOP },
-#endif
 };
 
 struct CropEntry {
@@ -418,9 +366,6 @@ struct CropEntry kImagesToCrop[] = {
   { PRS_THEME_TOOLBAR, 200, false },
   { PRS_THEME_BUTTON_BACKGROUND, 60, false },
   { PRS_THEME_WINDOW_CONTROL_BACKGROUND, 50, false },
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-  { PRS_THEME_TOOLBAR_DESKTOP, 200, false }
-#endif
 };
 
 
@@ -448,7 +393,7 @@ base::RefCountedMemory* ReadFileData(const base::FilePath& path) {
   if (!path.empty()) {
     base::File file(path, base::File::FLAG_OPEN | base::File::FLAG_READ);
     if (file.IsValid()) {
-      int64 length = file.GetLength();
+      int64_t length = file.GetLength();
       if (length > 0 && length < INT_MAX) {
         int size = static_cast<int>(length);
         std::vector<unsigned char> raw_data;
@@ -788,12 +733,6 @@ bool BrowserThemePack::IsPersistentImageID(int id) {
     if (kPersistingImages[i].idr_id == id)
       return true;
 
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-  for (size_t i = 0; i < kPersistingImagesDesktopAuraLength; ++i)
-    if (kPersistingImagesDesktopAura[i].idr_id == id)
-      return true;
-#endif
-
   return false;
 }
 
@@ -1055,14 +994,14 @@ void BrowserThemePack::ReadColorsFromJSON(
         ((color_list->GetSize() == 3) || (color_list->GetSize() == 4))) {
       SkColor color = SK_ColorWHITE;
       int r, g, b;
-      if (color_list->GetInteger(0, &r) &&
-          color_list->GetInteger(1, &g) &&
-          color_list->GetInteger(2, &b)) {
+      if (color_list->GetInteger(0, &r) && r >= 0 && r <= 255 &&
+          color_list->GetInteger(1, &g) && g >= 0 && g <= 255 &&
+          color_list->GetInteger(2, &b) && b >= 0 && b <= 255) {
         if (color_list->GetSize() == 4) {
           double alpha;
           int alpha_int;
-          if (color_list->GetDouble(3, &alpha)) {
-            color = SkColorSetARGB(static_cast<int>(alpha * 255), r, g, b);
+          if (color_list->GetDouble(3, &alpha) && alpha >= 0 && alpha <= 1) {
+            color = SkColorSetARGB(gfx::ToRoundedInt(alpha * 255), r, g, b);
           } else if (color_list->GetInteger(3, &alpha_int) &&
                      (alpha_int == 0 || alpha_int == 1)) {
             color = SkColorSetARGB(alpha_int ? 255 : 0, r, g, b);
@@ -1114,8 +1053,8 @@ void BrowserThemePack::GenerateMissingColors(
   if (it != colors->end()) {
     frame = it->second;
   } else {
-    frame = ThemeProperties::GetDefaultColor(
-        ThemeProperties::COLOR_FRAME);
+    frame =
+        ThemeProperties::GetDefaultColor(ThemeProperties::COLOR_FRAME, false);
   }
 
   if (!colors->count(ThemeProperties::COLOR_FRAME)) {
@@ -1237,13 +1176,6 @@ void BrowserThemePack::AddFileAtScaleToMap(const std::string& image_name,
   int id = GetPersistentIDByName(image_name);
   if (id != -1)
     (*file_paths)[id][scale_factor] = image_path;
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-  id = GetPersistentIDByNameHelper(image_name,
-                                   kPersistingImagesDesktopAura,
-                                   kPersistingImagesDesktopAuraLength);
-  if (id != -1)
-    (*file_paths)[id][scale_factor] = image_path;
-#endif
 }
 
 void BrowserThemePack::BuildSourceImagesArray(const FilePathMap& file_paths) {
@@ -1365,17 +1297,6 @@ void BrowserThemePack::CreateFrameImages(ImageCache* images) const {
     // thing and just use the default images.
     int prs_base_id = 0;
 
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-    if (prs_id == PRS_THEME_FRAME_INCOGNITO_INACTIVE_DESKTOP) {
-      prs_base_id = images->count(PRS_THEME_FRAME_INCOGNITO_DESKTOP) ?
-                    PRS_THEME_FRAME_INCOGNITO_DESKTOP : PRS_THEME_FRAME_DESKTOP;
-    } else if (prs_id == PRS_THEME_FRAME_INACTIVE_DESKTOP) {
-      prs_base_id = PRS_THEME_FRAME_DESKTOP;
-    } else if (prs_id == PRS_THEME_FRAME_INCOGNITO_DESKTOP &&
-                !images->count(PRS_THEME_FRAME_INCOGNITO_DESKTOP)) {
-      prs_base_id = PRS_THEME_FRAME_DESKTOP;
-    }
-#endif
     if (!prs_base_id) {
       if (prs_id == PRS_THEME_FRAME_INCOGNITO_INACTIVE) {
         prs_base_id = images->count(PRS_THEME_FRAME_INCOGNITO) ?
@@ -1396,11 +1317,7 @@ void BrowserThemePack::CreateFrameImages(ImageCache* images) const {
     } else if (prs_base_id != prs_id && images->count(prs_base_id)) {
       frame = (*images)[prs_base_id];
     } else if (prs_base_id == PRS_THEME_FRAME_OVERLAY) {
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-      if (images->count(PRS_THEME_FRAME_DESKTOP)) {
-#else
       if (images->count(PRS_THEME_FRAME)) {
-#endif
         // If there is no theme overlay, don't tint the default frame,
         // because it will overwrite the custom frame image when we cache and
         // reload from disk.
@@ -1410,12 +1327,6 @@ void BrowserThemePack::CreateFrameImages(ImageCache* images) const {
       // If the theme doesn't specify an image, then apply the tint to
       // the default frame.
       frame = rb.GetImageNamed(IDR_THEME_FRAME);
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-      if (prs_id >= PRS_THEME_FRAME_DESKTOP &&
-          prs_id <= PRS_THEME_FRAME_INCOGNITO_INACTIVE_DESKTOP) {
-        frame = rb.GetImageNamed(IDR_THEME_FRAME_DESKTOP);
-      }
-#endif
     }
     if (!frame.IsEmpty()) {
       temp_output[prs_id] = CreateHSLShiftedImage(
@@ -1524,19 +1435,17 @@ void BrowserThemePack::AddRawImagesTo(const RawImages& images,
 }
 
 color_utils::HSL BrowserThemePack::GetTintInternal(int id) const {
-  if (tints_) {
-    for (size_t i = 0; i < kTintTableLength; ++i) {
-      if (tints_[i].id == id) {
-        color_utils::HSL hsl;
-        hsl.h = tints_[i].h;
-        hsl.s = tints_[i].s;
-        hsl.l = tints_[i].l;
-        return hsl;
-      }
-    }
-  }
+  color_utils::HSL hsl;
+  if (GetTint(id, &hsl))
+    return hsl;
 
-  return ThemeProperties::GetDefaultTint(id);
+  int original_id = id;
+  if (id == ThemeProperties::TINT_FRAME_INCOGNITO)
+    original_id = ThemeProperties::TINT_FRAME;
+  else if (id == ThemeProperties::TINT_FRAME_INCOGNITO_INACTIVE)
+    original_id = ThemeProperties::TINT_FRAME_INACTIVE;
+
+  return ThemeProperties::GetDefaultTint(original_id, original_id != id);
 }
 
 int BrowserThemePack::GetRawIDByPersistentID(

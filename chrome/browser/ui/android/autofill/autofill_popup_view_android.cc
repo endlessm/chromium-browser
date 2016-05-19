@@ -9,8 +9,9 @@
 #include "base/command_line.h"
 #include "chrome/browser/android/resource_mapper.h"
 #include "chrome/browser/ui/android/autofill/autofill_keyboard_accessory_view.h"
-#include "chrome/browser/ui/android/window_android_helper.h"
+#include "chrome/browser/ui/android/view_android_helper.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
+#include "chrome/browser/ui/autofill/autofill_popup_layout_model.h"
 #include "components/autofill/core/browser/suggestion.h"
 #include "components/autofill/core/common/autofill_util.h"
 #include "content/public/browser/android/content_view_core.h"
@@ -25,8 +26,7 @@ namespace autofill {
 
 AutofillPopupViewAndroid::AutofillPopupViewAndroid(
     AutofillPopupController* controller)
-    : controller_(controller),
-      deleting_index_(-1) {}
+    : controller_(controller), deleting_index_(-1) {}
 
 AutofillPopupViewAndroid::~AutofillPopupViewAndroid() {}
 
@@ -75,7 +75,7 @@ void AutofillPopupViewAndroid::UpdateBoundsAndRedrawPopup() {
     const autofill::Suggestion& suggestion = controller_->GetSuggestionAt(i);
     if (!suggestion.icon.empty()) {
       android_icon_id = ResourceMapper::MapFromChromiumId(
-          controller_->GetIconResourceID(suggestion.icon));
+          controller_->layout_model().GetIconResourceID(suggestion.icon));
     }
 
     bool deletable =
@@ -95,17 +95,19 @@ void AutofillPopupViewAndroid::UpdateBoundsAndRedrawPopup() {
       env, java_object_.obj(), data_array.obj(), controller_->IsRTL());
 }
 
-void AutofillPopupViewAndroid::SuggestionSelected(JNIEnv* env,
-                                                  jobject obj,
-                                                  jint list_index) {
+void AutofillPopupViewAndroid::SuggestionSelected(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jint list_index) {
   // Race: Hide() may have already run.
   if (controller_)
     controller_->AcceptSuggestion(list_index);
 }
 
-void AutofillPopupViewAndroid::DeletionRequested(JNIEnv* env,
-                                                jobject obj,
-                                                jint list_index) {
+void AutofillPopupViewAndroid::DeletionRequested(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jint list_index) {
   if (!controller_)
     return;
 
@@ -125,8 +127,9 @@ void AutofillPopupViewAndroid::DeletionRequested(JNIEnv* env,
           env, confirmation_body).obj());
 }
 
-void AutofillPopupViewAndroid::DeletionConfirmed(JNIEnv* env,
-                                                 jobject obj) {
+void AutofillPopupViewAndroid::DeletionConfirmed(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   if (!controller_)
     return;
 
@@ -134,7 +137,9 @@ void AutofillPopupViewAndroid::DeletionConfirmed(JNIEnv* env,
   controller_->RemoveSuggestion(deleting_index_);
 }
 
-void AutofillPopupViewAndroid::PopupDismissed(JNIEnv* env, jobject obj) {
+void AutofillPopupViewAndroid::PopupDismissed(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   if (controller_)
     controller_->ViewDestroyed();
 

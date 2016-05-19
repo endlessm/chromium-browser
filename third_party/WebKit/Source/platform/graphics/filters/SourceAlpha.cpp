@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/graphics/filters/SourceAlpha.h"
 
 #include "platform/graphics/filters/Filter.h"
@@ -33,12 +32,6 @@ namespace blink {
 PassRefPtrWillBeRawPtr<SourceAlpha> SourceAlpha::create(FilterEffect* sourceEffect)
 {
     return adoptRefWillBeNoop(new SourceAlpha(sourceEffect));
-}
-
-const AtomicString& SourceAlpha::effectName()
-{
-    DEFINE_STATIC_LOCAL(const AtomicString, s_effectName, ("SourceAlpha", AtomicString::ConstructFromLiteral));
-    return s_effectName;
 }
 
 SourceAlpha::SourceAlpha(FilterEffect* sourceEffect)

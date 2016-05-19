@@ -268,7 +268,7 @@ static void inverse_transform_block_inter(MACROBLOCKD* xd, int plane,
     if (eob == 1) {
       dqcoeff[0] = 0;
     } else {
-      if (tx_size <= TX_16X16 && eob <= 10)
+      if (tx_type == DCT_DCT && tx_size <= TX_16X16 && eob <= 10)
         memset(dqcoeff, 0, 4 * (4 << tx_size) * sizeof(dqcoeff[0]));
       else if (tx_size == TX_32X32 && eob <= 34)
         memset(dqcoeff, 0, 256 * sizeof(dqcoeff[0]));
@@ -851,9 +851,6 @@ static void decode_block(VP10Decoder *const pbi, MACROBLOCKD *const xd,
       const int max_blocks_high = num_4x4_h + (xd->mb_to_bottom_edge >= 0 ?
           0 : xd->mb_to_bottom_edge >> (5 + pd->subsampling_y));
 
-      if (plane <= 1 && mbmi->palette_mode_info.palette_size[plane])
-          vp10_decode_palette_tokens(xd, plane, r);
-
       for (row = 0; row < max_blocks_high; row += step)
         for (col = 0; col < max_blocks_wide; col += step)
           predict_and_reconstruct_intra_block(xd, r, mbmi, plane,
@@ -1146,32 +1143,13 @@ static INLINE int read_delta_q(struct vpx_read_bit_buffer *rb) {
       vpx_rb_read_inv_signed_literal(rb, CONFIG_MISC_FIXES ? 6 : 4) : 0;
 }
 
-static void setup_quantization(VP10_COMMON *const cm, MACROBLOCKD *const xd,
+static void setup_quantization(VP10_COMMON *const cm,
                                struct vpx_read_bit_buffer *rb) {
-  int i;
-
   cm->base_qindex = vpx_rb_read_literal(rb, QINDEX_BITS);
   cm->y_dc_delta_q = read_delta_q(rb);
   cm->uv_dc_delta_q = read_delta_q(rb);
   cm->uv_ac_delta_q = read_delta_q(rb);
   cm->dequant_bit_depth = cm->bit_depth;
-  for (i = 0; i < (cm->seg.enabled ? MAX_SEGMENTS : 1); ++i) {
-#if CONFIG_MISC_FIXES
-    const int qindex = vp10_get_qindex(&cm->seg, i, cm->base_qindex);
-#endif
-    xd->lossless[i] = cm->y_dc_delta_q == 0 &&
-#if CONFIG_MISC_FIXES
-                      qindex == 0 &&
-#else
-                      cm->base_qindex == 0 &&
-#endif
-                      cm->uv_dc_delta_q == 0 &&
-                      cm->uv_ac_delta_q == 0;
-  }
-
-#if CONFIG_VP9_HIGHBITDEPTH
-  xd->bd = (int)cm->bit_depth;
-#endif
 }
 
 static void setup_segmentation_dequant(VP10_COMMON *const cm) {
@@ -1881,9 +1859,7 @@ static void read_bitdepth_colorspace_sampling(
 static size_t read_uncompressed_header(VP10Decoder *pbi,
                                        struct vpx_read_bit_buffer *rb) {
   VP10_COMMON *const cm = &pbi->common;
-#if CONFIG_MISC_FIXES
   MACROBLOCKD *const xd = &pbi->mb;
-#endif
   BufferPool *const pool = cm->buffer_pool;
   RefCntBuffer *const frame_bufs = pool->frame_bufs;
   int i, mask, ref_index = 0;
@@ -1954,8 +1930,6 @@ static size_t read_uncompressed_header(VP10Decoder *pbi,
       memset(&cm->ref_frame_map, -1, sizeof(cm->ref_frame_map));
       pbi->need_resync = 0;
     }
-    if (frame_is_intra_only(cm))
-      cm->allow_screen_content_tools = vpx_rb_read_bit(rb);
   } else {
     cm->intra_only = cm->show_frame ? 0 : vpx_rb_read_bit(rb);
 
@@ -2113,8 +2087,26 @@ static size_t read_uncompressed_header(VP10Decoder *pbi,
     vp10_setup_past_independence(cm);
 
   setup_loopfilter(&cm->lf, rb);
-  setup_quantization(cm, &pbi->mb, rb);
+  setup_quantization(cm, rb);
+#if CONFIG_VP9_HIGHBITDEPTH
+  xd->bd = (int)cm->bit_depth;
+#endif
+
   setup_segmentation(cm, rb);
+
+  {
+    int i;
+    for (i = 0; i < MAX_SEGMENTS; ++i) {
+      const int qindex = CONFIG_MISC_FIXES && cm->seg.enabled ?
+          vp10_get_qindex(&cm->seg, i, cm->base_qindex) :
+          cm->base_qindex;
+      xd->lossless[i] = qindex == 0 &&
+          cm->y_dc_delta_q == 0 &&
+          cm->uv_dc_delta_q == 0 &&
+          cm->uv_ac_delta_q == 0;
+    }
+  }
+
   setup_segmentation_dequant(cm);
 #if CONFIG_MISC_FIXES
   cm->tx_mode = (!cm->seg.enabled && xd->lossless[0]) ? ONLY_4X4
@@ -2130,6 +2122,23 @@ static size_t read_uncompressed_header(VP10Decoder *pbi,
                        "Invalid header size");
 
   return sz;
+}
+
+static void read_ext_tx_probs(FRAME_CONTEXT *fc, vpx_reader *r) {
+  int i, j, k;
+  if (vpx_read(r, GROUP_DIFF_UPDATE_PROB)) {
+    for (i = TX_4X4; i < EXT_TX_SIZES; ++i) {
+      for (j = 0; j < TX_TYPES; ++j)
+        for (k = 0; k < TX_TYPES - 1; ++k)
+          vp10_diff_update_prob(r, &fc->intra_ext_tx_prob[i][j][k]);
+    }
+  }
+  if (vpx_read(r, GROUP_DIFF_UPDATE_PROB)) {
+    for (i = TX_4X4; i < EXT_TX_SIZES; ++i) {
+      for (k = 0; k < TX_TYPES - 1; ++k)
+        vp10_diff_update_prob(r, &fc->inter_ext_tx_prob[i][k]);
+    }
+  }
 }
 
 static int read_compressed_header(VP10Decoder *pbi, const uint8_t *data,
@@ -2213,6 +2222,7 @@ static int read_compressed_header(VP10Decoder *pbi, const uint8_t *data,
 #endif
 
     read_mv_probs(nmvc, cm->allow_high_precision_mv, &r);
+    read_ext_tx_probs(fc, &r);
   }
 
   return vpx_reader_has_error(&r);
@@ -2253,6 +2263,10 @@ static void debug_check_frame_counts(const VP10_COMMON *const cm) {
   assert(!memcmp(&cm->counts.tx, &zero_counts.tx, sizeof(cm->counts.tx)));
   assert(!memcmp(cm->counts.skip, zero_counts.skip, sizeof(cm->counts.skip)));
   assert(!memcmp(&cm->counts.mv, &zero_counts.mv, sizeof(cm->counts.mv)));
+  assert(!memcmp(cm->counts.intra_ext_tx, zero_counts.intra_ext_tx,
+                 sizeof(cm->counts.intra_ext_tx)));
+  assert(!memcmp(cm->counts.inter_ext_tx, zero_counts.inter_ext_tx,
+                 sizeof(cm->counts.inter_ext_tx)));
 }
 #endif  // NDEBUG
 

@@ -66,6 +66,7 @@ public:
     void setCheckboxSize(ComputedStyle&) const override;
     void setRadioSize(ComputedStyle&) const override;
     void adjustInnerSpinButtonStyle(ComputedStyle&) const override;
+    void adjustButtonStyle(ComputedStyle&) const override;
 
     bool popsMenuBySpaceKey() const final { return true; }
     bool popsMenuByReturnKey() const final { return true; }
@@ -91,7 +92,6 @@ public:
 
     int minimumMenuListSize(const ComputedStyle&) const override;
 
-    void adjustButtonStyle(ComputedStyle&) const override;
     void adjustSearchFieldStyle(ComputedStyle&) const override;
     void adjustSearchFieldCancelButtonStyle(ComputedStyle&) const override;
     void adjustSearchFieldDecorationStyle(ComputedStyle&) const override;
@@ -131,7 +131,6 @@ protected:
     LayoutThemeDefault();
     ~LayoutThemeDefault() override;
     bool shouldUseFallbackTheme(const ComputedStyle&) const override;
-    virtual int menuListArrowPadding() const;
 
     IntRect determinateProgressValueRectFor(LayoutProgress*, const IntRect&) const;
     IntRect indeterminateProgressValueRectFor(LayoutProgress*, const IntRect&) const;

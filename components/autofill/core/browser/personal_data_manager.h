@@ -5,16 +5,17 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_BROWSER_PERSONAL_DATA_MANAGER_H_
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_PERSONAL_DATA_MANAGER_H_
 
+#include <memory>
 #include <set>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
-#include "base/prefs/pref_member.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/field_types.h"
@@ -22,6 +23,7 @@
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/pref_member.h"
 #include "components/webdata/common/web_data_service_consumer.h"
 
 class AccountTrackerService;
@@ -88,12 +90,17 @@ class PersonalDataManager : public KeyedService,
   virtual void RemoveObserver(PersonalDataManagerObserver* observer);
 
   // Scans the given |form| for importable Autofill data. If the form includes
-  // sufficient address data, it is immediately imported. If the form includes
-  // sufficient credit card data, it is stored into |credit_card|, so that we
-  // can prompt the user whether to save this data.
+  // sufficient address data for a new profile, it is immediately imported. If
+  // the form includes sufficient credit card data for a new credit card, it is
+  // stored into |imported_credit_card| so that we can prompt the user whether
+  // to save this data. If the form contains credit card data already present in
+  // a local credit card entry *and* |should_return_local_card| is true, the
+  // data is stored into |imported_credit_card| so that we can prompt the user
+  // whether to upload it.
   // Returns |true| if sufficient address or credit card data was found.
   bool ImportFormData(const FormStructure& form,
-                      scoped_ptr<CreditCard>* credit_card);
+                      bool should_return_local_card,
+                      scoped_ptr<CreditCard>* imported_credit_card);
 
   // Called to indicate |data_model| was used (to fill in a form). Updates
   // the database accordingly. Can invalidate |data_model|, particularly if
@@ -105,7 +112,7 @@ class PersonalDataManager : public KeyedService,
   virtual std::string SaveImportedProfile(
       const AutofillProfile& imported_profile);
 
-  // Saves a credit card value detected in |ImportedFormData|. Returns the guid
+  // Saves |imported_credit_card| to the WebDB if it exists. Returns the guid of
   // of the new or updated card, or the empty string if no card was saved.
   virtual std::string SaveImportedCreditCard(
       const CreditCard& imported_credit_card);
@@ -229,6 +236,12 @@ class PersonalDataManager : public KeyedService,
   // feature can still disabled by a user pref.
   bool IsExperimentalWalletIntegrationEnabled() const;
 
+  // De-dupe credit card suggestions. Full server cards are prefered over their
+  // local duplicates, and local cards are preferred over their masked server
+  // card duplicate.
+  static void DedupeCreditCardSuggestions(
+      std::list<const CreditCard*>* cards_to_suggest);
+
  protected:
   // Only PersonalDataManagerFactory and certain tests can create instances of
   // PersonalDataManager.
@@ -244,7 +257,7 @@ class PersonalDataManager : public KeyedService,
 #endif
   friend class ProfileSyncServiceAutofillTest;
   friend class ::RemoveAutofillTester;
-  friend struct base::DefaultDeleter<PersonalDataManager>;
+  friend std::default_delete<PersonalDataManager>;
   friend void autofill_helper::SetProfiles(
       int, std::vector<autofill::AutofillProfile>*);
   friend void autofill_helper::SetCreditCards(
@@ -351,6 +364,20 @@ class PersonalDataManager : public KeyedService,
 
   // Called when the value of prefs::kAutofillEnabled changes.
   void EnabledPrefChanged();
+
+  // Go through the |form| fields and attempt to extract and import an address
+  // profile. Returns true on extraction success. There are many reasons that
+  // extraction may fail (see implementation).
+  bool ImportAddressProfile(const FormStructure& form);
+
+  // Go through the |form| fields and attempt to extract a new credit card in
+  // |imported_credit_card|, or update an existing card.
+  // |should_return_local_card| will indicate whether |imported_credit_card| is
+  // filled even if an existing card was updated. Success is defined as having a
+  // new card to import, or having merged with an existing card.
+  bool ImportCreditCard(const FormStructure& form,
+                        bool should_return_local_card,
+                        scoped_ptr<CreditCard>* imported_credit_card);
 
   // Functionally equivalent to GetProfiles(), but also records metrics if
   // |record_metrics| is true. Metrics should be recorded when the returned

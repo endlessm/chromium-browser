@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/loader/FormSubmission.h"
 
 #include "core/HTMLNames.h"
@@ -208,7 +207,7 @@ PassRefPtrWillBeRawPtr<FormSubmission> FormSubmission::create(HTMLFormElement* f
             isMultiPartForm = false;
         }
     }
-    WTF::TextEncoding dataEncoding = isMailtoForm ? UTF8Encoding() : FormDataEncoder::encodingFromAcceptCharset(copiedAttributes.acceptCharset(), document.characterSet(), document.defaultCharset());
+    WTF::TextEncoding dataEncoding = isMailtoForm ? UTF8Encoding() : FormDataEncoder::encodingFromAcceptCharset(copiedAttributes.acceptCharset(), document.encoding());
     FormData* domFormData = FormData::create(dataEncoding.encodingForFormSubmission());
 
     bool containsPasswordData = false;
@@ -281,4 +280,4 @@ void FormSubmission::populateFrameLoadRequest(FrameLoadRequest& frameRequest)
     frameRequest.resourceRequest().setURL(requestURL());
 }
 
-}
+} // namespace blink

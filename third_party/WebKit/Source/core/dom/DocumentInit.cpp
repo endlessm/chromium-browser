@@ -25,7 +25,6 @@
  *
  */
 
-#include "config.h"
 #include "core/dom/DocumentInit.h"
 
 #include "core/dom/Document.h"
@@ -76,18 +75,7 @@ DocumentInit::DocumentInit(const KURL& url, LocalFrame* frame, WeakPtrWillBeRawP
 {
 }
 
-DocumentInit::DocumentInit(const DocumentInit& other)
-    : m_url(other.m_url)
-    , m_frame(other.m_frame)
-    , m_parent(other.m_parent)
-    , m_owner(other.m_owner)
-    , m_contextDocument(other.m_contextDocument)
-    , m_importsController(other.m_importsController)
-    , m_registrationContext(other.m_registrationContext)
-    , m_createNewRegistrationContext(other.m_createNewRegistrationContext)
-    , m_shouldReuseDefaultView(other.m_shouldReuseDefaultView)
-{
-}
+DocumentInit::DocumentInit(const DocumentInit&) = default;
 
 DocumentInit::~DocumentInit()
 {
@@ -113,7 +101,7 @@ LocalFrame* DocumentInit::frameForSecurityContext() const
     return 0;
 }
 
-SandboxFlags DocumentInit::sandboxFlags() const
+SandboxFlags DocumentInit::getSandboxFlags() const
 {
     ASSERT(frameForSecurityContext());
     return frameForSecurityContext()->loader().effectiveSandboxFlags();
@@ -125,10 +113,10 @@ bool DocumentInit::shouldEnforceStrictMixedContentChecking() const
     return frameForSecurityContext()->loader().shouldEnforceStrictMixedContentChecking();
 }
 
-SecurityContext::InsecureRequestsPolicy DocumentInit::insecureRequestsPolicy() const
+SecurityContext::InsecureRequestsPolicy DocumentInit::getInsecureRequestsPolicy() const
 {
     ASSERT(frameForSecurityContext());
-    return frameForSecurityContext()->loader().insecureRequestsPolicy();
+    return frameForSecurityContext()->loader().getInsecureRequestsPolicy();
 }
 
 SecurityContext::InsecureNavigationsSet* DocumentInit::insecureNavigationsToUpgrade() const

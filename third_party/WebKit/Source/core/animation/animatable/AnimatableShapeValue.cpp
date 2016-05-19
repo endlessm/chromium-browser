@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableShapeValue.h"
 
 namespace blink {
@@ -65,4 +64,4 @@ bool AnimatableShapeValue::equalTo(const AnimatableValue* value) const
     return m_shape == shape || (m_shape && shape && *m_shape == *shape);
 }
 
-}
+} // namespace blink

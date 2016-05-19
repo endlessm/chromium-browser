@@ -4,6 +4,8 @@
 
 #include "ash/magnifier/magnification_controller.h"
 
+#include <utility>
+
 #include "ash/accelerators/accelerator_controller.h"
 #include "ash/accessibility_delegate.h"
 #include "ash/ash_switches.h"
@@ -370,11 +372,12 @@ bool MagnificationControllerImpl::RedrawDIP(const gfx::PointF& position_in_dip,
       base::TimeDelta::FromMilliseconds(duration_in_ms));
 
   gfx::Display display =
-      Shell::GetScreen()->GetDisplayNearestWindow(root_window_);
+      gfx::Screen::GetScreen()->GetDisplayNearestWindow(root_window_);
   scoped_ptr<RootWindowTransformer> transformer(
       CreateRootWindowTransformerForDisplay(root_window_, display));
-  GetRootWindowController(root_window_)->ash_host()->SetRootWindowTransformer(
-      transformer.Pass());
+  GetRootWindowController(root_window_)
+      ->ash_host()
+      ->SetRootWindowTransformer(std::move(transformer));
 
   if (duration_in_ms > 0)
     is_on_animation_ = true;
@@ -430,6 +433,10 @@ void MagnificationControllerImpl::HandleFocusedNodeChanged(
     const gfx::Rect& node_bounds_in_screen) {
   // The editable node is handled by OnCaretBoundsChanged.
   if (is_editable_node)
+    return;
+
+  // Nothing to recenter on.
+  if (node_bounds_in_screen.IsEmpty())
     return;
 
   gfx::Rect node_bounds_in_root =

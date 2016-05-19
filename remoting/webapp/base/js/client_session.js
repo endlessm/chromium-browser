@@ -180,7 +180,8 @@ remoting.ClientSession.ConnectionError = {
   NETWORK_FAILURE: 4,
   HOST_OVERLOAD: 5,
   MAX_SESSION_LENGTH: 6,
-  HOST_CONFIGURATION_ERROR: 7
+  HOST_CONFIGURATION_ERROR: 7,
+  NACL_PLUGIN_CRASHED: 8
 };
 
 /**
@@ -260,6 +261,9 @@ remoting.ClientSession.Capability = {
 
   // Indicates desktop shape support.
   DESKTOP_SHAPE: 'desktopShape',
+
+  // Indicates whether the client supports security key request forwarding.
+  SECURITY_KEY: 'securityKey',
 };
 
 /**
@@ -482,6 +486,9 @@ remoting.ClientSession.prototype.onConnectionStatusUpdate =
         break;
       case remoting.ClientSession.ConnectionError.HOST_CONFIGURATION_ERROR:
         errorTag = remoting.Error.Tag.HOST_CONFIGURATION_ERROR;
+        break;
+      case remoting.ClientSession.ConnectionError.NACL_PLUGIN_CRASHED:
+        errorTag = remoting.Error.Tag.NACL_PLUGIN_CRASHED;
         break;
       default:
         this.error_ = remoting.Error.unexpected();

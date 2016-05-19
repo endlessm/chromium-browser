@@ -84,7 +84,7 @@ class BrowserActionsContainerViewSizeDelegate {
   BOOL resizable_;
 
   // Whether or not the container is the overflow container, and is shown in the
-  // wrench menu.
+  // app menu.
   BOOL isOverflow_;
 
   // Whether the user is allowed to drag the grippy to the left. NO if all
@@ -118,11 +118,17 @@ class BrowserActionsContainerViewSizeDelegate {
 // Sets whether or not tracking (for mouseEntered events) is enabled.
 - (void)setTrackingEnabled:(BOOL)enabled;
 
+// Returns true if tracking is currently enabled.
+- (BOOL)trackingEnabled;
+
 // Sets whether or not the container is the overflow container.
 - (void)setIsOverflow:(BOOL)isOverflow;
 
 // Sets whether or not the container is highlighting.
 - (void)setHighlight:(scoped_ptr<ui::NinePartImageIds>)highlight;
+
+// Reeturns true if the container is currently highlighting.
+- (BOOL)isHighlighting;
 
 // Resizes the container to the given ideal width, optionally animating.
 - (void)resizeToWidth:(CGFloat)width animate:(BOOL)animate;

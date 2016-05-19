@@ -9,6 +9,21 @@
 
 namespace media {
 
+VideoDecodeAccelerator::Config::Config(VideoCodecProfile video_codec_profile)
+    : profile(video_codec_profile) {}
+
+VideoDecodeAccelerator::Config::Config(
+    const VideoDecoderConfig& video_decoder_config)
+    : profile(video_decoder_config.profile()),
+      is_encrypted(video_decoder_config.is_encrypted()) {}
+
+std::string VideoDecodeAccelerator::Config::AsHumanReadableString() const {
+  std::ostringstream s;
+  s << "profile: " << GetProfileName(profile) << " encrypted? "
+    << (is_encrypted ? "true" : "false");
+  return s.str();
+}
+
 void VideoDecodeAccelerator::Client::NotifyCdmAttached(bool success) {
   NOTREACHED() << "By default CDM is not supported.";
 }
@@ -30,22 +45,37 @@ GLenum VideoDecodeAccelerator::GetSurfaceInternalFormat() const {
 }
 
 VideoDecodeAccelerator::SupportedProfile::SupportedProfile()
-    : profile(media::VIDEO_CODEC_PROFILE_UNKNOWN) {
-}
+    : profile(media::VIDEO_CODEC_PROFILE_UNKNOWN) {}
 
-VideoDecodeAccelerator::SupportedProfile::~SupportedProfile() {
+VideoDecodeAccelerator::SupportedProfile::~SupportedProfile() {}
+
+VideoDecodeAccelerator::Capabilities::Capabilities() : flags(NO_FLAGS) {}
+
+VideoDecodeAccelerator::Capabilities::Capabilities(const Capabilities& other) =
+    default;
+
+VideoDecodeAccelerator::Capabilities::~Capabilities() {}
+
+std::string VideoDecodeAccelerator::Capabilities::AsHumanReadableString()
+    const {
+  std::ostringstream s;
+  s << "[";
+  for (const SupportedProfile& sp : supported_profiles) {
+    s << " " << GetProfileName(sp.profile) << ": " << sp.min_resolution.width()
+      << "x" << sp.min_resolution.height() << "->" << sp.max_resolution.width()
+      << "x" << sp.max_resolution.height();
+  }
+  s << "]";
+  return s.str();
 }
 
 } // namespace media
 
-namespace base {
+namespace std {
 
-void DefaultDeleter<media::VideoDecodeAccelerator>::operator()(
-    void* video_decode_accelerator) const {
-  static_cast<media::VideoDecodeAccelerator*>(video_decode_accelerator)->
-      Destroy();
+void default_delete<media::VideoDecodeAccelerator>::operator()(
+    media::VideoDecodeAccelerator* vda) const {
+  vda->Destroy();
 }
 
-}  // namespace base
-
-
+}  // namespace std

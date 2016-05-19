@@ -4,18 +4,19 @@
 
 #include "chrome/browser/extensions/api/bookmark_manager_private/bookmark_manager_private_api.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
 #include <vector>
 
 #include "base/lazy_instance.h"
 #include "base/memory/linked_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/bookmark_stats.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/enhanced_bookmarks/enhanced_bookmark_model_factory.h"
 #include "chrome/browser/extensions/api/bookmarks/bookmark_api_constants.h"
 #include "chrome/browser/extensions/api/bookmarks/bookmark_api_helpers.h"
 #include "chrome/browser/extensions/extension_web_ui.h"
@@ -30,7 +31,7 @@
 #include "components/bookmarks/browser/scoped_group_bookmark_actions.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/bookmarks/managed/managed_bookmark_service.h"
-#include "components/enhanced_bookmarks/enhanced_bookmark_model.h"
+#include "components/prefs/pref_service.h"
 #include "components/undo/bookmark_undo_service.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/render_view_host.h"
@@ -38,6 +39,7 @@
 #include "content/public/browser/web_ui.h"
 #include "extensions/browser/extension_function_dispatcher.h"
 #include "extensions/browser/view_type_utils.h"
+#include "grit/components_strings.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
@@ -63,7 +65,6 @@ namespace Paste = api::bookmark_manager_private::Paste;
 namespace RedoInfo = api::bookmark_manager_private::GetRedoInfo;
 namespace RemoveTrees = api::bookmark_manager_private::RemoveTrees;
 namespace SetMetaInfo = api::bookmark_manager_private::SetMetaInfo;
-namespace SetVersion = api::bookmark_manager_private::SetVersion;
 namespace SortChildren = api::bookmark_manager_private::SortChildren;
 namespace StartDrag = api::bookmark_manager_private::StartDrag;
 namespace UndoInfo = api::bookmark_manager_private::GetUndoInfo;
@@ -75,7 +76,7 @@ namespace {
 // This returns NULL in case of failure.
 const BookmarkNode* GetNodeFromString(BookmarkModel* model,
                                       const std::string& id_string) {
-  int64 id;
+  int64_t id;
   if (!base::StringToInt64(id_string, &id))
     return NULL;
   return bookmarks::GetBookmarkNodeByID(model, id);
@@ -166,7 +167,7 @@ CreateApiBookmarkNodeData(Profile* profile, const BookmarkNodeData& data) {
     for (size_t i = 0; i < data.size(); ++i)
       node_data->elements.push_back(CreateApiNodeDataElement(data.elements[i]));
   }
-  return node_data.Pass();
+  return node_data;
 }
 
 }  // namespace
@@ -189,7 +190,7 @@ void BookmarkManagerPrivateEventRouter::DispatchEvent(
     scoped_ptr<base::ListValue> event_args) {
   EventRouter::Get(browser_context_)
       ->BroadcastEvent(make_scoped_ptr(
-          new Event(histogram_value, event_name, event_args.Pass())));
+          new Event(histogram_value, event_name, std::move(event_args))));
 }
 
 void BookmarkManagerPrivateEventRouter::BookmarkModelChanged() {}
@@ -307,8 +308,9 @@ void BookmarkManagerPrivateDragEventRouter::DispatchEvent(
   if (!event_router)
     return;
 
-  scoped_ptr<Event> event(new Event(histogram_value, event_name, args.Pass()));
-  event_router->BroadcastEvent(event.Pass());
+  scoped_ptr<Event> event(
+      new Event(histogram_value, event_name, std::move(args)));
+  event_router->BroadcastEvent(std::move(event));
 }
 
 void BookmarkManagerPrivateDragEventRouter::OnDragEnter(
@@ -799,7 +801,7 @@ bool BookmarkManagerPrivateRemoveTreesFunction::RunOnReady() {
   BookmarkModel* model = GetBookmarkModel();
   bookmarks::ManagedBookmarkService* managed = GetManagedBookmarkService();
   bookmarks::ScopedGroupBookmarkActions group_deletes(model);
-  int64 id;
+  int64_t id;
   for (size_t i = 0; i < params->id_list.size(); ++i) {
     if (!GetBookmarkIdAsInt64(params->id_list[i], &id))
       return false;
@@ -849,17 +851,6 @@ bool BookmarkManagerPrivateGetRedoInfoFunction::RunOnReady() {
   result.label = base::UTF16ToUTF8(undo_manager->GetRedoLabel());
 
   results_ = RedoInfo::Results::Create(result);
-  return true;
-}
-
-bool BookmarkManagerPrivateSetVersionFunction::RunOnReady() {
-  scoped_ptr<SetVersion::Params> params = SetVersion::Params::Create(*args_);
-
-  enhanced_bookmarks::EnhancedBookmarkModel* model =
-      enhanced_bookmarks::EnhancedBookmarkModelFactory::GetForBrowserContext(
-          browser_context());
-  model->SetVersionSuffix(params->version);
-
   return true;
 }
 

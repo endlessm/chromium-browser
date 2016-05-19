@@ -22,7 +22,6 @@ typedef int32_t             SkFixed;
 #define SK_FixedHalf        (1 << 15)
 #define SK_FixedMax         (0x7FFFFFFF)
 #define SK_FixedMin         (-SK_FixedMax)
-#define SK_FixedNaN         ((int) 0x80000000)
 #define SK_FixedPI          (0x3243F)
 #define SK_FixedSqrt2       (92682)
 #define SK_FixedTanPIOver8  (0x6A0A)
@@ -82,7 +81,14 @@ typedef int32_t             SkFixed;
 #define SkFixedAbs(x)       SkAbs32(x)
 #define SkFixedAve(a, b)    (((a) + (b)) >> 1)
 
-#define SkFixedDiv(numer, denom)    SkDivBits(numer, denom, 16)
+// Blink layout tests are baselined to Clang optimizing through undefined behavior in SkDivBits.
+#if defined(SK_SUPPORT_LEGACY_DIVBITS_UB)
+    #define SkFixedDiv(numer, denom) SkDivBits(numer, denom, 16)
+#else
+    // The divide may exceed 32 bits. Clamp to a signed 32 bit result.
+    #define SkFixedDiv(numer, denom) \
+        SkToS32(SkTPin<int64_t>((SkLeftShift((int64_t)numer, 16) / denom), SK_MinS32, SK_MaxS32))
+#endif
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 // Now look for ASM overrides for our portable versions (should consider putting this in its own file)
@@ -138,9 +144,9 @@ inline SkFixed SkFixedMul_longlong(SkFixed a, SkFixed b) {
 
 typedef int64_t SkFixed3232;   // 32.32
 
-#define SkIntToFixed3232(x)       ((SkFixed3232)(x) << 32)
+#define SkIntToFixed3232(x)       (SkLeftShift((SkFixed3232)(x), 32))
 #define SkFixed3232ToInt(x)       ((int)((x) >> 32))
-#define SkFixedToFixed3232(x)     ((SkFixed3232)(x) << 16)
+#define SkFixedToFixed3232(x)     (SkLeftShift((SkFixed3232)(x), 16))
 #define SkFixed3232ToFixed(x)     ((SkFixed)((x) >> 16))
 #define SkFloatToFixed3232(x)     ((SkFixed3232)((x) * (65536.0f * 65536.0f)))
 

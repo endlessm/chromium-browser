@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/RemoteFrame.h"
 
 #include "bindings/core/v8/WindowProxy.h"
 #include "bindings/core/v8/WindowProxyManager.h"
 #include "core/dom/RemoteSecurityContext.h"
+#include "core/frame/LocalFrame.h"
 #include "core/frame/RemoteDOMWindow.h"
 #include "core/frame/RemoteFrameClient.h"
 #include "core/frame/RemoteFrameView.h"
@@ -40,6 +40,7 @@ PassRefPtrWillBeRawPtr<RemoteFrame> RemoteFrame::create(RemoteFrameClient* clien
 
 RemoteFrame::~RemoteFrame()
 {
+    ASSERT(!m_view);
 }
 
 DEFINE_TRACE(RemoteFrame)
@@ -69,7 +70,7 @@ void RemoteFrame::navigate(Document& originDocument, const KURL& url, bool repla
     // The process where this frame actually lives won't have sufficient information to determine
     // correct referrer, since it won't have access to the originDocument. Set it now.
     ResourceRequest request(url);
-    request.setHTTPReferrer(SecurityPolicy::generateReferrer(originDocument.referrerPolicy(), url, originDocument.outgoingReferrer()));
+    request.setHTTPReferrer(SecurityPolicy::generateReferrer(originDocument.getReferrerPolicy(), url, originDocument.outgoingReferrer()));
     request.setHasUserGesture(userGestureStatus == UserGestureStatus::Active);
     remoteFrameClient()->navigate(request, replaceCurrentItem);
 }
@@ -95,6 +96,11 @@ void RemoteFrame::detach(FrameDetachType type)
     detachChildren();
     if (!client())
         return;
+
+    // Clean up the frame's view if needed. A remote frame only has a view if
+    // the parent is a local frame.
+    if (m_view)
+        m_view->dispose();
     client()->willBeDetached();
     m_windowProxyManager->clearForClose();
     setView(nullptr);
@@ -139,11 +145,25 @@ void RemoteFrame::frameRectsChanged(const IntRect& frameRect)
     remoteFrameClient()->frameRectsChanged(frameRect);
 }
 
+void RemoteFrame::visibilityChanged(bool visible)
+{
+    if (remoteFrameClient())
+        remoteFrameClient()->visibilityChanged(visible);
+}
+
 void RemoteFrame::setView(PassRefPtrWillBeRawPtr<RemoteFrameView> view)
 {
     // Oilpan: as RemoteFrameView performs no finalization actions,
     // no explicit dispose() of it needed here. (cf. FrameView::dispose().)
     m_view = view;
+
+    // ... the RemoteDOMWindow will need to be informed of detachment,
+    // as otherwise it will keep a strong reference back to this RemoteFrame.
+    // That combined with wrappers (owned and kept alive by RemoteFrame) keeping
+    // persistent strong references to RemoteDOMWindow will prevent the GCing
+    // of all these objects. Break the cycle by notifying of detachment.
+    if (!m_view)
+        m_domWindow->frameDetached();
 }
 
 void RemoteFrame::createView()
@@ -176,6 +196,11 @@ void RemoteFrame::setRemotePlatformLayer(WebLayer* layer)
 
     ASSERT(owner());
     toHTMLFrameOwnerElement(owner())->setNeedsCompositingUpdate();
+}
+
+void RemoteFrame::advanceFocus(WebFocusType type, LocalFrame* source)
+{
+    remoteFrameClient()->advanceFocus(type, source);
 }
 
 } // namespace blink

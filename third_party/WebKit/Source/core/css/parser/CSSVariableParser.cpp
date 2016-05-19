@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/parser/CSSVariableParser.h"
 
 #include "core/css/CSSCustomPropertyDeclaration.h"
@@ -20,12 +19,17 @@ bool CSSVariableParser::isValidVariableName(const CSSParserToken& token)
     return value.length() >= 2 && value[0] == '-' && value[1] == '-';
 }
 
+bool CSSVariableParser::isValidVariableName(const String& string)
+{
+    return string.length() >= 2 && string[0] == '-' && string[1] == '-';
+}
+
 bool isValidVariableReference(CSSParserTokenRange);
 
 bool classifyBlock(CSSParserTokenRange range, bool& hasReferences, bool isTopLevelBlock = true)
 {
     while (!range.atEnd()) {
-        if (range.peek().blockType() == CSSParserToken::BlockStart) {
+        if (range.peek().getBlockType() == CSSParserToken::BlockStart) {
             const CSSParserToken& token = range.peek();
             CSSParserTokenRange block = range.consumeBlock();
             if (token.functionId() == CSSValueVar) {
@@ -39,7 +43,7 @@ bool classifyBlock(CSSParserTokenRange range, bool& hasReferences, bool isTopLev
             continue;
         }
 
-        ASSERT(range.peek().blockType() != CSSParserToken::BlockEnd);
+        ASSERT(range.peek().getBlockType() != CSSParserToken::BlockEnd);
 
         const CSSParserToken& token = range.consume();
         switch (token.type()) {

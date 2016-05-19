@@ -5,10 +5,13 @@
 #ifndef COMPONENTS_OMNIBOX_BROWSER_IN_MEMORY_URL_INDEX_TYPES_H_
 #define COMPONENTS_OMNIBOX_BROWSER_IN_MEMORY_URL_INDEX_TYPES_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <set>
 #include <vector>
 
+#include "base/containers/hash_tables.h"
 #include "base/strings/string16.h"
 #include "components/history/core/browser/history_types.h"
 #include "url/gurl.h"
@@ -42,6 +45,13 @@ typedef std::vector<TermMatch> TermMatches;
 TermMatches MatchTermInString(const base::string16& term,
                               const base::string16& cleaned_string,
                               int term_num);
+
+// Sorts |matches| by offset and returns the result.
+TermMatches SortMatches(const TermMatches& matches);
+
+// Removes overlapping substring matches from |matches| and returns the
+// cleaned up matches.  Assumes |matches| is already sorted.
+TermMatches DeoverlapMatches(const TermMatches& sorted_matches);
 
 // Sorts and removes overlapping substring matches from |matches| and
 // returns the cleaned up matches.
@@ -140,6 +150,7 @@ typedef std::map<HistoryID, WordIDSet> HistoryIDWordMap;
 typedef std::vector<history::VisitInfo> VisitInfoVector;
 struct HistoryInfoMapValue {
   HistoryInfoMapValue();
+  HistoryInfoMapValue(const HistoryInfoMapValue& other);
   ~HistoryInfoMapValue();
 
   // This field is always populated.
@@ -153,11 +164,12 @@ struct HistoryInfoMapValue {
 };
 
 // A map from history_id to the history's URL and title.
-typedef std::map<HistoryID, HistoryInfoMapValue> HistoryInfoMap;
+typedef base::hash_map<HistoryID, HistoryInfoMapValue> HistoryInfoMap;
 
 // A map from history_id to URL and page title word start metrics.
 struct RowWordStarts {
   RowWordStarts();
+  RowWordStarts(const RowWordStarts& other);
   ~RowWordStarts();
 
   // Clears both url_word_starts_ and title_word_starts_.

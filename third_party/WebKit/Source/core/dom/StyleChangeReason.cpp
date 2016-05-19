@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/dom/StyleChangeReason.h"
 
 #include "platform/TraceEvent.h"
@@ -15,6 +14,7 @@ namespace StyleChangeReason {
 const char ActiveStylesheetsUpdate[] = "ActiveStylesheetsUpdate";
 const char Animation[] = "Animation";
 const char Attribute[] = "Attribute";
+const char CleanupPlaceholderStyles[] = "CleanupPlaceholderStyles";
 const char CompositorProxy[] = "CompositorProxy";
 const char ControlValue[] = "ControlValue";
 const char Control[] = "Control";
@@ -44,7 +44,7 @@ const char VisitedLink[] = "VisitedLink";
 const char VisuallyOrdered[] = "VisuallyOrdered";
 const char WritingModeChange[] = "WritingModeChange";
 const char Zoom[] = "Zoom";
-} // namespace StyleChangeReasonForTracing
+} // namespace StyleChangeReason
 
 namespace StyleChangeExtraData {
 DEFINE_GLOBAL(AtomicString, Active)

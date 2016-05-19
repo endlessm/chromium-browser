@@ -4,10 +4,6 @@
 
 #include "base/test/launcher/test_launcher.h"
 
-#if defined(OS_POSIX)
-#include <fcntl.h>
-#endif
-
 #include "base/at_exit.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -20,6 +16,7 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/process/kill.h"
@@ -40,7 +37,12 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(OS_POSIX)
+#include <fcntl.h>
+#endif
 
 #if defined(OS_MACOSX)
 #include "base/mac/scoped_nsautorelease_pool.h"
@@ -167,7 +169,7 @@ class SignalFDWatcher : public MessageLoopForIO::Watcher {
 // Parses the environment variable var as an Int32.  If it is unset, returns
 // true.  If it is set, unsets it then converts it to Int32 before
 // returning it in |result|.  Returns true on success.
-bool TakeInt32FromEnvironment(const char* const var, int32* result) {
+bool TakeInt32FromEnvironment(const char* const var, int32_t* result) {
   scoped_ptr<Environment> env(Environment::Create());
   std::string str_val;
 
@@ -452,6 +454,7 @@ TestLauncher::TestLauncher(TestLauncherDelegate* launcher_delegate,
       total_shards_(1),
       shard_index_(0),
       cycles_(1),
+      test_found_count_(0),
       test_started_count_(0),
       test_finished_count_(0),
       test_success_count_(0),
@@ -467,10 +470,7 @@ TestLauncher::TestLauncher(TestLauncherDelegate* launcher_delegate,
       parallel_jobs_(parallel_jobs) {
 }
 
-TestLauncher::~TestLauncher() {
-  if (worker_pool_owner_)
-    worker_pool_owner_->pool()->Shutdown();
-}
+TestLauncher::~TestLauncher() {}
 
 bool TestLauncher::Run() {
   if (!Init())
@@ -621,7 +621,7 @@ void TestLauncher::OnTestFinished(const TestResult& result) {
     test_broken_count_++;
   }
   size_t broken_threshold =
-      std::max(static_cast<size_t>(20), test_started_count_ / 10);
+      std::max(static_cast<size_t>(20), test_found_count_ / 10);
   if (!force_run_broken_tests_ && test_broken_count_ >= broken_threshold) {
     fprintf(stdout, "Too many badly broken tests (%" PRIuS "), exiting now.\n",
             test_broken_count_);
@@ -790,24 +790,24 @@ bool TestLauncher::Init() {
   }
 
   if (command_line->HasSwitch(switches::kTestLauncherFilterFile)) {
+    base::FilePath filter_file_path = base::MakeAbsoluteFilePath(
+        command_line->GetSwitchValuePath(switches::kTestLauncherFilterFile));
     std::string filter;
-    if (!ReadFileToString(
-            command_line->GetSwitchValuePath(switches::kTestLauncherFilterFile),
-            &filter)) {
+    if (!ReadFileToString(filter_file_path, &filter)) {
       LOG(ERROR) << "Failed to read the filter file.";
       return false;
     }
 
     std::vector<std::string> filter_lines = SplitString(
         filter, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
-    for (size_t i = 0; i < filter_lines.size(); i++) {
-      if (filter_lines[i].empty())
+    for (const std::string& filter_line : filter_lines) {
+      if (filter_line.empty() || filter_line[0] == '#')
         continue;
 
-      if (filter_lines[i][0] == '-')
-        negative_test_filter_.push_back(filter_lines[i].substr(1));
+      if (filter_line[0] == '-')
+        negative_test_filter_.push_back(filter_line.substr(1));
       else
-        positive_test_filter_.push_back(filter_lines[i]);
+        positive_test_filter_.push_back(filter_line);
     }
   } else {
     // Split --gtest_filter at '-', if there is one, to separate into
@@ -927,6 +927,9 @@ void TestLauncher::RunTests() {
       continue;
     }
 
+    // Count tests in the binary, before we apply filter and sharding.
+    test_found_count_++;
+
     // Skip the test that doesn't match the filter (if given).
     if (!positive_test_filter_.empty()) {
       bool found = false;
@@ -950,7 +953,7 @@ void TestLauncher::RunTests() {
     if (excluded)
       continue;
 
-    if (Hash(test_name) % total_shards_ != static_cast<uint32>(shard_index_))
+    if (Hash(test_name) % total_shards_ != static_cast<uint32_t>(shard_index_))
       continue;
 
     test_names.push_back(test_name);
@@ -980,6 +983,7 @@ void TestLauncher::RunTestIteration() {
   // Special value "-1" means "repeat indefinitely".
   cycles_ = (cycles_ == -1) ? cycles_ : cycles_ - 1;
 
+  test_found_count_ = 0;
   test_started_count_ = 0;
   test_finished_count_ = 0;
   test_success_count_ = 0;

@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_TEST_RUNNER_MOCK_CREDENTIAL_MANAGER_CLIENT_H_
 #define COMPONENTS_TEST_RUNNER_MOCK_CREDENTIAL_MANAGER_CLIENT_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "third_party/WebKit/public/platform/WebCredentialManagerClient.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
@@ -30,6 +31,7 @@ class MockCredentialManagerClient : public blink::WebCredentialManagerClient {
                      NotificationCallbacks* callbacks) override;
   void dispatchRequireUserMediation(NotificationCallbacks* callbacks) override;
   void dispatchGet(bool zero_click_only,
+                   bool include_passwords,
                    const blink::WebVector<blink::WebURL>& federations,
                    RequestCallbacks* callbacks) override;
 

@@ -11,10 +11,12 @@
 // Avoid including strsafe.h via dshow as it will cause build warnings.
 #define NO_DSHOW_STRSAFE
 #include <dshow.h>
+#include <stdint.h>
 
 #include <map>
 #include <string>
 
+#include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "base/win/scoped_comptr.h"
 #include "media/base/video_capture_types.h"
@@ -81,7 +83,8 @@ class VideoCaptureDeviceWin : public VideoCaptureDevice,
   };
 
   // Implements SinkFilterObserver.
-  void FrameReceived(const uint8* buffer, int length,
+  void FrameReceived(const uint8_t* buffer,
+                     int length,
                      base::TimeTicks timestamp) override;
 
   bool CreateCapabilityMap();

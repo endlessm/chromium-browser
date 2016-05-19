@@ -4,6 +4,7 @@
 
 #include "chrome/browser/sessions/chrome_tab_restore_service_client.h"
 
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
@@ -48,16 +49,13 @@ ChromeTabRestoreServiceClient::ChromeTabRestoreServiceClient(Profile* profile)
 ChromeTabRestoreServiceClient::~ChromeTabRestoreServiceClient() {}
 
 sessions::LiveTabContext* ChromeTabRestoreServiceClient::CreateLiveTabContext(
-    int host_desktop_type,
     const std::string& app_name) {
 #if defined(OS_ANDROID)
   // Android does not support LiveTabContext, as tab persistence
   // is implemented on the Java side.
   return nullptr;
 #else
-  return BrowserLiveTabContext::Create(
-      profile_, static_cast<chrome::HostDesktopType>(host_desktop_type),
-      app_name);
+  return BrowserLiveTabContext::Create(profile_, app_name);
 #endif
 }
 
@@ -76,15 +74,13 @@ ChromeTabRestoreServiceClient::FindLiveTabContextForTab(
 
 sessions::LiveTabContext*
 ChromeTabRestoreServiceClient::FindLiveTabContextWithID(
-    SessionID::id_type desired_id,
-    int host_desktop_type) {
+    SessionID::id_type desired_id) {
 #if defined(OS_ANDROID)
   // Android does not support LiveTabContext, as tab persistence
   // is implemented on the Java side.
   return nullptr;
 #else
-  return BrowserLiveTabContext::FindContextWithID(
-      desired_id, static_cast<chrome::HostDesktopType>(host_desktop_type));
+  return BrowserLiveTabContext::FindContextWithID(desired_id);
 #endif
 }
 

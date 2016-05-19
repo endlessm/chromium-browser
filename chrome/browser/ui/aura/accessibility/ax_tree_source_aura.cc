@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/aura/accessibility/ax_tree_source_aura.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
@@ -26,31 +28,31 @@ AXTreeSourceAura::~AXTreeSourceAura() {
   root_.reset();
 }
 
-void AXTreeSourceAura::DoDefault(int32 id) {
+void AXTreeSourceAura::DoDefault(int32_t id) {
   AXAuraObjWrapper* obj = AXAuraObjCache::GetInstance()->Get(id);
   if (obj)
     obj->DoDefault();
 }
 
-void AXTreeSourceAura::Focus(int32 id) {
+void AXTreeSourceAura::Focus(int32_t id) {
   AXAuraObjWrapper* obj = AXAuraObjCache::GetInstance()->Get(id);
   if (obj)
     obj->Focus();
 }
 
-void AXTreeSourceAura::MakeVisible(int32 id) {
+void AXTreeSourceAura::MakeVisible(int32_t id) {
   AXAuraObjWrapper* obj = AXAuraObjCache::GetInstance()->Get(id);
   if (obj)
     obj->MakeVisible();
 }
 
-void AXTreeSourceAura::SetSelection(int32 id, int32 start, int32 end) {
+void AXTreeSourceAura::SetSelection(int32_t id, int32_t start, int32_t end) {
   AXAuraObjWrapper* obj = AXAuraObjCache::GetInstance()->Get(id);
   if (obj)
     obj->SetSelection(start, end);
 }
 
-void AXTreeSourceAura::ShowContextMenu(int32 id) {
+void AXTreeSourceAura::ShowContextMenu(int32_t id) {
   AXAuraObjWrapper* obj = AXAuraObjCache::GetInstance()->Get(id);
   if (obj)
     obj->ShowContextMenu();
@@ -61,6 +63,9 @@ ui::AXTreeData AXTreeSourceAura::GetTreeData() const {
   tree_data.tree_id = 0;
   tree_data.loaded = true;
   tree_data.loading_progress = 1.0;
+  AXAuraObjWrapper* focus = AXAuraObjCache::GetInstance()->GetFocus();
+  if (focus)
+    tree_data.focus_id = focus->GetID();
   return tree_data;
 }
 
@@ -68,13 +73,13 @@ AXAuraObjWrapper* AXTreeSourceAura::GetRoot() const {
   return root_.get();
 }
 
-AXAuraObjWrapper* AXTreeSourceAura::GetFromId(int32 id) const {
+AXAuraObjWrapper* AXTreeSourceAura::GetFromId(int32_t id) const {
   if (id == root_->GetID())
     return root_.get();
   return AXAuraObjCache::GetInstance()->Get(id);
 }
 
-int32 AXTreeSourceAura::GetId(AXAuraObjWrapper* node) const {
+int32_t AXTreeSourceAura::GetId(AXAuraObjWrapper* node) const {
   return node->GetID();
 }
 

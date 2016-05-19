@@ -4,11 +4,11 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_prefs.h"
 
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 
 namespace {
 
@@ -30,7 +30,6 @@ namespace data_reduction_proxy {
 // Make sure any changes here that have the potential to impact android_webview
 // are reflected in RegisterSimpleProfilePrefs.
 void RegisterSyncableProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(prefs::kDataReductionProxyEnabled, false);
   registry->RegisterBooleanPref(prefs::kDataReductionProxyWasEnabledBefore,
                                 false);
 
@@ -111,8 +110,6 @@ void RegisterSyncableProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
 
 void RegisterSimpleProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(
-      prefs::kDataReductionProxyEnabled, false);
-  registry->RegisterBooleanPref(
       prefs::kDataReductionProxyWasEnabledBefore, false);
 
   registry->RegisterBooleanPref(prefs::kDataUsageReportingEnabled, false);
@@ -125,6 +122,7 @@ void RegisterSimpleProfilePrefs(PrefRegistrySimple* registry) {
 // Add any new data reduction proxy prefs to the |pref_map_| or the
 // |list_pref_map_| in Init() of DataReductionProxyCompressionStats.
 void RegisterPrefs(PrefRegistrySimple* registry) {
+  registry->RegisterStringPref(prefs::kDataReductionProxy, std::string());
   registry->RegisterInt64Pref(
       prefs::kHttpReceivedContentLength, 0);
   registry->RegisterInt64Pref(

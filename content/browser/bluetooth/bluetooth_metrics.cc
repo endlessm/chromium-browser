@@ -4,6 +4,8 @@
 
 #include "content/browser/bluetooth/bluetooth_metrics.h"
 
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include "base/hash.h"
@@ -18,7 +20,7 @@ namespace {
 // TODO(ortuno): Remove once we have a macro to histogram strings.
 // http://crbug.com/520284
 int HashUUID(const std::string& uuid) {
-  uint32 data = base::SuperFastHash(uuid.data(), uuid.size());
+  uint32_t data = base::SuperFastHash(uuid.data(), uuid.size());
 
   // Strip off the signed bit because UMA doesn't support negative values,
   // but takes a signed int as input.
@@ -95,7 +97,7 @@ void RecordRequestDeviceArguments(
   RecordUnionOfServices(filters, optional_services);
 }
 
-// connectGATT
+// GATTServer.Connect
 
 void RecordConnectGATTOutcome(UMAConnectGATTOutcome outcome) {
   UMA_HISTOGRAM_ENUMERATION("Bluetooth.Web.ConnectGATT.Outcome",
@@ -148,7 +150,8 @@ void RecordGetCharacteristicOutcome(CacheQueryOutcome outcome) {
   switch (outcome) {
     case CacheQueryOutcome::SUCCESS:
     case CacheQueryOutcome::BAD_RENDERER:
-      NOTREACHED() << "No need to record a success or renderer crash";
+      // No need to record a success or renderer crash.
+      NOTREACHED();
       return;
     case CacheQueryOutcome::NO_DEVICE:
       RecordGetCharacteristicOutcome(UMAGetCharacteristicOutcome::NO_DEVICE);
@@ -164,6 +167,38 @@ void RecordGetCharacteristicOutcome(CacheQueryOutcome outcome) {
 
 void RecordGetCharacteristicCharacteristic(const std::string& characteristic) {
   UMA_HISTOGRAM_SPARSE_SLOWLY("Bluetooth.Web.GetCharacteristic.Characteristic",
+                              HashUUID(characteristic));
+}
+
+// getCharacteristics
+
+void RecordGetCharacteristicsOutcome(UMAGetCharacteristicOutcome outcome) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Bluetooth.Web.GetCharacteristics.Outcome", static_cast<int>(outcome),
+      static_cast<int>(UMAGetCharacteristicOutcome::COUNT));
+}
+
+void RecordGetCharacteristicsOutcome(CacheQueryOutcome outcome) {
+  switch (outcome) {
+    case CacheQueryOutcome::SUCCESS:
+    case CacheQueryOutcome::BAD_RENDERER:
+      // No need to record a success or renderer crash.
+      NOTREACHED();
+      return;
+    case CacheQueryOutcome::NO_DEVICE:
+      RecordGetCharacteristicsOutcome(UMAGetCharacteristicOutcome::NO_DEVICE);
+      return;
+    case CacheQueryOutcome::NO_SERVICE:
+      RecordGetCharacteristicsOutcome(UMAGetCharacteristicOutcome::NO_SERVICE);
+      return;
+    case CacheQueryOutcome::NO_CHARACTERISTIC:
+      NOTREACHED();
+      return;
+  }
+}
+
+void RecordGetCharacteristicsCharacteristic(const std::string& characteristic) {
+  UMA_HISTOGRAM_SPARSE_SLOWLY("Bluetooth.Web.GetCharacteristics.Characteristic",
                               HashUUID(characteristic));
 }
 
@@ -193,7 +228,8 @@ static UMAGATTOperationOutcome TranslateCacheQueryOutcomeToGATTOperationOutcome(
   switch (outcome) {
     case CacheQueryOutcome::SUCCESS:
     case CacheQueryOutcome::BAD_RENDERER:
-      NOTREACHED() << "No need to record success or renderer crash";
+      // No need to record a success or renderer crash.
+      NOTREACHED();
       return UMAGATTOperationOutcome::NOT_SUPPORTED;
     case CacheQueryOutcome::NO_DEVICE:
       return UMAGATTOperationOutcome::NO_DEVICE;

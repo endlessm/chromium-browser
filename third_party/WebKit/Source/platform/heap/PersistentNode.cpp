@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/heap/PersistentNode.h"
 
 #include "platform/heap/Handle.h"
@@ -118,7 +117,7 @@ void CrossThreadPersistentRegion::prepareForThreadStateTermination(ThreadState* 
             // 'self' is in use, containing the cross-thread persistent wrapper object.
             CrossThreadPersistent<GCObject>* persistent = reinterpret_cast<CrossThreadPersistent<GCObject>*>(slots->m_slot[i].self());
             ASSERT(persistent);
-            void* rawObject = persistent->get();
+            void* rawObject = persistent->atomicGet();
             if (!rawObject)
                 continue;
             BasePage* page = pageFromObject(rawObject);

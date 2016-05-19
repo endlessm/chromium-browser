@@ -6,23 +6,23 @@
 
 #include <vector>
 
-#include "base/win/registry.h"
+#include "base/macros.h"
 #include "base/version.h"
+#include "base/win/registry.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/installer/setup/setup_util.h"
 #include "chrome/installer/util/create_reg_key_work_item.h"
 #include "chrome/installer/util/delete_reg_key_work_item.h"
 #include "chrome/installer/util/delete_tree_work_item.h"
-#include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/google_update_constants.h"
+#include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/installation_state.h"
 #include "chrome/installer/util/installer_state.h"
 #include "chrome/installer/util/set_reg_value_work_item.h"
 #include "chrome/installer/util/util_constants.h"
 #include "chrome/installer/util/work_item_list.h"
-
-#include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 using base::win::RegKey;
 using installer::InstallationState;
@@ -785,30 +785,31 @@ TEST_F(InstallWorkerTest, WillProductBePresentAfterSetup) {
     }
 
     // Loop over operations: {uninstall, install/update}.
-    for (int i_op = 0; i_op < arraysize(op_list); ++i_op) {
+    for (InstallerState::Operation op : op_list) {
 
       // Loop over product types to operate on: {TYPE_BROWSER, TYPE_CF}.
       for (int i_type_op = 0; i_type_op < NUM_TYPE; ++i_type_op) {
         scoped_ptr<InstallerState> installer_state;
         if (i_type_op == TYPE_BROWSER) {
           installer_state.reset(BuildChromeInstallerState(
-              system_level, multi_install, *machine_state, op_list[i_op]));
+              system_level, multi_install, *machine_state, op));
         } else if (i_type_op == TYPE_CF) {
           // Skip the CF uninstall case due to limitations in
           // BuildChromeFrameInstallerState().
-          if (op_list[i_op] == InstallerState::UNINSTALL)
+          if (op == InstallerState::UNINSTALL)
             continue;
 
           installer_state.reset(BuildChromeFrameInstallerState(
-              system_level, multi_install, *machine_state, op_list[i_op]));
+              system_level, multi_install, *machine_state, op));
         } else {
           NOTREACHED();
         }
 
         // Calculate the machine state after operation, as bit mask.
         // If uninstall, remove product with bitwise AND; else add with OR.
-        int mach_after = (op_list[i_op] == InstallerState::UNINSTALL) ?
-            i_mach & ~(1 << i_type_op) : i_mach | (1 << i_type_op);
+        int mach_after = (op == InstallerState::UNINSTALL)
+                             ? i_mach & ~(1 << i_type_op)
+                             : i_mach | (1 << i_type_op);
 
         // Verify predicted presence of Chrome Binaries.
         bool bin_res = installer::WillProductBePresentAfterSetup(

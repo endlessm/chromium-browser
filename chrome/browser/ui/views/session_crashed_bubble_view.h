@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_SESSION_CRASHED_BUBBLE_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_SESSION_CRASHED_BUBBLE_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/session_crashed_bubble.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
@@ -63,6 +64,7 @@ class SessionCrashedBubbleView
   bool ShouldShowWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
   void OnWidgetDestroying(views::Widget* widget) override;
+  scoped_ptr<views::View> CreateFootnoteView() override;
 
   // views::BubbleDelegateView methods.
   void Init() override;
@@ -71,7 +73,8 @@ class SessionCrashedBubbleView
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::StyledLabelListener methods.
-  void StyledLabelLinkClicked(const gfx::Range& range,
+  void StyledLabelLinkClicked(views::StyledLabel* label,
+                              const gfx::Range& range,
                               int event_flags) override;
 
   // content::WebContentsObserver methods.
@@ -93,9 +96,6 @@ class SessionCrashedBubbleView
   // window or to another window, the bubble will be dismissed as if the user
   // chose not to restore the previous session.
   void TabDetachedAt(content::WebContents* contents, int index) override;
-
-  // Create the view for the user to opt in to UMA.
-  views::View* CreateUMAOptinView();
 
   // Restore previous session after user selects so.
   void RestorePreviousSession(views::Button* sender);

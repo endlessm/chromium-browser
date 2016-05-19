@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/scoped_observer.h"
 #include "chrome/browser/command_observer.h"
 #include "chrome/browser/profiles/avatar_menu.h"
@@ -18,6 +18,7 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/top_sites_observer.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/sessions/core/tab_restore_service_observer.h"
 #include "ui/base/glib/glib_signal.h"

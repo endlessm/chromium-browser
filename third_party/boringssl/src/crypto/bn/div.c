@@ -260,10 +260,10 @@ int BN_div(BIGNUM *dv, BIGNUM *rm, const BIGNUM *num, const BIGNUM *divisor,
       q = BN_MASK2;
     } else {
       /* n0 < d0 */
-#ifdef BN_LLONG
+#ifdef BN_ULLONG
       BN_ULLONG t2;
 
-#if defined(BN_LLONG) && !defined(div_asm)
+#if defined(BN_ULLONG) && !defined(div_asm)
       q = (BN_ULONG)(((((BN_ULLONG)n0) << BN_BITS2) | n1) / d0);
 #else
       q = div_asm(n0, n1, d0);
@@ -288,34 +288,14 @@ int BN_div(BIGNUM *dv, BIGNUM *rm, const BIGNUM *num, const BIGNUM *divisor,
         }
         t2 -= d1;
       }
-#else /* !BN_LLONG */
+#else /* !BN_ULLONG */
       BN_ULONG t2l, t2h;
 
-#if defined(div_asm)
-      q = div_asm(n0, n1, d0);
-#else
       q = bn_div_words(n0, n1, d0);
-#endif
 
-#ifndef REMAINDER_IS_ALREADY_CALCULATED
       rem = (n1 - q * d0) & BN_MASK2;
-#endif
 
-#if defined(BN_UMULT_LOHI)
       BN_UMULT_LOHI(t2l, t2h, d1, q);
-#elif defined(BN_UMULT_HIGH)
-      t2l = d1 * q;
-      t2h = BN_UMULT_HIGH(d1, q);
-#else
-      {
-        BN_ULONG ql, qh;
-        t2l = LBITS(d1);
-        t2h = HBITS(d1);
-        ql = LBITS(q);
-        qh = HBITS(q);
-        mul64(t2l, t2h, ql, qh); /* t2=(BN_ULLONG)d1*q; */
-      }
-#endif
 
       for (;;) {
         if ((t2h < rem) || ((t2h == rem) && (t2l <= wnump[-2]))) {
@@ -331,7 +311,7 @@ int BN_div(BIGNUM *dv, BIGNUM *rm, const BIGNUM *num, const BIGNUM *divisor,
         }
         t2l -= d1;
       }
-#endif /* !BN_LLONG */
+#endif /* !BN_ULLONG */
     }
 
     l0 = bn_mul_words(tmp->d, sdiv->d, div_n, q);
@@ -601,7 +581,7 @@ BN_ULONG BN_div_word(BIGNUM *a, BN_ULONG w) {
 }
 
 BN_ULONG BN_mod_word(const BIGNUM *a, BN_ULONG w) {
-#ifndef BN_LLONG
+#ifndef BN_ULLONG
   BN_ULONG ret = 0;
 #else
   BN_ULLONG ret = 0;
@@ -614,7 +594,7 @@ BN_ULONG BN_mod_word(const BIGNUM *a, BN_ULONG w) {
 
   w &= BN_MASK2;
   for (i = a->top - 1; i >= 0; i--) {
-#ifndef BN_LLONG
+#ifndef BN_ULLONG
     ret = ((ret << BN_BITS4) | ((a->d[i] >> BN_BITS4) & BN_MASK2l)) % w;
     ret = ((ret << BN_BITS4) | (a->d[i] & BN_MASK2l)) % w;
 #else

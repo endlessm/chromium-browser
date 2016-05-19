@@ -8,6 +8,7 @@
 #include "ui/events/gesture_detection/motion_event_generic.h"
 
 #include <cmath>
+#include <utility>
 
 #include "base/logging.h"
 #include "ui/events/base_event_utils.h"
@@ -48,6 +49,8 @@ PointerProperties::PointerProperties(const MotionEvent& event,
       tilt(event.GetTilt(pointer_index)),
       source_device_id(0) {
 }
+
+PointerProperties::PointerProperties(const PointerProperties& other) = default;
 
 void PointerProperties::SetAxesAndOrientation(float radius_x,
                                               float radius_y,
@@ -108,7 +111,7 @@ MotionEventGeneric::MotionEventGeneric(const MotionEventGeneric& other)
 MotionEventGeneric::~MotionEventGeneric() {
 }
 
-uint32 MotionEventGeneric::GetUniqueEventId() const {
+uint32_t MotionEventGeneric::GetUniqueEventId() const {
   return unique_event_id_;
 }
 
@@ -239,7 +242,7 @@ scoped_ptr<MotionEventGeneric> MotionEventGeneric::CancelEvent(
       new MotionEventGeneric(event, with_history));
   cancel_event->set_action(ACTION_CANCEL);
   cancel_event->set_unique_event_id(ui::GetNextTouchEventId());
-  return cancel_event.Pass();
+  return cancel_event;
 }
 
 size_t MotionEventGeneric::PushPointer(const PointerProperties& pointer) {
@@ -260,7 +263,7 @@ void MotionEventGeneric::PushHistoricalEvent(scoped_ptr<MotionEvent> event) {
   DCHECK_EQ(event->GetAction(), GetAction());
   DCHECK_LE(event->GetEventTime().ToInternalValue(),
             GetEventTime().ToInternalValue());
-  historical_events_.push_back(event.Pass());
+  historical_events_.push_back(std::move(event));
 }
 
 MotionEventGeneric::MotionEventGeneric()
@@ -299,7 +302,7 @@ MotionEventGeneric::MotionEventGeneric(const MotionEvent& event,
                             event.GetHistoricalY(i, h),
                             event.GetHistoricalTouchMajor(i, h)));
     }
-    PushHistoricalEvent(historical_event.Pass());
+    PushHistoricalEvent(std::move(historical_event));
   }
 }
 

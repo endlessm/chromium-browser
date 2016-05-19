@@ -12,6 +12,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_data_model.h"
 
 namespace autofill {
@@ -62,6 +63,8 @@ class CreditCard : public AutofillDataModel {
 
 // This method is not compiled on iOS because the resources are not used and
 // should not be shipped.
+// TODO(jdonnelly): Use credit card issuer images on iOS.
+// http://crbug.com/535784
 #if !defined(OS_IOS)
   // The ResourceBundle ID for the appropriate credit card image.
   static int IconResourceId(const std::string& type);
@@ -112,6 +115,9 @@ class CreditCard : public AutofillDataModel {
   // A label for this credit card formatted as 'Cardname - 2345'.
   base::string16 TypeAndLastFourDigits() const;
 
+  // Localized expiration for this credit card formatted as 'Exp: 06/17'.
+  base::string16 AbbreviatedExpirationDateForDisplay() const;
+
   const std::string& type() const { return type_; }
 
   int expiration_month() const { return expiration_month_; }
@@ -145,6 +151,10 @@ class CreditCard : public AutofillDataModel {
 
   // Determines if |this| is a local version of the server card |other|.
   bool IsLocalDuplicateOfServerCard(const CreditCard& other) const;
+
+  // Determines if |this| has the same number as |other|. If either is a masked
+  // server card, compares the last four digits only.
+  bool HasSameNumberAs(const CreditCard& other) const;
 
   // Equality operators compare GUIDs, origins, and the contents.
   // Usage metadata (use count, use date, modification date) are NOT compared.
@@ -197,8 +207,9 @@ class CreditCard : public AutofillDataModel {
   base::string16 Expiration4DigitYearAsString() const;
   base::string16 Expiration2DigitYearAsString() const;
 
-  // Sets |expiration_month_| to the integer conversion of |text|.
-  void SetExpirationMonthFromString(const base::string16& text,
+  // Sets |expiration_month_| to the integer conversion of |text| and returns
+  // whether the operation was successful.
+  bool SetExpirationMonthFromString(const base::string16& text,
                                     const std::string& app_locale);
 
   // Sets |expiration_year_| to the integer conversion of |text|.

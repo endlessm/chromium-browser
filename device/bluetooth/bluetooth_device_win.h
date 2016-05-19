@@ -5,10 +5,12 @@
 #ifndef DEVICE_BLUETOOTH_BLUETOOTH_DEVICE_WIN_H_
 #define DEVICE_BLUETOOTH_BLUETOOTH_DEVICE_WIN_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/observer_list.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/bluetooth_export.h"
@@ -32,20 +34,21 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
   ~BluetoothDeviceWin() override;
 
   // BluetoothDevice override
-  uint32 GetBluetoothClass() const override;
+  uint32_t GetBluetoothClass() const override;
   std::string GetAddress() const override;
   VendorIDSource GetVendorIDSource() const override;
-  uint16 GetVendorID() const override;
-  uint16 GetProductID() const override;
-  uint16 GetDeviceID() const override;
+  uint16_t GetVendorID() const override;
+  uint16_t GetProductID() const override;
+  uint16_t GetDeviceID() const override;
+  uint16_t GetAppearance() const override;
   bool IsPaired() const override;
   bool IsConnected() const override;
   bool IsGattConnected() const override;
   bool IsConnectable() const override;
   bool IsConnecting() const override;
   UUIDList GetUUIDs() const override;
-  int16 GetInquiryRSSI() const override;
-  int16 GetInquiryTxPower() const override;
+  int16_t GetInquiryRSSI() const override;
+  int16_t GetInquiryTxPower() const override;
   bool ExpectingPinCode() const override;
   bool ExpectingPasskey() const override;
   bool ExpectingConfirmation() const override;
@@ -54,7 +57,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
                const base::Closure& callback,
                const ConnectErrorCallback& error_callback) override;
   void SetPinCode(const std::string& pincode) override;
-  void SetPasskey(uint32 passkey) override;
+  void SetPasskey(uint32_t passkey) override;
   void ConfirmPairing() override;
   void RejectPairing() override;
   void CancelPairing() override;
@@ -105,6 +108,22 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
   // Updates the services with services stored in |device_state|.
   void UpdateServices(const BluetoothTaskManagerWin::DeviceState& device_state);
 
+  // Checks if GATT service with |uuid| and |attribute_handle| has already been
+  // discovered.
+  bool IsGattServiceDiscovered(BluetoothUUID& uuid, uint16_t attribute_handle);
+
+  // Checks if |service| still exist on device according to newly discovered
+  // |service_state|.
+  bool DoesGattServiceExist(
+      const ScopedVector<BluetoothTaskManagerWin::ServiceRecordState>&
+          service_state,
+      BluetoothGattService* service);
+
+  // Updates the GATT services with the services stored in |service_state|.
+  void UpdateGattServices(
+      const ScopedVector<BluetoothTaskManagerWin::ServiceRecordState>&
+          service_state);
+
   scoped_refptr<base::SequencedTaskRunner> ui_task_runner_;
   scoped_refptr<BluetoothSocketThread> socket_thread_;
   net::NetLog* net_log_;
@@ -112,7 +131,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
 
   // The Bluetooth class of the device, a bitmask that may be decoded using
   // https://www.bluetooth.org/Technical/AssignedNumbers/baseband.htm
-  uint32 bluetooth_class_;
+  uint32_t bluetooth_class_;
 
   // The name of the device, as supplied by the remote device.
   std::string name_;

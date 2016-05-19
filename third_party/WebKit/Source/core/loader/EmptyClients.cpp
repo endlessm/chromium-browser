@@ -25,7 +25,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/loader/EmptyClients.h"
 
 #include "core/frame/LocalFrame.h"
@@ -37,7 +36,6 @@
 #include "platform/Widget.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebApplicationCacheHost.h"
-#include "public/platform/WebMediaPlayer.h"
 #include "public/platform/modules/mediasession/WebMediaSession.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerProvider.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerProviderClient.h"
@@ -64,7 +62,7 @@ void fillWithEmptyClients(Page::PageClients& pageClients)
 
 class EmptyPopupMenu : public PopupMenu {
 public:
-    void show(const FloatQuad&, const IntSize&, int) override { }
+    void show() override { }
     void hide() override { }
     void updateFromElement() override { }
     void disconnectClient() override { }
@@ -75,7 +73,7 @@ public:
     void setFrameVisible(bool) override { }
     WebTaskRunner* loadingTaskRunner() override;
     WebTaskRunner* timerTaskRunner() override;
-    void setFrameOrigin(const WebSecurityOrigin*) override { }
+    void setFrameOrigin(const WebSecurityOrigin&) override { }
 };
 
 WebTaskRunner* EmptyFrameScheduler::loadingTaskRunner()
@@ -121,7 +119,7 @@ PassOwnPtr<WebFrameScheduler> EmptyChromeClient::createFrameScheduler()
     return adoptPtr(new EmptyFrameScheduler());
 }
 
-NavigationPolicy EmptyFrameLoaderClient::decidePolicyForNavigation(const ResourceRequest&, DocumentLoader*, NavigationType, NavigationPolicy, bool)
+NavigationPolicy EmptyFrameLoaderClient::decidePolicyForNavigation(const ResourceRequest&, DocumentLoader*, NavigationType, NavigationPolicy, bool, bool)
 {
     return NavigationPolicyIgnore;
 }
@@ -154,7 +152,7 @@ PassRefPtrWillBeRawPtr<Widget> EmptyFrameLoaderClient::createPlugin(HTMLPlugInEl
     return nullptr;
 }
 
-PassOwnPtr<WebMediaPlayer> EmptyFrameLoaderClient::createWebMediaPlayer(HTMLMediaElement&, const WebURL&, WebMediaPlayerClient*)
+PassOwnPtr<WebMediaPlayer> EmptyFrameLoaderClient::createWebMediaPlayer(HTMLMediaElement&, WebMediaPlayer::LoadType, const WebURL&, WebMediaPlayerClient*)
 {
     return nullptr;
 }

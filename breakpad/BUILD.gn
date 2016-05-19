@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/symlink.gni")
 import("//testing/test.gni")
 
 if (is_android) {
@@ -378,9 +379,9 @@ if (is_mac) {
     include_dirs = [ "src/client/apple/Framework" ]
 
     deps = [
-      ":utilities",
       ":crash_inspector",
       ":crash_report_sender",
+      ":utilities",
     ]
   }
 
@@ -472,6 +473,14 @@ if (is_linux || is_android) {
         "//build/config/sanitizers:deps",
       ]
     }
+  } else {
+    # Aliases for convenience.
+    binary_symlink("dump_syms") {
+      binary_label = ":dump_syms($host_toolchain)"
+    }
+    binary_symlink("symupload") {
+      binary_label = ":symupload($host_toolchain)"
+    }
   }
 
   static_library("client") {
@@ -544,6 +553,11 @@ if (is_linux || is_android) {
       # linux_syscall_support.h:sys_clone()'s inline assembly.
       cflags = [ "-marm" ]
     }
+
+    # Clang's -mstackrealign doesn't work well with
+    # linux_syscall_support.h hand written asm syscalls.
+    # See https://crbug.com/556393
+    configs -= [ "//build/config/compiler:clang_stackrealign" ]
 
     if (is_android) {
       sources += [ "src/common/android/breakpad_getcontext.S" ]
@@ -622,12 +636,12 @@ if (is_linux || is_android) {
 
     deps = [
       ":client",
-      ":processor_support",
       ":linux_dumper_unittest_helper",
+      ":processor_support",
       "//build/config/sanitizers:deps",
+      "//testing/gmock",
       "//testing/gtest",
       "//testing/gtest:gtest_main",
-      "//testing/gmock",
     ]
 
     include_dirs = [
@@ -650,6 +664,11 @@ if (is_linux || is_android) {
       libs = [ "log" ]
       include_dirs += [ "src/common/android/include" ]
     }
+
+    # Clang's -mstackrealign doesn't work well with
+    # linux_syscall_support.h hand written asm syscalls.
+    # See https://crbug.com/556393
+    configs -= [ "//build/config/compiler:clang_stackrealign" ]
   }
 
   executable("linux_dumper_unittest_helper") {
@@ -725,6 +744,7 @@ if (is_linux || is_android) {
 
 if (is_ios) {
   static_library("client") {
+    set_sources_assignment_filter([])
     sources = [
       "src/client/ios/Breakpad.h",
       "src/client/ios/Breakpad.mm",
@@ -751,6 +771,8 @@ if (is_ios) {
       "src/client/minidump_file_writer.h",
       "src/common/convert_UTF.c",
       "src/common/convert_UTF.h",
+      "src/common/mac/GTMLogger.h",
+      "src/common/mac/GTMLogger.m",
       "src/common/mac/HTTPMultipartUpload.m",
       "src/common/mac/file_id.cc",
       "src/common/mac/file_id.h",
@@ -770,12 +792,20 @@ if (is_ios) {
       "src/common/string_conversion.h",
       "src/google_breakpad/common/minidump_format.h",
     ]
+    set_sources_assignment_filter(sources_assignment_filter)
 
     include_dirs = [
       "src",
       "src/client/mac/Framework",
       "src/common/mac",
     ]
+
+    public_configs = [ ":client_config" ]
+
+    if (is_clang) {
+      # See https://bugs.chromium.org/p/google-breakpad/issues/detail?id=675.
+      cflags = [ "-Wno-deprecated-declarations" ]
+    }
   }
   # TODO(GYP) There is some XCode-only targets like ninja-breakpad.
 }
@@ -850,5 +880,14 @@ if (is_android) {
     test_type = "gtest"
     test_suite = "breakpad_unittests"
     isolate_file = "breakpad_unittests.isolate"
+  }
+
+  # TODO(GYP) Delete this after we've converted everything to GN.
+  # The _run targets exist only for compatibility w/ GYP.
+  group("breakpad_unittests_apk_run") {
+    testonly = true
+    deps = [
+      ":breakpad_unittests",
+    ]
   }
 }

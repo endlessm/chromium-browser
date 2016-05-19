@@ -6,6 +6,7 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/color_scheme.html">
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/model/attribute.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
 <link rel="import"
@@ -76,46 +77,278 @@ tr.exportTo('tr.ui.analysis', function() {
 
   var ColorScheme = tr.b.ColorScheme;
 
-  var USED_MEMORY_SIZE_COLUMNS_IMPORTANCE_RULES =
-      tr.ui.analysis.MemoryColumn.columnNamesToImportanceRules([
-          'Total resident',
-          'Peak total resident',
-          'PSS',
-          'Private dirty',
-          'Swapped']);
-
-  var ALLOCATOR_SIZE_COLUMNS_IMPORTANCE_RULES = [
-    {
-      condition: 'tracing',
-      importance: 0
-    },
-    {
-      importance: 1
-    }
-  ];
+  var PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX = '_bytes';
 
   var DISPLAYED_SIZE_ATTRIBUTE_NAME =
       tr.model.MemoryAllocatorDump.DISPLAYED_SIZE_ATTRIBUTE_NAME;
+  var SOME_TIMESTAMPS_INFO_QUANTIFIER =
+      tr.ui.analysis.MemoryColumn.SOME_TIMESTAMPS_INFO_QUANTIFIER;
 
-  var LINK_SYMBOL = String.fromCharCode(9903);
-  var GREATER_THAN_OR_EQUAL_TO_SYMBOL = String.fromCharCode(8805);
+  // Unicode symbols used for memory cell info icons and messages.
+  var RIGHTWARDS_ARROW_WITH_HOOK = String.fromCharCode(0x21AA);
+  var RIGHTWARDS_ARROW_FROM_BAR = String.fromCharCode(0x21A6);
+  var GREATER_THAN_OR_EQUAL_TO = String.fromCharCode(0x2265);
+  var UNMARRIED_PARTNERSHIP_SYMBOL = String.fromCharCode(0x26AF);
+  var TRIGRAM_FOR_HEAVEN = String.fromCharCode(0x2630);
 
   /** @constructor */
-  function ProcessNameColumn(title) {
-    tr.ui.analysis.TitleColumn.call(this, title);
+  function ProcessNameColumn() {
+    tr.ui.analysis.TitleColumn.call(this, 'Process');
   }
 
   ProcessNameColumn.prototype = {
     __proto__: tr.ui.analysis.TitleColumn.prototype,
 
     formatTitle: function(row) {
-      if (row.noLegend)
-        return row.title;
+      if (row.contexts === undefined)
+        return row.title;  // Total row.
       var titleEl = document.createElement('tr-ui-b-color-legend');
       titleEl.label = row.title;
       return titleEl;
     }
   };
+
+  /** @constructor */
+  function UsedMemoryColumn(name, units, cellGetter, aggregationMode) {
+    if (units !== 'bytes')
+      throw new Error('Invalid UsedMemoryColumn units: ' + units);
+    tr.ui.analysis.ScalarMemoryColumn.call(
+        this, name, units, cellGetter, aggregationMode);
+  }
+
+  UsedMemoryColumn.COLOR =
+      ColorScheme.getColorForReservedNameAsString('used_memory_column');
+  UsedMemoryColumn.OLDER_COLOR =
+      ColorScheme.getColorForReservedNameAsString('older_used_memory_column');
+
+  UsedMemoryColumn.prototype = {
+    __proto__: tr.ui.analysis.ScalarMemoryColumn.prototype,
+
+    get title() {
+      return tr.ui.b.createSpan({
+        textContent: this.name,
+        color: UsedMemoryColumn.COLOR
+      });
+    },
+
+    color: UsedMemoryColumn.COLOR
+  };
+
+  /** @constructor */
+  function PeakMemoryColumn(name, units, cellGetter, aggregationMode) {
+    UsedMemoryColumn.call(this, name, units, cellGetter, aggregationMode);
+  }
+
+  PeakMemoryColumn.prototype = {
+    __proto__: UsedMemoryColumn.prototype,
+
+    addInfos: function(attrs, processMemoryDumps, infos) {
+      if (processMemoryDumps === undefined)
+        return;  // Total row.
+
+      var resettableValueCount = 0;
+      var nonResettableValueCount = 0;
+      for (var i = 0; i < attrs.length; i++) {
+        if (attrs[i] === undefined)
+          continue;
+        if (processMemoryDumps[i].arePeakResidentBytesResettable)
+          resettableValueCount++;
+        else
+          nonResettableValueCount++;
+      }
+
+      if (resettableValueCount > 0 && nonResettableValueCount > 0) {
+        infos.push(tr.ui.analysis.createWarningInfo('Both resettable and ' +
+            'non-resettable peak RSS values were provided by the process'));
+      } else if (resettableValueCount > 0) {
+        infos.push({
+          icon: RIGHTWARDS_ARROW_WITH_HOOK,
+          message: 'Peak RSS since previous memory dump.'
+        });
+      } else {
+        infos.push({
+          icon: RIGHTWARDS_ARROW_FROM_BAR,
+          message: 'Peak RSS since process startup. Finer grained ' +
+              'peaks require a Linux kernel version ' +
+              GREATER_THAN_OR_EQUAL_TO + ' 4.0.'
+        });
+      }
+    }
+  };
+
+  /** @constructor */
+  function ByteStatColumn(name, units, cellGetter, aggregationMode) {
+    UsedMemoryColumn.call(this, name, units, cellGetter, aggregationMode);
+  }
+
+  ByteStatColumn.prototype = {
+    __proto__: UsedMemoryColumn.prototype,
+
+    color: function(attrs, processMemoryDumps) {
+      if (processMemoryDumps === undefined)
+        return UsedMemoryColumn.COLOR;  // Total row.
+
+      var allOlderValues = processMemoryDumps.every(
+          function(processMemoryDump) {
+            if (processMemoryDump === undefined)
+              return true;
+            return !processMemoryDump.hasOwnVmRegions;
+          });
+
+      // Show the cell in lighter blue if all values were older (i.e. none of
+      // the defined process memory dumps had own VM regions).
+      if (allOlderValues)
+        return UsedMemoryColumn.OLDER_COLOR;
+      else
+        return UsedMemoryColumn.COLOR;
+    },
+
+    addInfos: function(attrs, processMemoryDumps, infos) {
+      if (processMemoryDumps === undefined)
+        return;  // Total row.
+
+      var olderValueCount = 0;
+      for (var i = 0; i < attrs.length; i++) {
+        var processMemoryDump = processMemoryDumps[i];
+        if (processMemoryDump !== undefined &&
+            !processMemoryDump.hasOwnVmRegions) {
+          olderValueCount++;
+        }
+      }
+
+      if (olderValueCount === 0)
+        return;  // There are no older values.
+
+      var infoQuantifier = olderValueCount < attrs.length ?
+          ' ' + SOME_TIMESTAMPS_INFO_QUANTIFIER /* some values are older */ :
+          '' /* all values are older */;
+
+      // Emit an info if there was at least one older value (i.e. at least one
+      // defined process memory dump did not have own VM regions).
+      infos.push({
+        message: 'Older value' + infoQuantifier +
+            ' (only heavy (purple) memory dumps contain memory maps).',
+        icon: UNMARRIED_PARTNERSHIP_SYMBOL
+      });
+    }
+  };
+
+  // Rules for constructing and sorting used memory columns.
+  UsedMemoryColumn.RULES = [
+    {
+      condition: 'Total resident',
+      importance: 10,
+      columnConstructor: UsedMemoryColumn
+    },
+    {
+      condition: 'Peak total resident',
+      importance: 9,
+      columnConstructor: PeakMemoryColumn
+    },
+    {
+      condition: 'PSS',
+      importance: 8,
+      columnConstructor: ByteStatColumn
+    },
+    {
+      condition: 'Private dirty',
+      importance: 7,
+      columnConstructor: ByteStatColumn
+    },
+    {
+      condition: 'Swapped',
+      importance: 6,
+      columnConstructor: ByteStatColumn
+    },
+    {
+      // All other columns.
+      importance: 0,
+      columnConstructor: UsedMemoryColumn
+    }
+  ];
+
+  /** @constructor */
+  function AllocatorColumn(name, units, cellGetter, aggregationMode) {
+    if (units !== 'bytes')
+      throw new Error('Invalid AllocatorColumn units: ' + units);
+    tr.ui.analysis.ScalarMemoryColumn.call(
+        this, name, units, cellGetter, aggregationMode);
+  }
+
+  AllocatorColumn.prototype = {
+    __proto__: tr.ui.analysis.ScalarMemoryColumn.prototype,
+
+    get title() {
+      var titleEl = document.createElement('tr-ui-b-color-legend');
+      titleEl.label = this.name;
+      return titleEl;
+    },
+
+    addInfos: function(attrs, processMemoryDumps, infos) {
+      if (processMemoryDumps === undefined)
+        return;
+
+      var heapDumpCount = 0;
+      for (var i = 0; i < processMemoryDumps.length; i++) {
+        var processMemoryDump = processMemoryDumps[i];
+        if (processMemoryDump === undefined)
+          continue;
+        var heapDumps = processMemoryDump.heapDumps;
+        if (heapDumps === undefined)
+          continue;
+        if (heapDumps[this.name] !== undefined)
+          heapDumpCount++;
+      }
+
+      if (heapDumpCount === 0)
+        return;  // There are no heap dumps.
+
+      var infoQuantifier = heapDumpCount < attrs.length ?
+          ' ' + SOME_TIMESTAMPS_INFO_QUANTIFIER : '';
+
+      // Emit a heap dump info if at least one of the process memory dumps has
+      // a heap dump associated with this allocator.
+      infos.push({
+        message: 'Heap dump provided' + infoQuantifier + '.',
+        icon: TRIGRAM_FOR_HEAVEN
+      });
+    }
+  };
+
+  /** @constructor */
+  function TracingColumn(name, units, cellGetter, aggregationMode) {
+    AllocatorColumn.call(this, name, units, cellGetter, aggregationMode);
+  }
+
+  TracingColumn.COLOR =
+      ColorScheme.getColorForReservedNameAsString('tracing_memory_column');
+
+  TracingColumn.prototype = {
+    __proto__: tr.ui.analysis.ScalarMemoryColumn.prototype,
+
+    get title() {
+      return tr.ui.b.createSpan({
+        textContent: this.name,
+        color: TracingColumn.COLOR
+      });
+    },
+
+    color: TracingColumn.COLOR
+  };
+
+  // Rules for constructing and sorting allocator columns.
+  AllocatorColumn.RULES = [
+    {
+      condition: 'tracing',
+      importance: 0,
+      columnConstructor: TracingColumn
+    },
+    {
+      // All other columns.
+      importance: 1,
+      columnConstructor: AllocatorColumn
+    }
+  ];
 
   Polymer('tr-ui-a-memory-dump-overview-pane', {
     created: function() {
@@ -241,12 +474,6 @@ tr.exportTo('tr.ui.analysis', function() {
         // process memory dump in timeToDump since they all have the same pid.
         var process = tr.b.findFirstInArray(timeToDump).process;
 
-        // Determine at which timestamps (indices of the current selection)
-        // the dump was provided.
-        var defined = timeToDump.map(function(dump) {
-          return dump !== undefined;
-        });
-
         // Used memory (total resident, PSS, ...).
         var timeToVmRegions = timeToDump.map(function(dump) {
           if (dump === undefined)
@@ -265,35 +492,36 @@ tr.exportTo('tr.ui.analysis', function() {
               var sizes = {};
 
               // Totals.
-              if (dump.totals !== undefined) {
+              var totals = dump.totals;
+              if (totals !== undefined) {
                 tr.ui.analysis.addAttributeIfDefined(
-                    sizes, 'Total resident', tr.model.ScalarAttribute,
-                    'bytes', dump.totals.residentBytes);
+                    sizes, 'Total resident', tr.model.ScalarAttribute, 'bytes',
+                    totals.residentBytes);
                 tr.ui.analysis.addAttributeIfDefined(
                     sizes, 'Peak total resident', tr.model.ScalarAttribute,
-                    'bytes', dump.totals.peakResidentBytes,
-                    function(attr) {
-                      if (dump.totals.arePeakResidentBytesResettable) {
-                        attr.infos.push(new tr.model.AttributeInfo(
-                            tr.model.AttributeInfoType.RECENT_VALUE,
-                            'Peak RSS since previous memory dump.'));
-                      } else {
-                        attr.infos.push(new tr.model.AttributeInfo(
-                            tr.model.AttributeInfoType.OVERALL_VALUE,
-                            'Peak RSS since process startup. Finer grained ' +
-                            'peaks require a Linux kernel version ' +
-                            GREATER_THAN_OR_EQUAL_TO_SYMBOL + ' 4.0.'));
-                      }
-                    });
+                    'bytes', totals.peakResidentBytes);
+
+                // Platform-specific totals (e.g. private resident on Mac).
+                var platformSpecific = totals.platformSpecific;
+                if (platformSpecific !== undefined) {
+                  tr.b.iterItems(platformSpecific, function(name, size) {
+                    // Change raw OS-specific total name to a user-friendly
+                    // column title (e.g. 'private_bytes' -> 'Private').
+                    if (name.endsWith(PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX)) {
+                      name = name.substring(0, name.length -
+                          PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX.length);
+                    }
+                    name = name.replace('_', ' ').trim();
+                    name = name.charAt(0).toUpperCase() + name.slice(1);
+                    sizes[name] = new tr.model.ScalarAttribute('bytes', size);
+                  });
+                }
               }
 
               // VM regions byte stats.
               var vmRegionAttributeAddedCallback = undefined;
               if (!dump.hasOwnVmRegions) {
                 vmRegionAttributeAddedCallback = function(attr) {
-                  attr.infos.push(new tr.model.AttributeInfo(
-                      tr.model.AttributeInfoType.LINK,
-                       'Older value (process did not dump memory maps).'));
                   attr.isOlderValue = true;
                 };
               }
@@ -327,20 +555,8 @@ tr.exportTo('tr.ui.analysis', function() {
               dump.memoryAllocatorDumps.forEach(function(allocatorDump) {
                 var rootAttribute = allocatorDump.attributes[
                     DISPLAYED_SIZE_ATTRIBUTE_NAME];
-                if (rootAttribute === undefined)
-                  return;
-                var allocatorName = allocatorDump.fullName;
-                // Clone the attribute so that we could provide custom infos
-                // (instead of the original ones).
-                var overviewAttribute = new rootAttribute.constructor(
-                    rootAttribute.units, rootAttribute.value);
-                if (dump.heapDumps !== undefined &&
-                    dump.heapDumps[allocatorName] !== undefined) {
-                  overviewAttribute.infos.push(new tr.model.AttributeInfo(
-                      tr.model.AttributeInfoType.HAS_HEAP_DUMP,
-                      'Heap dump provided'));
-                }
-                sizes[allocatorName] = overviewAttribute;
+                if (rootAttribute !== undefined)
+                  sizes[allocatorDump.fullName] = rootAttribute;
               });
               return sizes;
             },
@@ -372,7 +588,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
         return {
           title: process.userFriendlyName,
-          defined: defined,
+          contexts: timeToDump,
           usedMemoryCells: usedMemoryCells,
           allocatorCells: allocatorCells
         };
@@ -384,67 +600,28 @@ tr.exportTo('tr.ui.analysis', function() {
       if (rows.length <= 1)
         return [];
 
-      var totalRow = {
-        title: 'Total',
-        noLegend: true
-      };
-
-      tr.ui.analysis.aggregateTableRowCells(
-          totalRow, rows, 'usedMemoryCells');
+      var totalRow = {title: 'Total'};
+      tr.ui.analysis.aggregateTableRowCells(totalRow, rows, 'usedMemoryCells');
       tr.ui.analysis.aggregateTableRowCells(totalRow, rows, 'allocatorCells');
 
       return [totalRow];
     },
 
     createColumns_: function(rows) {
-      var titleColumn = new ProcessNameColumn('Process');
+      var titleColumn = new ProcessNameColumn();
       titleColumn.width = '200px';
 
       var usedMemorySizeColumns = tr.ui.analysis.MemoryColumn.fromRows(
-          rows, 'usedMemoryCells', this.aggregationMode_);
+          rows, 'usedMemoryCells', this.aggregationMode_,
+          UsedMemoryColumn.RULES);
       tr.ui.analysis.MemoryColumn.sortByImportance(
-          usedMemorySizeColumns, USED_MEMORY_SIZE_COLUMNS_IMPORTANCE_RULES);
+          usedMemorySizeColumns, UsedMemoryColumn.RULES);
 
       var allocatorSizeColumns = tr.ui.analysis.MemoryColumn.fromRows(
           rows, 'allocatorCells', this.aggregationMode_,
-          function(allocatorName) {
-            var titleEl = document.createElement('tr-ui-b-color-legend');
-            titleEl.label = allocatorName;
-            return titleEl;
-          });
+          AllocatorColumn.RULES);
       tr.ui.analysis.MemoryColumn.sortByImportance(
-          allocatorSizeColumns, ALLOCATOR_SIZE_COLUMNS_IMPORTANCE_RULES);
-
-      // Grey the 'tracing' column out (if present).
-      // TODO(petrcermak): Find a less hacky way to do this.
-      var tracingColumn = tr.b.findFirstInArray(allocatorSizeColumns,
-          function(column) {
-        return column.name === 'tracing';
-      });
-      if (tracingColumn !== undefined) {
-        var tracingColumnColor = ColorScheme.getColorForReservedNameAsString(
-            'tracing_memory_column');
-        tracingColumn.title = tr.ui.b.createSpan(
-            {textContent: 'tracing', color: tracingColumnColor});
-        tracingColumn.color = tracingColumnColor;
-      }
-
-      // Make the used memory size columns blue.
-      // TODO(petrcermak): Find a less hacky way to do this.
-      usedMemorySizeColumns.forEach(function(column) {
-        var olderUsedMCC = ColorScheme.getColorForReservedNameAsString(
-            'older_used_memory_column');
-        var usedMCC = ColorScheme.getColorForReservedNameAsString(
-            'used_memory_column');
-        column.title = tr.ui.b.createSpan(
-            {textContent: column.title, color: usedMCC});
-        column.color = function(attrs) {
-          // TODO(petrcermak): Figure out how to make this work for multi-
-          // selection as well.
-          return attrs.length === 1 && attrs[0].isOlderValue ?
-              olderUsedMCC : usedMCC;
-        }
-      });
+          allocatorSizeColumns, AllocatorColumn.RULES);
 
       var sizeColumns = usedMemorySizeColumns.concat(allocatorSizeColumns);
       tr.ui.analysis.MemoryColumn.spaceEqually(sizeColumns);
@@ -497,6 +674,14 @@ tr.exportTo('tr.ui.analysis', function() {
     }
   });
 
-  return {};
+  return {
+    // All exports are for testing only.
+    ProcessNameColumn: ProcessNameColumn,
+    UsedMemoryColumn: UsedMemoryColumn,
+    PeakMemoryColumn: PeakMemoryColumn,
+    ByteStatColumn: ByteStatColumn,
+    AllocatorColumn: AllocatorColumn,
+    TracingColumn: TracingColumn
+  };
 });
 </script>

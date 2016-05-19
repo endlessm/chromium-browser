@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/MediaValues.h"
 
 #include "core/css/CSSHelper.h"
@@ -32,21 +31,21 @@ PassRefPtrWillBeRawPtr<MediaValues> MediaValues::createDynamicIfFrameExists(Loca
     return MediaValuesCached::create();
 }
 
-int MediaValues::calculateViewportWidth(LocalFrame* frame) const
+double MediaValues::calculateViewportWidth(LocalFrame* frame)
 {
     ASSERT(frame && frame->view() && frame->document());
     int viewportWidth = frame->view()->layoutSize(IncludeScrollbars).width();
-    return adjustForAbsoluteZoom(viewportWidth, frame->document()->layoutView());
+    return adjustDoubleForAbsoluteZoom(viewportWidth, *frame->document()->layoutView());
 }
 
-int MediaValues::calculateViewportHeight(LocalFrame* frame) const
+double MediaValues::calculateViewportHeight(LocalFrame* frame)
 {
     ASSERT(frame && frame->view() && frame->document());
     int viewportHeight = frame->view()->layoutSize(IncludeScrollbars).height();
-    return adjustForAbsoluteZoom(viewportHeight, frame->document()->layoutView());
+    return adjustDoubleForAbsoluteZoom(viewportHeight, *frame->document()->layoutView());
 }
 
-int MediaValues::calculateDeviceWidth(LocalFrame* frame) const
+int MediaValues::calculateDeviceWidth(LocalFrame* frame)
 {
     ASSERT(frame && frame->view() && frame->settings() && frame->host());
     int deviceWidth = frame->host()->chromeClient().screenInfo().rect.width;
@@ -55,7 +54,7 @@ int MediaValues::calculateDeviceWidth(LocalFrame* frame) const
     return deviceWidth;
 }
 
-int MediaValues::calculateDeviceHeight(LocalFrame* frame) const
+int MediaValues::calculateDeviceHeight(LocalFrame* frame)
 {
     ASSERT(frame && frame->view() && frame->settings() && frame->host());
     int deviceHeight = frame->host()->chromeClient().screenInfo().rect.height;
@@ -64,18 +63,18 @@ int MediaValues::calculateDeviceHeight(LocalFrame* frame) const
     return deviceHeight;
 }
 
-bool MediaValues::calculateStrictMode(LocalFrame* frame) const
+bool MediaValues::calculateStrictMode(LocalFrame* frame)
 {
     ASSERT(frame && frame->document());
     return !frame->document()->inQuirksMode();
 }
 
-float MediaValues::calculateDevicePixelRatio(LocalFrame* frame) const
+float MediaValues::calculateDevicePixelRatio(LocalFrame* frame)
 {
     return frame->devicePixelRatio();
 }
 
-int MediaValues::calculateColorBitsPerComponent(LocalFrame* frame) const
+int MediaValues::calculateColorBitsPerComponent(LocalFrame* frame)
 {
     ASSERT(frame && frame->page() && frame->page()->mainFrame());
     if (!frame->page()->mainFrame()->isLocalFrame()
@@ -84,7 +83,7 @@ int MediaValues::calculateColorBitsPerComponent(LocalFrame* frame) const
     return frame->host()->chromeClient().screenInfo().depthPerComponent;
 }
 
-int MediaValues::calculateMonochromeBitsPerComponent(LocalFrame* frame) const
+int MediaValues::calculateMonochromeBitsPerComponent(LocalFrame* frame)
 {
     ASSERT(frame && frame->page() && frame->page()->mainFrame());
     if (!frame->page()->mainFrame()->isLocalFrame()
@@ -93,12 +92,12 @@ int MediaValues::calculateMonochromeBitsPerComponent(LocalFrame* frame) const
     return frame->host()->chromeClient().screenInfo().depthPerComponent;
 }
 
-int MediaValues::calculateDefaultFontSize(LocalFrame* frame) const
+int MediaValues::calculateDefaultFontSize(LocalFrame* frame)
 {
     return frame->host()->settings().defaultFontSize();
 }
 
-const String MediaValues::calculateMediaType(LocalFrame* frame) const
+const String MediaValues::calculateMediaType(LocalFrame* frame)
 {
     ASSERT(frame);
     if (!frame->view())
@@ -106,7 +105,7 @@ const String MediaValues::calculateMediaType(LocalFrame* frame) const
     return frame->view()->mediaType();
 }
 
-WebDisplayMode MediaValues::calculateDisplayMode(LocalFrame* frame) const
+WebDisplayMode MediaValues::calculateDisplayMode(LocalFrame* frame)
 {
     ASSERT(frame);
     WebDisplayMode mode = frame->host()->settings().displayModeOverride();
@@ -120,7 +119,7 @@ WebDisplayMode MediaValues::calculateDisplayMode(LocalFrame* frame) const
     return frame->view()->displayMode();
 }
 
-bool MediaValues::calculateThreeDEnabled(LocalFrame* frame) const
+bool MediaValues::calculateThreeDEnabled(LocalFrame* frame)
 {
     ASSERT(frame && frame->contentLayoutObject() && frame->contentLayoutObject()->compositor());
     bool threeDEnabled = false;
@@ -129,31 +128,31 @@ bool MediaValues::calculateThreeDEnabled(LocalFrame* frame) const
     return threeDEnabled;
 }
 
-PointerType MediaValues::calculatePrimaryPointerType(LocalFrame* frame) const
+PointerType MediaValues::calculatePrimaryPointerType(LocalFrame* frame)
 {
     ASSERT(frame && frame->settings());
     return frame->settings()->primaryPointerType();
 }
 
-int MediaValues::calculateAvailablePointerTypes(LocalFrame* frame) const
+int MediaValues::calculateAvailablePointerTypes(LocalFrame* frame)
 {
     ASSERT(frame && frame->settings());
     return frame->settings()->availablePointerTypes();
 }
 
-HoverType MediaValues::calculatePrimaryHoverType(LocalFrame* frame) const
+HoverType MediaValues::calculatePrimaryHoverType(LocalFrame* frame)
 {
     ASSERT(frame && frame->settings());
     return frame->settings()->primaryHoverType();
 }
 
-int MediaValues::calculateAvailableHoverTypes(LocalFrame* frame) const
+int MediaValues::calculateAvailableHoverTypes(LocalFrame* frame)
 {
     ASSERT(frame && frame->settings());
     return frame->settings()->availableHoverTypes();
 }
 
-bool MediaValues::computeLengthImpl(double value, CSSPrimitiveValue::UnitType type, unsigned defaultFontSize, unsigned viewportWidth, unsigned viewportHeight, double& result)
+bool MediaValues::computeLengthImpl(double value, CSSPrimitiveValue::UnitType type, unsigned defaultFontSize, double viewportWidth, double viewportHeight, double& result)
 {
     // The logic in this function is duplicated from CSSToLengthConversionData::zoomedComputedPixels()
     // because MediaValues::computeLength() needs nearly identical logic, but we haven't found a way to make
@@ -224,4 +223,4 @@ LocalFrame* MediaValues::frameFrom(Document& document)
     return executingDocument->frame();
 }
 
-} // namespace
+} // namespace blink

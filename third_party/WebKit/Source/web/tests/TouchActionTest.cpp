@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/dom/ClientRect.h"
 #include "core/dom/ClientRectList.h"
 #include "core/dom/Document.h"
@@ -38,6 +36,7 @@
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
+#include "core/html/HTMLIFrameElement.h"
 #include "core/input/EventHandler.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutTreeAsText.h"
@@ -53,9 +52,10 @@
 #include "public/web/WebView.h"
 #include "public/web/WebViewClient.h"
 #include "public/web/WebWidgetClient.h"
+#include "testing/gtest/include/gtest/gtest.h"
+#include "web/WebFrameImplBase.h"
 #include "web/WebViewImpl.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gtest/gtest.h>
 
 using blink::testing::runPendingTasks;
 
@@ -118,6 +118,7 @@ public:
 protected:
     void runTouchActionTest(std::string file);
     void runShadowDOMTest(std::string file);
+    void runIFrameTest(std::string file);
     void sendTouchEvent(WebView*, WebInputEvent::Type, IntPoint clientPoint);
     WebView* setupTest(std::string file, TouchActionTrackingWebViewClient&);
     void runTestOnTree(ContainerNode* root, WebView*, TouchActionTrackingWebViewClient&);
@@ -173,6 +174,23 @@ void TouchActionTest::runShadowDOMTest(std::string file)
     m_webViewHelper.reset(); // Explicitly reset to break dependency on locally scoped client.
 }
 
+void TouchActionTest::runIFrameTest(std::string file)
+{
+    TouchActionTrackingWebViewClient client;
+
+    WebView* webView = setupTest(file, client);
+    WebFrame* curFrame = webView->mainFrame()->firstChild();
+    ASSERT_TRUE(curFrame);
+
+    for (; curFrame; curFrame = curFrame->nextSibling()) {
+        // Oilpan: see runTouchActionTest() comment why these are persistent references.
+        RefPtrWillBePersistent<Document> contentDoc = static_cast<PassRefPtrWillBeRawPtr<Document>>(curFrame->document());
+        runTestOnTree(contentDoc.get(), webView, client);
+    }
+
+    m_webViewHelper.reset(); // Explicitly reset to break dependency on locally scoped client.
+}
+
 WebView* TouchActionTest::setupTest(std::string file, TouchActionTrackingWebViewClient& client)
 {
     URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL), WebString::fromUTF8(file));
@@ -224,33 +242,35 @@ void TouchActionTest::runTestOnTree(ContainerNode* root, WebView* webView, Touch
         FloatRect clientFloatRect = FloatRect(r->left(), r->top(), r->width(), r->height());
         IntRect clientRect =  enclosedIntRect(clientFloatRect);
         for (int locIdx = 0; locIdx < 3; locIdx++) {
-            IntPoint clientPoint;
+            IntPoint framePoint;
             std::stringstream contextStream;
             contextStream << failureContext << " (";
             switch (locIdx) {
             case 0:
-                clientPoint = clientRect.center();
+                framePoint = clientRect.center();
                 contextStream << "center";
                 break;
             case 1:
-                clientPoint = clientRect.location();
+                framePoint = clientRect.location();
                 contextStream << "top-left";
                 break;
             case 2:
-                clientPoint = clientRect.maxXMaxYCorner();
-                clientPoint.move(-1, -1);
+                framePoint = clientRect.maxXMaxYCorner();
+                framePoint.move(-1, -1);
                 contextStream << "bottom-right";
                 break;
             default:
                 FAIL() << "Invalid location index.";
             }
-            contextStream << "=" << clientPoint.x() << "," << clientPoint.y() << ").";
+
+            IntPoint windowPoint = root->document().frame()->view()->convertToRootFrame(framePoint);
+            contextStream << "=" << windowPoint.x() << "," << windowPoint.y() << ").";
             std::string failureContextPos = contextStream.str();
 
-            LocalFrame* frame = root->document().frame();
-            FrameView* frameView = frame->view();
-            IntRect visibleRect = frameView->windowClipRect();
-            ASSERT_TRUE(visibleRect.contains(clientPoint)) << failureContextPos
+            LocalFrame* mainFrame = static_cast<LocalFrame*>(webView->mainFrame()->toImplBase()->frame());
+            FrameView* mainFrameView = mainFrame->view();
+            IntRect visibleRect = mainFrameView->windowClipRect();
+            ASSERT_TRUE(visibleRect.contains(windowPoint)) << failureContextPos
                 << " Test point not contained in visible area: " << visibleRect.x() << "," << visibleRect.y()
                 << "-" << visibleRect.maxX() << "," << visibleRect.maxY();
 
@@ -258,14 +278,14 @@ void TouchActionTest::runTestOnTree(ContainerNode* root, WebView* webView, Touch
             // we intended. This is the easiest way for a test to be broken, but has nothing really
             // to do with touch action.
             // Note that we can't use WebView's hit test API because it doesn't look into shadow DOM.
-            IntPoint docPoint(frameView->rootFrameToContents(clientPoint));
-            HitTestResult result = frame->eventHandler().hitTestResultAtPoint(docPoint, HitTestRequest::ReadOnly | HitTestRequest::Active);
+            IntPoint docPoint(mainFrameView->frameToContents(windowPoint));
+            HitTestResult result = mainFrame->eventHandler().hitTestResultAtPoint(docPoint, HitTestRequest::ReadOnly | HitTestRequest::Active);
             ASSERT_EQ(element, result.innerElement()) << "Unexpected hit test result " << failureContextPos
                 << "  Got element: \"" << result.innerElement()->outerHTML().stripWhiteSpace().left(80).ascii().data() << "\""
                 << std::endl << "Document render tree:" << std::endl << externalRepresentation(root->document().frame()).utf8().data();
 
             // Now send the touch event and check any touch action result.
-            sendTouchEvent(webView, WebInputEvent::TouchStart, clientPoint);
+            sendTouchEvent(webView, WebInputEvent::TouchStart, windowPoint);
 
             AtomicString expectedAction = element->getAttribute("expected-action");
             if (expectedAction == "auto") {
@@ -283,9 +303,9 @@ void TouchActionTest::runTestOnTree(ContainerNode* root, WebView* webView, Touch
                     } else if (expectedAction == "pan-y") {
                         EXPECT_EQ(WebTouchActionPanY, client.lastTouchAction()) << failureContextPos;
                     } else if (expectedAction == "pan-x-y") {
-                        EXPECT_EQ((WebTouchActionPanX | WebTouchActionPanY), client.lastTouchAction()) << failureContextPos;
+                        EXPECT_EQ((WebTouchActionPan), client.lastTouchAction()) << failureContextPos;
                     } else if (expectedAction == "manipulation") {
-                        EXPECT_EQ((WebTouchActionPanX | WebTouchActionPanY | WebTouchActionPinchZoom), client.lastTouchAction()) << failureContextPos;
+                        EXPECT_EQ((WebTouchActionManipulation), client.lastTouchAction()) << failureContextPos;
                     } else {
                         FAIL() << "Unrecognized expected-action \"" << expectedAction.ascii().data()
                             << "\" " << failureContextPos;
@@ -295,7 +315,7 @@ void TouchActionTest::runTestOnTree(ContainerNode* root, WebView* webView, Touch
 
             // Reset webview touch state.
             client.reset();
-            sendTouchEvent(webView, WebInputEvent::TouchCancel, clientPoint);
+            sendTouchEvent(webView, WebInputEvent::TouchCancel, windowPoint);
             EXPECT_EQ(0, client.touchActionSetCount());
         }
     }
@@ -319,6 +339,7 @@ void TouchActionTest::sendTouchEvent(WebView* webView, WebInputEvent::Type type,
     webTouchEvent.touches[0].position.y = clientPoint.y();
     webTouchEvent.touches[0].radiusX = 10;
     webTouchEvent.touches[0].radiusY = 10;
+    webTouchEvent.touches[0].force = 1.0;
 
     webView->handleInputEvent(webTouchEvent);
     runPendingTasks();
@@ -333,6 +354,11 @@ TEST_F(TouchActionTest, Simple)
 TEST_F(TouchActionTest, Overflow)
 {
     runTouchActionTest("touch-action-overflow.html");
+}
+
+TEST_F(TouchActionTest, IFrame)
+{
+    runIFrameTest("touch-action-iframe.html");
 }
 
 TEST_F(TouchActionTest, ShadowDOM)

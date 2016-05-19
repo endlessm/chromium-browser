@@ -44,24 +44,17 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     gaiaAuthParams_: null,
 
     /**
-     * Whether local version of Gaia page is used.
+     * Whether offline version of Gaia page is used.
      * @type {boolean}
      * @private
      */
-    isLocal_: false,
+    isOffline_: false,
 
     /**
      * Email of the user, which is logging in using offline mode.
      * @type {string}
      */
     email: '',
-
-    /**
-     * Whether consumer management enrollment is in progress.
-     * @type {boolean}
-     * @private
-     */
-    isEnrollingConsumerManagement_: false,
 
     /**
      * Timer id of pending load.
@@ -105,7 +98,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * @type {boolean}
      */
     get closable() {
-      return !!$('pod-row').pods.length || this.isLocal;
+      return !!$('pod-row').pods.length || this.isOffline;
     },
 
     /**
@@ -144,13 +137,6 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     },
 
     /**
-     * Whether we should show user pods on the login screen.
-     * @type {boolean}
-     * @private
-     */
-    isShowUsers_: undefined,
-
-    /**
      * SAML password confirmation attempt count.
      * @type {number}
      */
@@ -185,20 +171,20 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       var that = this;
       [this.gaiaAuthHost_, $('offline-gaia')].forEach(function(frame) {
         // Ignore events from currently inactive frame.
-        var localFilter = function(callback) {
+        var frameFilter = function(callback) {
           return function(e) {
-            var isEventLocal = frame === $('offline-gaia');
-            if (isEventLocal === that.isLocal)
+            var isEventOffline = frame === $('offline-gaia');
+            if (isEventOffline === that.isOffline)
               callback.call(that, e);
           };
         };
 
         frame.addEventListener('authCompleted',
-                               localFilter(that.onAuthCompletedMessage_));
-        frame.addEventListener('backButton', localFilter(that.onBackButton_));
-        frame.addEventListener('dialogShown', localFilter(that.onDialogShown_));
+                               frameFilter(that.onAuthCompletedMessage_));
+        frame.addEventListener('backButton', frameFilter(that.onBackButton_));
+        frame.addEventListener('dialogShown', frameFilter(that.onDialogShown_));
         frame.addEventListener('dialogHidden',
-                               localFilter(that.onDialogHidden_));
+                               frameFilter(that.onDialogHidden_));
       });
 
       this.gaiaAuthHost_.addEventListener(
@@ -253,21 +239,21 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     },
 
     /**
-     * Returns true if local version of Gaia is used.
+     * Returns true if offline version of Gaia is used.
      * @type {boolean}
      */
-    get isLocal() {
-      return this.isLocal_;
+    get isOffline() {
+      return this.isOffline_;
     },
 
     /**
-     * Sets whether local version of Gaia is used.
-     * @param {boolean} value Whether local version of Gaia is used.
+     * Sets whether offline version of Gaia is used.
+     * @param {boolean} value Whether offline version of Gaia is used.
      */
-    set isLocal(value) {
-      this.isLocal_ = !!value;
-      $('signin-frame').hidden = this.isLocal_;
-      $('offline-gaia').hidden = !this.isLocal_;
+    set isOffline(value) {
+      this.isOffline_ = !!value;
+      $('signin-frame').hidden = this.isOffline_;
+      $('offline-gaia').hidden = !this.isOffline_;
       chrome.send('updateOfflineLogin', [value]);
     },
 
@@ -301,8 +287,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       if (shouldMonitor) {
         // If we're not using the offline login page or we're already
         // monitoring, then we don't need to do anything.
-        if (self.isLocal === false ||
-            self.tryToGoToOnlineLoginPageCallbackId_ !== -1)
+        if (!self.isOffline || self.tryToGoToOnlineLoginPageCallbackId_ !== -1)
           return;
 
         self.mostRecentUserActivity_ = Date.now();
@@ -313,7 +298,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
         self.tryToGoToOnlineLoginPageCallbackId_ = setInterval(function() {
           // If we're not in the offline page or the signin page, then we want
           // to terminate monitoring.
-          if (self.isLocal === false ||
+          if (!self.isOffline ||
               Oobe.getInstance().currentScreen.id != 'gaia-signin') {
             self.monitorOfflineIdle(false);
             return;
@@ -439,10 +424,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     onBeforeShow: function(data) {
       chrome.send('loginUIStateChanged', ['gaia-signin', true]);
       $('progress-dots').hidden = true;
-      $('login-header-bar').signinUIState =
-          this.isEnrollingConsumerManagement_ ?
-              SIGNIN_UI_STATE.CONSUMER_MANAGEMENT_ENROLLMENT :
-              SIGNIN_UI_STATE.GAIA_SIGNIN;
+      $('login-header-bar').signinUIState = SIGNIN_UI_STATE.GAIA_SIGNIN;
 
       // Ensure that GAIA signin (or loading UI) is actually visible.
       window.requestAnimationFrame(function() {
@@ -460,7 +442,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     },
 
     getSigninFrame_: function() {
-      return this.isLocal ? $('offline-gaia') : $('signin-frame');
+      return this.isOffline ? $('offline-gaia') : $('signin-frame');
     },
 
     focusSigninFrame: function() {
@@ -478,6 +460,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     onBeforeHide: function() {
       chrome.send('loginUIStateChanged', ['gaia-signin', false]);
       $('login-header-bar').signinUIState = SIGNIN_UI_STATE.HIDDEN;
+      $('offline-gaia').switchToEmailCard(false /* animated */);
     },
 
     /**
@@ -486,7 +469,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * @private
      */
     loadAuthExtension: function(data) {
-      this.isLocal = data.isLocal;
+      this.isOffline = data.useOffline;
       this.email = '';
       this.authCompleted_ = false;
       this.lastBackMessageValue_ = false;
@@ -507,11 +490,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       if (data.enterpriseInfoMessage)
         params.enterpriseInfoMessage = data.enterpriseInfoMessage;
 
-      params.chromeType = data.chromeType;
       params.isNewGaiaFlow = true;
-
-      if (data.gaiaEndpoint)
-        params.gaiaPath = data.gaiaEndpoint;
 
       // Screen size could have been changed because of 'full-width' classes.
       if (Oobe.getInstance().currentScreen === this)
@@ -519,19 +498,15 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
 
       if (data.forceReload ||
           JSON.stringify(this.gaiaAuthParams_) != JSON.stringify(params)) {
-        var authMode = cr.login.GaiaAuthHost.AuthMode.DEFAULT;
-        if (data.useOffline)
-          authMode = cr.login.GaiaAuthHost.AuthMode.OFFLINE;
-
         this.gaiaAuthParams_ = params;
         this.loading = true;
         this.startLoadingTimer_();
 
-        if (this.isLocal) {
+        if (this.isOffline) {
           this.loadOffline(params);
-          this.onAuthReady_();
         } else {
-          this.gaiaAuthHost_.load(authMode, params);
+          this.gaiaAuthHost_.load(cr.login.GaiaAuthHost.AuthMode.DEFAULT,
+                                  params);
         }
       }
       this.updateControlsState();
@@ -547,10 +522,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
           data.supervisedUsersCanCreate;
       $('login-header-bar').showGuestButton = data.guestSignin;
 
-      this.isShowUsers_ = data.isShowUsers;
       this.updateControlsState();
-
-      this.isEnrollingConsumerManagement_ = data.isEnrollingConsumerManagement;
 
       this.classList.toggle('full-width', false);
       if (Oobe.getInstance().currentScreen === this)
@@ -832,7 +804,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     reset: function(takeFocus, forceOnline) {
       // Reload and show the sign-in UI if needed.
       if (takeFocus) {
-        if (!forceOnline && this.isLocal) {
+        if (!forceOnline && this.isOffline) {
           // Show 'Cancel' button to allow user to return to the main screen
           // (e.g. this makes sense when connection is back).
           Oobe.getInstance().headerHidden = false;
@@ -848,7 +820,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * Reloads extension frame.
      */
     doReload: function() {
-      if (this.isLocal)
+      if (this.isOffline)
         return;
       this.gaiaAuthHost_.reload();
       this.loading = true;
@@ -864,7 +836,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * @param {HTMLElement} content Content to show in bubble.
      */
     showErrorBubble: function(loginAttempts, error) {
-      if (this.isLocal) {
+      if (this.isOffline) {
         $('add-user-button').hidden = true;
         // Reload offline version of the sign-in extension, which will show
         // error itself.
@@ -924,6 +896,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       if ('emailDomain' in params)
         offlineLogin.emailDomain = '@' + params['emailDomain'];
       offlineLogin.setEmail(params.email);
+      this.onAuthReady_();
     },
 
     /**

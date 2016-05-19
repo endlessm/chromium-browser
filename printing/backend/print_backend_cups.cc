@@ -4,8 +4,6 @@
 
 #include "printing/backend/print_backend.h"
 
-#include "build/build_config.h"
-
 #include <dlfcn.h>
 #include <errno.h>
 #include <pthread.h>
@@ -242,7 +240,7 @@ int PrintBackendCUPS::GetDests(cups_dest_t** dests) {
     // than suppress. See http://crbug.com/176888#c7
     // In theory any CUPS function can trigger this leak, but in
     // PrintBackendCUPS, this is the most likely spot.
-    // TODO(earthdok): remove this once the leak is fixed.
+    // TODO(eugenis): remove this once the leak is fixed.
     ANNOTATE_SCOPED_MEMORY_LEAK;
     return cupsGetDests(dests);
   } else {
@@ -269,7 +267,8 @@ base::FilePath PrintBackendCUPS::GetPPD(const char* name) {
     // here.
     // Note: After looking at CUPS sources, it looks like non-blocking
     // connection will timeout after 10 seconds of no data period. And it will
-    // return the same way as if data was completely and sucessfully downloaded.
+    // return the same way as if data was completely and successfully
+    // downloaded.
     HttpConnectionCUPS http(print_server_url_, cups_encryption_);
     http.SetBlocking(blocking_);
     ppd_file_path = cupsGetPPD2(http.http(), name);

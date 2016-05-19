@@ -5,7 +5,9 @@
 #ifndef UI_MESSAGE_CENTER_VIEWS_MESSAGE_CENTER_VIEW_H_
 #define UI_MESSAGE_CENTER_VIEWS_MESSAGE_CENTER_VIEW_H_
 
+#include <stddef.h>
 
+#include "base/macros.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/message_center/message_center_export.h"
 #include "ui/message_center/message_center_observer.h"
@@ -48,7 +50,7 @@ class MESSAGE_CENTER_EXPORT MessageCenterView : public views::View,
 
   void SetNotifications(const NotificationList::Notifications& notifications);
 
-  void ClearAllNotifications();
+  void ClearAllClosableNotifications();
   void OnAllNotificationsCleared();
 
   size_t NumMessageViewsForTest() const;

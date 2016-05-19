@@ -4,8 +4,10 @@
 
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition_attribute.h"
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/values.h"
@@ -137,10 +139,10 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
   std::string error;
   scoped_refptr<const WebRequestConditionAttribute> result;
 
-  net::test_server::EmbeddedTestServer test_server;
+  net::EmbeddedTestServer test_server;
   test_server.ServeFilesFromDirectory(TestDataPath(
       "chrome/test/data/extensions/api_test/webrequest/declarative"));
-  ASSERT_TRUE(test_server.InitializeAndWaitUntilReady());
+  ASSERT_TRUE(test_server.Start());
 
   net::TestURLRequestContext context;
   net::TestDelegate delegate;
@@ -401,7 +403,7 @@ scoped_ptr<base::DictionaryValue> GetDictionaryFromArray(
       dictionary->SetString(*name, *value);
     }
   }
-  return dictionary.Pass();
+  return dictionary;
 }
 
 // Returns whether the response headers from |url_request| satisfy the match
@@ -525,10 +527,10 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
   // Necessary for TestURLRequest.
   base::MessageLoopForIO message_loop;
 
-  net::test_server::EmbeddedTestServer test_server;
+  net::EmbeddedTestServer test_server;
   test_server.ServeFilesFromDirectory(TestDataPath(
       "chrome/test/data/extensions/api_test/webrequest/declarative"));
-  ASSERT_TRUE(test_server.InitializeAndWaitUntilReady());
+  ASSERT_TRUE(test_server.Start());
 
   net::TestURLRequestContext context;
   net::TestDelegate delegate;

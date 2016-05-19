@@ -4,6 +4,8 @@
 
 #include "components/mus/surfaces/direct_output_surface.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "cc/output/compositor_frame.h"
 #include "cc/output/context_provider.h"
@@ -19,8 +21,19 @@ DirectOutputSurface::DirectOutputSurface(
 
 DirectOutputSurface::~DirectOutputSurface() {}
 
+bool DirectOutputSurface::BindToClient(cc::OutputSurfaceClient* client) {
+  if (!cc::OutputSurface::BindToClient(client))
+    return false;
+
+  if (capabilities_.uses_default_gl_framebuffer) {
+    capabilities_.flipped_output_surface =
+        context_provider()->ContextCapabilities().gpu.flips_vertically;
+  }
+  return true;
+}
+
 void DirectOutputSurface::SwapBuffers(cc::CompositorFrame* frame) {
-  DCHECK(context_provider_.get());
+  DCHECK(context_provider_);
   DCHECK(frame->gl_frame_data);
   if (frame->gl_frame_data->sub_buffer_rect ==
       gfx::Rect(frame->gl_frame_data->size)) {
@@ -29,10 +42,16 @@ void DirectOutputSurface::SwapBuffers(cc::CompositorFrame* frame) {
     context_provider_->ContextSupport()->PartialSwapBuffers(
         frame->gl_frame_data->sub_buffer_rect);
   }
-  uint32_t sync_point =
-      context_provider_->ContextGL()->InsertSyncPointCHROMIUM();
-  context_provider_->ContextSupport()->SignalSyncPoint(
-      sync_point, base::Bind(&OutputSurface::OnSwapBuffersComplete,
+
+  gpu::gles2::GLES2Interface* gl = context_provider_->ContextGL();
+  const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
+  gl->ShallowFlushCHROMIUM();
+
+  gpu::SyncToken sync_token;
+  gl->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+
+  context_provider_->ContextSupport()->SignalSyncToken(
+      sync_token, base::Bind(&OutputSurface::OnSwapBuffersComplete,
                              weak_ptr_factory_.GetWeakPtr()));
   client_->DidSwapBuffers();
 }

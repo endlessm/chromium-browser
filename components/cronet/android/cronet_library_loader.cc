@@ -14,12 +14,14 @@
 #include "base/android/library_loader/library_loader_hooks.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "components/cronet/android/chromium_url_request.h"
 #include "components/cronet/android/chromium_url_request_context.h"
 #include "components/cronet/android/cronet_upload_data_stream_adapter.h"
 #include "components/cronet/android/cronet_url_request_adapter.h"
 #include "components/cronet/android/cronet_url_request_context_adapter.h"
+#include "components/cronet/cronet_features.h"
 #include "components/cronet/version.h"
 #include "jni/CronetLibraryLoader_jni.h"
 #include "net/android/net_jni_registrar.h"
@@ -27,8 +29,12 @@
 #include "net/base/network_change_notifier.h"
 #include "url/url_util.h"
 
+#if BUILDFLAG(ENABLE_BIDIRECTIONAL_STREAM)
+#include "components/cronet/android/cronet_bidirectional_stream_adapter.h"
+#endif
+
 #if defined(USE_ICU_ALTERNATIVES_ON_ANDROID)
-#include "url/android/url_jni_registrar.h"
+#include "url/android/url_jni_registrar.h"  // nogncheck
 #else
 #include "base/i18n/icu_util.h"
 #endif
@@ -40,6 +46,10 @@ const base::android::RegistrationMethod kCronetRegisteredMethods[] = {
     {"BaseAndroid", base::android::RegisterJni},
     {"ChromiumUrlRequest", ChromiumUrlRequestRegisterJni},
     {"ChromiumUrlRequestContext", ChromiumUrlRequestContextRegisterJni},
+#if BUILDFLAG(ENABLE_BIDIRECTIONAL_STREAM)
+    {"CronetBidirectionalStreamAdapter",
+     CronetBidirectionalStreamAdapter::RegisterJni},
+#endif
     {"CronetLibraryLoader", RegisterNativesImpl},
     {"CronetUploadDataStreamAdapter", CronetUploadDataStreamAdapterRegisterJni},
     {"CronetUrlRequestAdapter", CronetUrlRequestAdapterRegisterJni},
@@ -84,13 +94,6 @@ jint CronetOnLoad(JavaVM* vm, void* reserved) {
 
 void CronetOnUnLoad(JavaVM* jvm, void* reserved) {
   base::android::LibraryLoaderExitHook();
-}
-
-void CronetInitApplicationContext(JNIEnv* env,
-                                  const JavaParamRef<jclass>& jcaller,
-                                  const JavaParamRef<jobject>& japp_context) {
-  // Set application context.
-  base::android::InitApplicationContext(env, japp_context);
 }
 
 void CronetInitOnMainThread(JNIEnv* env, const JavaParamRef<jclass>& jcaller) {

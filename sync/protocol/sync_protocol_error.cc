@@ -19,11 +19,9 @@ const char* GetSyncErrorTypeString(SyncProtocolErrorType type) {
     ENUM_CASE(THROTTLED);
     ENUM_CASE(CLEAR_PENDING);
     ENUM_CASE(TRANSIENT_ERROR);
-    ENUM_CASE(NON_RETRIABLE_ERROR);
     ENUM_CASE(MIGRATION_DONE);
     ENUM_CASE(INVALID_CREDENTIAL);
     ENUM_CASE(DISABLED_BY_ADMIN);
-    ENUM_CASE(USER_ROLLBACK);
     ENUM_CASE(PARTIAL_FAILURE);
     ENUM_CASE(CLIENT_DATA_OBSOLETE);
     ENUM_CASE(UNKNOWN_ERROR);
@@ -40,8 +38,6 @@ const char* GetClientActionString(ClientAction action) {
     ENUM_CASE(STOP_AND_RESTART_SYNC);
     ENUM_CASE(DISABLE_SYNC_ON_CLIENT);
     ENUM_CASE(STOP_SYNC_FOR_DISABLED_ACCOUNT);
-    ENUM_CASE(DISABLE_SYNC_AND_ROLLBACK);
-    ENUM_CASE(ROLLBACK_DONE);
     ENUM_CASE(RESET_LOCAL_SYNC_DATA);
     ENUM_CASE(UNKNOWN_ACTION);
   }
@@ -53,6 +49,8 @@ SyncProtocolError::SyncProtocolError()
     : error_type(UNKNOWN_ERROR),
       action(UNKNOWN_ACTION) {
 }
+
+SyncProtocolError::SyncProtocolError(const SyncProtocolError& other) = default;
 
 SyncProtocolError::~SyncProtocolError() {
 }

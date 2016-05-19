@@ -5,7 +5,7 @@
 #ifndef CONTENT_BROWSER_FRAME_HOST_NAVIGATION_REQUEST_H_
 #define CONTENT_BROWSER_FRAME_HOST_NAVIGATION_REQUEST_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/browser/frame_host/navigation_entry_impl.h"
@@ -65,6 +65,7 @@ class CONTENT_EXPORT NavigationRequest : public NavigationURLLoaderDelegate {
       const FrameNavigationEntry& frame_entry,
       const NavigationEntryImpl& entry,
       FrameMsg_Navigate_Type::Value navigation_type,
+      LoFiState lofi_state,
       bool is_same_document_history_load,
       const base::TimeTicks& navigation_start,
       NavigationControllerImpl* controller);
@@ -161,6 +162,9 @@ class CONTENT_EXPORT NavigationRequest : public NavigationURLLoaderDelegate {
   // NavigationHandle.
   void OnStartChecksComplete(NavigationThrottle::ThrottleCheckResult result);
   void OnRedirectChecksComplete(NavigationThrottle::ThrottleCheckResult result);
+
+  // Called when the navigation is about to be sent to the IO thread.
+  void InitializeServiceWorkerHandleIfNeeded();
 
   FrameTreeNode* frame_tree_node_;
 

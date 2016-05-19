@@ -200,7 +200,7 @@ private:
     FT_Face     fFace;              // reference to shared face in gFaceRecHead
     FT_Size     fFTSize;            // our own copy
     FT_Int      fStrikeIndex;
-    SkFixed     fScaleX, fScaleY;
+    FT_F26Dot6  fScaleX, fScaleY;
     FT_Matrix   fMatrix22;
     uint32_t    fLoadGlyphFlags;
     bool        fDoLinearMetrics;
@@ -740,14 +740,14 @@ bool SkTypeface_FreeType::onGetKerningPairAdjustments(const uint16_t glyphs[],
     return true;
 }
 
-static FT_Int chooseBitmapStrike(FT_Face face, SkFixed scaleY) {
+static FT_Int chooseBitmapStrike(FT_Face face, FT_F26Dot6 scaleY) {
     // early out if face is bad
     if (face == nullptr) {
         SkDEBUGF(("chooseBitmapStrike aborted due to nullptr face\n"));
         return -1;
     }
     // determine target ppem
-    FT_Pos targetPPEM = SkFixedToFDot6(scaleY);
+    FT_Pos targetPPEM = scaleY;
     // find a bitmap strike equal to or just larger than the requested size
     FT_Int chosenStrikeIndex = -1;
     FT_Pos chosenPPEM = 0;
@@ -805,8 +805,8 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(SkTypeface* typeface, const S
     fMatrix22Scalar.setSkewX(-fMatrix22Scalar.getSkewX());
     fMatrix22Scalar.setSkewY(-fMatrix22Scalar.getSkewY());
 
-    fScaleX = SkScalarToFixed(fScale.fX);
-    fScaleY = SkScalarToFixed(fScale.fY);
+    fScaleX = SkScalarToFDot6(fScale.fX);
+    fScaleY = SkScalarToFDot6(fScale.fY);
     fMatrix22.xx = SkScalarToFixed(fMatrix22Scalar.getScaleX());
     fMatrix22.xy = SkScalarToFixed(fMatrix22Scalar.getSkewX());
     fMatrix22.yx = SkScalarToFixed(fMatrix22Scalar.getSkewY());
@@ -898,7 +898,7 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(SkTypeface* typeface, const S
     }
 
     if (FT_IS_SCALABLE(fFace)) {
-        err = FT_Set_Char_Size(fFace, SkFixedToFDot6(fScaleX), SkFixedToFDot6(fScaleY), 72, 72);
+        err = FT_Set_Char_Size(fFace, fScaleX, fScaleY, 72, 72);
         if (err != 0) {
             SkDEBUGF(("FT_Set_CharSize(%08x, 0x%x, 0x%x) returned 0x%x\n",
                                     fFace, fScaleX, fScaleY,      err));
@@ -910,7 +910,7 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(SkTypeface* typeface, const S
         fStrikeIndex = chooseBitmapStrike(fFace, fScaleY);
         if (fStrikeIndex == -1) {
             SkDEBUGF(("no glyphs for font \"%s\" size %f?\n",
-                            fFace->family_name,       SkFixedToScalar(fScaleY)));
+                            fFace->family_name,       SkFDot6ToScalar(fScaleY)));
         } else {
             // FreeType does no provide linear metrics for bitmap fonts.
             linearMetrics = false;
@@ -925,7 +925,7 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(SkTypeface* typeface, const S
         }
     } else {
         SkDEBUGF(("unknown kind of font \"%s\" size %f?\n",
-                            fFace->family_name,       SkFixedToScalar(fScaleY)));
+                            fFace->family_name,     SkFDot6ToScalar(fScaleY)));
     }
 
     fDoLinearMetrics = linearMetrics;
@@ -1187,9 +1187,9 @@ void SkScalerContext_FreeType::generateMetrics(SkGlyph* glyph) {
 
     // If the font isn't scalable, scale the metrics from the non-scalable strike.
     // This means do not try to scale embedded bitmaps; only scale bitmaps in bitmap only fonts.
-    if (!FT_IS_SCALABLE(fFace) && fScaleY && fFace->size->metrics.y_ppem) {
+    if (!FT_IS_SCALABLE(fFace) && !SkScalarNearlyZero(fScale.fY) && fFace->size->metrics.y_ppem) {
         // NOTE: both dimensions are scaled by y_ppem. this is WAI.
-        scaleGlyphMetrics(*glyph, SkFixedToScalar(fScaleY) / fFace->size->metrics.y_ppem);
+        scaleGlyphMetrics(*glyph, fScale.fY / fFace->size->metrics.y_ppem);
     }
 
 #ifdef ENABLE_GLYPH_SPEW
@@ -1740,4 +1740,60 @@ bool SkTypeface_FreeType::Scanner::scanFont(
 
     FT_Done_Face(face);
     return true;
+}
+
+/*static*/ void SkTypeface_FreeType::Scanner::computeAxisValues(
+    AxisDefinitions axisDefinitions,
+    const SkFontMgr::FontParameters::Axis* requestedAxes, int requestedAxisCount,
+    SkFixed* axisValues,
+    const SkString& name)
+{
+    for (int i = 0; i < axisDefinitions.count(); ++i) {
+        const Scanner::AxisDefinition& axisDefinition = axisDefinitions[i];
+        const SkScalar axisMin = SkFixedToScalar(axisDefinition.fMinimum);
+        const SkScalar axisMax = SkFixedToScalar(axisDefinition.fMaximum);
+        axisValues[i] = axisDefinition.fDefault;
+        for (int j = 0; j < requestedAxisCount; ++j) {
+            const SkFontMgr::FontParameters::Axis& axisSpecified = requestedAxes[j];
+            if (axisDefinition.fTag == axisSpecified.fTag) {
+                const SkScalar axisValue = SkTPin(axisSpecified.fStyleValue, axisMin, axisMax);
+                if (axisSpecified.fStyleValue != axisValue) {
+                    SkDEBUGF(("Requested font axis value out of range: "
+                              "%s '%c%c%c%c' %f; pinned to %f.\n",
+                              name.c_str(),
+                              (axisDefinition.fTag >> 24) & 0xFF,
+                              (axisDefinition.fTag >> 16) & 0xFF,
+                              (axisDefinition.fTag >>  8) & 0xFF,
+                              (axisDefinition.fTag      ) & 0xFF,
+                              SkScalarToDouble(axisSpecified.fStyleValue),
+                              SkScalarToDouble(axisValue)));
+                }
+                axisValues[i] = SkScalarToFixed(axisValue);
+                break;
+            }
+        }
+        // TODO: warn on defaulted axis?
+    }
+
+    SkDEBUGCODE(
+        // Check for axis specified, but not matched in font.
+        for (int i = 0; i < requestedAxisCount; ++i) {
+            SkFourByteTag skTag = requestedAxes[i].fTag;
+            bool found = false;
+            for (int j = 0; j < axisDefinitions.count(); ++j) {
+                if (skTag == axisDefinitions[j].fTag) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                SkDEBUGF(("Requested font axis not found: %s '%c%c%c%c'\n",
+                          name.c_str(),
+                          (skTag >> 24) & 0xFF,
+                          (skTag >> 16) & 0xFF,
+                          (skTag >>  8) & 0xFF,
+                          (skTag)       & 0xFF));
+            }
+        }
+    )
 }

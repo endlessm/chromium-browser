@@ -4,6 +4,8 @@
 
 #include "ui/snapshot/snapshot.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "cc/output/copy_output_request.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -39,8 +41,7 @@ static void MakeAsyncCopyRequest(
   scoped_ptr<cc::CopyOutputRequest> request =
       cc::CopyOutputRequest::CreateBitmapRequest(callback);
 
-  const gfx::Display& display =
-      gfx::Screen::GetNativeScreen()->GetPrimaryDisplay();
+  const gfx::Display& display = gfx::Screen::GetScreen()->GetPrimaryDisplay();
   float device_scale_factor = display.device_scale_factor();
   gfx::Rect source_rect_in_pixel =
       gfx::ScaleToEnclosingRect(source_rect, device_scale_factor);
@@ -53,7 +54,7 @@ static void MakeAsyncCopyRequest(
       source_rect_in_pixel.size());
 
   request->set_area(adjusted_source_rect);
-  window->GetCompositor()->RequestCopyOfOutputOnRootLayer(request.Pass());
+  window->GetCompositor()->RequestCopyOfOutputOnRootLayer(std::move(request));
 }
 
 void GrabWindowSnapshotAndScaleAsync(

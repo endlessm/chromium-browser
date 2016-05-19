@@ -5,6 +5,8 @@
 #ifndef CHROMECAST_MEDIA_CMA_BACKEND_MEDIA_PIPELINE_BACKEND_DEFAULT_H_
 #define CHROMECAST_MEDIA_CMA_BACKEND_MEDIA_PIPELINE_BACKEND_DEFAULT_H_
 
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
@@ -21,10 +23,18 @@ class MediaPipelineBackendDefault : public MediaPipelineBackend {
   MediaPipelineBackendDefault();
   ~MediaPipelineBackendDefault() override;
 
+  bool running() const { return running_; }
+  const AudioDecoderDefault* audio_decoder() const {
+    return audio_decoder_.get();
+  }
+  const VideoDecoderDefault* video_decoder() const {
+    return video_decoder_.get();
+  }
+
   // MediaPipelineBackend implementation:
   AudioDecoder* CreateAudioDecoder() override;
   VideoDecoder* CreateVideoDecoder() override;
-  bool Initialize(Delegate* delegate) override;
+  bool Initialize() override;
   bool Start(int64_t start_pts) override;
   bool Stop() override;
   bool Pause() override;
@@ -33,7 +43,7 @@ class MediaPipelineBackendDefault : public MediaPipelineBackend {
   bool SetPlaybackRate(float rate) override;
 
  private:
-  base::TimeDelta start_pts_;
+  int64_t start_pts_;
   base::TimeTicks start_clock_;
   bool running_;
   float rate_;

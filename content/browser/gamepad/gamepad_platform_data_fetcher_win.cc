@@ -4,6 +4,9 @@
 
 #include "content/browser/gamepad/gamepad_platform_data_fetcher_win.h"
 
+#include <stddef.h>
+#include <string.h>
+
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "base/win/windows_version.h"
@@ -34,7 +37,7 @@ float NormalizeXInputAxis(SHORT value) {
   return ((value + 32768.f) / 32767.5f) - 1.f;
 }
 
-const WebUChar* const GamepadSubTypeName(BYTE sub_type) {
+const WebUChar* GamepadSubTypeName(BYTE sub_type) {
   switch (sub_type) {
     case kDeviceSubTypeGamepad: return L"GAMEPAD";
     case kDeviceSubTypeWheel: return L"WHEEL";

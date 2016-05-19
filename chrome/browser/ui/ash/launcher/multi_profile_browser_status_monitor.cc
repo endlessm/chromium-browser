@@ -15,6 +15,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/settings_window_manager.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "components/strings/grit/components_strings.h"
 #include "grit/ash_resources.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -41,8 +42,7 @@ void MultiProfileBrowserStatusMonitor::ActiveUserChanged(
   }
 
   // Handle apps in browser tabs: Add the new applications.
-  BrowserList* browser_list =
-      BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_ASH);
+  BrowserList* browser_list = BrowserList::GetInstance();
 
   // Remove old (tabbed V1) applications.
   for (BrowserList::const_iterator it = browser_list->begin();

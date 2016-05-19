@@ -4,6 +4,8 @@
 
 #include "sync/engine/entity_tracker.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/non_blocking_sync_common.h"
@@ -14,20 +16,20 @@ namespace syncer_v2 {
 
 scoped_ptr<EntityTracker> EntityTracker::FromUpdateResponse(
     const UpdateResponseData& data) {
-  return make_scoped_ptr(new EntityTracker(data.id, data.client_tag_hash, 0,
-                                           data.response_version));
+  return make_scoped_ptr(new EntityTracker(
+      data.entity->id, data.entity->client_tag_hash, 0, data.response_version));
 }
 
 scoped_ptr<EntityTracker> EntityTracker::FromCommitRequest(
     const CommitRequestData& data) {
   return make_scoped_ptr(
-      new EntityTracker(data.id, data.client_tag_hash, 0, 0));
+      new EntityTracker(data.entity->id, data.entity->client_tag_hash, 0, 0));
 }
 
 EntityTracker::EntityTracker(const std::string& id,
                              const std::string& client_tag_hash,
-                             int64 highest_commit_response_version,
-                             int64 highest_gu_response_version)
+                             int64_t highest_commit_response_version,
+                             int64_t highest_gu_response_version)
     : id_(id),
       client_tag_hash_(client_tag_hash),
       highest_commit_response_version_(highest_commit_response_version),
@@ -42,24 +44,30 @@ bool EntityTracker::HasPendingCommit() const {
 }
 
 void EntityTracker::PrepareCommitProto(sync_pb::SyncEntity* commit_entity,
-                                       int64* sequence_number) const {
+                                       int64_t* sequence_number) const {
   DCHECK(HasPendingCommit());
+  DCHECK(!client_tag_hash_.empty());
 
-  // Set ID if we have a server-assigned ID.  Otherwise, it will be up to
-  // our caller to assign a client-unique initial ID.
-  if (base_version_ != kUncommittedVersion) {
+  if (!id_.empty()) {
     commit_entity->set_id_string(id_);
   }
 
+  const EntityData& entity = pending_commit_->entity.value();
+  DCHECK_EQ(client_tag_hash_, entity.client_tag_hash);
+
   commit_entity->set_client_defined_unique_tag(client_tag_hash_);
   commit_entity->set_version(base_version_);
-  commit_entity->set_deleted(pending_commit_->deleted);
+  commit_entity->set_deleted(entity.is_deleted());
+
+  // TODO(stanisc): This doesn't support bookmarks yet.
+  DCHECK(entity.parent_id.empty());
   commit_entity->set_folder(false);
-  commit_entity->set_name(pending_commit_->non_unique_name);
-  if (!pending_commit_->deleted) {
-    commit_entity->set_ctime(syncer::TimeToProtoTime(pending_commit_->ctime));
-    commit_entity->set_mtime(syncer::TimeToProtoTime(pending_commit_->mtime));
-    commit_entity->mutable_specifics()->CopyFrom(pending_commit_->specifics);
+
+  commit_entity->set_name(entity.non_unique_name);
+  if (!entity.is_deleted()) {
+    commit_entity->set_ctime(syncer::TimeToProtoTime(entity.creation_time));
+    commit_entity->set_mtime(syncer::TimeToProtoTime(entity.modification_time));
+    commit_entity->mutable_specifics()->CopyFrom(entity.specifics);
   }
 
   *sequence_number = sequence_number_;
@@ -77,7 +85,7 @@ void EntityTracker::RequestCommit(const CommitRequestData& data) {
   sequence_number_ = data.sequence_number;
 
   // Don't commit deletions of server-unknown items.
-  if (data.deleted && !IsServerKnown()) {
+  if (data.entity->is_deleted() && !IsServerKnown()) {
     ClearPendingCommit();
     return;
   }
@@ -87,7 +95,9 @@ void EntityTracker::RequestCommit(const CommitRequestData& data) {
   // model thread could have a better ID value than we do.
 
   // This entity is identified by its client tag.  That value can never change.
-  DCHECK_EQ(client_tag_hash_, data.client_tag_hash);
+  DCHECK_EQ(client_tag_hash_, data.entity->client_tag_hash);
+  // TODO(stanisc): consider simply copying CommitRequestData instead of
+  // allocating one dynamically.
   pending_commit_.reset(new CommitRequestData(data));
 
   // Do our counter values indicate a conflict?  If so, don't commit.
@@ -107,8 +117,8 @@ void EntityTracker::RequestCommit(const CommitRequestData& data) {
 }
 
 void EntityTracker::ReceiveCommitResponse(const std::string& response_id,
-                                          int64 response_version,
-                                          int64 sequence_number) {
+                                          int64_t response_version,
+                                          int64_t sequence_number) {
   // Commit responses, especially after the first commit, can update our ID.
   id_ = response_id;
 
@@ -131,7 +141,7 @@ void EntityTracker::ReceiveCommitResponse(const std::string& response_id,
   ClearPendingCommit();
 }
 
-void EntityTracker::ReceiveUpdate(int64 version) {
+void EntityTracker::ReceiveUpdate(int64_t version) {
   if (version <= highest_gu_response_version_)
     return;
 
@@ -201,4 +211,4 @@ void EntityTracker::ClearPendingCommit() {
   pending_commit_.reset();
 }
 
-}  // namespace syncer
+}  // namespace syncer_v2

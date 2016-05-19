@@ -4,11 +4,11 @@
 
 #include "src/crankshaft/typing.h"
 
+#include "src/ast/scopes.h"
 #include "src/frames.h"
 #include "src/frames-inl.h"
 #include "src/ostreams.h"
-#include "src/parser.h"  // for CompileTimeValue; TODO(rossberg): should move
-#include "src/scopes.h"
+#include "src/parsing/parser.h"  // for CompileTimeValue; TODO(rossberg): move
 #include "src/splay-tree-inl.h"
 
 namespace v8 {
@@ -45,7 +45,7 @@ AstTyper::AstTyper(Isolate* isolate, Zone* zone, Handle<JSFunction> closure,
 
 Effect AstTyper::ObservedOnStack(Object* value) {
   Type* lower = Type::NowOf(value, zone());
-  return Effect(Bounds(lower, Type::Any(zone())));
+  return Effect(Bounds(lower, Type::Any()));
 }
 
 
@@ -393,7 +393,7 @@ void AstTyper::VisitLiteral(Literal* expr) {
 
 void AstTyper::VisitRegExpLiteral(RegExpLiteral* expr) {
   // TODO(rossberg): Reintroduce RegExp type.
-  NarrowType(expr, Bounds(Type::Object(zone())));
+  NarrowType(expr, Bounds(Type::Object()));
 }
 
 
@@ -410,14 +410,9 @@ void AstTyper::VisitObjectLiteral(ObjectLiteral* expr) {
           prop->key()->AsLiteral()->value()->IsInternalizedString() &&
           prop->emit_store()) {
         // Record type feed back for the property.
-        TypeFeedbackId id = prop->key()->AsLiteral()->LiteralFeedbackId();
         FeedbackVectorSlot slot = prop->GetSlot();
         SmallMapList maps;
-        if (FLAG_vector_stores) {
-          oracle()->CollectReceiverTypes(slot, &maps);
-        } else {
-          oracle()->CollectReceiverTypes(id, &maps);
-        }
+        oracle()->CollectReceiverTypes(slot, &maps);
         prop->set_receiver_type(maps.length() == 1 ? maps.at(0)
                                                    : Handle<Map>::null());
       }
@@ -426,7 +421,7 @@ void AstTyper::VisitObjectLiteral(ObjectLiteral* expr) {
     RECURSE(Visit(prop->value()));
   }
 
-  NarrowType(expr, Bounds(Type::Object(zone())));
+  NarrowType(expr, Bounds(Type::Object()));
 }
 
 
@@ -437,7 +432,7 @@ void AstTyper::VisitArrayLiteral(ArrayLiteral* expr) {
     RECURSE(Visit(value));
   }
 
-  NarrowType(expr, Bounds(Type::Object(zone())));
+  NarrowType(expr, Bounds(Type::Object()));
 }
 
 
@@ -445,32 +440,20 @@ void AstTyper::VisitAssignment(Assignment* expr) {
   // Collect type feedback.
   Property* prop = expr->target()->AsProperty();
   if (prop != NULL) {
-    TypeFeedbackId id = expr->AssignmentFeedbackId();
     FeedbackVectorSlot slot = expr->AssignmentSlot();
-    expr->set_is_uninitialized(FLAG_vector_stores
-                                   ? oracle()->StoreIsUninitialized(slot)
-                                   : oracle()->StoreIsUninitialized(id));
+    expr->set_is_uninitialized(oracle()->StoreIsUninitialized(slot));
     if (!expr->IsUninitialized()) {
       SmallMapList* receiver_types = expr->GetReceiverTypes();
       if (prop->key()->IsPropertyName()) {
         Literal* lit_key = prop->key()->AsLiteral();
         DCHECK(lit_key != NULL && lit_key->value()->IsString());
         Handle<String> name = Handle<String>::cast(lit_key->value());
-        if (FLAG_vector_stores) {
-          oracle()->AssignmentReceiverTypes(slot, name, receiver_types);
-        } else {
-          oracle()->AssignmentReceiverTypes(id, name, receiver_types);
-        }
+        oracle()->AssignmentReceiverTypes(slot, name, receiver_types);
       } else {
         KeyedAccessStoreMode store_mode;
         IcCheckType key_type;
-        if (FLAG_vector_stores) {
-          oracle()->KeyedAssignmentReceiverTypes(slot, receiver_types,
-                                                 &store_mode, &key_type);
-        } else {
-          oracle()->KeyedAssignmentReceiverTypes(id, receiver_types,
-                                                 &store_mode, &key_type);
-        }
+        oracle()->KeyedAssignmentReceiverTypes(slot, receiver_types,
+                                               &store_mode, &key_type);
         expr->set_store_mode(store_mode);
         expr->set_key_type(key_type);
       }
@@ -502,7 +485,7 @@ void AstTyper::VisitThrow(Throw* expr) {
   RECURSE(Visit(expr->exception()));
   // TODO(rossberg): is it worth having a non-termination effect?
 
-  NarrowType(expr, Bounds(Type::None(zone())));
+  NarrowType(expr, Bounds(Type::None()));
 }
 
 
@@ -586,7 +569,7 @@ void AstTyper::VisitCallNew(CallNew* expr) {
     RECURSE(Visit(arg));
   }
 
-  NarrowType(expr, Bounds(Type::None(zone()), Type::Receiver(zone())));
+  NarrowType(expr, Bounds(Type::None(), Type::Receiver()));
 }
 
 
@@ -613,13 +596,13 @@ void AstTyper::VisitUnaryOperation(UnaryOperation* expr) {
   switch (expr->op()) {
     case Token::NOT:
     case Token::DELETE:
-      NarrowType(expr, Bounds(Type::Boolean(zone())));
+      NarrowType(expr, Bounds(Type::Boolean()));
       break;
     case Token::VOID:
-      NarrowType(expr, Bounds(Type::Undefined(zone())));
+      NarrowType(expr, Bounds(Type::Undefined()));
       break;
     case Token::TYPEOF:
-      NarrowType(expr, Bounds(Type::InternalizedString(zone())));
+      NarrowType(expr, Bounds(Type::InternalizedString()));
       break;
     default:
       UNREACHABLE();
@@ -629,17 +612,11 @@ void AstTyper::VisitUnaryOperation(UnaryOperation* expr) {
 
 void AstTyper::VisitCountOperation(CountOperation* expr) {
   // Collect type feedback.
-  TypeFeedbackId store_id = expr->CountStoreFeedbackId();
   FeedbackVectorSlot slot = expr->CountSlot();
   KeyedAccessStoreMode store_mode;
   IcCheckType key_type;
-  if (FLAG_vector_stores) {
-    oracle()->GetStoreModeAndKeyType(slot, &store_mode, &key_type);
-    oracle()->CountReceiverTypes(slot, expr->GetReceiverTypes());
-  } else {
-    oracle()->GetStoreModeAndKeyType(store_id, &store_mode, &key_type);
-    oracle()->CountReceiverTypes(store_id, expr->GetReceiverTypes());
-  }
+  oracle()->GetStoreModeAndKeyType(slot, &store_mode, &key_type);
+  oracle()->CountReceiverTypes(slot, expr->GetReceiverTypes());
   expr->set_store_mode(store_mode);
   expr->set_key_type(key_type);
   expr->set_type(oracle()->CountType(expr->CountBinOpFeedbackId()));
@@ -647,7 +624,7 @@ void AstTyper::VisitCountOperation(CountOperation* expr) {
 
   RECURSE(Visit(expr->expression()));
 
-  NarrowType(expr, Bounds(Type::SignedSmall(zone()), Type::Number(zone())));
+  NarrowType(expr, Bounds(Type::SignedSmall(), Type::Number()));
 
   VariableProxy* proxy = expr->expression()->AsVariableProxy();
   if (proxy != NULL && proxy->var()->IsStackAllocated()) {
@@ -702,8 +679,8 @@ void AstTyper::VisitBinaryOperation(BinaryOperation* expr) {
       RECURSE(Visit(expr->right()));
       Type* upper = Type::Union(
           expr->left()->bounds().upper, expr->right()->bounds().upper, zone());
-      if (!upper->Is(Type::Signed32())) upper = Type::Signed32(zone());
-      Type* lower = Type::Intersect(Type::SignedSmall(zone()), upper, zone());
+      if (!upper->Is(Type::Signed32())) upper = Type::Signed32();
+      Type* lower = Type::Intersect(Type::SignedSmall(), upper, zone());
       NarrowType(expr, Bounds(lower, upper));
       break;
     }
@@ -712,8 +689,7 @@ void AstTyper::VisitBinaryOperation(BinaryOperation* expr) {
     case Token::SAR:
       RECURSE(Visit(expr->left()));
       RECURSE(Visit(expr->right()));
-      NarrowType(expr,
-          Bounds(Type::SignedSmall(zone()), Type::Signed32(zone())));
+      NarrowType(expr, Bounds(Type::SignedSmall(), Type::Signed32()));
       break;
     case Token::SHR:
       RECURSE(Visit(expr->left()));
@@ -721,7 +697,7 @@ void AstTyper::VisitBinaryOperation(BinaryOperation* expr) {
       // TODO(rossberg): The upper bound would be Unsigned32, but since there
       // is no 'positive Smi' type for the lower bound, we use the smallest
       // union of Smi and Unsigned32 as upper bound instead.
-      NarrowType(expr, Bounds(Type::SignedSmall(zone()), Type::Number(zone())));
+      NarrowType(expr, Bounds(Type::SignedSmall(), Type::Number()));
       break;
     case Token::ADD: {
       RECURSE(Visit(expr->left()));
@@ -729,17 +705,19 @@ void AstTyper::VisitBinaryOperation(BinaryOperation* expr) {
       Bounds l = expr->left()->bounds();
       Bounds r = expr->right()->bounds();
       Type* lower =
-          !l.lower->IsInhabited() || !r.lower->IsInhabited() ?
-              Type::None(zone()) :
-          l.lower->Is(Type::String()) || r.lower->Is(Type::String()) ?
-              Type::String(zone()) :
-          l.lower->Is(Type::Number()) && r.lower->Is(Type::Number()) ?
-              Type::SignedSmall(zone()) : Type::None(zone());
+          !l.lower->IsInhabited() || !r.lower->IsInhabited()
+              ? Type::None()
+              : l.lower->Is(Type::String()) || r.lower->Is(Type::String())
+                    ? Type::String()
+                    : l.lower->Is(Type::Number()) && r.lower->Is(Type::Number())
+                          ? Type::SignedSmall()
+                          : Type::None();
       Type* upper =
-          l.upper->Is(Type::String()) || r.upper->Is(Type::String()) ?
-              Type::String(zone()) :
-          l.upper->Is(Type::Number()) && r.upper->Is(Type::Number()) ?
-              Type::Number(zone()) : Type::NumberOrString(zone());
+          l.upper->Is(Type::String()) || r.upper->Is(Type::String())
+              ? Type::String()
+              : l.upper->Is(Type::Number()) && r.upper->Is(Type::Number())
+                    ? Type::Number()
+                    : Type::NumberOrString();
       NarrowType(expr, Bounds(lower, upper));
       break;
     }
@@ -749,7 +727,7 @@ void AstTyper::VisitBinaryOperation(BinaryOperation* expr) {
     case Token::MOD:
       RECURSE(Visit(expr->left()));
       RECURSE(Visit(expr->right()));
-      NarrowType(expr, Bounds(Type::SignedSmall(zone()), Type::Number(zone())));
+      NarrowType(expr, Bounds(Type::SignedSmall(), Type::Number()));
       break;
     default:
       UNREACHABLE();
@@ -771,11 +749,11 @@ void AstTyper::VisitCompareOperation(CompareOperation* expr) {
   RECURSE(Visit(expr->left()));
   RECURSE(Visit(expr->right()));
 
-  NarrowType(expr, Bounds(Type::Boolean(zone())));
+  NarrowType(expr, Bounds(Type::Boolean()));
 }
 
 
-void AstTyper::VisitSpread(Spread* expr) { RECURSE(Visit(expr->expression())); }
+void AstTyper::VisitSpread(Spread* expr) { UNREACHABLE(); }
 
 
 void AstTyper::VisitEmptyParentheses(EmptyParentheses* expr) {
@@ -783,14 +761,18 @@ void AstTyper::VisitEmptyParentheses(EmptyParentheses* expr) {
 }
 
 
-void AstTyper::VisitThisFunction(ThisFunction* expr) {
-}
+void AstTyper::VisitThisFunction(ThisFunction* expr) {}
 
 
 void AstTyper::VisitSuperPropertyReference(SuperPropertyReference* expr) {}
 
 
 void AstTyper::VisitSuperCallReference(SuperCallReference* expr) {}
+
+
+void AstTyper::VisitRewritableExpression(RewritableExpression* expr) {
+  Visit(expr->expression());
+}
 
 
 void AstTyper::VisitDeclarations(ZoneList<Declaration*>* decls) {

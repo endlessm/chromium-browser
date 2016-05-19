@@ -13,8 +13,9 @@
 #include "base/command_line.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
+#include "base/mac/sdk_forward_declarations.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
@@ -45,12 +46,12 @@
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
-#include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/autocomplete_match.h"
+#include "components/prefs/pref_service.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/navigation_controller.h"
@@ -252,6 +253,8 @@ NSImage* Overlay(NSImage* ground, NSImage* overlay, CGFloat alpha) {
 - (void)setNewTabButtonHoverState:(BOOL)showHover;
 - (void)themeDidChangeNotification:(NSNotification*)notification;
 - (void)setNewTabImages;
+- (BOOL)doesAnyOtherWebContents:(content::WebContents*)selected
+                 haveMediaState:(TabMediaState)state;
 @end
 
 // A simple view class that contains the traffic light buttons. This class
@@ -1196,6 +1199,22 @@ NSImage* Overlay(NSImage* ground, NSImage* overlay, CGFloat alpha) {
     NSValue* oldTargetValue = [targetFrames_ objectForKey:identifier];
     if (!oldTargetValue ||
         !NSEqualRects([oldTargetValue rectValue], tabFrame)) {
+      // Redraw the tab once it moves to its final location. Because we're
+      // using Core Animation, each tab caches its contents until told to
+      // redraw. Without forcing a redraw at the end of the move, tabs will
+      // display the wrong content when using a theme that creates transparent
+      // tabs.
+      ScopedNSAnimationContextGroup subAnimationGroup(animate);
+      subAnimationGroup.SetCurrentContextDuration(kAnimationDuration);
+      // -[NSAnimationContext setCompletionHandler:] is only available on
+      // 10.7 and higher.
+      if (base::mac::IsOSLionOrLater()) {
+        NSView* tabView = [tab view];
+        [[NSAnimationContext currentContext] setCompletionHandler:^{
+          [tabView setNeedsDisplay:YES];
+        }];
+      }
+
       [frameTarget setFrame:tabFrame];
       [targetFrames_ setObject:[NSValue valueWithRect:tabFrame]
                         forKey:identifier];
@@ -1278,7 +1297,7 @@ NSImage* Overlay(NSImage* ground, NSImage* overlay, CGFloat alpha) {
   [tab setTitle:base::SysUTF16ToNSString(title)];
 
   const base::string16& toolTip = chrome::AssembleTabTooltipText(
-      title, chrome::GetTabMediaStateForContents(contents));
+      title, [self mediaStateForContents:contents]);
   [tab setToolTip:base::SysUTF16ToNSString(toolTip)];
 }
 
@@ -1555,7 +1574,7 @@ NSImage* Overlay(NSImage* ground, NSImage* overlay, CGFloat alpha) {
   if (isApp) {
     SkBitmap* icon = extensions_tab_helper->GetExtensionAppIcon();
     if (icon)
-      image = gfx::SkBitmapToNSImageWithColorSpace(*icon, colorSpace);
+      image = skia::SkBitmapToNSImageWithColorSpace(*icon, colorSpace);
   } else {
     image = mac::FaviconForWebContents(contents);
   }
@@ -1631,7 +1650,9 @@ NSImage* Overlay(NSImage* ground, NSImage* overlay, CGFloat alpha) {
     }
   }
 
-  [tabController setMediaState:chrome::GetTabMediaStateForContents(contents)];
+  TabMediaState mediaState = [self mediaStateForContents:contents];
+  [self updateWindowMediaState:mediaState forWebContents:contents];
+  [tabController setMediaState:mediaState];
 
   [tabController updateVisibility];
 }
@@ -2296,13 +2317,66 @@ NSImage* Overlay(NSImage* ground, NSImage* overlay, CGFloat alpha) {
   [customWindowControls_ setMouseInside:NO];
 }
 
+// Gets the tab and the media state to check whether the window
+// media state should be updated or not. If the tab media state is
+// AUDIO_PLAYING, the window media state should be set to AUDIO_PLAYING.
+// If the tab media state is AUDIO_MUTING, this method would check if the
+// window has no other tab with state AUDIO_PLAYING, then the window
+// media state will be set to AUDIO_MUTING. If the tab media state is NONE,
+// this method checks if the window has no playing or muting tab, then window
+// media state will be set as NONE.
+- (void)updateWindowMediaState:(TabMediaState)mediaState
+                forWebContents:(content::WebContents*)selected {
+  NSWindow* window = [tabStripView_ window];
+  BrowserWindowController* windowController =
+      [BrowserWindowController browserWindowControllerForWindow:window];
+  if (mediaState == TAB_MEDIA_STATE_NONE) {
+    if (![self doesAnyOtherWebContents:selected
+                        haveMediaState:TAB_MEDIA_STATE_AUDIO_PLAYING] &&
+        ![self doesAnyOtherWebContents:selected
+                        haveMediaState:TAB_MEDIA_STATE_AUDIO_MUTING]) {
+      [windowController setMediaState:TAB_MEDIA_STATE_NONE];
+    } else if ([self doesAnyOtherWebContents:selected
+                              haveMediaState:TAB_MEDIA_STATE_AUDIO_MUTING]) {
+      [windowController setMediaState:TAB_MEDIA_STATE_AUDIO_MUTING];
+    }
+  } else if (mediaState == TAB_MEDIA_STATE_AUDIO_MUTING) {
+    if (![self doesAnyOtherWebContents:selected
+                        haveMediaState:TAB_MEDIA_STATE_AUDIO_PLAYING]) {
+      [windowController setMediaState:TAB_MEDIA_STATE_AUDIO_MUTING];
+    }
+  } else {
+    [windowController setMediaState:mediaState];
+  }
+}
+
+// Checks if tabs (excluding selected) has media state equals to the second
+// parameter. It returns YES when it finds the first tab with the criterion.
+- (BOOL)doesAnyOtherWebContents:(content::WebContents*)selected
+                 haveMediaState:(TabMediaState)state {
+  const int existingTabCount = tabStripModel_->count();
+  for (int i = 0; i < existingTabCount; ++i) {
+    content::WebContents* currentContents = tabStripModel_->GetWebContentsAt(i);
+    if (selected == currentContents)
+      continue;
+    TabMediaState currentMediaStateForContents =
+        [self mediaStateForContents:currentContents];
+    if (currentMediaStateForContents == state)
+      return YES;
+  }
+  return NO;
+}
+
+- (TabMediaState)mediaStateForContents:(content::WebContents*)contents {
+  return chrome::GetTabMediaStateForContents(contents);
+}
+
 - (void)themeDidChangeNotification:(NSNotification*)notification {
   [self setNewTabImages];
 }
 
 - (void)setNewTabImages {
-  ThemeService *theme =
-      static_cast<ThemeService*>([[tabStripView_ window] themeProvider]);
+  const ui::ThemeProvider* theme = [[tabStripView_ window] themeProvider];
   if (!theme)
     return;
 
@@ -2323,7 +2397,7 @@ NSImage* Overlay(NSImage* ground, NSImage* overlay, CGFloat alpha) {
                     forButtonState:image_button_cell::kPressedState];
 
   // IDR_THEME_TAB_BACKGROUND_INACTIVE is only used with the default theme.
-  if (theme->UsingDefaultTheme()) {
+  if (theme->UsingSystemTheme()) {
     const CGFloat alpha = tabs::kImageNoFocusAlpha;
     NSImage* background = ApplyMask(
         theme->GetNSImageNamed(IDR_THEME_TAB_BACKGROUND_INACTIVE), mask);

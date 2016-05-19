@@ -32,21 +32,18 @@
 // Also used as a target by TestObject
 
 [
-    ActiveDOMObject,
-    Conditional=CONDITION,
+    DependentLifetime,
     Custom=LegacyCallAsFunction,
     DoNotCheckConstants,
     ImplementedAs=TestInterfaceImplementation,
     Iterable,
-    Measure,
+    OriginTrialEnabled=OriginTrialFeatureName,
     RuntimeEnabled=FeatureName,
     SetWrapperReferenceTo(TestInterface referencedName),
-    TypeChecking=Interface,
     Exposed=(Worker,Window),
 ] interface TestInterface : TestInterfaceEmpty {
     // members needed to test [ImplementedAs], as this affect attribute
-    // configuration and method configuration, and [TypeChecking]
-    // constants also needed for [DoNotCheckConstants]
+    // configuration and method configuration
     const unsigned long UNSIGNED_LONG = 0;
     [Reflect=CONST_CPP] const short CONST_JAVASCRIPT = 1;
 

@@ -19,8 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/LayoutSVGTransformableContainer.h"
 
 #include "core/layout/svg/SVGLayoutSupport.h"
@@ -106,4 +104,4 @@ bool LayoutSVGTransformableContainer::calculateLocalTransform()
     return true;
 }
 
-}
+} // namespace blink

@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_service.h"
@@ -152,7 +155,7 @@ class BrowserCloseTest : public testing::Test {
     std::vector<Browser*> browsers;
     for (int i = 0; i < num_windows; ++i) {
       TestBrowserWindow* window = new TestBrowserWindow();
-      Browser::CreateParams params(profile, chrome::HOST_DESKTOP_TYPE_FIRST);
+      Browser::CreateParams params(profile);
       params.type = Browser::TYPE_TABBED;
       params.window = window;
       Browser* browser = new Browser(params);

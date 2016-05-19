@@ -10,9 +10,8 @@
 #include <xf86drmMode.h>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
-#include "ui/ozone/ozone_export.h"
 #include "ui/ozone/platform/drm/common/scoped_drm_types.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_plane.h"
 #include "ui/ozone/platform/drm/gpu/overlay_plane.h"
@@ -28,7 +27,7 @@ class DrmDevice;
 
 // This contains the list of planes controlled by one HDC on a given DRM fd.
 // It is owned by the HDC and filled by the CrtcController.
-struct OZONE_EXPORT HardwareDisplayPlaneList {
+struct HardwareDisplayPlaneList {
   HardwareDisplayPlaneList();
   ~HardwareDisplayPlaneList();
 
@@ -67,7 +66,7 @@ struct OZONE_EXPORT HardwareDisplayPlaneList {
 #endif  // defined(USE_DRM_ATOMIC)
 };
 
-class OZONE_EXPORT HardwareDisplayPlaneManager {
+class HardwareDisplayPlaneManager {
  public:
   HardwareDisplayPlaneManager();
   virtual ~HardwareDisplayPlaneManager();
@@ -92,10 +91,17 @@ class OZONE_EXPORT HardwareDisplayPlaneManager {
   virtual bool Commit(HardwareDisplayPlaneList* plane_list,
                       bool test_only) = 0;
 
-  const ScopedVector<HardwareDisplayPlane>& planes() { return planes_; }
+  const std::vector<scoped_ptr<HardwareDisplayPlane>>& planes() {
+    return planes_;
+  }
 
-  std::vector<uint32_t> GetCompatibleHardwarePlaneIds(const OverlayPlane& plane,
-                                                      uint32_t crtc_id) const;
+  // Returns all formats which can be scanned out by this PlaneManager. Use
+  // IsFormatSupported to find if a given format is supported on a particular
+  // plane for a given crtc.
+  const std::vector<uint32_t>& GetSupportedFormats() const;
+  bool IsFormatSupported(uint32_t fourcc_format,
+                         uint32_t z_order,
+                         uint32_t crtc_id) const;
 
  protected:
   virtual bool SetPlaneData(HardwareDisplayPlaneList* plane_list,
@@ -125,12 +131,16 @@ class OZONE_EXPORT HardwareDisplayPlaneManager {
 
   void ResetCurrentPlaneList(HardwareDisplayPlaneList* plane_list) const;
 
+  // Populates scanout formats supported by all planes.
+  void PopulateSupportedFormats();
+
   // Object containing the connection to the graphics device and wraps the API
   // calls to control it. Not owned.
   DrmDevice* drm_;
 
-  ScopedVector<HardwareDisplayPlane> planes_;
+  std::vector<scoped_ptr<HardwareDisplayPlane>> planes_;
   std::vector<uint32_t> crtcs_;
+  std::vector<uint32_t> supported_formats_;
 
   DISALLOW_COPY_AND_ASSIGN(HardwareDisplayPlaneManager);
 };

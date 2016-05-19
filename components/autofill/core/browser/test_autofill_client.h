@@ -5,11 +5,14 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_BROWSER_TEST_AUTOFILL_CLIENT_H_
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_TEST_AUTOFILL_CLIENT_H_
 
+#include <utility>
+
 #include "base/compiler_specific.h"
 #include "base/i18n/rtl.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "components/autofill/core/browser/autofill_client.h"
+#include "components/prefs/pref_service.h"
 #include "components/rappor/test_rappor_service.h"
 #include "google_apis/gaia/fake_identity_provider.h"
 #include "google_apis/gaia/fake_oauth2_token_service.h"
@@ -26,6 +29,7 @@ class TestAutofillClient : public AutofillClient {
   PersonalDataManager* GetPersonalDataManager() override;
   scoped_refptr<AutofillWebDataService> GetDatabase() override;
   PrefService* GetPrefs() override;
+  sync_driver::SyncService* GetSyncService() override;
   IdentityProvider* GetIdentityProvider() override;
   rappor::RapporService* GetRapporService() override;
   void HideRequestAutocompleteDialog() override;
@@ -33,10 +37,12 @@ class TestAutofillClient : public AutofillClient {
   void ShowUnmaskPrompt(const CreditCard& card,
                         base::WeakPtr<CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
-  void ConfirmSaveCreditCardLocally(const base::Closure& callback) override;
+  void ConfirmSaveCreditCardLocally(const CreditCard& card,
+                                    const base::Closure& callback) override;
   void ConfirmSaveCreditCardToCloud(
-      const base::Closure& callback,
-      scoped_ptr<base::DictionaryValue> legal_message) override;
+      const CreditCard& card,
+      scoped_ptr<base::DictionaryValue> legal_message,
+      const base::Closure& callback) override;
   void LoadRiskData(
       const base::Callback<void(const std::string&)>& callback) override;
   bool HasCreditCardScanFeature() override;
@@ -66,7 +72,7 @@ class TestAutofillClient : public AutofillClient {
     is_context_secure_ = is_context_secure;
   };
 
-  void SetPrefs(scoped_ptr<PrefService> prefs) { prefs_ = prefs.Pass(); }
+  void SetPrefs(scoped_ptr<PrefService> prefs) { prefs_ = std::move(prefs); }
 
   rappor::TestRapporService* test_rappor_service() {
     return rappor_service_.get();

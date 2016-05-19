@@ -4,6 +4,9 @@
 
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_sheet_controller.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_custom_sheet.h"
 #import "testing/gtest_mac.h"
@@ -54,6 +57,10 @@ const int kSystemSheetReturnCode = 77;
 }
 
 - (void)updateSheetPosition {
+}
+
+- (void)resizeWithNewSize:(NSSize)size {
+  // NOOP
 }
 
 - (NSWindow*)sheetWindow {

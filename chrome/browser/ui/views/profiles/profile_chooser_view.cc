@@ -4,13 +4,13 @@
 
 #include "chrome/browser/ui/views/profiles/profile_chooser_view.h"
 
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
+#include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
-#include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_window.h"
@@ -27,6 +27,7 @@
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/views/profiles/signin_view_controller_delegate_views.h"
 #include "chrome/browser/ui/views/profiles/user_manager_view.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
@@ -34,17 +35,19 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/user_metrics.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/compositor/clip_transform_recorder.h"
+#include "ui/compositor/clip_recorder.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/canvas_image_source.h"
@@ -80,9 +83,7 @@ namespace {
 
 const int kFixedMenuWidth = 250;
 const int kButtonHeight = 32;
-const int kPasswordCombinedFixedGaiaViewHeight = 440;
 const int kPasswordCombinedFixedGaiaViewWidth = 360;
-const int kFixedGaiaViewHeight = 512;
 const int kFixedGaiaViewWidth = 448;
 const int kFixedAccountRemovalViewWidth = 280;
 const int kFixedSwitchUserViewWidth = 320;
@@ -264,14 +265,20 @@ class RightAlignedIconLabelButton : public views::LabelButton {
   RightAlignedIconLabelButton(views::ButtonListener* listener,
                               const base::string16& text)
       : views::LabelButton(listener, text) {
+    SetHorizontalAlignment(gfx::ALIGN_RIGHT);
+    label()->SetHorizontalAlignment(gfx::ALIGN_CENTER);
   }
 
  protected:
   void Layout() override {
-    // This layout trick keeps the text left-aligned and the icon right-aligned.
-    SetHorizontalAlignment(gfx::ALIGN_RIGHT);
     views::LabelButton::Layout();
-    label()->SetHorizontalAlignment(gfx::ALIGN_CENTER);
+
+    // Keep the text centered and the icon right-aligned by stretching the label
+    // to take up more of the content area and centering its contents.
+    gfx::Rect content_bounds = GetContentsBounds();
+    gfx::Rect label_bounds = label()->bounds();
+    label_bounds.Inset(content_bounds.x() - label_bounds.x(), 0, 0, 0);
+    label()->SetBoundsRect(label_bounds);
   }
 
  private:
@@ -337,8 +344,8 @@ class EditableProfilePhoto : public views::LabelButton {
 
   void PaintChildren(const ui::PaintContext& context) override {
     // Display any children (the "change photo" overlay) as a circle.
-    ui::ClipTransformRecorder clip_transform_recorder(context);
-    clip_transform_recorder.ClipPathWithAntiAliasing(circular_mask_);
+    ui::ClipRecorder clip_recorder(context);
+    clip_recorder.ClipPathWithAntiAliasing(circular_mask_);
     View::PaintChildren(context);
   }
 
@@ -388,7 +395,6 @@ class EditableProfileName : public views::View,
     const gfx::FontList& medium_font_list =
         rb->GetFontList(ui::ResourceBundle::MediumFont);
     button_->SetFontList(medium_font_list);
-    button_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
 
     if (!is_editing_allowed) {
       button_->SetBorder(views::Border::CreateEmptyBorder(2, 0, 2, 0));
@@ -559,7 +565,7 @@ class ProfileBadge : public gfx::CanvasImageSource {
 
   // CanvasImageSource:
   void Draw(gfx::Canvas* canvas) override {
-    const SkISize size = canvas->sk_canvas()->getDeviceSize();
+    const SkISize size = canvas->sk_canvas()->getBaseLayerSize();
     gfx::Rect bounds(0, 0, size.width(), size.height());
 
     SkPaint paint;
@@ -595,7 +601,7 @@ gfx::ImageSkia CreateBadgeForProfile(Profile* profile) {
 // ProfileChooserView ---------------------------------------------------------
 
 // static
-ProfileChooserView* ProfileChooserView::profile_bubble_ = NULL;
+ProfileChooserView* ProfileChooserView::profile_bubble_ = nullptr;
 bool ProfileChooserView::close_on_deactivate_for_testing_ = true;
 
 // static
@@ -603,6 +609,7 @@ void ProfileChooserView::ShowBubble(
     profiles::BubbleViewMode view_mode,
     profiles::TutorialMode tutorial_mode,
     const signin::ManageAccountsParams& manage_accounts_params,
+    signin_metrics::AccessPoint access_point,
     views::View* anchor_view,
     views::BubbleBorder::Arrow arrow,
     views::BubbleBorder::BubbleAlignment border_alignment,
@@ -618,13 +625,14 @@ void ProfileChooserView::ShowBubble(
   if (IsShowing()) {
     if (tutorial_mode != profiles::TUTORIAL_MODE_NONE) {
       profile_bubble_->tutorial_mode_ = tutorial_mode;
-      profile_bubble_->ShowView(view_mode, profile_bubble_->avatar_menu_.get());
+      profile_bubble_->ShowViewFromMode(view_mode);
     }
     return;
   }
 
-  profile_bubble_ = new ProfileChooserView(anchor_view, arrow, browser,
-      view_mode, tutorial_mode, manage_accounts_params.service_type);
+  profile_bubble_ = new ProfileChooserView(
+      anchor_view, arrow, browser, view_mode, tutorial_mode,
+      manage_accounts_params.service_type, access_point);
   views::BubbleDelegateView::CreateBubble(profile_bubble_);
   profile_bubble_->set_close_on_deactivate(close_on_deactivate_for_testing_);
   profile_bubble_->SetAlignment(border_alignment);
@@ -648,22 +656,21 @@ ProfileChooserView::ProfileChooserView(views::View* anchor_view,
                                        Browser* browser,
                                        profiles::BubbleViewMode view_mode,
                                        profiles::TutorialMode tutorial_mode,
-                                       signin::GAIAServiceType service_type)
+                                       signin::GAIAServiceType service_type,
+                                       signin_metrics::AccessPoint access_point)
     : BubbleDelegateView(anchor_view, arrow),
       browser_(browser),
       view_mode_(view_mode),
       tutorial_mode_(tutorial_mode),
-      gaia_service_type_(service_type) {
+      gaia_service_type_(service_type),
+      access_point_(access_point) {
   // Reset the default margins inherited from the BubbleDelegateView.
   // Add a small bottom inset so that the bubble's rounded corners show up.
   set_margins(gfx::Insets(0, 0, 1, 0));
-  set_background(views::Background::CreateSolidBackground(
-      GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_DialogBackground)));
   ResetView();
 
   avatar_menu_.reset(new AvatarMenu(
-      &g_browser_process->profile_manager()->GetProfileInfoCache(),
+      &g_browser_process->profile_manager()->GetProfileAttributesStorage(),
       this,
       browser_));
   avatar_menu_->RebuildMenu();
@@ -723,7 +730,20 @@ void ProfileChooserView::Init() {
   AddAccelerator(ui::Accelerator(ui::VKEY_DOWN, ui::EF_NONE));
   AddAccelerator(ui::Accelerator(ui::VKEY_UP, ui::EF_NONE));
 
-  ShowView(view_mode_, avatar_menu_.get());
+  ShowViewFromMode(view_mode_);
+}
+
+void ProfileChooserView::OnNativeThemeChanged(
+    const ui::NativeTheme* native_theme) {
+  views::BubbleDelegateView::OnNativeThemeChanged(native_theme);
+  set_background(views::Background::CreateSolidBackground(
+      GetNativeTheme()->GetSystemColor(
+          ui::NativeTheme::kColorId_DialogBackground)));
+  if (auth_error_email_button_) {
+    auth_error_email_button_->SetTextColor(
+        views::LabelButton::STATE_NORMAL,
+        native_theme->GetSystemColor(ui::NativeTheme::kColorId_LinkEnabled));
+  }
 }
 
 void ProfileChooserView::OnAvatarMenuChanged(
@@ -744,9 +764,9 @@ void ProfileChooserView::OnRefreshTokenAvailable(
       view_mode_ == profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH) {
     // The account management UI is only available through the
     // --enable-account-consistency flag.
-    ShowView(switches::IsEnableAccountConsistency() ?
+    ShowViewFromMode(switches::IsEnableAccountConsistency() ?
         profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT :
-        profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER, avatar_menu_.get());
+        profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER);
   }
 }
 
@@ -754,7 +774,7 @@ void ProfileChooserView::OnRefreshTokenRevoked(const std::string& account_id) {
   // Refresh the account management view when an account is removed from the
   // profile.
   if (view_mode_ == profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT)
-    ShowView(profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT, avatar_menu_.get());
+    ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT);
 }
 
 void ProfileChooserView::ShowView(profiles::BubbleViewMode view_to_display,
@@ -789,6 +809,7 @@ void ProfileChooserView::ShowView(profiles::BubbleViewMode view_to_display,
       const int width = switches::UsePasswordSeparatedSigninFlow()
           ? kFixedGaiaViewWidth : kPasswordCombinedFixedGaiaViewWidth;
       layout = CreateSingleColumnLayout(this, width);
+      DCHECK(!switches::UsePasswordSeparatedSigninFlow());
       sub_view = CreateGaiaSigninView(&view_to_focus);
       break;
     }
@@ -822,13 +843,21 @@ void ProfileChooserView::ShowView(profiles::BubbleViewMode view_to_display,
     view_to_focus->RequestFocus();
 }
 
+void ProfileChooserView::ShowViewFromMode(profiles::BubbleViewMode mode) {
+  if (SigninViewController::ShouldShowModalSigninForMode(mode)) {
+    browser_->ShowModalSigninWindow(mode, access_point_);
+  } else {
+    ShowView(mode, avatar_menu_.get());
+  }
+}
+
 void ProfileChooserView::WindowClosing() {
   DCHECK_EQ(profile_bubble_, this);
   profile_bubble_ = NULL;
 
   if (tutorial_mode_ == profiles::TUTORIAL_MODE_CONFIRM_SIGNIN) {
     LoginUIServiceFactory::GetForProfile(browser_->profile())->
-        SyncConfirmationUIClosed(false /* configure_sync_first */);
+        SyncConfirmationUIClosed(LoginUIService::SYNC_WITH_DEFAULT_SETTINGS);
   }
 }
 
@@ -873,10 +902,10 @@ void ProfileChooserView::ButtonPressed(views::Button* sender,
     profiles::LockProfile(browser_->profile());
     PostActionPerformed(ProfileMetrics::PROFILE_DESKTOP_MENU_LOCK);
   } else if (sender == auth_error_email_button_) {
-    ShowView(profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH, avatar_menu_.get());
+    ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH);
   } else if (sender == tutorial_sync_settings_ok_button_) {
     LoginUIServiceFactory::GetForProfile(browser_->profile())->
-        SyncConfirmationUIClosed(false /* configure_sync_first */);
+        SyncConfirmationUIClosed(LoginUIService::SYNC_WITH_DEFAULT_SETTINGS);
     DismissTutorial();
     ProfileMetrics::LogProfileNewAvatarMenuSignin(
         ProfileMetrics::PROFILE_AVATAR_MENU_SIGNIN_OK);
@@ -894,7 +923,7 @@ void ProfileChooserView::ButtonPressed(views::Button* sender,
     RemoveAccount();
   } else if (sender == account_removal_cancel_button_) {
     account_id_to_remove_.clear();
-    ShowView(profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT, avatar_menu_.get());
+    ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT);
   } else if (sender == gaia_signin_cancel_button_) {
     // The account management view is only available with the
     // --enable-account-consistency flag.
@@ -902,14 +931,14 @@ void ProfileChooserView::ButtonPressed(views::Button* sender,
         SigninManagerFactory::GetForProfile(browser_->profile())->
             IsAuthenticated() &&
         switches::IsEnableAccountConsistency();
-    ShowView(account_management_available ?
+    ShowViewFromMode(account_management_available ?
         profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT :
-        profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER, avatar_menu_.get());
+        profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER);
   } else if (sender == current_profile_photo_) {
     avatar_menu_->EditProfile(avatar_menu_->GetActiveProfileIndex());
     PostActionPerformed(ProfileMetrics::PROFILE_DESKTOP_MENU_EDIT_IMAGE);
   } else if (sender == signin_current_profile_link_) {
-    ShowView(profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN, avatar_menu_.get());
+    ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN);
   } else if (sender == add_person_button_) {
     ProfileMetrics::LogProfileNewAvatarMenuNotYou(
         ProfileMetrics::PROFILE_AVATAR_MENU_NOT_YOU_ADD_PERSON);
@@ -921,7 +950,7 @@ void ProfileChooserView::ButtonPressed(views::Button* sender,
         ProfileMetrics::PROFILE_AVATAR_MENU_NOT_YOU_DISCONNECT);
     chrome::ShowSettings(browser_);
   } else if (sender == switch_user_cancel_button_) {
-    ShowView(profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER, avatar_menu_.get());
+    ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER);
     ProfileMetrics::LogProfileNewAvatarMenuNotYou(
         ProfileMetrics::PROFILE_AVATAR_MENU_NOT_YOU_BACK);
   } else {
@@ -940,12 +969,11 @@ void ProfileChooserView::ButtonPressed(views::Button* sender,
           delete_account_button_map_.find(sender);
       if (account_match != delete_account_button_map_.end()) {
         account_id_to_remove_ = account_match->second;
-        ShowView(profiles::BUBBLE_VIEW_MODE_ACCOUNT_REMOVAL,
-            avatar_menu_.get());
+        ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_ACCOUNT_REMOVAL);
       } else {
         account_match = reauth_account_button_map_.find(sender);
         DCHECK(account_match != reauth_account_button_map_.end());
-        ShowView(profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH, avatar_menu_.get());
+        ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH);
       }
     }
   }
@@ -961,7 +989,7 @@ void ProfileChooserView::RemoveAccount() {
   }
   account_id_to_remove_.clear();
 
-  ShowView(profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT, avatar_menu_.get());
+  ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT);
 }
 
 void ProfileChooserView::LinkClicked(views::Link* sender, int event_flags) {
@@ -969,32 +997,32 @@ void ProfileChooserView::LinkClicked(views::Link* sender, int event_flags) {
     // This link can either mean show/hide the account management view,
     // depending on which view it is displayed. ShowView() will DCHECK if
     // the account management view is displayed for non signed-in users.
-    ShowView(
+    ShowViewFromMode(
         view_mode_ == profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT ?
             profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER :
-            profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT,
-        avatar_menu_.get());
+            profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT);
   } else if (sender == add_account_link_) {
-    ShowView(profiles::BUBBLE_VIEW_MODE_GAIA_ADD_ACCOUNT, avatar_menu_.get());
+    ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_GAIA_ADD_ACCOUNT);
     PostActionPerformed(ProfileMetrics::PROFILE_DESKTOP_MENU_ADD_ACCT);
   } else if (sender == tutorial_sync_settings_link_) {
     LoginUIServiceFactory::GetForProfile(browser_->profile())->
-        SyncConfirmationUIClosed(true /* configure_sync_first */);
+        SyncConfirmationUIClosed(LoginUIService::CONFIGURE_SYNC_FIRST);
     tutorial_mode_ = profiles::TUTORIAL_MODE_NONE;
     ProfileMetrics::LogProfileNewAvatarMenuSignin(
         ProfileMetrics::PROFILE_AVATAR_MENU_SIGNIN_SETTINGS);
   } else if (sender == tutorial_not_you_link_) {
     ProfileMetrics::LogProfileNewAvatarMenuUpgrade(
         ProfileMetrics::PROFILE_AVATAR_MENU_UPGRADE_NOT_YOU);
-    ShowView(profiles::BUBBLE_VIEW_MODE_SWITCH_USER, avatar_menu_.get());
+    ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_SWITCH_USER);
   } else {
     DCHECK(sender == tutorial_learn_more_link_);
     signin_ui_util::ShowSigninErrorLearnMorePage(browser_->profile());
   }
 }
 
-void ProfileChooserView::StyledLabelLinkClicked(
-    const gfx::Range& range, int event_flags) {
+void ProfileChooserView::StyledLabelLinkClicked(views::StyledLabel* label,
+                                                const gfx::Range& range,
+                                                int event_flags) {
   chrome::ShowSettings(browser_);
 }
 
@@ -1143,7 +1171,7 @@ void ProfileChooserView::DismissTutorial() {
   }
 
   tutorial_mode_ = profiles::TUTORIAL_MODE_NONE;
-  ShowView(profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER, avatar_menu_.get());
+  ShowViewFromMode(profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER);
 }
 
 views::View* ProfileChooserView::CreateTutorialViewIfNeeded(
@@ -1357,10 +1385,6 @@ views::View* ProfileChooserView::CreateCurrentProfileView(
             gfx::CreateVectorIcon(gfx::VectorIconId::WARNING, 18,
                                   gfx::kChromeIconGrey));
 
-        auth_error_email_button_->SetTextColor(
-            views::LabelButton::STATE_NORMAL,
-            ui::NativeTheme::instance()->GetSystemColor(
-                ui::NativeTheme::kColorId_LinkEnabled));
         auth_error_email_button_->SetFocusable(true);
         gfx::Insets insets =
             views::LabelButtonAssetBorder::GetDefaultInsetsForStyle(
@@ -1397,6 +1421,8 @@ views::View* ProfileChooserView::CreateCurrentProfileView(
                                   views::kRelatedControlVerticalSpacing);
       layout->StartRow(1, 0);
       layout->AddView(signin_current_profile_link_);
+      content::RecordAction(
+          base::UserMetricsAction("Signin_Impression_FromAvatarBubbleSignin"));
     }
   }
 
@@ -1614,27 +1640,19 @@ void ProfileChooserView::CreateAccountButton(views::GridLayout* layout,
 
 views::View* ProfileChooserView::CreateGaiaSigninView(
     views::View** signin_content_view) {
-  GURL url;
-  int message_id;
+  views::WebView* web_view =
+      SigninViewControllerDelegateViews::CreateGaiaWebView(
+          this, view_mode_, browser_->profile(), access_point_);
 
+  int message_id;
   switch (view_mode_) {
     case profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN:
-      url = signin::GetPromoURL(signin_metrics::SOURCE_AVATAR_BUBBLE_SIGN_IN,
-                                false /* auto_close */,
-                                true /* is_constrained */);
       message_id = IDS_PROFILES_GAIA_SIGNIN_TITLE;
       break;
     case profiles::BUBBLE_VIEW_MODE_GAIA_ADD_ACCOUNT:
-      url = signin::GetPromoURL(
-          signin_metrics::SOURCE_AVATAR_BUBBLE_ADD_ACCOUNT,
-          false /* auto_close */,
-          true /* is_constrained */);
       message_id = IDS_PROFILES_GAIA_ADD_ACCOUNT_TITLE;
       break;
     case profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH: {
-      DCHECK(HasAuthError(browser_->profile()));
-      url = signin::GetReauthURL(browser_->profile(),
-                                 GetAuthErrorAccountId(browser_->profile()));
       message_id = IDS_PROFILES_GAIA_REAUTH_TITLE;
       break;
     }
@@ -1643,30 +1661,8 @@ views::View* ProfileChooserView::CreateGaiaSigninView(
       return NULL;
   }
 
-  // Adds Gaia signin webview.
-  const gfx::Size pref_size = switches::UsePasswordSeparatedSigninFlow()
-      ? gfx::Size(kFixedGaiaViewWidth, kFixedGaiaViewHeight)
-      : gfx::Size(kPasswordCombinedFixedGaiaViewWidth,
-                  kPasswordCombinedFixedGaiaViewHeight);
-  Profile* profile = browser_->profile();
-  views::WebView* web_view = new views::WebView(profile);
-  web_view->LoadInitialURL(url);
-  web_view->GetWebContents()->SetDelegate(this);
-  web_view->SetPreferredSize(pref_size);
-  content::RenderWidgetHostView* rwhv =
-      web_view->GetWebContents()->GetRenderWidgetHostView();
-  if (rwhv)
-    rwhv->SetBackgroundColor(profiles::kAvatarBubbleGaiaBackgroundColor);
-
   if (signin_content_view)
     *signin_content_view = web_view;
-
-  if (switches::UsePasswordSeparatedSigninFlow()) {
-    gaia_signin_cancel_button_ = CreateBackButton(this);
-    HostView* host = new HostView();
-    host->Initialize(gaia_signin_cancel_button_, web_view);
-    return host;
-  }
 
   TitleCard* title_card = new TitleCard(l10n_util::GetStringUTF16(message_id),
                                         this,

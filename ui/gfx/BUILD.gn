@@ -42,6 +42,8 @@ component("gfx") {
     "animation/animation_container_element.h",
     "animation/animation_container_observer.h",
     "animation/animation_delegate.h",
+    "animation/animation_mac.mm",
+    "animation/animation_win.cc",
     "animation/linear_animation.cc",
     "animation/linear_animation.h",
     "animation/multi_animation.cc",
@@ -72,6 +74,8 @@ component("gfx") {
     "display.h",
     "display_change_notifier.cc",
     "display_change_notifier.h",
+    "display_finder.cc",
+    "display_finder.h",
     "display_observer.cc",
     "display_observer.h",
     "favicon_size.cc",
@@ -99,8 +103,6 @@ component("gfx") {
     "generic_shared_memory_id.h",
     "gfx_paths.cc",
     "gfx_paths.h",
-    "hud_font.cc",
-    "hud_font.h",
     "icon_util.cc",
     "icon_util.h",
     "image/image.cc",
@@ -125,12 +127,16 @@ component("gfx") {
     "image/image_util_ios.mm",
     "interpolated_transform.cc",
     "interpolated_transform.h",
+    "ios/NSString+CrStringDrawing.h",
+    "ios/NSString+CrStringDrawing.mm",
+    "ios/uikit_util.h",
+    "ios/uikit_util.mm",
     "linux_font_delegate.cc",
     "linux_font_delegate.h",
     "mac/coordinate_conversion.h",
     "mac/coordinate_conversion.mm",
-    "mac/io_surface_manager.cc",
-    "mac/io_surface_manager.h",
+    "mac/io_surface.cc",
+    "mac/io_surface.h",
     "mac/nswindow_frame_controls.h",
     "mac/nswindow_frame_controls.mm",
     "mac/scoped_cocoa_disable_screen_updates.h",
@@ -139,6 +145,8 @@ component("gfx") {
     "nine_image_painter.h",
     "path.cc",
     "path.h",
+    "path_mac.h",
+    "path_mac.mm",
     "path_win.cc",
     "path_win.h",
     "path_x11.cc",
@@ -208,11 +216,19 @@ component("gfx") {
     "win/direct_manipulation.h",
     "win/direct_write.cc",
     "win/direct_write.h",
+    "win/display_info.cc",
+    "win/display_info.h",
     "win/dpi.cc",
     "win/dpi.h",
     "win/hwnd_util.cc",
     "win/hwnd_util.h",
+    "win/physical_size.cc",
+    "win/physical_size.h",
+    "win/rendering_window_manager.cc",
+    "win/rendering_window_manager.h",
     "win/scoped_set_map_mode.h",
+    "win/screen_win_display.cc",
+    "win/screen_win_display.h",
     "win/singleton_hwnd.cc",
     "win/singleton_hwnd.h",
     "win/singleton_hwnd_observer.cc",
@@ -254,8 +270,8 @@ component("gfx") {
   deps = [
     ":gfx_export",
     "//base",
-    "//base:i18n",
     "//base:base_static",
+    "//base:i18n",
     "//base/third_party/dynamic_annotations",
     "//skia",
     "//third_party/harfbuzz-ng",
@@ -277,8 +293,8 @@ component("gfx") {
       "harfbuzz_font_skia.h",
       "render_text_harfbuzz.cc",
       "render_text_harfbuzz.h",
-      "render_text_mac.cc",
       "render_text_mac.h",
+      "render_text_mac.mm",
       "text_utils_skia.cc",
     ]
 
@@ -363,6 +379,8 @@ component("gfx") {
   if (is_win) {
     cflags = [ "/wd4324" ]  # Structure was padded due to __declspec(align()), which is
                             # uninteresting.
+
+    libs = [ "setupapi.lib" ]
   } else {
     sources -= [
       "gdi_util.cc",
@@ -422,8 +440,9 @@ component("gfx") {
 # GYP version: ui/gfx/gfx.gyp:aggregate_vector_icons
 action("aggregate_vector_icons") {
   script = "vector_icons/aggregate_vector_icons.py"
+
+  # TODO(estade): move all platform-specific icons into their own directories.
   sources = [
-    "vector_icon_types.h",
     "vector_icons/account_box.icon",
     "vector_icons/account_child_invert.icon",
     "vector_icons/apps.icon",
@@ -463,6 +482,8 @@ action("aggregate_vector_icons") {
     "vector_icons/globe.icon",
     "vector_icons/help_outline.icon",
     "vector_icons/image.icon",
+    "vector_icons/incognito.1x.icon",
+    "vector_icons/incognito.icon",
     "vector_icons/keyword_search.1x.icon",
     "vector_icons/keyword_search.icon",
     "vector_icons/laptop.icon",
@@ -470,11 +491,21 @@ action("aggregate_vector_icons") {
     "vector_icons/location_bar_http.icon",
     "vector_icons/location_bar_https_invalid.1x.icon",
     "vector_icons/location_bar_https_invalid.icon",
+    "vector_icons/location_bar_https_invalid_invert.1x.icon",
+    "vector_icons/location_bar_https_invalid_invert.icon",
     "vector_icons/location_bar_https_valid.1x.icon",
     "vector_icons/location_bar_https_valid.icon",
+    "vector_icons/location_bar_https_valid_in_chip.1x.icon",
+    "vector_icons/location_bar_https_valid_in_chip.icon",
+    "vector_icons/location_bar_https_valid_invert.1x.icon",
+    "vector_icons/location_bar_https_valid_invert.icon",
     "vector_icons/location_bar_star.icon",
     "vector_icons/location_bar_star_active.icon",
     "vector_icons/location_on.icon",
+    "vector_icons/menu_check.1x.icon",
+    "vector_icons/menu_check.icon",
+    "vector_icons/menu_radio_empty.icon",
+    "vector_icons/menu_radio_selected.icon",
     "vector_icons/midi.icon",
     "vector_icons/mixed_content.icon",
     "vector_icons/mode_edit.icon",
@@ -508,6 +539,8 @@ action("aggregate_vector_icons") {
     "vector_icons/remove_circle.icon",
     "vector_icons/sad_tab.icon",
     "vector_icons/smartphone.icon",
+    "vector_icons/submenu_arrow.1x.icon",
+    "vector_icons/submenu_arrow.icon",
     "vector_icons/supervisor_account.icon",
     "vector_icons/tab.icon",
     "vector_icons/tab_audio.1x.icon",
@@ -518,20 +551,42 @@ action("aggregate_vector_icons") {
     "vector_icons/tab_close_hovered_pressed.icon",
     "vector_icons/tab_close_normal.1x.icon",
     "vector_icons/tab_close_normal.icon",
+    "vector_icons/tab_media_capturing.icon",
+    "vector_icons/tab_media_recording.icon",
     "vector_icons/tablet.icon",
     "vector_icons/translate.icon",
+    "vector_icons/upgrade_menu_item.icon",
     "vector_icons/warning.icon",
     "vector_icons/warning_badge.icon",
     "vector_icons/web.icon",
+    "vector_icons/window_control_back.1x.icon",
+    "vector_icons/window_control_back.icon",
+    "vector_icons/window_control_close.1x.icon",
+    "vector_icons/window_control_close.icon",
+    "vector_icons/window_control_left_snapped.1x.icon",
+    "vector_icons/window_control_maximize.1x.icon",
+    "vector_icons/window_control_maximize.icon",
+    "vector_icons/window_control_minimize.1x.icon",
+    "vector_icons/window_control_minimize.icon",
+    "vector_icons/window_control_restore.1x.icon",
+    "vector_icons/window_control_restore.icon",
+    "vector_icons/window_control_right_snapped.1x.icon",
+    "vector_icons/window_control_right_snapped.icon",
     "vector_icons/zoom_minus.icon",
     "vector_icons/zoom_plus.icon",
   ]
+
   outputs = [
     vector_icons_cc_file,
     vector_icons_h_file,
   ]
 
   args = [
+    # TODO(brettw) bug 535386: This should not take a directory as an input,
+    # but rather a response file listing the inputs or sometimes the build will
+    # be incorrect. In this case, Ninja won't be able to do proper dependency
+    # tracking since if a file is deleted, the command line will be the same
+    # and the action will not be re-run.
     "--working_directory=" + rebase_path("vector_icons/"),
     "--output_cc=" + rebase_path(vector_icons_cc_file, root_build_dir),
     "--output_h=" + rebase_path(vector_icons_h_file, root_build_dir),
@@ -547,6 +602,7 @@ source_set("test_support") {
     "image/image_unittest_util.h",
     "image/image_unittest_util_ios.mm",
     "image/image_unittest_util_mac.mm",
+    "test/display_util.h",
     "test/fontconfig_util_linux.cc",
     "test/fontconfig_util_linux.h",
     "test/gfx_util.cc",
@@ -581,15 +637,6 @@ source_set("test_support") {
   }
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("gfx_unittests_run") {
-  testonly = true
-  deps = [
-    ":gfx_unittests",
-  ]
-}
-
 test("gfx_unittests") {
   sources = [
     "font_render_params_linux_unittest.cc",
@@ -598,6 +645,8 @@ test("gfx_unittests") {
     "image/image_ios_unittest.mm",
     "image/image_skia_unittest.cc",
     "image/image_unittest.cc",
+    "ios/NSString+CrStringDrawing_unittest.mm",
+    "ios/uikit_util_unittest.mm",
     "platform_font_linux_unittest.cc",
     "screen_unittest.cc",
     "test/run_all_unittests.cc",
@@ -647,6 +696,7 @@ test("gfx_unittests") {
       "image/image_util_unittest.cc",
       "mac/coordinate_conversion_unittest.mm",
       "nine_image_painter_unittest.cc",
+      "path_mac_unittest.mm",
       "platform_font_mac_unittest.mm",
       "range/range_mac_unittest.mm",
       "range/range_unittest.cc",
@@ -673,10 +723,10 @@ test("gfx_unittests") {
     "//base",
     "//base/test:test_support",
     "//skia",
+    "//testing/gtest",
     "//third_party/icu:icuuc",
     "//third_party/libpng",
     "//third_party/zlib",
-    "//testing/gtest",
     "//ui/base",
     "//ui/gfx/geometry",
     "//ui/resources:ui_test_pak",
@@ -694,7 +744,7 @@ test("gfx_unittests") {
   }
 
   if (is_android) {
-    apk_deps = [ "//ui/android:ui_java" ]
+    deps += [ "//ui/android:ui_java" ]
 
     sources -= [
       # Do not run display_change_notifier_unittest.cc on Android because it

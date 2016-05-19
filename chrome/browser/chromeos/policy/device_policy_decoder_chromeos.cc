@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
@@ -562,6 +563,20 @@ void DecodeAutoUpdatePolicies(const em::ChromeDeviceSettingsProto& policy,
                     NULL);
     }
   }
+
+  if (policy.has_allow_kiosk_app_control_chrome_version()) {
+    const em::AllowKioskAppControlChromeVersionProto& container(
+        policy.allow_kiosk_app_control_chrome_version());
+    if (container.has_allow_kiosk_app_control_chrome_version()) {
+      policies->Set(key::kAllowKioskAppControlChromeVersion,
+                    POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE,
+                    POLICY_SOURCE_CLOUD,
+                    new base::FundamentalValue(
+                        container.allow_kiosk_app_control_chrome_version()),
+                    NULL);
+    }
+  }
 }
 
 void DecodeAccessibilityPolicies(const em::ChromeDeviceSettingsProto& policy,
@@ -807,6 +822,18 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
         key::kDeviceLoginScreenDomainAutoComplete, POLICY_LEVEL_MANDATORY,
         POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
         new base::StringValue(container.login_screen_domain_auto_complete()),
+        nullptr);
+  }
+
+  if (policy.has_display_rotation_default()) {
+    const em::DisplayRotationDefaultProto& container(
+        policy.display_rotation_default());
+    policies->Set(
+        key::kDisplayRotationDefault,
+        POLICY_LEVEL_MANDATORY,
+        POLICY_SCOPE_MACHINE,
+        POLICY_SOURCE_CLOUD,
+        DecodeIntegerValue(container.display_rotation_default()).release(),
         nullptr);
   }
 }

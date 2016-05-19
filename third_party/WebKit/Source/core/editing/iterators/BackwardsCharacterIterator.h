@@ -43,6 +43,8 @@ public:
 
     PositionTemplate<Strategy> endPosition() const;
 
+    bool isInTextSecurityMode() const { return m_textIterator.isInTextSecurityMode(); }
+
 private:
     int m_offset;
     int m_runOffset;
@@ -52,7 +54,7 @@ private:
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT BackwardsCharacterIteratorAlgorithm<EditingStrategy>;
-extern template class CORE_EXTERN_TEMPLATE_EXPORT BackwardsCharacterIteratorAlgorithm<EditingInComposedTreeStrategy>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT BackwardsCharacterIteratorAlgorithm<EditingInFlatTreeStrategy>;
 
 using BackwardsCharacterIterator = BackwardsCharacterIteratorAlgorithm<EditingStrategy>;
 

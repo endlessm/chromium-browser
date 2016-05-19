@@ -13,6 +13,7 @@
 #include "base/sys_info.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/version.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 
@@ -39,7 +40,7 @@ namespace {
 const base::FilePath::CharType kPepperFlashBaseDirectory[] =
     FILE_PATH_LITERAL("PepperFlash");
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
 const base::FilePath::CharType kPepperFlashSystemBaseDirectory[] =
     FILE_PATH_LITERAL("Internet Plug-Ins/PepperFlashPlayer");
 const base::FilePath::CharType kFlashSystemBaseDirectory[] =
@@ -72,7 +73,7 @@ static base::LazyInstance<base::FilePath>
 
 // Gets the path for internal plugins.
 bool GetInternalPluginsDirectory(base::FilePath* result) {
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   // If called from Chrome, get internal plugins from a subdirectory of the
   // framework.
   if (base::mac::AmIBundled()) {
@@ -207,10 +208,12 @@ bool PathProvider(int key, base::FilePath* result) {
       // directory.  This avoids the problem of having to re-initialize the
       // exception handler after parsing command line options, which may
       // override the location of the app's profile directory.
+      // TODO(scottmg): Consider supporting --user-data-dir. See
+      // https://crbug.com/565446.
       if (!GetDefaultUserDataDirectory(&cur))
         return false;
 #endif
-#if defined(OS_MACOSX)
+#if defined(OS_MACOSX) || defined(OS_WIN)
       cur = cur.Append(FILE_PATH_LITERAL("Crashpad"));
 #else
       cur = cur.Append(FILE_PATH_LITERAL("Crash Reports"));
@@ -275,7 +278,7 @@ bool PathProvider(int key, base::FilePath* result) {
 #if defined(OS_WIN)
       if (!GetSystemFlashFilename(&cur, false))
         return false;
-#elif defined(OS_MACOSX) && !defined(OS_IOS)
+#elif defined(OS_MACOSX)
       if (!GetLocalLibraryDirectory(&cur))
         return false;
       cur = cur.Append(kPepperFlashSystemBaseDirectory);
@@ -290,7 +293,7 @@ bool PathProvider(int key, base::FilePath* result) {
 #if defined(OS_WIN)
       if (!GetSystemFlashFilename(&cur, true))
         return false;
-#elif defined(OS_MACOSX) && !defined(OS_IOS)
+#elif defined(OS_MACOSX)
       if (!GetLocalLibraryDirectory(&cur))
         return false;
       cur = cur.Append(kFlashSystemBaseDirectory);
@@ -377,7 +380,7 @@ bool PathProvider(int key, base::FilePath* result) {
       break;
 #endif  // defined(WIDEVINE_CDM_AVAILABLE) && defined(ENABLE_PEPPER_CDMS)
     case chrome::FILE_RESOURCES_PACK:
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
       if (base::mac::AmIBundled()) {
         cur = base::mac::FrameworkBundlePath();
         cur = cur.Append(FILE_PATH_LITERAL("Resources"))
@@ -477,7 +480,7 @@ bool PathProvider(int key, base::FilePath* result) {
       break;
     }
 #endif
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
     case chrome::DIR_USER_LIBRARY: {
       if (!GetUserLibraryDirectory(&cur))
         return false;
@@ -494,7 +497,7 @@ bool PathProvider(int key, base::FilePath* result) {
     }
 #endif
 #if defined(OS_CHROMEOS) || (defined(OS_LINUX) && defined(CHROMIUM_BUILD)) || \
-    (defined(OS_MACOSX) && !defined(OS_IOS))
+    defined(OS_MACOSX)
     case chrome::DIR_USER_EXTERNAL_EXTENSIONS: {
       if (!PathService::Get(chrome::DIR_USER_DATA, &cur))
         return false;
@@ -509,7 +512,7 @@ bool PathProvider(int key, base::FilePath* result) {
     }
 #endif
     case chrome::DIR_EXTERNAL_EXTENSIONS:
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
       if (!chrome::GetGlobalApplicationSupportDirectory(&cur))
         return false;
 
@@ -537,7 +540,7 @@ bool PathProvider(int key, base::FilePath* result) {
 #endif
       break;
 
-#if defined(OS_LINUX) || (defined(OS_MACOSX) && !defined(OS_IOS))
+#if defined(OS_LINUX) || defined(OS_MACOSX)
     case chrome::DIR_NATIVE_MESSAGING:
 #if defined(OS_MACOSX)
 #if defined(GOOGLE_CHROME_BUILD)
@@ -563,7 +566,7 @@ bool PathProvider(int key, base::FilePath* result) {
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("NativeMessagingHosts"));
       break;
-#endif  // defined(OS_LINUX) || (defined(OS_MACOSX) && !defined(OS_IOS))
+#endif  // defined(OS_LINUX) || defined(OS_MACOSX)
 #if !defined(OS_ANDROID)
     case chrome::DIR_GLOBAL_GCM_STORE:
       if (!PathService::Get(chrome::DIR_USER_DATA, &cur))

@@ -61,7 +61,7 @@ public:
     bool hasPosition() const { return m_positionType == PositionType::Position; }
 
     // Page point in "absolute" coordinates (i.e. post-zoomed, page-relative coords,
-    // usable with LayoutObject::absoluteToLocal).
+    // usable with LayoutObject::absoluteToLocal) relative to view(), i.e. the local frame.
     const LayoutPoint& absoluteLocation() const { return m_absoluteLocation; }
     void setAbsoluteLocation(const LayoutPoint& p) { m_absoluteLocation = p; }
 
@@ -73,7 +73,8 @@ protected:
     // sourceCapabilities even when it is null, see https://crbug.com/476530.
     MouseRelatedEvent(const AtomicString& type, bool canBubble, bool cancelable,
         PassRefPtrWillBeRawPtr<AbstractView>, int detail, const IntPoint& screenLocation,
-        const IntPoint& rootFrameLocation, const IntPoint& movementDelta, PlatformEvent::Modifiers, PositionType, InputDeviceCapabilities* sourceCapabilities = nullptr);
+        const IntPoint& rootFrameLocation, const IntPoint& movementDelta, PlatformEvent::Modifiers,
+        double platformTimeStamp, PositionType, InputDeviceCapabilities* sourceCapabilities = nullptr);
 
     MouseRelatedEvent(const AtomicString& type, const MouseEventInit& initializer);
 

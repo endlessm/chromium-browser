@@ -5,6 +5,8 @@
 #ifndef SYNC_API_SYNC_MERGE_RESULT_H_
 #define SYNC_API_SYNC_MERGE_RESULT_H_
 
+#include <stdint.h>
+
 #include "sync/api/sync_error.h"
 #include "sync/base/sync_export.h"
 #include "sync/internal_api/public/base/model_type.h"
@@ -22,6 +24,7 @@ class SYNC_EXPORT SyncMergeResult {
  public:
   // Initialize an empty merge result for model type |type|.
   explicit SyncMergeResult(ModelType type);
+  SyncMergeResult(const SyncMergeResult& other);
   ~SyncMergeResult();
 
   // Default copy and assign welcome.
@@ -34,7 +37,7 @@ class SYNC_EXPORT SyncMergeResult {
   void set_num_items_added(int num_items_added);
   void set_num_items_deleted(int num_items_deleted);
   void set_num_items_modified(int num_items_modified);
-  void set_pre_association_version(int64 version);
+  void set_pre_association_version(int64_t version);
 
   // Getters.
   ModelType model_type() const;
@@ -44,7 +47,7 @@ class SYNC_EXPORT SyncMergeResult {
   int num_items_added() const;
   int num_items_deleted() const;
   int num_items_modified() const;
-  int64 pre_association_version() const;
+  int64_t pre_association_version() const;
 
  private:
   // Make |this| into a copy of |other|.
@@ -70,7 +73,7 @@ class SYNC_EXPORT SyncMergeResult {
   int num_items_modified_;
 
   // Version of model before association.
-  int64 pre_association_version_;
+  int64_t pre_association_version_;
 };
 
 }  // namespace syncer

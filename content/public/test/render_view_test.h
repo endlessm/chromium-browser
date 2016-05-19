@@ -5,22 +5,25 @@
 #ifndef CONTENT_PUBLIC_TEST_RENDER_VIEW_TEST_H_
 #define CONTENT_PUBLIC_TEST_RENDER_VIEW_TEST_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
+#include "base/test/test_io_thread.h"
+#include "build/build_config.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/common/page_state.h"
 #include "content/public/test/mock_render_thread.h"
+#include "mojo/edk/test/scoped_ipc_support.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/public/platform/Platform.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
 #include "third_party/WebKit/public/web/WebLeakDetector.h"
-
-struct ViewMsg_Resize_Params;
 
 namespace blink {
 class WebInputElement;
@@ -43,23 +46,24 @@ class FakeCompositorDependencies;
 class MockRenderProcess;
 class PageState;
 class RendererMainPlatformDelegate;
-class RendererBlinkPlatformImplNoSandboxImpl;
+class RendererBlinkPlatformImplTestOverrideImpl;
 class RenderView;
+struct ResizeParams;
 
 class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
  public:
-  // A special BlinkPlatformImpl class for getting rid off the dependency to the
-  // sandbox, which is not available in RenderViewTest.
-  class RendererBlinkPlatformImplNoSandbox {
+  // A special BlinkPlatformImpl class with overrides that are useful for
+  // RenderViewTest.
+  class RendererBlinkPlatformImplTestOverride {
    public:
-    RendererBlinkPlatformImplNoSandbox();
-    ~RendererBlinkPlatformImplNoSandbox();
+    RendererBlinkPlatformImplTestOverride();
+    ~RendererBlinkPlatformImplTestOverride();
     blink::Platform* Get() const;
     void Shutdown();
 
    private:
     scoped_ptr<scheduler::RendererScheduler> renderer_scheduler_;
-    scoped_ptr<RendererBlinkPlatformImplNoSandboxImpl> blink_platform_impl_;
+    scoped_ptr<RendererBlinkPlatformImplTestOverrideImpl> blink_platform_impl_;
   };
 
   RenderViewTest();
@@ -83,9 +87,15 @@ class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
   bool ExecuteJavaScriptAndReturnIntValue(const base::string16& script,
                                           int* result);
 
-  // Loads the given HTML into the main frame as a data: URL and blocks until
-  // the navigation is committed.
+  // Loads |html| into the main frame as a data: URL and blocks until the
+  // navigation is committed.
   void LoadHTML(const char* html);
+
+  // Pretends to load |url| into the main frame, but substitutes |html| for the
+  // response body (and does not include any response headers). This can be used
+  // instead of LoadHTML for tests that cannot use a data: url (for example if
+  // document.location needs to be set to something specific.)
+  void LoadHTMLWithUrlOverride(const char* html, const char* url);
 
   // Returns the current PageState.
   // In OOPIF enabled modes, this returns a PageState object for the main frame.
@@ -135,7 +145,7 @@ class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
   void Reload(const GURL& url);
 
   // Returns the IPC message ID of the navigation message.
-  uint32 GetNavigationIPCType();
+  uint32_t GetNavigationIPCType();
 
   // Resize the view.
   void Resize(gfx::Size new_size,
@@ -167,7 +177,7 @@ class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
   virtual ContentRendererClient* CreateContentRendererClient();
 
   // Allows a subclass to customize the initial size of the RenderView.
-  virtual scoped_ptr<ViewMsg_Resize_Params> InitialSizeParams();
+  virtual scoped_ptr<ResizeParams> InitialSizeParams();
 
   // testing::Test
   void SetUp() override;
@@ -183,7 +193,7 @@ class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
   // We use a naked pointer because we don't want to expose RenderViewImpl in
   // the embedder's namespace.
   RenderView* view_;
-  RendererBlinkPlatformImplNoSandbox blink_platform_impl_;
+  RendererBlinkPlatformImplTestOverride blink_platform_impl_;
   scoped_ptr<ContentClient> content_client_;
   scoped_ptr<ContentBrowserClient> content_browser_client_;
   scoped_ptr<ContentRendererClient> content_renderer_client_;
@@ -193,6 +203,10 @@ class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
   scoped_ptr<RendererMainPlatformDelegate> platform_;
   scoped_ptr<MainFunctionParams> params_;
   scoped_ptr<base::CommandLine> command_line_;
+
+  // For Mojo.
+  scoped_ptr<base::TestIOThread> test_io_thread_;
+  scoped_ptr<mojo::edk::test::ScopedIPCSupport> ipc_support_;
 
 #if defined(OS_MACOSX)
   scoped_ptr<base::mac::ScopedNSAutoreleasePool> autorelease_pool_;

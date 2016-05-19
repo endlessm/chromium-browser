@@ -34,6 +34,7 @@ bool EntrySortByTimeAscending(const EntrySortData& entry1,
 
 HistoryData::Data::Data() {
 }
+HistoryData::Data::Data(const Data& other) = default;
 HistoryData::Data::~Data() {
 }
 
@@ -129,7 +130,7 @@ scoped_ptr<KnownResults> HistoryData::GetKnownResults(
     }
   }
 
-  return results.Pass();
+  return results;
 }
 
 void HistoryData::AddObserver(HistoryDataObserver* observer) {

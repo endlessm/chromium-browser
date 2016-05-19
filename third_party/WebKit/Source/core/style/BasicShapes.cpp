@@ -27,7 +27,6 @@
  * SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/style/BasicShapes.h"
 
 #include "core/css/BasicShapeFunctions.h"
@@ -284,4 +283,4 @@ bool BasicShapeInset::operator==(const BasicShape& o) const
         && m_bottomLeftRadius == other.m_bottomLeftRadius;
 }
 
-}
+} // namespace blink

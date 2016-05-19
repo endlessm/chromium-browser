@@ -7,28 +7,30 @@
 #include "base/command_line.h"
 #include "base/deferred_sequenced_task_runner.h"
 #include "base/memory/singleton.h"
-#include "base/prefs/pref_service.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/bookmarks/chrome_bookmark_client.h"
-#include "chrome/browser/bookmarks/chrome_bookmark_client_factory.h"
+#include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #include "chrome/browser/bookmarks/startup_task_runner_service_factory.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/browser/startup_task_runner_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/prefs/pref_service.h"
 #include "components/undo/bookmark_undo_service.h"
 #include "content/public/browser/browser_thread.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/android/offline_pages/offline_page_model_factory.h"
 #include "components/offline_pages/offline_page_feature.h"
 #include "components/offline_pages/offline_page_model.h"
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 using bookmarks::BookmarkModel;
 
@@ -54,9 +56,9 @@ BookmarkModelFactory::BookmarkModelFactory()
         "BookmarkModel",
         BrowserContextDependencyManager::GetInstance()) {
   DependsOn(BookmarkUndoServiceFactory::GetInstance());
-  DependsOn(ChromeBookmarkClientFactory::GetInstance());
+  DependsOn(ManagedBookmarkServiceFactory::GetInstance());
   DependsOn(StartupTaskRunnerServiceFactory::GetInstance());
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   if (offline_pages::IsOfflinePagesEnabled())
     DependsOn(offline_pages::OfflinePageModelFactory::GetInstance());
 #endif
@@ -68,10 +70,9 @@ BookmarkModelFactory::~BookmarkModelFactory() {
 KeyedService* BookmarkModelFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   Profile* profile = Profile::FromBrowserContext(context);
-  ChromeBookmarkClient* bookmark_client =
-      ChromeBookmarkClientFactory::GetForProfile(profile);
-  BookmarkModel* bookmark_model = new BookmarkModel(bookmark_client);
-  bookmark_client->Init(bookmark_model);
+  BookmarkModel* bookmark_model =
+      new BookmarkModel(make_scoped_ptr(new ChromeBookmarkClient(
+          profile, ManagedBookmarkServiceFactory::GetForProfile(profile))));
   bookmark_model->Load(profile->GetPrefs(),
                        profile->GetPrefs()->GetString(prefs::kAcceptLanguages),
                        profile->GetPath(),
@@ -80,20 +81,20 @@ KeyedService* BookmarkModelFactory::BuildServiceInstanceFor(
                        content::BrowserThread::GetMessageLoopProxyForThread(
                            content::BrowserThread::UI));
   bool register_bookmark_undo_service_as_observer = true;
-#if !defined(OS_IOS) && !defined(OS_ANDROID)
+#if !BUILDFLAG(ANDROID_JAVA_UI)
   register_bookmark_undo_service_as_observer =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableBookmarkUndo);
-#endif  // !defined(OS_IOS) && !defined(OS_ANDROID)
+#endif  // !BUILDFLAG(ANDROID_JAVA_UI)
   if (register_bookmark_undo_service_as_observer)
     BookmarkUndoServiceFactory::GetForProfile(profile)->Start(bookmark_model);
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   if (offline_pages::IsOfflinePagesEnabled()) {
     offline_pages::OfflinePageModelFactory::GetForBrowserContext(profile)->
         Start(bookmark_model);
   }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
   return bookmark_model;
 }

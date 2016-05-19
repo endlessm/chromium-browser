@@ -5,6 +5,7 @@
 #ifndef GPU_COMMAND_BUFFER_CLIENT_GPU_CONTROL_H_
 #define GPU_COMMAND_BUFFER_CLIENT_GPU_CONTROL_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <vector>
@@ -12,6 +13,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "gpu/command_buffer/common/capabilities.h"
+#include "gpu/command_buffer/common/command_buffer_id.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/gpu_export.h"
@@ -54,32 +56,9 @@ class GPU_EXPORT GpuControl {
                                              unsigned internalformat,
                                              unsigned usage) = 0;
 
-  // Inserts a sync point, returning its ID. Sync point IDs are global and can
-  // be used for cross-context synchronization.
-  virtual uint32_t InsertSyncPoint() = 0;
-
-  // Inserts a future sync point, returning its ID. Sync point IDs are global
-  // and can be used for cross-context synchronization. The sync point won't be
-  // retired immediately.
-  virtual uint32_t InsertFutureSyncPoint() = 0;
-
-  // Retires a future sync point. This will signal contexts that are waiting
-  // on it to start executing.
-  virtual void RetireSyncPoint(uint32_t sync_point) = 0;
-
-  // Runs |callback| when a sync point is reached.
-  virtual void SignalSyncPoint(uint32_t sync_point,
-                               const base::Closure& callback) = 0;
-
   // Runs |callback| when a query created via glCreateQueryEXT() has cleared
   // passed the glEndQueryEXT() point.
   virtual void SignalQuery(uint32_t query, const base::Closure& callback) = 0;
-
-  virtual void SetSurfaceVisible(bool visible) = 0;
-
-  // Attaches an external stream to the texture given by |texture_id| and
-  // returns a stream identifier.
-  virtual uint32_t CreateStreamTexture(uint32_t texture_id) = 0;
 
   // Sets a lock this will be held on every callback from the GPU
   // implementation. This lock must be set and must be held on every call into
@@ -91,11 +70,22 @@ class GPU_EXPORT GpuControl {
   // should be considered as lost.
   virtual bool IsGpuChannelLost() = 0;
 
+  // When this function returns it ensures all previously flushed work is
+  // visible by the service. This command does this by sending a synchronous
+  // IPC. Note just because the work is visible to the server does not mean
+  // that it has been processed. This is only relevant for out of process
+  // services and will be treated as a NOP for in process command buffers.
+  virtual void EnsureWorkVisible() = 0;
+
   // The namespace and command buffer ID forms a unique pair for all existing
   // GpuControl (on client) and matches for the corresponding command buffer
-  // (on server) in a single server process.
+  // (on server) in a single server process. The extra command buffer data can
+  // be used for extra identification purposes. One usage is to store some
+  // extra field to identify unverified sync tokens for the implementation of
+  // the CanWaitUnverifiedSyncToken() function.
   virtual CommandBufferNamespace GetNamespaceID() const = 0;
-  virtual uint64_t GetCommandBufferID() const = 0;
+  virtual CommandBufferId GetCommandBufferID() const = 0;
+  virtual int32_t GetExtraCommandBufferData() const = 0;
 
   // Fence Syncs use release counters at a context level, these fence syncs
   // need to be flushed before they can be shared with other contexts across

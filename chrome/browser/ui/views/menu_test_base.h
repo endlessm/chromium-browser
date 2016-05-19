@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_MENU_TEST_BASE_H_
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/test/base/view_event_test_base.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -72,8 +73,9 @@ class MenuTestBase : public ViewEventTestBase,
   gfx::Size GetPreferredSize() const override;
 
   // views::MenuButtonListener implementation
-  void OnMenuButtonClicked(views::View* source,
-                           const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
   // views::MenuDelegate implementation
   void ExecuteCommand(int id) override;

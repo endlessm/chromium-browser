@@ -53,8 +53,10 @@
         value: function() {
           return {
             'entry': {
-              name: 'slide-down-animation',
+              name: 'transform-animation',
               node: this,
+              transformFrom: 'translateY(-100%)',
+              transformTo: 'translateY(0%)',
               timing: {
                 easing: 'cubic-bezier(0, 0, 0.2, 1)',
                 duration: 250
@@ -78,7 +80,7 @@
     },
 
     _onAnimationFinished: function() {
-        this.style.transform = this.opened ? 'none' : 'translateY(-100%)';
+      this.style.transform = this.opened ? 'none' : 'translateY(-100%)';
     },
 
     loadProgressChanged: function() {
@@ -127,15 +129,11 @@
       this.$.bookmarks.lowerBound = lowerBound;
     },
 
-    rotateLeft: function() {
-      this.fire('rotate-left');
-    },
-
     rotateRight: function() {
       this.fire('rotate-right');
     },
 
-    save: function() {
+    download: function() {
       this.fire('save');
     },
 

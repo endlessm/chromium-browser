@@ -4,6 +4,8 @@
 
 #include "chrome/browser/file_select_helper.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <utility>
 
@@ -13,6 +15,8 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/worker_pool.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -153,14 +157,14 @@ void FileSelectHelper::FileSelectedWithExtraInfo(
   std::vector<ui::SelectedFileInfo> files;
   files.push_back(file);
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   content::BrowserThread::PostTask(
       content::BrowserThread::FILE_USER_BLOCKING,
       FROM_HERE,
       base::Bind(&FileSelectHelper::ProcessSelectedFilesMac, this, files));
 #else
   NotifyRenderViewHostAndEnd(files);
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
+#endif  // defined(OS_MACOSX)
 }
 
 void FileSelectHelper::MultiFilesSelected(
@@ -178,14 +182,14 @@ void FileSelectHelper::MultiFilesSelectedWithExtraInfo(
   if (!files.empty() && IsValidProfile(profile_))
     profile_->set_last_selected_directory(files[0].file_path.DirName());
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   content::BrowserThread::PostTask(
       content::BrowserThread::FILE_USER_BLOCKING,
       FROM_HERE,
       base::Bind(&FileSelectHelper::ProcessSelectedFilesMac, this, files));
 #else
   NotifyRenderViewHostAndEnd(files);
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
+#endif  // defined(OS_MACOSX)
 }
 
 void FileSelectHelper::FileSelectionCanceled(void* params) {
@@ -200,7 +204,7 @@ void FileSelectHelper::StartNewEnumeration(const base::FilePath& path,
   entry->delegate_.reset(new DirectoryListerDispatchDelegate(this, request_id));
   entry->lister_.reset(new net::DirectoryLister(
       path, net::DirectoryLister::NO_SORT_RECURSIVE, entry->delegate_.get()));
-  if (!entry->lister_->Start()) {
+  if (!entry->lister_->Start(base::WorkerPool::GetTaskRunner(true).get())) {
     if (request_id == kFileSelectEnumerationId)
       FileSelectionCanceled(NULL);
     else
@@ -318,7 +322,7 @@ FileSelectHelper::GetFileTypesFromAcceptType(
   scoped_ptr<ui::SelectFileDialog::FileTypeInfo> base_file_type(
       new ui::SelectFileDialog::FileTypeInfo());
   if (accept_types.empty())
-    return base_file_type.Pass();
+    return base_file_type;
 
   // Create FileTypeInfo and pre-allocate for the first extension list.
   scoped_ptr<ui::SelectFileDialog::FileTypeInfo> file_type(
@@ -359,7 +363,7 @@ FileSelectHelper::GetFileTypesFromAcceptType(
 
   // If no valid extension is added, bail out.
   if (valid_type_count == 0)
-    return base_file_type.Pass();
+    return base_file_type;
 
   // Use a generic description "Custom Files" if either of the following is
   // true:
@@ -377,7 +381,7 @@ FileSelectHelper::GetFileTypesFromAcceptType(
         l10n_util::GetStringUTF16(description_id));
   }
 
-  return file_type.Pass();
+  return file_type;
 }
 
 // static
@@ -440,7 +444,9 @@ void FileSelectHelper::RunFileChooser(RenderViewHost* render_view_host,
 void FileSelectHelper::GetFileTypesOnFileThread(
     scoped_ptr<FileChooserParams> params) {
   select_file_types_ = GetFileTypesFromAcceptType(params->accept_types);
-  select_file_types_->support_drive = !params->need_local_path;
+  select_file_types_->allowed_paths =
+      params->need_local_path ? ui::SelectFileDialog::FileTypeInfo::NATIVE_PATH
+                              : ui::SelectFileDialog::FileTypeInfo::ANY_PATH;
 
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
@@ -454,20 +460,28 @@ void FileSelectHelper::GetSanitizedFilenameOnUIThread(
       GetSanitizedFileName(params->default_file_name));
 
 #if defined(FULL_SAFE_BROWSING)
+  std::vector<base::FilePath::StringType> alternate_extensions;
+  if (select_file_types_) {
+    for (const auto& extensions : select_file_types_->extensions) {
+      alternate_extensions.insert(alternate_extensions.end(),
+                                  extensions.begin(), extensions.end());
+    }
+  }
+
   // Note that FileChooserParams::requestor is not considered a trusted field
   // since it's provided by the renderer and not validated browserside.
   if (params->mode == FileChooserParams::Save &&
-      !params->default_file_name.empty()) {
+      (!params->default_file_name.empty() || !alternate_extensions.empty())) {
     GURL requestor = params->requestor;
     safe_browsing::CheckUnverifiedDownloadPolicy(
-        requestor, default_file_path,
+        requestor, default_file_path, alternate_extensions,
         base::Bind(&FileSelectHelper::ApplyUnverifiedDownloadPolicy, this,
                    default_file_path, base::Passed(&params)));
     return;
   }
 #endif
 
-  RunFileChooserOnUIThread(default_file_path, params.Pass());
+  RunFileChooserOnUIThread(default_file_path, std::move(params));
 }
 
 #if defined(FULL_SAFE_BROWSING)
@@ -481,7 +495,7 @@ void FileSelectHelper::ApplyUnverifiedDownloadPolicy(
     return;
   }
 
-  RunFileChooserOnUIThread(default_path, params.Pass());
+  RunFileChooserOnUIThread(default_path, std::move(params));
 }
 #endif
 
@@ -489,7 +503,8 @@ void FileSelectHelper::RunFileChooserOnUIThread(
     const base::FilePath& default_file_path,
     scoped_ptr<FileChooserParams> params) {
   DCHECK(params);
-  if (!render_view_host_ || !web_contents_ || !IsValidProfile(profile_)) {
+  if (!render_view_host_ || !web_contents_ || !IsValidProfile(profile_) ||
+      !render_view_host_->GetWidget()->GetView()) {
     // If the renderer was destroyed before we started, just cancel the
     // operation.
     RunFileChooserEnd();

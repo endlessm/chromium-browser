@@ -4,10 +4,13 @@
 
 #include "ui/ozone/platform/egltest/ozone_platform_egltest.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/threading/thread_checker.h"
 #include "library_loaders/libeglplatform_shim.h"
@@ -60,15 +63,10 @@ void ScaleTouchEvent(TouchEvent* event, const gfx::SizeF& size) {
        DeviceDataManager::GetInstance()->touchscreen_devices()) {
     if (device.id == event->source_device_id()) {
       gfx::SizeF touchscreen_size = gfx::SizeF(device.size);
-      gfx::PointF location = event->location_f();
-
-      location.Scale(size.width() / touchscreen_size.width(),
-                     size.height() / touchscreen_size.height());
-      double ratio = std::sqrt(size.GetArea() / touchscreen_size.GetArea());
-
-      event->set_location_f(location);
-      event->set_radius_x(event->pointer_details().radius_x() * ratio);
-      event->set_radius_y(event->pointer_details().radius_y() * ratio);
+      gfx::Transform transform;
+      transform.Scale(size.width() / touchscreen_size.width(),
+                      size.height() / touchscreen_size.height());
+      event->UpdateForRootTransform(transform);
       return;
     }
   }
@@ -238,6 +236,18 @@ class SurfaceOzoneEgltest : public SurfaceOzoneEGL {
     return nullptr;
   }
 
+  void* /* EGLConfig */ GetEGLSurfaceConfig(
+      const EglConfigCallbacks& egl) override {
+    EGLint broken_props[] = {
+        EGL_RENDERABLE_TYPE,
+        EGL_OPENGL_ES2_BIT,
+        EGL_SURFACE_TYPE,
+        EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+        EGL_NONE,
+    };
+    return ChooseEGLConfig(egl, broken_props);
+  }
+
  private:
   LibeglplatformShimLoader* eglplatform_shim_;
   intptr_t native_window_;
@@ -260,7 +270,6 @@ class SurfaceFactoryEgltest : public ui::SurfaceFactoryOzone {
   intptr_t GetNativeDisplay() override;
   scoped_ptr<SurfaceOzoneEGL> CreateEGLSurfaceForWidget(
       gfx::AcceleratedWidget widget) override;
-  const int32* GetEGLSurfaceProperties(const int32* desired_list) override;
   bool LoadEGLGLES2Bindings(
       AddGLLibraryCallback add_gl_library,
       SetGLGetProcAddressProcCallback set_gl_get_proc_address) override;
@@ -296,19 +305,6 @@ bool SurfaceFactoryEgltest::LoadEGLGLES2Bindings(
 
   return ::ui::LoadEGLGLES2Bindings(add_gl_library, set_gl_get_proc_address,
                                     egl_soname, gles_soname);
-}
-
-const int32* SurfaceFactoryEgltest::GetEGLSurfaceProperties(
-    const int32* desired_list) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  static const int32 broken_props[] = {
-      EGL_RENDERABLE_TYPE,
-      EGL_OPENGL_ES2_BIT,
-      EGL_SURFACE_TYPE,
-      EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
-      EGL_NONE,
-  };
-  return broken_props;
 }
 
 // Test platform for EGL.

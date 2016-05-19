@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/threading/thread_checker.h"
@@ -154,7 +155,7 @@ class InputMethodUtil {
   void AppendInputMethods(const InputMethodDescriptors& imes);
 
   // Initializes the extension based xkb IMEs for testing.
-  void InitXkbInputMethodsForTesting();
+  void InitXkbInputMethodsForTesting(const InputMethodDescriptors& imes);
 
   // Map from input method ID to associated input method descriptor.
   typedef std::map<

@@ -25,7 +25,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/xml/XPathPath.h"
 
 #include "core/dom/Document.h"
@@ -112,7 +111,7 @@ Value LocationPath::evaluate(EvaluationContext& evaluationContext) const
     // This is for compatibility with Firefox, and also seems like a more
     // logical treatment of where you would expect the "root" to be.
     Node* context = evaluationContext.node.get();
-    if (m_absolute && context->nodeType() != Node::DOCUMENT_NODE)  {
+    if (m_absolute && context->getNodeType() != Node::DOCUMENT_NODE)  {
         if (context->inDocument())
             context = context->ownerDocument();
         else

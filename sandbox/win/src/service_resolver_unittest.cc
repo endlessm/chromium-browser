@@ -4,7 +4,10 @@
 
 // This file contains unit tests for ServiceResolverThunk.
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
+#include "base/bit_cast.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/win/windows_version.h"
 #include "sandbox/win/src/resolver.h"

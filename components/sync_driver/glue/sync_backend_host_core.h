@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_SYNC_DRIVER_GLUE_SYNC_BACKEND_HOST_CORE_H_
 #define COMPONENTS_SYNC_DRIVER_GLUE_SYNC_BACKEND_HOST_CORE_H_
 
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/timer/timer.h"
@@ -45,7 +47,7 @@ struct DoInitializeOptions {
       const base::Closure& report_unrecoverable_error_function,
       scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state,
       syncer::PassphraseTransitionClearDataOption clear_data_option,
-      const std::map<syncer::ModelType, int64>& invalidation_versions);
+      const std::map<syncer::ModelType, int64_t>& invalidation_versions);
   ~DoInitializeOptions();
 
   base::MessageLoop* sync_loop;
@@ -71,13 +73,14 @@ struct DoInitializeOptions {
   base::Closure report_unrecoverable_error_function;
   scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state;
   const syncer::PassphraseTransitionClearDataOption clear_data_option;
-  const std::map<syncer::ModelType, int64> invalidation_versions;
+  const std::map<syncer::ModelType, int64_t> invalidation_versions;
 };
 
 // Helper struct to handle currying params to
 // SyncBackendHost::Core::DoConfigureSyncer.
 struct DoConfigureSyncerTypes {
   DoConfigureSyncerTypes();
+  DoConfigureSyncerTypes(const DoConfigureSyncerTypes& other);
   ~DoConfigureSyncerTypes();
   syncer::ModelTypeSet to_download;
   syncer::ModelTypeSet to_purge;
@@ -306,7 +309,7 @@ class SyncBackendHostCore
   syncer::CancelationSignal release_request_context_signal_;
   syncer::CancelationSignal stop_syncing_signal_;
 
-  // Matches the value of SyncPref's HasSyncSetupCompleted() flag at init time.
+  // Matches the value of SyncPref's IsFirstSetupComplete() flag at init time.
   // Should not be used for anything except for UMAs and logging.
   const bool has_sync_setup_completed_;
 
@@ -320,7 +323,7 @@ class SyncBackendHostCore
   // received invalidation version for each type.
   // This allows dropping any invalidations with versions older than those
   // most recently received for that data type.
-  std::map<syncer::ModelType, int64> last_invalidation_versions_;
+  std::map<syncer::ModelType, int64_t> last_invalidation_versions_;
 
   base::WeakPtrFactory<SyncBackendHostCore> weak_ptr_factory_;
 

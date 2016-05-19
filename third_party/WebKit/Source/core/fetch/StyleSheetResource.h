@@ -40,13 +40,13 @@ class StyleSheetResourceClient;
 
 class CORE_EXPORT StyleSheetResource : public TextResource {
 public:
-    typedef StyleSheetResourceClient ClientType;
+    using ClientType = StyleSheetResourceClient;
 
     StyleSheetResource(const ResourceRequest& request, Type type, const String& mimeType, const String& charset)
         : TextResource(request, type, mimeType, charset)
     { }
 };
 
-}
+} // namespace blink
 
 #endif

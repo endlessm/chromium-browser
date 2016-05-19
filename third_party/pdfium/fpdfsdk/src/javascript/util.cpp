@@ -4,17 +4,20 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "util.h"
+#include "fpdfsdk/src/javascript/util.h"
 
-#include "../../include/javascript/IJavaScript.h"
-#include "JS_Context.h"
-#include "JS_Define.h"
-#include "JS_EventHandler.h"
-#include "JS_Object.h"
-#include "JS_Runtime.h"
-#include "JS_Value.h"
-#include "PublicMethods.h"
-#include "resource.h"
+#include <time.h>
+
+#include "core/include/fxcrt/fx_ext.h"
+#include "fpdfsdk/include/javascript/IJavaScript.h"
+#include "fpdfsdk/src/javascript/JS_Context.h"
+#include "fpdfsdk/src/javascript/JS_Define.h"
+#include "fpdfsdk/src/javascript/JS_EventHandler.h"
+#include "fpdfsdk/src/javascript/JS_Object.h"
+#include "fpdfsdk/src/javascript/JS_Runtime.h"
+#include "fpdfsdk/src/javascript/JS_Value.h"
+#include "fpdfsdk/src/javascript/PublicMethods.h"
+#include "fpdfsdk/src/javascript/resource.h"
 
 #if _FX_OS_ == _FX_ANDROID_
 #include <ctype.h>
@@ -50,23 +53,23 @@ const stru_TbConvert fcTable[] = {
     {L"mmmm", L"%B"},
     {L"mmm", L"%b"},
     {L"mm", L"%m"},
-    //"m"
+    // "m"
     {L"dddd", L"%A"},
     {L"ddd", L"%a"},
     {L"dd", L"%d"},
-    //"d",   "%w",
+    // "d",   "%w",
     {L"yyyy", L"%Y"},
     {L"yy", L"%y"},
     {L"HH", L"%H"},
-    //"H"
+    // "H"
     {L"hh", L"%I"},
-    //"h"
+    // "h"
     {L"MM", L"%M"},
-    //"M"
+    // "M"
     {L"ss", L"%S"},
-    //"s
+    // "s
     {L"TT", L"%p"},
-//"t"
+// "t"
 #if defined(_WIN32)
     {L"tt", L"%p"},
     {L"h", L"%#I"},
@@ -104,7 +107,7 @@ int util::ParstDataType(std::wstring* sFormat) {
         return UTIL_STRING;
       }
       if (c == L'.' || c == L'+' || c == L'-' || c == L'#' || c == L' ' ||
-          CJS_PublicMethods::IsDigit(c)) {
+          FXSYS_iswdigit(c)) {
         continue;
       }
       break;
@@ -425,7 +428,7 @@ void util::printx(const std::string& cFormat,
         break;
       case 'X': {
         while (itSource < iSize) {
-          if ((cSource[itSource] >= '0' && cSource[itSource] <= '9') ||
+          if (std::isdigit(cSource[itSource]) ||
               (cSource[itSource] >= 'a' && cSource[itSource] <= 'z') ||
               (cSource[itSource] >= 'A' && cSource[itSource] <= 'Z')) {
             cPurpose += cSource[itSource];
@@ -450,7 +453,7 @@ void util::printx(const std::string& cFormat,
       } break;
       case '9': {
         while (itSource < iSize) {
-          if (cSource[itSource] >= '0' && cSource[itSource] <= '9') {
+          if (std::isdigit(cSource[itSource])) {
             cPurpose += cSource[itSource];
             itSource++;
             break;
@@ -467,17 +470,13 @@ void util::printx(const std::string& cFormat,
       case '\\':
         break;
       case '>': {
-        for (std::string::iterator it = cSource.begin(); it != cSource.end();
-             it++) {
-          *it = toupper(*it);
-        }
+        for (char& c : cSource)
+          c = toupper(c);
         break;
       }
       case '<': {
-        for (std::string::iterator it = cSource.begin(); it != cSource.end();
-             it++) {
-          *it = tolower(*it);
-        }
+        for (char& c : cSource)
+          c = tolower(c);
         break;
       }
       case '=':
@@ -501,8 +500,7 @@ FX_BOOL util::scand(IJS_Context* cc,
   CFX_WideString sDate = params[1].ToCFXWideString();
   double dDate = JS_GetDateTime();
   if (sDate.GetLength() > 0) {
-    FX_BOOL bWrongFormat = FALSE;
-    dDate = CJS_PublicMethods::MakeRegularDate(sDate, sFormat, bWrongFormat);
+    dDate = CJS_PublicMethods::MakeRegularDate(sDate, sFormat, nullptr);
   }
 
   if (!JS_PortIsNan(dDate)) {
@@ -531,7 +529,7 @@ int64_t FX_atoi64(const char* nptr) {
   total = 0;
 
   while (isdigit(c)) {
-    total = 10 * total + (c - '0');  /* accumulate digit */
+    total = 10 * total + FXSYS_toDecimalDigit(c); /* accumulate digit */
     c = (int)(unsigned char)*nptr++; /* get next char */
   }
 

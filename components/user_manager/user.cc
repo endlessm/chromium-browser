@@ -4,15 +4,16 @@
 
 #include "components/user_manager/user.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
-#include "chromeos/login/user_names.h"
 #include "components/signin/core/account_id/account_id.h"
-#include "components/user_manager/user_image/default_user_images.h"
+#include "components/user_manager/user_manager.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "ui/base/resource/resource_bundle.h"
 
 namespace user_manager {
 
@@ -58,7 +59,7 @@ class RegularUser : public User {
 
 class GuestUser : public User {
  public:
-  GuestUser();
+  explicit GuestUser(const AccountId& guest_account_id);
   ~GuestUser() override;
 
   // Overridden from User:
@@ -68,7 +69,22 @@ class GuestUser : public User {
   DISALLOW_COPY_AND_ASSIGN(GuestUser);
 };
 
-class KioskAppUser : public User {
+class DeviceLocalAccountUserBase : public User {
+ public:
+  // User:
+  bool IsAffiliated() const override;
+
+ protected:
+  explicit DeviceLocalAccountUserBase(const AccountId& account_id);
+  ~DeviceLocalAccountUserBase() override;
+  // User:
+  void SetAffiliation(bool) override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(DeviceLocalAccountUserBase);
+};
+
+class KioskAppUser : public DeviceLocalAccountUserBase {
  public:
   explicit KioskAppUser(const AccountId& kiosk_app_account_id);
   ~KioskAppUser() override;
@@ -93,7 +109,7 @@ class SupervisedUser : public User {
   DISALLOW_COPY_AND_ASSIGN(SupervisedUser);
 };
 
-class PublicAccountUser : public User {
+class PublicAccountUser : public DeviceLocalAccountUserBase {
  public:
   explicit PublicAccountUser(const AccountId& account_id);
   ~PublicAccountUser() override;
@@ -123,15 +139,8 @@ const gfx::ImageSkia& User::GetImage() const {
   return user_image_.image();
 }
 
-AccountId User::GetAccountId() const {
-  if (email() == chromeos::login::kStubUser)
-    return chromeos::login::StubAccountId();
-
-  if (email() == chromeos::login::kGuestUserName)
-    return chromeos::login::GuestAccountId();
-
-  return AccountId::FromUserEmail(
-      gaia::CanonicalizeEmail(gaia::SanitizeEmail(email())));
+const AccountId& User::GetAccountId() const {
+  return account_id_;
 }
 
 void User::SetIsChild(bool is_child) {
@@ -160,7 +169,7 @@ std::string User::GetAccountName(bool use_display_email) const {
 }
 
 bool User::HasDefaultImage() const {
-  return image_index_ >= 0 && image_index_ < kDefaultImagesCount;
+  return UserManager::Get()->IsValidDefaultUserImageId(image_index_);
 }
 
 bool User::CanSyncImage() const {
@@ -187,12 +196,20 @@ bool User::is_active() const {
   return is_active_;
 }
 
+bool User::IsAffiliated() const {
+  return is_affiliated_;
+}
+
+void User::SetAffiliation(bool is_affiliated) {
+  is_affiliated_ = is_affiliated;
+}
+
 User* User::CreateRegularUser(const AccountId& account_id) {
   return new RegularUser(account_id);
 }
 
-User* User::CreateGuestUser() {
-  return new GuestUser;
+User* User::CreateGuestUser(const AccountId& guest_account_id) {
+  return new GuestUser(guest_account_id);
 }
 
 User* User::CreateKioskAppUser(const AccountId& kiosk_app_account_id) {
@@ -259,7 +276,8 @@ void RegularUser::SetIsChild(bool is_child) {
   is_child_ = is_child;
 }
 
-GuestUser::GuestUser() : User(chromeos::login::GuestAccountId()) {
+GuestUser::GuestUser(const AccountId& guest_account_id)
+    : User(guest_account_id) {
   set_display_email(std::string());
 }
 
@@ -270,8 +288,25 @@ UserType GuestUser::GetType() const {
   return user_manager::USER_TYPE_GUEST;
 }
 
+DeviceLocalAccountUserBase::DeviceLocalAccountUserBase(
+    const AccountId& account_id) : User(account_id) {
+}
+
+DeviceLocalAccountUserBase::~DeviceLocalAccountUserBase() {
+}
+
+bool DeviceLocalAccountUserBase::IsAffiliated() const {
+  return true;
+}
+
+void DeviceLocalAccountUserBase::SetAffiliation(bool) {
+  // Device local accounts are always affiliated. No affiliation modification
+  // must happen.
+  NOTREACHED();
+}
+
 KioskAppUser::KioskAppUser(const AccountId& kiosk_app_account_id)
-    : User(kiosk_app_account_id) {
+    : DeviceLocalAccountUserBase(kiosk_app_account_id) {
   set_display_email(kiosk_app_account_id.GetUserEmail());
 }
 
@@ -298,7 +333,7 @@ std::string SupervisedUser::display_email() const {
 }
 
 PublicAccountUser::PublicAccountUser(const AccountId& account_id)
-    : User(account_id) {}
+    : DeviceLocalAccountUserBase(account_id) {}
 
 PublicAccountUser::~PublicAccountUser() {
 }

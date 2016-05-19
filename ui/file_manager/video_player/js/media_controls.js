@@ -246,6 +246,17 @@ MediaControls.prototype.initPlayButton = function(opt_parent) {
 MediaControls.PROGRESS_RANGE = 5000;
 
 /**
+ * 5 seconds should be skipped when left/right key is pressed on progress bar.
+ */
+MediaControls.PROGRESS_MAX_SECONDS_TO_SKIP = 5;
+
+/**
+ * 10% of duration should be skipped when the video is too short to skip 5
+ * seconds.
+ */
+MediaControls.PROGRESS_MAX_RATIO_TO_SKIP = 0.1;
+
+/**
  * @param {HTMLElement=} opt_parent Parent container.
  */
 MediaControls.prototype.initTimeControls = function(opt_parent) {
@@ -272,6 +283,10 @@ MediaControls.prototype.initTimeControls = function(opt_parent) {
       function(event) {
         this.onProgressDrag_();
       }.bind(this));
+  this.progressSlider_.addEventListener('keydown',
+      this.onProgressKeyDownOrKeyPress_.bind(this));
+  this.progressSlider_.addEventListener('keypress',
+      this.onProgressKeyDownOrKeyPress_.bind(this));
   timeControls.appendChild(this.progressSlider_);
 };
 
@@ -325,6 +340,39 @@ MediaControls.prototype.onProgressDrag_ = function() {
 };
 
 /**
+ * Handles arrow keys on progress slider to skip forward/backword.
+ * @param {!Event} event
+ * @private
+ */
+MediaControls.prototype.onProgressKeyDownOrKeyPress_ = function(event) {
+  if (event.code !== 'ArrowRight' && event.code !== 'ArrowLeft' &&
+      event.code !== 'ArrowUp' && event.code !== 'ArrowDown') {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (this.media_ && this.media_.duration > 0) {
+    // Skip 5 seconds or 10% of duration, whichever is smaller.
+    var secondsToSkip = Math.min(
+        MediaControls.PROGRESS_MAX_SECONDS_TO_SKIP,
+        this.media_.duration * MediaControls.PROGRESS_MAX_RATIO_TO_SKIP);
+    var stepsToSkip = MediaControls.PROGRESS_RANGE *
+        (secondsToSkip / this.media_.duration);
+
+    if (event.code === 'ArrowRight' || event.code === 'ArrowUp') {
+      this.progressSlider_.value = Math.min(
+          this.progressSlider_.value + stepsToSkip,
+          this.progressSlider_.max);
+    } else {
+      this.progressSlider_.value = Math.max(
+          this.progressSlider_.value - stepsToSkip, 0);
+    }
+    this.onProgressChange_(this.progressSlider_.ratio);
+  }
+};
+
+/**
  * Handles 'seeking' state, which starts by dragging slider knob and finishes by
  * releasing it. While seeking, we pause the video when seeking starts and
  * resume the last play state when seeking ends.
@@ -369,13 +417,20 @@ MediaControls.prototype.updateTimeLabel_ = function(current, opt_duration) {
   if (isNaN(current))
     current = 0;
 
-  this.currentTime_.textContent =
-      MediaControls.formatTime_(current) + ' / ' +
-      MediaControls.formatTime_(duration);
-  // Keep the maximum space to prevent time label from moving while playing.
-  this.currentTimeSpacer_.textContent =
-      MediaControls.formatTime_(duration) + ' / ' +
-      MediaControls.formatTime_(duration);
+  if (isFinite(duration)) {
+    this.currentTime_.textContent =
+        MediaControls.formatTime_(current) + ' / ' +
+        MediaControls.formatTime_(duration);
+    // Keep the maximum space to prevent time label from moving while playing.
+    this.currentTimeSpacer_.textContent =
+        MediaControls.formatTime_(duration) + ' / ' +
+        MediaControls.formatTime_(duration);
+  } else {
+    // Media's duration can be positive infinity value when the media source is
+    // not known to be bounded yet. In such cases, we should hide duration.
+    this.currentTime_.textContent = MediaControls.formatTime_(current);
+    this.currentTimeSpacer_.textContent = MediaControls.formatTime_(current);
+  }
 };
 
 /*
@@ -896,25 +951,6 @@ VideoControls.prototype.restorePlayState = function() {
         this.media_.currentTime = position;
     }.bind(this));
   }
-};
-
-/**
- * Updates style to best fit the size of the container.
- */
-VideoControls.prototype.updateStyle = function() {
-  // We assume that the video controls element fills the parent container.
-  // This is easier than adding margins to this.container_.clientWidth.
-  var width = this.container_.parentNode.clientWidth;
-
-  var hideBelow = function(selector, limit) {
-    this.container_.querySelector(selector).style.display =
-        width < limit ? 'none' : '-webkit-box';
-  }.bind(this);
-
-  hideBelow('.time', 350);
-  hideBelow('.volume', 275);
-  hideBelow('.volume-controls', 210);
-  hideBelow('.fullscreen', 150);
 };
 
 /**

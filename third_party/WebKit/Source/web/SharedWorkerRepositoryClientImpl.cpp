@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/SharedWorkerRepositoryClientImpl.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -36,6 +35,7 @@
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/ExecutionContext.h"
 #include "core/events/Event.h"
+#include "core/frame/UseCounter.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "core/workers/SharedWorker.h"
@@ -47,6 +47,7 @@
 #include "public/web/WebFrameClient.h"
 #include "public/web/WebKit.h"
 #include "public/web/WebSharedWorker.h"
+#include "public/web/WebSharedWorkerCreationErrors.h"
 #include "public/web/WebSharedWorkerRepositoryClient.h"
 #include "web/WebLocalFrameImpl.h"
 
@@ -128,11 +129,22 @@ void SharedWorkerRepositoryClientImpl::connect(SharedWorker* worker, PassOwnPtr<
         headerType = static_cast<WebContentSecurityPolicyType>((*headers)[0].second);
     }
 
-    OwnPtr<WebSharedWorkerConnector> webWorkerConnector = adoptPtr(m_client->createSharedWorkerConnector(url, name, getId(document), header, headerType));
-    if (!webWorkerConnector) {
-        // Existing worker does not match this url, so return an error back to the caller.
-        exceptionState.throwDOMException(URLMismatchError, "The location of the SharedWorker named '" + name + "' does not exactly match the provided URL ('" + url.elidedString() + "').");
-        return;
+    WebWorkerCreationError creationError;
+    String unusedSecureContextError;
+    bool isSecureContext = worker->executionContext()->isSecureContext(unusedSecureContextError);
+    OwnPtr<WebSharedWorkerConnector> webWorkerConnector = adoptPtr(m_client->createSharedWorkerConnector(url, name, getId(document), header, headerType, isSecureContext ? WebSharedWorkerCreationContextTypeSecure : WebSharedWorkerCreationContextTypeNonsecure, &creationError));
+    if (creationError != WebWorkerCreationErrorNone) {
+        if (creationError == WebWorkerCreationErrorURLMismatch) {
+            // Existing worker does not match this url, so return an error back to the caller.
+            exceptionState.throwDOMException(URLMismatchError, "The location of the SharedWorker named '" + name + "' does not exactly match the provided URL ('" + url.elidedString() + "').");
+            return;
+        } else if (creationError == WebWorkerCreationErrorSecureContextMismatch) {
+            if (isSecureContext) {
+                UseCounter::count(document, UseCounter::NonSecureSharedWorkerAccessedFromSecureContext);
+            } else {
+                UseCounter::count(document, UseCounter::SecureSharedWorkerAccessedFromNonSecureContext);
+            }
+        }
     }
 
     // The connector object manages its own lifecycle (and the lifecycles of the two worker objects).

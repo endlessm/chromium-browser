@@ -12,7 +12,9 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/browser/accessibility/accessibility_tree_formatter.h"
+#include "content/browser/accessibility/accessibility_tree_formatter_blink.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/accessibility/dump_accessibility_browsertest_base.h"
@@ -53,12 +55,14 @@ class DumpAccessibilityTreeTest : public DumpAccessibilityTestBase {
   void AddDefaultFilters(std::vector<Filter>* filters) override {
     filters->push_back(Filter(base::ASCIIToUTF16("FOCUSABLE"), Filter::ALLOW));
     filters->push_back(Filter(base::ASCIIToUTF16("READONLY"), Filter::ALLOW));
-    filters->push_back(Filter(base::ASCIIToUTF16("name*"), Filter::ALLOW));
+    filters->push_back(Filter(base::ASCIIToUTF16("name=*"), Filter::ALLOW));
+    filters->push_back(Filter(base::ASCIIToUTF16("roleDescription=*"),
+                              Filter::ALLOW));
     filters->push_back(Filter(base::ASCIIToUTF16("*=''"), Filter::DENY));
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ContentBrowserTest::SetUpCommandLine(command_line);
+    DumpAccessibilityTestBase::SetUpCommandLine(command_line);
     // Enable <dialog>, which is used in some tests.
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableExperimentalWebPlatformFeatures);
@@ -87,13 +91,15 @@ class DumpAccessibilityTreeTest : public DumpAccessibilityTestBase {
   }
 
   std::vector<std::string> Dump() override {
+    scoped_ptr<AccessibilityTreeFormatter> formatter(
+        CreateAccessibilityTreeFormatter());
+    formatter->SetFilters(filters_);
+    base::string16 actual_contents_utf16;
     WebContentsImpl* web_contents = static_cast<WebContentsImpl*>(
         shell()->web_contents());
-    AccessibilityTreeFormatter formatter(
-        web_contents->GetRootBrowserAccessibilityManager()->GetRoot());
-    formatter.SetFilters(filters_);
-    base::string16 actual_contents_utf16;
-    formatter.FormatAccessibilityTree(&actual_contents_utf16);
+    formatter->FormatAccessibilityTree(
+        web_contents->GetRootBrowserAccessibilityManager()->GetRoot(),
+        &actual_contents_utf16);
     std::string actual_contents = base::UTF16ToUTF8(actual_contents_utf16);
     return base::SplitString(
         actual_contents, "\n",
@@ -706,8 +712,9 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityDt) {
   RunHtmlTest(FILE_PATH_LITERAL("dt.html"));
 }
 
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
 // Flaky failures: http://crbug.com/445929.
+// Mac failures: http://crbug.com/571712.
 #define MAYBE_AccessibilityContenteditableDescendants \
     DISABLED_AccessibilityContenteditableDescendants
 #else
@@ -724,8 +731,9 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
   RunHtmlTest(FILE_PATH_LITERAL("element-class-id-src-attr.html"));
 }
 
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
 // Flaky failures: http://crbug.com/445929.
+// Mac failures: http://crbug.com/571712.
 #define MAYBE_AccessibilityContenteditableDescendantsWithSelection \
     DISABLED_AccessibilityContenteditableDescendantsWithSelection
 #else
@@ -737,6 +745,21 @@ IN_PROC_BROWSER_TEST_F(
     MAYBE_AccessibilityContenteditableDescendantsWithSelection) {
   RunHtmlTest(FILE_PATH_LITERAL(
       "contenteditable-descendants-with-selection.html"));
+}
+
+#if defined(OS_ANDROID)
+// Flaky failures: http://crbug.com/445929.
+#define MAYBE_AccessibilityContenteditableWithEmbeddedContenteditables \
+    DISABLED_AccessibilityContenteditableWithEmbeddedContenteditables
+#else
+#define MAYBE_AccessibilityContenteditableWithEmbeddedContenteditables \
+    AccessibilityContenteditableWithEmbeddedContenteditables
+#endif
+IN_PROC_BROWSER_TEST_F(
+    DumpAccessibilityTreeTest,
+    MAYBE_AccessibilityContenteditableWithEmbeddedContenteditables) {
+  RunHtmlTest(
+      FILE_PATH_LITERAL("contenteditable-with-embedded-contenteditables.html"));
 }
 
 #if defined(OS_ANDROID)
@@ -805,10 +828,19 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityIframe) {
   RunHtmlTest(FILE_PATH_LITERAL("iframe.html"));
 }
 
-// Flaky. See http://crbug.com/224659.
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
-                       DISABLED_AccessibilityIframeCoordinates) {
+                       AccessibilityIframeCrossProcess) {
+  RunHtmlTest(FILE_PATH_LITERAL("iframe-cross-process.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       AccessibilityIframeCoordinates) {
   RunHtmlTest(FILE_PATH_LITERAL("iframe-coordinates.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       AccessibilityIframeCoordinatesCrossProcess) {
+  RunHtmlTest(FILE_PATH_LITERAL("iframe-coordinates-cross-process.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
@@ -818,6 +850,10 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityImg) {
   RunHtmlTest(FILE_PATH_LITERAL("img.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityImgEmptyAlt) {
+  RunHtmlTest(FILE_PATH_LITERAL("img-empty-alt.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityInputButton) {
@@ -933,7 +969,9 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityInputTel) {
   RunHtmlTest(FILE_PATH_LITERAL("input-tel.html"));
 }
 
-IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityInputText) {
+// Fails on Android GN bot, see crbug.com/569542.
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       MAYBE(AccessibilityInputText)) {
   RunHtmlTest(FILE_PATH_LITERAL("input-text.html"));
 }
 

@@ -4,6 +4,8 @@
 
 #include "net/socket/ssl_server_socket_nss.h"
 
+#include <utility>
+
 #if defined(OS_WIN)
 #include <winsock2.h>
 #endif
@@ -81,37 +83,34 @@ void EnableSSLServerSockets() {
 
 scoped_ptr<SSLServerSocket> CreateSSLServerSocket(
     scoped_ptr<StreamSocket> socket,
-    X509Certificate* cert,
-    crypto::RSAPrivateKey* key,
-    const SSLServerConfig& ssl_config) {
+    X509Certificate* certificate,
+    const crypto::RSAPrivateKey& key,
+    const SSLServerConfig& ssl_server_config) {
   DCHECK(g_nss_server_sockets_init) << "EnableSSLServerSockets() has not been"
                                     << " called yet!";
 
-  return scoped_ptr<SSLServerSocket>(
-      new SSLServerSocketNSS(socket.Pass(), cert, key, ssl_config));
+  return scoped_ptr<SSLServerSocket>(new SSLServerSocketNSS(
+      std::move(socket), certificate, key, ssl_server_config));
 }
 
 SSLServerSocketNSS::SSLServerSocketNSS(
     scoped_ptr<StreamSocket> transport_socket,
     scoped_refptr<X509Certificate> cert,
-    crypto::RSAPrivateKey* key,
-    const SSLServerConfig& ssl_config)
+    const crypto::RSAPrivateKey& key,
+    const SSLServerConfig& ssl_server_config)
     : transport_send_busy_(false),
       transport_recv_busy_(false),
       user_read_buf_len_(0),
       user_write_buf_len_(0),
       nss_fd_(NULL),
       nss_bufs_(NULL),
-      transport_socket_(transport_socket.Pass()),
-      ssl_config_(ssl_config),
+      transport_socket_(std::move(transport_socket)),
+      ssl_server_config_(ssl_server_config),
       cert_(cert),
+      key_(key.Copy()),
       next_handshake_state_(STATE_NONE),
       completed_handshake_(false) {
-  // TODO(hclam): Need a better way to clone a key.
-  std::vector<uint8> key_bytes;
-  CHECK(key->ExportPrivateKey(&key_bytes));
-  key_.reset(crypto::RSAPrivateKey::CreateFromPrivateKeyInfo(key_bytes));
-  CHECK(key_.get());
+  CHECK(key_);
 }
 
 SSLServerSocketNSS::~SSLServerSocketNSS() {
@@ -198,7 +197,7 @@ int SSLServerSocketNSS::Read(IOBuffer* buf, int buf_len,
                              const CompletionCallback& callback) {
   DCHECK(user_read_callback_.is_null());
   DCHECK(user_handshake_callback_.is_null());
-  DCHECK(!user_read_buf_.get());
+  DCHECK(!user_read_buf_);
   DCHECK(nss_bufs_);
   DCHECK(!callback.is_null());
 
@@ -221,7 +220,7 @@ int SSLServerSocketNSS::Read(IOBuffer* buf, int buf_len,
 int SSLServerSocketNSS::Write(IOBuffer* buf, int buf_len,
                               const CompletionCallback& callback) {
   DCHECK(user_write_callback_.is_null());
-  DCHECK(!user_write_buf_.get());
+  DCHECK(!user_write_buf_);
   DCHECK(nss_bufs_);
   DCHECK(!callback.is_null());
 
@@ -239,11 +238,11 @@ int SSLServerSocketNSS::Write(IOBuffer* buf, int buf_len,
   return rv;
 }
 
-int SSLServerSocketNSS::SetReceiveBufferSize(int32 size) {
+int SSLServerSocketNSS::SetReceiveBufferSize(int32_t size) {
   return transport_socket_->SetReceiveBufferSize(size);
 }
 
-int SSLServerSocketNSS::SetSendBufferSize(int32 size) {
+int SSLServerSocketNSS::SetSendBufferSize(int32_t size) {
   return transport_socket_->SetSendBufferSize(size);
 }
 
@@ -338,7 +337,8 @@ int SSLServerSocketNSS::InitializeSSLOptions() {
 
   int rv;
 
-  if (ssl_config_.require_client_cert) {
+  if (ssl_server_config_.client_cert_type ==
+      SSLServerConfig::ClientCertType::REQUIRE_CLIENT_CERT) {
     rv = SSL_OptionSet(nss_fd_, SSL_REQUEST_CERTIFICATE, PR_TRUE);
     if (rv != SECSuccess) {
       LogFailedNSSFunction(net_log_, "SSL_OptionSet",
@@ -360,15 +360,15 @@ int SSLServerSocketNSS::InitializeSSLOptions() {
   }
 
   SSLVersionRange version_range;
-  version_range.min = ssl_config_.version_min;
-  version_range.max = ssl_config_.version_max;
+  version_range.min = ssl_server_config_.version_min;
+  version_range.max = ssl_server_config_.version_max;
   rv = SSL_VersionRangeSet(nss_fd_, &version_range);
   if (rv != SECSuccess) {
     LogFailedNSSFunction(net_log_, "SSL_VersionRangeSet", "");
     return ERR_NO_SSL_VERSIONS_ENABLED;
   }
 
-  if (ssl_config_.require_ecdhe) {
+  if (ssl_server_config_.require_ecdhe) {
     const PRUint16* const ssl_ciphers = SSL_GetImplementedCiphers();
     const PRUint16 num_ciphers = SSL_GetNumImplementedCiphers();
 
@@ -384,9 +384,9 @@ int SSLServerSocketNSS::InitializeSSLOptions() {
     }
   }
 
-  for (std::vector<uint16>::const_iterator it =
-           ssl_config_.disabled_cipher_suites.begin();
-       it != ssl_config_.disabled_cipher_suites.end(); ++it) {
+  for (std::vector<uint16_t>::const_iterator it =
+           ssl_server_config_.disabled_cipher_suites.begin();
+       it != ssl_server_config_.disabled_cipher_suites.end(); ++it) {
     // This will fail if the specified cipher is not implemented by NSS, but
     // the failure is harmless.
     SSL_CipherPrefSet(nss_fd_, *it, PR_FALSE);
@@ -456,7 +456,7 @@ int SSLServerSocketNSS::InitializeSSLOptions() {
   }
 
   // Get a key of SECKEYPrivateKey* structure.
-  std::vector<uint8> key_vector;
+  std::vector<uint8_t> key_vector;
   if (!key_->ExportPrivateKey(&key_vector)) {
     CERT_DestroyCertificate(cert);
     return ERR_UNEXPECTED;
@@ -523,7 +523,7 @@ void SSLServerSocketNSS::OnSendComplete(int result) {
   if (!completed_handshake_)
     return;
 
-  if (user_write_buf_.get()) {
+  if (user_write_buf_) {
     int rv = DoWriteLoop(result);
     if (rv != ERR_IO_PENDING)
       DoWriteCallback(rv);
@@ -542,7 +542,7 @@ void SSLServerSocketNSS::OnRecvComplete(int result) {
 
   // Network layer received some data, check if client requested to read
   // decrypted data.
-  if (!user_read_buf_.get() || !completed_handshake_)
+  if (!user_read_buf_ || !completed_handshake_)
     return;
 
   int rv = DoReadLoop(result);
@@ -663,7 +663,7 @@ bool SSLServerSocketNSS::DoTransportIO() {
 }
 
 int SSLServerSocketNSS::DoPayloadRead() {
-  DCHECK(user_read_buf_.get());
+  DCHECK(user_read_buf_);
   DCHECK_GT(user_read_buf_len_, 0);
   int rv = PR_Read(nss_fd_, user_read_buf_->data(), user_read_buf_len_);
   if (rv >= 0)
@@ -679,7 +679,7 @@ int SSLServerSocketNSS::DoPayloadRead() {
 }
 
 int SSLServerSocketNSS::DoPayloadWrite() {
-  DCHECK(user_write_buf_.get());
+  DCHECK(user_write_buf_);
   int rv = PR_Write(nss_fd_, user_write_buf_->data(), user_write_buf_len_);
   if (rv >= 0)
     return rv;
@@ -799,7 +799,7 @@ int SSLServerSocketNSS::DoHandshake() {
 
 void SSLServerSocketNSS::DoHandshakeCallback(int rv) {
   DCHECK_NE(rv, ERR_IO_PENDING);
-  ResetAndReturn(&user_handshake_callback_).Run(rv > OK ? OK : rv);
+  base::ResetAndReturn(&user_handshake_callback_).Run(rv > OK ? OK : rv);
 }
 
 void SSLServerSocketNSS::DoReadCallback(int rv) {
@@ -808,7 +808,7 @@ void SSLServerSocketNSS::DoReadCallback(int rv) {
 
   user_read_buf_ = NULL;
   user_read_buf_len_ = 0;
-  ResetAndReturn(&user_read_callback_).Run(rv);
+  base::ResetAndReturn(&user_read_callback_).Run(rv);
 }
 
 void SSLServerSocketNSS::DoWriteCallback(int rv) {
@@ -817,7 +817,7 @@ void SSLServerSocketNSS::DoWriteCallback(int rv) {
 
   user_write_buf_ = NULL;
   user_write_buf_len_ = 0;
-  ResetAndReturn(&user_write_callback_).Run(rv);
+  base::ResetAndReturn(&user_write_callback_).Run(rv);
 }
 
 // static

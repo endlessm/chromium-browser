@@ -52,7 +52,7 @@ struct SubstringTranslator;
 struct UCharBufferTranslator;
 template<typename> class RetainPtr;
 
-enum TextCaseSensitivity { TextCaseSensitive, TextCaseInsensitive };
+enum TextCaseSensitivity { TextCaseSensitive, TextCaseASCIIInsensitive, TextCaseInsensitive };
 
 enum StripBehavior { StripExtraWhiteSpace, DoNotStripWhiteSpace };
 
@@ -346,6 +346,7 @@ public:
     float toFloat(bool* ok = 0);
 
     PassRefPtr<StringImpl> lower();
+    PassRefPtr<StringImpl> lowerASCII();
     PassRefPtr<StringImpl> upper();
     PassRefPtr<StringImpl> lower(const AtomicString& localeIdentifier);
     PassRefPtr<StringImpl> upper(const AtomicString& localeIdentifier);
@@ -374,26 +375,30 @@ public:
     size_t findIgnoringCase(const LChar*, unsigned index = 0);
     ALWAYS_INLINE size_t findIgnoringCase(const char* s, unsigned index = 0) { return findIgnoringCase(reinterpret_cast<const LChar*>(s), index); }
     size_t findIgnoringCase(StringImpl*, unsigned index = 0);
+    size_t findIgnoringASCIICase(StringImpl*, unsigned index = 0);
 
     size_t findNextLineStart(unsigned index = UINT_MAX);
 
     size_t reverseFind(UChar, unsigned index = UINT_MAX);
     size_t reverseFind(StringImpl*, unsigned index = UINT_MAX);
-    size_t reverseFindIgnoringCase(StringImpl*, unsigned index = UINT_MAX);
 
     size_t count(LChar) const;
 
-    bool startsWith(StringImpl* str, TextCaseSensitivity caseSensitivity = TextCaseSensitive) { return ((caseSensitivity == TextCaseSensitive) ? reverseFind(str, 0) : reverseFindIgnoringCase(str, 0)) == 0; }
     bool startsWith(UChar) const;
-    bool startsWith(const char*, unsigned matchLength, TextCaseSensitivity) const;
-    template<unsigned matchLength>
-    bool startsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const { return startsWith(prefix, matchLength - 1, caseSensitivity); }
+    bool startsWith(const char*, unsigned prefixLength) const;
+    bool startsWith(const StringImpl*) const;
+    bool startsWithIgnoringCase(const char*, unsigned prefixLength) const;
+    bool startsWithIgnoringCase(const StringImpl*) const;
+    bool startsWithIgnoringASCIICase(const char*, unsigned prefixLength) const;
+    bool startsWithIgnoringASCIICase(const StringImpl*) const;
 
-    bool endsWith(StringImpl*, TextCaseSensitivity = TextCaseSensitive);
     bool endsWith(UChar) const;
-    bool endsWith(const char*, unsigned matchLength, TextCaseSensitivity) const;
-    template<unsigned matchLength>
-    bool endsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const { return endsWith(prefix, matchLength - 1, caseSensitivity); }
+    bool endsWith(const char*, unsigned suffixLength) const;
+    bool endsWith(const StringImpl*) const;
+    bool endsWithIgnoringCase(const char*, unsigned suffixLength) const;
+    bool endsWithIgnoringCase(const StringImpl*) const;
+    bool endsWithIgnoringASCIICase(const char*, unsigned suffixLength) const;
+    bool endsWithIgnoringASCIICase(const StringImpl*) const;
 
     PassRefPtr<StringImpl> replace(UChar, UChar);
     PassRefPtr<StringImpl> replace(UChar, StringImpl*);
@@ -508,22 +513,8 @@ inline bool equalIgnoringASCIICase(const CharacterTypeA* a, const CharacterTypeB
     return true;
 }
 
-template<typename CharacterTypeA, typename CharacterTypeB>
-bool startsWithIgnoringASCIICase(const CharacterTypeA& reference, const CharacterTypeB& prefix)
-{
-    unsigned prefixLength = prefix.length();
-    if (prefixLength > reference.length())
-        return false;
-
-    if (reference.is8Bit()) {
-        if (prefix.is8Bit())
-            return equalIgnoringASCIICase(reference.characters8(), prefix.characters8(), prefixLength);
-        return equalIgnoringASCIICase(reference.characters8(), prefix.characters16(), prefixLength);
-    }
-    if (prefix.is8Bit())
-        return equalIgnoringASCIICase(reference.characters16(), prefix.characters8(), prefixLength);
-    return equalIgnoringASCIICase(reference.characters16(), prefix.characters16(), prefixLength);
-}
+WTF_EXPORT bool equalIgnoringASCIICase(const StringImpl*, const StringImpl*);
+WTF_EXPORT bool equalIgnoringASCIICase(const StringImpl*, const LChar*);
 
 template<typename CharacterType>
 inline size_t find(const CharacterType* characters, unsigned length, CharacterType matchCharacter, unsigned index = 0)
@@ -765,13 +756,14 @@ template<> struct DefaultHash<RefPtr<StringImpl>> {
     typedef StringHash Hash;
 };
 
-}
+} // namespace WTF
 
 using WTF::StringImpl;
 using WTF::equal;
 using WTF::equalNonNull;
 using WTF::TextCaseSensitivity;
 using WTF::TextCaseSensitive;
+using WTF::TextCaseASCIIInsensitive;
 using WTF::TextCaseInsensitive;
 
 #endif

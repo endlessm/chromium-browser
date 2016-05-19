@@ -4,7 +4,7 @@
 //
 // An object to store user feedback to a single spellcheck suggestion.
 //
-// Stores the spellcheck suggestion, its uint32 hash identifier, and user's
+// Stores the spellcheck suggestion, its uint32_t hash identifier, and user's
 // feedback. The feedback is indirect, in the sense that we record user's
 // |action| instead of asking them how they feel about a spellcheck suggestion.
 // The object can serialize itself.
@@ -12,8 +12,12 @@
 #ifndef CHROME_BROWSER_SPELLCHECKER_MISSPELLING_H_
 #define CHROME_BROWSER_SPELLCHECKER_MISSPELLING_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/spellchecker/spellcheck_action.h"
 
@@ -34,7 +38,8 @@ struct Misspelling {
               size_t location,
               size_t length,
               const std::vector<base::string16>& suggestions,
-              uint32 hash);
+              uint32_t hash);
+  Misspelling(const Misspelling& other);
   ~Misspelling();
 
   // A several-word text snippet that immediately surrounds the misspelling.
@@ -51,7 +56,7 @@ struct Misspelling {
   std::vector<base::string16> suggestions;
 
   // The hash that identifies the misspelling.
-  uint32 hash;
+  uint32_t hash;
 
   // User action.
   SpellcheckAction action;
@@ -60,9 +65,9 @@ struct Misspelling {
   base::Time timestamp;
 };
 
-// Serializes the data in this object into a dictionary value. The caller owns
-// the result.
-base::DictionaryValue* SerializeMisspelling(const Misspelling& misspelling);
+// Serializes the data in this object into a dictionary value.
+scoped_ptr<base::DictionaryValue> SerializeMisspelling(
+    const Misspelling& misspelling);
 
 // Returns the substring of |context| that begins at |location| and contains
 // |length| characters.

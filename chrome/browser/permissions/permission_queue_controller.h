@@ -6,10 +6,12 @@
 #define CHROME_BROWSER_PERMISSIONS_PERMISSION_QUEUE_CONTROLLER_H_
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "content/public/browser/permission_type.h"
 
 class GURL;
 class PermissionRequestID;
@@ -28,7 +30,9 @@ class PermissionQueueController : public content::NotificationObserver {
  public:
   using PermissionDecidedCallback = base::Callback<void(ContentSetting)>;
 
-  PermissionQueueController(Profile* profile, ContentSettingsType type);
+  PermissionQueueController(Profile* profile,
+                            content::PermissionType permission_type,
+                            ContentSettingsType content_settings_type);
   ~PermissionQueueController() override;
 
   // The InfoBar will be displayed immediately if the tab is not already
@@ -86,7 +90,8 @@ class PermissionQueueController : public content::NotificationObserver {
   content::NotificationRegistrar registrar_;
 
   Profile* const profile_;
-  ContentSettingsType type_;
+  content::PermissionType permission_type_;
+  ContentSettingsType content_settings_type_;
   PendingInfobarRequests pending_infobar_requests_;
   bool in_shutdown_;
 

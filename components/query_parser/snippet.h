@@ -8,6 +8,8 @@
 #ifndef COMPONENTS_QUERY_PARSER_SNIPPET_H__
 #define COMPONENTS_QUERY_PARSER_SNIPPET_H__
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/strings/string16.h"
@@ -45,6 +47,7 @@ class Snippet {
       Snippet::MatchPositions* match_positions);
 
   Snippet();
+  Snippet(const Snippet& other);
   ~Snippet();
 
   // Given |matches|, the match positions within |document|, compute the snippet

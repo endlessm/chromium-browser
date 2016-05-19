@@ -1613,7 +1613,6 @@ static void allocate_gf_group_bits(VP10_COMP *cpi, int64_t gf_group_bits,
   int mid_boost_bits = 0;
   int mid_frame_idx;
   unsigned char arf_buffer_indices[MAX_ACTIVE_ARFS];
-  int alt_frame_index = frame_index;
 
   key_frame = cpi->common.frame_type == KEY_FRAME;
 
@@ -1626,15 +1625,13 @@ static void allocate_gf_group_bits(VP10_COMP *cpi, int64_t gf_group_bits,
       gf_group->update_type[0] = OVERLAY_UPDATE;
       gf_group->rf_level[0] = INTER_NORMAL;
       gf_group->bit_allocation[0] = 0;
-      gf_group->arf_update_idx[0] = arf_buffer_indices[0];
-      gf_group->arf_ref_idx[0] = arf_buffer_indices[0];
     } else {
       gf_group->update_type[0] = GF_UPDATE;
       gf_group->rf_level[0] = GF_ARF_STD;
       gf_group->bit_allocation[0] = gf_arf_bits;
-      gf_group->arf_update_idx[0] = arf_buffer_indices[0];
-      gf_group->arf_ref_idx[0] = arf_buffer_indices[0];
     }
+    gf_group->arf_update_idx[0] = arf_buffer_indices[0];
+    gf_group->arf_ref_idx[0] = arf_buffer_indices[0];
 
     // Step over the golden frame / overlay frame
     if (EOF == input_stats(twopass, &frame_stats))
@@ -1648,15 +1645,15 @@ static void allocate_gf_group_bits(VP10_COMP *cpi, int64_t gf_group_bits,
 
   // Store the bits to spend on the ARF if there is one.
   if (rc->source_alt_ref_pending) {
-    gf_group->update_type[alt_frame_index] = ARF_UPDATE;
-    gf_group->rf_level[alt_frame_index] = GF_ARF_STD;
-    gf_group->bit_allocation[alt_frame_index] = gf_arf_bits;
+    gf_group->update_type[frame_index] = ARF_UPDATE;
+    gf_group->rf_level[frame_index] = GF_ARF_STD;
+    gf_group->bit_allocation[frame_index] = gf_arf_bits;
 
-    gf_group->arf_src_offset[alt_frame_index] =
+    gf_group->arf_src_offset[frame_index] =
         (unsigned char)(rc->baseline_gf_interval - 1);
 
-    gf_group->arf_update_idx[alt_frame_index] = arf_buffer_indices[0];
-    gf_group->arf_ref_idx[alt_frame_index] =
+    gf_group->arf_update_idx[frame_index] = arf_buffer_indices[0];
+    gf_group->arf_ref_idx[frame_index] =
       arf_buffer_indices[cpi->multi_arf_last_grp_enabled &&
                          rc->source_alt_ref_active];
     ++frame_index;
@@ -1819,10 +1816,10 @@ static void define_gf_group(VP10_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   {
     int int_max_q =
       (int)(vp10_convert_qindex_to_q(twopass->active_worst_quality,
-                                   cpi->common.bit_depth));
+                                     cpi->common.bit_depth));
     int int_lbq =
       (int)(vp10_convert_qindex_to_q(rc->last_boosted_qindex,
-                                   cpi->common.bit_depth));
+                                     cpi->common.bit_depth));
     active_min_gf_interval = rc->min_gf_interval + VPXMIN(2, int_max_q / 200);
     if (active_min_gf_interval > rc->max_gf_interval)
       active_min_gf_interval = rc->max_gf_interval;
@@ -1835,13 +1832,12 @@ static void define_gf_group(VP10_COMP *cpi, FIRSTPASS_STATS *this_frame) {
       // At high Q when there are few bits to spare we are better with a longer
       // interval to spread the cost of the GF.
       active_max_gf_interval = 12 + VPXMIN(4, (int_lbq / 6));
-      if (active_max_gf_interval < active_min_gf_interval)
-        active_max_gf_interval = active_min_gf_interval;
 
-      if (active_max_gf_interval > rc->max_gf_interval)
-        active_max_gf_interval = rc->max_gf_interval;
+      // We have: active_min_gf_interval <= rc->max_gf_interval
       if (active_max_gf_interval < active_min_gf_interval)
         active_max_gf_interval = active_min_gf_interval;
+      else if (active_max_gf_interval > rc->max_gf_interval)
+        active_max_gf_interval = rc->max_gf_interval;
     }
   }
 
@@ -2139,6 +2135,8 @@ static int test_candidate_kf(TWO_PASS *twopass,
   return is_viable_kf;
 }
 
+#define FRAMES_TO_CHECK_DECAY 8
+
 static void find_next_key_frame(VP10_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   int i, j;
   RATE_CONTROL *const rc = &cpi->rc;
@@ -2157,7 +2155,7 @@ static void find_next_key_frame(VP10_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   double boost_score = 0.0;
   double kf_mod_err = 0.0;
   double kf_group_err = 0.0;
-  double recent_loop_decay[8] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  double recent_loop_decay[FRAMES_TO_CHECK_DECAY];
 
   vp10_zero(next_frame);
 
@@ -2183,6 +2181,10 @@ static void find_next_key_frame(VP10_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   twopass->kf_group_error_left = 0;  // Group modified error score.
 
   kf_mod_err = calculate_modified_err(cpi, twopass, oxcf, this_frame);
+
+  // Initialize the decay rates for the recent frames to check
+  for (j = 0; j < FRAMES_TO_CHECK_DECAY; ++j)
+    recent_loop_decay[j] = 1.0;
 
   // Find the next keyframe.
   i = 0;
@@ -2210,9 +2212,9 @@ static void find_next_key_frame(VP10_COMP *cpi, FIRSTPASS_STATS *this_frame) {
       // We want to know something about the recent past... rather than
       // as used elsewhere where we are concerned with decay in prediction
       // quality since the last GF or KF.
-      recent_loop_decay[i % 8] = loop_decay_rate;
+      recent_loop_decay[i % FRAMES_TO_CHECK_DECAY] = loop_decay_rate;
       decay_accumulator = 1.0;
-      for (j = 0; j < 8; ++j)
+      for (j = 0; j < FRAMES_TO_CHECK_DECAY; ++j)
         decay_accumulator *= recent_loop_decay[j];
 
       // Special check for transition or high motion followed by a

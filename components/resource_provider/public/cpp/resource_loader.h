@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/resource_provider/public/interfaces/resource_provider.mojom.h"
 #include "mojo/platform_handle/platform_handle.h"
@@ -22,7 +22,7 @@ class File;
 }
 
 namespace mojo {
-class ApplicationImpl;
+class Connector;
 }
 
 namespace resource_provider {
@@ -33,7 +33,7 @@ namespace resource_provider {
 // have been obtained.
 class ResourceLoader {
  public:
-  ResourceLoader(mojo::ApplicationImpl* app,
+  ResourceLoader(mojo::Connector* connector,
                  const std::set<std::string>& paths);
   ~ResourceLoader();
 

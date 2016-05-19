@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_BOOKMARK_MANAGER_PRIVATE_BOOKMARK_MANAGER_PRIVATE_API_H_
 #define CHROME_BROWSER_EXTENSIONS_API_BOOKMARK_MANAGER_PRIVATE_BOOKMARK_MANAGER_PRIVATE_API_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/bookmarks/bookmarks_api.h"
@@ -397,19 +398,6 @@ class BookmarkManagerPrivateGetRedoInfoFunction
 
  protected:
   ~BookmarkManagerPrivateGetRedoInfoFunction() override {}
-
-  // ExtensionFunction:
-  bool RunOnReady() override;
-};
-
-class BookmarkManagerPrivateSetVersionFunction
-    : public extensions::BookmarksFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("bookmarkManagerPrivate.setVersion",
-                             BOOKMARKMANAGERPRIVATE_SETVERSION);
-
- protected:
-  ~BookmarkManagerPrivateSetVersionFunction() override {}
 
   // ExtensionFunction:
   bool RunOnReady() override;

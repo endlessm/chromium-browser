@@ -27,18 +27,14 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/fetch/ResourceLoader.h"
 
 #include "core/fetch/CSSStyleSheetResource.h"
-#include "core/fetch/InspectorFetchTraceEvents.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
-#include "core/fetch/ResourcePtr.h"
 #include "platform/Logging.h"
 #include "platform/SharedBuffer.h"
 #include "platform/ThreadedDataReceiver.h"
-#include "platform/TraceEvent.h"
 #include "platform/exported/WrappedResourceRequest.h"
 #include "platform/exported/WrappedResourceResponse.h"
 #include "platform/network/ResourceError.h"
@@ -52,6 +48,15 @@
 #include "wtf/CurrentTime.h"
 
 namespace blink {
+
+namespace {
+
+bool isManualRedirectFetchRequest(const ResourceRequest& request)
+{
+    return request.fetchRedirectMode() == WebURLRequest::FetchRedirectModeManual && request.requestContext() == WebURLRequest::RequestContextFetch;
+}
+
+} // namespace
 
 ResourceLoader* ResourceLoader::create(ResourceFetcher* fetcher, Resource* resource, const ResourceRequest& request, const ResourceLoaderOptions& options)
 {
@@ -70,6 +75,8 @@ ResourceLoader::ResourceLoader(ResourceFetcher* fetcher, Resource* resource, con
     , m_state(Initialized)
     , m_connectionState(ConnectionStateNew)
 {
+    ASSERT(m_resource);
+    ASSERT(m_fetcher);
 }
 
 ResourceLoader::~ResourceLoader()
@@ -87,11 +94,10 @@ void ResourceLoader::releaseResources()
 {
     ASSERT(m_state != Terminated);
     ASSERT(m_notifiedLoadComplete);
-    m_fetcher->didLoadResource();
+    m_fetcher->didLoadResource(m_resource.get());
     if (m_state == Terminated)
         return;
     m_resource->clearLoader();
-    m_resource->deleteIfPossible();
     m_resource = nullptr;
 
     ASSERT(m_state != Terminated);
@@ -124,7 +130,7 @@ void ResourceLoader::start()
     ASSERT(!m_request.isNull());
     ASSERT(m_deferredRequest.isNull());
 
-    m_fetcher->willStartLoadingResource(m_resource, m_request);
+    m_fetcher->willStartLoadingResource(m_resource.get(), m_request);
 
     if (m_options.synchronousPolicy == RequestSynchronously) {
         requestSynchronously();
@@ -188,7 +194,7 @@ void ResourceLoader::didDownloadData(WebURLLoader*, int length, int encodedDataL
 {
     ASSERT(m_state != Terminated);
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse);
-    m_fetcher->didDownloadData(m_resource, length, encodedDataLength);
+    m_fetcher->didDownloadData(m_resource.get(), length, encodedDataLength);
     if (m_state == Terminated)
         return;
     m_resource->didDownloadData(length);
@@ -204,7 +210,7 @@ void ResourceLoader::didFinishLoadingOnePart(double finishTime, int64_t encodedD
     if (m_notifiedLoadComplete)
         return;
     m_notifiedLoadComplete = true;
-    m_fetcher->didFinishLoading(m_resource, finishTime, encodedDataLength);
+    m_fetcher->didFinishLoading(m_resource.get(), finishTime, encodedDataLength);
 }
 
 void ResourceLoader::didChangePriority(ResourceLoadPriority loadPriority, int intraPriorityValue)
@@ -251,7 +257,7 @@ void ResourceLoader::cancel(const ResourceError& error)
 
     if (!m_notifiedLoadComplete) {
         m_notifiedLoadComplete = true;
-        m_fetcher->didFailLoading(m_resource, nonNullError);
+        m_fetcher->didFailLoading(m_resource.get(), nonNullError);
     }
 
     if (m_state == Finishing)
@@ -270,14 +276,14 @@ void ResourceLoader::willFollowRedirect(WebURLLoader*, WebURLRequest& passedNewR
     const ResourceResponse& redirectResponse(passedRedirectResponse.toResourceResponse());
     ASSERT(!redirectResponse.isNull());
     newRequest.setFollowedRedirect(true);
-    if (!m_fetcher->canAccessRedirect(m_resource, newRequest, redirectResponse, m_options)) {
+    if (!isManualRedirectFetchRequest(m_resource->resourceRequest()) && !m_fetcher->canAccessRedirect(m_resource.get(), newRequest, redirectResponse, m_options)) {
         cancel(ResourceError::cancelledDueToAccessCheckError(newRequest.url()));
         return;
     }
     ASSERT(m_state != Terminated);
 
     applyOptions(newRequest); // canAccessRedirect() can modify m_options so we should re-apply it.
-    m_fetcher->redirectReceived(m_resource, redirectResponse);
+    m_fetcher->redirectReceived(m_resource.get(), redirectResponse);
     ASSERT(m_state != Terminated);
     m_resource->willFollowRedirect(newRequest, redirectResponse);
     if (newRequest.isNull() || m_state == Terminated)
@@ -323,7 +329,6 @@ void ResourceLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& res
     m_connectionState = ConnectionStateReceivedResponse;
 
     const ResourceResponse& resourceResponse = response.toResourceResponse();
-    TRACE_EVENT1("devtools.timeline", "ResourceReceiveResponse", "data", InspectorReceiveResponseEvent::data(m_resource->identifier(), resourceResponse));
 
     if (responseNeedsAccessControlCheck()) {
         if (response.wasFetchedViaServiceWorker()) {
@@ -340,14 +345,10 @@ void ResourceLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& res
                 return;
             }
         } else {
-            // If the response successfully validated a cached resource, perform
-            // the access control with respect to it. Need to do this right here
-            // before the resource switches clients over to that validated resource.
-            Resource* resource = m_resource;
-            if (!resource->isCacheValidator() || resourceResponse.httpStatusCode() != 304)
+            if (!m_resource->isCacheValidator() || resourceResponse.httpStatusCode() != 304)
                 m_resource->setResponse(resourceResponse);
-            if (!m_fetcher->canAccessResource(resource, m_options.securityOrigin.get(), response.url(), ResourceFetcher::ShouldLogAccessControlErrors)) {
-                m_fetcher->didReceiveResponse(m_resource, resourceResponse);
+            if (!m_fetcher->canAccessResource(m_resource.get(), m_options.securityOrigin.get(), response.url(), ResourceFetcher::ShouldLogAccessControlErrors)) {
+                m_fetcher->didReceiveResponse(m_resource.get(), resourceResponse);
                 cancel(ResourceError::cancelledDueToAccessCheckError(KURL(response.url())));
                 return;
             }
@@ -358,14 +359,14 @@ void ResourceLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& res
     if (m_state == Terminated)
         return;
 
-    m_fetcher->didReceiveResponse(m_resource, resourceResponse);
+    m_fetcher->didReceiveResponse(m_resource.get(), resourceResponse);
     if (m_state == Terminated)
         return;
 
     if (response.toResourceResponse().isMultipart()) {
         // We only support multipart for images, though the image may be loaded
         // as a main resource that we end up displaying through an ImageDocument.
-        if (!m_resource->isImage() && m_resource->type() != Resource::MainResource) {
+        if (!m_resource->isImage() && m_resource->getType() != Resource::MainResource) {
             cancel();
             return;
         }
@@ -385,7 +386,7 @@ void ResourceLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& res
 
     if (!m_notifiedLoadComplete) {
         m_notifiedLoadComplete = true;
-        m_fetcher->didFailLoading(m_resource, ResourceError::cancelledError(m_request.url()));
+        m_fetcher->didFailLoading(m_resource.get(), ResourceError::cancelledError(m_request.url()));
     }
 
     ASSERT(m_state != Terminated);
@@ -402,7 +403,6 @@ void ResourceLoader::didReceiveData(WebURLLoader*, const char* data, int length,
 {
     ASSERT(m_state != Terminated);
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse || m_connectionState == ConnectionStateReceivingData);
-    TRACE_EVENT1("devtools.timeline", "ResourceReceivedData", "data", InspectorReceiveDataEvent::data(m_resource->identifier(), encodedDataLength));
     m_connectionState = ConnectionStateReceivingData;
 
     // It is possible to receive data on uninitialized resources if it had an error status code, and we are running a nested message
@@ -414,7 +414,7 @@ void ResourceLoader::didReceiveData(WebURLLoader*, const char* data, int length,
     // FIXME: If we get a resource with more than 2B bytes, this code won't do the right thing.
     // However, with today's computers and networking speeds, this won't happen in practice.
     // Could be an issue with a giant local file.
-    m_fetcher->didReceiveData(m_resource, data, length, encodedDataLength);
+    m_fetcher->didReceiveData(m_resource.get(), data, length, encodedDataLength);
     if (m_state == Terminated)
         return;
     RELEASE_ASSERT(length >= 0);
@@ -424,14 +424,13 @@ void ResourceLoader::didReceiveData(WebURLLoader*, const char* data, int length,
 void ResourceLoader::didFinishLoading(WebURLLoader*, double finishTime, int64_t encodedDataLength)
 {
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse || m_connectionState == ConnectionStateReceivingData);
-    TRACE_EVENT1("devtools.timeline", "ResourceFinish", "data", InspectorResourceFinishEvent::data(m_resource->identifier(), finishTime, false));
     m_connectionState = ConnectionStateFinishedLoading;
     if (m_state != Initialized)
         return;
     ASSERT(m_state != Terminated);
     WTF_LOG(ResourceLoading, "Received '%s'.", m_resource->url().string().latin1().data());
 
-    ResourcePtr<Resource> protectResource(m_resource);
+    RefPtrWillBeRawPtr<Resource> protectResource(m_resource.get());
     m_state = Finishing;
     m_resource->setLoadFinishTime(finishTime);
     didFinishLoadingOnePart(finishTime, encodedDataLength);
@@ -448,18 +447,17 @@ void ResourceLoader::didFinishLoading(WebURLLoader*, double finishTime, int64_t 
 
 void ResourceLoader::didFail(WebURLLoader*, const WebURLError& error)
 {
-    TRACE_EVENT1("devtools.timeline", "ResourceFinish", "data", InspectorResourceFinishEvent::data(m_resource->identifier(), 0, true));
     m_connectionState = ConnectionStateFailed;
     ASSERT(m_state != Terminated);
     WTF_LOG(ResourceLoading, "Failed to load '%s'.\n", m_resource->url().string().latin1().data());
 
-    ResourcePtr<Resource> protectResource(m_resource);
+    RefPtrWillBeRawPtr<Resource> protectResource(m_resource.get());
     m_state = Finishing;
     m_resource->setResourceError(error);
 
     if (!m_notifiedLoadComplete) {
         m_notifiedLoadComplete = true;
-        m_fetcher->didFailLoading(m_resource, error);
+        m_fetcher->didFailLoading(m_resource.get(), error);
     }
     if (m_state == Terminated)
         return;
@@ -485,7 +483,7 @@ void ResourceLoader::requestSynchronously()
     // downloadToFile is not supported for synchronous requests.
     ASSERT(!m_request.downloadToFile());
 
-    ResourcePtr<Resource> protectResource(m_resource);
+    RefPtrWillBeRawPtr<Resource> protectResource(m_resource.get());
 
     RELEASE_ASSERT(m_connectionState == ConnectionStateNew);
     m_connectionState = ConnectionStateStarted;
@@ -511,8 +509,15 @@ void ResourceLoader::requestSynchronously()
         return;
     RefPtr<ResourceLoadInfo> resourceLoadInfo = responseOut.toResourceResponse().resourceLoadInfo();
     int64_t encodedDataLength = resourceLoadInfo ? resourceLoadInfo->encodedDataLength : WebURLLoaderClient::kUnknownEncodedDataLength;
-    m_fetcher->didReceiveData(m_resource, dataOut.data(), dataOut.size(), encodedDataLength);
-    m_resource->setResourceBuffer(dataOut);
+
+    // Follow the async case convention of not calling didReceiveData or
+    // appending data to m_resource if the response body is empty. Copying the
+    // empty buffer is a noop in most cases, but is destructive in the case of
+    // a 304, where it will overwrite the cached data we should be reusing.
+    if (dataOut.size()) {
+        m_fetcher->didReceiveData(m_resource.get(), dataOut.data(), dataOut.size(), encodedDataLength);
+        m_resource->setResourceBuffer(dataOut);
+    }
     didFinishLoading(0, monotonicallyIncreasingTime(), encodedDataLength);
 }
 
@@ -522,4 +527,4 @@ ResourceRequest& ResourceLoader::applyOptions(ResourceRequest& request) const
     return request;
 }
 
-}
+} // namespace blink

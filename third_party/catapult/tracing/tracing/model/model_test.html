@@ -5,12 +5,12 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/units/time_display_mode.html">
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import" href="/tracing/extras/importer/trace_event_importer.html">
 <link rel="import" href="/tracing/importer/import.html">
 <link rel="import" href="/tracing/model/annotation.html">
 <link rel="import" href="/tracing/model/model.html">
+<link rel="import" href="/tracing/value/time_display_mode.html">
 
 <script>
 'use strict';
@@ -76,6 +76,33 @@ tr.b.unittest.testSuite(function() {
 
     return m;
   };
+
+  test('helper', function() {
+    function Helper(model) {
+      this.model = model;
+    }
+    Helper.guid = tr.b.GUID.allocate();
+    Helper.supportsModel = function(model) {
+      return true;
+    };
+
+    var m = new tr.Model();
+    var h = m.getOrCreateHelper(Helper);
+    assert.isTrue(h instanceof Helper);
+    assert.isTrue(h === m.getOrCreateHelper(Helper));
+
+    function UnsupportedHelper(model) {
+      this.model = model;
+    }
+    UnsupportedHelper.guid = tr.b.GUID.allocate();
+    UnsupportedHelper.supportsModel = function(model) {
+      return false;
+    };
+
+    assert.isUndefined(m.getOrCreateHelper(UnsupportedHelper));
+    // Try again to test doesHelperGUIDSupportThisModel_ .
+    assert.isUndefined(m.getOrCreateHelper(UnsupportedHelper));
+  });
 
   test('modelBounds_EmptyModel', function() {
     var m = new tr.Model();
@@ -236,7 +263,7 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('model_intrinsicTimeUnit', function() {
-    var unit = tr.b.u.TimeDisplayModes;
+    var unit = tr.v.TimeDisplayModes;
     var m = new tr.Model();
 
     // by default it should be milliseconds
@@ -251,5 +278,33 @@ tr.b.unittest.testSuite(function() {
     assert.throw(function() { m.intrinsicTimeUnit = unit.ms; });
     assert.equal(m.intrinsicTimeUnit, unit.ns);
   });
+
+  test('model_highResolutionHeuristicTrue', function() {
+    var m = new tr.Model();
+    var t = m.getOrCreateProcess(1).getOrCreateThread(1);
+    // A thousand event not aligned on a millisecond.
+    for (var i = 0; i < 1000; ++i) {
+        var start = 0.53 * i;
+        t.sliceGroup.pushSlice(new ThreadSlice('c', 'a', 0, start, {}, 1));
+    }
+    assert.isTrue(m.isTimeHighResolution);
+  });
+
+  test('model_highResolutionHeuristicFalse', function() {
+    var m = new tr.Model();
+    var t = m.getOrCreateProcess(1).getOrCreateThread(1);
+    // A thousand event aligned on a millisecond.
+    for (var i = 0; i < 1000; ++i) {
+        var start = 0.753 + i;
+        t.sliceGroup.pushSlice(new ThreadSlice('c', 'a', 0, start, {}, 1));
+    }
+    // And fifty not aligned on anything.
+    for (var i = 0; i < 50; ++i) {
+        var start = 0.53 * i;
+        t.sliceGroup.pushSlice(new ThreadSlice('c', 'a', 0, start, {}, 1));
+    }
+    assert.isFalse(m.isTimeHighResolution);
+  });
+
 });
 </script>

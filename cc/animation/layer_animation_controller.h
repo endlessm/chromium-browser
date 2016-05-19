@@ -5,16 +5,17 @@
 #ifndef CC_ANIMATION_LAYER_ANIMATION_CONTROLLER_H_
 #define CC_ANIMATION_LAYER_ANIMATION_CONTROLLER_H_
 
-#include "base/basictypes.h"
-#include "base/containers/hash_tables.h"
+#include <unordered_set>
+#include <vector>
+
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
-#include "cc/animation/animation_events.h"
+#include "cc/animation/animation.h"
 #include "cc/animation/layer_animation_event_observer.h"
 #include "cc/base/cc_export.h"
-#include "cc/base/scoped_ptr_vector.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/transform.h"
 
@@ -25,8 +26,8 @@ class Transform;
 
 namespace cc {
 
-class Animation;
 class AnimationDelegate;
+class AnimationEvents;
 class AnimationRegistrar;
 class FilterOperations;
 class KeyframeValueList;
@@ -45,9 +46,9 @@ class CC_EXPORT LayerAnimationController
   void AddAnimation(scoped_ptr<Animation> animation);
   void PauseAnimation(int animation_id, base::TimeDelta time_offset);
   void RemoveAnimation(int animation_id);
-  void RemoveAnimation(int animation_id,
-                       Animation::TargetProperty target_property);
-  void AbortAnimations(Animation::TargetProperty target_property);
+  void AbortAnimation(int animation_id);
+  void AbortAnimations(TargetProperty::Type target_property,
+                       bool needs_completion = false);
 
   // Ensures that the list of active animations on the main thread and the impl
   // thread are kept in sync. This function does not take ownership of the impl
@@ -57,10 +58,9 @@ class CC_EXPORT LayerAnimationController
 
   void Animate(base::TimeTicks monotonic_time);
   void AccumulatePropertyUpdates(base::TimeTicks monotonic_time,
-                                 AnimationEventsVector* events);
+                                 AnimationEvents* events);
 
-  void UpdateState(bool start_ready_animations,
-                   AnimationEventsVector* events);
+  void UpdateState(bool start_ready_animations, AnimationEvents* events);
 
   // Make animations affect active observers if and only if they affect
   // pending observers. Any animations that no longer affect any observers
@@ -69,7 +69,7 @@ class CC_EXPORT LayerAnimationController
 
   // Returns the active animation animating the given property that is either
   // running, or is next to run, if such an animation exists.
-  Animation* GetAnimation(Animation::TargetProperty target_property) const;
+  Animation* GetAnimation(TargetProperty::Type target_property) const;
 
   // Returns the active animation for the given unique animation id.
   Animation* GetAnimationById(int animation_id) const;
@@ -84,12 +84,12 @@ class CC_EXPORT LayerAnimationController
   // Returns true if there is an animation that is either currently animating
   // the given property or scheduled to animate this property in the future, and
   // that affects the given observer type.
-  bool IsPotentiallyAnimatingProperty(Animation::TargetProperty target_property,
+  bool IsPotentiallyAnimatingProperty(TargetProperty::Type target_property,
                                       ObserverType observer_type) const;
 
   // Returns true if there is an animation that is currently animating the given
   // property and that affects the given observer type.
-  bool IsCurrentlyAnimatingProperty(Animation::TargetProperty target_property,
+  bool IsCurrentlyAnimatingProperty(TargetProperty::Type target_property,
                                     ObserverType observer_type) const;
 
   void SetAnimationRegistrar(AnimationRegistrar* registrar);
@@ -99,6 +99,7 @@ class CC_EXPORT LayerAnimationController
   void NotifyAnimationFinished(const AnimationEvent& event);
   void NotifyAnimationAborted(const AnimationEvent& event);
   void NotifyAnimationPropertyUpdate(const AnimationEvent& event);
+  void NotifyAnimationTakeover(const AnimationEvent& event);
 
   void AddValueObserver(LayerAnimationValueObserver* observer);
   void RemoveValueObserver(LayerAnimationValueObserver* observer);
@@ -176,9 +177,11 @@ class CC_EXPORT LayerAnimationController
   virtual ~LayerAnimationController();
 
  private:
-  typedef base::hash_set<int> TargetProperties;
+  using TargetProperties = std::unordered_set<int>;
 
   void PushNewAnimationsToImplThread(
+      LayerAnimationController* controller_impl) const;
+  void MarkAbortedAnimationsForDeletion(
       LayerAnimationController* controller_impl) const;
   void RemoveAnimationsCompletedOnMainThread(
       LayerAnimationController* controller_impl) const;
@@ -186,10 +189,10 @@ class CC_EXPORT LayerAnimationController
 
   void StartAnimations(base::TimeTicks monotonic_time);
   void PromoteStartedAnimations(base::TimeTicks monotonic_time,
-                                AnimationEventsVector* events);
+                                AnimationEvents* events);
   void MarkFinishedAnimations(base::TimeTicks monotonic_time);
   void MarkAnimationsForDeletion(base::TimeTicks monotonic_time,
-                                 AnimationEventsVector* events);
+                                 AnimationEvents* events);
   void PurgeAnimationsMarkedForDeletion();
 
   void TickAnimations(base::TimeTicks monotonic_time);
@@ -224,7 +227,7 @@ class CC_EXPORT LayerAnimationController
 
   AnimationRegistrar* registrar_;
   int id_;
-  ScopedPtrVector<Animation> animations_;
+  std::vector<scoped_ptr<Animation>> animations_;
 
   // This is used to ensure that we don't spam the registrar.
   bool is_active_;

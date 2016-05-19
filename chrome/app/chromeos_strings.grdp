@@ -70,23 +70,23 @@ Press any key to continue exploring.
   </message>
 
   <!-- File Manager -->
-  <message name="IDS_FLAGS_ENABLE_FILE_MANAGER_MTP_NAME" desc="Name of the about:flag option to enable MTP support in file manager.">
-    Enable MTP support in File Manager.
+  <message name="IDS_FLAGS_FILE_MANAGER_MTP_NAME" desc="Name of the about:flag option for MTP support in file manager.">
+    MTP support in File Manager
   </message>
-  <message name="IDS_FLAGS_ENABLE_FILE_MANAGER_MTP_DESCRIPTION" desc="Description of the about:flag option to the enable MTP support in file manager.">
+  <message name="IDS_FLAGS_FILE_MANAGER_MTP_DESCRIPTION" desc="Description of the about:flag option for MTP support in file manager.">
     Show MTP devices as a file storage in the file manager.
   </message>
-  <message name="IDS_FLAGS_ENABLE_VIDEO_PLAYER_CHROMECAST_SUPPORT_NAME" desc="Name of the about:flag option to enable the chromecast support for video app.">
+  <message name="IDS_FLAGS_VIDEO_PLAYER_CHROMECAST_SUPPORT_NAME" desc="Name of the about:flag option to enable the chromecast support for video app.">
     Experimental Chromecast support for Video Player
   </message>
-  <message name="IDS_FLAGS_ENABLE_VIDEO_PLAYER_CHROMECAST_SUPPORT_DESCRIPTION" desc="Description of the about:flag option to the enable the chromecast support for video app.">
+  <message name="IDS_FLAGS_VIDEO_PLAYER_CHROMECAST_SUPPORT_DESCRIPTION" desc="Description of the about:flag option to the enable the chromecast support for video app.">
     This option enables experimental Chromecast support for Video Player app on ChromeOS.
   </message>
-  <message name="IDS_FLAGS_DISABLE_NEW_ZIP_UNPACKER_NAME" desc="Name of about::flags option to disable the new ZIP unpacker based on the File System Provider API.">
-    Disable the new ZIP unpacker.
+  <message name="IDS_FLAGS_NEW_ZIP_UNPACKER_NAME" desc="Name of about::flags option for the new ZIP unpacker based on the File System Provider API.">
+    New ZIP unpacker
   </message>
-  <message name="IDS_FLAGS_DISABLE_NEW_ZIP_UNPACKER_DESCRIPTION" desc="Description of about::flags option to disable the new ZIP unpacker based on the File System Provider API.">
-    Disable the new ZIP unpacker flow, based on the File System Provider API.
+  <message name="IDS_FLAGS_NEW_ZIP_UNPACKER_DESCRIPTION" desc="Description of about::flags option for the new ZIP unpacker based on the File System Provider API.">
+    New ZIP unpacker flow, based on the File System Provider API.
   </message>
   <message name="IDS_FILE_SYSTEM_PROVIDER_UNRESPONSIVE_WARNING" desc="A warning shown in a notification that an operation is taking longer than expected.">
     An operation is taking longer than expected. Do you want to abort it?
@@ -1049,6 +1049,17 @@ Press any key to continue exploring.
     Volume slider
   </message>
 
+<!-- Audio Player -->
+  <message name="IDS_AUDIO_PLAYER_SHUFFLE_BUTTON_LABEL" desc="Label for the Shuffle button of audio player.">
+    Shuffle
+  </message>
+  <message name="IDS_AUDIO_PLAYER_REPEAT_BUTTON_LABEL" desc="Label for the Repeat button of audio player">
+    Repeat
+  </message>
+  <message name="IDS_AUDIO_PLAYER_OPEN_PLAY_LIST_BUTTON_LABEL" desc="Label for a button which is used to open play list in audio player.">
+    Open play list
+  </message>
+
 <!-- Video Player -->
   <message name="IDS_VIDEO_PLAYER_PLAY_THIS_COMPUTER" desc="In the video player app, message of menu item which is shown at the top of the list of Chromecasts. This menuitem is to play the video on this computer (locally), intead of on TVs with Chromecast.">
     This computer
@@ -1198,17 +1209,17 @@ Press any key to continue exploring.
   <message name="IDS_ECHO_CONSENT_DISMISS_BUTTON" desc="Dismiss dialog button label for disabled echo dialog.">
     Dismiss
   </message>
-  <message name="IDS_FLAGS_DISABLE_OFFICE_EDITING_COMPONENT_APP_NAME" desc="Name for the flag to disable Office Editing for Docs, Sheets &amp; Slides component extension.">
-    Disable Office Editing for Docs, Sheets &amp; Slides
+  <message name="IDS_FLAGS_OFFICE_EDITING_COMPONENT_APP_NAME" desc="Name for the flag for Office Editing for Docs, Sheets &amp; Slides component extension.">
+    Office Editing for Docs, Sheets &amp; Slides
   </message>
-  <message name="IDS_FLAGS_DISABLE_OFFICE_EDITING_COMPONENT_APP_DESCRIPTION" desc="Description for the flag to disable Office Editing for Docs, Sheets &amp; Slides component extension.">
-    Disable Office Editing for Docs, Sheets &amp; Slides for testing purposes
+  <message name="IDS_FLAGS_OFFICE_EDITING_COMPONENT_APP_DESCRIPTION" desc="Description for the flag for Office Editing for Docs, Sheets &amp; Slides component extension.">
+    Office Editing for Docs, Sheets &amp; Slides for testing purposes.
   </message>
-  <message name="IDS_FLAGS_DISABLE_DISPLAY_COLOR_CALIBRATION_NAME" desc="Name for the flag to disable the color calibration of the display.">
-    Disable the color calibration of the display.
+  <message name="IDS_FLAGS_DISPLAY_COLOR_CALIBRATION_NAME" desc="Name for the flag for the color calibration of the display.">
+    Color calibration of the display
   </message>
-  <message name="IDS_FLAGS_DISABLE_DISPLAY_COLOR_CALIBRATION_DESCRIPTION" desc="Description for the flag to disable the color calibration of the display.">
-    Disable calibrating the color of the display even if the display supports the feature.
+  <message name="IDS_FLAGS_DISPLAY_COLOR_CALIBRATION_DESCRIPTION" desc="Description for the flag for the color calibration of the display.">
+    Allow color calibration of the display if the display supports the feature.
   </message>
   <message name="IDS_FLAGS_MEMORY_PRESSURE_THRESHOLD_NAME" desc="Name for the flag which specifies which memory pressure strategy should be used on ChromeOS.">
     Memory discard strategy for advanced pressure handling
@@ -1568,6 +1579,15 @@ Press any key to continue exploring.
   <message name="IDS_LOGIN_PREVIOUS_PASSWORD" desc="Password field text on the password changed dialog">
     Previous password
   </message>
+  <message name="IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_MESSAGE" desc="Message text for the fatal cryptohome error dialog box">
+    We're very sorry, but a serious error has occurred and your profile will need to be recreated to continue. Don't worry, your account is safe, but unfortunately, your local data and files on this device may have been lost.
+  </message>
+  <message name="IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_CONTINUE" desc="Label of the button to continue with re-creating cryptohome for the fatal cryptohome error dialog box">
+    Continue
+  </message>
+  <message name="IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_SEND_FEEDBACK" desc="Label of the checkbox to send feedback for the fatal cryptohome error dialog box">
+    Send anonymized system information to help us fix this issue
+  </message>
   <message name="IDS_LOGIN_SAML_NOTICE" desc="Text message displayed above SAML portal to early indicate that the user is being redirected to another sign-in provider. This is the version of the string used in the GAIA flow.">
     This sign-in service is hosted by <ph name="SAML_DOMAIN">$1<ex>saml.com</ex></ph>
   </message>
@@ -1925,8 +1945,17 @@ Press any key to continue exploring.
   <message name="IDS_OPTIONS_SETTINGS_NETWORK_DISABLED" desc="Message displayed when a type of network connection is disabled">
     Disabled
   </message>
+  <message name="IDS_OPTIONS_SETTINGS_NETWORK_PROHIBITED" desc="Message displayed when a type of network connection is prohibited">
+    Disabled by administrator
+  </message>
   <message name="IDS_OPTIONS_SETTINGS_NETWORK_OTHER" desc="Menu option for connecting to a network that is not listed in the menu.">
     Join other...
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_PROHIBITED_NETWORK" desc="Message displayed when a specific network is prohibited">
+    Connecting to this network is disabled by your administrator.
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_PROHIBITED_NETWORK_OTHER" desc="Message displayed when a connecting to other networks is prohibited">
+    Connecting to other networks is disabled by your administrator.
   </message>
   <message name="IDS_OPTIONS_SETTINGS_NETWORK_DISABLE_WIFI" desc="Menu option in the Wi-Fi menu when there is a connected Wi-Fi network.">
     Disable Wi-Fi
@@ -2023,39 +2052,6 @@ Press any key to continue exploring.
   </message>
   <message name="IDS_OPTIONS_POWER_SOURCE_LOW_POWER_CHARGER" desc="The text referring to a low-power charger like a USB charger as the power source.">
     Low-power charger
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_LEFT" desc="The text identifying an external device, when that device is connected to the USB Type-C port on the left side of this device.">
-    USB-C device (left port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_RIGHT" desc="The text identifying an external device, when that device is connected to the USB Type-C port on the right side of this device.">
-    USB-C device (right port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_BACK" desc="The text identifying an external device, when that device is connected to the USB Type-C port on the back of this device.">
-    USB-C device (rear port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_FRONT" desc="The text identifying an external device, when that device is connected to the USB Type-C port on the front of this device.">
-    USB-C device (front port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_LEFT_FRONT" desc="The text identifying an external device, when that device is connected to a USB Type-C port on the left side of this device. In this case there are two ports on that side, so this text should refer to the front one on that side.">
-    USB-C device (left side front port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_LEFT_BACK" desc="The text identifying an external device, when that device is connected to a USB Type-C port on the left side of this device. In this case there are two ports on that side, so this text should refer to the back one on that side.">
-    USB-C device (left side back port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_RIGHT_FRONT" desc="The text identifying an external device, when that device is connected to a USB Type-C port on the right side of this device. In this case there are two ports on that side, so this text should refer to the front one on that side.">">
-    USB-C device (right side front port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_RIGHT_BACK" desc="The text identifying an external device, when that device is connected to a USB Type-C port on the right side of this device. In this case there are two ports on that side, so this text should refer to the back one on that side.">">
-    USB-C device (right side back port)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_BACK_LEFT" desc="The text identifying an external device, when that device is connected to a USB Type-C port on the back of this device. In this case there are two ports on the back, so this text should refer to the one on the left.">
-    USB-C device (left port in the back)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_BACK_RIGHT" desc="The text identifying an external device, when that device is connected to a USB Type-C port on the back of this device. In this case there are two ports on the back, so this text should refer to the one on the right.">
-    USB-C device (right port in the back)
-  </message>
-  <message name="IDS_OPTIONS_POWER_SOURCE_PORT_UNKNOWN" desc="The text referring to the device to charge from, when its port location cannot be determined.">
-    USB-C device
   </message>
   <message name="IDS_OPTIONS_BATTERY_STATUS_LABEL" desc="The label for the battery information in the 'Power' overlay.">
     Battery:
@@ -2209,6 +2205,27 @@ Press any key to continue exploring.
   </message>
   <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_UNSUPPORTED_DEVICE">
     Unsupported Bluetooth device: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_ATTRIBUTE_LENGTH_INVALID">
+    Write operation exceeds the maximum length of the attribute to: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_CONNECTION_CONGESTED">
+    Connection is congested to remote device: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_INSUFFICIENT_ENCRYPTION">
+    Insufficient encryption for a given operation on: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_OFFSET_INVALID">
+    Read or write operation was requested with an invalid offset on: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_READ_NOT_PERMITTED">
+    Read operation is not permitted on: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_REQUEST_NOT_SUPPORTED">
+    The given request is not supported to: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_CONNECT_WRITE_NOT_PERMITTED">
+    Write operation is not permitted on: "<ph name="DEVICE_NAME">%1<ex>Nexus 4</ex></ph>".
   </message>
   <message name="IDS_OPTIONS_SETTINGS_BLUETOOTH_DISCONNECT_FAILED">
     Failed to disconnect from "<ph name="DEVICE_NAME">%1<ex>Nexus S</ex></ph>".
@@ -3563,6 +3580,14 @@ Press any key to continue exploring.
            desc="The label for languages with no Input Methods">
     This language doesn't have any input methods
   </message>
+  <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_ACTIVATE_IME_MENU"
+           desc="The label for activating IME menu on the shelf.">
+    Show the input method menu on the shelf.
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_ACTIVATE_IME_MENU_DESCRIPTION"
+           desc="The label for the description of showing input method menu.">
+    For easier switching of input methods and access to more input features: voice input, handwriting and emoji.
+  </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_THIRD_PARTY_WARNING_TITLE"
            desc="The title showing in the warning dialog when enabling a 3rd party Input Method">
     Third party input method
@@ -3688,48 +3713,52 @@ Press any key to continue exploring.
     Keyboard settings
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_SEARCH_LABEL"
-           desc="The label for 'Customize modifier keys' overlay">
+           desc="The label for customizing the search key in the 'Keyboard settings' overlay">
     Search
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_LEFT_CTRL_LABEL"
-           desc="The label for 'Customize modifier keys' overlay">
+           desc="The label for customizing the left ctrl key in the 'Keyboard settings' overlay">
     Ctrl
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_LEFT_ALT_LABEL"
-           desc="The label for 'Customize modifier keys' overlay">
+           desc="The label for customizing the left alt key in the 'Keyboard settings' overlay">
     Alt
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_CAPS_LOCK_LABEL"
-           desc="The label for 'Customize modifier keys' overlay">
+           desc="The label for customizing the caps-lock key in the 'Keyboard settings' overlay">
     Caps Lock
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_DIAMOND_KEY_LABEL"
-           desc="The label for 'Customize modifier keys' overlay">
+           desc="The label for customizing the diamond key in the 'Keyboard settings' overlay">
     Diamond
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_SEARCH"
-           desc="The dropdown list item for 'Customize modifier keys' overlay">
+           desc="The dropdown list item for the search key in the 'Customize modifier keys' section in the 'Keyboard settings' overlay">
     Search
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_LEFT_CTRL"
-           desc="The dropdown list item for 'Customize modifier keys' overlay">
+           desc="The dropdown list item for the left ctrl key in the 'Customize modifier keys' section in the 'Keyboard settings' overlay">
     Ctrl
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_LEFT_ALT"
-           desc="The dropdown list item for 'Customize modifier keys' overlay">
+           desc="The dropdown list item for the left alt key in the 'Customize modifier keys' section in the 'Keyboard settings' overlay">
     Alt
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_VOID"
-           desc="The dropdown list item for 'Customize modifier keys' overlay">
+           desc="The dropdown list item for disabling the remapping in the 'Customize modifier keys' section in the 'Keyboard settings' overlay">
     Disabled
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_CAPS_LOCK"
-           desc="The dropdown list item for 'Customize modifier keys' overlay">
+           desc="The dropdown list item for the caps-lock key in the 'Customize modifier keys' section in the 'Keyboard settings' overlay">
     Caps Lock
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_ESCAPE"
-           desc="The dropdown list item for 'Customize modifier keys' overlay">
+           desc="The dropdown list item for the escape key in the 'Customize modifier keys' section in the 'Keyboard settings' overlay">
     Escape
+  </message>
+  <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_KEY_BACKSPACE"
+           desc="The dropdown list item for the backspace key in the 'Customize modifier keys' section in the 'Keyboard settings' overlay">
+    Backspace
   </message>
   <message name="IDS_OPTIONS_SETTINGS_LANGUAGES_SEND_FUNCTION_KEYS"
            desc="The checkbox label for a setting to interpret the top-row keys as function keys instead.">
@@ -4834,6 +4863,12 @@ Battery full
   <message name="IDS_STATUSBAR_LAYOUT_USA_INTERNATIONAL" desc="In the language menu button, this shows the input mode [US international keyboard].">
     US international
   </message>
+  <message name="IDS_STATUSBAR_LAYOUT_USA_WORKMAN" desc="In the language menu button, this shows the input mode [US Workman keyboard].">
+    US Workman
+  </message>
+  <message name="IDS_STATUSBAR_LAYOUT_USA_WORKMAN_INTERNATIONAL" desc="In the language menu button, this shows the input mode [US Workman international keyboard].">
+    US Workman international
+  </message>
   <message name="IDS_STATUSBAR_LAYOUT_LITHUANIA" desc="In the language menu button, this shows the input mode [Lithuanian keyboard].">
     Lithuanian
   </message>
@@ -4948,6 +4983,9 @@ Battery full
   <message name="IDS_STATUSBAR_LAYOUT_MACEDONIAN" desc="In the language menu button, this shows the input mode [Macedonian keyboard].">
     Macedonian
   </message>
+  <message name="IDS_STATUSBAR_LAYOUT_KAZAKH" desc="In the language menu button, this shows the input mode [Kazakh keyboard].">
+    Kazakh
+  </message>
 
   <message name="IDS_IME_NAME_KEYBOARD_ARMENIAN_PHONETIC" desc="The input method name shows in system tray menu, this shows [Armenian Phonetic keyboard].">
     Armenian Phonetic keyboard
@@ -5038,6 +5076,9 @@ Battery full
   </message>
   <message name="IDS_IME_NAME_KEYBOARD_JAPANESE" desc="The input method name shows in system tray menu, this shows [Japanese keyboard].">
     Japanese keyboard
+  </message>
+  <message name="IDS_IME_NAME_KEYBOARD_KAZAKH" desc="The input method name shows in system tray menu, this shows [Kazakh keyboard].">
+    Kazakh keyboard
   </message>
   <message name="IDS_IME_NAME_KEYBOARD_LATIN_AMERICAN" desc="The input method name shows in system tray menu, this shows [Latin American keyboard].">
     Latin American keyboard
@@ -5138,6 +5179,12 @@ Battery full
   <message name="IDS_IME_NAME_KEYBOARD_US_INTERNATIONAL" desc="The input method name shows in system tray menu, this shows [US International keyboard].">
     US International keyboard
   </message>
+  <message name="IDS_IME_NAME_KEYBOARD_US_WORKMAN" desc="The input method name shows in system tray menu, this shows [US Workman keyboard].">
+    US Workman keyboard
+  </message>
+  <message name="IDS_IME_NAME_KEYBOARD_US_WORKMAN_INTERNATIONAL" desc="The input method name shows in system tray menu, this shows [US Workman international keyboard].">
+    US Workman international keyboard
+  </message>
   <message name="IDS_IME_NAME_KEYBOARD_US" desc="The input method name shows in system tray menu, this shows [US keyboard].">
     US keyboard
   </message>
@@ -5171,6 +5218,9 @@ Battery full
   </message>
   <message name="IDS_IME_NAME_INPUTMETHOD_ZHUYIN" desc="The input method name shows in system tray menu, this is Zhuyin input method for Traditional Chinese.">
     Zhuyin input method
+  </message>
+  <message name="IDS_IME_NAME_INPUTMETHOD_CANTONESE" desc="The input method name shows in system tray menu, this is Cantonese input method for Traditional Chinese.">
+    Cantonese input method
   </message>
   <message name="IDS_IME_NAME_INPUTMETHOD_HANGUL" desc="The input method name shows in system tray menu, this is Korean Hangul input method.">
     Korean input method
@@ -5902,7 +5952,10 @@ All users must sign out to continue.
   <message name="IDS_PAIRING_CONTROLLER_CONNECTION_LOST_TEXT" desc="Text on the controller page which says that connection with host was lost during the 'Chromebox for meeting' setup process.">
     Lost connection to your Chromebox. Please move closer, or check your device while we try to reconnect.
   </message>
-  <message name="IDS_PAIRING_ENROLL_TITLE" desc="Title of the enroll page of the 'Chromebox for meeting' setup process.">
+  <message name="IDS_PAIRING_CONTROLLER_HOST_NETWORK_ERROR_TITLE" desc="Title of the controller page which says that the host device's network is not set up successfully.">
+    Failed to set up your Chromebox's network
+  </message>
+  <message name="IDS_PAIRING_CONTROLLER_ENROLL_TITLE" desc="Title of the enroll page of the 'Chromebox for meeting' setup process.">
     Enroll in your organization
   </message>
   <message name="IDS_PAIRING_CONTROLLER_ENROLL_TEXT_1" desc="First paragraph of text shown on the controller's enroll page of the 'Chromebox for meeting' setup process. Second paragraph is: 'This will only happen once, and your credentials will not be stored.'">
@@ -5914,7 +5967,7 @@ All users must sign out to continue.
   <message name="IDS_PAIRING_CONTROLLER_CONTINUE" desc="Text on buttons leading to the next step of the 'Chromebox for meeting' setup process.">
     Continue
   </message>
-  <message name="IDS_PAIRING_ENROLLMENT_IN_PROGRESS" desc="Message shown on enroll screens of the 'Chromebox for meeting' setup process.">
+  <message name="IDS_PAIRING_CONTROLLER_ENROLLMENT_IN_PROGRESS" desc="Message shown on enroll screens of the 'Chromebox for meeting' setup process.">
     Enrolling in <ph name="BEGIN_BOLD">&lt;strong&gt;</ph><ph name="DOMAIN_NAME">$1<ex>example.com</ex></ph><ph name="END_BOLD">&lt;/strong&gt;</ph>...
   </message>
   <message name="IDS_PAIRING_ENROLLMENT_ERROR_TITLE" desc="Title of the page shown when enrollment attempt is failed during the 'Chromebox for meeting' setup process.">
@@ -5938,9 +5991,6 @@ All users must sign out to continue.
   <message name="IDS_PAIRING_HOST_WELCOME_TEXT" desc="Text on the host's welcome page of the 'Chromebox for meeting' setup process.">
     Turn on your touch controller to set me up
   </message>
-  <message name="IDS_PAIRING_HOST_CONFIRMATION_TITLE" desc="Title of the host's confirmation page of the 'Chromebox for meeting' setup process. 6-digit confirmation code is displayed below.">
-    Pair with a controller
-  </message>
   <message name="IDS_PAIRING_HOST_UPDATING_TITLE" desc="Title of the host's update page of the 'Chromebox for meeting' setup process.">
     Updating Chromebox...
   </message>
@@ -5953,8 +6003,34 @@ All users must sign out to continue.
   <message name="IDS_PAIRING_HOST_DONE_TEXT" desc="Title of the final host's page shown when the 'Chromebox for meeting' setup process is finished.">
     You're all set to continue on to Hangouts
   </message>
-  <message name="IDS_PAIRING_HOST_EROLLMENT_ERROR_NEEDS_RESTART" desc="Text on the host's page of the 'Chromebox for meeting' setup process shown when enrollment attempt is failed.">
-    Chromebox needs to restart...
+  <message name="IDS_PAIRING_HOST_ERROR_NEED_RESTART_TEXT" desc="Text on the host's error page shown when the bootstrapping attampt or 'Chromebox for meeting' setup process is failed.">
+    Please restart the device and try again later.
+  </message>
+
+  <!-- Strings for the bootstrapping OOBE process -->
+  <message name="IDS_HOST_SETUP_BASIC_CONFIGURATION_TITLE" desc="Title of the host's basic configuration setup page during the bootstrapping process.">
+    Setup network connection, language, keyboard layout...
+  </message>
+  <message name="IDS_HOST_SETUP_NETWORK_ERROR_TITLE" desc="Title of the host's network error page during the bootstrapping process.">
+    Could not set up network
+  </message>
+  <message name="IDS_SLAVE_CONFIRMATION_TITLE" desc="Title of the host's confirmation page of the bootstrapping process. 6-digit confirmation code is displayed below.">
+    Initialize the connection
+  </message>
+  <message name="IDS_SLAVE_ENROLL_TITLE" desc="Title of the enroll page of the bootstrapping process.">
+    Enroll in your organization
+  </message>
+  <message name="IDS_SLAVE_ENROLLMENT_IN_PROGRESS" desc="Message shown on the host screen of the bootstrapping process.">
+    Enrolling in <ph name="BEGIN_BOLD">&lt;strong&gt;</ph><ph name="DOMAIN_NAME">$1<ex>example.com</ex></ph><ph name="END_BOLD">&lt;/strong&gt;</ph>...
+  </message>
+  <message name="IDS_SLAVE_ENROLLMENT_ERROR_TITLE" desc="Title of the page shown when enrollment attempt is failed during the bootstrapping process.">
+    Unable to enroll
+  </message>
+  <message name="IDS_PAIRING_HOST_INITIALIZATION_ERROR_TITLE" desc="Title of the host's initialization error page during the bootstrapping process or 'Chromebox for meeting' setup process.">
+    Could not initialize the connection
+  </message>
+  <message name="IDS_PAIRING_HOST_CONNECTION_ERROR_TITLE" desc="Title of the host's connection error page during the bootstrapping process or 'Chromebox for meeting' setup process.">
+    Connection was lost
   </message>
 
   <!-- Strings for the le OAuth-based enterprise enrollment page -->
@@ -6275,11 +6351,11 @@ All users must sign out to continue.
     System time
   </message>
 
-  <message name="IDS_FLAGS_DISABLE_RESOLVE_TIMEZONE_BY_GEOLOCATION_NAME" desc="Title for the flag to disable automatic timezone update on user location change.">
-    Disable automatic timezone update by geolocation
+  <message name="IDS_FLAGS_RESOLVE_TIMEZONE_BY_GEOLOCATION_NAME" desc="Title for the flag for automatic timezone update on user location change.">
+    Automatic timezone update by geolocation
   </message>
-  <message name="IDS_FLAGS_DISABLE_RESOLVE_TIMEZONE_BY_GEOLOCATION_DESCRIPTION" desc="Description for the flag to disable user setting to automatically update timezone by user geolocation.">
-    If set, automatic timezone update by the current geolocation is turned off.
+  <message name="IDS_FLAGS_RESOLVE_TIMEZONE_BY_GEOLOCATION_DESCRIPTION" desc="Description for the flag for user setting to automatically update timezone by user geolocation.">
+    Enables the user setting to automatically select timezone by the current geolocation.
   </message>
   <message name="IDS_OPTIONS_RESOLVE_TIMEZONE_BY_GEOLOCATION_DESCRIPTION" desc="Label for checkbox to allow automatic timezone update by user geolocation.">
     Set time zone automatically using your location
@@ -6299,11 +6375,11 @@ All users must sign out to continue.
   <message name="IDS_FILE_SYSTEM_REQUEST_FILE_SYSTEM_DIALOG_DENY_BUTTON" desc="Label on the button to reject permissions.">
     Deny
   </message>
-  <message name="IDS_FLAG_DISABLE_MTP_WRITE_SUPPORT_NAME" desc="Name of the option to enable mtp write support.">
-    Disable MTP write support
+  <message name="IDS_FLAGS_MTP_WRITE_SUPPORT_NAME" desc="Name of the option for mtp write support.">
+    MTP write support
   </message>
-  <message name="IDS_FLAG_DISABLE_MTP_WRITE_SUPPORT_DESCRIPTION" desc="Description of the option to enable mtp write support.">
-    Disable MTP write support in File System API (and file manager). In-place editing operations are not supported.
+  <message name="IDS_FLAGS_MTP_WRITE_SUPPORT_DESCRIPTION" desc="Description of the option for mtp write support.">
+    MTP write support in File System API (and file manager). In-place editing operations are not supported.
   </message>
   <message name="IDS_FILE_SYSTEM_REQUEST_FILE_SYSTEM_NOTIFICATION_MESSAGE" desc="Message in a notification about granted read-only pemissions (read, write, delete, create files and directories) to a volume (eg. USB drive, SD card, MTP device) with the specified name to the extension.">
     Read-only access to <ph name="VOLUME_NAME">$1<ex>FooBar 4GB</ex></ph> has been granted.
@@ -6351,6 +6427,14 @@ All users must sign out to continue.
   </message>
   <message name="IDS_FLAGS_PRINTER_PROVIDER_SEARCH_APP_DESCRIPTION" desc="Description of a flag in chrome://flags that enables launching Chrome Web Store Gallery widget app for searching for printer provider apps.">
     Enables Chrome Web Store Gallery app for printer drivers. The app searches Chrome Web Store for extensions that support printing to a USB printer with specific USB ID.
+  </message>
+
+  <!-- Android Apps -->
+  <message name="IDS_OPTIONS_ARC_TITLE" desc="The title of Android Apps section.">
+    Android Apps
+  </message>
+  <message name="IDS_OPTIONS_ARC_ENABLE" desc="Label for the checkbox that enables Android apps.">
+    Enable Android Apps to run on your Chromebook.
   </message>
 
 </grit-part>

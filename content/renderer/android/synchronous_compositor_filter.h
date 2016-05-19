@@ -5,6 +5,8 @@
 #ifndef CONTENT_RENDERER_ANDROID_SYNCHRONOUS_COMPOSITOR_FILTER_H_
 #define CONTENT_RENDERER_ANDROID_SYNCHRONOUS_COMPOSITOR_FILTER_H_
 
+#include <stdint.h>
+
 #include "base/containers/scoped_ptr_hash_map.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
@@ -12,6 +14,10 @@
 #include "content/renderer/input/input_handler_manager_client.h"
 #include "ipc/ipc_sender.h"
 #include "ipc/message_filter.h"
+
+namespace ui {
+class SynchronousInputHandlerProxy;
+}
 
 namespace content {
 
@@ -54,11 +60,14 @@ class SynchronousCompositorFilter : public IPC::MessageFilter,
   void SetBoundHandler(const Handler& handler) override;
   void DidAddInputHandler(
       int routing_id,
-      SynchronousInputHandlerProxy* synchronous_input_handler_proxy) override;
+      ui::SynchronousInputHandlerProxy*
+          synchronous_input_handler_proxy) override;
   void DidRemoveInputHandler(int routing_id) override;
   void DidOverscroll(int routing_id,
                      const DidOverscrollParams& params) override;
   void DidStopFlinging(int routing_id) override;
+  void NonBlockingInputEventHandled(int routing_id,
+                                    blink::WebInputEvent::Type type) override;
 
  private:
   ~SynchronousCompositorFilter() override;
@@ -92,7 +101,7 @@ class SynchronousCompositorFilter : public IPC::MessageFilter,
   struct Entry {
     SynchronousCompositorExternalBeginFrameSource* begin_frame_source;
     SynchronousCompositorOutputSurface* output_surface;
-    SynchronousInputHandlerProxy* synchronous_input_handler_proxy;
+    ui::SynchronousInputHandlerProxy* synchronous_input_handler_proxy;
 
     Entry();
     bool IsReady();

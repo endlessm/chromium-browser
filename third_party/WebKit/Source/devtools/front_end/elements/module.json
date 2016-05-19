@@ -25,6 +25,7 @@
         {
             "type": "setting",
             "category": "Elements",
+            "order": 0,
             "title": "Color format:",
             "settingName": "colorFormat",
             "settingType": "enum",
@@ -39,6 +40,7 @@
         {
             "type": "setting",
             "category": "Elements",
+            "order":1,
             "title": "Show user agent shadow DOM",
             "settingName": "showUAShadowDOM",
             "settingType": "boolean",
@@ -47,6 +49,7 @@
         {
             "type": "setting",
             "category": "Elements",
+            "order": 2,
             "title": "Word wrap",
             "settingName": "domWordWrap",
             "settingType": "boolean",
@@ -55,15 +58,22 @@
         {
             "type": "setting",
             "category": "Elements",
-            "title": "Show rulers",
-            "settingName": "showMetricsRulers",
+            "order": 4,
+            "title": "Reveal DOM node on hover.",
+            "settingName": "highlightNodeOnHoverInOverlay",
             "settingType": "boolean",
-            "defaultValue": false
+            "defaultValue": true
         },
         {
             "type": "@WebInspector.ToolbarItem.Provider",
             "className": "WebInspector.ElementStatePaneWidget.ButtonProvider",
             "order": 1,
+            "location": "styles-sidebarpane-toolbar"
+        },
+        {
+            "type": "@WebInspector.ToolbarItem.Provider",
+            "className": "WebInspector.ClassesPaneWidget.ButtonProvider",
+            "order": 2,
             "location": "styles-sidebarpane-toolbar"
         },
         {
@@ -155,6 +165,7 @@
         "StylesSidebarPane.js",
         "ComputedStyleWidget.js",
         "ElementsPanel.js",
+        "ClassesPaneWidget.js",
         "ElementStatePaneWidget.js",
         "ElementsTreeElementHighlighter.js"
     ],

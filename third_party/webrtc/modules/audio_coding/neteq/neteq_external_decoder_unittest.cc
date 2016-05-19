@@ -10,8 +10,9 @@
 
 // Test to verify correct operation for externally created decoders.
 
+#include <memory>
+
 #include "testing/gmock/include/gmock/gmock.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/audio_coding/neteq/mock/mock_external_decoder_pcm16b.h"
 #include "webrtc/modules/audio_coding/neteq/tools/input_audio_file.h"
 #include "webrtc/modules/audio_coding/neteq/tools/neteq_external_decoder_test.h"
@@ -98,8 +99,9 @@ class NetEqExternalDecoderUnitTest : public test::NetEqExternalDecoderTest {
       next_arrival_time = GetArrivalTime(next_send_time);
     } while (Lost());  // If lost, immediately read the next packet.
 
-    EXPECT_CALL(*external_decoder_,
-                Decode(_, payload_size_bytes_, 1000 * samples_per_ms_, _, _, _))
+    EXPECT_CALL(
+        *external_decoder_,
+        DecodeInternal(_, payload_size_bytes_, 1000 * samples_per_ms_, _, _))
         .Times(NumExpectedDecodeCalls(num_loops));
 
     uint32_t time_now = 0;
@@ -144,16 +146,16 @@ class NetEqExternalDecoderUnitTest : public test::NetEqExternalDecoderTest {
 
   int samples_per_ms() const { return samples_per_ms_; }
  private:
-  rtc::scoped_ptr<MockExternalPcm16B> external_decoder_;
+  std::unique_ptr<MockExternalPcm16B> external_decoder_;
   int samples_per_ms_;
   size_t frame_size_samples_;
-  rtc::scoped_ptr<test::RtpGenerator> rtp_generator_;
+  std::unique_ptr<test::RtpGenerator> rtp_generator_;
   int16_t* input_;
   uint8_t* encoded_;
   size_t payload_size_bytes_;
   uint32_t last_send_time_;
   uint32_t last_arrival_time_;
-  rtc::scoped_ptr<test::InputAudioFile> input_file_;
+  std::unique_ptr<test::InputAudioFile> input_file_;
   WebRtcRTPHeader rtp_header_;
 };
 
@@ -179,15 +181,15 @@ class NetEqExternalVsInternalDecoderTest : public NetEqExternalDecoderUnitTest,
   }
 
   void SetUp() override {
-    ASSERT_EQ(NetEq::kOK,
-              neteq_internal_->RegisterPayloadType(
-                  NetEqDecoder::kDecoderPCM16Bswb32kHz, kPayloadType));
+    ASSERT_EQ(NetEq::kOK, neteq_internal_->RegisterPayloadType(
+                              NetEqDecoder::kDecoderPCM16Bswb32kHz,
+                              "pcm16-swb32", kPayloadType));
   }
 
   void GetAndVerifyOutput() override {
     NetEqOutputType output_type;
     size_t samples_per_channel;
-    int num_channels;
+    size_t num_channels;
     // Get audio from internal decoder instance.
     EXPECT_EQ(NetEq::kOK,
               neteq_internal_->GetAudio(kMaxBlockSize,
@@ -195,7 +197,7 @@ class NetEqExternalVsInternalDecoderTest : public NetEqExternalDecoderUnitTest,
                                         &samples_per_channel,
                                         &num_channels,
                                         &output_type));
-    EXPECT_EQ(1, num_channels);
+    EXPECT_EQ(1u, num_channels);
     EXPECT_EQ(static_cast<size_t>(kOutputLengthMs * sample_rate_hz_ / 1000),
               samples_per_channel);
 
@@ -224,7 +226,7 @@ class NetEqExternalVsInternalDecoderTest : public NetEqExternalDecoderUnitTest,
 
  private:
   int sample_rate_hz_;
-  rtc::scoped_ptr<NetEq> neteq_internal_;
+  std::unique_ptr<NetEq> neteq_internal_;
   int16_t output_internal_[kMaxBlockSize];
   int16_t output_[kMaxBlockSize];
 };

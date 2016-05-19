@@ -12,6 +12,7 @@
 #include <set>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/browser/extensions/api/web_navigation/frame_navigation_state.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/browser/profiles/profile.h"
@@ -49,20 +50,10 @@ class WebNavigationTabObserver
   void FrameDeleted(content::RenderFrameHost* render_frame_host) override;
   void RenderFrameHostChanged(content::RenderFrameHost* old_host,
                               content::RenderFrameHost* new_host) override;
-  void DidStartProvisionalLoadForFrame(
-      content::RenderFrameHost* render_frame_host,
-      const GURL& validated_url,
-      bool is_error_page,
-      bool is_iframe_srcdoc) override;
-  void DidCommitProvisionalLoadForFrame(
-      content::RenderFrameHost* render_frame_host,
-      const GURL& url,
-      ui::PageTransition transition_type) override;
-  void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
-                              const GURL& validated_url,
-                              int error_code,
-                              const base::string16& error_description,
-                              bool was_ignored_by_handler) override;
+  void DidStartNavigation(
+      content::NavigationHandle* navigation_handle) override;
+  void DidFinishNavigation(
+      content::NavigationHandle* navigation_handle) override;
   void DocumentLoadedInFrame(
       content::RenderFrameHost* render_frame_host) override;
   void DidFinishLoad(content::RenderFrameHost* render_frame_host,
@@ -72,9 +63,6 @@ class WebNavigationTabObserver
                    int error_code,
                    const base::string16& error_description,
                    bool was_ignored_by_handler) override;
-  void DidGetRedirectForResourceRequest(
-      content::RenderFrameHost* render_frame_host,
-      const content::ResourceRedirectDetails& details) override;
   void DidOpenRequestedURL(content::WebContents* new_contents,
                            content::RenderFrameHost* source_render_frame_host,
                            const GURL& url,
@@ -86,6 +74,9 @@ class WebNavigationTabObserver
  private:
   explicit WebNavigationTabObserver(content::WebContents* web_contents);
   friend class content::WebContentsUserData<WebNavigationTabObserver>;
+
+  void HandleCommit(content::NavigationHandle* navigation_handle);
+  void HandleError(content::NavigationHandle* navigation_handle);
 
   // True if the transition and target url correspond to a reference fragment
   // navigation.

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/image-decoders/bmp/BMPImageReader.h"
 
 namespace {
@@ -62,7 +61,7 @@ const uint8_t nBitTo8BitlookupTable[] = {
     225, 227, 229, 231, 233, 235, 237, 239, 241, 243, 245, 247, 249, 251, 253, 255,
 };
 
-}
+} // namespace
 
 namespace blink {
 

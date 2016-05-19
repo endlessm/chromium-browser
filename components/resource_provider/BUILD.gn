@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//mojo/public/mojo_application.gni")
+import("//mojo/public/mojo_application_manifest.gni")
 import("//testing/test.gni")
 
 if (is_android) {
@@ -17,6 +18,7 @@ if (is_android) {
     deps = [
       ":java_library",
       ":resource_provider_lib",
+      "//mojo/shell/public/cpp",
     ]
   }
 
@@ -35,6 +37,7 @@ if (is_android) {
       "//mojo/environment:chromium",
       "//mojo/platform_handle:for_shared_library",
       "//mojo/public/c/system:for_shared_library",
+      "//mojo/shell/public/cpp",
       "//url",
     ]
   }
@@ -69,11 +72,18 @@ if (is_android) {
 
     deps = [
       ":lib",
+      ":manifest",
       "//base",
       "//components/resource_provider/public/interfaces",
       "//mojo/environment:chromium",
+      "//mojo/shell/public/cpp",
       "//url",
     ]
+  }
+
+  mojo_application_manifest("manifest") {
+    application_name = "resource_provider"
+    source = "manifest.json"
   }
 }
 
@@ -90,8 +100,10 @@ source_set("lib") {
   deps = [
     "//base",
     "//components/resource_provider/public/interfaces",
-    "//mojo/application/public/cpp",
     "//mojo/common:common_base",
+    "//mojo/platform_handle",
+    "//mojo/services/tracing/public/cpp",
+    "//mojo/shell/public/cpp",
     "//url",
   ]
 }
@@ -106,10 +118,10 @@ test("resource_provider_unittests") {
     "//base",
     "//base/test:test_config",
     "//components/resource_provider/public/interfaces",
+    "//mojo/edk/test:run_all_unittests",
     "//mojo/environment:chromium",
     "//mojo/platform_handle:for_shared_library",
     "//testing/gtest",
-    "//third_party/mojo/src/mojo/edk/test:run_all_unittests",
     "//url",
   ]
 }
@@ -128,14 +140,21 @@ mojo_native_application("apptests") {
   ]
 
   deps = [
+    ":apptest_manifest",
     "//base",
     "//base/test:test_config",
     "//components/resource_provider/public/cpp",
     "//components/resource_provider/public/interfaces",
-    "//mojo/application/public/cpp:test_support",
+    "//mojo/common",
+    "//mojo/shell/public/cpp:test_support",
   ]
 
   data_deps = [
     ":resource_provider",
   ]
+}
+
+mojo_application_manifest("apptest_manifest") {
+  application_name = "resource_provider_apptests"
+  source = "apptest_manifest.json"
 }

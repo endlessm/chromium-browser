@@ -5,6 +5,8 @@
 #include "mojo/public/platform/native/gles2_thunks.h"
 
 #include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "mojo/public/platform/native/thunk_export.h"
 
@@ -40,14 +42,6 @@ void MojoGLES2SwapBuffers() {
 void* MojoGLES2GetGLES2Interface(MojoGLES2Context context) {
   assert(g_control_thunks.GLES2GetGLES2Interface);
   return g_control_thunks.GLES2GetGLES2Interface(context);
-}
-
-void MojoGLES2SignalSyncPoint(MojoGLES2Context context,
-                              uint32_t sync_point,
-                              MojoGLES2SignalSyncPointCallback callback,
-                              void* closure) {
-  assert(g_control_thunks.GLES2SignalSyncPoint);
-  g_control_thunks.GLES2SignalSyncPoint(context, sync_point, callback, closure);
 }
 
 extern "C" THUNK_EXPORT size_t MojoSetGLES2ControlThunks(

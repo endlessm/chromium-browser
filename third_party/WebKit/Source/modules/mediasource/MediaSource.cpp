@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/mediasource/MediaSource.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -252,7 +251,7 @@ bool MediaSource::isTypeSupported(const String& type)
 
     // Note: MediaSource.isTypeSupported() returning true implies that HTMLMediaElement.canPlayType() will return "maybe" or "probably"
     // since it does not make sense for a MediaSource to support a type the HTMLMediaElement knows it cannot play.
-    if (HTMLMediaElement::supportsType(contentType, String()) == WebMimeRegistry::IsNotSupported) {
+    if (HTMLMediaElement::supportsType(contentType) == WebMimeRegistry::IsNotSupported) {
         WTF_LOG(Media, "MediaSource::isTypeSupported(%s) -> false (not supported by HTMLMediaElement)", type.ascii().data());
         return false;
     }

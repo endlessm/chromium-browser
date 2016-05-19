@@ -4,30 +4,50 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include <cctype>
+#include <cwctype>
 #include <limits>
 
 #include "core/include/fxcrt/fx_ext.h"
 #include "core/include/fxcrt/fx_string.h"
 
-template <class T, class STR_T>
-T FXSYS_StrToInt(STR_T str) {
+template <class T>
+T FXSYS_StrToInt(const FX_CHAR* str) {
   FX_BOOL neg = FALSE;
-  if (str == NULL) {
+  if (!str)
     return 0;
-  }
+
   if (*str == '-') {
     neg = TRUE;
     str++;
   }
   T num = 0;
-  while (*str) {
-    if ((*str) < '0' || (*str) > '9') {
+  while (*str && std::isdigit(*str)) {
+    if (num > (std::numeric_limits<T>::max() - 9) / 10)
       break;
-    }
-    if (num > (std::numeric_limits<T>::max() - 9) / 10) {
+
+    num = num * 10 + FXSYS_toDecimalDigit(*str);
+    str++;
+  }
+  return neg ? -num : num;
+}
+
+template <class T>
+T FXSYS_StrToInt(const FX_WCHAR* str) {
+  FX_BOOL neg = FALSE;
+  if (!str)
+    return 0;
+
+  if (*str == '-') {
+    neg = TRUE;
+    str++;
+  }
+  T num = 0;
+  while (*str && std::iswdigit(*str)) {
+    if (num > (std::numeric_limits<T>::max() - 9) / 10)
       break;
-    }
-    num = num * 10 + (*str) - '0';
+
+    num = num * 10 + FXSYS_toDecimalDigitWide(*str);
     str++;
   }
   return neg ? -num : num;
@@ -71,16 +91,16 @@ STR_T FXSYS_IntToStr(T value, STR_T string, int radix) {
 extern "C" {
 #endif
 int32_t FXSYS_atoi(const FX_CHAR* str) {
-  return FXSYS_StrToInt<int32_t, const FX_CHAR*>(str);
+  return FXSYS_StrToInt<int32_t>(str);
 }
 int32_t FXSYS_wtoi(const FX_WCHAR* str) {
-  return FXSYS_StrToInt<int32_t, const FX_WCHAR*>(str);
+  return FXSYS_StrToInt<int32_t>(str);
 }
 int64_t FXSYS_atoi64(const FX_CHAR* str) {
-  return FXSYS_StrToInt<int64_t, const FX_CHAR*>(str);
+  return FXSYS_StrToInt<int64_t>(str);
 }
 int64_t FXSYS_wtoi64(const FX_WCHAR* str) {
-  return FXSYS_StrToInt<int64_t, const FX_WCHAR*>(str);
+  return FXSYS_StrToInt<int64_t>(str);
 }
 const FX_CHAR* FXSYS_i64toa(int64_t value, FX_CHAR* str, int radix) {
   return FXSYS_IntToStr<int64_t, uint64_t, FX_CHAR*>(value, str, radix);
@@ -100,7 +120,7 @@ FX_DWORD FXSYS_GetFullPathName(const FX_CHAR* filename,
                                FX_CHAR* buf,
                                FX_CHAR** filepart) {
   int srclen = FXSYS_strlen(filename);
-  if (buf == NULL || (int)buflen < srclen + 1) {
+  if (!buf || (int)buflen < srclen + 1) {
     return srclen + 1;
   }
   FXSYS_strcpy(buf, filename);
@@ -122,7 +142,7 @@ FXSYS_FILE* FXSYS_wfopen(const FX_WCHAR* filename, const FX_WCHAR* mode) {
                      CFX_ByteString::FromUnicode(mode));
 }
 char* FXSYS_strlwr(char* str) {
-  if (str == NULL) {
+  if (!str) {
     return NULL;
   }
   char* s = str;
@@ -133,7 +153,7 @@ char* FXSYS_strlwr(char* str) {
   return s;
 }
 char* FXSYS_strupr(char* str) {
-  if (str == NULL) {
+  if (!str) {
     return NULL;
   }
   char* s = str;
@@ -144,7 +164,7 @@ char* FXSYS_strupr(char* str) {
   return s;
 }
 FX_WCHAR* FXSYS_wcslwr(FX_WCHAR* str) {
-  if (str == NULL) {
+  if (!str) {
     return NULL;
   }
   FX_WCHAR* s = str;
@@ -155,7 +175,7 @@ FX_WCHAR* FXSYS_wcslwr(FX_WCHAR* str) {
   return s;
 }
 FX_WCHAR* FXSYS_wcsupr(FX_WCHAR* str) {
-  if (str == NULL) {
+  if (!str) {
     return NULL;
   }
   FX_WCHAR* s = str;

@@ -2,13 +2,18 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import datetime
 import logging
 import os
+import shutil
+import tempfile
 import threading
 
 from devil.android import device_blacklist
 from devil.android import device_errors
 from devil.android import device_utils
+from devil.android import logcat_monitor
+from devil.utils import file_utils
 from devil.utils import parallelizer
 from pylib import constants
 from pylib.base import environment
@@ -32,8 +37,10 @@ class LocalDeviceEnvironment(environment.Environment):
     self._max_tries = 1 + args.num_retries
     self._tool_name = args.tool
     self._enable_device_cache = args.enable_device_cache
-    self._incremental_install = args.incremental_install
     self._concurrent_adb = args.enable_concurrent_adb
+    self._logcat_output_dir = args.logcat_output_dir
+    self._logcat_output_file = args.logcat_output_file
+    self._logcat_monitors = []
 
   #override
   def SetUp(self):
@@ -57,7 +64,20 @@ class LocalDeviceEnvironment(environment.Environment):
           logging.info('Using device cache: %s', cache_path)
           with open(cache_path) as f:
             d.LoadCacheData(f.read())
+          # Delete cached file so that any exceptions cause it to be cleared.
           os.unlink(cache_path)
+    if self._logcat_output_file:
+      self._logcat_output_dir = tempfile.mkdtemp()
+    if self._logcat_output_dir:
+      for d in self._devices:
+        logcat_file = os.path.join(
+            self._logcat_output_dir,
+            '%s_%s' % (d.adb.GetDeviceSerial(),
+                       datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S')))
+        monitor = logcat_monitor.LogcatMonitor(
+            d.adb, clear=True, output_file=logcat_file)
+        self._logcat_monitors.append(monitor)
+        monitor.Start()
 
   @property
   def devices(self):
@@ -68,10 +88,6 @@ class LocalDeviceEnvironment(environment.Environment):
   @property
   def concurrent_adb(self):
     return self._concurrent_adb
-
-  @property
-  def incremental_install(self):
-    return self._incremental_install
 
   @property
   def parallel_devices(self):
@@ -95,16 +111,19 @@ class LocalDeviceEnvironment(environment.Environment):
       with open(cache_path, 'w') as f:
         f.write(d.DumpCacheData())
         logging.info('Wrote device cache: %s', cache_path)
+    for m in self._logcat_monitors:
+      m.Stop()
+      m.Close()
+    if self._logcat_output_file:
+      file_utils.MergeFiles(
+          self._logcat_output_file,
+          [m.output_file for m in self._logcat_monitors])
+      shutil.rmtree(self._logcat_output_dir)
 
   def BlacklistDevice(self, device, reason='local_device_failure'):
-    if not self._blacklist:
-      logging.warning(
-          'Attempted to blacklist %s, but no blacklist was provided.',
-          str(device))
-      return
-
     device_serial = device.adb.GetDeviceSerial()
-    self._blacklist.Extend([device_serial], reason=reason)
+    if self._blacklist:
+      self._blacklist.Extend([device_serial], reason=reason)
     with self._devices_lock:
       self._devices = [d for d in self._devices if str(d) != device_serial]
 

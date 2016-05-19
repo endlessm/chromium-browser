@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/cocoa/extensions/media_galleries_dialog_cocoa.h"
 
+#include <stddef.h>
+
 #include "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/ui/chrome_style.h"
@@ -100,8 +102,8 @@ MediaGalleriesDialogCocoa::MediaGalleriesDialogCocoa(
     base::scoped_nsobject<CustomConstrainedWindowSheet> sheet(
         [[CustomConstrainedWindowSheet alloc]
             initWithCustomWindow:[alert_ window]]);
-    window_.reset(new ConstrainedWindowMac(
-        this, controller->WebContents(), sheet));
+    window_ = CreateAndShowWebModalDialogMac(
+        this, controller->WebContents(), sheet);
   }
 }
 

@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/PageScaleConstraints.h"
@@ -49,8 +47,8 @@
 #include "public/web/WebScriptSource.h"
 #include "public/web/WebSettings.h"
 #include "public/web/WebViewClient.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -101,7 +99,7 @@ static PageScaleConstraints runViewportTest(Page* page, int initialWidth, int in
     IntSize initialViewportSize(initialWidth, initialHeight);
     toLocalFrame(page->mainFrame())->view()->setFrameRect(IntRect(IntPoint::zero(), initialViewportSize));
     ViewportDescription description = page->viewportDescription();
-    PageScaleConstraints constraints = description.resolve(initialViewportSize, Length(980, blink::Fixed));
+    PageScaleConstraints constraints = description.resolve(FloatSize(initialViewportSize), Length(980, blink::Fixed));
 
     constraints.fitToContentsWidth(constraints.layoutSize.width(), initialWidth);
     constraints.resolveAutoInitialScale();

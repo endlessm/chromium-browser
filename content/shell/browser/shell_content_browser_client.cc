@@ -4,12 +4,18 @@
 
 #include "content/shell/browser/shell_content_browser_client.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/path_service.h"
+#include "base/strings/pattern.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_process_host.h"
@@ -19,9 +25,6 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
 #include "content/public/test/test_mojo_app.h"
-#include "content/shell/browser/blink_test_controller.h"
-#include "content/shell/browser/layout_test/layout_test_browser_main_parts.h"
-#include "content/shell/browser/layout_test/layout_test_resource_dispatcher_host_delegate.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_access_token_store.h"
 #include "content/shell/browser/shell_browser_context.h"
@@ -35,6 +38,7 @@
 #include "content/shell/common/shell_switches.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/apk_assets.h"
@@ -53,6 +57,10 @@
 #if defined(OS_WIN)
 #include "content/common/sandbox_win.h"
 #include "sandbox/win/src/sandbox.h"
+#endif
+
+#if defined(ENABLE_MOJO_MEDIA_IN_BROWSER_PROCESS)
+#include "media/mojo/services/mojo_media_application_factory.h"
 #endif
 
 namespace content {
@@ -139,11 +147,21 @@ ShellContentBrowserClient::~ShellContentBrowserClient() {
 
 BrowserMainParts* ShellContentBrowserClient::CreateBrowserMainParts(
     const MainFunctionParams& parameters) {
-  shell_browser_main_parts_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
-                                  switches::kRunLayoutTest)
-                                  ? new LayoutTestBrowserMainParts(parameters)
-                                  : new ShellBrowserMainParts(parameters);
+  shell_browser_main_parts_ = new ShellBrowserMainParts(parameters);
   return shell_browser_main_parts_;
+}
+
+bool ShellContentBrowserClient::DoesSiteRequireDedicatedProcess(
+    BrowserContext* browser_context,
+    const GURL& effective_url) {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  DCHECK(command_line->HasSwitch(switches::kIsolateSitesForTesting));
+  std::string pattern =
+      command_line->GetSwitchValueASCII(switches::kIsolateSitesForTesting);
+  // Practically |origin| is the same as |effective_url.spec()|, except Origin
+  // serialization strips the trailing "/", which makes for cleaner patterns.
+  std::string origin = url::Origin(effective_url).Serialize();
+  return base::MatchPattern(origin, pattern);
 }
 
 net::URLRequestContextGetter* ShellContentBrowserClient::CreateRequestContext(
@@ -153,7 +171,7 @@ net::URLRequestContextGetter* ShellContentBrowserClient::CreateRequestContext(
   ShellBrowserContext* shell_browser_context =
       ShellBrowserContextForBrowserContext(content_browser_context);
   return shell_browser_context->CreateRequestContext(
-      protocol_handlers, request_interceptors.Pass());
+      protocol_handlers, std::move(request_interceptors));
 }
 
 net::URLRequestContextGetter*
@@ -166,10 +184,8 @@ ShellContentBrowserClient::CreateRequestContextForStoragePartition(
   ShellBrowserContext* shell_browser_context =
       ShellBrowserContextForBrowserContext(content_browser_context);
   return shell_browser_context->CreateRequestContextForStoragePartition(
-      partition_path,
-      in_memory,
-      protocol_handlers,
-      request_interceptors.Pass());
+      partition_path, in_memory, protocol_handlers,
+      std::move(request_interceptors));
 }
 
 bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -200,6 +216,14 @@ bool ShellContentBrowserClient::IsNPAPIEnabled() {
 #endif
 }
 
+void ShellContentBrowserClient::RegisterInProcessMojoApplications(
+    StaticMojoApplicationMap* apps) {
+#if (ENABLE_MOJO_MEDIA_IN_BROWSER_PROCESS)
+  apps->insert(std::make_pair(GURL("mojo:media"),
+                              base::Bind(&media::CreateMojoMediaApplication)));
+#endif
+}
+
 void ShellContentBrowserClient::RegisterOutOfProcessMojoApplications(
       OutOfProcessMojoApplicationMap* apps) {
   apps->insert(std::make_pair(GURL(kTestMojoAppUrl),
@@ -209,10 +233,6 @@ void ShellContentBrowserClient::RegisterOutOfProcessMojoApplications(
 void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int child_process_id) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kRunLayoutTest)) {
-    command_line->AppendSwitch(switches::kRunLayoutTest);
-  }
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDumpLineBoxTrees)) {
     command_line->AppendSwitch(switches::kDumpLineBoxTrees);
@@ -252,6 +272,13 @@ void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
             switches::kEnableLeakDetection));
   }
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kIsolateSitesForTesting)) {
+    command_line->AppendSwitchASCII(
+        switches::kIsolateSitesForTesting,
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+            switches::kIsolateSitesForTesting));
+  }
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kRegisterFontFiles)) {
     command_line->AppendSwitchASCII(
         switches::kRegisterFontFiles,
@@ -260,21 +287,9 @@ void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
   }
 }
 
-void ShellContentBrowserClient::OverrideWebkitPrefs(
-    RenderViewHost* render_view_host,
-    WebPreferences* prefs) {
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kRunLayoutTest))
-    return;
-  BlinkTestController::Get()->OverrideWebkitPrefs(prefs);
-}
-
 void ShellContentBrowserClient::ResourceDispatcherHostCreated() {
   resource_dispatcher_host_delegate_.reset(
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kRunLayoutTest)
-          ? new LayoutTestResourceDispatcherHostDelegate
-          : new ShellResourceDispatcherHostDelegate);
+      new ShellResourceDispatcherHostDelegate);
   ResourceDispatcherHost::Get()->SetDelegate(
       resource_dispatcher_host_delegate_.get());
 }
@@ -323,7 +338,7 @@ bool ShellContentBrowserClient::ShouldSwapProcessesForRedirect(
 
 DevToolsManagerDelegate*
 ShellContentBrowserClient::GetDevToolsManagerDelegate() {
-  return new ShellDevToolsManagerDelegate(browser_context());
+  return new ShellDevToolsManagerDelegate();
 }
 
 void ShellContentBrowserClient::OpenURL(

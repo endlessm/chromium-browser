@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/fonts/shaping/HarfBuzzFace.h"
 
 #include "hb-ot.h"
@@ -41,7 +40,6 @@
 #include "SkPoint.h"
 #include "SkRect.h"
 #include "SkTypeface.h"
-#include "SkUtils.h"
 #include "platform/fonts/FontCache.h"
 #include "platform/fonts/FontPlatformData.h"
 #include "platform/fonts/SimpleFontData.h"
@@ -112,6 +110,9 @@ HarfBuzzFace::~HarfBuzzFace()
 }
 
 struct HarfBuzzFontData {
+    USING_FAST_MALLOC(HarfBuzzFontData);
+    WTF_MAKE_NONCOPYABLE(HarfBuzzFontData);
+public:
     HarfBuzzFontData(WTF::HashMap<uint32_t, uint16_t>* glyphCacheForFaceCacheEntry, hb_face_t* face, unsigned rangeFrom, unsigned rangeTo)
         : m_glyphCacheForFaceCacheEntry(glyphCacheForFaceCacheEntry)
         , m_face(face)
@@ -316,7 +317,7 @@ static hb_blob_t* harfBuzzSkiaGetTable(hb_face_t* face, hb_tag_t tag, void* user
         return nullptr;
     }
 
-    char* buffer = reinterpret_cast<char*>(WTF::Partitions::fastMalloc(tableSize));
+    char* buffer = reinterpret_cast<char*>(WTF::Partitions::fastMalloc(tableSize, WTF_HEAP_PROFILER_TYPE_NAME(HarfBuzzFontData)));
     if (!buffer)
         return nullptr;
     size_t actualSize = typeface->getTableData(tag, 0, tableSize, buffer);

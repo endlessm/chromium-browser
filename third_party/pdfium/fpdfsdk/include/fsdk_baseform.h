@@ -14,12 +14,13 @@
 #endif
 
 #include <map>
+#include <vector>
 
 #include "core/include/fpdfapi/fpdf_parser.h"
 #include "core/include/fpdfdoc/fpdf_doc.h"
 #include "core/include/fxcrt/fx_basic.h"
 #include "core/include/fxge/fx_dib.h"
-#include "fsdk_baseannot.h"
+#include "fpdfsdk/include/fsdk_baseannot.h"
 
 class CFFL_FormFiller;
 class CPDFSDK_Annot;
@@ -31,8 +32,17 @@ class CPDF_Action;
 class CPDF_FormField;
 struct CPWL_Color;
 
-typedef struct _PDFSDK_FieldAction {
-  _PDFSDK_FieldAction() {
+#ifdef PDF_ENABLE_XFA
+typedef enum _PDFSDK_XFAAActionType {
+  PDFSDK_XFA_Click = 0,
+  PDFSDK_XFA_Full,
+  PDFSDK_XFA_PreOpen,
+  PDFSDK_XFA_PostOpen
+} PDFSDK_XFAAActionType;
+#endif  // PDF_ENABLE_XFA
+
+struct PDFSDK_FieldAction {
+  PDFSDK_FieldAction() {
     bModifier = FALSE;
     bShift = FALSE;
     nCommitKey = 0;
@@ -55,10 +65,34 @@ typedef struct _PDFSDK_FieldAction {
   FX_BOOL bWillCommit;       // in
   FX_BOOL bFieldFull;        // in
   FX_BOOL bRC;               // in[out]
-} PDFSDK_FieldAction;
+};
 
 class CPDFSDK_Widget : public CPDFSDK_BAAnnot {
  public:
+#ifdef PDF_ENABLE_XFA
+  IXFA_Widget* GetMixXFAWidget() const;
+  IXFA_Widget* GetGroupMixXFAWidget();
+  IXFA_WidgetHandler* GetXFAWidgetHandler() const;
+
+  FX_BOOL HasXFAAAction(PDFSDK_XFAAActionType eXFAAAT);
+  FX_BOOL OnXFAAAction(PDFSDK_XFAAActionType eXFAAAT,
+                       PDFSDK_FieldAction& data,
+                       CPDFSDK_PageView* pPageView);
+
+  void Synchronize(FX_BOOL bSynchronizeElse);
+  void SynchronizeXFAValue();
+  void SynchronizeXFAItems();
+
+  static void SynchronizeXFAValue(IXFA_DocView* pXFADocView,
+                                  IXFA_Widget* hWidget,
+                                  CPDF_FormField* pFormField,
+                                  CPDF_FormControl* pFormControl);
+  static void SynchronizeXFAItems(IXFA_DocView* pXFADocView,
+                                  IXFA_Widget* hWidget,
+                                  CPDF_FormField* pFormField,
+                                  CPDF_FormControl* pFormControl);
+#endif  // PDF_ENABLE_XFA
+
   CPDFSDK_Widget(CPDF_Annot* pAnnot,
                  CPDFSDK_PageView* pPageView,
                  CPDFSDK_InterForm* pInterForm);
@@ -86,7 +120,11 @@ class CPDFSDK_Widget : public CPDFSDK_BAAnnot {
   FX_FLOAT GetFontSize() const;
 
   int GetSelectedIndex(int nIndex) const;
+#ifndef PDF_ENABLE_XFA
   CFX_WideString GetValue() const;
+#else
+  CFX_WideString GetValue(FX_BOOL bDisplay = TRUE) const;
+#endif  // PDF_ENABLE_XFA
   CFX_WideString GetDefaultValue() const;
   CFX_WideString GetOptionLabel(int nIndex) const;
   int CountOptions() const;
@@ -100,6 +138,9 @@ class CPDFSDK_Widget : public CPDFSDK_BAAnnot {
   */
   int GetAlignment() const;
   int GetMaxLen() const;
+#ifdef PDF_ENABLE_XFA
+  CFX_WideString GetName() const;
+#endif  // PDF_ENABLE_XFA
   CFX_WideString GetAlternateName() const;
 
   // Set Properties.
@@ -110,6 +151,9 @@ class CPDFSDK_Widget : public CPDFSDK_BAAnnot {
   void ClearSelection(FX_BOOL bNotify);
   void SetTopVisibleIndex(int index);
 
+#ifdef PDF_ENABLE_XFA
+  void ResetAppearance(FX_BOOL bValueChanged);
+#endif  // PDF_ENABLE_XFA
   void ResetAppearance(const FX_WCHAR* sValue, FX_BOOL bValueChanged);
   void ResetFieldAppearance(FX_BOOL bValueChanged);
   void UpdateField();
@@ -148,7 +192,7 @@ class CPDFSDK_Widget : public CPDFSDK_BAAnnot {
 
   CFX_ByteString GetBackgroundAppStream() const;
   CFX_ByteString GetBorderAppStream() const;
-  CPDF_Matrix GetMatrix() const;
+  CFX_Matrix GetMatrix() const;
 
   CPWL_Color GetTextPWLColor() const;
   CPWL_Color GetBorderPWLColor() const;
@@ -160,7 +204,7 @@ class CPDFSDK_Widget : public CPDFSDK_BAAnnot {
  public:
   FX_BOOL IsWidgetAppearanceValid(CPDF_Annot::AppearanceMode mode);
   void DrawAppearance(CFX_RenderDevice* pDevice,
-                      const CPDF_Matrix* pUser2Device,
+                      const CFX_Matrix* pUser2Device,
                       CPDF_Annot::AppearanceMode mode,
                       const CPDF_RenderOptions* pOptions) override;
 
@@ -171,7 +215,37 @@ class CPDFSDK_Widget : public CPDFSDK_BAAnnot {
   FX_BOOL m_bAppModified;
   int32_t m_nAppAge;
   int32_t m_nValueAge;
+
+#ifdef PDF_ENABLE_XFA
+  mutable IXFA_Widget* m_hMixXFAWidget;
+  mutable IXFA_WidgetHandler* m_pWidgetHandler;
+#endif  // PDF_ENABLE_XFA
 };
+
+#ifdef PDF_ENABLE_XFA
+class CPDFSDK_XFAWidget : public CPDFSDK_Annot {
+ public:
+  CPDFSDK_XFAWidget(IXFA_Widget* pAnnot,
+                    CPDFSDK_PageView* pPageView,
+                    CPDFSDK_InterForm* pInterForm);
+  ~CPDFSDK_XFAWidget() override {}
+
+  FX_BOOL IsXFAField() override;
+  IXFA_Widget* GetXFAWidget() const override { return m_hXFAWidget; }
+  CFX_ByteString GetType() const override;
+  CFX_ByteString GetSubType() const override { return ""; }
+  CFX_FloatRect GetRect() const override;
+
+  CPDFSDK_InterForm* GetInterForm() { return m_pInterForm; }
+
+ private:
+  CPDFSDK_InterForm* m_pInterForm;
+  IXFA_Widget* m_hXFAWidget;
+};
+#define CPDFSDK_XFAWidgetMap \
+  CFX_MapPtrTemplate<IXFA_Widget*, CPDFSDK_XFAWidget*>
+#define CPDFSDK_FieldSynchronizeMap CFX_MapPtrTemplate<CPDF_FormField*, int>
+#endif  // PDF_ENABLE_XFA
 
 class CPDFSDK_InterForm : public CPDF_FormNotify {
  public:
@@ -196,16 +270,19 @@ class CPDFSDK_InterForm : public CPDF_FormNotify {
   void EnableCalculate(FX_BOOL bEnabled);
   FX_BOOL IsCalculateEnabled() const;
 
-#ifdef _WIN32
-  CPDF_Stream* LoadImageFromFile(const CFX_WideString& sFile);
-#endif
+#ifdef PDF_ENABLE_XFA
+  void AddXFAMap(IXFA_Widget* hWidget, CPDFSDK_XFAWidget* pWidget);
+  void RemoveXFAMap(IXFA_Widget* hWidget);
+  CPDFSDK_XFAWidget* GetXFAWidget(IXFA_Widget* hWidget);
+  void XfaEnableCalculate(FX_BOOL bEnabled);
+  FX_BOOL IsXfaCalculateEnabled() const;
+  FX_BOOL IsXfaValidationsEnabled();
+  void XfaSetValidationsEnabled(FX_BOOL bEnabled);
+#endif  // PDF_ENABLE_XFA
 
-  void OnKeyStrokeCommit(CPDF_FormField* pFormField,
-                         CFX_WideString& csValue,
-                         FX_BOOL& bRC);
-  void OnValidate(CPDF_FormField* pFormField,
-                  CFX_WideString& csValue,
-                  FX_BOOL& bRC);
+  FX_BOOL OnKeyStrokeCommit(CPDF_FormField* pFormField,
+                            const CFX_WideString& csValue);
+  FX_BOOL OnValidate(CPDF_FormField* pFormField, const CFX_WideString& csValue);
   void OnCalculate(CPDF_FormField* pFormField = NULL);
   CFX_WideString OnFormat(CPDF_FormField* pFormField, FX_BOOL& bFormated);
 
@@ -233,20 +310,23 @@ class CPDFSDK_InterForm : public CPDF_FormNotify {
                                    CFX_ByteTextBuf& textBuf);
   CFX_WideString GetTemporaryFileName(const CFX_WideString& sFileExt);
 
+#ifdef PDF_ENABLE_XFA
+  void SynchronizeField(CPDF_FormField* pFormField, FX_BOOL bSynchronizeElse);
+#endif  // PDF_ENABLE_XFA
+
  private:
-  // CPDF_FormNotify
-  int BeforeValueChange(const CPDF_FormField* pField,
-                        CFX_WideString& csValue) override;
-  int AfterValueChange(const CPDF_FormField* pField) override;
-  int BeforeSelectionChange(const CPDF_FormField* pField,
-                            CFX_WideString& csValue) override;
-  int AfterSelectionChange(const CPDF_FormField* pField) override;
-  int AfterCheckedStatusChange(const CPDF_FormField* pField,
-                               const CFX_ByteArray& statusArray) override;
-  int BeforeFormReset(const CPDF_InterForm* pForm) override;
-  int AfterFormReset(const CPDF_InterForm* pForm) override;
-  int BeforeFormImportData(const CPDF_InterForm* pForm) override;
-  int AfterFormImportData(const CPDF_InterForm* pForm) override;
+  // CPDF_FormNotify:
+  int BeforeValueChange(CPDF_FormField* pField,
+                        const CFX_WideString& csValue) override;
+  void AfterValueChange(CPDF_FormField* pField) override;
+  int BeforeSelectionChange(CPDF_FormField* pField,
+                            const CFX_WideString& csValue) override;
+  void AfterSelectionChange(CPDF_FormField* pField) override;
+  void AfterCheckedStatusChange(CPDF_FormField* pField) override;
+  int BeforeFormReset(CPDF_InterForm* pForm) override;
+  void AfterFormReset(CPDF_InterForm* pForm) override;
+  int BeforeFormImportData(CPDF_InterForm* pForm) override;
+  void AfterFormImportData(CPDF_InterForm* pForm) override;
 
   FX_BOOL FDFToURLEncodedData(CFX_WideString csFDFFile,
                               CFX_WideString csTxtFile);
@@ -259,6 +339,12 @@ class CPDFSDK_InterForm : public CPDF_FormNotify {
   CPDFSDK_Document* m_pDocument;
   CPDF_InterForm* m_pInterForm;
   CPDFSDK_WidgetMap m_Map;
+#ifdef PDF_ENABLE_XFA
+  CPDFSDK_XFAWidgetMap m_XFAMap;
+  CPDFSDK_FieldSynchronizeMap m_FieldSynchronizeMap;
+  FX_BOOL m_bXfaCalculate;
+  FX_BOOL m_bXfaValidationsEnabled;
+#endif  // PDF_ENABLE_XFA
   FX_BOOL m_bCalculate;
   FX_BOOL m_bBusy;
 
@@ -271,19 +357,21 @@ class CPDFSDK_InterForm : public CPDF_FormNotify {
   FX_COLORREF GetHighlightColor(int nFieldType);
 
  private:
-  FX_COLORREF m_aHighlightColor[6];
+#ifndef PDF_ENABLE_XFA
+  static const int kNumFieldTypes = 6;
+#else   // PDF_ENABLE_XFA
+  static const int kNumFieldTypes = 7;
+#endif  // PDF_ENABLE_XFA
+
+  FX_COLORREF m_aHighlightColor[kNumFieldTypes];
   uint8_t m_iHighlightAlpha;
-  FX_BOOL m_bNeedHightlight[6];
+  FX_BOOL m_bNeedHightlight[kNumFieldTypes];
 };
 
-#define BAI_STRUCTURE 0
-#define BAI_ROW 1
-#define BAI_COLUMN 2
-
-#define CPDFSDK_Annots CFX_ArrayTemplate<CPDFSDK_Annot*>
-#define CPDFSDK_SortAnnots CGW_ArrayTemplate<CPDFSDK_Annot*>
 class CBA_AnnotIterator {
  public:
+  enum TabOrder { STRUCTURE = 0, ROW, COLUMN };
+
   CBA_AnnotIterator(CPDFSDK_PageView* pPageView,
                     const CFX_ByteString& sType,
                     const CFX_ByteString& sSubType);
@@ -296,15 +384,19 @@ class CBA_AnnotIterator {
 
  private:
   void GenerateResults();
-  static int CompareByLeft(CPDFSDK_Annot* p1, CPDFSDK_Annot* p2);
-  static int CompareByTop(CPDFSDK_Annot* p1, CPDFSDK_Annot* p2);
-  static CPDF_Rect GetAnnotRect(CPDFSDK_Annot* pAnnot);
+  static CPDF_Rect GetAnnotRect(const CPDFSDK_Annot* pAnnot);
 
+  // Function signature compatible with std::sort().
+  static bool CompareByLeftAscending(const CPDFSDK_Annot* p1,
+                                     const CPDFSDK_Annot* p2);
+  static bool CompareByTopDescending(const CPDFSDK_Annot* p1,
+                                     const CPDFSDK_Annot* p2);
+
+  TabOrder m_eTabOrder;
   CPDFSDK_PageView* m_pPageView;
   CFX_ByteString m_sType;
   CFX_ByteString m_sSubType;
-  int m_nTabs;
-  CPDFSDK_Annots m_Annots;
+  std::vector<CPDFSDK_Annot*> m_Annots;
 };
 
 #endif  // FPDFSDK_INCLUDE_FSDK_BASEFORM_H_

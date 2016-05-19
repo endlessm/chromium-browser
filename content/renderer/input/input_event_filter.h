@@ -7,12 +7,14 @@
 
 #include <queue>
 #include <set>
+#include <unordered_map>
 
 #include "base/callback.h"
 #include "base/synchronization/lock.h"
 #include "content/common/content_export.h"
 #include "content/common/input/input_event_ack_state.h"
 #include "content/renderer/input/input_handler_manager_client.h"
+#include "content/renderer/input/non_blocking_event_queue.h"
 #include "ipc/message_filter.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 
@@ -20,8 +22,8 @@ namespace base {
 class SingleThreadTaskRunner;
 }
 
-namespace cc {
-class InputHandler;
+namespace ui {
+class SynchronousInputHandlerProxy;
 }
 
 namespace IPC {
@@ -39,10 +41,9 @@ class Sender;
 
 namespace content {
 
-class SynchronousInputHandlerProxy;
-
 class CONTENT_EXPORT InputEventFilter : public InputHandlerManagerClient,
-                                        public IPC::MessageFilter {
+                                        public IPC::MessageFilter,
+                                        public NonBlockingEventQueueClient {
  public:
   InputEventFilter(
       const base::Callback<void(const IPC::Message&)>& main_listener,
@@ -62,17 +63,25 @@ class CONTENT_EXPORT InputEventFilter : public InputHandlerManagerClient,
   void SetBoundHandler(const Handler& handler) override;
   void DidAddInputHandler(
       int routing_id,
-      SynchronousInputHandlerProxy* synchronous_input_handler_proxy) override;
+      ui::SynchronousInputHandlerProxy*
+          synchronous_input_handler_proxy) override;
   void DidRemoveInputHandler(int routing_id) override;
   void DidOverscroll(int routing_id,
                      const DidOverscrollParams& params) override;
   void DidStopFlinging(int routing_id) override;
+  void NonBlockingInputEventHandled(int routing_id,
+                                    blink::WebInputEvent::Type type) override;
 
   // IPC::MessageFilter methods:
   void OnFilterAdded(IPC::Sender* sender) override;
   void OnFilterRemoved() override;
   void OnChannelClosing() override;
   bool OnMessageReceived(const IPC::Message& message) override;
+
+  // NonBlockingEventQueueClient methods:
+  void SendNonBlockingEvent(int routing_id,
+                            const blink::WebInputEvent* event,
+                            const ui::LatencyInfo& latency) override;
 
  private:
   ~InputEventFilter() override;
@@ -97,6 +106,10 @@ class CONTENT_EXPORT InputEventFilter : public InputHandlerManagerClient,
 
   // Indicates the routing_ids for which input events should be filtered.
   std::set<int> routes_;
+
+  using RouteQueueMap =
+      std::unordered_map<int, scoped_ptr<NonBlockingEventQueue>>;
+  RouteQueueMap route_queues_;
 
   // Used to intercept overscroll notifications while an event is being
   // dispatched.  If the event causes overscroll, the overscroll metadata can be

@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/nullable_string16.h"
 #include "base/strings/string16.h"
@@ -56,6 +57,7 @@ class CONTENT_EXPORT DOMStorageHost {
     scoped_refptr<DOMStorageNamespace> namespace_;
     scoped_refptr<DOMStorageArea> area_;
     NamespaceAndArea();
+    NamespaceAndArea(const NamespaceAndArea& other);
     ~NamespaceAndArea();
   };
   typedef std::map<int, NamespaceAndArea > AreaMap;

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/fileapi/file_system_backend.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
@@ -178,7 +180,7 @@ bool FileSystemBackend::IsAccessAllowed(
     return true;
 
   std::string extension_id = url.origin().host();
-  // TODO(mtomasz): Temporarily whitelist TimeScapes. Remove this in M-31.
+  // TODO(mtomasz): Temporarily whitelist TimeScapes.
   // See: crbug.com/271946
   if (extension_id == "mlbmkoenclnokonejhlfakkeabdlmpek" &&
       url.type() == storage::kFileSystemTypeRestrictedNativeLocal) {
@@ -319,8 +321,8 @@ bool FileSystemBackend::HasInplaceCopyImplementation(
 
 scoped_ptr<storage::FileStreamReader> FileSystemBackend::CreateFileStreamReader(
     const storage::FileSystemURL& url,
-    int64 offset,
-    int64 max_bytes_to_read,
+    int64_t offset,
+    int64_t max_bytes_to_read,
     const base::Time& expected_modification_time,
     storage::FileSystemContext* context) const {
   DCHECK(url.is_valid());
@@ -351,7 +353,7 @@ scoped_ptr<storage::FileStreamReader> FileSystemBackend::CreateFileStreamReader(
 
 scoped_ptr<storage::FileStreamWriter> FileSystemBackend::CreateFileStreamWriter(
     const storage::FileSystemURL& url,
-    int64 offset,
+    int64_t offset,
     storage::FileSystemContext* context) const {
   DCHECK(url.is_valid());
 

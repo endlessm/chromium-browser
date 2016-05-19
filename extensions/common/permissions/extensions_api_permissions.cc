@@ -4,8 +4,11 @@
 
 #include "extensions/common/permissions/extensions_api_permissions.h"
 
+#include <stddef.h>
+
 #include <vector>
 
+#include "base/macros.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/socket_permission.h"
 #include "extensions/common/permissions/usb_device_permission.h"
@@ -54,6 +57,7 @@ std::vector<APIPermissionInfo*> ExtensionsAPIPermissions::GetAllPermissions()
       {APIPermission::kDiagnostics,
        "diagnostics",
        APIPermissionInfo::kFlagCannotBeOptional},
+      {APIPermission::kDisplaySource, "displaySource"},
       {APIPermission::kDns, "dns"},
       {APIPermission::kDocumentScan, "documentScan"},
       {APIPermission::kExtensionView,

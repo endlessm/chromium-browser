@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "bindings/core/v8/V8PagePopupControllerBinding.h"
 
 #include "bindings/core/v8/V8Binding.h"
@@ -28,9 +27,7 @@ void pagePopupControllerAttributeGetter(const v8::PropertyCallbackInfo<v8::Value
 
 void pagePopupControllerAttributeGetterCallback(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info)
 {
-    TRACE_EVENT_SET_SAMPLING_STATE("blink", "DOMGetter");
     pagePopupControllerAttributeGetter(info);
-    TRACE_EVENT_SET_SAMPLING_STATE("v8", "V8Execution");
 }
 
 } // namespace

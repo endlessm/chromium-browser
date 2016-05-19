@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/SharedBufferChunkReader.h"
 
 #include "platform/SharedBuffer.h"
@@ -147,4 +146,4 @@ size_t SharedBufferChunkReader::peek(Vector<char>& data, size_t requestedSize)
     return readBytesCount;
 }
 
-}
+} // namespace blink

@@ -4,6 +4,8 @@
 
 #include "storage/browser/database/databases_table.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "sql/statement.h"
@@ -11,6 +13,8 @@
 namespace storage {
 
 DatabaseDetails::DatabaseDetails() : estimated_size(0) { }
+
+DatabaseDetails::DatabaseDetails(const DatabaseDetails& other) = default;
 
 DatabaseDetails::~DatabaseDetails() {}
 
@@ -37,8 +41,8 @@ bool DatabasesTable::Init() {
            "CREATE UNIQUE INDEX unique_index ON Databases (origin, name)"));
 }
 
-int64 DatabasesTable::GetDatabaseID(const std::string& origin_identifier,
-                                    const base::string16& database_name) {
+int64_t DatabasesTable::GetDatabaseID(const std::string& origin_identifier,
+                                      const base::string16& database_name) {
   sql::Statement select_statement(db_->GetCachedStatement(
       SQL_FROM_HERE, "SELECT id FROM Databases WHERE origin = ? AND name = ?"));
   select_statement.BindString(0, origin_identifier);

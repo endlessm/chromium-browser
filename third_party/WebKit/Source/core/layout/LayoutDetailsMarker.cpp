@@ -18,7 +18,6 @@
  *
  */
 
-#include "config.h"
 #include "core/layout/LayoutDetailsMarker.h"
 
 #include "core/HTMLNames.h"
@@ -74,4 +73,4 @@ bool LayoutDetailsMarker::isOpen() const
     return false;
 }
 
-}
+} // namespace blink

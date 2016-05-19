@@ -5,18 +5,18 @@
 #ifndef BLIMP_NET_BLIMP_MESSAGE_CHECKPOINT_OBSERVER_H_
 #define BLIMP_NET_BLIMP_MESSAGE_CHECKPOINT_OBSERVER_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
 
 namespace blimp {
 
-// Allows objects to subscribe to message acknowledgement checkpoints.
+// Allows objects to subscribe to message acknowledgment checkpoints.
 class BlimpMessageCheckpointObserver {
  public:
   virtual ~BlimpMessageCheckpointObserver() {}
 
   // Invoked when the remote end has positively acknowledged the receipt of all
   // messages with ID <= |message_id|.
-  virtual void OnMessageCheckpoint(int64 message_id) = 0;
+  virtual void OnMessageCheckpoint(int64_t message_id) = 0;
 };
 
 }  // namespace blimp

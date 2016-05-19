@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/callback.h"
 #include "base/message_loop/message_loop.h"
 #include "base/time/default_tick_clock.h"
@@ -83,7 +85,7 @@ TEST_F(CastTransportHostFilterTest, NewMany) {
 
 TEST_F(CastTransportHostFilterTest, SimpleMessages) {
   // Create a cast transport sender.
-  const int32 kChannelId = 42;
+  const int32_t kChannelId = 42;
   CastHostMsg_New new_msg(kChannelId,
                           receive_endpoint_,
                           net::IPEndPoint(),
@@ -106,8 +108,9 @@ TEST_F(CastTransportHostFilterTest, SimpleMessages) {
   audio_frame.dependency = media::cast::EncodedFrame::KEY;
   audio_frame.frame_id = 1;
   audio_frame.referenced_frame_id = 1;
-  audio_frame.rtp_timestamp = 47;
   const int kSamples = 47;
+  audio_frame.rtp_timestamp = media::cast::RtpTimeTicks() +
+      media::cast::RtpTimeDelta::FromTicks(kSamples);
   const int kBytesPerSample = 2;
   const int kChannels = 2;
   audio_frame.data = std::string(kSamples * kBytesPerSample * kChannels, 'q');
@@ -126,10 +129,11 @@ TEST_F(CastTransportHostFilterTest, SimpleMessages) {
   FakeSend(insert_video_frame);
 
   CastHostMsg_SendSenderReport rtcp_msg(
-      kChannelId, 1, base::TimeTicks(), 2);
+      kChannelId, 1, base::TimeTicks(),
+      media::cast::RtpTimeTicks().Expand(UINT32_C(2)));
   FakeSend(rtcp_msg);
 
-  std::vector<uint32> frame_ids;
+  std::vector<uint32_t> frame_ids;
   frame_ids.push_back(1);
   CastHostMsg_CancelSendingFrames cancel_msg(kChannelId, 1, frame_ids);
   FakeSend(cancel_msg);

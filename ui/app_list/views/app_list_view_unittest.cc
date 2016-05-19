@@ -4,13 +4,17 @@
 
 #include "ui/app_list/views/app_list_view.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_switches.h"
@@ -723,7 +727,11 @@ class AppListViewTestDesktop : public views::ViewsTestBase,
   class AppListViewTestViewsDelegate : public views::TestViewsDelegate {
    public:
     explicit AppListViewTestViewsDelegate(AppListViewTestDesktop* parent)
-        : parent_(parent) {}
+#if defined(OS_CHROMEOS)
+        : parent_(parent)
+#endif
+    {
+    }
 
     // Overridden from views::ViewsDelegate:
     void OnBeforeWidgetInit(
@@ -731,7 +739,9 @@ class AppListViewTestDesktop : public views::ViewsTestBase,
         views::internal::NativeWidgetDelegate* delegate) override;
 
    private:
+#if defined(OS_CHROMEOS)
     AppListViewTestDesktop* parent_;
+#endif
 
     DISALLOW_COPY_AND_ASSIGN(AppListViewTestViewsDelegate);
   };

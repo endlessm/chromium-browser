@@ -2,18 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/browser/frame_host/render_frame_host_manager.h"
+
+#include <stdint.h>
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "content/browser/compositor/test/no_transport_image_transport_factory.h"
 #include "content/browser/frame_host/cross_site_transferring_request.h"
 #include "content/browser/frame_host/navigation_controller_impl.h"
 #include "content/browser/frame_host/navigation_entry_impl.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/navigator.h"
-#include "content/browser/frame_host/render_frame_host_manager.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/webui/web_ui_controller_factory_registry.h"
@@ -31,13 +37,14 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/common/bindings_policy.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/javascript_message_type.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_notification_tracker.h"
 #include "content/public/test/test_utils.h"
+#include "content/test/browser_side_navigation_test_utils.h"
 #include "content/test/test_content_browser_client.h"
 #include "content/test/test_content_client.h"
 #include "content/test/test_render_frame_host.h"
@@ -66,11 +73,27 @@ void VerifyPageFocusMessage(MockRenderProcessHost* rph,
   EXPECT_EQ(expected_focus, base::get<0>(params));
 }
 
+// Helper function for strict mixed content checking tests.
+void CheckMixedContentIPC(TestRenderFrameHost* rfh,
+                          bool expected_param,
+                          int expected_routing_id) {
+  const IPC::Message* message =
+      rfh->GetProcess()->sink().GetUniqueMessageMatching(
+          FrameMsg_EnforceStrictMixedContentChecking::ID);
+  ASSERT_TRUE(message);
+  EXPECT_EQ(expected_routing_id, message->routing_id());
+  FrameMsg_EnforceStrictMixedContentChecking::Param params;
+  EXPECT_TRUE(
+      FrameMsg_EnforceStrictMixedContentChecking::Read(message, &params));
+  EXPECT_EQ(expected_param, base::get<0>(params));
+}
+
 class RenderFrameHostManagerTestWebUIControllerFactory
     : public WebUIControllerFactory {
  public:
   RenderFrameHostManagerTestWebUIControllerFactory()
-    : should_create_webui_(false) {
+      : should_create_webui_(false), type_(1) {
+    CHECK_NE(reinterpret_cast<WebUI::TypeID>(type_), WebUI::kNoWebUI);
   }
   ~RenderFrameHostManagerTestWebUIControllerFactory() override {}
 
@@ -78,16 +101,34 @@ class RenderFrameHostManagerTestWebUIControllerFactory
     should_create_webui_ = should_create_webui;
   }
 
+  // This method simulates the expectation that different WebUI instance types
+  // would be created. The |type| value will be returned by GetWebUIType casted
+  // to WebUI::TypeID.
+  // As WebUI::TypeID is a typedef to void pointer, factory implementations
+  // return values that they know to be unique to their respective cases. So
+  // values set here should be safe if kept very low (just above zero).
+  void set_webui_type(uintptr_t type) {
+    CHECK_NE(reinterpret_cast<WebUI::TypeID>(type), WebUI::kNoWebUI);
+    type_ = type;
+  }
+
   // WebUIFactory implementation.
   WebUIController* CreateWebUIControllerForURL(WebUI* web_ui,
                                                const GURL& url) const override {
-    if (!(should_create_webui_ && HasWebUIScheme(url)))
-      return NULL;
-    return new WebUIController(web_ui);
+    // If WebUI creation is enabled for the test and this is a WebUI URL,
+    // returns a new instance.
+    if (should_create_webui_ && HasWebUIScheme(url))
+      return new WebUIController(web_ui);
+    return nullptr;
   }
 
   WebUI::TypeID GetWebUIType(BrowserContext* browser_context,
                              const GURL& url) const override {
+    // If WebUI creation is enabled for the test and this is a WebUI URL,
+    // returns a mock WebUI type.
+    if (should_create_webui_ && HasWebUIScheme(url)) {
+      return reinterpret_cast<WebUI::TypeID>(type_);
+    }
     return WebUI::kNoWebUI;
   }
 
@@ -103,6 +144,7 @@ class RenderFrameHostManagerTestWebUIControllerFactory
 
  private:
   bool should_create_webui_;
+  uintptr_t type_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameHostManagerTestWebUIControllerFactory);
 };
@@ -280,6 +322,8 @@ class RenderFrameHostManagerTest : public RenderViewHostImplTestHarness {
     factory_.set_should_create_webui(should_create_webui);
   }
 
+  void set_webui_type(int type) { factory_.set_webui_type(type); }
+
   void NavigateActiveAndCommit(const GURL& url) {
     // Note: we navigate the active RenderFrameHost because previous navigations
     // won't have committed yet, so NavigateAndCommit does the wrong thing
@@ -306,8 +350,8 @@ class RenderFrameHostManagerTest : public RenderViewHostImplTestHarness {
     EXPECT_EQ(RenderFrameHostImpl::STATE_DEFAULT, old_rfh->rfh_state());
 
     // Commit the navigation with a new page ID.
-    int32 max_page_id = contents()->GetMaxPageIDForSiteInstance(
-        active_rfh->GetSiteInstance());
+    int32_t max_page_id =
+        contents()->GetMaxPageIDForSiteInstance(active_rfh->GetSiteInstance());
 
     // Use an observer to avoid accessing a deleted renderer later on when the
     // state is being checked.
@@ -386,7 +430,7 @@ class RenderFrameHostManagerTest : public RenderViewHostImplTestHarness {
     // Manually increase the number of active frames in the
     // SiteInstance that ntp_rfh belongs to, to prevent it from being
     // destroyed when it gets swapped out.
-    ntp_rfh->GetSiteInstance()->increment_active_frame_count();
+    ntp_rfh->GetSiteInstance()->IncrementActiveFrameCount();
 
     TestRenderFrameHost* dest_rfh = contents()->GetPendingMainFrame();
     CHECK(dest_rfh);
@@ -409,14 +453,29 @@ class RenderFrameHostManagerTest : public RenderViewHostImplTestHarness {
       const NavigationEntryImpl& entry) {
     // Tests currently only navigate using main frame FrameNavigationEntries.
     FrameNavigationEntry* frame_entry = entry.root_node()->frame_entry.get();
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kEnableBrowserSideNavigation)) {
+    if (IsBrowserSideNavigationEnabled()) {
+      NavigationControllerImpl* controller =
+          static_cast<NavigationControllerImpl*>(manager->current_frame_host()
+                                                     ->frame_tree_node()
+                                                     ->navigator()
+                                                     ->GetController());
+      // TODO(carlosk): This implementation below will not work with restore
+      // navigations. Method GetNavigationType should be exposed from
+      // navigator_impl.cc and used here to determine FrameMsg_Navigate_Type.
+      CHECK(entry.restore_type() == NavigationEntryImpl::RESTORE_NONE);
       scoped_ptr<NavigationRequest> navigation_request =
           NavigationRequest::CreateBrowserInitiated(
               manager->frame_tree_node_, frame_entry->url(),
               frame_entry->referrer(), *frame_entry, entry,
-              FrameMsg_Navigate_Type::NORMAL, false, base::TimeTicks::Now(),
-              static_cast<NavigationControllerImpl*>(&controller()));
+              FrameMsg_Navigate_Type::NORMAL, LOFI_UNSPECIFIED, false,
+              base::TimeTicks::Now(), controller);
+
+      // Simulates request creation that triggers the 1st internal call to
+      // GetFrameHostForNavigation.
+      manager->DidCreateNavigationRequest(*navigation_request);
+
+      // And also simulates the 2nd and final call to GetFrameHostForNavigation
+      // that determines the final frame that will commit the navigation.
       TestRenderFrameHost* frame_host = static_cast<TestRenderFrameHost*>(
           manager->GetFrameHostForNavigation(*navigation_request));
       CHECK(frame_host);
@@ -431,10 +490,9 @@ class RenderFrameHostManagerTest : public RenderViewHostImplTestHarness {
   // PlzNavigate: returns the speculative RenderFrameHost.
   RenderFrameHostImpl* GetPendingFrameHost(
       RenderFrameHostManager* manager) {
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kEnableBrowserSideNavigation)) {
+    if (IsBrowserSideNavigationEnabled())
       return manager->speculative_render_frame_host_.get();
-    }
+
     return manager->pending_frame_host();
   }
 
@@ -446,6 +504,19 @@ class RenderFrameHostManagerTest : public RenderViewHostImplTestHarness {
     node->render_manager()->CollectOpenerFrameTrees(opener_frame_trees,
                                                     nodes_with_back_links);
   }
+
+  void BaseSimultaneousNavigationWithOneWebUI(
+      const std::function<void(RenderFrameHostImpl*,
+                               RenderFrameHostImpl*,
+                               WebUIImpl*,
+                               RenderFrameHostManager*)>& commit_lambda);
+
+  void BaseSimultaneousNavigationWithTwoWebUIs(
+      const std::function<void(RenderFrameHostImpl*,
+                               RenderFrameHostImpl*,
+                               WebUIImpl*,
+                               WebUIImpl*,
+                               RenderFrameHostManager*)>& commit_lambda);
 
  private:
   RenderFrameHostManagerTestWebUIControllerFactory factory_;
@@ -538,15 +609,15 @@ TEST_F(RenderFrameHostManagerTest, FilterMessagesWhileSwappedOut) {
   // Send an update favicon message and make sure it works.
   {
     PluginFaviconMessageObserver observer(contents());
-    EXPECT_TRUE(ntp_rfh->GetRenderViewHost()->OnMessageReceived(
-                    ViewHostMsg_UpdateFaviconURL(
-                        ntp_rfh->GetRenderViewHost()->GetRoutingID(), icons)));
+    EXPECT_TRUE(ntp_rfh->GetRenderViewHost()->GetWidget()->OnMessageReceived(
+        ViewHostMsg_UpdateFaviconURL(
+            ntp_rfh->GetRenderViewHost()->GetRoutingID(), icons)));
     EXPECT_TRUE(observer.favicon_received());
   }
   // Create one more frame in the same SiteInstance where ntp_rfh
   // exists so that it doesn't get deleted on navigation to another
   // site.
-  ntp_rfh->GetSiteInstance()->increment_active_frame_count();
+  ntp_rfh->GetSiteInstance()->IncrementActiveFrameCount();
 
   // Navigate to a cross-site URL.
   NavigateActiveAndCommit(kDestUrl);
@@ -557,10 +628,9 @@ TEST_F(RenderFrameHostManagerTest, FilterMessagesWhileSwappedOut) {
   // The new RVH should be able to update its favicon.
   {
     PluginFaviconMessageObserver observer(contents());
-    EXPECT_TRUE(
-        dest_rfh->GetRenderViewHost()->OnMessageReceived(
-            ViewHostMsg_UpdateFaviconURL(
-                dest_rfh->GetRenderViewHost()->GetRoutingID(), icons)));
+    EXPECT_TRUE(dest_rfh->GetRenderViewHost()->GetWidget()->OnMessageReceived(
+        ViewHostMsg_UpdateFaviconURL(
+            dest_rfh->GetRenderViewHost()->GetRoutingID(), icons)));
     EXPECT_TRUE(observer.favicon_received());
   }
 
@@ -569,9 +639,8 @@ TEST_F(RenderFrameHostManagerTest, FilterMessagesWhileSwappedOut) {
   {
     PluginFaviconMessageObserver observer(contents());
     EXPECT_TRUE(
-        ntp_rvh->OnMessageReceived(
-            ViewHostMsg_UpdateFaviconURL(
-                dest_rfh->GetRenderViewHost()->GetRoutingID(), icons)));
+        ntp_rvh->GetWidget()->OnMessageReceived(ViewHostMsg_UpdateFaviconURL(
+            dest_rfh->GetRenderViewHost()->GetRoutingID(), icons)));
     EXPECT_FALSE(observer.favicon_received());
   }
 
@@ -605,8 +674,6 @@ TEST_F(RenderFrameHostManagerTest, FilterMessagesWhileSwappedOut) {
   base::string16 unused;
   FrameHostMsg_RunBeforeUnloadConfirm before_unload_msg(
       ntp_rfh->GetRoutingID(), kChromeURL, msg, false, &result, &unused);
-  // Enable pumping for check in BrowserMessageFilter::CheckCanDispatchOnUI.
-  before_unload_msg.EnableMessagePumping();
   EXPECT_TRUE(ntp_rfh->OnMessageReceived(before_unload_msg));
   EXPECT_TRUE(ntp_process_host->sink().GetUniqueMessageMatching(IPC_REPLY_ID));
 
@@ -636,15 +703,15 @@ TEST_F(RenderFrameHostManagerTest, UpdateFaviconURLWhilePendingSwapOut) {
   // Send an update favicon message and make sure it works.
   {
     PluginFaviconMessageObserver observer(contents());
-    EXPECT_TRUE(rfh1->GetRenderViewHost()->OnMessageReceived(
-                    ViewHostMsg_UpdateFaviconURL(
-                        rfh1->GetRenderViewHost()->GetRoutingID(), icons)));
+    EXPECT_TRUE(rfh1->GetRenderViewHost()->GetWidget()->OnMessageReceived(
+        ViewHostMsg_UpdateFaviconURL(rfh1->GetRenderViewHost()->GetRoutingID(),
+                                     icons)));
     EXPECT_TRUE(observer.favicon_received());
   }
 
   // Create one more frame in the same SiteInstance where |rfh1| exists so that
   // it doesn't get deleted on navigation to another site.
-  rfh1->GetSiteInstance()->increment_active_frame_count();
+  rfh1->GetSiteInstance()->IncrementActiveFrameCount();
 
   // Navigate to a cross-site URL and commit the new page.
   controller().LoadURL(
@@ -660,7 +727,7 @@ TEST_F(RenderFrameHostManagerTest, UpdateFaviconURLWhilePendingSwapOut) {
   // The new RVH should be able to update its favicons.
   {
     PluginFaviconMessageObserver observer(contents());
-    EXPECT_TRUE(rfh2->GetRenderViewHost()->OnMessageReceived(
+    EXPECT_TRUE(rfh2->GetRenderViewHost()->GetWidget()->OnMessageReceived(
         ViewHostMsg_UpdateFaviconURL(rfh2->GetRenderViewHost()->GetRoutingID(),
                                      icons)));
     EXPECT_TRUE(observer.favicon_received());
@@ -670,7 +737,7 @@ TEST_F(RenderFrameHostManagerTest, UpdateFaviconURLWhilePendingSwapOut) {
   // be ignored.
   {
     PluginFaviconMessageObserver observer(contents());
-    EXPECT_TRUE(rfh1->GetRenderViewHost()->OnMessageReceived(
+    EXPECT_TRUE(rfh1->GetRenderViewHost()->GetWidget()->OnMessageReceived(
         ViewHostMsg_UpdateFaviconURL(rfh1->GetRenderViewHost()->GetRoutingID(),
                                      icons)));
     EXPECT_FALSE(observer.favicon_received());
@@ -698,7 +765,7 @@ TEST_F(RenderFrameHostManagerTest, DropCreateChildFrameWhileSwappedOut) {
     RenderFrameHostCreatedObserver observer(contents());
     initial_rfh->OnCreateChildFrame(
         initial_rfh->GetProcess()->GetNextRoutingID(),
-        blink::WebTreeScopeType::Document, std::string(),
+        blink::WebTreeScopeType::Document, std::string(), "uniqueName1",
         blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
     EXPECT_TRUE(observer.created());
   }
@@ -706,7 +773,7 @@ TEST_F(RenderFrameHostManagerTest, DropCreateChildFrameWhileSwappedOut) {
   // Create one more frame in the same SiteInstance where initial_rfh
   // exists so that initial_rfh doesn't get deleted on navigation to another
   // site.
-  initial_rfh->GetSiteInstance()->increment_active_frame_count();
+  initial_rfh->GetSiteInstance()->IncrementActiveFrameCount();
 
   // Navigate to a cross-site URL.
   NavigateActiveAndCommit(kUrl2);
@@ -722,7 +789,7 @@ TEST_F(RenderFrameHostManagerTest, DropCreateChildFrameWhileSwappedOut) {
     RenderFrameHostCreatedObserver observer(contents());
     initial_rfh->OnCreateChildFrame(
         initial_rfh->GetProcess()->GetNextRoutingID(),
-        blink::WebTreeScopeType::Document, std::string(),
+        blink::WebTreeScopeType::Document, std::string(), "uniqueName2",
         blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
     EXPECT_FALSE(observer.created());
   }
@@ -747,7 +814,8 @@ TEST_F(RenderFrameHostManagerTest, WhiteListSwapCompositorFrame) {
   ViewHostMsg_SwapCompositorFrame msg(
       rvh()->GetRoutingID(), 0, frame, std::vector<IPC::Message>());
 
-  EXPECT_TRUE(swapped_out_rfh->render_view_host()->OnMessageReceived(msg));
+  EXPECT_TRUE(
+      swapped_out_rfh->render_view_host()->GetWidget()->OnMessageReceived(msg));
   EXPECT_TRUE(swapped_out_rwhv->did_swap_compositor_frame());
 }
 
@@ -939,7 +1007,7 @@ TEST_F(RenderFrameHostManagerTest, AlwaysSendEnableViewSourceMode) {
   ASSERT_TRUE(contents()->GetPendingMainFrame())
       << "Expected new pending RenderFrameHost to be created.";
   RenderFrameHost* last_rfh = contents()->GetPendingMainFrame();
-  int32 new_id =
+  int32_t new_id =
       contents()->GetMaxPageIDForSiteInstance(last_rfh->GetSiteInstance()) + 1;
   contents()->GetPendingMainFrame()->SendNavigate(new_id, entry_id, true, kUrl);
 
@@ -1089,7 +1157,7 @@ TEST_F(RenderFrameHostManagerTest, WebUI) {
   RenderFrameHostImpl* initial_rfh = manager->current_frame_host();
 
   EXPECT_FALSE(manager->current_host()->IsRenderViewLive());
-  EXPECT_FALSE(manager->web_ui());
+  EXPECT_FALSE(manager->current_frame_host()->web_ui());
   EXPECT_TRUE(initial_rfh);
 
   const GURL kUrl("chrome://foo");
@@ -1116,13 +1184,18 @@ TEST_F(RenderFrameHostManagerTest, WebUI) {
 
   // The Web UI is committed immediately because the RenderViewHost has not been
   // used yet. UpdateStateForNavigate() took the short cut path.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
-    EXPECT_FALSE(manager->speculative_web_ui());
+  if (IsBrowserSideNavigationEnabled()) {
+    // In PlzNavigate, there will be a navigating WebUI because
+    // GetFrameHostForNavigation was already called twice and the committed
+    // WebUI should be set to be reused.
+    EXPECT_TRUE(manager->GetNavigatingWebUI());
+    EXPECT_EQ(host->web_ui(), manager->GetNavigatingWebUI());
+    EXPECT_EQ(host->web_ui(), host->pending_web_ui());
   } else {
-    EXPECT_FALSE(manager->pending_web_ui());
+    // The WebUI was immediately committed and there should be none navigating.
+    EXPECT_FALSE(manager->GetNavigatingWebUI());
   }
-  EXPECT_TRUE(manager->web_ui());
+  EXPECT_TRUE(manager->current_frame_host()->web_ui());
 
   // Commit.
   manager->DidNavigateFrame(host, true);
@@ -1191,12 +1264,8 @@ TEST_F(RenderFrameHostManagerTest, WebUIInNewTab) {
   // No cross-process transition happens because we are already in the right
   // SiteInstance.  We should grant bindings immediately.
   EXPECT_EQ(host2, manager2->current_frame_host());
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
-    EXPECT_TRUE(manager2->speculative_web_ui());
-  } else {
-    EXPECT_TRUE(manager2->pending_web_ui());
-  }
+  EXPECT_TRUE(manager2->GetNavigatingWebUI());
+  EXPECT_FALSE(host2->web_ui());
   EXPECT_TRUE(
       host2->render_view_host()->GetEnabledBindings() & BINDINGS_POLICY_WEB_UI);
 
@@ -1210,16 +1279,14 @@ TEST_F(RenderFrameHostManagerTest, WebUIWasReused) {
   // Navigate to a WebUI page.
   const GURL kUrl1("chrome://foo");
   contents()->NavigateAndCommit(kUrl1);
-  RenderFrameHostManager* manager =
-      main_test_rfh()->frame_tree_node()->render_manager();
-  WebUIImpl* web_ui = manager->web_ui();
+  WebUIImpl* web_ui = main_test_rfh()->web_ui();
   EXPECT_TRUE(web_ui);
 
   // Navigate to another WebUI page which should be same-site and keep the
   // current WebUI.
   const GURL kUrl2("chrome://foo/bar");
   contents()->NavigateAndCommit(kUrl2);
-  EXPECT_EQ(web_ui, manager->web_ui());
+  EXPECT_EQ(web_ui, main_test_rfh()->web_ui());
 }
 
 // Tests that a WebUI is correctly cleaned up when navigating from a chrome://
@@ -1230,12 +1297,12 @@ TEST_F(RenderFrameHostManagerTest, WebUIWasCleared) {
   // Navigate to a WebUI page.
   const GURL kUrl1("chrome://foo");
   contents()->NavigateAndCommit(kUrl1);
-  EXPECT_TRUE(main_test_rfh()->frame_tree_node()->render_manager()->web_ui());
+  EXPECT_TRUE(main_test_rfh()->web_ui());
 
   // Navigate to a non-WebUI page.
   const GURL kUrl2("http://www.google.com");
   contents()->NavigateAndCommit(kUrl2);
-  EXPECT_FALSE(main_test_rfh()->frame_tree_node()->render_manager()->web_ui());
+  EXPECT_FALSE(main_test_rfh()->web_ui());
 }
 
 // Tests that we don't end up in an inconsistent state if a page does a back and
@@ -1243,8 +1310,7 @@ TEST_F(RenderFrameHostManagerTest, WebUIWasCleared) {
 // Also tests that only user-gesture navigations can interrupt cross-process
 // navigations. http://crbug.com/75195
 TEST_F(RenderFrameHostManagerTest, PageDoesBackAndReload) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     // PlzNavigate uses a significantly different logic for renderer initiated
     // navigations and navigation cancellation. Adapting this test would make it
     // full of special cases and almost unreadable.
@@ -1349,11 +1415,11 @@ TEST_F(RenderFrameHostManagerTest, NavigateAfterMissingSwapOutACK) {
 
   // Keep active_frame_count nonzero so that no swapped out frames in
   // this SiteInstance get forcefully deleted.
-  rfh1->GetSiteInstance()->increment_active_frame_count();
+  rfh1->GetSiteInstance()->IncrementActiveFrameCount();
 
   contents()->NavigateAndCommit(kUrl2);
   TestRenderFrameHost* rfh2 = main_test_rfh();
-  rfh2->GetSiteInstance()->increment_active_frame_count();
+  rfh2->GetSiteInstance()->IncrementActiveFrameCount();
 
   // Now go back, but suppose the SwapOut_ACK isn't received.  This shouldn't
   // happen, but we have seen it when going back quickly across many entries
@@ -1863,10 +1929,8 @@ TEST_F(RenderFrameHostManagerTest, CloseWithPendingWhileUnresponsive) {
   // Start a navigation to a new site.
   controller().LoadURL(
       kUrl2, Referrer(), ui::PAGE_TRANSITION_LINK, std::string());
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled())
     rfh1->PrepareForCommit();
-  }
   EXPECT_TRUE(contents()->CrossProcessNavigationPending());
 
   // Simulate the unresponsiveness timer.  The tab should close.
@@ -1935,7 +1999,7 @@ TEST_F(RenderFrameHostManagerTest, SwapOutFrameAfterSwapOutACK) {
 
   // Increment the number of active frames in SiteInstanceImpl so that rfh1 is
   // not deleted on swap out.
-  rfh1->GetSiteInstance()->increment_active_frame_count();
+  rfh1->GetSiteInstance()->IncrementActiveFrameCount();
 
   // Navigate to new site, simulating onbeforeunload approval.
   controller().LoadURL(
@@ -1985,7 +2049,7 @@ TEST_F(RenderFrameHostManagerTest,
   // Increment the number of active frames in SiteInstanceImpl so that rfh1 is
   // not deleted on swap out.
   scoped_refptr<SiteInstanceImpl> site_instance = rfh1->GetSiteInstance();
-  site_instance->increment_active_frame_count();
+  site_instance->IncrementActiveFrameCount();
 
   // Navigate to new site, simulating onbeforeunload approval.
   controller().LoadURL(
@@ -2061,7 +2125,7 @@ TEST_F(RenderFrameHostManagerTest,
     // created.
     scoped_refptr<SiteInstanceImpl> site_instance =
         pending_rfh->GetSiteInstance();
-    site_instance->increment_active_frame_count();
+    site_instance->IncrementActiveFrameCount();
 
     contents()->GetMainFrame()->OnMessageReceived(
         FrameHostMsg_BeforeUnload_ACK(0, false, now, now));
@@ -2096,11 +2160,11 @@ TEST_F(RenderFrameHostManagerTestWithSiteIsolation, DetachPendingChild) {
   contents()->NavigateAndCommit(kUrlA);
   contents()->GetMainFrame()->OnCreateChildFrame(
       contents()->GetMainFrame()->GetProcess()->GetNextRoutingID(),
-      blink::WebTreeScopeType::Document, "frame_name",
+      blink::WebTreeScopeType::Document, "frame_name", "uniqueName1",
       blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   contents()->GetMainFrame()->OnCreateChildFrame(
       contents()->GetMainFrame()->GetProcess()->GetNextRoutingID(),
-      blink::WebTreeScopeType::Document, "frame_name",
+      blink::WebTreeScopeType::Document, "frame_name", "uniqueName2",
       blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostManager* root_manager =
       contents()->GetFrameTree()->root()->render_manager();
@@ -2237,7 +2301,7 @@ TEST_F(RenderFrameHostManagerTestWithSiteIsolation,
   // |contents1| creates an out of process iframe.
   contents1->GetMainFrame()->OnCreateChildFrame(
       contents1->GetMainFrame()->GetProcess()->GetNextRoutingID(),
-      blink::WebTreeScopeType::Document, "frame_name",
+      blink::WebTreeScopeType::Document, "frame_name", "uniqueName1",
       blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostManager* iframe =
       contents()->GetFrameTree()->root()->child_at(0)->render_manager();
@@ -2286,7 +2350,7 @@ TEST_F(RenderFrameHostManagerTestWithSiteIsolation,
   EXPECT_TRUE(main_rfh->IsRenderFrameLive());
   main_rfh->OnCreateChildFrame(main_rfh->GetProcess()->GetNextRoutingID(),
                                blink::WebTreeScopeType::Document, std::string(),
-                               blink::WebSandboxFlags::None,
+                               "uniqueName1", blink::WebSandboxFlags::None,
                                blink::WebFrameOwnerProperties());
   RenderFrameHostManager* subframe_rfhm =
       contents()->GetFrameTree()->root()->child_at(0)->render_manager();
@@ -2441,26 +2505,28 @@ TEST_F(RenderFrameHostManagerTest, CreateOpenerProxiesWhenOpenerPointsToSelf) {
 // set separately in a second pass, since their opener routing IDs won't be
 // available during the first pass of CreateOpenerProxies.
 TEST_F(RenderFrameHostManagerTest, TraverseComplexOpenerChain) {
+  contents()->NavigateAndCommit(GURL("http://tab1.com"));
   FrameTree* tree1 = contents()->GetFrameTree();
   FrameTreeNode* root1 = tree1->root();
   int process_id = root1->current_frame_host()->GetProcess()->GetID();
   tree1->AddFrame(root1, process_id, 12, blink::WebTreeScopeType::Document,
-                  std::string(), blink::WebSandboxFlags::None,
+                  std::string(), "uniqueName0", blink::WebSandboxFlags::None,
                   blink::WebFrameOwnerProperties());
   tree1->AddFrame(root1, process_id, 13, blink::WebTreeScopeType::Document,
-                  std::string(), blink::WebSandboxFlags::None,
+                  std::string(), "uniqueName1", blink::WebSandboxFlags::None,
                   blink::WebFrameOwnerProperties());
 
   scoped_ptr<TestWebContents> tab2(
       TestWebContents::Create(browser_context(), nullptr));
+  tab2->NavigateAndCommit(GURL("http://tab2.com"));
   FrameTree* tree2 = tab2->GetFrameTree();
   FrameTreeNode* root2 = tree2->root();
   process_id = root2->current_frame_host()->GetProcess()->GetID();
   tree2->AddFrame(root2, process_id, 22, blink::WebTreeScopeType::Document,
-                  std::string(), blink::WebSandboxFlags::None,
+                  std::string(), "uniqueName2", blink::WebSandboxFlags::None,
                   blink::WebFrameOwnerProperties());
   tree2->AddFrame(root2, process_id, 23, blink::WebTreeScopeType::Document,
-                  std::string(), blink::WebSandboxFlags::None,
+                  std::string(), "uniqueName3", blink::WebSandboxFlags::None,
                   blink::WebFrameOwnerProperties());
 
   scoped_ptr<TestWebContents> tab3(
@@ -2470,11 +2536,12 @@ TEST_F(RenderFrameHostManagerTest, TraverseComplexOpenerChain) {
 
   scoped_ptr<TestWebContents> tab4(
       TestWebContents::Create(browser_context(), nullptr));
+  tab4->NavigateAndCommit(GURL("http://tab4.com"));
   FrameTree* tree4 = tab4->GetFrameTree();
   FrameTreeNode* root4 = tree4->root();
   process_id = root4->current_frame_host()->GetProcess()->GetID();
   tree4->AddFrame(root4, process_id, 42, blink::WebTreeScopeType::Document,
-                  std::string(), blink::WebSandboxFlags::None,
+                  std::string(), "uniqueName4", blink::WebSandboxFlags::None,
                   blink::WebFrameOwnerProperties());
 
   root1->child_at(1)->SetOpener(root1->child_at(1));
@@ -2523,15 +2590,15 @@ TEST_F(RenderFrameHostManagerTest, PageFocusPropagatesToSubframeProcesses) {
   contents()->NavigateAndCommit(kUrlA);
   main_test_rfh()->OnCreateChildFrame(
       main_test_rfh()->GetProcess()->GetNextRoutingID(),
-      blink::WebTreeScopeType::Document, "frame1",
+      blink::WebTreeScopeType::Document, "frame1", "uniqueName1",
       blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   main_test_rfh()->OnCreateChildFrame(
       main_test_rfh()->GetProcess()->GetNextRoutingID(),
-      blink::WebTreeScopeType::Document, "frame2",
+      blink::WebTreeScopeType::Document, "frame2", "uniqueName2",
       blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   main_test_rfh()->OnCreateChildFrame(
       main_test_rfh()->GetProcess()->GetNextRoutingID(),
-      blink::WebTreeScopeType::Document, "frame3",
+      blink::WebTreeScopeType::Document, "frame3", "uniqueName3",
       blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
 
   FrameTreeNode* root = contents()->GetFrameTree()->root();
@@ -2621,7 +2688,7 @@ TEST_F(RenderFrameHostManagerTest,
   contents()->NavigateAndCommit(kUrlA);
   main_test_rfh()->OnCreateChildFrame(
       main_test_rfh()->GetProcess()->GetNextRoutingID(),
-      blink::WebTreeScopeType::Document, "frame1",
+      blink::WebTreeScopeType::Document, "frame1", "uniqueName1",
       blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
 
   FrameTreeNode* root = contents()->GetFrameTree()->root();
@@ -2660,6 +2727,525 @@ TEST_F(RenderFrameHostManagerTest,
   // page focus should propagate to the new subframe process.  Check that
   // process C received the proper focus message.
   VerifyPageFocusMessage(hostC->GetProcess(), true, proxy->GetRoutingID());
+}
+
+// Checks that a restore navigation to a WebUI works.
+TEST_F(RenderFrameHostManagerTest, RestoreNavigationToWebUI) {
+  set_should_create_webui(true);
+
+  const GURL kInitUrl("chrome://foo/");
+  SiteInstanceImpl* initial_instance =
+      static_cast<SiteInstanceImpl*>(SiteInstance::Create(browser_context()));
+  initial_instance->SetSite(kInitUrl);
+  scoped_ptr<TestWebContents> web_contents(
+      TestWebContents::Create(browser_context(), initial_instance));
+  RenderFrameHostManager* manager = web_contents->GetRenderManagerForTesting();
+  NavigationControllerImpl& controller = web_contents->GetController();
+
+  // Setup a restored entry.
+  std::vector<scoped_ptr<NavigationEntry>> entries;
+  scoped_ptr<NavigationEntry> new_entry =
+      NavigationControllerImpl::CreateNavigationEntry(
+          kInitUrl, Referrer(), ui::PAGE_TRANSITION_TYPED, false, std::string(),
+          browser_context());
+  new_entry->SetPageID(0);
+  entries.push_back(std::move(new_entry));
+  controller.Restore(
+      0, NavigationController::RESTORE_LAST_SESSION_EXITED_CLEANLY, &entries);
+  ASSERT_EQ(0u, entries.size());
+  ASSERT_EQ(1, controller.GetEntryCount());
+
+  RenderFrameHostImpl* initial_host = manager->current_frame_host();
+  ASSERT_TRUE(initial_host);
+  EXPECT_FALSE(initial_host->IsRenderFrameLive());
+  EXPECT_FALSE(initial_host->web_ui());
+
+  // Navigation request to an entry from a previous browsing session.
+  NavigationEntryImpl entry(nullptr /* instance */, 0 /* page_id */, kInitUrl,
+                            Referrer(), base::string16() /* title */,
+                            ui::PAGE_TRANSITION_RELOAD,
+                            false /* is_renderer_init */);
+  entry.set_restore_type(
+      NavigationEntryImpl::RESTORE_LAST_SESSION_EXITED_CLEANLY);
+  NavigateToEntry(manager, entry);
+
+  // As the initial renderer was not live, the new RenderFrameHost should be
+  // made immediately active at request time.
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+  TestRenderFrameHost* current_host =
+      static_cast<TestRenderFrameHost*>(manager->current_frame_host());
+  ASSERT_TRUE(current_host);
+  EXPECT_EQ(current_host, initial_host);
+  EXPECT_TRUE(current_host->IsRenderFrameLive());
+  WebUIImpl* web_ui = manager->GetNavigatingWebUI();
+  EXPECT_TRUE(web_ui);
+  EXPECT_EQ(web_ui, current_host->pending_web_ui());
+  EXPECT_FALSE(current_host->web_ui());
+
+  // The RenderFrameHost committed.
+  manager->DidNavigateFrame(current_host, true);
+  EXPECT_EQ(current_host, manager->current_frame_host());
+  EXPECT_EQ(web_ui, current_host->web_ui());
+  EXPECT_FALSE(current_host->pending_web_ui());
+}
+
+// Shared code until before commit for the SimultaneousNavigationWithOneWebUI*
+// tests, accepting a lambda to execute the commit step.
+void RenderFrameHostManagerTest::BaseSimultaneousNavigationWithOneWebUI(
+    const std::function<void(RenderFrameHostImpl*,
+                             RenderFrameHostImpl*,
+                             WebUIImpl*,
+                             RenderFrameHostManager*)>& commit_lambda) {
+  set_should_create_webui(true);
+  NavigateActiveAndCommit(GURL("chrome://foo/"));
+
+  RenderFrameHostManager* manager = contents()->GetRenderManagerForTesting();
+  RenderFrameHostImpl* host1 = manager->current_frame_host();
+  EXPECT_TRUE(host1->IsRenderFrameLive());
+  WebUIImpl* web_ui = host1->web_ui();
+  EXPECT_TRUE(web_ui);
+
+  // Starts a reload of the WebUI page.
+  contents()->GetController().Reload(true);
+
+  // It should be a same-site navigation reusing the same WebUI.
+  EXPECT_EQ(web_ui, manager->GetNavigatingWebUI());
+  EXPECT_EQ(web_ui, host1->web_ui());
+  EXPECT_EQ(web_ui, host1->pending_web_ui());
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+
+  // Navigation request to a non-WebUI page.
+  const GURL kUrl("http://google.com");
+  NavigationEntryImpl entry(NULL /* instance */, -1 /* page_id */, kUrl,
+                            Referrer(), base::string16() /* title */,
+                            ui::PAGE_TRANSITION_TYPED,
+                            false /* is_renderer_init */);
+  RenderFrameHostImpl* host2 = NavigateToEntry(manager, entry);
+  ASSERT_TRUE(host2);
+
+  // The previous navigation should still be ongoing along with the new,
+  // cross-site one.
+  // Note: Simultaneous navigations are weird: there are two ongoing
+  // navigations, a same-site using a WebUI and a cross-site not using one. So
+  // it's unclear what GetNavigatingWebUI should return in this case. As it
+  // currently favors the cross-site navigation it returns null.
+  EXPECT_FALSE(manager->GetNavigatingWebUI());
+  EXPECT_EQ(web_ui, host1->web_ui());
+  EXPECT_EQ(web_ui, host1->pending_web_ui());
+
+  EXPECT_NE(host2, host1);
+  EXPECT_EQ(host2, GetPendingFrameHost(manager));
+  EXPECT_FALSE(host2->web_ui());
+  EXPECT_FALSE(host2->pending_web_ui());
+  EXPECT_NE(web_ui, host2->web_ui());
+
+  commit_lambda(host1, host2, web_ui, manager);
+}
+
+// Simulates two simultaneous navigations involving one WebUI where the current
+// RenderFrameHost commits.
+TEST_F(RenderFrameHostManagerTest, SimultaneousNavigationWithOneWebUI1) {
+  auto commit_current_frame_host = [this](
+      RenderFrameHostImpl* host1, RenderFrameHostImpl* host2, WebUIImpl* web_ui,
+      RenderFrameHostManager* manager) {
+    // The current RenderFrameHost commits; its WebUI should still be in place.
+    manager->DidNavigateFrame(host1, true);
+    EXPECT_EQ(host1, manager->current_frame_host());
+    EXPECT_EQ(web_ui, host1->web_ui());
+    EXPECT_FALSE(host1->pending_web_ui());
+    EXPECT_FALSE(manager->GetNavigatingWebUI());
+    EXPECT_FALSE(GetPendingFrameHost(manager));
+  };
+
+  BaseSimultaneousNavigationWithOneWebUI(commit_current_frame_host);
+}
+
+// Simulates two simultaneous navigations involving one WebUI where the new,
+// cross-site RenderFrameHost commits.
+TEST_F(RenderFrameHostManagerTest, SimultaneousNavigationWithOneWebUI2) {
+  auto commit_new_frame_host = [this](
+      RenderFrameHostImpl* host1, RenderFrameHostImpl* host2, WebUIImpl* web_ui,
+      RenderFrameHostManager* manager) {
+    // The new RenderFrameHost commits; there should be no active WebUI.
+    manager->DidNavigateFrame(host2, true);
+    EXPECT_EQ(host2, manager->current_frame_host());
+    EXPECT_FALSE(host2->web_ui());
+    EXPECT_FALSE(host2->pending_web_ui());
+    EXPECT_FALSE(manager->GetNavigatingWebUI());
+    EXPECT_FALSE(GetPendingFrameHost(manager));
+  };
+
+  BaseSimultaneousNavigationWithOneWebUI(commit_new_frame_host);
+}
+
+// Shared code until before commit for the SimultaneousNavigationWithTwoWebUIs*
+// tests, accepting a lambda to execute the commit step.
+void RenderFrameHostManagerTest::BaseSimultaneousNavigationWithTwoWebUIs(
+    const std::function<void(RenderFrameHostImpl*,
+                             RenderFrameHostImpl*,
+                             WebUIImpl*,
+                             WebUIImpl*,
+                             RenderFrameHostManager*)>& commit_lambda) {
+  set_should_create_webui(true);
+  set_webui_type(1);
+  NavigateActiveAndCommit(GURL("chrome://foo/"));
+
+  RenderFrameHostManager* manager = contents()->GetRenderManagerForTesting();
+  RenderFrameHostImpl* host1 = manager->current_frame_host();
+  EXPECT_TRUE(host1->IsRenderFrameLive());
+  WebUIImpl* web_ui1 = host1->web_ui();
+  EXPECT_TRUE(web_ui1);
+
+  // Starts a reload of the WebUI page.
+  contents()->GetController().Reload(true);
+
+  // It should be a same-site navigation reusing the same WebUI.
+  EXPECT_EQ(web_ui1, manager->GetNavigatingWebUI());
+  EXPECT_EQ(web_ui1, host1->web_ui());
+  EXPECT_EQ(web_ui1, host1->pending_web_ui());
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+
+  // Navigation another WebUI page, with a different type.
+  set_webui_type(2);
+  const GURL kUrl("chrome://bar/");
+  NavigationEntryImpl entry(NULL /* instance */, -1 /* page_id */, kUrl,
+                            Referrer(), base::string16() /* title */,
+                            ui::PAGE_TRANSITION_TYPED,
+                            false /* is_renderer_init */);
+  RenderFrameHostImpl* host2 = NavigateToEntry(manager, entry);
+  ASSERT_TRUE(host2);
+
+  // The previous navigation should still be ongoing along with the new,
+  // cross-site one.
+  // Note: simultaneous navigations are weird: there are two ongoing
+  // navigations, a same-site and a cross-site both going to WebUIs. So it's
+  // unclear what GetNavigatingWebUI should return in this case. As it currently
+  // favors the cross-site navigation it returns the speculative/pending
+  // RenderFrameHost's WebUI instance.
+  EXPECT_EQ(web_ui1, host1->web_ui());
+  EXPECT_EQ(web_ui1, host1->pending_web_ui());
+  WebUIImpl* web_ui2 = manager->GetNavigatingWebUI();
+  EXPECT_TRUE(web_ui2);
+  EXPECT_NE(web_ui2, web_ui1);
+
+  EXPECT_NE(host2, host1);
+  EXPECT_EQ(host2, GetPendingFrameHost(manager));
+  EXPECT_EQ(web_ui2, host2->web_ui());
+  EXPECT_FALSE(host2->pending_web_ui());
+
+  commit_lambda(host1, host2, web_ui1, web_ui2, manager);
+}
+
+// Simulates two simultaneous navigations involving two WebUIs where the current
+// RenderFrameHost commits.
+TEST_F(RenderFrameHostManagerTest, SimultaneousNavigationWithTwoWebUIs1) {
+  auto commit_current_frame_host = [this](
+      RenderFrameHostImpl* host1, RenderFrameHostImpl* host2,
+      WebUIImpl* web_ui1, WebUIImpl* web_ui2, RenderFrameHostManager* manager) {
+    // The current RenderFrameHost commits; its WebUI should still be active.
+    manager->DidNavigateFrame(host1, true);
+    EXPECT_EQ(host1, manager->current_frame_host());
+    EXPECT_EQ(web_ui1, host1->web_ui());
+    EXPECT_FALSE(host1->pending_web_ui());
+    EXPECT_FALSE(manager->GetNavigatingWebUI());
+    EXPECT_FALSE(GetPendingFrameHost(manager));
+  };
+
+  BaseSimultaneousNavigationWithTwoWebUIs(commit_current_frame_host);
+}
+
+// Simulates two simultaneous navigations involving two WebUIs where the new,
+// cross-site RenderFrameHost commits.
+TEST_F(RenderFrameHostManagerTest, SimultaneousNavigationWithTwoWebUIs2) {
+  auto commit_new_frame_host = [this](
+      RenderFrameHostImpl* host1, RenderFrameHostImpl* host2,
+      WebUIImpl* web_ui1, WebUIImpl* web_ui2, RenderFrameHostManager* manager) {
+    // The new RenderFrameHost commits; its WebUI should now be active.
+    manager->DidNavigateFrame(host2, true);
+    EXPECT_EQ(host2, manager->current_frame_host());
+    EXPECT_EQ(web_ui2, host2->web_ui());
+    EXPECT_FALSE(host2->pending_web_ui());
+    EXPECT_FALSE(manager->GetNavigatingWebUI());
+    EXPECT_FALSE(GetPendingFrameHost(manager));
+  };
+
+  BaseSimultaneousNavigationWithTwoWebUIs(commit_new_frame_host);
+}
+
+// RenderFrameHostManagerTest extension for PlzNavigate enabled tests.
+class RenderFrameHostManagerTestWithBrowserSideNavigation
+    : public RenderFrameHostManagerTest {
+ public:
+  void SetUp() override {
+    EnableBrowserSideNavigation();
+    RenderFrameHostManagerTest::SetUp();
+  }
+};
+
+// PlzNavigate: Tests that the correct intermediary and final navigation states
+// are reached when navigating from a renderer that is not live to a WebUI URL.
+TEST_F(RenderFrameHostManagerTestWithBrowserSideNavigation,
+       NavigateFromDeadRendererToWebUI) {
+  set_should_create_webui(true);
+  RenderFrameHostManager* manager = contents()->GetRenderManagerForTesting();
+
+  RenderFrameHostImpl* initial_host = manager->current_frame_host();
+  ASSERT_TRUE(initial_host);
+  EXPECT_FALSE(initial_host->IsRenderFrameLive());
+
+  // Navigation request.
+  const GURL kUrl("chrome://foo");
+  NavigationEntryImpl entry(nullptr /* instance */, -1 /* page_id */, kUrl,
+                            Referrer(), base::string16() /* title */,
+                            ui::PAGE_TRANSITION_TYPED,
+                            false /* is_renderer_init */);
+  FrameNavigationEntry* frame_entry = entry.root_node()->frame_entry.get();
+  scoped_ptr<NavigationRequest> navigation_request =
+      NavigationRequest::CreateBrowserInitiated(
+          contents()->GetFrameTree()->root(), frame_entry->url(),
+          frame_entry->referrer(), *frame_entry, entry,
+          FrameMsg_Navigate_Type::NORMAL, LOFI_UNSPECIFIED, false,
+          base::TimeTicks::Now(),
+          static_cast<NavigationControllerImpl*>(&controller()));
+  manager->DidCreateNavigationRequest(*navigation_request);
+
+  // As the initial RenderFrame was not live, the new RenderFrameHost should be
+  // made as active/current immediately along with its WebUI at request time.
+  RenderFrameHostImpl* host = manager->current_frame_host();
+  ASSERT_TRUE(host);
+  EXPECT_NE(host, initial_host);
+  EXPECT_TRUE(host->IsRenderFrameLive());
+  WebUIImpl* web_ui = host->web_ui();
+  EXPECT_TRUE(web_ui);
+  EXPECT_FALSE(host->pending_web_ui());
+  EXPECT_FALSE(manager->GetNavigatingWebUI());
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+
+  // Prepare to commit, update the navigating RenderFrameHost.
+  EXPECT_EQ(host, manager->GetFrameHostForNavigation(*navigation_request));
+
+  // There should be a pending WebUI set to reuse the current one.
+  EXPECT_EQ(web_ui, host->web_ui());
+  EXPECT_EQ(web_ui, host->pending_web_ui());
+  EXPECT_EQ(web_ui, manager->GetNavigatingWebUI());
+
+  // No pending RenderFrameHost as the current one should be reused.
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+
+  // The RenderFrameHost committed.
+  manager->DidNavigateFrame(host, true);
+  EXPECT_EQ(host, manager->current_frame_host());
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+  EXPECT_EQ(web_ui, host->web_ui());
+  EXPECT_FALSE(host->pending_web_ui());
+  EXPECT_FALSE(manager->GetNavigatingWebUI());
+}
+
+// PlzNavigate: Tests that the correct intermediary and final navigation states
+// are reached when navigating same-site between two WebUIs of the same type.
+TEST_F(RenderFrameHostManagerTestWithBrowserSideNavigation,
+       NavigateSameSiteBetweenWebUIs) {
+  set_should_create_webui(true);
+  NavigateActiveAndCommit(GURL("chrome://foo"));
+
+  RenderFrameHostManager* manager = contents()->GetRenderManagerForTesting();
+  RenderFrameHostImpl* host = manager->current_frame_host();
+  EXPECT_TRUE(host->IsRenderFrameLive());
+  WebUIImpl* web_ui = host->web_ui();
+  EXPECT_TRUE(web_ui);
+
+  // Navigation request. No change in the returned WebUI type.
+  const GURL kUrl("chrome://foo/bar");
+  NavigationEntryImpl entry(nullptr /* instance */, -1 /* page_id */, kUrl,
+                            Referrer(), base::string16() /* title */,
+                            ui::PAGE_TRANSITION_TYPED,
+                            false /* is_renderer_init */);
+  FrameNavigationEntry* frame_entry = entry.root_node()->frame_entry.get();
+  scoped_ptr<NavigationRequest> navigation_request =
+      NavigationRequest::CreateBrowserInitiated(
+          contents()->GetFrameTree()->root(), frame_entry->url(),
+          frame_entry->referrer(), *frame_entry, entry,
+          FrameMsg_Navigate_Type::NORMAL, LOFI_UNSPECIFIED, false,
+          base::TimeTicks::Now(),
+          static_cast<NavigationControllerImpl*>(&controller()));
+  manager->DidCreateNavigationRequest(*navigation_request);
+
+  // The current WebUI should still be in place and the pending WebUI should be
+  // set to reuse it.
+  EXPECT_EQ(web_ui, manager->GetNavigatingWebUI());
+  EXPECT_EQ(web_ui, host->web_ui());
+  EXPECT_EQ(web_ui, host->pending_web_ui());
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+
+  // Prepare to commit, update the navigating RenderFrameHost.
+  EXPECT_EQ(host, manager->GetFrameHostForNavigation(*navigation_request));
+
+  EXPECT_EQ(web_ui, manager->GetNavigatingWebUI());
+  EXPECT_EQ(web_ui, host->web_ui());
+  EXPECT_EQ(web_ui, host->pending_web_ui());
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+
+  // The RenderFrameHost committed.
+  manager->DidNavigateFrame(host, true);
+  EXPECT_EQ(web_ui, host->web_ui());
+  EXPECT_FALSE(manager->GetNavigatingWebUI());
+  EXPECT_FALSE(host->pending_web_ui());
+}
+
+// PlzNavigate: Tests that the correct intermediary and final navigation states
+// are reached when navigating cross-site between two different WebUI types.
+TEST_F(RenderFrameHostManagerTestWithBrowserSideNavigation,
+       NavigateCrossSiteBetweenWebUIs) {
+  // Cross-site navigations will always cause the change of the WebUI instance
+  // but for consistency sake different types will be set for each navigation.
+  set_should_create_webui(true);
+  set_webui_type(1);
+  NavigateActiveAndCommit(GURL("chrome://foo"));
+
+  RenderFrameHostManager* manager = contents()->GetRenderManagerForTesting();
+  RenderFrameHostImpl* host = manager->current_frame_host();
+  EXPECT_TRUE(host->IsRenderFrameLive());
+  EXPECT_TRUE(host->web_ui());
+
+  // Set the WebUI controller to return a different WebUIType value. This will
+  // cause the next navigation to "chrome://bar" to require a different WebUI
+  // than the current one, forcing it to be treated as cross-site.
+  set_webui_type(2);
+
+  // Navigation request.
+  const GURL kUrl("chrome://bar");
+  NavigationEntryImpl entry(nullptr /* instance */, -1 /* page_id */, kUrl,
+                            Referrer(), base::string16() /* title */,
+                            ui::PAGE_TRANSITION_TYPED,
+                            false /* is_renderer_init */);
+  FrameNavigationEntry* frame_entry = entry.root_node()->frame_entry.get();
+  scoped_ptr<NavigationRequest> navigation_request =
+      NavigationRequest::CreateBrowserInitiated(
+          contents()->GetFrameTree()->root(), frame_entry->url(),
+          frame_entry->referrer(), *frame_entry, entry,
+          FrameMsg_Navigate_Type::NORMAL, LOFI_UNSPECIFIED, false,
+          base::TimeTicks::Now(),
+          static_cast<NavigationControllerImpl*>(&controller()));
+  manager->DidCreateNavigationRequest(*navigation_request);
+
+  // The current WebUI should still be in place and there should be a new
+  // active WebUI instance in the speculative RenderFrameHost.
+  EXPECT_TRUE(manager->current_frame_host()->web_ui());
+  EXPECT_FALSE(manager->current_frame_host()->pending_web_ui());
+  RenderFrameHostImpl* speculative_host = GetPendingFrameHost(manager);
+  EXPECT_TRUE(speculative_host);
+  WebUIImpl* next_web_ui = manager->GetNavigatingWebUI();
+  EXPECT_TRUE(next_web_ui);
+  EXPECT_EQ(next_web_ui, speculative_host->web_ui());
+  EXPECT_NE(next_web_ui, manager->current_frame_host()->web_ui());
+  EXPECT_FALSE(speculative_host->pending_web_ui());
+
+  // Prepare to commit, update the navigating RenderFrameHost.
+  EXPECT_EQ(speculative_host,
+            manager->GetFrameHostForNavigation(*navigation_request));
+
+  EXPECT_TRUE(manager->current_frame_host()->web_ui());
+  EXPECT_FALSE(manager->current_frame_host()->pending_web_ui());
+  EXPECT_EQ(speculative_host, GetPendingFrameHost(manager));
+  EXPECT_NE(next_web_ui, manager->current_frame_host()->web_ui());
+  EXPECT_EQ(next_web_ui, speculative_host->web_ui());
+  EXPECT_EQ(next_web_ui, manager->GetNavigatingWebUI());
+  EXPECT_FALSE(speculative_host->pending_web_ui());
+
+  // The RenderFrameHost committed.
+  manager->DidNavigateFrame(speculative_host, true);
+  EXPECT_EQ(speculative_host, manager->current_frame_host());
+  EXPECT_EQ(next_web_ui, manager->current_frame_host()->web_ui());
+  EXPECT_FALSE(GetPendingFrameHost(manager));
+  EXPECT_FALSE(speculative_host->pending_web_ui());
+  EXPECT_FALSE(manager->GetNavigatingWebUI());
+}
+
+// Tests that frame proxies receive updates when a frame's enforcement
+// of strict mixed content checking changes.
+TEST_F(RenderFrameHostManagerTestWithSiteIsolation,
+       ProxiesReceiveShouldEnforceStrictMixedContentChecking) {
+  const GURL kUrl1("http://www.google.test");
+  const GURL kUrl2("http://www.google2.test");
+  const GURL kUrl3("http://www.google2.test/foo");
+
+  contents()->NavigateAndCommit(kUrl1);
+
+  // Create a child frame and navigate it cross-site.
+  main_test_rfh()->OnCreateChildFrame(
+      main_test_rfh()->GetProcess()->GetNextRoutingID(),
+      blink::WebTreeScopeType::Document, "frame1", "uniqueName1",
+      blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
+
+  FrameTreeNode* root = contents()->GetFrameTree()->root();
+  RenderFrameHostManager* child = root->child_at(0)->render_manager();
+
+  // Navigate subframe to kUrl2.
+  NavigationEntryImpl entry1(nullptr /* instance */, -1 /* page_id */, kUrl2,
+                             Referrer(kUrl1, blink::WebReferrerPolicyDefault),
+                             base::string16() /* title */,
+                             ui::PAGE_TRANSITION_LINK,
+                             false /* is_renderer_init */);
+  TestRenderFrameHost* child_host =
+      static_cast<TestRenderFrameHost*>(NavigateToEntry(child, entry1));
+  child->DidNavigateFrame(child_host, true);
+
+  // Verify that parent and child are in different processes.
+  EXPECT_NE(child_host->GetProcess(), main_test_rfh()->GetProcess());
+
+  // Change the parent's enforcement of strict mixed content checking,
+  // and check that the correct IPC is sent to the child frame's
+  // process.
+  EXPECT_FALSE(root->current_replication_state()
+                   .should_enforce_strict_mixed_content_checking);
+  main_test_rfh()->DidEnforceStrictMixedContentChecking();
+  RenderFrameProxyHost* proxy_to_child =
+      root->render_manager()->GetRenderFrameProxyHost(
+          child_host->GetSiteInstance());
+  EXPECT_NO_FATAL_FAILURE(
+      CheckMixedContentIPC(child_host, true, proxy_to_child->GetRoutingID()));
+  EXPECT_TRUE(root->current_replication_state()
+                  .should_enforce_strict_mixed_content_checking);
+
+  // Do the same for the child's enforcement. In general, the parent
+  // needs to know the status of the child's flag in case a grandchild
+  // is created: if A.com embeds B.com, and B.com enforces strict mixed
+  // content checking, and B.com adds an iframe to A.com, then the
+  // A.com process needs to know B.com's flag so that the grandchild
+  // A.com frame can inherit it.
+  EXPECT_FALSE(root->child_at(0)
+                   ->current_replication_state()
+                   .should_enforce_strict_mixed_content_checking);
+  child_host->DidEnforceStrictMixedContentChecking();
+  RenderFrameProxyHost* proxy_to_parent =
+      child->GetRenderFrameProxyHost(main_test_rfh()->GetSiteInstance());
+  EXPECT_NO_FATAL_FAILURE(CheckMixedContentIPC(
+      main_test_rfh(), true, proxy_to_parent->GetRoutingID()));
+  EXPECT_TRUE(root->child_at(0)
+                  ->current_replication_state()
+                  .should_enforce_strict_mixed_content_checking);
+
+  // Check that the flag for the parent's proxy to the child is reset
+  // when the child navigates.
+  main_test_rfh()->GetProcess()->sink().ClearMessages();
+  FrameHostMsg_DidCommitProvisionalLoad_Params commit_params;
+  commit_params.page_id = 0;
+  commit_params.nav_entry_id = 0;
+  commit_params.did_create_new_entry = false;
+  commit_params.url = kUrl3;
+  commit_params.transition = ui::PAGE_TRANSITION_AUTO_SUBFRAME;
+  commit_params.should_update_history = false;
+  commit_params.gesture = NavigationGestureAuto;
+  commit_params.was_within_same_page = false;
+  commit_params.is_post = false;
+  commit_params.page_state = PageState::CreateFromURL(kUrl3);
+  commit_params.should_enforce_strict_mixed_content_checking = false;
+  child_host->SendNavigateWithParams(&commit_params);
+  EXPECT_NO_FATAL_FAILURE(CheckMixedContentIPC(
+      main_test_rfh(), false, proxy_to_parent->GetRoutingID()));
+  EXPECT_FALSE(root->child_at(0)
+                   ->current_replication_state()
+                   .should_enforce_strict_mixed_content_checking);
 }
 
 }  // namespace content

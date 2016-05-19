@@ -66,7 +66,7 @@ bool WindowManagerAccessPolicy::CanDescendIntoWindowForWindowTree(
 
 bool WindowManagerAccessPolicy::CanEmbed(const ServerWindow* window,
                                          uint32_t policy_bitmask) const {
-  return !delegate_->IsRootForAccessPolicy(window->id());
+  return !delegate_->HasRootForAccessPolicy(window);
 }
 
 bool WindowManagerAccessPolicy::CanChangeWindowVisibility(
@@ -79,13 +79,13 @@ bool WindowManagerAccessPolicy::CanChangeWindowVisibility(
 bool WindowManagerAccessPolicy::CanSetWindowSurface(
     const ServerWindow* window,
     mus::mojom::SurfaceType surface_type) const {
-  if (surface_type == mojom::SURFACE_TYPE_UNDERLAY)
+  if (surface_type == mojom::SurfaceType::UNDERLAY)
     return window->id().connection_id == connection_id_;
 
   if (delegate_->IsWindowRootOfAnotherConnectionForAccessPolicy(window))
     return false;
   return window->id().connection_id == connection_id_ ||
-         (delegate_->IsRootForAccessPolicy(window->id()));
+         (delegate_->HasRootForAccessPolicy(window));
 }
 
 bool WindowManagerAccessPolicy::CanSetWindowBounds(
@@ -103,6 +103,11 @@ bool WindowManagerAccessPolicy::CanSetWindowTextInputState(
   return window->id().connection_id == connection_id_;
 }
 
+bool WindowManagerAccessPolicy::CanSetCapture(
+    const ServerWindow* window) const {
+  return window->id().connection_id == connection_id_;
+}
+
 bool WindowManagerAccessPolicy::CanSetFocus(const ServerWindow* window) const {
   return true;
 }
@@ -110,7 +115,13 @@ bool WindowManagerAccessPolicy::CanSetFocus(const ServerWindow* window) const {
 bool WindowManagerAccessPolicy::CanSetClientArea(
     const ServerWindow* window) const {
   return window->id().connection_id == connection_id_ ||
-         delegate_->IsRootForAccessPolicy(window->id());
+         delegate_->HasRootForAccessPolicy(window);
+}
+
+bool WindowManagerAccessPolicy::CanSetCursorProperties(
+    const ServerWindow* window) const {
+  return window->id().connection_id == connection_id_ ||
+         delegate_->HasRootForAccessPolicy(window);
 }
 
 bool WindowManagerAccessPolicy::ShouldNotifyOnHierarchyChange(
@@ -123,6 +134,10 @@ bool WindowManagerAccessPolicy::ShouldNotifyOnHierarchyChange(
   // case of a window that wasn't parented to the root getting added to the
   // root.
   return IsWindowKnown(window) || (*new_parent && IsWindowKnown(*new_parent));
+}
+
+bool WindowManagerAccessPolicy::CanSetWindowManager() const {
+  return true;
 }
 
 const ServerWindow* WindowManagerAccessPolicy::GetWindowForFocusChange(

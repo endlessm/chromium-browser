@@ -4,6 +4,8 @@
 
 #include "android_webview/browser/net/aw_request_interceptor.h"
 
+#include <utility>
+
 #include "android_webview/browser/aw_contents_io_thread_client.h"
 #include "android_webview/browser/input_stream.h"
 #include "android_webview/browser/net/android_stream_reader_url_request_job.h"
@@ -27,13 +29,13 @@ class StreamReaderJobDelegateImpl
  public:
   StreamReaderJobDelegateImpl(
       scoped_ptr<AwWebResourceResponse> aw_web_resource_response)
-      : aw_web_resource_response_(aw_web_resource_response.Pass()) {
+      : aw_web_resource_response_(std::move(aw_web_resource_response)) {
     DCHECK(aw_web_resource_response_);
   }
 
   scoped_ptr<InputStream> OpenInputStream(JNIEnv* env,
                                           const GURL& url) override {
-    return aw_web_resource_response_->GetInputStream(env).Pass();
+    return aw_web_resource_response_->GetInputStream(env);
   }
 
   void OnInputStreamOpenFailed(net::URLRequest* request,
@@ -79,7 +81,7 @@ class ShouldInterceptRequestAdaptor
  public:
   explicit ShouldInterceptRequestAdaptor(
       scoped_ptr<AwContentsIoThreadClient> io_thread_client)
-      : io_thread_client_(io_thread_client.Pass()), weak_factory_(this) {}
+      : io_thread_client_(std::move(io_thread_client)), weak_factory_(this) {}
    ~ShouldInterceptRequestAdaptor() override {}
 
   void ObtainDelegate(net::URLRequest* request,
@@ -98,8 +100,8 @@ class ShouldInterceptRequestAdaptor
   void WebResourceResponseObtained(
       scoped_ptr<AwWebResourceResponse> response) {
     if (response) {
-      callback_.Run(
-          make_scoped_ptr(new StreamReaderJobDelegateImpl(response.Pass())));
+      callback_.Run(make_scoped_ptr(
+          new StreamReaderJobDelegateImpl(std::move(response))));
     } else {
       callback_.Run(nullptr);
     }
@@ -111,6 +113,20 @@ class ShouldInterceptRequestAdaptor
 
   DISALLOW_COPY_AND_ASSIGN(ShouldInterceptRequestAdaptor);
 };
+
+scoped_ptr<AwContentsIoThreadClient> GetCorrespondingIoThreadClient(
+    net::URLRequest* request) {
+  if (content::ResourceRequestInfo::OriginatedFromServiceWorker(request))
+    return AwContentsIoThreadClient::GetServiceWorkerIoThreadClient();
+
+  int render_process_id, render_frame_id;
+  if (!content::ResourceRequestInfo::GetRenderFrameForRequest(
+      request, &render_process_id, &render_frame_id)) {
+    return nullptr;
+  }
+
+  return AwContentsIoThreadClient::FromID(render_process_id, render_frame_id);
+}
 
 }  // namespace
 
@@ -127,14 +143,8 @@ net::URLRequestJob* AwRequestInterceptor::MaybeInterceptRequest(
   if (request->GetUserData(kRequestAlreadyHasJobDataKey))
     return nullptr;
 
-  int render_process_id, render_frame_id;
-  if (!content::ResourceRequestInfo::GetRenderFrameForRequest(
-          request, &render_process_id, &render_frame_id)) {
-    return nullptr;
-  }
-
   scoped_ptr<AwContentsIoThreadClient> io_thread_client =
-      AwContentsIoThreadClient::FromID(render_process_id, render_frame_id);
+      GetCorrespondingIoThreadClient(request);
 
   if (!io_thread_client)
     return nullptr;
@@ -150,7 +160,7 @@ net::URLRequestJob* AwRequestInterceptor::MaybeInterceptRequest(
   return new AndroidStreamReaderURLRequestJob(
       request, network_delegate,
       make_scoped_ptr(
-          new ShouldInterceptRequestAdaptor(io_thread_client.Pass())),
+          new ShouldInterceptRequestAdaptor(std::move(io_thread_client))),
       true);
 }
 

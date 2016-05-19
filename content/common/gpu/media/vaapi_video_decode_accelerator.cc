@@ -4,8 +4,11 @@
 
 #include "content/common/gpu/media/vaapi_video_decode_accelerator.h"
 
+#include <string.h>
+
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
@@ -51,25 +54,24 @@ static void ReportToUMA(VAVDADecoderFailure failure) {
 class VaapiVideoDecodeAccelerator::VaapiDecodeSurface
     : public base::RefCountedThreadSafe<VaapiDecodeSurface> {
  public:
-  VaapiDecodeSurface(int32 bitstream_id,
+  VaapiDecodeSurface(int32_t bitstream_id,
                      const scoped_refptr<VASurface>& va_surface);
 
-  int32 bitstream_id() const { return bitstream_id_; }
+  int32_t bitstream_id() const { return bitstream_id_; }
   scoped_refptr<VASurface> va_surface() { return va_surface_; }
 
  private:
   friend class base::RefCountedThreadSafe<VaapiDecodeSurface>;
   ~VaapiDecodeSurface();
 
-  int32 bitstream_id_;
+  int32_t bitstream_id_;
   scoped_refptr<VASurface> va_surface_;
 };
 
 VaapiVideoDecodeAccelerator::VaapiDecodeSurface::VaapiDecodeSurface(
-    int32 bitstream_id,
+    int32_t bitstream_id,
     const scoped_refptr<VASurface>& va_surface)
-    : bitstream_id_(bitstream_id), va_surface_(va_surface) {
-}
+    : bitstream_id_(bitstream_id), va_surface_(va_surface) {}
 
 VaapiVideoDecodeAccelerator::VaapiDecodeSurface::~VaapiDecodeSurface() {
 }
@@ -280,7 +282,7 @@ void VaapiVideoDecodeAccelerator::NotifyError(Error error) {
 }
 
 VaapiPicture* VaapiVideoDecodeAccelerator::PictureById(
-    int32 picture_buffer_id) {
+    int32_t picture_buffer_id) {
   Pictures::iterator it = pictures_.find(picture_buffer_id);
   if (it == pictures_.end()) {
     LOG(ERROR) << "Picture id " << picture_buffer_id << " does not exist";
@@ -292,7 +294,7 @@ VaapiPicture* VaapiVideoDecodeAccelerator::PictureById(
 
 VaapiVideoDecodeAccelerator::VaapiVideoDecodeAccelerator(
     const base::Callback<bool(void)>& make_context_current,
-    const base::Callback<void(uint32, uint32, scoped_refptr<gl::GLImage>)>&
+    const base::Callback<void(uint32_t, uint32_t, scoped_refptr<gl::GLImage>)>&
         bind_image)
     : make_context_current_(make_context_current),
       state_(kUninitialized),
@@ -316,12 +318,19 @@ VaapiVideoDecodeAccelerator::~VaapiVideoDecodeAccelerator() {
   DCHECK_EQ(message_loop_, base::MessageLoop::current());
 }
 
-bool VaapiVideoDecodeAccelerator::Initialize(media::VideoCodecProfile profile,
+bool VaapiVideoDecodeAccelerator::Initialize(const Config& config,
                                              Client* client) {
   DCHECK_EQ(message_loop_, base::MessageLoop::current());
 
+  if (config.is_encrypted) {
+    NOTREACHED() << "Encrypted streams are not supported for this VDA";
+    return false;
+  }
+
   client_ptr_factory_.reset(new base::WeakPtrFactory<Client>(client));
   client_ = client_ptr_factory_->GetWeakPtr();
+
+  media::VideoCodecProfile profile = config.profile;
 
   base::AutoLock auto_lock(lock_);
   DCHECK_EQ(state_, kUninitialized);
@@ -375,11 +384,11 @@ bool VaapiVideoDecodeAccelerator::Initialize(media::VideoCodecProfile profile,
 
 void VaapiVideoDecodeAccelerator::OutputPicture(
     const scoped_refptr<VASurface>& va_surface,
-    int32 input_id,
+    int32_t input_id,
     VaapiPicture* picture) {
   DCHECK_EQ(message_loop_, base::MessageLoop::current());
 
-  int32 output_id = picture->picture_buffer_id();
+  int32_t output_id = picture->picture_buffer_id();
 
   TRACE_EVENT2("Video Decoder", "VAVDA::OutputSurface",
                "input_id", input_id,
@@ -493,7 +502,7 @@ bool VaapiVideoDecodeAccelerator::GetInputBuffer_Locked() {
                << " size: " << curr_input_buffer_->size;
 
       decoder_->SetStream(
-          static_cast<uint8*>(curr_input_buffer_->shm->memory()),
+          static_cast<uint8_t*>(curr_input_buffer_->shm->memory()),
           curr_input_buffer_->size);
       return true;
 
@@ -509,7 +518,7 @@ void VaapiVideoDecodeAccelerator::ReturnCurrInputBuffer_Locked() {
   DCHECK(decoder_thread_task_runner_->BelongsToCurrentThread());
   DCHECK(curr_input_buffer_.get());
 
-  int32 id = curr_input_buffer_->id;
+  int32_t id = curr_input_buffer_->id;
   curr_input_buffer_.reset();
   DVLOG(4) << "End of input buffer " << id;
   message_loop_->PostTask(FROM_HERE, base::Bind(
@@ -664,6 +673,12 @@ void VaapiVideoDecodeAccelerator::Decode(
   TRACE_EVENT1("Video Decoder", "VAVDA::Decode", "Buffer id",
                bitstream_buffer.id());
 
+  RETURN_AND_NOTIFY_ON_FAILURE(
+      bitstream_buffer.id() >= 0 &&
+          base::SharedMemory::IsHandleValid(bitstream_buffer.handle()),
+      "Invalid bitstream_buffer, id: " << bitstream_buffer.id(),
+      INVALID_ARGUMENT, );
+
   // We got a new input buffer from the client, map it and queue for later use.
   MapAndQueueNewInputBuffer(bitstream_buffer);
 
@@ -730,7 +745,7 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
              << " VASurfaceID: " << va_surface_ids[i];
 
     linked_ptr<VaapiPicture> picture(VaapiPicture::CreatePicture(
-        vaapi_wrapper_.get(), make_context_current_, buffers[i].id(),
+        vaapi_wrapper_, make_context_current_, buffers[i].id(),
         buffers[i].texture_id(), requested_pic_size_));
 
     scoped_refptr<gl::GLImage> image = picture->GetImageToBind();
@@ -758,7 +773,8 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
                             base::Unretained(this)));
 }
 
-void VaapiVideoDecodeAccelerator::ReusePictureBuffer(int32 picture_buffer_id) {
+void VaapiVideoDecodeAccelerator::ReusePictureBuffer(
+    int32_t picture_buffer_id) {
   DCHECK_EQ(message_loop_, base::MessageLoop::current());
   TRACE_EVENT1("Video Decoder", "VAVDA::ReusePictureBuffer", "Picture id",
                picture_buffer_id);
@@ -1254,7 +1270,7 @@ bool VaapiVideoDecodeAccelerator::VaapiH264Accelerator::SubmitSlice(
     return false;
 
   // Can't help it, blame libva...
-  void* non_const_ptr = const_cast<uint8*>(data);
+  void* non_const_ptr = const_cast<uint8_t*>(data);
   return vaapi_wrapper_->SubmitBuffer(VASliceDataBufferType, size,
                                       non_const_ptr);
 }
@@ -1547,7 +1563,7 @@ bool VaapiVideoDecodeAccelerator::VaapiVP8Accelerator::SubmitDecode(
                                     &slice_param))
     return false;
 
-  void* non_const_ptr = const_cast<uint8*>(frame_hdr->data);
+  void* non_const_ptr = const_cast<uint8_t*>(frame_hdr->data);
   if (!vaapi_wrapper_->SubmitBuffer(VASliceDataBufferType,
                                     frame_hdr->frame_size,
                                     non_const_ptr))
@@ -1704,7 +1720,7 @@ bool VaapiVideoDecodeAccelerator::VaapiVP9Accelerator::SubmitDecode(
                                     sizeof(slice_param), &slice_param))
     return false;
 
-  void* non_const_ptr = const_cast<uint8*>(frame_hdr->data);
+  void* non_const_ptr = const_cast<uint8_t*>(frame_hdr->data);
   if (!vaapi_wrapper_->SubmitBuffer(VASliceDataBufferType,
                                     frame_hdr->frame_size, non_const_ptr))
     return false;

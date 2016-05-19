@@ -32,10 +32,6 @@ NextProto SSLClientSocket::NextProtoFromString(
     const std::string& proto_string) {
   if (proto_string == "http1.1" || proto_string == "http/1.1") {
     return kProtoHTTP11;
-  } else if (proto_string == "spdy/2") {
-    return kProtoDeprecatedSPDY2;
-  } else if (proto_string == "spdy/3") {
-    return kProtoSPDY3;
   } else if (proto_string == "spdy/3.1") {
     return kProtoSPDY31;
   } else if (proto_string == "h2") {
@@ -52,10 +48,6 @@ const char* SSLClientSocket::NextProtoToString(NextProto next_proto) {
   switch (next_proto) {
     case kProtoHTTP11:
       return "http/1.1";
-    case kProtoDeprecatedSPDY2:
-      return "spdy/2";
-    case kProtoSPDY3:
-      return "spdy/3";
     case kProtoSPDY31:
       return "spdy/3.1";
     case kProtoHTTP2:
@@ -83,9 +75,11 @@ const char* SSLClientSocket::NextProtoStatusToString(
 }
 
 // static
-void SSLClientSocket::SetSSLKeyLogFile(const std::string& ssl_keylog_file) {
-#if defined(USE_OPENSSL)
-  SSLClientSocketOpenSSL::SetSSLKeyLogFile(ssl_keylog_file);
+void SSLClientSocket::SetSSLKeyLogFile(
+    const base::FilePath& path,
+    const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
+#if defined(USE_OPENSSL) && !defined(OS_NACL)
+  SSLClientSocketOpenSSL::SetSSLKeyLogFile(path, task_runner);
 #else
   NOTIMPLEMENTED();
 #endif
@@ -179,8 +173,8 @@ bool SSLClientSocket::IsChannelIDEnabled(
 
 // static
 bool SSLClientSocket::HasCipherAdequateForHTTP2(
-    const std::vector<uint16>& cipher_suites) {
-  for (uint16 cipher : cipher_suites) {
+    const std::vector<uint16_t>& cipher_suites) {
+  for (uint16_t cipher : cipher_suites) {
     if (IsTLSCipherSuiteAllowedByHTTP2(cipher))
       return true;
   }

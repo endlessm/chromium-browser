@@ -1012,9 +1012,8 @@ tcuTexture.sampleNearest2D = function(access, sampler, u, v, depthOrOffset) {
     var width = access.getWidth();
     var height = access.getHeight();
 
-    /* TODO: Shouldn't it be just Math.round? */
-    var x = Math.round(Math.floor(u)) + xOffset;
-    var y = Math.round(Math.floor(v)) + yOffset;
+    var x = Math.floor(u) + xOffset;
+    var y = Math.floor(v) + yOffset;
 
     // Check for CLAMP_TO_BORDER.
     if ((sampler.wrapS == tcuTexture.WrapMode.CLAMP_TO_BORDER && !deMath.deInBounds32(x, 0, width)) ||
@@ -1050,9 +1049,9 @@ tcuTexture.sampleNearest3D = function(access, sampler, u, v, w, offset) {
         zOffset = offset[2];
     }
 
-    var x = Math.round(Math.floor(u)) + xOffset;
-    var y = Math.round(Math.floor(v)) + yOffset;
-    var z = Math.round(Math.floor(w)) + zOffset;
+    var x = Math.floor(u) + xOffset;
+    var y = Math.floor(v) + yOffset;
+    var z = Math.floor(w) + zOffset;
 
     // Check for CLAMP_TO_BORDER.
     if ((sampler.wrapS == tcuTexture.WrapMode.CLAMP_TO_BORDER && !deMath.deInBounds32(x, 0, width)) ||
@@ -1605,7 +1604,7 @@ tcuTexture.ConstPixelBufferAccess.prototype.sample2DCompare = function(sampler, 
     }
 
     switch (filter) {
-        case tcuTexture.FilterMode.NEAREST: return tcuTexture.execCompare(tcuTexture.sampleNearest2D(this, sampler, u, v, offset[0]), sampler.compare, sampler.compareChannel, ref, isFixedPointDepth);
+        case tcuTexture.FilterMode.NEAREST: return tcuTexture.execCompare(tcuTexture.sampleNearest2D(this, sampler, u, v, offset), sampler.compare, sampler.compareChannel, ref, isFixedPointDepth);
         case tcuTexture.FilterMode.LINEAR: return tcuTexture.sampleLinear2DCompare(this, sampler, ref, u, v, offset, isFixedPointDepth);
         default:
             DE_ASSERT(false);
@@ -1677,11 +1676,12 @@ tcuTexture.convertSatRte = function(deType, value) {
     var maxVal = deType.max;
     var floor = Math.floor(value);
     var frac = value - floor;
-    if (frac == 0.5)
+    if (frac == 0.5) {
         if (floor % 2 != 0)
             floor += 1;
-    else if (frac > 0.5)
+    } else if (frac > 0.5) {
         floor += 1;
+    }
 
     return Math.max(minVal, Math.min(maxVal, floor));
 };

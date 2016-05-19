@@ -11,6 +11,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/crash_keys.h"
 #include "chrome/common/extensions/features/feature_channel.h"
+#include "chrome/common/extensions/features/feature_util.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/renderer_resources.h"
 #include "chrome/renderer/extensions/app_bindings.h"
@@ -191,6 +192,8 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
                              IDR_SYSTEM_INDICATOR_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("tabCapture", IDR_TAB_CAPTURE_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("tabs", IDR_TABS_CUSTOM_BINDINGS_JS);
+  source_map->RegisterSource("terminalPrivate",
+                             IDR_TERMINAL_PRIVATE_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("tts", IDR_TTS_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("ttsEngine", IDR_TTS_ENGINE_CUSTOM_BINDINGS_JS);
 #if defined(ENABLE_WEBRTC)
@@ -223,7 +226,6 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
   source_map->RegisterSource("chromeWebViewInternal",
                              IDR_CHROME_WEB_VIEW_INTERNAL_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("chromeWebView", IDR_CHROME_WEB_VIEW_JS);
-  source_map->RegisterSource("injectAppTitlebar", IDR_INJECT_APP_TITLEBAR_JS);
 }
 
 void ChromeExtensionsDispatcherDelegate::RequireAdditionalModules(
@@ -261,7 +263,7 @@ void ChromeExtensionsDispatcherDelegate::OnActiveExtensionsUpdated(
 
 void ChromeExtensionsDispatcherDelegate::SetChannel(int channel) {
   extensions::SetCurrentChannel(static_cast<version_info::Channel>(channel));
-  if (extensions::GetCurrentChannel() == version_info::Channel::UNKNOWN) {
+  if (extensions::feature_util::ExtensionServiceWorkersEnabled()) {
     // chrome-extension: resources should be allowed to register ServiceWorkers.
     blink::WebSecurityPolicy::registerURLSchemeAsAllowingServiceWorkers(
         blink::WebString::fromUTF8(extensions::kExtensionScheme));

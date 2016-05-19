@@ -10,36 +10,38 @@
 #include "base/time/time.h"
 #include "net/base/net_export.h"
 #include "url/gurl.h"
-#include "url/origin.h"
 
 namespace net {
 
 class NET_EXPORT CookieOptions {
  public:
-  // Default is to exclude httponly completely, and exclude first-party from
-  // being read, which means:
-  // - reading operations will not return httponly or first-party cookies.
-  // - writing operations will not write httponly cookies (first-party will be
-  // written).
+  // Creates a CookieOptions object which:
   //
-  // If a first-party URL is set, then first-party cookies which match that URL
-  // will be returned.
+  // * Excludes HttpOnly cookies
+  // * Excludes SameSite cookies
+  // * Does not enforce prefix restrictions (e.g. "$Secure-*")
+  // * Updates last-accessed time.
+  //
+  // These settings can be altered by calling:
+  //
+  // * |set_{include,exclude}_httponly()|
+  // * |set_include_same_site()|
+  // * |set_enforce_prefixes()|
+  // * |set_do_not_update_access_time()|
   CookieOptions();
 
   void set_exclude_httponly() { exclude_httponly_ = true; }
   void set_include_httponly() { exclude_httponly_ = false; }
   bool exclude_httponly() const { return exclude_httponly_; }
 
-  void set_include_first_party_only() { include_first_party_only_ = true; }
-  bool include_first_party_only() const { return include_first_party_only_; }
+  // Default is to exclude 'same_site' cookies.
+  void set_include_same_site() { include_same_site_ = true; }
+  bool include_same_site() const { return include_same_site_; }
 
-  void set_first_party(const url::Origin& origin) { first_party_ = origin; }
-  const url::Origin& first_party() const { return first_party_; }
-
-  // TODO(estark): Remove once we decide whether to ship cookie
-  // prefixes. https://crbug.com/541511
-  void set_enforce_prefixes() { enforce_prefixes_ = true; }
-  bool enforce_prefixes() const { return enforce_prefixes_; }
+  // TODO(jww): Remove once we decide whether to ship modifying 'secure' cookies
+  // only from secure schemes. https://crbug.com/546820
+  void set_enforce_strict_secure() { enforce_strict_secure_ = true; }
+  bool enforce_strict_secure() const { return enforce_strict_secure_; }
 
   // |server_time| indicates what the server sending us the Cookie thought the
   // current time was when the cookie was produced.  This is used to adjust for
@@ -50,11 +52,14 @@ class NET_EXPORT CookieOptions {
   bool has_server_time() const { return !server_time_.is_null(); }
   base::Time server_time() const { return server_time_; }
 
+  void set_do_not_update_access_time() { update_access_time_ = false; }
+  bool update_access_time() const { return update_access_time_; }
+
  private:
   bool exclude_httponly_;
-  bool include_first_party_only_;
-  url::Origin first_party_;
-  bool enforce_prefixes_;
+  bool include_same_site_;
+  bool enforce_strict_secure_;
+  bool update_access_time_;
   base::Time server_time_;
 };
 

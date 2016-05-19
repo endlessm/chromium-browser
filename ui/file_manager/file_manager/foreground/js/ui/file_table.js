@@ -684,7 +684,7 @@ FileTable.prototype.renderName_ = function(entry, columnId, table) {
       ['contentMimeType'])[0].contentMimeType;
   var icon = filelist.renderFileTypeIcon(this.ownerDocument, entry, mimeType);
   if (FileType.isImage(entry, mimeType) || FileType.isVideo(entry, mimeType) ||
-      FileType.isRaw(entry, mimeType)) {
+      FileType.isAudio(entry, mimeType) || FileType.isRaw(entry, mimeType)) {
     icon.appendChild(this.renderThumbnail_(entry));
   }
   icon.appendChild(this.renderCheckmark_());
@@ -1155,7 +1155,7 @@ filelist.updateListItemExternalProps = function(li, externalProps) {
     iconDiv.style.backgroundImage = '';  // Back to the default image.
 
   if (li.classList.contains('directory'))
-    iconDiv.classList.toggle('shared', externalProps.shared);
+    iconDiv.classList.toggle('shared', !!externalProps.shared);
 };
 
 /**

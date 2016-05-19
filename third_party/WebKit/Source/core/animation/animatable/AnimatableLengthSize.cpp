@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableLengthSize.h"
 
 namespace blink {
@@ -47,4 +46,4 @@ bool AnimatableLengthSize::equalTo(const AnimatableValue* value) const
     return width()->equals(lengthSize->width()) && height()->equals(lengthSize->height());
 }
 
-}
+} // namespace blink

@@ -5,7 +5,7 @@
 #include "net/quic/crypto/crypto_utils.h"
 
 #include "crypto/hkdf.h"
-#include "net/base/net_util.h"
+#include "net/base/url_util.h"
 #include "net/quic/crypto/crypto_handshake.h"
 #include "net/quic/crypto/crypto_protocol.h"
 #include "net/quic/crypto/quic_decrypter.h"
@@ -30,7 +30,7 @@ void CryptoUtils::GenerateNonce(QuicWallTime now,
   nonce->reserve(kNonceSize);
   nonce->resize(kNonceSize);
 
-  uint32 gmt_unix_time = static_cast<uint32>(now.ToUNIXSeconds());
+  uint32_t gmt_unix_time = static_cast<uint32_t>(now.ToUNIXSeconds());
   // The time in the nonce must be encoded in big-endian because the
   // strike-register depends on the nonces being ordered by time.
   (*nonce)[0] = static_cast<char>(gmt_unix_time >> 24);
@@ -58,8 +58,8 @@ bool CryptoUtils::IsValidSNI(StringPiece sni) {
   url::CanonHostInfo host_info;
   string canonicalized_host(CanonicalizeHost(sni.as_string(), &host_info));
   return !host_info.IsIPAddress() &&
-      IsCanonicalizedHostCompliant(canonicalized_host) &&
-      sni.find_last_of('.') != string::npos;
+         IsCanonicalizedHostCompliant(canonicalized_host) &&
+         sni.find_last_of('.') != string::npos;
 }
 
 // static
@@ -140,28 +140,24 @@ bool CryptoUtils::ExportKeyingMaterial(StringPiece subkey_secret,
     }
   }
   // Create HKDF info input: null-terminated label + length-prefixed context
-  if (context.length() >= numeric_limits<uint32>::max()) {
+  if (context.length() >= numeric_limits<uint32_t>::max()) {
     LOG(ERROR) << "Context value longer than 2^32";
     return false;
   }
-  uint32 context_length = static_cast<uint32>(context.length());
+  uint32_t context_length = static_cast<uint32_t>(context.length());
   string info = label.as_string();
   info.push_back('\0');
   info.append(reinterpret_cast<char*>(&context_length), sizeof(context_length));
   info.append(context.data(), context.length());
 
-  crypto::HKDF hkdf(subkey_secret,
-                    StringPiece() /* no salt */,
-                    info,
-                    result_len,
-                    0 /* no fixed IV */,
-                    0 /* no subkey secret */);
+  crypto::HKDF hkdf(subkey_secret, StringPiece() /* no salt */, info,
+                    result_len, 0 /* no fixed IV */, 0 /* no subkey secret */);
   hkdf.client_write_key().CopyToString(result);
   return true;
 }
 
 // static
-uint64 CryptoUtils::ComputeLeafCertHash(const std::string& cert) {
+uint64_t CryptoUtils::ComputeLeafCertHash(const std::string& cert) {
   return QuicUtils::FNV1a_64_Hash(cert.data(), cert.size());
 }
 
@@ -233,6 +229,49 @@ QuicErrorCode CryptoUtils::ValidateClientHello(
     }
   }
   return QUIC_NO_ERROR;
+}
+
+#define RETURN_STRING_LITERAL(x) \
+  case x:                        \
+    return #x
+
+// Returns the name of the HandshakeFailureReason as a char*
+// static
+const char* CryptoUtils::HandshakeFailureReasonToString(
+    HandshakeFailureReason reason) {
+  switch (reason) {
+    RETURN_STRING_LITERAL(HANDSHAKE_OK);
+    RETURN_STRING_LITERAL(CLIENT_NONCE_UNKNOWN_FAILURE);
+    RETURN_STRING_LITERAL(CLIENT_NONCE_INVALID_FAILURE);
+    RETURN_STRING_LITERAL(CLIENT_NONCE_NOT_UNIQUE_FAILURE);
+    RETURN_STRING_LITERAL(CLIENT_NONCE_INVALID_ORBIT_FAILURE);
+    RETURN_STRING_LITERAL(CLIENT_NONCE_INVALID_TIME_FAILURE);
+    RETURN_STRING_LITERAL(CLIENT_NONCE_STRIKE_REGISTER_TIMEOUT);
+    RETURN_STRING_LITERAL(CLIENT_NONCE_STRIKE_REGISTER_FAILURE);
+
+    RETURN_STRING_LITERAL(SERVER_NONCE_DECRYPTION_FAILURE);
+    RETURN_STRING_LITERAL(SERVER_NONCE_INVALID_FAILURE);
+    RETURN_STRING_LITERAL(SERVER_NONCE_NOT_UNIQUE_FAILURE);
+    RETURN_STRING_LITERAL(SERVER_NONCE_INVALID_TIME_FAILURE);
+    RETURN_STRING_LITERAL(SERVER_NONCE_REQUIRED_FAILURE);
+
+    RETURN_STRING_LITERAL(SERVER_CONFIG_INCHOATE_HELLO_FAILURE);
+    RETURN_STRING_LITERAL(SERVER_CONFIG_UNKNOWN_CONFIG_FAILURE);
+
+    RETURN_STRING_LITERAL(SOURCE_ADDRESS_TOKEN_INVALID_FAILURE);
+    RETURN_STRING_LITERAL(SOURCE_ADDRESS_TOKEN_DECRYPTION_FAILURE);
+    RETURN_STRING_LITERAL(SOURCE_ADDRESS_TOKEN_PARSE_FAILURE);
+    RETURN_STRING_LITERAL(SOURCE_ADDRESS_TOKEN_DIFFERENT_IP_ADDRESS_FAILURE);
+    RETURN_STRING_LITERAL(SOURCE_ADDRESS_TOKEN_CLOCK_SKEW_FAILURE);
+    RETURN_STRING_LITERAL(SOURCE_ADDRESS_TOKEN_EXPIRED_FAILURE);
+
+    RETURN_STRING_LITERAL(INVALID_EXPECTED_LEAF_CERTIFICATE);
+    RETURN_STRING_LITERAL(MAX_FAILURE_REASON);
+  }
+  // Return a default value so that we return this when |reason| doesn't match
+  // any HandshakeFailureReason.. This can happen when the message by the peer
+  // (attacker) has invalid reason.
+  return "INVALID_HANDSHAKE_FAILURE_REASON";
 }
 
 }  // namespace net

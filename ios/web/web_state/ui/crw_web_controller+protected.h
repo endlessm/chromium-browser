@@ -108,9 +108,6 @@ struct NewWindowInfo {
 // based on the confidence in the verification.
 - (GURL)webURLWithTrustLevel:(web::URLVerificationTrustLevel*)trustLevel;
 
-// Registers the current user agent with the web view.
-- (void)registerUserAgent;
-
 // Returns YES if the current navigation item corresponds to a web page
 // loaded by a POST request.
 - (BOOL)isCurrentNavigationItemPOST;
@@ -345,8 +342,7 @@ struct NewWindowInfo {
 
 // Creates a new opened by DOM window and returns its autoreleased web
 // controller.
-- (CRWWebController*)createChildWebControllerWithReferrerURL:
-    (const GURL&)referrerURL;
+- (CRWWebController*)createChildWebController;
 
 // Called following navigation completion to generate final navigation lifecycle
 // events. Navigation is considered complete when the document has finished

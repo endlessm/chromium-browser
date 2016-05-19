@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "ui/gl/gl_switches.h"
-#include "base/basictypes.h"
 
 namespace gfx {
 
@@ -11,13 +11,13 @@ const char kGLImplementationDesktopName[]     = "desktop";
 const char kGLImplementationOSMesaName[]      = "osmesa";
 const char kGLImplementationAppleName[]       = "apple";
 const char kGLImplementationEGLName[]         = "egl";
+const char kGLImplementationANGLEName[]       = "angle";
 const char kGLImplementationSwiftShaderName[] = "swiftshader";
 const char kGLImplementationMockName[]        = "mock";
 
 const char kANGLEImplementationDefaultName[]  = "default";
 const char kANGLEImplementationD3D9Name[]     = "d3d9";
 const char kANGLEImplementationD3D11Name[]    = "d3d11";
-const char kANGLEImplementationWARPName[]     = "warp";
 const char kANGLEImplementationOpenGLName[]   = "gl";
 const char kANGLEImplementationOpenGLESName[] = "gles";
 
@@ -66,6 +66,9 @@ const char kSwiftShaderPath[]               = "swiftshader-path";
 // context will never be lost in any situations, say, a GPU reset.
 const char kGpuNoContextLost[]              = "gpu-no-context-lost";
 
+// Disables the use of DirectComposition to draw to the screen.
+const char kDisableDirectComposition[] = "disable-direct-composition";
+
 // Indicates whether the dual GPU switching is supported or not.
 const char kSupportsDualGpus[]              = "supports-dual-gpus";
 
@@ -94,15 +97,16 @@ const char kDisableGLExtensions[] = "disable-gl-extensions";
 // GpuProcessHost to the GPU Process. Add your switch to this list if you need
 // to read it in the GPU process, else don't add it.
 const char* kGLSwitchesCopiedFromGpuProcessHost[] = {
-  kDisableGpuVsync,
-  kDisableD3D11,
-  kEnableGPUServiceLogging,
-  kEnableGPUServiceTracing,
-  kEnableUnsafeES3APIs,
-  kGpuNoContextLost,
-  kDisableGLDrawingForTests,
-  kOverrideUseGLWithOSMesaForTests,
-  kUseANGLE,
+    kDisableGpuVsync,
+    kDisableD3D11,
+    kEnableGPUServiceLogging,
+    kEnableGPUServiceTracing,
+    kEnableUnsafeES3APIs,
+    kGpuNoContextLost,
+    kDisableGLDrawingForTests,
+    kOverrideUseGLWithOSMesaForTests,
+    kUseANGLE,
+    kDisableDirectComposition,
 };
 const int kGLSwitchesCopiedFromGpuProcessHostNumSwitches =
     arraysize(kGLSwitchesCopiedFromGpuProcessHost);

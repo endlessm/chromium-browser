@@ -21,9 +21,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/line/SVGRootInlineBox.h"
 
+#include "core/layout/api/LineLayoutAPIShim.h"
+#include "core/layout/api/LineLayoutBlockFlow.h"
 #include "core/layout/api/LineLayoutSVGInlineText.h"
 #include "core/layout/svg/LayoutSVGText.h"
 #include "core/layout/svg/line/SVGInlineFlowBox.h"
@@ -47,7 +48,7 @@ void SVGRootInlineBox::markDirty()
 
 void SVGRootInlineBox::computePerCharacterLayoutInformation()
 {
-    LayoutSVGText& textRoot = toLayoutSVGText(block());
+    LayoutSVGText& textRoot = toLayoutSVGText(*LineLayoutAPIShim::layoutObjectFrom(block()));
 
     Vector<SVGTextLayoutAttributes*>& layoutAttributes = textRoot.layoutAttributes();
     if (layoutAttributes.isEmpty())
@@ -75,7 +76,7 @@ void SVGRootInlineBox::layoutChildBoxes(InlineFlowBox* start, LayoutRect* childR
     for (InlineBox* child = start->firstChild(); child; child = child->nextOnLine()) {
         LayoutRect boxRect;
         if (child->isSVGInlineTextBox()) {
-            ASSERT(child->layoutObject().isSVGInlineText());
+            ASSERT(child->getLineLayoutItem().isSVGInlineText());
 
             SVGInlineTextBox* textBox = toSVGInlineTextBox(child);
             boxRect = textBox->calculateBoundaries();
@@ -85,7 +86,7 @@ void SVGRootInlineBox::layoutChildBoxes(InlineFlowBox* start, LayoutRect* childR
             textBox->setLogicalHeight(boxRect.height());
         } else {
             // Skip generated content.
-            if (!child->layoutObject().node())
+            if (!child->getLineLayoutItem().node())
                 continue;
 
             SVGInlineFlowBox* flowBox = toSVGInlineFlowBox(child);
@@ -104,7 +105,7 @@ void SVGRootInlineBox::layoutChildBoxes(InlineFlowBox* start, LayoutRect* childR
 
 void SVGRootInlineBox::layoutRootBox(const LayoutRect& childRect)
 {
-    LayoutBlockFlow& parentBlock = block();
+    LineLayoutBlockFlow parentBlock = block();
 
     // Finally, assign the root block position, now that all content is laid out.
     LayoutRect boundingRect = childRect;
@@ -114,17 +115,17 @@ void SVGRootInlineBox::layoutRootBox(const LayoutRect& childRect)
     // Position all children relative to the parent block.
     for (InlineBox* child = firstChild(); child; child = child->nextOnLine()) {
         // Skip generated content.
-        if (!child->layoutObject().node())
+        if (!child->getLineLayoutItem().node())
             continue;
         child->move(LayoutSize(-childRect.x(), -childRect.y()));
     }
 
     // Position ourselves.
-    setX(0);
-    setY(0);
+    setX(LayoutUnit());
+    setY(LayoutUnit());
     setLogicalWidth(childRect.width());
     setLogicalHeight(childRect.height());
-    setLineTopBottomPositions(0, boundingRect.height(), 0, boundingRect.height());
+    setLineTopBottomPositions(LayoutUnit(), boundingRect.height(), LayoutUnit(), boundingRect.height());
 }
 
 InlineBox* SVGRootInlineBox::closestLeafChildForPosition(const LayoutPoint& point)
@@ -208,8 +209,8 @@ static inline void reverseInlineBoxRangeAndValueListsIfNeeded(void* userData, Ve
 
         // Reordering is only necessary for BiDi text that is _absolutely_ positioned.
         if (firstTextBox->len() == 1 && firstTextBox->len() == lastTextBox->len()) {
-            LineLayoutSVGInlineText firstContext = LineLayoutSVGInlineText(firstTextBox->lineLayoutItem());
-            LineLayoutSVGInlineText lastContext = LineLayoutSVGInlineText(lastTextBox->lineLayoutItem());
+            LineLayoutSVGInlineText firstContext = LineLayoutSVGInlineText(firstTextBox->getLineLayoutItem());
+            LineLayoutSVGInlineText lastContext = LineLayoutSVGInlineText(lastTextBox->getLineLayoutItem());
 
             SVGTextLayoutAttributes* firstAttributes = nullptr;
             SVGTextLayoutAttributes* lastAttributes = nullptr;
@@ -229,6 +230,18 @@ void SVGRootInlineBox::reorderValueLists(Vector<SVGTextLayoutAttributes*>& attri
 {
     Vector<InlineBox*> leafBoxesInLogicalOrder;
     collectLeafBoxesInLogicalOrder(leafBoxesInLogicalOrder, reverseInlineBoxRangeAndValueListsIfNeeded, &attributes);
+}
+
+bool SVGRootInlineBox::nodeAtPoint(HitTestResult& result, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, LayoutUnit lineTop, LayoutUnit lineBottom)
+{
+    for (InlineBox* leaf = firstLeafChild(); leaf; leaf = leaf->nextLeafChild()) {
+        if (!leaf->isSVGInlineTextBox())
+            continue;
+        if (leaf->nodeAtPoint(result, locationInContainer, accumulatedOffset, lineTop, lineBottom))
+            return true;
+    }
+
+    return false;
 }
 
 } // namespace blink

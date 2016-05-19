@@ -4,6 +4,9 @@
 
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "gpu/command_buffer/common/gles2_cmd_format.h"
@@ -700,8 +703,8 @@ TEST_P(GLES2DecoderTest, CopyTexImage2DGLError) {
 }
 
 TEST_P(GLES3DecoderTest, CompressedTexImage3DBucket) {
-  const uint32 kBucketId = 123;
-  const uint32 kBadBucketId = 99;
+  const uint32_t kBucketId = 123;
+  const uint32_t kBadBucketId = 99;
   const GLenum kTarget = GL_TEXTURE_2D_ARRAY;
   const GLint kLevel = 0;
   const GLenum kInternalFormat = GL_COMPRESSED_R11_EAC;
@@ -747,7 +750,7 @@ TEST_P(GLES3DecoderTest, CompressedTexImage3DBucket) {
 }
 
 TEST_P(GLES2DecoderTest, CompressedTexImage3DFailsOnES2) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const GLenum kTarget = GL_TEXTURE_2D_ARRAY;
   const GLint kLevel = 0;
   const GLenum kInternalFormat = GL_COMPRESSED_R11_EAC;
@@ -786,7 +789,7 @@ TEST_P(GLES2DecoderTest, CompressedTexImage3DFailsOnES2) {
 }
 
 TEST_P(GLES3DecoderTest, CompressedTexImage3DFailsWithBadImageSize) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const GLenum kTarget = GL_TEXTURE_2D_ARRAY;
   const GLint kLevel = 0;
   const GLenum kInternalFormat = GL_COMPRESSED_RGBA8_ETC2_EAC;
@@ -813,7 +816,7 @@ TEST_P(GLES3DecoderTest, CompressedTexImage3DFailsWithBadImageSize) {
 }
 
 TEST_P(GLES3DecoderTest, CompressedTexSubImage3DFails) {
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   const GLenum kTarget = GL_TEXTURE_2D_ARRAY;
   const GLint kLevel = 0;
   const GLenum kInternalFormat = GL_COMPRESSED_RGBA8_ETC2_EAC;
@@ -952,7 +955,7 @@ TEST_P(GLES3DecoderTest, CompressedTexSubImage3DFails) {
   EXPECT_EQ(GL_INVALID_OPERATION, GetGLError());
 
   // Bad bucket id.
-  const uint32 kBadBucketId = 444;
+  const uint32_t kBadBucketId = 444;
   cmd.Init(kTarget,
            kLevel,
            kXOffset,
@@ -973,7 +976,7 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DBucketBadBucket) {
   init.bind_generates_resource = true;
   InitDecoder(init);
 
-  const uint32 kBadBucketId = 123;
+  const uint32_t kBadBucketId = 123;
   DoBindTexture(GL_TEXTURE_2D, client_texture_id_, kServiceTextureId);
   CompressedTexImage2DBucket cmd;
   cmd.Init(GL_TEXTURE_2D,
@@ -1009,7 +1012,7 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DS3TC) {
   init.extensions = "GL_EXT_texture_compression_s3tc";
   init.bind_generates_resource = true;
   InitDecoder(init);
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   CommonDecoder::Bucket* bucket = decoder_->CreateBucket(kBucketId);
   ASSERT_TRUE(bucket != NULL);
 
@@ -1035,7 +1038,7 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DS3TC) {
     CompressedTexImage2DBucket cmd;
     // test small width.
     DoCompressedTexImage2D(
-        GL_TEXTURE_2D, 0, test.format, 2, 4, 0, test.block_size, kBucketId);
+        GL_TEXTURE_2D, 1, test.format, 2, 4, 0, test.block_size, kBucketId);
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
     // test bad width.
@@ -1046,7 +1049,7 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DS3TC) {
 
     // test small height.
     DoCompressedTexImage2D(
-        GL_TEXTURE_2D, 0, test.format, 4, 2, 0, test.block_size, kBucketId);
+        GL_TEXTURE_2D, 1, test.format, 4, 2, 0, test.block_size, kBucketId);
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
     // test too bad height.
@@ -1057,12 +1060,12 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DS3TC) {
 
     // test small for level 0.
     DoCompressedTexImage2D(
-        GL_TEXTURE_2D, 0, test.format, 1, 1, 0, test.block_size, kBucketId);
+        GL_TEXTURE_2D, 1, test.format, 1, 1, 0, test.block_size, kBucketId);
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
     // test small for level 0.
     DoCompressedTexImage2D(
-        GL_TEXTURE_2D, 0, test.format, 2, 2, 0, test.block_size, kBucketId);
+        GL_TEXTURE_2D, 1, test.format, 2, 2, 0, test.block_size, kBucketId);
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
     // test size too large.
@@ -1167,7 +1170,7 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DETC1) {
   init.gl_version = "opengl es 2.0";
   init.bind_generates_resource = true;
   InitDecoder(init);
-  const uint32 kBucketId = 123;
+  const uint32_t kBucketId = 123;
   CommonDecoder::Bucket* bucket = decoder_->CreateBucket(kBucketId);
   ASSERT_TRUE(bucket != NULL);
 
@@ -1285,7 +1288,7 @@ TEST_P(GLES2DecoderManualInitTest, EGLImageExternalGetBinding) {
                 GL_TEXTURE_BINDING_EXTERNAL_OES),
             result->GetNumResults());
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
-  EXPECT_EQ(client_texture_id_, (uint32)result->GetData()[0]);
+  EXPECT_EQ(client_texture_id_, (uint32_t)result->GetData()[0]);
 }
 
 TEST_P(GLES2DecoderManualInitTest, EGLImageExternalTextureDefaults) {
@@ -1690,7 +1693,7 @@ TEST_P(GLES2DecoderManualInitTest, ARBTextureRectangleGetBinding) {
                 GL_TEXTURE_BINDING_RECTANGLE_ARB),
             result->GetNumResults());
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
-  EXPECT_EQ(client_texture_id_, (uint32)result->GetData()[0]);
+  EXPECT_EQ(client_texture_id_, (uint32_t)result->GetData()[0]);
 }
 
 TEST_P(GLES2DecoderManualInitTest, ARBTextureRectangleTextureDefaults) {
@@ -2866,7 +2869,7 @@ TEST_P(GLES2DecoderWithShaderTest, CopyTexImage) {
   Texture* texture = texture_ref->texture();
   EXPECT_EQ(kServiceTextureId, texture->service_id());
 
-  const int32 kImageId = 1;
+  const int32_t kImageId = 1;
   scoped_refptr<MockGLImage> image(new MockGLImage);
   GetImageManager()->AddImage(image.get(), kImageId);
 
@@ -2957,7 +2960,8 @@ TEST_P(GLES2DecoderWithShaderTest, CopyTexImage) {
   fbtex_cmd.Init(GL_FRAMEBUFFER,
                  GL_COLOR_ATTACHMENT0,
                  GL_TEXTURE_2D,
-                 client_texture_id_);
+                 client_texture_id_,
+                 0);
   EXPECT_EQ(error::kNoError, ExecuteCmd(fbtex_cmd));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
@@ -3350,6 +3354,214 @@ TEST_P(GLES2DecoderManualInitTest, GetNoCompressedTextureFormats) {
   EXPECT_EQ(num_formats, result->GetNumResults());
 
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES3DecoderTest, TexStorage3DValidArgs) {
+  DoBindTexture(GL_TEXTURE_3D, client_texture_id_, kServiceTextureId);
+  EXPECT_CALL(*gl_, TexStorage3D(GL_TEXTURE_3D, 2, GL_RGB565, 4, 5, 6))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, GetError())
+      .WillOnce(Return(GL_NO_ERROR))
+      .WillOnce(Return(GL_NO_ERROR))
+      .RetiresOnSaturation();
+  cmds::TexStorage3D cmd;
+  cmd.Init(GL_TEXTURE_3D, 2, GL_RGB565, 4, 5, 6);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES3DecoderTest, TexImage3DValidArgs) {
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 2;
+  const GLint kInternalFormat = GL_RGBA8;
+  const GLsizei kWidth = 2;
+  const GLsizei kHeight = 2;
+  const GLsizei kDepth = 2;
+  const GLenum kFormat = GL_RGBA;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+
+  DoBindTexture(kTarget, client_texture_id_, kServiceTextureId);
+  DoTexImage3D(kTarget, kLevel, kInternalFormat, kWidth, kHeight, kDepth, 0,
+               kFormat, kType, kSharedMemoryId, kSharedMemoryOffset);
+}
+
+TEST_P(GLES3DecoderTest, ClearLevel3DSingleCall) {
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 0;
+  const GLint kInternalFormat = GL_RGBA8;
+  const GLsizei kWidth = 2;
+  const GLsizei kHeight = 2;
+  const GLsizei kDepth = 2;
+  const GLenum kFormat = GL_RGBA;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const uint32_t kBufferSize = kWidth * kHeight * kDepth * 4;
+
+  DoBindTexture(kTarget, client_texture_id_, kServiceTextureId);
+  DoTexImage3D(kTarget, kLevel, kInternalFormat, kWidth, kHeight, kDepth, 0,
+               kFormat, kType, 0, 0);
+  TextureRef* texture_ref =
+      group().texture_manager()->GetTexture(client_texture_id_);
+  ASSERT_TRUE(texture_ref != NULL);
+  Texture* texture = texture_ref->texture();
+
+  EXPECT_CALL(*gl_, GenBuffersARB(1, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindBuffer(GL_PIXEL_UNPACK_BUFFER, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BufferData(GL_PIXEL_UNPACK_BUFFER,
+                               kBufferSize, _, GL_STATIC_DRAW))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindTexture(kTarget, kServiceTextureId))
+      .Times(1)
+      .RetiresOnSaturation();
+  {
+    // It takes 1 call to clear the entire 3D texture.
+    EXPECT_CALL(*gl_, TexSubImage3DNoData(kTarget, kLevel, 0, 0, 0,
+                                          kWidth, kHeight, kDepth,
+                                          kFormat, kType))
+        .Times(1)
+        .RetiresOnSaturation();
+  }
+  EXPECT_CALL(*gl_, BindBuffer(GL_PIXEL_UNPACK_BUFFER, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, DeleteBuffersARB(1, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindTexture(kTarget, _))
+      .Times(1)
+      .RetiresOnSaturation();
+
+  EXPECT_TRUE(decoder_->ClearLevel3D(
+      texture, kTarget, kLevel, kFormat, kType, kWidth, kHeight, kDepth));
+}
+
+TEST_P(GLES3DecoderTest, ClearLevel3DMultipleLayersPerCall) {
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 0;
+  const GLint kInternalFormat = GL_RGBA8;
+  const GLsizei kWidth = 512;
+  const GLsizei kHeight = 512;
+  const GLsizei kDepth = 7;
+  const GLenum kFormat = GL_RGBA;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const uint32_t kBufferSize = 1024 * 1024 * 2;  // Max buffer size per call.
+
+  DoBindTexture(kTarget, client_texture_id_, kServiceTextureId);
+  DoTexImage3D(kTarget, kLevel, kInternalFormat, kWidth, kHeight, kDepth, 0,
+               kFormat, kType, 0, 0);
+  TextureRef* texture_ref =
+      group().texture_manager()->GetTexture(client_texture_id_);
+  ASSERT_TRUE(texture_ref != NULL);
+  Texture* texture = texture_ref->texture();
+
+  EXPECT_CALL(*gl_, GenBuffersARB(1, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindBuffer(GL_PIXEL_UNPACK_BUFFER, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BufferData(GL_PIXEL_UNPACK_BUFFER,
+                               kBufferSize, _, GL_STATIC_DRAW))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindTexture(kTarget, kServiceTextureId))
+      .Times(1)
+      .RetiresOnSaturation();
+  {
+    // It takes 4 calls to clear the 3D texture, each clears 2/2/2/1 layers.
+    EXPECT_CALL(*gl_, TexSubImage3DNoData(kTarget, kLevel, 0, 0, 0,
+                                          kWidth, kHeight, 2, kFormat, kType))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, TexSubImage3DNoData(kTarget, kLevel, 0, 0, 2,
+                                          kWidth, kHeight, 2, kFormat, kType))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, TexSubImage3DNoData(kTarget, kLevel, 0, 0, 4,
+                                          kWidth, kHeight, 2, kFormat, kType))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, TexSubImage3DNoData(kTarget, kLevel, 0, 0, 6,
+                                          kWidth, kHeight, 1, kFormat, kType))
+        .Times(1)
+        .RetiresOnSaturation();
+  }
+  EXPECT_CALL(*gl_, BindBuffer(GL_PIXEL_UNPACK_BUFFER, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, DeleteBuffersARB(1, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindTexture(kTarget, _))
+      .Times(1)
+      .RetiresOnSaturation();
+
+  EXPECT_TRUE(decoder_->ClearLevel3D(
+      texture, kTarget, kLevel, kFormat, kType, kWidth, kHeight, kDepth));
+}
+
+TEST_P(GLES3DecoderTest, ClearLevel3DMultipleCallsPerLayer) {
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 0;
+  const GLint kInternalFormat = GL_RGBA8;
+  const GLsizei kWidth = 1024;
+  const GLsizei kHeight = 1000;
+  const GLsizei kDepth = 2;
+  const GLenum kFormat = GL_RGBA;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const uint32_t kBufferSize = 1024 * 1024 * 2;  // Max buffer size per call.
+
+  DoBindTexture(kTarget, client_texture_id_, kServiceTextureId);
+  DoTexImage3D(kTarget, kLevel, kInternalFormat, kWidth, kHeight, kDepth, 0,
+               kFormat, kType, 0, 0);
+  TextureRef* texture_ref =
+      group().texture_manager()->GetTexture(client_texture_id_);
+  ASSERT_TRUE(texture_ref != NULL);
+  Texture* texture = texture_ref->texture();
+
+  EXPECT_CALL(*gl_, GenBuffersARB(1, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindBuffer(GL_PIXEL_UNPACK_BUFFER, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BufferData(GL_PIXEL_UNPACK_BUFFER,
+                               kBufferSize, _, GL_STATIC_DRAW))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindTexture(kTarget, kServiceTextureId))
+      .Times(1)
+      .RetiresOnSaturation();
+  for (GLint zz = 0; zz < 2; ++zz) {
+    // It takes two calls to clear one layer of the 3D texture,
+    // each clears 512/488 rows.
+    // Layer 1.
+    EXPECT_CALL(*gl_, TexSubImage3DNoData(kTarget, kLevel, 0, 0, zz,
+                                          kWidth, 512, 1, kFormat, kType))
+        .Times(1)
+        .RetiresOnSaturation();
+    EXPECT_CALL(*gl_, TexSubImage3DNoData(kTarget, kLevel, 0, 512, zz,
+                                          kWidth, 488, 1, kFormat, kType))
+        .Times(1)
+        .RetiresOnSaturation();
+  }
+  EXPECT_CALL(*gl_, BindBuffer(GL_PIXEL_UNPACK_BUFFER, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, DeleteBuffersARB(1, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, BindTexture(kTarget, _))
+      .Times(1)
+      .RetiresOnSaturation();
+
+  EXPECT_TRUE(decoder_->ClearLevel3D(
+      texture, kTarget, kLevel, kFormat, kType, kWidth, kHeight, kDepth));
 }
 
 // TODO(gman): Complete this test.

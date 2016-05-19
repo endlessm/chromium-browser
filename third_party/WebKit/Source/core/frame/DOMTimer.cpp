@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/frame/DOMTimer.h"
 
 #include "core/dom/ExecutionContext.h"
@@ -50,19 +49,6 @@ static inline bool shouldForwardUserGesture(int interval, int nestingLevel)
     return UserGestureIndicator::processingUserGesture()
         && interval <= maxIntervalForUserGestureForwarding
         && nestingLevel == 1; // Gestures should not be forwarded to nested timers.
-}
-
-double DOMTimer::hiddenPageAlignmentInterval()
-{
-    // Timers on hidden pages are aligned so that they fire once per
-    // second at most.
-    return 1.0;
-}
-
-double DOMTimer::visiblePageAlignmentInterval()
-{
-    // Alignment does not apply to timers on visible pages.
-    return 0;
 }
 
 int DOMTimer::install(ExecutionContext* context, PassOwnPtrWillBeRawPtr<ScheduledAction> action, int timeout, bool singleShot)
@@ -164,43 +150,7 @@ void DOMTimer::stop()
     m_action.clear();
 }
 
-double DOMTimer::alignedFireTime(double fireTime) const
-{
-    double alignmentInterval = executionContext()->timerAlignmentInterval();
-    if (alignmentInterval) {
-        double currentTime = monotonicallyIncreasingTime();
-        if (fireTime <= currentTime)
-            return fireTime;
-
-        // When a repeating timer is scheduled for exactly the
-        // background page alignment interval, because it's impossible
-        // for the timer to be rescheduled instantaneously, it misses
-        // every other fire time. Avoid this by looking at the next
-        // fire time rounded both down and up.
-
-        double alignedTimeRoundedDown = floor(fireTime / alignmentInterval) * alignmentInterval;
-        double alignedTimeRoundedUp = ceil(fireTime / alignmentInterval) * alignmentInterval;
-
-        // If the version rounded down is in the past, discard it
-        // immediately.
-
-        if (alignedTimeRoundedDown <= currentTime)
-            return alignedTimeRoundedUp;
-
-        // Only use the rounded-down time if it's within a certain
-        // tolerance of the fire time. This avoids speeding up timers
-        // on background pages in the common case.
-
-        if (fireTime - alignedTimeRoundedDown < minimumInterval)
-            return alignedTimeRoundedDown;
-
-        return alignedTimeRoundedUp;
-    }
-
-    return fireTime;
-}
-
-WebTaskRunner* DOMTimer::timerTaskRunner()
+WebTaskRunner* DOMTimer::timerTaskRunner() const
 {
     return executionContext()->timers()->timerTaskRunner();
 }

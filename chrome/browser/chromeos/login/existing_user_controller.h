@@ -5,12 +5,14 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_EXISTING_USER_CONTROLLER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_EXISTING_USER_CONTROLLER_H_
 
+#include <stddef.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -18,6 +20,7 @@
 #include "base/timer/timer.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
+#include "chrome/browser/chromeos/login/signin/token_handle_util.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
@@ -92,7 +95,7 @@ class ExistingUserController : public LoginDisplay::Delegate,
   void SetDisplayEmail(const std::string& email) override;
   void ShowWrongHWIDScreen() override;
   void Signout() override;
-  bool IsUserWhitelisted(const std::string& user_id) override;
+  bool IsUserWhitelisted(const AccountId& account_id) override;
 
   // content::NotificationObserver implementation.
   void Observe(int type,
@@ -147,6 +150,7 @@ class ExistingUserController : public LoginDisplay::Delegate,
   void OnPasswordChangeDetected() override;
   void WhiteListCheckFailed(const std::string& email) override;
   void PolicyLoadFailed() override;
+  void SetAuthFlowOffline(bool offline) override;
 
   // UserSessionManagerDelegate implementation:
   void OnProfilePrepared(Profile* profile, bool browser_launched) override;
@@ -189,6 +193,9 @@ class ExistingUserController : public LoginDisplay::Delegate,
 
   // Shows "critical TPM error" screen.
   void ShowTPMError();
+
+  // Shows "password changed" dialog.
+  void ShowPasswordChangedDialog();
 
   // Creates |login_performer_| if necessary and calls login() on it.
   void PerformLogin(const UserContext& user_context,
@@ -238,6 +245,11 @@ class ExistingUserController : public LoginDisplay::Delegate,
   // Callback invoked when |oauth2_token_initializer_| has finished.
   void OnOAuth2TokensFetched(bool success, const UserContext& user_context);
 
+  // Callback invoked when |token_handle_util_| finishes token check.
+  void OnTokenHandleChecked(
+      const AccountId&,
+      TokenHandleUtil::TokenHandleStatus token_handle_status);
+
   // Public session auto-login timer.
   scoped_ptr<base::OneShotTimer> auto_login_timer_;
 
@@ -252,7 +264,7 @@ class ExistingUserController : public LoginDisplay::Delegate,
 
   // Delegate to forward all authentication status events to.
   // Tests can use this to receive authentication status events.
-  AuthStatusConsumer* auth_status_consumer_;
+  AuthStatusConsumer* auth_status_consumer_ = nullptr;
 
   // AccountId of the last login attempt.
   AccountId last_login_attempt_account_id_ = EmptyAccountId();
@@ -265,7 +277,7 @@ class ExistingUserController : public LoginDisplay::Delegate,
 
   // Number of login attempts. Used to show help link when > 1 unsuccessful
   // logins for the same user.
-  size_t num_login_attempts_;
+  size_t num_login_attempts_ = 0;
 
   // Pointer to the current instance of the controller to be used by
   // automation tests.
@@ -284,17 +296,22 @@ class ExistingUserController : public LoginDisplay::Delegate,
   std::string display_email_;
 
   // Whether login attempt is running.
-  bool is_login_in_progress_;
+  bool is_login_in_progress_ = false;
 
   // True if password has been changed for user who is completing sign in.
   // Set in OnLoginSuccess. Before that use LoginPerformer::password_changed().
-  bool password_changed_;
+  bool password_changed_ = false;
 
   // Set in OnLoginSuccess. Before that use LoginPerformer::auth_mode().
   // Initialized with AUTH_MODE_EXTENSION as more restricted mode.
-  LoginPerformer::AuthorizationMode auth_mode_;
+  LoginPerformer::AuthorizationMode auth_mode_ =
+      LoginPerformer::AUTH_MODE_EXTENSION;
+
   // Whether the sign-in UI is finished loading.
-  bool signin_screen_ready_;
+  bool signin_screen_ready_ = false;
+
+  // Indicates use of local (not GAIA) authentication.
+  bool auth_flow_offline_ = false;
 
   // Time when the signin screen was first displayed. Used to measure the time
   // from showing the screen until a successful login is performed.
@@ -320,6 +337,8 @@ class ExistingUserController : public LoginDisplay::Delegate,
       bootstrap_user_context_initializer_;
 
   scoped_ptr<OAuth2TokenInitializer> oauth2_token_initializer_;
+
+  scoped_ptr<TokenHandleUtil> token_handle_util_;
 
   FRIEND_TEST_ALL_PREFIXES(ExistingUserControllerTest, ExistingUserLogin);
 

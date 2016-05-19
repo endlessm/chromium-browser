@@ -11,7 +11,6 @@
 #include <sys/uio.h>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "net/quic/quic_protocol.h"
 
@@ -20,32 +19,30 @@
 #endif
 
 namespace net {
-namespace tools {
 
 // static
-IPAddressNumber QuicSocketUtils::GetAddressFromMsghdr(struct msghdr* hdr) {
+IPAddress QuicSocketUtils::GetAddressFromMsghdr(struct msghdr* hdr) {
   if (hdr->msg_controllen > 0) {
-    for (cmsghdr* cmsg = CMSG_FIRSTHDR(hdr);
-         cmsg != nullptr;
+    for (cmsghdr* cmsg = CMSG_FIRSTHDR(hdr); cmsg != nullptr;
          cmsg = CMSG_NXTHDR(hdr, cmsg)) {
-      const uint8* addr_data = nullptr;
+      const uint8_t* addr_data = nullptr;
       int len = 0;
       if (cmsg->cmsg_type == IPV6_PKTINFO) {
-        in6_pktinfo* info = reinterpret_cast<in6_pktinfo*>CMSG_DATA(cmsg);
-        addr_data = reinterpret_cast<const uint8*>(&info->ipi6_addr);
+        in6_pktinfo* info = reinterpret_cast<in6_pktinfo*> CMSG_DATA(cmsg);
+        addr_data = reinterpret_cast<const uint8_t*>(&info->ipi6_addr);
         len = sizeof(in6_addr);
       } else if (cmsg->cmsg_type == IP_PKTINFO) {
-        in_pktinfo* info = reinterpret_cast<in_pktinfo*>CMSG_DATA(cmsg);
-        addr_data = reinterpret_cast<const uint8*>(&info->ipi_addr);
+        in_pktinfo* info = reinterpret_cast<in_pktinfo*> CMSG_DATA(cmsg);
+        addr_data = reinterpret_cast<const uint8_t*>(&info->ipi_addr);
         len = sizeof(in_addr);
       } else {
         continue;
       }
-      return IPAddressNumber(addr_data, addr_data + len);
+      return IPAddress(addr_data, len);
     }
   }
   DCHECK(false) << "Unable to get address from msghdr";
-  return IPAddressNumber();
+  return IPAddress();
 }
 
 // static
@@ -53,11 +50,10 @@ bool QuicSocketUtils::GetOverflowFromMsghdr(struct msghdr* hdr,
                                             QuicPacketCount* dropped_packets) {
   if (hdr->msg_controllen > 0) {
     struct cmsghdr* cmsg;
-    for (cmsg = CMSG_FIRSTHDR(hdr);
-         cmsg != nullptr;
+    for (cmsg = CMSG_FIRSTHDR(hdr); cmsg != nullptr;
          cmsg = CMSG_NXTHDR(hdr, cmsg)) {
       if (cmsg->cmsg_type == SO_RXQ_OVFL) {
-        *dropped_packets = *(reinterpret_cast<int*>CMSG_DATA(cmsg));
+        *dropped_packets = *(reinterpret_cast<int*> CMSG_DATA(cmsg));
         return true;
       }
     }
@@ -68,11 +64,11 @@ bool QuicSocketUtils::GetOverflowFromMsghdr(struct msghdr* hdr,
 // static
 int QuicSocketUtils::SetGetAddressInfo(int fd, int address_family) {
   int get_local_ip = 1;
-  int rc = setsockopt(fd, IPPROTO_IP, IP_PKTINFO,
-                      &get_local_ip, sizeof(get_local_ip));
+  int rc = setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &get_local_ip,
+                      sizeof(get_local_ip));
   if (rc == 0 && address_family == AF_INET6) {
-    rc = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
-                    &get_local_ip, sizeof(get_local_ip));
+    rc = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &get_local_ip,
+                    sizeof(get_local_ip));
   }
   return rc;
 }
@@ -96,9 +92,11 @@ bool QuicSocketUtils::SetReceiveBufferSize(int fd, size_t size) {
 }
 
 // static
-int QuicSocketUtils::ReadPacket(int fd, char* buffer, size_t buf_len,
+int QuicSocketUtils::ReadPacket(int fd,
+                                char* buffer,
+                                size_t buf_len,
                                 QuicPacketCount* dropped_packets,
-                                IPAddressNumber* self_address,
+                                IPAddress* self_address,
                                 IPEndPoint* peer_address) {
   DCHECK(peer_address != nullptr);
   const int kSpaceForOverflowAndIp =
@@ -152,25 +150,30 @@ int QuicSocketUtils::ReadPacket(int fd, char* buffer, size_t buf_len,
   return bytes_read;
 }
 
-size_t QuicSocketUtils::SetIpInfoInCmsg(const IPAddressNumber& self_address,
+size_t QuicSocketUtils::SetIpInfoInCmsg(const IPAddress& self_address,
                                         cmsghdr* cmsg) {
-  if (GetAddressFamily(self_address) == ADDRESS_FAMILY_IPV4) {
+  if (self_address.IsIPv4()) {
     cmsg->cmsg_len = CMSG_LEN(sizeof(in_pktinfo));
     cmsg->cmsg_level = IPPROTO_IP;
     cmsg->cmsg_type = IP_PKTINFO;
     in_pktinfo* pktinfo = reinterpret_cast<in_pktinfo*>(CMSG_DATA(cmsg));
     memset(pktinfo, 0, sizeof(in_pktinfo));
     pktinfo->ipi_ifindex = 0;
-    memcpy(&pktinfo->ipi_spec_dst, &self_address[0], self_address.size());
+    memcpy(&pktinfo->ipi_spec_dst, self_address.bytes().data(),
+           self_address.size());
     return sizeof(in_pktinfo);
-  } else {
+  } else if (self_address.IsIPv6()) {
     cmsg->cmsg_len = CMSG_LEN(sizeof(in6_pktinfo));
     cmsg->cmsg_level = IPPROTO_IPV6;
     cmsg->cmsg_type = IPV6_PKTINFO;
     in6_pktinfo* pktinfo = reinterpret_cast<in6_pktinfo*>(CMSG_DATA(cmsg));
     memset(pktinfo, 0, sizeof(in6_pktinfo));
-    memcpy(&pktinfo->ipi6_addr, &self_address[0], self_address.size());
+    memcpy(&pktinfo->ipi6_addr, self_address.bytes().data(),
+           self_address.size());
     return sizeof(in6_pktinfo);
+  } else {
+    NOTREACHED() << "Unrecognized IPAddress";
+    return 0;
   }
 }
 
@@ -178,13 +181,12 @@ size_t QuicSocketUtils::SetIpInfoInCmsg(const IPAddressNumber& self_address,
 WriteResult QuicSocketUtils::WritePacket(int fd,
                                          const char* buffer,
                                          size_t buf_len,
-                                         const IPAddressNumber& self_address,
+                                         const IPAddress& self_address,
                                          const IPEndPoint& peer_address) {
   sockaddr_storage raw_address;
   socklen_t address_len = sizeof(raw_address);
   CHECK(peer_address.ToSockAddr(
-      reinterpret_cast<struct sockaddr*>(&raw_address),
-      &address_len));
+      reinterpret_cast<struct sockaddr*>(&raw_address), &address_len));
   iovec iov = {const_cast<char*>(buffer), buf_len};
 
   msghdr hdr;
@@ -215,9 +217,10 @@ WriteResult QuicSocketUtils::WritePacket(int fd,
   if (rc >= 0) {
     return WriteResult(WRITE_STATUS_OK, rc);
   }
-  return WriteResult((errno == EAGAIN || errno == EWOULDBLOCK) ?
-      WRITE_STATUS_BLOCKED : WRITE_STATUS_ERROR, errno);
+  return WriteResult((errno == EAGAIN || errno == EWOULDBLOCK)
+                         ? WRITE_STATUS_BLOCKED
+                         : WRITE_STATUS_ERROR,
+                     errno);
 }
 
-}  // namespace tools
 }  // namespace net

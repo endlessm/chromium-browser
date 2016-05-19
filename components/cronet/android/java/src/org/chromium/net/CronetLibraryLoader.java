@@ -8,6 +8,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.JNINamespace;
 
 /**
@@ -31,7 +32,7 @@ class CronetLibraryLoader {
             if (sInitTaskPosted) {
                 return;
             }
-            System.loadLibrary(builder.libraryName());
+            builder.loadLibrary();
             if (!Version.CRONET_VERSION.equals(nativeGetCronetVersion())) {
                 throw new RuntimeException(String.format(
                       "Expected Cronet version number %s, "
@@ -39,7 +40,7 @@ class CronetLibraryLoader {
                       Version.CRONET_VERSION,
                       nativeGetCronetVersion()));
             }
-            nativeCronetInitApplicationContext(context.getApplicationContext());
+            ContextUtils.initApplicationContext(context.getApplicationContext());
             // Init native Chromium CronetEngine on Main UI thread.
             Runnable task = new Runnable() {
                 public void run() {
@@ -73,8 +74,7 @@ class CronetLibraryLoader {
         nativeCronetInitOnMainThread();
     }
 
-    // Native methods are implemented in cronet_loader.cc.
+    // Native methods are implemented in cronet_library_loader.cc.
     private static native void nativeCronetInitOnMainThread();
-    private static native void nativeCronetInitApplicationContext(Context appContext);
     private static native String nativeGetCronetVersion();
 }

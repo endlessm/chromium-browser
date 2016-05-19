@@ -5,10 +5,13 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_WINDOW_CONTROLLER_H_
 #define CHROME_BROWSER_EXTENSIONS_WINDOW_CONTROLLER_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
+#include "chrome/common/extensions/api/tabs.h"
 #include "chrome/common/extensions/api/windows.h"
 
 class Browser;  // TODO(stevenjb) eliminate this dependency.
@@ -82,6 +85,11 @@ class WindowController {
   virtual base::DictionaryValue* CreateWindowValueWithTabs(
       const extensions::Extension* extension) const = 0;
 
+  virtual scoped_ptr<api::tabs::Tab> CreateTabObject(
+      const extensions::Extension* extension,
+      int tab_index) const = 0;
+
+  // DEPRECATED: Use scoped_ptr<api::tabs::Tab> CreateTabObject(...)
   virtual base::DictionaryValue* CreateTabValue(
       const extensions::Extension* extension, int tab_index) const = 0;
 

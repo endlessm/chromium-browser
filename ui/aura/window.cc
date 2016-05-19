@@ -4,12 +4,16 @@
 
 #include "ui/aura/window.h"
 
+#include <stddef.h>
+
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -63,8 +67,7 @@ class ScopedCursorHider {
       client::CursorClient* cursor_client = client::GetCursorClient(window_);
       if (cursor_client) {
         const gfx::Display& display =
-            gfx::Screen::GetScreenFor(window_)->GetDisplayNearestWindow(
-                window_);
+            gfx::Screen::GetScreen()->GetDisplayNearestWindow(window_);
         cursor_client->SetDisplay(display);
         cursor_client->ShowCursor();
       }
@@ -93,7 +96,7 @@ Window::Window(WindowDelegate* delegate)
       // problems for code that adds an observer as part of an observer
       // notification (such as the workspace code).
       observers_(base::ObserverList<WindowObserver>::NOTIFY_EXISTING_ONLY) {
-  set_target_handler(delegate_);
+  SetTargetHandler(delegate_);
 }
 
 Window::~Window() {
@@ -109,7 +112,7 @@ Window::~Window() {
   // While we are being destroyed, our target handler may also be in the
   // process of destruction or already destroyed, so do not forward any
   // input events at the ui::EP_TARGET phase.
-  set_target_handler(nullptr);
+  SetTargetHandler(nullptr);
 
   // TODO(beng): See comment in window_event_dispatcher.h. This shouldn't be
   //             necessary but unfortunately is right now due to ordering
@@ -276,7 +279,7 @@ void Window::SetTransform(const gfx::Transform& transform) {
 }
 
 void Window::SetLayoutManager(LayoutManager* layout_manager) {
-  if (layout_manager == layout_manager_)
+  if (layout_manager == layout_manager_.get())
     return;
   layout_manager_.reset(layout_manager);
   if (!layout_manager)
@@ -291,9 +294,9 @@ void Window::SetLayoutManager(LayoutManager* layout_manager) {
 
 scoped_ptr<ui::EventTargeter>
 Window::SetEventTargeter(scoped_ptr<ui::EventTargeter> targeter) {
-  scoped_ptr<ui::EventTargeter> old_targeter = targeter_.Pass();
-  targeter_ = targeter.Pass();
-  return old_targeter.Pass();
+  scoped_ptr<ui::EventTargeter> old_targeter = std::move(targeter_);
+  targeter_ = std::move(targeter);
+  return old_targeter;
 }
 
 void Window::SetBounds(const gfx::Rect& new_bounds) {
@@ -596,8 +599,7 @@ void Window::SuppressPaint() {
 // {Set,Get,Clear}Property are implemented in window_property.h.
 
 void Window::SetNativeWindowProperty(const char* key, void* value) {
-  SetPropertyInternal(
-      key, key, NULL, reinterpret_cast<int64>(value), 0);
+  SetPropertyInternal(key, key, NULL, reinterpret_cast<int64_t>(value), 0);
 }
 
 void* Window::GetNativeWindowProperty(const char* key) const {
@@ -654,12 +656,12 @@ void Window::RemoveOrDestroyChildren() {
 ///////////////////////////////////////////////////////////////////////////////
 // Window, private:
 
-int64 Window::SetPropertyInternal(const void* key,
-                                  const char* name,
-                                  PropertyDeallocator deallocator,
-                                  int64 value,
-                                  int64 default_value) {
-  int64 old = GetPropertyInternal(key, default_value);
+int64_t Window::SetPropertyInternal(const void* key,
+                                    const char* name,
+                                    PropertyDeallocator deallocator,
+                                    int64_t value,
+                                    int64_t default_value) {
+  int64_t old = GetPropertyInternal(key, default_value);
   if (value == default_value) {
     prop_map_.erase(key);
   } else {
@@ -674,8 +676,8 @@ int64 Window::SetPropertyInternal(const void* key,
   return old;
 }
 
-int64 Window::GetPropertyInternal(const void* key,
-                                  int64 default_value) const {
+int64_t Window::GetPropertyInternal(const void* key,
+                                    int64_t default_value) const {
   std::map<const void*, Value>::const_iterator iter = prop_map_.find(key);
   if (iter == prop_map_.end())
     return default_value;

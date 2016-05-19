@@ -4,6 +4,8 @@
 
 #include "content/common/sandbox_win.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/base_switches.h"
@@ -12,6 +14,7 @@
 #include "base/files/file_util.h"
 #include "base/hash.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/shared_memory.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/sparse_histogram.h"
@@ -24,6 +27,7 @@
 #include "base/win/iat_patch_function.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_process_information.h"
+#include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 #include "content/common/content_switches_internal.h"
 #include "content/public/common/content_client.h"
@@ -36,7 +40,10 @@
 #include "sandbox/win/src/sandbox_nt_util.h"
 #include "sandbox/win/src/sandbox_policy_base.h"
 #include "sandbox/win/src/win_utils.h"
-#include "ui/gfx/win/direct_write.h"
+
+#if !defined(NACL_WIN64)
+#include "ui/gfx/win/direct_write.h" // nogncheck: unused #ifdef NACL_WIN64
+#endif  // !defined(NACL_WIN64)
 
 static sandbox::BrokerServices* g_broker_services = NULL;
 static sandbox::TargetServices* g_target_services = NULL;
@@ -396,7 +403,6 @@ bool AddPolicyForSandboxedProcess(sandbox::TargetPolicy* policy) {
   if (result != sandbox::SBOX_ALL_OK)
     return false;
 
-
   sandbox::TokenLevel initial_token = sandbox::USER_UNPROTECTED;
   if (base::win::GetVersion() > base::win::VERSION_XP) {
     // On 2003/Vista the initial token has to be restricted if the main
@@ -558,7 +564,7 @@ bool IsAppContainerEnabled() {
 
 void SetJobLevel(const base::CommandLine& cmd_line,
                  sandbox::JobLevel job_level,
-                 uint32 ui_exceptions,
+                 uint32_t ui_exceptions,
                  sandbox::TargetPolicy* policy) {
   if (ShouldSetJobLevel(cmd_line)) {
 #ifdef _WIN64
@@ -658,7 +664,8 @@ bool InitTargetServices(sandbox::TargetServices* target_services) {
 
 base::Process StartSandboxedProcess(
     SandboxedProcessLauncherDelegate* delegate,
-    base::CommandLine* cmd_line) {
+    base::CommandLine* cmd_line,
+    const base::HandlesToInheritVector& handles_to_inherit) {
   DCHECK(delegate);
   const base::CommandLine& browser_command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -674,16 +681,18 @@ base::Process StartSandboxedProcess(
 
   ProcessDebugFlags(cmd_line);
 
-  // Prefetch hints on windows:
-  // Using a different prefetch profile per process type will allow Windows
-  // to create separate pretetch settings for browser, renderer etc.
-  cmd_line->AppendArg(base::StringPrintf("/prefetch:%d", base::Hash(type_str)));
-
   if ((!delegate->ShouldSandbox()) ||
       browser_command_line.HasSwitch(switches::kNoSandbox) ||
       cmd_line->HasSwitch(switches::kNoSandbox)) {
-    base::Process process =
-        base::LaunchProcess(*cmd_line, base::LaunchOptions());
+    base::LaunchOptions options;
+
+    base::HandlesToInheritVector handles = handles_to_inherit;
+    if (!handles_to_inherit.empty()) {
+      options.inherit_handles = true;
+      options.handles_to_inherit = &handles;
+    }
+    base::Process process = base::LaunchProcess(*cmd_line, options);
+
     // TODO(rvargas) crbug.com/417532: Don't share a raw handle.
     g_broker_services->AddTargetPeer(process.Handle());
     return process.Pass();
@@ -691,11 +700,25 @@ base::Process StartSandboxedProcess(
 
   sandbox::TargetPolicy* policy = g_broker_services->CreatePolicy();
 
-  sandbox::MitigationFlags mitigations = sandbox::MITIGATION_HEAP_TERMINATE |
-                                         sandbox::MITIGATION_BOTTOM_UP_ASLR |
-                                         sandbox::MITIGATION_DEP |
-                                         sandbox::MITIGATION_DEP_NO_ATL_THUNK |
-                                         sandbox::MITIGATION_SEHOP;
+  // Add any handles to be inherited to the policy.
+  for (HANDLE handle : handles_to_inherit)
+    policy->AddHandleToShare(handle);
+
+  // Pre-startup mitigations.
+  sandbox::MitigationFlags mitigations =
+      sandbox::MITIGATION_HEAP_TERMINATE |
+      sandbox::MITIGATION_BOTTOM_UP_ASLR |
+      sandbox::MITIGATION_DEP |
+      sandbox::MITIGATION_DEP_NO_ATL_THUNK |
+      sandbox::MITIGATION_SEHOP |
+      sandbox::MITIGATION_NONSYSTEM_FONT_DISABLE |
+      sandbox::MITIGATION_IMAGE_LOAD_NO_REMOTE |
+      sandbox::MITIGATION_IMAGE_LOAD_NO_LOW_LABEL;
+#if !defined(NACL_WIN64)
+  // Don't block font loading with GDI.
+  if (!gfx::win::ShouldUseDirectWrite())
+    mitigations ^= sandbox::MITIGATION_NONSYSTEM_FONT_DISABLE;
+#endif
 
   if (policy->SetProcessMitigations(mitigations) != sandbox::SBOX_ALL_OK)
     return base::Process();
@@ -708,6 +731,7 @@ base::Process StartSandboxedProcess(
   }
 #endif
 
+  // Post-startup mitigations.
   mitigations = sandbox::MITIGATION_STRICT_HANDLE_CHECKS |
                 sandbox::MITIGATION_DLL_SEARCH_ORDER;
 
@@ -722,6 +746,9 @@ base::Process StartSandboxedProcess(
   }
 
 #if !defined(NACL_WIN64)
+  // NOTE: This is placed at function scope so that it stays alive through
+  // process launch.
+  base::SharedMemory direct_write_font_cache_section;
   if (type_str == switches::kRendererProcess ||
       type_str == switches::kPpapiPluginProcess) {
     if (gfx::win::ShouldUseDirectWrite()) {
@@ -731,20 +758,22 @@ base::Process StartSandboxedProcess(
                   sandbox::TargetPolicy::FILES_ALLOW_READONLY,
                   policy);
 
-      // If DirectWrite is enabled for font rendering then open the font cache
-      // section which is created by the browser and pass the handle to the
-      // renderer process. This is needed because renderer processes on
-      // Windows 8+ may be running in an AppContainer sandbox and hence their
-      // kernel object namespace may be partitioned.
-      std::string name(content::kFontCacheSharedSectionName);
-      name.append(base::UintToString(base::GetCurrentProcId()));
+      if (!ShouldUseDirectWriteFontProxyFieldTrial()) {
+        // If DirectWrite is enabled for font rendering then open the font
+        // cache section which is created by the browser and pass the handle to
+        // the renderer process. This is needed because renderer processes on
+        // Windows 8+ may be running in an AppContainer sandbox and hence their
+        // kernel object namespace may be partitioned.
+        std::string name(content::kFontCacheSharedSectionName);
+        name.append(base::UintToString(base::GetCurrentProcId()));
 
-      base::SharedMemory direct_write_font_cache_section;
-      if (direct_write_font_cache_section.Open(name, true)) {
-        void* shared_handle = policy->AddHandleToShare(
-            direct_write_font_cache_section.handle().GetHandle());
-        cmd_line->AppendSwitchASCII(switches::kFontCacheSharedHandle,
-            base::UintToString(reinterpret_cast<unsigned int>(shared_handle)));
+        if (direct_write_font_cache_section.Open(name, true)) {
+          HANDLE handle = direct_write_font_cache_section.handle().GetHandle();
+          policy->AddHandleToShare(handle);
+          cmd_line->AppendSwitchASCII(
+              switches::kFontCacheSharedHandle,
+              base::UintToString(base::win::HandleToUint32(handle)));
+        }
       }
     }
   }
@@ -814,7 +843,7 @@ base::Process StartSandboxedProcess(
 
   delegate->PostSpawnTarget(target.process_handle());
 
-  CHECK(ResumeThread(target.thread_handle()) != -1);
+  CHECK(ResumeThread(target.thread_handle()) != static_cast<DWORD>(-1));
   return base::Process(target.TakeProcessHandle());
 }
 

@@ -5,13 +5,16 @@
 #ifndef CC_RESOURCES_RESOURCE_POOL_H_
 #define CC_RESOURCES_RESOURCE_POOL_H_
 
-#include <deque>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "base/containers/scoped_ptr_map.h"
+#include <deque>
+#include <map>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "cc/base/cc_export.h"
-#include "cc/base/scoped_ptr_deque.h"
 #include "cc/output/renderer.h"
 #include "cc/resources/resource.h"
 #include "cc/resources/resource_format.h"
@@ -21,7 +24,7 @@ namespace cc {
 
 class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
  public:
-  static scoped_ptr<ResourcePool> CreateForImageTextureTarget(
+  static scoped_ptr<ResourcePool> CreateForGpuMemoryBufferResources(
       ResourceProvider* resource_provider,
       base::SingleThreadTaskRunner* task_runner) {
     return make_scoped_ptr(
@@ -38,7 +41,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
   ~ResourcePool() override;
 
   Resource* AcquireResource(const gfx::Size& size, ResourceFormat format);
-  Resource* TryAcquireResourceWithContentId(uint64 content_id);
+  Resource* TryAcquireResourceWithContentId(uint64_t content_id);
   void ReleaseResource(Resource* resource, uint64_t content_id);
 
   void SetResourceUsageLimits(size_t max_memory_usage_bytes,
@@ -70,7 +73,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
  protected:
   ResourcePool(ResourceProvider* resource_provider,
                base::SingleThreadTaskRunner* task_runner,
-               bool use_image_texture_target);
+               bool use_gpu_memory_buffers);
 
   bool ResourceUsageTooHigh();
 
@@ -109,7 +112,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
   base::TimeTicks GetUsageTimeForLRUResource() const;
 
   ResourceProvider* resource_provider_;
-  bool use_image_texture_target_;
+  bool use_gpu_memory_buffers_;
   size_t max_memory_usage_bytes_;
   size_t max_resource_count_;
   size_t in_use_memory_usage_bytes_;
@@ -117,12 +120,11 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
   size_t total_resource_count_;
 
   // Holds most recently used resources at the front of the queue.
-  using ResourceDeque = ScopedPtrDeque<PoolResource>;
+  using ResourceDeque = std::deque<scoped_ptr<PoolResource>>;
   ResourceDeque unused_resources_;
   ResourceDeque busy_resources_;
 
-  using ResourceMap = base::ScopedPtrMap<ResourceId, scoped_ptr<PoolResource>>;
-  ResourceMap in_use_resources_;
+  std::map<ResourceId, scoped_ptr<PoolResource>> in_use_resources_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   bool evict_expired_resources_pending_;

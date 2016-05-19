@@ -12,17 +12,18 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_checker.h"
 #include "components/content_settings/core/browser/content_settings_observer.h"
+#include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
+#include "components/prefs/pref_change_registrar.h"
 
 class ExtensionService;
 class GURL;
@@ -37,6 +38,7 @@ namespace content_settings {
 class ObservableProvider;
 class ProviderInterface;
 class PrefProvider;
+class TestUtils;
 }
 
 namespace user_prefs {
@@ -60,8 +62,11 @@ class HostContentSettingsMap : public content_settings::Observer,
   };
 
   // This should be called on the UI thread, otherwise |thread_checker_| handles
-  // CalledOnValidThread() wrongly.
-  HostContentSettingsMap(PrefService* prefs, bool incognito);
+  // CalledOnValidThread() wrongly. Only one (or neither) of
+  // |is_incognito_profile| and |is_guest_profile| should be true.
+  HostContentSettingsMap(PrefService* prefs,
+                         bool is_incognito_profile,
+                         bool is_guest_profile);
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
@@ -132,25 +137,41 @@ class HostContentSettingsMap : public content_settings::Observer,
   // this pattern.
   // NOTICE: This is just a convenience method for content types that use
   // |CONTENT_SETTING| as their data type. For content types that use other
-  // data types please use the method SetWebsiteSetting.
+  // data types please use the method SetWebsiteSettingDefaultScope().
   //
   // This should only be called on the UI thread.
+  // TODO(raymes): Create a version of this function which uses the default
+  // scope.
   void SetContentSetting(const ContentSettingsPattern& primary_pattern,
                          const ContentSettingsPattern& secondary_pattern,
                          ContentSettingsType content_type,
                          const std::string& resource_identifier,
                          ContentSetting setting);
 
-  // Sets the |value| for the given patterns, |content_type| and
-  // |resource_identifier|. Setting the value to NULL causes the default value
-  // for that type to be used when loading pages matching this pattern.
+  // Sets the |value| for the default scope of the url that is appropriate for
+  // the given |content_type| and |resource_identifier|. Setting the value to
+  // null removes the default pattern pair for this content type.
   //
-  // Takes ownership of the passed value.
-  void SetWebsiteSetting(const ContentSettingsPattern& primary_pattern,
-                         const ContentSettingsPattern& secondary_pattern,
-                         ContentSettingsType content_type,
-                         const std::string& resource_identifier,
-                         base::Value* value);
+  // Internally this will call SetWebsiteSettingCustomScope() with the default
+  // scope patterns for the given |content_type|. Developers will generally want
+  // to use this function instead of SetWebsiteSettingCustomScope() unless they
+  // need to specify custom scoping.
+  void SetWebsiteSettingDefaultScope(const GURL& requesting_url,
+                                     const GURL& top_level_url,
+                                     ContentSettingsType content_type,
+                                     const std::string& resource_identifier,
+                                     base::Value* value);
+
+  // Sets a rule to apply the |value| for all sites matching |pattern|,
+  // |content_type| and |resource_identifier|. Setting the value to null removes
+  // the given pattern pair. Unless adding a custom-scoped setting, most
+  // developers will want to use SetWebsiteSettingDefaultScope() instead.
+  void SetWebsiteSettingCustomScope(
+      const ContentSettingsPattern& primary_pattern,
+      const ContentSettingsPattern& secondary_pattern,
+      ContentSettingsType content_type,
+      const std::string& resource_identifier,
+      scoped_ptr<base::Value> value);
 
   // Sets the most specific rule that currently defines the setting for the
   // given content type. TODO(raymes): Remove this once all content settings
@@ -238,6 +259,7 @@ class HostContentSettingsMap : public content_settings::Observer,
  private:
   friend class base::RefCountedThreadSafe<HostContentSettingsMap>;
   friend class HostContentSettingsMapTest_NonDefaultSettings_Test;
+  friend class content_settings::TestUtils;
 
   typedef std::map<ProviderType, content_settings::ProviderInterface*>
       ProviderMap;
@@ -277,6 +299,23 @@ class HostContentSettingsMap : public content_settings::Observer,
       ContentSettingsType content_type,
       const std::string& resource_identifier,
       content_settings::SettingInfo* info) const;
+
+  static scoped_ptr<base::Value> GetContentSettingValueAndPatterns(
+      const content_settings::ProviderInterface* provider,
+      const GURL& primary_url,
+      const GURL& secondary_url,
+      ContentSettingsType content_type,
+      const std::string& resource_identifier,
+      bool include_incognito,
+      ContentSettingsPattern* primary_pattern,
+      ContentSettingsPattern* secondary_pattern);
+
+  static scoped_ptr<base::Value> GetContentSettingValueAndPatterns(
+      content_settings::RuleIterator* rule_iterator,
+      const GURL& primary_url,
+      const GURL& secondary_url,
+      ContentSettingsPattern* primary_pattern,
+      ContentSettingsPattern* secondary_pattern);
 
   content_settings::PrefProvider* GetPrefProvider();
 

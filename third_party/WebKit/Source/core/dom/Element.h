@@ -59,6 +59,7 @@ class Image;
 class IntSize;
 class Locale;
 class MutableStylePropertySet;
+class NodeIntersectionObserverData;
 class PropertySetCSSStyleDeclaration;
 class PseudoElement;
 class ScrollState;
@@ -211,7 +212,7 @@ public:
     void scrollTo(double x, double y);
     virtual void scrollTo(const ScrollToOptions&);
 
-    IntRect boundsInViewportSpace();
+    IntRect boundsInViewport() const;
 
     ClientRectList* getClientRects();
     ClientRect* getBoundingClientRect();
@@ -299,9 +300,8 @@ public:
     };
 
     // This method is called whenever an attribute is added, changed or removed.
-    virtual void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) { }
-    virtual void attributeChanged(const QualifiedName&, const AtomicString&, AttributeModificationReason = ModifiedDirectly);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&);
+    virtual void attributeChanged(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue, AttributeModificationReason = ModifiedDirectly);
+    virtual void parseAttribute(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue);
 
     virtual bool hasLegalLinkAttribute(const QualifiedName&) const;
     virtual const QualifiedName& subResourceAttributeName() const;
@@ -354,6 +354,8 @@ public:
     ShadowRoot* userAgentShadowRoot() const;
 
     ShadowRoot* youngestShadowRoot() const;
+
+    ShadowRoot* shadowRootIfV1() const;
 
     ShadowRoot& ensureUserAgentShadowRoot();
     virtual void willAddFirstAuthorShadowRoot() { }
@@ -408,11 +410,15 @@ public:
     // layoutObjectIsFocusable(), this method may be called when layout is not up to
     // date, so it must not use the layoutObject to determine focusability.
     virtual bool supportsFocus() const;
-    // Whether the node can actually be focused.
+    // isFocusable(), isKeyboardFocusable(), and isMouseFocusable() check
+    // whether the element can actually be focused. Callers should ensure
+    // ComputedStyle is up to date;
+    // e.g. by calling Document::updateLayoutTreeIgnorePendingStylesheets().
     bool isFocusable() const;
-    bool isFocusedElementInDocument() const;
     virtual bool isKeyboardFocusable() const;
     virtual bool isMouseFocusable() const;
+    bool isFocusedElementInDocument() const;
+
     virtual void dispatchFocusEvent(Element* oldFocusedElement, WebFocusType, InputDeviceCapabilities* sourceCapabilities = nullptr);
     virtual void dispatchBlurEvent(Element* newFocusedElement, WebFocusType, InputDeviceCapabilities* sourceCapabilities = nullptr);
     virtual void dispatchFocusInEvent(const AtomicString& eventType, Element* oldFocusedElement, WebFocusType, InputDeviceCapabilities* sourceCapabilities = nullptr);
@@ -432,6 +438,7 @@ public:
     String textFromChildren();
 
     virtual String title() const { return String(); }
+    virtual String defaultToolTip() const { return String(); }
 
     virtual const AtomicString& shadowPseudoId() const;
     void setShadowPseudoId(const AtomicString&);
@@ -531,12 +538,29 @@ public:
     void setTabIndex(int);
     short tabIndex() const override;
 
-    void incrementProxyCount();
-    void decrementProxyCount();
+    // A compositor proxy is a very limited wrapper around an element. It
+    // exposes only those properties that are requested at the time the proxy is
+    // created. In order to know which properties are actually proxied, we
+    // maintain a count of the number of compositor proxies associated with each
+    // property.
+    bool hasCompositorProxy() const;
+    void incrementCompositorProxiedProperties(uint32_t mutableProperties);
+    void decrementCompositorProxiedProperties(uint32_t mutableProperties);
+    uint32_t compositorMutableProperties() const;
+
+    // Helpers for V8DOMActivityLogger::logEvent.  They call logEvent only if
+    // the element is inDocument() and the context is an isolated world.
+    void logAddElementIfIsolatedWorldAndInDocument(const char element[], const QualifiedName& attr1);
+    void logAddElementIfIsolatedWorldAndInDocument(const char element[], const QualifiedName& attr1, const QualifiedName& attr2);
+    void logAddElementIfIsolatedWorldAndInDocument(const char element[], const QualifiedName& attr1, const QualifiedName& attr2, const QualifiedName& attr3);
+    void logUpdateAttributeIfIsolatedWorldAndInDocument(const char element[], const QualifiedName& attributeName, const AtomicString& oldValue, const AtomicString& newValue);
 
     DECLARE_VIRTUAL_TRACE();
 
     SpellcheckAttributeState spellcheckAttributeState() const;
+
+    NodeIntersectionObserverData* intersectionObserverData() const;
+    NodeIntersectionObserverData& ensureIntersectionObserverData();
 
 protected:
     Element(const QualifiedName& tagName, Document*, ConstructionType);
@@ -547,6 +571,7 @@ protected:
     void addPropertyToPresentationAttributeStyle(MutableStylePropertySet*, CSSPropertyID, CSSValueID identifier);
     void addPropertyToPresentationAttributeStyle(MutableStylePropertySet*, CSSPropertyID, double value, CSSPrimitiveValue::UnitType);
     void addPropertyToPresentationAttributeStyle(MutableStylePropertySet*, CSSPropertyID, const String& value);
+    void addPropertyToPresentationAttributeStyle(MutableStylePropertySet*, CSSPropertyID, PassRefPtrWillBeRawPtr<CSSValue>);
 
     InsertionNotificationRequest insertedInto(ContainerNode*) override;
     void removedFrom(ContainerNode*) override;
@@ -563,11 +588,13 @@ protected:
 
     void clearTabIndexExplicitlyIfNeeded();
     void setTabIndexExplicitly(short);
-    // Subclasses may override this method to affect focusability. Unlike
-    // supportsFocus, this method must be called on an up-to-date layout, so it
-    // may use the layoutObject to reason about focusability. This method cannot be
-    // moved to LayoutObject because some focusable nodes don't have layoutObjects,
-    // e.g., HTMLOptionElement.
+    // Subclasses may override this method to affect focusability. This method
+    // must be called on an up-to-date ComputedStyle, so it may use existence of
+    // layoutObject and the LayoutObject::style() to reason about focusability.
+    // However, it must not retrieve layout information like position and size.
+    // This method cannot be moved to LayoutObject because some focusable nodes
+    // don't have layoutObjects. e.g., HTMLOptionElement.
+    // TODO(tkent): Rename this to isFocusableStyle.
     virtual bool layoutObjectIsFocusable() const;
 
     // classAttributeChanged() exists to share code between
@@ -636,7 +663,7 @@ private:
     void updateId(TreeScope&, const AtomicString& oldId, const AtomicString& newId);
     void updateName(const AtomicString& oldName, const AtomicString& newName);
 
-    NodeType nodeType() const final;
+    NodeType getNodeType() const final;
     bool childTypeAllowed(NodeType) const final;
 
     void setAttributeInternal(size_t index, const QualifiedName&, const AtomicString& value, SynchronizationOfLazyAttribute);
@@ -923,6 +950,6 @@ inline bool isAtShadowBoundary(const Element* element)
         return adoptRefWillBeNoop(new T(tagName, document)); \
     }
 
-} // namespace
+} // namespace blink
 
 #endif // Element_h

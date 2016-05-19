@@ -416,43 +416,18 @@ class CheckSingletonInHeadersTest(unittest.TestCase):
     self.assertEqual(0, len(warnings))
 
 
-class CheckBaseMacrosInHeadersTest(unittest.TestCase):
-  def _make_h(self, macro, header, line_prefix=''):
-    return ("""
-#include "base/%s.h"
-
-class Thing {
- private:
-%sDISALLOW_%s(Thing);
-};
-""" % (macro, line_prefix, header)).splitlines()
-
-  def testBaseMacrosInHeadersBad(self):
+class CheckNoDeprecatedCompiledResourcesGYPTest(unittest.TestCase):
+  def testNoDeprecatedCompiledResourcsGYP(self):
     mock_input_api = MockInputApi()
-    mock_input_api.files = [
-      MockAffectedFile('foo.h', self._make_h('not_macros', 'ASSIGN')),
-      MockAffectedFile('bar.h', self._make_h('not_macros', 'COPY')),
-      MockAffectedFile('baz.h', self._make_h('not_macros', 'COPY_AND_ASSIGN')),
-      MockAffectedFile('qux.h', self._make_h('not_macros', 'EVIL')),
-    ]
-    warnings = PRESUBMIT._CheckBaseMacrosInHeaders(mock_input_api,
-                                                   MockOutputApi())
-    self.assertEqual(1, len(warnings))
-    self.assertEqual(4, len(warnings[0].items))
+    mock_input_api.files = [MockFile('some/js/compiled_resources.gyp', [])]
+    errors = PRESUBMIT._CheckNoDeprecatedCompiledResourcesGYP(mock_input_api,
+                                                              MockOutputApi())
+    self.assertEquals(1, len(errors))
 
-  def testBaseMacrosInHeadersGood(self):
-    mock_input_api = MockInputApi()
-    mock_input_api.files = [
-      MockAffectedFile('foo.h', self._make_h('macros', 'ASSIGN')),
-      MockAffectedFile('bar.h', self._make_h('macros', 'COPY')),
-      MockAffectedFile('baz.h', self._make_h('macros', 'COPY_AND_ASSIGN')),
-      MockAffectedFile('qux.h', self._make_h('macros', 'EVIL')),
-      MockAffectedFile('foz.h', self._make_h('not_macros', 'ASSIGN', '//')),
-      MockAffectedFile('foz.h', self._make_h('not_macros', 'ASSIGN', '  //')),
-    ]
-    warnings = PRESUBMIT._CheckBaseMacrosInHeaders(mock_input_api,
-                                                   MockOutputApi())
-    self.assertEqual(0, len(warnings))
+    mock_input_api.files = [MockFile('some/js/compiled_resources2.gyp', [])]
+    errors = PRESUBMIT._CheckNoDeprecatedCompiledResourcesGYP(mock_input_api,
+                                                              MockOutputApi())
+    self.assertEquals(0, len(errors))
 
 
 class InvalidOSMacroNamesTest(unittest.TestCase):
@@ -985,6 +960,35 @@ class LogUsageTest(unittest.TestCase):
                      'Expected %d items, found %d: %s' % (2, nb, msgs[4].items))
     self.assertTrue('HasDottedTag.java' in msgs[4].items)
     self.assertTrue('HasOldTag.java' in msgs[4].items)
+
+class HardcodedGoogleHostsTest(unittest.TestCase):
+
+  def testWarnOnAssignedLiterals(self):
+    input_api = MockInputApi()
+    input_api.files = [
+      MockFile('content/file.cc',
+               ['char* host = "https://www.google.com";']),
+      MockFile('content/file.cc',
+               ['char* host = "https://www.googleapis.com";']),
+      MockFile('content/file.cc',
+               ['char* host = "https://clients1.google.com";']),
+    ]
+
+    warnings = PRESUBMIT._CheckHardcodedGoogleHostsInLowerLayers(
+      input_api, MockOutputApi())
+    self.assertEqual(1, len(warnings))
+    self.assertEqual(3, len(warnings[0].items))
+
+  def testAllowInComment(self):
+    input_api = MockInputApi()
+    input_api.files = [
+      MockFile('content/file.cc',
+               ['char* host = "https://www.aol.com"; // google.com'])
+    ]
+
+    warnings = PRESUBMIT._CheckHardcodedGoogleHostsInLowerLayers(
+      input_api, MockOutputApi())
+    self.assertEqual(0, len(warnings))
 
 
 if __name__ == '__main__':

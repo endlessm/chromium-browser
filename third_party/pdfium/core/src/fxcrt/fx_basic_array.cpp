@@ -26,7 +26,7 @@ FX_BOOL CFX_BasicArray::SetSize(int nNewSize) {
     return 0 == nNewSize;
   }
 
-  if (m_pData == NULL) {
+  if (!m_pData) {
     pdfium::base::CheckedNumeric<int> totalSize = nNewSize;
     totalSize *= m_nUnitSize;
     if (!totalSize.IsValid()) {
@@ -49,7 +49,7 @@ FX_BOOL CFX_BasicArray::SetSize(int nNewSize) {
       return FALSE;
     }
     uint8_t* pNewData = FX_Realloc(uint8_t, m_pData, totalSize.ValueOrDie());
-    if (pNewData == NULL) {
+    if (!pNewData) {
       return FALSE;
     }
     FXSYS_memset(pNewData + m_nSize * m_nUnitSize, 0,
@@ -115,7 +115,7 @@ FX_BOOL CFX_BasicArray::RemoveAt(int nIndex, int nCount) {
 }
 FX_BOOL CFX_BasicArray::InsertAt(int nStartIndex,
                                  const CFX_BasicArray* pNewArray) {
-  if (pNewArray == NULL) {
+  if (!pNewArray) {
     return FALSE;
   }
   if (pNewArray->m_nSize == 0) {
@@ -129,11 +129,12 @@ FX_BOOL CFX_BasicArray::InsertAt(int nStartIndex,
   return TRUE;
 }
 const void* CFX_BasicArray::GetDataPtr(int index) const {
-  if (index < 0 || index >= m_nSize || m_pData == NULL) {
+  if (index < 0 || index >= m_nSize || !m_pData) {
     return NULL;
   }
   return m_pData + index * m_nUnitSize;
 }
+#ifdef PDF_ENABLE_XFA
 CFX_BaseSegmentedArray::CFX_BaseSegmentedArray(int unit_size,
                                                int segment_units,
                                                int index_size)
@@ -159,16 +160,14 @@ static void _ClearIndex(int level, int size, void** pIndex) {
     FX_Free(pIndex);
     return;
   }
-  for (int i = 0; i < size; i++) {
-    if (pIndex[i] == NULL) {
-      continue;
-    }
-    _ClearIndex(level - 1, size, (void**)pIndex[i]);
+  for (int i = 0; i < size; ++i) {
+    if (pIndex[i])
+      _ClearIndex(level - 1, size, (void**)pIndex[i]);
   }
   FX_Free(pIndex);
 }
 void CFX_BaseSegmentedArray::RemoveAll() {
-  if (m_pIndex == NULL) {
+  if (!m_pIndex) {
     return;
   }
   _ClearIndex(m_IndexDepth, m_IndexSize, (void**)m_pIndex);
@@ -181,7 +180,7 @@ void* CFX_BaseSegmentedArray::Add() {
     return GetAt(m_DataSize++);
   }
   void* pSegment = FX_Alloc2D(uint8_t, m_UnitSize, m_SegmentSize);
-  if (m_pIndex == NULL) {
+  if (!m_pIndex) {
     m_pIndex = pSegment;
     m_DataSize++;
     return pSegment;
@@ -217,7 +216,7 @@ void* CFX_BaseSegmentedArray::Add() {
   }
   void** pSpot = (void**)m_pIndex;
   for (i = 1; i < m_IndexDepth; i++) {
-    if (pSpot[seg_index / tree_size] == NULL) {
+    if (!pSpot[seg_index / tree_size]) {
       pSpot[seg_index / tree_size] = FX_Alloc(void*, m_IndexSize);
     }
     pSpot = (void**)pSpot[seg_index / tree_size];
@@ -281,7 +280,7 @@ void* CFX_BaseSegmentedArray::IterateIndex(int level,
     return IterateSegment((const uint8_t*)pIndex, count, callback, param);
   }
   for (int i = 0; i < m_IndexSize; i++) {
-    if (pIndex[i] == NULL) {
+    if (!pIndex[i]) {
       continue;
     }
     void* p =
@@ -295,7 +294,7 @@ void* CFX_BaseSegmentedArray::IterateIndex(int level,
 void* CFX_BaseSegmentedArray::Iterate(FX_BOOL (*callback)(void* param,
                                                           void* pData),
                                       void* param) const {
-  if (m_pIndex == NULL) {
+  if (!m_pIndex) {
     return NULL;
   }
   int start = 0;
@@ -340,3 +339,4 @@ void CFX_BaseSegmentedArray::Delete(int index, int count) {
   }
   m_DataSize -= count;
 }
+#endif  // PDF_ENABLE_XFA

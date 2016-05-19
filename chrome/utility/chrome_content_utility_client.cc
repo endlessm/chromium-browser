@@ -4,10 +4,14 @@
 
 #include "chrome/utility/chrome_content_utility_client.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_utility_messages.h"
 #include "chrome/common/safe_browsing/zip_analyzer.h"
 #include "chrome/common/safe_browsing/zip_analyzer_results.h"
@@ -52,10 +56,6 @@
 #include "chrome/utility/printing_handler.h"
 #endif
 
-#if defined(ENABLE_MDNS)
-#include "chrome/utility/local_discovery/service_discovery_message_handler.h"
-#endif
-
 #if defined(OS_MACOSX) && defined(FULL_SAFE_BROWSING)
 #include "chrome/utility/safe_browsing/mac/dmg_analyzer.h"
 #endif
@@ -77,14 +77,14 @@ void CreateProxyResolverFactory(
   // is connected to. When that message pipe is closed, either explicitly on the
   // other end (in the browser process), or by a connection error, this object
   // will be destroyed.
-  new net::MojoProxyResolverFactoryImpl(request.Pass());
+  new net::MojoProxyResolverFactoryImpl(std::move(request));
 }
 
 class ResourceUsageReporterImpl : public ResourceUsageReporter {
  public:
   explicit ResourceUsageReporterImpl(
       mojo::InterfaceRequest<ResourceUsageReporter> req)
-      : binding_(this, req.Pass()) {}
+      : binding_(this, std::move(req)) {}
   ~ResourceUsageReporterImpl() override {}
 
  private:
@@ -97,7 +97,7 @@ class ResourceUsageReporterImpl : public ResourceUsageReporter {
       data->v8_bytes_allocated = total_heap_size;
       data->v8_bytes_used = net::ProxyResolverV8::GetUsedHeapSize();
     }
-    callback.Run(data.Pass());
+    callback.Run(std::move(data));
   }
 
   mojo::StrongBinding<ResourceUsageReporter> binding_;
@@ -105,7 +105,7 @@ class ResourceUsageReporterImpl : public ResourceUsageReporter {
 
 void CreateResourceUsageReporter(
     mojo::InterfaceRequest<ResourceUsageReporter> request) {
-  new ResourceUsageReporterImpl(request.Pass());
+  new ResourceUsageReporterImpl(std::move(request));
 }
 #endif  // OS_ANDROID
 
@@ -126,14 +126,7 @@ ChromeContentUtilityClient::ChromeContentUtilityClient()
 #endif
 
 #if defined(ENABLE_PRINT_PREVIEW) || defined(OS_WIN)
-  handlers_.push_back(new PrintingHandler());
-#endif
-
-#if defined(ENABLE_MDNS)
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kUtilityProcessEnableMDns)) {
-    handlers_.push_back(new local_discovery::ServiceDiscoveryMessageHandler());
-  }
+  handlers_.push_back(new printing::PrintingHandler());
 #endif
 
 #if defined(OS_WIN)
@@ -213,7 +206,7 @@ void ChromeContentUtilityClient::RegisterMojoServices(
 
 void ChromeContentUtilityClient::AddHandler(
     scoped_ptr<UtilityMessageHandler> handler) {
-  handlers_.push_back(handler.Pass());
+  handlers_.push_back(std::move(handler));
 }
 
 // static
@@ -221,13 +214,6 @@ void ChromeContentUtilityClient::PreSandboxStartup() {
 #if defined(ENABLE_EXTENSIONS)
   extensions::ExtensionsHandler::PreSandboxStartup();
 #endif
-
-#if defined(ENABLE_MDNS)
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kUtilityProcessEnableMDns)) {
-    local_discovery::ServiceDiscoveryMessageHandler::PreSandboxStartup();
-  }
-#endif  // ENABLE_MDNS
 }
 
 // static

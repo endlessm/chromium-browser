@@ -26,7 +26,7 @@
 
 #include "core/CoreExport.h"
 #include "core/css/CSSStyleSheet.h"
-#include "core/dom/DOMSettableTokenList.h"
+#include "core/dom/DOMTokenList.h"
 #include "core/dom/IconURL.h"
 #include "core/fetch/ResourceOwner.h"
 #include "core/fetch/StyleSheetResource.h"
@@ -34,6 +34,7 @@
 #include "core/html/HTMLElement.h"
 #include "core/html/LinkRelAttribute.h"
 #include "core/html/LinkResource.h"
+#include "core/html/RelList.h"
 #include "core/loader/LinkLoader.h"
 #include "core/loader/LinkLoaderClient.h"
 
@@ -44,7 +45,7 @@ class KURL;
 class LinkImport;
 
 template<typename T> class EventSender;
-typedef EventSender<HTMLLinkElement> LinkEventSender;
+using LinkEventSender = EventSender<HTMLLinkElement>;
 
 //
 // LinkStyle handles dynaically change-able link resources, which is
@@ -57,13 +58,14 @@ typedef EventSender<HTMLLinkElement> LinkEventSender;
 //
 class LinkStyle final : public LinkResource, ResourceOwner<StyleSheetResource> {
     USING_FAST_MALLOC_WILL_BE_REMOVED(LinkStyle);
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(LinkStyle);
 public:
     static PassOwnPtrWillBeRawPtr<LinkStyle> create(HTMLLinkElement* owner);
 
     explicit LinkStyle(HTMLLinkElement* owner);
     ~LinkStyle() override;
 
-    Type type() const override { return Style; }
+    LinkResourceType type() const override { return Style; }
     void process() override;
     void ownerRemoved() override;
     bool hasLoaded() const override { return m_loadedSheet; }
@@ -127,8 +129,9 @@ private:
 };
 
 
-class CORE_EXPORT HTMLLinkElement final : public HTMLElement, public LinkLoaderClient {
+class CORE_EXPORT HTMLLinkElement final : public HTMLElement, public LinkLoaderClient, private DOMTokenListObserver {
     DEFINE_WRAPPERTYPEINFO();
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLLinkElement);
 public:
     static PassRefPtrWillBeRawPtr<HTMLLinkElement> create(Document&, bool createdByParser);
     ~HTMLLinkElement() override;
@@ -139,10 +142,11 @@ public:
     String typeValue() const { return m_type; }
     String asValue() const { return m_as; }
     const LinkRelAttribute& relAttribute() const { return m_relAttribute; }
+    DOMTokenList& relList() const { return static_cast<DOMTokenList&>(*m_relList); }
 
     const AtomicString& type() const;
 
-    IconType iconType() const;
+    IconType getIconType() const;
 
     // the icon sizes as parsed from the HTML attribute
     const Vector<IntSize>& iconSizes() const;
@@ -158,7 +162,7 @@ public:
     bool isDisabled() const { return linkStyle() && linkStyle()->isDisabled(); }
     bool isEnabledViaScript() const { return linkStyle() && linkStyle()->isEnabledViaScript(); }
 
-    DOMSettableTokenList* sizes() const;
+    DOMTokenList* sizes() const;
 
     void dispatchPendingEvent(LinkEventSender*);
     void scheduleEvent();
@@ -181,8 +185,7 @@ public:
     DECLARE_VIRTUAL_TRACE();
 
 private:
-    void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    HTMLLinkElement(Document&, bool createdByParser);
 
     LinkStyle* linkStyle() const;
     LinkImport* linkImport() const;
@@ -192,6 +195,7 @@ private:
     static void processCallback(Node*);
 
     // From Node and subclassses
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     InsertionNotificationRequest insertedInto(ContainerNode*) override;
     void removedFrom(ContainerNode*) override;
     bool isURLAttribute(const Attribute&) const override;
@@ -210,17 +214,18 @@ private:
     void didSendLoadForLinkPrerender() override;
     void didSendDOMContentLoadedForLinkPrerender() override;
 
-private:
-    HTMLLinkElement(Document&, bool createdByParser);
+    // From DOMTokenListObserver
+    void valueWasSet() final;
 
     OwnPtrWillBeMember<LinkResource> m_link;
-    LinkLoader m_linkLoader;
+    OwnPtrWillBeMember<LinkLoader> m_linkLoader;
 
     String m_type;
     String m_as;
     String m_media;
-    RefPtrWillBeMember<DOMSettableTokenList> m_sizes;
+    RefPtrWillBeMember<DOMTokenList> m_sizes;
     Vector<IntSize> m_iconSizes;
+    RawPtrWillBeMember<RelList> m_relList;
     LinkRelAttribute m_relAttribute;
 
     bool m_createdByParser;

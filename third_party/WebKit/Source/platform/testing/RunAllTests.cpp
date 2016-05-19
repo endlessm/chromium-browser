@@ -28,44 +28,75 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
+#include "base/test/test_io_thread.h"
+#include "mojo/edk/embedder/embedder.h"
+#include "mojo/edk/test/scoped_ipc_support.h"
 #include "platform/EventTracer.h"
-#include "platform/TestingPlatformSupport.h"
+#include "platform/HTTPNames.h"
 #include "platform/heap/Heap.h"
+#include "platform/testing/TestingPlatformSupport.h"
 #include "wtf/CryptographicallyRandomNumber.h"
+#include "wtf/CurrentTime.h"
 #include "wtf/MainThread.h"
 #include "wtf/Partitions.h"
 #include "wtf/WTF.h"
+#include <base/bind.h>
+#include <base/bind_helpers.h>
+#include <base/command_line.h>
+#include <base/test/launcher/unit_test_launcher.h>
 #include <base/test/test_suite.h>
-#include <string.h>
+#include <cc/blink/web_compositor_support_impl.h>
 
-static double CurrentTime()
+namespace {
+
+double dummyCurrentTime()
 {
     return 0.0;
 }
 
-static void AlwaysZeroNumberSource(unsigned char* buf, size_t len)
+int runTestSuite(base::TestSuite* testSuite)
 {
-    memset(buf, '\0', len);
+    int result = testSuite->Run();
+    blink::Heap::collectAllGarbage();
+    return result;
 }
+
+} // namespace
 
 int main(int argc, char** argv)
 {
-    WTF::setRandomSource(AlwaysZeroNumberSource);
-    WTF::initialize(CurrentTime, nullptr, nullptr, nullptr, nullptr);
+    base::CommandLine::Init(argc, argv);
+
+    WTF::Partitions::initialize(nullptr);
+    WTF::setTimeFunctionsForTesting(dummyCurrentTime);
+    WTF::initialize(nullptr);
     WTF::initializeMainThread(0);
 
     blink::TestingPlatformSupport::Config platformConfig;
+    cc_blink::WebCompositorSupportImpl compositorSupport;
+    platformConfig.compositorSupport = &compositorSupport;
     blink::TestingPlatformSupport platform(platformConfig);
 
     blink::Heap::init();
     blink::ThreadState::attachMainThread();
+    blink::ThreadState::current()->registerTraceDOMWrappers(nullptr, nullptr);
     blink::EventTracer::initialize();
-    int result = base::RunUnitTestsUsingBaseTestSuite(argc, argv);
+
+    blink::HTTPNames::init();
+
+    base::TestSuite testSuite(argc, argv);
+
+    mojo::edk::Init();
+    base::TestIOThread testIoThread(base::TestIOThread::kAutoStart);
+    WTF::OwnPtr<mojo::edk::test::ScopedIPCSupport> ipcSupport(
+        adoptPtr(new mojo::edk::test::ScopedIPCSupport(testIoThread.task_runner())));
+
+    int result = base::LaunchUnitTests(argc, argv, base::Bind(runTestSuite, base::Unretained(&testSuite)));
+
     blink::ThreadState::detachMainThread();
     blink::Heap::shutdown();
 
     WTF::shutdown();
+    WTF::Partitions::shutdown();
     return result;
 }

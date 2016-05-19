@@ -10,6 +10,7 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
@@ -50,6 +51,7 @@ class MediaFolderFinder {
   class Worker;
   struct WorkerReply {
     WorkerReply();
+    WorkerReply(const WorkerReply& other);
     ~WorkerReply();
 
     MediaGalleryScanResult scan_result;

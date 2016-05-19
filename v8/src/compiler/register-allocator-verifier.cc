@@ -172,7 +172,12 @@ void RegisterAllocatorVerifier::BuildConstraint(const InstructionOperand* op,
           }
           break;
         case UnallocatedOperand::FIXED_REGISTER:
-          constraint->type_ = kFixedRegister;
+          if (unallocated->HasSecondaryStorage()) {
+            constraint->type_ = kRegisterAndSlot;
+            constraint->spilled_slot_ = unallocated->GetSecondaryStorage();
+          } else {
+            constraint->type_ = kFixedRegister;
+          }
           constraint->value_ = unallocated->fixed_register_index();
           break;
         case UnallocatedOperand::FIXED_DOUBLE_REGISTER:
@@ -225,6 +230,7 @@ void RegisterAllocatorVerifier::CheckConstraint(
       CHECK(op->IsExplicit());
       return;
     case kFixedRegister:
+    case kRegisterAndSlot:
       CHECK(op->IsRegister());
       CHECK_EQ(LocationOperand::cast(op)->GetRegister().code(),
                constraint->value_);
@@ -386,11 +392,13 @@ class OperandMap : public ZoneObject {
     }
   }
 
-  void Define(Zone* zone, const InstructionOperand* op, int virtual_register) {
+  MapValue* Define(Zone* zone, const InstructionOperand* op,
+                   int virtual_register) {
     auto value = new (zone) MapValue();
     value->define_vreg = virtual_register;
     auto res = map().insert(std::make_pair(op, value));
     if (!res.second) res.first->second = value;
+    return value;
   }
 
   void Use(const InstructionOperand* op, int use_vreg, bool initial_pass) {
@@ -570,7 +578,26 @@ class RegisterAllocatorVerifier::BlockMaps {
             CHECK_EQ(succ_vreg, pred_val.second->define_vreg);
           }
           if (pred_val.second->succ_vreg != kInvalidVreg) {
-            CHECK_EQ(succ_vreg, pred_val.second->succ_vreg);
+            if (succ_vreg != pred_val.second->succ_vreg) {
+              // When a block introduces 2 identical phis A and B, and both are
+              // operands to other phis C and D, and we optimized the moves
+              // defining A or B such that they now appear in the block defining
+              // A and B, the back propagation will get confused when visiting
+              // upwards from C and D. The operand in the block defining A and B
+              // will be attributed to C (or D, depending which of these is
+              // visited first).
+              CHECK(IsPhi(pred_val.second->succ_vreg));
+              CHECK(IsPhi(succ_vreg));
+              const PhiData* current_phi = GetPhi(succ_vreg);
+              const PhiData* assigned_phi = GetPhi(pred_val.second->succ_vreg);
+              CHECK_EQ(current_phi->operands.size(),
+                       assigned_phi->operands.size());
+              CHECK_EQ(current_phi->definition_rpo,
+                       assigned_phi->definition_rpo);
+              for (size_t i = 0; i < current_phi->operands.size(); ++i) {
+                CHECK_EQ(current_phi->operands[i], assigned_phi->operands[i]);
+              }
+            }
           } else {
             pred_val.second->succ_vreg = succ_vreg;
             block_ids.insert(pred_rpo.ToSize());
@@ -704,7 +731,20 @@ void RegisterAllocatorVerifier::VerifyGapMoves(BlockMaps* block_maps,
       }
       for (size_t i = 0; i < instr->OutputCount(); ++i, ++count) {
         int virtual_register = op_constraints[count].virtual_register_;
-        current->Define(zone(), instr->OutputAt(i), virtual_register);
+        OperandMap::MapValue* value =
+            current->Define(zone(), instr->OutputAt(i), virtual_register);
+        if (op_constraints[count].type_ == kRegisterAndSlot) {
+          const AllocatedOperand* reg_op =
+              AllocatedOperand::cast(instr->OutputAt(i));
+          MachineRepresentation rep = reg_op->representation();
+          const AllocatedOperand* stack_op = AllocatedOperand::New(
+              zone(), LocationOperand::LocationKind::STACK_SLOT, rep,
+              op_constraints[i].spilled_slot_);
+          auto insert_result =
+              current->map().insert(std::make_pair(stack_op, value));
+          DCHECK(insert_result.second);
+          USE(insert_result);
+        }
       }
     }
   }

@@ -37,8 +37,6 @@
 #include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 
-class SkPath;
-
 namespace blink {
 
 class AffineTransform;
@@ -72,18 +70,20 @@ public:
     ~Path();
 
     Path(const Path&);
+    Path(const SkPath&);
     Path& operator=(const Path&);
     Path& operator=(const SkPath&);
     bool operator==(const Path&) const;
 
-    bool contains(const FloatPoint&, WindRule = RULE_NONZERO) const;
+    bool contains(const FloatPoint&) const;
+    bool contains(const FloatPoint&, WindRule) const;
     bool strokeContains(const FloatPoint&, const StrokeData&) const;
     FloatRect boundingRect() const;
     FloatRect strokeBoundingRect(const StrokeData&) const;
 
     float length() const;
-    FloatPoint pointAtLength(float length, bool& ok) const;
-    bool pointAndNormalAtLength(float length, FloatPoint&, float&) const;
+    FloatPoint pointAtLength(float length) const;
+    void pointAndNormalAtLength(float length, FloatPoint&, float&) const;
 
     // Helper for computing a sequence of positions and normals (normal angles) on a path.
     // The best possible access pattern will be one where the |length| value is
@@ -93,10 +93,11 @@ public:
     // state-less method on Path.
     class PLATFORM_EXPORT PositionCalculator {
         WTF_MAKE_NONCOPYABLE(PositionCalculator);
+        USING_FAST_MALLOC(PositionCalculator);
     public:
         explicit PositionCalculator(const Path&);
 
-        bool pointAndNormalAtLength(float length, FloatPoint&, float&);
+        void pointAndNormalAtLength(float length, FloatPoint&, float&);
 
     private:
         SkPath m_path;
@@ -106,6 +107,7 @@ public:
 
     void clear();
     bool isEmpty() const;
+    bool isClosed() const;
     // Specify whether this path is volatile. Temporary paths that are discarded or
     // modified after use should be marked as volatile. This is a hint to the device
     // to not cache this path.
@@ -122,6 +124,7 @@ public:
     void addQuadCurveTo(const FloatPoint& controlPoint, const FloatPoint& endPoint);
     void addBezierCurveTo(const FloatPoint& controlPoint1, const FloatPoint& controlPoint2, const FloatPoint& endPoint);
     void addArcTo(const FloatPoint&, const FloatPoint&, float radius);
+    void addArcTo(const FloatPoint&, const FloatSize& r, float xRotate, bool largeArc, bool sweep);
     void closeSubpath();
 
     void addArc(const FloatPoint&, float radius, float startAngle, float endAngle, bool anticlockwise);
@@ -143,12 +146,12 @@ public:
     void transform(const AffineTransform&);
 
     void addPathForRoundedRect(const FloatRect&, const FloatSize& topLeftRadius, const FloatSize& topRightRadius, const FloatSize& bottomLeftRadius, const FloatSize& bottomRightRadius);
-    void addBeziersForRoundedRect(const FloatRect&, const FloatSize& topLeftRadius, const FloatSize& topRightRadius, const FloatSize& bottomLeftRadius, const FloatSize& bottomRightRadius);
 
     bool subtractPath(const Path&);
 
     // Updates the path to the union (inclusive-or) of itself with the given argument.
     bool unionPath(const Path& other);
+    bool intersectPath(const Path& other);
 
 private:
     void addEllipse(const FloatPoint&, float radiusX, float radiusY, float startAngle, float endAngle, bool anticlockwise);

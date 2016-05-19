@@ -5,8 +5,10 @@
 #include "chrome/browser/sync/test/integration/passwords_helper.h"
 
 #include <sstream>
+#include <utility>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
@@ -51,7 +53,7 @@ class PasswordStoreConsumerHelper
     base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 
-  ScopedVector<PasswordForm> result() { return result_.Pass(); }
+  ScopedVector<PasswordForm> result() { return std::move(result_); }
 
  private:
   ScopedVector<PasswordForm> result_;
@@ -92,7 +94,7 @@ ScopedVector<PasswordForm> GetLogins(PasswordStore* store) {
   PasswordForm matcher_form;
   matcher_form.signon_realm = kFakeSignonRealm;
   PasswordStoreConsumerHelper consumer;
-  store->GetLogins(matcher_form, PasswordStore::DISALLOW_PROMPT, &consumer);
+  store->GetLogins(matcher_form, &consumer);
   content::RunMessageLoop();
   return consumer.result();
 }

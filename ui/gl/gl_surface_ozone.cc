@@ -4,21 +4,26 @@
 
 #include "ui/gl/gl_surface.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/worker_pool.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/gl/egl_util.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_image.h"
 #include "ui/gl/gl_image_ozone_native_pixmap.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/gl_surface_osmesa.h"
+#include "ui/gl/gl_surface_overlay.h"
 #include "ui/gl/gl_surface_stub.h"
 #include "ui/gl/scoped_binders.h"
 #include "ui/gl/scoped_make_current.h"
@@ -33,6 +38,32 @@ namespace gfx {
 
 namespace {
 
+// Helper function for base::Bind to create callback to eglChooseConfig.
+bool EglChooseConfig(EGLDisplay display,
+                     const int32_t* attribs,
+                     EGLConfig* configs,
+                     int32_t config_size,
+                     int32_t* num_configs) {
+  return eglChooseConfig(display, attribs, configs, config_size, num_configs);
+}
+
+// Helper function for base::Bind to create callback to eglGetConfigAttrib.
+bool EglGetConfigAttribute(EGLDisplay display,
+                           EGLConfig config,
+                           int32_t attribute,
+                           int32_t* value) {
+  return eglGetConfigAttrib(display, config, attribute, value);
+}
+
+// Populates EglConfigCallbacks with appropriate callbacks.
+ui::EglConfigCallbacks GetEglConfigCallbacks(EGLDisplay display) {
+  ui::EglConfigCallbacks callbacks;
+  callbacks.choose_config = base::Bind(EglChooseConfig, display);
+  callbacks.get_config_attribute = base::Bind(EglGetConfigAttribute, display);
+  callbacks.get_last_error_string = base::Bind(&ui::GetLastEGLErrorString);
+  return callbacks;
+}
+
 void WaitForFence(EGLDisplay display, EGLSyncKHR fence) {
   eglClientWaitSyncKHR(display, fence, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR,
                        EGL_FOREVER_KHR);
@@ -45,14 +76,17 @@ class GL_EXPORT GLSurfaceOzoneEGL : public NativeViewGLSurfaceEGL {
                     AcceleratedWidget widget);
 
   // GLSurface:
-  bool Initialize() override;
-  bool Resize(const gfx::Size& size, float scale_factor) override;
+  bool Initialize(gfx::GLSurface::Format format) override;
+  bool Resize(const gfx::Size& size,
+              float scale_factor,
+              bool has_alpha) override;
   gfx::SwapResult SwapBuffers() override;
   bool ScheduleOverlayPlane(int z_order,
                             OverlayTransform transform,
                             GLImage* image,
                             const Rect& bounds_rect,
                             const RectF& crop_rect) override;
+  EGLConfig GetConfig() override;
 
  private:
   using NativeViewGLSurfaceEGL::Initialize;
@@ -72,21 +106,24 @@ GLSurfaceOzoneEGL::GLSurfaceOzoneEGL(
     scoped_ptr<ui::SurfaceOzoneEGL> ozone_surface,
     AcceleratedWidget widget)
     : NativeViewGLSurfaceEGL(ozone_surface->GetNativeWindow()),
-      ozone_surface_(ozone_surface.Pass()),
+      ozone_surface_(std::move(ozone_surface)),
       widget_(widget) {}
 
-bool GLSurfaceOzoneEGL::Initialize() {
+bool GLSurfaceOzoneEGL::Initialize(gfx::GLSurface::Format format) {
+  format_ = format;
   return Initialize(ozone_surface_->CreateVSyncProvider());
 }
 
-bool GLSurfaceOzoneEGL::Resize(const gfx::Size& size, float scale_factor) {
+bool GLSurfaceOzoneEGL::Resize(const gfx::Size& size,
+                               float scale_factor,
+                               bool has_alpha) {
   if (!ozone_surface_->ResizeNativeWindow(size)) {
     if (!ReinitializeNativeSurface() ||
         !ozone_surface_->ResizeNativeWindow(size))
       return false;
   }
 
-  return NativeViewGLSurfaceEGL::Resize(size, scale_factor);
+  return NativeViewGLSurfaceEGL::Resize(size, scale_factor, has_alpha);
 }
 
 gfx::SwapResult GLSurfaceOzoneEGL::SwapBuffers() {
@@ -105,6 +142,16 @@ bool GLSurfaceOzoneEGL::ScheduleOverlayPlane(int z_order,
                                              const RectF& crop_rect) {
   return image->ScheduleOverlayPlane(widget_, z_order, transform, bounds_rect,
                                      crop_rect);
+}
+
+EGLConfig GLSurfaceOzoneEGL::GetConfig() {
+  if (!config_) {
+    ui::EglConfigCallbacks callbacks = GetEglConfigCallbacks(GetDisplay());
+    config_ = ozone_surface_->GetEGLSurfaceConfig(callbacks);
+  }
+  if (config_)
+    return config_;
+  return NativeViewGLSurfaceEGL::GetConfig();
 }
 
 GLSurfaceOzoneEGL::~GLSurfaceOzoneEGL() {
@@ -129,7 +176,7 @@ bool GLSurfaceOzoneEGL::ReinitializeNativeSurface() {
   }
 
   window_ = ozone_surface_->GetNativeWindow();
-  if (!Initialize()) {
+  if (!Initialize(format_)) {
     LOG(ERROR) << "Failed to initialize.";
     return false;
   }
@@ -143,8 +190,10 @@ class GL_EXPORT GLSurfaceOzoneSurfaceless : public SurfacelessEGL {
                             AcceleratedWidget widget);
 
   // GLSurface:
-  bool Initialize() override;
-  bool Resize(const gfx::Size& size, float scale_factor) override;
+  bool Initialize(gfx::GLSurface::Format format) override;
+  bool Resize(const gfx::Size& size,
+              float scale_factor,
+              bool has_alpha) override;
   gfx::SwapResult SwapBuffers() override;
   bool ScheduleOverlayPlane(int z_order,
                             OverlayTransform transform,
@@ -153,39 +202,25 @@ class GL_EXPORT GLSurfaceOzoneSurfaceless : public SurfacelessEGL {
                             const RectF& crop_rect) override;
   bool IsOffscreen() override;
   VSyncProvider* GetVSyncProvider() override;
+  bool SupportsAsyncSwap() override;
   bool SupportsPostSubBuffer() override;
   gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
-  bool SwapBuffersAsync(const SwapCompletionCallback& callback) override;
-  bool PostSubBufferAsync(int x,
+  void SwapBuffersAsync(const SwapCompletionCallback& callback) override;
+  void PostSubBufferAsync(int x,
                           int y,
                           int width,
                           int height,
                           const SwapCompletionCallback& callback) override;
+  EGLConfig GetConfig() override;
 
  protected:
-  struct Overlay {
-    Overlay(int z_order,
-            OverlayTransform transform,
-            GLImage* image,
-            const Rect& bounds_rect,
-            const RectF& crop_rect);
-
-    bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget) const;
-
-    int z_order;
-    OverlayTransform transform;
-    scoped_refptr<GLImage> image;
-    Rect bounds_rect;
-    RectF crop_rect;
-  };
-
   struct PendingFrame {
     PendingFrame();
 
     bool ScheduleOverlayPlanes(gfx::AcceleratedWidget widget);
 
     bool ready;
-    std::vector<Overlay> overlays;
+    std::vector<GLSurfaceOverlay> overlays;
     SwapCompletionCallback callback;
   };
 
@@ -210,25 +245,9 @@ class GL_EXPORT GLSurfaceOzoneSurfaceless : public SurfacelessEGL {
 
   base::WeakPtrFactory<GLSurfaceOzoneSurfaceless> weak_factory_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(GLSurfaceOzoneSurfaceless);
 };
-
-GLSurfaceOzoneSurfaceless::Overlay::Overlay(int z_order,
-                                            OverlayTransform transform,
-                                            GLImage* image,
-                                            const Rect& bounds_rect,
-                                            const RectF& crop_rect)
-    : z_order(z_order),
-      transform(transform),
-      image(image),
-      bounds_rect(bounds_rect),
-      crop_rect(crop_rect) {}
-
-bool GLSurfaceOzoneSurfaceless::Overlay::ScheduleOverlayPlane(
-    gfx::AcceleratedWidget widget) const {
-  return image->ScheduleOverlayPlane(widget, z_order, transform, bounds_rect,
-                                     crop_rect);
-}
 
 GLSurfaceOzoneSurfaceless::PendingFrame::PendingFrame() : ready(false) {}
 
@@ -244,7 +263,7 @@ GLSurfaceOzoneSurfaceless::GLSurfaceOzoneSurfaceless(
     scoped_ptr<ui::SurfaceOzoneEGL> ozone_surface,
     AcceleratedWidget widget)
     : SurfacelessEGL(gfx::Size()),
-      ozone_surface_(ozone_surface.Pass()),
+      ozone_surface_(std::move(ozone_surface)),
       widget_(widget),
       has_implicit_external_sync_(
           HasEGLExtension("EGL_ARM_implicit_external_sync")),
@@ -254,8 +273,8 @@ GLSurfaceOzoneSurfaceless::GLSurfaceOzoneSurfaceless(
   unsubmitted_frames_.push_back(new PendingFrame());
 }
 
-bool GLSurfaceOzoneSurfaceless::Initialize() {
-  if (!SurfacelessEGL::Initialize())
+bool GLSurfaceOzoneSurfaceless::Initialize(gfx::GLSurface::Format format) {
+  if (!SurfacelessEGL::Initialize(format))
     return false;
   vsync_provider_ = ozone_surface_->CreateVSyncProvider();
   if (!vsync_provider_)
@@ -264,11 +283,12 @@ bool GLSurfaceOzoneSurfaceless::Initialize() {
 }
 
 bool GLSurfaceOzoneSurfaceless::Resize(const gfx::Size& size,
-                                       float scale_factor) {
+                                       float scale_factor,
+                                       bool has_alpha) {
   if (!ozone_surface_->ResizeNativeWindow(size))
     return false;
 
-  return SurfacelessEGL::Resize(size, scale_factor);
+  return SurfacelessEGL::Resize(size, scale_factor, has_alpha);
 }
 
 gfx::SwapResult GLSurfaceOzoneSurfaceless::SwapBuffers() {
@@ -301,7 +321,7 @@ bool GLSurfaceOzoneSurfaceless::ScheduleOverlayPlane(int z_order,
                                                      const Rect& bounds_rect,
                                                      const RectF& crop_rect) {
   unsubmitted_frames_.back()->overlays.push_back(
-      Overlay(z_order, transform, image, bounds_rect, crop_rect));
+      GLSurfaceOverlay(z_order, transform, image, bounds_rect, crop_rect));
   return true;
 }
 
@@ -313,6 +333,10 @@ VSyncProvider* GLSurfaceOzoneSurfaceless::GetVSyncProvider() {
   return vsync_provider_.get();
 }
 
+bool GLSurfaceOzoneSurfaceless::SupportsAsyncSwap() {
+  return true;
+}
+
 bool GLSurfaceOzoneSurfaceless::SupportsPostSubBuffer() {
   return true;
 }
@@ -322,15 +346,17 @@ gfx::SwapResult GLSurfaceOzoneSurfaceless::PostSubBuffer(int x,
                                                          int width,
                                                          int height) {
   // The actual sub buffer handling is handled at higher layers.
-  SwapBuffers();
-  return gfx::SwapResult::SWAP_ACK;
+  NOTREACHED();
+  return gfx::SwapResult::SWAP_FAILED;
 }
 
-bool GLSurfaceOzoneSurfaceless::SwapBuffersAsync(
+void GLSurfaceOzoneSurfaceless::SwapBuffersAsync(
     const SwapCompletionCallback& callback) {
   // If last swap failed, don't try to schedule new ones.
-  if (!last_swap_buffers_result_)
-    return false;
+  if (!last_swap_buffers_result_) {
+    callback.Run(gfx::SwapResult::SWAP_FAILED);
+    return;
+  }
 
   glFlush();
 
@@ -346,8 +372,10 @@ bool GLSurfaceOzoneSurfaceless::SwapBuffersAsync(
   // implemented in GL drivers.
   if (has_implicit_external_sync_) {
     EGLSyncKHR fence = InsertFence();
-    if (!fence)
-      return false;
+    if (!fence) {
+      callback.Run(gfx::SwapResult::SWAP_FAILED);
+      return;
+    }
 
     base::Closure fence_wait_task =
         base::Bind(&WaitForFence, GetDisplay(), fence);
@@ -358,21 +386,31 @@ bool GLSurfaceOzoneSurfaceless::SwapBuffersAsync(
 
     base::WorkerPool::PostTaskAndReply(FROM_HERE, fence_wait_task,
                                        fence_retired_callback, false);
-    return true;
+    return;  // Defer frame submission until fence signals.
   }
 
   frame->ready = true;
   SubmitFrame();
-  return last_swap_buffers_result_;
 }
 
-bool GLSurfaceOzoneSurfaceless::PostSubBufferAsync(
+void GLSurfaceOzoneSurfaceless::PostSubBufferAsync(
     int x,
     int y,
     int width,
     int height,
     const SwapCompletionCallback& callback) {
-  return SwapBuffersAsync(callback);
+  // The actual sub buffer handling is handled at higher layers.
+  SwapBuffersAsync(callback);
+}
+
+EGLConfig GLSurfaceOzoneSurfaceless::GetConfig() {
+  if (!config_) {
+    ui::EglConfigCallbacks callbacks = GetEglConfigCallbacks(GetDisplay());
+    config_ = ozone_surface_->GetEGLSurfaceConfig(callbacks);
+  }
+  if (config_)
+    return config_;
+  return SurfacelessEGL::GetConfig();
 }
 
 GLSurfaceOzoneSurfaceless::~GLSurfaceOzoneSurfaceless() {
@@ -440,10 +478,12 @@ class GL_EXPORT GLSurfaceOzoneSurfacelessSurfaceImpl
   // GLSurface:
   unsigned int GetBackingFrameBufferObject() override;
   bool OnMakeCurrent(GLContext* context) override;
-  bool Resize(const gfx::Size& size, float scale_factor) override;
+  bool Resize(const gfx::Size& size,
+              float scale_factor,
+              bool has_alpha) override;
   bool SupportsPostSubBuffer() override;
   gfx::SwapResult SwapBuffers() override;
-  bool SwapBuffersAsync(const SwapCompletionCallback& callback) override;
+  void SwapBuffersAsync(const SwapCompletionCallback& callback) override;
   void Destroy() override;
   bool IsSurfaceless() const override;
 
@@ -464,7 +504,7 @@ class GL_EXPORT GLSurfaceOzoneSurfacelessSurfaceImpl
 GLSurfaceOzoneSurfacelessSurfaceImpl::GLSurfaceOzoneSurfacelessSurfaceImpl(
     scoped_ptr<ui::SurfaceOzoneEGL> ozone_surface,
     AcceleratedWidget widget)
-    : GLSurfaceOzoneSurfaceless(ozone_surface.Pass(), widget),
+    : GLSurfaceOzoneSurfaceless(std::move(ozone_surface), widget),
       context_(nullptr),
       fbo_(0),
       current_surface_(0) {
@@ -494,10 +534,13 @@ bool GLSurfaceOzoneSurfacelessSurfaceImpl::OnMakeCurrent(GLContext* context) {
 }
 
 bool GLSurfaceOzoneSurfacelessSurfaceImpl::Resize(const gfx::Size& size,
-                                                  float scale_factor) {
+                                                  float scale_factor,
+                                                  bool has_alpha) {
   if (size == GetSize())
     return true;
-  return GLSurfaceOzoneSurfaceless::Resize(size, scale_factor) &&
+  // Alpha value isn't actually used in allocating buffers yet, so always use
+  // true instead.
+  return GLSurfaceOzoneSurfaceless::Resize(size, scale_factor, true) &&
          CreatePixmaps();
 }
 
@@ -518,17 +561,17 @@ gfx::SwapResult GLSurfaceOzoneSurfacelessSurfaceImpl::SwapBuffers() {
   return gfx::SwapResult::SWAP_ACK;
 }
 
-bool GLSurfaceOzoneSurfacelessSurfaceImpl::SwapBuffersAsync(
+void GLSurfaceOzoneSurfacelessSurfaceImpl::SwapBuffersAsync(
     const SwapCompletionCallback& callback) {
   if (!images_[current_surface_]->ScheduleOverlayPlane(
           widget_, 0, OverlayTransform::OVERLAY_TRANSFORM_NONE,
-          gfx::Rect(GetSize()), gfx::RectF(1, 1)))
-    return false;
-  if (!GLSurfaceOzoneSurfaceless::SwapBuffersAsync(callback))
-    return false;
+          gfx::Rect(GetSize()), gfx::RectF(1, 1))) {
+    callback.Run(gfx::SwapResult::SWAP_FAILED);
+    return;
+  }
+  GLSurfaceOzoneSurfaceless::SwapBuffersAsync(callback);
   current_surface_ ^= 1;
   BindFramebuffer();
-  return true;
 }
 
 void GLSurfaceOzoneSurfacelessSurfaceImpl::Destroy() {
@@ -586,7 +629,7 @@ bool GLSurfaceOzoneSurfacelessSurfaceImpl::CreatePixmaps() {
       return false;
     scoped_refptr<GLImageOzoneNativePixmap> image =
         new GLImageOzoneNativePixmap(GetSize(), GL_BGRA_EXT);
-    if (!image->Initialize(pixmap.get()))
+    if (!image->Initialize(pixmap.get(), gfx::BufferFormat::BGRA_8888))
       return false;
     images_[i] = image;
     // Bind image to texture.
@@ -606,7 +649,7 @@ scoped_refptr<GLSurface> CreateViewGLSurfaceOzone(
   if (!surface_ozone)
     return nullptr;
   scoped_refptr<GLSurface> surface =
-      new GLSurfaceOzoneEGL(surface_ozone.Pass(), window);
+      new GLSurfaceOzoneEGL(std::move(surface_ozone), window);
   if (!surface->Initialize())
     return nullptr;
   return surface;
@@ -620,8 +663,8 @@ scoped_refptr<GLSurface> CreateViewGLSurfaceOzoneSurfacelessSurfaceImpl(
           ->CreateSurfacelessEGLSurfaceForWidget(window);
   if (!surface_ozone)
     return nullptr;
-  scoped_refptr<GLSurface> surface =
-      new GLSurfaceOzoneSurfacelessSurfaceImpl(surface_ozone.Pass(), window);
+  scoped_refptr<GLSurface> surface = new GLSurfaceOzoneSurfacelessSurfaceImpl(
+      std::move(surface_ozone), window);
   if (!surface->Initialize())
     return nullptr;
   return surface;
@@ -660,7 +703,7 @@ scoped_refptr<GLSurface> GLSurface::CreateSurfacelessViewGLSurface(
     if (!surface_ozone)
       return nullptr;
     scoped_refptr<GLSurface> surface;
-    surface = new GLSurfaceOzoneSurfaceless(surface_ozone.Pass(), window);
+    surface = new GLSurfaceOzoneSurfaceless(std::move(surface_ozone), window);
     if (surface->Initialize())
       return surface;
   }
@@ -699,7 +742,7 @@ scoped_refptr<GLSurface> GLSurface::CreateOffscreenGLSurface(
   switch (GetGLImplementation()) {
     case kGLImplementationOSMesaGL: {
       scoped_refptr<GLSurface> surface(
-          new GLSurfaceOSMesa(OSMesaSurfaceFormatBGRA, size));
+          new GLSurfaceOSMesa(SURFACE_OSMESA_BGRA, size));
       if (!surface->Initialize())
         return nullptr;
 
@@ -710,8 +753,9 @@ scoped_refptr<GLSurface> GLSurface::CreateOffscreenGLSurface(
       if (GLSurfaceEGL::IsEGLSurfacelessContextSupported() &&
           (size.width() == 0 && size.height() == 0)) {
         surface = new SurfacelessEGL(size);
-      } else
+      } else {
         surface = new PbufferGLSurfaceEGL(size);
+      }
 
       if (!surface->Initialize())
         return nullptr;

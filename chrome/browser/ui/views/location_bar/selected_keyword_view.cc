@@ -15,8 +15,10 @@
 #include "grit/components_scaled_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/theme_provider.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icons_public.h"
 #include "ui/native_theme/native_theme.h"
@@ -26,17 +28,12 @@ SelectedKeywordView::SelectedKeywordView(const gfx::FontList& font_list,
                                          SkColor text_color,
                                          SkColor parent_background_color,
                                          Profile* profile)
-    : IconLabelBubbleView(0,
-                          font_list,
-                          text_color,
-                          parent_background_color,
-                          false),
+    : IconLabelBubbleView(0, font_list, parent_background_color, false),
+      text_color_(text_color),
       profile_(profile) {
-  if (!ui::MaterialDesignController::IsModeMaterial()) {
-    static const int kBackgroundImages[] =
-        IMAGE_GRID(IDR_OMNIBOX_SELECTED_KEYWORD_BUBBLE);
-    SetBackgroundImageGrid(kBackgroundImages);
-  }
+  static const int kBackgroundImages[] =
+      IMAGE_GRID(IDR_OMNIBOX_SELECTED_KEYWORD_BUBBLE);
+  SetBackgroundImageGrid(kBackgroundImages);
   full_label_.SetFontList(font_list);
   full_label_.SetVisible(false);
   partial_label_.SetFontList(font_list);
@@ -56,11 +53,17 @@ void SelectedKeywordView::ResetImage() {
 }
 
 SkColor SelectedKeywordView::GetTextColor() const {
-  return GetNativeTheme()->GetSystemColor(
-      ui::NativeTheme::kColorId_LinkEnabled);
+  if (!ui::MaterialDesignController::IsModeMaterial())
+    return text_color_;
+
+  return color_utils::IsDark(GetParentBackgroundColor())
+             ? gfx::kGoogleBlue700
+             : GetNativeTheme()->GetSystemColor(
+                   ui::NativeTheme::kColorId_LinkEnabled);
 }
 
 SkColor SelectedKeywordView::GetBorderColor() const {
+  DCHECK(ui::MaterialDesignController::IsModeMaterial());
   return GetTextColor();
 }
 
@@ -115,9 +118,9 @@ int SelectedKeywordView::GetImageAndPaddingWidth() const {
   int width = IconLabelBubbleView::GetImageAndPaddingWidth();
   // Squeeze the icon and label closer to account for intrinsic padding in the
   // icon.
-  if (ui::MaterialDesignController::IsModeMaterial() && width > 0)
+  if (ui::MaterialDesignController::IsModeMaterial())
     width -= 3;
 
-  DCHECK_GT(width, 0);
+  DCHECK_GE(width, 0);
   return width;
 }

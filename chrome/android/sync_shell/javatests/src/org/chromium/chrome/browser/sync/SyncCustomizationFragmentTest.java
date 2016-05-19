@@ -14,14 +14,13 @@ import android.preference.TwoStatePreference;
 import android.support.v7.app.AlertDialog;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.widget.Button;
-import android.widget.CheckedTextView;
 import android.widget.EditText;
-import android.widget.ListView;
 import android.widget.TextView;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.preferences.Preferences;
 import org.chromium.chrome.browser.sync.ui.PassphraseCreationDialogFragment;
 import org.chromium.chrome.browser.sync.ui.PassphraseDialogFragment;
@@ -53,11 +52,17 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
      * Fake ProfileSyncService for test to control the value returned from
      * isPassphraseRequiredForDecryption.
      */
-    private static class FakeProfileSyncService extends ProfileSyncService {
+    private class FakeProfileSyncService extends ProfileSyncService {
         private boolean mPassphraseRequiredForDecryption;
 
         public FakeProfileSyncService() {
             super();
+            setMasterSyncEnabledProvider(new MasterSyncEnabledProvider() {
+                @Override
+                public boolean isMasterSyncEnabled() {
+                    return AndroidSyncSettings.isMasterSyncEnabled(mContext);
+                }
+            });
         }
 
         @Override
@@ -99,7 +104,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testSyncSwitch() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         SyncCustomizationFragment fragment = startSyncCustomizationFragment();
         final SwitchPreference syncSwitch = getSyncSwitch(fragment);
 
@@ -160,7 +165,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testDefaultControlStatesWithSyncOnThenOff() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         SyncCustomizationFragment fragment = startSyncCustomizationFragment();
         assertDefaultSyncOnState(fragment);
         togglePreference(getSyncSwitch(fragment));
@@ -171,7 +176,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testSyncEverythingAndDataTypes() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         SyncCustomizationFragment fragment = startSyncCustomizationFragment();
         SwitchPreference syncEverything = getSyncEverything(fragment);
         Collection<CheckBoxPreference> dataTypes = getDataTypes(fragment).values();
@@ -196,7 +201,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testSettingDataTypes() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         SyncCustomizationFragment fragment = startSyncCustomizationFragment();
         SwitchPreference syncEverything = getSyncEverything(fragment);
         Map<Integer, CheckBoxPreference> dataTypes = getDataTypes(fragment);
@@ -224,41 +229,132 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
         assertDataTypesAre(expectedTypes);
     }
 
-    /**
-     * Make sure that the encryption UI presents the correct options.
-     *
-     * By default it should show the CUSTOM and KEYSTORE options, in that order.
-     * KEYSTORE should be selected but both should be enabled.
-     */
     @SmallTest
     @Feature({"Sync"})
-    public void testDefaultEncryptionOptions() throws Exception {
+    public void testPaymentsIntegrationChecked() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
-        final SyncCustomizationFragment fragment = startSyncCustomizationFragment();
-        Preference encryption = getEncryption(fragment);
-        clickPreference(encryption);
 
-        PassphraseTypeDialogFragment typeFragment = getPassphraseTypeDialogFragment();
-        ListView listView = (ListView) typeFragment.getDialog()
-                .findViewById(R.id.passphrase_type_list);
-        PassphraseTypeDialogFragment.Adapter adapter =
-                (PassphraseTypeDialogFragment.Adapter) listView.getAdapter();
+        setPaymentsIntegrationEnabled(true);
 
-        // Confirm that correct types show up in the correct order.
-        assertEquals(PassphraseType.CUSTOM_PASSPHRASE, adapter.getType(0));
-        assertEquals(PassphraseType.KEYSTORE_PASSPHRASE, adapter.getType(1));
-        assertEquals(2, listView.getCount());
+        SyncCustomizationFragment fragment = startSyncCustomizationFragment();
+        assertDefaultSyncOnState(fragment);
 
-        // Make sure they are both enabled and the correct one is selected.
-        CheckedTextView customView = (CheckedTextView) listView.getChildAt(0);
-        CheckedTextView keystoreView = (CheckedTextView) listView.getChildAt(1);
-        assertTrue("The custom passphrase view should be enabled.", customView.isEnabled());
-        assertFalse("The custom passphrase option should be checked.", customView.isChecked());
-        assertTrue("The keystore passphrase view should be enabled.", keystoreView.isEnabled());
-        assertTrue("The keystore passphrase option should be checked.", keystoreView.isChecked());
+        CheckBoxPreference paymentsIntegration = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_PAYMENTS_INTEGRATION);
+
+        assertFalse(paymentsIntegration.isEnabled());
+        assertTrue(paymentsIntegration.isChecked());
     }
 
+    @SmallTest
+    @Feature({"Sync"})
+    public void testPaymentsIntegrationUnchecked() throws Exception {
+        setUpTestAccountAndSignInToSync();
+
+        setPaymentsIntegrationEnabled(false);
+
+        SyncCustomizationFragment fragment = startSyncCustomizationFragment();
+        assertDefaultSyncOnState(fragment);
+        SwitchPreference syncEverything = getSyncEverything(fragment);
+        togglePreference(syncEverything);
+
+        CheckBoxPreference paymentsIntegration = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_PAYMENTS_INTEGRATION);
+
+        assertTrue(paymentsIntegration.isEnabled());
+        assertFalse(paymentsIntegration.isChecked());
+    }
+
+    @SmallTest
+    @Feature({"Sync"})
+    public void testPaymentsIntegrationCheckboxDisablesPaymentsIntegration() throws Exception {
+        setUpTestAccountAndSignInToSync();
+
+        setPaymentsIntegrationEnabled(true);
+
+        SyncCustomizationFragment fragment = startSyncCustomizationFragment();
+        assertDefaultSyncOnState(fragment);
+        SwitchPreference syncEverything = getSyncEverything(fragment);
+        togglePreference(syncEverything);
+
+        CheckBoxPreference paymentsIntegration = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_PAYMENTS_INTEGRATION);
+        togglePreference(paymentsIntegration);
+
+        closeFragment(fragment);
+        assertPaymentsIntegrationEnabled(false);
+    }
+
+    @SmallTest
+    @Feature({"Sync"})
+    public void testPaymentsIntegrationCheckboxEnablesPaymentsIntegration() throws Exception {
+        setUpTestAccountAndSignInToSync();
+
+        setPaymentsIntegrationEnabled(false);
+
+        SyncCustomizationFragment fragment = startSyncCustomizationFragment();
+        assertDefaultSyncOnState(fragment);
+        SwitchPreference syncEverything = getSyncEverything(fragment);
+        togglePreference(syncEverything);
+
+        CheckBoxPreference paymentsIntegration = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_PAYMENTS_INTEGRATION);
+        togglePreference(paymentsIntegration);
+
+        closeFragment(fragment);
+        assertPaymentsIntegrationEnabled(true);
+    }
+
+    @SmallTest
+    @Feature({"Sync"})
+    public void testPaymentsIntegrationDisabledByAutofillSyncCheckbox() throws Exception {
+        setUpTestAccountAndSignInToSync();
+
+        setPaymentsIntegrationEnabled(true);
+
+        SyncCustomizationFragment fragment = startSyncCustomizationFragment();
+        assertDefaultSyncOnState(fragment);
+        SwitchPreference syncEverything = getSyncEverything(fragment);
+        togglePreference(syncEverything);
+
+        CheckBoxPreference syncAutofill = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_SYNC_AUTOFILL);
+        togglePreference(syncAutofill);
+
+        CheckBoxPreference paymentsIntegration = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_PAYMENTS_INTEGRATION);
+        assertFalse(paymentsIntegration.isEnabled());
+        assertFalse(paymentsIntegration.isChecked());
+
+        closeFragment(fragment);
+        assertPaymentsIntegrationEnabled(false);
+    }
+
+    @SmallTest
+    @Feature({"Sync"})
+    public void testPaymentsIntegrationEnabledByAutofillSyncCheckbox() throws Exception {
+        setUpTestAccountAndSignInToSync();
+
+        setPaymentsIntegrationEnabled(false);
+
+        SyncCustomizationFragment fragment = startSyncCustomizationFragment();
+        assertDefaultSyncOnState(fragment);
+        SwitchPreference syncEverything = getSyncEverything(fragment);
+        togglePreference(syncEverything);
+
+        CheckBoxPreference syncAutofill = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_SYNC_AUTOFILL);
+        togglePreference(syncAutofill);  // Disable autofill sync.
+        togglePreference(syncAutofill);  // Re-enable autofill sync again.
+
+        CheckBoxPreference paymentsIntegration = (CheckBoxPreference) fragment.findPreference(
+                SyncCustomizationFragment.PREFERENCE_PAYMENTS_INTEGRATION);
+        assertTrue(paymentsIntegration.isEnabled());
+        assertTrue(paymentsIntegration.isChecked());
+
+        closeFragment(fragment);
+        assertPaymentsIntegrationEnabled(true);
+    }
     /**
      * Test that choosing a passphrase type while sync is off doesn't crash.
      *
@@ -268,7 +364,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testChoosePassphraseTypeWhenSyncIsOff() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         SyncCustomizationFragment fragment = startSyncCustomizationFragment();
         Preference encryption = getEncryption(fragment);
         clickPreference(encryption);
@@ -292,7 +388,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testEnterPassphraseWhenSyncIsOff() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         final SyncCustomizationFragment fragment = startSyncCustomizationFragment();
         stopSync();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
@@ -313,7 +409,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
         final FakeProfileSyncService pss = overrideProfileSyncService();
 
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         // Trigger PassphraseDialogFragment to be shown when taping on Encryption.
         pss.setPassphraseRequiredForDecryption(true);
 
@@ -344,7 +440,7 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
     @Feature({"Sync"})
     public void testPassphraseCreation() throws Exception {
         setUpTestAccountAndSignInToSync();
-        SyncTestUtil.waitForSyncActive(mContext);
+        SyncTestUtil.waitForSyncActive();
         final SyncCustomizationFragment fragment = startSyncCustomizationFragment();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
@@ -522,14 +618,32 @@ public class SyncCustomizationFragmentTest extends SyncTestBase {
         });
     }
 
+    private void setPaymentsIntegrationEnabled(final boolean enabled) {
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                PersonalDataManager.setPaymentsIntegrationEnabled(enabled);
+            }
+        });
+    }
+
+    private void assertPaymentsIntegrationEnabled(final boolean enabled) {
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                assertEquals(enabled, PersonalDataManager.isPaymentsIntegrationEnabled());
+            }
+        });
+    }
+
     private void waitForBackendInitialized() throws InterruptedException {
-        boolean success = CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria(
+                "Timed out waiting for sync's backend to be initialized.") {
             @Override
             public boolean isSatisfied() {
                 return mProfileSyncService.isBackendInitialized();
             }
-        }, SyncTestUtil.UI_TIMEOUT_MS, SyncTestUtil.CHECK_INTERVAL_MS);
-        assertTrue("Timed out waiting for sync's backend to be initialized.", success);
+        }, SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
     }
 
     // UI interaction convenience methods.

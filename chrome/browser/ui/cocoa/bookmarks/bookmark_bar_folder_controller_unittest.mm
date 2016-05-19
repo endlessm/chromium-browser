@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -240,16 +239,6 @@ TEST_F(BookmarkBarFolderControllerTest, InitCreateAndDelete) {
     NSRect bigger = NSInsetRect([[bbfc folderView] frame], -2, 0);
     EXPECT_TRUE(NSContainsRect(bigger, r));
     EXPECT_TRUE([[button cell] isKindOfClass:cellClass]);
-  }
-
-  // Confirm folder buttons have no tooltip.  The important thing
-  // really is that we insure folders and non-folders are treated
-  // differently; not sure of any other generic way to do this.
-  for (BookmarkButton* button in buttons) {
-    if ([button isFolder])
-      EXPECT_FALSE([button toolTip]);
-    else
-      EXPECT_TRUE([button toolTip]);
   }
 }
 

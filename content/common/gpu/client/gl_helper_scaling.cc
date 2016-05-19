@@ -4,6 +4,8 @@
 
 #include "content/common/gpu/client/gl_helper_scaling.h"
 
+#include <stddef.h>
+
 #include <deque>
 #include <string>
 #include <vector>
@@ -11,6 +13,7 @@
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
 #include "base/time/time.h"
@@ -258,6 +261,8 @@ GLHelperScaling::ScalerStage::ScalerStage(ShaderType shader_,
       scale_x(scale_x_),
       vertically_flip_texture(vertically_flip_texture_),
       swizzle(swizzle_) {}
+
+GLHelperScaling::ScalerStage::ScalerStage(const ScalerStage& other) = default;
 
 // The important inputs for this function is |x_ops| and
 // |y_ops|. They represent scaling operations to be done

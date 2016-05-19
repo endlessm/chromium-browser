@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/android/tab_model/tab_model_jni_bridge.h"
 
+#include <stdint.h>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/jni_weak_ref.h"
@@ -47,12 +49,13 @@ TabModelJniBridge::TabModelJniBridge(JNIEnv* env,
   TabModelList::AddTabModel(this);
 }
 
-void TabModelJniBridge::Destroy(JNIEnv* env, jobject obj) {
+void TabModelJniBridge::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-ScopedJavaLocalRef<jobject> TabModelJniBridge::GetProfileAndroid(JNIEnv* env,
-                                                                 jobject obj) {
+ScopedJavaLocalRef<jobject> TabModelJniBridge::GetProfileAndroid(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   ProfileAndroid* profile_android = ProfileAndroid::FromProfile(GetProfile());
   if (!profile_android)
     return ScopedJavaLocalRef<jobject>();
@@ -60,8 +63,8 @@ ScopedJavaLocalRef<jobject> TabModelJniBridge::GetProfileAndroid(JNIEnv* env,
 }
 
 void TabModelJniBridge::TabAddedToModel(JNIEnv* env,
-                                        jobject obj,
-                                        jobject jtab) {
+                                        const JavaParamRef<jobject>& obj,
+                                        const JavaParamRef<jobject>& jtab) {
   // Tab#initialize() should have been called by now otherwise we can't push
   // the window id.
   TabAndroid* tab = TabAndroid::GetNativeTab(env, jtab);
@@ -78,11 +81,13 @@ int TabModelJniBridge::GetActiveIndex() const {
   return Java_TabModelJniBridge_index(env, java_object_.get(env).obj());
 }
 
-void TabModelJniBridge::CreateTab(WebContents* web_contents,
+void TabModelJniBridge::CreateTab(TabAndroid* parent,
+                                  WebContents* web_contents,
                                   int parent_tab_id) {
   JNIEnv* env = AttachCurrentThread();
   Java_TabModelJniBridge_createTabWithWebContents(
       env, java_object_.get(env).obj(),
+      parent->GetJavaObject().obj(),
       web_contents->GetBrowserContext()->IsOffTheRecord(),
       web_contents->GetJavaWebContents().obj(),
       parent_tab_id);
@@ -145,13 +150,14 @@ bool TabModelJniBridge::IsSessionRestoreInProgress() const {
       env, java_object_.get(env).obj());
 }
 
-void TabModelJniBridge::BroadcastSessionRestoreComplete(JNIEnv* env,
-                                                        jobject obj) {
+void TabModelJniBridge::BroadcastSessionRestoreComplete(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   TabModel::BroadcastSessionRestoreComplete();
 }
 
 inline static base::TimeDelta GetTimeDelta(jlong ms) {
-  return base::TimeDelta::FromMilliseconds(static_cast<int64>(ms));
+  return base::TimeDelta::FromMilliseconds(static_cast<int64_t>(ms));
 }
 
 void LogFromCloseMetric(JNIEnv* env,

@@ -2,9 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
+#include <utility>
+
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/notifications/notification_delegate.h"
 #include "chrome/browser/notifications/notification_test_util.h"
@@ -12,11 +18,11 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/browser/desktop_notification_delegate.h"
+#include "content/public/common/notification_resources.h"
 #include "content/public/common/platform_notification_data.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/skia/include/core/SkBitmap.h"
 
 #if defined(ENABLE_EXTENSIONS)
 #include "base/command_line.h"
@@ -35,6 +41,9 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #endif
+
+using content::NotificationResources;
+using content::PlatformNotificationData;
 
 namespace {
 
@@ -96,19 +105,16 @@ class PlatformNotificationServiceTest : public testing::Test {
   // The close closure may be specified if so desired.
   MockDesktopNotificationDelegate* CreateSimplePageNotificationWithCloseClosure(
       base::Closure* close_closure) const {
-    content::PlatformNotificationData notification_data;
+    PlatformNotificationData notification_data;
     notification_data.title = base::ASCIIToUTF16("My Notification");
     notification_data.body = base::ASCIIToUTF16("Hello, world!");
 
     MockDesktopNotificationDelegate* delegate =
         new MockDesktopNotificationDelegate();
 
-    service()->DisplayNotification(profile(),
-                                   GURL("https://chrome.com/"),
-                                   SkBitmap(),
-                                   notification_data,
-                                   make_scoped_ptr(delegate),
-                                   close_closure);
+    service()->DisplayNotification(profile(), GURL("https://chrome.com/"),
+                                   notification_data, NotificationResources(),
+                                   make_scoped_ptr(delegate), close_closure);
 
     return delegate;
   }
@@ -157,13 +163,13 @@ TEST_F(PlatformNotificationServiceTest, DisplayPageCloseClosure) {
 // the notification delegate ids.
 #if !defined(OS_ANDROID)
 TEST_F(PlatformNotificationServiceTest, PersistentNotificationDisplay) {
-  content::PlatformNotificationData notification_data;
+  PlatformNotificationData notification_data;
   notification_data.title = base::ASCIIToUTF16("My notification's title");
   notification_data.body = base::ASCIIToUTF16("Hello, world!");
 
   service()->DisplayPersistentNotification(
       profile(), kPersistentNotificationId, GURL("https://chrome.com/"),
-      SkBitmap(), notification_data);
+      notification_data, NotificationResources());
 
   ASSERT_EQ(1u, ui_manager()->GetNotificationCount());
 
@@ -184,7 +190,7 @@ TEST_F(PlatformNotificationServiceTest, DisplayPageNotificationMatches) {
       kNotificationVibrationPattern,
       kNotificationVibrationPattern + arraysize(kNotificationVibrationPattern));
 
-  content::PlatformNotificationData notification_data;
+  PlatformNotificationData notification_data;
   notification_data.title = base::ASCIIToUTF16("My notification's title");
   notification_data.body = base::ASCIIToUTF16("Hello, world!");
   notification_data.vibration_pattern = vibration_pattern;
@@ -192,12 +198,9 @@ TEST_F(PlatformNotificationServiceTest, DisplayPageNotificationMatches) {
 
   MockDesktopNotificationDelegate* delegate
       = new MockDesktopNotificationDelegate();
-  service()->DisplayNotification(profile(),
-                                 GURL("https://chrome.com/"),
-                                 SkBitmap(),
-                                 notification_data,
-                                 make_scoped_ptr(delegate),
-                                 nullptr);
+  service()->DisplayNotification(profile(), GURL("https://chrome.com/"),
+                                 notification_data, NotificationResources(),
+                                 make_scoped_ptr(delegate), nullptr);
 
   ASSERT_EQ(1u, ui_manager()->GetNotificationCount());
 
@@ -219,7 +222,7 @@ TEST_F(PlatformNotificationServiceTest, DisplayPersistentNotificationMatches) {
       kNotificationVibrationPattern,
       kNotificationVibrationPattern + arraysize(kNotificationVibrationPattern));
 
-  content::PlatformNotificationData notification_data;
+  PlatformNotificationData notification_data;
   notification_data.title = base::ASCIIToUTF16("My notification's title");
   notification_data.body = base::ASCIIToUTF16("Hello, world!");
   notification_data.vibration_pattern = vibration_pattern;
@@ -228,9 +231,12 @@ TEST_F(PlatformNotificationServiceTest, DisplayPersistentNotificationMatches) {
   notification_data.actions[0].title = base::ASCIIToUTF16("Button 1");
   notification_data.actions[1].title = base::ASCIIToUTF16("Button 2");
 
+  NotificationResources notification_resources;
+  notification_resources.action_icons.resize(notification_data.actions.size());
+
   service()->DisplayPersistentNotification(
       profile(), 0u /* persistent notification */, GURL("https://chrome.com/"),
-      SkBitmap(), notification_data);
+      notification_data, notification_resources);
 
   ASSERT_EQ(1u, ui_manager()->GetNotificationCount());
 
@@ -267,8 +273,8 @@ TEST_F(PlatformNotificationServiceTest, NotificationPermissionLastUsage) {
   base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(1));
 
   service()->DisplayPersistentNotification(
-      profile(), 42 /* sw_registration_id */, origin, SkBitmap(),
-      content::PlatformNotificationData());
+      profile(), 42 /* sw_registration_id */, origin,
+      PlatformNotificationData(), NotificationResources());
 
   base::Time after_persistent_notification =
       HostContentSettingsMapFactory::GetForProfile(profile())->GetLastUsage(
@@ -288,11 +294,11 @@ TEST_F(PlatformNotificationServiceTest, DisplayNameForContextMessage) {
   scoped_refptr<extensions::Extension> extension =
       extensions::ExtensionBuilder()
           .SetID("honijodknafkokifofgiaalefdiedpko")
-          .SetManifest(extensions::DictionaryBuilder()
-                           .Set("name", "NotificationTest")
-                           .Set("version", "1.0")
-                           .Set("manifest_version", 2)
-                           .Set("description", "Test Extension"))
+          .SetManifest(std::move(extensions::DictionaryBuilder()
+                                     .Set("name", "NotificationTest")
+                                     .Set("version", "1.0")
+                                     .Set("manifest_version", 2)
+                                     .Set("description", "Test Extension")))
           .Build();
 
   extensions::ExtensionRegistry* registry =
@@ -326,13 +332,15 @@ TEST_F(PlatformNotificationServiceTest, ExtensionPermissionChecks) {
   // Create a mocked extension that has the notifications API permission.
   scoped_refptr<extensions::Extension> extension =
       extensions::ExtensionBuilder()
-          .SetManifest(extensions::DictionaryBuilder()
-                           .Set("name", "NotificationTest")
-                           .Set("version", "1.0")
-                           .Set("manifest_version", 2)
-                           .Set("description", "Test Extension")
-                           .Set("permissions", extensions::ListBuilder().Append(
-                                                   "notifications")))
+          .SetManifest(
+              std::move(extensions::DictionaryBuilder()
+                            .Set("name", "NotificationTest")
+                            .Set("version", "1.0")
+                            .Set("manifest_version", 2)
+                            .Set("description", "Test Extension")
+                            .Set("permissions",
+                                 std::move(extensions::ListBuilder().Append(
+                                     "notifications")))))
           .Build();
 
   // Install the extension on the faked extension service, and verify that it
@@ -361,24 +369,24 @@ TEST_F(PlatformNotificationServiceTest, ExtensionPermissionChecks) {
 }
 
 TEST_F(PlatformNotificationServiceTest, CreateNotificationFromData) {
-  content::PlatformNotificationData notification_data;
+  PlatformNotificationData notification_data;
   notification_data.title = base::ASCIIToUTF16("My Notification");
   notification_data.body = base::ASCIIToUTF16("Hello, world!");
 
   Notification notification = service()->CreateNotificationFromData(
-      profile(), GURL("https://chrome.com/"), SkBitmap(), notification_data,
-      new MockNotificationDelegate("hello"));
+      profile(), GURL("https://chrome.com/"), notification_data,
+      NotificationResources(), new MockNotificationDelegate("hello"));
   EXPECT_TRUE(notification.context_message().empty());
 
   // Create a mocked extension.
   scoped_refptr<extensions::Extension> extension =
       extensions::ExtensionBuilder()
           .SetID("honijodknafkokifofgiaalefdiedpko")
-          .SetManifest(extensions::DictionaryBuilder()
-                           .Set("name", "NotificationTest")
-                           .Set("version", "1.0")
-                           .Set("manifest_version", 2)
-                           .Set("description", "Test Extension"))
+          .SetManifest(std::move(extensions::DictionaryBuilder()
+                                     .Set("name", "NotificationTest")
+                                     .Set("version", "1.0")
+                                     .Set("manifest_version", 2)
+                                     .Set("description", "Test Extension")))
           .Build();
 
   extensions::ExtensionRegistry* registry =
@@ -388,7 +396,8 @@ TEST_F(PlatformNotificationServiceTest, CreateNotificationFromData) {
   notification = service()->CreateNotificationFromData(
       profile(),
       GURL("chrome-extension://honijodknafkokifofgiaalefdiedpko/main.html"),
-      SkBitmap(), notification_data, new MockNotificationDelegate("hello"));
+      notification_data, NotificationResources(),
+      new MockNotificationDelegate("hello"));
   EXPECT_EQ("NotificationTest",
             base::UTF16ToUTF8(notification.context_message()));
 }

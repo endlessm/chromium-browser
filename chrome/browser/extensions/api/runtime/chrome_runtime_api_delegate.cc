@@ -12,6 +12,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/updater/extension_updater.h"
@@ -168,11 +169,9 @@ bool ChromeRuntimeAPIDelegate::CheckForUpdates(
 
 void ChromeRuntimeAPIDelegate::OpenURL(const GURL& uninstall_url) {
   Profile* profile = Profile::FromBrowserContext(browser_context_);
-  Browser* browser =
-      chrome::FindLastActiveWithProfile(profile, chrome::GetActiveDesktop());
+  Browser* browser = chrome::FindLastActiveWithProfile(profile);
   if (!browser)
-    browser =
-        new Browser(Browser::CreateParams(profile, chrome::GetActiveDesktop()));
+    browser = new Browser(Browser::CreateParams(profile));
 
   chrome::NavigateParams params(
       browser, uninstall_url, ui::PAGE_TRANSITION_CLIENT_REDIRECT);
@@ -240,8 +239,7 @@ bool ChromeRuntimeAPIDelegate::RestartDevice(std::string* error_message) {
 
 bool ChromeRuntimeAPIDelegate::OpenOptionsPage(const Extension* extension) {
   Profile* profile = Profile::FromBrowserContext(browser_context_);
-  Browser* browser =
-      chrome::FindLastActiveWithProfile(profile, chrome::GetActiveDesktop());
+  Browser* browser = chrome::FindLastActiveWithProfile(profile);
   if (!browser)
     return false;
   return extensions::ExtensionTabUtil::OpenOptionsPage(extension, browser);

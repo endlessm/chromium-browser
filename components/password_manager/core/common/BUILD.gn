@@ -8,11 +8,20 @@ source_set("common") {
     "credential_manager_types.h",
     "experiments.cc",
     "experiments.h",
+    "password_manager_features.cc",
+    "password_manager_features.h",
     "password_manager_pref_names.cc",
     "password_manager_pref_names.h",
     "password_manager_switches.cc",
     "password_manager_switches.h",
     "password_manager_ui.h",
+  ]
+
+  deps = [
+    "//base",
+    "//components/autofill/core/common",
+    "//sql",
+    "//url",
   ]
 }
 
@@ -23,6 +32,10 @@ source_set("unit_tests") {
   ]
   deps = [
     ":common",
+    "//base",
+    "//components/autofill/core/common",
+    "//sql",
     "//testing/gtest",
+    "//url",
   ]
 }

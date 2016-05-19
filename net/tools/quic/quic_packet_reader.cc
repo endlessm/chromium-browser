@@ -13,9 +13,12 @@
 #include <sys/epoll.h>
 
 #include "base/logging.h"
+#include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
+#include "net/quic/quic_bug_tracker.h"
 #include "net/quic/quic_flags.h"
 #include "net/tools/quic/quic_dispatcher.h"
+#include "net/tools/quic/quic_process_packet_interface.h"
 #include "net/tools/quic/quic_socket_utils.h"
 
 #define MMSG_MORE 0
@@ -26,37 +29,39 @@
 
 namespace net {
 
-namespace tools {
 
 QuicPacketReader::QuicPacketReader() {
   Initialize();
 }
 
 void QuicPacketReader::Initialize() {
+#if MMSG_MORE
   // Zero initialize uninitialized memory.
-  memset(cbuf_, 0, arraysize(cbuf_));
-  memset(buf_, 0, arraysize(buf_));
-  memset(raw_address_, 0, sizeof(raw_address_));
   memset(mmsg_hdr_, 0, sizeof(mmsg_hdr_));
 
   for (int i = 0; i < kNumPacketsPerReadMmsgCall; ++i) {
-    iov_[i].iov_base = buf_ + (2 * kMaxPacketSize * i);
-    iov_[i].iov_len = 2 * kMaxPacketSize;
+    packets_[i].iov.iov_base = packets_[i].buf;
+    packets_[i].iov.iov_len = kMaxPacketSize;
+    memset(&packets_[i].raw_address, 0, sizeof(packets_[i].raw_address));
+    memset(packets_[i].cbuf, 0, sizeof(packets_[i].cbuf));
+    memset(packets_[i].buf, 0, sizeof(packets_[i].buf));
 
     msghdr* hdr = &mmsg_hdr_[i].msg_hdr;
-    hdr->msg_name = &raw_address_[i];
+    hdr->msg_name = &packets_[i].raw_address;
     hdr->msg_namelen = sizeof(sockaddr_storage);
-    hdr->msg_iov = &iov_[i];
+    hdr->msg_iov = &packets_[i].iov;
     hdr->msg_iovlen = 1;
 
-    hdr->msg_control = cbuf_ + kSpaceForOverflowAndIp * i;
+    hdr->msg_control = packets_[i].cbuf;
     hdr->msg_controllen = kSpaceForOverflowAndIp;
   }
+#endif
 }
 
-QuicPacketReader::~QuicPacketReader() {
-}
+QuicPacketReader::~QuicPacketReader() {}
 
+// TODO(danzh): write a public method to wrap ReadAndDispatchPackets() and
+// ReadAndDispatchSinglePacket() based on MMSG_MORE.
 bool QuicPacketReader::ReadAndDispatchPackets(
     int fd,
     int port,
@@ -65,11 +70,10 @@ bool QuicPacketReader::ReadAndDispatchPackets(
 #if MMSG_MORE
   // Re-set the length fields in case recvmmsg has changed them.
   for (int i = 0; i < kNumPacketsPerReadMmsgCall; ++i) {
-    iov_[i].iov_len = 2 * kMaxPacketSize;
-    mmsg_hdr_[i].msg_len = 0;
+    DCHECK_EQ(kMaxPacketSize, packets_[i].iov.iov_len);
     msghdr* hdr = &mmsg_hdr_[i].msg_hdr;
     hdr->msg_namelen = sizeof(sockaddr_storage);
-    hdr->msg_iovlen = 1;
+    DCHECK_EQ(1, hdr->msg_iovlen);
     hdr->msg_controllen = kSpaceForOverflowAndIp;
   }
 
@@ -85,16 +89,17 @@ bool QuicPacketReader::ReadAndDispatchPackets(
       continue;
     }
 
-    IPEndPoint client_address = IPEndPoint(raw_address_[i]);
+    IPEndPoint client_address = IPEndPoint(packets_[i].raw_address);
     IPAddressNumber server_ip =
         QuicSocketUtils::GetAddressFromMsghdr(&mmsg_hdr_[i].msg_hdr);
     if (!IsInitializedAddress(server_ip)) {
-      LOG(DFATAL) << "Unable to get server address.";
+      QUIC_BUG << "Unable to get server address.";
       continue;
     }
 
-    QuicEncryptedPacket packet(reinterpret_cast<char*>(iov_[i].iov_base),
-                               mmsg_hdr_[i].msg_len, false);
+    QuicEncryptedPacket packet(
+        reinterpret_cast<char*>(packets_[i].iov.iov_base), mmsg_hdr_[i].msg_len,
+        false);
     IPEndPoint server_address(server_ip, port);
     processor->ProcessPacket(server_address, client_address, packet);
   }
@@ -104,12 +109,8 @@ bool QuicPacketReader::ReadAndDispatchPackets(
                                            packets_dropped);
   }
 
-  if (FLAGS_quic_read_packets_full_recvmmsg) {
-    // We may not have read all of the packets available on the socket.
-    return packets_read == kNumPacketsPerReadMmsgCall;
-  } else {
-    return true;
-  }
+  // We may not have read all of the packets available on the socket.
+  return packets_read == kNumPacketsPerReadMmsgCall;
 #else
   LOG(FATAL) << "Unsupported";
   return false;
@@ -122,12 +123,10 @@ bool QuicPacketReader::ReadAndDispatchSinglePacket(
     int port,
     ProcessPacketInterface* processor,
     QuicPacketCount* packets_dropped) {
-  // Allocate some extra space so we can send an error if the packet is larger
-  // than kMaxPacketSize.
-  char buf[2 * kMaxPacketSize];
+  char buf[kMaxPacketSize];
 
   IPEndPoint client_address;
-  IPAddressNumber server_ip;
+  IPAddress server_ip;
   int bytes_read = QuicSocketUtils::ReadPacket(
       fd, buf, arraysize(buf), packets_dropped, &server_ip, &client_address);
 
@@ -144,6 +143,5 @@ bool QuicPacketReader::ReadAndDispatchSinglePacket(
   return true;
 }
 
-}  // namespace tools
 
 }  // namespace net

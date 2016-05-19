@@ -5,6 +5,9 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_LIB_BINDINGS_INTERNAL_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_LIB_BINDINGS_INTERNAL_H_
 
+#include <stdint.h>
+
+#include "mojo/public/cpp/bindings/lib/interface_id.h"
 #include "mojo/public/cpp/bindings/lib/template_util.h"
 #include "mojo/public/cpp/bindings/struct_ptr.h"
 #include "mojo/public/cpp/system/core.h"
@@ -43,10 +46,7 @@ union ArrayPointer {
 };
 static_assert(sizeof(ArrayPointer<char>) == 8, "Bad_sizeof(ArrayPointer)");
 
-union StringPointer {
-  uint64_t offset;
-  Array_Data<char>* ptr;
-};
+using StringPointer = ArrayPointer<char>;
 static_assert(sizeof(StringPointer) == 8, "Bad_sizeof(StringPointer)");
 
 
@@ -64,13 +64,13 @@ struct Interface_Data {
 static_assert(sizeof(Interface_Data) == 8, "Bad_sizeof(Interface_Data)");
 
 struct AssociatedInterface_Data {
-  uint32_t interface_id;
+  InterfaceId interface_id;
   uint32_t version;
 };
 static_assert(sizeof(AssociatedInterface_Data) == 8,
               "Bad_sizeof(AssociatedInterface_Data)");
 
-using AssociatedInterfaceRequest_Data = uint32_t;
+using AssociatedInterfaceRequest_Data = InterfaceId;
 
 #pragma pack(pop)
 
@@ -94,12 +94,32 @@ struct IsHandle {
 
 template <typename T>
 struct IsUnionDataType {
+ private:
   template <typename U>
   static YesType Test(const typename U::MojomUnionDataType*);
 
   template <typename U>
   static NoType Test(...);
 
+  EnsureTypeIsComplete<T> check_t_;
+
+ public:
+  static const bool value =
+      sizeof(Test<T>(0)) == sizeof(YesType) && !IsConst<T>::value;
+};
+
+template <typename T>
+struct IsEnumDataType {
+ private:
+  template <typename U>
+  static YesType Test(const typename U::MojomEnumDataType*);
+
+  template <typename U>
+  static NoType Test(...);
+
+  EnsureTypeIsComplete<T> check_t_;
+
+ public:
   static const bool value =
       sizeof(Test<T>(0)) == sizeof(YesType) && !IsConst<T>::value;
 };

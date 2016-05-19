@@ -26,6 +26,7 @@
 #ifndef TextEncoding_h
 #define TextEncoding_h
 
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/WTFExport.h"
 #include "wtf/text/TextCodec.h"
@@ -33,7 +34,8 @@
 
 namespace WTF {
 
-class WTF_EXPORT TextEncoding {
+class WTF_EXPORT TextEncoding final {
+    USING_FAST_MALLOC(TextEncoding);
 public:
     TextEncoding() : m_name(0) { }
     TextEncoding(const char* name);
@@ -54,8 +56,9 @@ public:
 
     CString encode(const String&, UnencodableHandling) const;
 
-private:
     bool isNonByteBasedEncoding() const;
+
+private:
     bool isUTF7Encoding() const;
 
     const char* m_name;

@@ -5,14 +5,21 @@
 #include "chrome/browser/ui/webui/media_router/media_router_dialog_controller_impl.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "base/macros.h"
+#include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "chrome/browser/media/router/presentation_service_delegate_impl.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/toolbar/media_router_action.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "chrome/browser/ui/webui/media_router/media_router_ui.h"
 #include "chrome/common/url_constants.h"
+#include "components/guest_view/browser/guest_view_base.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_details.h"
@@ -34,12 +41,8 @@ using content::WebUIMessageHandler;
 using ui::WebDialogDelegate;
 
 namespace {
-#if defined(OS_MACOSX)
-const int kFixedHeight = 265;
-#else
-const int kMaxHeight = 400;
+const int kMaxHeight = 2000;
 const int kMinHeight = 80;
-#endif
 const int kWidth = 340;
 }
 
@@ -47,12 +50,14 @@ namespace media_router {
 
 namespace {
 
-// WebDialogDelegate that specifies what the media router dialog
+// WebDialogDelegate that specifies what the Media Router dialog
 // will look like.
 class MediaRouterDialogDelegate : public WebDialogDelegate {
  public:
-  explicit MediaRouterDialogDelegate(base::WeakPtr<MediaRouterAction> action)
-      : action_(action) {}
+  MediaRouterDialogDelegate(base::WeakPtr<MediaRouterAction> action,
+      const base::WeakPtr<MediaRouterDialogControllerImpl>& controller)
+      : action_(action),
+        controller_(controller) {}
   ~MediaRouterDialogDelegate() override {}
 
   // WebDialogDelegate implementation.
@@ -98,19 +103,17 @@ class MediaRouterDialogDelegate : public WebDialogDelegate {
 
  private:
   base::WeakPtr<MediaRouterAction> action_;
+  base::WeakPtr<MediaRouterDialogControllerImpl> controller_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaRouterDialogDelegate);
 };
 
 void MediaRouterDialogDelegate::GetDialogSize(gfx::Size* size) const {
   DCHECK(size);
-  // TODO(apacible): Remove after autoresizing is implemented for OSX.
-#if defined(OS_MACOSX)
-  *size = gfx::Size(kWidth, kFixedHeight);
-#else
-  // size is not used because the dialog is auto-resizeable.
-  *size = gfx::Size();
-#endif
+  // GetDialogSize() is called when the browser window resizes. We may want to
+  // update the maximum height of the dialog and scale the WebUI to the new
+  // height. |size| is not set because the dialog is auto-resizeable.
+  controller_->UpdateMaxDialogSize();
 }
 
 }  // namespace
@@ -158,7 +161,8 @@ class MediaRouterDialogControllerImpl::DialogWebContentsObserver
 MediaRouterDialogControllerImpl::MediaRouterDialogControllerImpl(
     WebContents* web_contents)
     : MediaRouterDialogController(web_contents),
-      media_router_dialog_pending_(false) {
+      media_router_dialog_pending_(false),
+      weak_ptr_factory_(this) {
 }
 
 MediaRouterDialogControllerImpl::~MediaRouterDialogControllerImpl() {
@@ -171,11 +175,39 @@ WebContents* MediaRouterDialogControllerImpl::GetMediaRouterDialog() const {
 
 void MediaRouterDialogControllerImpl::SetMediaRouterAction(
     const base::WeakPtr<MediaRouterAction>& action) {
-  action_ = action;
+  if (!action_)
+    action_ = action;
 }
 
 bool MediaRouterDialogControllerImpl::IsShowingMediaRouterDialog() const {
   return GetMediaRouterDialog() != nullptr;
+}
+
+void MediaRouterDialogControllerImpl::UpdateMaxDialogSize() {
+  WebContents* media_router_dialog = GetMediaRouterDialog();
+  if (!media_router_dialog)
+    return;
+
+  content::WebUI* web_ui = media_router_dialog->GetWebUI();
+  if (web_ui) {
+    MediaRouterUI* media_router_ui =
+        static_cast<MediaRouterUI*>(web_ui->GetController());
+    if (media_router_ui) {
+      Browser* browser = chrome::FindBrowserWithWebContents(initiator());
+      web_modal::WebContentsModalDialogHost* host = nullptr;
+      if (browser)
+        host = browser->window()->GetWebContentsModalDialogHost();
+
+      gfx::Size maxSize = host ?
+          host->GetMaximumDialogSize() :
+          initiator()->GetContainerBounds().size();
+
+      // The max height of the dialog should be 90% of the browser window
+      // height. The width stays fixed.
+      maxSize.Enlarge(0, -0.1 * maxSize.height());
+      media_router_ui->UpdateMaxDialogHeight(maxSize.height());
+    }
+  }
 }
 
 void MediaRouterDialogControllerImpl::CloseMediaRouterDialog() {
@@ -195,35 +227,42 @@ void MediaRouterDialogControllerImpl::CloseMediaRouterDialog() {
 void MediaRouterDialogControllerImpl::CreateMediaRouterDialog() {
   DCHECK(!dialog_observer_.get());
 
+  base::Time dialog_creation_time = base::Time::Now();
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("media_router", "UI", initiator());
+
   Profile* profile =
       Profile::FromBrowserContext(initiator()->GetBrowserContext());
   DCHECK(profile);
 
-  WebDialogDelegate* web_dialog_delegate =
-      new MediaRouterDialogDelegate(action_);
   // |web_dialog_delegate|'s owner is |constrained_delegate|.
   // |constrained_delegate| is owned by the parent |views::View|.
-  // TODO(apacible): Remove after autoresizing is implemented for OSX.
-#if defined(OS_MACOSX)
-  ConstrainedWebDialogDelegate* constrained_delegate =
-      ShowConstrainedWebDialog(profile, web_dialog_delegate, initiator());
-#else
-  // TODO(apacible): Adjust min and max sizes based on new WebUI design.
-  gfx::Size min_size = gfx::Size(kWidth, kMinHeight);
-  gfx::Size max_size = gfx::Size(kWidth, kMaxHeight);
+  WebDialogDelegate* web_dialog_delegate =
+      new MediaRouterDialogDelegate(action_, weak_ptr_factory_.GetWeakPtr());
 
   // |ShowConstrainedWebDialogWithAutoResize()| will end up creating
   // ConstrainedWebDialogDelegateViewViews containing a WebContents containing
   // the MediaRouterUI, using the provided |web_dialog_delegate|. Then, the
   // view is shown as a modal dialog constrained to the |initiator| WebContents.
-  // The dialog will resize between the |min_size| and |max_size| bounds based
-  // on the currently rendered contents.
+  // The dialog will resize between the given minimum and maximum size bounds
+  // based on the currently rendered contents.
   ConstrainedWebDialogDelegate* constrained_delegate =
       ShowConstrainedWebDialogWithAutoResize(
-          profile, web_dialog_delegate, initiator(), min_size, max_size);
-#endif
+          profile, web_dialog_delegate, initiator(),
+              gfx::Size(kWidth, kMinHeight), gfx::Size(kWidth, kMaxHeight));
 
   WebContents* media_router_dialog = constrained_delegate->GetWebContents();
+  TRACE_EVENT_NESTABLE_ASYNC_INSTANT1("media_router", "UI", initiator(),
+                                      "WebContents created",
+                                      media_router_dialog);
+
+  // |media_router_ui| is created when |constrained_delegate| is created.
+  // For tests, GetWebUI() returns a nullptr.
+  if (media_router_dialog->GetWebUI()) {
+    MediaRouterUI* media_router_ui = static_cast<MediaRouterUI*>(
+        media_router_dialog->GetWebUI()->GetController());
+    DCHECK(media_router_ui);
+    media_router_ui->SetUIInitializationTimer(dialog_creation_time);
+  }
 
   media_router_dialog_pending_ = true;
 
@@ -271,10 +310,6 @@ void MediaRouterDialogControllerImpl::PopulateDialog(
   MediaRouterUI* media_router_ui = static_cast<MediaRouterUI*>(
       media_router_dialog->GetWebUI()->GetController());
   DCHECK(media_router_ui);
-  if (!media_router_ui) {
-    Reset();
-    return;
-  }
 
   scoped_ptr<CreatePresentationConnectionRequest> create_connection_request(
       TakeCreateConnectionRequest());
@@ -287,7 +322,7 @@ void MediaRouterDialogControllerImpl::PopulateDialog(
     media_router_ui->InitWithDefaultMediaSource(delegate);
   } else {
     media_router_ui->InitWithPresentationSessionRequest(
-        initiator(), delegate, create_connection_request.Pass());
+        initiator(), delegate, std::move(create_connection_request));
   }
 }
 

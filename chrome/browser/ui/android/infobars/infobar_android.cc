@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/android/infobars/infobar_android.h"
 
+#include <utility>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/strings/string_util.h"
@@ -17,8 +19,7 @@
 // InfoBarAndroid -------------------------------------------------------------
 
 InfoBarAndroid::InfoBarAndroid(scoped_ptr<infobars::InfoBarDelegate> delegate)
-    : infobars::InfoBar(delegate.Pass()) {
-}
+    : infobars::InfoBar(std::move(delegate)) {}
 
 InfoBarAndroid::~InfoBarAndroid() {
   if (!java_info_bar_.is_null()) {
@@ -53,12 +54,13 @@ bool InfoBarAndroid::HasSetJavaInfoBar() const {
 }
 
 void InfoBarAndroid::OnButtonClicked(JNIEnv* env,
-                                     jobject obj,
+                                     const JavaParamRef<jobject>& obj,
                                      jint action) {
   ProcessButton(action);
 }
 
-void InfoBarAndroid::OnCloseButtonClicked(JNIEnv* env, jobject obj) {
+void InfoBarAndroid::OnCloseButtonClicked(JNIEnv* env,
+                                          const JavaParamRef<jobject>& obj) {
   if (!owner())
     return; // We're closing; don't call anything, it might access the owner.
   delegate()->InfoBarDismissed();

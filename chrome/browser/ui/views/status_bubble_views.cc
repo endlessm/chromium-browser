@@ -9,10 +9,12 @@
 #include "base/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "components/url_formatter/elide_url.h"
 #include "components/url_formatter/url_formatter.h"
@@ -126,7 +128,7 @@ class StatusBubbleViews::StatusView : public views::View {
   };
 
   StatusView(views::Widget* popup,
-             ui::ThemeProvider* theme_provider);
+             const ui::ThemeProvider* theme_provider);
   ~StatusView() override;
 
   // Set the bubble text to a certain value, hides the bubble if text is
@@ -185,22 +187,22 @@ class StatusBubbleViews::StatusView : public views::View {
   base::string16 text_;
 
   // Holds the theme provider of the frame that created us.
-  ui::ThemeProvider* theme_service_;
+  const ui::ThemeProvider* theme_provider_;
 
   base::WeakPtrFactory<StatusBubbleViews::StatusView> timer_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(StatusView);
 };
 
-StatusBubbleViews::StatusView::StatusView(views::Widget* popup,
-                                          ui::ThemeProvider* theme_provider)
+StatusBubbleViews::StatusView::StatusView(
+    views::Widget* popup,
+    const ui::ThemeProvider* theme_provider)
     : state_(BUBBLE_HIDDEN),
       style_(STYLE_STANDARD),
       animation_(new StatusViewAnimation(this, 0, 0)),
       popup_(popup),
-      theme_service_(theme_provider),
-      timer_factory_(this) {
-}
+      theme_provider_(theme_provider),
+      timer_factory_(this) {}
 
 StatusBubbleViews::StatusView::~StatusView() {
   animation_->Stop();
@@ -360,7 +362,7 @@ void StatusBubbleViews::StatusView::OnPaint(gfx::Canvas* canvas) {
   SkPaint paint;
   paint.setStyle(SkPaint::kFill_Style);
   paint.setAntiAlias(true);
-  SkColor toolbar_color = theme_service_->GetColor(
+  SkColor toolbar_color = theme_provider_->GetColor(
       ThemeProperties::COLOR_TOOLBAR);
   paint.setColor(toolbar_color);
 
@@ -432,7 +434,7 @@ void StatusBubbleViews::StatusView::OnPaint(gfx::Canvas* canvas) {
                         std::max(0, text_height));
   body_bounds.set_x(GetMirroredXForRect(body_bounds));
   SkColor text_color =
-      theme_service_->GetColor(ThemeProperties::COLOR_STATUS_BAR_TEXT);
+      theme_provider_->GetColor(ThemeProperties::COLOR_STATUS_BAR_TEXT);
   canvas->DrawStringRect(text_, font_list, text_color, body_bounds);
 }
 
@@ -802,8 +804,8 @@ void StatusBubbleViews::AvoidMouse(const gfx::Point& location) {
     // Check if the bubble sticks out from the monitor or will obscure
     // download shelf.
     gfx::NativeView window = base_view_->GetWidget()->GetNativeView();
-    gfx::Rect monitor_rect = gfx::Screen::GetScreenFor(window)->
-        GetDisplayNearestWindow(window).work_area();
+    gfx::Rect monitor_rect =
+        gfx::Screen::GetScreen()->GetDisplayNearestWindow(window).work_area();
     const int bubble_bottom_y = top_left.y() + position_.y() + size_.height();
 
     if (bubble_bottom_y + offset > monitor_rect.height() ||

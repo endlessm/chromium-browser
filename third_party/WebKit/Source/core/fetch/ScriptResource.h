@@ -30,8 +30,15 @@
 #include "core/fetch/IntegrityMetadata.h"
 #include "core/fetch/ResourceClient.h"
 #include "core/fetch/TextResource.h"
+#include "platform/text/CompressibleString.h"
 
 namespace blink {
+
+enum class ScriptIntegrityDisposition {
+    NotChecked = 0,
+    Failed,
+    Passed
+};
 
 class FetchRequest;
 class ScriptResource;
@@ -39,39 +46,41 @@ class ScriptResource;
 class CORE_EXPORT ScriptResourceClient : public ResourceClient {
 public:
     ~ScriptResourceClient() override {}
-    static ResourceClientType expectedType() { return ScriptType; }
-    ResourceClientType resourceClientType() const final { return expectedType(); }
+    static bool isExpectedType(ResourceClient* client) { return client->getResourceClientType() == ScriptType; }
+    ResourceClientType getResourceClientType() const final { return ScriptType; }
 
     virtual void notifyAppendData(ScriptResource* resource) { }
 };
 
 class CORE_EXPORT ScriptResource final : public TextResource {
 public:
-    typedef ScriptResourceClient ClientType;
-    static ResourcePtr<ScriptResource> fetch(FetchRequest&, ResourceFetcher*);
+    using ClientType = ScriptResourceClient;
+    static PassRefPtrWillBeRawPtr<ScriptResource> fetch(FetchRequest&, ResourceFetcher*);
 
     // Public for testing
-    ScriptResource(const ResourceRequest&, const String& charset);
+    static PassRefPtrWillBeRawPtr<ScriptResource> create(const ResourceRequest& request, const String& charset)
+    {
+        return adoptRefWillBeNoop(new ScriptResource(request, charset));
+    }
 
     ~ScriptResource() override;
 
     void didAddClient(ResourceClient*) override;
-    void appendData(const char*, unsigned) override;
+    void appendData(const char*, size_t) override;
 
     void onMemoryDump(WebMemoryDumpLevelOfDetail, WebProcessMemoryDump*) const override;
 
     void destroyDecodedDataForFailedRevalidation() override;
 
-    const String& script();
-
-    AtomicString mimeType() const;
+    const CompressibleString& script();
 
     bool mimeTypeAllowedByNosniff() const;
 
     void setIntegrityMetadata(const IntegrityMetadataSet& metadata) { m_integrityMetadata = metadata; }
     const IntegrityMetadataSet& integrityMetadata() const { return m_integrityMetadata; }
-    void setIntegrityAlreadyChecked(bool checked) { m_integrityChecked = checked; }
-    bool integrityAlreadyChecked() { return m_integrityChecked; }
+    // The argument must never be |NotChecked|.
+    void setIntegrityDisposition(ScriptIntegrityDisposition);
+    ScriptIntegrityDisposition integrityDisposition() { return m_integrityDisposition; }
     bool mustRefetchDueToIntegrityMetadata(const FetchRequest&) const override;
 
 private:
@@ -80,20 +89,22 @@ private:
         ScriptResourceFactory()
             : ResourceFactory(Resource::Script) { }
 
-        Resource* create(const ResourceRequest& request, const String& charset) const override
+        PassRefPtrWillBeRawPtr<Resource> create(const ResourceRequest& request, const String& charset) const override
         {
-            return new ScriptResource(request, charset);
+            return adoptRefWillBeNoop(new ScriptResource(request, charset));
         }
     };
 
-    bool m_integrityChecked;
+    ScriptResource(const ResourceRequest&, const String& charset);
+
+    ScriptIntegrityDisposition m_integrityDisposition;
     IntegrityMetadataSet m_integrityMetadata;
 
-    AtomicString m_script;
+    CompressibleString m_script;
 };
 
 DEFINE_RESOURCE_TYPE_CASTS(Script);
 
-}
+} // namespace blink
 
 #endif

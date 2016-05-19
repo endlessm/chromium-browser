@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
 #include "chromeos/dbus/shill_property_changed_observer.h"
@@ -114,6 +115,7 @@ class CHROMEOS_EXPORT ShillPropertyHandler
   bool IsTechnologyAvailable(const std::string& technology) const;
   bool IsTechnologyEnabled(const std::string& technology) const;
   bool IsTechnologyEnabling(const std::string& technology) const;
+  bool IsTechnologyProhibited(const std::string& technology) const;
   bool IsTechnologyUninitialized(const std::string& technology) const;
 
   // Asynchronously sets the enabled state for |technology|.

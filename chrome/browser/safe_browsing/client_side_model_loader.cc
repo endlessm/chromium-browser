@@ -119,7 +119,7 @@ void ModelLoader::StartFetch() {
 }
 
 void ModelLoader::OnURLFetchComplete(const net::URLFetcher* source) {
-  DCHECK_EQ(fetcher_, source);
+  DCHECK_EQ(fetcher_.get(), source);
   DCHECK_EQ(url_, source->GetURL());
 
   std::string data;
@@ -187,7 +187,7 @@ void ModelLoader::EndFetch(ClientModelStatus status, base::TimeDelta max_age) {
   ScheduleFetch(delay_ms);
 }
 
-void ModelLoader::ScheduleFetch(int64 delay_ms) {
+void ModelLoader::ScheduleFetch(int64_t delay_ms) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kSbDisableAutoUpdate))
     return;

@@ -15,14 +15,13 @@ class SkSweepGradient : public SkGradientShaderBase {
 public:
     SkSweepGradient(SkScalar cx, SkScalar cy, const Descriptor&);
 
-    size_t contextSize() const override;
+    size_t contextSize(const ContextRec&) const override;
 
     class SweepGradientContext : public SkGradientShaderBase::GradientShaderBaseContext {
     public:
         SweepGradientContext(const SkSweepGradient& shader, const ContextRec&);
 
         void shadeSpan(int x, int y, SkPMColor dstC[], int count) override;
-        void shadeSpan16(int x, int y, uint16_t dstC[], int count) override;
 
     private:
         typedef SkGradientShaderBase::GradientShaderBaseContext INHERITED;

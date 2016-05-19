@@ -4,7 +4,6 @@
 
 #include "extensions/browser/extensions_browser_client.h"
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "components/update_client/update_client.h"
 #include "extensions/browser/extension_error.h"
@@ -21,6 +20,11 @@ ExtensionsBrowserClient* g_client = NULL;
 scoped_refptr<update_client::UpdateClient>
 ExtensionsBrowserClient::CreateUpdateClient(content::BrowserContext* context) {
   return scoped_refptr<update_client::UpdateClient>(nullptr);
+}
+
+int ExtensionsBrowserClient::GetTabIdForWebContents(
+    content::WebContents* web_contents) {
+  return -1;
 }
 
 void ExtensionsBrowserClient::ReportError(content::BrowserContext* context,

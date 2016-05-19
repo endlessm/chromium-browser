@@ -11,6 +11,9 @@
 #include "chrome/installer/gcapi/gcapi.h"
 
 #include <sddl.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 #define STRSAFE_NO_DEPRECATE
 #include <windows.h>
 #include <strsafe.h>
@@ -22,9 +25,9 @@
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/process/launch.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -224,27 +227,16 @@ bool IsC1FSent() {
       RegKeyHasC1F(HKEY_LOCAL_MACHINE, kC1FPendingKey);
 }
 
-enum WindowsVersion {
-  VERSION_BELOW_XP_SP2,
-  VERSION_XP_SP2_UP_TO_VISTA,  // "but not including"
-  VERSION_VISTA_OR_HIGHER,
-};
-WindowsVersion GetWindowsVersion() {
+bool IsWindowsVersionSupported() {
   OSVERSIONINFOEX version_info = { sizeof version_info };
   GetVersionEx(reinterpret_cast<OSVERSIONINFO*>(&version_info));
 
-  // Windows Vista is version 6.0.
-  if (version_info.dwMajorVersion >= 6)
-    return VERSION_VISTA_OR_HIGHER;
+  // Windows 7 is version 6.1.
+  if (version_info.dwMajorVersion > 6 ||
+      (version_info.dwMajorVersion == 6 && version_info.dwMinorVersion > 0))
+    return true;
 
-  // Windows XP is version 5.1.  (5.2 is Windows Server 2003/XP Pro x64.)
-  if ((version_info.dwMajorVersion < 5) || (version_info.dwMinorVersion < 1))
-    return VERSION_BELOW_XP_SP2;
-
-  // For XP itself, we only support SP2 and above.
-  return ((version_info.dwMinorVersion > 1) ||
-          (version_info.wServicePackMajor >= 2)) ?
-      VERSION_XP_SP2_UP_TO_VISTA : VERSION_BELOW_XP_SP2;
+  return false;
 }
 
 // Note this function should not be called on old Windows versions where these
@@ -294,8 +286,7 @@ bool VerifyHKLMAccess() {
 
 bool IsRunningElevated() {
   // This method should be called only for Vista or later.
-  if ((GetWindowsVersion() < VERSION_VISTA_OR_HIGHER) ||
-      !VerifyAdminGroup())
+  if (!IsWindowsVersionSupported() || !VerifyAdminGroup())
     return false;
 
   HANDLE process_token;
@@ -403,9 +394,9 @@ BOOL __stdcall GoogleChromeCompatibilityCheck(BOOL set_flag,
                                               DWORD* reasons) {
   DWORD local_reasons = 0;
 
-  WindowsVersion windows_version = GetWindowsVersion();
+  bool is_windows_version_supported = IsWindowsVersionSupported();
   // System requirements?
-  if (windows_version == VERSION_BELOW_XP_SP2)
+  if (!is_windows_version_supported)
     local_reasons |= GCCC_ERROR_OSNOTSUPPORTED;
 
   if (IsChromeInstalled(HKEY_LOCAL_MACHINE))
@@ -419,11 +410,10 @@ BOOL __stdcall GoogleChromeCompatibilityCheck(BOOL set_flag,
     // GCAPI is being invoked from an elevated shell, or in admin mode
     if (!VerifyHKLMAccess()) {
     local_reasons |= GCCC_ERROR_ACCESSDENIED;
-    } else if ((windows_version == VERSION_VISTA_OR_HIGHER) &&
-         !VerifyAdminGroup()) {
-    // For Vista or later check for elevation since even for admin user we could
-    // be running in non-elevated mode. We require integrity level High.
-    local_reasons |= GCCC_ERROR_INTEGRITYLEVEL;
+    } else if (is_windows_version_supported && !VerifyAdminGroup()) {
+      // For Vista or later check for elevation since even for admin user we
+      // could be running in non-elevated mode. We require integrity level High.
+      local_reasons |= GCCC_ERROR_INTEGRITYLEVEL;
     }
   }
 
@@ -603,7 +593,7 @@ int __stdcall GoogleChromeDaysSinceLastRun() {
                         KEY_QUERY_VALUE | KEY_WOW64_32KEY);
     if (client_state.Valid()) {
       base::string16 last_run;
-      int64 last_run_value = 0;
+      int64_t last_run_value = 0;
       if (client_state.ReadValue(google_update::kRegLastRunTimeField,
                                  &last_run) == ERROR_SUCCESS &&
           base::StringToInt64(last_run, &last_run_value)) {
@@ -611,7 +601,7 @@ int __stdcall GoogleChromeDaysSinceLastRun() {
         TimeDelta difference = Time::NowFromSystemTime() - last_run_time;
 
         // We can end up with negative numbers here, given changes in system
-        // clock time or due to TimeDelta's int64 -> int truncation.
+        // clock time or due to TimeDelta's int64_t -> int truncation.
         int new_days_since_last_run = difference.InDays();
         if (new_days_since_last_run >= 0 &&
             new_days_since_last_run < days_since_last_run) {

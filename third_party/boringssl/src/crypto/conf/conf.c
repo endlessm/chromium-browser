@@ -776,3 +776,12 @@ int CONF_parse_list(const char *list, char sep, int remove_whitespace,
     lstart = p + 1;
   }
 }
+
+int CONF_modules_load_file(CONF_MUST_BE_NULL *filename, const char *appname,
+                           unsigned long flags) {
+  return 1;
+}
+
+void CONF_modules_free(void) {}
+
+void OPENSSL_config(CONF_MUST_BE_NULL *config_name) {}

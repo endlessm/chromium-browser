@@ -39,6 +39,7 @@ public:
     static PassRefPtrWillBeRawPtr<HTMLOptGroupElement> create(Document&);
 
     bool isDisabledFormControl() const override;
+    String defaultToolTip() const override;
     HTMLSelectElement* ownerSelectElement() const;
 
     String groupLabelText() const;
@@ -48,7 +49,7 @@ private:
     explicit HTMLOptGroupElement(Document&);
 
     bool supportsFocus() const override;
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     void childrenChanged(const ChildrenChange&) override;
     void accessKeyAction(bool sendMouseEvents) override;
     void didAddUserAgentShadowRoot(ShadowRoot&) override;

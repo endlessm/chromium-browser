@@ -25,24 +25,14 @@ declare_args() {
   # Multicast DNS.
   enable_mdns = is_win || is_linux
 
+  enable_extensions = !is_android && !is_ios
   enable_plugins = (!is_android && !is_ios) || is_chromecast
   enable_pdf = !is_android && !is_ios && !is_chromecast
 
   # Enables Native Client support.
-  # TODO(GYP): Get NaCl linking on other platforms.
-  # Also, see if we can always get rid of enable_nacl_untrusted and
-  # enable_pnacl and always build them if enable_nacl is true.
-  # The "is_nacl" part of the condition is needed to ensure that
-  # the untrusted code is built properly; arguably it should be
-  # guarded by "is_nacl" directly rather than enable_nacl_untrusted, but
-  # this will go away when Mac and Win are working and we can just use
-  # the commented out logic.
-  # Eventually we want this to be:
-  #   enable_nacl = !is_ios && !is_android && !is_chromecast
-  enable_nacl = (is_mac || (is_linux && !is_chromeos) || is_nacl) &&
-                current_cpu != "mipsel" && !is_chromecast
-  enable_nacl_untrusted = enable_nacl
-  enable_pnacl = enable_nacl_untrusted
+  # TODO(mcgrathr): When mipsel-nacl-clang is available, drop the exclusion.
+  enable_nacl =
+      !is_ios && !is_android && !is_chromecast && current_cpu != "mipsel"
 
   # If debug_devtools is set to true, JavaScript files for DevTools are stored
   # as is and loaded from disk. Otherwise, a concatenated file is stored in
@@ -51,8 +41,7 @@ declare_args() {
   debug_devtools = false
 
   # Enables WebRTC.
-  # TODO(GYP) make mac work.
-  enable_webrtc = !is_ios && !is_mac
+  enable_webrtc = !is_ios
 
   # Enables the Media Router.
   enable_media_router = !is_ios
@@ -63,11 +52,7 @@ declare_args() {
   # proprietary codecs.
   proprietary_codecs = is_android || is_chrome_branded || is_chromecast
 
-  # TODO(GYP) This should be enabled on ios as well.
   enable_configuration_policy = !is_ios
-
-  # Enables support for background apps.
-  enable_background = !is_ios && !is_android
 
   enable_captive_portal_detection = !is_android && !is_ios
 
@@ -83,11 +68,7 @@ declare_args() {
 
   enable_autofill_dialog = !is_ios
 
-  enable_google_now = !is_ios && !is_android
-
-  enable_one_click_signin = is_win || is_mac || (is_linux && !is_chromeos)
-
-  enable_remoting = !is_ios && !is_android && !is_chromecast && !is_headless
+  enable_remoting = !is_ios && !is_chromecast && !is_headless
 
   # Enable hole punching for the protected video.
   enable_video_hole = is_android
@@ -118,6 +99,9 @@ declare_args() {
   fieldtrial_testing_like_official_build = is_chrome_branded
 
   use_cups = (is_desktop_linux || is_mac) && !is_chromecast && !is_headless
+
+  # Enables Wi-Fi Display functionality
+  enable_wifi_display = false
 }
 
 # Additional dependent variables -----------------------------------------------
@@ -148,13 +132,14 @@ enable_print_preview = !is_android && !is_chromecast && !is_ios && !is_headless
 enable_pepper_cdms =
     enable_plugins && (is_linux || is_mac || is_win) && !is_chromecast
 
-# The seccomp-bpf sandbox is only supported on three architectures
+# The seccomp-bpf sandbox is only supported on five architectures
 # currently.
 # Do not disable seccomp_bpf anywhere without talking to
 # security@chromium.org!
-use_seccomp_bpf = (is_linux || is_android) &&
-                  (current_cpu == "x86" || current_cpu == "x64" ||
-                   current_cpu == "arm" || current_cpu == "mipsel")
+use_seccomp_bpf =
+    (is_linux || is_android) &&
+    (current_cpu == "x86" || current_cpu == "x64" || current_cpu == "arm" ||
+     current_cpu == "arm64" || current_cpu == "mipsel")
 
 # Enable notifications everywhere except iOS.
 enable_notifications = !is_ios
@@ -163,14 +148,9 @@ enable_web_speech = !is_android && !is_ios
 
 use_dbus = is_linux && !is_chromecast && !is_headless
 
-enable_extensions = !is_android && !is_ios
-
 enable_task_manager = !is_ios && !is_android
 
 enable_themes = !is_android && !is_ios
-
-# TODO(scottmg) remove this when we've fixed printing.
-win_pdf_metafile_for_printing = true
 
 # Whether we are using the rlz library or not.  Platforms like Android send
 # rlz codes for searches but do not use the library.
@@ -195,11 +175,8 @@ use_brlapi = is_chromeos
 # system).
 use_gconf = is_linux && !is_chromeos && !is_chromecast && !is_headless
 
-# Whether to back up data before sync.
-enable_pre_sync_backup = is_win || is_mac || (is_linux && !is_chromeos)
-
 # Enable WebVR support by default on Android
 # Still requires command line flag to access API
 enable_webvr = is_android
 
-use_gio = is_desktop_linux && !is_headless
+use_gio = is_linux && !is_chromeos && !is_chromecast && !is_headless

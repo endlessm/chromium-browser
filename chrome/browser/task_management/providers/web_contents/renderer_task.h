@@ -5,6 +5,9 @@
 #ifndef CHROME_BROWSER_TASK_MANAGEMENT_PROVIDERS_WEB_CONTENTS_RENDERER_TASK_H_
 #define CHROME_BROWSER_TASK_MANAGEMENT_PROVIDERS_WEB_CONTENTS_RENDERER_TASK_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "chrome/browser/task_management/providers/task.h"
 #include "components/favicon/core/favicon_driver_observer.h"
 #include "content/public/browser/navigation_entry.h"
@@ -40,22 +43,29 @@ class RendererTask : public Task,
   // can update their favicons.
   virtual void UpdateFavicon() = 0;
 
+  // An overridable method that will be called when the event
+  // WebContentsObserver::DidNavigateMainFrame() occurs, so that we can update
+  // their Rappor sample name when a navigation takes place.
+  virtual void UpdateRapporSampleName();
+
   // task_management::Task:
   void Activate() override;
   void Refresh(const base::TimeDelta& update_interval,
-               int64 refresh_flags) override;
+               int64_t refresh_flags) override;
   Type GetType() const override;
   int GetChildProcessUniqueID() const override;
   base::string16 GetProfileName() const override;
-  int64 GetV8MemoryAllocated() const override;
-  int64 GetV8MemoryUsed() const override;
+  int64_t GetV8MemoryAllocated() const override;
+  int64_t GetV8MemoryUsed() const override;
   bool ReportsWebCacheStats() const override;
   blink::WebCache::ResourceTypeStats GetWebCacheStats() const override;
 
   // favicon::FaviconDriverObserver:
-  void OnFaviconAvailable(const gfx::Image& image) override;
-  void OnFaviconUpdated(favicon::FaviconDriver* favicon_driver,
-                        bool icon_url_changed) override;
+  void OnFaviconUpdated(favicon::FaviconDriver* driver,
+                        NotificationIconType notification_icon_type,
+                        const GURL& icon_url,
+                        bool icon_url_changed,
+                        const gfx::Image& image) override;
 
  protected:
   // Returns the title of the given |web_contents|.
@@ -94,8 +104,8 @@ class RendererTask : public Task,
   const int render_process_id_;
 
   // The allocated and used V8 memory (in bytes).
-  int64 v8_memory_allocated_;
-  int64 v8_memory_used_;
+  int64_t v8_memory_allocated_;
+  int64_t v8_memory_used_;
 
   // The WebKit resource cache statistics for this renderer.
   blink::WebCache::ResourceTypeStats webcache_stats_;

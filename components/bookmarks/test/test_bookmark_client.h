@@ -5,6 +5,9 @@
 #ifndef COMPONENTS_BOOKMARKS_TEST_TEST_BOOKMARK_CLIENT_H_
 #define COMPONENTS_BOOKMARKS_TEST_TEST_BOOKMARK_CLIENT_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/bookmarks/browser/bookmark_client.h"
 
@@ -17,9 +20,12 @@ class TestBookmarkClient : public BookmarkClient {
   TestBookmarkClient();
   ~TestBookmarkClient() override;
 
-  // Create a BookmarkModel using this object as its client. The returned
-  // BookmarkModel* is owned by the caller.
-  scoped_ptr<BookmarkModel> CreateModel();
+  // Returns a new BookmarkModel using a TestBookmarkClient.
+  static scoped_ptr<BookmarkModel> CreateModel();
+
+  // Returns a new BookmarkModel using |client|.
+  static scoped_ptr<BookmarkModel> CreateModelWithClient(
+      scoped_ptr<BookmarkClient> client);
 
   // Sets the list of extra nodes to be returned by the next call to
   // CreateModel() or GetLoadExtraNodesCallback().
@@ -48,7 +54,7 @@ class TestBookmarkClient : public BookmarkClient {
   // Helpers for GetLoadExtraNodesCallback().
   static BookmarkPermanentNodeList LoadExtraNodes(
       BookmarkPermanentNodeList extra_nodes,
-      int64* next_id);
+      int64_t* next_id);
 
   BookmarkPermanentNodeList extra_nodes_to_load_;
   std::vector<BookmarkPermanentNode*> extra_nodes_;

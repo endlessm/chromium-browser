@@ -13,8 +13,11 @@ import os
 import posixpath
 import shutil
 import sys
+import zipfile
 
-sys.path.append(os.path.join(os.path.dirname(__file__), os.pardir))
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+import devil_chromium
 from devil.android import apk_helper
 from devil.android import device_utils
 from devil.android import device_errors
@@ -30,8 +33,16 @@ from util import build_utils
 sys.path = prev_sys_path
 
 
+def _DeviceCachePath(device):
+  file_name = 'device_cache_%s.json' % device.adb.GetDeviceSerial()
+  return os.path.join(constants.GetOutDirectory(), file_name)
+
+
 def _TransformDexPaths(paths):
   """Given paths like ["/a/b/c", "/a/c/d"], returns ["b.c", "c.d"]."""
+  if len(paths) == 1:
+    return [os.path.basename(paths[0])]
+
   prefix_len = len(os.path.commonprefix(paths))
   return [p[prefix_len:].replace(os.sep, '.') for p in paths]
 
@@ -53,27 +64,41 @@ def _GetDeviceIncrementalDir(package):
   return '/data/local/tmp/incremental-app-%s' % package
 
 
-def Uninstall(device, package):
+def _HasClasses(jar_path):
+  """Returns whether the given jar contains classes.dex."""
+  with zipfile.ZipFile(jar_path) as jar:
+    return 'classes.dex' in jar.namelist()
+
+
+def Uninstall(device, package, enable_device_cache=False):
   """Uninstalls and removes all incremental files for the given package."""
   main_timer = time_profile.TimeProfile()
   device.Uninstall(package)
+  if enable_device_cache:
+    # Uninstall is rare, so just wipe the cache in this case.
+    cache_path = _DeviceCachePath(device)
+    if os.path.exists(cache_path):
+      os.unlink(cache_path)
   device.RunShellCommand(['rm', '-rf', _GetDeviceIncrementalDir(package)],
                          check_return=True)
   logging.info('Uninstall took %s seconds.', main_timer.GetDelta())
 
 
-def Install(device, apk, split_globs=None, lib_dir=None, dex_files=None,
-            enable_device_cache=True, use_concurrency=True):
+def Install(device, apk, split_globs=None, native_libs=None, dex_files=None,
+            enable_device_cache=False, use_concurrency=True,
+            show_proguard_warning=False):
   """Installs the given incremental apk and all required supporting files.
 
   Args:
     device: A DeviceUtils instance.
     apk: The path to the apk, or an ApkHelper instance.
     split_globs: Glob patterns for any required apk splits (optional).
-    lib_dir: Directory containing the app's native libraries (optional).
+    native_libs: List of app's native libraries (optional).
     dex_files: List of .dex.jar files that comprise the app's Dalvik code.
     enable_device_cache: Whether to enable on-device caching of checksums.
     use_concurrency: Whether to speed things up using multiple threads.
+    show_proguard_warning: Whether to print a warning about Proguard not being
+        enabled after installing.
   """
   main_timer = time_profile.TimeProfile()
   install_timer = time_profile.TimeProfile()
@@ -99,11 +124,16 @@ def Install(device, apk, split_globs=None, lib_dir=None, dex_files=None,
 
   # Push .so and .dex files to the device (if they have changed).
   def do_push_files():
-    if lib_dir:
+    if native_libs:
       push_native_timer.Start()
-      device_lib_dir = posixpath.join(device_incremental_dir, 'lib')
-      device.PushChangedFiles([(lib_dir, device_lib_dir)],
-                              delete_device_stale=True)
+      with build_utils.TempDir() as temp_dir:
+        device_lib_dir = posixpath.join(device_incremental_dir, 'lib')
+        for path in native_libs:
+          # Note: Can't use symlinks as they don't work when
+          # "adb push parent_dir" is used (like we do here).
+          shutil.copy(path, os.path.join(temp_dir, os.path.basename(path)))
+        device.PushChangedFiles([(temp_dir, device_lib_dir)],
+                                delete_device_stale=True)
       push_native_timer.Stop(log=False)
 
     if dex_files:
@@ -115,41 +145,43 @@ def Install(device, apk, split_globs=None, lib_dir=None, dex_files=None,
         # Ensure no two files have the same name.
         transformed_names = _TransformDexPaths(dex_files)
         for src_path, dest_name in zip(dex_files, transformed_names):
-          shutil.copyfile(src_path, os.path.join(temp_dir, dest_name))
+          # Binary targets with no extra classes create .dex.jar without a
+          # classes.dex (which Android chokes on).
+          if _HasClasses(src_path):
+            shutil.copy(src_path, os.path.join(temp_dir, dest_name))
         device.PushChangedFiles([(temp_dir, device_dex_dir)],
                                 delete_device_stale=True)
       push_dex_timer.Stop(log=False)
 
   def check_selinux():
-    # Samsung started using SELinux before Marshmallow. There may be even more
-    # cases where this is required...
-    has_selinux = (device.build_version_sdk >= version_codes.MARSHMALLOW or
-                   device.GetProp('selinux.policy_version'))
+    # Marshmallow has no filesystem access whatsoever. It might be possible to
+    # get things working on Lollipop, but attempts so far have failed.
+    # http://crbug.com/558818
+    has_selinux = device.build_version_sdk >= version_codes.LOLLIPOP
     if has_selinux and apk.HasIsolatedProcesses():
-      raise Exception('Cannot use incremental installs on versions of Android '
-                      'where isoloated processes cannot access the filesystem '
-                      '(this includes Android M+, and Samsung L+) without '
+      raise Exception('Cannot use incremental installs on Android L+ without '
                       'first disabling isoloated processes.\n'
                       'To do so, use GN arg:\n'
                       '    disable_incremental_isolated_processes=true')
 
-  cache_path = '%s/files-cache.json' % device_incremental_dir
+  cache_path = _DeviceCachePath(device)
   def restore_cache():
     if not enable_device_cache:
       logging.info('Ignoring device cache')
       return
-    # Delete the cached file so that any exceptions cause the next attempt
-    # to re-compute md5s.
-    cmd = 'P=%s;cat $P 2>/dev/null && rm $P' % cache_path
-    lines = device.RunShellCommand(cmd, check_return=False, large_output=True)
-    if lines:
-      device.LoadCacheData(lines[0])
+    if os.path.exists(cache_path):
+      logging.info('Using device cache: %s', cache_path)
+      with open(cache_path) as f:
+        device.LoadCacheData(f.read())
+      # Delete the cached file so that any exceptions cause it to be cleared.
+      os.unlink(cache_path)
     else:
-      logging.info('Device cache not found: %s', cache_path)
+      logging.info('No device cache present: %s', cache_path)
 
   def save_cache():
-    cache_data = device.DumpCacheData()
-    device.WriteFile(cache_path, cache_data)
+    with open(cache_path, 'w') as f:
+      f.write(device.DumpCacheData())
+      logging.info('Wrote device cache: %s', cache_path)
 
   # Create 2 lock files:
   # * install.lock tells the app to pause on start-up (until we release it).
@@ -182,6 +214,10 @@ def Install(device, apk, split_globs=None, lib_dir=None, dex_files=None,
       main_timer.GetDelta(), setup_timer.GetDelta(), install_timer.GetDelta(),
       push_native_timer.GetDelta(), push_dex_timer.GetDelta(),
       finalize_timer.GetDelta())
+  if show_proguard_warning:
+    logging.warning('Target had proguard enabled, but incremental install uses '
+                    'non-proguarded .dex files. Performance characteristics '
+                    'may differ.')
 
 
 def main():
@@ -193,10 +229,14 @@ def main():
                       dest='splits',
                       help='A glob matching the apk splits. '
                            'Can be specified multiple times.')
-  parser.add_argument('--lib-dir',
-                      help='Path to native libraries directory.')
-  parser.add_argument('--dex-files',
-                      help='List of dex files to push.',
+  parser.add_argument('--native_lib',
+                      dest='native_libs',
+                      help='Path to native library (repeatable)',
+                      action='append',
+                      default=[])
+  parser.add_argument('--dex-file',
+                      dest='dex_files',
+                      help='Path to dex files (repeatable)',
                       action='append',
                       default=[])
   parser.add_argument('-d', '--device', dest='device',
@@ -218,6 +258,12 @@ def main():
                       dest='cache',
                       help='Do not use cached information about what files are '
                            'currently on the target device.')
+  parser.add_argument('--show-proguard-warning',
+                      action='store_true',
+                      default=False,
+                      help='Print a warning about proguard being disabled')
+  parser.add_argument('--dont-even-try',
+                      help='Prints this message and exits.')
   parser.add_argument('-v',
                       '--verbose',
                       dest='verbose_count',
@@ -231,6 +277,12 @@ def main():
   constants.SetBuildType('Debug')
   if args.output_directory:
     constants.SetOutputDirectory(args.output_directory)
+
+  devil_chromium.Initialize(output_directory=constants.GetOutDirectory())
+
+  if args.dont_even_try:
+    logging.fatal(args.dont_even_try)
+    return 1
 
   if args.device:
     # Retries are annoying when commands fail for legitimate reasons. Might want
@@ -256,11 +308,12 @@ def main():
 
   apk = apk_helper.ToHelper(args.apk_path)
   if args.uninstall:
-    Uninstall(device, apk.GetPackageName())
+    Uninstall(device, apk.GetPackageName(), enable_device_cache=args.cache)
   else:
-    Install(device, apk, split_globs=args.splits, lib_dir=args.lib_dir,
+    Install(device, apk, split_globs=args.splits, native_libs=args.native_libs,
             dex_files=args.dex_files, enable_device_cache=args.cache,
-            use_concurrency=args.threading)
+            use_concurrency=args.threading,
+            show_proguard_warning=args.show_proguard_warning)
 
 
 if __name__ == '__main__':

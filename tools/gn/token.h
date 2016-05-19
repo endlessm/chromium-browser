@@ -58,6 +58,7 @@ class Token {
 
   Token();
   Token(const Location& location, Type t, const base::StringPiece& v);
+  Token(const Token& other);
 
   Type type() const { return type_; }
   const base::StringPiece& value() const { return value_; }
@@ -68,7 +69,7 @@ class Token {
         location_,
         Location(location_.file(),
                  location_.line_number(),
-                 location_.char_offset() + static_cast<int>(value_.size()),
+                 location_.column_number() + static_cast<int>(value_.size()),
                  location_.byte() + static_cast<int>(value_.size())));
   }
 

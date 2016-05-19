@@ -5,17 +5,24 @@
 // An object to record and send user feedback to spelling service. The spelling
 // service uses the feedback to improve its suggestions.
 //
-// Assigns uint32 hash identifiers to spelling suggestions from spelling service
-// and stores these suggestions. Records user's actions on these suggestions.
-// Periodically sends batches of user feedback to the spelling service.
+// Assigns uint32_t hash identifiers to spelling suggestions from spelling
+// service and stores these suggestions. Records user's actions on these
+// suggestions. Periodically sends batches of user feedback to the spelling
+// service.
 
 #ifndef CHROME_BROWSER_SPELLCHECKER_FEEDBACK_SENDER_H_
 #define CHROME_BROWSER_SPELLCHECKER_FEEDBACK_SENDER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <array>
+#include <climits>
 #include <map>
 #include <set>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
@@ -61,24 +68,24 @@ class FeedbackSender : public base::SupportsWeakPtr<FeedbackSender>,
 
   // Records that user selected suggestion |suggestion_index| for the
   // misspelling identified by |hash|.
-  void SelectedSuggestion(uint32 hash, int suggestion_index);
+  void SelectedSuggestion(uint32_t hash, int suggestion_index);
 
   // Records that user added the misspelling identified by |hash| to the
   // dictionary.
-  void AddedToDictionary(uint32 hash);
+  void AddedToDictionary(uint32_t hash);
 
   // Records that user right-clicked on the misspelling identified by |hash|,
   // but did not select any suggestion.
-  void IgnoredSuggestions(uint32 hash);
+  void IgnoredSuggestions(uint32_t hash);
 
   // Records that user did not choose any suggestion but manually corrected the
   // misspelling identified by |hash| to string |correction|, which is not in
   // the list of suggestions.
-  void ManuallyCorrected(uint32 hash, const base::string16& correction);
+  void ManuallyCorrected(uint32_t hash, const base::string16& correction);
 
   // Records that user has the misspelling in the custom dictionary. The user
   // will never see the spellcheck suggestions for the misspelling.
-  void RecordInDictionary(uint32 hash);
+  void RecordInDictionary(uint32_t hash);
 
   // Receives document markers for renderer with process ID |render_process_id|
   // when the renderer responds to a RequestDocumentMarkers() call. Finalizes
@@ -87,7 +94,7 @@ class FeedbackSender : public base::SupportsWeakPtr<FeedbackSender>,
   // service. If the current session has expired, then refreshes the session
   // start timestamp and sends out all of the feedback data.
   void OnReceiveDocumentMarkers(int renderer_process_id,
-                                const std::vector<uint32>& markers);
+                                const std::vector<uint32_t>& markers);
 
   // Generates feedback data based on spellcheck results. The new feedback data
   // is pending. Sets hash identifiers for |results|. Called when spelling
@@ -110,8 +117,14 @@ class FeedbackSender : public base::SupportsWeakPtr<FeedbackSender>,
   // it was being collected.
   void StopFeedbackCollection();
 
+  // 256 bits
+  typedef std::array<char, 256 / CHAR_BIT> RandSalt;
+
  private:
   friend class FeedbackSenderTest;
+
+  // Allow unit tests to override RNG.
+  virtual void RandBytes(void* p, size_t len);
 
   // net::URLFetcherDelegate implementation. Takes ownership of |source|.
   void OnURLFetchComplete(const net::URLFetcher* source) override;
@@ -154,6 +167,12 @@ class FeedbackSender : public base::SupportsWeakPtr<FeedbackSender>,
 
   // When the session started.
   base::Time session_start_;
+
+  // The last time that we updated |salt_|.
+  base::Time last_salt_update_;
+
+  // A random number updated once a day.
+  RandSalt salt_;
 
   // The URL where the feedback data should be sent.
   GURL feedback_service_url_;

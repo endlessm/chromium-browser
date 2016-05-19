@@ -8,13 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/codecs/ilbc/include/audio_encoder_ilbc.h"
+#include "webrtc/modules/audio_coding/codecs/ilbc/audio_encoder_ilbc.h"
 
 #include <algorithm>
 #include <limits>
 #include "webrtc/base/checks.h"
 #include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/codecs/ilbc/include/ilbc.h"
+#include "webrtc/modules/audio_coding/codecs/ilbc/ilbc.h"
 
 namespace webrtc {
 
@@ -64,7 +64,7 @@ int AudioEncoderIlbc::SampleRateHz() const {
   return kSampleRateHz;
 }
 
-int AudioEncoderIlbc::NumChannels() const {
+size_t AudioEncoderIlbc::NumChannels() const {
   return 1;
 }
 

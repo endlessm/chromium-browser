@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "gin/modules/console.h"
 #include "gin/modules/module_registry.h"
@@ -16,6 +17,7 @@
 
 namespace mojo {
 namespace edk {
+namespace js {
 namespace {
 
 class TestRunnerDelegate : public gin::FileRunnerDelegate {
@@ -25,12 +27,13 @@ class TestRunnerDelegate : public gin::FileRunnerDelegate {
     AddBuiltinModule(Core::kModuleName, Core::GetModule);
     AddBuiltinModule(gin::TimerModule::kName, gin::TimerModule::GetModule);
     AddBuiltinModule(Threading::kModuleName, Threading::GetModule);
+    AddBuiltinModule(Support::kModuleName, Support::GetModule);
   }
  private:
   DISALLOW_COPY_AND_ASSIGN(TestRunnerDelegate);
 };
 
-void RunTest(std::string test, bool addSupportModule) {
+void RunTest(std::string test) {
   base::FilePath path;
   PathService::Get(base::DIR_SOURCE_ROOT, &path);
   path = path.AppendASCII("mojo")
@@ -39,19 +42,18 @@ void RunTest(std::string test, bool addSupportModule) {
              .AppendASCII("tests")
              .AppendASCII(test);
   TestRunnerDelegate delegate;
-  if (addSupportModule)
-    delegate.AddBuiltinModule(Support::kModuleName, Support::GetModule);
-  gin::RunTestFromFile(path, &delegate, true);
+  gin::RunTestFromFile(path, &delegate, false);
 }
 
 TEST(JSTest, connection) {
-  RunTest("connection_tests.js", false);
+  RunTest("connection_tests.js");
 }
 
 TEST(JSTest, sample_service) {
-  RunTest("sample_service_tests.js", true);
+  RunTest("sample_service_tests.js");
 }
 
 }  // namespace
+}  // namespace js
 }  // namespace edk
 }  // namespace mojo

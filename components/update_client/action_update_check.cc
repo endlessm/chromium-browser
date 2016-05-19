@@ -4,6 +4,9 @@
 
 #include "components/update_client/action_update_check.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
@@ -37,10 +40,9 @@ ActionUpdateCheck::ActionUpdateCheck(
     scoped_ptr<UpdateChecker> update_checker,
     const base::Version& browser_version,
     const std::string& extra_request_parameters)
-    : update_checker_(update_checker.Pass()),
+    : update_checker_(std::move(update_checker)),
       browser_version_(browser_version),
-      extra_request_parameters_(extra_request_parameters) {
-}
+      extra_request_parameters_(extra_request_parameters) {}
 
 ActionUpdateCheck::~ActionUpdateCheck() {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -94,18 +96,14 @@ void ActionUpdateCheck::Run(UpdateContext* update_context, Callback callback) {
 }
 
 void ActionUpdateCheck::UpdateCheckComplete(
-    const GURL& original_url,
     int error,
-    const std::string& error_message,
     const UpdateResponse::Results& results) {
   DCHECK(thread_checker_.CalledOnValidThread());
-
-  VLOG(1) << "Update check completed from: " << original_url.spec();
 
   if (!error)
     OnUpdateCheckSucceeded(results);
   else
-    OnUpdateCheckFailed(error, error_message);
+    OnUpdateCheckFailed(error);
 }
 
 void ActionUpdateCheck::OnUpdateCheckSucceeded(
@@ -173,6 +171,9 @@ void ActionUpdateCheck::OnUpdateCheckSucceeded(
         crx->crx_diffurls.push_back(url);
     }
 
+    crx->hash_sha256 = package.hash_sha256;
+    crx->hashdiff_sha256 = package.hashdiff_sha256;
+
     ChangeItemState(crx, CrxUpdateItem::State::kCanUpdate);
 
     update_context_->queue.push(crx->id);
@@ -193,8 +194,7 @@ void ActionUpdateCheck::OnUpdateCheckSucceeded(
   UpdateCrx();
 }
 
-void ActionUpdateCheck::OnUpdateCheckFailed(int error,
-                                            const std::string& error_message) {
+void ActionUpdateCheck::OnUpdateCheckFailed(int error) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(error);
 

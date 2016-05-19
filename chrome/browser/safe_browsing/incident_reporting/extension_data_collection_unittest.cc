@@ -4,9 +4,12 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/extension_data_collection.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/install_signer.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -25,7 +28,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_set.h"
-
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -82,12 +84,12 @@ void ExtensionTestingProfile::AddExtension(std::string extension_id,
   scoped_refptr<extensions::Extension> extension =
       extensions::ExtensionBuilder()
           .SetID(extension_id)
-          .SetManifest(extensions::DictionaryBuilder()
-                           .Set("name", extension_name)
-                           .Set("version", version)
-                           .Set("manifest_version", 2)
-                           .Set("description", description)
-                           .Set("update_url", update_url))
+          .SetManifest(std::move(extensions::DictionaryBuilder()
+                                     .Set("name", extension_name)
+                                     .Set("version", version)
+                                     .Set("manifest_version", 2)
+                                     .Set("description", description)
+                                     .Set("update_url", update_url)))
           .Build();
 
   // Install the extension on the faked extension service.
@@ -149,7 +151,7 @@ class ExtensionDataCollectionTest : public testing::Test {
     prefs->SetBoolean(prefs::kSafeBrowsingExtendedReportingEnabled,
                       safe_browsing_opt_in == SAFE_BROWSING_OPT_IN);
     TestingProfile* profile = profile_manager_->CreateTestingProfile(
-        profile_name, prefs.Pass(),
+        profile_name, std::move(prefs),
         base::UTF8ToUTF16(profile_name),  // user_name
         0,                                // avatar_id
         std::string(),                    // supervised_user_id

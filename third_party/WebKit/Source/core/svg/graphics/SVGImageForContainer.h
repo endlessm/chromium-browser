@@ -35,39 +35,40 @@
 namespace blink {
 
 class SVGImageForContainer final : public Image {
+    USING_FAST_MALLOC(SVGImageForContainer);
 public:
-    static PassRefPtr<SVGImageForContainer> create(SVGImage* image, const FloatSize& containerSize, float zoom)
+    static PassRefPtr<SVGImageForContainer> create(SVGImage* image, const IntSize& containerSize, float zoom, const KURL& url)
     {
-        return adoptRef(new SVGImageForContainer(image, containerSize, zoom));
+        FloatSize containerSizeWithoutZoom(containerSize);
+        containerSizeWithoutZoom.scale(1 / zoom);
+        return adoptRef(new SVGImageForContainer(image, containerSizeWithoutZoom, zoom, url));
     }
 
-    bool isSVGImage() const override { return true; }
-
+    bool isTextureBacked() override;
     IntSize size() const override;
-    void setURL(const KURL& url) { m_image->setURL(url); }
 
     bool usesContainerSize() const override { return m_image->usesContainerSize(); }
-    bool hasRelativeWidth() const override { return m_image->hasRelativeWidth(); }
-    bool hasRelativeHeight() const override { return m_image->hasRelativeHeight(); }
-    void computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override
+    bool hasRelativeSize() const override { return m_image->hasRelativeSize(); }
+    void computeIntrinsicDimensions(FloatSize& intrinsicSize, FloatSize& intrinsicRatio) override
     {
-        m_image->computeIntrinsicDimensions(intrinsicWidth, intrinsicHeight, intrinsicRatio);
+        m_image->computeIntrinsicDimensions(intrinsicSize, intrinsicRatio);
     }
 
     void draw(SkCanvas*, const SkPaint&, const FloatRect&, const FloatRect&, RespectImageOrientationEnum, ImageClampingMode) override;
 
-    void drawPattern(GraphicsContext*, const FloatRect&, const FloatSize&, const FloatPoint&, SkXfermode::Mode, const FloatRect&, const IntSize& repeatSpacing) override;
+    void drawPattern(GraphicsContext&, const FloatRect&, const FloatSize&, const FloatPoint&, SkXfermode::Mode, const FloatRect&, const FloatSize& repeatSpacing) override;
 
     // FIXME: Implement this to be less conservative.
-    bool currentFrameKnownToBeOpaque() override { return false; }
+    bool currentFrameKnownToBeOpaque(MetadataMode = UseCurrentMetadata) override { return false; }
 
     PassRefPtr<SkImage> imageForCurrentFrame() override;
 
 private:
-    SVGImageForContainer(SVGImage* image, const FloatSize& containerSize, float zoom)
+    SVGImageForContainer(SVGImage* image, const FloatSize& containerSize, float zoom, const KURL& url)
         : m_image(image)
         , m_containerSize(containerSize)
         , m_zoom(zoom)
+        , m_url(url)
     {
     }
 
@@ -76,7 +77,8 @@ private:
     SVGImage* m_image;
     const FloatSize m_containerSize;
     const float m_zoom;
+    const KURL m_url;
 };
-}
+} // namespace blink
 
 #endif // SVGImageForContainer_h

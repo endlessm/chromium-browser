@@ -4,13 +4,18 @@
 
 #include "extensions/common/file_util.h"
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_string_value_serializer.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_paths.h"
@@ -49,8 +54,8 @@ scoped_refptr<Extension> LoadExtensionManifest(
     return NULL;
   CHECK_EQ(base::Value::TYPE_DICTIONARY, result->GetType());
   return LoadExtensionManifest(
-      *base::DictionaryValue::From(result.Pass()).get(), manifest_dir, location,
-      extra_flags, error);
+      *base::DictionaryValue::From(std::move(result)).get(), manifest_dir,
+      location, extra_flags, error);
 }
 
 }  // namespace
@@ -414,19 +419,33 @@ TEST_F(FileUtilTest, WarnOnPrivateKey) {
                   "extension includes the key file.*ext_root.a_key.pem"));
 }
 
-TEST_F(FileUtilTest, CheckZeroLengthIconFile) {
+// Try to install an extension with a zero-length icon file.
+TEST_F(FileUtilTest, CheckZeroLengthAndMissingIconFile) {
   base::FilePath install_dir;
   ASSERT_TRUE(PathService::Get(DIR_TEST_DATA, &install_dir));
 
-  // Try to install an extension with a zero-length icon file.
+  base::FilePath ext_dir =
+      install_dir.AppendASCII("file_util").AppendASCII("bad_icon");
+
+  std::string error;
+  scoped_refptr<Extension> extension(file_util::LoadExtension(
+      ext_dir, Manifest::INTERNAL, Extension::NO_FLAGS, &error));
+  ASSERT_FALSE(extension);
+}
+
+// Try to install an unpacked extension with a zero-length icon file.
+TEST_F(FileUtilTest, CheckZeroLengthAndMissingIconFileUnpacked) {
+  base::FilePath install_dir;
+  ASSERT_TRUE(PathService::Get(DIR_TEST_DATA, &install_dir));
+
   base::FilePath ext_dir =
       install_dir.AppendASCII("file_util").AppendASCII("bad_icon");
 
   std::string error;
   scoped_refptr<Extension> extension(file_util::LoadExtension(
       ext_dir, Manifest::UNPACKED, Extension::NO_FLAGS, &error));
-  EXPECT_TRUE(extension.get() == NULL);
-  EXPECT_STREQ("Could not load extension icon 'icon.png'.", error.c_str());
+  EXPECT_FALSE(extension);
+  EXPECT_EQ("Could not load extension icon 'missing-icon.png'.", error);
 }
 
 TEST_F(FileUtilTest, ExtensionURLToRelativeFilePath) {

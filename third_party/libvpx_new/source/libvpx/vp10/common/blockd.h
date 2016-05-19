@@ -63,20 +63,6 @@ typedef struct {
 #define MAX_REF_FRAMES  4
 typedef int8_t MV_REFERENCE_FRAME;
 
-typedef struct {
-  // Number of base colors for Y (0) and UV (1)
-  uint8_t palette_size[2];
-  // Value of base colors for Y, U, and V
-#if CONFIG_VP9_HIGHBITDEPTH
-  uint16_t palette_colors[3 * PALETTE_MAX_SIZE];
-#else
-  uint8_t palette_colors[3 * PALETTE_MAX_SIZE];
-#endif  // CONFIG_VP9_HIGHBITDEPTH
-  // Only used by encoder to store the color index of the top left pixel.
-  // TODO(huisu): move this to encoder
-  uint8_t palette_first_color_idx[2];
-} PALETTE_MODE_INFO;
-
 // This structure now relates to 8x8 block regions.
 typedef struct {
   // Common for both INTER and INTRA blocks
@@ -92,11 +78,11 @@ typedef struct {
 
   // Only for INTRA blocks
   PREDICTION_MODE uv_mode;
-  PALETTE_MODE_INFO palette_mode_info;
 
   // Only for INTER blocks
   INTERP_FILTER interp_filter;
   MV_REFERENCE_FRAME ref_frame[2];
+  TX_TYPE tx_type;
 
   // TODO(slavarnway): Delete and use bmi[3].as_mv[] instead.
   int_mv mv[2];
@@ -222,7 +208,7 @@ static INLINE BLOCK_SIZE get_subsize(BLOCK_SIZE bsize,
   return subsize_lookup[partition][bsize];
 }
 
-static const TX_TYPE intra_mode_to_tx_type_lookup[INTRA_MODES] = {
+static const TX_TYPE intra_mode_to_tx_type_context[INTRA_MODES] = {
   DCT_DCT,    // DC
   ADST_DCT,   // V
   DCT_ADST,   // H
@@ -240,11 +226,12 @@ static INLINE TX_TYPE get_tx_type(PLANE_TYPE plane_type, const MACROBLOCKD *xd,
   const MODE_INFO *const mi = xd->mi[0];
   const MB_MODE_INFO *const mbmi = &mi->mbmi;
 
+  (void) block_idx;
   if (plane_type != PLANE_TYPE_Y || xd->lossless[mbmi->segment_id] ||
-      is_inter_block(mbmi) || mbmi->tx_size >= TX_32X32)
+      mbmi->tx_size >= TX_32X32)
     return DCT_DCT;
 
-  return intra_mode_to_tx_type_lookup[get_y_mode(mi, block_idx)];
+  return mbmi->tx_type;
 }
 
 void vp10_setup_block_planes(MACROBLOCKD *xd, int ss_x, int ss_y);

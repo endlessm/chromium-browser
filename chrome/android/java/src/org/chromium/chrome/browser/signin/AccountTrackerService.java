@@ -94,12 +94,20 @@ public class AccountTrackerService {
         }
     }
 
+    /**
+    * Remove an |observer| from the list of observers.
+    */
+    public void removeSystemAccountsSeededListener(OnSystemAccountsSeededListener observer) {
+        ThreadUtils.assertOnUiThread();
+        mSystemAccountsSeedingObservers.removeObserver(observer);
+    }
+
     private void seedSystemAccounts() {
         ThreadUtils.assertOnUiThread();
         mSystemAccountsChanged = false;
         mSyncForceRefreshedForTest = false;
         final AccountIdProvider accountIdProvider = AccountIdProvider.getInstance();
-        if (accountIdProvider.canBeUsed(mContext, null)) {
+        if (accountIdProvider.canBeUsed(mContext)) {
             mSystemAccountsSeedingStatus = SystemAccountsSeedingStatus.SEEDING_IN_PROGRESS;
         } else {
             mSystemAccountsSeedingStatus = SystemAccountsSeedingStatus.SEEDING_NOT_STARTED;

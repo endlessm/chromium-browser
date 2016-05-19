@@ -14,6 +14,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/singleton.h"
 #include "base/synchronization/lock.h"
+#include "build/build_config.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/plugin_service_filter.h"
@@ -111,6 +112,7 @@ class ChromePluginServiceFilter : public content::PluginServiceFilter,
 
   struct ProcessDetails {
     ProcessDetails();
+    ProcessDetails(const ProcessDetails& other);
     ~ProcessDetails();
 
     std::vector<OverriddenPlugin> overridden_plugins;

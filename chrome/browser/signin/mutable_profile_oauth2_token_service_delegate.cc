@@ -4,6 +4,9 @@
 
 #include "chrome/browser/signin/mutable_profile_oauth2_token_service_delegate.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/profiler/scoped_tracker.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/signin/core/browser/signin_metrics.h"
@@ -42,7 +45,7 @@ std::string RemoveAccountIdPrefix(const std::string& prefixed_account_id) {
 
 // This class sends a request to GAIA to revoke the given refresh token from
 // the server.  This is a best effort attempt only.  This class deletes itself
-// when done sucessfully or otherwise.
+// when done successfully or otherwise.
 class MutableProfileOAuth2TokenServiceDelegate::RevokeServerRefreshToken
     : public GaiaAuthConsumer {
  public:
@@ -220,6 +223,11 @@ std::string MutableProfileOAuth2TokenServiceDelegate::GetRefreshToken(
   if (iter != refresh_tokens_.end())
     return iter->second->refresh_token();
   return std::string();
+}
+
+std::string MutableProfileOAuth2TokenServiceDelegate::GetRefreshTokenForTest(
+    const std::string& account_id) const {
+  return GetRefreshToken(account_id);
 }
 
 std::vector<std::string>
@@ -518,4 +526,9 @@ void MutableProfileOAuth2TokenServiceDelegate::OnNetworkChanged(
   // If our network has changed, reset the backoff timer so that errors caused
   // by a previous lack of network connectivity don't prevent new requests.
   backoff_entry_.Reset();
+}
+
+const net::BackoffEntry*
+    MutableProfileOAuth2TokenServiceDelegate::BackoffEntry() const {
+  return &backoff_entry_;
 }

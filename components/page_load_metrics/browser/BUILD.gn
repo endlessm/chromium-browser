@@ -7,9 +7,10 @@ static_library("browser") {
   sources = [
     "metrics_web_contents_observer.cc",
     "metrics_web_contents_observer.h",
-    "page_load_metrics_macros.h",
     "page_load_metrics_observer.cc",
     "page_load_metrics_observer.h",
+    "page_load_metrics_util.cc",
+    "page_load_metrics_util.h",
   ]
   public_deps = [
     "//content/public/browser",
@@ -17,7 +18,10 @@ static_library("browser") {
   deps = [
     "//base",
     "//components/page_load_metrics/common",
+    "//components/rappor",
     "//ipc",
+    "//net",
+    "//ui/base",
   ]
 }
 
@@ -28,6 +32,12 @@ source_set("unit_tests") {
   ]
   deps = [
     ":browser",
+    "//base",
+    "//base/test:test_support",
+    "//components/page_load_metrics/common",
+    "//components/rappor:test_support",
+    "//content/test:test_support",
+    "//net",
     "//testing/gtest",
   ]
 }

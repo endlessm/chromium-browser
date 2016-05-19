@@ -23,14 +23,13 @@ function FullWindowVideoControls(
 
   this.casting = false;
 
-  this.updateStyle();
-  window.addEventListener('resize', this.updateStyle.wrap(this));
   var currentWindow = chrome.app.window.current();
   currentWindow.onFullscreened.addListener(
       this.onFullScreenChanged.bind(this, true));
   currentWindow.onRestored.addListener(
       this.onFullScreenChanged.bind(this, false));
   document.addEventListener('keydown', function(e) {
+    this.inactivityWatcher_.kick();
     switch (util.getKeyModifiers(e) + e.keyIdentifier) {
       // Handle debug shortcut keys.
       case 'Ctrl-Shift-U+0049': // Ctrl+Shift+I
@@ -68,6 +67,9 @@ function FullWindowVideoControls(
         // TODO: Define "Stop" behavior.
         break;
     }
+  }.wrap(this));
+  document.addEventListener('keypress', function(e) {
+    this.inactivityWatcher_.kick();
   }.wrap(this));
 
   // TODO(mtomasz): Simplify. crbug.com/254318.
@@ -314,16 +316,26 @@ VideoPlayer.prototype.loadVideo_ = function(video, opt_callback) {
 
     var media = new MediaManager(video);
 
-    Promise.all([media.getThumbnail(), media.getToken(false)])
-        .then(function(results) {
-          var url = results[0];
-          var token = results[1];
-          if (url && token) {
-            getRequiredElement('thumbnail').style.backgroundImage =
-                'url(' + url + '&access_token=' + token + ')';
-          } else {
-            getRequiredElement('thumbnail').style.backgroundImage = '';
-          }
+    // Show video's thumbnail if available while loading the video.
+    media.getThumbnail()
+        .then(function(thumbnailUrl) {
+          if (!thumbnailUrl)
+            return Promise.reject();
+
+          return new Promise(function(resolve, reject) {
+            ImageLoaderClient.getInstance().load(
+                thumbnailUrl,
+                function(result) {
+                  if (result.data)
+                    resolve(result.data);
+                  else
+                    reject();
+                });
+          });
+        })
+        .then(function(dataUrl) {
+          getRequiredElement('thumbnail').style.backgroundImage =
+              'url(' + dataUrl + ')';
         })
         .catch(function() {
           // Shows no image on error.
@@ -680,8 +692,7 @@ function initStrings(callback) {
 }
 
 function initVolumeManager(callback) {
-  var volumeManager = new VolumeManagerWrapper(
-      VolumeManagerWrapper.NonNativeVolumeStatus.ENABLED);
+  var volumeManager = new VolumeManagerWrapper(AllowedPaths.ANY_PATH);
   volumeManager.ensureInitialized(callback);
 }
 

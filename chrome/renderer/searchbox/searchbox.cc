@@ -4,6 +4,9 @@
 
 #include "chrome/renderer/searchbox/searchbox.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
 #include "base/logging.h"
@@ -238,8 +241,7 @@ SearchBox::SearchBox(content::RenderView* render_view)
     is_key_capture_enabled_(false),
     display_instant_results_(false),
     most_visited_items_cache_(kMaxInstantMostVisitedItemCacheSize),
-    query_(),
-    start_margin_(0) {
+    query_() {
 }
 
 SearchBox::~SearchBox() {
@@ -252,10 +254,13 @@ void SearchBox::LogEvent(NTPLoggingEventType event) {
   base::TimeDelta delta;
   if (render_view()->GetWebView()->mainFrame()->isWebLocalFrame()) {
     // navigation_start in ms.
-    uint64 start = 1000 * (render_view()->GetMainRenderFrame()->GetWebFrame()->
-        performance().navigationStart());
-    uint64 now = (base::TimeTicks::Now() - base::TimeTicks::UnixEpoch())
-                     .InMilliseconds();
+    uint64_t start = 1000 * (render_view()
+                                 ->GetMainRenderFrame()
+                                 ->GetWebFrame()
+                                 ->performance()
+                                 .navigationStart());
+    uint64_t now = (base::TimeTicks::Now() - base::TimeTicks::UnixEpoch())
+                       .InMilliseconds();
     DCHECK(now >= start);
     delta = base::TimeDelta::FromMilliseconds(now - start);
   }
@@ -326,11 +331,9 @@ void SearchBox::Focus() {
 }
 
 void SearchBox::NavigateToURL(const GURL& url,
-                              WindowOpenDisposition disposition,
-                              bool is_most_visited_item_url) {
+                              WindowOpenDisposition disposition) {
   render_view()->Send(new ChromeViewHostMsg_SearchBoxNavigate(
-      render_view()->GetRoutingID(), page_seq_no_, url,
-      disposition, is_most_visited_item_url));
+      render_view()->GetRoutingID(), page_seq_no_, url, disposition));
 }
 
 void SearchBox::Paste(const base::string16& text) {
@@ -373,7 +376,6 @@ bool SearchBox::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(ChromeViewMsg_HistorySyncCheckResult,
                         OnHistorySyncCheckResult)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SearchBoxFocusChanged, OnFocusChanged)
-    IPC_MESSAGE_HANDLER(ChromeViewMsg_SearchBoxMarginChange, OnMarginChange)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SearchBoxMostVisitedItemsChanged,
                         OnMostVisitedChanged)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SearchBoxPromoInformation,
@@ -451,14 +453,6 @@ void SearchBox::OnHistorySyncCheckResult(bool sync_history) {
   if (render_view()->GetWebView() && render_view()->GetWebView()->mainFrame()) {
     extensions_v8::SearchBoxExtension::DispatchHistorySyncCheckResult(
         render_view()->GetWebView()->mainFrame(), sync_history);
-  }
-}
-
-void SearchBox::OnMarginChange(int margin) {
-  start_margin_ = margin;
-  if (render_view()->GetWebView() && render_view()->GetWebView()->mainFrame()) {
-    extensions_v8::SearchBoxExtension::DispatchMarginChange(
-        render_view()->GetWebView()->mainFrame());
   }
 }
 
@@ -545,7 +539,6 @@ void SearchBox::Reset() {
   query_.clear();
   embedded_search_request_params_ = EmbeddedSearchRequestParams();
   suggestion_ = InstantSuggestion();
-  start_margin_ = 0;
   is_focused_ = false;
   is_key_capture_enabled_ = false;
   theme_info_ = ThemeBackgroundInfo();

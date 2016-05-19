@@ -5,6 +5,8 @@
 #ifndef CC_PLAYBACK_CLIP_DISPLAY_ITEM_H_
 #define CC_PLAYBACK_CLIP_DISPLAY_ITEM_H_
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/memory/scoped_ptr.h"
@@ -16,23 +18,32 @@
 class SkCanvas;
 
 namespace cc {
+class ImageSerializationProcessor;
 
 class CC_EXPORT ClipDisplayItem : public DisplayItem {
  public:
-  ClipDisplayItem();
+  ClipDisplayItem(const gfx::Rect& clip_rect,
+                  const std::vector<SkRRect>& rounded_clip_rects);
+  explicit ClipDisplayItem(const proto::DisplayItem& proto);
   ~ClipDisplayItem() override;
 
-  void SetNew(gfx::Rect clip_rect,
-              const std::vector<SkRRect>& rounded_clip_rects);
-
-  void ToProtobuf(proto::DisplayItem* proto) const override;
-  void FromProtobuf(const proto::DisplayItem& proto) override;
+  void ToProtobuf(proto::DisplayItem* proto,
+                  ImageSerializationProcessor* image_serialization_processor)
+      const override;
   void Raster(SkCanvas* canvas,
               const gfx::Rect& canvas_target_playback_rect,
               SkPicture::AbortCallback* callback) const override;
-  void AsValueInto(base::trace_event::TracedValue* array) const override;
+  void AsValueInto(const gfx::Rect& visual_rect,
+                   base::trace_event::TracedValue* array) const override;
+  size_t ExternalMemoryUsage() const override;
+
+  int ApproximateOpCount() const { return 1; }
+  bool IsSuitableForGpuRasterization() const { return true; }
 
  private:
+  void SetNew(const gfx::Rect& clip_rect,
+              const std::vector<SkRRect>& rounded_clip_rects);
+
   gfx::Rect clip_rect_;
   std::vector<SkRRect> rounded_clip_rects_;
 };
@@ -40,14 +51,21 @@ class CC_EXPORT ClipDisplayItem : public DisplayItem {
 class CC_EXPORT EndClipDisplayItem : public DisplayItem {
  public:
   EndClipDisplayItem();
+  explicit EndClipDisplayItem(const proto::DisplayItem& proto);
   ~EndClipDisplayItem() override;
 
-  void ToProtobuf(proto::DisplayItem* proto) const override;
-  void FromProtobuf(const proto::DisplayItem& proto) override;
+  void ToProtobuf(proto::DisplayItem* proto,
+                  ImageSerializationProcessor* image_serialization_processor)
+      const override;
   void Raster(SkCanvas* canvas,
               const gfx::Rect& canvas_target_playback_rect,
               SkPicture::AbortCallback* callback) const override;
-  void AsValueInto(base::trace_event::TracedValue* array) const override;
+  void AsValueInto(const gfx::Rect& visual_rect,
+                   base::trace_event::TracedValue* array) const override;
+  size_t ExternalMemoryUsage() const override;
+
+  int ApproximateOpCount() const { return 0; }
+  bool IsSuitableForGpuRasterization() const { return true; }
 };
 
 }  // namespace cc

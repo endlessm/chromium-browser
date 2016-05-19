@@ -4,6 +4,7 @@
 
 #include "cc/layers/nine_patch_layer.h"
 
+#include "base/trace_event/trace_event.h"
 #include "cc/layers/nine_patch_layer_impl.h"
 #include "cc/resources/scoped_ui_resource.h"
 #include "cc/resources/ui_resource_bitmap.h"
@@ -17,8 +18,9 @@ scoped_refptr<NinePatchLayer> NinePatchLayer::Create(
 }
 
 NinePatchLayer::NinePatchLayer(const LayerSettings& settings)
-    : UIResourceLayer(settings), fill_center_(false) {
-}
+    : UIResourceLayer(settings),
+      fill_center_(false),
+      nearest_neighbor_(false) {}
 
 NinePatchLayer::~NinePatchLayer() {}
 
@@ -50,8 +52,17 @@ void NinePatchLayer::SetFillCenter(bool fill_center) {
   SetNeedsCommit();
 }
 
+void NinePatchLayer::SetNearestNeighbor(bool nearest_neighbor) {
+  if (nearest_neighbor_ == nearest_neighbor)
+    return;
+
+  nearest_neighbor_ = nearest_neighbor;
+  SetNeedsCommit();
+}
+
 void NinePatchLayer::PushPropertiesTo(LayerImpl* layer) {
   UIResourceLayer::PushPropertiesTo(layer);
+  TRACE_EVENT0("cc", "NinePatchLayer::PushPropertiesTo");
   NinePatchLayerImpl* layer_impl = static_cast<NinePatchLayerImpl*>(layer);
 
   if (!ui_resource_holder_) {
@@ -59,7 +70,8 @@ void NinePatchLayer::PushPropertiesTo(LayerImpl* layer) {
   } else {
     DCHECK(layer_tree_host());
 
-    layer_impl->SetLayout(image_aperture_, border_, fill_center_);
+    layer_impl->SetLayout(image_aperture_, border_, fill_center_,
+                          nearest_neighbor_);
   }
 }
 

@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "mojo/public/cpp/bindings/lib/connector.h"
+
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <utility>
 
 #include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "mojo/message_pump/message_pump_mojo.h"
-#include "mojo/public/cpp/bindings/lib/connector.h"
 #include "mojo/public/cpp/bindings/lib/message_builder.h"
 #include "mojo/public/cpp/bindings/tests/message_queue.h"
 #include "mojo/public/cpp/system/macros.h"
@@ -20,9 +24,15 @@ namespace {
 class MessageAccumulator : public MessageReceiver {
  public:
   MessageAccumulator() {}
+  explicit MessageAccumulator(const Closure& closure) : closure_(closure) {}
 
   bool Accept(Message* message) override {
     queue_.Push(message);
+    if (!closure_.is_null()) {
+      Closure closure = closure_;
+      closure_.reset();
+      closure.Run();
+    }
     return true;
   }
 
@@ -30,8 +40,13 @@ class MessageAccumulator : public MessageReceiver {
 
   void Pop(Message* message) { queue_.Pop(message); }
 
+  void set_closure(const Closure& closure) { closure_ = closure; }
+
+  size_t size() const { return queue_.size(); }
+
  private:
   MessageQueue queue_;
+  Closure closure_;
 };
 
 class ConnectorDeletingMessageAccumulator : public MessageAccumulator {
@@ -89,8 +104,6 @@ class ConnectorTest : public testing::Test {
     builder.message()->MoveTo(message);
   }
 
-  void PumpMessages() { loop_.RunUntilIdle(); }
-
  protected:
   ScopedMessagePipeHandle handle0_;
   ScopedMessagePipeHandle handle1_;
@@ -100,8 +113,10 @@ class ConnectorTest : public testing::Test {
 };
 
 TEST_F(ConnectorTest, Basic) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
   const char kText[] = "hello world";
 
@@ -110,10 +125,11 @@ TEST_F(ConnectorTest, Basic) {
 
   connector0.Accept(&message);
 
-  MessageAccumulator accumulator;
+  base::RunLoop run_loop;
+  MessageAccumulator accumulator(run_loop.QuitClosure());
   connector1.set_incoming_receiver(&accumulator);
 
-  PumpMessages();
+  run_loop.Run();
 
   ASSERT_FALSE(accumulator.IsEmpty());
 
@@ -126,8 +142,10 @@ TEST_F(ConnectorTest, Basic) {
 }
 
 TEST_F(ConnectorTest, Basic_Synchronous) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
   const char kText[] = "hello world";
 
@@ -152,10 +170,13 @@ TEST_F(ConnectorTest, Basic_Synchronous) {
 }
 
 TEST_F(ConnectorTest, Basic_EarlyIncomingReceiver) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
-  MessageAccumulator accumulator;
+  base::RunLoop run_loop;
+  MessageAccumulator accumulator(run_loop.QuitClosure());
   connector1.set_incoming_receiver(&accumulator);
 
   const char kText[] = "hello world";
@@ -165,7 +186,7 @@ TEST_F(ConnectorTest, Basic_EarlyIncomingReceiver) {
 
   connector0.Accept(&message);
 
-  PumpMessages();
+  run_loop.Run();
 
   ASSERT_FALSE(accumulator.IsEmpty());
 
@@ -178,8 +199,10 @@ TEST_F(ConnectorTest, Basic_EarlyIncomingReceiver) {
 }
 
 TEST_F(ConnectorTest, Basic_TwoMessages) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
   const char* kText[] = {"hello", "world"};
 
@@ -193,9 +216,12 @@ TEST_F(ConnectorTest, Basic_TwoMessages) {
   MessageAccumulator accumulator;
   connector1.set_incoming_receiver(&accumulator);
 
-  PumpMessages();
-
   for (size_t i = 0; i < MOJO_ARRAYSIZE(kText); ++i) {
+    if (accumulator.IsEmpty()) {
+      base::RunLoop run_loop;
+      accumulator.set_closure(run_loop.QuitClosure());
+      run_loop.Run();
+    }
     ASSERT_FALSE(accumulator.IsEmpty());
 
     Message message_received;
@@ -208,8 +234,10 @@ TEST_F(ConnectorTest, Basic_TwoMessages) {
 }
 
 TEST_F(ConnectorTest, Basic_TwoMessages_Synchronous) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
   const char* kText[] = {"hello", "world"};
 
@@ -238,7 +266,8 @@ TEST_F(ConnectorTest, Basic_TwoMessages_Synchronous) {
 }
 
 TEST_F(ConnectorTest, WriteToClosedPipe) {
-  internal::Connector connector0(handle0_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
   const char kText[] = "hello world";
 
@@ -259,14 +288,18 @@ TEST_F(ConnectorTest, WriteToClosedPipe) {
   EXPECT_FALSE(connector0.encountered_error());
 
   // Spin the message loop, and then we should start observing the closed pipe.
-  PumpMessages();
+  base::RunLoop run_loop;
+  connector0.set_connection_error_handler(run_loop.QuitClosure());
+  run_loop.Run();
 
   EXPECT_TRUE(connector0.encountered_error());
 }
 
 TEST_F(ConnectorTest, MessageWithHandles) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
   const char kText[] = "hello world";
 
@@ -281,10 +314,11 @@ TEST_F(ConnectorTest, MessageWithHandles) {
   // The message should have been transferred, releasing the handles.
   EXPECT_TRUE(message1.handles()->empty());
 
-  MessageAccumulator accumulator;
+  base::RunLoop run_loop;
+  MessageAccumulator accumulator(run_loop.QuitClosure());
   connector1.set_incoming_receiver(&accumulator);
 
-  PumpMessages();
+  run_loop.Run();
 
   ASSERT_FALSE(accumulator.IsEmpty());
 
@@ -304,19 +338,23 @@ TEST_F(ConnectorTest, MessageWithHandles) {
   message_received.mutable_handles()->front() = Handle();
   // |smph| now owns this handle.
 
-  internal::Connector connector_received(smph.Pass());
-  internal::Connector connector_original(pipe.handle1.Pass());
+  internal::Connector connector_received(
+      std::move(smph), internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector_original(
+      std::move(pipe.handle1), internal::Connector::SINGLE_THREADED_SEND);
 
   Message message2;
   AllocMessage(kText, &message2);
 
   connector_received.Accept(&message2);
-  connector_original.set_incoming_receiver(&accumulator);
-  PumpMessages();
+  base::RunLoop run_loop2;
+  MessageAccumulator accumulator2(run_loop2.QuitClosure());
+  connector_original.set_incoming_receiver(&accumulator2);
+  run_loop2.Run();
 
-  ASSERT_FALSE(accumulator.IsEmpty());
+  ASSERT_FALSE(accumulator2.IsEmpty());
 
-  accumulator.Pop(&message_received);
+  accumulator2.Pop(&message_received);
 
   EXPECT_EQ(
       std::string(kText),
@@ -324,15 +362,18 @@ TEST_F(ConnectorTest, MessageWithHandles) {
 }
 
 TEST_F(ConnectorTest, WaitForIncomingMessageWithError) {
-  internal::Connector connector0(handle0_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
   // Close the other end of the pipe.
   handle1_.reset();
   ASSERT_FALSE(connector0.WaitForIncomingMessage(MOJO_DEADLINE_INDEFINITE));
 }
 
 TEST_F(ConnectorTest, WaitForIncomingMessageWithDeletion) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector* connector1 = new internal::Connector(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector* connector1 = new internal::Connector(
+      std::move(handle1_), internal::Connector::SINGLE_THREADED_SEND);
 
   const char kText[] = "hello world";
 
@@ -358,8 +399,10 @@ TEST_F(ConnectorTest, WaitForIncomingMessageWithDeletion) {
 }
 
 TEST_F(ConnectorTest, WaitForIncomingMessageWithReentrancy) {
-  internal::Connector connector0(handle0_.Pass());
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
 
   const char* kText[] = {"hello", "world"};
 
@@ -373,9 +416,12 @@ TEST_F(ConnectorTest, WaitForIncomingMessageWithReentrancy) {
   ReentrantMessageAccumulator accumulator(&connector1);
   connector1.set_incoming_receiver(&accumulator);
 
-  PumpMessages();
-
   for (size_t i = 0; i < MOJO_ARRAYSIZE(kText); ++i) {
+    if (accumulator.IsEmpty()) {
+      base::RunLoop run_loop;
+      accumulator.set_closure(run_loop.QuitClosure());
+      run_loop.Run();
+    }
     ASSERT_FALSE(accumulator.IsEmpty());
 
     Message message_received;
@@ -390,15 +436,24 @@ TEST_F(ConnectorTest, WaitForIncomingMessageWithReentrancy) {
 }
 
 TEST_F(ConnectorTest, RaiseError) {
-  internal::Connector connector0(handle0_.Pass());
+  base::RunLoop run_loop, run_loop2;
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
   bool error_handler_called0 = false;
   connector0.set_connection_error_handler(
-      [&error_handler_called0]() { error_handler_called0 = true; });
+      [&error_handler_called0, &run_loop]() {
+        error_handler_called0 = true;
+        run_loop.Quit();
+      });
 
-  internal::Connector connector1(handle1_.Pass());
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
   bool error_handler_called1 = false;
   connector1.set_connection_error_handler(
-      [&error_handler_called1]() { error_handler_called1 = true; });
+      [&error_handler_called1, &run_loop2]() {
+        error_handler_called1 = true;
+        run_loop2.Quit();
+      });
 
   const char kText[] = "hello world";
 
@@ -408,10 +463,11 @@ TEST_F(ConnectorTest, RaiseError) {
   connector0.Accept(&message);
   connector0.RaiseError();
 
-  MessageAccumulator accumulator;
+  base::RunLoop run_loop3;
+  MessageAccumulator accumulator(run_loop3.QuitClosure());
   connector1.set_incoming_receiver(&accumulator);
 
-  PumpMessages();
+  run_loop3.Run();
 
   // Messages sent prior to RaiseError() still arrive at the other end.
   ASSERT_FALSE(accumulator.IsEmpty());
@@ -423,7 +479,8 @@ TEST_F(ConnectorTest, RaiseError) {
       std::string(kText),
       std::string(reinterpret_cast<const char*>(message_received.payload())));
 
-  PumpMessages();
+  run_loop.Run();
+  run_loop2.Run();
 
   // Connection error handler is called at both sides.
   EXPECT_TRUE(error_handler_called0);
@@ -436,6 +493,71 @@ TEST_F(ConnectorTest, RaiseError) {
   // The message pipe handle is valid at both sides.
   EXPECT_TRUE(connector0.is_valid());
   EXPECT_TRUE(connector1.is_valid());
+}
+
+TEST_F(ConnectorTest, PauseWithQueuedMessages) {
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+
+  const char kText[] = "hello world";
+
+  Message message;
+  AllocMessage(kText, &message);
+
+  // Queue up two messages.
+  connector0.Accept(&message);
+  connector0.Accept(&message);
+
+  base::RunLoop run_loop;
+  // Configure the accumulator such that it pauses after the first message is
+  // received.
+  MessageAccumulator accumulator([&connector1, &run_loop]() {
+    connector1.PauseIncomingMethodCallProcessing();
+    run_loop.Quit();
+  });
+  connector1.set_incoming_receiver(&accumulator);
+
+  run_loop.Run();
+
+  // As we paused after the first message we should only have gotten one
+  // message.
+  ASSERT_EQ(1u, accumulator.size());
+}
+
+TEST_F(ConnectorTest, ProcessWhenNested) {
+  internal::Connector connector0(std::move(handle0_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+  internal::Connector connector1(std::move(handle1_),
+                                 internal::Connector::SINGLE_THREADED_SEND);
+
+  const char kText[] = "hello world";
+
+  Message message;
+  AllocMessage(kText, &message);
+
+  // Queue up two messages.
+  connector0.Accept(&message);
+  connector0.Accept(&message);
+
+  base::RunLoop run_loop;
+  MessageAccumulator accumulator;
+  // When the accumulator gets the first message it spins a nested message
+  // loop. The loop is quit when another message is received.
+  accumulator.set_closure([&accumulator, &connector1, &run_loop]() {
+    base::RunLoop nested_run_loop;
+    base::MessageLoop::ScopedNestableTaskAllower allow(
+        base::MessageLoop::current());
+    accumulator.set_closure([&nested_run_loop]() { nested_run_loop.Quit(); });
+    nested_run_loop.Run();
+    run_loop.Quit();
+  });
+  connector1.set_incoming_receiver(&accumulator);
+
+  run_loop.Run();
+
+  ASSERT_EQ(2u, accumulator.size());
 }
 
 }  // namespace

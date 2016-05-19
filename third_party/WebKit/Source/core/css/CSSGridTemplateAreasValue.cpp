@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSGridTemplateAreasValue.h"
 
 #include "wtf/text/StringBuilder.h"
@@ -50,14 +49,14 @@ static String stringForPosition(const NamedGridAreaMap& gridAreaMap, size_t row,
     Vector<String> candidates;
 
     for (const auto& item : gridAreaMap) {
-        const GridCoordinate& coordinate = item.value;
-        if (row >= coordinate.rows.resolvedInitialPosition.toInt() && row <= coordinate.rows.resolvedFinalPosition.toInt())
+        const GridArea& area = item.value;
+        if (row >= area.rows.resolvedInitialPosition() && row < area.rows.resolvedFinalPosition())
             candidates.append(item.key);
     }
 
     for (const auto& item : gridAreaMap) {
-        const GridCoordinate& coordinate = item.value;
-        if (column >= coordinate.columns.resolvedInitialPosition.toInt() && column <= coordinate.columns.resolvedFinalPosition.toInt() && candidates.contains(item.key))
+        const GridArea& area = item.value;
+        if (column >= area.columns.resolvedInitialPosition() && column < area.columns.resolvedFinalPosition() && candidates.contains(item.key))
             return item.key;
     }
 

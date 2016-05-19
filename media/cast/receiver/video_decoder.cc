@@ -4,15 +4,18 @@
 
 #include "media/cast/receiver/video_decoder.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/values.h"
 #include "media/base/video_frame_pool.h"
 #include "media/base/video_util.h"
-#include "media/cast/cast_defines.h"
 #include "media/cast/cast_environment.h"
 // VPX_CODEC_DISABLE_COMPAT excludes parts of the libvpx API that provide
 // backwards compatibility for legacy applications using the library.
@@ -50,7 +53,7 @@ class VideoDecoder::ImplBase
                   "size of frame_id types do not match");
     bool is_continuous = true;
     if (seen_first_frame_) {
-      const uint32 frames_ahead = encoded_frame->frame_id - last_frame_id_;
+      const uint32_t frames_ahead = encoded_frame->frame_id - last_frame_id_;
       if (frames_ahead > 1) {
         RecoverBecauseFramesWereDropped();
         is_continuous = false;
@@ -63,6 +66,8 @@ class VideoDecoder::ImplBase
     const scoped_refptr<VideoFrame> decoded_frame = Decode(
         encoded_frame->mutable_bytes(),
         static_cast<int>(encoded_frame->data.size()));
+    decoded_frame->set_timestamp(
+        encoded_frame->rtp_timestamp.ToTimeDelta(kVideoFrequency));
 
     scoped_ptr<FrameEvent> decode_event(new FrameEvent());
     decode_event->timestamp = cast_environment_->Clock()->NowTicks();
@@ -70,7 +75,7 @@ class VideoDecoder::ImplBase
     decode_event->media_type = VIDEO_EVENT;
     decode_event->rtp_timestamp = encoded_frame->rtp_timestamp;
     decode_event->frame_id = encoded_frame->frame_id;
-    cast_environment_->logger()->DispatchFrameEvent(decode_event.Pass());
+    cast_environment_->logger()->DispatchFrameEvent(std::move(decode_event));
 
     cast_environment_->PostTask(
         CastEnvironment::MAIN,
@@ -85,7 +90,7 @@ class VideoDecoder::ImplBase
   virtual void RecoverBecauseFramesWereDropped() {}
 
   // Note: Implementation of Decode() is allowed to mutate |data|.
-  virtual scoped_refptr<VideoFrame> Decode(uint8* data, int len) = 0;
+  virtual scoped_refptr<VideoFrame> Decode(uint8_t* data, int len) = 0;
 
   const scoped_refptr<CastEnvironment> cast_environment_;
   const Codec codec_;
@@ -98,7 +103,7 @@ class VideoDecoder::ImplBase
 
  private:
   bool seen_first_frame_;
-  uint32 last_frame_id_;
+  uint32_t last_frame_id_;
 
   DISALLOW_COPY_AND_ASSIGN(ImplBase);
 };
@@ -132,7 +137,7 @@ class VideoDecoder::Vp8Impl : public VideoDecoder::ImplBase {
       CHECK_EQ(VPX_CODEC_OK, vpx_codec_destroy(&context_));
   }
 
-  scoped_refptr<VideoFrame> Decode(uint8* data, int len) final {
+  scoped_refptr<VideoFrame> Decode(uint8_t* data, int len) final {
     if (len <= 0 || vpx_codec_decode(&context_,
                                      data,
                                      static_cast<unsigned int>(len),
@@ -194,7 +199,7 @@ class VideoDecoder::FakeImpl : public VideoDecoder::ImplBase {
  private:
   ~FakeImpl() final {}
 
-  scoped_refptr<VideoFrame> Decode(uint8* data, int len) final {
+  scoped_refptr<VideoFrame> Decode(uint8_t* data, int len) final {
     // Make sure this is a JSON string.
     if (!len || data[0] != '{')
       return NULL;

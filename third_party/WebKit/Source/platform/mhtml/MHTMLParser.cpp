@@ -28,12 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/mhtml/MHTMLParser.h"
 
-#include "platform/MIMETypeRegistry.h"
 #include "platform/mhtml/ArchiveResource.h"
-#include "platform/mhtml/MHTMLArchive.h"
 #include "platform/network/ParsedContentType.h"
 #include "platform/text/QuotedPrintable.h"
 #include "wtf/HashMap.h"
@@ -209,28 +206,30 @@ MHTMLParser::MHTMLParser(SharedBuffer* data)
 {
 }
 
-PassRefPtrWillBeRawPtr<MHTMLArchive> MHTMLParser::parseArchive()
+WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>> MHTMLParser::parseArchive()
 {
     RefPtrWillBeRawPtr<MIMEHeader> header = MIMEHeader::parseHeader(&m_lineReader);
-    return parseArchiveWithHeader(header.get());
+    WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>> resources;
+    if (!parseArchiveWithHeader(header.get(), resources))
+        resources.clear();
+    return resources;
 }
 
-PassRefPtrWillBeRawPtr<MHTMLArchive> MHTMLParser::parseArchiveWithHeader(MIMEHeader* header)
+bool MHTMLParser::parseArchiveWithHeader(MIMEHeader* header, WillBeHeapVector<RefPtrWillBeMember<ArchiveResource>>& resources)
 {
     if (!header) {
         WTF_LOG_ERROR("Failed to parse MHTML part: no header.");
-        return nullptr;
+        return false;
     }
 
-    RefPtrWillBeRawPtr<MHTMLArchive> archive = MHTMLArchive::create();
     if (!header->isMultipart()) {
         // With IE a page with no resource is not multi-part.
         bool endOfArchiveReached = false;
         RefPtrWillBeRawPtr<ArchiveResource> resource = parseNextPart(*header, String(), String(), endOfArchiveReached);
         if (!resource)
-            return nullptr;
-        archive->setMainResource(resource);
-        return archive;
+            return false;
+        resources.append(resource);
+        return true;
     }
 
     // Skip the message content (it's a generic browser specific message).
@@ -241,54 +240,29 @@ PassRefPtrWillBeRawPtr<MHTMLArchive> MHTMLParser::parseArchiveWithHeader(MIMEHea
         RefPtrWillBeRawPtr<MIMEHeader> resourceHeader = MIMEHeader::parseHeader(&m_lineReader);
         if (!resourceHeader) {
             WTF_LOG_ERROR("Failed to parse MHTML, invalid MIME header.");
-            return nullptr;
+            return false;
         }
         if (resourceHeader->contentType() == "multipart/alternative") {
             // Ignore IE nesting which makes little sense (IE seems to nest only some of the frames).
-            RefPtrWillBeRawPtr<MHTMLArchive> subframeArchive = parseArchiveWithHeader(resourceHeader.get());
-            if (!subframeArchive) {
+            if (!parseArchiveWithHeader(resourceHeader.get(), resources)) {
                 WTF_LOG_ERROR("Failed to parse MHTML subframe.");
-                return nullptr;
+                return false;
             }
             bool endOfPartReached = skipLinesUntilBoundaryFound(m_lineReader, header->endOfPartBoundary());
             ASSERT_UNUSED(endOfPartReached, endOfPartReached);
-            // The top-frame is the first frame found, regardless of the nesting level.
-            if (subframeArchive->mainResource())
-                addResourceToArchive(subframeArchive->mainResource(), archive.get());
-            archive->addSubframeArchive(subframeArchive);
             continue;
         }
 
         RefPtrWillBeRawPtr<ArchiveResource> resource = parseNextPart(*resourceHeader, header->endOfPartBoundary(), header->endOfDocumentBoundary(), endOfArchive);
         if (!resource) {
             WTF_LOG_ERROR("Failed to parse MHTML part.");
-            return nullptr;
+            return false;
         }
-        addResourceToArchive(resource.get(), archive.get());
+        resources.append(resource);
     }
-
-    return archive.release();
+    return true;
 }
 
-void MHTMLParser::addResourceToArchive(ArchiveResource* resource, MHTMLArchive* archive)
-{
-    const AtomicString& mimeType = resource->mimeType();
-    if (!MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType) || MIMETypeRegistry::isSupportedJavaScriptMIMEType(mimeType) || mimeType == "text/css") {
-        m_resources.append(resource);
-        return;
-    }
-
-    // The first document suitable resource is the main frame.
-    if (!archive->mainResource()) {
-        archive->setMainResource(resource);
-        m_frames.append(archive);
-        return;
-    }
-
-    RefPtrWillBeRawPtr<MHTMLArchive> subframe = MHTMLArchive::create();
-    subframe->setMainResource(resource);
-    m_frames.append(subframe);
-}
 
 PassRefPtrWillBeRawPtr<ArchiveResource> MHTMLParser::parseNextPart(const MIMEHeader& mimeHeader, const String& endOfPartBoundary, const String& endOfDocumentBoundary, bool& endOfArchiveReached)
 {
@@ -342,7 +316,7 @@ PassRefPtrWillBeRawPtr<ArchiveResource> MHTMLParser::parseNextPart(const MIMEHea
             content->append(line.utf8().data(), line.length());
             if (contentTransferEncoding == MIMEHeader::QuotedPrintable) {
                 // The line reader removes the \r\n, but we need them for the content in this case as the QuotedPrintable decoder expects CR-LF terminated lines.
-                content->append("\r\n", 2);
+                content->append("\r\n", 2u);
             }
         }
     }
@@ -377,27 +351,29 @@ PassRefPtrWillBeRawPtr<ArchiveResource> MHTMLParser::parseNextPart(const MIMEHea
     // IE and Firefox (UNMht) seem to generate only absolute URLs.
     KURL location = KURL(KURL(), mimeHeader.contentLocation());
     return ArchiveResource::create(
-        contentBuffer, location, mimeHeader.contentID(), AtomicString(mimeHeader.contentType()), AtomicString(mimeHeader.charset()), String());
+        contentBuffer, location, mimeHeader.contentID(), AtomicString(mimeHeader.contentType()), AtomicString(mimeHeader.charset()));
 }
 
-size_t MHTMLParser::frameCount() const
+// static
+KURL MHTMLParser::convertContentIDToURI(const String& contentID)
 {
-    return m_frames.size();
-}
+    // This function is based primarily on an example from rfc2557 in section
+    // 9.5, but also based on more normative parts of specs like:
+    // - rfc2557 - MHTML - section 8.3 - "Use of the Content-ID header and CID URLs"
+    // - rfc1738 - URL - section 4 (reserved scheme names;  includes "cid")
+    // - rfc2387 - multipart/related - section 3.4 - "Syntax" (cid := msg-id)
+    // - rfc0822 - msg-id = "<" addr-spec ">"; addr-spec = local-part "@" domain
 
-MHTMLArchive* MHTMLParser::frameAt(size_t index) const
-{
-    return m_frames[index].get();
-}
+    if (contentID.length() <= 2)
+        return KURL();
 
-size_t MHTMLParser::subResourceCount() const
-{
-    return m_resources.size();
-}
+    if (!contentID.startsWith('<') || !contentID.endsWith('>'))
+        return KURL();
 
-ArchiveResource* MHTMLParser::subResourceAt(size_t index) const
-{
-    return m_resources[index].get();
+    StringBuilder uriBuilder;
+    uriBuilder.append("cid:");
+    uriBuilder.append(contentID, 1, contentID.length() - 2);
+    return KURL(KURL(), uriBuilder.toString());
 }
 
 } // namespace blink

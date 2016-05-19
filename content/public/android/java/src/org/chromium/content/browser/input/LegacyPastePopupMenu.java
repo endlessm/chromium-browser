@@ -14,6 +14,7 @@ import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
 import android.widget.PopupWindow;
+import android.widget.PopupWindow.OnDismissListener;
 
 /**
  * Paste popup implementation based on TextView.PastePopupMenu.
@@ -33,10 +34,11 @@ public class LegacyPastePopupMenu implements OnClickListener, PastePopupMenu {
     private final int mLineOffsetY;
     private final int mWidthOffsetX;
 
-    public LegacyPastePopupMenu(View parent, PastePopupMenuDelegate delegate) {
+    public LegacyPastePopupMenu(
+            Context context, View parent, final PastePopupMenuDelegate delegate) {
         mParent = parent;
         mDelegate = delegate;
-        mContext = parent.getContext();
+        mContext = context;
         mContainer = new PopupWindow(mContext, null, android.R.attr.textSelectHandleWindowStyle);
         mContainer.setSplitTouchEnabled(true);
         mContainer.setClippingEnabled(false);
@@ -44,6 +46,12 @@ public class LegacyPastePopupMenu implements OnClickListener, PastePopupMenu {
 
         mContainer.setWidth(ViewGroup.LayoutParams.WRAP_CONTENT);
         mContainer.setHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
+        mContainer.setOnDismissListener(new OnDismissListener() {
+            @Override
+            public void onDismiss() {
+                delegate.onDismiss();
+            }
+        });
 
         final int[] popupLayoutAttrs = {
                 android.R.attr.textEditPasteWindowLayout,

@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_suite.h"
@@ -16,6 +16,8 @@
 #if defined(USE_AURA)
 #include "ui/aura/env.h"
 #endif
+
+namespace views {
 
 class ViewTestSuite : public base::TestSuite {
  public:
@@ -47,10 +49,12 @@ class ViewTestSuite : public base::TestSuite {
   DISALLOW_COPY_AND_ASSIGN(ViewTestSuite);
 };
 
-int main(int argc, char** argv) {
+int RunAllUnittests(int argc, char** argv) {
   ViewTestSuite test_suite(argc, argv);
 
   return base::LaunchUnitTests(
       argc, argv, base::Bind(&ViewTestSuite::Run,
                              base::Unretained(&test_suite)));
 }
+
+}  // namespace views

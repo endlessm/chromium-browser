@@ -4,26 +4,21 @@
 
 #include "chrome/browser/prefs/chrome_pref_service_factory.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/default_pref_store.h"
-#include "base/prefs/json_pref_store.h"
-#include "base/prefs/pref_filter.h"
-#include "base/prefs/pref_notifier_impl.h"
-#include "base/prefs/pref_registry.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/pref_store.h"
-#include "base/prefs/pref_value_store.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/chrome_pref_model_associator_client.h"
 #include "chrome/browser/prefs/command_line_pref_store.h"
@@ -37,6 +32,15 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/component_updater/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/default_pref_store.h"
+#include "components/prefs/json_pref_store.h"
+#include "components/prefs/pref_filter.h"
+#include "components/prefs/pref_notifier_impl.h"
+#include "components/prefs/pref_registry.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/pref_store.h"
+#include "components/prefs/pref_value_store.h"
 #include "components/search_engines/default_search_manager.h"
 #include "components/search_engines/default_search_pref_migration.h"
 #include "components/search_engines/search_engines_pref_names.h"
@@ -166,12 +170,6 @@ const PrefHashFilter::TrackedPreferenceMetadata kTrackedPrefs[] = {
     PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
     PrefHashFilter::VALUE_IMPERSONAL
   },
-  {
-    13, prefs::kProfileResetPromptMementoInProfilePrefs,
-    PrefHashFilter::ENFORCE_ON_LOAD,
-    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
-    PrefHashFilter::VALUE_IMPERSONAL
-  },
 #endif
   {
     14, DefaultSearchManager::kDefaultSearchProviderDataPrefName,
@@ -195,12 +193,8 @@ const PrefHashFilter::TrackedPreferenceMetadata kTrackedPrefs[] = {
     PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
     PrefHashFilter::VALUE_IMPERSONAL
   },
-  {
-    17, sync_driver::prefs::kSyncRemainingRollbackTries,
-    PrefHashFilter::ENFORCE_ON_LOAD,
-    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
-    PrefHashFilter::VALUE_IMPERSONAL
-  },
+  // kSyncRemainingRollbackTries is deprecated and will be removed a few
+  // releases after M50.
   {
     18, prefs::kSafeBrowsingIncidentsSent,
     PrefHashFilter::ENFORCE_ON_LOAD,
@@ -233,6 +227,12 @@ const PrefHashFilter::TrackedPreferenceMetadata kTrackedPrefs[] = {
 #endif
   {
     23, prefs::kGoogleServicesAccountId,
+    PrefHashFilter::ENFORCE_ON_LOAD,
+    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
+    PrefHashFilter::VALUE_PERSONAL
+  },
+  {
+    24, prefs::kGoogleServicesLastAccountId,
     PrefHashFilter::ENFORCE_ON_LOAD,
     PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
     PrefHashFilter::VALUE_PERSONAL
@@ -529,7 +529,7 @@ scoped_ptr<syncable_prefs::PrefServiceSyncable> CreateProfilePrefs(
 
   ConfigureDefaultSearchPrefMigrationToDictionaryValue(pref_service.get());
 
-  return pref_service.Pass();
+  return pref_service;
 }
 
 void DisableDomainCheckForTesting() {

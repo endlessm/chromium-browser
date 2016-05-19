@@ -7,10 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "__cxxabi_config.h"
+
 #include "abort_message.h"
 #include "config.h"
 
-#if !LIBCXXABI_SINGLE_THREADED
+#if !LIBCXXABI_HAS_NO_THREADS
 #  include <pthread.h>
 #endif
 #include <stdint.h>
@@ -31,7 +33,7 @@ namespace __cxxabiv1
 namespace
 {
 
-#if __arm__
+#ifdef __arm__
 
 // A 32-bit, 4-byte-aligned static data value. The least significant 2 bits must
 // be statically initialized to 0.
@@ -62,7 +64,7 @@ void set_initialized(guard_type* guard_object) {
 
 #endif
 
-#if !LIBCXXABI_SINGLE_THREADED
+#if !LIBCXXABI_HAS_NO_THREADS
 pthread_mutex_t guard_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t  guard_cv  = PTHREAD_COND_INITIALIZER;
 #endif
@@ -166,27 +168,23 @@ set_lock(uint32_t& x, lock_type y)
 extern "C"
 {
 
-#if LIBCXXABI_SINGLE_THREADED
-int __cxa_guard_acquire(guard_type* guard_object)
-{
+#if LIBCXXABI_HAS_NO_THREADS
+_LIBCXXABI_FUNC_VIS int __cxa_guard_acquire(guard_type *guard_object) {
     return !is_initialized(guard_object);
 }
 
-void __cxa_guard_release(guard_type* guard_object)
-{
+_LIBCXXABI_FUNC_VIS void __cxa_guard_release(guard_type *guard_object) {
     *guard_object = 0;
     set_initialized(guard_object);
 }
 
-void __cxa_guard_abort(guard_type* guard_object)
-{
+_LIBCXXABI_FUNC_VIS void __cxa_guard_abort(guard_type *guard_object) {
     *guard_object = 0;
 }
 
-#else // !LIBCXXABI_SINGLE_THREADED
+#else // !LIBCXXABI_HAS_NO_THREADS
 
-int __cxa_guard_acquire(guard_type* guard_object)
-{
+_LIBCXXABI_FUNC_VIS int __cxa_guard_acquire(guard_type *guard_object) {
     char* initialized = (char*)guard_object;
     if (pthread_mutex_lock(&guard_mut))
         abort_message("__cxa_guard_acquire failed to acquire mutex");
@@ -227,8 +225,7 @@ int __cxa_guard_acquire(guard_type* guard_object)
     return result;
 }
 
-void __cxa_guard_release(guard_type* guard_object)
-{
+_LIBCXXABI_FUNC_VIS void __cxa_guard_release(guard_type *guard_object) {
     if (pthread_mutex_lock(&guard_mut))
         abort_message("__cxa_guard_release failed to acquire mutex");
     *guard_object = 0;
@@ -239,8 +236,7 @@ void __cxa_guard_release(guard_type* guard_object)
         abort_message("__cxa_guard_release failed to broadcast condition variable");
 }
 
-void __cxa_guard_abort(guard_type* guard_object)
-{
+_LIBCXXABI_FUNC_VIS void __cxa_guard_abort(guard_type *guard_object) {
     if (pthread_mutex_lock(&guard_mut))
         abort_message("__cxa_guard_abort failed to acquire mutex");
     *guard_object = 0;
@@ -250,7 +246,7 @@ void __cxa_guard_abort(guard_type* guard_object)
         abort_message("__cxa_guard_abort failed to broadcast condition variable");
 }
 
-#endif // !LIBCXXABI_SINGLE_THREADED
+#endif // !LIBCXXABI_HAS_NO_THREADS
 
 }  // extern "C"
 

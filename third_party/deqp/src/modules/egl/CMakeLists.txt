@@ -5,6 +5,8 @@ set(DEQP_EGL_SRCS
 	teglAndroidUtil.hpp
 	teglApiCase.cpp
 	teglApiCase.hpp
+	teglBufferAgeTests.hpp
+	teglBufferAgeTests.cpp
 	teglChooseConfigReference.cpp
 	teglChooseConfigReference.hpp
 	teglChooseConfigTests.cpp
@@ -39,6 +41,10 @@ set(DEQP_EGL_SRCS
 	teglInfoTests.hpp
 	teglNegativeApiTests.cpp
 	teglNegativeApiTests.hpp
+	teglPartialUpdateTests.cpp
+	teglPartialUpdateTests.hpp
+	teglNegativePartialUpdateTests.cpp
+	teglNegativePartialUpdateTests.hpp
 	teglRenderCase.cpp
 	teglRenderCase.hpp
 	teglRenderTests.cpp
@@ -83,6 +89,8 @@ set(DEQP_EGL_SRCS
 	teglNativeCoordMappingTests.cpp
 	teglResizeTests.hpp
 	teglResizeTests.cpp
+	teglSwapBuffersWithDamageTests.hpp
+	teglSwapBuffersWithDamageTests.cpp
 	)
 
 set(DEQP_EGL_LIBS

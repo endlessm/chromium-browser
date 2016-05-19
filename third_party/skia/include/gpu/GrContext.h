@@ -15,9 +15,11 @@
 #include "GrRenderTarget.h"
 #include "GrTextureProvider.h"
 #include "SkMatrix.h"
-#include "../private/SkMutex.h"
 #include "SkPathEffect.h"
 #include "SkTypes.h"
+#include "../private/GrAuditTrail.h"
+#include "../private/GrSingleOwner.h"
+#include "../private/SkMutex.h"
 
 struct GrBatchAtlasConfig;
 class GrBatchFontCache;
@@ -41,6 +43,7 @@ class GrTextContext;
 class GrTextureParams;
 class GrVertexBuffer;
 class GrStrokeInfo;
+class GrSwizzle;
 class SkTraceMemoryDump;
 
 class SK_API GrContext : public SkRefCnt {
@@ -275,24 +278,17 @@ public:
      * @param src           the surface to copy from.
      * @param srcRect       the rectangle of the src that should be copied.
      * @param dstPoint      the translation applied when writing the srcRect's pixels to the dst.
-     * @param pixelOpsFlags see PixelOpsFlags enum above. (kUnpremul_PixelOpsFlag is not allowed).
      */
-    void copySurface(GrSurface* dst,
+    bool copySurface(GrSurface* dst,
                      GrSurface* src,
                      const SkIRect& srcRect,
-                     const SkIPoint& dstPoint,
-                     uint32_t pixelOpsFlags = 0);
+                     const SkIPoint& dstPoint);
 
     /** Helper that copies the whole surface but fails when the two surfaces are not identically
         sized. */
     bool copySurface(GrSurface* dst, GrSurface* src) {
-        if (NULL == dst || NULL == src || dst->width() != src->width() ||
-            dst->height() != src->height()) {
-            return false;
-        }
-        this->copySurface(dst, src, SkIRect::MakeWH(dst->width(), dst->height()),
-                          SkIPoint::Make(0,0));
-        return true;
+        return this->copySurface(dst, src, SkIRect::MakeWH(dst->width(), dst->height()),
+                                 SkIPoint::Make(0,0));
     }
 
     /**
@@ -328,14 +324,19 @@ public:
     GrResourceCache* getResourceCache() { return fResourceCache; }
 
     // Called by tests that draw directly to the context via GrDrawTarget
-    void getTestTarget(GrTestTarget*);
+    void getTestTarget(GrTestTarget*, GrRenderTarget* rt);
+
+    /** Reset GPU stats */
+    void resetGpuStats() const ;
 
     /** Prints cache stats to the string if GR_CACHE_STATS == 1. */
     void dumpCacheStats(SkString*) const;
+    void dumpCacheStatsKeyValuePairs(SkTArray<SkString>* keys, SkTArray<double>* values) const;
     void printCacheStats() const;
 
     /** Prints GPU stats to the string if GR_GPU_STATS == 1. */
     void dumpGpuStats(SkString*) const;
+    void dumpGpuStatsKeyValuePairs(SkTArray<SkString>* keys, SkTArray<double>* values) const;
     void printGpuStats() const;
 
     /** Specify the TextBlob cache limit. If the current cache exceeds this limit it will purge.
@@ -349,9 +350,13 @@ public:
     /** Enumerates all cached GPU resources and dumps their memory to traceMemoryDump. */
     void dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const;
 
-    /** Draw font cache texture to render target */
-    void drawFontCache(const SkRect& rect, GrMaskFormat format, const SkPaint& paint,
-                       GrRenderTarget* target);
+    /** Get pointer to atlas texture for given mask format */
+    GrTexture* getFontAtlasTexture(GrMaskFormat format);
+
+    GrAuditTrail* getAuditTrail() { return &fAuditTrail; }
+
+    /** This is only useful for debug purposes */
+    SkDEBUGCODE(GrSingleOwner* debugSingleOwner() const { return &fSingleOwner; } )
 
 private:
     GrGpu*                          fGpu;
@@ -386,6 +391,11 @@ private:
     SkMutex                         fReadPixelsMutex;
     SkMutex                         fTestPMConversionsMutex;
 
+    // In debug builds we guard against improper thread handling
+    // This guard is passed to the GrDrawingManager and, from there to all the
+    // GrDrawContexts.  It is also passed to the GrTextureProvider and SkGpuDevice.
+    mutable GrSingleOwner fSingleOwner;
+
     struct CleanUpData {
         PFCleanUpFunc fFunc;
         void*         fInfo;
@@ -397,6 +407,8 @@ private:
 
     SkAutoTDelete<GrDrawingManager> fDrawingManager;
 
+    GrAuditTrail                    fAuditTrail;
+
     // TODO: have the CMM use drawContexts and rm this friending
     friend class GrClipMaskManager; // the CMM is friended just so it can call 'drawingManager'
     friend class GrDrawingManager;  // for access to drawingManager for ProgramUnitTest
@@ -406,16 +418,16 @@ private:
     bool init(GrBackend, GrBackendContext, const GrContextOptions& options);
 
     void initMockContext();
-    void initCommon();
+    void initCommon(const GrContextOptions&);
 
     /**
      * These functions create premul <-> unpremul effects if it is possible to generate a pair
      * of effects that make a readToUPM->writeToPM->readToUPM cycle invariant. Otherwise, they
-     * return NULL.
+     * return NULL. They also can perform a swizzle as part of the draw.
      */
-    const GrFragmentProcessor* createPMToUPMEffect(GrTexture*, bool swapRAndB,
+    const GrFragmentProcessor* createPMToUPMEffect(GrTexture*, const GrSwizzle&,
                                                    const SkMatrix&) const;
-    const GrFragmentProcessor* createUPMToPMEffect(GrTexture*, bool swapRAndB,
+    const GrFragmentProcessor* createUPMToPMEffect(GrTexture*, const GrSwizzle&,
                                                    const SkMatrix&) const;
     /** Called before either of the above two functions to determine the appropriate fragment
         processors for conversions. This must be called by readSurfacePixels before a mutex is

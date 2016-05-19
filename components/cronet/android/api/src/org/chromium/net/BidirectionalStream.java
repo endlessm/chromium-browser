@@ -4,6 +4,10 @@
 
 package org.chromium.net;
 
+import android.support.annotation.IntDef;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -40,6 +44,8 @@ public abstract class BidirectionalStream {
 
         // HTTP method for the request. Default to POST.
         private String mHttpMethod = "POST";
+        // Priority of the stream. Default is medium.
+        @StreamPriority private int mPriority = STREAM_PRIORITY_MEDIUM;
 
         /**
          * Creates a builder for {@link BidirectionalStream} objects. All callbacks for
@@ -82,7 +88,7 @@ public abstract class BidirectionalStream {
          */
         public Builder setHttpMethod(String method) {
             if (method == null) {
-                throw new NullPointerException("Invalid method name.");
+                throw new NullPointerException("Method is required.");
             }
             mHttpMethod = method;
             return this;
@@ -107,6 +113,52 @@ public abstract class BidirectionalStream {
             return this;
         }
 
+        /** @deprecated not really deprecated but hidden. */
+        @IntDef({
+                STREAM_PRIORITY_IDLE, STREAM_PRIORITY_LOWEST, STREAM_PRIORITY_LOW,
+                STREAM_PRIORITY_MEDIUM, STREAM_PRIORITY_HIGHEST,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        @SuppressWarnings("DepAnn")
+        public @interface StreamPriority {}
+
+        /**
+         * Lowest stream priority. Passed to {@link #setPriority}.
+         */
+        public static final int STREAM_PRIORITY_IDLE = 0;
+        /**
+         * Very low stream priority. Passed to {@link #setPriority}.
+         */
+        public static final int STREAM_PRIORITY_LOWEST = 1;
+        /**
+         * Low stream priority. Passed to {@link #setPriority}.
+         */
+        public static final int STREAM_PRIORITY_LOW = 2;
+        /**
+         * Medium stream priority. Passed to {@link #setPriority}. This is the
+         * default priority given to the stream.
+         */
+        public static final int STREAM_PRIORITY_MEDIUM = 3;
+        /**
+         * Highest stream priority. Passed to {@link #setPriority}.
+         */
+        public static final int STREAM_PRIORITY_HIGHEST = 4;
+
+        /**
+         * Sets priority of the stream which should be one of the
+         * {@link #STREAM_PRIORITY_IDLE STREAM_PRIORITY_*} values.
+         * The stream is given {@link #STREAM_PRIORITY_MEDIUM} priority if {@link
+         * #setPriority} is not called.
+         *
+         * @param priority priority of the stream which should be one of the
+         *         {@link #STREAM_PRIORITY_IDLE STREAM_PRIORITY_*} values.
+         * @return the builder to facilitate chaining.
+         */
+        public Builder setPriority(@StreamPriority int priority) {
+            mPriority = priority;
+            return this;
+        }
+
         /**
          * Creates a {@link BidirectionalStream} using configuration from this
          * {@link Builder}. The returned {@code BidirectionalStream} can then be started
@@ -117,7 +169,7 @@ public abstract class BidirectionalStream {
          */
         public BidirectionalStream build() {
             return mCronetEngine.createBidirectionalStream(
-                    mUrl, mCallback, mExecutor, mHttpMethod, mRequestHeaders);
+                    mUrl, mCallback, mExecutor, mHttpMethod, mRequestHeaders, mPriority);
         }
     }
 
@@ -209,8 +261,8 @@ public abstract class BidirectionalStream {
         /**
          * Invoked if the stream failed for any reason after {@link BidirectionalStream#start}.
          * <a href="https://tools.ietf.org/html/rfc7540#section-7">HTTP/2 error codes</a> are
-         * mapped to {@link CronetException#netError} codes. Once invoked, no further
-         * {@link BidirectionalStream.Callback} methods will be invoked.
+         * mapped to {@link UrlRequestException#getCronetInternalErrorCode} codes. Once invoked,
+         * no further {@link BidirectionalStream.Callback} methods will be invoked.
          *
          * @param stream the stream which has failed
          * @param info the response information. May be {@code null} if no response was
@@ -256,8 +308,7 @@ public abstract class BidirectionalStream {
 
     /**
      * Starts the stream, all callbacks go to the {@code callback} argument passed to {@link
-     * BidirectionalStream.Builder#BidirectionalStream.Builder BidirectionalStream.Builder()}.
-     * Should only be called once.
+     * BidirectionalStream.Builder}'s constructor. Should only be called once.
      */
     public abstract void start();
 

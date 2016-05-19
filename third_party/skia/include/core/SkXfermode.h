@@ -18,6 +18,9 @@ class GrTexture;
 class GrXPFactory;
 class SkString;
 
+struct SkPM4f;
+typedef SkPM4f (*SkXfermodeProc4f)(const SkPM4f& src, const SkPM4f& dst);
+
 /** \class SkXfermode
  *
  *  SkXfermode is the base class for objects that are called to implement custom
@@ -144,6 +147,9 @@ public:
         porter-duff transfer mode.
      */
     static SkXfermodeProc GetProc(Mode mode);
+    static SkXfermodeProc4f GetProc4f(Mode);
+
+    virtual SkXfermodeProc4f getProc4f() const;
 
     /**
      *  If the specified mode can be represented by a pair of Coeff, then return
@@ -193,33 +199,54 @@ public:
      */
     static bool IsOpaque(const SkXfermode* xfer, SrcColorOpacity opacityType);
 
-    /** Used to do in-shader blending between two colors computed in the shader via a
-        GrFragmentProcessor. The input to the returned FP is the src color. The dst color is
-        provided by the dst param which becomes a child FP of the returned FP. If the params are
-        null then this is just a query of whether the SkXfermode could support this functionality.
-        It is legal for the function to succeed but return a null output. This indicates that
+#if SK_SUPPORT_GPU
+    /** Used by the SkXfermodeImageFilter to blend two colors via a GrFragmentProcessor.
+        The input to the returned FP is the src color. The dst color is
+        provided by the dst param which becomes a child FP of the returned FP. 
+        It is legal for the function to return a null output. This indicates that
         the output of the blend is simply the src color.
      */
-    virtual bool asFragmentProcessor(const GrFragmentProcessor** output,
-                                     const GrFragmentProcessor* dst) const;
+    virtual const GrFragmentProcessor* getFragmentProcessorForImageFilter(
+                                                            const GrFragmentProcessor* dst) const;
 
-    /** A subclass may implement this factory function to work with the GPU backend. It is legal
-        to call this with xpf NULL to simply test the return value. If xpf is non-NULL then the
-        xfermode may optionally allocate a factory to return to the caller as *xpf. The caller
-        will install it and own a ref to it. Since the xfermode may or may not assign *xpf, the
-        caller should set *xpf to NULL beforehand. XferProcessors cannot use a background texture.
-     */
-    virtual bool asXPFactory(GrXPFactory** xpf) const;
-
-    /** Returns true if the xfermode can be expressed as an xfer processor factory (xpFactory).
-        This helper calls the asXPFactory() virtual. If the xfermode is NULL, it is treated as
-        kSrcOver_Mode. It is legal to call this with xpf param NULL to simply test the return value.
-     */
-    static bool AsXPFactory(SkXfermode*, GrXPFactory**);
+    /** A subclass must implement this factory function to work with the GPU backend. 
+        The xfermode will return a factory for which the caller will get a ref. It is up 
+        to the caller to install it. XferProcessors cannot use a background texture.
+      */
+    virtual GrXPFactory* asXPFactory() const;
+#endif
 
     SK_TO_STRING_PUREVIRT()
     SK_DECLARE_FLATTENABLE_REGISTRAR_GROUP()
     SK_DEFINE_FLATTENABLE_TYPE(SkXfermode)
+
+    enum D32Flags {
+        kSrcIsOpaque_D32Flag  = 1 << 0,
+        kSrcIsSingle_D32Flag  = 1 << 1,
+        kDstIsSRGB_D32Flag    = 1 << 2,
+    };
+    typedef void (*D32Proc)(const SkXfermode*, uint32_t dst[], const SkPM4f src[],
+                            int count, const SkAlpha coverage[]);
+    static D32Proc GetD32Proc(SkXfermode*, uint32_t flags);
+
+    enum D64Flags {
+        kSrcIsOpaque_D64Flag  = 1 << 0,
+        kSrcIsSingle_D64Flag  = 1 << 1,
+        kDstIsFloat16_D64Flag = 1 << 2, // else U16 bit components
+    };
+    typedef void (*D64Proc)(const SkXfermode*, uint64_t dst[], const SkPM4f src[], int count,
+                            const SkAlpha coverage[]);
+    static D64Proc GetD64Proc(SkXfermode*, uint32_t flags);
+
+    enum LCDFlags {
+        kSrcIsOpaque_LCDFlag    = 1 << 0,   // else src(s) may have alpha < 1
+        kSrcIsSingle_LCDFlag    = 1 << 1,   // else src[count]
+        kDstIsLinearInt_LCDFlag = 1 << 2,   // else srgb/half-float
+    };
+    typedef void (*LCD32Proc)(uint32_t* dst, const SkPM4f* src, int count, const uint16_t lcd[]);
+    typedef void (*LCD64Proc)(uint64_t* dst, const SkPM4f* src, int count, const uint16_t lcd[]);
+    static LCD32Proc GetLCD32Proc(uint32_t flags);
+    static LCD64Proc GetLCD64Proc(uint32_t) { return nullptr; }
 
 protected:
     SkXfermode() {}
@@ -232,6 +259,9 @@ protected:
         be implemented if your subclass has overridden xfer32/xfer16/xferA8
     */
     virtual SkPMColor xferColor(SkPMColor src, SkPMColor dst) const;
+
+    virtual D32Proc onGetD32Proc(uint32_t flags) const;
+    virtual D64Proc onGetD64Proc(uint32_t flags) const;
 
 private:
     enum {

@@ -5,6 +5,8 @@
 #ifndef EXTENSIONS_COMMON_PERMISSIONS_SET_DISJUNCTION_PERMISSION_H_
 #define EXTENSIONS_COMMON_PERMISSIONS_SET_DISJUNCTION_PERMISSION_H_
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
 
@@ -103,9 +105,14 @@ class SetDisjunctionPermission : public APIPermission {
     data_set_.clear();
     const base::ListValue* list = NULL;
 
-    if (!value || !value->GetAsList(&list) || list->GetSize() == 0) {
+    if (!value) {
+      // treat null as an empty list.
+      return true;
+    }
+
+    if (!value->GetAsList(&list)) {
       if (error)
-        *error = "NULL or empty permission list";
+        *error = "Cannot parse the permission list. It's not a list.";
       return false;
     }
 
@@ -145,11 +152,9 @@ class SetDisjunctionPermission : public APIPermission {
     return scoped_ptr<base::Value>(list);
   }
 
-  void Write(IPC::Message* m) const override {
-    IPC::WriteParam(m, data_set_);
-  }
+  void Write(base::Pickle* m) const override { IPC::WriteParam(m, data_set_); }
 
-  bool Read(const IPC::Message* m, base::PickleIterator* iter) override {
+  bool Read(const base::Pickle* m, base::PickleIterator* iter) override {
     return IPC::ReadParam(m, iter, &data_set_);
   }
 

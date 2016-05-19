@@ -1,33 +1,7 @@
 #!/usr/bin/python
-#
-# Copyright 2008, Google Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
-#
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright 2008 The Native Client Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 
 
 
@@ -54,7 +28,6 @@ class Stats:
     self._sum_x = 0.0
     self._sum_x_squared = 0.0
     self._n = 0
-  # enddef
 
   def Enter(self, val):
     """Enter a new value.
@@ -65,33 +38,27 @@ class Stats:
     self._sum_x += val
     self._sum_x_squared += val * val
     self._n += 1
-  # enddef
 
   def Mean(self):
     """Returns the mean of entered values.
     """
     return self._sum_x / self._n
-  # enddef
 
   def Variance(self):
     """Returns the variance of entered values.
     """
     mean = self.Mean()
     return self._sum_x_squared / self._n - mean * mean
-  # enddef
 
   def Stddev(self):
     """Returns the standard deviation of entered values.
     """
     return math.sqrt(self.Variance())
-  # enddef
 
   def NumEntries(self):
     """Returns the number of data points entered.
     """
     return self._n
-  # enddef
-# endclass
 
 
 class PeakStats:
@@ -103,7 +70,6 @@ class PeakStats:
   def __init__(self):
     self._min = 1L << 64
     self._max = -1
-  # enddef
 
   def Enter(self, val):
     """Enter a new datum.
@@ -113,24 +79,18 @@ class PeakStats:
     """
     if val > self._max:
       self._max = val
-    # endif
     if val < self._min:
       self._min = val
-    # endif
-  # enddef
 
   def Max(self):
     """Returns the maximum value found so far.
     """
     return self._max
-  # enddef
 
   def Min(self):
     """Returns the minimum value found so far.
     """
     return self._min
-  # enddef
-# endclass
 
 
 class WindowedRate:
@@ -147,7 +107,6 @@ class WindowedRate:
     self._event_count = 0
     self._rate_stats = Stats()
     self._peak_stats = PeakStats()
-  # enddef
 
   def Enter(self, t):
     """Enter in a new event that occurred at time t.
@@ -163,16 +122,13 @@ class WindowedRate:
     if t < self._t_end:
       self._event_count += 1
       return
-    # endif
     self.Compute()
     self._event_count = 1
     next_end = self._t_end
     while next_end < t:
       next_end += self._t_duration
-    # endwhile
     self._t_end = next_end
     self._t_start = next_end - self._t_duration
-  # enddef
 
   def Compute(self):
     """Finalize the last bucket.
@@ -181,22 +137,18 @@ class WindowedRate:
     self._rate_stats.Enter(self._event_count)
     self._peak_stats.Enter(self._event_count)
     self._event_count = 0
-  # enddef
 
   def RateStats(self):
     """Returns the event rate statistics object.
 
     """
     return self._rate_stats
-  # enddef
 
   def PeakStats(self):
     """Returns the peak event rate statistics object.
 
     """
     return self._peak_stats
-  # endif
-# endclass
 
 
 class TimestampParser:
@@ -215,7 +167,6 @@ class TimestampParser:
   """
   def __init__(self):
     self._min_time = -1
-  # enddef
 
   def Convert(self, timestamp):
     """Converts a timestamp string into a numeric timestamp value.
@@ -230,14 +181,10 @@ class TimestampParser:
     t = ((hh * 60) + mm) * 60 + ss
     if self._min_time == -1:
       self._min_time = t
-    # endif
     while t < self._min_time:
       t += 24 * 60 * 60
-    # endwhile
     self._min_time = t
     return t
-  # enddef
-# endclass
 
 
 def ReadFileHandle(fh, duration):
@@ -268,11 +215,7 @@ def ReadFileHandle(fh, duration):
         rate_stats.Enter(1.0/elapsed)
       else:
         start_time = t
-      # endif
       prev_time = t
-
-    # endif
-  # endfor
 
   print '\nInter-syscall time'
   print 'Mean:   %g' % inter_stats.Mean()
@@ -288,18 +231,14 @@ def ReadFileHandle(fh, duration):
   print 'Stddev: %g' % windowed.RateStats().Stddev()
   print 'Min:    %g' % windowed.PeakStats().Min()
   print 'Max:    %g' % windowed.PeakStats().Max()
-# enddef
 
 
 def main(argv):
   if len(argv) > 1:
     print >>sys.stderr, 'no arguments expected\n'
     return 1
-  # endif
   ReadFileHandle(sys.stdin, 0.010)
   return 0
-# enddef
 
 if __name__ == '__main__':
   sys.exit(main(sys.argv))
-# endif

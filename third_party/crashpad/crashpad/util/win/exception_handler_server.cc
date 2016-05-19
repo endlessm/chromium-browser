@@ -15,7 +15,11 @@
 #include "util/win/exception_handler_server.h"
 
 #include <sddl.h>
+#include <stdint.h>
 #include <string.h>
+#include <sys/types.h>
+
+#include <utility>
 
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
@@ -26,6 +30,7 @@
 #include "snapshot/crashpad_info_client_options.h"
 #include "snapshot/win/process_snapshot_win.h"
 #include "util/file/file_writer.h"
+#include "util/misc/random_string.h"
 #include "util/misc/tri_state.h"
 #include "util/misc/uuid.h"
 #include "util/win/get_function.h"
@@ -178,7 +183,7 @@ class ClientData {
             CreateEvent(nullptr, false /* auto reset */, false, nullptr)),
         non_crash_dump_completed_event_(
             CreateEvent(nullptr, false /* auto reset */, false, nullptr)),
-        process_(process.Pass()),
+        process_(std::move(process)),
         crash_exception_information_address_(
             crash_exception_information_address),
         non_crash_exception_information_address_(
@@ -318,10 +323,7 @@ std::wstring ExceptionHandlerServer::CreatePipe() {
       base::StringPrintf("\\\\.\\pipe\\crashpad_%d_", GetCurrentProcessId());
   std::wstring pipe_name;
   do {
-    pipe_name = base::UTF8ToUTF16(pipe_name_base);
-    for (int index = 0; index < 16; ++index) {
-      pipe_name.append(1, static_cast<wchar_t>(base::RandInt('A', 'Z')));
-    }
+    pipe_name = base::UTF8ToUTF16(pipe_name_base + RandomString());
 
     first_pipe_instance_.reset(CreateNamedPipeInstance(pipe_name, true));
 
@@ -348,7 +350,7 @@ std::wstring ExceptionHandlerServer::CreatePipe() {
 void ExceptionHandlerServer::Run(Delegate* delegate) {
   uint64_t shutdown_token = base::RandUint64();
   ScopedKernelHANDLE thread_handles[kPipeInstances];
-  for (int i = 0; i < arraysize(thread_handles); ++i) {
+  for (size_t i = 0; i < arraysize(thread_handles); ++i) {
     HANDLE pipe;
     if (first_pipe_instance_.is_valid()) {
       pipe = first_pipe_instance_.release();
@@ -400,7 +402,7 @@ void ExceptionHandlerServer::Run(Delegate* delegate) {
   }
 
   // Signal to the named pipe instances that they should terminate.
-  for (int i = 0; i < arraysize(thread_handles); ++i) {
+  for (size_t i = 0; i < arraysize(thread_handles); ++i) {
     ClientToServerMessage message;
     memset(&message, 0, sizeof(message));
     message.type = ClientToServerMessage::kShutdown;
@@ -448,7 +450,7 @@ bool ExceptionHandlerServer::ServiceClientConnection(
                    << message.shutdown.token;
         return false;
       }
-      ServerToClientMessage shutdown_response = {0};
+      ServerToClientMessage shutdown_response = {};
       LoggingWriteFile(service_context.pipe(),
                        &shutdown_response,
                        sizeof(shutdown_response));

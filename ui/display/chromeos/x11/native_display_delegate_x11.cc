@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "ui/display/chromeos/x11/display_mode_x11.h"
 #include "ui/display/chromeos/x11/display_snapshot_x11.h"
@@ -310,11 +311,12 @@ DisplaySnapshotX11* NativeDisplayDelegateX11::InitDisplaySnapshot(
     std::set<RRCrtc>* last_used_crtcs,
     int index) {
   int64_t display_id = 0;
-  if (!GetDisplayId(output, static_cast<uint8_t>(index), &display_id))
+  ui::EDIDParserX11 edid_parser(output);
+  if (!edid_parser.GetDisplayId(static_cast<uint8_t>(index), &display_id))
     display_id = index;
 
   bool has_overscan = false;
-  GetOutputOverscanFlag(output, &has_overscan);
+  edid_parser.GetOutputOverscanFlag(&has_overscan);
 
   DisplayConnectionType type = GetDisplayConnectionTypeFromName(info->name);
   if (type == DISPLAY_CONNECTION_TYPE_UNKNOWN)
@@ -366,8 +368,9 @@ DisplaySnapshotX11* NativeDisplayDelegateX11::InitDisplaySnapshot(
                              type,
                              IsOutputAspectPreservingScaling(output),
                              has_overscan,
-                             GetDisplayName(output),
+                             edid_parser.GetDisplayName(),
                              display_modes,
+                             edid_parser.edid(),
                              current_mode,
                              native_mode,
                              output,

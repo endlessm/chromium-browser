@@ -21,10 +21,17 @@ std::string DecoderStreamTraits<DemuxerStream::AUDIO>::ToString() {
 void DecoderStreamTraits<DemuxerStream::AUDIO>::InitializeDecoder(
     DecoderType* decoder,
     DemuxerStream* stream,
+    CdmContext* cdm_context,
     const InitCB& init_cb,
     const OutputCB& output_cb) {
   DCHECK(stream->audio_decoder_config().IsValidConfig());
-  decoder->Initialize(stream->audio_decoder_config(), init_cb, output_cb);
+  decoder->Initialize(stream->audio_decoder_config(), cdm_context, init_cb,
+                      output_cb);
+}
+
+bool DecoderStreamTraits<DemuxerStream::AUDIO>::NeedsBitstreamConversion(
+    DecoderType* decoder) {
+  return decoder->NeedsBitstreamConversion();
 }
 
 void DecoderStreamTraits<DemuxerStream::AUDIO>::ReportStatistics(
@@ -47,12 +54,13 @@ std::string DecoderStreamTraits<DemuxerStream::VIDEO>::ToString() {
 void DecoderStreamTraits<DemuxerStream::VIDEO>::InitializeDecoder(
     DecoderType* decoder,
     DemuxerStream* stream,
+    CdmContext* cdm_context,
     const InitCB& init_cb,
     const OutputCB& output_cb) {
   DCHECK(stream->video_decoder_config().IsValidConfig());
   decoder->Initialize(stream->video_decoder_config(),
                       stream->liveness() == DemuxerStream::LIVENESS_LIVE,
-                      init_cb, output_cb);
+                      cdm_context, init_cb, output_cb);
 }
 
 bool DecoderStreamTraits<DemuxerStream::VIDEO>::NeedsBitstreamConversion(

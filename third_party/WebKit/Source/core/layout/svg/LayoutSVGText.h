@@ -44,6 +44,7 @@ public:
     FloatRect paintInvalidationRectInLocalCoordinates() const override;
     FloatRect objectBoundingBox() const override { return FloatRect(frameRect()); }
     FloatRect strokeBoundingBox() const override;
+    bool isObjectBoundingBoxValid() const;
 
     static LayoutSVGText* locateLayoutSVGTextAncestor(LayoutObject*);
     static const LayoutSVGText* locateLayoutSVGTextAncestor(const LayoutObject*);
@@ -54,7 +55,6 @@ public:
     void subtreeChildWasAdded(LayoutObject*);
     void subtreeChildWillBeRemoved(LayoutObject*, Vector<SVGTextLayoutAttributes*, 2>& affectedAttributes);
     void subtreeChildWasRemoved(const Vector<SVGTextLayoutAttributes*, 2>& affectedAttributes);
-    void subtreeStyleDidChange();
     void subtreeTextDidChange(LayoutSVGInlineText*);
 
     const AffineTransform& localToParentTransform() const override { return m_localTransform; }
@@ -92,6 +92,6 @@ private:
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutSVGText, isSVGText());
 
-}
+} // namespace blink
 
 #endif

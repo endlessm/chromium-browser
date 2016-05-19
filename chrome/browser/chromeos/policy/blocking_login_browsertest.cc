@@ -7,6 +7,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "chrome/browser/browser_process.h"
@@ -80,6 +81,11 @@ struct BlockingLoginTestParam {
   const bool enroll_device;
 };
 
+// TODO(atwilson): This test is completely broken - it originally was built
+// when we made an entirely different set of network calls on startup. As a
+// result it generates random failures in startup network requests, then waits
+// to see if the profile finishes loading which is not at all what it is
+// intended to test. We need to fix this test or remove it (crbug.com/580537).
 class BlockingLoginTest
     : public OobeBaseTest,
       public content::NotificationObserver,
@@ -94,6 +100,9 @@ class BlockingLoginTest
     command_line->AppendSwitchASCII(
         policy::switches::kDeviceManagementUrl,
         embedded_test_server()->GetURL("/device_management").spec());
+
+    command_line->AppendSwitch(
+        chromeos::switches::kAllowFailedPolicyFetchForTest);
   }
 
   void SetUpOnMainThread() override {
@@ -176,7 +185,7 @@ class BlockingLoginTest
       }
     }
 
-    return response.Pass();
+    return response;
   }
 
   // Creates a new canned response that will respond with the given HTTP
@@ -243,8 +252,6 @@ IN_PROC_BROWSER_TEST_P(BlockingLoginTest, LoginBlocksForUser) {
     EXPECT_TRUE(browser_policy_connector()->IsEnterpriseManaged());
     EXPECT_EQ(kDomain, browser_policy_connector()->GetEnterpriseDomain());
     EXPECT_FALSE(profile_added_);
-    EXPECT_EQ(policy::USER_AFFILIATION_MANAGED,
-              browser_policy_connector()->GetUserAffiliation(kUsername));
     RunUntilIdle();
     EXPECT_FALSE(
         user_manager->IsKnownUser(AccountId::FromUserEmail(kUsername)));

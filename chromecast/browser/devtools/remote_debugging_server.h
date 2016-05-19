@@ -5,8 +5,11 @@
 #ifndef CHROMECAST_BROWSER_DEVTOOLS_REMOTE_DEBUGGING_SERVER_H_
 #define CHROMECAST_BROWSER_DEVTOOLS_REMOTE_DEBUGGING_SERVER_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_member.h"
+#include "components/prefs/pref_member.h"
 
 namespace devtools_http_handler {
 class DevToolsHttpHandler;
@@ -29,7 +32,7 @@ class RemoteDebuggingServer {
   scoped_ptr<devtools_http_handler::DevToolsHttpHandler> devtools_http_handler_;
 
   BooleanPrefMember pref_enabled_;
-  uint16 port_;
+  uint16_t port_;
 
   DISALLOW_COPY_AND_ASSIGN(RemoteDebuggingServer);
 };

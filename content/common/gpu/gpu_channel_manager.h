@@ -5,11 +5,15 @@
 #ifndef CONTENT_COMMON_GPU_GPU_CHANNEL_MANAGER_H_
 #define CONTENT_COMMON_GPU_GPU_CHANNEL_MANAGER_H_
 
+#include <stdint.h>
+
 #include <deque>
 #include <string>
 #include <vector>
 
 #include "base/containers/scoped_ptr_hash_map.h"
+#include "base/id_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -17,12 +21,11 @@
 #include "content/common/content_export.h"
 #include "content/common/content_param_traits.h"
 #include "content/common/gpu/gpu_memory_manager.h"
-#include "content/common/message_router.h"
-#include "ipc/ipc_listener.h"
-#include "ipc/ipc_sender.h"
+#include "gpu/command_buffer/common/constants.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gl/gl_surface.h"
+#include "url/gurl.h"
 
 namespace base {
 class WaitableEvent;
@@ -34,7 +37,7 @@ class GLShareGroup;
 
 namespace gpu {
 class PreemptionFlag;
-class SyncPointClientWaiter;
+class SyncPointClient;
 class SyncPointManager;
 struct SyncToken;
 union ValueState;
@@ -48,46 +51,60 @@ class ShaderTranslatorCache;
 
 namespace IPC {
 struct ChannelHandle;
-class SyncChannel;
 }
-
-struct GPUCreateCommandBufferConfig;
-struct GpuMsg_EstablishChannel_Params;
 
 namespace content {
 class GpuChannel;
+class GpuChannelManagerDelegate;
 class GpuMemoryBufferFactory;
 class GpuWatchdog;
+class ImageTransportHelper;
+struct EstablishChannelParams;
+#if defined(OS_MACOSX)
+struct BufferPresentedParams;
+#endif
 
 // A GpuChannelManager is a thread responsible for issuing rendering commands
 // managing the lifetimes of GPU channels and forwarding IPC requests from the
 // browser process to them based on the corresponding renderer ID.
-class CONTENT_EXPORT GpuChannelManager : public IPC::Listener,
-                          public IPC::Sender {
+class CONTENT_EXPORT GpuChannelManager {
  public:
-  GpuChannelManager(IPC::SyncChannel* channel,
+  GpuChannelManager(GpuChannelManagerDelegate* delegate,
                     GpuWatchdog* watchdog,
                     base::SingleThreadTaskRunner* task_runner,
                     base::SingleThreadTaskRunner* io_task_runner,
                     base::WaitableEvent* shutdown_event,
                     gpu::SyncPointManager* sync_point_manager,
                     GpuMemoryBufferFactory* gpu_memory_buffer_factory);
-  ~GpuChannelManager() override;
+  virtual ~GpuChannelManager();
+
+  GpuChannelManagerDelegate* delegate() const { return delegate_; }
+
+  void EstablishChannel(const EstablishChannelParams& params);
+  void CloseChannel(const IPC::ChannelHandle& channel_handle);
+  void PopulateShaderCache(const std::string& shader);
+  void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
+                              int client_id,
+                              const gpu::SyncToken& sync_token);
+  void UpdateValueState(int client_id,
+                        unsigned int target,
+                        const gpu::ValueState& state);
+#if defined(OS_ANDROID)
+  void WakeUpGpu();
+#endif
+  void DestroyAllChannels();
 
   // Remove the channel for a particular renderer.
   void RemoveChannel(int client_id);
 
-  // Listener overrides.
-  bool OnMessageReceived(const IPC::Message& msg) override;
-
-  // Sender overrides.
-  bool Send(IPC::Message* msg) override;
-
   void LoseAllContexts();
 
-  int GenerateRouteID();
-  void AddRoute(int32 routing_id, IPC::Listener* listener);
-  void RemoveRoute(int32 routing_id);
+#if defined(OS_MACOSX)
+  void AddImageTransportSurface(int32_t routing_id,
+                                ImageTransportHelper* image_transport_helper);
+  void RemoveImageTransportSurface(int32_t routing_id);
+  void BufferPresented(const BufferPresentedParams& params);
+#endif
 
   gpu::gles2::ProgramCache* program_cache();
   gpu::gles2::ShaderTranslatorCache* shader_translator_cache();
@@ -95,7 +112,7 @@ class CONTENT_EXPORT GpuChannelManager : public IPC::Listener,
 
   GpuMemoryManager* gpu_memory_manager() { return &gpu_memory_manager_; }
 
-  GpuChannel* LookupChannel(int32 client_id) const;
+  GpuChannel* LookupChannel(int32_t client_id) const;
 
   gfx::GLSurface* GetDefaultOffscreenSurface();
 
@@ -116,11 +133,12 @@ class CONTENT_EXPORT GpuChannelManager : public IPC::Listener,
 #endif
 
  protected:
-  virtual scoped_ptr<GpuChannel> CreateGpuChannel(int client_id,
-                                                  uint64_t client_tracing_id,
-                                                  bool preempts,
-                                                  bool allow_future_sync_points,
-                                                  bool allow_real_time_streams);
+  virtual scoped_ptr<GpuChannel> CreateGpuChannel(
+      int client_id,
+      uint64_t client_tracing_id,
+      bool preempts,
+      bool allow_view_command_buffers,
+      bool allow_real_time_streams);
 
   gpu::SyncPointManager* sync_point_manager() const {
     return sync_point_manager_;
@@ -140,39 +158,21 @@ class CONTENT_EXPORT GpuChannelManager : public IPC::Listener,
   // These objects manage channels to individual renderer processes there is
   // one channel for each renderer process that has connected to this GPU
   // process.
-  base::ScopedPtrHashMap<int32, scoped_ptr<GpuChannel>> gpu_channels_;
+  base::ScopedPtrHashMap<int32_t, scoped_ptr<GpuChannel>> gpu_channels_;
 
  private:
-  // Message handlers.
-  bool OnControlMessageReceived(const IPC::Message& msg);
-  void OnEstablishChannel(const GpuMsg_EstablishChannel_Params& params);
-  void OnCloseChannel(const IPC::ChannelHandle& channel_handle);
-  void OnVisibilityChanged(int32 render_view_id, int32 client_id, bool visible);
-  void OnCreateViewCommandBuffer(
-      const gfx::GLSurfaceHandle& window,
-      int32 client_id,
-      const GPUCreateCommandBufferConfig& init_params,
-      int32 route_id);
-  void OnLoadedShader(const std::string& shader);
-  void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id, int client_id);
-  void DestroyGpuMemoryBufferOnIO(gfx::GpuMemoryBufferId id, int client_id);
-  void OnDestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
-                                int client_id,
-                                const gpu::SyncToken& sync_token);
-
-  void OnUpdateValueState(int client_id,
-                          unsigned int target,
-                          const gpu::ValueState& state);
+  void InternalDestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id, int client_id);
+  void InternalDestroyGpuMemoryBufferOnIO(gfx::GpuMemoryBufferId id,
+                                          int client_id);
 #if defined(OS_ANDROID)
-  void OnWakeUpGpu();
   void ScheduleWakeUpGpu();
   void DoWakeUpGpu();
 #endif
-  void OnLoseAllContexts();
 
-  // Used to send and receive IPC messages from the browser process.
-  IPC::SyncChannel* const channel_;
-  MessageRouter router_;
+  GpuChannelManagerDelegate* const delegate_;
+#if defined(OS_MACOSX)
+  IDMap<ImageTransportHelper> image_transport_map_;
+#endif
 
   GpuWatchdog* watchdog_;
 
@@ -184,7 +184,7 @@ class CONTENT_EXPORT GpuChannelManager : public IPC::Listener,
   GpuMemoryManager gpu_memory_manager_;
   // SyncPointManager guaranteed to outlive running MessageLoop.
   gpu::SyncPointManager* sync_point_manager_;
-  scoped_ptr<gpu::SyncPointClientWaiter> sync_point_client_waiter_;
+  scoped_ptr<gpu::SyncPointClient> sync_point_client_waiter_;
   scoped_ptr<gpu::gles2::ProgramCache> program_cache_;
   scoped_refptr<gpu::gles2::ShaderTranslatorCache> shader_translator_cache_;
   scoped_refptr<gpu::gles2::FramebufferCompletenessCache>

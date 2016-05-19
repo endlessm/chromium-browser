@@ -5,27 +5,29 @@
 #ifndef COMPONENTS_SYNC_SESSIONS_SESSIONS_SYNC_MANAGER_H_
 #define COMPONENTS_SYNC_SESSIONS_SESSIONS_SYNC_MANAGER_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/sessions/core/session_id.h"
 #include "components/sessions/core/session_types.h"
 #include "components/sync_driver/device_info.h"
-#include "components/sync_driver/glue/synced_session.h"
-#include "components/sync_driver/open_tabs_ui_delegate.h"
 #include "components/sync_driver/sync_prefs.h"
-#include "components/sync_driver/tab_node_pool.h"
 #include "components/sync_sessions/favicon_cache.h"
 #include "components/sync_sessions/local_session_event_router.h"
+#include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "components/sync_sessions/revisit/page_revisit_broadcaster.h"
+#include "components/sync_sessions/synced_session.h"
 #include "components/sync_sessions/synced_session_tracker.h"
+#include "components/sync_sessions/tab_node_pool.h"
 #include "sync/api/syncable_service.h"
 
 namespace syncer {
@@ -109,8 +111,6 @@ class SessionsSyncManager : public syncer::SyncableService,
   }
 
   FaviconCache* GetFaviconCache();
-
-  SyncedWindowDelegatesGetter* GetSyncedWindowDelegatesGetter() const;
 
   // Triggers garbage collection of stale sessions (as defined by
   // |stale_session_threshold_days_|). This is called automatically every
@@ -262,11 +262,9 @@ class SessionsSyncManager : public syncer::SyncableService,
                     syncer::SyncChangeList* change_output);
 
   // Set |session_tab| from |tab_delegate| and |mtime|.
-  static void SetSessionTabFromDelegate(
-      SyncedWindowDelegatesGetter* synced_window_getter,
-      const SyncedTabDelegate& tab_delegate,
-      base::Time mtime,
-      sessions::SessionTab* session_tab);
+  void SetSessionTabFromDelegate(const SyncedTabDelegate& tab_delegate,
+                                 base::Time mtime,
+                                 sessions::SessionTab* session_tab);
 
   // Sets |variation_ids| field of |session_tab| with the ids of the currently
   // assigned variations which should be sent to sync.
@@ -301,6 +299,8 @@ class SessionsSyncManager : public syncer::SyncableService,
   // Validates the content of a SessionHeader protobuf.
   // Returns false if validation fails.
   static bool IsValidSessionHeader(const sync_pb::SessionHeader& header);
+
+  SyncedWindowDelegatesGetter* synced_window_delegates_getter() const;
 
   // The client of this sync sessions datatype.
   sync_sessions::SyncSessionsClient* const sessions_client_;
@@ -346,7 +346,6 @@ class SessionsSyncManager : public syncer::SyncableService,
   size_t stale_session_threshold_days_;
 
   scoped_ptr<LocalSessionEventRouter> local_event_router_;
-  SyncedWindowDelegatesGetter* synced_window_getter_;
 
   // Owns revisiting instrumentation logic for page visit events.
   PageRevisitBroadcaster page_revisit_broadcaster_;

@@ -10,12 +10,13 @@
 
 #include "base/callback.h"
 #include "base/callback_list.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_store.h"
 #include "base/values.h"
 #include "chrome/browser/supervised_user/supervised_users.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/pref_store.h"
 #include "sync/api/syncable_service.h"
 
 class PersistentPrefStore;

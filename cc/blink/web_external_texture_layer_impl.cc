@@ -73,7 +73,7 @@ bool WebExternalTextureLayerImpl::PrepareTextureMailbox(
     bitmap = AllocateBitmap();
   if (!client_->prepareMailbox(&client_mailbox, bitmap)) {
     if (bitmap)
-      free_bitmaps_.push_back(bitmap);
+      free_bitmaps_.push_back(make_scoped_ptr(bitmap));
     return false;
   }
   gpu::Mailbox name;
@@ -87,9 +87,13 @@ bool WebExternalTextureLayerImpl::PrepareTextureMailbox(
     if (client_mailbox.validSyncToken)
       memcpy(&sync_token, client_mailbox.syncToken, sizeof(sync_token));
 
-    // TODO(achaulk): pass a valid size here if allowOverlay is set.
-    *mailbox = cc::TextureMailbox(name, sync_token, GL_TEXTURE_2D, gfx::Size(),
-                                  client_mailbox.allowOverlay);
+    gfx::Size size;
+    if (client_mailbox.allowOverlay)
+      size = gfx::Size(layer_->bounds().width, layer_->bounds().height);
+
+    *mailbox =
+        cc::TextureMailbox(name, sync_token, client_mailbox.textureTarget, size,
+                           client_mailbox.allowOverlay);
   }
   mailbox->set_nearest_neighbor(client_mailbox.nearestNeighbor);
 
@@ -106,8 +110,8 @@ bool WebExternalTextureLayerImpl::PrepareTextureMailbox(
 
 WebExternalBitmapImpl* WebExternalTextureLayerImpl::AllocateBitmap() {
   if (!free_bitmaps_.empty()) {
-    WebExternalBitmapImpl* result = free_bitmaps_.back();
-    free_bitmaps_.weak_erase(free_bitmaps_.end() - 1);
+    WebExternalBitmapImpl* result = free_bitmaps_.back().release();
+    free_bitmaps_.pop_back();
     return result;
   }
   return new WebExternalBitmapImpl;
@@ -129,7 +133,7 @@ void WebExternalTextureLayerImpl::DidReleaseMailbox(
          sizeof(sync_token));
   available_mailbox.validSyncToken = sync_token.HasData();
   if (bitmap)
-    layer->free_bitmaps_.push_back(bitmap);
+    layer->free_bitmaps_.push_back(make_scoped_ptr(bitmap));
   layer->client_->mailboxReleased(available_mailbox, lost_resource);
 }
 

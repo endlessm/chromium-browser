@@ -4,6 +4,8 @@
 
 #include "cc/output/delegating_renderer.h"
 
+#include <stdint.h>
+
 #include "cc/test/fake_output_surface.h"
 #include "cc/test/layer_tree_test.h"
 #include "cc/test/render_pass_test_utils.h"
@@ -20,7 +22,7 @@ class DelegatingRendererTest : public LayerTreeTest {
     scoped_ptr<FakeOutputSurface> output_surface =
         FakeOutputSurface::CreateDelegating3d();
     output_surface_ = output_surface.get();
-    return output_surface.Pass();
+    return std::move(output_surface);
   }
 
  protected:
@@ -91,14 +93,14 @@ class DelegatingRendererTestResources : public DelegatingRendererTest {
     RenderPass* child_pass =
         AddRenderPass(&frame->render_passes, RenderPassId(2, 1),
                       gfx::Rect(3, 3, 10, 10), gfx::Transform());
-    uint32_t mailbox_sync_point;
+    gpu::SyncToken mailbox_sync_token;
     AddOneOfEveryQuadType(child_pass, host_impl->resource_provider(),
-                          RenderPassId(0, 0), &mailbox_sync_point);
+                          RenderPassId(0, 0), &mailbox_sync_token);
 
     RenderPass* pass = AddRenderPass(&frame->render_passes, RenderPassId(1, 1),
                                      gfx::Rect(3, 3, 10, 10), gfx::Transform());
     AddOneOfEveryQuadType(pass, host_impl->resource_provider(), child_pass->id,
-                          &mailbox_sync_point);
+                          &mailbox_sync_token);
     return draw_result;
   }
 

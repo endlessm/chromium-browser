@@ -4,11 +4,12 @@
 
 #include "components/precache/content/precache_manager.h"
 
+#include <stddef.h>
+
 #include <map>
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -59,7 +60,7 @@ class TestURLFetcherCallback {
         url, delegate, response_data, response_code, status));
 
     requested_urls_.insert(url);
-    return fetcher.Pass();
+    return fetcher;
   }
 
   const std::multiset<GURL>& requested_urls() const {
@@ -82,7 +83,7 @@ class MockHistoryService : public history::HistoryService {
   }
 
   MOCK_CONST_METHOD2(TopHosts,
-                     void(int num_hosts, const TopHostsCallback& callback));
+                     void(size_t num_hosts, const TopHostsCallback& callback));
 
   MOCK_CONST_METHOD2(HostRankIfAvailable,
                      void(const GURL& url,

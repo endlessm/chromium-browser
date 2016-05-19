@@ -4,17 +4,22 @@
 
 #include "chrome/browser/ui/website_settings/website_settings.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
 #include "base/command_line.h"
 #include "base/i18n/time_formatting.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_channel_id_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_cookie_helper.h"
@@ -25,15 +30,22 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/permissions/chooser_context_base.h"
+#include "chrome/browser/permissions/permission_uma_util.h"
+#include "chrome/browser/permissions/permission_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/chrome_ssl_host_state_delegate.h"
 #include "chrome/browser/ssl/chrome_ssl_host_state_delegate_factory.h"
 #include "chrome/browser/ui/website_settings/website_settings_ui.h"
+#include "chrome/browser/usb/usb_chooser_context.h"
+#include "chrome/browser/usb/usb_chooser_context_factory.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/browser/local_shared_objects_counter.h"
@@ -44,9 +56,13 @@
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cert_store.h"
+#include "content/public/browser/permission_type.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
+#include "grit/components_chromium_strings.h"
+#include "grit/components_google_chrome_strings.h"
+#include "grit/components_strings.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/x509_certificate.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
@@ -59,6 +75,7 @@
 #endif
 
 #if !defined(OS_ANDROID)
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/website_settings/website_settings_infobar_delegate.h"
 #endif
 
@@ -66,6 +83,7 @@ using base::ASCIIToUTF16;
 using base::UTF8ToUTF16;
 using base::UTF16ToUTF8;
 using content::BrowserThread;
+using security_state::SecurityStateModel;
 
 namespace {
 
@@ -95,7 +113,26 @@ ContentSettingsType kPermissionType[] = {
 #if defined(OS_ANDROID)
     CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
 #endif
+    CONTENT_SETTINGS_TYPE_KEYGEN,
 };
+
+// Determines whether to show permission |type| in the Website Settings UI. Only
+// applies to permissions listed in |kPermissionType|.
+bool ShouldShowPermission(ContentSettingsType type) {
+  // TODO(mgiuca): When simplified-fullscreen-ui is enabled on all platforms,
+  // remove these from kPermissionType, rather than having this check
+  // (http://crbug.com/577396).
+#if !defined(OS_ANDROID)
+  // Fullscreen and mouselock settings are not shown in simplified fullscreen
+  // mode (always allow).
+  if (type == CONTENT_SETTINGS_TYPE_FULLSCREEN ||
+      type == CONTENT_SETTINGS_TYPE_MOUSELOCK) {
+    return !ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled();
+  }
+#endif
+
+  return true;
+}
 
 // Returns true if any of the given statuses match |status|.
 bool CertificateTransparencyStatusMatchAny(
@@ -155,6 +192,19 @@ base::string16 GetSimpleSiteName(const GURL& url, Profile* profile) {
     languages = profile->GetPrefs()->GetString(prefs::kAcceptLanguages);
   return url_formatter::FormatUrlForSecurityDisplayOmitScheme(url, languages);
 }
+
+ChooserContextBase* GetUsbChooserContext(Profile* profile) {
+  return UsbChooserContextFactory::GetForProfile(profile);
+}
+
+// The list of chooser types that need to display entries in the Website
+// Settings UI. THE ORDER OF THESE ITEMS IS IMPORTANT. To propose changing it,
+// email security-dev@chromium.org.
+WebsiteSettings::ChooserUIInfo kChooserUIInfo[] = {
+    {&GetUsbChooserContext, IDR_BLOCKED_USB, IDR_ALLOWED_USB,
+     IDS_WEBSITE_SETTINGS_USB_DEVICE_LABEL,
+     IDS_WEBSITE_SETTINGS_DELETE_USB_DEVICE, "name"},
+};
 
 }  // namespace
 
@@ -218,26 +268,6 @@ void WebsiteSettings::RecordWebsiteSettingsAction(
   }
 }
 
-// Get corresponding Rappor Metric. TODO(raymes): This should use the same
-// code that's in permission_context_uma_util.cc. Figure out how to do that.
-// crbug.com/544745.
-const std::string GetRapporMetric(ContentSettingsType permission) {
-  std::string permission_str;
-
-  if (permission == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
-    permission_str = "Geolocation";
-  } else if (permission == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
-    permission_str = "Notifications";
-  } else if (permission == CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC) {
-    permission_str = "Mic";
-  } else if (permission == CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA) {
-    permission_str = "Camera";
-  }
-
-  return base::StringPrintf("ContentSettings.PermissionActions_%s.Revoked.Url",
-                            permission_str.c_str());
-}
-
 void WebsiteSettings::OnSitePermissionChanged(ContentSettingsType type,
                                               ContentSetting setting) {
   // Count how often a permission for a specific content type is changed using
@@ -256,10 +286,10 @@ void WebsiteSettings::OnSitePermissionChanged(ContentSettingsType type,
         "WebsiteSettings.OriginInfo.PermissionChanged.Blocked", histogram_value,
         num_values);
     // Trigger Rappor sampling if it is a permission revoke action.
-    const std::string& rappor_metric = GetRapporMetric(type);
-    if (!rappor_metric.empty()) {
-      rappor::SampleDomainAndRegistryFromGURL(
-          g_browser_process->rappor_service(), rappor_metric, this->site_url_);
+    content::PermissionType permission_type;
+    if (PermissionUtil::GetPermissionType(type, &permission_type)) {
+      PermissionUmaUtil::PermissionRevoked(permission_type,
+                                           this->site_url_);
     }
   }
 
@@ -274,6 +304,20 @@ void WebsiteSettings::OnSitePermissionChanged(ContentSettingsType type,
   show_info_bar_ = true;
 
   // Refresh the UI to reflect the new setting.
+  PresentSitePermissions();
+}
+
+void WebsiteSettings::OnSiteChosenObjectDeleted(
+    const ChooserUIInfo& ui_info,
+    const base::DictionaryValue& object) {
+  // TODO(reillyg): Create metrics for revocations. crbug.com/556845
+  ChooserContextBase* context = ui_info.get_context(profile_);
+  const GURL origin = site_url_.GetOrigin();
+  context->RevokeObjectPermission(origin, origin, object);
+
+  show_info_bar_ = true;
+
+  // Refresh the UI to reflect the changed settings.
   PresentSitePermissions();
 }
 
@@ -313,7 +357,7 @@ void WebsiteSettings::Init(
     const GURL& url,
     const SecurityStateModel::SecurityInfo& security_info) {
   bool isChromeUINativeScheme = false;
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   isChromeUINativeScheme = url.SchemeIs(chrome::kChromeUINativeScheme);
 #endif
 
@@ -532,7 +576,7 @@ void WebsiteSettings::Init(
     }
   }
 
-  uint16 cipher_suite =
+  uint16_t cipher_suite =
       net::SSLConnectionStatusToCipherSuite(security_info.connection_status);
   if (security_info.security_bits > 0 && cipher_suite) {
     int ssl_version =
@@ -620,10 +664,14 @@ void WebsiteSettings::Init(
 
 void WebsiteSettings::PresentSitePermissions() {
   PermissionInfoList permission_info_list;
+  ChosenObjectInfoList chosen_object_info_list;
 
   WebsiteSettingsUI::PermissionInfo permission_info;
   for (size_t i = 0; i < arraysize(kPermissionType); ++i) {
     permission_info.type = kPermissionType[i];
+
+    if (!ShouldShowPermission(permission_info.type))
+      continue;
 
     content_settings::SettingInfo info;
     scoped_ptr<base::Value> value =
@@ -638,6 +686,7 @@ void WebsiteSettings::PresentSitePermissions() {
     }
 
     permission_info.source = info.source;
+    permission_info.is_incognito = profile_->IsOffTheRecord();
 
     if (info.primary_pattern == ContentSettingsPattern::Wildcard() &&
         info.secondary_pattern == ContentSettingsPattern::Wildcard()) {
@@ -649,13 +698,27 @@ void WebsiteSettings::PresentSitePermissions() {
                                                       NULL);
     }
 
-    if (permission_info.setting != CONTENT_SETTING_DEFAULT &&
-        permission_info.setting != permission_info.default_setting) {
-      permission_info_list.push_back(permission_info);
+    if (permission_info.type == CONTENT_SETTINGS_TYPE_KEYGEN &&
+        (permission_info.setting == CONTENT_SETTING_DEFAULT ||
+         permission_info.setting == permission_info.default_setting) &&
+        !tab_specific_content_settings()->IsContentBlocked(
+            permission_info.type)) {
+      continue;
+    }
+    permission_info_list.push_back(permission_info);
+  }
+
+  for (const ChooserUIInfo& ui_info : kChooserUIInfo) {
+    ChooserContextBase* context = ui_info.get_context(profile_);
+    const GURL origin = site_url_.GetOrigin();
+    auto chosen_objects = context->GetGrantedObjects(origin, origin);
+    for (scoped_ptr<base::DictionaryValue>& object : chosen_objects) {
+      chosen_object_info_list.push_back(
+          new WebsiteSettingsUI::ChosenObjectInfo(ui_info, std::move(object)));
     }
   }
 
-  ui_->SetPermissionInfo(permission_info_list);
+  ui_->SetPermissionInfo(permission_info_list, chosen_object_info_list);
 }
 
 void WebsiteSettings::PresentSiteData() {

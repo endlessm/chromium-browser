@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/dom/DOMNodeIds.h"
 
 #include "platform/heap/Handle.h"
@@ -35,4 +34,4 @@ Node* DOMNodeIds::nodeForId(int id)
     return WeakIdentifierMap<Node>::lookup(id);
 }
 
-}
+} // namespace blink

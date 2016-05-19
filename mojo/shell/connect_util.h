@@ -5,8 +5,12 @@
 #ifndef MOJO_SHELL_CONNECT_UTIL_H_
 #define MOJO_SHELL_CONNECT_UTIL_H_
 
+#include <utility>
+
 #include "mojo/public/cpp/bindings/interface_ptr.h"
 #include "mojo/public/cpp/system/handle.h"
+#include "mojo/shell/identity.h"
+#include "mojo/shell/public/interfaces/shell.mojom.h"
 
 class GURL;
 
@@ -15,22 +19,35 @@ namespace shell {
 
 class ApplicationManager;
 
-ScopedMessagePipeHandle ConnectToServiceByName(
+ScopedMessagePipeHandle ConnectToInterfaceByName(
     ApplicationManager* application_manager,
-    const GURL& application_url,
+    const Identity& source,
+    const Identity& target,
     const std::string& interface_name);
 
 // Must only be used by shell internals and test code as it does not forward
 // capability filters. Runs |application_url| with a permissive capability
 // filter.
 template <typename Interface>
-inline void ConnectToService(ApplicationManager* application_manager,
-                             const GURL& application_url,
-                             InterfacePtr<Interface>* ptr) {
-  ScopedMessagePipeHandle service_handle =
-      ConnectToServiceByName(application_manager, application_url,
-                             Interface::Name_);
-  ptr->Bind(InterfacePtrInfo<Interface>(service_handle.Pass(), 0u));
+inline void ConnectToInterface(ApplicationManager* application_manager,
+                               const Identity& source,
+                               const Identity& target,
+                               InterfacePtr<Interface>* ptr) {
+  ScopedMessagePipeHandle service_handle = ConnectToInterfaceByName(
+      application_manager, source, target, Interface::Name_);
+  ptr->Bind(InterfacePtrInfo<Interface>(std::move(service_handle), 0u));
+}
+
+template <typename Interface>
+inline void ConnectToInterface(ApplicationManager* application_manager,
+                               const Identity& source,
+                               const GURL& application_url,
+                               InterfacePtr<Interface>* ptr) {
+  ScopedMessagePipeHandle service_handle = ConnectToInterfaceByName(
+      application_manager, source,
+      Identity(application_url, std::string(), mojom::Connector::kUserInherit),
+      Interface::Name_);
+  ptr->Bind(InterfacePtrInfo<Interface>(std::move(service_handle), 0u));
 }
 
 }  // namespace shell

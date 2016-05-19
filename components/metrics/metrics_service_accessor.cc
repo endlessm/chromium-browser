@@ -6,9 +6,9 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
+#include "components/prefs/pref_service.h"
 #include "components/variations/metrics_util.h"
 
 namespace metrics {
@@ -62,7 +62,7 @@ bool MetricsServiceAccessor::RegisterSyntheticFieldTrialWithNameAndGroupHash(
   if (!metrics_service)
     return false;
 
-  SyntheticTrialGroup trial_group(trial_name_hash, group_name_hash);
+  variations::SyntheticTrialGroup trial_group(trial_name_hash, group_name_hash);
   metrics_service->RegisterSyntheticFieldTrial(trial_group);
   return true;
 }

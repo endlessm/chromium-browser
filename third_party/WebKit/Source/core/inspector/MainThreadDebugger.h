@@ -33,7 +33,7 @@
 
 #include "core/CoreExport.h"
 #include "core/inspector/InspectorTaskRunner.h"
-#include "core/inspector/ScriptDebuggerBase.h"
+#include "core/inspector/ThreadDebugger.h"
 #include "platform/heap/Handle.h"
 #include <v8.h>
 
@@ -44,8 +44,9 @@ class Mutex;
 namespace blink {
 
 class LocalFrame;
+class V8Debugger;
 
-class CORE_EXPORT MainThreadDebugger final : public ScriptDebuggerBase {
+class CORE_EXPORT MainThreadDebugger final : public ThreadDebugger {
     WTF_MAKE_NONCOPYABLE(MainThreadDebugger);
 public:
     class ClientMessageLoop {
@@ -58,7 +59,7 @@ public:
 
     static PassOwnPtr<MainThreadDebugger> create(PassOwnPtr<ClientMessageLoop> clientMessageLoop, v8::Isolate* isolate)
     {
-        return adoptPtr(new MainThreadDebugger(clientMessageLoop, isolate));
+        return adoptPtr(new MainThreadDebugger(std::move(clientMessageLoop), isolate));
     }
 
     ~MainThreadDebugger() override;
@@ -70,11 +71,17 @@ public:
     static void interruptMainThreadAndRun(PassOwnPtr<InspectorTaskRunner::Task>);
     InspectorTaskRunner* taskRunner() const { return m_taskRunner.get(); }
 
+    bool isWorker() override { return false; }
+
 private:
     MainThreadDebugger(PassOwnPtr<ClientMessageLoop>, v8::Isolate*);
 
+    // V8DebuggerClient implementation.
     void runMessageLoopOnPause(int contextGroupId) override;
     void quitMessageLoopOnPause() override;
+    void muteWarningsAndDeprecations() override;
+    void unmuteWarningsAndDeprecations() override;
+    bool callingContextCanAccessContext(v8::Local<v8::Context> calling, v8::Local<v8::Context> target) override;
 
     static WTF::Mutex& creationMutex();
 

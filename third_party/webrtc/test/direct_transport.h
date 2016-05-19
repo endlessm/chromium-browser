@@ -7,17 +7,17 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef WEBRTC_VIDEO_ENGINE_TEST_COMMON_DIRECT_TRANSPORT_H_
-#define WEBRTC_VIDEO_ENGINE_TEST_COMMON_DIRECT_TRANSPORT_H_
+#ifndef WEBRTC_TEST_DIRECT_TRANSPORT_H_
+#define WEBRTC_TEST_DIRECT_TRANSPORT_H_
 
 #include <assert.h>
 
 #include <deque>
 
 #include "webrtc/base/criticalsection.h"
+#include "webrtc/base/event.h"
+#include "webrtc/base/platform_thread.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/system_wrappers/include/event_wrapper.h"
-#include "webrtc/system_wrappers/include/thread_wrapper.h"
 #include "webrtc/test/fake_network_pipe.h"
 #include "webrtc/transport.h"
 
@@ -46,14 +46,16 @@ class DirectTransport : public Transport {
                const PacketOptions& options) override;
   bool SendRtcp(const uint8_t* data, size_t length) override;
 
+  int GetAverageDelayMs();
+
  private:
   static bool NetworkProcess(void* transport);
   bool SendPackets();
 
   rtc::CriticalSection lock_;
   Call* const send_call_;
-  rtc::scoped_ptr<EventWrapper> packet_event_;
-  rtc::scoped_ptr<ThreadWrapper> thread_;
+  rtc::Event packet_event_;
+  rtc::PlatformThread thread_;
   Clock* const clock_;
 
   bool shutting_down_;
@@ -63,4 +65,4 @@ class DirectTransport : public Transport {
 }  // namespace test
 }  // namespace webrtc
 
-#endif  // WEBRTC_VIDEO_ENGINE_TEST_COMMON_DIRECT_TRANSPORT_H_
+#endif  // WEBRTC_TEST_DIRECT_TRANSPORT_H_

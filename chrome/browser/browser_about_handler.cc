@@ -12,6 +12,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/chrome_switches.h"
@@ -71,14 +72,21 @@ bool WillHandleBrowserAboutURL(GURL* url,
     path = chrome::kChromeUIExtensionsHost;
   // Redirect chrome://history.
   } else if (host == chrome::kChromeUIHistoryHost) {
+    // Material design history is handled on the top-level chrome://history
+    // host.
+    if (::switches::MdHistoryEnabled()) {
+      host = chrome::kChromeUIHistoryHost;
+      path = url->path();
+    } else {
 #if defined(OS_ANDROID)
-    // On Android, redirect directly to chrome://history-frame since
-    // uber page is unsupported.
-    host = chrome::kChromeUIHistoryFrameHost;
+      // On Android, redirect directly to chrome://history-frame since
+      // uber page is unsupported.
+      host = chrome::kChromeUIHistoryFrameHost;
 #else
-    host = chrome::kChromeUIUberHost;
-    path = chrome::kChromeUIHistoryHost + url->path();
+      host = chrome::kChromeUIUberHost;
+      path = chrome::kChromeUIHistoryHost + url->path();
 #endif
+    }
   // Redirect chrome://settings
   } else if (host == chrome::kChromeUISettingsHost) {
     if (::switches::AboutInSettingsEnabled()) {

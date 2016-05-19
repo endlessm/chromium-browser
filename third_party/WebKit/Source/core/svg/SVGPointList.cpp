@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGPointList.h"
 
 #include "core/svg/SVGAnimationElement.h"
@@ -28,8 +27,6 @@
 #include "wtf/text/WTFString.h"
 
 namespace blink {
-
-DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGPointList);
 
 SVGPointList::SVGPointList()
 {
@@ -59,58 +56,50 @@ String SVGPointList::valueAsString() const
 }
 
 template <typename CharType>
-bool SVGPointList::parse(const CharType*& ptr, const CharType* end)
+SVGParsingError SVGPointList::parse(const CharType*& ptr, const CharType* end)
 {
-    clear();
+    if (!skipOptionalSVGSpaces(ptr, end))
+        return SVGParseStatus::NoError;
 
-    skipOptionalSVGSpaces(ptr, end);
-    if (ptr >= end)
-        return true;
-
+    const CharType* listStart = ptr;
     for (;;) {
-        float x = 0.0f;
-        float y = 0.0f;
-        bool valid = parseNumber(ptr, end, x) && parseNumber(ptr, end, y, DisallowWhitespace);
-        if (!valid) {
-            return false;
-        }
+        float x = 0;
+        float y = 0;
+        if (!parseNumber(ptr, end, x)
+            || !parseNumber(ptr, end, y, DisallowWhitespace))
+            return SVGParsingError(SVGParseStatus::ExpectedNumber, ptr - listStart);
+
         append(SVGPoint::create(FloatPoint(x, y)));
 
-        skipOptionalSVGSpaces(ptr, end);
-        if (ptr < end && *ptr == ',') {
+        if (!skipOptionalSVGSpaces(ptr, end))
+            break;
+
+        if (*ptr == ',') {
             ++ptr;
             skipOptionalSVGSpaces(ptr, end);
 
             // ',' requires the list to be continued
             continue;
         }
-
-        // check end of list
-        if (ptr >= end)
-            return true;
     }
+    return SVGParseStatus::NoError;
 }
 
-void SVGPointList::setValueAsString(const String& value, ExceptionState& exceptionState)
+SVGParsingError SVGPointList::setValueAsString(const String& value)
 {
-    if (value.isEmpty()) {
-        clear();
-        return;
-    }
+    clear();
 
-    bool valid = false;
+    if (value.isEmpty())
+        return SVGParseStatus::NoError;
+
     if (value.is8Bit()) {
         const LChar* ptr = value.characters8();
         const LChar* end = ptr + value.length();
-        valid = parse(ptr, end);
-    } else {
-        const UChar* ptr = value.characters16();
-        const UChar* end = ptr + value.length();
-        valid = parse(ptr, end);
+        return parse(ptr, end);
     }
-
-    if (!valid)
-        exceptionState.throwDOMException(SyntaxError, "Problem parsing points=\""+value+"\"");
+    const UChar* ptr = value.characters16();
+    const UChar* end = ptr + value.length();
+    return parse(ptr, end);
 }
 
 void SVGPointList::add(PassRefPtrWillBeRawPtr<SVGPropertyBase> other, SVGElement* contextElement)
@@ -161,4 +150,4 @@ float SVGPointList::calculateDistance(PassRefPtrWillBeRawPtr<SVGPropertyBase> to
     return -1;
 }
 
-}
+} // namespace blink

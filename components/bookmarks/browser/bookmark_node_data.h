@@ -5,6 +5,9 @@
 #ifndef COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_NODE_DATA_H_
 #define COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_NODE_DATA_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/files/file_path.h"
@@ -56,6 +59,7 @@ struct BookmarkNodeData {
   struct Element {
     Element();
     explicit Element(const BookmarkNode* node);
+    Element(const Element& other);
     ~Element();
 
     // If true, this element represents a URL.
@@ -79,7 +83,7 @@ struct BookmarkNodeData {
     // Meta info for the bookmark node.
     BookmarkNode::MetaInfoMap meta_info_map;
 
-    int64 id() const { return id_; }
+    int64_t id() const { return id_; }
 
    private:
     friend struct BookmarkNodeData;
@@ -89,13 +93,14 @@ struct BookmarkNodeData {
     bool ReadFromPickle(base::PickleIterator* iterator);
 
     // ID of the node.
-    int64 id_;
+    int64_t id_;
   };
 
   // The MIME type for the clipboard format for BookmarkNodeData.
-  static const char* kClipboardFormatString;
+  static const char kClipboardFormatString[];
 
   BookmarkNodeData();
+  BookmarkNodeData(const BookmarkNodeData& other);
 
   // Created a BookmarkNodeData populated from the arguments.
   explicit BookmarkNodeData(const BookmarkNode* node);

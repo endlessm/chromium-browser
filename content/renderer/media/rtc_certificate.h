@@ -5,6 +5,8 @@
 #ifndef CONTENT_RENDERER_MEDIA_RTC_CERTIFICATE_H_
 #define CONTENT_RENDERER_MEDIA_RTC_CERTIFICATE_H_
 
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "third_party/WebKit/public/platform/WebRTCCertificate.h"
 #include "third_party/WebKit/public/platform/WebRTCKeyParams.h"
@@ -25,7 +27,7 @@ class RTCCertificate : public blink::WebRTCCertificate {
   // blink::WebRTCCertificate implementation.
   RTCCertificate* shallowCopy() const override;
   const blink::WebRTCKeyParams& keyParams() const override;
-  double expires() const override;
+  uint64_t expires() const override;
 
   const rtc::scoped_refptr<rtc::RTCCertificate>& rtcCertificate() const;
 

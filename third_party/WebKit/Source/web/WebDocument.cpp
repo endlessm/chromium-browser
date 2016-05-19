@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebDocument.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -61,7 +60,6 @@
 #include "public/platform/WebURL.h"
 #include "public/web/WebAXObject.h"
 #include "public/web/WebDOMEvent.h"
-#include "public/web/WebDocumentType.h"
 #include "public/web/WebElement.h"
 #include "public/web/WebElementCollection.h"
 #include "public/web/WebFormElement.h"
@@ -211,18 +209,13 @@ WebElement WebDocument::focusedElement() const
     return WebElement(constUnwrap<Document>()->focusedElement());
 }
 
-WebDocumentType WebDocument::doctype() const
-{
-    return WebDocumentType(constUnwrap<Document>()->doctype());
-}
-
 void WebDocument::insertStyleSheet(const WebString& sourceCode)
 {
     RefPtrWillBeRawPtr<Document> document = unwrap<Document>();
     ASSERT(document);
     RefPtrWillBeRawPtr<StyleSheetContents> parsedSheet = StyleSheetContents::create(CSSParserContext(*document, 0));
     parsedSheet->parseString(sourceCode);
-    document->styleEngine().addAuthorSheet(parsedSheet);
+    document->styleEngine().injectAuthorSheet(parsedSheet);
 }
 
 void WebDocument::watchCSSSelectors(const WebVector<WebString>& webSelectors)
@@ -251,7 +244,7 @@ WebElement WebDocument::fullScreenElement() const
 
 WebReferrerPolicy WebDocument::referrerPolicy() const
 {
-    return static_cast<WebReferrerPolicy>(constUnwrap<Document>()->referrerPolicy());
+    return static_cast<WebReferrerPolicy>(constUnwrap<Document>()->getReferrerPolicy());
 }
 
 WebString WebDocument::outgoingReferrer()
@@ -271,6 +264,13 @@ WebAXObject WebDocument::accessibilityObjectFromID(int axID) const
     const Document* document = constUnwrap<Document>();
     AXObjectCacheImpl* cache = toAXObjectCacheImpl(document->axObjectCache());
     return cache ? WebAXObject(cache->objectFromAXID(axID)) : WebAXObject();
+}
+
+WebAXObject WebDocument::focusedAccessibilityObject() const
+{
+    const Document* document = constUnwrap<Document>();
+    AXObjectCacheImpl* cache = toAXObjectCacheImpl(document->axObjectCache());
+    return cache ? WebAXObject(cache->focusedObject()) : WebAXObject();
 }
 
 WebVector<WebDraggableRegion> WebDocument::draggableRegions() const

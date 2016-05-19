@@ -2,16 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/install_verifier.h"
 #include "chrome/browser/extensions/updater/extension_updater.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -20,6 +24,7 @@
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
@@ -29,6 +34,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/notification_types.h"
+#include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/browser/updater/extension_downloader.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/url_request/test_url_request_interceptor.h"
@@ -103,6 +109,7 @@ class ExtensionManagementTest : public ExtensionBrowserTest {
 
  private:
   policy::MockConfigurationPolicyProvider policy_provider_;
+  extensions::ScopedInstallVerifierBypassForTest install_verifier_bypass_;
 };
 
 #if defined(OS_LINUX) || defined(OS_WIN)
@@ -317,8 +324,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, MAYBE_AutoUpdate) {
 
   // Run autoupdate and make sure version 2 of the extension was installed.
   ExtensionTestMessageListener listener2("v2 installed", false);
+
+  extensions::TestExtensionRegistryObserver install_observer(registry);
   service->updater()->CheckNow(params);
-  ASSERT_TRUE(WaitForExtensionInstall());
+  install_observer.WaitForExtensionWillBeInstalled();
   listener2.WaitUntilSatisfied();
   ASSERT_EQ(size_before + 1, registry->enabled_extensions().size());
   extension = service->GetExtensionById(
@@ -406,10 +415,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
                  base::Unretained(&notification_listener));
 
   ExtensionTestMessageListener listener2("v2 installed", false);
+  extensions::TestExtensionRegistryObserver install_observer(registry);
   // Run autoupdate and make sure version 2 of the extension was installed but
   // is still disabled.
   service->updater()->CheckNow(params);
-  ASSERT_TRUE(WaitForExtensionInstall());
+  install_observer.WaitForExtensionWillBeInstalled();
   ASSERT_EQ(disabled_size_before + 1, registry->disabled_extensions().size());
   ASSERT_EQ(enabled_size_before, registry->enabled_extensions().size());
   extension = service->GetExtensionById(
@@ -471,9 +481,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalUrlUpdate) {
       Extension::NO_FLAGS,
       false));
 
+  extensions::TestExtensionRegistryObserver install_observer(registry);
   // Run autoupdate and make sure version 2 of the extension was installed.
   service->updater()->CheckNow(params);
-  ASSERT_TRUE(WaitForExtensionInstall());
+  install_observer.WaitForExtensionWillBeInstalled();
   ASSERT_EQ(size_before + 1, registry->enabled_extensions().size());
   const Extension* extension = service->GetExtensionById(kExtensionId, false);
   ASSERT_TRUE(extension);
@@ -566,10 +577,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
                policy::POLICY_SOURCE_CLOUD,
                forcelist.DeepCopy(),
                NULL);
+  extensions::TestExtensionRegistryObserver install_observer(registry);
   UpdateProviderPolicy(policies);
+  install_observer.WaitForExtensionWillBeInstalled();
 
   // Check if the extension got installed.
-  ASSERT_TRUE(WaitForExtensionInstall());
   ASSERT_EQ(size_before + 1, registry->enabled_extensions().size());
   const Extension* extension = service->GetExtensionById(kExtensionId, false);
   ASSERT_TRUE(extension);
@@ -612,8 +624,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
       browser()->profile())->extension_service();
   ExtensionRegistry* registry = ExtensionRegistry::Get(browser()->profile());
   const char kExtensionId[] = "ogjcoiohnmldgjemafoockdghcjciccf";
-  extensions::ExtensionUpdater::CheckParams params;
-  service->updater()->set_default_check_params(params);
   const size_t size_before = registry->enabled_extensions().size();
   base::FilePath basedir = test_data_dir_.AppendASCII("autoupdate");
   ASSERT_TRUE(registry->disabled_extensions().is_empty());
@@ -656,9 +666,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
                policy::POLICY_SOURCE_CLOUD,
                forcelist.DeepCopy(),
                NULL);
+  extensions::TestExtensionRegistryObserver install_observer(registry);
   UpdateProviderPolicy(policies);
+  install_observer.WaitForExtensionWillBeInstalled();
 
-  ASSERT_TRUE(WaitForExtensionInstall());
   ASSERT_EQ(size_before + 1, registry->enabled_extensions().size());
   extension = service->GetExtensionById(kExtensionId, false);
   ASSERT_TRUE(extension);
@@ -698,9 +709,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
                policy::POLICY_SOURCE_CLOUD,
                forcelist.DeepCopy(),
                NULL);
-  UpdateProviderPolicy(policies);
 
-  ASSERT_TRUE(WaitForExtensionInstall());
+  extensions::TestExtensionRegistryObserver extension_observer(registry);
+  UpdateProviderPolicy(policies);
+  extension_observer.WaitForExtensionWillBeInstalled();
+
   ASSERT_EQ(size_before + 1, registry->enabled_extensions().size());
   extension = service->GetExtensionById(kExtensionId, false);
   ASSERT_TRUE(extension);

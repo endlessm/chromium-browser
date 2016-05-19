@@ -4,6 +4,8 @@
 
 #include "cc/layers/video_layer_impl.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "cc/layers/video_frame_provider_client_impl.h"
@@ -117,9 +119,13 @@ bool VideoLayerImpl::WillDraw(DrawMode draw_mode,
         external_resources.software_release_callback;
     return true;
   }
+  frame_resource_offset_ = external_resources.offset;
+  frame_resource_multiplier_ = external_resources.multiplier;
 
   DCHECK_EQ(external_resources.mailboxes.size(),
             external_resources.release_callbacks.size());
+  ResourceProvider::ResourceIdArray resource_ids;
+  resource_ids.reserve(external_resources.mailboxes.size());
   for (size_t i = 0; i < external_resources.mailboxes.size(); ++i) {
     unsigned resource_id = resource_provider->CreateResourceFromTextureMailbox(
         external_resources.mailboxes[i],
@@ -129,7 +135,9 @@ bool VideoLayerImpl::WillDraw(DrawMode draw_mode,
     frame_resources_.push_back(FrameResource(
         resource_id, external_resources.mailboxes[i].size_in_pixels(),
         external_resources.mailboxes[i].is_overlay_candidate()));
+    resource_ids.push_back(resource_id);
   }
+  resource_provider->GenerateSyncTokenForResources(resource_ids);
 
   return true;
 }
@@ -138,7 +146,7 @@ void VideoLayerImpl::AppendQuads(RenderPass* render_pass,
                                  AppendQuadsData* append_quads_data) {
   DCHECK(frame_.get());
 
-  gfx::Transform transform = draw_transform();
+  gfx::Transform transform = DrawTransform();
   gfx::Size rotated_size = bounds();
 
   switch (video_rotation_) {
@@ -182,11 +190,17 @@ void VideoLayerImpl::AppendQuads(RenderPass* render_pass,
   if (visible_quad_rect.IsEmpty())
     return;
 
-  // Pixels for macroblocked formats.
+  // Pixels for macroblocked formats. To prevent sampling outside the visible
+  // rect, stretch the video if needed.
+  gfx::Rect visible_sample_rect = frame_->visible_rect();
+  if (visible_rect.width() < coded_size.width() && visible_rect.width() > 1)
+    visible_sample_rect.set_width(visible_rect.width() - 1);
+  if (visible_rect.height() < coded_size.height() && visible_rect.height() > 1)
+    visible_sample_rect.set_height(visible_rect.height() - 1);
   const float tex_width_scale =
-      static_cast<float>(visible_rect.width()) / coded_size.width();
+      static_cast<float>(visible_sample_rect.width()) / coded_size.width();
   const float tex_height_scale =
-      static_cast<float>(visible_rect.height()) / coded_size.height();
+      static_cast<float>(visible_sample_rect.height()) / coded_size.height();
 
   switch (frame_resource_type_) {
     // TODO(danakj): Remove this, hide it in the hardware path.
@@ -255,12 +269,12 @@ void VideoLayerImpl::AppendQuads(RenderPass* render_pass,
           static_cast<float>(ya_tex_size.width()) / uv_tex_size.width();
       float uv_subsampling_factor_y =
           static_cast<float>(ya_tex_size.height()) / uv_tex_size.height();
-      gfx::RectF ya_tex_coord_rect(visible_rect);
+      gfx::RectF ya_tex_coord_rect(visible_sample_rect);
       gfx::RectF uv_tex_coord_rect(
-          visible_rect.x() / uv_subsampling_factor_x,
-          visible_rect.y() / uv_subsampling_factor_y,
-          visible_rect.width() / uv_subsampling_factor_x,
-          visible_rect.height() / uv_subsampling_factor_y);
+          visible_sample_rect.x() / uv_subsampling_factor_x,
+          visible_sample_rect.y() / uv_subsampling_factor_y,
+          visible_sample_rect.width() / uv_subsampling_factor_x,
+          visible_sample_rect.height() / uv_subsampling_factor_y);
 
       YUVVideoDrawQuad* yuv_video_quad =
           render_pass->CreateAndAppendDrawQuad<YUVVideoDrawQuad>();
@@ -269,18 +283,20 @@ void VideoLayerImpl::AppendQuads(RenderPass* render_pass,
           ya_tex_coord_rect, uv_tex_coord_rect, ya_tex_size, uv_tex_size,
           frame_resources_[0].id, frame_resources_[1].id,
           frame_resources_[2].id,
-          frame_resources_.size() > 3 ? frame_resources_[3].id : 0,
-          color_space);
+          frame_resources_.size() > 3 ? frame_resources_[3].id : 0, color_space,
+          frame_resource_offset_, frame_resource_multiplier_);
       ValidateQuadResources(yuv_video_quad);
       break;
     }
     case VideoFrameExternalResources::RGBA_RESOURCE:
+    case VideoFrameExternalResources::RGBA_PREMULTIPLIED_RESOURCE:
     case VideoFrameExternalResources::RGB_RESOURCE: {
       DCHECK_EQ(frame_resources_.size(), 1u);
       if (frame_resources_.size() < 1u)
         break;
       bool premultiplied_alpha =
-          (frame_resource_type_ == VideoFrameExternalResources::RGBA_RESOURCE);
+          frame_resource_type_ ==
+          VideoFrameExternalResources::RGBA_PREMULTIPLIED_RESOURCE;
       gfx::PointF uv_top_left(0.f, 0.f);
       gfx::PointF uv_bottom_right(tex_width_scale, tex_height_scale);
       float opacity[] = {1.0f, 1.0f, 1.0f, 1.0f};

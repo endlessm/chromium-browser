@@ -4,10 +4,13 @@
 
 #include "chrome/browser/devtools/device/usb/usb_device_provider.h"
 
+#include <utility>
+
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/devtools/device/usb/android_rsa.h"
 #include "chrome/browser/devtools/device/usb/android_usb_device.h"
 #include "crypto/rsa_private_key.h"
+#include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/socket/stream_socket.h"
 
@@ -23,7 +26,7 @@ void OnOpenSocket(const UsbDeviceProvider::SocketCallback& callback,
   scoped_ptr<net::StreamSocket> socket(socket_raw);
   if (result != net::OK)
     socket.reset();
-  callback.Run(result, socket.Pass());
+  callback.Run(result, std::move(socket));
 }
 
 void OnRead(net::StreamSocket* socket,

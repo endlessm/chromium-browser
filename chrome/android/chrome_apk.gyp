@@ -23,10 +23,18 @@
       '../app/android/chrome_main_delegate_android_initializer.cc',
       '../browser/android/chrome_entry_point.cc',
     ],
+
+    # This list is shared with GN.
+    'chrome_sync_shell_app_native_sources': [
+      '../browser/android/chrome_entry_point.cc',
+      '../browser/android/chrome_sync_shell_main_delegate_initializer.cc',
+      '../browser/android/chrome_sync_shell_main_delegate.h',
+      '../browser/android/chrome_sync_shell_main_delegate.cc',
+    ]
   },
   'targets': [
     {
-      #GN: //chrome/android::custom_tabs_service_aidl
+      # GN: //chrome/android::custom_tabs_service_aidl
       'target_name': 'custom_tabs_service_aidl',
       'type': 'none',
       'variables': {
@@ -40,8 +48,8 @@
       'includes': [ '../../build/java_aidl.gypi' ],
     },
     {
-      # GN: //chrome/android:chrome_public_template_resources
-      'target_name': 'chrome_public_template_resources',
+      # GN: //chrome/android:chrome_public_apk_template_resources
+      'target_name': 'chrome_public_apk_template_resources',
       'type': 'none',
       'variables': {
         'jinja_inputs_base_dir': 'java/res_template',
@@ -63,9 +71,8 @@
       'includes': [ '../../build/android/jinja_template.gypi' ],
     },
     {
-      # TODO(pvalenzuela): Implement this target with GN:
-      # http://crbug.com/475612
-      'target_name': 'chrome_sync_shell_template_resources',
+      # GN: //chrome/android:chrome_sync_shell_apk_template_resources
+      'target_name': 'chrome_sync_shell_apk_template_resources',
       'type': 'none',
       'variables': {
         'jinja_inputs_base_dir': 'java/res_template',
@@ -120,11 +127,6 @@
             }],
           ],
         }],  # order_profiling!=0
-        ['use_allocator!="none"', {
-          'dependencies': [
-            '../../base/allocator/allocator.gyp:allocator',
-          ],
-        }],
       ],
     },
     {
@@ -139,15 +141,11 @@
       ],
     },
     {
-      # TODO(pvalenzuela): Implement this target with GN:
-      # http://crbug.com/475612
+      # GN: //chrome/android:chrome_sync_shell
       'target_name': 'libchrome_sync_shell',
       'type': 'shared_library',
       'sources': [
-        '../browser/android/chrome_entry_point.cc',
-        '../browser/android/chrome_sync_shell_main_delegate_initializer.cc',
-        '../browser/android/chrome_sync_shell_main_delegate.h',
-        '../browser/android/chrome_sync_shell_main_delegate.cc',
+        '<@(chrome_sync_shell_app_native_sources)',
       ],
       'dependencies': [
         'libchrome_public_base',
@@ -173,9 +171,8 @@
       'includes': [ '../../build/android/jinja_template.gypi' ],
     },
     {
-      # TODO(pvalenzuela): Implement this target with GN:
-      # http://crbug.com/475612
-      'target_name': 'chrome_sync_shell_manifest',
+      # GN: //chrome/android:chrome_sync_shell_apk_manifest
+      'target_name': 'chrome_sync_shell_apk_manifest',
       'type': 'none',
       'variables': {
         'jinja_inputs': ['java/AndroidManifest.xml'],
@@ -207,13 +204,13 @@
           # until the number of 32 bit devices which don't support this
           # approach falls to a minimal level -  http://crbug.com/390618.
           ['chrome_apk_use_chromium_linker==1 and profiling==0 and (target_arch == "arm64" or target_arch == "x86_64")', {
-            'load_library_from_zip': 1,
+            'load_library_from_zip': '<(chrome_apk_load_library_from_zip)',
           }],
         ],
       },
       'dependencies': [
         'chrome_android_paks_copy',
-        'chrome_public_template_resources',
+        'chrome_public_apk_template_resources',
         'libchrome_public',
         '../chrome.gyp:chrome_java',
       ],
@@ -231,8 +228,7 @@
       'includes': [ '../../build/apk_fake_jar.gypi' ],
     },
     {
-      # TODO(pvalenzuela): Implement this target with GN:
-      # http://crbug.com/475612
+      # GN: //chrome/android:chrome_sync_shell_apk
       'target_name': 'chrome_sync_shell_apk',
       'type': 'none',
       'variables': {
@@ -240,18 +236,20 @@
         'apk_name': 'ChromeSyncShell',
         'native_lib_target': 'libchrome_sync_shell',
         'java_in_dir': 'java',
+        'enable_multidex': 1,
+        'enable_multidex_configurations': ['Debug'],
         'conditions': [
           # Only attempt loading the library from the APK for 64 bit devices
           # until the number of 32 bit devices which don't support this
           # approach falls to a minimal level -  http://crbug.com/390618.
           ['chrome_apk_use_chromium_linker==1 and profiling==0 and (target_arch == "arm64" or target_arch == "x86_64")', {
-            'load_library_from_zip': 1,
+            'load_library_from_zip': '<(chrome_apk_load_library_from_zip)',
           }],
         ],
       },
       'dependencies': [
         'chrome_android_paks_copy',
-        'chrome_sync_shell_template_resources',
+        'chrome_sync_shell_apk_template_resources',
         'libchrome_sync_shell',
         '../chrome.gyp:chrome_java',
         # This exists here because com.google.protobuf.nano is needed in tests,
@@ -287,8 +285,11 @@
         '../../chrome/chrome.gyp:chrome_java',
         '../../chrome/chrome.gyp:chrome_java_test_support',
         '../../components/components.gyp:invalidation_javatests',
-        '../../components/components.gyp:offline_pages_enums_java',
+        '../../components/components.gyp:gcm_driver_java',
+        '../../components/components.gyp:offline_page_feature_enums_java',
+        '../../components/components.gyp:offline_page_model_enums_java',
         '../../components/components.gyp:precache_javatests',
+        '../../components/components.gyp:security_state_enums_java',
         '../../components/components.gyp:web_contents_delegate_android_java',
         '../../content/content_shell_and_tests.gyp:content_java_test_support',
         '../../net/net.gyp:net_java',
@@ -314,8 +315,7 @@
       'includes': [ '../../build/android/jinja_template.gypi' ],
     },
     {
-      # TODO(pvalenzuela): Implement this target with GN:
-      # http://crbug.com/475612
+      # GN: //chrome/android:chrome_sync_shell_test_apk_manifest
       'target_name': 'chrome_sync_shell_test_apk_manifest',
       'type': 'none',
       'variables': {
@@ -334,6 +334,8 @@
       'dependencies': [
         'chrome_shared_test_java',
         'chrome_public_apk_java',
+        '../../chrome/chrome.gyp:require_chrome_public_test_support_apk',
+        '../../net/net.gyp:require_net_test_support_apk',
         '../../testing/android/on_device_instrumentation.gyp:broker_java',
         '../../testing/android/on_device_instrumentation.gyp:require_driver_apk',
       ],
@@ -346,6 +348,10 @@
         'is_test_apk': 1,
         'test_type': 'instrumentation',
         'isolate_file': '../chrome_public_test_apk.isolate',
+        'additional_apks': [
+          '<(PRODUCT_DIR)/apks/ChromePublicTestSupport.apk',
+          '<(PRODUCT_DIR)/apks/ChromiumNetTestSupport.apk',
+        ],
       },
       'includes': [
         '../../build/java_apk.gypi',
@@ -353,8 +359,7 @@
       ],
     },
     {
-      # TODO(pvalenzuela): Implement this target with GN:
-      # http://crbug.com/475612
+      # GN: //chrome/android:chrome_sync_shell_test_apk
       'target_name': 'chrome_sync_shell_test_apk',
       'type': 'none',
       'dependencies': [

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "web/PopupMenuImpl.h"
 
 #include "core/HTMLNames.h"
@@ -188,7 +187,7 @@ public:
         addProperty("backgroundColor", m_backgroundColor.serialized(), m_buffer);
         addProperty("color", baseStyle().visitedDependentColor(CSSPropertyColor).serialized(), m_buffer);
         addProperty("textTransform", String(textTransformToString(baseStyle().textTransform())), m_buffer);
-        addProperty("fontSize", baseFont().computedPixelSize(), m_buffer);
+        addProperty("fontSize", baseFont().specifiedSize(), m_buffer);
         addProperty("fontStyle", String(fontStyleToString(baseFont().style())), m_buffer);
         addProperty("fontVariant", String(fontVariantToString(baseFont().variant())), m_buffer);
 
@@ -259,11 +258,6 @@ DEFINE_TRACE(PopupMenuImpl)
     PopupMenu::trace(visitor);
 }
 
-IntSize PopupMenuImpl::contentSize()
-{
-    return IntSize();
-}
-
 void PopupMenuImpl::writeDocument(SharedBuffer* data)
 {
     HTMLSelectElement& ownerElement = *m_ownerElement;
@@ -295,9 +289,12 @@ void PopupMenuImpl::writeDocument(SharedBuffer* data)
     PagePopupClient::addString("],\n", data);
 
     addProperty("anchorRectInScreen", anchorRectInScreen, data);
+    float zoom = zoomFactor();
+    float scaleFactor = m_chromeClient->windowToViewportScalar(1.f);
+    addProperty("zoomFactor", zoom / scaleFactor, data);
     bool isRTL = !ownerStyle->isLeftToRightDirection();
     addProperty("isRTL", isRTL, data);
-    addProperty("paddingStart", isRTL ? ownerElement.clientPaddingRight().toDouble() : ownerElement.clientPaddingLeft().toDouble(), data);
+    addProperty("paddingStart", isRTL ? ownerElement.clientPaddingRight().toDouble() / zoom : ownerElement.clientPaddingLeft().toDouble() / zoom, data);
     PagePopupClient::addString("};\n", data);
     data->append(Platform::current()->loadResource("pickerCommon.js"));
     data->append(Platform::current()->loadResource("listPicker.js"));
@@ -329,8 +326,11 @@ void PopupMenuImpl::addElementStyle(ItemIterationContext& context, HTMLElement& 
         addProperty("backgroundColor", backgroundColor.serialized(), data);
     const FontDescription& baseFont = context.baseFont();
     const FontDescription& fontDescription = style->font().fontDescription();
-    if (baseFont.computedPixelSize() != fontDescription.computedPixelSize())
-        addProperty("fontSize", fontDescription.computedPixelSize(), data);
+    if (baseFont.computedPixelSize() != fontDescription.computedPixelSize()) {
+        // We don't use FontDescription::specifiedSize() because this element
+        // might have its own zoom level.
+        addProperty("fontSize", fontDescription.computedSize() / zoomFactor(), data);
+    }
     // Our UA stylesheet has font-weight:normal for OPTION.
     if (FontWeightNormal != fontDescription.weight())
         addProperty("fontWeight", String(fontWeightToString(fontDescription.weight())), data);
@@ -471,7 +471,7 @@ void PopupMenuImpl::dispose()
         m_chromeClient->closePagePopup(m_popup);
 }
 
-void PopupMenuImpl::show(const FloatQuad& /*controlPosition*/, const IntSize& /*controlSize*/, int /*index*/)
+void PopupMenuImpl::show()
 {
     ASSERT(!m_popup);
     m_popup = m_chromeClient->openPagePopup(this);
@@ -495,11 +495,17 @@ void PopupMenuImpl::update()
 {
     if (!m_popup || !m_ownerElement)
         return;
-    ownerElement().document().updateLayoutTreeIfNeeded();
+    ownerElement().document().updateLayoutTree();
     // disconnectClient() might have been called.
     if (!m_ownerElement)
         return;
     m_needsUpdate = false;
+
+    if (!ownerElement().document().frame()->view()->visibleContentRect().intersects(ownerElement().pixelSnappedBoundingBox())) {
+        hide();
+        return;
+    }
+
     RefPtr<SharedBuffer> data = SharedBuffer::create();
     PagePopupClient::addString("window.updateData = {\n", data.get());
     PagePopupClient::addString("type: \"update\",\n", data.get());
@@ -520,6 +526,8 @@ void PopupMenuImpl::update()
     }
     context.finishGroupIfNecessary();
     PagePopupClient::addString("],\n", data.get());
+    IntRect anchorRectInScreen = m_chromeClient->viewportToScreen(m_ownerElement->elementRectRelativeToViewport());
+    addProperty("anchorRectInScreen", anchorRectInScreen, data.get());
     PagePopupClient::addString("}\n", data.get());
     m_popup->postMessage(String::fromUTF8(data->data(), data->size()));
 }

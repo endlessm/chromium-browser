@@ -11,6 +11,7 @@
 #include "ash/wm/overlay_event_filter.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "ui/views/controls/webview/web_dialog_view.h"
 
 class GURL;
@@ -52,6 +53,8 @@ class ASH_WITH_CONTENT_EXPORT KeyboardOverlayView
 
  private:
   FRIEND_TEST_ALL_PREFIXES(KeyboardOverlayViewTest, OpenAcceleratorsClose);
+  FRIEND_TEST_ALL_PREFIXES(KeyboardOverlayViewTest,
+                           TestCancelingKeysWithNonModifierFlags);
   FRIEND_TEST_ALL_PREFIXES(KeyboardOverlayViewTest, NoRedundantCancelingKeys);
 
   // Overridden from views::WidgetDelegate:

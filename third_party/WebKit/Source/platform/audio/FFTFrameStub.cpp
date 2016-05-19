@@ -25,11 +25,9 @@
 
 // FFTFrame stub implementation to avoid link errors during bringup
 
-#include "config.h"
+#include "wtf/build_config.h"
 
-#if ENABLE(WEB_AUDIO)
-
-#if !OS(MACOSX) && !USE(WEBAUDIO_FFMPEG) && !USE(WEBAUDIO_IPP) && !USE(WEBAUDIO_OPENMAX_DL_FFT)
+#if !OS(MACOSX) && !USE(WEBAUDIO_FFMPEG) && !USE(WEBAUDIO_OPENMAX_DL_FFT)
 
 #include "platform/audio/FFTFrame.h"
 
@@ -85,6 +83,5 @@ void FFTFrame::cleanup()
 
 } // namespace blink
 
-#endif // !OS(MACOSX) && !USE(WEBAUDIO_FFMPEG) && !USE(WEBAUDIO_IPP) && !USE(WEBAUDIO_OPENMAX_DL_FFT)
+#endif // !OS(MACOSX) && !USE(WEBAUDIO_FFMPEG) && !USE(WEBAUDIO_OPENMAX_DL_FFT)
 
-#endif // ENABLE(WEB_AUDIO)

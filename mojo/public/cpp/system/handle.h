@@ -6,6 +6,7 @@
 #define MOJO_PUBLIC_CPP_SYSTEM_HANDLE_H_
 
 #include <assert.h>
+#include <stdint.h>
 #include <limits>
 
 #include "mojo/public/c/system/functions.h"
@@ -283,6 +284,11 @@ inline MojoResult CloseRaw(Handle handle) {
 // Strict weak ordering, so that |Handle|s can be used as keys in |std::map|s,
 inline bool operator<(const Handle a, const Handle b) {
   return a.value() < b.value();
+}
+
+// Comparison, so that |Handle|s can be used as keys in hash maps.
+inline bool operator==(const Handle a, const Handle b) {
+  return a.value() == b.value();
 }
 
 }  // namespace mojo

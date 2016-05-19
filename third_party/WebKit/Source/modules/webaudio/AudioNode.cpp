@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AudioNode.h"
-
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/inspector/InstanceCounters.h"
@@ -415,14 +412,15 @@ void AudioHandler::disableOutputsIfNecessary()
         // But internally our outputs should be disabled from the inputs they're connected to.
         // disable() can recursively deref connections (and call disable()) down a whole chain of connected nodes.
 
-        // TODO(rtoy,hongchan): we special case the convolver, delay, and biquad since they have a
-        // significant tail-time and shouldn't be disconnected simply because they no longer have
-        // any input connections. This needs to be handled more generally where AudioNodes have a
-        // tailTime attribute. Then the AudioNode only needs to remain "active" for tailTime seconds
-        // after there are no longer any active connections.
-        if (nodeType() != NodeTypeConvolver
-            && nodeType() != NodeTypeDelay
-            && nodeType() != NodeTypeBiquadFilter) {
+        // TODO(rtoy,hongchan): we need special cases the convolver, delay, biquad, and IIR since
+        // they have a significant tail-time and shouldn't be disconnected simply because they no
+        // longer have any input connections. This needs to be handled more generally where
+        // AudioNodes have a tailTime attribute. Then the AudioNode only needs to remain "active"
+        // for tailTime seconds after there are no longer any active connections.
+        if (getNodeType() != NodeTypeConvolver
+            && getNodeType() != NodeTypeDelay
+            && getNodeType() != NodeTypeBiquadFilter
+            && getNodeType() != NodeTypeIIRFilter) {
             m_isDisabled = true;
             clearInternalStateWhenDisabled();
             for (auto& output : m_outputs)
@@ -437,7 +435,7 @@ void AudioHandler::makeConnection()
 
 #if DEBUG_AUDIONODE_REFERENCES
     fprintf(stderr, "%p: %2d: AudioNode::ref   %3d [%3d]\n",
-        this, nodeType(), m_connectionRefCount, s_nodeCount[nodeType()]);
+        this, getNodeType(), m_connectionRefCount, s_nodeCount[getNodeType()]);
 #endif
     // See the disabling code in disableOutputsIfNecessary(). This handles
     // the case where a node is being re-connected after being used at least
@@ -476,7 +474,7 @@ void AudioHandler::breakConnectionWithLock()
 
 #if DEBUG_AUDIONODE_REFERENCES
     fprintf(stderr, "%p: %2d: AudioNode::deref %3d [%3d]\n",
-        this, nodeType(), m_connectionRefCount, s_nodeCount[nodeType()]);
+        this, getNodeType(), m_connectionRefCount, s_nodeCount[getNodeType()]);
 #endif
 
     if (!m_connectionRefCount)
@@ -514,7 +512,7 @@ unsigned AudioHandler::numberOfOutputChannels() const
     // This should only be called for ScriptProcessorNodes which are the only nodes where you can
     // have an output with 0 channels.  All other nodes have have at least one output channel, so
     // there's no reason other nodes should ever call this function.
-    ASSERT_WITH_MESSAGE(1, "numberOfOutputChannels() not valid for node type %d", nodeType());
+    ASSERT_WITH_MESSAGE(1, "numberOfOutputChannels() not valid for node type %d", getNodeType());
     return 1;
 }
 // ----------------------------------------------------------------
@@ -602,7 +600,7 @@ AudioNode* AudioNode::connect(AudioNode* destination, unsigned outputIndex, unsi
 
     // ScriptProcessorNodes with 0 output channels can't be connected to any destination.  If there
     // are no output channels, what would the destination receive?  Just disallow this.
-    if (handler().nodeType() == AudioHandler::NodeTypeJavaScript
+    if (handler().getNodeType() == AudioHandler::NodeTypeJavaScript
         && handler().numberOfOutputChannels() == 0) {
         exceptionState.throwDOMException(
             InvalidAccessError,
@@ -943,4 +941,3 @@ void AudioNode::didAddOutput(unsigned numberOfOutputs)
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

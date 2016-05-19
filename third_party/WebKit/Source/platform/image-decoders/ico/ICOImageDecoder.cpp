@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/image-decoders/ico/ICOImageDecoder.h"
 
 #include <algorithm>
@@ -305,4 +304,4 @@ ICOImageDecoder::ImageType ICOImageDecoder::imageTypeAtIndex(size_t index)
     return strncmp(data, "\x89PNG", 4) ? BMP : PNG;
 }
 
-}
+} // namespace blink

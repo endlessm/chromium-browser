@@ -10,9 +10,9 @@
 #include "android_webview/browser/aw_download_manager_delegate.h"
 #include "android_webview/browser/aw_message_port_service.h"
 #include "android_webview/browser/aw_ssl_host_state_delegate.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/visitedlink/browser/visitedlink_delegate.h"
@@ -37,10 +37,6 @@ class DataReductionProxyService;
 class DataReductionProxySettings;
 }
 
-namespace net {
-class CookieStore;
-}
-
 namespace policy {
 class URLBlacklistManager;
 class BrowserPolicyConnectorBase;
@@ -56,6 +52,14 @@ class AwFormDatabaseService;
 class AwQuotaManagerBridge;
 class AwURLRequestContextGetter;
 class JniDependencyFactory;
+
+namespace prefs {
+
+// Used for Kerberos authentication.
+extern const char kAuthAndroidNegotiateAccountType[];
+extern const char kAuthServerWhitelist[];
+
+}  // namespace prefs
 
 class AwBrowserContext : public content::BrowserContext,
                          public visitedlink::VisitedLinkDelegate {
@@ -92,17 +96,12 @@ class AwBrowserContext : public content::BrowserContext,
       content::URLRequestInterceptorScopedVector request_interceptors);
 
   AwQuotaManagerBridge* GetQuotaManagerBridge();
-
   AwFormDatabaseService* GetFormDatabaseService();
-
   data_reduction_proxy::DataReductionProxySettings*
       GetDataReductionProxySettings();
-
   data_reduction_proxy::DataReductionProxyIOData*
       GetDataReductionProxyIOData();
-
   AwURLRequestContextGetter* GetAwURLRequestContext();
-
   AwMessagePortService* GetMessagePortService();
 
   policy::URLBlacklistManager* GetURLBlacklistManager();
@@ -146,7 +145,6 @@ class AwBrowserContext : public content::BrowserContext,
   base::FilePath context_storage_path_;
 
   JniDependencyFactory* native_factory_;
-  scoped_refptr<net::CookieStore> cookie_store_;
   scoped_refptr<AwURLRequestContextGetter> url_request_context_getter_;
   scoped_refptr<AwQuotaManagerBridge> quota_manager_bridge_;
   scoped_ptr<AwFormDatabaseService> form_database_service_;

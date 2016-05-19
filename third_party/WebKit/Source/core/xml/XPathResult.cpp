@@ -24,7 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/xml/XPathResult.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -219,4 +218,4 @@ Node* XPathResult::snapshotItem(unsigned index, ExceptionState& exceptionState)
     return nodes[index];
 }
 
-}
+} // namespace blink

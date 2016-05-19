@@ -8,7 +8,7 @@
 
 #include "core/include/fxge/fx_dib.h"
 #include "core/include/fxge/fx_ge.h"
-#include "dib_int.h"
+#include "core/src/fxge/dib/dib_int.h"
 
 void CWeightTable::Calc(int dest_len,
                         int dest_min,
@@ -20,7 +20,7 @@ void CWeightTable::Calc(int dest_len,
   FX_Free(m_pWeightTables);
   m_pWeightTables = NULL;
   double scale, base;
-  scale = FXSYS_Div((FX_FLOAT)(src_len), (FX_FLOAT)(dest_len));
+  scale = (FX_FLOAT)src_len / (FX_FLOAT)dest_len;
   if (dest_len < 0) {
     base = (FX_FLOAT)(src_len);
   } else {
@@ -36,7 +36,7 @@ void CWeightTable::Calc(int dest_len,
   }
   m_pWeightTables =
       FX_TryAlloc(uint8_t, (dest_max - dest_min) * m_ItemSize + 4);
-  if (m_pWeightTables == NULL) {
+  if (!m_pWeightTables) {
     return;
   }
   if ((flags & FXDIB_NOSMOOTH) != 0 || FXSYS_fabs((FX_FLOAT)scale) < 1.0f) {
@@ -188,8 +188,8 @@ void CWeightTable::Calc(int dest_len,
     pixel_weights.m_SrcStart = start_i;
     pixel_weights.m_SrcEnd = end_i;
     for (int j = start_i; j <= end_i; j++) {
-      double dest_start = FXSYS_Div((FX_FLOAT)(j)-base, scale);
-      double dest_end = FXSYS_Div((FX_FLOAT)(j + 1) - base, scale);
+      double dest_start = ((FX_FLOAT)j - base) / scale;
+      double dest_end = ((FX_FLOAT)(j + 1) - base) / scale;
       if (dest_start > dest_end) {
         double temp = dest_start;
         dest_start = dest_end;
@@ -242,7 +242,7 @@ CStretchEngine::CStretchEngine(IFX_ScanlineComposer* pDestBitmap,
   size += 31;
   size = size / 32 * 4;
   m_pDestScanline = FX_TryAlloc(uint8_t, size);
-  if (m_pDestScanline == NULL) {
+  if (!m_pDestScanline) {
     return;
   }
   if (dest_format == FXDIB_Rgb32) {
@@ -270,14 +270,14 @@ CStretchEngine::CStretchEngine(IFX_ScanlineComposer* pDestBitmap,
       m_Flags |= FXDIB_DOWNSAMPLE;
     }
   }
-  double scale_x = FXSYS_Div((FX_FLOAT)(m_SrcWidth), (FX_FLOAT)(m_DestWidth));
-  double scale_y = FXSYS_Div((FX_FLOAT)(m_SrcHeight), (FX_FLOAT)(m_DestHeight));
+  double scale_x = (FX_FLOAT)m_SrcWidth / (FX_FLOAT)m_DestWidth;
+  double scale_y = (FX_FLOAT)m_SrcHeight / (FX_FLOAT)m_DestHeight;
   double base_x = m_DestWidth > 0 ? 0.0f : (FX_FLOAT)(m_DestWidth);
   double base_y = m_DestHeight > 0 ? 0.0f : (FX_FLOAT)(m_DestHeight);
-  double src_left = FXSYS_Mul(scale_x, (FX_FLOAT)(clip_rect.left) + base_x);
-  double src_right = FXSYS_Mul(scale_x, (FX_FLOAT)(clip_rect.right) + base_x);
-  double src_top = FXSYS_Mul(scale_y, (FX_FLOAT)(clip_rect.top) + base_y);
-  double src_bottom = FXSYS_Mul(scale_y, (FX_FLOAT)(clip_rect.bottom) + base_y);
+  double src_left = scale_x * ((FX_FLOAT)(clip_rect.left) + base_x);
+  double src_right = scale_x * ((FX_FLOAT)(clip_rect.right) + base_x);
+  double src_top = scale_y * ((FX_FLOAT)(clip_rect.top) + base_y);
+  double src_bottom = scale_y * ((FX_FLOAT)(clip_rect.bottom) + base_y);
   if (src_left > src_right) {
     double temp = src_left;
     src_left = src_right;
@@ -339,13 +339,13 @@ CStretchEngine::~CStretchEngine() {
   FX_Free(m_pDestMaskScanline);
 }
 FX_BOOL CStretchEngine::StartStretchHorz() {
-  if (m_DestWidth == 0 || m_pDestScanline == NULL ||
+  if (m_DestWidth == 0 || !m_pDestScanline ||
       m_SrcClip.Height() > (int)((1U << 29) / m_InterPitch) ||
       m_SrcClip.Height() == 0) {
     return FALSE;
   }
   m_pInterBuf = FX_TryAlloc(unsigned char, m_SrcClip.Height() * m_InterPitch);
-  if (m_pInterBuf == NULL) {
+  if (!m_pInterBuf) {
     return FALSE;
   }
   if (m_pSource && m_bHasAlpha && m_pSource->m_pAlphaMask) {
@@ -359,7 +359,7 @@ FX_BOOL CStretchEngine::StartStretchHorz() {
   }
   m_WeightTable.Calc(m_DestWidth, m_DestClip.left, m_DestClip.right, m_SrcWidth,
                      m_SrcClip.left, m_SrcClip.right, m_Flags);
-  if (m_WeightTable.m_pWeightTables == NULL) {
+  if (!m_WeightTable.m_pWeightTables) {
     return FALSE;
   }
   m_CurRow = m_SrcClip.top;
@@ -603,7 +603,7 @@ void CStretchEngine::StretchVert() {
   CWeightTable table;
   table.Calc(m_DestHeight, m_DestClip.top, m_DestClip.bottom, m_SrcHeight,
              m_SrcClip.top, m_SrcClip.bottom, m_Flags);
-  if (table.m_pWeightTables == NULL) {
+  if (!table.m_pWeightTables) {
     return;
   }
   int DestBpp = m_DestBpp / 8;
@@ -849,10 +849,7 @@ FX_BOOL CFX_ImageStretcher::StartStretch() {
   return TRUE;
 }
 FX_BOOL CFX_ImageStretcher::ContinueStretch(IFX_Pause* pPause) {
-  if (m_pStretchEngine == NULL) {
-    return FALSE;
-  }
-  return m_pStretchEngine->Continue(pPause);
+  return m_pStretchEngine && m_pStretchEngine->Continue(pPause);
 }
 FX_BOOL CFX_ImageStretcher::StartQuickStretch() {
   m_bFlipX = FALSE;
@@ -883,7 +880,7 @@ FX_BOOL CFX_ImageStretcher::StartQuickStretch() {
   return TRUE;
 }
 FX_BOOL CFX_ImageStretcher::ContinueQuickStretch(IFX_Pause* pPause) {
-  if (m_pScanline == NULL) {
+  if (!m_pScanline) {
     return FALSE;
   }
   int result_width = m_ClipRect.Width(), result_height = m_ClipRect.Height();

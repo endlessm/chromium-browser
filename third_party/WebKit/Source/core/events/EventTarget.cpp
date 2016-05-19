@@ -29,7 +29,6 @@
  *
  */
 
-#include "config.h"
 #include "core/events/EventTarget.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -53,6 +52,7 @@ namespace {
 void setDefaultEventListenerOptionsLegacy(EventListenerOptions& options, bool useCapture)
 {
     options.setCapture(useCapture);
+    options.setPassive(false);
 }
 
 void setDefaultEventListenerOptions(EventListenerOptions& options)
@@ -64,6 +64,8 @@ void setDefaultEventListenerOptions(EventListenerOptions& options)
     // capture is true; with the setting on capture is false.
     if (!options.hasCapture())
         options.setCapture(!RuntimeEnabledFeatures::eventListenerOptionsEnabled());
+    if (!options.hasPassive())
+        options.setPassive(false);
 }
 
 } // namespace
@@ -90,6 +92,11 @@ EventTarget::~EventTarget()
 }
 
 Node* EventTarget::toNode()
+{
+    return nullptr;
+}
+
+const LocalDOMWindow* EventTarget::toDOMWindow() const
 {
     return nullptr;
 }
@@ -244,10 +251,6 @@ bool EventTarget::clearAttributeEventListener(const AtomicString& eventType)
 
 bool EventTarget::dispatchEventForBindings(PassRefPtrWillBeRawPtr<Event> event, ExceptionState& exceptionState)
 {
-    if (!event) {
-        exceptionState.throwDOMException(InvalidStateError, "The event provided is null.");
-        return false;
-    }
     if (event->type().isEmpty()) {
         exceptionState.throwDOMException(InvalidStateError, "The event provided is uninitialized.");
         return false;
@@ -261,23 +264,27 @@ bool EventTarget::dispatchEventForBindings(PassRefPtrWillBeRawPtr<Event> event, 
         return false;
 
     event->setTrusted(false);
-    return dispatchEventInternal(event);
+
+    // Return whether the event was cancelled or not to JS not that it
+    // might have actually been default handled; so check only against
+    // CanceledByEventHandler.
+    return dispatchEventInternal(event) != DispatchEventResult::CanceledByEventHandler;
 }
 
-bool EventTarget::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
+DispatchEventResult EventTarget::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
 {
     event->setTrusted(true);
     return dispatchEventInternal(event);
 }
 
-bool EventTarget::dispatchEventInternal(PassRefPtrWillBeRawPtr<Event> event)
+DispatchEventResult EventTarget::dispatchEventInternal(PassRefPtrWillBeRawPtr<Event> event)
 {
     event->setTarget(this);
     event->setCurrentTarget(this);
     event->setEventPhase(Event::AT_TARGET);
-    bool defaultWasNotPrevented = fireEventListeners(event.get());
+    DispatchEventResult dispatchResult = fireEventListeners(event.get());
     event->setEventPhase(0);
-    return defaultWasNotPrevented;
+    return dispatchResult;
 }
 
 void EventTarget::uncaughtExceptionInEventHandler()
@@ -325,6 +332,10 @@ void EventTarget::countLegacyEvents(const AtomicString& legacyTypeName, EventLis
         prefixedFeature = UseCounter::PrefixedAnimationIterationEvent;
         unprefixedFeature = UseCounter::UnprefixedAnimationIterationEvent;
         prefixedAndUnprefixedFeature = UseCounter::PrefixedAndUnprefixedAnimationIterationEvent;
+    } else if (legacyTypeName == EventTypeNames::mousewheel) {
+        prefixedFeature = UseCounter::MouseWheelEvent;
+        unprefixedFeature = UseCounter::WheelEvent;
+        prefixedAndUnprefixedFeature = UseCounter::MouseWheelAndWheelEvent;
     } else {
         return;
     }
@@ -341,14 +352,14 @@ void EventTarget::countLegacyEvents(const AtomicString& legacyTypeName, EventLis
     }
 }
 
-bool EventTarget::fireEventListeners(Event* event)
+DispatchEventResult EventTarget::fireEventListeners(Event* event)
 {
     ASSERT(!EventDispatchForbiddenScope::isEventDispatchForbidden());
     ASSERT(event && !event->type().isEmpty());
 
     EventTargetData* d = eventTargetData();
     if (!d)
-        return true;
+        return DispatchEventResult::NotCanceled;
 
     EventListenerVector* legacyListenersVector = nullptr;
     AtomicString legacyTypeName = legacyType(event);
@@ -368,7 +379,7 @@ bool EventTarget::fireEventListeners(Event* event)
 
     Editor::countEvent(executionContext(), event);
     countLegacyEvents(legacyTypeName, listenersVector, legacyListenersVector);
-    return !event->defaultPrevented();
+    return dispatchEventResult(*event);
 }
 
 void EventTarget::fireEventListeners(Event* event, EventTargetData* d, EventListenerVector& entry)
@@ -428,16 +439,29 @@ void EventTarget::fireEventListeners(Event* event, EventTargetData* d, EventList
         if (!context)
             break;
 
+        event->setHandlingPassive(registeredListener.passive);
+
         InspectorInstrumentationCookie cookie = InspectorInstrumentation::willHandleEvent(this, event, registeredListener.listener.get(), registeredListener.useCapture);
 
         // To match Mozilla, the AT_TARGET phase fires both capturing and bubbling
         // event listeners, even though that violates some versions of the DOM spec.
         registeredListener.listener->handleEvent(context, event);
+        event->setHandlingPassive(false);
+
         RELEASE_ASSERT(i <= size);
 
         InspectorInstrumentation::didHandleEvent(cookie);
     }
     d->firingEventIterators->removeLast();
+}
+
+DispatchEventResult EventTarget::dispatchEventResult(const Event& event)
+{
+    if (event.defaultPrevented())
+        return DispatchEventResult::CanceledByEventHandler;
+    if (event.defaultHandled())
+        return DispatchEventResult::CanceledByDefaultEventHandler;
+    return DispatchEventResult::NotCanceled;
 }
 
 EventListenerVector* EventTarget::getEventListeners(const AtomicString& eventType)

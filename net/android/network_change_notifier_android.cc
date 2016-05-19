@@ -59,6 +59,9 @@
 
 #include "net/android/network_change_notifier_android.h"
 
+#include "base/android/build_info.h"
+#include "base/macros.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/threading/thread.h"
 #include "net/base/address_tracker_linux.h"
 #include "net/dns/dns_config_service_posix.h"
@@ -82,7 +85,7 @@ class NetworkChangeNotifierAndroid::DnsConfigServiceThread
     : public base::Thread,
       public NetworkChangeNotifier::NetworkChangeObserver {
  public:
-  DnsConfigServiceThread(const DnsConfig* dns_config_for_testing)
+  explicit DnsConfigServiceThread(const DnsConfig* dns_config_for_testing)
       : base::Thread("DnsConfigService"),
         dns_config_for_testing_(dns_config_for_testing),
         creation_time_(base::Time::Now()),
@@ -162,6 +165,18 @@ void NetworkChangeNotifierAndroid::GetCurrentMaxBandwidthAndConnectionType(
                                                      connection_type);
 }
 
+void NetworkChangeNotifierAndroid::ForceNetworkHandlesSupportedForTesting() {
+  force_network_handles_supported_for_testing_ = true;
+}
+
+bool NetworkChangeNotifierAndroid::AreNetworkHandlesCurrentlySupported() const {
+  // Notifications for API using NetworkHandles and querying using
+  // NetworkHandles only implemented for Android versions >= L.
+  return force_network_handles_supported_for_testing_ ||
+         (base::android::BuildInfo::GetInstance()->sdk_int() >=
+          base::android::SDK_VERSION_LOLLIPOP);
+}
+
 void NetworkChangeNotifierAndroid::GetCurrentConnectedNetworks(
     NetworkChangeNotifier::NetworkList* networks) const {
   delegate_->GetCurrentlyConnectedNetworks(networks);
@@ -222,7 +237,8 @@ NetworkChangeNotifierAndroid::NetworkChangeNotifierAndroid(
     : NetworkChangeNotifier(NetworkChangeCalculatorParamsAndroid()),
       delegate_(delegate),
       dns_config_service_thread_(
-          new DnsConfigServiceThread(dns_config_for_testing)) {
+          new DnsConfigServiceThread(dns_config_for_testing)),
+      force_network_handles_supported_for_testing_(false) {
   CHECK_EQ(NetId::INVALID, NetworkChangeNotifier::kInvalidNetworkHandle)
       << "kInvalidNetworkHandle doesn't match NetId::INVALID";
   delegate_->AddObserver(this);
@@ -246,6 +262,21 @@ NetworkChangeNotifierAndroid::NetworkChangeCalculatorParamsAndroid() {
   params.connection_type_offline_delay_ = base::TimeDelta::FromSeconds(0);
   params.connection_type_online_delay_ = base::TimeDelta::FromSeconds(0);
   return params;
+}
+
+void NetworkChangeNotifierAndroid::OnFinalizingMetricsLogRecord() {
+  // Metrics logged here will be included in every metrics log record.  It's not
+  // yet clear if these metrics are generally useful enough to warrant being
+  // added to the SystemProfile proto, so they are logged here as histograms for
+  // now.
+  const NetworkChangeNotifier::ConnectionType type =
+      NetworkChangeNotifier::GetConnectionType();
+  NetworkChangeNotifier::LogOperatorCodeHistogram(type);
+  if (NetworkChangeNotifier::IsConnectionCellular(type)) {
+    UMA_HISTOGRAM_ENUMERATION("NCN.CellularConnectionSubtype",
+                              delegate_->GetCurrentConnectionSubtype(),
+                              SUBTYPE_LAST + 1);
+  }
 }
 
 }  // namespace net

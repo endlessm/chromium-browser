@@ -4,7 +4,11 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/md5.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_samples.h"
@@ -20,6 +24,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "net/socket/socket_test_util.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -36,18 +41,23 @@ class DataReductionProxySettingsTest
                                             bool expected_enabled,
                                             bool expected_restricted,
                                             bool expected_fallback_restricted) {
-    test_context_->pref_service()->SetBoolean(prefs::kDataReductionProxyEnabled,
-                                              initially_enabled);
+    test_context_->SetDataReductionProxyEnabled(initially_enabled);
     test_context_->config()->SetStateForTest(initially_enabled,
                                              request_succeeded);
     ExpectSetProxyPrefs(expected_enabled, false);
     settings_->MaybeActivateDataReductionProxy(false);
     test_context_->RunUntilIdle();
   }
+
+  void InitPrefMembers() {
+    settings_->set_data_reduction_proxy_enabled_pref_name_for_test(
+        test_context_->GetDataReductionProxyEnabledPrefName());
+    settings_->InitPrefMembers();
+  }
 };
 
 TEST_F(DataReductionProxySettingsTest, TestIsProxyEnabledOrManaged) {
-  settings_->InitPrefMembers();
+  InitPrefMembers();
   // The proxy is disabled initially.
   test_context_->config()->SetStateForTest(false, true);
 
@@ -66,7 +76,7 @@ TEST_F(DataReductionProxySettingsTest, TestIsProxyEnabledOrManaged) {
 }
 
 TEST_F(DataReductionProxySettingsTest, TestCanUseDataReductionProxy) {
-  settings_->InitPrefMembers();
+  InitPrefMembers();
   // The proxy is disabled initially.
   test_context_->config()->SetStateForTest(false, true);
 
@@ -83,9 +93,9 @@ TEST_F(DataReductionProxySettingsTest, TestCanUseDataReductionProxy) {
 }
 
 TEST_F(DataReductionProxySettingsTest, TestResetDataReductionStatistics) {
-  int64 original_content_length;
-  int64 received_content_length;
-  int64 last_update_time;
+  int64_t original_content_length;
+  int64_t received_content_length;
+  int64_t last_update_time;
   settings_->ResetDataReductionStatistics();
   settings_->GetContentLengths(kNumDaysInHistory,
                                &original_content_length,
@@ -97,9 +107,9 @@ TEST_F(DataReductionProxySettingsTest, TestResetDataReductionStatistics) {
 }
 
 TEST_F(DataReductionProxySettingsTest, TestContentLengths) {
-  int64 original_content_length;
-  int64 received_content_length;
-  int64 last_update_time;
+  int64_t original_content_length;
+  int64_t received_content_length;
+  int64_t last_update_time;
 
   // Request |kNumDaysInHistory| days.
   settings_->GetContentLengths(kNumDaysInHistory,
@@ -108,7 +118,7 @@ TEST_F(DataReductionProxySettingsTest, TestContentLengths) {
                                &last_update_time);
   const unsigned int days = kNumDaysInHistory;
   // Received content length history values are 0 to |kNumDaysInHistory - 1|.
-  int64 expected_total_received_content_length = (days - 1L) * days / 2;
+  int64_t expected_total_received_content_length = (days - 1L) * days / 2;
   // Original content length history values are 0 to
   // |2 * (kNumDaysInHistory - 1)|.
   long expected_total_original_content_length = (days - 1L) * days;
@@ -188,8 +198,7 @@ TEST(DataReductionProxySettingsStandaloneTest, TestEndToEndSecureProxyCheck) {
     context.Init();
 
     // Start with the Data Reduction Proxy disabled.
-    drp_test_context->pref_service()->SetBoolean(
-        prefs::kDataReductionProxyEnabled, false);
+    drp_test_context->SetDataReductionProxyEnabled(false);
     drp_test_context->InitSettings();
 
     net::MockRead mock_reads[] = {
@@ -202,8 +211,7 @@ TEST(DataReductionProxySettingsStandaloneTest, TestEndToEndSecureProxyCheck) {
     mock_socket_factory.AddSocketDataProvider(&socket_data_provider);
 
     // Toggle the pref to trigger the secure proxy check.
-    drp_test_context->pref_service()->SetBoolean(
-            prefs::kDataReductionProxyEnabled, true);
+    drp_test_context->SetDataReductionProxyEnabled(true);
     drp_test_context->RunUntilIdle();
 
     EXPECT_EQ(test_case.expected_restricted,
@@ -231,13 +239,11 @@ TEST(DataReductionProxySettingsStandaloneTest, TestOnProxyEnabledPrefChange) {
 
   // The pref is disabled, so correspondingly should be the proxy.
   EXPECT_CALL(*mock_service, SetProxyPrefs(false, false));
-  drp_test_context->pref_service()->SetBoolean(
-      prefs::kDataReductionProxyEnabled, false);
+  drp_test_context->SetDataReductionProxyEnabled(false);
 
   // The pref is enabled, so correspondingly should be the proxy.
   EXPECT_CALL(*mock_service, SetProxyPrefs(true, false));
-  drp_test_context->pref_service()->SetBoolean(
-      prefs::kDataReductionProxyEnabled, true);
+  drp_test_context->SetDataReductionProxyEnabled(true);
 }
 
 TEST_F(DataReductionProxySettingsTest, TestMaybeActivateDataReductionProxy) {
@@ -245,7 +251,7 @@ TEST_F(DataReductionProxySettingsTest, TestMaybeActivateDataReductionProxy) {
   // so it won't trigger MaybeActivateDataReductionProxy when the pref value
   // is set.
   settings_->spdy_proxy_auth_enabled_.Init(
-      prefs::kDataReductionProxyEnabled,
+      test_context_->GetDataReductionProxyEnabledPrefName(),
       settings_->GetOriginalProfilePrefs());
 
   // TODO(bengr): Test enabling/disabling while a secure proxy check is
@@ -266,8 +272,7 @@ TEST_F(DataReductionProxySettingsTest, TestInitDataReductionProxyOn) {
   MockSettings* settings = static_cast<MockSettings*>(settings_.get());
   EXPECT_CALL(*settings, RecordStartupState(PROXY_ENABLED));
 
-  test_context_->pref_service()->SetBoolean(prefs::kDataReductionProxyEnabled,
-                                            true);
+  test_context_->SetDataReductionProxyEnabled(true);
   InitDataReductionProxy(true);
   CheckDataReductionProxySyntheticTrial(true);
 }
@@ -278,8 +283,7 @@ TEST_F(DataReductionProxySettingsTest, TestInitDataReductionProxyOff) {
   MockSettings* settings = static_cast<MockSettings*>(settings_.get());
   EXPECT_CALL(*settings, RecordStartupState(PROXY_DISABLED));
 
-  test_context_->pref_service()->SetBoolean(prefs::kDataReductionProxyEnabled,
-                                            false);
+  test_context_->SetDataReductionProxyEnabled(false);
   InitDataReductionProxy(false);
   CheckDataReductionProxySyntheticTrial(false);
 }
@@ -297,8 +301,7 @@ TEST_F(DataReductionProxySettingsTest, TestEnableProxyFromCommandLine) {
 TEST_F(DataReductionProxySettingsTest, TestSetDataReductionProxyEnabled) {
   MockSettings* settings = static_cast<MockSettings*>(settings_.get());
   EXPECT_CALL(*settings, RecordStartupState(PROXY_ENABLED));
-  test_context_->pref_service()->SetBoolean(prefs::kDataReductionProxyEnabled,
-                                            true);
+  test_context_->SetDataReductionProxyEnabled(true);
   settings->SetLoFiModeActiveOnMainFrame(true);
   InitDataReductionProxy(true);
 
@@ -317,8 +320,7 @@ TEST_F(DataReductionProxySettingsTest, TestSetDataReductionProxyEnabled) {
 TEST_F(DataReductionProxySettingsTest, TestEnableLoFiSyntheticTrial) {
   MockSettings* settings = static_cast<MockSettings*>(settings_.get());
   EXPECT_CALL(*settings, RecordStartupState(PROXY_ENABLED));
-  test_context_->pref_service()->SetBoolean(prefs::kDataReductionProxyEnabled,
-                                            true);
+  test_context_->SetDataReductionProxyEnabled(true);
   InitDataReductionProxy(true);
 
   // The Lo-Fi field trial will be set to "Disabled" until the first main frame
@@ -335,7 +337,7 @@ TEST_F(DataReductionProxySettingsTest, TestEnableLoFiSyntheticTrial) {
 }
 
 TEST_F(DataReductionProxySettingsTest, TestLoFiImplicitOptOutClicksPerSession) {
-  settings_->InitPrefMembers();
+  InitPrefMembers();
   settings_->data_reduction_proxy_service_->SetIOData(
       test_context_->io_data()->GetWeakPtr());
   test_context_->config()->ResetLoFiStatusForTest();
@@ -424,7 +426,7 @@ TEST_F(DataReductionProxySettingsTest, TestLoFiImplicitOptOutClicksPerSession) {
 
 TEST_F(DataReductionProxySettingsTest,
        TestLoFiImplicitOptOutConsecutiveSessions) {
-  settings_->InitPrefMembers();
+  InitPrefMembers();
   settings_->data_reduction_proxy_service_->SetIOData(
       test_context_->io_data()->GetWeakPtr());
   test_context_->config()->ResetLoFiStatusForTest();
@@ -486,7 +488,7 @@ TEST_F(DataReductionProxySettingsTest, TestLoFiImplicitOptOutHistograms) {
   const char kUMALoFiImplicitOptOutAction[] =
       "DataReductionProxy.LoFi.ImplicitOptOutAction.Unknown";
   base::HistogramTester histogram_tester;
-  settings_->InitPrefMembers();
+  InitPrefMembers();
   settings_->data_reduction_proxy_service_->SetIOData(
       test_context_->io_data()->GetWeakPtr());
 
@@ -528,7 +530,7 @@ TEST_F(DataReductionProxySettingsTest, TestLoFiImplicitOptOutHistograms) {
 TEST_F(DataReductionProxySettingsTest, TestLoFiSessionStateHistograms) {
   const char kUMALoFiSessionState[] = "DataReductionProxy.LoFi.SessionState";
   base::HistogramTester histogram_tester;
-  settings_->InitPrefMembers();
+  InitPrefMembers();
   settings_->data_reduction_proxy_service_->SetIOData(
       test_context_->io_data()->GetWeakPtr());
 
@@ -622,7 +624,7 @@ TEST_F(DataReductionProxySettingsTest, TestSettingsEnabledStateHistograms) {
   const char kUMAEnabledState[] = "DataReductionProxy.EnabledState";
   base::HistogramTester histogram_tester;
 
-  settings_->InitPrefMembers();
+  InitPrefMembers();
   settings_->data_reduction_proxy_service_->SetIOData(
       test_context_->io_data()->GetWeakPtr());
 
@@ -671,6 +673,7 @@ TEST_F(DataReductionProxySettingsTest, CheckInitMetricsWhenNotAllowed) {
   EXPECT_CALL(*settings, RecordStartupState(PROXY_NOT_AVAILABLE));
 
   settings_->InitDataReductionProxySettings(
+      test_context_->GetDataReductionProxyEnabledPrefName(),
       test_context_->pref_service(), test_context_->io_data(),
       test_context_->CreateDataReductionProxyService(settings_.get()));
   settings_->SetCallbackToRegisterSyntheticFieldTrial(
@@ -718,6 +721,7 @@ TEST_F(DataReductionProxySettingsTest, CheckQUICFieldTrials) {
     EXPECT_CALL(*settings, RecordStartupState(PROXY_NOT_AVAILABLE));
 
     settings_->InitDataReductionProxySettings(
+        test_context_->GetDataReductionProxyEnabledPrefName(),
         test_context_->pref_service(), test_context_->io_data(),
         test_context_->CreateDataReductionProxyService(settings_.get()));
 

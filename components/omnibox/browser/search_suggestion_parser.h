@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "components/omnibox/browser/autocomplete_match.h"
@@ -44,6 +44,7 @@ class SearchSuggestionParser {
            bool relevance_from_server,
            AutocompleteMatchType::Type type,
            const std::string& deletion_url);
+    Result(const Result& other);
     virtual ~Result();
 
     bool from_keyword_provider() const { return from_keyword_provider_; }

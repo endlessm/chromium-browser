@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/extensions/browser_action_button.h"
@@ -96,7 +97,7 @@ void ExtensionMessageBubbleBrowserTestMac::CheckBubble(
       anchorView = [actionsController buttonWithIndex:0];
       break;
     case ANCHOR_APP_MENU:
-      anchorView = [toolbarController wrenchButton];
+      anchorView = [toolbarController appMenuButton];
       break;
   }
   CheckBubbleAndReferenceView(bubble, anchorView);

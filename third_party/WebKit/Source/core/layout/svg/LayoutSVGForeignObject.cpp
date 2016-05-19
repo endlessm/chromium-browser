@@ -19,8 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/LayoutSVGForeignObject.h"
 
 #include "core/layout/HitTestResult.h"
@@ -64,7 +62,7 @@ void LayoutSVGForeignObject::updateLogicalWidth()
 {
     // FIXME: Investigate in size rounding issues
     // FIXME: Remove unnecessary rounding when layout is off ints: webkit.org/b/63656
-    setWidth(static_cast<int>(roundf(m_viewport.width())));
+    setWidth(LayoutUnit(static_cast<int>(roundf(m_viewport.width()))));
 }
 
 void LayoutSVGForeignObject::computeLogicalHeight(LayoutUnit, LayoutUnit logicalTop, LogicalExtentComputedValues& computedValues) const
@@ -72,7 +70,7 @@ void LayoutSVGForeignObject::computeLogicalHeight(LayoutUnit, LayoutUnit logical
     // FIXME: Investigate in size rounding issues
     // FIXME: Remove unnecessary rounding when layout is off ints: webkit.org/b/63656
     // FIXME: Is this correct for vertical writing mode?
-    computedValues.m_extent = static_cast<int>(roundf(m_viewport.height()));
+    computedValues.m_extent = LayoutUnit(static_cast<int>(roundf(m_viewport.height())));
     computedValues.m_position = logicalTop;
 }
 
@@ -145,4 +143,4 @@ bool LayoutSVGForeignObject::nodeAtFloatPoint(HitTestResult& result, const Float
         || LayoutBlock::nodeAtPoint(result, hitTestLocation, LayoutPoint(), HitTestChildBlockBackgrounds);
 }
 
-}
+} // namespace blink

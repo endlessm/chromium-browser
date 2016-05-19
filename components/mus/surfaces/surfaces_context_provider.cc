@@ -4,6 +4,8 @@
 
 #include "components/mus/surfaces/surfaces_context_provider.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/synchronization/waitable_event.h"
@@ -29,9 +31,9 @@ SurfacesContextProvider::SurfacesContextProvider(
     SurfacesContextProviderDelegate* delegate,
     gfx::AcceleratedWidget widget,
     const scoped_refptr<GpuState>& state)
-    : delegate_(delegate), widget_(widget) {
+    : delegate_(delegate), widget_(widget), command_buffer_local_(nullptr) {
   capabilities_.gpu.image = true;
-  command_buffer_local_.reset(new CommandBufferLocal(this, widget_, state));
+  command_buffer_local_ = new CommandBufferLocal(this, widget_, state);
 }
 
 // This is called when we have an accelerated widget.
@@ -41,15 +43,15 @@ bool SurfacesContextProvider::BindToCurrentThread() {
   DCHECK(CalledOnValidThread());
   if (!command_buffer_local_->Initialize())
     return false;
-  gles2_helper_.reset(new gpu::gles2::GLES2CmdHelper(
-      command_buffer_local_->GetCommandBuffer()));
+  gles2_helper_.reset(
+      new gpu::gles2::GLES2CmdHelper(command_buffer_local_));
   if (!gles2_helper_->Initialize(kDefaultCommandBufferSize))
     return false;
   gles2_helper_->SetAutomaticFlushes(false);
   transfer_buffer_.reset(new gpu::TransferBuffer(gles2_helper_.get()));
-  gpu::Capabilities capabilities = command_buffer_local_->GetCapabilities();
+  capabilities_.gpu = command_buffer_local_->GetCapabilities();
   bool bind_generates_resource =
-      !!capabilities.bind_generates_resource_chromium;
+      !!capabilities_.gpu.bind_generates_resource_chromium;
   // TODO(piman): Some contexts (such as compositor) want this to be true, so
   // this needs to be a public parameter.
   bool lose_context_when_out_of_memory = false;
@@ -57,7 +59,7 @@ bool SurfacesContextProvider::BindToCurrentThread() {
   implementation_.reset(new gpu::gles2::GLES2Implementation(
       gles2_helper_.get(), NULL, transfer_buffer_.get(),
       bind_generates_resource, lose_context_when_out_of_memory,
-      support_client_side_arrays, command_buffer_local_.get()));
+      support_client_side_arrays, command_buffer_local_));
   return implementation_->Initialize(
       kDefaultStartTransferBufferSize, kDefaultMinTransferBufferSize,
       kDefaultMaxTransferBufferSize, gpu::gles2::GLES2Implementation::kNoLimit);
@@ -98,7 +100,8 @@ SurfacesContextProvider::~SurfacesContextProvider() {
   implementation_.reset();
   transfer_buffer_.reset();
   gles2_helper_.reset();
-  command_buffer_local_.reset();
+  command_buffer_local_->Destroy();
+  command_buffer_local_ = nullptr;
 }
 
 void SurfacesContextProvider::UpdateVSyncParameters(int64_t timebase,

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "google_apis/gaia/oauth2_api_call_flow.h"
@@ -43,6 +44,7 @@ class URLRequestContextGetter;
 struct IssueAdviceInfoEntry {
  public:
   IssueAdviceInfoEntry();
+  IssueAdviceInfoEntry(const IssueAdviceInfoEntry& other);
   ~IssueAdviceInfoEntry();
 
   base::string16 description;
@@ -80,6 +82,7 @@ class OAuth2MintTokenFlow : public OAuth2ApiCallFlow {
                const std::vector<std::string>& scopes_arg,
                const std::string& device_id,
                Mode mode_arg);
+    Parameters(const Parameters& other);
     ~Parameters();
 
     std::string extension_id;

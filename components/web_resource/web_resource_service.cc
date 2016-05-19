@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/prefs/pref_service.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -15,6 +14,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/prefs/pref_service.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -78,7 +78,7 @@ void WebResourceService::OnURLFetchComplete(const net::URLFetcher* source) {
     // (on Android in particular) we short-cut the full parsing in the case of
     // trivially "empty" JSONs.
     if (data.empty() || data == "{}") {
-      OnUnpackFinished(make_scoped_ptr(new base::DictionaryValue()).Pass());
+      OnUnpackFinished(make_scoped_ptr(new base::DictionaryValue()));
     } else {
       parse_json_callback_.Run(data,
                                base::Bind(&WebResourceService::OnUnpackFinished,
@@ -97,7 +97,7 @@ void WebResourceService::OnURLFetchComplete(const net::URLFetcher* source) {
 
 // Delay initial load of resource data into cache so as not to interfere
 // with startup time.
-void WebResourceService::ScheduleFetch(int64 delay_ms) {
+void WebResourceService::ScheduleFetch(int64_t delay_ms) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, base::Bind(&WebResourceService::StartFetch,
                             weak_ptr_factory_.GetWeakPtr()),
@@ -163,7 +163,7 @@ void WebResourceService::OnUnpackError(const std::string& error_message) {
 }
 
 void WebResourceService::OnResourceRequestsAllowed() {
-  int64 delay = start_fetch_delay_ms_;
+  int64_t delay = start_fetch_delay_ms_;
   // Check whether we have ever put a value in the web resource cache;
   // if so, pull it out and see if it's time to update again.
   if (prefs_->HasPrefPath(last_update_time_pref_name_)) {
@@ -172,9 +172,9 @@ void WebResourceService::OnResourceRequestsAllowed() {
     if (!last_update_pref.empty()) {
       double last_update_value;
       base::StringToDouble(last_update_pref, &last_update_value);
-      int64 ms_until_update =
+      int64_t ms_until_update =
           cache_update_delay_ms_ -
-          static_cast<int64>(
+          static_cast<int64_t>(
               (base::Time::Now() - base::Time::FromDoubleT(last_update_value))
                   .InMilliseconds());
       // Wait at least |start_fetch_delay_ms_|.

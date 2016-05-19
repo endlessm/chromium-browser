@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/track/TrackBase.h"
 
 #include "core/html/HTMLMediaElement.h"
@@ -41,7 +40,7 @@ static WebMediaPlayer::TrackId nextTrackId()
     return ++next;
 }
 
-TrackBase::TrackBase(Type type, const AtomicString& label, const AtomicString& language, const String& id)
+TrackBase::TrackBase(TrackType type, const AtomicString& label, const AtomicString& language, const String& id)
     : m_trackId(nextTrackId())
     , m_type(type)
     , m_label(label)

@@ -5,7 +5,6 @@
 #include "chrome/browser/chromeos/settings/owner_flags_storage.h"
 
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "base/values.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
@@ -13,6 +12,7 @@
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/flags_ui/flags_ui_pref_names.h"
 #include "components/ownership/owner_settings_service.h"
+#include "components/prefs/pref_service.h"
 
 namespace chromeos {
 namespace about_flags {
@@ -20,7 +20,7 @@ namespace about_flags {
 OwnerFlagsStorage::OwnerFlagsStorage(
     PrefService* prefs,
     ownership::OwnerSettingsService* owner_settings_service)
-    : ::flags_ui::PrefServiceFlagsStorage(prefs),
+    : flags_ui::PrefServiceFlagsStorage(prefs),
       owner_settings_service_(owner_settings_service) {
   // Make this code more unit test friendly.
   if (g_browser_process->local_state()) {
@@ -57,7 +57,7 @@ bool OwnerFlagsStorage::SetFlags(const std::set<std::string>& flags) {
 
   base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   ::about_flags::ConvertFlagsToSwitches(this, &command_line,
-                                        ::about_flags::kNoSentinels);
+                                        flags_ui::kNoSentinels);
   base::CommandLine::StringVector switches = command_line.argv();
   for (base::CommandLine::StringVector::const_iterator it =
            switches.begin() + 1;

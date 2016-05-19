@@ -7,6 +7,8 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2extchromium.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <vector>
 
@@ -19,6 +21,7 @@
 #include "gpu/command_buffer/client/transfer_buffer.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
+#include "gpu/command_buffer/common/sync_token.h"
 #include "gpu/command_buffer/common/value_state.h"
 #include "gpu/command_buffer/service/command_buffer_service.h"
 #include "gpu/command_buffer/service/context_group.h"
@@ -64,8 +67,8 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
   void* memory(size_t plane) override {
     DCHECK(mapped_);
     DCHECK_LT(plane, gfx::NumberOfPlanesForBufferFormat(format_));
-    return reinterpret_cast<uint8*>(&bytes_->data().front()) +
-         gfx::BufferOffsetForBufferFormat(size_, format_, plane);
+    return reinterpret_cast<uint8_t*>(&bytes_->data().front()) +
+           gfx::BufferOffsetForBufferFormat(size_, format_, plane);
   }
   void Unmap() override {
     DCHECK(mapped_);
@@ -120,7 +123,10 @@ GLManager::Options::Options()
 GLManager::GLManager()
     : sync_point_manager_(nullptr),
       context_lost_allowed_(false),
-      command_buffer_id_(g_next_command_buffer_id++),
+      pause_commands_(false),
+      paused_order_num_(0),
+      command_buffer_id_(
+          CommandBufferId::FromUnsafeValue(g_next_command_buffer_id++)),
       next_fence_sync_release_(1) {
   SetupBaseContext();
 }
@@ -147,7 +153,7 @@ GLManager::~GLManager() {
 scoped_ptr<gfx::GpuMemoryBuffer> GLManager::CreateGpuMemoryBuffer(
     const gfx::Size& size,
     gfx::BufferFormat format) {
-  std::vector<uint8> data(gfx::BufferSizeForBufferFormat(size, format), 0);
+  std::vector<uint8_t> data(gfx::BufferSizeForBufferFormat(size, format), 0);
   scoped_refptr<base::RefCountedBytes> bytes(new base::RefCountedBytes(data));
   return make_scoped_ptr<gfx::GpuMemoryBuffer>(
       new GpuMemoryBufferImpl(bytes.get(), size, format));
@@ -159,7 +165,7 @@ void GLManager::Initialize(const GLManager::Options& options) {
 
 void GLManager::InitializeWithCommandLine(const GLManager::Options& options,
                                           base::CommandLine* command_line) {
-  const int32 kCommandBufferSize = 1024 * 1024;
+  const int32_t kCommandBufferSize = 1024 * 1024;
   const size_t kStartTransferBufferSize = 4 * 1024 * 1024;
   const size_t kMinTransferBufferSize = 1 * 256 * 1024;
   const size_t kMaxTransferBufferSize = 16 * 1024 * 1024;
@@ -199,7 +205,7 @@ void GLManager::InitializeWithCommandLine(const GLManager::Options& options,
       share_group ? share_group : new gfx::GLShareGroup;
 
   gfx::GpuPreference gpu_preference(gfx::PreferDiscreteGpu);
-  std::vector<int32> attribs;
+  std::vector<int32_t> attribs;
   gles2::ContextCreationAttribHelper attrib_helper;
   attrib_helper.red_size = 8;
   attrib_helper.green_size = 8;
@@ -340,7 +346,7 @@ void GLManager::OnFenceSyncRelease(uint64_t release) {
 }
 
 bool GLManager::OnWaitFenceSync(gpu::CommandBufferNamespace namespace_id,
-                                uint64_t command_buffer_id,
+                                gpu::CommandBufferId command_buffer_id,
                                 uint64_t release) {
   DCHECK(sync_point_client_);
   scoped_refptr<gpu::SyncPointClientState> release_state =
@@ -400,9 +406,23 @@ void GLManager::PumpCommands() {
   uint32_t order_num = 0;
   if (sync_point_manager_) {
     // If sync point manager is supported, assign order numbers to commands.
-    order_num = sync_point_order_data_->GenerateUnprocessedOrderNumber(
-        sync_point_manager_);
+    if (paused_order_num_) {
+      // Was previous paused, continue to process the order number.
+      order_num = paused_order_num_;
+      paused_order_num_ = 0;
+    } else {
+      order_num = sync_point_order_data_->GenerateUnprocessedOrderNumber(
+          sync_point_manager_);
+    }
     sync_point_order_data_->BeginProcessingOrderNumber(order_num);
+  }
+
+  if (pause_commands_) {
+    // Do not process commands, simply store the current order number.
+    paused_order_num_ = order_num;
+
+    sync_point_order_data_->PauseProcessingOrderNumber(order_num);
+    return;
   }
 
   gpu_scheduler_->PutChanged();
@@ -417,7 +437,7 @@ void GLManager::PumpCommands() {
   }
 }
 
-bool GLManager::GetBufferChanged(int32 transfer_buffer_id) {
+bool GLManager::GetBufferChanged(int32_t transfer_buffer_id) {
   return gpu_scheduler_->SetGetBuffer(transfer_buffer_id);
 }
 
@@ -425,10 +445,10 @@ Capabilities GLManager::GetCapabilities() {
   return decoder_->GetCapabilities();
 }
 
-int32 GLManager::CreateImage(ClientBuffer buffer,
-                             size_t width,
-                             size_t height,
-                             unsigned internalformat) {
+int32_t GLManager::CreateImage(ClientBuffer buffer,
+                               size_t width,
+                               size_t height,
+                               unsigned internalformat) {
   GpuMemoryBufferImpl* gpu_memory_buffer =
       GpuMemoryBufferImpl::FromClientBuffer(buffer);
 
@@ -440,8 +460,8 @@ int32 GLManager::CreateImage(ClientBuffer buffer,
     return -1;
   }
 
-  static int32 next_id = 1;
-  int32 new_id = next_id++;
+  static int32_t next_id = 1;
+  int32_t new_id = next_id++;
 
   gpu::gles2::ImageManager* image_manager = decoder_->GetImageManager();
   DCHECK(image_manager);
@@ -449,52 +469,24 @@ int32 GLManager::CreateImage(ClientBuffer buffer,
   return new_id;
 }
 
-int32 GLManager::CreateGpuMemoryBufferImage(size_t width,
-                                            size_t height,
-                                            unsigned internalformat,
-                                            unsigned usage) {
+int32_t GLManager::CreateGpuMemoryBufferImage(size_t width,
+                                              size_t height,
+                                              unsigned internalformat,
+                                              unsigned usage) {
   DCHECK_EQ(usage, static_cast<unsigned>(GL_READ_WRITE_CHROMIUM));
   scoped_ptr<gfx::GpuMemoryBuffer> buffer = GLManager::CreateGpuMemoryBuffer(
       gfx::Size(width, height), gfx::BufferFormat::RGBA_8888);
   return CreateImage(buffer->AsClientBuffer(), width, height, internalformat);
 }
 
-void GLManager::DestroyImage(int32 id) {
+void GLManager::DestroyImage(int32_t id) {
   gpu::gles2::ImageManager* image_manager = decoder_->GetImageManager();
   DCHECK(image_manager);
   image_manager->RemoveImage(id);
 }
 
-uint32 GLManager::InsertSyncPoint() {
+void GLManager::SignalQuery(uint32_t query, const base::Closure& callback) {
   NOTIMPLEMENTED();
-  return 0u;
-}
-
-uint32 GLManager::InsertFutureSyncPoint() {
-  NOTIMPLEMENTED();
-  return 0u;
-}
-
-void GLManager::RetireSyncPoint(uint32 sync_point) {
-  NOTIMPLEMENTED();
-}
-
-void GLManager::SignalSyncPoint(uint32 sync_point,
-                                const base::Closure& callback) {
-  NOTIMPLEMENTED();
-}
-
-void GLManager::SignalQuery(uint32 query, const base::Closure& callback) {
-  NOTIMPLEMENTED();
-}
-
-void GLManager::SetSurfaceVisible(bool visible) {
-  NOTIMPLEMENTED();
-}
-
-uint32 GLManager::CreateStreamTexture(uint32 texture_id) {
-  NOTIMPLEMENTED();
-  return 0;
 }
 
 void GLManager::SetLock(base::Lock*) {
@@ -506,12 +498,20 @@ bool GLManager::IsGpuChannelLost() {
   return false;
 }
 
+void GLManager::EnsureWorkVisible() {
+  // This is only relevant for out-of-process command buffers.
+}
+
 gpu::CommandBufferNamespace GLManager::GetNamespaceID() const {
   return gpu::CommandBufferNamespace::IN_PROCESS;
 }
 
-uint64_t GLManager::GetCommandBufferID() const {
+CommandBufferId GLManager::GetCommandBufferID() const {
   return command_buffer_id_;
+}
+
+int32_t GLManager::GetExtraCommandBufferData() const {
+  return 0;
 }
 
 uint64_t GLManager::GenerateFenceSyncRelease() {
@@ -532,7 +532,20 @@ bool GLManager::IsFenceSyncFlushReceived(uint64_t release) {
 
 void GLManager::SignalSyncToken(const gpu::SyncToken& sync_token,
                                 const base::Closure& callback) {
-  NOTIMPLEMENTED();
+  if (sync_point_manager_) {
+    scoped_refptr<gpu::SyncPointClientState> release_state =
+        sync_point_manager_->GetSyncPointClientState(
+            sync_token.namespace_id(), sync_token.command_buffer_id());
+
+    if (release_state) {
+      sync_point_client_->WaitOutOfOrder(release_state.get(),
+                                         sync_token.release_count(), callback);
+      return;
+    }
+  }
+
+  // Something went wrong, just run the callback now.
+  callback.Run();
 }
 
 bool GLManager::CanWaitUnverifiedSyncToken(const gpu::SyncToken* sync_token) {

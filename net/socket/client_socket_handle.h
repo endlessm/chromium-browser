@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
@@ -49,6 +50,8 @@ class NET_EXPORT ClientSocketHandle {
   // ClientSocketPool to obtain a connected socket, possibly reusing one.  This
   // method returns either OK or ERR_IO_PENDING.  On ERR_IO_PENDING, |priority|
   // is used to determine the placement in ClientSocketPool's wait list.
+  // If |respect_limits| is DISABLED, will bypass the wait list, but |priority|
+  // must also be HIGHEST, if set.
   //
   // If this method succeeds, then the socket member will be set to an existing
   // connected socket if an existing connected socket was available to reuse,
@@ -77,6 +80,7 @@ class NET_EXPORT ClientSocketHandle {
   int Init(const std::string& group_name,
            const scoped_refptr<typename PoolType::SocketParams>& socket_params,
            RequestPriority priority,
+           ClientSocketPool::RespectLimits respect_limits,
            const CompletionCallback& callback,
            PoolType* pool,
            const BoundNetLog& net_log);
@@ -235,6 +239,7 @@ int ClientSocketHandle::Init(
     const std::string& group_name,
     const scoped_refptr<typename PoolType::SocketParams>& socket_params,
     RequestPriority priority,
+    ClientSocketPool::RespectLimits respect_limits,
     const CompletionCallback& callback,
     PoolType* pool,
     const BoundNetLog& net_log) {
@@ -246,8 +251,8 @@ int ClientSocketHandle::Init(
   pool_ = pool;
   group_name_ = group_name;
   init_time_ = base::TimeTicks::Now();
-  int rv = pool_->RequestSocket(
-      group_name, &socket_params, priority, this, callback_, net_log);
+  int rv = pool_->RequestSocket(group_name, &socket_params, priority,
+                                respect_limits, this, callback_, net_log);
   if (rv == ERR_IO_PENDING) {
     user_callback_ = callback;
   } else {

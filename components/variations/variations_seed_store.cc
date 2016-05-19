@@ -4,18 +4,22 @@
 
 #include "components/variations/variations_seed_store.h"
 
+#include <stdint.h>
+
 #include "base/base64.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_math.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
-#include "components/compression/compression_utils.h"
+#include "build/build_config.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/variations/pref_names.h"
 #include "components/variations/proto/variations_seed.pb.h"
 #include "crypto/signature_verifier.h"
 #include "third_party/protobuf/src/google/protobuf/io/coded_stream.h"
+#include "third_party/zlib/google/compression_utils.h"
 
 #if defined(OS_ANDROID)
 #include "components/variations/android/variations_seed_bridge.h"
@@ -47,10 +51,8 @@ bool SignatureVerificationEnabled() {
 //   component, the OID ecdsa-with-SHA224, ecdsa-with-SHA256, ecdsa-with-
 //   SHA384, or ecdsa-with-SHA512.
 // See also RFC 5480, Appendix A.
-const uint8 kECDSAWithSHA256AlgorithmID[] = {
-  0x30, 0x0a,
-    0x06, 0x08,
-      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02,
+const uint8_t kECDSAWithSHA256AlgorithmID[] = {
+    0x30, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02,
 };
 
 // The ECDSA public key of the variations server for verifying variations seed
@@ -295,7 +297,7 @@ void VariationsSeedStore::UpdateSeedDateAndLogDayChange(
   VariationsSeedDateChangeState date_change = SEED_DATE_NO_OLD_DATE;
 
   if (local_state_->HasPrefPath(prefs::kVariationsSeedDate)) {
-    const int64 stored_date_value =
+    const int64_t stored_date_value =
         local_state_->GetInt64(prefs::kVariationsSeedDate);
     const base::Time stored_date =
         base::Time::FromInternalValue(stored_date_value);
@@ -341,12 +343,12 @@ VariationsSeedStore::VerifySeedSignature(
   crypto::SignatureVerifier verifier;
   if (!verifier.VerifyInit(
           kECDSAWithSHA256AlgorithmID, sizeof(kECDSAWithSHA256AlgorithmID),
-          reinterpret_cast<const uint8*>(signature.data()), signature.size(),
+          reinterpret_cast<const uint8_t*>(signature.data()), signature.size(),
           kPublicKey, arraysize(kPublicKey))) {
     return VARIATIONS_SEED_SIGNATURE_INVALID_SIGNATURE;
   }
 
-  verifier.VerifyUpdate(reinterpret_cast<const uint8*>(seed_bytes.data()),
+  verifier.VerifyUpdate(reinterpret_cast<const uint8_t*>(seed_bytes.data()),
                         seed_bytes.size());
   if (verifier.VerifyFinal())
     return VARIATIONS_SEED_SIGNATURE_VALID;
@@ -363,27 +365,25 @@ void VariationsSeedStore::ClearPrefs() {
 #if defined(OS_ANDROID)
 void VariationsSeedStore::ImportFirstRunJavaSeed() {
   DVLOG(1) << "Importing first run seed from Java preferences.";
-  if (get_variations_first_run_seed_.is_null()) {
-    RecordFirstRunResult(FIRST_RUN_SEED_IMPORT_FAIL_NO_CALLBACK);
-    return;
-  }
 
   std::string seed_data;
   std::string seed_signature;
   std::string seed_country;
-  get_variations_first_run_seed_.Run(&seed_data, &seed_signature,
-                                     &seed_country);
+  std::string response_date;
+  bool is_gzip_compressed;
+
+  android::GetVariationsFirstRunSeed(&seed_data, &seed_signature, &seed_country,
+                                     &response_date, &is_gzip_compressed);
   if (seed_data.empty()) {
     RecordFirstRunResult(FIRST_RUN_SEED_IMPORT_FAIL_NO_FIRST_RUN_SEED);
     return;
   }
 
-  // TODO(agulenko): Pull actual time from the response.
-  base::Time current_time = base::Time::Now();
+  base::Time current_date;
+  base::Time::FromUTCString(response_date.c_str(), &current_date);
 
-  // TODO(agulenko): Support gzip compressed seed.
-  if (!StoreSeedData(seed_data, seed_signature, seed_country, current_time,
-                     false, false, nullptr)) {
+  if (!StoreSeedData(seed_data, seed_signature, seed_country, current_date,
+                     false, is_gzip_compressed, nullptr)) {
     RecordFirstRunResult(FIRST_RUN_SEED_IMPORT_FAIL_STORE_FAILED);
     LOG(WARNING) << "First run variations seed is invalid.";
     return;
@@ -504,14 +504,15 @@ bool VariationsSeedStore::ApplyDeltaPatch(const std::string& existing_data,
   output->clear();
 
   google::protobuf::io::CodedInputStream in(
-      reinterpret_cast<const uint8*>(patch.data()), patch.length());
+      reinterpret_cast<const uint8_t*>(patch.data()), patch.length());
   // Temporary string declared outside the loop so it can be re-used between
   // different iterations (rather than allocating new ones).
   std::string temp;
 
-  const uint32 existing_data_size = static_cast<uint32>(existing_data.size());
+  const uint32_t existing_data_size =
+      static_cast<uint32_t>(existing_data.size());
   while (in.CurrentPosition() != static_cast<int>(patch.length())) {
-    uint32 value;
+    uint32_t value;
     if (!in.ReadVarint32(&value))
       return false;
 
@@ -528,13 +529,13 @@ bool VariationsSeedStore::ApplyDeltaPatch(const std::string& existing_data,
       // Otherwise, when it's zero, it indicates that it's followed by a pair of
       // numbers - |offset| and |length| that specify a range of data to copy
       // from |existing_data|.
-      uint32 offset;
-      uint32 length;
+      uint32_t offset;
+      uint32_t length;
       if (!in.ReadVarint32(&offset) || !in.ReadVarint32(&length))
         return false;
 
       // Check for |offset + length| being out of range and for overflow.
-      base::CheckedNumeric<uint32> end_offset(offset);
+      base::CheckedNumeric<uint32_t> end_offset(offset);
       end_offset += length;
       if (!end_offset.IsValid() || end_offset.ValueOrDie() > existing_data_size)
         return false;

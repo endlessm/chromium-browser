@@ -4,6 +4,8 @@
 
 #include "components/gcm_driver/registration_info.h"
 
+#include <stddef.h>
+
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 
@@ -33,7 +35,7 @@ scoped_ptr<RegistrationInfo> RegistrationInfo::BuildFromString(
                                  registration_id)) {
     registration.reset();
   }
-  return registration.Pass();
+  return registration;
 }
 
 RegistrationInfo::RegistrationInfo() {

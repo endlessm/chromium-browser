@@ -5,11 +5,13 @@
 #ifndef CONTENT_GPU_GPU_CHILD_THREAD_H_
 #define CONTENT_GPU_GPU_CHILD_THREAD_H_
 
+#include <stdint.h>
+
 #include <queue>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
@@ -17,10 +19,12 @@
 #include "content/child/child_thread_impl.h"
 #include "content/common/gpu/gpu_channel.h"
 #include "content/common/gpu/gpu_channel_manager.h"
+#include "content/common/gpu/gpu_channel_manager_delegate.h"
 #include "content/common/gpu/gpu_config.h"
 #include "content/common/gpu/x_util.h"
+#include "content/common/process_control.mojom.h"
 #include "gpu/config/gpu_info.h"
-#include "mojo/common/weak_binding_set.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -36,13 +40,13 @@ namespace content {
 class GpuMemoryBufferFactory;
 class GpuProcessControlImpl;
 class GpuWatchdogThread;
-class ProcessControl;
 
 // The main thread of the GPU child process. There will only ever be one of
 // these per process. It does process initialization and shutdown. It forwards
 // IPC messages to GpuChannelManager, which is responsible for issuing rendering
 // commands to the GPU.
-class GpuChildThread : public ChildThreadImpl {
+class GpuChildThread : public ChildThreadImpl,
+                       public GpuChannelManagerDelegate {
  public:
   typedef std::queue<IPC::Message*> DeferredMessages;
 
@@ -70,12 +74,36 @@ class GpuChildThread : public ChildThreadImpl {
   bool OnMessageReceived(const IPC::Message& msg) override;
 
  private:
+  // GpuChannelManagerDelegate implementation.
+  void AddSubscription(int32_t client_id, unsigned int target) override;
+  void ChannelEstablished(const IPC::ChannelHandle& channel_handle) override;
+  void DidCreateOffscreenContext(const GURL& active_url) override;
+  void DidDestroyChannel(int client_id) override;
+  void DidDestroyOffscreenContext(const GURL& active_url) override;
+  void DidLoseContext(bool offscreen,
+                      gpu::error::ContextLostReason reason,
+                      const GURL& active_url) override;
+  void GpuMemoryUmaStats(const GPUMemoryUmaStats& params) override;
+  void RemoveSubscription(int32_t client_id, unsigned int target) override;
+#if defined(OS_MACOSX)
+  void SendAcceleratedSurfaceBuffersSwapped(
+      const AcceleratedSurfaceBuffersSwappedParams& params) override;
+#endif
+#if defined(OS_WIN)
+  void SendAcceleratedSurfaceCreatedChildWindow(
+      const gfx::PluginWindowHandle& parent_window,
+      const gfx::PluginWindowHandle& child_window) override;
+#endif
+  void StoreShaderToDisk(int32_t client_id,
+                         const std::string& key,
+                         const std::string& shader) override;
+
   // Message handlers.
   void OnInitialize();
   void OnFinalize();
   void OnCollectGraphicsInfo();
   void OnGetVideoMemoryUsageStats();
-  void OnSetVideoMemoryWindowCount(uint32 window_count);
+  void OnSetVideoMemoryWindowCount(uint32_t window_count);
 
   void OnClean();
   void OnCrash();
@@ -83,9 +111,22 @@ class GpuChildThread : public ChildThreadImpl {
   void OnDisableWatchdog();
   void OnGpuSwitched();
 
-#if defined(USE_TCMALLOC)
-  void OnGetGpuTcmalloc();
+#if defined(OS_MACOSX)
+  void OnBufferPresented(const BufferPresentedParams& params);
 #endif
+  void OnEstablishChannel(const EstablishChannelParams& params);
+  void OnCloseChannel(const IPC::ChannelHandle& channel_handle);
+  void OnLoadedShader(const std::string& shader);
+  void OnDestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
+                                int client_id,
+                                const gpu::SyncToken& sync_token);
+  void OnUpdateValueState(int client_id,
+                          unsigned int target,
+                          const gpu::ValueState& state);
+#if defined(OS_ANDROID)
+  void OnWakeUpGpu();
+#endif
+  void OnLoseAllContexts();
 
   void BindProcessControlRequest(
       mojo::InterfaceRequest<ProcessControl> request);
@@ -122,7 +163,7 @@ class GpuChildThread : public ChildThreadImpl {
   scoped_ptr<GpuProcessControlImpl> process_control_;
 
   // Bindings to the ProcessControl impl.
-  mojo::WeakBindingSet<ProcessControl> process_control_bindings_;
+  mojo::BindingSet<ProcessControl> process_control_bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuChildThread);
 };

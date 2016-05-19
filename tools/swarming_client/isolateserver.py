@@ -110,6 +110,11 @@ class Error(Exception):
   pass
 
 
+class IsolatedErrorNoCommand(isolated_format.IsolatedError):
+  """Signals an early abort due to lack of command specified."""
+  pass
+
+
 class Aborted(Error):
   """Operation aborted."""
   pass
@@ -497,20 +502,6 @@ class Storage(object):
 
     return uploaded
 
-  def get_fetch_url(self, item):
-    """Returns an URL that can be used to fetch given item once it's uploaded.
-
-    Note that if namespace uses compression, data at given URL is compressed.
-
-    Arguments:
-      item: Item to get fetch URL for.
-
-    Returns:
-      An URL or None if underlying protocol doesn't support this.
-    """
-    item.prepare(self._hash_algo)
-    return self._storage_api.get_fetch_url(item.digest)
-
   def async_push(self, channel, item, push_state):
     """Starts asynchronous push to the server in a parallel thread.
 
@@ -849,17 +840,6 @@ class StorageApi(object):
     """
     raise NotImplementedError()
 
-  def get_fetch_url(self, digest):
-    """Returns an URL that can be used to fetch an item with given digest.
-
-    Arguments:
-      digest: hex digest of item to fetch.
-
-    Returns:
-      An URL or None if the protocol doesn't support this.
-    """
-    raise NotImplementedError()
-
   def fetch(self, digest, offset=0):
     """Fetches an object and yields its content.
 
@@ -981,11 +961,6 @@ class IsolateServer(StorageApi):
   @property
   def namespace(self):
     return self._namespace
-
-  def get_fetch_url(self, digest):
-    assert isinstance(digest, basestring)
-    return '%s/content-gs/retrieve/%s/%s' % (
-        self._base_url, self._namespace, digest)
 
   def fetch(self, digest, offset=0):
     assert offset >= 0
@@ -1182,6 +1157,8 @@ class IsolateServer(StorageApi):
         'namespace': self._namespace_dict,
         'offset': offset,
     }
+    # TODO(maruel): url + '?' + urllib.urlencode(data) once a HTTP GET endpoint
+    # is added.
     return net.url_read_json(
         url=url,
         data=data,
@@ -1223,6 +1200,7 @@ class IsolateServer(StorageApi):
         content_type='application/octet-stream',
         data=content,
         method='PUT',
+        headers={'Cache-Control': 'public, max-age=31536000'},
         url=url)
     return response is not None
 
@@ -1856,7 +1834,7 @@ def fetch_isolated(isolated_hash, storage, cache, outdir, require_command):
       if require_command and not bundle.command:
         # TODO(vadimsh): All fetch operations are already enqueue and there's no
         # easy way to cancel them.
-        raise isolated_format.IsolatedError('No command to run')
+        raise IsolatedErrorNoCommand()
 
     with tools.Profiler('GetRest'):
       # Create file system hierarchy.
@@ -2158,7 +2136,7 @@ def add_cache_options(parser):
       '--max-cache-size',
       type='int',
       metavar='NNN',
-      default=20*1024*1024*1024,
+      default=50*1024*1024*1024,
       help='Trim if the cache gets larger than this value, default=%default')
   cache_group.add_option(
       '--min-free-space',

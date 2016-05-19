@@ -31,6 +31,7 @@
 #include "base/compiler_specific.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/sys_info.h"
 #include "base/threading/thread.h"
@@ -109,13 +110,6 @@ namespace {
 void DoPipe(base::ScopedFD* fds) {
   int tmp_fds[2];
   BPF_ASSERT_EQ(0, pipe(tmp_fds));
-  fds[0].reset(tmp_fds[0]);
-  fds[1].reset(tmp_fds[1]);
-}
-
-void DoSocketpair(base::ScopedFD* fds) {
-  int tmp_fds[2];
-  BPF_ASSERT_EQ(0, socketpair(AF_UNIX, SOCK_STREAM, 0, tmp_fds));
   fds[0].reset(tmp_fds[0]);
   fds[1].reset(tmp_fds[1]);
 }

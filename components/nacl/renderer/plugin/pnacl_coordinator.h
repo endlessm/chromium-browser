@@ -5,15 +5,18 @@
 #ifndef COMPONENTS_NACL_RENDERER_PLUGIN_PNACL_COORDINATOR_H_
 #define COMPONENTS_NACL_RENDERER_PLUGIN_PNACL_COORDINATOR_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
+#include "base/files/file.h"
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/time/time.h"
 #include "components/nacl/renderer/plugin/nacl_subprocess.h"
 #include "components/nacl/renderer/plugin/plugin_error.h"
 #include "components/nacl/renderer/plugin/pnacl_resources.h"
-#include "native_client/src/include/nacl_macros.h"
-#include "native_client/src/shared/platform/nacl_sync_raii.h"
-#include "native_client/src/shared/srpc/nacl_srpc.h"
-#include "native_client/src/trusted/desc/nacl_desc_wrapper.h"
 #include "ppapi/cpp/completion_callback.h"
 #include "ppapi/utility/completion_callback_factory.h"
 
@@ -24,7 +27,6 @@ namespace plugin {
 class Plugin;
 class PnaclCoordinator;
 class PnaclTranslateThread;
-class TempFile;
 
 // A class invoked by Plugin to handle PNaCl client-side translation.
 // Usage:
@@ -47,9 +49,6 @@ class TempFile;
 // (2) ld links the object code in obj_file_ and produces a nexe in nexe_file_.
 class PnaclCoordinator {
  public:
-  // Maximum number of object files passable to the translator. Cannot be
-  // changed without changing the RPC signatures.
-  const static size_t kMaxTranslatorObjectFiles = 16;
   virtual ~PnaclCoordinator();
 
   // The factory method for translations.
@@ -89,8 +88,6 @@ class PnaclCoordinator {
   void BitcodeStreamDidFinish(int32_t pp_error);
 
  private:
-  NACL_DISALLOW_COPY_AND_ASSIGN(PnaclCoordinator);
-
   // BitcodeToNative is the factory method for PnaclCoordinators.
   // Therefore the constructor is private.
   PnaclCoordinator(Plugin* plugin,
@@ -107,15 +104,15 @@ class PnaclCoordinator {
   // been created, this starts the translation.  Translation starts two
   // subprocesses, one for llc and one for ld.
   void LoadCompiler();
-  void RunCompile(int32_t pp_error, int64_t compile_load_start_time);
+  void RunCompile(int32_t pp_error, base::TimeTicks compile_load_start_time);
   void LoadLinker(int32_t pp_error);
-  void RunLink(int32_t pp_error, int64_t ld_load_start_time);
+  void RunLink(int32_t pp_error, base::TimeTicks ld_load_start_time);
 
   // Invoked when translation is finished.
   void TranslateFinished(int32_t pp_error);
 
   // Invoked when the read descriptor for nexe_file_ is created.
-  void NexeReadDidOpen(int32_t pp_error);
+  void NexeReadDidOpen();
 
   // Bring control back to the plugin by invoking the
   // |translate_notify_callback_|.  This does not set the ErrorInfo report,
@@ -124,12 +121,6 @@ class PnaclCoordinator {
   // Run |translate_notify_callback_| with an error condition that is not
   // PPAPI specific.  Also set ErrorInfo report.
   void ReportNonPpapiError(PP_NaClError err, const std::string& message);
-  // Run when faced with a PPAPI error condition. Bring control back to the
-  // plugin by invoking the |translate_notify_callback_|.
-  // Also set ErrorInfo report.
-  void ReportPpapiError(PP_NaClError err,
-                        int32_t pp_error, const std::string& message);
-
 
   // Keeps track of the pp_error upon entry to TranslateFinished,
   // for inspection after cleanup.
@@ -150,7 +141,7 @@ class PnaclCoordinator {
                                 pp::ThreadSafeThreadTraits> callback_factory_;
 
   // An auxiliary class that manages downloaded resources (llc and ld nexes).
-  nacl::scoped_ptr<PnaclResources> resources_;
+  scoped_ptr<PnaclResources> resources_;
   NaClSubprocess compiler_subprocess_;
   NaClSubprocess ld_subprocess_;
 
@@ -164,15 +155,14 @@ class PnaclCoordinator {
   std::string architecture_attributes_;
 
   // Object file, produced by the translator and consumed by the linker.
-  std::vector<TempFile*> obj_files_;
-  nacl::scoped_ptr<nacl::DescWrapper> invalid_desc_wrapper_;
+  std::vector<base::File> obj_files_;
   // Number of split modules for llc.
   int split_module_count_;
   // Number of threads for llc / subzero.
   int num_threads_;
 
   // Translated nexe file, produced by the linker.
-  nacl::scoped_ptr<TempFile> temp_nexe_file_;
+  base::File temp_nexe_file_;
 
   // Used to report information when errors (PPAPI or otherwise) are reported.
   ErrorInfo error_info_;
@@ -189,7 +179,9 @@ class PnaclCoordinator {
   // The helper thread used to do translations via SRPC.
   // It accesses fields of PnaclCoordinator so it must have a
   // shorter lifetime.
-  nacl::scoped_ptr<PnaclTranslateThread> translate_thread_;
+  scoped_ptr<PnaclTranslateThread> translate_thread_;
+
+  DISALLOW_COPY_AND_ASSIGN(PnaclCoordinator);
 };
 
 //----------------------------------------------------------------------

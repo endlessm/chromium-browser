@@ -29,6 +29,7 @@
 #include "core/fetch/RawResource.h"
 #include "core/fetch/ResourceOwner.h"
 #include "core/html/track/vtt/VTTParser.h"
+#include "platform/CrossOriginAttributeValue.h"
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
 #include "wtf/OwnPtr.h"
@@ -38,9 +39,9 @@ namespace blink {
 class Document;
 class TextTrackLoader;
 
-class TextTrackLoaderClient : public ResourceOwner<RawResource> {
+class TextTrackLoaderClient : public GarbageCollectedMixin {
 public:
-    ~TextTrackLoaderClient() override {}
+    virtual ~TextTrackLoaderClient() {}
 
     virtual void newCuesAvailable(TextTrackLoader*) = 0;
     virtual void cueLoadingCompleted(TextTrackLoader*, bool loadingFailed) = 0;
@@ -48,8 +49,8 @@ public:
 };
 
 class TextTrackLoader final : public NoBaseWillBeGarbageCollectedFinalized<TextTrackLoader>, public ResourceOwner<RawResource>, private VTTParserClient {
-    WTF_MAKE_NONCOPYABLE(TextTrackLoader);
     USING_FAST_MALLOC_WILL_BE_REMOVED(TextTrackLoader);
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(TextTrackLoader);
 public:
     static PassOwnPtrWillBeRawPtr<TextTrackLoader> create(TextTrackLoaderClient& client, Document& document)
     {
@@ -57,7 +58,7 @@ public:
     }
     ~TextTrackLoader() override;
 
-    bool load(const KURL&, const AtomicString& crossOriginMode);
+    bool load(const KURL&, CrossOriginAttributeValue);
     void cancelLoad();
 
     enum State { Idle, Loading, Finished, Failed };
@@ -70,7 +71,7 @@ public:
 
 private:
     // RawResourceClient
-    void dataReceived(Resource*, const char* data, unsigned length) override;
+    void dataReceived(Resource*, const char* data, size_t length) override;
     void notifyFinished(Resource*) override;
     String debugName() const override { return "TextTrackLoader"; }
 
@@ -86,7 +87,7 @@ private:
 
     Document& document() const { return *m_document; }
 
-    TextTrackLoaderClient& m_client;
+    Member<TextTrackLoaderClient> m_client;
     PersistentWillBeMember<VTTParser> m_cueParser;
     // FIXME: Remove this pointer and get the Document from m_client.
     RawPtrWillBeMember<Document> m_document;

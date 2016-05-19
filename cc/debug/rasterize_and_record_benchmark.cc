@@ -4,11 +4,12 @@
 
 #include "cc/debug/rasterize_and_record_benchmark.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <limits>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "cc/debug/lap_timer.h"
@@ -36,8 +37,12 @@ const int kWarmupRuns = 0;
 const int kTimeCheckInterval = 1;
 
 const char* kModeSuffixes[DisplayListRecordingSource::RECORDING_MODE_COUNT] = {
-    "", "_sk_null_canvas", "_painting_disabled", "_caching_disabled",
-    "_construction_disabled"};
+    "",
+    "_sk_null_canvas",
+    "_painting_disabled",
+    "_caching_disabled",
+    "_construction_disabled",
+    "_subsequence_caching_disabled"};
 
 }  // namespace
 
@@ -46,7 +51,7 @@ RasterizeAndRecordBenchmark::RasterizeAndRecordBenchmark(
     const MicroBenchmark::DoneCallback& callback)
     : MicroBenchmark(callback),
       record_repeat_count_(kDefaultRecordRepeatCount),
-      settings_(value.Pass()),
+      settings_(std::move(value)),
       main_thread_benchmark_done_(false),
       host_(nullptr),
       weak_ptr_factory_(this) {
@@ -93,7 +98,7 @@ void RasterizeAndRecordBenchmark::RecordRasterResults(
 
   results_->MergeDictionary(results);
 
-  NotifyDone(results_.Pass());
+  NotifyDone(std::move(results_));
 }
 
 scoped_ptr<MicroBenchmarkImpl> RasterizeAndRecordBenchmark::CreateBenchmarkImpl(
@@ -107,23 +112,20 @@ scoped_ptr<MicroBenchmarkImpl> RasterizeAndRecordBenchmark::CreateBenchmarkImpl(
 void RasterizeAndRecordBenchmark::RunOnLayer(PictureLayer* layer) {
   DCHECK(host_);
 
+  if (!layer->DrawsContent())
+    return;
+
   gfx::Rect visible_layer_rect = layer->visible_layer_rect();
   if (visible_layer_rect.IsEmpty())
     return;
 
-  RunOnDisplayListLayer(layer, visible_layer_rect);
-}
-
-void RasterizeAndRecordBenchmark::RunOnDisplayListLayer(
-    PictureLayer* layer,
-    const gfx::Rect& visible_layer_rect) {
   ContentLayerClient* painter = layer->client();
 
   for (int mode_index = 0;
        mode_index < DisplayListRecordingSource::RECORDING_MODE_COUNT;
        mode_index++) {
     ContentLayerClient::PaintingControlSetting painting_control =
-        ContentLayerClient::PAINTING_BEHAVIOR_NORMAL;
+        ContentLayerClient::PAINTING_BEHAVIOR_NORMAL_FOR_TEST;
     switch (
         static_cast<DisplayListRecordingSource::RecordingMode>(mode_index)) {
       case DisplayListRecordingSource::RECORD_NORMALLY:
@@ -142,6 +144,9 @@ void RasterizeAndRecordBenchmark::RunOnDisplayListLayer(
         painting_control =
             ContentLayerClient::DISPLAY_LIST_CONSTRUCTION_DISABLED;
         break;
+      case DisplayListRecordingSource::RECORD_WITH_SUBSEQUENCE_CACHING_DISABLED:
+        painting_control = ContentLayerClient::SUBSEQUENCE_CACHING_DISABLED;
+        break;
       default:
         NOTREACHED();
     }
@@ -157,8 +162,7 @@ void RasterizeAndRecordBenchmark::RunOnDisplayListLayer(
                      kTimeCheckInterval);
 
       do {
-        display_list = painter->PaintContentsToDisplayList(visible_layer_rect,
-                                                           painting_control);
+        display_list = painter->PaintContentsToDisplayList(painting_control);
         if (display_list->ShouldBeAnalyzedForSolidColor()) {
           gfx::Size layer_size = layer->paint_properties().bounds;
           skia::AnalysisCanvas canvas(layer_size.width(), layer_size.height());
@@ -183,8 +187,8 @@ void RasterizeAndRecordBenchmark::RunOnDisplayListLayer(
     if (mode_index == DisplayListRecordingSource::RECORD_NORMALLY) {
       record_results_.bytes_used +=
           memory_used + painter->GetApproximateUnsharedMemoryUsage();
-      record_results_.pixels_recorded +=
-          visible_layer_rect.width() * visible_layer_rect.height();
+      record_results_.pixels_recorded += painter->PaintableRegion().width() *
+                                         painter->PaintableRegion().height();
     }
     record_results_.total_best_time[mode_index] += min_time;
   }

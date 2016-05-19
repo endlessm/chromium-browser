@@ -27,7 +27,6 @@
  * SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/shapes/ShapeOutsideInfo.h"
 
 #include "core/inspector/ConsoleMessage.h"
@@ -122,13 +121,12 @@ static bool isValidRasterShapeRect(const LayoutRect& rect)
 
 PassOwnPtr<Shape> ShapeOutsideInfo::createShapeForImage(StyleImage* styleImage, float shapeImageThreshold, WritingMode writingMode, float margin) const
 {
-    const IntSize& imageSize = m_layoutBox.calculateImageIntrinsicDimensions(styleImage, roundedIntSize(m_referenceBoxLogicalSize), LayoutImage::ScaleByEffectiveZoom);
-    styleImage->setContainerSizeForLayoutObject(&m_layoutBox, imageSize, m_layoutBox.style()->effectiveZoom());
+    const LayoutSize& imageSize = m_layoutBox.calculateImageIntrinsicDimensions(styleImage, m_referenceBoxLogicalSize, LayoutImage::ScaleByEffectiveZoom);
 
     const LayoutRect& marginRect = getShapeImageMarginRect(m_layoutBox, m_referenceBoxLogicalSize);
     const LayoutRect& imageRect = (m_layoutBox.isLayoutImage())
         ? toLayoutImage(m_layoutBox).replacedContentRect()
-        : LayoutRect(LayoutPoint(), LayoutSize(imageSize));
+        : LayoutRect(LayoutPoint(), imageSize);
 
     if (!isValidRasterShapeRect(marginRect) || !isValidRasterShapeRect(imageRect)) {
         m_layoutBox.document().addConsoleMessage(ConsoleMessage::create(RenderingMessageSource, ErrorMessageLevel, "The shape-outside image is too large."));
@@ -136,7 +134,7 @@ PassOwnPtr<Shape> ShapeOutsideInfo::createShapeForImage(StyleImage* styleImage, 
     }
 
     ASSERT(!styleImage->isPendingImage());
-    RefPtr<Image> image = styleImage->image(const_cast<LayoutBox*>(&m_layoutBox), imageSize);
+    RefPtr<Image> image = styleImage->image(const_cast<LayoutBox*>(&m_layoutBox), flooredIntSize(imageSize), m_layoutBox.style()->effectiveZoom());
 
     return Shape::createRasterShape(image.get(), shapeImageThreshold, imageRect, marginRect, writingMode, margin);
 }
@@ -185,13 +183,13 @@ const Shape& ShapeOutsideInfo::computedShape() const
 inline LayoutUnit borderBeforeInWritingMode(const LayoutBox& layoutBox, WritingMode writingMode)
 {
     switch (writingMode) {
-    case TopToBottomWritingMode: return layoutBox.borderTop();
-    case LeftToRightWritingMode: return layoutBox.borderLeft();
-    case RightToLeftWritingMode: return layoutBox.borderRight();
+    case TopToBottomWritingMode: return LayoutUnit(layoutBox.borderTop());
+    case LeftToRightWritingMode: return LayoutUnit(layoutBox.borderLeft());
+    case RightToLeftWritingMode: return LayoutUnit(layoutBox.borderRight());
     }
 
     ASSERT_NOT_REACHED();
-    return layoutBox.borderBefore();
+    return LayoutUnit(layoutBox.borderBefore());
 }
 
 inline LayoutUnit borderAndPaddingBeforeInWritingMode(const LayoutBox& layoutBox, WritingMode writingMode)
@@ -224,14 +222,14 @@ inline LayoutUnit borderStartWithStyleForWritingMode(const LayoutBox& layoutBox,
 {
     if (style->isHorizontalWritingMode()) {
         if (style->isLeftToRightDirection())
-            return layoutBox.borderLeft();
+            return LayoutUnit(layoutBox.borderLeft());
 
-        return layoutBox.borderRight();
+        return LayoutUnit(layoutBox.borderRight());
     }
     if (style->isLeftToRightDirection())
-        return layoutBox.borderTop();
+        return LayoutUnit(layoutBox.borderTop());
 
-    return layoutBox.borderBottom();
+    return LayoutUnit(layoutBox.borderBottom());
 }
 
 inline LayoutUnit borderAndPaddingStartWithStyleForWritingMode(const LayoutBox& layoutBox, const ComputedStyle* style)
@@ -296,11 +294,11 @@ ShapeOutsideDeltas ShapeOutsideInfo::computeDeltasForContainingBlockLine(const L
             LineSegment segment = computedShape().getExcludedInterval((borderBoxLineTop - logicalTopOffset()), std::min(lineHeight, shapeLogicalBottom() - borderBoxLineTop));
             if (segment.isValid) {
                 LayoutUnit logicalLeftMargin = containingBlock.style()->isLeftToRightDirection() ? containingBlock.marginStartForChild(m_layoutBox) : containingBlock.marginEndForChild(m_layoutBox);
-                LayoutUnit rawLeftMarginBoxDelta = segment.logicalLeft + logicalLeftOffset() + logicalLeftMargin;
+                LayoutUnit rawLeftMarginBoxDelta(segment.logicalLeft + logicalLeftOffset() + logicalLeftMargin);
                 LayoutUnit leftMarginBoxDelta = clampTo<LayoutUnit>(rawLeftMarginBoxDelta, LayoutUnit(), floatMarginBoxWidth);
 
                 LayoutUnit logicalRightMargin = containingBlock.style()->isLeftToRightDirection() ? containingBlock.marginEndForChild(m_layoutBox) : containingBlock.marginStartForChild(m_layoutBox);
-                LayoutUnit rawRightMarginBoxDelta = segment.logicalRight + logicalLeftOffset() - containingBlock.logicalWidthForChild(m_layoutBox) - logicalRightMargin;
+                LayoutUnit rawRightMarginBoxDelta(segment.logicalRight + logicalLeftOffset() - containingBlock.logicalWidthForChild(m_layoutBox) - logicalRightMargin);
                 LayoutUnit rightMarginBoxDelta = clampTo<LayoutUnit>(rawRightMarginBoxDelta, -floatMarginBoxWidth, LayoutUnit());
 
                 m_shapeOutsideDeltas = ShapeOutsideDeltas(leftMarginBoxDelta, rightMarginBoxDelta, true, borderBoxLineTop, lineHeight);

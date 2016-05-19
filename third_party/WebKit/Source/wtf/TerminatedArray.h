@@ -16,13 +16,15 @@ namespace WTF {
 // TerminatedArray<T> can only be constructed by TerminatedArrayBuilder<T>.
 template<typename T>
 class TerminatedArray {
+    DISALLOW_NEW();
     WTF_MAKE_NONCOPYABLE(TerminatedArray);
 public:
     T& at(size_t index) { return reinterpret_cast<T*>(this)[index]; }
     const T& at(size_t index) const { return reinterpret_cast<const T*>(this)[index]; }
 
     template<typename U>
-    class iterator_base {
+    class iterator_base final {
+        STACK_ALLOCATED();
     public:
         iterator_base& operator++()
         {
@@ -71,17 +73,18 @@ private:
     // Allocator describes how TerminatedArrayBuilder should create new instances
     // of TerminateArray and manage their lifetimes.
     struct Allocator {
+        STATIC_ONLY(Allocator);
         typedef PassOwnPtr<TerminatedArray> PassPtr;
         typedef OwnPtr<TerminatedArray> Ptr;
 
         static PassPtr create(size_t capacity)
         {
-            return adoptPtr(static_cast<TerminatedArray*>(WTF::Partitions::fastMalloc(capacity * sizeof(T))));
+            return adoptPtr(static_cast<TerminatedArray*>(WTF::Partitions::fastMalloc(capacity * sizeof(T), WTF_HEAP_PROFILER_TYPE_NAME(T))));
         }
 
         static PassPtr resize(PassPtr ptr, size_t capacity)
         {
-            return adoptPtr(static_cast<TerminatedArray*>(WTF::Partitions::fastRealloc(ptr.leakPtr(), capacity * sizeof(T))));
+            return adoptPtr(static_cast<TerminatedArray*>(WTF::Partitions::fastRealloc(ptr.leakPtr(), capacity * sizeof(T), WTF_HEAP_PROFILER_TYPE_NAME(T))));
         }
     };
 

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/csp/CSPDirectiveList.h"
 
 #include "core/dom/Document.h"
@@ -35,7 +34,12 @@ String getSha256String(const String& content)
     return "sha256-" + base64Encode(reinterpret_cast<char*>(digest.data()), digest.size(), Base64DoNotInsertLFs);
 }
 
+template<typename CharType> inline bool isASCIIAlphanumericOrHyphen(CharType c)
+{
+    return isASCIIAlphanumeric(c) || c == '-';
 }
+
+} // namespace
 
 CSPDirectiveList::CSPDirectiveList(ContentSecurityPolicy* policy, ContentSecurityPolicyHeaderType type, ContentSecurityPolicyHeaderSource source)
     : m_policy(policy)
@@ -73,21 +77,21 @@ void CSPDirectiveList::reportViolation(const String& directiveText, const String
 {
     String message = m_reportOnly ? "[Report Only] " + consoleMessage : consoleMessage;
     m_policy->logToConsole(ConsoleMessage::create(SecurityMessageSource, ErrorMessageLevel, message));
-    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header);
+    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header, ContentSecurityPolicy::URLViolation);
 }
 
 void CSPDirectiveList::reportViolationWithFrame(const String& directiveText, const String& effectiveDirective, const String& consoleMessage, const KURL& blockedURL, LocalFrame* frame) const
 {
     String message = m_reportOnly ? "[Report Only] " + consoleMessage : consoleMessage;
     m_policy->logToConsole(ConsoleMessage::create(SecurityMessageSource, ErrorMessageLevel, message), frame);
-    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header, frame);
+    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header, ContentSecurityPolicy::URLViolation, frame);
 }
 
 void CSPDirectiveList::reportViolationWithLocation(const String& directiveText, const String& effectiveDirective, const String& consoleMessage, const KURL& blockedURL, const String& contextURL, const WTF::OrdinalNumber& contextLine) const
 {
     String message = m_reportOnly ? "[Report Only] " + consoleMessage : consoleMessage;
     m_policy->logToConsole(ConsoleMessage::create(SecurityMessageSource, ErrorMessageLevel, message, contextURL, contextLine.oneBasedInt()));
-    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header);
+    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header, ContentSecurityPolicy::InlineViolation);
 }
 
 void CSPDirectiveList::reportViolationWithState(const String& directiveText, const String& effectiveDirective, const String& message, const KURL& blockedURL, ScriptState* scriptState, const ContentSecurityPolicy::ExceptionStatus exceptionStatus) const
@@ -102,7 +106,7 @@ void CSPDirectiveList::reportViolationWithState(const String& directiveText, con
         consoleMessage->setScriptState(scriptState);
         m_policy->logToConsole(consoleMessage.release());
     }
-    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header);
+    m_policy->reportViolation(directiveText, effectiveDirective, message, blockedURL, m_reportEndpoints, m_header, ContentSecurityPolicy::EvalViolation);
 }
 
 bool CSPDirectiveList::checkEval(SourceListDirective* directive) const
@@ -125,9 +129,19 @@ bool CSPDirectiveList::checkHash(SourceListDirective* directive, const CSPHashVa
     return !directive || directive->allowHash(hashValue);
 }
 
+bool CSPDirectiveList::checkDynamic(SourceListDirective* directive) const
+{
+    if (!m_policy->experimentalFeaturesEnabled())
+        return false;
+    return !directive || directive->allowDynamic();
+}
+
 bool CSPDirectiveList::checkSource(SourceListDirective* directive, const KURL& url, ContentSecurityPolicy::RedirectStatus redirectStatus) const
 {
-    return !directive || directive->allows(url, redirectStatus);
+    // If |url| is empty, fall back to the policy URL to ensure that <object>'s
+    // without a `src` can be blocked/allowed, as they can still load plugins
+    // even though they don't actually have a URL.
+    return !directive || directive->allows(url.isEmpty() ? m_policy->url() : url, redirectStatus);
 }
 
 bool CSPDirectiveList::checkAncestors(SourceListDirective* directive, LocalFrame* frame) const
@@ -136,8 +150,14 @@ bool CSPDirectiveList::checkAncestors(SourceListDirective* directive, LocalFrame
         return true;
 
     for (Frame* current = frame->tree().parent(); current; current = current->tree().parent()) {
-        // FIXME: To make this work for out-of-process iframes, we need to propagate URL information of ancestor frames across processes.
-        if (!current->isLocalFrame() || !directive->allows(toLocalFrame(current)->document()->url(), ContentSecurityPolicy::DidNotRedirect))
+        // The |current| frame might be a remote frame which has no URL, so use
+        // its origin instead.  This should suffice for this check since it
+        // doesn't do path comparisons.  See https://crbug.com/582544.
+        //
+        // TODO(mkwst): Move this check up into the browser process.  See
+        // https://crbug.com/555418.
+        KURL url(KURL(), current->securityContext()->securityOrigin()->toString());
+        if (!directive->allows(url, ContentSecurityPolicy::DidNotRedirect))
             return false;
     }
     return true;
@@ -219,7 +239,11 @@ bool CSPDirectiveList::checkInlineAndReportViolation(SourceListDirective* direct
 
 bool CSPDirectiveList::checkSourceAndReportViolation(SourceListDirective* directive, const KURL& url, const String& effectiveDirective, ContentSecurityPolicy::RedirectStatus redirectStatus) const
 {
-    if (checkSource(directive, url, redirectStatus))
+    if (!directive)
+        return true;
+
+    // We ignore URL-based whitelists if we're allowing dynamic script injection.
+    if (checkSource(directive, url, redirectStatus) && !checkDynamic(directive))
         return true;
 
     String prefix;
@@ -249,8 +273,10 @@ bool CSPDirectiveList::checkSourceAndReportViolation(SourceListDirective* direct
         prefix = "Refused to load the stylesheet '";
 
     String suffix = String();
+    if (checkDynamic(directive))
+        suffix = " 'unsafe-dynamic' is present, so host-based whitelisting is disabled.";
     if (directive == m_defaultSrc)
-        suffix = " Note that '" + effectiveDirective + "' was not explicitly set, so 'default-src' is used as a fallback.";
+        suffix = suffix + " Note that '" + effectiveDirective + "' was not explicitly set, so 'default-src' is used as a fallback.";
 
     reportViolation(directive->text(), effectiveDirective, prefix + url.elidedString() + "' because it violates the following Content Security Policy directive: \"" + directive->text() + "\"." + suffix + "\n", url);
     return denyIfEnforcingPolicy();
@@ -406,6 +432,11 @@ bool CSPDirectiveList::allowScriptHash(const CSPHashValue& hashValue) const
 bool CSPDirectiveList::allowStyleHash(const CSPHashValue& hashValue) const
 {
     return checkHash(operativeDirective(m_styleSrc.get()), hashValue);
+}
+
+bool CSPDirectiveList::allowDynamic() const
+{
+    return checkDynamic(operativeDirective(m_scriptSrc.get()));
 }
 
 const String& CSPDirectiveList::pluginTypesText() const
@@ -659,12 +690,6 @@ void CSPDirectiveList::parseReflectedXSS(const String& name, const String& value
 
 void CSPDirectiveList::parseReferrer(const String& name, const String& value)
 {
-    if (m_didSetReferrerPolicy) {
-        m_policy->reportDuplicateDirective(name);
-        m_referrerPolicy = ReferrerPolicyNever;
-        return;
-    }
-
     m_didSetReferrerPolicy = true;
 
     if (value.isEmpty()) {
@@ -706,7 +731,6 @@ void CSPDirectiveList::parseReferrer(const String& name, const String& value)
 
     // value1 value2
     //        ^
-    m_referrerPolicy = ReferrerPolicyNever;
     m_policy->reportInvalidReferrer(value);
 }
 
@@ -727,7 +751,7 @@ String CSPDirectiveList::parseSuboriginName(const String& policy)
 
     const UChar* begin = position;
 
-    skipWhile<UChar, isASCIIAlphanumeric>(position, end);
+    skipWhile<UChar, isASCIIAlphanumericOrHyphen>(position, end);
     if (position != end && !isASCIISpace(*position)) {
         m_policy->reportInvalidSuboriginFlags("Invalid character \'" + String(position, 1) + "\' in suborigin.");
         return String();

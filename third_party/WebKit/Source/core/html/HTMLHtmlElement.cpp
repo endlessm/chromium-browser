@@ -21,7 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLHtmlElement.h"
 
 #include "core/HTMLNames.h"
@@ -68,4 +67,4 @@ void HTMLHtmlElement::insertedByParser()
         documentLoader->applicationCacheHost()->selectCacheWithManifest(document().completeURL(manifest));
 }
 
-}
+} // namespace blink

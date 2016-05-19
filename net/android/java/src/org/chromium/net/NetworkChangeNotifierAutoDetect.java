@@ -348,6 +348,7 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
     private int mConnectionType;
     private String mWifiSSID;
     private double mMaxBandwidthMbps;
+    private int mMaxBandwidthConnectionType;
 
     /**
      * Observer interface by which observer is notified of network changes.
@@ -420,6 +421,7 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         mConnectionType = getCurrentConnectionType(networkState);
         mWifiSSID = getCurrentWifiSSID(networkState);
         mMaxBandwidthMbps = getCurrentMaxBandwidthInMbps(networkState);
+        mMaxBandwidthConnectionType = mConnectionType;
         mIntentFilter =
                 new NetworkConnectivityIntentFilter(mWifiManagerDelegate.getHasWifiPermission());
         mRegistrationPolicy = policy;
@@ -544,6 +546,9 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         return mConnectivityManagerDelegate.getDefaultNetId();
     }
 
+    /**
+     * Returns the connection type for the given NetworkState.
+     */
     public int getCurrentConnectionType(NetworkState networkState) {
         if (!networkState.isConnected()) {
             return ConnectionType.CONNECTION_NONE;
@@ -587,25 +592,10 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         }
     }
 
-    /*
-     * Returns the bandwidth of the current connection in Mbps. The result is
-     * derived from the NetInfo v3 specification's mapping from network type to
-     * max link speed. In cases where more information is available, such as wifi,
-     * that is used instead. For more on NetInfo, see http://w3c.github.io/netinfo/.
+    /**
+     * Returns the connection subtype for the given NetworkState.
      */
-    public double getCurrentMaxBandwidthInMbps(NetworkState networkState) {
-        if (getCurrentConnectionType(networkState) == ConnectionType.CONNECTION_WIFI) {
-            final int link_speed = mWifiManagerDelegate.getLinkSpeedInMbps();
-            if (link_speed != UNKNOWN_LINK_SPEED) {
-                return link_speed;
-            }
-        }
-
-        return NetworkChangeNotifier.getMaxBandwidthForConnectionSubtype(
-                getCurrentConnectionSubtype(networkState));
-    }
-
-    private int getCurrentConnectionSubtype(NetworkState networkState) {
+    public int getCurrentConnectionSubtype(NetworkState networkState) {
         if (!networkState.isConnected()) {
             return ConnectionSubtype.SUBTYPE_NONE;
         }
@@ -657,6 +647,24 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
         }
     }
 
+    /**
+     * Returns the bandwidth of the current connection in Mbps. The result is
+     * derived from the NetInfo v3 specification's mapping from network type to
+     * max link speed. In cases where more information is available, such as wifi,
+     * that is used instead. For more on NetInfo, see http://w3c.github.io/netinfo/.
+     */
+    public double getCurrentMaxBandwidthInMbps(NetworkState networkState) {
+        if (getCurrentConnectionType(networkState) == ConnectionType.CONNECTION_WIFI) {
+            final int link_speed = mWifiManagerDelegate.getLinkSpeedInMbps();
+            if (link_speed != UNKNOWN_LINK_SPEED) {
+                return link_speed;
+            }
+        }
+
+        return NetworkChangeNotifier.getMaxBandwidthForConnectionSubtype(
+                getCurrentConnectionSubtype(networkState));
+    }
+
     private String getCurrentWifiSSID(NetworkState networkState) {
         if (getCurrentConnectionType(networkState) != ConnectionType.CONNECTION_WIFI) return "";
         return mWifiManagerDelegate.getWifiSSID();
@@ -687,8 +695,12 @@ public class NetworkChangeNotifierAutoDetect extends BroadcastReceiver {
 
     private void maxBandwidthChanged(NetworkState networkState) {
         double newMaxBandwidthMbps = getCurrentMaxBandwidthInMbps(networkState);
-        if (newMaxBandwidthMbps == mMaxBandwidthMbps) return;
+        if (newMaxBandwidthMbps == mMaxBandwidthMbps
+                && mConnectionType == mMaxBandwidthConnectionType) {
+            return;
+        }
         mMaxBandwidthMbps = newMaxBandwidthMbps;
+        mMaxBandwidthConnectionType = mConnectionType;
         mObserver.onMaxBandwidthChanged(newMaxBandwidthMbps);
     }
 

@@ -765,7 +765,6 @@ void HInstruction::Verify() {
 
 
 bool HInstruction::CanDeoptimize() {
-  // TODO(titzer): make this a virtual method?
   switch (opcode()) {
     case HValue::kAbnormalExit:
     case HValue::kAccessArgumentsAt:
@@ -776,15 +775,12 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kBlockEntry:
     case HValue::kBoundsCheckBaseIndexInformation:
     case HValue::kCallFunction:
-    case HValue::kCallNew:
     case HValue::kCallNewArray:
-    case HValue::kCallStub:
     case HValue::kCapturedObject:
     case HValue::kClassOfTestAndBranch:
     case HValue::kCompareGeneric:
     case HValue::kCompareHoleAndBranch:
     case HValue::kCompareMap:
-    case HValue::kCompareMinusZeroAndBranch:
     case HValue::kCompareNumericAndBranch:
     case HValue::kCompareObjectEqAndBranch:
     case HValue::kConstant:
@@ -803,8 +799,6 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kHasInstanceTypeAndBranch:
     case HValue::kInnerAllocatedObject:
     case HValue::kInstanceOf:
-    case HValue::kIsConstructCallAndBranch:
-    case HValue::kHasInPrototypeChainAndBranch:
     case HValue::kIsSmiAndBranch:
     case HValue::kIsStringAndBranch:
     case HValue::kIsUndetectableAndBranch:
@@ -814,12 +808,10 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kLoadNamedField:
     case HValue::kLoadNamedGeneric:
     case HValue::kLoadRoot:
-    case HValue::kMapEnumLength:
     case HValue::kMathMinMax:
     case HValue::kParameter:
     case HValue::kPhi:
     case HValue::kPushArguments:
-    case HValue::kRegExpLiteral:
     case HValue::kReturn:
     case HValue::kSeqStringGetChar:
     case HValue::kStoreCodeEntry:
@@ -836,7 +828,6 @@ bool HInstruction::CanDeoptimize() {
       return false;
 
     case HValue::kAdd:
-    case HValue::kAllocateBlockContext:
     case HValue::kApplyArguments:
     case HValue::kBitwise:
     case HValue::kBoundsCheck:
@@ -853,11 +844,11 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kCheckSmi:
     case HValue::kCheckValue:
     case HValue::kClampToUint8:
-    case HValue::kDateField:
     case HValue::kDeoptimize:
     case HValue::kDiv:
     case HValue::kForInCacheArray:
     case HValue::kForInPrepareMap:
+    case HValue::kHasInPrototypeChainAndBranch:
     case HValue::kInvokeFunction:
     case HValue::kLoadContextSlot:
     case HValue::kLoadFunctionPrototype:
@@ -1108,12 +1099,6 @@ std::ostream& HAccessArgumentsAt::PrintDataTo(
     std::ostream& os) const {  // NOLINT
   return os << NameOf(arguments()) << "[" << NameOf(index()) << "], length "
             << NameOf(length());
-}
-
-
-std::ostream& HAllocateBlockContext::PrintDataTo(
-    std::ostream& os) const {  // NOLINT
-  return os << NameOf(context()) << " " << NameOf(function());
 }
 
 
@@ -1432,12 +1417,12 @@ HValue* HBitwise::Canonicalize() {
 
 // static
 HInstruction* HAdd::New(Isolate* isolate, Zone* zone, HValue* context,
-                        HValue* left, HValue* right, Strength strength,
+                        HValue* left, HValue* right,
                         ExternalAddType external_add_type) {
   // For everything else, you should use the other factory method without
   // ExternalAddType.
   DCHECK_EQ(external_add_type, AddOfExternalAndTagged);
-  return new (zone) HAdd(context, left, right, strength, external_add_type);
+  return new (zone) HAdd(context, left, right, external_add_type);
 }
 
 
@@ -1526,7 +1511,7 @@ HValue* HChange::Canonicalize() {
 
 HValue* HWrapReceiver::Canonicalize() {
   if (HasNoUses()) return NULL;
-  if (receiver()->type().IsJSObject()) {
+  if (receiver()->type().IsJSReceiver()) {
     return receiver();
   }
   return this;
@@ -1622,7 +1607,7 @@ HValue* HUnaryMathOperation::Canonicalize() {
 
 
 HValue* HCheckInstanceType::Canonicalize() {
-  if ((check_ == IS_SPEC_OBJECT && value()->type().IsJSObject()) ||
+  if ((check_ == IS_JS_RECEIVER && value()->type().IsJSReceiver()) ||
       (check_ == IS_JS_ARRAY && value()->type().IsJSArray()) ||
       (check_ == IS_STRING && value()->type().IsString())) {
     return value();
@@ -1641,9 +1626,9 @@ void HCheckInstanceType::GetCheckInterval(InstanceType* first,
                                           InstanceType* last) {
   DCHECK(is_interval_check());
   switch (check_) {
-    case IS_SPEC_OBJECT:
-      *first = FIRST_SPEC_OBJECT_TYPE;
-      *last = LAST_SPEC_OBJECT_TYPE;
+    case IS_JS_RECEIVER:
+      *first = FIRST_JS_RECEIVER_TYPE;
+      *last = LAST_JS_RECEIVER_TYPE;
       return;
     case IS_JS_ARRAY:
       *first = *last = JS_ARRAY_TYPE;
@@ -1718,7 +1703,7 @@ HValue* HCheckValue::Canonicalize() {
 
 const char* HCheckInstanceType::GetCheckName() const {
   switch (check_) {
-    case IS_SPEC_OBJECT: return "object";
+    case IS_JS_RECEIVER: return "object";
     case IS_JS_ARRAY: return "array";
     case IS_JS_DATE:
       return "date";
@@ -1734,12 +1719,6 @@ std::ostream& HCheckInstanceType::PrintDataTo(
     std::ostream& os) const {  // NOLINT
   os << GetCheckName() << " ";
   return HUnaryOperation::PrintDataTo(os);
-}
-
-
-std::ostream& HCallStub::PrintDataTo(std::ostream& os) const {  // NOLINT
-  os << CodeStub::MajorName(major_key_) << " ";
-  return HUnaryCall::PrintDataTo(os);
 }
 
 
@@ -2737,7 +2716,6 @@ HConstant::HConstant(Handle<Object> object, Representation r)
         bit_field_, has_int32_value && Smi::IsValid(int32_value_));
     double_value_ = n;
     bit_field_ = HasDoubleValueField::update(bit_field_, true);
-    // TODO(titzer): if this heap number is new space, tenure a new one.
   }
 
   Initialize(r);
@@ -2910,7 +2888,6 @@ bool HConstant::EmitAtUses() {
   DCHECK(IsLinked());
   if (block()->graph()->has_osr() &&
       block()->graph()->IsStandardConstant(this)) {
-    // TODO(titzer): this seems like a hack that should be fixed by custom OSR.
     return true;
   }
   if (HasNoUses()) return true;
@@ -2967,6 +2944,8 @@ Maybe<HConstant*> HConstant::CopyToTruncatedNumber(Isolate* isolate,
     res = new (zone) HConstant(std::numeric_limits<double>::quiet_NaN());
   } else if (handle->IsNull()) {
     res = new(zone) HConstant(0);
+  } else if (handle->IsString()) {
+    res = new(zone) HConstant(String::ToNumber(Handle<String>::cast(handle)));
   }
   return res != NULL ? Just(res) : Nothing<HConstant*>();
 }
@@ -3278,7 +3257,7 @@ bool HIsStringAndBranch::KnownSuccessorBlock(HBasicBlock** block) {
       value()->type().IsNull() ||
       value()->type().IsBoolean() ||
       value()->type().IsUndefined() ||
-      value()->type().IsJSObject()) {
+      value()->type().IsJSReceiver()) {
     *block = SecondSuccessor();
     return true;
   }
@@ -3331,31 +3310,6 @@ bool HCompareNumericAndBranch::KnownSuccessorBlock(HBasicBlock** block) {
 }
 
 
-bool HCompareMinusZeroAndBranch::KnownSuccessorBlock(HBasicBlock** block) {
-  if (FLAG_fold_constants && value()->IsConstant()) {
-    HConstant* constant = HConstant::cast(value());
-    if (constant->HasDoubleValue()) {
-      *block = IsMinusZero(constant->DoubleValue())
-          ? FirstSuccessor() : SecondSuccessor();
-      return true;
-    }
-  }
-  if (value()->representation().IsSmiOrInteger32()) {
-    // A Smi or Integer32 cannot contain minus zero.
-    *block = SecondSuccessor();
-    return true;
-  }
-  *block = NULL;
-  return false;
-}
-
-
-void HCompareMinusZeroAndBranch::InferRepresentation(
-    HInferRepresentationPhase* h_infer) {
-  ChangeRepresentation(value()->representation());
-}
-
-
 std::ostream& HGoto::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << *SuccessorAt(0);
 }
@@ -3392,7 +3346,7 @@ void HCompareNumericAndBranch::InferRepresentation(
     // (false). Therefore, any comparisons other than ordered relational
     // comparisons must cause a deopt when one of their arguments is undefined.
     // See also v8:1434
-    if (Token::IsOrderedRelationalCompareOp(token_) && !is_strong(strength())) {
+    if (Token::IsOrderedRelationalCompareOp(token_)) {
       SetFlag(kAllowUndefinedAsNaN);
     }
   }
@@ -3959,23 +3913,22 @@ bool HStoreKeyed::NeedsCanonicalization() {
 #define H_CONSTANT_DOUBLE(val) \
   HConstant::New(isolate, zone, context, static_cast<double>(val))
 
-#define DEFINE_NEW_H_SIMPLE_ARITHMETIC_INSTR(HInstr, op)                      \
-  HInstruction* HInstr::New(Isolate* isolate, Zone* zone, HValue* context,    \
-                            HValue* left, HValue* right, Strength strength) { \
-    if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {   \
-      HConstant* c_left = HConstant::cast(left);                              \
-      HConstant* c_right = HConstant::cast(right);                            \
-      if ((c_left->HasNumberValue() && c_right->HasNumberValue())) {          \
-        double double_res = c_left->DoubleValue() op c_right->DoubleValue();  \
-        if (IsInt32Double(double_res)) {                                      \
-          return H_CONSTANT_INT(double_res);                                  \
-        }                                                                     \
-        return H_CONSTANT_DOUBLE(double_res);                                 \
-      }                                                                       \
-    }                                                                         \
-    return new (zone) HInstr(context, left, right, strength);                 \
+#define DEFINE_NEW_H_SIMPLE_ARITHMETIC_INSTR(HInstr, op)                     \
+  HInstruction* HInstr::New(Isolate* isolate, Zone* zone, HValue* context,   \
+                            HValue* left, HValue* right) {                   \
+    if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {  \
+      HConstant* c_left = HConstant::cast(left);                             \
+      HConstant* c_right = HConstant::cast(right);                           \
+      if ((c_left->HasNumberValue() && c_right->HasNumberValue())) {         \
+        double double_res = c_left->DoubleValue() op c_right->DoubleValue(); \
+        if (IsInt32Double(double_res)) {                                     \
+          return H_CONSTANT_INT(double_res);                                 \
+        }                                                                    \
+        return H_CONSTANT_DOUBLE(double_res);                                \
+      }                                                                      \
+    }                                                                        \
+    return new (zone) HInstr(context, left, right);                          \
   }
-
 
 DEFINE_NEW_H_SIMPLE_ARITHMETIC_INSTR(HAdd, +)
 DEFINE_NEW_H_SIMPLE_ARITHMETIC_INSTR(HMul, *)
@@ -4081,11 +4034,13 @@ HInstruction* HUnaryMathOperation::New(Isolate* isolate, Zone* zone,
     }
     switch (op) {
       case kMathExp:
-        return H_CONSTANT_DOUBLE(fast_exp(d));
+        lazily_initialize_fast_exp(isolate);
+        return H_CONSTANT_DOUBLE(fast_exp(d, isolate));
       case kMathLog:
         return H_CONSTANT_DOUBLE(std::log(d));
       case kMathSqrt:
-        return H_CONSTANT_DOUBLE(fast_sqrt(d));
+        lazily_initialize_fast_sqrt(isolate);
+        return H_CONSTANT_DOUBLE(fast_sqrt(d, isolate));
       case kMathPowHalf:
         return H_CONSTANT_DOUBLE(power_double_double(d, 0.5));
       case kMathAbs:
@@ -4157,8 +4112,8 @@ HInstruction* HPower::New(Isolate* isolate, Zone* zone, HValue* context,
     HConstant* c_left = HConstant::cast(left);
     HConstant* c_right = HConstant::cast(right);
     if (c_left->HasNumberValue() && c_right->HasNumberValue()) {
-      double result = power_helper(c_left->DoubleValue(),
-                                   c_right->DoubleValue());
+      double result =
+          power_helper(isolate, c_left->DoubleValue(), c_right->DoubleValue());
       return H_CONSTANT_DOUBLE(std::isnan(result)
                                    ? std::numeric_limits<double>::quiet_NaN()
                                    : result);
@@ -4200,9 +4155,8 @@ HInstruction* HMathMinMax::New(Isolate* isolate, Zone* zone, HValue* context,
   return new(zone) HMathMinMax(context, left, right, op);
 }
 
-
 HInstruction* HMod::New(Isolate* isolate, Zone* zone, HValue* context,
-                        HValue* left, HValue* right, Strength strength) {
+                        HValue* left, HValue* right) {
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
     HConstant* c_right = HConstant::cast(right);
@@ -4221,12 +4175,11 @@ HInstruction* HMod::New(Isolate* isolate, Zone* zone, HValue* context,
       }
     }
   }
-  return new (zone) HMod(context, left, right, strength);
+  return new (zone) HMod(context, left, right);
 }
 
-
 HInstruction* HDiv::New(Isolate* isolate, Zone* zone, HValue* context,
-                        HValue* left, HValue* right, Strength strength) {
+                        HValue* left, HValue* right) {
   // If left and right are constant values, try to return a constant value.
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
@@ -4245,13 +4198,11 @@ HInstruction* HDiv::New(Isolate* isolate, Zone* zone, HValue* context,
       }
     }
   }
-  return new (zone) HDiv(context, left, right, strength);
+  return new (zone) HDiv(context, left, right);
 }
 
-
 HInstruction* HBitwise::New(Isolate* isolate, Zone* zone, HValue* context,
-                            Token::Value op, HValue* left, HValue* right,
-                            Strength strength) {
+                            Token::Value op, HValue* left, HValue* right) {
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
     HConstant* c_right = HConstant::cast(right);
@@ -4276,23 +4227,21 @@ HInstruction* HBitwise::New(Isolate* isolate, Zone* zone, HValue* context,
       return H_CONSTANT_INT(result);
     }
   }
-  return new (zone) HBitwise(context, op, left, right, strength);
+  return new (zone) HBitwise(context, op, left, right);
 }
 
-
-#define DEFINE_NEW_H_BITWISE_INSTR(HInstr, result)                            \
-  HInstruction* HInstr::New(Isolate* isolate, Zone* zone, HValue* context,    \
-                            HValue* left, HValue* right, Strength strength) { \
-    if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {   \
-      HConstant* c_left = HConstant::cast(left);                              \
-      HConstant* c_right = HConstant::cast(right);                            \
-      if ((c_left->HasNumberValue() && c_right->HasNumberValue())) {          \
-        return H_CONSTANT_INT(result);                                        \
-      }                                                                       \
-    }                                                                         \
-    return new (zone) HInstr(context, left, right, strength);                 \
+#define DEFINE_NEW_H_BITWISE_INSTR(HInstr, result)                          \
+  HInstruction* HInstr::New(Isolate* isolate, Zone* zone, HValue* context,  \
+                            HValue* left, HValue* right) {                  \
+    if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) { \
+      HConstant* c_left = HConstant::cast(left);                            \
+      HConstant* c_right = HConstant::cast(right);                          \
+      if ((c_left->HasNumberValue() && c_right->HasNumberValue())) {        \
+        return H_CONSTANT_INT(result);                                      \
+      }                                                                     \
+    }                                                                       \
+    return new (zone) HInstr(context, left, right);                         \
   }
-
 
 DEFINE_NEW_H_BITWISE_INSTR(HSar,
 c_left->NumberValueAsInteger32() >> (c_right->NumberValueAsInteger32() & 0x1f))
@@ -4301,9 +4250,8 @@ c_left->NumberValueAsInteger32() << (c_right->NumberValueAsInteger32() & 0x1f))
 
 #undef DEFINE_NEW_H_BITWISE_INSTR
 
-
 HInstruction* HShr::New(Isolate* isolate, Zone* zone, HValue* context,
-                        HValue* left, HValue* right, Strength strength) {
+                        HValue* left, HValue* right) {
   if (FLAG_fold_constants && left->IsConstant() && right->IsConstant()) {
     HConstant* c_left = HConstant::cast(left);
     HConstant* c_right = HConstant::cast(right);
@@ -4316,7 +4264,7 @@ HInstruction* HShr::New(Isolate* isolate, Zone* zone, HValue* context,
       return H_CONSTANT_INT(static_cast<uint32_t>(left_val) >> right_val);
     }
   }
-  return new (zone) HShr(context, left, right, strength);
+  return new (zone) HShr(context, left, right);
 }
 
 

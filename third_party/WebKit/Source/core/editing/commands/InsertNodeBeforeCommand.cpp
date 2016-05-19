@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/InsertNodeBeforeCommand.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -45,7 +44,7 @@ InsertNodeBeforeCommand::InsertNodeBeforeCommand(PassRefPtrWillBeRawPtr<Node> in
     ASSERT(m_refChild->parentNode()->hasEditableStyle() || !m_refChild->parentNode()->inActiveDocument());
 }
 
-void InsertNodeBeforeCommand::doApply()
+void InsertNodeBeforeCommand::doApply(EditingState*)
 {
     ContainerNode* parent = m_refChild->parentNode();
     if (!parent || (m_shouldAssumeContentIsAlwaysEditable == DoNotAssumeContentIsAlwaysEditable && !parent->isContentEditable(Node::UserSelectAllIsAlwaysNonEditable)))
@@ -70,4 +69,4 @@ DEFINE_TRACE(InsertNodeBeforeCommand)
     SimpleEditCommand::trace(visitor);
 }
 
-}
+} // namespace blink

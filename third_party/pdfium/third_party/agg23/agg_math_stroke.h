@@ -58,7 +58,7 @@ void stroke_calc_arc(VertexConsumer& out_vertices,
     if(width < 0) {
         width = -width;
     }
-    da = FXSYS_acos(FXSYS_Div(width, width + FXSYS_Div(1.0f / 8, approximation_scale))) * 2;
+    da = FXSYS_acos(width / (width + ((1.0f / 8) / approximation_scale))) * 2;
     out_vertices.add(coord_type(x + dx1, y + dy1));
     if(!ccw) {
         if(a1 > a2) {
@@ -67,8 +67,8 @@ void stroke_calc_arc(VertexConsumer& out_vertices,
         a2 -= da / 4;
         a1 += da;
         while(a1 < a2) {
-            out_vertices.add(coord_type(x + FXSYS_Mul(width, FXSYS_cos(a1)),
-                                        y + FXSYS_Mul(width, FXSYS_sin(a1))));
+          out_vertices.add(coord_type(x + (width * FXSYS_cos(a1)),
+                                      y + (width * FXSYS_sin(a1))));
             a1 += da;
         }
     } else {
@@ -78,8 +78,8 @@ void stroke_calc_arc(VertexConsumer& out_vertices,
         a2 += da / 4;
         a1 -= da;
         while(a1 > a2) {
-            out_vertices.add(coord_type(x + FXSYS_Mul(width, FXSYS_cos(a1)),
-                                        y + FXSYS_Mul(width, FXSYS_sin(a1))));
+          out_vertices.add(coord_type(x + (width * FXSYS_cos(a1)),
+                                      y + (width * FXSYS_sin(a1))));
             a1 -= da;
         }
     }
@@ -107,7 +107,7 @@ void stroke_calc_miter(VertexConsumer& out_vertices,
                          v2.x + dx2, v2.y - dy2,
                          &xi, &yi)) {
         FX_FLOAT d1 = calc_distance(v1.x, v1.y, xi, yi);
-        FX_FLOAT lim = FXSYS_Mul(width, miter_limit);
+        FX_FLOAT lim = width * miter_limit;
         if(d1 <= lim) {
             out_vertices.add(coord_type(xi, yi));
             miter_limit_exceeded = false;
@@ -115,8 +115,8 @@ void stroke_calc_miter(VertexConsumer& out_vertices,
     } else {
         FX_FLOAT x2 = v1.x + dx1;
         FX_FLOAT y2 = v1.y - dy1;
-        if((FXSYS_Mul(x2 - v0.x, dy1) - FXSYS_Mul(v0.y - y2, dx1) < 0) !=
-                (FXSYS_Mul(x2 - v2.x, dy1) - FXSYS_Mul(v2.y - y2, dx1) < 0)) {
+        if ((((x2 - v0.x) * dy1) - ((v0.y - y2) * dx1) < 0) !=
+            (((x2 - v2.x) * dy1) - ((v2.y - y2) * dx1) < 0)) {
             out_vertices.add(coord_type(v1.x + dx1, v1.y - dy1));
             miter_limit_exceeded = false;
         }
@@ -133,10 +133,10 @@ void stroke_calc_miter(VertexConsumer& out_vertices,
                                 width, approximation_scale);
                 break;
             default:
-                out_vertices.add(coord_type(v1.x + dx1 + FXSYS_Mul(dy1, miter_limit),
-                                            v1.y - dy1 + FXSYS_Mul(dx1, miter_limit)));
-                out_vertices.add(coord_type(v1.x + dx2 - FXSYS_Mul(dy2, miter_limit),
-                                            v1.y - dy2 - FXSYS_Mul(dx2, miter_limit)));
+              out_vertices.add(coord_type(v1.x + dx1 + (dy1 * miter_limit),
+                                          v1.y - dy1 + (dx1 * miter_limit)));
+              out_vertices.add(coord_type(v1.x + dx2 - (dy2 * miter_limit),
+                                          v1.y - dy2 - (dx2 * miter_limit)));
                 break;
         }
     }
@@ -152,12 +152,12 @@ void stroke_calc_cap(VertexConsumer& out_vertices,
 {
     typedef typename VertexConsumer::value_type coord_type;
     out_vertices.remove_all();
-    FX_FLOAT dx1 = FXSYS_Div(v1.y - v0.y, len);
-    FX_FLOAT dy1 = FXSYS_Div(v1.x - v0.x, len);
+    FX_FLOAT dx1 = (v1.y - v0.y) / len;
+    FX_FLOAT dy1 = (v1.x - v0.x) / len;
     FX_FLOAT dx2 = 0;
     FX_FLOAT dy2 = 0;
-    dx1 = FXSYS_Mul(dx1, width);
-    dy1 = FXSYS_Mul(dy1, width);
+    dx1 = dx1 * width;
+    dy1 = dy1 * width;
     if(line_cap != round_cap) {
         if(line_cap == square_cap) {
             dx2 = dy1;
@@ -168,14 +168,15 @@ void stroke_calc_cap(VertexConsumer& out_vertices,
     } else {
         FX_FLOAT a1 = FXSYS_atan2(dy1, -dx1);
         FX_FLOAT a2 = a1 + FX_PI;
-        FX_FLOAT da = FXSYS_acos(FXSYS_Div(width, width +
-                                           FXSYS_Div(1.0f / 8, approximation_scale))) * 2;
+        FX_FLOAT da =
+            FXSYS_acos(width / (width + ((1.0f / 8) / approximation_scale))) *
+            2;
         out_vertices.add(coord_type(v0.x - dx1, v0.y + dy1));
         a1 += da;
         a2 -= da / 4;
         while(a1 < a2) {
-            out_vertices.add(coord_type(v0.x + FXSYS_Mul(width, FXSYS_cos(a1)),
-                                        v0.y + FXSYS_Mul(width, FXSYS_sin(a1))));
+          out_vertices.add(coord_type(v0.x + (width * FXSYS_cos(a1)),
+                                      v0.y + (width * FXSYS_sin(a1))));
             a1 += da;
         }
         out_vertices.add(coord_type(v0.x + dx1, v0.y - dy1));
@@ -197,10 +198,10 @@ void stroke_calc_join(VertexConsumer& out_vertices,
 {
     typedef typename VertexConsumer::value_type coord_type;
     FX_FLOAT dx1, dy1, dx2, dy2;
-    dx1 = FXSYS_MulDiv(width, v1.y - v0.y, len1);
-    dy1 = FXSYS_MulDiv(width, v1.x - v0.x, len1);
-    dx2 = FXSYS_MulDiv(width, v2.y - v1.y, len2);
-    dy2 = FXSYS_MulDiv(width, v2.x - v1.x, len2);
+    dx1 = width * (v1.y - v0.y) / len1;
+    dy1 = width * (v1.x - v0.x) / len1;
+    dx2 = width * (v2.y - v1.y) / len2;
+    dy2 = width * (v2.x - v1.x) / len2;
     out_vertices.remove_all();
     if(calc_point_location(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y) > 0) {
         switch(inner_join) {

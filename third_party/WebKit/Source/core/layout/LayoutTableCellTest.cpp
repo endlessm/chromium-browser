@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/LayoutTableCell.h"
 
 #include "core/layout/LayoutTestHelper.h"
@@ -51,14 +50,14 @@ protected:
 TEST_F(LayoutTableCellDeathTest, CanSetColumn)
 {
     static const unsigned columnIndex = 10;
-    m_cell->setCol(columnIndex);
-    EXPECT_EQ(columnIndex, m_cell->col());
+    m_cell->setAbsoluteColumnIndex(columnIndex);
+    EXPECT_EQ(columnIndex, m_cell->absoluteColumnIndex());
 }
 
 TEST_F(LayoutTableCellDeathTest, CanSetColumnToMaxColumnIndex)
 {
-    m_cell->setCol(maxColumnIndex);
-    EXPECT_EQ(maxColumnIndex, m_cell->col());
+    m_cell->setAbsoluteColumnIndex(maxColumnIndex);
+    EXPECT_EQ(maxColumnIndex, m_cell->absoluteColumnIndex());
 }
 
 // FIXME: Re-enable these tests once ASSERT_DEATH is supported for Android.
@@ -67,17 +66,17 @@ TEST_F(LayoutTableCellDeathTest, CanSetColumnToMaxColumnIndex)
 
 TEST_F(LayoutTableCellDeathTest, CrashIfColumnOverflowOnSetting)
 {
-    ASSERT_DEATH(m_cell->setCol(maxColumnIndex + 1), "");
+    ASSERT_DEATH(m_cell->setAbsoluteColumnIndex(maxColumnIndex + 1), "");
 }
 
 TEST_F(LayoutTableCellDeathTest, CrashIfSettingUnsetColumnIndex)
 {
-    ASSERT_DEATH(m_cell->setCol(unsetColumnIndex), "");
+    ASSERT_DEATH(m_cell->setAbsoluteColumnIndex(unsetColumnIndex), "");
 }
 
 #endif
 
-class LayoutTableCellTest : public RenderingTest { };
+using LayoutTableCellTest = RenderingTest;
 
 TEST_F(LayoutTableCellTest, ResetColspanIfTooBig)
 {
@@ -97,20 +96,30 @@ TEST_F(LayoutTableCellTest, DoNotResetColspanJustBelowBoundary)
 
 TEST_F(LayoutTableCellTest, ResetRowspanIfTooBig)
 {
-    setBodyInnerHTML("<table><td rowspan='14000'></td></table>");
+    setBodyInnerHTML("<table><td rowspan='70000'></td></table>");
 
     LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->layoutObject());
-    ASSERT_EQ(cell->rowSpan(), 8190U);
+    ASSERT_EQ(cell->rowSpan(), 65534U);
 }
 
 TEST_F(LayoutTableCellTest, DoNotResetRowspanJustBelowBoundary)
 {
-    setBodyInnerHTML("<table><td rowspan='8190'></td></table>");
+    setBodyInnerHTML("<table><td rowspan='65534'></td></table>");
 
     LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->layoutObject());
-    ASSERT_EQ(cell->rowSpan(), 8190U);
+    ASSERT_EQ(cell->rowSpan(), 65534U);
 }
 
+TEST_F(LayoutTableCellTest, BackgroundIsKnownToBeOpaqueWithLayerAndCollapsedBorder)
+{
+    setBodyInnerHTML("<table style='border-collapse: collapse'>"
+        "<td style='will-change: transform; background-color: blue'>Cell></td>"
+        "</table>");
+
+    LayoutTableCell* cell = toLayoutTableCell(document().body()->firstChild()->firstChild()->firstChild()->firstChild()->layoutObject());
+    EXPECT_FALSE(cell->backgroundIsKnownToBeOpaqueInRect(LayoutRect(0, 0, 1, 1)));
 }
+
+} // namespace
 
 } // namespace blink

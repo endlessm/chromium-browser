@@ -12,31 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <intrin.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/types.h>
 #include <windows.h>
 #include <winternl.h>
 
-#include <string>
 #include <map>
+#include <string>
 #include <vector>
+
+#include "base/files/file_path.h"
+#include "base/logging.h"
+#include "base/macros.h"
+#include "build/build_config.h"
+#include "client/crashpad_client.h"
+#include "client/crashpad_info.h"
+#include "util/win/critical_section_with_debug_info.h"
+#include "util/win/get_function.h"
 
 // ntstatus.h conflicts with windows.h so define this locally.
 #ifndef STATUS_NO_SUCH_FILE
 #define STATUS_NO_SUCH_FILE static_cast<NTSTATUS>(0xC000000F)
 #endif
 
-#include "base/basictypes.h"
-#include "base/files/file_path.h"
-#include "base/logging.h"
-#include "client/crashpad_client.h"
-#include "util/win/critical_section_with_debug_info.h"
-#include "util/win/get_function.h"
-
 namespace crashpad {
 namespace {
 
 CRITICAL_SECTION g_test_critical_section;
+
+unsigned char g_test_memory[] = {
+  99, 98, 97, 96, 95, 94, 93, 92, 91, 90,
+  89, 88, 87, 86, 85, 84, 83, 82, 81, 80,
+};
 
 ULONG RtlNtStatusToDosError(NTSTATUS status) {
   static const auto rtl_nt_status_to_dos_error =
@@ -83,12 +92,46 @@ void AllocateMemoryOfVariousProtections() {
   }
 }
 
+DWORD WINAPI NullThreadProc(void* param) {
+  return 0;
+}
+
+// Creates a suspended background thread, and sets EDI/RDI to point at
+// g_test_memory so we can confirm it's available in the minidump.
+bool CreateThreadWithRegisterPointingToTestMemory() {
+  HANDLE thread = CreateThread(
+      nullptr, 0, &NullThreadProc, nullptr, CREATE_SUSPENDED, nullptr);
+  if (!thread) {
+    PLOG(ERROR) << "CreateThread";
+    return false;
+  }
+
+  CONTEXT context = {0};
+  context.ContextFlags = CONTEXT_INTEGER;
+  if (!GetThreadContext(thread, &context)) {
+    PLOG(ERROR) << "GetThreadContext";
+    return false;
+  }
+#if defined(ARCH_CPU_X86_64)
+  context.Rdi = reinterpret_cast<DWORD64>(g_test_memory);
+#elif defined(ARCH_CPU_X86)
+  context.Edi = reinterpret_cast<DWORD>(g_test_memory);
+#endif
+  if (!SetThreadContext(thread, &context)) {
+    PLOG(ERROR) << "SetThreadContext";
+    return false;
+  }
+
+  return true;
+}
+
 void SomeCrashyFunction() {
   // SetLastError and NTSTATUS so that we have something to view in !gle in
   // windbg. RtlNtStatusToDosError() stores STATUS_NO_SUCH_FILE into the
   // LastStatusError of the TEB as a side-effect, and we'll be setting
   // ERROR_FILE_NOT_FOUND for GetLastError().
   SetLastError(RtlNtStatusToDosError(STATUS_NO_SUCH_FILE));
+
   volatile int* foo = reinterpret_cast<volatile int*>(7);
   *foo = 42;
 }
@@ -122,12 +165,37 @@ int CrashyMain(int argc, wchar_t* argv[]) {
     return EXIT_FAILURE;
   }
 
+  // Load and unload some uncommonly used modules so we can see them in the list
+  // reported by `lm`. At least two so that we confirm we got the size of
+  // RTL_UNLOAD_EVENT_TRACE right.
+  CHECK(GetModuleHandle(L"lz32.dll") == nullptr);
+  CHECK(GetModuleHandle(L"wmerror.dll") == nullptr);
+  HMODULE lz32 = LoadLibrary(L"lz32.dll");
+  HMODULE wmerror = LoadLibrary(L"wmerror.dll");
+  FreeLibrary(lz32);
+  FreeLibrary(wmerror);
+
+  // Make sure data pointed to by the stack is captured.
+  const int kDataSize = 512;
+  int* pointed_to_data = new int[kDataSize];
+  for (int i = 0; i < kDataSize; ++i)
+    pointed_to_data[i] = i | ((i % 2 == 0) ? 0x80000000 : 0);
+  int* offset_pointer = &pointed_to_data[128];
+  // Encourage the compiler to keep this variable around.
+  printf("%p, %p\n", offset_pointer, &offset_pointer);
+
+  crashpad::CrashpadInfo::GetCrashpadInfo()
+      ->set_gather_indirectly_referenced_memory(TriState::kEnabled);
+
   AllocateMemoryOfVariousProtections();
 
   if (InitializeCriticalSectionWithDebugInfoIfPossible(
           &g_test_critical_section)) {
     EnterCriticalSection(&g_test_critical_section);
   }
+
+  if (!CreateThreadWithRegisterPointingToTestMemory())
+    return EXIT_FAILURE;
 
   SomeCrashyFunction();
 

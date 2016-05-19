@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLSrcsetParser.h"
 
 #include "core/dom/Document.h"
@@ -41,6 +40,7 @@
 #include "core/html/parser/HTMLParserIdioms.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "platform/ParsingUtilities.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -370,8 +370,8 @@ static ImageCandidate pickBestImageCandidate(float deviceScaleFactor, float sour
 
     // http://picture.responsiveimages.org/#normalize-source-densities
     for (ImageCandidate& image : imageCandidates) {
-        if (image.resourceWidth() > 0) {
-            image.setDensity((float)image.resourceWidth() / sourceSize);
+        if (image.getResourceWidth() > 0) {
+            image.setDensity((float)image.getResourceWidth() / sourceSize);
             ignoreSrc = true;
         } else if (image.density() < 0) {
             image.setDensity(defaultDensityValue);
@@ -441,4 +441,4 @@ String bestFitSourceForImageAttributes(float deviceScaleFactor, float sourceSize
     return pickBestImageCandidate(deviceScaleFactor, sourceSize, imageCandidates).toString();
 }
 
-}
+} // namespace blink

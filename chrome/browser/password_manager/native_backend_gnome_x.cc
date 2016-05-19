@@ -6,12 +6,13 @@
 
 #include <dlfcn.h>
 #include <gnome-keyring.h>
-
+#include <stddef.h>
+#include <stdint.h>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
@@ -134,7 +135,7 @@ scoped_ptr<PasswordForm> FormFromAttributes(GnomeKeyringAttributeList* attrs) {
   form->signon_realm = string_attr_map["signon_realm"];
   form->ssl_valid = uint_attr_map["ssl_valid"];
   form->preferred = uint_attr_map["preferred"];
-  int64 date_created = 0;
+  int64_t date_created = 0;
   bool date_ok = base::StringToInt64(string_attr_map["date_created"],
                                      &date_created);
   DCHECK(date_ok);
@@ -151,13 +152,16 @@ scoped_ptr<PasswordForm> FormFromAttributes(GnomeKeyringAttributeList* attrs) {
   form->type = static_cast<PasswordForm::Type>(uint_attr_map["type"]);
   form->times_used = uint_attr_map["times_used"];
   form->scheme = static_cast<PasswordForm::Scheme>(uint_attr_map["scheme"]);
-  int64 date_synced = 0;
+  int64_t date_synced = 0;
   base::StringToInt64(string_attr_map["date_synced"], &date_synced);
   form->date_synced = base::Time::FromInternalValue(date_synced);
   form->display_name = UTF8ToUTF16(string_attr_map["display_name"]);
   form->icon_url = GURL(string_attr_map["avatar_url"]);
-  form->federation_url = GURL(string_attr_map["federation_url"]);
-  form->skip_zero_click = uint_attr_map["skip_zero_click"];
+  form->federation_origin =
+      url::Origin(GURL(string_attr_map["federation_url"]));
+  form->skip_zero_click = uint_attr_map.count("should_skip_zero_click")
+                              ? uint_attr_map["should_skip_zero_click"]
+                              : true;
   form->generation_upload_status =
       static_cast<PasswordForm::GenerationUploadStatus>(
           uint_attr_map["generation_upload_status"]);
@@ -167,7 +171,7 @@ scoped_ptr<PasswordForm> FormFromAttributes(GnomeKeyringAttributeList* attrs) {
     FormDeserializationStatus status = success ? GNOME_SUCCESS : GNOME_FAILURE;
     LogFormDataDeserializationStatus(status);
   }
-  return form.Pass();
+  return form;
 }
 
 // Converts native credentials in |found| to PasswordForms. If not NULL,
@@ -181,6 +185,10 @@ ScopedVector<PasswordForm> ConvertFormList(GList* found,
   ScopedVector<PasswordForm> forms;
   password_manager::PSLDomainMatchMetric psl_domain_match_metric =
       password_manager::PSL_DOMAIN_MATCH_NONE;
+  const bool allow_psl_match =
+      lookup_form && password_manager::ShouldPSLDomainMatchingApply(
+                         password_manager::GetRegistryControlledDomain(
+                             GURL(lookup_form->signon_realm)));
   for (GList* element = g_list_first(found); element;
        element = g_list_next(element)) {
     GnomeKeyringFound* data = static_cast<GnomeKeyringFound*>(element->data);
@@ -189,69 +197,69 @@ ScopedVector<PasswordForm> ConvertFormList(GList* found,
     scoped_ptr<PasswordForm> form(FormFromAttributes(attrs));
     if (form) {
       if (lookup_form && form->signon_realm != lookup_form->signon_realm) {
-        // This is not an exact match, we try PSL matching.
         if (lookup_form->scheme != PasswordForm::SCHEME_HTML ||
-            form->scheme != PasswordForm::SCHEME_HTML ||
-            !(password_manager::IsPublicSuffixDomainMatch(
-                lookup_form->signon_realm, form->signon_realm))) {
+            form->scheme != PasswordForm::SCHEME_HTML)
+          continue;  // Ignore non-HTML matches.
+        // This is not an exact match, we try PSL matching and federated match.
+        if (allow_psl_match &&
+            password_manager::IsPublicSuffixDomainMatch(
+                form->signon_realm, lookup_form->signon_realm)) {
+          psl_domain_match_metric = password_manager::PSL_DOMAIN_MATCH_FOUND;
+          form->is_public_suffix_match = true;
+        } else if (!form->federation_origin.unique() &&
+                   password_manager::IsFederatedMatch(form->signon_realm,
+                                                      lookup_form->origin)) {
+        } else {
           continue;
         }
-        psl_domain_match_metric = password_manager::PSL_DOMAIN_MATCH_FOUND;
-        form->is_public_suffix_match = true;
       }
       if (data->secret) {
         form->password_value = UTF8ToUTF16(data->secret);
       } else {
         LOG(WARNING) << "Unable to access password from list element!";
       }
-      forms.push_back(form.Pass());
+      forms.push_back(std::move(form));
     } else {
       LOG(WARNING) << "Could not initialize PasswordForm from attributes!";
     }
   }
   if (lookup_form) {
-    const GURL signon_realm(lookup_form->signon_realm);
-    std::string registered_domain =
-        password_manager::GetRegistryControlledDomain(signon_realm);
-    UMA_HISTOGRAM_ENUMERATION(
-        "PasswordManager.PslDomainMatchTriggering",
-        password_manager::ShouldPSLDomainMatchingApply(registered_domain)
-            ? psl_domain_match_metric
-            : password_manager::PSL_DOMAIN_MATCH_NOT_USED,
-        password_manager::PSL_DOMAIN_MATCH_COUNT);
+    UMA_HISTOGRAM_ENUMERATION("PasswordManager.PslDomainMatchTriggering",
+                              allow_psl_match
+                                  ? psl_domain_match_metric
+                                  : password_manager::PSL_DOMAIN_MATCH_NOT_USED,
+                              password_manager::PSL_DOMAIN_MATCH_COUNT);
   }
-  return forms.Pass();
+  return forms;
 }
 
 // Schema is analagous to the fields in PasswordForm.
 const GnomeKeyringPasswordSchema kGnomeSchema = {
-  GNOME_KEYRING_ITEM_GENERIC_SECRET, {
-    { "origin_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "action_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "username_element", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "username_value", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "password_element", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "submit_element", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "signon_realm", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "ssl_valid", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "preferred", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "date_created", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "blacklisted_by_user", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "scheme", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "type", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "times_used", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "date_synced", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "display_name", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "avatar_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "federation_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { "skip_zero_click", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "generation_upload_status", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32 },
-    { "form_data", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    // This field is always "chrome" so that we can search for it.
-    { "application", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING },
-    { nullptr }
-  }
-};
+    GNOME_KEYRING_ITEM_GENERIC_SECRET,
+    {{"origin_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"action_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"username_element", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"username_value", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"password_element", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"submit_element", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"signon_realm", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"ssl_valid", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"preferred", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"date_created", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"blacklisted_by_user", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"scheme", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"type", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"times_used", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"date_synced", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"display_name", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"avatar_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"federation_url", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {"should_skip_zero_click", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"generation_upload_status", GNOME_KEYRING_ATTRIBUTE_TYPE_UINT32},
+     {"form_data", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     // This field is always "chrome" so that we can search for it.
+     {"application", GNOME_KEYRING_ATTRIBUTE_TYPE_STRING},
+     {nullptr}}};
 
 // Sadly, PasswordStore goes to great lengths to switch from the originally
 // calling thread to the DB thread, and to provide an asynchronous API to
@@ -335,21 +343,21 @@ class GKRMethod : public GnomeKeyringLoader {
 
 void GKRMethod::AddLogin(const PasswordForm& form, const char* app_string) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  int64 date_created = form.date_created.ToInternalValue();
+  int64_t date_created = form.date_created.ToInternalValue();
   // If we are asked to save a password with 0 date, use the current time.
   // We don't want to actually save passwords as though on January 1, 1601.
   if (!date_created)
     date_created = base::Time::Now().ToInternalValue();
-  int64 date_synced = form.date_synced.ToInternalValue();
+  int64_t date_synced = form.date_synced.ToInternalValue();
   std::string form_data;
   SerializeFormDataToBase64String(form.form_data, &form_data);
+  // clang-format off
   gnome_keyring_store_password(
       &kGnomeSchema,
-      nullptr,  // Default keyring.
+      nullptr,                     // Default keyring.
       form.origin.spec().c_str(),  // Display name.
-      UTF16ToUTF8(form.password_value).c_str(),
-      OnOperationDone,
-      this,  // data
+      UTF16ToUTF8(form.password_value).c_str(), OnOperationDone,
+      this,     // data
       nullptr,  // destroy_data
       "origin_url", form.origin.spec().c_str(),
       "action_url", form.action.spec().c_str(),
@@ -368,12 +376,17 @@ void GKRMethod::AddLogin(const PasswordForm& form, const char* app_string) {
       "date_synced", base::Int64ToString(date_synced).c_str(),
       "display_name", UTF16ToUTF8(form.display_name).c_str(),
       "avatar_url", form.icon_url.spec().c_str(),
-      "federation_url", form.federation_url.spec().c_str(),
-      "skip_zero_click", form.skip_zero_click,
+      // We serialize unique origins as "", in order to make other systems that
+      // read from the login database happy. https://crbug.com/591310
+      "federation_url", form.federation_origin.unique()
+          ? ""
+          : form.federation_origin.Serialize().c_str(),
+      "should_skip_zero_click", form.skip_zero_click,
       "generation_upload_status", form.generation_upload_status,
       "form_data", form_data.c_str(),
       "application", app_string,
       nullptr);
+  // clang-format on
 }
 
 void GKRMethod::LoginSearch(const PasswordForm& form,
@@ -419,7 +432,9 @@ void GKRMethod::GetLogins(const PasswordForm& form, const char* app_string) {
   ScopedAttributeList attrs(gnome_keyring_attribute_list_new());
   if (!password_manager::ShouldPSLDomainMatchingApply(
           password_manager::GetRegistryControlledDomain(
-              GURL(form.signon_realm)))) {
+              GURL(form.signon_realm))) &&
+      form.scheme != PasswordForm::SCHEME_HTML) {
+    // Don't retrieve the PSL matched and federated credentials.
     AppendString(&attrs, "signon_realm", form.signon_realm);
   }
   AppendString(&attrs, "application", app_string);
@@ -468,7 +483,7 @@ GnomeKeyringResult GKRMethod::WaitResult() {
 GnomeKeyringResult GKRMethod::WaitResult(ScopedVector<PasswordForm>* forms) {
   DCHECK_CURRENTLY_ON(BrowserThread::DB);
   event_.Wait();
-  *forms = forms_.Pass();
+  *forms = std::move(forms_);
   return result_;
 }
 
@@ -525,7 +540,7 @@ std::string GetProfileSpecificAppString(LocalProfileId profile_id) {
 }  // namespace
 
 NativeBackendGnome::NativeBackendGnome(LocalProfileId id)
-    : profile_id_(id), app_string_(GetProfileSpecificAppString(id)) {
+    : app_string_(GetProfileSpecificAppString(id)) {
 }
 
 NativeBackendGnome::~NativeBackendGnome() {
@@ -676,6 +691,23 @@ bool NativeBackendGnome::RemoveLoginsSyncedBetween(
     base::Time delete_end,
     password_manager::PasswordStoreChangeList* changes) {
   return RemoveLoginsBetween(delete_begin, delete_end, SYNC_TIMESTAMP, changes);
+}
+
+bool NativeBackendGnome::DisableAutoSignInForAllLogins(
+    password_manager::PasswordStoreChangeList* changes) {
+  ScopedVector<PasswordForm> forms;
+  if (!GetAllLogins(&forms))
+    return false;
+
+  for (auto& form : forms) {
+    if (!form->skip_zero_click) {
+      form->skip_zero_click = true;
+      if (!UpdateLogin(*form, changes))
+        return false;
+    }
+  }
+
+  return true;
 }
 
 bool NativeBackendGnome::GetLogins(const PasswordForm& form,

@@ -10,10 +10,10 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/core/auditor.html">
 <link rel="import"
     href="/tracing/extras/chrome/cc/input_latency_async_slice.html">
-<link rel="import" href="/tracing/extras/chrome/chrome_model_helper.html">
+<link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
 <link rel="import"
     href="/tracing/extras/chrome/chrome_user_friendly_category_driver.html">
-<link rel="import" href="/tracing/extras/rail/rail_ir_finder.html">
+<link rel="import" href="/tracing/model/constants.html">
 <link rel="import" href="/tracing/model/event_info.html">
 
 <script>
@@ -32,14 +32,11 @@ tr.exportTo('tr.e.audits', function() {
   function ChromeAuditor(model) {
     Auditor.call(this, model);
 
-    if (tr.e.audits.ChromeModelHelper.supportsModel(this.model)) {
-      var modelHelper = new tr.e.audits.ChromeModelHelper(this.model);
-
+    var modelHelper = this.model.getOrCreateHelper(
+        tr.model.helpers.ChromeModelHelper);
+    if (modelHelper && modelHelper.browserHelper) {
       // Must be a browserHelper in order to do audits.
-      if (modelHelper.browserHelper === undefined)
-        this.modelHelper = undefined;
-      else
-        this.modelHelper = modelHelper;
+      this.modelHelper = modelHelper;
     } else {
       this.modelHelper = undefined;
     }
@@ -72,26 +69,10 @@ tr.exportTo('tr.e.audits', function() {
       if (!this.modelHelper)
         return;
 
-      if (!tr.e.rail.RAILIRFinder.supportsModelHelper(this.modelHelper))
-        return;
-
-      var rirf = new tr.e.rail.RAILIRFinder(this.model, this.modelHelper);
-      var rirs = undefined;
-      try {
-        rirs = rirf.findAllInteractionRecords();
-        // There are not currently any known cases when this could throw.
-      } catch (error) {
-        this.model.importWarning({
-          type: 'RAILIRFinder',
-          message: error,
-          showToUser: true
-        });
-        return;
-      }
-
-      rirs.forEach(function(ir) {
-        this.model.addInteractionRecord(ir);
-      }, this);
+      this.model.replacePIDRefsInPatchups(
+          tr.model.BROWSER_PROCESS_PID_REF,
+          this.modelHelper.browserProcess.pid);
+      this.model.applyObjectRefPatchups();
     }
   };
 

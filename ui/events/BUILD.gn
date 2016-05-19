@@ -4,6 +4,7 @@
 
 import("//build/config/ui.gni")
 import("//testing/test.gni")
+import("//ui/ozone/ozone.gni")
 
 if (is_android) {
   import("//build/config/android/rules.gni")
@@ -49,6 +50,8 @@ component("events_base") {
     "keycodes/keyboard_code_conversion_win.cc",
     "keycodes/keyboard_code_conversion_win.h",
     "keycodes/keyboard_codes.h",
+    "keycodes/platform_key_map_win.cc",
+    "keycodes/platform_key_map_win.h",
     "latency_info.cc",
     "latency_info.h",
   ]
@@ -58,6 +61,7 @@ component("events_base") {
   deps = [
     ":dom_keycode_converter",
     "//base/third_party/dynamic_annotations",
+    "//ipc:param_traits",
     "//skia",
   ]
 
@@ -68,7 +72,9 @@ component("events_base") {
     "//ui/gfx/geometry",
   ]
 
-  if (use_x11) {
+  # TODO(kylechar): move keycodes/ files into own component and x/ files into
+  # ui/events/x component
+  if (use_x11 || ozone_platform_x11) {
     configs += [ "//build/config/linux:x11" ]
 
     sources += [
@@ -81,10 +87,11 @@ component("events_base") {
     deps += [ "//ui/gfx/x" ]
   }
 
-  if (use_x11 || use_xkbcommon) {
+  if (use_x11 || ozone_platform_x11 || use_xkbcommon) {
     sources += [
       "keycodes/keyboard_code_conversion_xkb.cc",
       "keycodes/keyboard_code_conversion_xkb.h",
+      "keycodes/scoped_xkb.h",
       "keycodes/xkb_keysym.h",
     ]
   }
@@ -118,6 +125,8 @@ component("events") {
     "gestures/gesture_types.h",
     "null_event_targeter.cc",
     "null_event_targeter.h",
+    "scoped_target_handler.cc",
+    "scoped_target_handler.h",
     "win/events_win.cc",
     "win/system_event_state_lookup.cc",
     "win/system_event_state_lookup.h",
@@ -147,6 +156,10 @@ component("events") {
       "//ui/events/devices",
       "//ui/gfx/x",
     ]
+  }
+
+  if (use_x11 || ozone_platform_x11) {
+    deps += [ "//ui/events/x" ]
   }
 
   if (!is_chromeos && is_linux) {
@@ -287,6 +300,7 @@ source_set("test_support") {
     ":events",
     ":events_base",
     ":gesture_detection",
+    "//ui/events/devices",
   ]
   deps = [
     "//base",
@@ -321,15 +335,6 @@ source_set("test_support") {
   }
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("events_unittests_run") {
-  testonly = true
-  deps = [
-    ":events_unittests",
-  ]
-}
-
 test("events_unittests") {
   sources = [
     "android/scroller_unittest.cc",
@@ -351,8 +356,11 @@ test("events_unittests") {
     "ipc/latency_info_param_traits_unittest.cc",
     "keycodes/dom/keycode_converter_unittest.cc",
     "keycodes/keyboard_code_conversion_unittest.cc",
+    "keycodes/platform_key_map_win_unittest.cc",
     "latency_info_unittest.cc",
     "platform/platform_event_source_unittest.cc",
+    "scoped_target_handler_unittest.cc",
+    "win/event_utils_win_unittest.cc",
   ]
 
   deps = [
@@ -365,6 +373,7 @@ test("events_unittests") {
     "//base/test:run_all_unittests",
     "//ipc:test_support",
     "//skia",
+    "//testing/gmock",
     "//testing/gtest",
     "//ui/events/devices",
     "//ui/events/ipc:events_ipc",
@@ -373,9 +382,15 @@ test("events_unittests") {
   ]
 
   if (!is_ios) {
-    sources += [ "gestures/blink/web_gesture_curve_impl_unittest.cc" ]
+    sources += [
+      "blink/input_handler_proxy_unittest.cc",
+      "blink/input_scroll_elasticity_controller_unittest.cc",
+      "gestures/blink/web_gesture_curve_impl_unittest.cc",
+    ]
     deps += [
+      "//cc",
       "//third_party/WebKit/public:blink_headers",
+      "//ui/events/blink",
       "//ui/events/gestures/blink",
     ]
   }
@@ -392,7 +407,10 @@ test("events_unittests") {
       "x/events_x_unittest.cc",
     ]
     configs += [ "//build/config/linux:x11" ]
-    deps += [ "//ui/gfx/x" ]
+    deps += [
+      "//ui/events/x",
+      "//ui/gfx/x",
+    ]
   }
 
   if (use_ozone) {
@@ -406,12 +424,13 @@ test("events_unittests") {
       "ozone/evdev/tablet_event_converter_evdev_unittest.cc",
       "ozone/evdev/touch_event_converter_evdev_unittest.cc",
       "ozone/evdev/touch_noise/touch_noise_finder_unittest.cc",
-      "ozone/layout/keyboard_layout_engine_unittest.cc",
-      "ozone/layout/xkb/xkb_keyboard_layout_engine_unittest.cc",
     ]
 
     if (use_xkbcommon) {
-      sources += [ "ozone/layout/xkb/xkb_keyboard_layout_engine_unittest.cc" ]
+      sources += [
+        "ozone/layout/keyboard_layout_engine_unittest.cc",
+        "ozone/layout/xkb/xkb_keyboard_layout_engine_unittest.cc",
+      ]
     }
 
     deps += [

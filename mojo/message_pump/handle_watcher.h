@@ -5,8 +5,8 @@
 #ifndef MOJO_MESSAGE_PUMP_HANDLE_WATCHER_H_
 #define MOJO_MESSAGE_PUMP_HANDLE_WATCHER_H_
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "mojo/message_pump/mojo_message_pump_export.h"
@@ -28,7 +28,6 @@ class MOJO_MESSAGE_PUMP_EXPORT HandleWatcher {
  public:
   HandleWatcher();
 
-  // The destructor implicitly stops listening. See Stop() for details.
   ~HandleWatcher();
 
   // Starts listening for |handle|. This implicitly invokes Stop(). In other
@@ -43,9 +42,10 @@ class MOJO_MESSAGE_PUMP_EXPORT HandleWatcher {
              MojoDeadline deadline,
              const base::Callback<void(MojoResult)>& callback);
 
-  // Stops listening. Does nothing if not in the process of listening. Blocks
-  // until no longer listening on the handle.
+  // Stops listening. Does nothing if not in the process of listening.
   void Stop();
+
+  bool is_watching() const { return !!state_; }
 
  private:
   class StateBase;

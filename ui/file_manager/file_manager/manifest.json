@@ -36,6 +36,7 @@
     "https://drive.google.com/",
     "https://www.google-analytics.com/",
     "launcherSearchProvider",
+    "mediaGalleries",
     "mediaPlayerPrivate",
     "metricsPrivate",
     "notifications",
@@ -43,6 +44,7 @@
     "storage",
     "syncFileSystem",
     "unlimitedStorage",
+    "wallpaper",
     "webstoreWidgetPrivate",
     "webview"
   ],

@@ -6,6 +6,7 @@
  */
 
 #include "SkColorPriv.h"
+#include "SkData.h"
 #include "SkImageDecoder.h"
 #include "SkStream.h"
 #include "SkStreamPriv.h"
@@ -32,8 +33,8 @@ private:
 //read in Intel order, and return an integer
 
 #define readByte(buffer,begin) buffer[begin]
-#define read2Bytes(buffer,begin) buffer[begin]+(buffer[begin+1]<<8)
-#define read4Bytes(buffer,begin) buffer[begin]+(buffer[begin+1]<<8)+(buffer[begin+2]<<16)+(buffer[begin+3]<<24)
+#define read2Bytes(buffer,begin) buffer[begin]+SkLeftShift(buffer[begin+1],8)
+#define read4Bytes(buffer,begin) buffer[begin]+SkLeftShift(buffer[begin+1],8)+SkLeftShift(buffer[begin+2],16)+SkLeftShift(buffer[begin+3],24)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -74,14 +75,18 @@ static int calculateRowBytesFor8888(int w, int bitCount)
 
 SkImageDecoder::Result SkICOImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode)
 {
-    SkAutoMalloc autoMal;
-    const size_t length = SkCopyStreamToStorage(&autoMal, stream);
+    SkAutoTUnref<SkData> data(SkCopyStreamToData(stream));
+    if (!data) {
+        return kFailure;
+    }
+
+    const size_t length = data->size();
     // Check that the buffer is large enough to read the directory header
     if (length < 6) {
         return kFailure;
     }
 
-    unsigned char* buf = (unsigned char*)autoMal.get();
+    unsigned char* buf = (unsigned char*) data->data();
 
     //these should always be the same - should i use for error checking? - what about files that have some
     //incorrect values, but still decode properly?

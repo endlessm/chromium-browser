@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/link_disambiguation/link_disambiguation_popup.h"
 
+#include "base/macros.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/events/event.h"
 #include "ui/events/event_processor.h"
@@ -184,7 +185,7 @@ void LinkDisambiguationPopup::Show(
       zoomed_bitmap.width(),
       zoomed_bitmap.height());
   const gfx::Display display =
-      gfx::Screen::GetScreenFor(content)->GetDisplayNearestWindow(content);
+      gfx::Screen::GetScreen()->GetDisplayNearestWindow(content);
   window_bounds.AdjustToFit(display.work_area());
   view_->GetWidget()->SetBounds(window_bounds);
   view_->GetWidget()->Show();

@@ -6,6 +6,7 @@
 
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
@@ -20,6 +21,7 @@
 #include "components/password_manager/core/browser/password_store.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
+#include "url/origin.h"
 
 using namespace testing;
 
@@ -37,22 +39,22 @@ class PasswordsListViewControllerTest : public ManagePasswordsControllerTest {
     ManagePasswordsControllerTest::SetUp();
     PasswordStoreFactory::GetInstance()->SetTestingFactory(
         profile(),
-        password_manager::BuildPasswordStoreService<
+        password_manager::BuildPasswordStore<
             content::BrowserContext, password_manager::MockPasswordStore>);
   }
 
   void SetUpManageState(
       const std::vector<const autofill::PasswordForm*>& forms) {
-    model()->set_state(password_manager::ui::MANAGE_STATE);
+    ManagePasswordsControllerTest::SetUpManageState();
     controller_.reset([[PasswordsListViewController alloc]
-        initWithModel:model()
+        initWithModel:GetModelAndCreateIfNull()
                 forms:forms]);
   }
 
-  void SetUpManageState(const autofill::PasswordForm* form) {
-    model()->set_state(password_manager::ui::PENDING_PASSWORD_STATE);
+  void SetUpPendingState(const autofill::PasswordForm* form) {
+    ManagePasswordsControllerTest::SetUpSavePendingState(false);
     controller_.reset([[PasswordsListViewController alloc]
-        initWithModel:model()
+        initWithModel:GetModelAndCreateIfNull()
                 forms:std::vector<const autofill::PasswordForm*>(1, form)]);
   }
 
@@ -71,7 +73,8 @@ class PasswordsListViewControllerTest : public ManagePasswordsControllerTest {
   autofill::PasswordForm federated_credential() {
     autofill::PasswordForm form;
     form.username_value = base::SysNSStringToUTF16(kItemTestUsername);
-    form.federation_url = GURL(base::SysNSStringToUTF16(kFederation));
+    form.federation_origin =
+        url::Origin(GURL(base::SysNSStringToUTF16(kFederation)));
     return form;
   }
 
@@ -81,6 +84,10 @@ class PasswordsListViewControllerTest : public ManagePasswordsControllerTest {
                                             ServiceAccessType::EXPLICIT_ACCESS)
             .get();
     return static_cast<password_manager::MockPasswordStore*>(store);
+  }
+
+  ManagePasswordsBubbleModel::DisplayReason GetDisplayReason() const override {
+    return ManagePasswordsBubbleModel::USER_ACTION;
   }
 
  private:
@@ -159,12 +166,12 @@ TEST_F(PasswordsListViewControllerTest,
       [GetControllerAt(1) contentView]);
   EXPECT_NSEQ(kItemTestUsername, manageView.usernameField.stringValue);
   EXPECT_THAT(base::SysNSStringToUTF8(manageView.passwordField.stringValue),
-              HasSubstr(federated_credential().federation_url.host()));
+              HasSubstr(federated_credential().federation_origin.host()));
 }
 
 TEST_F(PasswordsListViewControllerTest, PendingStateShouldHavePendingView) {
   autofill::PasswordForm form = local_credential();
-  SetUpManageState(&form);
+  SetUpPendingState(&form);
   EXPECT_EQ(MANAGE_PASSWORD_ITEM_STATE_PENDING, [GetControllerAt(0) state]);
   EXPECT_NSEQ([PendingPasswordItemView class],
               [[GetControllerAt(0) contentView] class]);
@@ -173,7 +180,7 @@ TEST_F(PasswordsListViewControllerTest, PendingStateShouldHavePendingView) {
 TEST_F(PasswordsListViewControllerTest,
        PendingViewShouldHaveCorrectUsernameAndObscuredPassword) {
   autofill::PasswordForm form = local_credential();
-  SetUpManageState(&form);
+  SetUpPendingState(&form);
   PendingPasswordItemView* pendingView =
       base::mac::ObjCCast<PendingPasswordItemView>(
           [GetControllerAt(0) contentView]);
@@ -187,7 +194,7 @@ TEST_F(PasswordsListViewControllerTest,
 TEST_F(PasswordsListViewControllerTest,
        PendingViewShouldHaveCorrectUsernameAndFederation) {
   autofill::PasswordForm form = federated_credential();
-  SetUpManageState(&form);
+  SetUpPendingState(&form);
   PendingPasswordItemView* pendingView =
       base::mac::ObjCCast<PendingPasswordItemView>(
           [GetControllerAt(0) contentView]);
@@ -195,5 +202,5 @@ TEST_F(PasswordsListViewControllerTest,
   // Ensure the fields are populated properly and the password is obscured.
   EXPECT_NSEQ(kItemTestUsername, pendingView.usernameField.stringValue);
   EXPECT_THAT(base::SysNSStringToUTF8(pendingView.passwordField.stringValue),
-              HasSubstr(federated_credential().federation_url.host()));
+              HasSubstr(federated_credential().federation_origin.host()));
 }

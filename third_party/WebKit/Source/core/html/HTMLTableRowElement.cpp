@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLTableRowElement.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -127,4 +126,4 @@ PassRefPtrWillBeRawPtr<HTMLCollection> HTMLTableRowElement::cells()
     return ensureCachedCollection<HTMLCollection>(TRCells);
 }
 
-}
+} // namespace blink

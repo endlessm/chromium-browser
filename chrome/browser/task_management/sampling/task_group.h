@@ -5,11 +5,16 @@
 #ifndef CHROME_BROWSER_TASK_MANAGEMENT_SAMPLING_TASK_GROUP_H_
 #define CHROME_BROWSER_TASK_MANAGEMENT_SAMPLING_TASK_GROUP_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process_handle.h"
 #include "base/process/process_metrics.h"
+#include "build/build_config.h"
 #include "chrome/browser/task_management/providers/task.h"
 #include "chrome/browser/task_management/sampling/task_group_sampler.h"
 #include "chrome/browser/task_management/task_manager_observer.h"
@@ -34,7 +39,7 @@ class TaskGroup {
 
   void Refresh(const content::GPUVideoMemoryUsageStats& gpu_memory_stats,
                base::TimeDelta update_interval,
-               int64 refresh_flags);
+               int64_t refresh_flags);
 
   // Appends the sorted IDs of the tasks that belong to this group to
   // |out_list|.
@@ -49,22 +54,30 @@ class TaskGroup {
   bool empty() const { return tasks_.empty(); }
 
   double cpu_usage() const { return cpu_usage_; }
-  int64 private_bytes() const { return memory_usage_.private_bytes; }
-  int64 shared_bytes() const { return memory_usage_.shared_bytes; }
-  int64 physical_bytes() const { return memory_usage_.physical_bytes; }
-  int64 gpu_memory() const { return gpu_memory_; }
+  int64_t private_bytes() const { return memory_usage_.private_bytes; }
+  int64_t shared_bytes() const { return memory_usage_.shared_bytes; }
+  int64_t physical_bytes() const { return memory_usage_.physical_bytes; }
+  int64_t gpu_memory() const { return gpu_memory_; }
   bool gpu_memory_has_duplicates() const { return gpu_memory_has_duplicates_; }
+  int64_t per_process_network_usage() const {
+    return per_process_network_usage_;
+  }
+  bool is_backgrounded() const { return is_backgrounded_; }
 
 #if defined(OS_WIN)
-  int64 gdi_current_handles() const { return gdi_current_handles_; }
-  int64 gdi_peak_handles() const { return gdi_peak_handles_; }
-  int64 user_current_handles() const { return user_current_handles_; }
-  int64 user_peak_handles() const { return user_peak_handles_; }
+  int64_t gdi_current_handles() const { return gdi_current_handles_; }
+  int64_t gdi_peak_handles() const { return gdi_peak_handles_; }
+  int64_t user_current_handles() const { return user_current_handles_; }
+  int64_t user_peak_handles() const { return user_peak_handles_; }
 #endif  // defined(OS_WIN)
 
 #if !defined(DISABLE_NACL)
   int nacl_debug_stub_port() const { return nacl_debug_stub_port_; }
 #endif  // !defined(DISABLE_NACL)
+
+#if defined(OS_LINUX)
+  int open_fd_count() const { return open_fd_count_; }
+#endif  // defined(OS_LINUX)
 
   int idle_wakeups_per_second() const { return idle_wakeups_per_second_; }
 
@@ -83,6 +96,12 @@ class TaskGroup {
 
   void OnIdleWakeupsRefreshDone(int idle_wakeups_per_second);
 
+#if defined(OS_LINUX)
+  void OnOpenFdCountRefreshDone(int open_fd_count);
+#endif  // defined(OS_LINUX)
+
+  void OnProcessPriorityDone(bool is_backgrounded);
+
   // The process' handle and ID.
   base::ProcessHandle process_handle_;
   base::ProcessId process_id_;
@@ -96,19 +115,27 @@ class TaskGroup {
   // The per process resources usages.
   double cpu_usage_;
   MemoryUsageStats memory_usage_;
-  int64 gpu_memory_;
+  int64_t gpu_memory_;
+  // The network usage in bytes per second as the sum of all network usages of
+  // the individual tasks sharing the same process.
+  int64_t per_process_network_usage_;
 #if defined(OS_WIN)
   // Windows GDI and USER Handles.
-  int64 gdi_current_handles_;
-  int64 gdi_peak_handles_;
-  int64 user_current_handles_;
-  int64 user_peak_handles_;
+  int64_t gdi_current_handles_;
+  int64_t gdi_peak_handles_;
+  int64_t user_current_handles_;
+  int64_t user_peak_handles_;
 #endif  // defined(OS_WIN)
 #if !defined(DISABLE_NACL)
   int nacl_debug_stub_port_;
 #endif  // !defined(DISABLE_NACL)
   int idle_wakeups_per_second_;
+#if defined(OS_LINUX)
+  // The number of file descriptors currently open by the process.
+  int open_fd_count_;
+#endif  // defined(OS_LINUX)
   bool gpu_memory_has_duplicates_;
+  bool is_backgrounded_;
 
   // Always keep this the last member of this class so that it's the first to be
   // destroyed.

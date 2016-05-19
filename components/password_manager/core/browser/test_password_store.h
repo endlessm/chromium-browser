@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "components/password_manager/core/browser/password_store.h"
 
@@ -44,18 +45,22 @@ class TestPasswordStore : public PasswordStore {
   PasswordStoreChangeList RemoveLoginImpl(
       const autofill::PasswordForm& form) override;
   ScopedVector<autofill::PasswordForm> FillMatchingLogins(
-      const autofill::PasswordForm& form,
-      PasswordStore::AuthorizationPromptPolicy prompt_policy) override;
+      const autofill::PasswordForm& form) override;
 
   // Unused portions of PasswordStore interface
   void ReportMetricsImpl(const std::string& sync_username,
                          bool custom_passphrase_sync_enabled) override;
+  PasswordStoreChangeList RemoveLoginsByOriginAndTimeImpl(
+      const url::Origin& origin,
+      base::Time begin,
+      base::Time end) override;
   PasswordStoreChangeList RemoveLoginsCreatedBetweenImpl(
       base::Time begin,
       base::Time end) override;
   PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
+  PasswordStoreChangeList DisableAutoSignInForAllLoginsImpl() override;
   bool RemoveStatisticsCreatedBetweenImpl(base::Time delete_begin,
                                           base::Time delete_end) override;
   bool FillAutofillableLogins(
@@ -64,7 +69,7 @@ class TestPasswordStore : public PasswordStore {
       ScopedVector<autofill::PasswordForm>* forms) override;
   void AddSiteStatsImpl(const InteractionsStats& stats) override;
   void RemoveSiteStatsImpl(const GURL& origin_domain) override;
-  ScopedVector<InteractionsStats> GetSiteStatsImpl(
+  std::vector<scoped_ptr<InteractionsStats>> GetSiteStatsImpl(
       const GURL& origin_domain) override;
 
  private:

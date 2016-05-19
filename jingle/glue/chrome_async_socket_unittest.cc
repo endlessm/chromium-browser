@@ -4,18 +4,19 @@
 
 #include "jingle/glue/chrome_async_socket.h"
 
+#include <stddef.h>
 #include <deque>
 #include <string>
+#include <utility>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/message_loop/message_pump_default.h"
 #include "jingle/glue/resolving_client_socket_factory.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/cert/mock_cert_verifier.h"
 #include "net/http/transport_security_state.h"
 #include "net/socket/socket_test_util.h"
@@ -135,7 +136,7 @@ class MockXmppClientSocketFactory : public ResolvingClientSocketFactory {
     context.cert_verifier = cert_verifier_.get();
     context.transport_security_state = transport_security_state_.get();
     return mock_client_socket_factory_->CreateSSLClientSocket(
-        transport_socket.Pass(), host_and_port, ssl_config_, context);
+        std::move(transport_socket), host_and_port, ssl_config_, context);
   }
 
  private:
@@ -159,7 +160,7 @@ class ChromeAsyncSocketTest
     // when called.
     // Explicitly create a MessagePumpDefault which can run in this enivronment.
     scoped_ptr<base::MessagePump> pump(new base::MessagePumpDefault());
-    message_loop_.reset(new base::MessageLoop(pump.Pass()));
+    message_loop_.reset(new base::MessageLoop(std::move(pump)));
   }
 
   ~ChromeAsyncSocketTest() override {}

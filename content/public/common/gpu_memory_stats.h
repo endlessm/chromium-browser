@@ -8,14 +8,17 @@
 // Provides access to the GPU information for the system
 // on which chrome is currently running.
 
+#include <stddef.h>
+
 #include <map>
 
-#include "base/basictypes.h"
 #include "base/process/process.h"
 #include "content/common/content_export.h"
 
 namespace content {
 
+// Note: we use uint64_t instead of size_t for byte count because this struct
+// is sent over IPC which could span 32 & 64 bit processes.
 struct CONTENT_EXPORT GPUVideoMemoryUsageStats {
   GPUVideoMemoryUsageStats();
   ~GPUVideoMemoryUsageStats();
@@ -25,7 +28,7 @@ struct CONTENT_EXPORT GPUVideoMemoryUsageStats {
     ~ProcessStats();
 
     // The bytes of GPU resources accessible by this process
-    size_t video_memory;
+    uint64_t video_memory;
 
     // Set to true if this process' GPU resource count is inflated because
     // it is counting other processes' resources (e.g, the GPU process has
@@ -38,10 +41,10 @@ struct CONTENT_EXPORT GPUVideoMemoryUsageStats {
   ProcessMap process_map;
 
   // The total amount of GPU memory allocated at the time of the request.
-  size_t bytes_allocated;
+  uint64_t bytes_allocated;
 
   // The maximum amount of GPU memory ever allocated at once.
-  size_t bytes_allocated_historical_max;
+  uint64_t bytes_allocated_historical_max;
 };
 
 }  // namespace content

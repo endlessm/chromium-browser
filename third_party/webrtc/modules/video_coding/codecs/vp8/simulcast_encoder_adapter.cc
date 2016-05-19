@@ -16,7 +16,6 @@
 #include "libyuv/scale.h"  // NOLINT
 
 #include "webrtc/base/checks.h"
-#include "webrtc/common.h"
 #include "webrtc/modules/video_coding/codecs/vp8/screenshare_layers.h"
 
 namespace {
@@ -95,7 +94,7 @@ int VerifyCodec(const webrtc::VideoCodec* inst) {
 // TL1 FrameDropper's max time to drop frames.
 const float kTl1MaxTimeToDropFrames = 20.0f;
 
-struct ScreenshareTemporalLayersFactory : webrtc::TemporalLayers::Factory {
+struct ScreenshareTemporalLayersFactory : webrtc::TemporalLayersFactory {
   ScreenshareTemporalLayersFactory()
       : tl1_frame_dropper_(kTl1MaxTimeToDropFrames) {}
 
@@ -137,7 +136,9 @@ class AdapterEncodedImageCallback : public webrtc::EncodedImageCallback {
 namespace webrtc {
 
 SimulcastEncoderAdapter::SimulcastEncoderAdapter(VideoEncoderFactory* factory)
-    : factory_(factory), encoded_complete_callback_(NULL) {
+    : factory_(factory),
+      encoded_complete_callback_(NULL),
+      implementation_name_("SimulcastEncoderAdapter") {
   memset(&codec_, 0, sizeof(webrtc::VideoCodec));
 }
 
@@ -189,12 +190,11 @@ int SimulcastEncoderAdapter::InitEncode(const VideoCodec* inst,
 
   // Special mode when screensharing on a single stream.
   if (number_of_streams == 1 && inst->mode == kScreensharing) {
-    screensharing_extra_options_.reset(new Config());
-    screensharing_extra_options_->Set<TemporalLayers::Factory>(
-        new ScreenshareTemporalLayersFactory());
-    codec_.extra_options = screensharing_extra_options_.get();
+    screensharing_tl_factory_.reset(new ScreenshareTemporalLayersFactory());
+    codec_.codecSpecific.VP8.tl_factory = screensharing_tl_factory_.get();
   }
 
+  std::string implementation_name;
   // Create |number_of_streams| of encoder instances and init them.
   for (int i = 0; i < number_of_streams; ++i) {
     VideoCodec stream_codec;
@@ -215,9 +215,7 @@ int SimulcastEncoderAdapter::InitEncode(const VideoCodec* inst,
     }
 
     VideoEncoder* encoder = factory_->Create();
-    ret = encoder->InitEncode(&stream_codec,
-                              number_of_cores,
-                              max_payload_size);
+    ret = encoder->InitEncode(&stream_codec, number_of_cores, max_payload_size);
     if (ret < 0) {
       Release();
       return ret;
@@ -226,7 +224,12 @@ int SimulcastEncoderAdapter::InitEncode(const VideoCodec* inst,
     encoder->RegisterEncodeCompleteCallback(callback);
     streaminfos_.push_back(StreamInfo(encoder, callback, stream_codec.width,
                                       stream_codec.height, send_stream));
+    if (i != 0)
+      implementation_name += ", ";
+    implementation_name += streaminfos_[i].encoder->ImplementationName();
   }
+  implementation_name_ =
+      "SimulcastEncoderAdapter (" + implementation_name + ")";
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -284,35 +287,25 @@ int SimulcastEncoderAdapter::Encode(
     // scale it to match what the encoder expects (below).
     if ((dst_width == src_width && dst_height == src_height) ||
         input_image.IsZeroSize()) {
-      streaminfos_[stream_idx].encoder->Encode(input_image,
-                                               codec_specific_info,
+      streaminfos_[stream_idx].encoder->Encode(input_image, codec_specific_info,
                                                &stream_frame_types);
     } else {
       VideoFrame dst_frame;
       // Making sure that destination frame is of sufficient size.
       // Aligning stride values based on width.
-      dst_frame.CreateEmptyFrame(dst_width, dst_height,
-                                 dst_width, (dst_width + 1) / 2,
-                                 (dst_width + 1) / 2);
-      libyuv::I420Scale(input_image.buffer(kYPlane),
-                        input_image.stride(kYPlane),
-                        input_image.buffer(kUPlane),
-                        input_image.stride(kUPlane),
-                        input_image.buffer(kVPlane),
-                        input_image.stride(kVPlane),
-                        src_width, src_height,
-                        dst_frame.buffer(kYPlane),
-                        dst_frame.stride(kYPlane),
-                        dst_frame.buffer(kUPlane),
-                        dst_frame.stride(kUPlane),
-                        dst_frame.buffer(kVPlane),
-                        dst_frame.stride(kVPlane),
-                        dst_width, dst_height,
-                        libyuv::kFilterBilinear);
+      dst_frame.CreateEmptyFrame(dst_width, dst_height, dst_width,
+                                 (dst_width + 1) / 2, (dst_width + 1) / 2);
+      libyuv::I420Scale(
+          input_image.buffer(kYPlane), input_image.stride(kYPlane),
+          input_image.buffer(kUPlane), input_image.stride(kUPlane),
+          input_image.buffer(kVPlane), input_image.stride(kVPlane), src_width,
+          src_height, dst_frame.buffer(kYPlane), dst_frame.stride(kYPlane),
+          dst_frame.buffer(kUPlane), dst_frame.stride(kUPlane),
+          dst_frame.buffer(kVPlane), dst_frame.stride(kVPlane), dst_width,
+          dst_height, libyuv::kFilterBilinear);
       dst_frame.set_timestamp(input_image.timestamp());
       dst_frame.set_render_time_ms(input_image.render_time_ms());
-      streaminfos_[stream_idx].encoder->Encode(dst_frame,
-                                               codec_specific_info,
+      streaminfos_[stream_idx].encoder->Encode(dst_frame, codec_specific_info,
                                                &stream_frame_types);
     }
   }
@@ -426,16 +419,17 @@ uint32_t SimulcastEncoderAdapter::GetStreamBitrate(
     // current stream's |targetBitrate|, otherwise it's capped by |maxBitrate|.
     if (stream_idx < codec_.numberOfSimulcastStreams - 1) {
       unsigned int max_rate = codec_.simulcastStream[stream_idx].maxBitrate;
-      if (new_bitrate_kbit >= SumStreamTargetBitrate(stream_idx + 1, codec_) +
-          codec_.simulcastStream[stream_idx + 1].minBitrate) {
+      if (new_bitrate_kbit >=
+          SumStreamTargetBitrate(stream_idx + 1, codec_) +
+              codec_.simulcastStream[stream_idx + 1].minBitrate) {
         max_rate = codec_.simulcastStream[stream_idx].targetBitrate;
       }
       return std::min(new_bitrate_kbit - sum_target_lower_streams, max_rate);
     } else {
-        // For the highest stream (highest resolution), the |targetBitRate| and
-        // |maxBitrate| are not used. Any excess bitrate (above the targets of
-        // all lower streams) is given to this (highest resolution) stream.
-        return new_bitrate_kbit - sum_target_lower_streams;
+      // For the highest stream (highest resolution), the |targetBitRate| and
+      // |maxBitrate| are not used. Any excess bitrate (above the targets of
+      // all lower streams) is given to this (highest resolution) stream.
+      return new_bitrate_kbit - sum_target_lower_streams;
     }
   } else {
     // Not enough bitrate for this stream.
@@ -505,6 +499,10 @@ bool SimulcastEncoderAdapter::SupportsNativeHandle() const {
   if (streaminfos_.size() != 1)
     return false;
   return streaminfos_[0].encoder->SupportsNativeHandle();
+}
+
+const char* SimulcastEncoderAdapter::ImplementationName() const {
+  return implementation_name_.c_str();
 }
 
 }  // namespace webrtc

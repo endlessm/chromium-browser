@@ -8,20 +8,25 @@ import base64
 import binascii
 import json
 import logging
+import os
 import re
 import time
 
 from apiclient import discovery
+from apiclient import errors
+from google.appengine.api import memcache
 from google.appengine.api import urlfetch
+from google.appengine.api import urlfetch_errors
 from google.appengine.api import users
 from google.appengine.ext import ndb
-from oauth2client.client import GoogleCredentials
+from oauth2client import client
 
 from dashboard import stored_object
 
-INTERNAL_DOMAIN_KEY = 'internal_domain_key'
 SHERIFF_DOMAINS_KEY = 'sheriff_domains_key'
 IP_WHITELIST_KEY = 'ip_whitelist'
+SERVICE_ACCOUNT_KEY = 'service_account'
+EMAIL_SCOPE = 'https://www.googleapis.com/auth/userinfo.email'
 _PROJECT_ID_KEY = 'project_id'
 _DEFAULT_CUSTOM_METRIC_VAL = 1
 
@@ -41,7 +46,7 @@ def TickMonitoringCustomMetric(metric_name):
   Args:
     metric_name: The name of the metric being monitored.
   """
-  credentials = GoogleCredentials.get_application_default()
+  credentials = client.GoogleCredentials.get_application_default()
   monitoring = discovery.build(
       'cloudmonitoring', 'v2beta2', credentials=credentials)
   now = _GetNowRfc3339()
@@ -222,9 +227,63 @@ def MinimumRange(ranges):
 
 def IsInternalUser():
   """Checks whether the user should be able to see internal-only data."""
-  user = users.get_current_user()
-  domain = stored_object.Get(INTERNAL_DOMAIN_KEY)
-  return user and domain and user.email().endswith('@' + domain)
+  username = users.get_current_user()
+  if not username:
+    return False
+  cached = GetCachedIsInternalUser(username)
+  if cached is not None:
+    return cached
+  is_internal_user = IsGroupMember(identity=username, group='googlers')
+  SetCachedIsInternalUser(username, is_internal_user)
+  return is_internal_user
+
+
+def GetCachedIsInternalUser(username):
+  return memcache.get(_IsInternalUserCacheKey(username))
+
+
+def SetCachedIsInternalUser(username, value):
+  memcache.add(_IsInternalUserCacheKey(username), value, time=60*60*24)
+
+
+def _IsInternalUserCacheKey(username):
+  return 'is_internal_user_%s' % username
+
+
+def IsGroupMember(identity, group):
+  """Checks if a user is a group member of using chrome-infra-auth.appspot.com.
+
+  Args:
+    identity: User email address.
+    group: Group name.
+
+  Returns:
+    True if confirmed to be a member, False otherwise.
+  """
+  try:
+    discovery_url = ('https://chrome-infra-auth.appspot.com'
+                     '/_ah/api/discovery/v1/apis/{api}/{apiVersion}/rest')
+    service = discovery.build(
+        'auth', 'v1', discoveryServiceUrl=discovery_url,
+        credentials=ServiceAccountCredentials())
+    request = service.membership(identity=identity, group=group)
+    response = request.execute()
+    return response['is_member']
+  except (errors.HttpError, KeyError, AttributeError) as e:
+    logging.error('Failed to check membership of %s: %s', identity, e)
+    return False
+
+
+def ServiceAccountCredentials():
+  """Returns the Credentials of the service account if available."""
+  account_details = stored_object.Get(SERVICE_ACCOUNT_KEY)
+  if not account_details:
+    logging.error('Service account credentials not found.')
+    return None
+  return client.SignedJwtAssertionCredentials(
+      service_account_name=account_details['client_email'],
+      private_key=account_details['private_key'],
+      scope=EMAIL_SCOPE)
 
 
 def IsValidSheriffUser():
@@ -278,3 +337,92 @@ def DownloadChromiumFile(path):
     logging.error('Failed to decode "%s" from "%s".', response.content, url)
     return None
   return plaintext_content
+
+
+def GetRequestId():
+  """Returns the request log ID which can be used to find a specific log."""
+  return os.environ.get('REQUEST_LOG_ID')
+
+
+def Validate(expected, actual):
+  """Generic validator for expected keys, values, and types.
+
+  Values are also considered equal if |actual| can be converted to |expected|'s
+  type.  For instance:
+    _Validate([3], '3')  # Returns True.
+
+  See utils_test.py for more examples.
+
+  Args:
+    expected: Either a list of expected values or a dictionary of expected
+        keys and type.  A dictionary can contain a list of expected values.
+    actual: A value.
+  """
+  def IsValidType(expected, actual):
+    if type(expected) is type and type(actual) is not expected:
+      try:
+        expected(actual)
+      except ValueError:
+        return False
+    return True
+
+  def IsInList(expected, actual):
+    for value in expected:
+      try:
+        if type(value)(actual) == value:
+          return True
+      except ValueError:
+        pass
+    return False
+
+  if not expected:
+    return
+  expected_type = type(expected)
+  actual_type = type(actual)
+  if expected_type is list:
+    if not IsInList(expected, actual):
+      raise ValueError('Invalid value. Expected one of the following: '
+                       '%s. Actual: %s.' % (','.join(expected), actual))
+  elif expected_type is dict:
+    if actual_type is not dict:
+      raise ValueError('Invalid type. Expected: %s. Actual: %s.'
+                       % (expected_type, actual_type))
+    missing = set(expected.keys()) - set(actual.keys())
+    if missing:
+      raise ValueError('Missing the following properties: %s'
+                       % ','.join(missing))
+    for key in expected:
+      Validate(expected[key], actual[key])
+  elif not IsValidType(expected, actual):
+    raise ValueError('Invalid type. Expected: %s. Actual: %s.' %
+                     (expected, actual_type))
+
+
+def FetchURL(request_url, skip_status_code=False):
+  """Wrapper around URL fetch service to make request.
+
+  Args:
+    request_url: URL of request.
+    skip_status_code: Skips return code check when True, default is False.
+
+  Returns:
+    Response object return by URL fetch, otherwise None when there's an error.
+  """
+  logging.info('URL being fetched: ' + request_url)
+  try:
+    response = urlfetch.fetch(request_url)
+  except urlfetch_errors.DeadlineExceededError:
+    logging.error('Deadline exceeded error checking %s', request_url)
+    return None
+  except urlfetch_errors.DownloadError as err:
+    # DownloadError is raised to indicate a non-specific failure when there
+    # was not a 4xx or 5xx status code.
+    logging.error(err)
+    return None
+  if skip_status_code:
+    return response
+  elif response.status_code != 200:
+    logging.error(
+        'ERROR %s checking %s', response.status_code, request_url)
+    return None
+  return response

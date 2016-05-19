@@ -7,8 +7,8 @@
 #ifndef CORE_SRC_FXCODEC_JBIG2_JBIG2_TRDPROC_H_
 #define CORE_SRC_FXCODEC_JBIG2_JBIG2_TRDPROC_H_
 
-#include "JBig2_Image.h"
 #include "core/include/fxcrt/fx_system.h"
+#include "core/src/fxcodec/jbig2/JBig2_Image.h"
 
 class CJBig2_ArithDecoder;
 class CJBig2_ArithIaidDecoder;
@@ -45,7 +45,7 @@ class CJBig2_TRDProc {
 
   CJBig2_Image* decode_Arith(CJBig2_ArithDecoder* pArithDecoder,
                              JBig2ArithCtx* grContext,
-                             JBig2IntDecoderState* pIDS = NULL);
+                             JBig2IntDecoderState* pIDS);
 
  public:
   FX_BOOL SBHUFF;

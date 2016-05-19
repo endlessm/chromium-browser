@@ -4,13 +4,15 @@
 
 #include "chrome/browser/android/bookmarks/partner_bookmarks_shim.h"
 
+#include <tuple>
+
 #include "base/lazy_instance.h"
-#include "base/prefs/pref_service.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -135,7 +137,7 @@ void PartnerBookmarksShim::RemoveObserver(
   observers_.RemoveObserver(observer);
 }
 
-const BookmarkNode* PartnerBookmarksShim::GetNodeByID(int64 id) const {
+const BookmarkNode* PartnerBookmarksShim::GetNodeByID(int64_t id) const {
   DCHECK(IsLoaded());
   if (!HasPartnerBookmarks())
     return NULL;
@@ -189,8 +191,8 @@ PartnerBookmarksShim::NodeRenamingMapKey::~NodeRenamingMapKey() {}
 
 bool operator<(const PartnerBookmarksShim::NodeRenamingMapKey& a,
                const PartnerBookmarksShim::NodeRenamingMapKey& b) {
-  return (a.url_ < b.url_) ||
-      (a.url_ == b.url_ && a.provider_title_ < b.provider_title_);
+  return std::tie(a.url_, a.provider_title_) <
+         std::tie(b.url_, b.provider_title_);
 }
 
 // static
@@ -223,7 +225,8 @@ PartnerBookmarksShim::~PartnerBookmarksShim() {
 }
 
 const BookmarkNode* PartnerBookmarksShim::GetNodeByID(
-    const BookmarkNode* parent, int64 id) const {
+    const BookmarkNode* parent,
+    int64_t id) const {
   if (parent->id() == id)
     return parent;
   for (int i = 0, child_count = parent->child_count(); i < child_count; ++i) {

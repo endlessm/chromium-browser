@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLModElement.h"
 
 #include "core/HTMLNames.h"
@@ -51,4 +50,4 @@ const QualifiedName& HTMLModElement::subResourceAttributeName() const
     return citeAttr;
 }
 
-}
+} // namespace blink

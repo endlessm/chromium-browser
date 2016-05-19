@@ -9,6 +9,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "components/autofill/core/browser/autofill_popup_delegate.h"
@@ -109,7 +110,9 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
   void ApplyAutofillOptions(std::vector<Suggestion>* suggestions);
 
   // Insert the data list values at the start of the given list, including
-  // any required separators.
+  // any required separators. Will also go through |suggestions| and remove
+  // duplicate autocomplete (not Autofill) suggestions, keeping their datalist
+  // version.
   void InsertDataListValues(std::vector<Suggestion>* suggestions);
 
   AutofillManager* manager_;  // weak.

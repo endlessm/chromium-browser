@@ -4,12 +4,13 @@
 
 #include "ui/base/ime/input_method_chromeos.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <cstring>
 #include <set>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/i18n/char_iterator.h"
 #include "base/logging.h"
@@ -56,17 +57,6 @@ InputMethodChromeOS::~InputMethodChromeOS() {
     ui::IMEBridge::Get()->SetInputContextHandler(NULL);
 }
 
-void InputMethodChromeOS::OnFocus() {
-  InputMethodBase::OnFocus();
-  OnTextInputTypeChanged(GetTextInputClient());
-}
-
-void InputMethodChromeOS::OnBlur() {
-  ConfirmCompositionText();
-  InputMethodBase::OnBlur();
-  OnTextInputTypeChanged(GetTextInputClient());
-}
-
 bool InputMethodChromeOS::OnUntranslatedIMEMessage(
     const base::NativeEvent& event,
     NativeEventResult* result) {
@@ -97,7 +87,6 @@ void InputMethodChromeOS::ProcessKeyEventDone(ui::KeyEvent* event,
 void InputMethodChromeOS::DispatchKeyEvent(ui::KeyEvent* event) {
   DCHECK(event->IsKeyEvent());
   DCHECK(!(event->flags() & ui::EF_IS_SYNTHESIZED));
-  DCHECK(system_toplevel_window_focused());
 
   // For linux_chromeos, the ime keyboard cannot track the caps lock state by
   // itself, so need to call SetCapsLockEnabled() method to reflect the caps
@@ -108,10 +97,8 @@ void InputMethodChromeOS::DispatchKeyEvent(ui::KeyEvent* event) {
     if (manager) {
       chromeos::input_method::ImeKeyboard* keyboard = manager->GetImeKeyboard();
       if (keyboard && event->type() == ui::ET_KEY_PRESSED) {
-        bool caps = (event->key_code() == ui::VKEY_CAPITAL)
-            ? !keyboard->CapsLockIsEnabled()
-            : (event->flags() & EF_CAPS_LOCK_DOWN);
-        keyboard->SetCapsLockEnabled(caps);
+        keyboard->SetCapsLockEnabled((event->key_code() == ui::VKEY_CAPITAL) ?
+            !keyboard->CapsLockIsEnabled() : event->IsCapsLockOn());
       }
     }
   }
@@ -182,33 +169,24 @@ void InputMethodChromeOS::OnCaretBoundsChanged(const TextInputClient* client) {
   // The current text input type should not be NONE if |context_| is focused.
   DCHECK(client == GetTextInputClient());
   DCHECK(!IsTextInputTypeNone());
-  const gfx::Rect caret_rect = client->GetCaretBounds();
 
-  gfx::Rect composition_head;
-  std::vector<gfx::Rect> rects;
-  if (client->HasCompositionText()) {
-    uint32 i = 0;
-    gfx::Rect rect;
-    while (client->GetCompositionCharacterBounds(i++, &rect))
-      rects.push_back(rect);
-  }
-
-  // Pepper don't support composition bounds, so fallback to caret bounds to
-  // avoid bad user experience (the IME window moved to upper left corner).
-  // For case of no composition at present, also use caret bounds which is
-  // required by the IME extension for certain features (e.g. physical keyboard
-  // autocorrect).
-  if (rects.empty())
-    rects.push_back(caret_rect);
-
-  composition_head = rects[0];
   if (GetEngine())
-    GetEngine()->SetCompositionBounds(rects);
+    GetEngine()->SetCompositionBounds(GetCompositionBounds(client));
 
   chromeos::IMECandidateWindowHandlerInterface* candidate_window =
       ui::IMEBridge::Get()->GetCandidateWindowHandler();
   if (!candidate_window)
     return;
+
+  const gfx::Rect caret_rect = client->GetCaretBounds();
+
+  // Pepper doesn't support composition bounds, so fall back to caret bounds to
+  // avoid a bad user experience (the IME window moved to upper left corner).
+  gfx::Rect composition_head;
+  if (client->HasCompositionText())
+    client->GetCompositionCharacterBounds(0, &composition_head);
+  else
+    composition_head = caret_rect;
   candidate_window->SetCursorBounds(caret_rect, composition_head);
 
   gfx::Range text_range;
@@ -301,8 +279,6 @@ void InputMethodChromeOS::ConfirmCompositionText() {
 void InputMethodChromeOS::ResetContext() {
   if (!IsNonPasswordInputFieldFocused() || !GetTextInputClient())
     return;
-
-  DCHECK(system_toplevel_window_focused());
 
   composition_.Clear();
   result_text_.clear();
@@ -414,7 +390,7 @@ void InputMethodChromeOS::ProcessUnfilteredKeyPressEvent(
   // If a key event was not filtered by |context_| and |character_composer_|,
   // then it means the key event didn't generate any result text. So we need
   // to send corresponding character to the focused text input client.
-  uint16 ch = event->GetCharacter();
+  uint16_t ch = event->GetCharacter();
   if (ch)
     client->InsertChar(*event);
 }
@@ -463,14 +439,6 @@ bool InputMethodChromeOS::HasInputMethodResult() const {
   return result_text_.length() || composition_changed_;
 }
 
-bool InputMethodChromeOS::SendFakeProcessKeyEvent(bool pressed) const {
-  KeyEvent evt(pressed ? ET_KEY_PRESSED : ET_KEY_RELEASED,
-               pressed ? VKEY_PROCESSKEY : VKEY_UNKNOWN,
-               EF_IME_FABRICATED_KEY);
-  ignore_result(DispatchKeyEventPostIME(&evt));
-  return evt.stopped_propagation();
-}
-
 void InputMethodChromeOS::CommitText(const std::string& text) {
   if (text.empty())
     return;
@@ -500,7 +468,7 @@ void InputMethodChromeOS::CommitText(const std::string& text) {
 }
 
 void InputMethodChromeOS::UpdateCompositionText(const CompositionText& text,
-                                                uint32 cursor_pos,
+                                                uint32_t cursor_pos,
                                                 bool visible) {
   if (IsTextInputTypeNone())
     return;
@@ -562,12 +530,13 @@ void InputMethodChromeOS::HidePreeditText() {
   }
 }
 
-void InputMethodChromeOS::DeleteSurroundingText(int32 offset, uint32 length) {
+void InputMethodChromeOS::DeleteSurroundingText(int32_t offset,
+                                                uint32_t length) {
   if (!composition_.text.empty())
     return;  // do nothing if there is ongoing composition.
 
   if (GetTextInputClient()) {
-    uint32 before = offset >= 0 ? 0U : static_cast<uint32>(-1 * offset);
+    uint32_t before = offset >= 0 ? 0U : static_cast<uint32_t>(-1 * offset);
     GetTextInputClient()->ExtendSelectionAndDelete(before, length - before);
   }
 }
@@ -590,7 +559,7 @@ bool InputMethodChromeOS::ExecuteCharacterComposer(const ui::KeyEvent& event) {
 
 void InputMethodChromeOS::ExtractCompositionText(
     const CompositionText& text,
-    uint32 cursor_position,
+    uint32_t cursor_position,
     CompositionText* out_composition) const {
   out_composition->Clear();
   out_composition->text = text.text;
@@ -608,7 +577,7 @@ void InputMethodChromeOS::ExtractCompositionText(
   } while (char_iterator.Advance());
 
   // The text length in Unicode characters.
-  uint32 char_length = static_cast<uint32>(char16_offsets.size());
+  uint32_t char_length = static_cast<uint32_t>(char16_offsets.size());
   // Make sure we can convert the value of |char_length| as well.
   char16_offsets.push_back(length);
 
@@ -620,8 +589,8 @@ void InputMethodChromeOS::ExtractCompositionText(
   const CompositionUnderlines text_underlines = text.underlines;
   if (!text_underlines.empty()) {
     for (size_t i = 0; i < text_underlines.size(); ++i) {
-      const uint32 start = text_underlines[i].start_offset;
-      const uint32 end = text_underlines[i].end_offset;
+      const uint32_t start = text_underlines[i].start_offset;
+      const uint32_t end = text_underlines[i].end_offset;
       if (start >= end)
         continue;
       CompositionUnderline underline(
@@ -633,8 +602,8 @@ void InputMethodChromeOS::ExtractCompositionText(
 
   DCHECK(text.selection.start() <= text.selection.end());
   if (text.selection.start() < text.selection.end()) {
-    const uint32 start = text.selection.start();
-    const uint32 end = text.selection.end();
+    const uint32_t start = text.selection.start();
+    const uint32_t end = text.selection.end();
     CompositionUnderline underline(char16_offsets[start],
                                    char16_offsets[end],
                                    SK_ColorBLACK,

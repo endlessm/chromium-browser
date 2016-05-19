@@ -5,7 +5,6 @@
 #include "ui/views/controls/menu/menu_key_event_handler.h"
 
 #include "ui/aura/env.h"
-#include "ui/events/keycodes/keyboard_code_conversion.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/views_delegate.h"
 
@@ -41,26 +40,32 @@ void MenuKeyEventHandler::OnKeyEvent(ui::KeyEvent* event) {
     // not quit till the action's base::RunLoop ends. IDC_BOOKMARK_BAR_OPEN_ALL
     // sometimes opens a modal dialog. The modal dialog starts a base::RunLoop
     // and keeps the base::RunLoop running for the duration of its lifetime.
-    menu_controller->TerminateNestedMessageLoop();
+    menu_controller->TerminateNestedMessageLoopIfNecessary();
     return;
   }
 
+  event->StopPropagation();
+
   if (event->type() == ui::ET_KEY_PRESSED) {
     menu_controller->OnKeyDown(event->key_code());
+    // Menu controller might have been deleted.
+    if (!MenuController::GetActiveInstance())
+      return;
 
     // Do not check mnemonics if the Alt or Ctrl modifiers are pressed. For
     // example Ctrl+<T> is an accelerator, but <T> only is a mnemonic.
     const int flags = event->flags();
     if (menu_controller->exit_type() == MenuController::EXIT_NONE &&
         (flags & kKeyFlagsMask) == 0) {
-      char c = ui::DomCodeToUsLayoutCharacter(event->code(), flags);
+      base::char16 c = event->GetCharacter();
       menu_controller->SelectByChar(c);
+      // Menu controller might have been deleted.
+      if (!MenuController::GetActiveInstance())
+        return;
     }
   }
 
-  if (menu_controller->exit_type() != MenuController::EXIT_NONE) {
-    menu_controller->TerminateNestedMessageLoop();
-  } else {
+  if (!menu_controller->TerminateNestedMessageLoopIfNecessary()) {
     ui::Accelerator accelerator(*event);
     ViewsDelegate::ProcessMenuAcceleratorResult result =
         ViewsDelegate::GetInstance()->ProcessAcceleratorWhileMenuShowing(
@@ -68,8 +73,6 @@ void MenuKeyEventHandler::OnKeyEvent(ui::KeyEvent* event) {
     if (result == ViewsDelegate::ProcessMenuAcceleratorResult::CLOSE_MENU)
       menu_controller->CancelAll();
   }
-
-  event->StopPropagation();
 }
 
 }  // namespace views

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/net/chrome_network_delegate.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 
 #include <vector>
@@ -14,16 +15,17 @@
 #include "base/debug/dump_without_crashing.h"
 #include "base/debug/stack_trace.h"
 #include "base/logging.h"
+#include "base/macros.h"
+#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_member.h"
-#include "base/prefs/pref_service.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
@@ -35,10 +37,13 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_management/task_manager_interface.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/data_usage/core/data_use_aggregator.h"
 #include "components/domain_reliability/monitor.h"
+#include "components/prefs/pref_member.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -56,7 +61,7 @@
 #include "net/log/net_log.h"
 #include "net/url_request/url_request.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/precache/precache_manager_factory.h"
 #include "components/precache/content/precache_manager.h"
@@ -106,12 +111,12 @@ void ForceGoogleSafeSearchCallbackWrapper(
   callback.Run(rv);
 }
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 void RecordPrecacheStatsOnUIThread(const GURL& url,
                                    const GURL& referrer,
                                    base::TimeDelta latency,
                                    const base::Time& fetch_time,
-                                   int64 size,
+                                   int64_t size,
                                    bool was_cached,
                                    void* profile_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -129,7 +134,7 @@ void RecordPrecacheStatsOnUIThread(const GURL& url,
   precache_manager->RecordStatsForFetch(url, referrer, latency, fetch_time,
                                         size, was_cached);
 }
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 void ReportInvalidReferrerSendOnUI() {
   base::RecordAction(
@@ -271,7 +276,7 @@ void RecordCacheStateStats(const net::URLRequest* request) {
                               CACHE_STATE_MAX);
   }
 
-  int64 size = request->received_response_content_length();
+  int64_t size = request->received_response_content_length();
   if (size >= 0 && state == CACHE_STATE_NO_LONGER_VALID) {
     UMA_HISTOGRAM_COUNTS("Net.CacheState.AllBytes", size);
     if (CanRequestBeDeltaEncoded(request)) {
@@ -480,9 +485,7 @@ int ChromeNetworkDelegate::OnHeadersReceived(
 void ChromeNetworkDelegate::OnBeforeRedirect(net::URLRequest* request,
                                              const GURL& new_location) {
 // Recording data use of request on redirects.
-#if !defined(OS_IOS)
   data_use_measurement_.ReportDataUseUMA(request);
-#endif
   if (domain_reliability_monitor_)
     domain_reliability_monitor_->OnBeforeRedirect(request);
   extensions_delegate_->OnBeforeRedirect(request, new_location);
@@ -512,11 +515,9 @@ void ChromeNetworkDelegate::OnNetworkBytesSent(net::URLRequest* request,
 
 void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
                                         bool started) {
-#if !defined(OS_IOS)
   // TODO(amohammadkhan): Verify that there is no double recording in data use
   // of redirected requests.
   data_use_measurement_.ReportDataUseUMA(request);
-#endif
   RecordNetworkErrorHistograms(request);
   if (started) {
     // Only call in for requests that were started, to obey the precondition
@@ -526,11 +527,12 @@ void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
   }
 
   if (request->status().status() == net::URLRequestStatus::SUCCESS) {
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
     // For better accuracy, we use the actual bytes read instead of the length
     // specified with the Content-Length header, which may be inaccurate,
     // or missing, as is the case with chunked encoding.
-    int64 received_content_length = request->received_response_content_length();
+    int64_t received_content_length =
+        request->received_response_content_length();
     base::TimeDelta latency = base::TimeTicks::Now() - request->creation_time();
 
     // Record precache metrics when a fetch is completed successfully, if
@@ -540,7 +542,7 @@ void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
         base::Bind(&RecordPrecacheStatsOnUIThread, request->url(),
                    GURL(request->referrer()), latency, base::Time::Now(),
                    received_content_length, request->was_cached(), profile_));
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
     extensions_delegate_->OnCompleted(request, started);
   } else if (request->status().status() == net::URLRequestStatus::FAILED ||
              request->status().status() == net::URLRequestStatus::CANCELED) {
@@ -557,10 +559,6 @@ void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
 
 void ChromeNetworkDelegate::OnURLRequestDestroyed(net::URLRequest* request) {
   extensions_delegate_->OnURLRequestDestroyed(request);
-}
-
-void ChromeNetworkDelegate::OnURLRequestJobOrphaned(net::URLRequest* request) {
-  extensions_delegate_->OnURLRequestJobOrphaned(request);
 }
 
 void ChromeNetworkDelegate::OnPACScriptError(int line_number,
@@ -726,6 +724,14 @@ bool ChromeNetworkDelegate::OnCanEnablePrivacyMode(
 
 bool ChromeNetworkDelegate::OnAreExperimentalCookieFeaturesEnabled() const {
   return experimental_web_platform_features_enabled_;
+}
+
+bool ChromeNetworkDelegate::OnAreStrictSecureCookiesEnabled() const {
+  const std::string enforce_strict_secure_group =
+      base::FieldTrialList::FindFullName("StrictSecureCookies");
+  return experimental_web_platform_features_enabled_ ||
+         base::StartsWith(enforce_strict_secure_group, "Enabled",
+                          base::CompareCase::INSENSITIVE_ASCII);
 }
 
 bool ChromeNetworkDelegate::OnCancelURLRequestWithPolicyViolatingReferrerHeader(

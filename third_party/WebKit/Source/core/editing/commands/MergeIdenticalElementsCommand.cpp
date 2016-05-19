@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/MergeIdenticalElementsCommand.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -42,7 +41,7 @@ MergeIdenticalElementsCommand::MergeIdenticalElementsCommand(PassRefPtrWillBeRaw
     ASSERT(m_element1->nextSibling() == m_element2);
 }
 
-void MergeIdenticalElementsCommand::doApply()
+void MergeIdenticalElementsCommand::doApply(EditingState*)
 {
     if (m_element1->nextSibling() != m_element2 || !m_element1->hasEditableStyle() || !m_element2->hasEditableStyle())
         return;

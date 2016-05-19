@@ -9,6 +9,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "content/public/common/context_menu_params.h"
@@ -25,16 +26,19 @@ class ContextMenuHelper
  public:
   ~ContextMenuHelper() override;
 
-  void ShowContextMenu(content::RenderFrameHost* render_frame_host,
+  bool ShowContextMenu(content::RenderFrameHost* render_frame_host,
                        const content::ContextMenuParams& params);
 
   void SetPopulator(jobject jpopulator);
 
   // Methods called from Java via JNI ------------------------------------------
-  void OnStartDownload(
-      JNIEnv* env, jobject obj, jboolean jis_link, jstring jheaders);
-  void SearchForImage(JNIEnv* env, jobject obj);
-  void ShareImage(JNIEnv* env, jobject obj);
+  void OnStartDownload(JNIEnv* env,
+                       const base::android::JavaParamRef<jobject>& obj,
+                       jboolean jis_link,
+                       const base::android::JavaParamRef<jstring>& jheaders);
+  void SearchForImage(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& obj);
+  void ShareImage(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
  private:
   explicit ContextMenuHelper(content::WebContents* web_contents);

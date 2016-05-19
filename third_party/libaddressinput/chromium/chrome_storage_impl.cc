@@ -4,9 +4,11 @@
 
 #include "third_party/libaddressinput/chromium/chrome_storage_impl.h"
 
+#include <utility>
+
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/writeable_pref_store.h"
 #include "base/values.h"
+#include "components/prefs/writeable_pref_store.h"
 #include "third_party/libaddressinput/chromium/fallback_data_store.h"
 
 namespace autofill {
@@ -25,7 +27,7 @@ void ChromeStorageImpl::Put(const std::string& key, std::string* data) {
   scoped_ptr<base::StringValue> string_value(
       new base::StringValue(std::string()));
   string_value->GetString()->swap(*owned_data);
-  backing_store_->SetValue(key, string_value.Pass(),
+  backing_store_->SetValue(key, std::move(string_value),
                            WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 }
 

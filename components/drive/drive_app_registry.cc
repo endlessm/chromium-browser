@@ -4,6 +4,8 @@
 
 #include "components/drive/drive_app_registry.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <set>
 #include <utility>
@@ -68,6 +70,8 @@ DriveAppInfo::DriveAppInfo(
       create_url(create_url),
       is_removable(is_removable) {
 }
+
+DriveAppInfo::DriveAppInfo(const DriveAppInfo& other) = default;
 
 DriveAppInfo::~DriveAppInfo() {
 }

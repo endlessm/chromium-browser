@@ -19,7 +19,6 @@ import android.support.v4.widget.ExploreByTouchHelper;
 import android.util.AttributeSet;
 import android.util.Pair;
 import android.view.MotionEvent;
-import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -52,7 +51,6 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.widget.ClipDrawableProgressBar.DrawingInfo;
 import org.chromium.chrome.browser.widget.ControlContainer;
-import org.chromium.content.browser.ContentReadbackHandler;
 import org.chromium.content.browser.ContentViewClient;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.SPenSupport;
@@ -91,8 +89,6 @@ public class CompositorViewHolder extends FrameLayout
     private final ArrayList<Invalidator.Client> mPendingInvalidations =
             new ArrayList<Invalidator.Client>();
     private boolean mSkipInvalidation = false;
-
-    private boolean mSkipNextToolbarTextureUpdate = false;
 
     /**
      * A task to be performed after a resize event.
@@ -266,13 +262,6 @@ public class CompositorViewHolder extends FrameLayout
     }
 
     /**
-     * @return The CompositorView.
-     */
-    public SurfaceHolder.Callback2 getSurfaceHolderCallback2() {
-        return mCompositorView;
-    }
-
-    /**
      * Reset command line flags. This gets called after the native library finishes
      * loading.
      */
@@ -313,6 +302,15 @@ public class CompositorViewHolder extends FrameLayout
         }
     }
 
+    /**
+     * Perform any initialization necessary for showing a reparented tab.
+     */
+    public void prepareForTabReparenting() {
+        // Set the background to white while we wait for the first swap of buffers. This gets
+        // corrected inside the view.
+        mCompositorView.setBackgroundColor(Color.WHITE);
+    }
+
     @Override
     public ResourceManager getResourceManager() {
         return mCompositorView.getResourceManager();
@@ -320,14 +318,6 @@ public class CompositorViewHolder extends FrameLayout
 
     public ContentOffsetProvider getContentOffsetProvider() {
         return mCompositorView;
-    }
-
-    /**
-     * @return The content readback handler.
-     */
-    public ContentReadbackHandler getContentReadbackHandler() {
-        if (mCompositorView == null) return null;
-        return mCompositorView.getContentReadbackHandler();
     }
 
     /**
@@ -431,33 +421,6 @@ public class CompositorViewHolder extends FrameLayout
         sCachedCVCList.clear();
     }
 
-    @Override
-    public void onOverdrawBottomHeightChanged(int overdrawHeight) {
-        if (mLayoutManager == null) return;
-
-        sCachedCVCList.clear();
-        mLayoutManager.getActiveLayout().getAllContentViewCores(sCachedCVCList);
-
-        for (int i = 0; i < sCachedCVCList.size(); i++) {
-            sCachedCVCList.get(i).onOverdrawBottomHeightChanged(overdrawHeight);
-        }
-        sCachedCVCList.clear();
-
-        mSkipNextToolbarTextureUpdate = true;
-        requestRender();
-    }
-
-    @Override
-    public int getCurrentOverdrawBottomHeight() {
-        if (mTabVisible != null) {
-            float overdrawBottomHeight = mTabVisible.getFullscreenOverdrawBottomHeightPix();
-            if (!Float.isNaN(overdrawBottomHeight)) {
-                return (int) overdrawBottomHeight;
-            }
-        }
-        return mCompositorView.getOverdrawBottomHeight();
-    }
-
     /**
      * Called whenever the host activity is started.
      */
@@ -552,19 +515,11 @@ public class CompositorViewHolder extends FrameLayout
                 assert mProgressBarDrawingInfo == null;
             }
 
-            mCompositorView.finalizeLayers(mLayoutManager, mSkipNextToolbarTextureUpdate,
+            mCompositorView.finalizeLayers(mLayoutManager, false,
                     mProgressBarDrawingInfo);
-
-            // TODO(changwan): Check if this hack can be removed.
-            // This is a hack to draw one more frame if the screen just rotated for Nexus 10 + L.
-            // See http://crbug/440469 for more.
-            if (mSkipNextToolbarTextureUpdate) {
-                requestRender();
-            }
         }
 
         TraceEvent.end("CompositorViewHolder:layout");
-        mSkipNextToolbarTextureUpdate = false;
     }
 
     @Override
@@ -745,12 +700,7 @@ public class CompositorViewHolder extends FrameLayout
                 && mView != null;
     }
 
-    /**
-     * Hides the the keyboard if it was opened for the ContentView.
-     * @param postHideTask A task to run after the keyboard is done hiding and the view's
-     *         layout has been updated.  If the keyboard was not shown, the task will run
-     *         immediately.
-     */
+    @Override
     public void hideKeyboard(Runnable postHideTask) {
         // When this is called we actually want to hide the keyboard whatever owns it.
         // This includes hiding the keyboard, and dropping focus from the URL bar.
@@ -953,8 +903,6 @@ public class CompositorViewHolder extends FrameLayout
 
         adjustPhysicalBackingSize(contentViewCore,
                 mCompositorView.getWidth(), mCompositorView.getHeight());
-
-        contentViewCore.onOverdrawBottomHeightChanged(mCompositorView.getOverdrawBottomHeight());
     }
 
     /**

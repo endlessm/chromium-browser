@@ -18,13 +18,15 @@
 #include "webrtc/base/thread_annotations.h"
 #include "webrtc/call.h"
 #include "webrtc/call/transport_adapter.h"
-#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
+#include "webrtc/config.h"
+#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
 #include "webrtc/modules/rtp_rtcp/source/rtcp_utility.h"
 #include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 #include "webrtc/system_wrappers/include/rtp_to_ntp.h"
 #include "webrtc/test/call_test.h"
 #include "webrtc/test/direct_transport.h"
+#include "webrtc/test/drifting_clock.h"
 #include "webrtc/test/encoder_settings.h"
 #include "webrtc/test/fake_audio_device.h"
 #include "webrtc/test/fake_decoder.h"
@@ -40,11 +42,24 @@
 #include "webrtc/voice_engine/include/voe_rtp_rtcp.h"
 #include "webrtc/voice_engine/include/voe_video_sync.h"
 
+using webrtc::test::DriftingClock;
+using webrtc::test::FakeAudioDevice;
+
 namespace webrtc {
 
 class CallPerfTest : public test::CallTest {
  protected:
-  void TestAudioVideoSync(bool fec, bool create_audio_first);
+  enum class FecMode {
+    kOn, kOff
+  };
+  enum class CreateOrder {
+    kAudioFirst, kVideoFirst
+  };
+  void TestAudioVideoSync(FecMode fec,
+                          CreateOrder create_first,
+                          float video_ntp_speed,
+                          float video_rtp_speed,
+                          float audio_rtp_speed);
 
   void TestCpuOveruse(LoadObserver::Load tested_load, int encode_delay_ms);
 
@@ -112,7 +127,7 @@ class SyncRtcpObserver : public test::RtpRtcpObserver {
     ntp_rtp_pairs_.push_front(ntp_rtp_pair);
   }
 
-  mutable rtc::CriticalSection crit_;
+  rtc::CriticalSection crit_;
   RtcpList ntp_rtp_pairs_ GUARDED_BY(crit_);
 };
 
@@ -172,7 +187,7 @@ class VideoRtcpAndSyncObserver : public SyncRtcpObserver, public VideoRenderer {
                                   false);
       }
       if (time_since_creation > kMinRunTimeMs)
-        observation_complete_->Set();
+        observation_complete_.Set();
     }
   }
 
@@ -187,8 +202,14 @@ class VideoRtcpAndSyncObserver : public SyncRtcpObserver, public VideoRenderer {
   int64_t first_time_in_sync_;
 };
 
-void CallPerfTest::TestAudioVideoSync(bool fec, bool create_audio_first) {
+void CallPerfTest::TestAudioVideoSync(FecMode fec,
+                                      CreateOrder create_first,
+                                      float video_ntp_speed,
+                                      float video_rtp_speed,
+                                      float audio_rtp_speed) {
   const char* kSyncGroup = "av_sync";
+  const uint32_t kAudioSendSsrc = 1234;
+  const uint32_t kAudioRecvSsrc = 5678;
   class AudioPacketReceiver : public PacketReceiver {
    public:
     AudioPacketReceiver(int channel, VoENetwork* voe_network)
@@ -225,40 +246,48 @@ void CallPerfTest::TestAudioVideoSync(bool fec, bool create_audio_first) {
   const std::string audio_filename =
       test::ResourcePath("voice_engine/audio_long16", "pcm");
   ASSERT_STRNE("", audio_filename.c_str());
-  test::FakeAudioDevice fake_audio_device(Clock::GetRealTimeClock(),
-                                          audio_filename);
+  FakeAudioDevice fake_audio_device(Clock::GetRealTimeClock(), audio_filename,
+                                    audio_rtp_speed);
   EXPECT_EQ(0, voe_base->Init(&fake_audio_device, nullptr));
-  int channel = voe_base->CreateChannel();
+  Config voe_config;
+  voe_config.Set<VoicePacing>(new VoicePacing(true));
+  int send_channel_id = voe_base->CreateChannel(voe_config);
+  int recv_channel_id = voe_base->CreateChannel();
 
   SyncRtcpObserver audio_observer;
 
-  AudioState::Config audio_state_config;
-  audio_state_config.voice_engine = voice_engine;
+  AudioState::Config send_audio_state_config;
+  send_audio_state_config.voice_engine = voice_engine;
+  Call::Config sender_config;
+  sender_config.audio_state = AudioState::Create(send_audio_state_config);
   Call::Config receiver_config;
-  receiver_config.audio_state = AudioState::Create(audio_state_config);
-  CreateCalls(Call::Config(), receiver_config);
+  receiver_config.audio_state = sender_config.audio_state;
+  CreateCalls(sender_config, receiver_config);
 
-  CodecInst isac = {103, "ISAC", 16000, 480, 1, 32000};
-  EXPECT_EQ(0, voe_codec->SetSendCodec(channel, isac));
-
-  AudioPacketReceiver voe_packet_receiver(channel, voe_network);
+  AudioPacketReceiver voe_send_packet_receiver(send_channel_id, voe_network);
+  AudioPacketReceiver voe_recv_packet_receiver(recv_channel_id, voe_network);
 
   FakeNetworkPipe::Config net_config;
   net_config.queue_delay_ms = 500;
   net_config.loss_percent = 5;
   test::PacketTransport audio_send_transport(
       nullptr, &audio_observer, test::PacketTransport::kSender, net_config);
-  audio_send_transport.SetReceiver(&voe_packet_receiver);
+  audio_send_transport.SetReceiver(&voe_recv_packet_receiver);
   test::PacketTransport audio_receive_transport(
       nullptr, &audio_observer, test::PacketTransport::kReceiver, net_config);
-  audio_receive_transport.SetReceiver(&voe_packet_receiver);
+  audio_receive_transport.SetReceiver(&voe_send_packet_receiver);
 
-  internal::TransportAdapter transport_adapter(&audio_send_transport);
-  transport_adapter.Enable();
-  EXPECT_EQ(0,
-            voe_network->RegisterExternalTransport(channel, transport_adapter));
+  internal::TransportAdapter send_transport_adapter(&audio_send_transport);
+  send_transport_adapter.Enable();
+  EXPECT_EQ(0, voe_network->RegisterExternalTransport(send_channel_id,
+                                                      send_transport_adapter));
 
-  VideoRtcpAndSyncObserver observer(Clock::GetRealTimeClock(), channel,
+  internal::TransportAdapter recv_transport_adapter(&audio_receive_transport);
+  recv_transport_adapter.Enable();
+  EXPECT_EQ(0, voe_network->RegisterExternalTransport(recv_channel_id,
+                                                      recv_transport_adapter));
+
+  VideoRtcpAndSyncObserver observer(Clock::GetRealTimeClock(), recv_channel_id,
                                     voe_sync, &audio_observer);
 
   test::PacketTransport sync_send_transport(sender_call_.get(), &observer,
@@ -272,51 +301,63 @@ void CallPerfTest::TestAudioVideoSync(bool fec, bool create_audio_first) {
 
   test::FakeDecoder fake_decoder;
 
-  CreateSendConfig(1, &sync_send_transport);
+  CreateSendConfig(1, 0, &sync_send_transport);
   CreateMatchingReceiveConfigs(&sync_receive_transport);
 
-  send_config_.rtp.nack.rtp_history_ms = kNackRtpHistoryMs;
-  if (fec) {
-    send_config_.rtp.fec.red_payload_type = kRedPayloadType;
-    send_config_.rtp.fec.ulpfec_payload_type = kUlpfecPayloadType;
-    receive_configs_[0].rtp.fec.red_payload_type = kRedPayloadType;
-    receive_configs_[0].rtp.fec.ulpfec_payload_type = kUlpfecPayloadType;
+  AudioSendStream::Config audio_send_config(&audio_send_transport);
+  audio_send_config.voe_channel_id = send_channel_id;
+  audio_send_config.rtp.ssrc = kAudioSendSsrc;
+  AudioSendStream* audio_send_stream =
+      sender_call_->CreateAudioSendStream(audio_send_config);
+
+  CodecInst isac = {103, "ISAC", 16000, 480, 1, 32000};
+  EXPECT_EQ(0, voe_codec->SetSendCodec(send_channel_id, isac));
+
+  video_send_config_.rtp.nack.rtp_history_ms = kNackRtpHistoryMs;
+  if (fec == FecMode::kOn) {
+    video_send_config_.rtp.fec.red_payload_type = kRedPayloadType;
+    video_send_config_.rtp.fec.ulpfec_payload_type = kUlpfecPayloadType;
+    video_receive_configs_[0].rtp.fec.red_payload_type = kRedPayloadType;
+    video_receive_configs_[0].rtp.fec.ulpfec_payload_type = kUlpfecPayloadType;
   }
-  receive_configs_[0].rtp.nack.rtp_history_ms = 1000;
-  receive_configs_[0].renderer = &observer;
-  receive_configs_[0].sync_group = kSyncGroup;
+  video_receive_configs_[0].rtp.nack.rtp_history_ms = 1000;
+  video_receive_configs_[0].renderer = &observer;
+  video_receive_configs_[0].sync_group = kSyncGroup;
 
-  AudioReceiveStream::Config audio_config;
-  audio_config.voe_channel_id = channel;
-  audio_config.sync_group = kSyncGroup;
+  AudioReceiveStream::Config audio_recv_config;
+  audio_recv_config.rtp.remote_ssrc = kAudioSendSsrc;
+  audio_recv_config.rtp.local_ssrc = kAudioRecvSsrc;
+  audio_recv_config.voe_channel_id = recv_channel_id;
+  audio_recv_config.sync_group = kSyncGroup;
 
-  AudioReceiveStream* audio_receive_stream = nullptr;
+  AudioReceiveStream* audio_receive_stream;
 
-  if (create_audio_first) {
+  if (create_first == CreateOrder::kAudioFirst) {
     audio_receive_stream =
-        receiver_call_->CreateAudioReceiveStream(audio_config);
-    CreateStreams();
+        receiver_call_->CreateAudioReceiveStream(audio_recv_config);
+    CreateVideoStreams();
   } else {
-    CreateStreams();
+    CreateVideoStreams();
     audio_receive_stream =
-        receiver_call_->CreateAudioReceiveStream(audio_config);
+        receiver_call_->CreateAudioReceiveStream(audio_recv_config);
   }
 
-  CreateFrameGeneratorCapturer();
+  DriftingClock drifting_clock(clock_, video_ntp_speed);
+  CreateFrameGeneratorCapturerWithDrift(&drifting_clock, video_rtp_speed);
 
   Start();
 
   fake_audio_device.Start();
-  EXPECT_EQ(0, voe_base->StartPlayout(channel));
-  EXPECT_EQ(0, voe_base->StartReceive(channel));
-  EXPECT_EQ(0, voe_base->StartSend(channel));
+  EXPECT_EQ(0, voe_base->StartPlayout(recv_channel_id));
+  EXPECT_EQ(0, voe_base->StartReceive(recv_channel_id));
+  EXPECT_EQ(0, voe_base->StartSend(send_channel_id));
 
-  EXPECT_EQ(kEventSignaled, observer.Wait())
+  EXPECT_TRUE(observer.Wait())
       << "Timed out while waiting for audio and video to be synchronized.";
 
-  EXPECT_EQ(0, voe_base->StopSend(channel));
-  EXPECT_EQ(0, voe_base->StopReceive(channel));
-  EXPECT_EQ(0, voe_base->StopPlayout(channel));
+  EXPECT_EQ(0, voe_base->StopSend(send_channel_id));
+  EXPECT_EQ(0, voe_base->StopReceive(recv_channel_id));
+  EXPECT_EQ(0, voe_base->StopPlayout(recv_channel_id));
   fake_audio_device.Stop();
 
   Stop();
@@ -325,31 +366,43 @@ void CallPerfTest::TestAudioVideoSync(bool fec, bool create_audio_first) {
   audio_send_transport.StopSending();
   audio_receive_transport.StopSending();
 
-  voe_base->DeleteChannel(channel);
+  DestroyStreams();
+
+  sender_call_->DestroyAudioSendStream(audio_send_stream);
+  receiver_call_->DestroyAudioReceiveStream(audio_receive_stream);
+
+  voe_base->DeleteChannel(send_channel_id);
+  voe_base->DeleteChannel(recv_channel_id);
   voe_base->Release();
   voe_codec->Release();
   voe_network->Release();
   voe_sync->Release();
-
-  DestroyStreams();
-
-  receiver_call_->DestroyAudioReceiveStream(audio_receive_stream);
 
   DestroyCalls();
 
   VoiceEngine::Delete(voice_engine);
 }
 
-TEST_F(CallPerfTest, PlaysOutAudioAndVideoInSyncWithAudioCreatedFirst) {
-  TestAudioVideoSync(false, true);
+// TODO(danilchap): Reenable after adding support for frame capture clock
+// that is not in sync with local TickTime clock.
+TEST_F(CallPerfTest, DISABLED_PlaysOutAudioAndVideoInSyncWithVideoNtpDrift) {
+  TestAudioVideoSync(FecMode::kOff, CreateOrder::kAudioFirst,
+                     DriftingClock::PercentsFaster(10.0f),
+                     DriftingClock::kNoDrift, DriftingClock::kNoDrift);
 }
 
-TEST_F(CallPerfTest, PlaysOutAudioAndVideoInSyncWithVideoCreatedFirst) {
-  TestAudioVideoSync(false, false);
+TEST_F(CallPerfTest, PlaysOutAudioAndVideoInSyncWithAudioFasterThanVideoDrift) {
+  TestAudioVideoSync(FecMode::kOff, CreateOrder::kAudioFirst,
+                     DriftingClock::kNoDrift,
+                     DriftingClock::PercentsSlower(30.0f),
+                     DriftingClock::PercentsFaster(30.0f));
 }
 
-TEST_F(CallPerfTest, PlaysOutAudioAndVideoInSyncWithFec) {
-  TestAudioVideoSync(true, false);
+TEST_F(CallPerfTest, PlaysOutAudioAndVideoInSyncWithVideoFasterThanAudioDrift) {
+  TestAudioVideoSync(FecMode::kOn, CreateOrder::kVideoFirst,
+                     DriftingClock::kNoDrift,
+                     DriftingClock::PercentsFaster(30.0f),
+                     DriftingClock::PercentsSlower(30.0f));
 }
 
 void CallPerfTest::TestCaptureNtpTime(const FakeNetworkPipe::Config& net_config,
@@ -359,8 +412,12 @@ void CallPerfTest::TestCaptureNtpTime(const FakeNetworkPipe::Config& net_config,
   class CaptureNtpTimeObserver : public test::EndToEndTest,
                                  public VideoRenderer {
    public:
-    CaptureNtpTimeObserver(int threshold_ms, int start_time_ms, int run_time_ms)
+    CaptureNtpTimeObserver(const FakeNetworkPipe::Config& net_config,
+                           int threshold_ms,
+                           int start_time_ms,
+                           int run_time_ms)
         : EndToEndTest(kLongTimeoutMs),
+          net_config_(net_config),
           clock_(Clock::GetRealTimeClock()),
           threshold_ms_(threshold_ms),
           start_time_ms_(start_time_ms),
@@ -371,6 +428,16 @@ void CallPerfTest::TestCaptureNtpTime(const FakeNetworkPipe::Config& net_config,
           rtp_start_timestamp_(0) {}
 
    private:
+    test::PacketTransport* CreateSendTransport(Call* sender_call) override {
+      return new test::PacketTransport(
+          sender_call, this, test::PacketTransport::kSender, net_config_);
+    }
+
+    test::PacketTransport* CreateReceiveTransport() override {
+      return new test::PacketTransport(
+          nullptr, this, test::PacketTransport::kReceiver, net_config_);
+    }
+
     void RenderFrame(const VideoFrame& video_frame,
                      int time_to_render_ms) override {
       rtc::CritScope lock(&crit_);
@@ -388,7 +455,7 @@ void CallPerfTest::TestCaptureNtpTime(const FakeNetworkPipe::Config& net_config,
       }
 
       if (time_since_creation > run_time_ms_) {
-        observation_complete_->Set();
+        observation_complete_.Set();
       }
 
       FrameCaptureTimeList::iterator iter =
@@ -439,21 +506,23 @@ void CallPerfTest::TestCaptureNtpTime(const FakeNetworkPipe::Config& net_config,
       capturer_ = frame_generator_capturer;
     }
 
-    void ModifyConfigs(VideoSendStream::Config* send_config,
-                       std::vector<VideoReceiveStream::Config>* receive_configs,
-                       VideoEncoderConfig* encoder_config) override {
+    void ModifyVideoConfigs(
+        VideoSendStream::Config* send_config,
+        std::vector<VideoReceiveStream::Config>* receive_configs,
+        VideoEncoderConfig* encoder_config) override {
       (*receive_configs)[0].renderer = this;
       // Enable the receiver side rtt calculation.
       (*receive_configs)[0].rtp.rtcp_xr.receiver_reference_time_report = true;
     }
 
     void PerformTest() override {
-      EXPECT_EQ(kEventSignaled, Wait()) << "Timed out while waiting for "
-                                           "estimated capture NTP time to be "
-                                           "within bounds.";
+      EXPECT_TRUE(Wait()) << "Timed out while waiting for "
+                             "estimated capture NTP time to be "
+                             "within bounds.";
     }
 
     rtc::CriticalSection crit_;
+    const FakeNetworkPipe::Config net_config_;
     Clock* const clock_;
     int threshold_ms_;
     int start_time_ms_;
@@ -464,9 +533,9 @@ void CallPerfTest::TestCaptureNtpTime(const FakeNetworkPipe::Config& net_config,
     uint32_t rtp_start_timestamp_;
     typedef std::map<uint32_t, uint32_t> FrameCaptureTimeList;
     FrameCaptureTimeList capture_time_list_ GUARDED_BY(&crit_);
-  } test(threshold_ms, start_time_ms, run_time_ms);
+  } test(net_config, threshold_ms, start_time_ms, run_time_ms);
 
-  RunBaseTest(&test, net_config);
+  RunBaseTest(&test);
 }
 
 TEST_F(CallPerfTest, CaptureNtpTimeWithNetworkDelay) {
@@ -503,26 +572,26 @@ void CallPerfTest::TestCpuOveruse(LoadObserver::Load tested_load,
 
     void OnLoadUpdate(Load load) override {
       if (load == tested_load_)
-        observation_complete_->Set();
+        observation_complete_.Set();
     }
 
-    void ModifyConfigs(VideoSendStream::Config* send_config,
-                       std::vector<VideoReceiveStream::Config>* receive_configs,
-                       VideoEncoderConfig* encoder_config) override {
+    void ModifyVideoConfigs(
+        VideoSendStream::Config* send_config,
+        std::vector<VideoReceiveStream::Config>* receive_configs,
+        VideoEncoderConfig* encoder_config) override {
       send_config->overuse_callback = this;
       send_config->encoder_settings.encoder = &encoder_;
     }
 
     void PerformTest() override {
-      EXPECT_EQ(kEventSignaled, Wait())
-          << "Timed out before receiving an overuse callback.";
+      EXPECT_TRUE(Wait()) << "Timed out before receiving an overuse callback.";
     }
 
     LoadObserver::Load tested_load_;
     test::DelayedEncoder encoder_;
   } test(tested_load, encode_delay_ms);
 
-  RunBaseTest(&test, FakeNetworkPipe::Config());
+  RunBaseTest(&test);
 }
 
 TEST_F(CallPerfTest, ReceivesCpuUnderuse) {
@@ -583,21 +652,22 @@ void CallPerfTest::TestMinTransmitBitrate(bool pad_to_min_bitrate) {
           }
           if (num_bitrate_observations_in_range_ ==
               kNumBitrateObservationsInRange)
-            observation_complete_->Set();
+            observation_complete_.Set();
         }
       }
       return SEND_PACKET;
     }
 
-    void OnStreamsCreated(
+    void OnVideoStreamsCreated(
         VideoSendStream* send_stream,
         const std::vector<VideoReceiveStream*>& receive_streams) override {
       send_stream_ = send_stream;
     }
 
-    void ModifyConfigs(VideoSendStream::Config* send_config,
-                       std::vector<VideoReceiveStream::Config>* receive_configs,
-                       VideoEncoderConfig* encoder_config) override {
+    void ModifyVideoConfigs(
+        VideoSendStream::Config* send_config,
+        std::vector<VideoReceiveStream::Config>* receive_configs,
+        VideoEncoderConfig* encoder_config) override {
       if (pad_to_min_bitrate_) {
         encoder_config->min_transmit_bitrate_bps = kMinTransmitBitrateBps;
       } else {
@@ -606,8 +676,7 @@ void CallPerfTest::TestMinTransmitBitrate(bool pad_to_min_bitrate) {
     }
 
     void PerformTest() override {
-      EXPECT_EQ(kEventSignaled, Wait())
-          << "Timeout while waiting for send-bitrate stats.";
+      EXPECT_TRUE(Wait()) << "Timeout while waiting for send-bitrate stats.";
     }
 
     VideoSendStream* send_stream_;
@@ -616,7 +685,7 @@ void CallPerfTest::TestMinTransmitBitrate(bool pad_to_min_bitrate) {
   } test(pad_to_min_bitrate);
 
   fake_encoder_.SetMaxBitrate(kMaxEncodeBitrateKbps);
-  RunBaseTest(&test, FakeNetworkPipe::Config());
+  RunBaseTest(&test);
 }
 
 TEST_F(CallPerfTest, PadsToMinTransmitBitrate) { TestMinTransmitBitrate(true); }
@@ -635,7 +704,7 @@ TEST_F(CallPerfTest, KeepsHighBitrateWhenReconfiguringSender) {
     BitrateObserver()
         : EndToEndTest(kDefaultTimeoutMs),
           FakeEncoder(Clock::GetRealTimeClock()),
-          time_to_reconfigure_(webrtc::EventWrapper::Create()),
+          time_to_reconfigure_(false, false),
           encoder_inits_(0),
           last_set_bitrate_(0),
           send_stream_(nullptr) {}
@@ -654,7 +723,7 @@ TEST_F(CallPerfTest, KeepsHighBitrateWhenReconfiguringSender) {
                     last_set_bitrate_,
                     kPermittedReconfiguredBitrateDiffKbps)
             << "Encoder reconfigured with bitrate too far away from last set.";
-        observation_complete_->Set();
+        observation_complete_.Set();
       }
       return FakeEncoder::InitEncode(config, number_of_cores, max_payload_size);
     }
@@ -664,7 +733,7 @@ TEST_F(CallPerfTest, KeepsHighBitrateWhenReconfiguringSender) {
       last_set_bitrate_ = new_target_bitrate_kbps;
       if (encoder_inits_ == 1 &&
           new_target_bitrate_kbps > kReconfigureThresholdKbps) {
-        time_to_reconfigure_->Set();
+        time_to_reconfigure_.Set();
       }
       return FakeEncoder::SetRates(new_target_bitrate_kbps, framerate);
     }
@@ -675,9 +744,10 @@ TEST_F(CallPerfTest, KeepsHighBitrateWhenReconfiguringSender) {
       return config;
     }
 
-    void ModifyConfigs(VideoSendStream::Config* send_config,
-                       std::vector<VideoReceiveStream::Config>* receive_configs,
-                       VideoEncoderConfig* encoder_config) override {
+    void ModifyVideoConfigs(
+        VideoSendStream::Config* send_config,
+        std::vector<VideoReceiveStream::Config>* receive_configs,
+        VideoEncoderConfig* encoder_config) override {
       send_config->encoder_settings.encoder = this;
       encoder_config->streams[0].min_bitrate_bps = 50000;
       encoder_config->streams[0].target_bitrate_bps =
@@ -686,32 +756,32 @@ TEST_F(CallPerfTest, KeepsHighBitrateWhenReconfiguringSender) {
       encoder_config_ = *encoder_config;
     }
 
-    void OnStreamsCreated(
+    void OnVideoStreamsCreated(
         VideoSendStream* send_stream,
         const std::vector<VideoReceiveStream*>& receive_streams) override {
       send_stream_ = send_stream;
     }
 
     void PerformTest() override {
-      ASSERT_EQ(kEventSignaled, time_to_reconfigure_->Wait(kDefaultTimeoutMs))
+      ASSERT_TRUE(time_to_reconfigure_.Wait(kDefaultTimeoutMs))
           << "Timed out before receiving an initial high bitrate.";
       encoder_config_.streams[0].width *= 2;
       encoder_config_.streams[0].height *= 2;
       EXPECT_TRUE(send_stream_->ReconfigureVideoEncoder(encoder_config_));
-      EXPECT_EQ(kEventSignaled, Wait())
+      EXPECT_TRUE(Wait())
           << "Timed out while waiting for a couple of high bitrate estimates "
              "after reconfiguring the send stream.";
     }
 
    private:
-    rtc::scoped_ptr<webrtc::EventWrapper> time_to_reconfigure_;
+    rtc::Event time_to_reconfigure_;
     int encoder_inits_;
     uint32_t last_set_bitrate_;
     VideoSendStream* send_stream_;
     VideoEncoderConfig encoder_config_;
   } test;
 
-  RunBaseTest(&test, FakeNetworkPipe::Config());
+  RunBaseTest(&test);
 }
 
 }  // namespace webrtc

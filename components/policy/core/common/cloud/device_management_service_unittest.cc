@@ -2,14 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "components/policy/core/common/cloud/device_management_service.h"
+
 #include <ostream>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/string_split.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
-#include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/cloud/mock_device_management_service.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
@@ -62,7 +65,7 @@ class DeviceManagementServiceTestBase : public testing::Test {
   void ResetService() {
     scoped_ptr<DeviceManagementService::Configuration> configuration(
         new MockDeviceManagementServiceConfiguration(kServiceUrl));
-    service_.reset(new DeviceManagementService(configuration.Pass()));
+    service_.reset(new DeviceManagementService(std::move(configuration)));
   }
 
   void InitializeService() {

@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/pdf/adobe_reader_info_win.h"
 
 #include <shlwapi.h>
+#include <stddef.h>
 
 #include <algorithm>
 #include <vector>
@@ -183,5 +184,6 @@ bool IsAdobeReaderUpToDate() {
     base::ReplaceSubstringsAfterOffset(&reader_version, 0, from, to);
   }
   base::Version file_version(reader_version);
-  return file_version.IsValid() && !file_version.IsOlderThan(kSecureVersion);
+  return file_version.IsValid() &&
+    file_version >= base::Version(kSecureVersion);
 }

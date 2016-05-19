@@ -5,14 +5,18 @@
 #ifndef CHROME_BROWSER_RENDERER_CONTEXT_MENU_SPELLING_MENU_OBSERVER_H_
 #define CHROME_BROWSER_RENDERER_CONTEXT_MENU_SPELLING_MENU_OBSERVER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_member.h"
 #include "base/strings/string16.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/spellchecker/spelling_service_client.h"
+#include "components/prefs/pref_member.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
 
 class RenderViewContextMenuProxy;
@@ -90,7 +94,7 @@ class SpellingMenuObserver : public RenderViewContextMenuObserver {
 
   // The hash identifier for the misspelled word. Used for collecting user
   // feedback to spellcheck suggestions.
-  uint32 misspelling_hash_;
+  uint32_t misspelling_hash_;
 
   // The string representing the result of this call. This string is a
   // suggestion when this call finished successfully. Otherwise it is error

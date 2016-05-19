@@ -28,7 +28,6 @@
 #define LocalDOMWindow_h
 
 #include "core/CoreExport.h"
-#include "core/dom/MessagePort.h"
 #include "core/events/EventTarget.h"
 #include "core/frame/DOMWindow.h"
 #include "core/frame/DOMWindowLifecycleNotifier.h"
@@ -82,6 +81,7 @@ public:
 
     // EventTarget overrides:
     ExecutionContext* executionContext() const override;
+    const LocalDOMWindow* toDOMWindow() const override;
     LocalDOMWindow* toDOMWindow() override;
 
     // DOMWindow overrides:
@@ -118,7 +118,6 @@ public:
     int orientation() const override;
     Console* console() const override;
     DOMSelection* getSelection() override;
-    void focus(ExecutionContext*) override;
     void blur() override;
     void print() override;
     void stop() override;
@@ -146,7 +145,7 @@ public:
     void cancelAnimationFrame(int id) override;
     int requestIdleCallback(IdleRequestCallback*, const IdleRequestOptions&) override;
     void cancelIdleCallback(int id) override;
-    void schedulePostMessage(PassRefPtrWillBeRawPtr<MessageEvent>, LocalDOMWindow* source, SecurityOrigin* target, PassRefPtrWillBeRawPtr<ScriptCallStack> stackTrace);
+    void schedulePostMessage(PassRefPtrWillBeRawPtr<MessageEvent>, SecurityOrigin* target, PassRefPtr<ScriptCallStack>);
 
     void registerProperty(DOMWindowProperty*);
     void unregisterProperty(DOMWindowProperty*);
@@ -165,24 +164,20 @@ public:
 
     FrameConsole* frameConsole() const;
 
-    void printErrorMessage(const String&);
+    void printErrorMessage(const String&) const;
 
     void postMessageTimerFired(PostMessageTimer*);
     void removePostMessageTimer(PostMessageTimer*);
-    void dispatchMessageEventWithOriginCheck(SecurityOrigin* intendedTargetOrigin, PassRefPtrWillBeRawPtr<Event>, PassRefPtrWillBeRawPtr<ScriptCallStack>);
+    void dispatchMessageEventWithOriginCheck(SecurityOrigin* intendedTargetOrigin, PassRefPtrWillBeRawPtr<Event>, PassRefPtr<ScriptCallStack>);
 
     // Events
     // EventTarget API
     void removeAllEventListeners() override;
 
     using EventTarget::dispatchEvent;
-    bool dispatchEvent(PassRefPtrWillBeRawPtr<Event> prpEvent, PassRefPtrWillBeRawPtr<EventTarget> prpTarget);
-
-    void dispatchLoadEvent();
+    DispatchEventResult dispatchEvent(PassRefPtrWillBeRawPtr<Event> prpEvent, PassRefPtrWillBeRawPtr<EventTarget> prpTarget);
 
     void finishedLoading();
-
-    ApplicationCache* optionalApplicationCache() const { return m_applicationCache.get(); }
 
     // Dispatch the (deprecated) orientationchange event to this DOMWindow and
     // recurse on its child frames.
@@ -240,8 +235,7 @@ private:
     explicit LocalDOMWindow(LocalFrame&);
     void dispose();
 
-    Page* page();
-
+    void dispatchLoadEvent();
     void clearDocument();
     void willDestroyDocumentInFrame();
 

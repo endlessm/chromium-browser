@@ -19,12 +19,11 @@
  *
 */
 
-#include "config.h"
 #include "core/layout/HitTestResult.h"
 
 #include "core/HTMLNames.h"
 #include "core/dom/PseudoElement.h"
-#include "core/dom/shadow/ComposedTreeTraversal.h"
+#include "core/dom/shadow/FlatTreeTraversal.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/editing/FrameSelection.h"
 #include "core/editing/VisibleUnits.h"
@@ -43,6 +42,7 @@
 #include "core/layout/LayoutTextFragment.h"
 #include "core/page/FrameTree.h"
 #include "core/svg/SVGElement.h"
+#include "platform/geometry/Region.h"
 #include "platform/scroll/Scrollbar.h"
 
 namespace blink {
@@ -163,7 +163,7 @@ PositionWithAffinity HitTestResult::position() const
     LayoutObject* layoutObject = this->layoutObject();
     if (!layoutObject)
         return PositionWithAffinity();
-    if (m_innerPossiblyPseudoNode->isPseudoElement() && m_innerPossiblyPseudoNode->pseudoId() == BEFORE)
+    if (m_innerPossiblyPseudoNode->isPseudoElement() && m_innerPossiblyPseudoNode->getPseudoId() == BEFORE)
         return mostForwardCaretPosition(Position(m_innerNode, PositionAnchorType::BeforeChildren));
     return layoutObject->positionForPoint(localPoint());
 }
@@ -275,7 +275,7 @@ String HitTestResult::title(TextDirection& dir) const
     // For <area> tags in image maps, walk the tree for the <area>, not the <img> using it.
     if (m_innerNode.get())
         m_innerNode->updateDistribution();
-    for (Node* titleNode = m_innerNode.get(); titleNode; titleNode = ComposedTreeTraversal::parent(*titleNode)) {
+    for (Node* titleNode = m_innerNode.get(); titleNode; titleNode = FlatTreeTraversal::parent(*titleNode)) {
         if (titleNode->isElementNode()) {
             String title = toElement(titleNode)->title();
             if (!title.isNull()) {
@@ -317,7 +317,7 @@ Image* HitTestResult::image() const
     if (layoutObject && layoutObject->isImage()) {
         LayoutImage* image = toLayoutImage(layoutObject);
         if (image->cachedImage() && !image->cachedImage()->errorOccurred())
-            return image->cachedImage()->imageForLayoutObject(image);
+            return image->cachedImage()->image();
     }
 
     return nullptr;
@@ -431,23 +431,38 @@ bool HitTestResult::isContentEditable() const
     return m_innerNode->hasEditableStyle();
 }
 
-bool HitTestResult::addNodeToListBasedTestResult(Node* node, const HitTestLocation& locationInContainer, const LayoutRect& rect)
+ListBasedHitTestBehavior HitTestResult::addNodeToListBasedTestResult(Node* node, const HitTestLocation& location, const LayoutRect& rect)
 {
-    // If not a list-based test, this function should be a no-op.
+    // If not a list-based test, stop testing because the hit has been found.
     if (!hitTestRequest().listBased())
-        return false;
+        return StopHitTesting;
 
-    // If node is null, return true so the hit test can continue.
     if (!node)
-        return true;
+        return ContinueHitTesting;
 
     mutableListBasedTestResult().add(node);
 
     if (hitTestRequest().penetratingList())
-        return true;
+        return ContinueHitTesting;
 
-    bool regionFilled = rect.contains(LayoutRect(locationInContainer.boundingBox()));
-    return !regionFilled;
+    return rect.contains(LayoutRect(location.boundingBox())) ? StopHitTesting : ContinueHitTesting;
+}
+
+ListBasedHitTestBehavior HitTestResult::addNodeToListBasedTestResult(Node* node, const HitTestLocation& location, const Region& region)
+{
+    // If not a list-based test, stop testing because the hit has been found.
+    if (!hitTestRequest().listBased())
+        return StopHitTesting;
+
+    if (!node)
+        return ContinueHitTesting;
+
+    mutableListBasedTestResult().add(node);
+
+    if (hitTestRequest().penetratingList())
+        return ContinueHitTesting;
+
+    return region.contains(location.boundingBox()) ? StopHitTesting : ContinueHitTesting;
 }
 
 void HitTestResult::append(const HitTestResult& other)
@@ -507,7 +522,7 @@ void HitTestResult::resolveRectBasedTest(Node* resolvedInnerNode, const LayoutPo
 
 Element* HitTestResult::innerElement() const
 {
-    for (Node* node = m_innerNode.get(); node; node = ComposedTreeTraversal::parent(*node)) {
+    for (Node* node = m_innerNode.get(); node; node = FlatTreeTraversal::parent(*node)) {
         if (node->isElementNode())
             return toElement(node);
     }

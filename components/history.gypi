@@ -14,7 +14,6 @@
       'dependencies': [
         '../base/base.gyp:base',
         '../base/base.gyp:base_i18n',
-        '../base/base.gyp:base_prefs',
         '../google_apis/google_apis.gyp:google_apis',
         '../net/net.gyp:net',
         '../skia/skia.gyp:skia',
@@ -27,6 +26,7 @@
         'favicon_base',
         'history_core_common',
         'keyed_service_core',
+        'prefs/prefs.gyp:prefs',
         'query_parser',
         'signin_core_browser',
         'sync_driver',
@@ -95,12 +95,8 @@
         'history/core/browser/top_sites_impl.cc',
         'history/core/browser/top_sites_impl.h',
         'history/core/browser/top_sites_observer.h',
-        'history/core/browser/typed_url_change_processor.cc',
-        'history/core/browser/typed_url_change_processor.h',
         'history/core/browser/typed_url_data_type_controller.cc',
         'history/core/browser/typed_url_data_type_controller.h',
-        'history/core/browser/typed_url_model_associator.cc',
-        'history/core/browser/typed_url_model_associator.h',
         'history/core/browser/typed_url_syncable_service.cc',
         'history/core/browser/typed_url_syncable_service.h',
         'history/core/browser/url_database.cc',
@@ -113,8 +109,6 @@
         'history/core/browser/visit_database.h',
         'history/core/browser/visit_delegate.cc',
         'history/core/browser/visit_delegate.h',
-        'history/core/browser/visit_filter.cc',
-        'history/core/browser/visit_filter.h',
         'history/core/browser/visit_tracker.cc',
         'history/core/browser/visit_tracker.h',
         'history/core/browser/visitsegment_database.cc',
@@ -171,6 +165,7 @@
       ],
       'dependencies': [
         '../base/base.gyp:base',
+        '../net/net.gyp:net',
         '../skia/skia.gyp:skia',
         '../sql/sql.gyp:sql',
         '../sql/sql.gyp:test_support_sql',
@@ -184,11 +179,15 @@
         # Note: sources list duplicated in GN build.
         'history/core/test/database_test_utils.cc',
         'history/core/test/database_test_utils.h',
+        'history/core/test/fake_web_history_service.cc',
+        'history/core/test/fake_web_history_service.h',
         'history/core/test/history_backend_db_base_test.cc',
         'history/core/test/history_backend_db_base_test.h',
         'history/core/test/history_client_fake_bookmarks.cc',
         'history/core/test/history_client_fake_bookmarks.h',
         'history/core/test/history_unittest_base.cc',
+        'history/core/test/history_service_test_util.cc',
+        'history/core/test/history_service_test_util.h',
         'history/core/test/history_unittest_base.h',
         'history/core/test/test_history_database.cc',
         'history/core/test/test_history_database.h',
@@ -243,6 +242,7 @@
     ['OS=="ios"', {
       'targets': [
         {
+          # GN version: //components/history/ios/browser
           'target_name': 'history_ios_browser',
           'type': 'static_library',
           'include_dirs': [
@@ -257,8 +257,8 @@
           'sources': [
             'history/ios/browser/history_database_helper.cc',
             'history/ios/browser/history_database_helper.h',
-            'history/ios/browser/web_state_top_sites_observer.cc',
             'history/ios/browser/web_state_top_sites_observer.h',
+            'history/ios/browser/web_state_top_sites_observer.mm',
           ],
         },
       ],

@@ -6,26 +6,69 @@
 
 #include <utility>
 
-#include "base/android/jni_string.h"
+#include "base/containers/hash_tables.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
+#include "base/metrics/histogram_base.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task_runner_util.h"
 #include "chrome/browser/android/data_usage/data_use_tab_model.h"
+#include "chrome/browser/android/data_usage/external_data_use_observer_bridge.h"
 #include "components/data_usage/core/data_use.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_thread.h"
-#include "jni/ExternalDataUseObserver_jni.h"
-#include "third_party/re2/re2/re2.h"
-#include "url/gurl.h"
 
-using base::android::ConvertUTF8ToJavaString;
-using base::android::ToJavaArrayOfStrings;
+namespace chrome {
+
+namespace android {
 
 namespace {
+
+// Record the result of data use report submission. |bytes| is the sum of send
+// and received bytes in the report.
+void RecordDataUsageReportSubmission(
+    ExternalDataUseObserver::DataUsageReportSubmissionResult result,
+    int64_t bytes) {
+  DCHECK_LE(0, bytes);
+  UMA_HISTOGRAM_ENUMERATION(
+      "DataUsage.ReportSubmissionResult", result,
+      ExternalDataUseObserver::DATAUSAGE_REPORT_SUBMISSION_MAX);
+  // Cap to the maximum sample value.
+  const int32_t bytes_capped = bytes <= base::HistogramBase::kSampleType_MAX - 1
+                                   ? bytes
+                                   : base::HistogramBase::kSampleType_MAX - 1;
+  switch (result) {
+    case ExternalDataUseObserver::DATAUSAGE_REPORT_SUBMISSION_SUCCESSFUL:
+      UMA_HISTOGRAM_COUNTS("DataUsage.ReportSubmission.Bytes.Successful",
+                           bytes_capped);
+      break;
+    case ExternalDataUseObserver::DATAUSAGE_REPORT_SUBMISSION_FAILED:
+      UMA_HISTOGRAM_COUNTS("DataUsage.ReportSubmission.Bytes.Failed",
+                           bytes_capped);
+      break;
+    case ExternalDataUseObserver::DATAUSAGE_REPORT_SUBMISSION_TIMED_OUT:
+      UMA_HISTOGRAM_COUNTS("DataUsage.ReportSubmission.Bytes.TimedOut",
+                           bytes_capped);
+      break;
+    case ExternalDataUseObserver::DATAUSAGE_REPORT_SUBMISSION_LOST:
+      UMA_HISTOGRAM_COUNTS("DataUsage.ReportSubmission.Bytes.Lost",
+                           bytes_capped);
+      break;
+    default:
+      NOTIMPLEMENTED();
+      break;
+  }
+}
 
 // Default duration after which matching rules are periodically fetched. May be
 // overridden by the field trial.
 const int kDefaultFetchMatchingRulesDurationSeconds = 60 * 15;  // 15 minutes.
+
+// Default duration after which a pending data use report is considered timed
+// out. May be overridden by the field trial.
+const int kDefaultDataUseReportSubmitTimeoutMsec = 60 * 2 * 1000;  // 2 minutes.
 
 // Default value of the minimum number of bytes that should be buffered before
 // a data use report is submitted. May be overridden by the field trial.
@@ -34,7 +77,7 @@ const int64_t kDefaultDataUseReportMinBytes = 100 * 1024;  // 100 KB.
 // Populates various parameters from the values specified in the field trial.
 int32_t GetFetchMatchingRulesDurationSeconds() {
   int32_t duration_seconds = -1;
-  std::string variation_value = variations::GetVariationParamValue(
+  const std::string variation_value = variations::GetVariationParamValue(
       chrome::android::ExternalDataUseObserver::
           kExternalDataUseObserverFieldTrial,
       "fetch_matching_rules_duration_seconds");
@@ -47,9 +90,24 @@ int32_t GetFetchMatchingRulesDurationSeconds() {
 }
 
 // Populates various parameters from the values specified in the field trial.
+int32_t GetDataReportSubmitTimeoutMsec() {
+  int32_t duration_seconds = -1;
+  const std::string variation_value = variations::GetVariationParamValue(
+      chrome::android::ExternalDataUseObserver::
+          kExternalDataUseObserverFieldTrial,
+      "data_report_submit_timeout_msec");
+  if (!variation_value.empty() &&
+      base::StringToInt(variation_value, &duration_seconds)) {
+    DCHECK_LE(0, duration_seconds);
+    return duration_seconds;
+  }
+  return kDefaultDataUseReportSubmitTimeoutMsec;
+}
+
+// Populates various parameters from the values specified in the field trial.
 int64_t GetMinBytes() {
   int64_t min_bytes = -1;
-  std::string variation_value = variations::GetVariationParamValue(
+  const std::string variation_value = variations::GetVariationParamValue(
       chrome::android::ExternalDataUseObserver::
           kExternalDataUseObserverFieldTrial,
       "data_use_report_min_bytes");
@@ -63,203 +121,199 @@ int64_t GetMinBytes() {
 
 }  // namespace
 
-namespace chrome {
-
-namespace android {
-
+// static
 const char ExternalDataUseObserver::kExternalDataUseObserverFieldTrial[] =
     "ExternalDataUseObserver";
 
+// static
+const size_t ExternalDataUseObserver::kMaxBufferSize = 100;
+
 ExternalDataUseObserver::ExternalDataUseObserver(
     data_usage::DataUseAggregator* data_use_aggregator,
-    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner)
+    const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
+    const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner)
     : data_use_aggregator_(data_use_aggregator),
-      matching_rules_fetch_pending_(false),
-      submit_data_report_pending_(false),
-      registered_as_observer_(false),
-      io_task_runner_(io_task_runner),
+      data_use_tab_model_(new DataUseTabModel()),
+      last_data_report_submitted_ticks_(base::TimeTicks()),
+      pending_report_bytes_(0),
       ui_task_runner_(ui_task_runner),
       previous_report_time_(base::Time::Now()),
       last_matching_rules_fetch_time_(base::TimeTicks::Now()),
+      external_data_use_observer_bridge_(new ExternalDataUseObserverBridge()),
       total_bytes_buffered_(0),
       fetch_matching_rules_duration_(
           base::TimeDelta::FromSeconds(GetFetchMatchingRulesDurationSeconds())),
       data_use_report_min_bytes_(GetMinBytes()),
-      io_weak_factory_(this),
-      ui_weak_factory_(this) {
+      data_report_submit_timeout_(
+          base::TimeDelta::FromMilliseconds(GetDataReportSubmitTimeoutMsec())),
+#if defined(OS_ANDROID)
+      app_state_listener_(new base::android::ApplicationStatusListener(
+          base::Bind(&ExternalDataUseObserver::OnApplicationStateChange,
+                     base::Unretained(this)))),
+#endif
+      registered_as_data_use_observer_(false),
+      weak_factory_(this) {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
   DCHECK(data_use_aggregator_);
-  DCHECK(io_task_runner_);
+  DCHECK(io_task_runner);
   DCHECK(ui_task_runner_);
+  DCHECK(last_data_report_submitted_ticks_.is_null());
 
+  ui_task_runner_->PostTask(FROM_HERE,
+                            base::Bind(&DataUseTabModel::InitOnUIThread,
+                                       base::Unretained(data_use_tab_model_),
+                                       io_task_runner, GetWeakPtr()));
+
+  // Initialize the ExternalDataUseObserverBridge object. Initialization will
+  // also trigger the fetching of matching rules. It is okay to use
+  // base::Unretained here since |external_data_use_observer_bridge_| is
+  // owned by |this|, and is destroyed on UI thread when |this| is destroyed.
   ui_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&ExternalDataUseObserver::CreateJavaObjectOnUIThread,
-                 GetUIWeakPtr()));
-
-  ui_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&ExternalDataUseObserver::FetchMatchingRulesOnUIThread,
-                 GetUIWeakPtr()));
-
-  // |this| owns and must outlive the |data_use_tab_model_|.
-  data_use_tab_model_.reset(new DataUseTabModel(this, ui_task_runner_));
-
-  matching_rules_fetch_pending_ = true;
-  data_use_aggregator_->AddObserver(this);
-  registered_as_observer_ = true;
-}
-
-void ExternalDataUseObserver::CreateJavaObjectOnUIThread() {
-  DCHECK(ui_task_runner_->BelongsToCurrentThread());
-  JNIEnv* env = base::android::AttachCurrentThread();
-  j_external_data_use_observer_.Reset(Java_ExternalDataUseObserver_create(
-      env, base::android::GetApplicationContext(),
-      reinterpret_cast<intptr_t>(this)));
-  DCHECK(!j_external_data_use_observer_.is_null());
+      base::Bind(&ExternalDataUseObserverBridge::Init,
+                 base::Unretained(external_data_use_observer_bridge_),
+                 io_task_runner, GetWeakPtr(), data_use_tab_model_));
 }
 
 ExternalDataUseObserver::~ExternalDataUseObserver() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  JNIEnv* env = base::android::AttachCurrentThread();
-  if (!j_external_data_use_observer_.is_null()) {
-    Java_ExternalDataUseObserver_onDestroy(env,
-                                           j_external_data_use_observer_.obj());
-  }
-  if (registered_as_observer_)
+  if (registered_as_data_use_observer_)
     data_use_aggregator_->RemoveObserver(this);
-}
 
-void ExternalDataUseObserver::FetchMatchingRulesOnUIThread() const {
-  DCHECK(ui_task_runner_->BelongsToCurrentThread());
-  DCHECK(!j_external_data_use_observer_.is_null());
-  JNIEnv* env = base::android::AttachCurrentThread();
-  Java_ExternalDataUseObserver_fetchMatchingRules(
-      env, j_external_data_use_observer_.obj());
-}
-
-void ExternalDataUseObserver::FetchMatchingRulesDone(
-    JNIEnv* env,
-    jobject obj,
-    const base::android::JavaParamRef<jobjectArray>& app_package_name,
-    const base::android::JavaParamRef<jobjectArray>& domain_path_regex,
-    const base::android::JavaParamRef<jobjectArray>& label) {
-  DCHECK(ui_task_runner_->BelongsToCurrentThread());
-  // Convert to native objects.
-  std::vector<std::string> app_package_name_native;
-  std::vector<std::string> domain_path_regex_native;
-  std::vector<std::string> label_native;
-
-  if (app_package_name && domain_path_regex && label) {
-    base::android::AppendJavaStringArrayToStringVector(
-        env, app_package_name, &app_package_name_native);
-    base::android::AppendJavaStringArrayToStringVector(
-        env, domain_path_regex, &domain_path_regex_native);
-    base::android::AppendJavaStringArrayToStringVector(env, label,
-                                                       &label_native);
+  // Delete |external_data_use_observer_bridge_| on the UI thread.
+  if (!ui_task_runner_->DeleteSoon(FROM_HERE,
+                                   external_data_use_observer_bridge_)) {
+    NOTIMPLEMENTED()
+        << " ExternalDataUseObserverBridge was not deleted successfully";
   }
 
-  io_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&ExternalDataUseObserver::FetchMatchingRulesDoneOnIOThread,
-                 GetIOWeakPtr(), app_package_name_native,
-                 domain_path_regex_native, label_native));
+  // Delete |data_use_tab_model_| on the UI thread.
+  if (!ui_task_runner_->DeleteSoon(FROM_HERE, data_use_tab_model_)) {
+    NOTIMPLEMENTED() << " DataUseTabModel was not deleted successfully";
+  }
 }
 
-void ExternalDataUseObserver::FetchMatchingRulesDoneOnIOThread(
-    const std::vector<std::string>& app_package_name,
-    const std::vector<std::string>& domain_path_regex,
-    const std::vector<std::string>& label) {
+void ExternalDataUseObserver::OnReportDataUseDone(bool success) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(!last_data_report_submitted_ticks_.is_null());
 
-  RegisterURLRegexes(app_package_name, domain_path_regex, label);
-  matching_rules_fetch_pending_ = false;
-  // Process buffered reports.
+  if (success) {
+    RecordDataUsageReportSubmission(DATAUSAGE_REPORT_SUBMISSION_SUCCESSFUL,
+                                    pending_report_bytes_);
+  } else {
+    RecordDataUsageReportSubmission(DATAUSAGE_REPORT_SUBMISSION_FAILED,
+                                    pending_report_bytes_);
+  }
+  UMA_HISTOGRAM_TIMES(
+      "DataUsage.Perf.ReportSubmissionDuration",
+      base::TimeTicks::Now() - last_data_report_submitted_ticks_);
+
+  last_data_report_submitted_ticks_ = base::TimeTicks();
+  pending_report_bytes_ = 0;
+
+  SubmitBufferedDataUseReport(false);
 }
 
-void ExternalDataUseObserver::OnReportDataUseDone(JNIEnv* env,
-                                                  jobject obj,
-                                                  bool success) {
-  DCHECK(ui_task_runner_->BelongsToCurrentThread());
-  io_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&ExternalDataUseObserver::OnReportDataUseDoneOnIOThread,
-                 GetIOWeakPtr(), success));
-}
-
-base::WeakPtr<ExternalDataUseObserver> ExternalDataUseObserver::GetIOWeakPtr() {
-  return io_weak_factory_.GetWeakPtr();
-}
-
-base::WeakPtr<ExternalDataUseObserver> ExternalDataUseObserver::GetUIWeakPtr() {
-  return ui_weak_factory_.GetWeakPtr();
-}
-
-void ExternalDataUseObserver::OnReportDataUseDoneOnIOThread(bool success) {
+#if defined(OS_ANDROID)
+void ExternalDataUseObserver::OnApplicationStateChange(
+    base::android::ApplicationState new_state) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(!buffered_data_reports_.empty());
-  DCHECK(submit_data_report_pending_);
-
-  // TODO(tbansal): If not successful, record UMA.
-
-  submit_data_report_pending_ = false;
-
-  SubmitBufferedDataUseReport();
+  if (new_state == base::android::APPLICATION_STATE_HAS_PAUSED_ACTIVITIES)
+    SubmitBufferedDataUseReport(true);
 }
+#endif
 
-void ExternalDataUseObserver::OnDataUse(
-    const std::vector<const data_usage::DataUse*>& data_use_sequence) {
+void ExternalDataUseObserver::OnDataUse(const data_usage::DataUse& data_use) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(registered_as_data_use_observer_);
+
+  const base::TimeTicks now_ticks = base::TimeTicks::Now();
+  const base::Time now_time = base::Time::Now();
 
   // If the time when the matching rules were last fetched is more than
   // |fetch_matching_rules_duration_|, fetch them again.
-  if (base::TimeTicks::Now() - last_matching_rules_fetch_time_ >=
+  if (now_ticks - last_matching_rules_fetch_time_ >=
       fetch_matching_rules_duration_) {
-    last_matching_rules_fetch_time_ = base::TimeTicks::Now();
-    ui_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&ExternalDataUseObserver::FetchMatchingRulesOnUIThread,
-                   GetUIWeakPtr()));
+    FetchMatchingRules();
   }
 
-  if (matching_rules_fetch_pending_) {
-    // TODO(tbansal): Buffer reports.
-  }
+  scoped_ptr<std::string> label(new std::string());
 
-  std::string label;
+  content::BrowserThread::PostTaskAndReplyWithResult(
+      content::BrowserThread::UI, FROM_HERE,
+      base::Bind(&DataUseTabModel::GetLabelForTabAtTime,
+                 base::Unretained(data_use_tab_model_), data_use.tab_id,
+                 data_use.request_start, label.get()),
+      base::Bind(&ExternalDataUseObserver::DataUseLabelApplied, GetWeakPtr(),
+                 data_use, previous_report_time_, now_time,
+                 base::Owned(label.release())));
 
-  for (const data_usage::DataUse* data_use : data_use_sequence) {
-    if (!Matches(data_use->url, &label))
-      continue;
+  previous_report_time_ = now_time;
+}
 
-    BufferDataUseReport(data_use, label, previous_report_time_,
-                        base::Time::Now());
-  }
-  previous_report_time_ = base::Time::Now();
+void ExternalDataUseObserver::ShouldRegisterAsDataUseObserver(
+    bool should_register) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  if (registered_as_data_use_observer_ == should_register)
+    return;
 
-  // TODO(tbansal): Post SubmitBufferedDataUseReport on IO thread once the
-  // task runners are plumbed in.
-  SubmitBufferedDataUseReport();
+  if (!registered_as_data_use_observer_ && should_register)
+    data_use_aggregator_->AddObserver(this);
+
+  if (registered_as_data_use_observer_ && !should_register)
+    data_use_aggregator_->RemoveObserver(this);
+
+  registered_as_data_use_observer_ = should_register;
+}
+
+void ExternalDataUseObserver::FetchMatchingRules() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  last_matching_rules_fetch_time_ = base::TimeTicks::Now();
+
+  // It is okay to use base::Unretained here since
+  // |external_data_use_observer_bridge_| is owned by |this|, and is destroyed
+  // on UI thread when |this| is destroyed.
+  ui_task_runner_->PostTask(
+      FROM_HERE,
+      base::Bind(&ExternalDataUseObserverBridge::FetchMatchingRules,
+                 base::Unretained(external_data_use_observer_bridge_)));
+}
+
+void ExternalDataUseObserver::DataUseLabelApplied(
+    const data_usage::DataUse& data_use,
+    const base::Time& start_time,
+    const base::Time& end_time,
+    const std::string* label,
+    bool label_applied) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  if (!label_applied)
+    return;
+
+  BufferDataUseReport(data_use, *label, start_time, end_time);
+  SubmitBufferedDataUseReport(false);
 }
 
 void ExternalDataUseObserver::BufferDataUseReport(
-    const data_usage::DataUse* data_use,
+    const data_usage::DataUse& data_use,
     const std::string& label,
     const base::Time& start_time,
     const base::Time& end_time) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!label.empty());
-  DCHECK_LE(0, data_use->rx_bytes);
-  DCHECK_LE(0, data_use->tx_bytes);
-  if (data_use->rx_bytes < 0 || data_use->tx_bytes < 0)
+  DCHECK_LE(0, data_use.rx_bytes);
+  DCHECK_LE(0, data_use.tx_bytes);
+  // Skip if the |data_use| does not report any network traffic.
+  if (data_use.rx_bytes == 0 && data_use.tx_bytes == 0)
     return;
 
   DataUseReportKey data_use_report_key =
-      DataUseReportKey(label, data_use->connection_type, data_use->mcc_mnc);
+      DataUseReportKey(label, data_use.connection_type, data_use.mcc_mnc);
 
-  DataUseReport report = DataUseReport(start_time, end_time, data_use->rx_bytes,
-                                       data_use->tx_bytes);
+  DataUseReport report =
+      DataUseReport(start_time, end_time, data_use.rx_bytes, data_use.tx_bytes);
 
   // Check if the |data_use_report_key| is already in the buffered reports.
   DataUseReports::iterator it =
@@ -267,7 +321,8 @@ void ExternalDataUseObserver::BufferDataUseReport(
   if (it == buffered_data_reports_.end()) {
     // Limit the buffer size.
     if (buffered_data_reports_.size() == kMaxBufferSize) {
-      // TODO(tbansal): Add UMA to track impact of lost reports.
+      RecordDataUsageReportSubmission(DATAUSAGE_REPORT_SUBMISSION_LOST,
+                                      data_use.rx_bytes + data_use.tx_bytes);
       return;
     }
     buffered_data_reports_.insert(std::make_pair(data_use_report_key, report));
@@ -282,108 +337,73 @@ void ExternalDataUseObserver::BufferDataUseReport(
     buffered_data_reports_.insert(
         std::make_pair(data_use_report_key, merged_report));
   }
-  total_bytes_buffered_ += (data_use->rx_bytes + data_use->tx_bytes);
+  total_bytes_buffered_ += (data_use.rx_bytes + data_use.tx_bytes);
 
-  DCHECK_LE(buffered_data_reports_.size(), static_cast<size_t>(kMaxBufferSize));
+  DCHECK_LT(0U, buffered_data_reports_.size());
+  DCHECK_LE(buffered_data_reports_.size(), kMaxBufferSize);
 }
 
-void ExternalDataUseObserver::SubmitBufferedDataUseReport() {
+void ExternalDataUseObserver::SubmitBufferedDataUseReport(bool immediate) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  if (submit_data_report_pending_ || buffered_data_reports_.empty())
+  const base::TimeTicks ticks_now = base::TimeTicks::Now();
+
+  // Return if a data use report has been pending for less than
+  // |data_report_submit_timeout_| duration.
+  if (!last_data_report_submitted_ticks_.is_null() &&
+      ticks_now - last_data_report_submitted_ticks_ <
+          data_report_submit_timeout_) {
+    return;
+  }
+
+  if (buffered_data_reports_.empty())
     return;
 
-  if (total_bytes_buffered_ < data_use_report_min_bytes_)
+  if (!immediate && total_bytes_buffered_ < data_use_report_min_bytes_)
     return;
+
+  if (!last_data_report_submitted_ticks_.is_null()) {
+    // Mark the pending DataUsage report as timed out.
+    RecordDataUsageReportSubmission(DATAUSAGE_REPORT_SUBMISSION_TIMED_OUT,
+                                    pending_report_bytes_);
+    pending_report_bytes_ = 0;
+    last_data_report_submitted_ticks_ = base::TimeTicks();
+  }
 
   // Send one data use report.
   DataUseReports::iterator it = buffered_data_reports_.begin();
   DataUseReportKey key = it->first;
   DataUseReport report = it->second;
 
+  DCHECK_EQ(0, pending_report_bytes_);
+  DCHECK(last_data_report_submitted_ticks_.is_null());
+  pending_report_bytes_ = report.bytes_downloaded + report.bytes_uploaded;
+  last_data_report_submitted_ticks_ = ticks_now;
+
   // Remove the entry from the map.
   buffered_data_reports_.erase(it);
   total_bytes_buffered_ -= (report.bytes_downloaded + report.bytes_uploaded);
 
-  submit_data_report_pending_ = true;
-
+  // It is okay to use base::Unretained here since
+  // |external_data_use_observer_bridge_| is owned by |this|, and is destroyed
+  // on UI thread when |this| is destroyed.
   ui_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&ExternalDataUseObserver::ReportDataUseOnUIThread,
-                            GetIOWeakPtr(), key, report));
+      FROM_HERE,
+      base::Bind(&ExternalDataUseObserverBridge::ReportDataUse,
+                 base::Unretained(external_data_use_observer_bridge_),
+                 key.label, key.connection_type, key.mcc_mnc, report.start_time,
+                 report.end_time, report.bytes_downloaded,
+                 report.bytes_uploaded));
 }
 
-void ExternalDataUseObserver::ReportDataUseOnUIThread(
-    const DataUseReportKey& key,
-    const DataUseReport& report) const {
-  DCHECK(ui_task_runner_->BelongsToCurrentThread());
-  JNIEnv* env = base::android::AttachCurrentThread();
-  DCHECK(!j_external_data_use_observer_.is_null());
-
-  // End time should be greater than start time.
-  int64_t start_time_milliseconds = report.start_time.ToJavaTime();
-  int64_t end_time_milliseconds = report.end_time.ToJavaTime();
-  if (start_time_milliseconds >= end_time_milliseconds)
-    start_time_milliseconds = end_time_milliseconds - 1;
-
-  Java_ExternalDataUseObserver_reportDataUse(
-      env, j_external_data_use_observer_.obj(),
-      ConvertUTF8ToJavaString(env, key.label).obj(), key.connection_type,
-      ConvertUTF8ToJavaString(env, key.mcc_mnc).obj(), start_time_milliseconds,
-      end_time_milliseconds, report.bytes_downloaded, report.bytes_uploaded);
-}
-
-void ExternalDataUseObserver::RegisterURLRegexes(
-    const std::vector<std::string>& app_package_name,
-    const std::vector<std::string>& domain_path_regex,
-    const std::vector<std::string>& label) {
+base::WeakPtr<ExternalDataUseObserver> ExternalDataUseObserver::GetWeakPtr() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK_EQ(app_package_name.size(), domain_path_regex.size());
-  DCHECK_EQ(app_package_name.size(), label.size());
-
-  matching_rules_.clear();
-  re2::RE2::Options options(re2::RE2::DefaultOptions);
-  options.set_case_sensitive(false);
-
-  for (size_t i = 0; i < domain_path_regex.size(); ++i) {
-    const std::string& url_regex = domain_path_regex[i];
-    if (url_regex.empty())
-      continue;
-    scoped_ptr<re2::RE2> pattern(new re2::RE2(url_regex, options));
-    if (!pattern->ok())
-      continue;
-    DCHECK(!label[i].empty());
-    matching_rules_.push_back(
-        new MatchingRule(app_package_name[i], pattern.Pass(), label[i]));
-  }
-
-  if (matching_rules_.size() == 0 && registered_as_observer_) {
-    // Unregister as an observer if no regular expressions were received.
-    data_use_aggregator_->RemoveObserver(this);
-    registered_as_observer_ = false;
-  } else if (matching_rules_.size() > 0 && !registered_as_observer_) {
-    // Register as an observer if regular expressions were received.
-    data_use_aggregator_->AddObserver(this);
-    registered_as_observer_ = true;
-  }
+  return weak_factory_.GetWeakPtr();
 }
 
-bool ExternalDataUseObserver::Matches(const GURL& gurl,
-                                      std::string* label) const {
+DataUseTabModel* ExternalDataUseObserver::GetDataUseTabModel() const {
   DCHECK(thread_checker_.CalledOnValidThread());
-  *label = "";
-
-  if (!gurl.is_valid() || gurl.is_empty())
-    return false;
-
-  for (size_t i = 0; i < matching_rules_.size(); ++i) {
-    const re2::RE2* pattern = matching_rules_[i]->pattern();
-    if (re2::RE2::FullMatch(gurl.spec(), *pattern)) {
-      *label = matching_rules_[i]->label();
-      return true;
-    }
-  }
-
-  return false;
+  return data_use_tab_model_;
 }
 
 ExternalDataUseObserver::DataUseReportKey::DataUseReportKey(
@@ -423,28 +443,6 @@ size_t ExternalDataUseObserver::DataUseReportKeyHash::operator()(
   hash = hash * 43 + k.connection_type;
   hash = hash * 83 + hash_function(k.mcc_mnc);
   return hash;
-}
-
-ExternalDataUseObserver::MatchingRule::MatchingRule(
-    const std::string& app_package_name,
-    scoped_ptr<re2::RE2> pattern,
-    const std::string& label)
-    : app_package_name_(app_package_name),
-      pattern_(pattern.Pass()),
-      label_(label) {}
-
-ExternalDataUseObserver::MatchingRule::~MatchingRule() {}
-
-const re2::RE2* ExternalDataUseObserver::MatchingRule::pattern() const {
-  return pattern_.get();
-}
-
-const std::string& ExternalDataUseObserver::MatchingRule::label() const {
-  return label_;
-}
-
-bool RegisterExternalDataUseObserver(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 
 }  // namespace android

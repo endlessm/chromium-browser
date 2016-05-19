@@ -16,6 +16,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/language_settings_private/language_settings_private_delegate.h"
 #include "chrome/browser/extensions/api/language_settings_private/language_settings_private_delegate_factory.h"
@@ -231,7 +232,7 @@ LanguageSettingsPrivateGetSpellcheckWordsFunction::GetSpellcheckWords() const {
   const std::set<std::string>& words = dictionary->GetWords();
   for (const std::string& word : words)
     word_list->AppendString(word);
-  return word_list.Pass();
+  return word_list;
 }
 
 LanguageSettingsPrivateAddSpellcheckWordFunction::

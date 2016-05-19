@@ -7,11 +7,15 @@
 
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/sequenced_task_runner.h"
+#include "base/synchronization/condition_variable.h"
 #include "base/task_runner.h"
 #include "base/threading/simple_thread.h"
+#include "cc/raster/task_category.h"
 #include "cc/raster/task_graph_runner.h"
+#include "cc/raster/task_graph_work_queue.h"
 #include "content/common/content_export.h"
 
 namespace content {
@@ -24,11 +28,8 @@ namespace content {
 // parallel with other instances of sequenced task runners.
 // It's also possible to get the underlying TaskGraphRunner to schedule a graph
 // of tasks with their dependencies.
-// TODO(reveman): make TaskGraphRunner an abstract interface and have this
-// WorkerPool class implement it.
-class CONTENT_EXPORT RasterWorkerPool
-    : public base::TaskRunner,
-      public base::DelegateSimpleThread::Delegate {
+class CONTENT_EXPORT RasterWorkerPool : public base::TaskRunner,
+                                        public cc::TaskGraphRunner {
  public:
   RasterWorkerPool();
 
@@ -38,13 +39,23 @@ class CONTENT_EXPORT RasterWorkerPool
                        base::TimeDelta delay) override;
   bool RunsTasksOnCurrentThread() const override;
 
-  // Overridden from base::DelegateSimpleThread::Delegate:
-  void Run() override;
+  // Overridden from cc::TaskGraphRunner:
+  cc::NamespaceToken GetNamespaceToken() override;
+  void ScheduleTasks(cc::NamespaceToken token, cc::TaskGraph* graph) override;
+  void WaitForTasksToFinishRunning(cc::NamespaceToken token) override;
+  void CollectCompletedTasks(cc::NamespaceToken token,
+                             cc::Task::Vector* completed_tasks) override;
+
+  // Runs a task from one of the provided categories. Categories listed first
+  // have higher priority.
+  void Run(const std::vector<cc::TaskCategory>& categories,
+           base::ConditionVariable* has_ready_to_run_tasks_cv);
+
+  void FlushForTesting();
 
   // Spawn |num_threads| number of threads and start running work on the
   // worker threads.
-  void Start(int num_threads,
-             const base::SimpleThread::Options& thread_options);
+  void Start(int num_threads);
 
   // Finish running all the posted tasks (and nested task posted by those tasks)
   // of all the associated task runners.
@@ -52,7 +63,7 @@ class CONTENT_EXPORT RasterWorkerPool
   // terminated.
   void Shutdown();
 
-  cc::TaskGraphRunner* GetTaskGraphRunner() { return &task_graph_runner_; }
+  cc::TaskGraphRunner* GetTaskGraphRunner() { return this; }
 
   // Create a new sequenced task graph runner.
   scoped_refptr<base::SequencedTaskRunner> CreateSequencedTaskRunner();
@@ -83,13 +94,35 @@ class CONTENT_EXPORT RasterWorkerPool
     DISALLOW_COPY_AND_ASSIGN(ClosureTask);
   };
 
+  void ScheduleTasksWithLockAcquired(cc::NamespaceToken token,
+                                     cc::TaskGraph* graph);
+  void CollectCompletedTasksWithLockAcquired(cc::NamespaceToken token,
+                                             cc::Task::Vector* completed_tasks);
+
+  // Runs a task from one of the provided categories. Categories listed first
+  // have higher priority. Returns false if there were no tasks to run.
+  bool RunTaskWithLockAcquired(const std::vector<cc::TaskCategory>& categories);
+
+  // Run next task for the given category. Caller must acquire |lock_| prior to
+  // calling this function and make sure at least one task is ready to run.
+  void RunTaskInCategoryWithLockAcquired(cc::TaskCategory category);
+
+  // Helper function which signals worker threads if tasks are ready to run.
+  void SignalHasReadyToRunTasksWithLockAcquired();
+
+  // Determines if we should run a new task for the given category. This factors
+  // in whether a task is available and whether the count of running tasks is
+  // low enough to start a new one.
+  bool ShouldRunTaskForCategoryWithLockAcquired(cc::TaskCategory category);
+
   // The actual threads where work is done.
-  ScopedVector<base::DelegateSimpleThread> threads_;
-  cc::TaskGraphRunner task_graph_runner_;
+  std::vector<scoped_ptr<base::SimpleThread>> threads_;
 
   // Lock to exclusively access all the following members that are used to
-  // implement the TaskRunner interfaces.
+  // implement the TaskRunner and TaskGraphRunner interfaces.
   base::Lock lock_;
+  // Stores the tasks to be run, sorted by priority.
+  cc::TaskGraphWorkQueue work_queue_;
   // Namespace used to schedule tasks in the task graph runner.
   cc::NamespaceToken namespace_token_;
   // List of tasks currently queued up for execution.
@@ -99,6 +132,14 @@ class CONTENT_EXPORT RasterWorkerPool
   // Cached vector to avoid allocation when getting the list of complete
   // tasks.
   cc::Task::Vector completed_tasks_;
+  // Condition variables for foreground and background tasks.
+  base::ConditionVariable has_ready_to_run_foreground_tasks_cv_;
+  base::ConditionVariable has_ready_to_run_background_tasks_cv_;
+  // Condition variable that is waited on by origin threads until a namespace
+  // has finished running all associated tasks.
+  base::ConditionVariable has_namespaces_with_finished_running_tasks_cv_;
+  // Set during shutdown. Tells Run() to return when no more tasks are pending.
+  bool shutdown_;
 };
 
 }  // namespace content

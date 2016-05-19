@@ -48,8 +48,6 @@ WebInspector.CPUProfileView = function(profileHeader)
 
     this.dataGrid = new WebInspector.DataGrid(columns);
     this.dataGrid.addEventListener(WebInspector.DataGrid.Events.SortingChanged, this._sortProfile, this);
-    this._dataGridContainer = new WebInspector.DataGridContainerWidget();
-    this._dataGridContainer.appendDataGrid(this.dataGrid);
 
     this.viewSelectComboBox = new WebInspector.ToolbarComboBox(this._changeView.bind(this));
 
@@ -309,13 +307,13 @@ WebInspector.CPUProfileView.prototype = {
         case WebInspector.CPUProfileView._TypeTree:
             this.profileDataGridTree = this._getTopDownProfileDataGridTree();
             this._sortProfile();
-            this._visibleView = this._dataGridContainer;
+            this._visibleView = this.dataGrid.asWidget();
             this._searchableElement = this.profileDataGridTree;
             break;
         case WebInspector.CPUProfileView._TypeHeavy:
             this.profileDataGridTree = this._getBottomUpProfileDataGridTree();
             this._sortProfile();
-            this._visibleView = this._dataGridContainer;
+            this._visibleView = this.dataGrid.asWidget();
             this._searchableElement = this.profileDataGridTree;
             break;
         }
@@ -457,14 +455,13 @@ WebInspector.CPUProfileType.prototype = {
      */
     _consoleProfileStarted: function(event)
     {
-        var protocolId = /** @type {string} */ (event.data.protocolId);
-        var scriptLocation = /** @type {!WebInspector.DebuggerModel.Location} */ (event.data.scriptLocation);
-        var resolvedTitle = /** @type {string|undefined} */ (event.data.title);
+        var data = /** @type {!WebInspector.CPUProfilerModel.EventData} */ (event.data);
+        var resolvedTitle = data.title;
         if (!resolvedTitle) {
             resolvedTitle = WebInspector.UIString("Profile %s", this._nextAnonymousConsoleProfileNumber++);
-            this._anonymousConsoleProfileIdToTitle[protocolId] = resolvedTitle;
+            this._anonymousConsoleProfileIdToTitle[data.id] = resolvedTitle;
         }
-        this._addMessageToConsole(WebInspector.ConsoleMessage.MessageType.Profile, scriptLocation, WebInspector.UIString("Profile '%s' started.", resolvedTitle));
+        this._addMessageToConsole(WebInspector.ConsoleMessage.MessageType.Profile, data.scriptLocation, WebInspector.UIString("Profile '%s' started.", resolvedTitle));
     },
 
     /**
@@ -472,19 +469,17 @@ WebInspector.CPUProfileType.prototype = {
      */
     _consoleProfileFinished: function(event)
     {
-        var protocolId = /** @type {string} */ (event.data.protocolId);
-        var scriptLocation = /** @type {!WebInspector.DebuggerModel.Location} */ (event.data.scriptLocation);
-        var cpuProfile = /** @type {!ProfilerAgent.CPUProfile} */ (event.data.cpuProfile);
-        var resolvedTitle = /** @type {string|undefined} */ (event.data.title);
+        var data = /** @type {!WebInspector.CPUProfilerModel.EventData} */ (event.data);
+        var cpuProfile = /** @type {!ProfilerAgent.CPUProfile} */ (data.cpuProfile);
+        var resolvedTitle = data.title;
         if (typeof resolvedTitle === "undefined") {
-            resolvedTitle = this._anonymousConsoleProfileIdToTitle[protocolId];
-            delete this._anonymousConsoleProfileIdToTitle[protocolId];
+            resolvedTitle = this._anonymousConsoleProfileIdToTitle[data.id];
+            delete this._anonymousConsoleProfileIdToTitle[data.id];
         }
-
-        var profile = new WebInspector.CPUProfileHeader(scriptLocation.target(), this, resolvedTitle);
+        var profile = new WebInspector.CPUProfileHeader(data.scriptLocation.target(), this, resolvedTitle);
         profile.setProtocolProfile(cpuProfile);
         this.addProfile(profile);
-        this._addMessageToConsole(WebInspector.ConsoleMessage.MessageType.ProfileEnd, scriptLocation, WebInspector.UIString("Profile '%s' finished.", resolvedTitle));
+        this._addMessageToConsole(WebInspector.ConsoleMessage.MessageType.ProfileEnd, data.scriptLocation, WebInspector.UIString("Profile '%s' finished.", resolvedTitle));
     },
 
     /**
@@ -502,7 +497,6 @@ WebInspector.CPUProfileType.prototype = {
             WebInspector.ConsoleMessage.MessageLevel.Debug,
             messageText,
             type,
-            undefined,
             undefined,
             undefined,
             undefined,

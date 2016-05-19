@@ -28,13 +28,17 @@ int log_ids_compare(const char* log_id, const char* lookup_id) {
 }  // namespace
 
 #if !defined(OS_NACL)
-std::vector<scoped_refptr<CTLogVerifier>> CreateLogVerifiersForKnownLogs() {
-  std::vector<scoped_refptr<CTLogVerifier>> verifiers;
+std::vector<scoped_refptr<const CTLogVerifier>>
+CreateLogVerifiersForKnownLogs() {
+  std::vector<scoped_refptr<const CTLogVerifier>> verifiers;
   for (size_t i = 0; i < arraysize(kCTLogList); ++i) {
     const CTLogInfo& log(kCTLogList[i]);
     base::StringPiece key(log.log_key, log.log_key_length);
 
     verifiers.push_back(CTLogVerifier::Create(key, log.log_name, log.log_url));
+    // Make sure no null logs enter verifiers. Parsing of all known logs should
+    // succeed.
+    CHECK(verifiers.back().get());
   }
 
   return verifiers;

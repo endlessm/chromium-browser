@@ -4,12 +4,8 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/fxedit/fxet_stub.h"
-#include "../../include/fxedit/fxet_edit.h"
-#include "../../include/fxedit/fxet_list.h"
-
-/* ------------------------------- CFX_ListItem
- * ---------------------------------- */
+#include "fpdfsdk/include/fxedit/fxet_edit.h"
+#include "fpdfsdk/include/fxedit/fxet_list.h"
 
 CFX_ListItem::CFX_ListItem()
     : m_pEdit(NULL),
@@ -17,8 +13,6 @@ CFX_ListItem::CFX_ListItem()
       m_bCaret(FALSE),
       m_rcListItem(0.0f, 0.0f, 0.0f, 0.0f) {
   m_pEdit = IFX_Edit::NewEdit();
-  ASSERT(m_pEdit != NULL);
-
   m_pEdit->SetAlignmentV(1);
   m_pEdit->Initialize();
 }
@@ -101,9 +95,6 @@ CFX_WideString CFX_ListItem::GetText() const {
 
   return L"";
 }
-
-/* ------------------------------------ CFX_List
- * --------------------------------- */
 
 CFX_List::CFX_List()
     : m_fFontSize(0.0f), m_pFontMap(NULL), m_bMultiple(FALSE) {}
@@ -310,9 +301,6 @@ CFX_WideString CFX_List::GetItemText(int32_t nIndex) const {
   return L"";
 }
 
-/* ------------------------------------ CPLST_Select
- * ---------------------------------- */
-
 CPLST_Select::CPLST_Select() {}
 
 CPLST_Select::~CPLST_Select() {
@@ -325,9 +313,9 @@ CPLST_Select::~CPLST_Select() {
 void CPLST_Select::Add(int32_t nItemIndex) {
   int32_t nIndex = Find(nItemIndex);
 
-  if (nIndex < 0)
+  if (nIndex < 0) {
     m_aItems.Add(new CPLST_Select_Item(nItemIndex, 1));
-  else {
+  } else {
     if (CPLST_Select_Item* pItem = m_aItems.GetAt(nIndex)) {
       pItem->nState = 1;
     }
@@ -419,9 +407,6 @@ void CPLST_Select::Done() {
     }
   }
 }
-
-/* ------------------------------------ CFX_ListCtrl
- * --------------------------------- */
 
 CFX_ListCtrl::CFX_ListCtrl()
     : m_pNotify(NULL),
@@ -593,8 +578,6 @@ FX_BOOL CFX_ListCtrl::OnChar(FX_WORD nChar, FX_BOOL bShift, FX_BOOL bCtrl) {
   return FALSE;
 }
 
-/* -------- inner methods ------- */
-
 void CFX_ListCtrl::SetPlateRect(const CPDF_Rect& rect) {
   CFX_ListContainer::SetPlateRect(rect);
   m_ptScrollPos.x = rect.left;
@@ -712,8 +695,9 @@ void CFX_ListCtrl::Select(int32_t nItemIndex) {
   if (IsMultipleSel()) {
     m_aSelItems.Add(nItemIndex);
     SelectItems();
-  } else
+  } else {
     SetSingleSelect(nItemIndex);
+  }
 }
 
 FX_BOOL CFX_ListCtrl::IsItemVisible(int32_t nItemIndex) const {

@@ -38,8 +38,13 @@ typedef void (^ForgetIdentityCallback)(NSError* error);
 // Callback passed to method |GetAvatarForIdentity()|.
 typedef void (^GetAvatarCallback)(UIImage* avatar);
 
-// Describes the reason for an access token error.
-enum class AccessTokenErrorReason { INVALID_GRANT, UNKNOWN_ERROR };
+// Callback passed to method |GetHostedDomainForIdentity()|.
+typedef void (^GetHostedDomainCallback)(NSString* hosted_domain,
+                                        NSError* error);
+
+// Callback passed to method |HandleMDMNotification()|. |is_blocked| is true if
+// the device is blocked.
+typedef void (^MDMStatusCallback)(bool is_blocked);
 
 // ChromeIdentityService abstracts the signin flow on iOS.
 class ChromeIdentityService {
@@ -55,11 +60,17 @@ class ChromeIdentityService {
 
     // Handles access token refresh failed events.
     // |identity| is the the identity for which the access token refresh failed.
+    // |user_info| is the user info dictionary in the original notification. It
+    // should not be accessed directly but via helper methods (like
+    // ChromeIdentityService::IsInvalidGrantError).
     virtual void OnAccessTokenRefreshFailed(ChromeIdentity* identity,
-                                            AccessTokenErrorReason error) {}
+                                            NSDictionary* user_info) {}
 
     // Called when profile information or the profile image is updated.
     virtual void OnProfileUpdate(ChromeIdentity* identity) {}
+
+    // Called when the ChromeIdentityService will be destroyed.
+    virtual void OnChromeIdentityServiceWillBeDestroyed() {}
 
    private:
     DISALLOW_COPY_AND_ASSIGN(Observer);
@@ -131,18 +142,35 @@ class ChromeIdentityService {
   // GetAvatarForIdentity() should be generally used instead of this method.
   virtual UIImage* GetCachedAvatarForIdentity(ChromeIdentity* identity);
 
+  // Fetches the identity hosted domain, from the cache or the network. Calls
+  // back on the main thread.
+  virtual void GetHostedDomainForIdentity(ChromeIdentity* identity,
+                                          GetHostedDomainCallback callback);
+
+  // Handles a potential MDM (Mobile Device Management) notification. Returns
+  // true if the notification linked to |identity| and |user_info| was an MDM
+  // one. In this case, |callback| will be called later with the status of the
+  // device.
+  virtual bool HandleMDMNotification(ChromeIdentity* identity,
+                                     NSDictionary* user_info,
+                                     MDMStatusCallback callback);
+
   // Adds and removes observers.
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
+
+  // Returns whether the given |user_info|, from an access token refresh failed
+  // event, corresponds to an invalid grant error.
+  virtual bool IsInvalidGrantError(NSDictionary* user_info);
 
  protected:
   // Fires |OnIdentityListChanged| on all observers.
   void FireIdentityListChanged();
 
   // Fires |OnAccessTokenRefreshFailed| on all observers, with the corresponding
-  // identity and error reason.
+  // identity and user info.
   void FireAccessTokenRefreshFailed(ChromeIdentity* identity,
-                                    AccessTokenErrorReason error);
+                                    NSDictionary* user_info);
 
   // Fires |OnProfileUpdate| on all observers, with the corresponding identity.
   void FireProfileDidUpdate(ChromeIdentity* identity);

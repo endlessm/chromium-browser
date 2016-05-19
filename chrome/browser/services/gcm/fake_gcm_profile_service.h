@@ -8,6 +8,7 @@
 #include <list>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "components/gcm_driver/gcm_profile_service.h"
@@ -42,6 +43,9 @@ class FakeGCMProfileService : public GCMProfileService {
   void AddExpectedUnregisterResponse(GCMClient::Result result);
 
   void SetUnregisterCallback(const UnregisterCallback& callback);
+
+  void DispatchMessage(const std::string& app_id,
+                       const IncomingMessage& message);
 
   const OutgoingMessage& last_sent_message() const {
     return last_sent_message_;

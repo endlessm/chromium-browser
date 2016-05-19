@@ -9,13 +9,13 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_member.h"
 #include "base/time/time.h"
+#include "components/prefs/pref_member.h"
 #include "components/translate/core/common/translate_pref_names.h"
 #include "components/translate/core/language_detection/language_detection_util.h"
 #import "components/translate/ios/browser/js_language_detection_manager.h"
 #include "ios/web/public/string_util.h"
-#include "ios/web/public/url_scheme_util.h"
+#import "ios/web/public/url_scheme_util.h"
 #include "ios/web/public/web_state/web_state.h"
 
 namespace translate {

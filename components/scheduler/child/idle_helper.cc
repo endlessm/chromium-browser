@@ -7,6 +7,7 @@
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_argument.h"
+#include "components/scheduler/base/real_time_domain.h"
 #include "components/scheduler/base/task_queue.h"
 #include "components/scheduler/base/task_queue_manager.h"
 #include "components/scheduler/child/scheduler_helper.h"
@@ -46,7 +47,8 @@ IdleHelper::IdleHelper(
       idle_queue_, helper_->ControlAfterWakeUpTaskRunner(), this,
       tracing_category));
 
-  idle_queue_->SetQueuePriority(TaskQueue::DISABLED_PRIORITY);
+  idle_queue_->SetQueueEnabled(false);
+  idle_queue_->SetQueuePriority(TaskQueue::BEST_EFFORT_PRIORITY);
 
   helper_->AddTaskObserver(this);
 }
@@ -76,23 +78,23 @@ IdleHelper::IdlePeriodState IdleHelper::ComputeNewLongIdlePeriodState(
     return IdlePeriodState::NOT_IN_IDLE_PERIOD;
   }
 
-  base::TimeTicks next_pending_delayed_task =
-      helper_->NextPendingDelayedTaskRunTime();
+  base::TimeTicks next_pending_delayed_task;
   base::TimeDelta max_long_idle_period_duration =
       base::TimeDelta::FromMilliseconds(kMaximumIdlePeriodMillis);
   base::TimeDelta long_idle_period_duration;
-  if (next_pending_delayed_task.is_null()) {
-    long_idle_period_duration = max_long_idle_period_duration;
-  } else {
+  if (helper_->real_time_domain()->NextScheduledRunTime(
+          &next_pending_delayed_task)) {
     // Limit the idle period duration to be before the next pending task.
     long_idle_period_duration = std::min(next_pending_delayed_task - now,
                                          max_long_idle_period_duration);
+  } else {
+    long_idle_period_duration = max_long_idle_period_duration;
   }
 
   if (long_idle_period_duration >=
       base::TimeDelta::FromMilliseconds(kMinimumIdlePeriodDurationMillis)) {
     *next_long_idle_period_delay_out = long_idle_period_duration;
-    if (idle_queue_->IsQueueEmpty()) {
+    if (!idle_queue_->HasPendingImmediateWork()) {
       return IdlePeriodState::IN_LONG_IDLE_PERIOD_PAUSED;
     } else if (long_idle_period_duration == max_long_idle_period_duration) {
       return IdlePeriodState::IN_LONG_IDLE_PERIOD_WITH_MAX_DEADLINE;
@@ -173,8 +175,8 @@ void IdleHelper::StartIdlePeriod(IdlePeriodState new_state,
   }
 
   TRACE_EVENT0(disabled_by_default_tracing_category_, "StartIdlePeriod");
-  idle_queue_->SetQueuePriority(TaskQueue::BEST_EFFORT_PRIORITY);
-  idle_queue_->PumpQueue();
+  idle_queue_->SetQueueEnabled(true);
+  idle_queue_->PumpQueue(true);
 
   state_.UpdateState(new_state, idle_period_deadline, now);
 }
@@ -190,7 +192,7 @@ void IdleHelper::EndIdlePeriod() {
   if (!IsInIdlePeriod(state_.idle_period_state()))
     return;
 
-  idle_queue_->SetQueuePriority(TaskQueue::DISABLED_PRIORITY);
+  idle_queue_->SetQueueEnabled(false);
   state_.UpdateState(IdlePeriodState::NOT_IN_IDLE_PERIOD, base::TimeTicks(),
                      base::TimeTicks());
 }
@@ -223,13 +225,13 @@ void IdleHelper::UpdateLongIdlePeriodStateAfterIdleTask() {
   DCHECK(IsInLongIdlePeriod(state_.idle_period_state()));
   TRACE_EVENT0(disabled_by_default_tracing_category_,
                "UpdateLongIdlePeriodStateAfterIdleTask");
-  TaskQueue::QueueState queue_state = idle_queue_->GetQueueState();
-  if (queue_state == TaskQueue::QueueState::EMPTY) {
+
+  if (!idle_queue_->HasPendingImmediateWork()) {
     // If there are no more idle tasks then pause long idle period ticks until a
     // new idle task is posted.
     state_.UpdateState(IdlePeriodState::IN_LONG_IDLE_PERIOD_PAUSED,
                        state_.idle_period_deadline(), base::TimeTicks());
-  } else if (queue_state == TaskQueue::QueueState::NEEDS_PUMPING) {
+  } else if (idle_queue_->NeedsPumping()) {
     // If there is still idle work to do then just start the next idle period.
     base::TimeDelta next_long_idle_period_delay;
     if (state_.idle_period_state() ==

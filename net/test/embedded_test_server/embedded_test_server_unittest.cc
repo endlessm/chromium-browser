@@ -4,6 +4,9 @@
 
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
+#include <utility>
+
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -177,7 +180,7 @@ class EmbeddedTestServerTest
       http_response->set_code(code);
       http_response->set_content(content);
       http_response->set_content_type(content_type);
-      return http_response.Pass();
+      return std::move(http_response);
     }
 
     return nullptr;

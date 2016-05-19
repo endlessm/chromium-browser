@@ -4,6 +4,8 @@
 
 #include "components/security_interstitials/core/metrics_helper.h"
 
+#include <utility>
+
 #include "base/metrics/histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -103,20 +105,26 @@ void MaybeRecordInteractionAsAction(MetricsHelper::Interaction interaction,
 
 }  // namespace
 
+MetricsHelper::~MetricsHelper() {}
+
 MetricsHelper::ReportDetails::ReportDetails()
     : rappor_report_type(rappor::NUM_RAPPOR_TYPES) {}
 
-MetricsHelper::MetricsHelper(const GURL& request_url,
-                             const ReportDetails settings,
-                             history::HistoryService* history_service,
-                             rappor::RapporService* rappor_service)
+MetricsHelper::ReportDetails::ReportDetails(const ReportDetails& other) =
+    default;
+
+MetricsHelper::MetricsHelper(
+  const GURL& request_url,
+  const ReportDetails settings,
+  history::HistoryService* history_service,
+  const base::WeakPtr<rappor::RapporService>& rappor_service)
     : request_url_(request_url),
       settings_(settings),
       rappor_service_(rappor_service),
       num_visits_(-1) {
   DCHECK(!settings_.metric_prefix.empty());
   if (settings_.rappor_report_type == rappor::NUM_RAPPOR_TYPES)  // Default.
-    rappor_service_ = nullptr;
+    rappor_service_.reset();
   DCHECK(!rappor_service_ || !settings_.rappor_prefix.empty());
   if (history_service) {
     history_service->GetVisibleVisitCountToHost(
@@ -179,7 +187,7 @@ void MetricsHelper::RecordUserDecisionToRappor(Decision decision) {
                           InterstitialFlagBits::HIGHEST_USED_BIT + 1);
   }
   rappor_service_->RecordSampleObj("interstitial." + settings_.rappor_prefix,
-                                   sample.Pass());
+                                   std::move(sample));
 }
 
 void MetricsHelper::RecordUserInteraction(Interaction interaction) {

@@ -1390,7 +1390,13 @@ inline void do_malloc_stats() {
 }
 
 inline int do_mallopt(int cmd, int value) {
-  return 1;     // Indicates error
+  if (cmd == TC_MALLOPT_IS_OVERRIDDEN_BY_TCMALLOC)
+    return TC_MALLOPT_IS_OVERRIDDEN_BY_TCMALLOC;
+
+  // 1 is the success return value according to man mallopt(). However (see the
+  // BUGS section in the manpage), most implementations return always 1.
+  // This code is just complying with that (buggy) expectation.
+  return 1;
 }
 
 #ifdef HAVE_STRUCT_MALLINFO
@@ -1739,12 +1745,6 @@ extern "C" void* PERFTOOLS_DLL_DECL tc_malloc_skip_new_handler(size_t size) {
 #endif
 
 #endif  // TCMALLOC_USING_DEBUGALLOCATION
-
-#if defined(OS_LINUX)
-// Alias the weak symbol in chromium to our implementation.
-extern "C" __attribute__((visibility("default"), alias("tc_malloc_skip_new_handler")))
-void* tc_malloc_skip_new_handler_weak(size_t size);
-#endif
 
 // --- Validation implementation with an extra mark ----------------------------
 // We will put a mark at the extreme end of each allocation block.  We make

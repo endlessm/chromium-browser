@@ -4,13 +4,9 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_Icon.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
-
-/* ------------------------------- CPWL_Image ----------------------------------
- */
+#include "fpdfsdk/include/pdfwindow/PWL_Icon.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 CPWL_Image::CPWL_Image() : m_pPDFStream(NULL) {}
 
@@ -21,7 +17,7 @@ CFX_ByteString CPWL_Image::GetImageAppStream() {
 
   CFX_ByteString sAlias = GetImageAlias();
   CPDF_Rect rcPlate = GetClientRect();
-  CPDF_Matrix mt;
+  CFX_Matrix mt;
   mt.SetReverse(GetImageMatrix());
 
   FX_FLOAT fHScale = 1.0f;
@@ -64,7 +60,7 @@ void CPWL_Image::GetImageSize(FX_FLOAT& fWidth, FX_FLOAT& fHeight) {
 
   if (m_pPDFStream) {
     if (CPDF_Dictionary* pDict = m_pPDFStream->GetDict()) {
-      CPDF_Rect rect = pDict->GetRect("BBox");
+      CPDF_Rect rect = pDict->GetRectBy("BBox");
 
       fWidth = rect.right - rect.left;
       fHeight = rect.top - rect.bottom;
@@ -72,25 +68,25 @@ void CPWL_Image::GetImageSize(FX_FLOAT& fWidth, FX_FLOAT& fHeight) {
   }
 }
 
-CPDF_Matrix CPWL_Image::GetImageMatrix() {
+CFX_Matrix CPWL_Image::GetImageMatrix() {
   if (m_pPDFStream) {
     if (CPDF_Dictionary* pDict = m_pPDFStream->GetDict()) {
-      return pDict->GetMatrix("Matrix");
+      return pDict->GetMatrixBy("Matrix");
     }
   }
 
-  return CPDF_Matrix();
+  return CFX_Matrix();
 }
 
 CFX_ByteString CPWL_Image::GetImageAlias() {
-  if (m_sImageAlias.IsEmpty()) {
-    if (m_pPDFStream) {
-      if (CPDF_Dictionary* pDict = m_pPDFStream->GetDict()) {
-        return pDict->GetString("Name");
-      }
-    }
-  } else
+  if (!m_sImageAlias.IsEmpty())
     return m_sImageAlias;
+
+  if (m_pPDFStream) {
+    if (CPDF_Dictionary* pDict = m_pPDFStream->GetDict()) {
+      return pDict->GetStringBy("Name");
+    }
+  }
 
   return CFX_ByteString();
 }
@@ -108,9 +104,6 @@ void CPWL_Image::GetImageOffset(FX_FLOAT& x, FX_FLOAT& y) {
   x = 0.0f;
   y = 0.0f;
 }
-
-/* ------------------------------- CPWL_Icon ----------------------------------
- */
 
 CPWL_Icon::CPWL_Icon() : m_pIconFit(NULL) {}
 
@@ -132,17 +125,16 @@ FX_BOOL CPWL_Icon::IsProportionalScale() {
 
 void CPWL_Icon::GetIconPosition(FX_FLOAT& fLeft, FX_FLOAT& fBottom) {
   if (m_pIconFit) {
-    // m_pIconFit->GetIconPosition(fLeft,fBottom);
     fLeft = 0.0f;
     fBottom = 0.0f;
     CPDF_Array* pA =
-        m_pIconFit->m_pDict ? m_pIconFit->m_pDict->GetArray("A") : NULL;
-    if (pA != NULL) {
+        m_pIconFit->m_pDict ? m_pIconFit->m_pDict->GetArrayBy("A") : NULL;
+    if (pA) {
       FX_DWORD dwCount = pA->GetCount();
       if (dwCount > 0)
-        fLeft = pA->GetNumber(0);
+        fLeft = pA->GetNumberAt(0);
       if (dwCount > 1)
-        fBottom = pA->GetNumber(1);
+        fBottom = pA->GetNumberAt(1);
     }
   } else {
     fLeft = 0.0f;

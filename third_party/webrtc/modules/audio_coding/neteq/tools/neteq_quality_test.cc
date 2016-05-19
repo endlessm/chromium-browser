@@ -210,7 +210,7 @@ NetEqQualityTest::NetEqQualityTest(int block_duration_ms,
                                    int out_sampling_khz,
                                    NetEqDecoder decoder_type)
     : decoder_type_(decoder_type),
-      channels_(FLAGS_channels),
+      channels_(static_cast<size_t>(FLAGS_channels)),
       decoded_time_ms_(0),
       decodable_time_ms_(0),
       drift_factor_(FLAGS_drift_factor),
@@ -292,7 +292,8 @@ bool GilbertElliotLoss::Lost() {
 }
 
 void NetEqQualityTest::SetUp() {
-  ASSERT_EQ(0, neteq_->RegisterPayloadType(decoder_type_, kPayloadType));
+  ASSERT_EQ(0,
+            neteq_->RegisterPayloadType(decoder_type_, "noname", kPayloadType));
   rtp_generator_->set_drift_factor(drift_factor_);
 
   int units = block_duration_ms_ / kPacketLossTimeUnitMs;
@@ -393,7 +394,7 @@ int NetEqQualityTest::Transmit() {
 }
 
 int NetEqQualityTest::DecodeBlock() {
-  int channels;
+  size_t channels;
   size_t samples;
   int ret = neteq_->GetAudio(out_size_samples_ * channels_, &out_data_[0],
                              &samples, &channels, NULL);

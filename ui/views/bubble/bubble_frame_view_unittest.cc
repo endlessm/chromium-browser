@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -62,7 +64,8 @@ class TestBubbleFrameViewWidgetDelegate : public WidgetDelegate {
 class TestBubbleFrameView : public BubbleFrameView {
  public:
   TestBubbleFrameView(ViewsTestBase* test_base)
-      : BubbleFrameView(gfx::Insets(kMargin, kMargin, kMargin, kMargin)),
+      : BubbleFrameView(gfx::Insets(),
+                        gfx::Insets(kMargin, kMargin, kMargin, kMargin)),
         test_base_(test_base),
         available_bounds_(gfx::Rect(0, 0, 1000, 1000)) {
     SetBubbleBorder(scoped_ptr<BubbleBorder>(

@@ -5,6 +5,9 @@
 [
   {
     "namespace": "inputMethodPrivate",
+    "compiler_options": {
+      "implemented_in": "chrome/browser/chromeos/extensions/input_method_api.h"
+    },
     "description": "none",
     "functions": [
       {
@@ -23,7 +26,8 @@
                 "type": "object",
                 "description": "The input method config object.",
                 "properties": {
-                  "isPhysicalKeyboardAutocorrectEnabled": {"type": "boolean"}
+                  "isPhysicalKeyboardAutocorrectEnabled": {"type": "boolean"},
+                  "isImeMenuActivated": {"type": "boolean"}
                 }
               }
             ]
@@ -155,6 +159,24 @@
             ]
           }
         ]
+      }, {
+        "name": "setXkbLayout",
+        "type": "function",
+        "description": "Sets the XKB layout for the given input method.",
+        "parameters": [
+          {
+            "name": "xkb_name",
+            "type": "string",
+            "description": "The XKB layout name."
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "optional": true,
+            "description": "Callback which is called when the layout is set.",
+            "parameters": []
+          }
+        ]
       }
     ],
     "events": [
@@ -225,6 +247,22 @@
             }
           }
         ]
+      }, {
+        "name": "onImeMenuActivationChanged",
+        "type": "function",
+        "description": "Fired when the IME menu is activated or deactivated.",
+        "parameters": [
+          {
+            "name": "activation",
+            "type": "boolean",
+            "description": "Whether the IME menu is currently active."
+          }
+        ]
+      }, {
+        "name": "onImeMenuListChanged",
+        "type": "function",
+        "description": "Fired when the input method or the list of active input method IDs is changed.",
+        "parameters": []
       }
     ]
   }

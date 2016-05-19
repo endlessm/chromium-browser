@@ -61,6 +61,21 @@
       ],
     },
     {
+      'target_name': 'peerconnection_unittests_apk',
+      'type': 'none',
+      'variables': {
+        'test_suite_name': 'peerconnection_unittests',
+        'input_shlib_path': '<(SHARED_LIB_DIR)/<(SHARED_LIB_PREFIX)peerconnection_unittests<(SHARED_LIB_SUFFIX)',
+      },
+      'dependencies': [
+        '<(webrtc_root)/api/api_tests.gyp:peerconnection_unittests',
+        '<(webrtc_root)/api/api.gyp:libjingle_peerconnection_java',
+      ],
+      'includes': [
+        '../../build/apk_test.gypi',
+      ],
+    },
+    {
       'target_name': 'modules_tests_apk',
       'type': 'none',
       'variables': {
@@ -140,20 +155,6 @@
       },
       'dependencies': [
         '<(webrtc_root)/tools/tools.gyp:tools_unittests',
-      ],
-      'includes': [
-        '../../build/apk_test.gypi',
-      ],
-    },
-    {
-      'target_name': 'video_engine_core_unittests_apk',
-      'type': 'none',
-      'variables': {
-        'test_suite_name': 'video_engine_core_unittests',
-        'input_shlib_path': '<(SHARED_LIB_DIR)/<(SHARED_LIB_PREFIX)video_engine_core_unittests<(SHARED_LIB_SUFFIX)',
-      },
-      'dependencies': [
-        '<(webrtc_root)/video_engine/video_engine_core_unittests.gyp:video_engine_core_unittests',
       ],
       'includes': [
         '../../build/apk_test.gypi',

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/LengthBoxStyleInterpolation.h"
 
 #include "core/css/CSSQuadValue.h"
@@ -24,8 +23,8 @@ bool onlyInterpolateBetweenLengthAndCSSValueAuto(const CSSQuadValue& startRect, 
 
 PassRefPtr<LengthBoxStyleInterpolation> LengthBoxStyleInterpolation::maybeCreateFrom(CSSValue& start, CSSValue& end, CSSPropertyID id)
 {
-    bool startRect = start.isQuadValue() && toCSSQuadValue(start).serializationType() == CSSQuadValue::SerializationType::SerializeAsRect;
-    bool endRect = end.isQuadValue() && toCSSQuadValue(end).serializationType() == CSSQuadValue::SerializationType::SerializeAsRect;
+    bool startRect = start.isQuadValue() && toCSSQuadValue(start).serializationType() == CSSQuadValue::TypeForSerialization::SerializeAsRect;
+    bool endRect = end.isQuadValue() && toCSSQuadValue(end).serializationType() == CSSQuadValue::TypeForSerialization::SerializeAsRect;
 
     if (startRect && endRect)
         return adoptRef(new LengthBoxStyleInterpolation(lengthBoxtoInterpolableValue(start, end, false), lengthBoxtoInterpolableValue(end, start, true), id, &start, &end));
@@ -81,7 +80,7 @@ PassRefPtrWillBeRawPtr<CSSPrimitiveValue> indexedValueToLength(InterpolableList&
     return LengthStyleInterpolation::fromInterpolableValue(*lengthBox.get(i), RangeAll);
 }
 
-}
+} // namespace
 
 PassRefPtrWillBeRawPtr<CSSValue> LengthBoxStyleInterpolation::interpolableValueToLengthBox(InterpolableValue* value, const CSSValue& originalStart, const CSSValue& originalEnd)
 {
@@ -107,4 +106,4 @@ void LengthBoxStyleInterpolation::apply(StyleResolverState& state) const
         StyleBuilder::applyProperty(m_id, state, interpolableValueToLengthBox(m_cachedValue.get(), *m_startCSSValue, *m_endCSSValue).get());
 }
 
-}
+} // namespace blink

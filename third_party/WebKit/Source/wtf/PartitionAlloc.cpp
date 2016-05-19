@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "wtf/PartitionAlloc.h"
 
 #include <string.h>
@@ -52,10 +51,11 @@ static_assert(WTF::kPageMetadataSize * WTF::kNumPartitionPagesPerSuperPage <= WT
 // Check that some of our zanier calculations worked out as expected.
 static_assert(WTF::kGenericSmallestBucket == 8, "generic smallest bucket");
 static_assert(WTF::kGenericMaxBucketed == 983040, "generic max bucketed");
+static_assert(WTF::kMaxSystemPagesPerSlotSpan < (1 << 8), "System pages per slot span must be less than 128.");
 
 namespace WTF {
 
-int PartitionRootBase::gInitializedLock = 0;
+SpinLock PartitionRootBase::gInitializedLock;
 bool PartitionRootBase::gInitialized = false;
 PartitionPage PartitionRootBase::gSeedPage;
 PartitionBucket PartitionRootBase::gPagedBucket;
@@ -63,7 +63,7 @@ void (*PartitionRootBase::gOomHandlingFunction)() = nullptr;
 PartitionAllocHooks::AllocationHook* PartitionAllocHooks::m_allocationHook = nullptr;
 PartitionAllocHooks::FreeHook* PartitionAllocHooks::m_freeHook = nullptr;
 
-static uint16_t partitionBucketNumSystemPages(size_t size)
+static uint8_t partitionBucketNumSystemPages(size_t size)
 {
     // This works out reasonably for the current bucket sizes of the generic
     // allocator, and the current values of partition page size and constants.
@@ -79,7 +79,9 @@ static uint16_t partitionBucketNumSystemPages(size_t size)
     uint16_t bestPages = 0;
     if (size > kMaxSystemPagesPerSlotSpan * kSystemPageSize) {
         ASSERT(!(size % kSystemPageSize));
-        return static_cast<uint16_t>(size / kSystemPageSize);
+        bestPages = static_cast<uint16_t>(size / kSystemPageSize);
+        RELEASE_ASSERT(bestPages < (1 << 8));
+        return static_cast<uint8_t>(bestPages);
     }
     ASSERT(size <= kMaxSystemPagesPerSlotSpan * kSystemPageSize);
     for (uint16_t i = kNumSystemPagesPerPartitionPage - 1; i <= kMaxSystemPagesPerSlotSpan; ++i) {
@@ -98,21 +100,22 @@ static uint16_t partitionBucketNumSystemPages(size_t size)
         }
     }
     ASSERT(bestPages > 0);
-    return bestPages;
+    RELEASE_ASSERT(bestPages <= kMaxSystemPagesPerSlotSpan);
+    return static_cast<uint8_t>(bestPages);
 }
 
 static void partitionAllocBaseInit(PartitionRootBase* root)
 {
     ASSERT(!root->initialized);
-
-    spinLockLock(&PartitionRootBase::gInitializedLock);
-    if (!PartitionRootBase::gInitialized) {
-        PartitionRootBase::gInitialized = true;
-        // We mark the seed page as free to make sure it is skipped by our
-        // logic to find a new active page.
-        PartitionRootBase::gPagedBucket.activePagesHead = &PartitionRootGeneric::gSeedPage;
+    {
+        SpinLock::Guard guard(PartitionRootBase::gInitializedLock);
+        if (!PartitionRootBase::gInitialized) {
+            PartitionRootBase::gInitialized = true;
+            // We mark the seed page as free to make sure it is skipped by our
+            // logic to find a new active page.
+            PartitionRootBase::gPagedBucket.activePagesHead = &PartitionRootGeneric::gSeedPage;
+        }
     }
-    spinLockUnlock(&PartitionRootBase::gInitializedLock);
 
     root->initialized = true;
     root->totalSizeOfCommittedPages = 0;
@@ -166,7 +169,7 @@ void partitionAllocInit(PartitionRoot* root, size_t numBuckets, size_t maxAlloca
 
 void partitionAllocGenericInit(PartitionRootGeneric* root)
 {
-    spinLockLock(&root->lock);
+    SpinLock::Guard guard(root->lock);
 
     partitionAllocBaseInit(root);
 
@@ -243,8 +246,6 @@ void partitionAllocGenericInit(PartitionRootGeneric* root)
     // And there's one last bucket lookup that will be hit for e.g. malloc(-1),
     // which tries to overflow to a non-existant order.
     *bucketPtr = &PartitionRootGeneric::gPagedBucket;
-
-    spinLockUnlock(&root->lock);
 }
 
 static bool partitionAllocShutdownBucket(PartitionBucket* bucket)
@@ -293,6 +294,7 @@ bool partitionAllocShutdown(PartitionRoot* root)
 
 bool partitionAllocGenericShutdown(PartitionRootGeneric* root)
 {
+    SpinLock::Guard guard(root->lock);
     bool foundLeak = false;
     size_t i;
     for (i = 0; i < kGenericNumBuckets; ++i) {
@@ -522,16 +524,6 @@ static ALWAYS_INLINE void partitionPageSetup(PartitionPage* page, PartitionBucke
     }
 }
 
-static ALWAYS_INLINE size_t partitionRoundUpToSystemPage(size_t size)
-{
-    return (size + kSystemPageOffsetMask) & kSystemPageBaseMask;
-}
-
-static ALWAYS_INLINE size_t partitionRoundDownToSystemPage(size_t size)
-{
-    return size & kSystemPageBaseMask;
-}
-
 static ALWAYS_INLINE char* partitionPageAllocAndFillFreelist(PartitionPage* page)
 {
     ASSERT(page != &PartitionRootGeneric::gSeedPage);
@@ -553,7 +545,7 @@ static ALWAYS_INLINE char* partitionPageAllocAndFillFreelist(PartitionPage* page
     // Our goal is to fault as few system pages as possible. We calculate the
     // page containing the "end" of the returned slot, and then allow freelist
     // pointers to be written up to the end of that page.
-    char* subPageLimit = reinterpret_cast<char*>(partitionRoundUpToSystemPage(reinterpret_cast<size_t>(firstFreelistPointer)));
+    char* subPageLimit = reinterpret_cast<char*>(WTF::roundUpToSystemPage(reinterpret_cast<size_t>(firstFreelistPointer)));
     char* slotsLimit = returnObject + (size * numSlots);
     char* freelistLimit = subPageLimit;
     if (UNLIKELY(slotsLimit < freelistLimit))
@@ -1041,13 +1033,13 @@ bool partitionReallocDirectMappedInPlace(PartitionRootGeneric* root, PartitionPa
     return true;
 }
 
-void* partitionReallocGeneric(PartitionRootGeneric* root, void* ptr, size_t newSize)
+void* partitionReallocGeneric(PartitionRootGeneric* root, void* ptr, size_t newSize, const char* typeName)
 {
 #if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
     return realloc(ptr, newSize);
 #else
     if (UNLIKELY(!ptr))
-        return partitionAllocGeneric(root, newSize);
+        return partitionAllocGeneric(root, newSize, typeName);
     if (UNLIKELY(!newSize)) {
         partitionFreeGeneric(root, ptr);
         return 0;
@@ -1065,7 +1057,7 @@ void* partitionReallocGeneric(PartitionRootGeneric* root, void* ptr, size_t newS
         // accessibility of memory pages and, if reducing the size, decommitting
         // them.
         if (partitionReallocDirectMappedInPlace(root, page, newSize)) {
-            PartitionAllocHooks::reallocHookIfEnabled(ptr, ptr, newSize);
+            PartitionAllocHooks::reallocHookIfEnabled(ptr, ptr, newSize, typeName);
             return ptr;
         }
     }
@@ -1084,7 +1076,7 @@ void* partitionReallocGeneric(PartitionRootGeneric* root, void* ptr, size_t newS
     }
 
     // This realloc cannot be resized in-place. Sadness.
-    void* ret = partitionAllocGeneric(root, newSize);
+    void* ret = partitionAllocGeneric(root, newSize, typeName);
     size_t copySize = actualOldSize;
     if (newSize < copySize)
         copySize = newSize;
@@ -1107,7 +1099,7 @@ static size_t partitionPurgePage(PartitionPage* page, bool discard)
 
     size_t rawSize = partitionPageGetRawSize(const_cast<PartitionPage*>(page));
     if (rawSize) {
-        uint32_t usedBytes = static_cast<uint32_t>(partitionRoundUpToSystemPage(rawSize));
+        uint32_t usedBytes = static_cast<uint32_t>(WTF::roundUpToSystemPage(rawSize));
         discardableBytes = bucket->slotSize - usedBytes;
         if (discardableBytes && discard) {
             char* ptr = reinterpret_cast<char*>(partitionPageToPointer(page));
@@ -1158,10 +1150,10 @@ static size_t partitionPurgePage(PartitionPage* page, bool discard)
     if (truncatedSlots) {
         beginPtr = ptr + (numSlots * slotSize);
         endPtr = beginPtr + (slotSize * truncatedSlots);
-        beginPtr = reinterpret_cast<char*>(partitionRoundUpToSystemPage(reinterpret_cast<size_t>(beginPtr)));
+        beginPtr = reinterpret_cast<char*>(WTF::roundUpToSystemPage(reinterpret_cast<size_t>(beginPtr)));
         // We round the end pointer here up and not down because we're at the
         // end of a slot span, so we "own" all the way up the page boundary.
-        endPtr = reinterpret_cast<char*>(partitionRoundUpToSystemPage(reinterpret_cast<size_t>(endPtr)));
+        endPtr = reinterpret_cast<char*>(WTF::roundUpToSystemPage(reinterpret_cast<size_t>(endPtr)));
         ASSERT(endPtr <= ptr + partitionBucketBytes(bucket));
         if (beginPtr < endPtr) {
             unprovisionedBytes = endPtr - beginPtr;
@@ -1171,7 +1163,7 @@ static size_t partitionPurgePage(PartitionPage* page, bool discard)
     if (unprovisionedBytes && discard) {
         ASSERT(truncatedSlots > 0);
         size_t numNewEntries = 0;
-        page->numUnprovisionedSlots += truncatedSlots;
+        page->numUnprovisionedSlots += static_cast<uint16_t>(truncatedSlots);
         // Rewrite the freelist.
         PartitionFreelistEntry** entryPtr = &page->freelistHead;
         for (size_t slotIndex = 0; slotIndex < numSlots; ++slotIndex) {
@@ -1205,8 +1197,8 @@ static size_t partitionPurgePage(PartitionPage* page, bool discard)
         char* endPtr = beginPtr + slotSize;
         if (i != lastSlot)
             beginPtr += sizeof(PartitionFreelistEntry);
-        beginPtr = reinterpret_cast<char*>(partitionRoundUpToSystemPage(reinterpret_cast<size_t>(beginPtr)));
-        endPtr = reinterpret_cast<char*>(partitionRoundDownToSystemPage(reinterpret_cast<size_t>(endPtr)));
+        beginPtr = reinterpret_cast<char*>(WTF::roundUpToSystemPage(reinterpret_cast<size_t>(beginPtr)));
+        endPtr = reinterpret_cast<char*>(WTF::roundDownToSystemPage(reinterpret_cast<size_t>(endPtr)));
         if (beginPtr < endPtr) {
             size_t partialSlotBytes = endPtr - beginPtr;
             discardableBytes += partialSlotBytes;
@@ -1239,7 +1231,7 @@ void partitionPurgeMemory(PartitionRoot* root, int flags)
 
 void partitionPurgeMemoryGeneric(PartitionRootGeneric* root, int flags)
 {
-    spinLockLock(&root->lock);
+    SpinLock::Guard guard(root->lock);
     if (flags & PartitionPurgeDecommitEmptyPages)
         partitionDecommitEmptyPages(root);
     if (flags & PartitionPurgeDiscardUnusedSystemPages) {
@@ -1249,7 +1241,6 @@ void partitionPurgeMemoryGeneric(PartitionRootGeneric* root, int flags)
                 partitionPurgeBucket(bucket);
         }
     }
-    spinLockUnlock(&root->lock);
 }
 
 static void partitionDumpPageStats(PartitionBucketMemoryStats* statsOut, const PartitionPage* page)
@@ -1269,7 +1260,7 @@ static void partitionDumpPageStats(PartitionBucketMemoryStats* statsOut, const P
     else
         statsOut->activeBytes += (page->numAllocatedSlots * statsOut->bucketSlotSize);
 
-    size_t pageBytesResident = partitionRoundUpToSystemPage((bucketNumSlots - page->numUnprovisionedSlots) * statsOut->bucketSlotSize);
+    size_t pageBytesResident = WTF::roundUpToSystemPage((bucketNumSlots - page->numUnprovisionedSlots) * statsOut->bucketSlotSize);
     statsOut->residentBytes += pageBytesResident;
     if (partitionPageStateIsEmpty(page)) {
         statsOut->decommittableBytes += pageBytesResident;
@@ -1327,28 +1318,28 @@ void partitionDumpStatsGeneric(PartitionRootGeneric* partition, const char* part
     uint32_t directMapLengths[kMaxReportableDirectMaps];
     size_t numDirectMappedAllocations = 0;
 
-    spinLockLock(&partition->lock);
+    {
+        SpinLock::Guard guard(partition->lock);
 
-    for (size_t i = 0; i < kGenericNumBuckets; ++i) {
-        const PartitionBucket* bucket = &partition->buckets[i];
-        // Don't report the pseudo buckets that the generic allocator sets up in
-        // order to preserve a fast size->bucket map (see
-        // partitionAllocGenericInit for details).
-        if (!bucket->activePagesHead)
-            bucketStats[i].isValid = false;
-        else
-            partitionDumpBucketStats(&bucketStats[i], bucket);
+        for (size_t i = 0; i < kGenericNumBuckets; ++i) {
+            const PartitionBucket* bucket = &partition->buckets[i];
+            // Don't report the pseudo buckets that the generic allocator sets up in
+            // order to preserve a fast size->bucket map (see
+            // partitionAllocGenericInit for details).
+            if (!bucket->activePagesHead)
+                bucketStats[i].isValid = false;
+            else
+                partitionDumpBucketStats(&bucketStats[i], bucket);
+        }
+
+        for (PartitionDirectMapExtent* extent = partition->directMapList; extent; extent = extent->nextExtent) {
+            ASSERT(!extent->nextExtent || extent->nextExtent->prevExtent == extent);
+            directMapLengths[numDirectMappedAllocations] = extent->bucket->slotSize;
+            ++numDirectMappedAllocations;
+            if (numDirectMappedAllocations == kMaxReportableDirectMaps)
+                break;
+        }
     }
-
-    for (PartitionDirectMapExtent* extent = partition->directMapList; extent; extent = extent->nextExtent) {
-        ASSERT(!extent->nextExtent || extent->nextExtent->prevExtent == extent);
-        directMapLengths[numDirectMappedAllocations] = extent->bucket->slotSize;
-        ++numDirectMappedAllocations;
-        if (numDirectMappedAllocations == kMaxReportableDirectMaps)
-            break;
-    }
-
-    spinLockUnlock(&partition->lock);
 
     // partitionsDumpBucketStats is called after collecting stats because it
     // can try to allocate using PartitionAllocGeneric and it can't obtain the

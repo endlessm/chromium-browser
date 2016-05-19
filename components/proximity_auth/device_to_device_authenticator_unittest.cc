@@ -4,12 +4,15 @@
 
 #include "components/proximity_auth/device_to_device_authenticator.h"
 
+#include <utility>
+
+#include "base/base64url.h"
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/rand_util.h"
 #include "base/timer/mock_timer.h"
 #include "components/proximity_auth/connection.h"
-#include "components/proximity_auth/cryptauth/base64url.h"
 #include "components/proximity_auth/cryptauth/fake_secure_message_delegate.h"
 #include "components/proximity_auth/device_to_device_responder_operations.h"
 #include "components/proximity_auth/proximity_auth_test_util.h"
@@ -83,7 +86,7 @@ class FakeConnection : public Connection {
   // Connection:
   void SendMessageImpl(scoped_ptr<WireMessage> message) override {
     const WireMessage& message_alias = *message;
-    message_buffer_.push_back(message.Pass());
+    message_buffer_.push_back(std::move(message));
     OnDidSendMessage(message_alias, !connection_blocked_);
   }
 
@@ -103,7 +106,7 @@ class DeviceToDeviceAuthenticatorForTest : public DeviceToDeviceAuthenticator {
       scoped_ptr<SecureMessageDelegate> secure_message_delegate)
       : DeviceToDeviceAuthenticator(connection,
                                     kAccountId,
-                                    secure_message_delegate.Pass()),
+                                    std::move(secure_message_delegate)),
         timer_(nullptr) {}
   ~DeviceToDeviceAuthenticatorForTest() override {}
 
@@ -119,7 +122,7 @@ class DeviceToDeviceAuthenticatorForTest : public DeviceToDeviceAuthenticator {
         new base::MockTimer(retain_user_task, is_repeating));
 
     timer_ = timer.get();
-    return timer.Pass();
+    return std::move(timer);
   }
 
   // This instance is owned by the super class.
@@ -142,10 +145,14 @@ class ProximityAuthDeviceToDeviceAuthenticatorTest : public testing::Test {
 
   void SetUp() override {
     // Set up the session asymmetric keys for both the local and remote devices.
-    Base64UrlDecode(kInitiatorSessionPublicKeyBase64,
-                    &local_session_public_key_);
-    Base64UrlDecode(kResponderSessionPublicKeyBase64,
-                    &remote_session_public_key_);
+    ASSERT_TRUE(
+        base::Base64UrlDecode(kInitiatorSessionPublicKeyBase64,
+                              base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+                              &local_session_public_key_));
+    ASSERT_TRUE(
+        base::Base64UrlDecode(kResponderSessionPublicKeyBase64,
+                              base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+                              &remote_session_public_key_));
     remote_session_private_key_ =
         secure_message_delegate_->GetPrivateKeyForPublicKey(
             remote_session_public_key_),
@@ -207,7 +214,7 @@ class ProximityAuthDeviceToDeviceAuthenticatorTest : public testing::Test {
 
   void OnAuthenticationResult(Authenticator::Result result,
                               scoped_ptr<SecureContext> secure_context) {
-    secure_context_ = secure_context.Pass();
+    secure_context_ = std::move(secure_context);
     OnAuthenticationResultProxy(result);
   }
 

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -97,7 +98,7 @@ IN_PROC_BROWSER_TEST_F(TouchAccessibilityBrowserTest,
         BrowserAccessibility* hit = manager->GetFromID(target_id);
         BrowserAccessibility* child = hit->PlatformGetChild(0);
         ASSERT_NE(nullptr, child);
-        cell_text = child->GetData().GetStringAttribute(ui::AX_ATTR_VALUE);
+        cell_text = child->GetData().GetStringAttribute(ui::AX_ATTR_NAME);
         VLOG(1) << "Got hover event in cell with text: " << cell_text;
       } while (cell_text != expected_cell_text);
     }

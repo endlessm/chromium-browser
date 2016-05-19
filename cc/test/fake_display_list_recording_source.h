@@ -5,6 +5,8 @@
 #ifndef CC_TEST_FAKE_DISPLAY_LIST_RECORDING_SOURCE_H_
 #define CC_TEST_FAKE_DISPLAY_LIST_RECORDING_SOURCE_H_
 
+#include <stddef.h>
+
 #include "cc/base/region.h"
 #include "cc/playback/display_list_recording_source.h"
 #include "cc/test/fake_content_layer_client.h"
@@ -21,9 +23,7 @@ namespace cc {
 // display list.
 class FakeDisplayListRecordingSource : public DisplayListRecordingSource {
  public:
-  FakeDisplayListRecordingSource()
-      : force_unsuitable_for_gpu_rasterization_(false),
-        playback_allowed_event_(nullptr) {}
+  FakeDisplayListRecordingSource();
   ~FakeDisplayListRecordingSource() override {}
 
   static scoped_ptr<FakeDisplayListRecordingSource> CreateRecordingSource(
@@ -50,18 +50,26 @@ class FakeDisplayListRecordingSource : public DisplayListRecordingSource {
       bool can_use_lcd) const override;
   bool IsSuitableForGpuRasterization() const override;
 
+  void SetDisplayListUsesCachedPicture(bool use_cached_picture) {
+    client_.set_display_list_use_cached_picture(use_cached_picture);
+  }
+
   void SetRecordedViewport(const gfx::Rect& recorded_viewport) {
     recorded_viewport_ = recorded_viewport;
   }
 
-  void SetLayerBounds(const gfx::Size& layer_bounds) { size_ = layer_bounds; }
+  void SetLayerBounds(const gfx::Size& layer_bounds) {
+    size_ = layer_bounds;
+    client_.set_bounds(layer_bounds);
+  }
 
   void SetClearCanvasWithDebugColor(bool clear) {
     clear_canvas_with_debug_color_ = clear;
   }
 
   void Rerecord() {
-    Region invalidation = recorded_viewport_;
+    SetNeedsDisplayRect(recorded_viewport_);
+    Region invalidation;
     UpdateAndExpandInvalidation(&client_, &invalidation, size_,
                                 recorded_viewport_, 0, RECORD_NORMALLY);
   }
@@ -103,7 +111,10 @@ class FakeDisplayListRecordingSource : public DisplayListRecordingSource {
     client_.set_reported_memory_usage(reported_memory_usage);
   }
 
-  void reset_draws() { client_ = FakeContentLayerClient(); }
+  void reset_draws() {
+    client_ = FakeContentLayerClient();
+    client_.set_bounds(size_);
+  }
 
   void SetUnsuitableForGpuRasterization() {
     force_unsuitable_for_gpu_rasterization_ = true;
@@ -114,9 +125,11 @@ class FakeDisplayListRecordingSource : public DisplayListRecordingSource {
   }
 
   DisplayItemList* display_list() const { return display_list_.get(); }
-  void set_pixel_record_distance(int distance) {
-    pixel_record_distance_ = distance;
-  }
+
+  // Checks that the basic properties of the |other| match |this|.  For the
+  // DisplayItemList, it checks that the painted result matches the painted
+  // result of |other|.
+  bool EqualsTo(const FakeDisplayListRecordingSource& other);
 
  private:
   FakeContentLayerClient client_;

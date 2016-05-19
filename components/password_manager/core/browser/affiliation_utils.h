@@ -48,6 +48,8 @@
 #include <string>
 #include <vector>
 
+#include <stddef.h>
+
 #include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
@@ -161,6 +163,7 @@ typedef std::vector<FacetURI> AffiliatedFacets;
 // authoritative source.
 struct AffiliatedFacetsWithUpdateTime {
   AffiliatedFacetsWithUpdateTime();
+  AffiliatedFacetsWithUpdateTime(const AffiliatedFacetsWithUpdateTime& other);
   ~AffiliatedFacetsWithUpdateTime();
 
   AffiliatedFacets facets;
@@ -177,25 +180,18 @@ bool AreEquivalenceClassesEqual(const AffiliatedFacets& a,
 // A shorter way to spell FacetURI::IsValidAndroidFacetURI().
 bool IsValidAndroidFacetURI(const std::string& uri);
 
-// Returns whether or not affiliation based matching is enabled, either via
-// command line flags or field trials. The command line flag, if present, always
-// takes precedence.
+// Returns whether or not affiliation based matching is enabled. The feature is
+// enabled by default, but can be disabled either via command line flags or
+// field trials. The command line flag, if present, always takes precedence.
 bool IsAffiliationBasedMatchingEnabled(const base::CommandLine& command_line);
 
 // Returns whether or not propagating password changes to affiliated saved web
-// credentials is enabled via variation parameters. This allows disabling only
-// the sub-feature while leaving the rest of the affiliation-based matching
-// enabled. If the main feature is forced enabled/disabled via the command line,
-// the sub-feature will be force enabled/disabled correspondingly.
+// credentials is enabled. It is enabled by default, but can be disabled
+// separately via variation parameters while leaving the rest of the
+// affiliation-based matching enabled. If the main feature is forced
+// enabled/disabled via the command line, this sub-feature will be force
+// enabled/disabled correspondingly.
 bool IsPropagatingPasswordChangesToWebCredentialsEnabled(
-    const base::CommandLine& command_line);
-
-// Returns whether or not affiliation requests for dummy facets should be
-// triggered as part of an experiment to exercise AffiliationService code before
-// users would get a chance to have any real Android-based credentials. If the
-// main feature is forced enabled/disabled via the command line, the experiment
-// is force enabled/disabled correspondingly.
-bool IsAffiliationRequestsForDummyFacetsEnabled(
     const base::CommandLine& command_line);
 
 // Returns the origin URI in a format which can be presented to a user based of

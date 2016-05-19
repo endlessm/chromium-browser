@@ -5,9 +5,10 @@
 #ifndef COMPONENTS_RAPPOR_RAPPOR_METRIC_H_
 #define COMPONENTS_RAPPOR_RAPPOR_METRIC_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/macros.h"
 #include "components/rappor/bloom_filter.h"
 #include "components/rappor/byte_vector_utils.h"
@@ -49,9 +50,6 @@ class RapporMetric {
   // randomly selects bits for redaction.  Then flips coins to generate the
   // final report bits.
   ByteVector GetReport(const std::string& secret) const;
-
-  // Specify the bytes to generate a report from, for testing purposes.
-  void SetBytesForTesting(const ByteVector& bytes);
 
  private:
   const std::string metric_name_;

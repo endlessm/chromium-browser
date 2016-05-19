@@ -4,6 +4,9 @@
 
 #include "cc/test/test_context_provider.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <set>
 #include <vector>
 
@@ -40,12 +43,12 @@ scoped_refptr<TestContextProvider> TestContextProvider::Create(
     scoped_ptr<TestWebGraphicsContext3D> context) {
   if (!context)
     return NULL;
-  return new TestContextProvider(context.Pass());
+  return new TestContextProvider(std::move(context));
 }
 
 TestContextProvider::TestContextProvider(
     scoped_ptr<TestWebGraphicsContext3D> context)
-    : context3d_(context.Pass()),
+    : context3d_(std::move(context)),
       context_gl_(new TestGLES2Interface(context3d_.get())),
       bound_(false),
       weak_ptr_factory_(this) {
@@ -109,8 +112,7 @@ class GrContext* TestContextProvider::GrContext() {
   if (gr_context_)
     return gr_context_.get();
 
-  skia::RefPtr<class SkGLContext> gl_context =
-      skia::AdoptRef(SkNullGLContext::Create(kNone_GrGLStandard));
+  scoped_ptr<class SkGLContext> gl_context(SkNullGLContext::Create());
   gl_context->makeCurrent();
   gr_context_ = skia::AdoptRef(GrContext::Create(
       kOpenGL_GrBackend, reinterpret_cast<GrBackendContext>(gl_context->gl())));

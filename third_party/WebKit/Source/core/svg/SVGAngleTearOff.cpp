@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/SVGAngleTearOff.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -115,10 +114,13 @@ void SVGAngleTearOff::setValueAsString(const String& value, ExceptionState& exce
 
     String oldValue = target()->valueAsString();
 
-    target()->setValueAsString(value, exceptionState);
+    SVGParsingError status = target()->setValueAsString(value);
 
-    if (!exceptionState.hadException() && !hasExposedAngleUnit()) {
-        target()->setValueAsString(oldValue, ASSERT_NO_EXCEPTION); // rollback to old value
+    if (status == SVGParseStatus::NoError && !hasExposedAngleUnit()) {
+        target()->setValueAsString(oldValue); // rollback to old value
+        status = SVGParseStatus::ParsingFailed;
+    }
+    if (status != SVGParseStatus::NoError) {
         exceptionState.throwDOMException(SyntaxError, "The value provided ('" + value + "') is invalid.");
         return;
     }
@@ -126,4 +128,4 @@ void SVGAngleTearOff::setValueAsString(const String& value, ExceptionState& exce
     commitChange();
 }
 
-}
+} // namespace blink

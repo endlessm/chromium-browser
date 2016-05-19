@@ -7,9 +7,10 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/grit/generated_resources.h"
@@ -19,6 +20,7 @@
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "chromeos/network/network_util.h"
 #include "components/guest_view/browser/guest_view_manager.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
@@ -35,7 +37,7 @@ namespace {
 // Gets the WebContents instance of current login display. If there is none,
 // returns nullptr.
 content::WebContents* GetLoginWebContents() {
-  LoginDisplayHost* host = LoginDisplayHostImpl::default_host();
+  LoginDisplayHost* host = LoginDisplayHost::default_host();
   if (!host || !host->GetWebUILoginView())
     return nullptr;
 
@@ -85,8 +87,7 @@ content::StoragePartition* GetPartition(content::WebContents* embedder,
 }  // namespace
 
 gfx::Rect CalculateScreenBounds(const gfx::Size& size) {
-  gfx::Rect bounds =
-      gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().bounds();
+  gfx::Rect bounds = gfx::Screen::GetScreen()->GetPrimaryDisplay().bounds();
   if (!size.IsEmpty()) {
     int horizontal_diff = bounds.width() - size.width();
     int vertical_diff = bounds.height() - size.height();
@@ -129,6 +130,34 @@ base::string16 NetworkStateHelper::GetCurrentNetworkName() const {
   return base::string16();
 }
 
+void NetworkStateHelper::GetConnectedWifiNetwork(std::string* out_onc_spec) {
+  const NetworkState* network_state =
+      NetworkHandler::Get()->network_state_handler()->ConnectedNetworkByType(
+          NetworkTypePattern::WiFi());
+
+  if (!network_state)
+    return;
+
+  scoped_ptr<base::DictionaryValue> current_onc =
+      network_util::TranslateNetworkStateToONC(network_state);
+  std::string security;
+  current_onc->GetString(
+      onc::network_config::WifiProperty(onc::wifi::kSecurity), &security);
+  if (security != onc::wifi::kSecurityNone)
+    return;
+
+  const std::string hex_ssid = network_state->GetHexSsid();
+
+  scoped_ptr<base::DictionaryValue> copied_onc(new base::DictionaryValue());
+  copied_onc->Set(onc::toplevel_config::kType,
+                  new base::StringValue(onc::network_type::kWiFi));
+  copied_onc->Set(onc::network_config::WifiProperty(onc::wifi::kHexSSID),
+                  new base::StringValue(hex_ssid));
+  copied_onc->Set(onc::network_config::WifiProperty(onc::wifi::kSecurity),
+                  new base::StringValue(security));
+  base::JSONWriter::Write(*copied_onc.get(), out_onc_spec);
+}
+
 void NetworkStateHelper::CreateAndConnectNetworkFromOnc(
     const std::string& onc_spec,
     const base::Closure& success_callback,
@@ -140,6 +169,7 @@ void NetworkStateHelper::CreateAndConnectNetworkFromOnc(
   base::DictionaryValue* toplevel_onc = nullptr;
   if (!root || !root->GetAsDictionary(&toplevel_onc)) {
     LOG(ERROR) << "Invalid JSON Dictionary: " << error;
+    error_callback.Run();
     return;
   }
 
@@ -204,7 +234,7 @@ net::URLRequestContextGetter* GetSigninContext() {
     // Special case for unit tests. There's no LoginDisplayHost thus no
     // webview instance. TODO(nkostylev): Investigate if there's a better
     // place to address this like dependency injection. http://crbug.com/477402
-    if (!signin_partition && !LoginDisplayHostImpl::default_host())
+    if (!signin_partition && !LoginDisplayHost::default_host())
       return ProfileHelper::GetSigninProfile()->GetRequestContext();
 
     if (!signin_partition)

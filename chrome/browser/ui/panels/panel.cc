@@ -4,7 +4,10 @@
 
 #include "chrome/browser/ui/panels/panel.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -61,6 +64,9 @@ class PanelExtensionWindowController : public extensions::WindowController {
       const extensions::Extension* extension) const override;
   base::DictionaryValue* CreateTabValue(const extensions::Extension* extension,
                                         int tab_index) const override;
+  scoped_ptr<extensions::api::tabs::Tab> CreateTabObject(
+      const extensions::Extension* extension,
+      int tab_index) const override;
   bool CanClose(Reason* reason) const override;
   void SetFullscreenMode(bool is_fullscreen,
                          const GURL& extension_url) const override;
@@ -107,36 +113,38 @@ PanelExtensionWindowController::CreateWindowValueWithTabs(
 
 base::DictionaryValue* PanelExtensionWindowController::CreateTabValue(
     const extensions::Extension* extension, int tab_index) const {
+  return CreateTabObject(extension, tab_index)->ToValue().release();
+}
+
+scoped_ptr<extensions::api::tabs::Tab>
+PanelExtensionWindowController::CreateTabObject(
+    const extensions::Extension* extension,
+    int tab_index) const {
   if (tab_index > 0)
-    return NULL;
+    return nullptr;
 
   content::WebContents* web_contents = panel_->GetWebContents();
   if (!web_contents)
-    return NULL;
+    return nullptr;
 
-  base::DictionaryValue* tab_value = new base::DictionaryValue();
-  tab_value->SetInteger(extensions::tabs_constants::kIdKey,
-                        SessionTabHelper::IdForTab(web_contents));
-  tab_value->SetInteger(extensions::tabs_constants::kIndexKey, 0);
-  tab_value->SetInteger(
-      extensions::tabs_constants::kWindowIdKey,
-      SessionTabHelper::IdForWindowContainingTab(web_contents));
-  tab_value->SetString(
-      extensions::tabs_constants::kUrlKey, web_contents->GetURL().spec());
-  tab_value->SetString(extensions::tabs_constants::kStatusKey,
-                       extensions::ExtensionTabUtil::GetTabStatusText(
-                           web_contents->IsLoading()));
-  tab_value->SetBoolean(
-      extensions::tabs_constants::kActiveKey, panel_->IsActive());
-  tab_value->SetBoolean(extensions::tabs_constants::kSelectedKey, true);
-  tab_value->SetBoolean(extensions::tabs_constants::kHighlightedKey, true);
-  tab_value->SetBoolean(extensions::tabs_constants::kPinnedKey, false);
-  tab_value->SetString(
-      extensions::tabs_constants::kTitleKey, web_contents->GetTitle());
-  tab_value->SetBoolean(
-      extensions::tabs_constants::kIncognitoKey,
-      web_contents->GetBrowserContext()->IsOffTheRecord());
-  return tab_value;
+  scoped_ptr<extensions::api::tabs::Tab> tab_object(
+      new extensions::api::tabs::Tab);
+  tab_object->id.reset(new int(SessionTabHelper::IdForTab(web_contents)));
+  tab_object->index = 0;
+  tab_object->window_id =
+      SessionTabHelper::IdForWindowContainingTab(web_contents);
+  tab_object->url.reset(new std::string(web_contents->GetURL().spec()));
+  tab_object->status.reset(
+      new std::string(extensions::ExtensionTabUtil::GetTabStatusText(
+          web_contents->IsLoading())));
+  tab_object->active = panel_->IsActive();
+  tab_object->selected = true;
+  tab_object->highlighted = true;
+  tab_object->pinned = false;
+  tab_object->title.reset(
+      new std::string(base::UTF16ToUTF8(web_contents->GetTitle())));
+  tab_object->incognito = web_contents->GetBrowserContext()->IsOffTheRecord();
+  return tab_object;
 }
 
 bool PanelExtensionWindowController::CanClose(Reason* reason) const {
@@ -514,6 +522,7 @@ panel::Resizability Panel::CanResizeByMouse() const {
 }
 
 void Panel::Initialize(const GURL& url,
+                       content::SiteInstance* source_site_instance,
                        const gfx::Rect& bounds,
                        bool always_on_top) {
   DCHECK(!initialized_);
@@ -531,7 +540,7 @@ void Panel::Initialize(const GURL& url,
 
   // Set up hosting for web contents.
   panel_host_.reset(new PanelHost(this, profile_));
-  panel_host_->Init(url);
+  panel_host_->Init(url, source_site_instance);
   content::WebContents* web_contents = GetWebContents();
   // The contents might be NULL for most of our tests.
   if (web_contents) {

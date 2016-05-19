@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/scoped_user_pref_update.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "ui/base/ui_base_types.h"
 
 class Browser;
@@ -40,6 +40,10 @@ const base::DictionaryValue* GetWindowPlacementDictionaryReadOnly(
     PrefService* prefs);
 
 bool ShouldSaveWindowPlacement(const Browser* browser);
+
+// Returns true if the saved bounds for this window should be treated as the
+// bounds of the content area, not the whole window.
+bool SavedBoundsAreContentBounds(const Browser* browser);
 
 void SaveWindowPlacement(const Browser* browser,
                          const gfx::Rect& bounds,

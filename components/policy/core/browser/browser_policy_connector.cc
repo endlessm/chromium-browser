@@ -4,14 +4,16 @@
 
 #include "components/policy/core/browser/browser_policy_connector.h"
 
+#include <stddef.h>
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/prefs/pref_registry_simple.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/policy/core/common/cloud/cloud_policy_refresh_scheduler.h"
@@ -21,6 +23,7 @@
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/policy/core/common/policy_statistics_collector.h"
 #include "components/policy/core/common/policy_switches.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "policy/policy_constants.h"
 #include "third_party/icu/source/i18n/unicode/regex.h"
@@ -39,9 +42,7 @@ void ReportRegexSuccessMetric(bool success) {
 }
 
 // Regexes that match many of the larger public email providers as we know
-// these users are not from hosted enterprise domains. Keep this list in sync
-// with the EnterpriseDomainRegex enum in histograms.xml (i.e. only add things
-// at the end).
+// these users are not from hosted enterprise domains.
 const wchar_t* const kNonManagedDomainPatterns[] = {
   L"aol\\.com",
   L"googlemail\\.com",
@@ -53,6 +54,7 @@ const wchar_t* const kNonManagedDomainPatterns[] = {
   L"qq\\.com",
   L"yahoo(\\.co|\\.com|)\\.[^.]+",  // yahoo.com, yahoo.co.uk, yahoo.com.tw
   L"yandex\\.ru",
+  L"consumer\\.example\\.com",
 };
 
 // Returns true if |domain| matches the regex |pattern|.
@@ -100,7 +102,7 @@ void BrowserPolicyConnector::InitInternal(
     scoped_ptr<DeviceManagementService> device_management_service) {
   DCHECK(!is_initialized());
 
-  device_management_service_ = device_management_service.Pass();
+  device_management_service_ = std::move(device_management_service);
 
   policy_statistics_collector_.reset(new policy::PolicyStatisticsCollector(
       base::Bind(&GetChromePolicyDetails), GetChromeSchema(),
@@ -117,7 +119,7 @@ void BrowserPolicyConnector::Shutdown() {
 }
 
 void BrowserPolicyConnector::ScheduleServiceInitialization(
-    int64 delay_milliseconds) {
+    int64_t delay_milliseconds) {
   // Skip device initialization if the BrowserPolicyConnector was never
   // initialized (unit tests).
   if (device_management_service_)

@@ -5,24 +5,33 @@
  */
 
 .device-mode-size-input {
-    width: 80px !important;
-    text-align: center;
-    background: hsl(0, 0%, 97%);
-    border: 1px solid rgb(216, 216, 216);
-}
-
-.device-mode-size-input:hover,
-.device-mode-size-input:focus {
-    border: 1px solid rgb(202, 202, 202);
-}
-
-.device-mode-device-select {
-    background: none;
-    box-shadow: none;
+    background: hsl(0, 0%, 100%);
     border: none;
-    outline: none;
-    padding: 0 2px;
-    -webkit-appearance: menulist;
-    margin: 0;
-    width: 120px;
+    padding: 2px 0;
+    width: 34px !important;
+    margin: 0 2px;
+    text-align: center;
+    box-shadow: 0px 0px 1px 0px hsla(0, 0%, 0%, 0.13);
+    border-radius: 1px;
+    height: 18px;
+    color: hsl(210, 16%, 22%);
+}
+
+.device-mode-size-input:focus::-webkit-input-placeholder {
+    color: transparent;
+}
+
+.device-mode-size-input:disabled {
+    background: transparent;
+    box-shadow: none;
+    -webkit-user-select: none;
+}
+
+.device-mode-x {
+    margin: 0 1px;
+    font-size: 16px;
+}
+
+.device-mode-empty-toolbar-element {
+    width: 0;
 }

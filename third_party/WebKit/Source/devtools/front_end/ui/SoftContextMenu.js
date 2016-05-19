@@ -54,8 +54,7 @@ WebInspector.SoftContextMenu.prototype = {
 
         // Create context menu.
         this.element = createElementWithClass("div", "soft-context-menu");
-        var root = WebInspector.createShadowRootWithCoreStyles(this.element);
-        root.appendChild(WebInspector.Widget.createStyleElement("ui/softContextMenu.css"));
+        var root = WebInspector.createShadowRootWithCoreStyles(this.element, "ui/softContextMenu.css");
         this._contextMenuElement = root.createChild("div");
         this.element.style.top = y + "px";
         var subMenuOverlap = 3;
@@ -135,6 +134,8 @@ WebInspector.SoftContextMenu.prototype = {
             return menuItemElement;
         }
 
+        if (!item.enabled)
+            menuItemElement.classList.add("soft-context-menu-disabled");
         menuItemElement.createTextChild(item.label);
         menuItemElement.createChild("span", "soft-context-menu-shortcut").textContent = item.shortcut;
 
@@ -381,7 +382,7 @@ WebInspector.SoftContextMenu.prototype = {
                 event.consume(true);
         }
         if (this._discardMenuOnResizeListener) {
-            this._document.defaultView.removeEventListener(this._discardMenuOnResizeListener);
+            this._document.defaultView.removeEventListener("resize", this._discardMenuOnResizeListener, false);
             delete this._discardMenuOnResizeListener;
         }
     },

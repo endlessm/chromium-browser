@@ -4,6 +4,7 @@
 
 #include "net/cert/x509_util_openssl.h"
 
+#include <limits.h>
 #include <openssl/asn1.h>
 #include <openssl/mem.h>
 
@@ -11,6 +12,7 @@
 
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "crypto/ec_private_key.h"
@@ -33,7 +35,6 @@ using ScopedASN1_STRING = crypto::ScopedOpenSSL<ASN1_STRING, ASN1_STRING_free>;
 using ScopedASN1_TIME = crypto::ScopedOpenSSL<ASN1_TIME, ASN1_TIME_free>;
 using ScopedX509_EXTENSION =
     crypto::ScopedOpenSSL<X509_EXTENSION, X509_EXTENSION_free>;
-using ScopedX509_NAME = crypto::ScopedOpenSSL<X509_NAME, X509_NAME_free>;
 
 const EVP_MD* ToEVP(x509_util::DigestAlgorithm alg) {
   switch (alg) {
@@ -196,39 +197,6 @@ base::LazyInstance<DERCacheInitSingleton>::Leaky g_der_cache_singleton =
     LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
-
-bool IsSupportedValidityRange(base::Time not_valid_before,
-                              base::Time not_valid_after) {
-  if (not_valid_before > not_valid_after)
-    return false;
-
-  // The validity field of a certificate can only encode years 1-9999.
-
-  // Compute the base::Time values corresponding to Jan 1st,0001 and
-  // Jan 1st, 10000 respectively. Done by using the pre-computed numbers
-  // of days between these dates and the Unix epoch, i.e. Jan 1st, 1970,
-  // using the following Python script:
-  //
-  //     from datetime import date as D
-  //     print (D(1970,1,1)-D(1,1,1))        # -> 719162 days
-  //     print (D(9999,12,31)-D(1970,1,1))   # -> 2932896 days
-  //
-  // Note: This ignores leap seconds, but should be enough in practice.
-  //
-  const int64_t kDaysFromYear0001ToUnixEpoch = 719162;
-  const int64_t kDaysFromUnixEpochToYear10000 = 2932896 + 1;
-  const base::Time kEpoch = base::Time::UnixEpoch();
-  const base::Time kYear0001 = kEpoch -
-      base::TimeDelta::FromDays(kDaysFromYear0001ToUnixEpoch);
-  const base::Time kYear10000 = kEpoch +
-      base::TimeDelta::FromDays(kDaysFromUnixEpochToYear10000);
-
-  if (not_valid_before < kYear0001 || not_valid_before >= kYear10000 ||
-      not_valid_after < kYear0001 || not_valid_after >= kYear10000)
-    return false;
-
-  return true;
-}
 
 bool CreateSelfSignedCert(crypto::RSAPrivateKey* key,
                           DigestAlgorithm alg,

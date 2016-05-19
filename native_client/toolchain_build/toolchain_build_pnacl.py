@@ -16,6 +16,7 @@ import fnmatch
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import zipfile
 
@@ -48,7 +49,7 @@ NACL_TOOLS_DIR = os.path.join(NACL_DIR, 'tools')
 # (i.e. before the tests would pass on the main NaCl buildbots/trybots).
 # If you are adding a test that depends on a toolchain change, you can
 # increment this version number manually.
-FEATURE_VERSION = 12
+FEATURE_VERSION = 18
 
 # For backward compatibility, these key names match the directory names
 # previously used with gclient
@@ -89,9 +90,18 @@ CROSS_MINGW_LIBPATH = '/usr/lib/gcc/i686-w64-mingw32/4.6'
 MINGW_PATH = os.path.join(NACL_DIR, 'mingw32')
 MINGW_VERSION = 'i686-w64-mingw32-4.8.1'
 
-CHROME_CLANG = os.path.join(os.path.dirname(NACL_DIR), 'third_party',
-                            'llvm-build', 'Release+Asserts', 'bin', 'clang')
-CHROME_CLANGXX = CHROME_CLANG + '++'
+CHROME_CLANG_DIR = os.path.join(os.path.dirname(NACL_DIR), 'third_party',
+                                'llvm-build', 'Release+Asserts', 'bin')
+CHROME_CLANG = os.path.join(CHROME_CLANG_DIR, 'clang')
+CHROME_CLANGXX = os.path.join(CHROME_CLANG_DIR, 'clang++')
+
+# Use an arbitrary, large enough constant
+GOMA_JOBS = 100
+
+# Required SDK version and target version for Mac builds.
+# See MAC_SDK_FLAGS, below.
+MAC_SDK_MIN = '10.10'
+MAC_DEPLOYMENT_TARGET = '10.6'
 
 # Redirectors are small shims acting like sym links with optional arguments.
 # For mac/linux we simply use a shell script which create small redirector
@@ -150,6 +160,24 @@ def ProgramPath(program):
   return None
 
 
+# Determine the extra compiler flags necessary for Mac.  Do this once at
+# top level, rather than every time in CompilersForHost, because running
+# the external script is costly.
+def MacSdkFlags():
+  if not pynacl.platform.IsMac():
+    return []
+  mac_sdk_sysroot, mac_sdk_version = subprocess.check_output([
+      sys.executable,
+      os.path.join(os.path.dirname(NACL_DIR), 'build', 'mac', 'find_sdk.py'),
+      '--print_sdk_path',
+      MAC_SDK_MIN,
+      ]).splitlines()
+  return ['-isysroot', mac_sdk_sysroot,
+          '-mmacosx-version-min=' + MAC_DEPLOYMENT_TARGET]
+
+MAC_SDK_FLAGS = MacSdkFlags()
+
+
 def InputsForCommands(commands):
   """Returns a dict of extra 'inputs' items for command names.
 Each command name that is an absolute path gets an item named for
@@ -167,29 +195,31 @@ binaries themselves should be considered inputs for memoization.
 # Return a tuple (C compiler, C++ compiler, ar, ranlib) of the compilers and
 # tools to compile the host toolchains.
 def CompilersForHost(host):
-  compiler = {
+  rtn = {
       # For now we only do native builds for linux and mac
       # treat 32-bit linux like a native build
-      'i686-linux': (CHROME_CLANG, CHROME_CLANGXX, 'ar', 'ranlib'),
-      'x86_64-linux': (CHROME_CLANG, CHROME_CLANGXX, 'ar', 'ranlib'),
-      'x86_64-apple-darwin': (CHROME_CLANG, CHROME_CLANGXX, 'ar', 'ranlib'),
+      'i686-linux': [CHROME_CLANG, CHROME_CLANGXX, 'ar', 'ranlib'],
+      'x86_64-linux': [CHROME_CLANG, CHROME_CLANGXX, 'ar', 'ranlib'],
+      'x86_64-apple-darwin': [CHROME_CLANG, CHROME_CLANGXX, 'ar', 'ranlib'],
       # Windows build should work for native and cross
-      'i686-w64-mingw32': (
-          'i686-w64-mingw32-gcc', 'i686-w64-mingw32-g++', 'ar', 'ranlib'),
+      'i686-w64-mingw32': [
+          'i686-w64-mingw32-gcc', 'i686-w64-mingw32-g++', 'ar', 'ranlib'],
       # TODO: add arm-hosted support
-      'i686-pc-cygwin': ('gcc', 'g++', 'ar', 'ranlib'),
-  }
-  if host == 'le32-nacl':
-    nacl_sdk = os.environ.get('NACL_SDK_ROOT')
-    assert nacl_sdk, 'NACL_SDK_ROOT not set'
-    pnacl_bin_dir = os.path.join(nacl_sdk, 'toolchain/linux_pnacl/bin')
-    compiler.update({
-        'le32-nacl': (os.path.join(pnacl_bin_dir, 'pnacl-clang'),
-                      os.path.join(pnacl_bin_dir, 'pnacl-clang++'),
-                      os.path.join(pnacl_bin_dir, 'pnacl-ar'),
-                      os.path.join(pnacl_bin_dir, 'pnacl-ranlib')),
-    })
-  return compiler[host]
+      'i686-pc-cygwin': ['gcc', 'g++', 'ar', 'ranlib'],
+      'le32-nacl': ['pnacl-clang', 'pnacl-clang++', 'pnacl-ar', 'pnacl-ranlib'],
+  }[host]
+
+  # Allow caller to override host toolchain
+  if 'CC' in os.environ:
+    rtn[0] = os.environ['CC']
+  if 'CXX' in os.environ:
+    rtn[1] = os.environ['CXX']
+  if 'AR' in os.environ:
+    rtn[2] = os.environ['AR']
+  if 'RANLIB' in os.environ:
+    rtn[3] = os.environ['RANLIB']
+
+  return rtn
 
 def AflFuzzCompilers(afl_fuzz_dir):
   """Returns the AFL (clang) compiler executables, assuming afl_fuzz_dir
@@ -214,6 +244,19 @@ def AflFuzzEnvList(host, options):
   arg_map = AflFuzzEnvMap(host, options)
   return sorted([key + '=' + arg_map[key] for key in arg_map])
 
+def GomaCompilers(host, options):
+  cc, cxx, _, _ = CompilersForHost(host)
+  if not options.goma or (cc, cxx) != (CHROME_CLANG, CHROME_CLANGXX):
+    return (cc, cxx)
+  return (os.path.join(options.goma, 'clang'),
+          os.path.join(options.goma, 'clang++'))
+
+def GomaPathDirs(host, options):
+  cc, cxx, _, _ = CompilersForHost(host)
+  if not options.goma or (cc, cxx) != (CHROME_CLANG, CHROME_CLANGXX):
+    return []
+  return [CHROME_CLANG_DIR]
+
 def GSDJoin(*args):
   return '_'.join([pynacl.gsd_storage.LegalizeName(arg) for arg in args])
 
@@ -229,22 +272,25 @@ def HostArchToolFlags(host, extra_cflags, opts):
   """Return the appropriate CFLAGS, CXXFLAGS, and LDFLAGS based on host
   and opts. Does not attempt to determine flags that are attached
   to CC and CXX directly.
+
+  Returns the tuple (flags, deps) where 'flags' is a dictionary mapping
+  'CFLAGS' et al to a list of arguments, and 'deps' is a list of extra
+  dependencies for a component using these flags.
   """
   extra_cc_flags = list(extra_cflags)
   result = { 'LDFLAGS' : [],
              'CFLAGS' : [],
              'CXXFLAGS' : []}
+  deps = []
   if TripleIsWindows(host):
     result['LDFLAGS'] += ['-L%(abs_libdl)s', '-ldl']
     result['CFLAGS'] += ['-isystem','%(abs_libdl)s']
     result['CXXFLAGS'] += ['-isystem', '%(abs_libdl)s']
+    deps.append('libdl')
   else:
     if TripleIsLinux(host) and not TripleIsX8664(host):
       # Chrome clang defaults to 64-bit builds, even when run on 32-bit Linux.
       extra_cc_flags += ['-m32']
-    elif TripleIsMac(host):
-      # This is required for building with recent libc++ against OSX 10.6
-      extra_cc_flags += ['-U__STRICT_ANSI__']
     if opts.gcc or host == 'le32-nacl':
       result['CFLAGS']  += extra_cc_flags
       result['CXXFLAGS'] += extra_cc_flags
@@ -254,9 +300,11 @@ def HostArchToolFlags(host, extra_cflags, opts):
                                                   host, opts) + ')s/lib']
       result['CXXFLAGS'] += ([
         '-stdlib=libc++',
+        '-nostdinc++',
         '-I%(' + FlavoredName('abs_libcxx', host, opts) + ')s/include/c++/v1'] +
         extra_cc_flags)
-  return result
+      deps.append(FlavoredName('libcxx', host, opts))
+  return result, deps
 
 
 def ConfigureHostArchFlags(host, extra_cflags, options, extra_configure=None,
@@ -264,8 +312,9 @@ def ConfigureHostArchFlags(host, extra_cflags, options, extra_configure=None,
   """Return flags passed to LLVM and binutils configure for compilers and
   compile flags.
 
-  Returns the tuple (flags, inputs) where 'flags' is a list of arguments to
-  configure and 'inputs' is a dict of extra inputs to be hashed.
+  Returns the tuple (flags, inputs, deps) where 'flags' is a list of
+  arguments to configure, 'inputs' is a dict of extra inputs to be hashed,
+  and 'deps' is a list of extra dependencies for a component using these flags.
   """
   configure_args = []
   extra_cc_args = []
@@ -298,6 +347,9 @@ def ConfigureHostArchFlags(host, extra_cflags, options, extra_configure=None,
     cc, cxx, ar, ranlib = CompilersForHost(host)
     hashables += [cc, cxx, ar, ranlib]
 
+    if options.goma:
+      cc, cxx = GomaCompilers(host, options)
+
     # Introduce afl-fuzz compiler wrappers if needed.
     if use_afl_fuzz:
       cc, cxx = AflFuzzCompilers(options.afl_fuzz_dir)
@@ -314,12 +366,17 @@ def ConfigureHostArchFlags(host, extra_cflags, options, extra_configure=None,
     else:
       cc_list = [cc]
       cxx_list = [cxx]
+
+    if TripleIsMac(host):
+      cc_list += MAC_SDK_FLAGS
+      cxx_list += MAC_SDK_FLAGS
+
     configure_args.append('CC=' + ' '.join(cc_list + extra_cc_args))
     configure_args.append('CXX=' + ' '.join(cxx_list + extra_cxx_args))
     configure_args.append('AR=' + ar)
     configure_args.append('RANLIB=' + ranlib)
 
-  tool_flags = HostArchToolFlags(host, extra_cflags, options)
+  tool_flags, tool_deps = HostArchToolFlags(host, extra_cflags, options)
   configure_args.extend(
        ['CFLAGS=' + ' '.join(tool_flags['CFLAGS']),
         'CXXFLAGS=' + ' '.join(tool_flags['CXXFLAGS']),
@@ -333,26 +390,33 @@ def ConfigureHostArchFlags(host, extra_cflags, options, extra_configure=None,
     if is_cross:
       # LLVM's linux->mingw cross build needs this
       configure_args.append('CC_FOR_BUILD=gcc')
-  return configure_args, InputsForCommands(hashables)
+  return configure_args, InputsForCommands(hashables), tool_deps
 
 
-def LibCxxHostArchFlags(host):
+def LibCxxHostArchFlags(host, options):
   cc, cxx, _, _ = CompilersForHost(host)
   hashables = [cc, cxx]
+  if options.goma:
+    cc, cxx = GomaCompilers(host, options)
   cmake_flags = []
   cmake_flags.extend(['-DCMAKE_C_COMPILER='+cc, '-DCMAKE_CXX_COMPILER='+cxx])
   if TripleIsLinux(host) and not TripleIsX8664(host):
     # Chrome clang defaults to 64-bit builds, even when run on 32-bit Linux
     cmake_flags.extend(['-DCMAKE_C_FLAGS=-m32',
                         '-DCMAKE_CXX_FLAGS=-m32'])
+  elif TripleIsMac(host):
+    sdk_flags = ' '.join(MAC_SDK_FLAGS)
+    cmake_flags.extend(['-DCMAKE_C_FLAGS=' + sdk_flags,
+                        '-DCMAKE_CXX_FLAGS=' + sdk_flags])
   return cmake_flags, InputsForCommands(hashables)
 
 
 def CmakeHostArchFlags(host, options):
   """Set flags passed to LLVM cmake for compilers and compile flags.
 
-  Returns the tuple (flags, inputs) where 'flags' is a list of arguments to
-  cmake and 'inputs' is a dict of extra inputs to be hashed.
+  Returns the tuple (flags, inputs, deps) where 'flags' is a list of
+  arguments to cmake, 'inputs' is a dict of extra inputs to be hashed,
+  and 'deps' is a list of extra dependencies for a component using these flags.
   """
   cmake_flags = []
   if options.afl_fuzz_dir:
@@ -360,6 +424,8 @@ def CmakeHostArchFlags(host, options):
   else:
     cc, cxx, _, _ = CompilersForHost(host)
   hashables = [cc, cxx]
+  if options.goma:
+    cc, cxx = GomaCompilers(host, options)
 
   cmake_flags.extend(['-DCMAKE_C_COMPILER='+cc, '-DCMAKE_CXX_COMPILER='+cxx])
   if ProgramPath('ccache'):
@@ -370,23 +436,44 @@ def CmakeHostArchFlags(host, options):
   # msan-enabled compiler_rt, leaving references to __msan_allocated_memory
   # undefined.
   cmake_flags.append('-DHAVE_SANITIZER_MSAN_INTERFACE_H=FALSE')
-  tool_flags = HostArchToolFlags(host, [], options)
-  cmake_flags.extend(['-DCMAKE_C_FLAGS=' + ' '.join(tool_flags['CFLAGS'])])
-  cmake_flags.extend(['-DCMAKE_CXX_FLAGS=' + ' '.join(tool_flags['CXXFLAGS'])])
+  tool_flags, tool_deps = HostArchToolFlags(host, [], options)
+  cflags = tool_flags['CFLAGS']
+  cxxflags = tool_flags['CXXFLAGS']
+  if TripleIsMac(host):
+    cflags = MAC_SDK_FLAGS + cflags
+    cxxflags = MAC_SDK_FLAGS + cxxflags
+  cmake_flags.append('-DCMAKE_C_FLAGS=' + ' '.join(cflags))
+  cmake_flags.append('-DCMAKE_CXX_FLAGS=' + ' '.join(cxxflags))
   for linker_type in ['EXE', 'SHARED', 'MODULE']:
     cmake_flags.extend([('-DCMAKE_%s_LINKER_FLAGS=' % linker_type) +
                         ' '.join(tool_flags['LDFLAGS'])])
-  return cmake_flags, InputsForCommands(hashables)
+  return cmake_flags, InputsForCommands(hashables), tool_deps
 
 
-def ConfigureBinutilsCommon():
-  return ['--with-pkgversion=' + PACKAGE_NAME,
-          '--with-bugurl=' + BUG_URL,
-          '--without-zlib',
-          '--prefix=',
-          '--disable-silent-rules',
-          '--enable-deterministic-archives',
-         ]
+def ConfigureBinutilsCommon(host, options, is_pnacl):
+  # Binutils still has some warnings when building with clang
+  if not options.gcc:
+    warning_flags = ['-Wno-extended-offsetof', '-Wno-absolute-value',
+                    '-Wno-unused-function', '-Wno-unused-const-variable',
+                    '-Wno-unneeded-internal-declaration',
+                    '-Wno-unused-private-field', '-Wno-format-security']
+  else:
+    warning_flags = ['-Wno-unused-function', '-Wno-unused-value']
+
+  host_arch_flags, inputs, deps = ConfigureHostArchFlags(
+      host, warning_flags, options,
+      options.binutils_pnacl_extra_configure if is_pnacl else None)
+
+  flags = [
+      '--with-pkgversion=' + PACKAGE_NAME,
+      '--with-bugurl=' + BUG_URL,
+      '--without-zlib',
+      '--prefix=',
+      '--disable-silent-rules',
+      '--enable-deterministic-archives',
+      ] + host_arch_flags
+
+  return flags, inputs, deps
 
 def LLVMConfigureAssertionsFlags(options):
   if options.enable_llvm_assertions:
@@ -395,13 +482,16 @@ def LLVMConfigureAssertionsFlags(options):
     return ['--disable-debug', '--disable-assertions']
 
 
-def MakeCommand(host):
+def MakeCommand(host, options):
   make_command = ['make']
   if not pynacl.platform.IsWindows() or pynacl.platform.IsCygWin():
     # The make that ships with msys sometimes hangs when run with -j.
     # The ming32-make that comes with the compiler itself reportedly doesn't
     # have this problem, but it has issues with pathnames with LLVM's build.
-    make_command.append('-j%(cores)s')
+    if options.goma:
+      make_command.append('-j%s' % GOMA_JOBS)
+    else:
+      make_command.append('-j%(cores)s')
 
   if TripleIsWindows(host):
     # There appears to be nothing we can pass at top-level configure time
@@ -410,6 +500,13 @@ def MakeCommand(host):
     # of the sub-configure runs, which are run via make.
     make_command.append('HAVE_LIBICONV=no')
   return make_command
+
+
+def NinjaCommand(host, options):
+  ninja_command = ['ninja']
+  if options.goma:
+    ninja_command.append('-j%s' % GOMA_JOBS)
+  return ninja_command
 
 
 def CopyWindowsHostLibs(host):
@@ -573,7 +670,7 @@ def HostLibs(host, options):
     })
   elif not options.gcc:
     # Libc++ is only tested with the clang build
-    libcxx_host_arch_flags, libcxx_inputs = LibCxxHostArchFlags(host)
+    libcxx_host_arch_flags, libcxx_inputs = LibCxxHostArchFlags(host, options)
     libs.update({
         H('libcxx'): {
             'dependencies': ['libcxx_src', 'libcxxabi_src'],
@@ -589,8 +686,10 @@ def HostLibs(host, options):
                       '-DLIBCXX_ENABLE_SHARED=ON',
                       '-DCMAKE_INSTALL_PREFIX=',
                       '-DCMAKE_INSTALL_NAME_DIR=@executable_path/../lib',
-                      '%(libcxx_src)s']),
-                command.Command(MakeCommand(host) + ['VERBOSE=1']),
+                      '%(libcxx_src)s'],
+                    path_dirs=GomaPathDirs(host, options)),
+                command.Command(MakeCommand(host, options) + ['VERBOSE=1'],
+                                path_dirs=GomaPathDirs(host, options)),
                 command.Command(MAKE_DESTDIR_CMD + ['VERBOSE=1', 'install']),
             ],
         },
@@ -617,19 +716,12 @@ def HostTools(host, options):
   #            [-Werror,-Wshift-negative-value]
   binutils_do_werror = False
   extra_gold_deps = []
+  install_step = 'install-strip'
   if host == 'le32-nacl':
     # TODO(bradnelson): Fix warnings so this can go away.
     binutils_do_werror = False
     extra_gold_deps = [H('llvm')]
-
-  # Binutils still has some warnings when building with clang
-  if not options.gcc:
-    warning_flags = ['-Wno-extended-offsetof', '-Wno-absolute-value',
-                    '-Wno-unused-function', '-Wno-unused-const-variable',
-                    '-Wno-unneeded-internal-declaration',
-                    '-Wno-unused-private-field', '-Wno-format-security']
-  else:
-    warning_flags = ['-Wno-unused-function', '-Wno-unused-value']
+    install_step = 'install'
 
   # The binutils git checkout includes all the directories in the
   # upstream binutils-gdb.git repository, but some of these
@@ -651,22 +743,22 @@ def HostTools(host, options):
         dummy_makefile, command.path.join(dir, 'Makefile')))
     return commands
 
-  binutils_host_arch_flags, binutils_inputs = ConfigureHostArchFlags(
-      host, warning_flags, options, options.binutils_pnacl_extra_configure)
-  binutils_inputs.update({'macros': os.path.join(
-      NACL_DIR, 'pnacl', 'support', 'clang_direct', 'nacl-arm-macros.s')})
+  binutils_flags, binutils_inputs, binutils_deps = ConfigureBinutilsCommon(
+      host, options, True)
+  binutils_inputs['macros'] = os.path.join(
+      NACL_DIR, 'pnacl', 'support', 'clang_direct', 'nacl-arm-macros.s')
   tools = {
       # The binutils_pnacl package is used both for bitcode linking (gold) and
       # for its conventional use with arm-nacl-clang.
       H('binutils_pnacl'): {
-          'dependencies': ['binutils_pnacl_src'] + extra_gold_deps,
+          'dependencies': (['binutils_pnacl_src'] +
+                           extra_gold_deps + binutils_deps),
           'type': 'build',
           'inputs' : binutils_inputs,
           'commands': [
               command.SkipForIncrementalCommand([
                   'sh',
-                  '%(binutils_pnacl_src)s/configure'] +
-                  ConfigureBinutilsCommon() + binutils_host_arch_flags +
+                  '%(binutils_pnacl_src)s/configure'] + binutils_flags +
                   [
                   '--enable-gold=yes',
                   '--enable-plugins',
@@ -677,9 +769,11 @@ def HostTools(host, options):
                   '--target=arm-nacl',
                   '--with-sysroot=/le32-nacl',
                   '--without-gas'
-                  ])] + DummyDirCommands(binutils_dummy_dirs) + [
-              command.Command(MakeCommand(host)),
-              command.Command(MAKE_DESTDIR_CMD + ['install-strip'])] +
+                  ], path_dirs=GomaPathDirs(host, options))] +
+              DummyDirCommands(binutils_dummy_dirs) + [
+              command.Command(MakeCommand(host, options),
+                              path_dirs=GomaPathDirs(host, options)),
+              command.Command(MAKE_DESTDIR_CMD + [install_step])] +
               [command.RemoveDirectory(os.path.join('%(output)s', dir))
                for dir in ('lib', 'lib32')] +
               # Since it has dual use, just create links for both sets of names
@@ -746,17 +840,18 @@ def HostTools(host, options):
   # Older CMake ignore CMAKE_*_LINKER_FLAGS during config step.
   # https://public.kitware.com/Bug/view.php?id=14066
   # The workaround is to set LDFLAGS in the environment.
-  llvm_cmake_config_env = {'LDFLAGS': ' '.join(
-      HostArchToolFlags(host, [], options)['LDFLAGS'])}
+  tool_flags, tool_deps = HostArchToolFlags(host, [], options)
+  llvm_cmake_config_env = {'LDFLAGS': ' '.join(tool_flags['LDFLAGS'])}
   llvm_cmake_config_env.update(AflFuzzEnvMap(host, options))
 
-  llvm_host_arch_flags, llvm_inputs = CmakeHostArchFlags(host, options)
-  llvm_inputs.update({'test_xfails': os.path.join(NACL_DIR,
-                                                  'pnacl', 'scripts')})
+  llvm_host_arch_flags, llvm_inputs, llvm_deps = CmakeHostArchFlags(
+      host, options)
+  llvm_deps = list(set(tool_deps + llvm_deps))
+  llvm_inputs['test_xfails'] = os.path.join(NACL_DIR, 'pnacl', 'scripts')
   llvm_cmake = {
       H('llvm'): {
           'dependencies': ['clang_src', 'llvm_src', 'binutils_pnacl_src',
-                           'subzero_src'],
+                           'subzero_src'] + llvm_deps,
           'inputs': llvm_inputs,
           'type': 'build',
           'commands': [
@@ -779,14 +874,16 @@ def HostTools(host, options):
                   '-DLLVM_EXTERNAL_CLANG_SOURCE_DIR=%(clang_src)s',
                   '-DLLVM_EXTERNAL_SUBZERO_SOURCE_DIR=%(subzero_src)s',
                   '-DLLVM_INSTALL_UTILS=ON',
-                  '-DLLVM_TARGETS_TO_BUILD=X86;ARM;Mips;JSBackend',
+                  '-DLLVM_TARGETS_TO_BUILD=X86;ARM;Mips',
                   '-DSUBZERO_TARGETS_TO_BUILD=ARM32;MIPS32;X8632;X8664',
                   '%(llvm_src)s'],
-                  env=llvm_cmake_config_env)] +
+                  env=llvm_cmake_config_env,
+                  path_dirs=GomaPathDirs(host, options))] +
               CopyHostLibcxxForLLVMBuild(host, 'lib', options) +
-              [command.Command(['ninja', '-v'],
+              [command.Command(NinjaCommand(host, options) + ['-v'],
+                               path_dirs=GomaPathDirs(host, options),
                                env=AflFuzzEnvMap(host, options)),
-               command.Command(['ninja', 'install'])] +
+               command.Command(NinjaCommand(host, options) + ['install'])] +
               CreateSymLinksToDirectToNaClTools(host)
       },
   }
@@ -798,14 +895,14 @@ def HostTools(host, options):
         command.Remove(*[os.path.join('%(output)s', 'lib', f) for f
                          in '*.a', '*Hello.*', 'BugpointPasses.*']),
     ]
-  llvm_host_arch_flags, llvm_inputs = ConfigureHostArchFlags(
+  llvm_host_arch_flags, llvm_inputs, llvm_deps = ConfigureHostArchFlags(
       host, [], options, use_afl_fuzz=options.afl_fuzz_dir)
   llvm_inputs.update({'test_xfails': os.path.join(NACL_DIR,
                                                   'pnacl', 'scripts')})
   llvm_autoconf = {
       H('llvm'): {
           'dependencies': ['clang_src', 'llvm_src', 'binutils_pnacl_src',
-                           'subzero_src'],
+                           'subzero_src'] + llvm_deps,
           'inputs': llvm_inputs,
           'type': 'build',
           'commands': [
@@ -819,12 +916,19 @@ def HostTools(host, options):
                    '--disable-bindings', # ocaml is currently the only binding.
                    '--disable-jit',
                    '--disable-terminfo',
+                   # Nothing built here actually uses -ledit for anything,
+                   # but configure will decide to use it and then the tools
+                   # buildt will have a runtime dependency on libedit.  On
+                   # newer Mac versions, this gets a dependency on
+                   # libedit.3.dylib--but older Mac installs have only
+                   # libedit.2.dylib available.
+                   '--disable-libedit',
                    '--disable-zlib',
                    '--enable-optimized=' + ('no' if HostIsDebug(options)
                                             else 'yes'),
                    '--enable-debug=' + ('yes' if HostIsDebug(options)
                                         else 'no'),
-                   '--enable-targets=x86,arm,mips,js',
+                   '--enable-targets=x86,arm,mips',
                    '--enable-subzero-targets=ARM32,MIPS32,X8632,X8664',
                    '--enable-werror=' + ('yes' if llvm_do_werror else 'no'),
                    # Backtraces require TLS, which is missing on OSX 10.6
@@ -835,18 +939,20 @@ def HostTools(host, options):
                    '--with-binutils-include=%(abs_binutils_pnacl_src)s/include',
                    '--with-clang-srcdir=%(abs_clang_src)s',
                    'ac_cv_have_decl_strerror_s=no',
-                  ] + shared)] +
+                  ] + shared,
+                  path_dirs=GomaPathDirs(host, options))] +
               CopyHostLibcxxForLLVMBuild(
                   host,
                   os.path.join(('Debug+Asserts' if HostIsDebug(options)
                                 else 'Release+Asserts'), 'lib'),
                   options) +
-              [command.Command(MakeCommand(host) +
+              [command.Command(MakeCommand(host, options) +
                   AflFuzzEnvList(host, options) + [
                   'VERBOSE=1',
                   'PNACL_BROWSER_TRANSLATOR=0',
                   'SUBZERO_SRC_ROOT=%(abs_subzero_src)s',
-                  'all']),
+                  'all'],
+                  path_dirs=GomaPathDirs(host, options)),
               command.Command(MAKE_DESTDIR_CMD + [
                   'SUBZERO_SRC_ROOT=%(abs_subzero_src)s',
                   'install'])] +
@@ -863,12 +969,6 @@ def HostTools(host, options):
     tools.update(llvm_cmake)
   else:
     tools.update(llvm_autoconf)
-  if TripleIsWindows(host):
-    tools[H('binutils_pnacl')]['dependencies'].append('libdl')
-    tools[H('llvm')]['dependencies'].append('libdl')
-  elif not options.gcc and host != 'le32-nacl':
-    tools[H('binutils_pnacl')]['dependencies'].append(H('libcxx'))
-    tools[H('llvm')]['dependencies'].append(H('libcxx'))
   return tools
 
 
@@ -953,7 +1053,8 @@ def HostToolsDirectToNacl(host, options):
                                  '-I', os.path.dirname(NACL_DIR),
                                  '-DREDIRECT_DATA="redirector_table_pnacl.txt"',
                                  os.path.join(REDIRECTOR_WIN32_SRC,
-                                              'redirector.c')]),
+                                              'redirector.c')],
+                                path_dirs=GomaPathDirs(host, options)),
             ],
         },
     })
@@ -977,21 +1078,31 @@ def HostToolsDirectToNacl(host, options):
             args])
         for tool, args in TOOL_X64_I686_REDIRECTS]
 
+  binutils_flags, binutils_inputs, binutils_deps = ConfigureBinutilsCommon(
+      host, options, False)
+  redirect_inputs.update(binutils_inputs)
+  install_step = 'install-strip'
+  if host == 'le32-nacl':
+    install_step = 'install'
   tools.update({
       H('binutils_x86'): {
           'type': 'build',
-          'dependencies': ['binutils_x86_src'] + redirect_deps,
+          'dependencies': ['binutils_x86_src'] + redirect_deps + binutils_deps,
           'inputs': redirect_inputs,
           'commands': [
               command.SkipForIncrementalCommand(
-                  ['sh', '%(binutils_x86_src)s/configure'] +
-                  ConfigureBinutilsCommon() +
+                  ['sh', '%(binutils_x86_src)s/configure'] + binutils_flags +
                   ['--target=x86_64-nacl',
-                   '--enable-gold',
+                   # TODO(mcgrathr): Enable gold if we rebase to 2.25.
+                   # The 2.24 gold sources are not compatible with the libc++
+                   # version we use to build.
+                   '--disable-gold',
                    '--enable-targets=x86_64-nacl,i686-nacl',
-                   '--disable-werror']),
-              command.Command(MakeCommand(host)),
-              command.Command(MAKE_DESTDIR_CMD + ['install-strip'])] +
+                   '--disable-werror'],
+                  path_dirs=GomaPathDirs(host, options)),
+              command.Command(MakeCommand(host, options),
+                              path_dirs=GomaPathDirs(host, options)),
+              command.Command(MAKE_DESTDIR_CMD + [install_step])] +
               # Remove the share dir from this binutils build and leave the one
               # from the newer version used for bitcode linking. Always remove
               # the lib dirs, which have unneeded host libs.
@@ -1150,6 +1261,9 @@ def GetUploadPackageTargets():
   for os_name in ['linux']:
     legal_triple = pynacl.gsd_storage.LegalizeName('arm-' + os_name)
     host_packages[os_name].append('unsandboxed_runtime_%s' % legal_triple)
+  for os_name in ['linux']:
+    legal_triple = pynacl.gsd_storage.LegalizeName('x86-64-' + os_name)
+    host_packages[os_name].append('unsandboxed_runtime_%s' % legal_triple)
 
   for os_name, os_packages in host_packages.iteritems():
     package_target = '%s_x86' % pynacl.platform.GetOS(os_name)
@@ -1210,6 +1324,8 @@ def main():
   parser.add_argument('--afl-fuzz-dir',
                       help='Compile using afl-fuzz compiler wrappers in'
                       + ' given directory')
+  parser.add_argument('--goma',
+                      help='Compile using goma in given directory')
   args, leftover_args = parser.parse_known_args()
   if '-h' in leftover_args or '--help' in leftover_args:
     print 'The following arguments are specific to toolchain_build_pnacl.py:'
@@ -1250,7 +1366,7 @@ def main():
     packages.update(HostTools(host, args))
     if not args.pnacl_in_pnacl:
       packages.update(HostLibs(host, args))
-      packages.update(HostToolsDirectToNacl(host, args))
+    packages.update(HostToolsDirectToNacl(host, args))
   if not args.pnacl_in_pnacl:
     packages.update(TargetLibCompiler(pynacl.platform.PlatformTriple(), args))
   # Don't build the target libs on Windows because of pathname issues.
@@ -1285,6 +1401,8 @@ def main():
     if pynacl.platform.IsLinux():
       packages.update(pnacl_targetlibs.UnsandboxedRuntime(
           'arm-%s' % pynacl.platform.GetOS(), unsandboxed_runtime_canonical))
+      packages.update(pnacl_targetlibs.UnsandboxedRuntime(
+          'x86-64-%s' % pynacl.platform.GetOS(), unsandboxed_runtime_canonical))
 
   if args.build_sbtc and not args.pnacl_in_pnacl:
     packages.update(pnacl_sandboxed_translator.SandboxedTranslators(

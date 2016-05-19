@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/filesystem/DOMFileSystemBase.h"
 
 #include "core/dom/ExecutionContext.h"
@@ -52,7 +51,6 @@
 #include "wtf/OwnPtr.h"
 #include "wtf/text/StringBuilder.h"
 #include "wtf/text/TextEncoding.h"
-#include <url/url_util.h>
 
 namespace blink {
 

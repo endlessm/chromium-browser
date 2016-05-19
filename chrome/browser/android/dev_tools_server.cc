@@ -6,15 +6,17 @@
 
 #include <pwd.h>
 #include <cstring>
+#include <utility>
 
+#include "base/android/context_utils.h"
 #include "base/android/jni_string.h"
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -149,19 +151,18 @@ class UnixDomainServerSocketFactory
 
  private:
   scoped_ptr<net::ServerSocket> CreateForHttpServer() override {
-    scoped_ptr<net::ServerSocket> socket(
+    scoped_ptr<net::UnixDomainServerSocket> socket(
         new net::UnixDomainServerSocket(auth_callback_,
                                         true /* use_abstract_namespace */));
 
-    if (socket->ListenWithAddressAndPort(socket_name_, 0, kBackLog) == net::OK)
-      return socket.Pass();
+    if (socket->BindAndListen(socket_name_, kBackLog) == net::OK)
+      return std::move(socket);
 
     // Try a fallback socket name.
     const std::string fallback_address(
         base::StringPrintf("%s_%d", socket_name_.c_str(), getpid()));
-    if (socket->ListenWithAddressAndPort(fallback_address, 0, kBackLog)
-        == net::OK)
-      return socket.Pass();
+    if (socket->BindAndListen(fallback_address, kBackLog) == net::OK)
+      return std::move(socket);
 
     return scoped_ptr<net::ServerSocket>();
   }
@@ -171,10 +172,10 @@ class UnixDomainServerSocketFactory
         kTetheringSocketName, getpid(), ++last_tethering_socket_);
     scoped_ptr<net::UnixDomainServerSocket> socket(
         new net::UnixDomainServerSocket(auth_callback_, true));
-    if (socket->ListenWithAddressAndPort(*name, 0, kBackLog) != net::OK)
+    if (socket->BindAndListen(*name, kBackLog) != net::OK)
       return scoped_ptr<net::ServerSocket>();
 
-    return socket.Pass();
+    return std::move(socket);
   }
 
   std::string socket_name_;
@@ -213,13 +214,10 @@ void DevToolsServer::Start(bool allow_debug_permission) {
   scoped_ptr<DevToolsHttpHandler::ServerSocketFactory> factory(
       new UnixDomainServerSocketFactory(socket_name_, auth_callback));
   devtools_http_handler_.reset(new DevToolsHttpHandler(
-      factory.Pass(),
+      std::move(factory),
       base::StringPrintf(kFrontEndURL, content::GetWebKitRevision().c_str()),
-      new DevToolsServerDelegate(),
-      base::FilePath(),
-      base::FilePath(),
-      version_info::GetProductNameAndVersionForUserAgent(),
-      ::GetUserAgent()));
+      new DevToolsServerDelegate(), base::FilePath(), base::FilePath(),
+      version_info::GetProductNameAndVersionForUserAgent(), ::GetUserAgent()));
 }
 
 void DevToolsServer::Stop() {

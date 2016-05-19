@@ -5,23 +5,22 @@
 #ifndef CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_BUBBLE_MODEL_H_
 #define CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_BUBBLE_MODEL_H_
 
+#include <utility>
+
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
+#include "base/time/clock.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "components/password_manager/core/browser/statistics_table.h"
 #include "components/password_manager/core/common/password_manager_ui.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/gfx/range/range.h"
 
-class ManagePasswordsIconController;
-class ManagePasswordsUIController;
 class Profile;
 
 namespace content {
 class WebContents;
-}
-
-namespace password_manager {
-enum class CredentialType;
 }
 
 // This model provides data for the ManagePasswordsBubble and controls the
@@ -38,9 +37,6 @@ class ManagePasswordsBubbleModel : public content::WebContentsObserver {
   ManagePasswordsBubbleModel(content::WebContents* web_contents,
                              DisplayReason reason);
   ~ManagePasswordsBubbleModel() override;
-
-  // Called by the view code when the "Cancel" button in clicked by the user.
-  void OnCancelClicked();
 
   // Called by the view code when the "Nope" button in clicked by the user in
   // update bubble.
@@ -72,17 +68,10 @@ class ManagePasswordsBubbleModel : public content::WebContentsObserver {
   // timeout.
   void OnAutoSignInToastTimeout();
 
-  // Called by the view code when the user clicks "Ok, got it".
-  void OnAutoSignOKClicked();
-
   // Called by the view code to delete or add a password form to the
   // PasswordStore.
   void OnPasswordAction(const autofill::PasswordForm& password_form,
                         PasswordAction action);
-
-  // Called by the view code to notify about chosen credential.
-  void OnChooseCredentials(const autofill::PasswordForm& password_form,
-                           password_manager::CredentialType credential_type_);
 
   GURL origin() const { return origin_; }
 
@@ -96,12 +85,6 @@ class ManagePasswordsBubbleModel : public content::WebContentsObserver {
   const ScopedVector<const autofill::PasswordForm>& local_credentials() const {
     return local_credentials_;
   }
-  // Return the federated logins which may be used for logging in to the current
-  // site.
-  const ScopedVector<const autofill::PasswordForm>& federated_credentials()
-      const {
-    return federated_credentials_;
-  }
   const base::string16& manage_link() const { return manage_link_; }
   const base::string16& save_confirmation_text() const {
     return save_confirmation_text_;
@@ -114,14 +97,6 @@ class ManagePasswordsBubbleModel : public content::WebContentsObserver {
     return title_brand_link_range_;
   }
 
-  const base::string16& autosignin_welcome_text() const {
-    return autosignin_welcome_text_;
-  }
-
-  const gfx::Range& autosignin_welcome_link_range() const {
-    return autosignin_welcome_link_range_;
-  }
-
   Profile* GetProfile() const;
 
   // Returns true iff the multiple account selection prompt for account update
@@ -132,23 +107,13 @@ class ManagePasswordsBubbleModel : public content::WebContentsObserver {
   // Lock.
   bool ShouldShowGoogleSmartLockWelcome() const;
 
-  // True if the autosignin toast should display the warm welcome message.
-  bool ShouldShowAutoSigninWarmWelcome() const;
-
 #if defined(UNIT_TEST)
-  // Gets and sets the reason the bubble was displayed.
-  password_manager::metrics_util::UIDisplayDisposition display_disposition()
-      const {
-    return display_disposition_;
-  }
-
   // Gets the reason the bubble was dismissed.
   password_manager::metrics_util::UIDismissalReason dismissal_reason() const {
     return dismissal_reason_;
   }
 
-  // State setter.
-  void set_state(password_manager::ui::State state) { state_ = state; }
+  void set_clock(scoped_ptr<base::Clock> clock) { clock_ = std::move(clock); }
 #endif
 
  private:
@@ -174,16 +139,19 @@ class ManagePasswordsBubbleModel : public content::WebContentsObserver {
   autofill::PasswordForm pending_password_;
   bool password_overridden_;
   ScopedVector<const autofill::PasswordForm> local_credentials_;
-  ScopedVector<const autofill::PasswordForm> federated_credentials_;
   base::string16 manage_link_;
   base::string16 save_confirmation_text_;
   gfx::Range save_confirmation_link_range_;
-  base::string16 autosignin_welcome_text_;
-  gfx::Range autosignin_welcome_link_range_;
   password_manager::metrics_util::UIDisplayDisposition display_disposition_;
   password_manager::metrics_util::UIDismissalReason dismissal_reason_;
   password_manager::metrics_util::UpdatePasswordSubmissionEvent
       update_password_submission_event_;
+
+  // Current statistics for the save password bubble;
+  password_manager::InteractionsStats interaction_stats_;
+
+  // Used to retrieve the current time, in base::Time units.
+  scoped_ptr<base::Clock> clock_;
 
   DISALLOW_COPY_AND_ASSIGN(ManagePasswordsBubbleModel);
 };

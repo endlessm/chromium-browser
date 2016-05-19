@@ -5,11 +5,15 @@
 #ifndef CONTENT_BROWSER_GPU_GPU_DATA_MANAGER_IMPL_H_
 #define CONTENT_BROWSER_GPU_GPU_DATA_MANAGER_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/process/kill.h"
@@ -70,7 +74,6 @@ class CONTENT_EXPORT GpuDataManagerImpl
   void RequestVideoMemoryUsageStatsUpdate() const override;
   bool ShouldUseSwiftShader() const override;
   void RegisterSwiftShaderPath(const base::FilePath& path) override;
-  bool ShouldUseWarp() const override;
   // TODO(kbr): the threading model for the GpuDataManagerObservers is
   // not well defined, and it's impossible for callers to correctly
   // delete observers from anywhere except in one of the observer's
@@ -174,7 +177,7 @@ class CONTENT_EXPORT GpuDataManagerImpl
 
   // Set the active gpu.
   // Return true if it's a different GPU from the previous active one.
-  bool UpdateActiveGpu(uint32 vendor_id, uint32 device_id);
+  bool UpdateActiveGpu(uint32_t vendor_id, uint32_t device_id);
 
   // Called when GPU process initialization failed.
   void OnGpuProcessInitFailure();

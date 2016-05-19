@@ -39,8 +39,5 @@ Polymer({
     },
   },
 
-  ready: function() {
-    this.$.locationCategory.category =
-        settings.ContentSettingsTypes.GEOLOCATION;
-  },
+  behaviors: [I18nBehavior, SettingsPageVisibility],
 });

@@ -5,6 +5,8 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_LIB_FIXED_BUFFER_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_LIB_FIXED_BUFFER_H_
 
+#include <stddef.h>
+
 #include "mojo/public/cpp/bindings/lib/buffer.h"
 #include "mojo/public/cpp/system/macros.h"
 
@@ -48,6 +50,8 @@ class FixedBuffer : public Buffer {
   // addition. The resulting address is 8-byte aligned, and the content of the
   // memory is zero-filled.
   void* Allocate(size_t num_bytes) override;
+
+  PickleBuffer* AsPickleBuffer() override;
 
  protected:
   char* ptr_;

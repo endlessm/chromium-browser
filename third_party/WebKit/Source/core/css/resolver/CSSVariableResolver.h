@@ -13,6 +13,8 @@
 
 namespace blink {
 
+class CSSParserTokenRange;
+class CSSVariableData;
 class CSSVariableReferenceValue;
 class StyleResolverState;
 class StyleVariableData;
@@ -22,16 +24,34 @@ public:
     static void resolveVariableDefinitions(StyleVariableData*);
     static void resolveAndApplyVariableReferences(StyleResolverState&, CSSPropertyID, const CSSVariableReferenceValue&);
 
+    // Shorthand properties are not supported.
+    static PassRefPtrWillBeRawPtr<CSSValue> resolveVariableReferences(StyleVariableData*, CSSPropertyID, const CSSVariableReferenceValue&);
+
 private:
     CSSVariableResolver(StyleVariableData*);
-    CSSVariableResolver(StyleVariableData*, AtomicString& variable);
 
-    unsigned resolveVariableTokensRecursive(Vector<CSSParserToken>&, unsigned startOffset);
-    void resolveVariableReferencesFromTokens(Vector<CSSParserToken>& tokens);
+    // These return false if we encounter a reference to an invalid variable with no fallback
+
+    // Resolves a range which may contain var() references
+    bool resolveTokenRange(CSSParserTokenRange, Vector<CSSParserToken>& result);
+    // Resolves the fallback (if present) of a var() reference, starting from the comma
+    bool resolveFallback(CSSParserTokenRange, Vector<CSSParserToken>& result);
+    // Resolves the contents of a var() reference
+    bool resolveVariableReference(CSSParserTokenRange, Vector<CSSParserToken>& result);
+
+    // These return null if the custom property is invalid
+
+    // Returns the CSSVariableData for a custom property, resolving and storing it if necessary
+    CSSVariableData* valueForCustomProperty(AtomicString name);
+    // Resolves the CSSVariableData from a custom property declaration
+    PassRefPtr<CSSVariableData> resolveCustomProperty(AtomicString name, const CSSVariableData&);
 
     StyleVariableData* m_styleVariableData;
     HashSet<AtomicString> m_variablesSeen;
-    bool m_cycleDetected;
+    // Resolution doesn't finish when a cycle is detected. Fallbacks still
+    // need to be tracked for additional cycles, and invalidation only
+    // applies back to cycle starts.
+    HashSet<AtomicString> m_cycleStartPoints;
 };
 
 } // namespace blink

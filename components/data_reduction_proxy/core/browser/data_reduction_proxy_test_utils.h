@@ -5,6 +5,9 @@
 #ifndef COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_TEST_UTILS_H_
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_TEST_UTILS_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
 #include "base/macros.h"
@@ -45,7 +48,6 @@ namespace data_reduction_proxy {
 class ClientConfig;
 class DataReductionProxyConfigurator;
 class DataReductionProxyEventCreator;
-class DataReductionProxyExperimentsStats;
 class DataReductionProxyMutableConfigValues;
 class DataReductionProxyRequestOptions;
 class DataReductionProxySettings;
@@ -81,7 +83,6 @@ class MockDataReductionProxyRequestOptions
     : public TestDataReductionProxyRequestOptions {
  public:
   MockDataReductionProxyRequestOptions(Client client,
-                                       const std::string& version,
                                        DataReductionProxyConfig* config);
 
   ~MockDataReductionProxyRequestOptions();
@@ -105,6 +106,8 @@ class TestDataReductionProxyConfigServiceClient
 
   ~TestDataReductionProxyConfigServiceClient() override;
 
+  using DataReductionProxyConfigServiceClient::OnIPAddressChanged;
+
   void SetNow(const base::Time& time);
 
   void SetCustomReleaseTime(const base::TimeTicks& release_time);
@@ -115,8 +118,20 @@ class TestDataReductionProxyConfigServiceClient
 
   void SetConfigServiceURL(const GURL& service_url);
 
-  using DataReductionProxyConfigServiceClient::
-      minimum_refresh_interval_on_success;
+  int32_t failed_attempts_before_success() const;
+
+#if defined(OS_ANDROID)
+  bool IsApplicationStateBackground() const override;
+
+  void set_application_state_background(bool new_state) {
+    is_application_state_background_ = new_state;
+  }
+
+  bool foreground_fetch_pending() const { return foreground_fetch_pending_; }
+
+  // Triggers the callback for Chromium status change to foreground.
+  void TriggerApplicationStatusToForeground();
+#endif
 
  protected:
   // Overrides of DataReductionProxyConfigServiceClient
@@ -141,6 +156,10 @@ class TestDataReductionProxyConfigServiceClient
    private:
     base::Time time_;
   };
+
+#if defined(OS_ANDROID)
+  bool is_application_state_background_;
+#endif
 
   TestTickClock tick_clock_;
   net::BackoffEntry test_backoff_entry_;
@@ -172,7 +191,6 @@ class TestDataReductionProxyIOData : public DataReductionProxyIOData {
       scoped_ptr<DataReductionProxyRequestOptions> request_options,
       scoped_ptr<DataReductionProxyConfigurator> configurator,
       scoped_ptr<DataReductionProxyConfigServiceClient> config_client,
-      scoped_ptr<DataReductionProxyExperimentsStats> experiments_stats,
       net::NetLog* net_log,
       bool enabled);
   ~TestDataReductionProxyIOData() override;
@@ -302,6 +320,16 @@ class DataReductionProxyTestContext {
   };
 
   virtual ~DataReductionProxyTestContext();
+
+  // Returns the name of the preference used to enable the Data Reduction
+  // Proxy.
+  const char* GetDataReductionProxyEnabledPrefName() const;
+
+  // Registers, sets, and gets the preference used to enable the Data Reduction
+  // Proxy, respectively.
+  void RegisterDataReductionProxyEnabledPref();
+  void SetDataReductionProxyEnabled(bool enabled);
+  bool IsDataReductionProxyEnabled() const;
 
   // Waits while executing all tasks on the current SingleThreadTaskRunner.
   void RunUntilIdle();

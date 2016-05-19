@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_SUSPICIOUS_EXTENSION_BUBBLE_DELEGATE_H_
 #define CHROME_BROWSER_EXTENSIONS_SUSPICIOUS_EXTENSION_BUBBLE_DELEGATE_H_
 
+#include <stddef.h>
+
 #include "base/macros.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
 
@@ -38,11 +40,7 @@ class SuspiciousExtensionBubbleDelegate
   bool ShouldLimitToEnabledExtensions() const override;
   void LogExtensionCount(size_t count) override;
   void LogAction(ExtensionMessageBubbleController::BubbleAction) override;
-  std::set<Profile*>* GetProfileSet() override;
-
-  // Clears the list of profiles the bubble has been shown for. Should only be
-  // used during testing.
-  static void ClearProfileListForTesting();
+  const char* GetKey() override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SuspiciousExtensionBubbleDelegate);

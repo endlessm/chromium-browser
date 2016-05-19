@@ -4,13 +4,13 @@
 
 /**
  * @constructor
- * @extends {WebInspector.DataGridContainerWidget}
+ * @extends {WebInspector.VBox}
  * @param {!WebInspector.ServiceWorkerCacheModel} model
  * @param {!WebInspector.ServiceWorkerCacheModel.Cache} cache
  */
 WebInspector.ServiceWorkerCacheView = function(model, cache)
 {
-    WebInspector.DataGridContainerWidget.call(this);
+    WebInspector.VBox.call(this);
     this.registerRequiredCSS("resources/serviceWorkerCacheViews.css");
 
     this._model = model;
@@ -47,8 +47,7 @@ WebInspector.ServiceWorkerCacheView.prototype = {
 
     _createEditorToolbar: function()
     {
-        var editorToolbar = new WebInspector.Toolbar(this.element);
-        editorToolbar.element.classList.add("data-view-toolbar");
+        var editorToolbar = new WebInspector.Toolbar("data-view-toolbar", this.element);
 
         this._pageBackButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show previous page"), "play-backwards-toolbar-item");
         this._pageBackButton.addEventListener("click", this._pageBackButtonClicked, this);
@@ -88,10 +87,9 @@ WebInspector.ServiceWorkerCacheView.prototype = {
         this._cache = cache;
 
         if (this._dataGrid)
-            this.removeDataGrid(this._dataGrid);
+            this._dataGrid.asWidget().detach();
         this._dataGrid = this._createDataGrid();
-        this.appendDataGrid(this._dataGrid);
-
+        this._dataGrid.asWidget().show(this.element);
         this._skipCount = 0;
         this._updateData(true);
     },
@@ -160,5 +158,5 @@ WebInspector.ServiceWorkerCacheView.prototype = {
         this._entries = [];
     },
 
-    __proto__: WebInspector.DataGridContainerWidget.prototype
+    __proto__: WebInspector.VBox.prototype
 }

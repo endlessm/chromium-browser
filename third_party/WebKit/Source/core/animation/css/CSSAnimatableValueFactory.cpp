@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/css/CSSAnimatableValueFactory.h"
 
 #include "core/CSSValueKeywords.h"
@@ -44,6 +43,7 @@
 #include "core/animation/animatable/AnimatableLengthPoint.h"
 #include "core/animation/animatable/AnimatableLengthPoint3D.h"
 #include "core/animation/animatable/AnimatableLengthSize.h"
+#include "core/animation/animatable/AnimatablePath.h"
 #include "core/animation/animatable/AnimatableRepeatable.h"
 #include "core/animation/animatable/AnimatableSVGPaint.h"
 #include "core/animation/animatable/AnimatableShadow.h"
@@ -245,6 +245,11 @@ inline static PassRefPtr<AnimatableValue> createFromShapeValue(ShapeValue* value
     if (value)
         return AnimatableShapeValue::create(value);
     return AnimatableUnknown::create(CSSValueNone);
+}
+
+static PassRefPtr<AnimatableValue> createFromPath(StylePath* path)
+{
+    return AnimatablePath::create(path);
 }
 
 static double fontStretchToDouble(FontStretch fontStretch)
@@ -483,17 +488,17 @@ PassRefPtr<AnimatableValue> CSSAnimatableValueFactory::create(CSSPropertyID prop
         if (ClipPathOperation* operation = style.clipPath())
             return AnimatableClipPathOperation::create(operation);
         return AnimatableUnknown::create(CSSValueNone);
-    case CSSPropertyWebkitColumnCount:
+    case CSSPropertyColumnCount:
         if (style.hasAutoColumnCount())
             return AnimatableUnknown::create(CSSValueAuto);
         return createFromDouble(style.columnCount());
-    case CSSPropertyWebkitColumnGap:
+    case CSSPropertyColumnGap:
         return createFromDouble(style.columnGap());
-    case CSSPropertyWebkitColumnRuleColor:
+    case CSSPropertyColumnRuleColor:
         return createFromColor(property, style);
-    case CSSPropertyWebkitColumnRuleWidth:
+    case CSSPropertyColumnRuleWidth:
         return createFromDouble(style.columnRuleWidth());
-    case CSSPropertyWebkitColumnWidth:
+    case CSSPropertyColumnWidth:
         if (style.hasAutoColumnWidth())
             return AnimatableUnknown::create(CSSValueAuto);
         return createFromDouble(style.columnWidth());
@@ -550,7 +555,7 @@ PassRefPtr<AnimatableValue> CSSAnimatableValueFactory::create(CSSPropertyID prop
     case CSSPropertyMotionOffset:
         return createFromLength(style.motionOffset(), style);
     case CSSPropertyMotionRotation:
-        return createFromDoubleAndBool(style.motionRotation(), style.motionRotationType() == MotionRotationAuto, style);
+        return createFromDoubleAndBool(style.motionRotation().angle, style.motionRotation().type == MotionRotationAuto, style);
     case CSSPropertyWebkitPerspectiveOriginX:
         return createFromLength(style.perspectiveOriginX(), style);
     case CSSPropertyWebkitPerspectiveOriginY:
@@ -573,6 +578,8 @@ PassRefPtr<AnimatableValue> CSSAnimatableValueFactory::create(CSSPropertyID prop
         return AnimatableUnknown::create(CSSPrimitiveValue::create(style.verticalAlign()));
     case CSSPropertyVisibility:
         return AnimatableVisibility::create(style.visibility());
+    case CSSPropertyD:
+        return createFromPath(style.svgStyle().d());
     case CSSPropertyCx:
         return createFromLength(style.svgStyle().cx(), style);
     case CSSPropertyCy:

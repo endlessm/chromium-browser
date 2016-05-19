@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/SplitTextNodeContainingElementCommand.h"
 
 #include "core/dom/Element.h"
@@ -40,7 +39,7 @@ SplitTextNodeContainingElementCommand::SplitTextNodeContainingElementCommand(Pas
     ASSERT(m_text->length() > 0);
 }
 
-void SplitTextNodeContainingElementCommand::doApply()
+void SplitTextNodeContainingElementCommand::doApply(EditingState*)
 {
     ASSERT(m_text);
     ASSERT(m_offset > 0);
@@ -69,4 +68,4 @@ DEFINE_TRACE(SplitTextNodeContainingElementCommand)
     CompositeEditCommand::trace(visitor);
 }
 
-}
+} // namespace blink

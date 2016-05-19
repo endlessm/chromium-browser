@@ -5,6 +5,8 @@
 #ifndef DEVICE_USB_USB_DEVICE_FILTER_H_
 #define DEVICE_USB_USB_DEVICE_FILTER_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/memory/ref_counted.h"
@@ -21,6 +23,7 @@ class UsbDevice;
 class UsbDeviceFilter {
  public:
   UsbDeviceFilter();
+  UsbDeviceFilter(const UsbDeviceFilter& other);
   ~UsbDeviceFilter();
 
   void SetVendorId(uint16_t vendor_id);

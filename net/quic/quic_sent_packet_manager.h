@@ -5,12 +5,15 @@
 #ifndef NET_QUIC_QUIC_SENT_PACKET_MANAGER_H_
 #define NET_QUIC_QUIC_SENT_PACKET_MANAGER_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <set>
 #include <utility>
 #include <vector>
 
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/linked_hash_map.h"
 #include "net/quic/congestion_control/loss_detection_interface.h"
@@ -38,6 +41,31 @@ struct QuicConnectionStats;
 // previous transmission is acked, the data will not be retransmitted.
 class NET_EXPORT_PRIVATE QuicSentPacketManager {
  public:
+  // A delegate interface which manages pending retransmissions.
+  class MultipathDelegateInterface {
+   public:
+    virtual ~MultipathDelegateInterface() {}
+
+    // Called when unencrypted |packet_number| is requested to be neutered.
+    virtual void OnUnencryptedPacketsNeutered(
+        QuicPathId path_id,
+        QuicPacketNumber packet_number) = 0;
+    // Called when |packet_number| is requested to be retransmitted.
+    virtual void OnRetransmissionMarked(QuicPathId path_id,
+                                        QuicPacketNumber packet_number,
+                                        TransmissionType transmission_type) = 0;
+    // Called when |packet_number| is marked as not retransmittable.
+    virtual void OnPacketMarkedNotRetransmittable(
+        QuicPathId path_id,
+        QuicPacketNumber packet_number,
+        QuicTime::Delta delta_largest_observed) = 0;
+    // Called when any transmission of |packet_number| is handled.
+    virtual void OnPacketMarkedHandled(
+        QuicPathId path_id,
+        QuicPacketNumber packet_number,
+        QuicTime::Delta delta_largest_observed) = 0;
+  };
+
   // Interface which gets callbacks from the QuicSentPacketManager at
   // interesting points.  Implementations must not mutate the state of
   // the packet manager or connection as a result of these callbacks.
@@ -55,6 +83,10 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
                                QuicPacketNumber largest_observed,
                                bool rtt_updated,
                                QuicPacketNumber least_unacked_sent_packet) {}
+
+    virtual void OnPacketLoss(QuicPacketNumber lost_packet_number,
+                              TransmissionType transmission_type,
+                              QuicTime detection_time) {}
   };
 
   // Interface which gets callbacks from the QuicSentPacketManager when
@@ -70,30 +102,21 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
     // Called when RTT may have changed, including when an RTT is read from
     // the config.
     virtual void OnRttChange() = 0;
-  };
 
-  // Struct to store the pending retransmission information.
-  struct PendingRetransmission {
-    PendingRetransmission(QuicPacketNumber packet_number,
-                          TransmissionType transmission_type,
-                          const RetransmittableFrames& retransmittable_frames,
-                          QuicPacketNumberLength packet_number_length)
-        : packet_number(packet_number),
-          transmission_type(transmission_type),
-          retransmittable_frames(retransmittable_frames),
-          packet_number_length(packet_number_length) {}
-
-    QuicPacketNumber packet_number;
-    TransmissionType transmission_type;
-    const RetransmittableFrames& retransmittable_frames;
-    QuicPacketNumberLength packet_number_length;
+    // Called with the path may be degrading. Note that the path may only be
+    // temporarily degrading.
+    // TODO(jri): With multipath, this method should probably have a path_id
+    // parameter, and should maybe result in the path being marked as inactive.
+    virtual void OnPathDegrading() = 0;
   };
 
   QuicSentPacketManager(Perspective perspective,
+                        QuicPathId path_id,
                         const QuicClock* clock,
                         QuicConnectionStats* stats,
                         CongestionControlType congestion_control_type,
-                        LossDetectionType loss_type);
+                        LossDetectionType loss_type,
+                        MultipathDelegateInterface* delegate);
   virtual ~QuicSentPacketManager();
 
   virtual void SetFromConfig(const QuicConfig& config);
@@ -108,8 +131,7 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
   void SetHandshakeConfirmed() { handshake_confirmed_ = true; }
 
   // Processes the incoming ack.
-  void OnIncomingAck(const QuicAckFrame& ack_frame,
-                     QuicTime ack_receive_time);
+  void OnIncomingAck(const QuicAckFrame& ack_frame, QuicTime ack_receive_time);
 
   // Returns true if the non-FEC packet |packet_number| is unacked.
   bool IsUnacked(QuicPacketNumber packet_number) const;
@@ -157,7 +179,6 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
   virtual bool OnPacketSent(SerializedPacket* serialized_packet,
                             QuicPacketNumber original_packet_number,
                             QuicTime sent_time,
-                            QuicByteCount bytes,
                             TransmissionType transmission_type,
                             HasRetransmittableData has_retransmittable_data);
 
@@ -240,15 +261,13 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
     network_change_visitor_ = visitor;
   }
 
-  // Used in Chromium, but not in the server.
-  size_t consecutive_rto_count() const {
-    return consecutive_rto_count_;
-  }
+  bool InSlowStart() const;
 
   // Used in Chromium, but not in the server.
-  size_t consecutive_tlp_count() const {
-    return consecutive_tlp_count_;
-  }
+  size_t consecutive_rto_count() const { return consecutive_rto_count_; }
+
+  // Used in Chromium, but not in the server.
+  size_t consecutive_tlp_count() const { return consecutive_tlp_count_; }
 
  private:
   friend class test::QuicConnectionPeer;
@@ -296,6 +315,11 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
   // Returns the retransmission timeout, after which a full RTO occurs.
   const QuicTime::Delta GetRetransmissionDelay() const;
 
+  // Returns the newest transmission associated with a packet.
+  QuicPacketNumber GetNewestRetransmission(
+      QuicPacketNumber packet_number,
+      const TransmissionInfo& transmission_info) const;
+
   // Update the RTT if the ack is for the largest acked packet number.
   // Returns true if the rtt was updated.
   bool MaybeUpdateRTT(const QuicAckFrame& ack_frame,
@@ -312,18 +336,19 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
   void MaybeInvokeCongestionEvent(bool rtt_updated,
                                   QuicByteCount bytes_in_flight);
 
-  // Marks |packet_number| as having been revived by the peer, but not
-  // received, so the packet remains pending if it is and the congestion control
-  // does not consider the packet acked.
-  void MarkPacketRevived(QuicPacketNumber packet_number,
-                         QuicTime::Delta delta_largest_observed);
+  // Called when frames of |packet_number| has been received but the packet
+  // itself has not been received by the peer (e.g., packet is revived by FEC).
+  // The packet needs no longer to be retransmitted, but the packet remains
+  // pending if it is and the congestion control does not consider the packet
+  // acked.
+  void MarkPacketNotRetransmittable(QuicPacketNumber packet_number,
+                                    QuicTime::Delta ack_delay_time);
 
-  // Removes the retransmittability and pending properties from the packet at
-  // |it| due to receipt by the peer.  Returns an iterator to the next remaining
-  // unacked packet.
+  // Removes the retransmittability and in flight properties from the packet at
+  // |info| due to receipt by the peer.
   void MarkPacketHandled(QuicPacketNumber packet_number,
-                         const TransmissionInfo& info,
-                         QuicTime::Delta delta_largest_observed);
+                         TransmissionInfo* info,
+                         QuicTime::Delta ack_delay_time);
 
   // Request that |packet_number| be retransmitted after the other pending
   // retransmissions.  Does not add it to the retransmissions if it's already
@@ -331,9 +356,24 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
   void MarkForRetransmission(QuicPacketNumber packet_number,
                              TransmissionType transmission_type);
 
-  // Notify observers about spurious retransmits.
-  void RecordSpuriousRetransmissions(const PacketNumberList& all_transmissions,
+  // Notify observers that packet with TransmissionInfo |info| is a spurious
+  // retransmission. It is caller's responsibility to guarantee the packet with
+  // TransmissionInfo |info| is a spurious retransmission before calling this
+  // function.
+  void RecordOneSpuriousRetransmission(const TransmissionInfo& info);
+
+  // Notify observers about spurious retransmits of packet with TransmissionInfo
+  // |info|.
+  void RecordSpuriousRetransmissions(const TransmissionInfo& info,
                                      QuicPacketNumber acked_packet_number);
+
+  // Returns mutable TransmissionInfo associated with |packet_number|, which
+  // must be unacked.
+  TransmissionInfo* GetMutableTransmissionInfo(QuicPacketNumber packet_number);
+
+  // Remove any packets no longer needed for retransmission, congestion, or
+  // RTT measurement purposes.
+  void RemoveObsoletePackets();
 
   // Newly serialized retransmittable and fec packets are added to this map,
   // which contains owning pointers to any contained frames.  If a packet is
@@ -351,8 +391,14 @@ class NET_EXPORT_PRIVATE QuicSentPacketManager {
   // Tracks if the connection was created by the server or the client.
   Perspective perspective_;
 
+  QuicPathId path_id_;
+
   const QuicClock* clock_;
   QuicConnectionStats* stats_;
+
+  // Pending retransmissions are managed by delegate_ if it is not null.
+  MultipathDelegateInterface* delegate_;  // Not owned.
+
   DebugDelegate* debug_delegate_;
   NetworkChangeVisitor* network_change_visitor_;
   const QuicPacketCount initial_congestion_window_;

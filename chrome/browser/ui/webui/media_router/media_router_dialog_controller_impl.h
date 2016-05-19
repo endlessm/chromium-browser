@@ -39,6 +39,8 @@ class MediaRouterDialogControllerImpl :
   // MediaRouterDialogController:
   bool IsShowingMediaRouterDialog() const override;
 
+  void UpdateMaxDialogSize();
+
  private:
   class DialogWebContentsObserver;
   friend class content::WebContentsUserData<MediaRouterDialogControllerImpl>;
@@ -64,7 +66,16 @@ class MediaRouterDialogControllerImpl :
   // created.
   bool media_router_dialog_pending_;
 
+  // |action_| refers to the MediaRouterAction on the toolbar, rather than
+  // overflow menu. A MediaRouterAction is always created for the toolbar
+  // first. Any subsequent creations for the overflow menu will not be set as
+  // |action_|.
+  // The lifetime of |action_| is dependent on the creation and destruction of
+  // a browser window. The overflow menu's MediaRouterAction is only created
+  // when the overflow menu is opened and destroyed when the menu is closed.
   base::WeakPtr<MediaRouterAction> action_;
+
+  base::WeakPtrFactory<MediaRouterDialogControllerImpl> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaRouterDialogControllerImpl);
 };

@@ -7,12 +7,15 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <utility>
 
 #include "base/files/dir_reader_posix.h"
 #include "base/files/file_util.h"
@@ -268,15 +271,15 @@ int SynchronizedMinidumpManager::ParseFiles() {
     scoped_ptr<base::Value> dump_info = DeserializeFromJson(line);
     DumpInfo info(dump_info.get());
     RCHECK(info.valid(), -1);
-    dumps->Append(dump_info.Pass());
+    dumps->Append(std::move(dump_info));
   }
 
   scoped_ptr<base::Value> metadata =
       DeserializeJsonFromFile(base::FilePath(metadata_path_));
   RCHECK(ValidateMetadata(metadata.get()), -1);
 
-  dumps_ = dumps.Pass();
-  metadata_ = metadata.Pass();
+  dumps_ = std::move(dumps);
+  metadata_ = std::move(metadata);
   return 0;
 }
 
@@ -361,7 +364,7 @@ ScopedVector<DumpInfo> SynchronizedMinidumpManager::GetDumps() {
     dumps.push_back(new DumpInfo(elem));
   }
 
-  return dumps.Pass();
+  return dumps;
 }
 
 int SynchronizedMinidumpManager::SetCurrentDumps(
@@ -406,7 +409,7 @@ bool SynchronizedMinidumpManager::CanUploadDump() {
 
 bool SynchronizedMinidumpManager::HasDumps() {
   // Check if lockfile has entries.
-  int64 size = 0;
+  int64_t size = 0;
   if (GetFileSize(base::FilePath(lockfile_path_), &size) && size > 0)
     return true;
 

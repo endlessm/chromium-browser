@@ -15,11 +15,12 @@
 #include <unistd.h>
 #endif
 
+#include <memory>
 #include <vector>
 
 #include "gflags/gflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/format_macros.h"
 #include "webrtc/call/rtc_event_log.h"
 #include "webrtc/engine_configurations.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
@@ -113,8 +114,8 @@ void PrintCodecs(bool opus_stereo) {
     int res = codec->GetCodec(i, codec_params);
     VALIDATE;
     SetStereoIfOpus(opus_stereo, &codec_params);
-    printf("%2d. %3d  %s/%d/%d \n", i, codec_params.pltype, codec_params.plname,
-           codec_params.plfreq, codec_params.channels);
+    printf("%2d. %3d  %s/%d/%" PRIuS " \n", i, codec_params.pltype,
+           codec_params.plname, codec_params.plfreq, codec_params.channels);
   }
 }
 
@@ -141,7 +142,7 @@ int main(int argc, char** argv) {
 
   MyObserver my_observer;
 
-  rtc::scoped_ptr<test::TraceToStderr> trace_to_stderr;
+  std::unique_ptr<test::TraceToStderr> trace_to_stderr;
   if (!FLAGS_use_log_file) {
     trace_to_stderr.reset(new test::TraceToStderr);
   } else {

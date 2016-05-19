@@ -4,11 +4,19 @@
 
 #include "ui/base/cursor/cursors_aura.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/resources/grit/ui_resources.h"
+
+#if defined(OS_WIN)
+#include "ui/base/cursor/cursor_loader_win.h"
+#include "ui/gfx/icon_util.h"
+#endif
 
 namespace ui {
 namespace {
@@ -128,8 +136,8 @@ const CursorData kLargeCursors[] = {
 };
 
 const CursorData kAnimatedCursors[] = {
-  {ui::kCursorWait, IDR_THROBBER, {7, 7}, {14, 14}},
-  {ui::kCursorProgress, IDR_THROBBER, {7, 7}, {14, 14}},
+  {ui::kCursorWait, IDR_AURA_CURSOR_THROBBER, {7, 7}, {14, 14}},
+  {ui::kCursorProgress, IDR_AURA_CURSOR_THROBBER, {7, 7}, {14, 14}},
 };
 
 const CursorSet kCursorSets[] = {
@@ -225,6 +233,13 @@ bool GetCursorBitmap(const Cursor& cursor,
                      SkBitmap* bitmap,
                      gfx::Point* point) {
   DCHECK(bitmap && point);
+#if defined(OS_WIN)
+  Cursor cursor_copy = cursor;
+  ui::CursorLoaderWin cursor_loader;
+  cursor_loader.SetPlatformCursor(&cursor_copy);
+  const scoped_ptr<SkBitmap> cursor_bitmap(IconUtil::CreateSkBitmapFromHICON(
+      cursor_copy.platform()));
+#else
   int resource_id;
   if (!GetCursorDataFor(ui::CURSOR_SET_NORMAL,
                         cursor.native_type(),
@@ -236,6 +251,7 @@ bool GetCursorBitmap(const Cursor& cursor,
 
   const SkBitmap* cursor_bitmap = ResourceBundle::GetSharedInstance().
       GetImageSkiaNamed(resource_id)->bitmap();
+#endif
   if (!cursor_bitmap)
     return false;
   *bitmap = *cursor_bitmap;

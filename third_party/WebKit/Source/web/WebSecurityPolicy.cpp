@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebSecurityPolicy.h"
 
 #include "core/loader/FrameLoader.h"
@@ -151,6 +150,11 @@ WebString WebSecurityPolicy::generateReferrerHeader(WebReferrerPolicy referrerPo
 void WebSecurityPolicy::registerURLSchemeAsNotAllowingJavascriptURLs(const WebString& scheme)
 {
     SchemeRegistry::registerURLSchemeAsNotAllowingJavascriptURLs(scheme);
+}
+
+void WebSecurityPolicy::registerURLSchemeAsAllowedForReferrer(const WebString& scheme)
+{
+    SchemeRegistry::registerURLSchemeAsAllowedForReferrer(scheme);
 }
 
 } // namespace blink

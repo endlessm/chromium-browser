@@ -8,11 +8,11 @@
 #include "effects/GrXfermodeFragmentProcessor.h"
 
 #include "GrFragmentProcessor.h"
+#include "GrInvariantOutput.h"
 #include "effects/GrConstColorProcessor.h"
-#include "gl/GrGLFragmentProcessor.h"
-#include "gl/GrGLSLBlend.h"
+#include "glsl/GrGLSLFragmentProcessor.h"
+#include "glsl/GrGLSLBlend.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramBuilder.h"
 #include "SkGrPriv.h"
 
 class ComposeTwoFragmentProcessor : public GrFragmentProcessor {
@@ -29,7 +29,7 @@ public:
 
     const char* name() const override { return "ComposeTwo"; }
 
-    void onGetGLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override {
+    void onGetGLSLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override {
         b->add32(fMode);
     }
 
@@ -46,7 +46,7 @@ protected:
     }
 
 private:
-    GrGLFragmentProcessor* onCreateGLInstance() const override;
+    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
 
     SkXfermode::Mode fMode;
 
@@ -57,14 +57,12 @@ private:
 
 /////////////////////////////////////////////////////////////////////
 
-class GLComposeTwoFragmentProcessor : public GrGLFragmentProcessor {
+class GLComposeTwoFragmentProcessor : public GrGLSLFragmentProcessor {
 public:
-    GLComposeTwoFragmentProcessor(const GrProcessor& processor) {}
-
     void emitCode(EmitArgs&) override;
 
 private:
-    typedef GrGLFragmentProcessor INHERITED;
+    typedef GrGLSLFragmentProcessor INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
@@ -81,21 +79,21 @@ const GrFragmentProcessor* ComposeTwoFragmentProcessor::TestCreate(GrProcessorTe
     return new ComposeTwoFragmentProcessor(fpA, fpB, mode);
 }
 
-GrGLFragmentProcessor* ComposeTwoFragmentProcessor::onCreateGLInstance() const{
-    return new GLComposeTwoFragmentProcessor(*this);
+GrGLSLFragmentProcessor* ComposeTwoFragmentProcessor::onCreateGLSLInstance() const{
+    return new GLComposeTwoFragmentProcessor;
 }
 
 /////////////////////////////////////////////////////////////////////
 
 void GLComposeTwoFragmentProcessor::emitCode(EmitArgs& args) {
 
-    GrGLSLFragmentBuilder* fsBuilder = args.fBuilder->getFragmentShaderBuilder();
+    GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
     const ComposeTwoFragmentProcessor& cs = args.fFp.cast<ComposeTwoFragmentProcessor>();
 
     const char* inputColor = nullptr;
     if (args.fInputColor) {
         inputColor = "inputColor";
-        fsBuilder->codeAppendf("vec4 inputColor = vec4(%s.rgb, 1.0);", args.fInputColor);
+        fragBuilder->codeAppendf("vec4 inputColor = vec4(%s.rgb, 1.0);", args.fInputColor);
     }
 
     // declare outputColor and emit the code for each of the two children
@@ -107,12 +105,16 @@ void GLComposeTwoFragmentProcessor::emitCode(EmitArgs& args) {
 
     // emit blend code
     SkXfermode::Mode mode = cs.getMode();
-    fsBuilder->codeAppendf("// Compose Xfer Mode: %s\n", SkXfermode::ModeName(mode));
-    GrGLSLBlend::AppendMode(fsBuilder, srcColor.c_str(), dstColor.c_str(), args.fOutputColor, mode);
+    fragBuilder->codeAppendf("// Compose Xfer Mode: %s\n", SkXfermode::ModeName(mode));
+    GrGLSLBlend::AppendMode(fragBuilder,
+                            srcColor.c_str(),
+                            dstColor.c_str(),
+                            args.fOutputColor,
+                            mode);
 
     // re-multiply the output color by the input color's alpha
     if (args.fInputColor) {
-        fsBuilder->codeAppendf("%s *= %s.a;", args.fOutputColor, args.fInputColor);
+        fragBuilder->codeAppendf("%s *= %s.a;", args.fOutputColor, args.fInputColor);
     }
 }
 
@@ -150,7 +152,16 @@ public:
 
     const char* name() const override { return "ComposeOne"; }
 
-    void onGetGLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override {
+    SkString dumpInfo() const override {
+        SkString str;
+
+        for (int i = 0; i < this->numChildProcessors(); ++i) {
+            str.append(this->childProcessor(i).dumpInfo());
+        }
+        return str;
+    }
+
+    void onGetGLSLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override {
         GR_STATIC_ASSERT((SkXfermode::kLastMode & SK_MaxU16) == SkXfermode::kLastMode);
         b->add32(fMode | (fChild << 16));
     }
@@ -202,7 +213,7 @@ protected:
     }
 
 private:
-    GrGLFragmentProcessor* onCreateGLInstance() const override;
+    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
 
     SkXfermode::Mode    fMode;
     Child               fChild;
@@ -214,12 +225,10 @@ private:
 
 //////////////////////////////////////////////////////////////////////////////
 
-class GLComposeOneFragmentProcessor : public GrGLFragmentProcessor {
+class GLComposeOneFragmentProcessor : public GrGLSLFragmentProcessor {
 public:
-    GLComposeOneFragmentProcessor(const GrProcessor& processor) {}
-
     void emitCode(EmitArgs& args) override {
-        GrGLSLFragmentBuilder* fsBuilder = args.fBuilder->getFragmentShaderBuilder();
+        GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
         SkXfermode::Mode mode = args.fFp.cast<ComposeOneFragmentProcessor>().mode();
         ComposeOneFragmentProcessor::Child child =
             args.fFp.cast<ComposeOneFragmentProcessor>().child();
@@ -229,22 +238,22 @@ public:
         const char* inputColor = args.fInputColor;
         // We don't try to optimize for this case at all
         if (!inputColor) {
-            fsBuilder->codeAppendf("const vec4 ones = vec4(1);");
+            fragBuilder->codeAppendf("const vec4 ones = vec4(1);");
             inputColor = "ones";
         }
 
         // emit blend code
-        fsBuilder->codeAppendf("// Compose Xfer Mode: %s\n", SkXfermode::ModeName(mode));
+        fragBuilder->codeAppendf("// Compose Xfer Mode: %s\n", SkXfermode::ModeName(mode));
         const char* childStr = childColor.c_str();
         if (ComposeOneFragmentProcessor::kDst_Child == child) {
-            GrGLSLBlend::AppendMode(fsBuilder, inputColor, childStr, args.fOutputColor, mode);
+            GrGLSLBlend::AppendMode(fragBuilder, inputColor, childStr, args.fOutputColor, mode);
         } else {
-            GrGLSLBlend::AppendMode(fsBuilder, childStr, inputColor, args.fOutputColor, mode);
+            GrGLSLBlend::AppendMode(fragBuilder, childStr, inputColor, args.fOutputColor, mode);
         }
     }
 
 private:
-    typedef GrGLFragmentProcessor INHERITED;
+    typedef GrGLSLFragmentProcessor INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
@@ -264,8 +273,8 @@ const GrFragmentProcessor* ComposeOneFragmentProcessor::TestCreate(GrProcessorTe
     return new ComposeOneFragmentProcessor(dst, mode, child);
 }
 
-GrGLFragmentProcessor* ComposeOneFragmentProcessor::onCreateGLInstance() const {
-    return new GLComposeOneFragmentProcessor(*this);
+GrGLSLFragmentProcessor* ComposeOneFragmentProcessor::onCreateGLSLInstance() const {
+    return new GLComposeOneFragmentProcessor;
 }
 
 //////////////////////////////////////////////////////////////////////////////

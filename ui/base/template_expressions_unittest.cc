@@ -9,28 +9,26 @@
 namespace ui {
 
 TEST(TemplateExpressionsTest, ReplaceTemplateExpressionsPieces) {
-  std::map<base::StringPiece, std::string> substitutions;
+  TemplateReplacements substitutions;
   substitutions["test"] = "word";
   substitutions["5"] = "number";
-  substitutions[""] = "blank";
 
-  EXPECT_EQ(ReplaceTemplateExpressions("${}", substitutions), "blank");
-  EXPECT_EQ(ReplaceTemplateExpressions("", substitutions), "");
-  EXPECT_EQ(ReplaceTemplateExpressions("${test}", substitutions), "word");
-  EXPECT_EQ(ReplaceTemplateExpressions("${5} ", substitutions), "number ");
-  EXPECT_EQ(
-      ReplaceTemplateExpressions("multiple: ${test}, ${5}.", substitutions),
-      "multiple: word, number.");
+  EXPECT_EQ("", ReplaceTemplateExpressions("", substitutions));
+  EXPECT_EQ("word", ReplaceTemplateExpressions("$i18n{test}", substitutions));
+  EXPECT_EQ("number ", ReplaceTemplateExpressions("$i18n{5} ", substitutions));
+  EXPECT_EQ("multiple: word, number.",
+            ReplaceTemplateExpressions("multiple: $i18n{test}, $i18n{5}.",
+                                       substitutions));
 }
 
 TEST(TemplateExpressionsTest,
      ReplaceTemplateExpressionsConsecutiveDollarSignsPieces) {
-  std::map<base::StringPiece, std::string> substitutions;
+  TemplateReplacements substitutions;
   substitutions["a"] = "x";
-  EXPECT_EQ(ReplaceTemplateExpressions("$ $$ $$$", substitutions), "$ $$ $$$");
-  EXPECT_EQ(ReplaceTemplateExpressions("$${a}", substitutions), "$x");
-  EXPECT_EQ(ReplaceTemplateExpressions("$$${a}", substitutions), "$$x");
-  EXPECT_EQ(ReplaceTemplateExpressions("$12", substitutions), "$12");
+  EXPECT_EQ("$ $$ $$$", ReplaceTemplateExpressions("$ $$ $$$", substitutions));
+  EXPECT_EQ("$x", ReplaceTemplateExpressions("$$i18n{a}", substitutions));
+  EXPECT_EQ("$$x", ReplaceTemplateExpressions("$$$i18n{a}", substitutions));
+  EXPECT_EQ("$i18n12", ReplaceTemplateExpressions("$i18n12", substitutions));
 }
 
 }  // namespace ui

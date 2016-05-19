@@ -5,38 +5,23 @@
 #ifndef COURGETTE_ASSEMBLY_PROGRAM_H_
 #define COURGETTE_ASSEMBLY_PROGRAM_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-
-#include "courgette/disassembler.h"
+#include "courgette/courgette.h"
+#include "courgette/image_utils.h"
+#include "courgette/label_manager.h"
 #include "courgette/memory_allocator.h"
 
 namespace courgette {
 
 class EncodedProgram;
-
-// A Label is a symbolic reference to an address.  Unlike a conventional
-// assembly language, we always know the address.  The address will later be
-// stored in a table and the Label will be replaced with the index into the
-// table.
-//
-// TODO(sra): Make fields private and add setters and getters.
-class Label {
- public:
-  static const int kNoIndex = -1;
-  Label() : rva_(0), index_(kNoIndex), count_(0) {}
-  explicit Label(RVA rva) : rva_(rva), index_(kNoIndex), count_(0) {}
-
-  RVA rva_;    // Address referred to by the label.
-  int index_;  // Index of address in address table, kNoIndex until assigned.
-  int count_;
-};
-
-typedef std::map<RVA, Label*> RVAToLabel;
 
 // Opcodes of simple assembly language
 enum OP {
@@ -63,8 +48,8 @@ class Instruction {
   explicit Instruction(OP op) : op_(op), info_(0) {}
   Instruction(OP op, unsigned int info) : op_(op), info_(info) {}
 
-  uint32 op_   : 4;    // A few bits to store the OP code.
-  uint32 info_ : 28;   // Remaining bits in first word available to subclass.
+  uint32_t op_ : 4;     // A few bits to store the OP code.
+  uint32_t info_ : 28;  // Remaining bits in first word available to subclass.
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Instruction);
@@ -98,7 +83,7 @@ class AssemblyProgram {
 
   ExecutableType kind() const { return kind_; }
 
-  void set_image_base(uint64 image_base) { image_base_ = image_base; }
+  void set_image_base(uint64_t image_base) { image_base_ = image_base; }
 
   // Instructions will be assembled in the order they are emitted.
 
@@ -115,19 +100,21 @@ class AssemblyProgram {
   CheckBool EmitOriginInstruction(RVA rva) WARN_UNUSED_RESULT;
 
   // Generates a single byte of data or machine instruction.
-  CheckBool EmitByteInstruction(uint8 byte) WARN_UNUSED_RESULT;
+  CheckBool EmitByteInstruction(uint8_t byte) WARN_UNUSED_RESULT;
 
   // Generates multiple bytes of data or machine instructions.
-  CheckBool EmitBytesInstruction(const uint8* value, size_t len)
-      WARN_UNUSED_RESULT;
+  CheckBool EmitBytesInstruction(const uint8_t* value,
+                                 size_t len) WARN_UNUSED_RESULT;
 
   // Generates 4-byte relative reference to address of 'label'.
   CheckBool EmitRel32(Label* label) WARN_UNUSED_RESULT;
 
   // Generates 4-byte relative reference to address of 'label' for
   // ARM.
-  CheckBool EmitRel32ARM(uint16 op, Label* label, const uint8* arm_op,
-                         uint16 op_size) WARN_UNUSED_RESULT;
+  CheckBool EmitRel32ARM(uint16_t op,
+                         Label* label,
+                         const uint8_t* arm_op,
+                         uint16_t op_size) WARN_UNUSED_RESULT;
 
   // Generates 4-byte absolute reference to address of 'label'.
   CheckBool EmitAbs32(Label* label) WARN_UNUSED_RESULT;
@@ -145,7 +132,7 @@ class AssemblyProgram {
   void UnassignIndexes();
   void AssignRemainingIndexes();
 
-  EncodedProgram* Encode() const;
+  scoped_ptr<EncodedProgram> Encode() const;
 
   // Accessor for instruction list.
   const InstructionVector& instructions() const {
@@ -164,7 +151,8 @@ class AssemblyProgram {
   // otherwise returns NULL.
   Label* InstructionRel32Label(const Instruction* instruction) const;
 
-  // Trim underused labels
+  // Removes underused Labels. Thresholds used (may be 0, i.e., no trimming) is
+  // dependent on architecture. Returns true on success, and false otherwise.
   CheckBool TrimLabels();
 
  private:
@@ -187,10 +175,10 @@ class AssemblyProgram {
   static void AssignRemainingIndexes(RVAToLabel* labels);
 
   // Sharing instructions that emit a single byte saves a lot of space.
-  Instruction* GetByteInstruction(uint8 byte);
+  Instruction* GetByteInstruction(uint8_t byte);
   scoped_ptr<Instruction* [], base::FreeDeleter> byte_instruction_cache_;
 
-  uint64 image_base_;  // Desired or mandated base address of image.
+  uint64_t image_base_;  // Desired or mandated base address of image.
 
   InstructionVector instructions_;  // All the instructions in program.
 
@@ -203,5 +191,12 @@ class AssemblyProgram {
   DISALLOW_COPY_AND_ASSIGN(AssemblyProgram);
 };
 
+// Converts |program| into encoded form, returning it as |*output|.
+// Returns C_OK if succeeded, otherwise returns an error status and sets
+// |*output| to null.
+Status Encode(const AssemblyProgram& program,
+              scoped_ptr<EncodedProgram>* output);
+
 }  // namespace courgette
+
 #endif  // COURGETTE_ASSEMBLY_PROGRAM_H_

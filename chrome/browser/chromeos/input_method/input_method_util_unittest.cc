@@ -4,9 +4,12 @@
 
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -81,7 +84,7 @@ class InputMethodUtilTest : public testing::Test {
                                      GURL(""));
     input_methods.push_back(zhuyin_ime);
 
-    util_.InitXkbInputMethodsForTesting();
+    util_.InitXkbInputMethodsForTesting(*whitelist_.GetSupportedInputMethods());
     util_.AppendInputMethods(input_methods);
   }
 
@@ -489,7 +492,7 @@ TEST_F(InputMethodUtilTest, TestInputMethodIDMigration) {
       {"ime:zh-t:zhuyin", "zh-hant-t-i0-und"},
       {"ime:zh-t:quick", "zh-hant-t-i0-cangjie-1987-x-m0-simplified"},
       {"ime:jp:mozc_us", "nacl_mozc_us"},
-      {"ime:ko:hangul", "hangul_2set"},
+      {"ime:ko:hangul", "ko-t-i0-und"},
       {"m17n:deva_phone", "vkd_deva_phone"},
       {"m17n:ar", "vkd_ar"},
       {"t13n:hi", "hi-t-i0-und"},

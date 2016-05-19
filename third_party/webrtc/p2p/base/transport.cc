@@ -50,10 +50,10 @@ bool IceCredentialsChanged(const std::string& old_ufrag,
                            const std::string& old_pwd,
                            const std::string& new_ufrag,
                            const std::string& new_pwd) {
-  // TODO(jiayl): The standard (RFC 5245 Section 9.1.1.1) says that ICE should
-  // restart when both the ufrag and password are changed, but we do restart
-  // when either ufrag or passwrod is changed to keep compatible with GICE. We
-  // should clean this up when GICE is no longer used.
+  // The standard (RFC 5245 Section 9.1.1.1) says that ICE restarts MUST change
+  // both the ufrag and password. However, section 9.2.1.1 says changing the
+  // ufrag OR password indicates an ICE restart. So, to keep compatibility with
+  // endpoints that only change one, we'll treat this as an ICE restart.
   return (old_ufrag != new_ufrag) || (old_pwd != new_pwd);
 }
 
@@ -236,10 +236,10 @@ void Transport::ConnectChannels() {
     // initiate request initiated by the remote.
     LOG(LS_INFO) << "Transport::ConnectChannels: No local description has "
                  << "been set. Will generate one.";
-    TransportDescription desc(
-        std::vector<std::string>(), rtc::CreateRandomString(ICE_UFRAG_LENGTH),
-        rtc::CreateRandomString(ICE_PWD_LENGTH), ICEMODE_FULL,
-        CONNECTIONROLE_NONE, nullptr, Candidates());
+    TransportDescription desc(std::vector<std::string>(),
+                              rtc::CreateRandomString(ICE_UFRAG_LENGTH),
+                              rtc::CreateRandomString(ICE_PWD_LENGTH),
+                              ICEMODE_FULL, CONNECTIONROLE_NONE, nullptr);
     SetLocalTransportDescription(desc, CA_OFFER, nullptr);
   }
 
@@ -305,8 +305,8 @@ bool Transport::GetStats(TransportStats* stats) {
     TransportChannelImpl* channel = kv.second;
     TransportChannelStats substats;
     substats.component = channel->component();
-    channel->GetSrtpCryptoSuite(&substats.srtp_cipher);
-    channel->GetSslCipherSuite(&substats.ssl_cipher);
+    channel->GetSrtpCryptoSuite(&substats.srtp_crypto_suite);
+    channel->GetSslCipherSuite(&substats.ssl_cipher_suite);
     if (!channel->GetStats(&substats.connection_infos)) {
       return false;
     }

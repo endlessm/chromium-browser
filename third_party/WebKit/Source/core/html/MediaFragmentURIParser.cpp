@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/MediaFragmentURIParser.h"
 
 #include "wtf/text/CString.h"
@@ -310,4 +309,4 @@ bool MediaFragmentURIParser::parseNPTTime(const LChar* timeString, unsigned leng
     return true;
 }
 
-}
+} // namespace blink

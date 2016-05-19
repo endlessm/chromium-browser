@@ -34,6 +34,7 @@ if (!is_ios) {
     deps = [
       "//base",
       "//base/third_party/dynamic_annotations",
+      "//content/public/common",
       "//ui/base",
       "//url",
     ]
@@ -41,10 +42,10 @@ if (!is_ios) {
 } else {
   source_set("sessions") {
     sources = [
-      "ios/ios_live_tab.cc",
       "ios/ios_live_tab.h",
-      "ios/ios_serialized_navigation_builder.cc",
+      "ios/ios_live_tab.mm",
       "ios/ios_serialized_navigation_builder.h",
+      "ios/ios_serialized_navigation_builder.mm",
       "ios/ios_serialized_navigation_driver.cc",
       "ios/ios_serialized_navigation_driver.h",
     ]
@@ -118,6 +119,8 @@ source_set("shared") {
 
   deps = [
     "//base",
+    "//components/keyed_service/core",
+    "//components/variations",
     "//skia",
     "//sync",
     "//ui/base",
@@ -137,9 +140,12 @@ source_set("test_support") {
     ":sessions",
   ]
   deps = [
+    "//base",
     "//skia",
     "//sync",
     "//testing/gtest",
+    "//ui/base",  # For page_transition_types.h.
+    "//url",
   ]
 
   if (!is_android && !is_ios) {
@@ -156,7 +162,7 @@ source_set("unit_tests") {
     "core/serialized_navigation_entry_unittest.cc",
     "core/session_backend_unittest.cc",
     "core/session_types_unittest.cc",
-    "ios/ios_serialized_navigation_builder_unittest.cc",
+    "ios/ios_serialized_navigation_builder_unittest.mm",
     "ios/ios_serialized_navigation_driver_unittest.cc",
   ]
 
@@ -174,6 +180,13 @@ source_set("unit_tests") {
   deps = [
     ":test_support",
     "//base/test:test_support",
+    "//sync",
     "//testing/gtest",
+    "//ui/base",  # For page transition types.
+    "//url",
   ]
+
+  if (!is_ios) {
+    deps += [ "//content/public/common" ]
+  }
 }

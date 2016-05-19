@@ -50,7 +50,7 @@ class VersionUpdaterCrosTest : public ::testing::Test {
     scoped_ptr<DBusThreadManagerSetter> dbus_setter =
         DBusThreadManager::GetSetterForTesting();
     dbus_setter->SetUpdateEngineClient(
-        scoped_ptr<UpdateEngineClient>(fake_update_engine_client_).Pass());
+        scoped_ptr<UpdateEngineClient>(fake_update_engine_client_));
 
     EXPECT_CALL(*mock_user_manager_, IsCurrentUserOwner())
         .WillRepeatedly(Return(false));
@@ -110,7 +110,8 @@ TEST_F(VersionUpdaterCrosTest, TwoOverlappingSetChannelRequests) {
   EXPECT_EQ(0, fake_update_engine_client_->request_update_check_call_count());
 
   // IDLE -> DOWNLOADING transition after update check.
-  version_updater_->CheckForUpdate(base::Bind(&CheckNotification));
+  version_updater_->CheckForUpdate(base::Bind(&CheckNotification),
+                                   VersionUpdater::PromoteCallback());
   EXPECT_EQ(1, fake_update_engine_client_->request_update_check_call_count());
 
   {
@@ -132,7 +133,8 @@ TEST_F(VersionUpdaterCrosTest, TwoOverlappingSetChannelRequests) {
     fake_update_engine_client_->NotifyObserversThatStatusChanged(status);
   }
 
-  version_updater_->CheckForUpdate(base::Bind(&CheckNotification));
+  version_updater_->CheckForUpdate(base::Bind(&CheckNotification),
+                                   VersionUpdater::PromoteCallback());
   EXPECT_EQ(1, fake_update_engine_client_->request_update_check_call_count());
 
   // REPORTING_ERROR_EVENT -> IDLE transition, update check should be

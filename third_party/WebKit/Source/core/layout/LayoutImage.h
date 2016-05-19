@@ -81,13 +81,11 @@ public:
 protected:
     bool needsPreferredWidthsRecalculation() const final;
     LayoutBox* embeddedContentBox() const final;
-    void computeIntrinsicRatioInformation(FloatSize& intrinsicSize, double& intrinsicRatio) const final;
+    void computeIntrinsicSizingInfo(IntrinsicSizingInfo&) const final;
 
     void imageChanged(WrappedImagePtr, const IntRect* = nullptr) override;
 
     void paint(const PaintInfo&, const LayoutPoint&) const final;
-
-    void layout() override;
 
     bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectLayoutImage || LayoutReplaced::isOfType(type); }
 
@@ -114,8 +112,6 @@ private:
 
     void invalidatePaintAndMarkForLayoutIfNeeded();
     void updateIntrinsicSizeIfNeeded(const LayoutSize&);
-    // Update the size of the image to be rendered. Object-fit may cause this to be different from the CSS box's content rect.
-    void updateInnerContentRect();
 
     // This member wraps the associated decoded image.
     //

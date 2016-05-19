@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "DictionaryTest.h"
 
 #include "bindings/core/v8/V8ObjectBuilder.h"
@@ -149,6 +148,31 @@ void DictionaryTest::getDerived(InternalDictionaryDerived& result)
     result.setRequiredBooleanMember(m_requiredBooleanMember);
 }
 
+String DictionaryTest::stringFromIterable(ExecutionContext* executionContext, Dictionary iterable, ExceptionState& exceptionState) const
+{
+    StringBuilder result;
+    DictionaryIterator iterator = iterable.getIterator(executionContext);
+    if (!iterator.isValid())
+        return emptyString();
+
+    bool firstLoop = true;
+    while (iterator.next(executionContext, exceptionState)) {
+        if (exceptionState.hadException())
+            return emptyString();
+
+        if (firstLoop)
+            firstLoop = false;
+        else
+            result.append(",");
+
+        v8::Local<v8::Value> value;
+        if (v8Call(iterator.value(), value))
+            result.append(toCoreString(value->ToString()));
+    }
+
+    return result.toString();
+}
+
 void DictionaryTest::reset()
 {
     m_longMember = nullptr;
@@ -189,4 +213,4 @@ DEFINE_TRACE(DictionaryTest)
     visitor->trace(m_eventTargetOrNullMember);
 }
 
-}
+} // namespace blink

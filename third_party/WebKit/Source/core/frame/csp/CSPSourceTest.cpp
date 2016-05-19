@@ -2,14 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/csp/CSPSource.h"
 
 #include "core/dom/Document.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/SecurityOrigin.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -92,4 +91,4 @@ TEST_F(CSPSourceTest, InsecureHostMatchesSecure)
     EXPECT_FALSE(source.matches(KURL(base, "https://not-example.com:8000/")));
 }
 
-} // namespace
+} // namespace blink

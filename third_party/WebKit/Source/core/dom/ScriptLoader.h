@@ -25,7 +25,6 @@
 #include "core/dom/PendingScript.h"
 #include "core/fetch/FetchRequest.h"
 #include "core/fetch/ResourceClient.h"
-#include "core/fetch/ResourcePtr.h"
 #include "core/fetch/ScriptResource.h"
 #include "wtf/text/TextPosition.h"
 #include "wtf/text/WTFString.h"
@@ -35,9 +34,9 @@ namespace blink {
 class Element;
 class ScriptLoaderClient;
 class ScriptSourceCode;
+class LocalFrame;
 
-
-class CORE_EXPORT ScriptLoader : public NoBaseWillBeGarbageCollectedFinalized<ScriptLoader>, private ScriptResourceClient {
+class CORE_EXPORT ScriptLoader : public NoBaseWillBeGarbageCollectedFinalized<ScriptLoader>, public ScriptResourceClient {
     USING_FAST_MALLOC_WILL_BE_REMOVED(ScriptLoader);
 public:
     static PassOwnPtrWillBeRawPtr<ScriptLoader> create(Element* element, bool createdByParser, bool isEvaluated)
@@ -68,7 +67,7 @@ public:
     bool willBeParserExecuted() const { return m_willBeParserExecuted; }
     bool readyToBeParserExecuted() const { return m_readyToBeParserExecuted; }
     bool willExecuteWhenDocumentFinishedParsing() const { return m_willExecuteWhenDocumentFinishedParsing; }
-    ResourcePtr<ScriptResource> resource() { return m_resource; }
+    ScriptResource* resource() { return m_resource.get(); }
 
     void setHaveFiredLoadEvent(bool haveFiredLoad) { m_haveFiredLoad = haveFiredLoad; }
     bool isParserInserted() const { return m_parserInserted; }
@@ -81,7 +80,7 @@ public:
     void handleSourceAttribute(const String& sourceUrl);
     void handleAsyncAttribute();
 
-    virtual bool isReady() const { return m_pendingScript.isReady(); }
+    virtual bool isReady() const { return m_pendingScript && m_pendingScript->isReady(); }
 
     // Clears the connection to the PendingScript (and Element and Resource).
     void detach();
@@ -92,6 +91,7 @@ protected:
 private:
     bool ignoresLoadRequest() const;
     bool isScriptForEventSupported() const;
+    void logScriptMimetype(ScriptResource*, LocalFrame*, String);
 
     bool fetchScript(const String& sourceUrl, FetchRequest::DeferOption);
 
@@ -102,12 +102,10 @@ private:
     String debugName() const override { return "ScriptLoader"; }
 
     RawPtrWillBeMember<Element> m_element;
-    ResourcePtr<ScriptResource> m_resource;
+    RefPtrWillBeMember<ScriptResource> m_resource;
     WTF::OrdinalNumber m_startLineNumber;
     String m_characterEncoding;
     String m_fallbackCharacterEncoding;
-
-    PendingScript m_pendingScript;
 
     bool m_parserInserted : 1;
     bool m_isExternalScript : 1;
@@ -115,9 +113,11 @@ private:
     bool m_haveFiredLoad : 1;
     bool m_willBeParserExecuted : 1; // Same as "The parser will handle executing the script."
     bool m_readyToBeParserExecuted : 1;
+    bool m_willExecuteInOrder : 1;
     bool m_willExecuteWhenDocumentFinishedParsing : 1;
     bool m_forceAsync : 1;
-    bool m_willExecuteInOrder : 1;
+
+    OwnPtrWillBeMember<PendingScript> m_pendingScript;
 };
 
 ScriptLoader* toScriptLoaderIfPossible(Element*);

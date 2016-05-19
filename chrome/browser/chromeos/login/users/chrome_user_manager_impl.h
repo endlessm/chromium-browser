@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -35,6 +35,10 @@
 class PrefRegistrySimple;
 class PrefService;
 class ProfileSyncService;
+
+namespace gfx {
+class ImageSkia;
+}
 
 namespace policy {
 struct DeviceLocalAccount;
@@ -93,6 +97,25 @@ class ChromeUserManagerImpl
   bool IsUserNonCryptohomeDataEphemeral(
       const AccountId& account_id) const override;
   bool AreSupervisedUsersAllowed() const override;
+  void UpdateLoginState(const user_manager::User* active_user,
+                        const user_manager::User* primary_user,
+                        bool is_current_user_owner) const override;
+  bool GetPlatformKnownUserId(const std::string& user_email,
+                              const std::string& gaia_id,
+                              AccountId* out_account_id) const override;
+  const AccountId& GetGuestAccountId() const override;
+  bool IsFirstExecAfterBoot() const override;
+  void AsyncRemoveCryptohome(const AccountId& account_id) const override;
+  bool IsGuestAccountId(const AccountId& account_id) const override;
+  bool IsStubAccountId(const AccountId& account_id) const override;
+  bool IsSupervisedAccountId(const AccountId& account_id) const override;
+  bool HasBrowserRestarted() const override;
+  const gfx::ImageSkia& GetResourceImagekiaNamed(int id) const override;
+  base::string16 GetResourceStringUTF16(int string_id) const override;
+  void ScheduleResolveLocale(const std::string& locale,
+                             const base::Closure& on_resolved_callback,
+                             std::string* out_resolved_locale) const override;
+  bool IsValidDefaultUserImageId(int image_index) const override;
 
   // content::NotificationObserver implementation.
   void Observe(int type,
@@ -206,7 +229,7 @@ class ChromeUserManagerImpl
   void OnUserNotAllowed(const std::string& user_email) override;
 
   // BootstrapManager::Delegate implementation:
-  void RemovePendingBootstrapUser(const std::string& user_id) override;
+  void RemovePendingBootstrapUser(const AccountId& account_id) override;
 
   // Update the number of users.
   void UpdateNumberOfUsers();
@@ -216,10 +239,10 @@ class ChromeUserManagerImpl
   void UpdateUserTimeZoneRefresher(Profile* profile);
 
   // Adds user to the list of the users who should be reported.
-  void AddReportingUser(const std::string& user_id);
+  void AddReportingUser(const AccountId& account_id);
 
   // Removes user from the list of the users who should be reported.
-  void RemoveReportingUser(const std::string& user_id);
+  void RemoveReportingUser(const AccountId& account_id);
 
   // Interface to the signed settings store.
   CrosSettings* cros_settings_;

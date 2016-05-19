@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/sync_internals_message_handler.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
@@ -13,6 +14,7 @@
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/signin/core/browser/signin_manager_base.h"
 #include "components/sync_driver/about_sync_util.h"
+#include "components/sync_driver/sync_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_ui.h"
 #include "sync/internal_api/public/events/protocol_event.h"
@@ -26,11 +28,26 @@ using syncer::JsEventDetails;
 using syncer::ModelTypeSet;
 using syncer::WeakHandle;
 
+namespace {
+class UtilAboutSyncDataExtractor : public AboutSyncDataExtractor {
+ public:
+  scoped_ptr<base::DictionaryValue> ConstructAboutInformation(
+      sync_driver::SyncService* service,
+      SigninManagerBase* signin) override {
+    return sync_driver::sync_ui_util::ConstructAboutInformation(
+        service, signin, chrome::GetChannel());
+  }
+};
+}  //  namespace
+
 SyncInternalsMessageHandler::SyncInternalsMessageHandler()
-    : is_registered_(false),
-      is_registered_for_counters_(false),
-      weak_ptr_factory_(this) {
-}
+    : SyncInternalsMessageHandler(
+          make_scoped_ptr(new UtilAboutSyncDataExtractor())) {}
+
+SyncInternalsMessageHandler::SyncInternalsMessageHandler(
+    scoped_ptr<AboutSyncDataExtractor> about_sync_data_extractor)
+    : about_sync_data_extractor_(std::move(about_sync_data_extractor)),
+      weak_ptr_factory_(this) {}
 
 SyncInternalsMessageHandler::~SyncInternalsMessageHandler() {
   if (js_controller_)
@@ -217,8 +234,8 @@ void SyncInternalsMessageHandler::SendAboutInfo() {
   ProfileSyncService* sync_service = GetProfileSyncService();
   SigninManagerBase* signin = sync_service ? sync_service->signin() : nullptr;
   scoped_ptr<base::DictionaryValue> value =
-      sync_driver::sync_ui_util::ConstructAboutInformation(
-          sync_service, signin, chrome::GetChannel());
+      about_sync_data_extractor_->ConstructAboutInformation(sync_service,
+                                                            signin);
   web_ui()->CallJavascriptFunction(
       sync_driver::sync_ui_util::kDispatchEvent,
       base::StringValue(sync_driver::sync_ui_util::kOnAboutInfoUpdated),

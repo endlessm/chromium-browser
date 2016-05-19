@@ -4,11 +4,13 @@
 
 #include "chrome/browser/ui/toolbar/recent_tabs_builder_test_helper.h"
 
+#include <stddef.h>
+
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/sync_driver/open_tabs_ui_delegate.h"
+#include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "components/sync_sessions/sessions_sync_manager.h"
 #include "sync/api/attachments/attachment_id.h"
 #include "sync/internal_api/public/attachments/attachment_service_proxy_for_test.h"

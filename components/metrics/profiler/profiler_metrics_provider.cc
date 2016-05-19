@@ -5,6 +5,7 @@
 #include "components/metrics/profiler/profiler_metrics_provider.h"
 
 #include <ctype.h>
+#include <stddef.h>
 #include <string>
 #include <vector>
 
@@ -84,9 +85,6 @@ ProfilerMetricsProvider::~ProfilerMetricsProvider() {
 
 void ProfilerMetricsProvider::ProvideGeneralMetrics(
     ChromeUserMetricsExtension* uma_proto) {
-  DCHECK_EQ(tracked_objects::TIME_SOURCE_TYPE_WALL_TIME,
-            tracked_objects::GetTimeSourceType());
-
   DCHECK_EQ(0, uma_proto->profiler_event_size());
 
   for (auto& event : profiler_events_cache_) {
@@ -108,12 +106,6 @@ void ProfilerMetricsProvider::RecordProfilerData(
   // for us to upload it.
   if (IsCellularLogicEnabled())
     return;
-
-  if (tracked_objects::GetTimeSourceType() !=
-      tracked_objects::TIME_SOURCE_TYPE_WALL_TIME) {
-    // We currently only support the default time source, wall clock time.
-    return;
-  }
 
   const bool new_phase = !ContainsKey(profiler_events_cache_, profiling_phase);
   ProfilerEventProto* profiler_event = &profiler_events_cache_[profiling_phase];

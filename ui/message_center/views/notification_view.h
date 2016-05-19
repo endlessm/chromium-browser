@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "ui/message_center/message_center_export.h"
 #include "ui/message_center/views/message_view.h"
 #include "ui/views/view_targeter_delegate.h"
@@ -24,6 +25,7 @@ class BoundedLabel;
 class MessageCenter;
 class MessageCenterController;
 class NotificationButton;
+class NotificationProgressBarBase;
 class NotificationView;
 class PaddedButton;
 class ProportionalImageView;
@@ -60,6 +62,9 @@ class MESSAGE_CENTER_EXPORT NotificationView
   // Overridden from MessageView:
   void UpdateWithNotification(const Notification& notification) override;
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  bool IsCloseButtonFocused() override;
+  void RequestFocusOnCloseButton() override;
+  bool IsPinned() override;
 
   // Overridden from MessageViewController:
   void ClickOnNotification(const std::string& notification_id) override;
@@ -103,6 +108,7 @@ class MESSAGE_CENTER_EXPORT NotificationView
   void CreateOrUpdateIconView(const Notification& notification);
   void CreateOrUpdateImageView(const Notification& notification);
   void CreateOrUpdateActionButtonViews(const Notification& notification);
+  void CreateOrUpdateCloseButtonView(const Notification& notification);
 
   int GetMessageLineLimit(int title_lines, int width) const;
   int GetMessageHeight(int width, int limit) const;
@@ -129,8 +135,9 @@ class MESSAGE_CENTER_EXPORT NotificationView
   views::View* bottom_view_;
   views::View* image_container_;
   ProportionalImageView* image_view_;
-  views::ProgressBar* progress_bar_view_;
+  NotificationProgressBarBase* progress_bar_view_;
   std::vector<NotificationButton*> action_buttons_;
+  scoped_ptr<views::ImageButton> close_button_;
   std::vector<views::View*> separators_;
 
   DISALLOW_COPY_AND_ASSIGN(NotificationView);

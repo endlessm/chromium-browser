@@ -5,6 +5,9 @@
 #ifndef CC_RESOURCES_TEXTURE_MAILBOX_H_
 #define CC_RESOURCES_TEXTURE_MAILBOX_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
 #include "base/memory/shared_memory.h"
@@ -23,10 +26,10 @@ class CC_EXPORT TextureMailbox {
   explicit TextureMailbox(const gpu::MailboxHolder& mailbox_holder);
   TextureMailbox(const gpu::Mailbox& mailbox,
                  const gpu::SyncToken& sync_token,
-                 uint32 target);
+                 uint32_t target);
   TextureMailbox(const gpu::Mailbox& mailbox,
                  const gpu::SyncToken& sync_token,
-                 uint32 target,
+                 uint32_t target,
                  const gfx::Size& size_in_pixels,
                  bool is_overlay_candidate);
   TextureMailbox(SharedBitmap* shared_bitmap, const gfx::Size& size_in_pixels);
@@ -36,12 +39,15 @@ class CC_EXPORT TextureMailbox {
   bool IsValid() const { return IsTexture() || IsSharedMemory(); }
   bool IsTexture() const { return !mailbox_holder_.mailbox.IsZero(); }
   bool IsSharedMemory() const { return shared_bitmap_ != NULL; }
+  bool HasSyncToken() const { return mailbox_holder_.sync_token.HasData(); }
+
+  int8_t* GetSyncTokenData() { return mailbox_holder_.sync_token.GetData(); }
 
   bool Equals(const TextureMailbox&) const;
 
   const gpu::Mailbox& mailbox() const { return mailbox_holder_.mailbox; }
-  const int8* name() const { return mailbox().name; }
-  uint32 target() const { return mailbox_holder_.texture_target; }
+  const int8_t* name() const { return mailbox().name; }
+  uint32_t target() const { return mailbox_holder_.texture_target; }
   const gpu::SyncToken& sync_token() const {
     return mailbox_holder_.sync_token;
   }

@@ -178,8 +178,9 @@ struct CrossThreadResourceLoaderOptionsData {
     RefPtr<SecurityOrigin> securityOrigin;
 };
 
-template<> struct CrossThreadCopierBase<false, false, false, ResourceLoaderOptions> {
-    typedef CrossThreadResourceLoaderOptionsData Type;
+template <>
+struct CrossThreadCopier<ResourceLoaderOptions> {
+    using Type = CrossThreadResourceLoaderOptionsData;
     static Type copy(const ResourceLoaderOptions& options)
     {
         return CrossThreadResourceLoaderOptionsData(options);

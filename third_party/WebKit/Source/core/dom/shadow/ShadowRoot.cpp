@@ -24,13 +24,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/shadow/ShadowRoot.h"
 
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/css/StyleSheetList.h"
 #include "core/css/resolver/StyleResolver.h"
-#include "core/css/resolver/StyleResolverParentScope.h"
+#include "core/css/resolver/StyleSharingDepthScope.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/dom/StyleEngine.h"
 #include "core/dom/Text.h"
@@ -63,6 +62,7 @@ ShadowRoot::ShadowRoot(Document& document, ShadowRootType type)
     , m_registeredWithParentShadowRoot(false)
     , m_descendantInsertionPointsIsValid(false)
     , m_delegatesFocus(false)
+    , m_descendantSlotsIsValid(false)
 {
 }
 
@@ -105,9 +105,9 @@ void ShadowRoot::dispose()
 ShadowRoot* ShadowRoot::olderShadowRootForBindings() const
 {
     ShadowRoot* older = olderShadowRoot();
-    while (older && !older->isOpen())
+    while (older && !older->isOpenOrV0())
         older = older->olderShadowRoot();
-    ASSERT(!older || older->isOpen());
+    ASSERT(!older || older->isOpenOrV0());
     return older;
 }
 
@@ -138,9 +138,9 @@ void ShadowRoot::recalcStyle(StyleRecalcChange change)
     // ShadowRoot doesn't support custom callbacks.
     ASSERT(!hasCustomStyleCallbacks());
 
-    StyleResolverParentScope parentScope(*this);
+    StyleSharingDepthScope sharingScope(*this);
 
-    if (styleChangeType() >= SubtreeStyleChange)
+    if (getStyleChangeType() >= SubtreeStyleChange)
         change = Force;
 
     // There's no style to update so just calling recalcStyle means we're updated.
@@ -152,7 +152,7 @@ void ShadowRoot::recalcStyle(StyleRecalcChange change)
 
 void ShadowRoot::attach(const AttachContext& context)
 {
-    StyleResolverParentScope parentScope(*this);
+    StyleSharingDepthScope sharingScope(*this);
     DocumentFragment::attach(context);
 }
 
@@ -323,6 +323,50 @@ StyleSheetList* ShadowRoot::styleSheets()
     return m_shadowRootRareData->styleSheets();
 }
 
+void ShadowRoot::didAddSlot()
+{
+    ensureShadowRootRareData()->didAddSlot();
+    invalidateDescendantSlots();
+}
+
+void ShadowRoot::didRemoveSlot()
+{
+    ASSERT(m_shadowRootRareData);
+    m_shadowRootRareData->didRemoveSlot();
+    invalidateDescendantSlots();
+}
+
+void ShadowRoot::invalidateDescendantSlots()
+{
+    m_descendantSlotsIsValid = false;
+    m_shadowRootRareData->clearDescendantSlots();
+}
+
+unsigned ShadowRoot::descendantSlotCount() const
+{
+    return m_shadowRootRareData ? m_shadowRootRareData->descendantSlotCount() : 0;
+}
+
+const WillBeHeapVector<RefPtrWillBeMember<HTMLSlotElement>>& ShadowRoot::descendantSlots()
+{
+    DEFINE_STATIC_LOCAL(WillBePersistentHeapVector<RefPtrWillBeMember<HTMLSlotElement>>, emptyList, ());
+    if (m_descendantSlotsIsValid) {
+        ASSERT(m_shadowRootRareData);
+        return m_shadowRootRareData->descendantSlots();
+    }
+    if (descendantSlotCount() == 0)
+        return emptyList;
+
+    ASSERT(m_shadowRootRareData);
+    WillBeHeapVector<RefPtrWillBeMember<HTMLSlotElement>> slots;
+    slots.reserveCapacity(descendantSlotCount());
+    for (HTMLSlotElement& slot : Traversal<HTMLSlotElement>::descendantsOf(rootNode()))
+        slots.append(&slot);
+    m_shadowRootRareData->setDescendantSlots(slots);
+    m_descendantSlotsIsValid = true;
+    return m_shadowRootRareData->descendantSlots();
+}
+
 DEFINE_TRACE(ShadowRoot)
 {
     visitor->trace(m_prev);
@@ -332,4 +376,4 @@ DEFINE_TRACE(ShadowRoot)
     DocumentFragment::trace(visitor);
 }
 
-}
+} // namespace blink

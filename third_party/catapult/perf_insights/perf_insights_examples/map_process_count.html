@@ -6,16 +6,17 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/perf_insights/function_handle.html">
-<link rel="import" href="/perf_insights/value/value.html">
+<link rel="import" href="/tracing/value/value.html">
 
 <script>
+'use strict';
+
 tr.exportTo('pie', function() {
-  function mapProcessCount(results, runInfo, model) {
-    results.addValue(new pi.v.DictValue(
-        runInfo,
+  function mapProcessCount(result, model) {
+    result.addPair(
         'load_info', {
           numProcesses: model.getAllProcesses().length
-        }));
+        });
   }
 
   pi.FunctionRegistry.register(mapProcessCount);

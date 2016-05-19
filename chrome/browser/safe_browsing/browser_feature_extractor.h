@@ -16,9 +16,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
@@ -53,6 +53,7 @@ struct IPUrlInfo {
             const std::string& method,
             const std::string& referrer,
             const content::ResourceType& resource_type);
+  IPUrlInfo(const IPUrlInfo& other);
   ~IPUrlInfo();
 };
 

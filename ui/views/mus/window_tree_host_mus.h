@@ -6,21 +6,17 @@
 #define UI_VIEWS_MUS_WINDOW_TREE_HOST_MUS_H_
 
 #include "base/macros.h"
-#include "components/mus/public/interfaces/window_tree.mojom.h"
 #include "ui/aura/window_tree_host_platform.h"
+#include "ui/views/mus/mus_export.h"
 
 class SkBitmap;
 
 namespace mojo {
-class Shell;
+class Connector;
 }
 
 namespace mus {
 class Window;
-}
-
-namespace ui {
-class Compositor;
 }
 
 namespace views {
@@ -28,14 +24,12 @@ namespace views {
 class InputMethodMUS;
 class NativeWidgetMus;
 class PlatformWindowMus;
-class SurfaceContextFactory;
 
-class WindowTreeHostMus : public aura::WindowTreeHostPlatform {
+class VIEWS_MUS_EXPORT WindowTreeHostMus : public aura::WindowTreeHostPlatform {
  public:
-  WindowTreeHostMus(mojo::Shell* shell,
+  WindowTreeHostMus(mojo::Connector* connector,
                     NativeWidgetMus* native_widget_,
-                    mus::Window* window,
-                    mus::mojom::SurfaceType surface_type);
+                    mus::Window* window);
   ~WindowTreeHostMus() override;
 
   PlatformWindowMus* platform_window();
@@ -47,10 +41,10 @@ class WindowTreeHostMus : public aura::WindowTreeHostPlatform {
   void OnClosed() override;
   void OnWindowStateChanged(ui::PlatformWindowState new_state) override;
   void OnActivationChanged(bool active) override;
+  void OnCloseRequest() override;
 
   NativeWidgetMus* native_widget_;
   scoped_ptr<InputMethodMUS> input_method_;
-  scoped_ptr<SurfaceContextFactory> context_factory_;
   ui::PlatformWindowState show_state_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowTreeHostMus);

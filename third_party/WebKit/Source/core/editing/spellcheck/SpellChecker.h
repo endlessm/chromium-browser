@@ -57,7 +57,6 @@ public:
 
     bool isContinuousSpellCheckingEnabled() const;
     void toggleContinuousSpellChecking();
-    bool isGrammarCheckingEnabled();
     void ignoreSpelling();
     bool isSpellCheckingEnabledInFocusedNode() const;
     bool isSpellCheckingEnabledFor(Node*) const;
@@ -85,11 +84,19 @@ public:
     bool selectionStartHasSpellingMarkerFor(int from, int length) const;
     void updateMarkersForWordsAffectedByEditing(bool onlyHandleWordsContainingSelection);
     void cancelCheck();
-    void chunkAndMarkAllMisspellingsAndBadGrammar(Node*);
+    void chunkAndMarkAllMisspellingsAndBadGrammar(Node*, const EphemeralRange&);
     void requestTextChecking(const Element&);
 
     // Exposed for testing only
     SpellCheckRequester& spellCheckRequester() const { return *m_spellCheckRequester; }
+
+    // The leak detector will report leaks should queued requests be posted
+    // while it GCs repeatedly, as the requests keep their associated element
+    // alive.
+    //
+    // Hence allow the leak detector to effectively stop the spell checker to
+    // ensure leak reporting stability.
+    void prepareForLeakDetection();
 
 private:
     explicit SpellChecker(LocalFrame&);
@@ -106,8 +113,7 @@ private:
     void removeMarkers(const VisibleSelection&, DocumentMarker::MarkerTypes);
     bool unifiedTextCheckerEnabled() const;
 
-    void chunkAndMarkAllMisspellingsAndBadGrammar(TextCheckingTypeMask textCheckingOptions, const TextCheckingParagraph& fullParagraphToCheck, bool asynchronous);
-    void markAllMisspellingsAndBadGrammarInRanges(TextCheckingTypeMask textCheckingOptions, const EphemeralRange& checkingRange, const EphemeralRange& paragraphRange, bool asynchronous, int requestNumber, int* checkingLength = 0);
+    void chunkAndMarkAllMisspellingsAndBadGrammar(TextCheckingTypeMask textCheckingOptions, const TextCheckingParagraph& fullParagraphToCheck);
 
     RawPtrWillBeMember<LocalFrame> m_frame;
     const OwnPtrWillBeMember<SpellCheckRequester> m_spellCheckRequester;

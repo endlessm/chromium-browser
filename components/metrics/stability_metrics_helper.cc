@@ -4,15 +4,18 @@
 
 #include "components/metrics/stability_metrics_helper.h"
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
+#include "build/build_config.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/proto/system_profile.pb.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 
 #if defined(OS_WIN)
 #include <windows.h>  // Needed for STATUS_* codes
@@ -42,7 +45,7 @@ int MapCrashExitCodeForHistogram(int exit_code) {
   // Since |abs(STATUS_GUARD_PAGE_VIOLATION) == MAX_INT| it causes problems in
   // histograms.cc. Solve this by remapping it to a smaller value, which
   // hopefully doesn't conflict with other codes.
-  if (exit_code == STATUS_GUARD_PAGE_VIOLATION)
+  if (static_cast<DWORD>(exit_code) == STATUS_GUARD_PAGE_VIOLATION)
     return 0x1FCF7EC3;  // Randomly picked number.
 #endif
 
@@ -207,7 +210,7 @@ void StabilityMetricsHelper::IncrementPrefValue(const char* path) {
 }
 
 void StabilityMetricsHelper::IncrementLongPrefsValue(const char* path) {
-  int64 value = local_state_->GetInt64(path);
+  int64_t value = local_state_->GetInt64(path);
   local_state_->SetInt64(path, value + 1);
 }
 

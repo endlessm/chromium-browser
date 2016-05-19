@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/param.h>
@@ -30,10 +32,10 @@
 #include <AvailabilityMacros.h>
 #endif
 
-#include "base/basictypes.h"
 #include "base/debug/debugger.h"
 #include "base/debug/proc_maps_linux.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/numerics/safe_conversions.h"
@@ -122,6 +124,7 @@ class BacktraceOutputHandler {
   virtual ~BacktraceOutputHandler() {}
 };
 
+#if !defined(__UCLIBC__)
 void OutputPointer(void* pointer, BacktraceOutputHandler* handler) {
   // This should be more than enough to store a 64-bit number in hex:
   // 16 hex digits + 1 for null-terminator.
@@ -169,7 +172,7 @@ void ProcessBacktrace(void *const *trace,
 
     handler->HandleOutput("\n");
   }
-#elif !defined(__UCLIBC__)
+#else
   bool printed = false;
 
   // Below part is async-signal unsafe (uses malloc), so execute it only
@@ -198,6 +201,7 @@ void ProcessBacktrace(void *const *trace,
   }
 #endif  // defined(USE_SYMBOLIZE)
 }
+#endif  // !defined(__UCLIBC__)
 
 void PrintToStderr(const char* output) {
   // NOTE: This code MUST be async-signal safe (it's used by in-process
@@ -473,7 +477,7 @@ class SandboxSymbolizeHelper {
   }
 
   // Returns a O_RDONLY file descriptor for |file_path| if it was opened
-  // sucessfully during the initialization.  The file is repositioned at
+  // successfully during the initialization.  The file is repositioned at
   // offset 0.
   // IMPORTANT: This function must be async-signal-safe because it can be
   // called from a signal handler (symbolizing stack frames for a crash).
@@ -741,7 +745,7 @@ void StackTrace::OutputToStream(std::ostream* os) const {
 namespace internal {
 
 // NOTE: code from sandbox/linux/seccomp-bpf/demo.cc.
-char *itoa_r(intptr_t i, char *buf, size_t sz, int base, size_t padding) {
+char* itoa_r(intptr_t i, char* buf, size_t sz, int base, size_t padding) {
   // Make sure we can write at least one NUL byte.
   size_t n = 1;
   if (n > sz)
@@ -752,7 +756,7 @@ char *itoa_r(intptr_t i, char *buf, size_t sz, int base, size_t padding) {
     return NULL;
   }
 
-  char *start = buf;
+  char* start = buf;
 
   uintptr_t j = i;
 
@@ -771,7 +775,7 @@ char *itoa_r(intptr_t i, char *buf, size_t sz, int base, size_t padding) {
 
   // Loop until we have converted the entire number. Output at least one
   // character (i.e. '0').
-  char *ptr = start;
+  char* ptr = start;
   do {
     // Make sure there is still enough space left in our output buffer.
     if (++n > sz) {

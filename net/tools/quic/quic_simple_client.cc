@@ -11,11 +11,11 @@
 #include "net/http/http_request_info.h"
 #include "net/http/http_response_info.h"
 #include "net/quic/crypto/quic_random.h"
+#include "net/quic/quic_chromium_connection_helper.h"
+#include "net/quic/quic_chromium_packet_reader.h"
+#include "net/quic/quic_chromium_packet_writer.h"
 #include "net/quic/quic_connection.h"
-#include "net/quic/quic_connection_helper.h"
-#include "net/quic/quic_default_packet_writer.h"
 #include "net/quic/quic_flags.h"
-#include "net/quic/quic_packet_reader.h"
 #include "net/quic/quic_protocol.h"
 #include "net/quic/quic_server_id.h"
 #include "net/quic/spdy_utils.h"
@@ -27,7 +27,6 @@ using std::string;
 using std::vector;
 
 namespace net {
-namespace tools {
 
 void QuicSimpleClient::ClientQuicDataToResend::Resend() {
   client_->SendRequest(*headers_, body_, fin_);
@@ -42,10 +41,10 @@ QuicSimpleClient::QuicSimpleClient(IPEndPoint server_address,
     : QuicClientBase(server_id,
                      supported_versions,
                      QuicConfig(),
+                     CreateQuicConnectionHelper(),
                      proof_verifier),
       server_address_(server_address),
       local_port_(0),
-      helper_(CreateQuicConnectionHelper()),
       initialized_(false),
       packet_reader_started_(false),
       weak_factory_(this) {}
@@ -55,18 +54,21 @@ QuicSimpleClient::QuicSimpleClient(IPEndPoint server_address,
                                    const QuicVersionVector& supported_versions,
                                    const QuicConfig& config,
                                    ProofVerifier* proof_verifier)
-    : QuicClientBase(server_id, supported_versions, config, proof_verifier),
+    : QuicClientBase(server_id,
+                     supported_versions,
+                     config,
+                     CreateQuicConnectionHelper(),
+                     proof_verifier),
       server_address_(server_address),
       local_port_(0),
-      helper_(CreateQuicConnectionHelper()),
       initialized_(false),
       packet_reader_started_(false),
       weak_factory_(this) {}
 
 QuicSimpleClient::~QuicSimpleClient() {
   if (connected()) {
-    session()->connection()->SendConnectionClosePacket(
-        QUIC_PEER_GOING_AWAY, "");
+    session()->connection()->SendConnectionClosePacket(QUIC_PEER_GOING_AWAY,
+                                                       "");
   }
   STLDeleteElements(&data_to_resend_on_connect_);
   STLDeleteElements(&data_sent_before_handshake_);
@@ -98,21 +100,17 @@ QuicSimpleClient::QuicDataToResend::~QuicDataToResend() {
 
 bool QuicSimpleClient::CreateUDPSocket() {
   scoped_ptr<UDPClientSocket> socket(
-      new UDPClientSocket(DatagramSocket::DEFAULT_BIND,
-                          RandIntCallback(),
-                          &net_log_,
-                          NetLog::Source()));
+      new UDPClientSocket(DatagramSocket::DEFAULT_BIND, RandIntCallback(),
+                          &net_log_, NetLog::Source()));
 
   int address_family = server_address_.GetSockAddrFamily();
   if (bind_to_address_.size() != 0) {
     client_address_ = IPEndPoint(bind_to_address_, local_port_);
   } else if (address_family == AF_INET) {
-    IPAddressNumber any4;
-    CHECK(net::ParseIPLiteralToNumber("0.0.0.0", &any4));
-    client_address_ = IPEndPoint(any4, local_port_);
+    client_address_ = IPEndPoint(IPAddress(0, 0, 0, 0), local_port_);
   } else {
-    IPAddressNumber any6;
-    CHECK(net::ParseIPLiteralToNumber("::", &any6));
+    IPAddress any6;
+    CHECK(any6.AssignFromIPLiteral("::"));
     client_address_ = IPEndPoint(any6, local_port_);
   }
 
@@ -141,7 +139,7 @@ bool QuicSimpleClient::CreateUDPSocket() {
   }
 
   socket_.swap(socket);
-  packet_reader_.reset(new QuicPacketReader(
+  packet_reader_.reset(new QuicChromiumPacketReader(
       socket_.get(), &clock_, this, kQuicYieldAfterPacketsRead,
       QuicTime::Delta::FromMilliseconds(kQuicYieldAfterDurationMilliseconds),
       BoundNetLog()));
@@ -202,8 +200,6 @@ void QuicSimpleClient::StartConnect() {
 
   set_writer(CreateQuicPacketWriter());
 
-  DummyPacketWriterFactory factory(writer());
-
   if (connected_or_attempting_connect()) {
     // Before we destroy the last session and create a new one, gather its stats
     // and update the stats for the overall connection.
@@ -219,7 +215,7 @@ void QuicSimpleClient::StartConnect() {
   }
 
   CreateQuicClientSession(new QuicConnection(
-      GetNextConnectionId(), server_address_, helper_.get(), factory,
+      GetNextConnectionId(), server_address_, helper(), writer(),
       /* owns_writer= */ false, Perspective::IS_CLIENT, supported_versions()));
 
   session()->Initialize();
@@ -231,7 +227,8 @@ void QuicSimpleClient::Disconnect() {
   DCHECK(initialized_);
 
   if (connected()) {
-    session()->connection()->SendConnectionClose(QUIC_PEER_GOING_AWAY);
+    session()->connection()->SendConnectionCloseWithDetails(
+        QUIC_PEER_GOING_AWAY, "Client disconnecting");
   }
   STLDeleteElements(&data_to_resend_on_connect_);
   STLDeleteElements(&data_sent_before_handshake_);
@@ -286,7 +283,8 @@ void QuicSimpleClient::SendRequestAndWaitForResponse(
     StringPiece body,
     bool fin) {
   SendRequest(request, body, fin);
-  while (WaitForEvents()) {}
+  while (WaitForEvents()) {
+  }
 }
 
 void QuicSimpleClient::SendRequestsAndWaitForResponse(
@@ -298,7 +296,8 @@ void QuicSimpleClient::SendRequestsAndWaitForResponse(
     SendRequest(request, "", true);
   }
 
-  while (WaitForEvents()) {}
+  while (WaitForEvents()) {
+  }
 }
 
 bool QuicSimpleClient::WaitForEvents() {
@@ -318,7 +317,7 @@ bool QuicSimpleClient::WaitForEvents() {
   return session()->num_active_requests() != 0;
 }
 
-bool QuicSimpleClient::MigrateSocket(const IPAddressNumber& new_host) {
+bool QuicSimpleClient::MigrateSocket(const IPAddress& new_host) {
   if (!connected()) {
     return false;
   }
@@ -331,7 +330,6 @@ bool QuicSimpleClient::MigrateSocket(const IPAddressNumber& new_host) {
   session()->connection()->SetSelfAddress(client_address_);
 
   QuicPacketWriter* writer = CreateQuicPacketWriter();
-  DummyPacketWriterFactory factory(writer);
   set_writer(writer);
   session()->connection()->SetQuicPacketWriter(writer, false);
 
@@ -345,8 +343,8 @@ void QuicSimpleClient::OnClose(QuicSpdyStream* stream) {
   HttpResponseInfo response;
   SpdyHeadersToHttpResponse(client_stream->headers(), net::HTTP2, &response);
   if (response_listener_.get() != nullptr) {
-    response_listener_->OnCompleteResponse(
-        stream->id(), *response.headers, client_stream->data());
+    response_listener_->OnCompleteResponse(stream->id(), *response.headers,
+                                           client_stream->data());
   }
 
   // Store response headers and body.
@@ -373,19 +371,21 @@ const string& QuicSimpleClient::latest_response_body() const {
 }
 
 QuicConnectionId QuicSimpleClient::GenerateNewConnectionId() {
-  return helper_->GetRandomGenerator()->RandUint64();
+  return helper()->GetRandomGenerator()->RandUint64();
 }
 
-QuicConnectionHelper* QuicSimpleClient::CreateQuicConnectionHelper() {
-  return new QuicConnectionHelper(base::ThreadTaskRunnerHandle::Get().get(),
-                                  &clock_, QuicRandom::GetInstance());
+QuicChromiumConnectionHelper* QuicSimpleClient::CreateQuicConnectionHelper() {
+  return new QuicChromiumConnectionHelper(
+      base::ThreadTaskRunnerHandle::Get().get(), &clock_,
+      QuicRandom::GetInstance());
 }
 
 QuicPacketWriter* QuicSimpleClient::CreateQuicPacketWriter() {
-  return new QuicDefaultPacketWriter(socket_.get());
+  return new QuicChromiumPacketWriter(socket_.get());
 }
 
-void QuicSimpleClient::OnReadError(int result) {
+void QuicSimpleClient::OnReadError(int result,
+                                   const DatagramClientSocket* socket) {
   LOG(ERROR) << "QuicSimpleClient read failed: " << ErrorToShortString(result);
   Disconnect();
 }
@@ -402,5 +402,4 @@ bool QuicSimpleClient::OnPacket(const QuicEncryptedPacket& packet,
   return true;
 }
 
-}  // namespace tools
 }  // namespace net

@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.tabmodel;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ObserverList;
 import org.chromium.base.TraceEvent;
+import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.partnercustomizations.HomepageManager;
 import org.chromium.chrome.browser.tab.Tab;
@@ -60,10 +61,15 @@ public class TabModelImpl extends TabModelJniBridge {
      */
     private int mIndex = INVALID_TAB_INDEX;
 
+    /**
+     * Whether this tab model supports undoing.
+     */
+    private boolean mIsUndoSupported = true;
+
     public TabModelImpl(boolean incognito, TabCreator regularTabCreator,
             TabCreator incognitoTabCreator, TabModelSelectorUma uma,
             TabModelOrderController orderController, TabContentManager tabContentManager,
-            TabPersistentStore tabSaver, TabModelDelegate modelDelegate) {
+            TabPersistentStore tabSaver, TabModelDelegate modelDelegate, boolean supportUndo) {
         super(incognito);
         initializeNative();
         mRegularTabCreator = regularTabCreator;
@@ -73,7 +79,14 @@ public class TabModelImpl extends TabModelJniBridge {
         mTabContentManager = tabContentManager;
         mTabSaver = tabSaver;
         mModelDelegate = modelDelegate;
+        mIsUndoSupported = supportUndo;
         mObservers = new ObserverList<TabModelObserver>();
+    }
+
+    @Override
+    public void removeTab(Tab tab) {
+        for (TabModelObserver obs : mObservers) obs.tabRemoved(tab);
+        mTabs.remove(tab);
     }
 
     @Override
@@ -233,7 +246,7 @@ public class TabModelImpl extends TabModelJniBridge {
 
     @Override
     public boolean supportsPendingClosures() {
-        return !isIncognito();
+        return !isIncognito() && mIsUndoSupported;
     }
 
     @Override
@@ -269,6 +282,9 @@ public class TabModelImpl extends TabModelJniBridge {
         int insertIndex = prevIndex + 1;
         if (mIndex >= insertIndex) mIndex++;
         mTabs.add(insertIndex, tab);
+
+        WebContents webContents = tab.getWebContents();
+        if (webContents != null) webContents.setAudioMuted(false);
 
         boolean activeModel = mModelDelegate.getCurrentModel() == this;
 
@@ -512,10 +528,13 @@ public class TabModelImpl extends TabModelJniBridge {
         // TODO(dtrainor): Update the list of undoable tabs instead of committing it.
         if (!canUndo) commitAllTabClosures();
 
-        // Cancel any media currently playing.
+        // Cancel or mute any media currently playing.
         if (canUndo) {
             WebContents webContents = tab.getWebContents();
-            if (webContents != null) webContents.releaseMediaPlayers();
+            if (webContents != null) {
+                webContents.suspendAllMediaPlayers();
+                webContents.setAudioMuted(true);
+            }
         }
 
         mTabs.remove(tab);
@@ -685,10 +704,10 @@ public class TabModelImpl extends TabModelJniBridge {
     }
 
     @Override
-    protected boolean createTabWithWebContents(
-            boolean incognito, WebContents webContents, int parentId) {
-        return getTabCreator(incognito).createTabWithWebContents(
-                webContents, parentId, TabLaunchType.FROM_LONGPRESS_BACKGROUND);
+    protected boolean createTabWithWebContents(Tab parent, boolean incognito,
+            WebContents webContents, int parentId) {
+        return getTabCreator(incognito).createTabWithWebContents(parent, webContents, parentId,
+                TabLaunchType.FROM_LONGPRESS_BACKGROUND);
     }
 
     @Override

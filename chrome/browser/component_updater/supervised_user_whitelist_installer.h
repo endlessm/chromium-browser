@@ -5,12 +5,15 @@
 #ifndef CHROME_BROWSER_COMPONENT_UPDATER_SUPERVISED_USER_WHITELIST_INSTALLER_H_
 #define CHROME_BROWSER_COMPONENT_UPDATER_SUPERVISED_USER_WHITELIST_INSTALLER_H_
 
+#include <stdint.h>
+
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/strings/string16.h"
 
 namespace base {
 class FilePath;
@@ -29,6 +32,7 @@ class SupervisedUserWhitelistInstaller {
  public:
   using WhitelistReadyCallback =
       base::Callback<void(const std::string& crx_id,
+                          const base::string16& title,
                           const base::FilePath& whitelist_path)>;
 
   virtual ~SupervisedUserWhitelistInstaller() {}

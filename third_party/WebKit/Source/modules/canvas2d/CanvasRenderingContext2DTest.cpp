@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/canvas2d/CanvasRenderingContext2D.h"
 
+#include "core/fetch/MemoryCache.h"
 #include "core/frame/FrameView.h"
 #include "core/frame/ImageBitmap.h"
 #include "core/html/HTMLCanvasElement.h"
 #include "core/html/HTMLDocument.h"
 #include "core/html/ImageData.h"
+#include "core/imagebitmap/ImageBitmapOptions.h"
 #include "core/loader/EmptyClients.h"
 #include "core/testing/DummyPageHolder.h"
 #include "modules/canvas2d/CanvasGradient.h"
@@ -19,9 +20,9 @@
 #include "platform/graphics/RecordingImageBufferSurface.h"
 #include "platform/graphics/StaticBitmapImage.h"
 #include "platform/graphics/UnacceleratedImageBufferSurface.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkSurface.h"
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 
 using ::testing::Mock;
 
@@ -36,7 +37,7 @@ class FakeImageSource : public CanvasImageSource {
 public:
     FakeImageSource(IntSize, BitmapOpacity);
 
-    PassRefPtr<Image> getSourceImageForCanvas(SourceImageStatus*, AccelerationHint) const override;
+    PassRefPtr<Image> getSourceImageForCanvas(SourceImageStatus*, AccelerationHint, SnapshotReason) const override;
 
     bool wouldTaintOrigin(SecurityOrigin* destinationSecurityOrigin) const override { return false; }
     FloatSize elementSize() const override { return FloatSize(m_size); }
@@ -60,7 +61,7 @@ FakeImageSource::FakeImageSource(IntSize size, BitmapOpacity opacity)
     m_image = StaticBitmapImage::create(image);
 }
 
-PassRefPtr<Image> FakeImageSource::getSourceImageForCanvas(SourceImageStatus* status, AccelerationHint) const
+PassRefPtr<Image> FakeImageSource::getSourceImageForCanvas(SourceImageStatus* status, AccelerationHint, SnapshotReason) const
 {
     if (status)
         *status = NormalSourceImageStatus;
@@ -78,13 +79,17 @@ protected:
     HTMLDocument& document() const { return *m_document; }
     HTMLCanvasElement& canvasElement() const { return *m_canvasElement; }
     CanvasRenderingContext2D* context2d() const { return static_cast<CanvasRenderingContext2D*>(canvasElement().renderingContext()); }
+    intptr_t getGlobalGPUMemoryUsage() const { return ImageBuffer::getGlobalGPUMemoryUsage(); }
+    intptr_t getCurrentGPUMemoryUsage() const { return canvasElement().buffer()->getGPUMemoryUsage(); }
 
     void createContext(OpacityMode);
+    void TearDown();
 
 private:
     OwnPtr<DummyPageHolder> m_dummyPageHolder;
     RefPtrWillBePersistent<HTMLDocument> m_document;
     RefPtrWillBePersistent<HTMLCanvasElement> m_canvasElement;
+    Persistent<MemoryCache> m_globalMemoryCache;
 
     class WrapGradients final : public NoBaseWillBeGarbageCollectedFinalized<WrapGradients> {
     public:
@@ -159,7 +164,34 @@ void CanvasRenderingContext2DTest::SetUp()
     EXPECT_FALSE(exceptionState.hadException());
     StringOrCanvasGradientOrCanvasPattern wrappedAlphaGradient;
     this->alphaGradient().setCanvasGradient(alphaGradient);
+
+    m_globalMemoryCache = replaceMemoryCacheForTesting(MemoryCache::create());
 }
+
+void CanvasRenderingContext2DTest::TearDown()
+{
+    Heap::collectGarbage(BlinkGC::NoHeapPointersOnStack, BlinkGC::GCWithSweep, BlinkGC::ForcedGC);
+    replaceMemoryCacheForTesting(m_globalMemoryCache.release());
+}
+
+//============================================================================
+
+class FakeAcceleratedImageBufferSurfaceForTesting : public UnacceleratedImageBufferSurface {
+public:
+    FakeAcceleratedImageBufferSurfaceForTesting(const IntSize& size, OpacityMode mode)
+        : UnacceleratedImageBufferSurface(size, mode)
+        , m_isAccelerated(true) { }
+    ~FakeAcceleratedImageBufferSurfaceForTesting() override { }
+    bool isAccelerated() const override { return m_isAccelerated; }
+    void setIsAccelerated(bool isAccelerated)
+    {
+        if (isAccelerated != m_isAccelerated)
+            m_isAccelerated = isAccelerated;
+    }
+
+private:
+    bool m_isAccelerated;
+};
 
 //============================================================================
 
@@ -421,8 +453,9 @@ TEST_F(CanvasRenderingContext2DTest, NoLayerPromotionUnderImageSizeRatioLimit)
     OwnPtr<UnacceleratedImageBufferSurface> sourceSurface = adoptPtr(new UnacceleratedImageBufferSurface(sourceSize, NonOpaque));
     sourceCanvas->createImageBufferUsingSurfaceForTesting(sourceSurface.release());
 
+    const ImageBitmapOptions defaultOptions;
     // Go through an ImageBitmap to avoid triggering a display list fallback
-    RefPtrWillBeRawPtr<ImageBitmap> sourceImageBitmap = ImageBitmap::create(sourceCanvas, IntRect(IntPoint(0, 0), sourceSize));
+    RefPtrWillBeRawPtr<ImageBitmap> sourceImageBitmap = ImageBitmap::create(sourceCanvas, IntRect(IntPoint(0, 0), sourceSize), defaultOptions);
 
     context2d()->drawImage(sourceImageBitmap.get(), 0, 0, 1, 1, 0, 0, 1, 1, exceptionState);
     EXPECT_FALSE(exceptionState.hadException());
@@ -444,8 +477,9 @@ TEST_F(CanvasRenderingContext2DTest, LayerPromotionOverImageSizeRatioLimit)
     OwnPtr<UnacceleratedImageBufferSurface> sourceSurface = adoptPtr(new UnacceleratedImageBufferSurface(sourceSize, NonOpaque));
     sourceCanvas->createImageBufferUsingSurfaceForTesting(sourceSurface.release());
 
+    const ImageBitmapOptions defaultOptions;
     // Go through an ImageBitmap to avoid triggering a display list fallback
-    RefPtrWillBeRawPtr<ImageBitmap> sourceImageBitmap = ImageBitmap::create(sourceCanvas, IntRect(IntPoint(0, 0), sourceSize));
+    RefPtrWillBeRawPtr<ImageBitmap> sourceImageBitmap = ImageBitmap::create(sourceCanvas, IntRect(IntPoint(0, 0), sourceSize), defaultOptions);
 
     context2d()->drawImage(sourceImageBitmap.get(), 0, 0, 1, 1, 0, 0, 1, 1, exceptionState);
     EXPECT_FALSE(exceptionState.hadException());
@@ -598,6 +632,91 @@ TEST_F(CanvasRenderingContext2DTest, FallbackWithLargeState)
         context2d()->translate(1.0f, 0.0f);
     }
     canvasElement().doDeferredPaintInvalidation(); // To close the current frame
+}
+
+TEST_F(CanvasRenderingContext2DTest, OpaqueDisplayListFallsBackForText)
+{
+    // Verify that drawing text to an opaque canvas, which is expected to
+    // render with subpixel text anti-aliasing, results in falling out
+    // of display list mode because the current diplay list implementation
+    // does not support pixel geometry settings.
+    // See: crbug.com/583809
+    createContext(Opaque);
+    OwnPtr<RecordingImageBufferSurface> surface = adoptPtr(new RecordingImageBufferSurface(IntSize(10, 10), MockSurfaceFactory::create(MockSurfaceFactory::ExpectFallback), Opaque));
+    canvasElement().createImageBufferUsingSurfaceForTesting(surface.release());
+
+    context2d()->fillText("Text", 0, 5);
+}
+
+TEST_F(CanvasRenderingContext2DTest, NonOpaqueDisplayListDoesNotFallBackForText)
+{
+    createContext(NonOpaque);
+    OwnPtr<RecordingImageBufferSurface> surface = adoptPtr(new RecordingImageBufferSurface(IntSize(10, 10), MockSurfaceFactory::create(MockSurfaceFactory::ExpectNoFallback), NonOpaque));
+    canvasElement().createImageBufferUsingSurfaceForTesting(surface.release());
+
+    context2d()->fillText("Text", 0, 5);
+}
+
+TEST_F(CanvasRenderingContext2DTest, ImageResourceLifetime)
+{
+    NonThrowableExceptionState nonThrowableExceptionState;
+    RefPtrWillBeRawPtr<Element> canvasElement = document().createElement("canvas", nonThrowableExceptionState);
+    EXPECT_FALSE(nonThrowableExceptionState.hadException());
+    HTMLCanvasElement* canvas = static_cast<HTMLCanvasElement*>(canvasElement.get());
+    canvas->setHeight(40);
+    canvas->setWidth(40);
+    RefPtrWillBeRawPtr<ImageBitmap> imageBitmapDerived = nullptr;
+    {
+        const ImageBitmapOptions defaultOptions;
+        RefPtrWillBeRawPtr<ImageBitmap> imageBitmapFromCanvas = ImageBitmap::create(canvas, IntRect(0, 0, canvas->width(), canvas->height()), defaultOptions);
+        imageBitmapDerived = ImageBitmap::create(imageBitmapFromCanvas.get(), IntRect(0, 0, 20, 20), defaultOptions);
+    }
+    CanvasContextCreationAttributes attributes;
+    CanvasRenderingContext2D* context = static_cast<CanvasRenderingContext2D*>(canvas->getCanvasRenderingContext("2d", attributes));
+    TrackExceptionState exceptionState;
+    CanvasImageSourceUnion imageSource;
+    imageSource.setImageBitmap(imageBitmapDerived);
+    context->drawImage(imageSource, 0, 0, exceptionState);
+}
+
+TEST_F(CanvasRenderingContext2DTest, GPUMemoryUpdateForAcceleratedCanvas)
+{
+    createContext(NonOpaque);
+
+    OwnPtr<FakeAcceleratedImageBufferSurfaceForTesting> fakeAccelerateSurface = adoptPtr(new FakeAcceleratedImageBufferSurfaceForTesting(IntSize(10, 10), NonOpaque));
+    FakeAcceleratedImageBufferSurfaceForTesting* fakeAccelerateSurfacePtr = fakeAccelerateSurface.get();
+    canvasElement().createImageBufferUsingSurfaceForTesting(fakeAccelerateSurface.release());
+    // 800 = 10 * 10 * 4 * 2 where 10*10 is canvas size, 4 is num of bytes per pixel per buffer,
+    // and 2 is an estimate of num of gpu buffers required
+    EXPECT_EQ(800, getCurrentGPUMemoryUsage());
+    EXPECT_EQ(800, getGlobalGPUMemoryUsage());
+
+    // Switching accelerated mode to non-accelerated mode
+    fakeAccelerateSurfacePtr->setIsAccelerated(false);
+    canvasElement().buffer()->updateGPUMemoryUsage();
+    EXPECT_EQ(0, getCurrentGPUMemoryUsage());
+    EXPECT_EQ(0, getGlobalGPUMemoryUsage());
+
+    // Switching non-accelerated mode to accelerated mode
+    fakeAccelerateSurfacePtr->setIsAccelerated(true);
+    canvasElement().buffer()->updateGPUMemoryUsage();
+    EXPECT_EQ(800, getCurrentGPUMemoryUsage());
+    EXPECT_EQ(800, getGlobalGPUMemoryUsage());
+
+    // Creating a different accelerated image buffer
+    OwnPtr<FakeAcceleratedImageBufferSurfaceForTesting> fakeAccelerateSurface2 = adoptPtr(new FakeAcceleratedImageBufferSurfaceForTesting(IntSize(10, 5), NonOpaque));
+    OwnPtr<ImageBuffer> imageBuffer2 = ImageBuffer::create(fakeAccelerateSurface2.release());
+    EXPECT_EQ(800, getCurrentGPUMemoryUsage());
+    EXPECT_EQ(1200, getGlobalGPUMemoryUsage());
+
+    // Tear down the first image buffer that resides in current canvas element
+    canvasElement().setSize(IntSize(20, 20));
+    Mock::VerifyAndClearExpectations(fakeAccelerateSurfacePtr);
+    EXPECT_EQ(400, getGlobalGPUMemoryUsage());
+
+    // Tear down the second image buffer
+    imageBuffer2.clear();
+    EXPECT_EQ(0, getGlobalGPUMemoryUsage());
 }
 
 } // namespace blink

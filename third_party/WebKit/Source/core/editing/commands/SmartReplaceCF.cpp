@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/SmartReplace.h"
 
 #include <CoreFoundation/CFCharacterSet.h>
@@ -70,4 +69,4 @@ bool isCharacterSmartReplaceExempt(UChar32 c, bool isPreviousCharacter)
     return CFCharacterSetIsLongCharacterMember(getSmartSet(isPreviousCharacter), c);
 }
 
-}
+} // namespace blink

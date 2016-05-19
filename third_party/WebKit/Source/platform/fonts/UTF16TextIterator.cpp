@@ -20,7 +20,6 @@
  *
  */
 
-#include "config.h"
 #include "platform/fonts/UTF16TextIterator.h"
 
 #include <unicode/unorm.h>
@@ -99,4 +98,4 @@ void UTF16TextIterator::consumeMultipleUChar()
     m_currentGlyphLength = markLength;
 }
 
-}
+} // namespace blink

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/ColorPropertyFunctions.h"
 
 #include "core/style/ComputedStyle.h"
@@ -31,7 +30,7 @@ StyleColor ColorPropertyFunctions::getUnvisitedColor(CSSPropertyID property, con
         return style.color();
     case CSSPropertyOutlineColor:
         return style.outlineColor();
-    case CSSPropertyWebkitColumnRuleColor:
+    case CSSPropertyColumnRuleColor:
         return style.columnRuleColor();
     case CSSPropertyWebkitTextEmphasisColor:
         return style.textEmphasisColor();
@@ -72,7 +71,7 @@ StyleColor ColorPropertyFunctions::getVisitedColor(CSSPropertyID property, const
         return style.visitedLinkColor();
     case CSSPropertyOutlineColor:
         return style.visitedLinkOutlineColor();
-    case CSSPropertyWebkitColumnRuleColor:
+    case CSSPropertyColumnRuleColor:
         return style.visitedLinkColumnRuleColor();
     case CSSPropertyWebkitTextEmphasisColor:
         return style.visitedLinkTextEmphasisColor();
@@ -132,7 +131,7 @@ void ColorPropertyFunctions::setUnvisitedColor(CSSPropertyID property, ComputedS
     case CSSPropertyTextDecorationColor:
         style.setTextDecorationColor(color);
         return;
-    case CSSPropertyWebkitColumnRuleColor:
+    case CSSPropertyColumnRuleColor:
         style.setColumnRuleColor(color);
         return;
     case CSSPropertyWebkitTextStrokeColor:
@@ -180,7 +179,7 @@ void ColorPropertyFunctions::setVisitedColor(CSSPropertyID property, ComputedSty
     case CSSPropertyTextDecorationColor:
         style.setVisitedLinkTextDecorationColor(color);
         return;
-    case CSSPropertyWebkitColumnRuleColor:
+    case CSSPropertyColumnRuleColor:
         style.setVisitedLinkColumnRuleColor(color);
         return;
     case CSSPropertyWebkitTextStrokeColor:

@@ -437,7 +437,7 @@
           Prints the label of the target.
       output
           Prints the first output file for the target relative to the
-          current directory.
+          root build directory.
 
   --testonly=(true|false)
       Restrict outputs to targets with the testonly flag set
@@ -532,7 +532,7 @@
 ## **gn gen**: Generate ninja files.
 
 ```
-  gn gen <out_dir>
+  gn gen [--ide=<ide_name>] <out_dir>
 
   Generates ninja files from the current tree and puts them in the given
   output directory.
@@ -541,6 +541,10 @@
       //out/foo
   Or it can be a directory relative to the current directory such as:
       out/foo
+
+  --ide=<ide_name>
+    Also generate files for an IDE. Currently supported values:
+      'vs' - Visual Studio project/solution files.
 
   See "gn help switches" for the common command-line switches.
 
@@ -581,7 +585,7 @@
           Prints the label of the target.
       output
           Prints the first output file for the target relative to the
-          current directory.
+          root build directory.
 
   --all-toolchains
       Matches all toolchains. When set, if the label pattern does not
@@ -636,9 +640,12 @@
   The two targets can appear in either order: paths will be found going
   in either direction.
 
-  Each dependency will be annotated with its type. By default, only the
-  first path encountered will be printed, which is not necessarily the
-  shortest path.
+  By default, a single path will be printed. If there is a path with
+  only public dependencies, the shortest public path will be printed.
+  Otherwise, the shortest path using either public or private
+  dependencies will be printed. If --with-data is specified, data deps
+  will also be considered. If there are multiple shortest paths, an
+  arbitrary one will be selected.
 
 ```
 
@@ -646,7 +653,16 @@
 
 ```
   --all
-     Prints all paths found rather than just the first one.
+     Prints all paths found rather than just the first one. Public paths
+     will be printed first in order of increasing length, followed by
+     non-public paths in order of increasing length.
+
+  --public
+     Considers only public paths. Can't be used with --with-data.
+
+  --with-data
+     Additionally follows data deps. Without this flag, only public and
+     private linked deps will be followed. Can't be used with --public.
 
 ```
 
@@ -719,7 +735,7 @@
           Prints the label of the target.
       output
           Prints the first output file for the target relative to the
-          current directory.
+          root build directory.
 
   -q
      Quiet. If nothing matches, don't print any output. Without this
@@ -817,6 +833,9 @@
   if an input file changes) by writing a depfile when the script is run
   (see "gn help depfile"). This is more flexible than "inputs".
 
+  If the command line length is very long, you can use response files
+  to pass args to your script. See "gn help response_file_contents".
+
   It is recommended you put inputs to your script in the "sources"
   variable, and stuff like other Python files required to run your
   script in the "inputs" variable.
@@ -858,8 +877,8 @@
 ### **Variables**
 
 ```
-  args, console, data, data_deps, depfile, deps, outputs*, script*,
-  inputs, sources
+  args, console, data, data_deps, depfile, deps, inputs, outputs*,
+  response_file_contents, script*, sources
   * = required
 
 ```
@@ -907,6 +926,9 @@
   listed in the "inputs" variable. These files are treated as
   dependencies of each script invocation.
 
+  If the command line length is very long, you can use response files
+  to pass args to your script. See "gn help response_file_contents".
+
   You can dynamically write input dependencies (for incremental rebuilds
   if an input file changes) by writing a depfile when the script is run
   (see "gn help depfile"). This is more flexible than "inputs".
@@ -945,8 +967,8 @@
 ### **Variables**
 
 ```
-  args, console, data, data_deps, depfile, deps, outputs*, script*,
-  inputs, sources*
+  args, console, data, data_deps, depfile, deps, inputs, outputs*,
+  response_file_contents, script*, sources*
   * = required
 
 ```
@@ -1022,21 +1044,25 @@
 
 ```
 
-### **Variables valid in a config definition**:
+### **Variables valid in a config definition**
+
 ```
   Flags: cflags, cflags_c, cflags_cc, cflags_objc, cflags_objcc,
          asmflags, defines, include_dirs, ldflags, lib_dirs, libs,
          precompiled_header, precompiled_source
+  Nested configs: configs
 
 ```
 
-### **Variables on a target used to apply configs**:
+### **Variables on a target used to apply configs**
+
 ```
   all_dependent_configs, configs, public_configs
 
 ```
 
-### **Example**:
+### **Example**
+
 ```
   config("myconfig") {
     includes = [ "include/common" ]
@@ -1309,7 +1335,8 @@
 ## **forward_variables_from**: Copies variables from a different scope.
 
 ```
-  forward_variables_from(from_scope, variable_list_or_star)
+  forward_variables_from(from_scope, variable_list_or_star,
+                         variable_to_not_forward_list = [])
 
   Copies the given variables from the given scope to the local scope
   if they exist. This is normally used in the context of templates to
@@ -1335,6 +1362,10 @@
   The sources assignment filter (see "gn help set_sources_assignment_filter")
   is never applied by this function. It's assumed than any desired
   filtering was already done when sources was set on the from_scope.
+
+  If variables_to_not_forward_list is non-empty, then it must contains
+  a list of variable names that will not be forwarded. This is mostly
+  useful when variable_list_or_star has a value of "*".
 
 ```
 
@@ -1365,7 +1396,19 @@
     target(my_wrapper_target_type, target_name) {
       forward_variables_from(invoker, "*")
     }
- }
+  }
+
+  # A template that wraps another. It adds behavior based on one 
+  # variable, and forwards all others to the nested target.
+  template("my_ios_test_app") {
+    ios_test_app(target_name) {
+      forward_variables_from(invoker, "*", ["test_bundle_name"])
+      if (!defined(extra_substitutions)) {
+        extra_substitutions = []
+      }
+      extra_substitutions += [ "BUNDLE_ID_TEST_NAME=$test_bundle_name" ]
+    }
+  }
 
 
 ```
@@ -1413,7 +1456,7 @@
 
   "root_out_dir"
       The root of the output file tree for the target. This will
-      match the value of the "root_gen_dir" variable when inside that
+      match the value of the "root_out_dir" variable when inside that
       target's declaration.
 
   "label_no_toolchain"
@@ -1840,7 +1883,7 @@
 
 ```
 
-### **Arguments**:
+### **Arguments**
 
 ```
   input
@@ -1874,6 +1917,12 @@
   string or a list of strings). All relative and source-absolute file
   names will be converted to be relative to the requested output
   System-absolute paths will be unchanged.
+
+  Whether an output path will end in a slash will match whether the
+  corresponding input path ends in a slash. It will return "." or
+  "./" (depending on whether the input ends in a slash) to avoid
+  returning empty strings. This means if you want a root path
+  ("//" or "/") not ending in a slash, you can add a dot ("//.").
 
 ```
 
@@ -2437,9 +2486,10 @@
         that actually produces these files.
 
         If you specify more than one output for shared library links,
-        you should consider setting link_output and depend_output.
-        Otherwise, the first entry in the outputs list should always be
-        the main output which will be linked to.
+        you should consider setting link_output, depend_output, and
+        runtime_link_output. Otherwise, the first entry in the
+        outputs list should always be the main output which will be
+        linked to.
 
         Example for a compiler tool that produces .obj files:
           outputs = [
@@ -2458,20 +2508,22 @@
 
     link_output  [string with substitutions]
     depend_output  [string with substitutions]
+    runtime_link_output  [string with substitutions]
         Valid for: "solink" only (optional)
 
-        These two files specify which of the outputs from the solink
+        These three files specify which of the outputs from the solink
         tool should be used for linking and dependency tracking. These
         should match entries in the "outputs". If unspecified, the
-        first item in the "outputs" array will be used for both. See
+        first item in the "outputs" array will be used for all. See
         "Separate linking and dependencies for shared libraries"
-        below for more.
+        below for more.  If link_output is set but runtime_link_output
+        is not set, runtime_link_output defaults to link_output.
 
         On Windows, where the tools produce a .dll shared library and
-        a .lib import library, you will want both of these to be the
-        import library. On Linux, if you're not doing the separate
-        linking/dependency optimization, both of these should be the
-        .so output.
+        a .lib import library, you will want the first two to be the
+        import library and the third one to be the .dll file.
+        On Linux, if you're not doing the separate linking/dependency
+        optimization, all of these should be the .so output.
 
     output_prefix  [string]
         Valid for: Linker tools (optional)
@@ -2553,6 +2605,13 @@
         omitted from the label for targets in the default toolchain, and
         will be included for targets in other toolchains.
 
+    {{label_name}}
+        The short name of the label of the target. This is the part
+        after the colon. For "//foo/bar:baz" this will be "baz".
+        Unlike {{target_output_name}}, this is not affected by the
+        "output_prefix" in the tool or the "output_name" set
+        on the target.
+
     {{output}}
         The relative path and name of the output(s) of the current
         build step. If there is more than one output, this will expand
@@ -2570,6 +2629,7 @@
         The short name of the current target with no path information,
         or the value of the "output_name" variable if one is specified
         in the target. This will include the "output_prefix" if any.
+        See also {{label_name}}.
         Example: "libfoo" for the target named "foo" and an
         output prefix for the linker tool of "lib".
 
@@ -2868,12 +2928,17 @@
   written, the file will not be updated. This will prevent unnecessary
   rebuilds of targets that depend on this file.
 
+  One use for write_file is to write a list of inputs to an script
+  that might be too long for the command line. However, it is
+  preferrable to use response files for this purpose. See
+  "gn help response_file_contents".
+
   TODO(brettw) we probably need an optional third argument to control
   list formatting.
 
 ```
 
-### **Arguments**:
+### **Arguments**
 
 ```
   filename
@@ -3275,6 +3340,80 @@
 
 
 ```
+## **asmflags**: Flags passed to the assembler.
+
+```
+  A list of strings.
+
+  "asmflags" are passed to any invocation of a tool that takes an
+  .asm or .S file as input.
+
+```
+
+### **Ordering of flags and values**
+
+```
+  1. Those set on the current target (not in a config).
+  2. Those set on the "configs" on the target in order that the
+     configs appear in the list.
+  3. Those set on the "all_dependent_configs" on the target in order
+     that the configs appear in the list.
+  4. Those set on the "public_configs" on the target in order that
+     those configs appear in the list.
+  5. all_dependent_configs pulled from dependencies, in the order of
+     the "deps" list. This is done recursively. If a config appears
+     more than once, only the first occurance will be used.
+  6. public_configs pulled from dependencies, in the order of the
+     "deps" list. If a dependency is public, they will be applied
+     recursively.
+
+
+```
+## **assert_no_deps**: Ensure no deps on these targets.
+
+```
+  A list of label patterns.
+
+  This list is a list of patterns that must not match any of the
+  transitive dependencies of the target. These include all public,
+  private, and data dependencies, and cross shared library boundaries.
+  This allows you to express that undesirable code isn't accidentally
+  added to downstream dependencies in a way that might otherwise be
+  difficult to notice.
+
+  Checking does not cross executable boundaries. If a target depends on
+  an executable, it's assumed that the executable is a tool that is
+  producing part of the build rather than something that is linked and
+  distributed. This allows assert_no_deps to express what is distributed
+  in the final target rather than depend on the internal build steps
+  (which may include non-distributable code).
+
+  See "gn help label_pattern" for the format of the entries in the
+  list. These patterns allow blacklisting individual targets or whole
+  directory hierarchies.
+
+  Sometimes it is desirable to enforce that many targets have no
+  dependencies on a target or set of targets. One efficient way to
+  express this is to create a group with the assert_no_deps rule on
+  it, and make that group depend on all targets you want to apply that
+  assertion to.
+
+```
+
+### **Example**
+
+```
+  executable("doom_melon") {
+    deps = [ "//foo:bar" ]
+    ...
+    assert_no_deps = [
+      "//evil/*",  # Don't link any code from the evil directory.
+      "//foo:test_support",  # This target is also disallowed.
+    ]
+  }
+
+
+```
 ## **cflags***: Flags passed to the C compiler.
 
 ```
@@ -3285,10 +3424,10 @@
 
   To target one of these variants individually, use "cflags_c",
   "cflags_cc", "cflags_objc", and "cflags_objcc",
-  respectively.
+  respectively. These variant-specific versions of cflags* will be
+  appended on the compiler command line after "cflags".
 
-  These variant-specific versions of cflags* will be appended to the
-  "cflags".
+  See also "asmflags" for flags for assembly-language files.
 
 ```
 
@@ -3321,46 +3460,10 @@
 
   To target one of these variants individually, use "cflags_c",
   "cflags_cc", "cflags_objc", and "cflags_objcc",
-  respectively.
+  respectively. These variant-specific versions of cflags* will be
+  appended on the compiler command line after "cflags".
 
-  These variant-specific versions of cflags* will be appended to the
-  "cflags".
-
-```
-
-### **Ordering of flags and values**
-
-```
-  1. Those set on the current target (not in a config).
-  2. Those set on the "configs" on the target in order that the
-     configs appear in the list.
-  3. Those set on the "all_dependent_configs" on the target in order
-     that the configs appear in the list.
-  4. Those set on the "public_configs" on the target in order that
-     those configs appear in the list.
-  5. all_dependent_configs pulled from dependencies, in the order of
-     the "deps" list. This is done recursively. If a config appears
-     more than once, only the first occurance will be used.
-  6. public_configs pulled from dependencies, in the order of the
-     "deps" list. If a dependency is public, they will be applied
-     recursively.
-
-
-```
-## **cflags***: Flags passed to the C compiler.
-
-```
-  A list of strings.
-
-  "cflags" are passed to all invocations of the C, C++, Objective C,
-  and Objective C++ compilers.
-
-  To target one of these variants individually, use "cflags_c",
-  "cflags_cc", "cflags_objc", and "cflags_objcc",
-  respectively.
-
-  These variant-specific versions of cflags* will be appended to the
-  "cflags".
+  See also "asmflags" for flags for assembly-language files.
 
 ```
 
@@ -3393,10 +3496,10 @@
 
   To target one of these variants individually, use "cflags_c",
   "cflags_cc", "cflags_objc", and "cflags_objcc",
-  respectively.
+  respectively. These variant-specific versions of cflags* will be
+  appended on the compiler command line after "cflags".
 
-  These variant-specific versions of cflags* will be appended to the
-  "cflags".
+  See also "asmflags" for flags for assembly-language files.
 
 ```
 
@@ -3429,10 +3532,46 @@
 
   To target one of these variants individually, use "cflags_c",
   "cflags_cc", "cflags_objc", and "cflags_objcc",
-  respectively.
+  respectively. These variant-specific versions of cflags* will be
+  appended on the compiler command line after "cflags".
 
-  These variant-specific versions of cflags* will be appended to the
-  "cflags".
+  See also "asmflags" for flags for assembly-language files.
+
+```
+
+### **Ordering of flags and values**
+
+```
+  1. Those set on the current target (not in a config).
+  2. Those set on the "configs" on the target in order that the
+     configs appear in the list.
+  3. Those set on the "all_dependent_configs" on the target in order
+     that the configs appear in the list.
+  4. Those set on the "public_configs" on the target in order that
+     those configs appear in the list.
+  5. all_dependent_configs pulled from dependencies, in the order of
+     the "deps" list. This is done recursively. If a config appears
+     more than once, only the first occurance will be used.
+  6. public_configs pulled from dependencies, in the order of the
+     "deps" list. If a dependency is public, they will be applied
+     recursively.
+
+
+```
+## **cflags***: Flags passed to the C compiler.
+
+```
+  A list of strings.
+
+  "cflags" are passed to all invocations of the C, C++, Objective C,
+  and Objective C++ compilers.
+
+  To target one of these variants individually, use "cflags_c",
+  "cflags_cc", "cflags_objc", and "cflags_objcc",
+  respectively. These variant-specific versions of cflags* will be
+  appended on the compiler command line after "cflags".
+
+  See also "asmflags" for flags for assembly-language files.
 
 ```
 
@@ -3789,14 +3928,34 @@
 ```
   A list of target labels.
 
-  Specifies private dependencies of a target. Shared and dynamic
-  libraries will be linked into the current target.
+  Specifies private dependencies of a target. Private dependencies are
+  propagated up the dependency tree and linked to dependant targets, but
+  do not grant the ability to include headers from the dependency.
+  Public configs are not forwarded.
 
-  These dependencies are private in that it does not grant dependent
-  targets the ability to include headers from the dependency, and direct
-  dependent configs are not forwarded.
+```
 
-  See also "public_deps" and "data_deps".
+### **Details of dependency propagation**
+
+```
+  Source sets, shared libraries, and non-complete static libraries
+  will be propagated up the dependency tree across groups, non-complete
+  static libraries and source sets.
+
+  Executables, shared libraries, and complete static libraries will
+  link all propagated targets and stop propagation. Actions and copy
+  steps also stop propagation, allowing them to take a library as an
+  input but not force dependants to link to it.
+
+  Propagation of all_dependent_configs and public_configs happens
+  independently of target type. all_dependent_configs are always
+  propagated across all types of targets, and public_configs
+  are always propagated across public deps of all types of targets.
+
+  Data dependencies are propagated differently. See
+  "gn help data_deps" and "gn help runtime_deps".
+
+  See also "public_deps".
 
 
 ```
@@ -3986,6 +4145,10 @@
      "deps" list. If a dependency is public, they will be applied
      recursively.
 
+  For "libs" and "lib_dirs" only, the values propagated from
+  dependencies (as described above) are applied last assuming they
+  are not already in the list.
+
 ```
 
 ### **Example**
@@ -3998,28 +4161,45 @@
 ## **libs**: Additional libraries to link.
 
 ```
-  A list of strings.
+  A list of library names or library paths.
 
-  These files will be passed to the linker, which will generally search
-  the library include path. Unlike a normal list of files, they will be
-  passed to the linker unmodified rather than being treated as file
-  names relative to the current build file. Generally you would set
-  the "lib_dirs" so your library is found. If you need to specify
-  a path, you can use "rebase_path" to convert a path to be relative
-  to the build directory.
-
-  When constructing the linker command, the "lib_prefix" attribute of
-  the linker tool in the current toolchain will be prepended to each
-  library. So your BUILD file should not specify the switch prefix
-  (like "-l"). On Mac, libraries ending in ".framework" will be
-  special-cased: the switch "-framework" will be prepended instead of
-  the lib_prefix, and the ".framework" suffix will be trimmed.
+  These libraries will be linked into the final binary (executable or
+  shared library) containing the current target.
 
   libs and lib_dirs work differently than other flags in two respects.
   First, then are inherited across static library boundaries until a
   shared library or executable target is reached. Second, they are
   uniquified so each one is only passed once (the first instance of it
   will be the one used).
+
+```
+
+### **Types of libs**
+
+```
+  There are several different things that can be expressed in libs:
+
+  File paths
+      Values containing '/' will be treated as references to files in
+      the checkout. They will be rebased to be relative to the build
+      directory and specified in the "libs" for linker tools. This
+      facility should be used for libraries that are checked in to the
+      version control. For libraries that are generated by the build,
+      use normal GN deps to link them.
+
+  System libraries
+      Values not containing '/' will be treated as system library names.
+      These will be passed unmodified to the linker and prefixed with
+      the "lib_prefix" attribute of the linker tool. Generally you
+      would set the "lib_dirs" so the given library is found. Your
+      BUILD.gn file should not specify the switch (like "-l"): this
+      will be encoded in the "lib_prefix" of the tool.
+
+  Apple frameworks
+      System libraries ending in ".framework" will be special-cased:
+      the switch "-framework" will be prepended instead of the
+      lib_prefix, and the ".framework" suffix will be trimmed. This is
+      to support the way Mac links framework dependencies.
 
 ```
 
@@ -4040,6 +4220,10 @@
      "deps" list. If a dependency is public, they will be applied
      recursively.
 
+  For "libs" and "lib_dirs" only, the values propagated from
+  dependencies (as described above) are applied last assuming they
+  are not already in the list.
+
 ```
 
 ### **Examples**
@@ -4047,6 +4231,7 @@
 ```
   On Windows:
     libs = [ "ctl3d.lib" ]
+
   On Linux:
     libs = [ "ld" ]
 
@@ -4298,9 +4483,9 @@
 ## **public_deps**: Declare public dependencies.
 
 ```
-  Public dependencies are like private dependencies ("deps") but
-  additionally express that the current target exposes the listed deps
-  as part of its public API.
+  Public dependencies are like private dependencies (see
+  "gn help deps") but additionally express that the current target
+  exposes the listed deps as part of its public API.
 
   This has several ramifications:
 
@@ -4347,6 +4532,47 @@
   shared_library("b") {
     deps = [ ":super_secret_implementation_details" ]
     public_deps = [ ":c" ]
+  }
+
+
+```
+## **response_file_contents**: Contents of a response file for actions.
+
+```
+  Sometimes the arguments passed to a script can be too long for the
+  system's command-line capabilities. This is especially the case on
+  Windows where the maximum command-line length is less than 8K. A
+  response file allows you to pass an unlimited amount of data to a
+  script in a temporary file for an action or action_foreach target.
+
+  If the response_file_contents variable is defined and non-empty, the
+  list will be treated as script args (including possibly substitution
+  patterns) that will be written to a temporary file at build time.
+  The name of the temporary file will be substituted for
+  "{{response_file_name}}" in the script args.
+
+  The response file contents will always be quoted and escaped
+  according to Unix shell rules. To parse the response file, the Python
+  script should use "shlex.split(file_contents)".
+
+```
+
+### **Example**
+
+```
+  action("process_lots_of_files") {
+    script = "process.py",
+    inputs = [ ... huge list of files ... ]
+
+    # Write all the inputs to a response file for the script. Also,
+    # make the paths relative to the script working directory.
+    response_file_contents = rebase_path(inputs, root_build_dir)
+
+    # The script expects the name of the response file in --file-list.
+    args = [
+      "--enable-foo",
+      "--file-list={{response_file_name}}",
+    ]
   }
 
 
@@ -4711,7 +4937,8 @@
       string           = `"` { char | escape | expansion } `"` .
       escape           = `\` ( "$" | `"` | char ) .
       BracketExpansion = "{" ( identifier | ArrayAccess | ScopeAccess ) "}" .
-      expansion        = "$" ( identifier | BracketExpansion ) .
+      Hex              = "0x" [0-9A-Fa-f][0-9A-Fa-f]
+      expansion        = "$" ( identifier | BracketExpansion | Hex ) .
       char             = /* any character except "$", `"`, or newline */ .
 
   After a backslash, certain sequences represent special characters:
@@ -4721,6 +4948,9 @@
           \\    U+005C    backslash
 
   All other backslashes represent themselves.
+
+  To insert an arbitrary byte value, use $0xFF. For example, to
+  insert a newline character: "Line one$0x0ALine two".
 
 ```
 

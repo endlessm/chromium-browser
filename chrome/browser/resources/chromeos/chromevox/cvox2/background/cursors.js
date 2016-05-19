@@ -13,6 +13,7 @@ goog.provide('cursors.Range');
 goog.provide('cursors.Unit');
 
 goog.require('AutomationUtil');
+goog.require('constants');
 
 /**
  * The special index that represents a cursor pointing to a node without
@@ -55,9 +56,9 @@ cursors.Movement = {
 
 goog.scope(function() {
 var AutomationNode = chrome.automation.AutomationNode;
-var Dir = AutomationUtil.Dir;
+var Dir = constants.Dir;
 var Movement = cursors.Movement;
-var Role = chrome.automation.RoleType;
+var RoleType = chrome.automation.RoleType;
 var Unit = cursors.Unit;
 
 /**
@@ -112,16 +113,15 @@ cursors.Cursor.prototype = {
   /**
    * Gets the accessible text of the node associated with this cursor.
    *
-   * Note that only one of |name| or |value| attribute is ever nonempty on an
-   * automation node. If either contains whitespace, we still treat it as we do
-   * for a nonempty string.
    * @param {!AutomationNode=} opt_node Use this node rather than this cursor's
    * node.
    * @return {string}
    */
   getText: function(opt_node) {
     var node = opt_node || this.node_;
-    return node.name || node.value || '';
+    if (node.role === RoleType.textField)
+      return node.value;
+    return node.name || '';
   },
 
   /**
@@ -143,23 +143,33 @@ cursors.Cursor.prototype = {
     switch (unit) {
       case Unit.CHARACTER:
         // BOUND and DIRECTIONAL are the same for characters.
-        newIndex = dir == Dir.FORWARD ? newIndex + 1 : newIndex - 1;
-        if (newIndex < 0 || newIndex >= this.getText().length) {
+        var text = this.getText();
+        newIndex = dir == Dir.FORWARD ?
+            StringUtil.nextCodePointOffset(text, newIndex) :
+            StringUtil.previousCodePointOffset(text, newIndex);
+        if (newIndex < 0 || newIndex >= text.length) {
           newNode = AutomationUtil.findNextNode(
               newNode, dir, AutomationPredicate.leafWithText);
           if (newNode) {
+            var newText = this.getText(newNode);
             newIndex =
-                dir == Dir.FORWARD ? 0 : this.getText(newNode).length - 1;
-            newIndex = newIndex == -1 ? 0 : newIndex;
+                dir == Dir.FORWARD ? 0 :
+                StringUtil.previousCodePointOffset(newText, newText.length);
+            newIndex = Math.max(newIndex, 0);
           } else {
             newIndex = this.index_;
           }
         }
         break;
       case Unit.WORD:
+        if (newNode.role != RoleType.inlineTextBox) {
+          newNode = AutomationUtil.findNodePre(
+              newNode, Dir.FORWARD, AutomationPredicate.inlineTextBox) ||
+                  newNode;
+        }
         switch (movement) {
           case Movement.BOUND:
-            if (newNode.role == Role.inlineTextBox) {
+            if (newNode.role == RoleType.inlineTextBox) {
               var start, end;
               for (var i = 0; i < newNode.wordStarts.length; i++) {
                 if (newIndex >= newNode.wordStarts[i] &&
@@ -176,7 +186,7 @@ cursors.Cursor.prototype = {
             }
             break;
           case Movement.DIRECTIONAL:
-            if (newNode.role == Role.inlineTextBox) {
+            if (newNode.role == RoleType.inlineTextBox) {
               var start, end;
               for (var i = 0; i < newNode.wordStarts.length; i++) {
                 if (newIndex >= newNode.wordStarts[i] &&
@@ -199,7 +209,7 @@ cursors.Cursor.prototype = {
                   if (newNode) {
                     newIndex = 0;
                     if (dir == Dir.BACKWARD &&
-                        newNode.role == Role.inlineTextBox) {
+                        newNode.role == RoleType.inlineTextBox) {
                       var starts = newNode.wordStarts;
                       newIndex = starts[starts.length - 1] || 0;
                     } else {
@@ -221,7 +231,7 @@ cursors.Cursor.prototype = {
             break;
           case Movement.DIRECTIONAL:
             var pred = unit == Unit.NODE ?
-                AutomationPredicate.leaf : AutomationPredicate.leafDomNode;
+                AutomationPredicate.leaf : AutomationPredicate.element;
             newNode = AutomationUtil.findNextNode(
                 newNode, dir, pred) || this.node_;
             newIndex = cursors.NODE_INDEX;
@@ -233,7 +243,7 @@ cursors.Cursor.prototype = {
         switch (movement) {
           case Movement.BOUND:
             newNode = AutomationUtil.findNodeUntil(newNode, dir,
-                AutomationPredicate.linebreak, {before: true});
+                AutomationPredicate.linebreak, true);
             newNode = newNode || this.node_;
             newIndex =
                 dir == Dir.FORWARD ? this.getText(newNode).length : 0;
@@ -245,7 +255,7 @@ cursors.Cursor.prototype = {
           }
       break;
       default:
-        throw 'Unrecognized unit: ' + unit;
+        throw Error('Unrecognized unit: ' + unit);
     }
     newNode = newNode || this.node_;
     newIndex = goog.isDef(newIndex) ? newIndex : this.index_;
@@ -281,18 +291,34 @@ cursors.WrappingCursor.prototype = {
 
   /** @override */
   move: function(unit, movement, dir) {
-    var result = cursors.Cursor.prototype.move.call(this, unit, movement, dir);
+    var result = this;
+
+    // Regular movement.
+    if (!AutomationUtil.isTraversalRoot(this.node) || dir == Dir.FORWARD)
+      result = cursors.Cursor.prototype.move.call(this, unit, movement, dir);
+
+    // There are two cases for wrapping:
+    // 1. moving forwards from the last element.
+    // 2. moving backwards from the document root.
+    // Both result in |move| returning the same cursor.
+    // For 1, simply place the new cursor on the document node.
+    // For 2, try to descend to the first leaf-like object.
     if (movement == Movement.DIRECTIONAL && result.equals(this)) {
       var pred = unit == Unit.DOM_NODE ?
-          AutomationPredicate.leafDomNode : AutomationPredicate.leaf;
-      var root = this.node;
-      while (!AutomationUtil.isTraversalRoot(root) && root.parent)
-        root = root.parent;
-      var wrappedNode = AutomationUtil.findNodePre(root, dir, pred);
-      if (wrappedNode) {
-        cvox.ChromeVox.earcons.playEarcon(cvox.Earcon.WRAP);
-        return new cursors.WrappingCursor(wrappedNode, cursors.NODE_INDEX);
-      }
+          AutomationPredicate.element : AutomationPredicate.leaf;
+      var endpoint = this.node;
+
+      // Case 1: forwards (find the root-like node).
+      while (!AutomationUtil.isTraversalRoot(endpoint) && endpoint.parent)
+        endpoint = endpoint.parent;
+
+      // Case 2: backward (sync downwards to a leaf).
+      if (dir == Dir.BACKWARD)
+        endpoint = AutomationUtil.findNodePre(endpoint, dir, pred) || endpoint;
+
+      cvox.ChromeVox.earcons.playEarcon(cvox.Earcon.WRAP);
+        return new cursors.WrappingCursor(endpoint, cursors.NODE_INDEX);
+
     }
     return new cursors.WrappingCursor(result.node, result.index);
   }
@@ -413,14 +439,14 @@ cursors.Range.prototype = {
    */
   move: function(unit, dir) {
     var newStart = this.start_;
-    var newEnd = newStart;
+    var newEnd;
     switch (unit) {
       case Unit.CHARACTER:
         newStart = newStart.move(unit, Movement.BOUND, dir);
         newEnd = newStart.move(unit, Movement.BOUND, Dir.FORWARD);
         // Character crossed a node; collapses to the end of the node.
         if (newStart.node !== newEnd.node)
-          newEnd = newStart;
+          newEnd = new cursors.Cursor(newStart.node, newStart.index + 1);
         break;
       case Unit.WORD:
       case Unit.LINE:
@@ -433,8 +459,19 @@ cursors.Range.prototype = {
         newStart = newStart.move(unit, Movement.DIRECTIONAL, dir);
         newEnd = newStart;
         break;
+      default:
+        throw Error('Invalid unit: ' + unit);
     }
     return new cursors.Range(newStart, newEnd);
+  },
+
+  /**
+   * Returns true if this range has either cursor end on web content.
+   * @return {boolean}
+  */
+  isWebRange: function() {
+    return this.start.node.root.role != RoleType.desktop ||
+        this.end.node.root.role != RoleType.desktop;
   }
 };
 

@@ -14,29 +14,22 @@
 #include <vector>
 
 #include "webrtc/base/criticalsection.h"
-#include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/event.h"
+#include "webrtc/base/platform_thread.h"
 #include "webrtc/base/thread_annotations.h"
 #include "webrtc/common_types.h"
 #include "webrtc/engine_configurations.h"
 #include "webrtc/modules/video_capture/video_capture.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
-#include "webrtc/modules/video_coding/main/interface/video_coding.h"
-#include "webrtc/modules/video_processing/main/interface/video_processing.h"
-#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/include/thread_wrapper.h"
+#include "webrtc/modules/video_coding/include/video_codec_interface.h"
+#include "webrtc/modules/video_coding/include/video_coding.h"
+#include "webrtc/modules/video_processing/include/video_processing.h"
 #include "webrtc/typedefs.h"
 #include "webrtc/video_send_stream.h"
 
 namespace webrtc {
 
 class Config;
-class CpuOveruseMetricsObserver;
-class CpuOveruseObserver;
-class CriticalSectionWrapper;
-class EventWrapper;
 class OveruseFrameDetector;
-class ProcessThread;
-class RegistrableCpuOveruseMetricsObserver;
 class SendStatisticsProxy;
 class VideoRenderer;
 
@@ -50,12 +43,10 @@ class VideoCaptureCallback {
 namespace internal {
 class VideoCaptureInput : public webrtc::VideoCaptureInput {
  public:
-  VideoCaptureInput(ProcessThread* module_process_thread,
-                    VideoCaptureCallback* frame_callback,
+  VideoCaptureInput(VideoCaptureCallback* frame_callback,
                     VideoRenderer* local_renderer,
                     SendStatisticsProxy* send_stats_proxy,
-                    CpuOveruseObserver* overuse_observer,
-                    EncodingTimeObserver* encoding_time_observer);
+                    OveruseFrameDetector* overuse_detector);
   ~VideoCaptureInput();
 
   void IncomingCapturedFrame(const VideoFrame& video_frame) override;
@@ -65,32 +56,24 @@ class VideoCaptureInput : public webrtc::VideoCaptureInput {
   static bool EncoderThreadFunction(void* obj);
   bool EncoderProcess();
 
-  void DeliverI420Frame(VideoFrame* video_frame);
-
-  rtc::scoped_ptr<CriticalSectionWrapper> capture_cs_;
-  ProcessThread* const module_process_thread_;
+  rtc::CriticalSection crit_;
 
   VideoCaptureCallback* const frame_callback_;
   VideoRenderer* const local_renderer_;
   SendStatisticsProxy* const stats_proxy_;
 
-  // Frame used in IncomingFrameI420.
-  rtc::scoped_ptr<CriticalSectionWrapper> incoming_frame_cs_;
-  VideoFrame incoming_frame_;
-
-  rtc::scoped_ptr<ThreadWrapper> encoder_thread_;
-  rtc::scoped_ptr<EventWrapper> capture_event_;
+  rtc::PlatformThread encoder_thread_;
+  rtc::Event capture_event_;
 
   volatile int stop_;
 
-  VideoFrame captured_frame_ GUARDED_BY(capture_cs_.get());
+  VideoFrame captured_frame_ GUARDED_BY(crit_);
   // Used to make sure incoming time stamp is increasing for every frame.
   int64_t last_captured_timestamp_;
   // Delta used for translating between NTP and internal timestamps.
   const int64_t delta_ntp_internal_ms_;
 
-  rtc::scoped_ptr<OveruseFrameDetector> overuse_detector_;
-  EncodingTimeObserver* const encoding_time_observer_;
+  OveruseFrameDetector* const overuse_detector_;
 };
 
 }  // namespace internal

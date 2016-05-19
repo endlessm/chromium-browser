@@ -48,7 +48,9 @@ namespace networkingPrivate {
     // Enabled state has been requested but has not completed.
     Enabling,
     // Device is enabled.
-    Enabled
+    Enabled,
+    // Device is prohibited.
+    Prohibited
   };
 
   enum IPConfigType {
@@ -629,6 +631,8 @@ namespace networkingPrivate {
   };
 
   dictionary WiFiStateProperties {
+    DOMString? BSSID;
+    long? Frequency;
     DOMString Security;
     long? SignalStrength;
   };

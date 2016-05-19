@@ -18,8 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGTextPositioningElement.h"
 
 #include "core/SVGNames.h"
@@ -92,4 +90,4 @@ SVGTextPositioningElement* SVGTextPositioningElement::elementFromLayoutObject(La
     return isSVGTextPositioningElement(*node) ? toSVGTextPositioningElement(node) : 0;
 }
 
-}
+} // namespace blink

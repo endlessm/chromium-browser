@@ -4,6 +4,9 @@
 
 #include "ppapi/proxy/raw_var_data.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
@@ -28,7 +31,7 @@ namespace proxy {
 
 namespace {
 
-void DefaultHandleWriter(IPC::Message* m, const SerializedHandle& handle) {
+void DefaultHandleWriter(base::Pickle* m, const SerializedHandle& handle) {
   IPC::ParamTraits<SerializedHandle>::Write(m, handle);
 }
 

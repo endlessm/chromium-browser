@@ -2,20 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
+#include "build/build_config.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
+#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "chrome/browser/net/net_error_diagnostics_dialog.h"
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -26,10 +30,12 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/error_page/common/error_page_switches.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/prefs/pref_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -41,10 +47,9 @@
 #include "content/public/test/test_navigation_observer.h"
 #include "net/base/filename_util.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/http/failing_http_transaction_factory.h"
 #include "net/http/http_cache.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/url_request/url_request_failed_job.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
 #include "net/url_request/url_request_context.h"
@@ -119,23 +124,13 @@ bool WARN_UNUSED_RESULT IsDisplayingDiagnosticsButton(Browser* browser) {
 // Checks that the local error page is being displayed, without remotely
 // retrieved navigation corrections, and with the specified error code.
 void ExpectDisplayingLocalErrorPage(Browser* browser, net::Error error_code) {
-  // Expand the help box so innerText will include text below the fold.
-  ToggleHelpBox(browser);
-
   EXPECT_TRUE(IsDisplayingNetError(browser, error_code));
 
   // Locally generated error pages should not have navigation corrections.
-  EXPECT_FALSE(IsDisplayingText(browser, "http://correction1/"));
-  EXPECT_FALSE(IsDisplayingText(browser, "http://correction2/"));
+  EXPECT_FALSE(IsDisplayingText(browser, "http://mock.http/title2.html"));
 
-  // Locally generated error pages should not have a populated search box.
-  bool search_box_populated = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      browser->tab_strip_model()->GetActiveWebContents(),
-      "var searchText = document.getElementById('search-box').value;"
-          "domAutomationController.send(searchText == 'search query');",
-      &search_box_populated));
-  EXPECT_FALSE(search_box_populated);
+  // Locally generated error pages should not have a link with search terms.
+  EXPECT_FALSE(IsDisplayingText(browser, "search query"));
 }
 
 // Checks that an error page with information retrieved from the navigation
@@ -143,30 +138,17 @@ void ExpectDisplayingLocalErrorPage(Browser* browser, net::Error error_code) {
 // code.
 void ExpectDisplayingNavigationCorrections(Browser* browser,
                                            net::Error error_code) {
-  // Expand the help box so innerText will include text below the fold.
-  ToggleHelpBox(browser);
-
   EXPECT_TRUE(IsDisplayingNetError(browser, error_code));
 
   // Check that the mock navigation corrections are displayed.
-  EXPECT_TRUE(IsDisplayingText(browser, "http://correction1/"));
-  EXPECT_TRUE(IsDisplayingText(browser, "http://correction2/"));
+  EXPECT_TRUE(IsDisplayingText(browser, "http://mock.http/title2.html"));
 
-  // Check that the search box is populated correctly.
-  bool search_box_populated = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      browser->tab_strip_model()->GetActiveWebContents(),
-      "var searchText = document.getElementById('search-box').value;"
-          "domAutomationController.send(searchText == 'search query');",
-      &search_box_populated));
-  EXPECT_TRUE(search_box_populated);
+  // Check that the search terms are displayed as a link.
+  EXPECT_TRUE(IsDisplayingText(browser, "search query"));
 
   // The diagnostics button isn't displayed when corrections were
   // retrieved from a remote server.
   EXPECT_FALSE(IsDisplayingDiagnosticsButton(browser));
-
-  // Close help box again, to return page to original state.
-  ToggleHelpBox(browser);
 }
 
 std::string GetShowSavedButtonLabel() {
@@ -177,8 +159,8 @@ void AddInterceptorForURL(
     const GURL& url,
     scoped_ptr<net::URLRequestInterceptor> handler) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
-      url, handler.Pass());
+  net::URLRequestFilter::GetInstance()->AddUrlInterceptor(url,
+                                                          std::move(handler));
 }
 
 // An interceptor that fails a configurable number of requests, then succeeds
@@ -307,7 +289,7 @@ void InstallMockInterceptors(
   chrome_browser_net::SetUrlRequestMocksEnabled(true);
 
   AddInterceptorForURL(google_util::LinkDoctorBaseURL(),
-                       link_doctor_interceptor.Pass());
+                       std::move(link_doctor_interceptor));
 
   // Add a mock for the search engine the error page will use.
   base::FilePath root_http;
@@ -332,8 +314,9 @@ class ErrorPageTest : public InProcessBrowserTest {
   // Navigates the active tab to a mock url created for the file at |file_path|.
   // Needed for StaleCacheStatus and StaleCacheStatusFailedCorrections tests.
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitchASCII(switches::kShowSavedCopy,
-                                    switches::kEnableShowSavedCopyPrimary);
+    command_line->AppendSwitchASCII(
+        error_page::switches::kShowSavedCopy,
+        error_page::switches::kEnableShowSavedCopyPrimary);
   }
 
   // Navigates the active tab to a mock url created for the file at |path|.
@@ -539,7 +522,7 @@ void InterceptNetworkTransactions(net::URLRequestContextGetter* getter,
       new net::FailingHttpTransactionFactory(cache->GetSession(), error));
   // Throw away old version; since this is a a browser test, we don't
   // need to restore the old state.
-  cache->SetHttpNetworkTransactionFactoryForTesting(factory.Pass());
+  cache->SetHttpNetworkTransactionFactoryForTesting(std::move(factory));
 }
 
 // Test an error with a file URL, and make sure it doesn't have a
@@ -666,7 +649,7 @@ IN_PROC_BROWSER_TEST_F(ErrorPageTest, DNSError_GoBack2Forward2) {
   EXPECT_EQ(3, link_doctor_interceptor()->num_requests());
 }
 
-// Test that the search button on a DNS error page works.
+// Test that the search link on a DNS error page works.
 IN_PROC_BROWSER_TEST_F(ErrorPageTest, DNSError_DoSearch) {
   // The first navigation should fail, and the second one should be the error
   // page.
@@ -687,7 +670,7 @@ IN_PROC_BROWSER_TEST_F(ErrorPageTest, DNSError_DoSearch) {
   // notification that they've run, and scripts that trigger a navigation may
   // not send that notification.
   web_contents->GetMainFrame()->ExecuteJavaScriptForTests(
-      base::ASCIIToUTF16("document.getElementById('search-button').click();"));
+      base::ASCIIToUTF16("document.getElementById('search-link').click();"));
   nav_observer.Wait();
   EXPECT_EQ(base::ASCIIToUTF16("Title Of More Awesomeness"),
             title_watcher.WaitAndGetTitle());
@@ -952,10 +935,10 @@ IN_PROC_BROWSER_TEST_F(ErrorPageTest, Page404) {
 // is correctly transferred, and that stale cached copied can be loaded
 // from the javascript.
 IN_PROC_BROWSER_TEST_F(ErrorPageTest, StaleCacheStatus) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
   // Load cache with entry with "nocache" set, to create stale
   // cache.
-  GURL test_url(test_server()->GetURL("files/nocache.html"));
+  GURL test_url(embedded_test_server()->GetURL("/nocache.html"));
   NavigateToURLAndWaitForTitle(test_url, "Nocache Test Page", 1);
 
   // Reload same URL after forcing an error from the the network layer;
@@ -992,8 +975,9 @@ IN_PROC_BROWSER_TEST_F(ErrorPageTest, StaleCacheStatus) {
   // Clear the cache and reload the same URL; confirm the error page is told
   // that there is no cached copy.
   BrowsingDataRemover* remover =
-      BrowsingDataRemover::CreateForUnboundedRange(browser()->profile());
-  remover->Remove(BrowsingDataRemover::REMOVE_CACHE,
+      BrowsingDataRemoverFactory::GetForBrowserContext(browser()->profile());
+  remover->Remove(BrowsingDataRemover::Unbounded(),
+                  BrowsingDataRemover::REMOVE_CACHE,
                   BrowsingDataHelper::UNPROTECTED_WEB);
   ui_test_utils::NavigateToURL(browser(), test_url);
   EXPECT_TRUE(ProbeStaleCopyValue(false));
@@ -1102,7 +1086,8 @@ IN_PROC_BROWSER_TEST_F(ErrorPageAutoReloadTest, ManualReloadNotSuppressed) {
   EXPECT_EQ(2, interceptor()->requests());
 
   ToggleHelpBox(browser());
-  EXPECT_TRUE(IsDisplayingText(browser(), "error.page.auto.reload"));
+  EXPECT_TRUE(IsDisplayingText(browser(), l10n_util::GetStringUTF8(
+      IDS_ERRORPAGES_SUGGESTION_CHECK_CONNECTION_HEADER)));
 
   content::WebContents* web_contents =
     browser()->tab_strip_model()->GetActiveWebContents();
@@ -1110,7 +1095,8 @@ IN_PROC_BROWSER_TEST_F(ErrorPageAutoReloadTest, ManualReloadNotSuppressed) {
   web_contents->GetMainFrame()->ExecuteJavaScriptForTests(
       base::ASCIIToUTF16("document.getElementById('reload-button').click();"));
   nav_observer.Wait();
-  EXPECT_FALSE(IsDisplayingText(browser(), "error.page.auto.reload"));
+  EXPECT_FALSE(IsDisplayingText(browser(), l10n_util::GetStringUTF8(
+      IDS_ERRORPAGES_SUGGESTION_CHECK_CONNECTION_HEADER)));
 }
 
 // Make sure that a same page navigation does not cause issues with the
@@ -1230,10 +1216,10 @@ IN_PROC_BROWSER_TEST_F(ErrorPageNavigationCorrectionsFailTest,
 // above.
 IN_PROC_BROWSER_TEST_F(ErrorPageNavigationCorrectionsFailTest,
                        StaleCacheStatusFailedCorrections) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
   // Load cache with entry with "nocache" set, to create stale
   // cache.
-  GURL test_url(test_server()->GetURL("files/nocache.html"));
+  GURL test_url(embedded_test_server()->GetURL("/nocache.html"));
   NavigateToURLAndWaitForTitle(test_url, "Nocache Test Page", 1);
 
   // Reload same URL after forcing an error from the the network layer;
@@ -1261,8 +1247,9 @@ IN_PROC_BROWSER_TEST_F(ErrorPageNavigationCorrectionsFailTest,
   // Clear the cache and reload the same URL; confirm the error page is told
   // that there is no cached copy.
   BrowsingDataRemover* remover =
-      BrowsingDataRemover::CreateForUnboundedRange(browser()->profile());
-  remover->Remove(BrowsingDataRemover::REMOVE_CACHE,
+      BrowsingDataRemoverFactory::GetForBrowserContext(browser()->profile());
+  remover->Remove(BrowsingDataRemover::Unbounded(),
+                  BrowsingDataRemover::REMOVE_CACHE,
                   BrowsingDataHelper::UNPROTECTED_WEB);
   ui_test_utils::NavigateToURLBlockUntilNavigationsComplete(
       browser(), test_url, 2);
@@ -1472,8 +1459,6 @@ IN_PROC_BROWSER_TEST_F(ErrorPageForIDNTest, IDN) {
       browser(),
       URLRequestFailedJob::GetMockHttpUrlForHostname(net::ERR_UNSAFE_PORT,
                                                      kHostname));
-
-  ToggleHelpBox(browser());
   EXPECT_TRUE(IsDisplayingText(browser(), kHostnameJSUnicode));
 }
 

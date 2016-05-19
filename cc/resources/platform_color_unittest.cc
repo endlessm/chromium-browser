@@ -4,6 +4,8 @@
 
 #include "cc/resources/platform_color.h"
 
+#include <stddef.h>
+
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace cc {
@@ -32,6 +34,7 @@ TEST(PlatformColorTest, SameComponentOrder) {
       case RGB_565:
       case ETC1:
       case RED_8:
+      case LUMINANCE_F16:
         EXPECT_FALSE(PlatformColor::SameComponentOrder(format));
         break;
     }

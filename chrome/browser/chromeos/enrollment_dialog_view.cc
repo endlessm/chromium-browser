@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/enrollment_dialog_view.h"
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -52,12 +53,12 @@ class EnrollmentDialogView : public views::DialogDelegateView {
   // views::DialogDelegateView overrides
   int GetDialogButtons() const override;
   bool Accept() override;
-  void OnClosed() override;
   base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
 
   // views::WidgetDelegate overrides
   ui::ModalType GetModalType() const override;
   base::string16 GetWindowTitle() const override;
+  void WindowClosing() override;
 
   // views::View overrides
   gfx::Size GetPreferredSize() const override;
@@ -119,17 +120,6 @@ bool EnrollmentDialogView::Accept() {
   return true;
 }
 
-void EnrollmentDialogView::OnClosed() {
-  if (!accepted_)
-    return;
-  chrome::NavigateParams params(profile_,
-                                GURL(target_uri_),
-                                ui::PAGE_TRANSITION_LINK);
-  params.disposition = NEW_FOREGROUND_TAB;
-  params.window_action = chrome::NavigateParams::SHOW_WINDOW;
-  chrome::Navigate(&params);
-}
-
 base::string16 EnrollmentDialogView::GetDialogButtonLabel(
     ui::DialogButton button) const {
   if (button == ui::DIALOG_BUTTON_OK)
@@ -143,6 +133,16 @@ ui::ModalType EnrollmentDialogView::GetModalType() const {
 
 base::string16 EnrollmentDialogView::GetWindowTitle() const {
   return l10n_util::GetStringUTF16(IDS_NETWORK_ENROLLMENT_HANDLER_TITLE);
+}
+
+void EnrollmentDialogView::WindowClosing() {
+  if (!accepted_)
+    return;
+  chrome::NavigateParams params(profile_, GURL(target_uri_),
+                                ui::PAGE_TRANSITION_LINK);
+  params.disposition = NEW_FOREGROUND_TAB;
+  params.window_action = chrome::NavigateParams::SHOW_WINDOW;
+  chrome::Navigate(&params);
 }
 
 gfx::Size EnrollmentDialogView::GetPreferredSize() const {

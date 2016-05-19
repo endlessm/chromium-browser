@@ -27,7 +27,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.util.Calendar;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.zip.GZIPOutputStream;
@@ -39,19 +38,12 @@ import java.util.zip.GZIPOutputStream;
  * and false otherwise.
  */
 public class MinidumpUploadCallable implements Callable<Integer> {
-    @VisibleForTesting protected static final int LOG_SIZE_LIMIT_BYTES = 2 * 1024 * 1024; // 2MB
-    @VisibleForTesting protected static final int LOG_UPLOAD_LIMIT_PER_DAY = 5;
-    @VisibleForTesting
-    protected static final int LOG_WEEKLY_SIZE_LIMIT_BYTES = 5 * 1024 * 1024; // 5MB
     private static final String TAG = "MDUploadCallable";
 
-    @VisibleForTesting
+    // These preferences are obsolete and are kept only for removing from user preferences.
     protected static final String PREF_DAY_UPLOAD_COUNT = "crash_day_dump_upload_count";
-    @VisibleForTesting
     protected static final String PREF_LAST_UPLOAD_DAY = "crash_dump_last_upload_day";
-    @VisibleForTesting
     protected static final String PREF_LAST_UPLOAD_WEEK = "crash_dump_last_upload_week";
-    @VisibleForTesting
     protected static final String PREF_WEEK_UPLOAD_SIZE = "crash_dump_week_upload_size";
 
     @VisibleForTesting
@@ -63,42 +55,48 @@ public class MinidumpUploadCallable implements Callable<Integer> {
     @IntDef({
         UPLOAD_SUCCESS,
         UPLOAD_FAILURE,
-        UPLOAD_DISABLED,
+        UPLOAD_USER_DISABLED,
+        UPLOAD_COMMANDLINE_DISABLED
     })
     public @interface MinidumpUploadStatus {}
     public static final int UPLOAD_SUCCESS = 0;
     public static final int UPLOAD_FAILURE = 1;
-    public static final int UPLOAD_DISABLED = 2;
+    public static final int UPLOAD_USER_DISABLED = 2;
+    public static final int UPLOAD_COMMANDLINE_DISABLED = 3;
 
     private final File mFileToUpload;
     private final File mLogfile;
     private final HttpURLConnectionFactory mHttpURLConnectionFactory;
     private final CrashReportingPermissionManager mPermManager;
-    private final SharedPreferences mSharedPreferences;
 
     public MinidumpUploadCallable(File fileToUpload, File logfile, Context context) {
         this(fileToUpload, logfile, new HttpURLConnectionFactoryImpl(),
-                PrivacyPreferencesManager.getInstance(context),
-                PreferenceManager.getDefaultSharedPreferences(context));
+                PrivacyPreferencesManager.getInstance(context));
+        removeOutdatedPrefs(PreferenceManager.getDefaultSharedPreferences(context));
     }
 
     public MinidumpUploadCallable(File fileToUpload, File logfile,
             HttpURLConnectionFactory httpURLConnectionFactory,
-            CrashReportingPermissionManager permManager, SharedPreferences sharedPreferences) {
+            CrashReportingPermissionManager permManager) {
         mFileToUpload = fileToUpload;
         mLogfile = logfile;
         mHttpURLConnectionFactory = httpURLConnectionFactory;
         mPermManager = permManager;
-        mSharedPreferences = sharedPreferences;
     }
 
     @Override
     public Integer call() {
+        // TODO(jchinlee): address proper cleanup procedures for command line flag-disabled uploads.
+        if (mPermManager.isUploadCommandLineDisabled()) {
+            Log.i(TAG, "Minidump upload is disabled by command line flag. Retaining file.");
+            return UPLOAD_COMMANDLINE_DISABLED;
+        }
+
         if (!mPermManager.isUploadUserPermitted()) {
             Log.i(TAG, "Minidump upload is not permitted by user. Marking file as uploaded for "
                     + "cleanup to prevent future uploads.");
             cleanupMinidumpFile();
-            return UPLOAD_DISABLED;
+            return UPLOAD_USER_DISABLED;
         }
 
         boolean isLimited = mPermManager.isUploadLimited();
@@ -264,90 +262,6 @@ public class MinidumpUploadCallable implements Callable<Integer> {
     }
 
     /**
-     * Checks whether crash upload satisfies the size and frequency constraints.
-     *
-     * @param currentUploadSize The size of the file to be uploaded in bytes.
-     * @return whether crash upload satisfies the size and frequency constraints.
-     */
-    private boolean isUploadSizeAndFrequencyAllowed(long currentUploadSize) {
-        // Check upload size constraint.
-        if (currentUploadSize > LOG_SIZE_LIMIT_BYTES) return false;
-
-        // Check upload frequency constraint.
-        // If pref doesn't exist then for both prefs default value 0 will be returned and upload
-        // would be allowed.
-        if (mSharedPreferences.getInt(PREF_LAST_UPLOAD_DAY, 0) == getCurrentDay()
-                && mSharedPreferences.getInt(PREF_DAY_UPLOAD_COUNT, 0)
-                        >= LOG_UPLOAD_LIMIT_PER_DAY) {
-            return false;
-        }
-
-        // Check that user is not exceeding weekly total upload limit.
-        if (mSharedPreferences.getInt(PREF_LAST_UPLOAD_WEEK, 0) == getFirstDayOfCurrentWeek()
-                && mSharedPreferences.getLong(PREF_WEEK_UPLOAD_SIZE, 0) + currentUploadSize
-                        >= LOG_WEEKLY_SIZE_LIMIT_BYTES) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Updates preferences used for determining crash upload constraints.
-     *
-     * @param lastUploadSize The size of the uploaded file in bytes.
-     */
-    private void updateUploadPrefs(long lastUploadSize) {
-        SharedPreferences.Editor editor = mSharedPreferences.edit();
-
-        int day = getCurrentDay();
-        int week = getFirstDayOfCurrentWeek();
-        int dailyUploadCount = mSharedPreferences.getInt(PREF_DAY_UPLOAD_COUNT, 0);
-        if (mSharedPreferences.getInt(PREF_LAST_UPLOAD_DAY, 0) != day) {
-            dailyUploadCount = 0;
-        }
-        long weeklyTotalSize = mSharedPreferences.getLong(PREF_WEEK_UPLOAD_SIZE, 0);
-        if (mSharedPreferences.getInt(PREF_LAST_UPLOAD_WEEK, 0) != week) {
-            weeklyTotalSize = 0;
-        }
-        editor.putInt(PREF_LAST_UPLOAD_DAY, day)
-                .putInt(PREF_DAY_UPLOAD_COUNT, dailyUploadCount + 1)
-                .putInt(PREF_LAST_UPLOAD_WEEK, week)
-                .putLong(PREF_WEEK_UPLOAD_SIZE, weeklyTotalSize + lastUploadSize)
-                .apply();
-    }
-
-    /**
-     * Returns a number corresponding to the current day. Overriden in
-     */
-    protected int getCurrentDay() {
-        return getCurrentDay(Calendar.getInstance());
-    }
-
-    /**
-     * Returns a number corresponding to the first day of the current week.
-     */
-    protected int getFirstDayOfCurrentWeek() {
-        return getFirstDayOfCurrentWeek(Calendar.getInstance());
-    }
-
-    /**
-     * Returns a number corresponding to the current day since epoch based on the provided calendar.
-     */
-    protected int getCurrentDay(Calendar calendar) {
-        long millisInDay = 86400000;
-        return (int) (calendar.getTimeInMillis() / millisInDay);
-    }
-
-    /**
-     * Returns a number corresponding to the first day of the current week based on the provided
-     * calendar.
-     */
-    protected int getFirstDayOfCurrentWeek(Calendar calendar) {
-        return getCurrentDay() - calendar.get(Calendar.DAY_OF_WEEK) + 1;
-    }
-
-    /**
      * Returns whether the response code indicates a successful HTTP request.
      *
      * @param responseCode the response code
@@ -393,5 +307,15 @@ public class MinidumpUploadCallable implements Callable<Integer> {
         }
         inStream.close();
         outStream.close();
+    }
+
+    // TODO(gayane): Remove this function and unused prefs in M51. crbug.com/555022
+    private void removeOutdatedPrefs(SharedPreferences sharedPreferences) {
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.remove(PREF_DAY_UPLOAD_COUNT)
+              .remove(PREF_LAST_UPLOAD_DAY)
+              .remove(PREF_LAST_UPLOAD_WEEK)
+              .remove(PREF_WEEK_UPLOAD_SIZE)
+              .apply();
     }
 }

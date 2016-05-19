@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
@@ -22,7 +21,10 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
+#include "components/password_manager/core/browser/log_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
+#include "components/prefs/pref_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_registrar.h"
@@ -31,9 +33,10 @@
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/origin_util.h"
 #include "net/base/auth.h"
 #include "net/base/load_flags.h"
-#include "net/base/net_util.h"
+#include "net/http/http_auth_scheme.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
@@ -42,6 +45,7 @@
 
 #if defined(ENABLE_EXTENSIONS)
 #include "components/guest_view/browser/guest_view_base.h"
+#include "extensions/browser/view_type_utils.h"
 #endif
 
 using autofill::PasswordForm;
@@ -69,9 +73,10 @@ void ResetLoginHandlerForRequest(net::URLRequest* request) {
 PasswordForm MakeInputForPasswordManager(const GURL& request_url,
                                          net::AuthChallengeInfo* auth_info) {
   PasswordForm dialog_form;
-  if (base::LowerCaseEqualsASCII(auth_info->scheme, "basic")) {
+  if (base::LowerCaseEqualsASCII(auth_info->scheme, net::kBasicAuthScheme)) {
     dialog_form.scheme = PasswordForm::SCHEME_BASIC;
-  } else if (base::LowerCaseEqualsASCII(auth_info->scheme, "digest")) {
+  } else if (base::LowerCaseEqualsASCII(auth_info->scheme,
+                                        net::kDigestAuthScheme)) {
     dialog_form.scheme = PasswordForm::SCHEME_DIGEST;
   } else {
     dialog_form.scheme = PasswordForm::SCHEME_OTHER;
@@ -108,11 +113,6 @@ void ShowLoginPrompt(const GURL& request_url,
     return;
   }
 
-  // The realm is controlled by the remote server, so there is no reason
-  // to believe it is of a reasonable length.
-  base::string16 elided_realm;
-  gfx::ElideString(base::UTF8ToUTF16(auth_info->realm), 120, &elided_realm);
-
   std::string languages;
   content::WebContents* web_contents = handler->GetWebContentsForLogin();
   if (web_contents) {
@@ -122,14 +122,15 @@ void ShowLoginPrompt(const GURL& request_url,
       languages = profile->GetPrefs()->GetString(prefs::kAcceptLanguages);
   }
 
-  base::string16 authority =
-      url_formatter::FormatUrlForSecurityDisplay(request_url, languages);
-  base::string16 explanation =
-      elided_realm.empty()
-          ? l10n_util::GetStringFUTF16(IDS_LOGIN_DIALOG_DESCRIPTION_NO_REALM,
-                                       authority)
-          : l10n_util::GetStringFUTF16(IDS_LOGIN_DIALOG_DESCRIPTION, authority,
-                                       elided_realm);
+  base::string16 authority = l10n_util::GetStringFUTF16(
+      auth_info->is_proxy ? IDS_LOGIN_DIALOG_PROXY_AUTHORITY
+                          : IDS_LOGIN_DIALOG_AUTHORITY,
+      url_formatter::FormatUrlForSecurityDisplay(request_url, languages));
+  base::string16 explanation;
+  if (!content::IsOriginSecure(request_url)) {
+    explanation =
+        l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_NON_SECURE_TRANSPORT);
+  }
 
   password_manager::PasswordManager* password_manager =
       handler->GetPasswordManagerForLogin();
@@ -138,8 +139,12 @@ void ShowLoginPrompt(const GURL& request_url,
 #if defined(ENABLE_EXTENSIONS)
     // A WebContents in a <webview> (a GuestView type) does not have a password
     // manager, but still needs to be able to show login prompts.
-    if (guest_view::GuestViewBase::FromWebContents(parent_contents)) {
-      handler->BuildViewWithoutPasswordManager(explanation);
+    const auto* guest =
+        guest_view::GuestViewBase::FromWebContents(parent_contents);
+    if (guest &&
+        extensions::GetViewType(guest->owner_web_contents()) !=
+            extensions::VIEW_TYPE_EXTENSION_BACKGROUND_PAGE) {
+      handler->BuildViewWithoutPasswordManager(authority, explanation);
       return;
     }
 #endif
@@ -147,17 +152,18 @@ void ShowLoginPrompt(const GURL& request_url,
     return;
   }
 
-  if (password_manager && password_manager->client()->IsLoggingActive()) {
+  if (password_manager &&
+      password_manager->client()->GetLogManager()->IsLoggingActive()) {
     password_manager::BrowserSavePasswordProgressLogger logger(
-        password_manager->client());
+        password_manager->client()->GetLogManager());
     logger.LogMessage(
         autofill::SavePasswordProgressLogger::STRING_SHOW_LOGIN_PROMPT_METHOD);
   }
 
   PasswordForm observed_form(
       MakeInputForPasswordManager(request_url, auth_info));
-  handler->BuildViewWithPasswordManager(explanation, password_manager,
-                                        observed_form);
+  handler->BuildViewWithPasswordManager(authority, explanation,
+                                        password_manager, observed_form);
 }
 
 }  // namespace
@@ -193,10 +199,10 @@ LoginHandler::LoginHandler(net::AuthChallengeInfo* auth_info,
       BrowserThread::UI, FROM_HERE,
       base::Bind(&LoginHandler::AddObservers, this));
 
-  if (!ResourceRequestInfo::ForRequest(request_)->GetAssociatedRenderFrame(
-          &render_process_host_id_,  &render_frame_id_)) {
-    NOTREACHED();
-  }
+  const content::ResourceRequestInfo* info =
+      ResourceRequestInfo::ForRequest(request);
+  DCHECK(info);
+  web_contents_getter_ = info->GetWebContentsGetterForRequest();
 }
 
 void LoginHandler::OnRequestCancelled() {
@@ -213,26 +219,25 @@ void LoginHandler::OnRequestCancelled() {
 }
 
 void LoginHandler::BuildViewWithPasswordManager(
+    const base::string16& authority,
     const base::string16& explanation,
     password_manager::PasswordManager* password_manager,
     const autofill::PasswordForm& observed_form) {
   password_manager_ = password_manager;
   password_form_ = observed_form;
   LoginHandler::LoginModelData model_data(password_manager, observed_form);
-  BuildViewImpl(explanation, &model_data);
+  BuildViewImpl(authority, explanation, &model_data);
 }
 
 void LoginHandler::BuildViewWithoutPasswordManager(
+    const base::string16& authority,
     const base::string16& explanation) {
-  BuildViewImpl(explanation, nullptr);
+  BuildViewImpl(authority, explanation, nullptr);
 }
 
 WebContents* LoginHandler::GetWebContentsForLogin() const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-  content::RenderFrameHost* rfh = content::RenderFrameHost::FromID(
-      render_process_host_id_, render_frame_id_);
-  return WebContents::FromRenderFrameHost(rfh);
+  return web_contents_getter_.Run();
 }
 
 password_manager::PasswordManager* LoginHandler::GetPasswordManagerForLogin() {
@@ -246,9 +251,10 @@ void LoginHandler::SetAuth(const base::string16& username,
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   scoped_ptr<password_manager::BrowserSavePasswordProgressLogger> logger;
-  if (password_manager_ && password_manager_->client()->IsLoggingActive()) {
+  if (password_manager_ &&
+      password_manager_->client()->GetLogManager()->IsLoggingActive()) {
     logger.reset(new password_manager::BrowserSavePasswordProgressLogger(
-        password_manager_->client()));
+        password_manager_->client()->GetLogManager()));
     logger->LogMessage(
         autofill::SavePasswordProgressLogger::STRING_SET_AUTH_METHOD);
   }
@@ -447,18 +453,13 @@ void LoginHandler::NotifyAuthCancelled(bool dismiss_navigation) {
   NavigationController* controller = NULL;
 
   WebContents* requesting_contents = GetWebContentsForLogin();
-  if (requesting_contents) {
+  if (requesting_contents)
     controller = &requesting_contents->GetController();
-    if (dismiss_navigation) {
-      content::InterstitialPage* interstitial_page =
-          requesting_contents->GetInterstitialPage();
-      if (interstitial_page)
-        interstitial_page->DontProceed();
-    }
-  }
+
+  if (dismiss_navigation && interstitial_delegate_)
+    interstitial_delegate_->DontProceed();
 
   LoginNotificationDetails details(this);
-
   service->Notify(chrome::NOTIFICATION_AUTH_CANCELLED,
                   content::Source<NavigationController>(controller),
                   content::Details<LoginNotificationDetails>(&details));
@@ -518,18 +519,9 @@ void LoginHandler::CancelAuthDeferred() {
 // Closes the view_contents from the UI loop.
 void LoginHandler::CloseContentsDeferred() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
   CloseDialog();
-
-  WebContents* requesting_contents = GetWebContentsForLogin();
-  if (!requesting_contents)
-    return;
-  // If a (blank) login interstitial was displayed, proceed so that the
-  // navigation is committed.
-  content::InterstitialPage* interstitial_page =
-      requesting_contents->GetInterstitialPage();
-  if (interstitial_page)
-    interstitial_page->Proceed();
+  if (interstitial_delegate_)
+    interstitial_delegate_->Proceed();
 }
 
 // This callback is run on the UI thread and creates a constrained window with
@@ -577,15 +569,13 @@ void LoginDialogCallback(const GURL& request_url,
                                         request_url,
                                         make_scoped_refptr(auth_info),
                                         make_scoped_refptr(handler));
-    // This is owned by the interstitial it creates. It cancels any existing
-    // interstitial.
-    new LoginInterstitialDelegate(parent_contents,
-                                  request_url,
-                                  callback);
+    // The interstitial delegate is owned by the interstitial that it creates.
+    // This cancels any existing interstitial.
+    handler->SetInterstitialDelegate(
+        (new LoginInterstitialDelegate(parent_contents, request_url, callback))
+            ->GetWeakPtr());
   } else {
-    ShowLoginPrompt(request_url,
-                    auth_info,
-                    handler);
+    ShowLoginPrompt(request_url, auth_info, handler);
   }
 }
 

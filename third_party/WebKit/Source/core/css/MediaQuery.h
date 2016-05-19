@@ -35,6 +35,7 @@
 #include "wtf/Vector.h"
 #include "wtf/text/StringHash.h"
 #include "wtf/text/WTFString.h"
+#include <utility>
 
 namespace blink {
 class MediaQueryExp;
@@ -44,17 +45,17 @@ using ExpressionHeapVector = WillBeHeapVector<OwnPtrWillBeMember<MediaQueryExp>>
 class CORE_EXPORT MediaQuery : public NoBaseWillBeGarbageCollectedFinalized<MediaQuery> {
     USING_FAST_MALLOC_WILL_BE_REMOVED(MediaQuery);
 public:
-    enum Restrictor {
+    enum RestrictorType {
         Only, Not, None
     };
 
+    static PassOwnPtrWillBeRawPtr<MediaQuery> create(RestrictorType, String mediaType, ExpressionHeapVector);
     static PassOwnPtrWillBeRawPtr<MediaQuery> createNotAll();
 
-    MediaQuery(Restrictor, const String& mediaType, PassOwnPtrWillBeRawPtr<ExpressionHeapVector> exprs);
     ~MediaQuery();
 
-    Restrictor restrictor() const { return m_restrictor; }
-    const ExpressionHeapVector& expressions() const { return *m_expressions; }
+    RestrictorType restrictor() const { return m_restrictor; }
+    const ExpressionHeapVector& expressions() const { return m_expressions; }
     const String& mediaType() const { return m_mediaType; }
     bool operator==(const MediaQuery& other) const;
     String cssText() const;
@@ -64,16 +65,19 @@ public:
     DECLARE_TRACE();
 
 private:
+    MediaQuery(RestrictorType, String mediaType, ExpressionHeapVector);
     MediaQuery(const MediaQuery&);
 
-    Restrictor m_restrictor;
+    MediaQuery& operator=(const MediaQuery&) = delete;
+
+    RestrictorType m_restrictor;
     String m_mediaType;
-    OwnPtrWillBeMember<ExpressionHeapVector> m_expressions;
+    ExpressionHeapVector m_expressions;
     String m_serializationCache;
 
     String serialize() const;
 };
 
-} // namespace
+} // namespace blink
 
 #endif

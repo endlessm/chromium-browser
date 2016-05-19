@@ -5,11 +5,13 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/color.html">
+<link rel="import" href="/tracing/base/color_scheme.html">
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import" href="/tracing/model/attribute.html">
 <link rel="import" href="/tracing/model/global_memory_dump.html">
 <link rel="import" href="/tracing/model/heap_dump.html">
-<link rel="import" href="/tracing/model/memory_allocator_dump.html">
+<link rel="import" href="/tracing/model/memory_dump_test_utils.html">
 <link rel="import" href="/tracing/model/process_memory_dump.html">
 
 <script>
@@ -19,14 +21,16 @@ found in the LICENSE file.
  * @fileoverview Helper functions for memory dump analysis sub-view tests.
  */
 tr.exportTo('tr.ui.analysis', function() {
+  var Color = tr.b.Color;
+  var ColorScheme = tr.b.ColorScheme;
   var GlobalMemoryDump = tr.model.GlobalMemoryDump;
   var ProcessMemoryDump = tr.model.ProcessMemoryDump;
-  var MemoryAllocatorDump = tr.model.MemoryAllocatorDump;
-  var MemoryAllocatorDumpLink = tr.model.MemoryAllocatorDumpLink;
   var VMRegion = tr.model.VMRegion;
-  var VMRegionByteStats = tr.model.VMRegionByteStats;
   var ScalarAttribute = tr.model.ScalarAttribute;
   var HeapDump = tr.model.HeapDump;
+  var newAllocatorDump = tr.model.MemoryDumpTestUtils.newAllocatorDump;
+  var addOwnershipLink = tr.model.MemoryDumpTestUtils.addOwnershipLink;
+
 
   function createMultipleTestGlobalMemoryDumps() {
     var model = tr.c.TestUtils.newModel(function(model) {
@@ -62,7 +66,10 @@ tr.exportTo('tr.ui.analysis', function() {
       pmd1B.totals = {
         residentBytes: 20971520, /* 20 MiB */
         peakResidentBytes: 41943040, /* 40 MiB */
-        arePeakResidentBytesResettable: false
+        arePeakResidentBytesResettable: false,
+        platformSpecific: {
+          private_bytes: 10485760 /* 10 MiB */
+        }
       };
       pmd1B.vmRegions = [
         VMRegion.fromDict({
@@ -89,46 +96,30 @@ tr.exportTo('tr.ui.analysis', function() {
           }
         })
       ];
-      pmd1B.memoryAllocatorDumps = (function() {
-        var mallocDump = new MemoryAllocatorDump(pmd1B, 'malloc');
-        mallocDump.addAttribute('size',
-            new ScalarAttribute('bytes', 3145728) /* 3 MiB */);
-
-        var v8Dump = new MemoryAllocatorDump(pmd1B, 'v8');
-        v8Dump.addAttribute('size',
-            new ScalarAttribute('bytes', 5242880) /* 5 MiB */);
-
-        var tracingDump = new MemoryAllocatorDump(pmd1B, 'tracing');
-        tracingDump.addAttribute('size',
-            new ScalarAttribute('bytes', 1048576) /* 1 MiB */);
-        tracingDump.addAttribute('resident_size',
-            new ScalarAttribute('bytes', 1572864) /* 1.5 MiB */);
-
-        return [mallocDump, v8Dump, tracingDump];
-      })();
+      pmd1B.memoryAllocatorDumps = [
+        newAllocatorDump(pmd1B, 'malloc', { size: 3145728 /* 3 MiB */ }),
+        newAllocatorDump(pmd1B, 'v8', { size: 5242880 /* 5 MiB */ }),
+        newAllocatorDump(pmd1B, 'tracing', {
+          size: 1048576 /* 1 MiB */,
+          resident_size: 1572864 /* 1.5 MiB */
+        })
+      ];
 
       // Allocator dumps only.
       var pmd1C = addProcessMemoryDump(gmd1, pC, 43);
       pmd1C.memoryAllocatorDumps = (function() {
-        var oilpanDump = new MemoryAllocatorDump(pmd1C, 'oilpan');
-        oilpanDump.addAttribute('size',
-            new ScalarAttribute('bytes', 3221225472) /* 3 GiB */);
-        oilpanDump.addAttribute('inner_size',
-            new ScalarAttribute('bytes', 5242880) /* 5 MiB */);
-        oilpanDump.addAttribute('objects_count',
-            new ScalarAttribute('objects', 2015));
+        var oilpanDump = newAllocatorDump(pmd1C, 'oilpan', {
+          size: 3221225472 /* 3 GiB */,
+          inner_size: 5242880 /* 5 MiB */,
+          objects_count: new ScalarAttribute('objects', 2015)
+        });
+        var v8Dump = newAllocatorDump(pmd1C, 'v8', {
+          size: 1073741824 /* 1 GiB */,
+          inner_size: 2097152 /* 2 MiB */,
+          objects_count: new ScalarAttribute('objects', 204)
+        });
 
-        var v8Dump = new MemoryAllocatorDump(pmd1C, 'v8');
-        v8Dump.addAttribute('size',
-            new ScalarAttribute('bytes', 1073741824) /* 1 GiB */);
-        v8Dump.addAttribute('inner_size',
-            new ScalarAttribute('bytes', 2097152) /* 2 MiB */);
-        v8Dump.addAttribute('objects_count',
-            new ScalarAttribute('objects', 204));
-
-        var ownershipLink = new MemoryAllocatorDumpLink(v8Dump, oilpanDump);
-        v8Dump.owns = ownershipLink;
-        oilpanDump.ownedBy.push(ownershipLink);
+        addOwnershipLink(v8Dump, oilpanDump);
 
         return [oilpanDump, v8Dump];
       })();
@@ -137,7 +128,8 @@ tr.exportTo('tr.ui.analysis', function() {
           var v8HeapDump = new HeapDump(pmd1C, 'v8');
           v8HeapDump.addEntry(
               tr.c.TestUtils.newStackTrace(model,
-                  [undefined /* root */, 'V8.Execute', 'UpdateLayoutTree']),
+                  ['V8.Execute', 'UpdateLayoutTree']),
+              undefined /* sum over all object types */,
               536870912 /* 512 MiB */);
           return v8HeapDump;
         })()
@@ -175,51 +167,34 @@ tr.exportTo('tr.ui.analysis', function() {
           }
         })
       ];
-      pmd2A.memoryAllocatorDumps = (function() {
-        var mallocDump = new MemoryAllocatorDump(pmd2A, 'malloc');
-        mallocDump.addAttribute('size',
-            new ScalarAttribute('bytes', 9437184) /* 9 MiB */);
-
-        var tracingDump = new MemoryAllocatorDump(pmd2A, 'tracing');
-        tracingDump.addAttribute('size',
-            new ScalarAttribute('bytes', 2097152) /* 2 MiB */);
-        tracingDump.addAttribute('resident_size',
-            new ScalarAttribute('bytes', 2621440) /* 2.5 MiB */);
-
-        return [mallocDump, tracingDump];
-      })();
+      pmd2A.memoryAllocatorDumps = [
+        newAllocatorDump(pmd2A, 'malloc', { size: 9437184 /* 9 MiB */ }),
+        newAllocatorDump(pmd2A, 'tracing', {
+          size: 2097152 /* 2 MiB */,
+          resident_size: 2621440 /* 2.5 MiB */
+        })
+      ];
 
       // Totals and allocator dumps only.
       var pmd2B = addProcessMemoryDump(gmd2, pB, 69);
       pmd2B.totals = {
         residentBytes: 19922944, /* 19 MiB */
         peakResidentBytes: 41943040, /* 40 MiB */
-        arePeakResidentBytesResettable: false
+        arePeakResidentBytesResettable: false,
+        platformSpecific: {
+          private_bytes: 8912896 /* 8.5 MiB */
+        }
       };
-      pmd2B.memoryAllocatorDumps = (function() {
-        var mallocDump = new MemoryAllocatorDump(pmd2B, 'malloc');
-        mallocDump.addAttribute('size',
-            new ScalarAttribute('bytes', 2621440) /* 2.5 MiB */);
-
-        var v8Dump = new MemoryAllocatorDump(pmd2B, 'v8');
-        v8Dump.addAttribute('size',
-            new ScalarAttribute('bytes', 5242880) /* 5 MiB */);
-
-        var blinkDump = new MemoryAllocatorDump(pmd2B, 'blink');
-        blinkDump.addAttribute('size',
-            new ScalarAttribute('bytes', 7340032) /* 7 MiB */);
-
-        var oilpanDump = new MemoryAllocatorDump(pmd2B, 'oilpan');
-        oilpanDump.addAttribute('size', new ScalarAttribute('bytes', 1));
-
-        var tracingDump = new MemoryAllocatorDump(pmd2B, 'tracing');
-        tracingDump.addAttribute('size',
-            new ScalarAttribute('bytes', 1572864) /* 1.5 MiB */);
-        tracingDump.addAttribute('resident_size',
-            new ScalarAttribute('bytes', 2097152) /* 2 MiB */);
-
-        return [mallocDump, v8Dump, blinkDump, oilpanDump, tracingDump];
-      })();
+      pmd2B.memoryAllocatorDumps = [
+        newAllocatorDump(pmd2B, 'malloc', { size: 2621440 /* 2.5 MiB */ }),
+        newAllocatorDump(pmd2B, 'v8', { size: 5242880 /* 5 MiB */ }),
+        newAllocatorDump(pmd2B, 'blink', { size: 7340032 /* 7 MiB */ }),
+        newAllocatorDump(pmd2B, 'oilpan', { size: 1 }),
+        newAllocatorDump(pmd2B, 'tracing', {
+          size: 1572864 /* 1.5 MiB */,
+          resident_size: 2097152 /* 2 MiB */
+        })
+      ];
 
       // Resettable peak total size only.
       var pmd2D = addProcessMemoryDump(gmd2, pD, 71);
@@ -238,7 +213,10 @@ tr.exportTo('tr.ui.analysis', function() {
       pmd3B.totals = {
         residentBytes: 18874368, /* 18 MiB */
         peakResidentBytes: 44040192, /* 42 MiB */
-        arePeakResidentBytesResettable: false
+        arePeakResidentBytesResettable: false,
+        platformSpecific: {
+          private_bytes: 7340032 /* 7 MiB */
+        }
       };
       pmd3B.vmRegions = [
         VMRegion.fromDict({
@@ -254,50 +232,31 @@ tr.exportTo('tr.ui.analysis', function() {
           }
         })
       ];
-      pmd3B.memoryAllocatorDumps = (function() {
-        var mallocDump = new MemoryAllocatorDump(pmd3B, 'malloc');
-        mallocDump.addAttribute('size',
-            new ScalarAttribute('bytes', 2883584) /* 2.75 MiB */);
-
-        var v8Dump = new MemoryAllocatorDump(pmd3B, 'v8');
-        v8Dump.addAttribute('size',
-            new ScalarAttribute('bytes', 5767168) /* 5.5 MiB */);
-
-        var blinkDump = new MemoryAllocatorDump(pmd3B, 'blink');
-        blinkDump.addAttribute('size',
-            new ScalarAttribute('bytes', 6291456) /* 7 MiB */);
-
-        var tracingDump = new MemoryAllocatorDump(pmd3B, 'tracing');
-        tracingDump.addAttribute('size',
-            new ScalarAttribute('bytes', 2097152) /* 2 MiB */);
-        tracingDump.addAttribute('resident_size',
-            new ScalarAttribute('bytes', 3145728) /* 3 MiB */);
-
-        return [mallocDump, v8Dump, blinkDump, tracingDump];
-      })();
+      pmd3B.memoryAllocatorDumps = [
+        newAllocatorDump(pmd3B, 'malloc', {size: 2883584 /* 2.75 MiB */ }),
+        newAllocatorDump(pmd3B, 'v8', { size: 5767168 /* 5.5 MiB */ }),
+        newAllocatorDump(pmd3B, 'blink', { size: 6291456 /* 7 MiB */ }),
+        newAllocatorDump(pmd3B, 'tracing', {
+          size: 2097152 /* 2 MiB */,
+          resident_size: 3145728 /* 3 MiB */
+        })
+      ];
 
       // Allocator dumps only.
       var pmd3C = addProcessMemoryDump(gmd3, pC, 100);
       pmd3C.memoryAllocatorDumps = (function() {
-        var oilpanDump = new MemoryAllocatorDump(pmd3C, 'oilpan');
-        oilpanDump.addAttribute('size',
-            new ScalarAttribute('bytes', 3221225472) /* 3 GiB */);
-        oilpanDump.addAttribute('inner_size',
-            new ScalarAttribute('bytes', 5242880) /* 5 MiB */);
-        oilpanDump.addAttribute('objects_count',
-            new ScalarAttribute('objects', 2015));
+        var oilpanDump = newAllocatorDump(pmd3C, 'oilpan', {
+          size: 3221225472 /* 3 GiB */,
+          inner_size: 5242880 /* 5 MiB */,
+          objects_count: new ScalarAttribute('objects', 2015)
+        });
+        var v8Dump = newAllocatorDump(pmd3C, 'v8', {
+          size: 2147483648 /* 2 GiB */,
+          inner_size: 2097152 /* 2 MiB */,
+          objects_count: new ScalarAttribute('objects', 204)
+        });
 
-        var v8Dump = new MemoryAllocatorDump(pmd3C, 'v8');
-        v8Dump.addAttribute('size',
-            new ScalarAttribute('bytes', 2147483648) /* 2 GiB */);
-        v8Dump.addAttribute('inner_size',
-            new ScalarAttribute('bytes', 2097152) /* 2 MiB */);
-        v8Dump.addAttribute('objects_count',
-            new ScalarAttribute('objects', 204));
-
-        var ownershipLink = new MemoryAllocatorDumpLink(v8Dump, oilpanDump);
-        v8Dump.owns = ownershipLink;
-        oilpanDump.ownedBy.push(ownershipLink);
+        addOwnershipLink(v8Dump, oilpanDump);
 
         return [oilpanDump, v8Dump];
       })();
@@ -306,11 +265,13 @@ tr.exportTo('tr.ui.analysis', function() {
           var v8HeapDump = new HeapDump(pmd1C, 'v8');
           v8HeapDump.addEntry(
               tr.c.TestUtils.newStackTrace(model,
-                  [undefined /* root */, 'V8.Execute', 'UpdateLayoutTree']),
+                  ['V8.Execute', 'UpdateLayoutTree']),
+              undefined /* sum over all object types */,
               268435456 /* 256 MiB */);
           v8HeapDump.addEntry(
               tr.c.TestUtils.newStackTrace(model,
-                  [undefined /* root */, 'V8.Execute', 'FrameView::layout']),
+                  ['V8.Execute', 'FrameView::layout']),
+              undefined /* sum over all object types */,
               134217728 /* 128 MiB */);
           return v8HeapDump;
         })()
@@ -374,6 +335,65 @@ tr.exportTo('tr.ui.analysis', function() {
     checkAttributes(row, column, expectedAttrValues, ScalarAttribute, 'bytes');
   }
 
+  /**
+   * Check the titles, types and aggregation modes of a list of columns.
+   * expectedColumns is a list of dictionaries with the following fields:
+   *
+   *   - title: Either the expected title (string), or a matcher for it
+   *     (function that accepts the actual title as its argument).
+   *   - type: The expected class of the column.
+   *   - noAggregation: If true, the column is expected to have no aggregation
+   *     mode (regardless of expectedAggregationMode).
+   */
+  function checkColumns(columns, expectedColumns, expectedAggregationMode) {
+    assert.lengthOf(columns, expectedColumns.length);
+    for (var i = 0; i < expectedColumns.length; i++) {
+      var actualColumn = columns[i];
+      var expectedColumn = expectedColumns[i];
+      var expectedTitle = expectedColumn.title;
+      if (typeof expectedTitle === 'function')
+        expectedTitle(actualColumn.title);  // Custom title matcher.
+      else
+        assert.strictEqual(actualColumn.title, expectedTitle);  // String title.
+      assert.instanceOf(actualColumn, expectedColumn.type);
+      assert.strictEqual(actualColumn.aggregationMode,
+          expectedColumn.noAggregation ? undefined : expectedAggregationMode);
+    }
+  }
+
+  function checkColumnInfosAndColor(
+      column, attrs, contexts, expectedInfos, expectedColorReservedName) {
+    // Test sanity checks.
+    assert.isDefined(attrs);
+    if (contexts !== undefined)
+      assert.lengthOf(contexts, attrs.length);
+
+    // Check infos.
+    var infos = [];
+    column.addInfos(attrs, contexts, infos);
+    assert.lengthOf(infos, expectedInfos.length);
+    for (var i = 0; i < expectedInfos.length; i++)
+      assert.deepEqual(infos[i], expectedInfos[i]);
+
+    // Check color.
+    var actualColor = typeof column.color === 'function' ?
+        column.color(attrs, contexts) :
+        column.color;
+    checkColor(actualColor, expectedColorReservedName);
+  }
+
+  function checkColor(actualColorString, expectedColorReservedName) {
+    if (expectedColorReservedName === undefined) {
+      assert.isUndefined(actualColorString);
+      return;
+    }
+
+    var actualColor = Color.fromString(actualColorString);
+    var expectedColor = ColorScheme.colors[
+        ColorScheme.getColorIdForReservedName(expectedColorReservedName)];
+    assert.deepEqual(actualColor, expectedColor);
+  }
+
   function createAndCheckEmptyPanes(
       test, paneTagName, propertyName, opt_callback) {
     // Unset property.
@@ -427,7 +447,7 @@ tr.exportTo('tr.ui.analysis', function() {
       if (childPaneBuilder === undefined)
         return undefined;
       return childPaneBuilder();
-    }
+    };
 
     return paneEl;
   }
@@ -466,6 +486,16 @@ tr.exportTo('tr.ui.analysis', function() {
   function convertToProcessMemoryDumps(containerMemoryDumps) {
     return containerMemoryDumps.map(function(containerMemoryDump) {
       return containerMemoryDump.processMemoryDumps;
+    });
+  }
+
+  /**
+   * Extract a chronological list of ProcessMemoryDump(s) (for a given process)
+   * from a chronological list of dictionaries of ProcessMemoryDump(s).
+   */
+  function extractProcessMemoryDumps(processMemoryDumps, pid) {
+    return processMemoryDumps.map(function(memoryDumps) {
+      return memoryDumps[pid];
     });
   }
 
@@ -520,10 +550,14 @@ tr.exportTo('tr.ui.analysis', function() {
     createMultipleTestProcessMemoryDumps: createMultipleTestProcessMemoryDumps,
     checkAttributes: checkAttributes,
     checkSizeAttributes: checkSizeAttributes,
+    checkColumns: checkColumns,
+    checkColumnInfosAndColor: checkColumnInfosAndColor,
+    checkColor: checkColor,
     createAndCheckEmptyPanes: createAndCheckEmptyPanes,
     createTestPane: createTestPane,
     isElementDisplayed: isElementDisplayed,
     convertToProcessMemoryDumps: convertToProcessMemoryDumps,
+    extractProcessMemoryDumps: extractProcessMemoryDumps,
     extractVmRegions: extractVmRegions,
     extractMemoryAllocatorDumps: extractMemoryAllocatorDumps,
     extractHeapDumps: extractHeapDumps

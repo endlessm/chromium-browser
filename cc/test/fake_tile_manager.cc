@@ -4,6 +4,9 @@
 
 #include "cc/test/fake_tile_manager.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <deque>
 #include <limits>
 
@@ -19,12 +22,10 @@ namespace {
 class FakeTileTaskRunnerImpl : public TileTaskRunner, public TileTaskClient {
  public:
   // Overridden from TileTaskRunner:
-  void SetClient(TileTaskRunnerClient* client) override {}
   void Shutdown() override {}
-  void ScheduleTasks(TileTaskQueue* queue) override {
-    for (TileTaskQueue::Item::Vector::const_iterator it = queue->items.begin();
-         it != queue->items.end(); ++it) {
-      RasterTask* task = it->task;
+  void ScheduleTasks(TaskGraph* graph) override {
+    for (const auto& node : graph->nodes) {
+      RasterTask* task = static_cast<RasterTask*>(node.task);
 
       task->WillSchedule();
       task->ScheduleOnOriginThread(this);
@@ -76,7 +77,8 @@ FakeTileManager::FakeTileManager(TileManagerClient* client)
                   std::numeric_limits<size_t>::max(),
                   false /* use_partial_raster */) {
   SetResources(nullptr, g_fake_tile_task_runner.Pointer(),
-               std::numeric_limits<size_t>::max());
+               std::numeric_limits<size_t>::max(),
+               false /* use_gpu_rasterization */);
 }
 
 FakeTileManager::FakeTileManager(TileManagerClient* client,
@@ -86,7 +88,8 @@ FakeTileManager::FakeTileManager(TileManagerClient* client,
                   std::numeric_limits<size_t>::max(),
                   false /* use_partial_raster */) {
   SetResources(resource_pool, g_fake_tile_task_runner.Pointer(),
-               std::numeric_limits<size_t>::max());
+               std::numeric_limits<size_t>::max(),
+               false /* use_gpu_rasterization */);
 }
 
 FakeTileManager::~FakeTileManager() {}

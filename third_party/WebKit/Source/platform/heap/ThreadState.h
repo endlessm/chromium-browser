@@ -37,14 +37,13 @@
 #include "platform/heap/ThreadingTraits.h"
 #include "public/platform/WebThread.h"
 #include "wtf/AddressSanitizer.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashSet.h"
-#include "wtf/PassOwnPtr.h"
 #include "wtf/ThreadSpecific.h"
 #include "wtf/Threading.h"
 #include "wtf/ThreadingPrimitives.h"
-#include "wtf/text/WTFString.h"
 
 namespace v8 {
 class Isolate;
@@ -54,10 +53,10 @@ namespace blink {
 
 class BasePage;
 class CallbackStack;
-class CrossThreadPersistentRegion;
 struct GCInfo;
 class GarbageCollectedMixinConstructorMarker;
 class HeapObjectHeader;
+class PersistentNode;
 class PersistentRegion;
 class BaseHeap;
 class SafePointAwareMutexLocker;
@@ -93,7 +92,7 @@ class Visitor;
 // public:
 //     Foo()
 //     {
-//         ThreadState::current()->registerPreFinalizer(this, dispose);
+//         ThreadState::current()->registerPreFinalizer(dispose);
 //     }
 // private:
 //     void dispose()
@@ -112,7 +111,7 @@ static bool invokePreFinalizer(void* object)        \
     self->Class::preFinalizer();                    \
     return true;                                    \
 }                                                   \
-using UsingPreFinazlizerMacroNeedsTrailingSemiColon = char
+using UsingPreFinalizerMacroNeedsTrailingSemiColon = char
 
 #if ENABLE(OILPAN)
 #define WILL_BE_USING_PRE_FINALIZER(Class, method) USING_PRE_FINALIZER(Class, method)
@@ -121,6 +120,7 @@ using UsingPreFinazlizerMacroNeedsTrailingSemiColon = char
 #endif
 
 class PLATFORM_EXPORT ThreadState {
+    USING_FAST_MALLOC(ThreadState);
     WTF_MAKE_NONCOPYABLE(ThreadState);
 public:
     typedef std::pair<void*, PreFinalizerCallback> PreFinalizer;
@@ -143,6 +143,7 @@ public:
     // The NoAllocationScope class is used in debug mode to catch unwanted
     // allocations. E.g. allocations during GC.
     class NoAllocationScope final {
+        STACK_ALLOCATED();
     public:
         explicit NoAllocationScope(ThreadState* state) : m_state(state)
         {
@@ -157,6 +158,7 @@ public:
     };
 
     class SweepForbiddenScope final {
+        STACK_ALLOCATED();
     public:
         explicit SweepForbiddenScope(ThreadState* state) : m_state(state)
         {
@@ -246,7 +248,7 @@ public:
     void schedulePageNavigationGCIfNeeded(float estimatedRemovalRatio);
     void schedulePageNavigationGC();
     void scheduleGCIfNeeded();
-    void willStartV8GC();
+    void willStartV8GC(BlinkGC::V8GCType);
     void setGCState(GCState);
     GCState gcState() const { return m_gcState; }
     bool isInGC() const { return gcState() == GCRunning; }
@@ -369,7 +371,6 @@ public:
     // A region of PersistentNodes allocated on the given thread.
     PersistentRegion* persistentRegion() const { return m_persistentRegion.get(); }
     // A region of PersistentNodes not owned by any particular thread.
-    static CrossThreadPersistentRegion& crossThreadPersistentRegion();
 
     // Visit local thread stack and trace all pointers conservatively.
     void visitStack(Visitor*);
@@ -382,6 +383,7 @@ public:
     void visitPersistents(Visitor*);
 
     struct GCSnapshotInfo {
+        STACK_ALLOCATED();
         GCSnapshotInfo(size_t numObjectTypes);
 
         // Map from gcInfoIndex (vector-index) to count/size.
@@ -510,6 +512,19 @@ public:
     size_t threadStackSize();
 #endif
 
+#if defined(LEAK_SANITIZER)
+    void registerStaticPersistentNode(PersistentNode*);
+    void releaseStaticPersistentNodes();
+
+    void enterStaticReferenceRegistrationDisabledScope();
+    void leaveStaticReferenceRegistrationDisabledScope();
+#endif
+
+    void resetHeapCounters();
+    void increaseAllocatedObjectSize(size_t);
+    void decreaseAllocatedObjectSize(size_t);
+    void increaseMarkedObjectSize(size_t);
+
 private:
     enum SnapshotType {
         HeapSnapshot,
@@ -588,6 +603,8 @@ private:
     void clearHeapAges();
     int heapIndexOfVectorHeapLeastRecentlyExpanded(int beginHeapIndex, int endHeapIndex);
 
+    void reportMemoryToV8();
+
     // Should only be called under protection of threadAttachMutex().
     const Vector<OwnPtr<BlinkGCInterruptor>>& interruptors() const { return m_interruptors; }
 
@@ -652,6 +669,15 @@ private:
     void* m_asanFakeStack;
 #endif
 
+#if defined(LEAK_SANITIZER)
+    // PersistentNodes that are stored in static references;
+    // references we have to clear before initiating LSan's leak detection.
+    HashSet<PersistentNode*> m_staticPersistents;
+
+    // Count that controls scoped disabling of persistent registration.
+    size_t m_disabledStaticPersistentsRegistration;
+#endif
+
     // Ideally we want to allocate an array of size |gcInfoTableMax| but it will
     // waste memory. Thus we limit the array size to 2^8 and share one entry
     // with multiple types of vectors. This won't be an issue in practice,
@@ -659,11 +685,17 @@ private:
     static const int likelyToBePromptlyFreedArraySize = (1 << 8);
     static const int likelyToBePromptlyFreedArrayMask = likelyToBePromptlyFreedArraySize - 1;
     OwnPtr<int[]> m_likelyToBePromptlyFreed;
+
+    // Stats for heap memory of this thread.
+    size_t m_allocatedObjectSize;
+    size_t m_markedObjectSize;
+    size_t m_reportedMemoryToV8;
 };
 
 template<ThreadAffinity affinity> class ThreadStateFor;
 
 template<> class ThreadStateFor<MainThreadOnly> {
+    STATIC_ONLY(ThreadStateFor);
 public:
     static ThreadState* state()
     {
@@ -674,6 +706,7 @@ public:
 };
 
 template<> class ThreadStateFor<AnyThread> {
+    STATIC_ONLY(ThreadStateFor);
 public:
     static ThreadState* state() { return ThreadState::current(); }
 };

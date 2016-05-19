@@ -5,6 +5,7 @@
 #ifndef UI_OZONE_PLATFORM_CAST_SURFACE_OZONE_EGL_CAST_H_
 #define UI_OZONE_PLATFORM_CAST_SURFACE_OZONE_EGL_CAST_H_
 
+#include "base/macros.h"
 #include "ui/ozone/public/surface_ozone_egl.h"
 
 namespace ui {
@@ -23,6 +24,8 @@ class SurfaceOzoneEglCast : public SurfaceOzoneEGL {
   void OnSwapBuffersAsync(const SwapCompletionCallback& callback) override;
   bool ResizeNativeWindow(const gfx::Size& viewport_size) override;
   scoped_ptr<gfx::VSyncProvider> CreateVSyncProvider() override;
+  void* /* EGLConfig */ GetEGLSurfaceConfig(
+      const EglConfigCallbacks& egl) override;
 
  private:
   SurfaceFactoryCast* parent_;

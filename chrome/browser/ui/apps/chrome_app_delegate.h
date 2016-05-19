@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_APPS_CHROME_APP_DELEGATE_H_
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/notification_observer.h"
@@ -19,9 +20,9 @@ class ScopedKeepAlive;
 class ChromeAppDelegate : public extensions::AppDelegate,
                           public content::NotificationObserver {
  public:
-  // Pass a ScopedKeepAlive to prevent the browser process from shutting down
-  // while this object exists.
-  explicit ChromeAppDelegate(scoped_ptr<ScopedKeepAlive> keep_alive);
+  // Params:
+  //   keep_alive: Whether this object should keep the browser alive.
+  explicit ChromeAppDelegate(bool keep_alive);
   ~ChromeAppDelegate() override;
 
   static void DisableExternalOpenForTesting();

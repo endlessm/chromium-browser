@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
@@ -20,7 +21,7 @@
 
 namespace net {
 
-class CertPolicyEnforcer;
+class CTPolicyEnforcer;
 class CertVerifier;
 class ClientSocketFactory;
 class ConnectJobFactory;
@@ -71,7 +72,6 @@ class NET_EXPORT_PRIVATE SSLSocketParams
   PrivacyMode privacy_mode() const { return privacy_mode_; }
   int load_flags() const { return load_flags_; }
   bool expect_spdy() const { return expect_spdy_; }
-  bool ignore_limits() const { return ignore_limits_; }
 
  private:
   friend class base::RefCounted<SSLSocketParams>;
@@ -85,7 +85,6 @@ class NET_EXPORT_PRIVATE SSLSocketParams
   const PrivacyMode privacy_mode_;
   const int load_flags_;
   const bool expect_spdy_;
-  bool ignore_limits_;
 
   DISALLOW_COPY_AND_ASSIGN(SSLSocketParams);
 };
@@ -98,6 +97,7 @@ class SSLConnectJob : public ConnectJob {
   // job.
   SSLConnectJob(const std::string& group_name,
                 RequestPriority priority,
+                ClientSocketPool::RespectLimits respect_limits,
                 const scoped_refptr<SSLSocketParams>& params,
                 const base::TimeDelta& timeout_duration,
                 TransportClientSocketPool* transport_pool,
@@ -189,7 +189,7 @@ class NET_EXPORT_PRIVATE SSLClientSocketPool
                       ChannelIDService* channel_id_service,
                       TransportSecurityState* transport_security_state,
                       CTVerifier* cert_transparency_verifier,
-                      CertPolicyEnforcer* cert_policy_enforcer,
+                      CTPolicyEnforcer* ct_policy_enforcer,
                       const std::string& ssl_session_cache_shard,
                       ClientSocketFactory* client_socket_factory,
                       TransportClientSocketPool* transport_pool,
@@ -204,6 +204,7 @@ class NET_EXPORT_PRIVATE SSLClientSocketPool
   int RequestSocket(const std::string& group_name,
                     const void* connect_params,
                     RequestPriority priority,
+                    RespectLimits respect_limits,
                     ClientSocketHandle* handle,
                     const CompletionCallback& callback,
                     const BoundNetLog& net_log) override;

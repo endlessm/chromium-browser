@@ -4,6 +4,8 @@
 
 #include "chrome/browser/prerender/prerender_manager.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <functional>
 #include <string>
@@ -13,6 +15,7 @@
 #include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -39,6 +42,8 @@
 #include "chrome/browser/ui/tab_contents/core_tab_helper_delegate.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/prerender_types.h"
+#include "components/content_settings/core/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/search/search.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -60,6 +65,7 @@ using content::BrowserThread;
 using content::RenderViewHost;
 using content::SessionStorageNamespace;
 using content::WebContents;
+using namespace chrome_browser_net;
 
 namespace prerender {
 
@@ -134,19 +140,19 @@ class PrerenderManager::OnCloseWebContentsDeleter
   }
 
   void CloseContents(WebContents* source) override {
-    DCHECK_EQ(tab_, source);
+    DCHECK_EQ(tab_.get(), source);
     ScheduleWebContentsForDeletion(false);
   }
 
   void SwappedOut(WebContents* source) override {
-    DCHECK_EQ(tab_, source);
+    DCHECK_EQ(tab_.get(), source);
     ScheduleWebContentsForDeletion(false);
   }
 
   bool ShouldSuppressDialogs(WebContents* source) override {
     // Use this as a proxy for getting statistics on how often we fail to honor
     // the beforeunload event.
-    DCHECK_EQ(tab_, source);
+    DCHECK_EQ(tab_.get(), source);
     suppressed_dialog_ = true;
     return true;
   }
@@ -249,7 +255,7 @@ PrerenderHandle* PrerenderManager::AddPrerenderFromLinkRelPrerender(
     int process_id,
     int route_id,
     const GURL& url,
-    const uint32 rel_types,
+    const uint32_t rel_types,
     const content::Referrer& referrer,
     const gfx::Size& size) {
   Origin origin = rel_types & PrerenderRelTypePrerender ?
@@ -267,7 +273,7 @@ PrerenderHandle* PrerenderManager::AddPrerenderFromLinkRelPrerender(
     if (!source_web_contents)
       return NULL;
     if (origin == ORIGIN_LINK_REL_PRERENDER_CROSSDOMAIN &&
-        source_web_contents->GetURL().host() == url.host()) {
+        source_web_contents->GetURL().host_piece() == url.host_piece()) {
       origin = ORIGIN_LINK_REL_PRERENDER_SAMEDOMAIN;
     }
     // TODO(ajwong): This does not correctly handle storage for isolated apps.
@@ -294,7 +300,19 @@ PrerenderHandle* PrerenderManager::AddPrerenderFromExternalRequest(
     const content::Referrer& referrer,
     SessionStorageNamespace* session_storage_namespace,
     const gfx::Size& size) {
-  return AddPrerender(ORIGIN_EXTERNAL_REQUEST, url, referrer, size,
+  return AddPrerender(
+      ORIGIN_EXTERNAL_REQUEST, url, referrer, size, session_storage_namespace);
+}
+
+PrerenderHandle* PrerenderManager::AddPrerenderOnCellularFromExternalRequest(
+    const GURL& url,
+    const content::Referrer& referrer,
+    SessionStorageNamespace* session_storage_namespace,
+    const gfx::Size& size) {
+  return AddPrerender(ORIGIN_EXTERNAL_REQUEST_FORCED_CELLULAR,
+                      url,
+                      referrer,
+                      size,
                       session_storage_namespace);
 }
 
@@ -571,8 +589,10 @@ void PrerenderManager::RecordPerceivedPageLoadTime(
     double fraction_plt_elapsed_at_swap_in,
     const GURL& url) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  if (!IsEnabled())
+  if (GetPredictionStatusForOrigin(origin)
+      != NetworkPredictionStatus::ENABLED) {
     return;
+  }
 
   histograms_->RecordPerceivedPageLoadTime(
       origin, perceived_page_load_time, navigation_type, url);
@@ -658,13 +678,25 @@ bool PrerenderManager::HasPrerenderedUrl(
   content::SessionStorageNamespace* session_storage_namespace = web_contents->
       GetController().GetDefaultSessionStorageNamespace();
 
-  for (ScopedVector<PrerenderData>::const_iterator it =
-           active_prerenders_.begin();
-       it != active_prerenders_.end(); ++it) {
-    PrerenderContents* prerender_contents = (*it)->contents();
-    if (prerender_contents->Matches(url, session_storage_namespace)) {
+  for (const auto& prerender_data : active_prerenders_) {
+    PrerenderContents* prerender_contents = prerender_data->contents();
+    if (prerender_contents->Matches(url, session_storage_namespace))
       return true;
-    }
+  }
+  return false;
+}
+
+bool PrerenderManager::HasPrerenderedAndFinishedLoadingUrl(
+    GURL url,
+    content::WebContents* web_contents) const {
+  content::SessionStorageNamespace* session_storage_namespace =
+      web_contents->GetController().GetDefaultSessionStorageNamespace();
+
+  for (const auto& prerender_data : active_prerenders_) {
+    PrerenderContents* prerender_contents = prerender_data->contents();
+    if (prerender_contents->Matches(url, session_storage_namespace) &&
+        prerender_contents->has_finished_loading())
+      return true;
   }
   return false;
 }
@@ -771,7 +803,14 @@ base::DictionaryValue* PrerenderManager::GetAsValue() const {
   base::DictionaryValue* dict_value = new base::DictionaryValue();
   dict_value->Set("history", prerender_history_->GetEntriesAsValue());
   dict_value->Set("active", GetActivePrerendersAsValue());
-  dict_value->SetBoolean("enabled", IsEnabled());
+  dict_value->SetBoolean("enabled",
+      GetPredictionStatus() == NetworkPredictionStatus::ENABLED);
+  std::string disabled_note;
+  if (GetPredictionStatus() == NetworkPredictionStatus::DISABLED_ALWAYS)
+    disabled_note = "Disabled by user setting";
+  if (GetPredictionStatus() == NetworkPredictionStatus::DISABLED_DUE_TO_NETWORK)
+    disabled_note = "Disabled on cellular connection by default";
+  dict_value->SetString("disabled_note", disabled_note);
   dict_value->SetBoolean("omnibox_enabled", IsOmniboxEnabled(profile_));
   // If prerender is disabled via a flag this method is not even called.
   std::string enabled_note;
@@ -824,7 +863,7 @@ PrerenderManager::PrerenderData::PrerenderData(PrerenderManager* manager,
       contents_(contents),
       handle_count_(0),
       expiry_time_(expiry_time) {
-  DCHECK_NE(static_cast<PrerenderContents*>(NULL), contents_);
+  DCHECK(contents_);
 }
 
 PrerenderManager::PrerenderData::~PrerenderData() {
@@ -841,7 +880,7 @@ void PrerenderManager::PrerenderData::MakeIntoMatchCompleteReplacement() {
 }
 
 void PrerenderManager::PrerenderData::OnHandleCreated(PrerenderHandle* handle) {
-  DCHECK_NE(static_cast<PrerenderContents*>(NULL), contents_);
+  DCHECK(contents_);
   ++handle_count_;
   contents_->AddObserver(handle);
 }
@@ -849,7 +888,7 @@ void PrerenderManager::PrerenderData::OnHandleCreated(PrerenderHandle* handle) {
 void PrerenderManager::PrerenderData::OnHandleNavigatedAway(
     PrerenderHandle* handle) {
   DCHECK_LT(0, handle_count_);
-  DCHECK_NE(static_cast<PrerenderContents*>(NULL), contents_);
+  DCHECK(contents_);
   if (abandon_time_.is_null())
     abandon_time_ = base::TimeTicks::Now();
   // We intentionally don't decrement the handle count here, so that the
@@ -860,7 +899,7 @@ void PrerenderManager::PrerenderData::OnHandleNavigatedAway(
 void PrerenderManager::PrerenderData::OnHandleCanceled(
     PrerenderHandle* handle) {
   DCHECK_LT(0, handle_count_);
-  DCHECK_NE(static_cast<PrerenderContents*>(NULL), contents_);
+  DCHECK(contents_);
 
   if (--handle_count_ == 0) {
     // This will eventually remove this object from active_prerenders_.
@@ -902,9 +941,6 @@ PrerenderHandle* PrerenderManager::AddPrerender(
     SessionStorageNamespace* session_storage_namespace) {
   DCHECK(CalledOnValidThread());
 
-  if (!IsEnabled())
-    return NULL;
-
   if ((origin == ORIGIN_LINK_REL_PRERENDER_CROSSDOMAIN ||
        origin == ORIGIN_LINK_REL_PRERENDER_SAMEDOMAIN) &&
       IsGoogleSearchResultURL(referrer.url)) {
@@ -919,6 +955,24 @@ PrerenderHandle* PrerenderManager::AddPrerender(
   // From here on, we will record a FinalStatus so we need to register with the
   // histogram tracking.
   histograms_->RecordPrerender(origin, url_arg);
+
+  if (profile_->GetPrefs()->GetBoolean(prefs::kBlockThirdPartyCookies)) {
+    RecordFinalStatusWithoutCreatingPrerenderContents(
+        url, origin, FINAL_STATUS_BLOCK_THIRD_PARTY_COOKIES);
+    return nullptr;
+  }
+
+  NetworkPredictionStatus prerendering_status =
+      GetPredictionStatusForOrigin(origin);
+  if (prerendering_status != NetworkPredictionStatus::ENABLED) {
+    FinalStatus final_status =
+        prerendering_status == NetworkPredictionStatus::DISABLED_DUE_TO_NETWORK
+            ? FINAL_STATUS_CELLULAR_NETWORK
+            : FINAL_STATUS_PRERENDERING_DISABLED;
+    RecordFinalStatusWithoutCreatingPrerenderContents(url, origin,
+                                                      final_status);
+    return nullptr;
+  }
 
   if (PrerenderData* preexisting_prerender_data =
           FindPrerenderData(url, session_storage_namespace)) {
@@ -1244,10 +1298,10 @@ void PrerenderManager::OnCreatingAudioStream(int render_process_id,
 
 void PrerenderManager::RecordNetworkBytes(Origin origin,
                                           bool used,
-                                          int64 prerender_bytes) {
+                                          int64_t prerender_bytes) {
   if (!ActuallyPrerendering())
     return;
-  int64 recent_profile_bytes =
+  int64_t recent_profile_bytes =
       profile_network_bytes_ - last_recorded_profile_network_bytes_;
   last_recorded_profile_network_bytes_ = profile_network_bytes_;
   DCHECK_GE(recent_profile_bytes, 0);
@@ -1255,15 +1309,37 @@ void PrerenderManager::RecordNetworkBytes(Origin origin,
       origin, used, prerender_bytes, recent_profile_bytes);
 }
 
-bool PrerenderManager::IsEnabled() const {
+NetworkPredictionStatus PrerenderManager::GetPredictionStatus() const {
   DCHECK(CalledOnValidThread());
-
-  return chrome_browser_net::CanPrefetchAndPrerenderUI(profile_->GetPrefs());
+  return CanPrefetchAndPrerenderUI(profile_->GetPrefs());
 }
 
-void PrerenderManager::AddProfileNetworkBytesIfEnabled(int64 bytes) {
+NetworkPredictionStatus PrerenderManager::GetPredictionStatusForOrigin(
+    Origin origin) const {
+  DCHECK(CalledOnValidThread());
+
+  // LINK rel=prerender origins ignore the network state and the privacy
+  // settings.
+  if (origin == ORIGIN_LINK_REL_PRERENDER_SAMEDOMAIN ||
+      origin == ORIGIN_LINK_REL_PRERENDER_CROSSDOMAIN) {
+    return NetworkPredictionStatus::ENABLED;
+  }
+
+  // Prerendering forced for cellular networks still prevents navigation with
+  // the DISABLED_ALWAYS selected via privacy settings.
+  NetworkPredictionStatus prediction_status =
+      CanPrefetchAndPrerenderUI(profile_->GetPrefs());
+  if (origin == ORIGIN_EXTERNAL_REQUEST_FORCED_CELLULAR &&
+      prediction_status == NetworkPredictionStatus::DISABLED_DUE_TO_NETWORK) {
+    return NetworkPredictionStatus::ENABLED;
+  }
+  return prediction_status;
+}
+
+void PrerenderManager::AddProfileNetworkBytesIfEnabled(int64_t bytes) {
   DCHECK_GE(bytes, 0);
-  if (IsEnabled() && ActuallyPrerendering())
+  if (GetPredictionStatus() == NetworkPredictionStatus::ENABLED &&
+      ActuallyPrerendering())
     profile_network_bytes_ += bytes;
 }
 

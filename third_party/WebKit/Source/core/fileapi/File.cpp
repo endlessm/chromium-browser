@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/fileapi/File.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -111,19 +110,6 @@ File* File::create(const HeapVector<BlobOrStringOrArrayBufferViewOrArrayBuffer>&
 
     long long fileSize = blobData->length();
     return File::create(fileName, lastModified, BlobDataHandle::create(blobData.release(), fileSize));
-}
-
-File* File::create(const unsigned char* data, size_t bytes, const String& mimeType)
-{
-    ASSERT(data);
-
-    OwnPtr<BlobData> blobData = BlobData::create();
-    blobData->setContentType(mimeType);
-    blobData->appendBytes(data, bytes);
-    long long blobSize = blobData->length();
-
-    // create blob as the type of file with two additional attributes -- name and lastModificationTime
-    return File::create("", currentTimeMS(), BlobDataHandle::create(blobData.release(), blobSize));
 }
 
 File* File::createWithRelativePath(const String& path, const String& relativePath)

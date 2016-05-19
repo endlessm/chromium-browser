@@ -10,6 +10,7 @@
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/rect.h"
@@ -24,18 +25,16 @@
 namespace gfx {
 
 Canvas::Canvas(const Size& size, float image_scale, bool is_opaque)
-    : image_scale_(image_scale),
-      canvas_(NULL) {
+    : image_scale_(image_scale) {
   Size pixel_size = ScaleToCeiledSize(size, image_scale);
-  owned_canvas_ = skia::AdoptRef(skia::CreatePlatformCanvas(pixel_size.width(),
-                                                            pixel_size.height(),
-                                                            is_opaque));
-  canvas_ = owned_canvas_.get();
+  canvas_ = skia::AdoptRef(skia::CreatePlatformCanvas(pixel_size.width(),
+                                                      pixel_size.height(),
+                                                      is_opaque));
 #if !defined(USE_CAIRO)
   // skia::PlatformCanvas instances are initialized to 0 by Cairo, but
   // uninitialized on other platforms.
   if (!is_opaque)
-    owned_canvas_->clear(SkColorSetARGB(0, 0, 0, 0));
+    canvas_->clear(SkColorSetARGB(0, 0, 0, 0));
 #endif
 
   SkScalar scale_scalar = SkFloatToScalar(image_scale);
@@ -44,11 +43,10 @@ Canvas::Canvas(const Size& size, float image_scale, bool is_opaque)
 
 Canvas::Canvas(const ImageSkiaRep& image_rep, bool is_opaque)
     : image_scale_(image_rep.scale()),
-      owned_canvas_(skia::AdoptRef(
+      canvas_(skia::AdoptRef(
           skia::CreatePlatformCanvas(image_rep.pixel_width(),
                                      image_rep.pixel_height(),
-                                     is_opaque))),
-      canvas_(owned_canvas_.get()) {
+                                     is_opaque))) {
   SkScalar scale_scalar = SkFloatToScalar(image_scale_);
   canvas_->scale(scale_scalar, scale_scalar);
   DrawImageInt(ImageSkia(image_rep), 0, 0);
@@ -56,11 +54,10 @@ Canvas::Canvas(const ImageSkiaRep& image_rep, bool is_opaque)
 
 Canvas::Canvas()
     : image_scale_(1.f),
-      owned_canvas_(skia::AdoptRef(skia::CreatePlatformCanvas(0, 0, false))),
-      canvas_(owned_canvas_.get()) {}
+      canvas_(skia::AdoptRef(skia::CreatePlatformCanvas(0, 0, false))) {}
 
-Canvas::Canvas(SkCanvas* canvas, float image_scale)
-    : image_scale_(image_scale), owned_canvas_(), canvas_(canvas) {
+Canvas::Canvas(const skia::RefPtr<SkCanvas>& canvas, float image_scale)
+    : image_scale_(image_scale), canvas_(canvas) {
   DCHECK(canvas);
 }
 
@@ -72,10 +69,9 @@ void Canvas::RecreateBackingCanvas(const Size& size,
                                    bool is_opaque) {
   image_scale_ = image_scale;
   Size pixel_size = ScaleToFlooredSize(size, image_scale);
-  owned_canvas_ = skia::AdoptRef(skia::CreatePlatformCanvas(pixel_size.width(),
-                                                            pixel_size.height(),
-                                                            is_opaque));
-  canvas_ = owned_canvas_.get();
+  canvas_ = skia::AdoptRef(skia::CreatePlatformCanvas(pixel_size.width(),
+                                                      pixel_size.height(),
+                                                      is_opaque));
   SkScalar scale_scalar = SkFloatToScalar(image_scale);
   canvas_->scale(scale_scalar, scale_scalar);
 }
@@ -120,7 +116,7 @@ ImageSkiaRep Canvas::ExtractImageRep() const {
   // Make a bitmap to return, and a canvas to draw into it. We don't just want
   // to call extractSubset or the copy constructor, since we want an actual copy
   // of the bitmap.
-  const SkISize size = canvas_->getDeviceSize();
+  const SkISize size = canvas_->getBaseLayerSize();
   SkBitmap result;
   result.allocN32Pixels(size.width(), size.height());
 
@@ -186,11 +182,11 @@ void Canvas::Save() {
   canvas_->save();
 }
 
-void Canvas::SaveLayerAlpha(uint8 alpha) {
+void Canvas::SaveLayerAlpha(uint8_t alpha) {
   canvas_->saveLayerAlpha(NULL, alpha);
 }
 
-void Canvas::SaveLayerAlpha(uint8 alpha, const Rect& layer_bounds) {
+void Canvas::SaveLayerAlpha(uint8_t alpha, const Rect& layer_bounds) {
   SkRect bounds(RectToSkRect(layer_bounds));
   canvas_->saveLayerAlpha(&bounds, alpha);
 }
@@ -340,7 +336,7 @@ void Canvas::DrawImageInt(const ImageSkia& image, int x, int y) {
   DrawImageInt(image, x, y, paint);
 }
 
-void Canvas::DrawImageInt(const ImageSkia& image, int x, int y, uint8 a) {
+void Canvas::DrawImageInt(const ImageSkia& image, int x, int y, uint8_t a) {
   SkPaint paint;
   paint.setAlpha(a);
   DrawImageInt(image, x, y, paint);
@@ -394,8 +390,9 @@ void Canvas::DrawImageInt(const ImageSkia& image,
   const ImageSkiaRep& image_rep = image.GetRepresentation(image_scale_);
   if (image_rep.is_null())
     return;
+  bool remove_image_scale = true;
   DrawImageIntHelper(image_rep, src_x, src_y, src_w, src_h, dest_x, dest_y,
-                     dest_w, dest_h, filter, paint, false);
+                     dest_w, dest_h, filter, paint, remove_image_scale);
 }
 
 void Canvas::DrawImageIntInPixel(const ImageSkiaRep& image_rep,
@@ -409,8 +406,11 @@ void Canvas::DrawImageIntInPixel(const ImageSkiaRep& image_rep,
   int src_y = 0;
   int src_w = image_rep.pixel_width();
   int src_h = image_rep.pixel_height();
+  // Don't remove image scale here, this function is used to draw the
+  // (already scaled) |image_rep| at a 1:1 scale with the canvas.
+  bool remove_image_scale = false;
   DrawImageIntHelper(image_rep, src_x, src_y, src_w, src_h, dest_x, dest_y,
-                     dest_w, dest_h, filter, paint, true);
+                     dest_w, dest_h, filter, paint, remove_image_scale);
 }
 
 void Canvas::DrawImageInPath(const ImageSkia& image,
@@ -478,12 +478,30 @@ void Canvas::TileImageInt(const ImageSkia& image,
                           int dest_y,
                           int w,
                           int h) {
-  if (!IntersectsClipRectInt(dest_x, dest_y, w, h))
+  SkRect dest_rect = { SkIntToScalar(dest_x),
+                       SkIntToScalar(dest_y),
+                       SkIntToScalar(dest_x + w),
+                       SkIntToScalar(dest_y + h) };
+  if (!IntersectsClipRect(dest_rect))
     return;
 
+  SkPaint paint;
+  if (InitSkPaintForTiling(image, src_x, src_y, tile_scale_x, tile_scale_y,
+                           dest_x, dest_y, &paint))
+    canvas_->drawRect(dest_rect, paint);
+}
+
+bool Canvas::InitSkPaintForTiling(const ImageSkia& image,
+                                  int src_x,
+                                  int src_y,
+                                  float tile_scale_x,
+                                  float tile_scale_y,
+                                  int dest_x,
+                                  int dest_y,
+                                  SkPaint* paint) {
   const ImageSkiaRep& image_rep = image.GetRepresentation(image_scale_);
   if (image_rep.is_null())
-    return;
+    return false;
 
   SkMatrix shader_scale;
   shader_scale.setScale(SkFloatToScalar(tile_scale_x),
@@ -491,36 +509,20 @@ void Canvas::TileImageInt(const ImageSkia& image,
   shader_scale.preTranslate(SkIntToScalar(-src_x), SkIntToScalar(-src_y));
   shader_scale.postTranslate(SkIntToScalar(dest_x), SkIntToScalar(dest_y));
 
-  skia::RefPtr<SkShader> shader = CreateImageRepShader(
-      image_rep,
-      SkShader::kRepeat_TileMode,
-      shader_scale);
-
-  SkPaint paint;
-  paint.setShader(shader.get());
-  paint.setXfermodeMode(SkXfermode::kSrcOver_Mode);
-
-  SkRect dest_rect = { SkIntToScalar(dest_x),
-                       SkIntToScalar(dest_y),
-                       SkIntToScalar(dest_x + w),
-                       SkIntToScalar(dest_y + h) };
-  canvas_->drawRect(dest_rect, paint);
+  // setShader() takes ownership of the created shader.
+  paint->setShader(CreateImageRepShader(image_rep, SkShader::kRepeat_TileMode,
+                                        shader_scale).get());
+  paint->setXfermodeMode(SkXfermode::kSrcOver_Mode);
+  return true;
 }
 
 void Canvas::Transform(const gfx::Transform& transform) {
   canvas_->concat(transform.matrix());
 }
 
-bool Canvas::IntersectsClipRectInt(int x, int y, int w, int h) {
+bool Canvas::IntersectsClipRect(const SkRect& rect) {
   SkRect clip;
-  return canvas_->getClipBounds(&clip) &&
-      clip.intersect(SkIntToScalar(x), SkIntToScalar(y), SkIntToScalar(x + w),
-                     SkIntToScalar(y + h));
-}
-
-bool Canvas::IntersectsClipRect(const Rect& rect) {
-  return IntersectsClipRectInt(rect.x(), rect.y(),
-                               rect.width(), rect.height());
+  return canvas_->getClipBounds(&clip) && clip.intersects(rect);
 }
 
 void Canvas::DrawImageIntHelper(const ImageSkiaRep& image_rep,
@@ -534,7 +536,7 @@ void Canvas::DrawImageIntHelper(const ImageSkiaRep& image_rep,
                                 int dest_h,
                                 bool filter,
                                 const SkPaint& paint,
-                                bool pixel) {
+                                bool remove_image_scale) {
   DLOG_ASSERT(src_x + src_w < std::numeric_limits<int16_t>::max() &&
               src_y + src_h < std::numeric_limits<int16_t>::max());
   if (src_w <= 0 || src_h <= 0) {
@@ -542,27 +544,15 @@ void Canvas::DrawImageIntHelper(const ImageSkiaRep& image_rep,
     return;
   }
 
-  if (!IntersectsClipRectInt(dest_x, dest_y, dest_w, dest_h))
-    return;
-
-  float user_scale_x = static_cast<float>(dest_w) / src_w;
-  float user_scale_y = static_cast<float>(dest_h) / src_h;
-
   SkRect dest_rect = { SkIntToScalar(dest_x),
                        SkIntToScalar(dest_y),
                        SkIntToScalar(dest_x + dest_w),
                        SkIntToScalar(dest_y + dest_h) };
-
-  if (src_w == dest_w && src_h == dest_h &&
-      user_scale_x == 1.0f && user_scale_y == 1.0f &&
-      image_rep.scale() == 1.0f && !pixel) {
-    // Workaround for apparent bug in Skia that causes image to occasionally
-    // shift.
-    SkIRect src_rect = { src_x, src_y, src_x + src_w, src_y + src_h };
-    const SkBitmap& bitmap = image_rep.sk_bitmap();
-    canvas_->drawBitmapRect(bitmap, src_rect, dest_rect, &paint);
+  if (!IntersectsClipRect(dest_rect))
     return;
-  }
+
+  float user_scale_x = static_cast<float>(dest_w) / src_w;
+  float user_scale_y = static_cast<float>(dest_h) / src_h;
 
   // Make a bitmap shader that contains the bitmap we want to draw. This is
   // basically what SkCanvas.drawBitmap does internally, but it gives us
@@ -575,10 +565,8 @@ void Canvas::DrawImageIntHelper(const ImageSkiaRep& image_rep,
   shader_scale.postTranslate(SkIntToScalar(dest_x), SkIntToScalar(dest_y));
 
   skia::RefPtr<SkShader> shader = CreateImageRepShaderForScale(
-      image_rep,
-      SkShader::kRepeat_TileMode,
-      shader_scale,
-      pixel ? 1.0f : image_rep.scale());
+      image_rep, SkShader::kRepeat_TileMode, shader_scale,
+      remove_image_scale ? image_rep.scale() : 1.f);
 
   // Set up our paint to use the shader & release our reference (now just owned
   // by the paint).

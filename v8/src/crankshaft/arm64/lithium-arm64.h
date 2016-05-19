@@ -23,7 +23,6 @@ class LCodeGen;
   V(AddI)                                    \
   V(AddS)                                    \
   V(Allocate)                                \
-  V(AllocateBlockContext)                    \
   V(ApplyArguments)                          \
   V(ArgumentsElements)                       \
   V(ArgumentsLength)                         \
@@ -35,10 +34,8 @@ class LCodeGen;
   V(Branch)                                  \
   V(CallFunction)                            \
   V(CallJSFunction)                          \
-  V(CallNew)                                 \
   V(CallNewArray)                            \
   V(CallRuntime)                             \
-  V(CallStub)                                \
   V(CallWithDescriptor)                      \
   V(CheckArrayBufferNotNeutered)             \
   V(CheckInstanceType)                       \
@@ -56,7 +53,6 @@ class LCodeGen;
   V(CmpMapAndBranch)                         \
   V(CmpObjectEqAndBranch)                    \
   V(CmpT)                                    \
-  V(CompareMinusZeroAndBranch)               \
   V(CompareNumericAndBranch)                 \
   V(ConstantD)                               \
   V(ConstantE)                               \
@@ -65,7 +61,6 @@ class LCodeGen;
   V(ConstantT)                               \
   V(ConstructDouble)                         \
   V(Context)                                 \
-  V(DateField)                               \
   V(DebugBreak)                              \
   V(DeclareGlobals)                          \
   V(Deoptimize)                              \
@@ -92,7 +87,6 @@ class LCodeGen;
   V(InstructionGap)                          \
   V(Integer32ToDouble)                       \
   V(InvokeFunction)                          \
-  V(IsConstructCallAndBranch)                \
   V(IsSmiAndBranch)                          \
   V(IsStringAndBranch)                       \
   V(IsUndetectableAndBranch)                 \
@@ -109,7 +103,6 @@ class LCodeGen;
   V(LoadNamedField)                          \
   V(LoadNamedGeneric)                        \
   V(LoadRoot)                                \
-  V(MapEnumLength)                           \
   V(MathAbs)                                 \
   V(MathAbsTagged)                           \
   V(MathClz32)                               \
@@ -139,7 +132,6 @@ class LCodeGen;
   V(Prologue)                                \
   V(PreparePushArguments)                    \
   V(PushArguments)                           \
-  V(RegExpLiteral)                           \
   V(Return)                                  \
   V(SeqStringGetChar)                        \
   V(SeqStringSetChar)                        \
@@ -722,8 +714,6 @@ class LArithmeticT final : public LTemplateInstruction<1, 3, 0> {
 
   DECLARE_HYDROGEN_ACCESSOR(BinaryOperation)
 
-  Strength strength() { return hydrogen()->strength(); }
-
  private:
   Token::Value op_;
 };
@@ -851,25 +841,6 @@ class LCallFunction final : public LTemplateInstruction<1, 2, 2> {
 };
 
 
-class LCallNew final : public LTemplateInstruction<1, 2, 0> {
- public:
-  LCallNew(LOperand* context, LOperand* constructor) {
-    inputs_[0] = context;
-    inputs_[1] = constructor;
-  }
-
-  LOperand* context() { return inputs_[0]; }
-  LOperand* constructor() { return inputs_[1]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(CallNew, "call-new")
-  DECLARE_HYDROGEN_ACCESSOR(CallNew)
-
-  void PrintDataTo(StringStream* stream) override;
-
-  int arity() const { return hydrogen()->argument_count() - 1; }
-};
-
-
 class LCallNewArray final : public LTemplateInstruction<1, 2, 0> {
  public:
   LCallNewArray(LOperand* context, LOperand* constructor) {
@@ -907,19 +878,6 @@ class LCallRuntime final : public LTemplateInstruction<1, 1, 0> {
   const Runtime::Function* function() const { return hydrogen()->function(); }
   int arity() const { return hydrogen()->argument_count(); }
   SaveFPRegsMode save_doubles() const { return hydrogen()->save_doubles(); }
-};
-
-
-class LCallStub final : public LTemplateInstruction<1, 1, 0> {
- public:
-  explicit LCallStub(LOperand* context) {
-    inputs_[0] = context;
-  }
-
-  LOperand* context() { return inputs_[0]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(CallStub, "call-stub")
-  DECLARE_HYDROGEN_ACCESSOR(CallStub)
 };
 
 
@@ -1164,25 +1122,7 @@ class LCmpT final : public LTemplateInstruction<1, 3, 0> {
   DECLARE_CONCRETE_INSTRUCTION(CmpT, "cmp-t")
   DECLARE_HYDROGEN_ACCESSOR(CompareGeneric)
 
-  Strength strength() { return hydrogen()->strength(); }
-
   Token::Value op() const { return hydrogen()->token(); }
-};
-
-
-class LCompareMinusZeroAndBranch final : public LControlInstruction<1, 1> {
- public:
-  LCompareMinusZeroAndBranch(LOperand* value, LOperand* temp) {
-    inputs_[0] = value;
-    temps_[0] = temp;
-  }
-
-  LOperand* value() { return inputs_[0]; }
-  LOperand* temp() { return temps_[0]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(CompareMinusZeroAndBranch,
-                               "cmp-minus-zero-and-branch")
-  DECLARE_HYDROGEN_ACCESSOR(CompareMinusZeroAndBranch)
 };
 
 
@@ -1262,23 +1202,6 @@ class LContext final : public LTemplateInstruction<1, 0, 0> {
  public:
   DECLARE_CONCRETE_INSTRUCTION(Context, "context")
   DECLARE_HYDROGEN_ACCESSOR(Context)
-};
-
-
-class LDateField final : public LTemplateInstruction<1, 1, 0> {
- public:
-  LDateField(LOperand* date, Smi* index) : index_(index) {
-    inputs_[0] = date;
-  }
-
-  LOperand* date() { return inputs_[0]; }
-  Smi* index() const { return index_; }
-
-  DECLARE_CONCRETE_INSTRUCTION(DateField, "date-field")
-  DECLARE_HYDROGEN_ACCESSOR(DateField)
-
- private:
-  Smi* index_;
 };
 
 
@@ -1490,18 +1413,20 @@ class LInstanceOf final : public LTemplateInstruction<1, 3, 0> {
 };
 
 
-class LHasInPrototypeChainAndBranch final : public LControlInstruction<2, 1> {
+class LHasInPrototypeChainAndBranch final : public LControlInstruction<2, 2> {
  public:
   LHasInPrototypeChainAndBranch(LOperand* object, LOperand* prototype,
-                                LOperand* scratch) {
+                                LOperand* scratch1, LOperand* scratch2) {
     inputs_[0] = object;
     inputs_[1] = prototype;
-    temps_[0] = scratch;
+    temps_[0] = scratch1;
+    temps_[1] = scratch2;
   }
 
   LOperand* object() const { return inputs_[0]; }
   LOperand* prototype() const { return inputs_[1]; }
-  LOperand* scratch() const { return temps_[0]; }
+  LOperand* scratch1() const { return temps_[0]; }
+  LOperand* scratch2() const { return temps_[1]; }
 
   DECLARE_CONCRETE_INSTRUCTION(HasInPrototypeChainAndBranch,
                                "has-in-prototype-chain-and-branch")
@@ -1580,21 +1505,6 @@ class LInvokeFunction final : public LTemplateInstruction<1, 2, 0> {
   void PrintDataTo(StringStream* stream) override;
 
   int arity() const { return hydrogen()->argument_count() - 1; }
-};
-
-
-class LIsConstructCallAndBranch final : public LControlInstruction<0, 2> {
- public:
-  LIsConstructCallAndBranch(LOperand* temp1, LOperand* temp2) {
-    temps_[0] = temp1;
-    temps_[1] = temp2;
-  }
-
-  LOperand* temp1() { return temps_[0]; }
-  LOperand* temp2() { return temps_[1]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(IsConstructCallAndBranch,
-                               "is-construct-call-and-branch")
 };
 
 
@@ -1841,18 +1751,6 @@ class LLoadRoot final : public LTemplateInstruction<1, 0, 0> {
   DECLARE_HYDROGEN_ACCESSOR(LoadRoot)
 
   Heap::RootListIndex index() const { return hydrogen()->index(); }
-};
-
-
-class LMapEnumLength final : public LTemplateInstruction<1, 1, 0> {
- public:
-  explicit LMapEnumLength(LOperand* value) {
-    inputs_[0] = value;
-  }
-
-  LOperand* value() { return inputs_[0]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(MapEnumLength, "map-enum-length")
 };
 
 
@@ -2289,19 +2187,6 @@ class LPushArguments final : public LTemplateResultInstruction<0> {
 
   int TempCount() final { return 0; }
   LOperand* TempAt(int i) final { return NULL; }
-};
-
-
-class LRegExpLiteral final : public LTemplateInstruction<1, 1, 0> {
- public:
-  explicit LRegExpLiteral(LOperand* context) {
-    inputs_[0] = context;
-  }
-
-  LOperand* context() { return inputs_[0]; }
-
-  DECLARE_CONCRETE_INSTRUCTION(RegExpLiteral, "regexp-literal")
-  DECLARE_HYDROGEN_ACCESSOR(RegExpLiteral)
 };
 
 
@@ -3012,23 +2897,6 @@ class LStoreFrameContext: public LTemplateInstruction<0, 1, 0> {
   LOperand* context() { return inputs_[0]; }
 
   DECLARE_CONCRETE_INSTRUCTION(StoreFrameContext, "store-frame-context")
-};
-
-
-class LAllocateBlockContext: public LTemplateInstruction<1, 2, 0> {
- public:
-  LAllocateBlockContext(LOperand* context, LOperand* function) {
-    inputs_[0] = context;
-    inputs_[1] = function;
-  }
-
-  LOperand* context() { return inputs_[0]; }
-  LOperand* function() { return inputs_[1]; }
-
-  Handle<ScopeInfo> scope_info() { return hydrogen()->scope_info(); }
-
-  DECLARE_CONCRETE_INSTRUCTION(AllocateBlockContext, "allocate-block-context")
-  DECLARE_HYDROGEN_ACCESSOR(AllocateBlockContext)
 };
 
 

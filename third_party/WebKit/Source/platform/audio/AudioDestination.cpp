@@ -26,15 +26,11 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
-#if ENABLE(WEB_AUDIO)
-
 #include "platform/audio/AudioDestination.h"
-
 #include "platform/audio/AudioFIFO.h"
 #include "platform/audio/AudioPullFIFO.h"
 #include "public/platform/Platform.h"
+#include "public/platform/WebSecurityOrigin.h"
 
 namespace blink {
 
@@ -45,12 +41,12 @@ const unsigned renderBufferSize = 128;
 const size_t fifoSize = 8192;
 
 // Factory method: Chromium-implementation
-PassOwnPtr<AudioDestination> AudioDestination::create(AudioIOCallback& callback, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
+PassOwnPtr<AudioDestination> AudioDestination::create(AudioIOCallback& callback, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate, const PassRefPtr<SecurityOrigin>& securityOrigin)
 {
-    return adoptPtr(new AudioDestination(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate));
+    return adoptPtr(new AudioDestination(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate, securityOrigin));
 }
 
-AudioDestination::AudioDestination(AudioIOCallback& callback, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
+AudioDestination::AudioDestination(AudioIOCallback& callback, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate, const PassRefPtr<SecurityOrigin>& securityOrigin)
     : m_callback(callback)
     , m_numberOfOutputChannels(numberOfOutputChannels)
     , m_inputBus(AudioBus::create(numberOfInputChannels, renderBufferSize))
@@ -82,7 +78,7 @@ AudioDestination::AudioDestination(AudioIOCallback& callback, const String& inpu
     if (m_callbackBufferSize + renderBufferSize > fifoSize)
         return;
 
-    m_audioDevice = adoptPtr(Platform::current()->createAudioDevice(m_callbackBufferSize, numberOfInputChannels, numberOfOutputChannels, sampleRate, this, inputDeviceId));
+    m_audioDevice = adoptPtr(Platform::current()->createAudioDevice(m_callbackBufferSize, numberOfInputChannels, numberOfOutputChannels, sampleRate, this, inputDeviceId, securityOrigin));
     ASSERT(m_audioDevice);
 
     // Create a FIFO to handle the possibility of the callback size
@@ -177,4 +173,3 @@ void AudioDestination::provideInput(AudioBus* bus, size_t framesToProcess)
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

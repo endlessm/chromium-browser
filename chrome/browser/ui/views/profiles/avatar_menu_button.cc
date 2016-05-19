@@ -4,20 +4,24 @@
 
 #include "chrome/browser/ui/views/profiles/avatar_menu_button.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/avatar_menu.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_attributes_entry.h"
+#include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
-#include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/profiles/profile_chooser_view.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/notification_service.h"
 #include "grit/theme_resources.h"
@@ -33,13 +37,12 @@ static inline int Round(double x) {
 // static
 const char AvatarMenuButton::kViewClassName[] = "AvatarMenuButton";
 
-AvatarMenuButton::AvatarMenuButton(Browser* browser, bool disabled)
-    : MenuButton(NULL, base::string16(), this, false),
-      browser_(browser),
-      disabled_(disabled),
+AvatarMenuButton::AvatarMenuButton(BrowserView* browser_view)
+    : MenuButton(base::string16(), this, false),
+      browser_view_(browser_view),
+      enabled_(browser_view_->IsRegularOrGuestSession()),
       is_rectangle_(false),
-      old_height_(0),
-      button_on_right_(false) {
+      old_height_(0) {
   // In RTL mode, the avatar icon should be looking the opposite direction.
   EnableCanvasFlippingForRTLUI(true);
 
@@ -94,17 +97,17 @@ void AvatarMenuButton::SetAvatarIcon(const gfx::Image& icon,
 }
 
 // static
-bool AvatarMenuButton::GetAvatarImages(Profile* profile,
+bool AvatarMenuButton::GetAvatarImages(const BrowserView* browser_view,
                                        bool should_show_avatar_menu,
                                        gfx::Image* avatar,
                                        gfx::Image* taskbar_badge_avatar,
                                        bool* is_rectangle) {
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  const Profile* profile = browser_view->browser()->profile();
   if (profile->GetProfileType() == Profile::GUEST_PROFILE) {
-    *avatar = rb.
-        GetImageNamed(profiles::GetPlaceholderAvatarIconResourceID());
+    *avatar = ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+        profiles::GetPlaceholderAvatarIconResourceID());
   } else if (profile->GetProfileType() == Profile::INCOGNITO_PROFILE) {
-    *avatar = rb.GetImageNamed(IDR_OTR_ICON);
+    *avatar = gfx::Image(browser_view->GetOTRAvatarIcon());
     // TODO(nkostylev): Allow this on ChromeOS once the ChromeOS test
     // environment handles profile directories correctly.
 #if !defined(OS_CHROMEOS)
@@ -115,16 +118,15 @@ bool AvatarMenuButton::GetAvatarImages(Profile* profile,
                                       &is_badge_rectangle);
 #endif
   } else if (should_show_avatar_menu) {
-    ProfileInfoCache& cache =
-        g_browser_process->profile_manager()->GetProfileInfoCache();
-    size_t index = cache.GetIndexOfProfileWithPath(profile->GetPath());
-    if (index == std::string::npos)
+    ProfileAttributesEntry* entry;
+    if (!g_browser_process->profile_manager()->GetProfileAttributesStorage().
+        GetProfileAttributesWithPath(profile->GetPath(), &entry))
       return false;
 
 #if defined(OS_CHROMEOS)
     AvatarMenu::GetImageForMenuButton(profile->GetPath(), avatar, is_rectangle);
 #else
-    *avatar = cache.GetAvatarIconOfProfileAtIndex(index);
+    *avatar = entry->GetAvatarIcon();
     // TODO(noms): Once the code for the old avatar menu button is removed,
     // this function will only be called for badging the taskbar icon.  The
     // function can be renamed to something like GetAvatarImageForBadging()
@@ -143,13 +145,14 @@ bool AvatarMenuButton::GetAvatarImages(Profile* profile,
 bool AvatarMenuButton::DoesIntersectRect(const views::View* target,
                                          const gfx::Rect& rect) const {
   CHECK_EQ(target, this);
-  return !disabled_ &&
+  return enabled_ &&
          views::ViewTargeterDelegate::DoesIntersectRect(target, rect);
 }
 
 // views::MenuButtonListener implementation
-void AvatarMenuButton::OnMenuButtonClicked(views::View* source,
-                                           const gfx::Point& point) {
-  if (!disabled_)
-    chrome::ShowAvatarMenu(browser_);
+void AvatarMenuButton::OnMenuButtonClicked(views::MenuButton* source,
+                                           const gfx::Point& point,
+                                           const ui::Event* event) {
+  if (enabled_)
+    chrome::ShowAvatarMenu(browser_view_->browser());
 }

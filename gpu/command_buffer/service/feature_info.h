@@ -31,8 +31,6 @@ class GPU_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
   struct FeatureFlags {
     FeatureFlags();
 
-    bool chromium_color_buffer_float_rgba;
-    bool chromium_color_buffer_float_rgb;
     bool chromium_framebuffer_multisample;
     bool chromium_sync_query;
     // Use glBlitFramebuffer() and glRenderbufferStorageMultisample() with
@@ -78,13 +76,17 @@ class GPU_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
     bool angle_texture_usage;
     bool ext_texture_storage;
     bool chromium_path_rendering;
+    bool chromium_framebuffer_mixed_samples;
     bool blend_equation_advanced;
     bool blend_equation_advanced_coherent;
     bool ext_texture_rg;
+    bool chromium_image_ycbcr_420v;
     bool chromium_image_ycbcr_422;
     bool enable_subscribe_uniform;
     bool emulate_primitive_restart_fixed_index;
     bool ext_render_buffer_format_bgra8888;
+    bool ext_multisample_compatibility;
+    bool ext_blend_func_extended;
   };
 
   struct Workarounds {
@@ -115,6 +117,8 @@ class GPU_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
 
   // Helper that defaults to no disallowed features and a GLES2 context.
   bool InitializeForTesting();
+  // Helper that defaults to a GLES2 context.
+  bool InitializeForTesting(const DisallowedFeatures& disallowed_features);
 
   const Validators* validators() const {
     return &validators_;
@@ -134,6 +138,10 @@ class GPU_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
     return workarounds_;
   }
 
+  const DisallowedFeatures& disallowed_features() const {
+    return disallowed_features_;
+  }
+
   const gfx::GLVersionInfo& gl_version_info() const {
     DCHECK(gl_version_info_.get());
     return *(gl_version_info_.get());
@@ -149,6 +157,12 @@ class GPU_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
   bool disable_shader_translator() const { return disable_shader_translator_; }
 
   bool IsWebGLContext() const;
+
+  void EnableCHROMIUMColorBufferFloatRGBA();
+  void EnableCHROMIUMColorBufferFloatRGB();
+  void EnableEXTColorBufferFloat();
+  void EnableOESTextureFloatLinear();
+  void EnableOESTextureHalfFloatLinear();
 
  private:
   friend class base::RefCounted<FeatureInfo>;
@@ -182,6 +196,12 @@ class GPU_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
 
   // Whether the command line switch kEnableGLPathRendering is passed in.
   bool enable_gl_path_rendering_switch_;
+
+  bool chromium_color_buffer_float_rgba_available_;
+  bool chromium_color_buffer_float_rgb_available_;
+  bool ext_color_buffer_float_available_;
+  bool oes_texture_float_linear_available_;
+  bool oes_texture_half_float_linear_available_;
 
   bool disable_shader_translator_;
   scoped_ptr<gfx::GLVersionInfo> gl_version_info_;

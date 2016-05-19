@@ -10,6 +10,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 
@@ -17,6 +18,7 @@ namespace safe_browsing {
 
 struct SafeBrowsingProtocolConfig {
   SafeBrowsingProtocolConfig();
+  SafeBrowsingProtocolConfig(const SafeBrowsingProtocolConfig& other);
   ~SafeBrowsingProtocolConfig();
   std::string client_name;
   std::string url_prefix;

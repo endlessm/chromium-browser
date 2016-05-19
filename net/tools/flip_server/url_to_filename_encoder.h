@@ -79,6 +79,8 @@
 #ifndef NET_TOOLS_FLIP_SERVER_URL_TO_FILENAME_ENCODER_H_
 #define NET_TOOLS_FLIP_SERVER_URL_TO_FILENAME_ENCODER_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/strings/string_util.h"
@@ -106,7 +108,7 @@ class UrlToFilenameEncoder {
 #endif
     } else {
       std::string clean_url(url);
-      if (clean_url.length() && clean_url[clean_url.length() - 1] == '/')
+      if (clean_url.length() && clean_url.back() == '/')
         clean_url.append("index.html");
 
       std::string host = UrlUtilities::GetUrlHost(clean_url);

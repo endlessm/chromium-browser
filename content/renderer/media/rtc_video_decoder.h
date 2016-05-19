@@ -5,14 +5,17 @@
 #ifndef CONTENT_RENDERER_MEDIA_RTC_VIDEO_DECODER_H_
 #define CONTENT_RENDERER_MEDIA_RTC_VIDEO_DECODER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <deque>
 #include <list>
 #include <map>
 #include <set>
 #include <utility>
 
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread.h"
@@ -21,7 +24,7 @@
 #include "media/base/video_decoder.h"
 #include "media/video/picture.h"
 #include "media/video/video_decode_accelerator.h"
-#include "third_party/webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
+#include "third_party/webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace base {
@@ -51,11 +54,14 @@ class CONTENT_EXPORT RTCVideoDecoder
  public:
   ~RTCVideoDecoder() override;
 
-  // Creates a RTCVideoDecoder. Returns NULL if failed. The video decoder will
-  // run on the message loop of |factories|.
+  // Creates a RTCVideoDecoder on the message loop of |factories|. Returns NULL
+  // if failed. The video decoder will run on the message loop of |factories|.
   static scoped_ptr<RTCVideoDecoder> Create(
       webrtc::VideoCodecType type,
       media::GpuVideoAcceleratorFactories* factories);
+  // Destroys |decoder| on the loop of |factories|
+  static void Destroy(webrtc::VideoDecoder* decoder,
+                      media::GpuVideoAcceleratorFactories* factories);
 
   // webrtc::VideoDecoder implementation.
   // Called on WebRTC DecodingThread.
@@ -73,17 +79,14 @@ class CONTENT_EXPORT RTCVideoDecoder
   // Called on Chrome_libJingle_WorkerThread. The child thread is blocked while
   // this runs.
   int32_t Release() override;
-  // Called on Chrome_libJingle_WorkerThread. The child thread is blocked while
-  // this runs.
-  int32_t Reset() override;
 
   // VideoDecodeAccelerator::Client implementation.
-  void ProvidePictureBuffers(uint32 count,
+  void ProvidePictureBuffers(uint32_t count,
                              const gfx::Size& size,
-                             uint32 texture_target) override;
-  void DismissPictureBuffer(int32 id) override;
+                             uint32_t texture_target) override;
+  void DismissPictureBuffer(int32_t id) override;
   void PictureReady(const media::Picture& picture) override;
-  void NotifyEndOfBitstreamBuffer(int32 id) override;
+  void NotifyEndOfBitstreamBuffer(int32_t id) override;
   void NotifyFlushDone() override;
   void NotifyResetDone() override;
   void NotifyError(media::VideoDecodeAccelerator::Error error) override;
@@ -91,13 +94,13 @@ class CONTENT_EXPORT RTCVideoDecoder
  private:
   // Metadata of a bitstream buffer.
   struct BufferData {
-    BufferData(int32 bitstream_buffer_id,
+    BufferData(int32_t bitstream_buffer_id,
                uint32_t timestamp,
                size_t size,
                const gfx::Rect& visible_rect);
     BufferData();
     ~BufferData();
-    int32 bitstream_buffer_id;
+    int32_t bitstream_buffer_id;
     uint32_t timestamp;  // in 90KHz
     size_t size;  // buffer size
     gfx::Rect visible_rect;
@@ -116,11 +119,11 @@ class CONTENT_EXPORT RTCVideoDecoder
 
   // Returns true if bitstream buffer id |id_buffer| comes after |id_reset|.
   // This handles the wraparound.
-  bool IsBufferAfterReset(int32 id_buffer, int32 id_reset);
+  bool IsBufferAfterReset(int32_t id_buffer, int32_t id_reset);
 
   // Returns true if bitstream buffer |id_buffer| is the first buffer after
   // |id_reset|.
-  bool IsFirstBufferAfterReset(int32 id_buffer, int32 id_reset);
+  bool IsFirstBufferAfterReset(int32_t id_buffer, int32_t id_reset);
 
   // Saves a WebRTC buffer in |decode_buffers_| for decode.
   void SaveToDecodeBuffers_Locked(const webrtc::EncodedImage& input_image,
@@ -147,11 +150,11 @@ class CONTENT_EXPORT RTCVideoDecoder
   // Static method is to allow it to run even after RVD is deleted.
   static void ReleaseMailbox(base::WeakPtr<RTCVideoDecoder> decoder,
                              media::GpuVideoAcceleratorFactories* factories,
-                             int64 picture_buffer_id,
-                             uint32 texture_id,
+                             int64_t picture_buffer_id,
+                             uint32_t texture_id,
                              const gpu::SyncToken& release_sync_token);
   // Tells VDA that a picture buffer can be recycled.
-  void ReusePictureBuffer(int64 picture_buffer_id);
+  void ReusePictureBuffer(int64_t picture_buffer_id);
 
   // Create |vda_| on |vda_loop_proxy_|.
   void CreateVDA(media::VideoCodecProfile profile, base::WaitableEvent* waiter);
@@ -173,7 +176,7 @@ class CONTENT_EXPORT RTCVideoDecoder
   // Stores the buffer metadata to |input_buffer_data_|.
   void RecordBufferData(const BufferData& buffer_data);
   // Gets the buffer metadata from |input_buffer_data_|.
-  void GetBufferData(int32 bitstream_buffer_id,
+  void GetBufferData(int32_t bitstream_buffer_id,
                      uint32_t* timestamp,
                      gfx::Rect* visible_rect);
 
@@ -198,9 +201,9 @@ class CONTENT_EXPORT RTCVideoDecoder
     DECODE_ERROR,   // Decoding error happened.
   };
 
-  static const int32 ID_LAST;     // maximum bitstream buffer id
-  static const int32 ID_HALF;     // half of the maximum bitstream buffer id
-  static const int32 ID_INVALID;  // indicates Reset or Release never occurred
+  static const int32_t ID_LAST;     // maximum bitstream buffer id
+  static const int32_t ID_HALF;     // half of the maximum bitstream buffer id
+  static const int32_t ID_INVALID;  // indicates Reset or Release never occurred
 
   // The hardware video decoder.
   scoped_ptr<media::VideoDecodeAccelerator> vda_;
@@ -214,27 +217,27 @@ class CONTENT_EXPORT RTCVideoDecoder
   media::GpuVideoAcceleratorFactories* const factories_;
 
   // The texture target used for decoded pictures.
-  uint32 decoder_texture_target_;
+  uint32_t decoder_texture_target_;
 
   // Metadata of the buffers that have been sent for decode.
   std::list<BufferData> input_buffer_data_;
 
   // A map from bitstream buffer IDs to bitstream buffers that are being
   // processed by VDA. The map owns SHM buffers.
-  std::map<int32, base::SharedMemory*> bitstream_buffers_in_decoder_;
+  std::map<int32_t, base::SharedMemory*> bitstream_buffers_in_decoder_;
 
   // A map from picture buffer IDs to texture-backed picture buffers.
-  std::map<int32, media::PictureBuffer> assigned_picture_buffers_;
+  std::map<int32_t, media::PictureBuffer> assigned_picture_buffers_;
 
   // PictureBuffers given to us by VDA via PictureReady, which we sent forward
   // as VideoFrames to be rendered via read_cb_, and which will be returned
   // to us via ReusePictureBuffer.
-  typedef std::map<int32 /* picture_buffer_id */, uint32 /* texture_id */>
+  typedef std::map<int32_t /* picture_buffer_id */, uint32_t /* texture_id */>
       PictureBufferTextureMap;
   PictureBufferTextureMap picture_buffers_at_display_;
 
   // The id that will be given to the next picture buffer.
-  int32 next_picture_buffer_id_;
+  int32_t next_picture_buffer_id_;
 
   // Protects |state_|, |decode_complete_callback_| , |num_shm_buffers_|,
   // |available_shm_segments_|, |pending_buffers_|, |decode_buffers_|,
@@ -265,11 +268,11 @@ class CONTENT_EXPORT RTCVideoDecoder
   std::deque<std::pair<base::SharedMemory*, BufferData>> decode_buffers_;
 
   // The id that will be given to the next bitstream buffer. Guarded by |lock_|.
-  int32 next_bitstream_buffer_id_;
+  int32_t next_bitstream_buffer_id_;
 
   // A buffer that has an id less than this should be dropped because Reset or
   // Release has been called. Guarded by |lock_|.
-  int32 reset_bitstream_buffer_id_;
+  int32_t reset_bitstream_buffer_id_;
 
   // Minimum and maximum supported resolutions for the current profile/VDA.
   gfx::Size min_resolution_;

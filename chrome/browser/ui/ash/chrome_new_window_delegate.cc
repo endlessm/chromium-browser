@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/ash/chrome_new_window_delegate.h"
 
 #include "ash/wm/window_util.h"
+#include "base/macros.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/ui/ash/chrome_shell_delegate.h"
@@ -21,7 +22,7 @@ namespace {
 void RestoreTabUsingProfile(Profile* profile) {
   sessions::TabRestoreService* service =
       TabRestoreServiceFactory::GetForProfile(profile);
-  service->RestoreMostRecentEntry(NULL, chrome::HOST_DESKTOP_TYPE_ASH);
+  service->RestoreMostRecentEntry(nullptr);
 }
 
 // Returns the browser for the active window, if any.
@@ -87,7 +88,7 @@ void ChromeNewWindowDelegate::NewTab() {
   // Display a browser, setting the focus to the location bar after it is shown.
   {
     chrome::ScopedTabbedBrowserDisplayer displayer(
-        ProfileManager::GetActiveUserProfile(), chrome::HOST_DESKTOP_TYPE_ASH);
+        ProfileManager::GetActiveUserProfile());
     browser = displayer.browser();
     chrome::NewTab(browser);
   }
@@ -97,9 +98,8 @@ void ChromeNewWindowDelegate::NewTab() {
 
 void ChromeNewWindowDelegate::NewWindow(bool is_incognito) {
   Profile* profile = ProfileManager::GetActiveUserProfile();
-  chrome::NewEmptyWindow(
-      is_incognito ? profile->GetOffTheRecordProfile() : profile,
-      chrome::HOST_DESKTOP_TYPE_ASH);
+  chrome::NewEmptyWindow(is_incognito ? profile->GetOffTheRecordProfile()
+                                      : profile);
 }
 
 void ChromeNewWindowDelegate::RestoreTab() {

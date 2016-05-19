@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/image-decoders/FastSharedBufferReader.h"
 
 namespace blink {
@@ -89,7 +88,7 @@ size_t FastSharedBufferReader::getSomeData(const char*& someData, size_t dataPos
     return m_segmentLength;
 }
 
-void FastSharedBufferReader::getSomeDataInternal(unsigned dataPosition) const
+void FastSharedBufferReader::getSomeDataInternal(size_t dataPosition) const
 {
     m_dataPosition = dataPosition;
     m_segmentLength = m_data->getSomeData(m_segment, dataPosition);

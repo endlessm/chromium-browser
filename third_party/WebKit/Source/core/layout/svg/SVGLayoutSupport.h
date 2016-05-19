@@ -27,6 +27,7 @@
 #include "core/layout/LayoutObject.h"
 #include "core/style/SVGComputedStyleDefs.h"
 #include "platform/graphics/DashArray.h"
+#include "platform/transforms/AffineTransform.h"
 #include "wtf/Allocator.h"
 
 namespace blink {
@@ -79,11 +80,11 @@ public:
         float strokeWidthForHairlinePadding = 0);
     static const LayoutSVGRoot& mapRectToSVGRootForPaintInvalidation(const LayoutObject&,
         const FloatRect& localPaintInvalidationRect, LayoutRect&, float strokeWidthForHairlinePadding = 0);
-    static void mapLocalToContainer(const LayoutObject*, const LayoutBoxModelObject* paintInvalidationContainer, TransformState&, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr);
+    static void mapLocalToAncestor(const LayoutObject*, const LayoutBoxModelObject* ancestor, TransformState&, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr);
     static const LayoutObject* pushMappingToContainer(const LayoutObject*, const LayoutBoxModelObject* ancestorToStopAt, LayoutGeometryMap&);
 
     // Shared between SVG layoutObjects and resources.
-    static void applyStrokeStyleToStrokeData(StrokeData&, const ComputedStyle&, const LayoutObject&);
+    static void applyStrokeStyleToStrokeData(StrokeData&, const ComputedStyle&, const LayoutObject&, float dashScaleFactor);
 
     static DashArray resolveSVGDashArray(const SVGDashArray&, const ComputedStyle&, const SVGLengthContext&);
 
@@ -107,6 +108,8 @@ public:
     static AffineTransform deprecatedCalculateTransformToLayer(const LayoutObject*);
     static float calculateScreenFontSizeScalingFactor(const LayoutObject*);
 
+    static LayoutObject* findClosestLayoutSVGText(LayoutObject*, const FloatPoint&);
+
 private:
     static void updateObjectBoundingBox(FloatRect& objectBoundingBox, bool& objectBoundingBoxValid, LayoutObject* other, FloatRect otherBoundingBox);
     static bool layoutSizeOfNearestViewportChanged(const LayoutObject* start);
@@ -118,7 +121,10 @@ public:
     SubtreeContentTransformScope(const AffineTransform&);
     ~SubtreeContentTransformScope();
 
+    static AffineTransform currentContentTransformation() { return AffineTransform(s_currentContentTransformation); }
+
 private:
+    static AffineTransform::Transform s_currentContentTransformation;
     AffineTransform m_savedContentTransformation;
 };
 

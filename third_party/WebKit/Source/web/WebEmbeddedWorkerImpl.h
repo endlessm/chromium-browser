@@ -62,10 +62,11 @@ public:
     // WebEmbeddedWorker overrides.
     void startWorkerContext(const WebEmbeddedWorkerStartData&) override;
     void terminateWorkerContext() override;
-    void attachDevTools(const WebString& hostId) override;
-    void reattachDevTools(const WebString& hostId, const WebString& savedState) override;
+    void resumeAfterDownload() override;
+    void attachDevTools(const WebString& hostId, int sessionId) override;
+    void reattachDevTools(const WebString& hostId, int sessionId, const WebString& savedState) override;
     void detachDevTools() override;
-    void dispatchDevToolsMessage(const WebString&) override;
+    void dispatchDevToolsMessage(int sessionId, const WebString&) override;
 
     void postMessageToPageInspector(const WTF::String&);
 
@@ -77,10 +78,10 @@ private:
     void willSendRequest(
         WebLocalFrame*, unsigned identifier, WebURLRequest&,
         const WebURLResponse& redirectResponse) override;
-    void didFinishDocumentLoad(WebLocalFrame*, bool documentIsEmpty) override;
+    void didFinishDocumentLoad(WebLocalFrame*) override;
 
     // WebDevToolsAgentClient overrides.
-    void sendProtocolMessage(int callId, const WebString&, const WebString&) override;
+    void sendProtocolMessage(int sessionId, int callId, const WebString&, const WebString&) override;
     void resumeStartup() override;
 
     void onScriptLoaderFinished();
@@ -107,7 +108,7 @@ private:
 
     RefPtr<WorkerThread> m_workerThread;
     RefPtr<WorkerLoaderProxy> m_loaderProxy;
-    OwnPtr<ServiceWorkerGlobalScopeProxy> m_workerGlobalScopeProxy;
+    OwnPtrWillBePersistent<ServiceWorkerGlobalScopeProxy> m_workerGlobalScopeProxy;
     OwnPtrWillBePersistent<WorkerInspectorProxy> m_workerInspectorProxy;
 
     // 'shadow page' - created to proxy loading requests from the worker.
@@ -121,10 +122,15 @@ private:
     bool m_askedToTerminate;
 
     enum WaitingForDebuggerState {
-        WaitingForDebuggerBeforeLoadingScript,
-        WaitingForDebuggerAfterScriptLoaded,
+        WaitingForDebugger,
         NotWaitingForDebugger
     };
+
+    enum {
+        DontPauseAfterDownload,
+        DoPauseAfterDownload,
+        IsPausedAfterDownload
+    } m_pauseAfterDownloadState;
 
     WaitingForDebuggerState m_waitingForDebuggerState;
 };

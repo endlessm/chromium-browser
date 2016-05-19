@@ -20,10 +20,10 @@
 #include "GrInvariantOutput.h"
 #include "SkGr.h"
 #include "effects/GrConstColorProcessor.h"
-#include "gl/GrGLFragmentProcessor.h"
+#include "glsl/GrGLSLFragmentProcessor.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramBuilder.h"
 #include "glsl/GrGLSLProgramDataManager.h"
+#include "glsl/GrGLSLUniformHandler.h"
 #endif
 
 static const int kBlockSize = 256;
@@ -571,7 +571,7 @@ SkShader::Context* SkPerlinNoiseShader2::onCreateContext(const ContextRec& rec,
     return new (storage) PerlinNoiseShaderContext(*this, rec);
 }
 
-size_t SkPerlinNoiseShader2::contextSize() const {
+size_t SkPerlinNoiseShader2::contextSize(const ContextRec&) const {
     return sizeof(PerlinNoiseShaderContext);
 }
 
@@ -603,29 +603,13 @@ void SkPerlinNoiseShader2::PerlinNoiseShaderContext::shadeSpan(
     }
 }
 
-void SkPerlinNoiseShader2::PerlinNoiseShaderContext::shadeSpan16(
-        int x, int y, uint16_t result[], int count) {
-    SkPoint point = SkPoint::Make(SkIntToScalar(x), SkIntToScalar(y));
-    StitchData stitchData;
-    DITHER_565_SCAN(y);
-    for (int i = 0; i < count; ++i) {
-        unsigned dither = DITHER_VALUE(x);
-        result[i] = SkDitherRGB32To565(shade(point, stitchData), dither);
-        DITHER_INC_X(x);
-        point.fX += SK_Scalar1;
-    }
-}
-
 /////////////////////////////////////////////////////////////////////
 
 #if SK_SUPPORT_GPU
 
-class GrGLPerlinNoise2 : public GrGLFragmentProcessor {
+class GrGLPerlinNoise2 : public GrGLSLFragmentProcessor {
 public:
-    GrGLPerlinNoise2(const GrProcessor&);
-    virtual ~GrGLPerlinNoise2() {}
-
-    virtual void emitCode(EmitArgs&) override;
+    void emitCode(EmitArgs&) override;
 
     static inline void GenKey(const GrProcessor&, const GrGLSLCaps&, GrProcessorKeyBuilder* b);
 
@@ -633,15 +617,10 @@ protected:
     void onSetData(const GrGLSLProgramDataManager&, const GrProcessor&) override;
 
 private:
-
     GrGLSLProgramDataManager::UniformHandle fStitchDataUni;
-    SkPerlinNoiseShader2::Type              fType;
-    bool                                    fStitchTiles;
-    int                                     fNumOctaves;
     GrGLSLProgramDataManager::UniformHandle fBaseFrequencyUni;
 
-private:
-    typedef GrGLFragmentProcessor INHERITED;
+    typedef GrGLSLFragmentProcessor INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
@@ -670,12 +649,12 @@ public:
     const SkMatrix& matrix() const { return fCoordTransform.getMatrix(); }
 
 private:
-    GrGLFragmentProcessor* onCreateGLInstance() const override {
-        return new GrGLPerlinNoise2(*this);
+    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override {
+        return new GrGLPerlinNoise2;
     }
 
-    virtual void onGetGLProcessorKey(const GrGLSLCaps& caps,
-                                     GrProcessorKeyBuilder* b) const override {
+    virtual void onGetGLSLProcessorKey(const GrGLSLCaps& caps,
+                                       GrProcessorKeyBuilder* b) const override {
         GrGLPerlinNoise2::GenKey(*this, caps, b);
     }
 
@@ -750,27 +729,24 @@ const GrFragmentProcessor* GrPerlinNoise2Effect::TestCreate(GrProcessorTestData*
                                        kNone_SkFilterQuality);
 }
 
-GrGLPerlinNoise2::GrGLPerlinNoise2(const GrProcessor& processor)
-  : fType(processor.cast<GrPerlinNoise2Effect>().type())
-  , fStitchTiles(processor.cast<GrPerlinNoise2Effect>().stitchTiles())
-  , fNumOctaves(processor.cast<GrPerlinNoise2Effect>().numOctaves()) {
-}
-
 void GrGLPerlinNoise2::emitCode(EmitArgs& args) {
-    GrGLSLFragmentBuilder* fsBuilder = args.fBuilder->getFragmentShaderBuilder();
+    const GrPerlinNoise2Effect& pne = args.fFp.cast<GrPerlinNoise2Effect>();
+
+    GrGLSLFragmentBuilder* fsBuilder = args.fFragBuilder;
+    GrGLSLUniformHandler* uniformHandler = args.fUniformHandler;
     SkString vCoords = fsBuilder->ensureFSCoords2D(args.fCoords, 0);
 
-    fBaseFrequencyUni = args.fBuilder->addUniform(GrGLSLProgramBuilder::kFragment_Visibility,
-                                            kVec2f_GrSLType, kDefault_GrSLPrecision,
-                                            "baseFrequency");
-    const char* baseFrequencyUni = args.fBuilder->getUniformCStr(fBaseFrequencyUni);
+    fBaseFrequencyUni = uniformHandler->addUniform(kFragment_GrShaderFlag,
+                                                   kVec2f_GrSLType, kDefault_GrSLPrecision,
+                                                   "baseFrequency");
+    const char* baseFrequencyUni = uniformHandler->getUniformCStr(fBaseFrequencyUni);
 
     const char* stitchDataUni = nullptr;
-    if (fStitchTiles) {
-        fStitchDataUni = args.fBuilder->addUniform(GrGLSLProgramBuilder::kFragment_Visibility,
-                                             kVec2f_GrSLType, kDefault_GrSLPrecision,
-                                             "stitchData");
-        stitchDataUni = args.fBuilder->getUniformCStr(fStitchDataUni);
+    if (pne.stitchTiles()) {
+        fStitchDataUni = uniformHandler->addUniform(kFragment_GrShaderFlag,
+                                                    kVec2f_GrSLType, kDefault_GrSLPrecision,
+                                                    "stitchData");
+        stitchDataUni = uniformHandler->getUniformCStr(fStitchDataUni);
     }
 
     // There are 4 lines, so the center of each line is 1/8, 3/8, 5/8 and 7/8
@@ -819,7 +795,7 @@ void GrGLPerlinNoise2::emitCode(EmitArgs& args) {
         noiseSmooth, fractVal, fractVal, fractVal);
 
     // Adjust frequencies if we're stitching tiles
-    if (fStitchTiles) {
+    if (pne.stitchTiles()) {
         noiseCode.appendf("\n\tif(%s.x >= %s.x) { %s.x -= %s.x; }",
             floorVal, stitchData, floorVal, stitchData);
         noiseCode.appendf("\n\tif(%s.y >= %s.y) { %s.y -= %s.y; }",
@@ -928,7 +904,7 @@ void GrGLPerlinNoise2::emitCode(EmitArgs& args) {
     noiseCode.appendf("\n\treturn mix(%s.x, %s.y, %s.y);\n", ab, ab, noiseSmooth);
 
     SkString noiseFuncName;
-    if (fStitchTiles) {
+    if (pne.stitchTiles()) {
         fsBuilder->emitFunction(kFloat_GrSLType,
                                 "perlinnoise", SK_ARRAY_COUNT(gPerlinNoiseStitchArgs),
                                 gPerlinNoiseStitchArgs, noiseCode.c_str(), &noiseFuncName);
@@ -945,7 +921,7 @@ void GrGLPerlinNoise2::emitCode(EmitArgs& args) {
     // Clear the color accumulator
     fsBuilder->codeAppendf("\n\t\t%s = vec4(0.0);", args.fOutputColor);
 
-    if (fStitchTiles) {
+    if (pne.stitchTiles()) {
         // Set up TurbulenceInitial stitch values.
         fsBuilder->codeAppendf("\n\t\tvec2 %s = %s;", stitchData, stitchDataUni);
     }
@@ -953,13 +929,13 @@ void GrGLPerlinNoise2::emitCode(EmitArgs& args) {
     fsBuilder->codeAppendf("\n\t\tfloat %s = 1.0;", ratio);
 
     // Loop over all octaves
-    fsBuilder->codeAppendf("\n\t\tfor (int octave = 0; octave < %d; ++octave) {", fNumOctaves);
+    fsBuilder->codeAppendf("for (int octave = 0; octave < %d; ++octave) {", pne.numOctaves());
 
     fsBuilder->codeAppendf("\n\t\t\t%s += ", args.fOutputColor);
-    if (fType != SkPerlinNoiseShader2::kFractalNoise_Type) {
+    if (pne.type() != SkPerlinNoiseShader2::kFractalNoise_Type) {
         fsBuilder->codeAppend("abs(");
     }
-    if (fStitchTiles) {
+    if (pne.stitchTiles()) {
         fsBuilder->codeAppendf(
             "vec4(\n\t\t\t\t%s(%s, %s, %s),\n\t\t\t\t%s(%s, %s, %s),"
                  "\n\t\t\t\t%s(%s, %s, %s),\n\t\t\t\t%s(%s, %s, %s))",
@@ -976,7 +952,7 @@ void GrGLPerlinNoise2::emitCode(EmitArgs& args) {
             noiseFuncName.c_str(), chanCoordB, noiseVec,
             noiseFuncName.c_str(), chanCoordA, noiseVec);
     }
-    if (fType != SkPerlinNoiseShader2::kFractalNoise_Type) {
+    if (pne.type() != SkPerlinNoiseShader2::kFractalNoise_Type) {
         fsBuilder->codeAppendf(")"); // end of "abs("
     }
     fsBuilder->codeAppendf(" * %s;", ratio);
@@ -984,12 +960,12 @@ void GrGLPerlinNoise2::emitCode(EmitArgs& args) {
     fsBuilder->codeAppendf("\n\t\t\t%s *= vec2(2.0);", noiseVec);
     fsBuilder->codeAppendf("\n\t\t\t%s *= 0.5;", ratio);
 
-    if (fStitchTiles) {
+    if (pne.stitchTiles()) {
         fsBuilder->codeAppendf("\n\t\t\t%s *= vec2(2.0);", stitchData);
     }
     fsBuilder->codeAppend("\n\t\t}"); // end of the for loop on octaves
 
-    if (fType == SkPerlinNoiseShader2::kFractalNoise_Type) {
+    if (pne.type() == SkPerlinNoiseShader2::kFractalNoise_Type) {
         // The value of turbulenceFunctionResult comes from ((turbulenceFunctionResult) + 1) / 2
         // by fractalNoise and (turbulenceFunctionResult) by turbulence.
         fsBuilder->codeAppendf("\n\t\t%s = %s * vec4(0.5) + vec4(0.5);",
@@ -1050,27 +1026,21 @@ void GrGLPerlinNoise2::onSetData(const GrGLSLProgramDataManager& pdman,
 
 /////////////////////////////////////////////////////////////////////
 
-class GrGLImprovedPerlinNoise : public GrGLFragmentProcessor {
+class GrGLImprovedPerlinNoise : public GrGLSLFragmentProcessor {
 public:
-    GrGLImprovedPerlinNoise(const GrProcessor&);
-    virtual ~GrGLImprovedPerlinNoise() {}
+    void emitCode(EmitArgs&) override;
 
-    virtual void emitCode(EmitArgs&) override;
-
-    static inline void GenKey(const GrProcessor&, const GrGLSLCaps&, GrProcessorKeyBuilder* b);
+    static inline void GenKey(const GrProcessor&, const GrGLSLCaps&, GrProcessorKeyBuilder*);
 
 protected:
     void onSetData(const GrGLSLProgramDataManager&, const GrProcessor&) override;
 
 private:
-
-    SkScalar fZ;
     GrGLSLProgramDataManager::UniformHandle fZUni;
     GrGLSLProgramDataManager::UniformHandle fOctavesUni;
     GrGLSLProgramDataManager::UniformHandle fBaseFrequencyUni;
 
-private:
-    typedef GrGLFragmentProcessor INHERITED;
+    typedef GrGLSLFragmentProcessor INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
@@ -1095,12 +1065,11 @@ public:
     const SkMatrix& matrix() const { return fCoordTransform.getMatrix(); }
 
 private:
-    GrGLFragmentProcessor* onCreateGLInstance() const override {
-        return new GrGLImprovedPerlinNoise(*this);
+    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override {
+        return new GrGLImprovedPerlinNoise;
     }
 
-    virtual void onGetGLProcessorKey(const GrGLSLCaps& caps,
-                                     GrProcessorKeyBuilder* b) const override {
+    void onGetGLSLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override {
         GrGLImprovedPerlinNoise::GenKey(*this, caps, b);
     }
 
@@ -1165,28 +1134,25 @@ const GrFragmentProcessor* GrImprovedPerlinNoiseEffect::TestCreate(GrProcessorTe
                                        kNone_SkFilterQuality);
 }
 
-GrGLImprovedPerlinNoise::GrGLImprovedPerlinNoise(const GrProcessor& processor)
-  : fZ(processor.cast<GrImprovedPerlinNoiseEffect>().z()) {
-}
-
 void GrGLImprovedPerlinNoise::emitCode(EmitArgs& args) {
-    GrGLSLFragmentBuilder* fsBuilder = args.fBuilder->getFragmentShaderBuilder();
+    GrGLSLFragmentBuilder* fsBuilder = args.fFragBuilder;
+    GrGLSLUniformHandler* uniformHandler = args.fUniformHandler;
     SkString vCoords = fsBuilder->ensureFSCoords2D(args.fCoords, 0);
 
-    fBaseFrequencyUni = args.fBuilder->addUniform(GrGLSLProgramBuilder::kFragment_Visibility,
-                                            kVec2f_GrSLType, kDefault_GrSLPrecision,
-                                            "baseFrequency");
-    const char* baseFrequencyUni = args.fBuilder->getUniformCStr(fBaseFrequencyUni);
+    fBaseFrequencyUni = uniformHandler->addUniform(kFragment_GrShaderFlag,
+                                                   kVec2f_GrSLType, kDefault_GrSLPrecision,
+                                                   "baseFrequency");
+    const char* baseFrequencyUni = uniformHandler->getUniformCStr(fBaseFrequencyUni);
 
-    fOctavesUni = args.fBuilder->addUniform(GrGLSLProgramBuilder::kFragment_Visibility,
-                                      kFloat_GrSLType, kDefault_GrSLPrecision,
-                                      "octaves");
-    const char* octavesUni = args.fBuilder->getUniformCStr(fOctavesUni);
+    fOctavesUni = uniformHandler->addUniform(kFragment_GrShaderFlag,
+                                             kFloat_GrSLType, kDefault_GrSLPrecision,
+                                             "octaves");
+    const char* octavesUni = uniformHandler->getUniformCStr(fOctavesUni);
 
-    fZUni = args.fBuilder->addUniform(GrGLSLProgramBuilder::kFragment_Visibility,
-                                      kFloat_GrSLType, kDefault_GrSLPrecision,
-                                      "z");
-    const char* zUni = args.fBuilder->getUniformCStr(fZUni);
+    fZUni = uniformHandler->addUniform(kFragment_GrShaderFlag,
+                                       kFloat_GrSLType, kDefault_GrSLPrecision,
+                                       "z");
+    const char* zUni = uniformHandler->getUniformCStr(fZUni);
 
     // fade function
     static const GrGLSLShaderVar fadeArgs[] =  {

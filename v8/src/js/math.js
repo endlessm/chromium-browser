@@ -10,23 +10,18 @@
 // -------------------------------------------------------------------
 // Imports
 
+define kRandomBatchSize = 64;
+// The first two slots are reserved to persist PRNG state.
+define kRandomNumberStart = 2;
+
+var GlobalFloat64Array = global.Float64Array;
 var GlobalMath = global.Math;
 var GlobalObject = global.Object;
 var InternalArray = utils.InternalArray;
 var NaN = %GetRootNaN();
-var rngstate_0;
-var rngstate_1;
-var rngstate_2;
-var rngstate_3;
+var nextRandomIndex = kRandomBatchSize;
+var randomNumbers = UNDEFINED;
 var toStringTagSymbol = utils.ImportNow("to_string_tag_symbol");
-
-utils.InitializeRNG = function() {
-  var rngstate = %InitializeRNG();
-  rngstate_0 = rngstate[0];
-  rngstate_1 = rngstate[1];
-  rngstate_2 = rngstate[2];
-  rngstate_3 = rngstate[3];
-};
 
 //-------------------------------------------------------------------
 
@@ -80,60 +75,6 @@ function MathLog(x) {
   return %_MathLogRT(TO_NUMBER(x));
 }
 
-// ECMA 262 - 15.8.2.11
-function MathMax(arg1, arg2) {  // length == 2
-  var length = %_ArgumentsLength();
-  if (length == 2) {
-    arg1 = TO_NUMBER(arg1);
-    arg2 = TO_NUMBER(arg2);
-    if (arg2 > arg1) return arg2;
-    if (arg1 > arg2) return arg1;
-    if (arg1 == arg2) {
-      // Make sure -0 is considered less than +0.
-      return (arg1 === 0 && %_IsMinusZero(arg1)) ? arg2 : arg1;
-    }
-    // All comparisons failed, one of the arguments must be NaN.
-    return NaN;
-  }
-  var r = -INFINITY;
-  for (var i = 0; i < length; i++) {
-    var n = %_Arguments(i);
-    n = TO_NUMBER(n);
-    // Make sure +0 is considered greater than -0.
-    if (NUMBER_IS_NAN(n) || n > r || (r === 0 && n === 0 && %_IsMinusZero(r))) {
-      r = n;
-    }
-  }
-  return r;
-}
-
-// ECMA 262 - 15.8.2.12
-function MathMin(arg1, arg2) {  // length == 2
-  var length = %_ArgumentsLength();
-  if (length == 2) {
-    arg1 = TO_NUMBER(arg1);
-    arg2 = TO_NUMBER(arg2);
-    if (arg2 > arg1) return arg1;
-    if (arg1 > arg2) return arg2;
-    if (arg1 == arg2) {
-      // Make sure -0 is considered less than +0.
-      return (arg1 === 0 && %_IsMinusZero(arg1)) ? arg1 : arg2;
-    }
-    // All comparisons failed, one of the arguments must be NaN.
-    return NaN;
-  }
-  var r = INFINITY;
-  for (var i = 0; i < length; i++) {
-    var n = %_Arguments(i);
-    n = TO_NUMBER(n);
-    // Make sure -0 is considered less than +0.
-    if (NUMBER_IS_NAN(n) || n < r || (r === 0 && n === 0 && %_IsMinusZero(n))) {
-      r = n;
-    }
-  }
-  return r;
-}
-
 // ECMA 262 - 15.8.2.13
 function MathPowJS(x, y) {
   return %_MathPow(TO_NUMBER(x), TO_NUMBER(y));
@@ -141,25 +82,19 @@ function MathPowJS(x, y) {
 
 // ECMA 262 - 15.8.2.14
 function MathRandom() {
-  var r0 = (MathImul(18030, rngstate_0) + rngstate_1) | 0;
-  var r1 = (MathImul(36969, rngstate_2) + rngstate_3) | 0;
-  rngstate_0 = r0 & 0xFFFF;
-  rngstate_1 = r0 >>> 16;
-  rngstate_2 = r1 & 0xFFFF;
-  rngstate_3 = r1 >>> 16;
-  // Construct a double number 1.<32-bits of randomness> and subtract 1.
-  return %_ConstructDouble(0x3FF00000 | (r0 & 0x000FFFFF), r1 & 0xFFF00000) - 1;
+  if (nextRandomIndex >= kRandomBatchSize) {
+    randomNumbers = %GenerateRandomNumbers(randomNumbers);
+    nextRandomIndex = kRandomNumberStart;
+  }
+  return randomNumbers[nextRandomIndex++];
 }
 
 function MathRandomRaw() {
-  var r0 = (MathImul(18030, rngstate_0) + rngstate_1) | 0;
-  var r1 = (MathImul(36969, rngstate_2) + rngstate_3) | 0;
-  rngstate_0 = r0 & 0xFFFF;
-  rngstate_1 = r0 >>> 16;
-  rngstate_2 = r1 & 0xFFFF;
-  rngstate_3 = r1 >>> 16;
-  var x = ((r0 << 16) + (r1 & 0xFFFF)) | 0;
-  return x & 0x3FFFFFFF;
+  if (nextRandomIndex >= kRandomBatchSize) {
+    randomNumbers = %GenerateRandomNumbers(randomNumbers);
+    nextRandomIndex = kRandomNumberStart;
+  }
+  return %_DoubleLo(randomNumbers[nextRandomIndex++]) & 0x3FFFFFFF;
 }
 
 // ECMA 262 - 15.8.2.15
@@ -229,17 +164,14 @@ function MathHypot(x, y) {  // Function length is 2.
   // We may want to introduce fast paths for two arguments and when
   // normalization to avoid overflow is not necessary.  For now, we
   // simply assume the general case.
-  var length = %_ArgumentsLength();
-  var args = new InternalArray(length);
+  var length = arguments.length;
   var max = 0;
   for (var i = 0; i < length; i++) {
-    var n = %_Arguments(i);
-    n = TO_NUMBER(n);
-    if (n === INFINITY || n === -INFINITY) return INFINITY;
-    n = MathAbs(n);
+    var n = MathAbs(arguments[i]);
     if (n > max) max = n;
-    args[i] = n;
+    arguments[i] = n;
   }
+  if (max === INFINITY) return INFINITY;
 
   // Kahan summation to avoid rounding errors.
   // Normalize the numbers to the largest one to avoid overflow.
@@ -247,7 +179,7 @@ function MathHypot(x, y) {  // Function length is 2.
   var sum = 0;
   var compensation = 0;
   for (var i = 0; i < length; i++) {
-    var n = args[i] / max;
+    var n = arguments[i] / max;
     var summand = n * n - compensation;
     var preliminary = sum + summand;
     compensation = (preliminary - sum) - summand;
@@ -282,7 +214,7 @@ endmacro
 
 function CubeRoot(x) {
   var approx_hi = MathFloorJS(%_DoubleHi(x) / 3) + 0x2A9F7893;
-  var approx = %_ConstructDouble(approx_hi, 0);
+  var approx = %_ConstructDouble(approx_hi | 0, 0);
   approx = NEWTON_ITERATION_CBRT(x, approx);
   approx = NEWTON_ITERATION_CBRT(x, approx);
   approx = NEWTON_ITERATION_CBRT(x, approx);
@@ -325,8 +257,6 @@ utils.InstallFunctions(GlobalMath, DONT_ENUM, [
   "sqrt", MathSqrtJS,
   "atan2", MathAtan2JS,
   "pow", MathPowJS,
-  "max", MathMax,
-  "min", MathMin,
   "imul", MathImul,
   "sign", MathSign,
   "trunc", MathTrunc,
@@ -360,8 +290,6 @@ utils.Export(function(to) {
   to.MathExp = MathExp;
   to.MathFloor = MathFloorJS;
   to.IntRandom = MathRandomRaw;
-  to.MathMax = MathMax;
-  to.MathMin = MathMin;
 });
 
 })

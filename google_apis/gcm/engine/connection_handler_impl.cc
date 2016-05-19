@@ -4,6 +4,8 @@
 
 #include "google_apis/gcm/engine/connection_handler_impl.h"
 
+#include <utility>
+
 #include "base/location.h"
 #include "base/thread_task_runner_handle.h"
 #include "google/protobuf/io/coded_stream.h"
@@ -289,7 +291,7 @@ void ConnectionHandlerImpl::WaitForData(ProcessingState state) {
 }
 
 void ConnectionHandlerImpl::OnGotVersion() {
-  uint8 version = 0;
+  uint8_t version = 0;
   {
     CodedInputStream coded_input_stream(input_stream_.get());
     coded_input_stream.ReadRaw(&version, 1);
@@ -388,7 +390,7 @@ void ConnectionHandlerImpl::OnGotMessageBytes() {
         FROM_HERE,
         base::Bind(&ConnectionHandlerImpl::GetNextMessage,
                    weak_ptr_factory_.GetWeakPtr()));
-    read_callback_.Run(protobuf.Pass());
+    read_callback_.Run(std::move(protobuf));
     return;
   }
 
@@ -421,8 +423,8 @@ void ConnectionHandlerImpl::OnGotMessageBytes() {
     int size = 0;
     input_stream_->Next(&data_ptr, &size);
     payload_input_buffer_.insert(payload_input_buffer_.end(),
-                                 static_cast<const uint8*>(data_ptr),
-                                 static_cast<const uint8*>(data_ptr) + size);
+                                 static_cast<const uint8_t*>(data_ptr),
+                                 static_cast<const uint8_t*>(data_ptr) + size);
     DCHECK_LE(payload_input_buffer_.size(), message_size_);
 
     if (payload_input_buffer_.size() == message_size_) {
@@ -470,7 +472,7 @@ void ConnectionHandlerImpl::OnGotMessageBytes() {
       connection_callback_.Run(net::OK);
     }
   }
-  read_callback_.Run(protobuf.Pass());
+  read_callback_.Run(std::move(protobuf));
 }
 
 void ConnectionHandlerImpl::OnTimeout() {

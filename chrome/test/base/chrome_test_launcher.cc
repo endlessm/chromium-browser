@@ -9,17 +9,21 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/process/process_metrics.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/test/test_file_util.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_main_delegate.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/chrome_test_suite.h"
 #include "chrome/test/base/test_switches.h"
+#include "components/crash/content/app/crashpad.h"
 #include "content/public/app/content_main.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/test_launcher.h"
 #include "content/public/test/test_utils.h"
 #include "ui/base/test/ui_controls.h"
@@ -40,7 +44,7 @@
 #include "ash/test/ui_controls_factory_ash.h"
 #endif
 
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_WIN)
 #include "chrome/app/chrome_crash_reporter_client.h"
 #endif
 
@@ -112,8 +116,8 @@ int LaunchChromeTests(int default_jobs,
   chrome_browser_application_mac::RegisterBrowserCrApp();
 #endif
 
-#if defined(OS_LINUX) || defined(OS_ANDROID)
-  // We leak this pointer intentionally. The breakpad client needs to outlive
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_WIN)
+  // We leak this pointer intentionally. The crash client needs to outlive
   // all other code.
   ChromeCrashReporterClient* crash_client = new ChromeCrashReporterClient();
   ANNOTATE_LEAKING_OBJECT_PTR(crash_client);

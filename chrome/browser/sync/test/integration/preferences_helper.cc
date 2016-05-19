@@ -4,15 +4,15 @@
 
 #include "chrome/browser/sync/test/integration/preferences_helper.h"
 
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/test/integration/multi_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 
 using sync_datatype_helper::test;
 
@@ -39,7 +39,7 @@ void ChangeIntegerPref(int index, const char* pref_name, int new_value) {
     GetVerifierPrefs()->SetInteger(pref_name, new_value);
 }
 
-void ChangeInt64Pref(int index, const char* pref_name, int64 new_value) {
+void ChangeInt64Pref(int index, const char* pref_name, int64_t new_value) {
   GetPrefs(index)->SetInt64(pref_name, new_value);
   if (test()->use_verifier())
     GetVerifierPrefs()->SetInt64(pref_name, new_value);
@@ -126,7 +126,7 @@ bool IntegerPrefMatches(const char* pref_name) {
 }
 
 bool Int64PrefMatches(const char* pref_name) {
-  int64 reference_value;
+  int64_t reference_value;
   if (test()->use_verifier()) {
     reference_value = GetVerifierPrefs()->GetInt64(pref_name);
   } else {

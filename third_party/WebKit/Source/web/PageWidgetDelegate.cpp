@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/PageWidgetDelegate.h"
 
 #include "core/frame/FrameView.h"
@@ -56,11 +55,6 @@ void PageWidgetDelegate::animate(Page& page, double monotonicFrameBeginTime)
 {
     page.autoscrollController().animate(monotonicFrameBeginTime);
     page.animator().serviceScriptedAnimations(monotonicFrameBeginTime);
-}
-
-void PageWidgetDelegate::updateLifecycleToCompositingCleanPlusScrolling(Page& page, LocalFrame& root)
-{
-    page.animator().updateLifecycleToCompositingCleanPlusScrolling(root);
 }
 
 void PageWidgetDelegate::updateAllLifecyclePhases(Page& page, LocalFrame& root)
@@ -93,7 +87,7 @@ static void paintInternal(Page& page, WebCanvas* canvas,
         if (view) {
             ClipRecorder clipRecorder(paintContext, root, DisplayItem::PageWidgetDelegateClip, LayoutRect(dirtyRect));
 
-            view->paint(&paintContext, globalPaintFlags, CullRect(dirtyRect));
+            view->paint(paintContext, globalPaintFlags, CullRect(dirtyRect));
         } else if (!DrawingRecorder::useCachedDrawingIfPossible(paintContext, root, DisplayItem::PageWidgetDelegateBackgroundFallback)) {
             DrawingRecorder drawingRecorder(paintContext, root, DisplayItem::PageWidgetDelegateBackgroundFallback, dirtyRect);
             paintContext.fillRect(dirtyRect, Color::white);
@@ -114,39 +108,38 @@ void PageWidgetDelegate::paintIgnoringCompositing(Page& page, WebCanvas* canvas,
     paintInternal(page, canvas, rect, root, GlobalPaintFlattenCompositingLayers);
 }
 
-bool PageWidgetDelegate::handleInputEvent(PageWidgetEventHandler& handler, const WebInputEvent& event, LocalFrame* root)
+WebInputEventResult PageWidgetDelegate::handleInputEvent(PageWidgetEventHandler& handler, const WebInputEvent& event, LocalFrame* root)
 {
     switch (event.type) {
 
     // FIXME: WebKit seems to always return false on mouse events processing
     // methods. For now we'll assume it has processed them (as we are only
     // interested in whether keyboard events are processed).
-    // FIXME: Why do we return true when there is no root or the root is
-    // detached?
+    // FIXME: Why do we return HandleSuppressed when there is no root or
+    // the root is detached?
     case WebInputEvent::MouseMove:
         if (!root || !root->view())
-            return true;
+            return WebInputEventResult::HandledSuppressed;
         handler.handleMouseMove(*root, static_cast<const WebMouseEvent&>(event));
-        return true;
+        return WebInputEventResult::HandledSystem;
     case WebInputEvent::MouseLeave:
         if (!root || !root->view())
-            return true;
+            return WebInputEventResult::HandledSuppressed;
         handler.handleMouseLeave(*root, static_cast<const WebMouseEvent&>(event));
-        return true;
+        return WebInputEventResult::HandledSystem;
     case WebInputEvent::MouseDown:
         if (!root || !root->view())
-            return true;
+            return WebInputEventResult::HandledSuppressed;
         handler.handleMouseDown(*root, static_cast<const WebMouseEvent&>(event));
-        return true;
+        return WebInputEventResult::HandledSystem;
     case WebInputEvent::MouseUp:
         if (!root || !root->view())
-            return true;
+            return WebInputEventResult::HandledSuppressed;
         handler.handleMouseUp(*root, static_cast<const WebMouseEvent&>(event));
-        return true;
-
+        return WebInputEventResult::HandledSystem;
     case WebInputEvent::MouseWheel:
         if (!root || !root->view())
-            return false;
+            return WebInputEventResult::NotHandled;
         return handler.handleMouseWheel(*root, static_cast<const WebMouseWheelEvent&>(event));
 
     case WebInputEvent::RawKeyDown:
@@ -177,16 +170,16 @@ bool PageWidgetDelegate::handleInputEvent(PageWidgetEventHandler& handler, const
     case WebInputEvent::TouchEnd:
     case WebInputEvent::TouchCancel:
         if (!root || !root->view())
-            return false;
+            return WebInputEventResult::NotHandled;
         return handler.handleTouchEvent(*root, static_cast<const WebTouchEvent&>(event));
     case WebInputEvent::GesturePinchBegin:
     case WebInputEvent::GesturePinchEnd:
     case WebInputEvent::GesturePinchUpdate:
         // Touchscreen pinch events are currently not handled in main thread. Once they are,
         // these should be passed to |handleGestureEvent| similar to gesture scroll events.
-        return false;
+        return WebInputEventResult::NotHandled;
     default:
-        return false;
+        return WebInputEventResult::NotHandled;
     }
 }
 
@@ -213,12 +206,12 @@ void PageWidgetEventHandler::handleMouseUp(LocalFrame& mainFrame, const WebMouse
     mainFrame.eventHandler().handleMouseReleaseEvent(PlatformMouseEventBuilder(mainFrame.view(), event));
 }
 
-bool PageWidgetEventHandler::handleMouseWheel(LocalFrame& mainFrame, const WebMouseWheelEvent& event)
+WebInputEventResult PageWidgetEventHandler::handleMouseWheel(LocalFrame& mainFrame, const WebMouseWheelEvent& event)
 {
     return mainFrame.eventHandler().handleWheelEvent(PlatformWheelEventBuilder(mainFrame.view(), event));
 }
 
-bool PageWidgetEventHandler::handleTouchEvent(LocalFrame& mainFrame, const WebTouchEvent& event)
+WebInputEventResult PageWidgetEventHandler::handleTouchEvent(LocalFrame& mainFrame, const WebTouchEvent& event)
 {
     return mainFrame.eventHandler().handleTouchEvent(PlatformTouchEventBuilder(mainFrame.view(), event));
 }

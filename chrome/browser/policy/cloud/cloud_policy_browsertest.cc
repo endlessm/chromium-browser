@@ -9,13 +9,12 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/invalidation/fake_invalidation_service.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/policy/profile_policy_connector_factory.h"
@@ -23,6 +22,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/invalidation/impl/fake_invalidation_service.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/invalidation/public/invalidation.h"
 #include "components/invalidation/public/invalidation_service.h"
@@ -37,6 +37,7 @@
 #include "components/policy/core/common/policy_switches.h"
 #include "components/policy/core/common/policy_test_utils.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/test/test_utils.h"
@@ -169,6 +170,12 @@ void GetExpectedDefaultPolicy(PolicyMap* policy_map) {
                   POLICY_SOURCE_ENTERPRISE_DEFAULT,
                   new base::FundamentalValue(false),
                   nullptr);
+  policy_map->Set(key::kArcEnabled,
+                  POLICY_LEVEL_MANDATORY,
+                  POLICY_SCOPE_USER,
+                  POLICY_SOURCE_ENTERPRISE_DEFAULT,
+                  new base::FundamentalValue(false),
+                  nullptr);
 #endif
 }
 
@@ -231,6 +238,12 @@ void GetExpectedTestPolicy(PolicyMap* expected, const char* homepage) {
                 POLICY_SOURCE_ENTERPRISE_DEFAULT,
                 new base::FundamentalValue(false),
                 nullptr);
+  expected->Set(key::kArcEnabled,
+                POLICY_LEVEL_MANDATORY,
+                POLICY_SCOPE_USER,
+                POLICY_SOURCE_ENTERPRISE_DEFAULT,
+                new base::FundamentalValue(false),
+                nullptr);
 #endif
 }
 
@@ -284,12 +297,11 @@ class CloudPolicyTest : public InProcessBrowserTest,
         UserCloudPolicyManagerFactory::GetForBrowserContext(
             browser()->profile());
     ASSERT_TRUE(policy_manager);
-    policy_manager->Connect(
-        g_browser_process->local_state(),
-        g_browser_process->system_request_context(),
-        UserCloudPolicyManager::CreateCloudPolicyClient(
-            connector->device_management_service(),
-            g_browser_process->system_request_context()).Pass());
+    policy_manager->Connect(g_browser_process->local_state(),
+                            g_browser_process->system_request_context(),
+                            UserCloudPolicyManager::CreateCloudPolicyClient(
+                                connector->device_management_service(),
+                                g_browser_process->system_request_context()));
 #endif  // defined(OS_CHROMEOS)
 
     ASSERT_TRUE(policy_manager->core()->client());

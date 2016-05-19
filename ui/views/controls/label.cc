@@ -4,9 +4,12 @@
 
 #include "ui/views/controls/label.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "base/i18n/rtl.h"
@@ -15,6 +18,8 @@
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_view_state.h"
+#include "ui/base/default_style.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/insets.h"
@@ -22,17 +27,23 @@
 #include "ui/native_theme/native_theme.h"
 
 namespace views {
+namespace {
+
+const gfx::FontList& GetDefaultFontList() {
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  return rb.GetFontListWithDelta(ui::kLabelFontSizeDelta);
+}
+
+}  // namespace
 
 // static
 const char Label::kViewClassName[] = "Label";
 const int Label::kFocusBorderPadding = 1;
 
-Label::Label() {
-  Init(base::string16(), gfx::FontList());
+Label::Label() : Label(base::string16()) {
 }
 
-Label::Label(const base::string16& text) {
-  Init(text, gfx::FontList());
+Label::Label(const base::string16& text) : Label(text, GetDefaultFontList()) {
 }
 
 Label::Label(const base::string16& text, const gfx::FontList& font_list) {
@@ -340,7 +351,7 @@ scoped_ptr<gfx::RenderText> Label::CreateRenderText(
   render_text->set_shadows(shadows());
   render_text->SetCursorEnabled(false);
   render_text->SetText(text);
-  return render_text.Pass();
+  return render_text;
 }
 
 void Label::PaintText(gfx::Canvas* canvas) {
@@ -404,7 +415,7 @@ void Label::Init(const base::string16& text, const gfx::FontList& font_list) {
   subpixel_rendering_enabled_ = true;
   auto_color_readability_ = true;
   multi_line_ = false;
-  UpdateColorsFromTheme(ui::NativeTheme::instance());
+  UpdateColorsFromTheme(GetNativeTheme());
   handles_tooltips_ = true;
   collapse_when_hidden_ = false;
   max_width_ = 0;
@@ -428,6 +439,7 @@ void Label::MaybeBuildRenderTextLines() {
     rect.Inset(kFocusBorderPadding, kFocusBorderPadding);
   if (rect.IsEmpty())
     return;
+  rect.Inset(-gfx::ShadowValue::GetMargin(shadows()));
 
   gfx::HorizontalAlignment alignment = horizontal_alignment();
   gfx::DirectionalityMode directionality = render_text_->directionality_mode();
@@ -451,7 +463,7 @@ void Label::MaybeBuildRenderTextLines() {
     render_text->SetDisplayRect(rect);
     render_text->SetMultiline(multi_line());
     render_text->SetWordWrapBehavior(render_text_->word_wrap_behavior());
-    lines_.push_back(render_text.Pass());
+    lines_.push_back(std::move(render_text));
   } else {
     std::vector<base::string16> lines = GetLinesForWidth(rect.width());
     if (lines.size() > 1)
@@ -462,7 +474,7 @@ void Label::MaybeBuildRenderTextLines() {
       scoped_ptr<gfx::RenderText> line =
           CreateRenderText(lines[i], alignment, directionality, elide_behavior);
       line->SetDisplayRect(rect);
-      lines_.push_back(line.Pass());
+      lines_.push_back(std::move(line));
       rect.set_y(rect.y() + rect.height());
     }
     // Append the remaining text to the last visible line.

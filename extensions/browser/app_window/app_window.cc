@@ -4,8 +4,11 @@
 
 #include "extensions/browser/app_window/app_window.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback_helpers.h"
@@ -15,6 +18,7 @@
 #include "base/task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/invalidate_type.h"
@@ -23,6 +27,7 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/media_stream_request.h"
 #include "extensions/browser/app_window/app_delegate.h"
@@ -48,10 +53,11 @@
 #include "extensions/grit/extensions_browser_resources.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/screen.h"
 
 #if !defined(OS_MACOSX)
-#include "base/prefs/pref_service.h"
+#include "components/prefs/pref_service.h"
 #include "extensions/browser/pref_names.h"
 #endif
 
@@ -167,6 +173,8 @@ AppWindow::CreateParams::CreateParams()
       always_on_top(false),
       visible_on_all_workspaces(false) {
 }
+
+AppWindow::CreateParams::CreateParams(const CreateParams& other) = default;
 
 AppWindow::CreateParams::~CreateParams() {}
 
@@ -452,8 +460,7 @@ void AppWindow::SetOnFirstCommitCallback(const base::Closure& callback) {
 }
 
 void AppWindow::OnReadyToCommitFirstNavigation() {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      ::switches::kEnableBrowserSideNavigation));
+  CHECK(content::IsBrowserSideNavigationEnabled());
   WindowEventsReady();
   if (on_first_commit_callback_.is_null())
     return;
@@ -515,7 +522,9 @@ void AppWindow::OnNativeWindowActivated() {
 }
 
 content::WebContents* AppWindow::web_contents() const {
-  return app_window_contents_->GetWebContents();
+  if (app_window_contents_)
+    return app_window_contents_->GetWebContents();
+  return nullptr;
 }
 
 const Extension* AppWindow::GetExtension() const {
@@ -574,7 +583,7 @@ void AppWindow::SetAppIconUrl(const GURL& url) {
 }
 
 void AppWindow::UpdateShape(scoped_ptr<SkRegion> region) {
-  native_app_window_->UpdateShape(region.Pass());
+  native_app_window_->UpdateShape(std::move(region));
 }
 
 void AppWindow::UpdateDraggableRegions(
@@ -847,7 +856,7 @@ void AppWindow::SetNativeWindowFullscreen() {
 
 bool AppWindow::IntersectsWithTaskbar() const {
 #if defined(OS_WIN)
-  gfx::Screen* screen = gfx::Screen::GetNativeScreen();
+  gfx::Screen* screen = gfx::Screen::GetScreen();
   gfx::Rect window_bounds = native_app_window_->GetRestoredBounds();
   std::vector<gfx::Display> displays = screen->GetAllDisplays();
 
@@ -1008,7 +1017,7 @@ void AppWindow::SaveWindowPosition() {
 
   gfx::Rect bounds = native_app_window_->GetRestoredBounds();
   gfx::Rect screen_bounds =
-      gfx::Screen::GetNativeScreen()->GetDisplayMatching(bounds).work_area();
+      gfx::Screen::GetScreen()->GetDisplayMatching(bounds).work_area();
   ui::WindowShowState window_state = native_app_window_->GetRestoredState();
   cache->SaveGeometry(
       extension_id(), window_key_, bounds, screen_bounds, window_state);
@@ -1074,7 +1083,7 @@ AppWindow::CreateParams AppWindow::LoadDefaults(CreateParams params)
                            &cached_state)) {
       // App window has cached screen bounds, make sure it fits on screen in
       // case the screen resolution changed.
-      gfx::Screen* screen = gfx::Screen::GetNativeScreen();
+      gfx::Screen* screen = gfx::Screen::GetScreen();
       gfx::Display display = screen->GetDisplayMatching(cached_bounds);
       gfx::Rect current_screen_bounds = display.work_area();
       SizeConstraints constraints(params.GetWindowMinimumSize(gfx::Insets()),

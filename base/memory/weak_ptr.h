@@ -70,9 +70,9 @@
 #ifndef BASE_MEMORY_WEAK_PTR_H_
 #define BASE_MEMORY_WEAK_PTR_H_
 
-#include "base/basictypes.h"
 #include "base/base_export.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
 #include "base/template_util.h"
@@ -107,6 +107,7 @@ class BASE_EXPORT WeakReference {
   };
 
   WeakReference();
+  WeakReference(const WeakReference& other);
   explicit WeakReference(const Flag* flag);
   ~WeakReference();
 
@@ -161,8 +162,8 @@ class SupportsWeakPtrBase {
   static WeakPtr<Derived> StaticAsWeakPtr(Derived* t) {
     typedef
         is_convertible<Derived, internal::SupportsWeakPtrBase&> convertible;
-    COMPILE_ASSERT(convertible::value,
-                   AsWeakPtr_argument_inherits_from_SupportsWeakPtr);
+    static_assert(convertible::value,
+                  "AsWeakPtr argument must inherit from SupportsWeakPtr");
     return AsWeakPtrImpl<Derived>(t, *t);
   }
 
@@ -218,27 +219,38 @@ class WeakPtr : public internal::WeakPtrBase {
     return get();
   }
 
-  // Allow WeakPtr<element_type> to be used in boolean expressions, but not
-  // implicitly convertible to a real bool (which is dangerous).
+  void reset() {
+    ref_ = internal::WeakReference();
+    ptr_ = NULL;
+  }
+
+  // Implement "Safe Bool Idiom"
+  // https://en.wikibooks.org/wiki/More_C%2B%2B_Idioms/Safe_bool
   //
-  // Note that this trick is only safe when the == and != operators
-  // are declared explicitly, as otherwise "weak_ptr1 == weak_ptr2"
-  // will compile but do the wrong thing (i.e., convert to Testable
-  // and then do the comparison).
+  // Allow WeakPtr<element_type> to be used in boolean expressions such as
+  //   if (weak_ptr_instance)
+  // But do not become convertible to a real bool (which is dangerous).
+  //   Implementation requires:
+  //     typedef Testable
+  //     operator Testable() const
+  //     operator==
+  //     operator!=
+  //
+  // == and != operators must be declared explicitly or dissallowed, as
+  // otherwise "ptr1 == ptr2" will compile but do the wrong thing (i.e., convert
+  // to Testable and then do the comparison).
+  //
+  // C++11 provides for "explicit operator bool()", however it is currently
+  // banned due to MSVS2013. https://chromium-cpp.appspot.com/#core-blacklist
  private:
   typedef T* WeakPtr::*Testable;
 
  public:
   operator Testable() const { return get() ? &WeakPtr::ptr_ : NULL; }
 
-  void reset() {
-    ref_ = internal::WeakReference();
-    ptr_ = NULL;
-  }
-
  private:
-  // Explicitly declare comparison operators as required by the bool
-  // trick, but keep them private.
+  // Explicitly declare comparison operators as required by the "Safe Bool
+  // Idiom", but keep them private.
   template <class U> bool operator==(WeakPtr<U> const&) const;
   template <class U> bool operator!=(WeakPtr<U> const&) const;
 

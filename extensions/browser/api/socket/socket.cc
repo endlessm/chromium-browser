@@ -90,7 +90,7 @@ bool Socket::SetKeepAlive(bool enable, int delay) { return false; }
 bool Socket::SetNoDelay(bool no_delay) { return false; }
 
 int Socket::Listen(const std::string& address,
-                   uint16 port,
+                   uint16_t port,
                    int backlog,
                    std::string* error_msg) {
   *error_msg = kSocketTypeNotSupported;
@@ -103,7 +103,7 @@ void Socket::Accept(const AcceptCompletionCallback& callback) {
 
 // static
 bool Socket::StringAndPortToIPEndPoint(const std::string& ip_address_str,
-                                       uint16 port,
+                                       uint16_t port,
                                        net::IPEndPoint* ip_end_point) {
   DCHECK(ip_end_point);
   net::IPAddressNumber ip_number;
@@ -116,7 +116,7 @@ bool Socket::StringAndPortToIPEndPoint(const std::string& ip_address_str,
 
 void Socket::IPEndPointToStringAndPort(const net::IPEndPoint& address,
                                        std::string* ip_address_str,
-                                       uint16* port) {
+                                       uint16_t* port) {
   DCHECK(ip_address_str);
   DCHECK(port);
   *ip_address_str = address.ToStringWithoutPort();
@@ -134,6 +134,8 @@ Socket::WriteRequest::WriteRequest(scoped_refptr<net::IOBuffer> io_buffer,
       byte_count(byte_count),
       callback(callback),
       bytes_written(0) {}
+
+Socket::WriteRequest::WriteRequest(const WriteRequest& other) = default;
 
 Socket::WriteRequest::~WriteRequest() {}
 

@@ -139,7 +139,6 @@
 //<include src="providers_model.js">
 //<include src="ui/actions_submenu.js">
 //<include src="ui/banners.js" >
-//<include src="ui/conflict_dialog.js">
 //<include src="ui/default_task_dialog.js">
 //<include src="ui/dialog_footer.js">
 //<include src="ui/directory_tree.js">
@@ -151,6 +150,8 @@
 //<include src="ui/file_list_selection_model.js">
 //<include src="ui/file_table.js">
 //<include src="ui/file_table_list.js">
+//<include src="ui/files_alert_dialog.js">
+//<include src="ui/files_confirm_dialog.js">
 //<include src="ui/files_menu.js">
 //<include src="ui/gear_menu.js">
 //<include src="ui/list_container.js">

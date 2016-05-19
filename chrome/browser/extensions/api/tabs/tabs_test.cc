@@ -2,17 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <string>
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
 #include "chrome/browser/extensions/api/tabs/tabs_api.h"
@@ -30,6 +33,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/page_zoom.h"
@@ -42,7 +46,7 @@
 #include "extensions/common/test_util.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -160,8 +164,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionTabsTest, GetWindow) {
 
   // Popup.
   Browser* popup_browser = new Browser(
-      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(),
-                            browser()->host_desktop_type()));
+      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile()));
   function = new WindowsGetFunction();
   function->set_extension(extension.get());
   result.reset(utils::ToDictionary(
@@ -637,8 +640,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionTabsTest, DontCreateTabInClosingPopupWindow) {
   // a new tab in it. Tab should not be opened in the popup window, but in a
   // tabbed browser window.
   Browser* popup_browser = new Browser(
-      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(),
-                            browser()->host_desktop_type()));
+      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile()));
   int window_id = ExtensionTabUtil::GetWindowId(popup_browser);
   chrome::CloseWindow(popup_browser);
 
@@ -906,11 +908,9 @@ Browser* ExtensionWindowLastFocusedTest::CreateBrowserWithEmptyTab(
   Browser* new_browser;
   if (as_popup)
     new_browser = new Browser(
-        Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(),
-                              browser()->host_desktop_type()));
+        Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile()));
   else
-    new_browser = new Browser(Browser::CreateParams(
-        browser()->profile(), browser()->host_desktop_type()));
+    new_browser = new Browser(Browser::CreateParams(browser()->profile()));
   AddBlankTabAndShow(new_browser);
   return new_browser;
 }
@@ -1267,8 +1267,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionTabsTest, FilteredEvents) {
       " \"minWidth\": 200, \"minHeight\": 200,"
       " \"maxWidth\": 400, \"maxHeight\": 400}}");
 
-  Browser* browser_window = new Browser(Browser::CreateParams(
-      browser()->profile(), browser()->host_desktop_type()));
+  Browser* browser_window =
+      new Browser(Browser::CreateParams(browser()->profile()));
   AddBlankTabAndShow(browser_window);
 
   DevToolsWindow* devtools_window =
@@ -1608,15 +1608,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionTabsZoomTest, ZoomSettings) {
   // load without causing an error page load), (2) have different domains, and
   // (3) are zoomable by the extension API (this last condition rules out
   // chrome:// urls). We achieve this by noting that about:blank meets these
-  // requirements, allowing us to spin up a spawned http server on localhost to
-  // get the other domain.
-  net::SpawnedTestServer http_server(
-      net::SpawnedTestServer::TYPE_HTTP,
-      net::SpawnedTestServer::kLocalhost,
-      base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  // requirements, allowing us to spin up an embedded http server on localhost
+  // to get the other domain.
+  net::EmbeddedTestServer http_server;
+  http_server.ServeFilesFromSourceDirectory("chrome/test/data");
   ASSERT_TRUE(http_server.Start());
 
-  GURL url_A = http_server.GetURL("files/simple.html");
+  GURL url_A = http_server.GetURL("/simple.html");
   GURL url_B("about:blank");
 
   // Tabs A1 and A2 are navigated to the same origin, while B is navigated
@@ -1675,13 +1673,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionTabsZoomTest, ZoomSettings) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionTabsZoomTest, PerTabResetsOnNavigation) {
-  net::SpawnedTestServer http_server(
-      net::SpawnedTestServer::TYPE_HTTP,
-      net::SpawnedTestServer::kLocalhost,
-      base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  net::EmbeddedTestServer http_server;
+  http_server.ServeFilesFromSourceDirectory("chrome/test/data");
   ASSERT_TRUE(http_server.Start());
 
-  GURL url_A = http_server.GetURL("files/simple.html");
+  GURL url_A = http_server.GetURL("/simple.html");
   GURL url_B("about:blank");
 
   content::WebContents* web_contents = OpenUrlAndWaitForLoad(url_A);

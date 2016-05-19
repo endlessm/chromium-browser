@@ -6,13 +6,11 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
-#include "base/prefs/pref_member.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -20,6 +18,7 @@
 #include "base/task_runner_util.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_completion_blocker.h"
 #include "chrome/browser/download/download_crx_util.h"
@@ -38,10 +37,14 @@
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_member.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/notification_source.h"
@@ -49,7 +52,7 @@
 #include "net/base/filename_util.h"
 #include "net/base/mime_util.h"
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/android/download/chrome_download_manager_overwrite_infobar_delegate.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #endif
@@ -211,7 +214,7 @@ ChromeDownloadManagerDelegate::GetDownloadIdReceiverCallback() {
                     weak_ptr_factory_.GetWeakPtr());
 }
 
-void ChromeDownloadManagerDelegate::SetNextId(uint32 next_id) {
+void ChromeDownloadManagerDelegate::SetNextId(uint32_t next_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!profile_->IsOffTheRecord());
   DCHECK_NE(content::DownloadItem::kInvalidId, next_id);
@@ -345,7 +348,7 @@ bool ChromeDownloadManagerDelegate::IsDownloadReadyForCompletion(
 }
 
 void ChromeDownloadManagerDelegate::ShouldCompleteDownloadInternal(
-    uint32 download_id,
+    uint32_t download_id,
     const base::Closure& user_complete_callback) {
   DownloadItem* item = download_manager_->GetDownload(download_id);
   if (!item)
@@ -456,8 +459,7 @@ void ChromeDownloadManagerDelegate::OpenDownload(DownloadItem* download) {
   scoped_ptr<chrome::ScopedTabbedBrowserDisplayer> browser_displayer;
   if (!browser ||
       !browser->CanSupportWindowFeature(Browser::FEATURE_TABSTRIP)) {
-    browser_displayer.reset(new chrome::ScopedTabbedBrowserDisplayer(
-        profile_, chrome::GetActiveDesktop()));
+    browser_displayer.reset(new chrome::ScopedTabbedBrowserDisplayer(profile_));
     browser = browser_displayer->browser();
   }
   content::OpenURLParams params(
@@ -466,7 +468,12 @@ void ChromeDownloadManagerDelegate::OpenDownload(DownloadItem* download) {
       NEW_FOREGROUND_TAB,
       ui::PAGE_TRANSITION_LINK,
       false);
-  browser->OpenURL(params);
+
+  if (download->GetMimeType() == "application/x-x509-user-cert")
+    chrome::ShowSettingsSubPage(browser, "certificates");
+  else
+    browser->OpenURL(params);
+
   RecordDownloadOpenMethod(DOWNLOAD_OPEN_METHOD_DEFAULT_BROWSER);
 #else
   // ShouldPreferOpeningInBrowser() should never be true on Android.
@@ -580,7 +587,7 @@ void ChromeDownloadManagerDelegate::PromptUserForDownloadPath(
     const base::FilePath& suggested_path,
     const DownloadTargetDeterminerDelegate::FileSelectedCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
   chrome::android::ChromeDownloadManagerOverwriteInfoBarDelegate::Create(
       InfoBarService::FromWebContents(download->GetWebContents()),
       suggested_path, callback);
@@ -642,7 +649,7 @@ void ChromeDownloadManagerDelegate::GetFileMimeType(
 
 #if defined(FULL_SAFE_BROWSING)
 void ChromeDownloadManagerDelegate::CheckClientDownloadDone(
-    uint32 download_id,
+    uint32_t download_id,
     DownloadProtectionService::DownloadCheckResult result) {
   DownloadItem* item = download_manager_->GetDownload(download_id);
   if (!item || (item->GetState() != DownloadItem::IN_PROGRESS))
@@ -718,7 +725,7 @@ void ChromeDownloadManagerDelegate::Observe(
 }
 
 void ChromeDownloadManagerDelegate::OnDownloadTargetDetermined(
-    int32 download_id,
+    int32_t download_id,
     const content::DownloadTargetCallback& callback,
     scoped_ptr<DownloadTargetInfo> target_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -729,6 +736,10 @@ void ChromeDownloadManagerDelegate::OnDownloadTargetDetermined(
         target_info->is_filetype_handled_safely)
       DownloadItemModel(item).SetShouldPreferOpeningInBrowser(true);
 
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+    if (item->GetOriginalMimeType() == "application/x-x509-user-cert")
+      DownloadItemModel(item).SetShouldPreferOpeningInBrowser(true);
+#endif
 
     DownloadItemModel(item).SetDangerLevel(target_info->danger_level);
   }
@@ -740,8 +751,7 @@ void ChromeDownloadManagerDelegate::OnDownloadTargetDetermined(
 
 bool ChromeDownloadManagerDelegate::IsOpenInBrowserPreferreredForFile(
     const base::FilePath& path) {
-#if defined(OS_WIN) || defined(OS_LINUX) || \
-    (defined(OS_MACOSX) && !defined(OS_IOS))
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_MACOSX)
   if (path.MatchesExtension(FILE_PATH_LITERAL(".pdf"))) {
     return !download_prefs_->ShouldOpenPdfInSystemReader();
   }

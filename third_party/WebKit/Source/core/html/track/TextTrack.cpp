@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/track/TextTrack.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -172,7 +171,7 @@ void TextTrack::setMode(const AtomicString& mode)
 
     m_mode = mode;
 
-    if (mode != disabledKeyword() && readinessState() == Loaded) {
+    if (mode != disabledKeyword() && getReadinessState() == Loaded) {
         if (m_cues && cueTimeline())
             cueTimeline()->addCues(this, m_cues.get());
     }

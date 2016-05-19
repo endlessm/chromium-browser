@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_store_observer_mock.h"
 #include "base/values.h"
+#include "components/prefs/pref_store_observer_mock.h"
 #include "extensions/browser/extension_pref_value_map.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -26,7 +28,7 @@ static base::Value* CreateVal(const char* str) {
   return new base::StringValue(str);
 }
 
-static base::Time CreateTime(int64 t) {
+static base::Time CreateTime(int64_t t) {
   return base::Time::FromInternalValue(t);
 }
 

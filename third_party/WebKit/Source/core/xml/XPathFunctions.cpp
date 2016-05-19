@@ -25,7 +25,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/xml/XPathFunctions.h"
 
 #include "core/XMLNames.h"
@@ -365,7 +364,7 @@ static inline String expandedNameLocalPart(Node* node)
 {
     // The local part of an XPath expanded-name matches DOM local name for most node types, except for namespace nodes and processing instruction nodes.
     // But note that Blink does not support namespace nodes.
-    switch (node->nodeType()) {
+    switch (node->getNodeType()) {
     case Node::ELEMENT_NODE:
         return toElement(node)->localName();
     case Node::ATTRIBUTE_NODE:
@@ -379,7 +378,7 @@ static inline String expandedNameLocalPart(Node* node)
 
 static inline String expandedNamespaceURI(Node* node)
 {
-    switch (node->nodeType()) {
+    switch (node->getNodeType()) {
     case Node::ELEMENT_NODE:
         return toElement(node)->namespaceURI();
     case Node::ATTRIBUTE_NODE:
@@ -393,7 +392,7 @@ static inline String expandedName(Node* node)
 {
     AtomicString prefix;
 
-    switch (node->nodeType()) {
+    switch (node->getNodeType()) {
     case Node::ELEMENT_NODE:
         prefix = toElement(node)->prefix();
         break;
@@ -767,5 +766,5 @@ Function* createFunction(const String& name, HeapVector<Member<Expression>>& arg
     return function;
 }
 
-}
-}
+} // namespace XPath
+} // namespace blink

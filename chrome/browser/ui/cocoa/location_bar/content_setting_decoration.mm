@@ -6,24 +6,25 @@
 
 #include <algorithm>
 
-#include "base/prefs/pref_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_content_setting_bubble_model_delegate.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/content_settings/content_setting_bubble_cocoa.h"
 #include "chrome/browser/ui/cocoa/last_active_browser_cocoa.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 #include "grit/theme_resources.h"
-#include "net/base/net_util.h"
 #include "ui/base/cocoa/appkit_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/mac/coordinate_conversion.h"
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
 
 using content::WebContents;
@@ -175,15 +176,16 @@ ContentSettingDecoration::~ContentSettingDecoration() {
 bool ContentSettingDecoration::UpdateFromWebContents(
     WebContents* web_contents) {
   bool was_visible = IsVisible();
-  int old_icon = content_setting_image_model_->icon_id();
+  int old_icon = content_setting_image_model_->raster_icon_id();
   content_setting_image_model_->UpdateFromWebContents(web_contents);
   SetVisible(content_setting_image_model_->is_visible());
-  bool decoration_changed = was_visible != IsVisible() ||
-      old_icon != content_setting_image_model_->icon_id();
+  bool decoration_changed =
+      was_visible != IsVisible() ||
+      old_icon != content_setting_image_model_->raster_icon_id();
   if (IsVisible()) {
-    SetImage(content_setting_image_model_->icon().ToNSImage());
-    SetToolTip(base::SysUTF8ToNSString(
-        content_setting_image_model_->get_tooltip()));
+    SetImage(content_setting_image_model_->raster_icon().ToNSImage());
+    SetToolTip(
+        base::SysUTF16ToNSString(content_setting_image_model_->get_tooltip()));
 
     // Check if there is an animation and start it if it hasn't yet started.
     bool has_animated_text =
@@ -274,10 +276,19 @@ bool ContentSettingDecoration::OnMousePressed(NSRect frame, NSPoint location) {
           browser->content_setting_bubble_model_delegate(),
           web_contents,
           profile_);
-  [ContentSettingBubbleController showForModel:model
-                                   webContents:web_contents
-                                  parentWindow:[field window]
-                                    anchoredAt:anchor];
+
+  if (chrome::ToolkitViewsDialogsEnabled()) {
+    gfx::Point origin = gfx::ScreenPointFromNSPoint(anchor);
+    chrome::ContentSettingBubbleViewsBridge::Show(
+        [web_contents->GetTopLevelNativeWindow() contentView],
+        model, web_contents, origin);
+  } else {
+    [ContentSettingBubbleController showForModel:model
+                                     webContents:web_contents
+                                    parentWindow:[field window]
+                                      anchoredAt:anchor];
+  }
+
   return true;
 }
 

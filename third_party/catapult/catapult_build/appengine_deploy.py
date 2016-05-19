@@ -8,7 +8,6 @@
 
 import subprocess
 import sys
-import tempfile
 
 from catapult_build import module_finder
 from catapult_build import temp_deployment_dir
@@ -29,7 +28,8 @@ def AppcfgUpdate(paths, app_id):
     # binary dependency manager.
     print 'This script requires the App Engine SDK to be in PYTHONPATH.'
     sys.exit(1)
-  with temp_deployment_dir.TempDeploymentDir(paths) as temp_dir:
+  with temp_deployment_dir.TempDeploymentDir(
+      paths, use_symlinks=False) as temp_dir:
     print 'Deploying from "%s".' % temp_dir
     _Run([
         module_finder.FindModule('appcfg'),

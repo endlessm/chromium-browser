@@ -16,7 +16,46 @@ namespace {
 // How often to send raw events.
 const int kSendRawEventsIntervalSecs = 1;
 
+class TransportClient : public media::cast::CastTransportSender::Client {
+ public:
+  TransportClient(int32_t channel_id,
+                  cast::CastTransportHostFilter* cast_transport_host_filter)
+      : channel_id_(channel_id),
+        cast_transport_host_filter_(cast_transport_host_filter) {}
+
+  void OnStatusChanged(media::cast::CastTransportStatus status) final;
+  void OnLoggingEventsReceived(
+      scoped_ptr<std::vector<media::cast::FrameEvent>> frame_events,
+      scoped_ptr<std::vector<media::cast::PacketEvent>> packet_events) final;
+  void ProcessRtpPacket(scoped_ptr<media::cast::Packet> packet) final;
+
+ private:
+  const int32_t channel_id_;
+  cast::CastTransportHostFilter* const cast_transport_host_filter_;
+
+  DISALLOW_COPY_AND_ASSIGN(TransportClient);
+};
+
+void TransportClient::OnStatusChanged(media::cast::CastTransportStatus status) {
+  cast_transport_host_filter_->Send(
+      new CastMsg_NotifyStatusChange(channel_id_, status));
 }
+
+void TransportClient::OnLoggingEventsReceived(
+    scoped_ptr<std::vector<media::cast::FrameEvent>> frame_events,
+    scoped_ptr<std::vector<media::cast::PacketEvent>> packet_events) {
+  if (frame_events->empty() && packet_events->empty())
+    return;
+  cast_transport_host_filter_->Send(
+      new CastMsg_RawEvents(channel_id_, *packet_events, *frame_events));
+}
+
+void TransportClient::ProcessRtpPacket(scoped_ptr<media::cast::Packet> packet) {
+  cast_transport_host_filter_->Send(
+      new CastMsg_ReceivedPacket(channel_id_, *packet));
+}
+
+}  // namespace
 
 namespace cast {
 
@@ -25,6 +64,12 @@ CastTransportHostFilter::CastTransportHostFilter()
       weak_factory_(this) {}
 
 CastTransportHostFilter::~CastTransportHostFilter() {}
+
+void CastTransportHostFilter::OnStatusChanged(
+    int32_t channel_id,
+    media::cast::CastTransportStatus status) {
+  Send(new CastMsg_NotifyStatusChange(channel_id, status));
+}
 
 bool CastTransportHostFilter::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
@@ -44,86 +89,58 @@ bool CastTransportHostFilter::OnMessageReceived(const IPC::Message& message) {
                         OnAddValidSsrc)
     IPC_MESSAGE_HANDLER(CastHostMsg_SendRtcpFromRtpReceiver,
                         OnSendRtcpFromRtpReceiver)
-    IPC_MESSAGE_UNHANDLED(handled = false);
-  IPC_END_MESSAGE_MAP();
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
   return handled;
 }
 
-void CastTransportHostFilter::ReceivedPacket(
-    int32 channel_id,
-    scoped_ptr<media::cast::Packet> packet) {
-  Send(new CastMsg_ReceivedPacket(channel_id, *packet));
-}
-
-void CastTransportHostFilter::NotifyStatusChange(
-    int32 channel_id,
-    media::cast::CastTransportStatus status) {
-  Send(new CastMsg_NotifyStatusChange(channel_id, status));
-}
-
-void CastTransportHostFilter::SendRawEvents(
-    int32 channel_id,
-    scoped_ptr<std::vector<media::cast::FrameEvent>> frame_events,
-    scoped_ptr<std::vector<media::cast::PacketEvent>> packet_events) {
-  if (frame_events->empty() && packet_events->empty())
-    return;
-  Send(new CastMsg_RawEvents(channel_id, *packet_events, *frame_events));
-}
-
-void CastTransportHostFilter::SendRtt(int32 channel_id,
-                                      uint32 ssrc,
+void CastTransportHostFilter::SendRtt(int32_t channel_id,
+                                      uint32_t ssrc,
                                       base::TimeDelta rtt) {
   Send(new CastMsg_Rtt(channel_id, ssrc, rtt));
 }
 
 void CastTransportHostFilter::SendCastMessage(
-    int32 channel_id,
-    uint32 ssrc,
+    int32_t channel_id,
+    uint32_t ssrc,
     const media::cast::RtcpCastMessage& cast_message) {
   Send(new CastMsg_RtcpCastMessage(channel_id, ssrc, cast_message));
 }
 
-void CastTransportHostFilter::OnNew(
-    int32 channel_id,
-    const net::IPEndPoint& local_end_point,
-    const net::IPEndPoint& remote_end_point,
-    const base::DictionaryValue& options) {
+void CastTransportHostFilter::OnNew(int32_t channel_id,
+                                    const net::IPEndPoint& local_end_point,
+                                    const net::IPEndPoint& remote_end_point,
+                                    const base::DictionaryValue& options) {
   if (!power_save_blocker_) {
     DVLOG(1) << ("Preventing the application from being suspended while one or "
                  "more transports are active for Cast Streaming.");
-    power_save_blocker_ =
-        content::PowerSaveBlocker::Create(
-            content::PowerSaveBlocker::kPowerSaveBlockPreventAppSuspension,
-            content::PowerSaveBlocker::kReasonOther,
-            "Cast is streaming content to a remote receiver").Pass();
+    power_save_blocker_ = content::PowerSaveBlocker::Create(
+        content::PowerSaveBlocker::kPowerSaveBlockPreventAppSuspension,
+        content::PowerSaveBlocker::kReasonOther,
+        "Cast is streaming content to a remote receiver");
   }
 
   if (id_map_.Lookup(channel_id)) {
     id_map_.Remove(channel_id);
   }
 
+  scoped_ptr<media::cast::UdpTransport> udp_transport(
+      new media::cast::UdpTransport(
+          g_browser_process->net_log(), base::ThreadTaskRunnerHandle::Get(),
+          local_end_point, remote_end_point,
+          base::Bind(&CastTransportHostFilter::OnStatusChanged,
+                     weak_factory_.GetWeakPtr(), channel_id)));
+  udp_transport->SetUdpOptions(options);
   scoped_ptr<media::cast::CastTransportSender> sender =
       media::cast::CastTransportSender::Create(
-          g_browser_process->net_log(),
-          &clock_,
-          local_end_point,
-          remote_end_point,
-          make_scoped_ptr(options.DeepCopy()),
-          base::Bind(&CastTransportHostFilter::NotifyStatusChange,
-                     weak_factory_.GetWeakPtr(),
-                     channel_id),
-          base::Bind(&CastTransportHostFilter::SendRawEvents,
-                     weak_factory_.GetWeakPtr(),
-                     channel_id),
-          base::TimeDelta::FromSeconds(kSendRawEventsIntervalSecs),
-          base::Bind(&CastTransportHostFilter::ReceivedPacket,
-                     weak_factory_.GetWeakPtr(),
-                     channel_id),
-          base::ThreadTaskRunnerHandle::Get());
+          &clock_, base::TimeDelta::FromSeconds(kSendRawEventsIntervalSecs),
+          make_scoped_ptr(new TransportClient(channel_id, this)),
+          std::move(udp_transport), base::ThreadTaskRunnerHandle::Get());
+  sender->SetOptions(options);
   id_map_.AddWithID(sender.release(), channel_id);
 }
 
-void CastTransportHostFilter::OnDelete(int32 channel_id) {
+void CastTransportHostFilter::OnDelete(int32_t channel_id) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
     id_map_.Remove(channel_id);
@@ -141,7 +158,7 @@ void CastTransportHostFilter::OnDelete(int32 channel_id) {
 }
 
 void CastTransportHostFilter::OnInitializeAudio(
-    int32 channel_id,
+    int32_t channel_id,
     const media::cast::CastTransportRtpConfig& config) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
@@ -160,7 +177,7 @@ void CastTransportHostFilter::OnInitializeAudio(
 }
 
 void CastTransportHostFilter::OnInitializeVideo(
-    int32 channel_id,
+    int32_t channel_id,
     const media::cast::CastTransportRtpConfig& config) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
@@ -179,8 +196,8 @@ void CastTransportHostFilter::OnInitializeVideo(
 }
 
 void CastTransportHostFilter::OnInsertFrame(
-    int32 channel_id,
-    uint32 ssrc,
+    int32_t channel_id,
+    uint32_t ssrc,
     const media::cast::EncodedFrame& frame) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
@@ -192,8 +209,9 @@ void CastTransportHostFilter::OnInsertFrame(
 }
 
 void CastTransportHostFilter::OnCancelSendingFrames(
-    int32 channel_id, uint32 ssrc,
-    const std::vector<uint32>& frame_ids) {
+    int32_t channel_id,
+    uint32_t ssrc,
+    const std::vector<uint32_t>& frame_ids) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
     sender->CancelSendingFrames(ssrc, frame_ids);
@@ -204,8 +222,9 @@ void CastTransportHostFilter::OnCancelSendingFrames(
   }
 }
 
-void CastTransportHostFilter::OnResendFrameForKickstart(
-    int32 channel_id, uint32 ssrc, uint32 frame_id) {
+void CastTransportHostFilter::OnResendFrameForKickstart(int32_t channel_id,
+                                                        uint32_t ssrc,
+                                                        uint32_t frame_id) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
     sender->ResendFrameForKickstart(ssrc, frame_id);
@@ -217,10 +236,10 @@ void CastTransportHostFilter::OnResendFrameForKickstart(
 }
 
 void CastTransportHostFilter::OnSendSenderReport(
-    int32 channel_id,
-    uint32 ssrc,
+    int32_t channel_id,
+    uint32_t ssrc,
     base::TimeTicks current_time,
-    uint32 current_time_as_rtp_timestamp) {
+    media::cast::RtpTimeTicks current_time_as_rtp_timestamp) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
     sender->SendSenderReport(ssrc,
@@ -233,7 +252,8 @@ void CastTransportHostFilter::OnSendSenderReport(
   }
 }
 
-void CastTransportHostFilter::OnAddValidSsrc(int32 channel_id, uint32 ssrc) {
+void CastTransportHostFilter::OnAddValidSsrc(int32_t channel_id,
+                                             uint32_t ssrc) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
     sender->AddValidSsrc(ssrc);
@@ -245,7 +265,7 @@ void CastTransportHostFilter::OnAddValidSsrc(int32 channel_id, uint32 ssrc) {
 }
 
 void CastTransportHostFilter::OnSendRtcpFromRtpReceiver(
-    int32 channel_id,
+    int32_t channel_id,
     const media::cast::SendRtcpFromRtpReceiver_Params& params) {
   media::cast::CastTransportSender* sender = id_map_.Lookup(channel_id);
   if (sender) {
@@ -262,6 +282,5 @@ void CastTransportHostFilter::OnSendRtcpFromRtpReceiver(
         << "on non-existing channel";
   }
 }
-
 
 }  // namespace cast

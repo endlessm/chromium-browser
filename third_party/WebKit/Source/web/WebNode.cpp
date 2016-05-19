@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebNode.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -46,7 +45,6 @@
 #include "core/layout/LayoutPart.h"
 #include "modules/accessibility/AXObject.h"
 #include "modules/accessibility/AXObjectCacheImpl.h"
-#include "platform/Task.h"
 #include "platform/Widget.h"
 #include "public/platform/WebString.h"
 #include "public/platform/WebSuspendableTask.h"
@@ -182,7 +180,7 @@ bool WebNode::isTextNode() const
 
 bool WebNode::isCommentNode() const
 {
-    return m_private->nodeType() == Node::COMMENT_NODE;
+    return m_private->getNodeType() == Node::COMMENT_NODE;
 }
 
 bool WebNode::isFocusable() const
@@ -211,6 +209,11 @@ bool WebNode::isElementNode() const
 bool WebNode::isDocumentNode() const
 {
     return m_private->isDocumentNode();
+}
+
+bool WebNode::isDocumentTypeNode() const
+{
+    return m_private->getNodeType() == Node::DOCUMENT_TYPE_NODE;
 }
 
 void WebNode::dispatchEvent(const WebDOMEvent& event)

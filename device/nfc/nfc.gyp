@@ -50,5 +50,15 @@
         }],
       ],
     },
+    {
+      'target_name': 'device_nfc_mojo_bindings',
+      'type': 'static_library',
+      'includes': [
+        '../../mojo/mojom_bindings_generator.gypi',
+      ],
+      'sources': [
+        'nfc.mojom',
+      ],
+    },
   ],
 }

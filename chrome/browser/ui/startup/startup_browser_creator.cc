@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 
+#include <stddef.h>
+
 #include <algorithm>   // For max().
 #include <set>
 
@@ -18,11 +20,12 @@
 #include "base/files/file_util.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #include "base/profiler/scoped_profile.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -30,6 +33,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -59,6 +63,8 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/util.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/url_formatter/url_fixer.h"
@@ -92,6 +98,7 @@
 
 #if defined(OS_WIN)
 #include "chrome/browser/metrics/jumplist_metrics_win.h"
+#include "components/search_engines/desktop_search_utils.h"
 #endif
 
 #if defined(ENABLE_PRINT_PREVIEW)
@@ -159,10 +166,7 @@ class ProfileLaunchObserver : public content::NotificationObserver {
 
   void AddLaunched(Profile* profile) {
     launched_profiles_.insert(profile);
-    // Since the startup code only executes for browsers launched in
-    // desktop mode, i.e., HOST_DESKTOP_TYPE_NATIVE. Ash should never get here.
-    if (chrome::FindBrowserWithProfile(profile,
-                                       chrome::HOST_DESKTOP_TYPE_NATIVE)) {
+    if (chrome::FindBrowserWithProfile(profile)) {
       // A browser may get opened before we get initialized (e.g., in tests),
       // so we never see the NOTIFICATION_BROWSER_WINDOW_READY for it.
       opened_profiles_.insert(profile);
@@ -209,8 +213,7 @@ class ProfileLaunchObserver : public content::NotificationObserver {
   void ActivateProfile() {
     // We need to test again, in case the profile got deleted in the mean time.
     if (profile_to_activate_) {
-      Browser* browser = chrome::FindBrowserWithProfile(
-          profile_to_activate_, chrome::HOST_DESKTOP_TYPE_NATIVE);
+      Browser* browser = chrome::FindBrowserWithProfile(profile_to_activate_);
       // |profile| may never get launched, e.g., if it only had
       // incognito Windows and one of them was used to exit Chrome.
       // So it won't have a browser in that case.
@@ -279,8 +282,8 @@ bool ShowUserManagerOnStartupIfNeeded(
     // after clicking on a downloaded file in Guest mode).
     if ((!last_used_profile->IsGuestSession() &&
          !last_used_profile->IsSystemProfile()) ||
-        (chrome::GetTotalBrowserCountForProfile(
-           last_used_profile->GetOffTheRecordProfile()) > 0)) {
+        (chrome::GetBrowserCount(last_used_profile->GetOffTheRecordProfile()) >
+         0)) {
       return false;
     }
   }
@@ -300,8 +303,8 @@ bool ShowUserManagerOnStartupIfNeeded(
 
 StartupBrowserCreator::StartupBrowserCreator()
     : is_default_browser_dialog_suppressed_(false),
-      show_main_browser_window_(true) {
-}
+      show_main_browser_window_(true),
+      show_desktop_search_redirection_infobar_(false) {}
 
 StartupBrowserCreator::~StartupBrowserCreator() {}
 
@@ -323,7 +326,7 @@ bool StartupBrowserCreator::Start(const base::CommandLine& cmd_line,
   TRACK_SCOPED_REGION("Startup", "StartupBrowserCreator::Start");
   SCOPED_UMA_HISTOGRAM_TIMER("Startup.StartupBrowserCreator_Start");
   return ProcessCmdLineImpl(cmd_line, cur_dir, true, last_used_profile,
-                            last_opened_profiles, this);
+                            last_opened_profiles);
 }
 
 // static
@@ -365,22 +368,10 @@ bool StartupBrowserCreator::LaunchBrowser(
   if (!silent_launch) {
     StartupBrowserCreatorImpl lwp(cur_dir, command_line, this, is_first_run);
     const std::vector<GURL> urls_to_launch =
-        GetURLsFromCommandLine(command_line, cur_dir, profile);
-    chrome::HostDesktopType host_desktop_type =
-        chrome::HOST_DESKTOP_TYPE_NATIVE;
-
-#if defined(USE_ASH) && !defined(OS_CHROMEOS)
-    // We want to maintain only one type of instance for now, either ASH
-    // or desktop.
-    // TODO(shrikant): Remove this code once we decide on running both desktop
-    // and ASH instances side by side.
-    if (ash::Shell::HasInstance())
-      host_desktop_type = chrome::HOST_DESKTOP_TYPE_ASH;
-#endif
-
-    const bool launched = lwp.Launch(profile, urls_to_launch,
-                               in_synchronous_profile_launch_,
-                               host_desktop_type);
+        GetURLsFromCommandLine(command_line, cur_dir, profile,
+                               &show_desktop_search_redirection_infobar_);
+    const bool launched =
+        lwp.Launch(profile, urls_to_launch, in_synchronous_profile_launch_);
     in_synchronous_profile_launch_ = false;
     if (!launched) {
       LOG(ERROR) << "launch error";
@@ -524,7 +515,11 @@ const wchar_t* StartupBrowserCreator::GetDefaultBrowserUrl() {
 std::vector<GURL> StartupBrowserCreator::GetURLsFromCommandLine(
     const base::CommandLine& command_line,
     const base::FilePath& cur_dir,
-    Profile* profile) {
+    Profile* profile,
+    bool* show_desktop_search_redirection_infobar) {
+  DCHECK(profile);
+  DCHECK(show_desktop_search_redirection_infobar);
+
   std::vector<GURL> urls;
 
   const base::CommandLine::StringVector& params = command_line.GetArgs();
@@ -549,6 +544,19 @@ std::vector<GURL> StartupBrowserCreator::GetURLsFromCommandLine(
     // Allow it until this bug is fixed.
     //  http://code.google.com/p/chromium/issues/detail?id=60641
     GURL url = GURL(param.MaybeAsASCII());
+
+#if defined(OS_WIN)
+    // Replace desktop search URL by a default search engine URL if needed.
+    // Ignore cases where there are multiple command line arguments, because
+    // desktop search never passes multiple URLs to the browser.
+    if (params.size() == 1) {
+      *show_desktop_search_redirection_infobar =
+          ReplaceDesktopSearchURLWithDefaultSearchURLIfNeeded(
+              profile->GetPrefs(),
+              TemplateURLServiceFactory::GetForProfile(profile), &url);
+    }
+#endif  // defined(OS_WIN)
+
     // http://crbug.com/371030: Only use URLFixerUpper if we don't have a valid
     // URL, otherwise we will look in the current directory for a file named
     // 'about' if the browser was started with a about:foo argument.
@@ -567,8 +575,11 @@ std::vector<GURL> StartupBrowserCreator::GetURLsFromCommandLine(
           // line. See ExistingUserController::OnLoginSuccess.
           (url.spec().find(chrome::kChromeUISettingsURL) == 0) ||
 #else
-          ((url.spec().find(std::string(chrome::kChromeUISettingsURL) +
-                            chrome::kResetProfileSettingsSubPage) == 0)) ||
+          // Exposed for external cleaners to offer a settings reset to the
+          // user. So the URL must match exactly, without any param or prefix.
+          (url.spec() ==
+           std::string(chrome::kChromeUISettingsURL) +
+               chrome::kResetProfileSettingsSubPage) ||
 #endif
           (url.spec().compare(url::kAboutBlankURL) == 0)) {
         urls.push_back(url);
@@ -578,14 +589,12 @@ std::vector<GURL> StartupBrowserCreator::GetURLsFromCommandLine(
   return urls;
 }
 
-// static
 bool StartupBrowserCreator::ProcessCmdLineImpl(
     const base::CommandLine& command_line,
     const base::FilePath& cur_dir,
     bool process_startup,
     Profile* last_used_profile,
-    const Profiles& last_opened_profiles,
-    StartupBrowserCreator* browser_creator) {
+    const Profiles& last_opened_profiles) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   TRACE_EVENT0("startup", "StartupBrowserCreator::ProcessCmdLineImpl");
 
@@ -700,7 +709,7 @@ bool StartupBrowserCreator::ProcessCmdLineImpl(
     // chrome to shut down.
     // TODO(jackhou): Do this properly once keep-alive is handled by the
     // background page of apps. Tracked at http://crbug.com/175381
-    if (chrome::GetTotalBrowserCountForProfile(last_used_profile) != 0)
+    if (chrome::GetBrowserCount(last_used_profile) != 0)
       return true;
   }
 
@@ -721,7 +730,7 @@ bool StartupBrowserCreator::ProcessCmdLineImpl(
     // chrome to shut down.
     // TODO(jackhou): Do this properly once keep-alive is handled by the
     // background page of apps. Tracked at http://crbug.com/175381
-    if (chrome::GetTotalBrowserCountForProfile(last_used_profile) != 0)
+    if (chrome::GetBrowserCount(last_used_profile) != 0)
       return true;
   }
 
@@ -766,9 +775,8 @@ bool StartupBrowserCreator::ProcessCmdLineImpl(
     Profile* profile_to_open = last_used_profile->IsGuestSession() ?
         last_used_profile->GetOffTheRecordProfile() : last_used_profile;
 
-    if (!browser_creator->LaunchBrowser(command_line, profile_to_open,
-                                        cur_dir, is_process_startup,
-                                        is_first_run)) {
+    if (!LaunchBrowser(command_line, profile_to_open, cur_dir,
+                       is_process_startup, is_first_run)) {
       return false;
     }
   } else {
@@ -808,9 +816,9 @@ bool StartupBrowserCreator::ProcessCmdLineImpl(
           !HasPendingUncleanExit(*it))
         continue;
 
-      if (!browser_creator->LaunchBrowser((*it == last_used_profile) ?
-          command_line : command_line_without_urls, *it, cur_dir,
-          is_process_startup, is_first_run))
+      if (!LaunchBrowser((*it == last_used_profile) ? command_line
+                                                    : command_line_without_urls,
+                         *it, cur_dir, is_process_startup, is_first_run))
         return false;
       // We've launched at least one browser.
       is_process_startup = chrome::startup::IS_NOT_PROCESS_STARTUP;
@@ -864,7 +872,9 @@ void StartupBrowserCreator::ProcessCommandLineOnProfileCreated(
     Profile::CreateStatus status) {
   if (status != Profile::CREATE_STATUS_INITIALIZED)
     return;
-  ProcessCmdLineImpl(command_line, cur_dir, false, profile, Profiles(), NULL);
+  StartupBrowserCreator startup_browser_creator;
+  startup_browser_creator.ProcessCmdLineImpl(command_line, cur_dir, false,
+                                             profile, Profiles());
 }
 
 // static
@@ -877,14 +887,15 @@ void StartupBrowserCreator::ProcessCommandLineAlreadyRunning(
 
   // The profile isn't loaded yet and so needs to be loaded asynchronously.
   if (!profile) {
-    profile_manager->CreateProfileAsync(profile_path,
-        base::Bind(&StartupBrowserCreator::ProcessCommandLineOnProfileCreated,
-                   command_line, cur_dir), base::string16(), std::string(),
-                   std::string());
+    profile_manager->CreateProfileAsync(
+        profile_path,
+        base::Bind(&ProcessCommandLineOnProfileCreated, command_line, cur_dir),
+        base::string16(), std::string(), std::string());
     return;
   }
-
-  ProcessCmdLineImpl(command_line, cur_dir, false, profile, Profiles(), NULL);
+  StartupBrowserCreator startup_browser_creator;
+  startup_browser_creator.ProcessCmdLineImpl(command_line, cur_dir, false,
+                                             profile, Profiles());
 }
 
 // static
@@ -906,10 +917,8 @@ base::FilePath GetStartupProfilePath(const base::FilePath& user_data_dir,
 
   // If we are showing the app list then chrome isn't shown so load the app
   // list's profile rather than chrome's.
-  if (command_line.HasSwitch(switches::kShowAppList)) {
-    return AppListService::Get(chrome::HOST_DESKTOP_TYPE_NATIVE)->
-        GetProfilePath(user_data_dir);
-  }
+  if (command_line.HasSwitch(switches::kShowAppList))
+    return AppListService::Get()->GetProfilePath(user_data_dir);
 
   return g_browser_process->profile_manager()->GetLastUsedProfileDir(
       user_data_dir);

@@ -9,7 +9,7 @@
 
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "skia/ext/refptr.h"
 
 namespace content {
@@ -31,9 +31,9 @@ class AwPdfExporter {
   ~AwPdfExporter();
 
   void ExportToPdf(JNIEnv* env,
-                   jobject obj,
+                   const base::android::JavaParamRef<jobject>& obj,
                    int fd,
-                   jobject cancel_signal);
+                   const base::android::JavaParamRef<jobject>& cancel_signal);
 
  private:
   void InitPdfSettings(JNIEnv* env,

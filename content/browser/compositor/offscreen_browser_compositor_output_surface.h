@@ -5,9 +5,13 @@
 #ifndef CONTENT_BROWSER_COMPOSITOR_OFFSCREEN_BROWSER_COMPOSITOR_OUTPUT_SURFACE_H_
 #define CONTENT_BROWSER_COMPOSITOR_OFFSCREEN_BROWSER_COMPOSITOR_OUTPUT_SURFACE_H_
 
+#include <stdint.h>
+
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "content/browser/compositor/browser_compositor_output_surface.h"
 
 namespace ui {
@@ -34,7 +38,7 @@ class OffscreenBrowserCompositorOutputSurface
   // cc::OutputSurface:
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
-  void Reshape(const gfx::Size& size, float scale_factor) override;
+  void Reshape(const gfx::Size& size, float scale_factor, bool alpha) override;
   void BindFramebuffer() override;
   void SwapBuffers(cc::CompositorFrame* frame) override;
 
@@ -49,7 +53,7 @@ class OffscreenBrowserCompositorOutputSurface
   bool SurfaceShouldNotShowFramesAfterSuspendForRecycle() const override;
 #endif
 
-  uint32 fbo_;
+  uint32_t fbo_;
   bool is_backbuffer_discarded_;
   scoped_ptr<ReflectorTexture> reflector_texture_;
 

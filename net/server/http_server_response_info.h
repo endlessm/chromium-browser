@@ -5,6 +5,8 @@
 #ifndef NET_SERVER_HTTP_SERVER_RESPONSE_INFO_H_
 #define NET_SERVER_HTTP_SERVER_RESPONSE_INFO_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <utility>
 
@@ -18,6 +20,7 @@ class HttpServerResponseInfo {
   // Creates a 200 OK HttpServerResponseInfo.
   HttpServerResponseInfo();
   explicit HttpServerResponseInfo(HttpStatusCode status_code);
+  HttpServerResponseInfo(const HttpServerResponseInfo& other);
   ~HttpServerResponseInfo();
 
   static HttpServerResponseInfo CreateFor404();

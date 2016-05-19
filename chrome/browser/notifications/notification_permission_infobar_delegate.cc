@@ -30,6 +30,7 @@ NotificationPermissionInfobarDelegate::NotificationPermissionInfobarDelegate(
     const std::string& display_languages,
     const base::Callback<void(bool, bool)>& callback)
     : PermissionInfobarDelegate(requesting_frame,
+                                content::PermissionType::NOTIFICATIONS,
                                 CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
                                 callback),
       requesting_frame_(requesting_frame),
@@ -37,6 +38,11 @@ NotificationPermissionInfobarDelegate::NotificationPermissionInfobarDelegate(
 
 NotificationPermissionInfobarDelegate::~NotificationPermissionInfobarDelegate()
     {}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+NotificationPermissionInfobarDelegate::GetIdentifier() const {
+  return NOTIFICATION_PERMISSION_INFOBAR_DELEGATE;
+}
 
 int NotificationPermissionInfobarDelegate::GetIconId() const {
   return IDR_ANDROID_INFOBAR_NOTIFICATIONS;

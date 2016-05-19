@@ -11,6 +11,7 @@
 
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
@@ -55,8 +56,9 @@ class PermissionUpdateInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   static bool RegisterPermissionUpdateInfoBarDelegate(JNIEnv* env);
 
-  void OnPermissionResult(
-      JNIEnv* env, jobject obj, jboolean all_permissions_granted);
+  void OnPermissionResult(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& obj,
+                          jboolean all_permissions_granted);
 
  private:
   PermissionUpdateInfoBarDelegate(
@@ -65,6 +67,9 @@ class PermissionUpdateInfoBarDelegate : public ConfirmInfoBarDelegate {
       int permission_msg_id,
       const PermissionUpdatedCallback& callback);
   ~PermissionUpdateInfoBarDelegate() override;
+
+  // InfoBarDelegate:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
 
   // PermissionInfoBarDelegate:
   int GetIconId() const override;

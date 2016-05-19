@@ -2,15 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
-
 #include "platform/fonts/shaping/CachingWordShaper.h"
 
 #include "platform/fonts/FontCache.h"
 #include "platform/fonts/GlyphBuffer.h"
 #include "platform/fonts/shaping/CachingWordShapeIterator.h"
 #include "platform/fonts/shaping/ShapeResultTestInfo.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -19,19 +17,20 @@ protected:
     void SetUp() override
     {
         fontDescription.setComputedSize(12.0);
-        fontDescription.setScript(USCRIPT_LATIN);
+        fontDescription.setLocale("en");
+        ASSERT_EQ(USCRIPT_LATIN, fontDescription.script());
         fontDescription.setGenericFamily(FontDescription::StandardFamily);
 
-        font = adoptPtr(new Font(fontDescription));
-        font->update(nullptr);
-        ASSERT_TRUE(font->canShapeWordByWord());
+        font = Font(fontDescription);
+        font.update(nullptr);
+        ASSERT_TRUE(font.canShapeWordByWord());
         fallbackFonts = nullptr;
         cache = adoptPtr(new ShapeCache());
     }
 
     FontCachePurgePreventer fontCachePurgePreventer;
     FontDescription fontDescription;
-    OwnPtr<Font> font;
+    Font font;
     OwnPtr<ShapeCache> cache;
     HashSet<const SimpleFontData*>* fallbackFonts;
     unsigned startIndex = 0;
@@ -49,7 +48,7 @@ TEST_F(CachingWordShaperTest, LatinLeftToRightByWord)
     TextRun textRun(reinterpret_cast<const LChar*>("ABC DEF."), 8);
 
     RefPtr<ShapeResult> result;
-    CachingWordShapeIterator iterator(cache.get(), textRun, font.get());
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
     ASSERT_TRUE(iterator.next(&result));
     ASSERT_TRUE(testInfo(result)->runInfoForTesting(0, startIndex, numGlyphs, script));
     EXPECT_EQ(0u, startIndex);
@@ -78,7 +77,7 @@ TEST_F(CachingWordShaperTest, CommonAccentLeftToRightByWord)
 
     unsigned offset = 0;
     RefPtr<ShapeResult> result;
-    CachingWordShapeIterator iterator(cache.get(), textRun, font.get());
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
     ASSERT_TRUE(iterator.next(&result));
     ASSERT_TRUE(testInfo(result)->runInfoForTesting(0, startIndex, numGlyphs, script));
     EXPECT_EQ(0u, offset + startIndex);
@@ -114,13 +113,13 @@ TEST_F(CachingWordShaperTest, CommonAccentLeftToRightFillGlyphBuffer)
 
     CachingWordShaper shaper(cache.get());
     GlyphBuffer glyphBuffer;
-    shaper.fillGlyphBuffer(font.get(), textRun, fallbackFonts, &glyphBuffer, 0, 3);
+    shaper.fillGlyphBuffer(&font, textRun, fallbackFonts, &glyphBuffer, 0, 3);
 
     OwnPtr<ShapeCache> referenceCache = adoptPtr(new ShapeCache());
     CachingWordShaper referenceShaper(referenceCache.get());
     GlyphBuffer referenceGlyphBuffer;
-    font->setCanShapeWordByWordForTesting(false);
-    referenceShaper.fillGlyphBuffer(font.get(), textRun, fallbackFonts,
+    font.setCanShapeWordByWordForTesting(false);
+    referenceShaper.fillGlyphBuffer(&font, textRun, fallbackFonts,
         &referenceGlyphBuffer, 0, 3);
 
     ASSERT_EQ(referenceGlyphBuffer.glyphAt(0), glyphBuffer.glyphAt(0));
@@ -139,13 +138,13 @@ TEST_F(CachingWordShaperTest, CommonAccentRightToLeftFillGlyphBuffer)
 
     CachingWordShaper shaper(cache.get());
     GlyphBuffer glyphBuffer;
-    shaper.fillGlyphBuffer(font.get(), textRun, fallbackFonts, &glyphBuffer, 1, 6);
+    shaper.fillGlyphBuffer(&font, textRun, fallbackFonts, &glyphBuffer, 1, 6);
 
     OwnPtr<ShapeCache> referenceCache = adoptPtr(new ShapeCache());
     CachingWordShaper referenceShaper(referenceCache.get());
     GlyphBuffer referenceGlyphBuffer;
-    font->setCanShapeWordByWordForTesting(false);
-    referenceShaper.fillGlyphBuffer(font.get(), textRun, fallbackFonts,
+    font.setCanShapeWordByWordForTesting(false);
+    referenceShaper.fillGlyphBuffer(&font, textRun, fallbackFonts,
         &referenceGlyphBuffer, 1, 6);
 
     ASSERT_EQ(5u, referenceGlyphBuffer.size());
@@ -170,14 +169,261 @@ TEST_F(CachingWordShaperTest, SubRunWithZeroGlyphs)
 
     CachingWordShaper shaper(cache.get());
     FloatRect glyphBounds;
-    ASSERT_GT(shaper.width(font.get(), textRun, nullptr, &glyphBounds), 0);
+    ASSERT_GT(shaper.width(&font, textRun, nullptr, &glyphBounds), 0);
 
     GlyphBuffer glyphBuffer;
-    shaper.fillGlyphBuffer(font.get(), textRun, fallbackFonts, &glyphBuffer, 0, 8);
+    shaper.fillGlyphBuffer(&font, textRun, fallbackFonts, &glyphBuffer, 0, 8);
 
     FloatPoint point;
     int height = 16;
-    shaper.selectionRect(font.get(), textRun, point, height, 0, 8);
+    shaper.selectionRect(&font, textRun, point, height, 0, 8);
+}
+
+TEST_F(CachingWordShaperTest, SegmentCJKByCharacter)
+{
+    const UChar str[] = {
+        0x56FD, 0x56FD, // CJK Unified Ideograph
+        'a', 'b',
+        0x56FD, // CJK Unified Ideograph
+        'x', 'y', 'z',
+        0x3042, // HIRAGANA LETTER A
+        0x56FD, // CJK Unified Ideograph
+        0x0
+    };
+    TextRun textRun(str, 10);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(2u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(3u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentCJKAndCommon)
+{
+    const UChar str[] = {
+        'a', 'b',
+        0xFF08, // FULLWIDTH LEFT PARENTHESIS (script=common)
+        0x56FD, // CJK Unified Ideograph
+        0x56FD, // CJK Unified Ideograph
+        0x56FD, // CJK Unified Ideograph
+        0x3002, // IDEOGRAPHIC FULL STOP (script=common)
+        0x0
+    };
+    TextRun textRun(str, 7);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(2u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(2u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(2u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentCJKAndInherit)
+{
+    const UChar str[] = {
+        0x304B, // HIRAGANA LETTER KA
+        0x304B, // HIRAGANA LETTER KA
+        0x3009, // COMBINING KATAKANA-HIRAGANA VOICED SOUND MARK
+        0x304B, // HIRAGANA LETTER KA
+        0x0
+    };
+    TextRun textRun(str, 4);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(2u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentCJKAndNonCJKCommon)
+{
+    const UChar str[] = {
+        0x56FD, // CJK Unified Ideograph
+        ' ',
+        0x0
+    };
+    TextRun textRun(str, 2);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentEmojiZWJCommon)
+{
+    // A family followed by a couple with heart emoji sequence,
+    // the latter including a variation selector.
+    const UChar str[] = {
+        0xD83D, 0xDC68,
+        0x200D,
+        0xD83D, 0xDC69,
+        0x200D,
+        0xD83D, 0xDC67,
+        0x200D,
+        0xD83D, 0xDC66,
+        0xD83D, 0xDC69,
+        0x200D,
+        0x2764, 0xFE0F,
+        0x200D,
+        0xD83D, 0xDC8B,
+        0x200D,
+        0xD83D, 0xDC68,
+        0x0
+    };
+    TextRun textRun(str, 22);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(22u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentEmojiHeartZWJSequence)
+{
+    // A ZWJ, followed by two family ZWJ Sequences.
+    const UChar str[] = {
+        0xD83D, 0xDC69,
+        0x200D,
+        0x2764, 0xFE0F,
+        0x200D,
+        0xD83D, 0xDC8B,
+        0x200D,
+        0xD83D, 0xDC68,
+        0x0
+    };
+    TextRun textRun(str, 11);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(11u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentEmojiExtraZWJPrefix)
+{
+    // A ZWJ, followed by a family and a heart-kiss sequence.
+    const UChar str[] = {
+        0x200D,
+        0xD83D, 0xDC68,
+        0x200D,
+        0xD83D, 0xDC69,
+        0x200D,
+        0xD83D, 0xDC67,
+        0x200D,
+        0xD83D, 0xDC66,
+        0xD83D, 0xDC69,
+        0x200D,
+        0x2764, 0xFE0F,
+        0x200D,
+        0xD83D, 0xDC8B,
+        0x200D,
+        0xD83D, 0xDC68,
+        0x0
+    };
+    TextRun textRun(str, 23);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(22u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentCJKCommon)
+{
+    const UChar str[] = {
+        0xFF08, // FULLWIDTH LEFT PARENTHESIS (script=common)
+        0xFF08, // FULLWIDTH LEFT PARENTHESIS (script=common)
+        0xFF08, // FULLWIDTH LEFT PARENTHESIS (script=common)
+        0x0
+    };
+    TextRun textRun(str, 3);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(3u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
+}
+
+TEST_F(CachingWordShaperTest, SegmentCJKCommonAndNonCJK)
+{
+    const UChar str[] = {
+        0xFF08, // FULLWIDTH LEFT PARENTHESIS (script=common)
+        'a', 'b',
+        0x0
+    };
+    TextRun textRun(str, 3);
+
+    RefPtr<ShapeResult> wordResult;
+    CachingWordShapeIterator iterator(cache.get(), textRun, &font);
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(1u, wordResult->numCharacters());
+
+    ASSERT_TRUE(iterator.next(&wordResult));
+    EXPECT_EQ(2u, wordResult->numCharacters());
+
+    ASSERT_FALSE(iterator.next(&wordResult));
 }
 
 TEST_F(CachingWordShaperTest, TextOrientationFallbackShouldNotInFallbackList)
@@ -192,15 +438,34 @@ TEST_F(CachingWordShaperTest, TextOrientationFallbackShouldNotInFallbackList)
     TextRun textRun(str, 1);
 
     fontDescription.setOrientation(FontOrientation::VerticalMixed);
-    OwnPtr<Font> verticalMixedFont = adoptPtr(new Font(fontDescription));
-    verticalMixedFont->update(nullptr);
-    ASSERT_TRUE(verticalMixedFont->canShapeWordByWord());
+    Font verticalMixedFont = Font(fontDescription);
+    verticalMixedFont.update(nullptr);
+    ASSERT_TRUE(verticalMixedFont.canShapeWordByWord());
 
     CachingWordShaper shaper(cache.get());
     FloatRect glyphBounds;
     HashSet<const SimpleFontData*> fallbackFonts;
-    ASSERT_GT(shaper.width(verticalMixedFont.get(), textRun, &fallbackFonts, &glyphBounds), 0);
+    ASSERT_GT(shaper.width(&verticalMixedFont, textRun, &fallbackFonts, &glyphBounds), 0);
     EXPECT_EQ(0u, fallbackFonts.size());
+}
+
+TEST_F(CachingWordShaperTest, GlyphBoundsWithSpaces)
+{
+    CachingWordShaper shaper(cache.get());
+
+    TextRun periods(reinterpret_cast<const LChar*>(".........."), 10);
+    FloatRect periodsGlyphBounds;
+    float periodsWidth = shaper.width(&font, periods, nullptr, &periodsGlyphBounds);
+
+    TextRun periodsAndSpaces(reinterpret_cast<const LChar*>(". . . . . . . . . ."), 19);
+    FloatRect periodsAndSpacesGlyphBounds;
+    float periodsAndSpacesWidth = shaper.width(&font, periodsAndSpaces, nullptr, &periodsAndSpacesGlyphBounds);
+
+    // The total width of periods and spaces should be longer than the width of periods alone.
+    ASSERT_GT(periodsAndSpacesWidth, periodsWidth);
+
+    // The glyph bounds of periods and spaces should be longer than the glyph bounds of periods alone.
+    ASSERT_GT(periodsAndSpacesGlyphBounds.width(), periodsGlyphBounds.width());
 }
 
 } // namespace blink

@@ -19,7 +19,6 @@
  *
  */
 
-#include "config.h"
 #include "core/layout/LayoutBR.h"
 
 #include "core/dom/Document.h"
@@ -46,9 +45,6 @@ LayoutBR::~LayoutBR()
 
 LayoutRect LayoutBR::selectionRectForPaintInvalidation(const LayoutBoxModelObject* paintInvalidationContainer) const
 {
-    if (!RuntimeEnabledFeatures::selectionPaintingWithoutSelectionGapsEnabled())
-        return LayoutRect();
-
     // Although line breaks contain no actual text, if we're selected we need
     // to return a rect that includes space to illustrate a newline.
     return LayoutText::selectionRectForPaintInvalidation(paintInvalidationContainer);

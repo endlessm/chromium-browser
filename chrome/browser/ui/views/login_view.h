@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_LOGIN_VIEW_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/login/login_prompt.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/login_model.h"
@@ -24,7 +25,8 @@ class LoginView : public views::View,
   // |login_model_data->model| is observed for the entire lifetime of the
   // LoginView. Therefore |login_model_data->model| should not be destroyed
   // before the LoginView object. |login_model_data| may be null.
-  LoginView(const base::string16& explanation,
+  LoginView(const base::string16& authority,
+            const base::string16& explanation,
             LoginHandler::LoginModelData* login_model_data);
   ~LoginView() override;
 
@@ -52,7 +54,8 @@ class LoginView : public views::View,
   views::Label* username_label_;
   views::Label* password_label_;
 
-  // Authentication message.
+  // Authority and security state messages.
+  views::Label* authority_label_;
   views::Label* message_label_;
 
   // If not null, points to a model we need to notify of our own destruction

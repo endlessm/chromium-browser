@@ -4,6 +4,9 @@
 
 #include "content/renderer/shared_worker/embedded_shared_worker_stub.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/thread_task_runner_handle.h"
 #include "content/child/appcache/appcache_dispatcher.h"
 #include "content/child/appcache/web_application_cache_host_impl.h"
@@ -18,9 +21,10 @@
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/shared_worker/embedded_shared_worker_content_settings_client_proxy.h"
 #include "ipc/ipc_message_macros.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
 #include "third_party/WebKit/public/web/WebDataSource.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/web/WebSharedWorker.h"
 #include "third_party/WebKit/public/web/WebSharedWorkerClient.h"
 #include "third_party/WebKit/public/web/modules/serviceworker/WebServiceWorkerNetworkProvider.h"
@@ -226,7 +230,7 @@ blink::WebWorkerContentSettingsClientProxy*
     EmbeddedSharedWorkerStub::createWorkerContentSettingsClientProxy(
     const blink::WebSecurityOrigin& origin) {
   return new EmbeddedSharedWorkerContentSettingsClientProxy(
-      GURL(origin.toString()),
+      blink::WebStringToGURL(origin.toString()),
       origin.isUnique(),
       route_id_,
       ChildThreadImpl::current()->thread_safe_sender());
@@ -245,18 +249,20 @@ EmbeddedSharedWorkerStub::createServiceWorkerNetworkProvider(
   // and ownership is transferred to the DataSource.
   DataSourceExtraData* extra_data = new DataSourceExtraData();
   data_source->setExtraData(extra_data);
-  ServiceWorkerNetworkProvider::AttachToDocumentState(
-      extra_data, provider.Pass());
+  ServiceWorkerNetworkProvider::AttachToDocumentState(extra_data,
+                                                      std::move(provider));
 
   // Blink is responsible for deleting the returned object.
   return new WebServiceWorkerNetworkProviderImpl();
 }
 
 void EmbeddedSharedWorkerStub::sendDevToolsMessage(
+    int session_id,
     int call_id,
     const blink::WebString& message,
     const blink::WebString& state) {
-  worker_devtools_agent_->SendDevToolsMessage(call_id, message, state);
+  worker_devtools_agent_->SendDevToolsMessage(
+      session_id, call_id, message, state);
 }
 
 void EmbeddedSharedWorkerStub::Shutdown() {

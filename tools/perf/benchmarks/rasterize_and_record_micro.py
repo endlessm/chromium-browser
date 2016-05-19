@@ -11,12 +11,13 @@ from telemetry import benchmark
 
 
 class _RasterizeAndRecordMicro(perf_benchmark.PerfBenchmark):
+
   @classmethod
   def AddBenchmarkCommandLineArgs(cls, parser):
     parser.add_option('--start-wait-time', type='float',
                       default=2,
                       help='Wait time before the benchmark is started '
-                      '(must be long enought to load all content)')
+                      '(must be long enough to load all content)')
     parser.add_option('--rasterize-repeat', type='int',
                       default=100,
                       help='Repeat each raster this many times. Increase '
@@ -58,7 +59,7 @@ class RasterizeAndRecordMicroTop25(_RasterizeAndRecordMicro):
 
 
 @benchmark.Disabled('mac', 'win',
-                    'android') # http://crbug.com/531597
+                    'android')  # http://crbug.com/531597
 class RasterizeAndRecordMicroKeyMobileSites(_RasterizeAndRecordMicro):
   """Measures rasterize and record performance on the key mobile sites.
 

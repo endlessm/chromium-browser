@@ -20,7 +20,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLParagraphElement.h"
 
 #include "core/CSSPropertyNames.h"
@@ -54,4 +53,4 @@ void HTMLParagraphElement::collectStyleForPresentationAttribute(const QualifiedN
     }
 }
 
-}
+} // namespace blink

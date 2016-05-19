@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableLengthBoxAndBool.h"
 
 #include "core/animation/animatable/AnimatableLength.h"
@@ -76,4 +75,4 @@ bool AnimatableLengthBoxAndBool::equalTo(const AnimatableValue* value) const
     return box()->equals(lengthBox->box()) && flag() == lengthBox->flag();
 }
 
-}
+} // namespace blink

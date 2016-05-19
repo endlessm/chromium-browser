@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/scoped_observer.h"
 #include "base/supports_user_data.h"
@@ -129,8 +129,7 @@ class AutofillProfileSyncableService
   // |specifics|.
   static bool OverwriteProfileWithServerData(
       const sync_pb::AutofillProfileSpecifics& specifics,
-      AutofillProfile* profile,
-      const std::string& app_locale);
+      AutofillProfile* profile);
 
   // Writes |profile| data into supplied |profile_specifics|.
   static void WriteAutofillProfile(const AutofillProfile& profile,
@@ -193,6 +192,7 @@ class AutofillProfileSyncableService
 // This object is used in unit tests as well, so it defined here.
 struct AutofillProfileSyncableService::DataBundle {
   DataBundle();
+  DataBundle(const DataBundle& other);
   ~DataBundle();
 
   std::vector<std::string> profiles_to_delete;

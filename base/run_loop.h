@@ -7,16 +7,14 @@
 
 #include "base/base_export.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 
 namespace base {
 #if defined(OS_ANDROID)
 class MessagePumpForUI;
-#endif
-
-#if defined(OS_WIN)
-class MessagePumpDispatcher;
 #endif
 
 #if defined(OS_IOS)
@@ -31,15 +29,12 @@ class MessagePumpUIApplication;
 class BASE_EXPORT RunLoop {
  public:
   RunLoop();
-#if defined(OS_WIN)
-  explicit RunLoop(MessagePumpDispatcher* dispatcher);
-#endif
   ~RunLoop();
 
   // Run the current MessageLoop. This blocks until Quit is called. Before
-  // calling Run, be sure to grab an AsWeakPtr or the QuitClosure in order to
-  // stop the MessageLoop asynchronously. MessageLoop::QuitWhenIdle and QuitNow
-  // will also trigger a return from Run, but those are deprecated.
+  // calling Run, be sure to grab the QuitClosure in order to stop the
+  // MessageLoop asynchronously. MessageLoop::QuitWhenIdle and QuitNow will also
+  // trigger a return from Run, but those are deprecated.
   void Run();
 
   // Run the current MessageLoop until it doesn't find any tasks or messages in
@@ -92,10 +87,6 @@ class BASE_EXPORT RunLoop {
 
   // Parent RunLoop or NULL if this is the top-most RunLoop.
   RunLoop* previous_run_loop_;
-
-#if defined(OS_WIN)
-  MessagePumpDispatcher* dispatcher_;
-#endif
 
   // Used to count how many nested Run() invocations are on the stack.
   int run_depth_;

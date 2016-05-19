@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "mojo/public/c/gles2/gles2.h"
+#include <stdint.h>
+
+#include <utility>
 
 #include "base/lazy_instance.h"
 #include "base/threading/thread_local.h"
@@ -12,6 +14,7 @@
 // Even though this isn't used here, we need to include it to get the symbols to
 // be exported in component build.
 #include "mojo/public/c/gles2/chromium_extension.h"
+#include "mojo/public/c/gles2/gles2.h"
 
 using gles2::GLES2Context;
 
@@ -21,11 +24,6 @@ const int32_t kNone = 0x3038;  // EGL_NONE
 
 base::LazyInstance<base::ThreadLocalPointer<gpu::gles2::GLES2Interface> >::Leaky
     g_gpu_interface;
-
-void RunSignalSyncCallback(MojoGLES2SignalSyncPointCallback callback,
-                           void* closure) {
-  callback(closure);
-}
 
 }  // namespace
 
@@ -46,7 +44,7 @@ MojoGLES2Context MojoGLES2CreateContext(MojoHandle handle,
   }
   attribs.push_back(kNone);
   scoped_ptr<GLES2Context> client(new GLES2Context(
-      attribs, async_waiter, scoped_handle.Pass(), lost_callback, closure));
+      attribs, async_waiter, std::move(scoped_handle), lost_callback, closure));
   if (!client->Initialize())
     client.reset();
   return client.release();
@@ -69,16 +67,6 @@ void MojoGLES2MakeCurrent(MojoGLES2Context context) {
 void MojoGLES2SwapBuffers() {
   DCHECK(g_gpu_interface.Get().Get());
   g_gpu_interface.Get().Get()->SwapBuffers();
-}
-
-void MojoGLES2SignalSyncPoint(
-    MojoGLES2Context context,
-    uint32_t sync_point,
-    MojoGLES2SignalSyncPointCallback callback,
-    void* closure) {
-  DCHECK(context);
-  static_cast<GLES2Context*>(context)->context_support()->SignalSyncPoint(
-      sync_point, base::Bind(&RunSignalSyncCallback, callback, closure));
 }
 
 void* MojoGLES2GetGLES2Interface(MojoGLES2Context context) {

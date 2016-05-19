@@ -2,6 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
+#include <utility>
+
 #include "base/at_exit.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -11,6 +17,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "gin/array_buffer.h"
 #include "gin/public/isolate_holder.h"
+#include "gin/v8_initializer.h"
+#include "mojo/common/data_pipe_utils.h"
 #include "mojo/edk/js/mojo_runner_delegate.h"
 #include "mojo/edk/js/tests/js_to_cpp.mojom.h"
 #include "mojo/edk/test/test_utils.h"
@@ -21,26 +29,27 @@
 
 namespace mojo {
 namespace edk {
+namespace js {
 
 // Global value updated by some checks to prevent compilers from optimizing
 // reads out of existence.
-uint32 g_waste_accumulator = 0;
+uint32_t g_waste_accumulator = 0;
 
 namespace {
 
 // Negative numbers with different values in each byte, the last of
 // which can survive promotion to double and back.
-const int8  kExpectedInt8Value = -65;
-const int16 kExpectedInt16Value = -16961;
-const int32 kExpectedInt32Value = -1145258561;
-const int64 kExpectedInt64Value = -77263311946305LL;
+const int8_t kExpectedInt8Value = -65;
+const int16_t kExpectedInt16Value = -16961;
+const int32_t kExpectedInt32Value = -1145258561;
+const int64_t kExpectedInt64Value = -77263311946305LL;
 
 // Positive numbers with different values in each byte, the last of
 // which can survive promotion to double and back.
-const uint8  kExpectedUInt8Value = 65;
-const uint16 kExpectedUInt16Value = 16961;
-const uint32 kExpectedUInt32Value = 1145258561;
-const uint64 kExpectedUInt64Value = 77263311946305LL;
+const uint8_t kExpectedUInt8Value = 65;
+const uint16_t kExpectedUInt16Value = 16961;
+const uint32_t kExpectedUInt32Value = 1145258561;
+const uint64_t kExpectedUInt64Value = 77263311946305LL;
 
 // Double/float values, including special case constants.
 const double kExpectedDoubleVal = 3.14159265358979323846;
@@ -53,22 +62,25 @@ const float kExpectedFloatNan = std::numeric_limits<float>::quiet_NaN();
 // NaN has the property that it is not equal to itself.
 #define EXPECT_NAN(x) EXPECT_NE(x, x)
 
-void CheckDataPipe(MojoHandle data_pipe_handle) {
-  unsigned char buffer[100];
-  uint32_t buffer_size = static_cast<uint32_t>(sizeof(buffer));
-  MojoResult result = MojoReadData(
-      data_pipe_handle, buffer, &buffer_size, MOJO_READ_DATA_FLAG_NONE);
-  EXPECT_EQ(MOJO_RESULT_OK, result);
-  EXPECT_EQ(64u, buffer_size);
+void CheckDataPipe(ScopedDataPipeConsumerHandle data_pipe_handle) {
+  std::string buffer;
+  bool result = common::BlockingCopyToString(std::move(data_pipe_handle),
+                                             &buffer);
+  EXPECT_TRUE(result);
+  EXPECT_EQ(64u, buffer.size());
   for (int i = 0; i < 64; ++i) {
     EXPECT_EQ(i, buffer[i]);
   }
 }
 
-void CheckMessagePipe(MojoHandle message_pipe_handle) {
+void CheckMessagePipe(MessagePipeHandle message_pipe_handle) {
   unsigned char buffer[100];
   uint32_t buffer_size = static_cast<uint32_t>(sizeof(buffer));
-  MojoResult result = MojoReadMessage(
+  MojoResult result = Wait(
+      message_pipe_handle, MOJO_HANDLE_SIGNAL_READABLE,
+      MOJO_DEADLINE_INDEFINITE, nullptr);
+  EXPECT_EQ(MOJO_RESULT_OK, result);
+  result = ReadMessageRaw(
       message_pipe_handle, buffer, &buffer_size, 0, 0, 0);
   EXPECT_EQ(MOJO_RESULT_OK, result);
   EXPECT_EQ(64u, buffer_size);
@@ -98,37 +110,37 @@ js_to_cpp::EchoArgsPtr BuildSampleEchoArgs() {
   string_array[0] = "one";
   string_array[1] = "two";
   string_array[2] = "three";
-  args->string_array = string_array.Pass();
-  return args.Pass();
+  args->string_array = std::move(string_array);
+  return args;
 }
 
-void CheckSampleEchoArgs(const js_to_cpp::EchoArgs& arg) {
-  EXPECT_EQ(kExpectedInt64Value, arg.si64);
-  EXPECT_EQ(kExpectedInt32Value, arg.si32);
-  EXPECT_EQ(kExpectedInt16Value, arg.si16);
-  EXPECT_EQ(kExpectedInt8Value, arg.si8);
-  EXPECT_EQ(kExpectedUInt64Value, arg.ui64);
-  EXPECT_EQ(kExpectedUInt32Value, arg.ui32);
-  EXPECT_EQ(kExpectedUInt16Value, arg.ui16);
-  EXPECT_EQ(kExpectedUInt8Value, arg.ui8);
-  EXPECT_EQ(kExpectedFloatVal, arg.float_val);
-  EXPECT_EQ(kExpectedFloatInf, arg.float_inf);
-  EXPECT_NAN(arg.float_nan);
-  EXPECT_EQ(kExpectedDoubleVal, arg.double_val);
-  EXPECT_EQ(kExpectedDoubleInf, arg.double_inf);
-  EXPECT_NAN(arg.double_nan);
-  EXPECT_EQ(std::string("coming"), arg.name.get());
-  EXPECT_EQ(std::string("one"), arg.string_array[0].get());
-  EXPECT_EQ(std::string("two"), arg.string_array[1].get());
-  EXPECT_EQ(std::string("three"), arg.string_array[2].get());
-  CheckDataPipe(arg.data_handle.get().value());
-  CheckMessagePipe(arg.message_handle.get().value());
+void CheckSampleEchoArgs(js_to_cpp::EchoArgsPtr arg) {
+  EXPECT_EQ(kExpectedInt64Value, arg->si64);
+  EXPECT_EQ(kExpectedInt32Value, arg->si32);
+  EXPECT_EQ(kExpectedInt16Value, arg->si16);
+  EXPECT_EQ(kExpectedInt8Value, arg->si8);
+  EXPECT_EQ(kExpectedUInt64Value, arg->ui64);
+  EXPECT_EQ(kExpectedUInt32Value, arg->ui32);
+  EXPECT_EQ(kExpectedUInt16Value, arg->ui16);
+  EXPECT_EQ(kExpectedUInt8Value, arg->ui8);
+  EXPECT_EQ(kExpectedFloatVal, arg->float_val);
+  EXPECT_EQ(kExpectedFloatInf, arg->float_inf);
+  EXPECT_NAN(arg->float_nan);
+  EXPECT_EQ(kExpectedDoubleVal, arg->double_val);
+  EXPECT_EQ(kExpectedDoubleInf, arg->double_inf);
+  EXPECT_NAN(arg->double_nan);
+  EXPECT_EQ(std::string("coming"), arg->name.get());
+  EXPECT_EQ(std::string("one"), arg->string_array[0].get());
+  EXPECT_EQ(std::string("two"), arg->string_array[1].get());
+  EXPECT_EQ(std::string("three"), arg->string_array[2].get());
+  CheckDataPipe(std::move(arg->data_handle));
+  CheckMessagePipe(arg->message_handle.get());
 }
 
 void CheckSampleEchoArgsList(const js_to_cpp::EchoArgsListPtr& list) {
   if (list.is_null())
     return;
-  CheckSampleEchoArgs(*list->item);
+  CheckSampleEchoArgs(std::move(list->item));
   CheckSampleEchoArgsList(list->next);
 }
 
@@ -208,9 +220,9 @@ class CppSideConnection : public js_to_cpp::CppSide {
   js_to_cpp::JsSide* js_side() { return js_side_; }
 
   void Bind(InterfaceRequest<js_to_cpp::CppSide> request) {
-    binding_.Bind(request.Pass());
+    binding_.Bind(std::move(request));
     // Keep the pipe open even after validation errors.
-    binding_.internal_router()->EnableTestingMode();
+    binding_.EnableTestingMode();
   }
 
   // js_to_cpp::CppSide:
@@ -378,9 +390,15 @@ class JsToCppTest : public testing::Test {
     js_to_cpp::CppSidePtr cpp_side_ptr;
     cpp_side->Bind(GetProxy(&cpp_side_ptr));
 
-    js_side->SetCppSide(cpp_side_ptr.Pass());
+    js_side->SetCppSide(std::move(cpp_side_ptr));
+
+#ifdef V8_USE_EXTERNAL_STARTUP_DATA
+    gin::V8Initializer::LoadV8Snapshot();
+    gin::V8Initializer::LoadV8Natives();
+#endif
 
     gin::IsolateHolder::Initialize(gin::IsolateHolder::kStrictMode,
+                                   gin::IsolateHolder::kStableV8Extras,
                                    gin::ArrayBufferAllocator::SharedInstance());
     gin::IsolateHolder instance;
     MojoRunnerDelegate delegate;
@@ -423,5 +441,6 @@ TEST_F(JsToCppTest, BackPointer) {
   EXPECT_TRUE(cpp_side_connection.DidSucceed());
 }
 
+}  // namespace js
 }  // namespace edk
 }  // namespace mojo

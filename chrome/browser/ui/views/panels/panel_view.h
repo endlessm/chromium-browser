@@ -5,7 +5,9 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_PANELS_PANEL_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_PANELS_PANEL_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/panels/native_panel.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -15,7 +17,7 @@
 #include "ui/base/win/hwnd_subclass.h"
 #endif
 
-class AutoKeepAlive;
+class ScopedKeepAlive;
 class Panel;
 class PanelBoundsAnimation;
 class PanelFrameView;
@@ -238,7 +240,7 @@ class PanelView : public NativePanel,
   // be restored properly when a drag ends.
   views::View* old_focused_view_;
 
-  scoped_ptr<AutoKeepAlive> keep_alive_;
+  scoped_ptr<ScopedKeepAlive> keep_alive_;
 
 #if defined(OS_WIN)
   // Used to provide custom taskbar thumbnail for Windows 7 and later.

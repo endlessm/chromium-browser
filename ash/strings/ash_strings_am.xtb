@@ -1,13 +1,16 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="am">
+<translation id="1012876632442809908">USB-C መሣሪያ (የፊት ወደብ)</translation>
 <translation id="1013923882670373915">የብሉቱዝ መሣሪያ «<ph name="DEVICE_NAME" />» ለመጣመር ፍቃድ ይፈልጋል። እባክዎ ይህን የፒን ኮድ በዚህ መሣሪያ ላይ ያስገቡ፦ <ph name="PINCODE" /></translation>
 <translation id="1021311941847921177">የግቤት ስልቱ የሚቀየርበት አቋራጭ ተቀይሯል። እባክዎ ከ<ph name="OLD_SHORTCUT" /> ይልቅ <ph name="NEW_SHORTCUT" />ን ይጠቀሙ።</translation>
 <translation id="112308213915226829">መደርደሪያን በራስ ሰር ደብቅ</translation>
 <translation id="1195412055398077112">ትርፍ ቅኝት</translation>
+<translation id="1252999807265626933">ኃይል ከ<ph name="POWER_SOURCE" /> በመሙላት ላይ</translation>
 <translation id="1270290102613614947">በማያ ገጽ ላይ የቁልፍ ሰሌዳ ተሰናክሏል</translation>
 <translation id="1272079795634619415">አቁም</translation>
 <translation id="1279938420744323401"><ph name="DISPLAY_NAME" /> (<ph name="ANNOTATION" />)</translation>
+<translation id="1293264513303784526">USB-C መሣሪያ (የግራ ወደብ)</translation>
 <translation id="1330145147221172764">የታይታ የቁልፍ ሰሌዳን አንቃ</translation>
 <translation id="1343000272198685031">የማይክሮፎን መሰኪያ</translation>
 <translation id="1346748346194534595">ቀኝ</translation>
@@ -18,6 +21,7 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">ማስጀመሪያ</translation>
 <translation id="15373452373711364">ትልቅ የመዳፊት ጠቋሚ</translation>
+<translation id="1550523713251050646">ለተጨማሪ አማራጮች ጠቅ ያድርጉ</translation>
 <translation id="1602076796624386989">የተንቀሳቃሽ ስልክ ውሂብን ያንቁ</translation>
 <translation id="1621499497873603021">ባትሪ ባዶ እስኪሆን ድረስ የቀረው ጊዜ፣ <ph name="TIME_LEFT" /></translation>
 <translation id="164969095109328410">የChrome መሣሪያ</translation>
@@ -25,13 +29,13 @@
 <translation id="1747827819627189109">በማያ ገጽ ላይ የቁልፍ ሰሌዳ ነቅቷል</translation>
 <translation id="1812696562331527143">የግብዓት ስልትዎ ወደ <ph name="INPUT_METHOD_ID" /> ተቀይሯል*(<ph name="BEGIN_LINK" />3ኛ ወገን<ph name="END_LINK" />)።
 ለመቀየር Shift + Alt ይጫኑ።</translation>
+<translation id="1864454756846565995">USB-C መሣሪያ (የኋላ ወደብ)</translation>
 <translation id="1882897271359938046">ወደ <ph name="DISPLAY_NAME" /> በማንጸባረቅ ላይ</translation>
 <translation id="1919743966458266018">የተግባር መሪው የሚከፈትበት አቋራጭ ተቀይሯል። እባክዎ ከ<ph name="OLD_SHORTCUT" /> ይልቅ <ph name="NEW_SHORTCUT" />ን ይጠቀሙ።</translation>
 <translation id="1923539912171292317">ራስ-ሰር ጠቅታዎች</translation>
 <translation id="1938872420421548906">Shift+Alt</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
-<translation id="1987317783729300807">መለያዎች</translation>
 <translation id="2127372758936585790">አነስተኛ ኃይል ያለው ባትሪ መሙያ</translation>
 <translation id="2204305834655267233">የአውታረ መረብ መረጃ</translation>
 <translation id="2208323208084708176">የተዋሃደ የዴስክቶፕ ሁነታ</translation>
@@ -48,6 +52,7 @@
 <translation id="252373100621549798">ያልታወቀ ማሳያ</translation>
 <translation id="2532589005999780174">ባለከፍተኛ ንፅፅር ሁነታ</translation>
 <translation id="2562916301614567480">የግል አውታረ መረብ</translation>
+<translation id="2661637000095600270">ምንም የሚደገፉ ጥራቶች ስላልተገኙ ማሳያዎችን ማንጸባረቅ አልተቻለም። ይልቁንስ ወደ የተስፋፋ ዴስክቶፕ ሁነታ ተገብቷል። የግብረመልስ ሪፖርት ለመላክ ጠቅ ያድርጉ።</translation>
 <translation id="2692809339924654275"><ph name="BLUETOOTH" />፦ በመገናኘት ላይ...</translation>
 <translation id="2700058918926273959">ክፍለ-ጊዜ በ<ph name="SESSION_TIME_REMAINING" /> ውስጥ ያበቃል። ዘግተው እንዲወጡ ይደረጋሉ።</translation>
 <translation id="2727977024730340865">አነስተኛ ኃይል ወዳለው ባትሪ መሙያ ተሰክቷል። የባትሪ መሙላት አስተማማኝ ላይሆን ይችላል።</translation>
@@ -56,6 +61,7 @@
 <translation id="2805756323405976993">መተግበሪያዎች</translation>
 <translation id="2819276065543622893">አሁን ዘግተው እንዲወጡ ይደረጋሉ።</translation>
 <translation id="2825619548187458965">መደርደሪያ</translation>
+<translation id="2844169650293029770">USB-C መሣሪያ (የግራ ጎን የፊት ወደብ)</translation>
 <translation id="2872961005593481000">ዝጋ</translation>
 <translation id="2942516765047364088">የመደርደሪያ አቀማመጥ</translation>
 <translation id="2946640296642327832">ብሉቱዝን ያንቁ</translation>
@@ -75,7 +81,8 @@
 <translation id="3147142846278915599">ማስጀመሪያ (መተግበሪያዎችን በማመሳሰል ላይ...)</translation>
 <translation id="3157169093162779309">ተሽከርካሪ መቆለፊያን አንቃ</translation>
 <translation id="3294437725009624529">እንግዳ</translation>
-<translation id="3433830597744061105">መለያዎችን አቀናብር</translation>
+<translation id="3371140690572404006">የUSB-C መሣሪያ (የቀኝ ጎን የፊት ወደብ)</translation>
+<translation id="3445925074670675829">USB-C መሣሪያ</translation>
 <translation id="3473479545200714844">የማያ ገጽ ማጉያ</translation>
 <translation id="3573179567135747900">ወደ «<ph name="FROM_LOCALE" />» መልሰህ ቀይር (ዳግም ማስጀመር ይፈልጋል)</translation>
 <translation id="3595596368722241419">ባትሪ ሙሉ ነው</translation>
@@ -101,13 +108,12 @@
 <translation id="3963445509666917109">ድምጽ ማጉያ (ውስጣዊ)</translation>
 <translation id="3967919079500697218">ቅጽበታዊ-ገጽ እይታዎችን የማንሳት ችሎታ በአስተዳዳሪዎ ተሰናክሏል።</translation>
 <translation id="397105322502079400">በማስላት ላይ...</translation>
+<translation id="3995138139523574647">የUSB-C መሣሪያ (የቀኝ ጎን የኋላ ወደብ)</translation>
 <translation id="4053612967614057854">የማያ ገጽ ላይ ቁልፍ ሰሌዳን አሰናክል</translation>
-<translation id="4066708417179825777"><ph name="PRIMARY_ACCOUNT" /> (ዋና)</translation>
 <translation id="412065659894267608">ሙሉ እስኪሆን ድረስ <ph name="HOUR" />ሰ <ph name="MINUTE" />ደ</translation>
 <translation id="4250680216510889253">አይ</translation>
 <translation id="4279490309300973883">በማንጸባረቅ ላይ</translation>
 <translation id="4321179778687042513">ctrl</translation>
-<translation id="4379753398862151997">ውድ ማሳያ፣ ልንግባባ አልቻልንም። (ያ ማሳያ አይደገፍም)</translation>
 <translation id="4421231901400348175">የማያ ገጽዎን ቁጥጥር በርቀት እርዳታ በኩል ለ<ph name="HELPER_NAME" /> በማጋራት ላይ።</translation>
 <translation id="4430019312045809116">ድምፅ</translation>
 <translation id="4527045527269911712">የብሉቱዝ መሣሪያ «<ph name="DEVICE_NAME" />» ለመጣመር ፍቃድ ይፈልጋል።</translation>
@@ -127,6 +133,8 @@
 <translation id="5168181903108465623">የCast መሣሪያዎች ይገኛሉ</translation>
 <translation id="5222676887888702881">ዘግተህ ውጣ</translation>
 <translation id="5238774010593222950">ወደሌላ መለያ በመለያ መግባት አይቻልም።</translation>
+<translation id="532063867737390965">ይህ የአውታረ መረብ ቅንብር በአስተዳዳሪው ተሰናክሏል።</translation>
+<translation id="5331975486040154427">USB-C መሣሪያ (የግራ ጎን ኋላ ወደብ)</translation>
 <translation id="544691375626129091">ሁሉም የሚገኙ ተጤቃሚዎች አስቀድመው ወደዚህ ክፍለ-ጊዜ ታክለዋል።</translation>
 <translation id="5507786745520522457">የተንቀሳቃሽ ስልክ ውሂብ ያዋቅሩ</translation>
 <translation id="5543001071567407895">ኤስ ኤም ኤስ</translation>
@@ -153,8 +161,10 @@
 <translation id="6047696787498798094">ወደ ሌላ ተጠቃሚ ሲቀይሩ ማያ ገጽ ማጋራት ይቆማል። መቀጠል ይፈልጋሉ?</translation>
 <translation id="6062360702481658777">በ<ph name="LOGOUT_TIME_LEFT" /> ውስጥ በራስ-ሰር ዘግተው እንዲወጡ ይደረጋሉ።</translation>
 <translation id="607652042414456612">ኮምፒውተርዎ አቅራቢያ ባሉ የብሉቱዝ መሣሪያዎች ሊገኝ የሚችል ነው፣ እና በ<ph name="ADDRESS" /> አድራሻ እንደ «<ph name="NAME" />» ሆኖ ይታያል</translation>
+<translation id="6106745654298855237"><ph name="POWER_SOURCE" />ን በመሙላት ላይ</translation>
 <translation id="615957422585914272">የማያ ገጽ ላይ ቁልፍ ሰሌዳ አሳይ</translation>
 <translation id="6165508094623778733">ተጨማሪ ለመረዳት</translation>
+<translation id="6203030746557259519">ምናባዊ ማሳያ</translation>
 <translation id="6247708409970142803"><ph name="PERCENTAGE" />%</translation>
 <translation id="6248847161401822652">ለመተው Control Shift Qን ሁለት ጊዜ ይጫኑ።</translation>
 <translation id="6310121235600822547"><ph name="DISPLAY_NAME" /> ወደ <ph name="ROTATION" /> ዞሯል</translation>
@@ -164,6 +174,7 @@
 <translation id="6426039856985689743">የተንቀሳቃሽ ስልክ ውሂብን ያሰናክሉ</translation>
 <translation id="6452181791372256707">አይቀበሉ</translation>
 <translation id="6459472438155181876">ማያ ገጽ ወደ <ph name="DISPLAY_NAME" /> በመቀጠል ላይ</translation>
+<translation id="6490471652906364588">USB-C መሣሪያ (የቀኝ ወደብ)</translation>
 <translation id="6501401484702599040">ማያ ገጹን ወደ <ph name="RECEIVER_NAME" /> Cast በማድረግ ላይ</translation>
 <translation id="6550675742724504774">አማራጮች</translation>
 <translation id="6585808820553845416">ክፍለ-ጊዜ በ<ph name="SESSION_TIME_REMAINING" /> ውስጥ ያበቃል።</translation>
@@ -171,10 +182,8 @@
 <translation id="6650933572246256093">የብሉቱዝ መሣሪያ «<ph name="DEVICE_NAME" />» ለመጣመር ፍቃድ ይፈልጋል። እባክዎ ይህን የይለፍ ቁልፍ በዚህ መሣሪያ ላይ ያስገቡ፦ <ph name="PASSKEY" /></translation>
 <translation id="6713285437468012787">የብሉቱዝ መሣሪያ «<ph name="DEVICE_NAME" />» ተጣምሯል፣ እና አሁን ለሁሉም ተጠቃሚዎች ይገኛል። ቅንብሮችን በመጠቀም ይህን ጥምረት ማስወገድ ይችላሉ።</translation>
 <translation id="6785414152754474415">ባትሪው <ph name="PERCENTAGE" />% ሙሉ ሆኖ በተጨማሪም ኃይል እየሞላ ነው።</translation>
-<translation id="6803622936009808957">ምንም የሚደገፉ ጥራቶች ስላልተገኙ ማሳያዎችን ማሳየት አልተቻለም። ይልቁንስ ወደ የተስፋፋ ዴስክቶፕ ሁነታ ተገብቷል።</translation>
 <translation id="683971173229319003">Search+L</translation>
 <translation id="68610848741840742">ChromeVox (የቃል ግብረመልስ)</translation>
-<translation id="6895424601869865703">ለ<ph name="GIVEN_NAME" /> አንድ መለያ አክል</translation>
 <translation id="6911468394164995108">ሌላ ይቀላቀሉ...</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6979158407327259162">Google Drive</translation>
@@ -185,6 +194,7 @@
 <translation id="7052914147756339792">ልጣፍ አዘጋጅ...</translation>
 <translation id="7097613348211027502">ChromeVox (የቃል ግብረመልስ) ነቅቷል። 
 ለማሰናከል Ctrl+Alt+Z ይጫኑ።</translation>
+<translation id="7098389117866926363">USB-C መሣሪያ (የግራ ወደብ ከኋላ በኩል)</translation>
 <translation id="714034171374937760">Chromebase</translation>
 <translation id="7168224885072002358">በ<ph name="TIMEOUT_SECONDS" /> ውስጥ ወደ ቀድሞው ጥራት በመመለስ ላይ</translation>
 <translation id="7209101170223508707">CAPS LOCK በርቷል።
@@ -198,6 +208,7 @@
 <translation id="7573962313813535744">ትክል ሁነታ</translation>
 <translation id="7593891976182323525">Search ወይም Shift</translation>
 <translation id="7649070708921625228">እገዛ</translation>
+<translation id="7692480393933218409">የተገናኙ የUSB-C መሣሪያዎችን ኃይል በመሙላት ላይ</translation>
 <translation id="7814236020522506259"><ph name="HOUR" /> እና <ph name="MINUTE" /></translation>
 <translation id="7823564328645135659">ቅንብሮችዎ ከተመሳሰሉ በኋላ ቋንቋው ከ«<ph name="FROM_LOCALE" /> ወደ «<ph name="TO_LOCALE" />» ተቀይሯል።</translation>
 <translation id="785750925697875037">የተንቀሳቃሽ መለያ ይመልከቱ</translation>
@@ -223,7 +234,9 @@
 <translation id="8828714802988429505">90°</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8878886163241303700">ማያ ገጽ በማስቀጠል ላይ</translation>
+<translation id="8938800817013097409">USB-C መሣሪያ (የቀኝ ወደብ ከኋላ በኩል)</translation>
 <translation id="8940956008527784070">ባትሪ ዝቅተኛ ነው (<ph name="PERCENTAGE" />%)</translation>
+<translation id="9008540565042607572">ውድ ማሳያ፣ ልንስማማ አልቻልንም። (ያ ማሳያ አይደገፍም። የግብረመልስ ሪፖርት ለመላክ ጠቅ ያድርጉ።)</translation>
 <translation id="9074739597929991885">ብሉቱዝ</translation>
 <translation id="9080206825613744995">ማይክሮፎን ስራ ላይ ነው።</translation>
 <translation id="9089416786594320554">የግቤት ስልቶች</translation>

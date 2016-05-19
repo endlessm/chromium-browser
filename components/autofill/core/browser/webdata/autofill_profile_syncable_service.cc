@@ -4,12 +4,16 @@
 
 #include "components/autofill/core/browser/webdata/autofill_profile_syncable_service.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/guid.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_country.h"
 #include "components/autofill/core/browser/autofill_profile.h"
+#include "components/autofill/core/browser/country_names.h"
 #include "components/autofill/core/browser/form_group.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
@@ -95,7 +99,7 @@ AutofillProfileSyncableService::MergeDataAndStartSyncing(
   DVLOG(1) << "Associating Autofill: MergeDataAndStartSyncing";
 
   syncer::SyncMergeResult merge_result(type);
-  sync_error_factory_ = sync_error_factory.Pass();
+  sync_error_factory_ = std::move(sync_error_factory);
   if (!LoadAutofillData(&profiles_.get())) {
     merge_result.set_error(sync_error_factory_->CreateAndUploadError(
         FROM_HERE, "Could not get the autofill data from WebDatabase."));
@@ -114,7 +118,7 @@ AutofillProfileSyncableService::MergeDataAndStartSyncing(
     }
   }
 
-  sync_processor_ = sync_processor.Pass();
+  sync_processor_ = std::move(sync_processor);
 
   GUIDToProfileMap remaining_profiles;
   CreateGUIDToProfileMap(profiles_.get(), &remaining_profiles);
@@ -301,8 +305,7 @@ bool AutofillProfileSyncableService::SaveChangesToWebData(
 // static
 bool AutofillProfileSyncableService::OverwriteProfileWithServerData(
     const sync_pb::AutofillProfileSpecifics& specifics,
-    AutofillProfile* profile,
-    const std::string& app_locale) {
+    AutofillProfile* profile) {
   bool diff = false;
   if (specifics.has_origin() && profile->origin() != specifics.origin()) {
     bool was_verified = profile->IsVerified();
@@ -364,7 +367,7 @@ bool AutofillProfileSyncableService::OverwriteProfileWithServerData(
   base::string16 country_name_or_code =
       ASCIIToUTF16(specifics.address_home_country());
   std::string country_code =
-      AutofillCountry::GetCountryCode(country_name_or_code, app_locale);
+      CountryNames::GetInstance()->GetCountryCode(country_name_or_code);
   diff = UpdateField(ADDRESS_HOME_COUNTRY, country_code, profile) || diff;
 
   // Update the street address.  In newer versions of Chrome (M34+), this data
@@ -493,8 +496,8 @@ AutofillProfileSyncableService::CreateOrUpdateProfile(
         autofill_specifics.guid());
   if (existing_profile != profile_map->end()) {
     // The synced profile already exists locally.  It might need to be updated.
-    if (OverwriteProfileWithServerData(
-            autofill_specifics, existing_profile->second, app_locale_)) {
+    if (OverwriteProfileWithServerData(autofill_specifics,
+                                       existing_profile->second)) {
       bundle->profiles_to_update.push_back(existing_profile->second);
     }
     return existing_profile;
@@ -503,7 +506,7 @@ AutofillProfileSyncableService::CreateOrUpdateProfile(
   // New profile synced.
   AutofillProfile* new_profile = new AutofillProfile(
       autofill_specifics.guid(), autofill_specifics.origin());
-  OverwriteProfileWithServerData(autofill_specifics, new_profile, app_locale_);
+  OverwriteProfileWithServerData(autofill_specifics, new_profile);
 
   // Check if profile appears under a different guid. Compares only profile
   // contents. (Ignores origin and language code in comparison.)
@@ -643,6 +646,9 @@ void AutofillProfileSyncableService::InjectStartSyncFlare(
 }
 
 AutofillProfileSyncableService::DataBundle::DataBundle() {}
+
+AutofillProfileSyncableService::DataBundle::DataBundle(
+    const DataBundle& other) = default;
 
 AutofillProfileSyncableService::DataBundle::~DataBundle() {}
 

@@ -22,7 +22,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/ImageDocument.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -42,6 +41,7 @@
 #include "core/html/HTMLHtmlElement.h"
 #include "core/html/HTMLImageElement.h"
 #include "core/html/HTMLMetaElement.h"
+#include "core/layout/LayoutObject.h"
 #include "core/loader/DocumentLoader.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
@@ -146,9 +146,7 @@ void ImageDocumentParser::appendBytes(const char* data, size_t length)
         document()->cachedImage()->appendData(data, length);
     }
 
-    // TODO(esprehn): These null checks on Document don't make sense, document()
-    // will ASSERT if it was null. Do these want to check isDetached() ?
-    if (document())
+    if (!isDetached())
         document()->imageUpdated();
 }
 
@@ -163,7 +161,7 @@ void ImageDocumentParser::finish()
 
         // Report the natural image size in the page title, regardless of zoom level.
         // At a zoom level of 1 the image is guaranteed to have an integer size.
-        IntSize size = flooredIntSize(cachedImage->imageSizeForLayoutObject(document()->imageElement()->layoutObject(), 1.0f));
+        IntSize size = flooredIntSize(cachedImage->imageSize(LayoutObject::shouldRespectImageOrientation(document()->imageElement()->layoutObject()), 1.0f));
         if (size.width()) {
             // Compute the title, we use the decoded filename of the resource, falling
             // back on the (decoded) hostname if there is no path.
@@ -171,14 +169,14 @@ void ImageDocumentParser::finish()
             if (fileName.isEmpty())
                 fileName = document()->url().host();
             document()->setTitle(imageTitle(fileName, size));
+            if (isDetached())
+                return;
         }
 
         document()->imageUpdated();
     }
 
-    // TODO(esprehn): These null checks on Document don't make sense, document()
-    // will ASSERT if it was null. Do these want to check isDetached() ?
-    if (document())
+    if (!isDetached())
         document()->finishedParsing();
 }
 
@@ -207,8 +205,10 @@ void ImageDocument::createDocumentStructure(bool loadingMultipartContent)
     appendChild(rootElement);
     rootElement->insertedByParser();
 
-    if (frame())
-        frame()->loader().dispatchDocumentElementAvailable();
+    frame()->loader().dispatchDocumentElementAvailable();
+    frame()->loader().runScriptsAtDocumentElementAvailable();
+    if (isStopped())
+        return; // runScriptsAtDocumentElementAvailable can detach the frame.
     // Normally, ImageDocument creates an HTMLImageElement that doesn't actually load
     // anything, and the ImageDocument routes the main resource data into the HTMLImageElement's
     // ImageResource. However, the main resource pipeline doesn't know how to handle multipart content.
@@ -226,8 +226,7 @@ void ImageDocument::createDocumentStructure(bool loadingMultipartContent)
     RefPtrWillBeRawPtr<HTMLBodyElement> body = HTMLBodyElement::create(*this);
     body->setAttribute(styleAttr, "margin: 0px;");
 
-    if (frame())
-        frame()->loader().client()->dispatchWillInsertBody();
+    frame()->loader().client()->dispatchWillInsertBody();
 
     m_imageElement = HTMLImageElement::create(*this);
     m_imageElement->setAttribute(styleAttr, "-webkit-user-select: none");
@@ -263,7 +262,7 @@ float ImageDocument::scale() const
         return 1;
 
     ASSERT(m_imageElement->cachedImage());
-    LayoutSize imageSize = m_imageElement->cachedImage()->imageSizeForLayoutObject(m_imageElement->layoutObject(), pageZoomFactor(this));
+    LayoutSize imageSize = m_imageElement->cachedImage()->imageSize(LayoutObject::shouldRespectImageOrientation(m_imageElement->layoutObject()), pageZoomFactor(this));
     LayoutSize windowSize = LayoutSize(view->width(), view->height());
 
     float widthScale = windowSize.width().toFloat() / imageSize.width().toFloat();
@@ -278,7 +277,7 @@ void ImageDocument::resizeImageToFit(ScaleType type)
         return;
 
     ASSERT(m_imageElement->cachedImage());
-    LayoutSize imageSize = m_imageElement->cachedImage()->imageSizeForLayoutObject(m_imageElement->layoutObject(), pageZoomFactor(this));
+    LayoutSize imageSize = m_imageElement->cachedImage()->imageSize(LayoutObject::shouldRespectImageOrientation(m_imageElement->layoutObject()), pageZoomFactor(this));
 
     float scale = this->scale();
     m_imageElement->setWidth(static_cast<int>(imageSize.width() * scale));
@@ -319,8 +318,8 @@ void ImageDocument::imageUpdated()
     if (m_imageSizeIsKnown)
         return;
 
-    updateLayoutTreeIfNeeded();
-    if (!m_imageElement->cachedImage() || m_imageElement->cachedImage()->imageSizeForLayoutObject(m_imageElement->layoutObject(), pageZoomFactor(this)).isEmpty())
+    updateLayoutTree();
+    if (!m_imageElement->cachedImage() || m_imageElement->cachedImage()->imageSize(LayoutObject::shouldRespectImageOrientation(m_imageElement->layoutObject()), pageZoomFactor(this)).isEmpty())
         return;
 
     m_imageSizeIsKnown = true;
@@ -339,7 +338,7 @@ void ImageDocument::restoreImageSize(ScaleType type)
         return;
 
     ASSERT(m_imageElement->cachedImage());
-    LayoutSize imageSize = m_imageElement->cachedImage()->imageSizeForLayoutObject(m_imageElement->layoutObject(), 1.0f);
+    LayoutSize imageSize = m_imageElement->cachedImage()->imageSize(LayoutObject::shouldRespectImageOrientation(m_imageElement->layoutObject()), 1.0f);
     m_imageElement->setWidth(imageSize.width());
     m_imageElement->setHeight(imageSize.height());
 
@@ -363,7 +362,7 @@ bool ImageDocument::imageFitsInWindow() const
         return true;
 
     ASSERT(m_imageElement->cachedImage());
-    LayoutSize imageSize = m_imageElement->cachedImage()->imageSizeForLayoutObject(m_imageElement->layoutObject(), pageZoomFactor(this));
+    LayoutSize imageSize = m_imageElement->cachedImage()->imageSize(LayoutObject::shouldRespectImageOrientation(m_imageElement->layoutObject()), pageZoomFactor(this));
     LayoutSize windowSize = LayoutSize(view->width(), view->height());
 
     return imageSize.width() <= windowSize.width() && imageSize.height() <= windowSize.height();
@@ -416,8 +415,13 @@ void ImageDocument::windowSizeChanged(ScaleType type)
 ImageResource* ImageDocument::cachedImage()
 {
     bool loadingMultipartContent = loader() && loader()->loadingMultipartContent();
-    if (!m_imageElement)
+    if (!m_imageElement) {
         createDocumentStructure(loadingMultipartContent);
+        if (isStopped()) {
+            m_imageElement = nullptr;
+            return nullptr;
+        }
+    }
 
     return loadingMultipartContent ? nullptr : m_imageElement->cachedImage();
 }
@@ -460,4 +464,4 @@ bool ImageEventListener::operator==(const EventListener& listener) const
     return false;
 }
 
-}
+} // namespace blink

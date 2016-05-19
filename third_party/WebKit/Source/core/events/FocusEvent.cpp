@@ -23,7 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/events/FocusEvent.h"
 
 #include "core/events/Event.h"
@@ -79,7 +78,7 @@ FocusEventDispatchMediator::FocusEventDispatchMediator(PassRefPtrWillBeRawPtr<Fo
 {
 }
 
-bool FocusEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
+DispatchEventResult FocusEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
 {
     event().eventPath().adjustForRelatedTarget(dispatcher.node(), event().relatedTarget());
     return EventDispatchMediator::dispatchEvent(dispatcher);

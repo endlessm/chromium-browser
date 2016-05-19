@@ -380,11 +380,22 @@ class Generator(generator.Generator):
       "imported_interfaces": self.GetImportedInterfaces(),
     }
 
-  @UseJinja("js_templates/module.amd.tmpl", filters=js_filters)
+  @staticmethod
+  def GetTemplatePrefix():
+    return "js_templates"
+
+  @classmethod
+  def GetFilters(cls):
+    return cls.js_filters
+
+  @UseJinja("module.amd.tmpl")
   def GenerateAMDModule(self):
     return self.GetParameters()
 
   def GenerateFiles(self, args):
+    if self.variant:
+      raise Exception("Variants not supported in JavaScript bindings.")
+
     self.Write(self.GenerateAMDModule(),
         self.MatchMojomFilePath("%s.js" % self.module.name))
 

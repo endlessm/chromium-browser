@@ -5,10 +5,12 @@
 #ifndef CONTENT_BROWSER_GAMEPAD_GAMEPAD_PLATFORM_DATA_FETCHER_LINUX_H_
 #define CONTENT_BROWSER_GAMEPAD_GAMEPAD_PLATFORM_DATA_FETCHER_LINUX_H_
 
+#include <stddef.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/browser/gamepad/gamepad_data_fetcher.h"
 
@@ -16,9 +18,11 @@ extern "C" {
 struct udev_device;
 }
 
-namespace content {
-
+namespace device {
 class UdevLinux;
+}
+
+namespace content {
 
 class GamepadPlatformDataFetcherLinux : public GamepadDataFetcher {
  public:
@@ -37,7 +41,7 @@ class GamepadPlatformDataFetcherLinux : public GamepadDataFetcher {
   // File descriptor for the /dev/input/js* devices. -1 if not in use.
   int device_fd_[blink::WebGamepads::itemsLengthCap];
 
-  scoped_ptr<UdevLinux> udev_;
+  scoped_ptr<device::UdevLinux> udev_;
 
   DISALLOW_COPY_AND_ASSIGN(GamepadPlatformDataFetcherLinux);
 };

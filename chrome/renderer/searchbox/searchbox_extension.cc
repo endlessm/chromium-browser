@@ -4,9 +4,13 @@
 
 #include "chrome/renderer/searchbox/searchbox_extension.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/json/string_escape.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -235,12 +239,6 @@ content::RenderView* GetRenderViewWithCheckedOrigin(const GURL& origin) {
   return render_view;
 }
 
-// Returns the current URL.
-GURL GetCurrentURL(content::RenderView* render_view) {
-  blink::WebView* webview = render_view->GetWebView();
-  return webview ? GURL(webview->mainFrame()->document().url()) : GURL();
-}
-
 }  // namespace
 
 namespace internal {  // for testing.
@@ -349,17 +347,6 @@ static const char kDispatchKeyCaptureChangeScript[] =
     "  true;"
     "}";
 
-static const char kDispatchMarginChangeEventScript[] =
-    "if (window.chrome &&"
-    "    window.chrome.embeddedSearch &&"
-    "    window.chrome.embeddedSearch.searchBox &&"
-    "    window.chrome.embeddedSearch.searchBox.onmarginchange &&"
-    "    typeof window.chrome.embeddedSearch.searchBox.onmarginchange =="
-    "        'function') {"
-    "  window.chrome.embeddedSearch.searchBox.onmarginchange();"
-    "  true;"
-    "}";
-
 static const char kDispatchMostVisitedChangedScript[] =
     "if (window.chrome &&"
     "    window.chrome.embeddedSearch &&"
@@ -462,9 +449,6 @@ class SearchBoxExtensionWrapper : public v8::Extension {
   static void GetSearchRequestParams(
       const v8::FunctionCallbackInfo<v8::Value>& args);
 
-  // Gets the start-edge margin to use with extended Instant.
-  static void GetStartMargin(const v8::FunctionCallbackInfo<v8::Value>& args);
-
   // Gets the current top suggestion to prefetch search results.
   static void GetSuggestionToPrefetch(
       const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -496,8 +480,7 @@ class SearchBoxExtensionWrapper : public v8::Extension {
   static void LogMostVisitedNavigation(
       const v8::FunctionCallbackInfo<v8::Value>& args);
 
-  // Navigates the window to a URL represented by either a URL string or a
-  // restricted ID.
+  // Navigates the window to a URL represented by a restricted ID.
   static void NavigateContentWindow(
       const v8::FunctionCallbackInfo<v8::Value>& args);
 
@@ -587,11 +570,6 @@ void SearchBoxExtension::DispatchKeyCaptureChange(blink::WebFrame* frame) {
 }
 
 // static
-void SearchBoxExtension::DispatchMarginChange(blink::WebFrame* frame) {
-  Dispatch(frame, kDispatchMarginChangeEventScript);
-}
-
-// static
 void SearchBoxExtension::DispatchMostVisitedChanged(
     blink::WebFrame* frame) {
   Dispatch(frame, kDispatchMostVisitedChangedScript);
@@ -645,8 +623,6 @@ SearchBoxExtensionWrapper::GetNativeFunctionTemplate(
     return v8::FunctionTemplate::New(isolate, GetRightToLeft);
   if (name->Equals(v8::String::NewFromUtf8(isolate, "GetSearchRequestParams")))
     return v8::FunctionTemplate::New(isolate, GetSearchRequestParams);
-  if (name->Equals(v8::String::NewFromUtf8(isolate, "GetStartMargin")))
-    return v8::FunctionTemplate::New(isolate, GetStartMargin);
   if (name->Equals(v8::String::NewFromUtf8(isolate, "GetSuggestionToPrefetch")))
     return v8::FunctionTemplate::New(isolate, GetSuggestionToPrefetch);
   if (name->Equals(v8::String::NewFromUtf8(isolate, "GetThemeBackgroundInfo")))
@@ -887,15 +863,6 @@ void SearchBoxExtensionWrapper::GetSearchRequestParams(
               UTF16ToV8String(isolate, params.assisted_query_stats));
   }
   args.GetReturnValue().Set(data);
-}
-
-// static
-void SearchBoxExtensionWrapper::GetStartMargin(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  content::RenderView* render_view = GetRenderView();
-  if (!render_view) return;
-  args.GetReturnValue().Set(static_cast<int32_t>(
-      SearchBox::Get(render_view)->start_margin()));
 }
 
 // static
@@ -1166,39 +1133,30 @@ void SearchBoxExtensionWrapper::NavigateContentWindow(
   content::RenderView* render_view = GetRenderView();
   if (!render_view) return;
 
-  if (!args.Length()) {
+  if (!args.Length() || !args[0]->IsNumber()) {
     ThrowInvalidParameters(args);
     return;
   }
 
-  GURL destination_url;
-  bool is_most_visited_item_url = false;
-  // Check if the url is a rid
-  if (args[0]->IsNumber()) {
-    InstantMostVisitedItem item;
-    if (SearchBox::Get(render_view)->GetMostVisitedItemWithID(
-            args[0]->IntegerValue(), &item)) {
-      destination_url = item.url;
-      is_most_visited_item_url = true;
-    }
-  } else {
-    // Resolve the URL
-    const base::string16& possibly_relative_url = V8ValueToUTF16(args[0]);
-  GURL current_url = GetCurrentURL(render_view);
-    destination_url = internal::ResolveURL(current_url, possibly_relative_url);
-  }
+  InstantRestrictedID rid = args[0]->Int32Value();
+  InstantMostVisitedItem item;
+  if (!SearchBox::Get(render_view)->GetMostVisitedItemWithID(rid, &item))
+    return;
+
+  GURL destination_url = item.url;
 
   DVLOG(1) << render_view << " NavigateContentWindow: " << destination_url;
 
-  // Navigate the main frame.
+  // Navigate the main frame. Note that the security checks are enforced by the
+  // browser process in InstantService::IsValidURLForNavigation(), but some
+  // simple checks here are useful for avoiding unnecessary IPCs.
   if (destination_url.is_valid() &&
       !destination_url.SchemeIs(url::kJavaScriptScheme)) {
     WindowOpenDisposition disposition = CURRENT_TAB;
     if (args[1]->IsNumber()) {
       disposition = (WindowOpenDisposition) args[1]->Uint32Value();
     }
-    SearchBox::Get(render_view)->NavigateToURL(destination_url, disposition,
-                                               is_most_visited_item_url);
+    SearchBox::Get(render_view)->NavigateToURL(destination_url, disposition);
   }
 }
 

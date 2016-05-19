@@ -63,10 +63,10 @@ public:
 private:
     explicit MediaQueryMatcher(Document&);
 
-    PassOwnPtr<MediaQueryEvaluator> createEvaluator() const;
+    PassOwnPtrWillBeRawPtr<MediaQueryEvaluator> createEvaluator() const;
 
     RawPtrWillBeMember<Document> m_document;
-    OwnPtr<MediaQueryEvaluator> m_evaluator;
+    OwnPtrWillBeMember<MediaQueryEvaluator> m_evaluator;
 
     using MediaQueryListSet = WillBeHeapLinkedHashSet<RawPtrWillBeWeakMember<MediaQueryList>>;
     MediaQueryListSet m_mediaLists;
@@ -75,6 +75,6 @@ private:
     ViewportListenerSet m_viewportListeners;
 };
 
-}
+} // namespace blink
 
 #endif // MediaQueryMatcher_h

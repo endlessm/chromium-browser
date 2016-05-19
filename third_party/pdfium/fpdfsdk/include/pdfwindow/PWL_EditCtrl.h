@@ -7,9 +7,9 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_EDITCTRL_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_EDITCTRL_H_
 
-#include "../fxedit/fx_edit.h"
-#include "PWL_Wnd.h"
 #include "core/include/fxcrt/fx_string.h"
+#include "fpdfsdk/include/fxedit/fx_edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 class CPWL_Caret;
 class CPWL_Edit;
@@ -117,7 +117,6 @@ class CPWL_EditCtrl : public CPWL_Wnd, public IFX_Edit_Notify {
   void SetFontSize(FX_FLOAT fFontSize) override;
   FX_FLOAT GetFontSize() const override;
   void SetCursor() override;
-  FX_BOOL IsModified() const override;
 
  protected:
   // IFX_Edit_Notify

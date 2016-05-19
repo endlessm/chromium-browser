@@ -124,7 +124,6 @@
     text-shadow: 0 1px 0 #fff;
     line-height: 1.5;
     white-space: nowrap;
-    font-family: Lucida Grande, sans-serif;
 }
 
 .help-combine-keys,
@@ -185,6 +184,7 @@ fieldset {
     font-size: 18px;
     color: inherit;
     padding: 1px 0 15px 17px;
+    flex: none;
 }
 
 .help-container-wrapper {

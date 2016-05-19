@@ -20,9 +20,26 @@ class MockDelegate : public QuicAlarm::Delegate {
   MOCK_METHOD0(OnAlarm, QuicTime());
 };
 
+class DestructiveDelegate : public QuicAlarm::Delegate {
+ public:
+  DestructiveDelegate() : alarm_(nullptr) {}
+
+  void set_alarm(QuicAlarm* alarm) { alarm_ = alarm; }
+
+  QuicTime OnAlarm() override {
+    DCHECK(alarm_);
+    delete alarm_;
+    return QuicTime::Zero();
+  }
+
+ private:
+  QuicAlarm* alarm_;
+};
+
 class TestAlarm : public QuicAlarm {
  public:
-  explicit TestAlarm(QuicAlarm::Delegate* delegate) : QuicAlarm(delegate) {}
+  explicit TestAlarm(QuicAlarm::Delegate* delegate)
+      : QuicAlarm(QuicArenaScopedPtr<QuicAlarm::Delegate>(delegate)) {}
 
   bool scheduled() const { return scheduled_; }
 
@@ -46,6 +63,19 @@ class TestAlarm : public QuicAlarm {
   bool scheduled_;
 };
 
+class DestructiveAlarm : public QuicAlarm {
+ public:
+  explicit DestructiveAlarm(DestructiveDelegate* delegate)
+      : QuicAlarm(QuicArenaScopedPtr<DestructiveDelegate>(delegate)) {}
+
+  void FireAlarm() { Fire(); }
+
+ protected:
+  void SetImpl() override {}
+
+  void CancelImpl() override {}
+};
+
 class QuicAlarmTest : public ::testing::Test {
  public:
   QuicAlarmTest()
@@ -53,12 +83,9 @@ class QuicAlarmTest : public ::testing::Test {
         alarm_(delegate_),
         deadline_(QuicTime::Zero().Add(QuicTime::Delta::FromSeconds(7))),
         deadline2_(QuicTime::Zero().Add(QuicTime::Delta::FromSeconds(14))),
-        new_deadline_(QuicTime::Zero()) {
-  }
+        new_deadline_(QuicTime::Zero()) {}
 
-  void ResetAlarm() {
-    alarm_.Set(new_deadline_);
-  }
+  void ResetAlarm() { alarm_.Set(new_deadline_); }
 
   MockDelegate* delegate_;  // not owned
   TestAlarm alarm_;
@@ -129,13 +156,23 @@ TEST_F(QuicAlarmTest, FireAndResetViaReturn) {
 TEST_F(QuicAlarmTest, FireAndResetViaSet) {
   alarm_.Set(deadline_);
   new_deadline_ = deadline2_;
-  EXPECT_CALL(*delegate_, OnAlarm()).WillOnce(DoAll(
-      Invoke(this, &QuicAlarmTest::ResetAlarm),
-      Return(QuicTime::Zero())));
+  EXPECT_CALL(*delegate_, OnAlarm())
+      .WillOnce(DoAll(Invoke(this, &QuicAlarmTest::ResetAlarm),
+                      Return(QuicTime::Zero())));
   alarm_.FireAlarm();
   EXPECT_TRUE(alarm_.IsSet());
   EXPECT_TRUE(alarm_.scheduled());
   EXPECT_EQ(deadline2_, alarm_.deadline());
+}
+
+TEST_F(QuicAlarmTest, FireDestroysAlarm) {
+  DestructiveDelegate* delegate(new DestructiveDelegate);
+  DestructiveAlarm* alarm = new DestructiveAlarm(delegate);
+  delegate->set_alarm(alarm);
+  QuicTime deadline = QuicTime::Zero().Add(QuicTime::Delta::FromSeconds(7));
+  alarm->Set(deadline);
+  // This should not crash, even though it will destroy alarm.
+  alarm->FireAlarm();
 }
 
 }  // namespace

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/vr/HMDVRDevice.h"
 
 #include "modules/vr/VRController.h"
@@ -21,7 +20,7 @@ VREye stringToVREye(const String& whichEye)
     return VREyeNone;
 }
 
-} // namepspace
+} // namespace
 
 HMDVRDevice::HMDVRDevice(VRHardwareUnit* hardwareUnit, unsigned deviceId)
     : VRDevice(hardwareUnit, deviceId)

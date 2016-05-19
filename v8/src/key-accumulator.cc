@@ -6,7 +6,9 @@
 
 #include "src/elements.h"
 #include "src/factory.h"
+#include "src/isolate-inl.h"
 #include "src/objects-inl.h"
+#include "src/property-descriptor.h"
 
 
 namespace v8 {
@@ -27,6 +29,9 @@ Handle<FixedArray> KeyAccumulator::GetKeys(GetKeysConversion convert) {
   // Make sure we have all the lengths collected.
   NextPrototype();
 
+  if (type_ == OWN_ONLY && !ownProxyKeys_.is_null()) {
+    return ownProxyKeys_;
+  }
   // Assemble the result array by first adding the element keys and then the
   // property keys. We use the total number of String + Symbol keys per level in
   // |level_lengths_| and the available element keys in the corresponding bucket
@@ -97,9 +102,11 @@ bool KeyAccumulator::AddKey(Object* key, AddKeyConversion convert) {
 
 bool KeyAccumulator::AddKey(Handle<Object> key, AddKeyConversion convert) {
   if (key->IsSymbol()) {
-    if (filter_ == SKIP_SYMBOLS) return false;
+    if (filter_ & SKIP_SYMBOLS) return false;
+    if (Handle<Symbol>::cast(key)->is_private()) return false;
     return AddSymbolKey(key);
   }
+  if (filter_ & SKIP_STRINGS) return false;
   // Make sure we do not add keys to a proxy-level (see AddKeysFromProxy).
   DCHECK_LE(0, level_string_length_);
   // In some cases (e.g. proxies) we might get in String-converted ints which
@@ -214,6 +221,60 @@ void KeyAccumulator::AddKeysFromProxy(Handle<JSObject> array_like) {
   // element keys for this level. Otherwise we would not fully respect the order
   // given by the proxy.
   level_string_length_ = -level_string_length_;
+}
+
+
+MaybeHandle<FixedArray> FilterProxyKeys(Isolate* isolate, Handle<JSProxy> owner,
+                                        Handle<FixedArray> keys,
+                                        PropertyFilter filter) {
+  if (filter == ALL_PROPERTIES) {
+    // Nothing to do.
+    return keys;
+  }
+  int store_position = 0;
+  for (int i = 0; i < keys->length(); ++i) {
+    Handle<Name> key(Name::cast(keys->get(i)), isolate);
+    if (key->FilterKey(filter)) continue;  // Skip this key.
+    if (filter & ONLY_ENUMERABLE) {
+      PropertyDescriptor desc;
+      Maybe<bool> found =
+          JSProxy::GetOwnPropertyDescriptor(isolate, owner, key, &desc);
+      MAYBE_RETURN(found, MaybeHandle<FixedArray>());
+      if (!found.FromJust() || !desc.enumerable()) continue;  // Skip this key.
+    }
+    // Keep this key.
+    if (store_position != i) {
+      keys->set(store_position, *key);
+    }
+    store_position++;
+  }
+  if (store_position == 0) return isolate->factory()->empty_fixed_array();
+  keys->Shrink(store_position);
+  return keys;
+}
+
+
+// Returns "nothing" in case of exception, "true" on success.
+Maybe<bool> KeyAccumulator::AddKeysFromProxy(Handle<JSProxy> proxy,
+                                             Handle<FixedArray> keys) {
+  ASSIGN_RETURN_ON_EXCEPTION_VALUE(
+      isolate_, keys, FilterProxyKeys(isolate_, proxy, keys, filter_),
+      Nothing<bool>());
+  // Proxies define a complete list of keys with no distinction of
+  // elements and properties, which breaks the normal assumption for the
+  // KeyAccumulator.
+  if (type_ == OWN_ONLY) {
+    ownProxyKeys_ = keys;
+    level_string_length_ = keys->length();
+    length_ = level_string_length_;
+  } else {
+    AddKeys(keys, PROXY_MAGIC);
+  }
+  // Invert the current length to indicate a present proxy, so we can ignore
+  // element keys for this level. Otherwise we would not fully respect the order
+  // given by the proxy.
+  level_string_length_ = -level_string_length_;
+  return Just(true);
 }
 
 

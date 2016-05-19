@@ -16,6 +16,7 @@
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/test/display_manager_test_api.h"
 #include "ash/test/shelf_test_api.h"
 #include "ash/test/shelf_view_test_api.h"
 #include "ash/test/shell_test_api.h"
@@ -30,7 +31,6 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_vector.h"
@@ -38,6 +38,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/user_action_tester.h"
+#include "base/thread_task_runner_handle.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/focus_client.h"
@@ -125,7 +126,7 @@ class WindowSelectorTest : public test::AshTestBase {
     widget->Init(params);
     widget->Show();
     ParentWindowInPrimaryRootWindow(widget->GetNativeWindow());
-    return widget.Pass();
+    return widget;
   }
 
   aura::Window* CreatePanelWindow(const gfx::Rect& bounds) {
@@ -307,7 +308,13 @@ class WindowSelectorTest : public test::AshTestBase {
 
 // Tests that the text field in the overview menu is repositioned and resized
 // after a screen rotation.
-TEST_F(WindowSelectorTest, OverviewScreenRotation) {
+#if defined(OS_WIN) && !defined(USE_ASH)
+// TODO(msw): Broken on Windows. http://crbug.com/584038
+#define MAYBE_OverviewScreenRotation DISABLED_OverviewScreenRotation
+#else
+#define MAYBE_OverviewScreenRotation OverviewScreenRotation
+#endif
+TEST_F(WindowSelectorTest, MAYBE_OverviewScreenRotation) {
   gfx::Rect bounds(0, 0, 400, 300);
   scoped_ptr<aura::Window> window1(CreateWindow(bounds));
   scoped_ptr<aura::Window> panel1(CreatePanelWindow(bounds));
@@ -739,8 +746,7 @@ TEST_F(WindowSelectorTest, WindowDoesNotReceiveEvents) {
 
   // The event should target the window because we are still not in overview
   // mode.
-  EXPECT_EQ(window, static_cast<aura::Window*>(
-      targeter->FindTargetForEvent(root_target, &event1)));
+  EXPECT_EQ(window.get(), targeter->FindTargetForEvent(root_target, &event1));
 
   ToggleOverview();
 
@@ -751,8 +757,7 @@ TEST_F(WindowSelectorTest, WindowDoesNotReceiveEvents) {
                         ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
 
   // Now the transparent window should be intercepting this event.
-  EXPECT_NE(window, static_cast<aura::Window*>(
-        targeter->FindTargetForEvent(root_target, &event2)));
+  EXPECT_NE(window.get(), targeter->FindTargetForEvent(root_target, &event2));
 }
 
 // Tests that clicking on the close button effectively closes the window.
@@ -1195,10 +1200,11 @@ TEST_F(WindowSelectorTest, DISABLED_DragDropInProgress) {
   ash::DragDropController* drag_drop_controller =
       shell_test_api.drag_drop_controller();
   ui::OSExchangeData data;
-  base::MessageLoopForUI::current()->PostTask(FROM_HERE,
-      base::Bind(&WindowSelectorTest::ToggleOverview,
-                 base::Unretained(this)));
-  base::MessageLoopForUI::current()->PostTask(FROM_HERE,
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::Bind(&WindowSelectorTest::ToggleOverview, base::Unretained(this)));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
       base::Bind(&CancelDrag, drag_drop_controller, &drag_canceled_by_test));
   data.SetString(base::UTF8ToUTF16("I am being dragged"));
   drag_drop_controller->StartDragAndDrop(data, window->GetRootWindow(),
@@ -1376,8 +1382,8 @@ TEST_F(WindowSelectorTest, MultiMonitorReversedOrder) {
     return;
 
   UpdateDisplay("400x400,400x400");
-  DisplayLayout layout(DisplayLayout::LEFT, 0);
-  Shell::GetInstance()->display_manager()->SetLayoutForCurrentDisplays(layout);
+  Shell::GetInstance()->display_manager()->SetLayoutForCurrentDisplays(
+      test::CreateDisplayLayout(DisplayPlacement::LEFT, 0));
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
   gfx::Rect bounds1(-350, 0, 100, 100);
   gfx::Rect bounds2(0, 0, 100, 100);

@@ -4,6 +4,7 @@
 {
   'variables': {
     'chromium_code': 1,
+    'protoc_out_dir': '<(SHARED_INTERMEDIATE_DIR)/protoc_out',
   },
   'targets': [
     {
@@ -32,6 +33,8 @@
       'include_dirs': [
         '../..',
         '../../skia/config',
+        '../../third_party/protobuf/src',
+        '<(protoc_out_dir)',
       ],
       'sources': [
         'android_protocol_handler.cc',
@@ -50,6 +53,8 @@
         'aw_contents_client_bridge.h',
         'aw_contents_io_thread_client_impl.cc',
         'aw_contents_io_thread_client_impl.h',
+        'aw_contents_lifecycle_notifier.cc',
+        'aw_contents_lifecycle_notifier.h',
         'aw_contents_statics.cc',
         'aw_contents_statics.h',
         'aw_debug.cc',
@@ -65,7 +70,9 @@
         'aw_media_url_interceptor.cc',
         'aw_media_url_interceptor.h',
         'aw_message_port_service_impl.cc',
-        'aw_messagE_port_service_impl.h',
+        'aw_message_port_service_impl.h',
+        'aw_metrics_switch.cc',
+        'aw_metrics_switch.h',
         'aw_pdf_exporter.cc',
         'aw_pdf_exporter.h',
         'aw_picture.cc',
@@ -105,6 +112,8 @@
         'permission/simple_permission_request.h',
         'state_serializer.cc',
         'state_serializer.h',
+        'token_binding_manager_bridge.cc',
+        'token_binding_manager_bridge.h',
       ],
       'conditions': [
         ['video_hole==1', {
@@ -115,7 +124,7 @@
       ],
     },
     {
-      # GN version:  //android_webview/native:cancellation_signal_android_jar_jni_headers' 
+      # GN version:  //android_webview/native:cancellation_signal_android_jar_jni_headers'
       'target_name': 'cancellation_signal_android_jar_jni_headers',
       'type': 'none',
       'variables': {
@@ -125,7 +134,7 @@
       'includes': [ '../../build/jar_file_jni_generator.gypi' ],
     },
     {
-      # GN version:  //android_webview/native:native_jni 
+      # GN version:  //android_webview/native:native_jni
       'target_name': 'android_webview_native_jni',
       'type': 'none',
       'sources': [
@@ -135,6 +144,7 @@
           '../java/src/org/chromium/android_webview/AwContentsBackgroundThreadClient.java',
           '../java/src/org/chromium/android_webview/AwContentsClientBridge.java',
           '../java/src/org/chromium/android_webview/AwContentsIoThreadClient.java',
+          '../java/src/org/chromium/android_webview/AwContentsLifecycleNotifier.java',
           '../java/src/org/chromium/android_webview/AwContentsStatics.java',
           '../java/src/org/chromium/android_webview/AwCookieManager.java',
           '../java/src/org/chromium/android_webview/AwDebug.java',
@@ -142,11 +152,13 @@
           '../java/src/org/chromium/android_webview/AwFormDatabase.java',
           '../java/src/org/chromium/android_webview/AwHttpAuthHandler.java',
           '../java/src/org/chromium/android_webview/AwMessagePortService.java',
+          '../java/src/org/chromium/android_webview/AwMetricsServiceClient.java',
           '../java/src/org/chromium/android_webview/AwPdfExporter.java',
           '../java/src/org/chromium/android_webview/AwPicture.java',
           '../java/src/org/chromium/android_webview/AwQuotaManagerBridge.java',
           '../java/src/org/chromium/android_webview/AwResource.java',
           '../java/src/org/chromium/android_webview/AwSettings.java',
+          '../java/src/org/chromium/android_webview/AwTokenBindingManager.java',
           '../java/src/org/chromium/android_webview/AwWebContentsDelegate.java',
           '../java/src/org/chromium/android_webview/AwWebResourceResponse.java',
           '../java/src/org/chromium/android_webview/InputStreamUtil.java',
@@ -161,7 +173,7 @@
         'cancellation_signal_android_jar_jni_headers',
       ],
     },
-    # GN version:  //android_webview/native:aw_permission_request_resource' 
+    # GN version:  //android_webview/native:aw_permission_request_resource'
     {
       'target_name': 'android_webview_aw_permission_request_resource',
       'type': 'none',

@@ -4,6 +4,10 @@
 
 #include "ipc/ipc_sync_channel.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
@@ -413,7 +417,7 @@ scoped_ptr<SyncChannel> SyncChannel::Create(
   scoped_ptr<SyncChannel> channel =
       Create(listener, ipc_task_runner, shutdown_event);
   channel->Init(channel_handle, mode, create_pipe_now);
-  return channel.Pass();
+  return channel;
 }
 
 // static
@@ -425,8 +429,8 @@ scoped_ptr<SyncChannel> SyncChannel::Create(
     base::WaitableEvent* shutdown_event) {
   scoped_ptr<SyncChannel> channel =
       Create(listener, ipc_task_runner, shutdown_event);
-  channel->Init(factory.Pass(), create_pipe_now);
-  return channel.Pass();
+  channel->Init(std::move(factory), create_pipe_now);
+  return channel;
 }
 
 // static

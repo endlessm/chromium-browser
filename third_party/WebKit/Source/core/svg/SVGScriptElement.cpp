@@ -18,13 +18,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGScriptElement.h"
 
 #include "bindings/core/v8/ScriptEventListener.h"
 #include "core/HTMLNames.h"
-#include "core/XLinkNames.h"
 #include "core/dom/Attribute.h"
 #include "core/dom/ScriptLoader.h"
 #include "core/dom/ScriptRunner.h"
@@ -44,12 +41,12 @@ PassRefPtrWillBeRawPtr<SVGScriptElement> SVGScriptElement::create(Document& docu
     return adoptRefWillBeNoop(new SVGScriptElement(document, insertedByParser, false));
 }
 
-void SVGScriptElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void SVGScriptElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (name == HTMLNames::onerrorAttr)
         setAttributeEventListener(EventTypeNames::error, createAttributeEventListener(this, name, value, eventParameterName()));
     else
-        SVGElement::parseAttribute(name, value);
+        SVGElement::parseAttribute(name, oldValue, value);
 }
 
 void SVGScriptElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -85,7 +82,7 @@ void SVGScriptElement::childrenChanged(const ChildrenChange& change)
 
 void SVGScriptElement::didMoveToNewDocument(Document& oldDocument)
 {
-    ScriptRunner::movePendingAsyncScript(oldDocument, document(), m_loader.get());
+    ScriptRunner::movePendingScript(oldDocument, document(), m_loader.get());
     SVGElement::didMoveToNewDocument(oldDocument);
 }
 

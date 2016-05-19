@@ -4,8 +4,6 @@
 
 package org.chromium.content.app;
 
-import android.content.Context;
-
 import org.chromium.base.annotations.JNINamespace;
 
 /**
@@ -21,19 +19,11 @@ import org.chromium.base.annotations.JNINamespace;
 @JNINamespace("content")
 public class ContentMain {
     /**
-     * Initialize application context in native side.
-     **/
-    public static void initApplicationContext(Context context) {
-        nativeInitApplicationContext(context);
-    }
-
-    /**
      * Start the ContentMainRunner in native side.
      **/
     public static int start() {
         return nativeStart();
     }
 
-    private static native void nativeInitApplicationContext(Context context);
     private static native int nativeStart();
 }

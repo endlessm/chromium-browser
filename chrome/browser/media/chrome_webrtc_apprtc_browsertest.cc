@@ -8,6 +8,7 @@
 #include "base/process/launch.h"
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/infobars/infobar_responder.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -25,15 +26,6 @@
 #include "net/test/python_utils.h"
 #include "ui/gl/gl_switches.h"
 
-// You need this solution to run this test. The solution will download appengine
-// and the apprtc code for you.
-const char kAdviseOnGclientSolution[] =
-    "You need to add this solution to your .gclient to run this test:\n"
-    "{\n"
-    "  \"name\"        : \"webrtc.DEPS\",\n"
-    "  \"url\"         : \"https://chromium.googlesource.com/chromium/deps/"
-    "webrtc/webrtc.DEPS\",\n"
-    "}";
 const char kTitlePageOfAppEngineAdminPage[] = "Instances";
 
 const char kIsApprtcCallUpJavascript[] =
@@ -85,7 +77,8 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
             FILE_PATH_LITERAL("../google_appengine/dev_appserver.py"));
     if (!base::PathExists(appengine_dev_appserver)) {
       LOG(ERROR) << "Missing appengine sdk at " <<
-          appengine_dev_appserver.value() << ". " << kAdviseOnGclientSolution;
+          appengine_dev_appserver.value() << ".\n" <<
+          test::kAdviseOnGclientSolution;
       return false;
     }
 
@@ -93,7 +86,7 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
         GetSourceDir().Append(FILE_PATH_LITERAL("out/apprtc/out/app_engine"));
     if (!base::PathExists(apprtc_dir)) {
       LOG(ERROR) << "Missing AppRTC AppEngine app at " <<
-          apprtc_dir.value() << ". " << kAdviseOnGclientSolution;
+          apprtc_dir.value() << ".\n" << test::kAdviseOnGclientSolution;
       return false;
     }
     if (!base::PathExists(apprtc_dir.Append(FILE_PATH_LITERAL("app.yaml")))) {
@@ -132,7 +125,7 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
 #endif
     if (!base::PathExists(collider_server)) {
       LOG(ERROR) << "Missing Collider server binary at " <<
-          collider_server.value() << ". " << kAdviseOnGclientSolution;
+          collider_server.value() << ".\n" << test::kAdviseOnGclientSolution;
       return false;
     }
 
@@ -209,7 +202,7 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
             FILE_PATH_LITERAL("../firefox-nightly/firefox/firefox"));
     if (!base::PathExists(firefox_binary)) {
       LOG(ERROR) << "Missing firefox binary at " <<
-          firefox_binary.value() << ". " << kAdviseOnGclientSolution;
+          firefox_binary.value() << ".\n" << test::kAdviseOnGclientSolution;
       return false;
     }
     base::FilePath firefox_launcher =
@@ -217,7 +210,7 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
             FILE_PATH_LITERAL("../webrtc.DEPS/run_firefox_webrtc.py"));
     if (!base::PathExists(firefox_launcher)) {
       LOG(ERROR) << "Missing firefox launcher at " <<
-          firefox_launcher.value() << ". " << kAdviseOnGclientSolution;
+          firefox_launcher.value() << ".\n" << test::kAdviseOnGclientSolution;
       return false;
     }
 
@@ -237,10 +230,6 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
 };
 
 IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest, MANUAL_WorksOnApprtc) {
-  // Disabled on Win XP: http://code.google.com/p/webrtc/issues/detail?id=2703.
-  if (OnWinXp())
-    return;
-
   DetectErrorsInJavaScript();
   ASSERT_TRUE(LaunchApprtcInstanceOnLocalhost("9999"));
   ASSERT_TRUE(LaunchColliderOnLocalHost("http://localhost:9999", "8089"));
@@ -281,8 +270,7 @@ IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest, MANUAL_WorksOnApprtc) {
 }
 
 #if defined(OS_LINUX)
-// TODO(phoglund): disabled due to https://crbug.com/545862.
-#define MAYBE_MANUAL_FirefoxApprtcInteropTest DISABLED_MANUAL_FirefoxApprtcInteropTest
+#define MAYBE_MANUAL_FirefoxApprtcInteropTest MANUAL_FirefoxApprtcInteropTest
 #else
 // Not implemented yet on Windows and Mac.
 #define MAYBE_MANUAL_FirefoxApprtcInteropTest DISABLED_MANUAL_FirefoxApprtcInteropTest
@@ -290,10 +278,6 @@ IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest, MANUAL_WorksOnApprtc) {
 
 IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest,
                        MAYBE_MANUAL_FirefoxApprtcInteropTest) {
-  // Disabled on Win XP: http://code.google.com/p/webrtc/issues/detail?id=2703.
-  if (OnWinXp())
-    return;
-
   DetectErrorsInJavaScript();
   ASSERT_TRUE(LaunchApprtcInstanceOnLocalhost("9999"));
   ASSERT_TRUE(LaunchColliderOnLocalHost("http://localhost:9999", "8089"));

@@ -177,7 +177,8 @@ WebInspector.ListWidget.prototype = {
         function onEditClicked(event)
         {
             event.consume();
-            var insertionPoint = element && element.nextElementSibling ? element.nextElementSibling : null;
+            var index = this._elements.indexOf(element);
+            var insertionPoint = this._elements[index + 1] || null;
             this._startEditing(item, element, insertionPoint);
         }
 
@@ -399,7 +400,7 @@ WebInspector.ListWidget.Editor.prototype = {
         this._index = index;
 
         this._commitButton.textContent = commitButtonTitle;
-        this.element.scrollIntoView(false);
+        this.element.scrollIntoViewIfNeeded(false);
         if (this._controls.length)
             this._controls[0].focus();
         this._validateControls(true);

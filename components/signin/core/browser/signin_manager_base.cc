@@ -9,11 +9,11 @@
 
 #include "base/command_line.h"
 #include "base/memory/ref_counted.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/account_info.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_client.h"
@@ -43,6 +43,8 @@ void SigninManagerBase::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterStringPref(prefs::kGoogleServicesHostedDomain,
                                std::string());
+  registry->RegisterStringPref(prefs::kGoogleServicesLastAccountId,
+                               std::string());
   registry->RegisterStringPref(prefs::kGoogleServicesLastUsername,
                                std::string());
   registry->RegisterInt64Pref(
@@ -57,6 +59,7 @@ void SigninManagerBase::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kReverseAutologinEnabled, true);
   registry->RegisterListPref(prefs::kReverseAutologinRejectedEmailList,
                              new base::ListValue);
+  registry->RegisterBooleanPref(prefs::kSigninAllowed, true);
   registry->RegisterInt64Pref(prefs::kSignedInTime,
                               base::Time().ToInternalValue());
 
@@ -207,8 +210,10 @@ void SigninManagerBase::SetAuthenticatedAccountId(
   }
 
   // Go ahead and update the last signed in account info here as well. Once a
-  // user is signed in the two preferences should match. Doing it here as
-  // opposed to on signin allows us to catch the upgrade scenario.
+  // user is signed in the corresponding preferences should match. Doing it here
+  // as opposed to on signin allows us to catch the upgrade scenario.
+  client_->GetPrefs()->SetString(prefs::kGoogleServicesLastAccountId,
+                                 account_id);
   client_->GetPrefs()->SetString(prefs::kGoogleServicesLastUsername,
                                  info.email);
 }

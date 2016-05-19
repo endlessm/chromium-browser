@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/loader/PrerenderHandle.h"
 
 #include "core/dom/Document.h"
@@ -49,7 +48,7 @@ PassOwnPtrWillBeRawPtr<PrerenderHandle> PrerenderHandle::create(Document& docume
     if (!document.frame())
         return nullptr;
 
-    RefPtr<Prerender> prerender = Prerender::create(client, url, prerenderRelTypes, SecurityPolicy::generateReferrer(document.referrerPolicy(), url, document.outgoingReferrer()));
+    RefPtr<Prerender> prerender = Prerender::create(client, url, prerenderRelTypes, SecurityPolicy::generateReferrer(document.getReferrerPolicy(), url, document.outgoingReferrer()));
 
     PrerendererClient* prerendererClient = PrerendererClient::from(document.page());
     if (prerendererClient)
@@ -67,8 +66,10 @@ PrerenderHandle::PrerenderHandle(Document& document, PassRefPtr<Prerender> prere
 
 PrerenderHandle::~PrerenderHandle()
 {
-    if (m_prerender)
+    if (m_prerender) {
+        m_prerender->abandon();
         detach();
+    }
 }
 
 void PrerenderHandle::cancel()
@@ -115,4 +116,4 @@ DEFINE_TRACE(PrerenderHandle)
     DocumentLifecycleObserver::trace(visitor);
 }
 
-}
+} // namespace blink

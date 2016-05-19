@@ -17,19 +17,14 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGPathUtilities.h"
 
-#include "core/svg/SVGPathBlender.h"
 #include "core/svg/SVGPathBuilder.h"
 #include "core/svg/SVGPathByteStreamBuilder.h"
 #include "core/svg/SVGPathByteStreamSource.h"
-#include "core/svg/SVGPathElement.h"
 #include "core/svg/SVGPathParser.h"
 #include "core/svg/SVGPathStringBuilder.h"
 #include "core/svg/SVGPathStringSource.h"
-#include "core/svg/SVGPathTraversalStateBuilder.h"
-#include "platform/graphics/PathTraversalState.h"
 
 namespace blink {
 
@@ -40,8 +35,7 @@ bool buildPathFromString(const String& d, Path& result)
 
     SVGPathBuilder builder(result);
     SVGPathStringSource source(d);
-    SVGPathParser parser(&source, &builder);
-    return parser.parsePathDataFromSource(NormalizedParsing);
+    return SVGPathParser::parsePath(source, builder);
 }
 
 bool buildPathFromByteStream(const SVGPathByteStream& stream, Path& result)
@@ -51,89 +45,34 @@ bool buildPathFromByteStream(const SVGPathByteStream& stream, Path& result)
 
     SVGPathBuilder builder(result);
     SVGPathByteStreamSource source(stream);
-    SVGPathParser parser(&source, &builder);
-    return parser.parsePathDataFromSource(NormalizedParsing);
+    return SVGPathParser::parsePath(source, builder);
 }
 
-bool buildStringFromByteStream(const SVGPathByteStream& stream, String& result, PathParsingMode parsingMode)
+String buildStringFromByteStream(const SVGPathByteStream& stream)
 {
     if (stream.isEmpty())
-        return true;
+        return String();
 
     SVGPathStringBuilder builder;
     SVGPathByteStreamSource source(stream);
-    SVGPathParser parser(&source, &builder);
-    bool ok = parser.parsePathDataFromSource(parsingMode);
-    result = builder.result();
-    return ok;
+    SVGPathParser::parsePath(source, builder);
+    return builder.result();
 }
 
-bool buildSVGPathByteStreamFromString(const String& d, SVGPathByteStream& result, PathParsingMode parsingMode)
+SVGParsingError buildByteStreamFromString(const String& d, SVGPathByteStream& result)
 {
     result.clear();
     if (d.isEmpty())
-        return true;
+        return SVGParseStatus::NoError;
 
     // The string length is typically a minor overestimate of eventual byte stream size, so it avoids us a lot of reallocs.
     result.reserveInitialCapacity(d.length());
 
     SVGPathByteStreamBuilder builder(result);
     SVGPathStringSource source(d);
-    SVGPathParser parser(&source, &builder);
-    bool ok = parser.parsePathDataFromSource(parsingMode);
+    SVGPathParser::parsePath(source, builder);
     result.shrinkToFit();
-    return ok;
+    return source.parseError();
 }
 
-bool addToSVGPathByteStream(SVGPathByteStream& fromStream, const SVGPathByteStream& byStream, unsigned repeatCount)
-{
-    if (fromStream.isEmpty() || byStream.isEmpty())
-        return true;
-
-    OwnPtr<SVGPathByteStream> fromStreamCopy = fromStream.copy();
-    fromStream.clear();
-
-    SVGPathByteStreamBuilder builder(fromStream);
-    SVGPathByteStreamSource fromSource(*fromStreamCopy);
-    SVGPathByteStreamSource bySource(byStream);
-    SVGPathBlender blender(&fromSource, &bySource, &builder);
-    return blender.addAnimatedPath(repeatCount);
-}
-
-unsigned getSVGPathSegAtLengthFromSVGPathByteStream(const SVGPathByteStream& stream, float length)
-{
-    if (stream.isEmpty())
-        return 0;
-
-    SVGPathTraversalStateBuilder builder(PathTraversalState::TraversalSegmentAtLength, length);
-    SVGPathByteStreamSource source(stream);
-    SVGPathParser parser(&source, &builder);
-    parser.parsePathDataFromSource(NormalizedParsing);
-    return builder.pathSegmentIndex();
-}
-
-float getTotalLengthOfSVGPathByteStream(const SVGPathByteStream& stream)
-{
-    if (stream.isEmpty())
-        return 0;
-
-    SVGPathTraversalStateBuilder builder(PathTraversalState::TraversalTotalLength);
-    SVGPathByteStreamSource source(stream);
-    SVGPathParser parser(&source, &builder);
-    parser.parsePathDataFromSource(NormalizedParsing);
-    return builder.totalLength();
-}
-
-FloatPoint getPointAtLengthOfSVGPathByteStream(const SVGPathByteStream& stream, float length)
-{
-    if (stream.isEmpty())
-        return FloatPoint();
-
-    SVGPathTraversalStateBuilder builder(PathTraversalState::TraversalPointAtLength, length);
-    SVGPathByteStreamSource source(stream);
-    SVGPathParser parser(&source, &builder);
-    parser.parsePathDataFromSource(NormalizedParsing);
-    return builder.currentPoint();
-}
-
-}
+} // namespace blink

@@ -162,7 +162,7 @@ static bool drawUnicolorTestErrors (tcu::Surface& img, const tcu::PixelBufferAcc
 		{
 			if (!tcu::compareThreshold(img.getPixel(x, y), refColor, tcu::RGBA(3, 3, 3, 3)))
 			{
-				img.setPixel(x, y, tcu::RGBA::red);
+				img.setPixel(x, y, tcu::RGBA::red());
 				errorImg.setPixel(Vec4(1.0f, 0.0f, 0.0f, 1.0f), x, y);
 			}
 		}
@@ -446,7 +446,7 @@ void MultisampleCase::init (void)
 			m_numSamples = m_fboParams.numSamples;
 		else
 		{
-			log << TestLog::Message << "Querying maximum number of samples for " << glu::getPixelFormatName(FBO_COLOR_FORMAT) << " with glGetInternalformativ()" << TestLog::EndMessage;
+			log << TestLog::Message << "Querying maximum number of samples for " << glu::getTextureFormatName(FBO_COLOR_FORMAT) << " with glGetInternalformativ()" << TestLog::EndMessage;
 			GLU_CHECK_CALL(glGetInternalformativ(GL_RENDERBUFFER, FBO_COLOR_FORMAT, GL_SAMPLES, 1, &m_numSamples));
 		}
 
@@ -497,7 +497,7 @@ void MultisampleCase::init (void)
 			GLint maxSampleCount = -1;
 			GLU_CHECK_CALL(glGetInternalformativ(GL_RENDERBUFFER, FBO_COLOR_FORMAT, GL_SAMPLES, 1, &maxSampleCount));
 			if (maxSampleCount < m_numSamples)
-				throw tcu::NotSupportedError(std::string("") + "Maximum sample count returned by glGetInternalformativ() for " + glu::getPixelFormatName(FBO_COLOR_FORMAT) + " is only " + de::toString(maxSampleCount));
+				throw tcu::NotSupportedError(std::string("") + "Maximum sample count returned by glGetInternalformativ() for " + glu::getTextureFormatName(FBO_COLOR_FORMAT) + " is only " + de::toString(maxSampleCount));
 			else
 				throw;
 		}
@@ -1166,7 +1166,7 @@ SampleStencilCase::IterateResult SampleStencilCase::iterate (void)
 		for (int x = 0; x < clearedImg.getWidth(); x++)
 		{
 			const tcu::RGBA& clr = clearedImg.getPixel(x, y);
-			if (clr != tcu::RGBA::black)
+			if (clr != tcu::RGBA::black())
 			{
 				log << TestLog::Message << "Failure: first non-black pixel, color " << clr << ", detected at coordinates (" << x << ", " << y << ")" << TestLog::EndMessage;
 				log << TestLog::Image("ClearedImg", "Image after clearing, erroneously non-black", clearedImg);

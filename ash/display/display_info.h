@@ -5,11 +5,14 @@
 #ifndef ASH_DISPLAY_DISPLAY_INFO_H_
 #define ASH_DISPLAY_DISPLAY_INFO_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "base/files/file_path.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/display.h"
 #include "ui/gfx/geometry/insets.h"
@@ -83,8 +86,7 @@ class ASH_EXPORT DisplayInfo {
   static DisplayInfo CreateFromSpec(const std::string& spec);
 
   // Creates a DisplayInfo from string spec using given |id|.
-  static DisplayInfo CreateFromSpecWithID(const std::string& spec,
-                                          int64 id);
+  static DisplayInfo CreateFromSpecWithID(const std::string& spec, int64_t id);
 
   // When this is set to true on the device whose internal display has
   // 1.25 dsf, Chrome uses 1.0f as a default scale factor, and uses
@@ -92,13 +94,18 @@ class ASH_EXPORT DisplayInfo {
   static void SetUse125DSFForUIScalingForTest(bool enable);
 
   DisplayInfo();
-  DisplayInfo(int64 id, const std::string& name, bool has_overscan);
+  DisplayInfo(int64_t id, const std::string& name, bool has_overscan);
+  DisplayInfo(const DisplayInfo& other);
   ~DisplayInfo();
 
-  int64 id() const { return id_; }
+  int64_t id() const { return id_; }
 
   // The name of the display.
   const std::string& name() const { return name_; }
+
+  // The path to the display device in the sysfs filesystem.
+  void set_sys_path(const base::FilePath& sys_path) { sys_path_ = sys_path; }
+  const base::FilePath& sys_path() const { return sys_path_; }
 
   // True if the display EDID has the overscan flag. This does not create the
   // actual overscan automatically, but used in the message.
@@ -247,8 +254,9 @@ class ASH_EXPORT DisplayInfo {
   // SetUse125DSFForUIScaling(true) is called and this is the internal display.
   bool Use125DSFForUIScaling() const;
 
-  int64 id_;
+  int64_t id_;
   std::string name_;
+  base::FilePath sys_path_;
   bool has_overscan_;
   std::map<gfx::Display::RotationSource, gfx::Display::Rotation> rotations_;
   gfx::Display::TouchSupport touch_support_;

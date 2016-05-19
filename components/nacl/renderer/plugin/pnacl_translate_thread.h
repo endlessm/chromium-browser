@@ -5,28 +5,27 @@
 #ifndef COMPONENTS_NACL_RENDERER_PLUGIN_PNACL_TRANSLATE_THREAD_H_
 #define COMPONENTS_NACL_RENDERER_PLUGIN_PNACL_TRANSLATE_THREAD_H_
 
+#include <stdint.h>
+
 #include <deque>
 #include <vector>
 
+#include "base/files/file.h"
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/synchronization/condition_variable.h"
+#include "base/synchronization/lock.h"
+#include "base/threading/simple_thread.h"
 #include "components/nacl/renderer/plugin/plugin_error.h"
-#include "native_client/src/include/nacl_macros.h"
-#include "native_client/src/include/nacl_scoped_ptr.h"
-#include "native_client/src/shared/platform/nacl_sync_checked.h"
-#include "native_client/src/shared/platform/nacl_threads.h"
 #include "ppapi/cpp/completion_callback.h"
+#include "ppapi/proxy/serialized_handle.h"
 
 struct PP_PNaClOptions;
-
-namespace nacl {
-class DescWrapper;
-}
-
 
 namespace plugin {
 
 class NaClSubprocess;
 class PnaclCoordinator;
-class TempFile;
 
 class PnaclTranslateThread {
  public:
@@ -39,10 +38,9 @@ class PnaclTranslateThread {
   void SetupState(const pp::CompletionCallback& finish_callback,
                   NaClSubprocess* compiler_subprocess,
                   NaClSubprocess* ld_subprocess,
-                  const std::vector<TempFile*>* obj_files,
+                  std::vector<base::File>* obj_files,
                   int num_threads,
-                  TempFile* nexe_file,
-                  nacl::DescWrapper* invalid_desc_wrapper,
+                  base::File* nexe_file,
                   ErrorInfo* error_info,
                   PP_PNaClOptions* pnacl_options,
                   const std::string& architecture_attributes,
@@ -81,15 +79,33 @@ class PnaclTranslateThread {
   bool started() const { return coordinator_ != NULL; }
 
  private:
-  // Helper thread entry point for compilation. Takes a pointer to
-  // PnaclTranslateThread and calls DoCompile().
-  static void WINAPI DoCompileThread(void* arg);
+  ppapi::proxy::SerializedHandle GetHandleForSubprocess(
+      base::File* file, int32_t open_flags, base::ProcessId peer_pid);
+
   // Runs the streaming compilation. Called from the helper thread.
   void DoCompile();
-
-  // Similar to DoCompile*, but for linking.
-  static void WINAPI DoLinkThread(void* arg);
+  // Similar to DoCompile(), but for linking.
   void DoLink();
+
+  class CompileThread : public base::SimpleThread {
+   public:
+    CompileThread(PnaclTranslateThread* obj)
+      : base::SimpleThread("pnacl_compile"), pnacl_translate_thread_(obj) {}
+   private:
+    PnaclTranslateThread* pnacl_translate_thread_;
+    void Run() override;
+    DISALLOW_COPY_AND_ASSIGN(CompileThread);
+  };
+
+  class LinkThread : public base::SimpleThread {
+   public:
+    LinkThread(PnaclTranslateThread* obj)
+      : base::SimpleThread("pnacl_link"), pnacl_translate_thread_(obj) {}
+   private:
+    PnaclTranslateThread* pnacl_translate_thread_;
+    void Run() override;
+    DISALLOW_COPY_AND_ASSIGN(LinkThread);
+  };
 
   // Signal that Pnacl translation failed, from the translation thread only.
   void TranslateFailed(PP_NaClError err_code,
@@ -101,12 +117,12 @@ class PnaclTranslateThread {
   // Callback to run when tasks are completed or an error has occurred.
   pp::CompletionCallback report_translate_finished_;
 
-  nacl::scoped_ptr<NaClThread> translate_thread_;
+  scoped_ptr<base::SimpleThread> translate_thread_;
 
   // Used to guard compiler_subprocess, ld_subprocess,
   // compiler_subprocess_active_, and ld_subprocess_active_
   // (touched by the main thread and the translate thread).
-  struct NaClMutex subprocess_mu_;
+  base::Lock subprocess_mu_;
   // The compiler_subprocess and ld_subprocess memory is owned by the
   // coordinator so we do not delete them. However, the main thread delegates
   // shutdown to this thread, since this thread may still be accessing the
@@ -121,16 +137,16 @@ class PnaclTranslateThread {
   bool compiler_subprocess_active_;
   bool ld_subprocess_active_;
 
+  // Mutex for buffer_cond_.
+  base::Lock cond_mu_;
   // Condition variable to synchronize communication with the SRPC thread.
   // SRPC thread waits on this condvar if data_buffers_ is empty (meaning
   // there is no bitcode to send to the translator), and the main thread
   // appends to data_buffers_ and signals it when it receives bitcode.
-  struct NaClCondVar buffer_cond_;
-  // Mutex for buffer_cond_.
-  struct NaClMutex cond_mu_;
+  base::ConditionVariable buffer_cond_;
   // Data buffers from FileDownloader are enqueued here to pass from the
   // main thread to the SRPC thread. Protected by cond_mu_
-  std::deque<std::vector<char> > data_buffers_;
+  std::deque<std::string> data_buffers_;
   // Whether all data has been downloaded and copied to translation thread.
   // Associated with buffer_cond_
   bool done_;
@@ -138,16 +154,27 @@ class PnaclTranslateThread {
   int64_t compile_time_;
 
   // Data about the translation files, owned by the coordinator
-  const std::vector<TempFile*>* obj_files_;
+  std::vector<base::File>* obj_files_;
   int num_threads_;
-  TempFile* nexe_file_;
-  nacl::DescWrapper* invalid_desc_wrapper_;
+  base::File* nexe_file_;
   ErrorInfo* coordinator_error_info_;
   PP_PNaClOptions* pnacl_options_;
   std::string architecture_attributes_;
   PnaclCoordinator* coordinator_;
+
+  // These IPC::SyncChannels can only be used and freed by the parent thread.
+  scoped_ptr<IPC::SyncChannel> compiler_channel_;
+  scoped_ptr<IPC::SyncChannel> ld_channel_;
+  // These IPC::SyncMessageFilters can be used by the child thread.
+  scoped_refptr<IPC::SyncMessageFilter> compiler_channel_filter_;
+  scoped_refptr<IPC::SyncMessageFilter> ld_channel_filter_;
+  // PIDs of the subprocesses, needed for copying handles to the subprocess
+  // on Windows.  These are used by the child thread.
+  base::ProcessId compiler_channel_peer_pid_;
+  base::ProcessId ld_channel_peer_pid_;
+
  private:
-  NACL_DISALLOW_COPY_AND_ASSIGN(PnaclTranslateThread);
+  DISALLOW_COPY_AND_ASSIGN(PnaclTranslateThread);
 };
 
 }

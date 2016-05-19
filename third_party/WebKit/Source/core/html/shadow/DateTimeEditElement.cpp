@@ -23,10 +23,9 @@
  * SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
 #include "core/html/shadow/DateTimeEditElement.h"
 
+#if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/HTMLNames.h"
 #include "core/dom/Document.h"
@@ -405,7 +404,7 @@ void DateTimeEditBuilder::visitLiteral(const String& text)
     RefPtrWillBeRawPtr<HTMLDivElement> element = HTMLDivElement::create(editElement().document());
     element->setShadowPseudoId(textPseudoId);
     if (m_parameters.locale.isRTL() && text.length()) {
-        Direction dir = direction(text[0]);
+        CharDirection dir = direction(text[0]);
         if (dir == SegmentSeparator || dir == WhiteSpaceNeutral || dir == OtherNeutral)
             element->appendChild(Text::create(editElement().document(), String(&rightToLeftMarkCharacter, 1)));
     }
@@ -477,7 +476,7 @@ inline Element* DateTimeEditElement::fieldsWrapperElement() const
 
 void DateTimeEditElement::addField(PassRefPtrWillBeRawPtr<DateTimeFieldElement> field)
 {
-    if (m_fields.size() == m_fields.capacity())
+    if (m_fields.size() >= maximumNumberOfFields)
         return;
     m_fields.append(field.get());
     fieldsWrapperElement()->appendChild(field);
@@ -574,6 +573,7 @@ void DateTimeEditElement::focusByOwner(Element* oldFocusedElement)
     if (oldFocusedElement && oldFocusedElement->isDateTimeFieldElement()) {
         DateTimeFieldElement* oldFocusedField = static_cast<DateTimeFieldElement*>(oldFocusedElement);
         size_t index = fieldIndexOf(*oldFocusedField);
+        document().updateLayoutTreeForNode(oldFocusedField);
         if (index != invalidFieldIndex && oldFocusedField->isFocusable()) {
             oldFocusedField->focus();
             return;
@@ -605,6 +605,7 @@ void DateTimeEditElement::fieldValueChanged()
 
 bool DateTimeEditElement::focusOnNextFocusableField(size_t startIndex)
 {
+    document().updateLayoutTreeIgnorePendingStylesheets();
     for (size_t fieldIndex = startIndex; fieldIndex < m_fields.size(); ++fieldIndex) {
         if (m_fields[fieldIndex]->isFocusable()) {
             m_fields[fieldIndex]->focus();
@@ -627,6 +628,7 @@ bool DateTimeEditElement::focusOnPreviousField(const DateTimeFieldElement& field
     const size_t startFieldIndex = fieldIndexOf(field);
     if (startFieldIndex == invalidFieldIndex)
         return false;
+    document().updateLayoutTreeIgnorePendingStylesheets();
     size_t fieldIndex = startFieldIndex;
     while (fieldIndex > 0) {
         --fieldIndex;

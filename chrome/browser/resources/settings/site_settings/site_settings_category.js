@@ -2,9 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Define a global boolean for notifications (only enabled in the test class).
+cr.define('settings_test', function() {
+  var siteSettingsCategoryOptions =
+      settings_test.siteSettingsCategoryOptions || {
+    /**
+     * True if property changes should fire events for testing purposes.
+     * @type {boolean}
+     */
+    notifyPropertyChangesForTest: false,
+  };
+  return {siteSettingsCategoryOptions: siteSettingsCategoryOptions};
+});
+
 /**
  * @fileoverview
- * 'site-settings-category' is the settings page for showing a certain
+ * 'site-settings-category' is the polymer element for showing a certain
  * category under Site Settings.
  *
  * Example:
@@ -31,19 +44,22 @@ Polymer({
     },
 
     /**
+     * The current active route.
+     */
+    currentRoute: {
+      type: Object,
+      notify: true,
+    },
+
+    /**
      * Represents the state of the main toggle shown for the category. For
      * example, the Location category can be set to Block/Ask so false, in that
      * case, represents Block and true represents Ask.
      */
     categoryEnabled: {
       type: Boolean,
-    },
-
-    /**
-     * The ID of the category this widget is displaying data for.
-     */
-    category: {
-      type: Number,
+      notify: settings_test.siteSettingsCategoryOptions.
+          notifyPropertyChangesForTest,
     },
 
     /**
@@ -51,21 +67,26 @@ Polymer({
      */
     selectedOrigin: {
       type: String,
-      observer: 'onSelectedOriginChanged_',
+      notify: true,
+    },
+
+    /**
+     * Whether to show the '(recommended)' label prefix for permissions.
+     */
+    showRecommendation: {
+      type: Boolean,
+      value: true,
     },
   },
 
   observers: [
-    'categoryPrefChanged_(prefs.profile.default_content_setting_values.*)',
+    'onCategoryChanged_(prefs.profile.default_content_setting_values.*, ' +
+        'category)',
   ],
 
   ready: function() {
     this.$.blockList.categorySubtype = settings.PermissionValues.BLOCK;
     this.$.allowList.categorySubtype = settings.PermissionValues.ALLOW;
-
-    CrSettingsPrefs.initialized.then(function() {
-      this.categoryEnabled = this.isCategoryAllowed(this.category);
-    }.bind(this));
   },
 
   /**
@@ -73,49 +94,51 @@ Polymer({
    * @private
    */
   onToggleChange_: function(event) {
-    assert(CrSettingsPrefs.isInitialized);
-
+    var prefsProxy = settings.SiteSettingsPrefsBrowserProxy.getInstance();
     switch (this.category) {
       case settings.ContentSettingsTypes.COOKIES:
       case settings.ContentSettingsTypes.JAVASCRIPT:
       case settings.ContentSettingsTypes.POPUPS:
         // "Allowed" vs "Blocked".
-        this.setPrefValue(this.computeCategoryPrefName(this.category),
-                          this.categoryEnabled ?
-                              settings.PermissionValues.ALLOW :
-                              settings.PermissionValues.BLOCK);
+        prefsProxy.setDefaultValueForContentType(
+            this.category,
+            this.categoryEnabled ?
+                settings.PermissionValues.ALLOW :
+                settings.PermissionValues.BLOCK);
         break;
-      case settings.ContentSettingsTypes.NOTIFICATION:
+      case settings.ContentSettingsTypes.NOTIFICATIONS:
       case settings.ContentSettingsTypes.GEOLOCATION:
       case settings.ContentSettingsTypes.CAMERA:
       case settings.ContentSettingsTypes.MIC:
         // "Ask" vs "Blocked".
-        this.setPrefValue(this.computeCategoryPrefName(this.category),
-                          this.categoryEnabled ?
-                              settings.PermissionValues.ASK :
-                              settings.PermissionValues.BLOCK);
+        prefsProxy.setDefaultValueForContentType(
+            this.category,
+            this.categoryEnabled ?
+                settings.PermissionValues.ASK :
+                settings.PermissionValues.BLOCK);
         break;
       case settings.ContentSettingsTypes.FULLSCREEN:
         // "Allowed" vs. "Ask first".
-        this.setPrefValue(this.computeCategoryPrefName(this.category),
-                          this.categoryEnabled ?
-                              settings.PermissionValues.ALLOW :
-                              settings.PermissionValues.ASK);
+        prefsProxy.setDefaultValueForContentType(
+          this.category,
+          this.categoryEnabled ?
+              settings.PermissionValues.ALLOW :
+              settings.PermissionValues.ASK);
         break;
       default:
         assertNotReached();
     }
   },
 
-  onSelectedOriginChanged_: function() {
-    this.$.pages.setSubpageChain(['site-details']);
-  },
-
   /**
-   * Handles when the global toggle changes.
+   * Handles changes to the category pref and the |category| member variable.
    * @private
    */
-  categoryPrefChanged_: function() {
-    this.categoryEnabled = this.isCategoryAllowed(this.category);
+  onCategoryChanged_: function() {
+    var prefsProxy = settings.SiteSettingsPrefsBrowserProxy.getInstance();
+    prefsProxy.getDefaultValueForContentType(
+        this.category).then(function(enabled) {
+          this.categoryEnabled = enabled;
+        }.bind(this));
   },
 });

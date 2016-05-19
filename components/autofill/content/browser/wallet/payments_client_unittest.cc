@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
@@ -58,7 +61,7 @@ class PaymentsClientTest : public testing::Test, public PaymentsClientDelegate {
       const base::string16& context_token,
       scoped_ptr<base::DictionaryValue> legal_message) override {
     result_ = result;
-    legal_message_ = legal_message.Pass();
+    legal_message_ = std::move(legal_message);
   }
 
   void OnDidUploadCard(AutofillClient::PaymentsRpcResult result) override {

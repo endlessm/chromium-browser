@@ -286,7 +286,7 @@ Curves:
 		hs.hello.secureRenegotiation = hs.clientHello.secureRenegotiation
 	}
 
-	if c.config.Bugs.NoRenegotiationInfo {
+	if c.noRenegotiationInfo() {
 		hs.hello.secureRenegotiation = nil
 	}
 
@@ -914,7 +914,11 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
 	c.dtlsFlushHandshake()
 
 	if !c.config.Bugs.SkipChangeCipherSpec {
-		c.writeRecord(recordTypeChangeCipherSpec, []byte{1})
+		ccs := []byte{1}
+		if c.config.Bugs.BadChangeCipherSpec != nil {
+			ccs = c.config.Bugs.BadChangeCipherSpec
+		}
+		c.writeRecord(recordTypeChangeCipherSpec, ccs)
 	}
 
 	if c.config.Bugs.AppDataAfterChangeCipherSpec != nil {

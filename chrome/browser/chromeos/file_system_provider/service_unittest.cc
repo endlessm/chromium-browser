@@ -4,10 +4,13 @@
 
 #include "chrome/browser/chromeos/file_system_provider/service.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/files/file.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
@@ -148,10 +151,10 @@ class FakeRegistry : public RegistryInterface {
     it->second.last_tag = watcher.last_tag;
   }
 
-  ProvidedFileSystemInfo* const file_system_info() const {
+  const ProvidedFileSystemInfo* file_system_info() const {
     return file_system_info_.get();
   }
-  Watchers* const watchers() const { return watchers_.get(); }
+  const Watchers* watchers() const { return watchers_.get(); }
 
  private:
   scoped_ptr<ProvidedFileSystemInfo> file_system_info_;

@@ -5,8 +5,11 @@
 #ifndef ANDROID_WEBVIEW_NATIVE_PERMISSION_AW_PERMISSION_REQUEST_H
 #define ANDROID_WEBVIEW_NATIVE_PERMISSION_AW_PERMISSION_REQUEST_H
 
+#include <stdint.h>
+
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "url/gurl.h"
 
@@ -41,14 +44,16 @@ class AwPermissionRequest {
 
   // Invoked by Java peer when request is processed, |granted| indicates the
   // request was granted or not.
-  void OnAccept(JNIEnv* env, jobject jcaller, jboolean granted);
-  void Destroy(JNIEnv* env, jobject obj);
+  void OnAccept(JNIEnv* env,
+                const base::android::JavaParamRef<jobject>& jcaller,
+                jboolean granted);
+  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
   // Return the origin which initiated the request.
   const GURL& GetOrigin();
 
   // Return the resources origin requested.
-  int64 GetResources();
+  int64_t GetResources();
 
   // Cancel this request. Guarantee that
   // AwPermissionRequestDelegate::NotifyRequestResult will not be called after

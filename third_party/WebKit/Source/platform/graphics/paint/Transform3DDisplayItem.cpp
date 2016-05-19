@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/paint/Transform3DDisplayItem.h"
 
 #include "platform/graphics/GraphicsContext.h"
@@ -28,13 +27,13 @@ void BeginTransform3DDisplayItem::appendToWebDisplayItemList(const IntRect& visu
 }
 
 #ifndef NDEBUG
-void BeginTransform3DDisplayItem::dumpPropertiesAsDebugString(WTF::StringBuilder& stringBuilder) const
+void BeginTransform3DDisplayItem::dumpPropertiesAsDebugString(StringBuilder& stringBuilder) const
 {
     PairedBeginDisplayItem::dumpPropertiesAsDebugString(stringBuilder);
     TransformationMatrix::DecomposedType decomposition;
     if (m_transform.decompose(decomposition)) {
-        stringBuilder.append(WTF::String::format(
-            ", translate: [%lf,%lf,%lf], scale: [%lf,%lf,%lf], skew: [%lf,%lf,%lf], quarternion: [%lf,%lf,%lf,%lf], perspective: [%lf,%lf,%lf,%lf]",
+        stringBuilder.append(String::format(
+            ", translate: [%lf,%lf,%lf], scale: [%lf,%lf,%lf], skew: [%lf,%lf,%lf], quaternion: [%lf,%lf,%lf,%lf], perspective: [%lf,%lf,%lf,%lf]",
             decomposition.translateX, decomposition.translateY, decomposition.translateZ,
             decomposition.scaleX, decomposition.scaleY, decomposition.scaleZ,
             decomposition.skewXY, decomposition.skewXZ, decomposition.skewYZ,

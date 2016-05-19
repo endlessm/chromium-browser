@@ -5,6 +5,7 @@
 #include "chrome/browser/banners/app_banner_manager_desktop.h"
 
 #include "base/command_line.h"
+#include "build/build_config.h"
 #include "chrome/browser/banners/app_banner_data_fetcher_desktop.h"
 #include "chrome/common/chrome_switches.h"
 #include "extensions/common/constants.h"
@@ -30,10 +31,11 @@ bool AppBannerManagerDesktop::IsEnabled() {
 }
 
 AppBannerDataFetcher* AppBannerManagerDesktop::CreateAppBannerDataFetcher(
-    base::WeakPtr<AppBannerDataFetcher::Delegate> weak_delegate) {
+    base::WeakPtr<AppBannerDataFetcher::Delegate> weak_delegate,
+    bool is_debug_mode) {
   return new AppBannerDataFetcherDesktop(web_contents(), weak_delegate,
-                                         kMinimumIconSize,
-                                         kMinimumIconSize);
+                                         kMinimumIconSize, kMinimumIconSize,
+                                         is_debug_mode);
 }
 
 AppBannerManagerDesktop::AppBannerManagerDesktop(

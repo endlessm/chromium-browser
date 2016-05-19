@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/views/autofill/autofill_dialog_views.h"
 
+#include <stddef.h>
+
 #include <utility>
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/autofill/autofill_dialog_view_delegate.h"
@@ -311,7 +314,8 @@ class NotificationView : public views::View,
   }
 
   // views::StyledLabelListener implementation.
-  void StyledLabelLinkClicked(const gfx::Range& range,
+  void StyledLabelLinkClicked(views::StyledLabel* label,
+                              const gfx::Range& range,
                               int event_flags) override {
     delegate_->LinkClicked(data_.link_url());
   }
@@ -608,7 +612,7 @@ bool AutofillDialogViews::SectionContainer::ShouldForwardEvent(
 
 AutofillDialogViews::SuggestedButton::SuggestedButton(
     views::MenuButtonListener* listener)
-    : views::MenuButton(NULL, base::string16(), listener, false) {
+    : views::MenuButton(base::string16(), listener, false) {
   const int kFocusBorderWidth = 1;
   SetBorder(views::Border::CreateEmptyBorder(kMenuButtonTopInset,
                                              kFocusBorderWidth,
@@ -1184,8 +1188,9 @@ void AutofillDialogViews::OnPerformAction(views::Combobox* combobox) {
   ValidateGroup(*GroupForSection(section), VALIDATE_EDIT);
 }
 
-void AutofillDialogViews::OnMenuButtonClicked(views::View* source,
-                                              const gfx::Point& point) {
+void AutofillDialogViews::OnMenuButtonClicked(views::MenuButton* source,
+                                              const gfx::Point& point,
+                                              const ui::Event* event) {
   DCHECK_EQ(kSuggestedButtonClassName, source->GetClassName());
 
   DetailsGroup* group = NULL;
@@ -1903,6 +1908,9 @@ AutofillDialogViews::DetailsGroup::DetailsGroup(DialogSection section)
       manual_input(NULL),
       suggested_info(NULL),
       suggested_button(NULL) {}
+
+AutofillDialogViews::DetailsGroup::DetailsGroup(const DetailsGroup& other) =
+    default;
 
 AutofillDialogViews::DetailsGroup::~DetailsGroup() {}
 

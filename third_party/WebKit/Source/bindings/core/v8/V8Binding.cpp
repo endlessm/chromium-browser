@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/V8Binding.h"
 
 #include "bindings/core/v8/ScriptController.h"
@@ -44,7 +43,7 @@
 #include "bindings/core/v8/V8WorkerGlobalScope.h"
 #include "bindings/core/v8/V8XPathNSResolver.h"
 #include "bindings/core/v8/WindowProxy.h"
-#include "bindings/core/v8/WorkerScriptController.h"
+#include "bindings/core/v8/WorkerOrWorkletScriptController.h"
 #include "bindings/core/v8/custom/V8CustomXPathNSResolver.h"
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
@@ -59,8 +58,7 @@
 #include "core/loader/FrameLoaderClient.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/xml/XPathNSResolver.h"
-#include "platform/EventTracer.h"
-#include "platform/JSONValues.h"
+#include "platform/TracedValue.h"
 #include "wtf/MainThread.h"
 #include "wtf/MathExtras.h"
 #include "wtf/StdLibExtras.h"
@@ -114,7 +112,7 @@ PassRefPtrWillBeRawPtr<NodeFilter> toNodeFilter(v8::Local<v8::Value> callback, v
 bool toBooleanSlow(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
 {
     ASSERT(!value->IsBoolean());
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     bool result = false;
     if (!v8Call(value->BooleanValue(isolate->GetCurrentContext()), result, block))
         exceptionState.rethrowV8Exception(block.Exception());
@@ -702,6 +700,10 @@ LocalDOMWindow* callingDOMWindow(v8::Isolate* isolate)
     return toLocalDOMWindow(toDOMWindow(context));
 }
 
+namespace {
+ExecutionContext* (*s_toExecutionContextForModules)(v8::Local<v8::Context>) = nullptr;
+}
+
 ExecutionContext* toExecutionContext(v8::Local<v8::Context> context)
 {
     if (context.IsEmpty())
@@ -713,8 +715,13 @@ ExecutionContext* toExecutionContext(v8::Local<v8::Context> context)
     v8::Local<v8::Object> workerWrapper = V8WorkerGlobalScope::findInstanceInPrototypeChain(global, context->GetIsolate());
     if (!workerWrapper.IsEmpty())
         return V8WorkerGlobalScope::toImpl(workerWrapper)->executionContext();
-    // FIXME: Is this line of code reachable?
-    return 0;
+    ASSERT(s_toExecutionContextForModules);
+    return (*s_toExecutionContextForModules)(context);
+}
+
+void registerToExecutionContextForModules(ExecutionContext* (*toExecutionContextForModules)(v8::Local<v8::Context>))
+{
+    s_toExecutionContextForModules = toExecutionContextForModules;
 }
 
 ExecutionContext* currentExecutionContext(v8::Isolate* isolate)
@@ -722,16 +729,17 @@ ExecutionContext* currentExecutionContext(v8::Isolate* isolate)
     return toExecutionContext(isolate->GetCurrentContext());
 }
 
-ExecutionContext* callingExecutionContext(v8::Isolate* isolate)
+ExecutionContext* enteredExecutionContext(v8::Isolate* isolate)
 {
-    v8::Local<v8::Context> context = isolate->GetCallingContext();
-    if (context.IsEmpty()) {
-        // Unfortunately, when processing script from a plugin, we might not
-        // have a calling context. In those cases, we fall back to the
-        // entered context.
-        context = isolate->GetEnteredContext();
+    ExecutionContext* context = toExecutionContext(isolate->GetEnteredContext());
+    if (!context) {
+        // We don't always have an entered execution context, for example during microtask callbacks from V8
+        // (where the entered context may be the DOM-in-JS context). In that case, we fall back
+        // to the current context.
+        context = currentExecutionContext(isolate);
+        ASSERT(context);
     }
-    return toExecutionContext(context);
+    return context;
 }
 
 Frame* toFrameIfNotDetached(v8::Local<v8::Context> context)
@@ -778,7 +786,7 @@ v8::Local<v8::Context> toV8Context(ExecutionContext* context, DOMWrapperWorld& w
         if (LocalFrame* frame = toDocument(context)->frame())
             return toV8Context(frame, world);
     } else if (context->isWorkerGlobalScope()) {
-        if (WorkerScriptController* script = toWorkerGlobalScope(context)->script()) {
+        if (WorkerOrWorkletScriptController* script = toWorkerOrWorkletGlobalScope(context)->scriptController()) {
             if (script->scriptState()->contextIsValid())
                 return script->scriptState()->context();
         }
@@ -791,6 +799,8 @@ v8::Local<v8::Context> toV8Context(Frame* frame, DOMWrapperWorld& world)
     if (!frame)
         return v8::Local<v8::Context>();
     v8::Local<v8::Context> context = toV8ContextEvenIfDetached(frame, world);
+    if (context.IsEmpty())
+        return v8::Local<v8::Context>();
     ScriptState* scriptState = ScriptState::from(context);
     if (scriptState->contextIsValid()) {
         ASSERT(toFrameIfNotDetached(context) == frame);
@@ -802,12 +812,12 @@ v8::Local<v8::Context> toV8Context(Frame* frame, DOMWrapperWorld& world)
 v8::Local<v8::Context> toV8ContextEvenIfDetached(Frame* frame, DOMWrapperWorld& world)
 {
     ASSERT(frame);
-    return frame->windowProxy(world)->context();
+    return frame->windowProxy(world)->contextIfInitialized();
 }
 
-void crashIfV8IsDead()
+void crashIfIsolateIsDead(v8::Isolate* isolate)
 {
-    if (v8::V8::IsDead()) {
+    if (isolate->IsDead()) {
         // FIXME: We temporarily deal with V8 internal error situations
         // such as out-of-memory by crashing the renderer.
         CRASH();
@@ -897,75 +907,6 @@ v8::Isolate* toIsolate(LocalFrame* frame)
     return frame->script().isolate();
 }
 
-JSONValuePtr NativeValueTraits<JSONValuePtr>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState, int maxDepth)
-{
-    return toJSONValue(isolate, value, maxDepth);
-}
-
-JSONValuePtr toJSONValue(v8::Isolate* isolate, v8::Local<v8::Value> value, int maxDepth)
-{
-    if (value.IsEmpty()) {
-        ASSERT_NOT_REACHED();
-        return nullptr;
-    }
-
-    if (!maxDepth)
-        return nullptr;
-    maxDepth--;
-
-    v8::Local<v8::Context> context = isolate->GetCurrentContext();
-    if (value->IsNull() || value->IsUndefined())
-        return JSONValue::null();
-    if (value->IsBoolean())
-        return JSONBasicValue::create(value.As<v8::Boolean>()->Value());
-    if (value->IsNumber())
-        return JSONBasicValue::create(value.As<v8::Number>()->Value());
-    if (value->IsString())
-        return JSONString::create(toCoreString(value.As<v8::String>()));
-    if (value->IsArray()) {
-        v8::Local<v8::Array> array = value.As<v8::Array>();
-        RefPtr<JSONArray> inspectorArray = JSONArray::create();
-        uint32_t length = array->Length();
-        for (uint32_t i = 0; i < length; i++) {
-            v8::Local<v8::Value> value;
-            if (!array->Get(context, i).ToLocal(&value))
-                return nullptr;
-            RefPtr<JSONValue> element = toJSONValue(isolate, value, maxDepth);
-            if (!element)
-                return nullptr;
-            inspectorArray->pushValue(element);
-        }
-        return inspectorArray;
-    }
-    if (value->IsObject()) {
-        RefPtr<JSONObject> jsonObject = JSONObject::create();
-        v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(value);
-        v8::Local<v8::Array> propertyNames;
-        if (!object->GetPropertyNames(context).ToLocal(&propertyNames))
-            return nullptr;
-        uint32_t length = propertyNames->Length();
-        for (uint32_t i = 0; i < length; i++) {
-            v8::Local<v8::Value> name;
-            if (!propertyNames->Get(context, i).ToLocal(&name))
-                return nullptr;
-            // FIXME(yurys): v8::Object should support GetOwnPropertyNames
-            if (name->IsString() && !v8CallBoolean(object->HasRealNamedProperty(context, v8::Local<v8::String>::Cast(name))))
-                continue;
-            v8::Local<v8::Value> property;
-            if (!object->Get(context, name).ToLocal(&property))
-                return nullptr;
-            RefPtr<JSONValue> propertyValue = toJSONValue(isolate, property, maxDepth);
-            if (!propertyValue)
-                return nullptr;
-            TOSTRING_DEFAULT(V8StringResource<TreatNullAsNullString>, nameString, name, nullptr);
-            jsonObject->setValue(nameString, propertyValue);
-        }
-        return jsonObject;
-    }
-    ASSERT_NOT_REACHED();
-    return nullptr;
-}
-
 void DevToolsFunctionInfo::ensureInitialized() const
 {
     if (m_function.IsEmpty())
@@ -1007,7 +948,7 @@ String DevToolsFunctionInfo::resourceName() const
     return m_resourceName;
 }
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> devToolsTraceEventData(v8::Isolate* isolate, ExecutionContext* context, v8::Local<v8::Function> function)
+PassOwnPtr<TracedValue> devToolsTraceEventData(v8::Isolate* isolate, ExecutionContext* context, v8::Local<v8::Function> function)
 {
     DevToolsFunctionInfo info(function);
     return InspectorFunctionCallEvent::data(context, info.scriptId(), info.resourceName(), info.lineNumber());
@@ -1015,14 +956,12 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> devToolsTraceEventData(v8::Isol
 
 void v8ConstructorAttributeGetter(v8::Local<v8::Name> propertyName, const v8::PropertyCallbackInfo<v8::Value>& info)
 {
-    TRACE_EVENT_SET_SAMPLING_STATE("blink", "DOMGetter");
     v8::Local<v8::Value> data = info.Data();
     ASSERT(data->IsExternal());
     V8PerContextData* perContextData = V8PerContextData::from(info.Holder()->CreationContext());
     if (!perContextData)
         return;
     v8SetReturnValue(info, perContextData->constructorForType(WrapperTypeInfo::unwrap(data)));
-    TRACE_EVENT_SET_SAMPLING_STATE("v8", "V8Execution");
 }
 
 } // namespace blink

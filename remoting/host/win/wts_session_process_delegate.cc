@@ -7,16 +7,20 @@
 
 #include "remoting/host/win/wts_session_process_delegate.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/windows_version.h"
+#include "ipc/attachment_broker.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "ipc/ipc_listener.h"
@@ -51,7 +55,7 @@ class WtsSessionProcessDelegate::Core
        const std::string& channel_security);
 
   // Initializes the object returning true on success.
-  bool Initialize(uint32 session_id);
+  bool Initialize(uint32_t session_id);
 
   // Stops the object asynchronously.
   void Stop();
@@ -73,7 +77,7 @@ class WtsSessionProcessDelegate::Core
 
   // IPC::Listener implementation.
   bool OnMessageReceived(const IPC::Message& message) override;
-  void OnChannelConnected(int32 peer_pid) override;
+  void OnChannelConnected(int32_t peer_pid) override;
   void OnChannelError() override;
 
   // The actual implementation of LaunchProcess()
@@ -88,10 +92,10 @@ class WtsSessionProcessDelegate::Core
 
   // Creates and initializes the job object that will sandbox the launched child
   // processes.
-  void InitializeJob(scoped_ptr<base::win::ScopedHandle> job);
+  void InitializeJob(ScopedHandle job);
 
   // Notified that the job object initialization is complete.
-  void InitializeJobCompleted(scoped_ptr<base::win::ScopedHandle> job);
+  void InitializeJobCompleted(ScopedHandle job);
 
   // Called when the number of processes running in the job reaches zero.
   void OnActiveProcessZero();
@@ -154,10 +158,9 @@ WtsSessionProcessDelegate::Core::Core(
       get_named_pipe_client_pid_(nullptr),
       launch_elevated_(launch_elevated),
       launch_pending_(false),
-      target_command_(target_command.Pass()) {
-}
+      target_command_(std::move(target_command)) {}
 
-bool WtsSessionProcessDelegate::Core::Initialize(uint32 session_id) {
+bool WtsSessionProcessDelegate::Core::Initialize(uint32_t session_id) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   // Windows XP does not support elevation.
@@ -197,19 +200,13 @@ bool WtsSessionProcessDelegate::Core::Initialize(uint32 session_id) {
       return false;
     }
 
-    // ScopedHandle is not compatible with base::Passed, so we wrap it to
-    // a scoped pointer.
-    scoped_ptr<ScopedHandle> job_wrapper(new ScopedHandle());
-    *job_wrapper = job.Pass();
-
     // To receive job object notifications the job object is registered with
     // the completion port represented by |io_task_runner|. The registration has
     // to be done on the I/O thread because
     // MessageLoopForIO::RegisterJobObject() can only be called via
     // MessageLoopForIO::current().
     io_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&Core::InitializeJob, this, base::Passed(&job_wrapper)));
+        FROM_HERE, base::Bind(&Core::InitializeJob, this, base::Passed(&job)));
   }
 
   // Create a session token for the launched process.
@@ -248,6 +245,11 @@ void WtsSessionProcessDelegate::Core::Send(IPC::Message* message) {
 void WtsSessionProcessDelegate::Core::CloseChannel() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
+  if (!channel_)
+    return;
+
+  IPC::AttachmentBroker::GetGlobal()->DeregisterCommunicationChannel(
+      channel_.get());
   channel_.reset();
   pipe_.Close();
 }
@@ -255,10 +257,10 @@ void WtsSessionProcessDelegate::Core::CloseChannel() {
 void WtsSessionProcessDelegate::Core::KillProcess() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-  channel_.reset();
+  CloseChannel();
+
   event_handler_ = nullptr;
   launch_pending_ = false;
-  pipe_.Close();
 
   if (launch_elevated_) {
     if (job_.IsValid())
@@ -299,7 +301,7 @@ bool WtsSessionProcessDelegate::Core::OnMessageReceived(
   return event_handler_->OnMessageReceived(message);
 }
 
-void WtsSessionProcessDelegate::Core::OnChannelConnected(int32 peer_pid) {
+void WtsSessionProcessDelegate::Core::OnChannelConnected(int32_t peer_pid) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   // Report the worker PID now if the worker process is launched indirectly.
@@ -330,7 +332,7 @@ void WtsSessionProcessDelegate::Core::OnChannelConnected(int32 peer_pid) {
       return;
     }
 
-    ReportProcessLaunched(worker_process.Pass());
+    ReportProcessLaunched(std::move(worker_process));
   }
 
   if (event_handler_)
@@ -421,14 +423,17 @@ void WtsSessionProcessDelegate::Core::DoLaunchProcess() {
     return;
   }
 
-  channel_ = channel.Pass();
-  pipe_ = pipe.Pass();
+  channel_ = std::move(channel);
+  pipe_ = std::move(pipe);
+
+  IPC::AttachmentBroker::GetGlobal()->RegisterCommunicationChannel(
+      channel_.get());
 
   // Report success if the worker process is lauched directly. Otherwise, PID of
   // the client connected to the pipe will be used later. See
   // OnChannelConnected().
   if (!launch_elevated_)
-    ReportProcessLaunched(worker_process.Pass());
+    ReportProcessLaunched(std::move(worker_process));
 }
 
 void WtsSessionProcessDelegate::Core::DrainJobNotifications() {
@@ -454,12 +459,11 @@ void WtsSessionProcessDelegate::Core::DrainJobNotificationsCompleted() {
   }
 }
 
-void WtsSessionProcessDelegate::Core::InitializeJob(
-    scoped_ptr<base::win::ScopedHandle> job) {
+void WtsSessionProcessDelegate::Core::InitializeJob(ScopedHandle job) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   // Register to receive job notifications via the I/O thread's completion port.
-  if (!base::MessageLoopForIO::current()->RegisterJobObject(job->Get(), this)) {
+  if (!base::MessageLoopForIO::current()->RegisterJobObject(job.Get(), this)) {
     PLOG(ERROR) << "Failed to associate the job object with a completion port";
     return;
   }
@@ -469,12 +473,11 @@ void WtsSessionProcessDelegate::Core::InitializeJob(
       &Core::InitializeJobCompleted, this, base::Passed(&job)));
 }
 
-void WtsSessionProcessDelegate::Core::InitializeJobCompleted(
-    scoped_ptr<ScopedHandle> job) {
+void WtsSessionProcessDelegate::Core::InitializeJobCompleted(ScopedHandle job) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(!job_.IsValid());
 
-  job_ = job->Pass();
+  job_ = std::move(job);
 
   if (launch_pending_)
     DoLaunchProcess();
@@ -493,8 +496,7 @@ void WtsSessionProcessDelegate::Core::OnActiveProcessZero() {
 void WtsSessionProcessDelegate::Core::ReportFatalError() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-  channel_.reset();
-  pipe_.Close();
+  CloseChannel();
 
   WorkerProcessLauncher* event_handler = event_handler_;
   event_handler_ = nullptr;
@@ -506,19 +508,15 @@ void WtsSessionProcessDelegate::Core::ReportProcessLaunched(
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(!worker_process_.IsValid());
 
-  worker_process_ = worker_process.Pass();
+  worker_process_ = std::move(worker_process);
 
   // Report a handle that can be used to wait for the worker process completion,
   // query information about the process and duplicate handles.
   DWORD desired_access =
       SYNCHRONIZE | PROCESS_DUP_HANDLE | PROCESS_QUERY_INFORMATION;
   HANDLE temp_handle;
-  if (!DuplicateHandle(GetCurrentProcess(),
-                       worker_process_.Get(),
-                       GetCurrentProcess(),
-                       &temp_handle,
-                       desired_access,
-                       FALSE,
+  if (!DuplicateHandle(GetCurrentProcess(), worker_process_.Get(),
+                       GetCurrentProcess(), &temp_handle, desired_access, FALSE,
                        0)) {
     PLOG(ERROR) << "Failed to duplicate a handle";
     ReportFatalError();
@@ -526,7 +524,7 @@ void WtsSessionProcessDelegate::Core::ReportProcessLaunched(
   }
   ScopedHandle limited_handle(temp_handle);
 
-  event_handler_->OnProcessLaunched(limited_handle.Pass());
+  event_handler_->OnProcessLaunched(std::move(limited_handle));
 }
 
 WtsSessionProcessDelegate::WtsSessionProcessDelegate(
@@ -534,9 +532,7 @@ WtsSessionProcessDelegate::WtsSessionProcessDelegate(
     scoped_ptr<base::CommandLine> target_command,
     bool launch_elevated,
     const std::string& channel_security) {
-  core_ = new Core(io_task_runner,
-                   target_command.Pass(),
-                   launch_elevated,
+  core_ = new Core(io_task_runner, std::move(target_command), launch_elevated,
                    channel_security);
 }
 
@@ -544,7 +540,7 @@ WtsSessionProcessDelegate::~WtsSessionProcessDelegate() {
   core_->Stop();
 }
 
-bool WtsSessionProcessDelegate::Initialize(uint32 session_id) {
+bool WtsSessionProcessDelegate::Initialize(uint32_t session_id) {
   return core_->Initialize(session_id);
 }
 

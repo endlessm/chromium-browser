@@ -4,11 +4,18 @@
 
 #include "chrome/renderer/extensions/cast_streaming_native_handler.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <algorithm>
 #include <functional>
 #include <iterator>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -74,7 +81,7 @@ void FromCastCodecSpecificParams(const CastCodecSpecificParams& cast_params,
 
 namespace {
 bool HexDecode(const std::string& input, std::string* output) {
-  std::vector<uint8> bytes;
+  std::vector<uint8_t> bytes;
   if (!base::HexStringToBytes(input, &bytes))
     return false;
   output->assign(reinterpret_cast<const char*>(&bytes[0]), bytes.size());
@@ -89,6 +96,9 @@ bool ToCastRtpPayloadParamsOrThrow(v8::Isolate* isolate,
   cast_params->max_latency_ms = ext_params.max_latency;
   cast_params->min_latency_ms =
       ext_params.min_latency ? *ext_params.min_latency : ext_params.max_latency;
+  cast_params->animated_latency_ms = ext_params.animated_latency
+                                         ? *ext_params.animated_latency
+                                         : ext_params.max_latency;
   cast_params->codec_name = ext_params.codec_name;
   cast_params->ssrc = ext_params.ssrc;
   cast_params->feedback_ssrc = ext_params.feedback_ssrc;
@@ -126,6 +136,7 @@ void FromCastRtpPayloadParams(const CastRtpPayloadParams& cast_params,
   ext_params->payload_type = cast_params.payload_type;
   ext_params->max_latency = cast_params.max_latency_ms;
   ext_params->min_latency.reset(new int(cast_params.min_latency_ms));
+  ext_params->animated_latency.reset(new int(cast_params.animated_latency_ms));
   ext_params->codec_name = cast_params.codec_name;
   ext_params->ssrc = cast_params.ssrc;
   ext_params->feedback_ssrc = cast_params.feedback_ssrc;
@@ -808,7 +819,7 @@ void CastStreamingNativeHandler::StartCastRtpReceiver(
     scoped_ptr<base::Value> options_value(
         converter->FromV8Value(args[8], context()->v8_context()));
     if (!options_value->IsType(base::Value::TYPE_NULL)) {
-      options = base::DictionaryValue::From(options_value.Pass());
+      options = base::DictionaryValue::From(std::move(options_value));
       if (!options) {
         args.GetIsolate()->ThrowException(v8::Exception::TypeError(
             v8::String::NewFromUtf8(args.GetIsolate(), kUnableToConvertArgs)));
@@ -827,7 +838,7 @@ void CastStreamingNativeHandler::StartCastRtpReceiver(
 
   session->Start(
       audio_config, video_config, local_endpoint, remote_endpoint,
-      options.Pass(), capture_format,
+      std::move(options), capture_format,
       base::Bind(&CastStreamingNativeHandler::AddTracksToMediaStream,
                  weak_factory_.GetWeakPtr(), url, params),
       base::Bind(&CastStreamingNativeHandler::CallReceiverErrorCallback,
@@ -853,7 +864,7 @@ void CastStreamingNativeHandler::AddTracksToMediaStream(
     scoped_refptr<media::AudioCapturerSource> audio,
     scoped_ptr<media::VideoCapturerSource> video) {
   content::AddAudioTrackToMediaStream(audio, params, true, true, url);
-  content::AddVideoTrackToMediaStream(video.Pass(), true, true, url);
+  content::AddVideoTrackToMediaStream(std::move(video), true, true, url);
 }
 
 }  // namespace extensions

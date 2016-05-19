@@ -4,6 +4,8 @@
 
 #include "content/browser/android/in_process/synchronous_compositor_impl.h"
 
+#include <utility>
+
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/lazy_instance.h"
@@ -93,6 +95,7 @@ void SynchronousCompositorImpl::RegisterWithClient() {
   registered_with_client_ = true;
 
   compositor_client_->DidInitializeCompositor(this);
+  compositor_client_->DidBecomeCurrent(this);
 
   output_surface_->SetTreeActivationCallback(
     base::Bind(&SynchronousCompositorImpl::DidActivatePendingTree,
@@ -105,16 +108,10 @@ void SynchronousCompositorImpl::RegisterWithClient() {
   synchronous_input_handler_proxy_->SetOnlySynchronouslyAnimateRootFlings(this);
 }
 
-// static
-void SynchronousCompositorImpl::SetGpuServiceInProc(
-    scoped_refptr<gpu::InProcessCommandBuffer::Service> service) {
-  g_factory.Get().SetDeferredGpuService(service);
-}
-
 void SynchronousCompositorImpl::DidInitializeRendererObjects(
     SynchronousCompositorOutputSurface* output_surface,
     SynchronousCompositorExternalBeginFrameSource* begin_frame_source,
-    SynchronousInputHandlerProxy* synchronous_input_handler_proxy) {
+    ui::SynchronousInputHandlerProxy* synchronous_input_handler_proxy) {
   DCHECK(!output_surface_);
   DCHECK(!begin_frame_source_);
   DCHECK(output_surface);
@@ -127,6 +124,7 @@ void SynchronousCompositorImpl::DidInitializeRendererObjects(
 
   output_surface_->SetSyncClient(this);
   begin_frame_source_->SetClient(this);
+  begin_frame_source_->SetBeginFrameSourcePaused(!is_active_);
 }
 
 void SynchronousCompositorImpl::DidDestroyRendererObjects() {
@@ -162,19 +160,16 @@ scoped_ptr<cc::CompositorFrame> SynchronousCompositorImpl::DemandDrawHw(
   DCHECK(CalledOnValidThread());
   DCHECK(output_surface_);
   DCHECK(begin_frame_source_);
+  DCHECK(!frame_holder_);
 
-  scoped_ptr<cc::CompositorFrame> frame =
-      output_surface_->DemandDrawHw(surface_size,
-                                    transform,
-                                    viewport,
-                                    clip,
-                                    viewport_rect_for_tile_priority,
-                                    transform_for_tile_priority);
+  output_surface_->DemandDrawHw(surface_size, transform, viewport, clip,
+                                viewport_rect_for_tile_priority,
+                                transform_for_tile_priority);
 
-  if (frame.get())
-    UpdateFrameMetaData(frame->metadata);
+  if (frame_holder_)
+    UpdateFrameMetaData(frame_holder_->metadata);
 
-  return frame.Pass();
+  return std::move(frame_holder_);
 }
 
 void SynchronousCompositorImpl::ReturnResources(
@@ -187,14 +182,23 @@ bool SynchronousCompositorImpl::DemandDrawSw(SkCanvas* canvas) {
   DCHECK(CalledOnValidThread());
   DCHECK(output_surface_);
   DCHECK(begin_frame_source_);
+  DCHECK(!frame_holder_);
 
-  scoped_ptr<cc::CompositorFrame> frame =
-      output_surface_->DemandDrawSw(canvas);
+  output_surface_->DemandDrawSw(canvas);
 
-  if (frame.get())
-    UpdateFrameMetaData(frame->metadata);
+  bool success = !!frame_holder_;
+  if (frame_holder_) {
+    UpdateFrameMetaData(frame_holder_->metadata);
+    frame_holder_.reset();
+  }
 
-  return !!frame.get();
+  return success;
+}
+
+void SynchronousCompositorImpl::SwapBuffers(cc::CompositorFrame* frame) {
+  DCHECK(!frame_holder_);
+  frame_holder_.reset(new cc::CompositorFrame);
+  frame->AssignTo(frame_holder_.get());
 }
 
 void SynchronousCompositorImpl::UpdateFrameMetaData(
@@ -211,9 +215,11 @@ void SynchronousCompositorImpl::SetMemoryPolicy(size_t bytes_limit) {
   output_surface_->SetMemoryPolicy(bytes_limit);
 
   if (bytes_limit && !current_bytes_limit) {
-    g_factory.Get().CompositorInitializedHardwareDraw();
+    SynchronousCompositorStreamTextureFactoryImpl::GetInstance()
+        ->CompositorInitializedHardwareDraw();
   } else if (!bytes_limit && current_bytes_limit) {
-    g_factory.Get().CompositorReleasedHardwareDraw();
+    SynchronousCompositorStreamTextureFactoryImpl::GetInstance()
+        ->CompositorReleasedHardwareDraw();
   }
 }
 
@@ -235,8 +241,13 @@ void SynchronousCompositorImpl::DidChangeRootLayerScrollOffset(
 void SynchronousCompositorImpl::SetIsActive(bool is_active) {
   TRACE_EVENT1("cc", "SynchronousCompositorImpl::SetIsActive", "is_active",
                is_active);
+  if (is_active_ == is_active)
+    return;
+
   is_active_ = is_active;
   UpdateNeedsBeginFrames();
+  if (begin_frame_source_)
+    begin_frame_source_->SetBeginFrameSourcePaused(!is_active_);
 }
 
 void SynchronousCompositorImpl::OnComputeScroll(
@@ -297,14 +308,19 @@ bool SynchronousCompositorImpl::OnMessageReceived(const IPC::Message& message) {
   return false;
 }
 
+void SynchronousCompositorImpl::DidBecomeCurrent() {
+  // This is single process synchronous compositor. There is only one
+  // RenderViewHost.  DidBecomeCurrent could be called before the renderer
+  // objects are initialized. So hold off calling DidBecomeCurrent until
+  // RegisterWithClient. Intentional no-op here.
+}
+
 void SynchronousCompositorImpl::DeliverMessages() {
-  ScopedVector<IPC::Message> messages;
+  std::vector<scoped_ptr<IPC::Message>> messages;
   output_surface_->GetMessagesToDeliver(&messages);
   RenderProcessHost* rph = rwhva_->GetRenderWidgetHost()->GetProcess();
-  for (ScopedVector<IPC::Message>::const_iterator i = messages.begin();
-       i != messages.end();
-       ++i) {
-    rph->OnMessageReceived(**i);
+  for (const auto& msg : messages) {
+    rph->OnMessageReceived(*msg);
   }
 }
 

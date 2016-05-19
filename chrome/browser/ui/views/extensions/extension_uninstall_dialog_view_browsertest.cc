@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/ui/browser.h"
@@ -16,9 +17,9 @@ namespace {
 
 scoped_refptr<extensions::Extension> BuildTestExtension() {
   return extensions::ExtensionBuilder()
-      .SetManifest(extensions::DictionaryBuilder()
-                       .Set("name", "foo")
-                       .Set("version", "1.0"))
+      .SetManifest(std::move(extensions::DictionaryBuilder()
+                                 .Set("name", "foo")
+                                 .Set("version", "1.0")))
       .Build();
 }
 

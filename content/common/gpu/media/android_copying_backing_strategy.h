@@ -5,6 +5,8 @@
 #ifndef CONTENT_COMMON_GPU_MEDIA_ANDROID_COPYING_BACKING_STRATEGY_H_
 #define CONTENT_COMMON_GPU_MEDIA_ANDROID_COPYING_BACKING_STRATEGY_H_
 
+#include <stdint.h>
+
 #include "base/compiler_specific.h"
 #include "content/common/content_export.h"
 #include "content/common/gpu/media/android_video_decode_accelerator.h"
@@ -26,20 +28,22 @@ class AVDAStateProvider;
 class CONTENT_EXPORT AndroidCopyingBackingStrategy
     : public AndroidVideoDecodeAccelerator::BackingStrategy {
  public:
-  AndroidCopyingBackingStrategy();
+  explicit AndroidCopyingBackingStrategy(AVDAStateProvider* state_provider);
   ~AndroidCopyingBackingStrategy() override;
 
   // AndroidVideoDecodeAccelerator::BackingStrategy
-  void Initialize(AVDAStateProvider*) override;
-  void Cleanup(const AndroidVideoDecodeAccelerator::OutputBufferMap&) override;
-  uint32 GetNumPictureBuffers() const override;
-  uint32 GetTextureTarget() const override;
-  scoped_refptr<gfx::SurfaceTexture> CreateSurfaceTexture() override;
-  void UseCodecBufferForPictureBuffer(int32 codec_buffer_index,
+  gfx::ScopedJavaSurface Initialize(int surface_view_id) override;
+  void Cleanup(bool have_context,
+               const AndroidVideoDecodeAccelerator::OutputBufferMap&) override;
+  scoped_refptr<gfx::SurfaceTexture> GetSurfaceTexture() const override;
+  uint32_t GetTextureTarget() const override;
+  void UseCodecBufferForPictureBuffer(int32_t codec_buffer_index,
                                       const media::PictureBuffer&) override;
   void CodecChanged(
       media::VideoCodecBridge*,
       const AndroidVideoDecodeAccelerator::OutputBufferMap&) override;
+  void OnFrameAvailable() override;
+  bool ArePicturesOverlayable() override;
 
  private:
   // Used for copy the texture from surface texture to picture buffers.
@@ -51,7 +55,7 @@ class CONTENT_EXPORT AndroidCopyingBackingStrategy
   scoped_refptr<gfx::SurfaceTexture> surface_texture_;
 
   // The texture id which is set to |surface_texture_|.
-  uint32 surface_texture_id_;
+  uint32_t surface_texture_id_;
 
   media::VideoCodecBridge* media_codec_;
 };

@@ -5,13 +5,18 @@
 #ifndef COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_AUTH_REQUEST_HANDLER_H_
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_AUTH_REQUEST_HANDLER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 
 namespace net {
 class HostPortPair;
@@ -29,9 +34,7 @@ extern const char kSecureSessionHeaderOption[];
 extern const char kBuildNumberHeaderOption[];
 extern const char kPatchNumberHeaderOption[];
 extern const char kClientHeaderOption[];
-extern const char kLoFiHeaderOption[];
 extern const char kExperimentsOption[];
-extern const char kLoFiExperimentID[];
 
 #if defined(OS_ANDROID)
 extern const char kAndroidWebViewProtocolVersion[];
@@ -58,28 +61,11 @@ typedef enum {
 } Client;
 #undef CLIENT_ENUM
 
-class ClientConfig;
 class DataReductionProxyConfig;
 
 class DataReductionProxyRequestOptions {
  public:
   static bool IsKeySetOnCommandLine();
-
-  // A pair of functions to convert the session and credentials for the Data
-  // Reduction Proxy to and from a single string; they are used to encode the
-  // session and credentials values into the |session_key| field of the
-  // ClientConfig protocol buffer. The delimiter used is '|', as it is not a
-  // valid character in a session or credentials string.
-  //
-  // CreateLocalSessionKey joins session and credentials with the delimiter.
-  static std::string CreateLocalSessionKey(const std::string& session,
-                                           const std::string& credentials);
-
-  // ParseLocalSessionKey splits the output of CreateLocalSessionKey into its
-  // two components. |session| and |credentials| must not be null.
-  static bool ParseLocalSessionKey(const std::string& session_key,
-                                   std::string* session,
-                                   std::string* credentials);
 
   // Constructs a DataReductionProxyRequestOptions object with the given
   // client type, and config.
@@ -94,14 +80,11 @@ class DataReductionProxyRequestOptions {
   void Init();
 
   // Adds a 'Chrome-Proxy' header to |request_headers| with the data reduction
-  // proxy authentication credentials. If |is_using_lofi_mode| is true
-  // adds the "q=low" directive to the header. Only adds this header if the
+  // proxy authentication credentials. Only adds this header if the
   // provided |proxy_server| is a data reduction proxy and not the data
   // reduction proxy's CONNECT server.
-  void MaybeAddRequestHeader(net::URLRequest* request,
-                             const net::ProxyServer& proxy_server,
-                             net::HttpRequestHeaders* request_headers,
-                             bool is_using_lofi_mode);
+  void MaybeAddRequestHeader(const net::ProxyServer& proxy_server,
+                             net::HttpRequestHeaders* request_headers);
 
   // Adds a 'Chrome-Proxy' header to |request_headers| with the data reduction
   // proxy authentication credentials. Only adds this header if the provided
@@ -120,14 +103,6 @@ class DataReductionProxyRequestOptions {
   // SetKeyOnIO is called.
   void SetKeyOnIO(const std::string& key);
 
-  // Populates |response| with the Data Reduction Proxy authentication info.
-  // Virtualized for testing.
-  virtual void PopulateConfigResponse(ClientConfig* config) const;
-
-  // Sets the credentials for sending to the Data Reduction Proxy.
-  void SetCredentials(const std::string& session,
-                      const std::string& credentials);
-
   // Sets the credentials for sending to the Data Reduction Proxy.
   void SetSecureSession(const std::string& secure_session);
 
@@ -137,16 +112,17 @@ class DataReductionProxyRequestOptions {
   // Invalidates the secure session credentials.
   void Invalidate();
 
+  // Parses |request_headers| and returns the value of the session key.
+  std::string GetSessionKeyFromRequestHeaders(
+      const net::HttpRequestHeaders& request_headers) const;
+
  protected:
-  void SetHeader(const net::URLRequest* request,
-                 net::HttpRequestHeaders* headers,
-                 bool is_using_lofi_mode);
+  void SetHeader(net::HttpRequestHeaders* headers);
 
   // Returns a UTF16 string that's the hash of the configured authentication
   // |key| and |salt|. Returns an empty UTF16 string if no key is configured or
   // the data reduction proxy feature isn't available.
-  static base::string16 AuthHashForSalt(int64 salt,
-                                        const std::string& key);
+  static base::string16 AuthHashForSalt(int64_t salt, const std::string& key);
   // Visible for testing.
   virtual base::Time Now() const;
   virtual void RandBytes(void* output, size_t length) const;
@@ -163,24 +139,12 @@ class DataReductionProxyRequestOptions {
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxyRequestOptionsTest,
                            AuthHashForSalt);
 
-  // Returns the version of Chromium that is being used.
-  std::string ChromiumVersion() const;
-
-  // Returns the build and patch numbers of |version|. If |version| isn't of the
-  // form xx.xx.xx.xx build and patch are not modified.
-  void GetChromiumBuildAndPatch(const std::string& version,
-                                std::string* build,
-                                std::string* patch) const;
-
-  // Updates client type, build, and patch.
-  void UpdateVersion();
-
-  // May regenerate the Chrome Proxy header based on changes in Lo-Fi status.
-  void MayRegenerateHeaderBasedOnLoFi(bool is_using_lofi_mode);
-
-  // Update the value of the experiments to be run and regenerate the header if
+  // Updates the value of the experiments to be run and regenerate the header if
   // necessary.
   void UpdateExperiments();
+
+  // Adds the server-side experiment from the field trial.
+  void AddExperimentFromFieldTrial();
 
   // Generates a session ID and credentials suitable for authenticating with
   // the data reduction proxy.
@@ -194,13 +158,10 @@ class DataReductionProxyRequestOptions {
   // Adds authentication headers only if |expects_ssl| is true and
   // |proxy_server| is a data reduction proxy used for ssl tunneling via
   // HTTP CONNECT, or |expect_ssl| is false and |proxy_server| is a data
-  // reduction proxy for HTTP traffic. If |is_using_lofi_mode| is true adds the
-  // "q=low" directive to the header.
-  void MaybeAddRequestHeaderImpl(const net::URLRequest* request,
-                                 const net::HostPortPair& proxy_server,
+  // reduction proxy for HTTP traffic.
+  void MaybeAddRequestHeaderImpl(const net::HostPortPair& proxy_server,
                                  bool expect_ssl,
-                                 net::HttpRequestHeaders* request_headers,
-                                 bool is_using_lofi_mode);
+                                 net::HttpRequestHeaders* request_headers);
 
   // Regenerates the |header_value_| string which is concatenated to the
   // Chrome-proxy header.
@@ -214,13 +175,11 @@ class DataReductionProxyRequestOptions {
 
   // Name of the client and version of the data reduction proxy protocol to use.
   std::string client_;
-  std::string version_;
   std::string session_;
   std::string credentials_;
   std::string secure_session_;
   std::string build_;
   std::string patch_;
-  std::string lofi_;
   std::vector<std::string> experiments_;
 
   // The time at which the session expires. Used to ensure that a session is

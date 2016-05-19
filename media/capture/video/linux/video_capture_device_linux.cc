@@ -4,17 +4,20 @@
 
 #include "media/capture/video/linux/video_capture_device_linux.h"
 
-#if defined(OS_OPENBSD)
-#include <sys/videoio.h>
-#else
-#include <linux/videodev2.h>
-#endif
+#include <stddef.h>
 
 #include <list>
 
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "media/capture/video/linux/v4l2_capture_delegate.h"
+
+#if defined(OS_OPENBSD)
+#include <sys/videoio.h>
+#else
+#include <linux/videodev2.h>
+#endif
 
 namespace media {
 
@@ -43,8 +46,8 @@ static bool ReadIdFile(const std::string& path, std::string* id) {
 
 // Translates Video4Linux pixel formats to Chromium pixel formats.
 // static
-VideoPixelFormat
-VideoCaptureDeviceLinux::V4l2FourCcToChromiumPixelFormat(uint32 v4l2_fourcc) {
+VideoPixelFormat VideoCaptureDeviceLinux::V4l2FourCcToChromiumPixelFormat(
+    uint32_t v4l2_fourcc) {
   return V4L2CaptureDelegate::V4l2FourCcToChromiumPixelFormat(v4l2_fourcc);
 }
 
@@ -78,8 +81,7 @@ const std::string VideoCaptureDevice::Name::GetModel() const {
 }
 
 VideoCaptureDeviceLinux::VideoCaptureDeviceLinux(const Name& device_name)
-    : v4l2_thread_("V4L2CaptureThread"), device_name_(device_name) {
-}
+    : v4l2_thread_("V4L2CaptureThread"), device_name_(device_name) {}
 
 VideoCaptureDeviceLinux::~VideoCaptureDeviceLinux() {
   // Check if the thread is running.
@@ -98,7 +100,7 @@ void VideoCaptureDeviceLinux::AllocateAndStart(
 
   const int line_frequency =
       TranslatePowerLineFrequencyToV4L2(GetPowerLineFrequency(params));
-  capture_impl_ = V4L2CaptureDelegate::CreateV4L2CaptureDelegate(
+  capture_impl_ = new V4L2CaptureDelegate(
       device_name_, v4l2_thread_.task_runner(), line_frequency);
   if (!capture_impl_) {
     client->OnError(FROM_HERE, "Failed to create VideoCaptureDelegate");

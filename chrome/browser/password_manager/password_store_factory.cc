@@ -4,13 +4,15 @@
 
 #include "chrome/browser/password_manager/password_store_factory.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/rand_util.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/sync_start_util.h"
@@ -24,9 +26,9 @@
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_default.h"
 #include "components/password_manager/core/browser/password_store_factory_util.h"
-#include "components/password_manager/core/browser/password_store_service.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 
 #if defined(OS_WIN)
@@ -66,12 +68,14 @@ const LocalProfileId kInvalidLocalProfileId =
 scoped_refptr<PasswordStore> PasswordStoreFactory::GetForProfile(
     Profile* profile,
     ServiceAccessType access_type) {
-  password_manager::PasswordStoreService* service =
-      static_cast<password_manager::PasswordStoreService*>(
-          GetInstance()->GetServiceForBrowserContext(profile, true));
-
-  return password_manager::GetPasswordStoreFromService(
-      service, access_type, profile->IsOffTheRecord());
+  // |profile| gets always redirected to a non-Incognito profile below, so
+  // Incognito & IMPLICIT_ACCESS means that incognito browsing session would
+  // result in traces in the normal profile without the user knowing it.
+  if (access_type == ServiceAccessType::IMPLICIT_ACCESS &&
+      profile->IsOffTheRecord())
+    return nullptr;
+  return make_scoped_refptr(static_cast<password_manager::PasswordStore*>(
+      GetInstance()->GetServiceForBrowserContext(profile, true).get()));
 }
 
 // static
@@ -108,9 +112,9 @@ void PasswordStoreFactory::TrimOrDeleteAffiliationCache(Profile* profile) {
 }
 
 PasswordStoreFactory::PasswordStoreFactory()
-    : BrowserContextKeyedServiceFactory(
-        "PasswordStore",
-        BrowserContextDependencyManager::GetInstance()) {
+    : RefcountedBrowserContextKeyedServiceFactory(
+          "PasswordStore",
+          BrowserContextDependencyManager::GetInstance()) {
   DependsOn(WebDataServiceFactory::GetInstance());
 }
 
@@ -138,7 +142,8 @@ LocalProfileId PasswordStoreFactory::GetLocalProfileId(
 }
 #endif
 
-KeyedService* PasswordStoreFactory::BuildServiceInstanceFor(
+scoped_refptr<RefcountedKeyedService>
+PasswordStoreFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
 #if defined(OS_WIN)
   password_manager_util_win::DelayReportOsPassword();
@@ -166,13 +171,13 @@ KeyedService* PasswordStoreFactory::BuildServiceInstanceFor(
           os_crypt::switches::kUseMockKeychain)
           ? new crypto::MockAppleKeychain()
           : new crypto::AppleKeychain());
-  ps = new PasswordStoreProxyMac(main_thread_runner, keychain.Pass(),
-                                 login_db.Pass(), profile->GetPrefs());
+  ps = new PasswordStoreProxyMac(main_thread_runner, std::move(keychain),
+                                 std::move(login_db), profile->GetPrefs());
 #elif defined(OS_CHROMEOS) || defined(OS_ANDROID)
   // For now, we use PasswordStoreDefault. We might want to make a native
   // backend for PasswordStoreX (see below) in the future though.
   ps = new password_manager::PasswordStoreDefault(
-      main_thread_runner, db_thread_runner, login_db.Pass());
+      main_thread_runner, db_thread_runner, std::move(login_db));
 #elif defined(USE_X11)
   // On POSIX systems, we try to use the "native" password management system of
   // the desktop environment currently running, allowing GNOME Keyring in XFCE.
@@ -243,23 +248,29 @@ KeyedService* PasswordStoreFactory::BuildServiceInstanceFor(
 
   if (!backend.get()) {
     LOG(WARNING) << "Using basic (unencrypted) store for password storage. "
-        "See http://code.google.com/p/chromium/wiki/LinuxPasswordStorage for "
-        "more information about password storage options.";
+        "See "
+        "https://chromium.googlesource.com/chromium/src/+/master/docs/linux_password_storage.md"
+        " for more information about password storage options.";
   }
 
-  ps = new PasswordStoreX(main_thread_runner, db_thread_runner, login_db.Pass(),
-                          backend.release());
+  ps = new PasswordStoreX(main_thread_runner, db_thread_runner,
+                          std::move(login_db), backend.release());
   RecordBackendStatistics(desktop_env, store_type, used_backend);
 #elif defined(USE_OZONE)
   ps = new password_manager::PasswordStoreDefault(
-      main_thread_runner, db_thread_runner, login_db.Pass());
+      main_thread_runner, db_thread_runner, std::move(login_db));
 #else
   NOTIMPLEMENTED();
 #endif
-  return password_manager::BuildServiceInstanceFromStore(
-             ps,
-             sync_start_util::GetFlareForSyncableService(profile->GetPath()))
-      .release();
+  DCHECK(ps);
+  if (!ps->Init(
+          sync_start_util::GetFlareForSyncableService(profile->GetPath()))) {
+    // TODO(crbug.com/479725): Remove the LOG once this error is visible in the
+    // UI.
+    LOG(WARNING) << "Could not initialize password store.";
+    return nullptr;
+  }
+  return ps;
 }
 
 void PasswordStoreFactory::RegisterProfilePrefs(

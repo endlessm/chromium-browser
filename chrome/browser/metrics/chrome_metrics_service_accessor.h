@@ -22,6 +22,10 @@ class CrashesDOMHandler;
 class FlashDOMHandler;
 }
 
+namespace chrome_browser {
+void SetupPreReadFieldTrial();
+}
+
 namespace component_updater {
 class ComponentUpdateService;
 }
@@ -31,6 +35,7 @@ class DomainReliabilityServiceFactory;
 }
 
 namespace extensions {
+class ChromeExtensionWebContentsObserver;
 class FileManagerPrivateIsUMAEnabledFunction;
 class MetricsPrivateGetIsCrashReportingEnabledFunction;
 }
@@ -44,7 +49,10 @@ bool IsOmniboxEnabled(Profile* profile);
 }
 
 namespace safe_browsing {
+class DownloadSBClient;
 class IncidentReportingService;
+class SafeBrowsingService;
+class SafeBrowsingUIManager;
 class SRTFetcher;
 }
 
@@ -64,13 +72,15 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   friend class ::CrashesDOMHandler;
   friend class ::FlashDOMHandler;
   friend class BrowserProcessImpl;
+  friend void chrome_browser::SetupPreReadFieldTrial();
   friend class ChromeExtensionDownloaderFactory;
   friend class ChromeMetricsServicesManagerClient;
   friend class ChromeRenderMessageFilter;
   friend class DataReductionProxyChromeSettings;
   friend class domain_reliability::DomainReliabilityServiceFactory;
-  friend class extensions::MetricsPrivateGetIsCrashReportingEnabledFunction;
+  friend class extensions::ChromeExtensionWebContentsObserver;
   friend class extensions::FileManagerPrivateIsUMAEnabledFunction;
+  friend class extensions::MetricsPrivateGetIsCrashReportingEnabledFunction;
   friend void InitiateMetricsReportingChange(
       bool, const OnMetricsReportingCallbackType&);
   friend class options::BrowserOptionsHandler;
@@ -81,6 +91,9 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   friend class system_logs::ChromeInternalLogSource;
   friend class UmaSessionStats;
   friend class safe_browsing::SRTFetcher;
+  friend class safe_browsing::DownloadSBClient;
+  friend class safe_browsing::SafeBrowsingService;
+  friend class safe_browsing::SafeBrowsingUIManager;
 
   FRIEND_TEST_ALL_PREFIXES(ChromeMetricsServiceAccessorTest,
                            MetricsReportingEnabled);

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/paint/PaintArtifactToSkCanvas.h"
 
 #include "platform/graphics/paint/ClipPaintPropertyNode.h"
@@ -115,7 +114,7 @@ void paintArtifactToSkCanvas(const PaintArtifact& artifact, SkCanvas* canvas)
         // Setup the canvas clip state first because it clobbers matrix state.
         for (const ClipPaintPropertyNode* currentClipNode = chunk.properties.clip.get();
             currentClipNode; currentClipNode = currentClipNode->parent()) {
-            canvas->setMatrix(TransformationMatrix::toSkMatrix44(totalTransform(currentClipNode->base())));
+            canvas->setMatrix(TransformationMatrix::toSkMatrix44(totalTransform(currentClipNode->localTransformSpace())));
             canvas->clipRRect(currentClipNode->clipRect());
         }
 
@@ -132,10 +131,8 @@ void paintArtifactToSkCanvas(const PaintArtifact& artifact, SkCanvas* canvas)
         previousEffect = chunkEffect;
 
         // Draw the display items in the paint chunk.
-        DisplayItemList::const_iterator begin = displayItems.begin() + chunk.beginIndex;
-        DisplayItemList::const_iterator end = displayItems.begin() + chunk.endIndex;
-        for (DisplayItemList::const_iterator it = begin; it != end; ++it)
-            paintDisplayItemToSkCanvas(*it, canvas);
+        for (const auto& displayItem : displayItems.itemsInPaintChunk(chunk))
+            paintDisplayItemToSkCanvas(displayItem, canvas);
     }
 }
 

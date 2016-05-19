@@ -52,7 +52,7 @@ def GetChannelInfo():
     for version_row in os_row['versions']:
       channel = version_row['channel']
       # We don't display canary docs.
-      if channel == 'canary':
+      if channel.startswith('canary'):
         continue
 
       version = version_row['version'].split('.')[0]  # Major version
@@ -200,6 +200,18 @@ def GenerateDoxyfile(template_filename, out_dirname, doc_dirname, doxyfile):
       'script_dirname': SCRIPT_DIR})
 
 
+def CheckDoxygenVersion(doxygen):
+  version = subprocess.check_output([doxygen, '--version']).strip()
+  url = 'http://ftp.stack.nl/pub/users/dimitri/doxygen-1.7.6.1.linux.bin.tar.gz'
+  if version != '1.7.6.1':
+    print 'Doxygen version 1.7.6.1 is required'
+    print 'The version being used (%s) is version %s' % (doxygen, version)
+    print 'The simplest way to grab this version is to download it directly:'
+    print url
+    print 'Then either add it to your $PATH or set $DOXYGEN to point to binary.'
+    sys.exit(1)
+
+
 def RunDoxygen(out_dirname, doxyfile):
   Trace('Removing old output directory %s' % out_dirname)
   RemoveDir(out_dirname)
@@ -208,6 +220,7 @@ def RunDoxygen(out_dirname, doxyfile):
   os.makedirs(out_dirname)
 
   doxygen = os.environ.get('DOXYGEN', 'doxygen')
+  CheckDoxygenVersion(doxygen)
   cmd = [doxygen, doxyfile]
   Trace('Running Doxygen:\n  %s' % ' '.join(cmd))
   subprocess.check_call(cmd)
@@ -300,8 +313,7 @@ def main(argv):
   if options.verbose:
     Trace.verbose = True
 
-  channel_info = GetChannelInfo()
-  for channel, info in channel_info.iteritems():
+  for channel, info in GetChannelInfo().iteritems():
     GenerateDocs(options.out_directory, channel, info.version, info.branch)
 
   return 0

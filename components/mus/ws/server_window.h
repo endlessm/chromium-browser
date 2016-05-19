@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_MUS_WS_SERVER_WINDOW_H_
 #define COMPONENTS_MUS_WS_SERVER_WINDOW_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/logging.h"
@@ -17,6 +19,7 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/transform.h"
 #include "ui/platform_window/text_input_state.h"
 
@@ -40,9 +43,13 @@ class ServerWindowSurfaceManager;
 // from the parent.
 class ServerWindow {
  public:
+  using Properties = std::map<std::string, std::vector<uint8_t>>;
   using Windows = std::vector<ServerWindow*>;
 
   ServerWindow(ServerWindowDelegate* delegate, const WindowId& id);
+  ServerWindow(ServerWindowDelegate* delegate,
+               const WindowId& id,
+               const Properties& properties);
   ~ServerWindow();
 
   void AddObserver(ServerWindowObserver* observer);
@@ -66,8 +73,14 @@ class ServerWindow {
   // area to fill the whole bounds.
   void SetBounds(const gfx::Rect& bounds);
 
+  const std::vector<gfx::Rect>& additional_client_areas() const {
+    return additional_client_areas_;
+  }
   const gfx::Insets& client_area() const { return client_area_; }
-  void SetClientArea(const gfx::Insets& insets);
+  void SetClientArea(const gfx::Insets& insets,
+                     const std::vector<gfx::Rect>& additional_client_areas);
+
+  int32_t cursor() const { return static_cast<int32_t>(cursor_id_); }
 
   const ServerWindow* parent() const { return parent_; }
   ServerWindow* parent() { return parent_; }
@@ -106,6 +119,8 @@ class ServerWindow {
   float opacity() const { return opacity_; }
   void SetOpacity(float value);
 
+  void SetPredefinedCursor(mus::mojom::Cursor cursor_id);
+
   const gfx::Transform& transform() const { return transform_; }
   void SetTransform(const gfx::Transform& transform);
 
@@ -119,6 +134,9 @@ class ServerWindow {
     return text_input_state_;
   }
 
+  void set_can_focus(bool can_focus) { can_focus_ = can_focus; }
+  bool can_focus() const { return can_focus_; }
+
   // Returns true if this window is attached to a root and all ancestors are
   // visible.
   bool IsDrawn() const;
@@ -126,10 +144,24 @@ class ServerWindow {
   // Called when its appropriate to destroy surfaces scheduled for destruction.
   void DestroySurfacesScheduledForDestruction();
 
+  const gfx::Insets& extended_hit_test_region() const {
+    return extended_hit_test_region_;
+  }
+  void set_extended_hit_test_region(const gfx::Insets& insets) {
+    extended_hit_test_region_ = insets;
+  }
+
   ServerWindowSurfaceManager* GetOrCreateSurfaceManager();
   ServerWindowSurfaceManager* surface_manager() {
     return surface_manager_.get();
   }
+  const ServerWindowSurfaceManager* surface_manager() const {
+    return surface_manager_.get();
+  }
+
+  // Offset of the underlay from the the window bounds (used for shadows).
+  const gfx::Vector2d& underlay_offset() const { return underlay_offset_; }
+  void SetUnderlayOffset(const gfx::Vector2d& offset);
 
   ServerWindowDelegate* delegate() { return delegate_; }
 
@@ -168,12 +200,21 @@ class ServerWindow {
   bool visible_;
   gfx::Rect bounds_;
   gfx::Insets client_area_;
+  std::vector<gfx::Rect> additional_client_areas_;
   scoped_ptr<ServerWindowSurfaceManager> surface_manager_;
+  mojom::Cursor cursor_id_;
   float opacity_;
+  bool can_focus_;
   gfx::Transform transform_;
   ui::TextInputState text_input_state_;
 
-  std::map<std::string, std::vector<uint8_t>> properties_;
+  Properties properties_;
+
+  gfx::Vector2d underlay_offset_;
+
+  // The hit test for windows extends outside the bounds of the window by this
+  // amount.
+  gfx::Insets extended_hit_test_region_;
 
   base::ObserverList<ServerWindowObserver> observers_;
 

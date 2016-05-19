@@ -4,8 +4,12 @@
 
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/lazy_instance.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -228,28 +232,35 @@ bool ExtensionActionAPI::ShowExtensionActionPopup(
     return browser->window()->GetLocationBar()->ShowPageActionPopup(
         extension, grant_active_tab_permissions);
   }
-  return browser->window()->GetToolbarActionsBar()->ShowToolbarActionPopup(
-      extension->id(), grant_active_tab_permissions);
+
+  // Don't support showing action popups in a popup window.
+  if (!browser->SupportsWindowFeature(Browser::FEATURE_TOOLBAR))
+    return false;
+
+  ToolbarActionsBar* toolbar_actions_bar =
+      browser->window()->GetToolbarActionsBar();
+  // ToolbarActionsBar could be null if, e.g., this is a popup window with no
+  // toolbar.
+  return toolbar_actions_bar &&
+         toolbar_actions_bar->ShowToolbarActionPopup(
+             extension->id(), grant_active_tab_permissions);
 }
 
-bool ExtensionActionAPI::ExtensionWantsToRun(
-    const Extension* extension, content::WebContents* web_contents) {
-  // An extension wants to act if it has a visible page action on the given
-  // page...
+bool ExtensionActionAPI::PageActionWantsToRun(
+    const Extension* extension,
+    content::WebContents* web_contents) {
   ExtensionAction* page_action =
       ExtensionActionManager::Get(browser_context_)->GetPageAction(*extension);
-  if (page_action &&
-      page_action->GetIsVisible(SessionTabHelper::IdForTab(web_contents)))
-    return true;
+  return page_action &&
+         page_action->GetIsVisible(SessionTabHelper::IdForTab(web_contents));
+}
 
-  // ... Or if it has pending scripts that need approval for execution.
+bool ExtensionActionAPI::HasBeenBlocked(const Extension* extension,
+                                        content::WebContents* web_contents) {
   ActiveScriptController* active_script_controller =
       ActiveScriptController::GetForWebContents(web_contents);
-  if (active_script_controller &&
-      active_script_controller->WantsToRun(extension))
-    return true;
-
-  return false;
+  return active_script_controller &&
+         active_script_controller->WantsToRun(extension);
 }
 
 void ExtensionActionAPI::NotifyChange(ExtensionAction* extension_action,
@@ -304,11 +315,11 @@ void ExtensionActionAPI::DispatchEventToExtension(
     return;
 
   scoped_ptr<Event> event(
-      new Event(histogram_value, event_name, event_args.Pass()));
+      new Event(histogram_value, event_name, std::move(event_args)));
   event->restrict_to_browser_context = context;
   event->user_gesture = EventRouter::USER_GESTURE_ENABLED;
   EventRouter::Get(context)
-      ->DispatchEventToExtension(extension_id, event.Pass());
+      ->DispatchEventToExtension(extension_id, std::move(event));
 }
 
 void ExtensionActionAPI::ExtensionActionExecuted(
@@ -333,13 +344,12 @@ void ExtensionActionAPI::ExtensionActionExecuted(
 
   if (event_name) {
     scoped_ptr<base::ListValue> args(new base::ListValue());
-    base::DictionaryValue* tab_value =
-        ExtensionTabUtil::CreateTabValue(web_contents);
-    args->Append(tab_value);
+    args->Append(
+        ExtensionTabUtil::CreateTabObject(web_contents)->ToValue().release());
 
     DispatchEventToExtension(web_contents->GetBrowserContext(),
                              extension_action.extension_id(), histogram_value,
-                             event_name, args.Pass());
+                             event_name, std::move(args));
   }
 }
 
@@ -502,6 +512,11 @@ bool ExtensionActionSetIconFunction::RunExtensionAction() {
     EXTENSION_FUNCTION_VALIDATE(
         ExtensionAction::ParseIconFromCanvasDictionary(*canvas_set, &icon));
 
+    if (icon.isNull()) {
+      error_ = "Icon invalid.";
+      return false;
+    }
+
     extension_action_->SetIcon(tab_id_, gfx::Image(icon));
   } else if (details_->GetInteger("iconIndex", &icon_index)) {
     // Obsolete argument: ignore it.
@@ -612,8 +627,7 @@ BrowserActionOpenPopupFunction::BrowserActionOpenPopupFunction()
 bool BrowserActionOpenPopupFunction::RunAsync() {
   // We only allow the popup in the active window.
   Profile* profile = GetProfile();
-  Browser* browser = chrome::FindLastActiveWithProfile(
-                         profile, chrome::GetActiveDesktop());
+  Browser* browser = chrome::FindLastActiveWithProfile(profile);
   // It's possible that the last active browser actually corresponds to the
   // associated incognito profile, and this won't be returned by
   // FindLastActiveWithProfile. If the browser we found isn't active and the
@@ -621,8 +635,8 @@ bool BrowserActionOpenPopupFunction::RunAsync() {
   if ((!browser || !browser->window()->IsActive()) &&
       util::IsIncognitoEnabled(extension()->id(), profile) &&
       profile->HasOffTheRecordProfile()) {
-    browser = chrome::FindLastActiveWithProfile(
-        profile->GetOffTheRecordProfile(), chrome::GetActiveDesktop());
+    browser =
+        chrome::FindLastActiveWithProfile(profile->GetOffTheRecordProfile());
   }
 
   // If there's no active browser, or the Toolbar isn't visible, abort.

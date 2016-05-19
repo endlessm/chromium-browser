@@ -4,6 +4,8 @@
 
 #include "ui/views/controls/image_view.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "third_party/skia/include/core/SkPaint.h"
@@ -63,7 +65,7 @@ void ImageView::SetImage(const gfx::ImageSkia* image_skia) {
   }
 }
 
-const gfx::ImageSkia& ImageView::GetImage() {
+const gfx::ImageSkia& ImageView::GetImage() const {
   return image_;
 }
 
@@ -83,7 +85,7 @@ void ImageView::ResetImageSize() {
 }
 
 void ImageView::SetFocusPainter(scoped_ptr<Painter> focus_painter) {
-  focus_painter_ = focus_painter.Pass();
+  focus_painter_ = std::move(focus_painter);
 }
 
 gfx::Size ImageView::GetPreferredSize() const {

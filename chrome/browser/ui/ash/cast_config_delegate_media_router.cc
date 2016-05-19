@@ -4,6 +4,10 @@
 
 #include "chrome/browser/ui/ash/cast_config_delegate_media_router.h"
 
+#include <string>
+#include <vector>
+
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/media/router/media_router.h"
@@ -13,6 +17,7 @@
 #include "chrome/browser/media/router/media_sinks_observer.h"
 #include "chrome/browser/media/router/media_source_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/url_constants.h"
 
 namespace {
 
@@ -30,10 +35,11 @@ media_router::MediaRouter* GetMediaRouter() {
 
 // The media router will sometimes append " (Tab)" to the tab title. This
 // function will remove that data from the inout param |string|.
-void StripEndingTab(base::string16* string) {
-  const base::string16 ending = base::UTF8ToUTF16(" (Tab)");
-  if (base::EndsWith(*string, ending, base::CompareCase::SENSITIVE))
-    *string = string->substr(0, string->size() - ending.size());
+std::string StripEndingTab(const std::string& str) {
+  static const char ending[] = " (Tab)";
+  if (base::EndsWith(str, ending, base::CompareCase::SENSITIVE))
+    return str.substr(0, str.size() - strlen(ending));
+  return str;
 }
 
 }  // namespace
@@ -46,9 +52,14 @@ class CastDeviceCache : public media_router::MediaRoutesObserver,
  public:
   using MediaSinks = std::vector<media_router::MediaSink>;
   using MediaRoutes = std::vector<media_router::MediaRoute>;
+  using MediaRouteIds = std::vector<media_router::MediaRoute::Id>;
 
   explicit CastDeviceCache(ash::CastConfigDelegate* cast_config_delegate);
   ~CastDeviceCache() override;
+
+  // This may call cast_config_delegate->RequestDeviceRefresh() before
+  // returning.
+  void Init();
 
   const MediaSinks& sinks() const { return sinks_; }
   const MediaRoutes& routes() const { return routes_; }
@@ -58,7 +69,8 @@ class CastDeviceCache : public media_router::MediaRoutesObserver,
   void OnSinksReceived(const MediaSinks& sinks) override;
 
   // media_router::MediaRoutesObserver:
-  void OnRoutesUpdated(const MediaRoutes& routes) override;
+  void OnRoutesUpdated(const MediaRoutes& routes,
+                       const MediaRouteIds& unused_joinable_route_ids) override;
 
   MediaSinks sinks_;
   MediaRoutes routes_;
@@ -72,19 +84,24 @@ class CastDeviceCache : public media_router::MediaRoutesObserver,
 CastDeviceCache::CastDeviceCache(ash::CastConfigDelegate* cast_config_delegate)
     : MediaRoutesObserver(GetMediaRouter()),
       MediaSinksObserver(GetMediaRouter(),
-                         media_router::MediaSourceForDesktop()),
-      cast_config_delegate_(cast_config_delegate) {
-  CHECK(MediaSinksObserver::Init());
-}
+                         media_router::MediaSourceForDesktop(),
+                         GURL(chrome::kChromeUIMediaRouterURL)),
+      cast_config_delegate_(cast_config_delegate) {}
 
 CastDeviceCache::~CastDeviceCache() {}
+
+void CastDeviceCache::Init() {
+  CHECK(MediaSinksObserver::Init());
+}
 
 void CastDeviceCache::OnSinksReceived(const MediaSinks& sinks) {
   sinks_ = sinks;
   cast_config_delegate_->RequestDeviceRefresh();
 }
 
-void CastDeviceCache::OnRoutesUpdated(const MediaRoutes& routes) {
+void CastDeviceCache::OnRoutesUpdated(
+    const MediaRoutes& routes,
+    const MediaRouteIds& unused_joinable_route_ids) {
   routes_ = routes;
   cast_config_delegate_->RequestDeviceRefresh();
 }
@@ -111,20 +128,16 @@ CastConfigDelegateMediaRouter::~CastConfigDelegateMediaRouter() {}
 CastDeviceCache* CastConfigDelegateMediaRouter::devices() {
   // The CastDeviceCache instance is lazily allocated because the MediaRouter
   // component is not ready when the constructor is invoked.
-  if (!devices_ && GetMediaRouter() != nullptr)
+  if (!devices_ && GetMediaRouter() != nullptr) {
     devices_.reset(new CastDeviceCache(this));
+    devices_->Init();
+  }
 
   return devices_.get();
 }
 
 bool CastConfigDelegateMediaRouter::HasCastExtension() const {
   return true;
-}
-
-CastConfigDelegateMediaRouter::DeviceUpdateSubscription
-CastConfigDelegateMediaRouter::RegisterDeviceUpdateObserver(
-    const ReceiversAndActivitesCallback& callback) {
-  return callback_list_.Add(callback);
 }
 
 void CastConfigDelegateMediaRouter::RequestDeviceRefresh() {
@@ -152,8 +165,8 @@ void CastConfigDelegateMediaRouter::RequestDeviceRefresh() {
     for (ReceiverAndActivity& item : items) {
       if (item.receiver.id == route.media_sink_id()) {
         item.activity.id = route.media_route_id();
-        item.activity.title = base::UTF8ToUTF16(route.description());
-        StripEndingTab(&item.activity.title);
+        item.activity.title =
+            base::UTF8ToUTF16(StripEndingTab(route.description()));
         item.activity.is_local_source = route.is_local();
 
         if (route.is_local()) {
@@ -177,19 +190,22 @@ void CastConfigDelegateMediaRouter::RequestDeviceRefresh() {
     }
   }
 
-  callback_list_.Notify(items);
+  FOR_EACH_OBSERVER(ash::CastConfigDelegate::Observer, observer_list_,
+                    OnDevicesUpdated(items));
 }
 
 void CastConfigDelegateMediaRouter::CastToReceiver(
     const std::string& receiver_id) {
+  // TODO(imcheng): Pass in tab casting timeout.
   GetMediaRouter()->CreateRoute(
       media_router::MediaSourceForDesktop().id(), receiver_id,
       GURL("http://cros-cast-origin/"), nullptr,
-      std::vector<media_router::MediaRouteResponseCallback>());
+      std::vector<media_router::MediaRouteResponseCallback>(),
+      base::TimeDelta(), false);
 }
 
 void CastConfigDelegateMediaRouter::StopCasting(const std::string& route_id) {
-  GetMediaRouter()->CloseRoute(route_id);
+  GetMediaRouter()->TerminateRoute(route_id);
 }
 
 bool CastConfigDelegateMediaRouter::HasOptions() const {
@@ -198,3 +214,13 @@ bool CastConfigDelegateMediaRouter::HasOptions() const {
 }
 
 void CastConfigDelegateMediaRouter::LaunchCastOptions() {}
+
+void CastConfigDelegateMediaRouter::AddObserver(
+    ash::CastConfigDelegate::Observer* observer) {
+  observer_list_.AddObserver(observer);
+}
+
+void CastConfigDelegateMediaRouter::RemoveObserver(
+    ash::CastConfigDelegate::Observer* observer) {
+  observer_list_.RemoveObserver(observer);
+}

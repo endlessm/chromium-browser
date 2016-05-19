@@ -154,12 +154,12 @@ void TouchTransformerController::UpdateTouchTransformer() const {
   device_manager->ClearTouchDeviceAssociations();
 
   // Display IDs and DisplayInfo for mirror or extended mode.
-  int64 display1_id = gfx::Display::kInvalidDisplayID;
-  int64 display2_id = gfx::Display::kInvalidDisplayID;
+  int64_t display1_id = gfx::Display::kInvalidDisplayID;
+  int64_t display2_id = gfx::Display::kInvalidDisplayID;
   DisplayInfo display1;
   DisplayInfo display2;
   // Display ID and DisplayInfo for single display mode.
-  int64 single_display_id = gfx::Display::kInvalidDisplayID;
+  int64_t single_display_id = gfx::Display::kInvalidDisplayID;
   DisplayInfo single_display;
 
   WindowTreeHostManager* window_tree_host_manager =
@@ -174,9 +174,9 @@ void TouchTransformerController::UpdateTouchTransformer() const {
     single_display = display_manager->GetDisplayInfo(single_display_id);
     UpdateTouchRadius(single_display);
   } else {
-    DisplayIdPair id_pair = display_manager->GetCurrentDisplayIdPair();
-    display1_id = id_pair.first;
-    display2_id = id_pair.second;
+    DisplayIdList list = display_manager->GetCurrentDisplayIdList();
+    display1_id = list[0];
+    display2_id = list[1];
     DCHECK(display1_id != gfx::Display::kInvalidDisplayID &&
            display2_id != gfx::Display::kInvalidDisplayID);
     display1 = display_manager->GetDisplayInfo(display1_id);

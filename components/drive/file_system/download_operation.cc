@@ -4,10 +4,14 @@
 
 #include "components/drive/file_system/download_operation.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/task_runner_util.h"
 #include "components/drive/drive.pb.h"
 #include "components/drive/file_cache.h"
@@ -43,7 +47,7 @@ bool GeneratesUniquePathWithExtension(
 // If succeeded, returns FILE_ERROR_OK with |temp_download_file| storing the
 // path to the file in the cache.
 FileError PrepareForDownloadFile(internal::FileCache* cache,
-                                 int64 expected_file_size,
+                                 int64_t expected_file_size,
                                  const base::FilePath& temporary_file_directory,
                                  base::FilePath* temp_download_file) {
   DCHECK(cache);
@@ -257,15 +261,14 @@ FileError UpdateLocalStateForDownloadFile(
 
 class DownloadOperation::DownloadParams {
  public:
-  DownloadParams(
-      const GetFileContentInitializedCallback initialized_callback,
-      const google_apis::GetContentCallback get_content_callback,
-      const GetFileCallback completion_callback,
-      scoped_ptr<ResourceEntry> entry)
+  DownloadParams(const GetFileContentInitializedCallback initialized_callback,
+                 const google_apis::GetContentCallback get_content_callback,
+                 const GetFileCallback completion_callback,
+                 scoped_ptr<ResourceEntry> entry)
       : initialized_callback_(initialized_callback),
         get_content_callback_(get_content_callback),
         completion_callback_(completion_callback),
-        entry_(entry.Pass()),
+        entry_(std::move(entry)),
         was_cancelled_(false),
         weak_ptr_factory_(this) {
     DCHECK(!completion_callback_.is_null());
@@ -281,7 +284,7 @@ class DownloadOperation::DownloadParams {
       initialized_callback_.Run(FILE_ERROR_OK, cache_file_path,
                                 make_scoped_ptr(new ResourceEntry(*entry_)));
     }
-    completion_callback_.Run(FILE_ERROR_OK, cache_file_path, entry_.Pass());
+    completion_callback_.Run(FILE_ERROR_OK, cache_file_path, std::move(entry_));
   }
 
   void OnStartDownloading(const base::Closure& cancel_download_closure) {
@@ -302,7 +305,7 @@ class DownloadOperation::DownloadParams {
 
   void OnDownloadCompleted(const base::FilePath& cache_file_path,
                            scoped_ptr<ResourceEntry> entry) const {
-    completion_callback_.Run(FILE_ERROR_OK, cache_file_path, entry.Pass());
+    completion_callback_.Run(FILE_ERROR_OK, cache_file_path, std::move(entry));
   }
 
   const google_apis::GetContentCallback& get_content_callback() const {
@@ -529,7 +532,7 @@ void DownloadOperation::EnsureFileDownloadedAfterUpdateLocalState(
                        FileChange::CHANGE_TYPE_ADD_OR_UPDATE);
   // Storing to cache changes the "offline available" status, hence notify.
   delegate_->OnFileChangedByOperation(changed_files);
-  params->OnDownloadCompleted(*cache_file_path, entry_after_update.Pass());
+  params->OnDownloadCompleted(*cache_file_path, std::move(entry_after_update));
 }
 
 void DownloadOperation::CancelJob(JobID job_id) {

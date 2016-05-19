@@ -34,6 +34,7 @@
 #include "content/public/common/content_descriptors.h"
 #include "content/public/common/content_switches.h"
 #include "gin/public/isolate_holder.h"
+#include "gin/v8_initializer.h"
 #include "gpu/command_buffer/client/gl_in_process_context.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "media/base/media_switches.h"
@@ -71,6 +72,7 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
       ->set_fling_touchscreen_tap_suppression_enabled(false);
 
   base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
+  cl->AppendSwitch(switches::kIPCSyncCompositing);
   cl->AppendSwitch(cc::switches::kEnableBeginFrameScheduling);
 
   // WebView uses the Android system's scrollbars and overscroll glow.
@@ -92,7 +94,6 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
 #if defined(ENABLE_WEBRTC)
   cl->AppendSwitch(switches::kDisableWebRtcHWDecoding);
 #endif
-  cl->AppendSwitch(switches::kDisableAcceleratedVideoDecode);
 
   // This is needed for sharing textures across the different GL threads.
   cl->AppendSwitch(switches::kEnableThreadedTextureMailboxes);
@@ -118,29 +119,25 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
   if (cl->GetSwitchValueASCII(switches::kProcessType).empty()) {
     // Browser process (no type specified).
 
-    // This code is needed to be able to mmap the V8 snapshot directly from
-    // the WebView .apk using architecture-specific names.
-    // This needs to be here so that it gets to run before the code in
-    // content_main_runner that reads these values tries to do so.
-#ifdef __LP64__
-    const char kNativesFileName[] = "assets/natives_blob_64.bin";
-    const char kSnapshotFileName[] = "assets/snapshot_blob_64.bin";
-#else
-    const char kNativesFileName[] = "assets/natives_blob_32.bin";
-    const char kSnapshotFileName[] = "assets/snapshot_blob_32.bin";
-#endif // __LP64__
-    // TODO(gsennton) we should use
-    // gin::IsolateHolder::kNativesFileName/kSnapshotFileName
-    // here when those files have arch specific names http://crbug.com/455699
-    CHECK(base::android::RegisterApkAssetWithGlobalDescriptors(
-        kV8NativesDataDescriptor, kNativesFileName));
-    CHECK(base::android::RegisterApkAssetWithGlobalDescriptors(
-        kV8SnapshotDataDescriptor, kSnapshotFileName));
+    base::android::RegisterApkAssetWithGlobalDescriptors(
+        kV8NativesDataDescriptor32,
+        gin::V8Initializer::GetNativesFilePath(true).AsUTF8Unsafe());
+    base::android::RegisterApkAssetWithGlobalDescriptors(
+        kV8SnapshotDataDescriptor32,
+        gin::V8Initializer::GetSnapshotFilePath(true).AsUTF8Unsafe());
+
+    base::android::RegisterApkAssetWithGlobalDescriptors(
+        kV8NativesDataDescriptor64,
+        gin::V8Initializer::GetNativesFilePath(false).AsUTF8Unsafe());
+    base::android::RegisterApkAssetWithGlobalDescriptors(
+        kV8SnapshotDataDescriptor64,
+        gin::V8Initializer::GetSnapshotFilePath(false).AsUTF8Unsafe());
   }
 
   if (cl->HasSwitch(switches::kWebViewSandboxedRenderer)) {
     cl->AppendSwitch(switches::kInProcessGPU);
     cl->AppendSwitchASCII(switches::kRendererProcessLimit, "1");
+    cl->AppendSwitch(switches::kDisableRendererBackgrounding);
   }
 
   return false;
@@ -157,6 +154,7 @@ void AwMainDelegate::PreSandboxStartup() {
       *base::CommandLine::ForCurrentProcess();
   std::string process_type =
       command_line.GetSwitchValueASCII(switches::kProcessType);
+  int crash_signal_fd = -1;
   if (process_type == switches::kRendererProcess) {
     auto global_descriptors = base::GlobalDescriptors::GetInstance();
     int pak_fd = global_descriptors->Get(kAndroidWebViewLocalePakDescriptor);
@@ -169,13 +167,16 @@ void AwMainDelegate::PreSandboxStartup() {
         global_descriptors->GetRegion(kAndroidWebViewMainPakDescriptor);
     ResourceBundle::GetSharedInstance().AddDataPackFromFileRegion(
         base::File(pak_fd), pak_region, ui::SCALE_FACTOR_NONE);
+    crash_signal_fd =
+        global_descriptors->Get(kAndroidWebViewCrashSignalDescriptor);
+  }
+  if (process_type.empty() &&
+      command_line.HasSwitch(switches::kSingleProcess)) {
+    // "webview" has a special treatment in breakpad_linux.cc.
+    process_type = "webview";
   }
 
-  crash_reporter::EnableMicrodumpCrashReporter();
-}
-
-void AwMainDelegate::SandboxInitialized(const std::string& process_type) {
-  // TODO(torne): Adjust linux OOM score here.
+  crash_reporter::EnableMicrodumpCrashReporter(process_type, crash_signal_fd);
 }
 
 int AwMainDelegate::RunProcess(

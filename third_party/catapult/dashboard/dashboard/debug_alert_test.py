@@ -30,6 +30,7 @@ class DebugAlertTest(testing_common.TestCase):
     app = webapp2.WSGIApplication(
         [('/debug_alert', debug_alert.DebugAlertHandler)])
     self.testapp = webtest.TestApp(app)
+    self.PatchDatastoreHooksRequest()
 
   def _AddSampleData(self):
     """Adds a Test and Row entities, and returns the Test key."""
@@ -116,6 +117,15 @@ class DebugAlertTest(testing_common.TestCase):
     # The config JSON should also be put into the form on the page.
     self.assertIn('"min_relative_change": 0.75', response.body)
 
+  @mock.patch.object(debug_alert, 'SimulateAlertProcessing')
+  def testGet_WithBogusParameterNames_ParameterIgnored(self, simulate_mock):
+    test_key = self._AddSampleData()
+    response = self.testapp.get(
+        '/debug_alert?test_path=%s&config=%s' %
+        (utils.TestPath(test_key), '{"foo":0.75}'))
+    simulate_mock.assert_called_once_with(mock.ANY)
+    self.assertNotIn('"foo"', response.body)
+
   def testGet_WithInvalidCustomConfig_ErrorShown(self):
     test_key = self._AddSampleData()
     response = self.testapp.get(
@@ -138,13 +148,13 @@ class DebugAlertTest(testing_common.TestCase):
 
   def testFetchLatestRows(self):
     test_key = self._AddSampleData()
-    rows = debug_alert._FetchLatestRows(test_key, 4)
+    rows = debug_alert._FetchLatestRows(test_key.get(), 4)
     revisions = [r.revision for r in rows]
     self.assertEqual([316, 317, 318, 319], revisions)
 
   def testFetchAroundRev(self):
     test_key = self._AddSampleData()
-    rows = debug_alert._FetchRowsAroundRev(test_key, 310, 5, 8)
+    rows = debug_alert._FetchRowsAroundRev(test_key.get(), 310, 5, 8)
     revisions = [r.revision for r in rows]
     self.assertEqual(
         [305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 315, 316, 317],
@@ -152,13 +162,13 @@ class DebugAlertTest(testing_common.TestCase):
 
   def testFetchRowsAroundRev_NotAllRowsAvailable(self):
     test_key = self._AddSampleData()
-    rows = debug_alert._FetchRowsAroundRev(test_key, 310, 100, 100)
+    rows = debug_alert._FetchRowsAroundRev(test_key.get(), 310, 100, 100)
     # There are only 20 rows in the sample data, so only 20 can be fetched.
     self.assertEqual(20, len(rows))
 
   def testChartSeries(self):
     test_key = self._AddSampleData()
-    rows = debug_alert._FetchRowsAroundRev(test_key, 310, 5, 5)
+    rows = debug_alert._FetchRowsAroundRev(test_key.get(), 310, 5, 5)
     # The indexes used in the chart series should match those in the lookup.
     self.assertEqual(
         [(0, 60.65), (1, 55.61), (2, 61.88), (3, 61.51), (4, 59.58),
@@ -167,7 +177,7 @@ class DebugAlertTest(testing_common.TestCase):
 
   def testRevisionList(self):
     test_key = self._AddSampleData()
-    rows = debug_alert._FetchRowsAroundRev(test_key, 310, 5, 5)
+    rows = debug_alert._FetchRowsAroundRev(test_key.get(), 310, 5, 5)
     # The lookup dict maps indexes to x-values in the input series.
     self.assertEqual(
         [305, 306, 307, 308, 309, 310, 311, 312, 313, 314],

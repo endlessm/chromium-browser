@@ -111,10 +111,20 @@ bool HttpBasicStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
   return state_.connection()->socket()->GetPeerAddress(endpoint) == OK;
 }
 
+Error HttpBasicStream::GetSignedEKMForTokenBinding(crypto::ECPrivateKey* key,
+                                                   std::vector<uint8_t>* out) {
+  return parser()->GetSignedEKMForTokenBinding(key, out);
+}
+
 void HttpBasicStream::Drain(HttpNetworkSession* session) {
   HttpResponseBodyDrainer* drainer = new HttpResponseBodyDrainer(this);
   drainer->Start(session);
   // |drainer| will delete itself.
+}
+
+void HttpBasicStream::PopulateNetErrorDetails(NetErrorDetails* details) {
+  details->connection_info = HttpResponseInfo::CONNECTION_INFO_HTTP1;
+  return;
 }
 
 void HttpBasicStream::SetPriority(RequestPriority priority) {

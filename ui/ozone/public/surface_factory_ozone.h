@@ -5,7 +5,11 @@
 #ifndef UI_OZONE_PUBLIC_SURFACE_FACTORY_OZONE_H_
 #define UI_OZONE_PUBLIC_SURFACE_FACTORY_OZONE_H_
 
+#include <stdint.h>
+#include <vector>
+
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/native_library.h"
 #include "ui/gfx/buffer_types.h"
@@ -38,8 +42,6 @@ class SurfaceOzoneEGL;
 // The following functions are specific to EGL:
 //  - GetNativeDisplay
 //  - LoadEGLGLES2Bindings
-//  - GetEGLSurfaceProperties (optional if the properties match the default
-//  Chromium ones).
 //  - CreateEGLSurfaceForWidget
 //
 // 2) Software Drawing (Skia):
@@ -90,12 +92,10 @@ class OZONE_BASE_EXPORT SurfaceFactoryOzone {
       AddGLLibraryCallback add_gl_library,
       SetGLGetProcAddressProcCallback set_gl_get_proc_address) = 0;
 
-  // Returns an array of EGL properties, which can be used in any EGL function
-  // used to select a display configuration. Note that all properties should be
-  // immediately followed by the corresponding desired value and array should be
-  // terminated with EGL_NONE. Ownership of the array is not transferred to
-  // caller. desired_list contains list of desired EGL properties and values.
-  virtual const int32* GetEGLSurfaceProperties(const int32* desired_list);
+  // Returns all scanout formats for |widget| representing a particular display
+  // controller or default display controller for kNullAcceleratedWidget.
+  virtual std::vector<gfx::BufferFormat> GetScanoutFormats(
+      gfx::AcceleratedWidget widget);
 
   // Create a single native buffer to be used for overlay planes or zero copy
   // for |widget| representing a particular display controller or default

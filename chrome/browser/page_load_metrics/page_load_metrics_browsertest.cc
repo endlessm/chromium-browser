@@ -2,18 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/test/histogram_tester.h"
+#include "chrome/browser/page_load_metrics/observers/core_page_load_metrics_observer.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
-
-namespace page_load_metrics {
+#include "net/test/embedded_test_server/embedded_test_server.h"
 
 class MetricsWebContentsObserverBrowserTest : public InProcessBrowserTest {
  public:
-  MetricsWebContentsObserverBrowserTest(){};
-  ~MetricsWebContentsObserverBrowserTest() override{};
+  MetricsWebContentsObserverBrowserTest() {}
+  ~MetricsWebContentsObserverBrowserTest() override {}
 
  protected:
   base::HistogramTester histogram_tester_;
@@ -22,39 +21,37 @@ class MetricsWebContentsObserverBrowserTest : public InProcessBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(MetricsWebContentsObserverBrowserTest, NoNavigation) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
-  histogram_tester_.ExpectTotalCount(kHistogramNameDomContent, 0);
-  histogram_tester_.ExpectTotalCount(kHistogramNameLoad, 0);
-  histogram_tester_.ExpectTotalCount(kHistogramNameFirstLayout, 0);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDomContentLoaded, 0);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramLoad, 0);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramFirstLayout, 0);
 }
 
 IN_PROC_BROWSER_TEST_F(MetricsWebContentsObserverBrowserTest, NewPage) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   ui_test_utils::NavigateToURL(browser(),
-                               test_server()->GetURL("/title1.html"));
+                               embedded_test_server()->GetURL("/title1.html"));
   ui_test_utils::NavigateToURL(browser(),
-                               test_server()->GetURL("/title2.html"));
+                               embedded_test_server()->GetURL("/title2.html"));
 
-  histogram_tester_.ExpectTotalCount(kHistogramNameDomContent, 1);
-  histogram_tester_.ExpectTotalCount(kHistogramNameLoad, 1);
-  histogram_tester_.ExpectTotalCount(kHistogramNameFirstLayout, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDomContentLoaded, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramLoad, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramFirstLayout, 1);
 }
 
 IN_PROC_BROWSER_TEST_F(MetricsWebContentsObserverBrowserTest, AnchorLink) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   ui_test_utils::NavigateToURL(browser(),
-                               test_server()->GetURL("/title1.html"));
+                               embedded_test_server()->GetURL("/title1.html"));
+  ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/title1.html#hash"));
   ui_test_utils::NavigateToURL(browser(),
-                               test_server()->GetURL("/title1.html#hash"));
-  ui_test_utils::NavigateToURL(browser(),
-                               test_server()->GetURL("/title2.html"));
+                               embedded_test_server()->GetURL("/title2.html"));
 
-  histogram_tester_.ExpectTotalCount(kHistogramNameDomContent, 1);
-  histogram_tester_.ExpectTotalCount(kHistogramNameLoad, 1);
-  histogram_tester_.ExpectTotalCount(kHistogramNameFirstLayout, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDomContentLoaded, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramLoad, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramFirstLayout, 1);
 }
-
-}  // namespace page_load_metrics

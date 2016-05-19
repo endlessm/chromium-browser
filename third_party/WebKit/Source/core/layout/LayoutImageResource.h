@@ -27,7 +27,6 @@
 #define LayoutImageResource_h
 
 #include "core/fetch/ImageResource.h"
-#include "core/fetch/ResourcePtr.h"
 #include "core/style/StyleImage.h"
 
 namespace blink {
@@ -55,30 +54,21 @@ public:
     void resetAnimation();
     bool maybeAnimated() const;
 
-    virtual PassRefPtr<Image> image(const IntSize&) const
-    {
-        return m_cachedImage ? m_cachedImage->imageForLayoutObject(m_layoutObject) : Image::nullImage();
-    }
+    virtual PassRefPtr<Image> image(const IntSize&, float) const;
     virtual bool errorOccurred() const { return m_cachedImage && m_cachedImage->errorOccurred(); }
 
-    virtual void setContainerSizeForLayoutObject(const IntSize&);
-    virtual bool imageHasRelativeWidth() const { return m_cachedImage ? m_cachedImage->imageHasRelativeWidth() : false; }
-    virtual bool imageHasRelativeHeight() const { return m_cachedImage ? m_cachedImage->imageHasRelativeHeight() : false; }
+    virtual bool imageHasRelativeSize() const { return m_cachedImage ? m_cachedImage->imageHasRelativeSize() : false; }
 
-    virtual LayoutSize imageSize(float multiplier) const { return getImageSize(multiplier, ImageResource::NormalSize); }
-    virtual LayoutSize intrinsicSize(float multiplier) const { return getImageSize(multiplier, ImageResource::IntrinsicSize); }
+    virtual LayoutSize imageSize(float multiplier) const;
 
     virtual WrappedImagePtr imagePtr() const { return m_cachedImage.get(); }
 
-    DEFINE_INLINE_VIRTUAL_TRACE() { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { visitor->trace(m_cachedImage); }
 
 protected:
     LayoutImageResource();
     LayoutObject* m_layoutObject;
-    ResourcePtr<ImageResource> m_cachedImage;
-
-private:
-    LayoutSize getImageSize(float multiplier, ImageResource::SizeType) const;
+    RefPtrWillBeMember<ImageResource> m_cachedImage;
 };
 
 } // namespace blink

@@ -10,13 +10,11 @@
 // This is a GR test
 #if SK_SUPPORT_GPU
 #include "GrClipMaskManager.h"
-#include "GrContextFactory.h"
-#include "SkGpuDevice.h"
+#include "GrContext.h"
 
 // Ensure that the 'getConservativeBounds' calls are returning bounds clamped
 // to the render target
-static void test_clip_bounds(skiatest::Reporter* reporter, GrContext* context) {
-
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrClipBounds, reporter, context) {
     static const int kXSize = 100;
     static const int kYSize = 100;
 
@@ -27,7 +25,7 @@ static void test_clip_bounds(skiatest::Reporter* reporter, GrContext* context) {
     desc.fHeight    = kYSize;
 
     SkAutoTUnref<GrTexture> texture(
-        context->textureProvider()->createTexture(desc, false, nullptr, 0));
+        context->textureProvider()->createTexture(desc, SkBudgeted::kYes, nullptr, 0));
     if (!texture) {
         return;
     }
@@ -59,27 +57,13 @@ static void test_clip_bounds(skiatest::Reporter* reporter, GrContext* context) {
     clipData.setClipStack(&stack);
 
     SkIRect devGrClipBound;
-    clipData.getConservativeBounds(texture,
+    clipData.getConservativeBounds(texture->width(), texture->height(),
                                    &devGrClipBound,
                                    &isIntersectionOfRects);
 
     // make sure that GrClip is behaving itself
     REPORTER_ASSERT(reporter, intScreen == devGrClipBound);
     REPORTER_ASSERT(reporter, isIntersectionOfRects);
-}
-
-DEF_GPUTEST(GrClipBounds, reporter, factory) {
-    for (int type = 0; type < GrContextFactory::kLastGLContextType; ++type) {
-        GrContextFactory::GLContextType glType = static_cast<GrContextFactory::GLContextType>(type);
-        if (!GrContextFactory::IsRenderingGLContext(glType)) {
-            continue;
-        }
-        GrContext* context = factory->get(glType);
-        if (nullptr == context) {
-            continue;
-        }
-        test_clip_bounds(reporter, context);
-    }
 }
 
 #endif

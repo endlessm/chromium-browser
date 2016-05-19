@@ -5,15 +5,14 @@
 #include "ash/wm/window_animations.h"
 
 #include <math.h>
-
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "ash/screen_util.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shelf/shelf_widget.h"
-#include "ash/shell.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/workspace_controller.h"
 #include "base/command_line.h"
@@ -62,8 +61,8 @@ const float kWindowAnimation_ShowOpacity = 1.f;
 const float kLayerScaleAboveSize = 1.1f;
 const float kLayerScaleBelowSize = .9f;
 
-int64 Round64(float f) {
-  return static_cast<int64>(f + 0.5f);
+int64_t Round64(float f) {
+  return static_cast<int64_t>(f + 0.5f);
 }
 
 base::TimeDelta GetCrossFadeDuration(aura::Window* window,
@@ -271,8 +270,7 @@ class CrossFadeObserver : public ui::CompositorObserver,
   // Takes ownership of |layer| and its child layers.
   CrossFadeObserver(aura::Window* window,
                     scoped_ptr<ui::LayerTreeOwner> layer_owner)
-      : window_(window),
-        layer_owner_(layer_owner.Pass()) {
+      : window_(window), layer_owner_(std::move(layer_owner)) {
     window_->AddObserver(this);
     layer_owner_->root()->GetCompositor()->AddObserver(this);
   }
@@ -342,7 +340,8 @@ base::TimeDelta CrossFadeAnimation(
     ui::ScopedLayerAnimationSettings settings(old_layer->GetAnimator());
 
     // Animation observer owns the old layer and deletes itself.
-    settings.AddObserver(new CrossFadeObserver(window, old_layer_owner.Pass()));
+    settings.AddObserver(
+        new CrossFadeObserver(window, std::move(old_layer_owner)));
     settings.SetTransitionDuration(duration);
     settings.SetTweenType(tween_type);
     gfx::Transform out_transform;
@@ -467,7 +466,8 @@ gfx::Rect GetMinimizeAnimationTargetBoundsInScreen(aura::Window* window) {
   // width will be 0 but the position in the launcher and the major dimension
   // are still reported correctly and the window can be animated to the launcher
   // item's light bar.
-  ShelfLayoutManager* layout_manager = ShelfLayoutManager::ForShelf(window);
+  ShelfLayoutManager* layout_manager =
+      shelf->shelf_widget()->shelf_layout_manager();
   if (item_rect.width() != 0 || item_rect.height() != 0) {
     if (layout_manager->visibility_state() == SHELF_AUTO_HIDE) {
       gfx::Rect shelf_bounds = shelf->shelf_widget()->GetWindowBoundsInScreen();
@@ -493,7 +493,7 @@ gfx::Rect GetMinimizeAnimationTargetBoundsInScreen(aura::Window* window) {
   // to the location of the application launcher (which is fixed as first item
   // of the shelf).
   gfx::Rect work_area =
-      Shell::GetScreen()->GetDisplayNearestWindow(window).work_area();
+      gfx::Screen::GetScreen()->GetDisplayNearestWindow(window).work_area();
   int ltr_adjusted_x = base::i18n::IsRTL() ? work_area.right() : work_area.x();
   switch (layout_manager->GetAlignment()) {
     case SHELF_ALIGNMENT_BOTTOM:

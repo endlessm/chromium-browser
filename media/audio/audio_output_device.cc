@@ -4,10 +4,18 @@
 
 #include "media/audio/audio_output_device.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <cmath>
+#include <utility>
+
 #include "base/callback_helpers.h"
+#include "base/macros.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "media/audio/audio_output_controller.h"
 #include "media/base/limits.h"
 
@@ -28,12 +36,13 @@ class AudioOutputDevice::AudioThreadCallback
   void MapSharedMemory() override;
 
   // Called whenever we receive notifications about pending data.
-  void Process(uint32 pending_data) override;
+  void Process(uint32_t pending_data) override;
 
  private:
   AudioRendererSink::RenderCallback* render_callback_;
   scoped_ptr<AudioBus> output_bus_;
-  uint64 callback_num_;
+  uint64_t callback_num_;
+
   DISALLOW_COPY_AND_ASSIGN(AudioThreadCallback);
 };
 
@@ -45,7 +54,7 @@ AudioOutputDevice::AudioOutputDevice(
     const url::Origin& security_origin)
     : ScopedTaskRunnerObserver(io_task_runner),
       callback_(NULL),
-      ipc_(ipc.Pass()),
+      ipc_(std::move(ipc)),
       state_(IDLE),
       start_on_authorized_(false),
       play_on_start_(true),
@@ -395,16 +404,19 @@ AudioOutputDevice::AudioThreadCallback::~AudioThreadCallback() {
 void AudioOutputDevice::AudioThreadCallback::MapSharedMemory() {
   CHECK_EQ(total_segments_, 1);
   CHECK(shared_memory_.Map(memory_length_));
-  DCHECK_EQ(memory_length_, AudioBus::CalculateMemorySize(audio_parameters_));
+  DCHECK_EQ(static_cast<size_t>(memory_length_),
+            sizeof(AudioOutputBufferParameters) +
+                AudioBus::CalculateMemorySize(audio_parameters_));
 
-  output_bus_ =
-      AudioBus::WrapMemory(audio_parameters_, shared_memory_.memory());
+  AudioOutputBuffer* buffer =
+      reinterpret_cast<AudioOutputBuffer*>(shared_memory_.memory());
+  output_bus_ = AudioBus::WrapMemory(audio_parameters_, buffer->audio);
 }
 
 // Called whenever we receive notifications about pending data.
-void AudioOutputDevice::AudioThreadCallback::Process(uint32 pending_data) {
-  // Convert the number of pending bytes in the render buffer into milliseconds.
-  int audio_delay_milliseconds = pending_data / bytes_per_ms_;
+void AudioOutputDevice::AudioThreadCallback::Process(uint32_t pending_data) {
+  // Convert the number of pending bytes in the render buffer into frames.
+  double frames_delayed = static_cast<double>(pending_data) / bytes_per_frame_;
 
   callback_num_++;
   TRACE_EVENT1("audio", "AudioOutputDevice::FireRenderCallback",
@@ -417,10 +429,22 @@ void AudioOutputDevice::AudioThreadCallback::Process(uint32 pending_data) {
     TRACE_EVENT_ASYNC_END0("audio", "StartingPlayback", this);
   }
 
-  // Update the audio-delay measurement then ask client to render audio.  Since
-  // |output_bus_| is wrapping the shared memory the Render() call is writing
-  // directly into the shared memory.
-  render_callback_->Render(output_bus_.get(), audio_delay_milliseconds);
+  // Read and reset the number of frames skipped.
+  AudioOutputBuffer* buffer =
+      reinterpret_cast<AudioOutputBuffer*>(shared_memory_.memory());
+  uint32_t frames_skipped = buffer->params.frames_skipped;
+  buffer->params.frames_skipped = 0;
+
+  DVLOG(4) << __FUNCTION__ << " pending_data:" << pending_data
+           << " frames_delayed(pre-round):" << frames_delayed
+           << " frames_skipped:" << frames_skipped;
+
+  // Update the audio-delay measurement, inform about the number of skipped
+  // frames, and ask client to render audio.  Since |output_bus_| is wrapping
+  // the shared memory the Render() call is writing directly into the shared
+  // memory.
+  render_callback_->Render(output_bus_.get(), std::round(frames_delayed),
+                           frames_skipped);
 }
 
-}  // namespace media.
+}  // namespace media

@@ -62,11 +62,11 @@ public:
     virtual void setMatrix4fv(UniformHandle, int arrayCount, const float matrices[]) const = 0;
 
     // convenience method for uploading a SkMatrix to a 3x3 matrix uniform
-    virtual void setSkMatrix(UniformHandle, const SkMatrix&) const = 0;
+    void setSkMatrix(UniformHandle, const SkMatrix&) const;
 
     // for nvpr only
-    typedef ShaderResourceHandle SeparableVaryingHandle;
-    virtual void setPathFragmentInputTransform(SeparableVaryingHandle u, int components,
+    typedef ShaderResourceHandle VaryingHandle;
+    virtual void setPathFragmentInputTransform(VaryingHandle u, int components,
                                                const SkMatrix& matrix) const = 0;
 
 protected:

@@ -35,7 +35,7 @@ class DtlsTransport : public Base {
       : Base(name, allocator),
         certificate_(certificate),
         secure_role_(rtc::SSL_CLIENT),
-        ssl_max_version_(rtc::SSL_PROTOCOL_DTLS_10) {}
+        ssl_max_version_(rtc::SSL_PROTOCOL_DTLS_12) {}
 
   ~DtlsTransport() {
     Base::DestroyAllChannels();
@@ -199,7 +199,7 @@ class DtlsTransport : public Base {
 
   DtlsTransportChannelWrapper* CreateTransportChannel(int component) override {
     DtlsTransportChannelWrapper* channel = new DtlsTransportChannelWrapper(
-        this, Base::CreateTransportChannel(component));
+        Base::CreateTransportChannel(component));
     channel->SetSslMaxProtocolVersion(ssl_max_version_);
     return channel;
   }

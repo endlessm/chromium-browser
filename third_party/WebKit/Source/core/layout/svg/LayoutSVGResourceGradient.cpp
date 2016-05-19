@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGResourceGradient.h"
 
 namespace blink {
@@ -134,4 +133,4 @@ GradientSpreadMethod LayoutSVGResourceGradient::platformSpreadMethodFromSVGType(
     return SpreadMethodPad;
 }
 
-}
+} // namespace blink

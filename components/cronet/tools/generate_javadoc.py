@@ -35,11 +35,13 @@ def GenerateJavadoc(options):
   output_dir = os.path.abspath(os.path.join(options.output_dir, 'javadoc'))
   working_dir = os.path.join(options.input_dir, 'android/api')
   overview_file = os.path.abspath(options.overview_file)
+  lib_java_dir = os.path.abspath(options.lib_java_dir)
 
   build_utils.DeleteDirectory(output_dir)
   build_utils.MakeDirectory(output_dir)
   javadoc_cmd = ['ant', '-Dsource.dir=src', '-Ddoc.dir=' + output_dir,
-             '-Doverview=' + overview_file, 'doc']
+             '-Dlib.java.dir=' + lib_java_dir, '-Doverview=' + overview_file,
+             'doc']
   stdout = build_utils.CheckOutput(javadoc_cmd, cwd=working_dir)
   if " error: " in stdout or "warning" in stdout:
     build_utils.DeleteDirectory(output_dir)
@@ -48,10 +50,12 @@ def GenerateJavadoc(options):
 
 def main():
   parser = optparse.OptionParser()
+  build_utils.AddDepfileOption(parser)
   parser.add_option('--output-dir', help='Directory to put javadoc')
   parser.add_option('--input-dir', help='Root of cronet source')
   parser.add_option('--overview-file', help='Path of the overview page')
   parser.add_option('--readme-file', help='Path of the README.md')
+  parser.add_option('--lib-java-dir', help='Directory containing java libs')
 
   options, _ = parser.parse_args()
 
@@ -60,6 +64,12 @@ def main():
 
   GenerateJavadoc(options)
 
+  if options.depfile:
+    input_paths = []
+    for root, _, filenames in os.walk(options.input_dir):
+      input_paths.extend(os.path.join(root, f) for f in filenames)
+    build_utils.WriteDepfile(options.depfile,
+                             input_paths + build_utils.GetPythonDependencies())
+
 if __name__ == '__main__':
   sys.exit(main())
-

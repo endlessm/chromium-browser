@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/SVGTextLayoutAttributes.h"
 
 namespace blink {
@@ -33,4 +32,4 @@ void SVGTextLayoutAttributes::clear()
     m_textMetricsValues.clear();
 }
 
-}
+} // namespace blink

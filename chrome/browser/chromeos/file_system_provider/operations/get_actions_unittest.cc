@@ -5,11 +5,13 @@
 #include "chrome/browser/chromeos/file_system_provider/operations/get_actions.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/values.h"
@@ -84,7 +86,7 @@ void CreateRequestValueFromJSON(const std::string& json,
   ASSERT_TRUE(value->GetAsList(&value_as_list));
   scoped_ptr<Params> params(Params::Create(*value_as_list));
   ASSERT_TRUE(params.get());
-  *result = RequestValue::CreateForGetActionsSuccess(params.Pass());
+  *result = RequestValue::CreateForGetActionsSuccess(std::move(params));
   ASSERT_TRUE(result->get());
 }
 
@@ -198,7 +200,7 @@ TEST_F(FileSystemProviderOperationsGetActionsTest, OnSuccess) {
   ASSERT_NO_FATAL_FAILURE(CreateRequestValueFromJSON(input, &request_value));
 
   const bool has_more = false;
-  get_actions.OnSuccess(kRequestId, request_value.Pass(), has_more);
+  get_actions.OnSuccess(kRequestId, std::move(request_value), has_more);
 
   ASSERT_EQ(1u, callback_logger.events().size());
   CallbackLogger::Event* event = callback_logger.events()[0];

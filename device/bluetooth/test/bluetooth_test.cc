@@ -55,6 +55,10 @@ void BluetoothTestBase::TearDown() {
   EXPECT_FALSE(unexpected_error_callback_);
 }
 
+bool BluetoothTestBase::DenyPermission() {
+  return false;
+}
+
 BluetoothDevice* BluetoothTestBase::DiscoverLowEnergyDevice(
     int device_ordinal) {
   NOTIMPLEMENTED();
@@ -111,7 +115,7 @@ void BluetoothTestBase::NotifyCallback(
 }
 
 void BluetoothTestBase::ReadValueCallback(Call expected,
-                                          const std::vector<uint8>& value) {
+                                          const std::vector<uint8_t>& value) {
   ++callback_count_;
   last_read_value_ = value;
 
@@ -227,6 +231,7 @@ void BluetoothTestBase::ResetEventCounts() {
   gatt_notify_characteristic_attempts_ = 0;
   gatt_read_characteristic_attempts_ = 0;
   gatt_write_characteristic_attempts_ = 0;
+  gatt_write_descriptor_attempts_ = 0;
 }
 
 }  // namespace device

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/inspector/InspectorResourceContentLoader.h"
 
 #include "core/css/CSSStyleSheet.h"
@@ -13,7 +12,6 @@
 #include "core/fetch/RawResource.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
-#include "core/fetch/ResourcePtr.h"
 #include "core/fetch/StyleSheetResourceClient.h"
 #include "core/frame/LocalFrame.h"
 #include "core/inspector/InspectedFrames.h"
@@ -33,7 +31,7 @@ public:
 
     void waitForResource(Resource* resource)
     {
-        if (resource->type() == Resource::Raw)
+        if (resource->getType() == Resource::Raw)
             resource->addClient(static_cast<RawResourceClient*>(this));
         else
             resource->addClient(static_cast<StyleSheetResourceClient*>(this));
@@ -60,7 +58,7 @@ void InspectorResourceContentLoader::ResourceClient::resourceFinished(Resource* 
     if (m_loader)
         m_loader->resourceFinished(this);
 
-    if (resource->type() == Resource::Raw)
+    if (resource->getType() == Resource::Raw)
         resource->removeClient(static_cast<RawResourceClient*>(this));
     else
         resource->removeClient(static_cast<StyleSheetResourceClient*>(this));
@@ -77,7 +75,7 @@ void InspectorResourceContentLoader::ResourceClient::setCSSStyleSheet(const Stri
 
 void InspectorResourceContentLoader::ResourceClient::notifyFinished(Resource* resource)
 {
-    if (resource->type() == Resource::CSSStyleSheet)
+    if (resource->getType() == Resource::CSSStyleSheet)
         return;
     resourceFinished(resource);
 }
@@ -93,7 +91,8 @@ void InspectorResourceContentLoader::start()
 {
     m_started = true;
     WillBeHeapVector<RawPtrWillBeMember<Document>> documents;
-    for (LocalFrame* frame : InspectedFrames(m_inspectedFrame)) {
+    OwnPtrWillBeRawPtr<InspectedFrames> inspectedFrames = InspectedFrames::create(m_inspectedFrame);
+    for (LocalFrame* frame : *inspectedFrames) {
         documents.append(frame->document());
         documents.appendVector(InspectorPageAgent::importsForFrame(frame));
     }
@@ -114,7 +113,7 @@ void InspectorResourceContentLoader::start()
         if (!resourceRequest.url().string().isEmpty()) {
             urlsToFetch.add(resourceRequest.url().string());
             FetchRequest request(resourceRequest, FetchInitiatorTypeNames::internal);
-            ResourcePtr<Resource> resource = RawResource::fetch(request, document->fetcher());
+            RefPtrWillBeRawPtr<Resource> resource = RawResource::fetch(request, document->fetcher());
             if (resource) {
                 // Prevent garbage collection by holding a reference to this resource.
                 m_resources.append(resource.get());
@@ -124,7 +123,7 @@ void InspectorResourceContentLoader::start()
             }
         }
 
-        WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> > styleSheets;
+        WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>> styleSheets;
         InspectorCSSAgent::collectAllDocumentStyleSheets(document, styleSheets);
         for (CSSStyleSheet* styleSheet : styleSheets) {
             if (styleSheet->isInline() || !styleSheet->contents()->loadCompleted())
@@ -135,7 +134,7 @@ void InspectorResourceContentLoader::start()
             urlsToFetch.add(url);
             FetchRequest request(ResourceRequest(url), FetchInitiatorTypeNames::internal);
             request.mutableResourceRequest().setRequestContext(WebURLRequest::RequestContextInternal);
-            ResourcePtr<Resource> resource = CSSStyleSheetResource::fetch(request, document->fetcher());
+            RefPtrWillBeRawPtr<Resource> resource = CSSStyleSheetResource::fetch(request, document->fetcher());
             if (!resource)
                 continue;
             // Prevent garbage collection by holding a reference to this resource.
@@ -168,6 +167,7 @@ DEFINE_TRACE(InspectorResourceContentLoader)
 #if ENABLE(OILPAN)
     visitor->trace(m_inspectedFrame);
     visitor->trace(m_pendingResourceClients);
+    visitor->trace(m_resources);
 #endif
 }
 

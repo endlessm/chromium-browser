@@ -52,6 +52,7 @@
       'InlinedGlobalMarkingVisitor.h',
       'MarkingVisitor.h',
       'MarkingVisitorImpl.h',
+      'PageMemory.cpp',
       'PageMemory.h',
       'PagePool.cpp',
       'PagePool.h',
@@ -65,6 +66,7 @@
       'ThreadState.h',
       'ThreadingTraits.h',
       'TraceTraits.h',
+      'Visitor.cpp',
       'Visitor.h',
     ],
     'platform_heap_test_files': [

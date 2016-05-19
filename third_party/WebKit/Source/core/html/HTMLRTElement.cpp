@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/html/HTMLRTElement.h"
 
 #include "core/HTMLNames.h"
@@ -26,4 +25,4 @@ LayoutObject* HTMLRTElement::createLayoutObject(const ComputedStyle& style)
     return LayoutObject::createObject(this, style);
 }
 
-}
+} // namespace blink

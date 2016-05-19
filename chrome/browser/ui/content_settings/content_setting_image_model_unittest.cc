@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -18,8 +19,13 @@
 #include "content/public/test/test_renderer_host.h"
 #include "net/cookies/cookie_options.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/color_palette.h"
 
 namespace {
+
+bool HasIcon(const ContentSettingImageModel& model) {
+  return !model.GetIcon(gfx::kPlaceholderColor).IsEmpty();
+}
 
 // Forward all NOTIFICATION_WEB_CONTENT_SETTINGS_CHANGED to the specified
 // ContentSettingImageModel.
@@ -64,14 +70,13 @@ TEST_F(ContentSettingImageModelTest, UpdateFromWebContents) {
      ContentSettingSimpleImageModel::CreateForContentTypeForTesting(
          CONTENT_SETTINGS_TYPE_IMAGES);
   EXPECT_FALSE(content_setting_image_model->is_visible());
-  EXPECT_TRUE(content_setting_image_model->icon().IsEmpty());
   EXPECT_TRUE(content_setting_image_model->get_tooltip().empty());
 
   content_settings->OnContentBlocked(CONTENT_SETTINGS_TYPE_IMAGES);
   content_setting_image_model->UpdateFromWebContents(web_contents());
 
   EXPECT_TRUE(content_setting_image_model->is_visible());
-  EXPECT_FALSE(content_setting_image_model->icon().IsEmpty());
+  EXPECT_TRUE(HasIcon(*content_setting_image_model));
   EXPECT_FALSE(content_setting_image_model->get_tooltip().empty());
 }
 
@@ -103,7 +108,6 @@ TEST_F(ContentSettingImageModelTest, CookieAccessed) {
      ContentSettingSimpleImageModel::CreateForContentTypeForTesting(
          CONTENT_SETTINGS_TYPE_COOKIES));
   EXPECT_FALSE(content_setting_image_model->is_visible());
-  EXPECT_TRUE(content_setting_image_model->icon().IsEmpty());
   EXPECT_TRUE(content_setting_image_model->get_tooltip().empty());
 
   net::CookieOptions options;
@@ -114,7 +118,7 @@ TEST_F(ContentSettingImageModelTest, CookieAccessed) {
                                     false);
   content_setting_image_model->UpdateFromWebContents(web_contents());
   EXPECT_TRUE(content_setting_image_model->is_visible());
-  EXPECT_FALSE(content_setting_image_model->icon().IsEmpty());
+  EXPECT_TRUE(HasIcon(*content_setting_image_model));
   EXPECT_FALSE(content_setting_image_model->get_tooltip().empty());
 }
 

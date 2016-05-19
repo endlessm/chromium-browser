@@ -421,7 +421,7 @@ void ShelfView::Init() {
     view_model_->Add(child, static_cast<int>(i - items.begin()));
     AddChildView(child);
   }
-  overflow_button_ = new OverflowButton(this);
+  overflow_button_ = new OverflowButton(this, shelf_layout_manager());
   overflow_button_->set_context_menu_controller(this);
   ConfigureChildView(overflow_button_);
   AddChildView(overflow_button_);
@@ -954,8 +954,8 @@ void ShelfView::ContinueDrag(const ui::LocatedEvent& event) {
   int current_index = view_model_->GetIndexOfView(drag_view_);
   DCHECK_NE(-1, current_index);
 
-  ShelfItemDelegate* item_delegate = item_manager_->GetShelfItemDelegate(
-      model_->items()[current_index].id);
+  ShelfItemDelegate* item_delegate =
+      item_manager_->GetShelfItemDelegate(model_->items()[current_index].id);
   if (!item_delegate->IsDraggable()) {
     CancelDrag(-1);
     return;
@@ -1014,6 +1014,17 @@ void ShelfView::ContinueDrag(const ui::LocatedEvent& event) {
           x, y);
   target_index =
       std::min(indices.second, std::max(target_index, indices.first));
+
+  int first_draggable_item = 0;
+  while (first_draggable_item < static_cast<int>(model_->items().size()) &&
+         !item_manager_->GetShelfItemDelegate(
+                           model_->items()[first_draggable_item].id)
+              ->IsDraggable()) {
+    first_draggable_item++;
+  }
+
+  target_index = std::max(target_index, first_draggable_item);
+
   if (target_index == current_index)
     return;
 
@@ -1187,10 +1198,14 @@ void ShelfView::FinalizeRipOffDrag(bool cancel) {
 ShelfView::RemovableState ShelfView::RemovableByRipOff(int index) const {
   DCHECK(index >= 0 && index < model_->item_count());
   ShelfItemType type = model_->items()[index].type;
-  if (type == TYPE_APP_LIST || type == TYPE_DIALOG || !delegate_->CanPin())
+  if (type == TYPE_APP_LIST || type == TYPE_DIALOG)
     return NOT_REMOVABLE;
 
   std::string app_id = delegate_->GetAppIDForShelfID(model_->items()[index].id);
+  ShelfItemDelegate* item_delegate =
+      item_manager_->GetShelfItemDelegate(model_->items()[index].id);
+  if (!item_delegate->CanPin())
+    return NOT_REMOVABLE;
   // Note: Only pinned app shortcuts can be removed!
   return (type == TYPE_APP_SHORTCUT && delegate_->IsAppPinned(app_id)) ?
       REMOVABLE : DRAGGABLE;
@@ -1900,7 +1915,7 @@ void ShelfView::OnBoundsAnimatorProgressed(views::BoundsAnimator* animator) {
 }
 
 void ShelfView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
-  if (snap_back_from_rip_off_view_ && animator == bounds_animator_) {
+  if (snap_back_from_rip_off_view_ && animator == bounds_animator_.get()) {
     if (!animator->IsAnimating(snap_back_from_rip_off_view_)) {
       // Coming here the animation of the ShelfButton is finished and the
       // previously hidden status can be shown again. Since the button itself

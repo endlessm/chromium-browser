@@ -31,6 +31,12 @@ and report metrics about it.  The framework abstracts:
   [browser tests](http://www.chromium.org/developers/testing/browser-tests) are
   your friend.**
 
+**If you are a Chromium developer looking to add a new Telemetry benchmark to
+[`src/tools/perf/`](https://code.google.com/p/chromium/codesearch#chromium/src/tools/perf/),
+please make sure to read our
+[Benchmark Policy](https://docs.google.com/document/d/1bBKyYCW3VlUUPDpQE4xvrMFdA6tovQMZoqO9KCcmqqQ/preview)
+first.**
+
 ## Code Concepts
 
 Telemetry provides two major functionality groups: those that provide test
@@ -103,7 +109,7 @@ sets.
 
 ## Next Steps
 
-*   [Run Telemetry benchmarks locally](https://sites.google.com/a/chromium.org/dev/developers/telemetry/run_locally)
+*   [Run Telemetry benchmarks locally](/docs/run_benchmarks_locally.md)
 *   [Record a story set](https://sites.google.com/a/chromium.org/dev/developers/telemetry/record_a_page_set)
     with Web Page Replay
 *   [Add a measurement](https://sites.google.com/a/chromium.org/dev/developers/telemetry/add_a_measurement)

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/app_mode/fake_cws.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
@@ -18,7 +20,6 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
 using net::test_server::BasicHttpResponse;
-using net::test_server::EmbeddedTestServer;
 using net::test_server::HttpRequest;
 using net::test_server::HttpResponse;
 
@@ -76,7 +77,7 @@ FakeCWS::FakeCWS() : update_check_count_(0) {
 FakeCWS::~FakeCWS() {
 }
 
-void FakeCWS::Init(EmbeddedTestServer* embedded_test_server) {
+void FakeCWS::Init(net::EmbeddedTestServer* embedded_test_server) {
   has_update_template_ = kAppHasUpdateTemplate;
   no_update_template_ = kAppNoUpdateTemplate;
   update_check_end_point_ = "/update_check.xml";
@@ -87,7 +88,7 @@ void FakeCWS::Init(EmbeddedTestServer* embedded_test_server) {
       base::Bind(&FakeCWS::HandleRequest, base::Unretained(this)));
 }
 
-void FakeCWS::InitAsPrivateStore(EmbeddedTestServer* embedded_test_server,
+void FakeCWS::InitAsPrivateStore(net::EmbeddedTestServer* embedded_test_server,
                                  const std::string& update_check_end_point) {
   has_update_template_ = kPrivateStoreAppHasUpdateTemplate;
   no_update_template_ = kAppNoUpdateTemplate;
@@ -201,7 +202,7 @@ scoped_ptr<HttpResponse> FakeCWS::HandleRequest(const HttpRequest& request) {
         http_response->set_code(net::HTTP_OK);
         http_response->set_content_type("text/xml");
         http_response->set_content(update_check_content);
-        return http_response.Pass();
+        return std::move(http_response);
       }
     }
   }

@@ -7,44 +7,36 @@
 
 #import <Cocoa/Cocoa.h>
 
-// Cocoa UI constants.
-namespace password_manager {
-namespace mac {
-namespace ui {
-const CGFloat kDesiredBubbleWidth = 370;
-const CGFloat kFramePadding = 16;
-const CGFloat kRelatedControlHorizontalPadding = 2;
-const CGFloat kUnrelatedControlVerticalPadding = 15;
-}  // namespace ui
-}  // namespace mac
-}  // namespace password_manager
+class ManagePasswordsBubbleModel;
 
 // Handles user interaction with the content view.
-@protocol ManagePasswordsBubbleContentViewDelegate<NSObject>
+@protocol BasePasswordsContentViewDelegate<NSObject>
 
 // The user performed an action that should dismiss the bubble.
 - (void)viewShouldDismiss;
 
+// Returns the model object.
+@property(nonatomic, readonly) ManagePasswordsBubbleModel* model;
+
 @end
 
 // Base class for a state of the password management bubble.
-@interface ManagePasswordsBubbleContentViewController : NSViewController {
-  id<ManagePasswordsBubbleContentViewDelegate> delegate_;  // Weak.
+@interface BasePasswordsContentViewController : NSViewController {
+ @private
+  id<BasePasswordsContentViewDelegate> delegate_;  // Weak.
 }
-- (id)initWithDelegate:(id<ManagePasswordsBubbleContentViewDelegate>)delegate;
+- (instancetype)initWithDelegate:(id<BasePasswordsContentViewDelegate>)delegate;
 - (NSButton*)addButton:(NSString*)title
                 toView:(NSView*)view
                 target:(id)target
                 action:(SEL)action;
 - (NSTextField*)addTitleLabel:(NSString*)title toView:(NSView*)view;
-- (NSTextField*)addLabel:(NSString*)title toView:(NSView*)view;
 - (void)bubbleWillDisappear;
 
 // Returns the default button for the bubble.
 - (NSButton*)defaultButton;
 
-@property(nonatomic, assign)
-    id<ManagePasswordsBubbleContentViewDelegate> delegate;
+@property(nonatomic, assign) id<BasePasswordsContentViewDelegate> delegate;
 
 @end
 

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/input_method/mock_input_method_manager.h"
 
+#include <utility>
+
 namespace chromeos {
 namespace input_method {
 
@@ -39,6 +41,9 @@ void MockInputMethodManager::AddCandidateWindowObserver(
     InputMethodManager::CandidateWindowObserver* observer) {
 }
 
+void MockInputMethodManager::AddImeMenuObserver(
+    InputMethodManager::ImeMenuObserver* observer) {}
+
 void MockInputMethodManager::RemoveObserver(
     InputMethodManager::Observer* observer) {
   ++remove_observer_count_;
@@ -48,12 +53,15 @@ void MockInputMethodManager::RemoveCandidateWindowObserver(
     InputMethodManager::CandidateWindowObserver* observer) {
 }
 
+void MockInputMethodManager::RemoveImeMenuObserver(
+    InputMethodManager::ImeMenuObserver* observer) {}
+
 scoped_ptr<InputMethodDescriptors>
 MockInputMethodManager::GetSupportedInputMethods() const {
   scoped_ptr<InputMethodDescriptors> result(new InputMethodDescriptors);
   result->push_back(
       InputMethodUtil::GetFallbackInputMethodDescriptor());
-  return result.Pass();
+  return result;
 }
 
 scoped_ptr<InputMethodDescriptors>
@@ -61,7 +69,7 @@ MockInputMethodManager::State::GetActiveInputMethods() const {
   scoped_ptr<InputMethodDescriptors> result(new InputMethodDescriptors);
   result->push_back(
       InputMethodUtil::GetFallbackInputMethodDescriptor());
-  return result.Pass();
+  return result;
 }
 
 const std::vector<std::string>&
@@ -195,7 +203,7 @@ ComponentExtensionIMEManager*
 
 void MockInputMethodManager::SetComponentExtensionIMEManager(
     scoped_ptr<ComponentExtensionIMEManager> comp_ime_manager) {
-  comp_ime_manager_ = comp_ime_manager.Pass();
+  comp_ime_manager_ = std::move(comp_ime_manager);
 }
 
 void MockInputMethodManager::set_application_locale(const std::string& value) {
@@ -238,6 +246,8 @@ void MockInputMethodManager::SetCurrentInputMethodId(
     const std::string& input_method_id) {
   state_->current_input_method_id = input_method_id;
 }
+
+void MockInputMethodManager::ImeMenuActivationChanged(bool is_active) {}
 
 }  // namespace input_method
 }  // namespace chromeos

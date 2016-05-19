@@ -51,17 +51,17 @@ public:
     LayoutGeometryMap(MapCoordinatesFlags = UseTransforms);
     ~LayoutGeometryMap();
 
-    MapCoordinatesFlags mapCoordinatesFlags() const { return m_mapCoordinatesFlags; }
+    MapCoordinatesFlags getMapCoordinatesFlags() const { return m_mapCoordinatesFlags; }
 
     FloatRect absoluteRect(const FloatRect& rect) const
     {
-        return mapToContainer(rect, 0).boundingBox();
+        return mapToAncestor(rect, 0).boundingBox();
     }
 
-    // Map to a container. Will assert that the container has been pushed onto this map.
-    // A null container maps through the LayoutView (including its scale transform, if any).
-    // If the container is the LayoutView, the scroll offset is applied, but not the scale.
-    FloatQuad mapToContainer(const FloatRect&, const LayoutBoxModelObject*) const;
+    // Map to an ancestor. Will assert that the ancestor has been pushed onto this map.
+    // A null ancestor maps through the LayoutView (including its scale transform, if any).
+    // If the ancestor is the LayoutView, the scroll offset is applied, but not the scale.
+    FloatQuad mapToAncestor(const FloatRect&, const LayoutBoxModelObject*) const;
 
     // Called by code walking the layout or layer trees.
     void pushMappingsToAncestor(const PaintLayer*, const PaintLayer* ancestorLayer);
@@ -72,12 +72,12 @@ public:
 
     // Push geometry info between this layoutObject and some ancestor. The ancestor must be its container() or some
     // stacking context between the layoutObject and its container.
-    void push(const LayoutObject*, const LayoutSize&, bool accumulatingTransform = false, bool isNonUniform = false, bool isFixedPosition = false, bool hasTransform = false, LayoutSize offsetForFixedPosition = LayoutSize());
-    void push(const LayoutObject*, const TransformationMatrix&, bool accumulatingTransform = false, bool isNonUniform = false, bool isFixedPosition = false, bool hasTransform = false, LayoutSize offsetForFixedPosition = LayoutSize());
+    void push(const LayoutObject*, const LayoutSize&, GeometryInfoFlags = 0, LayoutSize offsetForFixedPosition = LayoutSize());
+    void push(const LayoutObject*, const TransformationMatrix&, GeometryInfoFlags = 0, LayoutSize offsetForFixedPosition = LayoutSize());
 
 private:
     void popMappingsToAncestor(const LayoutBoxModelObject*);
-    void mapToContainer(TransformState&, const LayoutBoxModelObject* container = nullptr) const;
+    void mapToAncestor(TransformState&, const LayoutBoxModelObject* ancestor = nullptr) const;
 
     void stepInserted(const LayoutGeometryMapStep&);
     void stepRemoved(const LayoutGeometryMapStep&);

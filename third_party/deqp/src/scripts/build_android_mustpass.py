@@ -31,6 +31,27 @@ import xml.etree.cElementTree as ElementTree
 import xml.dom.minidom as minidom
 
 CTS_DATA_DIR	= os.path.join(DEQP_DIR, "android", "cts")
+APK_NAME 		= "com.drawelements.deqp.apk"
+
+COPYRIGHT_DECLARATION = """
+     Copyright (C) 2015 The Android Open Source Project
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+     """
+
+GENERATED_FILE_WARNING = """
+     This file has been automatically generated. Edit with caution.
+     """
 
 class Configuration:
 	def __init__ (self, name, glconfig, rotation, surfacetype, filters):
@@ -119,13 +140,9 @@ def readCaseList (filename):
 				cases.append(line[6:].strip())
 	return cases
 
-def getCaseList (mustpass, module):
-	generator	= ANY_GENERATOR
-	buildCfg	= getBuildConfig(DEFAULT_BUILD_DIR, DEFAULT_TARGET, "Debug")
-
+def getCaseList (buildCfg, generator, module):
 	build(buildCfg, generator, [module.binName])
 	genCaseList(buildCfg, generator, module, "txt")
-
 	return readCaseList(getCaseListPath(buildCfg, module, "txt"))
 
 def readPatternList (filename):
@@ -252,6 +269,8 @@ def exclude (filename):
 	return Filter(Filter.TYPE_EXCLUDE, filename)
 
 def prettifyXML (doc):
+	doc.insert(0, ElementTree.Comment(COPYRIGHT_DECLARATION))
+	doc.insert(1, ElementTree.Comment(GENERATED_FILE_WARNING))
 	uglyString	= ElementTree.tostring(doc, 'utf-8')
 	reparsed	= minidom.parseString(uglyString)
 	return reparsed.toprettyxml(indent='\t', encoding='utf-8')
@@ -319,6 +338,32 @@ def genSpecXML (mustpass):
 
 	return mustpassElem
 
+def addOptionElement (parent, optionName, optionValue):
+	ElementTree.SubElement(parent, "option", name=optionName, value=optionValue)
+
+def genAndroidTestXml (mustpass):
+	INSTALLER_CLASS = "com.android.compatibility.common.tradefed.targetprep.ApkInstaller"
+	RUNNER_CLASS = "com.drawelements.deqp.runner.DeqpTestRunner"
+	configElement = ElementTree.Element("configuration")
+	preparerElement = ElementTree.SubElement(configElement, "target_preparer")
+	preparerElement.set("class", INSTALLER_CLASS)
+	addOptionElement(preparerElement, "cleanup-apks", "true")
+	addOptionElement(preparerElement, "test-file-name", APK_NAME)
+
+	for package in mustpass.packages:
+		for config in package.configurations:
+			testElement = ElementTree.SubElement(configElement, "test")
+			testElement.set("class", RUNNER_CLASS)
+			addOptionElement(testElement, "deqp-package", package.module.name)
+			addOptionElement(testElement, "deqp-caselist-file", getCaseListFileName(package,config))
+			# \todo [2015-10-16 kalle]: Replace with just command line? - requires simplifications in the runner/tests as well.
+			addOptionElement(testElement, "deqp-gl-config-name", config.glconfig)
+			addOptionElement(testElement, "deqp-surface-type", config.surfacetype)
+			addOptionElement(testElement, "deqp-screen-rotation", config.rotation)
+
+	return configElement
+
+
 def genMustpass (mustpass, moduleCaseLists):
 	print "Generating mustpass '%s'" % mustpass.version
 
@@ -347,6 +392,7 @@ def genMustpass (mustpass, moduleCaseLists):
 			for case in matchingByConfig[config]:
 				testCaseMap[case].configurations.append(config)
 
+		# NOTE: CTS v2 does not need package XML files. Remove when transition is complete.
 		packageXml	= genCTSPackageXML(package, root)
 		xmlFilename	= os.path.join(CTS_DATA_DIR, mustpass.version, getCTSPackageName(package) + ".xml")
 
@@ -359,16 +405,24 @@ def genMustpass (mustpass, moduleCaseLists):
 	print "  Writing spec: " + specFilename
 	writeFile(specFilename, prettifyXML(specXML))
 
+	# TODO: Which is the best selector mechanism?
+	if (mustpass.version == "mnc"):
+		androidTestXML		= genAndroidTestXml(mustpass)
+		androidTestFilename	= os.path.join(CTS_DATA_DIR, "AndroidTest.xml")
+
+		print "  Writing AndroidTest.xml: " + androidTestFilename
+		writeFile(androidTestFilename, prettifyXML(androidTestXML))
+
 	print "Done!"
 
-def genMustpassLists (mustpassLists):
+def genMustpassLists (mustpassLists, generator, buildCfg):
 	moduleCaseLists = {}
 
 	# Getting case lists involves invoking build, so we want to cache the results
 	for mustpass in mustpassLists:
 		for package in mustpass.packages:
 			if not package.module in moduleCaseLists:
-				moduleCaseLists[package.module] = getCaseList(mustpass, package.module)
+				moduleCaseLists[package.module] = getCaseList(buildCfg, generator, package.module)
 
 	for mustpass in mustpassLists:
 		genMustpass(mustpass, moduleCaseLists)
@@ -377,6 +431,8 @@ EGL_MODULE						= Module(name = "dEQP-EGL", dirName = "egl", binName = "deqp-egl
 GLES2_MODULE					= Module(name = "dEQP-GLES2", dirName = "gles2", binName = "deqp-gles2")
 GLES3_MODULE					= Module(name = "dEQP-GLES3", dirName = "gles3", binName = "deqp-gles3")
 GLES31_MODULE					= Module(name = "dEQP-GLES31", dirName = "gles31", binName = "deqp-gles31")
+
+# Lollipop
 
 LMP_GLES3_PKG					= Package(module = GLES3_MODULE, configurations = [
 		Configuration(name			= "master",
@@ -393,6 +449,8 @@ LMP_GLES31_PKG					= Package(module = GLES31_MODULE, configurations = [
 					  filters		= [include("es31-lmp.txt")]),
 	])
 
+# Lollipop MR1
+
 LMP_MR1_GLES3_PKG				= Package(module = GLES3_MODULE, configurations = [
 		Configuration(name			= "master",
 					  glconfig		= "rgba8888d24s8ms0",
@@ -408,7 +466,119 @@ LMP_MR1_GLES31_PKG				= Package(module = GLES31_MODULE, configurations = [
 					  filters		= [include("es31-lmp-mr1.txt")]),
 	])
 
-MASTER_EGL_COMMON_FILTERS		= [include("egl-master.txt"), exclude("egl-failures.txt")]
+# Marshmallow
+
+MNC_EGL_PKG						= Package(module = EGL_MODULE, configurations = [
+		# Master
+		Configuration(name			= "master",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("egl-master.txt")]),
+	])
+MNC_GLES2_PKG					= Package(module = GLES2_MODULE, configurations = [
+		# Master
+		Configuration(name			= "master",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("gles2-master.txt")]),
+	])
+MNC_GLES3_PKG					= Package(module = GLES3_MODULE, configurations = [
+		# Master
+		Configuration(name			= "master",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("gles3-master.txt")]),
+		# Rotations
+		Configuration(name			= "rotate-portrait",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "0",
+					  surfacetype	= "window",
+					  filters		= [include("gles3-master.txt"), include("gles3-rotation.txt")]),
+		Configuration(name			= "rotate-landscape",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "90",
+					  surfacetype	= "window",
+					  filters		= [include("gles3-master.txt"), include("gles3-rotation.txt")]),
+		Configuration(name			= "rotate-reverse-portrait",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "180",
+					  surfacetype	= "window",
+					  filters		= [include("gles3-master.txt"), include("gles3-rotation.txt")]),
+		Configuration(name			= "rotate-reverse-landscape",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "270",
+					  surfacetype	= "window",
+					  filters		= [include("gles3-master.txt"), include("gles3-rotation.txt")]),
+
+		# MSAA
+		Configuration(name			= "multisample",
+					  glconfig		= "rgba8888d24s8ms4",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("gles3-master.txt"),
+									   include("gles3-multisample.txt"),
+									   exclude("gles3-multisample-issues.txt")]),
+
+		# Pixel format
+		Configuration(name			= "565-no-depth-no-stencil",
+					  glconfig		= "rgb565d0s0ms0",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("gles3-master.txt"),
+									   include("gles3-pixelformat.txt"),
+									   exclude("gles3-pixelformat-issues.txt")]),
+	])
+MNC_GLES31_PKG					= Package(module = GLES31_MODULE, configurations = [
+		# Master
+		Configuration(name			= "master",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("gles31-master.txt")]),
+
+		# Rotations
+		Configuration(name			= "rotate-portrait",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "0",
+					  surfacetype	= "window",
+					  filters		= [include("gles31-master.txt"), include("gles31-rotation.txt")]),
+		Configuration(name			= "rotate-landscape",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "90",
+					  surfacetype	= "window",
+					  filters		= [include("gles31-master.txt"), include("gles31-rotation.txt")]),
+		Configuration(name			= "rotate-reverse-portrait",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "180",
+					  surfacetype	= "window",
+					  filters		= [include("gles31-master.txt"), include("gles31-rotation.txt")]),
+		Configuration(name			= "rotate-reverse-landscape",
+					  glconfig		= "rgba8888d24s8ms0",
+					  rotation		= "270",
+					  surfacetype	= "window",
+					  filters		= [include("gles31-master.txt"), include("gles31-rotation.txt")]),
+
+		# MSAA
+		Configuration(name			= "multisample",
+					  glconfig		= "rgba8888d24s8ms4",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("gles31-master.txt"), include("gles31-multisample.txt")]),
+
+		# Pixel format
+		Configuration(name			= "565-no-depth-no-stencil",
+					  glconfig		= "rgb565d0s0ms0",
+					  rotation		= "unspecified",
+					  surfacetype	= "window",
+					  filters		= [include("gles31-master.txt"), include("gles31-pixelformat.txt")]),
+	])
+
+# Master
+
+MASTER_EGL_COMMON_FILTERS		= [include("egl-master.txt")]
 MASTER_EGL_PKG					= Package(module = EGL_MODULE, configurations = [
 		# Master
 		Configuration(name			= "master",
@@ -473,22 +643,24 @@ MASTER_GLES3_PKG				= Package(module = GLES3_MODULE, configurations = [
 					  glconfig		= "rgba8888d24s8ms4",
 					  rotation		= "unspecified",
 					  surfacetype	= "window",
-					  filters		= MASTER_GLES3_COMMON_FILTERS + [include("gles3-multisample.txt")]),
+					  filters		= MASTER_GLES3_COMMON_FILTERS + [include("gles3-multisample.txt"),
+																	 exclude("gles3-multisample-issues.txt")]),
 
 		# Pixel format
 		Configuration(name			= "565-no-depth-no-stencil",
 					  glconfig		= "rgb565d0s0ms0",
 					  rotation		= "unspecified",
 					  surfacetype	= "window",
-					  filters		= MASTER_GLES3_COMMON_FILTERS + [include("gles3-pixelformat.txt")]),
+					  filters		= MASTER_GLES3_COMMON_FILTERS + [include("gles3-pixelformat.txt"),
+																	 exclude("gles3-pixelformat-issues.txt")]),
 	])
 
 MASTER_GLES31_COMMON_FILTERS	= [
 		include("gles31-master.txt"),
 		exclude("gles31-hw-issues.txt"),
+		exclude("gles31-driver-issues.txt"),
 		exclude("gles31-test-issues.txt"),
 		exclude("gles31-spec-issues.txt"),
-		exclude("gles31-new-tests.txt"),
 	]
 MASTER_GLES31_PKG				= Package(module = GLES31_MODULE, configurations = [
 		# Master
@@ -538,8 +710,9 @@ MASTER_GLES31_PKG				= Package(module = GLES31_MODULE, configurations = [
 MUSTPASS_LISTS				= [
 		Mustpass(version = "lmp",		packages = [LMP_GLES3_PKG, LMP_GLES31_PKG]),
 		Mustpass(version = "lmp-mr1",	packages = [LMP_MR1_GLES3_PKG, LMP_MR1_GLES31_PKG]),
+		Mustpass(version = "mnc",		packages = [MNC_EGL_PKG, MNC_GLES2_PKG, MNC_GLES3_PKG, MNC_GLES31_PKG]),
 		Mustpass(version = "master",	packages = [MASTER_EGL_PKG, MASTER_GLES2_PKG, MASTER_GLES3_PKG, MASTER_GLES31_PKG])
 	]
 
 if __name__ == "__main__":
-	genMustpassLists(MUSTPASS_LISTS)
+	genMustpassLists(MUSTPASS_LISTS, ANY_GENERATOR, getBuildConfig(DEFAULT_BUILD_DIR, DEFAULT_TARGET, "Debug"))

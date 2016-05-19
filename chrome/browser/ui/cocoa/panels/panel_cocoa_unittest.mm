@@ -51,7 +51,7 @@ class PanelCocoaTest : public CocoaProfileTest {
     int panels_count = manager->num_panels();
 
     Panel* panel = manager->CreatePanel(panel_name, profile(),
-                                        GURL(), gfx::Rect(),
+                                        GURL(), nullptr, gfx::Rect(),
                                         PanelManager::CREATE_AS_DOCKED);
     EXPECT_EQ(panels_count + 1, manager->num_panels());
 
@@ -59,7 +59,7 @@ class PanelCocoaTest : public CocoaProfileTest {
     EXPECT_TRUE(panel->native_panel());  // Native panel is created right away.
     PanelCocoa* native_window =
         static_cast<PanelCocoa*>(panel->native_panel());
-    EXPECT_EQ(panel, native_window->panel_);  // Back pointer initialized.
+    EXPECT_EQ(panel, native_window->panel_.get());  // Back pointer initialized.
 
     PanelAnimatedBoundsObserver bounds_observer(panel);
 

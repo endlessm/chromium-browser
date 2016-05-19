@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_EXTENSION_TOOLBAR_MENU_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_EXTENSION_TOOLBAR_MENU_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar_observer.h"
@@ -15,6 +16,10 @@ class Browser;
 class BrowserActionsContainer;
 class ToolbarActionsBar;
 
+namespace views {
+class MenuItemView;
+}
+
 // ExtensionToolbarMenuView is the view containing the extension actions that
 // overflowed from the BrowserActionsContainer, and is contained in and owned by
 // the app menu.
@@ -23,7 +28,9 @@ class ToolbarActionsBar;
 class ExtensionToolbarMenuView : public views::ScrollView,
                                  public ToolbarActionsBarObserver {
  public:
-  ExtensionToolbarMenuView(Browser* browser, AppMenu* app_menu);
+  ExtensionToolbarMenuView(Browser* browser,
+                           AppMenu* app_menu,
+                           views::MenuItemView* menu_item);
   ~ExtensionToolbarMenuView() override;
 
   // Returns whether the app menu should show this view. This is true when
@@ -64,6 +71,9 @@ class ExtensionToolbarMenuView : public views::ScrollView,
 
   // The app menu, which may need to be closed after a drag-and-drop.
   AppMenu* app_menu_;
+
+  // The MenuItemView this view is contained within.
+  views::MenuItemView* menu_item_;
 
   // The overflow BrowserActionsContainer which is nested in this view.
   BrowserActionsContainer* container_;

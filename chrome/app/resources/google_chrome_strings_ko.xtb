@@ -3,8 +3,8 @@
 <translationbundle lang="ko">
 <translation id="1001534784610492198">설치 프로그램 보관 파일이 손상되었거나 올바르지 않습니다. Chrome을 다시 다운로드하세요.</translation>
 <translation id="1013290471399003443">Chrome에서 <ph name="ISSUER" />이(가) 이 웹사이트의 인증서를 발행했음을 확인했습니다. 서버에서 올바른 인증서 투명성 정보를 제공했습니다.</translation>
-<translation id="1016765312371154165">Chrome이 제대로 종료되지 않았습니다.</translation>
 <translation id="103396972844768118">Chrome 데이터 관련 중요 정보</translation>
+<translation id="1035334672863811645">Chrome에 로그인</translation>
 <translation id="1061441684050139317">이 사이트에 공유하려면 Chrome에 마이크 액세스 권한이 있어야 합니다.</translation>
 <translation id="1065672644894730302">환경설정을 읽을 수 없습니다.
 
@@ -54,7 +54,6 @@
 <translation id="2397416548179033562">Chrome 메뉴 표시</translation>
 <translation id="2429317896000329049">도메인에서 동기화를 사용할 수 없어 Chrome에서 데이터를 동기화하지 못했습니다.</translation>
 <translation id="2485422356828889247">제거</translation>
-<translation id="2576431527583832481">한층 개선된 Chrome의 최신 버전이 출시되었습니다.</translation>
 <translation id="2580411288591421699">현재 실행 중인 Chrome과 동일한 버전은 설치할 수 없습니다. Chrome을 닫고 다시 시도하세요.</translation>
 <translation id="2582790009689336987">이 Linux 시스템이 더 이상 지원되지 않을 예정이므로 곧 이 컴퓨터에서 Chrome 업데이트를 받을 수 없게 됩니다.</translation>
 <translation id="2588322182880276190">Chrome 로고</translation>
@@ -93,7 +92,6 @@
 <translation id="3870154837782082782">Google Inc.</translation>
 <translation id="3881912906674381083">Chrome에서 <ph name="ISSUER" />이(가) 이 웹사이트의 인증서를 발행했음을 확인했습니다. 서버에서 인증서 투명성 정보를 제공했으나, Chromium에서 인증서 투명성 로그를 인식하지 못했습니다.</translation>
 <translation id="3889417619312448367">Chrome 제거</translation>
-<translation id="4011219958405096740">사용하면 iframe 기반 Chrome 로그인 절차를 사용하며, 그렇지 않은 경우 WebView 기반 로그인 절차를 사용합니다.</translation>
 <translation id="4042449298237264661">Windows XP와 Windows Vista가 더 이상 지원되지 않으므로 이 컴퓨터에서 Chrome 업데이트를 받을 수 없게 됩니다.</translation>
 <translation id="4050175100176540509">최신 버전에는 중요한 보안 개선사항 및 새로운 기능이 포함되어 있습니다.</translation>
 <translation id="4053720452172726777">Chrome 맞춤설정 및 제어</translation>
@@ -115,7 +113,6 @@
 <translation id="4633000520311261472">Google에서는 Chrome의 보안을 강화하기 위해 <ph name="IDS_EXTENSION_WEB_STORE_TITLE" />에 표시되지 않고 사용자 모르게 추가되었을 수 있는 일부 확장 프로그램의 사용을 중지했습니다.</translation>
 <translation id="4700157086864140907">Chrome은 사용자가 브라우저에 입력한 내용을 Google 서버에 보내어 Google 검색에서 사용하는 기술과 동일한 맞춤법 검사 기술을 사용할 수 있게 함으로써 더욱 뛰어난 맞춤법 검사 기능을 제공할 수 있습니다.</translation>
 <translation id="4728575227883772061">확인되지 않은 오류로 설치에 실패했습니다. Chrome이 실행 중인 경우 종료한 후 다시 실행하세요.</translation>
-<translation id="473775607612524610">업데이트</translation>
 <translation id="4743926867934016338">동의 및 검색</translation>
 <translation id="4751441238232965030">이 컴퓨터에서 32비트 Chrome 업데이트가 곧 중단됩니다. 64비트 Chrome으로 업그레이드하세요.</translation>
 <translation id="4754614261631455953">Chrome Canary(mDNS-In)</translation>
@@ -148,30 +145,17 @@ Chrome에서 설정을 복구할 수 없습니다.</translation>
 <translation id="5563479599352954471">터치 한 번으로 검색</translation>
 <translation id="5566025111015594046">Chrome(mDNS-In)</translation>
 <translation id="5620765574781326016">페이지를 나가지 않고 웹사이트에서 주제에 대해 자세히 알아보기</translation>
-<translation id="5626352146162055517"><ph name="SITE" />에서는 사용자 정보를 보호하기 위해 일반적으로 암호화를 사용합니다. Chrome에서 이번에 <ph name="SITE" />에 연결을 시도했을 때 웹사이트에서
-비정상적이고 잘못된 사용자 인증 정보를 반환했습니다. 이는 공격자가 <ph name="SITE" />인 것처럼 가장하려고 하거나 Wi-Fi 로그인 화면이 연결을 방해했기 때문일 수 있습니다. 데이터 교환이 이뤄지기 전에 Chrome에서 연결을 중단했기 때문에 사용자 정보는 안전합니다.</translation>
 <translation id="568643307450491754">Chrome 메뉴 또는 북마크바에서 북마크를 검색합니다.</translation>
 <translation id="573759479754913123">Chrome OS 정보</translation>
 <translation id="5749068826913805084">Chrome에서 파일을 다운로드하려면 저장소 액세스 권한이 있어야 합니다.</translation>
-<translation id="5785746630574083988">Windows 8 모드로 다시 실행하면 Chrome 앱이 닫혔다가 다시 실행됩니다.</translation>
-<translation id="5799551393681493217">iframe 기반 Chrome 로그인 절차 사용(이 플래그는 웹 기반 로그인 사용보다 우선함)</translation>
 <translation id="5855036575689098185">컴퓨터에서 실행 중인 소프트웨어가 Chrome과 호환되지 않습니다.</translation>
 <translation id="5877064549588274448">채널이 변경되었습니다. 변경사항을 적용하려면 기기를 다시 시작하세요.</translation>
-<translation id="5890698319714066019">컴퓨터가 인터넷에 연결되어 있지 않아 Chrome에서 웹페이지를 표시할 수 없습니다.</translation>
 <translation id="5931853610562009806">Mac에서는 비밀번호가 키체인에 저장되어 이 OS X 계정을 공유하는 다른 Chrome 사용자가 액세스하거나 동기화할 수 있습니다.</translation>
 <translation id="5940385492829620908">웹, 북마크 및 기타 Chrome 콘텐츠가 여기에 저장됩니다.</translation>
 <translation id="5941830788786076944">Chrome을 기본 브라우저로</translation>
 <translation id="597770749449734237">Chrome 디버깅에 유용한 추가 키보드 단축키를 사용합니다.</translation>
-<translation id="6011049234605203654">Chrome 메뉴 &gt;
-          <ph name="SETTINGS_TITLE" />
-          &gt;
-          <ph name="ADVANCED_TITLE" />
-          &gt;
-          <ph name="PROXIES_TITLE" />
-          (으)로 이동하여 '프록시 없음' 또는 '직접 연결'로 설정되어 있는지 확인합니다.</translation>
 <translation id="6012342843556706400">이 사이트에 공유하려면 Chrome에 위치 정보 액세스 권한이 있어야 합니다.</translation>
 <translation id="6014844626092547096">Chrome에 로그인했습니다. 관리자가 동기화를 사용 중지했습니다.</translation>
-<translation id="6049075767726609708">시스템에 모든 사용자용 Chrome이 설치되었습니다. 기존의 사용자 수준 Chrome 대신 설치된 시스템 수준 Chrome이 사용됩니다.</translation>
 <translation id="6113794647360055231">더욱 업그레이드된 Chrome</translation>
 <translation id="6169866489629082767"><ph name="PAGE_TITLE" /> - Chrome</translation>
 <translation id="61852838583753520">Chrome OS 업데이트(&amp;C)</translation>
@@ -189,15 +173,6 @@ Chrome에서 설정을 복구할 수 없습니다.</translation>
 <translation id="6676384891291319759">인터넷 연결</translation>
 <translation id="6757767188268205357">더 이상 묻지 않음</translation>
 <translation id="683440813066116847">Chrome Canary가 mDNS 트래픽을 허용하는 인바운드 규칙입니다.</translation>
-<translation id="6855094794438142393">Chrome 메뉴 &gt;
-          <ph name="SETTINGS_TITLE" />
-          &gt;
-          <ph name="ADVANCED_TITLE" />
-          &gt;
-          <ph name="PROXIES_TITLE" />
-          &gt;
-          LAN 설정으로 이동하여
-          '사용자 LAN에 프록시 서버 사용'을 선택 취소합니다.</translation>
 <translation id="6883876366448858277">단어와 관련 컨텍스트를 Google 검색에 전송하며 정의, 사진, 기타 검색결과를 표시합니다.</translation>
 <translation id="6930860321615955692">https://support.google.com/chrome/?p=ib_chromeframe</translation>
 <translation id="6970811910055250180">기기를 업데이트하는 중...</translation>
@@ -219,8 +194,6 @@ Chrome에서 설정을 복구할 수 없습니다.</translation>
 <translation id="7282192067747128786">Chrome - 알림(읽지 않은 알림 <ph name="QUANTITY" />개)</translation>
 <translation id="729375352412857283">Windows XP 및 Windows Vista가 더 이상 지원되지 않을 예정이므로 곧 이 컴퓨터에서 Chrome 업데이트를 받을 수 없게 됩니다.</translation>
 <translation id="7339898014177206373">새 창</translation>
-<translation id="7396375882099008034">Chrome이 방화벽이나 바이러스 백신이 설정된
-        네트워크에 액세스할 수 있도록 허용합니다.</translation>
 <translation id="7398801000654795464"><ph name="USER_EMAIL_ADDRESS" />(으)로 Chrome에 로그인되어 있습니다. 같은 계정으로 다시 로그인해 주세요.</translation>
 <translation id="7400722733683201933">Chrome 정보</translation>
 <translation id="7408085963519505752">Chrome OS 이용약관</translation>
@@ -235,31 +208,23 @@ Chrome에서 설정을 복구할 수 없습니다.</translation>
 <translation id="7747138024166251722">설치 프로그램이 임시 디렉토리를 만들지 못했습니다. 디스크 공간 및 설치 권한을 확인해 보세요.</translation>
 <translation id="7761834446675418963">Chrome을 열고 탐색을 시작하려면 내 이름을 클릭하세요.</translation>
 <translation id="7781002470561365167">Chrome의 새 버전이 출시되었습니다.</translation>
-<translation id="7784335114585804598">Windows 8 모드에서 Chrome 다시 실행(&amp;R)</translation>
 <translation id="7787950393032327779">다른 컴퓨터(<ph name="HOST_NAME" />)의 다른 Chrome 프로세스(<ph name="PROCESS_ID" />)에서 프로필을 사용 중인 것 같습니다. 프로필이 손상되지 않도록 Chrome에서 잠금 설정했습니다. 다른 프로세스에서 프로필을 사용 중이지 않은 것이 확실한 경우 프로필을 잠금 해제하고 Chrome을 다시 시작하세요.</translation>
 <translation id="7788788617745289808">이 사이트에 공유하려면 Chrome에 카메라 액세스 권한이 있어야 합니다.</translation>
 <translation id="7808348361785373670">Chrome에서 삭제...</translation>
-<translation id="781069973841903133">Chrome 몰입형 모드로 다시 시작하면 Chrome 앱이 닫힌 후 다시 시작됩니다.</translation>
 <translation id="7825851276765848807">알 수 없는 오류로 인해 설치에 실패했습니다. Chrome을 다시 다운로드하세요.</translation>
 <translation id="7890208801193284374">컴퓨터를 공유하는 경우 친구와 가족이 개별적으로 탐색하고 원하는 대로 Chrome을 설정할 수 있습니다.</translation>
-<translation id="7984945080620862648">현재 <ph name="SITE" />에서 Chrome이 처리할 수 없는 암호화된 자격증명 정보를 전송했기 때문에 방문할 수 없습니다. 네트워크 오류와 공격은 대부분 일시적이므로 잠시 후 페이지가 정상화될 것입니다.</translation>
-<translation id="8000275528373650868">Chrome은 Windows Vista 또는 Windows XP 서비스 팩 2 이상이 설치된 컴퓨터에서 사용하실 수 있습니다.</translation>
 <translation id="8005540215158006229">Chrome을 사용할 준비가 되었습니다.</translation>
 <translation id="8008534537613507642">Chrome 재설치</translation>
 <translation id="8030318113982266900">기기를 <ph name="CHANNEL_NAME" /> 채널로 업데이트하는 중...</translation>
 <translation id="8032142183999901390">Chrome에서 계정을 삭제한 후 열려 있는 탭을 새로고침해야 적용됩니다.</translation>
 <translation id="8037887340639533879">업데이트할 Chrome 설치가 없습니다.</translation>
 <translation id="8129812357326543296">Chrome 정보(&amp;G)</translation>
-<translation id="8187289872471304532">애플리케이션 &gt; 시스템 환경설정 &gt; 네트워크 &gt; 고급 &gt; 프록시로 이동한 다음
-          선택된 프록시를 선택 취소합니다.</translation>
 <translation id="8205111949707227942" />
 <translation id="8227755444512189073"><ph name="SCHEME" />SCHEME링크 처리를 위해 Chrome에서 외부 응용 프로그램을 실행해야 합니다. 요청 링크는PROTOLINK입니다 <ph name="PROTOLINK" />.</translation>
 <translation id="8255190535488645436">Chrome에서 카메라와 마이크를 사용 중입니다.</translation>
-<translation id="8274359292107649245">데스크톱에서 Chrome 열기</translation>
 <translation id="8286862437124483331">Chrome에서 비밀번호를 표시하려고 합니다. 허용하려면 Windows 비밀번호를 입력하세요.</translation>
 <translation id="8290100596633877290">Chrome이 다운되었습니다. 다시 시작하시겠습니까?</translation>
 <translation id="8406086379114794905">더 나은 Chrome을 만들 수 있도록 도와주세요.</translation>
-<translation id="8437332772351535342">데스크톱 모드로 다시 실행하면 Chrome 앱이 닫혔다가 다시 실행됩니다.</translation>
 <translation id="8460191995881063249">Chrome 알림 센터</translation>
 <translation id="853189717709780425">관리 계정으로 로그인하고 관리자에게 Chrome 프로필에 대한 제어권을 부여하려고 합니다. 이렇게 하면 앱, 북마크, 방문 기록, 비밀번호 및 기타 설정과 같은 Chrome 데이터가 <ph name="USER_NAME" />에 영구적으로 연결됩니다. Google 계정 대시보드를 통해 이 데이터를 삭제할 수 있지만 다른 계정에 연결할 수는 없습니다.</translation>
 <translation id="8540666473246803645">Chrome</translation>
@@ -271,14 +236,12 @@ Chrome에서 설정을 복구할 수 없습니다.</translation>
 <translation id="8669527147644353129">Chrome 도우미</translation>
 <translation id="8679801911857917785">또한 Chrome을 시작할 때 표시되는 페이지를 설정합니다.</translation>
 <translation id="870251953148363156">Chrome 업데이트(&amp;G)</translation>
-<translation id="8811903091068364646">데스크톱 모드에서 Chrome 다시 시작(&amp;R)</translation>
 <translation id="8823341990149967727">Chrome이 이전 버전임</translation>
 <translation id="884296878221830158">또한 Chrome을 시작하거나 홈 버튼을 클릭할 때 표시되는 페이지를 설정합니다.</translation>
 <translation id="8851136666856101339">main</translation>
 <translation id="8862326446509486874">시스템 수준의 설치 권한이 없습니다. 관리자 권한으로 설치 프로그램을 다시 실행해 보세요.</translation>
-<translation id="8889942196804715220">Chrome 몰입형 모드로 다시 시작</translation>
-<translation id="8987477933582888019">웹브라우저</translation>
 <translation id="9026991721384951619">계정의 로그인 세부정보가 오래되어 Chrome OS에서 데이터를 동기화하지 못했습니다.</translation>
+<translation id="9067395829937117663">Chrome은 Windows 7 이상 버전에서 사용할 수 있습니다.</translation>
 <translation id="9102715433345326100">이 파일은 악성 파일이므로 Chrome에서 차단했습니다.</translation>
 <translation id="9107728822479888688"><ph name="BEGIN_BOLD" />경고:<ph name="END_BOLD" /> Chrome에서는 확장 프로그램에 인터넷 사용기록이 저장될 수 있습니다. 시크릿 모드에서 이 확장 프로그램을 사용 중지하려면 옵션을 선택 취소하세요.</translation>
 <translation id="911206726377975832">인터넷 사용정보도 삭제하시겠습니까?</translation>

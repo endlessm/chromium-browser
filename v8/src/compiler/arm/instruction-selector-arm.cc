@@ -303,32 +303,33 @@ void VisitMod(InstructionSelector* selector, Node* node, ArchOpcode div_opcode,
 
 
 void InstructionSelector::VisitLoad(Node* node) {
-  MachineType rep = RepresentationOf(OpParameter<LoadRepresentation>(node));
-  MachineType typ = TypeOf(OpParameter<LoadRepresentation>(node));
+  LoadRepresentation load_rep = LoadRepresentationOf(node->op());
   ArmOperandGenerator g(this);
   Node* base = node->InputAt(0);
   Node* index = node->InputAt(1);
 
-  ArchOpcode opcode;
-  switch (rep) {
-    case kRepFloat32:
+  ArchOpcode opcode = kArchNop;
+  switch (load_rep.representation()) {
+    case MachineRepresentation::kFloat32:
       opcode = kArmVldrF32;
       break;
-    case kRepFloat64:
+    case MachineRepresentation::kFloat64:
       opcode = kArmVldrF64;
       break;
-    case kRepBit:  // Fall through.
-    case kRepWord8:
-      opcode = typ == kTypeUint32 ? kArmLdrb : kArmLdrsb;
+    case MachineRepresentation::kBit:  // Fall through.
+    case MachineRepresentation::kWord8:
+      opcode = load_rep.IsUnsigned() ? kArmLdrb : kArmLdrsb;
       break;
-    case kRepWord16:
-      opcode = typ == kTypeUint32 ? kArmLdrh : kArmLdrsh;
+    case MachineRepresentation::kWord16:
+      opcode = load_rep.IsUnsigned() ? kArmLdrh : kArmLdrsh;
       break;
-    case kRepTagged:  // Fall through.
-    case kRepWord32:
+    case MachineRepresentation::kTagged:  // Fall through.
+    case MachineRepresentation::kWord32:
       opcode = kArmLdr;
       break;
-    default:
+    case MachineRepresentation::kWord64:   // Fall through.
+    case MachineRepresentation::kSimd128:  // Fall through.
+    case MachineRepresentation::kNone:
       UNREACHABLE();
       return;
   }
@@ -349,16 +350,25 @@ void InstructionSelector::VisitStore(Node* node) {
   Node* index = node->InputAt(1);
   Node* value = node->InputAt(2);
 
-  StoreRepresentation store_rep = OpParameter<StoreRepresentation>(node);
+  StoreRepresentation store_rep = StoreRepresentationOf(node->op());
   WriteBarrierKind write_barrier_kind = store_rep.write_barrier_kind();
-  MachineType rep = RepresentationOf(store_rep.machine_type());
+  MachineRepresentation rep = store_rep.representation();
 
   if (write_barrier_kind != kNoWriteBarrier) {
-    DCHECK_EQ(kRepTagged, rep);
+    DCHECK_EQ(MachineRepresentation::kTagged, rep);
+    AddressingMode addressing_mode;
     InstructionOperand inputs[3];
     size_t input_count = 0;
     inputs[input_count++] = g.UseUniqueRegister(base);
-    inputs[input_count++] = g.UseUniqueRegister(index);
+    // OutOfLineRecordWrite uses the index in an 'add' instruction as well as
+    // for the store itself, so we must check compatibility with both.
+    if (g.CanBeImmediate(index, kArmAdd) && g.CanBeImmediate(index, kArmStr)) {
+      inputs[input_count++] = g.UseImmediate(index);
+      addressing_mode = kMode_Offset_RI;
+    } else {
+      inputs[input_count++] = g.UseUniqueRegister(index);
+      addressing_mode = kMode_Offset_RR;
+    }
     inputs[input_count++] = (write_barrier_kind == kMapWriteBarrier)
                                 ? g.UseRegister(value)
                                 : g.UseUniqueRegister(value);
@@ -380,29 +390,32 @@ void InstructionSelector::VisitStore(Node* node) {
     InstructionOperand temps[] = {g.TempRegister(), g.TempRegister()};
     size_t const temp_count = arraysize(temps);
     InstructionCode code = kArchStoreWithWriteBarrier;
+    code |= AddressingModeField::encode(addressing_mode);
     code |= MiscField::encode(static_cast<int>(record_write_mode));
     Emit(code, 0, nullptr, input_count, inputs, temp_count, temps);
   } else {
-    ArchOpcode opcode;
+    ArchOpcode opcode = kArchNop;
     switch (rep) {
-      case kRepFloat32:
+      case MachineRepresentation::kFloat32:
         opcode = kArmVstrF32;
         break;
-      case kRepFloat64:
+      case MachineRepresentation::kFloat64:
         opcode = kArmVstrF64;
         break;
-      case kRepBit:  // Fall through.
-      case kRepWord8:
+      case MachineRepresentation::kBit:  // Fall through.
+      case MachineRepresentation::kWord8:
         opcode = kArmStrb;
         break;
-      case kRepWord16:
+      case MachineRepresentation::kWord16:
         opcode = kArmStrh;
         break;
-      case kRepTagged:  // Fall through.
-      case kRepWord32:
+      case MachineRepresentation::kTagged:  // Fall through.
+      case MachineRepresentation::kWord32:
         opcode = kArmStr;
         break;
-      default:
+      case MachineRepresentation::kWord64:   // Fall through.
+      case MachineRepresentation::kSimd128:  // Fall through.
+      case MachineRepresentation::kNone:
         UNREACHABLE();
         return;
     }
@@ -419,30 +432,33 @@ void InstructionSelector::VisitStore(Node* node) {
 
 
 void InstructionSelector::VisitCheckedLoad(Node* node) {
-  MachineType rep = RepresentationOf(OpParameter<MachineType>(node));
-  MachineType typ = TypeOf(OpParameter<MachineType>(node));
+  CheckedLoadRepresentation load_rep = CheckedLoadRepresentationOf(node->op());
   ArmOperandGenerator g(this);
   Node* const buffer = node->InputAt(0);
   Node* const offset = node->InputAt(1);
   Node* const length = node->InputAt(2);
-  ArchOpcode opcode;
-  switch (rep) {
-    case kRepWord8:
-      opcode = typ == kTypeInt32 ? kCheckedLoadInt8 : kCheckedLoadUint8;
+  ArchOpcode opcode = kArchNop;
+  switch (load_rep.representation()) {
+    case MachineRepresentation::kWord8:
+      opcode = load_rep.IsSigned() ? kCheckedLoadInt8 : kCheckedLoadUint8;
       break;
-    case kRepWord16:
-      opcode = typ == kTypeInt32 ? kCheckedLoadInt16 : kCheckedLoadUint16;
+    case MachineRepresentation::kWord16:
+      opcode = load_rep.IsSigned() ? kCheckedLoadInt16 : kCheckedLoadUint16;
       break;
-    case kRepWord32:
+    case MachineRepresentation::kWord32:
       opcode = kCheckedLoadWord32;
       break;
-    case kRepFloat32:
+    case MachineRepresentation::kFloat32:
       opcode = kCheckedLoadFloat32;
       break;
-    case kRepFloat64:
+    case MachineRepresentation::kFloat64:
       opcode = kCheckedLoadFloat64;
       break;
-    default:
+    case MachineRepresentation::kBit:      // Fall through.
+    case MachineRepresentation::kTagged:   // Fall through.
+    case MachineRepresentation::kWord64:   // Fall through.
+    case MachineRepresentation::kSimd128:  // Fall through.
+    case MachineRepresentation::kNone:
       UNREACHABLE();
       return;
   }
@@ -457,30 +473,34 @@ void InstructionSelector::VisitCheckedLoad(Node* node) {
 
 
 void InstructionSelector::VisitCheckedStore(Node* node) {
-  MachineType rep = RepresentationOf(OpParameter<MachineType>(node));
+  MachineRepresentation rep = CheckedStoreRepresentationOf(node->op());
   ArmOperandGenerator g(this);
   Node* const buffer = node->InputAt(0);
   Node* const offset = node->InputAt(1);
   Node* const length = node->InputAt(2);
   Node* const value = node->InputAt(3);
-  ArchOpcode opcode;
+  ArchOpcode opcode = kArchNop;
   switch (rep) {
-    case kRepWord8:
+    case MachineRepresentation::kWord8:
       opcode = kCheckedStoreWord8;
       break;
-    case kRepWord16:
+    case MachineRepresentation::kWord16:
       opcode = kCheckedStoreWord16;
       break;
-    case kRepWord32:
+    case MachineRepresentation::kWord32:
       opcode = kCheckedStoreWord32;
       break;
-    case kRepFloat32:
+    case MachineRepresentation::kFloat32:
       opcode = kCheckedStoreFloat32;
       break;
-    case kRepFloat64:
+    case MachineRepresentation::kFloat64:
       opcode = kCheckedStoreFloat64;
       break;
-    default:
+    case MachineRepresentation::kBit:      // Fall through.
+    case MachineRepresentation::kTagged:   // Fall through.
+    case MachineRepresentation::kWord64:   // Fall through.
+    case MachineRepresentation::kSimd128:  // Fall through.
+    case MachineRepresentation::kNone:
       UNREACHABLE();
       return;
   }
@@ -545,43 +565,67 @@ void InstructionSelector::VisitWord32And(Node* node) {
   if (m.right().HasValue()) {
     uint32_t const value = m.right().Value();
     uint32_t width = base::bits::CountPopulation32(value);
-    uint32_t msb = base::bits::CountLeadingZeros32(value);
-    // Try to interpret this AND as UBFX.
-    if (IsSupported(ARMv7) && width != 0 && msb + width == 32) {
-      DCHECK_EQ(0u, base::bits::CountTrailingZeros32(value));
-      if (m.left().IsWord32Shr()) {
-        Int32BinopMatcher mleft(m.left().node());
-        if (mleft.right().IsInRange(0, 31)) {
-          // UBFX cannot extract bits past the register size, however since
-          // shifting the original value would have introduced some zeros we can
-          // still use UBFX with a smaller mask and the remaining bits will be
-          // zeros.
-          uint32_t const lsb = mleft.right().Value();
-          return EmitUbfx(this, node, mleft.left().node(), lsb,
-                          std::min(width, 32 - lsb));
+    uint32_t leading_zeros = base::bits::CountLeadingZeros32(value);
+
+    // Try to merge SHR operations on the left hand input into this AND.
+    if (m.left().IsWord32Shr()) {
+      Int32BinopMatcher mshr(m.left().node());
+      if (mshr.right().HasValue()) {
+        uint32_t const shift = mshr.right().Value();
+
+        if (((shift == 8) || (shift == 16) || (shift == 24)) &&
+            ((value == 0xff) || (value == 0xffff))) {
+          // Merge SHR into AND by emitting a UXTB or UXTH instruction with a
+          // bytewise rotation.
+          Emit((value == 0xff) ? kArmUxtb : kArmUxth,
+               g.DefineAsRegister(m.node()), g.UseRegister(mshr.left().node()),
+               g.TempImmediate(mshr.right().Value()));
+          return;
+        } else if (IsSupported(ARMv7) && (width != 0) &&
+                   ((leading_zeros + width) == 32)) {
+          // Merge Shr into And by emitting a UBFX instruction.
+          DCHECK_EQ(0u, base::bits::CountTrailingZeros32(value));
+          if ((1 <= shift) && (shift <= 31)) {
+            // UBFX cannot extract bits past the register size, however since
+            // shifting the original value would have introduced some zeros we
+            // can still use UBFX with a smaller mask and the remaining bits
+            // will be zeros.
+            EmitUbfx(this, node, mshr.left().node(), shift,
+                     std::min(width, 32 - shift));
+            return;
+          }
         }
       }
-      return EmitUbfx(this, node, m.left().node(), 0, width);
+    } else if (value == 0xffff) {
+      // Emit UXTH for this AND. We don't bother testing for UXTB, as it's no
+      // better than AND 0xff for this operation.
+      Emit(kArmUxth, g.DefineAsRegister(m.node()),
+           g.UseRegister(m.left().node()), g.TempImmediate(0));
+      return;
     }
-    // Try to interpret this AND as BIC.
     if (g.CanBeImmediate(~value)) {
+      // Emit BIC for this AND by inverting the immediate value first.
       Emit(kArmBic | AddressingModeField::encode(kMode_Operand2_I),
            g.DefineAsRegister(node), g.UseRegister(m.left().node()),
            g.TempImmediate(~value));
       return;
     }
-    // Try to interpret this AND as UXTH.
-    if (value == 0xffff) {
-      Emit(kArmUxth, g.DefineAsRegister(m.node()),
-           g.UseRegister(m.left().node()), g.TempImmediate(0));
-      return;
-    }
-    // Try to interpret this AND as BFC.
-    if (IsSupported(ARMv7)) {
+    if (!g.CanBeImmediate(value) && IsSupported(ARMv7)) {
+      // If value has 9 to 23 contiguous set bits, and has the lsb set, we can
+      // replace this AND with UBFX. Other contiguous bit patterns have already
+      // been handled by BIC or will be handled by AND.
+      if ((width != 0) && ((leading_zeros + width) == 32) &&
+          (9 <= leading_zeros) && (leading_zeros <= 23)) {
+        DCHECK_EQ(0u, base::bits::CountTrailingZeros32(value));
+        EmitUbfx(this, node, m.left().node(), 0, width);
+        return;
+      }
+
       width = 32 - width;
-      msb = base::bits::CountLeadingZeros32(~value);
+      leading_zeros = base::bits::CountLeadingZeros32(~value);
       uint32_t lsb = base::bits::CountTrailingZeros32(~value);
-      if (msb + width + lsb == 32) {
+      if ((leading_zeros + width + lsb) == 32) {
+        // This AND can be replaced with BFC.
         Emit(kArmBfc, g.DefineSameAsFirst(node), g.UseRegister(m.left().node()),
              g.TempImmediate(lsb), g.TempImmediate(width));
         return;
@@ -693,14 +737,23 @@ void InstructionSelector::VisitWord32Sar(Node* node) {
   Int32BinopMatcher m(node);
   if (CanCover(m.node(), m.left().node()) && m.left().IsWord32Shl()) {
     Int32BinopMatcher mleft(m.left().node());
-    if (mleft.right().Is(16) && m.right().Is(16)) {
-      Emit(kArmSxth, g.DefineAsRegister(node),
-           g.UseRegister(mleft.left().node()), g.TempImmediate(0));
-      return;
-    } else if (mleft.right().Is(24) && m.right().Is(24)) {
-      Emit(kArmSxtb, g.DefineAsRegister(node),
-           g.UseRegister(mleft.left().node()), g.TempImmediate(0));
-      return;
+    if (m.right().HasValue() && mleft.right().HasValue()) {
+      uint32_t sar = m.right().Value();
+      uint32_t shl = mleft.right().Value();
+      if ((sar == shl) && (sar == 16)) {
+        Emit(kArmSxth, g.DefineAsRegister(node),
+             g.UseRegister(mleft.left().node()), g.TempImmediate(0));
+        return;
+      } else if ((sar == shl) && (sar == 24)) {
+        Emit(kArmSxtb, g.DefineAsRegister(node),
+             g.UseRegister(mleft.left().node()), g.TempImmediate(0));
+        return;
+      } else if (IsSupported(ARMv7) && (sar >= shl)) {
+        Emit(kArmSbfx, g.DefineAsRegister(node),
+             g.UseRegister(mleft.left().node()), g.TempImmediate(sar - shl),
+             g.TempImmediate(32 - sar));
+        return;
+      }
     }
   }
   VisitShift(this, node, TryMatchASR);
@@ -718,6 +771,12 @@ void InstructionSelector::VisitWord32Clz(Node* node) {
 
 
 void InstructionSelector::VisitWord32Ctz(Node* node) { UNREACHABLE(); }
+
+
+void InstructionSelector::VisitWord32ReverseBits(Node* node) {
+  DCHECK(IsSupported(ARMv7));
+  VisitRR(this, kArmRbit, node);
+}
 
 
 void InstructionSelector::VisitWord32Popcnt(Node* node) { UNREACHABLE(); }
@@ -915,6 +974,16 @@ void InstructionSelector::VisitChangeFloat32ToFloat64(Node* node) {
 }
 
 
+void InstructionSelector::VisitRoundInt32ToFloat32(Node* node) {
+  VisitRR(this, kArmVcvtF32S32, node);
+}
+
+
+void InstructionSelector::VisitRoundUint32ToFloat32(Node* node) {
+  VisitRR(this, kArmVcvtF32U32, node);
+}
+
+
 void InstructionSelector::VisitChangeInt32ToFloat64(Node* node) {
   VisitRR(this, kArmVcvtF64S32, node);
 }
@@ -922,6 +991,16 @@ void InstructionSelector::VisitChangeInt32ToFloat64(Node* node) {
 
 void InstructionSelector::VisitChangeUint32ToFloat64(Node* node) {
   VisitRR(this, kArmVcvtF64U32, node);
+}
+
+
+void InstructionSelector::VisitTruncateFloat32ToInt32(Node* node) {
+  VisitRR(this, kArmVcvtS32F32, node);
+}
+
+
+void InstructionSelector::VisitTruncateFloat32ToUint32(Node* node) {
+  VisitRR(this, kArmVcvtU32F32, node);
 }
 
 
@@ -1115,8 +1194,28 @@ void InstructionSelector::VisitFloat64Sqrt(Node* node) {
 }
 
 
+void InstructionSelector::VisitFloat32RoundDown(Node* node) {
+  VisitRR(this, kArmVrintmF32, node);
+}
+
+
 void InstructionSelector::VisitFloat64RoundDown(Node* node) {
   VisitRR(this, kArmVrintmF64, node);
+}
+
+
+void InstructionSelector::VisitFloat32RoundUp(Node* node) {
+  VisitRR(this, kArmVrintpF32, node);
+}
+
+
+void InstructionSelector::VisitFloat64RoundUp(Node* node) {
+  VisitRR(this, kArmVrintpF64, node);
+}
+
+
+void InstructionSelector::VisitFloat32RoundTruncate(Node* node) {
+  VisitRR(this, kArmVrintzF32, node);
 }
 
 
@@ -1130,9 +1229,19 @@ void InstructionSelector::VisitFloat64RoundTiesAway(Node* node) {
 }
 
 
-void InstructionSelector::EmitPrepareArguments(NodeVector* arguments,
-                                               const CallDescriptor* descriptor,
-                                               Node* node) {
+void InstructionSelector::VisitFloat32RoundTiesEven(Node* node) {
+  VisitRR(this, kArmVrintnF32, node);
+}
+
+
+void InstructionSelector::VisitFloat64RoundTiesEven(Node* node) {
+  VisitRR(this, kArmVrintnF64, node);
+}
+
+
+void InstructionSelector::EmitPrepareArguments(
+    ZoneVector<PushParameter>* arguments, const CallDescriptor* descriptor,
+    Node* node) {
   ArmOperandGenerator g(this);
 
   // Prepare for C function call.
@@ -1143,18 +1252,19 @@ void InstructionSelector::EmitPrepareArguments(NodeVector* arguments,
 
     // Poke any stack arguments.
     for (size_t n = 0; n < arguments->size(); ++n) {
-      if (Node* input = (*arguments)[n]) {
+      PushParameter input = (*arguments)[n];
+      if (input.node()) {
         int slot = static_cast<int>(n);
         Emit(kArmPoke | MiscField::encode(slot), g.NoOutput(),
-             g.UseRegister(input));
+             g.UseRegister(input.node()));
       }
     }
   } else {
     // Push any stack arguments.
-    for (Node* input : base::Reversed(*arguments)) {
+    for (PushParameter input : base::Reversed(*arguments)) {
       // Skip any alignment holes in pushed nodes.
-      if (input == nullptr) continue;
-      Emit(kArmPush, g.NoOutput(), g.UseRegister(input));
+      if (input.node() == nullptr) continue;
+      Emit(kArmPush, g.NoOutput(), g.UseRegister(input.node()));
     }
   }
 }
@@ -1321,7 +1431,7 @@ void VisitWordCompareZero(InstructionSelector* selector, Node* user,
         if (ProjectionIndexOf(value->op()) == 1u) {
           // We cannot combine the <Operation>WithOverflow with this branch
           // unless the 0th projection (the use of the actual value of the
-          // <Operation> is either NULL, which means there's no use of the
+          // <Operation> is either nullptr, which means there's no use of the
           // actual value, or was already defined, which means it is scheduled
           // *AFTER* this branch).
           Node* const node = value->InputAt(0);
@@ -1554,10 +1664,19 @@ InstructionSelector::SupportedMachineOperatorFlags() {
   MachineOperatorBuilder::Flags flags =
       MachineOperatorBuilder::kInt32DivIsSafe |
       MachineOperatorBuilder::kUint32DivIsSafe;
+  if (CpuFeatures::IsSupported(ARMv7)) {
+    flags |= MachineOperatorBuilder::kWord32ReverseBits;
+  }
   if (CpuFeatures::IsSupported(ARMv8)) {
-    flags |= MachineOperatorBuilder::kFloat64RoundDown |
+    flags |= MachineOperatorBuilder::kFloat32RoundDown |
+             MachineOperatorBuilder::kFloat64RoundDown |
+             MachineOperatorBuilder::kFloat32RoundUp |
+             MachineOperatorBuilder::kFloat64RoundUp |
+             MachineOperatorBuilder::kFloat32RoundTruncate |
              MachineOperatorBuilder::kFloat64RoundTruncate |
-             MachineOperatorBuilder::kFloat64RoundTiesAway;
+             MachineOperatorBuilder::kFloat64RoundTiesAway |
+             MachineOperatorBuilder::kFloat32RoundTiesEven |
+             MachineOperatorBuilder::kFloat64RoundTiesEven;
   }
   return flags;
 }

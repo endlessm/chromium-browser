@@ -10,16 +10,18 @@
 
 #include "webrtc/modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.h"
 
+#include <utility>
+
 #include "webrtc/base/constructormagic.h"
+#include "webrtc/base/logging.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_annotations.h"
+#include "webrtc/modules/remote_bitrate_estimator/aimd_rate_control.h"
 #include "webrtc/modules/remote_bitrate_estimator/inter_arrival.h"
 #include "webrtc/modules/remote_bitrate_estimator/overuse_detector.h"
 #include "webrtc/modules/remote_bitrate_estimator/overuse_estimator.h"
-#include "webrtc/modules/remote_bitrate_estimator/aimd_rate_control.h"
 #include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/system_wrappers/include/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/include/logging.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -28,19 +30,20 @@ enum { kTimestampGroupLengthMs = 5 };
 static const double kTimestampToMs = 1.0 / 90.0;
 
 struct RemoteBitrateEstimatorSingleStream::Detector {
-    explicit Detector(int64_t last_packet_time_ms,
-                      const OverUseDetectorOptions& options,
-                      bool enable_burst_grouping)
-        : last_packet_time_ms(last_packet_time_ms),
-          inter_arrival(90 * kTimestampGroupLengthMs, kTimestampToMs,
-                        enable_burst_grouping),
-          estimator(options),
-          detector(options) {}
-    int64_t last_packet_time_ms;
-    InterArrival inter_arrival;
-    OveruseEstimator estimator;
-    OveruseDetector detector;
-  };
+  explicit Detector(int64_t last_packet_time_ms,
+                    const OverUseDetectorOptions& options,
+                    bool enable_burst_grouping)
+      : last_packet_time_ms(last_packet_time_ms),
+        inter_arrival(90 * kTimestampGroupLengthMs,
+                      kTimestampToMs,
+                      enable_burst_grouping),
+        estimator(options),
+        detector(options) {}
+  int64_t last_packet_time_ms;
+  InterArrival inter_arrival;
+  OveruseEstimator estimator;
+  OveruseDetector detector;
+};
 
   RemoteBitrateEstimatorSingleStream::RemoteBitrateEstimatorSingleStream(
       RemoteBitrateObserver* observer,
@@ -115,16 +118,15 @@ void RemoteBitrateEstimatorSingleStream::IncomingPacket(int64_t arrival_time_ms,
   }
 }
 
-int32_t RemoteBitrateEstimatorSingleStream::Process() {
+void RemoteBitrateEstimatorSingleStream::Process() {
   if (TimeUntilNextProcess() > 0) {
-    return 0;
+    return;
   }
   {
     CriticalSectionScoped cs(crit_sect_.get());
     UpdateEstimate(clock_->TimeInMilliseconds());
   }
   last_process_time_ = clock_->TimeInMilliseconds();
-  return 0;
 }
 
 int64_t RemoteBitrateEstimatorSingleStream::TimeUntilNextProcess() {
@@ -172,10 +174,10 @@ void RemoteBitrateEstimatorSingleStream::UpdateEstimate(int64_t now_ms) {
                                incoming_bitrate_.Rate(now_ms),
                                mean_noise_var);
   remote_rate_->Update(&input, now_ms);
-  unsigned int target_bitrate = remote_rate_->UpdateBandwidthEstimate(now_ms);
+  uint32_t target_bitrate = remote_rate_->UpdateBandwidthEstimate(now_ms);
   if (remote_rate_->ValidEstimate()) {
     process_interval_ms_ = remote_rate_->GetFeedbackInterval();
-    std::vector<unsigned int> ssrcs;
+    std::vector<uint32_t> ssrcs;
     GetSsrcs(&ssrcs);
     observer_->OnReceiveBitrateChanged(ssrcs, target_bitrate);
   }
@@ -197,8 +199,8 @@ void RemoteBitrateEstimatorSingleStream::RemoveStream(unsigned int ssrc) {
 }
 
 bool RemoteBitrateEstimatorSingleStream::LatestEstimate(
-    std::vector<unsigned int>* ssrcs,
-    unsigned int* bitrate_bps) const {
+    std::vector<uint32_t>* ssrcs,
+    uint32_t* bitrate_bps) const {
   CriticalSectionScoped cs(crit_sect_.get());
   assert(bitrate_bps);
   if (!remote_rate_->ValidEstimate()) {
@@ -212,14 +214,8 @@ bool RemoteBitrateEstimatorSingleStream::LatestEstimate(
   return true;
 }
 
-bool RemoteBitrateEstimatorSingleStream::GetStats(
-    ReceiveBandwidthEstimatorStats* output) const {
-  // Not implemented.
-  return false;
-}
-
 void RemoteBitrateEstimatorSingleStream::GetSsrcs(
-    std::vector<unsigned int>* ssrcs) const {
+    std::vector<uint32_t>* ssrcs) const {
   assert(ssrcs);
   ssrcs->resize(overuse_detectors_.size());
   int i = 0;

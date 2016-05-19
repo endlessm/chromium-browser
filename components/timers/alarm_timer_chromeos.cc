@@ -4,7 +4,9 @@
 
 #include "components/timers/alarm_timer_chromeos.h"
 
+#include <stdint.h>
 #include <sys/timerfd.h>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -424,7 +426,7 @@ void AlarmTimer::OnTimerFired() {
 
   // Take ownership of the pending user task, which is going to be cleared by
   // the Stop() or Reset() functions below.
-  scoped_ptr<base::PendingTask> pending_user_task(pending_task_.Pass());
+  scoped_ptr<base::PendingTask> pending_user_task(std::move(pending_task_));
 
   // Re-schedule or stop the timer as requested.
   if (base::Timer::is_repeating())

@@ -19,13 +19,26 @@ protected:
     LayoutUnit flowThreadOffset() const { return m_flowThreadOffset; }
 
     // Return true if the specified offset is at the top of a column, as long as it's not the first
-    // column in the multicol container.
+    // column in the fragmentainer group.
     bool isFirstAfterBreak(LayoutUnit flowThreadOffset) const
     {
         if (flowThreadOffset != m_group.columnLogicalTopForOffset(flowThreadOffset))
             return false; // Not at the top of a column.
-        // The first column in the first group isn't after any break.
-        return flowThreadOffset > m_group.logicalTopInFlowThread() || !m_group.isFirstGroup();
+        // The first column in the fragmentainer group is either not after any break at all, or
+        // after a break that belongs to the previous fragmentainer group.
+        return flowThreadOffset > m_group.logicalTopInFlowThread();
+    }
+
+    bool isLogicalTopWithinBounds(LayoutUnit logicalTopInFlowThread) const
+    {
+        return (m_group.isFirstGroup() || logicalTopInFlowThread >= m_group.logicalTopInFlowThread())
+            && (m_group.isLastGroup() || logicalTopInFlowThread < m_group.logicalBottomInFlowThread());
+    }
+
+    bool isLogicalBottomWithinBounds(LayoutUnit logicalBottomInFlowThread) const
+    {
+        return (m_group.isFirstGroup() || logicalBottomInFlowThread > m_group.logicalTopInFlowThread())
+            && (m_group.isLastGroup() || logicalBottomInFlowThread <= m_group.logicalBottomInFlowThread());
     }
 
     // Examine and collect column balancing data from a layout box that has been found to intersect
@@ -62,16 +75,17 @@ private:
 // of this class, named MinimumSpaceShortageFinder.
 class InitialColumnHeightFinder final : public ColumnBalancer {
 public:
-    static LayoutUnit initialMinimalBalancedHeight(const MultiColumnFragmentainerGroup& group)
-    {
-        return InitialColumnHeightFinder(group).initialMinimalBalancedHeight();
-    }
-
-private:
     InitialColumnHeightFinder(const MultiColumnFragmentainerGroup&);
 
     LayoutUnit initialMinimalBalancedHeight() const;
 
+    // Height of the tallest piece of unbreakable content. This is the minimum column logical height
+    // required to avoid fragmentation where it shouldn't occur (inside unbreakable content, between
+    // orphans and widows, etc.). This will be used as a hint to the column balancer to help set a
+    // good initial column height.
+    LayoutUnit tallestUnbreakableLogicalHeight() const { return m_tallestUnbreakableLogicalHeight; }
+
+private:
     void examineBoxAfterEntering(const LayoutBox&);
     void examineBoxBeforeLeaving(const LayoutBox&);
     void examineLine(const RootInlineBox&);
@@ -118,7 +132,11 @@ private:
 
         // Return the column height that this content run would require, considering the implicit
         // breaks assumed so far.
-        LayoutUnit columnLogicalHeight(LayoutUnit startOffset) const { return ceilf((m_breakOffset - startOffset).toFloat() / float(m_assumedImplicitBreaks + 1)); }
+        LayoutUnit columnLogicalHeight(LayoutUnit startOffset) const
+        {
+            // TODO(leviw): This should probably be fromFloatCeil.
+            return LayoutUnit(ceilf((m_breakOffset - startOffset) / float(m_assumedImplicitBreaks + 1)));
+        }
 
     private:
         LayoutUnit m_breakOffset; // Flow thread offset where this run ends.
@@ -139,7 +157,7 @@ private:
     // [1] http://www.w3.org/TR/css3-break/#parallel-flows
     Vector<LayoutUnit, 32> m_shortestStruts;
 
-    LayoutUnit m_minimumColumnLogicalHeight;
+    LayoutUnit m_tallestUnbreakableLogicalHeight;
 };
 
 // If we have previously used InitialColumnHeightFinder to estimate an initial column height, and

@@ -5,8 +5,10 @@
 #ifndef COMPONENTS_APP_MODAL_JAVASCRIPT_DIALOG_MANAGER_H_
 #define COMPONENTS_APP_MODAL_JAVASCRIPT_DIALOG_MANAGER_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
+#include "base/time/time.h"
 #include "components/app_modal/javascript_app_modal_dialog.h"
 #include "content/public/browser/javascript_dialog_manager.h"
 
@@ -65,6 +67,12 @@ class JavaScriptDialogManager : public content::JavaScriptDialogManager {
                           const std::string& accept_lang,
                           bool is_alert);
 
+  // Wrapper around OnDialogClosed; logs UMA stats before continuing on.
+  void OnBeforeUnloadDialogClosed(content::WebContents* web_contents,
+                                  DialogClosedCallback callback,
+                                  bool success,
+                                  const base::string16& user_input);
+
   // Wrapper around a DialogClosedCallback so that we can intercept it before
   // passing it onto the original callback.
   void OnDialogClosed(content::WebContents* web_contents,
@@ -78,6 +86,11 @@ class JavaScriptDialogManager : public content::JavaScriptDialogManager {
 
   scoped_ptr<JavaScriptNativeDialogFactory> native_dialog_factory_;
   scoped_ptr<JavaScriptDialogExtensionsClient> extensions_client_;
+
+  // Record a single create and close timestamp to track the time between
+  // dialogs. (Since Javascript dialogs are modal, this is even accurate!)
+  base::TimeTicks last_close_time_;
+  base::TimeTicks last_creation_time_;
 
   DISALLOW_COPY_AND_ASSIGN(JavaScriptDialogManager);
 };

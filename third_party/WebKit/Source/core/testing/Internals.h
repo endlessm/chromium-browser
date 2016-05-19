@@ -69,6 +69,7 @@ class SerializedScriptValue;
 class ShadowRoot;
 class TypeConversions;
 class UnionTypesTest;
+class ScrollState;
 template <typename NodeType> class StaticNodeTypeList;
 typedef StaticNodeTypeList<Node> StaticNodeList;
 
@@ -111,6 +112,7 @@ public:
     void pauseAnimations(double pauseTime, ExceptionState&);
     bool isCompositedAnimation(Animation*);
     void disableCompositedAnimation(Animation*);
+    void disableCSSAdditiveAnimations();
 
     // Modifies m_desiredFrameStartTime in BitmapImage to advance the next frame time
     // for testing whether animated images work properly.
@@ -129,11 +131,11 @@ public:
     bool hasSelectorForAttributeInShadow(Element* host, const AtomicString& attributeName, ExceptionState&);
     unsigned short compareTreeScopePosition(const Node*, const Node*, ExceptionState&) const;
 
-    Node* nextSiblingInComposedTree(Node*, ExceptionState&);
-    Node* firstChildInComposedTree(Node*, ExceptionState&);
-    Node* lastChildInComposedTree(Node*, ExceptionState&);
-    Node* nextInComposedTree(Node*, ExceptionState&);
-    Node* previousInComposedTree(Node*, ExceptionState&);
+    Node* nextSiblingInFlatTree(Node*, ExceptionState&);
+    Node* firstChildInFlatTree(Node*, ExceptionState&);
+    Node* lastChildInFlatTree(Node*, ExceptionState&);
+    Node* nextInFlatTree(Node*, ExceptionState&);
+    Node* previousInFlatTree(Node*, ExceptionState&);
 
     unsigned updateStyleAndReturnAffectedElementCount(ExceptionState&) const;
     unsigned needsLayoutCount(ExceptionState&) const;
@@ -166,7 +168,6 @@ public:
     void setFrameViewPosition(Document*, long x, long y, ExceptionState&);
     String viewportAsText(Document*, float devicePixelRatio, int availableWidth, int availableHeight, ExceptionState&);
 
-    bool wasLastChangeUserEdit(Element* textField, ExceptionState&);
     bool elementShouldAutoComplete(Element* inputElement, ExceptionState&);
     String suggestedValue(Element*, ExceptionState&);
     void setSuggestedValue(Element*, const String&, ExceptionState&);
@@ -237,7 +238,6 @@ public:
     String mainThreadScrollingReasons(Document*, ExceptionState&) const;
     ClientRectList* nonFastScrollableRects(Document*, ExceptionState&) const;
 
-    void garbageCollectDocumentResources(Document*) const;
     void evictAllResources() const;
 
     unsigned numberOfLiveNodes() const;
@@ -250,15 +250,14 @@ public:
 
     String counterValue(Element*);
 
-    int pageNumber(Element*, float pageWidth = 800, float pageHeight = 600);
+    int pageNumber(Element*, float pageWidth, float pageHeight, ExceptionState&);
     Vector<String> shortcutIconURLs(Document*) const;
     Vector<String> allIconURLs(Document*) const;
 
-    int numberOfPages(float pageWidthInPixels = 800, float pageHeightInPixels = 600);
+    int numberOfPages(float pageWidthInPixels, float pageHeightInPixels, ExceptionState&);
     String pageProperty(String, int, ExceptionState& = ASSERT_NO_EXCEPTION) const;
     String pageSizeAndMarginsInPixels(int, int, int, int, int, int, int, ExceptionState& = ASSERT_NO_EXCEPTION) const;
 
-    void setDeviceScaleFactor(float scaleFactor, ExceptionState&);
     void setPageScaleFactor(float scaleFactor, ExceptionState&);
     void setPageScaleFactorLimits(float minScaleFactor, float maxScaleFactor, ExceptionState&);
 
@@ -350,8 +349,6 @@ public:
     void setNetworkStateNotifierTestOnly(bool);
     void setNetworkConnectionInfo(const String&, double downlinkMaxMbps, ExceptionState&);
 
-    ClientRect* boundsInViewportSpace(Element*);
-
     unsigned countHitRegions(CanvasRenderingContext*);
 
     bool isInCanvasFontCache(Document*, const String&);
@@ -377,6 +374,7 @@ public:
     // Return true if the given use counter exists for the given document.
     // |useCounterId| must be one of the values from the UseCounter::Feature enum.
     bool isUseCounted(Document*, int useCounterId);
+    bool isCSSPropertyUseCounted(Document*, const String&);
 
     String unscopeableAttribute();
     String unscopeableMethod();
@@ -385,8 +383,6 @@ public:
     ClientRectList* outlineRects(Element*);
 
     void setCapsLockState(bool enabled);
-
-    void setSelectionPaintingWithoutSelectionGapsEnabled(bool);
 
     bool setScrollbarVisibilityInScrollableArea(Node*, bool visible);
 
@@ -400,6 +396,10 @@ public:
 
     // TODO(liberato): remove once autoplay gesture override experiment concludes.
     void triggerAutoplayViewportCheck(HTMLMediaElement*);
+
+    // Returns the run state of the node's scroll animator (see ScrollAnimatorCompositorCoordinater::RunState),
+    // or -1 if the node does not have a scrollable area.
+    int getScrollAnimationState(Node*) const;
 
 private:
     explicit Internals(ScriptState*);

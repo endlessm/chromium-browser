@@ -15,13 +15,12 @@
 #include <cstring>
 
 #include "gflags/gflags.h"
-#include "testing/gtest/include/gtest/gtest.h"
 
 // Change this to 1000 for benchmarking.
 // TODO(fbarchard): Add command line parsing to pass this as option.
 #define BENCHMARK_ITERATIONS 1
 
-int fastrand_seed = 0xfb;
+unsigned int fastrand_seed = 0xfb;
 
 DEFINE_int32(libyuv_width, 0, "width of test image.");
 DEFINE_int32(libyuv_height, 0, "height of test image.");
@@ -126,7 +125,7 @@ LibYUVColorTest::LibYUVColorTest() :
     benchmark_cpu_info_ = atoi(cpu_flags);  // NOLINT
   }
   if (FLAGS_libyuv_cpu_info) {
-   benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
+    benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
   }
   benchmark_pixels_div256_ = static_cast<int>((
       static_cast<double>(Abs(benchmark_width_)) *
@@ -178,7 +177,7 @@ LibYUVScaleTest::LibYUVScaleTest() :
     benchmark_cpu_info_ = atoi(cpu_flags);  // NOLINT
   }
   if (FLAGS_libyuv_cpu_info) {
-   benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
+    benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
   }
   benchmark_pixels_div256_ = static_cast<int>((
       static_cast<double>(Abs(benchmark_width_)) *
@@ -230,7 +229,7 @@ LibYUVRotateTest::LibYUVRotateTest() :
     benchmark_cpu_info_ = atoi(cpu_flags);  // NOLINT
   }
   if (FLAGS_libyuv_cpu_info) {
-   benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
+    benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
   }
   benchmark_pixels_div256_ = static_cast<int>((
       static_cast<double>(Abs(benchmark_width_)) *
@@ -282,7 +281,7 @@ LibYUVPlanarTest::LibYUVPlanarTest() :
     benchmark_cpu_info_ = atoi(cpu_flags);  // NOLINT
   }
   if (FLAGS_libyuv_cpu_info) {
-   benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
+    benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
   }
   benchmark_pixels_div256_ = static_cast<int>((
       static_cast<double>(Abs(benchmark_width_)) *
@@ -334,7 +333,7 @@ LibYUVBaseTest::LibYUVBaseTest() :
     benchmark_cpu_info_ = atoi(cpu_flags);  // NOLINT
   }
   if (FLAGS_libyuv_cpu_info) {
-   benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
+    benchmark_cpu_info_ = FLAGS_libyuv_cpu_info;
   }
   benchmark_pixels_div256_ = static_cast<int>((
       static_cast<double>(Abs(benchmark_width_)) *

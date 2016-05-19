@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -20,6 +19,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -193,6 +193,13 @@ void ExtensionSettingsHandler::GetLocalizedValues(
                     l10n_util::GetStringUTF16(
                         IDS_EXTENSIONS_DISABLED_UPDATE_REQUIRED_BY_POLICY));
 
+  source->AddLocalizedString("extensionLogLevelInfo",
+                             IDS_EXTENSIONS_LOG_LEVEL_INFO);
+  source->AddLocalizedString("extensionLogLevelWarn",
+                             IDS_EXTENSIONS_LOG_LEVEL_WARN);
+  source->AddLocalizedString("extensionLogLevelError",
+                             IDS_EXTENSIONS_LOG_LEVEL_ERROR);
+
   // TODO(estade): comb through the above strings to find ones no longer used in
   // uber extensions.
   source->AddString("extensionUninstall",
@@ -285,6 +292,8 @@ void ExtensionSettingsHandler::RegisterMessages() {
   // TODO(devlin): Take this out when everyone's been updated.
   Profile::FromWebUI(web_ui())->GetPrefs()->ClearPref(
       prefs::kExtensionsUIDismissedADTPromo);
+
+  content::WebContentsObserver::Observe(web_ui()->GetWebContents());
 }
 
 void ExtensionSettingsHandler::ReloadUnpackedExtensions() {

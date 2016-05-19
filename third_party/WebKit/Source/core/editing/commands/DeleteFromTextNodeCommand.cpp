@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/DeleteFromTextNodeCommand.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -43,7 +42,7 @@ DeleteFromTextNodeCommand::DeleteFromTextNodeCommand(PassRefPtrWillBeRawPtr<Text
     ASSERT(m_offset + m_count <= m_node->length());
 }
 
-void DeleteFromTextNodeCommand::doApply()
+void DeleteFromTextNodeCommand::doApply(EditingState*)
 {
     ASSERT(m_node);
 

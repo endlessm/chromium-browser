@@ -9,6 +9,8 @@
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/content/browser/bad_message.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
+#include "components/password_manager/core/browser/log_manager.h"
+#include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/child_process_security_policy.h"
@@ -33,8 +35,7 @@ ContentPasswordManagerDriver::ContentPasswordManagerDriver(
       client_(client),
       password_generation_manager_(client, this),
       password_autofill_manager_(this, autofill_client),
-      next_free_key_(0) {
-}
+      next_free_key_(0) {}
 
 ContentPasswordManagerDriver::~ContentPasswordManagerDriver() {
 }
@@ -65,11 +66,11 @@ void ContentPasswordManagerDriver::AllowPasswordGenerationForForm(
   host->Send(new AutofillMsg_FormNotBlacklisted(host->GetRoutingID(), form));
 }
 
-void ContentPasswordManagerDriver::AccountCreationFormsFound(
-    const std::vector<autofill::FormData>& forms) {
+void ContentPasswordManagerDriver::FormsEligibleForGenerationFound(
+    const std::vector<autofill::PasswordFormGenerationData>& forms) {
   content::RenderFrameHost* host = render_frame_host_;
-  host->Send(new AutofillMsg_AccountCreationFormsDetected(host->GetRoutingID(),
-                                                          forms));
+  host->Send(new AutofillMsg_FoundFormsEligibleForGeneration(
+      host->GetRoutingID(), forms));
 }
 
 void ContentPasswordManagerDriver::AutofillDataReceived(
@@ -114,6 +115,18 @@ void ContentPasswordManagerDriver::ForceSavePassword() {
   host->Send(new AutofillMsg_FindFocusedPasswordForm(host->GetRoutingID()));
 }
 
+void ContentPasswordManagerDriver::GeneratePassword() {
+  content::RenderFrameHost* host = render_frame_host_;
+  host->Send(
+      new AutofillMsg_UserTriggeredGeneratePassword(host->GetRoutingID()));
+}
+
+void ContentPasswordManagerDriver::SendLoggingAvailability() {
+  render_frame_host_->Send(new AutofillMsg_SetLoggingState(
+      render_frame_host_->GetRoutingID(),
+      client_->GetLogManager()->IsLoggingActive()));
+}
+
 PasswordGenerationManager*
 ContentPasswordManagerDriver::GetPasswordGenerationManager() {
   return &password_generation_manager_;
@@ -145,8 +158,11 @@ bool ContentPasswordManagerDriver::HandleMessage(const IPC::Message& message) {
   IPC_MESSAGE_FORWARD(AutofillHostMsg_ShowPasswordSuggestions,
                       &password_autofill_manager_,
                       PasswordAutofillManager::OnShowPasswordSuggestions)
-  IPC_MESSAGE_FORWARD(AutofillHostMsg_RecordSavePasswordProgress, client_,
-                      PasswordManagerClient::LogSavePasswordProgress)
+  IPC_MESSAGE_FORWARD(AutofillHostMsg_RecordSavePasswordProgress,
+                      client_->GetLogManager(),
+                      LogManager::LogSavePasswordProgress)
+  IPC_MESSAGE_HANDLER(AutofillHostMsg_PasswordAutofillAgentConstructed,
+                      SendLoggingAvailability)
   IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;

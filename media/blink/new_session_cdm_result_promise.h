@@ -5,9 +5,11 @@
 #ifndef MEDIA_BLINK_NEW_SESSION_CDM_RESULT_PROMISE_H_
 #define MEDIA_BLINK_NEW_SESSION_CDM_RESULT_PROMISE_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "media/base/cdm_promise.h"
 #include "media/base/media_keys.h"
 #include "media/blink/media_blink_export.h"
@@ -49,7 +51,7 @@ class MEDIA_BLINK_EXPORT NewSessionCdmResultPromise
   // CdmPromiseTemplate<T> implementation.
   void resolve(const std::string& session_id) override;
   void reject(MediaKeys::Exception exception_code,
-              uint32 system_code,
+              uint32_t system_code,
               const std::string& error_message) override;
 
  private:

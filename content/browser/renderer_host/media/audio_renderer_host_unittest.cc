@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "base/sync_socket.h"
@@ -31,12 +34,11 @@ namespace {
 const int kRenderProcessId = 1;
 const int kRenderFrameId = 5;
 const int kStreamId = 50;
-const url::Origin kSecurityOrigin(GURL("http://localhost"));
-const url::Origin kDefaultSecurityOrigin;
-const std::string kDefaultDeviceId;
-const std::string kBadDeviceId =
+const char kSecurityOrigin[] = "http://localhost";
+const char kDefaultDeviceId[] = "";
+const char kBadDeviceId[] =
     "badbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbad1";
-const std::string kInvalidDeviceId = "invalid-device-id";
+const char kInvalidDeviceId[] = "invalid-device-id";
 }  // namespace
 
 namespace content {
@@ -118,8 +120,10 @@ class MockAudioRendererHost : public AudioRendererHost {
   }
 
   void OnNotifyStreamCreated(
-      int stream_id, base::SharedMemoryHandle handle,
-      base::SyncSocket::TransitDescriptor socket_descriptor, uint32 length) {
+      int stream_id,
+      base::SharedMemoryHandle handle,
+      base::SyncSocket::TransitDescriptor socket_descriptor,
+      uint32_t length) {
     // Maps the shared memory.
     shared_memory_.reset(new base::SharedMemory(handle, false));
     CHECK(shared_memory_->Map(length));
@@ -155,7 +159,7 @@ class MockAudioRendererHost : public AudioRendererHost {
 
   scoped_ptr<base::SharedMemory> shared_memory_;
   scoped_ptr<base::SyncSocket> sync_socket_;
-  uint32 shared_memory_length_;
+  uint32_t shared_memory_length_;
 
   DISALLOW_COPY_AND_ASSIGN(MockAudioRendererHost);
 };
@@ -213,7 +217,9 @@ class AudioRendererHostTest : public testing::Test {
   }
 
  protected:
-  void Create() { Create(false, kDefaultDeviceId, kDefaultSecurityOrigin); }
+  void Create() {
+    Create(false, kDefaultDeviceId, url::Origin(GURL(kSecurityOrigin)));
+  }
 
   void Create(bool unified_stream,
               const std::string& device_id,
@@ -385,17 +391,17 @@ TEST_F(AudioRendererHostTest, SimulateErrorAndClose) {
 }
 
 TEST_F(AudioRendererHostTest, CreateUnifiedStreamAndClose) {
-  Create(true, kDefaultDeviceId, kDefaultSecurityOrigin);
+  Create(true, kDefaultDeviceId, url::Origin(GURL(kSecurityOrigin)));
   Close();
 }
 
 TEST_F(AudioRendererHostTest, CreateUnauthorizedDevice) {
-  Create(false, kBadDeviceId, kSecurityOrigin);
+  Create(false, kBadDeviceId, url::Origin(GURL(kSecurityOrigin)));
   Close();
 }
 
 TEST_F(AudioRendererHostTest, CreateInvalidDevice) {
-  Create(false, kInvalidDeviceId, kSecurityOrigin);
+  Create(false, kInvalidDeviceId, url::Origin(GURL(kSecurityOrigin)));
   Close();
 }
 

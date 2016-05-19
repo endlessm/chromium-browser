@@ -102,20 +102,20 @@ public:
     // Called from HTMLTableCellElement.
     void colSpanOrRowSpanChanged();
 
-    void setCol(unsigned column)
+    void setAbsoluteColumnIndex(unsigned column)
     {
         if (UNLIKELY(column > maxColumnIndex))
             CRASH();
 
-        m_column = column;
+        m_absoluteColumnIndex = column;
     }
 
-    bool hasCol() const { return m_column != unsetColumnIndex; }
+    bool hasSetAbsoluteColumnIndex() const { return m_absoluteColumnIndex != unsetColumnIndex; }
 
-    unsigned col() const
+    unsigned absoluteColumnIndex() const
     {
-        ASSERT(hasCol());
-        return m_column;
+        ASSERT(hasSetAbsoluteColumnIndex());
+        return m_absoluteColumnIndex;
     }
 
     LayoutTableRow* row() const { return toLayoutTableRow(parent()); }
@@ -137,7 +137,7 @@ public:
         Length styleWidth = style()->logicalWidth();
         if (!styleWidth.isAuto())
             return styleWidth;
-        if (LayoutTableCol* firstColumn = table()->colElement(col()))
+        if (LayoutTableCol* firstColumn = table()->colElementAtAbsoluteColumn(absoluteColumnIndex()).innermostColOrColGroup())
             return logicalWidthFromColumns(firstColumn, styleWidth);
         return styleWidth;
     }
@@ -181,7 +181,7 @@ public:
 
     void paint(const PaintInfo&, const LayoutPoint&) const override;
 
-    LayoutUnit cellBaselinePosition() const;
+    int cellBaselinePosition() const;
     bool isBaselineAligned() const
     {
         EVerticalAlign va = style()->verticalAlign();
@@ -270,6 +270,8 @@ public:
 
     const char* name() const override { return "LayoutTableCell"; }
 
+    bool backgroundIsKnownToBeOpaqueInRect(const LayoutRect&) const override;
+
 protected:
     void styleDidChange(StyleDifference, const ComputedStyle* oldStyle) override;
     void computePreferredLogicalWidths() override;
@@ -290,7 +292,7 @@ private:
 
     LayoutSize offsetFromContainer(const LayoutObject*, const LayoutPoint&, bool* offsetDependsOnPoint = nullptr) const override;
     LayoutRect clippedOverflowRectForPaintInvalidation(const LayoutBoxModelObject* paintInvalidationContainer, const PaintInvalidationState* = nullptr) const override;
-    void mapRectToPaintInvalidationBacking(const LayoutBoxModelObject* paintInvalidationContainer, LayoutRect&, const PaintInvalidationState*) const override;
+    void mapToVisibleRectInAncestorSpace(const LayoutBoxModelObject* ancestor, LayoutRect&, const PaintInvalidationState*) const override;
 
     int borderHalfLeft(bool outer) const;
     int borderHalfRight(bool outer) const;
@@ -343,7 +345,7 @@ private:
     void previousSibling() const = delete;
 
     // Note MSVC will only pack members if they have identical types, hence we use unsigned instead of bool here.
-    unsigned m_column : 29;
+    unsigned m_absoluteColumnIndex : 29;
     unsigned m_cellWidthChanged : 1;
     unsigned m_hasColSpan: 1;
     unsigned m_hasRowSpan: 1;

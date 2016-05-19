@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGPolyElement.h"
 
 #include "core/layout/svg/LayoutSVGShape.h"
@@ -77,4 +76,4 @@ void SVGPolyElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGGeometryElement::svgAttributeChanged(attrName);
 }
 
-}
+} // namespace blink

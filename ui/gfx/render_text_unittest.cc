@@ -4,15 +4,21 @@
 
 #include "ui/gfx/render_text.h"
 
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 
 #include "base/format_macros.h"
 #include "base/i18n/break_iterator.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/break_list.h"
@@ -156,7 +162,7 @@ class TestSkiaTextRenderer : public internal::SkiaTextRenderer {
  private:
   // internal::SkiaTextRenderer:
   void DrawPosText(const SkPoint* pos,
-                   const uint16* glyphs,
+                   const uint16_t* glyphs,
                    size_t glyph_count) override {
     TextLog log_entry;
     log_entry.glyph_count = glyph_count;
@@ -2613,7 +2619,7 @@ TEST_F(RenderTextTest, HarfBuzz_HorizontalPositions) {
 // Test TextRunHarfBuzz's cluster finding logic.
 TEST_F(RenderTextTest, HarfBuzz_Clusters) {
   struct {
-    uint32 glyph_to_char[4];
+    uint32_t glyph_to_char[4];
     Range chars[4];
     Range glyphs[4];
     bool is_rtl;
@@ -2701,7 +2707,7 @@ TEST_F(RenderTextTest, HarfBuzz_SubglyphGraphemeCases) {
 // Test the partition of a multi-grapheme cluster into grapheme ranges.
 TEST_F(RenderTextTest, HarfBuzz_SubglyphGraphemePartition) {
   struct {
-    uint32 glyph_to_char[2];
+    uint32_t glyph_to_char[2];
     Range bounds[4];
     bool is_rtl;
   } cases[] = {
@@ -2871,8 +2877,9 @@ TEST_F(RenderTextTest, HarfBuzz_NonExistentFont) {
   internal::TextRunList* run_list = render_text.GetRunList();
   ASSERT_EQ(1U, run_list->size());
   internal::TextRunHarfBuzz* run = run_list->runs()[0];
-  render_text.ShapeRunWithFont(
-      render_text.text(), "TheFontThatDoesntExist", FontRenderParams(), run);
+  render_text.ShapeRunWithFont(render_text.text(),
+                               Font("TheFontThatDoesntExist", 13),
+                               FontRenderParams(), run);
 }
 
 // Ensure an empty run returns sane values to queries.
@@ -2972,7 +2979,7 @@ TEST_F(RenderTextTest, HarfBuzz_UniscribeFallback) {
 }
 #endif  // defined(OS_WIN)
 
-// Ensure that the fallback fonts offered by gfx::GetFallbackFontFamilies() are
+// Ensure that the fallback fonts offered by gfx::GetFallbackFonts() are
 // tried. Note this test assumes the font "Arial" doesn't provide a unicode
 // glyph for a particular character, and that there exists a system fallback
 // font which does.
@@ -3012,7 +3019,7 @@ TEST_F(RenderTextTest, TextDoesntClip) {
 
   skia::RefPtr<SkSurface> surface = skia::AdoptRef(
       SkSurface::NewRasterN32Premul(kCanvasSize.width(), kCanvasSize.height()));
-  Canvas canvas(surface->getCanvas(), 1.0f);
+  Canvas canvas(skia::SharePtr(surface->getCanvas()), 1.0f);
   scoped_ptr<RenderText> render_text(RenderText::CreateInstance());
   render_text->SetHorizontalAlignment(ALIGN_LEFT);
   render_text->SetColor(SK_ColorBLACK);
@@ -3034,34 +3041,43 @@ TEST_F(RenderTextTest, TextDoesntClip) {
 
     render_text->Draw(&canvas);
     ASSERT_LT(string_size.width() + kTestSize, kCanvasSize.width());
-    const uint32* buffer =
-        static_cast<const uint32*>(surface->peekPixels(nullptr, nullptr));
+    const uint32_t* buffer =
+        static_cast<const uint32_t*>(surface->peekPixels(nullptr, nullptr));
     ASSERT_NE(nullptr, buffer);
     TestRectangleBuffer rect_buffer(string, buffer, kCanvasSize.width(),
                                     kCanvasSize.height());
     {
 #if !defined(OS_CHROMEOS)
+      int top_test_height = kTestSize;
+#if defined(OS_WIN)
+      // Windows 8+ draws 1 pixel above the display rect.
+      if (base::win::GetVersion() >= base::win::VERSION_WIN8)
+        top_test_height = kTestSize - 1;
+#endif // OS_WIN
       // TODO(dschuyler): On ChromeOS text draws above the GetStringSize rect.
       SCOPED_TRACE("TextDoesntClip Top Side");
       rect_buffer.EnsureSolidRect(SK_ColorWHITE, 0, 0, kCanvasSize.width(),
-                                  kTestSize);
-#endif
+                                  top_test_height);
+#endif // !OS_CHROMEOS
     }
     {
+      int bottom_test_y = kTestSize + string_size.height();
+      int bottom_test_height = kTestSize;
+#if defined(OS_WIN)
+      // Windows 8+ draws 1 pixel below the display rect.
+      if (base::win::GetVersion() >= base::win::VERSION_WIN8) {
+        bottom_test_y = kTestSize + string_size.height() + 1;
+        bottom_test_height = kTestSize - 1;
+      }
+#endif // OS_WIN
       SCOPED_TRACE("TextDoesntClip Bottom Side");
-      rect_buffer.EnsureSolidRect(SK_ColorWHITE, 0,
-                                  kTestSize + string_size.height(),
-                                  kCanvasSize.width(), kTestSize);
+      rect_buffer.EnsureSolidRect(SK_ColorWHITE, 0, bottom_test_y,
+                                  kCanvasSize.width(), bottom_test_height);
     }
     {
       SCOPED_TRACE("TextDoesntClip Left Side");
-#if defined(OS_WIN)
-      // TODO(dschuyler): On Windows XP the Unicode test draws to the left edge
-      // as if it is ignoring the SetDisplayRect shift by kTestSize.  This
-      // appears to be a preexisting issue that wasn't revealed by the prior
-      // unit tests.
-#elif defined(OS_MACOSX) || defined(OS_CHROMEOS)
-      // TODO(dschuyler): On Windows (non-XP), Chrome OS and Mac smoothing draws
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+      // TODO(dschuyler): On Windows, Chrome OS and Mac smoothing draws to the
       // left of text.  This appears to be a preexisting issue that wasn't
       // revealed by the prior unit tests.
       rect_buffer.EnsureSolidRect(SK_ColorWHITE, 0, kTestSize, kTestSize - 1,
@@ -3094,7 +3110,7 @@ TEST_F(RenderTextTest, TextDoesClip) {
 
   skia::RefPtr<SkSurface> surface = skia::AdoptRef(
       SkSurface::NewRasterN32Premul(kCanvasSize.width(), kCanvasSize.height()));
-  Canvas canvas(surface->getCanvas(), 1.0f);
+  Canvas canvas(skia::SharePtr(surface->getCanvas()), 1.0f);
   scoped_ptr<RenderText> render_text(RenderText::CreateInstance());
   render_text->SetHorizontalAlignment(ALIGN_LEFT);
   render_text->SetColor(SK_ColorBLACK);
@@ -3110,8 +3126,8 @@ TEST_F(RenderTextTest, TextDoesClip) {
     render_text->set_clip_to_display_rect(true);
     render_text->Draw(&canvas);
     ASSERT_LT(string_size.width() + kTestSize, kCanvasSize.width());
-    const uint32* buffer =
-        static_cast<const uint32*>(surface->peekPixels(nullptr, nullptr));
+    const uint32_t* buffer =
+        static_cast<const uint32_t*>(surface->peekPixels(nullptr, nullptr));
     ASSERT_NE(nullptr, buffer);
     TestRectangleBuffer rect_buffer(string, buffer, kCanvasSize.width(),
                                     kCanvasSize.height());

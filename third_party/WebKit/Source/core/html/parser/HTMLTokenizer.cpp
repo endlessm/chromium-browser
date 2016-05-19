@@ -25,7 +25,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLTokenizer.h"
 
 #include "core/HTMLNames.h"
@@ -1594,4 +1593,4 @@ inline void HTMLTokenizer::parseError()
     notImplemented();
 }
 
-}
+} // namespace blink

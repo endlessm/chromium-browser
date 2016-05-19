@@ -4,6 +4,8 @@
 
 #include "components/password_manager/content/browser/credential_manager_dispatcher.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
@@ -29,7 +31,7 @@ CredentialManagerDispatcher::CredentialManagerDispatcher(
     PasswordManagerClient* client)
     : WebContentsObserver(web_contents), client_(client), weak_factory_(this) {
   DCHECK(web_contents);
-  auto_signin_enabled_.Init(prefs::kPasswordManagerAutoSignin,
+  auto_signin_enabled_.Init(prefs::kCredentialsEnableAutosignin,
                             client_->GetPrefs());
 }
 
@@ -66,19 +68,30 @@ void CredentialManagerDispatcher::OnStore(
       credential, web_contents()->GetLastCommittedURL().GetOrigin()));
   form->skip_zero_click = !IsZeroClickAllowed();
 
-  // TODO(mkwst): This is a stub; we should be checking the PasswordStore to
-  // determine whether or not the credential exists, and calling UpdateLogin
-  // accordingly.
   form_manager_.reset(new CredentialManagerPasswordFormManager(
       client_, GetDriver(), *form, this));
 }
 
 void CredentialManagerDispatcher::OnProvisionalSaveComplete() {
   DCHECK(form_manager_);
-  if (client_->IsSavingAndFillingEnabledForCurrentPage()) {
+  DCHECK(client_->IsSavingAndFillingEnabledForCurrentPage());
+
+  if (form_manager_->IsNewLogin()) {
+    // If the PasswordForm we were given does not match an existing
+    // PasswordForm, ask the user if they'd like to save.
     client_->PromptUserToSaveOrUpdatePassword(
-        form_manager_.Pass(), CredentialSourceType::CREDENTIAL_SOURCE_API,
+        std::move(form_manager_), CredentialSourceType::CREDENTIAL_SOURCE_API,
         false);
+  } else {
+    // Otherwise, update the existing form, as we've been told by the site
+    // that the new PasswordForm is a functioning credential for the user.
+    // We use 'PasswordFormManager::Update(PasswordForm&)' here rather than
+    // 'PasswordFormManager::UpdateLogin', as we need to port over the
+    // 'skip_zero_click' state to ensure that we don't accidentally start
+    // signing users in just because the site asks us to. The simplest way
+    // to do so is simply to update the password field of the existing
+    // credential.
+    form_manager_->Update(*form_manager_->preferred_match());
   }
 }
 
@@ -86,7 +99,7 @@ void CredentialManagerDispatcher::OnRequireUserMediation(int request_id) {
   DCHECK(request_id);
 
   PasswordStore* store = GetPasswordStore();
-  if (!store) {
+  if (!store || !IsUpdatingCredentialAllowed()) {
     web_contents()->GetRenderViewHost()->Send(
         new CredentialManagerMsg_AcknowledgeRequireUserMediation(
             web_contents()->GetRenderViewHost()->GetRoutingID(), request_id));
@@ -131,6 +144,7 @@ void CredentialManagerDispatcher::ScheduleRequireMediationTask(
 void CredentialManagerDispatcher::OnRequestCredential(
     int request_id,
     bool zero_click_only,
+    bool include_passwords,
     const std::vector<GURL>& federations) {
   DCHECK(request_id);
   PasswordStore* store = GetPasswordStore();
@@ -139,9 +153,8 @@ void CredentialManagerDispatcher::OnRequestCredential(
         new CredentialManagerMsg_RejectCredentialRequest(
             web_contents()->GetRenderViewHost()->GetRoutingID(), request_id,
             pending_request_
-                ? blink::WebCredentialManagerError::ErrorTypePendingRequest
-                : blink::WebCredentialManagerError::
-                      ErrorTypePasswordStoreUnavailable));
+                ? blink::WebCredentialManagerPendingRequestError
+                : blink::WebCredentialManagerPasswordStoreUnavailableError));
     return;
   }
 
@@ -161,24 +174,25 @@ void CredentialManagerDispatcher::OnRequestCredential(
         GetSynthesizedFormForOrigin(),
         base::Bind(&CredentialManagerDispatcher::ScheduleRequestTask,
                    weak_factory_.GetWeakPtr(), request_id, zero_click_only,
-                   federations));
+                   include_passwords, federations));
   } else {
     std::vector<std::string> no_affiliated_realms;
-    ScheduleRequestTask(request_id, zero_click_only, federations,
-                        no_affiliated_realms);
+    ScheduleRequestTask(request_id, zero_click_only, include_passwords,
+                        federations, no_affiliated_realms);
   }
 }
 
 void CredentialManagerDispatcher::ScheduleRequestTask(
     int request_id,
     bool zero_click_only,
+    bool include_passwords,
     const std::vector<GURL>& federations,
     const std::vector<std::string>& android_realms) {
   DCHECK(GetPasswordStore());
   pending_request_.reset(new CredentialManagerPendingRequestTask(
       this, request_id, zero_click_only,
-      web_contents()->GetLastCommittedURL().GetOrigin(), federations,
-      android_realms));
+      web_contents()->GetLastCommittedURL().GetOrigin(), include_passwords,
+      federations, android_realms));
 
   // This will result in a callback to
   // PendingRequestTask::OnGetPasswordStoreResults().
@@ -214,6 +228,7 @@ void CredentialManagerDispatcher::SendCredential(int request_id,
   if (PasswordStore* store = GetPasswordStore()) {
     if (info.type != CredentialType::CREDENTIAL_TYPE_EMPTY &&
         IsZeroClickAllowed()) {
+      DCHECK(IsUpdatingCredentialAllowed());
       scoped_ptr<autofill::PasswordForm> form(
           CreatePasswordFormFromCredentialInfo(info,
                                                pending_request_->origin()));
@@ -247,6 +262,11 @@ CredentialManagerDispatcher::GetSynthesizedFormForOrigin() const {
 void CredentialManagerDispatcher::DoneRequiringUserMediation() {
   DCHECK(pending_require_user_mediation_);
   pending_require_user_mediation_.reset();
+}
+
+bool CredentialManagerDispatcher::IsUpdatingCredentialAllowed() const {
+  return !client_->DidLastPageLoadEncounterSSLErrors() &&
+         !client_->IsOffTheRecord();
 }
 
 }  // namespace password_manager

@@ -8,4 +8,5 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:textSize="@dimen/infobar_descriptive_text_size"
-    android:textColor="@color/infobar_descriptive_text_color" />
+    android:textColor="@color/infobar_descriptive_text_color"
+    android:textColorLink="@color/infobar_accent_blue" />

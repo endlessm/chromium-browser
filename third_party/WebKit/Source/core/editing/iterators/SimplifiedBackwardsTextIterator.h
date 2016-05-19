@@ -27,6 +27,7 @@
 #define SimplifiedBackwardsTextIterator_h
 
 #include "core/editing/Position.h"
+#include "core/editing/iterators/BackwardsTextBuffer.h"
 #include "core/editing/iterators/FullyClippedStateStack.h"
 #include "core/editing/iterators/TextIteratorFlags.h"
 #include "platform/heap/Heap.h"
@@ -50,23 +51,27 @@ public:
 
     int length() const { return m_textLength; }
 
+    // Note: |characterAt()| returns characters in the reversed order, since
+    // the iterator is backwards. For example, if the current text is "abc",
+    // then |characterAt(0)| returns 'c'.
+    UChar characterAt(unsigned index) const;
+
     Node* node() const { return m_node; }
 
-    template<typename BufferType>
-    void prependTextTo(BufferType& output)
-    {
-        if (!m_textLength)
-            return;
-        if (m_singleCharacterBuffer)
-            output.prepend(&m_singleCharacterBuffer, 1);
-        else
-            m_textContainer.prependTo(output, m_textOffset, m_textLength);
-    }
+    // Calculate the minimum |actualLength >= minLength| such that code units
+    // with offset range [position, position + actualLength) are whole code
+    // points. Prepend these code points to |output| and return |actualLength|.
+    // TODO(xiaochengh): Use (start, end) instead of (start, length).
+    int copyTextTo(BackwardsTextBuffer* output, int position, int minLength) const;
+    // TODO(xiaochengh): Avoid default parameters.
+    int copyTextTo(BackwardsTextBuffer* output, int position = 0) const;
 
     Node* startContainer() const;
     int endOffset() const;
     PositionTemplate<Strategy> startPosition() const;
     PositionTemplate<Strategy> endPosition() const;
+
+    bool isInTextSecurityMode() const;
 
 private:
     void init(Node* startNode, Node* endNode, int startOffset, int endOffset);
@@ -77,6 +82,12 @@ private:
     bool handleNonTextNode();
     void emitCharacter(UChar, Node*, int startOffset, int endOffset);
     bool advanceRespectingRange(Node*);
+
+    bool isBetweenSurrogatePair(int position) const;
+
+    // Prepend code units with offset range [position, position + copyLength)
+    // to the output buffer.
+    void copyCodeUnitsTo(BackwardsTextBuffer* output, int position, int copyLength) const;
 
     // Current position, not necessarily of the text being returned, but position
     // as we walk through the DOM tree.
@@ -122,7 +133,7 @@ private:
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT SimplifiedBackwardsTextIteratorAlgorithm<EditingStrategy>;
-extern template class CORE_EXTERN_TEMPLATE_EXPORT SimplifiedBackwardsTextIteratorAlgorithm<EditingInComposedTreeStrategy>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT SimplifiedBackwardsTextIteratorAlgorithm<EditingInFlatTreeStrategy>;
 
 using SimplifiedBackwardsTextIterator = SimplifiedBackwardsTextIteratorAlgorithm<EditingStrategy>;
 

@@ -37,7 +37,7 @@ typedef Vector<unsigned char> GIFRow;
 namespace blink {
 
 // This class decodes the GIF image format.
-class PLATFORM_EXPORT GIFImageDecoder : public ImageDecoder {
+class PLATFORM_EXPORT GIFImageDecoder final : public ImageDecoder {
     WTF_MAKE_NONCOPYABLE(GIFImageDecoder);
 public:
     GIFImageDecoder(AlphaOption, GammaAndColorProfileOption, size_t maxDecodedBytes);
@@ -80,6 +80,9 @@ private:
     // the previous frame's disposal method. Returns true on success. On
     // failure, this will mark the image as failed.
     bool initFrameBuffer(size_t frameIndex);
+
+    // Like clearCacheExceptFrame(), but preserves two frames instead of one.
+    size_t clearCacheExceptTwoFrames(size_t, size_t);
 
     bool m_currentBufferSawAlpha;
     mutable int m_repetitionCount;

@@ -25,14 +25,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "config.h"
+#include "cached-powers.h"
 
+#include "utils.h"
 #include <stdarg.h>
 #include <limits.h>
 #include <math.h>
-
-#include "cached-powers.h"
-#include "utils.h"
 
 namespace WTF {
 
@@ -160,7 +158,7 @@ namespace double_conversion {
 #if ENABLE(ASSERT)
         validateStaticConstants();
 #endif
-        int kQ = DiyFp::kSignificandSize;
+        const int kQ = DiyFp::kSignificandSize;
         double k = ceil((min_exponent + kQ - 1) * kD_1_LOG2_10);
         int foo = kCachedPowersOffset;
         int index =

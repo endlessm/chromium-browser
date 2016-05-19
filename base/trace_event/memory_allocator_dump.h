@@ -5,11 +5,13 @@
 #ifndef BASE_TRACE_EVENT_MEMORY_ALLOCATOR_DUMP_H_
 #define BASE_TRACE_EVENT_MEMORY_ALLOCATOR_DUMP_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/trace_event/memory_allocator_dump_guid.h"
 #include "base/values.h"
@@ -24,6 +26,13 @@ class TracedValue;
 // Data model for user-land memory allocator dumps.
 class BASE_EXPORT MemoryAllocatorDump {
  public:
+  enum Flags {
+    DEFAULT = 0,
+
+    // A dump marked weak will be discarded by TraceViewer.
+    WEAK = 1 << 0,
+  };
+
   // MemoryAllocatorDump is owned by ProcessMemoryDump.
   MemoryAllocatorDump(const std::string& absolute_name,
                       ProcessMemoryDump* process_memory_dump,
@@ -51,7 +60,7 @@ class BASE_EXPORT MemoryAllocatorDump {
   //    AddScalar("number_of_freelist_entires", kUnitsObjects, 42)
   // - Other informational column (will not be auto-added in the UI)
   //    AddScalarF("kittens_ratio", "ratio", 42.0f)
-  void AddScalar(const char* name, const char* units, uint64 value);
+  void AddScalar(const char* name, const char* units, uint64_t value);
   void AddScalarF(const char* name, const char* units, double value);
   void AddString(const char* name, const char* units, const std::string& value);
 
@@ -65,6 +74,11 @@ class BASE_EXPORT MemoryAllocatorDump {
   ProcessMemoryDump* process_memory_dump() const {
     return process_memory_dump_;
   }
+
+  // Use enum Flags to set values.
+  void set_flags(int flags) { flags_ |= flags; }
+  void clear_flags(int flags) { flags_ &= ~flags; }
+  int flags() { return flags_; }
 
   // |guid| is an optional global dump identifier, unique across all processes
   // within the scope of a global dump. It is only required when using the
@@ -81,6 +95,7 @@ class BASE_EXPORT MemoryAllocatorDump {
   ProcessMemoryDump* const process_memory_dump_;  // Not owned (PMD owns this).
   scoped_refptr<TracedValue> attributes_;
   MemoryAllocatorDumpGuid guid_;
+  int flags_;  // See enum Flags.
 
   // A local buffer for Sprintf conversion on fastpath. Avoids allocating
   // temporary strings on each AddScalar() call.

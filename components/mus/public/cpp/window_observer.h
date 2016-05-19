@@ -5,10 +5,11 @@
 #ifndef COMPONENTS_MUS_PUBLIC_CPP_WINDOW_OBSERVER_H_
 #define COMPONENTS_MUS_PUBLIC_CPP_WINDOW_OBSERVER_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "components/mus/public/cpp/window.h"
-#include "components/mus/public/interfaces/input_events.mojom.h"
 
 namespace mus {
 
@@ -22,8 +23,7 @@ class Window;
 // If the change originated from another connection to the window manager, it's
 // possible that the change has already been applied to the service-side model
 // prior to being called, so for example in the case of OnWindowDestroying(),
-// it's
-// possible the window has already been destroyed on the service side.
+// it's possible the window has already been destroyed on the service side.
 
 class WindowObserver {
  public:
@@ -54,8 +54,11 @@ class WindowObserver {
   virtual void OnWindowBoundsChanged(Window* window,
                                      const gfx::Rect& old_bounds,
                                      const gfx::Rect& new_bounds) {}
-  virtual void OnWindowClientAreaChanged(Window* window,
-                                         const gfx::Insets& old_client_area) {}
+  virtual void OnWindowLostCapture(Window* window) {}
+  virtual void OnWindowClientAreaChanged(
+      Window* window,
+      const gfx::Insets& old_client_area,
+      const std::vector<gfx::Rect>& old_additional_client_areas) {}
 
   virtual void OnWindowViewportMetricsChanged(
       Window* window,
@@ -64,9 +67,8 @@ class WindowObserver {
 
   virtual void OnWindowFocusChanged(Window* gained_focus, Window* lost_focus) {}
 
-  virtual void OnWindowInputEvent(Window* window,
-                                  const mojom::EventPtr& event) {}
-
+  virtual void OnWindowPredefinedCursorChanged(Window* window,
+                                               mojom::Cursor cursor) {}
   virtual void OnWindowVisibilityChanging(Window* window) {}
   virtual void OnWindowVisibilityChanged(Window* window) {}
 
@@ -96,6 +98,10 @@ class WindowObserver {
   // when embedded.
   virtual void OnWindowDrawnChanging(Window* window) {}
   virtual void OnWindowDrawnChanged(Window* window) {}
+
+  // The WindowManager has requested the window to close. If the observer
+  // allows the close it should destroy the window as appropriate.
+  virtual void OnRequestClose(Window* window) {}
 
  protected:
   virtual ~WindowObserver() {}

@@ -2,25 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/extensions/api/sessions/sessions_api.h"
+#include <stddef.h>
+#include <utility>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
+#include "chrome/browser/extensions/api/sessions/sessions_api.h"
 #include "chrome/browser/extensions/api/tabs/tabs_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/chrome_sync_client.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/profile_sync_service_mock.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/browser/profile_sync_service_mock.h"
 #include "components/sync_driver/local_device_info_provider_mock.h"
 #include "components/sync_driver/sync_api_component_factory_mock.h"
 #include "extensions/browser/api_test_utils.h"
@@ -137,10 +142,14 @@ scoped_ptr<KeyedService> ExtensionSessionsTest::BuildProfileSyncService(
               sync_pb::SyncEnums_DeviceType_TYPE_LINUX,
               "device_id")));
 
-  return make_scoped_ptr(new ProfileSyncServiceMock(
-      make_scoped_ptr(new browser_sync::ChromeSyncClient(
-          static_cast<Profile*>(context), factory.Pass())),
-      static_cast<Profile*>(context)));
+  Profile* profile = static_cast<Profile*>(context);
+  ProfileSyncServiceMock* sync_service =
+      new ProfileSyncServiceMock(CreateProfileSyncServiceParamsForTest(
+          make_scoped_ptr(new browser_sync::ChromeSyncClient(profile)),
+          profile));
+  static_cast<browser_sync::ChromeSyncClient*>(sync_service->GetSyncClient())
+      ->SetSyncApiComponentFactoryForTesting(std::move(factory));
+  return make_scoped_ptr(sync_service);
 }
 
 void ExtensionSessionsTest::CreateTestProfileSyncService() {
@@ -156,8 +165,6 @@ void ExtensionSessionsTest::CreateTestProfileSyncService() {
   ProfileSyncServiceMock* service = static_cast<ProfileSyncServiceMock*>(
       ProfileSyncServiceFactory::GetInstance()->SetTestingFactoryAndUse(
       profile, &ExtensionSessionsTest::BuildProfileSyncService));
-  browser_ = new Browser(Browser::CreateParams(
-      profile, chrome::HOST_DESKTOP_TYPE_NATIVE));
 
   syncer::ModelTypeSet preferred_types;
   preferred_types.Put(syncer::SESSIONS);
@@ -175,6 +182,8 @@ void ExtensionSessionsTest::CreateTestProfileSyncService() {
 
   EXPECT_CALL(*service, AddObserver(testing::_)).Times(testing::AnyNumber());
   EXPECT_CALL(*service, RemoveObserver(testing::_)).Times(testing::AnyNumber());
+
+  browser_ = new Browser(Browser::CreateParams(profile));
 
   service->Initialize();
 }

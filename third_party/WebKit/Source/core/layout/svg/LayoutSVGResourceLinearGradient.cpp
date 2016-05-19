@@ -18,8 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/LayoutSVGResourceLinearGradient.h"
 
 #include "core/svg/SVGLinearGradientElement.h"
@@ -66,4 +64,4 @@ void LayoutSVGResourceLinearGradient::buildGradient(GradientData* gradientData) 
     addStops(gradientData, attributes.stops());
 }
 
-}
+} // namespace blink

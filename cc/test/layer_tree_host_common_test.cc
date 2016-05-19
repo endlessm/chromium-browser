@@ -4,6 +4,8 @@
 
 #include "cc/test/layer_tree_host_common_test.h"
 
+#include <stddef.h>
+
 #include "cc/layers/layer.h"
 #include "cc/layers/layer_impl.h"
 #include "cc/test/fake_layer_tree_host.h"
@@ -11,11 +13,12 @@
 #include "cc/trees/layer_tree_host_common.h"
 
 namespace cc {
-
 LayerTreeHostCommonTestBase::LayerTreeHostCommonTestBase(
     const LayerTreeSettings& settings)
     : LayerTestCommon::LayerImplTest(settings),
       render_surface_layer_list_count_(0) {
+  layer_settings_.use_compositor_animation_timelines =
+      settings.use_compositor_animation_timelines;
 }
 
 LayerTreeHostCommonTestBase::~LayerTreeHostCommonTestBase() {
@@ -41,13 +44,26 @@ void LayerTreeHostCommonTestBase::SetLayerPropertiesForTesting(
     const gfx::PointF& position,
     const gfx::Size& bounds,
     bool flatten_transform,
+    bool is_3d_sorted) {
+  SetLayerPropertiesForTestingInternal(layer, transform, transform_origin,
+                                       position, bounds, flatten_transform,
+                                       is_3d_sorted);
+}
+
+void LayerTreeHostCommonTestBase::SetLayerPropertiesForTesting(
+    LayerImpl* layer,
+    const gfx::Transform& transform,
+    const gfx::Point3F& transform_origin,
+    const gfx::PointF& position,
+    const gfx::Size& bounds,
+    bool flatten_transform,
     bool is_3d_sorted,
     bool create_render_surface) {
   SetLayerPropertiesForTestingInternal(layer, transform, transform_origin,
                                        position, bounds, flatten_transform,
                                        is_3d_sorted);
   if (create_render_surface) {
-    layer->SetHasRenderSurface(true);
+    layer->SetForceRenderSurface(true);
   }
 }
 
@@ -83,17 +99,19 @@ void LayerTreeHostCommonTestBase::
   LayerTreeHostCommon::PreCalculateMetaInformation(root_layer);
 
   gfx::Transform identity_transform;
-  bool preserves_2d_axis_alignment = false;
-  bool can_render_to_separate_surface = true;
-  LayerTreeHostCommon::UpdateRenderSurfaces(
-      root_layer, can_render_to_separate_surface, identity_transform,
-      preserves_2d_axis_alignment);
 
-  Layer* page_scale_layer = nullptr;
+  bool can_render_to_separate_surface = true;
+
+  const Layer* page_scale_layer =
+      root_layer->layer_tree_host()->page_scale_layer();
   Layer* inner_viewport_scroll_layer =
       root_layer->layer_tree_host()->inner_viewport_scroll_layer();
   Layer* outer_viewport_scroll_layer =
       root_layer->layer_tree_host()->outer_viewport_scroll_layer();
+  const Layer* overscroll_elasticity_layer =
+      root_layer->layer_tree_host()->overscroll_elasticity_layer();
+  gfx::Vector2dF elastic_overscroll =
+      root_layer->layer_tree_host()->elastic_overscroll();
   float page_scale_factor = 1.f;
   float device_scale_factor = 1.f;
   gfx::Size device_viewport_size =
@@ -101,7 +119,8 @@ void LayerTreeHostCommonTestBase::
                 root_layer->bounds().height() * device_scale_factor);
   BuildPropertyTreesAndComputeVisibleRects(
       root_layer, page_scale_layer, inner_viewport_scroll_layer,
-      outer_viewport_scroll_layer, page_scale_factor, device_scale_factor,
+      outer_viewport_scroll_layer, overscroll_elasticity_layer,
+      elastic_overscroll, page_scale_factor, device_scale_factor,
       gfx::Rect(device_viewport_size), identity_transform,
       can_render_to_separate_surface,
       root_layer->layer_tree_host()->property_trees(), &update_layer_list_);
@@ -113,24 +132,33 @@ void LayerTreeHostCommonTestBase::
   LayerTreeHostCommon::PreCalculateMetaInformationForTesting(root_layer);
 
   gfx::Transform identity_transform;
+
   bool can_render_to_separate_surface = true;
+
   LayerImpl* page_scale_layer = nullptr;
   LayerImpl* inner_viewport_scroll_layer =
       root_layer->layer_tree_impl()->InnerViewportScrollLayer();
   LayerImpl* outer_viewport_scroll_layer =
       root_layer->layer_tree_impl()->OuterViewportScrollLayer();
+  LayerImpl* overscroll_elasticity_layer =
+      root_layer->layer_tree_impl()->OverscrollElasticityLayer();
+  gfx::Vector2dF elastic_overscroll =
+      root_layer->layer_tree_impl()->elastic_overscroll()->Current(
+          root_layer->layer_tree_impl()->IsActiveTree());
   float page_scale_factor = 1.f;
   float device_scale_factor = 1.f;
   gfx::Size device_viewport_size =
       gfx::Size(root_layer->bounds().width() * device_scale_factor,
                 root_layer->bounds().height() * device_scale_factor);
-  std::vector<LayerImpl*> update_layer_list;
+  update_layer_list_impl_.reset(new LayerImplList);
   BuildPropertyTreesAndComputeVisibleRects(
       root_layer, page_scale_layer, inner_viewport_scroll_layer,
-      outer_viewport_scroll_layer, page_scale_factor, device_scale_factor,
+      outer_viewport_scroll_layer, overscroll_elasticity_layer,
+      elastic_overscroll, page_scale_factor, device_scale_factor,
       gfx::Rect(device_viewport_size), identity_transform,
       can_render_to_separate_surface,
-      root_layer->layer_tree_impl()->property_trees(), &update_layer_list);
+      root_layer->layer_tree_impl()->property_trees(),
+      update_layer_list_impl_.get());
 }
 
 void LayerTreeHostCommonTestBase::ExecuteCalculateDrawProperties(
@@ -153,8 +181,10 @@ void LayerTreeHostCommonTestBase::ExecuteCalculateDrawProperties(
   // We are probably not testing what is intended if the root_layer bounds are
   // empty.
   DCHECK(!root_layer->bounds().IsEmpty());
+  root_layer->layer_tree_impl()->IncrementRenderSurfaceListIdForTesting();
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
-      root_layer, device_viewport_size, render_surface_layer_list_impl_.get());
+      root_layer, device_viewport_size, render_surface_layer_list_impl_.get(),
+      root_layer->layer_tree_impl()->current_render_surface_list_id());
   inputs.device_scale_factor = device_scale_factor;
   inputs.page_scale_factor = page_scale_factor;
   inputs.page_scale_layer = page_scale_layer;
@@ -162,9 +192,8 @@ void LayerTreeHostCommonTestBase::ExecuteCalculateDrawProperties(
   inputs.layers_always_allowed_lcd_text = layers_always_allowed_lcd_text;
   inputs.can_adjust_raster_scales = true;
 
-  ++render_surface_layer_list_count_;
-  inputs.current_render_surface_layer_list_id =
-      render_surface_layer_list_count_;
+  render_surface_layer_list_count_ =
+      inputs.current_render_surface_layer_list_id;
 
   LayerTreeHostCommon::CalculateDrawProperties(&inputs);
 }
@@ -178,14 +207,15 @@ void LayerTreeHostCommonTestBase::
   render_surface_layer_list_impl_.reset(new LayerImplList);
 
   DCHECK(!root_layer->bounds().IsEmpty());
+  root_layer->layer_tree_impl()->IncrementRenderSurfaceListIdForTesting();
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
-      root_layer, device_viewport_size, render_surface_layer_list_impl_.get());
+      root_layer, device_viewport_size, render_surface_layer_list_impl_.get(),
+      root_layer->layer_tree_impl()->current_render_surface_list_id());
   inputs.can_adjust_raster_scales = true;
   inputs.can_render_to_separate_surface = false;
 
-  ++render_surface_layer_list_count_;
-  inputs.current_render_surface_layer_list_id =
-      render_surface_layer_list_count_;
+  render_surface_layer_list_count_ =
+      inputs.current_render_surface_layer_list_id;
 
   LayerTreeHostCommon::CalculateDrawProperties(&inputs);
 }
@@ -198,9 +228,15 @@ bool LayerTreeHostCommonTestBase::UpdateLayerListContains(int id) const {
   return false;
 }
 
+class LayerTreeSettingsForCommonTest : public LayerTreeSettings {
+ public:
+  LayerTreeSettingsForCommonTest() {
+    use_compositor_animation_timelines = true;
+  }
+};
+
 LayerTreeHostCommonTest::LayerTreeHostCommonTest()
-    : LayerTreeHostCommonTestBase(LayerTreeSettings()) {
-}
+    : LayerTreeHostCommonTestBase(LayerTreeSettingsForCommonTest()) {}
 
 LayerTreeHostCommonTest::LayerTreeHostCommonTest(
     const LayerTreeSettings& settings)

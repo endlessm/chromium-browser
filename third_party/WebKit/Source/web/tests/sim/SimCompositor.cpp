@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "web/tests/sim/SimCompositor.h"
 
 #include "core/frame/FrameView.h"
@@ -25,7 +24,7 @@ static void paintLayers(PaintLayer& layer, SimDisplayItemList& displayList)
         GraphicsLayer* graphicsLayer = mapping->mainGraphicsLayer();
         if (graphicsLayer->hasTrackedPaintInvalidations()) {
             ContentLayerDelegate* delegate = graphicsLayer->contentLayerDelegateForTesting();
-            delegate->paintContents(&displayList, WebRect(0, 0, layer.size().width(), layer.size().height()));
+            delegate->paintContents(&displayList);
             graphicsLayer->resetTrackedPaintInvalidations();
         }
     }

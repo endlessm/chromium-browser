@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <mach/mach_vm.h>
+#include <stddef.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -24,6 +25,7 @@
 #include "base/profiler/scoped_tracker.h"
 #include "base/scoped_generic.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 
 #if defined(OS_MACOSX)
 #include "base/mac/foundation_util.h"
@@ -53,7 +55,7 @@ SharedMemoryHandle::Type GetABTestMechanism() {
     group = SharedMemoryHandle::POSIX;
     found_group = true;
   } else {
-    group = SharedMemoryHandle::POSIX;
+    group = SharedMemoryHandle::MACH;
   }
 
   return group;
@@ -175,10 +177,20 @@ bool CreateAnonymousSharedMemory(const SharedMemoryCreateOptions& options,
 }  // namespace
 
 SharedMemoryCreateOptions::SharedMemoryCreateOptions()
-    : type(SharedMemoryHandle::POSIX),
+    : type(SharedMemoryHandle::MACH),
       size(0),
       executable(false),
-      share_read_only(false) {}
+      share_read_only(false) {
+  if (mac::IsOSLionOrLater()) {
+    // A/B test the mechanism. Once the experiment is over, this will always be
+    // set to SharedMemoryHandle::MACH.
+    // http://crbug.com/547261
+    type = GetABTestMechanism();
+  } else {
+    // Mach shared memory isn't supported on OSX 10.6 or older.
+    type = SharedMemoryHandle::POSIX;
+  }
+}
 
 SharedMemory::SharedMemory()
     : mapped_memory_mechanism_(SharedMemoryHandle::POSIX),
@@ -196,20 +208,6 @@ SharedMemory::SharedMemory(const SharedMemoryHandle& handle, bool read_only)
       memory_(NULL),
       read_only_(read_only),
       requested_size_(0) {}
-
-SharedMemory::SharedMemory(const SharedMemoryHandle& handle,
-                           bool read_only,
-                           ProcessHandle process)
-    : mapped_memory_mechanism_(SharedMemoryHandle::POSIX),
-      readonly_mapped_file_(-1),
-      mapped_size_(0),
-      memory_(NULL),
-      read_only_(read_only),
-      requested_size_(0) {
-  // We don't handle this case yet (note the ignored parameter); let's die if
-  // someone comes calling.
-  NOTREACHED();
-}
 
 SharedMemory::~SharedMemory() {
   Unmap();
@@ -261,22 +259,6 @@ bool SharedMemory::CreateAnonymousPosix(size_t size) {
   options.type = SharedMemoryHandle::POSIX;
   options.size = size;
   return Create(options);
-}
-
-bool SharedMemory::CreateAndMapAnonymousMach(size_t size) {
-  SharedMemoryCreateOptions options;
-
-  if (mac::IsOSLionOrLater()) {
-    // A/B test the mechanism. Once the experiment is over, this will always be
-    // set to SharedMemoryHandle::MACH.
-    // http://crbug.com/547261
-    options.type = GetABTestMechanism();
-  } else {
-    // Mach shared memory isn't supported on OSX 10.6 or older.
-    options.type = SharedMemoryHandle::POSIX;
-  }
-  options.size = size;
-  return Create(options) && Map(size);
 }
 
 // static
@@ -337,7 +319,7 @@ bool SharedMemory::Create(const SharedMemoryCreateOptions& options) {
   }
   requested_size_ = options.size;
 
-  return PrepareMapFile(fp.Pass(), readonly_fd.Pass());
+  return PrepareMapFile(std::move(fp), std::move(readonly_fd));
 }
 
 bool SharedMemory::MapAt(off_t offset, size_t bytes) {

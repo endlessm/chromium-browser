@@ -4,12 +4,15 @@
 
 #include "content/browser/utility_process_host_impl.h"
 
+#include <utility>
+
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
@@ -17,6 +20,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
+#include "build/build_config.h"
 #include "content/browser/browser_child_process_host_impl.h"
 #include "content/browser/mojo/mojo_application_host.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
@@ -33,12 +37,22 @@
 #include "ipc/ipc_switches.h"
 #include "ui/base/ui_base_switches.h"
 
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+#include "content/public/browser/zygote_handle_linux.h"
+#endif  // defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+
 #if defined(OS_WIN)
 #include "sandbox/win/src/sandbox_policy.h"
 #include "sandbox/win/src/sandbox_types.h"
 #endif
 
 namespace content {
+
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+namespace {
+ZygoteHandle g_utility_zygote;
+}  // namespace
+#endif  // defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
 
 // NOTE: changes to this class need to be reviewed by the security team.
 class UtilitySandboxedProcessLauncherDelegate
@@ -54,7 +68,9 @@ class UtilitySandboxedProcessLauncherDelegate
         launch_elevated_(launch_elevated)
 #elif defined(OS_POSIX)
         env_(env),
+#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
         no_sandbox_(no_sandbox),
+#endif  // !defined(OS_MACOSX)  && !defined(OS_ANDROID)
         ipc_fd_(host->TakeClientFileDescriptor())
 #endif  // OS_WIN
   {}
@@ -84,11 +100,15 @@ class UtilitySandboxedProcessLauncherDelegate
 
 #elif defined(OS_POSIX)
 
-  bool ShouldUseZygote() override {
-    return !no_sandbox_ && exposed_dir_.empty();
+#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
+  ZygoteHandle* GetZygote() override {
+    if (no_sandbox_ || !exposed_dir_.empty())
+      return nullptr;
+    return GetGenericZygote();
   }
+#endif  // !defined(OS_MACOSX) && !defined(OS_ANDROID)
   base::EnvironmentMap GetEnvironment() override { return env_; }
-  base::ScopedFD TakeIpcFd() override { return ipc_fd_.Pass(); }
+  base::ScopedFD TakeIpcFd() override { return std::move(ipc_fd_); }
 #endif  // OS_WIN
 
   SandboxType GetSandboxType() override {
@@ -102,7 +122,9 @@ class UtilitySandboxedProcessLauncherDelegate
   bool launch_elevated_;
 #elif defined(OS_POSIX)
   base::EnvironmentMap env_;
+#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
   bool no_sandbox_;
+#endif  // !defined(OS_MACOSX) && !defined(OS_ANDROID)
   base::ScopedFD ipc_fd_;
 #endif  // OS_WIN
 };
@@ -126,7 +148,6 @@ UtilityProcessHostImpl::UtilityProcessHostImpl(
     : client_(client),
       client_task_runner_(client_task_runner),
       is_batch_mode_(false),
-      is_mdns_enabled_(false),
       no_sandbox_(false),
       run_elevated_(false),
 #if defined(OS_LINUX)
@@ -173,10 +194,6 @@ void UtilityProcessHostImpl::SetExposedDir(const base::FilePath& dir) {
   exposed_dir_ = dir;
 }
 
-void UtilityProcessHostImpl::EnableMDns() {
-  is_mdns_enabled_ = true;
-}
-
 void UtilityProcessHostImpl::DisableSandbox() {
   no_sandbox_ = true;
 }
@@ -220,6 +237,14 @@ ServiceRegistry* UtilityProcessHostImpl::GetServiceRegistry() {
 void UtilityProcessHostImpl::SetName(const base::string16& name) {
   name_ = name;
 }
+
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+// static
+void UtilityProcessHostImpl::EarlyZygoteLaunch() {
+  DCHECK(!g_utility_zygote);
+  g_utility_zygote = CreateZygote();
+}
+#endif  // defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
 
 bool UtilityProcessHostImpl::StartProcess() {
   if (started_)
@@ -287,6 +312,11 @@ bool UtilityProcessHostImpl::StartProcess() {
     std::string locale = GetContentClient()->browser()->GetApplicationLocale();
     cmd_line->AppendSwitchASCII(switches::kLang, locale);
 
+#if defined(OS_WIN)
+    if (GetContentClient()->browser()->ShouldUseWindowsPrefetchArgument())
+      cmd_line->AppendArg(switches::kPrefetchArgumentOther);
+#endif  // defined(OS_WIN)
+
     if (no_sandbox_)
       cmd_line->AppendSwitch(switches::kNoSandbox);
 
@@ -313,9 +343,6 @@ bool UtilityProcessHostImpl::StartProcess() {
       cmd_line->AppendSwitchPath(switches::kUtilityProcessAllowedDir,
                                  exposed_dir_);
     }
-
-    if (is_mdns_enabled_)
-      cmd_line->AppendSwitch(switches::kUtilityProcessEnableMDns);
 
 #if defined(OS_WIN)
     // Let the utility process know if it is intended to be elevated.

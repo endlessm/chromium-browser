@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "media/base/fake_demuxer_stream.h"
 #include "media/base/gmock_callback_support.h"
@@ -26,22 +29,6 @@ using ::testing::StrictMock;
 
 static const int kNumConfigs = 4;
 static const int kNumBuffersInOneConfig = 5;
-
-// Use anonymous namespace here to prevent the actions to be defined multiple
-// times across multiple test files. Sadly we can't use static for them.
-namespace {
-
-ACTION_P3(ExecuteCallbackWithVerifier, cdm_context, done_cb, verifier) {
-  // verifier must be called first since |done_cb| call will invoke it as well.
-  verifier->RecordACalled();
-  arg0.Run(cdm_context, done_cb);
-}
-
-ACTION_P(ReportCallback, verifier) {
-  verifier->RecordBCalled();
-}
-
-}  // namespace
 
 namespace media {
 
@@ -100,7 +87,7 @@ class VideoFrameStreamTest
     decoders.push_back(decoder3_);
 
     video_frame_stream_.reset(new VideoFrameStream(
-        message_loop_.task_runner(), decoders.Pass(), new MediaLog()));
+        message_loop_.task_runner(), std::move(decoders), new MediaLog()));
 
     EXPECT_CALL(*cdm_context_, GetDecryptor())
         .WillRepeatedly(Return(decryptor_.get()));
@@ -131,8 +118,6 @@ class VideoFrameStreamTest
   }
 
   MOCK_METHOD1(OnNewSpliceBuffer, void(base::TimeDelta));
-  MOCK_METHOD1(SetCdmReadyCallback, void(const media::CdmReadyCB&));
-  MOCK_METHOD1(CdmSet, void(bool));
   MOCK_METHOD0(OnWaitingForDecryptionKey, void(void));
 
   void OnStatistics(const PipelineStatistics& statistics) {
@@ -162,8 +147,7 @@ class VideoFrameStreamTest
     video_frame_stream_->Initialize(
         demuxer_stream_.get(), base::Bind(&VideoFrameStreamTest::OnInitialized,
                                           base::Unretained(this)),
-        base::Bind(&VideoFrameStreamTest::SetCdmReadyCallback,
-                   base::Unretained(this)),
+        cdm_context_.get(),
         base::Bind(&VideoFrameStreamTest::OnStatistics, base::Unretained(this)),
         base::Bind(&VideoFrameStreamTest::OnWaitingForDecryptionKey,
                    base::Unretained(this)));
@@ -245,22 +229,12 @@ class VideoFrameStreamTest
     NOT_PENDING,
     DEMUXER_READ_NORMAL,
     DEMUXER_READ_CONFIG_CHANGE,
-    SET_DECRYPTOR,
     DECRYPTOR_NO_KEY,
     DECODER_INIT,
     DECODER_REINIT,
     DECODER_DECODE,
     DECODER_RESET
   };
-
-  void ExpectCdmNotification() {
-    EXPECT_CALL(*this, SetCdmReadyCallback(_))
-        .WillRepeatedly(ExecuteCallbackWithVerifier(
-            cdm_context_.get(),
-            base::Bind(&VideoFrameStreamTest::CdmSet, base::Unretained(this)),
-            &verifier_));
-    EXPECT_CALL(*this, CdmSet(true)).WillRepeatedly(ReportCallback(&verifier_));
-  }
 
   void EnterPendingState(PendingState state) {
     EnterPendingState(state, decoder1_);
@@ -279,23 +253,14 @@ class VideoFrameStreamTest
         ReadUntilPending();
         break;
 
-      case SET_DECRYPTOR:
-        // Hold CdmReadyCB.
-        EXPECT_CALL(*this, SetCdmReadyCallback(_)).Times(2);
-        // Initialize will fail because no decryptor is available.
-        InitializeVideoFrameStream();
-        break;
-
       case DECRYPTOR_NO_KEY:
         if (GetParam().is_encrypted)
           EXPECT_CALL(*this, OnWaitingForDecryptionKey());
-        ExpectCdmNotification();
         has_no_key_ = true;
         ReadOneFrame();
         break;
 
       case DECODER_INIT:
-        ExpectCdmNotification();
         decoder->HoldNextInit();
         InitializeVideoFrameStream();
         break;
@@ -336,9 +301,8 @@ class VideoFrameStreamTest
         demuxer_stream_->SatisfyRead();
         break;
 
-      // These two cases are only interesting to test during
-      // VideoFrameStream destruction.  There's no need to satisfy a callback.
-      case SET_DECRYPTOR:
+      // This is only interesting to test during VideoFrameStream destruction.
+      // There's no need to satisfy a callback.
       case DECRYPTOR_NO_KEY:
         NOTREACHED();
         break;
@@ -396,6 +360,7 @@ class VideoFrameStreamTest
   // Use NiceMock since we don't care about most of calls on the decryptor,
   // e.g. RegisterNewKeyCB().
   scoped_ptr<NiceMock<MockDecryptor>> decryptor_;
+
   // Three decoders are needed to test that decoder fallback can occur more than
   // once on a config change. They are owned by |video_frame_stream_|.
   FakeVideoDecoder* decoder1_;
@@ -414,8 +379,6 @@ class VideoFrameStreamTest
 
   // Decryptor has no key to decrypt a frame.
   bool has_no_key_;
-
-  CallbackPairChecker verifier_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(VideoFrameStreamTest);
@@ -698,15 +661,6 @@ TEST_P(VideoFrameStreamTest, Reset_DuringNoKeyRead) {
 // VideoFrameStreamTest dtor.
 
 TEST_P(VideoFrameStreamTest, Destroy_BeforeInitialization) {
-}
-
-TEST_P(VideoFrameStreamTest, Destroy_DuringSetDecryptor) {
-  if (!GetParam().is_encrypted) {
-    DVLOG(1) << "SetDecryptor test only runs when the stream is encrytped.";
-    return;
-  }
-
-  EnterPendingState(SET_DECRYPTOR);
 }
 
 TEST_P(VideoFrameStreamTest, Destroy_DuringInitialization) {

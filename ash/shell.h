@@ -14,9 +14,9 @@
 #include "ash/system/user/login_status.h"
 #include "ash/wm/cursor_manager_chromeos.h"
 #include "ash/wm/system_modal_container_event_filter_delegate.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -69,7 +69,6 @@ class TooltipController;
 namespace wm {
 class AcceleratorFilter;
 class CompoundEventFilter;
-class NestedAcceleratorController;
 class ShadowController;
 class VisibilityController;
 class WindowModalityController;
@@ -87,7 +86,7 @@ class CaptureController;
 class DesktopBackgroundController;
 class DisplayChangeObserver;
 class DisplayColorManager;
-class DisplayConfiguratorAnimation;
+class DisplayConfigurationController;
 class WindowTreeHostManager;
 class DisplayErrorObserver;
 class DisplayManager;
@@ -99,6 +98,7 @@ class FirstRunHelper;
 class FocusCycler;
 class GPUSupport;
 class HighContrastController;
+class KeyboardUI;
 class KeyboardUMAEventFilter;
 class LastWindowClosedLogoutReminder;
 class LocaleNotificationController;
@@ -208,9 +208,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // If you want to get the root Window of the active window, just use
   // |wm::GetActiveWindow()->GetRootWindow()|.
   static aura::Window* GetTargetRootWindow();
-
-  // Returns the global Screen object that's always active in ash.
-  static gfx::Screen* GetScreen();
 
   // Returns all root windows.
   static aura::Window::Windows GetAllRootWindows();
@@ -349,6 +346,9 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   }
 
   DisplayManager* display_manager() { return display_manager_.get(); }
+  DisplayConfigurationController* display_configuration_controller() {
+    return display_configuration_controller_.get();
+  }
   ::wm::CompoundEventFilter* env_filter() {
     return env_filter_.get();
   }
@@ -398,7 +398,7 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   EventTransformationHandler* event_transformation_handler() {
     return event_transformation_handler_.get();
   }
-  ::wm::CursorManager* cursor_manager() { return &cursor_manager_; }
+  ::wm::CursorManager* cursor_manager() { return cursor_manager_.get(); }
 
   ShellDelegate* delegate() { return delegate_.get(); }
 
@@ -523,9 +523,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   ui::DisplayConfigurator* display_configurator() {
     return display_configurator_.get();
   }
-  DisplayConfiguratorAnimation* display_configurator_animation() {
-    return display_configurator_animation_.get();
-  }
   DisplayErrorObserver* display_error_observer() {
     return display_error_observer_.get();
   }
@@ -568,6 +565,10 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
     return is_touch_hud_projection_enabled_;
   }
 
+  KeyboardUI* keyboard_ui() { return keyboard_ui_.get(); }
+
+  bool in_mus() const { return in_mus_; }
+
 #if defined(OS_CHROMEOS)
   // Creates instance of FirstRunHelper. Caller is responsible for deleting
   // returned object.
@@ -607,6 +608,9 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // Initializes the root window so that it can host browser windows.
   void InitRootWindow(aura::Window* root_window);
 
+  // Hides the shelf view if any are visible.
+  void HideShelf();
+
   // ash::SystemModalContainerEventFilterDelegate overrides:
   bool CanWindowReceiveEvents(aura::Window* window) override;
 
@@ -615,7 +619,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   EventTarget* GetParentTarget() override;
   scoped_ptr<ui::EventTargetIterator> GetChildIterator() const override;
   ui::EventTargeter* GetEventTargeter() override;
-  void OnEvent(ui::Event* event) override;
 
   // Overridden from aura::client::ActivationChangeObserver:
   void OnWindowActivated(
@@ -642,7 +645,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   std::vector<WindowAndBoundsPair> to_restore_;
 
   scoped_ptr<UserMetricsRecorder> user_metrics_recorder_;
-  scoped_ptr< ::wm::NestedAcceleratorController> nested_accelerator_controller_;
   scoped_ptr<AcceleratorController> accelerator_controller_;
   scoped_ptr<ShellDelegate> delegate_;
   scoped_ptr<SystemTrayDelegate> system_tray_delegate_;
@@ -708,6 +710,7 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   scoped_ptr< ::wm::AcceleratorFilter> accelerator_filter_;
 
   scoped_ptr<DisplayManager> display_manager_;
+  scoped_ptr<DisplayConfigurationController> display_configuration_controller_;
 
   scoped_ptr<LocaleNotificationController> locale_notification_controller_;
 
@@ -727,7 +730,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // Controls video output device state.
   scoped_ptr<ui::DisplayConfigurator> display_configurator_;
   scoped_ptr<DisplayColorManager> display_color_manager_;
-  scoped_ptr<DisplayConfiguratorAnimation> display_configurator_animation_;
   scoped_ptr<DisplayErrorObserver> display_error_observer_;
   scoped_ptr<ProjectingObserver> projecting_observer_;
 
@@ -749,13 +751,9 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // pointer to vend to test code.
   AshNativeCursorManager* native_cursor_manager_;
 
-// Cursor may be hidden on certain key events in ChromeOS, whereas we never hide
-// the cursor on Windows.
-#if defined(OS_CHROMEOS)
-  CursorManager cursor_manager_;
-#else  // !defined(OS_CHROMEOS)
-  ::wm::CursorManager cursor_manager_;
-#endif  // defined(OS_CHROMEOS)
+  // Cursor may be hidden on certain key events in ChromeOS, whereas we never
+  // hide the cursor on Windows.
+  scoped_ptr<::wm::CursorManager> cursor_manager_;
 
   base::ObserverList<ShellObserver> observers_;
 
@@ -768,6 +766,10 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   scoped_ptr<GPUSupport> gpu_support_;
 
   base::SequencedWorkerPool* blocking_pool_;
+
+  bool in_mus_ = false;
+
+  scoped_ptr<KeyboardUI> keyboard_ui_;
 
   DISALLOW_COPY_AND_ASSIGN(Shell);
 };

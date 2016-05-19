@@ -317,8 +317,6 @@ source_set("test_support") {
   sources = [
     "chrome_main_delegate.cc",
     "chrome_main_delegate.h",
-    "close_handle_hook_win.cc",
-    "close_handle_hook_win.h",
   ]
 
   deps = [
@@ -329,6 +327,9 @@ source_set("test_support") {
     "//chrome/plugin",
     "//chrome/renderer",
     "//chrome/utility",
+    "//components/crash/content/app",
+    "//components/crash/content/app:lib",
+    "//components/startup_metric_utils/browser:lib",
     "//content/public/app:both",
     "//content/public/common",
     "//ui/base",
@@ -336,9 +337,33 @@ source_set("test_support") {
 
   if (is_mac) {
     sources += [ "chrome_main_mac.mm" ]
+
+    deps += [ "//chrome:main_dll" ]
+  }
+
+  if (is_win) {
+    deps += [
+      "//chrome:chrome_initial",
+      "//sandbox/win:sandbox",
+    ]
+  }
+
+  if (is_chromeos) {
+    deps += [ "//chrome/browser/chromeos" ]
+  }
+
+  if (enable_configuration_policy) {
+    deps += [ "//chrome/browser/policy:path_parser" ]
+  }
+
+  if (enable_pdf) {
+    deps += [ "//pdf" ]
   }
 
   if (enable_plugins && enable_nacl) {
-    deps += [ "//components/nacl/renderer/plugin:nacl_trusted_plugin" ]
+    deps += [
+      "//components/nacl/browser",
+      "//components/nacl/renderer/plugin:nacl_trusted_plugin",
+    ]
   }
 }

@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
 #include "chrome/browser/chromeos/policy/policy_oauth2_token_fetcher.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
@@ -74,6 +76,10 @@ EnterpriseEnrollmentHelperImpl::EnterpriseEnrollmentHelperImpl(
       success_(false),
       auth_data_cleared_(false),
       weak_ptr_factory_(this) {
+  // Init the TPM if it has not been done until now (in debug build we might
+  // have not done that yet).
+  DBusThreadManager::Get()->GetCryptohomeClient()->TpmCanAttemptOwnership(
+      EmptyVoidDBusMethodCallback());
 }
 
 EnterpriseEnrollmentHelperImpl::~EnterpriseEnrollmentHelperImpl() {

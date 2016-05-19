@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "chrome/browser/memory/tab_stats.h"
 
 namespace memory {
@@ -9,12 +10,13 @@ namespace memory {
 TabStats::TabStats()
     : is_app(false),
       is_internal_page(false),
-      is_playing_audio(false),
+      is_media(false),
       is_pinned(false),
       is_selected(false),
       is_discarded(false),
       has_form_entry(false),
       discard_count(0),
+      render_process_host(nullptr),
       renderer_handle(0),
       child_process_host_id(0),
 #if defined(OS_CHROMEOS)
@@ -22,6 +24,8 @@ TabStats::TabStats()
 #endif
       tab_contents_id(0) {
 }
+
+TabStats::TabStats(const TabStats& other) = default;
 
 TabStats::~TabStats() {
 }

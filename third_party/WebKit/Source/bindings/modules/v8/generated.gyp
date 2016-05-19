@@ -26,7 +26,7 @@
     'target_name': 'bindings_modules_v8_generated_individual',
     'type': 'none',
     # The 'binding' rule generates .h files, so mark as hard_dependency, per:
-    # https://code.google.com/p/gyp/wiki/InputFormatReference#Linking_Dependencies
+    # https://gyp.gsrc.io/docs/InputFormatReference.md#Linking-Dependencies
     'hard_dependency': 1,
     'dependencies': [
       '../../core/generated.gyp:core_global_constructors_idls',
@@ -95,6 +95,7 @@
       'inputs': [
         '<(bindings_scripts_dir)/aggregate_generated_bindings.py',
         '<(modules_idl_files_list)',
+        '<@(modules_interface_idl_files)',
       ],
       'outputs': [
         '<@(bindings_modules_v8_generated_aggregate_files)',
@@ -171,7 +172,7 @@
     'target_name': 'bindings_modules_v8_generated_partial_individual',
     'type': 'none',
     # The 'partial_binding' rule generates .h files, so mark as hard_dependency, per:
-    # https://code.google.com/p/gyp/wiki/InputFormatReference#Linking_Dependencies
+    # https://gyp.gsrc.io/docs/InputFormatReference.md#Linking-Dependencies
     'hard_dependency': 1,
     'dependencies': [
       '../../core/generated.gyp:core_global_constructors_idls',
@@ -280,6 +281,7 @@
         '<(bindings_scripts_dir)/generate_init_partial_interfaces.py',
         '--idl-files-list',
         '<(core_idl_with_modules_dependency_files_list)',
+        '--gyp-format-list',
         '--output',
         '<(bindings_modules_v8_output_dir)/initPartialInterfacesInModules.cpp',
         '--write-file-only-if-changed',

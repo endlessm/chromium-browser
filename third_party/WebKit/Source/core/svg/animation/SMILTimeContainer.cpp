@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/animation/SMILTimeContainer.h"
 
 #include "core/animation/AnimationClock.h"
@@ -33,6 +32,7 @@
 #include "core/frame/Settings.h"
 #include "core/svg/SVGSVGElement.h"
 #include "core/svg/animation/SVGSMILElement.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -562,4 +562,4 @@ DEFINE_TRACE(SMILTimeContainer)
     visitor->trace(m_ownerSVGElement);
 }
 
-}
+} // namespace blink

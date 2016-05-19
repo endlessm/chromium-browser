@@ -17,7 +17,6 @@
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_registry_simple.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/worker_pool.h"
@@ -31,6 +30,7 @@
 #include "components/component_updater/default_component_installer.h"
 #include "components/component_updater/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "components/update_client/update_client.h"
 #include "components/update_client/utils.h"
 #include "content/public/browser/browser_thread.h"
@@ -210,14 +210,14 @@ void RegisterSwReporterComponent(ComponentUpdateService* cus) {
       }
       // Get start & end time. If we don't have an end time, we can assume the
       // cleaner has not completed.
-      int64 start_time_value;
+      int64_t start_time_value;
       cleaner_key.ReadInt64(safe_browsing::kStartTimeValueName,
                             &start_time_value);
 
       bool completed = cleaner_key.HasValue(safe_browsing::kEndTimeValueName);
       SRTHasCompleted(completed ? SRT_COMPLETED_YES : SRT_COMPLETED_NOT_YET);
       if (completed) {
-        int64 end_time_value;
+        int64_t end_time_value;
         cleaner_key.ReadInt64(safe_browsing::kEndTimeValueName,
                               &end_time_value);
         cleaner_key.DeleteValue(safe_browsing::kEndTimeValueName);
@@ -247,7 +247,7 @@ void RegisterSwReporterComponent(ComponentUpdateService* cus) {
         DCHECK_GT(elapsed.InMilliseconds(), 0);
         UMA_HISTOGRAM_BOOLEAN(
             "SoftwareReporter.Cleaner.HasRebooted",
-            static_cast<uint64>(elapsed.InMilliseconds()) > ::GetTickCount());
+            static_cast<uint64_t>(elapsed.InMilliseconds()) > ::GetTickCount());
       }
 
       if (cleaner_key.HasValue(kUploadResultsValueName)) {

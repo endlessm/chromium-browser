@@ -4,16 +4,20 @@
 
 #include "chrome/browser/extensions/api/identity/identity_api.h"
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -116,6 +120,9 @@ IdentityTokenCacheValue::IdentityTokenCacheValue(const std::string& token,
 
   expiration_time_ = base::Time::Now() + time_to_live;
 }
+
+IdentityTokenCacheValue::IdentityTokenCacheValue(
+    const IdentityTokenCacheValue& other) = default;
 
 IdentityTokenCacheValue::~IdentityTokenCacheValue() {}
 
@@ -244,9 +251,9 @@ void IdentityAPI::OnAccountSignInChanged(const gaia::AccountIds& ids,
       api::identity::OnSignInChanged::Create(account_info, is_signed_in);
   scoped_ptr<Event> event(new Event(events::IDENTITY_ON_SIGN_IN_CHANGED,
                                     api::identity::OnSignInChanged::kEventName,
-                                    args.Pass(), browser_context_));
+                                    std::move(args), browser_context_));
 
-  EventRouter::Get(browser_context_)->BroadcastEvent(event.Pass());
+  EventRouter::Get(browser_context_)->BroadcastEvent(std::move(event));
 }
 
 void IdentityAPI::AddShutdownObserver(ShutdownObserver* observer) {

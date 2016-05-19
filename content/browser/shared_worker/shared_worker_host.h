@@ -8,6 +8,7 @@
 #include <list>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -64,7 +65,6 @@ class SharedWorkerHost {
   void AllowDatabase(const GURL& url,
                      const base::string16& name,
                      const base::string16& display_name,
-                     unsigned long estimated_size,
                      bool* result);
   void AllowFileSystem(const GURL& url, scoped_ptr<IPC::Message> reply_msg);
   void AllowIndexedDB(const GURL& url,
@@ -85,7 +85,7 @@ class SharedWorkerHost {
   }
   int process_id() const { return worker_process_id_; }
   int worker_route_id() const { return worker_route_id_; }
-  bool closed() const { return closed_; }
+  bool IsAvailable() const;
 
  private:
   // Unique identifier for a worker client.
@@ -127,6 +127,7 @@ class SharedWorkerHost {
   SharedWorkerMessageFilter* container_render_filter_;
   int worker_process_id_;
   int worker_route_id_;
+  bool termination_message_sent_;
   bool closed_;
   const base::TimeTicks creation_time_;
 

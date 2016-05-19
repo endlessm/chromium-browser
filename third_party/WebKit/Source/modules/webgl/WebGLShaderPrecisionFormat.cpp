@@ -24,8 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "modules/webgl/WebGLShaderPrecisionFormat.h"
 
 namespace blink {
@@ -58,4 +56,4 @@ WebGLShaderPrecisionFormat::WebGLShaderPrecisionFormat(GLint rangeMin, GLint ran
 {
 }
 
-}
+} // namespace blink

@@ -5,6 +5,8 @@
 #ifndef NET_SPDY_SPDY_HEADERS_HANDLER_INTERFACE_H_
 #define NET_SPDY_SPDY_HEADERS_HANDLER_INTERFACE_H_
 
+#include <stddef.h>
+
 #include "base/strings/string_piece.h"
 
 namespace net {
@@ -26,7 +28,7 @@ class SpdyHeadersHandlerInterface {
   // A callback method which notifies when the parser finishes handling a
   // header block fragment. Also indicates the total number of bytes in this
   // block.
-  virtual void OnHeaderBlockEnd(size_t header_bytes_parsed) = 0;
+  virtual void OnHeaderBlockEnd(size_t uncompressed_header_bytes) = 0;
 };
 
 }  // namespace net

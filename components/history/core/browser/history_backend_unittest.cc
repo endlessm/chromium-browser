@@ -4,31 +4,33 @@
 
 #include "components/history/core/browser/history_backend.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "components/favicon_base/favicon_usage_data.h"
 #include "components/history/core/browser/history_backend_client.h"
 #include "components/history/core/browser/history_constants.h"
@@ -39,10 +41,10 @@
 #include "components/history/core/browser/in_memory_history_backend.h"
 #include "components/history/core/browser/keyword_search_term.h"
 #include "components/history/core/browser/visit_delegate.h"
-#include "components/history/core/browser/visit_filter.h"
 #include "components/history/core/test/database_test_utils.h"
 #include "components/history/core/test/history_client_fake_bookmarks.h"
 #include "components/history/core/test/test_history_database.h"
+#include "components/prefs/pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -87,7 +89,7 @@ void SimulateNotificationURLVisited(history::HistoryServiceObserver* observer,
 
   base::Time visit_time;
   history::RedirectList redirects;
-  for (const auto& row : rows) {
+  for (const history::URLRow& row : rows) {
     observer->OnURLVisited(nullptr, ui::PAGE_TRANSITION_LINK, row, redirects,
                            visit_time);
   }
@@ -288,7 +290,7 @@ class HistoryBackendTestBase : public testing::Test {
 
 void HistoryBackendTestDelegate::SetInMemoryBackend(
     scoped_ptr<InMemoryHistoryBackend> backend) {
-  test_->SetInMemoryBackend(backend.Pass());
+  test_->SetInMemoryBackend(std::move(backend));
 }
 
 void HistoryBackendTestDelegate::NotifyFaviconsChanged(
@@ -3014,163 +3016,12 @@ TEST_F(HistoryBackendTest, UpdateFaviconMappingsAndFetchNoDB) {
   EXPECT_TRUE(bitmap_results.empty());
 }
 
-TEST_F(HistoryBackendTest, QueryFilteredURLs) {
-  const char* google = "http://www.google.com/";
-  const char* yahoo = "http://www.yahoo.com/";
-  const char* yahoo_sports = "http://sports.yahoo.com/";
-  const char* yahoo_sports_with_article1 =
-      "http://sports.yahoo.com/article1.htm";
-  const char* yahoo_sports_with_article2 =
-      "http://sports.yahoo.com/article2.htm";
-  const char* yahoo_sports_soccer = "http://sports.yahoo.com/soccer";
-  const char* apple = "http://www.apple.com/";
-
-  // Clear all history.
-  backend_->DeleteAllHistory();
-
-  base::Time tested_time = base::Time::Now().LocalMidnight() +
-                     base::TimeDelta::FromHours(4);
-  base::TimeDelta half_an_hour = base::TimeDelta::FromMinutes(30);
-  base::TimeDelta one_hour = base::TimeDelta::FromHours(1);
-  base::TimeDelta one_day = base::TimeDelta::FromDays(1);
-
-  const ui::PageTransition kTypedTransition =
-      ui::PAGE_TRANSITION_TYPED;
-  const ui::PageTransition kKeywordGeneratedTransition =
-      ui::PAGE_TRANSITION_KEYWORD_GENERATED;
-
-  const char* redirect_sequence[2];
-  redirect_sequence[1] = NULL;
-
-  redirect_sequence[0] = google;
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0, kTypedTransition,
-      tested_time - one_day - half_an_hour * 2);
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0,
-      kTypedTransition, tested_time - one_day);
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0,
-      kTypedTransition, tested_time - half_an_hour / 2);
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0,
-      kTypedTransition, tested_time);
-
-  // Add a visit with a transition that will make sure that no segment gets
-  // created for this page (so the subsequent entries will have different URLIDs
-  // and SegmentIDs).
-  redirect_sequence[0] = apple;
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0, kKeywordGeneratedTransition,
-      tested_time - one_day + one_hour * 6);
-
-  redirect_sequence[0] = yahoo;
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0, kTypedTransition,
-      tested_time - one_day + half_an_hour);
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0, kTypedTransition,
-      tested_time - one_day + half_an_hour * 2);
-
-  redirect_sequence[0] = yahoo_sports;
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0, kTypedTransition,
-      tested_time - one_day - half_an_hour * 2);
-  AddRedirectChainWithTransitionAndTime(
-      redirect_sequence, 0, kTypedTransition,
-      tested_time - one_day);
-  int transition1, transition2;
-  AddClientRedirect(GURL(yahoo_sports), GURL(yahoo_sports_with_article1), false,
-                    tested_time - one_day + half_an_hour,
-                    &transition1, &transition2);
-  AddClientRedirect(GURL(yahoo_sports_with_article1),
-                    GURL(yahoo_sports_with_article2),
-                    false,
-                    tested_time - one_day + half_an_hour * 2,
-                    &transition1, &transition2);
-
-  redirect_sequence[0] = yahoo_sports_soccer;
-  AddRedirectChainWithTransitionAndTime(redirect_sequence, 0,
-                                        kTypedTransition,
-                                        tested_time - half_an_hour);
-  backend_->Commit();
-
-  VisitFilter filter;
-  FilteredURLList filtered_list;
-  // Time limit is |tested_time| +/- 45 min.
-  base::TimeDelta three_quarters_of_an_hour = base::TimeDelta::FromMinutes(45);
-  filter.SetFilterTime(tested_time);
-  filter.SetFilterWidth(three_quarters_of_an_hour);
-  backend_->QueryFilteredURLs(100, filter, false, &filtered_list);
-
-  ASSERT_EQ(4U, filtered_list.size());
-  EXPECT_EQ(std::string(google), filtered_list[0].url.spec());
-  EXPECT_EQ(std::string(yahoo_sports_soccer), filtered_list[1].url.spec());
-  EXPECT_EQ(std::string(yahoo), filtered_list[2].url.spec());
-  EXPECT_EQ(std::string(yahoo_sports), filtered_list[3].url.spec());
-
-  // Time limit is between |tested_time| and |tested_time| + 2 hours.
-  filter.SetFilterTime(tested_time + one_hour);
-  filter.SetFilterWidth(one_hour);
-  backend_->QueryFilteredURLs(100, filter, false, &filtered_list);
-
-  ASSERT_EQ(3U, filtered_list.size());
-  EXPECT_EQ(std::string(google), filtered_list[0].url.spec());
-  EXPECT_EQ(std::string(yahoo), filtered_list[1].url.spec());
-  EXPECT_EQ(std::string(yahoo_sports), filtered_list[2].url.spec());
-
-  // Time limit is between |tested_time| - 2 hours and |tested_time|.
-  filter.SetFilterTime(tested_time - one_hour);
-  filter.SetFilterWidth(one_hour);
-  backend_->QueryFilteredURLs(100, filter, false, &filtered_list);
-
-  ASSERT_EQ(3U, filtered_list.size());
-  EXPECT_EQ(std::string(google), filtered_list[0].url.spec());
-  EXPECT_EQ(std::string(yahoo_sports_soccer), filtered_list[1].url.spec());
-  EXPECT_EQ(std::string(yahoo_sports), filtered_list[2].url.spec());
-
-  filter.ClearFilters();
-  base::Time::Exploded exploded_time;
-  tested_time.LocalExplode(&exploded_time);
-
-  // Today.
-  filter.SetFilterTime(tested_time);
-  filter.SetDayOfTheWeekFilter(static_cast<int>(exploded_time.day_of_week));
-  backend_->QueryFilteredURLs(100, filter, false, &filtered_list);
-
-  ASSERT_EQ(2U, filtered_list.size());
-  EXPECT_EQ(std::string(google), filtered_list[0].url.spec());
-  EXPECT_EQ(std::string(yahoo_sports_soccer), filtered_list[1].url.spec());
-
-  // Today + time limit - only yahoo_sports_soccer should fit.
-  filter.SetFilterTime(tested_time - base::TimeDelta::FromMinutes(40));
-  filter.SetFilterWidth(base::TimeDelta::FromMinutes(20));
-  backend_->QueryFilteredURLs(100, filter, false, &filtered_list);
-
-  ASSERT_EQ(1U, filtered_list.size());
-  EXPECT_EQ(std::string(yahoo_sports_soccer), filtered_list[0].url.spec());
-
-  // Make sure we get debug data if we request it.
-  filter.SetFilterTime(tested_time);
-  filter.SetFilterWidth(one_hour * 2);
-  backend_->QueryFilteredURLs(100, filter, true, &filtered_list);
-
-  // If the SegmentID is used by QueryFilteredURLs when generating the debug
-  // data instead of the URLID, the |total_visits| for the |yahoo_sports_soccer|
-  // entry will be zero instead of 1.
-  ASSERT_GE(filtered_list.size(), 2U);
-  EXPECT_EQ(std::string(google), filtered_list[0].url.spec());
-  EXPECT_EQ(std::string(yahoo_sports_soccer), filtered_list[1].url.spec());
-  EXPECT_EQ(4U, filtered_list[0].extended_info.total_visits);
-  EXPECT_EQ(1U, filtered_list[1].extended_info.total_visits);
-}
-
 TEST_F(HistoryBackendTest, TopHosts) {
   std::vector<GURL> urls;
   urls.push_back(GURL("http://cnn.com/us"));
   urls.push_back(GURL("http://cnn.com/intl"));
   urls.push_back(GURL("http://dogtopia.com/"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3185,7 +3036,7 @@ TEST_F(HistoryBackendTest, TopHosts_ElidePortAndScheme) {
   urls.push_back(GURL("http://cnn.com/us"));
   urls.push_back(GURL("https://cnn.com/intl"));
   urls.push_back(GURL("http://cnn.com:567/sports"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3198,7 +3049,7 @@ TEST_F(HistoryBackendTest, TopHosts_ElideWWW) {
   urls.push_back(GURL("http://www.cnn.com/us"));
   urls.push_back(GURL("http://cnn.com/intl"));
   urls.push_back(GURL("http://www.dogtopia.com/"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3213,7 +3064,7 @@ TEST_F(HistoryBackendTest, TopHosts_OnlyLast30Days) {
   urls.push_back(GURL("http://cnn.com/us"));
   urls.push_back(GURL("http://cnn.com/intl"));
   urls.push_back(GURL("http://dogtopia.com/"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3234,7 +3085,7 @@ TEST_F(HistoryBackendTest, TopHosts_MaxNumHosts) {
   urls.push_back(GURL("http://dogtopia.com/"));
   urls.push_back(GURL("http://dogtopia.com/webcam"));
   urls.push_back(GURL("http://www.gardenweb.com/"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3255,7 +3106,7 @@ TEST_F(HistoryBackendTest, TopHosts_IgnoreUnusualURLs) {
   urls.push_back(GURL("data:text/plain,Hello%20world%21"));
   urls.push_back(GURL("chrome://memory"));
   urls.push_back(GURL("about:mammon"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3268,7 +3119,7 @@ TEST_F(HistoryBackendTest, HostRankIfAvailable) {
   urls.push_back(GURL("http://cnn.com/us"));
   urls.push_back(GURL("http://cnn.com/intl"));
   urls.push_back(GURL("http://dogtopia.com/"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3292,7 +3143,7 @@ TEST_F(HistoryBackendTest, RecordTopHostsMetrics) {
   urls.push_back(GURL("http://cnn.com/us"));
   urls.push_back(GURL("http://cnn.com/intl"));
   urls.push_back(GURL("http://dogtopia.com/"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
                            history::SOURCE_BROWSED);
   }
@@ -3306,7 +3157,7 @@ TEST_F(HistoryBackendTest, RecordTopHostsMetrics) {
   urls.clear();
   urls.push_back(GURL("http://cnn.com/us"));
   urls.push_back(GURL("http://www.unipresse.com/"));
-  for (const auto& url : urls) {
+  for (const GURL& url : urls) {
     backend_->AddPageVisit(url, base::Time::Now(), 0,
                            ui::PAGE_TRANSITION_CHAIN_END,
                            history::SOURCE_BROWSED);
@@ -3314,6 +3165,35 @@ TEST_F(HistoryBackendTest, RecordTopHostsMetrics) {
 
   EXPECT_THAT(histogram.GetAllSamples("History.TopHostsVisitsByRank"),
               ElementsAre(base::Bucket(1, 1), base::Bucket(51, 1)));
+}
+
+TEST_F(HistoryBackendTest, GetCountsForOrigins) {
+  std::vector<GURL> urls;
+  urls.push_back(GURL("http://cnn.com/us"));
+  urls.push_back(GURL("http://cnn.com/intl"));
+  urls.push_back(GURL("https://cnn.com/intl"));
+  urls.push_back(GURL("http://cnn.com:8080/path"));
+  urls.push_back(GURL("http://dogtopia.com/pups?q=poods"));
+  for (const GURL& url : urls) {
+    backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
+                           history::SOURCE_BROWSED);
+  }
+
+  std::set<GURL> origins;
+  origins.insert(GURL("http://cnn.com/"));
+  EXPECT_THAT(backend_->GetCountsForOrigins(origins),
+              ElementsAre(std::make_pair(GURL("http://cnn.com/"), 2)));
+
+  origins.insert(GURL("http://dogtopia.com/"));
+  origins.insert(GURL("http://cnn.com:8080/"));
+  origins.insert(GURL("https://cnn.com/"));
+  origins.insert(GURL("http://notpresent.com/"));
+  EXPECT_THAT(backend_->GetCountsForOrigins(origins),
+              ElementsAre(std::make_pair(GURL("http://cnn.com/"), 2),
+                          std::make_pair(GURL("http://cnn.com:8080/"), 1),
+                          std::make_pair(GURL("http://dogtopia.com/"), 1),
+                          std::make_pair(GURL("http://notpresent.com/"), 0),
+                          std::make_pair(GURL("https://cnn.com/"), 1)));
 }
 
 TEST_F(HistoryBackendTest, UpdateVisitDuration) {

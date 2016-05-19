@@ -4,7 +4,10 @@
 
 #include "chrome/installer/util/channel_info.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/win/registry.h"
@@ -53,8 +56,8 @@ enum ModifierIndex {
   NUM_MODIFIERS
 };
 
-COMPILE_ASSERT(NUM_MODIFIERS == arraysize(kModifiers),
-    kModifiers_disagrees_with_ModifierIndex_comma_they_must_match_bang);
+static_assert(NUM_MODIFIERS == arraysize(kModifiers),
+              "kModifiers disagrees with ModifierIndex; they must match!");
 
 // Returns true if the modifier is found, in which case |position| holds the
 // location at which the modifier was found.  The number of characters in the

@@ -4,6 +4,9 @@
 
 #include "build/build_config.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <limits>
 #include <set>
 
@@ -16,7 +19,7 @@
 
 // Whether IPC::Message::FindNext() can determine message size for
 // partial messages. The condition is from FindNext() implementation.
-#if USE_ATTACHMENT_BROKER && defined(OS_MACOSX) && !defined(OS_IOS)
+#if USE_ATTACHMENT_BROKER
 #define MESSAGE_FINDNEXT_PARTIAL 0
 #else
 #define MESSAGE_FINDNEXT_PARTIAL 1
@@ -216,7 +219,7 @@ TEST(ChannelReaderTest, InvalidMessageSize) {
       reinterpret_cast<const char*>(&header), sizeof(header)));
   EXPECT_LE(reader.input_overflow_buf_.capacity(), capacity_before);
 
-  // Payload size is maximum int32 value
+  // Payload size is maximum int32_t value
   header.payload_size = std::numeric_limits<int32_t>::max();
   EXPECT_FALSE(reader.TranslateInputData(
       reinterpret_cast<const char*>(&header), sizeof(header)));

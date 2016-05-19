@@ -165,11 +165,12 @@ WebInspector.BezierPopoverIcon.prototype = {
         this._element = createElement("nobr");
         this._element.title = WebInspector.UIString("Open cubic bezier editor");
 
-        this._iconElement = this._element.createSVGChild("svg", "popover-icon bezier-icon");
-        this._iconElement.setAttribute("height", 10);
-        this._iconElement.setAttribute("width", 10);
+        this._iconElement = this._element.createChild("div", "popover-icon bezier-icon");
+        var svg = this._iconElement.createSVGChild("svg");
+        svg.setAttribute("height", 10);
+        svg.setAttribute("width", 10);
         this._iconElement.addEventListener("click", this._iconClick.bind(this), false);
-        var g = this._iconElement.createSVGChild("g");
+        var g = svg.createSVGChild("g");
         var path = g.createSVGChild("path");
         path.setAttribute("d", "M2,8 C2,3 8,7 8,2");
 
@@ -236,7 +237,7 @@ WebInspector.ColorSwatchPopoverIcon = function(treeElement, stylesPopoverHelper,
 
     this._swatch = WebInspector.ColorSwatch.create();
     this._swatch.setColorText(colorText);
-    this._swatch.setFormat(WebInspector.ColorSwatchPopoverIcon._colorFormat(this._swatch.color()));
+    this._swatch.setFormat(WebInspector.Color.detectColorFormat(this._swatch.color()));
     var shiftClickMessage = WebInspector.UIString("Shift + Click to change color format.");
     this._swatch.iconElement().title = WebInspector.UIString("Open color picker. %s", shiftClickMessage);
     this._swatch.iconElement().addEventListener("click", this._iconClick.bind(this));
@@ -254,29 +255,6 @@ WebInspector.ColorSwatchPopoverIcon._treeElementSymbol = Symbol("WebInspector.Co
 WebInspector.ColorSwatchPopoverIcon.forTreeElement = function(treeElement)
 {
     return treeElement[WebInspector.ColorSwatchPopoverIcon._treeElementSymbol] || null;
-}
-
-/**
- * @param {!WebInspector.Color} color
- * @return {!WebInspector.Color.Format}
- */
-WebInspector.ColorSwatchPopoverIcon._colorFormat = function(color)
-{
-    const cf = WebInspector.Color.Format;
-    var format;
-    var formatSetting = WebInspector.moduleSetting("colorFormat").get();
-    if (formatSetting === cf.Original)
-        format = cf.Original;
-    else if (formatSetting === cf.RGB)
-        format = (color.hasAlpha() ? cf.RGBA : cf.RGB);
-    else if (formatSetting === cf.HSL)
-        format = (color.hasAlpha() ? cf.HSLA : cf.HSL);
-    else if (!color.hasAlpha())
-        format = (color.canBeShortHex() ? cf.ShortHEX : cf.HEX);
-    else
-        format = cf.RGBA;
-
-    return format;
 }
 
 WebInspector.ColorSwatchPopoverIcon.prototype = {

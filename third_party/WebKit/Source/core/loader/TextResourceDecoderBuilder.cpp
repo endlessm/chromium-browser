@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/loader/TextResourceDecoderBuilder.h"
 
 #include "core/dom/Document.h"
@@ -105,4 +104,4 @@ void TextResourceDecoderBuilder::clear()
     m_encoding = nullAtom;
 }
 
-}
+} // namespace blink

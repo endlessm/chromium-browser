@@ -4,9 +4,11 @@
 
 #include "chrome/service/service_process_prefs.h"
 
-#include "base/prefs/pref_filter.h"
+#include <utility>
+
 #include "base/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "components/prefs/pref_filter.h"
 
 ServiceProcessPrefs::ServiceProcessPrefs(
     const base::FilePath& pref_filename,
@@ -95,7 +97,7 @@ const base::ListValue* ServiceProcessPrefs::GetList(
 
 void ServiceProcessPrefs::SetValue(const std::string& key,
                                    scoped_ptr<base::Value> value) {
-  prefs_->SetValue(key, value.Pass(),
+  prefs_->SetValue(key, std::move(value),
                    WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 }
 

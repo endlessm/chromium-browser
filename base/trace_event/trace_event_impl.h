@@ -6,6 +6,8 @@
 #ifndef BASE_TRACE_EVENT_TRACE_EVENT_IMPL_H_
 #define BASE_TRACE_EVENT_TRACE_EVENT_IMPL_H_
 
+#include <stdint.h>
+
 #include <stack>
 #include <string>
 #include <vector>
@@ -14,6 +16,7 @@
 #include "base/base_export.h"
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/observer_list.h"
 #include "base/single_thread_task_runner.h"
@@ -23,6 +26,7 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_local.h"
 #include "base/trace_event/trace_event_memory_overhead.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -67,7 +71,7 @@ class BASE_EXPORT ConvertableToTraceFormat
 const int kTraceMaxNumArgs = 2;
 
 struct TraceEventHandle {
-  uint32 chunk_seq;
+  uint32_t chunk_seq;
   // These numbers of bits must be kept consistent with
   // TraceBufferChunk::kMaxTrunkIndex and
   // TraceBufferChunk::kTraceBufferChunkSize (in trace_buffer.h).
@@ -100,8 +104,8 @@ class BASE_EXPORT TraceEvent {
       char phase,
       const unsigned char* category_group_enabled,
       const char* name,
+      const char* scope,
       unsigned long long id,
-      unsigned long long context_id,
       unsigned long long bind_id,
       int num_args,
       const char** arg_names,
@@ -132,8 +136,8 @@ class BASE_EXPORT TraceEvent {
   int thread_id() const { return thread_id_; }
   TimeDelta duration() const { return duration_; }
   TimeDelta thread_duration() const { return thread_duration_; }
+  const char* scope() const { return scope_; }
   unsigned long long id() const { return id_; }
-  unsigned long long context_id() const { return context_id_; }
   unsigned int flags() const { return flags_; }
 
   // Exposed for unittesting:
@@ -158,10 +162,9 @@ class BASE_EXPORT TraceEvent {
   ThreadTicks thread_timestamp_;
   TimeDelta duration_;
   TimeDelta thread_duration_;
-  // id_ can be used to store phase-specific data.
+  // scope_ and id_ can be used to store phase-specific data.
+  const char* scope_;
   unsigned long long id_;
-  // context_id_ is used to store context information.
-  unsigned long long context_id_;
   TraceValue arg_values_[kTraceMaxNumArgs];
   const char* arg_names_[kTraceMaxNumArgs];
   scoped_refptr<ConvertableToTraceFormat> convertable_values_[kTraceMaxNumArgs];

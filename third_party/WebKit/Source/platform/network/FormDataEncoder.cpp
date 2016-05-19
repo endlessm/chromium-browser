@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/network/FormDataEncoder.h"
 
 #include "wtf/CryptographicallyRandomNumber.h"
@@ -74,40 +73,35 @@ static void appendQuotedString(Vector<char>& buffer, const CString& string)
     }
 }
 
-WTF::TextEncoding FormDataEncoder::encodingFromAcceptCharset(const String& acceptCharset, const String& charset, const String& defaultCharset)
+WTF::TextEncoding FormDataEncoder::encodingFromAcceptCharset(const String& acceptCharset, const WTF::TextEncoding& fallbackEncoding)
 {
+    ASSERT(fallbackEncoding.isValid());
+
     String normalizedAcceptCharset = acceptCharset;
     normalizedAcceptCharset.replace(',', ' ');
 
     Vector<String> charsets;
     normalizedAcceptCharset.split(' ', charsets);
 
-    WTF::TextEncoding encoding;
-
-    Vector<String>::const_iterator end = charsets.end();
-    for (Vector<String>::const_iterator it = charsets.begin(); it != end; ++it) {
-        if ((encoding = WTF::TextEncoding(*it)).isValid())
+    for (const String& name : charsets) {
+        WTF::TextEncoding encoding(name);
+        if (encoding.isValid())
             return encoding;
     }
 
-    if (charset.isEmpty()) {
-        if (defaultCharset.isEmpty())
-            return WTF::UTF8Encoding();
-
-        return defaultCharset;
-    }
-
-    return charset;
+    return fallbackEncoding;
 }
 
 Vector<char> FormDataEncoder::generateUniqueBoundaryString()
 {
     Vector<char> boundary;
 
+    // TODO(rsleevi): crbug.com/575779: Follow the spec or fix the spec.
     // The RFC 2046 spec says the alphanumeric characters plus the
     // following characters are legal for boundaries:  '()+_,-./:=?
     // However the following characters, though legal, cause some sites
     // to fail: (),./:=+
+    //
     // Note that our algorithm makes it twice as much likely for 'A' or 'B'
     // to appear in the boundary string, because 0x41 and 0x42 are present in
     // the below array twice.
@@ -223,4 +217,4 @@ void FormDataEncoder::encodeStringAsFormData(Vector<char>& buffer, const CString
     }
 }
 
-}
+} // namespace blink

@@ -5,11 +5,15 @@
 #ifndef CONTENT_BROWSER_BLUETOOTH_BLUETOOTH_DISPATCHER_HOST_H_
 #define CONTENT_BROWSER_BLUETOOTH_BLUETOOTH_DISPATCHER_HOST_H_
 
-#include "base/basictypes.h"
-#include "base/containers/scoped_ptr_map.h"
+#include <stdint.h>
+
+#include <map>
+
 #include "base/id_map.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
+#include "content/browser/bluetooth/bluetooth_allowed_devices_map.h"
 #include "content/public/browser/bluetooth_chooser.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -84,13 +88,13 @@ class CONTENT_EXPORT BluetoothDispatcherHost final
   void GattCharacteristicValueChanged(
       device::BluetoothAdapter* adapter,
       device::BluetoothGattCharacteristic* characteristic,
-      const std::vector<uint8>& value) override;
+      const std::vector<uint8_t>& value) override;
 
   // Sends an IPC to the thread informing that a the characteristic's
   // value changed.
   void NotifyActiveCharacteristic(int thread_id,
                                   const std::string& characteristic_instance_id,
-                                  const std::vector<uint8>& value);
+                                  const std::vector<uint8_t>& value);
 
   // IPC Handlers, see definitions in bluetooth_messages.h.
   void OnRequestDevice(
@@ -99,36 +103,64 @@ class CONTENT_EXPORT BluetoothDispatcherHost final
       int frame_routing_id,
       const std::vector<content::BluetoothScanFilter>& filters,
       const std::vector<device::BluetoothUUID>& optional_services);
-  void OnConnectGATT(int thread_id,
-                     int request_id,
-                     const std::string& device_id);
+  void OnGATTServerConnect(int thread_id,
+                           int request_id,
+                           int frame_routing_id,
+                           const std::string& device_id);
+  void OnGATTServerDisconnect(int thread_id,
+                              int frame_routing_id,
+                              const std::string& device_id);
   void OnGetPrimaryService(int thread_id,
                            int request_id,
+                           int frame_routing_id,
                            const std::string& device_id,
                            const std::string& service_uuid);
   void OnGetCharacteristic(int thread_id,
                            int request_id,
+                           int frame_routing_id,
                            const std::string& service_instance_id,
                            const std::string& characteristic_uuid);
+  void OnGetCharacteristics(int thread_id,
+                            int request_id,
+                            int frame_routing_id,
+                            const std::string& service_instance_id,
+                            const std::string& characteristics_uuid);
   void OnReadValue(int thread_id,
                    int request_id,
+                   int frame_routing_id,
                    const std::string& characteristic_instance_id);
   void OnWriteValue(int thread_id,
                     int request_id,
+                    int frame_routing_id,
                     const std::string& characteristic_instance_id,
                     const std::vector<uint8_t>& value);
   void OnStartNotifications(int thread_id,
                             int request_id,
+                            int frame_routing_id,
                             const std::string& characteristic_instance_id);
   void OnStopNotifications(int thread_id,
                            int request_id,
+                           int frame_routing_id,
                            const std::string& characteristic_instance_id);
   void OnRegisterCharacteristicObject(
       int thread_id,
+      int frame_routing_id,
       const std::string& characteristic_instance_id);
   void OnUnregisterCharacteristicObject(
       int thread_id,
+      int frame_routing_id,
       const std::string& characteristic_instance_id);
+
+  // Callbacks for BluetoothDevice::OnRequestDevice.
+  // If necessary, the adapter must be obtained before continuing to Impl.
+  void OnGetAdapter(base::Closure continuation,
+                    scoped_refptr<device::BluetoothAdapter> adapter);
+  void OnRequestDeviceImpl(
+      int thread_id,
+      int request_id,
+      int frame_routing_id,
+      const std::vector<content::BluetoothScanFilter>& filters,
+      const std::vector<device::BluetoothUUID>& optional_services);
 
   // Callbacks for BluetoothAdapter::StartDiscoverySession.
   void OnDiscoverySessionStarted(
@@ -172,7 +204,7 @@ class CONTENT_EXPORT BluetoothDispatcherHost final
   // Callbacks for BluetoothGattCharacteristic::ReadRemoteCharacteristic.
   void OnCharacteristicValueRead(int thread_id,
                                  int request_id,
-                                 const std::vector<uint8>& value);
+                                 const std::vector<uint8_t>& value);
   void OnCharacteristicReadValueError(
       int thread_id,
       int request_id,
@@ -207,38 +239,36 @@ class CONTENT_EXPORT BluetoothDispatcherHost final
   // was already recorded and since there renderer crashed there is no need to
   // send a response.
 
-  // Queries the platform cache for a Device with |device_id|. If
-  // successful the device will be in result.device
-  void QueryCacheForDevice(const std::string& device_id,
-                           CacheQueryResult& result);
-  // Queries the platform cache for a Service with |service_instance_id|.
-  // If successfull the service will be in result.service.
-  void QueryCacheForService(const std::string& service_instance_id,
-                            CacheQueryResult& result);
+  // Queries the platform cache for a Device with |device_id| for |origin|.
+  // Fills in the |outcome| field and the |device| field if successful.
+  CacheQueryResult QueryCacheForDevice(const url::Origin& origin,
+                                       const std::string& device_id);
+  // Queries the platform cache for a Service with |service_instance_id|. Fills
+  // in the |outcome| field, and |device| and |service| fields if successful.
+  CacheQueryResult QueryCacheForService(const url::Origin& origin,
+                                        const std::string& service_instance_id);
   // Queries the platform cache for a characteristic with
-  // |characteristic_instance_id|. If successfull the characteristic will be in
-  // result.characteristic.
-  void QueryCacheForCharacteristic(
-      const std::string& characteristic_instance_id,
-      CacheQueryResult& result);
-
-  // Returns true if all services have been discovered for the device.
-  // When the host gets a ServiceChanged indication, it automatically
-  // re-discovers services, and only forwards the ServiceChanged event to this
-  // class when it's done re-discovering.
-  bool IsServicesDiscoveryCompleteForDevice(const std::string& device_id);
+  // |characteristic_instance_id|. Fills in the |outcome| field, and |device|,
+  // |service| and |characteristic| fields if successful.
+  CacheQueryResult QueryCacheForCharacteristic(
+      const url::Origin& origin,
+      const std::string& characteristic_instance_id);
 
   // Adds the PrimaryServicesRequest to the vector of pending services requests
   // for that device.
   void AddToPendingPrimaryServicesRequest(
-      const std::string& device_id,
+      const std::string& device_address,
       const PrimaryServicesRequest& request);
 
-  // Show help pages from the chooser dialog.
-  void ShowBluetoothOverviewLink();
-  void ShowBluetoothPairingLink();
-  void ShowBluetoothAdapterOffLink();
-  void ShowNeedLocationLink();
+  // Returns the origin for the frame with "frame_routing_id" in
+  // render_process_id_.
+  url::Origin GetOrigin(int frame_routing_id);
+
+  // Returns true if the frame has permission to access the characteristic
+  // with |characteristic_instance_id|.
+  bool CanFrameAccessCharacteristicInstance(
+      int frame_routing_id,
+      const std::string& characteristic_instance_id);
 
   int render_process_id_;
 
@@ -248,8 +278,10 @@ class CONTENT_EXPORT BluetoothDispatcherHost final
   // again everywhere a requestDevice() reply is sent.
   IDMap<RequestDeviceSession, IDMapOwnPointer> request_device_sessions_;
 
+  BluetoothAllowedDevicesMap allowed_devices_map_;
+
   // Maps to get the object's parent based on it's instanceID
-  // Map of service_instance_id to device_id.
+  // Map of service_instance_id to device_address.
   std::map<std::string, std::string> service_to_device_;
   // Map of characteristic_instance_id to service_instance_id.
   std::map<std::string, std::string> characteristic_to_service_;
@@ -257,8 +289,7 @@ class CONTENT_EXPORT BluetoothDispatcherHost final
   // Map that matches characteristic_instance_id to notify session.
   // TODO(ortuno): Also key by thread_id once support for web workers,
   // is added: http://crbug.com/537372
-  base::ScopedPtrMap<std::string,
-                     scoped_ptr<device::BluetoothGattNotifySession>>
+  std::map<std::string, scoped_ptr<device::BluetoothGattNotifySession>>
       characteristic_id_to_notify_session_;
 
   // Map of characteristic_instance_id to a set of thread ids.
@@ -280,14 +311,11 @@ class CONTENT_EXPORT BluetoothDispatcherHost final
   base::Timer discovery_session_timer_;
 
   // Retain BluetoothGattConnection objects to keep connections open.
-  // TODO(scheib): Destroy as connections are closed. http://crbug.com/539643
-  ScopedVector<device::BluetoothGattConnection> connections_;
+  std::map<std::string, scoped_ptr<device::BluetoothGattConnection>>
+      device_id_to_connection_map_;
 
-  // Keeps track of which devices have had their services discovered.
-  std::set<std::string> devices_with_discovered_services_;
-
-  // Map of device_id's to primary-services requests that need responses when
-  // that device's service discovery completes.
+  // Map of device_address's to primary-services requests that need responses
+  // when that device's service discovery completes.
   std::map<std::string, std::vector<PrimaryServicesRequest>>
       pending_primary_services_requests_;
 

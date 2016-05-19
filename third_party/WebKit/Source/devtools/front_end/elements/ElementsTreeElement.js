@@ -351,20 +351,6 @@ WebInspector.ElementsTreeElement.prototype = {
 
     /**
      * @override
-     */
-    onreveal: function()
-    {
-        if (this.listItemElement) {
-            var tagSpans = this.listItemElement.getElementsByClassName("webkit-html-tag-name");
-            if (tagSpans.length)
-                tagSpans[0].scrollIntoViewIfNeeded(true);
-            else
-                this.listItemElement.scrollIntoViewIfNeeded(true);
-        }
-    },
-
-    /**
-     * @override
      * @param {boolean=} omitFocus
      * @param {boolean=} selectedByUser
      * @return {boolean}
@@ -373,8 +359,6 @@ WebInspector.ElementsTreeElement.prototype = {
     {
         if (this._editing)
             return false;
-        if (selectedByUser && this.treeOutline.handlePickNode(this.title, this._node))
-            return true;
         return TreeElement.prototype.select.call(this, omitFocus, selectedByUser);
     },
 
@@ -484,9 +468,6 @@ WebInspector.ElementsTreeElement.prototype = {
             return false;
 
         if (this._node.nodeType() != Node.ELEMENT_NODE && this._node.nodeType() != Node.TEXT_NODE)
-            return false;
-
-        if (this.treeOutline.pickNodeMode())
             return false;
 
         var textNode = eventTarget.enclosingNodeOrSelfWithClass("webkit-html-text-node");
@@ -931,7 +912,7 @@ WebInspector.ElementsTreeElement.prototype = {
                         this._triggerEditAttribute(attributes[attributes.length - 2].name);
                 }
             } else if (moveDirection === "forward") {
-                if (!/^\s*$/.test(newText))
+                if (!newText.isWhitespace())
                     this._addNewAttribute();
                 else
                     this._startEditingTagName();

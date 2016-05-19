@@ -6,14 +6,9 @@
 
 #include "base/auto_reset.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/default_pref_store.h"
-#include "base/prefs/overlay_user_pref_store.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
-#include "base/prefs/testing_pref_store.h"
 #include "base/test/simple_test_clock.h"
 #include "base/threading/platform_thread.h"
 #include "base/values.h"
@@ -31,6 +26,12 @@
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/test/content_settings_test_utils.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/default_pref_store.h"
+#include "components/prefs/overlay_user_pref_store.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
+#include "components/prefs/testing_pref_store.h"
 #include "components/syncable_prefs/pref_service_mock_factory.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
@@ -66,7 +67,7 @@ class DeadlockCheckerObserver {
       notification_received_(false) {
     pref_change_registrar_.Init(prefs);
     for (const auto& pair : provider_->content_settings_prefs_) {
-      const ContentSettingsPref* pref = pair.second;
+      const ContentSettingsPref* pref = pair.second.get();
       pref_change_registrar_.Add(
           pref->pref_name_,
           base::Bind(
@@ -180,20 +181,14 @@ TEST_F(PrefProviderTest, Incognito) {
   GURL host("http://example.com/");
   // The value should of course be visible in the regular PrefProvider.
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
-            GetContentSetting(&pref_content_settings_provider,
-                              host,
-                              host,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host,
+                                         host, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
   // And also in the OTR version.
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
-            GetContentSetting(&pref_content_settings_provider_incognito,
-                              host,
-                              host,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(
+                &pref_content_settings_provider_incognito, host, host,
+                CONTENT_SETTINGS_TYPE_IMAGES, std::string(), false));
   const WebsiteSettingsInfo* info =
       WebsiteSettingsRegistry::GetInstance()->Get(CONTENT_SETTINGS_TYPE_IMAGES);
   // But the value should not be overridden in the OTR user prefs accidentally.
@@ -212,20 +207,13 @@ TEST_F(PrefProviderTest, GetContentSettingsValue) {
       ContentSettingsPattern::FromString("[*.]example.com");
 
   EXPECT_EQ(CONTENT_SETTING_DEFAULT,
-            GetContentSetting(&provider,
-                              primary_url,
-                              primary_url,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&provider, primary_url, primary_url,
+                                         CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
 
-  EXPECT_EQ(NULL,
-            GetContentSettingValue(&provider,
-                                   primary_url,
-                                   primary_url,
-                                   CONTENT_SETTINGS_TYPE_IMAGES,
-                                   std::string(),
-                                   false));
+  EXPECT_EQ(NULL, TestUtils::GetContentSettingValue(
+                      &provider, primary_url, primary_url,
+                      CONTENT_SETTINGS_TYPE_IMAGES, std::string(), false));
 
   provider.SetWebsiteSetting(primary_pattern,
                              primary_pattern,
@@ -233,19 +221,12 @@ TEST_F(PrefProviderTest, GetContentSettingsValue) {
                              std::string(),
                              new base::FundamentalValue(CONTENT_SETTING_BLOCK));
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            GetContentSetting(&provider,
-                              primary_url,
-                              primary_url,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
-  scoped_ptr<base::Value> value_ptr(
-      GetContentSettingValue(&provider,
-                             primary_url,
-                             primary_url,
-                             CONTENT_SETTINGS_TYPE_IMAGES,
-                             std::string(),
-                             false));
+            TestUtils::GetContentSetting(&provider, primary_url, primary_url,
+                                         CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
+  scoped_ptr<base::Value> value_ptr(TestUtils::GetContentSettingValue(
+      &provider, primary_url, primary_url, CONTENT_SETTINGS_TYPE_IMAGES,
+      std::string(), false));
   int int_value = -1;
   value_ptr->GetAsInteger(&int_value);
   EXPECT_EQ(CONTENT_SETTING_BLOCK, IntToContentSetting(int_value));
@@ -255,13 +236,9 @@ TEST_F(PrefProviderTest, GetContentSettingsValue) {
                              CONTENT_SETTINGS_TYPE_IMAGES,
                              std::string(),
                              NULL);
-  EXPECT_EQ(NULL,
-            GetContentSettingValue(&provider,
-                                   primary_url,
-                                   primary_url,
-                                   CONTENT_SETTINGS_TYPE_IMAGES,
-                                   std::string(),
-                                   false));
+  EXPECT_EQ(NULL, TestUtils::GetContentSettingValue(
+                      &provider, primary_url, primary_url,
+                      CONTENT_SETTINGS_TYPE_IMAGES, std::string(), false));
   provider.ShutdownOnUIThread();
 }
 
@@ -282,12 +259,9 @@ TEST_F(PrefProviderTest, Patterns) {
       ContentSettingsPattern::FromString("file:///tmp/test.html");
 
   EXPECT_EQ(CONTENT_SETTING_DEFAULT,
-            GetContentSetting(&pref_content_settings_provider,
-                              host1,
-                              host1,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host1,
+                                         host1, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
   pref_content_settings_provider.SetWebsiteSetting(
       pattern1,
       pattern1,
@@ -295,27 +269,18 @@ TEST_F(PrefProviderTest, Patterns) {
       std::string(),
       new base::FundamentalValue(CONTENT_SETTING_BLOCK));
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            GetContentSetting(&pref_content_settings_provider,
-                              host1,
-                              host1,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host1,
+                                         host1, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            GetContentSetting(&pref_content_settings_provider,
-                              host2,
-                              host2,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host2,
+                                         host2, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
 
   EXPECT_EQ(CONTENT_SETTING_DEFAULT,
-            GetContentSetting(&pref_content_settings_provider,
-                              host3,
-                              host3,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host3,
+                                         host3, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
   pref_content_settings_provider.SetWebsiteSetting(
       pattern2,
       pattern2,
@@ -323,20 +288,14 @@ TEST_F(PrefProviderTest, Patterns) {
       std::string(),
       new base::FundamentalValue(CONTENT_SETTING_BLOCK));
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            GetContentSetting(&pref_content_settings_provider,
-                              host3,
-                              host3,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host3,
+                                         host3, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
 
   EXPECT_EQ(CONTENT_SETTING_DEFAULT,
-            GetContentSetting(&pref_content_settings_provider,
-                              host4,
-                              host4,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host4,
+                                         host4, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
   pref_content_settings_provider.SetWebsiteSetting(
       pattern3,
       pattern3,
@@ -344,12 +303,9 @@ TEST_F(PrefProviderTest, Patterns) {
       std::string(),
       new base::FundamentalValue(CONTENT_SETTING_BLOCK));
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            GetContentSetting(&pref_content_settings_provider,
-                              host4,
-                              host4,
-                              CONTENT_SETTINGS_TYPE_IMAGES,
-                              std::string(),
-                              false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host4,
+                                         host4, CONTENT_SETTINGS_TYPE_IMAGES,
+                                         std::string(), false));
 
   pref_content_settings_provider.ShutdownOnUIThread();
 }
@@ -366,10 +322,9 @@ TEST_F(PrefProviderTest, ResourceIdentifier) {
   std::string resource2("otherplugin");
 
   EXPECT_EQ(CONTENT_SETTING_DEFAULT,
-            GetContentSetting(
-                &pref_content_settings_provider,
-                host, host, CONTENT_SETTINGS_TYPE_PLUGINS,
-                resource1, false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host,
+                                         host, CONTENT_SETTINGS_TYPE_PLUGINS,
+                                         resource1, false));
   pref_content_settings_provider.SetWebsiteSetting(
       pattern,
       pattern,
@@ -377,15 +332,13 @@ TEST_F(PrefProviderTest, ResourceIdentifier) {
       resource1,
       new base::FundamentalValue(CONTENT_SETTING_BLOCK));
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            GetContentSetting(
-                &pref_content_settings_provider,
-                host, host, CONTENT_SETTINGS_TYPE_PLUGINS,
-                resource1, false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host,
+                                         host, CONTENT_SETTINGS_TYPE_PLUGINS,
+                                         resource1, false));
   EXPECT_EQ(CONTENT_SETTING_DEFAULT,
-            GetContentSetting(
-                &pref_content_settings_provider,
-                host, host, CONTENT_SETTINGS_TYPE_PLUGINS,
-                resource2, false));
+            TestUtils::GetContentSetting(&pref_content_settings_provider, host,
+                                         host, CONTENT_SETTINGS_TYPE_PLUGINS,
+                                         resource2, false));
 
   pref_content_settings_provider.ShutdownOnUIThread();
 }

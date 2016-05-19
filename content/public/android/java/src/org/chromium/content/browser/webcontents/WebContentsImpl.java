@@ -4,17 +4,21 @@
 
 package org.chromium.content.browser.webcontents;
 
+import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.ParcelUuid;
 import android.os.Parcelable;
 
+import org.chromium.base.ObserverList;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.content_public.browser.AccessibilitySnapshotCallback;
 import org.chromium.content_public.browser.AccessibilitySnapshotNode;
+import org.chromium.content_public.browser.ContentBitmapCallback;
 import org.chromium.content_public.browser.JavaScriptCallback;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.WebContents;
@@ -80,6 +84,8 @@ import java.util.UUID;
 
     // Lazily created proxy observer for handling all Java-based WebContentsObservers.
     private WebContentsObserverProxy mObserverProxy;
+
+    private boolean mContextMenuOpened;
 
     private WebContentsImpl(
             long nativeWebContentsAndroid, NavigationController navigationController) {
@@ -195,13 +201,13 @@ import java.util.UUID;
         // Unselect may get triggered when certain selection-related widgets
         // are destroyed. As the timing for such destruction is unpredictable,
         // safely guard against this case.
-        if (mNativeWebContentsAndroid == 0) return;
+        if (isDestroyed()) return;
         nativeUnselect(mNativeWebContentsAndroid);
     }
 
     @Override
     public void insertCSS(String css) {
-        if (mNativeWebContentsAndroid == 0) return;
+        if (isDestroyed()) return;
         nativeInsertCSS(mNativeWebContentsAndroid, css);
     }
 
@@ -216,8 +222,13 @@ import java.util.UUID;
     }
 
     @Override
-    public void releaseMediaPlayers() {
-        nativeReleaseMediaPlayers(mNativeWebContentsAndroid);
+    public void suspendAllMediaPlayers() {
+        nativeSuspendAllMediaPlayers(mNativeWebContentsAndroid);
+    }
+
+    @Override
+    public void setAudioMuted(boolean mute) {
+        nativeSetAudioMuted(mNativeWebContentsAndroid, mute);
     }
 
     @Override
@@ -284,6 +295,7 @@ import java.util.UUID;
 
     @Override
     public String getUrl() {
+        if (isDestroyed()) return null;
         return nativeGetURL(mNativeWebContentsAndroid);
     }
 
@@ -304,6 +316,7 @@ import java.util.UUID;
 
     @Override
     public void evaluateJavaScript(String script, JavaScriptCallback callback) {
+        if (isDestroyed()) return;
         nativeEvaluateJavaScript(mNativeWebContentsAndroid, script, callback);
     }
 
@@ -419,6 +432,48 @@ import java.util.UUID;
         mObserverProxy.removeObserver(observer);
     }
 
+    @VisibleForTesting
+    @Override
+    public ObserverList.RewindableIterator<WebContentsObserver> getObserversForTesting() {
+        return mObserverProxy.getObserversForTesting();
+    }
+
+    @Override
+    public void getContentBitmapAsync(Bitmap.Config config, float scale, Rect srcRect,
+            ContentBitmapCallback callback) {
+        nativeGetContentBitmap(mNativeWebContentsAndroid, callback, config, scale,
+                srcRect.top, srcRect.left, srcRect.width(), srcRect.height());
+    }
+
+    @Override
+    public void onContextMenuOpened() {
+        mContextMenuOpened = true;
+    }
+
+    @Override
+    public void onContextMenuClosed() {
+        if (!mContextMenuOpened) {
+            return;
+        } else {
+            mContextMenuOpened = false;
+        }
+
+        if (mNativeWebContentsAndroid != 0) {
+            nativeOnContextMenuClosed(mNativeWebContentsAndroid);
+        }
+    }
+
+    @CalledByNative
+    private void onGetContentBitmapFinished(ContentBitmapCallback callback, Bitmap bitmap,
+            int response) {
+        callback.onFinishGetBitmap(bitmap, response);
+    }
+
+    @Override
+    public void reloadLoFiImages() {
+        nativeReloadLoFiImages(mNativeWebContentsAndroid);
+    }
+
     // This is static to avoid exposing a public destroy method on the native side of this class.
     private static native void nativeDestroyWebContents(long webContentsAndroidPtr);
 
@@ -438,7 +493,8 @@ import java.util.UUID;
     private native void nativeInsertCSS(long nativeWebContentsAndroid, String css);
     private native void nativeOnHide(long nativeWebContentsAndroid);
     private native void nativeOnShow(long nativeWebContentsAndroid);
-    private native void nativeReleaseMediaPlayers(long nativeWebContentsAndroid);
+    private native void nativeSuspendAllMediaPlayers(long nativeWebContentsAndroid);
+    private native void nativeSetAudioMuted(long nativeWebContentsAndroid, boolean mute);
     private native int nativeGetBackgroundColor(long nativeWebContentsAndroid);
     private native void nativeShowInterstitialPage(long nativeWebContentsAndroid,
             String url, long nativeInterstitialPageDelegateAndroid);
@@ -474,4 +530,9 @@ import java.util.UUID;
     private native void nativeSuspendMediaSession(long nativeWebContentsAndroid);
     private native void nativeStopMediaSession(long nativeWebContentsAndroid);
     private native String nativeGetEncoding(long nativeWebContentsAndroid);
+    private native void nativeGetContentBitmap(long nativeWebContentsAndroid,
+            ContentBitmapCallback callback, Bitmap.Config config, float scale,
+            float x, float y, float width, float height);
+    private native void nativeOnContextMenuClosed(long nativeWebContentsAndroid);
+    private native void nativeReloadLoFiImages(long nativeWebContentsAndroid);
 }

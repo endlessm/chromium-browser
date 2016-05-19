@@ -5,9 +5,10 @@
 #ifndef COMPONENTS_OMNIBOX_BROWSER_AUTOCOMPLETE_INPUT_H_
 #define COMPONENTS_OMNIBOX_BROWSER_AUTOCOMPLETE_INPUT_H_
 
+#include <stddef.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/strings/string16.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/metrics/proto/omnibox_input_type.pb.h"
@@ -79,6 +80,7 @@ class AutocompleteInput {
                     bool want_asynchronous_matches,
                     bool from_omnibox_focus,
                     const AutocompleteSchemeClassifier& scheme_classifier);
+  AutocompleteInput(const AutocompleteInput& other);
   ~AutocompleteInput();
 
   // If type is |FORCED_QUERY| and |text| starts with '?', it is removed.

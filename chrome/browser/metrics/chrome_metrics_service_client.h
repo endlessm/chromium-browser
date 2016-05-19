@@ -5,13 +5,16 @@
 #ifndef CHROME_BROWSER_METRICS_CHROME_METRICS_SERVICE_CLIENT_H_
 #define CHROME_BROWSER_METRICS_CHROME_METRICS_SERVICE_CLIENT_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "chrome/browser/metrics/metrics_memory_details.h"
 #include "components/metrics/metrics_service_client.h"
 #include "components/metrics/profiler/tracking_synchronizer_observer.h"
@@ -25,7 +28,7 @@ class PluginMetricsProvider;
 class PrefRegistrySimple;
 class PrefService;
 
-#if !defined(OS_CHROMEOS) && !defined(OS_IOS)
+#if !defined(OS_CHROMEOS)
 class SigninStatusMetricsProvider;
 #endif
 
@@ -58,7 +61,7 @@ class ChromeMetricsServiceClient
   void SetMetricsClientId(const std::string& client_id) override;
   void OnRecordingDisabled() override;
   bool IsOffTheRecordSessionActive() override;
-  int32 GetProduct() override;
+  int32_t GetProduct() override;
   std::string GetApplicationLocale() override;
   bool GetBrand(std::string* brand_code) override;
   metrics::SystemProfileProto::Channel GetChannel() override;
@@ -80,8 +83,11 @@ class ChromeMetricsServiceClient
   // Completes the two-phase initialization of ChromeMetricsServiceClient.
   void Initialize();
 
-  // Callback that continues the init task by loading plugin information.
+  // Callback that continues the init task by getting a Bluetooth Adapter.
   void OnInitTaskGotHardwareClass();
+
+  // Callback that continues the init task by loading plugin information.
+  void OnInitTaskGotBluetoothAdapter();
 
   // Called after the Plugin init task has been completed that continues the
   // init task by launching a task to gather Google Update statistics.
@@ -146,9 +152,11 @@ class ChromeMetricsServiceClient
 
   content::NotificationRegistrar registrar_;
 
+#if defined(OS_CHROMEOS)
   // On ChromeOS, holds a weak pointer to the ChromeOSMetricsProvider instance
   // that has been registered with MetricsService. On other platforms, is NULL.
   ChromeOSMetricsProvider* chromeos_metrics_provider_;
+#endif
 
   // Saved callback received from CollectFinalMetricsForLog().
   base::Closure collect_final_metrics_done_callback_;

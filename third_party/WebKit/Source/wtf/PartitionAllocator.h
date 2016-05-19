@@ -60,12 +60,12 @@ public:
     template <typename T>
     static T* allocateVectorBacking(size_t size)
     {
-        return reinterpret_cast<T*>(allocateBacking(size));
+        return reinterpret_cast<T*>(allocateBacking(size, WTF_HEAP_PROFILER_TYPE_NAME(T)));
     }
     template <typename T>
     static T* allocateExpandedVectorBacking(size_t size)
     {
-        return reinterpret_cast<T*>(allocateBacking(size));
+        return reinterpret_cast<T*>(allocateBacking(size, WTF_HEAP_PROFILER_TYPE_NAME(T)));
     }
     static void freeVectorBacking(void* address);
     static inline bool expandVectorBacking(void*, size_t)
@@ -87,21 +87,21 @@ public:
     template <typename T, typename HashTable>
     static T* allocateHashTableBacking(size_t size)
     {
-        return reinterpret_cast<T*>(allocateBacking(size));
+        return reinterpret_cast<T*>(allocateBacking(size, WTF_HEAP_PROFILER_TYPE_NAME(T)));
     }
     template <typename T, typename HashTable>
     static T* allocateZeroedHashTableBacking(size_t size)
     {
-        void* result = allocateBacking(size);
+        void* result = allocateBacking(size, WTF_HEAP_PROFILER_TYPE_NAME(T));
         memset(result, 0, size);
         return reinterpret_cast<T*>(result);
     }
     static void freeHashTableBacking(void* address);
 
     template <typename Return, typename Metadata>
-    static Return malloc(size_t size)
+    static Return malloc(size_t size, const char* typeName)
     {
-        return reinterpret_cast<Return>(Partitions::fastMalloc(size));
+        return reinterpret_cast<Return>(Partitions::fastMalloc(size, typeName));
     }
 
     static inline bool expandHashTableBacking(void*, size_t)
@@ -115,7 +115,7 @@ public:
     template<typename T>
     static void* newArray(size_t bytes)
     {
-        return malloc<void*, void>(bytes);
+        return malloc<void*, void>(bytes, WTF_HEAP_PROFILER_TYPE_NAME(T));
     }
     static void
     deleteArray(void* ptr)
@@ -180,12 +180,13 @@ public:
     static void leaveGCForbiddenScope() { }
 
 private:
-    static void* allocateBacking(size_t);
+    static void* allocateBacking(size_t, const char* typeName);
 };
 
 // The Windows compiler seems to be very eager to instantiate things it won't
 // need, so unless we have this class we get compile errors.
 class PartitionAllocatorDummyVisitor {
+    DISALLOW_NEW();
 public:
     template<typename T> inline bool isHeapObjectAlive(T obj)
     {
@@ -194,13 +195,18 @@ public:
     }
 };
 
+// Specializations for heap profiling, so type profiling of |char| is possible
+// even in official builds (because |char| makes up a large portion of the heap.)
+template <> WTF_EXPORT char* PartitionAllocator::allocateVectorBacking<char>(size_t size);
+template <> WTF_EXPORT char* PartitionAllocator::allocateExpandedVectorBacking<char>(size_t size);
+
 } // namespace WTF
 
 #define WTF_USE_ALLOCATOR(ClassName, Allocator) \
 public: \
     void* operator new(size_t size) \
     { \
-        return Allocator::template malloc<void*, ClassName>(size); \
+        return Allocator::template malloc<void*, ClassName>(size, WTF_HEAP_PROFILER_TYPE_NAME(ClassName)); \
     } \
     void operator delete(void* p) { Allocator::free(p); } \
     void* operator new[](size_t size) { return Allocator::template newArray<ClassName>(size); } \

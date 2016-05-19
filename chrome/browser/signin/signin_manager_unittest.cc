@@ -4,16 +4,13 @@
 
 #include "components/signin/core/browser/signin_manager.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/browser_process.h"
@@ -32,6 +29,10 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/fake_account_fetcher_service.h"
 #include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
@@ -48,7 +49,6 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
-
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -62,7 +62,7 @@ scoped_ptr<KeyedService> SigninManagerBuild(content::BrowserContext* context) {
       AccountTrackerServiceFactory::GetForProfile(profile),
       GaiaCookieManagerServiceFactory::GetForProfile(profile)));
   service->Initialize(NULL);
-  return service.Pass();
+  return std::move(service);
 }
 
 class TestSigninManagerObserver : public SigninManagerBase::Observer {
@@ -314,7 +314,8 @@ TEST_F(SigninManagerTest, SignOut) {
       "user@gmail.com",
       "password",
       SigninManager::OAuthTokenFetchedCallback());
-  manager_->SignOut(signin_metrics::SIGNOUT_TEST);
+  manager_->SignOut(signin_metrics::SIGNOUT_TEST,
+                    signin_metrics::SignoutDelete::IGNORE_METRIC);
   EXPECT_FALSE(manager_->IsAuthenticated());
   EXPECT_TRUE(manager_->GetAuthenticatedAccountInfo().email.empty());
   EXPECT_TRUE(manager_->GetAuthenticatedAccountId().empty());
@@ -335,10 +336,12 @@ TEST_F(SigninManagerTest, SignOutWhileProhibited) {
 
   manager_->SetAuthenticatedAccountInfo("gaia_id", "user@gmail.com");
   manager_->ProhibitSignout(true);
-  manager_->SignOut(signin_metrics::SIGNOUT_TEST);
+  manager_->SignOut(signin_metrics::SIGNOUT_TEST,
+                    signin_metrics::SignoutDelete::IGNORE_METRIC);
   EXPECT_TRUE(manager_->IsAuthenticated());
   manager_->ProhibitSignout(false);
-  manager_->SignOut(signin_metrics::SIGNOUT_TEST);
+  manager_->SignOut(signin_metrics::SIGNOUT_TEST,
+                    signin_metrics::SignoutDelete::IGNORE_METRIC);
   EXPECT_FALSE(manager_->IsAuthenticated());
 }
 

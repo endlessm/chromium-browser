@@ -9,15 +9,15 @@
 // This is a duplicate of ui/gfx/codec/png_codec.cc, after removing code related
 // to Skia, that we can use when running layout tests with minimal dependencies.
 
-#include "image_diff_png.h"
+#include "samples/image_diff_png.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #include <string>
 
-#include "fx_lpng/include/fx_png.h"
 #include "third_party/base/logging.h"
+#include "third_party/libpng16/png.h"
 #include "third_party/zlib_v128/zlib.h"
 
 namespace image_diff_png {

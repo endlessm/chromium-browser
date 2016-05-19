@@ -4,9 +4,9 @@
 
 #include "chrome/browser/ui/sync/one_click_signin_sync_starter.h"
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
@@ -75,17 +75,10 @@ class OneClickSigninSyncStarterTest : public ChromeRenderViewHostTestHarness {
   void CreateSyncStarter(OneClickSigninSyncStarter::Callback callback,
                          const GURL& continue_url) {
     sync_starter_ = new OneClickSigninSyncStarter(
-        profile(),
-        NULL,
-        kTestingGaiaId,
-        kTestingUsername,
-        std::string(),
-        "refresh_token",
-        OneClickSigninSyncStarter::SYNC_WITH_DEFAULT_SETTINGS,
-        web_contents(),
-        OneClickSigninSyncStarter::NO_CONFIRMATION,
-        continue_url,
-        callback);
+        profile(), NULL, kTestingGaiaId, kTestingUsername, std::string(),
+        "refresh_token", OneClickSigninSyncStarter::SYNC_WITH_DEFAULT_SETTINGS,
+        web_contents(), OneClickSigninSyncStarter::NO_CONFIRMATION, GURL(),
+        continue_url, callback);
   }
 
   // Deletes itself when SigninFailed() or SigninSuccess() is called.

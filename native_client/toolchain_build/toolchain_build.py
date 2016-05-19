@@ -27,7 +27,6 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NACL_DIR = os.path.dirname(SCRIPT_DIR)
 
 
-# Used here and in toolchain_build_bionic.py
 GCC_VERSION = '4.9.2'
 
 
@@ -36,10 +35,10 @@ GCC_VERSION = '4.9.2'
 # to use in place of the package name when calling GitUrl (below).
 GIT_REVISIONS = {
     'binutils': {
-        'rev': 'cde986cc330c6d7ebd68e416ab66e0929abe4c8f',
-        'upstream-branch': 'upstream/binutils-2_25-branch',
-        'upstream-name': 'binutils-2.25.1',
-        'upstream-base': 'binutils-2_25_1',
+        'rev': '2c49145108878e9914173cd9c3aa36ab0cede6b3',
+        'upstream-branch': 'upstream/binutils-2_26-branch',
+        'upstream-name': 'binutils-2.26',
+        'upstream-base': 'binutils-2_26',
         },
     'gcc': {
         'rev': '336bd0bc1724efd6f8b2a4d7228e389dc1bc48da',
@@ -49,10 +48,10 @@ GIT_REVISIONS = {
         'upstream-base': 'c1283af40b65f1ad862cf5b27e2d9ed10b2076b6',
         },
     'glibc': {
-        'rev': 'f0489b8314a59fd920ea6794e5e67428626f9260',
-        'upstream-branch': 'upstream/release/2.22/master',
-        'upstream-name': 'glibc-2.22',
-        'upstream-base': 'glibc-2.22',
+        'rev': 'f0029f1bb31ebce6454e1704ecac1a95b75e1e16',
+        'upstream-branch': 'upstream/release/2.23/master',
+        'upstream-name': 'glibc-2.23',
+        'upstream-base': 'glibc-2.23',
         },
     'gdb': {
         'rev': '4ad027945e8645f00b857488959fc2a3b5b16d05',
@@ -270,6 +269,11 @@ def ConfigureHostArch(host):
       # But it's not what config.guess will yield, so we need to supply
       # a --build switch to ensure things build correctly.
       configure_args.append('--build=' + host)
+
+  if HostIsMac(host):
+    # This fixes a failure in building GCC's insn-attrtab.c with newer Mac
+    # SDK versions.
+    extra_cc_args.append('-fbracket-depth=1000')
 
   extra_cxx_args = list(extra_cc_args)
   if fnmatch.fnmatch(host, '*-linux*'):
@@ -696,6 +700,8 @@ def HostTools(host, target):
               command.Command(
                   ConfigureCommand('binutils') +
                   ConfigureHostTool(host) +
+                  # The Mac compiler is too warning-happy for -Werror.
+                  WindowsAlternate([], [], ['--disable-werror']) +
                   ConfigureTargetArgs(target) + [
                       # Ensure that all the NaCl backends get included,
                       # just for convenience of using the same tools for

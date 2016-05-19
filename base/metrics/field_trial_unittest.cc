@@ -4,7 +4,10 @@
 
 #include "base/metrics/field_trial.h"
 
+#include <stddef.h>
+
 #include "base/build_time.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
@@ -313,8 +316,19 @@ TEST_F(FieldTrialTest, ActiveGroups) {
   }
 }
 
+TEST_F(FieldTrialTest, GetActiveFieldTrialGroupsFromString) {
+  FieldTrial::ActiveGroups active_groups;
+  FieldTrialList::GetActiveFieldTrialGroupsFromString("*A/X/B/Y/*C/Z",
+                                                      &active_groups);
+  ASSERT_EQ(2U, active_groups.size());
+  EXPECT_EQ("A", active_groups[0].trial_name);
+  EXPECT_EQ("X", active_groups[0].group_name);
+  EXPECT_EQ("C", active_groups[1].trial_name);
+  EXPECT_EQ("Z", active_groups[1].group_name);
+}
+
 TEST_F(FieldTrialTest, AllGroups) {
-  FieldTrial::FieldTrialState field_trial_state;
+  FieldTrial::State field_trial_state;
   std::string one_winner("One Winner");
   scoped_refptr<FieldTrial> trial =
       CreateFieldTrial(one_winner, 10, "Default", NULL);
@@ -446,30 +460,34 @@ TEST_F(FieldTrialTest, SaveAll) {
   std::string save_string;
 
   scoped_refptr<FieldTrial> trial =
-      CreateFieldTrial("Some name", 10, "Default some name", NULL);
+      CreateFieldTrial("Some name", 10, "Default some name", nullptr);
   EXPECT_EQ("", trial->group_name_internal());
   FieldTrialList::AllStatesToString(&save_string);
   EXPECT_EQ("Some name/Default some name/", save_string);
+  // Getting all states should have finalized the trial.
+  EXPECT_EQ("Default some name", trial->group_name_internal());
   save_string.clear();
 
   // Create a winning group.
+  trial = CreateFieldTrial("trial2", 10, "Default some name", nullptr);
   trial->AppendGroup("Winner", 10);
   // Finalize the group selection by accessing the selected group.
   trial->group();
   FieldTrialList::AllStatesToString(&save_string);
-  EXPECT_EQ("*Some name/Winner/", save_string);
+  EXPECT_EQ("Some name/Default some name/*trial2/Winner/", save_string);
   save_string.clear();
 
   // Create a second trial and winning group.
   scoped_refptr<FieldTrial> trial2 =
-      CreateFieldTrial("xxx", 10, "Default xxx", NULL);
+      CreateFieldTrial("xxx", 10, "Default xxx", nullptr);
   trial2->AppendGroup("yyyy", 10);
   // Finalize the group selection by accessing the selected group.
   trial2->group();
 
   FieldTrialList::AllStatesToString(&save_string);
   // We assume names are alphabetized... though this is not critical.
-  EXPECT_EQ("*Some name/Winner/*xxx/yyyy/", save_string);
+  EXPECT_EQ("Some name/Default some name/*trial2/Winner/*xxx/yyyy/",
+            save_string);
   save_string.clear();
 
   // Create a third trial with only the default group.
@@ -477,7 +495,8 @@ TEST_F(FieldTrialTest, SaveAll) {
       CreateFieldTrial("zzz", 10, "default", NULL);
 
   FieldTrialList::AllStatesToString(&save_string);
-  EXPECT_EQ("*Some name/Winner/*xxx/yyyy/zzz/default/", save_string);
+  EXPECT_EQ("Some name/Default some name/*trial2/Winner/*xxx/yyyy/zzz/default/",
+            save_string);
 }
 
 TEST_F(FieldTrialTest, Restore) {
@@ -485,7 +504,6 @@ TEST_F(FieldTrialTest, Restore) {
   ASSERT_FALSE(FieldTrialList::TrialExists("xxx"));
 
   FieldTrialList::CreateTrialsFromString("Some_name/Winner/xxx/yyyy/",
-                                         FieldTrialList::DONT_ACTIVATE_TRIALS,
                                          std::set<std::string>());
 
   FieldTrial* trial = FieldTrialList::Find("Some_name");
@@ -500,9 +518,8 @@ TEST_F(FieldTrialTest, Restore) {
 }
 
 TEST_F(FieldTrialTest, RestoreNotEndingWithSlash) {
-  EXPECT_TRUE(FieldTrialList::CreateTrialsFromString(
-      "tname/gname", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
+  EXPECT_TRUE(FieldTrialList::CreateTrialsFromString("tname/gname",
+                                                     std::set<std::string>()));
 
   FieldTrial* trial = FieldTrialList::Find("tname");
   ASSERT_NE(static_cast<FieldTrial*>(NULL), trial);
@@ -511,21 +528,16 @@ TEST_F(FieldTrialTest, RestoreNotEndingWithSlash) {
 }
 
 TEST_F(FieldTrialTest, BogusRestore) {
-  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString(
-      "MissingSlash", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
-  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString(
-      "MissingGroupName/", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
-  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString(
-      "noname, only group/", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
-  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString(
-      "/emptyname", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
-  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString(
-      "*/emptyname", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
+  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString("MissingSlash",
+                                                      std::set<std::string>()));
+  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString("MissingGroupName/",
+                                                      std::set<std::string>()));
+  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString("noname, only group/",
+                                                      std::set<std::string>()));
+  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString("/emptyname",
+                                                      std::set<std::string>()));
+  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString("*/emptyname",
+                                                      std::set<std::string>()));
 }
 
 TEST_F(FieldTrialTest, DuplicateRestore) {
@@ -539,38 +551,19 @@ TEST_F(FieldTrialTest, DuplicateRestore) {
   EXPECT_EQ("Some name/Winner/", save_string);
 
   // It is OK if we redundantly specify a winner.
-  EXPECT_TRUE(FieldTrialList::CreateTrialsFromString(
-      save_string, FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
+  EXPECT_TRUE(FieldTrialList::CreateTrialsFromString(save_string,
+                                                     std::set<std::string>()));
 
   // But it is an error to try to change to a different winner.
-  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString(
-      "Some name/Loser/", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
-}
-
-TEST_F(FieldTrialTest, CreateTrialsFromStringActive) {
-  ASSERT_FALSE(FieldTrialList::TrialExists("Abc"));
-  ASSERT_FALSE(FieldTrialList::TrialExists("Xyz"));
-  ASSERT_TRUE(FieldTrialList::CreateTrialsFromString(
-      "Abc/def/Xyz/zyx/", FieldTrialList::ACTIVATE_TRIALS,
-      std::set<std::string>()));
-
-  FieldTrial::ActiveGroups active_groups;
-  FieldTrialList::GetActiveFieldTrialGroups(&active_groups);
-  ASSERT_EQ(2U, active_groups.size());
-  EXPECT_EQ("Abc", active_groups[0].trial_name);
-  EXPECT_EQ("def", active_groups[0].group_name);
-  EXPECT_EQ("Xyz", active_groups[1].trial_name);
-  EXPECT_EQ("zyx", active_groups[1].group_name);
+  EXPECT_FALSE(FieldTrialList::CreateTrialsFromString("Some name/Loser/",
+                                                      std::set<std::string>()));
 }
 
 TEST_F(FieldTrialTest, CreateTrialsFromStringNotActive) {
   ASSERT_FALSE(FieldTrialList::TrialExists("Abc"));
   ASSERT_FALSE(FieldTrialList::TrialExists("Xyz"));
-  ASSERT_TRUE(FieldTrialList::CreateTrialsFromString(
-      "Abc/def/Xyz/zyx/", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
+  ASSERT_TRUE(FieldTrialList::CreateTrialsFromString("Abc/def/Xyz/zyx/",
+                                                     std::set<std::string>()));
 
   FieldTrial::ActiveGroups active_groups;
   FieldTrialList::GetActiveFieldTrialGroups(&active_groups);
@@ -593,8 +586,7 @@ TEST_F(FieldTrialTest, CreateTrialsFromStringForceActivation) {
   ASSERT_FALSE(FieldTrialList::TrialExists("def"));
   ASSERT_FALSE(FieldTrialList::TrialExists("Xyz"));
   ASSERT_TRUE(FieldTrialList::CreateTrialsFromString(
-      "*Abc/cba/def/fed/*Xyz/zyx/", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
+      "*Abc/cba/def/fed/*Xyz/zyx/", std::set<std::string>()));
 
   FieldTrial::ActiveGroups active_groups;
   FieldTrialList::GetActiveFieldTrialGroups(&active_groups);
@@ -605,25 +597,12 @@ TEST_F(FieldTrialTest, CreateTrialsFromStringForceActivation) {
   EXPECT_EQ("zyx", active_groups[1].group_name);
 }
 
-TEST_F(FieldTrialTest, CreateTrialsFromStringActiveObserver) {
-  ASSERT_FALSE(FieldTrialList::TrialExists("Abc"));
-
-  TestFieldTrialObserver observer;
-  ASSERT_TRUE(FieldTrialList::CreateTrialsFromString(
-      "Abc/def/", FieldTrialList::ACTIVATE_TRIALS, std::set<std::string>()));
-
-  RunLoop().RunUntilIdle();
-  EXPECT_EQ("Abc", observer.trial_name());
-  EXPECT_EQ("def", observer.group_name());
-}
-
 TEST_F(FieldTrialTest, CreateTrialsFromStringNotActiveObserver) {
   ASSERT_FALSE(FieldTrialList::TrialExists("Abc"));
 
   TestFieldTrialObserver observer;
-  ASSERT_TRUE(FieldTrialList::CreateTrialsFromString(
-      "Abc/def/", FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
+  ASSERT_TRUE(FieldTrialList::CreateTrialsFromString("Abc/def/",
+                                                     std::set<std::string>()));
   RunLoop().RunUntilIdle();
   // Observer shouldn't be notified.
   EXPECT_TRUE(observer.trial_name().empty());
@@ -654,7 +633,6 @@ TEST_F(FieldTrialTest, CreateTrialsFromStringWithIgnoredFieldTrials) {
       "Unaccepted2/Unaccepted2_name/"
       "Bar/Bar_name/"
       "Unaccepted3/Unaccepted3_name/",
-      FieldTrialList::DONT_ACTIVATE_TRIALS,
       ignored_trial_names);
 
   EXPECT_FALSE(FieldTrialList::TrialExists("Unaccepted1"));
@@ -1129,9 +1107,8 @@ TEST(FieldTrialTestWithoutList, StatesStringFormat) {
 
   // Starting with a new blank FieldTrialList.
   FieldTrialList field_trial_list(NULL);
-  ASSERT_TRUE(field_trial_list.CreateTrialsFromString(
-      save_string, FieldTrialList::DONT_ACTIVATE_TRIALS,
-      std::set<std::string>()));
+  ASSERT_TRUE(field_trial_list.CreateTrialsFromString(save_string,
+                                                      std::set<std::string>()));
 
   FieldTrial::ActiveGroups active_groups;
   field_trial_list.GetActiveFieldTrialGroups(&active_groups);

@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/website_settings/website_settings_ui.h"
 
+#include "base/macros.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/content_settings/core/browser/plugins_field_trial.h"
+#include "components/strings/grit/components_strings.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -109,6 +111,8 @@ const PermissionsUIInfo kPermissionsUIInfo[] = {
      IDR_ALLOWED_DOWNLOADS},
     {CONTENT_SETTINGS_TYPE_MIDI_SYSEX, IDS_WEBSITE_SETTINGS_TYPE_MIDI_SYSEX,
      IDR_BLOCKED_MIDI_SYSEX, IDR_ALLOWED_MIDI_SYSEX},
+    {CONTENT_SETTINGS_TYPE_KEYGEN, IDS_WEBSITE_SETTINGS_TYPE_KEYGEN,
+     IDR_BLOCKED_KEYGEN, IDR_ALLOWED_KEYGEN},
 };
 
 }  // namespace
@@ -121,8 +125,15 @@ WebsiteSettingsUI::PermissionInfo::PermissionInfo()
     : type(CONTENT_SETTINGS_TYPE_DEFAULT),
       setting(CONTENT_SETTING_DEFAULT),
       default_setting(CONTENT_SETTING_DEFAULT),
-      source(content_settings::SETTING_SOURCE_NONE) {
-}
+      source(content_settings::SETTING_SOURCE_NONE),
+      is_incognito(false) {}
+
+WebsiteSettingsUI::ChosenObjectInfo::ChosenObjectInfo(
+    const WebsiteSettings::ChooserUIInfo& ui_info,
+    scoped_ptr<base::DictionaryValue> object)
+    : ui_info(ui_info), object(std::move(object)) {}
+
+WebsiteSettingsUI::ChosenObjectInfo::~ChosenObjectInfo() {}
 
 WebsiteSettingsUI::IdentityInfo::IdentityInfo()
     : identity_status(WebsiteSettings::SITE_IDENTITY_STATUS_UNKNOWN),
@@ -261,6 +272,23 @@ const gfx::Image& WebsiteSettingsUI::GetPermissionIcon(
     setting = info.default_setting;
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   return rb.GetNativeImageNamed(GetPermissionIconID(info.type, setting));
+}
+
+// static
+base::string16 WebsiteSettingsUI::ChosenObjectToUIString(
+    const ChosenObjectInfo& object) {
+  base::string16 name;
+  object.object->GetString(object.ui_info.ui_name_key, &name);
+  return name;
+}
+
+// static
+const gfx::Image& WebsiteSettingsUI::GetChosenObjectIcon(
+    const ChosenObjectInfo& object,
+    bool deleted) {
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  return rb.GetNativeImageNamed(deleted ? object.ui_info.blocked_icon_id
+                                        : object.ui_info.allowed_icon_id);
 }
 
 // static

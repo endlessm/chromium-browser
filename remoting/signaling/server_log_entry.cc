@@ -35,6 +35,8 @@ const char kKeyCpu[] = "cpu";
 ServerLogEntry::ServerLogEntry() {
 }
 
+ServerLogEntry::ServerLogEntry(const ServerLogEntry& other) = default;
+
 ServerLogEntry::~ServerLogEntry() {
 }
 
@@ -82,7 +84,7 @@ scoped_ptr<XmlElement> ServerLogEntry::ToStanza() const {
   for (iter = values_map_.begin(); iter != values_map_.end(); ++iter) {
     stanza->AddAttr(QName(std::string(), iter->first), iter->second);
   }
-  return stanza.Pass();
+  return stanza;
 }
 
 }  // namespace remoting

@@ -18,9 +18,12 @@
 #ifndef REMOTING_BASE_COMPOUND_BUFFER_H_
 #define REMOTING_BASE_COMPOUND_BUFFER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <deque>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "google/protobuf/io/zero_copy_stream.h"
 
@@ -83,6 +86,7 @@ class CompoundBuffer {
 
   struct DataChunk {
     DataChunk(net::IOBuffer* buffer, const char* start, int size);
+    DataChunk(const DataChunk& other);
     ~DataChunk();
 
     scoped_refptr<net::IOBuffer> buffer;
@@ -111,7 +115,7 @@ class CompoundBufferInputStream
   bool Next(const void** data, int* size) override;
   void BackUp(int count) override;
   bool Skip(int count) override;
-  int64 ByteCount() const override;
+  int64_t ByteCount() const override;
 
  private:
   const CompoundBuffer* buffer_;

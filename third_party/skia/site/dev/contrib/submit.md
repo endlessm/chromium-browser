@@ -34,11 +34,6 @@ If your branch gets out of date, you will need to update it:
     git pull
     python bin/sync-and-gyp
 
-<!--
-    python tools/git-sync-deps
-    python ./gyp_skia
--->
-
 Adding a unit test
 ------------------
 
@@ -204,27 +199,27 @@ commit your change directly to Skia's repository.
 
 If you don't have committer rights in https://skia.googlesource.com/skia.git ...
 first of all, thanks for submitting your patch!  We really appreciate these
-submissions.  Unfortunately, we don't yet have a way for Skia committers to mark
-a patch as "approved" and thus allow non-committers to commit them.  So instead,
-please ask a Skia committer to land your patch for you or land using the commit
-queue.
+submissions.  After receiving an LGTM from a committer, you will be able to
+check the commit box and submit your patch via the commit queue.  
 
-As part of this process, the Skia committer may create a new codereview
-containing your patch (perhaps with some small adjustments at her discretion).
-If so, you can mark your codereview as "Closed", and update it with a link to
-the new codereview.
+In special instances, a Skia committer may assist you in landing the change by
+creating a new codereview containing your patch (perhaps with some small
+adjustments at his/her discretion).  If so, you can mark your codereview as
+"Closed", and update it with a link to the new codereview.
 
-### Skia committers: 
-  *  tips on how to apply the externally provided patch are [here](./patch)
+### Skia committers 
+  *  tips on how to apply an externally provided patch are [here](./patch)
   *  when landing externally contributed patches, please note the original
      contributor's identity (and provide a link to the original codereview) in the commit message
 
-git-cl will squash all your commits into a single one with the description you used when you uploaded your change.
+    git-cl will squash all your commits into a single one with the description you used when you uploaded your change.
 
-~~~~
-git cl land
-~~~~
-or
-~~~~
-git cl land -c 'Contributor Name <email@example.com>'
-~~~~
+    ~~~~
+    git cl land
+    ~~~~
+    
+    or
+    
+    ~~~~
+    git cl land -c 'Contributor Name <email@example.com>'
+    ~~~~

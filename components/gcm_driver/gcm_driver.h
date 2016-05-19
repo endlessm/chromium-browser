@@ -79,10 +79,18 @@ class GCMDriver {
                               GCMClient::Result result)> RegisterCallback;
   typedef base::Callback<void(const std::string& message_id,
                               GCMClient::Result result)> SendCallback;
-  typedef base::Callback<void(const std::string&)> GetPublicKeyCallback;
+  typedef base::Callback<void(const std::string&, const std::string&)>
+      GetEncryptionInfoCallback;
   typedef base::Callback<void(GCMClient::Result result)> UnregisterCallback;
   typedef base::Callback<void(const GCMClient::GCMStatistics& stats)>
       GetGCMStatisticsCallback;
+
+  // Enumeration to be used with GetGCMStatistics() for indicating whether the
+  // existing logs should be cleared or kept.
+  enum ClearActivityLogs {
+    CLEAR_LOGS,
+    KEEP_LOGS
+  };
 
   GCMDriver(
       const base::FilePath& store_path,
@@ -101,14 +109,15 @@ class GCMDriver {
                 const std::vector<std::string>& sender_ids,
                 const RegisterCallback& callback);
 
-  // Unregisters all sender_ids for an app. Only works on non-Android.
+  // Unregisters all sender_ids for an app. Only works on non-Android. Will also
+  // remove any encryption keys associated with the |app_id|.
   // |app_id|: application ID.
   // |callback|: to be called once the asynchronous operation is done.
   void Unregister(const std::string& app_id,
                   const UnregisterCallback& callback);
 
   // Unregisters an (app_id, sender_id) pair from using GCM. Only works on
-  // Android.
+  // Android. Will also remove any encryption keys associated with the |app_id|.
   // TODO(jianli): Switch to using GCM's unsubscribe API.
   // |app_id|: application ID.
   // |sender_id|: the sender ID that was passed when registering.
@@ -127,11 +136,11 @@ class GCMDriver {
             const OutgoingMessage& message,
             const SendCallback& callback);
 
-  // Get the public encryption key associated with |app_id|. If no keys have
-  // been associated with |app_id| yet, they will be created. The |callback|
-  // will be invoked when it is available.
-  void GetPublicKey(const std::string& app_id,
-                    const GetPublicKeyCallback& callback);
+  // Get the public encryption key and the authentication secret associated with
+  // |app_id|. If none have been associated with |app_id| yet, they will be
+  // created. The |callback| will be invoked when it is available.
+  void GetEncryptionInfo(const std::string& app_id,
+                         const GetEncryptionInfoCallback& callback);
 
   const GCMAppHandlerMap& app_handlers() const { return app_handlers_; }
 
@@ -171,11 +180,10 @@ class GCMDriver {
   // Returns true if the gcm client has an open and active connection.
   virtual bool IsConnected() const = 0;
 
-  // Get GCM client internal states and statistics.
-  // If clear_logs is true then activity logs will be cleared before the stats
-  // are returned.
+  // Get GCM client internal states and statistics. The activity logs will be
+  // cleared before returning the stats when |clear_logs| is set to CLEAR_LOGS.
   virtual void GetGCMStatistics(const GetGCMStatisticsCallback& callback,
-                                bool clear_logs) = 0;
+                                ClearActivityLogs clear_logs) = 0;
 
   // Enables/disables GCM activity recording, and then returns the stats.
   virtual void SetGCMRecording(const GetGCMStatisticsCallback& callback,
@@ -249,14 +257,24 @@ class GCMDriver {
                         const std::string& receiver_id,
                         const OutgoingMessage& message) = 0;
 
+  // Platform-specific implementation of recording message decryption failures.
+  virtual void RecordDecryptionFailure(
+      const std::string& app_id,
+      GCMEncryptionProvider::DecryptionResult result) = 0;
+
   // Runs the Register callback.
   void RegisterFinished(const std::string& app_id,
                         const std::string& registration_id,
                         GCMClient::Result result);
 
+  // To be called when a registration for |app_id| has been unregistered, having
+  // |result| as the result of the unregistration. Will remove any encryption
+  // information associated with the |app_id| and then calls UnregisterFinished.
+  void RemoveEncryptionInfoAfterUnregister(const std::string& app_id,
+                                           GCMClient::Result result);
+
   // Runs the Unregister callback.
-  void UnregisterFinished(const std::string& app_id,
-                          GCMClient::Result result);
+  void UnregisterFinished(const std::string& app_id, GCMClient::Result result);
 
   // Runs the Send callback.
   void SendFinished(const std::string& app_id,
@@ -279,6 +297,13 @@ class GCMDriver {
   void UnregisterInternal(const std::string& app_id,
                           const std::string* sender_id,
                           const UnregisterCallback& callback);
+
+  // Dispatches the OnMessage event to the app handler associated with |app_id|
+  // if |result| indicates that it is safe to do so, or will report a decryption
+  // failure for the |app_id| otherwise.
+  void DispatchMessageInternal(const std::string& app_id,
+                               GCMEncryptionProvider::DecryptionResult result,
+                               const IncomingMessage& message);
 
   // Called after unregistration completes in order to trigger the pending
   // registration.

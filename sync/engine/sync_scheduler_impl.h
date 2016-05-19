@@ -12,6 +12,7 @@
 #include "base/cancelable_callback.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -37,9 +38,8 @@ namespace sessions {
 struct ModelNeutralState;
 }
 
-class SYNC_EXPORT_PRIVATE SyncSchedulerImpl
-    : public SyncScheduler,
-      public base::NonThreadSafe {
+class SYNC_EXPORT SyncSchedulerImpl : public SyncScheduler,
+                                      public base::NonThreadSafe {
  public:
   // |name| is a display string to identify the syncer thread.  Takes
   // |ownership of |syncer| and |delay_provider|.
@@ -121,7 +121,7 @@ class SYNC_EXPORT_PRIVATE SyncSchedulerImpl
   FRIEND_TEST_ALL_PREFIXES(SyncSchedulerTest, FailedRetry);
   FRIEND_TEST_ALL_PREFIXES(SyncSchedulerTest, ReceiveNewRetryDelay);
 
-  struct SYNC_EXPORT_PRIVATE WaitInterval {
+  struct SYNC_EXPORT WaitInterval {
     enum Mode {
       // Uninitialized state, should not be set in practice.
       UNKNOWN = -1,

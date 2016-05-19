@@ -6,6 +6,8 @@
 
 #import <Foundation/Foundation.h>
 
+#include <utility>
+
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -16,13 +18,15 @@
 #include "base/mac/bind_objc_block.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_block.h"
+#include "base/macros.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/path_service.h"
-#include "base/prefs/json_pref_store.h"
-#include "base/prefs/pref_filter.h"
 #include "base/threading/worker_pool.h"
+#include "components/prefs/json_pref_store.h"
+#include "components/prefs/pref_filter.h"
 #import "components/webp_transcode/webp_network_client_factory.h"
 #include "crypto/nss_util.h"
+#include "ios/crnet/sdch_owner_pref_storage.h"
 #include "ios/net/cookies/cookie_store_ios.h"
 #include "ios/net/crn_http_protocol_handler.h"
 #include "ios/net/empty_nsurlcache.h"
@@ -43,7 +47,6 @@
 #include "net/log/write_to_file_net_log_observer.h"
 #include "net/proxy/proxy_service.h"
 #include "net/sdch/sdch_owner.h"
-#include "net/socket/next_proto.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/default_channel_id_store.h"
 #include "net/ssl/ssl_config_service_defaults.h"
@@ -197,7 +200,7 @@ void CrNetEnvironment::StartNetLogInternal(
 
   net_log_observer_.reset(new net::WriteToFileNetLogObserver());
   net_log_observer_->set_capture_mode(capture_mode);
-  net_log_observer_->StartObserving(net_log_.get(), file.Pass(), nullptr,
+  net_log_observer_->StartObserving(net_log_.get(), std::move(file), nullptr,
                                     nullptr);
 }
 
@@ -344,7 +347,9 @@ void CrNetEnvironment::ConfigureSdchOnNetworkThread() {
         pref_store_worker_pool_.get(),
         scoped_ptr<PrefFilter>());
     net_pref_store_->ReadPrefsAsync(nullptr);
-    sdch_owner_->EnablePersistentStorage(net_pref_store_.get());
+    sdch_owner_->EnablePersistentStorage(
+        scoped_ptr<net::SdchOwner::PrefStorage>(
+            new SdchOwnerPrefStorage(net_pref_store_.get())));
   }
   context->set_sdch_manager(sdch_manager_.get());
 }
@@ -406,7 +411,7 @@ void CrNetEnvironment::InitializeOnNetworkThread() {
           .release());
   main_context_->set_proxy_service(
       net::ProxyService::CreateUsingSystemProxyResolver(
-          proxy_config_service_.Pass(), 0, nullptr)
+          std::move(proxy_config_service_), 0, nullptr)
           .release());
 
   // Cache
@@ -428,15 +433,14 @@ void CrNetEnvironment::InitializeOnNetworkThread() {
   params.channel_id_service = main_context_->channel_id_service();
   params.transport_security_state = main_context_->transport_security_state();
   params.proxy_service = main_context_->proxy_service();
-  params.ssl_session_cache_shard = "";
   params.ssl_config_service = main_context_->ssl_config_service();
   params.http_auth_handler_factory = main_context_->http_auth_handler_factory();
   params.network_delegate = main_context_->network_delegate();
   params.http_server_properties = main_context_->http_server_properties();
   params.net_log = main_context_->net_log();
-  params.next_protos =
-      net::NextProtosWithSpdyAndQuic(spdy_enabled(), quic_enabled());
-  params.use_alternative_services = true;
+  params.enable_spdy31 = spdy_enabled();
+  params.enable_http2 = spdy_enabled();
+  params.parse_alternative_services = false;
   params.enable_quic = quic_enabled();
   params.alternative_service_probability_threshold =
       alternate_protocol_threshold_;
@@ -455,9 +459,9 @@ void CrNetEnvironment::InitializeOnNetworkThread() {
   //                See https://crbug.com/523858.
   net::HttpNetworkSession* http_network_session =
       new net::HttpNetworkSession(params);
-  net::HttpCache* main_cache = new net::HttpCache(
-      http_network_session, main_backend.Pass(),
-      true /* set_up_quic_server_info */);
+  net::HttpCache* main_cache =
+      new net::HttpCache(http_network_session, std::move(main_backend),
+                         true /* set_up_quic_server_info */);
   main_context_->set_http_transaction_factory(main_cache);
 
   // Cookies

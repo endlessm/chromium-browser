@@ -15,6 +15,7 @@
 #include "angle_gl.h"
 #include "common/debug.h"
 #include "libANGLE/Caps.h"
+#include "libANGLE/Debug.h"
 #include "libANGLE/Constants.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/FramebufferAttachment.h"
@@ -29,17 +30,21 @@ class Surface;
 
 namespace gl
 {
-class Context;
 class Framebuffer;
 struct Data;
 
-bool IsMipmapFiltered(const gl::SamplerState &samplerState);
+bool IsMipmapFiltered(const SamplerState &samplerState);
 
-class Texture final : public egl::ImageSibling, public gl::FramebufferAttachmentObject
+class Texture final : public egl::ImageSibling,
+                      public FramebufferAttachmentObject,
+                      public LabeledObject
 {
   public:
     Texture(rx::TextureImpl *impl, GLuint id, GLenum target);
     ~Texture() override;
+
+    void setLabel(const std::string &label) override;
+    const std::string &getLabel() const override;
 
     GLenum getTarget() const;
 
@@ -112,7 +117,7 @@ class Texture final : public egl::ImageSibling, public gl::FramebufferAttachment
     bool isCubeComplete() const;
     size_t getMipCompleteLevels() const;
 
-    Error setImage(Context *context,
+    Error setImage(const PixelUnpackState &unpackState,
                    GLenum target,
                    size_t level,
                    GLenum internalFormat,
@@ -120,7 +125,7 @@ class Texture final : public egl::ImageSibling, public gl::FramebufferAttachment
                    GLenum format,
                    GLenum type,
                    const uint8_t *pixels);
-    Error setSubImage(Context *context,
+    Error setSubImage(const PixelUnpackState &unpackState,
                       GLenum target,
                       size_t level,
                       const Box &area,
@@ -128,14 +133,14 @@ class Texture final : public egl::ImageSibling, public gl::FramebufferAttachment
                       GLenum type,
                       const uint8_t *pixels);
 
-    Error setCompressedImage(Context *context,
+    Error setCompressedImage(const PixelUnpackState &unpackState,
                              GLenum target,
                              size_t level,
                              GLenum internalFormat,
                              const Extents &size,
                              size_t imageSize,
                              const uint8_t *pixels);
-    Error setCompressedSubImage(Context *context,
+    Error setCompressedSubImage(const PixelUnpackState &unpackState,
                                 GLenum target,
                                 size_t level,
                                 const Box &area,
@@ -166,8 +171,7 @@ class Texture final : public egl::ImageSibling, public gl::FramebufferAttachment
     const rx::TextureImpl *getImplementation() const { return mTexture; }
 
     // FramebufferAttachmentObject implementation
-    GLsizei getAttachmentWidth(const FramebufferAttachment::Target &target) const override;
-    GLsizei getAttachmentHeight(const FramebufferAttachment::Target &target) const override;
+    Extents getAttachmentSize(const FramebufferAttachment::Target &target) const override;
     GLenum getAttachmentInternalFormat(const FramebufferAttachment::Target &target) const override;
     GLsizei getAttachmentSamples(const FramebufferAttachment::Target &target) const override;
 
@@ -184,6 +188,8 @@ class Texture final : public egl::ImageSibling, public gl::FramebufferAttachment
     void releaseTexImageFromSurface();
 
     rx::TextureImpl *mTexture;
+
+    std::string mLabel;
 
     TextureState mTextureState;
 

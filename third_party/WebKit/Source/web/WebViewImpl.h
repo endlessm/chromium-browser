@@ -33,14 +33,16 @@
 
 #include "core/page/ContextMenuProvider.h"
 #include "core/page/EventWithHitTestResults.h"
+#include "platform/animation/CompositorAnimationTimeline.h"
 #include "platform/geometry/IntPoint.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/graphics/GraphicsLayer.h"
+#include "platform/graphics/compositing/PaintArtifactCompositor.h"
 #include "platform/heap/Handle.h"
-#include "public/platform/WebCompositorAnimationTimeline.h"
 #include "public/platform/WebDisplayMode.h"
 #include "public/platform/WebFloatSize.h"
 #include "public/platform/WebGestureCurveTarget.h"
+#include "public/platform/WebInputEventResult.h"
 #include "public/platform/WebLayer.h"
 #include "public/platform/WebPoint.h"
 #include "public/platform/WebRect.h"
@@ -81,10 +83,12 @@ class WebActiveGestureAnimation;
 class WebDevToolsAgentImpl;
 class WebElement;
 class WebLayerTreeView;
+class WebLocalFrame;
 class WebLocalFrameImpl;
 class WebImage;
 class WebPagePopupImpl;
 class WebPlugin;
+class WebRemoteFrame;
 class WebSelection;
 class WebSettingsImpl;
 class WebViewScheduler;
@@ -117,7 +121,7 @@ public:
     void layoutAndPaintAsync(WebLayoutAndPaintAsyncCallback*) override;
     void compositeAndReadbackAsync(WebCompositeAndReadbackAsyncCallback*) override;
     void themeChanged() override;
-    bool handleInputEvent(const WebInputEvent&) override;
+    WebInputEventResult handleInputEvent(const WebInputEvent&) override;
     void setCursorVisibilityState(bool isVisible) override;
     bool hasTouchEventHandlersAt(const WebPoint&) override;
 
@@ -164,9 +168,6 @@ public:
     WebSettings* settings() override;
     WebString pageEncoding() const override;
     void setPageEncoding(const WebString&) override;
-    bool isTransparent() const override;
-    void setIsTransparent(bool value) override;
-    void setBaseBackgroundColor(WebColor) override;
     bool tabsToLinks() const override;
     void setTabsToLinks(bool value) override;
     bool tabKeyCyclesThroughElements() const override;
@@ -188,6 +189,7 @@ public:
     void smoothScroll(int targetX, int targetY, long durationMs) override;
     void zoomToFindInPageRect(const WebRect&);
     void advanceFocus(bool reverse) override;
+    void advanceFocusAcrossFrames(WebFocusType, WebRemoteFrame* from, WebLocalFrame* to) override;
     double zoomLevel() override;
     double setZoomLevel(double) override;
     void zoomLimitsChanged(double minimumZoomLevel, double maximumZoomLevel) override;
@@ -207,12 +209,11 @@ public:
     WebSize contentsPreferredMinimumSize() override;
     void setDisplayMode(WebDisplayMode) override;
 
-    float deviceScaleFactor() const override;
     void setDeviceScaleFactor(float) override;
     void setZoomFactorForDeviceScaleFactor(float) override;
 
     void setDeviceColorProfile(const WebVector<char>&) override;
-    void resetDeviceColorProfile() override;
+    void resetDeviceColorProfileForTesting() override;
 
     void enableAutoResizeMode(
         const WebSize& minSize,
@@ -261,12 +262,14 @@ public:
                                     unsigned inactiveForegroundColor) override;
     void performCustomContextMenuAction(unsigned action) override;
     void showContextMenu() override;
+    void didCloseContextMenu() override;
     void extractSmartClipData(WebRect, WebString&, WebString&, WebRect&) override;
     void hidePopups() override;
     void setPageOverlayColor(WebColor) override;
     WebPageImportanceSignals* pageImportanceSignals() override;
     void transferActiveWheelFlingAnimation(const WebActiveWheelFlingParameters&) override;
     bool endActiveFlingAnimation() override;
+    bool isFlinging() const override { return !!m_gestureAnimation.get(); }
     void setShowPaintRects(bool) override;
     void setShowDebugBorders(bool);
     void setShowFPSCounter(bool) override;
@@ -282,12 +285,13 @@ public:
     float minimumPageScaleFactor() const;
     float maximumPageScaleFactor() const;
     float clampPageScaleFactorToLimits(float) const;
-    void resetScrollAndScaleStateImmediately();
+    void resetScaleStateImmediately();
 
     HitTestResult coreHitTestResultAt(const WebPoint&);
     void invalidateRect(const IntRect&);
 
     void setIgnoreInputEvents(bool newValue);
+    void setBaseBackgroundColor(WebColor);
     void setBackgroundColorOverride(WebColor);
     void setZoomFactorOverride(float);
     void updateShowFPSCounter();
@@ -360,7 +364,7 @@ public:
     // wParam, LPARAM lParam) in webkit\webkit\win\WebView.cpp. The only
     // significant change in this function is the code to convert from a
     // Keyboard event to the Right Mouse button down event.
-    bool sendContextMenuEvent(const WebKeyboardEvent&);
+    WebInputEventResult sendContextMenuEvent(const WebKeyboardEvent&);
 
     void showContextMenuAtPoint(float x, float y, PassRefPtrWillBeRawPtr<ContextMenuProvider>);
 
@@ -381,10 +385,10 @@ public:
     // unless the view did not need a layout.
     void layoutUpdated(WebLocalFrameImpl*);
 
-    void documentElementAvailable(WebLocalFrameImpl*);
-    void willInsertBody(WebLocalFrameImpl*);
-    void didRemoveAllPendingStylesheet(WebLocalFrameImpl*);
-    void didFinishDocumentLoad(WebLocalFrameImpl*);
+    void mainFrameDocumentElementAvailable();
+    void willInsertMainFrameDocumentBody();
+    void didRemoveAllPendingStylesheetsInMainFrameDocument();
+    void didFinishMainFrameDocumentLoad();
     void didChangeContentsSize();
     void pageScaleFactorChanged();
 
@@ -420,6 +424,7 @@ public:
 
     PagePopup* openPagePopup(PagePopupClient*);
     void closePagePopup(PagePopup*);
+    void cleanupPagePopup();
     LocalDOMWindow* pagePopupWindow() const;
 
     // Returns the input event we're currently processing. This is used in some
@@ -435,10 +440,11 @@ public:
     PaintLayerCompositor* compositor() const;
     void registerForAnimations(WebLayer*);
     void scheduleAnimation();
-    void attachCompositorAnimationTimeline(WebCompositorAnimationTimeline*);
-    void detachCompositorAnimationTimeline(WebCompositorAnimationTimeline*);
-    WebCompositorAnimationTimeline* linkHighlightsTimeline() const { return m_linkHighlightsTimeline.get(); }
+    void attachCompositorAnimationTimeline(CompositorAnimationTimeline*);
+    void detachCompositorAnimationTimeline(CompositorAnimationTimeline*);
+    CompositorAnimationTimeline* linkHighlightsTimeline() const { return m_linkHighlightsTimeline.get(); }
 
+    WebViewScheduler* scheduler() const override;
     void setVisibilityState(WebPageVisibilityState, bool) override;
 
     bool hasOpenedPopup() const { return m_pagePopup; }
@@ -518,7 +524,19 @@ public:
 
     FloatSize elasticOverscroll() const { return m_elasticOverscroll; }
 
-    WebViewScheduler* scheduler() const { return m_scheduler.get(); }
+    // Attaches the PaintArtifactCompositor's tree to this WebView's layer tree
+    // view.
+    void attachPaintArtifactCompositor();
+
+    // Detaches the PaintArtifactCompositor and clears the layer tree view's
+    // root layer.
+    void detachPaintArtifactCompositor();
+
+    // Use in Slimming Paint v2 to update the layer tree for the content.
+    PaintArtifactCompositor& paintArtifactCompositor() { return m_paintArtifactCompositor; }
+
+    bool isTransparent() const;
+    void setIsTransparent(bool value);
 
 private:
     InspectorOverlay* inspectorOverlay();
@@ -529,7 +547,6 @@ private:
 
     float maximumLegiblePageScale() const;
     void refreshPageScaleFactorAfterLayout();
-    void resetScrollAndScaleState(bool immediately);
     void resumeTreeViewCommitsIfRenderingReady();
     IntSize contentsSize() const;
 
@@ -595,12 +612,12 @@ private:
     void handleMouseLeave(LocalFrame&, const WebMouseEvent&) override;
     void handleMouseDown(LocalFrame&, const WebMouseEvent&) override;
     void handleMouseUp(LocalFrame&, const WebMouseEvent&) override;
-    bool handleMouseWheel(LocalFrame&, const WebMouseWheelEvent&) override;
-    bool handleGestureEvent(const WebGestureEvent&) override;
-    bool handleKeyEvent(const WebKeyboardEvent&) override;
-    bool handleCharEvent(const WebKeyboardEvent&) override;
+    WebInputEventResult handleMouseWheel(LocalFrame&, const WebMouseWheelEvent&) override;
+    WebInputEventResult handleGestureEvent(const WebGestureEvent&) override;
+    WebInputEventResult handleKeyEvent(const WebKeyboardEvent&) override;
+    WebInputEventResult handleCharEvent(const WebKeyboardEvent&) override;
 
-    bool handleSyntheticWheelFromTouchpadPinchEvent(const WebGestureEvent&);
+    WebInputEventResult handleSyntheticWheelFromTouchpadPinchEvent(const WebGestureEvent&);
 
     WebPlugin* focusedPluginIfInputMethodSupported(LocalFrame*);
 
@@ -609,6 +626,8 @@ private:
 
     void cancelPagePopup();
     void updatePageOverlays();
+
+    float deviceScaleFactor() const;
 
     WebViewClient* m_client; // Can be 0 (e.g. unittests, shared workers, etc.)
     WebSpellCheckClient* m_spellCheckClient;
@@ -701,7 +720,6 @@ private:
     // The popup associated with an input/select element.
     RefPtr<WebPagePopupImpl> m_pagePopup;
 
-    OwnPtrWillBePersistent<InspectorOverlay> m_inspectorOverlay;
     OwnPtrWillBePersistent<DevToolsEmulator> m_devToolsEmulator;
     OwnPtr<PageOverlay> m_pageColorOverlay;
 
@@ -717,15 +735,11 @@ private:
 
     RefPtr<UserGestureToken> m_pointerLockGestureToken;
 
-    IntRect m_rootLayerScrollDamage;
     WebLayerTreeView* m_layerTreeView;
     WebLayer* m_rootLayer;
     GraphicsLayer* m_rootGraphicsLayer;
-    GraphicsLayer* m_rootTransformLayer;
     OwnPtr<GraphicsLayerFactory> m_graphicsLayerFactory;
     bool m_matchesHeuristicsForGpuRasterization;
-    // If true, the graphics context is being restored.
-    bool m_recreatingGraphicsContext;
     static const WebInputEvent* m_currentInputEvent;
 
     MediaKeysClientImpl m_mediaKeysClientImpl;
@@ -735,7 +749,7 @@ private:
     int m_flingModifier;
     WebGestureDevice m_flingSourceDevice;
     Vector<OwnPtr<LinkHighlightImpl>> m_linkHighlights;
-    OwnPtr<WebCompositorAnimationTimeline> m_linkHighlightsTimeline;
+    OwnPtr<CompositorAnimationTimeline> m_linkHighlightsTimeline;
     OwnPtrWillBePersistent<FullscreenController> m_fullscreenController;
 
     bool m_showFPSCounter;
@@ -756,6 +770,9 @@ private:
     WebPageImportanceSignals m_pageImportanceSignals;
 
     const OwnPtr<WebViewScheduler> m_scheduler;
+
+    // Manages the layer tree created for this page in Slimming Paint v2.
+    PaintArtifactCompositor m_paintArtifactCompositor;
 };
 
 DEFINE_TYPE_CASTS(WebViewImpl, WebWidget, widget, widget->isWebView(), widget.isWebView());

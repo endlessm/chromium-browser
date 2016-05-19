@@ -5,6 +5,8 @@
 #ifndef UI_EVENTS_KEYCODES_DOM_US_LAYOUT_DATA_H_
 #define UI_EVENTS_KEYCODES_DOM_US_LAYOUT_DATA_H_
 
+#include "build/build_config.h"
+
 namespace ui {
 
 // This table maps a DomCode to a printable character, assuming US layout.
@@ -14,32 +16,32 @@ const struct PrintableCodeEntry {
   DomCode dom_code;
   base::char16 character[2];  // normal, shift
 } kPrintableCodeMap[] = {
-    {DomCode::KEY_A, {'a', 'A'}},
-    {DomCode::KEY_B, {'b', 'B'}},
-    {DomCode::KEY_C, {'c', 'C'}},
-    {DomCode::KEY_D, {'d', 'D'}},
-    {DomCode::KEY_E, {'e', 'E'}},
-    {DomCode::KEY_F, {'f', 'F'}},
-    {DomCode::KEY_G, {'g', 'G'}},
-    {DomCode::KEY_H, {'h', 'H'}},
-    {DomCode::KEY_I, {'i', 'I'}},
-    {DomCode::KEY_J, {'j', 'J'}},
-    {DomCode::KEY_K, {'k', 'K'}},
-    {DomCode::KEY_L, {'l', 'L'}},
-    {DomCode::KEY_M, {'m', 'M'}},
-    {DomCode::KEY_N, {'n', 'N'}},
-    {DomCode::KEY_O, {'o', 'O'}},
-    {DomCode::KEY_P, {'p', 'P'}},
-    {DomCode::KEY_Q, {'q', 'Q'}},
-    {DomCode::KEY_R, {'r', 'R'}},
-    {DomCode::KEY_S, {'s', 'S'}},
-    {DomCode::KEY_T, {'t', 'T'}},
-    {DomCode::KEY_U, {'u', 'U'}},
-    {DomCode::KEY_V, {'v', 'V'}},
-    {DomCode::KEY_W, {'w', 'W'}},
-    {DomCode::KEY_X, {'x', 'X'}},
-    {DomCode::KEY_Y, {'y', 'Y'}},
-    {DomCode::KEY_Z, {'z', 'Z'}},
+    {DomCode::US_A, {'a', 'A'}},
+    {DomCode::US_B, {'b', 'B'}},
+    {DomCode::US_C, {'c', 'C'}},
+    {DomCode::US_D, {'d', 'D'}},
+    {DomCode::US_E, {'e', 'E'}},
+    {DomCode::US_F, {'f', 'F'}},
+    {DomCode::US_G, {'g', 'G'}},
+    {DomCode::US_H, {'h', 'H'}},
+    {DomCode::US_I, {'i', 'I'}},
+    {DomCode::US_J, {'j', 'J'}},
+    {DomCode::US_K, {'k', 'K'}},
+    {DomCode::US_L, {'l', 'L'}},
+    {DomCode::US_M, {'m', 'M'}},
+    {DomCode::US_N, {'n', 'N'}},
+    {DomCode::US_O, {'o', 'O'}},
+    {DomCode::US_P, {'p', 'P'}},
+    {DomCode::US_Q, {'q', 'Q'}},
+    {DomCode::US_R, {'r', 'R'}},
+    {DomCode::US_S, {'s', 'S'}},
+    {DomCode::US_T, {'t', 'T'}},
+    {DomCode::US_U, {'u', 'U'}},
+    {DomCode::US_V, {'v', 'V'}},
+    {DomCode::US_W, {'w', 'W'}},
+    {DomCode::US_X, {'x', 'X'}},
+    {DomCode::US_Y, {'y', 'Y'}},
+    {DomCode::US_Z, {'z', 'Z'}},
     {DomCode::DIGIT1, {'1', '!'}},
     {DomCode::DIGIT2, {'2', '@'}},
     {DomCode::DIGIT3, {'3', '#'}},
@@ -103,6 +105,7 @@ const struct NonPrintableCodeEntry {
     {DomCode::ARROW_RIGHT, DomKey::ARROW_RIGHT},
     {DomCode::ARROW_UP, DomKey::ARROW_UP},
     {DomCode::BACKSPACE, DomKey::BACKSPACE},
+    {DomCode::BASS_BOOST, DomKey::AUDIO_BASS_BOOST_TOGGLE},
     {DomCode::BRIGHTNESS_DOWN, DomKey::BRIGHTNESS_DOWN},
     {DomCode::BRIGHTNESS_UP, DomKey::BRIGHTNESS_UP},
     // {DomCode::BRIGHTNESS_AUTO, DomKey::_}
@@ -117,6 +120,10 @@ const struct NonPrintableCodeEntry {
     {DomCode::BROWSER_SEARCH, DomKey::BROWSER_SEARCH},
     {DomCode::BROWSER_STOP, DomKey::BROWSER_STOP},
     {DomCode::CAPS_LOCK, DomKey::CAPS_LOCK},
+    {DomCode::CHANNEL_DOWN, DomKey::CHANNEL_DOWN},
+    {DomCode::CHANNEL_UP, DomKey::CHANNEL_UP},
+    {DomCode::CLOSE, DomKey::CLOSE},
+    {DomCode::CLOSED_CAPTION_TOGGLE, DomKey::CLOSED_CAPTION_TOGGLE},
     {DomCode::CONTEXT_MENU, DomKey::CONTEXT_MENU},
     {DomCode::CONTROL_LEFT, DomKey::CONTROL},
     {DomCode::CONTROL_RIGHT, DomKey::CONTROL},
@@ -128,6 +135,7 @@ const struct NonPrintableCodeEntry {
     {DomCode::END, DomKey::END},
     {DomCode::ENTER, DomKey::ENTER},
     {DomCode::ESCAPE, DomKey::ESCAPE},
+    {DomCode::EXIT, DomKey::EXIT},
     {DomCode::F1, DomKey::F1},
     {DomCode::F2, DomKey::F2},
     {DomCode::F3, DomKey::F3},
@@ -158,6 +166,7 @@ const struct NonPrintableCodeEntry {
     {DomCode::HELP, DomKey::HELP},
     {DomCode::HOME, DomKey::HOME},
     {DomCode::HYPER, DomKey::HYPER},
+    {DomCode::INFO, DomKey::INFO},
     {DomCode::INSERT, DomKey::INSERT},
     // {DomCode::INTL_RO, DomKey::_}
     {DomCode::KANA_MODE, DomKey::KANA_MODE},
@@ -168,21 +177,36 @@ const struct NonPrintableCodeEntry {
     {DomCode::LANG5, DomKey::ZENKAKU_HANKAKU},
     {DomCode::LAUNCH_APP1, DomKey::LAUNCH_MY_COMPUTER},
     {DomCode::LAUNCH_APP2, DomKey::LAUNCH_CALCULATOR},
+    {DomCode::LAUNCH_AUDIO_BROWSER, DomKey::LAUNCH_MUSIC_PLAYER},
+    {DomCode::LAUNCH_CALENDAR, DomKey::LAUNCH_CALENDAR},
+    {DomCode::LAUNCH_CONTACTS, DomKey::LAUNCH_CONTACTS},
+    {DomCode::LAUNCH_CONTROL_PANEL, DomKey::SETTINGS},
+    {DomCode::LAUNCH_INTERNET_BROWSER, DomKey::LAUNCH_WEB_BROWSER},
     {DomCode::LAUNCH_MAIL, DomKey::LAUNCH_MAIL},
+    {DomCode::LAUNCH_PHONE, DomKey::LAUNCH_PHONE},
     {DomCode::LAUNCH_SCREEN_SAVER, DomKey::LAUNCH_SCREEN_SAVER},
+    {DomCode::LAUNCH_SPREADSHEET, DomKey::LAUNCH_SPREADSHEET},
     // {DomCode::LAUNCH_DOCUMENTS, DomKey::_}
     // {DomCode::LAUNCH_FILE_BROWSER, DomKey::_}
     // {DomCode::LAUNCH_KEYBOARD_LAYOUT, DomKey::_}
     {DomCode::LOCK_SCREEN, DomKey::LAUNCH_SCREEN_SAVER},
+    {DomCode::LOG_OFF, DomKey::LOG_OFF},
     {DomCode::MAIL_FORWARD, DomKey::MAIL_FORWARD},
     {DomCode::MAIL_REPLY, DomKey::MAIL_REPLY},
     {DomCode::MAIL_SEND, DomKey::MAIL_SEND},
+    {DomCode::MEDIA_FAST_FORWARD, DomKey::MEDIA_FAST_FORWARD},
+    {DomCode::MEDIA_LAST, DomKey::MEDIA_LAST},
+    // {DomCode::MEDIA_PAUSE, DomKey::MEDIA_PAUSE},
+    {DomCode::MEDIA_PLAY, DomKey::MEDIA_PLAY},
     {DomCode::MEDIA_PLAY_PAUSE, DomKey::MEDIA_PLAY_PAUSE},
-    {DomCode::MEDIA_SELECT, DomKey::MEDIA_SELECT},
+    {DomCode::MEDIA_RECORD, DomKey::MEDIA_RECORD},
+    {DomCode::MEDIA_REWIND, DomKey::MEDIA_REWIND},
+    {DomCode::MEDIA_SELECT, DomKey::LAUNCH_MEDIA_PLAYER},
     {DomCode::MEDIA_STOP, DomKey::MEDIA_STOP},
     {DomCode::MEDIA_TRACK_NEXT, DomKey::MEDIA_TRACK_NEXT},
     {DomCode::MEDIA_TRACK_PREVIOUS, DomKey::MEDIA_TRACK_PREVIOUS},
     // {DomCode::MENU, DomKey::_}
+    {DomCode::NEW, DomKey::NEW},
     {DomCode::NON_CONVERT, DomKey::NON_CONVERT},
     {DomCode::NUM_LOCK, DomKey::NUM_LOCK},
     {DomCode::NUMPAD_BACKSPACE, DomKey::BACKSPACE},
@@ -195,28 +219,35 @@ const struct NonPrintableCodeEntry {
     // {DomCode::NUMPAD_MEMORY_STORE, DomKey::_}
     // {DomCode::NUMPAD_MEMORY_SUBTRACT, DomKey::_}
     {DomCode::OPEN, DomKey::OPEN},
-    {DomCode::OS_LEFT, DomKey::OS},
-    {DomCode::OS_RIGHT, DomKey::OS},
+    {DomCode::OS_LEFT, DomKey::META},
+    {DomCode::OS_RIGHT, DomKey::META},
     {DomCode::PAGE_DOWN, DomKey::PAGE_DOWN},
     {DomCode::PAGE_UP, DomKey::PAGE_UP},
     {DomCode::PASTE, DomKey::PASTE},
     {DomCode::PAUSE, DomKey::PAUSE},
     {DomCode::POWER, DomKey::POWER},
+    {DomCode::PRINT, DomKey::PRINT},
     {DomCode::PRINT_SCREEN, DomKey::PRINT_SCREEN},
+    {DomCode::PROGRAM_GUIDE, DomKey::GUIDE},
     {DomCode::PROPS, DomKey::PROPS},
+    {DomCode::REDO, DomKey::REDO},
+    {DomCode::SAVE, DomKey::SAVE},
     {DomCode::SCROLL_LOCK, DomKey::SCROLL_LOCK},
     {DomCode::SELECT, DomKey::SELECT},
-    // {DomCode::SELECT_TASK, DomKey::_}
+    {DomCode::SELECT_TASK, DomKey::APP_SWITCH},
     {DomCode::SHIFT_LEFT, DomKey::SHIFT},
     {DomCode::SHIFT_RIGHT, DomKey::SHIFT},
+    {DomCode::SPEECH_INPUT_TOGGLE, DomKey::SPEECH_INPUT_TOGGLE},
+    {DomCode::SPELL_CHECK, DomKey::SPELL_CHECK},
     {DomCode::SUPER, DomKey::SUPER},
     {DomCode::TAB, DomKey::TAB},
     {DomCode::UNDO, DomKey::UNDO},
-    // {DomCode::VOICE_COMMAND, DomKey::_}
-    {DomCode::VOLUME_DOWN, DomKey::VOLUME_DOWN},
-    {DomCode::VOLUME_MUTE, DomKey::VOLUME_MUTE},
-    {DomCode::VOLUME_UP, DomKey::VOLUME_UP},
+    {DomCode::VOLUME_DOWN, DomKey::AUDIO_VOLUME_DOWN},
+    {DomCode::VOLUME_MUTE, DomKey::AUDIO_VOLUME_MUTE},
+    {DomCode::VOLUME_UP, DomKey::AUDIO_VOLUME_UP},
     {DomCode::WAKE_UP, DomKey::WAKE_UP},
+    {DomCode::ZOOM_IN, DomKey::ZOOM_IN},
+    {DomCode::ZOOM_OUT, DomKey::ZOOM_OUT},
     {DomCode::ZOOM_TOGGLE, DomKey::ZOOM_TOGGLE},
 };
 
@@ -237,13 +268,12 @@ const struct DomKeyToKeyboardCodeEntry {
     {DomKey::CAPS_LOCK, VKEY_CAPITAL},
     {DomKey::CONTROL, VKEY_CONTROL},
     {DomKey::NUM_LOCK, VKEY_NUMLOCK},
-    {DomKey::OS, VKEY_LWIN},
+    {DomKey::META, VKEY_LWIN},
     {DomKey::SCROLL_LOCK, VKEY_SCROLL},
     {DomKey::SHIFT, VKEY_SHIFT},
     // Whitespace Keys
     // http://www.w3.org/TR/DOM-Level-3-Events-key/#keys-whitespace
     {DomKey::ENTER, VKEY_RETURN},
-    {DomKey::SEPARATOR, VKEY_SEPARATOR},
     {DomKey::TAB, VKEY_TAB},
     // Navigation Keys
     // http://www.w3.org/TR/DOM-Level-3-Events-key/#keys-navigation
@@ -332,18 +362,18 @@ const struct DomKeyToKeyboardCodeEntry {
     // Multimedia Keys
     // http://www.w3.org/TR/DOM-Level-3-Events-key/#keys-multimedia
     {DomKey::MEDIA_PLAY_PAUSE, VKEY_MEDIA_PLAY_PAUSE},
-    {DomKey::MEDIA_SELECT, VKEY_MEDIA_LAUNCH_MEDIA_SELECT},
     {DomKey::MEDIA_STOP, VKEY_MEDIA_STOP},
     {DomKey::MEDIA_TRACK_NEXT, VKEY_MEDIA_NEXT_TRACK},
     {DomKey::MEDIA_TRACK_PREVIOUS, VKEY_MEDIA_PREV_TRACK},
     {DomKey::PRINT, VKEY_PRINT},
-    {DomKey::VOLUME_DOWN, VKEY_VOLUME_DOWN},
-    {DomKey::VOLUME_MUTE, VKEY_VOLUME_MUTE},
-    {DomKey::VOLUME_UP, VKEY_VOLUME_UP},
+    {DomKey::AUDIO_VOLUME_DOWN, VKEY_VOLUME_DOWN},
+    {DomKey::AUDIO_VOLUME_MUTE, VKEY_VOLUME_MUTE},
+    {DomKey::AUDIO_VOLUME_UP, VKEY_VOLUME_UP},
     // Application Keys
     // http://www.w3.org/TR/DOM-Level-3-Events-key/#keys-apps
     {DomKey::LAUNCH_CALCULATOR, VKEY_MEDIA_LAUNCH_APP2},
     {DomKey::LAUNCH_MAIL, VKEY_MEDIA_LAUNCH_MAIL},
+    {DomKey::LAUNCH_MEDIA_PLAYER, VKEY_MEDIA_LAUNCH_MEDIA_SELECT},
     {DomKey::LAUNCH_MY_COMPUTER, VKEY_MEDIA_LAUNCH_APP1},
     // Browser Keys
     // http://www.w3.org/TR/DOM-Level-3-Events-key/#keys-browser
@@ -385,32 +415,32 @@ const struct DomCodeToKeyboardCodeEntry {
     // DomCode::TURBO                              0x000016 Turbo
     {DomCode::SLEEP, VKEY_SLEEP},               // 0x010082 Sleep
     // DomCode::WAKE_UP                            0x010083 WakeUp
-    {DomCode::KEY_A, VKEY_A},                   // 0x070004 KeyA
-    {DomCode::KEY_B, VKEY_B},                   // 0x070005 KeyB
-    {DomCode::KEY_C, VKEY_C},                   // 0x070006 KeyC
-    {DomCode::KEY_D, VKEY_D},                   // 0x070007 KeyD
-    {DomCode::KEY_E, VKEY_E},                   // 0x070008 KeyE
-    {DomCode::KEY_F, VKEY_F},                   // 0x070009 KeyF
-    {DomCode::KEY_G, VKEY_G},                   // 0x07000A KeyG
-    {DomCode::KEY_H, VKEY_H},                   // 0x07000B KeyH
-    {DomCode::KEY_I, VKEY_I},                   // 0x07000C KeyI
-    {DomCode::KEY_J, VKEY_J},                   // 0x07000D KeyJ
-    {DomCode::KEY_K, VKEY_K},                   // 0x07000E KeyK
-    {DomCode::KEY_L, VKEY_L},                   // 0x07000F KeyL
-    {DomCode::KEY_M, VKEY_M},                   // 0x070010 KeyM
-    {DomCode::KEY_N, VKEY_N},                   // 0x070011 KeyN
-    {DomCode::KEY_O, VKEY_O},                   // 0x070012 KeyO
-    {DomCode::KEY_P, VKEY_P},                   // 0x070013 KeyP
-    {DomCode::KEY_Q, VKEY_Q},                   // 0x070014 KeyQ
-    {DomCode::KEY_R, VKEY_R},                   // 0x070015 KeyR
-    {DomCode::KEY_S, VKEY_S},                   // 0x070016 KeyS
-    {DomCode::KEY_T, VKEY_T},                   // 0x070017 KeyT
-    {DomCode::KEY_U, VKEY_U},                   // 0x070018 KeyU
-    {DomCode::KEY_V, VKEY_V},                   // 0x070019 KeyV
-    {DomCode::KEY_W, VKEY_W},                   // 0x07001A KeyW
-    {DomCode::KEY_X, VKEY_X},                   // 0x07001B KeyX
-    {DomCode::KEY_Y, VKEY_Y},                   // 0x07001C KeyY
-    {DomCode::KEY_Z, VKEY_Z},                   // 0x07001D KeyZ
+    {DomCode::US_A, VKEY_A},                   // 0x070004 KeyA
+    {DomCode::US_B, VKEY_B},                   // 0x070005 KeyB
+    {DomCode::US_C, VKEY_C},                   // 0x070006 KeyC
+    {DomCode::US_D, VKEY_D},                   // 0x070007 KeyD
+    {DomCode::US_E, VKEY_E},                   // 0x070008 KeyE
+    {DomCode::US_F, VKEY_F},                   // 0x070009 KeyF
+    {DomCode::US_G, VKEY_G},                   // 0x07000A KeyG
+    {DomCode::US_H, VKEY_H},                   // 0x07000B KeyH
+    {DomCode::US_I, VKEY_I},                   // 0x07000C KeyI
+    {DomCode::US_J, VKEY_J},                   // 0x07000D KeyJ
+    {DomCode::US_K, VKEY_K},                   // 0x07000E KeyK
+    {DomCode::US_L, VKEY_L},                   // 0x07000F KeyL
+    {DomCode::US_M, VKEY_M},                   // 0x070010 KeyM
+    {DomCode::US_N, VKEY_N},                   // 0x070011 KeyN
+    {DomCode::US_O, VKEY_O},                   // 0x070012 KeyO
+    {DomCode::US_P, VKEY_P},                   // 0x070013 KeyP
+    {DomCode::US_Q, VKEY_Q},                   // 0x070014 KeyQ
+    {DomCode::US_R, VKEY_R},                   // 0x070015 KeyR
+    {DomCode::US_S, VKEY_S},                   // 0x070016 KeyS
+    {DomCode::US_T, VKEY_T},                   // 0x070017 KeyT
+    {DomCode::US_U, VKEY_U},                   // 0x070018 KeyU
+    {DomCode::US_V, VKEY_V},                   // 0x070019 KeyV
+    {DomCode::US_W, VKEY_W},                   // 0x07001A KeyW
+    {DomCode::US_X, VKEY_X},                   // 0x07001B KeyX
+    {DomCode::US_Y, VKEY_Y},                   // 0x07001C KeyY
+    {DomCode::US_Z, VKEY_Z},                   // 0x07001D KeyZ
     {DomCode::DIGIT1, VKEY_1},                  // 0x07001E Digit1
     {DomCode::DIGIT2, VKEY_2},                  // 0x07001F Digit2
     {DomCode::DIGIT3, VKEY_3},                  // 0x070020 Digit3

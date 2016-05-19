@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGGElement.h"
 
 #include "core/SVGNames.h"
@@ -53,4 +52,4 @@ bool SVGGElement::layoutObjectIsNeeded(const ComputedStyle&)
     return parentOrShadowHostElement() && parentOrShadowHostElement()->isSVGElement();
 }
 
-}
+} // namespace blink

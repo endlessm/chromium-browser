@@ -8,6 +8,7 @@
   },
   'targets': [
     {
+      # TODO(msw|mukai|dewittj): Move ash-specific files: crbug.com/585175
       # GN version: //ui/message_center
       'target_name': 'message_center',
       'type': '<(component)',
@@ -66,6 +67,8 @@
         'notifier_settings.h',
         'popup_timer.cc',
         'popup_timer.h',
+        'popup_timers_controller.cc',
+        'popup_timers_controller.h',
         'views/bounded_label.cc',
         'views/bounded_label.h',
         'views/constants.h',
@@ -90,6 +93,8 @@
         'views/message_view_context_menu_controller.h',
         'views/notification_button.cc',
         'views/notification_button.h',
+        'views/notification_progress_bar.cc',
+        'views/notification_progress_bar.h',
         'views/notification_view.cc',
         'views/notification_view.h',
         'views/notifier_settings_view.cc',
@@ -125,14 +130,6 @@
         }, {
           'sources/': [
             ['exclude', 'views/'],
-          ],
-        }],
-        ['use_ash==0', {
-          'sources!': [
-            'views/message_bubble_base.cc',
-            'views/message_bubble_base.h',
-            'views/message_center_bubble.cc',
-            'views/message_center_bubble.h',
           ],
         }],
         # iOS disables notifications altogether, Android implements its own
@@ -235,12 +232,6 @@
             # Exclude everything except main().
             ['exclude', '\\.(cc|mm)$'],
             ['include', '^test/run_all_unittests\\.cc$'],
-          ],
-        }],
-        # See http://crbug.com/162998#c4 for why this is needed.
-        ['OS=="linux" and use_allocator!="none"', {
-          'dependencies': [
-            '../../base/allocator/allocator.gyp:allocator',
           ],
         }],
       ],

@@ -110,21 +110,22 @@ SkIPoint SKPBench::onGetSize() {
 
 void SKPBench::onDraw(int loops, SkCanvas* canvas) {
     SkASSERT(fDoLooping || 1 == loops);
-    if (fUseMultiPictureDraw) {
-        for (int i = 0; i < loops; i++) {
+    while (1) {
+        if (fUseMultiPictureDraw) {
             this->drawMPDPicture();
-        }
-    } else {
-        for (int i = 0; i < loops; i++) {
+        } else {
             this->drawPicture();
         }
-    }
+        if (0 == --loops) {
+            break;
+        }
 #if SK_SUPPORT_GPU
-    // Ensure the GrContext doesn't batch across draw loops.
-    if (GrContext* context = canvas->getGrContext()) {
-        context->flush();
-    }
+        // Ensure the GrContext doesn't batch across draw loops.
+        if (GrContext* context = canvas->getGrContext()) {
+            context->flush();
+        }
 #endif
+    }
 }
 
 void SKPBench::drawMPDPicture() {
@@ -154,4 +155,45 @@ void SKPBench::drawPicture() {
     for (int j = 0; j < fTileRects.count(); ++j) {
         fSurfaces[j]->getCanvas()->flush();
     }
+}
+
+#if SK_SUPPORT_GPU
+#include "GrGpu.h"
+static void draw_pic_for_stats(SkCanvas* canvas, GrContext* context, const SkPicture* picture,
+                               SkTArray<SkString>* keys, SkTArray<double>* values,
+                               const char* tag) {
+    context->resetGpuStats();
+    canvas->drawPicture(picture);
+    canvas->flush();
+
+    int offset = keys->count();
+    context->dumpGpuStatsKeyValuePairs(keys, values);
+    context->dumpCacheStatsKeyValuePairs(keys, values);
+
+    // append tag, but only to new tags
+    for (int i = offset; i < keys->count(); i++, offset++) {
+        (*keys)[i].appendf("_%s", tag);
+    }
+}
+#endif
+
+void SKPBench::getGpuStats(SkCanvas* canvas, SkTArray<SkString>* keys, SkTArray<double>* values) {
+#if SK_SUPPORT_GPU
+    // we do a special single draw and then dump the key / value pairs
+    GrContext* context = canvas->getGrContext();
+    if (!context) {
+        return;
+    }
+
+    // TODO refactor this out if we want to test other subclasses of skpbench
+    context->flush();
+    context->freeGpuResources();
+    context->resetContext();
+    context->getGpu()->resetShaderCacheForTesting();
+    draw_pic_for_stats(canvas, context, fPic, keys, values, "first_frame");
+
+    // draw second frame
+    draw_pic_for_stats(canvas, context, fPic, keys, values, "second_frame");
+
+#endif
 }

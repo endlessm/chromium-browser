@@ -4,10 +4,10 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "JBig2_SymbolDict.h"
+#include "core/src/fxcodec/jbig2/JBig2_SymbolDict.h"
 
-#include "JBig2_Image.h"
 #include "core/include/fxcrt/fx_memory.h"
+#include "core/src/fxcodec/jbig2/JBig2_Image.h"
 
 CJBig2_SymbolDict::CJBig2_SymbolDict() {
 }
@@ -15,9 +15,9 @@ CJBig2_SymbolDict::CJBig2_SymbolDict() {
 CJBig2_SymbolDict::~CJBig2_SymbolDict() {
 }
 
-nonstd::unique_ptr<CJBig2_SymbolDict> CJBig2_SymbolDict::DeepCopy() const {
+std::unique_ptr<CJBig2_SymbolDict> CJBig2_SymbolDict::DeepCopy() const {
   const CJBig2_SymbolDict* src = this;
-  nonstd::unique_ptr<CJBig2_SymbolDict> dst(new CJBig2_SymbolDict);
+  std::unique_ptr<CJBig2_SymbolDict> dst(new CJBig2_SymbolDict);
   for (size_t i = 0; i < src->m_SDEXSYMS.size(); ++i) {
     CJBig2_Image* image = src->m_SDEXSYMS.get(i);
     dst->m_SDEXSYMS.push_back(image ? new CJBig2_Image(*image) : nullptr);

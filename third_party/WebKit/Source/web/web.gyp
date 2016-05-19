@@ -57,10 +57,12 @@
                 '../config.gyp:config',
                 '../platform/blink_platform.gyp:blink_common',
                 '../modules/modules.gyp:modules',
+                '<(DEPTH)/cc/cc.gyp:cc',
                 '<(DEPTH)/skia/skia.gyp:skia',
                 '<(angle_path)/src/angle.gyp:translator',
                 '<(DEPTH)/third_party/icu/icu.gyp:icuuc',
                 '<(DEPTH)/third_party/npapi/npapi.gyp:npapi',
+                '<(DEPTH)/ui/gfx/gfx.gyp:gfx_geometry',
                 '<(DEPTH)/v8/tools/gyp/v8.gyp:v8',
             ],
             'export_dependent_settings': [
@@ -92,7 +94,6 @@
                         '<(DEPTH)/third_party/icu/icu.gyp:icui18n',
                         '<(DEPTH)/third_party/libpng/libpng.gyp:libpng',
                         '<(DEPTH)/third_party/libwebp/libwebp.gyp:libwebp',
-                        '<(DEPTH)/third_party/modp_b64/modp_b64.gyp:modp_b64',
                         '<(DEPTH)/third_party/ots/ots.gyp:ots',
                         '<(DEPTH)/third_party/zlib/zlib.gyp:zlib',
                         '<(DEPTH)/url/url.gyp:url_lib',
@@ -118,7 +119,6 @@
                         '<@(bindings_unittest_files)',
                         '<@(core_unittest_files)',
                         '<@(modules_unittest_files)',
-                        '<@(platform_unittest_support_files)',
                         # FIXME: the next line should not be needed. We prefer to run these unit tests outside blink_web.dll.
                         '<@(platform_web_unittest_files)',
                         '<@(web_unittest_files)',
@@ -256,13 +256,6 @@
         },
     ], # targets
     'conditions': [
-        ['gcc_version>=46', {
-            'target_defaults': {
-                # Disable warnings about c++0x compatibility, as some names (such
-                # as nullptr) conflict with upcoming c++0x types.
-                'cflags_cc': ['-Wno-c++0x-compat'],
-            },
-        }],
         ['OS=="mac"', {
             'targets': [
                 {

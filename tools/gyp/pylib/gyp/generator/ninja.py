@@ -656,6 +656,7 @@ class NinjaWriter(object):
         for var in special_locals:
           if '${%s}' % var in argument:
             needed_variables.add(var)
+      needed_variables = sorted(needed_variables)
 
       def cygwin_munge(path):
         # pylint: disable=cell-var-from-loop
@@ -729,6 +730,7 @@ class NinjaWriter(object):
           # WriteNewNinjaRule uses unique_name for creating an rsp file on win.
           extra_bindings.append(('unique_name',
               hashlib.md5(outputs[0]).hexdigest()))
+
         self.ninja.build(outputs, rule_name, self.GypPathToNinja(source),
                          implicit=inputs,
                          order_only=prebuild,
@@ -765,15 +767,20 @@ class NinjaWriter(object):
   def WriteMacBundleResources(self, resources, bundle_depends):
     """Writes ninja edges for 'mac_bundle_resources'."""
     xcassets = []
+
+    extra_env = self.xcode_settings.GetPerTargetSettings()
+    env = self.GetSortedXcodeEnv(additional_settings=extra_env)
+    env = self.ComputeExportEnvString(env)
+    isBinary = self.xcode_settings.IsBinaryOutputFormat(self.config_name)
+
     for output, res in gyp.xcode_emulation.GetMacBundleResources(
         generator_default_variables['PRODUCT_DIR'],
         self.xcode_settings, map(self.GypPathToNinja, resources)):
       output = self.ExpandSpecial(output)
       if os.path.splitext(output)[-1] != '.xcassets':
-        isBinary = self.xcode_settings.IsBinaryOutputFormat(self.config_name)
         self.ninja.build(output, 'mac_tool', res,
                          variables=[('mactool_cmd', 'copy-bundle-resource'), \
-                                    ('binary', isBinary)])
+                                    ('env', env), ('binary', isBinary)])
         bundle_depends.append(output)
       else:
         xcassets.append(res)
@@ -1058,16 +1065,16 @@ class NinjaWriter(object):
       cmd = map.get(lang)
       ninja_file.build(gch, cmd, input, variables=[(var_name, lang_flag)])
 
-  def WriteLink(self, spec, config_name, config, link_deps):
+  def WriteLink(self, spec, config_name, config, link_deps, compile_deps):
     """Write out a link step. Fills out target.binary. """
     if self.flavor != 'mac' or len(self.archs) == 1:
       return self.WriteLinkForArch(
-          self.ninja, spec, config_name, config, link_deps)
+          self.ninja, spec, config_name, config, link_deps, compile_deps)
     else:
       output = self.ComputeOutput(spec)
       inputs = [self.WriteLinkForArch(self.arch_subninjas[arch], spec,
                                       config_name, config, link_deps[arch],
-                                      arch=arch)
+                                      compile_deps, arch=arch)
                 for arch in self.archs]
       extra_bindings = []
       build_output = output
@@ -1086,7 +1093,7 @@ class NinjaWriter(object):
       return output
 
   def WriteLinkForArch(self, ninja_file, spec, config_name, config,
-                       link_deps, arch=None):
+                       link_deps, compile_deps, arch=None):
     """Write out a link step. Fills out target.binary. """
     command = {
       'executable':      'link',
@@ -1098,6 +1105,14 @@ class NinjaWriter(object):
     implicit_deps = set()
     solibs = set()
     order_deps = set()
+
+    if compile_deps:
+      # Normally, the compiles of the target already depend on compile_deps,
+      # but a shared_library target might have no sources and only link together
+      # a few static_library deps, so the link step also needs to depend
+      # on compile_deps to make sure actions in the shared_library target
+      # get run before the link.
+      order_deps.add(compile_deps)
 
     if 'dependencies' in spec:
       # Two kinds of dependencies:
@@ -1252,10 +1267,11 @@ class NinjaWriter(object):
 
 
     if len(solibs):
-      extra_bindings.append(('solibs', gyp.common.EncodePOSIXShellList(solibs)))
+      extra_bindings.append(('solibs',
+          gyp.common.EncodePOSIXShellList(sorted(solibs))))
 
     ninja_file.build(output, command + command_suffix, link_deps,
-                     implicit=list(implicit_deps),
+                     implicit=sorted(implicit_deps),
                      order_only=list(order_deps),
                      variables=extra_bindings)
     return linked_binary
@@ -1271,7 +1287,7 @@ class NinjaWriter(object):
       self.target.type = 'none'
     elif spec['type'] == 'static_library':
       self.target.binary = self.ComputeOutput(spec)
-      if (self.flavor not in ('mac', 'openbsd', 'win') and not
+      if (self.flavor not in ('mac', 'openbsd', 'netbsd', 'win') and not
           self.is_standalone_static_library):
         self.ninja.build(self.target.binary, 'alink_thin', link_deps,
                          order_only=compile_deps)
@@ -1308,7 +1324,8 @@ class NinjaWriter(object):
                            # needed.
                            variables=variables)
     else:
-      self.target.binary = self.WriteLink(spec, config_name, config, link_deps)
+      self.target.binary = self.WriteLink(spec, config_name, config, link_deps,
+                                          compile_deps)
     return self.target.binary
 
   def WriteMacBundle(self, spec, mac_bundle_depends, is_empty):
@@ -1836,7 +1853,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params,
     ld_host = '$cc_host'
     ldxx_host = '$cxx_host'
 
-  ar_host = 'ar'
+  ar_host = ar
   cc_host = None
   cxx_host = None
   cc_host_global_setting = None
@@ -1901,7 +1918,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params,
               configs, generator_flags)
     cl_paths = gyp.msvs_emulation.GenerateEnvironmentFiles(
         toplevel_build, generator_flags, shared_system_includes, OpenOutput)
-    for arch, path in cl_paths.iteritems():
+    for arch, path in sorted(cl_paths.iteritems()):
       if clang_cl:
         # If we have selected clang-cl, use that instead.
         path = clang_cl
@@ -2337,7 +2354,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params,
     # able to run actions and build libraries by their short name.
     master_ninja.newline()
     master_ninja.comment('Short names for targets.')
-    for short_name in target_short_names:
+    for short_name in sorted(target_short_names):
       master_ninja.build(short_name, 'phony', [x.FinalOutput() for x in
                                                target_short_names[short_name]])
 
@@ -2353,7 +2370,7 @@ def GenerateOutputForConfig(target_list, target_dicts, data, params,
 
   if all_outputs:
     master_ninja.newline()
-    master_ninja.build('all', 'phony', list(all_outputs))
+    master_ninja.build('all', 'phony', sorted(all_outputs))
     master_ninja.default(generator_flags.get('default_target', 'all'))
 
   master_ninja_file.close()

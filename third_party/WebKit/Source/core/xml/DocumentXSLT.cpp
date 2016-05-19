@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/xml/DocumentXSLT.h"
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
@@ -131,7 +130,7 @@ void DocumentXSLT::applyXSLTransform(Document& document, ProcessingInstruction* 
 ProcessingInstruction* DocumentXSLT::findXSLStyleSheet(Document& document)
 {
     for (Node* node = document.firstChild(); node; node = node->nextSibling()) {
-        if (node->nodeType() != Node::PROCESSING_INSTRUCTION_NODE)
+        if (node->getNodeType() != Node::PROCESSING_INSTRUCTION_NODE)
             continue;
 
         ProcessingInstruction* pi = toProcessingInstruction(node);
@@ -150,6 +149,8 @@ bool DocumentXSLT::processingInstructionInsertedIntoDocument(Document& document,
         return true;
 
     ScriptState* scriptState = ScriptState::forMainWorld(document.frame());
+    if (!scriptState)
+        return false;
     RefPtrWillBeRawPtr<DOMContentLoadedListener> listener = DOMContentLoadedListener::create(scriptState, pi);
     document.addEventListener(EventTypeNames::DOMContentLoaded, listener, false);
     ASSERT(!pi->eventListenerForXSLT());

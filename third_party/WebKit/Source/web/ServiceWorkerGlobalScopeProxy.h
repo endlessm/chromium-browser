@@ -62,23 +62,27 @@ struct WebSyncRegistration;
 // workerThreadTerminated() is called by its corresponding
 // WorkerGlobalScope.
 class ServiceWorkerGlobalScopeProxy final
-    : public WebServiceWorkerContextProxy
+    : public NoBaseWillBeGarbageCollectedFinalized<ServiceWorkerGlobalScopeProxy>
+    , public WebServiceWorkerContextProxy
     , public WorkerReportingProxy {
     WTF_MAKE_NONCOPYABLE(ServiceWorkerGlobalScopeProxy);
-    USING_FAST_MALLOC(ServiceWorkerGlobalScopeProxy);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(ServiceWorkerGlobalScopeProxy);
 public:
-    static PassOwnPtr<ServiceWorkerGlobalScopeProxy> create(WebEmbeddedWorkerImpl&, Document&, WebServiceWorkerContextClient&);
+    static PassOwnPtrWillBeRawPtr<ServiceWorkerGlobalScopeProxy> create(WebEmbeddedWorkerImpl&, Document&, WebServiceWorkerContextClient&);
     ~ServiceWorkerGlobalScopeProxy() override;
 
     // WebServiceWorkerContextProxy overrides:
     void setRegistration(WebPassOwnPtr<WebServiceWorkerRegistration::Handle>) override;
     void dispatchActivateEvent(int) override;
     void dispatchCrossOriginMessageEvent(const WebCrossOriginServiceWorkerClient&, const WebString& message, const WebMessagePortChannelArray&) override;
+    void dispatchExtendableMessageEvent(int, const WebString& message, const WebMessagePortChannelArray&) override;
     void dispatchFetchEvent(int, const WebServiceWorkerRequest&) override;
+    void dispatchForeignFetchEvent(int, const WebServiceWorkerRequest&) override;
     void dispatchGeofencingEvent(int, WebGeofencingEventType, const WebString& regionID, const WebCircularGeofencingRegion&) override;
     void dispatchInstallEvent(int) override;
     void dispatchMessageEvent(const WebString& message, const WebMessagePortChannelArray&) override;
     void dispatchNotificationClickEvent(int, int64_t notificationID, const WebNotificationData&, int actionIndex) override;
+    void dispatchNotificationCloseEvent(int, int64_t notificationID, const WebNotificationData&) override;
     void dispatchPushEvent(int, const WebString& data) override;
     void dispatchServicePortConnectEvent(WebServicePortConnectEventCallbacks*, const WebURL& targetURL, const WebString& origin, WebServicePortID) override;
     void dispatchSyncEvent(int, const WebSyncRegistration&, LastChanceOption) override;
@@ -95,16 +99,33 @@ public:
     void willDestroyWorkerGlobalScope() override;
     void workerThreadTerminated() override;
 
+    DECLARE_TRACE();
+
+    // Detach this proxy object entirely from the outside world,
+    // clearing out all references.
+    //
+    // It is called during WebEmbeddedWorkerImpl finalization _after_
+    // the worker thread using the proxy has been terminated.
+    void detach();
+
 private:
     ServiceWorkerGlobalScopeProxy(WebEmbeddedWorkerImpl&, Document&, WebServiceWorkerContextClient&);
 
-    WebEmbeddedWorkerImpl& m_embeddedWorker;
-    Document& m_document;
+    WebServiceWorkerContextClient& client() const;
+    Document& document() const;
+    ServiceWorkerGlobalScope* workerGlobalScope() const;
+
+    void dispatchFetchEventImpl(int eventID, const WebServiceWorkerRequest&, const AtomicString& eventTypeName);
+
+    // Non-null until the WebEmbeddedWorkerImpl explicitly detach()es
+    // as part of its finalization.
+    WebEmbeddedWorkerImpl* m_embeddedWorker;
+    RawPtrWillBeMember<Document> m_document;
     KURL m_documentURL;
 
-    WebServiceWorkerContextClient& m_client;
+    WebServiceWorkerContextClient* m_client;
 
-    ServiceWorkerGlobalScope* m_workerGlobalScope;
+    RawPtrWillBeMember<ServiceWorkerGlobalScope> m_workerGlobalScope;
 };
 
 } // namespace blink

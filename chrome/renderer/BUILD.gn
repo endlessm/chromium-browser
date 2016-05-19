@@ -30,17 +30,16 @@ static_library("renderer") {
   defines = []
 
   deps = [
-    "//base/allocator",
-    "//chrome/common",
-    "//chrome/common:mojo_bindings",
     "//chrome:resources",
     "//chrome:strings",
+    "//chrome/common",
+    "//chrome/common:mojo_bindings",
     "//components/autofill/content/renderer",
-    "//components/content_settings/content/common",
     "//components/cdm/renderer",
+    "//components/content_settings/content/common",
     "//components/data_reduction_proxy/content/common",
     "//components/data_reduction_proxy/core/common",
-    "//components/dom_distiller/content:content_renderer",
+    "//components/dom_distiller/content/renderer",
     "//components/error_page/renderer",
     "//components/guest_view/renderer",
     "//components/network_hints/renderer",
@@ -49,6 +48,8 @@ static_library("renderer") {
     "//components/password_manager/content/renderer",
     "//components/plugins/renderer",
     "//components/printing/renderer",
+    "//components/resources:components_resources",
+    "//components/startup_metric_utils/common",
     "//components/translate/content/renderer",
     "//components/translate/core/common",
     "//components/translate/core/language_detection",
@@ -73,14 +74,15 @@ static_library("renderer") {
   if (!is_ios) {
     deps += [
       "//chrome/common/net",
+      "//components/contextual_search:renderer",
       "//media",
     ]
   }
 
   if (enable_nacl) {
     deps += [
-      "//components/nacl",
-      "//components/nacl:nacl_renderer",
+      "//components/nacl/loader",
+      "//components/nacl/renderer",
     ]
   }
 
@@ -89,6 +91,7 @@ static_library("renderer") {
         rebase_path(gypi_values.chrome_renderer_plugin_sources, ".", "..")
     deps += [
       "//components/pdf/renderer",
+      "//components/strings",
       "//ppapi/host",
       "//ppapi/proxy",
       "//ppapi/proxy:ipc",
@@ -125,7 +128,6 @@ static_library("renderer") {
       "//media/cast:net",
       "//media/cast:receiver",
       "//media/cast:sender",
-      "//media/cast/logging/proto",
     ]
     if (!enable_webrtc) {
       sources -= [
@@ -170,9 +172,6 @@ static_library("renderer") {
     }
   }
 
-  if (is_mac) {
-    deps += [ "//third_party/mach_override" ]
-  }
   if (is_win) {
     deps += [ "//third_party/wtl" ]
   }

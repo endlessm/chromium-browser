@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/channel_layout.h"
@@ -18,6 +19,7 @@
 namespace media {
 
 class AudioBuffer;
+class CdmContext;
 class DemuxerStream;
 
 class MEDIA_EXPORT AudioDecoder {
@@ -38,9 +40,8 @@ class MEDIA_EXPORT AudioDecoder {
   // available. Only non-EOS frames should be returned via this callback.
   typedef base::Callback<void(const scoped_refptr<AudioBuffer>&)> OutputCB;
 
-  // Callback for Decode(). Called after the decoder has completed decoding
-  // corresponding DecoderBuffer, indicating that it's ready to accept another
-  // buffer to decode.
+  // Callback for Decode(). Called after the decoder has accepted corresponding
+  // DecoderBuffer, indicating that the pipeline can send next buffer to decode.
   typedef base::Callback<void(Status)> DecodeCB;
 
   AudioDecoder();
@@ -54,11 +55,15 @@ class MEDIA_EXPORT AudioDecoder {
   // Returns the name of the decoder for logging purpose.
   virtual std::string GetDisplayName() const = 0;
 
-  // Initializes an AudioDecoder with the given DemuxerStream, executing the
-  // callback upon completion.
-  //  |init_cb| is used to return initialization status.
-  //  |output_cb| is called for decoded audio buffers (see Decode()).
+  // Initializes an AudioDecoder with |config|, executing the |init_cb| upon
+  // completion.
+  //
+  // |cdm_context| can be used to handle encrypted buffers. May be null if the
+  // stream is not encrypted.
+  // |init_cb| is used to return initialization status.
+  // |output_cb| is called for decoded audio buffers (see Decode()).
   virtual void Initialize(const AudioDecoderConfig& config,
+                          CdmContext* cdm_context,
                           const InitCB& init_cb,
                           const OutputCB& output_cb) = 0;
 
@@ -79,6 +84,9 @@ class MEDIA_EXPORT AudioDecoder {
   // Resets decoder state. All pending Decode() requests will be finished or
   // aborted before |closure| is called.
   virtual void Reset(const base::Closure& closure) = 0;
+
+  // Returns true if the decoder needs bitstream conversion before decoding.
+  virtual bool NeedsBitstreamConversion() const;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AudioDecoder);

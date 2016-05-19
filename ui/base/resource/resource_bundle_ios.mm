@@ -7,7 +7,6 @@
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/mac/bundle_locations.h"
@@ -90,10 +89,7 @@ base::FilePath ResourceBundle::GetLocaleFilePath(const std::string& app_locale,
   return locale_file_path;
 }
 
-gfx::Image& ResourceBundle::GetNativeImageNamed(int resource_id, ImageRTL rtl) {
-  // Flipped images are not used on iOS.
-  DCHECK_EQ(rtl, RTL_DISABLED);
-
+gfx::Image& ResourceBundle::GetNativeImageNamed(int resource_id) {
   // Check to see if the image is already in the cache.
   {
     base::AutoLock lock(*images_and_fonts_lock_);
@@ -105,7 +101,7 @@ gfx::Image& ResourceBundle::GetNativeImageNamed(int resource_id, ImageRTL rtl) {
 
   gfx::Image image;
   if (delegate_)
-    image = delegate_->GetNativeImageNamed(resource_id, rtl);
+    image = delegate_->GetNativeImageNamed(resource_id);
 
   if (image.IsEmpty()) {
     // Load the raw data from the resource pack at the current supported scale

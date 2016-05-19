@@ -14,16 +14,6 @@ int NetworkDelegateImpl::OnBeforeURLRequest(URLRequest* request,
   return OK;
 }
 
-void NetworkDelegateImpl::OnResolveProxy(const GURL& url,
-                                         int load_flags,
-                                         const ProxyService& proxy_service,
-                                         ProxyInfo* result) {
-}
-
-void NetworkDelegateImpl::OnProxyFallback(const ProxyServer& bad_proxy,
-                                          int net_error) {
-}
-
 int NetworkDelegateImpl::OnBeforeSendHeaders(URLRequest* request,
                                              const CompletionCallback& callback,
                                              HttpRequestHeaders* headers) {
@@ -68,8 +58,6 @@ void NetworkDelegateImpl::OnCompleted(URLRequest* request, bool started) {
 void NetworkDelegateImpl::OnURLRequestDestroyed(URLRequest* request) {
 }
 
-void NetworkDelegateImpl::OnURLRequestJobOrphaned(URLRequest* request) {}
-
 void NetworkDelegateImpl::OnPACScriptError(int line_number,
                                            const base::string16& error) {
 }
@@ -105,6 +93,10 @@ bool NetworkDelegateImpl::OnCanEnablePrivacyMode(
 }
 
 bool NetworkDelegateImpl::OnAreExperimentalCookieFeaturesEnabled() const {
+  return false;
+}
+
+bool NetworkDelegateImpl::OnAreStrictSecureCookiesEnabled() const {
   return false;
 }
 

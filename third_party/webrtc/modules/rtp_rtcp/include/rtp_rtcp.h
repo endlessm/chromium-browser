@@ -12,6 +12,7 @@
 #define WEBRTC_MODULES_RTP_RTCP_INCLUDE_RTP_RTCP_H_
 
 #include <set>
+#include <utility>
 #include <vector>
 
 #include "webrtc/modules/include/module.h"
@@ -23,6 +24,8 @@ class ReceiveStatistics;
 class RemoteBitrateEstimator;
 class RtpReceiver;
 class Transport;
+class RtcEventLog;
+
 namespace rtcp {
 class TransportFeedback;
 }
@@ -72,6 +75,9 @@ class RtpRtcp : public Module {
     BitrateStatisticsObserver* send_bitrate_observer;
     FrameCountObserver* send_frame_count_observer;
     SendSideDelayObserver* send_side_delay_observer;
+    RtcEventLog* event_log;
+
+    RTC_DISALLOW_COPY_AND_ASSIGN(Configuration);
   };
 
   /*
@@ -242,10 +248,6 @@ class RtpRtcp : public Module {
     // doesn't enable RTX, only the payload type is set.
     virtual void SetRtxSendPayloadType(int payload_type,
                                        int associated_payload_type) = 0;
-
-    // Gets the payload type pair of (RTX, associated) to use when sending RTX
-    // packets.
-    virtual std::pair<int, int> RtxSendPayloadType() const = 0;
 
     /*
     *   sends kRtcpByeCode when going from true to false
@@ -580,9 +582,13 @@ class RtpRtcp : public Module {
     *
     *   return -1 on failure else 0
     */
-     virtual int32_t SendREDPayloadType(
-         int8_t& payloadType) const = 0;
-
+    // DEPRECATED. Use SendREDPayloadType below that takes output parameter
+    // by pointer instead of by reference.
+    // TODO(danilchap): Remove this when all callers have been updated.
+    int32_t SendREDPayloadType(int8_t& payloadType) const {  // NOLINT
+      return SendREDPayloadType(&payloadType);
+    }
+    virtual int32_t SendREDPayloadType(int8_t* payload_type) const = 0;
      /*
      * Store the audio level in dBov for header-extension-for-audio-level-
      * indication.
@@ -614,10 +620,17 @@ class RtpRtcp : public Module {
     /*
     *   Get generic FEC setting
     */
-    virtual void GenericFECStatus(bool& enable,
-                                     uint8_t& payloadTypeRED,
-                                     uint8_t& payloadTypeFEC) = 0;
-
+    // DEPRECATED. Use GenericFECStatus below that takes output parameters
+    // by pointers instead of by references.
+    // TODO(danilchap): Remove this when all callers have been updated.
+    void GenericFECStatus(bool& enable,               // NOLINT
+                          uint8_t& payloadTypeRED,    // NOLINT
+                          uint8_t& payloadTypeFEC) {  // NOLINT
+      GenericFECStatus(&enable, &payloadTypeRED, &payloadTypeFEC);
+    }
+    virtual void GenericFECStatus(bool* enable,
+                                  uint8_t* payload_type_red,
+                                  uint8_t* payload_type_fec) = 0;
 
     virtual int32_t SetFecParameters(
         const FecProtectionParams* delta_params,
@@ -638,4 +651,4 @@ class RtpRtcp : public Module {
     virtual int32_t RequestKeyFrame() = 0;
 };
 }  // namespace webrtc
-#endif // WEBRTC_MODULES_RTP_RTCP_INCLUDE_RTP_RTCP_H_
+#endif  // WEBRTC_MODULES_RTP_RTCP_INCLUDE_RTP_RTCP_H_

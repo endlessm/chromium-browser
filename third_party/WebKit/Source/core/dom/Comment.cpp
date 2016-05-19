@@ -19,7 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/Comment.h"
 
 #include "core/dom/Document.h"
@@ -41,7 +40,7 @@ String Comment::nodeName() const
     return "#comment";
 }
 
-Node::NodeType Comment::nodeType() const
+Node::NodeType Comment::getNodeType() const
 {
     return COMMENT_NODE;
 }

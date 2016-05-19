@@ -29,8 +29,6 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "config.h"
-
 #include "bindings/core/v8/NPV8Object.h"
 #include "bindings/core/v8/SharedPersistent.h"
 #include "bindings/core/v8/V8Binding.h"
@@ -79,7 +77,7 @@ void callNpObjectSetter(v8::Local<v8::Object> self, uint32_t index, v8::Local<v8
 {
     npObjectSetIndexedProperty(self, index, value, info);
 }
-}
+} // namespace
 
 template <typename ElementType, typename PropertyType>
 void setScriptableObjectProperty(PropertyType property, v8::Local<v8::Value> value, const v8::PropertyCallbackInfo<v8::Value>& info)

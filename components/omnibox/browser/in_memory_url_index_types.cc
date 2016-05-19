@@ -14,7 +14,6 @@
 #include "base/i18n/case_conversion.h"
 #include "base/strings/string_util.h"
 #include "net/base/escape.h"
-#include "net/base/net_util.h"
 
 namespace {
 // The maximum number of characters to consider from an URL and page title
@@ -44,21 +43,25 @@ bool MatchOffsetLess(const TermMatch& m1, const TermMatch& m2) {
   return m1.offset < m2.offset;
 }
 
-TermMatches SortAndDeoverlapMatches(const TermMatches& matches) {
-  if (matches.empty())
-    return matches;
-  TermMatches sorted_matches = matches;
+TermMatches SortMatches(const TermMatches& matches) {
+  TermMatches sorted_matches(matches);
   std::sort(sorted_matches.begin(), sorted_matches.end(), MatchOffsetLess);
-  TermMatches clean_matches;
-  TermMatch last_match;
-  for (TermMatches::const_iterator iter = sorted_matches.begin();
-       iter != sorted_matches.end(); ++iter) {
-    if (iter->offset >= last_match.offset + last_match.length) {
-      last_match = *iter;
-      clean_matches.push_back(last_match);
-    }
-  }
-  return clean_matches;
+  return sorted_matches;
+}
+
+// Assumes |sorted_matches| is already sorted.
+TermMatches DeoverlapMatches(const TermMatches& sorted_matches) {
+  TermMatches out;
+  std::copy_if(
+      sorted_matches.begin(), sorted_matches.end(), std::back_inserter(out),
+      [&out](const TermMatch& match) {
+        return out.empty() ||
+               match.offset >= (out.back().offset + out.back().length); });
+  return out;
+}
+
+TermMatches SortAndDeoverlapMatches(const TermMatches& matches) {
+  return DeoverlapMatches(SortMatches(matches));
 }
 
 std::vector<size_t> OffsetsFromTermMatches(const TermMatches& matches) {
@@ -152,11 +155,14 @@ Char16Set Char16SetFromString16(const base::string16& term) {
 // HistoryInfoMapValue ---------------------------------------------------------
 
 HistoryInfoMapValue::HistoryInfoMapValue() {}
+HistoryInfoMapValue::HistoryInfoMapValue(const HistoryInfoMapValue& other) =
+    default;
 HistoryInfoMapValue::~HistoryInfoMapValue() {}
 
 // RowWordStarts ---------------------------------------------------------------
 
 RowWordStarts::RowWordStarts() {}
+RowWordStarts::RowWordStarts(const RowWordStarts& other) = default;
 RowWordStarts::~RowWordStarts() {}
 
 void RowWordStarts::Clear() {

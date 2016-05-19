@@ -19,7 +19,6 @@
 #include "chrome/common/extensions/api/plugins/plugins_handler.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/browser_thread.h"
-#include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/install/extension_install_ui.h"
@@ -47,23 +46,24 @@ const char kImportMissing[] = "'import' extension is not installed.";
 const char kImportNotSharedModule[] = "'import' is not a shared module.";
 
 // Manages an ExtensionInstallPrompt for a particular extension.
-class SimpleExtensionLoadPrompt : public ExtensionInstallPrompt::Delegate {
+class SimpleExtensionLoadPrompt {
  public:
   SimpleExtensionLoadPrompt(const Extension* extension,
                             Profile* profile,
                             const base::Closure& callback);
-  ~SimpleExtensionLoadPrompt() override;
 
   void ShowPrompt();
 
-  // ExtensionInstallUI::Delegate
-  void InstallUIProceed() override;
-  void InstallUIAbort(bool user_initiated) override;
-
  private:
+  ~SimpleExtensionLoadPrompt();  // Manages its own lifetime.
+
+  void OnInstallPromptDone(ExtensionInstallPrompt::Result result);
+
   scoped_ptr<ExtensionInstallPrompt> install_ui_;
   scoped_refptr<const Extension> extension_;
   base::Closure callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(SimpleExtensionLoadPrompt);
 };
 
 SimpleExtensionLoadPrompt::SimpleExtensionLoadPrompt(
@@ -81,28 +81,18 @@ SimpleExtensionLoadPrompt::~SimpleExtensionLoadPrompt() {
 }
 
 void SimpleExtensionLoadPrompt::ShowPrompt() {
-  switch (extensions::ScopedTestDialogAutoConfirm::GetAutoConfirmValue()) {
-    case extensions::ScopedTestDialogAutoConfirm::NONE:
-      install_ui_->ConfirmInstall(
-          this,
-          extension_.get(),
-          ExtensionInstallPrompt::GetDefaultShowDialogCallback());
-      break;
-    case extensions::ScopedTestDialogAutoConfirm::ACCEPT:
-      InstallUIProceed();
-      break;
-    case extensions::ScopedTestDialogAutoConfirm::CANCEL:
-      InstallUIAbort(false);
-      break;
-  }
+  // Unretained() is safe because this object manages its own lifetime.
+  install_ui_->ShowDialog(
+      base::Bind(&SimpleExtensionLoadPrompt::OnInstallPromptDone,
+                 base::Unretained(this)),
+      extension_.get(), nullptr,
+      ExtensionInstallPrompt::GetDefaultShowDialogCallback());
 }
 
-void SimpleExtensionLoadPrompt::InstallUIProceed() {
-  callback_.Run();
-  delete this;
-}
-
-void SimpleExtensionLoadPrompt::InstallUIAbort(bool user_initiated) {
+void SimpleExtensionLoadPrompt::OnInstallPromptDone(
+    ExtensionInstallPrompt::Result result) {
+  if (result == ExtensionInstallPrompt::Result::ACCEPTED)
+    callback_.Run();
   delete this;
 }
 

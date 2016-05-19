@@ -14,18 +14,14 @@
 #include "SkMatrix.h"
 #include "SkPaint.h"
 
-bool SkOffsetImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& source,
-                                        const Context& ctx,
-                                        SkBitmap* result,
-                                        SkIPoint* offset) const {
+bool SkOffsetImageFilter::onFilterImageDeprecated(Proxy* proxy, const SkBitmap& source,
+                                                  const Context& ctx,
+                                                  SkBitmap* result,
+                                                  SkIPoint* offset) const {
     SkBitmap src = source;
     SkIPoint srcOffset = SkIPoint::Make(0, 0);
-#ifdef SK_DISABLE_OFFSETIMAGEFILTER_OPTIMIZATION
-    if (false) {
-#else
     if (!cropRectIsSet()) {
-#endif
-        if (!this->filterInput(0, proxy, source, ctx, &src, &srcOffset)) {
+        if (!this->filterInputDeprecated(0, proxy, source, ctx, &src, &srcOffset)) {
             return false;
         }
 
@@ -36,12 +32,14 @@ bool SkOffsetImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& source,
         offset->fY = srcOffset.fY + SkScalarRoundToInt(vec.fY);
         *result = src;
     } else {
-        if (!this->filterInput(0, proxy, source, ctx, &src, &srcOffset)) {
+        if (!this->filterInputDeprecated(0, proxy, source, ctx, &src, &srcOffset)) {
             return false;
         }
 
         SkIRect bounds;
-        if (!this->applyCropRect(ctx, src, srcOffset, &bounds)) {
+        SkIRect srcBounds = src.bounds();
+        srcBounds.offset(srcOffset);
+        if (!this->applyCropRect(ctx, srcBounds, &bounds)) {
             return false;
         }
 
@@ -70,24 +68,19 @@ void SkOffsetImageFilter::computeFastBounds(const SkRect& src, SkRect* dst) cons
     } else {
         *dst = src;
     }
-    SkRect copy = *dst;
     dst->offset(fOffset.fX, fOffset.fY);
-    dst->join(copy);
 }
 
-bool SkOffsetImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
-                                         SkIRect* dst) const {
+void SkOffsetImageFilter::onFilterNodeBounds(const SkIRect& src, const SkMatrix& ctm,
+                                             SkIRect* dst, MapDirection direction) const {
     SkVector vec;
     ctm.mapVectors(&vec, &fOffset, 1);
-
-    SkIRect bounds = src;
-    bounds.offset(-SkScalarCeilToInt(vec.fX), -SkScalarCeilToInt(vec.fY));
-    bounds.join(src);
-    if (getInput(0)) {
-        return getInput(0)->filterBounds(bounds, ctm, dst);
+    if (kReverse_MapDirection == direction) {
+        vec.negate();
     }
-    *dst = bounds;
-    return true;
+
+    *dst = src;
+    dst->offset(SkScalarCeilToInt(vec.fX), SkScalarCeilToInt(vec.fY));
 }
 
 SkFlattenable* SkOffsetImageFilter::CreateProc(SkReadBuffer& buffer) {

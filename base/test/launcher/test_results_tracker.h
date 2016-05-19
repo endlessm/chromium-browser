@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/test/launcher/test_result.h"
 #include "base/threading/thread_checker.h"
 
@@ -84,6 +85,7 @@ class TestResultsTracker {
 
   struct AggregateTestResult {
     AggregateTestResult();
+    AggregateTestResult(const AggregateTestResult& other);
     ~AggregateTestResult();
 
     std::vector<TestResult> test_results;
@@ -91,6 +93,7 @@ class TestResultsTracker {
 
   struct PerIterationData {
     PerIterationData();
+    PerIterationData(const PerIterationData& other);
     ~PerIterationData();
 
     // Aggregate test results grouped by full test name.

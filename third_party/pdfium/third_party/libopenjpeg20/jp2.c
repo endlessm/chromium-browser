@@ -896,8 +896,12 @@ static OPJ_BOOL opj_jp2_check_color(opj_image_t *image, opj_jp2_color_t *color, 
 		}
 		/* verify that no component is targeted more than once */
 		for (i = 0; i < nr_channels; i++) {
-      OPJ_UINT16 pcol = cmap[i].pcol;
-      assert(cmap[i].mtyp == 0 || cmap[i].mtyp == 1);
+			if (cmap[i].mtyp != 0 && cmap[i].mtyp != 1) {
+				opj_event_msg(p_manager, EVT_ERROR, "Unexpected MTYP value.\n");
+				opj_free(pcol_usage);
+				return OPJ_FALSE;
+			}
+			OPJ_UINT16 pcol = cmap[i].pcol;
 			if (pcol >= nr_channels) {
 				opj_event_msg(p_manager, EVT_ERROR, "Invalid component/palette index for direct mapping %d.\n", pcol);
 				is_sane = OPJ_FALSE;
@@ -1194,7 +1198,7 @@ static OPJ_BOOL opj_jp2_read_cmap(	opj_jp2_t * jp2,
 
 
 	for(i = 0; i < nr_channels; ++i) {
-		opj_read_bytes(p_cmap_header_data, &l_value, 2);			/* CMP^i */
+		opj_read_bytes_BE(p_cmap_header_data, &l_value, 2);			/* CMP^i */
 		p_cmap_header_data +=2;
 		cmap[i].cmp = (OPJ_UINT16) l_value;
 

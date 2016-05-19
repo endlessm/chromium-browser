@@ -25,6 +25,8 @@ const char kJingleNamespace[] = "urn:xmpp:jingle:1";
 // Namespace for transport messages when using standard ICE.
 const char kIceTransportNamespace[] = "google:remoting:ice";
 
+const char kWebrtcTransportNamespace[] = "google:remoting:webrtc";
+
 const char kEmptyNamespace[] = "";
 const char kXmlNamespace[] = "http://www.w3.org/XML/1998/namespace";
 
@@ -249,6 +251,12 @@ bool JingleMessage::ParseXml(const buzz::XmlElement* stanza,
     return false;
   }
 
+  const XmlElement* webrtc_transport_tag = content_tag->FirstNamed(
+      QName("google:remoting:webrtc", "transport"));
+  if (webrtc_transport_tag) {
+    transport_info.reset(new buzz::XmlElement(*webrtc_transport_tag));
+  }
+
   description.reset(nullptr);
   if (action == SESSION_INITIATE || action == SESSION_ACCEPT) {
     const XmlElement* description_tag = content_tag->FirstNamed(
@@ -258,17 +266,20 @@ bool JingleMessage::ParseXml(const buzz::XmlElement* stanza,
       return false;
     }
 
-    description = ContentDescription::ParseXml(description_tag);
+    description = ContentDescription::ParseXml(description_tag,
+                                               webrtc_transport_tag != nullptr);
     if (!description.get()) {
       *error = "Failed to parse content description";
       return false;
     }
   }
 
-  const XmlElement* ice_transport_tag = content_tag->FirstNamed(
-      QName(kIceTransportNamespace, "transport"));
-  if (ice_transport_tag) {
-    transport_info.reset(new buzz::XmlElement(*ice_transport_tag));
+  if (!webrtc_transport_tag) {
+    const XmlElement* ice_transport_tag = content_tag->FirstNamed(
+        QName(kIceTransportNamespace, "transport"));
+    if (ice_transport_tag) {
+      transport_info.reset(new buzz::XmlElement(*ice_transport_tag));
+    }
   }
 
   return true;
@@ -297,7 +308,7 @@ scoped_ptr<buzz::XmlElement> JingleMessage::ToXml() const {
   if (action == SESSION_INFO) {
     if (info.get())
       jingle_tag->AddElement(new XmlElement(*info.get()));
-    return root.Pass();
+    return root;
   }
 
   if (action == SESSION_INITIATE)
@@ -323,14 +334,18 @@ scoped_ptr<buzz::XmlElement> JingleMessage::ToXml() const {
                          ContentDescription::kChromotingContentName);
     content_tag->AddAttr(QName(kEmptyNamespace, "creator"), "initiator");
 
-    if (description.get())
+    if (description)
       content_tag->AddElement(description->ToXml());
 
-    if (transport_info)
+    if (transport_info) {
       content_tag->AddElement(new XmlElement(*transport_info));
+    } else if (description && description->config()->webrtc_supported()) {
+      content_tag->AddElement(
+          new XmlElement(QName(kWebrtcTransportNamespace, "transport")));
+    }
   }
 
-  return root.Pass();
+  return root;
 }
 
 JingleMessageReply::JingleMessageReply()
@@ -363,7 +378,7 @@ scoped_ptr<buzz::XmlElement> JingleMessageReply::ToXml(
 
   if (type == REPLY_RESULT) {
     iq->SetAttr(QName(kEmptyNamespace, "type"), "result");
-    return iq.Pass();
+    return iq;
   }
 
   DCHECK_EQ(type, REPLY_ERROR);
@@ -431,7 +446,7 @@ scoped_ptr<buzz::XmlElement> JingleMessageReply::ToXml(
     error->AddElement(text_elem);
   }
 
-  return iq.Pass();
+  return iq;
 }
 
 IceTransportInfo::IceTransportInfo() {}
@@ -476,7 +491,7 @@ scoped_ptr<buzz::XmlElement> IceTransportInfo::ToXml() const {
   for (const NamedCandidate& candidate : candidates) {
     result->AddElement(FormatIceCandidate(candidate));
   }
-  return result.Pass();
+  return result;
 }
 
 }  // namespace protocol

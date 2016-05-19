@@ -31,7 +31,8 @@
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/IntPoint.h"
 #include "wtf/MathExtras.h"
-#include "wtf/TypeTraits.h"
+
+#include <type_traits>
 
 namespace blink {
 
@@ -44,7 +45,7 @@ inline int blend(int from, int to, double progress)
 template <typename T>
 inline T blend(T from, T to, double progress)
 {
-    static_assert(WTF::IsInteger<T>::value, "blend can only be used with integer types");
+    static_assert(std::is_integral<T>::value, "blend can only be used with integer types");
     return clampTo<T>(round(to > from ? from + (to - from) * progress : from - (from - to) * progress));
 }
 
@@ -60,7 +61,7 @@ inline float blend(float from, float to, double progress)
 
 inline LayoutUnit blend(LayoutUnit from, LayoutUnit to, double progress)
 {
-    return from + (to - from) * progress;
+    return LayoutUnit(from + (to - from) * progress);
 }
 
 inline IntPoint blend(const IntPoint& from, const IntPoint& to, double progress)

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/paint/DrawingRecorder.h"
 
 #include "platform/RuntimeEnabledFeatures.h"
@@ -14,11 +13,11 @@
 
 namespace blink {
 
-bool DrawingRecorder::useCachedDrawingIfPossible(GraphicsContext& context, const DisplayItemClientWrapper& client, DisplayItem::Type type)
+bool DrawingRecorder::useCachedDrawingIfPossible(GraphicsContext& context, const DisplayItemClient& client, DisplayItem::Type type)
 {
     ASSERT(DisplayItem::isDrawingType(type));
 
-    if (!context.paintController().clientCacheIsValid(client.displayItemClient()))
+    if (!context.paintController().clientCacheIsValid(client))
         return false;
 
     context.paintController().createAndAppend<CachedDisplayItem>(client, DisplayItem::drawingTypeToCachedDrawingType(type));
@@ -33,10 +32,11 @@ bool DrawingRecorder::useCachedDrawingIfPossible(GraphicsContext& context, const
     return true;
 }
 
-DrawingRecorder::DrawingRecorder(GraphicsContext& context, const DisplayItemClientWrapper& displayItemClient, DisplayItem::Type displayItemType, const FloatRect& cullRect)
+DrawingRecorder::DrawingRecorder(GraphicsContext& context, const DisplayItemClient& displayItemClient, DisplayItem::Type displayItemType, const FloatRect& cullRect)
     : m_context(context)
     , m_displayItemClient(displayItemClient)
     , m_displayItemType(displayItemType)
+    , m_knownToBeOpaque(false)
 #if ENABLE(ASSERT)
     , m_displayItemPosition(m_context.paintController().newDisplayItemList().size())
     , m_underInvalidationCheckingMode(DrawingDisplayItem::CheckPicture)
@@ -46,7 +46,7 @@ DrawingRecorder::DrawingRecorder(GraphicsContext& context, const DisplayItemClie
         return;
 
     // Must check DrawingRecorder::useCachedDrawingIfPossible before creating the DrawingRecorder.
-    ASSERT((RuntimeEnabledFeatures::slimmingPaintOffsetCachingEnabled() && context.paintController().paintOffsetWasInvalidated(displayItemClient.displayItemClient()))
+    ASSERT((RuntimeEnabledFeatures::slimmingPaintOffsetCachingEnabled() && context.paintController().paintOffsetWasInvalidated(displayItemClient))
         || RuntimeEnabledFeatures::slimmingPaintUnderInvalidationCheckingEnabled()
         || !useCachedDrawingIfPossible(m_context, m_displayItemClient, m_displayItemType));
 
@@ -91,6 +91,7 @@ DrawingRecorder::~DrawingRecorder()
     m_context.paintController().createAndAppend<DrawingDisplayItem>(m_displayItemClient
         , m_displayItemType
         , m_context.endRecording()
+        , m_knownToBeOpaque
 #if ENABLE(ASSERT)
         , m_underInvalidationCheckingMode
 #endif

@@ -4,12 +4,17 @@
 
 #include "cc/resources/resource_pool.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
+#include <utility>
 
 #include "base/format_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
+#include "cc/base/container_util.h"
 #include "cc/resources/resource_provider.h"
 #include "cc/resources/resource_util.h"
 #include "cc/resources/scoped_resource.h"
@@ -55,9 +60,9 @@ void ResourcePool::PoolResource::OnMemoryDump(
 
 ResourcePool::ResourcePool(ResourceProvider* resource_provider,
                            base::SingleThreadTaskRunner* task_runner,
-                           bool use_image_texture_target)
+                           bool use_gpu_memory_buffers)
     : resource_provider_(resource_provider),
-      use_image_texture_target_(use_image_texture_target),
+      use_gpu_memory_buffers_(use_gpu_memory_buffers),
       max_memory_usage_bytes_(0),
       max_resource_count_(0),
       in_use_memory_usage_bytes_(0),
@@ -79,7 +84,7 @@ ResourcePool::~ResourcePool() {
   DCHECK_EQ(0u, in_use_resources_.size());
 
   while (!busy_resources_.empty()) {
-    DidFinishUsingResource(busy_resources_.take_back());
+    DidFinishUsingResource(PopBack(&busy_resources_));
   }
 
   SetResourceUsageLimits(0, 0);
@@ -96,8 +101,12 @@ Resource* ResourcePool::AcquireResource(const gfx::Size& size,
   // LRU resources within kResourceExpirationDelayMs.
   for (ResourceDeque::iterator it = unused_resources_.begin();
        it != unused_resources_.end(); ++it) {
-    ScopedResource* resource = *it;
-    DCHECK(resource_provider_->CanLockForWrite(resource->id()));
+    ScopedResource* resource = it->get();
+    // TODO(ccameron): The allowance for IsInUseByMacOSWindowServer should not
+    // be needed.
+    // http://crbug.com/577121
+    DCHECK(resource_provider_->CanLockForWrite(resource->id()) ||
+           resource_provider_->IsInUseByMacOSWindowServer(resource->id()));
 
     if (resource->format() != format)
       continue;
@@ -105,7 +114,8 @@ Resource* ResourcePool::AcquireResource(const gfx::Size& size,
       continue;
 
     // Transfer resource to |in_use_resources_|.
-    in_use_resources_.set(resource->id(), unused_resources_.take(it));
+    in_use_resources_[resource->id()] = std::move(*it);
+    unused_resources_.erase(it);
     in_use_memory_usage_bytes_ += ResourceUtil::UncheckedSizeInBytes<size_t>(
         resource->size(), resource->format());
     return resource;
@@ -114,8 +124,8 @@ Resource* ResourcePool::AcquireResource(const gfx::Size& size,
   scoped_ptr<PoolResource> pool_resource =
       PoolResource::Create(resource_provider_);
 
-  if (use_image_texture_target_) {
-    pool_resource->AllocateWithImageTextureTarget(size, format);
+  if (use_gpu_memory_buffers_) {
+    pool_resource->AllocateWithGpuMemoryBuffer(size, format);
   } else {
     pool_resource->Allocate(size, ResourceProvider::TEXTURE_HINT_IMMUTABLE,
                             format);
@@ -128,7 +138,7 @@ Resource* ResourcePool::AcquireResource(const gfx::Size& size,
   ++total_resource_count_;
 
   Resource* resource = pool_resource.get();
-  in_use_resources_.set(resource->id(), pool_resource.Pass());
+  in_use_resources_[resource->id()] = std::move(pool_resource);
   in_use_memory_usage_bytes_ += ResourceUtil::UncheckedSizeInBytes<size_t>(
       resource->size(), resource->format());
   return resource;
@@ -137,18 +147,24 @@ Resource* ResourcePool::AcquireResource(const gfx::Size& size,
 Resource* ResourcePool::TryAcquireResourceWithContentId(uint64_t content_id) {
   DCHECK(content_id);
 
-  auto it = std::find_if(unused_resources_.begin(), unused_resources_.end(),
-                         [content_id](const PoolResource* pool_resource) {
-                           return pool_resource->content_id() == content_id;
-                         });
+  auto it =
+      std::find_if(unused_resources_.begin(), unused_resources_.end(),
+                   [content_id](const scoped_ptr<PoolResource>& pool_resource) {
+                     return pool_resource->content_id() == content_id;
+                   });
   if (it == unused_resources_.end())
     return nullptr;
 
-  Resource* resource = *it;
-  DCHECK(resource_provider_->CanLockForWrite(resource->id()));
+  Resource* resource = it->get();
+  // TODO(ccameron): The allowance for IsInUseByMacOSWindowServer should not
+  // be needed.
+  // http://crbug.com/577121
+  DCHECK(resource_provider_->CanLockForWrite(resource->id()) ||
+         resource_provider_->IsInUseByMacOSWindowServer(resource->id()));
 
   // Transfer resource to |in_use_resources_|.
-  in_use_resources_.set(resource->id(), unused_resources_.take(it));
+  in_use_resources_[resource->id()] = std::move(*it);
+  unused_resources_.erase(it);
   in_use_memory_usage_bytes_ += ResourceUtil::UncheckedSizeInBytes<size_t>(
       resource->size(), resource->format());
   return resource;
@@ -158,12 +174,13 @@ void ResourcePool::ReleaseResource(Resource* resource, uint64_t content_id) {
   auto it = in_use_resources_.find(resource->id());
   DCHECK(it != in_use_resources_.end());
 
-  PoolResource* pool_resource = it->second;
+  PoolResource* pool_resource = it->second.get();
   pool_resource->set_content_id(content_id);
   pool_resource->set_last_usage(base::TimeTicks::Now());
 
   // Transfer resource to |busy_resources_|.
-  busy_resources_.push_front(in_use_resources_.take_and_erase(it));
+  busy_resources_.push_front(std::move(it->second));
+  in_use_resources_.erase(it);
   in_use_memory_usage_bytes_ -= ResourceUtil::UncheckedSizeInBytes<size_t>(
       pool_resource->size(), pool_resource->format());
 
@@ -192,7 +209,7 @@ void ResourcePool::ReduceResourceUsage() {
     // can't be locked for write might also not be truly free-able.
     // We can free the resource here but it doesn't mean that the
     // memory is necessarily returned to the OS.
-    DeleteResource(unused_resources_.take_back());
+    DeleteResource(PopBack(&unused_resources_));
   }
 }
 
@@ -214,13 +231,15 @@ void ResourcePool::DeleteResource(scoped_ptr<PoolResource> resource) {
 void ResourcePool::CheckBusyResources() {
   for (size_t i = 0; i < busy_resources_.size();) {
     ResourceDeque::iterator it(busy_resources_.begin() + i);
-    PoolResource* resource = *it;
+    PoolResource* resource = it->get();
 
     if (resource_provider_->CanLockForWrite(resource->id())) {
-      DidFinishUsingResource(busy_resources_.take(it));
+      DidFinishUsingResource(std::move(*it));
+      busy_resources_.erase(it);
     } else if (resource_provider_->IsLost(resource->id())) {
       // Remove lost resources from pool.
-      DeleteResource(busy_resources_.take(it));
+      DeleteResource(std::move(*it));
+      busy_resources_.erase(it);
     } else {
       ++i;
     }
@@ -228,7 +247,7 @@ void ResourcePool::CheckBusyResources() {
 }
 
 void ResourcePool::DidFinishUsingResource(scoped_ptr<PoolResource> resource) {
-  unused_resources_.push_front(resource.Pass());
+  unused_resources_.push_front(std::move(resource));
 }
 
 void ResourcePool::ScheduleEvictExpiredResourcesIn(
@@ -270,7 +289,7 @@ void ResourcePool::EvictResourcesNotUsedSince(base::TimeTicks time_limit) {
     if (unused_resources_.back()->last_usage() > time_limit)
       return;
 
-    DeleteResource(unused_resources_.take_back());
+    DeleteResource(PopBack(&unused_resources_));
   }
 
   // Also free busy resources older than the delay. With a sufficiently large
@@ -281,7 +300,7 @@ void ResourcePool::EvictResourcesNotUsedSince(base::TimeTicks time_limit) {
     if (busy_resources_.back()->last_usage() > time_limit)
       return;
 
-    DeleteResource(busy_resources_.take_back());
+    DeleteResource(PopBack(&busy_resources_));
   }
 }
 

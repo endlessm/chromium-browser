@@ -5,11 +5,13 @@
 #ifndef CONTENT_RENDERER_ANDROID_SYNCHRONOUS_COMPOSITOR_OUTPUT_SURFACE_H_
 #define CONTENT_RENDERER_ANDROID_SYNCHRONOUS_COMPOSITOR_OUTPUT_SURFACE_H_
 
+#include <stddef.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/thread_checker.h"
@@ -37,6 +39,7 @@ class WebGraphicsContext3DCommandBufferImpl;
 class SynchronousCompositorOutputSurfaceClient {
  public:
   virtual void Invalidate() = 0;
+  virtual void SwapBuffers(cc::CompositorFrame* frame) = 0;
 
  protected:
   virtual ~SynchronousCompositorOutputSurfaceClient() {}
@@ -64,25 +67,27 @@ class SynchronousCompositorOutputSurface
   void SetSyncClient(SynchronousCompositorOutputSurfaceClient* compositor);
 
   // OutputSurface.
+  void DidLoseOutputSurface() override;
   bool BindToClient(cc::OutputSurfaceClient* surface_client) override;
   void DetachFromClient() override;
-  void Reshape(const gfx::Size& size, float scale_factor) override;
+  void Reshape(const gfx::Size& size,
+               float scale_factor,
+               bool has_alpha) override;
   void SwapBuffers(cc::CompositorFrame* frame) override;
   void Invalidate() override;
 
   // Partial SynchronousCompositor API implementation.
-  scoped_ptr<cc::CompositorFrame> DemandDrawHw(
-      const gfx::Size& surface_size,
-      const gfx::Transform& transform,
-      const gfx::Rect& viewport,
-      const gfx::Rect& clip,
-      const gfx::Rect& viewport_rect_for_tile_priority,
-      const gfx::Transform& transform_for_tile_priority);
+  void DemandDrawHw(const gfx::Size& surface_size,
+                    const gfx::Transform& transform,
+                    const gfx::Rect& viewport,
+                    const gfx::Rect& clip,
+                    const gfx::Rect& viewport_rect_for_tile_priority,
+                    const gfx::Transform& transform_for_tile_priority);
   void ReturnResources(const cc::CompositorFrameAck& frame_ack);
-  scoped_ptr<cc::CompositorFrame> DemandDrawSw(SkCanvas* canvas);
+  void DemandDrawSw(SkCanvas* canvas);
   void SetMemoryPolicy(size_t bytes_limit);
   void SetTreeActivationCallback(const base::Closure& callback);
-  void GetMessagesToDeliver(ScopedVector<IPC::Message>* messages);
+  void GetMessagesToDeliver(std::vector<scoped_ptr<IPC::Message>>* messages);
 
   size_t GetMemoryPolicy() const {
     return memory_policy_.bytes_limit_when_visible;
@@ -95,8 +100,6 @@ class SynchronousCompositorOutputSurface
   void InvokeComposite(const gfx::Transform& transform,
                        const gfx::Rect& viewport,
                        const gfx::Rect& clip,
-                       const gfx::Rect& viewport_rect_for_tile_priority,
-                       const gfx::Transform& transform_for_tile_priority,
                        bool hardware_draw);
   bool CalledOnValidThread() const;
 
@@ -107,20 +110,11 @@ class SynchronousCompositorOutputSurface
   // Not owned.
   SynchronousCompositorOutputSurfaceClient* sync_client_;
 
-  gfx::Transform cached_hw_transform_;
-  gfx::Rect cached_hw_viewport_;
-  gfx::Rect cached_hw_clip_;
-  gfx::Rect cached_hw_viewport_rect_for_tile_priority_;
-  gfx::Transform cached_hw_transform_for_tile_priority_;
-  bool next_hardware_draw_needs_damage_;
-
   // Only valid (non-NULL) during a DemandDrawSw() call.
   SkCanvas* current_sw_canvas_;
 
   cc::ManagedMemoryPolicy memory_policy_;
-
-  scoped_ptr<cc::CompositorFrame> frame_holder_;
-
+  bool did_swap_;
   scoped_refptr<FrameSwapMessageQueue> frame_swap_message_queue_;
 
   base::ThreadChecker thread_checker_;

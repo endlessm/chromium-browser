@@ -34,7 +34,6 @@ using std::string;
 using std::vector;
 
 namespace net {
-namespace tools {
 namespace test {
 namespace {
 
@@ -98,8 +97,7 @@ BalsaHeaders* MungeHeaders(const BalsaHeaders* const_headers) {
   }
   BalsaHeaders* headers = new BalsaHeaders;
   headers->CopyFrom(*const_headers);
-  if (!uri.starts_with("https://") &&
-      !uri.starts_with("http://")) {
+  if (!uri.starts_with("https://") && !uri.starts_with("http://")) {
     // If we have a relative URL, set some defaults.
     string full_uri = "https://www.google.com";
     full_uri.append(uri.as_string());
@@ -235,6 +233,22 @@ ssize_t QuicTestClient::GetOrCreateStreamAndSendRequest(
     StringPiece body,
     bool fin,
     QuicAckListenerInterface* delegate) {
+  if (headers) {
+    QuicClientPushPromiseIndex::TryHandle* handle;
+    QuicAsyncStatus rv = client()->push_promise_index()->Try(
+        SpdyBalsaUtils::RequestHeadersToSpdyHeaders(*headers), this, &handle);
+    if (rv == QUIC_SUCCESS)
+      return 1;
+    if (rv == QUIC_PENDING) {
+      // May need to retry request if asynchronous rendezvous fails.
+      auto new_headers = new BalsaHeaders;
+      new_headers->CopyFrom(*headers);
+      push_promise_data_to_resend_.reset(
+          new TestClientDataToResend(new_headers, body, fin, this, delegate));
+      return 1;
+    }
+  }
+
   // Maybe it's better just to overload this.  it's just that we need
   // for the GetOrCreateStream function to call something else...which
   // is icky and complicated, but maybe not worse than this.
@@ -242,8 +256,8 @@ ssize_t QuicTestClient::GetOrCreateStreamAndSendRequest(
   if (stream == nullptr) {
     return 0;
   }
-  ssize_t ret = 0;
 
+  ssize_t ret = 0;
   if (headers != nullptr) {
     SpdyHeaderBlock spdy_headers =
         SpdyBalsaUtils::RequestHeadersToSpdyHeaders(*headers);
@@ -253,6 +267,10 @@ ssize_t QuicTestClient::GetOrCreateStreamAndSendRequest(
       string encoding;
       headers->GetAllOfHeaderAsString("transfer-encoding", &encoding);
       spdy_headers.insert(std::make_pair("transfer-encoding", encoding));
+    }
+    if (static_cast<StringPiece>(spdy_headers[":authority"]).empty()) {
+      // HTTP/2 requests should include the :authority pseudo hader.
+      spdy_headers[":authority"] = client_->server_id().host();
     }
     ret = stream->SendRequest(spdy_headers, body, fin);
   } else {
@@ -279,10 +297,8 @@ ssize_t QuicTestClient::SendMessage(const HTTPMessage& message) {
   if (!connected()) {
     GURL url(message.headers()->request_uri().as_string());
     if (!url.host().empty()) {
-      client_->set_server_id(
-          QuicServerId(url.host(),
-                       url.EffectiveIntPort(),
-                       PRIVACY_MODE_DISABLED));
+      client_->set_server_id(QuicServerId(url.host(), url.EffectiveIntPort(),
+                                          PRIVACY_MODE_DISABLED));
     }
   }
 
@@ -317,7 +333,7 @@ int QuicTestClient::response_header_size() const {
   return response_header_size_;
 }
 
-int64 QuicTestClient::response_body_size() const {
+int64_t QuicTestClient::response_body_size() const {
   return response_body_size_;
 }
 
@@ -373,7 +389,7 @@ QuicSpdyClientStream* QuicTestClient::GetOrCreateStream() {
     }
     stream_->set_visitor(this);
     QuicSpdyClientStream* cs = reinterpret_cast<QuicSpdyClientStream*>(stream_);
-    cs->set_priority(priority_);
+    cs->SetPriority(priority_);
     cs->set_allow_bidirectional_data(allow_bidirectional_data_);
     // Set FEC policy on stream.
     ReliableQuicStreamPeer::SetFecPolicy(stream_, fec_policy_);
@@ -386,7 +402,9 @@ QuicErrorCode QuicTestClient::connection_error() {
   return client()->connection_error();
 }
 
-MockableQuicClient* QuicTestClient::client() { return client_.get(); }
+MockableQuicClient* QuicTestClient::client() {
+  return client_.get();
+}
 
 const string& QuicTestClient::cert_common_name() const {
   return reinterpret_cast<RecordingProofVerifier*>(client_->proof_verifier())
@@ -434,7 +452,7 @@ void QuicTestClient::Disconnect() {
 }
 
 IPEndPoint QuicTestClient::local_address() const {
-  return client_->client_address();
+  return client_->GetLatestClientAddress();
 }
 
 void QuicTestClient::ClearPerRequestState() {
@@ -450,19 +468,24 @@ void QuicTestClient::ClearPerRequestState() {
   response_body_size_ = 0;
 }
 
+bool QuicTestClient::HaveActiveStream() {
+  return push_promise_data_to_resend_.get() ||
+         (stream_ != nullptr &&
+          !client_->session()->IsClosedStream(stream_->id()));
+}
+
 void QuicTestClient::WaitForResponseForMs(int timeout_ms) {
-  int64 timeout_us = timeout_ms * base::Time::kMicrosecondsPerMillisecond;
-  int64 old_timeout_us = epoll_server()->timeout_in_us();
+  int64_t timeout_us = timeout_ms * base::Time::kMicrosecondsPerMillisecond;
+  int64_t old_timeout_us = epoll_server()->timeout_in_us();
   if (timeout_us > 0) {
     epoll_server()->set_timeout_in_us(timeout_us);
   }
   const QuicClock* clock =
-      QuicConnectionPeer::GetHelper(client()->session()->connection())->
-          GetClock();
-  QuicTime end_waiting_time = clock->Now().Add(
-      QuicTime::Delta::FromMicroseconds(timeout_us));
-  while (stream_ != nullptr &&
-         !client_->session()->IsClosedStream(stream_->id()) &&
+      QuicConnectionPeer::GetHelper(client()->session()->connection())
+          ->GetClock();
+  QuicTime end_waiting_time =
+      clock->Now().Add(QuicTime::Delta::FromMicroseconds(timeout_us));
+  while (HaveActiveStream() &&
          (timeout_us < 0 || clock->Now() < end_waiting_time)) {
     client_->WaitForEvents();
   }
@@ -472,16 +495,16 @@ void QuicTestClient::WaitForResponseForMs(int timeout_ms) {
 }
 
 void QuicTestClient::WaitForInitialResponseForMs(int timeout_ms) {
-  int64 timeout_us = timeout_ms * base::Time::kMicrosecondsPerMillisecond;
-  int64 old_timeout_us = epoll_server()->timeout_in_us();
+  int64_t timeout_us = timeout_ms * base::Time::kMicrosecondsPerMillisecond;
+  int64_t old_timeout_us = epoll_server()->timeout_in_us();
   if (timeout_us > 0) {
     epoll_server()->set_timeout_in_us(timeout_us);
   }
   const QuicClock* clock =
-      QuicConnectionPeer::GetHelper(client()->session()->connection())->
-          GetClock();
-  QuicTime end_waiting_time = clock->Now().Add(
-      QuicTime::Delta::FromMicroseconds(timeout_us));
+      QuicConnectionPeer::GetHelper(client()->session()->connection())
+          ->GetClock();
+  QuicTime end_waiting_time =
+      clock->Now().Add(QuicTime::Delta::FromMicroseconds(timeout_us));
   while (stream_ != nullptr &&
          !client_->session()->IsClosedStream(stream_->id()) &&
          stream_->stream_bytes_read() == 0 &&
@@ -493,7 +516,7 @@ void QuicTestClient::WaitForInitialResponseForMs(int timeout_ms) {
   }
 }
 
-ssize_t QuicTestClient::Send(const void *buffer, size_t size) {
+ssize_t QuicTestClient::Send(const void* buffer, size_t size) {
   return SendData(string(static_cast<const char*>(buffer), size), false);
 }
 
@@ -513,7 +536,11 @@ const BalsaHeaders* QuicTestClient::response_headers() const {
   }
 }
 
-int64 QuicTestClient::response_size() const {
+const SpdyHeaderBlock& QuicTestClient::response_trailers() const {
+  return response_trailers_;
+}
+
+int64_t QuicTestClient::response_size() const {
   return bytes_read_;
 }
 
@@ -541,6 +568,7 @@ void QuicTestClient::OnClose(QuicSpdyStream* stream) {
   response_complete_ = true;
   response_headers_complete_ = stream_->headers_decompressed();
   SpdyBalsaUtils::SpdyHeadersToResponseHeaders(stream_->headers(), &headers_);
+  response_trailers_ = stream_->trailers();
   stream_error_ = stream_->stream_error();
   bytes_read_ = stream_->stream_bytes_read() + stream_->header_bytes_read();
   bytes_written_ =
@@ -548,6 +576,24 @@ void QuicTestClient::OnClose(QuicSpdyStream* stream) {
   response_header_size_ = headers_.GetSizeForWriteBuffer();
   response_body_size_ = stream_->data().size();
   stream_ = nullptr;
+}
+
+bool QuicTestClient::CheckVary(const SpdyHeaderBlock& client_request,
+                               const SpdyHeaderBlock& promise_request,
+                               const SpdyHeaderBlock& promise_response) {
+  return true;
+}
+
+void QuicTestClient::OnRendezvousResult(QuicSpdyStream* stream) {
+  std::unique_ptr<TestClientDataToResend> data_to_resend =
+      std::move(push_promise_data_to_resend_);
+  stream_ = static_cast<QuicSpdyClientStream*>(stream);
+  if (stream) {
+    stream->set_visitor(this);
+    stream->OnDataAvailable();
+  } else if (data_to_resend.get()) {
+    data_to_resend->Resend();
+  }
 }
 
 void QuicTestClient::UseWriter(QuicPacketWriterWrapper* writer) {
@@ -559,7 +605,7 @@ void QuicTestClient::UseConnectionId(QuicConnectionId connection_id) {
   client_->UseConnectionId(connection_id);
 }
 
-ssize_t QuicTestClient::SendAndWaitForResponse(const void *buffer,
+ssize_t QuicTestClient::SendAndWaitForResponse(const void* buffer,
                                                size_t size) {
   LOG(DFATAL) << "Not implemented";
   return 0;
@@ -569,7 +615,7 @@ void QuicTestClient::Bind(IPEndPoint* local_address) {
   DLOG(WARNING) << "Bind will be done during connect";
 }
 
-void QuicTestClient::MigrateSocket(const IPAddressNumber& new_host) {
+void QuicTestClient::MigrateSocket(const IPAddress& new_host) {
   client_->MigrateSocket(new_host);
 }
 
@@ -578,16 +624,15 @@ string QuicTestClient::SerializeMessage(const HTTPMessage& message) {
   return "";
 }
 
-IPAddressNumber QuicTestClient::bind_to_address() const {
+IPAddress QuicTestClient::bind_to_address() const {
   return client_->bind_to_address();
 }
 
-void QuicTestClient::set_bind_to_address(IPAddressNumber address) {
+void QuicTestClient::set_bind_to_address(const IPAddress& address) {
   client_->set_bind_to_address(address);
 }
 
 const IPEndPoint& QuicTestClient::address() const {
-  LOG(DFATAL) << "Not implemented";
   return client_->server_address();
 }
 
@@ -631,5 +676,4 @@ void QuicTestClient::FillInRequest(const string& uri, HTTPMessage* message) {
 }
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net

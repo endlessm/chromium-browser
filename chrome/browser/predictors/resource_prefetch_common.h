@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_PREDICTORS_RESOURCE_PREFETCH_COMMON_H_
 #define CHROME_BROWSER_PREDICTORS_RESOURCE_PREFETCH_COMMON_H_
 
+#include <stddef.h>
+
 #include "base/time/time.h"
 #include "url/gurl.h"
 
@@ -61,6 +63,7 @@ struct NavigationID {
 struct ResourcePrefetchPredictorConfig {
   // Initializes the config with default values.
   ResourcePrefetchPredictorConfig();
+  ResourcePrefetchPredictorConfig(const ResourcePrefetchPredictorConfig& other);
   ~ResourcePrefetchPredictorConfig();
 
   // The mode the prefetcher is running in. Forms a bit map.

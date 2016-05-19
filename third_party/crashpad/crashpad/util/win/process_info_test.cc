@@ -20,16 +20,16 @@
 
 #include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "gtest/gtest.h"
 #include "test/errors.h"
-#include "test/scoped_temp_dir.h"
 #include "test/paths.h"
+#include "test/scoped_temp_dir.h"
 #include "test/win/child_launcher.h"
 #include "util/file/file_io.h"
+#include "util/misc/random_string.h"
 #include "util/misc/uuid.h"
 #include "util/win/command_line.h"
 #include "util/win/get_function.h"
@@ -59,7 +59,7 @@ void VerifyAddressInInCodePage(const ProcessInfo& process_info,
                                WinVMAddress code_address) {
   // Make sure the child code address is an code page address with the right
   // information.
-  const std::vector<MEMORY_BASIC_INFORMATION64>& memory_info =
+  const ProcessInfo::MemoryBasicInformation64Vector& memory_info =
       process_info.MemoryInfo();
   bool found_region = false;
   for (const auto& mi : memory_info) {
@@ -199,7 +199,7 @@ TEST(ProcessInfo, OtherProcessWOW64) {
 #endif  // ARCH_CPU_64_BITS
 
 TEST(ProcessInfo, AccessibleRangesNone) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -215,7 +215,7 @@ TEST(ProcessInfo, AccessibleRangesNone) {
 }
 
 TEST(ProcessInfo, AccessibleRangesOneInside) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -233,7 +233,7 @@ TEST(ProcessInfo, AccessibleRangesOneInside) {
 }
 
 TEST(ProcessInfo, AccessibleRangesOneTruncatedSize) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -256,7 +256,7 @@ TEST(ProcessInfo, AccessibleRangesOneTruncatedSize) {
 }
 
 TEST(ProcessInfo, AccessibleRangesOneMovedStart) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -279,7 +279,7 @@ TEST(ProcessInfo, AccessibleRangesOneMovedStart) {
 }
 
 TEST(ProcessInfo, ReserveIsInaccessible) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -302,7 +302,7 @@ TEST(ProcessInfo, ReserveIsInaccessible) {
 }
 
 TEST(ProcessInfo, PageGuardIsInaccessible) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -327,7 +327,7 @@ TEST(ProcessInfo, PageGuardIsInaccessible) {
 }
 
 TEST(ProcessInfo, PageNoAccessIsInaccessible) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -352,7 +352,7 @@ TEST(ProcessInfo, PageNoAccessIsInaccessible) {
 }
 
 TEST(ProcessInfo, AccessibleRangesCoalesced) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -380,7 +380,7 @@ TEST(ProcessInfo, AccessibleRangesCoalesced) {
 }
 
 TEST(ProcessInfo, AccessibleRangesMiddleUnavailable) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 0;
@@ -410,7 +410,7 @@ TEST(ProcessInfo, AccessibleRangesMiddleUnavailable) {
 }
 
 TEST(ProcessInfo, RequestedBeforeMap) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 10;
@@ -428,7 +428,7 @@ TEST(ProcessInfo, RequestedBeforeMap) {
 }
 
 TEST(ProcessInfo, RequestedAfterMap) {
-  std::vector<MEMORY_BASIC_INFORMATION64> memory_info;
+  ProcessInfo::MemoryBasicInformation64Vector memory_info;
   MEMORY_BASIC_INFORMATION64 mbi = {0};
 
   mbi.BaseAddress = 10;
@@ -559,9 +559,9 @@ TEST(ProcessInfo, Handles) {
   ASSERT_TRUE(scoped_key.is_valid());
 
   std::wstring mapping_name =
-      base::UTF8ToUTF16(base::StringPrintf("Local\\test_mapping_%d_%I64x",
+      base::UTF8ToUTF16(base::StringPrintf("Local\\test_mapping_%d_%s",
                                            GetCurrentProcessId(),
-                                           base::RandUint64()));
+                                           RandomString().c_str()));
   ScopedKernelHANDLE mapping(CreateFileMapping(INVALID_HANDLE_VALUE,
                                                nullptr,
                                                PAGE_READWRITE,

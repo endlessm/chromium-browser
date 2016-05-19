@@ -5,7 +5,10 @@
 #ifndef CONTENT_BROWSER_GEOLOCATION_LOCATION_ARBITRATOR_IMPL_H_
 #define CONTENT_BROWSER_GEOLOCATION_LOCATION_ARBITRATOR_IMPL_H_
 
+#include <stdint.h>
+
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
@@ -32,7 +35,7 @@ class CONTENT_EXPORT LocationArbitratorImpl : public LocationArbitrator {
   // Number of milliseconds newer a location provider has to be that it's worth
   // switching to this location provider on the basis of it being fresher
   // (regardles of relative accuracy). Public for tests.
-  static const int64 kFixStaleTimeoutMilliseconds;
+  static const int64_t kFixStaleTimeoutMilliseconds;
 
   typedef base::Callback<void(const Geoposition&)> LocationUpdateCallback;
 
@@ -66,7 +69,7 @@ class CONTENT_EXPORT LocationArbitratorImpl : public LocationArbitrator {
   // |providers_| or deleted on error (e.g. it fails to start).
   void RegisterProvider(LocationProvider* provider);
   void OnAccessTokenStoresLoaded(
-      AccessTokenStore::AccessTokenSet access_token_store,
+      AccessTokenStore::AccessTokenMap access_token_map,
       net::URLRequestContextGetter* context_getter);
   void DoStartProviders();
 

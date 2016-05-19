@@ -5,8 +5,10 @@
 #ifndef REMOTING_PROTOCOL_HOST_EVENT_DISPATCHER_H_
 #define REMOTING_PROTOCOL_HOST_EVENT_DISPATCHER_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "remoting/protocol/channel_dispatcher_base.h"
-#include "remoting/protocol/protobuf_message_parser.h"
 
 namespace remoting {
 namespace protocol {
@@ -35,13 +37,10 @@ class HostEventDispatcher : public ChannelDispatcherBase {
   }
 
  private:
-  void OnMessageReceived(scoped_ptr<EventMessage> message,
-                         const base::Closure& done_task);
+  void OnIncomingMessage(scoped_ptr<CompoundBuffer> buffer) override;
 
-  InputStub* input_stub_;
+  InputStub* input_stub_ = nullptr;
   OnInputEventCallback on_input_event_callback_;
-
-  ProtobufMessageParser<EventMessage> parser_;
 
   DISALLOW_COPY_AND_ASSIGN(HostEventDispatcher);
 };

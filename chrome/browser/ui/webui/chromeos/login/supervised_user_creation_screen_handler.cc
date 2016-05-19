@@ -18,6 +18,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/audio/chromeos_sounds.h"
 #include "components/login/localized_values_builder.h"
+#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -298,14 +299,14 @@ void SupervisedUserCreationScreenHandler::
 }
 
 void SupervisedUserCreationScreenHandler::HandleManagerSelected(
-    const std::string& manager_id) {
+    const AccountId& manager_id) {
   if (!delegate_)
     return;
   WallpaperManager::Get()->SetUserWallpaperNow(manager_id);
 }
 
 void SupervisedUserCreationScreenHandler::HandleImportUserSelected(
-    const std::string& user_id) {
+    const AccountId& account_id) {
   if (!delegate_)
     return;
 }
@@ -368,53 +369,54 @@ void SupervisedUserCreationScreenHandler::HandleCreateSupervisedUser(
 }
 
 void SupervisedUserCreationScreenHandler::HandleImportSupervisedUser(
-    const std::string& user_id) {
+    const AccountId& account_id) {
   if (!delegate_)
     return;
 
   ShowStatusMessage(true /* progress */, l10n_util::GetStringUTF16(
       IDS_CREATE_SUPERVISED_USER_CREATION_CREATION_PROGRESS_MESSAGE));
 
-  delegate_->ImportSupervisedUser(user_id);
+  delegate_->ImportSupervisedUser(account_id.GetUserEmail());
 }
 
 void SupervisedUserCreationScreenHandler::
-    HandleImportSupervisedUserWithPassword(
-        const std::string& user_id,
-        const std::string& password) {
+    HandleImportSupervisedUserWithPassword(const AccountId& account_id,
+                                           const std::string& password) {
   if (!delegate_)
     return;
 
   ShowStatusMessage(true /* progress */, l10n_util::GetStringUTF16(
       IDS_CREATE_SUPERVISED_USER_CREATION_CREATION_PROGRESS_MESSAGE));
 
-  delegate_->ImportSupervisedUserWithPassword(user_id, password);
+  delegate_->ImportSupervisedUserWithPassword(account_id.GetUserEmail(),
+                                              password);
 }
 
 void SupervisedUserCreationScreenHandler::HandleAuthenticateManager(
-    const std::string& raw_manager_username,
+    const AccountId& manager_raw_account_id,
     const std::string& manager_password) {
-  const std::string manager_username =
-      gaia::SanitizeEmail(raw_manager_username);
-  delegate_->AuthenticateManager(manager_username, manager_password);
+  const AccountId manager_account_id = AccountId::FromUserEmailGaiaId(
+      gaia::SanitizeEmail(manager_raw_account_id.GetUserEmail()),
+      manager_raw_account_id.GetGaiaId());
+  delegate_->AuthenticateManager(manager_account_id, manager_password);
 }
 
 // TODO(antrim) : this is an explicit code duplications with UserImageScreen.
 // It should be removed by issue 251179.
 void SupervisedUserCreationScreenHandler::HandleGetImages() {
   base::ListValue image_urls;
-  for (int i = user_manager::kFirstDefaultImageIndex;
-       i < user_manager::kDefaultImagesCount;
-       ++i) {
+  for (int i = default_user_image::kFirstDefaultImageIndex;
+       i < default_user_image::kDefaultImagesCount; ++i) {
     scoped_ptr<base::DictionaryValue> image_data(new base::DictionaryValue);
-    image_data->SetString("url", user_manager::GetDefaultImageUrl(i));
-    image_data->SetString(
-        "author",
-        l10n_util::GetStringUTF16(user_manager::kDefaultImageAuthorIDs[i]));
-    image_data->SetString(
-        "website",
-        l10n_util::GetStringUTF16(user_manager::kDefaultImageWebsiteIDs[i]));
-    image_data->SetString("title", user_manager::GetDefaultImageDescription(i));
+    image_data->SetString("url", default_user_image::GetDefaultImageUrl(i));
+    image_data->SetString("author",
+                          l10n_util::GetStringUTF16(
+                              default_user_image::kDefaultImageAuthorIDs[i]));
+    image_data->SetString("website",
+                          l10n_util::GetStringUTF16(
+                              default_user_image::kDefaultImageWebsiteIDs[i]));
+    image_data->SetString("title",
+                          default_user_image::GetDefaultImageDescription(i));
     image_urls.Append(image_data.release());
   }
   CallJS("setDefaultImages", image_urls);

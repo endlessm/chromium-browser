@@ -6,13 +6,11 @@
 #define COMPONENTS_SYNC_SESSIONS_SESSION_DATA_TYPE_CONTROLLER_H_
 
 #include "base/macros.h"
-#include "base/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/sync_driver/local_device_info_provider.h"
 #include "components/sync_driver/ui_data_type_controller.h"
 
 namespace browser_sync {
-
-class SyncedWindowDelegatesGetter;
 
 // Overrides StartModels to avoid sync contention with sessions during
 // a session restore operation at startup and to wait for the local
@@ -23,7 +21,6 @@ class SessionDataTypeController : public sync_driver::UIDataTypeController {
       const scoped_refptr<base::SingleThreadTaskRunner>& ui_thread,
       const base::Closure& error_callback,
       sync_driver::SyncClient* sync_client,
-      SyncedWindowDelegatesGetter* synced_window_getter,
       sync_driver::LocalDeviceInfoProvider* local_device,
       const char* history_disabled_pref_name);
 
@@ -45,8 +42,6 @@ class SessionDataTypeController : public sync_driver::UIDataTypeController {
   void OnSavingBrowserHistoryPrefChanged();
 
   sync_driver::SyncClient* const sync_client_;
-
-  SyncedWindowDelegatesGetter* synced_window_getter_;
 
   sync_driver::LocalDeviceInfoProvider* const local_device_;
   scoped_ptr<sync_driver::LocalDeviceInfoProvider::Subscription> subscription_;

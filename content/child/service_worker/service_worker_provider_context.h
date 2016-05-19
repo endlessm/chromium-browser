@@ -8,6 +8,7 @@
 #include <set>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "content/common/content_export.h"
@@ -49,8 +50,11 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
                                ThreadSafeSender* thread_safe_sender);
 
   // Called from ServiceWorkerDispatcher.
-  void OnAssociateRegistration(const ServiceWorkerRegistrationObjectInfo& info,
-                               const ServiceWorkerVersionAttributes& attrs);
+  void OnAssociateRegistration(
+      scoped_ptr<ServiceWorkerRegistrationHandleReference> registration,
+      scoped_ptr<ServiceWorkerHandleReference> installing,
+      scoped_ptr<ServiceWorkerHandleReference> waiting,
+      scoped_ptr<ServiceWorkerHandleReference> active);
   void OnDisassociateRegistration();
   void OnSetControllerServiceWorker(
       scoped_ptr<ServiceWorkerHandleReference> controller);

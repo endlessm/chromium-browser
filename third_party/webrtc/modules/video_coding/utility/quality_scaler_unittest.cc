@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/video_coding/utility/include/quality_scaler.h"
+#include "webrtc/modules/video_coding/utility/quality_scaler.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -16,13 +16,17 @@ namespace webrtc {
 namespace {
 static const int kNumSeconds = 10;
 static const int kWidth = 1920;
+static const int kWidthVga = 640;
 static const int kHalfWidth = kWidth / 2;
 static const int kHeight = 1080;
+static const int kHeightVga = 480;
 static const int kFramerate = 30;
 static const int kLowQp = 15;
 static const int kNormalQp = 30;
 static const int kHighQp = 40;
 static const int kMaxQp = 56;
+static const int kDisabledBadQpThreshold = kMaxQp + 1;
+static const int kLowInitialBitrateKbps = 300;
 }  // namespace
 
 class QualityScalerTest : public ::testing::Test {
@@ -33,6 +37,7 @@ class QualityScalerTest : public ::testing::Test {
     int width;
     int height;
   };
+
  protected:
   enum ScaleDirection {
     kKeepScaleAtHighQp,
@@ -43,9 +48,10 @@ class QualityScalerTest : public ::testing::Test {
   enum BadQualityMetric { kDropFrame, kReportLowQP };
 
   QualityScalerTest() {
-    input_frame_.CreateEmptyFrame(
-        kWidth, kHeight, kWidth, kHalfWidth, kHalfWidth);
-    qs_.Init(kMaxQp / QualityScaler::kDefaultLowQpDenominator, kHighQp, false);
+    input_frame_.CreateEmptyFrame(kWidth, kHeight, kWidth, kHalfWidth,
+                                  kHalfWidth);
+    qs_.Init(kMaxQp / QualityScaler::kDefaultLowQpDenominator, kHighQp, false,
+             0, 0, 0);
     qs_.ReportFramerate(kFramerate);
     qs_.OnEncodeFrame(input_frame_);
   }
@@ -97,7 +103,8 @@ class QualityScalerTest : public ::testing::Test {
                                      int num_second,
                                      int initial_framerate);
 
-  void VerifyQualityAdaptation(int initial_framerate, int seconds,
+  void VerifyQualityAdaptation(int initial_framerate,
+                               int seconds,
                                bool expect_spatial_resize,
                                bool expect_framerate_reduction);
 
@@ -183,8 +190,8 @@ TEST_F(QualityScalerTest, DoesNotDownscaleAfterHalfFramedrop) {
 
 void QualityScalerTest::ContinuouslyDownscalesByHalfDimensionsAndBackUp() {
   const int initial_min_dimension = input_frame_.width() < input_frame_.height()
-                                  ? input_frame_.width()
-                                  : input_frame_.height();
+                                        ? input_frame_.width()
+                                        : input_frame_.height();
   int min_dimension = initial_min_dimension;
   int current_shift = 0;
   // Drop all frames to force-trigger downscaling.
@@ -229,14 +236,14 @@ TEST_F(QualityScalerTest,
   const int kOddWidth = 517;
   const int kHalfOddWidth = (kOddWidth + 1) / 2;
   const int kOddHeight = 1239;
-  input_frame_.CreateEmptyFrame(
-      kOddWidth, kOddHeight, kOddWidth, kHalfOddWidth, kHalfOddWidth);
+  input_frame_.CreateEmptyFrame(kOddWidth, kOddHeight, kOddWidth, kHalfOddWidth,
+                                kHalfOddWidth);
   ContinuouslyDownscalesByHalfDimensionsAndBackUp();
 }
 
 void QualityScalerTest::DoesNotDownscaleFrameDimensions(int width, int height) {
-  input_frame_.CreateEmptyFrame(
-      width, height, width, (width + 1) / 2, (width + 1) / 2);
+  input_frame_.CreateEmptyFrame(width, height, width, (width + 1) / 2,
+                                (width + 1) / 2);
 
   for (int i = 0; i < kFramerate * kNumSeconds; ++i) {
     qs_.ReportDroppedFrame();
@@ -259,7 +266,9 @@ TEST_F(QualityScalerTest, DoesNotDownscaleFrom1Px) {
 }
 
 QualityScalerTest::Resolution QualityScalerTest::TriggerResolutionChange(
-    BadQualityMetric dropframe_lowqp, int num_second, int initial_framerate) {
+    BadQualityMetric dropframe_lowqp,
+    int num_second,
+    int initial_framerate) {
   QualityScalerTest::Resolution res;
   res.framerate = initial_framerate;
   qs_.OnEncodeFrame(input_frame_);
@@ -288,18 +297,19 @@ QualityScalerTest::Resolution QualityScalerTest::TriggerResolutionChange(
 }
 
 void QualityScalerTest::VerifyQualityAdaptation(
-    int initial_framerate, int seconds, bool expect_spatial_resize,
+    int initial_framerate,
+    int seconds,
+    bool expect_spatial_resize,
     bool expect_framerate_reduction) {
-  const int kDisabledBadQpThreshold = kMaxQp + 1;
   qs_.Init(kMaxQp / QualityScaler::kDefaultLowQpDenominator,
-           kDisabledBadQpThreshold, true);
+           kDisabledBadQpThreshold, true, 0, 0, 0);
   qs_.OnEncodeFrame(input_frame_);
   int init_width = qs_.GetScaledResolution().width;
   int init_height = qs_.GetScaledResolution().height;
 
   // Test reducing framerate by dropping frame continuously.
-  QualityScalerTest::Resolution res = TriggerResolutionChange(
-      kDropFrame, seconds, initial_framerate);
+  QualityScalerTest::Resolution res =
+      TriggerResolutionChange(kDropFrame, seconds, initial_framerate);
 
   if (expect_framerate_reduction) {
     EXPECT_LT(res.framerate, initial_framerate);
@@ -356,6 +366,17 @@ TEST_F(QualityScalerTest, DoesNotDownscaleBelow2xDefaultMinDimensionsWidth) {
 TEST_F(QualityScalerTest, DoesNotDownscaleBelow2xDefaultMinDimensionsHeight) {
   DoesNotDownscaleFrameDimensions(
       1000, 2 * QualityScaler::kDefaultMinDownscaleDimension - 1);
+}
+
+TEST_F(QualityScalerTest, DownscaleToVgaOnLowInitialBitrate) {
+  qs_.Init(kMaxQp / QualityScaler::kDefaultLowQpDenominator,
+           kDisabledBadQpThreshold, true,
+           kLowInitialBitrateKbps, kWidth, kHeight);
+  qs_.OnEncodeFrame(input_frame_);
+  int init_width = qs_.GetScaledResolution().width;
+  int init_height = qs_.GetScaledResolution().height;
+  EXPECT_LE(init_width, kWidthVga);
+  EXPECT_LE(init_height, kHeightVga);
 }
 
 void QualityScalerTest::DownscaleEndsAt(int input_width,

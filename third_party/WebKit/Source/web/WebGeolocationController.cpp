@@ -23,25 +23,69 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebGeolocationController.h"
 
 #include "modules/geolocation/GeolocationController.h"
 #include "modules/geolocation/GeolocationError.h"
 #include "modules/geolocation/GeolocationPosition.h"
+#include "platform/heap/Handle.h"
 #include "public/web/WebGeolocationError.h"
 #include "public/web/WebGeolocationPosition.h"
+#include "wtf/RefCounted.h"
 
 namespace blink {
 
+// TODO(Oilpan): once GeolocationController is always on the heap,
+// shorten out this GeolocationControllerPrivate intermediary.
+class GeolocationControllerPrivate final : public RefCountedWillBeGarbageCollected<GeolocationControllerPrivate> {
+public:
+    static PassRefPtrWillBeRawPtr<GeolocationControllerPrivate> create(GeolocationController* controller)
+    {
+        return adoptRefWillBeNoop(new GeolocationControllerPrivate(controller));
+    }
+
+    static GeolocationController& controller(const WebPrivatePtr<GeolocationControllerPrivate>& controller)
+    {
+        ASSERT(!controller.isNull());
+        ASSERT(controller->m_controller);
+        return *controller->m_controller;
+    }
+
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(m_controller);
+    }
+
+private:
+    explicit GeolocationControllerPrivate(GeolocationController* controller)
+        : m_controller(controller)
+    {
+    }
+
+    // Non-Oilpan, this bare pointer is owned as a supplement and kept alive
+    // by the frame of the WebLocalFrame which creates the WebGeolocationController
+    // object that wraps it all up.
+    RawPtrWillBeMember<GeolocationController> m_controller;
+};
+
+WebGeolocationController::WebGeolocationController(GeolocationController* controller)
+    : m_private(GeolocationControllerPrivate::create(controller))
+{
+}
+
+void WebGeolocationController::reset()
+{
+    m_private.reset();
+}
+
 void WebGeolocationController::positionChanged(const WebGeolocationPosition& webPosition)
 {
-    m_private->positionChanged(static_cast<GeolocationPosition*>(webPosition));
+    GeolocationControllerPrivate::controller(m_private).positionChanged(static_cast<GeolocationPosition*>(webPosition));
 }
 
 void WebGeolocationController::errorOccurred(const WebGeolocationError& webError)
 {
-    m_private->errorOccurred(static_cast<GeolocationError*>(webError));
+    GeolocationControllerPrivate::controller(m_private).errorOccurred(static_cast<GeolocationError*>(webError));
 }
 
 } // namespace blink

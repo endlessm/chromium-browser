@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/SVGTextLayoutEngineSpacing.h"
 
 #include "platform/fonts/Character.h"
@@ -53,4 +52,4 @@ float SVGTextLayoutEngineSpacing::calculateCSSSpacing(UChar currentCharacter)
     return spacing;
 }
 
-}
+} // namespace blink

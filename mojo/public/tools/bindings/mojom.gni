@@ -2,17 +2,32 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("../../mojo_sdk.gni")
+mojom_generator_root = "//mojo/public/tools/bindings"
+mojom_generator_script = "$mojom_generator_root/mojom_bindings_generator.py"
+mojom_generator_sources = [
+  "$mojom_generator_root/generators/mojom_cpp_generator.py",
+  "$mojom_generator_root/generators/mojom_js_generator.py",
+  "$mojom_generator_root/generators/mojom_java_generator.py",
+  "$mojom_generator_root/pylib/mojom/__init__.py",
+  "$mojom_generator_root/pylib/mojom/error.py",
+  "$mojom_generator_root/pylib/mojom/generate/__init__.py",
+  "$mojom_generator_root/pylib/mojom/generate/constant_resolver.py",
+  "$mojom_generator_root/pylib/mojom/generate/data.py",
+  "$mojom_generator_root/pylib/mojom/generate/generator.py",
+  "$mojom_generator_root/pylib/mojom/generate/module.py",
+  "$mojom_generator_root/pylib/mojom/generate/pack.py",
+  "$mojom_generator_root/pylib/mojom/generate/template_expander.py",
+  "$mojom_generator_root/pylib/mojom/parse/__init__.py",
+  "$mojom_generator_root/pylib/mojom/parse/ast.py",
+  "$mojom_generator_root/pylib/mojom/parse/lexer.py",
+  "$mojom_generator_root/pylib/mojom/parse/parser.py",
+  "$mojom_generator_root/pylib/mojom/parse/translate.py",
+  "$mojom_generator_script",
+]
 
 # Generate C++/JavaScript/Java source files from mojom files. The output files
 # will go under the generated file directory tree with the same path as each
 # input file.
-#
-# If a mojom target is intended for use in a client repo where the location of
-# the Mojo SDK will be different than its location in the Mojo repo,
-# dependencies on the SDK should be specified relative to the parent directory
-# of the Mojo public SDK in |mojo_sdk_deps| rather than via absolute paths in
-# |deps|.
 #
 # Parameters:
 #
@@ -22,18 +37,11 @@ import("../../mojo_sdk.gni")
 #   deps (optional)
 #       Note: this can contain only other mojom targets.
 #
-#   mojo_sdk_deps (optional)
-#       List of deps specified relative to the parent directory of the Mojo
-#       public SDK. These deps will be added as ordinary deps rebased to the
-#       current directory.
+#       DEPRECATED: This is synonymous with public_deps because all mojom
+#       dependencies must be public by design. Please use public_deps.
 #
 #   public_deps (optional)
 #       Note: this can contain only other mojom targets.
-#
-#   mojo_sdk_public_deps (optional)
-#       List of public deps specified relative to the parent directory of the
-#       Mojo public SDK. These deps will be added as ordinary public deps
-#       rebased to the current directory.
 #
 #   import_dirs (optional)
 #       List of import directories that will get added when processing sources.
@@ -43,130 +51,79 @@ import("../../mojo_sdk.gni")
 #       Mojo environment implementation. Defaults to |true| and in general
 #       should only be overridden by mojom targets within the Mojo EDK.
 #
+#   typemaps (optional)
+#       A list of typemap files to apply during bindings generation.
+#
+#   typemap_deps (optional)
+#       A list of public dependencies needed to support active typemaps.
+#
+#   variant (optional)
+#       A variant name to apply to generated bindings. Variant influences
+#       generated source filenames as wells the symbols they define.
+#
 #   testonly (optional)
 #
 #   visibility (optional)
 template("mojom") {
   assert(
       defined(invoker.sources) || defined(invoker.deps) ||
-          defined(invoker.public_deps) || defined(invoker.mojo_sdk_deps) ||
-          defined(invoker.mojo_sdk_public_deps),
+          defined(invoker.public_deps),
       "\"sources\" or \"deps\" must be defined for the $target_name template.")
 
   cpp_sources_suffix = "cpp_sources"
   cpp_sources_target_name = "${target_name}_${cpp_sources_suffix}"
+  cpp_only = false
   if (defined(invoker.sources)) {
-    generator_root = "//mojo/public/tools/bindings"
-    generator_script = "$generator_root/mojom_bindings_generator.py"
-    generator_sources = [
-      generator_script,
-      "$generator_root/generators/cpp_templates/enum_macros.tmpl",
-      "$generator_root/generators/cpp_templates/interface_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/interface_definition.tmpl",
-      "$generator_root/generators/cpp_templates/interface_macros.tmpl",
-      "$generator_root/generators/cpp_templates/interface_proxy_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/interface_request_validator_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/interface_response_validator_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/interface_stub_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/module-internal.h.tmpl",
-      "$generator_root/generators/cpp_templates/module.cc.tmpl",
-      "$generator_root/generators/cpp_templates/module.h.tmpl",
-      "$generator_root/generators/cpp_templates/struct_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/struct_definition.tmpl",
-      "$generator_root/generators/cpp_templates/struct_macros.tmpl",
-      "$generator_root/generators/cpp_templates/struct_serialization_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/struct_serialization_definition.tmpl",
-      "$generator_root/generators/cpp_templates/union_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/union_definition.tmpl",
-      "$generator_root/generators/cpp_templates/union_serialization_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/union_serialization_definition.tmpl",
-      "$generator_root/generators/cpp_templates/validation_macros.tmpl",
-      "$generator_root/generators/cpp_templates/wrapper_class_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/wrapper_class_definition.tmpl",
-      "$generator_root/generators/cpp_templates/wrapper_union_class_declaration.tmpl",
-      "$generator_root/generators/cpp_templates/wrapper_union_class_definition.tmpl",
-      "$generator_root/generators/java_templates/constant_definition.tmpl",
-      "$generator_root/generators/java_templates/constants.java.tmpl",
-      "$generator_root/generators/java_templates/data_types_definition.tmpl",
-      "$generator_root/generators/java_templates/enum_definition.tmpl",
-      "$generator_root/generators/java_templates/enum.java.tmpl",
-      "$generator_root/generators/java_templates/header.java.tmpl",
-      "$generator_root/generators/java_templates/interface_definition.tmpl",
-      "$generator_root/generators/java_templates/interface_internal.java.tmpl",
-      "$generator_root/generators/java_templates/interface.java.tmpl",
-      "$generator_root/generators/java_templates/struct.java.tmpl",
-      "$generator_root/generators/java_templates/union.java.tmpl",
-      "$generator_root/generators/js_templates/enum_definition.tmpl",
-      "$generator_root/generators/js_templates/interface_definition.tmpl",
-      "$generator_root/generators/js_templates/module.amd.tmpl",
-      "$generator_root/generators/js_templates/module_definition.tmpl",
-      "$generator_root/generators/js_templates/struct_definition.tmpl",
-      "$generator_root/generators/js_templates/union_definition.tmpl",
-      "$generator_root/generators/js_templates/validation_macros.tmpl",
-      "$generator_root/generators/mojom_cpp_generator.py",
-      "$generator_root/generators/mojom_js_generator.py",
-      "$generator_root/generators/mojom_java_generator.py",
-      "$generator_root/pylib/mojom/__init__.py",
-      "$generator_root/pylib/mojom/error.py",
-      "$generator_root/pylib/mojom/generate/__init__.py",
-      "$generator_root/pylib/mojom/generate/constant_resolver.py",
-      "$generator_root/pylib/mojom/generate/data.py",
-      "$generator_root/pylib/mojom/generate/generator.py",
-      "$generator_root/pylib/mojom/generate/module.py",
-      "$generator_root/pylib/mojom/generate/pack.py",
-      "$generator_root/pylib/mojom/generate/template_expander.py",
-      "$generator_root/pylib/mojom/parse/__init__.py",
-      "$generator_root/pylib/mojom/parse/ast.py",
-      "$generator_root/pylib/mojom/parse/lexer.py",
-      "$generator_root/pylib/mojom/parse/parser.py",
-      "$generator_root/pylib/mojom/parse/translate.py",
-    ]
-    generator_cpp_outputs = [
-      "{{source_gen_dir}}/{{source_name_part}}.mojom.cc",
-      "{{source_gen_dir}}/{{source_name_part}}.mojom.h",
-      "{{source_gen_dir}}/{{source_name_part}}.mojom-internal.h",
-    ]
+    if (defined(invoker.variant)) {
+      variant = invoker.variant
+      cpp_only = true
+      generator_cpp_outputs = [
+        "{{source_gen_dir}}/{{source_name_part}}.mojom-${variant}.cc",
+        "{{source_gen_dir}}/{{source_name_part}}.mojom-${variant}.h",
+        "{{source_gen_dir}}/{{source_name_part}}.mojom-${variant}-internal.h",
+      ]
+    } else {
+      generator_cpp_outputs = [
+        "{{source_gen_dir}}/{{source_name_part}}.mojom.cc",
+        "{{source_gen_dir}}/{{source_name_part}}.mojom.h",
+        "{{source_gen_dir}}/{{source_name_part}}.mojom-internal.h",
+      ]
+    }
+  }
+
+  if (cpp_only) {
+    generator_js_outputs = []
+    generator_java_outputs = []
+  } else {
     generator_js_outputs =
         [ "{{source_gen_dir}}/{{source_name_part}}.mojom.js" ]
     generator_java_outputs =
         [ "{{source_gen_dir}}/{{source_name_part}}.mojom.srcjar" ]
   }
 
-  rebased_mojo_sdk_public_deps = []
-  if (defined(invoker.mojo_sdk_public_deps)) {
-    foreach(sdk_dep, invoker.mojo_sdk_public_deps) {
-      # Check that the SDK dep was not mistakenly given as an absolute path.
-      assert(get_path_info(sdk_dep, "abspath") != sdk_dep)
-      rebased_mojo_sdk_public_deps += [ rebase_path(sdk_dep, ".", "//") ]
-    }
-  }
-
-  rebased_mojo_sdk_deps = []
-  if (defined(invoker.mojo_sdk_deps)) {
-    foreach(sdk_dep, invoker.mojo_sdk_deps) {
-      # Check that the SDK dep was not mistakenly given as an absolute path.
-      assert(get_path_info(sdk_dep, "abspath") != sdk_dep)
-      rebased_mojo_sdk_deps += [ rebase_path(sdk_dep, ".", "//") ]
-    }
-  }
-
   if (defined(invoker.sources)) {
     generator_target_name = target_name + "__generator"
     action_foreach(generator_target_name) {
-      script = generator_script
-      inputs = generator_sources
+      script = mojom_generator_script
+      inputs = mojom_generator_sources
       sources = invoker.sources
+      deps = [
+        "//mojo/public/tools/bindings:precompile_templates",
+      ]
       outputs =
           generator_cpp_outputs + generator_java_outputs + generator_js_outputs
       args = [
-        "{{source}}",
         "--use_bundled_pylibs",
+        "generate",
+        "{{source}}",
         "-d",
         rebase_path("//", root_build_dir),
         "-I",
         rebase_path("//", root_build_dir),
         "-o",
         rebase_path(root_gen_dir),
+        "--bytecode_path",
+        rebase_path("$root_gen_dir/mojo/public/tools/bindings"),
       ]
 
       if (defined(invoker.import_dirs)) {
@@ -176,6 +133,35 @@ template("mojom") {
             rebase_path(import_dir, root_build_dir),
           ]
         }
+      }
+
+      if (cpp_only) {
+        args += [
+          "-g",
+          "c++",
+        ]
+      } else {
+        args += [
+          "-g",
+          "c++,javascript,java",
+        ]
+      }
+
+      if (defined(invoker.variant)) {
+        args += [
+          "--variant",
+          invoker.variant,
+        ]
+      }
+
+      if (defined(invoker.typemaps)) {
+        foreach(typemap, invoker.typemaps) {
+          args += [
+            "--typemap",
+            rebase_path(typemap, root_build_dir),
+          ]
+        }
+        inputs += invoker.typemaps
       }
     }
   }
@@ -187,7 +173,7 @@ template("mojom") {
     if (defined(invoker.testonly)) {
       testonly = invoker.testonly
     }
-    if (defined(invoker.sources)) {
+    if (defined(invoker.sources) && !defined(invoker.variant)) {
       data = process_file_template(invoker.sources, generator_js_outputs)
     }
 
@@ -197,29 +183,23 @@ template("mojom") {
     if (defined(invoker.sources)) {
       public_deps += [ ":${cpp_sources_target_name}" ]
     }
-    public_deps += rebased_mojo_sdk_public_deps
+    if (defined(invoker.deps)) {
+      public_deps += invoker.deps
+    }
     if (defined(invoker.public_deps)) {
       public_deps += invoker.public_deps
+    }
+    if (defined(invoker.typemap_deps)) {
+      public_deps += invoker.typemap_deps
     }
 
     deps = []
     if (defined(invoker.sources)) {
       public_deps += [ ":$generator_target_name" ]
     }
-    deps += rebased_mojo_sdk_deps
-    if (defined(invoker.deps)) {
-      deps += invoker.deps
-    }
-    if (defined(invoker.mojo_sdk_deps)) {
-      foreach(sdk_dep, invoker.mojo_sdk_deps) {
-        # Check that the SDK dep was not mistakenly given as an absolute path.
-        assert(get_path_info(sdk_dep, "abspath") != sdk_dep)
-        deps += [ rebase_path(sdk_dep, ".", "//") ]
-      }
-    }
   }
 
-  all_deps = rebased_mojo_sdk_deps + rebased_mojo_sdk_public_deps
+  all_deps = []
   if (defined(invoker.deps)) {
     all_deps += invoker.deps
   }
@@ -255,9 +235,14 @@ template("mojom") {
       sources = process_file_template(invoker.sources, generator_cpp_outputs)
       deps = [
         ":$generator_target_name",
-        "//base",
         "//mojo/public/interfaces/bindings:bindings__generator",
       ]
+      public_deps = [
+        "//base",
+      ]
+      if (defined(invoker.typemap_deps)) {
+        public_deps += invoker.typemap_deps
+      }
       foreach(d, all_deps) {
         # Resolve the name, so that a target //mojo/something becomes
         # //mojo/something:something and we can append cpp_sources_suffix to
@@ -271,7 +256,7 @@ template("mojom") {
     }
   }
 
-  if (is_android) {
+  if (is_android && !defined(invoker.variant)) {
     import("//build/config/android/rules.gni")
 
     java_srcjar_target_name = target_name + "_java_sources"
@@ -296,6 +281,7 @@ template("mojom") {
     java_target_name = target_name + "_java"
     android_library(java_target_name) {
       deps = [
+        "//base:base_java",
         "//mojo/public/java:bindings",
         "//mojo/public/java:system",
       ]

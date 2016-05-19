@@ -142,6 +142,15 @@ components/rappor/rappor_service.cc.
   </summary>
 </rappor-metric>
 
+<rappor-metric name="Cast.Sender.MediaFrameUrl" type="ETLD_PLUS_ONE">
+  <owner>avayvod@chromium.org</owner>
+  <owner>aberent@chromium.org</owner>
+  <summary>
+    The domain and registry of the frame URL that the user is trying to cast
+    the media from. Recorded every time the user casts the media.
+  </summary>
+</rappor-metric>
+
 <rappor-metric name="ContentSettings.MixedScript.DisplayedShield"
     type="ETLD_PLUS_ONE">
   <owner>lgarron@chromium.org</owner>
@@ -170,11 +179,70 @@ components/rappor/rappor_service.cc.
   </summary>
 </rappor-metric>
 
+<rappor-metric name="ContentSettings.PermissionActions_AudioCapture.Denied.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a AudioCapture permission prompt was Denied. Also
+    recorded as a multi-dimensional metric in Permissions.Action.AudioCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_AudioCapture.Dismissed.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a AudioCapture permission prompt was Dismissed. Also
+    recorded as a multi-dimensional metric in Permissions.Action.AudioCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_AudioCapture.Granted.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a AudioCapture permission prompt was accepted. Also
+    recorded as a multi-dimensional metric in Permissions.Action.AudioCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_AudioCapture.Ignored.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a AudioCapture permission prompt was Ignored. Also
+    recorded as a multi-dimensional metric in Permissions.Action.AudioCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_AudioCapture.Revoked.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which an AudioCapture permission was revoked. Also recorded
+    as a multi-dimensional metric in Permissions.Action.AudioCapture.
+  </summary>
+</rappor-metric>
+
 <rappor-metric name="ContentSettings.PermissionActions_Camera.Revoked.Url"
     type="ETLD_PLUS_ONE">
   <owner>jialiul@chromium.org</owner>
   <summary>
-    The domain for which a camera permission was revoked.
+    **DEPRECATED. Renamed to
+    ContentSettings.PermissionActions_VideoCapture.Revoked.Url on
+    2016-01-07.** The domain for which a camera permission was revoked.
   </summary>
 </rappor-metric>
 
@@ -182,9 +250,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Geolocation permission prompt was
-    Denied.
+    The domain for which a Geolocation permission prompt was Denied.
   </summary>
 </rappor-metric>
 
@@ -193,9 +259,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Geolocation permission prompt was
-    Dismissed.
+    The domain for which a Geolocation permission prompt was Dismissed.
   </summary>
 </rappor-metric>
 
@@ -203,9 +267,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Geolocation permission prompt was
-    accepted.
+    The domain for which a Geolocation permission prompt was accepted.
   </summary>
 </rappor-metric>
 
@@ -213,9 +275,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Geolocation permission prompt was
-    Ignored.
+    The domain for which a Geolocation permission prompt was Ignored.
   </summary>
 </rappor-metric>
 
@@ -231,7 +291,9 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>jialiul@chromium.org</owner>
   <summary>
-    The domain for which a microphone permission was revoked.
+    **DEPRECATED. Renamed to
+    ContentSettings.PermissionActions_AudioCapture.Revoked.Url on
+    2016-01-07.** The domain for which a microphone permission was revoked.
   </summary>
 </rappor-metric>
 
@@ -240,9 +302,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Notification permission prompt was
-    Denied.
+    The domain for which a Notification permission prompt was Denied.
   </summary>
 </rappor-metric>
 
@@ -251,9 +311,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Notification permission prompt was
-    Dismissed.
+    The domain for which a Notification permission prompt was Dismissed.
   </summary>
 </rappor-metric>
 
@@ -262,9 +320,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Notification permission prompt was
-    accepted.
+    The domain for which a Notification permission prompt was accepted.
   </summary>
 </rappor-metric>
 
@@ -273,9 +329,7 @@ components/rappor/rappor_service.cc.
     type="ETLD_PLUS_ONE">
   <owner>miguelg@chromium.org</owner>
   <summary>
-    ** DEPRECATED. Replaced by Permissions.Action multi-dimensionsal metric on
-    2015-08-05.** The domain for which a Notification permission prompt was
-    Ignored.
+    The domain for which a Notification permission prompt was Ignored.
   </summary>
 </rappor-metric>
 
@@ -285,6 +339,63 @@ components/rappor/rappor_service.cc.
   <owner>jialiul@chromium.org</owner>
   <summary>
     The domain for which a Notification permission was revoked.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="ContentSettings.PermissionActions_VideoCapture.Denied.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a VideoCapture permission prompt was Denied. Also
+    recorded as a multi-dimensional metric in Permissions.Action.VideoCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_VideoCapture.Dismissed.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a VideoCapture permission prompt was Dismissed. Also
+    recorded as a multi-dimensional metric in Permissions.Action.VideoCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_VideoCapture.Granted.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a VideoCapture permission prompt was accepted. Also
+    recorded as a multi-dimensional metric in Permissions.Action.VideoCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_VideoCapture.Ignored.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>kcarattini@chromium.org</owner>
+  <owner>miguelg@chromium.org</owner>
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which a VideoCapture permission prompt was Ignored. Also
+    recorded as a multi-dimensional metric in Permissions.Action.VideoCapture.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="ContentSettings.PermissionActions_VideoCapture.Revoked.Url"
+    type="ETLD_PLUS_ONE">
+  <owner>tsergeant@chromium.org</owner>
+  <summary>
+    The domain for which an VideoCapture permission was revoked. Also recorded
+    as a multi-dimensional metric in Permissions.Action.VideoCapture.
   </summary>
 </rappor-metric>
 
@@ -324,6 +435,18 @@ components/rappor/rappor_service.cc.
   <owner>timvolodine@chromium.org</owner>
   <summary>
     The domain and registry of the URL that is using Device Orientation API.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Extensions.AffectedByIsolateExtensions"
+    type="UMA_RAPPOR_TYPE">
+  <owner>nick@chromium.org</owner>
+  <summary>
+    The ID of an extension which will trigger out-of-process iframes under
+    --isolate-extensions. This metric is logged even if --isolate-extensions is
+    disabled. Includes framing in both directions: non-extension documents that
+    contain chrome-extension:// iframes, or vice versa. Hosted apps are not
+    considered extensions for the purposes of this metric.
   </summary>
 </rappor-metric>
 
@@ -432,6 +555,22 @@ components/rappor/rappor_service.cc.
   </summary>
 </rappor-metric>
 
+<rappor-metric name="Media.OriginUrl.MSE.Insecure" type="ETLD_PLUS_ONE">
+  <owner>wolenetz@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL that loads an HTML5 media player using
+    Media Source Extensions (MSE) from an insecure origin.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Media.OriginUrl.MSE.Secure" type="ETLD_PLUS_ONE">
+  <owner>wolenetz@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL that loads an HTML5 media player using
+    Media Source Extensions (MSE) from a potentially trustworthy origin.
+  </summary>
+</rappor-metric>
+
 <rappor-metric name="Media.OriginUrl.SRC" type="ETLD_PLUS_ONE">
   <owner>xhwang@chromium.org</owner>
   <summary>
@@ -466,6 +605,22 @@ components/rappor/rappor_service.cc.
     to a |data:| URL. This includes page initiated navigations (e.g. redirects)
     and users clicking links, but excludes navigations initiated by users typing
     |data:| URLs.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Net.ErrAborted.Fast" type="ETLD_PLUS_ONE">
+  <owner>csharrison@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL that leads to a main frame ERR_ABORTED
+    error less than 100 ms after the request is created.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Net.ErrAborted.Slow" type="ETLD_PLUS_ONE">
+  <owner>csharrison@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL that leads to a main frame ERR_ABORTED
+    error more than 100 ms after the request is created.
   </summary>
 </rappor-metric>
 
@@ -865,6 +1020,25 @@ components/rappor/rappor_service.cc.
   </summary>
 </rappor-metric>
 
+<rappor-metric name="PowerfulFeatureUse.Host.ApplicationCacheAPI.Insecure"
+    type="ETLD_PLUS_ONE">
+  <owner>jww@chromium.org</owner>
+  <summary>
+    The host of the URL that uses a the Application Cache programmatic API from
+    an insecure origin.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="PowerfulFeatureUse.Host.ApplicationCacheManifestSelect.Insecure"
+    type="ETLD_PLUS_ONE">
+  <owner>jww@chromium.org</owner>
+  <summary>
+    The host of the URL that uses an Application Cache manifest from an insecure
+    origin.
+  </summary>
+</rappor-metric>
+
 <rappor-metric name="PowerfulFeatureUse.Host.DeviceMotion.Insecure"
     type="ETLD_PLUS_ONE">
   <owner>jww@chromium.org</owner>
@@ -928,6 +1102,121 @@ components/rappor/rappor_service.cc.
   <owner>miguelg@chromium.org</owner>
   <summary>
     Push Messages received per Origin.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="ResourceReporter.Cpu" type="UMA_RAPPOR_TYPE">
+  <owner>afakhry@chromium.org</owner>
+  <summary>
+    A Chrome task, its process priority, and its CPU usage range.
+  </summary>
+  <string-field name="task">
+    <summary>
+      The canonicalized name of a Chrome task. In most cases this is the origin
+      URL of the task's WebContents.
+    </summary>
+  </string-field>
+  <flags-field name="priority">
+    <flag>Bit 0: FOREGROUND</flag>
+    <flag>Bit 1: BACKGROUND</flag>
+    <summary>
+      Bitfield for the task's process priority (whether it's foregrounded or
+      backgrounded).
+    </summary>
+  </flags-field>
+  <flags-field name="num_cores_range">
+    <flag>Bit 0: RANGE_CORES_NA</flag>
+    <flag>Bit 1: RANGE_CORES_1_CORE</flag>
+    <flag>Bit 2: RANGE_CORES_2_CORES</flag>
+    <flag>Bit 3: RANGE_CORES_3_TO_4_CORES</flag>
+    <flag>Bit 4: RANGE_CORES_5_TO_8_CORES</flag>
+    <flag>Bit 5: RANGE_CORES_9_TO_16_CORES</flag>
+    <flag>Bit 6: RANGE_CORES_ABOVE_16_CORES</flag>
+    <summary>
+      Bitfield for the current system's number or cores range.
+    </summary>
+  </flags-field>
+  <flags-field name="usage_range">
+    <flag>Bit 0: RANGE_0_TO_10_PERCENT</flag>
+    <flag>Bit 1: RANGE_10_TO_30_PERCENT</flag>
+    <flag>Bit 2: RANGE_30_TO_60_PERCENT</flag>
+    <flag>Bit 3: RANGE_ABOVE_60_PERCENT</flag>
+    <summary>
+      Bitfield for the tasks CPU usage range.
+    </summary>
+  </flags-field>
+</rappor-metric>
+
+<rappor-metric name="ResourceReporter.Memory" type="UMA_RAPPOR_TYPE">
+  <owner>afakhry@chromium.org</owner>
+  <summary>
+    A Chrome task, and its memory usage range.
+  </summary>
+  <string-field name="task">
+    <summary>
+      The canonicalized name of a Chrome task. In most cases this is the origin
+      URL of the task's WebContents.
+    </summary>
+  </string-field>
+  <flags-field name="priority">
+    <flag>Bit 0: FOREGROUND</flag>
+    <flag>Bit 1: BACKGROUND</flag>
+    <summary>
+      Bitfield for the task's process priority (whether it's foregrounded or
+      backgrounded).
+    </summary>
+  </flags-field>
+  <flags-field name="usage_range">
+    <flag>Bit 0: RANGE_0_TO_200_MB</flag>
+    <flag>Bit 1: RANGE_200_TO_400_MB</flag>
+    <flag>Bit 2: RANGE_400_TO_600_MB</flag>
+    <flag>Bit 3: RANGE_600_TO_800_MB</flag>
+    <flag>Bit 4: RANGE_800_TO_1_GB</flag>
+    <flag>Bit 5: RANGE_ABOVE_1_GB</flag>
+    <summary>
+      Bitfield for the tasks memory usage range.
+    </summary>
+  </flags-field>
+</rappor-metric>
+
+<rappor-metric name="SafeBrowsing.UnverifiedDownloads.Allowed"
+    type="SAFEBROWSING_RAPPOR_TYPE">
+  <owner>nparker@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL for which a download was allowed without
+    being verified by Safe Browsing.  Recorded before the download is started.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="SafeBrowsing.UnverifiedDownloads.AllowedByWhitelist"
+    type="SAFEBROWSING_RAPPOR_TYPE">
+  <owner>nparker@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL for which a download was allowed without
+    being verified by Safe Browsing because it was on a whitelisted domain.
+    Recorded before the download is started.  The candidates should come from
+    the domain whitelist.
+  </summary>
+</rappor-metric>
+
+<rappor-metric
+    name="SafeBrowsing.UnverifiedDownloads.AllowedDueToDisabledService"
+    type="SAFEBROWSING_RAPPOR_TYPE">
+  <owner>nparker@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL for which a download was allowed without
+    being verified by Safe Browsing because the service was disabled at the
+    time.  Recorded before the download is started.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="SafeBrowsing.UnverifiedDownloads.Blocked"
+    type="SAFEBROWSING_RAPPOR_TYPE">
+  <owner>nparker@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL for which a download was blocked without
+    being verified by Safe Browsing because the extension matched the blacklist
+    provided by Finch.  Recorded before the download is started.
   </summary>
 </rappor-metric>
 

@@ -4,13 +4,15 @@
 
 #include "components/suggestions/suggestions_store.h"
 
+#include <stdint.h>
 #include <string>
+#include <utility>
 
 #include "base/base64.h"
-#include "base/prefs/pref_service.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/suggestions/suggestions_pref_names.h"
 
 namespace suggestions {
@@ -26,7 +28,7 @@ SuggestionsStore::SuggestionsStore() {
 SuggestionsStore::~SuggestionsStore() {}
 
 void SuggestionsStore::SetClockForTesting(scoped_ptr<base::Clock> test_clock) {
-  this->clock_ = test_clock.Pass();
+  this->clock_ = std::move(test_clock);
 }
 
 bool SuggestionsStore::LoadSuggestions(SuggestionsProfile* suggestions) {
@@ -69,7 +71,7 @@ bool SuggestionsStore::LoadSuggestions(SuggestionsProfile* suggestions) {
 void SuggestionsStore::FilterExpiredSuggestions(
     SuggestionsProfile* suggestions) {
   SuggestionsProfile filtered_suggestions;
-  int64 now_usec =
+  int64_t now_usec =
       (this->clock_->Now() - base::Time::UnixEpoch()).ToInternalValue();
 
   for (int i = 0; i < suggestions->suggestions_size(); ++i) {

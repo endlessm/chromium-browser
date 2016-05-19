@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/dom/SandboxFlags.h"
 
 #include "core/html/parser/HTMLParserIdioms.h"
@@ -86,4 +85,4 @@ SandboxFlags parseSandboxPolicy(const SpaceSplitString& policy, String& invalidT
     return flags;
 }
 
-}
+} // namespace blink

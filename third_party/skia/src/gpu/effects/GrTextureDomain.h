@@ -9,13 +9,14 @@
 #define GrTextureDomainEffect_DEFINED
 
 #include "GrSingleTextureEffect.h"
-#include "gl/GrGLFragmentProcessor.h"
+#include "glsl/GrGLSLFragmentProcessor.h"
 #include "glsl/GrGLSLProgramDataManager.h"
 
 class GrGLProgramBuilder;
 class GrGLSLShaderBuilder;
 class GrInvariantOutput;
 class GrGLSLTextureSampler;
+class GrGLSLUniformHandler;
 struct SkRect;
 
 /**
@@ -89,7 +90,7 @@ public:
     }
 
     /**
-     * A GrGLFragmentProcessor subclass that corresponds to a GrProcessor subclass that uses
+     * A GrGLSLFragmentProcessor subclass that corresponds to a GrProcessor subclass that uses
      * GrTextureDomain should include this helper. It generates the texture domain GLSL, produces
      * the part of the effect key that reflects the texture domain code, and performs the uniform
      * uploads necessary for texture domains.
@@ -104,8 +105,8 @@ public:
         }
 
         /**
-         * Call this from GrGLFragmentProcessor::emitCode() to sample the texture W.R.T. the domain
-         * and mode.
+         * Call this from GrGLSLFragmentProcessor::emitCode() to sample the texture W.R.T. the
+         * domain and mode.
          *
          * @param outcolor  name of vec4 variable to hold the sampled color.
          * @param inCoords  name of vec2 variable containing the coords to be used with the domain.
@@ -114,6 +115,8 @@ public:
          *                          expression before being written to outColor.
          */
         void sampleTexture(GrGLSLShaderBuilder* builder,
+                           GrGLSLUniformHandler* uniformHandler,
+                           const GrGLSLCaps* glslCaps,
                            const GrTextureDomain& textureDomain,
                            const char* outColor,
                            const SkString& inCoords,
@@ -121,7 +124,7 @@ public:
                            const char* inModulateColor = nullptr);
 
         /**
-         * Call this from GrGLFragmentProcessor::setData() to upload uniforms necessary for the
+         * Call this from GrGLSLFragmentProcessor::setData() to upload uniforms necessary for the
          * texture domain. The rectangle is automatically adjusted to account for the texture's
          * origin.
          */
@@ -133,7 +136,7 @@ public:
         };
 
         /**
-         * GrGLFragmentProcessor::GenKey() must call this and include the returned value in it's
+         * GrGLSLFragmentProcessor::GenKey() must call this and include the returned value in it's
          * computed key. The returned will be limited to the lower kDomainKeyBits bits.
          */
         static uint32_t DomainKey(const GrTextureDomain& domain) {
@@ -174,6 +177,15 @@ public:
 
     const char* name() const override { return "TextureDomain"; }
 
+    SkString dumpInfo() const override {
+        SkString str;
+        str.appendf("Domain: [L: %.2f, T: %.2f, R: %.2f, B: %.2f] ", 
+                    fTextureDomain.domain().fLeft, fTextureDomain.domain().fTop,
+                    fTextureDomain.domain().fRight, fTextureDomain.domain().fBottom);
+        str.append(INHERITED::dumpInfo());
+        return str;
+    }
+
     const GrTextureDomain& textureDomain() const { return fTextureDomain; }
 
 protected:
@@ -187,9 +199,9 @@ private:
                           GrTextureParams::FilterMode,
                           GrCoordSet);
 
-    GrGLFragmentProcessor* onCreateGLInstance() const override;
+    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
 
-    void onGetGLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override;
+    void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override;
 
     bool onIsEqual(const GrFragmentProcessor&) const override;
 

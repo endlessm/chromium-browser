@@ -107,17 +107,17 @@ source_set("browser") {
     "//components/metrics/proto",
   ]
   deps = [
+    ":in_memory_url_index_cache_proto",
     "//base",
     "//base:i18n",
-    "//base:prefs",
     "//components/bookmarks/browser",
-    "//components/crash/core/common",  # TODO(mpearson): remove once 464926 is fixed.
     "//components/data_use_measurement/core",
     "//components/keyed_service/core",
     "//components/metrics",
     "//components/omnibox/common",
     "//components/open_from_clipboard",
     "//components/pref_registry",
+    "//components/prefs",
     "//components/query_parser",
     "//components/resources",
     "//components/search",
@@ -135,11 +135,20 @@ source_set("browser") {
     "//ui/base",
     "//ui/gfx",
     "//url",
-    ":in_memory_url_index_cache_proto",
   ]
+
+  # TODO(brettw) Fix the include cycle and remove this line.
+  allow_circular_includes_from = [ "//components/search_engines" ]
 }
 
 if (is_android) {
+  # GYP: //component/omnibox.gypi:autocomplete_match_java
+  java_cpp_enum("autocomplete_match_javagen") {
+    sources = [
+      "autocomplete_match.h",
+    ]
+  }
+
   # GYP: //component/omnibox.gypi:autocomplete_match_type_java
   java_cpp_enum("autocomplete_match_type_javagen") {
     sources = [
@@ -157,8 +166,14 @@ proto_library("in_memory_url_index_cache_proto") {
 static_library("test_support") {
   testonly = true
   sources = [
+    "history_index_restore_observer.cc",
+    "history_index_restore_observer.h",
+    "in_memory_url_index_test_util.cc",
+    "in_memory_url_index_test_util.h",
     "mock_autocomplete_provider_client.cc",
     "mock_autocomplete_provider_client.h",
+    "shortcuts_provider_test_util.cc",
+    "shortcuts_provider_test_util.h",
     "test_scheme_classifier.cc",
     "test_scheme_classifier.h",
   ]
@@ -166,10 +181,12 @@ static_library("test_support") {
   deps = [
     ":browser",
     "//base",
+    "//components/history/core/browser",
     "//components/metrics/proto",
     "//components/search_engines",
     "//net",
     "//testing/gmock",
+    "//testing/gtest",
   ]
 }
 
@@ -179,28 +196,51 @@ source_set("unit_tests") {
     "answers_cache_unittest.cc",
     "autocomplete_input_unittest.cc",
     "autocomplete_match_unittest.cc",
+    "autocomplete_provider_unittest.cc",
     "autocomplete_result_unittest.cc",
     "base_search_provider_unittest.cc",
+    "bookmark_provider_unittest.cc",
+    "builtin_provider_unittest.cc",
     "clipboard_url_provider_unittest.cc",
+    "history_quick_provider_unittest.cc",
+    "history_url_provider_unittest.cc",
     "in_memory_url_index_types_unittest.cc",
+    "in_memory_url_index_unittest.cc",
     "keyword_provider_unittest.cc",
+    "omnibox_edit_unittest.cc",
     "omnibox_field_trial_unittest.cc",
     "omnibox_popup_model_unittest.cc",
     "omnibox_view_unittest.cc",
     "scored_history_match_unittest.cc",
+    "shortcuts_backend_unittest.cc",
+    "shortcuts_database_unittest.cc",
+    "shortcuts_provider_unittest.cc",
     "suggestion_answer_unittest.cc",
+    "zero_suggest_provider_unittest.cc",
   ]
 
   deps = [
-    "//base",
-    "//components/open_from_clipboard:test_support",
-    "//components/search",
-    "//components/search_engines",
-    "//components/variations",
-    "//testing/gmock",
-    "//testing/gtest",
-    "//url",
     ":browser",
     ":test_support",
+    "//base",
+    "//base/test:test_support",
+    "//components/bookmarks/browser",
+    "//components/bookmarks/test",
+    "//components/history/core/test",
+    "//components/open_from_clipboard:test_support",
+    "//components/prefs:test_support",
+    "//components/search",
+    "//components/search_engines",
+    "//components/sessions",
+    "//components/toolbar:test_support",
+    "//components/url_formatter",
+    "//components/variations",
+    "//net:test_support",
+    "//sql",
+    "//sql:test_support",
+    "//testing/gmock",
+    "//testing/gtest",
+    "//ui/base",
+    "//url",
   ]
 }

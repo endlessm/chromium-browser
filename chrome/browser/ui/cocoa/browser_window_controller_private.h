@@ -44,7 +44,6 @@ class WebContents;
 
 // Shows the informational "how to exit fullscreen" bubble.
 - (void)showFullscreenExitBubbleIfNecessary;
-- (void)destroyFullscreenExitBubbleIfNecessary;
 
 // Lays out the tab strip and avatar button.
 - (void)applyTabStripLayout:(const chrome::TabStripLayout&)layout;
@@ -168,6 +167,10 @@ class WebContents;
 // Whether the instance should use a custom transition when animating into and
 // out of AppKit Fullscreen.
 - (BOOL)shouldUseCustomAppKitFullscreenTransition:(BOOL)enterFullScreen;
+
+// Resets the variables that were set from using custom AppKit fullscreen
+// animation.
+- (void)resetCustomAppKitFullscreenVariables;
 
 - (content::WebContents*)webContents;
 - (PermissionBubbleManager*)permissionBubbleManager;

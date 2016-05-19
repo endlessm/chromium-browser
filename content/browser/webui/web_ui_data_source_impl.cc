@@ -4,15 +4,19 @@
 
 #include "content/browser/webui/web_ui_data_source_impl.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "content/grit/content_resources.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
-#include "mojo/public/js/constants.h"
+#include "ui/base/template_expressions.h"
 #include "ui/base/webui/jstemplate_builder.h"
 #include "ui/base/webui/web_ui_util.h"
 
@@ -21,31 +25,6 @@ namespace content {
 // static
 WebUIDataSource* WebUIDataSource::Create(const std::string& source_name) {
   return new WebUIDataSourceImpl(source_name);
-}
-
-// static
-WebUIDataSource* WebUIDataSource::AddMojoDataSource(
-    BrowserContext* browser_context) {
-  WebUIDataSource* mojo_source = Create("mojo");
-
-  static const struct {
-    const char* path;
-    int id;
-  } resources[] = {
-    { mojo::kBindingsModuleName, IDR_MOJO_BINDINGS_JS },
-    { mojo::kBufferModuleName, IDR_MOJO_BUFFER_JS },
-    { mojo::kCodecModuleName, IDR_MOJO_CODEC_JS },
-    { mojo::kConnectionModuleName, IDR_MOJO_CONNECTION_JS },
-    { mojo::kConnectorModuleName, IDR_MOJO_CONNECTOR_JS },
-    { mojo::kRouterModuleName, IDR_MOJO_ROUTER_JS },
-    { mojo::kUnicodeModuleName, IDR_MOJO_UNICODE_JS },
-    { mojo::kValidatorModuleName, IDR_MOJO_VALIDATOR_JS },
-  };
-  for (size_t i = 0; i < arraysize(resources); ++i)
-    mojo_source->AddResourcePath(resources[i].path, resources[i].id);
-
-  URLDataManager::AddWebUIDataSource(browser_context, mojo_source);
-  return mojo_source;
 }
 
 // static
@@ -58,8 +37,7 @@ void WebUIDataSource::Add(BrowserContext* browser_context,
 // URLDataSource.
 class WebUIDataSourceImpl::InternalDataSource : public URLDataSource {
  public:
-  InternalDataSource(WebUIDataSourceImpl* parent) : parent_(parent) {
-  }
+  explicit InternalDataSource(WebUIDataSourceImpl* parent) : parent_(parent) {}
 
   ~InternalDataSource() override {}
 
@@ -102,9 +80,7 @@ class WebUIDataSourceImpl::InternalDataSource : public URLDataSource {
 };
 
 WebUIDataSourceImpl::WebUIDataSourceImpl(const std::string& source_name)
-    : URLDataSourceImpl(
-          source_name,
-          new InternalDataSource(this)),
+    : URLDataSourceImpl(source_name, new InternalDataSource(this)),
       source_name_(source_name),
       default_resource_(-1),
       add_csp_(true),
@@ -112,26 +88,30 @@ WebUIDataSourceImpl::WebUIDataSourceImpl(const std::string& source_name)
       frame_src_set_(false),
       deny_xframe_options_(true),
       disable_set_font_strings_(false),
-      replace_existing_source_(true) {
-}
+      replace_existing_source_(true) {}
 
 WebUIDataSourceImpl::~WebUIDataSourceImpl() {
 }
 
 void WebUIDataSourceImpl::AddString(const std::string& name,
                                     const base::string16& value) {
+  // TODO(dschuyler): Share only one copy of these strings.
   localized_strings_.SetString(name, value);
+  replacements_[name] = base::UTF16ToUTF8(value);
 }
 
 void WebUIDataSourceImpl::AddString(const std::string& name,
                                     const std::string& value) {
   localized_strings_.SetString(name, value);
+  replacements_[name] = value;
 }
 
 void WebUIDataSourceImpl::AddLocalizedString(const std::string& name,
                                              int ids) {
   localized_strings_.SetString(
       name, GetContentClient()->GetLocalizedString(ids));
+  replacements_[name] =
+      base::UTF16ToUTF8(GetContentClient()->GetLocalizedString(ids));
 }
 
 void WebUIDataSourceImpl::AddLocalizedStrings(
@@ -141,6 +121,11 @@ void WebUIDataSourceImpl::AddLocalizedStrings(
 
 void WebUIDataSourceImpl::AddBoolean(const std::string& name, bool value) {
   localized_strings_.SetBoolean(name, value);
+  // TODO(dschuyler): Change name of |localized_strings_| to |load_time_data_|
+  // or similar. These values haven't been found as strings for
+  // localization. The boolean values are not added to |replacements_|
+  // for the same reason, that they are used as flags, rather than string
+  // replacements.
 }
 
 void WebUIDataSourceImpl::SetJsonPath(const std::string& path) {
@@ -190,19 +175,22 @@ std::string WebUIDataSourceImpl::GetSource() const {
 }
 
 std::string WebUIDataSourceImpl::GetMimeType(const std::string& path) const {
-  if (base::EndsWith(path, ".css", base::CompareCase::INSENSITIVE_ASCII))
+  // Remove the query string for to determine the mime type.
+  std::string file_path = path.substr(0, path.find_first_of('?'));
+
+  if (base::EndsWith(file_path, ".css", base::CompareCase::INSENSITIVE_ASCII))
     return "text/css";
 
-  if (base::EndsWith(path, ".js", base::CompareCase::INSENSITIVE_ASCII))
+  if (base::EndsWith(file_path, ".js", base::CompareCase::INSENSITIVE_ASCII))
     return "application/javascript";
 
-  if (base::EndsWith(path, ".json", base::CompareCase::INSENSITIVE_ASCII))
+  if (base::EndsWith(file_path, ".json", base::CompareCase::INSENSITIVE_ASCII))
     return "application/json";
 
-  if (base::EndsWith(path, ".pdf", base::CompareCase::INSENSITIVE_ASCII))
+  if (base::EndsWith(file_path, ".pdf", base::CompareCase::INSENSITIVE_ASCII))
     return "application/pdf";
 
-  if (base::EndsWith(path, ".svg", base::CompareCase::INSENSITIVE_ASCII))
+  if (base::EndsWith(file_path, ".svg", base::CompareCase::INSENSITIVE_ASCII))
     return "image/svg+xml";
 
   return "text/html";
@@ -225,11 +213,25 @@ void WebUIDataSourceImpl::StartDataRequest(
 
   int resource_id = default_resource_;
   std::map<std::string, int>::iterator result;
-  result = path_to_idr_map_.find(path);
+  // Remove the query string for named resource lookups.
+  std::string file_path = path.substr(0, path.find_first_of('?'));
+  result = path_to_idr_map_.find(file_path);
   if (result != path_to_idr_map_.end())
     resource_id = result->second;
   DCHECK_NE(resource_id, -1);
-  SendFromResourceBundle(callback, resource_id);
+  scoped_refptr<base::RefCountedMemory> response(
+      GetContentClient()->GetDataResourceBytes(resource_id));
+
+  // TODO(dschuyler): improve filtering of which resource to run template
+  // expansion upon.
+  if (GetMimeType(path) == "text/html") {
+    std::string replaced = ui::ReplaceTemplateExpressions(
+        base::StringPiece(response->front_as<char>(), response->size()),
+        replacements_);
+    response = base::RefCountedString::TakeString(&replaced);
+  }
+
+  callback.Run(response.get());
 }
 
 void WebUIDataSourceImpl::SendLocalizedStringsAsJSON(
@@ -242,13 +244,6 @@ void WebUIDataSourceImpl::SendLocalizedStringsAsJSON(
 
   webui::AppendJsonJS(&localized_strings_, &template_data);
   callback.Run(base::RefCountedString::TakeString(&template_data));
-}
-
-void WebUIDataSourceImpl::SendFromResourceBundle(
-    const URLDataSource::GotDataCallback& callback, int idr) {
-  scoped_refptr<base::RefCountedStaticMemory> response(
-      GetContentClient()->GetDataResourceBytes(idr));
-  callback.Run(response.get());
 }
 
 }  // namespace content

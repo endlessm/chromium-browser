@@ -4,19 +4,20 @@
 
 #include "chrome/browser/policy/policy_path_parser.h"
 
-#include "base/basictypes.h"
-#include "base/files/file_path.h"
-#include "base/logging.h"
-#import "base/mac/scoped_nsautorelease_pool.h"
-#include "base/strings/sys_string_conversions.h"
-#include "policy/policy_constants.h"
-
 #import <Cocoa/Cocoa.h>
+#include <stddef.h>
 #import <SystemConfiguration/SCDynamicStore.h>
 #import <SystemConfiguration/SCDynamicStoreCopySpecific.h>
 #import <SystemConfiguration/SystemConfiguration.h>
 
 #include <string>
+
+#include "base/files/file_path.h"
+#include "base/logging.h"
+#import "base/mac/scoped_nsautorelease_pool.h"
+#include "base/macros.h"
+#include "base/strings/sys_string_conversions.h"
+#include "policy/policy_constants.h"
 
 namespace policy {
 
@@ -47,8 +48,8 @@ base::FilePath::StringType ExpandPathVariables(
     return result;
   // Sanitize quotes in case of any around the whole string.
   if (result.length() > 1 &&
-      ((result[0] == '"' && result[result.length() - 1] == '"') ||
-      (result[0] == '\'' && result[result.length() - 1] == '\''))) {
+      ((result.front() == '"' && result.back() == '"') ||
+       (result.front() == '\'' && result.back() == '\''))) {
     // Strip first and last char which should be matching quotes now.
     result = result.substr(1, result.length() - 2);
   }

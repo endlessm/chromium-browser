@@ -5,7 +5,6 @@
 #ifndef UI_EVENTS_GESTURE_DETECTION_GESTURE_PROVIDER_H_
 #define UI_EVENTS_GESTURE_DETECTION_GESTURE_PROVIDER_H_
 
-#include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/events/gesture_detection/gesture_detection_export.h"
 #include "ui/events/gesture_detection/gesture_detector.h"
@@ -29,6 +28,7 @@ class GESTURE_DETECTION_EXPORT GestureProvider {
  public:
   struct GESTURE_DETECTION_EXPORT Config {
     Config();
+    Config(const Config& other);
     ~Config();
     gfx::Display display;
     GestureDetector::Config gesture_detector_config;

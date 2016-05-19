@@ -4,12 +4,15 @@
 
 #include "tools/gn/substitution_list.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "tools/gn/value.h"
 
 SubstitutionList::SubstitutionList() {
 }
+
+SubstitutionList::SubstitutionList(const SubstitutionList& other) = default;
 
 SubstitutionList::~SubstitutionList() {
 }

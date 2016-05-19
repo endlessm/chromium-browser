@@ -13,9 +13,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_client_config_parser.h"
+#include "base/strings/string_util.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
-#include "components/data_reduction_proxy/proto/client_config.pb.h"
 #include "components/variations/variations_associated_data.h"
 #include "net/base/host_port_pair.h"
 #include "net/proxy/proxy_server.h"
@@ -27,6 +26,7 @@ namespace {
 
 const char kEnabled[] = "Enabled";
 const char kControl[] = "Control";
+const char kPreview[] = "Enabled_Preview";
 const char kDefaultSpdyOrigin[] = "https://proxy.googlezip.net:443";
 const char kDefaultQuicOrigin[] = "quic://proxy.googlezip.net:443";
 // A one-off change, until the Data Reduction Proxy configuration service is
@@ -50,9 +50,15 @@ const char kLoFiFlagFieldTrial[] = "DataCompressionProxyLoFiFlag";
 const char kConfigServiceFieldTrial[] = "DataReductionProxyConfigService";
 const char kConfigServiceURLParam[] = "url";
 
+const char kTrustedSpdyProxyFieldTrialName[] = "DataReductionTrustedSpdyProxy";
+
 // Default URL for retrieving the Data Reduction Proxy configuration.
 const char kClientConfigURL[] =
     "https://datasaver.googleapis.com/v1/clientConfigs";
+
+// The name of the server side experiment field trial.
+const char kServerExperimentsFieldTrial[] =
+    "DataReductionProxyServerExperiments";
 
 }  // namespace
 
@@ -74,6 +80,15 @@ bool IsIncludedInAndroidOnePromoFieldTrial(const char* build_fingerprint) {
   return (fingerprint.find(kAndroidOneIdentifier) != std::string::npos);
 }
 
+std::string GetTrustedSpdyProxyFieldTrialName() {
+  return kTrustedSpdyProxyFieldTrialName;
+}
+
+bool IsIncludedInTrustedSpdyProxyFieldTrial() {
+  return base::FieldTrialList::FindFullName(GetTrustedSpdyProxyFieldTrialName())
+             .find(kEnabled) == 0;
+}
+
 std::string GetLoFiFieldTrialName() {
   return kLoFiFieldTrial;
 }
@@ -88,7 +103,18 @@ bool IsIncludedInLoFiEnabledFieldTrial() {
 }
 
 bool IsIncludedInLoFiControlFieldTrial() {
-  return FieldTrialList::FindFullName(GetLoFiFieldTrialName()) == kControl;
+  return FieldTrialList::FindFullName(GetLoFiFieldTrialName()).find(kControl) ==
+         0;
+}
+
+bool IsIncludedInLoFiPreviewFieldTrial() {
+  return FieldTrialList::FindFullName(GetLoFiFieldTrialName()).find(kPreview) ==
+         0;
+}
+
+bool IsIncludedInTamperDetectionExperiment() {
+  return FieldTrialList::FindFullName("DataReductionProxyServerExperiments")
+             .find("TamperDetection_Enabled") == 0;
 }
 
 bool IsLoFiOnViaFlags() {
@@ -126,6 +152,11 @@ bool IsLoFiDisabledViaFlags() {
           data_reduction_proxy::switches::kDataReductionProxyLoFi);
   return lo_fi_value ==
          data_reduction_proxy::switches::kDataReductionProxyLoFiValueDisabled;
+}
+
+bool AreLoFiPreviewsEnabledViaFlags() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      data_reduction_proxy::switches::kEnableDataReductionProxyLoFiPreview);
 }
 
 bool WarnIfNoDataReductionProxy() {
@@ -251,6 +282,10 @@ bool GetOverrideProxiesForHttpFromCommandLine(
   return true;
 }
 
+std::string GetServerExperimentsFieldTrialName() {
+  return kServerExperimentsFieldTrial;
+}
+
 }  // namespace params
 
 void DataReductionProxyParams::EnableQuic(bool enable) {
@@ -271,6 +306,9 @@ void DataReductionProxyParams::EnableQuic(bool enable) {
 DataReductionProxyTypeInfo::DataReductionProxyTypeInfo()
     : is_fallback(false), is_ssl(false) {
 }
+
+DataReductionProxyTypeInfo::DataReductionProxyTypeInfo(
+    const DataReductionProxyTypeInfo& other) = default;
 
 DataReductionProxyTypeInfo::~DataReductionProxyTypeInfo(){
 }
@@ -414,26 +452,6 @@ DataReductionProxyParams::proxies_for_http() const {
 const std::vector<net::ProxyServer>&
 DataReductionProxyParams::proxies_for_https() const {
   return proxies_for_https_;
-}
-
-void DataReductionProxyParams::PopulateConfigResponse(
-    ClientConfig* config) const {
-  if (!holdback_) {
-    ProxyConfig* proxy_config = config->mutable_proxy_config();
-
-    // Add |origin_|.
-    ProxyServer* server = proxy_config->add_http_proxy_servers();
-    server->set_scheme(config_parser::ProxySchemeFromScheme(origin_.scheme()));
-    server->set_host(origin_.host_port_pair().host());
-    server->set_port(origin_.host_port_pair().port());
-
-    // Add |fallback_origin_|.
-    server = proxy_config->add_http_proxy_servers();
-    server->set_scheme(
-        config_parser::ProxySchemeFromScheme(fallback_origin_.scheme()));
-    server->set_host(fallback_origin_.host_port_pair().host());
-    server->set_port(fallback_origin_.host_port_pair().port());
-  }
 }
 
 // Returns the URL to check to decide if the secure proxy origin should be

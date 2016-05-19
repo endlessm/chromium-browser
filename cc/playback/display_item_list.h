@@ -5,12 +5,16 @@
 #ifndef CC_PLAYBACK_DISPLAY_ITEM_LIST_H_
 #define CC_PLAYBACK_DISPLAY_ITEM_LIST_H_
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/base/cc_export.h"
-#include "cc/base/list_container.h"
+#include "cc/base/contiguous_container.h"
 #include "cc/playback/discardable_image_map.h"
 #include "cc/playback/display_item.h"
 #include "cc/playback/display_item_list_settings.h"
@@ -22,6 +26,9 @@ class SkCanvas;
 class SkPictureRecorder;
 
 namespace cc {
+class DisplayItem;
+class DrawingDisplayItem;
+class ImageSerializationProcessor;
 
 namespace proto {
 class DisplayItemList;
@@ -43,12 +50,14 @@ class CC_EXPORT DisplayItemList
   // TODO(dtrainor): Pass in a list of possible DisplayItems to reuse
   // (crbug.com/548434).
   static scoped_refptr<DisplayItemList> CreateFromProto(
-      const proto::DisplayItemList& proto);
+      const proto::DisplayItemList& proto,
+      ImageSerializationProcessor* image_serialization_processor);
 
   // Creates a Protobuf representing the state of this DisplayItemList.
   // TODO(dtrainor): Don't resend DisplayItems that were already serialized
   // (crbug.com/548434).
-  void ToProtobuf(proto::DisplayItemList* proto);
+  void ToProtobuf(proto::DisplayItemList* proto,
+                  ImageSerializationProcessor* image_serialization_processor);
 
   void Raster(SkCanvas* canvas,
               SkPicture::AbortCallback* callback,
@@ -60,19 +69,23 @@ class CC_EXPORT DisplayItemList
   // is_suitable_for_gpu_rasterization_ and approximate_op_count_.
   void RasterIntoCanvas(const DisplayItem& display_item);
 
-  template <typename DisplayItemType>
-  DisplayItemType* CreateAndAppendItem() {
-#if DCHECK_IS_ON()
-    needs_process_ = true;
-#endif
-    ProcessAppendedItemsOnTheFly();
-    return items_.AllocateAndConstruct<DisplayItemType>();
+  // Because processing happens in this function, all the set up for
+  // this item should be done via the args, which is why the return
+  // type needs to be const, to prevent set-after-processing mistakes.
+  template <typename DisplayItemType, typename... Args>
+  const DisplayItemType& CreateAndAppendItem(const gfx::Rect& visual_rect,
+                                             Args&&... args) {
+    visual_rects_.push_back(visual_rect);
+    auto* item = &items_.AllocateAndConstruct<DisplayItemType>(
+        std::forward<Args>(args)...);
+    approximate_op_count_ += item->ApproximateOpCount();
+    // TODO(crbug.com/513016): None of the items might individually trigger a
+    // veto even though they collectively have enough "bad" operations that a
+    // corresponding flattened Picture would get vetoed.
+    is_suitable_for_gpu_rasterization_ &= item->IsSuitableForGpuRasterization();
+    ProcessAppendedItem(item);
+    return *item;
   }
-
-  // Removes the last item. This cannot be called on lists with cached pictures
-  // (since the data may already have been incorporated into cached picture
-  // sizes, etc).
-  void RemoveLast();
 
   // Called after all items are appended, to process the items and, if
   // applicable, create an internally cached SkPicture.
@@ -94,6 +107,11 @@ class CC_EXPORT DisplayItemList
   void GetDiscardableImagesInRect(const gfx::Rect& rect,
                                   float raster_scale,
                                   std::vector<DrawImage>* images);
+  bool MayHaveDiscardableImages() const;
+
+  bool HasDiscardableImageInRect(const gfx::Rect& layer_rect) const;
+
+  gfx::Rect VisualRectForTesting(int index) { return visual_rects_[index]; }
 
  private:
   DisplayItemList(gfx::Rect layer_rect,
@@ -101,18 +119,15 @@ class CC_EXPORT DisplayItemList
                   bool retain_individual_display_items);
   ~DisplayItemList();
 
-  // While appending new items, if they are not being retained, this can process
-  // periodically to avoid retaining all the items and processing at the end.
-  void ProcessAppendedItemsOnTheFly();
-  void ProcessAppendedItems();
-#if DCHECK_IS_ON()
-  bool ProcessAppendedItemsCalled() const { return !needs_process_; }
-  bool needs_process_;
-#else
-  bool ProcessAppendedItemsCalled() const { return true; }
-#endif
+  void ProcessAppendedItem(const DisplayItem* item);
 
-  ListContainer<DisplayItem> items_;
+  ContiguousContainer<DisplayItem> items_;
+  // The visual rects associated with each of the display items in the
+  // display item list. There is one rect per display item, and the
+  // position in |visual_rects_| matches the position of the item in
+  // |items_| . These rects are intentionally kept separate
+  // because they are not needed while walking the |items_| for raster.
+  std::vector<gfx::Rect> visual_rects_;
   skia::RefPtr<SkPicture> picture_;
 
   scoped_ptr<SkPictureRecorder> recorder_;
@@ -126,9 +141,6 @@ class CC_EXPORT DisplayItemList
 
   // Memory usage due to the cached SkPicture.
   size_t picture_memory_usage_;
-
-  // Memory usage due to external data held by display items.
-  size_t external_memory_usage_;
 
   DiscardableImageMap image_map_;
 

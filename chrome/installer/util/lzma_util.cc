@@ -4,9 +4,13 @@
 
 #include "chrome/installer/util/lzma_util.h"
 
+#include <stddef.h>
+
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/installer/util/lzma_file_allocator.h"
 
 extern "C" {
 #include "third_party/lzma_sdk/7z.h"
@@ -76,9 +80,9 @@ SRes SzFileReadImp(void *object, void *buffer, size_t *size) {
 }  // namespace
 
 // static
-int32 LzmaUtil::UnPackArchive(const std::wstring& archive,
-                             const std::wstring& output_dir,
-                             std::wstring* output_file) {
+int32_t LzmaUtil::UnPackArchive(const std::wstring& archive,
+                                const std::wstring& output_dir,
+                                std::wstring* output_file) {
   VLOG(1) << "Opening archive " << archive;
   LzmaUtil lzma_util;
   DWORD ret;
@@ -152,19 +156,21 @@ DWORD LzmaUtil::UnPack(const std::wstring& location,
     return ERROR_INVALID_HANDLE;
   }
 
-  Byte *outBuffer = 0; // it must be 0 before first call for each new archive
-  UInt32 blockIndex = 0xFFFFFFFF; // can have any value if outBuffer = 0
-  size_t outBufferSize = 0;  // can have any value if outBuffer = 0
+  Byte* outBuffer = 0;  // it must be 0 before first call for each new archive
+  UInt32 blockIndex = 0xFFFFFFFF;  // can have any value if outBuffer = 0
+  size_t outBufferSize = 0;        // can have any value if outBuffer = 0
 
-  for (unsigned int i = 0; i < db.db.NumFiles; i++) {
+  // Extra parentheses are needed here to avoid the most vexing parse.
+  LzmaFileAllocator fileAllocator((base::FilePath(location)));
+
+  for (unsigned int i = 0; i < db.NumFiles; i++) {
     DWORD written;
     size_t offset;
     size_t outSizeProcessed;
-    CSzFileItem *f = db.db.Files + i;
 
-    if ((ret = SzArEx_Extract(&db, &lookStream.s, i, &blockIndex,
-                         &outBuffer, &outBufferSize, &offset, &outSizeProcessed,
-                         &allocImp, &allocTempImp)) != SZ_OK) {
+    if ((ret = SzArEx_Extract(&db, &lookStream.s, i, &blockIndex, &outBuffer,
+                              &outBufferSize, &offset, &outSizeProcessed,
+                              &fileAllocator, &allocTempImp)) != SZ_OK) {
       LOG(ERROR) << L"Error returned by SzExtract: " << ret;
       ret = ERROR_INVALID_HANDLE;
       break;
@@ -176,6 +182,7 @@ DWORD LzmaUtil::UnPack(const std::wstring& location,
       ret = ERROR_INVALID_HANDLE;
       break;
     }
+
     std::vector<UInt16> file_name(file_name_length);
     SzArEx_GetFileNameUtf16(&db, i, &file_name[0]);
     // |file_name| is NULL-terminated.
@@ -186,7 +193,7 @@ DWORD LzmaUtil::UnPack(const std::wstring& location,
       *output_file = file_path.value();
 
     // If archive entry is directory create it and move on to the next entry.
-    if (f->IsDir) {
+    if (SzArEx_IsDir(&db, i)) {
       CreateDirectory(file_path);
       continue;
     }
@@ -211,9 +218,9 @@ DWORD LzmaUtil::UnPack(const std::wstring& location,
       break;
     }
 
-    if (f->MTimeDefined) {
+    if (SzBitWithVals_Check(&db.MTime, i)) {
       if (!SetFileTime(hFile, NULL, NULL,
-                       (const FILETIME *)&(f->MTime))) {
+                       (const FILETIME *) (&db.MTime.Vals[i]))) {
         ret = GetLastError();
         CloseHandle(hFile);
         LOG(ERROR) << L"Error returned by SetFileTime: " << ret;
@@ -226,8 +233,7 @@ DWORD LzmaUtil::UnPack(const std::wstring& location,
       break;
     }
   }  // for loop
-
-  IAlloc_Free(&allocImp, outBuffer);
+  IAlloc_Free(&fileAllocator, outBuffer);
   SzArEx_Free(&db, &allocImp);
   return ret;
 }

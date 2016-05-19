@@ -19,12 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGAngle.h"
 
-#include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
-#include "core/dom/ExceptionCode.h"
 #include "core/svg/SVGAnimationElement.h"
 #include "core/svg/SVGParserUtilities.h"
 #include "wtf/MathExtras.h"
@@ -167,23 +163,24 @@ static SVGAngle::SVGAngleType stringToAngleType(const CharType*& ptr, const Char
         return SVGAngle::SVG_ANGLETYPE_UNSPECIFIED;
 
     SVGAngle::SVGAngleType type = SVGAngle::SVG_ANGLETYPE_UNKNOWN;
-    const CharType firstChar = *ptr++;
-
-    if (isHTMLSpace<CharType>(firstChar)) {
+    if (isHTMLSpace<CharType>(ptr[0])) {
         type = SVGAngle::SVG_ANGLETYPE_UNSPECIFIED;
-    } else if (end - ptr >= 2) {
-        const CharType secondChar = *ptr++;
-        const CharType thirdChar = *ptr++;
-        if (firstChar == 'd' && secondChar == 'e' && thirdChar == 'g') {
+        ptr++;
+    } else if (end - ptr >= 3) {
+        if (ptr[0] == 'd' && ptr[1] == 'e' && ptr[2] == 'g') {
             type = SVGAngle::SVG_ANGLETYPE_DEG;
-        } else if (firstChar == 'r' && secondChar == 'a' && thirdChar == 'd') {
+            ptr += 3;
+        } else if (ptr[0] == 'r' && ptr[1] == 'a' && ptr[2] == 'd') {
             type = SVGAngle::SVG_ANGLETYPE_RAD;
-        } else if (ptr != end) {
-            const CharType fourthChar = *ptr++;
-            if (firstChar == 'g' && secondChar == 'r' && thirdChar == 'a' && fourthChar == 'd')
+            ptr += 3;
+        } else if (end - ptr >= 4) {
+            if (ptr[0] == 'g' && ptr[1] == 'r' && ptr[2] == 'a' && ptr[3] == 'd') {
                 type = SVGAngle::SVG_ANGLETYPE_GRAD;
-            else if (firstChar == 't' && secondChar == 'u' && thirdChar == 'r' && fourthChar == 'n')
+                ptr += 4;
+            } else if (ptr[0] == 't' && ptr[1] == 'u' && ptr[2] == 'r' && ptr[3] == 'n') {
                 type = SVGAngle::SVG_ANGLETYPE_TURN;
+                ptr += 4;
+            }
         }
     }
 
@@ -222,52 +219,54 @@ String SVGAngle::valueAsString() const
 }
 
 template<typename CharType>
-static bool parseValue(const String& value, float& valueInSpecifiedUnits, SVGAngle::SVGAngleType& unitType)
+static SVGParsingError parseValue(const String& value, float& valueInSpecifiedUnits, SVGAngle::SVGAngleType& unitType)
 {
     const CharType* ptr = value.getCharacters<CharType>();
     const CharType* end = ptr + value.length();
 
     if (!parseNumber(ptr, end, valueInSpecifiedUnits, AllowLeadingWhitespace))
-        return false;
+        return SVGParsingError(SVGParseStatus::ExpectedAngle, ptr - value.getCharacters<CharType>());
 
     unitType = stringToAngleType(ptr, end);
     if (unitType == SVGAngle::SVG_ANGLETYPE_UNKNOWN)
-        return false;
+        return SVGParsingError(SVGParseStatus::ExpectedAngle, ptr - value.getCharacters<CharType>());
 
-    return true;
+    return SVGParseStatus::NoError;
 }
 
-void SVGAngle::setValueAsString(const String& value, ExceptionState& exceptionState)
+SVGParsingError SVGAngle::setValueAsString(const String& value)
 {
     if (value.isEmpty()) {
         newValueSpecifiedUnits(SVG_ANGLETYPE_UNSPECIFIED, 0);
-        return;
+        return SVGParseStatus::NoError;
     }
 
     if (value == "auto") {
         newValueSpecifiedUnits(SVG_ANGLETYPE_UNSPECIFIED, 0);
         m_orientType->setEnumValue(SVGMarkerOrientAuto);
-        return;
+        return SVGParseStatus::NoError;
     }
     if (value == "auto-start-reverse") {
         newValueSpecifiedUnits(SVG_ANGLETYPE_UNSPECIFIED, 0);
         m_orientType->setEnumValue(SVGMarkerOrientAutoStartReverse);
-        return;
+        return SVGParseStatus::NoError;
     }
 
     float valueInSpecifiedUnits = 0;
     SVGAngleType unitType = SVG_ANGLETYPE_UNKNOWN;
 
-    bool success = value.is8Bit() ? parseValue<LChar>(value, valueInSpecifiedUnits, unitType)
-                                  : parseValue<UChar>(value, valueInSpecifiedUnits, unitType);
-    if (!success) {
-        exceptionState.throwDOMException(SyntaxError, "The value provided ('" + value + "') is invalid.");
-        return;
-    }
+    SVGParsingError error;
+    if (value.is8Bit())
+        error = parseValue<LChar>(value, valueInSpecifiedUnits, unitType);
+    else
+        error = parseValue<UChar>(value, valueInSpecifiedUnits, unitType);
+    if (error != SVGParseStatus::NoError)
+        return error;
 
     m_orientType->setEnumValue(SVGMarkerOrientAngle);
     m_unitType = unitType;
     m_valueInSpecifiedUnits = valueInSpecifiedUnits;
+    return SVGParseStatus::NoError;
 }
 
 void SVGAngle::newValueSpecifiedUnits(SVGAngleType unitType, float valueInSpecifiedUnits)
@@ -443,4 +442,4 @@ void SVGAngle::orientTypeChanged()
     }
 }
 
-}
+} // namespace blink

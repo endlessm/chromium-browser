@@ -4,10 +4,13 @@
 
 #include "content/common/cc_messages.h"
 
+#include <stddef.h>
 #include <string.h>
-
 #include <algorithm>
+#include <utility>
 
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "cc/output/compositor_frame.h"
 #include "content/public/common/common_param_traits.h"
 #include "ipc/ipc_message.h"
@@ -52,7 +55,6 @@ class CCMessagesTest : public testing::Test {
     EXPECT_EQ(a->damage_rect.ToString(), b->damage_rect.ToString());
     EXPECT_EQ(a->transform_to_root_target, b->transform_to_root_target);
     EXPECT_EQ(a->has_transparent_background, b->has_transparent_background);
-    EXPECT_EQ(a->referenced_surfaces, b->referenced_surfaces);
   }
 
   void Compare(const SharedQuadState* a, const SharedQuadState* b) {
@@ -399,8 +401,6 @@ TEST_F(CCMessagesTest, AllQuads) {
                      arbitrary_surface_id);
   pass_cmp->CopyFromAndAppendDrawQuad(surface_in,
                                       surface_in->shared_quad_state);
-  pass_in->referenced_surfaces.push_back(arbitrary_surface_id);
-  pass_cmp->referenced_surfaces.push_back(arbitrary_surface_id);
 
   TextureDrawQuad* texture_in =
       pass_in->CreateAndAppendDrawQuad<TextureDrawQuad>();
@@ -433,7 +433,7 @@ TEST_F(CCMessagesTest, AllQuads) {
       arbitrary_rect1_inside_rect1, arbitrary_bool1, arbitrary_rectf1,
       arbitrary_rectf2, arbitrary_size1, arbitrary_size2, arbitrary_resourceid1,
       arbitrary_resourceid2, arbitrary_resourceid3, arbitrary_resourceid4,
-      arbitrary_color_space);
+      arbitrary_color_space, arbitrary_float1, arbitrary_float2);
   pass_cmp->CopyFromAndAppendDrawQuad(yuvvideo_in,
                                       yuvvideo_in->shared_quad_state);
 
@@ -468,8 +468,8 @@ TEST_F(CCMessagesTest, AllQuads) {
   }
 
   DelegatedFrameData frame_in;
-  frame_in.render_pass_list.push_back(child_pass_in.Pass());
-  frame_in.render_pass_list.push_back(pass_in.Pass());
+  frame_in.render_pass_list.push_back(std::move(child_pass_in));
+  frame_in.render_pass_list.push_back(std::move(pass_in));
 
   IPC::ParamTraits<DelegatedFrameData>::Write(&msg, frame_in);
 
@@ -480,12 +480,11 @@ TEST_F(CCMessagesTest, AllQuads) {
 
   // Make sure the out and cmp RenderPasses match.
   scoped_ptr<RenderPass> child_pass_out =
-      frame_out.render_pass_list.take(frame_out.render_pass_list.begin());
+      std::move(frame_out.render_pass_list[0]);
   Compare(child_pass_cmp.get(), child_pass_out.get());
   ASSERT_EQ(0u, child_pass_out->shared_quad_state_list.size());
   ASSERT_EQ(0u, child_pass_out->quad_list.size());
-  scoped_ptr<RenderPass> pass_out =
-      frame_out.render_pass_list.take(frame_out.render_pass_list.begin() + 1);
+  scoped_ptr<RenderPass> pass_out = std::move(frame_out.render_pass_list[1]);
   Compare(pass_cmp.get(), pass_out.get());
   ASSERT_EQ(3u, pass_out->shared_quad_state_list.size());
   ASSERT_EQ(9u, pass_out->quad_list.size());
@@ -590,7 +589,7 @@ TEST_F(CCMessagesTest, UnusedSharedQuadStates) {
   ASSERT_EQ(2u, pass_in->quad_list.size());
 
   DelegatedFrameData frame_in;
-  frame_in.render_pass_list.push_back(pass_in.Pass());
+  frame_in.render_pass_list.push_back(std::move(pass_in));
 
   IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
   IPC::ParamTraits<DelegatedFrameData>::Write(&msg, frame_in);
@@ -600,8 +599,7 @@ TEST_F(CCMessagesTest, UnusedSharedQuadStates) {
   EXPECT_TRUE(
       IPC::ParamTraits<DelegatedFrameData>::Read(&msg, &iter, &frame_out));
 
-  scoped_ptr<RenderPass> pass_out =
-      frame_out.render_pass_list.take(frame_out.render_pass_list.begin());
+  scoped_ptr<RenderPass> pass_out = std::move(frame_out.render_pass_list[0]);
 
   // 2 SharedQuadStates come out. The first and fourth SharedQuadStates were
   // used by quads, and so serialized. Others were not.
@@ -619,8 +617,14 @@ TEST_F(CCMessagesTest, UnusedSharedQuadStates) {
 TEST_F(CCMessagesTest, Resources) {
   IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
   gfx::Size arbitrary_size(757, 1281);
-  gpu::SyncToken arbitrary_token1(71234838);
-  gpu::SyncToken arbitrary_token2(53589793);
+  gpu::SyncToken arbitrary_token1(gpu::CommandBufferNamespace::GPU_IO, 0,
+                                  gpu::CommandBufferId::FromUnsafeValue(0x123),
+                                  71234838);
+  arbitrary_token1.SetVerifyFlush();
+  gpu::SyncToken arbitrary_token2(gpu::CommandBufferNamespace::GPU_IO, 0,
+                                  gpu::CommandBufferId::FromUnsafeValue(0x123),
+                                  53589793);
+  arbitrary_token2.SetVerifyFlush();
 
   GLbyte arbitrary_mailbox1[GL_MAILBOX_SIZE_CHROMIUM] = {
       1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2,
@@ -659,7 +663,7 @@ TEST_F(CCMessagesTest, Resources) {
   DelegatedFrameData frame_in;
   frame_in.resource_list.push_back(arbitrary_resource1);
   frame_in.resource_list.push_back(arbitrary_resource2);
-  frame_in.render_pass_list.push_back(renderpass_in.Pass());
+  frame_in.render_pass_list.push_back(std::move(renderpass_in));
 
   IPC::ParamTraits<DelegatedFrameData>::Write(&msg, frame_in);
 

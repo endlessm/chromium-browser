@@ -10,10 +10,12 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/i18n/icu_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_split.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "cc/output/context_provider.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "third_party/khronos/GLES2/gl2.h"
@@ -223,11 +225,14 @@ class WebGLBench : public BenchCompositorObserver {
         GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
     gl->ClearColor(0.f, 1.f, 0.f, 1.f);
     gl->Clear(GL_COLOR_BUFFER_BIT);
+
+    const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
     gl->Flush();
 
-    GLuint sync_point = gl->InsertSyncPointCHROMIUM();
+    gpu::SyncToken sync_token;
+    gl->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
     webgl_.SetTextureMailbox(
-        cc::TextureMailbox(mailbox, gpu::SyncToken(sync_point), GL_TEXTURE_2D),
+        cc::TextureMailbox(mailbox, sync_token, GL_TEXTURE_2D),
         cc::SingleReleaseCallback::Create(
             base::Bind(ReturnMailbox, context_provider_, texture)),
         bounds.size());
@@ -323,7 +328,7 @@ int main(int argc, char** argv) {
   aura::Env::GetInstance()->set_context_factory(context_factory.get());
   scoped_ptr<aura::TestScreen> test_screen(
       aura::TestScreen::Create(GetFullscreenSize()));
-  gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, test_screen.get());
+  gfx::Screen::SetScreenInstance(test_screen.get());
   scoped_ptr<aura::WindowTreeHost> host(
       test_screen->CreateHostForPrimaryDisplay());
   aura::client::SetCaptureClient(

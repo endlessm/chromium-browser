@@ -18,6 +18,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
+#include "build/build_config.h"
 #include "components/nacl/common/nacl_messages.h"
 #include "components/nacl/common/nacl_renderer_messages.h"
 #include "components/nacl/common/nacl_switches.h"
@@ -111,17 +112,6 @@ int CreateMemoryObject(size_t size, int executable) {
 }
 
 #elif defined(OS_WIN)
-// We wrap the function to convert the bool return value to an int.
-int BrokerDuplicateHandle(NaClHandle source_handle,
-                          uint32_t process_id,
-                          NaClHandle* target_handle,
-                          uint32_t desired_access,
-                          uint32_t options) {
-  return content::BrokerDuplicateHandle(source_handle, process_id,
-                                        target_handle, desired_access,
-                                        options);
-}
-
 int AttachDebugExceptionHandler(const void* info, size_t info_size) {
   std::string info_string(reinterpret_cast<const char*>(info), info_size);
   bool result = false;
@@ -206,8 +196,7 @@ NaClListener::NaClListener()
 #endif
       main_loop_(NULL),
       is_started_(false) {
-  attachment_broker_.reset(
-      IPC::AttachmentBrokerUnprivileged::CreateBroker().release());
+  IPC::AttachmentBrokerUnprivileged::CreateBrokerIfNeeded();
   io_thread_.StartWithOptions(
       base::Thread::Options(base::MessageLoop::TYPE_IO, 0));
   DCHECK(g_listener == NULL);
@@ -267,9 +256,10 @@ void NaClListener::Listen() {
                                       &shutdown_event_);
   filter_ = channel_->CreateSyncMessageFilter();
   channel_->AddFilter(new FileTokenMessageFilter());
+  IPC::AttachmentBroker* global = IPC::AttachmentBroker::GetGlobal();
+  if (global && !global->IsPrivilegedBroker())
+    global->RegisterBrokerCommunicationChannel(channel_.get());
   channel_->Init(channel_name, IPC::Channel::MODE_CLIENT, true);
-  if (attachment_broker_.get())
-    attachment_broker_->DesignateBrokerCommunicationChannel(channel_.get());
   main_loop_ = base::MessageLoop::current();
   main_loop_->Run();
 }
@@ -350,32 +340,29 @@ void NaClListener::OnStart(const nacl::NaClStartParams& params) {
     LOG(FATAL) << "NaClAppCreate() failed";
   }
 
-  IPC::ChannelHandle browser_handle;
-  IPC::ChannelHandle ppapi_renderer_handle;
-  IPC::ChannelHandle manifest_service_handle;
+  IPC::ChannelHandle browser_handle =
+      IPC::Channel::GenerateVerifiedChannelID("nacl");
+  IPC::ChannelHandle ppapi_renderer_handle =
+      IPC::Channel::GenerateVerifiedChannelID("nacl");
+  IPC::ChannelHandle manifest_service_handle =
+      IPC::Channel::GenerateVerifiedChannelID("nacl");
 
-  if (params.enable_ipc_proxy) {
-    browser_handle = IPC::Channel::GenerateVerifiedChannelID("nacl");
-    ppapi_renderer_handle = IPC::Channel::GenerateVerifiedChannelID("nacl");
-    manifest_service_handle = IPC::Channel::GenerateVerifiedChannelID("nacl");
-
-    // Create the PPAPI IPC channels between the NaCl IRT and the host
-    // (browser/renderer) processes. The IRT uses these channels to
-    // communicate with the host and to initialize the IPC dispatchers.
-    SetUpIPCAdapter(&browser_handle, io_thread_.task_runner(), nap,
-                    NACL_CHROME_DESC_BASE,
-                    NaClIPCAdapter::ResolveFileTokenCallback(),
-                    NaClIPCAdapter::OpenResourceCallback());
-    SetUpIPCAdapter(&ppapi_renderer_handle, io_thread_.task_runner(), nap,
-                    NACL_CHROME_DESC_BASE + 1,
-                    NaClIPCAdapter::ResolveFileTokenCallback(),
-                    NaClIPCAdapter::OpenResourceCallback());
-    SetUpIPCAdapter(
-        &manifest_service_handle, io_thread_.task_runner(), nap,
-        NACL_CHROME_DESC_BASE + 2,
-        base::Bind(&NaClListener::ResolveFileToken, base::Unretained(this)),
-        base::Bind(&NaClListener::OnOpenResource, base::Unretained(this)));
-  }
+  // Create the PPAPI IPC channels between the NaCl IRT and the host
+  // (browser/renderer) processes. The IRT uses these channels to
+  // communicate with the host and to initialize the IPC dispatchers.
+  SetUpIPCAdapter(&browser_handle, io_thread_.task_runner(), nap,
+                  NACL_CHROME_DESC_BASE,
+                  NaClIPCAdapter::ResolveFileTokenCallback(),
+                  NaClIPCAdapter::OpenResourceCallback());
+  SetUpIPCAdapter(&ppapi_renderer_handle, io_thread_.task_runner(), nap,
+                  NACL_CHROME_DESC_BASE + 1,
+                  NaClIPCAdapter::ResolveFileTokenCallback(),
+                  NaClIPCAdapter::OpenResourceCallback());
+  SetUpIPCAdapter(
+      &manifest_service_handle, io_thread_.task_runner(), nap,
+      NACL_CHROME_DESC_BASE + 2,
+      base::Bind(&NaClListener::ResolveFileToken, base::Unretained(this)),
+      base::Bind(&NaClListener::OnOpenResource, base::Unretained(this)));
 
   trusted_listener_ =
       new NaClTrustedListener(IPC::Channel::GenerateVerifiedChannelID("nacl"),
@@ -403,7 +390,7 @@ void NaClListener::OnStart(const nacl::NaClStartParams& params) {
 
   DCHECK(params.process_type != nacl::kUnknownNaClProcessType);
   CHECK(params.irt_handle != IPC::InvalidPlatformFileForTransit());
-  NaClHandle irt_handle =
+  base::PlatformFile irt_handle =
       IPC::PlatformFileForTransitToPlatformFile(params.irt_handle);
 
 #if defined(OS_WIN)
@@ -425,9 +412,6 @@ void NaClListener::OnStart(const nacl::NaClStartParams& params) {
         params.version);
   }
 
-  CHECK(params.imc_bootstrap_handle != IPC::InvalidPlatformFileForTransit());
-  args->imc_bootstrap_handle =
-      IPC::PlatformFileForTransitToPlatformFile(params.imc_bootstrap_handle);
   args->enable_debug_stub = params.enable_debug_stub;
 
   // Now configure parts that depend on process type.
@@ -459,7 +443,6 @@ void NaClListener::OnStart(const nacl::NaClStartParams& params) {
           params.debug_stub_server_bound_socket);
 #endif
 #if defined(OS_WIN)
-  args->broker_duplicate_handle_func = BrokerDuplicateHandle;
   args->attach_debug_exception_handler_func = AttachDebugExceptionHandler;
   args->debug_stub_server_port_selected_handler_func =
       DebugStubPortSelectedHandler;

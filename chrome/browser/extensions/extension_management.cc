@@ -5,12 +5,12 @@
 #include "chrome/browser/extensions/extension_management.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/trace_event/trace_event.h"
@@ -26,6 +26,7 @@
 #include "components/crx_file/id_util.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/api_permission_set.h"
@@ -115,7 +116,7 @@ scoped_ptr<base::DictionaryValue> ExtensionManagement::GetForceInstallList()
           install_list.get(), it->first, it->second->update_url);
     }
   }
-  return install_list.Pass();
+  return install_list;
 }
 
 scoped_ptr<base::DictionaryValue>
@@ -129,7 +130,7 @@ ExtensionManagement::GetRecommendedInstallList() const {
           install_list.get(), it->first, it->second->update_url);
     }
   }
-  return install_list.Pass();
+  return install_list;
 }
 
 bool ExtensionManagement::IsInstallationExplicitlyAllowed(
@@ -442,7 +443,7 @@ internal::IndividualSettings* ExtensionManagement::AccessById(
   if (it == settings_by_id_.end()) {
     scoped_ptr<internal::IndividualSettings> settings(
         new internal::IndividualSettings(default_settings_.get()));
-    it = settings_by_id_.add(id, settings.Pass()).first;
+    it = settings_by_id_.add(id, std::move(settings)).first;
   }
   return it->second;
 }
@@ -454,7 +455,7 @@ internal::IndividualSettings* ExtensionManagement::AccessByUpdateUrl(
   if (it == settings_by_update_url_.end()) {
     scoped_ptr<internal::IndividualSettings> settings(
         new internal::IndividualSettings(default_settings_.get()));
-    it = settings_by_update_url_.add(update_url, settings.Pass()).first;
+    it = settings_by_update_url_.add(update_url, std::move(settings)).first;
   }
   return it->second;
 }

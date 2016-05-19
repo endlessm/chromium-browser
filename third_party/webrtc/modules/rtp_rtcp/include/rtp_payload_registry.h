@@ -11,6 +11,8 @@
 #ifndef WEBRTC_MODULES_RTP_RTCP_INCLUDE_RTP_PAYLOAD_REGISTRY_H_
 #define WEBRTC_MODULES_RTP_RTCP_INCLUDE_RTP_PAYLOAD_REGISTRY_H_
 
+#include <map>
+
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_receiver_strategy.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_utility.h"
@@ -27,7 +29,7 @@ class RTPPayloadStrategy {
 
   virtual bool PayloadIsCompatible(const RtpUtility::Payload& payload,
                                    const uint32_t frequency,
-                                   const uint8_t channels,
+                                   const size_t channels,
                                    const uint32_t rate) const = 0;
 
   virtual void UpdatePayloadRate(RtpUtility::Payload* payload,
@@ -37,7 +39,7 @@ class RTPPayloadStrategy {
       const char payloadName[RTP_PAYLOAD_NAME_SIZE],
       const int8_t payloadType,
       const uint32_t frequency,
-      const uint8_t channels,
+      const size_t channels,
       const uint32_t rate) const = 0;
 
   virtual int GetPayloadTypeFrequency(
@@ -52,14 +54,14 @@ class RTPPayloadStrategy {
 class RTPPayloadRegistry {
  public:
   // The registry takes ownership of the strategy.
-  RTPPayloadRegistry(RTPPayloadStrategy* rtp_payload_strategy);
+  explicit RTPPayloadRegistry(RTPPayloadStrategy* rtp_payload_strategy);
   ~RTPPayloadRegistry();
 
   int32_t RegisterReceivePayload(
       const char payload_name[RTP_PAYLOAD_NAME_SIZE],
       const int8_t payload_type,
       const uint32_t frequency,
-      const uint8_t channels,
+      const size_t channels,
       const uint32_t rate,
       bool* created_new_payload_type);
 
@@ -69,7 +71,7 @@ class RTPPayloadRegistry {
   int32_t ReceivePayloadType(
       const char payload_name[RTP_PAYLOAD_NAME_SIZE],
       const uint32_t frequency,
-      const uint8_t channels,
+      const size_t channels,
       const uint32_t rate,
       int8_t* payload_type) const;
 
@@ -108,8 +110,16 @@ class RTPPayloadRegistry {
 
   int GetPayloadTypeFrequency(uint8_t payload_type) const;
 
+  // DEPRECATED. Use PayloadTypeToPayload below that returns const Payload*
+  // instead of taking output parameter.
+  // TODO(danilchap): Remove this when all callers have been updated.
   bool PayloadTypeToPayload(const uint8_t payload_type,
-                            RtpUtility::Payload*& payload) const;
+                            RtpUtility::Payload*& payload) const {  // NOLINT
+    payload =
+        const_cast<RtpUtility::Payload*>(PayloadTypeToPayload(payload_type));
+    return payload != nullptr;
+  }
+  const RtpUtility::Payload* PayloadTypeToPayload(uint8_t payload_type) const;
 
   void ResetLastReceivedPayloadTypes() {
     CriticalSectionScoped cs(crit_sect_.get());
@@ -145,7 +155,7 @@ class RTPPayloadRegistry {
   int8_t last_received_media_payload_type() const {
     CriticalSectionScoped cs(crit_sect_.get());
     return last_received_media_payload_type_;
-  };
+  }
 
   bool use_rtx_payload_mapping_on_restore() const {
     CriticalSectionScoped cs(crit_sect_.get());
@@ -163,7 +173,7 @@ class RTPPayloadRegistry {
       const char payload_name[RTP_PAYLOAD_NAME_SIZE],
       const size_t payload_name_length,
       const uint32_t frequency,
-      const uint8_t channels,
+      const size_t channels,
       const uint32_t rate);
 
   bool IsRtxInternal(const RTPHeader& header) const;

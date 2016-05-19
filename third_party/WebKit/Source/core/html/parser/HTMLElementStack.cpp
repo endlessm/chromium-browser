@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLElementStack.h"
 
 #include "core/HTMLNames.h"
@@ -117,7 +116,7 @@ inline bool isSelectScopeMarker(HTMLStackItem* item)
         && !item->hasTagName(optionTag);
 }
 
-}
+} // namespace
 
 HTMLElementStack::ElementRecord::ElementRecord(PassRefPtrWillBeRawPtr<HTMLStackItem> item, PassOwnPtrWillBeRawPtr<ElementRecord> next)
     : m_item(item)
@@ -634,4 +633,4 @@ void HTMLElementStack::show()
 
 #endif
 
-}
+} // namespace blink

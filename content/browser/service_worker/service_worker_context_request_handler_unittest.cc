@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/browser/service_worker/service_worker_context_request_handler.h"
+
+#include <utility>
+
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
@@ -9,11 +13,11 @@
 #include "content/browser/fileapi/mock_url_request_delegate.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
-#include "content/browser/service_worker/service_worker_context_request_handler.h"
 #include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_write_to_cache_job.h"
 #include "content/common/service_worker/service_worker_utils.h"
+#include "content/public/browser/resource_request_info.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_context.h"
@@ -22,8 +26,6 @@
 namespace content {
 
 namespace {
-
-int kMockRenderProcessId = 1224;
 
 void EmptyCallback() {}
 
@@ -35,8 +37,7 @@ class ServiceWorkerContextRequestHandlerTest : public testing::Test {
       : browser_thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {}
 
   void SetUp() override {
-    helper_.reset(
-        new EmbeddedWorkerTestHelper(base::FilePath(), kMockRenderProcessId));
+    helper_.reset(new EmbeddedWorkerTestHelper(base::FilePath()));
 
     // A new unstored registration/version.
     scope_ = GURL("http://host/scope/");
@@ -48,11 +49,11 @@ class ServiceWorkerContextRequestHandlerTest : public testing::Test {
 
     // An empty host.
     scoped_ptr<ServiceWorkerProviderHost> host(new ServiceWorkerProviderHost(
-        kMockRenderProcessId, MSG_ROUTING_NONE /* render_frame_id */,
-        1 /* provider_id */, SERVICE_WORKER_PROVIDER_FOR_WINDOW,
-        context()->AsWeakPtr(), nullptr));
+        helper_->mock_render_process_id(),
+        MSG_ROUTING_NONE /* render_frame_id */, 1 /* provider_id */,
+        SERVICE_WORKER_PROVIDER_FOR_WINDOW, context()->AsWeakPtr(), nullptr));
     provider_host_ = host->AsWeakPtr();
-    context()->AddProviderHost(host.Pass());
+    context()->AddProviderHost(std::move(host));
 
     context()->storage()->LazyInitialize(base::Bind(&EmptyCallback));
     base::RunLoop().RunUntilIdle();
@@ -95,8 +96,8 @@ TEST_F(ServiceWorkerContextRequestHandlerTest, UpdateBefore24Hours) {
           provider_host_,
           base::WeakPtr<storage::BlobStorageContext>(),
           RESOURCE_TYPE_SERVICE_WORKER));
-  scoped_refptr<net::URLRequestJob> job =
-      handler->MaybeCreateJob(request.get(), nullptr, nullptr);
+  scoped_ptr<net::URLRequestJob> job(
+      handler->MaybeCreateJob(request.get(), nullptr, nullptr));
   ASSERT_TRUE(job.get());
   ServiceWorkerWriteToCacheJob* sw_job =
       static_cast<ServiceWorkerWriteToCacheJob*>(job.get());
@@ -123,8 +124,8 @@ TEST_F(ServiceWorkerContextRequestHandlerTest, UpdateAfter24Hours) {
           provider_host_,
           base::WeakPtr<storage::BlobStorageContext>(),
           RESOURCE_TYPE_SERVICE_WORKER));
-  scoped_refptr<net::URLRequestJob> job =
-      handler->MaybeCreateJob(request.get(), nullptr, nullptr);
+  scoped_ptr<net::URLRequestJob> job(
+      handler->MaybeCreateJob(request.get(), nullptr, nullptr));
   ASSERT_TRUE(job.get());
   ServiceWorkerWriteToCacheJob* sw_job =
       static_cast<ServiceWorkerWriteToCacheJob*>(job.get());
@@ -150,14 +151,40 @@ TEST_F(ServiceWorkerContextRequestHandlerTest, UpdateForceBypassCache) {
           context()->AsWeakPtr(), provider_host_,
           base::WeakPtr<storage::BlobStorageContext>(),
           RESOURCE_TYPE_SERVICE_WORKER));
-  scoped_refptr<net::URLRequestJob> job =
-      handler->MaybeCreateJob(request.get(), nullptr, nullptr);
+  scoped_ptr<net::URLRequestJob> job(
+      handler->MaybeCreateJob(request.get(), nullptr, nullptr));
   ASSERT_TRUE(job.get());
   ServiceWorkerWriteToCacheJob* sw_job =
       static_cast<ServiceWorkerWriteToCacheJob*>(job.get());
 
   // Verify the net request is initialized to bypass the browser cache.
   EXPECT_TRUE(sw_job->net_request_->load_flags() & net::LOAD_BYPASS_CACHE);
+}
+
+TEST_F(ServiceWorkerContextRequestHandlerTest,
+       ServiceWorkerDataRequestAnnotation) {
+  version_->SetStatus(ServiceWorkerVersion::NEW);
+  provider_host_->running_hosted_version_ = version_;
+
+  // Conduct a resource fetch for the main script.
+  const GURL kScriptUrl("http://host/script.js");
+  scoped_ptr<net::URLRequest> request = url_request_context_.CreateRequest(
+      kScriptUrl, net::DEFAULT_PRIORITY, &url_request_delegate_);
+  scoped_ptr<ServiceWorkerContextRequestHandler> handler(
+      new ServiceWorkerContextRequestHandler(
+          context()->AsWeakPtr(), provider_host_,
+          base::WeakPtr<storage::BlobStorageContext>(),
+          RESOURCE_TYPE_SERVICE_WORKER));
+  scoped_ptr<net::URLRequestJob> job(
+      handler->MaybeCreateJob(request.get(), nullptr, nullptr));
+  ASSERT_TRUE(job.get());
+  ServiceWorkerWriteToCacheJob* sw_job =
+      static_cast<ServiceWorkerWriteToCacheJob*>(job.get());
+
+  // Verify that the request is properly annotated as originating from a
+  // Service Worker.
+  EXPECT_TRUE(ResourceRequestInfo::OriginatedFromServiceWorker(
+      sw_job->net_request_.get()));
 }
 
 }  // namespace content

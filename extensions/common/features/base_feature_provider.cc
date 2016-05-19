@@ -4,6 +4,8 @@
 
 #include "extensions/common/features/base_feature_provider.h"
 
+#include <stddef.h>
+
 #include <stack>
 #include <utility>
 
@@ -128,10 +130,11 @@ BaseFeatureProvider::BaseFeatureProvider(const base::DictionaryValue& root,
                           feature.get()))
           continue;
 
-        features->push_back(feature.Pass());
+        features->push_back(std::move(feature));
       }
 
-      linked_ptr<ComplexFeature> feature(new ComplexFeature(features.Pass()));
+      linked_ptr<ComplexFeature> feature(
+          new ComplexFeature(std::move(features)));
       feature->set_name(iter.key());
 
       features_[iter.key()] = feature;

@@ -10,8 +10,8 @@ import("../build/webrtc.gni")
 
 source_set("call") {
   sources = [
+    "bitrate_allocator.cc",
     "call.cc",
-    "congestion_controller.cc",
     "transport_adapter.cc",
     "transport_adapter.h",
   ]
@@ -28,6 +28,7 @@ source_set("call") {
   deps = [
     "..:rtc_event_log",
     "..:webrtc_common",
+    "../modules/congestion_controller",
     "../modules/rtp_rtcp",
     "../system_wrappers",
   ]

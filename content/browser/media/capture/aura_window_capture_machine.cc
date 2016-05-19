@@ -5,6 +5,7 @@
 #include "content/browser/media/capture/aura_window_capture_machine.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
@@ -35,15 +36,6 @@
 #include "ui/wm/public/activation_client.h"
 
 namespace content {
-
-namespace {
-
-void RunSingleReleaseCallback(scoped_ptr<cc::SingleReleaseCallback> cb,
-                              const gpu::SyncToken& sync_token) {
-  cb->Run(sync_token, false);
-}
-
-}  // namespace
 
 AuraWindowCaptureMachine::AuraWindowCaptureMachine()
     : desktop_window_(NULL),
@@ -198,7 +190,7 @@ void AuraWindowCaptureMachine::Capture(bool dirty) {
     gfx::Rect window_rect = gfx::Rect(desktop_window_->bounds().width(),
                                       desktop_window_->bounds().height());
     request->set_area(window_rect);
-    desktop_window_->layer()->RequestCopyOfOutput(request.Pass());
+    desktop_window_->layer()->RequestCopyOfOutput(std::move(request));
   }
 }
 
@@ -212,7 +204,7 @@ void AuraWindowCaptureMachine::DidCopyOutput(
   static bool first_call = true;
 
   bool succeeded = ProcessCopyOutputResponse(
-      video_frame, start_time, capture_frame_cb, result.Pass());
+      video_frame, start_time, capture_frame_cb, std::move(result));
 
   base::TimeDelta capture_time = base::TimeTicks::Now() - start_time;
 
@@ -246,31 +238,7 @@ bool AuraWindowCaptureMachine::ProcessCopyOutputResponse(
 
   if (result->IsEmpty() || result->size().IsEmpty() || !desktop_window_)
     return false;
-
-  if (capture_params_.requested_format.pixel_storage ==
-      media::PIXEL_STORAGE_TEXTURE) {
-    DCHECK_EQ(media::PIXEL_FORMAT_ARGB,
-              capture_params_.requested_format.pixel_format);
-    DCHECK(!video_frame.get());
-    cc::TextureMailbox texture_mailbox;
-    scoped_ptr<cc::SingleReleaseCallback> release_callback;
-    result->TakeTexture(&texture_mailbox, &release_callback);
-    DCHECK(texture_mailbox.IsTexture());
-    if (!texture_mailbox.IsTexture())
-      return false;
-    video_frame = media::VideoFrame::WrapNativeTexture(
-        media::PIXEL_FORMAT_ARGB,
-        gpu::MailboxHolder(texture_mailbox.mailbox(),
-                           texture_mailbox.sync_token(),
-                           texture_mailbox.target()),
-        base::Bind(&RunSingleReleaseCallback, base::Passed(&release_callback)),
-        result->size(), gfx::Rect(result->size()), result->size(),
-        base::TimeDelta());
-    capture_frame_cb.Run(video_frame, start_time, true);
-    return true;
-  } else {
-    DCHECK(video_frame.get());
-  }
+  DCHECK(video_frame.get());
 
   // Compute the dest size we want after the letterboxing resize. Make the
   // coordinates and sizes even because we letterbox in YUV space

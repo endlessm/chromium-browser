@@ -4,7 +4,6 @@
 
 #include "net/dns/dns_config_service.h"
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/cancelable_callback.h"
 #include "base/location.h"
@@ -14,7 +13,6 @@
 #include "base/strings/string_split.h"
 #include "base/test/test_timeouts.h"
 #include "base/thread_task_runner_handle.h"
-#include "net/base/net_util.h"
 #include "net/dns/dns_protocol.h"
 #include "testing/gtest/include/gtest/gtest.h"
 

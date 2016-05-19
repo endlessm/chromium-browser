@@ -8,75 +8,78 @@
 #include "GrBitmapTextGeoProc.h"
 #include "GrInvariantOutput.h"
 #include "GrTexture.h"
-#include "gl/GrGLFragmentProcessor.h"
-#include "gl/GrGLTexture.h"
-#include "gl/GrGLGeometryProcessor.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramBuilder.h"
+#include "glsl/GrGLSLGeometryProcessor.h"
 #include "glsl/GrGLSLProgramDataManager.h"
+#include "glsl/GrGLSLUniformHandler.h"
+#include "glsl/GrGLSLVarying.h"
 #include "glsl/GrGLSLVertexShaderBuilder.h"
 
-class GrGLBitmapTextGeoProc : public GrGLGeometryProcessor {
+class GrGLBitmapTextGeoProc : public GrGLSLGeometryProcessor {
 public:
     GrGLBitmapTextGeoProc() : fColor(GrColor_ILLEGAL) {}
 
     void onEmitCode(EmitArgs& args, GrGPArgs* gpArgs) override {
         const GrBitmapTextGeoProc& cte = args.fGP.cast<GrBitmapTextGeoProc>();
 
-        GrGLSLGPBuilder* pb = args.fPB;
-        GrGLSLVertexBuilder* vsBuilder = pb->getVertexShaderBuilder();
+        GrGLSLVertexBuilder* vertBuilder = args.fVertBuilder;
+        GrGLSLVaryingHandler* varyingHandler = args.fVaryingHandler;
+        GrGLSLUniformHandler* uniformHandler = args.fUniformHandler;
 
         // emit attributes
-        vsBuilder->emitAttributes(cte);
+        varyingHandler->emitAttributes(cte);
 
         // compute numbers to be hardcoded to convert texture coordinates from int to float
         SkASSERT(cte.numTextures() == 1);
-        GrTexture* atlas = cte.textureAccess(0).getTexture();
+        SkDEBUGCODE(GrTexture* atlas = cte.textureAccess(0).getTexture());
         SkASSERT(atlas && SkIsPow2(atlas->width()) && SkIsPow2(atlas->height()));
-        SkScalar recipWidth = 1.0f / atlas->width();
-        SkScalar recipHeight = 1.0f / atlas->height();
 
         GrGLSLVertToFrag v(kVec2f_GrSLType);
-        pb->addVarying("TextureCoords", &v);
-        vsBuilder->codeAppendf("%s = vec2(%.*f, %.*f) * %s;", v.vsOut(),
-                               GR_SIGNIFICANT_POW2_DECIMAL_DIG, recipWidth,
-                               GR_SIGNIFICANT_POW2_DECIMAL_DIG, recipHeight,
-                               cte.inTextureCoords()->fName);
+        varyingHandler->addVarying("TextureCoords", &v, kHigh_GrSLPrecision);
+        vertBuilder->codeAppendf("%s = %s;", v.vsOut(),
+                                 cte.inTextureCoords()->fName);
 
+        GrGLSLPPFragmentBuilder* fragBuilder = args.fFragBuilder;
         // Setup pass through color
         if (!cte.colorIgnored()) {
             if (cte.hasVertexColor()) {
-                pb->addPassThroughAttribute(cte.inColor(), args.fOutputColor);
+                varyingHandler->addPassThroughAttribute(cte.inColor(), args.fOutputColor);
             } else {
-                this->setupUniformColor(pb, args.fOutputColor, &fColorUniform);
+                this->setupUniformColor(fragBuilder, uniformHandler, args.fOutputColor,
+                                        &fColorUniform);
             }
         }
 
         // Setup position
-        this->setupPosition(pb, gpArgs, cte.inPosition()->fName);
+        this->setupPosition(vertBuilder, gpArgs, cte.inPosition()->fName);
 
         // emit transforms
-        this->emitTransforms(args.fPB, gpArgs->fPositionVar, cte.inPosition()->fName,
-                             cte.localMatrix(), args.fTransformsIn, args.fTransformsOut);
+        this->emitTransforms(vertBuilder,
+                             varyingHandler,
+                             uniformHandler,
+                             gpArgs->fPositionVar,
+                             cte.inPosition()->fName,
+                             cte.localMatrix(),
+                             args.fTransformsIn,
+                             args.fTransformsOut);
 
-        GrGLSLFragmentBuilder* fsBuilder = pb->getFragmentShaderBuilder();
         if (cte.maskFormat() == kARGB_GrMaskFormat) {
-            fsBuilder->codeAppendf("%s = ", args.fOutputColor);
-            fsBuilder->appendTextureLookupAndModulate(args.fOutputColor,
-                                                      args.fSamplers[0],
-                                                      v.fsIn(),
-                                                      kVec2f_GrSLType);
-            fsBuilder->codeAppend(";");
-            fsBuilder->codeAppendf("%s = vec4(1);", args.fOutputCoverage);
+            fragBuilder->codeAppendf("%s = ", args.fOutputColor);
+            fragBuilder->appendTextureLookupAndModulate(args.fOutputColor,
+                                                        args.fSamplers[0],
+                                                        v.fsIn(),
+                                                        kVec2f_GrSLType);
+            fragBuilder->codeAppend(";");
+            fragBuilder->codeAppendf("%s = vec4(1);", args.fOutputCoverage);
         } else {
-            fsBuilder->codeAppendf("%s = ", args.fOutputCoverage);
-            fsBuilder->appendTextureLookup(args.fSamplers[0], v.fsIn(), kVec2f_GrSLType);
-            fsBuilder->codeAppend(";");
+            fragBuilder->codeAppendf("%s = ", args.fOutputCoverage);
+            fragBuilder->appendTextureLookup(args.fSamplers[0], v.fsIn(), kVec2f_GrSLType);
+            fragBuilder->codeAppend(";");
             if (cte.maskFormat() == kA565_GrMaskFormat) {
                 // set alpha to be max of rgb coverage
-                fsBuilder->codeAppendf("%s.a = max(max(%s.r, %s.g), %s.b);",
-                                       args.fOutputCoverage, args.fOutputCoverage,
-                                       args.fOutputCoverage, args.fOutputCoverage);
+                fragBuilder->codeAppendf("%s.a = max(max(%s.r, %s.g), %s.b);",
+                                         args.fOutputCoverage, args.fOutputCoverage,
+                                         args.fOutputCoverage, args.fOutputCoverage);
             }
         }
     }
@@ -120,7 +123,7 @@ private:
     GrColor fColor;
     UniformHandle fColorUniform;
 
-    typedef GrGLGeometryProcessor INHERITED;
+    typedef GrGLSLGeometryProcessor INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -137,22 +140,23 @@ GrBitmapTextGeoProc::GrBitmapTextGeoProc(GrColor color, GrTexture* texture,
     this->initClassID<GrBitmapTextGeoProc>();
     fInPosition = &this->addVertexAttrib(Attribute("inPosition", kVec2f_GrVertexAttribType));
 
-    // TODO we could think about removing this attribute if color is ignored, but unfortunately
-    // we don't do text positioning in batch, so we can't quite do that yet.
-    bool hasVertexColor = kA8_GrMaskFormat == fMaskFormat;
+    bool hasVertexColor = kA8_GrMaskFormat == fMaskFormat ||
+                          kA565_GrMaskFormat == fMaskFormat;
     if (hasVertexColor) {
         fInColor = &this->addVertexAttrib(Attribute("inColor", kVec4ub_GrVertexAttribType));
     }
     fInTextureCoords = &this->addVertexAttrib(Attribute("inTextureCoords",
-                                                        kVec2s_GrVertexAttribType));
+                                                        kVec2us_GrVertexAttribType,
+                                                        kHigh_GrSLPrecision));
     this->addTextureAccess(&fTextureAccess);
 }
 
-void GrBitmapTextGeoProc::getGLProcessorKey(const GrGLSLCaps& caps,GrProcessorKeyBuilder* b) const {
+void GrBitmapTextGeoProc::getGLSLProcessorKey(const GrGLSLCaps& caps,
+                                              GrProcessorKeyBuilder* b) const {
     GrGLBitmapTextGeoProc::GenKey(*this, caps, b);
 }
 
-GrGLPrimitiveProcessor* GrBitmapTextGeoProc::createGLInstance(const GrGLSLCaps& caps) const {
+GrGLSLPrimitiveProcessor* GrBitmapTextGeoProc::createGLSLInstance(const GrGLSLCaps& caps) const {
     return new GrGLBitmapTextGeoProc();
 }
 

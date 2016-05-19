@@ -38,13 +38,14 @@
 
 namespace blink {
 
+class ExecutionContext;
 class Node;
 
 class CORE_EXPORT V8GCController {
     STATIC_ONLY(V8GCController);
 public:
-    static void gcPrologue(v8::GCType, v8::GCCallbackFlags);
-    static void gcEpilogue(v8::GCType, v8::GCCallbackFlags);
+    static void gcPrologue(v8::Isolate*, v8::GCType, v8::GCCallbackFlags);
+    static void gcEpilogue(v8::Isolate*, v8::GCType, v8::GCCallbackFlags);
 
     static void collectGarbage(v8::Isolate*);
     // You should use collectAllGarbageForTesting() when you want to collect all
@@ -58,8 +59,9 @@ public:
     static void reportDOMMemoryUsageToV8(v8::Isolate*);
 
     static void traceDOMWrappers(v8::Isolate*, Visitor*);
+    static bool hasPendingActivity(ExecutionContext*);
 };
 
-}
+} // namespace blink
 
 #endif // V8GCController_h

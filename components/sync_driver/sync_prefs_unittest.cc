@@ -4,15 +4,17 @@
 
 #include "components/sync_driver/sync_prefs.h"
 
+#include <stdint.h>
+
 #include <map>
 
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_notifier_impl.h"
-#include "base/prefs/pref_value_store.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/time/time.h"
 #include "components/pref_registry/testing_pref_service_syncable.h"
+#include "components/prefs/pref_notifier_impl.h"
+#include "components/prefs/pref_value_store.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/sync_driver/pref_names.h"
 #include "sync/internal_api/public/base/model_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -40,9 +42,9 @@ class SyncPrefsTest : public testing::Test {
 TEST_F(SyncPrefsTest, Basic) {
   SyncPrefs sync_prefs(&pref_service_);
 
-  EXPECT_FALSE(sync_prefs.HasSyncSetupCompleted());
-  sync_prefs.SetSyncSetupCompleted();
-  EXPECT_TRUE(sync_prefs.HasSyncSetupCompleted());
+  EXPECT_FALSE(sync_prefs.IsFirstSetupComplete());
+  sync_prefs.SetFirstSetupComplete();
+  EXPECT_TRUE(sync_prefs.IsFirstSetupComplete());
 
   EXPECT_TRUE(sync_prefs.IsSyncRequested());
   sync_prefs.SetSyncRequested(false);
@@ -207,21 +209,21 @@ TEST_F(SyncPrefsTest, ObservedPrefs) {
 TEST_F(SyncPrefsTest, ClearPreferences) {
   SyncPrefs sync_prefs(&pref_service_);
 
-  EXPECT_FALSE(sync_prefs.HasSyncSetupCompleted());
+  EXPECT_FALSE(sync_prefs.IsFirstSetupComplete());
   EXPECT_EQ(base::Time(), sync_prefs.GetLastSyncedTime());
   EXPECT_TRUE(sync_prefs.GetEncryptionBootstrapToken().empty());
 
-  sync_prefs.SetSyncSetupCompleted();
+  sync_prefs.SetFirstSetupComplete();
   sync_prefs.SetLastSyncedTime(base::Time::Now());
   sync_prefs.SetEncryptionBootstrapToken("token");
 
-  EXPECT_TRUE(sync_prefs.HasSyncSetupCompleted());
+  EXPECT_TRUE(sync_prefs.IsFirstSetupComplete());
   EXPECT_NE(base::Time(), sync_prefs.GetLastSyncedTime());
   EXPECT_EQ("token", sync_prefs.GetEncryptionBootstrapToken());
 
   sync_prefs.ClearPreferences();
 
-  EXPECT_FALSE(sync_prefs.HasSyncSetupCompleted());
+  EXPECT_FALSE(sync_prefs.IsFirstSetupComplete());
   EXPECT_EQ(base::Time(), sync_prefs.GetLastSyncedTime());
   EXPECT_TRUE(sync_prefs.GetEncryptionBootstrapToken().empty());
 }
@@ -241,7 +243,7 @@ TEST_F(SyncPrefsTest, DeviceInfo) {
 
 // Verify that invalidation versions are persisted and loaded correctly.
 TEST_F(SyncPrefsTest, InvalidationVersions) {
-  std::map<syncer::ModelType, int64> versions;
+  std::map<syncer::ModelType, int64_t> versions;
   versions[syncer::BOOKMARKS] = 10;
   versions[syncer::SESSIONS] = 20;
   versions[syncer::PREFERENCES] = 30;
@@ -249,7 +251,7 @@ TEST_F(SyncPrefsTest, InvalidationVersions) {
   SyncPrefs sync_prefs(&pref_service_);
   sync_prefs.UpdateInvalidationVersions(versions);
 
-  std::map<syncer::ModelType, int64> versions2;
+  std::map<syncer::ModelType, int64_t> versions2;
   sync_prefs.GetInvalidationVersions(&versions2);
 
   EXPECT_EQ(versions.size(), versions2.size());

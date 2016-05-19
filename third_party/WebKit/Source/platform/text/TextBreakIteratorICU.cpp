@@ -19,7 +19,6 @@
  *
  */
 
-#include "config.h"
 #include "platform/text/TextBreakIterator.h"
 
 #include "platform/text/TextBreakIteratorInternalICU.h"
@@ -28,8 +27,6 @@
 #include "wtf/PassOwnPtr.h"
 #include "wtf/ThreadSpecific.h"
 #include "wtf/ThreadingPrimitives.h"
-#include "wtf/text/AtomicString.h"
-#include "wtf/text/CString.h"
 #include "wtf/text/WTFString.h"
 #include <unicode/rbbi.h>
 #include <unicode/ubrk.h>
@@ -38,7 +35,8 @@ using namespace WTF;
 
 namespace blink {
 
-class LineBreakIteratorPool {
+class LineBreakIteratorPool final {
+    USING_FAST_MALLOC(LineBreakIteratorPool);
     WTF_MAKE_NONCOPYABLE(LineBreakIteratorPool);
 public:
     static LineBreakIteratorPool& sharedPool()
@@ -112,6 +110,7 @@ enum TextContext { NoContext, PriorContext, PrimaryContext };
 const int textBufferCapacity = 16;
 
 typedef struct {
+    DISALLOW_NEW();
     UText text;
     UChar buffer[textBufferCapacity];
 } UTextWithBuffer;
@@ -843,4 +842,4 @@ TextBreakIterator* cursorMovementIterator(const UChar* string, int length)
     return setUpIteratorWithRules(kRules, string, length);
 }
 
-}
+} // namespace blink

@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/LayoutState.h"
 
 #include "core/layout/LayoutFlowThread.h"
@@ -52,7 +51,7 @@ LayoutState::LayoutState(LayoutBox& layoutObject, const LayoutSize& offset, Layo
 {
     if (layoutObject.isLayoutFlowThread())
         m_flowThread = toLayoutFlowThread(&layoutObject);
-    else if (!layoutObject.isOutOfFlowPositioned() && !layoutObject.isColumnSpanAll())
+    else if (!layoutObject.isOutOfFlowPositioned())
         m_flowThread = m_next->flowThread();
     else
         m_flowThread = nullptr;
@@ -96,7 +95,7 @@ LayoutState::LayoutState(LayoutBox& layoutObject, const LayoutSize& offset, Layo
         // writing mode roots.
         if (layoutObject.paginationBreakability() == LayoutBox::ForbidBreaks) {
             m_flowThread = nullptr;
-            m_pageLogicalHeight = 0;
+            m_pageLogicalHeight = LayoutUnit();
             m_isPaginated = false;
         } else {
             m_isPaginated = m_pageLogicalHeight || m_flowThread;

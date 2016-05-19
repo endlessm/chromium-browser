@@ -4,6 +4,9 @@
 
 #include "components/plugins/renderer/webview_plugin.h"
 
+#include <stddef.h>
+
+#include "base/auto_reset.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
@@ -17,6 +20,7 @@
 #include "third_party/WebKit/public/platform/WebURLResponse.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebElement.h"
+#include "third_party/WebKit/public/web/WebFrameWidget.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebPluginContainer.h"
@@ -26,6 +30,7 @@ using blink::WebCanvas;
 using blink::WebCursorInfo;
 using blink::WebDragData;
 using blink::WebDragOperationsMask;
+using blink::WebFrameWidget;
 using blink::WebImage;
 using blink::WebInputEvent;
 using blink::WebLocalFrame;
@@ -51,12 +56,18 @@ WebViewPlugin::WebViewPlugin(content::RenderView* render_view,
       container_(nullptr),
       web_view_(WebView::create(this)),
       finished_loading_(false),
-      focused_(false) {
+      focused_(false),
+      is_painting_(false) {
   // ApplyWebPreferences before making a WebLocalFrame so that the frame sees a
   // consistent view of our preferences.
   content::RenderView::ApplyWebPreferences(preferences, web_view_);
-  web_frame_ = WebLocalFrame::create(blink::WebTreeScopeType::Document, this);
+  WebLocalFrame* web_local_frame =
+      WebLocalFrame::create(blink::WebTreeScopeType::Document, this);
+  web_frame_ = web_local_frame;
   web_view_->setMainFrame(web_frame_);
+  // TODO(dcheng): The main frame widget currently has a special case.
+  // Eliminate this once WebView is no longer a WebWidget.
+  web_frame_widget_ = WebFrameWidget::create(this, web_view_, web_local_frame);
 }
 
 // static
@@ -72,6 +83,7 @@ WebViewPlugin* WebViewPlugin::Create(content::RenderView* render_view,
 }
 
 WebViewPlugin::~WebViewPlugin() {
+  web_frame_widget_->close();
   web_view_->close();
   web_frame_->close();
 }
@@ -121,8 +133,8 @@ bool WebViewPlugin::initialize(WebPluginContainer* container) {
     // scheduleAnimation, but due to timers controlling widget update,
     // scheduleAnimation may be invoked before this initialize call (which
     // comes through the widget update process). It doesn't hurt to mark
-    // for layout again, and it does help us in the race-condition situation.
-    container_->setNeedsLayout();
+    // for animation again, and it does help us in the race-condition situation.
+    container_->scheduleAnimation();
 
     old_title_ = container_->element().getAttribute("title");
 
@@ -151,9 +163,7 @@ v8::Local<v8::Object> WebViewPlugin::v8ScriptableObject(v8::Isolate* isolate) {
   return delegate_->GetV8ScriptableObject(isolate);
 }
 
-// TODO(wkorman): Look into renaming this to something more in line with
-// either the Blink lifecycle or Compositor layer tree host nomenclature.
-void WebViewPlugin::layoutIfNeeded() {
+void WebViewPlugin::updateAllLifecyclePhases() {
   web_view_->updateAllLifecyclePhases();
 }
 
@@ -161,6 +171,9 @@ void WebViewPlugin::paint(WebCanvas* canvas, const WebRect& rect) {
   gfx::Rect paint_rect = gfx::IntersectRects(rect_, rect);
   if (paint_rect.IsEmpty())
     return;
+
+  base::AutoReset<bool> is_painting(
+        &is_painting_, true);
 
   paint_rect.Offset(-rect_.x(), -rect_.y());
 
@@ -200,17 +213,18 @@ void WebViewPlugin::updateFocus(bool focused, blink::WebFocusType focus_type) {
 
 bool WebViewPlugin::acceptsInputEvents() { return true; }
 
-bool WebViewPlugin::handleInputEvent(const WebInputEvent& event,
-                                     WebCursorInfo& cursor) {
+blink::WebInputEventResult WebViewPlugin::handleInputEvent(
+    const WebInputEvent& event,
+    WebCursorInfo& cursor) {
   // For tap events, don't handle them. They will be converted to
   // mouse events later and passed to here.
   if (event.type == WebInputEvent::GestureTap)
-    return false;
+    return blink::WebInputEventResult::NotHandled;
 
   // For LongPress events we return false, since otherwise the context menu will
   // be suppressed. https://crbug.com/482842
   if (event.type == WebInputEvent::GestureLongPress)
-    return false;
+    return blink::WebInputEventResult::NotHandled;
 
   if (event.type == WebInputEvent::ContextMenu) {
     if (delegate_) {
@@ -218,10 +232,10 @@ bool WebViewPlugin::handleInputEvent(const WebInputEvent& event,
           reinterpret_cast<const WebMouseEvent&>(event);
       delegate_->ShowContextMenu(mouse_event);
     }
-    return true;
+    return blink::WebInputEventResult::HandledSuppressed;
   }
   current_cursor_ = cursor;
-  bool handled = web_view_->handleInputEvent(event);
+  blink::WebInputEventResult handled = web_view_->handleInputEvent(event);
   cursor = current_cursor_;
 
   return handled;
@@ -272,18 +286,16 @@ void WebViewPlugin::didInvalidateRect(const WebRect& rect) {
     container_->invalidateRect(rect);
 }
 
-void WebViewPlugin::didUpdateLayoutSize(const WebSize&) {
-  if (container_)
-    container_->setNeedsLayout();
-}
-
 void WebViewPlugin::didChangeCursor(const WebCursorInfo& cursor) {
   current_cursor_ = cursor;
 }
 
 void WebViewPlugin::scheduleAnimation() {
-  if (container_)
-    container_->setNeedsLayout();
+  if (container_) {
+    // This should never happen; see also crbug.com/545039 for context.
+    CHECK(!is_painting_);
+    container_->scheduleAnimation();
+  }
 }
 
 void WebViewPlugin::didClearWindowObject(WebLocalFrame* frame) {
@@ -302,10 +314,9 @@ void WebViewPlugin::didClearWindowObject(WebLocalFrame* frame) {
               delegate_->GetV8Handle(isolate));
 }
 
-void WebViewPlugin::didReceiveResponse(WebLocalFrame* frame,
-                                       unsigned identifier,
+void WebViewPlugin::didReceiveResponse(unsigned identifier,
                                        const WebURLResponse& response) {
-  WebFrameClient::didReceiveResponse(frame, identifier, response);
+  WebFrameClient::didReceiveResponse(identifier, response);
 }
 
 void WebViewPlugin::OnDestruct() {

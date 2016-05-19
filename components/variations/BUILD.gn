@@ -34,10 +34,14 @@ source_set("variations") {
     "proto/variations_seed.proto",
     "study_filtering.cc",
     "study_filtering.h",
+    "synthetic_trials.cc",
+    "synthetic_trials.h",
     "variations_associated_data.cc",
     "variations_associated_data.h",
     "variations_experiment_util.cc",
     "variations_experiment_util.h",
+    "variations_http_header_provider.cc",
+    "variations_http_header_provider.h",
     "variations_request_scheduler.cc",
     "variations_request_scheduler.h",
     "variations_seed_processor.cc",
@@ -64,12 +68,12 @@ source_set("variations") {
   deps = [
     "proto",
     "//base",
-    "//base:prefs",
-    "//components/compression",
     "//components/crash/core/common",
+    "//components/prefs",
     "//crypto",
     "//third_party/mt19937ar",
     "//third_party/protobuf:protobuf_lite",
+    "//third_party/zlib:compression_utils",
   ]
 
   if (is_android) {
@@ -96,9 +100,10 @@ source_set("unit_tests") {
     "entropy_provider_unittest.cc",
     "experiment_labels_unittest.cc",
     "metrics_util_unittest.cc",
-    "net/variations_http_header_provider_unittest.cc",
+    "net/variations_http_headers_unittest.cc",
     "study_filtering_unittest.cc",
     "variations_associated_data_unittest.cc",
+    "variations_http_header_provider_unittest.cc",
     "variations_request_scheduler_unittest.cc",
     "variations_seed_processor_unittest.cc",
     "variations_seed_simulator_unittest.cc",
@@ -113,13 +118,9 @@ source_set("unit_tests") {
     ":variations",
     "net",
     "proto",
-    "//base:prefs_test_support",
     "//base/test:test_support",
-    "//components/compression",
+    "//components/prefs:test_support",
     "//testing/gtest",
+    "//third_party/zlib:compression_utils",
   ]
-
-  if (is_android) {
-    deps += [ "//components/variations/android:variations_java" ]
-  }
 }

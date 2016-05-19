@@ -5,14 +5,15 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/importer/import.html">
 <link rel="import" href="/tracing/model/counter.html">
-<link rel="import" href="/tracing/model/interaction_record.html">
 <link rel="import" href="/tracing/model/model.html">
 <link rel="import" href="/tracing/model/slice.html">
 <link rel="import" href="/tracing/model/slice_group.html">
 <link rel="import" href="/tracing/model/stack_frame.html">
 <link rel="import" href="/tracing/model/thread_time_slice.html">
+<link rel="import" href="/tracing/model/user_model/stub_expectation.html">
 
 <script>
 'use strict';
@@ -68,12 +69,12 @@ tr.exportTo('tr.c', function() {
   TestUtils.getStartAndDurationFromDict = function(options) {
     return _getStartAndCpuDurationFromDict(
         options, true, 'start', 'duration', 'end');
-  }
+  };
 
   TestUtils.newAsyncSlice = function(start, duration, startThread, endThread) {
     return TestUtils.newAsyncSliceNamed(
         'a', start, duration, startThread, endThread);
-  }
+  };
 
   TestUtils.newAsyncSliceNamed = function(
       name, start, duration, startThread, endThread) {
@@ -85,7 +86,7 @@ tr.exportTo('tr.c', function() {
     s.startThread = startThread;
     s.endThread = endThread;
     return s;
-  }
+  };
 
   TestUtils.newAsyncSliceEx = function(options) {
     var sd = TestUtils.getStartAndDurationFromDict(options);
@@ -140,26 +141,26 @@ tr.exportTo('tr.c', function() {
     if (options.endThread)
       slice.endThread = options.endThread;
     return slice;
-  }
+  };
 
   TestUtils.newCounter = function(parent) {
     return TestUtils.newCounterNamed(parent, 'a');
-  }
+  };
 
   TestUtils.newCounterNamed = function(parent, name) {
     var s = new tr.model.Counter(parent, name, null, name);
     return s;
-  }
+  };
 
   TestUtils.newCounterCategory = function(parent, category, name) {
     var s = new tr.model.Counter(parent, name, category, name);
     return s;
-  }
+  };
 
   TestUtils.newCounterSeries = function() {
     var s = new tr.model.CounterSeries('a', 0);
     return s;
-  }
+  };
 
   TestUtils.newFlowEventEx = function(options) {
     if (options.start === undefined)
@@ -201,16 +202,16 @@ tr.exportTo('tr.c', function() {
       event.endSlice.inFlowEvents.push(event);
     }
     return event;
-  }
+  };
 
   TestUtils.newSlice = function(start, duration) {
     return TestUtils.newSliceNamed('a', start, duration);
-  }
+  };
 
   TestUtils.newSliceNamed = function(name, start, duration) {
     var s = new tr.model.Slice('', name, 0, start, {}, duration);
     return s;
-  }
+  };
 
   TestUtils.newThreadSlice = function(thread, state, start, duration, opt_cpu) {
     var s = new tr.model.ThreadTimeSlice(
@@ -218,7 +219,7 @@ tr.exportTo('tr.c', function() {
     if (opt_cpu)
       s.cpuOnWhichThreadWasRunning = opt_cpu;
     return s;
-  }
+  };
 
   TestUtils.newSampleNamed = function(
       thread, sampleName, category, frameNames, start) {
@@ -233,13 +234,13 @@ tr.exportTo('tr.c', function() {
                                         sf,
                                         1);
     return s;
-  }
+  };
 
   TestUtils.newSliceCategory = function(category, name, start, duration) {
     var s = new tr.model.Slice(
         category, name, 0, start, {}, duration);
     return s;
-  }
+  };
 
   TestUtils.newSliceEx = function(options) {
     var sd = TestUtils.getStartAndDurationFromDict(options);
@@ -267,7 +268,7 @@ tr.exportTo('tr.c', function() {
 
 
     return slice;
-  }
+  };
 
   TestUtils.newStackTrace = function(model, titles) {
     var frame = undefined;
@@ -277,7 +278,7 @@ tr.exportTo('tr.c', function() {
         model.addStackFrame(frame);
     });
     return frame;
-  }
+  };
 
   TestUtils.findSliceNamed = function(slices, name) {
     if (slices instanceof tr.model.SliceGroup)
@@ -286,11 +287,12 @@ tr.exportTo('tr.c', function() {
       if (slices[i].title == name)
         return slices[i];
       return undefined;
-  }
+  };
 
   TestUtils.newInteractionRecord = function(parentModel, start, duration) {
-    return new tr.model.InteractionRecord(parentModel, 'a', 0, start, duration);
-  }
+    return new tr.model.um.StubExpectation({
+      parentModel: parentModel, start: start, duration: duration});
+  };
 
   TestUtils.newModel = function(customizeModelCallback) {
     return TestUtils.newModelWithEvents([], {
@@ -298,7 +300,7 @@ tr.exportTo('tr.c', function() {
       pruneEmptyContainers: false,
       customizeModelCallback: customizeModelCallback
     });
-  }
+  };
 
   TestUtils.newModelWithEvents = function(events, opts) {
     if (!(events instanceof Array))
@@ -320,7 +322,7 @@ tr.exportTo('tr.c', function() {
     var i = new tr.importer.Import(m, io);
     i.importTraces(events);
     return m;
-  }
+  };
 
   TestUtils.newModelWithAuditor = function(customizeModelCallback, auditor) {
     return TestUtils.newModelWithEvents([], {
@@ -329,12 +331,133 @@ tr.exportTo('tr.c', function() {
       customizeModelCallback: customizeModelCallback,
       auditorConstructors: [auditor]
     });
-  }
+  };
 
   TestUtils.newFakeThread = function() {
     var process = {model: {}};
     return new tr.model.Thread(process);
-  }
+  };
+
+  /** @constructor */
+  TestUtils.SourceGenerator = function() {
+    this.sourceList_ = [];
+    this.currentLineCommentList_ = [];
+    this.currentIndent_ = 0;
+    this.currentLineEmpty_ = true;
+  };
+
+  TestUtils.SourceGenerator.prototype = {
+    push: function(/* arguments */) {
+      if (this.currentLineEmpty_) {
+        this.sourceList_.push(' '.repeat(this.currentIndent_));
+        this.currentLineEmpty_ = false;
+      }
+      this.sourceList_.push.apply(
+          this.sourceList_, Array.prototype.slice.call(arguments));
+    },
+
+    pushComment: function(/* arguments */) {
+      this.currentLineCommentList_.push.apply(
+          this.currentLineCommentList_, Array.prototype.slice.call(arguments));
+    },
+
+    build: function() {
+      this.finishLine_();
+      return this.sourceList_.join('');
+    },
+
+    breakLine: function() {
+      this.finishLine_();
+      this.push('\n');
+      this.currentLineEmpty_ = true;
+    },
+
+    finishLine_: function() {
+      if (this.currentLineCommentList_.length === 0)
+        return;
+      this.push('  // ');
+      this.push.apply(this, this.currentLineCommentList_);
+      this.push('.');
+      this.currentLineCommentList_ = [];
+    },
+
+    indentBlock: function(spaces, breakLine, blockCallback, opt_this) {
+      opt_this = opt_this || this;
+      this.currentIndent_ += spaces;
+      if (breakLine)
+        this.breakLine();
+      blockCallback.call(opt_this);
+      this.currentIndent_ -= spaces;
+    },
+
+    formatSingleLineList: function(list, itemCallback, opt_this) {
+      opt_this = opt_this || this;
+      this.push('[');
+      tr.b.asArray(list).forEach(function(item, index) {
+        if (index > 0)
+          this.push(', ');
+        itemCallback.call(opt_this, item, index);
+      }, this);
+      this.push(']');
+    },
+
+    formatMultiLineList: function(list, itemCallback, opt_this) {
+      opt_this = opt_this || this;
+      this.push('[');
+      this.indentBlock(2, false /* don't break line */, function() {
+        tr.b.asArray(list).forEach(function(item, index) {
+          if (index > 0)
+            this.push(',');
+          this.breakLine();
+          itemCallback.call(opt_this, item, index);
+        }, this);
+      }, this);
+      if (list.length > 0)
+        this.breakLine();
+      this.push(']');
+    },
+
+    formatString: function(string) {
+      if (string === undefined)
+        this.push('undefined');
+      else
+        this.push('\'', string, '\'');
+    }
+  };
+
+  TestUtils.addSourceListing = function(test, source) {
+    var testSourceEl = document.createElement('pre');
+    testSourceEl.style.fontFamily = 'monospace';
+    testSourceEl.textContent = source;
+
+    var copyButtonEl = document.createElement('button');
+    copyButtonEl.textContent = 'Copy into to clipboard';
+    copyButtonEl.addEventListener('click', function() {
+      var selection = window.getSelection();
+
+      // Store the original selection.
+      var originalRanges = new Array(selection.rangeCount);
+      for (var i = 0; i < originalRanges.length; i++)
+        originalRanges[i] = selection.getRangeAt(i);
+
+      // Copy the generated test source code into clipboard.
+      selection.removeAllRanges();
+      var range = document.createRange();
+      range.selectNode(testSourceEl);
+      selection.addRange(range);
+      document.execCommand('copy');
+
+      // Restore the original selection.
+      selection.removeAllRanges();
+      for (var i = 0; i < originalRanges.length; i++)
+        selection.addRange(originalRanges[i]);
+    });
+
+    var outputEl = document.createElement('div');
+    outputEl.appendChild(copyButtonEl);
+    outputEl.appendChild(testSourceEl);
+    test.addHTMLOutput(outputEl);
+  };
 
   return {
     TestUtils: TestUtils

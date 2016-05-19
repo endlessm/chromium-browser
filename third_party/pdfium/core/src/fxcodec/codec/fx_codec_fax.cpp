@@ -4,8 +4,8 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "codec_int.h"
 #include "core/include/fxcodec/fx_codec.h"
+#include "core/src/fxcodec/codec/codec_int.h"
 
 namespace {
 
@@ -799,9 +799,8 @@ void CCodec_FaxEncoder::Encode(uint8_t*& dest_buf, FX_DWORD& dest_size) {
   if (dest_bitpos) {
     m_DestBuf.AppendByte(last_byte);
   }
-  dest_buf = m_DestBuf.GetBuffer();
   dest_size = m_DestBuf.GetSize();
-  m_DestBuf.DetachBuffer();
+  dest_buf = m_DestBuf.DetachBuffer();
 }
 FX_BOOL CCodec_FaxModule::Encode(const uint8_t* src_buf,
                                  int width,

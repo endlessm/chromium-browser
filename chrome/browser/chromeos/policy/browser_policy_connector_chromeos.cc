@@ -5,6 +5,8 @@
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 
 #include <string>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -12,7 +14,6 @@
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_registry_simple.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -47,6 +48,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_refresh_scheduler.h"
 #include "components/policy/core/common/proxy_policy_provider.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -139,8 +141,8 @@ BrowserPolicyConnectorChromeOS::BrowserPolicyConnectorChromeOS()
             install_attributes_.get(),
             GetBackgroundTaskRunner()));
     device_cloud_policy_manager_ = new DeviceCloudPolicyManagerChromeOS(
-        device_cloud_policy_store.Pass(), base::ThreadTaskRunnerHandle::Get(),
-        state_keys_broker_.get());
+        std::move(device_cloud_policy_store),
+        base::ThreadTaskRunnerHandle::Get(), state_keys_broker_.get());
     AddPolicyProvider(
         scoped_ptr<ConfigurationPolicyProvider>(device_cloud_policy_manager_));
   }
@@ -168,7 +170,7 @@ void BrowserPolicyConnectorChromeOS::Init(
         new DeviceManagementServiceConfiguration(
             GetDeviceManagementServerUrlForConsumer()));
     consumer_device_management_service_.reset(
-        new DeviceManagementService(configuration.Pass()));
+        new DeviceManagementService(std::move(configuration)));
     consumer_device_management_service_->ScheduleInitialization(
         kServiceInitializationStartupDelay);
   }
@@ -284,25 +286,6 @@ EnrollmentConfig BrowserPolicyConnectorChromeOS::GetPrescribedEnrollmentConfig()
   return EnrollmentConfig();
 }
 
-UserAffiliation BrowserPolicyConnectorChromeOS::GetUserAffiliation(
-    const std::string& user_name) {
-  // An empty username means incognito user in case of ChromiumOS and
-  // no logged-in user in case of Chromium (SigninService). Many tests use
-  // nonsense email addresses (e.g. 'test') so treat those as non-enterprise
-  // users.
-  if (user_name.empty() || user_name.find('@') == std::string::npos)
-    return USER_AFFILIATION_NONE;
-
-  if (install_attributes_ &&
-      (gaia::ExtractDomainName(gaia::CanonicalizeEmail(user_name)) ==
-           install_attributes_->GetDomain() ||
-       policy::IsDeviceLocalAccountUser(user_name, NULL))) {
-    return USER_AFFILIATION_MANAGED;
-  }
-
-  return USER_AFFILIATION_NONE;
-}
-
 void BrowserPolicyConnectorChromeOS::SetUserPolicyDelegate(
     ConfigurationPolicyProvider* user_policy_provider) {
   global_user_cloud_policy_provider_->SetDelegate(user_policy_provider);
@@ -310,12 +293,12 @@ void BrowserPolicyConnectorChromeOS::SetUserPolicyDelegate(
 
 void BrowserPolicyConnectorChromeOS::SetConsumerManagementServiceForTesting(
     scoped_ptr<ConsumerManagementService> service) {
-  consumer_management_service_ = service.Pass();
+  consumer_management_service_ = std::move(service);
 }
 
 void BrowserPolicyConnectorChromeOS::SetDeviceCloudPolicyInitializerForTesting(
     scoped_ptr<DeviceCloudPolicyInitializer> initializer) {
-  device_cloud_policy_initializer_ = initializer.Pass();
+  device_cloud_policy_initializer_ = std::move(initializer);
 }
 
 // static

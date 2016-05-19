@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_CUSTOM_HANDLERS_REGISTER_PROTOCOL_HANDLER_PERMISSION_REQUEST_H_
 #define CHROME_BROWSER_CUSTOM_HANDLERS_REGISTER_PROTOCOL_HANDLER_PERMISSION_REQUEST_H_
 
+#include "base/macros.h"
 #include "chrome/browser/ui/website_settings/permission_bubble_request.h"
 #include "chrome/common/custom_handlers/protocol_handler.h"
 
@@ -28,8 +29,7 @@ class RegisterProtocolHandlerPermissionRequest
   int GetIconId() const override;
   base::string16 GetMessageText() const override;
   base::string16 GetMessageTextFragment() const override;
-  bool HasUserGesture() const override;
-  GURL GetRequestingHostname() const override;
+  GURL GetOrigin() const override;
   void PermissionGranted() override;
   void PermissionDenied() override;
   void Cancelled() override;
@@ -38,8 +38,7 @@ class RegisterProtocolHandlerPermissionRequest
  private:
   ProtocolHandlerRegistry* registry_;
   ProtocolHandler handler_;
-  GURL url_;
-  bool user_gesture_;
+  GURL origin_;
 
   DISALLOW_COPY_AND_ASSIGN(RegisterProtocolHandlerPermissionRequest);
 };

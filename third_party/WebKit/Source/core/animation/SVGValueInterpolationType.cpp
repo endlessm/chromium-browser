@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/SVGValueInterpolationType.h"
 
 #include "core/animation/InterpolationEnvironment.h"
@@ -35,10 +34,10 @@ private:
 DEFINE_NON_INTERPOLABLE_VALUE_TYPE(SVGValueNonInterpolableValue);
 DEFINE_NON_INTERPOLABLE_VALUE_TYPE_CASTS(SVGValueNonInterpolableValue);
 
-PassOwnPtr<InterpolationValue> SVGValueInterpolationType::maybeConvertSVGValue(const SVGPropertyBase& value) const
+InterpolationValue SVGValueInterpolationType::maybeConvertSVGValue(const SVGPropertyBase& value) const
 {
     RefPtrWillBeRawPtr<SVGPropertyBase> referencedValue = const_cast<SVGPropertyBase*>(&value); // Take ref.
-    return InterpolationValue::create(*this, InterpolableList::create(0), SVGValueNonInterpolableValue::create(referencedValue.release()));
+    return InterpolationValue(InterpolableList::create(0), SVGValueNonInterpolableValue::create(referencedValue.release()));
 }
 
 PassRefPtrWillBeRawPtr<SVGPropertyBase> SVGValueInterpolationType::appliedSVGValue(const InterpolableValue&, const NonInterpolableValue* nonInterpolableValue) const

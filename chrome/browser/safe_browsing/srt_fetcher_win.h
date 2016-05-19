@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_SAFE_BROWSING_SRT_FETCHER_WIN_H_
 #define CHROME_BROWSER_SAFE_BROWSING_SRT_FETCHER_WIN_H_
 
+#include <limits.h>
+
 #include <string>
 
 #include "base/callback_forward.h"
@@ -52,6 +54,17 @@ void RunSwReporter(
     const std::string& version,
     const scoped_refptr<base::TaskRunner>& main_thread_task_runner,
     const scoped_refptr<base::TaskRunner>& blocking_task_runner);
+
+// Returns true iff Local State is successfully accessed and indicates the most
+// recent Reporter run terminated with an exit code indicating the presence of
+// UwS.
+bool ReporterFoundUws();
+
+// Returns true iff a valid registry key for the SRT Cleaner exists, and that
+// key is nonempty.
+// TODO(tmartino): Consider changing to check whether the user has recently
+// run the cleaner, rather than checking if they've run it at all.
+bool UserHasRunCleaner();
 
 // Test mocks for launching the reporter and showing the prompt
 typedef base::Callback<int(const base::FilePath& exe_path,

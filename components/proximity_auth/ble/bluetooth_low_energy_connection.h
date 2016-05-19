@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_PROXIMITY_AUTH_BLUETOOTH_LOW_ENERGY_CONNECTION_H
-#define COMPONENTS_PROXIMITY_AUTH_BLUETOOTH_LOW_ENERGY_CONNECTION_H
+#ifndef COMPONENTS_PROXIMITY_AUTH_BLE_BLUETOOTH_LOW_ENERGY_CONNECTION_H_
+#define COMPONENTS_PROXIMITY_AUTH_BLE_BLUETOOTH_LOW_ENERGY_CONNECTION_H_
+
+#include <stddef.h>
+#include <stdint.h>
 
 #include <queue>
 #include <string>
@@ -59,7 +62,7 @@ class BluetoothLowEnergyConnection : public Connection,
                                      public device::BluetoothAdapter::Observer {
  public:
   // Signals sent to the remote device to indicate connection related events.
-  enum class ControlSignal : uint32 {
+  enum class ControlSignal : uint32_t {
     kInviteToConnectSignal = 0,
     kInvitationResponseSignal = 1,
     kSendSignal = 2,
@@ -124,7 +127,7 @@ class BluetoothLowEnergyConnection : public Connection,
   void GattCharacteristicValueChanged(
       device::BluetoothAdapter* adapter,
       device::BluetoothGattCharacteristic* characteristic,
-      const std::vector<uint8>& value) override;
+      const std::vector<uint8_t>& value) override;
 
  private:
   // Represents a request to write |value| to a some characteristic.
@@ -134,10 +137,11 @@ class BluetoothLowEnergyConnection : public Connection,
   // a kSendSignal + the size of the WireMessage, and the second containing a
   // SendStatusSignal + the serialized WireMessage.
   struct WriteRequest {
-    WriteRequest(const std::vector<uint8>& val, bool flag);
+    WriteRequest(const std::vector<uint8_t>& val, bool flag);
+    WriteRequest(const WriteRequest& other);
     ~WriteRequest();
 
-    std::vector<uint8> value;
+    std::vector<uint8_t> value;
     bool is_last_write_for_wire_message;
     int number_of_failed_attempts;
   };
@@ -204,7 +208,7 @@ class BluetoothLowEnergyConnection : public Connection,
   void ProcessNextWriteRequest();
 
   // Called when the BluetoothGattCharacteristic::RemoteCharacteristicWrite() is
-  // sucessfully complete.
+  // successfully complete.
   void OnRemoteCharacteristicWritten(bool run_did_send_message_callback);
 
   // Called when there is an error writing to the remote characteristic
@@ -215,8 +219,8 @@ class BluetoothLowEnergyConnection : public Connection,
 
   // Builds the value to be written on |to_peripheral_char_|. The value
   // corresponds to |signal| concatenated with |payload|.
-  WriteRequest BuildWriteRequest(const std::vector<uint8>& signal,
-                                 const std::vector<uint8>& bytes,
+  WriteRequest BuildWriteRequest(const std::vector<uint8_t>& signal,
+                                 const std::vector<uint8_t>& bytes,
                                  bool is_last_message_for_wire_message);
 
   // Prints the time elapsed since |Connect()| was called.
@@ -234,11 +238,11 @@ class BluetoothLowEnergyConnection : public Connection,
   device::BluetoothGattCharacteristic* GetGattCharacteristic(
       const std::string& identifier);
 
-  // Convert the first 4 bytes from a byte vector to a uint32.
-  uint32 ToUint32(const std::vector<uint8>& bytes);
+  // Convert the first 4 bytes from a byte vector to a uint32_t.
+  uint32_t ToUint32(const std::vector<uint8_t>& bytes);
 
-  // Convert an uint32 to a byte vector.
-  const std::vector<uint8> ToByteVector(uint32 value);
+  // Convert an uint32_t to a byte vector.
+  const std::vector<uint8_t> ToByteVector(uint32_t value);
 
   // The Bluetooth adapter over which the Bluetooth connection will be made.
   scoped_refptr<device::BluetoothAdapter> adapter_;
@@ -306,4 +310,4 @@ class BluetoothLowEnergyConnection : public Connection,
 
 }  // namespace proximity_auth
 
-#endif  // COMPONENTS_PROXIMITY_AUTH_BLUETOOTH_LOW_ENERGY_CONNECTION_H
+#endif  // COMPONENTS_PROXIMITY_AUTH_BLE_BLUETOOTH_LOW_ENERGY_CONNECTION_H_

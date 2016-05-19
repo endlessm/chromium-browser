@@ -11,6 +11,7 @@
 #include "content/browser/devtools/protocol/system_info_handler.h"
 #include "content/browser/devtools/protocol/tethering_handler.h"
 #include "content/browser/devtools/protocol/tracing_handler.h"
+#include "content/browser/frame_host/frame_tree_node.h"
 
 namespace content {
 
@@ -30,11 +31,10 @@ BrowserDevToolsAgentHost::BrowserDevToolsAgentHost(
           new devtools::tethering::TetheringHandler(socket_callback,
                                                     tethering_task_runner)),
       tracing_handler_(new devtools::tracing::TracingHandler(
-          devtools::tracing::TracingHandler::Browser, GetIOContext())),
-      protocol_handler_(new DevToolsProtocolHandler(
-          this,
-          base::Bind(&BrowserDevToolsAgentHost::SendMessageToClient,
-                     base::Unretained(this)))) {
+          devtools::tracing::TracingHandler::Browser,
+          FrameTreeNode::kFrameTreeNodeInvalidId,
+          GetIOContext())),
+      protocol_handler_(new DevToolsProtocolHandler(this)) {
   DevToolsProtocolDispatcher* dispatcher = protocol_handler_->dispatcher();
   dispatcher->SetIOHandler(io_handler_.get());
   dispatcher->SetMemoryHandler(memory_handler_.get());
@@ -74,7 +74,7 @@ bool BrowserDevToolsAgentHost::Close() {
 
 bool BrowserDevToolsAgentHost::DispatchProtocolMessage(
     const std::string& message) {
-  protocol_handler_->HandleMessage(message);
+  protocol_handler_->HandleMessage(session_id(), message);
   return true;
 }
 

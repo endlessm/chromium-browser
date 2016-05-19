@@ -5,9 +5,12 @@
 #ifndef NET_QUIC_TEST_TOOLS_QUIC_SESSION_PEER_H_
 #define NET_QUIC_TEST_TOOLS_QUIC_SESSION_PEER_H_
 
+#include <stdint.h>
+
 #include <map>
 
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "net/quic/quic_protocol.h"
 #include "net/quic/quic_session.h"
 #include "net/quic/quic_write_blocked_list.h"
@@ -26,7 +29,10 @@ class QuicSessionPeer {
  public:
   static QuicStreamId GetNextOutgoingStreamId(QuicSession* session);
   static void SetNextOutgoingStreamId(QuicSession* session, QuicStreamId id);
-  static void SetMaxOpenStreams(QuicSession* session, uint32 max_streams);
+  static void SetMaxOpenIncomingStreams(QuicSession* session,
+                                        uint32_t max_streams);
+  static void SetMaxOpenOutgoingStreams(QuicSession* session,
+                                        uint32_t max_streams);
   static QuicCryptoStream* GetCryptoStream(QuicSession* session);
   static QuicWriteBlockedList* GetWriteBlockedStreams(QuicSession* session);
   static ReliableQuicStream* GetOrCreateDynamicStream(QuicSession* session,
@@ -35,7 +41,8 @@ class QuicSessionPeer {
   GetLocallyClosedStreamsHighestOffset(QuicSession* session);
   static QuicSession::StreamMap& static_streams(QuicSession* session);
   static QuicSession::StreamMap& dynamic_streams(QuicSession* session);
-  static base::hash_set<QuicStreamId>* GetDrainingStreams(QuicSession* session);
+  static std::unordered_set<QuicStreamId>* GetDrainingStreams(
+      QuicSession* session);
 
   // Discern the state of a stream.  Exactly one of these should be true at a
   // time for any stream id > 0 (other than the special streams 1 and 3).

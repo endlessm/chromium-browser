@@ -4,6 +4,8 @@
 
 #include "base/threading/thread.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/bind.h"
@@ -11,6 +13,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 
@@ -289,4 +292,12 @@ TEST_F(ThreadTest, CleanUp) {
 TEST_F(ThreadTest, ThreadNotStarted) {
   Thread a("Inert");
   EXPECT_EQ(nullptr, a.task_runner());
+}
+
+TEST_F(ThreadTest, MultipleWaitUntilThreadStarted) {
+  Thread a("MultipleWaitUntilThreadStarted");
+  EXPECT_TRUE(a.Start());
+  // It's OK to call WaitUntilThreadStarted() multiple times.
+  EXPECT_TRUE(a.WaitUntilThreadStarted());
+  EXPECT_TRUE(a.WaitUntilThreadStarted());
 }

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "gin/modules/console.h"
 #include "gin/modules/module_registry.h"
@@ -10,11 +11,11 @@
 #include "gin/test/gtest.h"
 #include "mojo/edk/js/core.h"
 #include "mojo/edk/js/support.h"
-#include "mojo/public/cpp/environment/environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace mojo {
 namespace edk {
+namespace js {
 namespace {
 
 class TestRunnerDelegate : public gin::FileRunnerDelegate {
@@ -62,5 +63,6 @@ TEST(JSTest, validation) {
 }
 
 }  // namespace
+}  // namespace js
 }  // namespace edk
 }  // namespace mojo

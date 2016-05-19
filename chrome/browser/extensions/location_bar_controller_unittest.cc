@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/active_script_controller.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/extension_action.h"
@@ -69,17 +71,18 @@ class LocationBarControllerUnitTest : public ChromeRenderViewHostTestHarness {
                                 const std::string& name) {
     DictionaryBuilder manifest;
     manifest.Set("name", name)
-            .Set("version", "1.0.0")
-            .Set("manifest_version", 2)
-            .Set("permissions", ListBuilder().Append("tabs"));
+        .Set("version", "1.0.0")
+        .Set("manifest_version", 2)
+        .Set("permissions", std::move(ListBuilder().Append("tabs")));
     if (has_page_actions) {
-      manifest.Set("page_action", DictionaryBuilder()
-              .Set("default_title", "Hello"));
+      manifest.Set("page_action", std::move(DictionaryBuilder().Set(
+                                      "default_title", "Hello")));
     }
     scoped_refptr<const Extension> extension =
-        ExtensionBuilder().SetManifest(manifest.Pass())
-                          .SetID(crx_file::id_util::GenerateId(name))
-                          .Build();
+        ExtensionBuilder()
+            .SetManifest(std::move(manifest))
+            .SetID(crx_file::id_util::GenerateId(name))
+            .Build();
     extension_service_->AddExtension(extension.get());
     return extension.get();
   }
@@ -121,8 +124,8 @@ TEST_F(LocationBarControllerUnitTest, LocationBarDisplaysPageActions) {
   ActiveScriptController* active_script_controller =
       ActiveScriptController::GetForWebContents(web_contents());
   ASSERT_TRUE(active_script_controller);
-  active_script_controller->RequestScriptInjectionForTesting(no_action,
-                                                             base::Closure());
+  active_script_controller->RequestScriptInjectionForTesting(
+      no_action, UserScript::DOCUMENT_IDLE, base::Closure());
   current_actions = controller->GetCurrentActions();
   ASSERT_EQ(2u, current_actions.size());
   // Check that each extension is present in the vector.
@@ -133,8 +136,8 @@ TEST_F(LocationBarControllerUnitTest, LocationBarDisplaysPageActions) {
 
   // If we request a script injection for an extension that already has a
   // page action, only one action should be visible.
-  active_script_controller->RequestScriptInjectionForTesting(page_action,
-                                                             base::Closure());
+  active_script_controller->RequestScriptInjectionForTesting(
+      page_action, UserScript::DOCUMENT_IDLE, base::Closure());
   current_actions = controller->GetCurrentActions();
   ASSERT_EQ(2u, current_actions.size());
   EXPECT_TRUE(current_actions[0]->extension_id() == no_action->id() ||
@@ -163,13 +166,13 @@ TEST_F(LocationBarControllerUnitTest, NavigationClearsState) {
   ExtensionActionAPI* extension_action_api =
       ExtensionActionAPI::Get(profile());
   // By default, extensions shouldn't want to act on a page.
-  EXPECT_FALSE(extension_action_api->ExtensionWantsToRun(extension,
-                                                         web_contents()));
+  EXPECT_FALSE(
+      extension_action_api->PageActionWantsToRun(extension, web_contents()));
   // Showing the page action should indicate that an extension *does* want to
   // run on the page.
   page_action.SetIsVisible(tab_id(), true);
-  EXPECT_TRUE(extension_action_api->ExtensionWantsToRun(extension,
-                                                        web_contents()));
+  EXPECT_TRUE(
+      extension_action_api->PageActionWantsToRun(extension, web_contents()));
 
   EXPECT_EQ("Goodbye", page_action.GetTitle(tab_id()));
   EXPECT_EQ(extension->GetResourceURL("popup.html"),
@@ -181,16 +184,16 @@ TEST_F(LocationBarControllerUnitTest, NavigationClearsState) {
   EXPECT_EQ("Goodbye", page_action.GetTitle(tab_id()));
   EXPECT_EQ(extension->GetResourceURL("popup.html"),
             page_action.GetPopupUrl(tab_id()));
-  EXPECT_TRUE(extension_action_api->ExtensionWantsToRun(extension,
-                                                        web_contents()));
+  EXPECT_TRUE(
+      extension_action_api->PageActionWantsToRun(extension, web_contents()));
 
   // Should discard the settings, and go back to the defaults.
   NavigateAndCommit(GURL("http://www.yahoo.com"));
 
   EXPECT_EQ("Hello", page_action.GetTitle(tab_id()));
   EXPECT_EQ(GURL(), page_action.GetPopupUrl(tab_id()));
-  EXPECT_FALSE(extension_action_api->ExtensionWantsToRun(extension,
-                                                         web_contents()));
+  EXPECT_FALSE(
+      extension_action_api->PageActionWantsToRun(extension, web_contents()));
 }
 
 }  // namespace

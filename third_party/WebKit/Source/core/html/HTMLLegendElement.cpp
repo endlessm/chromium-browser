@@ -22,7 +22,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLLegendElement.h"
 
 #include "core/HTMLNames.h"
@@ -56,6 +55,7 @@ HTMLFormControlElement* HTMLLegendElement::associatedControl()
 
 void HTMLLegendElement::focus(const FocusParams& params)
 {
+    document().updateLayoutTreeForNode(this);
     if (isFocusable()) {
         Element::focus(params);
         return;
@@ -84,4 +84,4 @@ HTMLFormElement* HTMLLegendElement::form() const
     return toHTMLFieldSetElement(fieldset)->formOwner();
 }
 
-} // namespace
+} // namespace blink

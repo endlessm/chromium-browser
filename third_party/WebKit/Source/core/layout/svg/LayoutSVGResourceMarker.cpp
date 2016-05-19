@@ -19,7 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGResourceMarker.h"
 
 #include "core/layout/svg/LayoutSVGContainer.h"
@@ -153,4 +152,4 @@ void LayoutSVGResourceMarker::calcViewport()
     m_viewport = FloatRect(0, 0, w, h);
 }
 
-}
+} // namespace blink

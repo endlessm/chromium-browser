@@ -8,10 +8,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "extensions/browser/api/web_request/web_request_event_router_delegate.h"
 
-namespace base {
-class DictionaryValue;
-}
-
 class ChromeExtensionWebRequestEventRouterDelegate
     : public extensions::WebRequestEventRouterDelegate {
  public:
@@ -19,8 +15,9 @@ class ChromeExtensionWebRequestEventRouterDelegate
   ~ChromeExtensionWebRequestEventRouterDelegate() override;
 
   // WebRequestEventRouterDelegate implementation.
-  void ExtractExtraRequestDetails(const net::URLRequest* request,
-                                  base::DictionaryValue* out) override;
+  void ExtractExtraRequestDetails(
+      const net::URLRequest* request,
+      extensions::WebRequestEventDetails* out) override;
   bool OnGetMatchingListenersImplCheck(int tab_id,
                                        int window_id,
                                        const net::URLRequest* request) override;
@@ -30,6 +27,9 @@ class ChromeExtensionWebRequestEventRouterDelegate
                             const GURL& url,
                             const std::string& api_call,
                             scoped_ptr<base::DictionaryValue> details) override;
+  void NotifyWebRequestWithheld(int render_process_id,
+                                int render_frame_id,
+                                const std::string& extension_id) override;
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_API_WEB_REQUEST_CHROME_EXTENSION_WEB_REQUEST_EVENT_ROUTER_DELEGATE_H_

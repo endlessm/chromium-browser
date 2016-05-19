@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_FRAME_IMMERSIVE_MODE_CONTROLLER_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/observer_list.h"
-#include "chrome/browser/ui/host_desktop.h"
 
 class BrowserView;
 
@@ -118,8 +118,7 @@ class ImmersiveModeController {
 namespace chrome {
 
 // Implemented in immersive_mode_controller_factory.cc.
-ImmersiveModeController* CreateImmersiveModeController(
-    chrome::HostDesktopType host_desktop_type);
+ImmersiveModeController* CreateImmersiveModeController();
 
 }  // namespace chrome
 

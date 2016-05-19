@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/inspector/ConsoleMessage.h"
 
-#include "bindings/core/v8/ScriptCallStackFactory.h"
+#include "bindings/core/v8/ScriptCallStack.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "core/inspector/ScriptArguments.h"
-#include "core/inspector/ScriptAsyncCallStack.h"
 #include "wtf/CurrentTime.h"
 #include "wtf/PassOwnPtr.h"
 
@@ -21,7 +19,7 @@ unsigned nextMessageId()
         unsigned value;
     };
 
-    AtomicallyInitializedStaticReference(WTF::ThreadSpecific<MessageId>, messageId, new WTF::ThreadSpecific<MessageId>);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(WTF::ThreadSpecific<MessageId>, messageId, new WTF::ThreadSpecific<MessageId>);
     return ++messageId->value;
 }
 
@@ -91,19 +89,18 @@ void ConsoleMessage::setLineNumber(unsigned lineNumber)
     m_lineNumber = lineNumber;
 }
 
-PassRefPtrWillBeRawPtr<ScriptCallStack> ConsoleMessage::callStack() const
+PassRefPtr<ScriptCallStack> ConsoleMessage::callStack() const
 {
     return m_callStack;
 }
 
-void ConsoleMessage::setCallStack(PassRefPtrWillBeRawPtr<ScriptCallStack> callStack)
+void ConsoleMessage::setCallStack(PassRefPtr<ScriptCallStack> callStack)
 {
     m_callStack = callStack;
-    if (m_callStack && m_callStack->size() && !m_scriptId) {
-        const ScriptCallFrame& frame = m_callStack->at(0);
-        m_url = frame.sourceURL();
-        m_lineNumber = frame.lineNumber();
-        m_columnNumber = frame.columnNumber();
+    if (m_callStack && !m_callStack->isEmpty() && !m_scriptId) {
+        m_url = m_callStack->topSourceURL();
+        m_lineNumber = m_callStack->topLineNumber();
+        m_columnNumber = m_callStack->topColumnNumber();
     }
 }
 
@@ -209,12 +206,11 @@ void ConsoleMessage::collectCallStack()
         return;
 
     if (!m_callStack)
-        setCallStack(currentScriptCallStackForConsole(ScriptCallStack::maxCallStackSizeToCapture));
+        setCallStack(ScriptCallStack::captureForConsole());
 }
 
 DEFINE_TRACE(ConsoleMessage)
 {
-    visitor->trace(m_callStack);
     visitor->trace(m_scriptArguments);
 }
 

@@ -9,10 +9,11 @@
 #include "content/browser/renderer_host/gpu_message_filter.h"
 
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/common/child_process_host_impl.h"
-#include "content/common/gpu/gpu_messages.h"
+#include "content/common/gpu/gpu_host_messages.h"
 
 namespace content {
 
@@ -33,6 +34,7 @@ bool GpuMessageFilter::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(GpuMessageFilter, message)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(GpuHostMsg_EstablishGpuChannel,
                                     OnEstablishGpuChannel)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(GpuHostMsg_HasGpuProcess, OnHasGpuProcess)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -43,6 +45,17 @@ void GpuMessageFilter::OnEstablishGpuChannel(
     IPC::Message* reply_ptr) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   scoped_ptr<IPC::Message> reply(reply_ptr);
+
+#if defined(OS_WIN) && defined(ARCH_CPU_X86_64)
+  // TODO(jbauman): Remove this when we know why renderer processes are
+  // hanging on x86-64. https://crbug.com/577127
+  if (!GpuDataManagerImpl::GetInstance()->CanUseGpuBrowserCompositor()) {
+    reply->set_reply_error();
+    Send(reply.release());
+    return;
+  }
+#endif
+
   GpuProcessHost* host = GpuProcessHost::FromID(gpu_process_id_);
   if (!host) {
     host = GpuProcessHost::Get(GpuProcessHost::GPU_PROCESS_KIND_SANDBOXED,
@@ -57,15 +70,21 @@ void GpuMessageFilter::OnEstablishGpuChannel(
   }
 
   bool preempts = false;
-  bool preempted = true;
-  bool allow_future_sync_points = false;
+  bool allow_view_command_buffers = false;
   bool allow_real_time_streams = false;
   host->EstablishGpuChannel(
       render_process_id_,
       ChildProcessHostImpl::ChildProcessUniqueIdToTracingProcessId(
           render_process_id_),
-      preempts, preempted, allow_future_sync_points, allow_real_time_streams,
+      preempts, allow_view_command_buffers, allow_real_time_streams,
       base::Bind(&GpuMessageFilter::EstablishChannelCallback,
+                 weak_ptr_factory_.GetWeakPtr(), base::Passed(&reply)));
+}
+
+void GpuMessageFilter::OnHasGpuProcess(IPC::Message* reply_ptr) {
+  scoped_ptr<IPC::Message> reply(reply_ptr);
+  GpuProcessHost::GetProcessHandles(
+      base::Bind(&GpuMessageFilter::GetGpuProcessHandlesCallback,
                  weak_ptr_factory_.GetWeakPtr(), base::Passed(&reply)));
 }
 
@@ -77,6 +96,14 @@ void GpuMessageFilter::EstablishChannelCallback(
 
   GpuHostMsg_EstablishGpuChannel::WriteReplyParams(
       reply.get(), render_process_id_, channel, gpu_info);
+  Send(reply.release());
+}
+
+void GpuMessageFilter::GetGpuProcessHandlesCallback(
+    scoped_ptr<IPC::Message> reply,
+    const std::list<base::ProcessHandle>& handles) {
+  bool has_gpu_process = handles.size() > 0;
+  GpuHostMsg_HasGpuProcess::WriteReplyParams(reply.get(), has_gpu_process);
   Send(reply.release());
 }
 

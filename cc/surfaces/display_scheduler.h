@@ -6,6 +6,7 @@
 #define CC_SURFACES_DISPLAY_SCHEDULER_H_
 
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
@@ -18,7 +19,6 @@ namespace cc {
 class OutputSurface;
 class BeginFrameSource;
 
-// TODO(brianderson): Reconcile with SurfacesScheduler crbug.com/476676
 class CC_SURFACES_EXPORT DisplaySchedulerClient {
  public:
   virtual ~DisplaySchedulerClient() {}
@@ -47,6 +47,7 @@ class CC_SURFACES_EXPORT DisplayScheduler : public BeginFrameObserverBase {
 
   // BeginFrameObserverBase implementation
   bool OnBeginFrameDerivedImpl(const BeginFrameArgs& args) override;
+  void OnBeginFrameSourcePausedChanged(bool paused) override;
 
   BeginFrameSource* begin_frame_source_for_children() {
     return begin_frame_source_for_children_.get();
@@ -81,6 +82,8 @@ class CC_SURFACES_EXPORT DisplayScheduler : public BeginFrameObserverBase {
 
   int pending_swaps_;
   int max_pending_swaps_;
+
+  bool observing_begin_frame_source_;
 
   SurfaceId root_surface_id_;
   bool root_surface_damaged_;

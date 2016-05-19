@@ -5,6 +5,7 @@
 #include "chrome/browser/bookmarks/chrome_bookmark_client.h"
 
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -29,11 +30,6 @@ ChromeBookmarkClient::~ChromeBookmarkClient() {
 void ChromeBookmarkClient::Init(bookmarks::BookmarkModel* model) {
   if (managed_bookmark_service_)
     managed_bookmark_service_->BookmarkModelCreated(model);
-}
-
-void ChromeBookmarkClient::Shutdown() {
-  managed_bookmark_service_ = nullptr;
-  BookmarkClient::Shutdown();
 }
 
 bool ChromeBookmarkClient::PreferTouchIcon() {

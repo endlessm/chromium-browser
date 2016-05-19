@@ -4,7 +4,9 @@
 
 #include "tools/gn/functions.h"
 
+#include <stddef.h>
 #include <iostream>
+#include <utility>
 
 #include "base/environment.h"
 #include "base/strings/string_util.h"
@@ -261,13 +263,17 @@ const char kConfig_Help[] =
     "   4. All dependent configs from a breadth-first traversal of the\n"
     "      dependency tree in the order that the targets appear in \"deps\".\n"
     "\n"
-    "Variables valid in a config definition:\n"
-    CONFIG_VALUES_VARS_HELP
+    "Variables valid in a config definition\n"
     "\n"
-    "Variables on a target used to apply configs:\n"
+    CONFIG_VALUES_VARS_HELP
+    "  Nested configs: configs\n"
+    "\n"
+    "Variables on a target used to apply configs\n"
+    "\n"
     "  all_dependent_configs, configs, public_configs\n"
     "\n"
-    "Example:\n"
+    "Example\n"
+    "\n"
     "  config(\"myconfig\") {\n"
     "    includes = [ \"include/common\" ]\n"
     "    defines = [ \"ENABLE_DOOM_MELON\" ]\n"
@@ -667,7 +673,7 @@ Value RunSetSourcesAssignmentFilter(Scope* scope,
     scoped_ptr<PatternList> f(new PatternList);
     f->SetFromValue(args[0], err);
     if (!err->has_error())
-      scope->set_sources_assignment_filter(f.Pass());
+      scope->set_sources_assignment_filter(std::move(f));
   }
   return Value();
 }

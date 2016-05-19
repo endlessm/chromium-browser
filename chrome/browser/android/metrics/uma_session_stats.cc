@@ -7,7 +7,6 @@
 #include "base/android/jni_string.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
@@ -18,6 +17,7 @@
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/metrics_services_manager/metrics_services_manager.h"
+#include "components/prefs/pref_service.h"
 #include "components/variations/metrics_util.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_thread.h"
@@ -38,7 +38,8 @@ UmaSessionStats::UmaSessionStats()
 UmaSessionStats::~UmaSessionStats() {
 }
 
-void UmaSessionStats::UmaResumeSession(JNIEnv* env, jobject obj) {
+void UmaSessionStats::UmaResumeSession(JNIEnv* env,
+                                       const JavaParamRef<jobject>& obj) {
   DCHECK(g_browser_process);
 
   if (active_session_count_ == 0) {
@@ -53,7 +54,8 @@ void UmaSessionStats::UmaResumeSession(JNIEnv* env, jobject obj) {
   ++active_session_count_;
 }
 
-void UmaSessionStats::UmaEndSession(JNIEnv* env, jobject obj) {
+void UmaSessionStats::UmaEndSession(JNIEnv* env,
+                                    const JavaParamRef<jobject>& obj) {
   --active_session_count_;
   DCHECK_GE(active_session_count_, 0);
 
@@ -131,7 +133,7 @@ static void RegisterExternalExperiment(JNIEnv* env,
   const std::string group_name_utf8 = base::IntToString(experiment_id);
 
   variations::ActiveGroupId active_group;
-  active_group.name = static_cast<uint32>(study_id);
+  active_group.name = static_cast<uint32_t>(study_id);
   active_group.group = metrics::HashName(group_name_utf8);
   variations::AssociateGoogleVariationIDForceHashes(
       variations::GOOGLE_WEB_PROPERTIES, active_group,

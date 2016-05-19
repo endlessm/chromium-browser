@@ -19,6 +19,7 @@ import org.chromium.chrome.browser.tabmodel.document.AsyncTabCreationParams;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
 import org.chromium.chrome.test.util.ActivityUtils;
+import org.chromium.chrome.test.util.ChromeRestriction;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -34,19 +35,19 @@ public class ChromeTabbedActivityLollipopAndAboveTest extends ChromeTabbedActivi
     /**
      * Confirm that you can't start DocumentActivity while the user is running in tabbed mode.
      */
-    @Restriction(Restriction.RESTRICTION_TYPE_PHONE)
+    @Restriction(ChromeRestriction.RESTRICTION_TYPE_PHONE)
     @MediumTest
     public void testDontKeepDocumentActivityInTabbedMode() throws Exception {
         // Make sure that ChromeTabbedActivity started up.
         Context context = getInstrumentation().getTargetContext();
         assertFalse(FeatureUtilities.isDocumentMode(context));
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 Activity lastActivity = ApplicationStatus.getLastTrackedFocusedActivity();
                 return lastActivity instanceof ChromeTabbedActivity;
             }
-        }));
+        });
 
         // Try launching a DocumentActivity.
         Runnable runnable = new Runnable() {
@@ -66,7 +67,7 @@ public class ChromeTabbedActivityLollipopAndAboveTest extends ChromeTabbedActivi
                 getInstrumentation(), DocumentActivity.class, runnable);
 
         // ApplicationStatus should note that the DocumentActivity isn't running anymore.
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 List<WeakReference<Activity>> activities = ApplicationStatus.getRunningActivities();
@@ -75,7 +76,7 @@ public class ChromeTabbedActivityLollipopAndAboveTest extends ChromeTabbedActivi
                 }
                 return true;
             }
-        }));
+        });
     }
 
     @Override

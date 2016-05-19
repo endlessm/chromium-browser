@@ -5,9 +5,12 @@
 #ifndef CONTENT_BROWSER_TRACING_TRACE_MESSAGE_FILTER_H_
 #define CONTENT_BROWSER_TRACING_TRACE_MESSAGE_FILTER_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/browser/browser_message_filter.h"
@@ -29,10 +32,6 @@ class TraceMessageFilter : public BrowserMessageFilter {
       const base::trace_event::TraceConfig& trace_config);
   void SendEndTracing();
   void SendCancelTracing();
-  void SendStartMonitoring(
-      const base::trace_event::TraceConfig& trace_config);
-  void SendStopMonitoring();
-  void SendCaptureMonitoringSnapshot();
   void SendGetTraceLogStatus();
   void SendSetWatchEvent(const std::string& category_name,
                          const std::string& event_name);
@@ -47,16 +46,14 @@ class TraceMessageFilter : public BrowserMessageFilter {
   // Message handlers.
   void OnChildSupportsTracing();
   void OnEndTracingAck(const std::vector<std::string>& known_categories);
-  void OnCaptureMonitoringSnapshotAcked();
   void OnWatchEventMatched();
   void OnTraceLogStatusReply(const base::trace_event::TraceLogStatus& status);
   void OnTraceDataCollected(const std::string& data);
-  void OnMonitoringTraceDataCollected(const std::string& data);
   void OnGlobalMemoryDumpRequest(
       const base::trace_event::MemoryDumpRequestArgs& args);
-  void OnProcessMemoryDumpResponse(uint64 dump_guid, bool success);
+  void OnProcessMemoryDumpResponse(uint64_t dump_guid, bool success);
 
-  void SendGlobalMemoryDumpResponse(uint64 dump_guid, bool success);
+  void SendGlobalMemoryDumpResponse(uint64_t dump_guid, bool success);
   void OnTriggerBackgroundTrace(const std::string& histogram_name);
   void OnAbortBackgroundTrace();
 
@@ -64,12 +61,10 @@ class TraceMessageFilter : public BrowserMessageFilter {
   bool has_child_;
 
   // Hash of id of the child process.
-  uint64 tracing_process_id_;
+  uint64_t tracing_process_id_;
 
   // Awaiting ack for previously sent SendEndTracing
   bool is_awaiting_end_ack_;
-  // Awaiting ack for previously sent SendCaptureMonitoringSnapshot
-  bool is_awaiting_capture_monitoring_snapshot_ack_;
   // Awaiting ack for previously sent SendGetTraceLogStatus
   bool is_awaiting_buffer_percent_full_ack_;
 

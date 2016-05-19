@@ -934,7 +934,7 @@ bool SampleMaskCase::verifyTexture (int sample)
 	tcu::Surface	errorMask	(m_canvasSize, m_canvasSize);
 	bool			error		= false;
 
-	tcu::clear(errorMask.getAccess(), tcu::RGBA::green.toVec());
+	tcu::clear(errorMask.getAccess(), tcu::RGBA::green().toVec());
 
 	// Draw sample:
 	//	Sample sampleNdx is set to red channel
@@ -954,13 +954,13 @@ bool SampleMaskCase::verifyTexture (int sample)
 		if (color.getGreen() != 0)
 		{
 			error = true;
-			errorMask.setPixel(x, y, tcu::RGBA::red);
+			errorMask.setPixel(x, y, tcu::RGBA::red());
 		}
 		// enabled sample was not written to
 		else if (color.getRed() != 255 && !allowMissingCoverage)
 		{
 			error = true;
-			errorMask.setPixel(x, y, tcu::RGBA::red);
+			errorMask.setPixel(x, y, tcu::RGBA::red());
 		}
 	}
 
@@ -1126,7 +1126,7 @@ void MultisampleTextureUsageCase::init (void)
 		if (m_numSamples > maxSamples)
 			throw tcu::NotSupportedError("Requested sample count is greater than supported");
 
-		m_testCtx.getLog() << tcu::TestLog::Message << "Max sample count for " << glu::getPixelFormatStr(internalFormat) << ": " << maxSamples << tcu::TestLog::EndMessage;
+		m_testCtx.getLog() << tcu::TestLog::Message << "Max sample count for " << glu::getTextureFormatStr(internalFormat) << ": " << maxSamples << tcu::TestLog::EndMessage;
 	}
 
 	{

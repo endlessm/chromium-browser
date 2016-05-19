@@ -135,6 +135,12 @@ class StreamSequencerBufferPeer {
     return &(buffer_->frame_arrival_time_map_);
   }
 
+  void set_total_bytes_read(QuicStreamOffset total_bytes_read) {
+    buffer_->total_bytes_read_ = total_bytes_read;
+  }
+
+  void set_gaps(const std::list<Gap>& gaps) { buffer_->gaps_ = gaps; }
+
  private:
   StreamSequencerBuffer* buffer_;
 };
@@ -275,6 +281,39 @@ TEST_F(StreamSequencerBufferTest, OnStreamDataWithoutOverlap) {
   EXPECT_EQ(3, helper_->GapSize());
   EXPECT_EQ(1024u + 100u, buffer_->BytesBuffered());
   EXPECT_TRUE(helper_->CheckBufferInvariants());
+}
+
+TEST_F(StreamSequencerBufferTest, OnStreamDataInLongStreamWithOverlap) {
+  // Assume a stream has already buffered almost 4GB.
+  uint64_t total_bytes_read = pow(2, 32) - 1;
+  helper_->set_total_bytes_read(total_bytes_read);
+  helper_->set_gaps(std::list<Gap>(
+      1, Gap(total_bytes_read, std::numeric_limits<QuicStreamOffset>::max())));
+
+  // Three new out of order frames arrive.
+  const size_t kBytesToWrite = 100;
+  string source(kBytesToWrite, 'a');
+  size_t written;
+  // Frame [2^32 + 500, 2^32 + 600).
+  QuicStreamOffset offset = pow(2, 32) + 500;
+  EXPECT_EQ(
+      QUIC_NO_ERROR,
+      buffer_->OnStreamData(offset, source, clock_.ApproximateNow(), &written));
+  EXPECT_EQ(2, helper_->GapSize());
+
+  // Frame [2^32 + 700, 2^32 + 800).
+  offset = pow(2, 32) + 700;
+  EXPECT_EQ(
+      QUIC_NO_ERROR,
+      buffer_->OnStreamData(offset, source, clock_.ApproximateNow(), &written));
+  EXPECT_EQ(3, helper_->GapSize());
+
+  // Another frame [2^32 + 300, 2^32 + 400).
+  offset = pow(2, 32) + 300;
+  EXPECT_EQ(
+      QUIC_NO_ERROR,
+      buffer_->OnStreamData(offset, source, clock_.ApproximateNow(), &written));
+  EXPECT_EQ(4, helper_->GapSize());
 }
 
 TEST_F(StreamSequencerBufferTest, OnStreamDataTillEnd) {
@@ -763,7 +802,7 @@ class StreamSequencerBufferRandomIOTest : public StreamSequencerBufferTest {
     bytes_to_buffer_ = 2 * max_capacity_bytes_;
     Initialize();
 
-    uint32 seed = base::RandInt(0, std::numeric_limits<int32>::max());
+    uint32_t seed = base::RandInt(0, std::numeric_limits<int32_t>::max());
     LOG(INFO) << "RandomWriteAndProcessInPlace test seed is " << seed;
     rng_.set_seed(seed);
   }
@@ -855,8 +894,8 @@ TEST_F(StreamSequencerBufferRandomIOTest, RandomWriteAndReadv) {
 
   while ((!shuffled_buf_.empty() || total_bytes_read_ < bytes_to_buffer_) &&
          iterations <= 2 * bytes_to_buffer_) {
-    uint8 next_action =
-        shuffled_buf_.empty() ? uint8{1} : rng_.RandUint64() % 2;
+    uint8_t next_action =
+        shuffled_buf_.empty() ? uint8_t{1} : rng_.RandUint64() % 2;
     DVLOG(1) << "iteration: " << iterations;
     switch (next_action) {
       case 0: {  // write
@@ -913,8 +952,8 @@ TEST_F(StreamSequencerBufferRandomIOTest, RandomWriteAndConsumeInPlace) {
 
   while ((!shuffled_buf_.empty() || total_bytes_read_ < bytes_to_buffer_) &&
          iterations <= 2 * bytes_to_buffer_) {
-    uint8 next_action =
-        shuffled_buf_.empty() ? uint8{1} : rng_.RandUint64() % 2;
+    uint8_t next_action =
+        shuffled_buf_.empty() ? uint8_t{1} : rng_.RandUint64() % 2;
     DVLOG(1) << "iteration: " << iterations;
     switch (next_action) {
       case 0: {  // write

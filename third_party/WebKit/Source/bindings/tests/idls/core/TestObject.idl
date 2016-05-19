@@ -67,6 +67,11 @@ interface TestObject {
     [RuntimeEnabled=FeatureName2] const short FEATURE2_ENABLED_CONST1 = 3;
     [RuntimeEnabled=FeatureName2] const short FEATURE2_ENABLED_CONST2 = 4;
     [RuntimeEnabled=FeatureName3] const short FEATURE3_ENABLED_CONST1 = 5;
+    [RuntimeEnabled=FeatureName1, OriginTrialEnabled=FeatureName1] const short FEATURE1_RUNTIME_AND_EXPERIMENT_ENABLED_CONST1 = 1;
+    [RuntimeEnabled=FeatureName1, OriginTrialEnabled=FeatureName1] const short FEATURE1_RUNTIME_AND_EXPERIMENT_ENABLED_CONST2 = 2;
+    [RuntimeEnabled=FeatureName2, OriginTrialEnabled=FeatureName2] const short FEATURE2_RUNTIME_AND_EXPERIMENT_ENABLED_CONST1 = 3;
+    [RuntimeEnabled=FeatureName2, OriginTrialEnabled=FeatureName2] const short FEATURE2_RUNTIME_AND_EXPERIMENT_ENABLED_CONST2 = 4;
+    [RuntimeEnabled=FeatureName3, OriginTrialEnabled=FeatureName3] const short FEATURE3_RUNTIME_AND_EXPERIMENT_ENABLED_CONST1 = 5;
     [Reflect=CONST_IMPL] const short CONST_JAVASCRIPT = 1;
 
     stringifier attribute DOMString stringifierAttribute;
@@ -177,8 +182,7 @@ interface TestObject {
     [CallWith=ExecutionContext] attribute any callWithExecutionContextAnyAttribute;
     [CallWith=ScriptState] attribute any callWithScriptStateAnyAttribute;
     [CallWith=(ExecutionContext,ScriptState)] attribute any callWithExecutionContextAndScriptStateAnyAttribute;
-    [CheckSecurity=Node] readonly attribute Document checkSecurityForNodeReadonlyDocumentAttribute; // All uses are read only
-    [Conditional=CONDITION] attribute long conditionalLongAttribute;
+    [CheckSecurity=ReturnValue] readonly attribute Document checkSecurityForNodeReadonlyDocumentAttribute; // All uses are read only
     // Constructors: FIXME: replace suffix with [ConstructorAttribute]
     attribute TestInterfaceEmptyConstructor testInterfaceEmptyConstructorAttribute;
     [DeprecateAs=deprecatedTestInterfaceEmptyConstructorAttribute] attribute TestInterfaceEmptyConstructor testInterfaceEmptyConstructorAttribute;
@@ -187,10 +191,10 @@ interface TestObject {
     [Custom=Getter] attribute long customGetterLongAttribute;
     [Custom=Getter] readonly attribute object customGetterReadonlyObjectAttribute;
     [Custom=Setter] attribute long customSetterLongAttribute;
-    [Conditional=CONDITION, Custom] attribute long customLongAttribute;
     [CustomElementCallbacks] readonly attribute long customElementsCallbacksReadonlyLongAttribute;
     [DeprecateAs=LongAttribute] attribute long deprecatedLongAttribute;
     [EnforceRange] attribute long enforceRangeLongAttribute;
+    [OriginTrialEnabled=FeatureName, RuntimeEnabled=FeatureName] attribute long experimentRuntimeEnabledLongAttribute;
     [ImplementedAs=implementedAsName] attribute long implementedAsLongAttribute;
     [Custom, ImplementedAs=implementedAsNameWithCustom] attribute long customImplementedAsLongAttribute;
     [Custom=Getter, ImplementedAs=implementedAsNameWithCustomGetter] attribute long customGetterImplementedAsLongAttribute;
@@ -207,7 +211,7 @@ interface TestObject {
     [PutForwards=hrefCallWith] readonly attribute TestNode locationWithCallWith;
     [PutForwards=hrefByteString] readonly attribute TestNode locationByteString;
     [PerWorldBindings, PutForwards=href] readonly attribute TestNode locationWithPerWorldBindings;
-    [TypeChecking=Interface, PutForwards=href] readonly attribute TestNode locationTypeCheckingInterface;
+    [PutForwards=href, LegacyInterfaceTypeChecking] readonly attribute TestNode locationLegacyInterfaceTypeChecking;
     [PutForwards=attr1] readonly attribute TestInterfaceGarbageCollected locationGarbageCollected;
     [PutForwards=attr1] readonly attribute TestInterfaceWillBeGarbageCollected locationWillBeGarbageCollected;
     [RaisesException] attribute long raisesExceptionLongAttribute;
@@ -242,27 +246,20 @@ interface TestObject {
     [Replaceable] readonly attribute long replaceableReadonlyLongAttribute;
     [PutForwards=href] readonly attribute TestNode locationPutForwards;
     [RuntimeEnabled=FeatureName] attribute long runtimeEnabledLongAttribute;
-    [Conditional=CONDITION, RuntimeEnabled=FeatureName] attribute long conditionalRuntimeEnabledLongAttribute;
     [SetterCallWith=(ActiveWindow,FirstWindow)] attribute DOMString setterCallWithActiveWindowAndFirstWindowStringAttribute;
     [SetterCallWith=ExecutionContext] attribute DOMString setterCallWithExecutionContextStringAttribute;
     [TreatNullAs=EmptyString] attribute DOMString treatNullAsEmptyStringStringAttribute;
     [TreatNullAs=NullString] attribute DOMString treatNullAsNullStringStringAttribute;
-    [TreatReturnedNullStringAs=Null] attribute DOMString treatReturnedNullStringAsNullStringAttribute;
-    [TreatReturnedNullStringAs=Undefined] attribute DOMString treatReturnedNullStringAsUndefinedStringAttribute;
-    [TreatReturnedNullStringAs=Undefined, CachedAttribute=isStringDirty] attribute DOMString cachedTreatReturnedNullStringAsUndefinedStringAttribute;
-    [TreatReturnedNullStringAs=Null] attribute ByteString treatReturnedNullStringAsNullByteStringAttribute;
-    [TreatReturnedNullStringAs=Undefined] attribute ByteString treatReturnedNullStringAsUndefinedByteStringAttribute;
-    [TreatReturnedNullStringAs=Null] attribute USVString treatReturnedNullStringAsNullUSVStringAttribute;
-    [TreatReturnedNullStringAs=Undefined] attribute USVString treatReturnedNullStringAsUndefinedUSVStringAttribute;
-    [TypeChecking=Interface] attribute float typeCheckingInterfaceFloatAttribute; // nop for non-interface types
-    [TypeChecking=Interface] attribute TestInterface typeCheckingInterfaceTestInterfaceAttribute;
-    [TypeChecking=Interface] attribute TestInterface? typeCheckingInterfaceTestInterfaceOrNullAttribute;
+    [LegacyInterfaceTypeChecking] attribute float legacyInterfaceTypeCheckingFloatAttribute; // nop for non-interface types
+    [LegacyInterfaceTypeChecking] attribute TestInterface legacyInterfaceTypeCheckingTestInterfaceAttribute;
+    [LegacyInterfaceTypeChecking] attribute TestInterface? legacyInterfaceTypeCheckingTestInterfaceOrNullAttribute;
     [Reflect, URL] attribute DOMString urlStringAttribute;
     [Reflect=reflectUrlAttribute, URL] attribute DOMString urlStringAttribute;
     [Unforgeable] attribute long unforgeableLongAttribute;
     [Measure] attribute long measuredLongAttribute;
     [SameObject] attribute TestInterface sameObjectAttribute;
     [Unscopeable] attribute long unscopeableLongAttribute;
+    [Unscopeable, OriginTrialEnabled=FeatureName, RuntimeEnabled=FeatureName] attribute long unscopeableExperimentEnabledLongAttribute;
     [Unscopeable, RuntimeEnabled=FeatureName] attribute long unscopeableRuntimeEnabledLongAttribute;
     [Unscopeable] void unscopeableVoidMethod();
     [Unscopeable, RuntimeEnabled=FeatureName] void unscopeableRuntimeEnabledVoidMethod();
@@ -518,16 +515,21 @@ interface TestObject {
     [CallWith=ActiveWindow] void callWithActiveWindow();
     [CallWith=(ActiveWindow,FirstWindow)] void callWithActiveWindowScriptWindow();
     [CallWith=ThisValue] void callWithThisValue();
-    [CheckSecurity=Node] void checkSecurityForNodeVoidMethod();
-    [Conditional=CONDITION] void conditionalConditionVoidMethod();
-    [Conditional=CONDITION] static void conditionalConditionStaticVoidMethod();
+    [CheckSecurity=ReturnValue] void checkSecurityForNodeVoidMethod();
     [Custom] void customVoidMethod();
     [Custom=CallPrologue] void customCallPrologueVoidMethod();
     [Custom=CallEpilogue] void customCallEpilogueVoidMethod();
-    [Conditional=CONDITION, Custom] void conditionalConditionCustomVoidMethod();
     [CustomElementCallbacks] void customElementCallbacksVoidMethod();
     [DeprecateAs=voidMethod] void deprecatedVoidMethod();
     [DoNotCheckSignature] void doNotCheckSignatureVoidMethod();
+    [OriginTrialEnabled=FeatureName, RuntimeEnabled=FeatureName1] void experimentEnabledVoidMethod();
+    [PerWorldBindings, OriginTrialEnabled=FeatureName, RuntimeEnabled=FeatureName1] void perWorldBindingsExperimentEnabledVoidMethod();
+    [OriginTrialEnabled=FeatureName, RuntimeEnabled=FeatureName1] void experimentEnabledOverloadedVoidMethod(DOMString stringArg);
+    [OriginTrialEnabled=FeatureName, RuntimeEnabled=FeatureName1] void experimentEnabledOverloadedVoidMethod(long longArg);
+    [OriginTrialEnabled=FeatureName1, RuntimeEnabled=FeatureName1] void partiallyExperimentEnabledOverloadedVoidMethod(DOMString stringArg);
+    [OriginTrialEnabled=FeatureName2, RuntimeEnabled=FeatureName1] void partiallyExperimentEnabledOverloadedVoidMethod(TestInterface testInterfaceArg);
+     void partiallyExperimentEnabledOverloadedVoidMethod(long longArg, DOMString stringArg);
+    [OriginTrialEnabled=FeatureName3] void partiallyExperimentEnabledOverloadedVoidMethod(long longArg, DOMString stringArg, TestInterface testInterfaceArg);
     [ImplementedAs=implementedAsMethodName] void implementedAsVoidMethod();
     [MeasureAs=TestFeature] void measureAsVoidMethod();
     [Measure] void measureMethod();
@@ -569,19 +571,12 @@ interface TestObject {
     [RuntimeEnabled=FeatureName2] void partiallyRuntimeEnabledOverloadedVoidMethod(TestInterface testInterfaceArg);
     void partiallyRuntimeEnabledOverloadedVoidMethod(long longArg, DOMString stringArg);
     [RuntimeEnabled=FeatureName3] void partiallyRuntimeEnabledOverloadedVoidMethod(long longArg, DOMString stringArg, TestInterface testInterfaceArg);
-    [TreatReturnedNullStringAs=Null] DOMString treatReturnedNullStringAsNullStringMethod();
-    [TreatReturnedNullStringAs=Undefined] DOMString treatReturnedNullStringAsUndefinedStringMethod();
-    [TreatReturnedNullStringAs=Null] ByteString treatReturnedNullStringAsNullByteStringMethod();
-    [TreatReturnedNullStringAs=Undefined] ByteString treatReturnedNullStringAsUndefinedByteStringMethod();
-    [TreatReturnedNullStringAs=Null] USVString treatReturnedNullStringAsNullUSVStringMethod();
-    [TreatReturnedNullStringAs=Undefined] USVString treatReturnedNullStringAsUndefinedUSVStringMethod();
-    [TypeChecking=Interface] void typeCheckingInterfaceVoidMethodTestInterfaceEmptyArg(TestInterfaceEmpty testInterfaceEmptyArg);
-    [TypeChecking=Interface] void typeCheckingInterfaceVoidMethodTestInterfaceEmptyVariadicArg(TestInterfaceEmpty... testInterfaceEmptyArg);
+    [LegacyInterfaceTypeChecking] void legacyInterfaceTypeCheckingVoidMethodTestInterfaceEmptyArg(TestInterfaceEmpty testInterfaceEmptyArg);
+    [LegacyInterfaceTypeChecking] void legacyInterfaceTypeCheckingVoidMethodTestInterfaceEmptyVariadicArg(TestInterfaceEmpty... testInterfaceEmptyArg);
     // Avoid redundant type checking
-    [TypeChecking=Interface] void useToImpl4ArgumentsCheckingIfPossibleWithOptionalArg(Node node1, optional Node node2);
-    [TypeChecking=Interface] void useToImpl4ArgumentsCheckingIfPossibleWithNullableArg(Node node1, Node? node2);
-    [TypeChecking=Interface] void useToImpl4ArgumentsCheckingIfPossibleWithUndefinedArg(Node node1, [Default=Undefined] optional Node node2);
-    void typeCheckingUnrestrictedVoidMethodFloatArgDoubleArg(float floatArg, double doubleArg);
+    void useToImpl4ArgumentsCheckingIfPossibleWithOptionalArg(Node node1, optional Node node2);
+    void useToImpl4ArgumentsCheckingIfPossibleWithNullableArg(Node node1, Node? node2);
+    void useToImpl4ArgumentsCheckingIfPossibleWithUndefinedArg(Node node1, [Default=Undefined] optional Node node2);
     [Unforgeable] void unforgeableVoidMethod();
     void voidMethodTestInterfaceGarbageCollectedSequenceArg(sequence<TestInterfaceGarbageCollected> testInterfaceGarbageCollectedSequenceArg);
     void voidMethodTestInterfaceGarbageCollectedArrayArg(TestInterfaceGarbageCollected[] testInterfaceGarbageCollectedArrayArg);

@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TABS_MEDIA_INDICATOR_BUTTON_H_
 #define CHROME_BROWSER_UI_VIEWS_TABS_MEDIA_INDICATOR_BUTTON_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "ui/views/controls/button/image_button.h"
@@ -76,6 +77,7 @@ class MediaIndicatorButton : public views::ImageButton,
   bool IsTriggerableEvent(const ui::Event& event) override;
 
  private:
+  friend class MediaIndicatorButtonTest;
   class FadeAnimationDelegate;
 
   // Returns the tab (parent view) of this MediaIndicatorButton.

@@ -15,6 +15,7 @@
 #import <CoreWLAN/CoreWLAN.h>
 #import <ImageCaptureCore/ImageCaptureCore.h>
 #import <IOBluetooth/IOBluetooth.h>
+#include <stdint.h>
 
 #include "base/base_export.h"
 
@@ -329,7 +330,7 @@ BASE_EXPORT extern NSString* const NSAppearanceNameVibrantDark;
 - (void)toggleFullScreen:(id)sender;
 - (void)setRestorable:(BOOL)flag;
 - (NSRect)convertRectFromScreen:(NSRect)aRect;
-- (NSSize)convertRectToScreen:(NSRect)aRect;
+- (NSRect)convertRectToScreen:(NSRect)aRect;
 @end
 
 @interface NSCursor (LionSDKDeclarations)
@@ -413,6 +414,11 @@ BASE_EXPORT extern NSString* const NSAppearanceNameVibrantDark;
 @property(nonatomic, readonly) NSData* data;
 + (CBUUID*)UUIDWithString:(NSString*)theString;
 @end
+
+BASE_EXPORT extern "C" void NSAccessibilityPostNotificationWithUserInfo(
+    id object,
+    NSString* notification,
+    NSDictionary* user_info);
 
 #endif  // MAC_OS_X_VERSION_10_7
 

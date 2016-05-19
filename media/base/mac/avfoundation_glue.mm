@@ -5,11 +5,14 @@
 #import "media/base/mac/avfoundation_glue.h"
 
 #include <dlfcn.h>
+#include <stddef.h>
 
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/mac/mac_util.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
+#include "base/trace_event/trace_event.h"
 #include "media/base/media_switches.h"
 
 namespace {
@@ -67,10 +70,10 @@ class AVFoundationInternal {
         {&AVVideoScalingModeResizeAspectFill_,
          "AVVideoScalingModeResizeAspectFill"},
     };
-    for (size_t i = 0; i < arraysize(av_strings); ++i) {
-      *av_strings[i].loaded_string = *reinterpret_cast<NSString**>(
-          dlsym(library_handle_, av_strings[i].symbol));
-      DCHECK(*av_strings[i].loaded_string) << dlerror();
+    for (auto& av_string : av_strings) {
+      *av_string.loaded_string = *reinterpret_cast<NSString**>(
+          dlsym(library_handle_, av_string.symbol));
+      CHECK(*av_string.loaded_string) << dlerror();
     }
   }
 
@@ -117,6 +120,17 @@ class AVFoundationInternal {
   DISALLOW_COPY_AND_ASSIGN(AVFoundationInternal);
 };
 
+static base::ThreadLocalStorage::StaticSlot g_avfoundation_handle =
+    TLS_INITIALIZER;
+
+void TlsCleanup(void* value) {
+  delete static_cast<AVFoundationInternal*>(value);
+}
+
+AVFoundationInternal* GetAVFoundationInternal() {
+  return static_cast<AVFoundationInternal*>(g_avfoundation_handle.Get());
+}
+
 // This contains the logic of checking whether AVFoundation is supported.
 // It's called only once and the results are cached in a static bool.
 bool LoadAVFoundationInternal() {
@@ -138,16 +152,14 @@ bool LoadAVFoundationInternal() {
     LogCaptureApi(CAPTURE_API_QTKIT_DUE_TO_NO_FLAG);
     return false;
   }
+  g_avfoundation_handle.Initialize(TlsCleanup);
+  g_avfoundation_handle.Set(new AVFoundationInternal());
   const bool ret = [AVFoundationGlue::AVFoundationBundle() load];
   LogCaptureApi(ret ? CAPTURE_API_AVFOUNDATION_LOADED_OK
                     : CAPTURE_API_QTKIT_DUE_TO_AVFOUNDATION_LOAD_ERROR);
+
   return ret;
 }
-
-}  // namespace
-
-static base::LazyInstance<AVFoundationInternal>::Leaky g_avfoundation_handle =
-    LAZY_INSTANCE_INITIALIZER;
 
 enum {
   INITIALIZE_NOT_CALLED = 0,
@@ -155,7 +167,10 @@ enum {
   AVFOUNDATION_NOT_SUPPORTED
 } static g_avfoundation_initialization = INITIALIZE_NOT_CALLED;
 
+}  // namespace
+
 void AVFoundationGlue::InitializeAVFoundation() {
+  TRACE_EVENT0("video", "AVFoundationGlue::InitializeAVFoundation");
   CHECK([NSThread isMainThread]);
   if (g_avfoundation_initialization != INITIALIZE_NOT_CALLED)
     return;
@@ -169,49 +184,49 @@ bool AVFoundationGlue::IsAVFoundationSupported() {
 }
 
 NSBundle const* AVFoundationGlue::AVFoundationBundle() {
-  return g_avfoundation_handle.Get().bundle();
+  return GetAVFoundationInternal()->bundle();
 }
 
 NSString* AVFoundationGlue::AVCaptureDeviceWasConnectedNotification() {
-  return g_avfoundation_handle.Get().AVCaptureDeviceWasConnectedNotification();
+  return GetAVFoundationInternal()->AVCaptureDeviceWasConnectedNotification();
 }
 
 NSString* AVFoundationGlue::AVCaptureDeviceWasDisconnectedNotification() {
-  return
-      g_avfoundation_handle.Get().AVCaptureDeviceWasDisconnectedNotification();
+  return GetAVFoundationInternal()
+      ->AVCaptureDeviceWasDisconnectedNotification();
 }
 
 NSString* AVFoundationGlue::AVMediaTypeVideo() {
-  return g_avfoundation_handle.Get().AVMediaTypeVideo();
+  return GetAVFoundationInternal()->AVMediaTypeVideo();
 }
 
 NSString* AVFoundationGlue::AVMediaTypeAudio() {
-  return g_avfoundation_handle.Get().AVMediaTypeAudio();
+  return GetAVFoundationInternal()->AVMediaTypeAudio();
 }
 
 NSString* AVFoundationGlue::AVMediaTypeMuxed() {
-  return g_avfoundation_handle.Get().AVMediaTypeMuxed();
+  return GetAVFoundationInternal()->AVMediaTypeMuxed();
 }
 
 NSString* AVFoundationGlue::AVCaptureSessionRuntimeErrorNotification() {
-  return g_avfoundation_handle.Get().AVCaptureSessionRuntimeErrorNotification();
+  return GetAVFoundationInternal()->AVCaptureSessionRuntimeErrorNotification();
 }
 
 NSString* AVFoundationGlue::AVCaptureSessionDidStopRunningNotification() {
-  return
-      g_avfoundation_handle.Get().AVCaptureSessionDidStopRunningNotification();
+  return GetAVFoundationInternal()
+      ->AVCaptureSessionDidStopRunningNotification();
 }
 
 NSString* AVFoundationGlue::AVCaptureSessionErrorKey() {
-  return g_avfoundation_handle.Get().AVCaptureSessionErrorKey();
+  return GetAVFoundationInternal()->AVCaptureSessionErrorKey();
 }
 
 NSString* AVFoundationGlue::AVVideoScalingModeKey() {
-  return g_avfoundation_handle.Get().AVVideoScalingModeKey();
+  return GetAVFoundationInternal()->AVVideoScalingModeKey();
 }
 
 NSString* AVFoundationGlue::AVVideoScalingModeResizeAspectFill() {
-  return g_avfoundation_handle.Get().AVVideoScalingModeResizeAspectFill();
+  return GetAVFoundationInternal()->AVVideoScalingModeResizeAspectFill();
 }
 
 Class AVFoundationGlue::AVCaptureSessionClass() {

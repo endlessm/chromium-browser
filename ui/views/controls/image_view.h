@@ -5,6 +5,7 @@
 #ifndef UI_VIEWS_CONTROLS_IMAGE_VIEW_H_
 #define UI_VIEWS_CONTROLS_IMAGE_VIEW_H_
 
+#include "base/macros.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/view.h"
@@ -49,9 +50,9 @@ class VIEWS_EXPORT ImageView : public View {
   // image.
   void SetImage(const gfx::ImageSkia* image_skia);
 
-  // Returns the image currently displayed or NULL of none is currently set.
+  // Returns the image currently displayed, which can be empty if not set.
   // The returned image is still owned by the ImageView.
-  const gfx::ImageSkia& GetImage();
+  const gfx::ImageSkia& GetImage() const;
 
   // Set the desired image size for the receiving ImageView.
   void SetImageSize(const gfx::Size& image_size);

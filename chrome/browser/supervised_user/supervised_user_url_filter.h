@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -32,8 +33,8 @@ class SupervisedUserAsyncURLChecker;
 // callers if a given URL should be allowed, blocked or warned about. It uses
 // information from multiple sources:
 //   * A default setting (allow, block or warn).
-//   * The set of installed and enabled content packs, which contain whitelists
-//     of URL patterns that should be allowed.
+//   * The set of installed and enabled whitelists which contain URL patterns
+//     and hostname hashes that should be allowed.
 //   * User-specified manual overrides (allow or block) for either sites
 //     (hostnames) or exact URLs, which take precedence over the previous
 //     sources.
@@ -54,13 +55,13 @@ class SupervisedUserURLFilter
     DEFAULT,
     ASYNC_CHECKER,
     BLACKLIST,
-    MANUAL
+    MANUAL,
+    WHITELIST
   };
 
-  typedef base::Callback<void(FilteringBehavior,
-                              FilteringBehaviorReason,
-                              bool /* uncertain */)>
-      FilteringBehaviorCallback;
+  using FilteringBehaviorCallback = base::Callback<void(FilteringBehavior,
+                                                        FilteringBehaviorReason,
+                                                        bool /* uncertain */)>;
 
   class Observer {
    public:
@@ -77,7 +78,12 @@ class SupervisedUserURLFilter
 
   static FilteringBehavior BehaviorFromInt(int behavior_value);
 
-  static int GetBlockMessageID(FilteringBehaviorReason reason);
+  static int GetBlockMessageID(
+      FilteringBehaviorReason reason,
+      bool is_child_account,
+      bool single_parent);
+
+  static int GetBlockHeaderID(FilteringBehaviorReason reason);
 
   static bool ReasonIsAutomatic(FilteringBehaviorReason reason);
 
@@ -104,9 +110,6 @@ class SupervisedUserURLFilter
   static bool HostMatchesPattern(const std::string& host,
                                  const std::string& pattern);
 
-  void GetSites(const GURL& url,
-                std::vector<SupervisedUserSiteList::Site*>* sites) const;
-
   // Returns the filtering behavior for a given URL, based on the default
   // behavior and whether it is on a site list.
   FilteringBehavior GetFilteringBehaviorForURL(const GURL& url) const;
@@ -126,6 +129,11 @@ class SupervisedUserURLFilter
       const GURL& url,
       const FilteringBehaviorCallback& callback) const;
 
+  // Gets all the whitelists that the url is part of. Returns id->name of each
+  // whitelist.
+  std::map<std::string, base::string16> GetMatchingWhitelistTitles(
+      const GURL& url) const;
+
   // Sets the filtering behavior for pages not on a list (default is ALLOW).
   void SetDefaultFilteringBehavior(FilteringBehavior behavior);
 
@@ -137,13 +145,16 @@ class SupervisedUserURLFilter
       const std::vector<scoped_refptr<SupervisedUserSiteList>>& site_lists);
 
   // Sets the static blacklist of blocked hosts.
-  void SetBlacklist(SupervisedUserBlacklist* blacklist);
+  void SetBlacklist(const SupervisedUserBlacklist* blacklist);
   // Returns whether the static blacklist is set up.
   bool HasBlacklist() const;
 
-  // Set the list of matched patterns to the passed in list.
-  // This method is only used for testing.
-  void SetFromPatterns(const std::vector<std::string>& patterns);
+  // Set the list of matched patterns to the passed in list, for testing.
+  void SetFromPatternsForTesting(const std::vector<std::string>& patterns);
+
+  // Sets the site lists to the passed list, for testing.
+  void SetFromSiteListsForTesting(
+      const std::vector<scoped_refptr<SupervisedUserSiteList>>& site_lists);
 
   // Sets the set of manually allowed or blocked hosts.
   void SetManualHosts(const std::map<std::string, bool>* host_map);
@@ -153,6 +164,10 @@ class SupervisedUserURLFilter
 
   // Initializes the experimental asynchronous checker.
   void InitAsyncURLChecker(net::URLRequestContextGetter* context);
+
+  // Clears any asynchronous checker.
+  void ClearAsyncURLChecker();
+
   // Returns whether the asynchronous checker is set up.
   bool HasAsyncURLChecker() const;
 
@@ -196,7 +211,7 @@ class SupervisedUserURLFilter
   std::map<std::string, bool> host_map_;
 
   // Not owned.
-  SupervisedUserBlacklist* blacklist_;
+  const SupervisedUserBlacklist* blacklist_;
 
   scoped_ptr<SupervisedUserAsyncURLChecker> async_url_checker_;
 

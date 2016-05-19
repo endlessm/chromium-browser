@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_CONTENT_SETTINGS_CORE_COMMON_CONTENT_SETTINGS_H_
 #define COMPONENTS_CONTENT_SETTINGS_CORE_COMMON_CONTENT_SETTINGS_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -41,6 +43,7 @@ struct ContentSettingPatternSource {
                               ContentSetting setting,
                               const std::string& source,
                               bool incognito);
+  ContentSettingPatternSource(const ContentSettingPatternSource& other);
   ContentSettingPatternSource();
   ContentSettingsPattern primary_pattern;
   ContentSettingsPattern secondary_pattern;

@@ -8,12 +8,13 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_child_process_host_delegate.h"
 #include "content/public/browser/utility_process_host.h"
 
@@ -48,7 +49,6 @@ class CONTENT_EXPORT UtilityProcessHostImpl
   bool StartBatchMode() override;
   void EndBatchMode() override;
   void SetExposedDir(const base::FilePath& dir) override;
-  void EnableMDns() override;
   void DisableSandbox() override;
 #if defined(OS_WIN)
   void ElevatePrivileges() override;
@@ -62,6 +62,11 @@ class CONTENT_EXPORT UtilityProcessHostImpl
   void SetName(const base::string16& name) override;
 
   void set_child_flags(int flags) { child_flags_ = flags; }
+
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+  // Launch the zygote early in the browser startup.
+  static void EarlyZygoteLaunch();
+#endif  // defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
 
  private:
   // Starts a process if necessary.  Returns true if it succeeded or a process
@@ -82,10 +87,6 @@ class CONTENT_EXPORT UtilityProcessHostImpl
   bool is_batch_mode_;
 
   base::FilePath exposed_dir_;
-
-  // Whether the utility process needs to perform presandbox initialization
-  // for mDNS.
-  bool is_mdns_enabled_;
 
   // Whether to pass switches::kNoSandbox to the child.
   bool no_sandbox_;

@@ -129,21 +129,25 @@ public class MostVisitedSites {
 
     /**
      * Blacklists a URL from the most visited URLs list.
-     * @param url The URL to be blacklisted.
      */
-    public void blacklistUrl(String url) {
-        nativeBlacklistUrl(mNativeMostVisitedSites, url);
+    public void addBlacklistedUrl(String url) {
+        nativeAddOrRemoveBlacklistedUrl(mNativeMostVisitedSites, url, true);
+    }
+
+    /**
+     * Removes a URL from the most visited URLs blacklist.
+     */
+    public void removeBlacklistedUrl(String url) {
+        nativeAddOrRemoveBlacklistedUrl(mNativeMostVisitedSites, url, false);
     }
 
     /**
      * Records metrics about which types of tiles are displayed.
      * @param tileTypes An array of values from MostVisitedTileType indicating the type of each
      *                  tile that's currently showing.
-     * @paral isIconMode Whether the icon-based version of the NTP is showing (as opposed to the
-     *                   thumbnail-based version).
      */
-    public void recordTileTypeMetrics(int[] tileTypes, boolean isIconMode) {
-        nativeRecordTileTypeMetrics(mNativeMostVisitedSites, tileTypes, isIconMode);
+    public void recordTileTypeMetrics(int[] tileTypes) {
+        nativeRecordTileTypeMetrics(mNativeMostVisitedSites, tileTypes);
     }
 
     /**
@@ -161,9 +165,9 @@ public class MostVisitedSites {
             MostVisitedURLsObserver observer, int numSites);
     private native void nativeGetURLThumbnail(long nativeMostVisitedSites, String url,
             ThumbnailCallback callback);
-    private native void nativeBlacklistUrl(long nativeMostVisitedSites, String url);
-    private native void nativeRecordTileTypeMetrics(long nativeMostVisitedSites, int[] tileTypes,
-            boolean isIconMode);
+    private native void nativeAddOrRemoveBlacklistedUrl(long nativeMostVisitedSites, String url,
+            boolean addUrl);
+    private native void nativeRecordTileTypeMetrics(long nativeMostVisitedSites, int[] tileTypes);
     private native void nativeRecordOpenedMostVisitedItem(long nativeMostVisitedSites, int index,
             int tileType);
 

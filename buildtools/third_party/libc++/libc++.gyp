@@ -3,6 +3,9 @@
 # found in the LICENSE file.
 
 {
+  'variables': {
+    'libcxx_root': '../../buildtools/third_party/libc++',
+  },
   'targets': [
     {
       'target_name': 'libcxx_proxy',
@@ -23,12 +26,10 @@
       'all_dependent_settings': {
         'target_conditions': [
           ['_type!="none"', {
-            'include_dirs': [
-              'trunk/include',
-              '../libc++abi/trunk/include',
-            ],
             'cflags_cc': [
               '-nostdinc++',
+              '-isystem<(libcxx_root)/trunk/include',
+              '-isystem<(libcxx_root)/../libc++abi/trunk/include',
             ],
             'ldflags': [
               '-stdlib=libc++',
@@ -57,6 +58,7 @@
       ],
       'sources': [
         'trunk/src/algorithm.cpp',
+        'trunk/src/any.cpp',
         'trunk/src/bind.cpp',
         'trunk/src/chrono.cpp',
         'trunk/src/condition_variable.cpp',
@@ -83,15 +85,15 @@
         'trunk/src/utility.cpp',
         'trunk/src/valarray.cpp',
       ],
-      'include_dirs': [
-        'trunk/include',
-        '../libc++abi/trunk/include',
-      ],
       'cflags': [
         '-fPIC',
         '-fstrict-aliasing',
-        '-nostdinc++',
         '-pthread',
+      ],
+      'cflags_cc': [
+        '-nostdinc++',
+        '-isystem<(libcxx_root)/trunk/include',
+        '-isystem<(libcxx_root)/../libc++abi/trunk/include',
         '-std=c++11',
       ],
       'cflags_cc!': [
@@ -100,6 +102,9 @@
       ],
       'cflags!': [
         '-fvisibility=hidden',
+      ],
+      'defines': [
+        'LIBCXX_BUILDING_LIBCXXABI',
       ],
       'ldflags': [
         '-nodefaultlibs',

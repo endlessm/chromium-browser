@@ -1,4 +1,4 @@
-// Copyright (c) 2015 PDFium Authors. All rights reserved.
+// Copyright 2015 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "public/fpdf_dataavail.h"
+#include "public/fpdf_edit.h"
 #include "public/fpdf_text.h"
 #include "public/fpdfview.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -19,8 +20,8 @@
 #include "testing/utils/path_service.h"
 
 #ifdef PDF_ENABLE_V8
-#include "v8/include/v8.h"
 #include "v8/include/v8-platform.h"
+#include "v8/include/v8.h"
 #endif  // PDF_ENABLE_V8
 
 namespace {
@@ -46,12 +47,7 @@ EmbedderTest::EmbedderTest()
   memset(&file_access_, 0, sizeof(file_access_));
   memset(&file_avail_, 0, sizeof(file_avail_));
   delegate_ = default_delegate_.get();
-}
 
-EmbedderTest::~EmbedderTest() {
-}
-
-void EmbedderTest::SetUp() {
 #ifdef PDF_ENABLE_V8
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
   InitializeV8ForPDFium(g_exe_path_, std::string(), &natives_, &snapshot_,
@@ -60,7 +56,11 @@ void EmbedderTest::SetUp() {
   InitializeV8ForPDFium(&platform_);
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
 #endif  // FPDF_ENABLE_V8
+}
 
+EmbedderTest::~EmbedderTest() {}
+
+void EmbedderTest::SetUp() {
   FPDF_LIBRARY_CONFIG config;
   config.version = 2;
   config.m_pUserFontPaths = nullptr;
@@ -78,9 +78,18 @@ void EmbedderTest::SetUp() {
 void EmbedderTest::TearDown() {
   if (document_) {
     FORM_DoDocumentAAction(form_handle_, FPDFDOC_AACTION_WC);
+#ifdef PDF_ENABLE_XFA
+    // Note: The shut down order here is the reverse of the non-XFA branch
+    // order. Need to work out if this is required, and if it is, the lifetimes
+    // of objects owned by |doc| that |form| reference.
+    FPDF_CloseDocument(document_);
+    FPDFDOC_ExitFormFillEnvironment(form_handle_);
+#else   // PDF_ENABLE_XFA
     FPDFDOC_ExitFormFillEnvironment(form_handle_);
     FPDF_CloseDocument(document_);
+#endif  // PDF_ENABLE_XFA
   }
+
   FPDFAvail_Destroy(avail_);
   FPDF_DestroyLibrary();
 
@@ -90,7 +99,15 @@ void EmbedderTest::TearDown() {
 #endif  // PDF_ENABLE_V8
 
   delete loader_;
-  free(file_contents_);
+}
+
+bool EmbedderTest::CreateEmptyDocument() {
+  document_ = FPDF_CreateNewDocument();
+  if (!document_)
+    return false;
+
+  SetupFormFillEnvironment();
+  return true;
 }
 
 bool EmbedderTest::OpenDocument(const std::string& filename,
@@ -102,7 +119,7 @@ bool EmbedderTest::OpenDocument(const std::string& filename,
   if (!file_contents_)
     return false;
 
-  loader_ = new TestLoader(file_contents_, file_length_);
+  loader_ = new TestLoader(file_contents_.get(), file_length_);
   file_access_.m_FileLen = static_cast<unsigned long>(file_length_);
   file_access_.m_GetBlock = TestLoader::GetBlock;
   file_access_.m_Param = loader_;
@@ -151,8 +168,20 @@ bool EmbedderTest::OpenDocument(const std::string& filename,
     }
   }
 
-  (void)FPDF_GetDocPermissions(document_);
+#ifdef PDF_ENABLE_XFA
+  int docType = DOCTYPE_PDF;
+  if (FPDF_HasXFAField(document_, &docType)) {
+    if (docType != DOCTYPE_PDF)
+      (void)FPDF_LoadXFA(document_);
+  }
+#endif  // PDF_ENABLE_XFA
 
+  (void)FPDF_GetDocPermissions(document_);
+  SetupFormFillEnvironment();
+  return true;
+}
+
+void EmbedderTest::SetupFormFillEnvironment() {
   IPDF_JSPLATFORM* platform = static_cast<IPDF_JSPLATFORM*>(this);
   memset(platform, 0, sizeof(IPDF_JSPLATFORM));
   platform->version = 2;
@@ -160,7 +189,11 @@ bool EmbedderTest::OpenDocument(const std::string& filename,
 
   FPDF_FORMFILLINFO* formfillinfo = static_cast<FPDF_FORMFILLINFO*>(this);
   memset(formfillinfo, 0, sizeof(FPDF_FORMFILLINFO));
+#ifdef PDF_ENABLE_XFA
+  formfillinfo->version = 2;
+#else   // PDF_ENABLE_XFA
   formfillinfo->version = 1;
+#endif  // PDF_ENABLE_XFA
   formfillinfo->FFI_SetTimer = SetTimerTrampoline;
   formfillinfo->FFI_KillTimer = KillTimerTrampoline;
   formfillinfo->FFI_GetPage = GetPageTrampoline;
@@ -169,8 +202,6 @@ bool EmbedderTest::OpenDocument(const std::string& filename,
   form_handle_ = FPDFDOC_InitFormFillEnvironment(document_, formfillinfo);
   FPDF_SetFormFieldHighlightColor(form_handle_, 0, 0xFFE4DD);
   FPDF_SetFormFieldHighlightAlpha(form_handle_, 100);
-
-  return true;
 }
 
 void EmbedderTest::DoOpenActions() {
@@ -214,8 +245,10 @@ FPDF_PAGE EmbedderTest::LoadAndCachePage(int page_number) {
 FPDF_BITMAP EmbedderTest::RenderPage(FPDF_PAGE page) {
   int width = static_cast<int>(FPDF_GetPageWidth(page));
   int height = static_cast<int>(FPDF_GetPageHeight(page));
-  FPDF_BITMAP bitmap = FPDFBitmap_Create(width, height, 0);
-  FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
+  int alpha = FPDFPage_HasTransparency(page) ? 1 : 0;
+  FPDF_BITMAP bitmap = FPDFBitmap_Create(width, height, alpha);
+  FPDF_DWORD fill_color = alpha ? 0x00000000 : 0xFFFFFFFF;
+  FPDFBitmap_FillRect(bitmap, 0, 0, width, height, fill_color);
   FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, 0, 0);
   FPDF_FFLDraw(form_handle_, bitmap, page, 0, 0, width, height, 0, 0);
   return bitmap;

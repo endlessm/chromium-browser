@@ -4,11 +4,12 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "JBig2_HtrdProc.h"
+#include "core/src/fxcodec/jbig2/JBig2_HtrdProc.h"
 
-#include "JBig2_GsidProc.h"
+#include <memory>
+
 #include "core/include/fxcrt/fx_basic.h"
-#include "third_party/base/nonstd_unique_ptr.h"
+#include "core/src/fxcodec/jbig2/JBig2_GsidProc.h"
 
 CJBig2_Image* CJBig2_HTRDProc::decode_Arith(CJBig2_ArithDecoder* pArithDecoder,
                                             JBig2ArithCtx* gbContext,
@@ -17,8 +18,8 @@ CJBig2_Image* CJBig2_HTRDProc::decode_Arith(CJBig2_ArithDecoder* pArithDecoder,
   int32_t x, y;
   FX_DWORD HBPP;
   FX_DWORD* GI;
-  nonstd::unique_ptr<CJBig2_Image> HSKIP;
-  nonstd::unique_ptr<CJBig2_Image> HTREG(new CJBig2_Image(HBW, HBH));
+  std::unique_ptr<CJBig2_Image> HSKIP;
+  std::unique_ptr<CJBig2_Image> HTREG(new CJBig2_Image(HBW, HBH));
   HTREG->fill(HDEFPIXEL);
   if (HENABLESKIP == 1) {
     HSKIP.reset(new CJBig2_Image(HGW, HGH));
@@ -39,7 +40,7 @@ CJBig2_Image* CJBig2_HTRDProc::decode_Arith(CJBig2_ArithDecoder* pArithDecoder,
   while ((FX_DWORD)(1 << HBPP) < HNUMPATS) {
     HBPP++;
   }
-  nonstd::unique_ptr<CJBig2_GSIDProc> pGID(new CJBig2_GSIDProc());
+  std::unique_ptr<CJBig2_GSIDProc> pGID(new CJBig2_GSIDProc());
   pGID->GSMMR = HMMR;
   pGID->GSW = HGW;
   pGID->GSH = HGH;
@@ -71,13 +72,13 @@ CJBig2_Image* CJBig2_HTRDProc::decode_MMR(CJBig2_BitStream* pStream,
   FX_DWORD ng, mg;
   int32_t x, y;
   FX_DWORD* GI;
-  nonstd::unique_ptr<CJBig2_Image> HTREG(new CJBig2_Image(HBW, HBH));
+  std::unique_ptr<CJBig2_Image> HTREG(new CJBig2_Image(HBW, HBH));
   HTREG->fill(HDEFPIXEL);
   FX_DWORD HBPP = 1;
   while ((FX_DWORD)(1 << HBPP) < HNUMPATS) {
     HBPP++;
   }
-  nonstd::unique_ptr<CJBig2_GSIDProc> pGID(new CJBig2_GSIDProc());
+  std::unique_ptr<CJBig2_GSIDProc> pGID(new CJBig2_GSIDProc());
   pGID->GSMMR = HMMR;
   pGID->GSW = HGW;
   pGID->GSH = HGH;

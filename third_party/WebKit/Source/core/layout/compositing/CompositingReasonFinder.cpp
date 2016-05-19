@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/layout/compositing/CompositingReasonFinder.h"
 
 #include "core/CSSPropertyNames.h"
@@ -186,4 +185,4 @@ bool CompositingReasonFinder::requiresCompositingForPositionFixed(const PaintLay
     return layer->scrollsWithViewport() && m_layoutView.frameView()->isScrollable();
 }
 
-}
+} // namespace blink

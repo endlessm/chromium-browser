@@ -4,6 +4,8 @@
 
 #include "components/signin/core/browser/signin_metrics.h"
 
+#include <limits.h>
+
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -19,6 +21,23 @@ DifferentPrimaryAccounts ComparePrimaryAccounts(bool primary_accounts_same,
   if (pre_count_gaia_cookies == 0)
     return NO_COOKIE_PRESENT;
   return COOKIE_AND_TOKEN_PRIMARIES_DIFFERENT;
+}
+
+void LogSigninAccessPointStarted(AccessPoint access_point) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.SigninStartedAccessPoint",
+                            static_cast<int>(access_point),
+                            static_cast<int>(AccessPoint::ACCESS_POINT_MAX));
+}
+
+void LogSigninAccessPointCompleted(AccessPoint access_point) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.SigninCompletedAccessPoint",
+                            static_cast<int>(access_point),
+                            static_cast<int>(AccessPoint::ACCESS_POINT_MAX));
+}
+
+void LogSigninReason(Reason reason) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.SigninReason", static_cast<int>(reason),
+                            static_cast<int>(Reason::REASON_MAX));
 }
 
 void LogSigninAccountReconciliation(int total_number_accounts,
@@ -73,10 +92,6 @@ void LogSigninProfile(bool is_first_run, base::Time install_date) {
                        elapsed_time.InMinutes());
 }
 
-void LogSigninSource(Source source) {
-  UMA_HISTOGRAM_ENUMERATION("Signin.SigninSource", source, HISTOGRAM_MAX);
-}
-
 void LogSigninAddAccount() {
   // Account signin may fail for a wide variety of reasons. There is no
   // explicit false, but one can compare this value with the various UI
@@ -85,9 +100,14 @@ void LogSigninAddAccount() {
   UMA_HISTOGRAM_BOOLEAN("Signin.AddAccount", true);
 }
 
-void LogSignout(ProfileSignout metric) {
-  UMA_HISTOGRAM_ENUMERATION("Signin.SignoutProfile", metric,
+void LogSignout(ProfileSignout source_metric, SignoutDelete delete_metric) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.SignoutProfile", source_metric,
                             NUM_PROFILE_SIGNOUT_METRICS);
+  if (delete_metric != SignoutDelete::IGNORE_METRIC) {
+    UMA_HISTOGRAM_BOOLEAN(
+        "Signin.SignoutDeleteProfile",
+        delete_metric == SignoutDelete::DELETED ? true : false);
+  }
 }
 
 void LogExternalCcResultFetches(
@@ -138,6 +158,12 @@ void LogBrowsingSessionDuration(const base::Time& previous_activity_time) {
 void LogAccountReconcilorStateOnGaiaResponse(AccountReconcilorState state) {
   UMA_HISTOGRAM_ENUMERATION("Signin.AccountReconcilorState.OnGaiaResponse",
                             state, ACCOUNT_RECONCILOR_HISTOGRAM_COUNT);
+}
+
+void LogAccountEquality(AccountEquality equality) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.AccountEquality",
+                            static_cast<int>(equality),
+                            static_cast<int>(AccountEquality::HISTOGRAM_COUNT));
 }
 
 }  // namespace signin_metrics

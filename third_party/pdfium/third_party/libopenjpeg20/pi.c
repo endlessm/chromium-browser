@@ -377,6 +377,9 @@ if (!pi->tp_on){
 					prcj = opj_int_floordivpow2(opj_int_ceildiv(pi->y, (OPJ_INT32)(comp->dy << levelno)), (OPJ_INT32)res->pdy)
 						 - opj_int_floordivpow2(try0, (OPJ_INT32)res->pdy);
 					pi->precno = (OPJ_UINT32)(prci + prcj * (OPJ_INT32)res->pw);
+					if (pi->precno >= res->pw * res->ph) {
+						return OPJ_FALSE;
+					}
 					for (pi->layno = pi->poc.layno0; pi->layno < pi->poc.layno1; pi->layno++) {
 						index = pi->layno * pi->step_l + pi->resno * pi->step_r + pi->compno * pi->step_c + pi->precno * pi->step_p;
 						if (!pi->include[index]) {
@@ -458,6 +461,9 @@ static OPJ_BOOL opj_pi_next_pcrl(opj_pi_iterator_t * pi) {
 					prcj = opj_int_floordivpow2(opj_int_ceildiv(pi->y, (OPJ_INT32)(comp->dy << levelno)), (OPJ_INT32)res->pdy)
 						 - opj_int_floordivpow2(try0, (OPJ_INT32)res->pdy);
 					pi->precno = (OPJ_UINT32)(prci + prcj * (OPJ_INT32)res->pw);
+					if (pi->precno >= res->pw * res->ph) {
+						return OPJ_FALSE;
+					}
 					for (pi->layno = pi->poc.layno0; pi->layno < pi->poc.layno1; pi->layno++) {
 						index = pi->layno * pi->step_l + pi->resno * pi->step_r + pi->compno * pi->step_c + pi->precno * pi->step_p;
 						if (!pi->include[index]) {
@@ -537,6 +543,9 @@ static OPJ_BOOL opj_pi_next_cprl(opj_pi_iterator_t * pi) {
 					prcj = opj_int_floordivpow2(opj_int_ceildiv(pi->y, (OPJ_INT32)(comp->dy << levelno)), (OPJ_INT32)res->pdy)
 						 - opj_int_floordivpow2(try0, (OPJ_INT32)res->pdy);
 					pi->precno = (OPJ_UINT32)(prci + prcj * (OPJ_INT32)res->pw);
+					if (pi->precno >= res->pw * res->ph) {
+						return OPJ_FALSE;
+					}
 					for (pi->layno = pi->poc.layno0; pi->layno < pi->poc.layno1; pi->layno++) {
 						index = pi->layno * pi->step_l + pi->resno * pi->step_r + pi->compno * pi->step_c + pi->precno * pi->step_p;
 						if (!pi->include[index]) {
@@ -1019,7 +1028,7 @@ static void opj_pi_update_decode_poc (opj_pi_iterator_t * p_pi,
 		l_current_pi->poc.precno0 = 0;
 		l_current_pi->poc.resno1 = l_current_poc->resno1; /* Resolution Level Index #0 (End) */
 		l_current_pi->poc.compno1 = l_current_poc->compno1; /* Component Index #0 (End) */
-		l_current_pi->poc.layno1 = l_current_poc->layno1; /* Layer Index #0 (End) */
+		l_current_pi->poc.layno1 = opj_uint_min(l_current_poc->layno1, p_tcp->numlayers); /* Layer Index #0 (End) */
 		l_current_pi->poc.precno1 = p_max_precision;
 		++l_current_pi;
 		++l_current_poc;

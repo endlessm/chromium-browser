@@ -4,15 +4,17 @@
 
 #include "components/syncable_prefs/pref_model_associator.h"
 
+#include <utility>
+
 #include "base/auto_reset.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "components/prefs/pref_service.h"
 #include "components/syncable_prefs/pref_model_associator_client.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "sync/api/sync_change.h"
@@ -75,19 +77,14 @@ PrefModelAssociator::~PrefModelAssociator() {
 void PrefModelAssociator::InitPrefAndAssociate(
     const syncer::SyncData& sync_pref,
     const std::string& pref_name,
-    syncer::SyncChangeList* sync_changes,
-    SyncDataMap* migrated_preference_list) {
+    syncer::SyncChangeList* sync_changes) {
   const base::Value* user_pref_value = pref_service_->GetUserPrefValue(
       pref_name.c_str());
   VLOG(1) << "Associating preference " << pref_name;
 
   if (sync_pref.IsValid()) {
     const sync_pb::PreferenceSpecifics& preference = GetSpecifics(sync_pref);
-    std::string old_pref_name;
-    DCHECK(pref_name == preference.name() ||
-           (client_ &&
-            client_->IsMigratedPreference(pref_name, &old_pref_name) &&
-            preference.name() == old_pref_name));
+    DCHECK(pref_name == preference.name());
     base::JSONReader reader;
     scoped_ptr<base::Value> sync_value(reader.ReadToValue(preference.value()));
     if (!sync_value.get()) {
@@ -125,41 +122,10 @@ void PrefModelAssociator::InitPrefAndAssociate(
           return;
         }
 
-        std::string old_pref_name;
-        if (client_ &&
-            client_->IsMigratedPreference(pref_name, &old_pref_name)) {
-          // This preference has been migrated from an old version that must be
-          // kept in sync on older versions of Chrome.
-          if (preference.name() == old_pref_name) {
-            DCHECK(migrated_preference_list);
-            // If the name the syncer has is the old pre-migration value, then
-            // it's possible the new migrated preference name hasn't been synced
-            // yet. In that case the SyncChange should be an ACTION_ADD rather
-            // than an ACTION_UPDATE. Defer the decision of whether to sync with
-            // ACTION_ADD or ACTION_UPDATE until the migrated_preferences phase.
-            if (migrated_preference_list)
-              (*migrated_preference_list)[pref_name] = sync_data;
-          } else {
-            DCHECK_EQ(preference.name(), pref_name);
-            sync_changes->push_back(
-                syncer::SyncChange(FROM_HERE,
-                                   syncer::SyncChange::ACTION_UPDATE,
-                                   sync_data));
-          }
-
-          syncer::SyncData old_sync_data;
-          if (!CreatePrefSyncData(old_pref_name, *new_value, &old_sync_data)) {
-            LOG(ERROR) << "Failed to update preference.";
-            return;
-          }
-          if (migrated_preference_list)
-            (*migrated_preference_list)[old_pref_name] = old_sync_data;
-        } else {
-          sync_changes->push_back(
-            syncer::SyncChange(FROM_HERE,
-                               syncer::SyncChange::ACTION_UPDATE,
-                               sync_data));
-        }
+        sync_changes->push_back(
+          syncer::SyncChange(FROM_HERE,
+                             syncer::SyncChange::ACTION_UPDATE,
+                             sync_data));
       }
     } else if (!sync_value->IsType(base::Value::TYPE_NULL)) {
       // Only a server value exists. Just set the local user value.
@@ -201,16 +167,11 @@ syncer::SyncMergeResult PrefModelAssociator::MergeDataAndStartSyncing(
   DCHECK(sync_processor.get());
   DCHECK(sync_error_factory.get());
   syncer::SyncMergeResult merge_result(type);
-  sync_processor_ = sync_processor.Pass();
-  sync_error_factory_ = sync_error_factory.Pass();
+  sync_processor_ = std::move(sync_processor);
+  sync_error_factory_ = std::move(sync_error_factory);
 
   syncer::SyncChangeList new_changes;
   std::set<std::string> remaining_preferences = registered_preferences_;
-
-  // Maintains a list of old migrated preference names that we wish to sync.
-  // Keep track of these in a list such that when the preference iteration
-  // loops below are complete we can go back and determine whether
-  SyncDataMap migrated_preference_list;
 
   // Go through and check for all preferences we care about that sync already
   // knows about.
@@ -224,27 +185,16 @@ syncer::SyncMergeResult PrefModelAssociator::MergeDataAndStartSyncing(
     std::string sync_pref_name = preference.name();
 
     if (remaining_preferences.count(sync_pref_name) == 0) {
-      std::string new_pref_name;
-      if (client_ &&
-          client_->IsOldMigratedPreference(sync_pref_name, &new_pref_name)) {
-        // This old pref name is not syncable locally anymore but we accept
-        // changes from other Chrome installs of previous versions and migrate
-        // them to the new name. Note that we will be merging any differences
-        // between the new and old values and sync'ing them back.
-        sync_pref_name = new_pref_name;
-      } else {
-        // We're not syncing this preference locally, ignore the sync data.
-        // TODO(zea): Eventually we want to be able to have the syncable service
-        // reconstruct all sync data for its datatype (therefore having
-        // GetAllSyncData be a complete representation). We should store this
-        // data somewhere, even if we don't use it.
-        continue;
-      }
-    } else {
-      remaining_preferences.erase(sync_pref_name);
+      // We're not syncing this preference locally, ignore the sync data.
+      // TODO(zea): Eventually we want to be able to have the syncable service
+      // reconstruct all sync data for its datatype (therefore having
+      // GetAllSyncData be a complete representation). We should store this
+      // data somewhere, even if we don't use it.
+      continue;
     }
-    InitPrefAndAssociate(*sync_iter, sync_pref_name, &new_changes,
-                         &migrated_preference_list);
+
+    remaining_preferences.erase(sync_pref_name);
+    InitPrefAndAssociate(*sync_iter, sync_pref_name, &new_changes);
   }
 
   // Go through and build sync data for any remaining preferences.
@@ -252,22 +202,7 @@ syncer::SyncMergeResult PrefModelAssociator::MergeDataAndStartSyncing(
           remaining_preferences.begin();
        pref_name_iter != remaining_preferences.end();
        ++pref_name_iter) {
-    InitPrefAndAssociate(syncer::SyncData(), *pref_name_iter, &new_changes,
-                         &migrated_preference_list);
-  }
-
-  // Now go over any migrated preference names and build sync data for them too.
-  for (SyncDataMap::const_iterator migrated_pref_iter =
-          migrated_preference_list.begin();
-       migrated_pref_iter != migrated_preference_list.end();
-       ++migrated_pref_iter) {
-    syncer::SyncChange::SyncChangeType change_type =
-        (synced_preferences_.count(migrated_pref_iter->first) == 0) ?
-            syncer::SyncChange::ACTION_ADD :
-            syncer::SyncChange::ACTION_UPDATE;
-    new_changes.push_back(
-        syncer::SyncChange(FROM_HERE, change_type, migrated_pref_iter->second));
-    synced_preferences_.insert(migrated_pref_iter->first);
+    InitPrefAndAssociate(syncer::SyncData(), *pref_name_iter, &new_changes);
   }
 
   // Push updates to sync.
@@ -297,7 +232,6 @@ scoped_ptr<base::Value> PrefModelAssociator::MergePreference(
   // to merge for all migrated values.
   if (client_) {
     std::string new_pref_name;
-    DCHECK(!client_->IsOldMigratedPreference(name, &new_pref_name));
     if (client_->IsMergeableListPreference(name))
       return make_scoped_ptr(MergeListValues(local_value, server_value));
     if (client_->IsMergeableDictionaryPreference(name))
@@ -446,12 +380,6 @@ syncer::SyncError PrefModelAssociator::ProcessSyncChanges(
     // Windows client, the Windows client does not support
     // kConfirmToQuitEnabled. Ignore updates from these preferences.
     std::string pref_name = pref_specifics.name();
-    std::string new_pref_name;
-    // We migrated this preference name, so do as if the name had not changed.
-    if (client_ && client_->IsOldMigratedPreference(name, &new_pref_name)) {
-      pref_name = new_pref_name;
-    }
-
     if (!IsPrefRegistered(pref_name.c_str()))
       continue;
 
@@ -573,7 +501,7 @@ void PrefModelAssociator::ProcessPrefChange(const std::string& name) {
     // Not in synced_preferences_ means no synced data. InitPrefAndAssociate(..)
     // will determine if we care about its data (e.g. if it has a default value
     // and hasn't been changed yet we don't) and take care syncing any new data.
-    InitPrefAndAssociate(syncer::SyncData(), name, &changes, NULL);
+    InitPrefAndAssociate(syncer::SyncData(), name, &changes);
   } else {
     // We are already syncing this preference, just update it's sync node.
     syncer::SyncData sync_data;
@@ -585,24 +513,6 @@ void PrefModelAssociator::ProcessPrefChange(const std::string& name) {
         syncer::SyncChange(FROM_HERE,
                            syncer::SyncChange::ACTION_UPDATE,
                            sync_data));
-    // This preference has been migrated from an old version that must be kept
-    // in sync on older versions of Chrome.
-    std::string old_pref_name;
-    if (client_ && client_->IsMigratedPreference(name, &old_pref_name)) {
-      if (!CreatePrefSyncData(old_pref_name,
-                              *preference->GetValue(),
-                              &sync_data)) {
-        LOG(ERROR) << "Failed to update preference.";
-        return;
-      }
-
-      syncer::SyncChange::SyncChangeType change_type =
-          (synced_preferences_.count(old_pref_name) == 0) ?
-              syncer::SyncChange::ACTION_ADD :
-              syncer::SyncChange::ACTION_UPDATE;
-      changes.push_back(
-          syncer::SyncChange(FROM_HERE, change_type, sync_data));
-    }
   }
 
   syncer::SyncError error =

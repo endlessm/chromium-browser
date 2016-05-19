@@ -5,6 +5,7 @@
 #include "chrome/browser/android/logo_bridge.h"
 
 #include <jni.h>
+#include <stdint.h>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
@@ -108,13 +109,13 @@ LogoBridge::~LogoBridge() {
   ClearFetcher();
 }
 
-void LogoBridge::Destroy(JNIEnv* env, jobject obj) {
+void LogoBridge::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
 void LogoBridge::GetCurrentLogo(JNIEnv* env,
-                                jobject obj,
-                                jobject j_logo_observer) {
+                                const JavaParamRef<jobject>& obj,
+                                const JavaParamRef<jobject>& j_logo_observer) {
   if (!logo_service_)
     return;
 
@@ -125,9 +126,9 @@ void LogoBridge::GetCurrentLogo(JNIEnv* env,
 }
 
 void LogoBridge::GetAnimatedLogo(JNIEnv* env,
-                                 jobject obj,
-                                 jobject j_callback,
-                                 jstring j_url) {
+                                 const JavaParamRef<jobject>& obj,
+                                 const JavaParamRef<jobject>& j_callback,
+                                 const JavaParamRef<jstring>& j_url) {
   DCHECK(j_callback);
   if (!logo_service_)
     return;
@@ -158,8 +159,9 @@ void LogoBridge::OnURLFetchComplete(const net::URLFetcher* source) {
   source->GetResponseAsString(&response);
   JNIEnv* env = base::android::AttachCurrentThread();
 
-  ScopedJavaLocalRef<jbyteArray> j_bytes = ToJavaByteArray(
-      env, reinterpret_cast<const uint8*>(response.data()), response.length());
+  ScopedJavaLocalRef<jbyteArray> j_bytes =
+      ToJavaByteArray(env, reinterpret_cast<const uint8_t*>(response.data()),
+                      response.length());
   ScopedJavaLocalRef<jobject> j_gif_image =
       Java_LogoBridge_createGifImage(env, j_bytes.obj());
   Java_AnimatedLogoCallback_onAnimatedLogoAvailable(env, j_callback_.obj(),

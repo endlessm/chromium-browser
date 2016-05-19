@@ -7,18 +7,15 @@
 
 #include <iosfwd>
 
-#include "src/compiler/machine-type.h"
 #include "src/handles.h"
+#include "src/machine-type.h"
 #include "src/objects.h"
 
 namespace v8 {
 namespace internal {
 
 // Forward declarations.
-template <class>
-class TypeImpl;
-struct ZoneTypeConfig;
-typedef TypeImpl<ZoneTypeConfig> Type;
+class Type;
 class Zone;
 
 
@@ -148,6 +145,7 @@ class SimplifiedOperatorBuilder final : public ZoneObject {
   const Operator* NumberShiftRightLogical();
   const Operator* NumberToInt32();
   const Operator* NumberToUint32();
+  const Operator* NumberIsHoleNaN();
 
   const Operator* PlainPrimitiveToNumber();
 
@@ -167,6 +165,7 @@ class SimplifiedOperatorBuilder final : public ZoneObject {
   const Operator* ChangeBitToBool();
 
   const Operator* ObjectIsNumber();
+  const Operator* ObjectIsReceiver();
   const Operator* ObjectIsSmi();
 
   const Operator* Allocate(PretenureFlag pretenure = NOT_TENURED);

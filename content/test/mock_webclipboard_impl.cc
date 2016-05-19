@@ -4,11 +4,13 @@
 
 #include "content/test/mock_webclipboard_impl.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/renderer/clipboard_utils.h"
 #include "third_party/WebKit/public/platform/WebCommon.h"
 #include "third_party/WebKit/public/platform/WebDragData.h"
@@ -111,7 +113,7 @@ blink::WebData MockWebClipboardImpl::readImage(
                         false /* discard_transparency */,
                         std::vector<gfx::PNGCodec::Comment>(),
                         &encoded_image);
-  data.assign(reinterpret_cast<char*>(vector_as_array(&encoded_image)),
+  data.assign(reinterpret_cast<char*>(encoded_image.data()),
               encoded_image.size());
   return data;
 }
@@ -150,7 +152,7 @@ void MockWebClipboardImpl::writeURL(const blink::WebURL& url,
   clear();
 
   m_htmlText = WebString::fromUTF8(URLToMarkup(url, title));
-  m_plainText = url.spec().utf16();
+  m_plainText = url.string();
   ++m_sequenceNumber;
 }
 

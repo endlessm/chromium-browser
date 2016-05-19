@@ -7,14 +7,18 @@
 
 #include <openssl/base.h>
 #include <openssl/ssl.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/containers/mru_cache.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/cert/cert_verifier.h"
@@ -28,13 +32,19 @@
 #include "net/ssl/ssl_config_service.h"
 #include "net/ssl/ssl_failure_state.h"
 
+namespace base {
+class FilePath;
+class SequencedTaskRunner;
+}
+
 namespace net {
 
 class CertVerifier;
 class CTVerifier;
 class SSLCertRequestInfo;
 class SSLInfo;
-class SSLPrivateKey;
+
+using SignedEkmMap = base::MRUCache<std::string, std::vector<uint8_t>>;
 
 // An SSL client socket implemented with OpenSSL.
 class SSLClientSocketOpenSSL : public SSLClientSocket {
@@ -54,13 +64,21 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
     return ssl_session_cache_shard_;
   }
 
-  // Export ssl key log files if env variable is not set.
-  static void SetSSLKeyLogFile(const std::string& ssl_keylog_file);
+#if !defined(OS_NACL)
+  // Log SSL key material to |path| on |task_runner|. Must be called before any
+  // SSLClientSockets are created.
+  static void SetSSLKeyLogFile(
+      const base::FilePath& path,
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner);
+#endif
 
   // SSLClientSocket implementation.
   void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info) override;
   NextProtoStatus GetNextProto(std::string* proto) const override;
   ChannelIDService* GetChannelIDService() const override;
+  Error GetSignedEKMForTokenBinding(crypto::ECPrivateKey* key,
+                                    std::vector<uint8_t>* out) override;
+  crypto::ECPrivateKey* GetChannelIDKey() const override;
   SSLFailureState GetSSLFailureState() const override;
 
   // SSLSocket implementation.
@@ -96,8 +114,8 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   int Write(IOBuffer* buf,
             int buf_len,
             const CompletionCallback& callback) override;
-  int SetReceiveBufferSize(int32 size) override;
-  int SetSendBufferSize(int32 size) override;
+  int SetReceiveBufferSize(int32_t size) override;
+  int SetSendBufferSize(int32_t size) override;
 
  private:
   class PeerCertificateChain;
@@ -180,12 +198,13 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   // Called from the SSL layer whenever a new session is established.
   int NewSessionCallback(SSL_SESSION* session);
 
-  // Adds the SignedCertificateTimestamps from ct_verify_result_ to |ssl_info|.
+  // Adds the Certificate Transparency info from ct_verify_result_ to
+  // |ssl_info|.
   // SCTs are held in three separate vectors in ct_verify_result, each
   // vetor representing a particular verification state, this method associates
   // each of the SCTs with the corresponding SCTVerifyStatus as it adds it to
   // the |ssl_info|.signed_certificate_timestamps list.
-  void AddSCTInfoToSSLInfo(SSLInfo* ssl_info) const;
+  void AddCTInfoToSSLInfo(SSLInfo* ssl_info) const;
 
   // Returns a unique key string for the SSL session cache for
   // this socket.
@@ -290,6 +309,7 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   ChannelIDService* channel_id_service_;
   bool tb_was_negotiated_;
   TokenBindingParam tb_negotiated_param_;
+  SignedEkmMap tb_signed_ekm_map_;
 
   // OpenSSL stuff
   SSL* ssl_;
@@ -333,13 +353,12 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   ChannelIDService::Request channel_id_request_;
   SSLFailureState ssl_failure_state_;
 
-  scoped_ptr<SSLPrivateKey> private_key_;
   int signature_result_;
   std::vector<uint8_t> signature_;
 
   TransportSecurityState* transport_security_state_;
 
-  CertPolicyEnforcer* const policy_enforcer_;
+  CTPolicyEnforcer* const policy_enforcer_;
 
   // pinning_failure_log contains a message produced by
   // TransportSecurityState::CheckPublicKeyPins in the event of a

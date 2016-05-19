@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/shared_module_service.h"
 
+#include <utility>
+
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
@@ -36,15 +38,16 @@ scoped_refptr<Extension> CreateExtensionImportingModule(
          .Set("version", version)
          .Set("manifest_version", 2);
   if (!import_id.empty()) {
-    builder.Set("import",
-                ListBuilder().Append(DictionaryBuilder().Set("id", import_id)));
+    builder.Set("import", std::move(ListBuilder().Append(std::move(
+                              DictionaryBuilder().Set("id", import_id)))));
   }
   scoped_ptr<base::DictionaryValue> manifest = builder.Build();
 
-  return ExtensionBuilder().SetManifest(manifest.Pass())
-                           .AddFlags(Extension::FROM_WEBSTORE)
-                           .SetID(id)
-                           .Build();
+  return ExtensionBuilder()
+      .SetManifest(std::move(manifest))
+      .AddFlags(Extension::FROM_WEBSTORE)
+      .SetID(id)
+      .Build();
 }
 
 }  // namespace
@@ -128,11 +131,12 @@ TEST_F(SharedModuleServiceUnitTest, PruneSharedModulesOnUninstall) {
           .Set("version", "1.0")
           .Set("manifest_version", 2)
           .Set("export",
-               DictionaryBuilder().Set("resources",
-                                       ListBuilder().Append("foo.js"))).Build();
+               std::move(DictionaryBuilder().Set(
+                   "resources", std::move(ListBuilder().Append("foo.js")))))
+          .Build();
   scoped_refptr<Extension> shared_module =
       ExtensionBuilder()
-          .SetManifest(manifest.Pass())
+          .SetManifest(std::move(manifest))
           .AddFlags(Extension::FROM_WEBSTORE)
           .SetID(crx_file::id_util::GenerateId("shared_module"))
           .Build();
@@ -168,11 +172,12 @@ TEST_F(SharedModuleServiceUnitTest, PruneSharedModulesOnUpdate) {
           .Set("version", "1.0")
           .Set("manifest_version", 2)
           .Set("export",
-               DictionaryBuilder().Set("resources",
-                                       ListBuilder().Append("foo.js"))).Build();
+               std::move(DictionaryBuilder().Set(
+                   "resources", std::move(ListBuilder().Append("foo.js")))))
+          .Build();
   scoped_refptr<Extension> shared_module_1 =
       ExtensionBuilder()
-          .SetManifest(manifest_1.Pass())
+          .SetManifest(std::move(manifest_1))
           .AddFlags(Extension::FROM_WEBSTORE)
           .SetID(crx_file::id_util::GenerateId("shared_module_1"))
           .Build();
@@ -184,11 +189,12 @@ TEST_F(SharedModuleServiceUnitTest, PruneSharedModulesOnUpdate) {
           .Set("version", "1.0")
           .Set("manifest_version", 2)
           .Set("export",
-               DictionaryBuilder().Set("resources",
-                                       ListBuilder().Append("foo.js"))).Build();
+               std::move(DictionaryBuilder().Set(
+                   "resources", std::move(ListBuilder().Append("foo.js")))))
+          .Build();
   scoped_refptr<Extension> shared_module_2 =
       ExtensionBuilder()
-          .SetManifest(manifest_2.Pass())
+          .SetManifest(std::move(manifest_2))
           .AddFlags(Extension::FROM_WEBSTORE)
           .SetID(crx_file::id_util::GenerateId("shared_module_2"))
           .Build();
@@ -244,14 +250,15 @@ TEST_F(SharedModuleServiceUnitTest, WhitelistedImports) {
           .Set("version", "1.0")
           .Set("manifest_version", 2)
           .Set("export",
-               DictionaryBuilder().Set("whitelist",
-                                       ListBuilder()
-                                           .Append(whitelisted_id))
-                                  .Set("resources",
-                                       ListBuilder().Append("*"))).Build();
+               std::move(
+                   DictionaryBuilder()
+                       .Set("whitelist",
+                            std::move(ListBuilder().Append(whitelisted_id)))
+                       .Set("resources", std::move(ListBuilder().Append("*")))))
+          .Build();
   scoped_refptr<Extension> shared_module =
       ExtensionBuilder()
-          .SetManifest(manifest.Pass())
+          .SetManifest(std::move(manifest))
           .AddFlags(Extension::FROM_WEBSTORE)
           .SetID(crx_file::id_util::GenerateId("shared_module"))
           .Build();

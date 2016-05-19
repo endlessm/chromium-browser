@@ -42,6 +42,11 @@ _kind_to_cpp_literal_suffix = {
   mojom.UINT64:       "ULL",
 }
 
+# TODO(rockot): Get rid of this global. This requires some refactoring of the
+# generator library code so that filters can use the generator as context.
+_current_typemap = {}
+
+
 def ConstantValue(constant):
   return ExpressionToText(constant.value, kind=constant.kind)
 
@@ -51,32 +56,85 @@ def DefaultValue(field):
       assert field.default == "default"
       return "%s::New()" % GetNameForKind(field.kind)
     return ExpressionToText(field.default, kind=field.kind)
+  if (mojom.IsStringKind(field.kind) or mojom.IsArrayKind(field.kind) or
+      mojom.IsMapKind(field.kind)):
+    return "nullptr";
   return ""
 
 def NamespaceToArray(namespace):
   return namespace.split(".") if namespace else []
 
-def GetNameForKind(kind, internal = False):
+def GetNamePartsForKind(kind, add_same_module_namespaces, internal):
+  def MapKindName_(kind):
+    if not internal:
+      return kind.name
+    if mojom.IsStructKind(kind) and kind.native_only:
+      return "mojo::Array_Data<uint8_t>"
+    if (mojom.IsStructKind(kind) or mojom.IsUnionKind(kind) or
+        mojom.IsInterfaceKind(kind) or mojom.IsEnumKind(kind)):
+      return kind.name + "_Data"
+    return kind.name
+
   parts = []
   if kind.imported_from:
     parts.extend(NamespaceToArray(kind.imported_from["namespace"]))
+  elif hasattr(kind, "module") and add_same_module_namespaces:
+    parts.extend(NamespaceToArray(kind.module.namespace))
   if internal:
     parts.append("internal")
   if kind.parent_kind:
-    parts.append(kind.parent_kind.name)
-  parts.append(kind.name)
+    parts.append(MapKindName_(kind.parent_kind))
+  parts.append(MapKindName_(kind))
+  return parts
+
+def GetNameForKind(kind, internal=False):
+  parts = GetNamePartsForKind(kind, False, internal)
   return "::".join(parts)
 
+def GetQualifiedNameForKind(kind, internal=False):
+  # Always start with an empty part to force a leading "::" on output.
+  parts = [""]
+  parts.extend(GetNamePartsForKind(kind, True, internal))
+  return "::".join(parts)
+
+def GetFullMojomNameForKind(kind):
+  parts = GetNamePartsForKind(kind, True, False)
+  return ".".join(parts)
+
+def IsTypemappedKind(kind):
+  return hasattr(kind, "name") and \
+      GetFullMojomNameForKind(kind) in _current_typemap
+
+def IsNativeOnlyKind(kind):
+  return mojom.IsStructKind(kind) and kind.native_only
+
+def GetNativeTypeName(typemapped_kind):
+  return _current_typemap[GetFullMojomNameForKind(typemapped_kind)]["typename"]
+
+def DoesKindSupportEquality(kind):
+  if IsTypemappedKind(kind):
+    return False
+  if mojom.IsStructKind(kind) and kind.native_only:
+    return False
+  if mojom.IsArrayKind(kind):
+    return DoesKindSupportEquality(kind.kind)
+  if mojom.IsMapKind(kind):
+    return DoesKindSupportEquality(kind.value_kind)
+  return True
+
 def GetCppType(kind):
+  if mojom.IsStructKind(kind) and kind.native_only:
+    # A native-only type is just a blob of bytes.
+    return "mojo::internal::Array_Data<uint8_t>*"
   if mojom.IsArrayKind(kind):
     return "mojo::internal::Array_Data<%s>*" % GetCppType(kind.kind)
   if mojom.IsMapKind(kind):
     return "mojo::internal::Map_Data<%s, %s>*" % (
       GetCppType(kind.key_kind), GetCppType(kind.value_kind))
   if mojom.IsStructKind(kind):
-    return "%s_Data*" % GetNameForKind(kind, internal=True)
+    return "%s*" % GetNameForKind(kind, internal=True)
   if mojom.IsUnionKind(kind):
-    return "%s_Data" % GetNameForKind(kind, internal=True)
+    return "%s" % GetNameForKind(kind, internal=True)
   if mojom.IsInterfaceKind(kind):
     return "mojo::internal::Interface_Data"
   if mojom.IsInterfaceRequestKind(kind):
@@ -86,7 +144,7 @@ def GetCppType(kind):
   if mojom.IsAssociatedInterfaceRequestKind(kind):
     return "mojo::internal::AssociatedInterfaceRequest_Data"
   if mojom.IsEnumKind(kind):
-    return "int32_t"
+    return GetNameForKind(kind, internal=True)
   if mojom.IsStringKind(kind):
     return "mojo::internal::String_Data*"
   return _kind_to_cpp_type[kind]
@@ -97,6 +155,16 @@ def GetCppPodType(kind):
   return _kind_to_cpp_type[kind]
 
 def GetCppArrayArgWrapperType(kind):
+  if mojom.IsStructKind(kind) and kind.native_only:
+    if IsTypemappedKind(kind):
+      return GetNativeTypeName(kind)
+    else:
+      # Without a relevant typemap to apply, a native-only struct can only be
+      # exposed as a blob of bytes.
+      return "mojo::Array<uint8_t>"
+  if IsTypemappedKind(kind):
+    raise Exception(
+        "Cannot serialize containers of non-native typemapped structs yet!")
   if mojom.IsEnumKind(kind):
     return GetNameForKind(kind)
   if mojom.IsStructKind(kind) or mojom.IsUnionKind(kind):
@@ -130,6 +198,10 @@ def GetCppArrayArgWrapperType(kind):
   return _kind_to_cpp_type[kind]
 
 def GetCppResultWrapperType(kind):
+  if IsTypemappedKind(kind):
+    return "const %s&" % GetNativeTypeName(kind)
+  if mojom.IsStructKind(kind) and kind.native_only:
+    return "mojo::Array<uint8_t>"
   if mojom.IsEnumKind(kind):
     return GetNameForKind(kind)
   if mojom.IsStructKind(kind) or mojom.IsUnionKind(kind):
@@ -142,11 +214,11 @@ def GetCppResultWrapperType(kind):
   if mojom.IsInterfaceKind(kind):
     return "%sPtr" % GetNameForKind(kind)
   if mojom.IsInterfaceRequestKind(kind):
-    return "mojo::InterfaceRequest<%s>" % GetNameForKind(kind.kind)
+    return "%sRequest" % GetNameForKind(kind.kind)
   if mojom.IsAssociatedInterfaceKind(kind):
-    return "mojo::AssociatedInterfacePtrInfo<%s>" % GetNameForKind(kind.kind)
+    return "%sAssociatedPtrInfo" % GetNameForKind(kind.kind)
   if mojom.IsAssociatedInterfaceRequestKind(kind):
-    return "mojo::AssociatedInterfaceRequest<%s>" % GetNameForKind(kind.kind)
+    return "%sAssociatedRequest" % GetNameForKind(kind.kind)
   if mojom.IsStringKind(kind):
     return "mojo::String"
   if mojom.IsGenericHandleKind(kind):
@@ -168,6 +240,10 @@ def GetCppResultWrapperType(kind):
   raise Exception("Unrecognized kind %s" % kind.spec)
 
 def GetCppWrapperType(kind):
+  if IsTypemappedKind(kind):
+    return GetNativeTypeName(kind)
+  if mojom.IsStructKind(kind) and kind.native_only:
+    return "mojo::Array<uint8_t>"
   if mojom.IsEnumKind(kind):
     return GetNameForKind(kind)
   if mojom.IsStructKind(kind) or mojom.IsUnionKind(kind):
@@ -180,11 +256,11 @@ def GetCppWrapperType(kind):
   if mojom.IsInterfaceKind(kind):
     return "%sPtr" % GetNameForKind(kind)
   if mojom.IsInterfaceRequestKind(kind):
-    return "mojo::InterfaceRequest<%s>" % GetNameForKind(kind.kind)
+    return "%sRequest" % GetNameForKind(kind.kind)
   if mojom.IsAssociatedInterfaceKind(kind):
-    return "mojo::AssociatedInterfacePtrInfo<%s>" % GetNameForKind(kind.kind)
+    return "%sAssociatedPtrInfo" % GetNameForKind(kind.kind)
   if mojom.IsAssociatedInterfaceRequestKind(kind):
-    return "mojo::AssociatedInterfaceRequest<%s>" % GetNameForKind(kind.kind)
+    return "%sAssociatedRequest" % GetNameForKind(kind.kind)
   if mojom.IsStringKind(kind):
     return "mojo::String"
   if mojom.IsGenericHandleKind(kind):
@@ -200,6 +276,10 @@ def GetCppWrapperType(kind):
   return _kind_to_cpp_type[kind]
 
 def GetCppConstWrapperType(kind):
+  if IsTypemappedKind(kind):
+    return "const %s&" % GetNativeTypeName(kind)
+  if mojom.IsStructKind(kind) and kind.native_only:
+    return "mojo::Array<uint8_t>"
   if mojom.IsStructKind(kind) or mojom.IsUnionKind(kind):
     return "%sPtr" % GetNameForKind(kind)
   if mojom.IsArrayKind(kind):
@@ -210,11 +290,11 @@ def GetCppConstWrapperType(kind):
   if mojom.IsInterfaceKind(kind):
     return "%sPtr" % GetNameForKind(kind)
   if mojom.IsInterfaceRequestKind(kind):
-    return "mojo::InterfaceRequest<%s>" % GetNameForKind(kind.kind)
+    return "%sRequest" % GetNameForKind(kind.kind)
   if mojom.IsAssociatedInterfaceKind(kind):
-    return "mojo::AssociatedInterfacePtrInfo<%s>" % GetNameForKind(kind.kind)
+    return "%sAssociatedPtrInfo" % GetNameForKind(kind.kind)
   if mojom.IsAssociatedInterfaceRequestKind(kind):
-    return "mojo::AssociatedInterfaceRequest<%s>" % GetNameForKind(kind.kind)
+    return "%sAssociatedRequest" % GetNameForKind(kind.kind)
   if mojom.IsEnumKind(kind):
     return GetNameForKind(kind)
   if mojom.IsStringKind(kind):
@@ -234,11 +314,13 @@ def GetCppConstWrapperType(kind):
   return _kind_to_cpp_type[kind]
 
 def GetCppFieldType(kind):
+  if mojom.IsStructKind(kind) and kind.native_only:
+    return "mojo::internal::ArrayPointer<uint8_t>"
   if mojom.IsStructKind(kind):
-    return ("mojo::internal::StructPointer<%s_Data>" %
+    return ("mojo::internal::StructPointer<%s>" %
         GetNameForKind(kind, internal=True))
   if mojom.IsUnionKind(kind):
-    return "%s_Data" % GetNameForKind(kind, internal=True)
+    return "%s" % GetNameForKind(kind, internal=True)
   if mojom.IsArrayKind(kind):
     return "mojo::internal::ArrayPointer<%s>" % GetCppType(kind.kind)
   if mojom.IsMapKind(kind):
@@ -253,7 +335,7 @@ def GetCppFieldType(kind):
   if mojom.IsAssociatedInterfaceRequestKind(kind):
     return "mojo::internal::AssociatedInterfaceRequest_Data"
   if mojom.IsEnumKind(kind):
-    return GetNameForKind(kind)
+    return GetNameForKind(kind, internal=True)
   if mojom.IsStringKind(kind):
     return "mojo::internal::StringPointer"
   return _kind_to_cpp_type[kind]
@@ -263,10 +345,8 @@ def GetCppUnionFieldType(kind):
     return "MojoHandle"
   if mojom.IsInterfaceKind(kind):
     return "uint64_t"
-  if mojom.IsEnumKind(kind):
-    return "int32_t"
   if mojom.IsUnionKind(kind):
-    return ("mojo::internal::UnionPointer<%s_Data>" %
+    return ("mojo::internal::UnionPointer<%s>" %
         GetNameForKind(kind, internal=True))
   return GetCppFieldType(kind)
 
@@ -289,8 +369,7 @@ def TranslateConstants(token, kind):
     if token.parent_kind:
       name.append(token.parent_kind.name)
     if isinstance(token, mojom.EnumValue):
-      name.append(
-          "%s_%s" % (generator.CamelCaseToAllCaps(token.enum.name), token.name))
+      name.extend([token.enum.name, token.name])
     else:
       name.append(token.name)
     return "::".join(name)
@@ -340,7 +419,8 @@ def ShouldInlineUnion(union):
   return not any(mojom.IsMoveOnlyKind(field.kind) for field in union.fields)
 
 def GetArrayValidateParamsCtorArgs(kind):
-  if mojom.IsStringKind(kind):
+  if mojom.IsStringKind(kind) or (mojom.IsStructKind(kind) and
+                                  kind.native_only):
     expected_num_elements = 0
     element_is_nullable = False
     element_validate_params = "nullptr"
@@ -359,7 +439,8 @@ def GetArrayValidateParamsCtorArgs(kind):
 
 def GetNewArrayValidateParams(kind):
   if (not mojom.IsArrayKind(kind) and not mojom.IsMapKind(kind) and
-      not mojom.IsStringKind(kind)):
+      not mojom.IsStringKind(kind) and
+      not (mojom.IsStructKind(kind) and kind.native_only)):
     return "nullptr"
 
   return "new mojo::internal::ArrayValidateParams(%s)" % (
@@ -390,7 +471,9 @@ class Generator(generator.Generator):
     "get_map_validate_params_ctor_args": GetMapValidateParamsCtorArgs,
     "get_name_for_kind": GetNameForKind,
     "get_pad": pack.GetPad,
+    "get_qualified_name_for_kind": GetQualifiedNameForKind,
     "has_callbacks": mojom.HasCallbacks,
+    "has_sync_methods": mojom.HasSyncMethods,
     "should_inline": ShouldInlineStruct,
     "should_inline_union": ShouldInlineUnion,
     "is_array_kind": mojom.IsArrayKind,
@@ -398,6 +481,7 @@ class Generator(generator.Generator):
     "is_enum_kind": mojom.IsEnumKind,
     "is_integral_kind": mojom.IsIntegralKind,
     "is_move_only_kind": mojom.IsMoveOnlyKind,
+    "is_native_only_kind": IsNativeOnlyKind,
     "is_any_handle_kind": mojom.IsAnyHandleKind,
     "is_interface_kind": mojom.IsInterfaceKind,
     "is_interface_request_kind": mojom.IsInterfaceRequestKind,
@@ -410,12 +494,20 @@ class Generator(generator.Generator):
     "is_object_kind": mojom.IsObjectKind,
     "is_string_kind": mojom.IsStringKind,
     "is_struct_kind": mojom.IsStructKind,
+    "is_typemapped_kind": IsTypemappedKind,
     "is_union_kind": mojom.IsUnionKind,
+    "passes_associated_kinds": mojom.PassesAssociatedKinds,
     "struct_size": lambda ps: ps.GetTotalSize() + _HEADER_SIZE,
     "stylize_method": generator.StudlyCapsToCamel,
-    "to_all_caps": generator.CamelCaseToAllCaps,
+    "supports_equality": DoesKindSupportEquality,
     "under_to_camel": generator.UnderToCamel,
   }
+
+  def GetExtraHeaders(self):
+    extra_headers = set()
+    for name, entry in self.typemap.iteritems():
+      extra_headers.update(entry["headers"])
+    return list(extra_headers)
 
   def GetJinjaExports(self):
     return {
@@ -428,24 +520,37 @@ class Generator(generator.Generator):
       "structs": self.GetStructs(),
       "unions": self.GetUnions(),
       "interfaces": self.GetInterfaces(),
+      "variant": self.variant,
+      "extra_headers": self.GetExtraHeaders(),
     }
 
-  @UseJinja("cpp_templates/module.h.tmpl", filters=cpp_filters)
+  @staticmethod
+  def GetTemplatePrefix():
+    return "cpp_templates"
+
+  @classmethod
+  def GetFilters(cls):
+    return cls.cpp_filters
+
+  @UseJinja("module.h.tmpl")
   def GenerateModuleHeader(self):
     return self.GetJinjaExports()
 
-  @UseJinja("cpp_templates/module-internal.h.tmpl", filters=cpp_filters)
+  @UseJinja("module-internal.h.tmpl")
   def GenerateModuleInternalHeader(self):
     return self.GetJinjaExports()
 
-  @UseJinja("cpp_templates/module.cc.tmpl", filters=cpp_filters)
+  @UseJinja("module.cc.tmpl")
   def GenerateModuleSource(self):
     return self.GetJinjaExports()
 
   def GenerateFiles(self, args):
+    global _current_typemap
+    _current_typemap = self.typemap
+    suffix = "-%s" % self.variant if self.variant else ""
     self.Write(self.GenerateModuleHeader(),
-        self.MatchMojomFilePath("%s.h" % self.module.name))
+        self.MatchMojomFilePath("%s%s.h" % (self.module.name, suffix)))
     self.Write(self.GenerateModuleInternalHeader(),
-        self.MatchMojomFilePath("%s-internal.h" % self.module.name))
+        self.MatchMojomFilePath("%s%s-internal.h" % (self.module.name, suffix)))
     self.Write(self.GenerateModuleSource(),
-        self.MatchMojomFilePath("%s.cc" % self.module.name))
+        self.MatchMojomFilePath("%s%s.cc" % (self.module.name, suffix)))

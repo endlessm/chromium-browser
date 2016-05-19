@@ -10,15 +10,16 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autocomplete_history_manager.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_download_manager.h"
@@ -37,9 +38,6 @@
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 #define ENABLE_FORM_DEBUG_DUMP
 #endif
-
-class ChromeUIWebViewWebTest;
-class ChromeWKWebViewWebTest;
 
 namespace gfx {
 class Rect;
@@ -62,7 +60,6 @@ class AutofillProfile;
 class AutofillType;
 class CreditCard;
 class FormStructureBrowserTest;
-template <class WebTestT> class FormStructureBrowserTestIos;
 
 struct FormData;
 struct FormFieldData;
@@ -109,7 +106,9 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   void DidShowSuggestions(bool is_new_popup,
                           const FormData& form,
                           const FormFieldData& field);
-  void OnDidFillAutofillFormData(const base::TimeTicks& timestamp);
+  void OnFocusNoLongerOnForm();
+  void OnDidFillAutofillFormData(const FormData& form,
+                                 const base::TimeTicks& timestamp);
   void OnDidPreviewAutofillFormData();
 
   // Returns true if the value/identifier is deletable. Fills out
@@ -166,6 +165,20 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   // personal profile. Returns false if this form is not relevant for Autofill.
   bool OnFormSubmitted(const FormData& form);
 
+  // Will send an upload based on the |form_structure| data and the local
+  // Autofill profile data. |observed_submission| is specified if the upload
+  // follows an observed submission event.
+  void StartUploadProcess(scoped_ptr<FormStructure> form_structure,
+                          const base::TimeTicks& timestamp,
+                          bool observed_submission);
+
+  // Update the pending form with |form|, possibly processing the current
+  // pending form for upload.
+  void UpdatePendingForm(const FormData& form);
+
+  // Upload the current pending form.
+  void ProcessPendingFormForUpload();
+
   void OnTextFieldDidChange(const FormData& form,
                             const FormFieldData& field,
                             const base::TimeTicks& timestamp);
@@ -192,7 +205,7 @@ class AutofillManager : public AutofillDownloadManager::Observer,
 
   // Shared code to determine if |form| should be uploaded to the Autofill
   // server. It verifies that uploading is allowed and |form| meets conditions
-  // to be uploadable.
+  // to be uploadable. Exposed for testing.
   bool ShouldUploadForm(const FormStructure& form);
 
  protected:
@@ -201,16 +214,20 @@ class AutofillManager : public AutofillDownloadManager::Observer,
                   AutofillClient* client,
                   PersonalDataManager* personal_data);
 
-  // Uploads the form data to the Autofill server.
-  virtual void UploadFormData(const FormStructure& submitted_form);
+  // Uploads the form data to the Autofill server. |observed_submission|
+  // indicates that upload is the result of a submission event.
+  virtual void UploadFormData(const FormStructure& submitted_form,
+                              bool observed_submission);
 
   // Logs quality metrics for the |submitted_form| and uploads the form data
-  // to the crowdsourcing server, if appropriate.
+  // to the crowdsourcing server, if appropriate. |observed_submission|
+  // indicates whether the upload is a result of an observed submission event.
   virtual void UploadFormDataAsyncCallback(
       const FormStructure* submitted_form,
       const base::TimeTicks& load_time,
       const base::TimeTicks& interaction_time,
-      const base::TimeTicks& submission_time);
+      const base::TimeTicks& submission_time,
+      bool observed_submission);
 
   // Maps suggestion backend ID to and from an integer identifying it. Two of
   // these intermediate integers are packed by MakeFrontendID to make the IDs
@@ -247,7 +264,7 @@ class AutofillManager : public AutofillDownloadManager::Observer,
  private:
   // AutofillDownloadManager::Observer:
   void OnLoadedServerPredictions(
-      const std::string& response_xml,
+      std::string response,
       const std::vector<std::string>& form_signatures) override;
 
   // CardUnmaskDelegate:
@@ -375,17 +392,29 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   // Imports the form data, submitted by the user, into |personal_data_|.
   void ImportFormData(const FormStructure& submitted_form);
 
-  // Returns all web profiles known to the personal data manager whose names
-  // match the name on |card| and that have been created or used within the last
-  // 15 minutes.
-  std::vector<AutofillProfile> GetProfilesForCreditCardUpload(
-      const CreditCard& card);
+  // Examines |card| and the stored profiles and if a candidate set of profiles
+  // is found that matches the client-side validation rules, assigns the values
+  // to |profiles|. If no valid set can be found, returns false.
+  bool GetProfilesForCreditCardUpload(
+      const CreditCard& card,
+      std::vector<AutofillProfile>* profiles) const;
 
   // If |initial_interaction_timestamp_| is unset or is set to a later time than
   // |interaction_timestamp|, updates the cached timestamp.  The latter check is
   // needed because IPC messages can arrive out of order.
   void UpdateInitialInteractionTimestamp(
       const base::TimeTicks& interaction_timestamp);
+
+  // Uses the existing personal data in |profiles| and |credit_cards| to
+  // determine possible field types for the |submitted_form|.  This is
+  // potentially expensive -- on the order of 50ms even for a small set of
+  // |stored_data|. Hence, it should not run on the UI thread -- to avoid
+  // locking up the UI -- nor on the IO thread -- to avoid blocking IPC calls.
+  static void DeterminePossibleFieldTypesForUpload(
+      const std::vector<AutofillProfile>& profiles,
+      const std::vector<CreditCard>& credit_cards,
+      const std::string& app_locale,
+      FormStructure* submitted_form);
 
 #ifdef ENABLE_FORM_DEBUG_DUMP
   // Dumps the cached forms to a file on disk.
@@ -444,6 +473,9 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   // Our copy of the form data.
   ScopedVector<FormStructure> form_structures_;
 
+  // A copy of the currently interacted form data.
+  scoped_ptr<FormData> pending_form_data_;
+
   // Collected information about a pending unmask request, and data about the
   // form.
   payments::PaymentsClient::UnmaskRequestDetails unmask_request_;
@@ -456,10 +488,6 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   // Collected information about a pending upload request.
   payments::PaymentsClient::UploadRequestDetails upload_request_;
   bool user_did_accept_upload_prompt_;
-
-  // Masked copies of recently unmasked cards, to help avoid double-asking to
-  // save the card (in the prompt and in the infobar after submit).
-  std::vector<CreditCard> recently_unmasked_cards_;
 
 #ifdef ENABLE_FORM_DEBUG_DUMP
   // The last few autofilled forms (key/value pairs) submitted, for debugging.
@@ -485,8 +513,6 @@ class AutofillManager : public AutofillDownloadManager::Observer,
 
   friend class AutofillManagerTest;
   friend class FormStructureBrowserTest;
-  friend class FormStructureBrowserTestIos<ChromeUIWebViewWebTest>;
-  friend class FormStructureBrowserTestIos<ChromeWKWebViewWebTest>;
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
                            DeterminePossibleFieldTypesForUpload);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,

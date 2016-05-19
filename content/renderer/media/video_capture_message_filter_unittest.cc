@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/memory/shared_memory.h"
 #include "base/process/process_handle.h"
+#include "build/build_config.h"
 #include "content/common/media/video_capture_messages.h"
 #include "content/renderer/media/video_capture_message_filter.h"
 #include "ipc/ipc_test_sink.h"
@@ -38,22 +41,21 @@ class MockVideoCaptureDelegate : public VideoCaptureMessageFilter::Delegate {
                     const gfx::Size& size,
                     int buffer_id));
   MOCK_METHOD1(OnBufferDestroyed, void(int buffer_id));
-  MOCK_METHOD8(OnBufferReceived,
+  MOCK_METHOD7(OnBufferReceived,
                void(int buffer_id,
                     base::TimeTicks timestamp,
                     const base::DictionaryValue& metadata,
                     media::VideoPixelFormat pixel_format,
                     media::VideoFrame::StorageType storage_type,
                     const gfx::Size& coded_size,
-                    const gfx::Rect& visible_rect,
-                    const gpu::MailboxHolder& mailbox_holder));
+                    const gfx::Rect& visible_rect));
   MOCK_METHOD1(OnStateChanged, void(VideoCaptureState state));
   MOCK_METHOD1(OnDeviceSupportedFormatsEnumerated,
                void(const media::VideoCaptureFormats& formats));
   MOCK_METHOD1(OnDeviceFormatsInUseReceived,
                void(const media::VideoCaptureFormats& formats_in_use));
 
-  void OnDelegateAdded(int32 device_id) override {
+  void OnDelegateAdded(int32_t device_id) override {
     ASSERT_TRUE(device_id != 0);
     ASSERT_TRUE(device_id_ == 0);
     device_id_ = device_id;
@@ -95,18 +97,23 @@ TEST(VideoCaptureMessageFilterTest, Basic) {
   Mock::VerifyAndClearExpectations(&delegate);
 
   // VideoCaptureMsg_NewBuffer
-  const base::SharedMemoryHandle handle =
 #if defined(OS_WIN)
-      base::SharedMemoryHandle(reinterpret_cast<HANDLE>(10),
-                               base::GetCurrentProcId());
+  HANDLE h = reinterpret_cast<HANDLE>(10);
+  // Passing a process ID that is not the current process's to prevent
+  // attachment brokering.
+  const base::SharedMemoryHandle handle =
+      base::SharedMemoryHandle(h, base::GetCurrentProcId() + 1);
+  EXPECT_CALL(delegate,
+              OnBufferCreated(
+                  ::testing::Property(&base::SharedMemoryHandle::GetHandle, h),
+                  100, 1));
 #else
-      base::SharedMemoryHandle(10, true);
-#endif
+  const base::SharedMemoryHandle handle = base::SharedMemoryHandle(10, true);
   EXPECT_CALL(delegate, OnBufferCreated(handle, 100, 1));
+#endif
   filter->OnMessageReceived(VideoCaptureMsg_NewBuffer(
       delegate.device_id(), handle, 100, 1));
   Mock::VerifyAndClearExpectations(&delegate);
-
   // VideoCaptureMsg_BufferReady
   VideoCaptureMsg_BufferReady_Params params;
   params.device_id = delegate.device_id();
@@ -122,40 +129,15 @@ TEST(VideoCaptureMessageFilterTest, Basic) {
               OnBufferReceived(params.buffer_id, params.timestamp, _,
                                media::PIXEL_FORMAT_I420,
                                media::VideoFrame::STORAGE_SHMEM,
-                               params.coded_size, params.visible_rect, _))
+                               params.coded_size, params.visible_rect))
       .WillRepeatedly(WithArg<2>(Invoke(&ExpectMetadataContainsFooBarBaz)));
   filter->OnMessageReceived(VideoCaptureMsg_BufferReady(params));
   Mock::VerifyAndClearExpectations(&delegate);
 
-  // VideoCaptureMsg_BufferReady_Params with a Texture
-  VideoCaptureMsg_BufferReady_Params params_m;
-  params_m.device_id = delegate.device_id();
-  params_m.buffer_id = 33;
-  params_m.timestamp = base::TimeTicks::FromInternalValue(2);
-  params_m.metadata.SetString("bar", "baz");
-  params_m.pixel_format = media::PIXEL_FORMAT_ARGB;
-  params_m.storage_type = media::VideoFrame::STORAGE_OPAQUE;
-  params_m.coded_size = gfx::Size(345, 256);
-  params_m.mailbox_holder =
-      gpu::MailboxHolder(gpu::Mailbox::Generate(), gpu::SyncToken(), 44);
-
-  gpu::MailboxHolder received_mailbox_holder;
-  EXPECT_CALL(delegate, OnBufferReceived(params_m.buffer_id, params_m.timestamp,
-                                         _, media::PIXEL_FORMAT_ARGB,
-                                         media::VideoFrame::STORAGE_OPAQUE,
-                                         params_m.coded_size, _, _))
-      .WillRepeatedly(
-          DoAll(SaveArg<7>(&received_mailbox_holder),
-                WithArg<2>(Invoke(&ExpectMetadataContainsFooBarBaz))));
-  filter->OnMessageReceived(VideoCaptureMsg_BufferReady(params_m));
-  Mock::VerifyAndClearExpectations(&delegate);
-  EXPECT_EQ(params_m.mailbox_holder.mailbox,
-            received_mailbox_holder.mailbox);
-
   // VideoCaptureMsg_FreeBuffer
-  EXPECT_CALL(delegate, OnBufferDestroyed(params_m.buffer_id));
+  EXPECT_CALL(delegate, OnBufferDestroyed(params.buffer_id));
   filter->OnMessageReceived(VideoCaptureMsg_FreeBuffer(
-      delegate.device_id(), params_m.buffer_id));
+      delegate.device_id(), params.buffer_id));
   Mock::VerifyAndClearExpectations(&delegate);
 }
 

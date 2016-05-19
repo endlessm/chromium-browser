@@ -10,13 +10,12 @@
 #ifndef NET_SPDY_SPDY_ALT_SVC_WIRE_FORMAT_H_
 #define NET_SPDY_SPDY_ALT_SVC_WIRE_FORMAT_H_
 
+#include <stdint.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/strings/string_piece.h"
 #include "net/base/net_export.h"
-
-using base::StringPiece;
 
 namespace net {
 
@@ -26,16 +25,16 @@ class SpdyAltSvcWireFormatPeer;
 
 class NET_EXPORT_PRIVATE SpdyAltSvcWireFormat {
  public:
-  using VersionVector = std::vector<uint16>;
+  using VersionVector = std::vector<uint16_t>;
 
   struct NET_EXPORT_PRIVATE AlternativeService {
     std::string protocol_id;
     std::string host;
 
     // Default is 0: invalid port.
-    uint16 port = 0;
+    uint16_t port = 0;
     // Default is one day.
-    uint32 max_age = 86400;
+    uint32_t max_age = 86400;
     // Default is always use.
     double probability = 1.0;
     // Default is empty: unspecified version.
@@ -44,10 +43,11 @@ class NET_EXPORT_PRIVATE SpdyAltSvcWireFormat {
     AlternativeService();
     AlternativeService(const std::string& protocol_id,
                        const std::string& host,
-                       uint16 port,
-                       uint32 max_age,
+                       uint16_t port,
+                       uint32_t max_age,
                        double probability,
                        VersionVector version);
+    AlternativeService(const AlternativeService& other);
     ~AlternativeService();
 
     bool operator==(const AlternativeService& other) const {
@@ -62,29 +62,29 @@ class NET_EXPORT_PRIVATE SpdyAltSvcWireFormat {
   typedef std::vector<AlternativeService> AlternativeServiceVector;
 
   friend class test::SpdyAltSvcWireFormatPeer;
-  static bool ParseHeaderFieldValue(StringPiece value,
+  static bool ParseHeaderFieldValue(base::StringPiece value,
                                     AlternativeServiceVector* altsvc_vector);
   static std::string SerializeHeaderFieldValue(
       const AlternativeServiceVector& altsvc_vector);
 
  private:
-  static void SkipWhiteSpace(StringPiece::const_iterator* c,
-                             StringPiece::const_iterator end);
-  static bool PercentDecode(StringPiece::const_iterator c,
-                            StringPiece::const_iterator end,
+  static void SkipWhiteSpace(base::StringPiece::const_iterator* c,
+                             base::StringPiece::const_iterator end);
+  static bool PercentDecode(base::StringPiece::const_iterator c,
+                            base::StringPiece::const_iterator end,
                             std::string* output);
-  static bool ParseAltAuthority(StringPiece::const_iterator c,
-                                StringPiece::const_iterator end,
+  static bool ParseAltAuthority(base::StringPiece::const_iterator c,
+                                base::StringPiece::const_iterator end,
                                 std::string* host,
-                                uint16* port);
-  static bool ParsePositiveInteger16(StringPiece::const_iterator c,
-                                     StringPiece::const_iterator end,
-                                     uint16* value);
-  static bool ParsePositiveInteger32(StringPiece::const_iterator c,
-                                     StringPiece::const_iterator end,
-                                     uint32* value);
-  static bool ParseProbability(StringPiece::const_iterator c,
-                               StringPiece::const_iterator end,
+                                uint16_t* port);
+  static bool ParsePositiveInteger16(base::StringPiece::const_iterator c,
+                                     base::StringPiece::const_iterator end,
+                                     uint16_t* value);
+  static bool ParsePositiveInteger32(base::StringPiece::const_iterator c,
+                                     base::StringPiece::const_iterator end,
+                                     uint32_t* value);
+  static bool ParseProbability(base::StringPiece::const_iterator c,
+                               base::StringPiece::const_iterator end,
                                double* probability);
 };
 

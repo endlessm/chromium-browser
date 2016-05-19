@@ -4,6 +4,8 @@
 
 #include "content/browser/dom_storage/session_storage_database.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/files/file_util.h"
@@ -148,7 +150,7 @@ bool SessionStorageDatabase::CommitAreaChanges(
                      &exists, &map_id))
     return false;
   if (exists) {
-    int64 ref_count;
+    int64_t ref_count;
     if (!GetMapRefCount(map_id, &ref_count))
       return false;
     if (ref_count > 1) {
@@ -381,6 +383,9 @@ leveldb::Status SessionStorageDatabase::TryToOpen(leveldb::DB** db) {
   options.max_open_files = 0;  // Use minimum.
   options.create_if_missing = true;
   options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
+  // Default write_buffer_size is 4 MB but that might leave a 3.999
+  // memory allocation in RAM from a log file recovery.
+  options.write_buffer_size = 64 * 1024;
   return leveldb::DB::Open(options, file_path_.AsUTF8Unsafe(), db);
 }
 
@@ -535,7 +540,7 @@ bool SessionStorageDatabase::CreateMapForArea(const std::string& namespace_id,
   leveldb::Status s = db_->Get(leveldb::ReadOptions(), next_map_id_key, map_id);
   if (!DatabaseErrorCheck(s.ok() || s.IsNotFound()))
     return false;
-  int64 next_map_id = 0;
+  int64_t next_map_id = 0;
   if (s.IsNotFound()) {
     *map_id = "0";
   } else {
@@ -610,7 +615,7 @@ void SessionStorageDatabase::WriteValuesToMap(const std::string& map_id,
 }
 
 bool SessionStorageDatabase::GetMapRefCount(const std::string& map_id,
-                                            int64* ref_count) {
+                                            int64_t* ref_count) {
   std::string ref_count_string;
   leveldb::Status s = db_->Get(leveldb::ReadOptions(),
                                MapRefCountKey(map_id), &ref_count_string);
@@ -623,7 +628,7 @@ bool SessionStorageDatabase::GetMapRefCount(const std::string& map_id,
 bool SessionStorageDatabase::IncreaseMapRefCount(const std::string& map_id,
                                                  leveldb::WriteBatch* batch) {
   // Increase the ref count for the map.
-  int64 old_ref_count;
+  int64_t old_ref_count;
   if (!GetMapRefCount(map_id, &old_ref_count))
     return false;
   batch->Put(MapRefCountKey(map_id), base::Int64ToString(++old_ref_count));
@@ -634,7 +639,7 @@ bool SessionStorageDatabase::DecreaseMapRefCount(const std::string& map_id,
                                                  int decrease,
                                                  leveldb::WriteBatch* batch) {
   // Decrease the ref count for the map.
-  int64 ref_count;
+  int64_t ref_count;
   if (!GetMapRefCount(map_id, &ref_count))
     return false;
   if (!ConsistencyCheck(decrease <= ref_count))

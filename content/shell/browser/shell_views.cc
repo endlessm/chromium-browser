@@ -4,14 +4,17 @@
 
 #include "content/shell/browser/shell.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/public/browser/context_factory.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/context_menu_params.h"
 #include "content/shell/browser/shell_platform_data_aura.h"
-#include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -37,8 +40,6 @@
 #include "ui/views/widget/widget_delegate.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "device/bluetooth/dbus/bluez_dbus_manager.h"
 #include "ui/aura/test/test_screen.h"
 #include "ui/wm/test/wm_test_helper.h"
 #else  // !defined(OS_CHROMEOS)
@@ -53,23 +54,6 @@
 namespace content {
 
 namespace {
-// ViewDelegate implementation for aura content shell
-class ShellViewsDelegateAura : public views::DesktopTestViewsDelegate {
- public:
-  ShellViewsDelegateAura() : use_transparent_windows_(false) {
-  }
-
-  ~ShellViewsDelegateAura() override {}
-
-  void SetUseTransparentWindows(bool transparent) {
-    use_transparent_windows_ = transparent;
-  }
-
- private:
-  bool use_transparent_windows_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShellViewsDelegateAura);
-};
 
 // Model for the "Debug" menu
 class ContextMenuModel : public ui::SimpleMenuModel,
@@ -412,20 +396,14 @@ void Shell::PlatformInitialize(const gfx::Size& default_window_size) {
   _setmode(_fileno(stderr), _O_BINARY);
 #endif
 #if defined(OS_CHROMEOS)
-  chromeos::DBusThreadManager::Initialize();
-  bluez::BluezDBusManager::Initialize(
-      chromeos::DBusThreadManager::Get()->GetSystemBus(),
-      chromeos::DBusThreadManager::Get()->IsUsingStub(
-          chromeos::DBusClientBundle::BLUETOOTH));
   test_screen_ = aura::TestScreen::Create(gfx::Size());
-  gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, test_screen_);
+  gfx::Screen::SetScreenInstance(test_screen_);
   wm_test_helper_ = new wm::WMTestHelper(default_window_size,
                                          GetContextFactory());
 #else
-  gfx::Screen::SetScreenInstance(
-      gfx::SCREEN_TYPE_NATIVE, views::CreateDesktopScreen());
+  gfx::Screen::SetScreenInstance(views::CreateDesktopScreen());
 #endif
-  views_delegate_ = new ShellViewsDelegateAura();
+  views_delegate_ = new views::DesktopTestViewsDelegate();
 }
 
 void Shell::PlatformExit() {
@@ -440,11 +418,6 @@ void Shell::PlatformExit() {
   views_delegate_ = NULL;
   delete platform_;
   platform_ = NULL;
-#if defined(OS_CHROMEOS)
-  device::BluetoothAdapterFactory::Shutdown();
-  bluez::BluezDBusManager::Shutdown();
-  chromeos::DBusThreadManager::Shutdown();
-#endif
   aura::Env::DeleteInstance();
 }
 

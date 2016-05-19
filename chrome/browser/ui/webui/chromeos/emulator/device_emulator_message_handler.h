@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_CHROMEOS_EMULATOR_DEVICE_EMULATOR_MESSAGE_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_CHROMEOS_EMULATOR_DEVICE_EMULATOR_MESSAGE_HANDLER_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
 #include "content/public/browser/web_ui_message_handler.h"
@@ -77,6 +78,8 @@ class DeviceEmulatorMessageHandler
   void UpdateExternalPower(const base::ListValue* args);
   void UpdateTimeToEmpty(const base::ListValue* args);
   void UpdateTimeToFull(const base::ListValue* args);
+  void UpdatePowerSources(const base::ListValue* args);
+  void UpdatePowerSourceId(const base::ListValue* args);
 
   // content::WebUIMessageHandler:
   void RegisterMessages() override;

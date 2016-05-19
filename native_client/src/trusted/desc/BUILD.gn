@@ -19,7 +19,6 @@ static_library("nrd_xfer") {
     "nacl_desc_quota_interface.c",
     "nacl_desc_semaphore.c",
     "nacl_desc_sync_socket.c",
-    "nacl_desc_wrapper.cc",
     "nrd_all_modules.c",
     "nrd_xfer.c",
   ]
@@ -36,6 +35,12 @@ static_library("nrd_xfer") {
       "nacl_desc_conn_cap.c",
       "nacl_desc_imc_bound_desc.c",
       "nacl_makeboundsock.c",
+    ]
+  }
+
+  if (current_os == "mac") {
+    sources += [
+      "osx/nacl_desc_imc_shm_mach.c",
     ]
   }
 

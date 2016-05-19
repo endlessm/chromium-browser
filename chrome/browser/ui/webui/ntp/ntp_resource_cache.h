@@ -5,12 +5,12 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_NTP_NTP_RESOURCE_CACHE_H_
 #define CHROME_BROWSER_UI_WEBUI_NTP_NTP_RESOURCE_CACHE_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/strings/string16.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/web_resource/promo_resource_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -81,7 +81,6 @@ class NTPResourceCache : public content::NotificationObserver,
   void CreateNewTabIncognitoCSS();
 
   void CreateNewTabGuestHTML();
-  void CreateNewTabGuestCSS();
 
   void CreateNewTabCSS();
 

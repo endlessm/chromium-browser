@@ -150,29 +150,23 @@ typedef struct {
   int dummy; /**< Reserved; rwlocks don't have attributes */
 } pthread_rwlockattr_t;
 
-/** A value that represents an uninitialized handle. */
-#define NC_INVALID_HANDLE -1
-
-/** Maximum valid thread ID value. */
-#define MAX_THREAD_ID (0xfffffffe)
-
 /** Illegal thread ID value. */
 #define NACL_PTHREAD_ILLEGAL_THREAD_ID ((pthread_t) 0)
 
 /** Statically initializes a pthread_mutex_t representing a recursive mutex. */
 #define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP \
-    {0, 1, NACL_PTHREAD_ILLEGAL_THREAD_ID, 0, NC_INVALID_HANDLE}
+    {0, PTHREAD_MUTEX_RECURSIVE, NACL_PTHREAD_ILLEGAL_THREAD_ID, 0, 0}
 /** Statically initializes a pthread_mutex_t representing a fast mutex. */
 #define PTHREAD_MUTEX_INITIALIZER \
-    {0, 0, NACL_PTHREAD_ILLEGAL_THREAD_ID, 0, NC_INVALID_HANDLE}
+    {0, PTHREAD_MUTEX_NORMAL, NACL_PTHREAD_ILLEGAL_THREAD_ID, 0, 0}
 /**
  * Statically initializes a pthread_mutex_t representing an
  * error-checking mutex.
  */
 #define PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP \
-    {0, 2, NACL_PTHREAD_ILLEGAL_THREAD_ID, 0, NC_INVALID_HANDLE}
+    {0, PTHREAD_MUTEX_ERRORCHECK, NACL_PTHREAD_ILLEGAL_THREAD_ID, 0, 0}
 /** Statically initializes a condition variable (pthread_cond_t). */
-#define PTHREAD_COND_INITIALIZER {0, NC_INVALID_HANDLE}
+#define PTHREAD_COND_INITIALIZER {0, 0}
 /** Statically initializes a rwlock (pthread_rwlock_t). */
 #define PTHREAD_RWLOCK_INITIALIZER \
     {PTHREAD_MUTEX_INITIALIZER, 0, 0, NACL_PTHREAD_ILLEGAL_THREAD_ID, \
@@ -462,8 +456,6 @@ int pthread_rwlock_destroy(pthread_rwlock_t *rwlock);
 
 
 /* Threads */
-/** Thread entry function type. */
-typedef void *(*nc_thread_function)(void *p);
 /** Thread identifier type. */
 typedef struct __nc_basic_thread_data *pthread_t;
 

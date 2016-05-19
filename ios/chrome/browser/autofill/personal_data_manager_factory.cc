@@ -4,6 +4,8 @@
 
 #include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
 
+#include <utility>
+
 #include "base/memory/singleton.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
@@ -12,10 +14,10 @@
 #include "components/signin/core/browser/signin_manager.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/browser_state_otr_helper.h"
+#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/signin/account_tracker_service_factory.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
 #include "ios/chrome/browser/web_data_service_factory.h"
-#include "ios/public/provider/chrome/browser/browser_state/chrome_browser_state.h"
 
 // static
 autofill::PersonalDataManager* PersonalDataManagerFactory::GetForBrowserState(
@@ -55,5 +57,5 @@ scoped_ptr<KeyedService> PersonalDataManagerFactory::BuildServiceInstanceFor(
           chrome_browser_state),
       ios::SigninManagerFactory::GetForBrowserState(chrome_browser_state),
       chrome_browser_state->IsOffTheRecord());
-  return service.Pass();
+  return std::move(service);
 }

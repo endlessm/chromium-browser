@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_GCM_DRIVER_GCM_CLIENT_IMPL_H_
 #define COMPONENTS_GCM_DRIVER_GCM_CLIENT_IMPL_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <string>
@@ -12,7 +14,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "base/containers/scoped_ptr_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -117,6 +119,9 @@ class GCMClientImpl
   void Send(const std::string& app_id,
             const std::string& receiver_id,
             const OutgoingMessage& message) override;
+  void RecordDecryptionFailure(const std::string& app_id,
+                               GCMEncryptionProvider::DecryptionResult result)
+      override;
   void SetRecording(bool recording) override;
   void ClearActivityLogs() override;
   GCMStatistics GetStatistics() const override;
@@ -155,9 +160,9 @@ class GCMClientImpl
     void Reset();
 
     // Android ID of the device as assigned by the server.
-    uint64 android_id;
+    uint64_t android_id;
     // Security token of the device as assigned by the server.
-    uint64 secret;
+    uint64_t secret;
     // True if accounts were already provided through SetAccountsForCheckin(),
     // or when |last_checkin_accounts| was loaded as empty.
     bool accounts_set;
@@ -171,18 +176,17 @@ class GCMClientImpl
   // Collection of pending registration requests. Keys are RegistrationInfo
   // instance, while values are pending registration requests to obtain a
   // registration ID for requesting application.
-  typedef base::ScopedPtrMap<linked_ptr<RegistrationInfo>,
-                             scoped_ptr<RegistrationRequest>,
-                             RegistrationInfoComparer>
-      PendingRegistrationRequests;
+  using PendingRegistrationRequests = std::map<linked_ptr<RegistrationInfo>,
+                                               scoped_ptr<RegistrationRequest>,
+                                               RegistrationInfoComparer>;
 
   // Collection of pending unregistration requests. Keys are RegistrationInfo
   // instance, while values are pending unregistration requests to disable the
   // registration ID currently assigned to the application.
-  typedef base::ScopedPtrMap<linked_ptr<RegistrationInfo>,
-                             scoped_ptr<UnregistrationRequest>,
-                             RegistrationInfoComparer>
-      PendingUnregistrationRequests;
+  using PendingUnregistrationRequests =
+      std::map<linked_ptr<RegistrationInfo>,
+               scoped_ptr<UnregistrationRequest>,
+               RegistrationInfoComparer>;
 
   friend class GCMClientImplTest;
   friend class GCMClientInstanceIDTest;
@@ -194,7 +198,7 @@ class GCMClientImpl
   // Receives messages and dispatches them to relevant user delegates.
   void OnMessageReceivedFromMCS(const gcm::MCSMessage& message);
   // Receives confirmation of sent messages or information about errors.
-  void OnMessageSentToMCS(int64 user_serial_number,
+  void OnMessageSentToMCS(int64_t user_serial_number,
                           const std::string& app_id,
                           const std::string& message_id,
                           MCSClient::MessageSendStatus status);

@@ -2,13 +2,11 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/MediaValues.h"
 
 #include "core/css/CSSPrimitiveValue.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/text/StringBuilder.h"
-
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -59,4 +57,4 @@ TEST(MediaValuesTest, Basic)
     }
 }
 
-} // namespace
+} // namespace blink

@@ -22,13 +22,11 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLFormElement.h"
 
 #include "bindings/core/v8/ScriptController.h"
 #include "bindings/core/v8/ScriptEventListener.h"
 #include "bindings/core/v8/UnionTypesCore.h"
-#include "bindings/core/v8/V8DOMActivityLogger.h"
 #include "core/HTMLNames.h"
 #include "core/dom/Attribute.h"
 #include "core/dom/Document.h"
@@ -152,17 +150,8 @@ bool HTMLFormElement::layoutObjectIsNeeded(const ComputedStyle& style)
 
 Node::InsertionNotificationRequest HTMLFormElement::insertedInto(ContainerNode* insertionPoint)
 {
-    if (insertionPoint->inDocument()) {
-        V8DOMActivityLogger* activityLogger = V8DOMActivityLogger::currentActivityLoggerIfIsolatedWorld();
-        if (activityLogger) {
-            Vector<String> argv;
-            argv.append("form");
-            argv.append(fastGetAttribute(methodAttr));
-            argv.append(fastGetAttribute(actionAttr));
-            activityLogger->logEvent("blinkAddElement", argv.size(), argv.data());
-        }
-    }
     HTMLElement::insertedInto(insertionPoint);
+    logAddElementIfIsolatedWorldAndInDocument("form", methodAttr, actionAttr);
     if (insertionPoint->inDocument())
         this->document().didAssociateFormControl(this);
     return InsertionDone;
@@ -337,7 +326,7 @@ void HTMLFormElement::prepareForSubmission(Event* event)
 
     frame->loader().client()->dispatchWillSendSubmitEvent(this);
 
-    if (dispatchEvent(Event::createCancelableBubble(EventTypeNames::submit)))
+    if (dispatchEvent(Event::createCancelableBubble(EventTypeNames::submit)) == DispatchEventResult::NotCanceled)
         m_shouldSubmit = true;
 
     m_isSubmittingOrInUserJSSubmitEvent = false;
@@ -458,7 +447,7 @@ void HTMLFormElement::reset()
 
     m_isInResetFunction = true;
 
-    if (!dispatchEvent(Event::createCancelableBubble(EventTypeNames::reset))) {
+    if (dispatchEvent(Event::createCancelableBubble(EventTypeNames::reset)) != DispatchEventResult::NotCanceled) {
         m_isInResetFunction = false;
         return;
     }
@@ -509,7 +498,7 @@ void HTMLFormElement::finishRequestAutocomplete(AutocompleteResult result)
     m_pendingAutocompleteEventsQueue->enqueueEvent(event.release());
 }
 
-void HTMLFormElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void HTMLFormElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (name == actionAttr) {
         m_attributes.parseAction(value);
@@ -518,6 +507,7 @@ void HTMLFormElement::parseAttribute(const QualifiedName& name, const AtomicStri
         KURL actionURL = document().completeURL(m_attributes.action().isEmpty() ? document().url().string() : m_attributes.action());
         if (MixedContentChecker::isMixedFormAction(document().frame(), actionURL))
             UseCounter::count(document().frame(), UseCounter::MixedContentFormPresent);
+        logUpdateAttributeIfIsolatedWorldAndInDocument("form", actionAttr, oldValue, value);
     } else if (name == targetAttr) {
         m_attributes.setTarget(value);
     } else if (name == methodAttr) {
@@ -531,24 +521,8 @@ void HTMLFormElement::parseAttribute(const QualifiedName& name, const AtomicStri
     } else if (name == onautocompleteerrorAttr) {
         setAttributeEventListener(EventTypeNames::autocompleteerror, createAttributeEventListener(this, name, value, eventParameterName()));
     } else {
-        HTMLElement::parseAttribute(name, value);
+        HTMLElement::parseAttribute(name, oldValue, value);
     }
-}
-
-void HTMLFormElement::attributeWillChange(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& newValue)
-{
-    if (name == actionAttr && inDocument()) {
-        V8DOMActivityLogger* activityLogger = V8DOMActivityLogger::currentActivityLoggerIfIsolatedWorld();
-        if (activityLogger) {
-            Vector<String> argv;
-            argv.append("form");
-            argv.append(actionAttr.toString());
-            argv.append(oldValue);
-            argv.append(newValue);
-            activityLogger->logEvent("blinkSetAttribute", argv.size(), argv.data());
-        }
-    }
-    HTMLElement::attributeWillChange(name, oldValue, newValue);
 }
 
 void HTMLFormElement::associate(FormAssociatedElement& e)
@@ -863,4 +837,4 @@ void HTMLFormElement::setDemoted(bool demoted)
     m_wasDemoted = demoted;
 }
 
-} // namespace
+} // namespace blink

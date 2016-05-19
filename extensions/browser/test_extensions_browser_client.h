@@ -6,11 +6,14 @@
 #define EXTENSIONS_BROWSER_TEST_EXTENSIONS_BROWSER_CLIENT_H_
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "build/build_config.h"
 #include "components/update_client/update_client.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/updater/extension_cache.h"
@@ -33,7 +36,7 @@ class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
     extension_system_factory_ = factory;
   }
   void set_extension_cache(scoped_ptr<ExtensionCache> extension_cache) {
-    extension_cache_ = extension_cache.Pass();
+    extension_cache_ = std::move(extension_cache);
   }
 
   // Sets a factory to respond to calls of the CreateUpdateClient method.

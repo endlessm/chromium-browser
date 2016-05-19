@@ -6,16 +6,17 @@
 #define CHROME_BROWSER_UI_BROWSER_DIALOGS_H_
 
 #include "base/callback.h"
-#include "chrome/browser/ssl/security_state_model.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
+#include "components/security_state/security_state_model.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/native_widget_types.h"
 
 class Browser;
+class ContentSettingBubbleModel;
 class GURL;
 class LoginHandler;
 class Profile;
-class SkBitmap;
 
 namespace bookmarks {
 class BookmarkBubbleObserver;
@@ -46,6 +47,11 @@ class WebDialogDelegate;
 
 namespace chrome {
 
+// Shows or hides the Task Manager. |browser| can be NULL when called from Ash.
+void ShowTaskManager(Browser* browser);
+void HideTaskManager();
+
+#if !defined(OS_MACOSX)
 // Creates and shows an HTML dialog with the given delegate and context.
 // The window is automatically destroyed when it is closed.
 // Returns the created window.
@@ -56,19 +62,6 @@ gfx::NativeWindow ShowWebDialog(gfx::NativeView parent,
                                 content::BrowserContext* context,
                                 ui::WebDialogDelegate* delegate);
 
-// Creates the ExtensionInstalledBubble and schedules it to be shown once
-// the extension has loaded. |extension| is the installed extension. |browser|
-// is the browser window which will host the bubble. |icon| is the install
-// icon of the extension.
-void ShowExtensionInstalledBubble(const extensions::Extension* extension,
-                                  Browser* browser,
-                                  const SkBitmap& icon);
-
-// Shows or hides the Task Manager. |browser| can be NULL when called from Ash.
-void ShowTaskManager(Browser* browser);
-void HideTaskManager();
-
-#if !defined(OS_MACOSX)
 // Shows the create web app shortcut dialog box.
 void ShowCreateWebAppShortcutsDialog(gfx::NativeWindow parent_window,
                                      content::WebContents* web_contents);
@@ -98,7 +91,7 @@ void ShowWebsiteSettingsBubbleViewsAtPoint(
     Profile* profile,
     content::WebContents* web_contents,
     const GURL& url,
-    const SecurityStateModel::SecurityInfo& security_info);
+    const security_state::SecurityStateModel::SecurityInfo& security_info);
 
 // Show a Views bookmark bubble at the given point. This occurs when the
 // bookmark star is clicked or "Bookmark This Page..." is selected from a menu
@@ -123,6 +116,22 @@ void ShowBookmarkEditorViews(gfx::NativeWindow parent_window,
                              Profile* profile,
                              const BookmarkEditor::EditDetails& details,
                              BookmarkEditor::Configuration configuration);
+
+#if defined(OS_MACOSX)
+
+// This is a class so that it can be friended from ContentSettingBubbleContents,
+// which allows it to call SetAnchorRect().
+class ContentSettingBubbleViewsBridge {
+ public:
+  static void Show(gfx::NativeView parent_view,
+                   ContentSettingBubbleModel* model,
+                   content::WebContents* web_contents,
+                   const gfx::Point& anchor);
+ private:
+  DISALLOW_IMPLICIT_CONSTRUCTORS(ContentSettingBubbleViewsBridge);
+};
+
+#endif  // OS_MACOSX
 
 #endif  // TOOLKIT_VIEWS
 

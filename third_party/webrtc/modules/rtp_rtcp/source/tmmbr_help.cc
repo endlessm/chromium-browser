@@ -11,8 +11,11 @@
 #include "webrtc/modules/rtp_rtcp/source/tmmbr_help.h"
 
 #include <assert.h>
-#include <limits>
 #include <string.h>
+
+#include <limits>
+
+#include "webrtc/base/checks.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_rtcp_config.h"
 
 namespace webrtc {
@@ -139,8 +142,7 @@ TMMBRSet* TMMBRHelp::BoundingSet() {
 }
 
 int32_t
-TMMBRHelp::SetTMMBRBoundingSetToSend(const TMMBRSet* boundingSetToSend,
-                                     const uint32_t maxBitrateKbit)
+TMMBRHelp::SetTMMBRBoundingSetToSend(const TMMBRSet* boundingSetToSend)
 {
     CriticalSectionScoped lock(_criticalSection);
 
@@ -156,14 +158,6 @@ TMMBRHelp::SetTMMBRBoundingSetToSend(const TMMBRSet* boundingSetToSend,
     {
         // cap at our configured max bitrate
         uint32_t bitrate = boundingSetToSend->Tmmbr(i);
-        if(maxBitrateKbit)
-        {
-            // do we have a configured max bitrate?
-            if(bitrate > maxBitrateKbit)
-            {
-                bitrate = maxBitrateKbit;
-            }
-        }
         _boundingSetToSend.SetEntry(i, bitrate,
                                     boundingSetToSend->PacketOH(i),
                                     boundingSetToSend->Ssrc(i));
@@ -307,6 +301,7 @@ TMMBRHelp::FindTMMBRBoundingSet(int32_t numCandidates, TMMBRSet& candidateSet)
                   && j != currentMinIndexTMMBR)
                 {
                     candidateSet.ClearEntry(j);
+                    numCandidates--;
                 }
             }
         }
@@ -343,9 +338,15 @@ TMMBRHelp::FindTMMBRBoundingSet(int32_t numCandidates, TMMBRSet& candidateSet)
     // set intersection value
     _ptrIntersectionBoundingSet[numBoundingSet] = 0;
     // calculate its maximum packet rate (where its line crosses x-axis)
-    _ptrMaxPRBoundingSet[numBoundingSet]
-        = _boundingSet.Tmmbr(numBoundingSet) * 1000
-        / float(8 * _boundingSet.PacketOH(numBoundingSet));
+    uint32_t packet_overhead_bits = 8 * _boundingSet.PacketOH(numBoundingSet);
+    if (packet_overhead_bits == 0) {
+      // Avoid division by zero.
+      _ptrMaxPRBoundingSet[numBoundingSet] = std::numeric_limits<float>::max();
+    } else {
+      _ptrMaxPRBoundingSet[numBoundingSet] =
+          _boundingSet.Tmmbr(numBoundingSet) * 1000 /
+          static_cast<float>(packet_overhead_bits);
+    }
     numBoundingSet++;
     // remove from candidate list
     candidateSet.ClearEntry(minIndexTMMBR);
@@ -371,10 +372,10 @@ TMMBRHelp::FindTMMBRBoundingSet(int32_t numCandidates, TMMBRSet& candidateSet)
     }
 
     bool getNewCandidate = true;
-    int curCandidateTMMBR = 0;
-    int curCandidateIndex = 0;
-    int curCandidatePacketOH = 0;
-    int curCandidateSSRC = 0;
+    uint32_t curCandidateTMMBR = 0;
+    size_t curCandidateIndex = 0;
+    uint32_t curCandidatePacketOH = 0;
+    uint32_t curCandidateSSRC = 0;
     do
     {
         if (getNewCandidate)
@@ -396,6 +397,8 @@ TMMBRHelp::FindTMMBRBoundingSet(int32_t numCandidates, TMMBRSet& candidateSet)
 
         // 6. Calculate packet rate and intersection of the current
         // line with line of last tuple in selected list
+        RTC_DCHECK_NE(curCandidatePacketOH,
+                      _boundingSet.PacketOH(numBoundingSet - 1));
         float packetRate
             = float(curCandidateTMMBR
                     - _boundingSet.Tmmbr(numBoundingSet-1))*1000
@@ -425,9 +428,12 @@ TMMBRHelp::FindTMMBRBoundingSet(int32_t numCandidates, TMMBRSet& candidateSet)
                                       curCandidatePacketOH,
                                       curCandidateSSRC);
                 _ptrIntersectionBoundingSet[numBoundingSet] = packetRate;
-                _ptrMaxPRBoundingSet[numBoundingSet]
-                    = _boundingSet.Tmmbr(numBoundingSet)*1000
-                    / float(8*_boundingSet.PacketOH(numBoundingSet));
+                float packet_overhead_bits =
+                    8 * _boundingSet.PacketOH(numBoundingSet);
+                RTC_DCHECK_NE(packet_overhead_bits, 0.0f);
+                _ptrMaxPRBoundingSet[numBoundingSet] =
+                    _boundingSet.Tmmbr(numBoundingSet) * 1000 /
+                    packet_overhead_bits;
                 numBoundingSet++;
             }
             numCandidates--;

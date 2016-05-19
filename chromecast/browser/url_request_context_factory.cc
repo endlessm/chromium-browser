@@ -4,6 +4,8 @@
 
 #include "chromecast/browser/url_request_context_factory.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
@@ -25,7 +27,6 @@
 #include "net/http/http_server_properties_impl.h"
 #include "net/http/http_stream_factory.h"
 #include "net/proxy/proxy_service.h"
-#include "net/socket/next_proto.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/default_channel_id_store.h"
 #include "net/ssl/ssl_config_service_defaults.h"
@@ -101,14 +102,15 @@ class URLRequestContextFactory::MainURLRequestContextGetter
       content::URLRequestInterceptorScopedVector request_interceptors)
       : browser_context_(browser_context),
         factory_(factory),
-        request_interceptors_(request_interceptors.Pass()) {
+        request_interceptors_(std::move(request_interceptors)) {
     std::swap(protocol_handlers_, *protocol_handlers);
   }
 
   net::URLRequestContext* GetURLRequestContext() override {
     if (!request_context_) {
       request_context_.reset(factory_->CreateMainRequestContext(
-          browser_context_, &protocol_handlers_, request_interceptors_.Pass()));
+          browser_context_, &protocol_handlers_,
+          std::move(request_interceptors_)));
       protocol_handlers_.clear();
     }
     return request_context_.get();
@@ -167,10 +169,9 @@ net::URLRequestContextGetter* URLRequestContextFactory::CreateMainGetter(
     content::URLRequestInterceptorScopedVector request_interceptors) {
   DCHECK(!main_getter_.get())
       << "Main URLRequestContextGetter already initialized";
-  main_getter_ = new MainURLRequestContextGetter(this,
-                                                 browser_context,
-                                                 protocol_handlers,
-                                                 request_interceptors.Pass());
+  main_getter_ =
+      new MainURLRequestContextGetter(this, browser_context, protocol_handlers,
+                                      std::move(request_interceptors));
   return main_getter_.get();
 }
 
@@ -213,7 +214,7 @@ void URLRequestContextFactory::InitializeSystemContextDependencies() {
   http_server_properties_.reset(new net::HttpServerPropertiesImpl);
 
   proxy_service_ = net::ProxyService::CreateUsingSystemProxyResolver(
-      proxy_config_service_.Pass(), 0, NULL);
+      std::move(proxy_config_service_), 0, NULL);
   system_dependencies_initialized_ = true;
 }
 
@@ -253,13 +254,14 @@ void URLRequestContextFactory::InitializeMainContextDependencies(
   }
 
   // Set up interceptors in the reverse order.
-  scoped_ptr<net::URLRequestJobFactory> top_job_factory = job_factory.Pass();
+  scoped_ptr<net::URLRequestJobFactory> top_job_factory =
+      std::move(job_factory);
   for (content::URLRequestInterceptorScopedVector::reverse_iterator i =
            request_interceptors.rbegin();
        i != request_interceptors.rend();
        ++i) {
     top_job_factory.reset(new net::URLRequestInterceptingJobFactory(
-        top_job_factory.Pass(), make_scoped_ptr(*i)));
+        std::move(top_job_factory), make_scoped_ptr(*i)));
   }
   request_interceptors.weak_clear();
 
@@ -289,11 +291,6 @@ void URLRequestContextFactory::PopulateNetworkSessionParams(
   params->http_server_properties = http_server_properties_->GetWeakPtr();
   params->ignore_certificate_errors = ignore_certificate_errors;
   params->proxy_service = proxy_service_.get();
-
-  // TODO(lcwu): http://crbug.com/329681. Remove this once spdy is enabled
-  // by default at the content level.
-  params->next_protos = net::NextProtosSpdy31();
-  params->use_alternative_services = true;
 }
 
 net::URLRequestContext* URLRequestContextFactory::CreateSystemRequestContext() {
@@ -367,8 +364,7 @@ net::URLRequestContext* URLRequestContextFactory::CreateMainRequestContext(
   InitializeMainContextDependencies(
       new net::HttpNetworkLayer(
           new net::HttpNetworkSession(network_session_params)),
-      protocol_handlers,
-      request_interceptors.Pass());
+      protocol_handlers, std::move(request_interceptors));
 
   content::CookieStoreConfig cookie_config(
       browser_context->GetPath().Append(kCookieStoreFile),

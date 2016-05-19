@@ -22,6 +22,7 @@
 #ifndef WTF_OwnPtr_h
 #define WTF_OwnPtr_h
 
+#include "wtf/Allocator.h"
 #include "wtf/HashTableDeletedValueType.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtrCommon.h"
@@ -33,9 +34,10 @@ namespace WTF {
 template <typename T> class PassOwnPtr;
 
 template <typename T> class OwnPtr {
+    USING_FAST_MALLOC(OwnPtr);
     WTF_MAKE_NONCOPYABLE(OwnPtr);
 public:
-    typedef typename RemoveExtent<T>::Type ValueType;
+    typedef typename std::remove_extent<T>::type ValueType;
     typedef ValueType* PtrType;
 
     OwnPtr() : m_ptr(nullptr) {}
@@ -125,7 +127,7 @@ template <typename T>
 template <typename U> inline OwnPtr<T>::OwnPtr(const PassOwnPtr<U>& o, EnsurePtrConvertibleArgDefn(U, T))
     : m_ptr(o.leakPtr())
 {
-    static_assert(!IsArray<T>::value, "pointers to array must never be converted");
+    static_assert(!std::is_array<T>::value, "pointers to array must never be converted");
 }
 
 template <typename T> inline void OwnPtr<T>::clear()
@@ -151,7 +153,7 @@ template <typename T> inline typename OwnPtr<T>::PtrType OwnPtr<T>::leakPtr()
 
 template <typename T> inline typename OwnPtr<T>::ValueType& OwnPtr<T>::operator[](std::ptrdiff_t i) const
 {
-    static_assert(IsArray<T>::value, "elements access is possible for arrays only");
+    static_assert(std::is_array<T>::value, "elements access is possible for arrays only");
     ASSERT(m_ptr);
     ASSERT(i >= 0);
     return m_ptr[i];
@@ -169,7 +171,7 @@ template <typename T> inline OwnPtr<T>& OwnPtr<T>::operator=(const PassOwnPtr<T>
 template <typename T>
 template <typename U> inline OwnPtr<T>& OwnPtr<T>::operator=(const PassOwnPtr<U>& o)
 {
-    static_assert(!IsArray<T>::value, "pointers to array must never be converted");
+    static_assert(!std::is_array<T>::value, "pointers to array must never be converted");
     PtrType ptr = m_ptr;
     m_ptr = o.leakPtr();
     ASSERT(!ptr || m_ptr != ptr);
@@ -186,7 +188,7 @@ template <typename T>
 template <typename U> inline OwnPtr<T>::OwnPtr(OwnPtr<U>&& o)
     : m_ptr(o.leakPtr())
 {
-    static_assert(!IsArray<T>::value, "pointers to array must never be converted");
+    static_assert(!std::is_array<T>::value, "pointers to array must never be converted");
 }
 
 template <typename T> inline OwnPtr<T>& OwnPtr<T>::operator=(OwnPtr<T>&& o)
@@ -202,7 +204,7 @@ template <typename T> inline OwnPtr<T>& OwnPtr<T>::operator=(OwnPtr<T>&& o)
 template <typename T>
 template <typename U> inline OwnPtr<T>& OwnPtr<T>::operator=(OwnPtr<U>&& o)
 {
-    static_assert(!IsArray<T>::value, "pointers to array must never be converted");
+    static_assert(!std::is_array<T>::value, "pointers to array must never be converted");
     PtrType ptr = m_ptr;
     m_ptr = o.leakPtr();
     ASSERT(!ptr || m_ptr != ptr);

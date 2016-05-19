@@ -4,8 +4,10 @@
 
 #include "content/browser/android/composited_touch_handle_drawable.h"
 
+#include "base/android/context_utils.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/layers/ui_resource_layer.h"
 #include "content/public/browser/android/compositor.h"

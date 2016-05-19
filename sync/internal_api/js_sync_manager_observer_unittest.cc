@@ -4,7 +4,8 @@
 
 #include "sync/internal_api/js_sync_manager_observer.h"
 
-#include "base/basictypes.h"
+#include <vector>
+
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/values.h"

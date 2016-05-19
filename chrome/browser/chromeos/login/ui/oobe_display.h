@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 
 namespace chromeos {
@@ -67,6 +66,7 @@ class OobeDisplay {
     SCREEN_OOBE_CONTROLLER_PAIRING,
     SCREEN_OOBE_HOST_PAIRING,
     SCREEN_DEVICE_DISABLED,
+    SCREEN_UNRECOVERABLE_CRYPTOHOME_ERROR,
     SCREEN_UNKNOWN
   };
 

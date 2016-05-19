@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "bindings/core/v8/RejectedPromises.h"
 
 #include "bindings/core/v8/ScopedPersistent.h"
+#include "bindings/core/v8/ScriptCallStack.h"
 #include "bindings/core/v8/ScriptState.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8Binding.h"
@@ -15,7 +15,6 @@
 #include "core/inspector/ConsoleMessage.h"
 #include "core/inspector/ScriptArguments.h"
 #include "platform/RuntimeEnabledFeatures.h"
-#include "platform/Task.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebScheduler.h"
 #include "public/platform/WebTaskRunner.h"
@@ -26,16 +25,11 @@ namespace blink {
 
 static const unsigned maxReportedHandlersPendingResolution = 1000;
 
-class RejectedPromises::Message final : public NoBaseWillBeGarbageCollectedFinalized<RejectedPromises::Message> {
+class RejectedPromises::Message final {
 public:
-    static PassOwnPtrWillBeRawPtr<Message> create(ScriptState* scriptState, v8::Local<v8::Promise> promise, v8::Local<v8::Value> exception, const String& errorMessage, const String& resourceName, int scriptId, int lineNumber, int columnNumber, PassRefPtrWillBeRawPtr<ScriptCallStack> callStack)
+    static PassOwnPtr<Message> create(ScriptState* scriptState, v8::Local<v8::Promise> promise, v8::Local<v8::Value> exception, const String& errorMessage, const String& resourceName, int scriptId, int lineNumber, int columnNumber, PassRefPtr<ScriptCallStack> callStack, AccessControlStatus corsStatus)
     {
-        return adoptPtrWillBeNoop(new Message(scriptState, promise, exception, errorMessage, resourceName, scriptId, lineNumber, columnNumber, callStack));
-    }
-
-    DEFINE_INLINE_TRACE()
-    {
-        visitor->trace(m_callStack);
+        return adoptPtr(new Message(scriptState, promise, exception, errorMessage, resourceName, scriptId, lineNumber, columnNumber, callStack, corsStatus));
     }
 
     bool isCollected()
@@ -54,7 +48,7 @@ public:
         if (!m_scriptState->contextIsValid())
             return;
         // If execution termination has been triggered, quietly bail out.
-        if (v8::V8::IsExecutionTerminating(m_scriptState->isolate()))
+        if (m_scriptState->isolate()->IsExecutionTerminating())
             return;
         ExecutionContext* executionContext = m_scriptState->executionContext();
         if (!executionContext)
@@ -69,14 +63,14 @@ public:
         ASSERT(!hasHandler());
 
         EventTarget* target = executionContext->errorEventTarget();
-        if (RuntimeEnabledFeatures::promiseRejectionEventEnabled() && target) {
+        if (RuntimeEnabledFeatures::promiseRejectionEventEnabled() && target && !executionContext->shouldSanitizeScriptError(m_resourceName, m_corsStatus)) {
             PromiseRejectionEventInit init;
             init.setPromise(ScriptPromise(m_scriptState, value));
             init.setReason(ScriptValue(m_scriptState, reason));
             init.setCancelable(true);
             RefPtrWillBeRawPtr<PromiseRejectionEvent> event = PromiseRejectionEvent::create(m_scriptState, EventTypeNames::unhandledrejection, init);
-            // Log to console if event was not preventDefault()'ed.
-            m_shouldLogToConsole = target->dispatchEvent(event);
+            // Log to console if event was not canceled.
+            m_shouldLogToConsole = target->dispatchEvent(event) == DispatchEventResult::NotCanceled;
         }
 
         if (m_shouldLogToConsole) {
@@ -117,7 +111,7 @@ public:
             return;
 
         EventTarget* target = executionContext->errorEventTarget();
-        if (RuntimeEnabledFeatures::promiseRejectionEventEnabled() && target) {
+        if (RuntimeEnabledFeatures::promiseRejectionEventEnabled() && target && !executionContext->shouldSanitizeScriptError(m_resourceName, m_corsStatus)) {
             PromiseRejectionEventInit init;
             init.setPromise(ScriptPromise(m_scriptState, value));
             init.setReason(ScriptValue(m_scriptState, reason));
@@ -148,15 +142,14 @@ public:
 
     bool hasHandler()
     {
-        if (isCollected())
-            return false;
+        ASSERT(!isCollected());
         ScriptState::Scope scope(m_scriptState);
         v8::Local<v8::Value> value = m_promise.newLocal(m_scriptState->isolate());
         return v8::Local<v8::Promise>::Cast(value)->HasHandler();
     }
 
 private:
-    Message(ScriptState* scriptState, v8::Local<v8::Promise> promise, v8::Local<v8::Value> exception, const String& errorMessage, const String& resourceName, int scriptId, int lineNumber, int columnNumber, PassRefPtrWillBeRawPtr<ScriptCallStack> callStack)
+    Message(ScriptState* scriptState, v8::Local<v8::Promise> promise, v8::Local<v8::Value> exception, const String& errorMessage, const String& resourceName, int scriptId, int lineNumber, int columnNumber, PassRefPtr<ScriptCallStack> callStack, AccessControlStatus corsStatus)
         : m_scriptState(scriptState)
         , m_promise(scriptState->isolate(), promise)
         , m_exception(scriptState->isolate(), exception)
@@ -169,6 +162,7 @@ private:
         , m_consoleMessageId(0)
         , m_collected(false)
         , m_shouldLogToConsole(true)
+        , m_corsStatus(corsStatus)
     {
     }
 
@@ -191,27 +185,24 @@ private:
     int m_scriptId;
     int m_lineNumber;
     int m_columnNumber;
-    RefPtrWillBeMember<ScriptCallStack> m_callStack;
+    RefPtr<ScriptCallStack> m_callStack;
     unsigned m_consoleMessageId;
     bool m_collected;
     bool m_shouldLogToConsole;
+    AccessControlStatus m_corsStatus;
 };
 
 RejectedPromises::RejectedPromises()
 {
 }
 
-DEFINE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(RejectedPromises);
-
-DEFINE_TRACE(RejectedPromises)
+RejectedPromises::~RejectedPromises()
 {
-    visitor->trace(m_queue);
-    visitor->trace(m_reportedAsErrors);
 }
 
-void RejectedPromises::rejectedWithNoHandler(ScriptState* scriptState, v8::PromiseRejectMessage data, const String& errorMessage, const String& resourceName, int scriptId, int lineNumber, int columnNumber, PassRefPtrWillBeRawPtr<ScriptCallStack> callStack)
+void RejectedPromises::rejectedWithNoHandler(ScriptState* scriptState, v8::PromiseRejectMessage data, const String& errorMessage, const String& resourceName, int scriptId, int lineNumber, int columnNumber, PassRefPtr<ScriptCallStack> callStack, AccessControlStatus corsStatus)
 {
-    m_queue.append(Message::create(scriptState, data.GetPromise(), data.GetValue(), errorMessage, resourceName, scriptId, lineNumber, columnNumber, callStack));
+    m_queue.append(Message::create(scriptState, data.GetPromise(), data.GetValue(), errorMessage, resourceName, scriptId, lineNumber, columnNumber, callStack, corsStatus));
 }
 
 void RejectedPromises::handlerAdded(v8::PromiseRejectMessage data)
@@ -229,16 +220,16 @@ void RejectedPromises::handlerAdded(v8::PromiseRejectMessage data)
         auto& message = m_reportedAsErrors.at(i);
         if (!message->isCollected() && message->hasPromise(data.GetPromise())) {
             message->makePromiseStrong();
-            Platform::current()->currentThread()->scheduler()->timerTaskRunner()->postTask(BLINK_FROM_HERE, new Task(bind(&RejectedPromises::revokeNow, PassRefPtrWillBeRawPtr<RejectedPromises>(this), message.release())));
+            Platform::current()->currentThread()->scheduler()->timerTaskRunner()->postTask(BLINK_FROM_HERE, bind(&RejectedPromises::revokeNow, PassRefPtrWillBeRawPtr<RejectedPromises>(this), message.release()));
             m_reportedAsErrors.remove(i);
             return;
         }
     }
 }
 
-PassOwnPtrWillBeRawPtr<RejectedPromises::MessageQueue> RejectedPromises::createMessageQueue()
+PassOwnPtr<RejectedPromises::MessageQueue> RejectedPromises::createMessageQueue()
 {
-    return adoptPtrWillBeNoop(new MessageQueue());
+    return adoptPtr(new MessageQueue());
 }
 
 void RejectedPromises::dispose()
@@ -246,7 +237,7 @@ void RejectedPromises::dispose()
     if (m_queue.isEmpty())
         return;
 
-    OwnPtrWillBeRawPtr<MessageQueue> queue = createMessageQueue();
+    OwnPtr<MessageQueue> queue = createMessageQueue();
     queue->swap(m_queue);
     processQueueNow(queue.release());
 }
@@ -256,12 +247,12 @@ void RejectedPromises::processQueue()
     if (m_queue.isEmpty())
         return;
 
-    OwnPtrWillBeRawPtr<MessageQueue> queue = createMessageQueue();
+    OwnPtr<MessageQueue> queue = createMessageQueue();
     queue->swap(m_queue);
-    Platform::current()->currentThread()->scheduler()->timerTaskRunner()->postTask(BLINK_FROM_HERE, new Task(bind(&RejectedPromises::processQueueNow, PassRefPtrWillBeRawPtr<RejectedPromises>(this), queue.release())));
+    Platform::current()->currentThread()->scheduler()->timerTaskRunner()->postTask(BLINK_FROM_HERE, bind(&RejectedPromises::processQueueNow, PassRefPtr<RejectedPromises>(this), queue.release()));
 }
 
-void RejectedPromises::processQueueNow(PassOwnPtrWillBeRawPtr<MessageQueue> queue)
+void RejectedPromises::processQueueNow(PassOwnPtr<MessageQueue> queue)
 {
     // Remove collected handlers.
     for (size_t i = 0; i < m_reportedAsErrors.size();) {
@@ -272,7 +263,9 @@ void RejectedPromises::processQueueNow(PassOwnPtrWillBeRawPtr<MessageQueue> queu
     }
 
     while (!queue->isEmpty()) {
-        OwnPtrWillBeRawPtr<Message> message = queue->takeFirst();
+        OwnPtr<Message> message = queue->takeFirst();
+        if (message->isCollected())
+            continue;
         if (!message->hasHandler()) {
             message->report();
             message->makePromiseWeak();
@@ -283,7 +276,7 @@ void RejectedPromises::processQueueNow(PassOwnPtrWillBeRawPtr<MessageQueue> queu
     }
 }
 
-void RejectedPromises::revokeNow(PassOwnPtrWillBeRawPtr<Message> message)
+void RejectedPromises::revokeNow(PassOwnPtr<Message> message)
 {
     message->revoke();
 }

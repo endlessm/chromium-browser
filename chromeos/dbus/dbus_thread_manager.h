@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "chromeos/chromeos_export.h"
@@ -27,7 +28,6 @@ namespace chromeos {
 // Style Note: Clients are sorted by names.
 class AmplifierClient;
 class ApManagerClient;
-class ArcBridgeClient;
 class AudioDspClient;
 class CrasAudioClient;
 class CrosDisksClient;
@@ -112,7 +112,6 @@ class CHROMEOS_EXPORT DBusThreadManager {
   // pointers after DBusThreadManager has been shut down.
   AmplifierClient* GetAmplifierClient();
   ApManagerClient* GetApManagerClient();
-  ArcBridgeClient* GetArcBridgeClient();
   AudioDspClient* GetAudioDspClient();
   CrasAudioClient* GetCrasAudioClient();
   CrosDisksClient* GetCrosDisksClient();
@@ -187,7 +186,6 @@ class CHROMEOS_EXPORT DBusThreadManagerSetter {
   ~DBusThreadManagerSetter();
 
   void SetAmplifierClient(scoped_ptr<AmplifierClient> client);
-  void SetArcBridgeClient(scoped_ptr<ArcBridgeClient> client);
   void SetAudioDspClient(scoped_ptr<AudioDspClient> client);
   void SetCrasAudioClient(scoped_ptr<CrasAudioClient> client);
   void SetCrosDisksClient(scoped_ptr<CrosDisksClient> client);

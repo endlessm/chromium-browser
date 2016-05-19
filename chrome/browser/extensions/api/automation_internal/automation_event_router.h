@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "chrome/common/extensions/api/automation_internal.h"
 #include "content/public/browser/ax_event_notification_details.h"
@@ -58,6 +59,7 @@ class AutomationEventRouter : public content::NotificationObserver {
  private:
   struct AutomationListener {
     AutomationListener();
+    AutomationListener(const AutomationListener& other);
     ~AutomationListener();
 
     ExtensionId extension_id;

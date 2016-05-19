@@ -43,7 +43,7 @@ import java.util.Locale;
  * Handles all browser-related Intents.
  */
 public class IntentHandler {
-    private static final String TAG = "cr.IntentHandler";
+    private static final String TAG = "IntentHandler";
 
     /**
      * Document mode: If true, Chrome is launched into the same Task.
@@ -129,13 +129,13 @@ public class IntentHandler {
     private static Pair<Integer, String> sPendingReferrer;
     private static int sReferrerId;
 
+    private static final String PACKAGE_GSA = "com.google.android.googlequicksearchbox";
     private static final String PACKAGE_GMAIL = "com.google.android.gm";
     private static final String PACKAGE_PLUS = "com.google.android.apps.plus";
     private static final String PACKAGE_HANGOUTS = "com.google.android.talk";
     private static final String PACKAGE_MESSENGER = "com.google.android.apps.messaging";
     private static final String PACKAGE_LINE = "jp.naver.line.android";
     private static final String PACKAGE_WHATSAPP = "com.whatsapp";
-    private static final String PACKAGE_GSA = "com.google.android.googlequicksearchbox";
     private static final String FACEBOOK_LINK_PREFIX = "http://m.facebook.com/l.php?";
     private static final String TWITTER_LINK_PREFIX = "http://t.co/";
     private static final String NEWS_LINK_PREFIX = "http://news.google.com/news/url?";
@@ -442,7 +442,7 @@ public class IntentHandler {
         return url;
     }
 
-    boolean handleWebSearchIntent(Intent intent) {
+    public boolean handleWebSearchIntent(Intent intent) {
         if (intent == null) return false;
 
         String query = null;

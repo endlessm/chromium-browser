@@ -3,12 +3,15 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/path_service.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_suite.h"
+#include "build/build_config.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -26,10 +29,14 @@
 #include "components/policy/core/browser/android/component_jni_registrar.h"
 #include "components/safe_json/android/component_jni_registrar.h"
 #include "components/signin/core/browser/android/component_jni_registrar.h"
-#include "content/browser/android/browser_jni_registrar.h"
+#include "content/public/test/test_utils.h"
 #include "net/android/net_jni_registrar.h"
 #include "ui/base/android/ui_base_jni_registrar.h"
 #include "ui/gfx/android/gfx_jni_registrar.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "mojo/edk/embedder/embedder.h"
 #endif
 
 namespace {
@@ -60,7 +67,7 @@ class ComponentsTestSuite : public base::TestSuite {
     ASSERT_TRUE(safe_json::android::RegisterSafeJsonJni(env));
     ASSERT_TRUE(signin::android::RegisterSigninJni(env));
     ASSERT_TRUE(net::android::RegisterJni(env));
-    ASSERT_TRUE(content::android::RegisterBrowserJni(env));
+    ASSERT_TRUE(content::RegisterJniForTesting(env));
 #endif
 
     ui::RegisterPathProvider();
@@ -136,6 +143,10 @@ int main(int argc, char** argv) {
   testing::TestEventListeners& listeners =
       testing::UnitTest::GetInstance()->listeners();
   listeners.Append(new ComponentsUnitTestEventListener());
+
+#if defined(OS_CHROMEOS)
+  mojo::edk::Init();
+#endif
 
   return base::LaunchUnitTests(
       argc, argv, base::Bind(&base::TestSuite::Run,

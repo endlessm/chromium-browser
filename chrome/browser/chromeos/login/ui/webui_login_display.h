@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/browser/chromeos/login/signin_specifics.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/ui/webui/chromeos/login/native_window_delegate.h"
@@ -16,6 +17,8 @@
 #include "components/user_manager/user.h"
 #include "ui/base/user_activity/user_activity_observer.h"
 #include "ui/views/widget/widget.h"
+
+class AccountId;
 
 namespace chromeos {
 
@@ -35,7 +38,7 @@ class WebUILoginDisplay : public LoginDisplay,
             bool show_users,
             bool show_new_user) override;
   void OnPreferencesChanged() override;
-  void RemoveUser(const std::string& user_id) override;
+  void RemoveUser(const AccountId& account_id) override;
   void SetUIEnabled(bool is_enabled) override;
   void ShowError(int error_msg_id,
                  int login_attempts,
@@ -45,6 +48,7 @@ class WebUILoginDisplay : public LoginDisplay,
                                  const std::string& email) override;
   void ShowSigninUI(const std::string& email) override;
   void ShowWhitelistCheckFailedError() override;
+  void ShowUnrecoverableCrypthomeErrorDialog() override;
 
   // NativeWindowDelegate implementation:
   gfx::NativeWindow GetNativeWindow() const override;
@@ -62,7 +66,7 @@ class WebUILoginDisplay : public LoginDisplay,
 
   void OnSigninScreenReady() override;
   void CancelUserAdding() override;
-  void LoadWallpaper(const std::string& username) override;
+  void LoadWallpaper(const AccountId& account_id) override;
   void LoadSigninWallpaper() override;
   void ShowEnterpriseEnrollmentScreen() override;
   void ShowEnableDebuggingScreen() override;
@@ -78,8 +82,8 @@ class WebUILoginDisplay : public LoginDisplay,
   void SetDisplayEmail(const std::string& email) override;
 
   void HandleGetUsers() override;
-  void CheckUserStatus(const std::string& user_id) override;
-  bool IsUserWhitelisted(const std::string& user_id) override;
+  void CheckUserStatus(const AccountId& account_id) override;
+  bool IsUserWhitelisted(const AccountId& account_id) override;
 
   // ui::UserActivityDetector implementation:
   void OnUserActivity(const ui::Event* event) override;
@@ -87,17 +91,17 @@ class WebUILoginDisplay : public LoginDisplay,
  private:
 
   // Whether to show guest login.
-  bool show_guest_;
+  bool show_guest_ = false;
 
   // Weather to show the user pods or a GAIA sign in.
   // Public sessions are always shown.
-  bool show_users_;
+  bool show_users_ = false;
 
   // Whether to show add new user.
-  bool show_new_user_;
+  bool show_new_user_ = false;
 
   // Reference to the WebUI handling layer for the login screen
-  LoginDisplayWebUIHandler* webui_handler_;
+  LoginDisplayWebUIHandler* webui_handler_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(WebUILoginDisplay);
 };

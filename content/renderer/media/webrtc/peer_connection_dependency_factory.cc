@@ -4,18 +4,25 @@
 
 #include "content/renderer/media/webrtc/peer_connection_dependency_factory.h"
 
+#include <stddef.h>
+
+#include <utility>
 #include <vector>
 
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "build/build_config.h"
 #include "content/common/media/media_stream_messages.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/feature_h264_with_openh264_ffmpeg.h"
+#include "content/public/common/features.h"
 #include "content/public/common/renderer_preferences.h"
 #include "content/public/common/webrtc_ip_handling_policy.h"
 #include "content/public/renderer/content_renderer_client.h"
@@ -31,6 +38,7 @@
 #include "content/renderer/media/rtc_video_decoder_factory.h"
 #include "content/renderer/media/rtc_video_encoder_factory.h"
 #include "content/renderer/media/webaudio_capturer_source.h"
+#include "content/renderer/media/webrtc/media_stream_remote_audio_track.h"
 #include "content/renderer/media/webrtc/stun_field_trial.h"
 #include "content/renderer/media/webrtc/webrtc_local_audio_track_adapter.h"
 #include "content/renderer/media/webrtc/webrtc_video_capturer_adapter.h"
@@ -46,8 +54,10 @@
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_view_impl.h"
+#include "crypto/openssl_util.h"
 #include "jingle/glue/thread_wrapper.h"
 #include "media/base/media_permission.h"
+#include "media/filters/ffmpeg_glue.h"
 #include "media/renderers/gpu_video_accelerator_factories.h"
 #include "third_party/WebKit/public/platform/WebMediaConstraints.h"
 #include "third_party/WebKit/public/platform/WebMediaStream.h"
@@ -56,11 +66,12 @@
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
-#include "third_party/libjingle/source/talk/app/webrtc/mediaconstraintsinterface.h"
+#include "third_party/webrtc/api/mediaconstraintsinterface.h"
 #include "third_party/webrtc/base/ssladapter.h"
+#include "third_party/webrtc/modules/video_coding/codecs/h264/include/h264.h"
 
 #if defined(OS_ANDROID)
-#include "media/base/android/media_codec_bridge.h"
+#include "media/base/android/media_codec_util.h"
 #endif
 
 namespace content {
@@ -132,87 +143,6 @@ void HarmonizeConstraintsAndEffects(RTCMediaConstraints* constraints,
     }
   }
 }
-
-class P2PPortAllocatorFactory
-    : public rtc::RefCountedObject<webrtc::PortAllocatorFactoryInterface> {
- public:
-  P2PPortAllocatorFactory(
-      scoped_ptr<media::MediaPermission> media_permission,
-      const scoped_refptr<P2PSocketDispatcher>& socket_dispatcher,
-      rtc::NetworkManager* network_manager,
-      rtc::PacketSocketFactory* socket_factory,
-      const P2PPortAllocator::Config& config,
-      const GURL& origin,
-      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner)
-      : media_permission_(media_permission.Pass()),
-        socket_dispatcher_(socket_dispatcher),
-        network_manager_(network_manager),
-        socket_factory_(socket_factory),
-        config_(config),
-        origin_(origin),
-        task_runner_(task_runner) {}
-
-  cricket::PortAllocator* CreatePortAllocator(
-      const std::vector<StunConfiguration>& stun_servers,
-      const std::vector<TurnConfiguration>& turn_configurations) override {
-    P2PPortAllocator::Config config = config_;
-    for (size_t i = 0; i < stun_servers.size(); ++i) {
-      config.stun_servers.insert(rtc::SocketAddress(
-          stun_servers[i].server.hostname(),
-          stun_servers[i].server.port()));
-    }
-    for (size_t i = 0; i < turn_configurations.size(); ++i) {
-      P2PPortAllocator::Config::RelayServerConfig relay_config;
-      relay_config.server_address = turn_configurations[i].server.hostname();
-      relay_config.port = turn_configurations[i].server.port();
-      relay_config.username = turn_configurations[i].username;
-      relay_config.password = turn_configurations[i].password;
-      relay_config.transport_type = turn_configurations[i].transport_type;
-      relay_config.secure = turn_configurations[i].secure;
-      config.relays.push_back(relay_config);
-    }
-
-    scoped_ptr<rtc::NetworkManager> network_manager;
-    if (config.enable_multiple_routes) {
-      media::MediaPermission* media_permission = media_permission_.get();
-      FilteringNetworkManager* filtering_network_manager =
-          new FilteringNetworkManager(network_manager_, origin_,
-                                      media_permission_.Pass());
-      if (media_permission) {
-        // Start permission check earlier to reduce any impact to call set up
-        // time. It's safe to use Unretained here since both destructor and
-        // Initialize can only be called on the worker thread.
-        task_runner_->PostTask(
-            FROM_HERE, base::Bind(&FilteringNetworkManager::Initialize,
-                                  base::Unretained(filtering_network_manager)));
-      }
-      network_manager.reset(filtering_network_manager);
-    } else {
-      network_manager.reset(new EmptyNetworkManager(network_manager_));
-    }
-
-    return new P2PPortAllocator(socket_dispatcher_, network_manager.Pass(),
-                                socket_factory_, config, origin_, task_runner_);
-  }
-
- protected:
-  ~P2PPortAllocatorFactory() override {}
-
- private:
-  // Ownership of |media_permission_| will be passed to FilteringNetworkManager
-  // during CreatePortAllocator.
-  scoped_ptr<media::MediaPermission> media_permission_;
-
-  scoped_refptr<P2PSocketDispatcher> socket_dispatcher_;
-  rtc::NetworkManager* network_manager_;
-  rtc::PacketSocketFactory* socket_factory_;
-  P2PPortAllocator::Config config_;
-  GURL origin_;
-
-  // This is the worker thread where |media_permission_| and |network_manager_|
-  // live on.
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-};
 
 PeerConnectionDependencyFactory::PeerConnectionDependencyFactory(
     P2PSocketDispatcher* p2p_socket_dispatcher)
@@ -333,6 +263,18 @@ void PeerConnectionDependencyFactory::CreatePeerConnectionFactory() {
 
   DVLOG(1) << "PeerConnectionDependencyFactory::CreatePeerConnectionFactory()";
 
+#if BUILDFLAG(RTC_USE_H264)
+  // Building /w |rtc_use_h264|, is the corresponding run-time feature enabled?
+  if (base::FeatureList::IsEnabled(kWebRtcH264WithOpenH264FFmpeg)) {
+    // |H264DecoderImpl| may be used which depends on FFmpeg, therefore we need
+    // to initialize FFmpeg before going further.
+    media::FFmpegGlue::InitializeFFmpeg();
+  } else {
+    // Feature is to be disabled, no need to make sure FFmpeg is initialized.
+    webrtc::DisableRtcUseH264();
+  }
+#endif
+
   base::MessageLoop::current()->AddDestructionObserver(this);
   // To allow sending to the signaling/worker threads.
   jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
@@ -360,6 +302,12 @@ void PeerConnectionDependencyFactory::CreatePeerConnectionFactory() {
   CHECK(worker_thread_);
 
   // Init SSL, which will be needed by PeerConnection.
+  //
+  // TODO(davidben): BoringSSL must be initialized by Chromium code. If the
+  // initialization requirement is removed or when different libraries are
+  // allowed to call CRYPTO_library_init concurrently, remove this line and
+  // initialize within WebRTC. See https://crbug.com/542879.
+  crypto::EnsureOpenSSLInit();
   if (!rtc::InitializeSSL()) {
     LOG(ERROR) << "Failed on InitializeSSL.";
     NOTREACHED();
@@ -407,7 +355,7 @@ void PeerConnectionDependencyFactory::InitializeSignalingThread(
   }
 
 #if defined(OS_ANDROID)
-  if (!media::MediaCodecBridge::SupportsSetParameters())
+  if (!media::MediaCodecUtil::SupportsSetParameters())
     encoder_factory.reset();
 #endif
 
@@ -421,12 +369,13 @@ void PeerConnectionDependencyFactory::InitializeSignalingThread(
   factory_options.disable_encryption =
       cmd_line->HasSwitch(switches::kDisableWebRtcEncryption);
 
+  // DTLS 1.2 is the default now but could be changed to 1.0 by the experiment.
+  factory_options.ssl_max_version = rtc::SSL_PROTOCOL_DTLS_12;
   std::string group_name =
       base::FieldTrialList::FindFullName("WebRTC-PeerConnectionDTLS1.2");
-  if (StartsWith(group_name, "Enabled", base::CompareCase::SENSITIVE) ||
-      cmd_line->HasSwitch(switches::kEnableWebRtcDtls12)) {
-    factory_options.ssl_max_version = rtc::SSL_PROTOCOL_DTLS_12;
-  }
+  if (StartsWith(group_name, "Control", base::CompareCase::SENSITIVE))
+    factory_options.ssl_max_version = rtc::SSL_PROTOCOL_DTLS_10;
+
   pc_factory_->SetOptions(factory_options);
 
   event->Signal();
@@ -463,7 +412,17 @@ PeerConnectionDependencyFactory::CreatePeerConnection(
   // which means the permission will be granted automatically. This could be the
   // case when either the experiment is not enabled or the preference is not
   // enforced.
-  scoped_ptr<media::MediaPermission> media_permission;
+  //
+  // Note on |media_permission| lifetime: |media_permission| is owned by a frame
+  // (RenderFrameImpl). It is also stored as an indirect member of
+  // RTCPeerConnectionHandler (through PeerConnection/PeerConnectionInterface ->
+  // P2PPortAllocator -> FilteringNetworkManager -> |media_permission|).
+  // The RTCPeerConnectionHandler is owned as RTCPeerConnection::m_peerHandler
+  // in Blink, which will be reset in RTCPeerConnection::stop(). Since
+  // ActiveDOMObject::stop() is guaranteed to be called before a frame is
+  // detached, it is impossible for RTCPeerConnectionHandler to outlive the
+  // frame. Therefore using a raw pointer of |media_permission| is safe here.
+  media::MediaPermission* media_permission = nullptr;
   if (!GetContentClient()
            ->renderer()
            ->ShouldEnforceWebRTCRoutingPreferences()) {
@@ -520,29 +479,41 @@ PeerConnectionDependencyFactory::CreatePeerConnection(
       if (create_media_permission) {
         content::RenderFrameImpl* render_frame =
             content::RenderFrameImpl::FromWebFrame(web_frame);
-        if (render_frame) {
-          media_permission = render_frame->CreateMediaPermissionProxy(
-              chrome_worker_thread_.task_runner());
-        }
+        if (render_frame)
+          media_permission = render_frame->GetMediaPermission();
         DCHECK(media_permission);
       }
     }
   }
 
   const GURL& requesting_origin =
-      GURL(web_frame->document().url().spec()).GetOrigin();
+      GURL(web_frame->document().url()).GetOrigin();
 
-  scoped_refptr<P2PPortAllocatorFactory> pa_factory =
-      new P2PPortAllocatorFactory(
-          media_permission.Pass(), p2p_socket_dispatcher_, network_manager_,
-          socket_factory_.get(), port_config, requesting_origin,
-          chrome_worker_thread_.task_runner());
+  scoped_ptr<rtc::NetworkManager> network_manager;
+  if (port_config.enable_multiple_routes) {
+    FilteringNetworkManager* filtering_network_manager =
+        new FilteringNetworkManager(network_manager_, requesting_origin,
+                                    media_permission);
+    if (media_permission) {
+      // Start permission check earlier to reduce any impact to call set up
+      // time. It's safe to use Unretained here since both destructor and
+      // Initialize can only be called on the worker thread.
+      chrome_worker_thread_.task_runner()->PostTask(
+          FROM_HERE, base::Bind(&FilteringNetworkManager::Initialize,
+                                base::Unretained(filtering_network_manager)));
+    }
+    network_manager.reset(filtering_network_manager);
+  } else {
+    network_manager.reset(new EmptyNetworkManager(network_manager_));
+  }
+  rtc::scoped_ptr<P2PPortAllocator> port_allocator(new P2PPortAllocator(
+      p2p_socket_dispatcher_, std::move(network_manager), socket_factory_.get(),
+      port_config, requesting_origin, chrome_worker_thread_.task_runner()));
 
-  return GetPcFactory()->CreatePeerConnection(config,
-                                              constraints,
-                                              pa_factory.get(),
-                                              identity_store.Pass(),
-                                              observer).get();
+  return GetPcFactory()
+      ->CreatePeerConnection(config, constraints, std::move(port_allocator),
+                             std::move(identity_store), observer)
+      .get();
 }
 
 scoped_refptr<webrtc::MediaStreamInterface>
@@ -563,6 +534,7 @@ void PeerConnectionDependencyFactory::CreateLocalAudioTrack(
     const blink::WebMediaStreamTrack& track) {
   blink::WebMediaStreamSource source = track.source();
   DCHECK_EQ(source.type(), blink::WebMediaStreamSource::TypeAudio);
+  DCHECK(!source.remote());
   MediaStreamAudioSource* source_data =
       static_cast<MediaStreamAudioSource*>(source.extraData());
 
@@ -575,9 +547,7 @@ void PeerConnectionDependencyFactory::CreateLocalAudioTrack(
       source_data =
           static_cast<MediaStreamAudioSource*>(source.extraData());
     } else {
-      // TODO(perkj): Implement support for sources from
-      // remote MediaStreams.
-      NOTIMPLEMENTED();
+      NOTREACHED() << "Local track missing source extra data.";
       return;
     }
   }
@@ -600,6 +570,18 @@ void PeerConnectionDependencyFactory::CreateLocalAudioTrack(
   // Pass the ownership of the native local audio track to the blink track.
   blink::WebMediaStreamTrack writable_track = track;
   writable_track.setExtraData(audio_track.release());
+}
+
+void PeerConnectionDependencyFactory::CreateRemoteAudioTrack(
+    const blink::WebMediaStreamTrack& track) {
+  blink::WebMediaStreamSource source = track.source();
+  DCHECK_EQ(source.type(), blink::WebMediaStreamSource::TypeAudio);
+  DCHECK(source.remote());
+  DCHECK(source.extraData());
+
+  blink::WebMediaStreamTrack writable_track = track;
+  writable_track.setExtraData(
+      new MediaStreamRemoteAudioTrack(source, track.isEnabled()));
 }
 
 void PeerConnectionDependencyFactory::StartLocalAudioTrack(
@@ -676,6 +658,15 @@ PeerConnectionDependencyFactory::CreateIceCandidate(
     int sdp_mline_index,
     const std::string& sdp) {
   return webrtc::CreateIceCandidate(sdp_mid, sdp_mline_index, sdp, nullptr);
+}
+
+bool PeerConnectionDependencyFactory::StartRtcEventLog(
+    base::PlatformFile file) {
+  return GetPcFactory()->StartRtcEventLog(file);
+}
+
+void PeerConnectionDependencyFactory::StopRtcEventLog() {
+  GetPcFactory()->StopRtcEventLog();
 }
 
 WebRtcAudioDeviceImpl*

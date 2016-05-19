@@ -4,12 +4,12 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "JS_Context.h"
+#include "fpdfsdk/src/javascript/JS_Context.h"
 
-#include "../../include/javascript/IJavaScript.h"
-#include "JS_EventHandler.h"
-#include "JS_Runtime.h"
-#include "resource.h"
+#include "fpdfsdk/include/javascript/IJavaScript.h"
+#include "fpdfsdk/src/javascript/JS_EventHandler.h"
+#include "fpdfsdk/src/javascript/JS_Runtime.h"
+#include "fpdfsdk/src/javascript/resource.h"
 
 /* -------------------------- CJS_Context -------------------------- */
 
@@ -27,14 +27,15 @@ CPDFSDK_Document* CJS_Context::GetReaderDocument() {
 }
 
 CPDFDoc_Environment* CJS_Context::GetReaderApp() {
-  ASSERT(m_pRuntime != NULL);
-
   return m_pRuntime->GetReaderApp();
 }
 
 FX_BOOL CJS_Context::RunScript(const CFX_WideString& script,
                                CFX_WideString* info) {
   v8::Isolate::Scope isolate_scope(m_pRuntime->GetIsolate());
+#ifdef PDF_ENABLE_XFA
+  v8::Locker locker(m_pRuntime->GetIsolate());
+#endif  // PDF_ENABLE_XFA
   v8::HandleScope handle_scope(m_pRuntime->GetIsolate());
   v8::Local<v8::Context> context = m_pRuntime->NewJSContext();
   v8::Context::Scope context_scope(context);

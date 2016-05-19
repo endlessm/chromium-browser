@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/ui/app_list/app_list_prefs.h"
 #include "chrome/browser/ui/app_list/app_list_prefs_factory.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 
 namespace app_list {
 
@@ -27,6 +27,8 @@ const char kModelItemName[] = "name";
 AppListPrefs::AppListInfo::AppListInfo() : item_type(ITEM_TYPE_INVALID) {
 }
 
+AppListPrefs::AppListInfo::AppListInfo(const AppListInfo& other) = default;
+
 AppListPrefs::AppListInfo::~AppListInfo() {
 }
 
@@ -37,7 +39,7 @@ AppListPrefs::AppListInfo::CreateDictFromAppListInfo() const {
   item_dict->SetString(kModelItemParentId, parent_id);
   item_dict->SetString(kModelItemName, name);
   item_dict->SetInteger(kModelItemType, item_type);
-  return item_dict.Pass();
+  return item_dict;
 }
 
 // static
@@ -58,7 +60,7 @@ AppListPrefs::AppListInfo::CreateAppListInfoFromDict(
 
   info->position = syncer::StringOrdinal(item_ordinal_string);
   info->item_type = static_cast<ItemType>(item_type_int);
-  return info.Pass();
+  return info;
 }
 
 // AppListPrefs

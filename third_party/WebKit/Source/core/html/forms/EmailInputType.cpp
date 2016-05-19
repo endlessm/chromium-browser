@@ -21,16 +21,13 @@
  *
  */
 
-#include "config.h"
 #include "core/html/forms/EmailInputType.h"
 
 #include "bindings/core/v8/ScriptRegexp.h"
 #include "core/InputTypeNames.h"
 #include "core/html/HTMLInputElement.h"
 #include "core/html/parser/HTMLParserIdioms.h"
-#include "core/inspector/ConsoleMessage.h"
 #include "core/page/ChromeClient.h"
-#include "platform/JSONValues.h"
 #include "platform/text/PlatformLocale.h"
 #include "public/platform/Platform.h"
 #include "wtf/LeakAnnotations.h"
@@ -141,7 +138,7 @@ bool EmailInputType::isValidEmailAddress(const String& address)
     if (!addressLength)
         return false;
 
-    WTF_ANNOTATE_SCOPED_MEMORY_LEAK;
+    LEAK_SANITIZER_DISABLED_SCOPE;
     DEFINE_STATIC_LOCAL(const ScriptRegexp, regExp, (emailPattern, TextCaseInsensitive));
 
     int matchLength;
@@ -247,8 +244,7 @@ void EmailInputType::warnIfValueIsInvalid(const String& value) const
     String invalidAddress = findInvalidAddress(value);
     if (invalidAddress.isNull())
         return;
-    element().document().addConsoleMessage(ConsoleMessage::create(RenderingMessageSource, WarningMessageLevel,
-        String::format("The specified value %s is not a valid email address.", JSONValue::quoteString(invalidAddress).utf8().data())));
+    addWarningToConsole("The specified value %s is not a valid email address.", invalidAddress);
 }
 
 bool EmailInputType::supportsSelectionAPI() const

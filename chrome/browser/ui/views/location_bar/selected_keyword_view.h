@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
 #include "ui/views/controls/label.h"
 
@@ -47,6 +48,8 @@ class SelectedKeywordView : public IconLabelBubbleView {
   // IconLabelBubbleView:
   const char* GetClassName() const override;
   int GetImageAndPaddingWidth() const override;
+
+  SkColor text_color_;
 
   // The keyword we're showing. If empty, no keyword is selected.
   // NOTE: we don't cache the TemplateURL as it is possible for it to get

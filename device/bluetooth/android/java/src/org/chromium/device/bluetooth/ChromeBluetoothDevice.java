@@ -37,6 +37,8 @@ final class ChromeBluetoothDevice {
     private final BluetoothGattCallbackImpl mBluetoothGattCallbackImpl;
     final HashMap<Wrappers.BluetoothGattCharacteristicWrapper,
             ChromeBluetoothRemoteGattCharacteristic> mWrapperToChromeCharacteristicsMap;
+    final HashMap<Wrappers.BluetoothGattDescriptorWrapper, ChromeBluetoothRemoteGattDescriptor>
+            mWrapperToChromeDescriptorsMap;
 
     private ChromeBluetoothDevice(
             long nativeBluetoothDeviceAndroid, Wrappers.BluetoothDeviceWrapper deviceWrapper) {
@@ -47,6 +49,8 @@ final class ChromeBluetoothDevice {
         mWrapperToChromeCharacteristicsMap =
                 new HashMap<Wrappers.BluetoothGattCharacteristicWrapper,
                         ChromeBluetoothRemoteGattCharacteristic>();
+        mWrapperToChromeDescriptorsMap = new HashMap<Wrappers.BluetoothGattDescriptorWrapper,
+                ChromeBluetoothRemoteGattDescriptor>();
         Log.v(TAG, "ChromeBluetoothDevice created.");
     }
 
@@ -55,7 +59,10 @@ final class ChromeBluetoothDevice {
      */
     @CalledByNative
     private void onBluetoothDeviceAndroidDestruction() {
-        disconnectGatt();
+        if (mBluetoothGatt != null) {
+            mBluetoothGatt.close();
+            mBluetoothGatt = null;
+        }
         mNativeBluetoothDeviceAndroid = 0;
     }
 
@@ -115,6 +122,9 @@ final class ChromeBluetoothDevice {
     @CalledByNative
     private void createGattConnectionImpl(Context context) {
         Log.i(TAG, "connectGatt");
+
+        if (mBluetoothGatt != null) mBluetoothGatt.close();
+
         // autoConnect set to false as under experimentation using autoConnect failed to complete
         // connections.
         mBluetoothGatt =
@@ -144,6 +154,11 @@ final class ChromeBluetoothDevice {
                             : "Disconnected");
             if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
                 mBluetoothGatt.discoverServices();
+            } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
+                if (mBluetoothGatt != null) {
+                    mBluetoothGatt.close();
+                    mBluetoothGatt = null;
+                }
             }
             ThreadUtils.runOnUiThread(new Runnable() {
                 @Override
@@ -164,6 +179,8 @@ final class ChromeBluetoothDevice {
                 @Override
                 public void run() {
                     if (mNativeBluetoothDeviceAndroid != 0) {
+                        // TODO(crbug.com/576906): Update or replace existing GATT objects if they
+                        //                         change after initial discovery.
                         for (Wrappers.BluetoothGattServiceWrapper service :
                                 mBluetoothGatt.getServices()) {
                             // Create an adapter unique service ID. getInstanceId only differs
@@ -174,6 +191,26 @@ final class ChromeBluetoothDevice {
                                     mNativeBluetoothDeviceAndroid, serviceInstanceId, service);
                         }
                         nativeOnGattServicesDiscovered(mNativeBluetoothDeviceAndroid);
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void onCharacteristicChanged(
+                final Wrappers.BluetoothGattCharacteristicWrapper characteristic) {
+            Log.i(TAG, "device onCharacteristicChanged.");
+            ThreadUtils.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    ChromeBluetoothRemoteGattCharacteristic chromeCharacteristic =
+                            mWrapperToChromeCharacteristicsMap.get(characteristic);
+                    if (chromeCharacteristic == null) {
+                        // Android events arriving with no Chrome object is expected rarely only
+                        // when the event races object destruction.
+                        Log.v(TAG, "onCharacteristicChanged when chromeCharacteristic == null.");
+                    } else {
+                        chromeCharacteristic.onCharacteristicChanged();
                     }
                 }
             });

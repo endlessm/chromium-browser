@@ -4,7 +4,9 @@
 
 #include "components/certificate_reporting/error_reporter.h"
 
+#include <stddef.h>
 #include <set>
+#include <utility>
 
 #include "base/logging.h"
 #include "components/certificate_reporting/encrypted_cert_logger.pb.h"
@@ -24,21 +26,23 @@ namespace {
 
 // Constants used for crypto. The corresponding private key is used by
 // the SafeBrowsing client-side detection server to decrypt reports.
-static const uint8 kServerPublicKey[] = {
+static const uint8_t kServerPublicKey[] = {
     0x51, 0xcc, 0x52, 0x67, 0x42, 0x47, 0x3b, 0x10, 0xe8, 0x63, 0x18,
     0x3c, 0x61, 0xa7, 0x96, 0x76, 0x86, 0x91, 0x40, 0x71, 0x39, 0x5f,
     0x31, 0x1a, 0x39, 0x5b, 0x76, 0xb1, 0x6b, 0x3d, 0x6a, 0x2b};
-static const uint32 kServerPublicKeyVersion = 1;
+static const uint32_t kServerPublicKeyVersion = 1;
 
 #if defined(USE_OPENSSL)
 
 static const char kHkdfLabel[] = "certificate report";
 
-std::string GetHkdfSubkeySecret(size_t subkey_length,
-                                const uint8* private_key,
-                                const uint8* public_key) {
-  uint8 shared_secret[crypto::curve25519::kBytes];
-  crypto::curve25519::ScalarMult(private_key, public_key, shared_secret);
+bool GetHkdfSubkeySecret(size_t subkey_length,
+                         const uint8_t* private_key,
+                         const uint8_t* public_key,
+                         std::string* secret) {
+  uint8_t shared_secret[crypto::curve25519::kBytes];
+  if (!crypto::curve25519::ScalarMult(private_key, public_key, shared_secret))
+    return false;
 
   // By mistake, the HKDF label here ends up with an extra null byte on
   // the end, due to using sizeof(kHkdfLabel) in the StringPiece
@@ -55,24 +59,29 @@ std::string GetHkdfSubkeySecret(size_t subkey_length,
                     base::StringPiece(kHkdfLabel, sizeof(kHkdfLabel)),
                     0 /* key bytes */, 0 /* iv bytes */, subkey_length);
 
-  return hkdf.subkey_secret().as_string();
+  *secret = hkdf.subkey_secret().as_string();
+  return true;
 }
 
-bool EncryptSerializedReport(const uint8* server_public_key,
-                             uint32 server_public_key_version,
+bool EncryptSerializedReport(const uint8_t* server_public_key,
+                             uint32_t server_public_key_version,
                              const std::string& report,
                              EncryptedCertLoggerRequest* encrypted_report) {
   // Generate an ephemeral key pair to generate a shared secret.
-  uint8 public_key[crypto::curve25519::kBytes];
-  uint8 private_key[crypto::curve25519::kScalarBytes];
+  uint8_t public_key[crypto::curve25519::kBytes];
+  uint8_t private_key[crypto::curve25519::kScalarBytes];
 
   crypto::RandBytes(private_key, sizeof(private_key));
   crypto::curve25519::ScalarBaseMult(private_key, public_key);
 
   crypto::Aead aead(crypto::Aead::AES_128_CTR_HMAC_SHA256);
-  const std::string key =
-      GetHkdfSubkeySecret(aead.KeyLength(), private_key,
-                          reinterpret_cast<const uint8*>(server_public_key));
+  std::string key;
+  if (!GetHkdfSubkeySecret(aead.KeyLength(), private_key,
+                           reinterpret_cast<const uint8_t*>(server_public_key),
+                           &key)) {
+    LOG(ERROR) << "Error getting subkey secret.";
+    return false;
+  }
   aead.Init(&key);
 
   // Use an all-zero nonce because the key is random per-message.
@@ -109,10 +118,10 @@ ErrorReporter::ErrorReporter(
 
 ErrorReporter::ErrorReporter(
     const GURL& upload_url,
-    const uint8 server_public_key[/* 32 */],
-    const uint32 server_public_key_version,
+    const uint8_t server_public_key[/* 32 */],
+    const uint32_t server_public_key_version,
     scoped_ptr<net::CertificateReportSender> certificate_report_sender)
-    : certificate_report_sender_(certificate_report_sender.Pass()),
+    : certificate_report_sender_(std::move(certificate_report_sender)),
       upload_url_(upload_url),
       server_public_key_(server_public_key),
       server_public_key_version_(server_public_key_version) {
@@ -153,14 +162,18 @@ bool ErrorReporter::IsHttpUploadUrlSupported() {
 // Used only by tests.
 #if defined(USE_OPENSSL)
 bool ErrorReporter::DecryptErrorReport(
-    const uint8 server_private_key[32],
+    const uint8_t server_private_key[32],
     const EncryptedCertLoggerRequest& encrypted_report,
     std::string* decrypted_serialized_report) {
   crypto::Aead aead(crypto::Aead::AES_128_CTR_HMAC_SHA256);
-  const std::string key =
-      GetHkdfSubkeySecret(aead.KeyLength(), server_private_key,
-                          reinterpret_cast<const uint8*>(
-                              encrypted_report.client_public_key().data()));
+  std::string key;
+  if (!GetHkdfSubkeySecret(aead.KeyLength(), server_private_key,
+                           reinterpret_cast<const uint8_t*>(
+                               encrypted_report.client_public_key().data()),
+                           &key)) {
+    LOG(ERROR) << "Error getting subkey secret.";
+    return false;
+  }
   aead.Init(&key);
 
   // Use an all-zero nonce because the key is random per-message.

@@ -191,6 +191,10 @@ class TransportSecurityStateTest : public testing::Test {
     state->enable_static_pins_ = true;
   }
 
+  static void EnableStaticExpectCT(TransportSecurityState* state) {
+    state->enable_static_expect_ct_ = true;
+  }
+
   static HashValueVector GetSampleSPKIHashes() {
     HashValueVector spki_hashes;
     HashValue hash(HASH_VALUE_SHA256);
@@ -1545,6 +1549,20 @@ TEST_F(TransportSecurityStateTest, HPKPReportRateLimiting) {
                                           cert1.get(), cert2.get(),
                                           good_hashes));
   mock_report_sender.Clear();
+}
+
+// Tests that static (preloaded) expect CT state is read correctly.
+TEST_F(TransportSecurityStateTest, PreloadedExpectCT) {
+  const char kHostname[] = "preloaded-expect-ct.badssl.com";
+  TransportSecurityState state;
+  TransportSecurityStateTest::EnableStaticExpectCT(&state);
+  TransportSecurityState::ExpectCTState expect_ct_state;
+  EXPECT_TRUE(state.GetStaticExpectCTState(kHostname, &expect_ct_state));
+  EXPECT_EQ(kHostname, expect_ct_state.domain);
+  EXPECT_EQ(GURL("https://report.badssl.com/expect-ct"),
+            expect_ct_state.report_uri);
+  EXPECT_FALSE(state.GetStaticExpectCTState("pinning-test.badssl.com",
+                                            &expect_ct_state));
 }
 
 }  // namespace net

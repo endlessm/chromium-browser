@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/KeyframeEffect.h"
 
 #include "bindings/core/v8/Dictionary.h"
@@ -54,26 +53,26 @@ KeyframeEffect* KeyframeEffect::create(Element* target, EffectModel* model, cons
     return new KeyframeEffect(target, model, timing, priority, eventDelegate);
 }
 
-KeyframeEffect* KeyframeEffect::create(Element* element, const Vector<Dictionary>& keyframeDictionaryVector, double duration, ExceptionState& exceptionState)
+KeyframeEffect* KeyframeEffect::create(Element* element, const EffectModelOrDictionarySequenceOrDictionary& effectInput, double duration, ExceptionState& exceptionState)
 {
     ASSERT(RuntimeEnabledFeatures::webAnimationsAPIEnabled());
     if (element)
         UseCounter::count(element->document(), UseCounter::AnimationConstructorKeyframeListEffectObjectTiming);
-    return create(element, EffectInput::convert(element, keyframeDictionaryVector, exceptionState), TimingInput::convert(duration));
+    return create(element, EffectInput::convert(element, effectInput, exceptionState), TimingInput::convert(duration));
 }
-KeyframeEffect* KeyframeEffect::create(Element* element, const Vector<Dictionary>& keyframeDictionaryVector, const KeyframeEffectOptions& timingInput, ExceptionState& exceptionState)
+KeyframeEffect* KeyframeEffect::create(Element* element, const EffectModelOrDictionarySequenceOrDictionary& effectInput, const KeyframeEffectOptions& timingInput, ExceptionState& exceptionState)
 {
     ASSERT(RuntimeEnabledFeatures::webAnimationsAPIEnabled());
     if (element)
         UseCounter::count(element->document(), UseCounter::AnimationConstructorKeyframeListEffectObjectTiming);
-    return create(element, EffectInput::convert(element, keyframeDictionaryVector, exceptionState), TimingInput::convert(timingInput));
+    return create(element, EffectInput::convert(element, effectInput, exceptionState), TimingInput::convert(timingInput));
 }
-KeyframeEffect* KeyframeEffect::create(Element* element, const Vector<Dictionary>& keyframeDictionaryVector, ExceptionState& exceptionState)
+KeyframeEffect* KeyframeEffect::create(Element* element, const EffectModelOrDictionarySequenceOrDictionary& effectInput, ExceptionState& exceptionState)
 {
     ASSERT(RuntimeEnabledFeatures::webAnimationsAPIEnabled());
     if (element)
         UseCounter::count(element->document(), UseCounter::AnimationConstructorKeyframeListEffectNoTiming);
-    return create(element, EffectInput::convert(element, keyframeDictionaryVector, exceptionState), Timing());
+    return create(element, EffectInput::convert(element, effectInput, exceptionState), Timing());
 }
 
 KeyframeEffect::KeyframeEffect(Element* target, EffectModel* model, const Timing& timing, Priority priority, EventDelegate* eventDelegate)
@@ -98,6 +97,8 @@ void KeyframeEffect::attach(Animation* animation)
     if (m_target) {
         m_target->ensureElementAnimations().animations().add(animation);
         m_target->setNeedsAnimationStyleRecalc();
+        if (RuntimeEnabledFeatures::webAnimationsSVGEnabled() && m_target->isSVGElement())
+            toSVGElement(m_target)->setWebAnimationsPending();
     }
     AnimationEffect::attach(animation);
 }
@@ -209,6 +210,8 @@ void KeyframeEffect::clearEffects()
     m_sampledEffect = nullptr;
     restartAnimationOnCompositor();
     m_target->setNeedsAnimationStyleRecalc();
+    if (RuntimeEnabledFeatures::webAnimationsSVGEnabled() && m_target->isSVGElement())
+        toSVGElement(*m_target).clearWebAnimatedAttributes();
     invalidate();
 }
 
@@ -257,6 +260,11 @@ double KeyframeEffect::calculateTimeToEffectChange(bool forwards, double localTi
         ASSERT_NOT_REACHED();
         return std::numeric_limits<double>::infinity();
     }
+}
+
+void KeyframeEffect::notifySampledEffectRemovedFromAnimationStack()
+{
+    m_sampledEffect = nullptr;
 }
 
 #if !ENABLE(OILPAN)

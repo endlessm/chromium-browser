@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/serviceworkers/ServiceWorkerClient.h"
+#include "modules/serviceworkers/ServiceWorkerWindowClient.h"
 
 #include "bindings/core/v8/CallbackPromiseAdapter.h"
 #include "bindings/core/v8/ExceptionState.h"
@@ -14,6 +14,25 @@
 #include "wtf/RefPtr.h"
 
 namespace blink {
+
+ServiceWorkerClient* ServiceWorkerClient::take(ScriptPromiseResolver*, PassOwnPtr<WebServiceWorkerClientInfo> webClient)
+{
+    if (!webClient)
+        return nullptr;
+
+    switch (webClient->clientType) {
+    case WebServiceWorkerClientTypeWindow:
+        return ServiceWorkerWindowClient::create(*webClient);
+    case WebServiceWorkerClientTypeWorker:
+    case WebServiceWorkerClientTypeSharedWorker:
+        return ServiceWorkerClient::create(*webClient);
+    case WebServiceWorkerClientTypeLast:
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+    ASSERT_NOT_REACHED();
+    return nullptr;
+}
 
 ServiceWorkerClient* ServiceWorkerClient::create(const WebServiceWorkerClientInfo& info)
 {

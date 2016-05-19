@@ -4,6 +4,8 @@
 
 #include "components/autofill/content/browser/content_autofill_driver.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "components/autofill/content/common/autofill_messages.h"
@@ -18,8 +20,10 @@
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/site_instance.h"
 #include "ipc/ipc_message_macros.h"
+#include "ui/gfx/geometry/size_f.h"
 
 namespace autofill {
 
@@ -145,6 +149,19 @@ void ContentAutofillDriver::PopupHidden() {
     RendererShouldClearPreviewedForm();
 }
 
+gfx::RectF ContentAutofillDriver::TransformBoundingBoxToViewportCoordinates(
+    const gfx::RectF& bounding_box) {
+  gfx::Point orig_point(bounding_box.x(), bounding_box.y());
+  gfx::Point transformed_point;
+  transformed_point =
+      render_frame_host_->GetView()->TransformPointToRootCoordSpace(orig_point);
+
+  gfx::RectF new_box;
+  new_box.SetRect(transformed_point.x(), transformed_point.y(),
+                  bounding_box.width(), bounding_box.height());
+  return new_box;
+}
+
 bool ContentAutofillDriver::HandleMessage(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ContentAutofillDriver, message)
@@ -161,6 +178,9 @@ bool ContentAutofillDriver::HandleMessage(const IPC::Message& message) {
   IPC_MESSAGE_FORWARD(AutofillHostMsg_TextFieldDidChange,
                       autofill_manager_.get(),
                       AutofillManager::OnTextFieldDidChange)
+  IPC_MESSAGE_FORWARD(AutofillHostMsg_FocusNoLongerOnForm,
+                      autofill_manager_.get(),
+                      AutofillManager::OnFocusNoLongerOnForm)
   IPC_MESSAGE_FORWARD(AutofillHostMsg_QueryFormFieldAutofill,
                       autofill_manager_.get(),
                       AutofillManager::OnQueryFormFieldAutofill)
@@ -199,7 +219,7 @@ void ContentAutofillDriver::DidNavigateFrame(
 
 void ContentAutofillDriver::SetAutofillManager(
     scoped_ptr<AutofillManager> manager) {
-  autofill_manager_ = manager.Pass();
+  autofill_manager_ = std::move(manager);
   autofill_manager_->SetExternalDelegate(&autofill_external_delegate_);
 }
 

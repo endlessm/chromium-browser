@@ -8,8 +8,8 @@
 #include <limits>
 
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "base/time/time.h"
-#include "cc/animation/animation_events.h"
 #include "cc/output/begin_frame_args.h"
 #include "cc/scheduler/scheduler.h"
 #include "cc/trees/blocking_task_runner.h"
@@ -19,6 +19,7 @@
 
 namespace cc {
 
+class AnimationEvents;
 class BeginFrameSource;
 class ContextProvider;
 class LayerTreeHost;
@@ -28,11 +29,9 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
                                     NON_EXPORTED_BASE(LayerTreeHostImplClient),
                                     SchedulerClient {
  public:
-  static scoped_ptr<Proxy> Create(
-      LayerTreeHost* layer_tree_host,
-      LayerTreeHostSingleThreadClient* client,
-      TaskRunnerProvider* task_runner_provider_,
-      scoped_ptr<BeginFrameSource> external_begin_frame_source);
+  static scoped_ptr<Proxy> Create(LayerTreeHost* layer_tree_host,
+                                  LayerTreeHostSingleThreadClient* client,
+                                  TaskRunnerProvider* task_runner_provider_);
   ~SingleThreadProxy() override;
 
   // Proxy implementation
@@ -54,7 +53,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   bool CommitRequested() const override;
   bool BeginMainFrameRequested() const override;
   void MainThreadHasStoppedFlinging() override {}
-  void Start() override;
+  void Start(scoped_ptr<BeginFrameSource> external_begin_frame_source) override;
   void Stop() override;
   bool SupportsImplScrolling() const override;
   bool MainFrameWillHappenForTesting() override;
@@ -71,7 +70,6 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   DrawResult ScheduledActionDrawAndSwapIfPossible() override;
   DrawResult ScheduledActionDrawAndSwapForced() override;
   void ScheduledActionCommit() override;
-  void ScheduledActionAnimate() override;
   void ScheduledActionActivateSyncTree() override;
   void ScheduledActionBeginOutputSurfaceCreation() override;
   void ScheduledActionPrepareTiles() override;
@@ -85,21 +83,19 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void CommitVSyncParameters(base::TimeTicks timebase,
                              base::TimeDelta interval) override;
   void SetEstimatedParentDrawTime(base::TimeDelta draw_time) override;
-  void SetMaxSwapsPendingOnImplThread(int max) override;
   void DidSwapBuffersOnImplThread() override;
   void DidSwapBuffersCompleteOnImplThread() override;
-  void OnResourcelessSoftareDrawStateChanged(bool resourceless_draw) override;
   void OnCanDrawStateChanged(bool can_draw) override;
   void NotifyReadyToActivate() override;
   void NotifyReadyToDraw() override;
   void SetNeedsRedrawOnImplThread() override;
   void SetNeedsRedrawRectOnImplThread(const gfx::Rect& dirty_rect) override;
-  void SetNeedsAnimateOnImplThread() override;
+  void SetNeedsOneBeginImplFrameOnImplThread() override;
   void SetNeedsPrepareTilesOnImplThread() override;
   void SetNeedsCommitOnImplThread() override;
   void SetVideoNeedsBeginFrames(bool needs_begin_frames) override;
   void PostAnimationEventsToMainThreadOnImplThread(
-      scoped_ptr<AnimationEventsVector> events) override;
+      scoped_ptr<AnimationEvents> events) override;
   bool IsInsideDraw() override;
   void RenewTreePriority() override {}
   void PostDelayedAnimationTaskOnImplThread(const base::Closure& task,
@@ -108,7 +104,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void WillPrepareTiles() override;
   void DidPrepareTiles() override;
   void DidCompletePageScaleAnimationOnImplThread() override;
-  void OnDrawForOutputSurface() override;
+  void OnDrawForOutputSurface(bool resourceless_software_draw) override;
   void PostFrameTimingEventsOnImplThread(
       scoped_ptr<FrameTimingTracker::CompositeTimingSet> composite_events,
       scoped_ptr<FrameTimingTracker::MainFrameTimingSet> main_frame_events)
@@ -122,8 +118,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
  protected:
   SingleThreadProxy(LayerTreeHost* layer_tree_host,
                     LayerTreeHostSingleThreadClient* client,
-                    TaskRunnerProvider* task_runner_provider,
-                    scoped_ptr<BeginFrameSource> external_begin_frame_source);
+                    TaskRunnerProvider* task_runner_provider);
 
  private:
   void BeginMainFrame(const BeginFrameArgs& begin_frame_args);

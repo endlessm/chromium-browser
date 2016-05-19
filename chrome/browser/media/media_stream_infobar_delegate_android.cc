@@ -4,6 +4,9 @@
 
 #include "chrome/browser/media/media_stream_infobar_delegate_android.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/utf_string_conversions.h"
@@ -48,15 +51,15 @@ bool MediaStreamInfoBarDelegateAndroid::Create(
 
   scoped_ptr<infobars::InfoBar> infobar(
       infobar_service->CreateConfirmInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
-          new MediaStreamInfoBarDelegateAndroid(controller.Pass()))));
+          new MediaStreamInfoBarDelegateAndroid(std::move(controller)))));
   for (size_t i = 0; i < infobar_service->infobar_count(); ++i) {
     infobars::InfoBar* old_infobar = infobar_service->infobar_at(i);
     if (old_infobar->delegate()->AsMediaStreamInfoBarDelegateAndroid()) {
-      infobar_service->ReplaceInfoBar(old_infobar, infobar.Pass());
+      infobar_service->ReplaceInfoBar(old_infobar, std::move(infobar));
       return true;
     }
   }
-  infobar_service->AddInfoBar(infobar.Pass());
+  infobar_service->AddInfoBar(std::move(infobar));
   return true;
 }
 
@@ -68,9 +71,14 @@ bool MediaStreamInfoBarDelegateAndroid::IsRequestingMicrophoneAccess() const {
   return controller_->IsAskingForAudio();
 }
 
+infobars::InfoBarDelegate::InfoBarIdentifier
+MediaStreamInfoBarDelegateAndroid::GetIdentifier() const {
+  return MEDIA_STREAM_INFOBAR_DELEGATE_ANDROID;
+}
+
 MediaStreamInfoBarDelegateAndroid::MediaStreamInfoBarDelegateAndroid(
     scoped_ptr<MediaStreamDevicesController> controller)
-    : ConfirmInfoBarDelegate(), controller_(controller.Pass()) {
+    : ConfirmInfoBarDelegate(), controller_(std::move(controller)) {
   DCHECK(controller_.get());
   DCHECK(controller_->IsAskingForAudio() || controller_->IsAskingForVideo());
 }

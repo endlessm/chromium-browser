@@ -140,10 +140,11 @@ VISIT_GL_CALL(
      GLenum access),
     (target, level, xoffset, yoffset, width, height, format, type, access))
 VISIT_GL_CALL(UnmapTexSubImage2DCHROMIUM, void, (const void* mem), (mem))
-VISIT_GL_CALL(ResizeCHROMIUM,
-              void,
-              (GLuint width, GLuint height, GLfloat scale_factor),
-              (width, height, scale_factor))
+VISIT_GL_CALL(
+    ResizeCHROMIUM,
+    void,
+    (GLuint width, GLuint height, GLfloat scale_factor, GLboolean alpha),
+    (width, height, scale_factor, alpha))
 VISIT_GL_CALL(GetRequestableExtensionsCHROMIUM, const GLchar*, (), ())
 VISIT_GL_CALL(RequestExtensionCHROMIUM,
               void,
@@ -153,7 +154,6 @@ VISIT_GL_CALL(GetProgramInfoCHROMIUM,
               void,
               (GLuint program, GLsizei bufsize, GLsizei* size, void* info),
               (program, bufsize, size, info))
-VISIT_GL_CALL(CreateStreamTextureCHROMIUM, GLuint, (GLuint texture), (texture))
 VISIT_GL_CALL(
     CreateImageCHROMIUM,
     GLuint,
@@ -183,16 +183,14 @@ VISIT_GL_CALL(TexImageIOSurface2DCHROMIUM,
               (target, width, height, ioSurfaceId, plane))
 VISIT_GL_CALL(CopyTextureCHROMIUM,
               void,
-              (GLenum target,
-               GLenum source_id,
+              (GLenum source_id,
                GLenum dest_id,
                GLint internalformat,
                GLenum dest_type,
                GLboolean unpack_flip_y,
                GLboolean unpack_premultiply_alpha,
                GLboolean unpack_unmultiply_alpha),
-              (target,
-               source_id,
+              (source_id,
                dest_id,
                internalformat,
                dest_type,
@@ -201,8 +199,7 @@ VISIT_GL_CALL(CopyTextureCHROMIUM,
                unpack_unmultiply_alpha))
 VISIT_GL_CALL(CopySubTextureCHROMIUM,
               void,
-              (GLenum target,
-               GLenum source_id,
+              (GLenum source_id,
                GLenum dest_id,
                GLint xoffset,
                GLint yoffset,
@@ -213,8 +210,7 @@ VISIT_GL_CALL(CopySubTextureCHROMIUM,
                GLboolean unpack_flip_y,
                GLboolean unpack_premultiply_alpha,
                GLboolean unpack_unmultiply_alpha),
-              (target,
-               source_id,
+              (source_id,
                dest_id,
                xoffset,
                yoffset,
@@ -227,21 +223,8 @@ VISIT_GL_CALL(CopySubTextureCHROMIUM,
                unpack_unmultiply_alpha))
 VISIT_GL_CALL(CompressedCopyTextureCHROMIUM,
               void,
-              (GLenum target, GLenum source_id, GLenum dest_id),
-              (target, source_id, dest_id))
-VISIT_GL_CALL(
-    CompressedCopySubTextureCHROMIUM,
-    void,
-    (GLenum target,
-     GLenum source_id,
-     GLenum dest_id,
-     GLint xoffset,
-     GLint yoffset,
-     GLint x,
-     GLint y,
-     GLsizei width,
-     GLsizei height),
-    (target, source_id, dest_id, xoffset, yoffset, x, y, width, height))
+              (GLenum source_id, GLenum dest_id),
+              (source_id, dest_id))
 VISIT_GL_CALL(DrawArraysInstancedANGLE,
               void,
               (GLenum mode, GLint first, GLsizei count, GLsizei primcount),
@@ -325,8 +308,6 @@ VISIT_GL_CALL(LoseContextCHROMIUM,
               void,
               (GLenum current, GLenum other),
               (current, other))
-VISIT_GL_CALL(InsertSyncPointCHROMIUM, GLuint, (), ())
-VISIT_GL_CALL(WaitSyncPointCHROMIUM, void, (GLuint sync_point), (sync_point))
 VISIT_GL_CALL(InsertFenceSyncCHROMIUM, GLuint64, (), ())
 VISIT_GL_CALL(GenSyncTokenCHROMIUM,
               void,
@@ -336,6 +317,10 @@ VISIT_GL_CALL(GenUnverifiedSyncTokenCHROMIUM,
               void,
               (GLuint64 fence_sync, GLbyte* sync_token),
               (fence_sync, sync_token))
+VISIT_GL_CALL(VerifySyncTokensCHROMIUM,
+              void,
+              (GLbyte * *sync_tokens, GLsizei count),
+              (sync_tokens, count))
 VISIT_GL_CALL(WaitSyncTokenCHROMIUM,
               void,
               (const GLbyte* sync_token),
@@ -374,15 +359,24 @@ VISIT_GL_CALL(ScheduleCALayerCHROMIUM,
               (GLuint contents_texture_id,
                const GLfloat* contents_rect,
                GLfloat opacity,
-               const GLuint background_color,
-               const GLfloat* bounds_size,
+               GLuint background_color,
+               GLuint edge_aa_mask,
+               const GLfloat* bounds_rect,
+               GLboolean is_clipped,
+               const GLfloat* clip_rect,
+               GLint sorting_context_id,
                const GLfloat* transform),
               (contents_texture_id,
                contents_rect,
                opacity,
                background_color,
-               bounds_size,
+               edge_aa_mask,
+               bounds_rect,
+               is_clipped,
+               clip_rect,
+               sorting_context_id,
                transform))
+VISIT_GL_CALL(CommitOverlayPlanesCHROMIUM, void, (), ())
 VISIT_GL_CALL(SwapInterval, void, (GLint interval), (interval))
 VISIT_GL_CALL(FlushDriverCachesCHROMIUM, void, (), ())
 VISIT_GL_CALL(MatrixLoadfCHROMIUM,
@@ -564,6 +558,29 @@ VISIT_GL_CALL(ProgramPathFragmentInputGenCHROMIUM,
                GLint components,
                const GLfloat* coeffs),
               (program, location, genMode, components, coeffs))
+VISIT_GL_CALL(CoverageModulationCHROMIUM,
+              void,
+              (GLenum components),
+              (components))
 VISIT_GL_CALL(GetGraphicsResetStatusKHR, GLenum, (), ())
 VISIT_GL_CALL(BlendBarrierKHR, void, (), ())
 VISIT_GL_CALL(ApplyScreenSpaceAntialiasingCHROMIUM, void, (), ())
+VISIT_GL_CALL(
+    BindFragDataLocationIndexedEXT,
+    void,
+    (GLuint program, GLuint colorNumber, GLuint index, const char* name),
+    (program, colorNumber, index, name))
+VISIT_GL_CALL(BindFragDataLocationEXT,
+              void,
+              (GLuint program, GLuint colorNumber, const char* name),
+              (program, colorNumber, name))
+VISIT_GL_CALL(GetFragDataIndexEXT,
+              GLint,
+              (GLuint program, const char* name),
+              (program, name))
+VISIT_GL_CALL(UniformMatrix4fvStreamTextureMatrixCHROMIUM,
+              void,
+              (GLint location,
+               GLboolean transpose,
+               const GLfloat* default_value),
+              (location, transpose, default_value))

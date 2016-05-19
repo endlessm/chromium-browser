@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/canvas2d/CanvasGradient.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -60,4 +59,4 @@ void CanvasGradient::addColorStop(float value, const String& colorString, Except
     m_gradient->addColorStop(value, color);
 }
 
-} // namespace
+} // namespace blink

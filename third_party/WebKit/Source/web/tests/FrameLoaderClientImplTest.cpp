@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "web/FrameLoaderClientImpl.h"
 
 #include "core/loader/FrameLoader.h"
@@ -36,12 +35,12 @@
 #include "public/web/WebFrameClient.h"
 #include "public/web/WebSettings.h"
 #include "public/web/WebView.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/tests/FrameTestHelpers.h"
 #include "wtf/text/CString.h"
 #include "wtf/text/WTFString.h"
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 
 using testing::_;
 using testing::Mock;
@@ -54,14 +53,14 @@ class MockWebFrameClient : public WebFrameClient {
 public:
     ~MockWebFrameClient() override { }
 
-    MOCK_METHOD1(userAgentOverride, WebString(WebLocalFrame*));
+    MOCK_METHOD0(userAgentOverride, WebString());
 };
 
 class FrameLoaderClientImplTest : public ::testing::Test {
 protected:
     void SetUp() override
     {
-        ON_CALL(m_webFrameClient, userAgentOverride(_)).WillByDefault(Return(WebString()));
+        ON_CALL(m_webFrameClient, userAgentOverride()).WillByDefault(Return(WebString()));
 
         FrameTestHelpers::TestWebViewClient webViewClient;
         m_webView = WebView::create(&webViewClient);
@@ -102,12 +101,12 @@ TEST_F(FrameLoaderClientImplTest, UserAgentOverride)
     const WebString overrideUserAgent = WebString::fromUTF8("dummy override");
 
     // Override the user agent and make sure we get it back.
-    EXPECT_CALL(webFrameClient(), userAgentOverride(_)).WillOnce(Return(overrideUserAgent));
+    EXPECT_CALL(webFrameClient(), userAgentOverride()).WillOnce(Return(overrideUserAgent));
     EXPECT_TRUE(overrideUserAgent.equals(userAgent()));
     Mock::VerifyAndClearExpectations(&webFrameClient());
 
     // Remove the override and make sure we get the original back.
-    EXPECT_CALL(webFrameClient(), userAgentOverride(_)).WillOnce(Return(WebString()));
+    EXPECT_CALL(webFrameClient(), userAgentOverride()).WillOnce(Return(WebString()));
     EXPECT_TRUE(defaultUserAgent.equals(userAgent()));
 }
 

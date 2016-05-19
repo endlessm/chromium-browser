@@ -4,6 +4,8 @@
 
 #include "sandbox/win/src/process_thread_policy.h"
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/memory/scoped_ptr.h"
@@ -101,8 +103,8 @@ bool ProcessPolicy::GenerateRules(const wchar_t* name,
 }
 
 NTSTATUS ProcessPolicy::OpenThreadAction(const ClientInfo& client_info,
-                                         uint32 desired_access,
-                                         uint32 thread_id,
+                                         uint32_t desired_access,
+                                         uint32_t thread_id,
                                          HANDLE* handle) {
   *handle = NULL;
 
@@ -132,8 +134,8 @@ NTSTATUS ProcessPolicy::OpenThreadAction(const ClientInfo& client_info,
 }
 
 NTSTATUS ProcessPolicy::OpenProcessAction(const ClientInfo& client_info,
-                                          uint32 desired_access,
-                                          uint32 process_id,
+                                          uint32_t desired_access,
+                                          uint32_t process_id,
                                           HANDLE* handle) {
   *handle = NULL;
 
@@ -164,7 +166,7 @@ NTSTATUS ProcessPolicy::OpenProcessAction(const ClientInfo& client_info,
 
 NTSTATUS ProcessPolicy::OpenProcessTokenAction(const ClientInfo& client_info,
                                                HANDLE process,
-                                               uint32 desired_access,
+                                               uint32_t desired_access,
                                                HANDLE* handle) {
   *handle = NULL;
   NtOpenProcessTokenFunction NtOpenProcessToken = NULL;
@@ -188,8 +190,8 @@ NTSTATUS ProcessPolicy::OpenProcessTokenAction(const ClientInfo& client_info,
 
 NTSTATUS ProcessPolicy::OpenProcessTokenExAction(const ClientInfo& client_info,
                                                  HANDLE process,
-                                                 uint32 desired_access,
-                                                 uint32 attributes,
+                                                 uint32_t desired_access,
+                                                 uint32_t attributes,
                                                  HANDLE* handle) {
   *handle = NULL;
   NtOpenProcessTokenExFunction NtOpenProcessTokenEx = NULL;
@@ -231,6 +233,28 @@ DWORD ProcessPolicy::CreateProcessWAction(EvalResult eval_result,
                               app_name.c_str(), cmd_line.get(), NULL, NULL,
                               FALSE, 0, NULL, NULL, &startup_info,
                               process_info)) {
+    return ERROR_ACCESS_DENIED;
+  }
+  return ERROR_SUCCESS;
+}
+
+DWORD ProcessPolicy::CreateThreadAction(
+    const ClientInfo& client_info,
+    const SIZE_T stack_size,
+    const LPTHREAD_START_ROUTINE start_address,
+    const LPVOID parameter,
+    const DWORD creation_flags,
+    LPDWORD thread_id,
+    HANDLE* handle) {
+  HANDLE local_handle =
+      ::CreateRemoteThread(client_info.process, nullptr, stack_size,
+                           start_address, parameter, creation_flags, thread_id);
+  if (!local_handle) {
+    return ::GetLastError();
+  }
+  if (!::DuplicateHandle(::GetCurrentProcess(), local_handle,
+                         client_info.process, handle, 0, FALSE,
+                         DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS)) {
     return ERROR_ACCESS_DENIED;
   }
   return ERROR_SUCCESS;

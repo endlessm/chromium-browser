@@ -11,6 +11,7 @@
       'adjustment_method.h',
       'assembly_program.cc',
       'assembly_program.h',
+      'consecutive_range_visitor.h',
       'courgette.h',
       'crc.cc',
       'crc.h',
@@ -35,8 +36,12 @@
       'ensemble_apply.cc',
       'ensemble_create.cc',
       'image_utils.h',
+      'label_manager.cc',
+      'label_manager.h',
       'memory_allocator.cc',
       'memory_allocator.h',
+      'program_detector.cc',
+      'program_detector.h',
       'region.h',
       'rel32_finder_win32_x86.cc',
       'rel32_finder_win32_x86.h',
@@ -102,6 +107,7 @@
         'bsdiff_memory_unittest.cc',
         'base_test_unittest.cc',
         'base_test_unittest.h',
+        'consecutive_range_visitor_unittest.cc',
         'difference_estimator_unittest.cc',
         'disassembler_elf_32_x86_unittest.cc',
         'disassembler_win32_x86_unittest.cc',
@@ -110,6 +116,7 @@
         'encode_decode_unittest.cc',
         'ensemble_unittest.cc',
         'image_utils_unittest.cc',
+        'label_manager_unittest.cc',
         'memory_allocator_unittest.cc',
         'rel32_finder_win32_x86_unittest.cc',
         'streams_unittest.cc',
@@ -125,17 +132,6 @@
         '../base/base.gyp:run_all_unittests',
         '../base/base.gyp:test_support_base',
         '../testing/gtest.gyp:gtest',
-      ],
-      'conditions': [
-        [ 'os_posix == 1 and OS != "mac" and OS != "android" and OS != "ios"', {
-          'conditions': [
-            ['use_allocator!="none"', {
-              'dependencies': [
-                '../base/allocator/allocator.gyp:allocator',
-              ],
-            }],
-          ],
-        }],
       ],
       # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
       'msvs_disabled_warnings': [4267, ],

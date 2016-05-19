@@ -28,6 +28,7 @@
 #ifndef ResourceRequest_h
 #define ResourceRequest_h
 
+#include "platform/HTTPNames.h"
 #include "platform/network/EncodedFormData.h"
 #include "platform/network/HTTPHeaderMap.h"
 #include "platform/network/HTTPParsers.h"
@@ -65,8 +66,8 @@ enum InputToLoadPerfMetricReportPolicy {
 
 struct CrossThreadResourceRequestData;
 
-class PLATFORM_EXPORT ResourceRequest {
-    USING_FAST_MALLOC(ResourceRequest);
+class PLATFORM_EXPORT ResourceRequest final {
+    DISALLOW_NEW();
 public:
     class ExtraData : public RefCounted<ExtraData> {
     public:
@@ -88,7 +89,7 @@ public:
         initialize(url);
     }
 
-    static PassOwnPtr<ResourceRequest> adopt(PassOwnPtr<CrossThreadResourceRequestData>);
+    explicit ResourceRequest(CrossThreadResourceRequestData*);
 
     // Gets a copy of the data suitable for passing to another thread.
     PassOwnPtr<CrossThreadResourceRequestData> copyData() const;
@@ -101,7 +102,7 @@ public:
 
     void removeCredentials();
 
-    ResourceRequestCachePolicy cachePolicy() const;
+    ResourceRequestCachePolicy getCachePolicy() const;
     void setCachePolicy(ResourceRequestCachePolicy cachePolicy);
 
     double timeoutInterval() const; // May return 0 when using platform default.
@@ -118,33 +119,34 @@ public:
 
     const HTTPHeaderMap& httpHeaderFields() const;
     const AtomicString& httpHeaderField(const AtomicString& name) const;
-    const AtomicString& httpHeaderField(const char* name) const;
     void setHTTPHeaderField(const AtomicString& name, const AtomicString& value);
-    void setHTTPHeaderField(const char* name, const AtomicString& value);
     void addHTTPHeaderField(const AtomicString& name, const AtomicString& value);
     void addHTTPHeaderFields(const HTTPHeaderMap& headerFields);
     void clearHTTPHeaderField(const AtomicString& name);
 
-    const AtomicString& httpContentType() const { return httpHeaderField("Content-Type");  }
-    void setHTTPContentType(const AtomicString& httpContentType) { setHTTPHeaderField("Content-Type", httpContentType); }
+    const AtomicString& httpContentType() const { return httpHeaderField(HTTPNames::Content_Type);  }
+    void setHTTPContentType(const AtomicString& httpContentType) { setHTTPHeaderField(HTTPNames::Content_Type, httpContentType); }
 
     bool didSetHTTPReferrer() const { return m_didSetHTTPReferrer; }
-    const AtomicString& httpReferrer() const { return httpHeaderField("Referer"); }
+    const AtomicString& httpReferrer() const { return httpHeaderField(HTTPNames::Referer); }
     ReferrerPolicy referrerPolicy() const { return m_referrerPolicy; }
     void setHTTPReferrer(const Referrer&);
     void clearHTTPReferrer();
 
-    const AtomicString& httpOrigin() const { return httpHeaderField("Origin"); }
-    void setHTTPOrigin(const AtomicString& httpOrigin) { setHTTPHeaderField("Origin", httpOrigin); }
+    const AtomicString& httpOrigin() const { return httpHeaderField(HTTPNames::Origin); }
+    const AtomicString& httpSuborigin() const { return httpHeaderField(HTTPNames::Suborigin); }
+    // Note that these will also set and clear, respectively, the
+    // Suborigin header, if appropriate.
+    void setHTTPOrigin(PassRefPtr<SecurityOrigin>);
     void clearHTTPOrigin();
-    void addHTTPOriginIfNeeded(const AtomicString& origin);
+    void addHTTPOriginIfNeeded(PassRefPtr<SecurityOrigin>);
 
-    const AtomicString& httpUserAgent() const { return httpHeaderField("User-Agent"); }
-    void setHTTPUserAgent(const AtomicString& httpUserAgent) { setHTTPHeaderField("User-Agent", httpUserAgent); }
+    const AtomicString& httpUserAgent() const { return httpHeaderField(HTTPNames::User_Agent); }
+    void setHTTPUserAgent(const AtomicString& httpUserAgent) { setHTTPHeaderField(HTTPNames::User_Agent, httpUserAgent); }
     void clearHTTPUserAgent();
 
-    const AtomicString& httpAccept() const { return httpHeaderField("Accept"); }
-    void setHTTPAccept(const AtomicString& httpAccept) { setHTTPHeaderField("Accept", httpAccept); }
+    const AtomicString& httpAccept() const { return httpHeaderField(HTTPNames::Accept); }
+    void setHTTPAccept(const AtomicString& httpAccept) { setHTTPHeaderField(HTTPNames::Accept, httpAccept); }
 
     EncodedFormData* httpBody() const;
     void setHTTPBody(PassRefPtr<EncodedFormData>);

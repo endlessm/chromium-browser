@@ -4,10 +4,13 @@
 
 #include "remoting/protocol/ssl_hmac_channel_authenticator.h"
 
+#include <utility>
+
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/test/test_timeouts.h"
 #include "base/timer/timer.h"
@@ -76,12 +79,12 @@ class SslHmacChannelAuthenticatorTest : public testing::Test {
     client_fake_socket_->PairWith(host_fake_socket_.get());
 
     client_auth_->SecureAndAuthenticate(
-        client_fake_socket_.Pass(),
+        std::move(client_fake_socket_),
         base::Bind(&SslHmacChannelAuthenticatorTest::OnClientConnected,
                    base::Unretained(this)));
 
     host_auth_->SecureAndAuthenticate(
-        host_fake_socket_.Pass(),
+        std::move(host_fake_socket_),
         base::Bind(&SslHmacChannelAuthenticatorTest::OnHostConnected,
                    base::Unretained(this), std::string("ref argument value")));
 
@@ -122,13 +125,13 @@ class SslHmacChannelAuthenticatorTest : public testing::Test {
     DCHECK_EQ(ref_argument, "ref argument value");
 
     host_callback_.OnDone(error, socket.get());
-    host_socket_ = socket.Pass();
+    host_socket_ = std::move(socket);
   }
 
   void OnClientConnected(int error, scoped_ptr<P2PStreamSocket> socket) {
     client_auth_.reset();
     client_callback_.OnDone(error, socket.get());
-    client_socket_ = socket.Pass();
+    client_socket_ = std::move(socket);
   }
 
   base::MessageLoop message_loop_;

@@ -11,6 +11,7 @@
 #include "SkJpegUtility.h"
 #include "SkColorPriv.h"
 #include "SkDither.h"
+#include "SkMSAN.h"
 #include "SkScaledBitmapSampler.h"
 #include "SkStream.h"
 #include "SkTemplates.h"
@@ -37,13 +38,8 @@ extern "C" {
 // If ANDROID_RGB is defined by in the jpeg headers it indicates that jpeg offers
 // support for two additional formats (1) JCS_RGBA_8888 and (2) JCS_RGB_565.
 
-#if defined(SK_DEBUG)
-#define DEFAULT_FOR_SUPPRESS_JPEG_IMAGE_DECODER_WARNINGS false
-#define DEFAULT_FOR_SUPPRESS_JPEG_IMAGE_DECODER_ERRORS false
-#else  // !defined(SK_DEBUG)
 #define DEFAULT_FOR_SUPPRESS_JPEG_IMAGE_DECODER_WARNINGS true
 #define DEFAULT_FOR_SUPPRESS_JPEG_IMAGE_DECODER_ERRORS true
-#endif  // defined(SK_DEBUG)
 SK_CONF_DECLARE(bool, c_suppressJPEGImageDecoderWarnings,
                 "images.jpeg.suppressDecoderWarnings",
                 DEFAULT_FOR_SUPPRESS_JPEG_IMAGE_DECODER_WARNINGS,
@@ -501,8 +497,8 @@ SkImageDecoder::Result SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* 
         return return_failure(cinfo, *bm, "sampler.begin");
     }
 
-    SkAutoMalloc srcStorage(cinfo.output_width * srcBytesPerPixel);
-    uint8_t* srcRow = (uint8_t*)srcStorage.get();
+    SkAutoTMalloc<uint8_t> srcStorage(cinfo.output_width * srcBytesPerPixel);
+    uint8_t* srcRow = srcStorage.get();
 
     //  Possibly skip initial rows [sampler.srcY0]
     if (!skip_src_rows(&cinfo, srcRow, sampler.srcY0())) {
@@ -513,6 +509,8 @@ SkImageDecoder::Result SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* 
     for (int y = 0;; y++) {
         JSAMPLE* rowptr = (JSAMPLE*)srcRow;
         int row_count = jpeg_read_scanlines(&cinfo, &rowptr, 1);
+        sk_msan_mark_initialized(srcRow, srcRow + cinfo.output_width * srcBytesPerPixel,
+                                 "skbug.com/4550");
         if (0 == row_count) {
             // if row_count == 0, then we didn't get a scanline,
             // so return early.  We will return a partial image.
@@ -528,6 +526,7 @@ SkImageDecoder::Result SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* 
         if (JCS_CMYK == cinfo.out_color_space) {
             convert_CMYK_to_RGB(srcRow, cinfo.output_width);
         }
+
 
         sampler.next(srcRow);
         if (bm->height() - 1 == y) {
@@ -936,7 +935,7 @@ protected:
         skjpeg_destination_mgr  sk_wstream(stream);
 
         // allocate these before set call setjmp
-        SkAutoMalloc    oneRow;
+        SkAutoTMalloc<uint8_t>  oneRow;
 
         cinfo.err = jpeg_std_error(&sk_err);
         sk_err.error_exit = skjpeg_error_exit;
@@ -963,6 +962,7 @@ protected:
         cinfo.input_gamma = 1;
 
         jpeg_set_defaults(&cinfo);
+        cinfo.optimize_coding = TRUE;
         jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
 #ifdef DCT_IFAST_SUPPORTED
         cinfo.dct_method = JDCT_IFAST;
@@ -971,7 +971,7 @@ protected:
         jpeg_start_compress(&cinfo, TRUE);
 
         const int       width = bm.width();
-        uint8_t*        oneRowP = (uint8_t*)oneRow.reset(width * 3);
+        uint8_t*        oneRowP = oneRow.reset(width * 3);
 
         const SkPMColor* colors = bm.getColorTable() ? bm.getColorTable()->readColors() : nullptr;
         const void*      srcRow = bm.getPixels();

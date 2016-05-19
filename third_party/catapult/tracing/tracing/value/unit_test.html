@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<!--
+Copyright 2015 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/value/time_display_mode.html">
+<link rel="import" href="/tracing/value/unit.html">
+
+<script>
+'use strict';
+
+tr.b.unittest.testSuite(function() {
+  var Unit = tr.v.Unit;
+  var ImprovementDirection = tr.v.ImprovementDirection;
+
+  test('Unit.display-mode-changed', function() {
+    var Unit = tr.v.Unit;
+    var TimeDisplayModes = tr.v.TimeDisplayModes;
+
+    var listenerWasCalled = false;
+    function listener(e) {
+      listenerWasCalled = true;
+    }
+
+    try {
+      Unit.currentTimeDisplayMode = TimeDisplayModes.ms;
+      Unit.addEventListener('display-mode-changed', listener);
+
+      listenerWasCalled = false;
+      Unit.currentTimeDisplayMode = TimeDisplayModes.ns;
+      assert.isTrue(listenerWasCalled);
+      assert.equal(Unit.currentTimeDisplayMode, TimeDisplayModes.ns);
+    } finally {
+      Unit.removeEventListener('display-mode-changed', listener);
+      Unit.reset();
+    }
+  });
+
+  function checkTimeUnit(unit) {
+    try {
+      // Use milliseconds to display time (default behavior).
+      Unit.currentTimeDisplayMode = tr.v.TimeDisplayModes.ms;
+
+      assert.strictEqual(unit.format(0), '0.000 ms');
+      assert.strictEqual(unit.format(0.02), '0.020 ms');
+      assert.strictEqual(unit.format(0.001), '0.001 ms');
+      assert.strictEqual(unit.format(0.0005), '0.001 ms');
+      assert.strictEqual(unit.format(0.00049), '0.000 ms');
+      assert.strictEqual(unit.format(999.999), '999.999 ms');
+      assert.strictEqual(unit.format(1000.001), '1,000.001 ms');
+      assert.strictEqual(unit.format(123456789), '123,456,789.000 ms');
+      assert.strictEqual(unit.format(-0.00051), '-0.001 ms');
+      assert.strictEqual(unit.format(-123456789), '-123,456,789.000 ms');
+
+      // Change the unit to nanoseconds.
+      Unit.currentTimeDisplayMode = tr.v.TimeDisplayModes.ns;
+
+      assert.strictEqual(unit.format(0), '0 ns');
+      assert.strictEqual(unit.format(1), '1,000,000 ns');
+      assert.strictEqual(unit.format(0.000042), '42 ns');
+      assert.strictEqual(unit.format(0.000001), '1 ns');
+      assert.strictEqual(unit.format(0.0000005), '1 ns');
+      assert.strictEqual(unit.format(0.00000049), '0 ns');
+      assert.strictEqual(unit.format(123.456), '123,456,000 ns');
+      assert.strictEqual(unit.format(-0.07), '-70,000 ns');
+    } finally {
+      Unit.reset();
+    }
+  }
+
+  test('timeStampInMs', function() {
+    checkTimeUnit(tr.v.Unit.byName.timeStampInMs);
+  });
+
+  test('timeDurationInMs', function() {
+    checkTimeUnit(tr.v.Unit.byName.timeDurationInMs);
+  });
+
+  test('sizeInBytes', function() {
+    var SOURCE_VALUES = [0, 1, 1536, 424.5 * 1024 * 1024,
+        1025 * 1024 * 1024 * 1024 * 1024, -2.5 * 1024 * 1024];
+    var EXPECTED_REGULAR_FORMATTED_VALUES = ['0.0 B', '1.0 B', '1.5 KiB',
+        '424.5 MiB', '1025.0 TiB', '-2.5 MiB'];
+    var EXPECTED_DELTA_FORMATTED_VALUES = ['\u00B10.0 B', '+1.0 B', '+1.5 KiB',
+        '+424.5 MiB', '+1025.0 TiB', '-2.5 MiB'];
+
+    function checkSizeUnit(unit, expectedAsJSON, expectedIsDelta,
+        expectedImprovementDirection, expectedFormattedValues) {
+      assert.strictEqual(unit.asJSON(), expectedAsJSON);
+      assert.strictEqual(unit.isDelta, expectedIsDelta);
+      assert.strictEqual(unit.improvementDirection,
+          expectedImprovementDirection);
+      assert.deepEqual(SOURCE_VALUES.map(unit.format.bind(unit)),
+          expectedFormattedValues);
+    }
+
+    // Regular (non-delta).
+    checkSizeUnit(Unit.byName.sizeInBytes, 'sizeInBytes',
+        false /* expectedIsDelta */, ImprovementDirection.DONT_CARE,
+        EXPECTED_REGULAR_FORMATTED_VALUES);
+    checkSizeUnit(Unit.byName.sizeInBytes_smallerIsBetter,
+        'sizeInBytes_smallerIsBetter', false /* expectedIsDelta */,
+        ImprovementDirection.SMALLER_IS_BETTER,
+        EXPECTED_REGULAR_FORMATTED_VALUES);
+    checkSizeUnit(Unit.byName.sizeInBytes_biggerIsBetter,
+        'sizeInBytes_biggerIsBetter', false /* expectedIsDelta */,
+        ImprovementDirection.BIGGER_IS_BETTER,
+        EXPECTED_REGULAR_FORMATTED_VALUES);
+
+    // Delta.
+    checkSizeUnit(Unit.byName.sizeInBytesDelta, 'sizeInBytesDelta',
+        true /* expectedIsDelta */, ImprovementDirection.DONT_CARE,
+        EXPECTED_DELTA_FORMATTED_VALUES);
+    checkSizeUnit(Unit.byName.sizeInBytesDelta_smallerIsBetter,
+        'sizeInBytesDelta_smallerIsBetter', true /* expectedIsDelta */,
+        ImprovementDirection.SMALLER_IS_BETTER,
+        EXPECTED_DELTA_FORMATTED_VALUES);
+    checkSizeUnit(Unit.byName.sizeInBytesDelta_biggerIsBetter,
+        'sizeInBytesDelta_biggerIsBetter', true /* expectedIsDelta */,
+        ImprovementDirection.BIGGER_IS_BETTER, EXPECTED_DELTA_FORMATTED_VALUES);
+  });
+
+  test('energyInJoules', function() {
+    assert.equal(Unit.byName.energyInJoules.format(1000), '1,000.000 J');
+    assert.equal(Unit.byName.energyInJoules.format(1), '1.000 J');
+    assert.equal(Unit.byName.energyInJoules.format(.005), '0.005 J');
+    assert.equal(Unit.byName.energyInJoules.format(.0005), '0.001 J');
+    assert.equal(Unit.byName.energyInJoules.format(.0004), '0.000 J');
+  });
+
+  test('powerInWatts', function() {
+    assert.equal(Unit.byName.powerInWatts.format(1000), '1,000,000.000 mW');
+    assert.equal(Unit.byName.powerInWatts.format(1), '1,000.000 mW');
+    assert.equal(Unit.byName.powerInWatts.format(.001), '1.000 mW');
+    assert.equal(Unit.byName.powerInWatts.format(.001005), '1.005 mW');
+    assert.equal(Unit.byName.powerInWatts.format(.0010005), '1.001 mW');
+    assert.equal(Unit.byName.powerInWatts.format(.0010004), '1.000 mW');
+  });
+});
+</script>

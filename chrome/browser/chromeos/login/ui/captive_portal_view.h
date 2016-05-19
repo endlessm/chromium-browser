@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_CHROMEOS_LOGIN_UI_CAPTIVE_PORTAL_VIEW_H_
 
 #include <string>
+#include "base/macros.h"
 #include "chrome/browser/chromeos/login/ui/simple_web_view_dialog.h"
 
 namespace chromeos {
@@ -25,8 +26,6 @@ class CaptivePortalView : public SimpleWebViewDialog {
   ui::ModalType GetModalType() const override;
   base::string16 GetWindowTitle() const override;
   bool ShouldShowWindowTitle() const override;
-  views::NonClientFrameView* CreateNonClientFrameView(
-      views::Widget* widget) override;
 
   // Overridden from content::WebContentsDelegate:
   void NavigationStateChanged(content::WebContents* source,

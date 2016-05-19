@@ -4,6 +4,9 @@
 
 #include "sandbox/win/src/sandbox_nt_util.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
 #include "base/win/pe_image.h"
@@ -134,8 +137,7 @@ bool MapGlobalMemory() {
     if (NULL != _InterlockedCompareExchangePointer(&g_shared_IPC_memory,
                                                    memory, NULL)) {
         // Somebody beat us to the memory setup.
-        ret = g_nt.UnmapViewOfSection(NtCurrentProcess, memory);
-        VERIFY_SUCCESS(ret);
+        VERIFY_SUCCESS(g_nt.UnmapViewOfSection(NtCurrentProcess, memory));
     }
     DCHECK_NT(g_shared_IPC_size > 0);
     g_shared_policy_memory = reinterpret_cast<char*>(g_shared_IPC_memory)
@@ -290,7 +292,8 @@ NTSTATUS AllocAndGetFullPath(HANDLE root,
 
 // Hacky code... replace with AllocAndCopyObjectAttributes.
 NTSTATUS AllocAndCopyName(const OBJECT_ATTRIBUTES* in_object,
-                          wchar_t** out_name, uint32* attributes,
+                          wchar_t** out_name,
+                          uint32_t* attributes,
                           HANDLE* root) {
   if (!InitHeap())
     return STATUS_NO_MEMORY;
@@ -433,7 +436,7 @@ UNICODE_STRING* AnsiToUnicode(const char* string) {
   return out_string;
 }
 
-UNICODE_STRING* GetImageInfoFromModule(HMODULE module, uint32* flags) {
+UNICODE_STRING* GetImageInfoFromModule(HMODULE module, uint32_t* flags) {
   // PEImage's dtor won't be run during SEH unwinding, but that's OK.
 #pragma warning(push)
 #pragma warning(disable: 4509)
@@ -529,7 +532,7 @@ UNICODE_STRING* ExtractModuleName(const UNICODE_STRING* module_path) {
 
   // Based on the code above, size_bytes should always be small enough
   // to make the static_cast below safe.
-  DCHECK_NT(kuint16max > size_bytes);
+  DCHECK_NT(UINT16_MAX > size_bytes);
   char* str_buffer = new(NT_ALLOC) char[size_bytes + sizeof(UNICODE_STRING)];
   if (!str_buffer)
     return NULL;
@@ -585,8 +588,9 @@ NTSTATUS AutoProtectMemory::RevertProtection() {
   return ret;
 }
 
-bool IsSupportedRenameCall(FILE_RENAME_INFORMATION* file_info, DWORD length,
-                           uint32 file_info_class) {
+bool IsSupportedRenameCall(FILE_RENAME_INFORMATION* file_info,
+                           DWORD length,
+                           uint32_t file_info_class) {
   if (FileRenameInformation != file_info_class)
     return false;
 
@@ -606,7 +610,7 @@ bool IsSupportedRenameCall(FILE_RENAME_INFORMATION* file_info, DWORD length,
 
   // Check if it starts with \\??\\. We don't support relative paths.
   if (file_info->FileNameLength < sizeof(kPathPrefix) ||
-      file_info->FileNameLength > kuint16max)
+      file_info->FileNameLength > UINT16_MAX)
     return false;
 
   if (file_info->FileName[0] != kPathPrefix[0] ||

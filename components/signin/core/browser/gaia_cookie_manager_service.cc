@@ -4,6 +4,8 @@
 
 #include "components/signin/core/browser/gaia_cookie_manager_service.h"
 
+#include <stddef.h>
+
 #include <queue>
 #include <vector>
 
@@ -448,6 +450,7 @@ void GaiaCookieManagerService::OnCookieChanged(
     bool removed) {
   DCHECK_EQ(kGaiaCookieName, cookie.Name());
   DCHECK_EQ(GaiaUrls::GetInstance()->google_url().host(), cookie.Domain());
+  list_accounts_stale_ = true;
   // Ignore changes to the cookie while requests are pending.  These changes
   // are caused by the service itself as it adds accounts.  A side effects is
   // that any changes to the gaia cookie outside of this class, while requests
@@ -459,8 +462,6 @@ void GaiaCookieManagerService::OnCookieChanged(
     signin_client_->DelayNetworkCall(
         base::Bind(&GaiaCookieManagerService::StartFetchingListAccounts,
                    base::Unretained(this)));
-  } else {
-    list_accounts_stale_ = true;
   }
 }
 

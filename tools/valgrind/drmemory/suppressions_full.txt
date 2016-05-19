@@ -1819,11 +1819,6 @@ name=bug_436131_c
 *!ash::test::ShelfViewTest_OverflowBubbleSize_Test::TestBody
 *!testing::internal::HandleExceptionsInMethodIfSupported<>
 
-UNADDRESSABLE ACCESS
-name=bug_442969
-*!testing::internal::CmpHelperNE<>
-*!extensions::WebrtcAudioPrivateTest_GetAndSetWithMediaStream_Test::RunTestOnMainThread
-
 UNINITIALIZED READ
 name=bug_455417
 *!std::char_traits<>::compare
@@ -1902,7 +1897,6 @@ KERNEL32.dll!WriteFile
 *!base::File::WriteAtCurrentPos
 *!sessions::SessionBackend::AppendCommandsToFile
 *!sessions::SessionBackend::AppendCommands
-*!base::internal::RunnableAdapter<>::Run
 
 UNADDRESSABLE ACCESS
 name=bug_505734
@@ -2001,7 +1995,7 @@ MSVCR120.dll!vsnwprintf_s_l
 MSVCR120.dll!vsnwprintf_s
 *!base::`anonymous namespace'::StringAppendVT<>
 *!base::StringPrintf
-*!content::AccessibilityTreeFormatter::ToString
+*!content::AccessibilityTreeFormatterWin::ToString
 *!content::AccessibilityTreeFormatter::RecursiveFormatAccessibilityTree
 
 UNADDRESSABLE ACCESS
@@ -2047,19 +2041,79 @@ content.dll!content::RenderThreadImpl::AllocateSharedMemory
 content.dll!content::WebGraphicsContext3DCommandBufferImpl::CreateContext
 content.dll!content::WebGraphicsContext3DCommandBufferImpl::MaybeInitializeGL
 
+# Dr. Memory does not yet propagate uninits through ymm registers so we
+# avoid any false positives in the meantime that might show up in
+# libyuv and other code:
+UNINITIALIZED READ
+name=https://github.com/DynamoRIO/drmemory/issues/1485
+instruction=*ymm*
+media.dll!*
+
+HANDLE LEAK
+name=bug_562701
+system call NtCreateSection
+KERNELBASE.dll!CreateFileMappingW
+base.dll!base::SharedMemory::Create
+content.dll!content::ChildThreadImpl::AllocateSharedMemory
+content.dll!content::RenderThreadImpl::HostAllocateSharedMemoryBuffer
+content.dll!content::ImageDataPlatformBackend::Init
+content.dll!content::PPB_ImageData_Impl::Init
+content.dll!content::PPB_ImageData_Impl::Create
+content.dll!content::ResourceCreationImpl::CreateImageData
+ppapi_proxy.dll!ppapi::proxy::PPB_ImageData_Proxy::CreateImageData
+ppapi_proxy.dll!ppapi::proxy::PPB_ImageData_Proxy::OnHostMsgCreatePlatform
+
+INVALID HEAP ARGUMENT
+name=bug_571551_a
+...
+media.dll!mkvmuxer::Segment::DoNewClusterProcessing
+media.dll!mkvmuxer::Segment::AddGenericFrame
+media.dll!mkvmuxer::Segment::AddFrame
+media.dll!media::WebmMuxer::AddFrame
+media.dll!media::WebmMuxer::OnEncodedVideo
+content.dll!content::MediaRecorderHandler::OnEncodedVideo
+
 UNADDRESSABLE ACCESS
-name=https://github.com/DynamoRIO/drmemory/issues/1817
-system call NtUserBuildPropList parameter #1
+name=bug_571551_b
+...
+media.dll!mkvmuxer::Segment::DoNewClusterProcessing
+media.dll!mkvmuxer::Segment::AddGenericFrame
+media.dll!mkvmuxer::Segment::AddFrame
+media.dll!media::WebmMuxer::AddFrame
+media.dll!media::WebmMuxer::OnEncodedVideo
+content.dll!content::MediaRecorderHandler::OnEncodedVideo
 
-UNINITIALIZED READ
-name=https://github.com/DynamoRIO/drmemory/issues/1816
-USER32.dll!DdeEnableCallback
-USER32.dll!EnumPropsExW
-SHELL32.dll!SHGetIconOverlayIndexA
+HANDLE LEAK
+name=bug_571553
+system call NtUserWindowFromPoint
+content.dll!content::RenderWidgetHostViewAura::UpdateCursorIfOverSelf
+content.dll!content::RenderWidgetHostViewAura::SetIsLoading
+content.dll!content::RenderWidgetHostImpl::SetIsLoading
+content.dll!content::RenderFrameHostManager::SetIsLoading
+content.dll!content::WebContentsImpl::SetIsLoading
 
-# This is the same as the above uninitialized read when the symbols get fixed.
-UNINITIALIZED READ
-name=https://github.com/DynamoRIO/drmemory/issues/1815
-USER32.dll!InternalEnumProps
-USER32.dll!EnumPropsExW
-SHELL32.dll!CWindowPropStore::GetCount
+HANDLE LEAK
+name=bug_571554_a
+system call NtGdiCreateDIBSection
+GDI32.dll!CreateDIBSection
+skia.dll!`anonymous namespace'::CreateHBitmap
+skia.dll!skia::BitmapPlatformDevice::Create
+skia.dll!skia::CreatePlatformCanvas
+surface.dll!TransportDIB::GetPlatformCanvas
+content.dll!content::ImageDataPlatformBackend::Map
+content.dll!content::PepperGraphics2DHost::Init
+content.dll!content::PepperGraphics2DHost::Create
+content.dll!content::ContentRendererPepperHostFactory::CreateResourceHost
+
+HANDLE LEAK
+name=bug_571554_b
+system call NtCreateSection
+KERNELBASE.dll!CreateFileMappingW
+base.dll!base::SharedMemory::Create
+content.dll!content::ChildThreadImpl::AllocateSharedMemory
+content.dll!content::RenderThreadImpl::HostAllocateSharedMemoryBuffer
+content.dll!content::ImageDataPlatformBackend::Init
+content.dll!content::PPB_ImageData_Impl::Init
+content.dll!content::PepperGraphics2DHost::Init
+content.dll!content::PepperGraphics2DHost::Create
+content.dll!content::ContentRendererPepperHostFactory::CreateResourceHost

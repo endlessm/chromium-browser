@@ -31,11 +31,11 @@ const char kOrientationVertical[] = "vertical";
 }
 
 DisplayOverscanHandler::DisplayOverscanHandler() {
-  ash::Shell::GetScreen()->AddObserver(this);
+  gfx::Screen::GetScreen()->AddObserver(this);
 }
 
 DisplayOverscanHandler::~DisplayOverscanHandler() {
-  ash::Shell::GetScreen()->RemoveObserver(this);
+  gfx::Screen::GetScreen()->RemoveObserver(this);
 }
 
 void DisplayOverscanHandler::GetLocalizedValues(
@@ -102,7 +102,7 @@ void DisplayOverscanHandler::OnDisplayMetricsChanged(const gfx::Display&,
 }
 
 void DisplayOverscanHandler::HandleStart(const base::ListValue* args) {
-  int64 display_id = gfx::Display::kInvalidDisplayID;
+  int64_t display_id = gfx::Display::kInvalidDisplayID;
   std::string id_value;
   if (!args->GetString(0, &id_value)) {
     LOG(ERROR) << "Can't find ID";

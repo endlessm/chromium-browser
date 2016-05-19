@@ -4,6 +4,8 @@
 
 #include "components/mus/public/cpp/context_provider.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "mojo/gles2/gles2_context.h"
 #include "mojo/gpu/mojo_gles2_impl_autogen.h"
@@ -13,7 +15,8 @@ namespace mus {
 
 ContextProvider::ContextProvider(
     mojo::ScopedMessagePipeHandle command_buffer_handle)
-    : command_buffer_handle_(command_buffer_handle.Pass()), context_(nullptr) {
+    : command_buffer_handle_(std::move(command_buffer_handle)),
+      context_(nullptr) {
   // Enabled the CHROMIUM_image extension to use GpuMemoryBuffers. The
   // implementation of which is used in CommandBufferDriver.
   capabilities_.gpu.image = true;

@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/LayoutGeometryMap.h"
 
 #include "core/frame/LocalFrame.h"
@@ -31,6 +30,14 @@
 #include "core/paint/PaintLayer.h"
 #include "platform/geometry/TransformState.h"
 #include "wtf/TemporaryChange.h"
+
+#define LAYOUT_GEOMETRY_MAP_LOGGING 0
+
+#if LAYOUT_GEOMETRY_MAP_LOGGING
+#define LAYOUT_GEOMETRY_MAP_LOG(...) WTFLogAlways(__VA_ARGS__)
+#else
+#define LAYOUT_GEOMETRY_MAP_LOG(...) ((void)0)
+#endif
 
 namespace blink {
 
@@ -47,27 +54,27 @@ LayoutGeometryMap::~LayoutGeometryMap()
 {
 }
 
-void LayoutGeometryMap::mapToContainer(TransformState& transformState, const LayoutBoxModelObject* container) const
+void LayoutGeometryMap::mapToAncestor(TransformState& transformState, const LayoutBoxModelObject* ancestor) const
 {
     // If the mapping includes something like columns, we have to go via layoutObjects.
     if (hasNonUniformStep()) {
-        m_mapping.last().m_layoutObject->mapLocalToContainer(container, transformState, ApplyContainerFlip | m_mapCoordinatesFlags);
+        m_mapping.last().m_layoutObject->mapLocalToAncestor(ancestor, transformState, ApplyContainerFlip | m_mapCoordinatesFlags);
         transformState.flatten();
         return;
     }
 
     bool inFixed = false;
 #if ENABLE(ASSERT)
-    bool foundContainer = !container || (m_mapping.size() && m_mapping[0].m_layoutObject == container);
+    bool foundAncestor = !ancestor || (m_mapping.size() && m_mapping[0].m_layoutObject == ancestor);
 #endif
 
     for (int i = m_mapping.size() - 1; i >= 0; --i) {
         const LayoutGeometryMapStep& currentStep = m_mapping[i];
 
         // If container is the root LayoutView (step 0) we want to apply its fixed position offset.
-        if (i > 0 && currentStep.m_layoutObject == container) {
+        if (i > 0 && currentStep.m_layoutObject == ancestor) {
 #if ENABLE(ASSERT)
-            foundContainer = true;
+            foundAncestor = true;
 #endif
             break;
         }
@@ -75,19 +82,19 @@ void LayoutGeometryMap::mapToContainer(TransformState& transformState, const Lay
         // If this box has a transform, it acts as a fixed position container
         // for fixed descendants, which prevents the propagation of 'fixed'
         // unless the layer itself is also fixed position.
-        if (i && currentStep.m_hasTransform && !currentStep.m_isFixedPosition)
+        if (i && currentStep.m_flags & HasTransform && !(currentStep.m_flags & IsFixedPosition))
             inFixed = false;
-        else if (currentStep.m_isFixedPosition)
+        else if (currentStep.m_flags & IsFixedPosition)
             inFixed = true;
 
         ASSERT(!i == isTopmostLayoutView(currentStep.m_layoutObject));
 
         if (!i) {
             // A null container indicates mapping through the root LayoutView, so including its transform (the page scale).
-            if (!container && currentStep.m_transform)
+            if (!ancestor && currentStep.m_transform)
                 transformState.applyTransform(*currentStep.m_transform.get());
         } else {
-            TransformState::TransformAccumulation accumulate = currentStep.m_accumulatingTransform ? TransformState::AccumulateTransform : TransformState::FlattenTransform;
+            TransformState::TransformAccumulation accumulate = currentStep.m_flags & AccumulatingTransform ? TransformState::AccumulateTransform : TransformState::FlattenTransform;
             if (currentStep.m_transform)
                 transformState.applyTransform(*currentStep.m_transform.get(), accumulate);
             else
@@ -100,7 +107,7 @@ void LayoutGeometryMap::mapToContainer(TransformState& transformState, const Lay
         }
     }
 
-    ASSERT(foundContainer);
+    ASSERT(foundAncestor);
     transformState.flatten();
 }
 
@@ -114,43 +121,37 @@ void LayoutGeometryMap::dumpSteps() const
             m_mapping[i].m_layoutObject->debugName().ascii().data(),
             m_mapping[i].m_offset.width().toInt(),
             m_mapping[i].m_offset.height().toInt());
-        if (m_mapping[i].m_hasTransform)
+        if (m_mapping[i].m_flags & HasTransform)
             fprintf(stderr, " hasTransform");
         fprintf(stderr, "\n");
     }
 }
 #endif
 
-FloatQuad LayoutGeometryMap::mapToContainer(const FloatRect& rect, const LayoutBoxModelObject* container) const
+FloatQuad LayoutGeometryMap::mapToAncestor(const FloatRect& rect, const LayoutBoxModelObject* ancestor) const
 {
     FloatQuad result;
 
-    if (!hasFixedPositionStep() && !hasTransformStep() && !hasNonUniformStep() && (!container || (m_mapping.size() && container == m_mapping[0].m_layoutObject))) {
+    if (!hasFixedPositionStep() && !hasTransformStep() && !hasNonUniformStep() && (!ancestor || (m_mapping.size() && ancestor == m_mapping[0].m_layoutObject))) {
         result = rect;
         result.move(m_accumulatedOffset);
     } else {
         TransformState transformState(TransformState::ApplyTransformDirection, rect.center(), rect);
-        mapToContainer(transformState, container);
+        mapToAncestor(transformState, ancestor);
         result = transformState.lastPlanarQuad();
     }
 
 #if ENABLE(ASSERT)
     if (m_mapping.size() > 0) {
         const LayoutObject* lastLayoutObject = m_mapping.last().m_layoutObject;
-        const PaintLayer* layer = lastLayoutObject->enclosingLayer();
 
-        // Bounds for invisible layers are intentionally not calculated, and are
-        // therefore not necessarily expected to be correct here. This is ok,
-        // because they will be recomputed if the layer becomes visible.
-        if (!layer->subtreeIsInvisible() && lastLayoutObject->style()->visibility() == VISIBLE) {
-            FloatRect layoutObjectMappedResult = lastLayoutObject->localToContainerQuad(rect, container, m_mapCoordinatesFlags).boundingBox();
+        FloatRect layoutObjectMappedResult = lastLayoutObject->localToAncestorQuad(rect, ancestor, m_mapCoordinatesFlags).boundingBox();
 
-            // Inspector creates layoutObjects with negative width <https://bugs.webkit.org/show_bug.cgi?id=87194>.
-            // Taking FloatQuad bounds avoids spurious assertions because of that.
-            ASSERT(enclosingIntRect(layoutObjectMappedResult) == enclosingIntRect(result.boundingBox())
-                || layoutObjectMappedResult.mayNotHaveExactIntRectRepresentation()
-                || result.boundingBox().mayNotHaveExactIntRectRepresentation());
-        }
+        // Inspector creates layoutObjects with negative width <https://bugs.webkit.org/show_bug.cgi?id=87194>.
+        // Taking FloatQuad bounds avoids spurious assertions because of that.
+        ASSERT(enclosingIntRect(layoutObjectMappedResult) == enclosingIntRect(result.boundingBox())
+            || layoutObjectMappedResult.mayNotHaveExactIntRectRepresentation()
+            || result.boundingBox().mayNotHaveExactIntRectRepresentation());
     }
 #endif
 
@@ -196,7 +197,7 @@ void LayoutGeometryMap::pushMappingsToAncestor(const PaintLayer* layer, const Pa
     // from mapping via layers.
     bool canConvertInLayerTree = (ancestorLayer && !crossDocument) ? canMapBetweenLayoutObjects(layer->layoutObject(), ancestorLayer->layoutObject()) : false;
 
-//    fprintf(stderr, "LayoutGeometryMap::pushMappingsToAncestor from layer %p to layer %p, canConvertInLayerTree=%d\n", layer, ancestorLayer, canConvertInLayerTree);
+    LAYOUT_GEOMETRY_MAP_LOG("LayoutGeometryMap::pushMappingsToAncestor from layer %p to layer %p, canConvertInLayerTree=%d\n", layer, ancestorLayer, canConvertInLayerTree);
 
     if (canConvertInLayerTree) {
         LayoutPoint layerOffset;
@@ -210,22 +211,22 @@ void LayoutGeometryMap::pushMappingsToAncestor(const PaintLayer* layer, const Pa
 
         TemporaryChange<size_t> positionChange(m_insertionPosition, m_mapping.size());
         bool accumulatingTransform = layer->layoutObject()->style()->preserves3D() || ancestorLayer->layoutObject()->style()->preserves3D();
-        push(layoutObject, toLayoutSize(layerOffset), accumulatingTransform, /*isNonUniform*/ false, /*isFixedPosition*/ false, /*hasTransform*/ false);
+        push(layoutObject, toLayoutSize(layerOffset), accumulatingTransform ? AccumulatingTransform : 0);
         return;
     }
     const LayoutBoxModelObject* ancestorLayoutObject = ancestorLayer ? ancestorLayer->layoutObject() : 0;
     pushMappingsToAncestor(layoutObject, ancestorLayoutObject);
 }
 
-void LayoutGeometryMap::push(const LayoutObject* layoutObject, const LayoutSize& offsetFromContainer, bool accumulatingTransform, bool isNonUniform, bool isFixedPosition, bool hasTransform, LayoutSize offsetForFixedPosition)
+void LayoutGeometryMap::push(const LayoutObject* layoutObject, const LayoutSize& offsetFromContainer, GeometryInfoFlags flags, LayoutSize offsetForFixedPosition)
 {
-//    fprintf(stderr, "LayoutGeometryMap::push %p %d,%d isNonUniform=%d\n", layoutObject, offsetFromContainer.width().toInt(), offsetFromContainer.height().toInt(), isNonUniform);
+    LAYOUT_GEOMETRY_MAP_LOG("LayoutGeometryMap::push %p %d,%d isNonUniform=%d\n", layoutObject, offsetFromContainer.width().toInt(), offsetFromContainer.height().toInt(), isNonUniform);
 
     ASSERT(m_insertionPosition != kNotFound);
     ASSERT(!layoutObject->isLayoutView() || !m_insertionPosition || m_mapCoordinatesFlags & TraverseDocumentBoundaries);
     ASSERT(offsetForFixedPosition.isZero() || layoutObject->isLayoutView());
 
-    m_mapping.insert(m_insertionPosition, LayoutGeometryMapStep(layoutObject, accumulatingTransform, isNonUniform, isFixedPosition, hasTransform));
+    m_mapping.insert(m_insertionPosition, LayoutGeometryMapStep(layoutObject, flags));
 
     LayoutGeometryMapStep& step = m_mapping[m_insertionPosition];
     step.m_offset = offsetFromContainer;
@@ -234,21 +235,21 @@ void LayoutGeometryMap::push(const LayoutObject* layoutObject, const LayoutSize&
     stepInserted(step);
 }
 
-void LayoutGeometryMap::push(const LayoutObject* layoutObject, const TransformationMatrix& t, bool accumulatingTransform, bool isNonUniform, bool isFixedPosition, bool hasTransform, LayoutSize offsetForFixedPosition)
+void LayoutGeometryMap::push(const LayoutObject* layoutObject, const TransformationMatrix& t, GeometryInfoFlags flags, LayoutSize offsetForFixedPosition)
 {
     ASSERT(m_insertionPosition != kNotFound);
     ASSERT(!layoutObject->isLayoutView() || !m_insertionPosition || m_mapCoordinatesFlags & TraverseDocumentBoundaries);
     ASSERT(offsetForFixedPosition.isZero() || layoutObject->isLayoutView());
 
-    m_mapping.insert(m_insertionPosition, LayoutGeometryMapStep(layoutObject, accumulatingTransform, isNonUniform, isFixedPosition, hasTransform));
+    m_mapping.insert(m_insertionPosition, LayoutGeometryMapStep(layoutObject, flags));
 
     LayoutGeometryMapStep& step = m_mapping[m_insertionPosition];
     step.m_offsetForFixedPosition = offsetForFixedPosition;
 
     if (!t.isIntegerTranslation())
-        step.m_transform = adoptPtr(new TransformationMatrix(t));
+        step.m_transform = TransformationMatrix::create(t);
     else
-        step.m_offset = LayoutSize(t.e(), t.f());
+        step.m_offset = LayoutSize(LayoutUnit(t.e()), LayoutUnit(t.f()));
 
     stepInserted(step);
 }
@@ -273,13 +274,13 @@ void LayoutGeometryMap::stepInserted(const LayoutGeometryMapStep& step)
 {
     m_accumulatedOffset += step.m_offset;
 
-    if (step.m_isNonUniform)
+    if (step.m_flags & IsNonUniform)
         ++m_nonUniformStepsCount;
 
     if (step.m_transform)
         ++m_transformedStepsCount;
 
-    if (step.m_isFixedPosition)
+    if (step.m_flags & IsFixedPosition)
         ++m_fixedStepsCount;
 }
 
@@ -287,7 +288,7 @@ void LayoutGeometryMap::stepRemoved(const LayoutGeometryMapStep& step)
 {
     m_accumulatedOffset -= step.m_offset;
 
-    if (step.m_isNonUniform) {
+    if (step.m_flags & IsNonUniform) {
         ASSERT(m_nonUniformStepsCount);
         --m_nonUniformStepsCount;
     }
@@ -297,7 +298,7 @@ void LayoutGeometryMap::stepRemoved(const LayoutGeometryMapStep& step)
         --m_transformedStepsCount;
     }
 
-    if (step.m_isFixedPosition) {
+    if (step.m_flags & IsFixedPosition) {
         ASSERT(m_fixedStepsCount);
         --m_fixedStepsCount;
     }

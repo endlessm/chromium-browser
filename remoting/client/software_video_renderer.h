@@ -5,12 +5,15 @@
 #ifndef REMOTING_CLIENT_SOFTWARE_VIDEO_RENDERER_H_
 #define REMOTING_CLIENT_SOFTWARE_VIDEO_RENDERER_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "remoting/client/video_renderer.h"
 #include "remoting/protocol/performance_tracker.h"
+#include "remoting/protocol/video_renderer.h"
 #include "remoting/protocol/video_stub.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 
@@ -24,16 +27,16 @@ class DesktopFrame;
 
 namespace remoting {
 
-class FrameConsumer;
 class VideoDecoder;
 
 namespace protocol {
+class FrameConsumer;
 class PerformanceTracker;
 }  // namespace protocol
 
 // Implementation of VideoRenderer interface that decodes frame on CPU (on a
 // decode thread) and then passes decoded frames to a FrameConsumer.
-class SoftwareVideoRenderer : public VideoRenderer,
+class SoftwareVideoRenderer : public protocol::VideoRenderer,
                               public protocol::VideoStub {
  public:
   // All methods must be called on the same thread the renderer is created. The
@@ -42,13 +45,14 @@ class SoftwareVideoRenderer : public VideoRenderer,
   // tracking is disabled in that case.
   SoftwareVideoRenderer(
       scoped_refptr<base::SingleThreadTaskRunner> decode_task_runner,
-      FrameConsumer* consumer,
+      protocol::FrameConsumer* consumer,
       protocol::PerformanceTracker* perf_tracker);
   ~SoftwareVideoRenderer() override;
 
   // VideoRenderer interface.
   void OnSessionConfig(const protocol::SessionConfig& config) override;
   protocol::VideoStub* GetVideoStub() override;
+  protocol::FrameConsumer* GetFrameConsumer() override;
 
   // protocol::VideoStub interface.
   void ProcessVideoPacket(scoped_ptr<VideoPacket> packet,
@@ -61,7 +65,7 @@ class SoftwareVideoRenderer : public VideoRenderer,
   void OnFrameRendered(int32_t frame_id, const base::Closure& done);
 
   scoped_refptr<base::SingleThreadTaskRunner> decode_task_runner_;
-  FrameConsumer* consumer_;
+  protocol::FrameConsumer* consumer_;
   protocol::PerformanceTracker* perf_tracker_;
 
   scoped_ptr<VideoDecoder> decoder_;

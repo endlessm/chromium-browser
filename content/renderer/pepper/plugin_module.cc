@@ -4,7 +4,11 @@
 
 #include "content/renderer/pepper/plugin_module.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 #include <set>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -371,9 +375,11 @@ void SetMinimumArrayBufferSizeForShmem(PP_Instance /*instance*/,
   // Does nothing. Not needed in-process.
 }
 
-void RunV8GC(PP_Instance instance) {
-  content::PepperPluginInstance::Get(instance)->GetIsolate()->
-      RequestGarbageCollectionForTesting(v8::Isolate::kFullGarbageCollection);
+void RunV8GC(PP_Instance pp_instance) {
+  PepperPluginInstanceImpl* instance =
+      content::PepperPluginInstanceImpl::GetForTesting(pp_instance);
+  instance->GetIsolate()->RequestGarbageCollectionForTesting(
+      v8::Isolate::kFullGarbageCollection);
 }
 
 const PPB_Testing_Private testing_interface = {
@@ -393,12 +399,6 @@ const PPB_Testing_Private testing_interface = {
 // GetInterface ----------------------------------------------------------------
 
 const void* InternalGetInterface(const char* name) {
-  // Allow custom interface factories first stab at the GetInterface call.
-  const void* custom_interface =
-      GetContentClient()->renderer()->CreatePPAPIInterface(name);
-  if (custom_interface)
-    return custom_interface;
-
 // TODO(brettw) put these in a hash map for better performance.
 #define PROXIED_IFACE(iface_str, iface_struct) \
   if (strcmp(name, iface_str) == 0)            \
@@ -554,7 +554,7 @@ PluginModule::~PluginModule() {
 
 void PluginModule::SetRendererPpapiHost(
     scoped_ptr<RendererPpapiHostImpl> host) {
-  renderer_ppapi_host_ = host.Pass();
+  renderer_ppapi_host_ = std::move(host);
 }
 
 bool PluginModule::InitAsInternalPlugin(

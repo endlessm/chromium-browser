@@ -13,7 +13,7 @@ enum RequestContext {
     "prefetch", "script", "serviceworker", "sharedworker",
     "subresource", "style", "track", "video", "worker", "xmlhttprequest", "xslt"
 };
-enum RequestMode { "same-origin", "no-cors", "cors" };
+enum RequestMode { "navigate", "same-origin", "no-cors", "cors" };
 enum RequestCredentials { "omit", "same-origin", "include" };
 enum RequestRedirect { "follow", "error", "manual" };
 
@@ -22,9 +22,8 @@ enum RequestRedirect { "follow", "error", "manual" };
     ConstructorCallWith=ScriptState,
     Exposed=(Window,Worker),
     RaisesException=Constructor,
-    ActiveDOMObject,
+    DependentLifetime,
     GarbageCollected,
-    TypeChecking=Interface,
 ] interface Request {
     readonly attribute ByteString method;
     readonly attribute USVString url;

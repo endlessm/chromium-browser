@@ -130,17 +130,18 @@ TEST_F(LayerIteratorTest, SimpleTree) {
   TestLayerImpl* third_ptr = third.get();
   TestLayerImpl* fourth_ptr = fourth.get();
 
-  root_layer->AddChild(first.Pass());
-  root_layer->AddChild(second.Pass());
-  root_layer->AddChild(third.Pass());
-  root_layer->AddChild(fourth.Pass());
+  root_layer->AddChild(std::move(first));
+  root_layer->AddChild(std::move(second));
+  root_layer->AddChild(std::move(third));
+  root_layer->AddChild(std::move(fourth));
 
-  root_layer->SetHasRenderSurface(true);
-  host_impl_.active_tree()->SetRootLayer(root_layer.Pass());
+  host_impl_.active_tree()->SetRootLayer(std::move(root_layer));
 
   LayerImplList render_surface_layer_list;
+  host_impl_.active_tree()->IncrementRenderSurfaceListIdForTesting();
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
-      root_ptr, root_ptr->bounds(), &render_surface_layer_list);
+      root_ptr, root_ptr->bounds(), &render_surface_layer_list,
+      host_impl_.active_tree()->current_render_surface_list_id());
   LayerTreeHostCommon::CalculateDrawProperties(&inputs);
 
   IterateFrontToBack(&render_surface_layer_list);
@@ -172,21 +173,22 @@ TEST_F(LayerIteratorTest, ComplexTree) {
   TestLayerImpl* root221_ptr = root221.get();
   TestLayerImpl* root231_ptr = root231.get();
 
-  root22->AddChild(root221.Pass());
-  root23->AddChild(root231.Pass());
-  root2->AddChild(root21.Pass());
-  root2->AddChild(root22.Pass());
-  root2->AddChild(root23.Pass());
-  root_layer->AddChild(root1.Pass());
-  root_layer->AddChild(root2.Pass());
-  root_layer->AddChild(root3.Pass());
+  root22->AddChild(std::move(root221));
+  root23->AddChild(std::move(root231));
+  root2->AddChild(std::move(root21));
+  root2->AddChild(std::move(root22));
+  root2->AddChild(std::move(root23));
+  root_layer->AddChild(std::move(root1));
+  root_layer->AddChild(std::move(root2));
+  root_layer->AddChild(std::move(root3));
 
-  root_layer->SetHasRenderSurface(true);
-  host_impl_.active_tree()->SetRootLayer(root_layer.Pass());
+  host_impl_.active_tree()->SetRootLayer(std::move(root_layer));
 
   LayerImplList render_surface_layer_list;
+  host_impl_.active_tree()->IncrementRenderSurfaceListIdForTesting();
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
-      root_ptr, root_ptr->bounds(), &render_surface_layer_list);
+      root_ptr, root_ptr->bounds(), &render_surface_layer_list,
+      host_impl_.active_tree()->current_render_surface_list_id());
   LayerTreeHostCommon::CalculateDrawProperties(&inputs);
 
   IterateFrontToBack(&render_surface_layer_list);
@@ -222,25 +224,26 @@ TEST_F(LayerIteratorTest, ComplexTreeMultiSurface) {
   TestLayerImpl* root221_ptr = root221.get();
   TestLayerImpl* root231_ptr = root231.get();
 
-  root22->SetHasRenderSurface(true);
-  root22->AddChild(root221.Pass());
-  root23->SetHasRenderSurface(true);
-  root23->AddChild(root231.Pass());
+  root22->SetForceRenderSurface(true);
+  root23->SetForceRenderSurface(true);
+  root2->SetForceRenderSurface(true);
+  root22->AddChild(std::move(root221));
+  root23->AddChild(std::move(root231));
   root2->SetDrawsContent(false);
-  root2->SetHasRenderSurface(true);
-  root2->AddChild(root21.Pass());
-  root2->AddChild(root22.Pass());
-  root2->AddChild(root23.Pass());
-  root_layer->AddChild(root1.Pass());
-  root_layer->AddChild(root2.Pass());
-  root_layer->AddChild(root3.Pass());
+  root2->AddChild(std::move(root21));
+  root2->AddChild(std::move(root22));
+  root2->AddChild(std::move(root23));
+  root_layer->AddChild(std::move(root1));
+  root_layer->AddChild(std::move(root2));
+  root_layer->AddChild(std::move(root3));
 
-  root_layer->SetHasRenderSurface(true);
-  host_impl_.active_tree()->SetRootLayer(root_layer.Pass());
+  host_impl_.active_tree()->SetRootLayer(std::move(root_layer));
 
   LayerImplList render_surface_layer_list;
+  host_impl_.active_tree()->IncrementRenderSurfaceListIdForTesting();
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
-      root_ptr, root_ptr->bounds(), &render_surface_layer_list);
+      root_ptr, root_ptr->bounds(), &render_surface_layer_list,
+      host_impl_.active_tree()->current_render_surface_list_id());
   LayerTreeHostCommon::CalculateDrawProperties(&inputs);
 
   IterateFrontToBack(&render_surface_layer_list);

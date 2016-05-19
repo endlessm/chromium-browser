@@ -4,6 +4,9 @@
 
 #include "content/browser/android/download_controller_android_impl.h"
 
+#include <utility>
+
+#include "base/android/context_utils.h"
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
@@ -29,6 +32,7 @@
 #include "content/public/common/content_client.h"
 #include "content/public/common/referrer.h"
 #include "jni/DownloadController_jni.h"
+#include "net/base/filename_util.h"
 #include "net/cookies/cookie_options.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_content_disposition.h"
@@ -91,7 +95,7 @@ void CreateContextMenuDownload(int render_process_id,
   if (!is_link && extra_headers.empty())
     dl_params->set_prefer_cache(true);
   dl_params->set_prompt(false);
-  dlm->DownloadUrl(dl_params.Pass());
+  dlm->DownloadUrl(std::move(dl_params));
 }
 
 }  // namespace
@@ -181,16 +185,10 @@ void DownloadControllerAndroidImpl::CancelDeferredDownload(
 }
 
 void DownloadControllerAndroidImpl::AcquireFileAccessPermission(
-    int render_process_id,
-    int render_view_id,
+    WebContents* web_contents,
     const DownloadControllerAndroid::AcquireFileAccessPermissionCallback& cb) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  WebContents* web_contents = GetWebContents(render_process_id, render_view_id);
-  if (!web_contents) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE, base::Bind(cb, false));
-    return;
-  }
+  DCHECK(web_contents);
 
   ScopedJavaLocalRef<jobject> view =
       GetContentViewCoreFromWebContents(web_contents);
@@ -212,6 +210,11 @@ void DownloadControllerAndroidImpl::AcquireFileAccessPermission(
       new DownloadControllerAndroid::AcquireFileAccessPermissionCallback(cb));
   Java_DownloadController_requestFileAccess(
       env, GetJavaObject()->Controller(env).obj(), view.obj(), callback_id);
+}
+
+void DownloadControllerAndroidImpl::SetDefaultDownloadFileName(
+    const std::string& file_name) {
+  default_file_name_ = file_name;
 }
 
 bool DownloadControllerAndroidImpl::HasFileAccessPermission(
@@ -354,7 +357,7 @@ void DownloadControllerAndroidImpl::StartAndroidDownload(
   }
 
   AcquireFileAccessPermission(
-      render_process_id, render_view_id,
+      web_contents,
       base::Bind(&DownloadControllerAndroidImpl::StartAndroidDownloadInternal,
                  base::Unretained(this), render_process_id, render_view_id,
                  info));
@@ -391,11 +394,14 @@ void DownloadControllerAndroidImpl::StartAndroidDownloadInternal(
   ScopedJavaLocalRef<jstring> jreferer =
       ConvertUTF8ToJavaString(env, info.referer);
 
-  // Try parsing the content disposition header to get a
-  // explicitly specified filename if available.
-  net::HttpContentDisposition header(info.content_disposition, "");
+  // net::GetSuggestedFilename will fallback to "download" as filename.
   ScopedJavaLocalRef<jstring> jfilename =
-      ConvertUTF8ToJavaString(env, header.filename());
+      base::android::ConvertUTF16ToJavaString(
+          env, net::GetSuggestedFilename(info.url, info.content_disposition,
+                                         std::string(),  // referrer_charset
+                                         std::string(),  // suggested_name
+                                         info.original_mime_type,
+                                         default_file_name_));
 
   Java_DownloadController_newHttpGetDownload(
       env, GetJavaObject()->Controller(env).obj(), view.obj(), jurl.obj(),
@@ -451,10 +457,12 @@ void DownloadControllerAndroidImpl::OnDownloadUpdated(DownloadItem* item) {
       item->TimeRemaining(&time_delta);
       Java_DownloadController_onDownloadUpdated(
           env, GetJavaObject()->Controller(env).obj(),
-          base::android::GetApplicationContext(), jurl.obj(), jmime_type.obj(),
+          jurl.obj(), jmime_type.obj(),
           jfilename.obj(), jpath.obj(), item->GetReceivedBytes(), true,
           item->GetId(), item->PercentComplete(), time_delta.InMilliseconds(),
-          item->HasUserGesture());
+          item->HasUserGesture(), item->IsPaused(),
+          // Get all requirements that allows a download to be resumable.
+          !item->GetBrowserContext()->IsOffTheRecord());
       break;
     }
     case DownloadItem::COMPLETE:
@@ -464,22 +472,25 @@ void DownloadControllerAndroidImpl::OnDownloadUpdated(DownloadItem* item) {
 
       // Call onDownloadCompleted
       Java_DownloadController_onDownloadCompleted(
-          env, GetJavaObject()->Controller(env).obj(),
-          base::android::GetApplicationContext(), jurl.obj(), jmime_type.obj(),
-          jfilename.obj(), jpath.obj(), item->GetReceivedBytes(), true,
-          item->GetId(), item->HasUserGesture());
+          env, GetJavaObject()->Controller(env).obj(), jurl.obj(),
+          jmime_type.obj(), jfilename.obj(), jpath.obj(),
+          item->GetReceivedBytes(), true, item->GetId(),
+          item->HasUserGesture());
       break;
     case DownloadItem::CANCELLED:
+      Java_DownloadController_onDownloadCancelled(
+          env, GetJavaObject()->Controller(env).obj(), item->GetId());
+      break;
     // TODO(shashishekhar): An interrupted download can be resumed. Android
     // currently does not support resumable downloads. Add handling for
     // interrupted case based on item->CanResume().
     case DownloadItem::INTERRUPTED:
       // Call onDownloadCompleted with success = false.
       Java_DownloadController_onDownloadCompleted(
-          env, GetJavaObject()->Controller(env).obj(),
-          base::android::GetApplicationContext(), jurl.obj(), jmime_type.obj(),
-          jfilename.obj(), jpath.obj(), item->GetReceivedBytes(), false,
-          item->GetId(), item->HasUserGesture());
+          env, GetJavaObject()->Controller(env).obj(), jurl.obj(),
+          jmime_type.obj(), jfilename.obj(), jpath.obj(),
+          item->GetReceivedBytes(), false, item->GetId(),
+          item->HasUserGesture());
       break;
     case DownloadItem::MAX_DOWNLOAD_STATE:
       NOTREACHED();
@@ -530,9 +541,8 @@ void DownloadControllerAndroidImpl::StartContextMenuDownload(
   int process_id = web_contents->GetRenderProcessHost()->GetID();
   int routing_id = web_contents->GetRoutingID();
   AcquireFileAccessPermission(
-      process_id, routing_id,
-      base::Bind(&CreateContextMenuDownload, process_id, routing_id, params,
-                 is_link, extra_headers));
+      web_contents, base::Bind(&CreateContextMenuDownload, process_id,
+                               routing_id, params, is_link, extra_headers));
 }
 
 void DownloadControllerAndroidImpl::DangerousDownloadValidated(

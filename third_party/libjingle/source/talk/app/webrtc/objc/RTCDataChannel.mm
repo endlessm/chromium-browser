@@ -31,7 +31,8 @@
 
 #import "RTCDataChannel+Internal.h"
 
-#include "talk/app/webrtc/datachannelinterface.h"
+#include "webrtc/api/datachannelinterface.h"
+#include "webrtc/base/scoped_ptr.h"
 
 namespace webrtc {
 

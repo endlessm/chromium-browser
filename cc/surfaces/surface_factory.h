@@ -6,11 +6,13 @@
 #define CC_SURFACES_SURFACE_FACTORY_H_
 
 #include <set>
+#include <unordered_map>
 
 #include "base/callback_forward.h"
-#include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "cc/output/compositor_frame.h"
 #include "cc/surfaces/surface_id.h"
 #include "cc/surfaces/surface_resource_holder.h"
@@ -60,6 +62,8 @@ class CC_SURFACES_EXPORT SurfaceFactory
   void RequestCopyOfSurface(SurfaceId surface_id,
                             scoped_ptr<CopyOutputRequest> copy_request);
 
+  void WillDrawSurface(SurfaceId id, const gfx::Rect& damage_rect);
+
   SurfaceFactoryClient* client() { return client_; }
 
   void ReceiveFromChild(const TransferableResourceArray& resources);
@@ -81,8 +85,8 @@ class CC_SURFACES_EXPORT SurfaceFactory
 
   bool needs_sync_points_;
 
-  typedef base::ScopedPtrHashMap<SurfaceId, scoped_ptr<Surface>>
-      OwningSurfaceMap;
+  using OwningSurfaceMap =
+      std::unordered_map<SurfaceId, scoped_ptr<Surface>, SurfaceIdHash>;
   OwningSurfaceMap surface_map_;
 
   DISALLOW_COPY_AND_ASSIGN(SurfaceFactory);

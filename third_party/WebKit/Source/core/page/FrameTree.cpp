@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/page/FrameTree.h"
 
 #include "core/dom/Document.h"
@@ -50,15 +49,6 @@ FrameTree::FrameTree(Frame* thisFrame)
 
 FrameTree::~FrameTree()
 {
-#if !ENABLE(OILPAN)
-    // FIXME: Why is this here? Doesn't this parallel what we already do in ~LocalFrame?
-    for (Frame* child = firstChild(); child; child = child->tree().nextSibling()) {
-        if (child->isLocalFrame())
-            toLocalFrame(child)->setView(nullptr);
-        else if (child->isRemoteFrame())
-            toRemoteFrame(child)->setView(nullptr);
-    }
-#endif
 }
 
 void FrameTree::setName(const AtomicString& name, const AtomicString& fallbackName)
@@ -68,8 +58,23 @@ void FrameTree::setName(const AtomicString& name, const AtomicString& fallbackNa
         m_uniqueName = name;
         return;
     }
-    m_uniqueName = AtomicString(); // Remove our old frame name so it's not considered in uniqueChildName.
-    m_uniqueName = parent()->tree().uniqueChildName(name.isEmpty() ? fallbackName : name);
+
+    // Remove our old frame name so it's not considered in calculateUniqueNameForChildFrame.
+    m_uniqueName = AtomicString();
+
+    m_uniqueName = parent()->tree().calculateUniqueNameForChildFrame(true, name, fallbackName);
+}
+
+void FrameTree::setPrecalculatedName(const AtomicString& name, const AtomicString& uniqueName)
+{
+    if (!parent()) {
+        ASSERT(uniqueName == name);
+    } else {
+        ASSERT(!uniqueName.isEmpty());
+    }
+
+    m_name = name;
+    m_uniqueName = uniqueName;
 }
 
 Frame* FrameTree::parent() const
@@ -127,8 +132,19 @@ bool FrameTree::uniqueNameExists(const AtomicString& name) const
     return false;
 }
 
-AtomicString FrameTree::uniqueChildName(const AtomicString& requestedName) const
+AtomicString FrameTree::calculateUniqueNameForNewChildFrame(
+    const AtomicString& name,
+    const AtomicString& fallbackName) const
 {
+    return calculateUniqueNameForChildFrame(false, name, fallbackName);
+}
+
+AtomicString FrameTree::calculateUniqueNameForChildFrame(
+    bool existingChildFrame,
+    const AtomicString& name,
+    const AtomicString& fallbackName) const
+{
+    const AtomicString& requestedName = name.isEmpty() ? fallbackName : name;
     if (!requestedName.isEmpty() && !uniqueNameExists(requestedName) && requestedName != "_blank")
         return requestedName;
 
@@ -151,23 +167,23 @@ AtomicString FrameTree::uniqueChildName(const AtomicString& requestedName) const
             break;
         chain.append(frame);
     }
-    StringBuilder name;
-    name.append(framePathPrefix);
+    StringBuilder uniqueName;
+    uniqueName.append(framePathPrefix);
     if (frame) {
-        name.append(frame->tree().uniqueName().string().substring(framePathPrefixLength,
+        uniqueName.append(frame->tree().uniqueName().string().substring(framePathPrefixLength,
             frame->tree().uniqueName().length() - framePathPrefixLength - framePathSuffixLength));
     }
     for (int i = chain.size() - 1; i >= 0; --i) {
         frame = chain[i];
-        name.append('/');
-        name.append(frame->tree().uniqueName());
+        uniqueName.append('/');
+        uniqueName.append(frame->tree().uniqueName());
     }
 
-    name.appendLiteral("/<!--frame");
-    name.appendNumber(childCount() - 1);
-    name.appendLiteral("-->-->");
+    uniqueName.appendLiteral("/<!--frame");
+    uniqueName.appendNumber(childCount() - (existingChildFrame ? 1 : 0));
+    uniqueName.appendLiteral("-->-->");
 
-    return name.toAtomicString();
+    return uniqueName.toAtomicString();
 }
 
 Frame* FrameTree::scopedChild(unsigned index) const
@@ -266,13 +282,12 @@ Frame* FrameTree::find(const AtomicString& name) const
 
     // Search the entire tree of each of the other pages in this namespace.
     // FIXME: Is random order OK?
-    const WillBePersistentHeapHashSet<RawPtrWillBeWeakMember<Page>>& pages = Page::ordinaryPages();
-    for (const Page* otherPage : pages) {
-        if (otherPage != page) {
-            for (Frame* frame = otherPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-                if (frame->tree().name() == name)
-                    return frame;
-            }
+    for (const Page* otherPage : Page::ordinaryPages()) {
+        if (otherPage == page)
+            continue;
+        for (Frame* frame = otherPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
+            if (frame->tree().name() == name)
+                return frame;
         }
     }
 

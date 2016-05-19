@@ -5,8 +5,8 @@
 #ifndef CHROME_BROWSER_MEDIA_DESKTOP_MEDIA_PICKER_H_
 #define CHROME_BROWSER_MEDIA_DESKTOP_MEDIA_PICKER_H_
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "content/public/browser/desktop_media_id.h"
@@ -40,6 +40,7 @@ class DesktopMediaPicker {
                     const base::string16& app_name,
                     const base::string16& target_name,
                     scoped_ptr<DesktopMediaList> list,
+                    bool request_audio,
                     const DoneCallback& done_callback) = 0;
 
  private:

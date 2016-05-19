@@ -8,25 +8,27 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/debug/leak_tracker.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
-#include "chrome/browser/browser_process.h"
+#include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/safe_browsing/metadata.pb.h"
 #include "chrome/browser/safe_browsing/ping_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/safe_browsing/threat_details.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
+#include "components/safe_browsing_db/metadata.pb.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
+#include "ipc/ipc_message.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/ssl/ssl_info.h"
 #include "net/url_request/url_request_context.h"
@@ -68,11 +70,46 @@ SafeBrowsingUIManager::UnsafeResource::UnsafeResource()
     : is_subresource(false),
       threat_type(SB_THREAT_TYPE_SAFE),
       render_process_host_id(-1),
-      render_view_id(-1),
-      threat_source(safe_browsing::ThreatSource::UNKNOWN) {
-}
+      render_frame_id(MSG_ROUTING_NONE),
+      threat_source(safe_browsing::ThreatSource::UNKNOWN) {}
+
+SafeBrowsingUIManager::UnsafeResource::UnsafeResource(
+    const UnsafeResource& other) = default;
 
 SafeBrowsingUIManager::UnsafeResource::~UnsafeResource() { }
+
+bool SafeBrowsingUIManager::UnsafeResource::IsMainPageLoadBlocked() const {
+  // Subresource hits cannot happen until after main page load is committed.
+  if (is_subresource)
+    return false;
+
+  // Client-side phishing detection interstitials never block the main frame
+  // load, since they happen after the page is finished loading.
+  if (threat_type == SB_THREAT_TYPE_CLIENT_SIDE_PHISHING_URL ||
+      threat_type == SB_THREAT_TYPE_CLIENT_SIDE_MALWARE_URL) {
+    return false;
+  }
+
+  return true;
+}
+
+content::NavigationEntry*
+SafeBrowsingUIManager::UnsafeResource::GetNavigationEntryForResource() const {
+  WebContents* contents = tab_util::GetWebContentsByFrameID(
+      render_process_host_id, render_frame_id);
+  if (!contents)
+    return nullptr;
+  // If a safebrowsing hit occurs during main frame navigation, the navigation
+  // will not be committed, and the pending navigation entry refers to the hit.
+  if (IsMainPageLoadBlocked())
+    return contents->GetController().GetPendingEntry();
+  // If a safebrowsing hit occurs on a subresource load, or on a main frame
+  // after the navigation is committed, the last committed navigation entry
+  // refers to the page with the hit. Note that there may concurrently be an
+  // unrelated pending navigation to another site, so GetActiveEntry() would be
+  // wrong.
+  return contents->GetController().GetLastCommittedEntry();
+}
 
 // SafeBrowsingUIManager -------------------------------------------------------
 
@@ -96,18 +133,16 @@ void SafeBrowsingUIManager::LogPauseDelay(base::TimeDelta time) {
 void SafeBrowsingUIManager::OnBlockingPageDone(
     const std::vector<UnsafeResource>& resources,
     bool proceed) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  for (std::vector<UnsafeResource>::const_iterator iter = resources.begin();
-       iter != resources.end(); ++iter) {
-    const UnsafeResource& resource = *iter;
-    if (!resource.callback.is_null())
-      resource.callback.Run(proceed);
-
-    if (proceed) {
-      BrowserThread::PostTask(
-          BrowserThread::UI, FROM_HERE,
-          base::Bind(&SafeBrowsingUIManager::AddToWhitelist, this, resource));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  for (const auto& resource : resources) {
+    if (!resource.callback.is_null()) {
+      DCHECK(resource.callback_thread);
+      resource.callback_thread->PostTask(
+          FROM_HERE, base::Bind(resource.callback, proceed));
     }
+
+    if (proceed)
+      AddToWhitelist(resource);
   }
 }
 
@@ -127,31 +162,23 @@ void SafeBrowsingUIManager::DisplayBlockingPage(
          proto.ParseFromString(resource.threat_metadata) &&
          proto.pattern_type() == MalwarePatternType::LANDING)) {
       if (!resource.callback.is_null()) {
-        BrowserThread::PostTask(
-            BrowserThread::IO, FROM_HERE, base::Bind(resource.callback, true));
+        DCHECK(resource.callback_thread);
+        resource.callback_thread->PostTask(FROM_HERE,
+                                           base::Bind(resource.callback, true));
       }
+
       return;
     }
   }
 
-  // Indicate to interested observers that the resource in question matched the
-  // SB filters.
-  if (resource.threat_type != SB_THREAT_TYPE_SAFE) {
-    FOR_EACH_OBSERVER(Observer, observer_list_, OnSafeBrowsingMatch(resource));
-  }
-
   // The tab might have been closed. If it was closed, just act as if "Don't
   // Proceed" had been chosen.
-  WebContents* web_contents =
-      tab_util::GetWebContentsByID(resource.render_process_host_id,
-                                   resource.render_view_id);
+  WebContents* web_contents = tab_util::GetWebContentsByFrameID(
+      resource.render_process_host_id, resource.render_frame_id);
   if (!web_contents) {
     std::vector<UnsafeResource> resources;
     resources.push_back(resource);
-    BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&SafeBrowsingUIManager::OnBlockingPageDone,
-                 this, resources, false));
+    OnBlockingPageDone(resources, false);
     return;
   }
 
@@ -159,8 +186,9 @@ void SafeBrowsingUIManager::DisplayBlockingPage(
   // and top-level domain.
   if (IsWhitelisted(resource)) {
     if (!resource.callback.is_null()) {
-      BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-                              base::Bind(resource.callback, true));
+      DCHECK(resource.callback_thread);
+      resource.callback_thread->PostTask(FROM_HERE,
+                                         base::Bind(resource.callback, true));
     }
     return;
   }
@@ -168,14 +196,15 @@ void SafeBrowsingUIManager::DisplayBlockingPage(
   if (resource.threat_type != SB_THREAT_TYPE_SAFE) {
     HitReport hit_report;
     hit_report.malicious_url = resource.url;
-    hit_report.page_url = web_contents->GetURL();
     hit_report.is_subresource = resource.is_subresource;
     hit_report.threat_type = resource.threat_type;
     hit_report.threat_source = resource.threat_source;
 
-    NavigationEntry* entry = web_contents->GetController().GetActiveEntry();
-    if (entry)
+    NavigationEntry* entry = resource.GetNavigationEntryForResource();
+    if (entry) {
+      hit_report.page_url = entry->GetURL();
       hit_report.referrer_url = entry->GetReferrer().url;
+    }
 
     // When the malicious url is on the main frame, and resource.original_url
     // is not the same as the resource.url, that means we have a redirect from
@@ -197,7 +226,7 @@ void SafeBrowsingUIManager::DisplayBlockingPage(
         profile->GetPrefs()->GetBoolean(
             prefs::kSafeBrowsingExtendedReportingEnabled);
     hit_report.is_metrics_reporting_active =
-        safe_browsing::IsMetricsReportingActive();
+        ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled();
 
     MaybeReportSafeBrowsingHit(hit_report);
   }
@@ -295,8 +324,8 @@ void SafeBrowsingUIManager::SendSerializedThreatDetails(
 // domain to an existing WhitelistUrlSet, or create a new WhitelistUrlSet.
 void SafeBrowsingUIManager::AddToWhitelist(const UnsafeResource& resource) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  WebContents* web_contents = tab_util::GetWebContentsByID(
-      resource.render_process_host_id, resource.render_view_id);
+  WebContents* web_contents = tab_util::GetWebContentsByFrameID(
+      resource.render_process_host_id, resource.render_frame_id);
 
   WhitelistUrlSet* site_list =
       static_cast<WhitelistUrlSet*>(web_contents->GetUserData(kWhitelistKey));
@@ -305,8 +334,16 @@ void SafeBrowsingUIManager::AddToWhitelist(const UnsafeResource& resource) {
     web_contents->SetUserData(kWhitelistKey, site_list);
   }
 
-  GURL whitelisted_url(resource.is_subresource ? web_contents->GetVisibleURL()
-                                               : resource.url);
+  GURL whitelisted_url;
+  if (resource.is_subresource) {
+    NavigationEntry* entry = resource.GetNavigationEntryForResource();
+    if (!entry)
+      return;
+    whitelisted_url = entry->GetURL();
+  } else {
+    whitelisted_url = resource.url;
+  }
+
   site_list->Insert(whitelisted_url);
 }
 
@@ -314,11 +351,19 @@ void SafeBrowsingUIManager::AddToWhitelist(const UnsafeResource& resource) {
 // top-level domain.
 bool SafeBrowsingUIManager::IsWhitelisted(const UnsafeResource& resource) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  WebContents* web_contents = tab_util::GetWebContentsByID(
-      resource.render_process_host_id, resource.render_view_id);
+  WebContents* web_contents = tab_util::GetWebContentsByFrameID(
+      resource.render_process_host_id, resource.render_frame_id);
 
-  GURL maybe_whitelisted_url(
-      resource.is_subresource ? web_contents->GetVisibleURL() : resource.url);
+  GURL maybe_whitelisted_url;
+  if (resource.is_subresource) {
+    NavigationEntry* entry = resource.GetNavigationEntryForResource();
+    if (!entry)
+      return false;
+    maybe_whitelisted_url = entry->GetURL();
+  } else {
+    maybe_whitelisted_url = resource.url;
+  }
+
   WhitelistUrlSet* site_list =
       static_cast<WhitelistUrlSet*>(web_contents->GetUserData(kWhitelistKey));
   if (!site_list)

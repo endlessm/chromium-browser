@@ -22,7 +22,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLLabelElement.h"
 
 #include "core/HTMLNames.h"
@@ -35,6 +34,7 @@
 #include "core/frame/LocalFrame.h"
 #include "core/frame/UseCounter.h"
 #include "core/html/FormAssociatedElement.h"
+#include "core/html/HTMLFormControlElement.h"
 #include "core/input/EventHandler.h"
 #include "core/layout/LayoutObject.h"
 
@@ -63,15 +63,21 @@ LabelableElement* HTMLLabelElement::control() const
         // per http://dev.w3.org/html5/spec/Overview.html#the-label-element
         // the form element must be "labelable form-associated element".
         for (LabelableElement& element : Traversal<LabelableElement>::descendantsOf(*this)) {
-            if (element.supportLabels())
+            if (element.supportLabels()) {
+                if (!element.isFormControlElement())
+                    UseCounter::count(document(), UseCounter::HTMLLabelElementControlForNonFormAssociatedElement);
                 return &element;
+            }
         }
         return nullptr;
     }
 
     if (Element* element = treeScope().getElementById(controlId)) {
-        if (isLabelableElement(*element) && toLabelableElement(*element).supportLabels())
+        if (isLabelableElement(*element) && toLabelableElement(*element).supportLabels()) {
+            if (!element->isFormControlElement())
+                UseCounter::count(document(), UseCounter::HTMLLabelElementControlForNonFormAssociatedElement);
             return toLabelableElement(element);
+        }
     }
 
     return nullptr;
@@ -80,6 +86,21 @@ LabelableElement* HTMLLabelElement::control() const
 HTMLFormElement* HTMLLabelElement::formOwner() const
 {
     return FormAssociatedElement::form();
+}
+
+HTMLFormElement* HTMLLabelElement::formForBinding() const
+{
+    HTMLFormElement* formOwner = FormAssociatedElement::form();
+    HTMLFormElement* controlForm = nullptr;
+    if (LabelableElement* control = this->control()) {
+        if (control->isFormControlElement())
+            controlForm = toHTMLFormControlElement(control)->form();
+    }
+    if (formOwner != controlForm)
+        UseCounter::count(document(), UseCounter::HTMLLabelElementFormIsDifferentFromControlForm);
+    if (!controlForm && formOwner && formOwner == findFormAncestor())
+        UseCounter::count(document(), UseCounter::HTMLLabelElementHasNoControlAndFormIsAncestor);
+    return formOwner;
 }
 
 void HTMLLabelElement::setActive(bool down)
@@ -204,6 +225,7 @@ bool HTMLLabelElement::willRespondToMouseClickEvents()
 
 void HTMLLabelElement::focus(const FocusParams& params)
 {
+    document().updateLayoutTreeForNode(this);
     if (isFocusable()) {
         HTMLElement::focus(params);
         return;
@@ -233,16 +255,6 @@ void HTMLLabelElement::updateLabel(TreeScope& scope, const AtomicString& oldForA
         scope.removeLabel(oldForAttributeValue, this);
     if (!newForAttributeValue.isEmpty())
         scope.addLabel(newForAttributeValue, this);
-}
-
-void HTMLLabelElement::attributeWillChange(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& newValue)
-{
-    if (name == HTMLNames::forAttr) {
-        TreeScope& scope = treeScope();
-        if (scope.shouldCacheLabelsByForAttribute())
-            updateLabel(scope, oldValue, newValue);
-    }
-    HTMLElement::attributeWillChange(name, oldValue, newValue);
 }
 
 Node::InsertionNotificationRequest HTMLLabelElement::insertedInto(ContainerNode* insertionPoint)
@@ -280,14 +292,19 @@ DEFINE_TRACE(HTMLLabelElement)
     FormAssociatedElement::trace(visitor);
 }
 
-void HTMLLabelElement::parseAttribute(const QualifiedName& attributeName, const AtomicString& attributeValue)
+void HTMLLabelElement::parseAttribute(const QualifiedName& attributeName, const AtomicString& oldValue, const AtomicString& attributeValue)
 {
     if (attributeName == formAttr) {
         formAttributeChanged();
         UseCounter::count(document(), UseCounter::HTMLLabelElementFormContentAttribute);
     } else {
-        HTMLElement::parseAttribute(attributeName, attributeValue);
+        if (attributeName == forAttr) {
+            TreeScope& scope = treeScope();
+            if (scope.shouldCacheLabelsByForAttribute())
+                updateLabel(scope, oldValue, attributeValue);
+        }
+        HTMLElement::parseAttribute(attributeName, oldValue, attributeValue);
     }
 }
 
-} // namespace
+} // namespace blink

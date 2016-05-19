@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/ScrollRecorder.h"
 
 #include "platform/graphics/GraphicsContext.h"
@@ -11,12 +10,17 @@
 
 namespace blink {
 
-ScrollRecorder::ScrollRecorder(GraphicsContext& context, const DisplayItemClientWrapper& client, PaintPhase phase, const IntSize& currentOffset)
+ScrollRecorder::ScrollRecorder(GraphicsContext& context, const DisplayItemClient& client, DisplayItem::Type type, const IntSize& currentOffset)
     : m_client(client)
-    , m_beginItemType(DisplayItem::paintPhaseToScrollType(phase))
+    , m_beginItemType(type)
     , m_context(context)
 {
     m_context.paintController().createAndAppend<BeginScrollDisplayItem>(m_client, m_beginItemType, currentOffset);
+}
+
+ScrollRecorder::ScrollRecorder(GraphicsContext& context, const DisplayItemClient& client, PaintPhase phase, const IntSize& currentOffset)
+    : ScrollRecorder(context, client, DisplayItem::paintPhaseToScrollType(phase), currentOffset)
+{
 }
 
 ScrollRecorder::~ScrollRecorder()

@@ -11,6 +11,7 @@
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -333,6 +334,11 @@ const char* kConfigRequiresPassphrase =
     "{ \"GUID\": \"wifi3\", \"Type\": \"wifi\", "
     "  \"PassphraseRequired\": true }";
 
+const char* kPolicyWifi0 =
+    "[{ \"GUID\": \"wifi0\",  \"IPAddressConfigType\": \"DHCP\", "
+    "   \"Type\": \"WiFi\", \"Name\": \"My WiFi Network\","
+    "   \"WiFi\": { \"SSID\": \"wifi0\"}}]";
+
 }  // namespace
 
 TEST_F(NetworkConnectionHandlerTest, NetworkConnectionHandlerConnectSuccess) {
@@ -344,6 +350,23 @@ TEST_F(NetworkConnectionHandlerTest, NetworkConnectionHandlerConnectSuccess) {
   // Observer expectations
   EXPECT_TRUE(network_connection_observer_->GetRequested(kWifi0));
   EXPECT_EQ(kSuccessResult, network_connection_observer_->GetResult(kWifi0));
+}
+
+TEST_F(NetworkConnectionHandlerTest,
+       NetworkConnectionHandlerConnectProhibited) {
+  EXPECT_TRUE(Configure(kConfigConnectable));
+  base::DictionaryValue global_config;
+  global_config.SetBooleanWithoutPathExpansion(
+      ::onc::global_network_config::kAllowOnlyPolicyNetworksToConnect, true);
+  SetupPolicy("[]", global_config, false /* load as device policy */);
+  LoginToRegularUser();
+  Connect(kWifi0);
+  EXPECT_EQ(NetworkConnectionHandler::kErrorUnmanagedNetwork,
+            GetResultAndReset());
+
+  SetupPolicy(kPolicyWifi0, global_config, false /* load as device policy */);
+  Connect(kWifi0);
+  EXPECT_EQ(kSuccessResult, GetResultAndReset());
 }
 
 // Handles basic failure cases.

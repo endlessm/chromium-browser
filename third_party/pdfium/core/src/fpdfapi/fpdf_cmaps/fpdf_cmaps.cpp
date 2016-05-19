@@ -4,11 +4,11 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "cmap_int.h"
+#include "core/src/fpdfapi/fpdf_cmaps/cmap_int.h"
 
-#include "../fpdf_font/font_int.h"
 #include "core/include/fpdfapi/fpdf_module.h"
 #include "core/include/fpdfapi/fpdf_resource.h"
+#include "core/src/fpdfapi/fpdf_font/font_int.h"
 
 void FPDFAPI_FindEmbeddedCMap(const char* name,
                               int charset,
@@ -105,7 +105,7 @@ FX_WORD FPDFAPI_CIDFromCharCode(const FXCMAP_CMap* pMap, FX_DWORD charcode) {
   }
   FX_WORD code = (FX_WORD)charcode;
   while (1) {
-    if (pMap->m_pWordMap == NULL) {
+    if (!pMap->m_pWordMap) {
       return 0;
     }
     if (pMap->m_WordMapType == FXCMAP_CMap::Single) {

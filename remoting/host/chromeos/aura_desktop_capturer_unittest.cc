@@ -4,6 +4,11 @@
 
 #include "remoting/host/chromeos/aura_desktop_capturer.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <utility>
+
 #include "cc/output/copy_output_result.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -41,7 +46,6 @@ class AuraDesktopCapturerTest : public testing::Test,
 
   void SetUp() override;
 
-  MOCK_METHOD1(CreateSharedMemory, webrtc::SharedMemory*(size_t size));
   MOCK_METHOD1(OnCaptureCompleted, void(webrtc::DesktopFrame* frame));
 
  protected:
@@ -51,9 +55,8 @@ class AuraDesktopCapturerTest : public testing::Test,
         SkImageInfo::Make(3, 4, kBGRA_8888_SkColorType, kPremul_SkAlphaType);
     bitmap->installPixels(info, const_cast<unsigned char*>(frame_data), 12);
 
-    scoped_ptr<cc::CopyOutputResult> output =
-        cc::CopyOutputResult::CreateBitmapResult(bitmap.Pass());
-    capturer_->OnFrameCaptured(output.Pass());
+    capturer_->OnFrameCaptured(
+        cc::CopyOutputResult::CreateBitmapResult(std::move(bitmap)));
   }
 
   scoped_ptr<AuraDesktopCapturer> capturer_;

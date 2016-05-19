@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
@@ -16,6 +15,7 @@
 #include "base/values.h"
 #include "cc/base/cc_export.h"
 #include "cc/input/top_controls_state.h"
+#include "cc/scheduler/begin_frame_source.h"
 #include "cc/trees/task_runner_provider.h"
 
 namespace gfx {
@@ -24,6 +24,7 @@ class Vector2d;
 }
 
 namespace cc {
+class BeginFrameSource;
 class LayerTreeDebugState;
 class OutputSurface;
 struct RendererCapabilities;
@@ -69,7 +70,8 @@ class CC_EXPORT Proxy {
   virtual bool BeginMainFrameRequested() const = 0;
 
   // Must be called before using the proxy.
-  virtual void Start() = 0;
+  virtual void Start(
+      scoped_ptr<BeginFrameSource> external_begin_frame_source) = 0;
   virtual void Stop() = 0;   // Must be called before deleting the proxy.
 
   virtual bool SupportsImplScrolling() const = 0;

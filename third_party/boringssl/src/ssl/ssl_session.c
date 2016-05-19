@@ -161,7 +161,7 @@ static void SSL_SESSION_list_add(SSL_CTX *ctx, SSL_SESSION *session);
 static int remove_session_lock(SSL_CTX *ctx, SSL_SESSION *session, int lock);
 
 SSL_SESSION *SSL_SESSION_new(void) {
-  SSL_SESSION *session = (SSL_SESSION *)OPENSSL_malloc(sizeof(SSL_SESSION));
+  SSL_SESSION *session = OPENSSL_malloc(sizeof(SSL_SESSION));
   if (session == NULL) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
     return 0;
@@ -172,7 +172,7 @@ SSL_SESSION *SSL_SESSION_new(void) {
   session->references = 1;
   session->timeout = SSL_DEFAULT_SESSION_TIMEOUT;
   session->time = (unsigned long)time(NULL);
-  CRYPTO_new_ex_data(&g_ex_data_class, session, &session->ex_data);
+  CRYPTO_new_ex_data(&session->ex_data);
   return session;
 }
 
@@ -278,12 +278,13 @@ SSL_SESSION *SSL_get1_session(SSL *ssl) {
   return SSL_SESSION_up_ref(ssl->session);
 }
 
-int SSL_SESSION_get_ex_new_index(long argl, void *argp, CRYPTO_EX_new *new_func,
+int SSL_SESSION_get_ex_new_index(long argl, void *argp,
+                                 CRYPTO_EX_unused *unused,
                                  CRYPTO_EX_dup *dup_func,
                                  CRYPTO_EX_free *free_func) {
   int index;
-  if (!CRYPTO_get_ex_new_index(&g_ex_data_class, &index, argl, argp, new_func,
-                               dup_func, free_func)) {
+  if (!CRYPTO_get_ex_new_index(&g_ex_data_class, &index, argl, argp, dup_func,
+                               free_func)) {
     return -1;
   }
   return index;
@@ -429,7 +430,7 @@ enum ssl_session_result_t ssl_get_prev_session(
   /* This is used only by servers. */
   assert(ssl->server);
   SSL_SESSION *session = NULL;
-  int send_ticket = 0;
+  int renew_ticket = 0;
 
   /* If tickets are disabled, always behave as if no tickets are present. */
   const uint8_t *ticket = NULL;
@@ -439,24 +440,27 @@ enum ssl_session_result_t ssl_get_prev_session(
       ssl->version > SSL3_VERSION &&
       SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_session_ticket,
                                            &ticket, &ticket_len);
-  if (tickets_supported) {
-    if (!tls_process_ticket(ssl, &session, &send_ticket, ticket, ticket_len,
+  int from_cache = 0;
+  if (tickets_supported && ticket_len > 0) {
+    if (!tls_process_ticket(ssl, &session, &renew_ticket, ticket, ticket_len,
                             ctx->session_id, ctx->session_id_len)) {
       return ssl_session_error;
     }
   } else {
-    /* The client does not support session tickets, so the session ID should be
-     * used instead. */
+    /* The client didn't send a ticket, so the session ID is a real ID. */
     enum ssl_session_result_t lookup_ret = ssl_lookup_session(
         ssl, &session, ctx->session_id, ctx->session_id_len);
     if (lookup_ret != ssl_session_success) {
       return lookup_ret;
     }
+    from_cache = 1;
   }
 
   if (session == NULL ||
       session->sid_ctx_length != ssl->sid_ctx_length ||
       memcmp(session->sid_ctx, ssl->sid_ctx, ssl->sid_ctx_length) != 0) {
+    /* The client did not offer a suitable ticket or session ID. If supported,
+     * the new session should use a ticket. */
     goto no_session;
   }
 
@@ -470,11 +474,12 @@ enum ssl_session_result_t ssl_get_prev_session(
      * effectively disable the session cache by accident without anyone
      * noticing). */
     OPENSSL_PUT_ERROR(SSL, SSL_R_SESSION_ID_CONTEXT_UNINITIALIZED);
-    goto fatal_error;
+    SSL_SESSION_free(session);
+    return ssl_session_error;
   }
 
   if (session->timeout < (long)(time(NULL) - session->time)) {
-    if (!tickets_supported) {
+    if (from_cache) {
       /* The session was from the cache, so remove it. */
       SSL_CTX_remove_session(ssl->initial_ctx, session);
     }
@@ -482,12 +487,8 @@ enum ssl_session_result_t ssl_get_prev_session(
   }
 
   *out_session = session;
-  *out_send_ticket = send_ticket;
+  *out_send_ticket = renew_ticket;
   return ssl_session_success;
-
-fatal_error:
-  SSL_SESSION_free(session);
-  return ssl_session_error;
 
 no_session:
   *out_session = NULL;
@@ -644,10 +645,10 @@ void SSL_CTX_flush_sessions(SSL_CTX *ctx, long time) {
   CRYPTO_MUTEX_unlock(&ctx->lock);
 }
 
-int ssl_clear_bad_session(SSL *s) {
-  if (s->session != NULL && !(s->shutdown & SSL_SENT_SHUTDOWN) &&
-      !SSL_in_init(s)) {
-    SSL_CTX_remove_session(s->ctx, s->session);
+int ssl_clear_bad_session(SSL *ssl) {
+  if (ssl->session != NULL && !(ssl->shutdown & SSL_SENT_SHUTDOWN) &&
+      !SSL_in_init(ssl)) {
+    SSL_CTX_remove_session(ssl->ctx, ssl->session);
     return 1;
   }
 

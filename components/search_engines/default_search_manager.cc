@@ -4,6 +4,9 @@
 
 #include "components/search_engines/default_search_manager.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <utility>
 
@@ -12,8 +15,6 @@
 #include "base/compiler_specific.h"
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/pref_value_map.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -21,6 +22,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/pref_value_map.h"
 #include "components/search_engines/search_engines_pref_names.h"
 #include "components/search_engines/template_url_data.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
@@ -107,7 +110,8 @@ void DefaultSearchManager::RegisterProfilePrefs(
 void DefaultSearchManager::AddPrefValueToMap(
     scoped_ptr<base::DictionaryValue> value,
     PrefValueMap* pref_value_map) {
-  pref_value_map->SetValue(kDefaultSearchProviderDataPrefName, value.Pass());
+  pref_value_map->SetValue(kDefaultSearchProviderDataPrefName,
+                           std::move(value));
 }
 
 // static
@@ -354,13 +358,13 @@ void DefaultSearchManager::LoadDefaultSearchEngineFromPrefs() {
   url_dict->GetString(kDateCreated, &date_created_str);
   url_dict->GetString(kLastModified, &last_modified_str);
 
-  int64 date_created = 0;
+  int64_t date_created = 0;
   if (base::StringToInt64(date_created_str, &date_created)) {
     prefs_default_search_->date_created =
         base::Time::FromInternalValue(date_created);
   }
 
-  int64 last_modified = 0;
+  int64_t last_modified = 0;
   if (base::StringToInt64(date_created_str, &last_modified)) {
     prefs_default_search_->last_modified =
         base::Time::FromInternalValue(last_modified);
@@ -403,7 +407,7 @@ void DefaultSearchManager::LoadDefaultSearchEngineFromPrefs() {
 void DefaultSearchManager::LoadPrepopulatedDefaultSearch() {
   scoped_ptr<TemplateURLData> data =
       TemplateURLPrepopulateData::GetPrepopulatedDefaultSearch(pref_service_);
-  fallback_default_search_ = data.Pass();
+  fallback_default_search_ = std::move(data);
   MergePrefsDataWithPrepopulated();
 }
 

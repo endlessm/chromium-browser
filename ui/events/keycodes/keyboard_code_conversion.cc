@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/macros.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/dom_key.h"
@@ -40,7 +41,7 @@ bool DomCodeToUsLayoutDomKey(DomCode dom_code,
     if (it.dom_code == dom_code) {
       int state = ((flags & EF_SHIFT_DOWN) == EF_SHIFT_DOWN);
       base::char16 ch = it.character[state];
-      if ((flags & EF_CAPS_LOCK_DOWN) == EF_CAPS_LOCK_DOWN) {
+      if ((flags & EF_CAPS_LOCK_ON) == EF_CAPS_LOCK_ON) {
         ch |= 0x20;
         if ((ch >= 'a') && (ch <= 'z'))
           ch = it.character[state ^ 1];
@@ -68,19 +69,19 @@ bool DomCodeToControlCharacter(DomCode dom_code,
     return false;
 
   int code = static_cast<int>(dom_code);
-  const int kKeyA = static_cast<int>(DomCode::KEY_A);
+  const int kKeyA = static_cast<int>(DomCode::US_A);
   // Control-A - Control-Z map to 0x01 - 0x1A.
-  if (code >= kKeyA && code <= static_cast<int>(DomCode::KEY_Z)) {
+  if (code >= kKeyA && code <= static_cast<int>(DomCode::US_Z)) {
     *dom_key = DomKey::FromCharacter(code - kKeyA + 1);
     *key_code = static_cast<KeyboardCode>(code - kKeyA + VKEY_A);
     switch (dom_code) {
-      case DomCode::KEY_H:
+      case DomCode::US_H:
         *key_code = VKEY_BACK;
         break;
-      case DomCode::KEY_I:
+      case DomCode::US_I:
         *key_code = VKEY_TAB;
         break;
-      case DomCode::KEY_M:
+      case DomCode::US_M:
         *key_code = VKEY_RETURN;
         break;
       default:

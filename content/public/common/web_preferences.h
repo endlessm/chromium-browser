@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
-#include "net/base/network_change_notifier.h"
 #include "ui/base/touch/touch_device.h"
 #include "url/gurl.h"
 
@@ -96,18 +96,17 @@ struct CONTENT_EXPORT WebPreferences {
   // we disable the feature at a lower layer so that we catch non-WebKit uses
   // of DNS prefetch as well.
   bool dns_prefetching_enabled;
+  // Preference to save data. When enabled, requests will contain the header
+  // 'Save-Data: on'.
+  bool data_saver_enabled;
   bool local_storage_enabled;
   bool databases_enabled;
   bool application_cache_enabled;
   bool tabs_to_links;
   bool caret_browsing_enabled;
   bool hyperlink_auditing_enabled;
-  bool is_online;
-  net::NetworkChangeNotifier::ConnectionType net_info_connection_type;
-  double net_info_max_bandwidth_mbps;
   bool allow_universal_access_from_file_urls;
   bool allow_file_access_from_file_urls;
-  bool webaudio_enabled;
   bool experimental_webgl_enabled;
   bool pepper_3d_enabled;
   bool flash_3d_enabled;
@@ -117,10 +116,10 @@ struct CONTENT_EXPORT WebPreferences {
   bool privileged_webgl_extensions_enabled;
   bool webgl_errors_to_console_enabled;
   bool mock_scrollbars_enabled;
-  bool asynchronous_spell_checking_enabled;
   bool unified_textchecker_enabled;
   bool accelerated_2d_canvas_enabled;
   int minimum_accelerated_2d_canvas_size;
+  bool disable_2d_canvas_copy_on_write;
   bool antialiased_2d_canvas_disabled;
   bool antialiased_clips_2d_canvas_enabled;
   int accelerated_2d_canvas_msaa_sample_count;
@@ -136,9 +135,11 @@ struct CONTENT_EXPORT WebPreferences {
   // requested (thereby preventing user override).
   bool strict_mixed_content_checking;
   // Strict powerful feature restrictions block insecure usage of powerful
-  // features (like geolocation) that we haven't yet disabled for the web at
-  // large.
+  // features (like device orientation) that we haven't yet disabled for the web
+  // at large.
   bool strict_powerful_feature_restrictions;
+  // TODO(jww): Remove when WebView no longer needs this exception.
+  bool allow_geolocation_on_insecure_origins;
   // Disallow user opt-in for blockable mixed content.
   bool strictly_block_blockable_mixed_content;
   bool block_mixed_plugin_content;
@@ -174,7 +175,7 @@ struct CONTENT_EXPORT WebPreferences {
   bool use_solid_color_scrollbars;
   bool navigate_on_drag_drop;
   V8CacheOptions v8_cache_options;
-  bool slimming_paint_v2_enabled;
+  bool inert_visual_viewport;
 
   // This flags corresponds to a Page's Settings' setCookieEnabled state. It
   // only controls whether or not the "document.cookie" field is properly
@@ -188,6 +189,8 @@ struct CONTENT_EXPORT WebPreferences {
   bool pepper_accelerated_video_decode_enabled;
 
   ImageAnimationPolicy animation_policy;
+
+  bool user_gesture_required_for_presentation;
 
 #if defined(OS_ANDROID)
   bool text_autosizing_enabled;
@@ -224,6 +227,7 @@ struct CONTENT_EXPORT WebPreferences {
   // chrome, except for the cases where it would require lots of extra work for
   // the embedder to use the same default value.
   WebPreferences();
+  WebPreferences(const WebPreferences& other);
   ~WebPreferences();
 };
 

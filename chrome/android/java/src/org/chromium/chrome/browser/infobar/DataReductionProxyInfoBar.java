@@ -32,12 +32,7 @@ public class DataReductionProxyInfoBar extends ConfirmInfoBar {
     }
 
     DataReductionProxyInfoBar(int iconDrawableId) {
-        super(null, iconDrawableId, null, sTitle, sLinkText, null, null);
-    }
-
-    @Override
-    public void createContent(InfoBarLayout layout) {
-        layout.setButtons(sLinkText, null);
+        super(iconDrawableId, null, sTitle, sLinkText, null, null);
     }
 
     @Override

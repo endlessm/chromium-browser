@@ -4,19 +4,15 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 
-#include <string>
+#include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
@@ -25,6 +21,8 @@
 #include "components/data_reduction_proxy/core/browser/data_usage_store.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "net/base/mime_util.h"
 
 namespace data_reduction_proxy {
@@ -38,14 +36,14 @@ namespace {
 // We need to use a macro instead of a method because UMA_HISTOGRAM_COUNTS
 // requires its first argument to be an inline string and not a variable.
 #define RECORD_INT64PREF_TO_HISTOGRAM(pref, uma)     \
-  int64 UNIQUE_VARNAME = GetInt64(pref);             \
+  int64_t UNIQUE_VARNAME = GetInt64(pref);           \
   if (UNIQUE_VARNAME > 0) {                          \
     UMA_HISTOGRAM_COUNTS(uma, UNIQUE_VARNAME >> 10); \
   }
 
-// Returns the value at |index| of |list_value| as an int64.
-int64 GetInt64PrefValue(const base::ListValue& list_value, size_t index) {
-  int64 val = 0;
+// Returns the value at |index| of |list_value| as an int64_t.
+int64_t GetInt64PrefValue(const base::ListValue& list_value, size_t index) {
+  int64_t val = 0;
   std::string pref_value;
   bool rv = list_value.GetString(index, &pref_value);
   DCHECK(rv);
@@ -69,51 +67,30 @@ void MaintainContentLengthPrefsWindow(base::ListValue* list, size_t length) {
   DCHECK_EQ(length, list->GetSize());
 }
 
-// Increments an int64, stored as a string, in a ListPref at the specified
+// Increments an int64_t, stored as a string, in a ListPref at the specified
 // index.  The value must already exist and be a string representation of a
 // number.
 void AddInt64ToListPref(size_t index,
-                        int64 length,
+                        int64_t length,
                         base::ListValue* list_update) {
-  int64 value = 0;
-  std::string old_string_value;
-  bool rv = list_update->GetString(index, &old_string_value);
-  DCHECK(rv);
-  if (rv) {
-    rv = base::StringToInt64(old_string_value, &value);
-    DCHECK(rv);
-  }
-  value += length;
+  int64_t value = GetInt64PrefValue(*list_update, index) + length;
   list_update->Set(index, new base::StringValue(base::Int64ToString(value)));
-}
-
-int64 ListPrefInt64Value(const base::ListValue& list_update, size_t index) {
-  std::string string_value;
-  if (!list_update.GetString(index, &string_value)) {
-    NOTREACHED();
-    return 0;
-  }
-
-  int64 value = 0;
-  bool rv = base::StringToInt64(string_value, &value);
-  DCHECK(rv);
-  return value;
 }
 
 // DailyContentLengthUpdate maintains a data saving pref. The pref is a list
 // of |kNumDaysInHistory| elements of daily total content lengths for the past
 // |kNumDaysInHistory| days.
 void RecordDailyContentLengthHistograms(
-    int64 original_length,
-    int64 received_length,
-    int64 original_length_with_data_reduction_enabled,
-    int64 received_length_with_data_reduction_enabled,
-    int64 original_length_via_data_reduction_proxy,
-    int64 received_length_via_data_reduction_proxy,
-    int64 https_length_with_data_reduction_enabled,
-    int64 short_bypass_length_with_data_reduction_enabled,
-    int64 long_bypass_length_with_data_reduction_enabled,
-    int64 unknown_length_with_data_reduction_enabled) {
+    int64_t original_length,
+    int64_t received_length,
+    int64_t original_length_with_data_reduction_enabled,
+    int64_t received_length_with_data_reduction_enabled,
+    int64_t original_length_via_data_reduction_proxy,
+    int64_t received_length_via_data_reduction_proxy,
+    int64_t https_length_with_data_reduction_enabled,
+    int64_t short_bypass_length_with_data_reduction_enabled,
+    int64_t long_bypass_length_with_data_reduction_enabled,
+    int64_t unknown_length_with_data_reduction_enabled) {
   // Report daily UMA only for days having received content.
   if (original_length <= 0 || received_length <= 0)
     return;
@@ -246,30 +223,48 @@ ConnectionType StoredConnectionType(
   }
 }
 
-class DailyContentLengthUpdate {
- public:
-  DailyContentLengthUpdate(base::ListValue* update)
-      : update_(update) {}
+}  // namespace
 
-  void UpdateForDataChange(int days_since_last_update) {
-    // New empty lists may have been created. Maintain the invariant that
-    // there should be exactly |kNumDaysInHistory| days in the histories.
-    MaintainContentLengthPrefsWindow(update_, kNumDaysInHistory);
+class DataReductionProxyCompressionStats::DailyContentLengthUpdate {
+ public:
+  DailyContentLengthUpdate(
+      DataReductionProxyCompressionStats* compression_stats,
+      const char* pref_path)
+      : update_(nullptr),
+        compression_stats_(compression_stats),
+        pref_path_(pref_path) {}
+
+  void UpdateForDateChange(int days_since_last_update) {
     if (days_since_last_update) {
+      MaybeInitialize();
       MaintainContentLengthPrefForDateChange(days_since_last_update);
     }
   }
 
   // Update the lengths for the current day.
-  void Add(int64 content_length) {
-    AddInt64ToListPref(kNumDaysInHistory - 1, content_length, update_);
+  void Add(int64_t content_length) {
+    if (content_length != 0) {
+      MaybeInitialize();
+      AddInt64ToListPref(kNumDaysInHistory - 1, content_length, update_);
+    }
   }
 
-  int64 GetListPrefValue(size_t index) {
-    return ListPrefInt64Value(*update_, index);
+  int64_t GetListPrefValue(size_t index) {
+    MaybeInitialize();
+    return GetInt64PrefValue(*update_, index);
   }
 
  private:
+  void MaybeInitialize() {
+    if (update_)
+      return;
+
+    update_ = compression_stats_->GetList(pref_path_);
+    // New empty lists may have been created. Maintain the invariant that
+    // there should be exactly |kNumDaysInHistory| days in the histories.
+    MaintainContentLengthPrefsWindow(update_, kNumDaysInHistory);
+  }
+
   // Update the list for date change and ensure the list has exactly |length|
   // elements. The last entry in the list will be for the current day after
   // the update.
@@ -304,7 +299,14 @@ class DailyContentLengthUpdate {
     MaintainContentLengthPrefsWindow(update_, kNumDaysInHistory);
   }
 
+  // Non-owned. Lazily initialized, set to nullptr until initialized.
   base::ListValue* update_;
+  // Non-owned pointer.
+  DataReductionProxyCompressionStats* compression_stats_;
+  // The path of the content length pref for |this|.
+  const char* pref_path_;
+
+  DISALLOW_COPY_AND_ASSIGN(DailyContentLengthUpdate);
 };
 
 // DailyDataSavingUpdate maintains a pair of data saving prefs, original_update_
@@ -312,38 +314,38 @@ class DailyContentLengthUpdate {
 // of daily total original content lengths for the past |kNumDaysInHistory|
 // days. pref_received is the corresponding list of the daily total received
 // content lengths.
-class DailyDataSavingUpdate {
+class DataReductionProxyCompressionStats::DailyDataSavingUpdate {
  public:
-  DailyDataSavingUpdate(base::ListValue* original,
-                        base::ListValue* received)
-      : original_(original),
-        received_(received) {}
+  DailyDataSavingUpdate(DataReductionProxyCompressionStats* compression_stats,
+                        const char* original_pref_path,
+                        const char* received_pref_path)
+      : original_(compression_stats, original_pref_path),
+        received_(compression_stats, received_pref_path) {}
 
-  void UpdateForDataChange(int days_since_last_update) {
-    original_.UpdateForDataChange(days_since_last_update);
-    received_.UpdateForDataChange(days_since_last_update);
+  void UpdateForDateChange(int days_since_last_update) {
+    original_.UpdateForDateChange(days_since_last_update);
+    received_.UpdateForDateChange(days_since_last_update);
   }
 
   // Update the lengths for the current day.
-  void Add(int64 original_content_length, int64 received_content_length) {
+  void Add(int64_t original_content_length, int64_t received_content_length) {
     original_.Add(original_content_length);
     received_.Add(received_content_length);
   }
 
-  int64 GetOriginalListPrefValue(size_t index) {
+  int64_t GetOriginalListPrefValue(size_t index) {
     return original_.GetListPrefValue(index);
   }
-  int64 GetReceivedListPrefValue(size_t index) {
+  int64_t GetReceivedListPrefValue(size_t index) {
     return received_.GetListPrefValue(index);
   }
 
  private:
   DailyContentLengthUpdate original_;
   DailyContentLengthUpdate received_;
-};
 
-// Report UMA metrics for daily data reductions.
-}  // namespace
+  DISALLOW_COPY_AND_ASSIGN(DailyDataSavingUpdate);
+};
 
 DataReductionProxyCompressionStats::DataReductionProxyCompressionStats(
     DataReductionProxyService* service,
@@ -352,7 +354,6 @@ DataReductionProxyCompressionStats::DataReductionProxyCompressionStats(
     : service_(service),
       pref_service_(prefs),
       delay_(delay),
-      pref_change_registrar_(new PrefChangeRegistrar()),
       data_usage_map_is_dirty_(false),
       current_data_usage_load_status_(NOT_LOADED),
       weak_factory_(this) {
@@ -371,7 +372,7 @@ DataReductionProxyCompressionStats::~DataReductionProxyCompressionStats() {
   net::NetworkChangeNotifier::RemoveConnectionTypeObserver(this);
 
   WritePrefs();
-  pref_change_registrar_->RemoveAll();
+  pref_change_registrar_.RemoveAll();
 }
 
 void DataReductionProxyCompressionStats::Init() {
@@ -396,7 +397,7 @@ void DataReductionProxyCompressionStats::Init() {
   if (delay_ == base::TimeDelta())
     return;
 
-  // Init all int64 prefs.
+  // Init all int64_t prefs.
   InitInt64Pref(prefs::kDailyHttpContentLengthLastUpdateDate);
   InitInt64Pref(prefs::kHttpReceivedContentLength);
   InitInt64Pref(prefs::kHttpOriginalContentLength);
@@ -447,8 +448,9 @@ void DataReductionProxyCompressionStats::Init() {
     ClearDataSavingStatistics();
   }
 
-  pref_change_registrar_->Init(pref_service_);
-  pref_change_registrar_->Add(prefs::kUpdateDailyReceivedContentLengths,
+  pref_change_registrar_.Init(pref_service_);
+  pref_change_registrar_.Add(
+      prefs::kUpdateDailyReceivedContentLengths,
       base::Bind(&DataReductionProxyCompressionStats::OnUpdateContentLengths,
                  weak_factory_.GetWeakPtr()));
 }
@@ -463,8 +465,8 @@ void DataReductionProxyCompressionStats::OnUpdateContentLengths() {
 }
 
 void DataReductionProxyCompressionStats::UpdateContentLengths(
-    int64 data_used,
-    int64 original_size,
+    int64_t data_used,
+    int64_t original_size,
     bool data_reduction_proxy_enabled,
     DataReductionProxyRequestType request_type,
     const std::string& data_usage_host,
@@ -472,16 +474,11 @@ void DataReductionProxyCompressionStats::UpdateContentLengths(
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("loader",
                "DataReductionProxyCompressionStats::UpdateContentLengths")
-  int64 total_received = GetInt64(
-      data_reduction_proxy::prefs::kHttpReceivedContentLength);
-  int64 total_original = GetInt64(
-      data_reduction_proxy::prefs::kHttpOriginalContentLength);
-  total_received += data_used;
-  total_original += original_size;
-  SetInt64(data_reduction_proxy::prefs::kHttpReceivedContentLength,
-           total_received);
-  SetInt64(data_reduction_proxy::prefs::kHttpOriginalContentLength,
-           total_original);
+
+  IncreaseInt64Pref(data_reduction_proxy::prefs::kHttpReceivedContentLength,
+                    data_used);
+  IncreaseInt64Pref(data_reduction_proxy::prefs::kHttpOriginalContentLength,
+                    original_size);
 
   RecordDataUsage(data_usage_host, data_used, original_size, base::Time::Now());
   RecordRequestSizePrefs(data_used, original_size, data_reduction_proxy_enabled,
@@ -489,17 +486,17 @@ void DataReductionProxyCompressionStats::UpdateContentLengths(
 }
 
 void DataReductionProxyCompressionStats::InitInt64Pref(const char* pref) {
-  int64 pref_value = pref_service_->GetInt64(pref);
+  int64_t pref_value = pref_service_->GetInt64(pref);
   pref_map_[pref] = pref_value;
 }
 
 void DataReductionProxyCompressionStats::InitListPref(const char* pref) {
   scoped_ptr<base::ListValue> pref_value = scoped_ptr<base::ListValue>(
       pref_service_->GetList(pref)->DeepCopy());
-  list_pref_map_.add(pref, pref_value.Pass());
+  list_pref_map_.add(pref, std::move(pref_value));
 }
 
-int64 DataReductionProxyCompressionStats::GetInt64(const char* pref_path) {
+int64_t DataReductionProxyCompressionStats::GetInt64(const char* pref_path) {
   if (delay_ == base::TimeDelta())
     return pref_service_->GetInt64(pref_path);
 
@@ -508,7 +505,7 @@ int64 DataReductionProxyCompressionStats::GetInt64(const char* pref_path) {
 }
 
 void DataReductionProxyCompressionStats::SetInt64(const char* pref_path,
-                                                  int64 pref_value) {
+                                                  int64_t pref_value) {
   if (delay_ == base::TimeDelta()) {
     pref_service_->SetInt64(pref_path, pref_value);
     return;
@@ -518,10 +515,10 @@ void DataReductionProxyCompressionStats::SetInt64(const char* pref_path,
   pref_map_[pref_path] = pref_value;
 }
 
-void DataReductionProxyCompressionStats::IncrementInt64Pref(
+void DataReductionProxyCompressionStats::IncreaseInt64Pref(
     const char* pref_path,
-    int64_t pref_increment) {
-  SetInt64(pref_path, GetInt64(pref_path) + pref_increment);
+    int64_t delta) {
+  SetInt64(pref_path, GetInt64(pref_path) + delta);
 }
 
 base::ListValue* DataReductionProxyCompressionStats::GetList(
@@ -553,8 +550,8 @@ void DataReductionProxyCompressionStats::WritePrefs() {
 base::Value*
 DataReductionProxyCompressionStats::HistoricNetworkStatsInfoToValue() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  int64 total_received = GetInt64(prefs::kHttpReceivedContentLength);
-  int64 total_original = GetInt64(prefs::kHttpOriginalContentLength);
+  int64_t total_received = GetInt64(prefs::kHttpReceivedContentLength);
+  int64_t total_original = GetInt64(prefs::kHttpOriginalContentLength);
 
   base::DictionaryValue* dict = new base::DictionaryValue();
   // Use strings to avoid overflow. base::Value only supports 32-bit integers.
@@ -565,11 +562,11 @@ DataReductionProxyCompressionStats::HistoricNetworkStatsInfoToValue() {
   return dict;
 }
 
-int64 DataReductionProxyCompressionStats::GetLastUpdateTime() {
-  int64 last_update_internal = GetInt64(
-      prefs::kDailyHttpContentLengthLastUpdateDate);
+int64_t DataReductionProxyCompressionStats::GetLastUpdateTime() {
+  int64_t last_update_internal =
+      GetInt64(prefs::kDailyHttpContentLengthLastUpdateDate);
   base::Time last_update = base::Time::FromInternalValue(last_update_internal);
-  return static_cast<int64>(last_update.ToJsTime());
+  return static_cast<int64_t>(last_update.ToJsTime());
 }
 
 void DataReductionProxyCompressionStats::ResetStatistics() {
@@ -598,9 +595,9 @@ ContentLengthList DataReductionProxyCompressionStats::GetDailyContentLengths(
 
 void DataReductionProxyCompressionStats::GetContentLengths(
     unsigned int days,
-    int64* original_content_length,
-    int64* received_content_length,
-    int64* last_update_time) {
+    int64_t* original_content_length,
+    int64_t* received_content_length,
+    int64_t* last_update_time) {
   DCHECK_LE(days, kNumDaysInHistory);
 
   const base::ListValue* original_list =
@@ -616,8 +613,8 @@ void DataReductionProxyCompressionStats::GetContentLengths(
     return;
   }
 
-  int64 orig = 0L;
-  int64 recv = 0L;
+  int64_t orig = 0L;
+  int64_t recv = 0L;
   // Include days from the end of the list going backwards.
   for (size_t i = kNumDaysInHistory - days;
        i < kNumDaysInHistory; ++i) {
@@ -674,8 +671,8 @@ void DataReductionProxyCompressionStats::OnCurrentDataUsageLoaded(
   // requiring a data migration.
   DCHECK(data_usage->connection_usage_size() == 0 ||
          data_usage->connection_usage_size() == 1);
-  for (auto connection_usage : data_usage->connection_usage()) {
-    for (auto site_usage : connection_usage.site_usage()) {
+  for (const auto& connection_usage : data_usage->connection_usage()) {
+    for (const auto& site_usage : connection_usage.site_usage()) {
       data_usage_map_.set(site_usage.hostname(),
                           make_scoped_ptr(new PerSiteDataUsage(site_usage)));
     }
@@ -726,30 +723,12 @@ void DataReductionProxyCompressionStats::TransferList(
     const base::ListValue& from_list,
     base::ListValue* to_list) {
   to_list->Clear();
-  for (size_t i = 0; i < from_list.GetSize(); ++i) {
-    to_list->Set(i, new base::StringValue(base::Int64ToString(
-        GetListPrefInt64Value(from_list, i))));
-  }
-}
-
-int64 DataReductionProxyCompressionStats::GetListPrefInt64Value(
-    const base::ListValue& list,
-    size_t index) {
-  std::string string_value;
-  if (!list.GetString(index, &string_value)) {
-    NOTREACHED();
-    return 0;
-  }
-
-  int64 value = 0;
-  bool rv = base::StringToInt64(string_value, &value);
-  DCHECK(rv);
-  return value;
+  from_list.CreateDeepCopy()->Swap(to_list);
 }
 
 void DataReductionProxyCompressionStats::RecordRequestSizePrefs(
-    int64 data_used,
-    int64 original_size,
+    int64_t data_used,
+    int64_t original_size,
     bool with_data_reduction_proxy_enabled,
     DataReductionProxyRequestType request_type,
     const std::string& mime_type,
@@ -766,7 +745,7 @@ void DataReductionProxyCompressionStats::RecordRequestSizePrefs(
   }
 
   // Determine how many days it has been since the last update.
-  int64 then_internal = GetInt64(
+  int64_t then_internal = GetInt64(
       data_reduction_proxy::prefs::kDailyHttpContentLengthLastUpdateDate);
 
   // Local midnight could have been shifted due to time zone change.
@@ -779,36 +758,29 @@ void DataReductionProxyCompressionStats::RecordRequestSizePrefs(
   base::Time midnight = now.LocalMidnight();
 
   DailyDataSavingUpdate total(
-      GetList(data_reduction_proxy::prefs::kDailyHttpOriginalContentLength),
-      GetList(data_reduction_proxy::prefs::kDailyHttpReceivedContentLength));
-
+      this, data_reduction_proxy::prefs::kDailyHttpOriginalContentLength,
+      data_reduction_proxy::prefs::kDailyHttpReceivedContentLength);
   DailyDataSavingUpdate proxy_enabled(
-      GetList(data_reduction_proxy::prefs::
-          kDailyOriginalContentLengthWithDataReductionProxyEnabled),
-      GetList(data_reduction_proxy::prefs::
-          kDailyContentLengthWithDataReductionProxyEnabled));
-
+      this, data_reduction_proxy::prefs::
+                kDailyOriginalContentLengthWithDataReductionProxyEnabled,
+      data_reduction_proxy::prefs::
+          kDailyContentLengthWithDataReductionProxyEnabled);
   DailyDataSavingUpdate via_proxy(
-      GetList(data_reduction_proxy::prefs::
-                  kDailyOriginalContentLengthViaDataReductionProxy),
-      GetList(data_reduction_proxy::prefs::
-                  kDailyContentLengthViaDataReductionProxy));
-
+      this, data_reduction_proxy::prefs::
+                kDailyOriginalContentLengthViaDataReductionProxy,
+      data_reduction_proxy::prefs::kDailyContentLengthViaDataReductionProxy);
   DailyContentLengthUpdate https(
-      GetList(data_reduction_proxy::prefs::
-                  kDailyContentLengthHttpsWithDataReductionProxyEnabled));
-
+      this, data_reduction_proxy::prefs::
+                kDailyContentLengthHttpsWithDataReductionProxyEnabled);
   DailyContentLengthUpdate short_bypass(
-      GetList(data_reduction_proxy::prefs::
-                  kDailyContentLengthShortBypassWithDataReductionProxyEnabled));
-
+      this, data_reduction_proxy::prefs::
+                kDailyContentLengthShortBypassWithDataReductionProxyEnabled);
   DailyContentLengthUpdate long_bypass(
-      GetList(data_reduction_proxy::prefs::
-                  kDailyContentLengthLongBypassWithDataReductionProxyEnabled));
-
+      this, data_reduction_proxy::prefs::
+                kDailyContentLengthLongBypassWithDataReductionProxyEnabled);
   DailyContentLengthUpdate unknown(
-      GetList(data_reduction_proxy::prefs::
-                  kDailyContentLengthUnknownWithDataReductionProxyEnabled));
+      this, data_reduction_proxy::prefs::
+                kDailyContentLengthUnknownWithDataReductionProxyEnabled);
 
   int days_since_last_update = (midnight - then_midnight).InDays();
   if (days_since_last_update) {
@@ -985,13 +957,14 @@ void DataReductionProxyCompressionStats::RecordRequestSizePrefs(
                0);
     }
   }
-  total.UpdateForDataChange(days_since_last_update);
-  proxy_enabled.UpdateForDataChange(days_since_last_update);
-  via_proxy.UpdateForDataChange(days_since_last_update);
-  https.UpdateForDataChange(days_since_last_update);
-  short_bypass.UpdateForDataChange(days_since_last_update);
-  long_bypass.UpdateForDataChange(days_since_last_update);
-  unknown.UpdateForDataChange(days_since_last_update);
+
+  total.UpdateForDateChange(days_since_last_update);
+  proxy_enabled.UpdateForDateChange(days_since_last_update);
+  via_proxy.UpdateForDateChange(days_since_last_update);
+  https.UpdateForDateChange(days_since_last_update);
+  short_bypass.UpdateForDateChange(days_since_last_update);
+  long_bypass.UpdateForDateChange(days_since_last_update);
+  unknown.UpdateForDateChange(days_since_last_update);
 
   total.Add(original_size, data_used);
   if (with_data_reduction_proxy_enabled) {
@@ -1082,31 +1055,31 @@ void DataReductionProxyCompressionStats::IncrementDailyUmaPrefs(
     bool via_data_reduction_proxy,
     const char* original_size_via_proxy_pref,
     const char* received_size_via_proxy_pref) {
-  IncrementInt64Pref(original_size_pref, original_size);
-  IncrementInt64Pref(received_size_pref, received_size);
+  IncreaseInt64Pref(original_size_pref, original_size);
+  IncreaseInt64Pref(received_size_pref, received_size);
 
   if (data_reduction_proxy_enabled) {
-    IncrementInt64Pref(original_size_with_proxy_enabled_pref, original_size);
-    IncrementInt64Pref(recevied_size_with_proxy_enabled_pref, received_size);
+    IncreaseInt64Pref(original_size_with_proxy_enabled_pref, original_size);
+    IncreaseInt64Pref(recevied_size_with_proxy_enabled_pref, received_size);
   }
 
   if (via_data_reduction_proxy) {
-    IncrementInt64Pref(original_size_via_proxy_pref, original_size);
-    IncrementInt64Pref(received_size_via_proxy_pref, received_size);
+    IncreaseInt64Pref(original_size_via_proxy_pref, original_size);
+    IncreaseInt64Pref(received_size_via_proxy_pref, received_size);
   }
 }
 
 void DataReductionProxyCompressionStats::RecordUserVisibleDataSavings() {
-  int64 original_content_length;
-  int64 received_content_length;
-  int64 last_update_internal;
+  int64_t original_content_length;
+  int64_t received_content_length;
+  int64_t last_update_internal;
   GetContentLengths(kNumDaysInHistorySummary, &original_content_length,
                     &received_content_length, &last_update_internal);
 
   if (original_content_length == 0)
     return;
 
-  int64 user_visible_savings_bytes =
+  int64_t user_visible_savings_bytes =
       original_content_length - received_content_length;
   int user_visible_savings_percent =
       user_visible_savings_bytes * 100 / original_content_length;
@@ -1120,8 +1093,8 @@ void DataReductionProxyCompressionStats::RecordUserVisibleDataSavings() {
 
 void DataReductionProxyCompressionStats::RecordDataUsage(
     const std::string& data_usage_host,
-    int64 data_used,
-    int64 original_size,
+    int64_t data_used,
+    int64_t original_size,
     const base::Time& time) {
   if (current_data_usage_load_status_ != LOADED)
     return;
@@ -1161,7 +1134,7 @@ void DataReductionProxyCompressionStats::PersistDataUsage() {
         PerSiteDataUsage* per_site_usage = connection_usage->add_site_usage();
         per_site_usage->CopyFrom(*(i->second));
     }
-    service_->StoreCurrentDataUsageBucket(data_usage_bucket.Pass());
+    service_->StoreCurrentDataUsageBucket(std::move(data_usage_bucket));
   }
 
   data_usage_map_is_dirty_ = false;
@@ -1207,7 +1180,7 @@ void DataReductionProxyCompressionStats::GetHistoricalDataUsageImpl(
     // Force the last bucket to be for the current interval.
     scoped_ptr<DataUsageBucket> data_usage_bucket(new DataUsageBucket());
     data_usage_bucket->set_last_updated_timestamp(now.ToInternalValue());
-    service_->StoreCurrentDataUsageBucket(data_usage_bucket.Pass());
+    service_->StoreCurrentDataUsageBucket(std::move(data_usage_bucket));
   }
 
   service_->LoadHistoricalDataUsage(get_data_usage_callback);

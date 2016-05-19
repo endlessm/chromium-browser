@@ -4,8 +4,12 @@
 
 #include "content/browser/cache_storage/cache_storage_dispatcher_host.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
@@ -23,7 +27,7 @@ namespace content {
 
 namespace {
 
-const uint32 kFilteredMessageClasses[] = {CacheStorageMsgStart};
+const uint32_t kFilteredMessageClasses[] = {CacheStorageMsgStart};
 
 blink::WebServiceWorkerCacheError ToWebServiceWorkerCacheError(
     CacheStorageError err) {
@@ -39,6 +43,10 @@ blink::WebServiceWorkerCacheError ToWebServiceWorkerCacheError(
       return blink::WebServiceWorkerCacheErrorNotFound;
     case CACHE_STORAGE_ERROR_NOT_FOUND:
       return blink::WebServiceWorkerCacheErrorNotFound;
+    case CACHE_STORAGE_ERROR_QUOTA_EXCEEDED:
+      return blink::WebServiceWorkerCacheErrorQuotaExceeded;
+    case CACHE_STORAGE_ERROR_CACHE_NAME_NOT_FOUND:
+      return blink::WebServiceWorkerCacheErrorCacheNameNotFound;
   }
   NOTREACHED();
   return blink::WebServiceWorkerCacheErrorNotImplemented;
@@ -187,13 +195,14 @@ void CacheStorageDispatcherHost::OnCacheStorageMatch(
 
   if (match_params.cache_name.empty()) {
     context_->cache_manager()->MatchAllCaches(
-        origin, scoped_request.Pass(),
+        origin, std::move(scoped_request),
         base::Bind(&CacheStorageDispatcherHost::OnCacheStorageMatchCallback,
                    this, thread_id, request_id));
     return;
   }
   context_->cache_manager()->MatchCache(
-      origin, base::UTF16ToUTF8(match_params.cache_name), scoped_request.Pass(),
+      origin, base::UTF16ToUTF8(match_params.cache_name),
+      std::move(scoped_request),
       base::Bind(&CacheStorageDispatcherHost::OnCacheStorageMatchCallback, this,
                  thread_id, request_id));
 }
@@ -216,7 +225,7 @@ void CacheStorageDispatcherHost::OnCacheMatch(
       new ServiceWorkerFetchRequest(request.url, request.method,
                                     request.headers, request.referrer,
                                     request.is_reload));
-  cache->Match(scoped_request.Pass(),
+  cache->Match(std::move(scoped_request),
                base::Bind(&CacheStorageDispatcherHost::OnCacheMatchCallback,
                           this, thread_id, request_id, cache));
 }
@@ -237,6 +246,7 @@ void CacheStorageDispatcherHost::OnCacheMatchAll(
   scoped_refptr<CacheStorageCache> cache = it->second;
   if (request.url.is_empty()) {
     cache->MatchAll(
+        scoped_ptr<ServiceWorkerFetchRequest>(), match_params,
         base::Bind(&CacheStorageDispatcherHost::OnCacheMatchAllCallback, this,
                    thread_id, request_id, cache));
     return;
@@ -246,8 +256,15 @@ void CacheStorageDispatcherHost::OnCacheMatchAll(
       new ServiceWorkerFetchRequest(request.url, request.method,
                                     request.headers, request.referrer,
                                     request.is_reload));
+  if (match_params.ignore_search) {
+    cache->MatchAll(
+        std::move(scoped_request), match_params,
+        base::Bind(&CacheStorageDispatcherHost::OnCacheMatchAllCallback, this,
+                   thread_id, request_id, cache));
+    return;
+  }
   cache->Match(
-      scoped_request.Pass(),
+      std::move(scoped_request),
       base::Bind(&CacheStorageDispatcherHost::OnCacheMatchAllCallbackAdapter,
                  this, thread_id, request_id, cache));
 }
@@ -416,8 +433,8 @@ void CacheStorageDispatcherHost::OnCacheMatchAllCallbackAdapter(
     if (blob_data_handle)
       blob_data_handles->push_back(*blob_data_handle);
   }
-  OnCacheMatchAllCallback(thread_id, request_id, cache, error, responses.Pass(),
-                          blob_data_handles.Pass());
+  OnCacheMatchAllCallback(thread_id, request_id, cache, error,
+                          std::move(responses), std::move(blob_data_handles));
 }
 
 void CacheStorageDispatcherHost::OnCacheMatchAllCallback(

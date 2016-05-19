@@ -4,6 +4,7 @@
 
 package org.chromium.net;
 
+import android.content.Context;
 import android.os.Build;
 import android.os.ConditionVariable;
 import android.os.Handler;
@@ -24,6 +25,7 @@ import java.net.Proxy;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLStreamHandlerFactory;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -69,11 +71,16 @@ class CronetUrlRequestContext extends CronetEngine {
     private final ObserverList<NetworkQualityThroughputListener> mThroughputListenerList =
             new ObserverList<NetworkQualityThroughputListener>();
 
+    @GuardedBy("mNetworkQualityLock")
+    private final ObserverList<RequestFinishedListener> mFinishedListenerList =
+            new ObserverList<RequestFinishedListener>();
+
     @UsedByReflection("CronetEngine.java")
     public CronetUrlRequestContext(CronetEngine.Builder builder) {
         CronetLibraryLoader.ensureInitialized(builder.getContext(), builder);
         nativeSetMinLogLevel(getLoggingLevel());
-        mUrlRequestContextAdapter = nativeCreateRequestContextAdapter(builder.toJSONString());
+        mUrlRequestContextAdapter = nativeCreateRequestContextAdapter(
+                createNativeUrlRequestContextConfig(builder.getContext(), builder));
         if (mUrlRequestContextAdapter == 0) {
             throw new NullPointerException("Context Adapter creation failed.");
         }
@@ -98,29 +105,52 @@ class CronetUrlRequestContext extends CronetEngine {
         }
     }
 
-    @Override
-    public UrlRequest createRequest(String url, UrlRequest.Callback callback, Executor executor) {
-        synchronized (mLock) {
-            checkHaveAdapter();
-            return new CronetUrlRequest(this, mUrlRequestContextAdapter, url,
-                    UrlRequest.Builder.REQUEST_PRIORITY_MEDIUM, callback, executor);
+    static long createNativeUrlRequestContextConfig(
+            final Context context, CronetEngine.Builder builder) {
+        final long urlRequestContextConfig = nativeCreateRequestContextConfig(
+                builder.getUserAgent(), builder.storagePath(), builder.quicEnabled(),
+                builder.getDefaultQuicUserAgentId(context), builder.http2Enabled(),
+                builder.sdchEnabled(), builder.dataReductionProxyKey(),
+                builder.dataReductionProxyPrimaryProxy(), builder.dataReductionProxyFallbackProxy(),
+                builder.dataReductionProxySecureProxyCheckUrl(), builder.cacheDisabled(),
+                builder.httpCacheMode(), builder.httpCacheMaxSize(), builder.experimentalOptions(),
+                builder.mockCertVerifier());
+        for (Builder.QuicHint quicHint : builder.quicHints()) {
+            nativeAddQuicHint(urlRequestContextConfig, quicHint.mHost, quicHint.mPort,
+                    quicHint.mAlternatePort);
         }
+        for (Builder.Pkp pkp : builder.publicKeyPins()) {
+            nativeAddPkp(urlRequestContextConfig, pkp.mHost, pkp.mHashes, pkp.mIncludeSubdomains,
+                    pkp.mExpirationDate.getTime());
+        }
+        return urlRequestContextConfig;
     }
 
     @Override
-    public UrlRequest createRequest(
-            String url, UrlRequest.Callback callback, Executor executor, int priority) {
+    public UrlRequest createRequest(String url, UrlRequest.Callback callback, Executor executor,
+            int priority, Collection<Object> requestAnnotations) {
         synchronized (mLock) {
             checkHaveAdapter();
-            return new CronetUrlRequest(
-                    this, mUrlRequestContextAdapter, url, priority, callback, executor);
+            boolean metricsCollectionEnabled = mNetworkQualityEstimatorEnabled;
+            if (metricsCollectionEnabled) { // Collect metrics only if someone is listening.
+                synchronized (mNetworkQualityLock) {
+                    metricsCollectionEnabled = !mFinishedListenerList.isEmpty();
+                }
+            }
+            return new CronetUrlRequest(this, url, priority, callback, executor, requestAnnotations,
+                    metricsCollectionEnabled);
         }
     }
 
     @Override
     BidirectionalStream createBidirectionalStream(String url, BidirectionalStream.Callback callback,
-            Executor executor, String httpMethod, List<Map.Entry<String, String>> requestHeaders) {
-        throw new UnsupportedOperationException();
+            Executor executor, String httpMethod, List<Map.Entry<String, String>> requestHeaders,
+            @BidirectionalStream.Builder.StreamPriority int priority) {
+        synchronized (mLock) {
+            checkHaveAdapter();
+            return new CronetBidirectionalStream(
+                    this, url, priority, callback, executor, httpMethod, requestHeaders);
+        }
     }
 
     @Override
@@ -275,6 +305,26 @@ class CronetUrlRequestContext extends CronetEngine {
     }
 
     @Override
+    public void addRequestFinishedListener(RequestFinishedListener listener) {
+        if (!mNetworkQualityEstimatorEnabled) {
+            throw new IllegalStateException("Network quality estimator must be enabled");
+        }
+        synchronized (mNetworkQualityLock) {
+            mFinishedListenerList.addObserver(listener);
+        }
+    }
+
+    @Override
+    public void removeRequestFinishedListener(RequestFinishedListener listener) {
+        if (!mNetworkQualityEstimatorEnabled) {
+            throw new IllegalStateException("Network quality estimator must be enabled");
+        }
+        synchronized (mNetworkQualityLock) {
+            mFinishedListenerList.removeObserver(listener);
+        }
+    }
+
+    @Override
     public URLConnection openConnection(URL url) {
         return openConnection(url, Proxy.NO_PROXY);
     }
@@ -300,15 +350,15 @@ class CronetUrlRequestContext extends CronetEngine {
      * Mark request as started to prevent shutdown when there are active
      * requests.
      */
-    void onRequestStarted(UrlRequest urlRequest) {
+    void onRequestStarted() {
         mActiveRequestCount.incrementAndGet();
     }
 
     /**
-     * Mark request as completed to allow shutdown when there are no active
+     * Mark request as finished to allow shutdown when there are no active
      * requests.
      */
-    void onRequestDestroyed(UrlRequest urlRequest) {
+    void onRequestDestroyed() {
         mActiveRequestCount.decrementAndGet();
     }
 
@@ -390,6 +440,23 @@ class CronetUrlRequestContext extends CronetEngine {
         postObservationTaskToNetworkQualityExecutor(task);
     }
 
+    void reportFinished(final CronetUrlRequest request) {
+        if (mNetworkQualityEstimatorEnabled) {
+            Runnable task = new Runnable() {
+                @Override
+                public void run() {
+                    synchronized (mNetworkQualityLock) {
+                        UrlRequestInfo requestInfo = request.getRequestInfo();
+                        for (RequestFinishedListener listener : mFinishedListenerList) {
+                            listener.onRequestFinished(requestInfo);
+                        }
+                    }
+                }
+            };
+            postObservationTaskToNetworkQualityExecutor(task);
+        }
+    }
+
     void postObservationTaskToNetworkQualityExecutor(Runnable task) {
         try {
             mNetworkQualityExecutor.execute(task);
@@ -400,7 +467,20 @@ class CronetUrlRequestContext extends CronetEngine {
     }
 
     // Native methods are implemented in cronet_url_request_context_adapter.cc.
-    private static native long nativeCreateRequestContextAdapter(String config);
+    private static native long nativeCreateRequestContextConfig(String userAgent,
+            String storagePath, boolean quicEnabled, String quicUserAgentId, boolean http2Enabled,
+            boolean sdchEnabled, String dataReductionProxyKey,
+            String dataReductionProxyPrimaryProxy, String dataReductionProxyFallbackProxy,
+            String dataReductionProxySecureProxyCheckUrl, boolean disableCache, int httpCacheMode,
+            long httpCacheMaxSize, String experimentalOptions, long mockCertVerifier);
+
+    private static native void nativeAddQuicHint(
+            long urlRequestContextConfig, String host, int port, int alternatePort);
+
+    private static native void nativeAddPkp(long urlRequestContextConfig, String host,
+            byte[][] hashes, boolean includeSubdomains, long expirationTime);
+
+    private static native long nativeCreateRequestContextAdapter(long urlRequestContextConfig);
 
     private static native int nativeSetMinLogLevel(int loggingLevel);
 

@@ -26,7 +26,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/resolver/MatchedPropertiesCache.h"
 
 #include "core/css/StylePropertySet.h"
@@ -107,6 +106,12 @@ void MatchedPropertiesCache::add(const ComputedStyle& style, const ComputedStyle
 
 void MatchedPropertiesCache::clear()
 {
+    // MatchedPropertiesCache must be cleared promptly because some
+    // destructors in the properties (e.g., ~FontFallbackList) expect that
+    // the destructors are called promptly without relying on a GC timing.
+    for (auto& cacheEntry : m_cache) {
+        cacheEntry.value->clear();
+    }
     m_cache.clear();
 }
 
@@ -154,6 +159,8 @@ bool MatchedPropertiesCache::isCacheable(const ComputedStyle& style, const Compu
     // The cache assumes static knowledge about which properties are inherited.
     if (parentStyle.hasExplicitlyInheritedProperties())
         return false;
+    if (style.hasVariableReferenceFromNonInheritedProperty())
+        return false;
     return true;
 }
 
@@ -164,4 +171,4 @@ DEFINE_TRACE(MatchedPropertiesCache)
 #endif
 }
 
-}
+} // namespace blink

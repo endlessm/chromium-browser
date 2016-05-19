@@ -17,7 +17,6 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.document.DocumentModeTestBase;
-import org.chromium.chrome.browser.document.DocumentTab;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.document.DocumentTabModelSelector;
 import org.chromium.chrome.test.util.ChromeTabUtils;
@@ -43,12 +42,12 @@ public class BindingManagerInDocumentModeIntegrationTest extends DocumentModeTes
 
         void assertIsInForeground(final int pid) {
             try {
-                assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+                CriteriaHelper.pollForCriteria(new Criteria() {
                     @Override
                     public boolean isSatisfied() {
                         return mProcessInForegroundMap.get(pid);
                     }
-                }));
+                });
             } catch (InterruptedException ie) {
                 fail();
             }
@@ -56,12 +55,12 @@ public class BindingManagerInDocumentModeIntegrationTest extends DocumentModeTes
 
         void assertIsInBackground(final int pid) {
             try {
-                assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+                CriteriaHelper.pollForCriteria(new Criteria() {
                     @Override
                     public boolean isSatisfied() {
                         return !mProcessInForegroundMap.get(pid);
                     }
-                }));
+                });
             } catch (InterruptedException ie) {
                 fail();
             }
@@ -69,12 +68,12 @@ public class BindingManagerInDocumentModeIntegrationTest extends DocumentModeTes
 
         void assertSetInForegroundWasCalled(String message, final int pid) {
             try {
-                assertTrue(message, CriteriaHelper.pollForCriteria(new Criteria() {
+                CriteriaHelper.pollForCriteria(new Criteria(message) {
                     @Override
                     public boolean isSatisfied() {
                         return mProcessInForegroundMap.indexOfKey(pid) >= 0;
                     }
-                }));
+                });
             } catch (InterruptedException ie) {
                 fail();
             }
@@ -82,12 +81,12 @@ public class BindingManagerInDocumentModeIntegrationTest extends DocumentModeTes
 
         void assertIsReleaseAllModerateBindingsCalled() {
             try {
-                assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+                CriteriaHelper.pollForCriteria(new Criteria() {
                     @Override
                     public boolean isSatisfied() {
                         return mIsReleaseAllModerateBindingsCalled;
                     }
-                }));
+                });
             } catch (InterruptedException ie) {
                 fail();
             }
@@ -194,7 +193,7 @@ public class BindingManagerInDocumentModeIntegrationTest extends DocumentModeTes
             }
         });
 
-        switchToTab((DocumentTab) tabs[1]);
+        switchToTab(tabs[1]);
 
         // Verify that the renderer visibility was flipped.
         mBindingManager.assertIsInBackground(
@@ -218,13 +217,13 @@ public class BindingManagerInDocumentModeIntegrationTest extends DocumentModeTes
         assertTrue(ChildProcessLauncher.crashProcessForTesting(
                 tab.getContentViewCore().getCurrentRenderProcessId()));
 
-        assertTrue("Renderer crash wasn't noticed by the browser.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(
+                new Criteria("Renderer crash wasn't noticed by the browser.") {
                     @Override
                     public boolean isSatisfied() {
                         return tab.getContentViewCore().getCurrentRenderProcessId() == 0;
                     }
-                }));
+                });
 
         // Reload the tab, respawning the renderer.
         getInstrumentation().runOnMainSync(new Runnable() {
@@ -235,13 +234,13 @@ public class BindingManagerInDocumentModeIntegrationTest extends DocumentModeTes
         });
 
         // Wait until the process is spawned and its visibility is determined.
-        assertTrue("Process for the crashed tab was not respawned.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(
+                new Criteria("Process for the crashed tab was not respawned.") {
                     @Override
                     public boolean isSatisfied() {
                         return tab.getContentViewCore().getCurrentRenderProcessId() != 0;
                     }
-                }));
+                });
 
         mBindingManager.assertSetInForegroundWasCalled(
                 "isInForeground() was not called for the process.",

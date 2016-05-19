@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/page/DOMWindowPagePopup.h"
 
 #include "core/frame/LocalDOMWindow.h"
@@ -74,4 +73,4 @@ DEFINE_TRACE(DOMWindowPagePopup)
     WillBeHeapSupplement<LocalDOMWindow>::trace(visitor);
 }
 
-}
+} // namespace blink

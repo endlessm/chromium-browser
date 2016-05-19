@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -9,12 +12,14 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/guid.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/autofill_type.h"
@@ -68,18 +73,10 @@ typedef std::set<AutofillEntry,
 typedef AutofillEntrySet::iterator AutofillEntrySetIterator;
 
 bool CompareAutofillEntries(const AutofillEntry& a, const AutofillEntry& b) {
-  int compVal = a.key().name().compare(b.key().name());
-  if (compVal != 0)
-    return compVal < 0;
-
-  compVal = a.key().value().compare(b.key().value());
-  if (compVal != 0)
-    return compVal < 0;
-
-  if (a.date_created() != b.date_created())
-    return a.date_created() < b.date_created();
-
-  return a.date_last_used() < b.date_last_used();
+  return std::tie(a.key().name(), a.key().value(),
+                  a.date_created(), a.date_last_used()) <
+         std::tie(b.key().name(), b.key().value(),
+                  b.date_created(), b.date_last_used());
 }
 
 AutofillEntry MakeAutofillEntry(const char* name,

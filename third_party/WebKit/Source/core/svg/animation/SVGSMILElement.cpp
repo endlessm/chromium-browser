@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/animation/SVGSMILElement.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -33,7 +32,7 @@
 #include "core/events/Event.h"
 #include "core/events/EventListener.h"
 #include "core/events/EventSender.h"
-#include "core/frame/UseCounter.h"
+#include "core/frame/Deprecation.h"
 #include "core/svg/SVGDocumentExtensions.h"
 #include "core/svg/SVGSVGElement.h"
 #include "core/svg/SVGURIReference.h"
@@ -43,6 +42,7 @@
 #include "wtf/MathExtras.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/Vector.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -81,26 +81,26 @@ inline RepeatEvent* toRepeatEvent(Event* event)
 
 static SMILEventSender& smilEndEventSender()
 {
-    DEFINE_STATIC_LOCAL(SMILEventSender, sender, (EventTypeNames::endEvent));
-    return sender;
+    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<SMILEventSender>, sender, (SMILEventSender::create(EventTypeNames::endEvent)));
+    return *sender;
 }
 
 static SMILEventSender& smilBeginEventSender()
 {
-    DEFINE_STATIC_LOCAL(SMILEventSender, sender, (EventTypeNames::beginEvent));
-    return sender;
+    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<SMILEventSender>, sender, (SMILEventSender::create(EventTypeNames::beginEvent)));
+    return *sender;
 }
 
 static SMILEventSender& smilRepeatEventSender()
 {
-    DEFINE_STATIC_LOCAL(SMILEventSender, sender, (EventTypeNames::repeatEvent));
-    return sender;
+    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<SMILEventSender>, sender, (SMILEventSender::create(EventTypeNames::repeatEvent)));
+    return *sender;
 }
 
 static SMILEventSender& smilRepeatNEventSender()
 {
-    DEFINE_STATIC_LOCAL(SMILEventSender, sender, (AtomicString("repeatn", AtomicString::ConstructFromLiteral)));
-    return sender;
+    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<SMILEventSender>, sender, (SMILEventSender::create(AtomicString("repeatn", AtomicString::ConstructFromLiteral))));
+    return *sender;
 }
 
 // This is used for duration type time values that can't be negative.
@@ -206,12 +206,10 @@ SVGSMILElement::~SVGSMILElement()
 {
 #if !ENABLE(OILPAN)
     clearResourceAndEventBaseReferences();
-#endif
     smilEndEventSender().cancelEvent(this);
     smilBeginEventSender().cancelEvent(this);
     smilRepeatEventSender().cancelEvent(this);
     smilRepeatNEventSender().cancelEvent(this);
-#if !ENABLE(OILPAN)
     clearConditions();
 
     unscheduleIfScheduled();
@@ -241,7 +239,7 @@ void SVGSMILElement::buildPendingResource()
     }
 
     AtomicString id;
-    AtomicString href = getAttribute(XLinkNames::hrefAttr);
+    const AtomicString& href = SVGURIReference::legacyHrefString(*this);
     Element* target;
     if (href.isEmpty())
         target = parentNode() && parentNode()->isElementNode() ? toElement(parentNode()) : nullptr;
@@ -289,7 +287,13 @@ static inline QualifiedName constructQualifiedName(const SVGElement* svgElement,
     if (namespaceURI.isEmpty())
         return anyQName();
 
-    return QualifiedName(nullAtom, localName, namespaceURI);
+    QualifiedName resolvedAttrName(nullAtom, localName, namespaceURI);
+    // "Animation elements treat attributeName='xlink:href' as being an alias
+    //  for targetting the 'href' attribute."
+    // https://svgwg.org/svg2-draft/types.html#__svg__SVGURIReference__href
+    if (resolvedAttrName == XLinkNames::hrefAttr)
+        return SVGNames::hrefAttr;
+    return resolvedAttrName;
 }
 
 static inline void clearTimesWithDynamicOrigins(Vector<SMILTimeWithOrigin>& timeList)
@@ -322,7 +326,7 @@ Node::InsertionNotificationRequest SVGSMILElement::insertedInto(ContainerNode* r
     if (!rootParent->inDocument())
         return InsertionDone;
 
-    UseCounter::countDeprecation(document(), UseCounter::SVGSMILElementInDocument);
+    Deprecation::countDeprecation(document(), UseCounter::SVGSMILElementInDocument);
 
     setAttributeName(constructQualifiedName(this, fastGetAttribute(SVGNames::attributeNameAttr)));
     SVGSVGElement* owner = ownerSVGElement();
@@ -515,7 +519,7 @@ void SVGSMILElement::parseBeginOrEnd(const String& parseString, BeginOrEnd begin
     sortTimeList(timeList);
 }
 
-void SVGSMILElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void SVGSMILElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (name == SVGNames::beginAttr) {
         if (!m_conditions.isEmpty()) {
@@ -540,25 +544,26 @@ void SVGSMILElement::parseAttribute(const QualifiedName& name, const AtomicStrin
     } else if (name == SVGNames::onrepeatAttr) {
         setAttributeEventListener(EventTypeNames::repeatEvent, createAttributeEventListener(this, name, value, eventParameterName()));
     } else {
-        SVGElement::parseAttribute(name, value);
+        SVGElement::parseAttribute(name, oldValue, value);
     }
 }
 
 void SVGSMILElement::svgAttributeChanged(const QualifiedName& attrName)
 {
-    if (attrName == SVGNames::durAttr)
+    if (attrName == SVGNames::durAttr) {
         m_cachedDur = invalidCachedTime;
-    else if (attrName == SVGNames::repeatDurAttr)
+    } else if (attrName == SVGNames::repeatDurAttr) {
         m_cachedRepeatDur = invalidCachedTime;
-    else if (attrName == SVGNames::repeatCountAttr)
+    } else if (attrName == SVGNames::repeatCountAttr) {
         m_cachedRepeatCount = invalidCachedTime;
-    else if (attrName == SVGNames::minAttr)
+    } else if (attrName == SVGNames::minAttr) {
         m_cachedMin = invalidCachedTime;
-    else if (attrName == SVGNames::maxAttr)
+    } else if (attrName == SVGNames::maxAttr) {
         m_cachedMax = invalidCachedTime;
-    else if (attrName == SVGNames::attributeNameAttr)
+    } else if (attrName == SVGNames::attributeNameAttr) {
         setAttributeName(constructQualifiedName(this, fastGetAttribute(SVGNames::attributeNameAttr)));
-    else if (attrName.matches(XLinkNames::hrefAttr)) {
+    } else if (attrName.matches(SVGNames::hrefAttr) || attrName.matches(XLinkNames::hrefAttr)) {
+        // TODO(fs): Could be smarter here when 'href' is specified and 'xlink:href' is changed.
         SVGElement::InvalidationGuard invalidationGuard(this);
         buildPendingResource();
         if (m_targetElement)

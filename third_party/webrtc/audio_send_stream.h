@@ -23,6 +23,11 @@
 
 namespace webrtc {
 
+// WORK IN PROGRESS
+// This class is under development and is not yet intended for for use outside
+// of WebRtc/Libjingle. Please use the VoiceEngine API instead.
+// See: https://bugs.chromium.org/p/webrtc/issues/detail?id=4690
+
 class AudioSendStream : public SendStream {
  public:
   struct Stats {
@@ -59,8 +64,11 @@ class AudioSendStream : public SendStream {
       // Sender SSRC.
       uint32_t ssrc = 0;
 
-      // RTP header extensions used for the received stream.
+      // RTP header extensions used for the sent stream.
       std::vector<RtpExtension> extensions;
+
+      // RTCP CNAME, see RFC 3550.
+      std::string c_name;
     } rtp;
 
     // Transport for outgoing packets. The transport is expected to exist for
@@ -81,6 +89,9 @@ class AudioSendStream : public SendStream {
     int red_payload_type = -1;  // pt, or -1 to disable REDundant coding.
   };
 
+  // TODO(solenberg): Make payload_type a config property instead.
+  virtual bool SendTelephoneEvent(int payload_type, uint8_t event,
+                                  uint32_t duration_ms) = 0;
   virtual Stats GetStats() const = 0;
 };
 }  // namespace webrtc

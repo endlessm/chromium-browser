@@ -31,7 +31,6 @@ component("android") {
     "ui_android_export.h",
     "ui_android_jni_registrar.cc",
     "ui_android_jni_registrar.h",
-    "view_android.cc",
     "view_android.h",
     "window_android.cc",
     "window_android.h",
@@ -43,12 +42,13 @@ component("android") {
   defines = [ "UI_ANDROID_IMPLEMENTATION" ]
 
   deps = [
+    ":java_enums_srcjar",
+    ":ui_android_jni_headers",
     "//base",
     "//cc",
     "//skia",
     "//ui/gfx",
     "//ui/gfx/geometry",
-    ":ui_android_jni_headers",
   ]
 }
 
@@ -143,10 +143,23 @@ android_library("ui_javatests") {
   DEPRECATED_java_in_dir = "javatests/src"
   testonly = true
   deps = [
-    ":ui_java_resources",
     ":ui_java",
+    ":ui_java_resources",
     "//base:base_java",
     "//base:base_java_test_support",
+  ]
+}
+
+# GYP: //ui/android/ui_android.gyp:ui_junit_tests
+junit_binary("ui_junit_tests") {
+  java_files = [
+    "junit/src/org/chromium/ui/picker/DateDialogNormalizerTest.java",
+    "junit/src/org/chromium/ui/text/SpanApplierTest.java",
+  ]
+  deps = [
+    "//base:base_java",
+    "//base:base_junit_test_support",
+    "//ui/android:ui_java",
   ]
 }
 
@@ -158,6 +171,8 @@ test("ui_android_unittests") {
   ]
   deps = [
     ":android",
+    ":java_enums_srcjar",
+    ":ui_java",
     "//base",
     "//base/test:test_support",
     "//cc",
@@ -169,5 +184,4 @@ test("ui_android_unittests") {
     "//ui/gfx",
     "//ui/resources:ui_test_pak",
   ]
-  apk_deps = [ ":ui_java" ]
 }

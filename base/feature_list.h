@@ -10,9 +10,10 @@
 #include <vector>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/strings/string_piece.h"
 #include "base/synchronization/lock.h"
 
 namespace base {
@@ -81,8 +82,10 @@ class BASE_EXPORT FeatureList {
   // Initializes feature overrides via command-line flags |enable_features| and
   // |disable_features|, each of which is a comma-separated list of features to
   // enable or disable, respectively. If a feature appears on both lists, then
-  // it will be disabled. Must only be invoked during the initialization phase
-  // (before FinalizeInitialization() has been called).
+  // it will be disabled. If a list entry has the format "FeatureName<TrialName"
+  // then this initialization will also associate the feature state override
+  // with the named field trial, if it exists. Must only be invoked during the
+  // initialization phase (before FinalizeInitialization() has been called).
   void InitializeFromCommandLine(const std::string& enable_features,
                                  const std::string& disable_features);
 
@@ -116,6 +119,16 @@ class BASE_EXPORT FeatureList {
   void RegisterFieldTrialOverride(const std::string& feature_name,
                                   OverrideState override_state,
                                   FieldTrial* field_trial);
+
+  // Returns comma-separated lists of feature names (in the same format that is
+  // accepted by InitializeFromCommandLine()) corresponding to features that
+  // have been overridden - either through command-line or via FieldTrials. For
+  // those features that have an associated FieldTrial, the output entry will be
+  // of the format "FeatureName<TrialName", where "TrialName" is the name of the
+  // FieldTrial. Must be called only after the instance has been initialized and
+  // registered.
+  void GetFeatureOverrides(std::string* enable_overrides,
+                           std::string* disable_overrides);
 
   // Returns whether the given |feature| is enabled. Must only be called after
   // the singleton instance has been registered via SetInstance(). Additionally,
@@ -178,6 +191,13 @@ class BASE_EXPORT FeatureList {
   // Requires the FeatureList to have already been fully initialized.
   bool IsFeatureEnabled(const Feature& feature);
 
+  // For each feature name in comma-separated list of strings |feature_list|,
+  // registers an override with the specified |overridden_state|. Also, will
+  // associate an optional named field trial if the entry is of the format
+  // "FeatureName<TrialName".
+  void RegisterOverridesFromCommandLine(const std::string& feature_list,
+                                        OverrideState overridden_state);
+
   // Registers an override for feature |feature_name|. The override specifies
   // whether the feature should be on or off (via |overridden_state|), which
   // will take precedence over the feature's default state. If |field_trial| is
@@ -185,7 +205,7 @@ class BASE_EXPORT FeatureList {
   // the feature, which will activate the field trial when the feature state is
   // queried. If an override is already registered for the given feature, it
   // will not be changed.
-  void RegisterOverride(const std::string& feature_name,
+  void RegisterOverride(StringPiece feature_name,
                         OverrideState overridden_state,
                         FieldTrial* field_trial);
 

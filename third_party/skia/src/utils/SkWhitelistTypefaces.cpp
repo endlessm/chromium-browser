@@ -184,7 +184,11 @@ void WhitelistSerializeTypeface(const SkTypeface* tf, SkWStream* wstream) {
 }
 
 SkTypeface* WhitelistDeserializeTypeface(SkStream* stream) {
-    SkFontDescriptor desc(stream);
+    SkFontDescriptor desc;
+    if (!SkFontDescriptor::Deserialize(stream, &desc)) {
+        return nullptr;
+    }
+
     SkFontData* data = desc.detachFontData();
     if (data) {
         SkTypeface* typeface = SkTypeface::CreateFromFontData(data);
@@ -247,7 +251,7 @@ const char checksumTrailer[] =
 #include "SkOSFile.h"
 
 bool GenerateChecksums() {
-    SkFILE* file = sk_fopen(checksumFileName, kWrite_SkFILE_Flag);
+    FILE* file = sk_fopen(checksumFileName, kWrite_SkFILE_Flag);
     if (!file) {
         SkDebugf("Can't open %s for writing.\n", checksumFileName);
         return false;

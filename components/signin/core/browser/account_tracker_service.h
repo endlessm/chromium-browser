@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "base/threading/non_thread_safe.h"
@@ -66,7 +67,9 @@ class AccountTrackerService : public KeyedService,
   enum AccountIdMigrationState {
     MIGRATION_NOT_STARTED,
     MIGRATION_IN_PROGRESS,
-    MIGRATION_DONE
+    MIGRATION_DONE,
+    // Keep in sync with OAuth2LoginAccountRevokedMigrationState histogram enum.
+    NUM_MIGRATION_STATES
   };
 
   AccountTrackerService();
@@ -106,7 +109,11 @@ class AccountTrackerService : public KeyedService,
   // value PickAccountIdForAccount() when given the same arguments.
   std::string SeedAccountInfo(const std::string& gaia,
                               const std::string& email);
-  void SeedAccountInfo(AccountInfo info);
+
+  // Seeds the account represented by |info|. If the account is already tracked
+  // and compatible, the empty fields will be updated with values from |info|.
+  // If after the update IsValid() is true, OnAccountUpdated will be fired.
+  std::string SeedAccountInfo(AccountInfo info);
 
   void RemoveAccount(const std::string& account_id);
 

@@ -6,7 +6,7 @@
 
 #include "core/include/fxge/fx_ge.h"
 
-#include "text_int.h"
+#include "core/src/fxge/ge/fx_text_int.h"
 
 static CFX_GEModule* g_pGEModule = NULL;
 CFX_GEModule::CFX_GEModule(const char** pUserFontPaths) {
@@ -41,7 +41,7 @@ void CFX_GEModule::Destroy() {
   g_pGEModule = NULL;
 }
 CFX_FontCache* CFX_GEModule::GetFontCache() {
-  if (m_pFontCache == NULL) {
+  if (!m_pFontCache) {
     m_pFontCache = new CFX_FontCache();
   }
   return m_pFontCache;

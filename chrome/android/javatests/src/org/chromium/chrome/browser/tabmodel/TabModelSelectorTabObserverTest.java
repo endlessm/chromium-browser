@@ -100,20 +100,10 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
             }
         };
         mNormalTabModel = new TabModelImpl(false, null, null, null, orderController,
-                tabContentManager, tabPersistentStore, delegate) {
-            @Override
-            public boolean supportsPendingClosures() {
-                return false;
-            }
-        };
+                tabContentManager, tabPersistentStore, delegate, false);
 
         mIncognitoTabModel = new TabModelImpl(true, null, null, null, orderController,
-                tabContentManager, tabPersistentStore, delegate) {
-            @Override
-            public boolean supportsPendingClosures() {
-                return false;
-            }
-        };
+                tabContentManager, tabPersistentStore, delegate, false);
 
         mSelector.initialize(false, mNormalTabModel, mIncognitoTabModel);
     }
@@ -122,7 +112,7 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
     @SmallTest
     public void testAddingTab() {
         TestTabModelSelectorTabObserver observer = new TestTabModelSelectorTabObserver();
-        TestTab tab = new TestTab(false);
+        Tab tab = createTestTab(false);
         assertTabDoesNotHaveObserver(tab, observer);
         mNormalTabModel.addTab(tab, 0, TabModel.TabLaunchType.FROM_LINK);
         assertTabHasObserver(tab, observer);
@@ -130,9 +120,9 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
 
     @UiThreadTest
     @SmallTest
-    public void testRemovingTab() {
+    public void testClosingTab() {
         TestTabModelSelectorTabObserver observer = new TestTabModelSelectorTabObserver();
-        TestTab tab = new TestTab(false);
+        Tab tab = createTestTab(false);
         mNormalTabModel.addTab(tab, 0, TabModel.TabLaunchType.FROM_LINK);
         assertTabHasObserver(tab, observer);
         mNormalTabModel.closeTab(tab);
@@ -141,15 +131,26 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
 
     @UiThreadTest
     @SmallTest
+    public void testRemovingTab() {
+        TestTabModelSelectorTabObserver observer = new TestTabModelSelectorTabObserver();
+        Tab tab = createTestTab(false);
+        mNormalTabModel.addTab(tab, 0, TabModel.TabLaunchType.FROM_LINK);
+        assertTabHasObserver(tab, observer);
+        mNormalTabModel.removeTab(tab);
+        assertTabDoesNotHaveObserver(tab, observer);
+    }
+
+    @UiThreadTest
+    @SmallTest
     public void testPreExistingTabs() {
-        TestTab normalTab1 = new TestTab(false);
+        Tab normalTab1 = createTestTab(false);
         mNormalTabModel.addTab(normalTab1, 0, TabModel.TabLaunchType.FROM_LINK);
-        TestTab normalTab2 = new TestTab(false);
+        Tab normalTab2 = createTestTab(false);
         mNormalTabModel.addTab(normalTab2, 1, TabModel.TabLaunchType.FROM_LINK);
 
-        TestTab incognitoTab1 = new TestTab(true);
+        Tab incognitoTab1 = createTestTab(true);
         mIncognitoTabModel.addTab(incognitoTab1, 0, TabModel.TabLaunchType.FROM_LINK);
-        TestTab incognitoTab2 = new TestTab(true);
+        Tab incognitoTab2 = createTestTab(true);
         mIncognitoTabModel.addTab(incognitoTab2, 1, TabModel.TabLaunchType.FROM_LINK);
 
         TestTabModelSelectorTabObserver observer = new TestTabModelSelectorTabObserver();
@@ -162,9 +163,9 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
     @UiThreadTest
     @SmallTest
     public void testDestroyRemovesObserver() {
-        TestTab normalTab1 = new TestTab(false);
+        Tab normalTab1 = createTestTab(false);
         mNormalTabModel.addTab(normalTab1, 0, TabModel.TabLaunchType.FROM_LINK);
-        TestTab incognitoTab1 = new TestTab(true);
+        Tab incognitoTab1 = createTestTab(true);
         mIncognitoTabModel.addTab(incognitoTab1, 0, TabModel.TabLaunchType.FROM_LINK);
 
         TestTabModelSelectorTabObserver observer = new TestTabModelSelectorTabObserver();
@@ -189,26 +190,19 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
         TestTabModelSelectorTabObserver observer = new TestTabModelSelectorTabObserver();
         mSelector.initialize(false, mNormalTabModel, mIncognitoTabModel);
 
-        TestTab normalTab1 = new TestTab(false);
+        Tab normalTab1 = createTestTab(false);
         mNormalTabModel.addTab(normalTab1, 0, TabModel.TabLaunchType.FROM_LINK);
         assertTabHasObserver(normalTab1, observer);
 
-        TestTab incognitoTab1 = new TestTab(true);
+        Tab incognitoTab1 = createTestTab(true);
         mIncognitoTabModel.addTab(incognitoTab1, 0, TabModel.TabLaunchType.FROM_LINK);
         assertTabHasObserver(incognitoTab1, observer);
     }
 
-    private class TestTab extends Tab {
-        public TestTab(boolean incognito) {
-            super(Tab.INVALID_TAB_ID, incognito, mWindowAndroid);
-            initializeNative();
-        }
-
-        // Exists to expose the method to the test.
-        @Override
-        public ObserverList.RewindableIterator<TabObserver> getTabObservers() {
-            return super.getTabObservers();
-        }
+    private Tab createTestTab(boolean incognito) {
+        Tab testTab = new Tab(Tab.INVALID_TAB_ID, incognito, mWindowAndroid);
+        testTab.initializeNative();
+        return testTab;
     }
 
     private class TestTabModelSelectorTabObserver extends TabModelSelectorTabObserver {
@@ -217,7 +211,7 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
         }
     }
 
-    private void assertTabHasObserver(TestTab tab, TabObserver observer) {
+    private void assertTabHasObserver(Tab tab, TabObserver observer) {
         ObserverList.RewindableIterator<TabObserver> tabObservers = tab.getTabObservers();
         tabObservers.rewind();
         boolean containsObserver = false;
@@ -230,7 +224,7 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
         assertTrue(containsObserver);
     }
 
-    private void assertTabDoesNotHaveObserver(TestTab tab, TabObserver observer) {
+    private void assertTabDoesNotHaveObserver(Tab tab, TabObserver observer) {
         ObserverList.RewindableIterator<TabObserver> tabObservers = tab.getTabObservers();
         tabObservers.rewind();
         while (tabObservers.hasNext()) {

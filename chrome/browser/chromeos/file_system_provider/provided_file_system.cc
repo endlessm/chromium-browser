@@ -4,9 +4,11 @@
 
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/files/file.h"
+#include "base/macros.h"
 #include "base/trace_event/trace_event.h"
 #include "chrome/browser/chromeos/file_system_provider/notification_manager.h"
 #include "chrome/browser/chromeos/file_system_provider/operations/abort.h"
@@ -113,7 +115,7 @@ struct ProvidedFileSystem::NotifyInQueueArgs {
         entry_path(entry_path),
         recursive(recursive),
         change_type(change_type),
-        changes(changes.Pass()),
+        changes(std::move(changes)),
         tag(tag),
         callback(callback) {}
   ~NotifyInQueueArgs() {}
@@ -159,7 +161,7 @@ void ProvidedFileSystem::SetEventRouterForTesting(
 
 void ProvidedFileSystem::SetNotificationManagerForTesting(
     scoped_ptr<NotificationManagerInterface> notification_manager) {
-  notification_manager_ = notification_manager.Pass();
+  notification_manager_ = std::move(notification_manager);
   request_manager_.reset(new RequestManager(
       profile_, file_system_info_.extension_id(), notification_manager_.get()));
 }
@@ -253,7 +255,7 @@ AbortCallback ProvidedFileSystem::ReadDirectory(
 AbortCallback ProvidedFileSystem::ReadFile(
     int file_handle,
     net::IOBuffer* buffer,
-    int64 offset,
+    int64_t offset,
     int length,
     const ReadChunkReceivedCallback& callback) {
   TRACE_EVENT1(
@@ -394,7 +396,7 @@ AbortCallback ProvidedFileSystem::CopyEntry(
 AbortCallback ProvidedFileSystem::WriteFile(
     int file_handle,
     net::IOBuffer* buffer,
-    int64 offset,
+    int64_t offset,
     int length,
     const storage::AsyncFileUtil::StatusCallback& callback) {
   TRACE_EVENT1("file_system_provider",
@@ -443,7 +445,7 @@ AbortCallback ProvidedFileSystem::MoveEntry(
 
 AbortCallback ProvidedFileSystem::Truncate(
     const base::FilePath& file_path,
-    int64 length,
+    int64_t length,
     const storage::AsyncFileUtil::StatusCallback& callback) {
   const int request_id = request_manager_->CreateRequest(
       TRUNCATE,
@@ -527,7 +529,7 @@ void ProvidedFileSystem::Notify(
                         base::Unretained(this),  // Outlived by the queue.
                         base::Passed(make_scoped_ptr(new NotifyInQueueArgs(
                             token, entry_path, recursive, change_type,
-                            changes.Pass(), tag, callback)))));
+                            std::move(changes), tag, callback)))));
 }
 
 void ProvidedFileSystem::Configure(
@@ -658,20 +660,20 @@ AbortCallback ProvidedFileSystem::NotifyInQueue(
   const WatcherKey key(args->entry_path, args->recursive);
   const auto& watcher_it = watchers_.find(key);
   if (watcher_it == watchers_.end()) {
-    OnNotifyInQueueCompleted(args.Pass(), base::File::FILE_ERROR_NOT_FOUND);
+    OnNotifyInQueueCompleted(std::move(args), base::File::FILE_ERROR_NOT_FOUND);
     return AbortCallback();
   }
 
   // The tag must be provided if and only if it's explicitly supported.
   if (file_system_info_.supports_notify_tag() == args->tag.empty()) {
-    OnNotifyInQueueCompleted(args.Pass(),
+    OnNotifyInQueueCompleted(std::move(args),
                              base::File::FILE_ERROR_INVALID_OPERATION);
     return AbortCallback();
   }
 
   // It's illegal to provide a tag which is not unique.
   if (!args->tag.empty() && args->tag == watcher_it->second.last_tag) {
-    OnNotifyInQueueCompleted(args.Pass(),
+    OnNotifyInQueueCompleted(std::move(args),
                              base::File::FILE_ERROR_INVALID_OPERATION);
     return AbortCallback();
   }

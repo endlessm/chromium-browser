@@ -12,6 +12,9 @@
 #ifndef MEDIA_VIDEO_CAPTURE_VIDEO_CAPTURE_DEVICE_H_
 #define MEDIA_VIDEO_CAPTURE_VIDEO_CAPTURE_DEVICE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <list>
 #include <string>
 
@@ -21,6 +24,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "media/base/media_export.h"
 #include "media/base/video_capture_types.h"
 #include "media/base/video_frame.h"
@@ -51,7 +55,6 @@ class MEDIA_EXPORT VideoCaptureDevice {
     // Linux/CrOS targets Capture Api type: it can only be set on construction.
     enum CaptureApiType {
       V4L2_SINGLE_PLANE,
-      V4L2_MULTI_PLANE,
       API_TYPE_UNKNOWN
     };
 #elif defined(OS_WIN)
@@ -203,24 +206,11 @@ class MEDIA_EXPORT VideoCaptureDevice {
     // be tightly packed. This method will try to reserve an output buffer and
     // copy from |data| into the output buffer. If no output buffer is
     // available, the frame will be silently dropped.
-    virtual void OnIncomingCapturedData(const uint8* data,
+    virtual void OnIncomingCapturedData(const uint8_t* data,
                                         int length,
                                         const VideoCaptureFormat& frame_format,
                                         int clockwise_rotation,
                                         const base::TimeTicks& timestamp) = 0;
-
-    // Captured a 3 planar YUV frame. Planes are possibly disjoint.
-    // |frame_format| must indicate I420.
-    virtual void OnIncomingCapturedYuvData(
-        const uint8* y_data,
-        const uint8* u_data,
-        const uint8* v_data,
-        size_t y_stride,
-        size_t u_stride,
-        size_t v_stride,
-        const VideoCaptureFormat& frame_format,
-        int clockwise_rotation,
-        const base::TimeTicks& timestamp) = 0;
 
     // Reserve an output buffer into which contents can be captured directly.
     // The returned Buffer will always be allocated with a memory size suitable

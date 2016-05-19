@@ -16,8 +16,9 @@
 @optional
 - (void)onIdentityListChanged;
 - (void)onAccessTokenRefreshFailed:(ChromeIdentity*)identity
-                             error:(ios::AccessTokenErrorReason)error;
+                          userInfo:(NSDictionary*)userInfo;
 - (void)onProfileUpdate:(ChromeIdentity*)identity;
+- (void)onChromeIdentityServiceWillBeDestroyed;
 @end
 
 // Simple observer bridge that forwards all events to its delegate observer.
@@ -32,8 +33,9 @@ class ChromeIdentityServiceObserverBridge
   // ios::ChromeIdentityService::Observer implementation.
   void OnIdentityListChanged() override;
   void OnAccessTokenRefreshFailed(ChromeIdentity* identity,
-                                  ios::AccessTokenErrorReason error) override;
+                                  NSDictionary* user_info) override;
   void OnProfileUpdate(ChromeIdentity* identity) override;
+  void OnChromeIdentityServiceWillBeDestroyed() override;
 
   id<ChromeIdentityServiceObserver> observer_;  // Weak. |observer_| owns this.
   ScopedObserver<ios::ChromeIdentityService,

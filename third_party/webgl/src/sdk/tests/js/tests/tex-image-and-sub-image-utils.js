@@ -49,7 +49,7 @@ var TexImageUtils = (function() {
   var simpleUintTextureFragmentShaderES3 = [
     '#version 300 es',
     'precision mediump float;',
-    'uniform usampler2D tex;',
+    'uniform mediump usampler2D tex;',
     'in vec2 texCoord;',
     'out vec4 fragData;',
     'void main() {',
@@ -69,7 +69,7 @@ var TexImageUtils = (function() {
   var simpleCubeMapUintTextureFragmentShaderES3 = [
     '#version 300 es',
     'precision mediump float;',
-    'uniform usamplerCube tex;',
+    'uniform mediump usamplerCube tex;',
     'uniform int face;',
     'in vec2 texCoord;',
     'out vec4 fragData;',
@@ -106,7 +106,7 @@ var TexImageUtils = (function() {
   var simple3DTextureFragmentShaderES3 = [
     '#version 300 es',
     'precision mediump float;',
-    'uniform sampler3D tex;',
+    'uniform mediump sampler3D tex;',
     'in vec2 texCoord;',
     'out vec4 fragData;',
     'void main() {',
@@ -123,7 +123,7 @@ var TexImageUtils = (function() {
   var simple3DUintTextureFragmentShaderES3 = [
     '#version 300 es',
     'precision mediump float;',
-    'uniform sampler3D tex;',
+    'uniform mediump usampler3D tex;',
     'in vec2 texCoord;',
     'out vec4 fragData;',
     'void main() {',
@@ -142,11 +142,11 @@ var TexImageUtils = (function() {
   var simple2DArrayTextureFragmentShaderES3 = [
     '#version 300 es',
     'precision mediump float;',
-    'uniform sampler2DArray tex;',
+    'uniform mediump sampler2DArray tex;',
     'in vec2 texCoord;',
     'out vec4 fragData;',
     'void main() {',
-    '    fragData = vec4(texture(tex, texCoord, 0).rgb 1.0);',
+    '    fragData = vec4(texture(tex, vec3(texCoord, 0.0)).rgb, 1.0);',
     '}'].join('\n');
 
   /**
@@ -159,11 +159,11 @@ var TexImageUtils = (function() {
   var simple2DArrayUintTextureFragmentShaderES3 = [
     '#version 300 es',
     'precision mediump float;',
-    'uniform sampler2DArray tex;',
+    'uniform mediump usampler2DArray tex;',
     'in vec2 texCoord;',
     'out vec4 fragData;',
     'void main() {',
-    '    vec4 data = vec4(texture(tex, texCoord, 0).rgb 1.0);',
+    '    vec4 data = vec4(texture(tex, vec3(texCoord, 0.0)).rgb, 1.0);',
     '    fragData = vec4(float(data[0])/255.0,',
     '                    float(data[1])/255.0,',
     '                    float(data[2])/255.0,',

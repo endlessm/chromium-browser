@@ -4,9 +4,13 @@
 
 #include "chrome/browser/password_manager/account_chooser_dialog_android.h"
 
+#include <utility>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
+#include "base/macros.h"
+#include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/password_manager/credential_android.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
@@ -15,10 +19,11 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
+#include "components/password_manager/core/browser/password_manager_constants.h"
+#include "components/password_manager/core/browser/password_ui_utils.h"
 #include "components/password_manager/core/common/credential_manager_types.h"
 #include "jni/AccountChooserDialog_jni.h"
 #include "ui/android/window_android.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/range/range.h"
 
@@ -101,15 +106,24 @@ void FetchAvatars(
 
 AccountChooserDialogAndroid::AccountChooserDialogAndroid(
     content::WebContents* web_contents,
-    ManagePasswordsUIController* ui_controller)
-    : web_contents_(web_contents), ui_controller_(ui_controller) {}
+    ScopedVector<autofill::PasswordForm> local_credentials,
+    ScopedVector<autofill::PasswordForm> federated_credentials,
+    const GURL& origin,
+    const ManagePasswordsState::CredentialsCallback& callback)
+    : web_contents_(web_contents), origin_(origin) {
+  passwords_data_.set_client(
+      ChromePasswordManagerClient::FromWebContents(web_contents_));
+  passwords_data_.OnRequestCredentials(
+      std::move(local_credentials), std::move(federated_credentials), origin);
+  passwords_data_.set_credentials_callback(callback);
+}
 
 AccountChooserDialogAndroid::~AccountChooserDialogAndroid() {}
 
 void AccountChooserDialogAndroid::ShowDialog() {
   JNIEnv* env = AttachCurrentThread();
   bool is_smartlock_branding_enabled =
-      password_bubble_experiment::IsSmartLockBrandingEnabled(
+      password_bubble_experiment::IsSmartLockUser(
           ProfileSyncServiceFactory::GetForProfile(
               Profile::FromBrowserContext(web_contents_->GetBrowserContext())));
   base::string16 title;
@@ -133,7 +147,10 @@ void AccountChooserDialogAndroid::ShowDialog() {
       env, native_window->GetJavaObject().obj(),
       reinterpret_cast<intptr_t>(this), java_credentials_array.obj(),
       base::android::ConvertUTF16ToJavaString(env, title).obj(),
-      title_link_range.start(), title_link_range.end()));
+      title_link_range.start(), title_link_range.end(),
+      base::android::ConvertUTF8ToJavaString(
+          env, password_manager::GetShownOrigin(origin_, std::string()))
+          .obj()));
   base::android::ScopedJavaLocalRef<jobject> java_dialog(java_dialog_global);
   net::URLRequestContextGetter* request_context =
       Profile::FromBrowserContext(web_contents_->GetBrowserContext())
@@ -144,28 +161,44 @@ void AccountChooserDialogAndroid::ShowDialog() {
                local_credentials_forms().size(), request_context);
 }
 
-void AccountChooserDialogAndroid::OnCredentialClicked(JNIEnv* env,
-                                                      jobject obj,
-                                                      jint credential_item,
-                                                      jint credential_type) {
+void AccountChooserDialogAndroid::OnCredentialClicked(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jint credential_item,
+    jint credential_type) {
   ChooseCredential(
       credential_item,
       static_cast<password_manager::CredentialType>(credential_type));
 }
 
-void AccountChooserDialogAndroid::Destroy(JNIEnv* env, jobject obj) {
+void AccountChooserDialogAndroid::Destroy(JNIEnv* env,
+                                          const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-void AccountChooserDialogAndroid::CancelDialog(JNIEnv* env, jobject obj) {
+void AccountChooserDialogAndroid::CancelDialog(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   ChooseCredential(-1, password_manager::CredentialType::CREDENTIAL_TYPE_EMPTY);
 }
 
-void AccountChooserDialogAndroid::OnLinkClicked(JNIEnv* env, jobject obj) {
+void AccountChooserDialogAndroid::OnLinkClicked(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   web_contents_->OpenURL(content::OpenURLParams(
-      GURL(l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_SMART_LOCK_PAGE)),
+      GURL(password_manager::kPasswordManagerHelpCenterSmartLock),
       content::Referrer(), NEW_FOREGROUND_TAB, ui::PAGE_TRANSITION_LINK,
       false /* is_renderer_initiated */));
+}
+
+const std::vector<const autofill::PasswordForm*>&
+AccountChooserDialogAndroid::local_credentials_forms() const {
+  return passwords_data_.GetCurrentForms();
+}
+
+const std::vector<const autofill::PasswordForm*>&
+AccountChooserDialogAndroid::federated_credentials_forms() const {
+  return passwords_data_.federated_credentials_forms();
 }
 
 void AccountChooserDialogAndroid::ChooseCredential(
@@ -173,17 +206,17 @@ void AccountChooserDialogAndroid::ChooseCredential(
     password_manager::CredentialType type) {
   using namespace password_manager;
   if (type == CredentialType::CREDENTIAL_TYPE_EMPTY) {
-    ui_controller_->ChooseCredential(autofill::PasswordForm(), type);
+    passwords_data_.ChooseCredential(autofill::PasswordForm(), type);
     return;
   }
   DCHECK(type == CredentialType::CREDENTIAL_TYPE_PASSWORD ||
          type == CredentialType::CREDENTIAL_TYPE_FEDERATED);
   const auto& credentials_forms =
       (type == CredentialType::CREDENTIAL_TYPE_PASSWORD)
-          ? ui_controller_->GetCurrentForms()
-          : ui_controller_->GetFederatedForms();
+          ? local_credentials_forms()
+          : federated_credentials_forms();
   if (index < credentials_forms.size()) {
-    ui_controller_->ChooseCredential(*credentials_forms[index], type);
+    passwords_data_.ChooseCredential(*credentials_forms[index], type);
   }
 }
 

@@ -42,7 +42,9 @@ class TestSyncApiComponentFactory : public SyncApiComponentFactory {
   ~TestSyncApiComponentFactory() override {}
 
   // SyncApiComponentFactory implementation.
-  void RegisterDataTypes(sync_driver::SyncClient* sync_client) override {}
+  void RegisterDataTypes(
+      sync_driver::SyncService* sync_service,
+      const RegisterDataTypesMethod& register_platform_types_method) override {}
   sync_driver::DataTypeManager* CreateDataTypeManager(
       const syncer::WeakHandle<syncer::DataTypeDebugInfoListener>&
           debug_info_listener,
@@ -54,7 +56,6 @@ class TestSyncApiComponentFactory : public SyncApiComponentFactory {
   }
   browser_sync::SyncBackendHost* CreateSyncBackendHost(
       const std::string& name,
-      SyncClient* sync_client,
       invalidation::InvalidationService* invalidator,
       const base::WeakPtr<sync_driver::SyncPrefs>& sync_prefs,
       const base::FilePath& sync_folder) override {
@@ -66,12 +67,6 @@ class TestSyncApiComponentFactory : public SyncApiComponentFactory {
   }
   SyncApiComponentFactory::SyncComponents CreateBookmarkSyncComponents(
       sync_driver::SyncService* sync_service,
-      sync_driver::DataTypeErrorHandler* error_handler) override {
-    return SyncApiComponentFactory::SyncComponents(nullptr, nullptr);
-  }
-  SyncApiComponentFactory::SyncComponents CreateTypedUrlSyncComponents(
-      sync_driver::SyncService* sync_service,
-      history::HistoryBackend* history_backend,
       sync_driver::DataTypeErrorHandler* error_handler) override {
     return SyncApiComponentFactory::SyncComponents(nullptr, nullptr);
   }

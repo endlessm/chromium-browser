@@ -32,6 +32,7 @@ shared_library("chrome_elf") {
     ":breakpad",
     ":chrome_elf_manifest",
     ":chrome_elf_resources",
+    ":common",
     "//build/config/sanitizers:deps",
   ]
   configs += [ "//build/config/win:windowed" ]
@@ -54,8 +55,12 @@ source_set("constants") {
 }
 
 source_set("common") {
-  deps = [
+  public_deps = [
     ":constants",
+  ]
+  deps = [
+    "//base",
+    "//sandbox",
   ]
   sources = [
     "chrome_elf_util.cc",
@@ -73,6 +78,7 @@ source_set("breakpad") {
   ]
   deps = [
     ":common",
+    "//base",
     "//breakpad:breakpad_handler",
     "//chrome/common:version_header",
   ]
@@ -105,14 +111,14 @@ static_library("blacklist") {
     "blacklist/blacklist_interceptions.cc",
     "blacklist/blacklist_interceptions.h",
   ]
+  public_deps = [
+    "//sandbox",
+  ]
   deps = [
-    # Depend on base_static, but do NOT take a dependency on base.gyp:base
-    # as that would risk pulling in base's link-time dependencies which
-    # chrome_elf cannot do.
     ":breakpad",
+    ":common",
     ":constants",
-    "//base:base_static",
-    "//sandbox:sandbox",
+    "//base",
   ]
 }
 
@@ -127,18 +133,28 @@ test("chrome_elf_unittests") {
   deps = [
     ":blacklist",
     ":blacklist_test_main_dll",
+    ":common",
     "//base",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
+    "//chrome",
+    "//chrome/common:version_header",
     "//sandbox",
     "//testing/gtest",
+  ]
+
+  # It's not easily possible to have //chrome in data_deps without changing
+  # the //chrome target to bundle up both initial/chrome.exe and chrome.exe.
+  # As a workaround, explicitly include a data dep on just chrome.exe, and
+  # add //chrome to deps above to make sure it's been built.
+  data = [
+    "$root_out_dir/chrome.exe",
   ]
   data_deps = [
     ":blacklist_test_dll_1",
     ":blacklist_test_dll_2",
     ":blacklist_test_dll_3",
     ":chrome_elf",
-    "//chrome",
   ]
 }
 
@@ -148,6 +164,7 @@ shared_library("blacklist_test_main_dll") {
   ]
   deps = [
     ":blacklist",
+    ":common",
     "//base",
     "//build/config/sanitizers:deps",
   ]

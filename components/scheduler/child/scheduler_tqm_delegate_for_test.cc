@@ -4,6 +4,8 @@
 
 #include "components/scheduler/child/scheduler_tqm_delegate_for_test.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "components/scheduler/base/task_queue_manager_delegate_for_test.h"
@@ -15,7 +17,7 @@ scoped_refptr<SchedulerTqmDelegateForTest> SchedulerTqmDelegateForTest::Create(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     scoped_ptr<base::TickClock> time_source) {
   return make_scoped_refptr(
-      new SchedulerTqmDelegateForTest(task_runner, time_source.Pass()));
+      new SchedulerTqmDelegateForTest(task_runner, std::move(time_source)));
 }
 
 SchedulerTqmDelegateForTest::SchedulerTqmDelegateForTest(
@@ -23,13 +25,13 @@ SchedulerTqmDelegateForTest::SchedulerTqmDelegateForTest(
     scoped_ptr<base::TickClock> time_source)
     : task_runner_(
           TaskQueueManagerDelegateForTest::Create(task_runner,
-                                                  time_source.Pass())) {}
+                                                  std::move(time_source))) {}
 
 SchedulerTqmDelegateForTest::~SchedulerTqmDelegateForTest() {}
 
 void SchedulerTqmDelegateForTest::SetDefaultTaskRunner(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
-  default_task_runner_ = task_runner.Pass();
+  default_task_runner_ = std::move(task_runner);
 }
 
 void SchedulerTqmDelegateForTest::RestoreDefaultTaskRunner() {
@@ -61,11 +63,5 @@ bool SchedulerTqmDelegateForTest::IsNested() const {
 base::TimeTicks SchedulerTqmDelegateForTest::NowTicks() {
   return task_runner_->NowTicks();
 }
-
-double SchedulerTqmDelegateForTest::CurrentTimeSeconds() const {
-  return base::Time::Now().ToDoubleT();
-}
-
-void SchedulerTqmDelegateForTest::OnNoMoreImmediateWork() {}
 
 }  // namespace scheduler

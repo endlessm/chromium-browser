@@ -4,8 +4,9 @@
 
 #include "chromeos/network/network_state.h"
 
+#include <stddef.h>
+
 #include "base/memory/scoped_ptr.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "chromeos/network/network_profile_handler.h"
@@ -77,17 +78,9 @@ bool IsCaptivePortalState(const base::DictionaryValue& properties, bool log) {
 namespace chromeos {
 
 NetworkState::NetworkState(const std::string& path)
-    : ManagedState(MANAGED_TYPE_NETWORK, path),
-      visible_(false),
-      priority_(0),
-      prefix_length_(0),
-      connectable_(false),
-      is_captive_portal_(false),
-      signal_strength_(0),
-      cellular_out_of_credits_(false) {}
+    : ManagedState(MANAGED_TYPE_NETWORK, path) {}
 
-NetworkState::~NetworkState() {
-}
+NetworkState::~NetworkState() {}
 
 bool NetworkState::PropertyChanged(const std::string& key,
                                    const base::Value& value) {
@@ -110,6 +103,8 @@ bool NetworkState::PropertyChanged(const std::string& key,
     else
       error_.clear();
     return true;
+  } else if (key == shill::kWifiFrequency) {
+    return GetIntegerValue(key, value, &frequency_);
   } else if (key == shill::kActivationTypeProperty) {
     return GetStringValue(key, value, &activation_type_);
   } else if (key == shill::kActivationStateProperty) {
@@ -138,11 +133,12 @@ bool NetworkState::PropertyChanged(const std::string& key,
     return GetStringValue(key, value, &profile_path_);
   } else if (key == shill::kWifiHexSsid) {
     std::string ssid_hex;
-    if (!GetStringValue(key, value, &ssid_hex)) {
+    if (!GetStringValue(key, value, &ssid_hex))
       return false;
-    }
     raw_ssid_.clear();
     return base::HexStringToBytes(ssid_hex, &raw_ssid_);
+  } else if (key == shill::kWifiBSsid) {
+    return GetStringValue(key, value, &bssid_);
   } else if (key == shill::kPriorityProperty) {
     return GetIntegerValue(key, value, &priority_);
   } else if (key == shill::kOutOfCreditsProperty) {
@@ -270,8 +266,11 @@ void NetworkState::GetStateProperties(base::DictionaryValue* dictionary) const {
 
   // Wifi properties
   if (NetworkTypePattern::WiFi().MatchesType(type())) {
+    dictionary->SetStringWithoutPathExpansion(shill::kWifiBSsid, bssid_);
     dictionary->SetStringWithoutPathExpansion(shill::kEapMethodProperty,
                                               eap_method());
+    dictionary->SetIntegerWithoutPathExpansion(shill::kWifiFrequency,
+                                               frequency_);
   }
 
   // Mobile properties
@@ -364,7 +363,7 @@ bool NetworkState::IsPrivate() const {
 }
 
 std::string NetworkState::GetHexSsid() const {
-  return base::HexEncode(vector_as_array(&raw_ssid()), raw_ssid().size());
+  return base::HexEncode(raw_ssid().data(), raw_ssid().size());
 }
 
 std::string NetworkState::GetDnsServersAsString() const {

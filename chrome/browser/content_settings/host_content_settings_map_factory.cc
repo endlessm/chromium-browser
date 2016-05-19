@@ -4,6 +4,8 @@
 
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 
+#include <utility>
+
 #include "chrome/browser/profiles/off_the_record_profile_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -59,15 +61,16 @@ scoped_refptr<RefcountedKeyedService>
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   Profile* profile = static_cast<Profile*>(context);
-  bool off_the_record = profile->GetProfileType() == Profile::INCOGNITO_PROFILE;
 
   // If off the record, retrieve the host content settings map of the parent
   // profile in order to ensure the preferences have been migrated.
-  if (off_the_record)
+  if (profile->GetProfileType() == Profile::INCOGNITO_PROFILE)
     GetForProfile(profile->GetOriginalProfile());
 
-  scoped_refptr<HostContentSettingsMap> settings_map(
-      new HostContentSettingsMap(profile->GetPrefs(), off_the_record));
+  scoped_refptr<HostContentSettingsMap> settings_map(new HostContentSettingsMap(
+      profile->GetPrefs(),
+      profile->GetProfileType() == Profile::INCOGNITO_PROFILE,
+      profile->GetProfileType() == Profile::GUEST_PROFILE));
 
 #if defined(ENABLE_EXTENSIONS)
   ExtensionService *ext_service =
@@ -85,7 +88,7 @@ scoped_refptr<RefcountedKeyedService>
     scoped_ptr<content_settings::SupervisedProvider> supervised_provider(
         new content_settings::SupervisedProvider(supervised_service));
     settings_map->RegisterProvider(HostContentSettingsMap::SUPERVISED_PROVIDER,
-        supervised_provider.Pass());
+                                   std::move(supervised_provider));
   }
 #endif // defined(ENABLE_SUPERVISED_USERS)
 

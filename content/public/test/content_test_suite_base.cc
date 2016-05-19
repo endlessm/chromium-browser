@@ -4,12 +4,13 @@
 
 #include "content/public/test/content_test_suite_base.h"
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/test/test_suite.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "build/build_config.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/common/url_schemes.h"
 #include "content/gpu/in_process_gpu_thread.h"
@@ -33,6 +34,7 @@
 #include "content/browser/android/browser_jni_registrar.h"
 #include "content/common/android/common_jni_registrar.h"
 #include "media/base/android/media_jni_registrar.h"
+#include "media/capture/video/android/capture_jni_registrar.h"
 #include "net/android/net_jni_registrar.h"
 #include "ui/android/ui_android_jni_registrar.h"
 #include "ui/base/android/ui_base_jni_registrar.h"
@@ -87,6 +89,7 @@ void ContentTestSuiteBase::Initialize() {
   content::android::RegisterCommonJni(env);
   content::android::RegisterBrowserJni(env);
   gfx::android::RegisterJni(env);
+  media::RegisterCaptureJni(env);
   media::RegisterJni(env);
   net::android::RegisterJni(env);
   ui::android::RegisterJni(env);

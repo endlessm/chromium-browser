@@ -4,12 +4,14 @@
 
 #include "components/bookmarks/browser/bookmark_expanded_state_tracker.h"
 
-#include "base/prefs/pref_service.h"
+#include <stdint.h>
+
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/prefs/pref_service.h"
 
 namespace bookmarks {
 
@@ -46,7 +48,7 @@ BookmarkExpandedStateTracker::GetExpandedNodes() {
   for (base::ListValue::const_iterator i = value->begin();
        i != value->end(); ++i) {
     std::string value;
-    int64 node_id;
+    int64_t node_id;
     const BookmarkNode* node;
     if ((*i)->GetAsString(&value) && base::StringToInt64(value, &node_id) &&
         (node = GetBookmarkNodeByID(bookmark_model_, node_id)) != NULL &&

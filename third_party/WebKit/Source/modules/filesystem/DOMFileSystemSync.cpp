@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/filesystem/DOMFileSystemSync.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -203,7 +202,7 @@ private:
     FileError::ErrorCode& m_errorCode;
 };
 
-}
+} // namespace
 
 FileWriterSync* DOMFileSystemSync::createWriter(const FileEntrySync* fileEntry, ExceptionState& exceptionState)
 {
@@ -231,4 +230,4 @@ DEFINE_TRACE(DOMFileSystemSync)
     visitor->trace(m_rootEntry);
 }
 
-}
+} // namespace blink

@@ -66,12 +66,19 @@ component("url") {
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
-    "//third_party/icu:icudata",
     "//third_party/icu",
+    "//third_party/icu:icudata",
   ]
 }
 
 if (is_android) {
+  android_library("url_java") {
+    DEPRECATED_java_in_dir = "android/java/src"
+    deps = [
+      "//base:base_java",
+    ]
+  }
+
   generate_jni("url_jni_headers") {
     sources = [
       "android/java/src/org/chromium/url/IDNStringUtil.java",
@@ -98,6 +105,7 @@ if (is_android) {
     ]
 
     deps = [
+      ":url_java",
       ":url_jni_headers",
       "//base",
       "//base/third_party/dynamic_annotations",
@@ -107,15 +115,6 @@ if (is_android) {
 
 # TODO(dpranke): crbug.com/360936. Get this to build and run on Android.
 if (!is_android) {
-  # TODO(GYP): Delete this after we've converted everything to GN.
-  # The _run targets exist only for compatibility w/ GYP.
-  group("url_unittests_run") {
-    testonly = true
-    deps = [
-      ":url_unittests",
-    ]
-  }
-
   test("url_unittests") {
     sources = [
       "gurl_unittest.cc",
@@ -130,12 +129,6 @@ if (!is_android) {
 
     # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
     configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
-
-    #if (is_posix && !is_mac && !is_ios) {
-    #  if (use_allocator!="none") {
-    #    deps += "//base/allocator"
-    #  }
-    #}
 
     deps = [
       ":url",

@@ -269,6 +269,9 @@ FacetURI::FacetURI(const std::string& canonical_spec, bool is_valid)
 AffiliatedFacetsWithUpdateTime::AffiliatedFacetsWithUpdateTime() {
 }
 
+AffiliatedFacetsWithUpdateTime::AffiliatedFacetsWithUpdateTime(
+    const AffiliatedFacetsWithUpdateTime& other) = default;
+
 AffiliatedFacetsWithUpdateTime::~AffiliatedFacetsWithUpdateTime() {
 }
 
@@ -301,8 +304,8 @@ bool IsAffiliationBasedMatchingEnabled(const base::CommandLine& command_line) {
     return false;
   if (command_line.HasSwitch(switches::kEnableAffiliationBasedMatching))
     return true;
-  return base::StartsWith(group_name, "Enabled",
-                          base::CompareCase::INSENSITIVE_ASCII);
+  return !base::StartsWith(group_name, "Disabled",
+                           base::CompareCase::INSENSITIVE_ASCII);
 }
 
 bool IsPropagatingPasswordChangesToWebCredentialsEnabled(
@@ -317,18 +320,7 @@ bool IsPropagatingPasswordChangesToWebCredentialsEnabled(
     return false;
   if (command_line.HasSwitch(switches::kEnableAffiliationBasedMatching))
     return true;
-  return base::LowerCaseEqualsASCII(update_enabled, "enabled");
-}
-
-bool IsAffiliationRequestsForDummyFacetsEnabled(
-    const base::CommandLine& command_line) {
-  const std::string synthesizing_enabled = variations::GetVariationParamValue(
-      kFieldTrialName, "affiliation_requests_for_dummy_facets");
-  if (command_line.HasSwitch(switches::kDisableAffiliationBasedMatching))
-    return false;
-  if (command_line.HasSwitch(switches::kEnableAffiliationBasedMatching))
-    return true;
-  return base::LowerCaseEqualsASCII(synthesizing_enabled, "enabled");
+  return !base::LowerCaseEqualsASCII(update_enabled, "disabled");
 }
 
 bool IsValidAndroidFacetURI(const std::string& url) {

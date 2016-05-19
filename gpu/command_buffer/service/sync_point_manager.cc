@@ -4,6 +4,10 @@
 
 #include "gpu/command_buffer/service/sync_point_manager.h"
 
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <climits>
 
 #include "base/bind.h"
@@ -15,8 +19,6 @@
 #include "base/single_thread_task_runner.h"
 
 namespace gpu {
-
-static const int kMaxSyncBase = INT_MAX;
 
 namespace {
 
@@ -59,7 +61,12 @@ uint32_t SyncPointOrderData::GenerateUnprocessedOrderNumber(
 void SyncPointOrderData::BeginProcessingOrderNumber(uint32_t order_num) {
   DCHECK(processing_thread_checker_.CalledOnValidThread());
   DCHECK_GE(order_num, current_order_num_);
+  // Use thread-safe accessors here because |processed_order_num_| and
+  // |unprocessed_order_num_| are protected by a lock.
+  DCHECK_GT(order_num, processed_order_num());
+  DCHECK_LE(order_num, unprocessed_order_num());
   current_order_num_ = order_num;
+  paused_ = false;
 
   // Catch invalid waits which were waiting on fence syncs that do not exist.
   // When we begin processing an order number, we should release any fence
@@ -84,9 +91,17 @@ void SyncPointOrderData::BeginProcessingOrderNumber(uint32_t order_num) {
   }
 }
 
+void SyncPointOrderData::PauseProcessingOrderNumber(uint32_t order_num) {
+  DCHECK(processing_thread_checker_.CalledOnValidThread());
+  DCHECK_EQ(current_order_num_, order_num);
+  DCHECK(!paused_);
+  paused_ = true;
+}
+
 void SyncPointOrderData::FinishProcessingOrderNumber(uint32_t order_num) {
   DCHECK(processing_thread_checker_.CalledOnValidThread());
   DCHECK_EQ(current_order_num_, order_num);
+  DCHECK(!paused_);
 
   // Catch invalid waits which were waiting on fence syncs that do not exist.
   // When we end processing an order number, we should release any fence syncs
@@ -124,6 +139,7 @@ SyncPointOrderData::OrderFence::~OrderFence() {}
 
 SyncPointOrderData::SyncPointOrderData()
     : current_order_num_(0),
+      paused_(false),
       destroyed_(false),
       processed_order_num_(0),
       unprocessed_order_num_(0) {}
@@ -238,15 +254,21 @@ void SyncPointClientState::ReleaseFenceSyncLocked(
 }
 
 SyncPointClient::~SyncPointClient() {
-  // Release all fences on destruction.
-  ReleaseFenceSync(UINT64_MAX);
+  if (namespace_id_ != gpu::CommandBufferNamespace::INVALID) {
+    // Release all fences on destruction.
+    client_state_->ReleaseFenceSync(UINT64_MAX);
 
-  sync_point_manager_->DestroySyncPointClient(namespace_id_, client_id_);
+    sync_point_manager_->DestroySyncPointClient(namespace_id_, client_id_);
+  }
 }
 
 bool SyncPointClient::Wait(SyncPointClientState* release_state,
                            uint64_t release_count,
                            const base::Closure& wait_complete_callback) {
+  // Validate that this Wait call is between BeginProcessingOrderNumber() and
+  // FinishProcessingOrderNumber(), or else we may deadlock.
+  DCHECK(client_state_->order_data()->IsProcessingOrderNumber());
+
   const uint32_t wait_order_number =
       client_state_->order_data()->current_order_num();
 
@@ -269,22 +291,15 @@ bool SyncPointClient::WaitNonThreadSafe(
               base::Bind(&RunOnThread, runner, wait_complete_callback));
 }
 
-void SyncPointClient::ReleaseFenceSync(uint64_t release) {
-  client_state_->ReleaseFenceSync(release);
-}
+bool SyncPointClient::WaitOutOfOrder(
+    SyncPointClientState* release_state,
+    uint64_t release_count,
+    const base::Closure& wait_complete_callback) {
+  // Validate that this Wait call is not between BeginProcessingOrderNumber()
+  // and FinishProcessingOrderNumber(), or else we may deadlock.
+  DCHECK(!client_state_ ||
+         !client_state_->order_data()->IsProcessingOrderNumber());
 
-SyncPointClient::SyncPointClient(SyncPointManager* sync_point_manager,
-                                 scoped_refptr<SyncPointOrderData> order_data,
-                                 CommandBufferNamespace namespace_id,
-                                 uint64_t client_id)
-    : sync_point_manager_(sync_point_manager),
-      client_state_(new SyncPointClientState(order_data)),
-      namespace_id_(namespace_id),
-      client_id_(client_id) {}
-
-bool SyncPointClientWaiter::Wait(SyncPointClientState* release_state,
-                                 uint64_t release_count,
-                                 const base::Closure& wait_complete_callback) {
   // No order number associated with the current execution context, using
   // UINT32_MAX will just assume the release is in the SyncPointClientState's
   // order numbers to be executed.
@@ -296,22 +311,38 @@ bool SyncPointClientWaiter::Wait(SyncPointClientState* release_state,
   return true;
 }
 
-bool SyncPointClientWaiter::WaitNonThreadSafe(
+bool SyncPointClient::WaitOutOfOrderNonThreadSafe(
     SyncPointClientState* release_state,
     uint64_t release_count,
     scoped_refptr<base::SingleThreadTaskRunner> runner,
     const base::Closure& wait_complete_callback) {
-  return Wait(release_state, release_count,
-              base::Bind(&RunOnThread, runner, wait_complete_callback));
+  return WaitOutOfOrder(
+      release_state, release_count,
+      base::Bind(&RunOnThread, runner, wait_complete_callback));
 }
 
-SyncPointManager::SyncPointManager(bool allow_threaded_wait)
-    : allow_threaded_wait_(allow_threaded_wait),
-      // To reduce the risk that a sync point created in a previous GPU process
-      // will be in flight in the next GPU process, randomize the starting sync
-      // point number. http://crbug.com/373452
-      next_sync_point_(base::RandInt(1, kMaxSyncBase)),
-      retire_cond_var_(&lock_) {
+void SyncPointClient::ReleaseFenceSync(uint64_t release) {
+  // Validate that this Release call is between BeginProcessingOrderNumber() and
+  // FinishProcessingOrderNumber(), or else we may deadlock.
+  DCHECK(client_state_->order_data()->IsProcessingOrderNumber());
+  client_state_->ReleaseFenceSync(release);
+}
+
+SyncPointClient::SyncPointClient()
+    : sync_point_manager_(nullptr),
+      namespace_id_(gpu::CommandBufferNamespace::INVALID),
+      client_id_() {}
+
+SyncPointClient::SyncPointClient(SyncPointManager* sync_point_manager,
+                                 scoped_refptr<SyncPointOrderData> order_data,
+                                 CommandBufferNamespace namespace_id,
+                                 CommandBufferId client_id)
+    : sync_point_manager_(sync_point_manager),
+      client_state_(new SyncPointClientState(order_data)),
+      namespace_id_(namespace_id),
+      client_id_(client_id) {}
+
+SyncPointManager::SyncPointManager(bool allow_threaded_wait) {
   global_order_num_.GetNext();
 }
 
@@ -324,7 +355,7 @@ SyncPointManager::~SyncPointManager() {
 scoped_ptr<SyncPointClient> SyncPointManager::CreateSyncPointClient(
     scoped_refptr<SyncPointOrderData> order_data,
     CommandBufferNamespace namespace_id,
-    uint64_t client_id) {
+    CommandBufferId client_id) {
   DCHECK_GE(namespace_id, 0);
   DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_maps_));
   base::AutoLock auto_lock(client_maps_lock_);
@@ -338,89 +369,23 @@ scoped_ptr<SyncPointClient> SyncPointManager::CreateSyncPointClient(
   return make_scoped_ptr(result.first->second);
 }
 
-scoped_refptr<SyncPointClientState> SyncPointManager::GetSyncPointClientState(
-    CommandBufferNamespace namespace_id, uint64_t client_id) {
-  DCHECK_GE(namespace_id, 0);
-  DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_maps_));
-  base::AutoLock auto_lock(client_maps_lock_);
+scoped_ptr<SyncPointClient> SyncPointManager::CreateSyncPointClientWaiter() {
+  return make_scoped_ptr(new SyncPointClient);
+}
 
-  ClientMap& client_map = client_maps_[namespace_id];
-  ClientMap::iterator it = client_map.find(client_id);
-  if (it != client_map.end()) {
-    return it->second->client_state();
+scoped_refptr<SyncPointClientState> SyncPointManager::GetSyncPointClientState(
+    CommandBufferNamespace namespace_id,
+    CommandBufferId client_id) {
+  if (namespace_id >= 0) {
+    DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_maps_));
+    base::AutoLock auto_lock(client_maps_lock_);
+    ClientMap& client_map = client_maps_[namespace_id];
+    ClientMap::iterator it = client_map.find(client_id);
+    if (it != client_map.end()) {
+      return it->second->client_state();
+    }
   }
   return nullptr;
-}
-
-uint32 SyncPointManager::GenerateSyncPoint() {
-  base::AutoLock lock(lock_);
-  uint32 sync_point = next_sync_point_++;
-  // When an integer overflow occurs, don't return 0.
-  if (!sync_point)
-    sync_point = next_sync_point_++;
-
-  // Note: wrapping would take days for a buggy/compromized renderer that would
-  // insert sync points in a loop, but if that were to happen, better explicitly
-  // crash the GPU process than risk worse.
-  // For normal operation (at most a few per frame), it would take ~a year to
-  // wrap.
-  CHECK(sync_point_map_.find(sync_point) == sync_point_map_.end());
-  sync_point_map_.insert(std::make_pair(sync_point, ClosureList()));
-  return sync_point;
-}
-
-void SyncPointManager::RetireSyncPoint(uint32 sync_point) {
-  ClosureList list;
-  {
-    base::AutoLock lock(lock_);
-    SyncPointMap::iterator it = sync_point_map_.find(sync_point);
-    if (it == sync_point_map_.end()) {
-      LOG(ERROR) << "Attempted to retire sync point that"
-                    " didn't exist or was already retired.";
-      return;
-    }
-    list.swap(it->second);
-    sync_point_map_.erase(it);
-    if (allow_threaded_wait_)
-      retire_cond_var_.Broadcast();
-  }
-  for (ClosureList::iterator i = list.begin(); i != list.end(); ++i)
-    i->Run();
-}
-
-void SyncPointManager::AddSyncPointCallback(uint32 sync_point,
-                                            const base::Closure& callback) {
-  {
-    base::AutoLock lock(lock_);
-    SyncPointMap::iterator it = sync_point_map_.find(sync_point);
-    if (it != sync_point_map_.end()) {
-      it->second.push_back(callback);
-      return;
-    }
-  }
-  callback.Run();
-}
-
-bool SyncPointManager::IsSyncPointRetired(uint32 sync_point) {
-  base::AutoLock lock(lock_);
-  return IsSyncPointRetiredLocked(sync_point);
-}
-
-void SyncPointManager::WaitSyncPoint(uint32 sync_point) {
-  if (!allow_threaded_wait_) {
-    DCHECK(IsSyncPointRetired(sync_point));
-    return;
-  }
-
-  base::AutoLock lock(lock_);
-  while (!IsSyncPointRetiredLocked(sync_point)) {
-    retire_cond_var_.Wait();
-  }
-}
-
-bool SyncPointManager::IsSyncPointRetiredLocked(uint32 sync_point) {
-  lock_.AssertAcquired();
-  return sync_point_map_.find(sync_point) == sync_point_map_.end();
 }
 
 uint32_t SyncPointManager::GenerateOrderNumber() {
@@ -428,7 +393,8 @@ uint32_t SyncPointManager::GenerateOrderNumber() {
 }
 
 void SyncPointManager::DestroySyncPointClient(
-    CommandBufferNamespace namespace_id, uint64_t client_id) {
+    CommandBufferNamespace namespace_id,
+    CommandBufferId client_id) {
   DCHECK_GE(namespace_id, 0);
   DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_maps_));
 

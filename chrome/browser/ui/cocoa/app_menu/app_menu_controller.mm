@@ -4,11 +4,14 @@
 
 #import "chrome/browser/ui/cocoa/app_menu/app_menu_controller.h"
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/mac/bundle_locations.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/scoped_observer.h"
 #include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
@@ -18,6 +21,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/accelerators_cocoa.h"
+#import "chrome/browser/ui/cocoa/app_menu/menu_tracked_root_view.h"
+#import "chrome/browser/ui/cocoa/app_menu/recent_tabs_menu_model_delegate.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_bridge.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_cocoa_controller.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
@@ -26,8 +31,6 @@
 #import "chrome/browser/ui/cocoa/extensions/browser_actions_controller.h"
 #import "chrome/browser/ui/cocoa/l10n_util.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
-#import "chrome/browser/ui/cocoa/wrench_menu/menu_tracked_root_view.h"
-#import "chrome/browser/ui/cocoa/wrench_menu/recent_tabs_menu_model_delegate.h"
 #include "chrome/browser/ui/toolbar/app_menu_model.h"
 #include "chrome/browser/ui/toolbar/recent_tabs_sub_menu_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
@@ -364,6 +367,8 @@ class ToolbarActionsBarObserverHelper : public ToolbarActionsBarObserver {
                       ? [NSImage imageNamed:NSImageNameExitFullScreenTemplate]
                       : [NSImage imageNamed:NSImageNameEnterFullScreenTemplate];
   [[buttonViewController_ zoomFullScreen] setImage:icon];
+
+  menuOpenTime_ = base::TimeTicks::Now();
 }
 
 - (void)menuDidClose:(NSMenu*)menu {
@@ -374,6 +379,9 @@ class ToolbarActionsBarObserverHelper : public ToolbarActionsBarObserver {
   // menu is about to be displayed at the start of a tracking session.)
   zoom_level_observer_.reset();
   toolbar_actions_bar_observer_.reset();
+  UMA_HISTOGRAM_TIMES("Toolbar.AppMenuTimeToAction",
+                      base::TimeTicks::Now() - menuOpenTime_);
+  menuOpenTime_ = base::TimeTicks();
 }
 
 - (void)menuNeedsUpdate:(NSMenu*)menu {
@@ -588,7 +596,7 @@ class ToolbarActionsBarObserverHelper : public ToolbarActionsBarObserver {
 @synthesize overflowActionsContainerView = overflowActionsContainerView_;
 
 - (id)initWithController:(AppMenuController*)controller {
-  if ((self = [super initWithNibName:@"WrenchMenu"
+  if ((self = [super initWithNibName:@"AppMenu"
                               bundle:base::mac::FrameworkBundle()])) {
     propertyReleaser_.Init(self, [AppMenuButtonViewController class]);
     controller_ = controller;

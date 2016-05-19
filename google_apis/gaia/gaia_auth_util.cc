@@ -4,6 +4,8 @@
 
 #include "google_apis/gaia/gaia_auth_util.h"
 
+#include <stddef.h>
+
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/strings/string_split.h"
@@ -44,6 +46,8 @@ std::string CanonicalizeEmailImpl(const std::string& email_address,
 
 
 ListedAccount::ListedAccount() {}
+
+ListedAccount::ListedAccount(const ListedAccount& other) = default;
 
 ListedAccount::~ListedAccount() {}
 

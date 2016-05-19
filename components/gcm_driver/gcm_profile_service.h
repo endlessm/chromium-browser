@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/signin/core/browser/profile_identity_provider.h"
 #include "components/version_info/version_info.h"
@@ -70,8 +71,7 @@ class GCMProfileService : public KeyedService {
   void Shutdown() override;
 
   // For testing purpose.
-  void SetDriverForTesting(const base::Closure& login_callback,
-                           GCMDriver* driver);
+  void SetDriverForTesting(GCMDriver* driver);
 
   GCMDriver* driver() const { return driver_.get(); }
 

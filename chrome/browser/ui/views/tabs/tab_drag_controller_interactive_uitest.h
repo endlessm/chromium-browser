@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "chrome/test/base/in_process_browser_test.h"
 
 class Browser;
@@ -44,9 +45,7 @@ class TabDragControllerTest : public InProcessBrowserTest {
   // side by side.
   Browser* CreateAnotherWindowBrowserAndRelayout();
 
-  // The tab drag controller interactive ui tests only use the native desktop
-  // for now.
-  const BrowserList* native_browser_list;
+  const BrowserList* browser_list;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TabDragControllerTest);
@@ -56,9 +55,6 @@ namespace test {
 
 // Returns the TabStrip for |browser|.
 TabStrip* GetTabStripForBrowser(Browser* browser);
-
-// Returns the center of |view| in screen coordinates.
-gfx::Point GetCenterInScreenCoordinates(const views::View* view);
 
 // Sets the id of |web_contents| to |id|.
 void SetID(content::WebContents* web_contents, int id);

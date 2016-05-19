@@ -4,6 +4,23 @@
 
 #include "content/renderer/devtools/v8_sampling_profiler.h"
 
+#include <stdint.h>
+#include <string.h>
+
+#include "base/format_macros.h"
+#include "base/location.h"
+#include "base/macros.h"
+#include "base/strings/stringprintf.h"
+#include "base/synchronization/cancellation_flag.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/threading/platform_thread.h"
+#include "base/trace_event/trace_event.h"
+#include "base/trace_event/trace_event_argument.h"
+#include "build/build_config.h"
+#include "content/renderer/devtools/lock_free_circular_queue.h"
+#include "content/renderer/render_thread_impl.h"
+#include "v8/include/v8.h"
+
 #if defined(OS_POSIX)
 #include <signal.h>
 #define USE_SIGNALS
@@ -12,18 +29,6 @@
 #if defined(OS_WIN)
 #include <windows.h>
 #endif
-
-#include "base/format_macros.h"
-#include "base/location.h"
-#include "base/strings/stringprintf.h"
-#include "base/synchronization/cancellation_flag.h"
-#include "base/thread_task_runner_handle.h"
-#include "base/threading/platform_thread.h"
-#include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
-#include "content/renderer/devtools/lock_free_circular_queue.h"
-#include "content/renderer/render_thread_impl.h"
-#include "v8/include/v8.h"
 
 using base::trace_event::ConvertableToTraceFormat;
 using base::trace_event::TraceLog;
@@ -87,7 +92,7 @@ class PlatformData : public PlatformDataCommon {
 
 std::string PtrToString(const void* value) {
   return base::StringPrintf(
-      "0x%" PRIx64, static_cast<uint64>(reinterpret_cast<intptr_t>(value)));
+      "0x%" PRIx64, static_cast<uint64_t>(reinterpret_cast<intptr_t>(value)));
 }
 
 class SampleRecord {
@@ -327,23 +332,23 @@ void Sampler::HandleJitCodeEvent(const v8::JitCodeEvent* event) {
     return;
   switch (event->type) {
     case v8::JitCodeEvent::CODE_ADDED:
-      TRACE_EVENT_INSTANT1(TRACE_DISABLED_BY_DEFAULT("v8.cpu_profile"),
-                           "JitCodeAdded", TRACE_EVENT_SCOPE_THREAD, "data",
-                           JitCodeEventToTraceFormat(event));
+      TRACE_EVENT_METADATA1(TRACE_DISABLED_BY_DEFAULT("v8.cpu_profile"),
+                            "JitCodeAdded", "data",
+                            JitCodeEventToTraceFormat(event));
       base::subtle::NoBarrier_AtomicIncrement(
           &sampler->code_added_events_count_, 1);
       break;
 
     case v8::JitCodeEvent::CODE_MOVED:
-      TRACE_EVENT_INSTANT1(TRACE_DISABLED_BY_DEFAULT("v8.cpu_profile"),
-                           "JitCodeMoved", TRACE_EVENT_SCOPE_THREAD, "data",
-                           JitCodeEventToTraceFormat(event));
+      TRACE_EVENT_METADATA1(TRACE_DISABLED_BY_DEFAULT("v8.cpu_profile"),
+                            "JitCodeMoved", "data",
+                            JitCodeEventToTraceFormat(event));
       break;
 
     case v8::JitCodeEvent::CODE_REMOVED:
-      TRACE_EVENT_INSTANT1(TRACE_DISABLED_BY_DEFAULT("v8.cpu_profile"),
-                           "JitCodeRemoved", TRACE_EVENT_SCOPE_THREAD, "data",
-                           JitCodeEventToTraceFormat(event));
+      TRACE_EVENT_METADATA1(TRACE_DISABLED_BY_DEFAULT("v8.cpu_profile"),
+                            "JitCodeRemoved", "data",
+                            JitCodeEventToTraceFormat(event));
       break;
 
     case v8::JitCodeEvent::CODE_ADD_LINE_POS_INFO:
@@ -637,4 +642,4 @@ void V8SamplingProfiler::WaitSamplingEventForTesting() {
   waitable_event_for_testing_->Wait();
 }
 
-}  // namespace blink
+}  // namespace content

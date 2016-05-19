@@ -5,6 +5,7 @@
 #include "ui/views/border.h"
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "ui/gfx/canvas.h"
@@ -91,7 +92,7 @@ void RoundedRectBorder::Paint(const View& view, gfx::Canvas* canvas) {
   paint.setStyle(SkPaint::kStroke_Style);
   paint.setAntiAlias(true);
 
-  float half_thickness = thickness_ / 2;
+  float half_thickness = thickness_ / 2.0f;
   gfx::RectF bounds(view.GetLocalBounds());
   bounds.Inset(half_thickness, half_thickness);
   canvas->DrawRoundRect(bounds, corner_radius_, paint);

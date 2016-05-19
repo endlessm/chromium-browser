@@ -17,9 +17,12 @@ var InternalArray = utils.InternalArray;
 var InternalPackedArray = utils.InternalPackedArray;
 var MakeRangeError;
 var MakeTypeError;
-var RegExpExec;
+var MaxSimple;
+var MinSimple;
+var matchSymbol = utils.ImportNow("match_symbol");
 var RegExpExecNoTests;
-var RegExpLastMatchInfo;
+var replaceSymbol = utils.ImportNow("replace_symbol");
+var searchSymbol = utils.ImportNow("search_symbol");
 var splitSymbol = utils.ImportNow("split_symbol");
 
 utils.Import(function(from) {
@@ -27,9 +30,9 @@ utils.Import(function(from) {
   ArrayJoin = from.ArrayJoin;
   MakeRangeError = from.MakeRangeError;
   MakeTypeError = from.MakeTypeError;
-  RegExpExec = from.RegExpExec;
+  MaxSimple = from.MaxSimple;
+  MinSimple = from.MinSimple;
   RegExpExecNoTests = from.RegExpExecNoTests;
-  RegExpLastMatchInfo = from.RegExpLastMatchInfo;
 });
 
 //-------------------------------------------------------------------
@@ -78,41 +81,34 @@ function StringCharCodeAtJS(pos) {
 
 // ECMA-262, section 15.5.4.6
 function StringConcat(other /* and more */) {  // length == 1
+  "use strict";
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.concat");
-  var len = %_ArgumentsLength();
-  var this_as_string = TO_STRING(this);
-  if (len === 1) {
-    return this_as_string + TO_STRING(other);
+  var s = TO_STRING(this);
+  var len = arguments.length;
+  for (var i = 0; i < len; ++i) {
+    s = s + TO_STRING(arguments[i]);
   }
-  var parts = new InternalArray(len + 1);
-  parts[0] = this_as_string;
-  for (var i = 0; i < len; i++) {
-    var part = %_Arguments(i);
-    parts[i + 1] = TO_STRING(part);
-  }
-  return %StringBuilderConcat(parts, len + 1, "");
+  return s;
 }
 
 
 // ECMA-262 section 15.5.4.7
-function StringIndexOfJS(pattern /* position */) {  // length == 1
+function StringIndexOf(pattern, position) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.indexOf");
 
   var subject = TO_STRING(this);
   pattern = TO_STRING(pattern);
-  var index = 0;
-  if (%_ArgumentsLength() > 1) {
-    index = %_Arguments(1);  // position
-    index = TO_INTEGER(index);
-    if (index < 0) index = 0;
-    if (index > subject.length) index = subject.length;
-  }
+  var index = TO_INTEGER(position);
+  if (index < 0) index = 0;
+  if (index > subject.length) index = subject.length;
   return %StringIndexOf(subject, pattern, index);
 }
 
+%FunctionSetLength(StringIndexOf, 1);
+
 
 // ECMA-262 section 15.5.4.8
-function StringLastIndexOfJS(pat /* position */) {  // length == 1
+function StringLastIndexOf(pat, pos) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.lastIndexOf");
 
   var sub = TO_STRING(this);
@@ -120,16 +116,14 @@ function StringLastIndexOfJS(pat /* position */) {  // length == 1
   var pat = TO_STRING(pat);
   var patLength = pat.length;
   var index = subLength - patLength;
-  if (%_ArgumentsLength() > 1) {
-    var position = TO_NUMBER(%_Arguments(1));
-    if (!NUMBER_IS_NAN(position)) {
-      position = TO_INTEGER(position);
-      if (position < 0) {
-        position = 0;
-      }
-      if (position + patLength < subLength) {
-        index = position;
-      }
+  var position = TO_NUMBER(pos);
+  if (!NUMBER_IS_NAN(position)) {
+    position = TO_INTEGER(position);
+    if (position < 0) {
+      position = 0;
+    }
+    if (position + patLength < subLength) {
+      index = position;
     }
   }
   if (index < 0) {
@@ -137,6 +131,8 @@ function StringLastIndexOfJS(pat /* position */) {  // length == 1
   }
   return %StringLastIndexOf(sub, pat, index);
 }
+
+%FunctionSetLength(StringLastIndexOf, 1);
 
 
 // ECMA-262 section 15.5.4.9
@@ -150,19 +146,21 @@ function StringLocaleCompareJS(other) {
 }
 
 
-// ECMA-262 section 15.5.4.10
-function StringMatchJS(regexp) {
+// ES6 21.1.3.11.
+function StringMatchJS(pattern) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.match");
 
-  var subject = TO_STRING(this);
-  if (IS_REGEXP(regexp)) {
-    if (!REGEXP_GLOBAL(regexp)) return RegExpExecNoTests(regexp, subject, 0);
-    var result = %StringMatch(subject, regexp, RegExpLastMatchInfo);
-    regexp.lastIndex = 0;
-    return result;
+  if (!IS_NULL_OR_UNDEFINED(pattern)) {
+    var matcher = pattern[matchSymbol];
+    if (!IS_UNDEFINED(matcher)) {
+      return %_Call(matcher, pattern, this);
+    }
   }
+
+  var subject = TO_STRING(this);
+
   // Non-regexp argument.
-  regexp = new GlobalRegExp(regexp);
+  var regexp = new GlobalRegExp(pattern);
   return RegExpExecNoTests(regexp, subject, 0);
 }
 
@@ -172,11 +170,10 @@ function StringMatchJS(regexp) {
 // For now we do nothing, as proper normalization requires big tables.
 // If Intl is enabled, then i18n.js will override it and provide the the
 // proper functionality.
-function StringNormalizeJS() {
+function StringNormalize(formArg) {  // length == 0
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.normalize");
   var s = TO_STRING(this);
 
-  var formArg = %_Arguments(0);
   var form = IS_UNDEFINED(formArg) ? 'NFC' : TO_STRING(formArg);
 
   var NORMALIZATION_FORMS = ['NFC', 'NFD', 'NFKC', 'NFKD'];
@@ -189,6 +186,8 @@ function StringNormalizeJS() {
   return s;
 }
 
+%FunctionSetLength(StringNormalize, 0);
+
 
 // This has the same size as the RegExpLastMatchInfo array, and can be used
 // for functions that expect that structure to be returned.  It is used when
@@ -198,14 +197,12 @@ function StringNormalizeJS() {
 var reusableMatchInfo = [2, "", "", -1, -1];
 
 
-// ECMA-262, section 15.5.4.11
+// ES6, section 21.1.3.14
 function StringReplace(search, replace) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.replace");
 
-  var subject = TO_STRING(this);
-
   // Decision tree for dispatch
-  // .. regexp search
+  // .. regexp search (in src/js/regexp.js, RegExpReplace)
   // .... string replace
   // ...... non-global search
   // ........ empty string replace
@@ -221,39 +218,14 @@ function StringReplace(search, replace) {
   // ...... function replace
   // ...... string replace (with $-expansion)
 
-  if (IS_REGEXP(search)) {
-    if (!IS_CALLABLE(replace)) {
-      replace = TO_STRING(replace);
-
-      if (!REGEXP_GLOBAL(search)) {
-        // Non-global regexp search, string replace.
-        var match = RegExpExec(search, subject, 0);
-        if (match == null) {
-          search.lastIndex = 0
-          return subject;
-        }
-        if (replace.length == 0) {
-          return %_SubString(subject, 0, match[CAPTURE0]) +
-                 %_SubString(subject, match[CAPTURE1], subject.length)
-        }
-        return ExpandReplacement(replace, subject, RegExpLastMatchInfo,
-                                 %_SubString(subject, 0, match[CAPTURE0])) +
-               %_SubString(subject, match[CAPTURE1], subject.length);
-      }
-
-      // Global regexp search, string replace.
-      search.lastIndex = 0;
-      return %StringReplaceGlobalRegExpWithString(
-          subject, search, replace, RegExpLastMatchInfo);
+  if (!IS_NULL_OR_UNDEFINED(search)) {
+    var replacer = search[replaceSymbol];
+    if (!IS_UNDEFINED(replacer)) {
+      return %_Call(replacer, search, this, replace);
     }
-
-    if (REGEXP_GLOBAL(search)) {
-      // Global regexp search, function replace.
-      return StringReplaceGlobalRegExpWithFunction(subject, search, replace);
-    }
-    // Non-global regexp search, function replace.
-    return StringReplaceNonGlobalRegExpWithFunction(subject, search, replace);
   }
+
+  var subject = TO_STRING(this);
 
   search = TO_STRING(search);
 
@@ -371,145 +343,20 @@ function ExpandReplacement(string, subject, matchInfo, result) {
 }
 
 
-// Compute the string of a given regular expression capture.
-function CaptureString(string, lastCaptureInfo, index) {
-  // Scale the index.
-  var scaled = index << 1;
-  // Compute start and end.
-  var start = lastCaptureInfo[CAPTURE(scaled)];
-  // If start isn't valid, return undefined.
-  if (start < 0) return;
-  var end = lastCaptureInfo[CAPTURE(scaled + 1)];
-  return %_SubString(string, start, end);
-}
-
-
-// TODO(lrn): This array will survive indefinitely if replace is never
-// called again. However, it will be empty, since the contents are cleared
-// in the finally block.
-var reusableReplaceArray = new InternalArray(4);
-
-// Helper function for replacing regular expressions with the result of a
-// function application in String.prototype.replace.
-function StringReplaceGlobalRegExpWithFunction(subject, regexp, replace) {
-  var resultArray = reusableReplaceArray;
-  if (resultArray) {
-    reusableReplaceArray = null;
-  } else {
-    // Inside a nested replace (replace called from the replacement function
-    // of another replace) or we have failed to set the reusable array
-    // back due to an exception in a replacement function. Create a new
-    // array to use in the future, or until the original is written back.
-    resultArray = new InternalArray(16);
-  }
-  var res = %RegExpExecMultiple(regexp,
-                                subject,
-                                RegExpLastMatchInfo,
-                                resultArray);
-  regexp.lastIndex = 0;
-  if (IS_NULL(res)) {
-    // No matches at all.
-    reusableReplaceArray = resultArray;
-    return subject;
-  }
-  var len = res.length;
-  if (NUMBER_OF_CAPTURES(RegExpLastMatchInfo) == 2) {
-    // If the number of captures is two then there are no explicit captures in
-    // the regexp, just the implicit capture that captures the whole match.  In
-    // this case we can simplify quite a bit and end up with something faster.
-    // The builder will consist of some integers that indicate slices of the
-    // input string and some replacements that were returned from the replace
-    // function.
-    var match_start = 0;
-    for (var i = 0; i < len; i++) {
-      var elem = res[i];
-      if (%_IsSmi(elem)) {
-        // Integers represent slices of the original string.
-        if (elem > 0) {
-          match_start = (elem >> 11) + (elem & 0x7ff);
-        } else {
-          match_start = res[++i] - elem;
-        }
-      } else {
-        var func_result = replace(elem, match_start, subject);
-        // Overwrite the i'th element in the results with the string we got
-        // back from the callback function.
-        res[i] = TO_STRING(func_result);
-        match_start += elem.length;
-      }
-    }
-  } else {
-    for (var i = 0; i < len; i++) {
-      var elem = res[i];
-      if (!%_IsSmi(elem)) {
-        // elem must be an Array.
-        // Use the apply argument as backing for global RegExp properties.
-        var func_result = %Apply(replace, UNDEFINED, elem, 0, elem.length);
-        // Overwrite the i'th element in the results with the string we got
-        // back from the callback function.
-        res[i] = TO_STRING(func_result);
-      }
-    }
-  }
-  var result = %StringBuilderConcat(res, len, subject);
-  resultArray.length = 0;
-  reusableReplaceArray = resultArray;
-  return result;
-}
-
-
-function StringReplaceNonGlobalRegExpWithFunction(subject, regexp, replace) {
-  var matchInfo = RegExpExec(regexp, subject, 0);
-  if (IS_NULL(matchInfo)) {
-    regexp.lastIndex = 0;
-    return subject;
-  }
-  var index = matchInfo[CAPTURE0];
-  var result = %_SubString(subject, 0, index);
-  var endOfMatch = matchInfo[CAPTURE1];
-  // Compute the parameter list consisting of the match, captures, index,
-  // and subject for the replace function invocation.
-  // The number of captures plus one for the match.
-  var m = NUMBER_OF_CAPTURES(matchInfo) >> 1;
-  var replacement;
-  if (m == 1) {
-    // No captures, only the match, which is always valid.
-    var s = %_SubString(subject, index, endOfMatch);
-    // Don't call directly to avoid exposing the built-in global object.
-    replacement = replace(s, index, subject);
-  } else {
-    var parameters = new InternalArray(m + 2);
-    for (var j = 0; j < m; j++) {
-      parameters[j] = CaptureString(subject, matchInfo, j);
-    }
-    parameters[j] = index;
-    parameters[j + 1] = subject;
-
-    replacement = %Apply(replace, UNDEFINED, parameters, 0, j + 2);
-  }
-
-  result += replacement;  // The add method converts to string if necessary.
-  // Can't use matchInfo any more from here, since the function could
-  // overwrite it.
-  return result + %_SubString(subject, endOfMatch, subject.length);
-}
-
-
-// ECMA-262 section 15.5.4.12
-function StringSearch(re) {
+// ES6 21.1.3.15.
+function StringSearch(pattern) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.search");
 
-  var regexp;
-  if (IS_REGEXP(re)) {
-    regexp = re;
-  } else {
-    regexp = new GlobalRegExp(re);
+  if (!IS_NULL_OR_UNDEFINED(pattern)) {
+    var searcher = pattern[searchSymbol];
+    if (!IS_UNDEFINED(searcher)) {
+      return %_Call(searcher, pattern, this);
+    }
   }
-  var match = RegExpExec(regexp, TO_STRING(this), 0);
-  if (match) {
-    return match[CAPTURE0];
-  }
-  return -1;
+
+  var subject = TO_STRING(this);
+  var regexp = new GlobalRegExp(pattern);
+  return %_Call(regexp[searchSymbol], regexp, subject);
 }
 
 
@@ -562,9 +409,6 @@ function StringSplitJS(separator, limit) {
   if (!IS_NULL_OR_UNDEFINED(separator)) {
     var splitter = separator[splitSymbol];
     if (!IS_UNDEFINED(splitter)) {
-      if (!IS_CALLABLE(splitter)) {
-        throw MakeTypeError(kCalledNonCallable, splitter);
-      }
       return %_Call(splitter, separator, this, limit);
     }
   }
@@ -715,28 +559,14 @@ function StringTrimRight() {
 
 
 // ECMA-262, section 15.5.3.2
-function StringFromCharCode(code) {
-  var n = %_ArgumentsLength();
-  if (n == 1) return %_StringCharFromCode(code & 0xffff);
-
-  var one_byte = %NewString(n, NEW_ONE_BYTE_STRING);
-  var i;
-  for (i = 0; i < n; i++) {
-    code = %_Arguments(i) & 0xffff;
-    if (code > 0xff) break;
-    %_OneByteSeqStringSetChar(i, code, one_byte);
+function StringFromCharCode(_) {  // length == 1
+  "use strict";
+  var s = "";
+  var n = arguments.length;
+  for (var i = 0; i < n; ++i) {
+    s += %_StringCharFromCode(arguments[i] & 0xffff);
   }
-  if (i == n) return one_byte;
-  one_byte = %TruncateString(one_byte, i);
-
-  var two_byte = %NewString(n - i, NEW_TWO_BYTE_STRING);
-  %_TwoByteSeqStringSetChar(0, code, two_byte);
-  i++;
-  for (var j = 1; i < n; i++, j++) {
-    code = %_Arguments(i) & 0xffff;
-    %_TwoByteSeqStringSetChar(j, code, two_byte);
-  }
-  return one_byte + two_byte;
+  return s;
 }
 
 
@@ -839,15 +669,21 @@ function StringSup() {
   return "<sup>" + TO_STRING(this) + "</sup>";
 }
 
-// ES6 draft 01-20-14, section 21.1.3.13
+// ES6, section 21.1.3.13
 function StringRepeat(count) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.repeat");
 
   var s = TO_STRING(this);
   var n = TO_INTEGER(count);
+
+  if (n < 0 || n === INFINITY) throw MakeRangeError(kInvalidCountValue);
+
+  // Early return to allow an arbitrarily-large repeat of the empty string.
+  if (s.length === 0) return "";
+
   // The maximum string length is stored in a smi, so a longer repeat
   // must result in a range error.
-  if (n < 0 || n > %_MaxSmi()) throw MakeRangeError(kInvalidCountValue);
+  if (n > %_MaxSmi()) throw MakeRangeError(kInvalidCountValue);
 
   var r = "";
   while (true) {
@@ -860,7 +696,7 @@ function StringRepeat(count) {
 
 
 // ES6 draft 04-05-14, section 21.1.3.18
-function StringStartsWith(searchString /* position */) {  // length == 1
+function StringStartsWith(searchString, position) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.startsWith");
 
   var s = TO_STRING(this);
@@ -870,35 +706,23 @@ function StringStartsWith(searchString /* position */) {  // length == 1
   }
 
   var ss = TO_STRING(searchString);
-  var pos = 0;
-  if (%_ArgumentsLength() > 1) {
-    var arg = %_Arguments(1);  // position
-    if (!IS_UNDEFINED(arg)) {
-      pos = TO_INTEGER(arg);
-    }
-  }
+  var pos = TO_INTEGER(position);
 
   var s_len = s.length;
-  if (pos < 0) pos = 0;
-  if (pos > s_len) pos = s_len;
+  var start = MinSimple(MaxSimple(pos, 0), s_len);
   var ss_len = ss.length;
-
-  if (ss_len + pos > s_len) {
+  if (ss_len + start > s_len) {
     return false;
   }
 
-  for (var i = 0; i < ss_len; i++) {
-    if (%_StringCharCodeAt(s, pos + i) !== %_StringCharCodeAt(ss, i)) {
-      return false;
-    }
-  }
-
-  return true;
+  return %_SubString(s, start, start + ss_len) === ss;
 }
+
+%FunctionSetLength(StringStartsWith, 1);
 
 
 // ES6 draft 04-05-14, section 21.1.3.7
-function StringEndsWith(searchString /* position */) {  // length == 1
+function StringEndsWith(searchString, position) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.endsWith");
 
   var s = TO_STRING(this);
@@ -909,35 +733,23 @@ function StringEndsWith(searchString /* position */) {  // length == 1
 
   var ss = TO_STRING(searchString);
   var s_len = s.length;
-  var pos = s_len;
-  if (%_ArgumentsLength() > 1) {
-    var arg = %_Arguments(1);  // position
-    if (!IS_UNDEFINED(arg)) {
-      pos = TO_INTEGER(arg);
-    }
-  }
+  var pos = !IS_UNDEFINED(position) ? TO_INTEGER(position) : s_len
 
-  if (pos < 0) pos = 0;
-  if (pos > s_len) pos = s_len;
+  var end = MinSimple(MaxSimple(pos, 0), s_len);
   var ss_len = ss.length;
-  pos = pos - ss_len;
-
-  if (pos < 0) {
+  var start = end - ss_len;
+  if (start < 0) {
     return false;
   }
 
-  for (var i = 0; i < ss_len; i++) {
-    if (%_StringCharCodeAt(s, pos + i) !== %_StringCharCodeAt(ss, i)) {
-      return false;
-    }
-  }
-
-  return true;
+  return %_SubString(s, start, start + ss_len) === ss;
 }
+
+%FunctionSetLength(StringEndsWith, 1);
 
 
 // ES6 draft 04-05-14, section 21.1.3.6
-function StringIncludes(searchString /* position */) {  // length == 1
+function StringIncludes(searchString, position) {  // length == 1
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.includes");
 
   var string = TO_STRING(this);
@@ -947,11 +759,7 @@ function StringIncludes(searchString /* position */) {  // length == 1
   }
 
   searchString = TO_STRING(searchString);
-  var pos = 0;
-  if (%_ArgumentsLength() > 1) {
-    pos = %_Arguments(1);  // position
-    pos = TO_INTEGER(pos);
-  }
+  var pos = TO_INTEGER(position);
 
   var stringLength = string.length;
   if (pos < 0) pos = 0;
@@ -964,6 +772,8 @@ function StringIncludes(searchString /* position */) {  // length == 1
 
   return %StringIndexOf(string, searchString, pos) !== -1;
 }
+
+%FunctionSetLength(StringIncludes, 1);
 
 
 // ES6 Draft 05-22-2014, section 21.1.3.3
@@ -990,12 +800,13 @@ function StringCodePointAt(pos) {
 
 // ES6 Draft 05-22-2014, section 21.1.2.2
 function StringFromCodePoint(_) {  // length = 1
+  "use strict";
   var code;
-  var length = %_ArgumentsLength();
+  var length = arguments.length;
   var index;
   var result = "";
   for (index = 0; index < length; index++) {
-    code = %_Arguments(index);
+    code = arguments[index];
     if (!%_IsSmi(code)) {
       code = TO_NUMBER(code);
     }
@@ -1019,8 +830,8 @@ function StringFromCodePoint(_) {  // length = 1
 
 // ES6 Draft 03-17-2015, section 21.1.2.4
 function StringRaw(callSite) {
-  // TODO(caitp): Use rest parameters when implemented
-  var numberOfSubstitutions = %_ArgumentsLength();
+  "use strict";
+  var numberOfSubstitutions = arguments.length;
   var cooked = TO_OBJECT(callSite);
   var raw = TO_OBJECT(cooked.raw);
   var literalSegments = TO_LENGTH(raw.length);
@@ -1030,7 +841,7 @@ function StringRaw(callSite) {
 
   for (var i = 1; i < literalSegments; ++i) {
     if (i < numberOfSubstitutions) {
-      result += TO_STRING(%_Arguments(i));
+      result += TO_STRING(arguments[i]);
     }
     result += TO_STRING(raw[i]);
   }
@@ -1064,11 +875,11 @@ utils.InstallFunctions(GlobalString.prototype, DONT_ENUM, [
   "concat", StringConcat,
   "endsWith", StringEndsWith,
   "includes", StringIncludes,
-  "indexOf", StringIndexOfJS,
-  "lastIndexOf", StringLastIndexOfJS,
+  "indexOf", StringIndexOf,
+  "lastIndexOf", StringLastIndexOf,
   "localeCompare", StringLocaleCompareJS,
   "match", StringMatchJS,
-  "normalize", StringNormalizeJS,
+  "normalize", StringNormalize,
   "repeat", StringRepeat,
   "replace", StringReplace,
   "search", StringSearch,
@@ -1104,9 +915,10 @@ utils.InstallFunctions(GlobalString.prototype, DONT_ENUM, [
 // Exports
 
 utils.Export(function(to) {
+  to.ExpandReplacement = ExpandReplacement;
   to.StringCharAt = StringCharAtJS;
-  to.StringIndexOf = StringIndexOfJS;
-  to.StringLastIndexOf = StringLastIndexOfJS;
+  to.StringIndexOf = StringIndexOf;
+  to.StringLastIndexOf = StringLastIndexOf;
   to.StringMatch = StringMatchJS;
   to.StringReplace = StringReplace;
   to.StringSlice = StringSlice;

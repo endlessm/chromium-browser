@@ -4,13 +4,14 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_EditCtrl.h"
-#include "../../include/pdfwindow/PWL_Edit.h"
-#include "../../include/pdfwindow/PWL_ListBox.h"
-#include "../../include/pdfwindow/PWL_ComboBox.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ComboBox.h"
+
+#include "fpdfsdk/include/pdfwindow/PWL_Edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_EditCtrl.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ListBox.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
+#include "public/fpdf_fwlevent.h"
 
 #define PWLCB_DEFAULTFONTSIZE 12.0f
 
@@ -18,8 +19,6 @@
 #define IsFloatBigger(fa, fb) ((fa) > (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatSmaller(fa, fb) ((fa) < (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatEqual(fa, fb) IsFloatZero((fa) - (fb))
-
-/* ---------------------------- CPWL_CBListBox ---------------------------- */
 
 FX_BOOL CPWL_CBListBox::OnLButtonUp(const CPDF_Point& point, FX_DWORD nFlag) {
   CPWL_Wnd::OnLButtonUp(point, nFlag);
@@ -108,8 +107,6 @@ FX_BOOL CPWL_CBListBox::OnCharWithExit(FX_WORD nChar,
   return TRUE;
 }
 
-/* ---------------------------- CPWL_CBButton ---------------------------- */
-
 void CPWL_CBButton::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {
   CPWL_Wnd::GetThisAppearanceStream(sAppStream);
 
@@ -143,7 +140,7 @@ void CPWL_CBButton::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {
 }
 
 void CPWL_CBButton::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                       CPDF_Matrix* pUser2Device) {
+                                       CFX_Matrix* pUser2Device) {
   CPWL_Wnd::DrawThisAppearance(pDevice, pUser2Device);
 
   CPDF_Rect rectWnd = CPWL_Wnd::GetWindowRect();
@@ -198,8 +195,6 @@ FX_BOOL CPWL_CBButton::OnLButtonUp(const CPDF_Point& point, FX_DWORD nFlag) {
 
   return TRUE;
 }
-
-/* ---------------------------- CPWL_ComboBox ---------------------------- */
 
 CPWL_ComboBox::CPWL_ComboBox()
     : m_pEdit(NULL),
@@ -471,6 +466,12 @@ void CPWL_ComboBox::SetPopup(FX_BOOL bPopup) {
 
   if (bPopup) {
     if (m_pFillerNotify) {
+#ifdef PDF_ENABLE_XFA
+      FX_BOOL bExit = FALSE;
+      m_pFillerNotify->OnPopupPreOpen(GetAttachedData(), bExit, 0);
+      if (bExit)
+        return;
+#endif  // PDF_ENABLE_XFA
       int32_t nWhere = 0;
       FX_FLOAT fPopupRet = 0.0f;
       FX_FLOAT fPopupMin = 0.0f;
@@ -498,6 +499,12 @@ void CPWL_ComboBox::SetPopup(FX_BOOL bPopup) {
 
         m_nPopupWhere = nWhere;
         Move(rcWindow, TRUE, TRUE);
+#ifdef PDF_ENABLE_XFA
+        bExit = FALSE;
+        m_pFillerNotify->OnPopupPostOpen(GetAttachedData(), bExit, 0);
+        if (bExit)
+          return;
+#endif  // PDF_ENABLE_XFA
       }
     }
   } else {
@@ -518,6 +525,17 @@ FX_BOOL CPWL_ComboBox::OnKeyDown(FX_WORD nChar, FX_DWORD nFlag) {
     case FWL_VKEY_Up:
       if (m_pList->GetCurSel() > 0) {
         FX_BOOL bExit = FALSE;
+#ifdef PDF_ENABLE_XFA
+        if (m_pFillerNotify) {
+          m_pFillerNotify->OnPopupPreOpen(GetAttachedData(), bExit, nFlag);
+          if (bExit)
+            return FALSE;
+          bExit = FALSE;
+          m_pFillerNotify->OnPopupPostOpen(GetAttachedData(), bExit, nFlag);
+          if (bExit)
+            return FALSE;
+        }
+#endif  // PDF_ENABLE_XFA
         if (m_pList->OnKeyDownWithExit(nChar, bExit, nFlag)) {
           if (bExit)
             return FALSE;
@@ -528,6 +546,17 @@ FX_BOOL CPWL_ComboBox::OnKeyDown(FX_WORD nChar, FX_DWORD nFlag) {
     case FWL_VKEY_Down:
       if (m_pList->GetCurSel() < m_pList->GetCount() - 1) {
         FX_BOOL bExit = FALSE;
+#ifdef PDF_ENABLE_XFA
+        if (m_pFillerNotify) {
+          m_pFillerNotify->OnPopupPreOpen(GetAttachedData(), bExit, nFlag);
+          if (bExit)
+            return FALSE;
+          bExit = FALSE;
+          m_pFillerNotify->OnPopupPostOpen(GetAttachedData(), bExit, nFlag);
+          if (bExit)
+            return FALSE;
+        }
+#endif  // PDF_ENABLE_XFA
         if (m_pList->OnKeyDownWithExit(nChar, bExit, nFlag)) {
           if (bExit)
             return FALSE;
@@ -555,6 +584,17 @@ FX_BOOL CPWL_ComboBox::OnChar(FX_WORD nChar, FX_DWORD nFlag) {
     return m_pEdit->OnChar(nChar, nFlag);
 
   FX_BOOL bExit = FALSE;
+#ifdef PDF_ENABLE_XFA
+  if (m_pFillerNotify) {
+    m_pFillerNotify->OnPopupPreOpen(GetAttachedData(), bExit, nFlag);
+    if (bExit)
+      return FALSE;
+
+    m_pFillerNotify->OnPopupPostOpen(GetAttachedData(), bExit, nFlag);
+    if (bExit)
+      return FALSE;
+  }
+#endif  // PDF_ENABLE_XFA
   return m_pList->OnCharWithExit(nChar, bExit, nFlag) ? bExit : FALSE;
 }
 
@@ -595,10 +635,6 @@ void CPWL_ComboBox::SetSelectText() {
   m_pEdit->SelectAll();
 
   m_nSelectItem = m_pList->GetCurSel();
-}
-
-FX_BOOL CPWL_ComboBox::IsModified() const {
-  return m_pEdit->IsModified();
 }
 
 void CPWL_ComboBox::SetFillerNotify(IPWL_Filler_Notify* pNotify) {

@@ -7,8 +7,8 @@
 
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/form_field.h"
@@ -24,8 +24,7 @@ class CreditCardField : public FormField {
   static scoped_ptr<FormField> Parse(AutofillScanner* scanner);
 
  protected:
-  // FormField:
-  bool ClassifyField(ServerFieldTypeMap* map) const override;
+  void AddClassifications(FieldCandidatesMap* field_candidates) const override;
 
  private:
   friend class CreditCardFieldTest;
@@ -59,6 +58,10 @@ class CreditCardField : public FormField {
   // |expiration_year_| is having year with |max_length| of 2-digits we return
   // |CREDIT_CARD_EXP_2_DIGIT_YEAR|; otherwise |CREDIT_CARD_EXP_4_DIGIT_YEAR|.
   ServerFieldType GetExpirationYearType() const;
+
+  // Returns whether the expiration has been set for this credit card field.
+  // It can be either a date or both the month and the year.
+  bool HasExpiration() const;
 
   AutofillField* cardholder_;  // Optional.
 

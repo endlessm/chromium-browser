@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <numeric>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/mac/bundle_locations.h"
@@ -41,6 +42,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bubble_observer_cocoa.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_editor_controller.h"
+#import "chrome/browser/ui/cocoa/browser/exclusive_access_controller_views.h"
 #import "chrome/browser/ui/cocoa/browser_window_cocoa.h"
 #import "chrome/browser/ui/cocoa/browser_window_command_handler.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller_private.h"
@@ -79,6 +81,7 @@
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/command.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
@@ -98,6 +101,7 @@
 #include "ui/base/l10n/l10n_util_mac.h"
 #import "ui/gfx/mac/coordinate_conversion.h"
 #include "ui/gfx/mac/scoped_cocoa_disable_screen_updates.h"
+#include "ui/gfx/screen.h"
 
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
@@ -294,10 +298,12 @@ void SetUpBrowserWindowCommandHandler(NSWindow* window) {
     if (browser_->is_type_popup() &&
         windowRect.x() == 0 && windowRect.y() == 0) {
       gfx::Size size = windowRect.size();
-      windowRect.set_origin(
-          WindowSizer::GetDefaultPopupOrigin(size,
-                                             browser_->host_desktop_type()));
+      windowRect.set_origin(WindowSizer::GetDefaultPopupOrigin(size));
     }
+
+    // Creates the manager for fullscreen and fullscreen bubbles.
+    exclusiveAccessController_.reset(
+        new ExclusiveAccessController(self, browser_.get()));
 
     // Size and position the window.  Note that it is not yet onscreen.  Popup
     // windows may get resized later on in this function, once the actual size
@@ -384,12 +390,12 @@ void SetUpBrowserWindowCommandHandler(NSWindow* window) {
 
     [self layoutSubviews];
 
-    // For a popup window, |desiredContentRect| contains the desired height of
-    // the content, not of the whole window.  Now that all the views are laid
-    // out, measure the current content area size and grow if needed.  The
-    // window has not been placed onscreen yet, so this extra resize will not
-    // cause visible jank.
-    if (browser_->is_type_popup()) {
+    // For non-trusted, non-app popup windows, |desiredContentRect| contains the
+    // desired height of the content, not of the whole window.  Now that all the
+    // views are laid out, measure the current content area size and grow if
+    // needed. The window has not been placed onscreen yet, so this extra resize
+    // will not cause visible jank.
+    if (chrome::SavedBoundsAreContentBounds(browser_.get())) {
       CGFloat deltaH = desiredContentRect.height() -
                        NSHeight([[self tabContentArea] frame]);
       // Do not shrink the window, as that may break minimum size invariants.
@@ -431,6 +437,10 @@ void SetUpBrowserWindowCommandHandler(NSWindow* window) {
             extensions::ExtensionKeybindingRegistry::ALL_EXTENSIONS,
             windowShim_.get()));
 
+    PrefService* prefs = browser_->profile()->GetPrefs();
+    shouldHideFullscreenToolbar_ =
+        prefs->GetBoolean(prefs::kHideFullscreenToolbar);
+
     blockLayoutSubviews_ = NO;
 
     // We are done initializing now.
@@ -447,6 +457,13 @@ void SetUpBrowserWindowCommandHandler(NSWindow* window) {
   // before releasing the controller.
   [presentationModeController_ exitPresentationMode];
   presentationModeController_.reset();
+
+  // Explicitly release |fullscreenTransition_| here since it may call back to
+  // this BWC in |-dealloc|. Reset the fullscreen variables.
+  if (fullscreenTransition_) {
+    [fullscreenTransition_ browserWillBeDestroyed];
+    [self resetCustomAppKitFullscreenVariables];
+  }
 
   // Under certain testing configurations we may not actually own the browser.
   if (ownsBrowser_ == NO)
@@ -617,7 +634,7 @@ void SetUpBrowserWindowCommandHandler(NSWindow* window) {
 
 // Called right after our window became the main window.
 - (void)windowDidBecomeMain:(NSNotification*)notification {
-  if (chrome::GetLastActiveBrowser() != browser_) {
+  if (chrome::GetLastActiveBrowser() != browser_.get()) {
     BrowserList::SetLastActive(browser_.get());
   }
   // Always saveWindowPositionIfNeeded when becoming main, not just
@@ -1556,8 +1573,8 @@ void SetUpBrowserWindowCommandHandler(NSWindow* window) {
   }];
 }
 
-- (ui::ThemeProvider*)themeProvider {
-  return ThemeServiceFactory::GetForProfile(browser_->profile());
+- (const ui::ThemeProvider*)themeProvider {
+  return &ThemeService::GetThemeProviderForProfile(browser_->profile());
 }
 
 - (ThemedWindowStyle)themedWindowStyle {
@@ -1674,11 +1691,11 @@ void SetUpBrowserWindowCommandHandler(NSWindow* window) {
           sourceLanguage,
           targetLanguage));
   scoped_ptr<TranslateBubbleModel> model(
-      new TranslateBubbleModelImpl(step, uiDelegate.Pass()));
-  translateBubbleController_ = [[TranslateBubbleController alloc]
-                                 initWithParentWindow:self
-                                                model:model.Pass()
-                                          webContents:contents];
+      new TranslateBubbleModelImpl(step, std::move(uiDelegate)));
+  translateBubbleController_ =
+      [[TranslateBubbleController alloc] initWithParentWindow:self
+                                                        model:std::move(model)
+                                                  webContents:contents];
   [translateBubbleController_ showWindow:nil];
 
   NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
@@ -1883,11 +1900,6 @@ willAnimateFromState:(BookmarkBar::State)oldState
 }
 
 // (Private/TestingAPI)
-- (ExclusiveAccessBubbleWindowController*)
-        exclusiveAccessBubbleWindowController {
-  return exclusiveAccessBubbleWindowController_.get();
-}
-
 - (NSRect)omniboxPopupAnchorRect {
   // Start with toolbar rect.
   NSView* toolbarView = [toolbarController_ view];
@@ -1902,10 +1914,23 @@ willAnimateFromState:(BookmarkBar::State)oldState
   return [[toolbarView superview] convertRect:anchorRect toView:nil];
 }
 
+- (BOOL)isLayoutSubviewsBlocked {
+  return blockLayoutSubviews_;
+}
+
+- (BOOL)isActiveTabContentsControllerResizeBlocked {
+  return
+      [[tabStripController_ activeTabContentsController] blockFullscreenResize];
+}
+
 - (void)sheetDidEnd:(NSWindow*)sheet
          returnCode:(NSInteger)code
             context:(void*)context {
   [sheet orderOut:self];
+}
+
+- (PresentationModeController*)presentationModeController {
+  return presentationModeController_.get();
 }
 
 - (void)executeExtensionCommand:(const std::string&)extension_id
@@ -1915,6 +1940,15 @@ willAnimateFromState:(BookmarkBar::State)oldState
   DCHECK(!command.global());
   extension_keybinding_registry_->ExecuteCommand(extension_id,
                                                  command.accelerator());
+}
+
+- (void)setMediaState:(TabMediaState)mediaState {
+  static_cast<BrowserWindowCocoa*>([self browserWindow])
+      ->UpdateMediaState(mediaState);
+}
+
+- (TabMediaState)mediaState {
+  return static_cast<BrowserWindowCocoa*>([self browserWindow])->media_state();
 }
 
 @end  // @implementation BrowserWindowController
@@ -1949,12 +1983,29 @@ willAnimateFromState:(BookmarkBar::State)oldState
                         : fullscreen_mac::OMNIBOX_TABS_HIDDEN];
 }
 
-- (void)updateFullscreenExitBubbleURL:(const GURL&)url
-                           bubbleType:(ExclusiveAccessBubbleType)bubbleType {
-  fullscreenUrl_ = url;
-  exclusiveAccessBubbleType_ = bubbleType;
+- (void)updateFullscreenExitBubble {
   [self layoutSubviews];
   [self showFullscreenExitBubbleIfNecessary];
+}
+
+- (BOOL)exitExtensionFullscreenIfPossible {
+  if (browser_->exclusive_access_manager()
+          ->fullscreen_controller()
+          ->IsExtensionFullscreenOrPending()) {
+    browser_->extension_window_controller()->SetFullscreenMode(NO, GURL());
+    return YES;
+  }
+  return NO;
+}
+
+- (void)setFullscreenToolbarHidden:(BOOL)shouldHide {
+  if (shouldHideFullscreenToolbar_ == shouldHide)
+    return;
+
+  [presentationModeController_ setToolbarFraction:0.0];
+  shouldHideFullscreenToolbar_ = shouldHide;
+  if ([self isInAppKitFullscreen])
+    [self updateFullscreenWithToolbar:!shouldHideFullscreenToolbar_];
 }
 
 - (BOOL)isInAnyFullscreenMode {
@@ -1972,30 +2023,33 @@ willAnimateFromState:(BookmarkBar::State)oldState
           enteringAppKitFullscreen_);
 }
 
-- (void)enterExtensionFullscreenForURL:(const GURL&)url
-                            bubbleType:(ExclusiveAccessBubbleType)bubbleType {
+- (void)enterExtensionFullscreen {
   if (chrome::mac::SupportsSystemFullscreen()) {
-    fullscreenUrl_ = url;
-    exclusiveAccessBubbleType_ = bubbleType;
     [self enterBrowserFullscreenWithToolbar:NO];
   } else {
     [self enterImmersiveFullscreen];
-    DCHECK(!url.is_empty());
-    [self updateFullscreenExitBubbleURL:url bubbleType:bubbleType];
+    DCHECK(!exclusiveAccessController_->url().is_empty());
+    [self updateFullscreenExitBubble];
   }
 }
 
-- (void)enterWebContentFullscreenForURL:(const GURL&)url
-                             bubbleType:(ExclusiveAccessBubbleType)bubbleType {
+- (void)enterWebContentFullscreen {
   // HTML5 Fullscreen should only use AppKit fullscreen in 10.10+.
+  // However, if the user is using multiple monitors and turned off
+  // "Separate Space in Each Display", use Immersive Fullscreen so
+  // that the other monitors won't blank out.
+  gfx::Screen* screen = gfx::Screen::GetScreen();
+  BOOL hasMultipleMonitors = screen && screen->GetNumDisplays() > 1;
   if (chrome::mac::SupportsSystemFullscreen() &&
-      base::mac::IsOSYosemiteOrLater())
+      base::mac::IsOSYosemiteOrLater() &&
+      !(hasMultipleMonitors && ![NSScreen screensHaveSeparateSpaces])) {
     [self enterAppKitFullscreen];
-  else
+  } else {
     [self enterImmersiveFullscreen];
+  }
 
-  if (!url.is_empty())
-    [self updateFullscreenExitBubbleURL:url bubbleType:bubbleType];
+  if (!exclusiveAccessController_->url().is_empty())
+    [self updateFullscreenExitBubble];
 }
 
 - (void)exitAnyFullscreen {
@@ -2012,6 +2066,17 @@ willAnimateFromState:(BookmarkBar::State)oldState
          [presentationModeController_ inPresentationMode] &&
          presentationModeController_.get().slidingStyle ==
              fullscreen_mac::OMNIBOX_TABS_HIDDEN;
+}
+
+- (BOOL)shouldHideFullscreenToolbar {
+  return shouldHideFullscreenToolbar_;
+}
+
+- (void)exitFullscreenAnimationFinished {
+  if (appKitDidExitFullscreen_) {
+    [self windowDidExitFullScreen:nil];
+    appKitDidExitFullscreen_ = NO;
+  }
 }
 
 - (void)resizeFullscreenWindow {
@@ -2064,6 +2129,10 @@ willAnimateFromState:(BookmarkBar::State)oldState
   return [focused isKindOfClass:[AutocompleteTextFieldEditor class]];
 }
 
+- (ExclusiveAccessController*)exclusiveAccessController {
+  return exclusiveAccessController_.get();
+}
+
 @end  // @implementation BrowserWindowController(Fullscreen)
 
 
@@ -2092,6 +2161,10 @@ willAnimateFromState:(BookmarkBar::State)oldState
 
 - (BOOL)isTabbedWindow {
   return browser_->is_type_tabbed();
+}
+
+- (NSRect)savedRegularWindowFrame {
+  return savedRegularWindowFrame_;
 }
 
 @end  // @implementation BrowserWindowController(WindowType)

@@ -8,21 +8,20 @@
 #ifndef NET_QUIC_TOOLS_QUIC_SIMPLE_SERVER_H_
 #define NET_QUIC_TOOLS_QUIC_SIMPLE_SERVER_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/log/net_log.h"
 #include "net/quic/crypto/quic_crypto_server_config.h"
+#include "net/quic/quic_chromium_connection_helper.h"
 #include "net/quic/quic_clock.h"
 #include "net/quic/quic_config.h"
-#include "net/quic/quic_connection_helper.h"
 
 namespace net {
 
 class UDPServerSocket;
 
-namespace tools {
 
 class QuicDispatcher;
 
@@ -70,8 +69,8 @@ class QuicSimpleServer {
   // Used by the helper_ to time alarms.
   QuicClock clock_;
 
-  // Used to manage the message loop.
-  QuicConnectionHelper helper_;
+  // Used to manage the message loop. Owned by dispatcher_.
+  QuicChromiumConnectionHelper* helper_;
 
   // Listening socket. Also used for outbound client communication.
   scoped_ptr<UDPServerSocket> socket_;
@@ -113,7 +112,6 @@ class QuicSimpleServer {
   DISALLOW_COPY_AND_ASSIGN(QuicSimpleServer);
 };
 
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_QUIC_TOOLS_QUIC_SIMPLE_SERVER_H_

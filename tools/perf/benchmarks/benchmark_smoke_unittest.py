@@ -46,9 +46,10 @@ def SmokeTestGenerator(benchmark):
     benchmark.options['pageset_repeat'] = 1
     benchmark.options['page_repeat'] = 1
 
-    class SinglePageBenchmark(benchmark):  # pylint: disable=W0232
+    class SinglePageBenchmark(benchmark):  # pylint: disable=no-init
+
       def CreateStorySet(self, options):
-        # pylint: disable=E1002
+        # pylint: disable=super-on-old-class
         story_set = super(SinglePageBenchmark, self).CreateStorySet(options)
         for story in story_set.stories:
           story.skip_waits = True
@@ -70,14 +71,14 @@ def SmokeTestGenerator(benchmark):
     benchmark_module.ProcessCommandLineArgs(None, options)
 
     self.assertEqual(0, SinglePageBenchmark().Run(options),
-                       msg='Failed: %s' % benchmark)
+                     msg='Failed: %s' % benchmark)
 
   return BenchmarkSmokeTest
 
 
 # The list of benchmark modules to be excluded from our smoke tests.
 _BLACK_LIST_TEST_MODULES = {
-    image_decoding, # Always fails on Mac10.9 Tests builder.
+    image_decoding,  # Always fails on Mac10.9 Tests builder.
     indexeddb_perf,  # Always fails on Win7 & Android Tests builder.
     new_tab,  # Fails fairly often on the Linux Tests builder, crbug.com/535664
     octane,  # Often fails & take long time to timeout on cq bot.
@@ -86,7 +87,7 @@ _BLACK_LIST_TEST_MODULES = {
     spaceport,  # Takes 451 seconds.
     speedometer,  # Takes 101 seconds.
     jetstream,  # Take 206 seconds.
-    text_selection, # Always fails on cq bot.
+    text_selection,  # Always fails on cq bot.
     memory  # Flaky on bots, crbug.com/513767
 }
 
@@ -128,7 +129,7 @@ def load_tests(loader, standard_tests, pattern):
     method = SmokeTestGenerator(benchmark)
 
     # Make sure any decorators are propagated from the original declaration.
-    # (access to protected members) pylint: disable=W0212
+    # (access to protected members) pylint: disable=protected-access
     # TODO(dpranke): Since we only pick the first test from every class
     # (above), if that test is disabled, we'll end up not running *any*
     # test from the class. We should probably discover all of the tests

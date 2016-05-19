@@ -66,11 +66,11 @@ private:
     bool isElementNode() const = delete; // This will catch anyone doing an unnecessary check.
 
     String nodeName() const override { return name(); }
-    NodeType nodeType() const override { return ATTRIBUTE_NODE; }
+    NodeType getNodeType() const override { return ATTRIBUTE_NODE; }
 
     String nodeValue() const override { return value(); }
     void setNodeValue(const String&) override;
-    PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep = true) override;
+    PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep) override;
 
     bool isAttributeNode() const override { return true; }
 

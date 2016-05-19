@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/test/histogram_tester.h"
+#include "build/build_config.h"
 #include "chrome/test/nacl/nacl_browsertest_util.h"
 #include "components/nacl/browser/nacl_browser.h"
 #include "components/nacl/renderer/platform_info.h"
@@ -105,7 +106,8 @@ NACL_BROWSER_TEST_F(NaClBrowserTest, SuccessfulLoadUMA, {
 // Test that a successful load adds stats to Subzero buckets.
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclSubzero, SuccessfulLoadUMA) {
   // Only test where Subzero is supported.
-  if (strcmp(nacl::GetSandboxArch(), "x86-32") != 0)
+  const char* arch = nacl::GetSandboxArch();
+  if (strcmp(arch, "x86-32") != 0 && strcmp(arch, "x86-64") != 0)
     return;
 
   base::HistogramTester histograms;
@@ -196,9 +198,11 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestGLibcVcacheExtension,
       FILE_PATH_LITERAL("extension_validation_cache.html");
   RunNaClIntegrationTest(full_url, true);
 
-  // Should have received 9 validation queries, which respond with misses:
+  // Should have received 9 (or 10 on arm) validation queries, which respond
+  // with misses:
   //   - the IRT
   //   - ld.so (the initial nexe)
+  //   - elf_loader.nexe (arm only)
   //   - main.nexe
   //   - libppapi_cpp.so
   //   - libpthread.so.9b15f6a6
@@ -206,26 +210,43 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestGLibcVcacheExtension,
   //   - libgcc_s.so.1
   //   - libc.so.9b15f6a6
   //   - libm.so.9b15f6a6
+#if defined(ARCH_CPU_ARM_FAMILY)
+  const int num_expected_binaries = 10;
+#else
+  const int num_expected_binaries = 9;
+#endif
+
   histograms.ExpectBucketCount("NaCl.ValidationCache.Query",
-                               nacl::NaClBrowser::CACHE_MISS, 9);
-  // TOTAL should then be 9 queries so far.
-  histograms.ExpectTotalCount("NaCl.ValidationCache.Query", 9);
+                               nacl::NaClBrowser::CACHE_MISS,
+                               num_expected_binaries);
+  // TOTAL should then be N queries so far.
+  histograms.ExpectTotalCount("NaCl.ValidationCache.Query",
+                              num_expected_binaries);
   // Should have received a cache setting afterwards for IRT and nexe.
   histograms.ExpectBucketCount("NaCl.ValidationCache.Set",
-                               nacl::NaClBrowser::CACHE_HIT, 9);
+                               nacl::NaClBrowser::CACHE_HIT,
+                               num_expected_binaries);
 
   // Load it again to hit the cache.
   RunNaClIntegrationTest(full_url, true);
-  // Should have received 9 more validation queries and responded with hits.
+  // Should have received N more validation queries and responded with hits.
   histograms.ExpectBucketCount("NaCl.ValidationCache.Query",
-                               nacl::NaClBrowser::CACHE_HIT, 9);
-  histograms.ExpectTotalCount("NaCl.ValidationCache.Query", 18);
-  histograms.ExpectTotalCount("NaCl.ValidationCache.Set", 9);
+                               nacl::NaClBrowser::CACHE_HIT,
+                               num_expected_binaries);
+  histograms.ExpectTotalCount("NaCl.ValidationCache.Query",
+                              2 * num_expected_binaries);
+  histograms.ExpectTotalCount("NaCl.ValidationCache.Set",
+                              num_expected_binaries);
 }
 
-// Test that validation for the 2 PNaCl translator nexes can be cached.
+// Test that validation for the 2 (or 3) PNaCl translator nexes can be cached.
+// This includes pnacl-llc.nexe, pnacl-ld.nexe, and possibly pnacl-sz.nexe.
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl,
                        ValidationCacheOfTranslatorNexes) {
+  const char* arch = nacl::GetSandboxArch();
+  const bool uses_subzero_with_o0 =
+      (strcmp(arch, "x86-32") == 0 || strcmp(arch, "x86-64") == 0);
+  base::HistogramBase::Count subzero_o0_count = (uses_subzero_with_o0 ? 1 : 0);
   base::HistogramTester histograms;
   // Run a load test w/ one pexe cache identity.
   RunLoadTest(FILE_PATH_LITERAL("pnacl_options.html?use_nmf=o_0"));
@@ -252,12 +273,16 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl,
 
   // Should now have 5 more queries on top of the previous ones.
   histograms.ExpectTotalCount("NaCl.ValidationCache.Query", 10);
-  // With the extra queries being cache hits.
+  // With the extra queries being cache hits (except that pnacl-llc.nexe will be
+  // a miss if pnacl-sz.nexe was used the first time around).
   histograms.ExpectBucketCount("NaCl.ValidationCache.Query",
-                               nacl::NaClBrowser::CACHE_HIT, 7);
-  // No extra cache settings.
+                               nacl::NaClBrowser::CACHE_HIT,
+                               7 - subzero_o0_count);
+  // No extra cache settings (except to add pnacl-llc.nexe if pnacl-sz.nexe was
+  // used the first time around).
   histograms.ExpectUniqueSample("NaCl.ValidationCache.Set",
-                                nacl::NaClBrowser::CACHE_HIT, 3);
+                                nacl::NaClBrowser::CACHE_HIT,
+                                3 + subzero_o0_count);
 }
 
 

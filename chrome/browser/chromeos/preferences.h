@@ -9,9 +9,10 @@
 
 #include "ash/shell_observer.h"
 #include "base/compiler_specific.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_member.h"
+#include "base/macros.h"
 #include "chrome/browser/chromeos/language_preferences.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_member.h"
 #include "components/syncable_prefs/pref_service_syncable_observer.h"
 #include "components/user_manager/user_manager.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
@@ -138,6 +139,7 @@ class Preferences : public syncable_prefs::PrefServiceSyncableObserver,
   StringPrefMember current_input_method_;
   StringPrefMember previous_input_method_;
   StringPrefMember enabled_extension_imes_;
+  BooleanPrefMember ime_menu_activated_;
 
   BooleanPrefMember xkb_auto_repeat_enabled_;
   IntegerPrefMember xkb_auto_repeat_delay_pref_;

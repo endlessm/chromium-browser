@@ -4,30 +4,30 @@
 
 #include "chrome/browser/ui/views/frame/glass_browser_frame_view.h"
 
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/windows_version.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/layout_constants.h"
 #include "chrome/browser/ui/views/profiles/avatar_menu_button.h"
-#include "chrome/browser/ui/views/profiles/new_avatar_button.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/image_operations.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle_win.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/icon_util.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/scoped_canvas.h"
 #include "ui/gfx/win/dpi.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/label.h"
@@ -51,7 +51,7 @@ const int kNonClientRestoredExtraThickness = 11;
 const int kResizeCornerWidth = 16;
 // How far the new avatar button is from the left of the minimize button.
 const int kNewAvatarButtonOffset = 5;
-// The content left/right images have a shadow built into them.
+// The content edge images have a shadow built into them.
 const int kContentEdgeShadowThickness = 2;
 // In restored mode, the New Tab button isn't at the same height as the caption
 // buttons, but the space will look cluttered if it actually slides under them,
@@ -64,13 +64,16 @@ const int kNewTabCaptionMaximizedSpacing = 16;
 
 // Converts the |image| to a Windows icon and returns the corresponding HICON
 // handle. |image| is resized to desired |width| and |height| if needed.
-HICON CreateHICONFromSkBitmapSizedTo(const gfx::ImageSkia& image,
-                                     int width,
-                                     int height) {
-  if (width == image.width() && height == image.height())
-    return IconUtil::CreateHICONFromSkBitmap(*image.bitmap());
-  return IconUtil::CreateHICONFromSkBitmap(skia::ImageOperations::Resize(
-      *image.bitmap(), skia::ImageOperations::RESIZE_BEST, width, height));
+base::win::ScopedHICON CreateHICONFromSkBitmapSizedTo(
+    const gfx::ImageSkia& image,
+    int width,
+    int height) {
+  return IconUtil::CreateHICONFromSkBitmap(
+      width == image.width() && height == image.height()
+          ? *image.bitmap()
+          : skia::ImageOperations::Resize(*image.bitmap(),
+                                          skia::ImageOperations::RESIZE_BEST,
+                                          width, height));
 }
 
 }  // namespace
@@ -81,6 +84,7 @@ HICON CreateHICONFromSkBitmapSizedTo(const gfx::ImageSkia& image,
 GlassBrowserFrameView::GlassBrowserFrameView(BrowserFrame* frame,
                                              BrowserView* browser_view)
     : BrowserNonClientFrameView(frame, browser_view),
+      profile_switcher_(this),
       throbber_running_(false),
       throbber_frame_(0) {
   if (browser_view->ShouldShowWindowIcon())
@@ -113,14 +117,14 @@ gfx::Rect GlassBrowserFrameView::GetBoundsForTabStrip(
 
     // The new avatar button is optionally displayed to the left of the
     // minimize button.
-    if (new_avatar_button()) {
+    if (profile_switcher_.view()) {
       const int old_end_x = end_x;
-      end_x -= new_avatar_button()->width() + kNewAvatarButtonOffset;
+      end_x -= profile_switcher_.view()->width() + kNewAvatarButtonOffset;
 
       // In non-maximized mode, allow the new tab button to slide completely
       // under the avatar button.
       if (!frame()->IsMaximized()) {
-        end_x = std::min(end_x + GetLayoutConstant(NEW_TAB_BUTTON_WIDTH) +
+        end_x = std::min(end_x + GetLayoutSize(NEW_TAB_BUTTON).width() +
                              kNewTabCaptionRestoredSpacing,
                          old_end_x);
       }
@@ -172,6 +176,10 @@ gfx::Size GlassBrowserFrameView::GetMinimumSize() const {
   return min_size;
 }
 
+views::View* GlassBrowserFrameView::GetProfileSwitcherView() const {
+  return profile_switcher_.view();
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // GlassBrowserFrameView, views::NonClientFrameView implementation:
 
@@ -211,9 +219,9 @@ int GlassBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
   // See if the point is within the incognito icon or the new avatar menu.
   if ((avatar_button() &&
        avatar_button()->GetMirroredBounds().Contains(point)) ||
-      (new_avatar_button() &&
-       new_avatar_button()->GetMirroredBounds().Contains(point)))
-   return HTCLIENT;
+      (profile_switcher_.view() &&
+       profile_switcher_.view()->GetMirroredBounds().Contains(point)))
+    return HTCLIENT;
 
   int frame_component = frame()->client_view()->NonClientHitTest(point);
 
@@ -248,11 +256,12 @@ int GlassBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
 // GlassBrowserFrameView, views::View overrides:
 
 void GlassBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
-  if (browser_view()->IsToolbarVisible() &&
-      browser_view()->toolbar()->ShouldPaintBackground())
+  if (!browser_view()->IsTabStripVisible())
+    return;
+  if (IsToolbarVisible())
     PaintToolbarBackground(canvas);
   if (!frame()->IsMaximized())
-    PaintRestoredClientEdge(canvas);
+    PaintClientEdge(canvas);
 }
 
 void GlassBrowserFrameView::Layout() {
@@ -265,26 +274,12 @@ void GlassBrowserFrameView::Layout() {
 ///////////////////////////////////////////////////////////////////////////////
 // GlassBrowserFrameView, protected:
 
-// views::ButtonListener:
-void GlassBrowserFrameView::ButtonPressed(views::Button* sender,
-                                          const ui::Event& event) {
-  if (sender == new_avatar_button()) {
-    BrowserWindow::AvatarBubbleMode mode =
-        BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT;
-    if ((event.IsMouseEvent() &&
-         static_cast<const ui::MouseEvent&>(event).IsRightMouseButton()) ||
-        (event.type() == ui::ET_GESTURE_LONG_PRESS)) {
-      mode = BrowserWindow::AVATAR_BUBBLE_MODE_FAST_USER_SWITCH;
-    }
-    browser_view()->ShowAvatarBubbleFromAvatarButton(
-        mode,
-        signin::ManageAccountsParams());
-  }
-}
-
 // BrowserNonClientFrameView:
-void GlassBrowserFrameView::UpdateNewAvatarButtonImpl() {
-  UpdateNewAvatarButton(this, NewAvatarButton::NATIVE_BUTTON);
+void GlassBrowserFrameView::UpdateAvatar() {
+  if (browser_view()->IsRegularOrGuestSession())
+    profile_switcher_.Update(AvatarButtonStyle::NATIVE);
+  else
+    UpdateOldAvatarButton();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -296,8 +291,9 @@ bool GlassBrowserFrameView::DoesIntersectRect(const views::View* target,
   CHECK_EQ(target, this);
   bool hit_incognito_icon = avatar_button() &&
       avatar_button()->GetMirroredBounds().Intersects(rect);
-  bool hit_new_avatar_button = new_avatar_button() &&
-      new_avatar_button()->GetMirroredBounds().Intersects(rect);
+  bool hit_new_avatar_button =
+      profile_switcher_.view() &&
+      profile_switcher_.view()->GetMirroredBounds().Intersects(rect);
   return hit_incognito_icon || hit_new_avatar_button ||
          !frame()->client_view()->bounds().Intersects(rect);
 }
@@ -319,7 +315,7 @@ int GlassBrowserFrameView::NonClientBorderThickness(bool restored) const {
   if ((frame()->IsMaximized() || frame()->IsFullscreen()) && !restored)
     return 0;
 
-  return (base::win::GetVersion() <= base::win::VERSION_WIN8_1)
+  return (base::win::GetVersion() < base::win::VERSION_WIN10)
              ? kNonClientBorderThicknessPreWin10
              : kNonClientBorderThicknessWin10;
 }
@@ -342,147 +338,167 @@ int GlassBrowserFrameView::NonClientTopBorderHeight(bool restored) const {
       (top + kNonClientRestoredExtraThickness - exclusion);
 }
 
-void GlassBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) {
-  ui::ThemeProvider* tp = GetThemeProvider();
+bool GlassBrowserFrameView::IsToolbarVisible() const {
+  return browser_view()->IsToolbarVisible() &&
+      !browser_view()->toolbar()->GetPreferredSize().IsEmpty();
+}
 
+void GlassBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) const {
   gfx::Rect toolbar_bounds(browser_view()->GetToolbarBounds());
+  if (toolbar_bounds.IsEmpty())
+    return;
   gfx::Point toolbar_origin(toolbar_bounds.origin());
-  View::ConvertPointToTarget(browser_view(), this, &toolbar_origin);
+  ConvertPointToTarget(browser_view(), this, &toolbar_origin);
   toolbar_bounds.set_origin(toolbar_origin);
+
+  const ui::ThemeProvider* tp = GetThemeProvider();
+  const gfx::ImageSkia* const bg = tp->GetImageSkiaNamed(IDR_THEME_TOOLBAR);
   int x = toolbar_bounds.x();
+  const int y = toolbar_bounds.y();
+  const int bg_y = GetTopInset(false) + Tab::GetYInsetForActiveTabBackground();
   int w = toolbar_bounds.width();
+  const int h = toolbar_bounds.height();
+  const SkColor separator_color =
+      tp->GetColor(ThemeProperties::COLOR_TOOLBAR_BOTTOM_SEPARATOR);
+  if (ui::MaterialDesignController::IsModeMaterial()) {
+    // Background.  The top stroke is drawn above the toolbar bounds, so unlike
+    // in the non-Material Design code below, we don't need to exclude any
+    // region from having the background image drawn over it.
+    if (tp->HasCustomImage(IDR_THEME_TOOLBAR)) {
+      canvas->TileImageInt(*bg, x + GetThemeBackgroundXInset(), y - bg_y, x, y,
+                           w, h);
+    } else {
+      canvas->FillRect(toolbar_bounds,
+                       tp->GetColor(ThemeProperties::COLOR_TOOLBAR));
+    }
 
-  // Toolbar background.
-  int y = toolbar_bounds.y();
-  // Tile the toolbar image starting at the frame edge on the left and where
-  // the tabstrip is on the top.
-  gfx::ImageSkia* theme_toolbar = tp->GetImageSkiaNamed(IDR_THEME_TOOLBAR);
-  int dest_y = y;
-  // In the pre-MD world, the toolbar top edge is drawn using the
-  // IDR_CONTENT_TOP_XXX images, which overlay the toolbar.  The top 2 px of
-  // these images is the actual top edge, and is partly transparent, so the
-  // toolbar background shouldn't be drawn over it.
-  const int kPreMDToolbarTopEdgeExclusion = 2;
-  if (browser_view()->IsTabStripVisible())
-    dest_y += kPreMDToolbarTopEdgeExclusion;
-  canvas->TileImageInt(
-      *theme_toolbar, x + GetThemeBackgroundXInset(),
-      dest_y - GetTopInset(false) - Tab::GetYInsetForActiveTabBackground(),
-      x, dest_y, w, theme_toolbar->height());
+    // Material Design has no corners to mask out.
 
-  // Toolbar edges.
-  if (browser_view()->IsTabStripVisible()) {
-    // Pre-Windows 10, we draw toolbar left and right edges and top corners,
-    // partly atop the window border.  In Windows 10+, we don't draw our own
-    // window border but rather go right to the system border, so we need only
-    // draw the toolbar top edge.
-    int center_x = x;
-    int center_w = w;
+    // Top stroke.  For Material Design, the toolbar has no side strokes.
+    gfx::Rect separator_rect(x, y, w, 0);
+    gfx::ScopedCanvas scoped_canvas(canvas);
+    gfx::Rect tabstrip_bounds(GetBoundsForTabStrip(browser_view()->tabstrip()));
+    tabstrip_bounds.set_x(GetMirroredXForRect(tabstrip_bounds));
+    canvas->sk_canvas()->clipRect(gfx::RectToSkRect(tabstrip_bounds),
+                                  SkRegion::kDifference_Op);
+    separator_rect.set_y(tabstrip_bounds.bottom());
+    BrowserView::Paint1pxHorizontalLine(
+        canvas, tp->GetColor(ThemeProperties::COLOR_TOOLBAR_TOP_SEPARATOR),
+        separator_rect, true);
+
+    // Toolbar/content separator.
+    toolbar_bounds.Inset(kClientEdgeThickness, 0);
+    BrowserView::Paint1pxHorizontalLine(canvas, separator_color, toolbar_bounds,
+                                        true);
+  } else {
+    // Background.  The top stroke is drawn using the IDR_CONTENT_TOP_XXX
+    // images, which overlay the toolbar.  The top 2 px of these images is the
+    // actual top stroke + shadow, and is partly transparent, so the toolbar
+    // background shouldn't be drawn over it.
+    const int bg_dest_y = y + kContentEdgeShadowThickness;
+    canvas->TileImageInt(*bg, x + GetThemeBackgroundXInset(), bg_dest_y - bg_y,
+                         x, bg_dest_y, w, h - kContentEdgeShadowThickness);
+
+    // On Windows 10+ where we don't draw our own window border but rather go
+    // right to the system border, the toolbar has no corners or side strokes.
     if (base::win::GetVersion() < base::win::VERSION_WIN10) {
-      // Mask out the top left corner and draw left corner and edge.
-      const int left_x = center_x - kContentEdgeShadowThickness;
+      // Mask out the corners.
+      const gfx::ImageSkia* const left =
+          tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER);
+      const int img_w = left->width();
+      x -= kContentEdgeShadowThickness;
       SkPaint paint;
       paint.setXfermodeMode(SkXfermode::kDstIn_Mode);
       canvas->DrawImageInt(
-          *tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER_MASK), left_x, y,
-          paint);
-      gfx::ImageSkia* toolbar_left =
-          tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER);
-      canvas->DrawImageInt(*toolbar_left, left_x, y);
-      center_x = left_x + toolbar_left->width();
+          *tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER_MASK), 0, 0, img_w,
+          h, x, y, img_w, h, false, paint);
+      const int right_x =
+          toolbar_bounds.right() + kContentEdgeShadowThickness - img_w;
+      canvas->DrawImageInt(
+          *tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER_MASK), 0, 0,
+          img_w, h, right_x, y, img_w, h, false, paint);
 
-      // Mask out the top right corner and draw right corner and edge.
-      gfx::ImageSkia* toolbar_right_mask =
-          tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER_MASK);
-      const int right_x = toolbar_bounds.right() +
-          kContentEdgeShadowThickness - toolbar_right_mask->width();
-      canvas->DrawImageInt(*toolbar_right_mask, right_x, y, paint);
-      canvas->DrawImageInt(*tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER),
-                           right_x, y);
-      center_w = right_x - center_x;
+      // Corner and side strokes.
+      canvas->DrawImageInt(*left, 0, 0, img_w, h, x, y, img_w, h, false);
+      canvas->DrawImageInt(
+          *tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER), 0, 0, img_w, h,
+          right_x, y, img_w, h, false);
+
+      x += img_w;
+      w = right_x - x;
     }
 
-    // Top edge.
-    gfx::ImageSkia* toolbar_center =
-        tp->GetImageSkiaNamed(IDR_CONTENT_TOP_CENTER);
-    canvas->TileImageInt(*toolbar_center, center_x, y, center_w,
-                         toolbar_center->height());
-  }
+    // Top stroke.
+    canvas->TileImageInt(*tp->GetImageSkiaNamed(IDR_CONTENT_TOP_CENTER), x, y,
+                         w, kContentEdgeShadowThickness);
 
-  // Toolbar/content separator.
-  if (ui::MaterialDesignController::IsModeMaterial()) {
-    toolbar_bounds.Inset(kClientEdgeThickness, 0);
-    BrowserView::Paint1pxHorizontalLine(
-        canvas,
-        ThemeProperties::GetDefaultColor(
-            ThemeProperties::COLOR_TOOLBAR_SEPARATOR),
-        toolbar_bounds);
-  } else {
-    canvas->FillRect(
-        gfx::Rect(x + kClientEdgeThickness,
-                  toolbar_bounds.bottom() - kClientEdgeThickness,
-                  w - (2 * kClientEdgeThickness), kClientEdgeThickness),
-        ThemeProperties::GetDefaultColor(
-            ThemeProperties::COLOR_TOOLBAR_SEPARATOR));
+    // Toolbar/content separator.
+    toolbar_bounds.Inset(kClientEdgeThickness, h - kClientEdgeThickness,
+                         kClientEdgeThickness, 0);
+    canvas->FillRect(toolbar_bounds, separator_color);
   }
 }
 
-void GlassBrowserFrameView::PaintRestoredClientEdge(gfx::Canvas* canvas) {
-  ui::ThemeProvider* tp = GetThemeProvider();
-  gfx::Rect client_area_bounds = CalculateClientAreaBounds(width(), height());
+void GlassBrowserFrameView::PaintClientEdge(gfx::Canvas* canvas) const {
+  // Pre-Material Design, the client edge images start below the toolbar.  In MD
+  // the client edge images start at the top of the toolbar.
+  gfx::Rect client_bounds = CalculateClientAreaBounds();
+  const int x = client_bounds.x();
+  const bool md = ui::MaterialDesignController::IsModeMaterial();
+  const gfx::Rect toolbar_bounds(browser_view()->GetToolbarBounds());
+  const int y =
+      client_bounds.y() + (md ? toolbar_bounds.y() : toolbar_bounds.bottom());
+  const int w = client_bounds.width();
+  const int right = client_bounds.right();
+  const int bottom = std::max(y, height() - NonClientBorderThickness(false));
+  const int height = bottom - y;
 
-  // The client edges start below the toolbar upper corner images regardless
-  // of how tall the toolbar itself is.
-  int client_area_top = frame()->client_view()->y() +
-      browser_view()->GetToolbarBounds().y() +
-      tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER)->height();
-  int client_area_bottom =
-      std::max(client_area_top, height() - NonClientBorderThickness(false));
-  int client_area_height = client_area_bottom - client_area_top;
+  // Draw the client edge images.  For non-MD, we fill the toolbar color
+  // underneath these images so they will lighten/darken it appropriately to
+  // create a "3D shaded" effect.  For MD, where we want a flatter appearance,
+  // we do the filling afterwards so the user sees the unmodified toolbar color.
+  const ui::ThemeProvider* tp = GetThemeProvider();
+  const SkColor toolbar_color = tp->GetColor(ThemeProperties::COLOR_TOOLBAR);
+  if (!md)
+    FillClientEdgeRects(x, y, right, bottom, toolbar_color, canvas);
+  const gfx::ImageSkia* const right_image =
+      tp->GetImageSkiaNamed(IDR_CONTENT_RIGHT_SIDE);
+  const int img_w = right_image->width();
+  canvas->TileImageInt(*right_image, right, y, img_w, height);
+  canvas->DrawImageInt(*tp->GetImageSkiaNamed(IDR_CONTENT_BOTTOM_RIGHT_CORNER),
+                       right, bottom);
+  const gfx::ImageSkia* const bottom_image =
+      tp->GetImageSkiaNamed(IDR_CONTENT_BOTTOM_CENTER);
+  canvas->TileImageInt(*bottom_image, x, bottom, w, bottom_image->height());
+  canvas->DrawImageInt(*tp->GetImageSkiaNamed(IDR_CONTENT_BOTTOM_LEFT_CORNER),
+                       x - img_w, bottom);
+  canvas->TileImageInt(*tp->GetImageSkiaNamed(IDR_CONTENT_LEFT_SIDE), x - img_w,
+                       y, img_w, height);
+  if (md)
+    FillClientEdgeRects(x, y, right, bottom, toolbar_color, canvas);
+}
 
-  // Draw the client edge images.
-  gfx::ImageSkia* right = tp->GetImageSkiaNamed(IDR_CONTENT_RIGHT_SIDE);
-  canvas->TileImageInt(*right, client_area_bounds.right(), client_area_top,
-                       right->width(), client_area_height);
-  canvas->DrawImageInt(
-      *tp->GetImageSkiaNamed(IDR_CONTENT_BOTTOM_RIGHT_CORNER),
-      client_area_bounds.right(), client_area_bottom);
-  gfx::ImageSkia* bottom = tp->GetImageSkiaNamed(IDR_CONTENT_BOTTOM_CENTER);
-  canvas->TileImageInt(*bottom, client_area_bounds.x(),
-      client_area_bottom, client_area_bounds.width(),
-      bottom->height());
-  gfx::ImageSkia* bottom_left =
-      tp->GetImageSkiaNamed(IDR_CONTENT_BOTTOM_LEFT_CORNER);
-  canvas->DrawImageInt(*bottom_left,
-      client_area_bounds.x() - bottom_left->width(), client_area_bottom);
-  gfx::ImageSkia* left = tp->GetImageSkiaNamed(IDR_CONTENT_LEFT_SIDE);
-  canvas->TileImageInt(*left, client_area_bounds.x() - left->width(),
-      client_area_top, left->width(), client_area_height);
-
-  // Draw the toolbar color so that the client edges show the right color even
-  // where not covered by the toolbar image.  NOTE: We do this after drawing the
-  // images because the images are meant to alpha-blend atop the frame whereas
-  // these rects are meant to be fully opaque, without anything overlaid.
-  SkColor toolbar_color = tp->GetColor(ThemeProperties::COLOR_TOOLBAR);
-  canvas->FillRect(gfx::Rect(client_area_bounds.x() - kClientEdgeThickness,
-      client_area_top, kClientEdgeThickness,
-      client_area_bottom + kClientEdgeThickness - client_area_top),
-      toolbar_color);
-  canvas->FillRect(gfx::Rect(client_area_bounds.x(), client_area_bottom,
-                             client_area_bounds.width(), kClientEdgeThickness),
-                   toolbar_color);
-  canvas->FillRect(gfx::Rect(client_area_bounds.right(), client_area_top,
-       kClientEdgeThickness,
-       client_area_bottom + kClientEdgeThickness - client_area_top),
-       toolbar_color);
+void GlassBrowserFrameView::FillClientEdgeRects(int x,
+                                                int y,
+                                                int right,
+                                                int bottom,
+                                                SkColor color,
+                                                gfx::Canvas* canvas) const {
+  gfx::Rect side(x - kClientEdgeThickness, y, kClientEdgeThickness,
+                 bottom + kClientEdgeThickness - y);
+  canvas->FillRect(side, color);
+  canvas->FillRect(gfx::Rect(x, bottom, right - x, kClientEdgeThickness),
+                   color);
+  side.set_x(right);
+  canvas->FillRect(side, color);
 }
 
 void GlassBrowserFrameView::LayoutNewStyleAvatar() {
   DCHECK(browser_view()->IsRegularOrGuestSession());
-  if (!new_avatar_button())
+  if (!profile_switcher_.view())
     return;
 
-  gfx::Size label_size = new_avatar_button()->GetPreferredSize();
+  gfx::Size label_size = profile_switcher_.view()->GetPreferredSize();
 
   int button_x = frame()->GetMinimizeButtonOffset() -
       kNewAvatarButtonOffset - label_size.width();
@@ -503,14 +519,13 @@ void GlassBrowserFrameView::LayoutNewStyleAvatar() {
   // pixel in height, then we place it at the correct position in restored mode,
   // or one pixel above the top of the screen in maximized mode.
   int button_y = frame()->IsMaximized() ? (FrameTopBorderHeight(false) - 1) : 1;
-  new_avatar_button()->SetBounds(
-      button_x,
-      button_y,
-      label_size.width(),
+  profile_switcher_.view()->SetBounds(
+      button_x, button_y, label_size.width(),
       gfx::win::GetSystemMetricsInDIP(SM_CYMENUSIZE) + 1);
 }
 
 void GlassBrowserFrameView::LayoutIncognitoIcon() {
+  const bool md = ui::MaterialDesignController::IsModeMaterial();
   const gfx::Insets insets(GetLayoutInsets(AVATAR_ICON));
   gfx::Size size;
   // During startup it's possible to reach here before the browser view has been
@@ -525,13 +540,20 @@ void GlassBrowserFrameView::LayoutIncognitoIcon() {
   // In RTL, the icon needs to start after the caption buttons.
   if (base::i18n::IsRTL()) {
     x = width() - frame()->GetMinimizeButtonOffset() +
-        (new_avatar_button() ?
-            (new_avatar_button()->width() + kNewAvatarButtonOffset) : 0);
+        (profile_switcher_.view()
+             ? (profile_switcher_.view()->width() + kNewAvatarButtonOffset)
+             : 0);
+  } else if (!md && !avatar_button() && IsToolbarVisible() &&
+             (base::win::GetVersion() < base::win::VERSION_WIN10)) {
+    // In non-MD before Win 10, the toolbar has a rounded corner that we don't
+    // want the tabstrip to overlap.
+    x += browser_view()->GetToolbarBounds().x() - kContentEdgeShadowThickness +
+        GetThemeProvider()->GetImageSkiaNamed(
+            IDR_CONTENT_TOP_LEFT_CORNER)->width();
   }
   const int bottom = GetTopInset(false) + browser_view()->GetTabStripHeight() -
       insets.bottom();
-  const int y = (ui::MaterialDesignController::IsModeMaterial() ||
-                 !frame()->IsMaximized()) ?
+  const int y = (md || !frame()->IsMaximized()) ?
       (bottom - size.height()) : FrameTopBorderHeight(false);
   incognito_bounds_.SetRect(x + (avatar_button() ? insets.left() : 0), y,
                             avatar_button() ? size.width() : 0, bottom - y);
@@ -540,7 +562,7 @@ void GlassBrowserFrameView::LayoutIncognitoIcon() {
 }
 
 void GlassBrowserFrameView::LayoutClientView() {
-  client_view_bounds_ = CalculateClientAreaBounds(width(), height());
+  client_view_bounds_ = CalculateClientAreaBounds();
 }
 
 gfx::Insets GlassBrowserFrameView::GetClientAreaInsets(bool restored) const {
@@ -555,9 +577,8 @@ gfx::Insets GlassBrowserFrameView::GetClientAreaInsets(bool restored) const {
                      border_thickness);
 }
 
-gfx::Rect GlassBrowserFrameView::CalculateClientAreaBounds(int width,
-                                                           int height) const {
-  gfx::Rect bounds(0, 0, width, height);
+gfx::Rect GlassBrowserFrameView::CalculateClientAreaBounds() const {
+  gfx::Rect bounds(GetLocalBounds());
   bounds.Inset(GetClientAreaInsets(false));
   return bounds;
 }
@@ -577,6 +598,8 @@ void GlassBrowserFrameView::StopThrobber() {
   if (throbber_running_) {
     throbber_running_ = false;
 
+    base::win::ScopedHICON previous_small_icon;
+    base::win::ScopedHICON previous_big_icon;
     HICON small_icon = nullptr;
     HICON big_icon = nullptr;
 
@@ -584,10 +607,22 @@ void GlassBrowserFrameView::StopThrobber() {
     if (browser_view()->ShouldShowWindowIcon()) {
       gfx::ImageSkia icon = browser_view()->GetWindowIcon();
       if (!icon.isNull()) {
-        small_icon = CreateHICONFromSkBitmapSizedTo(
-            icon, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
-        big_icon = CreateHICONFromSkBitmapSizedTo(
-            icon, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+        // Keep previous icons alive as long as they are referenced by the HWND.
+        previous_small_icon = small_window_icon_.Pass();
+        previous_big_icon = big_window_icon_.Pass();
+
+        // Take responsibility for eventually destroying the created icons.
+        small_window_icon_ =
+            CreateHICONFromSkBitmapSizedTo(icon, GetSystemMetrics(SM_CXSMICON),
+                                           GetSystemMetrics(SM_CYSMICON))
+                .Pass();
+        big_window_icon_ =
+            CreateHICONFromSkBitmapSizedTo(icon, GetSystemMetrics(SM_CXICON),
+                                           GetSystemMetrics(SM_CYICON))
+                .Pass();
+
+        small_icon = small_window_icon_.get();
+        big_icon = big_window_icon_.get();
       }
     }
 
@@ -604,21 +639,13 @@ void GlassBrowserFrameView::StopThrobber() {
     // This will reset the icon which we set in the throbber code.
     // WM_SETICON with null icon restores the icon for title bar but not
     // for taskbar. See http://crbug.com/29996
-    HICON previous_small_icon = reinterpret_cast<HICON>(
-        SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
-                    static_cast<WPARAM>(ICON_SMALL),
-                    reinterpret_cast<LPARAM>(small_icon)));
+    SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
+                static_cast<WPARAM>(ICON_SMALL),
+                reinterpret_cast<LPARAM>(small_icon));
 
-    HICON previous_big_icon = reinterpret_cast<HICON>(
-        SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
-                    static_cast<WPARAM>(ICON_BIG),
-                    reinterpret_cast<LPARAM>(big_icon)));
-
-    if (previous_small_icon)
-      ::DestroyIcon(previous_small_icon);
-
-    if (previous_big_icon)
-      ::DestroyIcon(previous_big_icon);
+    SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
+                static_cast<WPARAM>(ICON_BIG),
+                reinterpret_cast<LPARAM>(big_icon));
   }
 }
 

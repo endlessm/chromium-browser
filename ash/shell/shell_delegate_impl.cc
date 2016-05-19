@@ -11,7 +11,6 @@
 #include "ash/media_delegate.h"
 #include "ash/new_window_delegate.h"
 #include "ash/session/session_state_delegate.h"
-#include "ash/shell/content/shell_content_state_impl.h"
 #include "ash/shell/context_menu.h"
 #include "ash/shell/example_factory.h"
 #include "ash/shell/shelf_delegate_impl.h"
@@ -137,17 +136,9 @@ class SessionStateDelegateImpl : public SessionStateDelegate {
 
 }  // namespace
 
-ShellDelegateImpl::ShellDelegateImpl()
-    : watcher_(NULL), shelf_delegate_(NULL) {}
+ShellDelegateImpl::ShellDelegateImpl() : shelf_delegate_(nullptr) {}
 
-ShellDelegateImpl::~ShellDelegateImpl() {
-}
-
-void ShellDelegateImpl::SetWatcher(WindowWatcher* watcher) {
-  watcher_ = watcher;
-  if (shelf_delegate_)
-    shelf_delegate_->set_watcher(watcher);
-}
+ShellDelegateImpl::~ShellDelegateImpl() {}
 
 bool ShellDelegateImpl::IsFirstRunAfterBoot() const {
   return false;
@@ -162,10 +153,6 @@ bool ShellDelegateImpl::IsMultiProfilesEnabled() const {
 }
 
 bool ShellDelegateImpl::IsRunningInForcedAppMode() const {
-  return false;
-}
-
-bool ShellDelegateImpl::IsMultiAccountEnabled() const {
   return false;
 }
 
@@ -184,7 +171,7 @@ void ShellDelegateImpl::PreShutdown() {
 }
 
 void ShellDelegateImpl::Exit() {
-  base::MessageLoopForUI::current()->QuitWhenIdle();
+  base::MessageLoop::current()->QuitWhenIdle();
 }
 
 keyboard::KeyboardUI* ShellDelegateImpl::CreateKeyboardUI() {
@@ -209,7 +196,7 @@ app_list::AppListViewDelegate* ShellDelegateImpl::GetAppListViewDelegate() {
 }
 
 ShelfDelegate* ShellDelegateImpl::CreateShelfDelegate(ShelfModel* model) {
-  shelf_delegate_ = new ShelfDelegateImpl(watcher_);
+  shelf_delegate_ = new ShelfDelegateImpl();
   return shelf_delegate_;
 }
 

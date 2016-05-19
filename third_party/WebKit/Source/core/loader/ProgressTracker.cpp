@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/loader/ProgressTracker.h"
 
 #include "core/fetch/ResourceFetcher.h"
@@ -279,4 +278,4 @@ void ProgressTracker::completeProgress(unsigned long identifier)
     m_progressItems.remove(identifier);
 }
 
-}
+} // namespace blink

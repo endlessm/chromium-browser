@@ -4,11 +4,10 @@
 
 #include "chrome/browser/android/webapps/add_to_homescreen_data_fetcher.h"
 
-#include "base/basictypes.h"
 #include "base/location.h"
 #include "base/strings/string16.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "chrome/browser/android/offline_pages/offline_page_model_factory.h"
+#include "chrome/browser/android/offline_pages/offline_page_utils.h"
 #include "chrome/browser/android/shortcut_helper.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/manifest/manifest_icon_downloader.h"
@@ -19,9 +18,6 @@
 #include "chrome/common/web_application_info.h"
 #include "components/dom_distiller/core/url_utils.h"
 #include "components/favicon/core/favicon_service.h"
-#include "components/offline_pages/offline_page_feature.h"
-#include "components/offline_pages/offline_page_item.h"
-#include "components/offline_pages/offline_page_model.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
@@ -117,10 +113,7 @@ void AddToHomescreenDataFetcher::OnDidGetManifest(
   }
 
   GURL icon_src = ManifestIconSelector::FindBestMatchingIcon(
-      manifest.icons,
-      ideal_icon_size_in_dp_,
-      minimum_icon_size_in_dp_,
-      gfx::Screen::GetScreenFor(web_contents()->GetNativeView()));
+      manifest.icons, ideal_icon_size_in_dp_, minimum_icon_size_in_dp_);
 
   // If fetching the Manifest icon fails, fallback to the best favicon
   // for the page.
@@ -136,10 +129,8 @@ void AddToHomescreenDataFetcher::OnDidGetManifest(
 
   // Save the splash screen URL for the later download.
   splash_screen_url_ = ManifestIconSelector::FindBestMatchingIcon(
-      manifest.icons,
-      ideal_splash_image_size_in_dp_,
-      minimum_splash_image_size_in_dp_,
-      gfx::Screen::GetScreenFor(web_contents()->GetNativeView()));
+      manifest.icons, ideal_splash_image_size_in_dp_,
+      minimum_splash_image_size_in_dp_);
 
   weak_observer_->OnUserTitleAvailable(shortcut_info_.user_title);
 
@@ -201,9 +192,9 @@ void AddToHomescreenDataFetcher::FetchFavicon() {
 
   // Using favicon if its size is not smaller than platform required size,
   // otherwise using the largest icon among all avaliable icons.
-  int ideal_icon_size_in_px = ideal_icon_size_in_dp_ *
-      gfx::Screen::GetScreenFor(web_contents()->GetNativeView())->
-          GetPrimaryDisplay().device_scale_factor();
+  int ideal_icon_size_in_px =
+      ideal_icon_size_in_dp_ *
+      gfx::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor();
   int threshold_to_get_any_largest_icon = ideal_icon_size_in_px - 1;
   favicon_service->GetLargestRawFaviconForPageURL(
       shortcut_info_.url,
@@ -276,21 +267,14 @@ void AddToHomescreenDataFetcher::NotifyObserver(const SkBitmap& bitmap,
 }
 
 GURL AddToHomescreenDataFetcher::GetShortcutUrl(const GURL& actual_url) {
-  GURL shortcut_url =
+  GURL original_url =
       dom_distiller::url_utils::GetOriginalUrlFromDistillerUrl(actual_url);
 
-  if (!offline_pages::IsOfflinePagesEnabled())
-    return shortcut_url;
+  // If URL points to an offline content, get original URL.
+  GURL online_url = offline_pages::OfflinePageUtils::GetOnlineURLForOfflineURL(
+      web_contents()->GetBrowserContext(), original_url);
+  if (online_url.is_valid())
+    return online_url;
 
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents()->GetBrowserContext());
-
-  offline_pages::OfflinePageModel* offline_page_model =
-      offline_pages::OfflinePageModelFactory::GetForBrowserContext(profile);
-  const offline_pages::OfflinePageItem* offline_page =
-      offline_page_model->GetPageByOfflineURL(shortcut_url);
-  if (!offline_page)
-    return shortcut_url;
-
-  return offline_page->url;
+  return original_url;
 }

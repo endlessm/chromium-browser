@@ -40,7 +40,7 @@ namespace {
 const float kDegreesToRadians = 3.1415926f / 180.0f;
 const float kMeanGravity = -9.8066f;
 
-DisplayInfo CreateDisplayInfo(int64 id, const gfx::Rect& bounds) {
+DisplayInfo CreateDisplayInfo(int64_t id, const gfx::Rect& bounds) {
   DisplayInfo info(id, "dummy", false);
   info.SetBounds(bounds);
   return info;
@@ -58,7 +58,8 @@ bool RotationLocked() {
       ->rotation_locked();
 }
 
-void SetDisplayRotationById(int64 display_id, gfx::Display::Rotation rotation) {
+void SetDisplayRotationById(int64_t display_id,
+                            gfx::Display::Rotation rotation) {
   Shell::GetInstance()->display_manager()->SetDisplayRotation(
       display_id, rotation, gfx::Display::ROTATION_SOURCE_USER);
 }
@@ -436,7 +437,8 @@ TEST_F(ScreenOrientationControllerTest, BlockRotationNotifications) {
   EXPECT_TRUE(message_center->HasPopupNotifications());
 
   // Clear all notifications
-  message_center->RemoveAllNotifications(false);
+  message_center->RemoveAllNotifications(
+      false /* by_user */, message_center::MessageCenter::RemoveType::ALL);
   EXPECT_EQ(0u, message_center->NotificationCount());
   EXPECT_FALSE(message_center->HasPopupNotifications());
 
@@ -455,7 +457,8 @@ TEST_F(ScreenOrientationControllerTest, BlockRotationNotifications) {
   // Reset the screen rotation.
   SetInternalDisplayRotation(gfx::Display::ROTATE_0);
   // Clear all notifications
-  message_center->RemoveAllNotifications(false);
+  message_center->RemoveAllNotifications(
+      false /* by_user */, message_center::MessageCenter::RemoveType::ALL);
   ASSERT_NE(gfx::Display::ROTATE_180, GetCurrentInternalDisplayRotation());
   ASSERT_EQ(0u, message_center->NotificationCount());
   ASSERT_FALSE(message_center->HasPopupNotifications());
@@ -596,7 +599,7 @@ TEST_F(ScreenOrientationControllerTest, UserRotationLockDisallowsRotation) {
 TEST_F(ScreenOrientationControllerTest, InternalDisplayNotAvailableAtStartup) {
   test::DisplayManagerTestApi().SetFirstDisplayAsInternalDisplay();
 
-  int64 internal_display_id = gfx::Display::InternalDisplayId();
+  int64_t internal_display_id = gfx::Display::InternalDisplayId();
   gfx::Display::SetInternalDisplayId(gfx::Display::kInvalidDisplayID);
 
   EnableMaximizeMode(true);
@@ -616,10 +619,10 @@ TEST_F(ScreenOrientationControllerTest, InternalDisplayNotAvailableAtStartup) {
   EXPECT_TRUE(RotationLocked());
 }
 
-// Verifies rotating an inactive Display is sucessful.
+// Verifies rotating an inactive Display is successful.
 TEST_F(ScreenOrientationControllerTest, RotateInactiveDisplay) {
-  const int64 kInternalDisplayId = 9;
-  const int64 kExternalDisplayId = 10;
+  const int64_t kInternalDisplayId = 9;
+  const int64_t kExternalDisplayId = 10;
   const gfx::Display::Rotation kNewRotation = gfx::Display::ROTATE_180;
 
   const DisplayInfo internal_display_info =
@@ -638,8 +641,8 @@ TEST_F(ScreenOrientationControllerTest, RotateInactiveDisplay) {
   // that the DisplayManager can track the |internal_display_info| as inactive
   // instead of non-existent.
   DisplayManager* display_manager = Shell::GetInstance()->display_manager();
-  display_manager->UpdateDisplays(display_info_list_two_active);
-  display_manager->UpdateDisplays(display_info_list_one_active);
+  display_manager->UpdateDisplaysWith(display_info_list_two_active);
+  display_manager->UpdateDisplaysWith(display_info_list_one_active);
 
   test::ScopedSetInternalDisplayId set_internal(kInternalDisplayId);
 

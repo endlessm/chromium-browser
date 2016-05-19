@@ -4,8 +4,10 @@
 
 #include "components/nacl/browser/nacl_process_host.h"
 
+#include <string.h>
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/base_switches.h"
@@ -13,6 +15,7 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
@@ -50,7 +53,6 @@
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_switches.h"
-#include "native_client/src/shared/imc/nacl_imc_c.h"
 #include "net/socket/socket_descriptor.h"
 #include "ppapi/host/host_factory.h"
 #include "ppapi/host/ppapi_host.h"
@@ -60,18 +62,22 @@
 
 #if defined(OS_POSIX)
 
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+#include "content/public/browser/zygote_handle_linux.h"
 #include "ipc/ipc_channel_posix.h"
 #elif defined(OS_WIN)
 #include <windows.h>
+#include <winsock2.h>
 
 #include "base/threading/thread.h"
 #include "base/win/scoped_handle.h"
 #include "components/nacl/browser/nacl_broker_service_win.h"
 #include "components/nacl/common/nacl_debug_exception_handler_win.h"
+#include "components/startup_metric_utils/common/pre_read_field_trial_utils_win.h"
 #include "content/public/common/sandbox_init.h"
 #endif
 
@@ -131,9 +137,8 @@ void* AllocateAddressSpaceASLR(base::ProcessHandle process, size_t size) {
     return NULL;
   size_t offset = base::RandGenerator(avail_size - size);
   const int kPageSize = 0x10000;
-  void* request_addr =
-      reinterpret_cast<void*>(reinterpret_cast<uint64>(addr + offset)
-                              & ~(kPageSize - 1));
+  void* request_addr = reinterpret_cast<void*>(
+      reinterpret_cast<uint64_t>(addr + offset) & ~(kPageSize - 1));
   return VirtualAllocEx(process, request_addr, size,
                         MEM_RESERVE, PAGE_NOACCESS);
 }
@@ -150,6 +155,10 @@ bool RunningOnWOW64() {
 #endif  // defined(OS_WIN)
 
 namespace {
+
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
+content::ZygoteHandle g_nacl_zygote;
+#endif  // defined(OS_POSIX) && !defined(OS_MACOSX)
 
 // NOTE: changes to this class need to be reviewed by the security team.
 class NaClSandboxedProcessLauncherDelegate
@@ -177,8 +186,13 @@ class NaClSandboxedProcessLauncherDelegate
     }
   }
 #elif defined(OS_POSIX)
-  bool ShouldUseZygote() override { return true; }
-  base::ScopedFD TakeIpcFd() override { return ipc_fd_.Pass(); }
+#if !defined(OS_MACOSX)
+  content::ZygoteHandle* GetZygote() override {
+    return content::GetGenericZygote();
+  }
+#endif  // !defined(OS_MACOSX)
+
+  base::ScopedFD TakeIpcFd() override { return std::move(ipc_fd_); }
 #endif  // OS_WIN
 
  private:
@@ -186,15 +200,6 @@ class NaClSandboxedProcessLauncherDelegate
   base::ScopedFD ipc_fd_;
 #endif  // OS_POSIX
 };
-
-void SetCloseOnExec(NaClHandle fd) {
-#if defined(OS_POSIX)
-  int flags = fcntl(fd, F_GETFD);
-  CHECK_NE(flags, -1);
-  int rc = fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
-  CHECK_EQ(rc, 0);
-#endif
-}
 
 void CloseFile(base::File file) {
   // The base::File destructor will close the file for us.
@@ -211,7 +216,8 @@ unsigned NaClProcessHost::keepalive_throttle_interval_milliseconds_ =
 // that this only takes a transferred IPC::ChannelHandle or one to be
 // transferred via IPC.
 class NaClProcessHost::ScopedChannelHandle {
-  MOVE_ONLY_TYPE_FOR_CPP_03(ScopedChannelHandle, RValue);
+  MOVE_ONLY_TYPE_FOR_CPP_03(ScopedChannelHandle);
+
  public:
   ScopedChannelHandle() {
   }
@@ -219,8 +225,8 @@ class NaClProcessHost::ScopedChannelHandle {
       : handle_(handle) {
     DCHECK(IsSupportedHandle(handle_));
   }
-  ScopedChannelHandle(RValue other) : handle_(other.object->handle_) {
-    other.object->handle_ = IPC::ChannelHandle();
+  ScopedChannelHandle(ScopedChannelHandle&& other) : handle_(other.handle_) {
+    other.handle_ = IPC::ChannelHandle();
     DCHECK(IsSupportedHandle(handle_));
   }
   ~ScopedChannelHandle() {
@@ -278,13 +284,13 @@ NaClProcessHost::NaClProcessHost(
     const std::vector<NaClResourcePrefetchResult>& prefetched_resource_files,
     ppapi::PpapiPermissions permissions,
     int render_view_id,
-    uint32 permission_bits,
+    uint32_t permission_bits,
     bool uses_nonsfi_mode,
     bool off_the_record,
     NaClAppProcessType process_type,
     const base::FilePath& profile_directory)
     : manifest_url_(manifest_url),
-      nexe_file_(nexe_file.Pass()),
+      nexe_file_(std::move(nexe_file)),
       nexe_token_(nexe_token),
       prefetched_resource_files_(prefetched_resource_files),
       permissions_(permissions),
@@ -345,22 +351,13 @@ NaClProcessHost::~NaClProcessHost() {
     base::File file(IPC::PlatformFileForTransitToFile(
         prefetched_resource_files_[i].file));
     content::BrowserThread::GetBlockingPool()->PostTask(
-        FROM_HERE,
-        base::Bind(&CloseFile, base::Passed(file.Pass())));
+        FROM_HERE, base::Bind(&CloseFile, base::Passed(std::move(file))));
   }
 #endif
-  base::File files_to_close[] = {
-      nexe_file_.Pass(),
-      socket_for_renderer_.Pass(),
-      socket_for_sel_ldr_.Pass(),
-  };
   // Open files need to be closed on the blocking pool.
-  for (auto& file : files_to_close) {
-    if (file.IsValid()) {
-      content::BrowserThread::GetBlockingPool()->PostTask(
-          FROM_HERE,
-          base::Bind(&CloseFile, base::Passed(file.Pass())));
-    }
+  if (nexe_file_.IsValid()) {
+    content::BrowserThread::GetBlockingPool()->PostTask(
+        FROM_HERE, base::Bind(&CloseFile, base::Passed(std::move(nexe_file_))));
   }
 
   if (reply_msg_) {
@@ -414,6 +411,14 @@ void NaClProcessHost::EarlyStartup() {
   }
   NaClBrowser::GetDelegate()->SetDebugPatterns(nacl_debug_mask);
 }
+
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
+// static
+void NaClProcessHost::EarlyZygoteLaunch() {
+  DCHECK(!g_nacl_zygote);
+  g_nacl_zygote = content::CreateZygote();
+}
+#endif  // defined(OS_POSIX) && !defined(OS_MACOSX)
 
 // static
 void NaClProcessHost::SetPpapiKeepAliveThrottleForTesting(
@@ -490,34 +495,6 @@ void NaClProcessHost::Launch(
       delete this;
       return;
     }
-
-    if (!enable_ppapi_proxy()) {
-      SendErrorToRenderer(
-          "PPAPI proxy must be enabled on NaCl in Non-SFI mode.");
-      delete this;
-      return;
-    }
-  } else {
-    // Rather than creating a socket pair in the renderer, and passing
-    // one side through the browser to sel_ldr, socket pairs are created
-    // in the browser and then passed to the renderer and sel_ldr.
-    //
-    // This is mainly for the benefit of Windows, where sockets cannot
-    // be passed in messages, but are copied via DuplicateHandle().
-    // This means the sandboxed renderer cannot send handles to the
-    // browser process.
-
-    NaClHandle pair[2];
-    // Create a connected socket
-    if (NaClSocketPair(pair) == -1) {
-      SendErrorToRenderer("NaClSocketPair() failed");
-      delete this;
-      return;
-    }
-    socket_for_renderer_ = base::File(pair[0]);
-    socket_for_sel_ldr_ = base::File(pair[1]);
-    SetCloseOnExec(pair[0]);
-    SetCloseOnExec(pair[1]);
   }
 
   // Create a shared memory region that the renderer and plugin share for
@@ -530,7 +507,7 @@ void NaClProcessHost::Launch(
   }
 }
 
-void NaClProcessHost::OnChannelConnected(int32 peer_pid) {
+void NaClProcessHost::OnChannelConnected(int32_t peer_pid) {
   if (!base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
           switches::kNaClGdb).empty()) {
     LaunchNaClGdb();
@@ -667,7 +644,12 @@ bool NaClProcessHost::LaunchSelLdr() {
   if (NaClBrowser::GetDelegate()->DialogsAreSuppressed())
     cmd_line->AppendSwitch(switches::kNoErrorDialogs);
 
-  // On Windows we might need to start the broker process to launch a new loader
+#if defined(OS_WIN)
+  if (startup_metric_utils::GetPreReadOptions().use_prefetch_argument)
+    cmd_line->AppendArg(switches::kPrefetchArgumentOther);
+#endif  // defined(OS_WIN)
+
+// On Windows we might need to start the broker process to launch a new loader
 #if defined(OS_WIN)
   if (RunningOnWOW64()) {
     if (!NaClBrokerService::GetInstance()->LaunchLoader(
@@ -751,18 +733,8 @@ void NaClProcessHost::ReplyToRenderer(
   }
 #endif
 
-  // First, create an |imc_channel_handle| for the renderer.
-  IPC::PlatformFileForTransit imc_handle_for_renderer =
-      IPC::TakeFileHandleForProcess(socket_for_renderer_.Pass(),
-                                    nacl_host_message_filter_->PeerHandle());
-  if (imc_handle_for_renderer == IPC::InvalidPlatformFileForTransit()) {
-    // Failed to create the handle.
-    SendErrorToRenderer("imc_channel_handle creation failed.");
-    return;
-  }
-
-  // Hereafter, we always send an IPC message with handles including imc_handle
-  // created above which, on Windows, are not closable in this process.
+  // Hereafter, we always send an IPC message with handles created above
+  // which, on Windows, are not closable in this process.
   std::string error_message;
   base::SharedMemoryHandle crash_info_shmem_renderer_handle;
   if (!crash_info_shmem_.ShareToProcess(nacl_host_message_filter_->PeerHandle(),
@@ -778,8 +750,7 @@ void NaClProcessHost::ReplyToRenderer(
 
   const ChildProcessData& data = process_->GetData();
   SendMessageToRenderer(
-      NaClLaunchResult(imc_handle_for_renderer,
-                       ppapi_channel_handle.release(),
+      NaClLaunchResult(ppapi_channel_handle.release(),
                        trusted_channel_handle.release(),
                        manifest_service_channel_handle.release(),
                        base::GetProcId(data.handle),
@@ -830,7 +801,7 @@ net::SocketDescriptor NaClProcessHost::GetDebugStubSocketHandle() {
   // allocate any available port.
   // On success, if the test system has register a handler
   // (GdbDebugStubPortListener), we fire a notification.
-  uint16 port = kInitialDebugStubPort;
+  uint16_t port = kInitialDebugStubPort;
   net::SocketDescriptor s =
       net::CreatePlatformSocket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (s != net::kInvalidSocket) {
@@ -897,18 +868,11 @@ bool NaClProcessHost::StartNaClExecution() {
 
   NaClStartParams params;
 
-  // Enable PPAPI proxy channel creation only for renderer processes.
-  params.enable_ipc_proxy = enable_ppapi_proxy();
   params.process_type = process_type_;
   bool enable_nacl_debug = enable_debug_stub_ &&
       NaClBrowser::GetDelegate()->URLMatchesDebugPatterns(manifest_url_);
   if (uses_nonsfi_mode_) {
     // Currently, non-SFI mode is supported only on Linux.
-#if defined(OS_LINUX)
-    // In non-SFI mode, we do not use SRPC. Make sure that the socketpair is
-    // not created.
-    DCHECK(!socket_for_sel_ldr_.IsValid());
-#endif
     if (enable_nacl_debug) {
       base::ProcessId pid = base::GetProcId(process_->GetData().handle);
       LOG(WARNING) << "nonsfi nacl plugin running in " << pid;
@@ -920,12 +884,6 @@ bool NaClProcessHost::StartNaClExecution() {
     params.enable_debug_stub = enable_nacl_debug;
 
     const ChildProcessData& data = process_->GetData();
-    params.imc_bootstrap_handle =
-        IPC::TakeFileHandleForProcess(socket_for_sel_ldr_.Pass(), data.handle);
-    if (params.imc_bootstrap_handle == IPC::InvalidPlatformFileForTransit()) {
-      return false;
-    }
-
     const base::File& irt_file = nacl_browser->IrtFile();
     CHECK(irt_file.IsValid());
     // Send over the IRT file handle.  We don't close our own copy!
@@ -944,6 +902,10 @@ bool NaClProcessHost::StartNaClExecution() {
     base::SharedMemoryCreateOptions options;
     options.size = 1;
     options.executable = true;
+
+    // NaCl expects a POSIX fd.
+    options.type = base::SharedMemoryHandle::POSIX;
+
     if (!memory_buffer.Create(options)) {
       DLOG(ERROR) << "Failed to allocate memory buffer";
       return false;
@@ -1031,14 +993,13 @@ void NaClProcessHost::StartNaClFileResolved(
     // Release the file received from the renderer. This has to be done on a
     // thread where IO is permitted, though.
     content::BrowserThread::GetBlockingPool()->PostTask(
-        FROM_HERE,
-        base::Bind(&CloseFile, base::Passed(nexe_file_.Pass())));
+        FROM_HERE, base::Bind(&CloseFile, base::Passed(std::move(nexe_file_))));
     params.nexe_file_path_metadata = file_path;
     params.nexe_file = IPC::TakeFileHandleForProcess(
-        checked_nexe_file.Pass(), process_->GetData().handle);
+        std::move(checked_nexe_file), process_->GetData().handle);
   } else {
     params.nexe_file = IPC::TakeFileHandleForProcess(
-        nexe_file_.Pass(), process_->GetData().handle);
+        std::move(nexe_file_), process_->GetData().handle);
   }
 
 #if defined(OS_LINUX)
@@ -1053,9 +1014,6 @@ void NaClProcessHost::StartNaClFileResolved(
     // ensure that these FDs/handles don't get leaked and that the NaCl loader
     // process will exit properly.
     bool has_error = false;
-
-    // Note: this check is redundant. We check this earlier.
-    DCHECK(params.enable_ipc_proxy);
 
     ScopedChannelHandle ppapi_browser_server_channel_handle;
     ScopedChannelHandle ppapi_browser_client_channel_handle;
@@ -1079,7 +1037,7 @@ void NaClProcessHost::StartNaClFileResolved(
     }
 
     if (!has_error &&
-        !StartPPAPIProxy(ppapi_browser_client_channel_handle.Pass())) {
+        !StartPPAPIProxy(std::move(ppapi_browser_client_channel_handle))) {
       SendErrorToRenderer("Failed to start browser PPAPI proxy.");
       has_error = true;
     }
@@ -1088,9 +1046,9 @@ void NaClProcessHost::StartNaClFileResolved(
       // On success, send back a success message to the renderer process,
       // and transfer the channel handles for the NaCl loader process to
       // |params|.
-      ReplyToRenderer(ppapi_renderer_client_channel_handle.Pass(),
-                      trusted_service_client_channel_handle.Pass(),
-                      manifest_service_client_channel_handle.Pass());
+      ReplyToRenderer(std::move(ppapi_renderer_client_channel_handle),
+                      std::move(trusted_service_client_channel_handle),
+                      std::move(manifest_service_client_channel_handle));
       params.ppapi_browser_channel_handle =
           ppapi_browser_server_channel_handle.release();
       params.ppapi_renderer_channel_handle =
@@ -1200,24 +1158,15 @@ void NaClProcessHost::OnPpapiChannelsCreated(
   ScopedChannelHandle manifest_service_channel_handle(
       raw_manifest_service_channel_handle);
 
-  if (enable_ppapi_proxy()) {
-    if (!StartPPAPIProxy(ppapi_browser_channel_handle.Pass())) {
-      SendErrorToRenderer("Browser PPAPI proxy could not start.");
-      return;
-    }
-  } else {
-    // If PPAPI proxy is disabled, channel handles should be invalid.
-    DCHECK(ppapi_browser_channel_handle.get().name.empty());
-    DCHECK(ppapi_renderer_channel_handle.get().name.empty());
-    // Invalidate, just in case.
-    ppapi_browser_channel_handle.reset();
-    ppapi_renderer_channel_handle.reset();
+  if (!StartPPAPIProxy(std::move(ppapi_browser_channel_handle))) {
+    SendErrorToRenderer("Browser PPAPI proxy could not start.");
+    return;
   }
 
   // Let the renderer know that the IPC channels are established.
-  ReplyToRenderer(ppapi_renderer_channel_handle.Pass(),
-                  trusted_renderer_channel_handle.Pass(),
-                  manifest_service_channel_handle.Pass());
+  ReplyToRenderer(std::move(ppapi_renderer_channel_handle),
+                  std::move(trusted_renderer_channel_handle),
+                  std::move(manifest_service_channel_handle));
 }
 
 bool NaClProcessHost::StartWithLaunchedProcess() {
@@ -1249,8 +1198,8 @@ void NaClProcessHost::OnSetKnownToValidate(const std::string& signature) {
       signature, off_the_record_);
 }
 
-void NaClProcessHost::OnResolveFileToken(uint64 file_token_lo,
-                                         uint64 file_token_hi) {
+void NaClProcessHost::OnResolveFileToken(uint64_t file_token_lo,
+                                         uint64_t file_token_hi) {
   // Was the file registered?
   //
   // Note that the file path cache is of bounded size, and old entries can get
@@ -1313,9 +1262,8 @@ void NaClProcessHost::FileResolved(
   IPC::PlatformFileForTransit out_handle;
   if (file.IsValid()) {
     out_file_path = file_path;
-    out_handle = IPC::TakeFileHandleForProcess(
-        file.Pass(),
-        process_->GetData().handle);
+    out_handle = IPC::TakeFileHandleForProcess(std::move(file),
+                                               process_->GetData().handle);
   } else {
     out_handle = IPC::InvalidPlatformFileForTransit();
   }

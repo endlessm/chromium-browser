@@ -7,6 +7,7 @@
 #include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "ui/base/user_activity/user_activity_observer.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/platform/platform_event_source.h"
@@ -52,9 +53,7 @@ UserActivityDetector::UserActivityDetector() {
 
   ui::PlatformEventSource* platform_event_source =
       ui::PlatformEventSource::GetInstance();
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
-  CHECK(platform_event_source);
-#endif
+  // TODO(sad): Need a PES for mus.
   if (platform_event_source)
     platform_event_source->AddPlatformEventObserver(this);
 }
@@ -62,9 +61,6 @@ UserActivityDetector::UserActivityDetector() {
 UserActivityDetector::~UserActivityDetector() {
   ui::PlatformEventSource* platform_event_source =
       ui::PlatformEventSource::GetInstance();
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
-  CHECK(platform_event_source);
-#endif
   if (platform_event_source)
     platform_event_source->RemovePlatformEventObserver(this);
   g_instance = nullptr;

@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/json/string_escape.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
@@ -17,10 +18,10 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/test/chromedriver/chrome/mobile_device.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/logging.h"
-#include "net/base/net_util.h"
 
 namespace {
 
@@ -465,6 +466,8 @@ Status ParseChromeOptions(
 }  // namespace
 
 Switches::Switches() {}
+
+Switches::Switches(const Switches& other) = default;
 
 Switches::~Switches() {}
 

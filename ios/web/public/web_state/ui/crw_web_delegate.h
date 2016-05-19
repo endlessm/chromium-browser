@@ -5,6 +5,7 @@
 #ifndef IOS_WEB_PUBLIC_WEB_STATE_UI_CRW_WEB_DELEGATE_H_
 #define IOS_WEB_PUBLIC_WEB_STATE_UI_CRW_WEB_DELEGATE_H_
 
+#include <stdint.h>
 #import <UIKit/UIKit.h>
 #include <vector>
 
@@ -70,9 +71,7 @@ typedef void (^SSLErrorCallback)(BOOL);
 // Called when the page wants to open a new window by DOM.
 // CRWSessionController's openedByDOM property of the returned CRWWebController
 // must be YES.
-- (CRWWebController*)webPageOrderedOpenBlankWithReferrer:
-    (const web::Referrer&)referrer
-        inBackground:(BOOL)inBackground;
+- (CRWWebController*)webPageOrderedOpen;
 
 // Called when the page calls window.close() on itself. Begin the shut-down
 // sequence for this controller.
@@ -173,7 +172,6 @@ typedef void (^SSLErrorCallback)(BOOL);
 - (void)webWillGoDelta:(int)delta;
 - (void)webDidPrepareForGoBack;
 // ---------------------------------------------------------------------
-
 
 @optional
 

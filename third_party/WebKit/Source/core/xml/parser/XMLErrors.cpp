@@ -26,7 +26,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/xml/parser/XMLErrors.h"
 
 #include "core/HTMLNames.h"
@@ -168,7 +167,7 @@ void XMLErrors::insertErrorMessageBlock()
         documentElement->parserAppendChild(reportElement);
 
     // FIXME: Why do we need to call this manually?
-    m_document->updateLayoutTreeIfNeeded();
+    m_document->updateLayoutTree();
 }
 
 } // namespace blink

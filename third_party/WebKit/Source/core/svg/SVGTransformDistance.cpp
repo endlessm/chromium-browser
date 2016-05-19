@@ -17,8 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGTransformDistance.h"
 
 #include "platform/geometry/FloatPoint.h"
@@ -214,4 +212,4 @@ float SVGTransformDistance::distance() const
     return 0;
 }
 
-}
+} // namespace blink

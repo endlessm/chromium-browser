@@ -14,7 +14,7 @@
 #define WEBRTC_BASE_THREAD_CHECKER_IMPL_H_
 
 #include "webrtc/base/criticalsection.h"
-#include "webrtc/base/platform_thread.h"
+#include "webrtc/base/platform_thread_types.h"
 
 namespace rtc {
 
@@ -37,7 +37,7 @@ class ThreadCheckerImpl {
   void DetachFromThread();
 
  private:
-  mutable CriticalSection lock_;
+  CriticalSection lock_;
   // This is mutable so that CalledOnValidThread can set it.
   // It's guarded by |lock_|.
   mutable PlatformThreadRef valid_thread_;

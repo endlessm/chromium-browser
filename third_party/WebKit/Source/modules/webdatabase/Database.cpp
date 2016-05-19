@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/webdatabase/Database.h"
 
 #include "core/dom/CrossThreadTask.h"
@@ -54,6 +53,8 @@
 #include "platform/weborigin/DatabaseIdentifier.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebDatabaseObserver.h"
+#include "wtf/Atomics.h"
+#include "wtf/CurrentTime.h"
 
 // Registering "opened" databases with the DatabaseTracker
 // =======================================================
@@ -149,7 +150,7 @@ static bool setTextValueInDatabase(SQLiteDatabase& db, const String& query, cons
 // FIXME: move all guid-related functions to a DatabaseVersionTracker class.
 static RecursiveMutex& guidMutex()
 {
-    AtomicallyInitializedStaticReference(RecursiveMutex, mutex, new RecursiveMutex);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(RecursiveMutex, mutex, new RecursiveMutex);
     return mutex;
 }
 
@@ -209,7 +210,7 @@ Database::Database(DatabaseContext* databaseContext, const String& name, const S
     , m_displayName(displayName.isolatedCopy())
     , m_estimatedSize(estimatedSize)
     , m_guid(0)
-    , m_opened(false)
+    , m_opened(0)
     , m_new(false)
     , m_transactionInProgress(false)
     , m_isTransactionQueueEnabled(true)
@@ -370,8 +371,8 @@ void Database::closeDatabase()
     if (!m_opened)
         return;
 
+    releaseStore(&m_opened, 0);
     m_sqliteDatabase.close();
-    m_opened = false;
     // See comment at the top this file regarding calling removeOpenDatabase().
     DatabaseTracker::tracker().removeOpenDatabase(this);
     {
@@ -531,7 +532,7 @@ bool Database::performOpenAndVerify(bool shouldSetVersionInNewDatabase, Database
 
     // See comment at the top this file regarding calling addOpenDatabase().
     DatabaseTracker::tracker().addOpenDatabase(this);
-    m_opened = true;
+    m_opened = 1;
 
     // Declare success:
     error = DatabaseError::None; // Clear the presumed error from above.
@@ -900,6 +901,11 @@ SecurityOrigin* Database::securityOrigin() const
     if (databaseContext()->databaseThread()->isDatabaseThread())
         return m_databaseThreadSecurityOrigin.get();
     return 0;
+}
+
+bool Database::opened()
+{
+    return static_cast<bool>(acquireLoad(&m_opened));
 }
 
 } // namespace blink

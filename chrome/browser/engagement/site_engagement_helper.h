@@ -29,13 +29,6 @@ class SiteEngagementHelper
   static void SetSecondsTrackingDelayAfterNavigation(int seconds);
   static void SetSecondsTrackingDelayAfterShow(int seconds);
 
-  // content::WebContentsObserver overrides.
-  void DidNavigateMainFrame(
-      const content::LoadCommittedDetails& details,
-      const content::FrameNavigateParams& params) override;
-  void WasShown() override;
-  void WasHidden() override;
-
  private:
   // Class to encapsulate the periodic detection of site engagement.
   //
@@ -130,6 +123,7 @@ class SiteEngagementHelper
    public:
     MediaTracker(SiteEngagementHelper* helper,
                  content::WebContents* web_contents);
+    ~MediaTracker() override;
 
    private:
     friend class SiteEngagementHelperTest;
@@ -137,13 +131,13 @@ class SiteEngagementHelper
     void TrackingStarted() override;
 
     // content::WebContentsObserver overrides.
-    void MediaStartedPlaying() override;
-    void MediaPaused() override;
+    void MediaStartedPlaying(const MediaPlayerId& id) override;
+    void MediaStoppedPlaying(const MediaPlayerId& id) override;
     void WasShown() override;
     void WasHidden() override;
 
     bool is_hidden_;
-    bool is_playing_;
+    std::vector<MediaPlayerId> active_media_players_;
   };
 
   explicit SiteEngagementHelper(content::WebContents* web_contents);
@@ -157,6 +151,13 @@ class SiteEngagementHelper
   // Ask the SiteEngagementService to record engagement via media playing at the
   // current WebContents URL.
   void RecordMediaPlaying(bool is_hidden);
+
+  // content::WebContentsObserver overrides.
+  void DidNavigateMainFrame(
+      const content::LoadCommittedDetails& details,
+      const content::FrameNavigateParams& params) override;
+  void WasShown() override;
+  void WasHidden() override;
 
   InputTracker input_tracker_;
   MediaTracker media_tracker_;

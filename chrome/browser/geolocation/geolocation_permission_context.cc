@@ -10,15 +10,15 @@
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/geolocation_provider.h"
+#include "content/public/browser/permission_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 
-
-GeolocationPermissionContext::GeolocationPermissionContext(
-    Profile* profile)
-    : PermissionContextBase(profile, CONTENT_SETTINGS_TYPE_GEOLOCATION),
-      extensions_context_(profile) {
-}
+GeolocationPermissionContext::GeolocationPermissionContext(Profile* profile)
+    : PermissionContextBase(profile,
+                            content::PermissionType::GEOLOCATION,
+                            CONTENT_SETTINGS_TYPE_GEOLOCATION),
+      extensions_context_(profile) {}
 
 GeolocationPermissionContext::~GeolocationPermissionContext() {
 }
@@ -28,15 +28,14 @@ void GeolocationPermissionContext::DecidePermission(
     const PermissionRequestID& id,
     const GURL& requesting_origin,
     const GURL& embedding_origin,
-    bool user_gesture,
     const BrowserPermissionCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   bool permission_set;
   bool new_permission;
   if (extensions_context_.DecidePermission(
-      web_contents, id, id.request_id(), requesting_origin, user_gesture,
-      callback, &permission_set, &new_permission)) {
+      web_contents, id, id.request_id(), requesting_origin, callback,
+      &permission_set, &new_permission)) {
     if (permission_set) {
       ContentSetting content_setting =
           new_permission ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
@@ -54,7 +53,6 @@ void GeolocationPermissionContext::DecidePermission(
                                           id,
                                           requesting_origin,
                                           embedding_origin,
-                                          user_gesture,
                                           callback);
 }
 
@@ -89,5 +87,5 @@ void GeolocationPermissionContext::UpdateTabContext(
 }
 
 bool GeolocationPermissionContext::IsRestrictedToSecureOrigins() const {
-  return false;
+  return true;
 }

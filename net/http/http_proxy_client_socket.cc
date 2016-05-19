@@ -13,7 +13,6 @@
 #include "net/base/auth.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
-#include "net/base/net_util.h"
 #include "net/base/proxy_delegate.h"
 #include "net/http/http_basic_stream.h"
 #include "net/http/http_network_session.h"
@@ -244,11 +243,11 @@ int HttpProxyClientSocket::Write(IOBuffer* buf, int buf_len,
   return transport_->socket()->Write(buf, buf_len, callback);
 }
 
-int HttpProxyClientSocket::SetReceiveBufferSize(int32 size) {
+int HttpProxyClientSocket::SetReceiveBufferSize(int32_t size) {
   return transport_->socket()->SetReceiveBufferSize(size);
 }
 
-int HttpProxyClientSocket::SetSendBufferSize(int32 size) {
+int HttpProxyClientSocket::SetSendBufferSize(int32_t size) {
   return transport_->socket()->SetSendBufferSize(size);
 }
 

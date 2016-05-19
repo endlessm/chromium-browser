@@ -17,32 +17,32 @@
 
 // Break if we detect that CertStatus values changed, because we persist them on
 // disk and thus require them to be consistent.
-COMPILE_ASSERT(net::CERT_STATUS_ALL_ERRORS == 0xFFFF,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_COMMON_NAME_INVALID == 1 << 0,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_DATE_INVALID == 1 << 1,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_AUTHORITY_INVALID == 1 << 2,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_NO_REVOCATION_MECHANISM == 1 << 4,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_UNABLE_TO_CHECK_REVOCATION == 1 << 5,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_REVOKED == 1 << 6,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_INVALID == 1 << 7,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_WEAK_SIGNATURE_ALGORITHM == 1 << 8,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_NON_UNIQUE_NAME == 1 << 10,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_WEAK_KEY == 1 << 11,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_IS_EV == 1 << 16,
-               cert_status_value_changed);
-COMPILE_ASSERT(net::CERT_STATUS_REV_CHECKING_ENABLED == 1 << 17,
-               cert_status_value_changed);
+static_assert(net::CERT_STATUS_ALL_ERRORS == 0xFFFF,
+              "The value of CERT_STATUS_ALL_ERRORS changed!");
+static_assert(net::CERT_STATUS_COMMON_NAME_INVALID == 1 << 0,
+              "The value of CERT_STATUS_COMMON_NAME_INVALID changed!");
+static_assert(net::CERT_STATUS_DATE_INVALID == 1 << 1,
+              "The value of CERT_STATUS_DATE_INVALID changed!");
+static_assert(net::CERT_STATUS_AUTHORITY_INVALID == 1 << 2,
+              "The value of CERT_STATUS_AUTHORITY_INVALID changed!");
+static_assert(net::CERT_STATUS_NO_REVOCATION_MECHANISM == 1 << 4,
+              "The value of CERT_STATUS_NO_REVOCATION_MECHANISM changed!");
+static_assert(net::CERT_STATUS_UNABLE_TO_CHECK_REVOCATION == 1 << 5,
+              "The value of CERT_STATUS_UNABLE_TO_CHECK_REVOCATION changed!");
+static_assert(net::CERT_STATUS_REVOKED == 1 << 6,
+              "The value of CERT_STATUS_REVOKED changed!");
+static_assert(net::CERT_STATUS_INVALID == 1 << 7,
+              "The value of CERT_STATUS_INVALID changed!");
+static_assert(net::CERT_STATUS_WEAK_SIGNATURE_ALGORITHM == 1 << 8,
+              "The value of CERT_STATUS_WEAK_SIGNATURE_ALGORITHM changed!");
+static_assert(net::CERT_STATUS_NON_UNIQUE_NAME == 1 << 10,
+              "The value of CERT_STATUS_NON_UNIQUE_NAME changed!");
+static_assert(net::CERT_STATUS_WEAK_KEY == 1 << 11,
+              "The value of CERT_STATUS_WEAK_KEY changed!");
+static_assert(net::CERT_STATUS_IS_EV == 1 << 16,
+              "The value of CERT_STATUS_IS_EV changed!");
+static_assert(net::CERT_STATUS_REV_CHECKING_ENABLED == 1 << 17,
+              "The value of CERT_STATUS_REV_CHECKING_ENABLED changed!");
 
 namespace {
 
@@ -76,7 +76,7 @@ NSData* CertificateToNSData(net::X509Certificate* certificate) {
   return [NSData dataWithBytes:s.c_str() length:s.length()];
 }
 
-net::X509Certificate* NSDataToCertificate(NSData* data) {
+scoped_refptr<net::X509Certificate> NSDataToCertificate(NSData* data) {
   return net::X509Certificate::CreateFromBytes((const char *)[data bytes],
                                                [data length]);
 }
@@ -99,7 +99,8 @@ void AddToCertificatePolicyCache(
   AllowedCertificates allowed_;
 }
 
-- (void)registerAllowedCertificate:(net::X509Certificate*)certificate
+- (void)registerAllowedCertificate:
+            (const scoped_refptr<net::X509Certificate>)certificate
                            forHost:(const std::string&)host
                             status:(net::CertStatus)status {
   DCHECK([NSThread isMainThread]);
@@ -140,11 +141,12 @@ void AddToCertificatePolicyCache(
         NOTREACHED();
         continue;
       }
-      net::X509Certificate* c = NSDataToCertificate([fields objectAtIndex:0]);
+      scoped_refptr<net::X509Certificate> cert =
+          NSDataToCertificate([fields objectAtIndex:0]);
       std::string host = base::SysNSStringToUTF8([fields objectAtIndex:1]);
       net::CertStatus status = (net::CertStatus)[[fields objectAtIndex:2]
           unsignedIntegerValue];
-      [self registerAllowedCertificate:c forHost:host status:status];
+      [self registerAllowedCertificate:cert forHost:host status:status];
     }
   }
   return self;

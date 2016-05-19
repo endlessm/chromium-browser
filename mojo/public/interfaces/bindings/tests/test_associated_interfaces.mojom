@@ -7,7 +7,7 @@ module mojo.test;
 interface FooInterface {};
 
 struct StructContainsAssociated {
-  associated FooInterface foo_interface;
+  associated FooInterface? foo_interface;
   associated FooInterface& foo_request;
 };
 
@@ -27,4 +27,14 @@ interface InterfacePassesAssociated {
 
   PassUnion(UnionContainsAssociated foo_union) =>
            (UnionContainsAssociated foo_union);
+};
+
+interface IntegerSender {
+  Echo(int32 value) => (int32 value);
+  Send(int32 value);
+};
+
+interface IntegerSenderConnection {
+  GetSender(associated IntegerSender& sender);
+  AsyncGetSender() => (associated IntegerSender sender);
 };

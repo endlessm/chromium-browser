@@ -5,6 +5,9 @@
 #ifndef CONTENT_RENDERER_PEPPER_PEPPER_BROKER_H_
 #define CONTENT_RENDERER_PEPPER_PEPPER_BROKER_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/process/process.h"
 #include "base/sync_socket.h"
@@ -69,6 +72,7 @@ class PepperBroker : public base::RefCountedThreadSafe<PepperBroker> {
 
   struct PendingConnection {
     PendingConnection();
+    PendingConnection(const PendingConnection& other);
     ~PendingConnection();
 
     bool is_authorized;

@@ -5,15 +5,16 @@
 #ifndef UI_VIEWS_BACKGROUND_H_
 #define UI_VIEWS_BACKGROUND_H_
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "build/build_config.h"
+#include "third_party/skia/include/core/SkColor.h"
+#include "ui/views/views_export.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
 #endif  // defined(OS_WIN)
-
-#include "base/basictypes.h"
-#include "third_party/skia/include/core/SkColor.h"
-#include "ui/views/views_export.h"
 
 namespace gfx {
 class Canvas;
@@ -89,19 +90,8 @@ class VIEWS_EXPORT Background {
   // backgrounds, this is not useful (returns a default color).
   SkColor get_color() const { return color_; }
 
-#if defined(OS_WIN)
-  // TODO(port): Make GetNativeControlBrush portable (currently uses HBRUSH).
-
-  // Get the brush that was specified by SetNativeControlColor
-  HBRUSH GetNativeControlBrush() const;
-#endif  // defined(OS_WIN)
-
  private:
   SkColor color_;
-#if defined(OS_WIN)
-  // TODO(port): Create portable replacement for HBRUSH.
-  mutable HBRUSH native_control_brush_;
-#endif  // defined(OS_WIN)
 
   DISALLOW_COPY_AND_ASSIGN(Background);
 };

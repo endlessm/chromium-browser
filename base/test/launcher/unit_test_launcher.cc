@@ -14,6 +14,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/format_macros.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -27,6 +28,7 @@
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -64,6 +66,10 @@ void PrintUsage() {
           "    for debugging a specific test in a debugger.\n"
           "\n"
           " Other flags:\n"
+          "  --test-launcher-filter-file=PATH\n"
+          "    Like --gtest_filter, but read the test filter from PATH.\n"
+          "    One pattern per line; lines starting with '-' are exclusions.\n"
+          "\n"
           "  --test-launcher-batch-limit=N\n"
           "    Sets the limit of test batch to run in a single process to N.\n"
           "\n"

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/parser/CSSParserTokenRange.h"
 
 #include "wtf/StaticConstructors.h"
@@ -29,14 +28,14 @@ CSSParserTokenRange CSSParserTokenRange::makeSubRange(const CSSParserToken* firs
 
 CSSParserTokenRange CSSParserTokenRange::consumeBlock()
 {
-    ASSERT(peek().blockType() == CSSParserToken::BlockStart);
+    ASSERT(peek().getBlockType() == CSSParserToken::BlockStart);
     const CSSParserToken* start = &peek() + 1;
     unsigned nestingLevel = 0;
     do {
         const CSSParserToken& token = consume();
-        if (token.blockType() == CSSParserToken::BlockStart)
+        if (token.getBlockType() == CSSParserToken::BlockStart)
             nestingLevel++;
-        else if (token.blockType() == CSSParserToken::BlockEnd)
+        else if (token.getBlockType() == CSSParserToken::BlockEnd)
             nestingLevel--;
     } while (nestingLevel && m_first < m_last);
 
@@ -52,9 +51,9 @@ void CSSParserTokenRange::consumeComponentValue()
     unsigned nestingLevel = 0;
     do {
         const CSSParserToken& token = consume();
-        if (token.blockType() == CSSParserToken::BlockStart)
+        if (token.getBlockType() == CSSParserToken::BlockStart)
             nestingLevel++;
-        else if (token.blockType() == CSSParserToken::BlockEnd)
+        else if (token.getBlockType() == CSSParserToken::BlockEnd)
             nestingLevel--;
     } while (nestingLevel && m_first < m_last);
 }

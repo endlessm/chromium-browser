@@ -5,7 +5,6 @@
 #ifndef EXTENSIONS_COMMON_PERMISSIONS_MEDIA_GALLERIES_PERMISSION_H_
 #define EXTENSIONS_COMMON_PERMISSIONS_MEDIA_GALLERIES_PERMISSION_H_
 
-#include "base/basictypes.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/media_galleries_permission_data.h"
 #include "extensions/common/permissions/set_disjunction_permission.h"
@@ -22,6 +21,10 @@ namespace extensions {
 //                'delete' <tertiary-access>
 //   <tertiary-access>
 //             := 'copyTo' | 'copyTo' <tertiary-access>
+// An example of a line for mediaGalleries permissions in a manifest file:
+//   {"mediaGalleries": "read delete"},
+// We also allow a permission without any sub-permissions:
+//   "mediaGalleries",
 class MediaGalleriesPermission
   : public SetDisjunctionPermission<MediaGalleriesPermissionData,
                                     MediaGalleriesPermission> {

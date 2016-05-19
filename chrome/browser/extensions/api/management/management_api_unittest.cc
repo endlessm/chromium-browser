@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -87,7 +88,7 @@ void ManagementApiUnitTest::SetUp() {
                                                        &BuildEventRouter);
 
   browser_window_.reset(new TestBrowserWindow());
-  Browser::CreateParams params(profile(), chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser::CreateParams params(profile());
   params.type = Browser::TYPE_TABBED;
   params.window = browser_window_.get();
   browser_.reset(new Browser(params));

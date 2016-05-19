@@ -236,8 +236,6 @@ fi
 eval $(sed -e "s/^\([^=]\+\)=\(.*\)$/export \1='\2'/" \
   "${BUILDDIR}/installer/theme/BRANDING")
 
-REPOCONFIG="deb http://dl.google.com/linux/chrome/deb/ stable main"
-SSLREPOCONFIG="deb https://dl.google.com/linux/chrome/deb/ stable main"
 verify_channel
 
 # Some Debian packaging tools want these set.
@@ -275,11 +273,11 @@ fi
 # Format it nicely and save it for comparison.
 # The grep -v is for a duplicate libc6 dep caused by Lucid glibc silliness.
 echo "$DPKG_SHLIB_DEPS" | sed 's/, /\n/g' | \
-  grep -v '^libc6 (>= 2.3.6-6~)$' > actual
+  grep -v '^libc6 (>= 2.3.6-6~)$' | LANG=C sort > actual
 
 # Compare the expected dependency list to the generate list.
 BAD_DIFF=0
-diff "$SCRIPTDIR/expected_deps_$TARGETARCH" actual || BAD_DIFF=1
+diff -u "$SCRIPTDIR/expected_deps_$TARGETARCH" actual || BAD_DIFF=1
 if [ $BAD_DIFF -ne 0 ] && [ -z "${IGNORE_DEPS_CHANGES:-}" ]; then
   echo
   echo "ERROR: Shared library dependencies changed!"
@@ -292,10 +290,19 @@ fi
 rm -rf "$DUMMY_STAGING_DIR"
 
 # Additional dependencies not in the dpkg-shlibdeps output.
-# - Pull a more recent version of NSS than required by runtime linking, for
-#   security and stability updates in NSS.
+# ca-certificates: Make sure users have SSL certificates.
+# fonts-liberation: Make sure users have compatible fonts for viewing PDFs.
+# libappindicator1: Make systray icons work in Unity.
+# libcurl3: Was for NPAPI Flash. TODO(thestig): Remove?
+# libnss3: Pull a more recent version of NSS than required by runtime linking,
+#          for security and stability updates in NSS.
+# libstdc++6: For C++11 support.
+# lsb-base: Implies many other dependencies.
+# xdg-utils: For OS integration.
+# wget: For uploading crash reports with Breakpad.
 ADDITION_DEPS="ca-certificates, fonts-liberation, libappindicator1, libcurl3, \
-  libnss3 (>= 3.14.3), lsb-base (>=3.2), xdg-utils (>= 1.0.2), wget"
+  libnss3 (>= 3.17.2), libstdc++6 (>=4.8.0), lsb-base (>=4.1), \
+  xdg-utils (>= 1.0.2), wget"
 
 # Fix-up libnspr dependency due to renaming in Ubuntu (the old package still
 # exists, but it was moved to "universe" repository, which isn't installed by
@@ -314,11 +321,9 @@ cd "${OUTPUTDIR}"
 case "$TARGETARCH" in
   ia32 )
     export ARCHITECTURE="i386"
-    stage_install_debian
     ;;
   x64 )
     export ARCHITECTURE="amd64"
-    stage_install_debian
     ;;
   * )
     echo
@@ -327,5 +332,14 @@ case "$TARGETARCH" in
     exit 1
     ;;
 esac
+BASEREPOCONFIG="dl.google.com/linux/chrome/deb/ stable main"
+# Only use the default REPOCONFIG if it's unset (e.g. verify_channel might have
+# set it to an empty string)
+REPOCONFIG="${REPOCONFIG-deb [arch=${ARCHITECTURE}] http://${BASEREPOCONFIG}}"
+# Allowed configs include optional HTTPS support and explicit multiarch
+# platforms.
+REPOCONFIGREGEX="deb (\\\\[arch=[^]]*\\\\b${ARCHITECTURE}\\\\b[^]]*\\\\]"
+REPOCONFIGREGEX+="[[:space:]]*) https?://${BASEREPOCONFIG}"
+stage_install_debian
 
 do_package

@@ -24,7 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/PublicURLManager.h"
 
 #include "core/fetch/MemoryCache.h"
@@ -109,4 +108,4 @@ DEFINE_TRACE(PublicURLManager)
     ActiveDOMObject::trace(visitor);
 }
 
-}
+} // namespace blink

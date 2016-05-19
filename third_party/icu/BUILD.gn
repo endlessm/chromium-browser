@@ -67,6 +67,9 @@ config("icu_code") {
       # complain about it.
       "-Wno-deprecated-declarations",
       "-Wno-unused-function",
+
+      # fread is used in putil.cpp without checking the return value.
+      "-Wno-unused-result",
     ]
   }
   if (is_clang) {

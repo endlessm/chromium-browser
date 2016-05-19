@@ -60,8 +60,8 @@ public:
     bool useCurrentView() const { return m_useCurrentView; }
     SVGViewSpec* currentView();
 
-    Length intrinsicWidth() const;
-    Length intrinsicHeight() const;
+    float intrinsicWidth() const;
+    float intrinsicHeight() const;
     FloatSize currentViewportSize() const;
     FloatRect currentViewBoxRect() const;
 
@@ -121,7 +121,7 @@ private:
     explicit SVGSVGElement(Document&);
     ~SVGSVGElement() override;
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     bool isPresentationAttribute(const QualifiedName&) const override;
     bool isPresentationAttributeWithSVGDOM(const QualifiedName&) const override;
     void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override;

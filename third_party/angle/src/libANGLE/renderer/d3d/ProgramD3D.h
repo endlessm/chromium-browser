@@ -80,6 +80,57 @@ struct D3DUniformBlock
     unsigned int psRegisterIndex;
 };
 
+struct D3DVarying final
+{
+    D3DVarying();
+    D3DVarying(const std::string &semanticNameIn,
+               unsigned int semanticIndexIn,
+               unsigned int componentCountIn,
+               unsigned int outputSlotIn);
+
+    D3DVarying(const D3DVarying &) = default;
+    D3DVarying &operator=(const D3DVarying &) = default;
+
+    std::string semanticName;
+    unsigned int semanticIndex;
+    unsigned int componentCount;
+    unsigned int outputSlot;
+};
+
+class ProgramD3DMetadata : angle::NonCopyable
+{
+  public:
+    ProgramD3DMetadata(int rendererMajorShaderModel,
+                       const std::string &shaderModelSuffix,
+                       bool usesInstancedPointSpriteEmulation,
+                       bool usesViewScale,
+                       const ShaderD3D *vertexShader,
+                       const ShaderD3D *fragmentShader);
+
+    int getRendererMajorShaderModel() const;
+    bool usesBroadcast(const gl::Data &data) const;
+    bool usesFragDepth(const gl::Program::Data &programData) const;
+    bool usesPointCoord() const;
+    bool usesFragCoord() const;
+    bool usesPointSize() const;
+    bool usesInsertedPointCoordValue() const;
+    bool usesViewScale() const;
+    bool addsPointCoordToVertexShader() const;
+    bool usesTransformFeedbackGLPosition() const;
+    bool usesSystemValuePointSize() const;
+    bool usesMultipleFragmentOuts() const;
+    GLint getMajorShaderVersion() const;
+    const ShaderD3D *getFragmentShader() const;
+
+  private:
+    const int mRendererMajorShaderModel;
+    const std::string mShaderModelSuffix;
+    const bool mUsesInstancedPointSpriteEmulation;
+    const bool mUsesViewScale;
+    const ShaderD3D *mVertexShader;
+    const ShaderD3D *mFragmentShader;
+};
+
 class ProgramD3D : public ProgramImpl
 {
   public:
@@ -94,7 +145,7 @@ class ProgramD3D : public ProgramImpl
                             unsigned int samplerIndex,
                             const gl::Caps &caps) const;
     GLenum getSamplerTextureType(gl::SamplerType type, unsigned int samplerIndex) const;
-    GLint getUsedSamplerRange(gl::SamplerType type) const;
+    GLuint getUsedSamplerRange(gl::SamplerType type) const;
     void updateSamplerMapping();
 
     bool usesPointSize() const { return mUsesPointSize; }
@@ -102,8 +153,9 @@ class ProgramD3D : public ProgramImpl
     bool usesGeometryShader(GLenum drawMode) const;
     bool usesInstancedPointSpriteEmulation() const;
 
-    LinkResult load(gl::InfoLog &infoLog, gl::BinaryInputStream *stream);
-    gl::Error save(gl::BinaryOutputStream *stream);
+    LinkResult load(gl::InfoLog &infoLog, gl::BinaryInputStream *stream) override;
+    gl::Error save(gl::BinaryOutputStream *stream) override;
+    void setBinaryRetrievableHint(bool retrievable) override;
 
     gl::Error getPixelExecutableForFramebuffer(const gl::Framebuffer *fbo,
                                                ShaderExecutableD3D **outExectuable);
@@ -196,6 +248,8 @@ class ProgramD3D : public ProgramImpl
     void updateCachedInputLayout(const gl::State &state);
     const gl::InputLayout &getCachedInputLayout() const { return mCachedInputLayout; }
 
+    bool isSamplerMappingDirty() { return mDirtySamplerMapping; }
+
   private:
     class VertexExecutable
     {
@@ -283,7 +337,7 @@ class ProgramD3D : public ProgramImpl
 
     LinkResult compileProgramExecutables(const gl::Data &data, gl::InfoLog &infoLog);
 
-    void gatherTransformFeedbackVaryings(const std::vector<gl::LinkedVarying> &varyings);
+    void gatherTransformFeedbackVaryings(const VaryingPacking &varyings);
     D3DUniform *getD3DUniformByName(const std::string &name);
     D3DUniform *getD3DUniformFromLocation(GLint location);
 
@@ -341,7 +395,7 @@ class ProgramD3D : public ProgramImpl
     VertexExecutable::Signature mCachedVertexSignature;
     gl::InputLayout mCachedInputLayout;
 
-    std::vector<gl::LinkedVarying> mTransformFeedbackLinkedVaryings;
+    std::vector<D3DVarying> mStreamOutVaryings;
     std::vector<D3DUniform *> mD3DUniforms;
     std::vector<D3DUniformBlock> mD3DUniformBlocks;
 

@@ -5,11 +5,12 @@
 #ifndef CONTENT_RENDERER_INPUT_INPUT_HANDLER_MANAGER_CLIENT_H_
 #define CONTENT_RENDERER_INPUT_INPUT_HANDLER_MANAGER_CLIENT_H_
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "content/common/content_export.h"
 #include "content/common/input/input_event_ack_state.h"
+#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
 namespace ui {
@@ -20,13 +21,12 @@ namespace cc {
 class InputHandler;
 }
 
-namespace blink {
-class WebInputEvent;
+namespace ui {
+class SynchronousInputHandlerProxy;
 }
 
 namespace content {
 struct DidOverscrollParams;
-class SynchronousInputHandlerProxy;
 
 class CONTENT_EXPORT InputHandlerManagerClient {
  public:
@@ -46,11 +46,14 @@ class CONTENT_EXPORT InputHandlerManagerClient {
   // Called from the compositor thread.
   virtual void DidAddInputHandler(
       int routing_id,
-      SynchronousInputHandlerProxy* synchronous_handler) = 0;
+      ui::SynchronousInputHandlerProxy* synchronous_handler) = 0;
   virtual void DidRemoveInputHandler(int routing_id) = 0;
   virtual void DidOverscroll(int routing_id,
                              const DidOverscrollParams& params) = 0;
   virtual void DidStopFlinging(int routing_id) = 0;
+  virtual void NonBlockingInputEventHandled(
+      int routing_id,
+      blink::WebInputEvent::Type type) = 0;
 
  protected:
   InputHandlerManagerClient() {}

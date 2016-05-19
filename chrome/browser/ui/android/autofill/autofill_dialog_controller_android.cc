@@ -4,21 +4,22 @@
 
 #include "chrome/browser/ui/android/autofill/autofill_dialog_controller_android.h"
 
+#include <stddef.h>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/android/autofill/autofill_dialog_result.h"
-#include "chrome/browser/ui/android/window_android_helper.h"
+#include "chrome/browser/ui/android/view_android_helper.h"
 #include "chrome/browser/ui/autofill/autofill_dialog_common.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -34,11 +35,14 @@
 #include "components/autofill/core/browser/server_field_types_util.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/AutofillDialogControllerAndroid_jni.h"
+#include "ui/android/view_android.h"
 #include "ui/android/window_android.h"
 #include "ui/base/models/combobox_model.h"
 #include "ui/base/models/menu_model.h"
@@ -254,14 +258,11 @@ void AutofillDialogControllerAndroid::Show() {
   }
 
   // Determine what field types should be included in the dialog.
-  bool has_types = false;
-  bool has_sections = false;
-  form_structure_.ParseFieldTypesFromAutocompleteAttributes(
-      &has_types, &has_sections);
+  form_structure_.ParseFieldTypesFromAutocompleteAttributes();
 
   // Fail if the author didn't specify autocomplete types, or
   // if the dialog shouldn't be shown in a given circumstances.
-  if (!has_types) {
+  if (!form_structure_.has_author_specified_types()) {
     callback_.Run(
         AutofillClient::AutocompleteResultErrorDisabled,
         base::ASCIIToUTF16("Form is missing autocomplete attributes."),
@@ -275,7 +276,8 @@ void AutofillDialogControllerAndroid::Show() {
   bool has_credit_card_field = false;
   for (size_t i = 0; i < form_structure_.field_count(); ++i) {
     AutofillType type = form_structure_.field(i)->Type();
-    if (type.html_type() != HTML_TYPE_UNKNOWN && type.group() == CREDIT_CARD) {
+    if (type.html_type() != HTML_TYPE_UNSPECIFIED &&
+        type.group() == CREDIT_CARD) {
       has_credit_card_field = true;
       break;
     }
@@ -407,8 +409,8 @@ void AutofillDialogControllerAndroid::Show() {
   java_object_.Reset(Java_AutofillDialogControllerAndroid_create(
       env,
       reinterpret_cast<intptr_t>(this),
-      WindowAndroidHelper::FromWebContents(contents_)->
-          GetWindowAndroid()->GetJavaObject().obj(),
+      ViewAndroidHelper::FromWebContents(contents_)->
+          GetViewAndroid()->GetWindowAndroid()->GetJavaObject().obj(),
       request_full_billing_address, request_shipping_address,
       request_phone_numbers, incognito_mode,
       last_used_choice_is_autofill, jlast_used_account_name.obj(),
@@ -431,8 +433,9 @@ bool AutofillDialogControllerAndroid::
   return RegisterNativesImpl(env);
 }
 
-void AutofillDialogControllerAndroid::DialogCancel(JNIEnv* env,
-                                                   jobject obj) {
+void AutofillDialogControllerAndroid::DialogCancel(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   LogOnCancelMetrics();
   callback_.Run(AutofillClient::AutocompleteResultErrorCancel,
                 base::string16(),
@@ -441,13 +444,13 @@ void AutofillDialogControllerAndroid::DialogCancel(JNIEnv* env,
 
 void AutofillDialogControllerAndroid::DialogContinue(
     JNIEnv* env,
-    jobject obj,
-    jobject wallet,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& wallet,
     jboolean jlast_used_choice_is_autofill,
-    jstring jlast_used_account_name,
-    jstring jlast_used_billing,
-    jstring jlast_used_shipping,
-    jstring jlast_used_card) {
+    const JavaParamRef<jstring>& jlast_used_account_name,
+    const JavaParamRef<jstring>& jlast_used_billing,
+    const JavaParamRef<jstring>& jlast_used_shipping,
+    const JavaParamRef<jstring>& jlast_used_card) {
   const base::string16 email =
       AutofillDialogResult::GetWalletEmail(env, wallet);
   const std::string google_transaction_id =

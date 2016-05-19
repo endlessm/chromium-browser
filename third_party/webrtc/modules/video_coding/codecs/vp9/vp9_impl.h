@@ -9,8 +9,10 @@
  *
  */
 
-#ifndef WEBRTC_MODULES_VIDEO_CODING_CODECS_VP9_IMPL_H_
-#define WEBRTC_MODULES_VIDEO_CODING_CODECS_VP9_IMPL_H_
+#ifndef WEBRTC_MODULES_VIDEO_CODING_CODECS_VP9_VP9_IMPL_H_
+#define WEBRTC_MODULES_VIDEO_CODING_CODECS_VP9_VP9_IMPL_H_
+
+#include <vector>
 
 #include "webrtc/modules/video_coding/codecs/vp9/include/vp9.h"
 #include "webrtc/modules/video_coding/codecs/vp9/vp9_frame_buffer_pool.h"
@@ -46,6 +48,8 @@ class VP9EncoderImpl : public VP9Encoder {
   int SetRates(uint32_t new_bitrate_kbit, uint32_t frame_rate) override;
 
   void OnDroppedFrame() override {}
+
+  const char* ImplementationName() const override;
 
   struct LayerFrameRefSettings {
     int8_t upd_buf = -1;   // -1 - no update,    0..7 - update buffer 0..7
@@ -127,7 +131,6 @@ class VP9EncoderImpl : public VP9Encoder {
   rtc::scoped_ptr<ScreenshareLayersVP9> spatial_layer_;
 };
 
-
 class VP9DecoderImpl : public VP9Decoder {
  public:
   VP9DecoderImpl();
@@ -146,7 +149,7 @@ class VP9DecoderImpl : public VP9Decoder {
 
   int Release() override;
 
-  int Reset() override;
+  const char* ImplementationName() const override;
 
  private:
   int ReturnFrame(const vpx_image_t* img, uint32_t timeStamp);
@@ -161,4 +164,4 @@ class VP9DecoderImpl : public VP9Decoder {
 };
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_VIDEO_CODING_CODECS_VP9_IMPL_H_
+#endif  // WEBRTC_MODULES_VIDEO_CODING_CODECS_VP9_VP9_IMPL_H_

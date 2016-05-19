@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
@@ -136,7 +137,7 @@ struct ProcessManager::BackgroundPageData {
   // is active. A copy of the ID is also passed in the callbacks and IPC
   // messages leading up to CloseLazyBackgroundPageNow. The process is aborted
   // if the IDs ever differ due to new activity.
-  uint64 close_sequence_id;
+  uint64_t close_sequence_id;
 
   // Keeps track of when this page was last suspended. Used for perf metrics.
   linked_ptr<base::ElapsedTimer> since_suspended;
@@ -165,12 +166,13 @@ struct ProcessManager::ExtensionRenderFrameData {
     switch (view_type) {
       case VIEW_TYPE_APP_WINDOW:
       case VIEW_TYPE_BACKGROUND_CONTENTS:
+      case VIEW_TYPE_COMPONENT:
       case VIEW_TYPE_EXTENSION_DIALOG:
+      case VIEW_TYPE_EXTENSION_GUEST:
       case VIEW_TYPE_EXTENSION_POPUP:
       case VIEW_TYPE_LAUNCHER_PAGE:
       case VIEW_TYPE_PANEL:
       case VIEW_TYPE_TAB_CONTENTS:
-      case VIEW_TYPE_VIRTUAL_KEYBOARD:
         return true;
 
       case VIEW_TYPE_INVALID:
@@ -309,6 +311,21 @@ void ProcessManager::UnregisterRenderFrameHost(
   }
 }
 
+void ProcessManager::DidNavigateRenderFrameHost(
+    content::RenderFrameHost* render_frame_host) {
+  ExtensionRenderFrames::iterator frame =
+      all_extension_frames_.find(render_frame_host);
+
+  if (frame != all_extension_frames_.end()) {
+    std::string extension_id = GetExtensionID(render_frame_host);
+
+    FOR_EACH_OBSERVER(ProcessManagerObserver,
+                      observer_list_,
+                      OnExtensionFrameNavigated(extension_id,
+                                                render_frame_host));
+  }
+}
+
 scoped_refptr<content::SiteInstance> ProcessManager::GetSiteInstanceForURL(
     const GURL& url) {
   return make_scoped_refptr(site_instance_->GetRelatedSiteInstance(url));
@@ -324,18 +341,17 @@ const ProcessManager::FrameSet ProcessManager::GetAllFrames() const {
 ProcessManager::FrameSet ProcessManager::GetRenderFrameHostsForExtension(
     const std::string& extension_id) {
   FrameSet result;
-  scoped_refptr<content::SiteInstance> site_instance(GetSiteInstanceForURL(
-      Extension::GetBaseURLFromExtensionId(extension_id)));
-  if (!site_instance.get())
-    return result;
-
-  // Gather up all the frames for that site.
   for (const auto& key_value : all_extension_frames_) {
-    if (key_value.first->GetSiteInstance() == site_instance)
+    if (GetExtensionID(key_value.first) == extension_id)
       result.insert(key_value.first);
   }
-
   return result;
+}
+
+bool ProcessManager::IsRenderFrameHostRegistered(
+    content::RenderFrameHost* render_frame_host) {
+  return all_extension_frames_.find(render_frame_host) !=
+         all_extension_frames_.end();
 }
 
 void ProcessManager::AddObserver(ProcessManagerObserver* observer) {
@@ -528,7 +544,7 @@ void ProcessManager::OnKeepaliveFromPlugin(int render_process_id,
 }
 
 void ProcessManager::OnShouldSuspendAck(const std::string& extension_id,
-                                        uint64 sequence_id) {
+                                        uint64_t sequence_id) {
   ExtensionHost* host = GetBackgroundHostForExtension(extension_id);
   if (host &&
       sequence_id == background_page_data_[extension_id].close_sequence_id) {
@@ -538,7 +554,7 @@ void ProcessManager::OnShouldSuspendAck(const std::string& extension_id,
 
 void ProcessManager::OnSuspendAck(const std::string& extension_id) {
   background_page_data_[extension_id].is_closing = true;
-  uint64 sequence_id = background_page_data_[extension_id].close_sequence_id;
+  uint64_t sequence_id = background_page_data_[extension_id].close_sequence_id;
   base::MessageLoop::current()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&ProcessManager::CloseLazyBackgroundPageNow,
@@ -550,7 +566,7 @@ void ProcessManager::OnSuspendAck(const std::string& extension_id) {
 
 void ProcessManager::OnNetworkRequestStarted(
     content::RenderFrameHost* render_frame_host,
-    uint64 request_id) {
+    uint64_t request_id) {
   ExtensionHost* host = GetBackgroundHostForExtension(
       GetExtensionID(render_frame_host));
   auto result = pending_network_requests_.insert(request_id);
@@ -563,7 +579,7 @@ void ProcessManager::OnNetworkRequestStarted(
 
 void ProcessManager::OnNetworkRequestDone(
     content::RenderFrameHost* render_frame_host,
-    uint64 request_id) {
+    uint64_t request_id) {
   ExtensionHost* host = GetBackgroundHostForExtension(
       GetExtensionID(render_frame_host));
   if (host && IsFrameInExtensionHost(host, render_frame_host)) {
@@ -804,7 +820,7 @@ void ProcessManager::OnKeepaliveImpulseCheck() {
 }
 
 void ProcessManager::OnLazyBackgroundPageIdle(const std::string& extension_id,
-                                              uint64 sequence_id) {
+                                              uint64_t sequence_id) {
   ExtensionHost* host = GetBackgroundHostForExtension(extension_id);
   if (host && !background_page_data_[extension_id].is_closing &&
       sequence_id == background_page_data_[extension_id].close_sequence_id) {
@@ -830,7 +846,7 @@ void ProcessManager::OnLazyBackgroundPageActive(
 }
 
 void ProcessManager::CloseLazyBackgroundPageNow(const std::string& extension_id,
-                                                uint64 sequence_id) {
+                                                uint64_t sequence_id) {
   ExtensionHost* host = GetBackgroundHostForExtension(extension_id);
   if (host &&
       sequence_id == background_page_data_[extension_id].close_sequence_id) {

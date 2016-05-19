@@ -8,12 +8,12 @@
 #include <stdint.h>
 
 #include <map>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
@@ -97,6 +97,11 @@ class IncidentReportingService : public content::NotificationObserver {
 
   // Registers |callback| to be run after some delay following process launch.
   void RegisterDelayedAnalysisCallback(const DelayedAnalysisCallback& callback);
+
+  // Registers |callback| to be run after some delay following process launch if
+  // a profile participating in extended reporting is found.
+  void RegisterExtendedReportingOnlyDelayedAnalysisCallback(
+      const DelayedAnalysisCallback& callback);
 
   // Adds |download_manager| to the set monitored for client download request
   // storage.
@@ -333,10 +338,14 @@ class IncidentReportingService : public content::NotificationObserver {
   // Callbacks registered for performing delayed analysis.
   DelayedCallbackRunner delayed_analysis_callbacks_;
 
+  // Callbacks registered for performing delayed analysis that should only
+  // be executed for safebrowsing extended reporting users.
+  DelayedCallbackRunner extended_reporting_only_delayed_analysis_callbacks_;
+
   DownloadMetadataManager download_metadata_manager_;
 
   // The collection of uploads in progress.
-  ScopedVector<UploadContext> uploads_;
+  std::vector<scoped_ptr<UploadContext>> uploads_;
 
   // An object that asynchronously searches for the most recent binary download.
   // Non-NULL while such a search is outstanding.

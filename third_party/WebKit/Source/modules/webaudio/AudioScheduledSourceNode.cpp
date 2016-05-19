@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AudioScheduledSourceNode.h"
-
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/CrossThreadTask.h"
 #include "core/dom/ExceptionCode.h"
@@ -266,6 +263,17 @@ void AudioScheduledSourceNode::setOnended(PassRefPtrWillBeRawPtr<EventListener> 
     setAttributeEventListener(EventTypeNames::ended, listener);
 }
 
+bool AudioScheduledSourceNode::hasPendingActivity() const
+{
+    // To avoid the leak, a node should be collected regardless of its
+    // playback state if the context is closed.
+    if (context()->isContextClosed())
+        return false;
+
+    // If a node is scheduled or playing, do not collect the node prematurely
+    // even its reference is out of scope. Then fire onended event if assigned.
+    return audioScheduledSourceHandler().isPlayingOrScheduled();
+}
+
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

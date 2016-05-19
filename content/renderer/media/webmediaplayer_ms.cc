@@ -4,11 +4,14 @@
 
 #include "content/renderer/media/webmediaplayer_ms.h"
 
+#include <stddef.h>
 #include <limits>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "build/build_config.h"
 #include "cc/blink/context_provider_web_context.h"
 #include "cc/blink/web_layer_impl.h"
 #include "cc/layers/video_frame_provider_client_impl.h"
@@ -29,12 +32,6 @@
 
 namespace content {
 
-namespace {
-
-static const float DEFAULT_AUDIO_VOLUME = 1.0f;
-
-}  // anonymous namespace
-
 WebMediaPlayerMS::WebMediaPlayerMS(
     blink::WebFrame* frame,
     blink::WebMediaPlayerClient* client,
@@ -53,18 +50,28 @@ WebMediaPlayerMS::WebMediaPlayerMS(
       buffered_(static_cast<size_t>(0)),
       client_(client),
       delegate_(delegate),
+      delegate_id_(0),
       paused_(true),
+      render_frame_suspended_(false),
       received_first_frame_(false),
       media_log_(media_log),
-      renderer_factory_(factory.Pass()),
+      renderer_factory_(std::move(factory)),
       media_task_runner_(media_task_runner),
       worker_task_runner_(worker_task_runner),
       gpu_factories_(gpu_factories),
       compositor_task_runner_(compositor_task_runner),
       initial_audio_output_device_id_(sink_id.utf8()),
-      initial_security_origin_(security_origin) {
+      initial_security_origin_(security_origin.isNull()
+                                   ? url::Origin()
+                                   : url::Origin(security_origin)),
+      volume_(1.0),
+      volume_multiplier_(1.0),
+      paused_on_hidden_(false) {
   DVLOG(1) << __FUNCTION__;
   DCHECK(client);
+  if (delegate_)
+    delegate_id_ = delegate_->AddObserver(this);
+
   media_log_->AddEvent(
       media_log_->CreateEvent(media::MediaLogEvent::WEBMEDIAPLAYER_CREATED));
 }
@@ -73,7 +80,7 @@ WebMediaPlayerMS::~WebMediaPlayerMS() {
   DVLOG(1) << __FUNCTION__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  if (compositor_)
+  if (compositor_ && !compositor_task_runner_->BelongsToCurrentThread())
     compositor_task_runner_->DeleteSoon(FROM_HERE, compositor_.release());
 
   get_client()->setWebLayer(nullptr);
@@ -87,8 +94,10 @@ WebMediaPlayerMS::~WebMediaPlayerMS() {
   media_log_->AddEvent(
       media_log_->CreateEvent(media::MediaLogEvent::WEBMEDIAPLAYER_DESTROYED));
 
-  if (delegate_.get())
-    delegate_->PlayerGone(this);
+  if (delegate_) {
+    delegate_->PlayerGone(delegate_id_);
+    delegate_->RemoveObserver(delegate_id_);
+  }
 }
 
 void WebMediaPlayerMS::load(LoadType load_type,
@@ -106,7 +115,7 @@ void WebMediaPlayerMS::load(LoadType load_type,
 
   SetNetworkState(WebMediaPlayer::NetworkStateLoading);
   SetReadyState(WebMediaPlayer::ReadyStateHaveNothing);
-  media_log_->AddEvent(media_log_->CreateLoadEvent(url.spec()));
+  media_log_->AddEvent(media_log_->CreateLoadEvent(url.string().utf8()));
 
   video_frame_provider_ = renderer_factory_->GetVideoFrameProvider(
       url,
@@ -117,9 +126,12 @@ void WebMediaPlayerMS::load(LoadType load_type,
       gpu_factories_);
 
   RenderFrame* const frame = RenderFrame::FromWebFrame(frame_);
-  audio_renderer_ = renderer_factory_->GetAudioRenderer(
-      url, frame->GetRoutingID(), initial_audio_output_device_id_,
-      initial_security_origin_);
+
+  if (frame) {
+    audio_renderer_ = renderer_factory_->GetAudioRenderer(
+        url, frame->GetRoutingID(), initial_audio_output_device_id_,
+        initial_security_origin_);
+  }
 
   if (!video_frame_provider_ && !audio_renderer_) {
     SetNetworkState(WebMediaPlayer::NetworkStateNetworkError);
@@ -127,7 +139,7 @@ void WebMediaPlayerMS::load(LoadType load_type,
   }
 
   if (audio_renderer_) {
-    audio_renderer_->SetVolume(DEFAULT_AUDIO_VOLUME);
+    audio_renderer_->SetVolume(volume_);
     audio_renderer_->Start();
   }
   if (video_frame_provider_)
@@ -142,45 +154,55 @@ void WebMediaPlayerMS::load(LoadType load_type,
 void WebMediaPlayerMS::play() {
   DVLOG(1) << __FUNCTION__;
   DCHECK(thread_checker_.CalledOnValidThread());
-  if (paused_) {
-    if (video_frame_provider_.get())
-      video_frame_provider_->Play();
 
-    compositor_->StartRendering();
+  media_log_->AddEvent(media_log_->CreateEvent(media::MediaLogEvent::PLAY));
+  if (!paused_)
+    return;
 
-    if (audio_renderer_.get())
-      audio_renderer_->Play();
+  if (video_frame_provider_)
+    video_frame_provider_->Play();
 
-    if (delegate_.get())
-      delegate_->DidPlay(this);
+  compositor_->StartRendering();
+
+  if (audio_renderer_)
+    audio_renderer_->Play();
+
+  if (delegate_) {
+    // TODO(perkj, magjed): We send a duration of 1 second here to avoid
+    // creating an interactive media session on Android. We'd like to use zero
+    // here, but that is treated as an unknown duration and assumed to be
+    // interactive. See http://crbug.com/595297 for more details.
+    delegate_->DidPlay(delegate_id_, hasVideo(), hasAudio(), false,
+                       base::TimeDelta::FromSeconds(1));
   }
 
   paused_ = false;
-
-  media_log_->AddEvent(media_log_->CreateEvent(media::MediaLogEvent::PLAY));
 }
 
 void WebMediaPlayerMS::pause() {
   DVLOG(1) << __FUNCTION__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  if (video_frame_provider_.get())
+  // Always clear |paused_on_hidden_| since manual pause() should clear it and
+  // an OnHidden() pause will set it appropriately after this call.
+  paused_on_hidden_ = false;
+  media_log_->AddEvent(media_log_->CreateEvent(media::MediaLogEvent::PAUSE));
+  if (paused_)
+    return;
+
+  if (video_frame_provider_)
     video_frame_provider_->Pause();
 
   compositor_->StopRendering();
   compositor_->ReplaceCurrentFrameWithACopy();
 
-  if (!paused_) {
-    if (audio_renderer_.get())
-      audio_renderer_->Pause();
+  if (audio_renderer_)
+    audio_renderer_->Pause();
 
-    if (delegate_.get())
-      delegate_->DidPause(this);
-  }
+  if (delegate_)
+    delegate_->DidPause(delegate_id_, false);
 
   paused_ = true;
-
-  media_log_->AddEvent(media_log_->CreateEvent(media::MediaLogEvent::PAUSE));
 }
 
 bool WebMediaPlayerMS::supportsSave() const {
@@ -199,8 +221,9 @@ void WebMediaPlayerMS::setRate(double rate) {
 void WebMediaPlayerMS::setVolume(double volume) {
   DVLOG(1) << __FUNCTION__ << "(volume=" << volume << ")";
   DCHECK(thread_checker_.CalledOnValidThread());
+  volume_ = volume;
   if (audio_renderer_.get())
-    audio_renderer_->SetVolume(volume);
+    audio_renderer_->SetVolume(volume_ * volume_multiplier_);
 }
 
 void WebMediaPlayerMS::setSinkId(
@@ -263,13 +286,13 @@ double WebMediaPlayerMS::currentTime() const {
   return 0.0;
 }
 
-blink::WebMediaPlayer::NetworkState WebMediaPlayerMS::networkState() const {
+blink::WebMediaPlayer::NetworkState WebMediaPlayerMS::getNetworkState() const {
   DVLOG(1) << __FUNCTION__ << ", state:" << network_state_;
   DCHECK(thread_checker_.CalledOnValidThread());
   return network_state_;
 }
 
-blink::WebMediaPlayer::ReadyState WebMediaPlayerMS::readyState() const {
+blink::WebMediaPlayer::ReadyState WebMediaPlayerMS::getReadyState() const {
   DVLOG(1) << __FUNCTION__ << ", state:" << ready_state_;
   DCHECK(thread_checker_.CalledOnValidThread());
   return ready_state_;
@@ -350,6 +373,60 @@ unsigned WebMediaPlayerMS::videoDecodedByteCount() const {
   return 0;
 }
 
+void WebMediaPlayerMS::OnHidden(bool must_suspend) {
+#if defined(OS_ANDROID)
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  // Method called when the RenderFrame is sent to background and suspended
+  // (android). Substitute the displayed VideoFrame with a copy to avoid
+  // holding on to it unnecessarily.
+  //
+  // During undoable tab closures OnHidden() may be called back to back, so we
+  // can't rely on |render_frame_suspended_| being false here.
+
+  render_frame_suspended_ = true;
+  if (must_suspend) {
+    if (!paused_) {
+      pause();
+      paused_on_hidden_ = true;
+    }
+
+    if (delegate_)
+      delegate_->PlayerGone(delegate_id_);
+  } else if (!paused_) {
+    // pause() will make its own copy in the block above otherwise.
+    compositor_->ReplaceCurrentFrameWithACopy();
+  }
+#endif  // defined(OS_ANDROID)
+}
+
+void WebMediaPlayerMS::OnShown() {
+#if defined(OS_ANDROID)
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  render_frame_suspended_ = false;
+
+  // Resume playback on visibility. play() clears |paused_on_hidden_|.
+  if (paused_on_hidden_)
+    play();
+#endif  // defined(OS_ANDROID)
+}
+
+void WebMediaPlayerMS::OnPlay() {
+  // TODO(perkj, magjed): It's not clear how WebRTC should work with an
+  // MediaSession, until these issues are resolved, disable session controls.
+  // http://crbug.com/595297.
+}
+
+void WebMediaPlayerMS::OnPause() {
+  // TODO(perkj, magjed): See TODO in Onplay().
+}
+
+void WebMediaPlayerMS::OnVolumeMultiplierUpdate(double multiplier) {
+  volume_multiplier_ = multiplier;
+  setVolume(volume_);
+}
+
 bool WebMediaPlayerMS::copyVideoTextureToPlatformTexture(
     blink::WebGraphicsContext3D* web_graphics_context,
     unsigned int texture,
@@ -382,6 +459,9 @@ void WebMediaPlayerMS::OnFrameAvailable(
     const scoped_refptr<media::VideoFrame>& frame) {
   DVLOG(3) << __FUNCTION__;
   DCHECK(thread_checker_.CalledOnValidThread());
+
+  if (render_frame_suspended_)
+    return;
 
   base::TimeTicks render_time;
   if (frame->metadata()->GetTimeTicks(media::VideoFrameMetadata::REFERENCE_TIME,
@@ -452,4 +532,5 @@ void WebMediaPlayerMS::ResetCanvasCache() {
   DCHECK(thread_checker_.CalledOnValidThread());
   video_renderer_.ResetCache();
 }
+
 }  // namespace content

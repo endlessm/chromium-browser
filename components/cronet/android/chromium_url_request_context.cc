@@ -5,6 +5,7 @@
 #include "components/cronet/android/chromium_url_request_context.h"
 
 #include <string>
+#include <utility>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
@@ -66,24 +67,11 @@ static jlong CreateRequestContextAdapter(
     const JavaParamRef<jobject>& jcaller,
     const JavaParamRef<jstring>& juser_agent,
     jint jlog_level,
-    const JavaParamRef<jstring>& jconfig) {
+    jlong jconfig) {
   std::string user_agent = ConvertJavaStringToUTF8(env, juser_agent);
 
-  std::string config = ConvertJavaStringToUTF8(env, jconfig);
-
-  scoped_ptr<base::Value> config_value = base::JSONReader::Read(config);
-  if (!config_value || !config_value->IsType(base::Value::TYPE_DICTIONARY)) {
-    DLOG(ERROR) << "Bad JSON: " << config;
-    return 0;
-  }
-
   scoped_ptr<URLRequestContextConfig> context_config(
-      new URLRequestContextConfig());
-  base::JSONValueConverter<URLRequestContextConfig> converter;
-  if (!converter.Convert(*config_value, context_config.get())) {
-    DLOG(ERROR) << "Bad Config: " << config_value;
-    return 0;
-  }
+      reinterpret_cast<URLRequestContextConfig*>(jconfig));
 
   // TODO(mef): MinLogLevel is global, shared by all URLRequestContexts.
   // Revisit this if each URLRequestContext would need an individual log level.
@@ -93,7 +81,7 @@ static jlong CreateRequestContextAdapter(
   URLRequestContextAdapter* context_adapter = new URLRequestContextAdapter(
       new JniURLRequestContextAdapterDelegate(env, jcaller), user_agent);
   context_adapter->AddRef();  // Hold onto this ref-counted object.
-  context_adapter->Initialize(context_config.Pass());
+  context_adapter->Initialize(std::move(context_config));
   return reinterpret_cast<jlong>(context_adapter);
 }
 

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 
+#include <utility>
+
 #include "base/compiler_specific.h"
 #include "base/stl_util.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
@@ -11,6 +13,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/extensions/extension_toolbar_icon_surfacing_bubble_delegate.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
@@ -30,6 +33,7 @@
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/dragdrop/drag_utils.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/nine_image_painter_factory.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
@@ -44,7 +48,11 @@
 namespace {
 
 // Horizontal spacing before the chevron (if visible).
-const int kChevronSpacing = ToolbarView::kStandardSpacing - 2;
+// TODO(tdanderson): In material design, the chevron should have the same size
+//                   and vertical spacing as the other action buttons.
+int GetChevronSpacing() {
+  return GetLayoutConstant(TOOLBAR_STANDARD_SPACING) - 2;
+}
 
 // Returns the ToolbarView for the given |browser|.
 ToolbarView* GetToolbarView(Browser* browser) {
@@ -169,16 +177,6 @@ size_t BrowserActionsContainer::VisibleBrowserActionsAfterAnimation() const {
   return toolbar_actions_bar_->WidthToIconCount(animation_target_size_);
 }
 
-void BrowserActionsContainer::ExecuteExtensionCommand(
-    const extensions::Extension* extension,
-    const extensions::Command& command) {
-  // Global commands are handled by the ExtensionCommandsGlobalRegistry
-  // instance.
-  DCHECK(!command.global());
-  extension_keybinding_registry_->ExecuteCommand(extension->id(),
-                                                 command.accelerator());
-}
-
 bool BrowserActionsContainer::ShownInsideMenu() const {
   return in_overflow_mode();
 }
@@ -197,8 +195,7 @@ views::MenuButton* BrowserActionsContainer::GetOverflowReferenceView() {
 
 void BrowserActionsContainer::OnMouseEnteredToolbarActionView() {
   if (!shown_bubble_ && !toolbar_action_views_.empty() &&
-      ExtensionToolbarIconSurfacingBubbleDelegate::ShouldShowForProfile(
-          browser_->profile())) {
+      toolbar_actions_bar_->show_icon_surfacing_bubble()) {
     ExtensionToolbarIconSurfacingBubble* bubble =
         new ExtensionToolbarIconSurfacingBubble(
             this,
@@ -216,8 +213,7 @@ void BrowserActionsContainer::AddViewForAction(
   if (chevron_)
     chevron_->CloseMenu();
 
-  ToolbarActionView* view =
-      new ToolbarActionView(view_controller, browser_->profile(), this);
+  ToolbarActionView* view = new ToolbarActionView(view_controller, this);
   toolbar_action_views_.insert(toolbar_action_views_.begin() + index, view);
   AddChildViewAt(view, index);
 }
@@ -248,6 +244,10 @@ void BrowserActionsContainer::Redraw(bool order_changed) {
     return;
   }
 
+  // Don't allow resizing if the bar is highlighting.
+  if (resize_area_)
+    resize_area_->SetEnabled(!toolbar_actions_bar()->is_highlighting());
+
   std::vector<ToolbarActionViewController*> actions =
       toolbar_actions_bar_->GetActions();
   if (order_changed) {
@@ -261,6 +261,8 @@ void BrowserActionsContainer::Redraw(bool order_changed) {
         while (actions[i] != toolbar_action_views_[j]->view_controller())
           ++j;
         std::swap(toolbar_action_views_[i], toolbar_action_views_[j]);
+        // Also move the view in the child views vector.
+        ReorderChildView(toolbar_action_views_[i], i);
       }
     }
   }
@@ -315,7 +317,8 @@ void BrowserActionsContainer::StopAnimating() {
 }
 
 int BrowserActionsContainer::GetChevronWidth() const {
-  return chevron_ ? chevron_->GetPreferredSize().width() + kChevronSpacing : 0;
+  return chevron_ ?
+      chevron_->GetPreferredSize().width() + GetChevronSpacing() : 0;
 }
 
 void BrowserActionsContainer::ShowExtensionMessageBubble(
@@ -332,10 +335,9 @@ void BrowserActionsContainer::ShowExtensionMessageBubble(
                 ->app_menu_button();
 
   extensions::ExtensionMessageBubbleView* bubble =
-      new extensions::ExtensionMessageBubbleView(
-          reference_view,
-          views::BubbleBorder::TOP_RIGHT,
-          controller.Pass());
+      new extensions::ExtensionMessageBubbleView(reference_view,
+                                                 views::BubbleBorder::TOP_RIGHT,
+                                                 std::move(controller));
   views::BubbleDelegateView::CreateBubble(bubble);
   active_bubble_ = bubble;
   active_bubble_->GetWidget()->AddObserver(this);
@@ -417,7 +419,8 @@ void BrowserActionsContainer::Layout() {
     chevron_->SetVisible(true);
     gfx::Size chevron_size(chevron_->GetPreferredSize());
     chevron_->SetBounds(
-        width() - ToolbarView::kStandardSpacing - chevron_size.width(),
+        width() - GetLayoutConstant(TOOLBAR_STANDARD_SPACING) -
+            chevron_size.width(),
         0,
         chevron_size.width(),
         chevron_size.height());
@@ -466,11 +469,12 @@ int BrowserActionsContainer::OnDragUpdated(
   if (VisibleBrowserActions() != 0) {
     // Figure out where to display the indicator. This is a complex calculation:
 
-    // First, we subtract out the padding to the left of the icon area, which is
-    // ToolbarView::kStandardSpacing. If we're right-to-left, we also mirror the
-    // event.x() so that our calculations are consistent with left-to-right.
+    // First, we subtract out the padding to the left of the icon area. If
+    // we're right-to-left, we also mirror the event.x() so that our
+    // calculations are consistent with left-to-right.
     int offset_into_icon_area =
-        GetMirroredXInView(event.x()) - ToolbarView::kStandardSpacing;
+        GetMirroredXInView(event.x()) -
+            GetLayoutConstant(TOOLBAR_STANDARD_SPACING);
 
     // Next, figure out what row we're on. This only matters for overflow mode,
     // but the calculation is the same for both.
@@ -586,11 +590,10 @@ void BrowserActionsContainer::WriteDragDataForView(View* sender,
   toolbar_actions_bar_->OnDragStarted();
   DCHECK(data);
 
-  ToolbarActionViews::iterator iter = std::find(toolbar_action_views_.begin(),
-                                                toolbar_action_views_.end(),
-                                                sender);
-  DCHECK(iter != toolbar_action_views_.end());
-  ToolbarActionViewController* view_controller = (*iter)->view_controller();
+  auto it = std::find(toolbar_action_views_.cbegin(),
+                      toolbar_action_views_.cend(), sender);
+  DCHECK(it != toolbar_action_views_.cend());
+  ToolbarActionViewController* view_controller = (*it)->view_controller();
   gfx::Size size(ToolbarActionsBar::IconWidth(false),
                  ToolbarActionsBar::IconHeight());
   drag_utils::SetDragImageOnDataObject(
@@ -599,7 +602,7 @@ void BrowserActionsContainer::WriteDragDataForView(View* sender,
       data);
   // Fill in the remaining info.
   BrowserActionDragData drag_data(view_controller->GetId(),
-                                  iter - toolbar_action_views_.begin());
+                                  it - toolbar_action_views_.cbegin());
   drag_data.Write(browser_->profile(), data);
 }
 
@@ -673,15 +676,6 @@ content::WebContents* BrowserActionsContainer::GetCurrentWebContents() {
   return browser_->tab_strip_model()->GetActiveWebContents();
 }
 
-extensions::ActiveTabPermissionGranter*
-    BrowserActionsContainer::GetActiveTabPermissionGranter() {
-  content::WebContents* web_contents = GetCurrentWebContents();
-  if (!web_contents)
-    return NULL;
-  return extensions::TabHelper::FromWebContents(web_contents)->
-      active_tab_permission_granter();
-}
-
 void BrowserActionsContainer::OnPaint(gfx::Canvas* canvas) {
   // If the views haven't been initialized yet, wait for the next call to
   // paint (one will be triggered by entering highlight mode).
@@ -704,25 +698,20 @@ void BrowserActionsContainer::OnPaint(gfx::Canvas* canvas) {
 
     // Convert back to a pixel offset into the container.  First find the X
     // coordinate of the drop icon.
-    int drop_icon_x = ToolbarView::kStandardSpacing +
+    const int drop_icon_x = GetLayoutConstant(TOOLBAR_STANDARD_SPACING) +
         (drop_position_->icon_in_row * ToolbarActionsBar::IconWidth(true));
-    // Next, find the space before the drop icon. This will either be
-    // left padding or item spacing, depending on whether this is the first
-    // icon.
-    // NOTE: Right now, these are the same. But let's do this right for if they
-    // ever aren't.
-    int space_before_drop_icon = drop_position_->icon_in_row == 0 ?
-        platform_settings().left_padding : platform_settings().item_spacing;
+    // Next, find the space before the drop icon.
+    const int space_before_drop_icon = platform_settings().item_spacing;
     // Now place the drop indicator halfway between this and the end of the
     // previous icon.  If there is an odd amount of available space between the
     // two icons (or the icon and the address bar) after subtracting the drop
     // indicator width, this calculation puts the extra pixel on the left side
     // of the indicator, since when the indicator is between the address bar and
     // the first icon, it looks better closer to the icon.
-    int drop_indicator_x = drop_icon_x -
+    const int drop_indicator_x = drop_icon_x -
         ((space_before_drop_icon + kDropIndicatorWidth) / 2);
-    int row_height = ToolbarActionsBar::IconHeight();
-    int drop_indicator_y = row_height * drop_position_->row;
+    const int row_height = ToolbarActionsBar::IconHeight();
+    const int drop_indicator_y = row_height * drop_position_->row;
     gfx::Rect indicator_bounds(drop_indicator_x,
                                drop_indicator_y,
                                kDropIndicatorWidth,
@@ -745,15 +734,6 @@ void BrowserActionsContainer::ViewHierarchyChanged(
     return;
 
   if (details.is_add && details.child == this) {
-    if (!in_overflow_mode() &&  // We only need one keybinding registry.
-        parent()->GetFocusManager()) {  // focus manager can be null in tests.
-      extension_keybinding_registry_.reset(new ExtensionKeybindingRegistryViews(
-          browser_->profile(),
-          parent()->GetFocusManager(),
-          extensions::ExtensionKeybindingRegistry::ALL_EXTENSIONS,
-          this));
-    }
-
     // Initial toolbar button creation and placement in the widget hierarchy.
     // We do this here instead of in the constructor because adding views
     // calls Layout on the Toolbar, which needs this object to be constructed
@@ -768,7 +748,7 @@ void BrowserActionsContainer::LoadImages() {
   if (in_overflow_mode())
     return;  // Overflow mode has neither a chevron nor highlighting.
 
-  ui::ThemeProvider* tp = GetThemeProvider();
+  const ui::ThemeProvider* tp = GetThemeProvider();
   if (tp && chevron_) {
     chevron_->SetImage(views::Button::STATE_NORMAL,
                        *tp->GetImageSkiaNamed(IDR_BROWSER_ACTIONS_OVERFLOW));

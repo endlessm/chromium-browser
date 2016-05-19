@@ -8,7 +8,7 @@
  */
 
 var startSessionPromise = null;
-var startedSession = null;
+var startedConnection = null;
 var reconnectedSession = null;
 var presentationUrl = "http://www.google.com/#__testprovider__=true";
 var startSessionRequest = new PresentationRequest(presentationUrl);
@@ -61,12 +61,12 @@ function checkSession() {
         sendResult(false, 'Failed to start session');
       } else {
         // set the new session
-        startedSession = session;
+        startedConnection = session;
         sendResult(true, '');
       }
     }).catch(function() {
-      // close old session if exists
-      startedSession && startedSession.close();
+      // terminate old session if exists
+      startedConnection && startedConnection.terminate();
       sendResult(false, 'Failed to start session');
     })
   }
@@ -98,15 +98,60 @@ function checkStartFailed(expectedErrorName, expectedErrorMessageSubstring) {
 }
 
 /**
- * Stops current session.
+ * Terminates current session.
  */
-function stopSession() {
-  if (startedSession) {
-    startedSession.close();
+function terminateSessionAndWaitForStateChange() {
+  if (startedConnection) {
+    startedConnection.onterminate = function() {
+      sendResult(true, '');
+    };
+    startedConnection.terminate();
+  } else {
+    sendResult(false, 'startedConnection does not exist.');
   }
-  sendResult(true, '');
 }
 
+
+/**
+ * Sends a message, and expects the connection to close on error.
+ */
+function sendMessageAndExpectConnectionCloseOnError() {
+  if (!startedConnection) {
+    sendResult(false, 'startedConnection does not exist.');
+    return;
+  }
+  startedConnection.onclose = function(event) {
+    var reason = event.reason;
+    if (reason != 'error') {
+      sendResult(false, 'Unexpected close reason: ' + reason);
+      return;
+    }
+    sendResult(true, '');
+  };
+  startedConnection.send('foo');
+}
+
+/**
+ * Sends the given message, and expects response from the receiver.
+ * @param {!string} message
+ */
+function sendMessageAndExpectResponse(message) {
+  if (!startedConnection) {
+    sendResult(false, 'startedConnection does not exist.');
+    return;
+  }
+  startedConnection.onmessage = function(receivedMessage) {
+    var expectedResponse = 'Pong: ' + message;
+    var actualResponse = JSON.parse(receivedMessage.data);
+    if (actualResponse != expectedResponse) {
+      sendResult(false, 'Expected message: ' + expectedResponse +
+          ', but got: ' + actualResponse);
+      return;
+    }
+    sendResult(true, '');
+  };
+  startedConnection.send(message);
+}
 
 /**
  * Reconnects to |sessionId| and verifies that it succeeds.

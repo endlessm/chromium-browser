@@ -12,7 +12,10 @@ source_set("browser") {
   # internal content ones) should depend on the public one.
   visibility = [ "//content/public/browser:browser_sources" ]
 
-  configs += [ "//build/config:precompiled_headers" ]
+  configs += [
+    "//build/config:precompiled_headers",
+    "//content/public/common:mojo_shell_client",
+  ]
   defines = []
   libs = []
   ldflags = []
@@ -35,19 +38,20 @@ source_set("browser") {
     "//device/battery",
     "//device/vibration",
     "//google_apis",
-    "//mojo/application/public/cpp:cpp_for_chromium",
-    "//mojo/application/public/interfaces",
     "//mojo/common",
-    "//mojo/package_manager",
     "//mojo/public/cpp/bindings",
     "//mojo/shell",
+    "//mojo/shell/public/cpp:cpp_for_chromium",
+    "//mojo/shell/public/interfaces",
+    "//mojo/shell/runner/host:lib",
     "//net",
     "//net:extras",
     "//skia",
     "//sql",
+    "//third_party/WebKit/public:blink_headers",
+    "//third_party/kasko:kasko_features",
     "//third_party/npapi",
     "//third_party/re2",
-    "//third_party/WebKit/public:blink_headers",
     "//third_party/zlib",
     "//third_party/zlib:zip",
     "//ui/accessibility",
@@ -108,6 +112,7 @@ source_set("browser") {
     deps += [
       "//cc",
       "//cc/surfaces",
+      "//components/leveldb:lib",
       "//components/scheduler:common",
       "//content/app/resources",
       "//content/app/strings",
@@ -117,14 +122,19 @@ source_set("browser") {
       "//content/public/common:mojo_bindings",
       "//device/bluetooth",
       "//gin",
-      "//mojo/application/public/interfaces",
       "//mojo/common:url_type_converters",
       "//mojo/converters/geometry",
       "//mojo/public/cpp/bindings",
       "//mojo/public/js",
+      "//mojo/shell/public/interfaces",
       "//skia/public",
       "//storage/browser",
       "//storage/common",
+
+      # TODO(brettw) bug 582206: Blink should not be used in the browser
+      # process. This is required by devtools' input_handler.cc which calls
+      # WebKeyboardEvent::setKeyIdentifierFromWindowsKeyCode
+      "//third_party/WebKit/public:blink",
       "//third_party/WebKit/public:image_resources",
       "//third_party/WebKit/public:resources",
       "//third_party/angle:commit_id",
@@ -166,7 +176,7 @@ source_set("browser") {
   }
 
   # TODO(GYP)
-  #   ['OS!="ios" and chrome_multiple_dll!=1', {
+  #   [chrome_multiple_dll!=1', {
   #     'dependencies': [
   #       '../third_party/WebKit/public/blink.gyp:blink',
   #     ],
@@ -177,15 +187,23 @@ source_set("browser") {
   if (!is_android && !is_ios) {
     deps += [ "//content/browser/tracing:resources" ]
   }
+  if ((use_udev && is_posix) || is_mac || is_win) {
+    deps += [ "//tools/battor_agent:battor_agent_lib" ]
+    sources += [
+      "tracing/power_tracing_agent.cc",
+      "tracing/power_tracing_agent.h",
+    ]
+  }
 
   if (enable_webrtc) {
     sources += rebase_path(content_browser_gypi_values.webrtc_browser_sources,
                            ".",
                            "//content")
-    deps += [ "//jingle:jingle_glue" ]
-    if (is_linux) {
-      deps += [ "//third_party/libjingle:libjingle_webrtc" ]
-    }
+    deps += [
+      "//jingle:jingle_glue",
+      "//third_party/libjingle:libjingle_webrtc",
+      "//third_party/libjingle:libpeerconnection",
+    ]
     if (is_linux || is_mac || is_win) {
       sources += [
         "media/capture/desktop_capture_device.cc",
@@ -241,20 +259,13 @@ source_set("browser") {
   }
 
   if (use_udev) {
-    deps += [ "//device/udev_linux" ]
-  } else {
-    # Remove udev-specific sources.
-    sources -= [
-      "device_monitor_udev.cc",
-      "device_monitor_udev.h",
+    deps += [
+      "//device/udev_linux",
+      "//media/capture",
     ]
+  } else {
     if (is_linux) {
-      # Already filtered out on non-Linux.
-      sources -= [
-        "gamepad/gamepad_platform_data_fetcher_linux.cc",
-        "udev_linux.cc",
-        "udev_linux.h",
-      ]
+      sources -= [ "gamepad/gamepad_platform_data_fetcher_linux.cc" ]
     }
   }
 
@@ -328,6 +339,10 @@ source_set("browser") {
     sources += rebase_path(content_browser_gypi_values.android_browser_sources,
                            ".",
                            "//content")
+    sources += rebase_path(
+            content_browser_gypi_values.android_in_process_browser_sources,
+            ".",
+            "//content")
     sources -= [
       "browser_ipc_logging.cc",
       "device_sensors/data_fetcher_shared_memory_default.cc",
@@ -337,6 +352,7 @@ source_set("browser") {
       "geolocation/network_location_request.h",
       "power_usage_monitor_impl.cc",
       "power_usage_monitor_impl.h",
+      "renderer_host/begin_frame_observer_proxy.cc",
       "tracing/tracing_ui.cc",
       "tracing/tracing_ui.h",
 
@@ -362,23 +378,11 @@ source_set("browser") {
       "speech/speech_recognizer_impl.cc",
       "speech/speech_recognizer_impl.h",
     ]
-
-    if (!use_aura) {
-      sources += rebase_path(
-              content_browser_gypi_values.android_non_aura_browser_sources,
-              ".",
-              "//content")
-      sources += rebase_path(
-              content_browser_gypi_values.android_in_process_browser_sources,
-              ".",
-              "//content")
-      sources -= [ "renderer_host/begin_frame_observer_proxy.cc" ]
-    }
-
     deps -= [ "//device/battery" ]
     deps += [
       "//content/public/android:jni",
       "//media",
+      "//media/mojo/interfaces",
       "//mojo/android:libsystem_java",
       "//ui/android",
     ]
@@ -414,15 +418,32 @@ source_set("browser") {
 
   if (use_aura) {
     deps += [
+      "//components/bitmap_uploader",
+      "//components/mus/public/cpp",
+      "//components/mus/public/interfaces",
       "//ui/aura",
       "//ui/aura_extra",
       "//ui/strings",
+      "//ui/views/mus:for_component",
       "//ui/wm",
     ]
+    sources += [
+      "compositor/software_output_device_mus.cc",
+      "compositor/software_output_device_mus.h",
+      "renderer_host/render_widget_host_view_mus.cc",
+      "renderer_host/render_widget_host_view_mus.h",
+      "web_contents/web_contents_view_mus.cc",
+      "web_contents/web_contents_view_mus.h",
+    ]
+    if (toolkit_views) {
+      defines += [ "MOJO_RUNNER_CLIENT" ]
+    }
   } else {  # Not aura.
     sources -= [
       "media/capture/cursor_renderer_aura.cc",
       "media/capture/cursor_renderer_aura.h",
+      "media/capture/window_activity_tracker_aura.cc",
+      "media/capture/window_activity_tracker_aura.h",
       "renderer_host/compositor_resize_lock_aura.cc",
       "renderer_host/compositor_resize_lock_aura.h",
       "renderer_host/input/synthetic_gesture_target_aura.cc",
@@ -474,13 +495,6 @@ source_set("browser") {
     deps += [ "//ui/compositor" ]
   }
 
-  if (!is_ios) {
-    sources += [
-      "compositor/surface_utils.cc",
-      "compositor/surface_utils.h",
-    ]
-  }
-
   if (enable_web_speech) {
     deps += [ "//third_party/flac" ]
   }
@@ -493,8 +507,6 @@ source_set("browser") {
     sources += [
       "media/cdm/browser_cdm_manager.cc",
       "media/cdm/browser_cdm_manager.h",
-      "media/media_web_contents_observer.cc",
-      "media/media_web_contents_observer.h",
     ]
   }
 
@@ -502,12 +514,8 @@ source_set("browser") {
     deps += [ "//third_party/boringssl" ]
   }
 
-  if (enable_mojo_media != "none") {
-    configs += [ "//media/mojo/services:enable_mojo_media_config" ]
-  }
-
-  if (enable_mojo_media == "browser") {
-    deps += [ "//media/mojo/services:application" ]
+  if (enable_mojo_media) {
+    configs += [ "//media/mojo/services:mojo_media_config" ]
   }
 
   if (enable_webvr) {

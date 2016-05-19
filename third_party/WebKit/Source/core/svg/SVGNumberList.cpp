@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGNumberList.h"
 
 #include "core/svg/SVGAnimationElement.h"
@@ -27,8 +26,6 @@
 #include "wtf/text/WTFString.h"
 
 namespace blink {
-
-DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGNumberList);
 
 SVGNumberList::SVGNumberList()
 {
@@ -58,43 +55,36 @@ String SVGNumberList::valueAsString() const
 }
 
 template <typename CharType>
-bool SVGNumberList::parse(const CharType*& ptr, const CharType* end)
+SVGParsingError SVGNumberList::parse(const CharType*& ptr, const CharType* end)
 {
-    clear();
-
+    const CharType* listStart = ptr;
     while (ptr < end) {
         float number = 0;
         if (!parseNumber(ptr, end, number))
-            return false;
+            return SVGParsingError(SVGParseStatus::ExpectedNumber, ptr - listStart);
         append(SVGNumber::create(number));
     }
-
-    return true;
+    return SVGParseStatus::NoError;
 }
 
-void SVGNumberList::setValueAsString(const String& value, ExceptionState& exceptionState)
+SVGParsingError SVGNumberList::setValueAsString(const String& value)
 {
-    if (value.isEmpty()) {
-        clear();
-        return;
-    }
+    clear();
 
-    bool valid = false;
+    if (value.isEmpty())
+        return SVGParseStatus::NoError;
+
+    // Don't call |clear()| if an error is encountered. SVG policy is to use
+    // valid items before error.
+    // Spec: http://www.w3.org/TR/SVG/single-page.html#implnote-ErrorProcessing
     if (value.is8Bit()) {
         const LChar* ptr = value.characters8();
         const LChar* end = ptr + value.length();
-        valid = parse(ptr, end);
-    } else {
-        const UChar* ptr = value.characters16();
-        const UChar* end = ptr + value.length();
-        valid = parse(ptr, end);
+        return parse(ptr, end);
     }
-
-    if (!valid) {
-        exceptionState.throwDOMException(SyntaxError, "Problem parsing number list \""+value+"\"");
-        // No call to |clear()| here. SVG policy is to use valid items before error.
-        // Spec: http://www.w3.org/TR/SVG/single-page.html#implnote-ErrorProcessing
-    }
+    const UChar* ptr = value.characters16();
+    const UChar* end = ptr + value.length();
+    return parse(ptr, end);
 }
 
 void SVGNumberList::add(PassRefPtrWillBeRawPtr<SVGPropertyBase> other, SVGElement* contextElement)
@@ -147,4 +137,4 @@ Vector<float> SVGNumberList::toFloatVector() const
     return vec;
 }
 
-}
+} // namespace blink

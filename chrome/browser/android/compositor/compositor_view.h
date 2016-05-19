@@ -10,6 +10,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "cc/layers/layer_lists.h"
 #include "cc/resources/ui_resource_client.h"
@@ -62,25 +63,27 @@ class CompositorView : public content::CompositorClient,
                  LayerTitleCache* layer_title_cache,
                  TabContentManager* tab_content_manager);
 
-  void Destroy(JNIEnv* env, jobject object);
+  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& object);
 
   ui::ResourceManager* GetResourceManager();
-  base::android::ScopedJavaLocalRef<jobject> GetResourceManager(JNIEnv* env,
-                                                                jobject jobj);
-  void SetNeedsComposite(JNIEnv* env, jobject object);
-  void FinalizeLayers(JNIEnv* env, jobject jobj);
+  base::android::ScopedJavaLocalRef<jobject> GetResourceManager(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jobj);
+  void SetNeedsComposite(JNIEnv* env,
+                         const base::android::JavaParamRef<jobject>& object);
+  void FinalizeLayers(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& jobj);
   void SetLayoutViewport(JNIEnv* env,
-                         jobject object,
+                         const base::android::JavaParamRef<jobject>& object,
                          jfloat x,
                          jfloat y,
                          jfloat width,
                          jfloat height,
                          jfloat visible_x_offset,
                          jfloat visible_y_offset,
-                         jfloat overdraw_bottom_height,
                          jfloat dp_to_pixel);
   void UpdateToolbarLayer(JNIEnv* env,
-                          jobject object,
+                          const base::android::JavaParamRef<jobject>& object,
                           jint toolbar_resource_id,
                           jint toolbar_background_color,
                           jint url_bar_resource_id,
@@ -90,7 +93,7 @@ class CompositorView : public content::CompositorClient,
                           bool visible,
                           bool show_shadow);
   void UpdateProgressBar(JNIEnv* env,
-                         jobject object,
+                         const base::android::JavaParamRef<jobject>& object,
                          jint progress_bar_x,
                          jint progress_bar_y,
                          jint progress_bar_width,
@@ -102,17 +105,23 @@ class CompositorView : public content::CompositorClient,
                          jint progress_bar_background_height,
                          jint progress_bar_background_color);
 
-  void SurfaceCreated(JNIEnv* env, jobject object);
-  void SurfaceDestroyed(JNIEnv* env, jobject object);
+  void SurfaceCreated(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& object);
+  void SurfaceDestroyed(JNIEnv* env,
+                        const base::android::JavaParamRef<jobject>& object);
   void SurfaceChanged(JNIEnv* env,
-                      jobject object,
+                      const base::android::JavaParamRef<jobject>& object,
                       jint format,
                       jint width,
                       jint height,
-                      jobject surface);
+                      const base::android::JavaParamRef<jobject>& surface);
 
-  void SetOverlayVideoMode(JNIEnv* env, jobject object, bool enabled);
-  void SetSceneLayer(JNIEnv* env, jobject object, jobject jscene_layer);
+  void SetOverlayVideoMode(JNIEnv* env,
+                           const base::android::JavaParamRef<jobject>& object,
+                           bool enabled);
+  void SetSceneLayer(JNIEnv* env,
+                     const base::android::JavaParamRef<jobject>& object,
+                     const base::android::JavaParamRef<jobject>& jscene_layer);
 
   // CompositorClient implementation:
   void UpdateLayerTreeHost() override;
@@ -130,8 +139,6 @@ class CompositorView : public content::CompositorClient,
 
   void SetBackground(bool visible, SkColor color);
 
-  int GetUsableContentHeight();
-
   base::android::ScopedJavaGlobalRef<jobject> obj_;
   scoped_ptr<content::Compositor> compositor_;
   LayerTitleCache* layer_title_cache_;
@@ -145,7 +152,6 @@ class CompositorView : public content::CompositorClient,
   int current_surface_format_;
   int content_width_;
   int content_height_;
-  int overdraw_bottom_height_;
   bool overlay_video_mode_;
   SkColor empty_background_color_;
 

@@ -27,7 +27,6 @@
  * SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSBasicShapeValues.h"
 
 #include "core/css/CSSValuePair.h"
@@ -81,6 +80,10 @@ static PassRefPtrWillBeRawPtr<CSSValuePair> buildSerializablePositionOffset(Pass
     } else if (offset->isValuePair()) {
         side = toCSSPrimitiveValue(toCSSValuePair(*offset).first()).getValueID();
         amount = &toCSSPrimitiveValue(toCSSValuePair(*offset).second());
+        if ((side == CSSValueRight || side == CSSValueBottom) && amount->isPercentage()) {
+            side = defaultSide;
+            amount = cssValuePool().createValue(100 - amount->getFloatValue(), CSSPrimitiveValue::UnitType::Percentage);
+        }
     } else {
         amount = toCSSPrimitiveValue(offset.get());
     }
@@ -88,11 +91,7 @@ static PassRefPtrWillBeRawPtr<CSSValuePair> buildSerializablePositionOffset(Pass
     if (side == CSSValueCenter) {
         side = defaultSide;
         amount = cssValuePool().createValue(50, CSSPrimitiveValue::UnitType::Percentage);
-    } else if ((side == CSSValueRight || side == CSSValueBottom)
-        && amount->isPercentage()) {
-        side = defaultSide;
-        amount = cssValuePool().createValue(100 - amount->getFloatValue(), CSSPrimitiveValue::UnitType::Percentage);
-    } else if (amount->isLength() && !amount->getFloatValue()) {
+    } else if (!amount || (amount->isLength() && !amount->getFloatValue())) {
         if (side == CSSValueRight || side == CSSValueBottom)
             amount = cssValuePool().createValue(100, CSSPrimitiveValue::UnitType::Percentage);
         else

@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -150,11 +151,6 @@ void WebThreadImpl::Init() {
       reinterpret_cast<WebThreadDelegate*>(stored_pointer);
   if (delegate) {
     delegate->Init();
-    message_loop()->PostTask(FROM_HERE,
-                             base::Bind(&WebThreadDelegate::InitAsync,
-                                        // Delegate is expected to exist for the
-                                        // duration of the thread's lifetime
-                                        base::Unretained(delegate)));
   }
 
   if (WebThread::CurrentlyOn(WebThread::IO)) {

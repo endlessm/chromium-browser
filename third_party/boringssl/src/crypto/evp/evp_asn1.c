@@ -57,12 +57,110 @@
 #include <openssl/evp.h>
 
 #include <openssl/asn1.h>
+#include <openssl/bytestring.h>
 #include <openssl/err.h>
 #include <openssl/obj.h>
 #include <openssl/x509.h>
 
 #include "internal.h"
 
+
+EVP_PKEY *EVP_parse_public_key(CBS *cbs) {
+  /* Parse the SubjectPublicKeyInfo. */
+  CBS spki, algorithm, oid, key;
+  uint8_t padding;
+  if (!CBS_get_asn1(cbs, &spki, CBS_ASN1_SEQUENCE) ||
+      !CBS_get_asn1(&spki, &algorithm, CBS_ASN1_SEQUENCE) ||
+      !CBS_get_asn1(&algorithm, &oid, CBS_ASN1_OBJECT) ||
+      !CBS_get_asn1(&spki, &key, CBS_ASN1_BITSTRING) ||
+      CBS_len(&spki) != 0 ||
+      /* Every key type defined encodes the key as a byte string with the same
+       * conversion to BIT STRING. */
+      !CBS_get_u8(&key, &padding) ||
+      padding != 0) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_DECODE_ERROR);
+    return NULL;
+  }
+
+  /* Set up an |EVP_PKEY| of the appropriate type. */
+  EVP_PKEY *ret = EVP_PKEY_new();
+  if (ret == NULL ||
+      !EVP_PKEY_set_type(ret, OBJ_cbs2nid(&oid))) {
+    goto err;
+  }
+
+  /* Call into the type-specific SPKI decoding function. */
+  if (ret->ameth->pub_decode == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_UNSUPPORTED_ALGORITHM);
+    goto err;
+  }
+  if (!ret->ameth->pub_decode(ret, &algorithm, &key)) {
+    goto err;
+  }
+
+  return ret;
+
+err:
+  EVP_PKEY_free(ret);
+  return NULL;
+}
+
+int EVP_marshal_public_key(CBB *cbb, const EVP_PKEY *key) {
+  if (key->ameth->pub_encode == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_UNSUPPORTED_ALGORITHM);
+    return 0;
+  }
+
+  return key->ameth->pub_encode(cbb, key);
+}
+
+EVP_PKEY *EVP_parse_private_key(CBS *cbs) {
+  /* Parse the PrivateKeyInfo. */
+  CBS pkcs8, algorithm, oid, key;
+  uint64_t version;
+  if (!CBS_get_asn1(cbs, &pkcs8, CBS_ASN1_SEQUENCE) ||
+      !CBS_get_asn1_uint64(&pkcs8, &version) ||
+      version != 0 ||
+      !CBS_get_asn1(&pkcs8, &algorithm, CBS_ASN1_SEQUENCE) ||
+      !CBS_get_asn1(&algorithm, &oid, CBS_ASN1_OBJECT) ||
+      !CBS_get_asn1(&pkcs8, &key, CBS_ASN1_OCTETSTRING)) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_DECODE_ERROR);
+    return NULL;
+  }
+
+  /* A PrivateKeyInfo ends with a SET of Attributes which we ignore. */
+
+  /* Set up an |EVP_PKEY| of the appropriate type. */
+  EVP_PKEY *ret = EVP_PKEY_new();
+  if (ret == NULL ||
+      !EVP_PKEY_set_type(ret, OBJ_cbs2nid(&oid))) {
+    goto err;
+  }
+
+  /* Call into the type-specific PrivateKeyInfo decoding function. */
+  if (ret->ameth->priv_decode == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_UNSUPPORTED_ALGORITHM);
+    goto err;
+  }
+  if (!ret->ameth->priv_decode(ret, &algorithm, &key)) {
+    goto err;
+  }
+
+  return ret;
+
+err:
+  EVP_PKEY_free(ret);
+  return NULL;
+}
+
+int EVP_marshal_private_key(CBB *cbb, const EVP_PKEY *key) {
+  if (key->ameth->priv_encode == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_UNSUPPORTED_ALGORITHM);
+    return 0;
+  }
+
+  return key->ameth->priv_encode(cbb, key);
+}
 
 EVP_PKEY *d2i_PrivateKey(int type, EVP_PKEY **out, const uint8_t **inp,
                          long len) {
@@ -84,6 +182,9 @@ EVP_PKEY *d2i_PrivateKey(int type, EVP_PKEY **out, const uint8_t **inp,
   }
 
   const uint8_t *in = *inp;
+  /* If trying to remove |old_priv_decode|, note that some code depends on this
+   * function writing into |*out| and the |priv_decode| path doesn't support
+   * that. */
   if (!ret->ameth->old_priv_decode ||
       !ret->ameth->old_priv_decode(ret, &in, len)) {
     if (ret->ameth->priv_decode) {

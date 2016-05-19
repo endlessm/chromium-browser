@@ -174,9 +174,12 @@ int32_t CompositorLayerResource::SetTexture(
   data_.common.size = *size;
   data_.common.resource_id = compositor_->GenerateResourceId();
   data_.texture->target = target;
-  data_.texture->sync_token = gpu::SyncToken(gl->InsertSyncPointCHROMIUM());
   data_.texture->source_rect.point = PP_MakeFloatPoint(0.0f, 0.0f);
   data_.texture->source_rect.size = source_size_;
+
+  const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
+  gl->ShallowFlushCHROMIUM();
+  gl->GenSyncTokenCHROMIUM(fence_sync, data_.texture->sync_token.GetData());
 
   // If the PP_Resource of this layer is released by the plugin, the
   // release_callback will be aborted immediately, but the texture or image
@@ -340,19 +343,19 @@ bool CompositorLayerResource::SetType(LayerType type) {
   if (type == TYPE_COLOR) {
     if (data_.is_null())
       data_.color.reset(new CompositorLayerData::ColorLayer());
-    return data_.color;
+    return !!data_.color;
   }
 
   if (type == TYPE_TEXTURE) {
     if (data_.is_null())
       data_.texture.reset(new CompositorLayerData::TextureLayer());
-    return data_.texture;
+    return !!data_.texture;
   }
 
   if (type == TYPE_IMAGE) {
     if (data_.is_null())
       data_.image.reset(new CompositorLayerData::ImageLayer());
-    return data_.image;
+    return !!data_.image;
   }
 
   // Should not be reached.

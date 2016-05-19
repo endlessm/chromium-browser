@@ -30,7 +30,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/frame/DOMWindowTimers.h"
 
 #include "bindings/core/v8/V8GCForContextDispose.h"
@@ -55,7 +54,7 @@ static bool isAllowed(ScriptState* scriptState, ExecutionContext* executionConte
     }
     if (executionContext->isWorkerGlobalScope()) {
         WorkerGlobalScope* workerGlobalScope = static_cast<WorkerGlobalScope*>(executionContext);
-        if (!workerGlobalScope->script())
+        if (!workerGlobalScope->scriptController())
             return false;
         ContentSecurityPolicy* policy = workerGlobalScope->contentSecurityPolicy();
         if (isEval && policy && !policy->allowEval(scriptState, ContentSecurityPolicy::SendReport, ContentSecurityPolicy::WillNotThrowException))

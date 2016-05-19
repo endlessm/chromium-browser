@@ -8,18 +8,14 @@
 #include "net/tools/quic/quic_simple_server_packet_writer.h"
 
 namespace net {
-namespace tools {
 
 QuicSimplePerConnectionPacketWriter::QuicSimplePerConnectionPacketWriter(
-    QuicSimpleServerPacketWriter* shared_writer,
-    QuicConnection* connection)
+    QuicSimpleServerPacketWriter* shared_writer)
     : shared_writer_(shared_writer),
-      connection_(connection),
-      weak_factory_(this){
-}
+      connection_(nullptr),
+      weak_factory_(this) {}
 
-QuicSimplePerConnectionPacketWriter::~QuicSimplePerConnectionPacketWriter() {
-}
+QuicSimplePerConnectionPacketWriter::~QuicSimplePerConnectionPacketWriter() {}
 
 QuicPacketWriter* QuicSimplePerConnectionPacketWriter::shared_writer() const {
   return shared_writer_;
@@ -28,13 +24,11 @@ QuicPacketWriter* QuicSimplePerConnectionPacketWriter::shared_writer() const {
 WriteResult QuicSimplePerConnectionPacketWriter::WritePacket(
     const char* buffer,
     size_t buf_len,
-    const IPAddressNumber& self_address,
-    const IPEndPoint& peer_address) {
+    const IPAddress& self_address,
+    const IPEndPoint& peer_address,
+    PerPacketOptions* options) {
   return shared_writer_->WritePacketWithCallback(
-      buffer,
-      buf_len,
-      self_address,
-      peer_address,
+      buffer, buf_len, self_address, peer_address, options,
       base::Bind(&QuicSimplePerConnectionPacketWriter::OnWriteComplete,
                  weak_factory_.GetWeakPtr()));
 }
@@ -62,5 +56,4 @@ QuicByteCount QuicSimplePerConnectionPacketWriter::GetMaxPacketSize(
   return shared_writer_->GetMaxPacketSize(peer_address);
 }
 
-}  // namespace tools
 }  // namespace net

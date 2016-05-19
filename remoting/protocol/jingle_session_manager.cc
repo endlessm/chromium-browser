@@ -4,6 +4,8 @@
 
 #include "remoting/protocol/jingle_session_manager.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "remoting/protocol/authenticator.h"
 #include "remoting/protocol/content_description.h"
@@ -20,71 +22,45 @@ using buzz::QName;
 namespace remoting {
 namespace protocol {
 
-JingleSessionManager::JingleSessionManager(
-    scoped_ptr<TransportFactory> transport_factory)
-    : protocol_config_(CandidateSessionConfig::CreateDefault()),
-      transport_factory_(transport_factory.Pass()),
-      signal_strategy_(nullptr),
-      listener_(nullptr),
-      ready_(false) {}
-
-JingleSessionManager::~JingleSessionManager() {
-  Close();
+JingleSessionManager::JingleSessionManager(SignalStrategy* signal_strategy)
+    : signal_strategy_(signal_strategy),
+      protocol_config_(CandidateSessionConfig::CreateDefault()),
+      iq_sender_(new IqSender(signal_strategy_)) {
+  signal_strategy_->AddListener(this);
 }
 
-void JingleSessionManager::Init(
-    SignalStrategy* signal_strategy,
-    SessionManager::Listener* listener) {
-  listener_ = listener;
-  signal_strategy_ = signal_strategy;
-  iq_sender_.reset(new IqSender(signal_strategy_));
+JingleSessionManager::~JingleSessionManager() {
+  DCHECK(sessions_.empty());
+  signal_strategy_->RemoveListener(this);
+}
 
-  signal_strategy_->AddListener(this);
-
-  OnSignalStrategyStateChange(signal_strategy_->GetState());
+void JingleSessionManager::AcceptIncoming(
+    const IncomingSessionCallback& incoming_session_callback) {
+  incoming_session_callback_ = incoming_session_callback;
 }
 
 void JingleSessionManager::set_protocol_config(
     scoped_ptr<CandidateSessionConfig> config) {
-  protocol_config_ = config.Pass();
+  protocol_config_ = std::move(config);
 }
 
 scoped_ptr<Session> JingleSessionManager::Connect(
     const std::string& host_jid,
     scoped_ptr<Authenticator> authenticator) {
   scoped_ptr<JingleSession> session(new JingleSession(this));
-  session->StartConnection(host_jid, authenticator.Pass());
+  session->StartConnection(host_jid, std::move(authenticator));
   sessions_[session->session_id_] = session.get();
-  return session.Pass();
-}
-
-void JingleSessionManager::Close() {
-  DCHECK(CalledOnValidThread());
-
-  // Close() can be called only after all sessions are destroyed.
-  DCHECK(sessions_.empty());
-
-  listener_ = nullptr;
-
-  if (signal_strategy_) {
-    signal_strategy_->RemoveListener(this);
-    signal_strategy_ = nullptr;
-  }
+  return std::move(session);
 }
 
 void JingleSessionManager::set_authenticator_factory(
     scoped_ptr<AuthenticatorFactory> authenticator_factory) {
   DCHECK(CalledOnValidThread());
-  authenticator_factory_ = authenticator_factory.Pass();
+  authenticator_factory_ = std::move(authenticator_factory);
 }
 
 void JingleSessionManager::OnSignalStrategyStateChange(
-    SignalStrategy::State state) {
-  if (state == SignalStrategy::CONNECTED && !ready_) {
-    ready_ = true;
-    listener_->OnSessionManagerReady();
-  }
-}
+    SignalStrategy::State state) {}
 
 bool JingleSessionManager::OnSignalStrategyIncomingStanza(
     const buzz::XmlElement* stanza) {
@@ -110,7 +86,7 @@ bool JingleSessionManager::OnSignalStrategyIncomingStanza(
             message.description->authenticator_message());
 
     JingleSession* session = new JingleSession(this);
-    session->InitializeIncomingConnection(message, authenticator.Pass());
+    session->InitializeIncomingConnection(message, std::move(authenticator));
     sessions_[session->session_id_] = session;
 
     // Destroy the session if it was rejected due to incompatible protocol.
@@ -121,7 +97,8 @@ bool JingleSessionManager::OnSignalStrategyIncomingStanza(
     }
 
     IncomingSessionResponse response = SessionManager::DECLINE;
-    listener_->OnIncomingSession(session, &response);
+    if (!incoming_session_callback_.is_null())
+      incoming_session_callback_.Run(session, &response);
 
     if (response == SessionManager::ACCEPT) {
       session->AcceptIncomingConnection(message);

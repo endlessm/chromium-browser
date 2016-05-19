@@ -25,7 +25,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/transforms/TransformationMatrix.h"
 
 #include "platform/geometry/FloatBox.h"
@@ -37,6 +36,9 @@
 
 #include "wtf/Assertions.h"
 #include "wtf/MathExtras.h"
+
+#include <cmath>
+#include <cstdlib>
 
 #if CPU(X86_64)
 #include <emmintrin.h>
@@ -76,7 +78,7 @@ namespace blink {
 typedef double Vector4[4];
 typedef double Vector3[3];
 
-const double SMALL_NUMBER = 1.e-8;
+const double SmallNumber = 1.e-8;
 
 // inverse(original_matrix, inverse_matrix)
 //
@@ -146,6 +148,7 @@ static double determinant4x4(const TransformationMatrix::Matrix4& m)
          - d1 * determinant3x3(a2, a3, a4, b2, b3, b4, c2, c3, c4);
 }
 
+#if !CPU(ARM64)
 // adjoint( original_matrix, inverse_matrix )
 //
 //   calculate the adjoint of a 4x4 matrix
@@ -207,6 +210,7 @@ static inline void adjoint(const TransformationMatrix::Matrix4& matrix, Transfor
     result[2][3]  = - determinant3x3(a1, a2, a3, b1, b2, b3, d1, d2, d3);
     result[3][3]  =   determinant3x3(a1, a2, a3, b1, b2, b3, c1, c2, c3);
 }
+#endif
 
 // Returns false if the matrix is not invertible
 static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
@@ -216,7 +220,7 @@ static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationM
     // then the inverse matrix is not unique.
     double det = determinant4x4(matrix);
 
-    if (fabs(det) < SMALL_NUMBER)
+    if (fabs(det) < SmallNumber)
         return false;
 
 #if CPU(ARM64)
@@ -597,8 +601,7 @@ static void slerp(double qa[4], const double qb[4], double t)
 
     product = ax * bx + ay * by + az * bz + aw * bw;
 
-    // Clamp product to -1.0 <= product <= 1.0.
-    product = std::min(std::max(product, -1.0), 1.0);
+    product = clampTo(product, -1.0, 1.0);
 
     const double epsilon = 1e-5;
     if (std::abs(product - 1.0) < epsilon) {
@@ -711,7 +714,7 @@ FloatQuad TransformationMatrix::projectQuad(const FloatQuad& q, bool* clamped) c
 static float clampEdgeValue(float f)
 {
     ASSERT(!std::isnan(f));
-    return std::min<float>(std::max<float>(f, (-LayoutUnit::max() / 2).toFloat()), (LayoutUnit::max() / 2).toFloat());
+    return clampTo(f, (-LayoutUnit::max() / 2).toFloat(), (LayoutUnit::max() / 2).toFloat());
 }
 
 LayoutRect TransformationMatrix::clampedBoundsOfProjectedQuad(const FloatQuad& q) const
@@ -1146,108 +1149,6 @@ TransformationMatrix& TransformationMatrix::multiply(const TransformationMatrix&
             "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31",
             "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7"
     );
-#elif CPU(APPLE_ARMV7S)
-    double* leftMatrix = &(m_matrix[0][0]);
-    const double* rightMatrix = &(mat.m_matrix[0][0]);
-    asm volatile (// First row of leftMatrix.
-        "mov        r3, %[leftMatrix]\n\t"
-        "vld1.64    { d16-d19 }, [%[leftMatrix], :128]!\n\t"
-        "vld1.64    { d0-d3}, [%[rightMatrix], :128]!\n\t"
-        "vmul.f64   d4, d0, d16\n\t"
-        "vld1.64    { d20-d23 }, [%[leftMatrix], :128]!\n\t"
-        "vmla.f64   d4, d1, d20\n\t"
-        "vld1.64    { d24-d27 }, [%[leftMatrix], :128]!\n\t"
-        "vmla.f64   d4, d2, d24\n\t"
-        "vld1.64    { d28-d31 }, [%[leftMatrix], :128]!\n\t"
-        "vmla.f64   d4, d3, d28\n\t"
-
-        "vmul.f64   d5, d0, d17\n\t"
-        "vmla.f64   d5, d1, d21\n\t"
-        "vmla.f64   d5, d2, d25\n\t"
-        "vmla.f64   d5, d3, d29\n\t"
-
-        "vmul.f64   d6, d0, d18\n\t"
-        "vmla.f64   d6, d1, d22\n\t"
-        "vmla.f64   d6, d2, d26\n\t"
-        "vmla.f64   d6, d3, d30\n\t"
-
-        "vmul.f64   d7, d0, d19\n\t"
-        "vmla.f64   d7, d1, d23\n\t"
-        "vmla.f64   d7, d2, d27\n\t"
-        "vmla.f64   d7, d3, d31\n\t"
-        "vld1.64    { d0-d3}, [%[rightMatrix], :128]!\n\t"
-        "vst1.64    { d4-d7 }, [r3, :128]!\n\t"
-
-        // Second row of leftMatrix.
-        "vmul.f64   d4, d0, d16\n\t"
-        "vmla.f64   d4, d1, d20\n\t"
-        "vmla.f64   d4, d2, d24\n\t"
-        "vmla.f64   d4, d3, d28\n\t"
-
-        "vmul.f64   d5, d0, d17\n\t"
-        "vmla.f64   d5, d1, d21\n\t"
-        "vmla.f64   d5, d2, d25\n\t"
-        "vmla.f64   d5, d3, d29\n\t"
-
-        "vmul.f64   d6, d0, d18\n\t"
-        "vmla.f64   d6, d1, d22\n\t"
-        "vmla.f64   d6, d2, d26\n\t"
-        "vmla.f64   d6, d3, d30\n\t"
-
-        "vmul.f64   d7, d0, d19\n\t"
-        "vmla.f64   d7, d1, d23\n\t"
-        "vmla.f64   d7, d2, d27\n\t"
-        "vmla.f64   d7, d3, d31\n\t"
-        "vld1.64    { d0-d3}, [%[rightMatrix], :128]!\n\t"
-        "vst1.64    { d4-d7 }, [r3, :128]!\n\t"
-
-        // Third row of leftMatrix.
-        "vmul.f64   d4, d0, d16\n\t"
-        "vmla.f64   d4, d1, d20\n\t"
-        "vmla.f64   d4, d2, d24\n\t"
-        "vmla.f64   d4, d3, d28\n\t"
-
-        "vmul.f64   d5, d0, d17\n\t"
-        "vmla.f64   d5, d1, d21\n\t"
-        "vmla.f64   d5, d2, d25\n\t"
-        "vmla.f64   d5, d3, d29\n\t"
-
-        "vmul.f64   d6, d0, d18\n\t"
-        "vmla.f64   d6, d1, d22\n\t"
-        "vmla.f64   d6, d2, d26\n\t"
-        "vmla.f64   d6, d3, d30\n\t"
-
-        "vmul.f64   d7, d0, d19\n\t"
-        "vmla.f64   d7, d1, d23\n\t"
-        "vmla.f64   d7, d2, d27\n\t"
-        "vmla.f64   d7, d3, d31\n\t"
-        "vld1.64    { d0-d3}, [%[rightMatrix], :128]\n\t"
-        "vst1.64    { d4-d7 }, [r3, :128]!\n\t"
-
-        // Fourth and last row of leftMatrix.
-        "vmul.f64   d4, d0, d16\n\t"
-        "vmla.f64   d4, d1, d20\n\t"
-        "vmla.f64   d4, d2, d24\n\t"
-        "vmla.f64   d4, d3, d28\n\t"
-
-        "vmul.f64   d5, d0, d17\n\t"
-        "vmla.f64   d5, d1, d21\n\t"
-        "vmla.f64   d5, d2, d25\n\t"
-        "vmla.f64   d5, d3, d29\n\t"
-
-        "vmul.f64   d6, d0, d18\n\t"
-        "vmla.f64   d6, d1, d22\n\t"
-        "vmla.f64   d6, d2, d26\n\t"
-        "vmla.f64   d6, d3, d30\n\t"
-
-        "vmul.f64   d7, d0, d19\n\t"
-        "vmla.f64   d7, d1, d23\n\t"
-        "vmla.f64   d7, d2, d27\n\t"
-        "vmla.f64   d7, d3, d31\n\t"
-        "vst1.64    { d4-d7 }, [r3, :128]\n\t"
-        : [leftMatrix]"+r"(leftMatrix), [rightMatrix]"+r"(rightMatrix)
-        :
-        : "memory", "r3", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31");
 #elif defined(TRANSFORMATION_MATRIX_USE_X86_64_SSE2)
     // x86_64 has 16 XMM registers which is enough to do the multiplication fully in registers.
     __m128d matrixBlockA = _mm_load_pd(&(m_matrix[0][0]));
@@ -1446,7 +1347,7 @@ bool TransformationMatrix::isInvertible() const
 
     double det = blink::determinant4x4(m_matrix);
 
-    if (fabs(det) < SMALL_NUMBER)
+    if (fabs(det) < SmallNumber)
         return false;
 
     return true;
@@ -1672,4 +1573,4 @@ SkMatrix44 TransformationMatrix::toSkMatrix44(const TransformationMatrix& matrix
     return ret;
 }
 
-}
+} // namespace blink

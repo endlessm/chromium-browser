@@ -9,6 +9,7 @@
 #include <iterator>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/base64.h"
@@ -100,10 +101,10 @@ void AddVectorHeaderIfNonEmpty(const char* name,
 GetHeaderResult GetSingleHeaderValue(const HttpResponseHeaders* headers,
                                      const base::StringPiece& name,
                                      std::string* value) {
-  void* state = nullptr;
+  size_t iter = 0;
   size_t num_values = 0;
   std::string temp_value;
-  while (headers->EnumerateHeader(&state, name, &temp_value)) {
+  while (headers->EnumerateHeader(&iter, name, &temp_value)) {
     if (++num_values > 1)
       return GET_HEADER_MULTIPLE;
     *value = temp_value;
@@ -184,7 +185,7 @@ bool ValidateSubProtocol(
     const std::vector<std::string>& requested_sub_protocols,
     std::string* sub_protocol,
     std::string* failure_message) {
-  void* state = nullptr;
+  size_t iter = 0;
   std::string value;
   base::hash_set<std::string> requested_set(requested_sub_protocols.begin(),
                                             requested_sub_protocols.end());
@@ -194,8 +195,8 @@ bool ValidateSubProtocol(
 
   while (!has_invalid_protocol || !has_multiple_protocols) {
     std::string temp_value;
-    if (!headers->EnumerateHeader(
-            &state, websockets::kSecWebSocketProtocol, &temp_value))
+    if (!headers->EnumerateHeader(&iter, websockets::kSecWebSocketProtocol,
+                                  &temp_value))
       break;
     value = temp_value;
     if (requested_set.count(value) == 0)
@@ -234,13 +235,13 @@ bool ValidateExtensions(const HttpResponseHeaders* headers,
                         std::string* accepted_extensions_descriptor,
                         std::string* failure_message,
                         WebSocketExtensionParams* params) {
-  void* state = nullptr;
+  size_t iter = 0;
   std::string header_value;
   std::vector<std::string> header_values;
   // TODO(ricea): If adding support for additional extensions, generalise this
   // code.
   bool seen_permessage_deflate = false;
-  while (headers->EnumerateHeader(&state, websockets::kSecWebSocketExtensions,
+  while (headers->EnumerateHeader(&iter, websockets::kSecWebSocketExtensions,
                                   &header_value)) {
     WebSocketExtensionParser parser;
     if (!parser.Parse(header_value)) {
@@ -357,7 +358,7 @@ int WebSocketBasicHandshakeStream::SendRequest(
   scoped_ptr<WebSocketHandshakeRequestInfo> request(
       new WebSocketHandshakeRequestInfo(url_, base::Time::Now()));
   request->headers.CopyFrom(enriched_headers);
-  connect_delegate_->OnStartOpeningHandshake(request.Pass());
+  connect_delegate_->OnStartOpeningHandshake(std::move(request));
 
   return parser()->SendRequest(
       state_.GenerateRequestLine(), enriched_headers, response, callback);
@@ -438,6 +439,18 @@ bool WebSocketBasicHandshakeStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
   return state_.connection()->socket()->GetPeerAddress(endpoint) == OK;
 }
 
+void WebSocketBasicHandshakeStream::PopulateNetErrorDetails(
+    NetErrorDetails* /*details*/) {
+  return;
+}
+
+Error WebSocketBasicHandshakeStream::GetSignedEKMForTokenBinding(
+    crypto::ECPrivateKey* key,
+    std::vector<uint8_t>* out) {
+  NOTREACHED();
+  return ERR_NOT_IMPLEMENTED;
+}
+
 void WebSocketBasicHandshakeStream::Drain(HttpNetworkSession* session) {
   HttpResponseBodyDrainer* drainer = new HttpResponseBodyDrainer(this);
   drainer->Start(session);
@@ -476,11 +489,11 @@ scoped_ptr<WebSocketStream> WebSocketBasicHandshakeStream::Upgrade() {
         WebSocketDeflater::NUM_CONTEXT_TAKEOVER_MODE_TYPES);
 
     return scoped_ptr<WebSocketStream>(new WebSocketDeflateStream(
-        basic_stream.Pass(), extension_params_->deflate_parameters,
+        std::move(basic_stream), extension_params_->deflate_parameters,
         scoped_ptr<WebSocketDeflatePredictor>(
             new WebSocketDeflatePredictorImpl)));
   } else {
-    return basic_stream.Pass();
+    return basic_stream;
   }
 }
 

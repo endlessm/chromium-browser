@@ -7,8 +7,9 @@
 #ifndef FPDFSDK_INCLUDE_FORMFILLER_FFL_FORMFILLER_H_
 #define FPDFSDK_INCLUDE_FORMFILLER_FFL_FORMFILLER_H_
 
-#include "FFL_IFormFiller.h"
-#include "FFL_CBA_Fontmap.h"
+#include "fpdfsdk/include/formfiller/FFL_CBA_Fontmap.h"
+#include "fpdfsdk/include/formfiller/FFL_IFormFiller.h"
+#include "fpdfsdk/include/fsdk_baseform.h"
 
 class CPDFDoc_Environment;
 class CPDFSDK_Annot;
@@ -26,12 +27,12 @@ class CFFL_FormFiller : public IPWL_Provider, public CPWL_TimerHandler {
   virtual void OnDraw(CPDFSDK_PageView* pPageView,
                       CPDFSDK_Annot* pAnnot,
                       CFX_RenderDevice* pDevice,
-                      CPDF_Matrix* pUser2Device,
+                      CFX_Matrix* pUser2Device,
                       FX_DWORD dwFlags);
   virtual void OnDrawDeactive(CPDFSDK_PageView* pPageView,
                               CPDFSDK_Annot* pAnnot,
                               CFX_RenderDevice* pDevice,
-                              CPDF_Matrix* pUser2Device,
+                              CFX_Matrix* pUser2Device,
                               FX_DWORD dwFlags);
 
   virtual void OnCreate(CPDFSDK_Annot* pAnnot);
@@ -84,7 +85,7 @@ class CFFL_FormFiller : public IPWL_Provider, public CPWL_TimerHandler {
   IFX_SystemHandler* GetSystemHandler() const override;
 
   // IPWL_Provider
-  CPDF_Matrix GetWindowMatrix(void* pAttachedData) override;
+  CFX_Matrix GetWindowMatrix(void* pAttachedData) override;
   CFX_WideString LoadPopupMenuString(int nIndex) override;
 
   virtual void GetActionData(CPDFSDK_PageView* pPageView,
@@ -103,7 +104,7 @@ class CFFL_FormFiller : public IPWL_Provider, public CPWL_TimerHandler {
   virtual CPWL_Wnd* ResetPDFWindow(CPDFSDK_PageView* pPageView,
                                    FX_BOOL bRestoreValue);
 
-  CPDF_Matrix GetCurMatrix();
+  CFX_Matrix GetCurMatrix();
 
   CPDF_Rect FFLtoPWL(const CPDF_Rect& rect);
   CPDF_Rect PWLtoFFL(const CPDF_Rect& rect);
@@ -119,6 +120,10 @@ class CFFL_FormFiller : public IPWL_Provider, public CPWL_TimerHandler {
   FX_BOOL CommitData(CPDFSDK_PageView* pPageView, FX_UINT nFlag);
   virtual FX_BOOL IsDataChanged(CPDFSDK_PageView* pPageView);
   virtual void SaveData(CPDFSDK_PageView* pPageView);
+
+#ifdef PDF_ENABLE_XFA
+  virtual FX_BOOL IsFieldFull(CPDFSDK_PageView* pPageView);
+#endif  // PDF_ENABLE_XFA
 
   CPWL_Wnd* GetPDFWindow(CPDFSDK_PageView* pPageView, FX_BOOL bNew);
   void DestroyPDFWindow(CPDFSDK_PageView* pPageView);
@@ -178,12 +183,12 @@ class CFFL_Button : public CFFL_FormFiller {
   void OnDraw(CPDFSDK_PageView* pPageView,
               CPDFSDK_Annot* pAnnot,
               CFX_RenderDevice* pDevice,
-              CPDF_Matrix* pUser2Device,
+              CFX_Matrix* pUser2Device,
               FX_DWORD dwFlags) override;
   void OnDrawDeactive(CPDFSDK_PageView* pPageView,
                       CPDFSDK_Annot* pAnnot,
                       CFX_RenderDevice* pDevice,
-                      CPDF_Matrix* pUser2Device,
+                      CFX_Matrix* pUser2Device,
                       FX_DWORD dwFlags) override;
 
  protected:

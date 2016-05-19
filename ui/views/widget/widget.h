@@ -9,9 +9,11 @@
 #include <stack>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/scoped_observer.h"
+#include "build/build_config.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/events/event_source.h"
 #include "ui/gfx/geometry/rect.h"
@@ -200,6 +202,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
 
     InitParams();
     explicit InitParams(Type type);
+    InitParams(const InitParams& other);
     ~InitParams();
 
     Type type;
@@ -207,13 +210,12 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
     WidgetDelegate* delegate;
     bool child;
     // If TRANSLUCENT_WINDOW, the widget may be fully or partially transparent.
-    // Translucent windows may not always be supported. Use
-    // IsTranslucentWindowOpacitySupported to determine if translucent windows
-    // are supported.
     // If OPAQUE_WINDOW, we can perform optimizations based on the widget being
-    // fully opaque.  Defaults to TRANSLUCENT_WINDOW if
-    // ViewsDelegate::UseTransparentWindows().  Defaults to OPAQUE_WINDOW for
-    // non-window widgets.
+    // fully opaque.
+    // Default is based on ViewsDelegate::GetOpacityForInitParams().  Defaults
+    // to OPAQUE_WINDOW for non-window widgets.
+    // Translucent windows may not always be supported. Use
+    // IsTranslucentWindowOpacitySupported to determine whether they are.
     WindowOpacity opacity;
     bool accept_events;
     Activatable activatable;
@@ -269,6 +271,10 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
     // If true then the widget uses software compositing. Defaults to false.
     // Only used on Windows.
     bool force_software_compositing;
+
+    // Used if widget is not activatable to do determine if mouse events should
+    // be sent to the widget.
+    bool wants_mouse_events_when_inactive = false;
   };
 
   Widget();
@@ -555,13 +561,13 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   virtual bool IsVisible() const;
 
   // Returns the ThemeProvider that provides theme resources for this Widget.
-  virtual ui::ThemeProvider* GetThemeProvider() const;
+  virtual const ui::ThemeProvider* GetThemeProvider() const;
 
   ui::NativeTheme* GetNativeTheme() {
     return const_cast<ui::NativeTheme*>(
         const_cast<const Widget*>(this)->GetNativeTheme());
   }
-  const ui::NativeTheme* GetNativeTheme() const;
+  virtual const ui::NativeTheme* GetNativeTheme() const;
 
   // Returns the FocusManager for this widget.
   // Note that all widgets in a widget hierarchy share the same focus manager.
@@ -585,7 +591,10 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
 
   // Returns the view that requested the current drag operation via
   // RunShellDrag(), or NULL if there is no such view or drag operation.
-  View* dragged_view() { return dragged_view_; }
+  View* dragged_view() {
+    return const_cast<View*>(const_cast<const Widget*>(this)->dragged_view());
+  }
+  const View* dragged_view() const { return dragged_view_; }
 
   // Adds the specified |rect| in client area coordinates to the rectangle to be
   // redrawn.
@@ -831,6 +840,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
 
  private:
   friend class ComboboxTest;
+  friend class CustomButtonTest;
   friend class TextfieldTest;
 
   // Sets the value of |disable_inactive_rendering_|. If the value changes,

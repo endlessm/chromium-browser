@@ -4,7 +4,10 @@
 
 #include "ui/compositor/layer_owner.h"
 
+#include "base/macros.h"
 #include "base/test/null_task_runner.h"
+#include "cc/animation/animation_player.h"
+#include "cc/layers/layer_settings.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
@@ -34,6 +37,11 @@ class TestLayerAnimationObserver : public ImplicitAnimationObserver {
   Layer* layer_;
 
   DISALLOW_COPY_AND_ASSIGN(TestLayerAnimationObserver);
+};
+
+class LayerOwnerForTesting : public LayerOwner {
+ public:
+  void DestroyLayerForTesting() { DestroyLayer(); }
 };
 
 // Test fixture for LayerOwner tests that require a ui::Compositor.
@@ -136,6 +144,31 @@ TEST(LayerOwnerTest, RecreateRootLayerWithNullCompositor) {
   EXPECT_EQ(nullptr, layer_copy->GetCompositor());
 }
 
+TEST(LayerOwnerTest, RecreateLayerWithTransform) {
+  LayerOwner owner;
+  Layer* layer = new Layer;
+  owner.SetLayer(layer);
+
+  gfx::Transform transform;
+  transform.Scale(2, 1);
+  transform.Translate(10, 5);
+
+  layer->SetTransform(transform);
+
+  scoped_ptr<Layer> old_layer1 = owner.RecreateLayer();
+  // Both new layer and original layer have the same transform.
+  EXPECT_EQ(transform, old_layer1->GetTargetTransform());
+  EXPECT_EQ(transform, owner.layer()->GetTargetTransform());
+
+  // But they're now separated, so changing the old layer's transform
+  // should not affect the owner's.
+  owner.layer()->SetTransform(gfx::Transform());
+  EXPECT_EQ(transform, old_layer1->GetTargetTransform());
+  scoped_ptr<Layer> old_layer2 = owner.RecreateLayer();
+  EXPECT_TRUE(old_layer2->GetTargetTransform().IsIdentity());
+  EXPECT_TRUE(owner.layer()->GetTargetTransform().IsIdentity());
+}
+
 TEST_F(LayerOwnerTestWithCompositor, RecreateRootLayerWithCompositor) {
   LayerOwner owner;
   Layer* layer = new Layer;
@@ -215,6 +248,56 @@ TEST_F(LayerOwnerTestWithCompositor, RecreateNonRootLayerDuringAnimation) {
   }
 
   scoped_ptr<Layer> layer_copy = owner.RecreateLayer();
+}
+
+// Tests that if LayerOwner-derived class destroys layer, then
+// LayerAnimator's player becomes detached from compositor timeline.
+TEST_F(LayerOwnerTestWithCompositor, DetachTimelineOnAnimatorDeletion) {
+  // This test is meaningless if CC timelines disabled.
+  if (!Layer::UILayerSettings().use_compositor_animation_timelines)
+    return;
+
+  scoped_ptr<Layer> root_layer(new Layer);
+  compositor()->SetRootLayer(root_layer.get());
+
+  LayerOwnerForTesting owner;
+  Layer* layer = new Layer;
+  owner.SetLayer(layer);
+  layer->SetOpacity(0.5f);
+  root_layer->Add(layer);
+
+  scoped_refptr<cc::AnimationPlayer> player =
+      layer->GetAnimator()->GetAnimationPlayerForTesting();
+  EXPECT_TRUE(player);
+  EXPECT_TRUE(player->animation_timeline());
+
+  // Destroying layer/animator must detach animator's player from timeline.
+  owner.DestroyLayerForTesting();
+  EXPECT_FALSE(player->animation_timeline());
+}
+
+// Tests that if we run threaded opacity animation on already added layer
+// then LayerAnimator's player becomes attached to timeline.
+TEST_F(LayerOwnerTestWithCompositor,
+       AttachTimelineIfAnimatorCreatedAfterSetCompositor) {
+  // This test is meaningless if CC timelines disabled.
+  if (!Layer::UILayerSettings().use_compositor_animation_timelines)
+    return;
+
+  scoped_ptr<Layer> root_layer(new Layer);
+  compositor()->SetRootLayer(root_layer.get());
+
+  LayerOwner owner;
+  Layer* layer = new Layer;
+  owner.SetLayer(layer);
+  root_layer->Add(layer);
+
+  layer->SetOpacity(0.5f);
+
+  scoped_refptr<cc::AnimationPlayer> player =
+      layer->GetAnimator()->GetAnimationPlayerForTesting();
+  EXPECT_TRUE(player);
+  EXPECT_TRUE(player->animation_timeline());
 }
 
 }  // namespace ui

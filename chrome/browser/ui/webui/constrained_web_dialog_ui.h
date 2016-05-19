@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_CONSTRAINED_WEB_DIALOG_UI_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -50,6 +51,8 @@ class ConstrainedWebDialogDelegate {
   // Returns the maximum size for the dialog.
   virtual gfx::Size GetMaximumSize() const = 0;
 
+  // Returns the preferred size for the dialog, or an empty size if
+  // the dialog has been closed.
   virtual gfx::Size GetPreferredSize() const = 0;
 
  protected:

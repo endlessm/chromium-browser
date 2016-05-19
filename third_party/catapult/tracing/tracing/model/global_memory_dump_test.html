@@ -5,10 +5,13 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/core/test_utils.html">
+<link rel="import" href="/tracing/importer/import.html">
 <link rel="import" href="/tracing/model/attribute.html">
 <link rel="import" href="/tracing/model/global_memory_dump.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
+<link rel="import" href="/tracing/model/memory_dump_test_utils.html">
 <link rel="import" href="/tracing/model/model.html">
 <link rel="import" href="/tracing/model/process_memory_dump.html">
 
@@ -22,8 +25,14 @@ tr.b.unittest.testSuite(function() {
   var MemoryAllocatorDump = tr.model.MemoryAllocatorDump;
   var MemoryAllocatorDumpLink = tr.model.MemoryAllocatorDumpLink;
   var ScalarAttribute = tr.model.ScalarAttribute;
-  var AttributeInfo = tr.model.AttributeInfo;
-  var AttributeInfoType = tr.model.AttributeInfoType;
+  var newAllocatorDump = tr.model.MemoryDumpTestUtils.newAllocatorDump;
+  var newChildDump = tr.model.MemoryDumpTestUtils.newChildDump;
+  var addOwnershipLink = tr.model.MemoryDumpTestUtils.addOwnershipLink;
+  var SizeAttributeInfoType = tr.model.SizeAttributeInfoType;
+  var PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN =
+      SizeAttributeInfoType.PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN;
+  var PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER =
+      SizeAttributeInfoType.PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER;
 
   var SIZE_DELTA = 0.0001;
 
@@ -74,17 +83,11 @@ tr.b.unittest.testSuite(function() {
         dump.containerMemoryDump.userFriendlyName + ' to have ' +
         expectedInfos.length + ' infos but got ' + actualInfos.length);
     for (var k = 0; k < actualInfos.length; k++) {
-      var actualInfo = actualInfos[k];
-      var expectedInfo = expectedInfos[k];
-      assert.equal(actualInfo.type, expectedInfo.type,
-          'expected info ' + k + ' of the \'' + attributeName + '\' ' +
+      assert.deepEqual(actualInfos[k], expectedInfos[k],
+          'info ' + k + ' of the \'' + attributeName + '\' ' +
           'attribute of memory allocator dump \'' + dump.fullName + '\' in ' +
-          dump.containerMemoryDump.userFriendlyName + ' to have type ' +
-          expectedInfo.type + ' but got ' + actualInfo.type);
-      assert.match(actualInfo.message, expectedInfo.message,
-          'invalid message of info ' + k + ' of the \'' + attributeName +
-          '\' attribute of memory allocator dump \'' + dump.fullName +
-          '\' in ' + dump.containerMemoryDump.userFriendlyName);
+          dump.containerMemoryDump.userFriendlyName +
+          ' doesn\'t match the expected info');
     }
   }
 
@@ -97,6 +100,28 @@ tr.b.unittest.testSuite(function() {
       assertDefinedAttribute(dump, sizeName, ScalarAttribute, 'bytes',
           expectedValue, expectedInfos, SIZE_DELTA);
     }
+  }
+
+  function assertDumpSizes(dump, expectedSize, expectedEffectiveSize,
+      opt_expectedSizeInfos, opt_expectedOwnedBySiblingSizes) {
+    // Check the 'size' attribute and its infos.
+    assertSizeAttribute(dump, 'size', expectedSize, opt_expectedSizeInfos);
+
+    // Check the 'effective_size' attribute.
+    assertSizeAttribute(dump, 'effective_size', expectedEffectiveSize);
+
+    // Checked the 'ownedBySiblingSizes' map.
+    var expectedOwnedBySiblingSizes = opt_expectedOwnedBySiblingSizes || {};
+    var actualOwnedBySiblingSizes = {};
+    for (var siblingDump of dump.ownedBySiblingSizes.keys()) {
+      assert.strictEqual(siblingDump.parent, dump.parent);
+      actualOwnedBySiblingSizes[siblingDump.name] =
+          dump.ownedBySiblingSizes.get(siblingDump);
+    }
+    assert.deepEqual(actualOwnedBySiblingSizes, expectedOwnedBySiblingSizes,
+        'ownedBySiblingSizes of memory allocator dump \'' + dump.fullName +
+        '\' in ' + dump.containerMemoryDump.userFriendlyName +
+        ' doesn\'t contain the expected values');
   }
 
   function createContainerDumps(processMemoryDumpCount, opt_model) {
@@ -152,6 +177,8 @@ tr.b.unittest.testSuite(function() {
    *   importance: Importance of the above ownership (can be undefined).
    *   size: Value of the 'size' attribute of the resulting MAD (no 'size'
    *       attribute if undefined).
+   *   weak: Whether the resulting MAD should be weak (undefined implies
+   *       non-weak).
    *   children: List of tree recipes for child MADs (no children if undefined).
    *   skip_build: If this optional property is set to true, this function will
    *       skip the corresponding tree recipe node and will not create a MAD
@@ -178,6 +205,7 @@ tr.b.unittest.testSuite(function() {
         var size = treeRecipe['size'];
         var attrs = treeRecipe['attrs'];
         var importance = treeRecipe['importance'];
+        var weak = treeRecipe['weak'];
 
         assert.notStrictEqual(skipBuild, true);
         assert.isDefined(name);
@@ -195,6 +223,8 @@ tr.b.unittest.testSuite(function() {
           if (!(owns in ownerDumps))
             ownerDumps[owns] = [];
           ownerDumps[owns].push({dump: dump, importance: importance});
+        } else {
+          assert.isUndefined(importance);  // Test sanity check.
         }
 
         if (treeRecipe.children !== undefined) {
@@ -211,6 +241,9 @@ tr.b.unittest.testSuite(function() {
 
         if (attrs !== undefined)
           tr.b.iterItems(attrs, dump.addAttribute, dump);
+
+        if (weak)
+          dump.weak = true;
 
         return dump;
       }
@@ -234,11 +267,8 @@ tr.b.unittest.testSuite(function() {
           'allocator dump with guid \'' + ownedGuid + '\'');
 
       ownershipInfos.forEach(function(ownershipInfo) {
-        var ownerDump = ownershipInfo.dump;
-        var ownershipLink = new MemoryAllocatorDumpLink(
-            ownerDump, ownedDump, ownershipInfo.importance);
-        ownerDump.owns = ownershipLink;
-        ownedDump.ownedBy.push(ownershipLink);
+        addOwnershipLink(
+            ownershipInfo.dump, ownedDump, ownershipInfo.importance);
       });
     });
 
@@ -269,7 +299,8 @@ tr.b.unittest.testSuite(function() {
           'children': [
             {
               'name': 'isolate1',
-              'guid': 7
+              'guid': 7,
+              'weak': true
             },
             {
               'name': 'isolate2',
@@ -287,7 +318,8 @@ tr.b.unittest.testSuite(function() {
                 },
                 {
                   'name': 'obj2',
-                  'owns': 3
+                  'owns': 3,
+                  'weak': true
                 },
                 {
                   'name': 'obj3',
@@ -307,7 +339,7 @@ tr.b.unittest.testSuite(function() {
 
     function checkDump(dump, expectedGuid, expectedFullName, expectedParent,
         expectedChildrenCount, expectedSize, expectedIsOwner,
-        expectedOwnersCount, expectedContainerDump) {
+        expectedOwnersCount, expectedContainerDump, opt_expectedWeak) {
       assert.isDefined(dump);
       assert.instanceOf(dump, MemoryAllocatorDump);
       assert.strictEqual(dump.guid, expectedGuid);
@@ -327,6 +359,7 @@ tr.b.unittest.testSuite(function() {
       assert.strictEqual(dump.containerMemoryDump, expectedContainerDump);
       assert.strictEqual(expectedContainerDump.getMemoryAllocatorDumpByFullName(
           expectedFullName), dump);
+      assert.strictEqual(dump.weak, !!opt_expectedWeak);
     }
 
     function checkOwnershipLink(expectedSourceDump, expectedTargetDump,
@@ -359,7 +392,7 @@ tr.b.unittest.testSuite(function() {
         pmd2);
     var isolate1Dump = v8Dump.children[0];
     checkDump(isolate1Dump, 7, 'v8/isolate1', v8Dump, 0, undefined, false, 1,
-        pmd2);
+        pmd2, true /* weak dump */);
     var isolate3Dump = v8Dump.children[1];
     checkDump(isolate3Dump, 60, 'v8/isolate3', v8Dump, 3, 54, false, 0, pmd2);
     var obj1Dump = isolate3Dump.children[0];
@@ -367,7 +400,7 @@ tr.b.unittest.testSuite(function() {
         pmd2);
     var obj2Dump = isolate3Dump.children[1];
     checkDump(obj2Dump, undefined, 'v8/isolate3/obj2', isolate3Dump, 0,
-        undefined, true, 0, pmd2);
+        undefined, true, 0, pmd2, true /* weak dump */);
     var obj3Dump = isolate3Dump.children[2];
     checkDump(obj3Dump, undefined, 'v8/isolate3/obj3', isolate3Dump, 0,
         undefined, true, 0, pmd2);
@@ -386,6 +419,8 @@ tr.b.unittest.testSuite(function() {
    * tree recipes):
    *
    *   name: Expected name of the MAD.
+   *   expected_removed: If provided and true, it is expected that there is no
+   *       dump for the recipe.
    *   expected_size: Expected value of the 'size' attribute of the MAD (no
    *       'size' attribute expected if undefined).
    *   expected_size_infos: List of expected 'size' attribute infos (zero infos
@@ -399,6 +434,11 @@ tr.b.unittest.testSuite(function() {
    *       attribute infos (zero infos expected if undefined). The items in the
    *       list are object with two fields: 'type' (expected value of the info
    *       type), and 'message' (regular expression over the info message).
+   *   weak: Whether the MAD is expected to be weak (non-weak if undefined).
+   *   owns: Expected GUID of the dump owned by the MAD.
+   *   importance: Expected importance of the owhership from this MAD.
+   *   expected_owned_by_links_count: Expected number of 'ownedBy' links of the
+   *       MAD.
    *   children: List of tree recipes for child MADs (no children expected if
    *       undefined).
    *
@@ -420,45 +460,92 @@ tr.b.unittest.testSuite(function() {
         continue;
       }
 
+      var expectedTreeRecipes = treeRecipes.filter(function(treeRecipe) {
+        return !treeRecipe['expected_removed'];
+      });
+
       assert.isDefined(memoryAllocatorDumps,
           'expected defined memory allocator dumps in ' +
           containerDump.userFriendlyName);
-      assert.lengthOf(memoryAllocatorDumps, treeRecipes.length,
-          'expected ' + treeRecipes.length + ' root memory allocator dumps ' +
-          'but got ' + memoryAllocatorDumps.length + ' in ' +
+      assert.lengthOf(memoryAllocatorDumps, expectedTreeRecipes.length,
+          'expected ' + expectedTreeRecipes.length + ' root memory allocator ' +
+          'dumps but got ' + memoryAllocatorDumps.length + ' in ' +
           containerDump.userFriendlyName);
 
       function checkDumpTree(dump, treeRecipe, expectedParent, namePrefix) {
+        // Test sanity check.
+        assert.isFalse(!!treeRecipe['expected_removed']);
+
         // Check full name, parent, and container dump.
         var expectedFullName = namePrefix + treeRecipe['name'];
-        var errorMessagePrefix = 'memory allocator dump \'' + dump.fullName +
-            '\' in ' + dump.containerMemoryDump.userFriendlyName + ' ';
-
+        var quantifiedName = dump.quantifiedName;
         assert.equal(dump.fullName, expectedFullName,
-            errorMessagePrefix + 'has invalid full name');
+            quantifiedName + ' has invalid full name');
         assert.strictEqual(dump.parent, expectedParent,
-            errorMessagePrefix + 'has invalid parent');
+            quantifiedName + ' has invalid parent');
         assert.strictEqual(dump.containerMemoryDump, containerDump,
-            errorMessagePrefix + 'has invalid container memory dump');
+            quantifiedName + ' has invalid container memory dump');
         assert.strictEqual(containerDump.getMemoryAllocatorDumpByFullName(
-            expectedFullName), dump, errorMessagePrefix +
+            expectedFullName), dump, quantifiedName +
             'is not indexed in its container memory dump');
 
-        // Check that 'size' was calculated correctly.
-        assertSizeAttribute(dump, 'size', treeRecipe['expected_size'],
-            treeRecipe['expected_size_infos']);
+        // Check the guid of the dump.
+        assert.strictEqual(dump.guid, treeRecipe['guid'],
+            quantifiedName + ' has invalid guid');
 
-        // Check that 'effective_size' was calculated correctly.
-        assertSizeAttribute(dump, 'effective_size',
+        // Check that the 'weak' flag is correct.
+        assert.strictEqual(dump.weak, !!treeRecipe['weak'],
+            quantifiedName + ' has invalid weak flag');
+
+        // Check that sizes were calculated correctly.
+        assertDumpSizes(dump,
+            treeRecipe['expected_size'],
             treeRecipe['expected_effective_size'],
-            treeRecipe['expected_effective_size_infos']);
+            treeRecipe['expected_size_infos'],
+            treeRecipe['expected_owned_by_sibling_sizes']);
+
+        // Check that the 'owns' link is correct.
+        if (treeRecipe['owns'] === undefined) {
+          assert.isUndefined(dump.owns,
+              quantifiedName + ' was expected not to own another dump');
+        } else {
+          var ownershipLink = dump.owns;
+          assert.isDefined(dump.owns, quantifiedName +
+              ' was expected to have an \'owns\' link');
+          assert.strictEqual(ownershipLink.source, dump,
+              'the \'owns\' link of ' + quantifiedName + ' has invalid source');
+          var expectedImportance = treeRecipe['importance'];
+          assert.strictEqual(ownershipLink.importance, expectedImportance,
+              'expected the importance of the \'owns\' link of ' +
+              quantifiedName + ' to be ' + expectedImportance +
+              ' but got ' + ownershipLink.importance);
+          var ownedDump = ownershipLink.target;
+          assert.strictEqual(ownedDump.guid, treeRecipe['owns'],
+              'the \'owns\' link of ' + quantifiedName +
+              ' has an invalid target');
+          assert.include(ownedDump.ownedBy, ownershipLink,
+              'the target of the \'owns\' link of ' + quantifiedName +
+              ' doesn\'t have the link in its \'ownedBy\' list');
+        }
+
+        // Check that the number of 'ownedBy' links is correct.
+        var expectedOwnedByLinksCount =
+            treeRecipe['expected_owned_by_links_count'];
+        if (expectedOwnedByLinksCount !== undefined) {
+          assert.lengthOf(dump.ownedBy, expectedOwnedByLinksCount,
+              'expected ' + quantifiedName + ' to have ' +
+              expectedOwnedByLinksCount + ' \'ownedBy\' links but got ' +
+              dump.ownedBy.length);
+        }
 
         // Check children recursively.
         var actualChildren = dump.children;
-        var expectedChildren = treeRecipe.children || [];
+        var expectedChildren = (treeRecipe.children || []).filter(
+            function(childRecipe) {
+              return !childRecipe['expected_removed'];
+            });
         assert.lengthOf(actualChildren, expectedChildren.length,
-            'expected memory allocator dump \'' + dump.fullName + '\' in ' +
-            dump.containerMemoryDump.userFriendlyName + ' to have ' +
+            'expected ' + quantifiedName + ' to have ' +
             expectedChildren.length + ' children but got ' +
             actualChildren.length);
         for (var k = 0; k < actualChildren.length; k++) {
@@ -467,64 +554,11 @@ tr.b.unittest.testSuite(function() {
         }
       }
 
-      for (var j = 0; j < memoryAllocatorDumps.length; j++)
-        checkDumpTree(memoryAllocatorDumps[j], treeRecipes[j], undefined, '');
-    }
-  }
-
-  function genericInfo(type, regex) {
-    return {type: type, message: regex};
-  }
-
-  function informationInfo(regex) {
-    return genericInfo(AttributeInfoType.INFORMATION, regex);
-  }
-
-  function warningInfo(regex) {
-    return genericInfo(AttributeInfoType.WARNING, regex);
-  }
-
-  function ownershipInfo(/* type, prefix1, entries1, ... */) {
-    // Test sanity checks.
-    assert(arguments.length >= 3);
-    assert(arguments.length % 2 === 1);
-
-    var type = arguments[0];
-    var regExpString = '';
-
-    for (var i = 1; i < arguments.length; i += 2) {
-      var prefix = arguments[i];
-      var entries = arguments[i + 1];
-      assert(entries.length % 3 === 0);  // Test sanity check.
-
-      regExpString += '.*' + prefix;
-
-      for (var j = 0; j < entries.length; j += 3) {
-        regExpString += '[\\s\\S]*\'' + entries[j] + '\'';
-        regExpString += '.*\\b' + entries[j + 1] + '\\b';
-        regExpString += '.*\\bimportance: ' + entries[j + 2] + '\\b';
+      for (var j = 0; j < memoryAllocatorDumps.length; j++) {
+        checkDumpTree(
+            memoryAllocatorDumps[j], expectedTreeRecipes[j], undefined, '');
       }
     }
-
-    return genericInfo(type, new RegExp(regExpString));
-  }
-
-  function ownerInfo(/* ownedFullName, ownedContainerName, ownedImportance,
-                        otherOwnerFullName1, otherOwnerContainerName1,
-                        otherOwnerImportance1, ... */) {
-    var ownedEntries = Array.prototype.slice.call(arguments, 0, 3);
-    var otherOwnerEntries = Array.prototype.slice.call(arguments, 3);
-    return ownershipInfo(AttributeInfoType.MEMORY_OWNER,
-        '\\bshares\\b', ownedEntries,
-        '\\bwith' + (otherOwnerEntries.length === 0 ? ' no other\\b' : ':\\n'),
-        otherOwnerEntries);
-  }
-
-  function ownedInfo(/* ownerFullName1, ownerContainerName1, ownerImportance1,
-                        ... */) {
-    var ownerEntries = Array.prototype.slice.call(arguments);
-    return ownershipInfo(AttributeInfoType.MEMORY_OWNED, '\\bshared by\\b',
-        ownerEntries);
   }
 
   // Check that the checkDumpTrees testing helper method above actually
@@ -557,13 +591,28 @@ tr.b.unittest.testSuite(function() {
     }, /'heaps'.*invalid full name/);
   });
 
+  test('testSanityCheck_checkDumpTrees_invalidGuid', function() {
+    var containerDumps = createContainerDumps(0);
+    var gmd = containerDumps[0];
+    gmd.memoryAllocatorDumps = [new MemoryAllocatorDump(gmd, 'v8', 42)];
+
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'v8',
+            'guid': 43  // This should be 42.
+          }
+        ]
+      ]);
+    }, /'v8'.*\binvalid guid\b/);
+  });
+
   test('testSanityCheck_checkDumpTrees_invalidStructure', function() {
     var containerDumps = createContainerDumps(0);
     var gmd = containerDumps[0];
     var rootDump = new MemoryAllocatorDump(gmd, 'root');
-    var child1Dump = new MemoryAllocatorDump(gmd, 'root/child1');
-    rootDump.children.push(child1Dump);
-    child1Dump.parent = rootDump;
+    newChildDump(rootDump, 'child1');
     gmd.memoryAllocatorDumps = [rootDump];
 
     assert.throws(function() {
@@ -591,11 +640,8 @@ tr.b.unittest.testSuite(function() {
     var containerDumps = createContainerDumps(0);
     var gmd = containerDumps[0];
     var rootDump = new MemoryAllocatorDump(gmd, 'root');
-    var parentDump = new MemoryAllocatorDump(gmd, 'root/parent');
-    rootDump.children.push(parentDump);
-    parentDump.parent = rootDump;
-    var childDump = new MemoryAllocatorDump(gmd, 'root/parent/child');
-    parentDump.children.push(childDump);
+    var parentDump = newChildDump(rootDump, 'parent');
+    var childDump = newChildDump(parentDump, 'child');
     childDump.parent = rootDump;  // This should correctly be parentDump.
     gmd.memoryAllocatorDumps = [rootDump];
 
@@ -624,12 +670,8 @@ tr.b.unittest.testSuite(function() {
     var containerDumps = createContainerDumps(1);
     var gmd = containerDumps[0];
     var pmd = containerDumps[1];
-    var rootDump = new MemoryAllocatorDump(pmd, 'root');
-    rootDump.addAttribute('size', new ScalarAttribute('bytes', 100));
-    var parentDump = new MemoryAllocatorDump(pmd, 'root/parent');
-    parentDump.addAttribute('size', new ScalarAttribute('bytes', 49));
-    rootDump.children.push(parentDump);
-    parentDump.parent = rootDump;
+    var rootDump = newAllocatorDump(pmd, 'root', { size: 100 });
+    newChildDump(rootDump, 'parent', { size: 49 });
     pmd.memoryAllocatorDumps = [rootDump];
 
     assert.throws(function() {
@@ -655,12 +697,8 @@ tr.b.unittest.testSuite(function() {
     var containerDumps = createContainerDumps(1);
     var gmd = containerDumps[0];
     var pmd = containerDumps[1];
-    var rootDump = new MemoryAllocatorDump(pmd, 'root');
-    rootDump.addAttribute('effective_size', new ScalarAttribute('bytes', 99));
-    var parentDump = new MemoryAllocatorDump(pmd, 'root/parent');
-    parentDump.addAttribute('effective_size', new ScalarAttribute('bytes', 50));
-    rootDump.children.push(parentDump);
-    parentDump.parent = rootDump;
+    var rootDump = newAllocatorDump(pmd, 'root', { effective_size: 99 });
+    newChildDump(rootDump, 'parent', { effective_size: 50 });
     pmd.memoryAllocatorDumps = [rootDump];
 
     assert.throws(function() {
@@ -685,10 +723,11 @@ tr.b.unittest.testSuite(function() {
   test('testSanityCheck_checkDumpTrees_invalidSizeInfoCount', function() {
     var containerDumps = createContainerDumps(0);
     var gmd = containerDumps[0];
-    var v8Dump = new MemoryAllocatorDump(gmd, 'v8');
-    // This attribute should have an info.
-    v8Dump.addAttribute('size', new ScalarAttribute('bytes', 50));
-    gmd.memoryAllocatorDumps = [v8Dump];
+    gmd.memoryAllocatorDumps = [
+      newAllocatorDump(gmd, 'v8', {
+        size: 50  // This attribute should have an info.
+      })
+    ];
 
     assert.throws(function() {
       checkDumpTrees(containerDumps, [
@@ -697,7 +736,11 @@ tr.b.unittest.testSuite(function() {
             'name': 'v8',
             'expected_size': 50,
             'expected_size_infos': [
-              warningInfo(/[some_message]/)
+              {
+                type: PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN,
+                providedSize: 50,
+                dependencySize: 60
+              }
             ]
           }
         ]
@@ -705,14 +748,15 @@ tr.b.unittest.testSuite(function() {
     }, /expected.*\'size'.*'v8'.*\b1 infos\b.*\bgot\b.*\b0\b/);
   });
 
-  test('testSanityCheck_checkDumpTrees_invalidSizeInfoType', function() {
+  test('testSanityCheck_checkDumpTrees_invalidSizeInfo', function() {
     var containerDumps = createContainerDumps(0);
     var gmd = containerDumps[0];
-    var v8Dump = new MemoryAllocatorDump(gmd, 'v8');
-    var attr = new ScalarAttribute('bytes', 50);
-    attr.infos.push(new AttributeInfo(
-        AttributeInfoType.INFORMATION, 'message text!'));
-    v8Dump.addAttribute('size', attr);
+    var v8Dump = newAllocatorDump(gmd, 'v8', { size: 50 });
+    v8Dump.attributes['size'].infos.push({
+      type: PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN,
+      providedSize: 40,
+      dependencySize: 50
+    });
     gmd.memoryAllocatorDumps = [v8Dump];
 
     assert.throws(function() {
@@ -722,22 +766,25 @@ tr.b.unittest.testSuite(function() {
             'name': 'v8',
             'expected_size': 50,
             'expected_size_infos': [
-              warningInfo(/^message text!$/)  // This should be informationInfo.
+              {
+                // Should be PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN below.
+                type: PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER,
+                providedSize: 40,
+                dependencySize: 50
+              }
             ]
           }
         ]
       ]);
-    }, /expected.*\binfo 0\b.*'size'.*'v8'.*\btype 1\b.*\bgot\b.*\b0\b/);
+    }, /\binfo 0\b.*'size'.*'v8'.*\bexpected\b/);
   });
 
-  test('testSanityCheck_checkDumpTrees_invalidSizeInfoMessage', function() {
+  test('testSanityCheck_checkDumpTrees_invalidOwnedBySiblingSizes', function() {
     var containerDumps = createContainerDumps(0);
     var gmd = containerDumps[0];
     var v8Dump = new MemoryAllocatorDump(gmd, 'v8');
-    var attr = new ScalarAttribute('bytes', 50);
-    attr.infos.push(new AttributeInfo(AttributeInfoType.WARNING, 'ok'));
-    attr.infos.push(new AttributeInfo(AttributeInfoType.INFORMATION, 'one'));
-    v8Dump.addAttribute('size', attr);
+    newChildDump(v8Dump, 'child1', {}, 42 /* guid */);
+    newChildDump(v8Dump, 'child2');
     gmd.memoryAllocatorDumps = [v8Dump];
 
     assert.throws(function() {
@@ -745,42 +792,336 @@ tr.b.unittest.testSuite(function() {
         [
           {
             'name': 'v8',
-            'expected_size': 50,
-            'expected_size_infos': [
-              warningInfo(/.*/),
-              informationInfo(/two/)  // This should be /one/.
+            'children': [
+              {
+                'name': 'child1',
+                'guid': 42
+              },
+              {
+                'name': 'child2',
+                'expected_owned_by_sibling_sizes': {
+                  'child1': 40  // This should be 30.
+                }
+              }
             ]
           }
         ]
       ]);
-    }, /invalid message.*\binfo 1\b.*'size'.*'v8'/);
+    }, /\bownedBySiblingSizes\b.*'v8\/child2'.*\bexpected\b/);
   });
 
-  test('testSanityCheck_checkDumpTrees_invalidEffectiveSizeInfo',
+  test('testSanityCheck_checkDumpTrees_invalidWeakFlag',
       function() {
     var containerDumps = createContainerDumps(0);
     var gmd = containerDumps[0];
-    var oilpanDump = new MemoryAllocatorDump(gmd, 'oilpan');
-    var attr = new ScalarAttribute('bytes', 78);
-    attr.infos.push(new AttributeInfo(AttributeInfoType.INFORMATION, 'three'));
-    oilpanDump.addAttribute('size', new ScalarAttribute('bytes', 49));
-    oilpanDump.addAttribute('effective_size', attr);
-    gmd.memoryAllocatorDumps = [oilpanDump];
+    var parentDump = new MemoryAllocatorDump(gmd, 'parent');
+    var childDump = newChildDump(parentDump, 'child');
+    childDump.weak = true;
+    gmd.memoryAllocatorDumps = [parentDump];
 
     assert.throws(function() {
       checkDumpTrees(containerDumps, [
         [
           {
-            'name': 'oilpan',
-            'expected_size': 49,
-            'expected_effective_size': 78,
-            'expected_effective_size_infos': [
-              informationInfo(/two/)  // This should be /three/.
+            'name': 'parent',
+            'children': [
+              {
+                'name': 'child',
+                // Missing "'weak': true".
+              }
             ]
           }
         ]
       ]);
-    }, /invalid message.*\binfo 0\b.*'effective_size'.*'oilpan'/);
+    }, /'parent\/child'.*\binvalid weak flag\b/);
+
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'parent',
+            'weak': true,  // This should be false (or not provided).
+            'children': [
+              {
+                'name': 'child',
+                'weak': true
+              }
+            ]
+          }
+        ]
+      ]);
+    }, /'parent'.*\binvalid weak flag\b/);
+  });
+
+  test('testSanityCheck_checkDumpTrees_dumpNotRemoved', function() {
+    var containerDumps = createContainerDumps(0);
+    var gmd = containerDumps[0];
+    var parentDump = new MemoryAllocatorDump(gmd, 'parent');
+    for (var i = 1; i <= 3; i++)
+      newChildDump(parentDump, 'child' + i);
+    var otherDump = new MemoryAllocatorDump(gmd, 'other');
+    gmd.memoryAllocatorDumps = [parentDump, otherDump];
+
+    // Child MAD not removed.
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'parent',
+            'children': [
+              {
+                'name': 'child1',
+              },
+              {
+                'name': 'child2',
+                'expected_removed': true
+              },
+              {
+                'name': 'child3',
+              }
+            ]
+          },
+          {
+            'name': 'other'
+          }
+        ]
+      ]);
+    }, /\bexpected\b.*'parent'.*\b2 children\b.*\bgot 3\b/);
+
+    // Root MAD not removed.
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'parent',
+            'children': [
+              {
+                'name': 'child1',
+              },
+              {
+                'name': 'child2'
+              },
+              {
+                'name': 'child3',
+              }
+            ]
+          },
+          {
+            'name': 'other',
+            'expected_removed': true
+          }
+        ]
+      ]);
+    }, /\bexpected\b.*\b1 root memory allocator dumps\b.*\bgot 2\b/);
+  });
+
+  test('testSanityCheck_checkDumpTrees_invalidOwnership', function() {
+    var containerDumps = createContainerDumps(1);
+    var gmd = containerDumps[0];
+    var pmd1 = containerDumps[1];
+    var ownedDump = new MemoryAllocatorDump(gmd, 'owned', 42);
+    var ownerDump1 = new MemoryAllocatorDump(pmd1, 'owner1');
+    var link1 = addOwnershipLink(ownerDump1, ownedDump);
+    var ownerDump2 = new MemoryAllocatorDump(pmd1, 'owner2');
+    var link2 = addOwnershipLink(ownerDump2, ownedDump, 3);
+    var nonOwnerDump = new MemoryAllocatorDump(pmd1, 'non-owner', 90);
+    gmd.memoryAllocatorDumps = [ownedDump];
+    pmd1.memoryAllocatorDumps = [ownerDump1, ownerDump2, nonOwnerDump];
+
+    // Missing 'owns' link.
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'owned',
+            'guid': 42
+          }
+        ],
+        [
+          {
+            'name': 'owner1',
+            'owns': 42
+          },
+          {
+            'name': 'owner2',
+            'importance': 3,
+            'owns': 42
+          },
+          {
+            'name': 'non-owner',
+            'guid': 90,
+            'owns': 42  // This should not be here.
+          }
+        ]
+      ]);
+    }, /'non-owner'.*\bwas expected to have\b.*'owns' link\b/);
+
+    // Extra 'owns' link.
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'owned',
+            'guid': 42
+          }
+        ],
+        [
+          {
+            'name': 'owner1'
+            // Missing: "'owns': 42".
+          },
+          {
+            'name': 'owner2',
+            'importance': 3,
+            'owns': 42
+          },
+          {
+            'name': 'non-owner',
+            'guid': 90
+          }
+        ]
+      ]);
+    }, /'owner1'.*\bwas expected not to own\b/);
+
+    // Invalid ownership importance.
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'owned',
+            'guid': 42
+          }
+        ],
+        [
+          {
+            'name': 'owner1',
+            'owns': 42
+          },
+          {
+            'name': 'owner2',
+            'importance': 2,  // This should be 3.
+            'owns': 42
+          },
+          {
+            'name': 'non-owner',
+            'guid': 90
+          }
+        ]
+      ]);
+    }, /\bexpected\b.*\bimportance\b.*'owner2'.*\b2 but got 3\b/);
+
+    // Invalid ownership target.
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'owned',
+            'guid': 42
+          }
+        ],
+        [
+          {
+            'name': 'owner1',
+            'owns': 90  // This should be 42.
+          },
+          {
+            'name': 'owner2',
+            'importance': 3,
+            'owns': 42
+          },
+          {
+            'name': 'non-owner',
+            'guid': 90
+          }
+        ]
+      ]);
+    }, /'owner1'.*\binvalid target\b/);
+
+    // Invalid 'ownedBy' ownership links count.
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'owned',
+            'guid': 42,
+            'expected_owned_by_links_count': 3  // This should be 2.
+          }
+        ],
+        [
+          {
+            'name': 'owner1',
+            'owns': 42
+          },
+          {
+            'name': 'owner2',
+            'importance': 3,
+            'owns': 42
+          },
+          {
+            'name': 'non-owner',
+            'guid': 90
+          }
+        ]
+      ]);
+    }, /'owned'.*\bhave 3 'ownedBy' links\b.*\bgot 2\b/);
+
+    // Invalid ownership source.
+    link1.source = ownerDump2;
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'owned',
+            'guid': 42
+          }
+        ],
+        [
+          {
+            'name': 'owner1',
+            'owns': 42
+          },
+          {
+            'name': 'owner2',
+            'importance': 3,
+            'owns': 42
+          },
+          {
+            'name': 'non-owner',
+            'guid': 90
+          }
+        ]
+      ]);
+    }, /'owns' link\b.*'owner1'.*\binvalid source\b/);
+    link1.source = ownerDump1;
+
+    // Ownership link not in target's 'ownedBy' list.
+    ownedDump.ownedBy.pop();
+    assert.throws(function() {
+      checkDumpTrees(containerDumps, [
+        [
+          {
+            'name': 'owned',
+            'guid': 42
+          }
+        ],
+        [
+          {
+            'name': 'owner1',
+            'owns': 42
+          },
+          {
+            'name': 'owner2',
+            'importance': 3,
+            'owns': 42
+          },
+          {
+            'name': 'non-owner',
+            'guid': 90
+          }
+        ]
+      ]);
+    }, /\btarget of\b.*'owner2'.*'ownedBy' list\b/);
+    ownedDump.ownedBy.push(link2);
   });
 
   /**
@@ -793,7 +1134,7 @@ tr.b.unittest.testSuite(function() {
    * details about the structure of tree recipes.
    */
   function testSizesCalculation(allTreeRecipes) {
-    var m = new tr.Model();
+    var m = new Model();
     var io = new tr.importer.ImportOptions();
     io.showImportWarnings = false;
     m.importOptions = io;
@@ -802,6 +1143,7 @@ tr.b.unittest.testSuite(function() {
     var gmd = containerDumps[0];
     gmd.calculateSizes();
     gmd.calculateEffectiveSizes();
+    gmd.forceRebuildingMemoryAllocatorDumpByFullNameIndices();
     checkDumpTrees(containerDumps, allTreeRecipes);
   }
 
@@ -842,6 +1184,70 @@ tr.b.unittest.testSuite(function() {
   function calculationTest(caseName, treeRecipes) {
     test('calculateSizes_' + caseName, function() {
       testSizesCalculation(treeRecipes);
+    });
+  }
+
+  /**
+   * Build container memory dumps from tree recipes, let the resulting
+   * GlobalMemoryDump remove weak memory dumps, and then check that the updated
+   * container memory dumps have the expected structure (as described by the
+   * same tree recipes).
+   *
+   * See the documentation for buildDumpTrees and checkDumpTrees for more
+   * details about the structure of tree recipes.
+   */
+  function testWeakDumpRemoval(allTreeRecipes) {
+    var m = new tr.Model();
+    var io = new tr.importer.ImportOptions();
+    io.showImportWarnings = false;
+    m.importOptions = io;
+
+    var containerDumps = buildDumpTrees(allTreeRecipes, m);
+    var gmd = containerDumps[0];
+    gmd.removeWeakDumps();
+    gmd.forceRebuildingMemoryAllocatorDumpByFullNameIndices();
+    checkDumpTrees(containerDumps, allTreeRecipes);
+  }
+
+  // Similarly to testSanityCheck_testSizesCalculation, check that the
+  // testWeakDumpRemoval testing helper method above actually performs the
+  // expected checks.
+  test('testSanityCheck_testWeakDumpRemoval', function() {
+    assert.throws(function() {
+      testWeakDumpRemoval([
+        [],
+        undefined,
+        [
+          {
+            'name': 'winheap'
+          },
+          {
+            'name': 'malloc',
+            'children': [
+              {
+                'name': 'allocated_objects'
+              },
+              {
+                'name': 'directly_weak',
+                'guid': 42,
+                'weak': true,
+                'expected_removed': true
+              },
+              {
+                'name': 'indirectly_weak',
+                'owns': 42
+                // Missing: "'expected_removed': true".
+              }
+            ]
+          }
+        ]
+      ]);
+    }, /expected.*'malloc'.*\b2 children\b.*\bgot 1\b/);
+  });
+
+  function weakDumpRemovalTest(caseName, treeRecipes) {
+    test('removeWeakDumps_' + caseName, function() {
+      testWeakDumpRemoval(treeRecipes);
     });
   }
 
@@ -1522,9 +1928,6 @@ tr.b.unittest.testSuite(function() {
         'size': 15,
         'expected_size': 15,
         'expected_effective_size': 15,
-        'expected_effective_size_infos': [
-          ownedInfo('tile', 'Process 0', 0, 'chunk', 'Process 1', 0)
-        ],
         'guid': 7
       }
     ],
@@ -1548,9 +1951,6 @@ tr.b.unittest.testSuite(function() {
         'name': 'bitmap',
         'expected_size': 9,
         'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownedInfo('tile', 'Process 0', 0, 'chunk', 'Process 1', 0)
-        ],
         'guid': 7
       }
     ],
@@ -1560,9 +1960,6 @@ tr.b.unittest.testSuite(function() {
         'size': 5,
         'expected_size': 5,
         'expected_effective_size': 2.5,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap', 'global space', 0, 'chunk', 'Process 1', 0)
-        ],
         'owns': 7
       }
     ],
@@ -1572,9 +1969,6 @@ tr.b.unittest.testSuite(function() {
         'size': 9,
         'expected_size': 9,
         'expected_effective_size': 6.5,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap', 'global space', 0, 'tile', 'Process 0', 0)
-        ],
         'owns': 7
       }
     ]
@@ -1586,9 +1980,6 @@ tr.b.unittest.testSuite(function() {
         'name': 'bitmap',
         'expected_size': 16,
         'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownedInfo('tile', 'Process 0', 0, 'chunk', 'Process 1', 0)
-        ],
         'guid': 7
       }
     ],
@@ -1598,9 +1989,6 @@ tr.b.unittest.testSuite(function() {
         'size': 16,
         'expected_size': 16,
         'expected_effective_size': 16,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap', 'global space', 0, 'chunk', 'Process 1', 0)
-        ],
         'owns': 7
       }
     ],
@@ -1619,9 +2007,6 @@ tr.b.unittest.testSuite(function() {
         'size': 20,
         'expected_size': 20,
         'expected_effective_size': 2,
-        'expected_effective_size_infos': [
-          ownedInfo('tile', 'Process 0', 0, 'chunk', 'Process 1', 0)
-        ],
         'guid': 7
       }
     ],
@@ -1637,9 +2022,6 @@ tr.b.unittest.testSuite(function() {
         'size': 18,
         'expected_size': 18,
         'expected_effective_size': 18,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap', 'global space', 0, 'tile', 'Process 0', 0)
-        ],
         'owns': 7
       }
     ]
@@ -1652,9 +2034,6 @@ tr.b.unittest.testSuite(function() {
         'size': 60,
         'expected_size': 60,
         'expected_effective_size': 31,
-        'expected_effective_size_infos': [
-          ownedInfo('tile', 'Process 0', 0, 'chunk', 'Process 1', 0)
-        ],
         'guid': 7
       }
     ],
@@ -1664,9 +2043,6 @@ tr.b.unittest.testSuite(function() {
         'size': 29,
         'expected_size': 29,
         'expected_effective_size': 19.5,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap', 'global space', 0, 'chunk', 'Process 1', 0)
-        ],
         'owns': 7
       }
     ],
@@ -1676,9 +2052,6 @@ tr.b.unittest.testSuite(function() {
         'size': 19,
         'expected_size': 19,
         'expected_effective_size': 9.5,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap', 'global space', 0, 'tile', 'Process 0', 0)
-        ],
         'owns': 7
       }
     ]
@@ -1690,9 +2063,6 @@ tr.b.unittest.testSuite(function() {
         'name': 'bitmap',
         'expected_size': 50,
         'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownedInfo('tile', 'Process 0', 0, 'chunk', 'Process 1', 0)
-        ],
         'guid': 7
       }
     ],
@@ -1701,11 +2071,6 @@ tr.b.unittest.testSuite(function() {
         'name': 'tile',
         'expected_size': 50,
         'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownedInfo('object1', 'Process 0', 0, 'object2', 'Process 0', 0,
-              'object3', 'Process 0', 0),
-          ownerInfo('bitmap', 'global space', 0, 'chunk', 'Process 1', 0)
-        ],
         'owns': 7,
         'guid': 0
       },
@@ -1714,11 +2079,7 @@ tr.b.unittest.testSuite(function() {
         'size': 30,
         'owns': 0,
         'expected_size': 30,
-        'expected_effective_size': 9,
-        'expected_effective_size_infos': [
-          ownerInfo('tile', 'Process 0', 0, 'object2', 'Process 0', 0,
-              'object3', 'Process 0', 0)
-        ]
+        'expected_effective_size': 9
       },
       {
         'name': 'object2',
@@ -1729,11 +2090,7 @@ tr.b.unittest.testSuite(function() {
         'size': 50,
         'owns': 0,
         'expected_size': 50,
-        'expected_effective_size': 21,
-        'expected_effective_size_infos': [
-          ownerInfo('tile', 'Process 0', 0, 'object1', 'Process 0', 0,
-              'object2', 'Process 0', 0)
-        ]
+        'expected_effective_size': 21
       }
     ],
     [  // PMD2.
@@ -1742,9 +2099,6 @@ tr.b.unittest.testSuite(function() {
         'size': 40,
         'expected_size': 40,
         'expected_effective_size': 20,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap', 'global space', 0, 'tile', 'Process 0', 0)
-        ],
         'owns': 7
       }
     ]
@@ -1757,9 +2111,6 @@ tr.b.unittest.testSuite(function() {
         'guid': 7,
         'expected_size': 48,
         'expected_effective_size': 17,
-        'expected_effective_size_infos': [
-          ownedInfo('tile', 'Process 0', 0)
-        ],
         'children': [
           {
             'name': 'subbitmap1',
@@ -1781,10 +2132,6 @@ tr.b.unittest.testSuite(function() {
         'name': 'tile',
         'expected_size': 31,
         'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownedInfo('cc', 'Process 0', 0),
-          ownerInfo('bitmap', 'global space', 0)
-        ],
         'guid': 8,
         'owns': 7,
         'children': [
@@ -1807,10 +2154,7 @@ tr.b.unittest.testSuite(function() {
         'owns': 8,
         'size': 31,
         'expected_size': 31,
-        'expected_effective_size': 31,
-        'expected_effective_size_infos': [
-          ownerInfo('tile', 'Process 0', 0)
-        ]
+        'expected_effective_size': 31
       }
     ]
   ]);
@@ -1833,10 +2177,7 @@ tr.b.unittest.testSuite(function() {
             'name': 'subbitmap',
             'guid': 2,
             'expected_size': 64,
-            'expected_effective_size': 0,
-            'expected_effective_size_infos': [
-              ownedInfo('tile/subtile', 'Process 0', 0)
-            ]
+            'expected_effective_size': 0
           }
         ]
       }
@@ -1852,11 +2193,7 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'owns': 2,
             'expected_size': 64,
-            'expected_effective_size': 0,
-            'expected_effective_size_infos': [
-              ownedInfo('cc', 'Process 0', 0),
-              ownerInfo('bitmap/subbitmap', 'global space', 0)
-            ]
+            'expected_effective_size': 0
           }
         ]
       },
@@ -1865,10 +2202,7 @@ tr.b.unittest.testSuite(function() {
         'owns': 1,
         'size': 64,
         'expected_size': 64,
-        'expected_effective_size': 64,
-        'expected_effective_size_infos': [
-          ownerInfo('tile/subtile', 'Process 0', 0)
-        ]
+        'expected_effective_size': 64
       }
     ]
   ]);
@@ -1891,10 +2225,7 @@ tr.b.unittest.testSuite(function() {
             'name': 'subbitmap',
             'guid': 2,
             'expected_size': 64,
-            'expected_effective_size': 0,
-            'expected_effective_size_infos': [
-              ownedInfo('tile', 'Process 0', 0)
-            ]
+            'expected_effective_size': 0
           }
         ]
       }
@@ -1904,19 +2235,13 @@ tr.b.unittest.testSuite(function() {
         'name': 'tile',
         'expected_size': 64,
         'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownerInfo('bitmap/subbitmap', 'global space', 0)
-        ],
         'owns': 2,
         'children': [
           {
             'name': 'subtile',
             'guid': 1,
             'expected_size': 64,
-            'expected_effective_size': 0,
-            'expected_effective_size_infos': [
-              ownedInfo('cc', 'Process 0', 0)
-            ]
+            'expected_effective_size': 0
           }
         ]
       },
@@ -1925,10 +2250,7 @@ tr.b.unittest.testSuite(function() {
         'owns': 1,
         'size': 64,
         'expected_size': 64,
-        'expected_effective_size': 64,
-        'expected_effective_size_infos': [
-          ownerInfo('tile/subtile', 'Process 0', 0)
-        ]
+        'expected_effective_size': 64
       }
     ]
   ]);
@@ -1963,10 +2285,7 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'size': 10,
             'expected_size': 10,
-            'expected_effective_size': 10,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_effective_size': 10
           },
           {
             'name': 'objects',
@@ -1988,23 +2307,17 @@ tr.b.unittest.testSuite(function() {
             'name': 'heaps',
             'guid': 1,
             'expected_size': 20,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b20\.0 B\b/)
-            ],
             'expected_effective_size': 0,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_owned_by_sibling_sizes': {
+              'objects': 20
+            }
           },
           {
             'name': 'objects',
             'owns': 1,
             'size': 20,
             'expected_size': 20,
-            'expected_effective_size': 20,
-            'expected_effective_size_infos': [
-              ownerInfo('v8/heaps', 'global space', 0)
-            ]
+            'expected_effective_size': 20
           }
         ]
       }
@@ -2023,23 +2336,17 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'size': 30,
             'expected_size': 30,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b20\.0 B\b/)
-            ],
             'expected_effective_size': 10,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_owned_by_sibling_sizes': {
+              'objects': 20
+            }
           },
           {
             'name': 'objects',
             'owns': 1,
             'size': 20,
             'expected_size': 20,
-            'expected_effective_size': 20,
-            'expected_effective_size_infos': [
-              ownerInfo('v8/heaps', 'global space', 0)
-            ]
+            'expected_effective_size': 20
           }
         ]
       }
@@ -2059,10 +2366,7 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'size': 30,
             'expected_size': 30,
-            'expected_effective_size': 30,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_effective_size': 30
           },
           {
             'name': 'objects',
@@ -2092,10 +2396,7 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'size': 30,
             'expected_size': 30,
-            'expected_effective_size': 30,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_effective_size': 30
           },
           {
             'name': 'objects',
@@ -2118,23 +2419,17 @@ tr.b.unittest.testSuite(function() {
             'name': 'heaps',
             'guid': 1,
             'expected_size': 30,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b30\.0 B\b/)
-            ],
             'expected_effective_size': 0,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_owned_by_sibling_sizes': {
+              'objects': 30
+            }
           },
           {
             'name': 'objects',
             'owns': 1,
             'size': 30,
             'expected_size': 30,
-            'expected_effective_size': 30,
-            'expected_effective_size_infos': [
-              ownerInfo('v8/heaps', 'global space', 0)
-            ]
+            'expected_effective_size': 30
           }
         ]
       }
@@ -2159,23 +2454,17 @@ tr.b.unittest.testSuite(function() {
             'name': 'heaps',
             'guid': 1,
             'expected_size': 30,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b30\.0 B\b/)
-            ],
             'expected_effective_size': 0,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_owned_by_sibling_sizes': {
+              'objects': 30
+            }
           },
           {
             'name': 'objects',
             'owns': 1,
             'size': 30,
             'expected_size': 30,
-            'expected_effective_size': 30,
-            'expected_effective_size_infos': [
-              ownerInfo('v8/heaps', 'global space', 0)
-            ]
+            'expected_effective_size': 30
           }
         ]
       }
@@ -2195,23 +2484,17 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'size': 30,
             'expected_size': 30,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b14\.0 B\b/)
-            ],
             'expected_effective_size': 16,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_owned_by_sibling_sizes': {
+              'objects': 14
+            }
           },
           {
             'name': 'objects',
             'owns': 1,
             'size': 14,
             'expected_size': 14,
-            'expected_effective_size': 14,
-            'expected_effective_size_infos': [
-              ownerInfo('v8/heaps', 'global space', 0)
-            ]
+            'expected_effective_size': 14
           }
         ]
       }
@@ -2237,23 +2520,17 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'size': 30,
             'expected_size': 30,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b14\.0 B\b/)
-            ],
             'expected_effective_size': 16,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ]
+            'expected_owned_by_sibling_sizes': {
+              'objects': 14
+            }
           },
           {
             'name': 'objects',
             'owns': 1,
             'size': 14,
             'expected_size': 14,
-            'expected_effective_size': 14,
-            'expected_effective_size_infos': [
-              ownerInfo('v8/heaps', 'global space', 0)
-            ]
+            'expected_effective_size': 14
           }
         ]
       }
@@ -2272,9 +2549,9 @@ tr.b.unittest.testSuite(function() {
             'size': 10,
             'expected_size': 10,
             'expected_effective_size': 5,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'parent2'.*\b5\.0 B\b/)
-            ],
+            'expected_owned_by_sibling_sizes': {
+              'parent2': 5
+            },
             'children': [
               {
                 'name': '<unspecified>',
@@ -2287,10 +2564,7 @@ tr.b.unittest.testSuite(function() {
                 'guid': 1,
                 'size': 8,
                 'expected_size': 8,
-                'expected_effective_size': 3,
-                'expected_effective_size_infos': [
-                  ownedInfo('root/parent2/child', 'global space', 0)
-                ]
+                'expected_effective_size': 3
               }
             ]
           },
@@ -2299,9 +2573,9 @@ tr.b.unittest.testSuite(function() {
             'size': 8,
             'expected_size': 8,
             'expected_effective_size': 5,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'parent3'.*\b3\.0 B\b/)
-            ],
+            'expected_owned_by_sibling_sizes': {
+              'parent3': 3
+            },
             'children': [
               {
                 'name': '<unspecified>',
@@ -2315,11 +2589,7 @@ tr.b.unittest.testSuite(function() {
                 'owns': 1,
                 'size': 5,
                 'expected_size': 5,
-                'expected_effective_size': 2,
-                'expected_effective_size_infos': [
-                  ownedInfo('root/parent3/child', 'global space', 0),
-                  ownerInfo('root/parent1/child', 'global space', 0)
-                ]
+                'expected_effective_size': 2
               }
             ]
           },
@@ -2340,10 +2610,7 @@ tr.b.unittest.testSuite(function() {
                 'owns': 2,
                 'size': 3,
                 'expected_size': 3,
-                'expected_effective_size': 3,
-                'expected_effective_size_infos': [
-                  ownerInfo('root/parent2/child', 'global space', 0)
-                ]
+                'expected_effective_size': 3
               }
             ]
           }
@@ -2364,32 +2631,23 @@ tr.b.unittest.testSuite(function() {
             'owns': 15,
             'expected_size': 5,
             'expected_effective_size': 5,
-            'expected_effective_size_infos': [
-              ownerInfo('system/subsystem-B', 'global space', 0)
-            ],
             'children': [
               {
                 'name': 'objects',
                 'owns': 30,
                 'size': 3,
                 'expected_size': 3,
-                'expected_effective_size': 3,
-                'expected_effective_size_infos': [
-                  ownerInfo('system/subsystem-A/heaps', 'global space', 0)
-                ]
+                'expected_effective_size': 3
               },
               {
                 'name': 'heaps',
                 'guid': 30,
                 'size': 5,
                 'expected_size': 5,
-                'expected_size_infos': [
-                  informationInfo(/\boverlaps\b.*'objects'.*\b3\.0 B\b/)
-                ],
                 'expected_effective_size': 2,
-                'expected_effective_size_infos': [
-                  ownedInfo('system/subsystem-A/objects', 'global space', 0)
-                ]
+                'expected_owned_by_sibling_sizes': {
+                  'objects': 3
+                }
               }
             ]
           },
@@ -2397,35 +2655,26 @@ tr.b.unittest.testSuite(function() {
             'name': 'subsystem-B',
             'guid': 15,
             'expected_size': 7,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'subsystem-A'.*\b5\.0 B\b/)
-            ],
             'expected_effective_size': 2,
-            'expected_effective_size_infos': [
-              ownedInfo('system/subsystem-A', 'global space', 0)
-            ],
+            'expected_owned_by_sibling_sizes': {
+              'subsystem-A': 5
+            },
             'children': [
               {
                 'name': 'objects',
                 'owns': 40,
                 'size': 7,
                 'expected_size': 7,
-                'expected_effective_size': 2,
-                'expected_effective_size_infos': [
-                  ownerInfo('system/subsystem-B/heaps', 'global space', 0)
-                ]
+                'expected_effective_size': 2
               },
               {
                 'name': 'heaps',
                 'guid': 40,
                 'expected_size': 7,
-                'expected_size_infos': [
-                  informationInfo(/\boverlaps\b.*'objects'.*\b7\.0 B\b/)
-                ],
                 'expected_effective_size': 0,
-                'expected_effective_size_infos': [
-                  ownedInfo('system/subsystem-B/objects', 'global space', 0)
-                ]
+                'expected_owned_by_sibling_sizes': {
+                  'objects': 7
+                }
               }
             ]
           }
@@ -2441,30 +2690,21 @@ tr.b.unittest.testSuite(function() {
         'guid': 1,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 4,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'global space', 0, 'owner2', 'global space', 0)
-        ]
+        'expected_effective_size': 4
       },
       {
         'name': 'owner1',
         'owns': 1,
         'size': 6,
         'expected_size': 6,
-        'expected_effective_size': 3,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'global space', 0, 'owner2', 'global space', 0)
-        ]
+        'expected_effective_size': 3
       },
       {
         'name': 'owner2',
         'owns': 1,
         'size': 6,
         'expected_size': 6,
-        'expected_effective_size': 3,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'global space', 0, 'owner1', 'global space', 0)
-        ]
+        'expected_effective_size': 3
       }
     ],
     [  // PMD1 (only one importance defined and different sizes).
@@ -2473,10 +2713,7 @@ tr.b.unittest.testSuite(function() {
         'guid': 2,
         'size': 20,
         'expected_size': 20,
-        'expected_effective_size': 5,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'Process 0', 0, 'owner2', 'Process 0', 0)
-        ]
+        'expected_effective_size': 5
       },
       {
         'name': 'owner1',
@@ -2484,20 +2721,14 @@ tr.b.unittest.testSuite(function() {
         'importance': 0,
         'size': 15,
         'expected_size': 15,
-        'expected_effective_size': 10 / 2 + 5,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 0', 0, 'owner2', 'Process 0', 0)
-        ]
+        'expected_effective_size': 10 / 2 + 5
       },
       {
         'name': 'owner2',
         'owns': 2,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 10 / 2,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 0', 0, 'owner1', 'Process 0', 0)
-        ]
+        'expected_effective_size': 10 / 2
       }
     ],
     [  // PMD2 (all importances defined and different sizes).
@@ -2506,11 +2737,7 @@ tr.b.unittest.testSuite(function() {
         'guid': 3,
         'size': 15,
         'expected_size': 15,
-        'expected_effective_size': 5,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'Process 1', 3, 'owner2', 'Process 1', 3,
-              'owner3', 'Process 1', 3)
-        ]
+        'expected_effective_size': 5
       },
       {
         'name': 'owner1',
@@ -2518,11 +2745,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 3,
         'size': 8,
         'expected_size': 8,
-        'expected_effective_size': 8 / 3,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 1', 3, 'owner2', 'Process 1', 3,
-              'owner3', 'Process 1', 3)
-        ]
+        'expected_effective_size': 8 / 3
       },
       {
         'name': 'owner2',
@@ -2530,11 +2753,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 3,
         'size': 9,
         'expected_size': 9,
-        'expected_effective_size': 8 / 3 + 1 / 2,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 1', 3, 'owner1', 'Process 1', 3,
-              'owner3', 'Process 1', 3)
-        ]
+        'expected_effective_size': 8 / 3 + 1 / 2
       },
       {
         'name': 'owner3',
@@ -2542,11 +2761,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 3,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 8 / 3 + 1 / 2 + 1,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 1', 3, 'owner1', 'Process 1', 3,
-              'owner2', 'Process 1', 3)
-        ]
+        'expected_effective_size': 8 / 3 + 1 / 2 + 1
       }
     ]
   ]);
@@ -2558,20 +2773,14 @@ tr.b.unittest.testSuite(function() {
         'guid': 1,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 4,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'global space', 0, 'owner2', 'global space', 1)
-        ]
+        'expected_effective_size': 4
       },
       {
         'name': 'owner1',
         'owns': 1,
         'size': 6,
         'expected_size': 6,
-        'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'global space', 0, 'owner2', 'global space', 1)
-        ]
+        'expected_effective_size': 0
       },
       {
         'name': 'owner2',
@@ -2579,10 +2788,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 1,
         'size': 6,
         'expected_size': 6,
-        'expected_effective_size': 6,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'global space', 1, 'owner1', 'global space', 0)
-        ]
+        'expected_effective_size': 6
       }
     ],
     [  // PMD1 (one importance undefined and different sizes).
@@ -2591,10 +2797,7 @@ tr.b.unittest.testSuite(function() {
         'guid': 2,
         'size': 20,
         'expected_size': 20,
-        'expected_effective_size': 4,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'Process 0', -1, 'owner2', 'Process 0', 0)
-        ]
+        'expected_effective_size': 4
       },
       {
         'name': 'owner1',
@@ -2602,20 +2805,14 @@ tr.b.unittest.testSuite(function() {
         'importance': -1,
         'size': 16,
         'expected_size': 16,
-        'expected_effective_size': 6,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 0', -1, 'owner2', 'Process 0', 0)
-        ]
+        'expected_effective_size': 6
       },
       {
         'name': 'owner2',
         'owns': 2,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 10,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 0', 0, 'owner1', 'Process 0', -1)
-        ]
+        'expected_effective_size': 10
       }
     ],
     [  // PMD2 (all importances defined and different sizes).
@@ -2624,11 +2821,7 @@ tr.b.unittest.testSuite(function() {
         'guid': 3,
         'size': 15,
         'expected_size': 15,
-        'expected_effective_size': 5,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'Process 1', 4, 'owner2', 'Process 1', 3,
-              'owner3', 'Process 1', 2)
-        ]
+        'expected_effective_size': 5
       },
       {
         'name': 'owner1',
@@ -2636,11 +2829,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 4,
         'size': 8,
         'expected_size': 8,
-        'expected_effective_size': 8,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 1', 4, 'owner2', 'Process 1', 3,
-              'owner3', 'Process 1', 2)
-        ]
+        'expected_effective_size': 8
       },
       {
         'name': 'owner2',
@@ -2648,11 +2837,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 3,
         'size': 6,
         'expected_size': 6,
-        'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 1', 3, 'owner1', 'Process 1', 4,
-              'owner3', 'Process 1', 2)
-        ]
+        'expected_effective_size': 0
       },
       {
         'name': 'owner3',
@@ -2660,11 +2845,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 2,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 2,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'Process 1', 2, 'owner1', 'Process 1', 4,
-              'owner2', 'Process 1', 3)
-        ]
+        'expected_effective_size': 2
       }
     ]
   ]);
@@ -2678,12 +2859,7 @@ tr.b.unittest.testSuite(function() {
         'guid': 4,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 2,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'Process 0', 2,
-              'some_parent/owner2', 'Process 1', 2, 'owner3', 'Process 2', 1,
-              'owner4', 'Process 2', 0)
-        ]
+        'expected_effective_size': 2
       }
     ],
     [  // PMD1.
@@ -2693,12 +2869,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 2,
         'size': 6,
         'expected_size': 6,
-        'expected_effective_size': 6 / 2,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'global space', 2,
-              'some_parent/owner2', 'Process 1', 2, 'owner3', 'Process 2', 1,
-              'owner4', 'Process 2', 0)
-        ]
+        'expected_effective_size': 6 / 2
       }
     ],
     [  // PMD2.
@@ -2713,11 +2884,7 @@ tr.b.unittest.testSuite(function() {
             'importance': 2,
             'size': 7,
             'expected_size': 7,
-            'expected_effective_size': 6 / 2 + 1,
-            'expected_effective_size_infos': [
-              ownerInfo('owned', 'global space', 2, 'owner1', 'Process 0', 2,
-                  'owner3', 'Process 2', 1, 'owner4', 'Process 2', 0)
-            ]
+            'expected_effective_size': 6 / 2 + 1
           }
         ]
       }
@@ -2729,11 +2896,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 1,
         'size': 5,
         'expected_size': 5,
-        'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'global space', 1, 'owner1', 'Process 0', 2,
-              'some_parent/owner2', 'Process 1', 2, 'owner4', 'Process 2', 0)
-        ]
+        'expected_effective_size': 0
       },
       {
         'name': 'owner4',
@@ -2741,11 +2904,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 0,
         'size': 8,
         'expected_size': 8,
-        'expected_effective_size': 1,
-        'expected_effective_size_infos': [
-          ownerInfo('owned', 'global space', 0, 'owner1', 'Process 0', 2,
-              'some_parent/owner2', 'Process 1', 2, 'owner3', 'Process 2', 1)
-        ]
+        'expected_effective_size': 1
       }
     ]
   ]);
@@ -2757,10 +2916,7 @@ tr.b.unittest.testSuite(function() {
         'guid': 5,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 2,
-        'expected_effective_size_infos': [
-          ownedInfo('owner1', 'Process 0', 2, 'owner2', 'Process 1', 1)
-        ]
+        'expected_effective_size': 2
       }
     ],
     [  // PMD1.
@@ -2771,21 +2927,14 @@ tr.b.unittest.testSuite(function() {
         'guid': 6,
         'size': 6,
         'expected_size': 6,
-        'expected_effective_size': 2,
-        'expected_effective_size_infos': [
-          ownedInfo('subowner1', 'Process 0', 0),
-          ownerInfo('owned', 'global space', 2, 'owner2', 'Process 1', 1)
-        ]
+        'expected_effective_size': 2
       },
       {
         'name': 'subowner1',
         'owns': 6,
         'size': 4,
         'expected_size': 4,
-        'expected_effective_size': 4,
-        'expected_effective_size_infos': [
-          ownerInfo('owner1', 'Process 0', 0)
-        ]
+        'expected_effective_size': 4
       }
     ],
     [  // PMD2.
@@ -2796,21 +2945,14 @@ tr.b.unittest.testSuite(function() {
         'guid': 8,
         'size': 8,
         'expected_size': 8,
-        'expected_effective_size': 2 - 2 / 4,
-        'expected_effective_size_infos': [
-          ownedInfo('subowner2', 'Process 1', 0),
-          ownerInfo('owned', 'global space', 1, 'owner1', 'Process 0', 2)
-        ]
+        'expected_effective_size': 2 - 2 / 4
       },
       {
         'name': 'subowner2',
         'owns': 8,
         'size': 2,
         'expected_size': 2,
-        'expected_effective_size': 2 / 4,
-        'expected_effective_size_infos': [
-          ownerInfo('owner2', 'Process 1', 0)
-        ]
+        'expected_effective_size': 2 / 4
       }
     ]
   ]);
@@ -2822,10 +2964,7 @@ tr.b.unittest.testSuite(function() {
         'guid': 15,
         'size': 20,
         'expected_size': 20,
-        'expected_effective_size': 6,
-        'expected_effective_size_infos': [
-          ownedInfo('blue', 'global space', 1, 'purple', 'global space', 2)
-        ]
+        'expected_effective_size': 6
       },
       {
         'name': 'blue',
@@ -2834,11 +2973,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 1,
         'size': 14,
         'expected_size': 14,
-        'expected_effective_size': 1,
-        'expected_effective_size_infos': [
-          ownedInfo('red', 'global space', 0),
-          ownerInfo('grey', 'global space', 1, 'purple', 'global space', 2)
-        ]
+        'expected_effective_size': 1
       },
       {
         'name': 'purple',
@@ -2846,10 +2981,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 2,
         'size': 7,
         'expected_size': 7,
-        'expected_effective_size': 7,
-        'expected_effective_size_infos': [
-          ownerInfo('grey', 'global space', 2, 'blue', 'global space', 1)
-        ]
+        'expected_effective_size': 7
       },
       {
         'name': 'yellow',
@@ -2857,10 +2989,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 3,
         'size': 10,
         'expected_size': 10,
-        'expected_effective_size': 3,
-        'expected_effective_size_infos': [
-          ownerInfo('red', 'global space', 3, 'green', 'global space', 3)
-        ]
+        'expected_effective_size': 3
       },
       {
         'name': 'red',
@@ -2868,11 +2997,7 @@ tr.b.unittest.testSuite(function() {
         'owns': 18,
         'size': 12,
         'expected_size': 12,
-        'expected_effective_size': 1,
-        'expected_effective_size_infos': [
-          ownedInfo('yellow', 'global space', 3, 'green', 'global space', 3),
-          ownerInfo('blue', 'global space', 0)
-        ]
+        'expected_effective_size': 1
       },
       {
         'name': 'green',
@@ -2880,10 +3005,7 @@ tr.b.unittest.testSuite(function() {
         'importance': 3,
         'size': 8,
         'expected_size': 8,
-        'expected_effective_size': 2,
-        'expected_effective_size_infos': [
-          ownerInfo('red', 'global space', 3, 'yellow', 'global space', 3)
-        ]
+        'expected_effective_size': 2
       }
     ]
   ]);
@@ -2901,9 +3023,6 @@ tr.b.unittest.testSuite(function() {
             'size': 11,
             'expected_size': 11,
             'expected_effective_size': 11,
-            'expected_effective_size_infos': [
-              ownerInfo('v8/heaps', 'global space', 0)
-            ],
             'children': [
               {
                 'name': '<unspecified>',
@@ -2916,10 +3035,7 @@ tr.b.unittest.testSuite(function() {
                 'owns': 2,
                 'size': 7,
                 'expected_size': 7,
-                'expected_effective_size': 7,
-                'expected_effective_size_infos': [
-                  ownerInfo('v8/heaps/heap1', 'global space', 0)
-                ]
+                'expected_effective_size': 7
               }
             ]
           },
@@ -2928,13 +3044,10 @@ tr.b.unittest.testSuite(function() {
             'guid': 1,
             'size': 13,
             'expected_size': 13,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b11\.0 B\b/)
-            ],
             'expected_effective_size': 2,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects', 'global space', 0)
-            ],
+            'expected_owned_by_sibling_sizes': {
+              'objects': 11
+            },
             'children': [
               {
                 'name': '<unspecified>',
@@ -2948,9 +3061,6 @@ tr.b.unittest.testSuite(function() {
                 'size': 10,
                 'expected_size': 10,
                 'expected_effective_size': 1,
-                'expected_effective_size_infos': [
-                  ownedInfo('v8/objects/object1', 'global space', 0)
-                ]
               }
             ]
           }
@@ -2967,9 +3077,6 @@ tr.b.unittest.testSuite(function() {
         'size': 23,
         'expected_size': 23,
         'expected_effective_size': 5,
-        'expected_effective_size_infos': [
-          ownedInfo('tile_manager', 'Process 0', 2, 'gpu', 'Process 1', 1)
-        ],
         'children': [
           {
             'name': '<unspecified>',
@@ -2983,10 +3090,6 @@ tr.b.unittest.testSuite(function() {
             'size': 10,
             'expected_size': 10,
             'expected_effective_size': 3 * 5 / (13 + 3),
-            'expected_effective_size_infos': [
-              ownedInfo('tile_manager/tile42', 'Process 0', 1,
-                  'gpu/chunk-3\\.14', 'Process 1', 2)
-            ]
           }
         ]
       }
@@ -2999,9 +3102,6 @@ tr.b.unittest.testSuite(function() {
         'size': 12,
         'expected_size': 12,
         'expected_effective_size': 5 + 2,
-        'expected_effective_size_infos': [
-          ownerInfo('shared_bitmap', 'global space', 2, 'gpu', 'Process 1', 1)
-        ],
         'children': [
           {
             'name': '<unspecified>',
@@ -3016,10 +3116,6 @@ tr.b.unittest.testSuite(function() {
             'size': 7,
             'expected_size': 7,
             'expected_effective_size': 2,
-            'expected_effective_size_infos': [
-              ownerInfo('shared_bitmap/bitmap0x7', 'global space', 1,
-                  'gpu/chunk-3\\.14', 'Process 1', 2)
-            ]
           }
         ]
       }
@@ -3032,10 +3128,6 @@ tr.b.unittest.testSuite(function() {
         'size': 16,
         'expected_size': 16,
         'expected_effective_size': 6 + 5,
-        'expected_effective_size_infos': [
-          ownerInfo('shared_bitmap', 'global space', 1,
-              'tile_manager', 'Process 0', 2)
-        ],
         'children': [
           {
             'name': '<unspecified>',
@@ -3050,10 +3142,6 @@ tr.b.unittest.testSuite(function() {
             'size': 5,
             'expected_size': 5,
             'expected_effective_size': 5,
-            'expected_effective_size_infos': [
-              ownerInfo('shared_bitmap/bitmap0x7', 'global space', 2,
-                  'tile_manager/tile42', 'Process 0', 1)
-            ]
           }
         ]
       }
@@ -3068,10 +3156,6 @@ tr.b.unittest.testSuite(function() {
         'guid': 2,
         'expected_size': 16,
         'expected_effective_size': 0,
-        'expected_effective_size_infos': [
-          ownedInfo('sharedbitmap/0x7', 'Process 0', 1,
-              'v8/heaps/1', 'Process 1', 2)
-        ]
       }
     ],
     [  // PMD1, Browser process.
@@ -3092,10 +3176,6 @@ tr.b.unittest.testSuite(function() {
             'size': 16,
             'expected_size': 16,
             'expected_effective_size': 8,
-            'expected_effective_size_infos': [
-              ownerInfo('unknown', 'global space', 1,
-                  'v8/heaps/1', 'Process 1', 2)
-            ],
             'owns': 2,
             'importance': 1,
             'children': [
@@ -3123,23 +3203,16 @@ tr.b.unittest.testSuite(function() {
             'name': 'heaps',
             'guid': 100,
             'expected_size': 12,
-            'expected_size_infos': [
-              informationInfo(/\boverlaps\b.*'objects'.*\b9\.0 B\b/)
-            ],
             'expected_effective_size': 3,
-            'expected_effective_size_infos': [
-              ownedInfo('v8/objects/strings', 'Process 1', 0)
-            ],
+            'expected_owned_by_sibling_sizes': {
+              'objects': 9
+            },
             'children': [
               {
                 'name': '1',
                 'size': 8,
                 'expected_size': 8,
                 'expected_effective_size': 2,
-                'expected_effective_size_infos': [
-                  ownerInfo('unknown', 'global space', 2,
-                      'sharedbitmap/0x7', 'Process 0', 1)
-                ],
                 'owns': 2,
                 'importance': 2
               },
@@ -3168,9 +3241,6 @@ tr.b.unittest.testSuite(function() {
                 'size': 9,
                 'expected_size': 9,
                 'expected_effective_size': 9,
-                'expected_effective_size_infos': [
-                  ownerInfo('v8/heaps', 'Process 1', 0)
-                ],
                 'owns': 100
               }
             ]
@@ -3199,10 +3269,20 @@ tr.b.unittest.testSuite(function() {
           },
           {
             'name': 'parent',
+            'guid': 2,
             'size': 17,  // Invalid: child has larger size.
             'expected_size': 20,
             'expected_size_infos': [
-              warningInfo(/\bless than\b.*\bchildren\b.*\b20\.0 B\b/)
+              {
+                type: PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN,
+                providedSize: 17,
+                dependencySize: 20
+              },
+              {
+                type: PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER,
+                providedSize: 17,
+                dependencySize: 18
+              }
             ],
             'expected_effective_size': 0,
             'children': [
@@ -3212,12 +3292,13 @@ tr.b.unittest.testSuite(function() {
                 'size': 10,  // Invalid: owner has larger size.
                 'expected_size': 20,
                 'expected_size_infos': [
-                  warningInfo(/\bless than\b.*\blargest owner\b.*\b20\.0 B\b/)
+                  {
+                    type: PROVIDED_SIZE_LESS_THAN_LARGEST_OWNER,
+                    providedSize: 10,
+                    dependencySize: 20
+                  }
                 ],
                 'expected_effective_size': 0,
-                'expected_effective_size_infos': [
-                  ownedInfo('root2', 'global space', 0)
-                ]
               }
             ]
           }
@@ -3228,10 +3309,15 @@ tr.b.unittest.testSuite(function() {
         'owns': 1,
         'size': 20,
         'expected_size': 20,
-        'expected_effective_size': 20,
-        'expected_effective_size_infos': [
-          ownerInfo('root1/parent/child', 'global space', 0)
-        ]
+        'expected_effective_size': 20
+      },
+      {
+        'name': 'root3',
+        'owns': 2,
+        'importance': -1,
+        'size': 18,
+        'expected_size': 18,
+        'expected_effective_size': 18
       }
     ]
   ]);
@@ -3248,10 +3334,17 @@ tr.b.unittest.testSuite(function() {
             'size': 5,
             'expected_size': 10,
             'expected_size_infos': [
-              warningInfo(/\bless than\b.*\bchildren\b.*\b10.0 B\b/),
-              informationInfo(/\boverlaps\b.*'parent2'.*\b17\.0 B\b.*\boverlaps\b.*'parent3'.*\b7.0 B\b/)  // @suppress longLineCheck
+              {
+                type: PROVIDED_SIZE_LESS_THAN_AGGREGATED_CHILDREN,
+                providedSize: 5,
+                dependencySize: 10
+              }
             ],
             'expected_effective_size': 1,
+            'expected_owned_by_sibling_sizes': {
+              'parent2': 17,
+              'parent3': 7
+            },
             'children': [
               {
                 'name': 'child',
@@ -3259,11 +3352,6 @@ tr.b.unittest.testSuite(function() {
                 'size': 10,
                 'expected_size': 10,
                 'expected_effective_size': 1,
-                'expected_effective_size_infos': [
-                  ownedInfo('root/parent2/child1', 'global space', 0,
-                      'root/parent2/child2', 'global space', 0,
-                      'root/parent3', 'global space', 0)
-                ]
               }
             ]
           },
@@ -3284,11 +3372,6 @@ tr.b.unittest.testSuite(function() {
                 'size': 9,
                 'expected_size': 9,
                 'expected_effective_size': 7 / 3 + 1 / 2 + 1,
-                'expected_effective_size_infos': [
-                  ownerInfo('root/parent1/child', 'global space', 0,
-                      'root/parent2/child2', 'global space', 0,
-                      'root/parent3', 'global space', 0)
-                ]
               },
               {
                 'name': 'child2',
@@ -3296,11 +3379,6 @@ tr.b.unittest.testSuite(function() {
                 'size': 8,
                 'expected_size': 8,
                 'expected_effective_size': 7 / 3 + 1 / 2,
-                'expected_effective_size_infos': [
-                  ownerInfo('root/parent1/child', 'global space', 0,
-                      'root/parent2/child1', 'global space', 0,
-                      'root/parent3', 'global space', 0)
-                ]
               }
             ]
           },
@@ -3309,11 +3387,6 @@ tr.b.unittest.testSuite(function() {
             'size': 7,
             'expected_size': 7,
             'expected_effective_size': 7 / 3,
-            'expected_effective_size_infos': [
-              ownerInfo('root/parent1/child', 'global space', 0,
-                  'root/parent2/child1', 'global space', 0,
-                  'root/parent2/child2', 'global space', 0)
-            ],
             'owns': 3
           }
         ]
@@ -3323,7 +3396,7 @@ tr.b.unittest.testSuite(function() {
 
   // Check that size calculation is NOT preceded by attribute
   // aggregation, which would recursively sum up size attributes.
-  test('calculateGraphAttributes_aggregation', function() {
+  test('finalizeGraph_aggregation', function() {
     var model = tr.c.TestUtils.newModel(function(model) {
       buildDumpTrees([
         undefined,  // GMD.
@@ -3349,27 +3422,21 @@ tr.b.unittest.testSuite(function() {
     var pmd = model.getProcess(0).memoryDumps[0];
 
     var rootDump = pmd.getMemoryAllocatorDumpByFullName('root');
-    assertSizeAttribute(rootDump, 'size', 20);
-    assertSizeAttribute(rootDump, 'effective_size', 20);
+    assertDumpSizes(rootDump, 20, 20);
 
     var ownerChildDump = pmd.getMemoryAllocatorDumpByFullName(
         'root/owner_child');
-    assertSizeAttribute(ownerChildDump, 'size', 7);
-    assertSizeAttribute(ownerChildDump, 'effective_size', 7, [
-      ownerInfo('root/owned_child', 'Process 0', 0)
-    ]);
+    assertDumpSizes(ownerChildDump, 7, 7);
 
     var ownedChildDump = pmd.getMemoryAllocatorDumpByFullName(
         'root/owned_child');
-    assertSizeAttribute(ownedChildDump, 'size', 20,
-        [informationInfo(/\boverlaps\b.*'owner_child'.*\b7\.0 B\b/)]);
-    assertSizeAttribute(ownedChildDump, 'effective_size', 13,
-        [ownedInfo('root/owner_child', 'Process 0', 0)]);
+    assertDumpSizes(ownedChildDump, 20, 13, [] /* expectedSizeInfos */,
+        { owner_child: 7 } /* expectedOwnedBySiblingSizes */);
   });
 
   // Check that attribute propagation and aggregation are performed in the
   // correct order.
-  test('calculateGraphAttributes_propagation', function() {
+  test('finalizeGraph_propagation', function() {
     var model = tr.c.TestUtils.newModel(function(model) {
       buildDumpTrees([
         [  // GMD.
@@ -3408,6 +3475,7 @@ tr.b.unittest.testSuite(function() {
               },
               {
                 'name': 'sibling',
+                'size': 5,
                 'attrs': {
                   'summed': new ScalarAttribute('bytes', 13)
                 }
@@ -3431,32 +3499,419 @@ tr.b.unittest.testSuite(function() {
     var pmd = model.getProcess(0).memoryDumps[0];
 
     var directOwnerDump = pmd.getMemoryAllocatorDumpByFullName('direct_owner');
+    assertDumpSizes(directOwnerDump, 10, 3.3333);
     assertSizeAttribute(directOwnerDump, 'summed', 27);
-    assertUndefinedAttribute(directOwnerDump, 'size');
-    assertUndefinedAttribute(directOwnerDump, 'effective_size');
 
     var childOwnerDump =
         pmd.getMemoryAllocatorDumpByFullName('parent_owner/child_owner');
+    assertDumpSizes(childOwnerDump, 10, 3.3333);
     assertSizeAttribute(childOwnerDump, 'summed', 27);
-    assertUndefinedAttribute(childOwnerDump, 'size');
-    assertUndefinedAttribute(childOwnerDump, 'effective_size');
 
     var parentOwnerDump = pmd.getMemoryAllocatorDumpByFullName('parent_owner');
+    assertDumpSizes(parentOwnerDump, 15, 8.3333);
     assertSizeAttribute(parentOwnerDump, 'summed', 40);
-    assertUndefinedAttribute(parentOwnerDump, 'size');
-    assertUndefinedAttribute(parentOwnerDump, 'effective_size');
 
     var precedentOwnerDump =
         pmd.getMemoryAllocatorDumpByFullName('precedent_owner');
+    assertDumpSizes(precedentOwnerDump, 10, 3.3333);
     assertSizeAttribute(precedentOwnerDump, 'summed', 0);
-    assertUndefinedAttribute(precedentOwnerDump, 'size');
-    assertUndefinedAttribute(precedentOwnerDump, 'effective_size');
 
     var indirectOwnerDump =
         pmd.getMemoryAllocatorDumpByFullName('indirect_owner');
+    assertDumpSizes(indirectOwnerDump, undefined, undefined);
     assertUndefinedAttribute(indirectOwnerDump, 'summed');
-    assertUndefinedAttribute(indirectOwnerDump, 'size');
-    assertUndefinedAttribute(indirectOwnerDump, 'effective_size');
   });
+
+  // Check that weak dumps are removed before size size calculation.
+  test('finalizeGraph_weakDumpRemoval', function() {
+    var model = tr.c.TestUtils.newModel(function(model) {
+      buildDumpTrees([
+        undefined,  // GMD.
+        [  // PMD.
+          {
+            'name': 'root',
+            'children': [
+              {
+                'name': 'directly_weak_child',
+                'weak': true,
+                'guid': 5,
+                'owns': 10,
+                'size': 100
+              },
+              {
+                'name': 'strong_child',
+                'guid': 10,
+                'size': 120
+              },
+              {
+                'name': 'indirectly_weak_child',
+                'owns': 5,
+                'size': 70
+              },
+              {
+                'name': 'separate_weak_child',
+                'weak': true,
+                'size': 300
+              }
+            ]
+          }
+        ]
+      ], model);
+    });
+    var pmd = model.getProcess(0).memoryDumps[0];
+
+    var rootDump = pmd.getMemoryAllocatorDumpByFullName('root');
+    assertDumpSizes(rootDump, 120, 120);
+    assert.lengthOf(rootDump.children, 1);
+
+    var strongChildDump = pmd.getMemoryAllocatorDumpByFullName(
+        'root/strong_child');
+    assertDumpSizes(strongChildDump, 120, 120);
+    assert.lengthOf(strongChildDump.ownedBy, 0);
+
+    assert.isUndefined(pmd.getMemoryAllocatorDumpByFullName(
+        'root/directly_weak_child'));
+    assert.isUndefined(pmd.getMemoryAllocatorDumpByFullName(
+        'root/indirectly_weak_child'));
+    assert.isUndefined(pmd.getMemoryAllocatorDumpByFullName(
+        'root/separate_weak_child'));
+  });
+
+  test('indicesUpdatedCorrectly', function() {
+    var gmd, rootDump, childDump;
+    var model = tr.c.TestUtils.newModel(function(model) {
+      gmd = new GlobalMemoryDump(model, 10);
+      model.globalMemoryDumps.push(gmd);
+
+      rootDump = newAllocatorDump(gmd, 'root', { size: 64 });
+      childDump = newChildDump(rootDump, 'child', { size: 48 });
+
+      gmd.memoryAllocatorDumps = [rootDump];
+
+      // Before model is finalized.
+      assert.strictEqual(
+          gmd.getMemoryAllocatorDumpByFullName('root'), rootDump);
+      assert.strictEqual(
+          gmd.getMemoryAllocatorDumpByFullName('root/child'), childDump);
+      assert.isUndefined(
+          gmd.getMemoryAllocatorDumpByFullName('root/<unspecified>'));
+    });
+
+    // Test sanity check.
+    assert.isDefined(gmd);
+    assert.isDefined(rootDump);
+    assert.isDefined(childDump);
+
+    // After model is finalized.
+    assert.strictEqual(gmd.getMemoryAllocatorDumpByFullName('root'), rootDump);
+    assert.strictEqual(
+        gmd.getMemoryAllocatorDumpByFullName('root/child'), childDump);
+    var unspecifiedDump =
+        gmd.getMemoryAllocatorDumpByFullName('root/<unspecified>');
+    assert.strictEqual(unspecifiedDump.fullName, 'root/<unspecified>');
+    assert.strictEqual(unspecifiedDump.parent, rootDump);
+    assert.strictEqual(rootDump.children[0], unspecifiedDump);
+  });
+
+  weakDumpRemovalTest('allDumpsNonWeak', [
+    [  // GMD.
+      {
+        'name': 'malloc',
+        'children': [
+          {
+            'name': 'allocated_objects',
+            'children': [
+              {
+                'name': 'obj42',
+                'guid': 5,
+                'expected_owned_by_links_count': 2
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    undefined,  // PMD1.
+    [  // PMD2.
+      {
+        'name': 'oilpan'
+      },
+      {
+        'name': 'v8',
+        'children': [
+          {
+            'name': 'heaps',
+            'children': [
+              {
+                'name': 'S',
+                'owns': 5
+              },
+              {
+                'name': 'L',
+                'owns': 5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ]);
+
+  weakDumpRemovalTest('weakRootDump', [
+    [],  // GMD.
+    [  // PMD1.
+      {
+        'name': 'strong1'
+      },
+      {
+        'name': 'weak',
+        'weak': true,
+        'expected_removed': true
+      },
+      {
+        'name': 'strong2'
+      }
+    ]
+  ]);
+
+  weakDumpRemovalTest('weakChildDump', [
+    [  // GMD.
+      {
+        'name': 'root',
+        'children': [
+          {
+            'name': 'parent',
+            'children': [
+              {
+                'name': 'strong1'
+              },
+              {
+                'name': 'weak',
+                'weak': true,
+                'expected_removed': true,
+                'children': [
+                  {
+                    'name': 'implicitly-removed'
+                  }
+                ]
+              },
+              {
+                'name': 'strong2'
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ]);
+
+  weakDumpRemovalTest('transitiveOwnerRemoval', [
+    [  // GMD.
+      {
+        'name': 'not-removed-strong-dump',
+        'guid': 0,
+        'expected_owned_by_links_count': 1
+      },
+      {
+        'name': 'weak-owned-dump',
+        'guid': 1,
+        'owns': 0,
+        'weak': true,
+        'expected_removed': true
+      }
+    ],
+    [  // PMD1.
+      {
+        'name': 'direct-owner-dump',
+        'guid': 2,
+        'owns': 1,
+        'expected_removed': true
+      },
+      {
+        'name': 'also-not-removed-strong-dump',
+        'owns': 0
+      }
+    ],
+    [  // PMD2.
+      {
+        'name': 'indirect-owner-dump',
+        'owns': 2,
+        'expected_removed': true
+      }
+    ]
+  ]);
+
+  weakDumpRemovalTest('transitiveDescendantRemoval', [
+    [  // GMD.
+      {
+        'name': 'A',
+        'owns': 10,
+        // A =owns=> B -child-of-> C -> D => E -> F -> G (weak).
+        'expected_removed': true
+      },
+      {
+        'name': 'D',
+        'owns': 5,
+        'expected_removed': true,  // D =owns=> E -child-of-> F -> G (weak).
+        'children': [
+          {
+            'name': 'C',
+            'children': [
+              {
+                'name': 'B',
+                'guid': 10
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    undefined,  // PMD1.
+    [  // PMD2.
+      {
+        'name': 'first-retained-dump',
+        'children': [
+          {
+            'name': 'G',
+            'weak': true,
+            'expected_removed': true,
+            'children': [
+              {
+                'name': 'F',
+                'children': [
+                  {
+                    'name': 'E',
+                    'guid': 5
+                  }
+                ]
+              },
+              {
+                'name': 'H',
+                'children': [
+                  {
+                    'name': 'I',
+                    'children': [
+                      {
+                        'name': 'J',
+                        'owns': 2
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    [  // PMD3.
+      {
+        'name': 'second-retained-dump',
+        'guid': 2,
+        // The only owner (J) is removed because J -child-of-> I -> H ->
+        // G (weak).
+        'expected_owned_by_links_count': 0
+      }
+    ]
+  ]);
+
+  weakDumpRemovalTest('subownerships', [
+    [  // GMD.
+      {
+        'name': 'root1',
+        'owns': 20,
+        'expected_removed': true,  // root1 =owns=> root2 (weak).
+        'children': [
+          {
+            'name': 'child1',
+            'owns': 2
+          }
+        ]
+      },
+      {
+        'name': 'root2',
+        'guid': 20,
+        'owns': 30,
+        'weak': true,
+        'expected_removed': true,
+        'children': [
+          {
+            'name': 'child2',
+            'guid': 2,
+            'owns': 3
+          }
+        ]
+      },
+      {
+        'name': 'root3',
+        'guid': 30,
+        'owns': 40,
+        'expected_owned_by_links_count': 0,
+        'children': [
+          {
+            'name': 'child3',
+            'guid': 3,
+            'owns': 4,
+            'weak': true,
+            'expected_removed': true
+          }
+        ]
+      }
+    ],
+    [  // PMD1.
+      {
+        'name': 'root4',
+        'guid': 40,
+        'expected_owned_by_links_count': 1,
+        'children': [
+          {
+            'name': 'child4',
+            'guid': 4,
+            'expected_owned_by_links_count': 0
+          }
+        ]
+      }
+    ],
+    [  // PMD2.
+      {
+        'name': 'root5',
+        'owns': 60,
+        'expected_removed': true,  // root5 =owns=> root6 => root7 (weak).
+        'children': [
+          {
+            'name': 'child5',
+            'owns': 6
+          }
+        ]
+      },
+      {
+        'name': 'root6',
+        'guid': 60,
+        'owns': 70,
+        'expected_removed': true,  // root6 =owns=> root7 (weak).
+        'children': [
+          {
+            'name': 'child6',
+            'guid': 6,
+            'owns': 7
+          }
+        ]
+      },
+      {
+        'name': 'root7',
+        'guid': 70,
+        'owns': 40,
+        'weak': true,
+        'expected_removed': true,
+        'children': [
+          {
+            'name': 'child7',
+            'guid': 7,
+            'owns': 4
+          }
+        ]
+      }
+    ]
+  ]);
 });
 </script>

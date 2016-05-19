@@ -7,12 +7,12 @@
 #include "build/build_config.h"
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
-#include "net/base/net_util.h"
 #include "net/base/test_completion_callback.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/ftp/ftp_request_info.h"
@@ -1386,7 +1386,7 @@ TEST_P(FtpNetworkTransactionTest, Escaping) {
 
 // Test for http://crbug.com/23794.
 TEST_P(FtpNetworkTransactionTest, DownloadTransactionEvilSize) {
-  // Try to overflow int64 in the response.
+  // Try to overflow int64_t in the response.
   FtpSocketDataProviderEvilSize ctrl_socket(
       "213 99999999999999999999999999999999\r\n",
       FtpSocketDataProvider::PRE_QUIT);

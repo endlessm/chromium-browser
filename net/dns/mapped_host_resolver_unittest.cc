@@ -4,9 +4,10 @@
 
 #include "net/dns/mapped_host_resolver.h"
 
+#include <utility>
+
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/test_completion_callback.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/log/net_log.h"
@@ -32,7 +33,7 @@ TEST(MappedHostResolverTest, Inclusion) {
 
   // Create a remapped resolver that uses |resolver_impl|.
   scoped_ptr<MappedHostResolver> resolver(
-      new MappedHostResolver(resolver_impl.Pass()));
+      new MappedHostResolver(std::move(resolver_impl)));
 
   int rv;
   AddressList address_list;
@@ -106,7 +107,7 @@ TEST(MappedHostResolverTest, Exclusion) {
 
   // Create a remapped resolver that uses |resolver_impl|.
   scoped_ptr<MappedHostResolver> resolver(
-      new MappedHostResolver(resolver_impl.Pass()));
+      new MappedHostResolver(std::move(resolver_impl)));
 
   int rv;
   AddressList address_list;
@@ -153,7 +154,7 @@ TEST(MappedHostResolverTest, SetRulesFromString) {
 
   // Create a remapped resolver that uses |resolver_impl|.
   scoped_ptr<MappedHostResolver> resolver(
-      new MappedHostResolver(resolver_impl.Pass()));
+      new MappedHostResolver(std::move(resolver_impl)));
 
   int rv;
   AddressList address_list;
@@ -210,7 +211,7 @@ TEST(MappedHostResolverTest, MapToError) {
   resolver_impl->rules()->AddRule("*", "192.168.1.5");
 
   scoped_ptr<MappedHostResolver> resolver(
-      new MappedHostResolver(resolver_impl.Pass()));
+      new MappedHostResolver(std::move(resolver_impl)));
 
   int rv;
   AddressList address_list;

@@ -88,7 +88,6 @@ CompositorView::CompositorView(JNIEnv* env,
       current_surface_format_(0),
       content_width_(0),
       content_height_(0),
-      overdraw_bottom_height_(0),
       overlay_video_mode_(false),
       empty_background_color_(empty_background_color),
       weak_factory_(this) {
@@ -114,7 +113,7 @@ CompositorView::~CompositorView() {
   compositor_.reset(NULL);
 }
 
-void CompositorView::Destroy(JNIEnv* env, jobject object) {
+void CompositorView::Destroy(JNIEnv* env, const JavaParamRef<jobject>& object) {
   delete this;
 }
 
@@ -126,7 +125,7 @@ ui::ResourceManager* CompositorView::GetResourceManager() {
 
 base::android::ScopedJavaLocalRef<jobject> CompositorView::GetResourceManager(
     JNIEnv* env,
-    jobject jobj) {
+    const JavaParamRef<jobject>& jobj) {
   return compositor_->GetResourceManager().GetJavaObject();
 }
 
@@ -148,23 +147,25 @@ ui::UIResourceProvider* CompositorView::GetUIResourceProvider() {
   return &compositor_->GetUIResourceProvider();
 }
 
-void CompositorView::SurfaceCreated(JNIEnv* env, jobject object) {
+void CompositorView::SurfaceCreated(JNIEnv* env,
+                                    const JavaParamRef<jobject>& object) {
   compositor_->SetRootLayer(root_layer_);
   current_surface_format_ = 0;
 }
 
-void CompositorView::SurfaceDestroyed(JNIEnv* env, jobject object) {
+void CompositorView::SurfaceDestroyed(JNIEnv* env,
+                                      const JavaParamRef<jobject>& object) {
   compositor_->SetSurface(NULL);
   current_surface_format_ = 0;
   tab_content_manager_->OnUIResourcesWereEvicted();
 }
 
 void CompositorView::SurfaceChanged(JNIEnv* env,
-                                    jobject object,
+                                    const JavaParamRef<jobject>& object,
                                     jint format,
                                     jint width,
                                     jint height,
-                                    jobject surface) {
+                                    const JavaParamRef<jobject>& surface) {
   DCHECK(surface);
   if (current_surface_format_ != format) {
     current_surface_format_ = format;
@@ -178,16 +179,14 @@ void CompositorView::SurfaceChanged(JNIEnv* env,
 }
 
 void CompositorView::SetLayoutViewport(JNIEnv* env,
-                                       jobject object,
+                                       const JavaParamRef<jobject>& object,
                                        jfloat x,
                                        jfloat y,
                                        jfloat width,
                                        jfloat height,
                                        jfloat visible_x_offset,
                                        jfloat visible_y_offset,
-                                       jfloat overdraw_bottom_height,
                                        jfloat dp_to_pixel) {
-  overdraw_bottom_height_ = overdraw_bottom_height;
   compositor_->setDeviceScaleFactor(dp_to_pixel);
   root_layer_->SetBounds(gfx::Size(content_width_, content_height_));
 }
@@ -200,7 +199,7 @@ void CompositorView::SetBackground(bool visible, SkColor color) {
 }
 
 void CompositorView::SetOverlayVideoMode(JNIEnv* env,
-                                         jobject object,
+                                         const JavaParamRef<jobject>& object,
                                          bool enabled) {
   if (overlay_video_mode_ == enabled)
     return;
@@ -210,8 +209,8 @@ void CompositorView::SetOverlayVideoMode(JNIEnv* env,
 }
 
 void CompositorView::SetSceneLayer(JNIEnv* env,
-                                   jobject object,
-                                   jobject jscene_layer) {
+                                   const JavaParamRef<jobject>& object,
+                                   const JavaParamRef<jobject>& jscene_layer) {
   SceneLayer* scene_layer = SceneLayer::FromJavaObject(env, jscene_layer);
 
   if (scene_layer_ != scene_layer) {
@@ -243,12 +242,8 @@ void CompositorView::SetSceneLayer(JNIEnv* env,
   }
 }
 
-int CompositorView::GetUsableContentHeight() {
-  return std::max(content_height_ - overdraw_bottom_height_, 0);
-}
-
 void CompositorView::UpdateToolbarLayer(JNIEnv* env,
-                                        jobject object,
+                                        const JavaParamRef<jobject>& object,
                                         jint toolbar_resource_id,
                                         jint toolbar_background_color,
                                         jint url_bar_resource_id,
@@ -269,7 +264,7 @@ void CompositorView::UpdateToolbarLayer(JNIEnv* env,
 }
 
 void CompositorView::UpdateProgressBar(JNIEnv* env,
-                                       jobject object,
+                                       const JavaParamRef<jobject>& object,
                                        jint progress_bar_x,
                                        jint progress_bar_y,
                                        jint progress_bar_width,
@@ -292,11 +287,13 @@ void CompositorView::UpdateProgressBar(JNIEnv* env,
                                     progress_bar_background_color);
 }
 
-void CompositorView::FinalizeLayers(JNIEnv* env, jobject jobj) {
+void CompositorView::FinalizeLayers(JNIEnv* env,
+                                    const JavaParamRef<jobject>& jobj) {
   UNSHIPPED_TRACE_EVENT0("compositor", "CompositorView::FinalizeLayers");
 }
 
-void CompositorView::SetNeedsComposite(JNIEnv* env, jobject object) {
+void CompositorView::SetNeedsComposite(JNIEnv* env,
+                                       const JavaParamRef<jobject>& object) {
   compositor_->SetNeedsComposite();
 }
 

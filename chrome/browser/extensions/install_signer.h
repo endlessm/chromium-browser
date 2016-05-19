@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "extensions/common/extension.h"
 
@@ -47,6 +47,7 @@ struct InstallSignature {
   ExtensionIdSet invalid_ids;
 
   InstallSignature();
+  InstallSignature(const InstallSignature& other);
   ~InstallSignature();
 
   // Helper methods for serialization to/from a base::DictionaryValue.

@@ -22,10 +22,10 @@ URLDataSourceIOSImpl::URLDataSourceIOSImpl(const std::string& source_name,
 URLDataSourceIOSImpl::~URLDataSourceIOSImpl() {
 }
 
-void URLDataSourceIOSImpl::SendResponse(int request_id,
-                                        base::RefCountedMemory* bytes) {
+void URLDataSourceIOSImpl::SendResponse(
+    int request_id,
+    scoped_refptr<base::RefCountedMemory> bytes) {
   // Take a ref-pointer on entry so byte->Release() will always get called.
-  scoped_refptr<base::RefCountedMemory> bytes_ptr(bytes);
   if (URLDataManagerIOS::IsScheduledForDeletion(this)) {
     // We're scheduled for deletion. Servicing the request would result in
     // this->AddRef being invoked, even though the ref count is 0 and 'this' is
@@ -43,13 +43,13 @@ void URLDataSourceIOSImpl::SendResponse(int request_id,
   web::WebThread::PostTask(
       web::WebThread::IO, FROM_HERE,
       base::Bind(&URLDataSourceIOSImpl::SendResponseOnIOThread, this,
-                 request_id, bytes_ptr));
+                 request_id, std::move(bytes)));
 }
 
 void URLDataSourceIOSImpl::SendResponseOnIOThread(
     int request_id,
     scoped_refptr<base::RefCountedMemory> bytes) {
-  DCHECK_CURRENTLY_ON_WEB_THREAD(web::WebThread::IO);
+  DCHECK_CURRENTLY_ON(web::WebThread::IO);
   if (backend_)
     backend_->DataAvailable(request_id, bytes.get());
 }

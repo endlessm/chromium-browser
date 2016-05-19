@@ -36,6 +36,10 @@
 #include "SkSurfacePriv.h"
 #include "SkXfermode.h"
 
+static inline uint32_t set_clear_mask(uint32_t bits, bool cond, uint32_t mask) {
+    return cond ? bits | mask : bits & ~mask;
+}
+
 // define this to get a printf for out-of-range parameter in setters
 // e.g. setTextSize(-1)
 //#define SK_REPORT_API_RANGE_CHECK
@@ -97,6 +101,33 @@ SkPaint::SkPaint(const SkPaint& src) {
 #undef REF_COPY
 }
 
+SkPaint::SkPaint(SkPaint&& src) {
+#define MOVE(field) field = std::move(src.field)
+#define REF_MOVE(field) field = src.field; src.field = nullptr
+
+    REF_MOVE(fTypeface);
+    REF_MOVE(fPathEffect);
+    REF_MOVE(fShader);
+    REF_MOVE(fXfermode);
+    REF_MOVE(fMaskFilter);
+    REF_MOVE(fColorFilter);
+    REF_MOVE(fRasterizer);
+    REF_MOVE(fLooper);
+    REF_MOVE(fImageFilter);
+    REF_MOVE(fAnnotation);
+
+    MOVE(fTextSize);
+    MOVE(fTextScaleX);
+    MOVE(fTextSkewX);
+    MOVE(fColor);
+    MOVE(fWidth);
+    MOVE(fMiterLimit);
+    MOVE(fBitfields);
+
+#undef MOVE
+#undef REF_MOVE
+}
+
 SkPaint::~SkPaint() {
     SkSafeUnref(fTypeface);
     SkSafeUnref(fPathEffect);
@@ -143,6 +174,39 @@ SkPaint& SkPaint::operator=(const SkPaint& src) {
 #undef REF_COPY
 }
 
+SkPaint& SkPaint::operator=(SkPaint&& src) {
+    if (this == &src) {
+        return *this;
+    }
+
+#define MOVE(field) field = std::move(src.field)
+#define REF_MOVE(field) SkSafeUnref(field); field = src.field; src.field = nullptr
+
+    REF_MOVE(fTypeface);
+    REF_MOVE(fPathEffect);
+    REF_MOVE(fShader);
+    REF_MOVE(fXfermode);
+    REF_MOVE(fMaskFilter);
+    REF_MOVE(fColorFilter);
+    REF_MOVE(fRasterizer);
+    REF_MOVE(fLooper);
+    REF_MOVE(fImageFilter);
+    REF_MOVE(fAnnotation);
+
+    MOVE(fTextSize);
+    MOVE(fTextScaleX);
+    MOVE(fTextSkewX);
+    MOVE(fColor);
+    MOVE(fWidth);
+    MOVE(fMiterLimit);
+    MOVE(fBitfields);
+
+    return *this;
+
+#undef MOVE
+#undef REF_MOVE
+}
+
 bool operator==(const SkPaint& a, const SkPaint& b) {
 #define EQUAL(field) (a.field == b.field)
     return EQUAL(fTypeface)
@@ -184,51 +248,51 @@ void SkPaint::setFlags(uint32_t flags) {
 }
 
 void SkPaint::setAntiAlias(bool doAA) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doAA, kAntiAlias_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doAA, kAntiAlias_Flag));
 }
 
 void SkPaint::setDither(bool doDither) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doDither, kDither_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doDither, kDither_Flag));
 }
 
 void SkPaint::setSubpixelText(bool doSubpixel) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doSubpixel, kSubpixelText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doSubpixel, kSubpixelText_Flag));
 }
 
 void SkPaint::setLCDRenderText(bool doLCDRender) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doLCDRender, kLCDRenderText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doLCDRender, kLCDRenderText_Flag));
 }
 
 void SkPaint::setEmbeddedBitmapText(bool doEmbeddedBitmapText) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doEmbeddedBitmapText, kEmbeddedBitmapText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doEmbeddedBitmapText, kEmbeddedBitmapText_Flag));
 }
 
 void SkPaint::setAutohinted(bool useAutohinter) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, useAutohinter, kAutoHinting_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, useAutohinter, kAutoHinting_Flag));
 }
 
 void SkPaint::setLinearText(bool doLinearText) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doLinearText, kLinearText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doLinearText, kLinearText_Flag));
 }
 
 void SkPaint::setVerticalText(bool doVertical) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doVertical, kVerticalText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doVertical, kVerticalText_Flag));
 }
 
 void SkPaint::setUnderlineText(bool doUnderline) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doUnderline, kUnderlineText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doUnderline, kUnderlineText_Flag));
 }
 
 void SkPaint::setStrikeThruText(bool doStrikeThru) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doStrikeThru, kStrikeThruText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doStrikeThru, kStrikeThruText_Flag));
 }
 
 void SkPaint::setFakeBoldText(bool doFakeBold) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doFakeBold, kFakeBoldText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doFakeBold, kFakeBoldText_Flag));
 }
 
 void SkPaint::setDevKernText(bool doDevKern) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doDevKern, kDevKernText_Flag));
+    this->setFlags(set_clear_mask(fBitfields.fFlags, doDevKern, kDevKernText_Flag));
 }
 
 void SkPaint::setStyle(Style style) {
@@ -618,8 +682,8 @@ static const SkGlyph& sk_getAdvance_glyph_next(SkGlyphCache* cache,
     return cache->getGlyphIDAdvance(glyphID);
 }
 
-SkMeasureCacheProc SkPaint::getMeasureCacheProc(bool needFullMetrics) const {
-    static const SkMeasureCacheProc gMeasureCacheProcs[] = {
+SkPaint::GlyphCacheProc SkPaint::getGlyphCacheProc(bool needFullMetrics) const {
+    static const GlyphCacheProc gGlyphCacheProcs[] = {
         sk_getMetrics_utf8_next,
         sk_getMetrics_utf16_next,
         sk_getMetrics_utf32_next,
@@ -637,111 +701,8 @@ SkMeasureCacheProc SkPaint::getMeasureCacheProc(bool needFullMetrics) const {
         index += 4;
     }
 
-    SkASSERT(index < SK_ARRAY_COUNT(gMeasureCacheProcs));
-    return gMeasureCacheProcs[index];
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-static const SkGlyph& sk_getMetrics_utf8_00(SkGlyphCache* cache,
-                                        const char** text, SkFixed, SkFixed) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    return cache->getUnicharMetrics(SkUTF8_NextUnichar(text));
-}
-
-static const SkGlyph& sk_getMetrics_utf8_xy(SkGlyphCache* cache,
-                                    const char** text, SkFixed x, SkFixed y) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    return cache->getUnicharMetrics(SkUTF8_NextUnichar(text), x, y);
-}
-
-static const SkGlyph& sk_getMetrics_utf16_00(SkGlyphCache* cache,
-                                        const char** text, SkFixed, SkFixed) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    return cache->getUnicharMetrics(SkUTF16_NextUnichar((const uint16_t**)text));
-}
-
-static const SkGlyph& sk_getMetrics_utf16_xy(SkGlyphCache* cache,
-                                     const char** text, SkFixed x, SkFixed y) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    return cache->getUnicharMetrics(SkUTF16_NextUnichar((const uint16_t**)text),
-                                    x, y);
-}
-
-static const SkGlyph& sk_getMetrics_utf32_00(SkGlyphCache* cache,
-                                    const char** text, SkFixed, SkFixed) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    const int32_t* ptr = *(const int32_t**)text;
-    SkUnichar uni = *ptr++;
-    *text = (const char*)ptr;
-    return cache->getUnicharMetrics(uni);
-}
-
-static const SkGlyph& sk_getMetrics_utf32_xy(SkGlyphCache* cache,
-                                    const char** text, SkFixed x, SkFixed y) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    const int32_t* ptr = *(const int32_t**)text;
-    SkUnichar uni = *ptr++;
-    *text = (const char*)ptr;
-    return cache->getUnicharMetrics(uni, x, y);
-}
-
-static const SkGlyph& sk_getMetrics_glyph_00(SkGlyphCache* cache,
-                                         const char** text, SkFixed, SkFixed) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    const uint16_t* ptr = *(const uint16_t**)text;
-    unsigned glyphID = *ptr;
-    ptr += 1;
-    *text = (const char*)ptr;
-    return cache->getGlyphIDMetrics(glyphID);
-}
-
-static const SkGlyph& sk_getMetrics_glyph_xy(SkGlyphCache* cache,
-                                     const char** text, SkFixed x, SkFixed y) {
-    SkASSERT(cache != nullptr);
-    SkASSERT(text != nullptr);
-
-    const uint16_t* ptr = *(const uint16_t**)text;
-    unsigned glyphID = *ptr;
-    ptr += 1;
-    *text = (const char*)ptr;
-    return cache->getGlyphIDMetrics(glyphID, x, y);
-}
-
-SkDrawCacheProc SkPaint::getDrawCacheProc() const {
-    static const SkDrawCacheProc gDrawCacheProcs[] = {
-        sk_getMetrics_utf8_00,
-        sk_getMetrics_utf16_00,
-        sk_getMetrics_utf32_00,
-        sk_getMetrics_glyph_00,
-
-        sk_getMetrics_utf8_xy,
-        sk_getMetrics_utf16_xy,
-        sk_getMetrics_utf32_xy,
-        sk_getMetrics_glyph_xy
-    };
-
-    unsigned index = this->getTextEncoding();
-    if (fBitfields.fFlags & kSubpixelText_Flag) {
-        index += 4;
-    }
-
-    SkASSERT(index < SK_ARRAY_COUNT(gDrawCacheProcs));
-    return gDrawCacheProcs[index];
+    SkASSERT(index < SK_ARRAY_COUNT(gGlyphCacheProcs));
+    return gGlyphCacheProcs[index];
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -836,7 +797,7 @@ SkScalar SkPaint::measure_text(SkGlyphCache* cache,
         return 0;
     }
 
-    SkMeasureCacheProc glyphCacheProc = this->getMeasureCacheProc(nullptr != bounds);
+    GlyphCacheProc glyphCacheProc = this->getGlyphCacheProc(nullptr != bounds);
 
     int xyIndex;
     JoinBoundsProc joinBoundsProc;
@@ -961,10 +922,10 @@ size_t SkPaint::breakText(const void* textD, size_t length, SkScalar maxWidth,
     SkAutoGlyphCache    autoCache(paint, nullptr, nullptr);
     SkGlyphCache*       cache = autoCache.getCache();
 
-    SkMeasureCacheProc glyphCacheProc = paint.getMeasureCacheProc(false);
+    GlyphCacheProc   glyphCacheProc = paint.getGlyphCacheProc(false);
     const int        xyIndex = paint.isVerticalText() ? 1 : 0;
     // use 64bits for our accumulator, to avoid overflowing 16.16
-    Sk48Dot16        max = SkScalarToFixed(maxWidth);
+    Sk48Dot16        max = SkScalarTo48Dot16(maxWidth);
     Sk48Dot16        width = 0;
 
     SkAutoKern  autokern;
@@ -1034,7 +995,7 @@ SkScalar SkPaint::getFontMetrics(FontMetrics* metrics, SkScalar zoom) const {
         metrics = &storage;
     }
 
-    paint.descriptorProc(nullptr, zoomPtr, FontMetricsDescProc, metrics, true);
+    paint.descriptorProc(nullptr, FakeGamma::Off, zoomPtr, FontMetricsDescProc, metrics);
 
     if (scale) {
         metrics->fTop = SkScalarMul(metrics->fTop, scale);
@@ -1079,8 +1040,7 @@ int SkPaint::getTextWidths(const void* textData, size_t byteLength,
 
     SkAutoGlyphCache    autoCache(paint, nullptr, nullptr);
     SkGlyphCache*       cache = autoCache.getCache();
-    SkMeasureCacheProc  glyphCacheProc;
-    glyphCacheProc = paint.getMeasureCacheProc(nullptr != bounds);
+    GlyphCacheProc      glyphCacheProc = paint.getGlyphCacheProc(nullptr != bounds);
 
     const char* text = (const char*)textData;
     const char* stop = text + byteLength;
@@ -1195,6 +1155,23 @@ void SkPaint::getTextPath(const void* textData, size_t length,
     }
 }
 
+int SkPaint::getTextIntercepts(const void* textData, size_t length,
+                               SkScalar x, SkScalar y, const SkScalar bounds[2], 
+                               SkScalar* array) const {
+    SkASSERT(length == 0 || textData != nullptr);
+    if (!length) {
+        return 0;
+    }
+
+    const char* text = (const char*) textData;
+    SkTextInterceptsIter iter(text, length, *this, bounds, x, y,
+            SkTextInterceptsIter::TextType::kText);
+    int count = 0;
+    while (iter.next(array, &count)) {
+    }
+    return count;
+}
+
 void SkPaint::getPosTextPath(const void* textData, size_t length,
                              const SkPoint pos[], SkPath* path) const {
     SkASSERT(length == 0 || textData != nullptr);
@@ -1222,6 +1199,25 @@ void SkPaint::getPosTextPath(const void* textData, size_t length,
         prevPos = pos[i];
         i++;
     }
+}
+
+int SkPaint::getPosTextIntercepts(const void* textData, size_t length, const SkPoint pos[],
+                                  const SkScalar bounds[2], SkScalar* array) const {
+    SkASSERT(length == 0 || textData != nullptr);
+    if (!length) {
+        return 0;
+    }
+
+    const char* text = (const char*) textData;
+    SkTextInterceptsIter iter(text, length, *this, bounds, pos[0].fX, pos[0].fY,
+            SkTextInterceptsIter::TextType::kPosText);
+    int i = 0;
+    int count = 0;
+    while (iter.next(array, &count)) {
+        i++;
+        iter.setPosition(pos[i].fX, pos[i].fY);
+    }
+    return count;
 }
 
 SkRect SkPaint::getFontBounds() const {
@@ -1590,12 +1586,13 @@ static void write_out_descriptor(SkDescriptor* desc, const SkScalerContext::Rec&
 
 static size_t fill_out_rec(const SkPaint& paint, SkScalerContext::Rec* rec,
                            const SkSurfaceProps* surfaceProps,
-                           const SkMatrix* deviceMatrix, bool ignoreGamma,
+                           bool fakeGamma,
+                           const SkMatrix* deviceMatrix,
                            const SkPathEffect* pe, SkWriteBuffer* peBuffer,
                            const SkMaskFilter* mf, SkWriteBuffer* mfBuffer,
                            const SkRasterizer* ra, SkWriteBuffer* raBuffer) {
     SkScalerContext::MakeRec(paint, surfaceProps, deviceMatrix, rec);
-    if (ignoreGamma) {
+    if (!fakeGamma) {
         rec->ignorePreBlend();
     }
 
@@ -1685,7 +1682,8 @@ static void test_desc(const SkScalerContext::Rec& rec,
 /* see the note on ignoreGamma on descriptorProc */
 void SkPaint::getScalerContextDescriptor(SkAutoDescriptor* ad,
                                          const SkSurfaceProps& surfaceProps,
-                                         const SkMatrix* deviceMatrix, bool ignoreGamma) const {
+                                         FakeGamma fakeGamma,
+                                         const SkMatrix* deviceMatrix) const {
     SkScalerContext::Rec    rec;
 
     SkPathEffect*   pe = this->getPathEffect();
@@ -1693,7 +1691,8 @@ void SkPaint::getScalerContextDescriptor(SkAutoDescriptor* ad,
     SkRasterizer*   ra = this->getRasterizer();
 
     SkWriteBuffer   peBuffer, mfBuffer, raBuffer;
-    size_t descSize = fill_out_rec(*this, &rec, &surfaceProps, deviceMatrix, ignoreGamma,
+    size_t descSize = fill_out_rec(*this, &rec,
+                                   &surfaceProps, FakeGamma::On == fakeGamma, deviceMatrix,
                                    pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer);
 
     ad->reset(descSize);
@@ -1714,9 +1713,10 @@ void SkPaint::getScalerContextDescriptor(SkAutoDescriptor* ad,
  *  contrast = 0, luminanceColor = transparent black.
  */
 void SkPaint::descriptorProc(const SkSurfaceProps* surfaceProps,
+                             FakeGamma fakeGamma,
                              const SkMatrix* deviceMatrix,
                              void (*proc)(SkTypeface*, const SkDescriptor*, void*),
-                             void* context, bool ignoreGamma) const {
+                             void* context) const {
     SkScalerContext::Rec    rec;
 
     SkPathEffect*   pe = this->getPathEffect();
@@ -1724,7 +1724,8 @@ void SkPaint::descriptorProc(const SkSurfaceProps* surfaceProps,
     SkRasterizer*   ra = this->getRasterizer();
 
     SkWriteBuffer   peBuffer, mfBuffer, raBuffer;
-    size_t descSize = fill_out_rec(*this, &rec, surfaceProps, deviceMatrix, ignoreGamma,
+    size_t descSize = fill_out_rec(*this, &rec,
+                                   surfaceProps, FakeGamma::On == fakeGamma, deviceMatrix,
                                    pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer);
 
     SkAutoDescriptor    ad(descSize);
@@ -1742,10 +1743,10 @@ void SkPaint::descriptorProc(const SkSurfaceProps* surfaceProps,
 }
 
 SkGlyphCache* SkPaint::detachCache(const SkSurfaceProps* surfaceProps,
-                                   const SkMatrix* deviceMatrix,
-                                   bool ignoreGamma) const {
+                                   FakeGamma fakeGamma,
+                                   const SkMatrix* deviceMatrix) const {
     SkGlyphCache* cache;
-    this->descriptorProc(surfaceProps, deviceMatrix, DetachDescProc, &cache, ignoreGamma);
+    this->descriptorProc(surfaceProps, fakeGamma, deviceMatrix, DetachDescProc, &cache);
     return cache;
 }
 
@@ -1942,6 +1943,9 @@ void SkPaint::flatten(SkWriteBuffer& buffer) const {
 
 void SkPaint::unflatten(SkReadBuffer& buffer) {
     SkASSERT(SkAlign4(kPODPaintSize) == kPODPaintSize);
+    if (!buffer.validateAvailable(kPODPaintSize)) {
+        return;
+    }
     const void* podData = buffer.skip(kPODPaintSize);
     const uint32_t* pod = reinterpret_cast<const uint32_t*>(podData);
 
@@ -2119,15 +2123,19 @@ void SkPaint::toString(SkString* str) const {
         SkDynamicMemoryWStream ostream;
         typeface->serialize(&ostream);
         SkAutoTDelete<SkStreamAsset> istream(ostream.detachAsStream());
-        SkFontDescriptor descriptor(istream);
 
-        str->append("<dt>Font Family Name:</dt><dd>");
-        str->append(descriptor.getFamilyName());
-        str->append("</dd><dt>Font Full Name:</dt><dd>");
-        str->append(descriptor.getFullName());
-        str->append("</dd><dt>Font PS Name:</dt><dd>");
-        str->append(descriptor.getPostscriptName());
-        str->append("</dd>");
+        SkFontDescriptor descriptor;
+        if (!SkFontDescriptor::Deserialize(istream, &descriptor)) {
+            str->append("<dt>FontDescriptor deserialization failed</dt>");
+        } else {
+            str->append("<dt>Font Family Name:</dt><dd>");
+            str->append(descriptor.getFamilyName());
+            str->append("</dd><dt>Font Full Name:</dt><dd>");
+            str->append(descriptor.getFullName());
+            str->append("</dd><dt>Font PS Name:</dt><dd>");
+            str->append(descriptor.getPostscriptName());
+            str->append("</dd>");
+        }
     }
 
     str->append("<dt>TextSize:</dt><dd>");
@@ -2285,11 +2293,11 @@ static bool has_thick_frame(const SkPaint& paint) {
             paint.getStyle() != SkPaint::kFill_Style;
 }
 
-SkTextToPathIter::SkTextToPathIter(const char text[], size_t length,
+SkTextBaseIter::SkTextBaseIter(const char text[], size_t length,
                                    const SkPaint& paint,
                                    bool applyStrokeAndPathEffects)
     : fPaint(paint) {
-    fGlyphCacheProc = paint.getMeasureCacheProc(true);
+    fGlyphCacheProc = paint.getGlyphCacheProc(true);
 
     fPaint.setLinearText(true);
     fPaint.setMaskFilter(nullptr);   // don't want this affecting our path-cache lookup
@@ -2314,7 +2322,7 @@ SkTextToPathIter::SkTextToPathIter(const char text[], size_t length,
         fPaint.setPathEffect(nullptr);
     }
 
-    fCache = fPaint.detachCache(nullptr, nullptr, false);
+    fCache = fPaint.detachCache(nullptr, SkPaint::FakeGamma::On, nullptr);
 
     SkPaint::Style  style = SkPaint::kFill_Style;
     SkPathEffect*   pe = nullptr;
@@ -2348,7 +2356,7 @@ SkTextToPathIter::SkTextToPathIter(const char text[], size_t length,
     fXYIndex = paint.isVerticalText() ? 1 : 0;
 }
 
-SkTextToPathIter::~SkTextToPathIter() {
+SkTextBaseIter::~SkTextBaseIter() {
     SkGlyphCache::AttachCache(fCache);
 }
 
@@ -2374,6 +2382,17 @@ bool SkTextToPathIter::next(const SkPath** path, SkScalar* xpos) {
         return true;
     }
     return false;
+}
+
+bool SkTextInterceptsIter::next(SkScalar* array, int* count) {
+    const SkGlyph& glyph = fGlyphCacheProc(fCache, &fText);
+    fXPos += SkScalarMul(SkFixedToScalar(fPrevAdvance + fAutoKern.adjust(glyph)), fScale);
+    fPrevAdvance = advance(glyph, fXYIndex);   // + fPaint.getTextTracking();
+    if (fCache->findPath(glyph)) {
+        fCache->findIntercepts(fBounds, fScale, fXPos, SkToBool(fXYIndex),
+                const_cast<SkGlyph*>(&glyph), array, count);
+    }
+    return fText < fStop;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

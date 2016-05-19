@@ -5,12 +5,14 @@
 #ifndef CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_DELEGATE_H_
 #define CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_DELEGATE_H_
 
+#include <stdint.h>
+
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/bluetooth_chooser.h"
 #include "content/public/browser/invalidate_type.h"
@@ -38,6 +40,7 @@ class ColorChooser;
 class DownloadItem;
 class JavaScriptDialogManager;
 class PageState;
+class RenderFrameHost;
 class RenderViewHost;
 class SessionStorageNamespace;
 class WebContents;
@@ -58,11 +61,16 @@ class Rect;
 class Size;
 }
 
+namespace url {
+class Origin;
+}
+
 namespace blink {
 class WebGestureEvent;
 }
 
 namespace content {
+class RenderWidgetHost;
 
 struct OpenURLParams;
 
@@ -83,6 +91,11 @@ class CONTENT_EXPORT WebContentsDelegate {
   // opened immediately.
   virtual WebContents* OpenURLFromTab(WebContents* source,
                                       const OpenURLParams& params);
+
+  // Allows the delegate to optionally cancel navigations that attempt to
+  // transfer to a different process between the start of the network load and
+  // commit.  Defaults to true.
+  virtual bool ShouldTransferNavigation();
 
   // Called to inform the delegate that the WebContents's navigation state
   // changed. The |changed_flags| indicates the parts of the navigation state
@@ -145,11 +158,13 @@ class CONTENT_EXPORT WebContentsDelegate {
                                const GURL& url) {}
 
   // Notification that there was a mouse event, along with the absolute
-  // coordinates of the mouse pointer and whether it was a normal motion event
-  // (otherwise, the pointer left the contents area).
+  // coordinates of the mouse pointer and the type of event. If |motion| is
+  // true, this is a normal motion event. If |exited| is true, the pointer left
+  // the contents area.
   virtual void ContentsMouseEvent(WebContents* source,
                                   const gfx::Point& location,
-                                  bool motion) {}
+                                  bool motion,
+                                  bool exited) {}
 
   // Request the delegate to change the zoom level of the current tab.
   virtual void ContentsZoomChange(bool zoom_in) {}
@@ -185,9 +200,9 @@ class CONTENT_EXPORT WebContentsDelegate {
   // handled the message. If false is returned the default logging mechanism
   // will be used for the message.
   virtual bool AddMessageToConsole(WebContents* source,
-                                   int32 level,
+                                   int32_t level,
                                    const base::string16& message,
-                                   int32 line_no,
+                                   int32_t line_no,
                                    const base::string16& source_id);
 
   // Tells us that we've finished firing this tab's beforeunload event.
@@ -343,9 +358,8 @@ class CONTENT_EXPORT WebContentsDelegate {
   // Shows a chooser for the user to select a nearby Bluetooth device. The
   // observer must live at least as long as the returned chooser object.
   virtual scoped_ptr<BluetoothChooser> RunBluetoothChooser(
-      WebContents* web_contents,
-      const BluetoothChooser::EventHandler& event_handler,
-      const GURL& origin);
+      RenderFrameHost* frame,
+      const BluetoothChooser::EventHandler& event_handler);
 
   // Returns true if the delegate will embed a WebContents-owned fullscreen
   // render widget.  In this case, the delegate may access the widget by calling
@@ -509,6 +523,15 @@ class CONTENT_EXPORT WebContentsDelegate {
   virtual void ShowCertificateViewerInDevTools(
       WebContents* web_contents,
       int cert_id);
+
+  // Called when the active render widget is forwarding a RemoteChannel
+  // compositor proto.  This is used in Blimp mode.
+  virtual void ForwardCompositorProto(
+      RenderWidgetHost* render_widget_host,
+      const std::vector<uint8_t>& proto) {}
+
+  // Requests the app banner. This method is called from the DevTools.
+  virtual bool RequestAppBanner(content::WebContents* web_contents);
 
  protected:
   virtual ~WebContentsDelegate();

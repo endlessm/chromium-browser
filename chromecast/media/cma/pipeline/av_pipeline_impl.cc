@@ -4,7 +4,10 @@
 
 #include "chromecast/media/cma/pipeline/av_pipeline_impl.h"
 
+#include <utility>
+
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -33,9 +36,9 @@ const int kNoCallbackId = -1;
 }  // namespace
 
 AvPipelineImpl::AvPipelineImpl(MediaPipelineBackend::Decoder* decoder,
-                               const UpdateConfigCB& update_config_cb)
-    : update_config_cb_(update_config_cb),
-      decoder_(decoder),
+                               const AvPipelineClient& client)
+    : decoder_(decoder),
+      client_(client),
       state_(kUninitialized),
       buffered_time_(::media::kNoTimestamp()),
       playable_buffered_time_(::media::kNoTimestamp()),
@@ -47,6 +50,7 @@ AvPipelineImpl::AvPipelineImpl(MediaPipelineBackend::Decoder* decoder,
       media_keys_callback_id_(kNoCallbackId),
       weak_factory_(this) {
   DCHECK(decoder_);
+  decoder_->SetDelegate(this);
   weak_this_ = weak_factory_.GetWeakPtr();
   thread_checker_.DetachFromThread();
 }
@@ -58,19 +62,6 @@ AvPipelineImpl::~AvPipelineImpl() {
     media_keys_->UnregisterPlayer(media_keys_callback_id_);
 }
 
-void AvPipelineImpl::TransitionToState(State state) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  state_ = state;
-
-  if (state_ == kFlushing) {
-    // Break the feeding loop.
-    enable_feeding_ = false;
-
-    // Remove any pending buffer.
-    pending_buffer_ = nullptr;
-  }
-}
-
 void AvPipelineImpl::SetCodedFrameProvider(
     scoped_ptr<CodedFrameProvider> frame_provider,
     size_t max_buffer_size,
@@ -80,16 +71,23 @@ void AvPipelineImpl::SetCodedFrameProvider(
 
   // Wrap the incoming frame provider to add some buffering capabilities.
   frame_provider_.reset(new BufferingFrameProvider(
-      frame_provider.Pass(),
-      max_buffer_size,
-      max_frame_size,
+      std::move(frame_provider), max_buffer_size, max_frame_size,
       base::Bind(&AvPipelineImpl::OnDataBuffered, weak_this_)));
 }
 
 bool AvPipelineImpl::StartPlayingFrom(
     base::TimeDelta time,
     const scoped_refptr<BufferingState>& buffering_state) {
+  CMALOG(kLogControl) << __FUNCTION__ << " t0=" << time.InMilliseconds();
   DCHECK(thread_checker_.CalledOnValidThread());
+
+  // Reset the pipeline statistics.
+  previous_stats_ = ::media::PipelineStatistics();
+
+  if (state_ == kError) {
+    CMALOG(kLogControl) << __FUNCTION__ << " called while in error state";
+    return false;
+  }
   DCHECK_EQ(state_, kFlushed);
 
   // Buffering related initialization.
@@ -101,39 +99,56 @@ bool AvPipelineImpl::StartPlayingFrom(
   // Start feeding the pipeline.
   enable_feeding_ = true;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&AvPipelineImpl::FetchBufferIfNeeded, weak_this_));
+      FROM_HERE, base::Bind(&AvPipelineImpl::FetchBuffer, weak_this_));
 
+  set_state(kPlaying);
   return true;
 }
 
-void AvPipelineImpl::Flush(const base::Closure& done_cb) {
+void AvPipelineImpl::Flush(const base::Closure& flush_cb) {
+  CMALOG(kLogControl) << __FUNCTION__;
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK_EQ(state_, kFlushing);
+  DCHECK(flush_cb_.is_null());
 
+  if (state_ == kError) {
+    CMALOG(kLogControl) << __FUNCTION__ << " called while in error state";
+    return;
+  }
+  DCHECK_EQ(state_, kStopped);
+  set_state(kFlushing);
+
+  flush_cb_ = flush_cb;
+  // Remove any pending buffer.
+  pending_buffer_ = nullptr;
+  pushed_buffer_ = nullptr;
   // Remove any frames left in the frame provider.
   pending_read_ = false;
   buffered_time_ = ::media::kNoTimestamp();
   playable_buffered_time_ = ::media::kNoTimestamp();
   non_playable_frames_.clear();
-  frame_provider_->Flush(done_cb);
+
+  frame_provider_->Flush(base::Bind(&AvPipelineImpl::OnFlushDone, weak_this_));
 }
 
-void AvPipelineImpl::BackendStopped() {
+void AvPipelineImpl::OnFlushDone() {
+  CMALOG(kLogControl) << __FUNCTION__;
   DCHECK(thread_checker_.CalledOnValidThread());
-
-  // Note: returning to idle state aborts any pending frame push.
-  pushed_buffer_ = nullptr;
+  if (state_ == kError) {
+    // Flush callback is reset on error.
+    DCHECK(flush_cb_.is_null());
+    return;
+  }
+  DCHECK_EQ(state_, kFlushing);
+  set_state(kFlushed);
+  base::ResetAndReturn(&flush_cb_).Run();
 }
 
 void AvPipelineImpl::Stop() {
   DCHECK(thread_checker_.CalledOnValidThread());
-
-  // Stop can be called from any state.
-  if (state_ == kUninitialized || state_ == kStopped)
-    return;
-
+  CMALOG(kLogControl) << __FUNCTION__;
   // Stop feeding the pipeline.
   enable_feeding_ = false;
+  set_state(kStopped);
 }
 
 void AvPipelineImpl::SetCdm(BrowserCdmCast* media_keys) {
@@ -149,13 +164,12 @@ void AvPipelineImpl::SetCdm(BrowserCdmCast* media_keys) {
       base::Bind(&AvPipelineImpl::OnCdmDestroyed, weak_this_));
 }
 
-void AvPipelineImpl::FetchBufferIfNeeded() {
+void AvPipelineImpl::FetchBuffer() {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (!enable_feeding_)
     return;
 
-  if (pending_read_ || pending_buffer_)
-    return;
+  DCHECK(!pending_read_ && !pending_buffer_);
 
   pending_read_ = true;
   frame_provider_->Read(
@@ -173,29 +187,17 @@ void AvPipelineImpl::OnNewFrame(
     return;
 
   if (audio_config.IsValidConfig() || video_config.IsValidConfig())
-    update_config_cb_.Run(buffer->stream_id(), audio_config, video_config);
+    OnUpdateConfig(buffer->stream_id(), audio_config, video_config);
 
   pending_buffer_ = buffer;
   ProcessPendingBuffer();
-
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&AvPipelineImpl::FetchBufferIfNeeded, weak_this_));
 }
 
 void AvPipelineImpl::ProcessPendingBuffer() {
   if (!enable_feeding_)
     return;
 
-  // Initiate a read if there isn't already one.
-  if (!pending_buffer_ && !pending_read_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::Bind(&AvPipelineImpl::FetchBufferIfNeeded, weak_this_));
-    return;
-  }
-
-  if (!pending_buffer_ || pushed_buffer_)
-    return;
+  DCHECK(!pushed_buffer_);
 
   // Break the feeding loop when the end of stream is reached.
   if (pending_buffer_->end_of_stream()) {
@@ -219,6 +221,8 @@ void AvPipelineImpl::ProcessPendingBuffer() {
       CMALOG(kLogControl) << "frame(pts=" << pending_buffer_->timestamp()
                           << "): waiting for key id "
                           << base::HexEncode(&key_id[0], key_id.size());
+      if (!client_.wait_for_key_cb.is_null())
+        client_.wait_for_key_cb.Run();
       return;
     }
 
@@ -241,26 +245,54 @@ void AvPipelineImpl::ProcessPendingBuffer() {
   DCHECK(!pushed_buffer_);
   pushed_buffer_ = pending_buffer_;
   if (decrypt_context && decrypt_context->GetKeySystem() != KEY_SYSTEM_NONE)
-    pushed_buffer_->set_decrypt_context(decrypt_context.Pass());
+    pushed_buffer_->set_decrypt_context(std::move(decrypt_context));
   pending_buffer_ = nullptr;
   MediaPipelineBackend::BufferStatus status =
       decoder_->PushBuffer(pushed_buffer_.get());
 
   if (status != MediaPipelineBackend::kBufferPending)
-    OnBufferPushed(status);
+    OnPushBufferComplete(status);
 }
 
-void AvPipelineImpl::OnBufferPushed(MediaPipelineBackend::BufferStatus status) {
+void AvPipelineImpl::OnPushBufferComplete(BufferStatus status) {
   DCHECK(thread_checker_.CalledOnValidThread());
   pushed_buffer_ = nullptr;
   if (status == MediaPipelineBackend::kBufferFailed) {
     LOG(WARNING) << "AvPipelineImpl: PushFrame failed";
-    enable_feeding_ = false;
-    state_ = kError;
+    OnDecoderError();
     return;
   }
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&AvPipelineImpl::ProcessPendingBuffer, weak_this_));
+      FROM_HERE, base::Bind(&AvPipelineImpl::FetchBuffer, weak_this_));
+}
+
+void AvPipelineImpl::OnEndOfStream() {
+  if (!client_.eos_cb.is_null())
+    client_.eos_cb.Run();
+}
+
+void AvPipelineImpl::OnDecoderError() {
+  enable_feeding_ = false;
+  state_ = kError;
+
+  if (!client_.playback_error_cb.is_null())
+    client_.playback_error_cb.Run(::media::PIPELINE_ERROR_COULD_NOT_RENDER);
+
+  if (!flush_cb_.is_null())
+    base::ResetAndReturn(&flush_cb_).Run();
+}
+
+void AvPipelineImpl::OnKeyStatusChanged(const std::string& key_id,
+                                        CastKeyStatus key_status,
+                                        uint32_t system_code) {
+  CMALOG(kLogControl) << __FUNCTION__ << " key_status= " << key_status
+                      << " system_code=" << system_code;
+  DCHECK(media_keys_);
+  media_keys_->SetKeyStatus(key_id, key_status, system_code);
+}
+
+void AvPipelineImpl::OnVideoResolutionChanged(const Size& size) {
+  // Ignored here; VideoPipelineImpl overrides this method.
 }
 
 void AvPipelineImpl::OnCdmStateChanged() {
@@ -271,7 +303,8 @@ void AvPipelineImpl::OnCdmStateChanged() {
     UpdatePlayableFrames();
 
   // Process the pending buffer in case the CDM now has the frame key id.
-  ProcessPendingBuffer();
+  if (pending_buffer_)
+    ProcessPendingBuffer();
 }
 
 void AvPipelineImpl::OnCdmDestroyed() {

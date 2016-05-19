@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_util.h"
@@ -16,9 +18,12 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/profiles/profile_attributes_entry.h"
+#include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_test_helper.h"
@@ -425,14 +430,13 @@ TEST_F(SessionServiceTest, LockingWindowRemembersAll) {
   CreateAndWriteSessionWithTwoWindows(
       window2_id, tab1_id, tab2_id, &nav1, &nav2);
 
-  ASSERT_TRUE(service()->profile() != NULL);
-  ASSERT_TRUE(g_browser_process->profile_manager() != NULL);
-  ProfileInfoCache& profile_info =
-      g_browser_process->profile_manager()->GetProfileInfoCache();
-  size_t profile_index = profile_info.GetIndexOfProfileWithPath(
-      service()->profile()->GetPath());
-  ASSERT_NE(std::string::npos, profile_index);
-  profile_info.SetProfileSigninRequiredAtIndex(profile_index, true);
+  ASSERT_TRUE(service()->profile());
+  ProfileManager* manager = g_browser_process->profile_manager();
+  ASSERT_TRUE(manager);
+  ProfileAttributesEntry* entry;
+  ASSERT_TRUE(manager->GetProfileAttributesStorage().
+      GetProfileAttributesWithPath(service()->profile()->GetPath(), &entry));
+  entry->SetIsSigninRequired(true);
 
   service()->WindowClosing(window_id);
   service()->WindowClosed(window_id);
@@ -927,9 +931,8 @@ TEST_F(SessionServiceTest, RestoreActivation1) {
       window2_id, tab1_id, tab2_id, &nav1, &nav2);
 
   service()->ScheduleCommand(
-      sessions::CreateSetActiveWindowCommand(window2_id).Pass());
-  service()->ScheduleCommand(
-      sessions::CreateSetActiveWindowCommand(window_id).Pass());
+      sessions::CreateSetActiveWindowCommand(window2_id));
+  service()->ScheduleCommand(sessions::CreateSetActiveWindowCommand(window_id));
 
   ScopedVector<sessions::SessionWindow> windows;
   SessionID::id_type active_window_id = 0;
@@ -950,11 +953,10 @@ TEST_F(SessionServiceTest, RestoreActivation2) {
       window2_id, tab1_id, tab2_id, &nav1, &nav2);
 
   service()->ScheduleCommand(
-      sessions::CreateSetActiveWindowCommand(window2_id).Pass());
+      sessions::CreateSetActiveWindowCommand(window2_id));
+  service()->ScheduleCommand(sessions::CreateSetActiveWindowCommand(window_id));
   service()->ScheduleCommand(
-      sessions::CreateSetActiveWindowCommand(window_id).Pass());
-  service()->ScheduleCommand(
-      sessions::CreateSetActiveWindowCommand(window2_id).Pass());
+      sessions::CreateSetActiveWindowCommand(window2_id));
 
   ScopedVector<sessions::SessionWindow> windows;
   SessionID::id_type active_window_id = 0;

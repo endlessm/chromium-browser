@@ -51,11 +51,13 @@
     -webkit-user-select: none;
 }
 
-.spectrum-sat {
+.spectrum-sat,
+.-theme-preserve {
     background-image: linear-gradient(to right, white, rgba(204, 154, 129, 0));
 }
 
-.spectrum-val {
+.spectrum-val,
+.-theme-preserve {
     background-image: linear-gradient(to top, black, rgba(204, 154, 129, 0));
 }
 
@@ -166,6 +168,10 @@
     padding: 2px;
 }
 
+:host-context(.-theme-with-dark-background) .spectrum-switcher {
+    -webkit-filter: invert(60%);
+}
+
 .spectrum-display-switcher {
     top: 196px;
     position: absolute;
@@ -199,7 +205,6 @@
     width: 12px;
     height: 12px;
     flex: 0 0 12px;
-    display: inline-block;
     border-radius: 2px;
     margin: 6px;
     cursor: pointer;
@@ -229,13 +234,13 @@
 .palette-color-shades {
     position: absolute;
     background-color: white;
-    height: 237px;
+    height: 228px;
     width: 28px;
     box-shadow: 0 4px 5px 0 rgba(0, 0, 0, 0.14), 0 1px 10px 0 rgba(0, 0, 0, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
     z-index: 14;
     border-radius: 2px;
-    transform-origin: 0px 237px;
-    margin-top: 18px;
+    transform-origin: 0px 228px;
+    margin-top: -208px;
     margin-left: -8px;
 }
 
@@ -364,14 +369,15 @@ div.palette-preview {
     position: absolute;
     right: 0;
     top: 0;
-    height: 100%;
     background-color: #EFEFEF;
     visibility: hidden;
     z-index: 3;
     width: 36px;
     display: flex;
     align-items: center;
-    padding-left: 5px;
+    padding-left: 4px;
+    bottom: 2px;
+    border-bottom-right-radius: 2px;
 }
 
 @keyframes showDeleteToolbar {

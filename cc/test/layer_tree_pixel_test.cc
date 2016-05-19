@@ -4,6 +4,9 @@
 
 #include "cc/test/layer_tree_pixel_test.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/command_line.h"
 #include "base/path_service.h"
 #include "cc/base/switches.h"
@@ -46,7 +49,7 @@ scoped_ptr<OutputSurface> LayerTreePixelTest::CreateOutputSurface() {
       software_output_device->set_surface_expansion_size(
           surface_expansion_size);
       output_surface = make_scoped_ptr(
-          new PixelTestOutputSurface(software_output_device.Pass()));
+          new PixelTestOutputSurface(std::move(software_output_device)));
       break;
     }
     case PIXEL_TEST_GL: {
@@ -59,7 +62,7 @@ scoped_ptr<OutputSurface> LayerTreePixelTest::CreateOutputSurface() {
   }
 
   output_surface->set_surface_expansion_size(surface_expansion_size);
-  return output_surface.Pass();
+  return std::move(output_surface);
 }
 
 void LayerTreePixelTest::WillCommitCompleteOnThread(LayerTreeHostImpl* impl) {
@@ -68,21 +71,6 @@ void LayerTreePixelTest::WillCommitCompleteOnThread(LayerTreeHostImpl* impl) {
 
   DirectRenderer* renderer = static_cast<DirectRenderer*>(impl->renderer());
   renderer->SetEnlargePassTextureAmountForTesting(enlarge_texture_amount_);
-
-  gfx::Rect viewport = impl->DeviceViewport();
-  // The viewport has a 0,0 origin without external influence.
-  EXPECT_EQ(gfx::Point().ToString(), viewport.origin().ToString());
-  // Be that influence!
-  viewport += gfx::Vector2d(20, 10);
-  bool resourceless_software_draw = false;
-  gfx::Transform identity = gfx::Transform();
-  impl->SetExternalDrawConstraints(identity,
-                                   viewport,
-                                   viewport,
-                                   viewport,
-                                   identity,
-                                   resourceless_software_draw);
-  EXPECT_EQ(viewport.ToString(), impl->DeviceViewport().ToString());
 }
 
 scoped_ptr<CopyOutputRequest> LayerTreePixelTest::CreateCopyOutputRequest() {
@@ -92,14 +80,14 @@ scoped_ptr<CopyOutputRequest> LayerTreePixelTest::CreateCopyOutputRequest() {
 
 void LayerTreePixelTest::ReadbackResult(scoped_ptr<CopyOutputResult> result) {
   ASSERT_TRUE(result->HasBitmap());
-  result_bitmap_ = result->TakeBitmap().Pass();
+  result_bitmap_ = result->TakeBitmap();
   EndTest();
 }
 
 void LayerTreePixelTest::BeginTest() {
   Layer* target = readback_target_ ? readback_target_
                                    : layer_tree_host()->root_layer();
-  target->RequestCopyOfOutput(CreateCopyOutputRequest().Pass());
+  target->RequestCopyOfOutput(CreateCopyOutputRequest());
   PostSetNeedsCommitToMainThread();
 }
 
@@ -182,8 +170,7 @@ void LayerTreePixelTest::RunPixelTest(
   content_root_ = content_root;
   readback_target_ = NULL;
   ref_file_ = file_name;
-  bool threaded = true;
-  RunTest(threaded, false);
+  RunTest(CompositorMode::THREADED, false);
 }
 
 void LayerTreePixelTest::RunSingleThreadedPixelTest(
@@ -194,8 +181,7 @@ void LayerTreePixelTest::RunSingleThreadedPixelTest(
   content_root_ = content_root;
   readback_target_ = NULL;
   ref_file_ = file_name;
-  bool threaded = false;
-  RunTest(threaded, false);
+  RunTest(CompositorMode::SINGLE_THREADED, false);
 }
 
 void LayerTreePixelTest::RunPixelTestWithReadbackTarget(
@@ -207,7 +193,7 @@ void LayerTreePixelTest::RunPixelTestWithReadbackTarget(
   content_root_ = content_root;
   readback_target_ = target;
   ref_file_ = file_name;
-  RunTest(true, false);
+  RunTest(CompositorMode::THREADED, false);
 }
 
 void LayerTreePixelTest::SetupTree() {
@@ -249,7 +235,7 @@ scoped_ptr<SkBitmap> LayerTreePixelTest::CopyTextureMailboxToBitmap(
   EXPECT_EQ(static_cast<unsigned>(GL_FRAMEBUFFER_COMPLETE),
             gl->CheckFramebufferStatus(GL_FRAMEBUFFER));
 
-  scoped_ptr<uint8[]> pixels(new uint8[size.GetArea() * 4]);
+  scoped_ptr<uint8_t[]> pixels(new uint8_t[size.GetArea() * 4]);
   gl->ReadPixels(0,
                  0,
                  size.width(),
@@ -264,7 +250,7 @@ scoped_ptr<SkBitmap> LayerTreePixelTest::CopyTextureMailboxToBitmap(
   scoped_ptr<SkBitmap> bitmap(new SkBitmap);
   bitmap->allocN32Pixels(size.width(), size.height());
 
-  uint8* out_pixels = static_cast<uint8*>(bitmap->getPixels());
+  uint8_t* out_pixels = static_cast<uint8_t*>(bitmap->getPixels());
 
   size_t row_bytes = size.width() * 4;
   size_t total_bytes = size.height() * row_bytes;
@@ -280,7 +266,7 @@ scoped_ptr<SkBitmap> LayerTreePixelTest::CopyTextureMailboxToBitmap(
     }
   }
 
-  return bitmap.Pass();
+  return bitmap;
 }
 
 void LayerTreePixelTest::Finish() {

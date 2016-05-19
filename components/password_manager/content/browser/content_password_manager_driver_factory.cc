@@ -4,6 +4,8 @@
 
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
 
+#include <utility>
+
 #include "base/stl_util.h"
 #include "components/autofill/content/browser/content_autofill_driver.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
@@ -52,8 +54,11 @@ ContentPasswordManagerDriverFactory::ContentPasswordManagerDriverFactory(
       password_client_(password_client),
       autofill_client_(autofill_client) {
   content::RenderFrameHost* main_frame = web_contents->GetMainFrame();
-  if (main_frame->IsRenderFrameLive())
-    CreateDriverForFrame(main_frame);
+  if (main_frame->IsRenderFrameLive()) {
+    frame_driver_map_[main_frame] =
+        make_scoped_ptr(new ContentPasswordManagerDriver(
+            main_frame, password_client_, autofill_client_));
+  }
 }
 
 ContentPasswordManagerDriverFactory::~ContentPasswordManagerDriverFactory() {}
@@ -71,14 +76,20 @@ ContentPasswordManagerDriver*
 ContentPasswordManagerDriverFactory::GetDriverForFrame(
     content::RenderFrameHost* render_frame_host) {
   auto mapping = frame_driver_map_.find(render_frame_host);
-  return mapping == frame_driver_map_.end() ? nullptr : mapping->second;
+  return mapping == frame_driver_map_.end() ? nullptr : mapping->second.get();
 }
 
 void ContentPasswordManagerDriverFactory::RenderFrameCreated(
     content::RenderFrameHost* render_frame_host) {
+  auto insertion_result =
+      frame_driver_map_.insert(std::make_pair(render_frame_host, nullptr));
   // This is called twice for the main frame.
-  if (!ContainsKey(frame_driver_map_, render_frame_host))
-    CreateDriverForFrame(render_frame_host);
+  if (insertion_result.second) {  // This was the first time.
+    insertion_result.first->second =
+        make_scoped_ptr(new ContentPasswordManagerDriver(
+            render_frame_host, password_client_, autofill_client_));
+    insertion_result.first->second->SendLoggingAvailability();
+  }
 }
 
 void ContentPasswordManagerDriverFactory::RenderFrameDeleted(
@@ -101,19 +112,16 @@ void ContentPasswordManagerDriverFactory::DidNavigateAnyFrame(
       ->second->DidNavigateFrame(details, params);
 }
 
-void ContentPasswordManagerDriverFactory::CreateDriverForFrame(
-    content::RenderFrameHost* render_frame_host) {
-  DCHECK(!ContainsKey(frame_driver_map_, render_frame_host));
-  frame_driver_map_.set(
-      render_frame_host,
-      make_scoped_ptr(new ContentPasswordManagerDriver(
-          render_frame_host, password_client_, autofill_client_)));
-}
-
 void ContentPasswordManagerDriverFactory::TestingSetDriverForFrame(
     content::RenderFrameHost* render_frame_host,
     scoped_ptr<ContentPasswordManagerDriver> driver) {
-  frame_driver_map_.set(render_frame_host, driver.Pass());
+  frame_driver_map_[render_frame_host] = std::move(driver);
+}
+
+void ContentPasswordManagerDriverFactory::RequestSendLoggingAvailability() {
+  for (const auto& key_val_iterator : frame_driver_map_) {
+    key_val_iterator.second->SendLoggingAvailability();
+  }
 }
 
 }  // namespace password_manager

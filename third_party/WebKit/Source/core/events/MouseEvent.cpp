@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/events/MouseEvent.h"
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
@@ -52,7 +51,7 @@ PassRefPtrWillBeRawPtr<MouseEvent> MouseEvent::create(const AtomicString& eventT
         event.movementDelta().x(), event.movementDelta().y(),
         event.modifiers(), event.button(),
         platformModifiersToButtons(event.modifiers()),
-        relatedTarget, event.syntheticEventType(), event.timestamp());
+        relatedTarget, event.timestamp(), event.syntheticEventType());
 }
 
 PassRefPtrWillBeRawPtr<MouseEvent> MouseEvent::create(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtrWillBeRawPtr<AbstractView> view,
@@ -60,13 +59,14 @@ PassRefPtrWillBeRawPtr<MouseEvent> MouseEvent::create(const AtomicString& type, 
     int movementX, int movementY,
     PlatformEvent::Modifiers modifiers,
     short button, unsigned short buttons,
-    PassRefPtrWillBeRawPtr<EventTarget> relatedTarget, PlatformMouseEvent::SyntheticEventType syntheticEventType,
-    double uiCreateTime)
+    PassRefPtrWillBeRawPtr<EventTarget> relatedTarget,
+    double platformTimeStamp,
+    PlatformMouseEvent::SyntheticEventType syntheticEventType)
 {
     return adoptRefWillBeNoop(new MouseEvent(type, canBubble, cancelable, view,
         detail, screenX, screenY, windowX, windowY,
         movementX, movementY,
-        modifiers, button, buttons, relatedTarget, syntheticEventType, uiCreateTime));
+        modifiers, button, buttons, relatedTarget, platformTimeStamp, syntheticEventType));
 }
 
 PassRefPtrWillBeRawPtr<MouseEvent> MouseEvent::create(const AtomicString& eventType, PassRefPtrWillBeRawPtr<AbstractView> view, PassRefPtrWillBeRawPtr<Event> underlyingEvent, SimulatedClickCreationScope creationScope)
@@ -86,9 +86,10 @@ PassRefPtrWillBeRawPtr<MouseEvent> MouseEvent::create(const AtomicString& eventT
         screenY = mouseEvent->screenLocation().y();
     }
 
+    double timestamp = underlyingEvent ? underlyingEvent->platformTimeStamp() : monotonicallyIncreasingTime();
     RefPtrWillBeRawPtr<MouseEvent> createdEvent = MouseEvent::create(eventType, true, true, view,
         0, screenX, screenY, 0, 0, 0, 0, modifiers, 0, 0, nullptr,
-        syntheticType);
+        timestamp, syntheticType);
 
     createdEvent->setTrusted(creationScope == SimulatedClickCreationScope::FromUserAgent);
     createdEvent->setUnderlyingEvent(underlyingEvent);
@@ -112,11 +113,13 @@ MouseEvent::MouseEvent(const AtomicString& eventType, bool canBubble, bool cance
     int detail, int screenX, int screenY, int windowX, int windowY,
     int movementX, int movementY,
     PlatformEvent::Modifiers modifiers,
-    short button, unsigned short buttons, PassRefPtrWillBeRawPtr<EventTarget> relatedTarget,
-    PlatformMouseEvent::SyntheticEventType syntheticEventType,
-    double timestamp)
+    short button, unsigned short buttons,
+    PassRefPtrWillBeRawPtr<EventTarget> relatedTarget,
+    double platformTimeStamp,
+    PlatformMouseEvent::SyntheticEventType syntheticEventType)
     : MouseRelatedEvent(eventType, canBubble, cancelable, view, detail, IntPoint(screenX, screenY),
         IntPoint(windowX, windowY), IntPoint(movementX, movementY), modifiers,
+        platformTimeStamp,
         syntheticEventType == PlatformMouseEvent::Positionless ? PositionType::Positionless : PositionType::Position,
         syntheticEventType == PlatformMouseEvent::FromTouch ? InputDeviceCapabilities::firesTouchEventsSourceCapabilities() : InputDeviceCapabilities::doesntFireTouchEventsSourceCapabilities())
     , m_button(button)
@@ -124,7 +127,6 @@ MouseEvent::MouseEvent(const AtomicString& eventType, bool canBubble, bool cance
     , m_relatedTarget(relatedTarget)
     , m_syntheticEventType(syntheticEventType)
 {
-    setPlatformTimeStamp(timestamp);
 }
 
 MouseEvent::MouseEvent(const AtomicString& eventType, const MouseEventInit& initializer)
@@ -145,13 +147,29 @@ unsigned short MouseEvent::platformModifiersToButtons(unsigned modifiers)
     unsigned short buttons = 0;
 
     if (modifiers & PlatformEvent::LeftButtonDown)
-        buttons |= 1;
+        buttons |= static_cast<unsigned short>(Buttons::Left);
     if (modifiers & PlatformEvent::RightButtonDown)
-        buttons |= 2;
+        buttons |= static_cast<unsigned short>(Buttons::Right);
     if (modifiers & PlatformEvent::MiddleButtonDown)
-        buttons |= 4;
+        buttons |= static_cast<unsigned short>(Buttons::Middle);
 
     return buttons;
+}
+
+unsigned short MouseEvent::buttonToButtons(short button)
+{
+    switch (button) {
+    case NoButton:
+        return static_cast<unsigned short>(Buttons::None);
+    case LeftButton:
+        return static_cast<unsigned short>(Buttons::Left);
+    case RightButton:
+        return static_cast<unsigned short>(Buttons::Right);
+    case MiddleButton:
+        return static_cast<unsigned short>(Buttons::Middle);
+    }
+    ASSERT_NOT_REACHED();
+    return 0;
 }
 
 void MouseEvent::initMouseEvent(ScriptState* scriptState, const AtomicString& type, bool canBubble, bool cancelable, PassRefPtrWillBeRawPtr<AbstractView> view,
@@ -248,7 +266,7 @@ MouseEvent& MouseEventDispatchMediator::event() const
     return toMouseEvent(EventDispatchMediator::event());
 }
 
-bool MouseEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
+DispatchEventResult MouseEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
 {
     MouseEvent& mouseEvent = event();
     if (!mouseEvent.isTrusted()) {
@@ -257,21 +275,20 @@ bool MouseEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) cons
     }
 
     if (isDisabledFormControl(&dispatcher.node()))
-        return false;
+        return DispatchEventResult::CanceledBeforeDispatch;
 
     if (mouseEvent.type().isEmpty())
-        return true; // Shouldn't happen.
+        return DispatchEventResult::NotCanceled; // Shouldn't happen.
 
     ASSERT(!mouseEvent.target() || mouseEvent.target() != mouseEvent.relatedTarget());
 
     EventTarget* relatedTarget = mouseEvent.relatedTarget();
     mouseEvent.eventPath().adjustForRelatedTarget(dispatcher.node(), relatedTarget);
 
-    dispatcher.dispatch();
-    bool swallowEvent = mouseEvent.defaultHandled() || mouseEvent.defaultPrevented();
+    DispatchEventResult dispatchResult = dispatcher.dispatch();
 
     if (mouseEvent.type() != EventTypeNames::click || mouseEvent.detail() != 2)
-        return !swallowEvent;
+        return dispatchResult;
 
     // Special case: If it's a double click event, we also send the dblclick event. This is not part
     // of the DOM specs, but is used for compatibility with the ondblclick="" attribute. This is treated
@@ -285,10 +302,10 @@ bool MouseEventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) cons
     doubleClickEvent->setTrusted(mouseEvent.isTrusted());
     if (mouseEvent.defaultHandled())
         doubleClickEvent->setDefaultHandled();
-    EventDispatcher::dispatchEvent(dispatcher.node(), MouseEventDispatchMediator::create(doubleClickEvent));
-    if (doubleClickEvent->defaultHandled() || doubleClickEvent->defaultPrevented())
-        return false;
-    return !swallowEvent;
+    DispatchEventResult doubleClickDispatchResult = EventDispatcher::dispatchEvent(dispatcher.node(), MouseEventDispatchMediator::create(doubleClickEvent));
+    if (doubleClickDispatchResult != DispatchEventResult::NotCanceled)
+        return doubleClickDispatchResult;
+    return dispatchResult;
 }
 
 } // namespace blink

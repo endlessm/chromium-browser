@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/Interpolation.h"
 
 namespace blink {
@@ -32,11 +31,11 @@ bool typesMatch(const InterpolableValue* start, const InterpolableValue* end)
     return true;
 }
 
-}
+} // namespace
 
 Interpolation::Interpolation(PassOwnPtr<InterpolableValue> start, PassOwnPtr<InterpolableValue> end)
-    : m_start(start)
-    , m_end(end)
+    : m_start(std::move(start))
+    , m_end(std::move(end))
     , m_cachedFraction(0)
     , m_cachedIteration(0)
     , m_cachedValue(m_start ? m_start->clone() : nullptr)
@@ -57,4 +56,4 @@ void Interpolation::interpolate(int iteration, double fraction)
     }
 }
 
-}
+} // namespace blink

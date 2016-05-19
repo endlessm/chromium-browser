@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableClipPathOperation.h"
 
 namespace blink {
@@ -64,4 +63,4 @@ bool AnimatableClipPathOperation::equalTo(const AnimatableValue* value) const
     return m_operation == operation || (m_operation && operation && *m_operation == *operation);
 }
 
-}
+} // namespace blink

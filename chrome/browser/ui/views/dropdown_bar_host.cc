@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/views/dropdown_bar_host_delegate.h"
 #include "chrome/browser/ui/views/dropdown_bar_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/theme_copying_widget.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/scrollbar_size.h"
@@ -25,13 +26,11 @@ bool DropdownBarHost::disable_animations_during_testing_ = false;
 
 DropdownBarHost::DropdownBarHost(BrowserView* browser_view)
     : browser_view_(browser_view),
-      view_(NULL),
-      delegate_(NULL),
-      animation_offset_(0),
-      focus_manager_(NULL),
+      view_(nullptr),
+      delegate_(nullptr),
+      focus_manager_(nullptr),
       esc_accel_target_registered_(false),
-      is_visible_(false) {
-}
+      is_visible_(false) {}
 
 void DropdownBarHost::Init(views::View* host_view,
                            views::View* view,
@@ -42,14 +41,22 @@ void DropdownBarHost::Init(views::View* host_view,
   view_ = view;
   delegate_ = delegate;
 
+  // The |clip_view| exists to paint to a layer so that it can clip descendent
+  // Views which also paint to a Layer. See http://crbug.com/589497
+  scoped_ptr<views::View> clip_view(new views::View());
+  clip_view->SetPaintToLayer(true);
+  clip_view->SetFillsBoundsOpaquely(false);
+  clip_view->layer()->SetMasksToBounds(true);
+  clip_view->AddChildView(view_);
+
   // Initialize the host.
-  host_.reset(new views::Widget);
+  host_.reset(new ThemeCopyingWidget(browser_view_->GetWidget()));
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_CONTROL);
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.parent = browser_view_->GetWidget()->GetNativeView();
   params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
   host_->Init(params);
-  host_->SetContentsView(view_);
+  host_->SetContentsView(clip_view.release());
 
   SetHostViewNative(host_view);
 
@@ -64,8 +71,9 @@ void DropdownBarHost::Init(views::View* host_view,
     NOTREACHED();
   }
 
-  // Start the process of animating the opening of the widget.
   animation_.reset(new gfx::SlideAnimation(this));
+  // Update the widget and |view_| bounds to the hidden state.
+  AnimationProgressed(animation_.get());
 }
 
 DropdownBarHost::~DropdownBarHost() {
@@ -77,6 +85,10 @@ void DropdownBarHost::Show(bool animate) {
   // Stores the currently focused view, and tracks focus changes so that we can
   // restore focus when the dropdown widget is closed.
   focus_tracker_.reset(new views::ExternalFocusTracker(view_, focus_manager_));
+
+  SetDialogPosition(GetDialogPosition(gfx::Rect()));
+
+  host_->Show();
 
   bool was_visible = is_visible_;
   is_visible_ = true;
@@ -132,6 +144,15 @@ bool DropdownBarHost::IsVisible() const {
   return is_visible_;
 }
 
+void DropdownBarHost::SetDialogPosition(const gfx::Rect& new_pos) {
+  view_->SetSize(new_pos.size());
+
+  if (new_pos.IsEmpty())
+    return;
+
+  host()->SetBounds(new_pos);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // DropdownBarHost, views::FocusChangeListener implementation:
 void DropdownBarHost::OnWillChangeFocus(views::View* focused_before,
@@ -167,24 +188,15 @@ void DropdownBarHost::OnDidChangeFocus(views::View* focused_before,
 void DropdownBarHost::AnimationProgressed(const gfx::Animation* animation) {
   // First, we calculate how many pixels to slide the widget.
   gfx::Size pref_size = view_->GetPreferredSize();
-  animation_offset_ = static_cast<int>((1.0 - animation_->GetCurrentValue()) *
-                                       pref_size.height());
+  int view_offset = static_cast<int>((animation_->GetCurrentValue() - 1.0) *
+                                     pref_size.height());
 
-  // This call makes sure it appears in the right location, the size and shape
-  // is correct and that it slides in the right direction.
-  gfx::Rect dlg_rect = GetDialogPosition(gfx::Rect());
-  SetDialogPosition(dlg_rect);
-
-  // Let the view know if we are animating, and at which offset to draw the
-  // edges.
-  delegate_->SetAnimationOffset(animation_offset_);
-  view_->SchedulePaint();
+  // This call makes sure |view_| appears in the right location, the size and
+  // shape is correct and that it slides in the right direction.
+  view_->SetPosition(gfx::Point(0, view_offset));
 }
 
 void DropdownBarHost::AnimationEnded(const gfx::Animation* animation) {
-  // Place the dropdown widget in its fully opened state.
-  animation_offset_ = 0;
-
   if (!animation_->IsShowing()) {
     // Animation has finished closing.
     host_->Hide();

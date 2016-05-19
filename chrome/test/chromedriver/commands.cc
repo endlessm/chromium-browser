@@ -4,6 +4,8 @@
 
 #include "chrome/test/chromedriver/commands.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <list>
 #include <utility>
@@ -111,7 +113,7 @@ void ExecuteGetSessions(const Command& session_capabilities_command,
   scoped_ptr<base::ListValue> session_list(new base::ListValue());
 
   if (!get_remaining_count) {
-    callback.Run(Status(kOk), session_list.Pass(), session_id);
+    callback.Run(Status(kOk), std::move(session_list), session_id);
     return;
   }
 
@@ -133,7 +135,7 @@ void ExecuteGetSessions(const Command& session_capabilities_command,
   base::MessageLoop::current()->SetNestableTasksAllowed(true);
   run_loop.Run();
 
-  callback.Run(Status(kOk), session_list.Pass(), session_id);
+  callback.Run(Status(kOk), std::move(session_list), session_id);
 }
 
 namespace {
@@ -212,8 +214,11 @@ void ExecuteSessionCommandOnSessionThread(
   }
 
   if (IsVLogOn(0)) {
-    VLOG(0) << "COMMAND " << command_name << " "
-            << FormatValueForDisplay(*params);
+    if (!session->driver_log ||
+        session->driver_log->min_level() != Log::Level::kOff) {
+      VLOG(0) << "COMMAND " << command_name << " "
+              << FormatValueForDisplay(*params);
+    }
   }
 
   // Notify |session|'s |CommandListener|s of the command.
@@ -266,8 +271,11 @@ void ExecuteSessionCommandOnSessionThread(
       } else if (value) {
         result = FormatValueForDisplay(*value);
       }
-      VLOG(0) << "RESPONSE " << command_name
-              << (result.length() ? " " + result : "");
+      if (!session->driver_log ||
+          session->driver_log->min_level() != Log::Level::kOff) {
+        VLOG(0) << "RESPONSE " << command_name
+                << (result.length() ? " " + result : "");
+      }
     }
 
     if (status.IsOk() && session->auto_reporting_enabled) {

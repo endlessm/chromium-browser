@@ -19,6 +19,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -34,8 +35,8 @@ static const int kMaxUniqueFiles = 100;
 
 }  // namespace
 
-int64 ComputeDirectorySize(const FilePath& root_path) {
-  int64 running_size = 0;
+int64_t ComputeDirectorySize(const FilePath& root_path) {
+  int64_t running_size = 0;
   FileEnumerator file_iter(root_path, true, FileEnumerator::FILES);
   while (!file_iter.Next().empty())
     running_size += file_iter.GetInfo().GetSize();
@@ -123,9 +124,9 @@ bool TextContentsEqual(const FilePath& filename1, const FilePath& filename2) {
 }
 #endif  // !defined(OS_NACL_NONSFI)
 
-bool ReadFileToString(const FilePath& path,
-                      std::string* contents,
-                      size_t max_size) {
+bool ReadFileToStringWithMaxSize(const FilePath& path,
+                                 std::string* contents,
+                                 size_t max_size) {
   if (contents)
     contents->clear();
   if (path.ReferencesParent())
@@ -161,7 +162,8 @@ bool ReadFileToString(const FilePath& path,
 }
 
 bool ReadFileToString(const FilePath& path, std::string* contents) {
-  return ReadFileToString(path, contents, std::numeric_limits<size_t>::max());
+  return ReadFileToStringWithMaxSize(path, contents,
+                                     std::numeric_limits<size_t>::max());
 }
 
 #if !defined(OS_NACL_NONSFI)
@@ -185,7 +187,7 @@ bool CreateDirectory(const FilePath& full_path) {
   return CreateDirectoryAndGetError(full_path, NULL);
 }
 
-bool GetFileSize(const FilePath& file_path, int64* file_size) {
+bool GetFileSize(const FilePath& file_path, int64_t* file_size) {
   File::Info info;
   if (!GetFileInfo(file_path, &info))
     return false;

@@ -65,7 +65,8 @@ static inline bool cache_size_okay(const SkBitmapProvider& provider, const SkMat
     // return ((origBitmapSize * matrixScaleFactor) < maximumAllocationSize);
     // Skip the division step:
     const size_t size = provider.info().getSafeSize(provider.info().minRowBytes());
-    return size < (maximumAllocation * invMat.getScaleX() * invMat.getScaleY());
+    SkScalar invScaleSqr = invMat.getScaleX() * invMat.getScaleY();
+    return size < (maximumAllocation * SkScalarAbs(invScaleSqr));
 }
 
 /*
@@ -97,10 +98,17 @@ bool SkDefaultBitmapControllerState::processHQRequest(const SkBitmapProvider& pr
         invScaleX = scale.width();
         invScaleY = scale.height();
     }
+    invScaleX = SkScalarAbs(invScaleX);
+    invScaleY = SkScalarAbs(invScaleY);
+
     if (SkScalarNearlyEqual(invScaleX, 1) && SkScalarNearlyEqual(invScaleY, 1)) {
         return false; // no need for HQ
     }
-    
+
+    if (invScaleX > 1 || invScaleY > 1) {
+        return false; // only use HQ when upsampling
+    }
+
     const int dstW = SkScalarRoundToScalar(provider.width() / invScaleX);
     const int dstH = SkScalarRoundToScalar(provider.height() / invScaleY);
     const SkBitmapCacheDesc desc = provider.makeCacheDesc(dstW, dstH);
@@ -121,8 +129,10 @@ bool SkDefaultBitmapControllerState::processHQRequest(const SkBitmapProvider& pr
         
         SkASSERT(fResultBitmap.getPixels());
         fResultBitmap.setImmutable();
-        if (SkBitmapCache::AddWH(desc, fResultBitmap)) {
-            provider.notifyAddedToCache();
+        if (!provider.isVolatile()) {
+            if (SkBitmapCache::AddWH(desc, fResultBitmap)) {
+                provider.notifyAddedToCache();
+            }
         }
     }
     
@@ -152,9 +162,8 @@ bool SkDefaultBitmapControllerState::processMediumRequest(const SkBitmapProvider
     if (!fInvMatrix.decomposeScale(&invScaleSize, nullptr)) {
         return false;
     }
-    SkScalar invScale = SkScalarSqrt(invScaleSize.width() * invScaleSize.height());
-    
-    if (invScale > SK_Scalar1) {
+
+    if (invScaleSize.width() > SK_Scalar1 || invScaleSize.height() > SK_Scalar1) {
         fCurrMip.reset(SkMipMapCache::FindAndRef(provider.makeCacheDesc()));
         if (nullptr == fCurrMip.get()) {
             SkBitmap orig;
@@ -171,16 +180,16 @@ bool SkDefaultBitmapControllerState::processMediumRequest(const SkBitmapProvider
             sk_throw();
         }
         
-        SkScalar levelScale = SkScalarInvert(invScale);
+        const SkSize scale = SkSize::Make(SkScalarInvert(invScaleSize.width()),
+                                          SkScalarInvert(invScaleSize.height()));
         SkMipMap::Level level;
-        if (fCurrMip->extractLevel(levelScale, &level)) {
-            SkScalar invScaleFixup = level.fScale;
-            fInvMatrix.postScale(invScaleFixup, invScaleFixup);
-            
-            const SkImageInfo info = provider.info().makeWH(level.fWidth, level.fHeight);
+        if (fCurrMip->extractLevel(scale, &level)) {
+            const SkSize& invScaleFixup = level.fScale;
+            fInvMatrix.postScale(invScaleFixup.width(), invScaleFixup.height());
+
             // todo: if we could wrap the fCurrMip in a pixelref, then we could just install
             //       that here, and not need to explicitly track it ourselves.
-            return fResultBitmap.installPixels(info, level.fPixels, level.fRowBytes);
+            return fResultBitmap.installPixels(level.fPixmap);
         } else {
             // failed to extract, so release the mipmap
             fCurrMip.reset(nullptr);

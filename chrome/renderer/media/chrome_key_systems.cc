@@ -4,6 +4,8 @@
 
 #include "chrome/renderer/media/chrome_key_systems.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -11,6 +13,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/common/render_messages.h"
 #include "components/cdm/renderer/widevine_key_systems.h"
 #include "content/public/renderer/render_thread.h"
@@ -150,7 +153,7 @@ static void AddPepperBasedWidevine(
 #if defined(WIDEVINE_CDM_MIN_GLIBC_VERSION)
   Version glibc_version(gnu_get_libc_version());
   DCHECK(glibc_version.IsValid());
-  if (glibc_version.IsOlderThan(WIDEVINE_CDM_MIN_GLIBC_VERSION))
+  if (glibc_version < base::Version(WIDEVINE_CDM_MIN_GLIBC_VERSION))
     return;
 #endif  // defined(WIDEVINE_CDM_MIN_GLIBC_VERSION)
 
@@ -191,7 +194,7 @@ static void AddPepperBasedWidevine(
   }
 
   cdm::AddWidevineWithCodecs(
-      cdm::WIDEVINE, supported_codecs,
+      supported_codecs,
 #if defined(OS_CHROMEOS)
       media::EmeRobustness::HW_SECURE_ALL,  // Maximum audio robustness.
       media::EmeRobustness::HW_SECURE_ALL,  // Maximim video robustness.

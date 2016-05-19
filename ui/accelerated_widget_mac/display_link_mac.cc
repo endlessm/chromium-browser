@@ -4,6 +4,8 @@
 
 #include "ui/accelerated_widget_mac/display_link_mac.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/trace_event/trace_event.h"
@@ -12,8 +14,9 @@ namespace base {
 
 template<>
 struct ScopedTypeRefTraits<CVDisplayLinkRef> {
-  static void Retain(CVDisplayLinkRef object) {
-    CVDisplayLinkRetain(object);
+  static CVDisplayLinkRef InvalidValue() { return nullptr; }
+  static CVDisplayLinkRef Retain(CVDisplayLinkRef object) {
+    return CVDisplayLinkRetain(object);
   }
   static void Release(CVDisplayLinkRef object) {
     CVDisplayLinkRelease(object);
@@ -21,6 +24,20 @@ struct ScopedTypeRefTraits<CVDisplayLinkRef> {
 };
 
 }  // namespace base
+
+namespace {
+
+// Empty callback set during tear down.
+CVReturn VoidDisplayLinkCallback(CVDisplayLinkRef display_link,
+                                 const CVTimeStamp* now,
+                                 const CVTimeStamp* output_time,
+                                 CVOptionFlags flags_in,
+                                 CVOptionFlags* flags_out,
+                                 void* context) {
+  return kCVReturnSuccess;
+}
+
+}  // namespace
 
 namespace ui {
 
@@ -83,6 +100,14 @@ DisplayLinkMac::DisplayLinkMac(
 DisplayLinkMac::~DisplayLinkMac() {
   StopDisplayLink();
 
+  // Usually |display_link_| holds the last reference to CVDisplayLinkRef, but
+  // that's not guaranteed, so it might not free all resources after the
+  // destructor completes. Ensure the callback is cleared out regardless to
+  // avoid possible crashes (see http://crbug.com/564780).
+  CVReturn ret = CVDisplayLinkSetOutputCallback(
+      display_link_, VoidDisplayLinkCallback, nullptr);
+  DCHECK_EQ(kCGErrorSuccess, ret);
+
   DisplayMap::iterator found = display_map_.Get().find(display_id_);
   DCHECK(found != display_map_.Get().end());
   DCHECK(found->second == this);
@@ -120,8 +145,8 @@ void DisplayLinkMac::Tick(const CVTimeStamp& cv_time) {
   DCHECK((cv_time.videoRefreshPeriod & ~0xffffFFFFull) == 0ull);
 
   // Verify that the numerator and denominator make some sense.
-  uint32 numerator = static_cast<uint32>(cv_time.videoRefreshPeriod);
-  uint32 denominator = cv_time.videoTimeScale;
+  uint32_t numerator = static_cast<uint32_t>(cv_time.videoRefreshPeriod);
+  uint32_t denominator = cv_time.videoTimeScale;
   if (numerator <= 0 || denominator <= 0) {
     LOG(WARNING) << "Unexpected numerator or denominator, bailing.";
     return;
@@ -130,7 +155,7 @@ void DisplayLinkMac::Tick(const CVTimeStamp& cv_time) {
   timebase_ = base::TimeTicks::FromInternalValue(
       cv_time.hostTime / 1000);
   interval_ = base::TimeDelta::FromMicroseconds(
-      1000000 * static_cast<int64>(numerator) / denominator);
+      1000000 * static_cast<int64_t>(numerator) / denominator);
   timebase_and_interval_valid_ = true;
 
   // Don't restart the display link for 10 seconds.

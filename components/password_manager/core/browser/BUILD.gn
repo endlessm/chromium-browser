@@ -43,11 +43,14 @@ source_set("browser") {
     "import/csv_reader.cc",
     "import/csv_reader.h",
     "keychain_migration_status_mac.h",
+    "log_manager.cc",
+    "log_manager.h",
     "log_receiver.h",
     "log_router.cc",
     "log_router.h",
     "login_database.cc",
     "login_database.h",
+    "login_database_ios.cc",
     "login_database_mac.cc",
     "login_database_posix.cc",
     "login_database_win.cc",
@@ -78,6 +81,7 @@ source_set("browser") {
     "password_manager_util.h",
     "password_store.cc",
     "password_store.h",
+    "password_store_change.cc",
     "password_store_change.h",
     "password_store_consumer.cc",
     "password_store_consumer.h",
@@ -85,8 +89,6 @@ source_set("browser") {
     "password_store_default.h",
     "password_store_factory_util.cc",
     "password_store_factory_util.h",
-    "password_store_service.cc",
-    "password_store_service.h",
     "password_store_sync.cc",
     "password_store_sync.h",
     "password_syncable_service.cc",
@@ -111,23 +113,32 @@ source_set("browser") {
   ]
   deps = [
     ":proto",
+    "//base",
+    "//base:i18n",
+    "//components/autofill/core/browser",
+    "//components/autofill/core/browser/proto",
     "//components/autofill/core/common",
     "//components/keyed_service/core",
     "//components/os_crypt",
     "//components/password_manager/core/common",
+    "//components/pref_registry",
+    "//components/prefs",
     "//components/strings",
     "//components/sync_driver",
     "//components/url_formatter",
+    "//components/variations",
+    "//components/webdata/common",
+    "//google_apis",
     "//net",
     "//sql",
     "//third_party/protobuf:protobuf_lite",
     "//third_party/re2",
+    "//ui/base",
+    "//ui/gfx",
     "//url",
   ]
 
-  if (is_mac) {
-    # TODO(blundell): Provide the iOS login DB implementation and then
-    # also exclude the POSIX one from iOS. http://crbug.com/341429
+  if (is_mac || is_ios) {
     sources -= [ "login_database_posix.cc" ]
   }
 
@@ -148,12 +159,16 @@ source_set("test_support") {
     "fake_affiliation_api.h",
     "fake_affiliation_fetcher.cc",
     "fake_affiliation_fetcher.h",
+    "mock_affiliated_match_helper.cc",
+    "mock_affiliated_match_helper.h",
     "mock_affiliation_consumer.cc",
     "mock_affiliation_consumer.h",
     "mock_password_store.cc",
     "mock_password_store.h",
     "password_manager_test_utils.cc",
     "password_manager_test_utils.h",
+    "stub_log_manager.cc",
+    "stub_log_manager.h",
     "stub_password_manager_client.cc",
     "stub_password_manager_client.h",
     "stub_password_manager_driver.cc",
@@ -165,6 +180,7 @@ source_set("test_support") {
   public_deps = [
     ":browser",
     "//testing/gmock",
+    "//url:url",
   ]
   deps = [
     "//base",
@@ -187,11 +203,10 @@ source_set("unit_tests") {
     "export/csv_writer_unittest.cc",
     "facet_manager_unittest.cc",
     "import/csv_reader_unittest.cc",
+    "log_manager_unittest.cc",
     "log_router_unittest.cc",
     "login_database_unittest.cc",
     "login_model_unittest.cc",
-    "mock_affiliated_match_helper.cc",
-    "mock_affiliated_match_helper.h",
     "password_autofill_manager_unittest.cc",
     "password_bubble_experiment_unittest.cc",
     "password_form_manager_unittest.cc",
@@ -201,6 +216,7 @@ source_set("unit_tests") {
     "password_manager_unittest.cc",
     "password_manager_util_unittest.cc",
     "password_store_default_unittest.cc",
+    "password_store_origin_unittest.h",
     "password_store_unittest.cc",
     "password_syncable_service_unittest.cc",
     "password_ui_utils_unittest.cc",
@@ -209,7 +225,23 @@ source_set("unit_tests") {
   ]
   deps = [
     ":test_support",
+    "//base/test:test_support",
+    "//components/autofill/core/browser:test_support",
+    "//components/autofill/core/browser/proto",
+    "//components/autofill/core/common",
+    "//components/os_crypt",
+    "//components/password_manager/core/browser:proto",
+    "//components/password_manager/core/common",
+    "//components/prefs:test_support",
+    "//components/strings",
+    "//components/sync_driver:test_support",
+    "//components/variations",
+    "//net:test_support",
+    "//sql:test_support",
+    "//sync:test_support_sync_api",
     "//testing/gmock",
     "//testing/gtest",
+    "//ui/base",
+    "//url",
   ]
 }

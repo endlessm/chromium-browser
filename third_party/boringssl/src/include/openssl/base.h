@@ -108,7 +108,7 @@ extern "C" {
 #endif
 
 #define OPENSSL_IS_BORINGSSL
-#define BORINGSSL_201510
+#define BORINGSSL_201512
 #define OPENSSL_VERSION_NUMBER 0x10002000
 #define SSLEAY_VERSION_NUMBER OPENSSL_VERSION_NUMBER
 
@@ -137,6 +137,15 @@ extern "C" {
 #define OPENSSL_EXPORT
 
 #endif  /* defined(BORINGSSL_SHARED_LIBRARY) */
+
+
+#if defined(__GNUC__)
+#define OPENSSL_PRINTF_FORMAT_FUNC(string_index, first_to_check) \
+        __attribute__((format(printf, string_index, first_to_check)))
+#else
+#define OPENSSL_PRINTF_FORMAT_FUNC(string_index, first_to_check)
+#endif
+
 
 /* CRYPTO_THREADID is a dummy value. */
 typedef int CRYPTO_THREADID;

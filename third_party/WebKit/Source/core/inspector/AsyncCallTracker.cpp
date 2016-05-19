@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/inspector/AsyncCallTracker.h"
 
 #include "core/dom/ContextLifecycleObserver.h"
@@ -106,9 +105,9 @@ public:
     HashSet<int> m_intervalTimerIds;
     AsyncOperationMap<int> m_timerCallChains;
     AsyncOperationMap<int> m_animationFrameCallChains;
-    AsyncOperationMap<RawPtrWillBeMember<Event> > m_eventCallChains;
-    AsyncOperationMap<RawPtrWillBeMember<EventTarget> > m_xhrCallChains;
-    AsyncOperationMap<RawPtrWillBeMember<MutationObserver> > m_mutationObserverCallChains;
+    AsyncOperationMap<RawPtrWillBeMember<Event>> m_eventCallChains;
+    AsyncOperationMap<RawPtrWillBeMember<EventTarget>> m_xhrCallChains;
+    AsyncOperationMap<RawPtrWillBeMember<MutationObserver>> m_mutationObserverCallChains;
     AsyncOperationMap<ExecutionContextTask*> m_executionContextTaskCallChains;
     AsyncOperationMap<int> m_asyncOperations;
 
@@ -359,6 +358,7 @@ void AsyncCallTracker::willPerformExecutionContextTask(ExecutionContext* context
 
 int AsyncCallTracker::traceAsyncOperationStarting(ExecutionContext* context, const String& operationName, int prevOperationId)
 {
+    ScriptForbiddenScope::AllowUserAgentScript allowScripting;
     ASSERT(context);
     ASSERT(m_debuggerAgent->trackingAsyncCalls());
     if (prevOperationId)

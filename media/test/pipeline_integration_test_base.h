@@ -5,6 +5,8 @@
 #ifndef MEDIA_TEST_PIPELINE_INTEGRATION_TEST_BASE_H_
 #define MEDIA_TEST_PIPELINE_INTEGRATION_TEST_BASE_H_
 
+#include <stdint.h>
+
 #include "base/md5.h"
 #include "base/message_loop/message_loop.h"
 #include "media/audio/clockless_audio_sink.h"
@@ -13,7 +15,8 @@
 #include "media/base/demuxer.h"
 #include "media/base/media_keys.h"
 #include "media/base/null_video_sink.h"
-#include "media/base/pipeline.h"
+#include "media/base/pipeline_impl.h"
+#include "media/base/pipeline_status.h"
 #include "media/base/text_track.h"
 #include "media/base/text_track_config.h"
 #include "media/base/video_frame.h"
@@ -73,12 +76,14 @@ class PipelineIntegrationTestBase {
   // benchmarking purposes (e.g., underflow is disabled to ensure consistent
   // hashes).  May be combined using the bitwise or operator (and as such must
   // have values that are powers of two).
-  enum TestTypeFlags { kHashed = 1, kClockless = 2};
+  enum TestTypeFlags { kNormal = 0, kHashed = 1, kClockless = 2 };
   PipelineStatus Start(const std::string& filename, uint8_t test_type);
 
   void Play();
   void Pause();
   bool Seek(base::TimeDelta seek_time);
+  bool Suspend();
+  bool Resume(base::TimeDelta seek_time);
   void Stop();
   bool WaitUntilCurrentTimeIsAfter(const base::TimeDelta& wait_time);
 
@@ -104,7 +109,7 @@ class PipelineIntegrationTestBase {
   bool clockless_playback_;
   scoped_ptr<Demuxer> demuxer_;
   scoped_ptr<DataSource> data_source_;
-  scoped_ptr<Pipeline> pipeline_;
+  scoped_ptr<PipelineImpl> pipeline_;
   scoped_refptr<NullAudioSink> audio_sink_;
   scoped_refptr<ClocklessAudioSink> clockless_audio_sink_;
   scoped_ptr<NullVideoSink> video_sink_;
@@ -120,7 +125,7 @@ class PipelineIntegrationTestBase {
   void OnSeeked(base::TimeDelta seek_time, PipelineStatus status);
   void OnStatusCallback(PipelineStatus status);
   void DemuxerEncryptedMediaInitDataCB(EmeInitDataType type,
-                                       const std::vector<uint8>& init_data);
+                                       const std::vector<uint8_t>& init_data);
   void set_encrypted_media_init_data_cb(
       const Demuxer::EncryptedMediaInitDataCB& encrypted_media_init_data_cb) {
     encrypted_media_init_data_cb_ = encrypted_media_init_data_cb;

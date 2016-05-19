@@ -49,6 +49,7 @@
                 '../../public/blink.gyp:blink',
                 '../config.gyp:unittest_config',
                 '../platform/blink_platform_tests.gyp:blink_platform_test_support',
+                '../wtf/wtf.gyp:wtf',
                 '../wtf/wtf_tests.gyp:wtf_unittest_helpers',
                 'web.gyp:blink_web_test_support',
                 '<(DEPTH)/base/base.gyp:base',
@@ -81,7 +82,6 @@
                     ],
                     'sources': [
                         '<@(bindings_unittest_files)',
-                        '<@(platform_unittest_support_files)',
                         '<@(core_unittest_files)',
                         '<@(modules_unittest_files)',
                         '<@(platform_web_unittest_files)',
@@ -98,13 +98,6 @@
                             },
                         },
                     },
-                    'conditions': [
-                        ['win_use_allocator_shim==1', {
-                            'dependencies': [
-                                '<(DEPTH)/base/allocator/allocator.gyp:allocator',
-                            ],
-                        }],
-                    ],
                 }],
                 ['OS=="android"', {
                     'type': 'shared_library',
@@ -118,22 +111,10 @@
                         '../../public/web/mac',
                     ],
                 }],
-                [ 'os_posix==1 and OS!="mac" and OS!="android" and OS!="ios" and use_allocator!="none"', {
-                    'dependencies': [
-                        '<(DEPTH)/base/allocator/allocator.gyp:allocator',
-                    ],
-                }],
             ],
         }
     ], # targets
     'conditions': [
-        ['gcc_version>=46', {
-            'target_defaults': {
-                # Disable warnings about c++0x compatibility, as some names (such
-                # as nullptr) conflict with upcoming c++0x types.
-                'cflags_cc': ['-Wno-c++0x-compat'],
-            },
-        }],
         ['OS=="android" and gtest_target_type == "shared_library"', {
             # Wrap libwebkit_unit_tests.so into an android apk for execution.
             'targets': [{

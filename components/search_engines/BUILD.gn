@@ -11,6 +11,10 @@ static_library("search_engines") {
     "default_search_manager.h",
     "default_search_pref_migration.cc",
     "default_search_pref_migration.h",
+    "desktop_search_redirection_infobar_delegate.cc",
+    "desktop_search_redirection_infobar_delegate.h",
+    "desktop_search_utils.cc",
+    "desktop_search_utils.h",
     "keyword_table.cc",
     "keyword_table.h",
     "keyword_web_data_service.cc",
@@ -52,14 +56,23 @@ static_library("search_engines") {
   deps = [
     ":prepopulated_engines",
     "//base",
+    "//base:i18n",
     "//components/google/core/browser",
     "//components/history/core/browser",
     "//components/keyed_service/core",
     "//components/metrics/proto",
+
+    # The search_engines target is in an include cycle with
+    # components/omnibox/browser. The cycle is whitelisted in the
+    # omnibox/browser target, but should ideally be fixed, then this
+    # dependency added:
+    #"//components/omnibox/browser",
+    "//components/infobars/core",
     "//components/pref_registry",
+    "//components/prefs",
     "//components/rappor",
-    "//components/sync_driver",
     "//components/strings",
+    "//components/sync_driver",
     "//components/url_formatter",
     "//components/webdata/common",
     "//google_apis",
@@ -67,7 +80,9 @@ static_library("search_engines") {
     "//sql",
     "//sync",
     "//third_party/libxml",
+    "//ui/base",
     "//ui/gfx",
+    "//ui/gfx/geometry",
     "//url",
   ]
 
@@ -76,7 +91,10 @@ static_library("search_engines") {
       "default_search_policy_handler.cc",
       "default_search_policy_handler.h",
     ]
-    deps += [ "//components/policy" ]
+    deps += [
+      "//components/policy",
+      "//components/policy:policy_component",
+    ]
   }
 }
 
@@ -91,6 +109,7 @@ source_set("test_support") {
 
   public_deps = [
     ":search_engines",
+    "//base",
     "//testing/gtest",
   ]
 }
@@ -100,22 +119,40 @@ source_set("unit_tests") {
   sources = [
     "default_search_manager_unittest.cc",
     "default_search_pref_migration_unittest.cc",
+    "desktop_search_utils_unittest.cc",
     "keyword_table_unittest.cc",
+    "search_engine_data_type_controller_unittest.cc",
     "search_host_to_urls_map_unittest.cc",
     "template_url_prepopulate_data_unittest.cc",
     "template_url_service_util_unittest.cc",
     "template_url_unittest.cc",
   ]
-  if (enable_configuration_policy) {
-    sources += [ "default_search_policy_handler_unittest.cc" ]
-  }
 
   deps = [
-    "//components/pref_registry:test_support",
+    ":prepopulated_engines",
     ":test_support",
+    "//base",
+    "//components/google/core/browser",
+    "//components/pref_registry:test_support",
+    "//components/prefs",
+    "//components/sync_driver:test_support",
+    "//components/syncable_prefs:test_support",
+    "//components/webdata/common",
+    "//sql",
+    "//sync:test_support_sync_api",
     "//testing/gmock",
     "//testing/gtest",
+    "//url",
   ]
+
+  if (enable_configuration_policy) {
+    sources += [ "default_search_policy_handler_unittest.cc" ]
+
+    deps += [
+      "//components/policy",
+      "//components/policy:policy_component_test_support",
+    ]
+  }
 }
 
 json_to_struct("prepopulated_engines") {

@@ -4,20 +4,21 @@
 
 #include "ui/ozone/platform/drm/gpu/drm_window.h"
 
-#include <drm_fourcc.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "third_party/skia/include/core/SkDevice.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/ozone/common/gpu/ozone_gpu_message_params.h"
-#include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
 #include "ui/ozone/platform/drm/gpu/drm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
-#include "ui/ozone/platform/drm/gpu/scanout_buffer.h"
+#include "ui/ozone/platform/drm/gpu/drm_overlay_validator.h"
 #include "ui/ozone/platform/drm/gpu/screen_manager.h"
 
 namespace ui {
@@ -41,8 +42,8 @@ void UpdateCursorImage(DrmBuffer* cursor, const SkBitmap& image) {
   canvas->clear(SK_ColorTRANSPARENT);
 
   SkRect clip;
-  clip.set(0, 0, canvas->getDeviceSize().width(),
-           canvas->getDeviceSize().height());
+  clip.set(0, 0, canvas->getBaseLayerSize().width(),
+           canvas->getBaseLayerSize().height());
   canvas->clipRect(clip, SkRegion::kReplace_Op);
   canvas->drawBitmapRect(image, damage, NULL);
 }
@@ -60,10 +61,12 @@ DrmWindow::DrmWindow(gfx::AcceleratedWidget widget,
 DrmWindow::~DrmWindow() {
 }
 
-void DrmWindow::Initialize() {
+void DrmWindow::Initialize(ScanoutBufferGenerator* buffer_generator) {
   TRACE_EVENT1("drm", "DrmWindow::Initialize", "widget", widget_);
 
   device_manager_->UpdateDrmDevice(widget_, nullptr);
+  overlay_validator_ =
+      make_scoped_ptr(new DrmOverlayValidator(this, buffer_generator));
 }
 
 void DrmWindow::Shutdown() {
@@ -82,8 +85,10 @@ HardwareDisplayController* DrmWindow::GetController() {
 void DrmWindow::SetBounds(const gfx::Rect& bounds) {
   TRACE_EVENT2("drm", "DrmWindow::SetBounds", "widget", widget_, "bounds",
                bounds.ToString());
-  if (bounds_.size() != bounds.size())
+  if (bounds_.size() != bounds.size()) {
     last_submitted_planes_.clear();
+    overlay_validator_->ClearCache();
+  }
 
   bounds_ = bounds;
   screen_manager_->UpdateControllerToWindowMapping();
@@ -130,7 +135,8 @@ void DrmWindow::SchedulePageFlip(const std::vector<OverlayPlane>& planes,
     return;
   }
 
-  last_submitted_planes_ = planes;
+  last_submitted_planes_ =
+      overlay_validator_->PrepareBuffersForPageFlip(planes);
 
   if (!controller_) {
     callback.Run(gfx::SwapResult::SWAP_ACK);
@@ -141,66 +147,9 @@ void DrmWindow::SchedulePageFlip(const std::vector<OverlayPlane>& planes,
 }
 
 std::vector<OverlayCheck_Params> DrmWindow::TestPageFlip(
-    const std::vector<OverlayCheck_Params>& overlays,
-    ScanoutBufferGenerator* buffer_generator) {
-  std::vector<OverlayCheck_Params> params;
-  if (!controller_) {
-    // Nothing much we can do here.
-    return params;
-  }
-
-  OverlayPlaneList compatible_test_list;
-  scoped_refptr<DrmDevice> drm = controller_->GetAllocationDrmDevice();
-  for (const auto& overlay : overlays) {
-    OverlayCheck_Params overlay_params(overlay);
-    gfx::Size size =
-        (overlay.plane_z_order == 0) ? bounds().size() : overlay.buffer_size;
-    scoped_refptr<ScanoutBuffer> buffer;
-    // Check if we can re-use existing buffers.
-    for (const auto& plane : last_submitted_planes_) {
-      uint32_t format = GetFourCCFormatFromBufferFormat(overlay.format);
-      // We always use a storage type of XRGB, even if the pixel format
-      // is ARGB.
-      if (format == DRM_FORMAT_ARGB8888)
-        format = DRM_FORMAT_XRGB8888;
-
-      if (plane.buffer->GetFramebufferPixelFormat() == format &&
-          plane.z_order == overlay.plane_z_order &&
-          plane.display_bounds == overlay.display_rect &&
-          plane.buffer->GetSize() == size) {
-        buffer = plane.buffer;
-        break;
-      }
-    }
-
-    if (!buffer)
-      buffer = buffer_generator->Create(drm, overlay.format, size);
-
-    if (!buffer)
-      continue;
-
-    OverlayPlane plane(buffer, overlay.plane_z_order, overlay.transform,
-                       overlay.display_rect, overlay.crop_rect);
-
-    // Buffer for Primary plane should always be present for compatibility test.
-    if (!compatible_test_list.size() && overlay.plane_z_order != 0) {
-      compatible_test_list.push_back(
-          *OverlayPlane::GetPrimaryPlane(last_submitted_planes_));
-    }
-
-    compatible_test_list.push_back(plane);
-
-    if (controller_->TestPageFlip(compatible_test_list)) {
-      overlay_params.plane_ids =
-          controller_->GetCompatibleHardwarePlaneIds(plane);
-      params.push_back(overlay_params);
-    }
-
-    if (compatible_test_list.size() > 1)
-      compatible_test_list.pop_back();
-  }
-
-  return params;
+    const std::vector<OverlayCheck_Params>& overlay_params) {
+  return overlay_validator_->TestPageFlip(overlay_params,
+                                          last_submitted_planes_);
 }
 
 const OverlayPlane* DrmWindow::GetLastModesetBuffer() {
@@ -214,7 +163,7 @@ void DrmWindow::GetVSyncParameters(
 
   // If we're in mirror mode the 2 CRTCs should have similar modes with the same
   // refresh rates.
-  CrtcController* crtc = controller_->crtc_controllers()[0];
+  CrtcController* crtc = controller_->crtc_controllers()[0].get();
   // The value is invalid, so we can't update the parameters.
   if (controller_->GetTimeOfLastFlip() == 0 || crtc->mode().vrefresh == 0)
     return;
@@ -273,6 +222,8 @@ void DrmWindow::SetController(HardwareDisplayController* controller) {
   UpdateCursorBuffers();
   // We changed displays, so we want to update the cursor as well.
   ResetCursor(false /* bitmap_only */);
+  // Reset any cache in Validator.
+  overlay_validator_->ClearCache();
 }
 
 void DrmWindow::UpdateCursorBuffers() {

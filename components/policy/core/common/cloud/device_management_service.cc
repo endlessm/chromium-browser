@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
@@ -421,7 +422,8 @@ DeviceManagementRequestJob* DeviceManagementService::CreateJob(
       request_context);
 }
 
-void DeviceManagementService::ScheduleInitialization(int64 delay_milliseconds) {
+void DeviceManagementService::ScheduleInitialization(
+    int64_t delay_milliseconds) {
   if (initialized_)
     return;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
@@ -453,7 +455,7 @@ void DeviceManagementService::Shutdown() {
 
 DeviceManagementService::DeviceManagementService(
     scoped_ptr<Configuration> configuration)
-    : configuration_(configuration.Pass()),
+    : configuration_(std::move(configuration)),
       initialized_(false),
       weak_ptr_factory_(this) {
   DCHECK(configuration_);

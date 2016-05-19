@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/CSSCounterValue.h"
 
 #include "core/css/CSSMarkup.h"
@@ -41,4 +40,4 @@ DEFINE_TRACE_AFTER_DISPATCH(CSSCounterValue)
     CSSValue::traceAfterDispatch(visitor);
 }
 
-}
+} // namespace blink

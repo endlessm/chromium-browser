@@ -5,6 +5,8 @@
 
 #include "sync/engine/entity_tracker.h"
 
+#include <stdint.h>
+
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "sync/internal_api/public/base/model_type.h"
@@ -39,27 +41,32 @@ class EntityTrackerTest : public ::testing::Test {
 
   ~EntityTrackerTest() override {}
 
-  CommitRequestData MakeCommitRequestData(int64 sequence_number,
-                                          int64 base_version) {
-    CommitRequestData data;
+  CommitRequestData MakeCommitRequestData(int64_t sequence_number,
+                                          int64_t base_version) {
+    EntityData data;
     data.id = kServerId;
     data.client_tag_hash = kClientTagHash;
-    data.sequence_number = sequence_number;
-    data.base_version = base_version;
-    data.ctime = kCtime;
-    data.mtime = kMtime;
-    data.non_unique_name = kClientTag;
-    data.deleted = false;
+    data.creation_time = kCtime;
+    data.modification_time = kMtime;
     data.specifics = specifics;
-    return data;
+    data.non_unique_name = kClientTag;
+
+    CommitRequestData request_data;
+    request_data.entity = data.PassToPtr();
+    request_data.sequence_number = sequence_number;
+    request_data.base_version = base_version;
+    return request_data;
   }
 
-  UpdateResponseData MakeUpdateResponseData(int64 response_version) {
-    UpdateResponseData data;
+  UpdateResponseData MakeUpdateResponseData(int64_t response_version) {
+    EntityData data;
     data.id = kServerId;
     data.client_tag_hash = kClientTagHash;
-    data.response_version = response_version;
-    return data;
+
+    UpdateResponseData response_data;
+    response_data.entity = data.PassToPtr();
+    response_data.response_version = response_version;
+    return response_data;
   }
 
   const std::string kServerId;
@@ -82,15 +89,15 @@ TEST_F(EntityTrackerTest, FromUpdateResponse) {
 
 // Construct a new entity from a commit request.  Then serialize it.
 TEST_F(EntityTrackerTest, FromCommitRequest) {
-  const int64 kSequenceNumber = 22;
-  const int64 kBaseVersion = 33;
+  const int64_t kSequenceNumber = 22;
+  const int64_t kBaseVersion = 33;
   CommitRequestData data = MakeCommitRequestData(kSequenceNumber, kBaseVersion);
   scoped_ptr<EntityTracker> entity(EntityTracker::FromCommitRequest(data));
   entity->RequestCommit(data);
 
   ASSERT_TRUE(entity->HasPendingCommit());
   sync_pb::SyncEntity pb_entity;
-  int64 sequence_number = 0;
+  int64_t sequence_number = 0;
   entity->PrepareCommitProto(&pb_entity, &sequence_number);
   EXPECT_EQ(kSequenceNumber, sequence_number);
   EXPECT_EQ(kServerId, pb_entity.id_string());
@@ -151,4 +158,4 @@ TEST_F(EntityTrackerTest, ReflectedUpdateDoesntClobberCommit) {
   EXPECT_TRUE(entity->HasPendingCommit());
 }
 
-}  // namespace syncer
+}  // namespace syncer_v2

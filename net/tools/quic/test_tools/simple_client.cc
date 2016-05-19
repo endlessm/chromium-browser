@@ -5,7 +5,6 @@
 #include "net/tools/quic/test_tools/simple_client.h"
 
 namespace net {
-namespace tools {
 namespace test {
 
 void SimpleClient::WaitForResponse() {
@@ -27,10 +26,13 @@ int SimpleClient::HalfClose() {
   return 0;
 }
 
-int SimpleClient::response_header_size() const { return 0; }
+int SimpleClient::response_header_size() const {
+  return 0;
+}
 
-int64 SimpleClient::response_body_size() const { return 0; }
+int64_t SimpleClient::response_body_size() const {
+  return 0;
+}
 
 }  // namespace net
-}  // namespace tools
 }  // namespace test

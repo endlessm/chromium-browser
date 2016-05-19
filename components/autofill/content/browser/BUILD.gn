@@ -26,16 +26,16 @@ static_library("browser") {
   configs += [ "//components/autofill/core/browser:wallet_service" ]
 
   public_deps = [
+    ":risk_proto",
     "//skia",
   ]
   deps = [
-    ":risk_proto",
     "//base",
     "//base:i18n",
-    "//base:prefs",
     "//components/autofill/content/common",
     "//components/autofill/core/browser",
     "//components/autofill/core/common",
+    "//components/prefs",
     "//components/os_crypt",
     "//components/resources",
     "//components/strings",
@@ -78,8 +78,8 @@ source_set("unit_tests") {
   deps = [
     ":browser",
     "//base",
-    "//components/autofill/content/common",
     "//components/autofill/content/browser/wallet:test_support",
+    "//components/autofill/content/common",
     "//components/autofill/core/browser",
     "//components/autofill/core/browser:test_support",
     "//components/autofill/core/common",

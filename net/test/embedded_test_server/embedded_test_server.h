@@ -5,14 +5,16 @@
 #ifndef NET_TEST_EMBEDDED_TEST_SERVER_EMBEDDED_TEST_SERVER_H_
 #define NET_TEST_EMBEDDED_TEST_SERVER_EMBEDDED_TEST_SERVER_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -131,10 +133,6 @@ class EmbeddedTestServer {
   // Returns whether a listening socket has been successfully created.
   bool Start();
 
-  // Deprecated method that calls Start().
-  // TODO(svaldez): Remove and replace with Start().
-  bool InitializeAndWaitUntilReady() WARN_UNUSED_RESULT;
-
   // Starts listening for incoming connections but will not yet accept them.
   // Returns whether a listening socket has been succesfully created.
   bool InitializeAndListen() WARN_UNUSED_RESULT;
@@ -174,7 +172,7 @@ class EmbeddedTestServer {
   bool GetAddressList(AddressList* address_list) const WARN_UNUSED_RESULT;
 
   // Returns the port number used by the server.
-  uint16 port() const { return port_; }
+  uint16_t port() const { return port_; }
 
   void SetSSLConfig(ServerCertificate cert, const SSLServerConfig& ssl_config);
   void SetSSLConfig(ServerCertificate cert);
@@ -259,7 +257,7 @@ class EmbeddedTestServer {
   scoped_ptr<StreamSocket> accepted_socket_;
 
   EmbeddedTestServerConnectionListener* connection_listener_;
-  uint16 port_;
+  uint16_t port_;
   GURL base_url_;
   IPEndPoint local_endpoint_;
 

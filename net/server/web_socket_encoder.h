@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_piece.h"
 #include "net/server/web_socket.h"
@@ -42,7 +42,7 @@ class WebSocketEncoder final {
                    int masking_key,
                    std::string* output);
 
-  bool deflate_enabled() const { return deflater_; }
+  bool deflate_enabled() const { return !!deflater_; }
 
  private:
   enum Type {

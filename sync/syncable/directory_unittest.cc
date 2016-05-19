@@ -4,6 +4,13 @@
 
 #include "sync/syncable/directory_unittest.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <cstdlib>
+
+#include "base/macros.h"
+#include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/values_test_util.h"
@@ -185,11 +192,11 @@ void SyncableDirectoryTest::CheckPurgeEntriesWithTypeInSucceeded(
   EXPECT_TRUE(dir_->InitialSyncEndedForType(BOOKMARKS));
 }
 
-bool SyncableDirectoryTest::IsInDirtyMetahandles(int64 metahandle) {
+bool SyncableDirectoryTest::IsInDirtyMetahandles(int64_t metahandle) {
   return 1 == dir_->kernel()->dirty_metahandles.count(metahandle);
 }
 
-bool SyncableDirectoryTest::IsInMetahandlesToPurge(int64 metahandle) {
+bool SyncableDirectoryTest::IsInMetahandlesToPurge(int64_t metahandle) {
   return 1 == dir_->kernel()->metahandles_to_purge.count(metahandle);
 }
 
@@ -212,11 +219,11 @@ SyncableDirectoryTest::unrecoverable_error_handler() {
 }
 
 void SyncableDirectoryTest::ValidateEntry(BaseTransaction* trans,
-                                          int64 id,
+                                          int64_t id,
                                           bool check_name,
                                           const std::string& name,
-                                          int64 base_version,
-                                          int64 server_version,
+                                          int64_t base_version,
+                                          int64_t server_version,
                                           bool is_del) {
   Entry e(trans, GET_BY_ID, TestIdFactory::FromNumber(id));
   ASSERT_TRUE(e.good());
@@ -273,7 +280,7 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsMetahandlesToPurge) {
 
 TEST_F(SyncableDirectoryTest, TakeSnapshotGetsAllDirtyHandlesTest) {
   const int metahandles_to_create = 100;
-  std::vector<int64> expected_dirty_metahandles;
+  std::vector<int64_t> expected_dirty_metahandles;
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     for (int i = 0; i < metahandles_to_create; i++) {
@@ -300,11 +307,10 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsAllDirtyHandlesTest) {
   // Put a new value with existing transactions as well as adding new ones.
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
-    std::vector<int64> new_dirty_metahandles;
-    for (std::vector<int64>::const_iterator i =
+    std::vector<int64_t> new_dirty_metahandles;
+    for (std::vector<int64_t>::const_iterator i =
              expected_dirty_metahandles.begin();
-         i != expected_dirty_metahandles.end();
-         ++i) {
+         i != expected_dirty_metahandles.end(); ++i) {
       // Change existing entries to directories to dirty them.
       MutableEntry e1(&trans, GET_BY_HANDLE, *i);
       e1.PutIsDir(true);
@@ -340,7 +346,7 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsOnlyDirtyHandlesTest) {
 
   // half of 2 * metahandles_to_create
   const unsigned int number_changed = 100u;
-  std::vector<int64> expected_dirty_metahandles;
+  std::vector<int64_t> expected_dirty_metahandles;
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     for (int i = 0; i < metahandles_to_create; i++) {
@@ -353,11 +359,10 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsOnlyDirtyHandlesTest) {
   // Put a new value with existing transactions as well as adding new ones.
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
-    std::vector<int64> new_dirty_metahandles;
-    for (std::vector<int64>::const_iterator i =
+    std::vector<int64_t> new_dirty_metahandles;
+    for (std::vector<int64_t>::const_iterator i =
              expected_dirty_metahandles.begin();
-         i != expected_dirty_metahandles.end();
-         ++i) {
+         i != expected_dirty_metahandles.end(); ++i) {
       // Change existing entries to directories to dirty them.
       MutableEntry e1(&trans, GET_BY_HANDLE, *i);
       ASSERT_TRUE(e1.good());
@@ -376,10 +381,9 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsOnlyDirtyHandlesTest) {
   // Don't make any changes whatsoever and ensure nothing comes back.
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
-    for (std::vector<int64>::const_iterator i =
+    for (std::vector<int64_t>::const_iterator i =
              expected_dirty_metahandles.begin();
-         i != expected_dirty_metahandles.end();
-         ++i) {
+         i != expected_dirty_metahandles.end(); ++i) {
       MutableEntry e(&trans, GET_BY_HANDLE, *i);
       ASSERT_TRUE(e.good());
       // We aren't doing anything to dirty these entries.
@@ -397,10 +401,9 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsOnlyDirtyHandlesTest) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     bool should_change = false;
-    for (std::vector<int64>::const_iterator i =
+    for (std::vector<int64_t>::const_iterator i =
              expected_dirty_metahandles.begin();
-         i != expected_dirty_metahandles.end();
-         ++i) {
+         i != expected_dirty_metahandles.end(); ++i) {
       // Maybe change entries by flipping IS_DIR.
       MutableEntry e(&trans, GET_BY_HANDLE, *i);
       ASSERT_TRUE(e.good());
@@ -440,9 +443,9 @@ TEST_F(SyncableDirectoryTest, ManageDeleteJournals) {
   Id id2 = TestIdFactory::FromNumber(2);
   // The third one is a client ID.
   Id id3 = TestIdFactory::FromNumber(-3);
-  int64 handle1 = 0;
-  int64 handle2 = 0;
-  int64 handle3 = 0;
+  int64_t handle1 = 0;
+  int64_t handle2 = 0;
+  int64_t handle3 = 0;
   {
     // Create 3 bookmark entries and save in database.
     {
@@ -584,7 +587,7 @@ TEST_F(SyncableDirectoryTest, TestPurgeDeletedEntriesOnReload) {
   const int kClientCount = 2;
   const int kServerCount = 5;
   const int kTestCount = kClientCount + kServerCount;
-  int64 handles[kTestCount];
+  int64_t handles[kTestCount];
 
   // The idea is to recreate various combinations of IDs, IS_DEL,
   // IS_UNSYNCED, and IS_UNAPPLIED_UPDATE flags to test all combinations
@@ -640,11 +643,11 @@ TEST_F(SyncableDirectoryTest, TestPurgeDeletedEntriesOnReload) {
   // - Item 0 is an item with IS_DEL flag and client ID.
   // - Item 5 is an item with IS_DEL flag which has both
   //   IS_UNSYNCED and IS_UNAPPLIED_UPDATE unset.
-  std::vector<int64> expected_purged;
+  std::vector<int64_t> expected_purged;
   expected_purged.push_back(0);
   expected_purged.push_back(5);
 
-  std::vector<int64> actually_purged;
+  std::vector<int64_t> actually_purged;
   {
     ReadTransaction trans(FROM_HERE, dir().get());
     for (int i = 0; i < kTestCount; i++) {
@@ -695,12 +698,12 @@ TEST_F(SyncableDirectoryTest, TestDelete) {
 
 TEST_F(SyncableDirectoryTest, TestGetUnsynced) {
   Directory::Metahandles handles;
-  int64 handle1, handle2;
+  int64_t handle1, handle2;
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
 
     dir()->GetUnsyncedMetaHandles(&trans, &handles);
-    ASSERT_TRUE(0 == handles.size());
+    ASSERT_EQ(0u, handles.size());
 
     MutableEntry e1(&trans, CREATE, BOOKMARKS, trans.root_id(), "abba");
     ASSERT_TRUE(e1.good());
@@ -720,7 +723,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnsynced) {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
 
     dir()->GetUnsyncedMetaHandles(&trans, &handles);
-    ASSERT_TRUE(0 == handles.size());
+    ASSERT_EQ(0u, handles.size());
 
     MutableEntry e3(&trans, GET_BY_HANDLE, handle1);
     ASSERT_TRUE(e3.good());
@@ -730,7 +733,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnsynced) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     dir()->GetUnsyncedMetaHandles(&trans, &handles);
-    ASSERT_TRUE(1 == handles.size());
+    ASSERT_EQ(1u, handles.size());
     ASSERT_TRUE(handle1 == handles[0]);
 
     MutableEntry e4(&trans, GET_BY_HANDLE, handle2);
@@ -741,7 +744,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnsynced) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     dir()->GetUnsyncedMetaHandles(&trans, &handles);
-    ASSERT_TRUE(2 == handles.size());
+    ASSERT_EQ(2u, handles.size());
     if (handle1 == handles[0]) {
       ASSERT_TRUE(handle2 == handles[1]);
     } else {
@@ -759,20 +762,20 @@ TEST_F(SyncableDirectoryTest, TestGetUnsynced) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     dir()->GetUnsyncedMetaHandles(&trans, &handles);
-    ASSERT_TRUE(1 == handles.size());
+    ASSERT_EQ(1u, handles.size());
     ASSERT_TRUE(handle2 == handles[0]);
   }
 }
 
 TEST_F(SyncableDirectoryTest, TestGetUnappliedUpdates) {
-  std::vector<int64> handles;
-  int64 handle1, handle2;
+  std::vector<int64_t> handles;
+  int64_t handle1, handle2;
   const FullModelTypeSet all_types = FullModelTypeSet::All();
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
 
     dir()->GetUnappliedUpdateMetaHandles(&trans, all_types, &handles);
-    ASSERT_TRUE(0 == handles.size());
+    ASSERT_EQ(0u, handles.size());
 
     MutableEntry e1(&trans, CREATE, BOOKMARKS, trans.root_id(), "abba");
     ASSERT_TRUE(e1.good());
@@ -794,7 +797,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnappliedUpdates) {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
 
     dir()->GetUnappliedUpdateMetaHandles(&trans, all_types, &handles);
-    ASSERT_TRUE(0 == handles.size());
+    ASSERT_EQ(0u, handles.size());
 
     MutableEntry e3(&trans, GET_BY_HANDLE, handle1);
     ASSERT_TRUE(e3.good());
@@ -804,7 +807,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnappliedUpdates) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     dir()->GetUnappliedUpdateMetaHandles(&trans, all_types, &handles);
-    ASSERT_TRUE(1 == handles.size());
+    ASSERT_EQ(1u, handles.size());
     ASSERT_TRUE(handle1 == handles[0]);
 
     MutableEntry e4(&trans, GET_BY_HANDLE, handle2);
@@ -815,7 +818,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnappliedUpdates) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     dir()->GetUnappliedUpdateMetaHandles(&trans, all_types, &handles);
-    ASSERT_TRUE(2 == handles.size());
+    ASSERT_EQ(2u, handles.size());
     if (handle1 == handles[0]) {
       ASSERT_TRUE(handle2 == handles[1]);
     } else {
@@ -831,7 +834,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnappliedUpdates) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
     dir()->GetUnappliedUpdateMetaHandles(&trans, all_types, &handles);
-    ASSERT_TRUE(1 == handles.size());
+    ASSERT_EQ(1u, handles.size());
     ASSERT_TRUE(handle2 == handles[0]);
   }
 }
@@ -839,7 +842,7 @@ TEST_F(SyncableDirectoryTest, TestGetUnappliedUpdates) {
 TEST_F(SyncableDirectoryTest, DeleteBug_531383) {
   // Try to evoke a check failure...
   TestIdFactory id_factory;
-  int64 grandchild_handle;
+  int64_t grandchild_handle;
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, dir().get());
     MutableEntry parent(&wtrans, CREATE, BOOKMARKS, id_factory.root(), "Bob");
@@ -927,7 +930,7 @@ TEST_F(SyncableDirectoryTest, TestIsLegalNewParent) {
 
 TEST_F(SyncableDirectoryTest, TestEntryIsInFolder) {
   // Create a subdir and an entry.
-  int64 entry_handle;
+  int64_t entry_handle;
   syncable::Id folder_id;
   syncable::Id entry_id;
   std::string entry_name = "entry";
@@ -1417,7 +1420,7 @@ TEST_F(SyncableDirectoryTest, BadPositionCountsAsCorruption) {
 }
 
 TEST_F(SyncableDirectoryTest, General) {
-  int64 written_metahandle;
+  int64_t written_metahandle;
   const Id id = TestIdFactory::FromNumber(99);
   std::string name = "Jeff";
   // Test simple read operations on an empty DB.
@@ -1494,7 +1497,7 @@ TEST_F(SyncableDirectoryTest, General) {
 }
 
 TEST_F(SyncableDirectoryTest, ChildrenOps) {
-  int64 written_metahandle;
+  int64_t written_metahandle;
   const Id id = TestIdFactory::FromNumber(99);
   std::string name = "Jeff";
   {
@@ -1555,7 +1558,7 @@ TEST_F(SyncableDirectoryTest, ChildrenOps) {
 }
 
 TEST_F(SyncableDirectoryTest, ClientIndexRebuildsProperly) {
-  int64 written_metahandle;
+  int64_t written_metahandle;
   TestIdFactory factory;
   const Id id = factory.NewServerId();
   std::string name = "cheesepuffs";
@@ -1665,23 +1668,23 @@ class StressTransactionsDelegate : public base::PlatformThread::Delegate {
     std::string path_name;
 
     for (int i = 0; i < 20; ++i) {
-      const int rand_action = rand() % 10;
+      const int rand_action = base::RandInt(0, 9);
       if (rand_action < 4 && !path_name.empty()) {
         ReadTransaction trans(FROM_HERE, dir_);
-        CHECK(1 == CountEntriesWithName(&trans, trans.root_id(), path_name));
+        EXPECT_EQ(1, CountEntriesWithName(&trans, trans.root_id(), path_name));
         base::PlatformThread::Sleep(
-            base::TimeDelta::FromMilliseconds(rand() % 10));
+            base::TimeDelta::FromMilliseconds(base::RandInt(0, 9)));
       } else {
         std::string unique_name =
             base::StringPrintf("%d.%d", thread_number_, entry_count++);
         path_name.assign(unique_name.begin(), unique_name.end());
         WriteTransaction trans(FROM_HERE, UNITTEST, dir_);
         MutableEntry e(&trans, CREATE, BOOKMARKS, trans.root_id(), path_name);
-        CHECK(e.good());
+        EXPECT_TRUE(e.good());
         base::PlatformThread::Sleep(
-            base::TimeDelta::FromMilliseconds(rand() % 20));
+            base::TimeDelta::FromMilliseconds(base::RandInt(0, 19)));
         e.PutIsUnsynced(true);
-        if (e.PutId(TestIdFactory::FromNumber(rand())) &&
+        if (e.PutId(TestIdFactory::FromNumber(base::RandInt(0, RAND_MAX))) &&
             e.GetId().ServerKnows() && !e.GetId().IsRoot()) {
           e.PutBaseVersion(1);
         }
@@ -2119,7 +2122,7 @@ TEST_F(SyncableDirectoryTest, InitialSyncEndedForType) {
   // Create the root node.
   ModelNeutralMutableEntry entry(&trans, syncable::CREATE_NEW_TYPE_ROOT,
                                  PREFERENCES);
-  DCHECK(entry.good());
+  ASSERT_TRUE(entry.good());
 
   entry.PutServerIsDir(true);
   entry.PutUniqueServerTag(ModelTypeToRootTag(PREFERENCES));

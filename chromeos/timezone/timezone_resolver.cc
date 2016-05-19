@@ -5,22 +5,24 @@
 #include "chromeos/timezone/timezone_resolver.h"
 
 #include <math.h>
+#include <stdint.h>
 
 #include <algorithm>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_observer.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/rand_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chromeos/geolocation/geoposition.h"
 #include "chromeos/geolocation/simple_geolocation_provider.h"
 #include "chromeos/timezone/timezone_provider.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 
 namespace chromeos {
 
@@ -262,7 +264,7 @@ TimeZoneResolver::TimeZoneResolverImpl::TimeZoneResolverImpl(
   base::PowerMonitor* power_monitor = base::PowerMonitor::Get();
   power_monitor->AddObserver(this);
 
-  const int64 last_refresh_at_raw =
+  const int64_t last_refresh_at_raw =
       resolver_->local_state()->GetInt64(kLastTimeZoneRefreshTime);
   const base::Time last_refresh_at =
       base::Time::FromInternalValue(last_refresh_at_raw);

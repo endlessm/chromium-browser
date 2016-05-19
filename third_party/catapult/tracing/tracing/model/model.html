@@ -8,25 +8,31 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/base/base.html">
 <link rel="import" href="/tracing/base/event.html">
 <link rel="import" href="/tracing/base/interval_tree.html">
+<link rel="import" href="/tracing/base/quad.html">
 <link rel="import" href="/tracing/base/range.html">
 <link rel="import" href="/tracing/base/task.html">
-<link rel="import" href="/tracing/base/units/units.html">
 <link rel="import" href="/tracing/core/auditor.html">
 <link rel="import" href="/tracing/core/filter.html">
 <link rel="import" href="/tracing/model/alert.html">
+<link rel="import" href="/tracing/model/constants.html">
 <link rel="import" href="/tracing/model/device.html">
 <link rel="import" href="/tracing/model/flow_event.html">
 <link rel="import" href="/tracing/model/frame.html">
 <link rel="import" href="/tracing/model/global_memory_dump.html">
 <link rel="import" href="/tracing/model/instant_event.html">
-<link rel="import" href="/tracing/model/interaction_record.html">
 <link rel="import" href="/tracing/model/kernel.html">
 <link rel="import" href="/tracing/model/model_indices.html">
+<link rel="import" href="/tracing/model/model_stats.html">
+<link rel="import" href="/tracing/model/object_snapshot.html">
 <link rel="import" href="/tracing/model/process.html">
 <link rel="import" href="/tracing/model/process_memory_dump.html">
 <link rel="import" href="/tracing/model/sample.html">
 <link rel="import" href="/tracing/model/stack_frame.html">
+<link rel="import" href="/tracing/model/user_model/user_expectation.html">
+<link rel="import" href="/tracing/model/user_model/user_model.html">
 <link rel="import" href="/tracing/ui/base/overlay.html">
+<link rel="import" href="/tracing/value/time_display_mode.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <script>
 'use strict';
@@ -55,14 +61,7 @@ tr.exportTo('tr', function() {
   var GlobalInstantEvent = tr.model.GlobalInstantEvent;
   var FlowEvent = tr.model.FlowEvent;
   var Alert = tr.model.Alert;
-  var InteractionRecord = tr.model.InteractionRecord;
   var Sample = tr.model.Sample;
-
-  function ClockSyncRecord(name, ts, args) {
-    this.name = name;
-    this.ts = ts;
-    this.args = args;
-  }
 
   /**
    * @constructor
@@ -89,7 +88,7 @@ tr.exportTo('tr', function() {
     this.samples = [];
 
     this.alerts = [];
-    this.interactionRecords = [];
+    this.userModel = new tr.model.um.UserModel(this);
 
     this.flowIntervalTree = new tr.b.IntervalTree(
         function(f) { return f.start; },
@@ -102,12 +101,41 @@ tr.exportTo('tr', function() {
     this.annotationsByGuid_ = {};
     this.modelIndices = undefined;
 
+    this.stats = new tr.model.ModelStats();
+
     this.importWarnings_ = [];
     this.reportedImportWarnings_ = {};
+
+    this.isTimeHighResolution_ = undefined;
+
+    this.patchupsToApply_ = [];
+
+    this.doesHelperGUIDSupportThisModel_ = {};
+    this.helpersByConstructorGUID_ = {};
   }
 
   Model.prototype = {
     __proto__: tr.model.EventContainer.prototype,
+
+    getOrCreateHelper: function(constructor) {
+      if (!constructor.guid)
+        throw new Error('Helper constructors must have GUIDs');
+
+      if (this.helpersByConstructorGUID_[constructor.guid] === undefined) {
+        if (this.doesHelperGUIDSupportThisModel_[constructor.guid] ===
+            undefined) {
+          this.doesHelperGUIDSupportThisModel_[constructor.guid] =
+            constructor.supportsModel(this);
+        }
+
+        if (!this.doesHelperGUIDSupportThisModel_[constructor.guid])
+          return undefined;
+
+        this.helpersByConstructorGUID_[constructor.guid] = new constructor(
+            this);
+      }
+      return this.helpersByConstructorGUID_[constructor.guid];
+    },
 
     iterateAllEventsInThisContainer: function(eventTypePredicate,
                                               callback, opt_this) {
@@ -123,14 +151,12 @@ tr.exportTo('tr', function() {
       if (eventTypePredicate.call(opt_this, Alert))
         this.alerts.forEach(callback, opt_this);
 
-      if (eventTypePredicate.call(opt_this, InteractionRecord))
-        this.interactionRecords.forEach(callback, opt_this);
-
       if (eventTypePredicate.call(opt_this, Sample))
         this.samples.forEach(callback, opt_this);
     },
 
     iterateAllChildEventContainers: function(callback, opt_this) {
+      callback.call(opt_this, this.userModel);
       callback.call(opt_this, this.device);
       callback.call(opt_this, this.kernel);
       for (var pid in this.processes)
@@ -180,7 +206,7 @@ tr.exportTo('tr', function() {
     convertTimestampToModelTime: function(sourceClockDomainName, ts) {
       if (sourceClockDomainName !== 'traceEventClock')
         throw new Error('Only traceEventClock is supported.');
-      return tr.b.u.Units.timestampFromUs(ts) +
+      return tr.v.Unit.timestampFromUs(ts) +
         this.timestampShiftToZeroAmount_;
     },
 
@@ -220,11 +246,6 @@ tr.exportTo('tr', function() {
       return stackFrame;
     },
 
-    addInteractionRecord: function(ir) {
-      this.interactionRecords.push(ir);
-      return ir;
-    },
-
     getClockSyncRecordsNamed: function(name) {
       return this.clockSyncRecords.filter(function(x) {
         return x.name === name;
@@ -236,6 +257,7 @@ tr.exportTo('tr', function() {
      */
     updateCategories_: function() {
       var categoriesDict = {};
+      this.userModel.addCategoriesToDict(categoriesDict);
       this.device.addCategoriesToDict(categoriesDict);
       this.kernel.addCategoriesToDict(categoriesDict);
       for (var pid in this.processes)
@@ -346,6 +368,10 @@ tr.exportTo('tr', function() {
       return namedThreads;
     },
 
+    get importOptions() {
+      return this.importOptions_;
+    },
+
     set importOptions(options) {
       this.importOptions_ = options;
     },
@@ -356,7 +382,7 @@ tr.exportTo('tr', function() {
      */
     get intrinsicTimeUnit() {
       if (this.intrinsicTimeUnit_ === undefined)
-        return tr.b.u.TimeDisplayModes.ms;
+        return tr.v.TimeDisplayModes.ms;
       return this.intrinsicTimeUnit_;
     },
 
@@ -366,6 +392,37 @@ tr.exportTo('tr', function() {
       if (this.intrinsicTimeUnit_ !== undefined)
         throw new Error('Intrinsic time unit already set');
       this.intrinsicTimeUnit_ = value;
+    },
+
+    get isTimeHighResolution() {
+      if (this.isTimeHighResolution_ === undefined)
+        this.isTimeHighResolution_ = this.isTimeHighResolutionHeuristic_();
+      return this.isTimeHighResolution_;
+    },
+
+    set isTimeHighResolution(value) {
+      if (this.isTimeHighResolution_ === value)
+        return;
+      if (this.isTimeHighResolution_ !== undefined)
+        throw new Error('isTimeHighResolution already set');
+      this.isTimeHighResolution_ = value;
+    },
+
+    /**
+     * Returns a link to a trace data file that this model was imported from.
+     * This is NOT the URL of a site being traced, but instead an indicator of
+     * where the data is stored.
+     */
+    get canonicalUrlThatCreatedThisTrace() {
+      return this.canonicalUrlThatCreatedThisTrace_;
+    },
+
+    set canonicalUrlThatCreatedThisTrace(value) {
+      if (this.canonicalUrlThatCreatedThisTrace_ === value)
+        return;
+      if (this.canonicalUrlThatCreatedThisTrace_ !== undefined)
+        throw new Error('canonicalUrlThatCreatedThisTrace already set');
+      this.canonicalUrlThatCreatedThisTrace_ = value;
     },
 
     /**
@@ -478,9 +535,9 @@ tr.exportTo('tr', function() {
         this.processes[pid].sortMemoryDumps();
     },
 
-    calculateMemoryGraphAttributes: function() {
+    finalizeMemoryGraphs: function() {
       this.globalMemoryDumps.forEach(function(dump) {
-        dump.calculateGraphAttributes();
+        dump.finalizeGraph();
       });
     },
 
@@ -488,21 +545,153 @@ tr.exportTo('tr', function() {
       this.modelIndices = new tr.model.ModelIndices(this);
     },
 
-    sortInteractionRecords: function() {
-      this.interactionRecords.sort(function(x, y) {
-        return x.start - y.start;
-      });
-    },
-
     sortAlerts: function() {
       this.alerts.sort(function(x, y) {
         return x.start - y.start;
       });
+    },
+
+    applyObjectRefPatchups: function() {
+      // Change all the fields pointing at id_refs to their real values.
+      var unresolved = [];
+      this.patchupsToApply_.forEach(function(patchup) {
+        if (patchup.pidRef in this.processes) {
+          var snapshot = this.processes[patchup.pidRef].objects.getSnapshotAt(
+              patchup.scopedId, patchup.ts);
+          if (snapshot) {
+            patchup.object[patchup.field] = snapshot;
+            return;
+          }
+        }
+        unresolved.push(patchup);
+      }, this);
+      this.patchupsToApply_ = unresolved;
+    },
+
+    replacePIDRefsInPatchups: function(old_pid_ref, new_pid_ref) {
+      this.patchupsToApply_.forEach(function(patchup) {
+        if (patchup.pidRef === old_pid_ref)
+          patchup.pidRef = new_pid_ref;
+      });
+    },
+
+    isTimeHighResolutionHeuristic_: function() {
+      if (this.intrinsicTimeUnit !== tr.v.TimeDisplayModes.ms)
+        return false;
+      // If the timer is only precise to the millisecond, then almost all event
+      // will be precisely X ms apart. We check that by looking at the
+      // decimal part of each event's start time. We create 100 bins for
+      // these fractions. If at least 90% of the events are in the same bin then
+      // the timer is deemed to be low resolution.
+      var nbEvents = 0;
+      var nbPerBin = [];
+      var maxEvents = 0;
+      for (var i = 0; i < 100; ++i)
+        nbPerBin.push(0);
+      this.iterateAllEvents(function(event) {
+        nbEvents++;
+        if (event.start !== undefined) {
+          // Compute
+          var remainder = Math.floor(
+              (event.start - Math.floor(event.start)) * 100);
+          nbPerBin[remainder]++;
+          maxEvents = Math.max(maxEvents, nbPerBin[remainder]);
+        }
+      });
+      // If there are too few events our heuristic is not very good, assume the
+      // timer is high resolution.
+      if (nbEvents < 100)
+        return true;
+      // If more than 90% of the events are snapped precisely on milliseconds
+      // boundary we got a trace with a low resolution timer.
+      return (maxEvents / nbEvents) < 0.9;
+    },
+
+    /**
+     * Called by the model to join references between objects, after final model
+     * bounds have been computed.
+     */
+    joinRefs: function() {
+      this.joinObjectRefs_();
+      this.applyObjectRefPatchups();
+    },
+
+    joinObjectRefs_: function() {
+      tr.b.iterItems(this.processes, function(pid, process) {
+        this.joinObjectRefsForProcess_(pid, process);
+      }, this);
+    },
+
+    joinObjectRefsForProcess_: function(pid, process) {
+      // Iterate the world, looking for id_refs
+      tr.b.iterItems(process.threads, function(tid, thread) {
+        thread.asyncSliceGroup.slices.forEach(function(item) {
+          this.searchItemForIDRefs_(pid, 'start', item);
+        }, this);
+        thread.sliceGroup.slices.forEach(function(item) {
+          this.searchItemForIDRefs_(pid, 'start', item);
+        }, this);
+      }, this);
+      process.objects.iterObjectInstances(function(instance) {
+        instance.snapshots.forEach(function(item) {
+          this.searchItemForIDRefs_(pid, 'ts', item);
+        }, this);
+      }, this);
+    },
+
+    searchItemForIDRefs_: function(pid, itemTimestampField, item) {
+      if (!item.args)
+        return;
+      var patchupsToApply = this.patchupsToApply_;
+
+      function handleField(object, fieldName, fieldValue) {
+        if (!fieldValue || (!fieldValue.id_ref && !fieldValue.idRef))
+          return;
+
+        var scope = fieldValue.scope || tr.model.OBJECT_DEFAULT_SCOPE;
+        var idRef = fieldValue.id_ref || fieldValue.idRef;
+        var scopedId = new tr.model.ScopedId(scope, idRef);
+        var pidRef = fieldValue.pid_ref || fieldValue.pidRef || pid;
+        var ts = item[itemTimestampField];
+        // We have to delay the actual change to the new value until after all
+        // refs have been located. Otherwise, we could end up recursing in
+        // ways we definitely didn't intend.
+        patchupsToApply.push({
+          object: object,
+          field: fieldName,
+          pidRef: pidRef,
+          scopedId: scopedId,
+          ts: ts});
+      }
+      function iterObjectFieldsRecursively(object) {
+        if (!(object instanceof Object))
+          return;
+
+        if ((object instanceof tr.model.ObjectSnapshot) ||
+            (object instanceof Float32Array) ||
+            (object instanceof tr.b.Quad))
+          return;
+
+        if (object instanceof Array) {
+          for (var i = 0; i < object.length; i++) {
+            handleField(object, i, object[i]);
+            iterObjectFieldsRecursively(object[i]);
+          }
+          return;
+        }
+
+        for (var key in object) {
+          var value = object[key];
+          handleField(object, key, value);
+          iterObjectFieldsRecursively(value);
+        }
+      }
+
+      iterObjectFieldsRecursively(item.args);
     }
   };
 
   return {
-    ClockSyncRecord: ClockSyncRecord,
     Model: Model
   };
 });

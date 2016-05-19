@@ -4,6 +4,9 @@
 
 #include "gpu/command_buffer/service/context_group.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <string>
 
@@ -16,6 +19,7 @@
 #include "gpu/command_buffer/service/path_manager.h"
 #include "gpu/command_buffer/service/program_manager.h"
 #include "gpu/command_buffer/service/renderbuffer_manager.h"
+#include "gpu/command_buffer/service/sampler_manager.h"
 #include "gpu/command_buffer/service/shader_manager.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "gpu/command_buffer/service/transfer_buffer_manager.h"
@@ -25,6 +29,33 @@
 
 namespace gpu {
 namespace gles2 {
+
+namespace {
+
+void GetIntegerv(GLenum pname, uint32_t* var) {
+  GLint value = 0;
+  glGetIntegerv(pname, &value);
+  *var = value;
+}
+
+DisallowedFeatures AdjustDisallowedFeatures(
+    ContextType context_type, const DisallowedFeatures& disallowed_features) {
+  DisallowedFeatures adjusted_disallowed_features = disallowed_features;
+  if (context_type == CONTEXT_TYPE_WEBGL1) {
+    adjusted_disallowed_features.npot_support = true;
+    adjusted_disallowed_features.oes_texture_half_float_linear = true;
+  }
+  if (context_type == CONTEXT_TYPE_WEBGL1 ||
+      context_type == CONTEXT_TYPE_WEBGL2) {
+    adjusted_disallowed_features.chromium_color_buffer_float_rgba = true;
+    adjusted_disallowed_features.chromium_color_buffer_float_rgb = true;
+    adjusted_disallowed_features.ext_color_buffer_float = true;
+    adjusted_disallowed_features.oes_texture_float_linear = true;
+  }
+  return adjusted_disallowed_features;
+}
+
+}  // namespace anonymous
 
 ContextGroup::ContextGroup(
     const scoped_refptr<MailboxManager>& mailbox_manager,
@@ -67,6 +98,7 @@ ContextGroup::ContextGroup(
       max_vertex_uniform_vectors_(0u),
       max_color_attachments_(1u),
       max_draw_buffers_(1u),
+      max_dual_source_draw_buffers_(0u),
       program_cache_(NULL),
       feature_info_(feature_info) {
   {
@@ -80,12 +112,6 @@ ContextGroup::ContextGroup(
       feature_info_ = new FeatureInfo;
     transfer_buffer_manager_ = new TransferBufferManager(memory_tracker_.get());
   }
-}
-
-static void GetIntegerv(GLenum pname, uint32* var) {
-  GLint value = 0;
-  glGetIntegerv(pname, &value);
-  *var = value;
 }
 
 bool ContextGroup::Initialize(GLES2Decoder* decoder,
@@ -102,7 +128,10 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
     return true;
   }
 
-  if (!feature_info_->Initialize(context_type, disallowed_features)) {
+  DisallowedFeatures adjusted_disallowed_features =
+      AdjustDisallowedFeatures(context_type, disallowed_features);
+
+  if (!feature_info_->Initialize(context_type, adjusted_disallowed_features)) {
     LOG(ERROR) << "ContextGroup::Initialize failed because FeatureInfo "
                << "initialization failed.";
     return false;
@@ -139,6 +168,11 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
     if (max_draw_buffers_ < 1)
       max_draw_buffers_ = 1;
   }
+  if (feature_info_->feature_flags().ext_blend_func_extended) {
+    GetIntegerv(GL_MAX_DUAL_SOURCE_DRAW_BUFFERS_EXT,
+                &max_dual_source_draw_buffers_);
+    DCHECK(max_dual_source_draw_buffers_ >= 1);
+  }
 
   buffer_manager_.reset(
       new BufferManager(memory_tracker_.get(), feature_info_.get()));
@@ -149,6 +183,7 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
       memory_tracker_.get(), max_renderbuffer_size, max_samples,
       feature_info_.get()));
   shader_manager_.reset(new ShaderManager());
+  sampler_manager_.reset(new SamplerManager(feature_info_.get()));
   valuebuffer_manager_.reset(
       new ValuebufferManager(subscription_ref_set_.get(),
                              pending_valuebuffer_state_.get()));
@@ -159,7 +194,8 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
       GL_MAX_VERTEX_ATTRIBS, kGLES2RequiredMinimumVertexAttribs,
       &max_vertex_attribs_)) {
     LOG(ERROR) << "ContextGroup::Initialize failed because too few "
-               << "vertex attributes supported.";
+               << "vertex attributes supported (" << max_vertex_attribs_
+               << ", should be " << kGLES2RequiredMinimumVertexAttribs << ").";
     return false;
   }
 
@@ -168,7 +204,8 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
       GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, kGLES2RequiredMinimumTextureUnits,
       &max_texture_units_)) {
     LOG(ERROR) << "ContextGroup::Initialize failed because too few "
-               << "texture units supported.";
+               << "texture units supported (" << max_texture_units_
+               << ", should be " << kGLES2RequiredMinimumTextureUnits << ").";
     return false;
   }
 
@@ -184,18 +221,35 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
   const GLint kMin3DTextureSize = 256;
 
   if (!QueryGLFeature(GL_MAX_TEXTURE_SIZE, kMinTextureSize,
-                      &max_texture_size) ||
-      !QueryGLFeature(GL_MAX_CUBE_MAP_TEXTURE_SIZE, kMinCubeMapSize,
-                      &max_cube_map_texture_size) ||
-      (feature_info_->gl_version_info().IsES3Capable() &&
-       !QueryGLFeature(GL_MAX_3D_TEXTURE_SIZE, kMin3DTextureSize,
-                       &max_3d_texture_size)) ||
-      (feature_info_->feature_flags().arb_texture_rectangle &&
-       !QueryGLFeature(GL_MAX_RECTANGLE_TEXTURE_SIZE_ARB,
-                       kMinRectangleTextureSize,
-                       &max_rectangle_texture_size))) {
+                      &max_texture_size)) {
     LOG(ERROR) << "ContextGroup::Initialize failed because maximum "
-               << "texture size is too small.";
+               << "2d texture size is too small (" << max_texture_size
+               << ", should be " << kMinTextureSize << ").";
+    return false;
+  }
+  if (!QueryGLFeature(GL_MAX_CUBE_MAP_TEXTURE_SIZE, kMinCubeMapSize,
+                      &max_cube_map_texture_size)) {
+    LOG(ERROR) << "ContextGroup::Initialize failed because maximum "
+               << "cube texture size is too small ("
+               << max_cube_map_texture_size << ", should be " << kMinCubeMapSize
+               << ").";
+    return false;
+  }
+  if (feature_info_->gl_version_info().IsES3Capable() &&
+      !QueryGLFeature(GL_MAX_3D_TEXTURE_SIZE, kMin3DTextureSize,
+                      &max_3d_texture_size)) {
+    LOG(ERROR) << "ContextGroup::Initialize failed because maximum "
+               << "3d texture size is too small (" << max_3d_texture_size
+               << ", should be " << kMin3DTextureSize << ").";
+    return false;
+  }
+  if (feature_info_->feature_flags().arb_texture_rectangle &&
+      !QueryGLFeature(GL_MAX_RECTANGLE_TEXTURE_SIZE_ARB,
+                      kMinRectangleTextureSize, &max_rectangle_texture_size)) {
+    LOG(ERROR) << "ContextGroup::Initialize failed because maximum "
+               << "rectangle texture size is too small ("
+               << max_rectangle_texture_size << ", should be "
+               << kMinRectangleTextureSize << ").";
     return false;
   }
 
@@ -224,14 +278,19 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
 
   const GLint kMinTextureImageUnits = 8;
   const GLint kMinVertexTextureImageUnits = 0;
-  if (!QueryGLFeatureU(
-      GL_MAX_TEXTURE_IMAGE_UNITS, kMinTextureImageUnits,
-      &max_texture_image_units_) ||
-      !QueryGLFeatureU(
-      GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, kMinVertexTextureImageUnits,
-      &max_vertex_texture_image_units_)) {
+  if (!QueryGLFeatureU(GL_MAX_TEXTURE_IMAGE_UNITS, kMinTextureImageUnits,
+                       &max_texture_image_units_)) {
     LOG(ERROR) << "ContextGroup::Initialize failed because too few "
-               << "texture units.";
+               << "texture image units supported (" << max_texture_image_units_
+               << ", should be " << kMinTextureImageUnits << ").";
+  }
+  if (!QueryGLFeatureU(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS,
+                       kMinVertexTextureImageUnits,
+                       &max_vertex_texture_image_units_)) {
+    LOG(ERROR) << "ContextGroup::Initialize failed because too few "
+               << "vertex texture image units supported ("
+               << max_vertex_texture_image_units_ << ", should be "
+               << kMinTextureImageUnits << ").";
     return false;
   }
 
@@ -268,25 +327,27 @@ bool ContextGroup::Initialize(GLES2Decoder* decoder,
   if (feature_info_->workarounds().max_fragment_uniform_vectors) {
     max_fragment_uniform_vectors_ = std::min(
         max_fragment_uniform_vectors_,
-        static_cast<uint32>(
+        static_cast<uint32_t>(
             feature_info_->workarounds().max_fragment_uniform_vectors));
   }
   if (feature_info_->workarounds().max_varying_vectors) {
-    max_varying_vectors_ = std::min(
-        max_varying_vectors_,
-        static_cast<uint32>(feature_info_->workarounds().max_varying_vectors));
+    max_varying_vectors_ =
+        std::min(max_varying_vectors_,
+                 static_cast<uint32_t>(
+                     feature_info_->workarounds().max_varying_vectors));
   }
   if (feature_info_->workarounds().max_vertex_uniform_vectors) {
     max_vertex_uniform_vectors_ =
         std::min(max_vertex_uniform_vectors_,
-                 static_cast<uint32>(
+                 static_cast<uint32_t>(
                      feature_info_->workarounds().max_vertex_uniform_vectors));
   }
 
   path_manager_.reset(new PathManager());
 
-  program_manager_.reset(new ProgramManager(
-      program_cache_, max_varying_vectors_, feature_info_.get()));
+  program_manager_.reset(
+      new ProgramManager(program_cache_, max_varying_vectors_,
+                         max_dual_source_draw_buffers_, feature_info_.get()));
 
   if (!texture_manager_->Initialize()) {
     LOG(ERROR) << "Context::Group::Initialize failed because texture manager "
@@ -371,6 +432,11 @@ void ContextGroup::Destroy(GLES2Decoder* decoder, bool have_context) {
     shader_manager_.reset();
   }
 
+  if (sampler_manager_ != NULL) {
+    sampler_manager_->Destroy(have_context);
+    sampler_manager_.reset();
+  }
+
   if (valuebuffer_manager_ != NULL) {
     valuebuffer_manager_->Destroy();
     valuebuffer_manager_.reset();
@@ -379,8 +445,8 @@ void ContextGroup::Destroy(GLES2Decoder* decoder, bool have_context) {
   memory_tracker_ = NULL;
 }
 
-uint32 ContextGroup::GetMemRepresented() const {
-  uint32 total = 0;
+uint32_t ContextGroup::GetMemRepresented() const {
+  uint32_t total = 0;
   if (buffer_manager_.get())
     total += buffer_manager_->mem_represented();
   if (renderbuffer_manager_.get())
@@ -411,7 +477,7 @@ bool ContextGroup::CheckGLFeature(GLint min_required, GLint* v) {
   return value >= min_required;
 }
 
-bool ContextGroup::CheckGLFeatureU(GLint min_required, uint32* v) {
+bool ContextGroup::CheckGLFeatureU(GLint min_required, uint32_t* v) {
   GLint value = *v;
   if (enforce_gl_minimums_) {
     value = std::min(min_required, value);
@@ -428,9 +494,10 @@ bool ContextGroup::QueryGLFeature(
   return CheckGLFeature(min_required, v);
 }
 
-bool ContextGroup::QueryGLFeatureU(
-    GLenum pname, GLint min_required, uint32* v) {
-  uint32 value = 0;
+bool ContextGroup::QueryGLFeatureU(GLenum pname,
+                                   GLint min_required,
+                                   uint32_t* v) {
+  uint32_t value = 0;
   GetIntegerv(pname, &value);
   bool result = CheckGLFeatureU(min_required, &value);
   *v = value;

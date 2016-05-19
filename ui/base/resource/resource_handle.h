@@ -5,10 +5,11 @@
 #ifndef UI_BASE_RESOURCE_RESOURCE_HANDLE_H_
 #define UI_BASE_RESOURCE_RESOURCE_HANDLE_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/strings/string_piece.h"
-#include "ui/base/layout.h"
-#include "ui/base/ui_base_export.h"
+#include "ui/base/resource/data_pack_export.h"
+#include "ui/base/resource/scale_factor.h"
 
 namespace base {
 class RefCountedStaticMemory;
@@ -16,7 +17,7 @@ class RefCountedStaticMemory;
 
 namespace ui {
 
-class UI_BASE_EXPORT ResourceHandle {
+class UI_DATA_PACK_EXPORT ResourceHandle {
  public:
   // What type of encoding the text resources use.
   enum TextEncodingType {
@@ -28,18 +29,18 @@ class UI_BASE_EXPORT ResourceHandle {
   virtual ~ResourceHandle() {}
 
   // Returns true if the DataPack contains a resource with id |resource_id|.
-  virtual bool HasResource(uint16 resource_id) const = 0;
+  virtual bool HasResource(uint16_t resource_id) const = 0;
 
   // Get resource by id |resource_id|, filling in |data|.
   // The data is owned by the DataPack object and should not be modified.
   // Returns false if the resource id isn't found.
-  virtual bool GetStringPiece(uint16 resource_id,
+  virtual bool GetStringPiece(uint16_t resource_id,
                               base::StringPiece* data) const = 0;
 
   // Like GetStringPiece(), but returns a reference to memory.
   // Caller owns the returned object.
   virtual base::RefCountedStaticMemory* GetStaticMemory(
-      uint16 resource_id) const = 0;
+      uint16_t resource_id) const = 0;
 
   // Get the encoding type of text resources.
   virtual TextEncodingType GetTextEncodingType() const = 0;

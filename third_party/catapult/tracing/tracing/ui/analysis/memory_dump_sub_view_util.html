@@ -6,10 +6,10 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/iteration_helpers.html">
-<link rel="import" href="/tracing/base/units/units.html">
 <link rel="import" href="/tracing/model/attribute.html">
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
-<link rel="import" href="/tracing/ui/units/scalar_span.html">
+<link rel="import" href="/tracing/value/ui/scalar_span.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <script>
 'use strict';
@@ -40,18 +40,19 @@ tr.exportTo('tr.ui.analysis', function() {
      * Get the title associated with a given row.
      *
      * This method will decorate the title with color and '+++'/'---' prefix if
-     * appropriate (as determined by the optional row.defined field). Examples:
+     * appropriate (as determined by the optional row.contexts field).
+     * Examples:
      *
-     *   +-------------------------+-----------------+--------+--------+
-     *   | Defined (at timestamps) | Interpretation  | Prefix | Color  |
-     *   +-------------------------+-----------------+--------+--------+
-     *   | 1111111111              | always present  |        |        |
-     *   | 0000111111              | added           | +++    | red    |
-     *   | 1111111000              | deleted         | ---    | green  |
-     *   | 1100111111*             | flaky           |        | purple |
-     *   | 0001001111              | added + flaky   | +++    | purple |
-     *   | 1111100010              | deleted + flaky | ---    | purple |
-     *   +-------------------------+-----------------+--------+--------+
+     *   +----------------------+-----------------+--------+--------+
+     *   | Contexts provided at | Interpretation  | Prefix | Color  |
+     *   +----------------------+-----------------+--------+--------+
+     *   | 1111111111           | always present  |        |        |
+     *   | 0000111111           | added           | +++    | red    |
+     *   | 1111111000           | deleted         | ---    | green  |
+     *   | 1100111111*          | flaky           |        | purple |
+     *   | 0001001111           | added + flaky   | +++    | purple |
+     *   | 1111100010           | deleted + flaky | ---    | purple |
+     *   +----------------------+-----------------+--------+--------+
      *
      *   *) This means that, given a selection of 10 memory dumps, a particular
      *      row (e.g. a process) was present in the first 2 and last 6 of them
@@ -63,33 +64,33 @@ tr.exportTo('tr.ui.analysis', function() {
     value: function(row) {
       var formattedTitle = this.formatTitle(row);
 
-      var defined = row.defined;
-      if (defined === undefined || defined.length === 0)
+      var contexts = row.contexts;
+      if (contexts === undefined || contexts.length === 0)
         return formattedTitle;
 
       // Determine if the row was provided in the first and last row and how
       // many times it changed between being provided and not provided.
-      var firstDefined = defined[0];
-      var lastDefined = defined[defined.length - 1];
-      var changeDefinedCount = 0;
-      for (var i = 1; i < defined.length; i++) {
-        if (defined[i] !== defined[i - 1])
-          changeDefinedCount++;
+      var firstContext = contexts[0];
+      var lastContext = contexts[contexts.length - 1];
+      var changeDefinedContextCount = 0;
+      for (var i = 1; i < contexts.length; i++) {
+        if ((contexts[i] === undefined) !== (contexts[i - 1] === undefined))
+          changeDefinedContextCount++;
       }
 
       // Determine the color and prefix of the title.
       var color = undefined;
       var prefix = undefined;
-      if (!firstDefined && lastDefined) {
+      if (!firstContext && lastContext) {
         // The row was added.
         color = 'red';
         prefix = '+++';
-      } else if (firstDefined && !lastDefined) {
+      } else if (firstContext && !lastContext) {
         // The row was removed.
         color = 'green';
         prefix = '---';
       }
-      if (changeDefinedCount > 1) {
+      if (changeDefinedContextCount > 1) {
         // The row was flaky (added/removed more than once).
         color = 'purple';
       }
@@ -129,24 +130,23 @@ tr.exportTo('tr.ui.analysis', function() {
    *
    * @constructor
    */
-  function MemoryColumn(name, title, units, cellGetter, aggregationMode) {
+  function MemoryColumn(name, units, cellGetter, aggregationMode) {
     this.name = name;
-    this.title = title;
     this.units = units;
     this.cell = cellGetter;
 
     // See MemoryColumn.AggregationMode enum in this file.
     this.aggregationMode = aggregationMode;
 
-    // Color of the values returned by this column. This can be either
-    // (1) undefined (no specific color is set), (2) a color string (e.g.
-    // 'blue'), or (3) a function mapping defined attributes to color strings
-    // (the return value can be undefined again).
-    this.color = undefined;
+    // Color of the values returned by this column can be set by assigning a
+    // 'color' field/getter. The value can be either (1) undefined (no specific
+    // color is set), (2) a color string (e.g. 'blue'), or (3) a function
+    // mapping lists of attributes to color strings (the return value can be
+    // undefined again).
   }
 
   MemoryColumn.fromRows = function(rows, cellKey, aggregationMode,
-      opt_titleBuilder) {
+      opt_customColumnConstructorRules) {
     var columnTraits = {};
 
     function gatherTraits(row) {
@@ -184,28 +184,30 @@ tr.exportTo('tr.ui.analysis', function() {
     };
     rows.forEach(gatherTraits);
 
-    var titleBuilder = opt_titleBuilder || tr.b.identity;
-
     var columns = [];
     tr.b.iterItems(columnTraits, function(columnName, columnTraits) {
       var cellGetter = fieldGetter(cellKey, columnName);
-      var title = titleBuilder(columnName);
-      columns.push(MemoryColumn.fromAttributeTraits(
-          columnName, title, columnTraits, cellGetter, aggregationMode));
+      var constructor = undefined;
+      if (opt_customColumnConstructorRules !== undefined) {
+        var matchingRule = MemoryColumn.findMatchingRule(
+            columnName, opt_customColumnConstructorRules);
+        if (matchingRule !== undefined)
+          constructor = matchingRule.columnConstructor;
+      }
+      if (constructor === undefined)
+        constructor = MemoryColumn.constructorFromAttributeTraits(columnTraits);
+      columns.push(new constructor(
+          columnName, columnTraits.units, cellGetter, aggregationMode));
     });
 
     return columns;
   };
 
-  MemoryColumn.fromAttributeTraits = function(name, title, traits, cellGetter,
-      aggregationMode) {
-    var constructor;
+  MemoryColumn.constructorFromAttributeTraits = function(traits) {
     if (traits.constructor === tr.model.ScalarAttribute)
-      constructor = ScalarMemoryColumn;
+      return ScalarMemoryColumn;
     else
-      constructor = MemoryColumn;
-    return new constructor(name, title, traits.units, cellGetter,
-        aggregationMode);
+      return MemoryColumn;
   };
 
   MemoryColumn.spaceEqually = function(columns) {
@@ -213,6 +215,28 @@ tr.exportTo('tr.ui.analysis', function() {
     columns.forEach(function(column) {
       column.width = columnWidth;
     });
+  };
+
+  MemoryColumn.findMatchingRule = function(name, rules) {
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      if (MemoryColumn.nameMatchesCondition(name, rule.condition))
+        return rule;
+    }
+    return undefined;
+  };
+
+  MemoryColumn.nameMatchesCondition = function(name, condition) {
+    // Rules without conditions match all columns.
+    if (condition === undefined)
+      return true;
+
+    // String conditions must match the column name exactly.
+    if (typeof(condition) === 'string')
+      return name === condition;
+
+    // If the condition is not a string, assume it is a RegExp.
+    return condition.test(name);
   };
 
   /**
@@ -311,59 +335,19 @@ tr.exportTo('tr.ui.analysis', function() {
     });
   };
 
-  MemoryColumn.iconFromAttributeInfoType = function(type) {
-    switch (type) {
-      case tr.model.AttributeInfoType.WARNING:
-        return {
-          symbol: String.fromCharCode(9888),  // Exclamation mark in a triangle.
-          color: 'red'
-        };
-      case tr.model.AttributeInfoType.LINK:
-        return {
-          symbol: String.fromCharCode(9903)  // Link symbol.
-          /* Don't modify the color. */
-        };
-      case tr.model.AttributeInfoType.MEMORY_OWNER:
-        return {
-          symbol: String.fromCharCode(8702),  // Right arrow.
-          color: 'green'
-        };
-      case tr.model.AttributeInfoType.MEMORY_OWNED:
-        return {
-          symbol: String.fromCharCode(8701),  // Left arrow.
-          color: 'green'
-        };
-      case tr.model.AttributeInfoType.OVERALL_VALUE:
-        return {
-          symbol: String.fromCharCode(8614)  // Right arrow with a bar.
-          /* Don't modify the color. */
-        };
-      case tr.model.AttributeInfoType.RECENT_VALUE:
-        return {
-          symbol: String.fromCharCode(8618)  // Right arrow with a hook.
-          /* Don't modify the color. */
-        };
-      case tr.model.AttributeInfoType.HAS_HEAP_DUMP:
-        return {
-          symbol: String.fromCharCode(9776)  // Trigram for heaven.
-          /* Don't modify the color. */
-        };
-      default:
-        return {
-          symbol: String.fromCharCode(9432),  // Circled small letter 'i'.
-          color: 'blue'
-        };
-    }
-    throw new Error('Unreachable');
-  };
-
   /** @enum */
   MemoryColumn.AggregationMode = {
     DIFF: 0,
     MAX: 1
   };
 
+  MemoryColumn.SOME_TIMESTAMPS_INFO_QUANTIFIER = 'at some selected timestamps';
+
   MemoryColumn.prototype = {
+    get title() {
+      return this.name;
+    },
+
     attrs: function(row) {
       var cell = this.cell(row);
       if (cell === undefined)
@@ -375,7 +359,7 @@ tr.exportTo('tr.ui.analysis', function() {
       var attrs = this.attrs(row);
       if (this.hasAllRelevantAttrsUndefined(attrs))
         return '';
-      return this.formatAttributes(attrs);
+      return this.formatAttributes(attrs, row.contexts);
     },
 
     /**
@@ -405,19 +389,20 @@ tr.exportTo('tr.ui.analysis', function() {
      * intended to be overriden. At least one attribute relevant for the
      * current aggregation mode is guaranteed to be defined.
      */
-    formatAttributes: function(attrs) {
+    formatAttributes: function(attrs, contexts) {
       var formattedValue = this.formatAttributeValues(attrs);
 
       // Determine the color of the resulting element.
       var color;
       if (typeof this.color === 'function')
-        color = this.color(attrs);
+        color = this.color(attrs, contexts);
       else
         color = this.color;
 
       // If no color is specified and there are no infos, there is no need
       // to wrap the value in a span element.
-      var infos = this.getInfos(attrs);
+      var infos = [];
+      this.addInfos(attrs, contexts, infos);
       if ((color === undefined || formattedValue === '') && infos.length === 0)
         return formattedValue;
 
@@ -432,10 +417,9 @@ tr.exportTo('tr.ui.analysis', function() {
         infoEl.style.paddingLeft = '4px';
         infoEl.style.cursor = 'help';
         infoEl.style.fontWeight = 'bold';
-        var icon = MemoryColumn.iconFromAttributeInfoType(info.type);
-        infoEl.textContent = icon.symbol;
-        if (icon.color !== undefined)
-          infoEl.style.color = icon.color;
+        infoEl.textContent = info.icon;
+        if (info.color !== undefined)
+          infoEl.style.color = info.color;
         infoEl.title = info.message;
         attrEl.appendChild(infoEl);
       }, this);
@@ -528,15 +512,7 @@ tr.exportTo('tr.ui.analysis', function() {
     },
 
     formatMultipleAttributeValuesMax: function(attrs) {
-      var commonAttr = this.getCommonAttributeOrUndefined(attrs);
-      if (commonAttr === undefined) {
-        return tr.ui.b.createSpan({
-          textContent: '(multiple values)',
-          italic: true
-        });
-      }
-
-      return this.formatSingleAttributeValue(commonAttr);
+      return this.getMaxAttributeValue(attrs);
     },
 
     cmp: function(rowA, rowB) {
@@ -576,13 +552,11 @@ tr.exportTo('tr.ui.analysis', function() {
     /**
      * Compare the values of a pair of single defined attributes.
      *
-     * This method is intended to be overriden by attribute type/unit specific
-     * columns.
+     * This method and/or compareSingleAttributeValues are intended to be
+     * overriden by attribute type/unit specific columns.
      */
     compareSingleAttributes: function(attrA, attrB) {
-      var strA = String(attrA.value);
-      var strB = String(attrB.value);
-      return COLLATOR.compare(strA, strB);
+      return this.compareSingleAttributeValues(attrA.value, attrB.value);
     },
 
     /**
@@ -655,73 +629,29 @@ tr.exportTo('tr.ui.analysis', function() {
     },
 
     compareMultipleAttributesMax: function(attrsA, attrsB) {
-      var commonAttrA = this.getCommonAttributeOrUndefined(attrsA);
-      var commonAttrB = this.getCommonAttributeOrUndefined(attrsB);
-      var hasMultipleValuesA = commonAttrA === undefined;
-      var hasMultipleValuesB = commonAttrB === undefined;
-
-      // Consider attributes with multiple values to be greater than attributes
-      // with single values.
-      if (hasMultipleValuesA && hasMultipleValuesB)
-        return 0;
-      if (hasMultipleValuesA)
-        return 1;
-      if (hasMultipleValuesB)
-        return -1;
-
-      return this.compareSingleAttributes(commonAttrA, commonAttrB);
+      return this.compareSingleAttributeValues(
+          this.getMaxAttributeValue(attrsA), this.getMaxAttributeValue(attrsB));
     },
 
-    /**
-     * If all defined attributes have the same value and units, this method
-     * returns the first defined attribute. Otherwise, it returns undefined.
-     *
-     * This method assumes that at least one attribute in the list is defined.
-     */
-    getCommonAttributeOrUndefined: function(attrs) {
-      var firstDefinedAttribute = undefined;
-      for (var i = 0; i < attrs.length; i++) {
-        var attr = attrs[i];
+    getMaxAttributeValue: function(attrs) {
+      return attrs.reduce(function(accumulator, attr) {
         if (attr === undefined)
-          continue;
-        if (firstDefinedAttribute === undefined) {
-          firstDefinedAttribute = attr;
-          continue;
+          return accumulator;
+        var attrValue = attr.value;
+        if (accumulator === undefined ||
+            this.compareSingleAttributeValues(attrValue, accumulator) > 0) {
+          return attrValue;
         }
-        if (firstDefinedAttribute.value !== attr.value ||
-            firstDefinedAttribute.units !== attr.units) {
-          return undefined;
-        }
-      }
-      return firstDefinedAttribute;
+        return accumulator;
+      }.bind(this), undefined);
     },
 
-    getInfos: function(attrs) {
-      if (attrs.length !== 1) {
-        // TODO(petrcermak): Somehow aggregate infos for multiple attributes
-        // and get rid of the hack below.
+    compareSingleAttributeValues: function(attrValueA, attrValueB) {
+      return COLLATOR.compare(String(attrValueA), String(attrValueB));
+    },
 
-        // Determine if at least one of the attributes has an associated heap
-        // dump.
-        var hasDumpInfo = undefined;
-        attrs.some(function(attr) {
-          if (attr === undefined)
-            return false;
-          return attr.infos.some(function(info) {
-            if (info.type !== tr.model.AttributeInfoType.HAS_HEAP_DUMP)
-              return false;
-            hasDumpInfo = info;
-            return true;
-          });
-        });
-
-        if (hasDumpInfo)
-          return [hasDumpInfo];
-        else
-          return [];
-      }
-
-      return attrs[0].infos;
+    addInfos: function(attrs, contexts, infos) {
+      // No generic infos.
     },
 
     getImportance: function(importanceRules) {
@@ -729,31 +659,16 @@ tr.exportTo('tr.ui.analysis', function() {
         return 0;
 
       // Find the first matching rule.
-      for (var i = 0; i < importanceRules.length; i++) {
-        var importanceRule = importanceRules[i];
-        if (this.matchesNameCondition(importanceRule.condition))
-          return importanceRule.importance;
-      }
+      var matchingRule =
+          MemoryColumn.findMatchingRule(this.name, importanceRules);
+      if (matchingRule !== undefined)
+        return matchingRule.importance;
 
       // No matching rule. Return lower importance than all rules.
       var minImportance = importanceRules[0].importance;
-      for (var i = 1; i < importanceRules.length; i++) {
+      for (var i = 1; i < importanceRules.length; i++)
         minImportance = Math.min(minImportance, importanceRules[i].importance);
-      }
       return minImportance - 1;
-    },
-
-    matchesNameCondition: function(condition) {
-      // Rules without conditions match all columns.
-      if (condition === undefined)
-        return true;
-
-      // String conditions must match the column name exactly.
-      if (typeof(condition) === 'string')
-        return this.name === condition;
-
-      // If the condition is not a string, assume it is a RegExp.
-      return condition.test(this.name);
     }
   };
 
@@ -763,6 +678,11 @@ tr.exportTo('tr.ui.analysis', function() {
   function ScalarMemoryColumn(name, title, units, cellGetter, aggregationMode) {
     MemoryColumn.call(this, name, title, units, cellGetter, aggregationMode);
   }
+
+  // Avoid tiny positive/negative diffs (displayed in the UI as '+0.0 B' and
+  // '-0.0 B') due to imprecise floating-point arithmetic by treating all diffs
+  // within the (-DIFF_EPSILON, DIFF_EPSILON) range as zeros.
+  ScalarMemoryColumn.DIFF_EPSILON = 0.0001;
 
   ScalarMemoryColumn.prototype = {
     __proto__: MemoryColumn.prototype,
@@ -776,37 +696,28 @@ tr.exportTo('tr.ui.analysis', function() {
     },
 
     formatMultipleAttributeValuesMax: function(attrs) {
-      return this.formatUnits(this.getMaxAttrValue(attrs), false);
+      return this.formatUnits(this.getMaxAttributeValue(attrs), false);
     },
 
     formatUnits: function(value, isDelta) {
       if (value === undefined)
         return '';
 
-      var sizeEl = document.createElement('tr-ui-u-scalar-span');
+      var sizeEl = document.createElement('tr-v-ui-scalar-span');
       sizeEl.value = value;
-      // TODO(petrcermak): Figure out if/how we can use tr.b.u.Units.fromJSON.
-      if (this.units === 'bytes')
-        sizeEl.unit = tr.b.u.Units.sizeInBytes;
-      else
-        sizeEl.unit = tr.b.u.Units.unitlessNumber;
 
-      if (!isDelta)
-        return sizeEl;
+      // TODO(petrcermak): Figure out if/how we can use tr.v.Units.fromJSON.
+      var unitBaseName = this.units === 'bytes' ?
+          'sizeInBytes' : 'unitlessNumber';
+      var unitSuffix = isDelta ? 'Delta' : '';
+      var unitName = unitBaseName + unitSuffix + '_smallerIsBetter';
+      sizeEl.unit = tr.v.Unit.byName[unitName];
 
-      sizeEl.isDelta = true;
-
-      if (value === 0)
-        return sizeEl;
-
-      var wrapperEl = document.createElement('span');
-      wrapperEl.style.color = value > 0 ? 'red' : 'green';
-      wrapperEl.appendChild(sizeEl);
-      return wrapperEl;
+      return sizeEl;
     },
 
-    compareSingleAttributes: function(attrA, attrB) {
-      return attrA.value - attrB.value;
+    compareSingleAttributeValues: function(attrValueA, attrValueB) {
+      return attrValueA - attrValueB;
     },
 
     compareMultipleAttributesDiff: function(firstAttrA, lastAttrA, firstAttrB,
@@ -815,24 +726,11 @@ tr.exportTo('tr.ui.analysis', function() {
           this.getDiffAttrValue(firstAttrB, lastAttrB);
     },
 
-    compareMultipleAttributesMax: function(attrsA, attrsB) {
-      return this.getMaxAttrValue(attrsA) - this.getMaxAttrValue(attrsB);
-    },
-
     getDiffAttrValue: function(firstAttr, lastAttr) {
       var firstValue = firstAttr === undefined ? 0 : firstAttr.value;
       var lastValue = lastAttr === undefined ? 0 : lastAttr.value;
-      return lastValue - firstValue;
-    },
-
-    getMaxAttrValue: function(attrs) {
-      return attrs.reduce(function(accumulator, attr) {
-        if (attr === undefined)
-          return accumulator;
-        if (accumulator === undefined || attr.value > accumulator)
-          accumulator = attr.value;
-        return accumulator;
-      }, undefined);
+      var diff = lastValue - firstValue;
+      return Math.abs(diff) < ScalarMemoryColumn.DIFF_EPSILON ? 0 : diff;
     }
   };
 
@@ -860,18 +758,46 @@ tr.exportTo('tr.ui.analysis', function() {
   }
 
   /** Limit for the number of sub-rows for recursive table row expansion. */
-  var RECURSIVE_EXPANSION_MAX_SUB_ROW_COUNT = 10;
+  var RECURSIVE_EXPANSION_MAX_VISIBLE_ROW_COUNT = 10;
 
   function expandTableRowsRecursively(table) {
-    function expandRowRecursively(row) {
-      if (row.subRows === undefined || row.subRows.length === 0)
-        return;
-      if (row.subRows.length > RECURSIVE_EXPANSION_MAX_SUB_ROW_COUNT)
-        return;
-      table.setExpandedForTableRow(row, true);
-      row.subRows.forEach(expandRowRecursively);
+    var currentLevelRows = table.tableRows;
+    var totalVisibleRowCount = currentLevelRows.length;
+
+    while (currentLevelRows.length > 0) {
+      // Calculate the total number of sub-rows on the current level.
+      var nextLevelRowCount = 0;
+      currentLevelRows.forEach(function(currentLevelRow) {
+        var subRows = currentLevelRow.subRows;
+        if (subRows === undefined || subRows.length === 0)
+          return;
+        nextLevelRowCount += subRows.length;
+      });
+
+      // Determine whether expanding all rows on the current level would cause
+      // the total number of visible rows go over the limit.
+      if (totalVisibleRowCount + nextLevelRowCount >
+          RECURSIVE_EXPANSION_MAX_VISIBLE_ROW_COUNT) {
+        break;
+      }
+
+      // Expand all rows on the current level and gather their sub-rows.
+      var nextLevelRows = new Array(nextLevelRowCount);
+      var nextLevelRowIndex = 0;
+      currentLevelRows.forEach(function(currentLevelRow) {
+        var subRows = currentLevelRow.subRows;
+        if (subRows === undefined || subRows.length === 0)
+          return;
+        table.setExpandedForTableRow(currentLevelRow, true);
+        subRows.forEach(function(subRow) {
+          nextLevelRows[nextLevelRowIndex++] = subRow;
+        });
+      });
+
+      // Update the total number of visible rows and progress to the next level.
+      totalVisibleRowCount += nextLevelRowCount;
+      currentLevelRows = nextLevelRows;
     }
-    table.tableRows.forEach(expandRowRecursively);
   }
 
   // TODO(petrcermak): This code is almost the same as
@@ -979,6 +905,14 @@ tr.exportTo('tr.ui.analysis', function() {
       opt_addedCallback(attr);
   }
 
+  function createWarningInfo(message) {
+    return {
+      message: message,
+      icon: String.fromCharCode(9888),
+      color: 'red'
+    };
+  }
+
   return {
     TitleColumn: TitleColumn,
     MemoryColumn: MemoryColumn,
@@ -989,7 +923,8 @@ tr.exportTo('tr.ui.analysis', function() {
     aggregateTableRowCellsRecursively: aggregateTableRowCellsRecursively,
     aggregateTableRowCells: aggregateTableRowCells,
     createCells: createCells,
-    addAttributeIfDefined: addAttributeIfDefined
+    addAttributeIfDefined: addAttributeIfDefined,
+    createWarningInfo: createWarningInfo
   };
 });
 </script>

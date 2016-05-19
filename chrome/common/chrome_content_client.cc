@@ -4,9 +4,7 @@
 
 #include "chrome/common/chrome_content_client.h"
 
-#if defined(OS_LINUX)
-#include <fcntl.h>
-#endif  // defined(OS_LINUX)
+#include <stdint.h>
 
 #include "base/command_line.h"
 #include "base/debug/crash_logging.h"
@@ -47,6 +45,7 @@
 #include "widevine_cdm_version.h"  // In SHARED_INTERMEDIATE_DIR.
 
 #if defined(OS_LINUX)
+#include <fcntl.h>
 #include "chrome/common/component_flash_hint_file_linux.h"
 #endif  // defined(OS_LINUX)
 
@@ -63,8 +62,7 @@
 
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/common/extensions/extension_process_policy.h"
-#include "extensions/common/features/behavior_feature.h"
-#include "extensions/common/features/feature_provider.h"
+#include "chrome/common/extensions/features/feature_util.h"
 #endif
 
 #if defined(ENABLE_PLUGINS)
@@ -86,8 +84,8 @@ const char kPDFPluginExtension[] = "pdf";
 const char kPDFPluginDescription[] = "Portable Document Format";
 const char kPDFPluginOutOfProcessMimeType[] =
     "application/x-google-chrome-pdf";
-const uint32 kPDFPluginPermissions = ppapi::PERMISSION_PRIVATE |
-                                     ppapi::PERMISSION_DEV;
+const uint32_t kPDFPluginPermissions =
+    ppapi::PERMISSION_PRIVATE | ppapi::PERMISSION_DEV;
 #endif  // defined(ENABLE_PDF)
 
 content::PepperPluginInfo::GetInterfaceFunc g_pdf_get_interface;
@@ -174,12 +172,11 @@ void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins) {
           kWidevineCdmPluginMimeTypeDescription);
 
       // Add the supported codecs as if they came from the component manifest.
+      // This list must match the CDM that is being bundled with Chrome.
       std::vector<std::string> codecs;
-      codecs.push_back(kCdmSupportedCodecVorbis);
       codecs.push_back(kCdmSupportedCodecVp8);
       codecs.push_back(kCdmSupportedCodecVp9);
 #if defined(USE_PROPRIETARY_CODECS)
-      codecs.push_back(kCdmSupportedCodecAac);
       codecs.push_back(kCdmSupportedCodecAvc1);
 #endif  // defined(USE_PROPRIETARY_CODECS)
       std::string codec_string = base::JoinString(
@@ -472,9 +469,9 @@ content::PepperPluginInfo* ChromeContentClient::FindMostRecentPlugin(
         Version version_x(x->version);
         Version version_y(y->version);
         DCHECK(version_x.IsValid() && version_y.IsValid());
-        if (version_x.Equals(version_y))
+        if (version_x == version_y)
           return !x->is_debug && y->is_debug;
-        return version_x.IsOlderThan(y->version);
+        return version_x < version_y;
       });
   return it != plugins.end() ? *it : nullptr;
 }
@@ -542,9 +539,15 @@ static const url::SchemeWithType kChromeStandardURLSchemes[
 
 void ChromeContentClient::AddAdditionalSchemes(
     std::vector<url::SchemeWithType>* standard_schemes,
+    std::vector<url::SchemeWithType>* referrer_schemes,
     std::vector<std::string>* savable_schemes) {
   for (int i = 0; i < kNumChromeStandardURLSchemes; i++)
     standard_schemes->push_back(kChromeStandardURLSchemes[i]);
+
+#if defined(OS_ANDROID)
+  referrer_schemes->push_back(
+      {chrome::kAndroidAppScheme, url::SCHEME_WITHOUT_PORT});
+#endif
 
   savable_schemes->push_back(extensions::kExtensionScheme);
   savable_schemes->push_back(extensions::kExtensionResourceScheme);
@@ -599,7 +602,7 @@ std::string ChromeContentClient::GetProcessTypeNameInEnglish(int type) {
   return "Unknown";
 }
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
 bool ChromeContentClient::GetSandboxProfileForSandboxType(
     int sandbox_type,
     int* sandbox_profile_resource_id) const {
@@ -627,10 +630,7 @@ void ChromeContentClient::AddSecureSchemesAndOrigins(
 void ChromeContentClient::AddServiceWorkerSchemes(
     std::set<std::string>* schemes) {
 #if defined(ENABLE_EXTENSIONS)
-  if (extensions::FeatureProvider::GetBehaviorFeature(
-          extensions::BehaviorFeature::kServiceWorker)
-          ->IsAvailableToEnvironment()
-          .is_available())
+  if (extensions::feature_util::ExtensionServiceWorkersEnabled())
     schemes->insert(extensions::kExtensionScheme);
 #endif
 }

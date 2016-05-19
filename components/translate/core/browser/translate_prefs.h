@@ -5,12 +5,16 @@
 #ifndef COMPONENTS_TRANSLATE_CORE_BROWSER_TRANSLATE_PREFS_H_
 #define COMPONENTS_TRANSLATE_CORE_BROWSER_TRANSLATE_PREFS_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "base/prefs/scoped_user_pref_update.h"
+#include "base/macros.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "url/gurl.h"
 
 class PrefService;
@@ -77,6 +81,11 @@ class TranslatePrefs {
                  const char* accept_languages_pref,
                  const char* preferred_languages_pref);
 
+  // Sets the country that the application is run in. Determined by the
+  // VariationsService, can be left empty. Used by TranslateExperiment.
+  void SetCountry(const std::string& country);
+  std::string GetCountry() const;
+
   // Resets the blocked languages list, the sites blacklist, the languages
   // whitelist, and the accepted/denied counts.
   void ResetToDefaults();
@@ -132,7 +141,7 @@ class TranslatePrefs {
   void ResetDenialState();
 
   // Gets the language list of the language settings.
-  void GetLanguageList(std::vector<std::string>* languages);
+  void GetLanguageList(std::vector<std::string>* languages) const;
 
   // Updates the language list of the language settings.
   void UpdateLanguageList(const std::vector<std::string>& languages);
@@ -185,6 +194,8 @@ class TranslatePrefs {
   base::DictionaryValue* GetTranslationAcceptedCountDictionary() const;
 
   PrefService* prefs_;  // Weak.
+
+  std::string country_;  // The country the app runs in.
 
   DISALLOW_COPY_AND_ASSIGN(TranslatePrefs);
 };

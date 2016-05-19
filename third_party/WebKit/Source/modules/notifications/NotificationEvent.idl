@@ -5,10 +5,9 @@
 // https://notifications.spec.whatwg.org/#service-worker-api
 
 [
-    Constructor(DOMString type, optional NotificationEventInit eventInitDict),
+    Constructor(DOMString type, NotificationEventInit eventInitDict),
     Exposed=ServiceWorker,
     RuntimeEnabled=Notifications,
-    TypeChecking=Interface,
 ] interface NotificationEvent : ExtendableEvent {
     readonly attribute Notification notification;
     readonly attribute DOMString action;

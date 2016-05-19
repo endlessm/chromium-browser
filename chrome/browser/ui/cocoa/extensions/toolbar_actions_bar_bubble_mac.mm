@@ -4,6 +4,8 @@
 
 #import "chrome/browser/ui/cocoa/extensions/toolbar_actions_bar_bubble_mac.h"
 
+#include <utility>
+
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
@@ -16,6 +18,7 @@
 #import "ui/base/cocoa/hover_button.h"
 #import "ui/base/cocoa/window_size_constants.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/native_theme/native_theme_mac.h"
 
 namespace {
 BOOL g_animations_enabled = false;
@@ -72,13 +75,13 @@ CGFloat kMinWidth = 320.0;
                        parentWindow:parentWindow
                          anchoredAt:anchorPoint])) {
     acknowledged_ = NO;
-    delegate_ = delegate.Pass();
+    delegate_ = std::move(delegate);
 
-    ui::NativeTheme* nativeTheme = ui::NativeTheme::instance();
+    ui::NativeTheme* nativeTheme = ui::NativeThemeMac::instance();
     [[self bubble] setAlignment:info_bubble::kAlignArrowToAnchor];
     [[self bubble] setArrowLocation:info_bubble::kTopRight];
     [[self bubble] setBackgroundColor:
-        gfx::SkColorToCalibratedNSColor(nativeTheme->GetSystemColor(
+        skia::SkColorToCalibratedNSColor(nativeTheme->GetSystemColor(
             ui::NativeTheme::kColorId_DialogBackground))];
 
     if (!g_animations_enabled)
@@ -106,7 +109,7 @@ CGFloat kMinWidth = 320.0;
 - (void)windowWillClose:(NSNotification*)notification {
   if (!acknowledged_) {
     delegate_->OnBubbleClosed(
-        ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS);
+        ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS_DEACTIVATION);
     acknowledged_ = YES;
   }
   [super windowWillClose:notification];
@@ -327,7 +330,7 @@ CGFloat kMinWidth = 320.0;
   if (learnMoreButton_ && sender == learnMoreButton_) {
     action = ToolbarActionsBarBubbleDelegate::CLOSE_LEARN_MORE;
   } else if (dismissButton_ && sender == dismissButton_) {
-    action = ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS;
+    action = ToolbarActionsBarBubbleDelegate::CLOSE_DISMISS_USER_ACTION;
   } else {
     DCHECK_EQ(sender, actionButton_);
     action = ToolbarActionsBarBubbleDelegate::CLOSE_EXECUTE;

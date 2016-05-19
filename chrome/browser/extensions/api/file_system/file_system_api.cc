@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/file_system/file_system_api.h"
 
+#include <stddef.h>
+
 #include <set>
 #include <vector>
 
@@ -12,6 +14,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
@@ -20,6 +23,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/value_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/file_handlers/app_file_handler_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -60,7 +64,6 @@
 #endif
 
 #if defined(OS_CHROMEOS)
-#include "base/prefs/testing_pref_service.h"
 #include "base/strings/string16.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
@@ -69,6 +72,7 @@
 #include "chrome/browser/extensions/api/file_system/request_file_system_dialog_view.h"
 #include "chrome/browser/extensions/api/file_system/request_file_system_notification.h"
 #include "chrome/browser/ui/simple_message_box.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/user_manager/user_manager.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
@@ -504,13 +508,17 @@ FileSystemEntryFunction::FileSystemEntryFunction()
 void FileSystemEntryFunction::PrepareFilesForWritableApp(
     const std::vector<base::FilePath>& paths) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  // TODO(cmihail): Path directory set should be initialized only with the
+  // paths that are actually directories, but for now we will consider
+  // all paths directories in case is_directory_ is true, otherwise
+  // all paths files, as this was the previous logic.
+  std::set<base::FilePath> path_directory_set_ =
+      is_directory_ ? std::set<base::FilePath>(paths.begin(), paths.end())
+                    : std::set<base::FilePath>{};
   app_file_handler_util::PrepareFilesForWritableApp(
-      paths,
-      GetProfile(),
-      is_directory_,
+      paths, GetProfile(), path_directory_set_,
       base::Bind(&FileSystemEntryFunction::RegisterFileSystemsAndSendResponse,
-                 this,
-                 paths),
+                 this, paths),
       base::Bind(&FileSystemEntryFunction::HandleWritableFileError, this));
 }
 
@@ -722,7 +730,7 @@ class FileSystemChooseEntryFunction::FilePicker
     // not its cache. On other platforms than Chrome OS, they are the same.
     //
     // TODO(kinaba): remove this, once after the file picker implements proper
-    // switch of the path treatment depending on the |support_drive| flag.
+    // switch of the path treatment depending on the |allowed_paths|.
     FileSelected(file.file_path, index, params);
   }
 
@@ -845,22 +853,6 @@ void FileSystemChooseEntryFunction::RegisterTempExternalFileSystemForTest(
       storage::kFileSystemTypeNativeLocal,
       storage::FileSystemMountOption(),
       path);
-}
-
-void FileSystemChooseEntryFunction::SetInitialPathOnFileThread(
-    const base::FilePath& suggested_name,
-    const base::FilePath& previous_path) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
-  if (!previous_path.empty() && base::DirectoryExists(previous_path)) {
-    initial_path_ = previous_path.Append(suggested_name);
-  } else {
-    base::FilePath documents_dir;
-    if (PathService::Get(chrome::DIR_USER_DOCUMENTS, &documents_dir)) {
-      initial_path_ = documents_dir.Append(suggested_name);
-    } else {
-      initial_path_ = suggested_name;
-    }
-  }
 }
 
 void FileSystemChooseEntryFunction::FilesSelected(
@@ -1044,6 +1036,26 @@ void FileSystemChooseEntryFunction::BuildSuggestion(
   }
 }
 
+void FileSystemChooseEntryFunction::SetInitialPathAndShowPicker(
+    const base::FilePath& previous_path,
+    const base::FilePath& suggested_name,
+    const ui::SelectFileDialog::FileTypeInfo& file_type_info,
+    ui::SelectFileDialog::Type picker_type,
+    bool is_previous_path_directory) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  if (is_previous_path_directory) {
+    initial_path_ = previous_path.Append(suggested_name);
+  } else {
+    base::FilePath documents_dir;
+    if (PathService::Get(chrome::DIR_USER_DOCUMENTS, &documents_dir)) {
+      initial_path_ = documents_dir.Append(suggested_name);
+    } else {
+      initial_path_ = suggested_name;
+    }
+  }
+  ShowPicker(file_type_info, picker_type);
+}
+
 bool FileSystemChooseEntryFunction::RunAsync() {
   scoped_ptr<ChooseEntry::Params> params(ChooseEntry::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
@@ -1055,7 +1067,7 @@ bool FileSystemChooseEntryFunction::RunAsync() {
 
   file_system::ChooseEntryOptions* options = params->options.get();
   if (options) {
-    multiple_ = options->accepts_multiple;
+    multiple_ = !!options->accepts_multiple;
     if (multiple_)
       picker_type = ui::SelectFileDialog::SELECT_OPEN_MULTI_FILE;
 
@@ -1097,22 +1109,35 @@ bool FileSystemChooseEntryFunction::RunAsync() {
         options->accepts.get(), options->accepts_all_types.get());
   }
 
-  file_type_info.support_drive = true;
+  file_type_info.allowed_paths = ui::SelectFileDialog::FileTypeInfo::ANY_PATH;
 
   base::FilePath previous_path = file_system_api::GetLastChooseEntryDirectory(
       ExtensionPrefs::Get(GetProfile()), extension()->id());
 
-  content::BrowserThread::PostTaskAndReply(
-      content::BrowserThread::FILE,
-      FROM_HERE,
-      base::Bind(&FileSystemChooseEntryFunction::SetInitialPathOnFileThread,
-                 this,
-                 suggested_name,
-                 previous_path),
-      base::Bind(&FileSystemChooseEntryFunction::ShowPicker,
-                 this,
-                 file_type_info,
-                 picker_type));
+  if (previous_path.empty()) {
+    SetInitialPathAndShowPicker(previous_path, suggested_name, file_type_info,
+                                picker_type, false);
+    return true;
+  }
+
+  base::Callback<void(bool)> set_initial_path_callback = base::Bind(
+      &FileSystemChooseEntryFunction::SetInitialPathAndShowPicker, this,
+      previous_path, suggested_name, file_type_info, picker_type);
+
+// Check whether the |previous_path| is a non-native directory.
+#if defined(OS_CHROMEOS)
+  if (file_manager::util::IsUnderNonNativeLocalPath(GetProfile(),
+                                                    previous_path)) {
+    file_manager::util::IsNonNativeLocalPathDirectory(
+        GetProfile(), previous_path, set_initial_path_callback);
+    return true;
+  }
+#endif
+  content::BrowserThread::PostTaskAndReplyWithResult(
+      content::BrowserThread::FILE, FROM_HERE,
+      base::Bind(&base::DirectoryExists, previous_path),
+      set_initial_path_callback);
+
   return true;
 }
 
@@ -1149,19 +1174,16 @@ bool FileSystemRetainEntryFunction::RunAsync() {
             .Append(base::FilePath::FromUTF8Unsafe(filesystem_path)));
 
     content::BrowserThread::PostTask(
-        content::BrowserThread::IO,
-        FROM_HERE,
+        content::BrowserThread::IO, FROM_HERE,
         base::Bind(
             base::IgnoreResult(
                 &storage::FileSystemOperationRunner::GetMetadata),
-            context->operation_runner()->AsWeakPtr(),
-            url,
+            context->operation_runner()->AsWeakPtr(), url,
+            storage::FileSystemOperation::GET_METADATA_FIELD_IS_DIRECTORY,
             base::Bind(
                 &PassFileInfoToUIThread,
                 base::Bind(&FileSystemRetainEntryFunction::RetainFileEntry,
-                           this,
-                           entry_id,
-                           path))));
+                           this, entry_id, path))));
     return true;
   }
 
@@ -1440,9 +1462,8 @@ ExtensionFunction::ResponseAction FileSystemGetVolumeListFunction::Run() {
   std::vector<linked_ptr<Volume>> result_volume_list;
   FillVolumeList(chrome_details_.GetProfile(), &result_volume_list);
 
-  return RespondNow(
-      ArgumentList(api::file_system::GetVolumeList::Results::Create(
-                       result_volume_list).Pass()));
+  return RespondNow(ArgumentList(
+      api::file_system::GetVolumeList::Results::Create(result_volume_list)));
 }
 #endif
 

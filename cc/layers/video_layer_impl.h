@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/macros.h"
 #include "cc/base/cc_export.h"
 #include "cc/layers/layer_impl.h"
 #include "cc/resources/release_callback_impl.h"
@@ -62,6 +63,9 @@ class CC_EXPORT VideoLayerImpl : public LayerImpl {
 
   scoped_ptr<VideoResourceUpdater> updater_;
   VideoFrameExternalResources::ResourceType frame_resource_type_;
+  float frame_resource_offset_;
+  float frame_resource_multiplier_;
+
   struct FrameResource {
     FrameResource(ResourceId id,
                   gfx::Size size_in_pixels,

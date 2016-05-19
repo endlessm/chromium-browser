@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
@@ -60,14 +62,13 @@ void RestoreOnStartupTestChromeOS::GetMandatoryPoliciesValue(
   scoped_ptr<base::ListValue> urls(new base::ListValue);
   urls->AppendString(kStartUpURL1);
   urls->AppendString(kStartUpURL2);
-  policy->Set(key::kRestoreOnStartupURLs, urls.Pass());
+  policy->Set(key::kRestoreOnStartupURLs, std::move(urls));
 }
 
 void RestoreOnStartupTestChromeOS::LogInAndVerifyStartUpURLs() {
   LogIn(kAccountId, kAccountPassword);
 
-  const BrowserList* const browser_list =
-      BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_ASH);
+  const BrowserList* const browser_list = BrowserList::GetInstance();
   ASSERT_EQ(1U, browser_list->size());
   const Browser* const browser = browser_list->get(0);
   ASSERT_TRUE(browser);

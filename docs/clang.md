@@ -16,7 +16,7 @@ See
 
 Get clang (happens automatically during `gclient runhooks` on Mac and Linux):
 
-    tools/clang/scripts/update.sh
+    tools/clang/scripts/update.py
 
 (Only needs to be run once per checkout, and clang will be automatically updated
 by `gclient runhooks`.)
@@ -51,11 +51,17 @@ is used by default when clang is used.
 
 If you're working on the plugin, you can build it locally like so:
 
-1.  Run `./tools/clang/scripts/update.sh --force-local-build --without-android`
+1.  Run `./tools/clang/scripts/update.py --force-local-build --without-android`
     to build the plugin.
-1.  Build with clang like described above.
+1.  Run `ninja -C third_party/llvm-build/Release+Asserts/` to build incrementally.
+1.  Build with clang like described above, but, if you use goma, disable it.
 
-TODO: writing_clang_plugins does not exist.
+To test the FindBadConstructs plugin, run:
+
+    (cd tools/clang/plugins/tests && \
+     ./test.py ../../../../third_party/llvm-build/Release+Asserts/bin/clang \
+               ../../../../third_party/llvm-build/Release+Asserts/lib/libFindBadConstructs.so)
+
 To run [other plugins](writing_clang_plugins.md), add these to your
 `GYP_DEFINES`:
 
@@ -122,6 +128,6 @@ lines set `cc` and `cxx` to your clang binary. If things look good, run `ninja
 
 If your clang revision is very different from the one currently used in chromium
 
-*   Check `tools/clang/scripts/update.sh` to find chromium's clang revision
+*   Check `tools/clang/scripts/update.py` to find chromium's clang revision
 *   You might have to tweak warning flags. Or you could set `werror=` in the
     line above to disable warnings as errors (but this only works on Linux).

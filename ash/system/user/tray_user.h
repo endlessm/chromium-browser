@@ -10,6 +10,7 @@
 #include "ash/system/tray/system_tray_item.h"
 #include "ash/system/user/user_observer.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 
 namespace gfx {
 class Rect;
@@ -65,10 +66,8 @@ class ASH_EXPORT TrayUser : public SystemTrayItem,
   // Overridden from SystemTrayItem.
   views::View* CreateTrayView(user::LoginStatus status) override;
   views::View* CreateDefaultView(user::LoginStatus status) override;
-  views::View* CreateDetailedView(user::LoginStatus status) override;
   void DestroyTrayView() override;
   void DestroyDefaultView() override;
-  void DestroyDetailedView() override;
   void UpdateAfterLoginStatusChange(user::LoginStatus status) override;
   void UpdateAfterShelfAlignmentChange(ShelfAlignment alignment) override;
 

@@ -31,10 +31,29 @@ int RotationToDegrees(gfx::Display::Rotation rotation) {
   return 0;
 }
 
+}  // namespace
+
+DisplayInfoProvider::~DisplayInfoProvider() {}
+
+// static
+DisplayInfoProvider* DisplayInfoProvider::Get() {
+  if (g_display_info_provider == NULL)
+    g_display_info_provider = DisplayInfoProvider::Create();
+  return g_display_info_provider;
+}
+
+// static
+void DisplayInfoProvider::InitializeForTesting(
+    DisplayInfoProvider* display_info_provider) {
+  DCHECK(display_info_provider);
+  g_display_info_provider = display_info_provider;
+}
+
+// static
 // Creates new DisplayUnitInfo struct for |display|.
-api::system_display::DisplayUnitInfo* CreateDisplayUnitInfo(
-    const gfx::Display& display,
-    int64 primary_display_id) {
+api::system_display::DisplayUnitInfo*
+DisplayInfoProvider::CreateDisplayUnitInfo(const gfx::Display& display,
+                                           int64_t primary_display_id) {
   api::system_display::DisplayUnitInfo* unit =
       new api::system_display::DisplayUnitInfo();
   const gfx::Rect& bounds = display.bounds();
@@ -55,31 +74,11 @@ api::system_display::DisplayUnitInfo* CreateDisplayUnitInfo(
   return unit;
 }
 
-}  // namespace
-
-DisplayInfoProvider::~DisplayInfoProvider() {
-}
-
-// static
-DisplayInfoProvider* DisplayInfoProvider::Get() {
-  if (g_display_info_provider == NULL)
-    g_display_info_provider = DisplayInfoProvider::Create();
-  return g_display_info_provider;
-}
-
-// static
-void DisplayInfoProvider::InitializeForTesting(
-    DisplayInfoProvider* display_info_provider) {
-  DCHECK(display_info_provider);
-  g_display_info_provider = display_info_provider;
-}
-
 void DisplayInfoProvider::EnableUnifiedDesktop(bool enable) {}
 
 DisplayInfo DisplayInfoProvider::GetAllDisplaysInfo() {
-  // TODO(scottmg): Native is wrong http://crbug.com/133312
-  gfx::Screen* screen = gfx::Screen::GetNativeScreen();
-  int64 primary_id = screen->GetPrimaryDisplay().id();
+  gfx::Screen* screen = gfx::Screen::GetScreen();
+  int64_t primary_id = screen->GetPrimaryDisplay().id();
   std::vector<gfx::Display> displays = screen->GetAllDisplays();
   DisplayInfo all_displays;
   for (const gfx::Display& display : displays) {

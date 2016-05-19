@@ -25,17 +25,7 @@ public:
         return adoptRefWillBeNoop(new PointerEvent(type, initializer));
     }
 
-    static PassRefPtrWillBeRawPtr<PointerEvent> create(const AtomicString& type,
-        const bool isPrimary, const PlatformMouseEvent&, PassRefPtrWillBeRawPtr<Node> relatedTarget,
-        PassRefPtrWillBeRawPtr<AbstractView>);
-
-    static PassRefPtrWillBeRawPtr<PointerEvent> create(const AtomicString& type,
-        const bool isPrimary, const PlatformTouchPoint&,
-        PlatformEvent::Modifiers,
-        const double width, const double height,
-        const double clientX, const double clientY);
-
-    long pointerId() const { return m_pointerId; }
+    int pointerId() const { return m_pointerId; }
     double width() const { return m_width; }
     double height() const { return m_height; }
     float pressure() const { return m_pressure; }
@@ -44,6 +34,7 @@ public:
     const String& pointerType() const { return m_pointerType; }
     bool isPrimary() const { return m_isPrimary; }
 
+    short button() const override { return rawButton(); }
     bool isMouseEvent() const override;
     bool isPointerEvent() const override;
 
@@ -55,7 +46,7 @@ private:
     PointerEvent();
     PointerEvent(const AtomicString&, const PointerEventInit&);
 
-    long m_pointerId;
+    int m_pointerId;
     double m_width;
     double m_height;
     float m_pressure;
@@ -73,7 +64,7 @@ public:
 private:
     explicit PointerEventDispatchMediator(PassRefPtrWillBeRawPtr<PointerEvent>);
     PointerEvent& event() const;
-    bool dispatchEvent(EventDispatcher&) const override;
+    DispatchEventResult dispatchEvent(EventDispatcher&) const override;
 };
 
 DEFINE_EVENT_TYPE_CASTS(PointerEvent);

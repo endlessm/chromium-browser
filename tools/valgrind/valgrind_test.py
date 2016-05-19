@@ -601,8 +601,10 @@ class DrMemory(BaseTool):
                       default=False, dest="use_debug",
                       help="Run Dr. Memory debug build")
     parser.add_option("", "--trace_children", action="store_true",
-                            default=True,
-                            help="TODO: default value differs from Valgrind")
+                      default=True,
+                      help="TODO: default value differs from Valgrind")
+    parser.add_option("", "--drmemory_ops",
+                      help="Extra options passed to Dr. Memory")
 
   def ToolCommand(self):
     """Get the tool command to run."""
@@ -719,6 +721,12 @@ class DrMemory(BaseTool):
     if common.IsWindows() and "Release" in self._options.build_dir:
         proc += ["-no_check_delete_mismatch"]
 
+    # We are seeing false positive invalid heap args on 64-bit, so we are
+    # disabling the feature for now (xref
+    # https://github.com/DynamoRIO/drmemory/issues/1839).
+    if common.IsWindows() and "Release_x64" in self._options.build_dir:
+        proc += ["-no_check_heap_mismatch"]
+
     # make callstacks easier to read
     proc += ["-callstack_srcfile_prefix",
              "build\\src,chromium\\src,crt_build\\self_x86"]
@@ -728,6 +736,10 @@ class DrMemory(BaseTool):
     boring_callers = common.BoringCallers(mangled=False, use_re_wildcards=False)
     # TODO(timurrrr): In fact, we want "starting from .." instead of "below .."
     proc += ["-callstack_truncate_below", ",".join(boring_callers)]
+
+    # crbug.com/155839: extra Dr. Memory options passed via --drmemory_ops
+    if self._options.drmemory_ops:
+      proc.extend(self._options.drmemory_ops.split())
 
     if self.pattern_mode:
       proc += ["-pattern", "0xf1fd", "-no_count_leaks", "-redzone_size", "0x20"]

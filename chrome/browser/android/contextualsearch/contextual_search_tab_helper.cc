@@ -6,10 +6,10 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "jni/ContextualSearchTabHelper_jni.h"
 
 
@@ -36,7 +36,8 @@ void ContextualSearchTabHelper::OnContextualSearchPrefChanged() {
   Java_ContextualSearchTabHelper_onContextualSearchPrefChanged(env, jobj.obj());
 }
 
-void ContextualSearchTabHelper::Destroy(JNIEnv* env, jobject obj) {
+void ContextualSearchTabHelper::Destroy(JNIEnv* env,
+                                        const JavaParamRef<jobject>& obj) {
   delete this;
 }
 

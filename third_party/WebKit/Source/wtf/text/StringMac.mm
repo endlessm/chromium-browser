@@ -18,7 +18,6 @@
  *
  */
 
-#include "config.h"
 #include "wtf/text/WTFString.h"
 
 #include <CoreFoundation/CFString.h>
@@ -48,4 +47,4 @@ String::String(NSString* str)
     }
 }
 
-}
+} // namespace WTF

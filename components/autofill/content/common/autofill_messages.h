@@ -17,7 +17,7 @@
 #include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_field_prediction_map.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
-#include "components/autofill/core/common/web_element_descriptor.h"
+#include "components/autofill/core/common/password_form_generation_data.h"
 #include "content/public/common/common_param_traits.h"
 #include "content/public/common/common_param_traits_macros.h"
 #include "ipc/ipc_message_macros.h"
@@ -38,14 +38,6 @@ IPC_ENUM_TRAITS_MAX_VALUE(
 
 IPC_ENUM_TRAITS_MAX_VALUE(base::i18n::TextDirection,
                           base::i18n::TEXT_DIRECTION_NUM_DIRECTIONS - 1)
-
-IPC_STRUCT_TRAITS_BEGIN(autofill::WebElementDescriptor)
-  IPC_STRUCT_TRAITS_MEMBER(descriptor)
-  IPC_STRUCT_TRAITS_MEMBER(retrieval_method)
-IPC_STRUCT_TRAITS_END()
-
-IPC_ENUM_TRAITS_MAX_VALUE(autofill::WebElementDescriptor::RetrievalMethod,
-                          autofill::WebElementDescriptor::NONE)
 
 IPC_STRUCT_TRAITS_BEGIN(autofill::FormFieldData)
   IPC_STRUCT_TRAITS_MEMBER(label)
@@ -71,12 +63,19 @@ IPC_STRUCT_TRAITS_BEGIN(autofill::FormFieldDataPredictions)
   IPC_STRUCT_TRAITS_MEMBER(heuristic_type)
   IPC_STRUCT_TRAITS_MEMBER(server_type)
   IPC_STRUCT_TRAITS_MEMBER(overall_type)
+  IPC_STRUCT_TRAITS_MEMBER(parseable_name)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(autofill::FormDataPredictions)
   IPC_STRUCT_TRAITS_MEMBER(data)
   IPC_STRUCT_TRAITS_MEMBER(signature)
   IPC_STRUCT_TRAITS_MEMBER(fields)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(autofill::PasswordFormGenerationData)
+  IPC_STRUCT_TRAITS_MEMBER(name)
+  IPC_STRUCT_TRAITS_MEMBER(action)
+  IPC_STRUCT_TRAITS_MEMBER(generation_field)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(autofill::UsernamesCollectionKey)
@@ -191,6 +190,11 @@ IPC_MESSAGE_ROUTED2(AutofillMsg_PreviewPasswordSuggestion,
 // |AutofillHostMsg_FocusedPasswordFormFound|.
 IPC_MESSAGE_ROUTED0(AutofillMsg_FindFocusedPasswordForm)
 
+// Tells the renderer to find a focused element, and if it is a password field
+// eligible for generation then to trigger generation by responding to the
+// browser with the message |AutofillHostMsg_ShowPasswordGenerationPopup|.
+IPC_MESSAGE_ROUTED0(AutofillMsg_UserTriggeredGeneratePassword)
+
 // Tells the renderer that this password form is not blacklisted.  A form can
 // be blacklisted if a user chooses "never save passwords for this site".
 IPC_MESSAGE_ROUTED1(AutofillMsg_FormNotBlacklisted,
@@ -206,9 +210,10 @@ IPC_MESSAGE_ROUTED3(AutofillMsg_RequestAutocompleteResult,
                     autofill::FormData /* form_data */)
 
 // Sent when Autofill manager gets the query response from the Autofill server
-// and there are fields classified as ACCOUNT_CREATION_PASSWORD in the response.
-IPC_MESSAGE_ROUTED1(AutofillMsg_AccountCreationFormsDetected,
-                    std::vector<autofill::FormData> /* forms */)
+// and there are fields classified for password generation in the response.
+IPC_MESSAGE_ROUTED1(
+    AutofillMsg_FoundFormsEligibleForGeneration,
+    std::vector<autofill::PasswordFormGenerationData> /* forms */)
 
 // Sent when Autofill manager gets the query response from the Autofill server
 // which contains information about username and password fields for some forms.
@@ -291,8 +296,12 @@ IPC_MESSAGE_ROUTED0(AutofillHostMsg_DidPreviewAutofillFormData)
 // Sent immediately after the renderer receives a ping IPC.
 IPC_MESSAGE_ROUTED0(AutofillHostMsg_PingAck)
 
+// Sent when the current form is no longer focused.
+IPC_MESSAGE_ROUTED0(AutofillHostMsg_FocusNoLongerOnForm)
+
 // Sent when a form is filled with Autofill suggestions.
-IPC_MESSAGE_ROUTED1(AutofillHostMsg_DidFillAutofillFormData,
+IPC_MESSAGE_ROUTED2(AutofillHostMsg_DidFillAutofillFormData,
+                    autofill::FormData /* the form */,
                     base::TimeTicks /* timestamp */)
 
 // Sent when a form receives a request to do interactive autocomplete.
@@ -313,9 +322,11 @@ IPC_MESSAGE_ROUTED1(AutofillHostMsg_GenerationAvailableForForm,
 // Instructs the browser to show the password generation popup at the
 // specified location. This location should be specified in the renderers
 // coordinate system. Form is the form associated with the password field.
-IPC_MESSAGE_ROUTED3(AutofillHostMsg_ShowPasswordGenerationPopup,
+IPC_MESSAGE_ROUTED5(AutofillHostMsg_ShowPasswordGenerationPopup,
                     gfx::RectF /* source location */,
                     int /* max length of the password */,
+                    base::string16, /* password field */
+                    bool,           /* is manually triggered */
                     autofill::PasswordForm)
 
 // Instructs the browser to show the popup for editing a generated password.

@@ -4,10 +4,13 @@
 
 #include "ui/aura/window_event_dispatcher.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/event_client.h"
@@ -84,6 +87,7 @@ WindowEventDispatcher::WindowEventDispatcher(WindowTreeHost* host)
       move_hold_count_(0),
       dispatching_held_event_(nullptr),
       observer_manager_(this),
+      transform_events_(true),
       repost_event_factory_(this),
       held_event_factory_(this) {
   ui::GestureRecognizer::Get()->AddGestureEventHelper(this);
@@ -96,26 +100,33 @@ WindowEventDispatcher::~WindowEventDispatcher() {
   ui::GestureRecognizer::Get()->RemoveGestureEventHelper(this);
 }
 
-void WindowEventDispatcher::RepostEvent(const ui::LocatedEvent& event) {
-  DCHECK(event.type() == ui::ET_MOUSE_PRESSED ||
-         event.type() == ui::ET_GESTURE_TAP_DOWN);
+void WindowEventDispatcher::RepostEvent(const ui::LocatedEvent* event) {
+  DCHECK(event->type() == ui::ET_MOUSE_PRESSED ||
+         event->type() == ui::ET_GESTURE_TAP_DOWN ||
+         event->type() == ui::ET_TOUCH_PRESSED);
   // We allow for only one outstanding repostable event. This is used
   // in exiting context menus.  A dropped repost request is allowed.
-  if (event.type() == ui::ET_MOUSE_PRESSED) {
+  if (event->type() == ui::ET_MOUSE_PRESSED) {
     held_repostable_event_.reset(
         new ui::MouseEvent(
-            static_cast<const ui::MouseEvent&>(event),
-            static_cast<aura::Window*>(event.target()),
+            static_cast<const ui::MouseEvent&>(*event),
+            static_cast<aura::Window*>(event->target()),
             window()));
+  } else if (event->type() == ui::ET_TOUCH_PRESSED) {
+    held_repostable_event_.reset(
+        new ui::TouchEvent(static_cast<const ui::TouchEvent&>(*event)));
+  } else {
+    DCHECK(event->type() == ui::ET_GESTURE_TAP_DOWN);
+    held_repostable_event_.reset();
+    // TODO(rbyers): Reposing of gestures is tricky to get
+    // right, so it's not yet supported.  crbug.com/170987.
+  }
+
+  if (held_repostable_event_) {
     base::MessageLoop::current()->PostNonNestableTask(
         FROM_HERE, base::Bind(
             base::IgnoreResult(&WindowEventDispatcher::DispatchHeldEvents),
             repost_event_factory_.GetWeakPtr()));
-  } else {
-    DCHECK(event.type() == ui::ET_GESTURE_TAP_DOWN);
-    held_repostable_event_.reset();
-    // TODO(rbyers): Reposing of gestures is tricky to get
-    // right, so it's not yet supported.  crbug.com/170987.
   }
 }
 
@@ -137,11 +148,13 @@ void WindowEventDispatcher::DispatchCancelModeEvent() {
     return;
 }
 
-void WindowEventDispatcher::DispatchGestureEvent(ui::GestureEvent* event) {
+void WindowEventDispatcher::DispatchGestureEvent(
+    ui::GestureConsumer* raw_input_consumer,
+    ui::GestureEvent* event) {
   DispatchDetails details = DispatchHeldEvents();
   if (details.dispatcher_destroyed)
     return;
-  Window* target = GetGestureTarget(event);
+  Window* target = ConsumerToWindow(raw_input_consumer);
   if (target) {
     event->ConvertLocationToTarget(window(), target);
     DispatchDetails details = DispatchEvent(target, event);
@@ -158,13 +171,13 @@ DispatchDetails WindowEventDispatcher::DispatchMouseExitAtPoint(
   return DispatchMouseEnterOrExit(window, event, ui::ET_MOUSE_EXITED);
 }
 
-void WindowEventDispatcher::ProcessedTouchEvent(uint32 unique_event_id,
+void WindowEventDispatcher::ProcessedTouchEvent(uint32_t unique_event_id,
                                                 Window* window,
                                                 ui::EventResult result) {
   scoped_ptr<ui::GestureRecognizer::Gestures> gestures(
       ui::GestureRecognizer::Get()->AckTouchEvent(unique_event_id, result,
                                                   window));
-  DispatchDetails details = ProcessGestures(gestures.get());
+  DispatchDetails details = ProcessGestures(window, gestures.get());
   if (details.dispatcher_destroyed)
     return;
 }
@@ -281,12 +294,12 @@ ui::EventDispatchDetails WindowEventDispatcher::DispatchMouseEnterOrExit(
 }
 
 ui::EventDispatchDetails WindowEventDispatcher::ProcessGestures(
+    Window* target,
     ui::GestureRecognizer::Gestures* gestures) {
   DispatchDetails details;
   if (!gestures || gestures->empty())
     return details;
 
-  Window* target = GetGestureTarget(gestures->get().at(0));
   // If a window has been hidden between the touch event and now, the associated
   // gestures may not have a valid target.
   if (!target)
@@ -342,11 +355,6 @@ void WindowEventDispatcher::OnWindowHidden(Window* invisible,
     if (invisible->Contains(capture_window) && invisible != window())
       capture_window->ReleaseCapture();
   }
-}
-
-Window* WindowEventDispatcher::GetGestureTarget(ui::GestureEvent* event) {
-  return ConsumerToWindow(
-      ui::GestureRecognizer::Get()->GetTargetForGestureEvent(*event));
 }
 
 bool WindowEventDispatcher::is_dispatched_held_event(
@@ -434,8 +442,10 @@ void WindowEventDispatcher::OnEventProcessingStarted(ui::Event* event) {
   // The held events are already in |window()|'s coordinate system. So it is
   // not necessary to apply the transform to convert from the host's
   // coordinate system to |window()|'s coordinate system.
-  if (event->IsLocatedEvent() && !is_dispatched_held_event(*event))
+  if (event->IsLocatedEvent() && !is_dispatched_held_event(*event) &&
+      transform_events_) {
     TransformEventForDeviceScaleFactor(static_cast<ui::LocatedEvent*>(event));
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -504,11 +514,11 @@ ui::EventDispatchDetails WindowEventDispatcher::PostDispatchEvent(
       if (!touchevent.synchronous_handling_disabled()) {
         scoped_ptr<ui::GestureRecognizer::Gestures> gestures;
 
+        Window* window = static_cast<Window*>(target);
         gestures.reset(ui::GestureRecognizer::Get()->AckTouchEvent(
-            touchevent.unique_event_id(), event.result(),
-            static_cast<Window*>(target)));
+            touchevent.unique_event_id(), event.result(), window));
 
-        return ProcessGestures(gestures.get());
+        return ProcessGestures(window, gestures.get());
       }
     }
   }
@@ -525,7 +535,9 @@ bool WindowEventDispatcher::CanDispatchToConsumer(
   return (consumer_window && consumer_window->GetRootWindow() == window());
 }
 
-void WindowEventDispatcher::DispatchCancelTouchEvent(ui::TouchEvent* event) {
+void WindowEventDispatcher::DispatchCancelTouchEvent(
+    ui::GestureConsumer* raw_input_consumer,
+    ui::TouchEvent* event) {
   // The touchcancel event's location is based on the last known location of
   // the pointer, in dips. OnEventFromSource expects events with co-ordinates
   // in raw pixels, so we convert back to raw pixels here.
@@ -661,11 +673,11 @@ ui::EventDispatchDetails WindowEventDispatcher::DispatchHeldEvents() {
 
   DispatchDetails dispatch_details;
   if (held_repostable_event_) {
-    if (held_repostable_event_->type() == ui::ET_MOUSE_PRESSED) {
-      scoped_ptr<ui::MouseEvent> mouse_event(
-          static_cast<ui::MouseEvent*>(held_repostable_event_.release()));
-      dispatching_held_event_ = mouse_event.get();
-      dispatch_details = OnEventFromSource(mouse_event.get());
+    if (held_repostable_event_->type() == ui::ET_MOUSE_PRESSED ||
+        held_repostable_event_->type() == ui::ET_TOUCH_PRESSED) {
+      scoped_ptr<ui::LocatedEvent> event = std::move(held_repostable_event_);
+      dispatching_held_event_ = event.get();
+      dispatch_details = OnEventFromSource(event.get());
     } else {
       // TODO(rbyers): GESTURE_TAP_DOWN not yet supported: crbug.com/170987.
       NOTREACHED();
@@ -786,11 +798,6 @@ DispatchDetails WindowEventDispatcher::PreDispatchMouseEvent(
     }
   }
 
-  const int kMouseButtonFlagMask = ui::EF_LEFT_MOUSE_BUTTON |
-                                   ui::EF_MIDDLE_MOUSE_BUTTON |
-                                   ui::EF_RIGHT_MOUSE_BUTTON |
-                                   ui::EF_BACK_MOUSE_BUTTON |
-                                   ui::EF_FORWARD_MOUSE_BUTTON;
   switch (event->type()) {
     case ui::ET_MOUSE_EXITED:
       if (!target || target == window()) {
@@ -851,13 +858,12 @@ DispatchDetails WindowEventDispatcher::PreDispatchMouseEvent(
       // sent to the wrong target.
       if (!(event->flags() & ui::EF_IS_NON_CLIENT) && !mouse_pressed_handler_)
         mouse_pressed_handler_ = target;
-      Env::GetInstance()->set_mouse_button_flags(
-          event->flags() & kMouseButtonFlagMask);
+      Env::GetInstance()->set_mouse_button_flags(event->button_flags());
       break;
     case ui::ET_MOUSE_RELEASED:
       mouse_pressed_handler_ = NULL;
-      Env::GetInstance()->set_mouse_button_flags(event->flags() &
-          kMouseButtonFlagMask & ~event->changed_button_flags());
+      Env::GetInstance()->set_mouse_button_flags(
+          event->button_flags() & ~event->changed_button_flags());
       break;
     default:
       break;

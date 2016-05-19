@@ -6,6 +6,7 @@
 
 #include "mojo/public/c/system/core.h"
 
+#include <stdint.h>
 #include <string.h>
 
 #include "testing/gtest/include/gtest/gtest.h"
@@ -155,6 +156,10 @@ TEST(CoreTest, BasicMessagePipe) {
   // Close |h0|.
   EXPECT_EQ(MOJO_RESULT_OK, MojoClose(h0));
 
+  EXPECT_EQ(MOJO_RESULT_OK,
+            MojoWait(h1, MOJO_HANDLE_SIGNAL_PEER_CLOSED,
+                     MOJO_DEADLINE_INDEFINITE, &state));
+
   // |h1| should no longer be readable or writable.
   EXPECT_EQ(
       MOJO_RESULT_FAILED_PRECONDITION,
@@ -167,16 +172,7 @@ TEST(CoreTest, BasicMessagePipe) {
   EXPECT_EQ(MOJO_RESULT_OK, MojoClose(h1));
 }
 
-// TODO(ncbray): enable these tests once NaCl supports the corresponding APIs.
-#ifdef __native_client__
-#define MAYBE_BasicDataPipe DISABLED_BasicDataPipe
-#define MAYBE_BasicSharedBuffer DISABLED_BasicSharedBuffer
-#else
-#define MAYBE_BasicDataPipe BasicDataPipe
-#define MAYBE_BasicSharedBuffer BasicSharedBuffer
-#endif
-
-TEST(CoreTest, MAYBE_BasicDataPipe) {
+TEST(CoreTest, BasicDataPipe) {
   MojoHandle hp, hc;
   MojoHandleSignals sig;
   char buffer[20] = {0};
@@ -258,7 +254,8 @@ TEST(CoreTest, MAYBE_BasicDataPipe) {
 
   // |hc| should still be readable.
   EXPECT_EQ(MOJO_RESULT_OK,
-            MojoWait(hc, MOJO_HANDLE_SIGNAL_READABLE, 0, &state));
+            MojoWait(hc, MOJO_HANDLE_SIGNAL_PEER_CLOSED,
+                     MOJO_DEADLINE_INDEFINITE, &state));
 
   EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,
             state.satisfied_signals);
@@ -287,7 +284,7 @@ TEST(CoreTest, MAYBE_BasicDataPipe) {
   // the producer never-writable?
 }
 
-TEST(CoreTest, MAYBE_BasicSharedBuffer) {
+TEST(CoreTest, BasicSharedBuffer) {
   MojoHandle h0, h1;
   void* pointer;
 

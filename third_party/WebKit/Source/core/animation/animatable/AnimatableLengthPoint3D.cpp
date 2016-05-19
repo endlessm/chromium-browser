@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/animatable/AnimatableLengthPoint3D.h"
 
 namespace blink {
@@ -48,4 +47,4 @@ bool AnimatableLengthPoint3D::equalTo(const AnimatableValue* value) const
     return x()->equals(lengthPoint->x()) && y()->equals(lengthPoint->y()) && z()->equals(lengthPoint->z());
 }
 
-}
+} // namespace blink

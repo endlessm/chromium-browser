@@ -4,11 +4,12 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task_runner_util.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
@@ -20,6 +21,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/proto/data_store.pb.h"
+#include "components/prefs/pref_service.h"
 
 namespace data_reduction_proxy {
 
@@ -35,7 +37,7 @@ DataReductionProxyService::DataReductionProxyService(
     : url_request_context_getter_(request_context_getter),
       settings_(settings),
       prefs_(prefs),
-      db_data_owner_(new DBDataOwner(store.Pass())),
+      db_data_owner_(new DBDataOwner(std::move(store))),
       io_task_runner_(io_task_runner),
       db_task_runner_(db_task_runner),
       initialized_(false),
@@ -97,8 +99,8 @@ void DataReductionProxyService::EnableCompressionStatisticsLogging(
 }
 
 void DataReductionProxyService::UpdateContentLengths(
-    int64 data_used,
-    int64 original_size,
+    int64_t data_used,
+    int64_t original_size,
     bool data_reduction_proxy_enabled,
     DataReductionProxyRequestType request_type,
     const std::string& data_usage_host,
@@ -113,27 +115,27 @@ void DataReductionProxyService::UpdateContentLengths(
 
 void DataReductionProxyService::AddEvent(scoped_ptr<base::Value> event) {
   DCHECK(CalledOnValidThread());
-  event_store_->AddEvent(event.Pass());
+  event_store_->AddEvent(std::move(event));
 }
 
 void DataReductionProxyService::AddEnabledEvent(scoped_ptr<base::Value> event,
                                                 bool enabled) {
   DCHECK(CalledOnValidThread());
-  event_store_->AddEnabledEvent(event.Pass(), enabled);
+  event_store_->AddEnabledEvent(std::move(event), enabled);
 }
 
 void DataReductionProxyService::AddEventAndSecureProxyCheckState(
     scoped_ptr<base::Value> event,
     SecureProxyCheckState state) {
   DCHECK(CalledOnValidThread());
-  event_store_->AddEventAndSecureProxyCheckState(event.Pass(), state);
+  event_store_->AddEventAndSecureProxyCheckState(std::move(event), state);
 }
 
 void DataReductionProxyService::AddAndSetLastBypassEvent(
     scoped_ptr<base::Value> event,
-    int64 expiration_ticks) {
+    int64_t expiration_ticks) {
   DCHECK(CalledOnValidThread());
-  event_store_->AddAndSetLastBypassEvent(event.Pass(), expiration_ticks);
+  event_store_->AddAndSetLastBypassEvent(std::move(event), expiration_ticks);
 }
 
 void DataReductionProxyService::SetUnreachable(bool unreachable) {
@@ -234,7 +236,7 @@ void DataReductionProxyService::RecordLoFiSessionState(LoFiSessionState state) {
 }
 
 void DataReductionProxyService::SetInt64Pref(const std::string& pref_path,
-                                             int64 value) {
+                                             int64_t value) {
   if (prefs_)
     prefs_->SetInt64(pref_path, value);
 }

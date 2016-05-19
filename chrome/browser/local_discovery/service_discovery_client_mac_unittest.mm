@@ -3,16 +3,18 @@
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
+#include <stdint.h>
 
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #include "base/bind.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
+#include "chrome/browser/local_discovery/service_discovery_client.h"
 #include "chrome/browser/local_discovery/service_discovery_client_mac.h"
-#include "chrome/common/local_discovery/service_discovery_client.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "net/base/ip_endpoint.h"
-#include "net/base/net_util.h"
+#include "net/base/sockaddr_storage.h"
 #include "testing/gtest_mac.h"
 
 @interface TestNSNetService : NSNetService {
@@ -118,15 +120,15 @@ TEST_F(ServiceDiscoveryClientMacTest, ServiceResolver) {
       base::Bind(&ServiceDiscoveryClientMacTest::OnResolveComplete,
                  base::Unretained(this)));
 
-  const uint8 record_bytes[] = { 2, 'a', 'b', 3, 'd', '=', 'e' };
+  const uint8_t record_bytes[] = {2, 'a', 'b', 3, 'd', '=', 'e'};
   base::scoped_nsobject<TestNSNetService> test_service([[TestNSNetService alloc]
       initWithData:[[NSData alloc] initWithBytes:record_bytes
                                           length:arraysize(record_bytes)]]);
 
   const std::string kIp = "2001:4860:4860::8844";
   const uint16_t kPort = 4321;
-  net::IPAddressNumber ip_address;
-  ASSERT_TRUE(net::ParseIPLiteralToNumber(kIp, &ip_address));
+  net::IPAddress ip_address;
+  ASSERT_TRUE(ip_address.AssignFromIPLiteral(kIp));
   net::IPEndPoint endpoint(ip_address, kPort);
   net::SockaddrStorage storage;
   ASSERT_TRUE(endpoint.ToSockAddr(storage.addr, &storage.addr_len));
@@ -137,7 +139,8 @@ TEST_F(ServiceDiscoveryClientMacTest, ServiceResolver) {
 
   ServiceResolverImplMac* resolver_impl =
       static_cast<ServiceResolverImplMac*>(resolver.get());
-  resolver_impl->GetContainerForTesting()->SetServiceForTesting(test_service);
+  resolver_impl->GetContainerForTesting()->SetServiceForTesting(
+      test_service.release());
   resolver->StartResolving();
 
   resolver_impl->GetContainerForTesting()->OnResolveUpdate(

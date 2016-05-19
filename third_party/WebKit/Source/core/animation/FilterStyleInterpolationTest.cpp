@@ -2,12 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/FilterStyleInterpolation.h"
 
 #include "core/css/CSSPrimitiveValue.h"
-
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -40,4 +38,4 @@ TEST_F(AnimationFilterStyleInterpolationTest, SimpleTest)
     roundTrip(*filter);
 }
 
-}
+} // namespace blink

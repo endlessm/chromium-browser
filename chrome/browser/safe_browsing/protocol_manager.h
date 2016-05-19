@@ -18,8 +18,11 @@
 #include <string>
 #include <vector>
 
+#include <stddef.h>
+
 #include "base/containers/hash_tables.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
@@ -28,6 +31,7 @@
 #include "chrome/browser/safe_browsing/protocol_manager_helper.h"
 #include "chrome/browser/safe_browsing/protocol_parser.h"
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
+#include "components/safe_browsing_db/safebrowsing.pb.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_status.h"
 #include "url/gurl.h"
@@ -167,11 +171,6 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate,
   // Returns whether another update is currently scheduled.
   bool IsUpdateScheduled() const;
 
-  // Called when app changes status of foreground or background.
-  void SetAppInForeground(bool foreground) {
-    app_in_foreground_ = foreground;
-  }
-
  protected:
   // Constructs a SafeBrowsingProtocolManager for |delegate| that issues
   // network requests using |request_context_getter|.
@@ -183,9 +182,9 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate,
  private:
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingProtocolManagerTest, TestBackOffTimes);
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingProtocolManagerTest, TestChunkStrings);
-  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingProtocolManagerTest, TestGetHashUrl);
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingProtocolManagerTest,
                            TestGetHashBackOffTimes);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingProtocolManagerTest, TestGetHashUrl);
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingProtocolManagerTest, TestNextChunkUrl);
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingProtocolManagerTest, TestUpdateUrl);
   friend class SafeBrowsingServerTest;
@@ -284,6 +283,7 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate,
   struct FullHashDetails {
     FullHashDetails();
     FullHashDetails(FullHashCallback callback, bool is_download);
+    FullHashDetails(const FullHashDetails& other);
     ~FullHashDetails();
 
     FullHashCallback callback;
@@ -306,7 +306,8 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate,
   // The kind of request that is currently in progress.
   SafeBrowsingRequestType request_type_;
 
-  // The number of HTTP response errors, used for request backoff timing.
+  // The number of HTTP response errors since the the last successful HTTP
+  // response, used for request backoff timing.
   size_t update_error_count_;
   size_t gethash_error_count_;
 
@@ -382,9 +383,6 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate,
   // ID for URLFetchers for testing.
   int url_fetcher_id_;
 
-  // Whether the app is in foreground or background.
-  bool app_in_foreground_;
-
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingProtocolManager);
 };
 
@@ -432,9 +430,10 @@ class SafeBrowsingProtocolManagerDelegate {
 
   // Add new chunks to the database. Invokes |callback| when complete, but must
   // call at a later time.
-  virtual void AddChunks(const std::string& list,
-                         scoped_ptr<ScopedVector<SBChunkData> > chunks,
-                         AddChunksCallback callback) = 0;
+  virtual void AddChunks(
+      const std::string& list,
+      scoped_ptr<std::vector<scoped_ptr<SBChunkData>>> chunks,
+      AddChunksCallback callback) = 0;
 
   // Delete chunks from the database.
   virtual void DeleteChunks(

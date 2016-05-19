@@ -421,7 +421,7 @@ aura::client::WindowMoveResult ToplevelWindowEventHandler::RunMoveLoop(
   in_move_loop_ = true;
   bool destroyed = false;
   destroyed_ = &destroyed;
-  base::MessageLoopForUI* loop = base::MessageLoopForUI::current();
+  base::MessageLoop* loop = base::MessageLoop::current();
   base::MessageLoop::ScopedNestableTaskAllower allow_nested(loop);
   base::RunLoop run_loop;
   quit_closure_ = run_loop.QuitClosure();
@@ -582,8 +582,12 @@ void ToplevelWindowEventHandler::HandleMouseExited(
 }
 
 void ToplevelWindowEventHandler::HandleCaptureLost(ui::LocatedEvent* event) {
-  if (event->phase() == ui::EP_PRETARGET)
-    CompleteDrag(DRAG_REVERT);
+  if (event->phase() == ui::EP_PRETARGET) {
+    // We complete the drag instead of reverting it, as reverting it will result
+    // in a weird behavior when a dragged tab produces a modal dialog while the
+    // drag is in progress. crbug.com/558201.
+    CompleteDrag(DRAG_COMPLETE);
+  }
 }
 
 void ToplevelWindowEventHandler::SetWindowStateTypeFromGesture(

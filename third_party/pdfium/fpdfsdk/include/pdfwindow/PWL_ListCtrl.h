@@ -7,7 +7,7 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_LISTCTRL_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_LISTCTRL_H_
 
-#include "PWL_Wnd.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 class CPWL_ListCtrl : public CPWL_Wnd {
  public:
@@ -33,7 +33,7 @@ class CPWL_ListCtrl : public CPWL_Wnd {
   // CPWL_Wnd
   void RePosChildWnd() override;
   void DrawChildAppearance(CFX_RenderDevice* pDevice,
-                           CPDF_Matrix* pUser2Device) override;
+                           CFX_Matrix* pUser2Device) override;
 
  private:
   void ResetAll(FX_BOOL bMove, int32_t nStart);

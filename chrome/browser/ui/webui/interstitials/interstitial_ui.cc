@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/interstitials/interstitial_ui.h"
 
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/browser_process.h"
@@ -15,7 +16,10 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "components/grit/components_resources.h"
+#include "components/security_interstitials/core/ssl_error_ui.h"
 #include "content/public/browser/interstitial_page_delegate.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller.h"
@@ -32,6 +36,8 @@
 
 namespace {
 
+// Implementation of chrome://interstitials demonstration pages. This code is
+// not used in displaying any real interstitials.
 class InterstitialHTMLSource : public content::URLDataSource {
  public:
   explicit InterstitialHTMLSource(content::WebContents* web_contents);
@@ -118,9 +124,9 @@ SSLBlockingPage* CreateSSLBlockingPage(content::WebContents* web_contents) {
   // This delegate doesn't create an interstitial.
   int options_mask = 0;
   if (overridable)
-    options_mask |= SSLBlockingPage::OVERRIDABLE;
+    options_mask |= security_interstitials::SSLErrorUI::SOFT_OVERRIDE_ENABLED;
   if (strict_enforcement)
-    options_mask |= SSLBlockingPage::STRICT_ENFORCEMENT;
+    options_mask |= security_interstitials::SSLErrorUI::STRICT_ENFORCEMENT;
   return new SSLBlockingPage(web_contents, cert_error, ssl_info, request_url,
                              options_mask, time_triggered_, nullptr,
                              base::Callback<void(bool)>());
@@ -166,9 +172,9 @@ BadClockBlockingPage* CreateBadClockBlockingPage(
   // This delegate doesn't create an interstitial.
   int options_mask = 0;
   if (overridable)
-    options_mask |= SSLBlockingPage::OVERRIDABLE;
+    options_mask |= security_interstitials::SSLErrorUI::SOFT_OVERRIDE_ENABLED;
   if (strict_enforcement)
-    options_mask |= SSLBlockingPage::STRICT_ENFORCEMENT;
+    options_mask |= security_interstitials::SSLErrorUI::STRICT_ENFORCEMENT;
   return new BadClockBlockingPage(web_contents, cert_error, ssl_info,
                                   request_url, time_triggered_, nullptr,
                                   base::Callback<void(bool)>());
@@ -186,35 +192,44 @@ safe_browsing::SafeBrowsingBlockingPage* CreateSafeBrowsingBlockingPage(
     if (GURL(url_param).is_valid())
       request_url = GURL(url_param);
   }
+  GURL main_frame_url(request_url);
+  // TODO(mattm): add flag to change main_frame_url or add dedicated flag to
+  // test subresource interstitials.
   std::string type_param;
   if (net::GetValueForKeyInQuery(web_contents->GetURL(),
                                  "type",
                                  &type_param)) {
+    // TODO(mattm): add param for SB_THREAT_TYPE_URL_UNWANTED.
     if (type_param == "malware") {
-      threat_type =  safe_browsing::SB_THREAT_TYPE_URL_MALWARE;
+      threat_type = safe_browsing::SB_THREAT_TYPE_URL_MALWARE;
     } else if (type_param == "phishing") {
       threat_type = safe_browsing::SB_THREAT_TYPE_URL_PHISHING;
     } else if (type_param == "clientside_malware") {
       threat_type = safe_browsing::SB_THREAT_TYPE_CLIENT_SIDE_MALWARE_URL;
     } else if (type_param == "clientside_phishing") {
       threat_type = safe_browsing::SB_THREAT_TYPE_CLIENT_SIDE_PHISHING_URL;
-      // Interstitials for client side phishing urls load after the page loads
-      // (see SafeBrowsingBlockingPage::IsMainPageLoadBlocked), so there should
-      // either be a new navigation entry, or there shouldn't be any pending
-      // entries. Clear any pending navigation entries.
-      content::NavigationController* controller =
-          &web_contents->GetController();
-      controller->DiscardNonCommittedEntries();
     }
   }
   safe_browsing::SafeBrowsingBlockingPage::UnsafeResource resource;
   resource.url = request_url;
-  resource.threat_type =  threat_type;
-  // Create a blocking page without showing the interstitial.
+  resource.is_subresource = request_url != main_frame_url;
+  resource.is_subframe = false;
+  resource.threat_type = threat_type;
+  resource.render_process_host_id =
+      web_contents->GetRenderProcessHost()->GetID();
+  resource.render_frame_id = web_contents->GetFocusedFrame()->GetRoutingID();
+  resource.threat_source = safe_browsing::ThreatSource::LOCAL_PVER3;
+
+  // Normally safebrowsing interstitial types which block the main page load
+  // (SB_THREAT_TYPE_URL_MALWARE, SB_THREAT_TYPE_URL_PHISHING, and
+  // SB_THREAT_TYPE_URL_UNWANTED on main-frame loads) would expect there to be a
+  // pending navigation when the SafeBrowsingBlockingPage is created. This demo
+  // creates a SafeBrowsingBlockingPage but does not actually show a real
+  // interstitial. Instead it extracts the html and displays it manually, so the
+  // parts which depend on the NavigationEntry are not hit.
   return safe_browsing::SafeBrowsingBlockingPage::CreateBlockingPage(
       g_browser_process->safe_browsing_service()->ui_manager().get(),
-      web_contents,
-      resource);
+      web_contents, main_frame_url, resource);
 }
 
 #if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)

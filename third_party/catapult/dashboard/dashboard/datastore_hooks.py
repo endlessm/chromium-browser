@@ -56,19 +56,39 @@ def SetPrivilegedRequest():
   request.registry['privileged'] = True
 
 
+def SetSinglePrivilegedRequest():
+  """Allows the current request to act as a privileged user only ONCE.
+
+  This should be called ONLY by handlers that have checked privilege immediately
+  before making a query. It will be automatically unset when the next query is
+  made.
+  """
+  request = webapp2.get_request()
+  request.registry['single_privileged'] = True
+
+
+def CancelSinglePrivilegedRequest():
+  """Disallows the current request to act as a privileged user only."""
+  request = webapp2.get_request()
+  request.registry['single_privileged'] = False
+
+
 def _IsServicingPrivilegedRequest():
   """Checks whether the request is considered privileged."""
   try:
     request = webapp2.get_request()
   except AssertionError:
-    # This only happens in unit tests, when the code gets called outside of
-    # a request.
+    # This happens in unit tests, when code gets called outside of a request.
     return False
-  if (not request or
-      hasattr(request, 'path') and request.path.startswith('/mapreduce')):
-    # Running a mapreduce.
+  path = getattr(request, 'path', '')
+  if path.startswith('/mapreduce'):
+    return True
+  if path.startswith('/_ah/queue/deferred'):
     return True
   if request.registry.get('privileged', False):
+    return True
+  if request.registry.get('single_privileged', False):
+    request.registry['single_privileged'] = False
     return True
   whitelist = utils.GetIpWhitelist()
   if whitelist and hasattr(request, 'remote_addr'):

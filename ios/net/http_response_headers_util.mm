@@ -48,7 +48,7 @@ scoped_refptr<HttpResponseHeaders> CreateHeadersFromNSHTTPURLResponse(
           http_headers->AddHeader(header_line);
         }
       }];
-  return http_headers.Pass();
+  return http_headers;
 }
 
 }  // namespae net

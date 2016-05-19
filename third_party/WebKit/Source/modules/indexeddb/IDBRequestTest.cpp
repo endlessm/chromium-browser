@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/indexeddb/IDBRequest.h"
 
 #include "bindings/core/v8/ScriptState.h"
@@ -39,12 +38,12 @@
 #include "modules/indexeddb/IDBValue.h"
 #include "modules/indexeddb/MockWebIDBDatabase.h"
 #include "platform/SharedBuffer.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/Vector.h"
 #include "wtf/dtoa/utils.h"
-#include <gtest/gtest.h>
 #include <v8.h>
 
 namespace blink {

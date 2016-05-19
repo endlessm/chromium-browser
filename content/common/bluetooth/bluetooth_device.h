@@ -5,9 +5,10 @@
 #ifndef CONTENT_COMMON_BLUETOOTH_BLUETOOTH_DEVICE_H_
 #define CONTENT_COMMON_BLUETOOTH_BLUETOOTH_DEVICE_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -22,12 +23,11 @@ struct CONTENT_EXPORT BluetoothDevice {
                   const base::string16& name,
                   int8_t tx_power,
                   int8_t rssi,
-                  uint32 device_class,
+                  uint32_t device_class,
                   device::BluetoothDevice::VendorIDSource vendor_id_source,
-                  uint16 vendor_id,
-                  uint16 product_id,
-                  uint16 product_version,
-                  bool paired,
+                  uint16_t vendor_id,
+                  uint16_t product_id,
+                  uint16_t product_version,
                   const std::vector<std::string>& uuids);
   ~BluetoothDevice();
 
@@ -45,12 +45,11 @@ struct CONTENT_EXPORT BluetoothDevice {
   base::string16 name;
   int8_t tx_power;
   int8_t rssi;
-  uint32 device_class;
+  uint32_t device_class;
   device::BluetoothDevice::VendorIDSource vendor_id_source;
-  uint16 vendor_id;
-  uint16 product_id;
-  uint16 product_version;
-  bool paired;
+  uint16_t vendor_id;
+  uint16_t product_id;
+  uint16_t product_version;
   std::vector<std::string> uuids;  // 128bit UUIDs with dashes. 36 chars.
 };
 

@@ -29,10 +29,10 @@
 
 #include "core/CoreExport.h"
 #include "core/dom/Element.h"
+#include "core/dom/shadow/InsertionPoint.h"
 
 namespace blink {
 
-class InsertionPoint;
 class LayoutObject;
 
 namespace LayoutTreeBuilderTraversal {
@@ -74,7 +74,7 @@ inline Element* parentElement(const Node& node)
     return found && found->isElementNode() ? toElement(found) : 0;
 }
 
-}
+} // namespace LayoutTreeBuilderTraversal
 
 } // namespace blink
 

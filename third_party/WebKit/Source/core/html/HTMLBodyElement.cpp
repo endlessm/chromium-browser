@@ -21,7 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLBodyElement.h"
 
 #include "bindings/core/v8/ScriptEventListener.h"
@@ -64,7 +63,7 @@ void HTMLBodyElement::collectStyleForPresentationAttribute(const QualifiedName& 
         if (!url.isEmpty()) {
             RefPtrWillBeRawPtr<CSSImageValue> imageValue = CSSImageValue::create(url, document().completeURL(url));
             imageValue->setInitiator(localName());
-            imageValue->setReferrer(Referrer(document().outgoingReferrer(), document().referrerPolicy()));
+            imageValue->setReferrer(Referrer(document().outgoingReferrer(), document().getReferrerPolicy()));
             style->setProperty(CSSProperty(CSSPropertyBackgroundImage, imageValue.release()));
         }
     } else if (name == marginwidthAttr || name == leftmarginAttr) {
@@ -82,7 +81,7 @@ void HTMLBodyElement::collectStyleForPresentationAttribute(const QualifiedName& 
     }
 }
 
-void HTMLBodyElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void HTMLBodyElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (name == vlinkAttr || name == alinkAttr || name == linkAttr) {
         if (value.isNull()) {
@@ -144,7 +143,7 @@ void HTMLBodyElement::parseAttribute(const QualifiedName& name, const AtomicStri
     } else if (name == onlanguagechangeAttr) {
         document().setWindowAttributeEventListener(EventTypeNames::languagechange, createAttributeEventListener(document().frame(), name, value, eventParameterName()));
     } else {
-        HTMLElement::parseAttribute(name, value);
+        HTMLElement::parseAttribute(name, oldValue, value);
     }
 }
 

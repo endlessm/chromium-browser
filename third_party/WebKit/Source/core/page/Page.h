@@ -23,6 +23,7 @@
 
 #include "core/CoreExport.h"
 #include "core/dom/ViewportDescription.h"
+#include "core/frame/Deprecation.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/OriginsUsingFeatures.h"
 #include "core/frame/SettingsDelegate.h"
@@ -34,6 +35,7 @@
 #include "core/page/PageVisibilityState.h"
 #include "platform/MemoryPurgeController.h"
 #include "platform/Supplementable.h"
+#include "platform/Timer.h"
 #include "platform/geometry/LayoutRect.h"
 #include "platform/geometry/Region.h"
 #include "platform/heap/Handle.h"
@@ -64,6 +66,7 @@ class Settings;
 class SpellCheckerClient;
 class UndoStack;
 class ValidationMessageClient;
+class WebLayerTreeView;
 
 typedef uint64_t LinkHash;
 
@@ -75,8 +78,6 @@ class CORE_EXPORT Page final : public NoBaseWillBeGarbageCollectedFinalized<Page
     WTF_MAKE_NONCOPYABLE(Page);
     friend class Settings;
 public:
-    static void platformColorsChanged();
-
     // It is up to the platform to ensure that non-null clients are provided where required.
     struct CORE_EXPORT PageClients final {
         STACK_ALLOCATED();
@@ -92,16 +93,29 @@ public:
         SpellCheckerClient* spellCheckerClient;
     };
 
-    explicit Page(PageClients&);
+    static PassOwnPtrWillBeRawPtr<Page> create(PageClients& pageClients)
+    {
+        return adoptPtrWillBeNoop(new Page(pageClients));
+    }
+
+    // An "ordinary" page is a fully-featured page owned by a web view.
+    static PassOwnPtrWillBeRawPtr<Page> createOrdinary(PageClients&);
+
     ~Page() override;
 
-    void makeOrdinary();
+    void willBeClosed();
 
-    // This method returns all pages, incl. private ones associated with
-    // inspector overlay, popups, SVGImage, etc.
-    static WillBePersistentHeapHashSet<RawPtrWillBeWeakMember<Page>>& allPages();
-    // This method returns all ordinary pages.
-    static WillBePersistentHeapHashSet<RawPtrWillBeWeakMember<Page>>& ordinaryPages();
+    using PageSet = WillBePersistentHeapHashSet<RawPtrWillBeWeakMember<Page>>;
+
+    // Return the current set of full-fledged, ordinary pages.
+    // Each created and owned by a WebView.
+    //
+    // This set does not include Pages created for other, internal purposes
+    // (SVGImages, inspector overlays, page popups etc.)
+    static PageSet& ordinaryPages();
+
+    static void platformColorsChanged();
+    static void onMemoryPressure();
 
     FrameHost& frameHost() const { return *m_frameHost; }
 
@@ -150,6 +164,7 @@ public:
     Settings& settings() const { return *m_settings; }
 
     UseCounter& useCounter() { return m_useCounter; }
+    Deprecation& deprecation() { return m_deprecation; }
     OriginsUsingFeatures& originsUsingFeatures() { return m_originsUsingFeatures; }
 
     void setTabKeyCyclesThroughElements(bool b) { m_tabKeyCyclesThroughElements = b; }
@@ -169,13 +184,14 @@ public:
     float deviceScaleFactor() const { return m_deviceScaleFactor; }
     void setDeviceScaleFactor(float);
     void setDeviceColorProfile(const Vector<char>&);
-    void resetDeviceColorProfile();
+    void resetDeviceColorProfileForTesting();
 
-    static void allVisitedStateChanged();
+    static void allVisitedStateChanged(bool invalidateVisitedLinkHashes);
     static void visitedStateChanged(LinkHash visitedHash);
 
-    PageVisibilityState visibilityState() const;
     void setVisibilityState(PageVisibilityState, bool);
+    PageVisibilityState visibilityState() const;
+    bool isPageVisible() const;
 
     bool isCursorVisible() const;
     void setIsCursorVisible(bool isVisible) { m_isCursorVisible = isVisible; }
@@ -185,15 +201,15 @@ public:
     bool isPainting() const { return m_isPainting; }
 #endif
 
-    double timerAlignmentInterval() const;
-
     class CORE_EXPORT MultisamplingChangedObserver : public WillBeGarbageCollectedMixin {
     public:
         virtual void multisamplingChanged(bool) = 0;
     };
 
     void addMultisamplingChangedObserver(MultisamplingChangedObserver*);
+#if !ENABLE(OILPAN)
     void removeMultisamplingChangedObserver(MultisamplingChangedObserver*);
+#endif
 
     void didCommitLoad(LocalFrame*);
 
@@ -203,22 +219,24 @@ public:
 
     MemoryPurgeController& memoryPurgeController();
 
-    void purgeMemory(MemoryPurgeMode, DeviceKind) override;
+    void purgeMemory(DeviceKind) override;
 
     DECLARE_TRACE();
 
-    void willCloseLayerTreeView();
+    void layerTreeViewInitialized(WebLayerTreeView&);
+    void willCloseLayerTreeView(WebLayerTreeView&);
+
     void willBeDestroyed();
 
 private:
+    explicit Page(PageClients&);
+
     void initGroup();
-
-    void setTimerAlignmentInterval(double);
-
-    void setNeedsLayoutInAllFrames();
 
     // SettingsDelegate overrides.
     void settingsChanged(SettingsDelegate::ChangeType) override;
+
+    void compressStrings(Timer<Page>*);
 
     RefPtrWillBeMember<PageAnimator> m_animator;
     const OwnPtrWillBeMember<AutoscrollController> m_autoscrollController;
@@ -252,6 +270,7 @@ private:
     OwnPtrWillBeMember<ValidationMessageClient> m_validationMessageClient;
 
     UseCounter m_useCounter;
+    Deprecation m_deprecation;
     OriginsUsingFeatures m_originsUsingFeatures;
 
     bool m_openedByDOM;
@@ -260,8 +279,6 @@ private:
     bool m_defersLoading;
 
     float m_deviceScaleFactor;
-
-    double m_timerAlignmentInterval;
 
     PageVisibilityState m_visibilityState;
 
@@ -278,6 +295,8 @@ private:
     OwnPtrWillBeMember<FrameHost> m_frameHost;
 
     OwnPtrWillBeMember<MemoryPurgeController> m_memoryPurgeController;
+
+    Timer<Page> m_timerForCompressStrings;
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT WillBeHeapSupplement<Page>;

@@ -51,9 +51,9 @@ static_library("service") {
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
+    "//base",
     "//chrome:strings",
     "//chrome/common",
-    "//base",
     "//components/cloud_devices/common",
     "//google_apis",
     "//jingle:notifier",
@@ -70,6 +70,11 @@ static_library("service") {
     sources += [
       "service_utility_process_host.cc",
       "service_utility_process_host.h",
+    ]
+    deps += [
+      # TODO(fdoray): Remove this once the PreRead field trial has expired.
+      # crbug.com/577698
+      "//components/startup_metric_utils/common",
     ]
   } else {
     sources += [ "cloud_print/print_system_dummy.cc" ]

@@ -8,6 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "device/hid/hid_device_info.h"
 #include "device/hid/hid_service.h"
 
@@ -36,8 +37,12 @@ class HidServiceLinux : public HidService {
   // functions are static and the necessary parameters are passed as a single
   // struct.
 #if defined(OS_CHROMEOS)
-  static void OnPathOpened(scoped_ptr<ConnectParams> params,
-                           dbus::FileDescriptor fd);
+  static void OnPathOpenComplete(scoped_ptr<ConnectParams> params,
+                                 dbus::FileDescriptor fd);
+  static void OnPathOpenError(const std::string& device_path,
+                              const ConnectCallback& callback,
+                              const std::string& error_name,
+                              const std::string& error_message);
   static void ValidateFdOnBlockingThread(scoped_ptr<ConnectParams> params,
                                          dbus::FileDescriptor fd);
 #else

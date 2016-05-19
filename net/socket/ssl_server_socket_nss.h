@@ -11,6 +11,7 @@
 #include <nss.h>
 #include <stdint.h>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/completion_callback.h"
 #include "net/base/host_port_pair.h"
@@ -27,8 +28,8 @@ class SSLServerSocketNSS : public SSLServerSocket {
   // parameters are used.
   SSLServerSocketNSS(scoped_ptr<StreamSocket> socket,
                      scoped_refptr<X509Certificate> certificate,
-                     crypto::RSAPrivateKey* key,
-                     const SSLServerConfig& ssl_config);
+                     const crypto::RSAPrivateKey& key,
+                     const SSLServerConfig& ssl_server_config);
   ~SSLServerSocketNSS() override;
 
   // SSLServerSocket interface.
@@ -49,8 +50,8 @@ class SSLServerSocketNSS : public SSLServerSocket {
   int Write(IOBuffer* buf,
             int buf_len,
             const CompletionCallback& callback) override;
-  int SetReceiveBufferSize(int32 size) override;
-  int SetSendBufferSize(int32 size) override;
+  int SetReceiveBufferSize(int32_t size) override;
+  int SetSendBufferSize(int32_t size) override;
 
   // StreamSocket implementation.
   int Connect(const CompletionCallback& callback) override;
@@ -138,7 +139,7 @@ class SSLServerSocketNSS : public SSLServerSocket {
   scoped_ptr<StreamSocket> transport_socket_;
 
   // Options for the SSL socket.
-  SSLServerConfig ssl_config_;
+  SSLServerConfig ssl_server_config_;
 
   // Certificate for the server.
   scoped_refptr<X509Certificate> cert_;

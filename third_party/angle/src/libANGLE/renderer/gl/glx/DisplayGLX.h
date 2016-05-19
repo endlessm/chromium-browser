@@ -20,6 +20,20 @@ namespace rx
 
 class FunctionsGLX;
 
+// State-tracking data for the swap control to allow DisplayGLX to remember per
+// drawable information for swap control.
+struct SwapControlData
+{
+    SwapControlData();
+
+    // Set by the drawable
+    int targetSwapInterval;
+
+    // DisplayGLX-side state-tracking
+    int maxSwapInterval;
+    int currentSwapInterval;
+};
+
 class DisplayGLX : public DisplayGL
 {
   public:
@@ -53,25 +67,47 @@ class DisplayGLX : public DisplayGL
 
     std::string getVendorString() const override;
 
+    egl::Error waitClient() const override;
+    egl::Error waitNative(EGLint engine,
+                          egl::Surface *drawSurface,
+                          egl::Surface *readSurface) const override;
+
     // Synchronizes with the X server, if the display has been opened by ANGLE.
     // Calling this is required at the end of every functions that does buffered
     // X calls (not for glX calls) otherwise there might be race conditions
     // between the application's display and ANGLE's one.
     void syncXCommands() const;
 
+    // Depending on the supported GLX extension, swap interval can be set
+    // globally or per drawable. This function will make sure the drawable's
+    // swap interval is the one required so that the subsequent swapBuffers
+    // acts as expected.
+    void setSwapInterval(glx::Drawable drawable, SwapControlData *data);
+
+    bool isValidWindowVisualId(unsigned long visualId) const;
+
   private:
     const FunctionsGL *getFunctionsGL() const override;
+
+    egl::Error initializeContext(glx::FBConfig config,
+                                 const egl::AttributeMap &eglAttributes,
+                                 glx::Context *context);
 
     void generateExtensions(egl::DisplayExtensions *outExtensions) const override;
     void generateCaps(egl::Caps *outCaps) const override;
 
     int getGLXFBConfigAttrib(glx::FBConfig config, int attrib) const;
+    egl::Error createContextAttribs(glx::FBConfig,
+                                    gl::Version version,
+                                    int profileMask,
+                                    glx::Context *context) const;
 
     FunctionsGL *mFunctionsGL;
 
     //TODO(cwallez) yuck, change generateConfigs to be non-const or add a userdata member to egl::Config?
     mutable std::map<int, glx::FBConfig> configIdToGLXConfig;
 
+    EGLint mRequestedVisual;
     glx::FBConfig mContextConfig;
     glx::Context mContext;
     // A pbuffer the context is current on during ANGLE initialization
@@ -79,6 +115,22 @@ class DisplayGLX : public DisplayGL
 
     bool mUsesNewXDisplay;
     bool mIsMesa;
+    bool mHasMultisample;
+    bool mHasARBCreateContext;
+    bool mHasARBCreateContextProfile;
+    bool mHasEXTCreateContextES2Profile;
+
+    enum class SwapControl
+    {
+        Absent,
+        EXT,
+        Mesa,
+        SGI,
+    };
+    SwapControl mSwapControl;
+    int mMinSwapInterval;
+    int mMaxSwapInterval;
+    int mCurrentSwapInterval;
 
     FunctionsGLX mGLX;
     egl::Display *mEGLDisplay;

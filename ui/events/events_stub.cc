@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -84,24 +86,20 @@ int GetTouchId(const base::NativeEvent& native_event) {
   return 0;
 }
 
-float GetTouchRadiusX(const base::NativeEvent& native_event) {
-  NOTIMPLEMENTED();
-  return 0.f;
-}
-
-float GetTouchRadiusY(const base::NativeEvent& native_event) {
-  NOTIMPLEMENTED();
-  return 0.f;
-}
-
 float GetTouchAngle(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return 0.f;
 }
 
-float GetTouchForce(const base::NativeEvent& native_event) {
+PointerDetails GetTouchPointerDetailsFromNative(
+    const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
-  return 0.f;
+  return PointerDetails(EventPointerType::POINTER_TYPE_UNKNOWN,
+                        /* radius_x */ 1.0,
+                        /* radius_y */ 1.0,
+                        /* force */ 0.f,
+                        /* tilt_x */ 0.f,
+                        /* tilt_y */ 0.f);
 }
 
 bool GetScrollOffsets(const base::NativeEvent& native_event,
@@ -139,17 +137,17 @@ bool IsCharFromNative(const base::NativeEvent& native_event) {
   return false;
 }
 
-uint32 WindowsKeycodeFromNative(const base::NativeEvent& native_event) {
+uint32_t WindowsKeycodeFromNative(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return 0;
 }
 
-uint16 TextFromNative(const base::NativeEvent& native_event) {
+uint16_t TextFromNative(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return 0;
 }
 
-uint16 UnmodifiedTextFromNative(const base::NativeEvent& native_event) {
+uint16_t UnmodifiedTextFromNative(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return 0;
 }

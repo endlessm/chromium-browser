@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/parser/CSSParser.h"
 
 #include "core/css/CSSColorValue.h"
@@ -17,6 +16,7 @@
 #include "core/css/parser/CSSSelectorParser.h"
 #include "core/css/parser/CSSSupportsParser.h"
 #include "core/css/parser/CSSTokenizer.h"
+#include "core/css/parser/CSSVariableParser.h"
 #include "core/layout/LayoutTheme.h"
 
 namespace blink {
@@ -31,10 +31,16 @@ void CSSParser::parseDeclarationListForInspector(const CSSParserContext& context
     CSSParserImpl::parseDeclarationListForInspector(declaration, context, observer);
 }
 
-void CSSParser::parseSelector(const CSSParserContext& context, const String& selector, CSSSelectorList& selectorList)
+CSSSelectorList CSSParser::parseSelector(const CSSParserContext& context, StyleSheetContents* styleSheetContents, const String& selector)
 {
     CSSTokenizer::Scope scope(selector);
-    CSSSelectorParser::parseSelector(scope.tokenRange(), context, nullptr, selectorList);
+    return CSSSelectorParser::parseSelector(scope.tokenRange(), context, styleSheetContents);
+}
+
+CSSSelectorList CSSParser::parsePageSelector(const CSSParserContext& context, StyleSheetContents* styleSheetContents, const String& selector)
+{
+    CSSTokenizer::Scope scope(selector);
+    return CSSParserImpl::parsePageSelector(scope.tokenRange(), styleSheetContents);
 }
 
 PassRefPtrWillBeRawPtr<StyleRuleBase> CSSParser::parseRule(const CSSParserContext& context, StyleSheetContents* styleSheet, const String& rule)
@@ -67,6 +73,20 @@ bool CSSParser::parseValue(MutableStylePropertySet* declaration, CSSPropertyID u
         context.setMode(parserMode);
     }
     return parseValue(declaration, unresolvedProperty, string, important, context);
+}
+
+bool CSSParser::parseValueForCustomProperty(MutableStylePropertySet* declaration, const AtomicString& propertyName, const String& value, bool important, StyleSheetContents* styleSheet)
+{
+    ASSERT(RuntimeEnabledFeatures::cssVariablesEnabled() && CSSVariableParser::isValidVariableName(propertyName));
+    if (value.isEmpty())
+        return false;
+    CSSParserMode parserMode = declaration->cssParserMode();
+    CSSParserContext context(parserMode, 0);
+    if (styleSheet) {
+        context = styleSheet->parserContext();
+        context.setMode(parserMode);
+    }
+    return CSSParserImpl::parseVariableValue(declaration, propertyName, value, important, context);
 }
 
 bool CSSParser::parseValue(MutableStylePropertySet* declaration, CSSPropertyID unresolvedProperty, const String& string, bool important, const CSSParserContext& context)

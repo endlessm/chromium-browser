@@ -105,6 +105,7 @@ Du kan finne informasjon om personvern i Googles personvernregler (http://goo.gl
 <translation id="337167041784729019">Vis statistikk</translation>
 <translation id="3385242214819933234">Ugyldig vertseier.</translation>
 <translation id="3403830762023901068">Innstillingene tillater ikke at denne datamaskinen deles som vert for Chromoting. Kontakt systemadministratoren for å få hjelp.</translation>
+<translation id="3423542133075182604">Prosess for ekstern sikkerhetsnøkkel</translation>
 <translation id="3581045510967524389">Kunne ikke koble til nettverket. Ssjekk at enheten har nettilkobling.</translation>
 <translation id="3596628256176442606">Med denne tjenesten kan du motta innkommende tilkoblinger fra Chromoting-klienter.</translation>
 <translation id="3606997049964069799">Du er ikke logget på Chromium. Logg på, og prøv på nytt.</translation>
@@ -153,6 +154,7 @@ Vert</translation>
 skrivebord-vert</translation>
 <translation id="4619978527973181021">Godta og installer</translation>
 <translation id="4647791084836149355">Se Cardboard-visning</translation>
+<translation id="4703302905453407178">En nødvendig komponent har sluttet å fungere. Vennligst rapportér dette problemet til utviklerne.</translation>
 <translation id="4703799847237267011">Chromoting-økten er avsluttet.</translation>
 <translation id="4736223761657662401">Tilkoblingslogg</translation>
 <translation id="4741792197137897469">Autentiseringen mislyktes. Logg på Chrome på nytt.</translation>

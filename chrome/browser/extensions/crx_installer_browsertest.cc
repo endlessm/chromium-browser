@@ -4,10 +4,15 @@
 
 #include "chrome/browser/extensions/crx_installer.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/at_exit.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/download_crx_util.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
@@ -31,6 +36,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -74,38 +80,37 @@ class MockInstallPrompt;
 // MockInstallPrompt. We create the MockInstallPrompt but need to pass
 // ownership of it to CrxInstaller, so it isn't safe to hang this data on
 // MockInstallPrompt itself becuase we can't guarantee it's lifetime.
-class MockPromptProxy : public base::RefCountedThreadSafe<MockPromptProxy> {
+class MockPromptProxy {
  public:
   explicit MockPromptProxy(content::WebContents* web_contents);
+  ~MockPromptProxy();
 
   bool did_succeed() const { return !extension_id_.empty(); }
   const std::string& extension_id() { return extension_id_; }
   bool confirmation_requested() const { return confirmation_requested_; }
   const base::string16& error() const { return error_; }
 
-  // To have any effect, this should be called before CreatePrompt.
-  void set_record_oauth2_grant(bool record_oauth2_grant) {
-    record_oauth2_grant_.reset(new bool(record_oauth2_grant));
-  }
-
   void set_extension_id(const std::string& id) { extension_id_ = id; }
-  void set_confirmation_requested() { confirmation_requested_ = true; }
+  void set_confirmation_requested(bool requested) {
+    confirmation_requested_ = requested;
+  }
   void set_error(const base::string16& error) { error_ = error; }
 
   scoped_ptr<ExtensionInstallPrompt> CreatePrompt();
 
  private:
-  friend class base::RefCountedThreadSafe<MockPromptProxy>;
-  virtual ~MockPromptProxy();
 
   // Data used to create a prompt.
   content::WebContents* web_contents_;
-  scoped_ptr<bool> record_oauth2_grant_;
 
   // Data reported back to us by the prompt we created.
   bool confirmation_requested_;
   std::string extension_id_;
   base::string16 error_;
+
+  scoped_ptr<ScopedTestDialogAutoConfirm> auto_confirm;
+
+  DISALLOW_COPY_AND_ASSIGN(MockPromptProxy);
 };
 
 SkBitmap CreateSquareBitmap(int size) {
@@ -144,47 +149,43 @@ class MockInstallPrompt : public ExtensionInstallPrompt {
       ExtensionInstallPrompt(web_contents),
       proxy_(proxy) {}
 
-  void set_record_oauth2_grant(bool record) { record_oauth2_grant_ = record; }
-
   // Overriding some of the ExtensionInstallUI API.
-  void ConfirmInstall(Delegate* delegate,
-                      const Extension* extension,
-                      const ShowDialogCallback& show_dialog_callback) override {
-    proxy_->set_confirmation_requested();
-    delegate->InstallUIProceed();
-  }
   void OnInstallSuccess(const Extension* extension, SkBitmap* icon) override {
     proxy_->set_extension_id(extension->id());
+    proxy_->set_confirmation_requested(did_call_show_dialog());
     base::MessageLoopForUI::current()->QuitWhenIdle();
   }
   void OnInstallFailure(const CrxInstallError& error) override {
     proxy_->set_error(error.message());
+    proxy_->set_confirmation_requested(did_call_show_dialog());
     base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 
  private:
-  scoped_refptr<MockPromptProxy> proxy_;
+  MockPromptProxy* proxy_;
+
+  DISALLOW_COPY_AND_ASSIGN(MockInstallPrompt);
 };
 
 MockPromptProxy::MockPromptProxy(content::WebContents* web_contents)
-    : web_contents_(web_contents), confirmation_requested_(false) {
+    : web_contents_(web_contents),
+      confirmation_requested_(false),
+      auto_confirm(new ScopedTestDialogAutoConfirm(
+          ScopedTestDialogAutoConfirm::ACCEPT)) {
 }
 
 MockPromptProxy::~MockPromptProxy() {}
 
 scoped_ptr<ExtensionInstallPrompt> MockPromptProxy::CreatePrompt() {
-  scoped_ptr<MockInstallPrompt> prompt(
+  return scoped_ptr<MockInstallPrompt>(
       new MockInstallPrompt(web_contents_, this));
-  if (record_oauth2_grant_.get())
-    prompt->set_record_oauth2_grant(*record_oauth2_grant_.get());
-  return prompt.Pass();
 }
 
 
-scoped_refptr<MockPromptProxy> CreateMockPromptProxyForBrowser(
+scoped_ptr<MockPromptProxy> CreateMockPromptProxyForBrowser(
     Browser* browser) {
-  return new MockPromptProxy(
-      browser->tab_strip_model()->GetActiveWebContents());
+  return make_scoped_ptr(new MockPromptProxy(
+      browser->tab_strip_model()->GetActiveWebContents()));
 }
 
 class ManagementPolicyMock : public extensions::ManagementPolicy::Provider {
@@ -235,12 +236,10 @@ class ExtensionCrxInstallerTest : public ExtensionBrowserTest {
     scoped_ptr<base::DictionaryValue> parsed_manifest(
         file_util::LoadManifest(ext_path, &error));
     if (!parsed_manifest.get() || !error.empty())
-      return result.Pass();
+      return result;
 
     return WebstoreInstaller::Approval::CreateWithNoInstallPrompt(
-        browser()->profile(),
-        id,
-        parsed_manifest.Pass(),
+        browser()->profile(), id, std::move(parsed_manifest),
         strict_manifest_checks);
   }
 
@@ -250,7 +249,7 @@ class ExtensionCrxInstallerTest : public ExtensionBrowserTest {
     ExtensionService* service = extensions::ExtensionSystem::Get(
         browser()->profile())->extension_service();
     scoped_refptr<CrxInstaller> installer(
-        CrxInstaller::Create(service, prompt.Pass(), approval));
+        CrxInstaller::Create(service, std::move(prompt), approval));
     installer->set_allow_silent_install(true);
     installer->set_is_gallery_install(true);
     installer->InstallCrx(crx_path);
@@ -261,7 +260,7 @@ class ExtensionCrxInstallerTest : public ExtensionBrowserTest {
   // data dir) with expected id |id|.
   void InstallWithPrompt(const char* ext_relpath,
                          const std::string& id,
-                         scoped_refptr<MockPromptProxy> mock_install_prompt) {
+                         MockPromptProxy* mock_install_prompt) {
     base::FilePath ext_path = test_data_dir_.AppendASCII(ext_relpath);
 
     scoped_ptr<WebstoreInstaller::Approval> approval;
@@ -282,11 +281,10 @@ class ExtensionCrxInstallerTest : public ExtensionBrowserTest {
                                        bool record_oauth2_grant) {
     ScopedExperimentalCommandLine scope;
 
-    scoped_refptr<MockPromptProxy> mock_prompt =
+    scoped_ptr<MockPromptProxy> mock_prompt =
         CreateMockPromptProxyForBrowser(browser());
 
-    mock_prompt->set_record_oauth2_grant(record_oauth2_grant);
-    InstallWithPrompt("browsertest/scopes", std::string(), mock_prompt);
+    InstallWithPrompt("browsertest/scopes", std::string(), mock_prompt.get());
 
     scoped_ptr<const PermissionSet> permissions =
         ExtensionPrefs::Get(browser()->profile())
@@ -339,9 +337,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, Whitelisting) {
       browser()->profile());
 
   // Even whitelisted extensions with NPAPI should not prompt.
-  scoped_refptr<MockPromptProxy> mock_prompt =
+  scoped_ptr<MockPromptProxy> mock_prompt =
       CreateMockPromptProxyForBrowser(browser());
-  InstallWithPrompt("uitest/plugins", id, mock_prompt);
+  InstallWithPrompt("uitest/plugins", id, mock_prompt.get());
   EXPECT_FALSE(mock_prompt->confirmation_requested());
   EXPECT_TRUE(registry->enabled_extensions().GetByID(id));
 }
@@ -400,7 +398,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, PackAndInstallExtension) {
   std::string crx_path_string(crx_path.value().begin(), crx_path.value().end());
   GURL url = GURL(std::string("file:///").append(crx_path_string));
 
-  scoped_refptr<MockPromptProxy> mock_prompt =
+  scoped_ptr<MockPromptProxy> mock_prompt =
       CreateMockPromptProxyForBrowser(browser());
   download_crx_util::SetMockInstallPromptForTesting(
       mock_prompt->CreatePrompt());
@@ -447,7 +445,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, AllowOffStore) {
   const bool kTestData[] = {false, true};
 
   for (size_t i = 0; i < arraysize(kTestData); ++i) {
-    scoped_refptr<MockPromptProxy> mock_prompt =
+    scoped_ptr<MockPromptProxy> mock_prompt =
         CreateMockPromptProxyForBrowser(browser());
 
     scoped_refptr<CrxInstaller> crx_installer(
@@ -571,7 +569,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, Blacklist) {
 #endif
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, NonStrictManifestCheck) {
-  scoped_refptr<MockPromptProxy> mock_prompt =
+  scoped_ptr<MockPromptProxy> mock_prompt =
       CreateMockPromptProxyForBrowser(browser());
 
   // We want to simulate the case where the webstore sends a more recent
@@ -588,11 +586,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, NonStrictManifestCheck) {
   EXPECT_TRUE(mock_prompt->did_succeed());
 }
 
+#if defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, KioskOnlyTest) {
+  // kiosk_only is whitelisted from non-chromeos.
   base::FilePath crx_path =
       test_data_dir_.AppendASCII("kiosk/kiosk_only.crx");
   EXPECT_FALSE(InstallExtension(crx_path, 0));
-#if defined(OS_CHROMEOS)
   // Simulate ChromeOS kiosk mode. |scoped_user_manager| will take over
   // lifetime of |user_manager|.
   chromeos::FakeChromeUserManager* fake_user_manager =
@@ -602,10 +601,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, KioskOnlyTest) {
   fake_user_manager->LoginUser(account_id);
   chromeos::ScopedUserManagerEnabler scoped_user_manager(fake_user_manager);
   EXPECT_TRUE(InstallExtension(crx_path, 1));
-#endif
 }
 
-#if defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, InstallToSharedLocation) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       chromeos::switches::kEnableExtensionAssetsSharing);
@@ -675,6 +672,66 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest,
       ->RegisterProvider(&policy);
 
   InstallWebAppAndVerifyNoErrors();
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, UpdateWithFileAccess) {
+  base::FilePath ext_source =
+      test_data_dir_.AppendASCII("permissions").AppendASCII("files");
+  base::FilePath crx_with_file_permission = PackExtension(ext_source);
+  ASSERT_FALSE(crx_with_file_permission.empty());
+
+  ExtensionService* service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
+
+  const std::string extension_id("bdkapipdccfifhdghmblnenbbncfcpid");
+  {
+    // Install extension.
+    scoped_refptr<CrxInstaller> installer(CrxInstaller::CreateSilent(service));
+    installer->InstallCrx(crx_with_file_permission);
+    EXPECT_TRUE(WaitForCrxInstallerDone());
+    const Extension* extension = installer->extension();
+    ASSERT_TRUE(extension);
+    // IDs must match, otherwise the test doesn't make any sense.
+    ASSERT_EQ(extension_id, extension->id());
+    // Sanity check: File access should be disabled by default.
+    EXPECT_FALSE(ExtensionPrefs::Get(profile())->AllowFileAccess(extension_id));
+    EXPECT_FALSE(extension->creation_flags() & Extension::ALLOW_FILE_ACCESS);
+  }
+
+  {
+    // Uninstall and re-install the extension. Any previously granted file
+    // permissions should be gone.
+    ExtensionPrefs::Get(profile())->SetAllowFileAccess(extension_id, true);
+    EXPECT_TRUE(ExtensionPrefs::Get(profile())->AllowFileAccess(extension_id));
+    UninstallExtension(extension_id);
+    EXPECT_FALSE(ExtensionPrefs::Get(profile())->AllowFileAccess(extension_id));
+
+    scoped_refptr<CrxInstaller> installer(CrxInstaller::CreateSilent(service));
+    installer->InstallCrx(crx_with_file_permission);
+    EXPECT_TRUE(WaitForCrxInstallerDone());
+    const Extension* extension = installer->extension();
+    ASSERT_TRUE(extension);
+    ASSERT_EQ(extension_id, extension->id());
+    EXPECT_FALSE(ExtensionPrefs::Get(profile())->AllowFileAccess(extension_id));
+    EXPECT_FALSE(extension->creation_flags() & Extension::ALLOW_FILE_ACCESS);
+  }
+
+  {
+    // Grant file access and update the extension. File access should be kept.
+    ExtensionPrefs::Get(profile())->SetAllowFileAccess(extension_id, true);
+    EXPECT_TRUE(ExtensionPrefs::Get(profile())->AllowFileAccess(extension_id));
+    base::FilePath crx_update_with_file_permission = PackExtension(ext_source);
+
+    scoped_refptr<CrxInstaller> installer(CrxInstaller::CreateSilent(service));
+    installer->InstallCrx(crx_update_with_file_permission);
+    EXPECT_TRUE(WaitForCrxInstallerDone());
+    const Extension* extension = installer->extension();
+    ASSERT_TRUE(extension);
+    ASSERT_EQ(extension_id, extension->id());
+    EXPECT_TRUE(ExtensionPrefs::Get(profile())->AllowFileAccess(extension_id));
+    EXPECT_TRUE(extension->creation_flags() & Extension::ALLOW_FILE_ACCESS);
+  }
 }
 
 }  // namespace extensions

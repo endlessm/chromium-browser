@@ -28,13 +28,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebUserGestureToken.h"
 
 #include "platform/UserGestureIndicator.h"
 #include "public/web/WebScopedUserGesture.h"
 #include "public/web/WebUserGestureIndicator.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 

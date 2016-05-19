@@ -12,6 +12,7 @@
 """
 
 import errno
+import json
 import platform
 import optparse
 import os
@@ -26,6 +27,22 @@ from slave import build_directory
 
 SRC_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', '..'))
+
+
+class ResultsCollector(object):
+  def __init__(self):
+    self.results = {}
+
+  def add_result(self, name, identifier, value, units):
+    assert name not in self.results
+    self.results[name] = {
+      'identifier': identifier,
+      'value': int(value),
+      'units': units
+    }
+
+    # Legacy printing, previously used for parsing the text logs.
+    print 'RESULT %s: %s= %s %s' % (name, identifier, value, units)
 
 
 def get_size(filename):
@@ -67,7 +84,7 @@ def print_si_fail_hint(path_to_tool):
   print '# HINT: diff against the log from the last run to see what changed'
 
 
-def main_mac(options, args):
+def main_mac(options, args, results_collector):
   """Print appropriate size information about built Mac targets.
 
   Returns the first non-zero exit status of any command it executes,
@@ -159,19 +176,37 @@ def main_mac(options, args):
         print_si_fail_hint('tools/mac/dump-static-initializers.py')
         print stdout
 
+      results_collector.add_result(
+          print_dict['app_name'], print_dict['app_name'],
+          print_dict['app_size'], 'bytes')
+      results_collector.add_result(
+          '%s-__TEXT' % print_dict['app_name'], '__TEXT',
+          print_dict['app_text'], 'bytes')
+      results_collector.add_result(
+          '%s-__DATA' % print_dict['app_name'], '__DATA',
+          print_dict['app_data'], 'bytes')
+      results_collector.add_result(
+          '%s-__OBJC' % print_dict['app_name'], '__OBJC',
+          print_dict['app_objc'], 'bytes')
+      results_collector.add_result(
+          print_dict['framework_name'], print_dict['framework_name'],
+          print_dict['framework_size'], 'bytes')
+      results_collector.add_result(
+          '%s-__TEXT' % print_dict['framework_name'], '__TEXT',
+          print_dict['framework_text'], 'bytes')
+      results_collector.add_result(
+          '%s-__DATA' % print_dict['framework_name'], '__DATA',
+          print_dict['framework_data'], 'bytes')
+      results_collector.add_result(
+          '%s-__OBJC' % print_dict['framework_name'], '__OBJC',
+          print_dict['framework_objc'], 'bytes')
+      results_collector.add_result(
+          print_dict['app_bundle'], print_dict['app_bundle'],
+          print_dict['app_bundle_size'], 'bytes')
+      results_collector.add_result(
+          'chrome-si', 'initializers',
+          print_dict['initializers'], 'files')
 
-      print ("""RESULT %(app_name)s: %(app_name)s= %(app_size)s bytes
-RESULT %(app_name)s-__TEXT: __TEXT= %(app_text)s bytes
-RESULT %(app_name)s-__DATA: __DATA= %(app_data)s bytes
-RESULT %(app_name)s-__OBJC: __OBJC= %(app_objc)s bytes
-RESULT %(framework_name)s: %(framework_name)s= %(framework_size)s bytes
-RESULT %(framework_name)s-__TEXT: __TEXT= %(framework_text)s bytes
-RESULT %(framework_name)s-__DATA: __DATA= %(framework_data)s bytes
-RESULT %(framework_name)s-__OBJC: __OBJC= %(framework_objc)s bytes
-RESULT %(app_bundle)s: %(app_bundle)s= %(app_bundle_size)s bytes
-RESULT chrome-si: initializers= %(initializers)d files
-""") % (
-        print_dict)
       # Found a match, don't check the other base_names.
       return result
   # If no base_names matched, fail script.
@@ -271,7 +306,7 @@ def check_linux_binary(target_dir, binary_name, options):
   return result, sizes
 
 
-def main_linux(options, args):
+def main_linux(options, args, results_collector):
   """Print appropriate size information about built Linux targets.
 
   Returns the first non-zero exit status of any command it executes,
@@ -298,7 +333,7 @@ def main_linux(options, args):
     if result == 0:
       result = this_result
     for name, identifier, totals_id, value, units in this_sizes:
-      print 'RESULT %s: %s= %s %s' % (name, identifier, value, units)
+      results_collector.add_result(name, identifier, value, units)
       totals_id = totals_id or identifier, units
       totals[totals_id] = totals.get(totals_id, 0) + int(value)
 
@@ -315,15 +350,15 @@ def main_linux(options, args):
       if e.errno == errno.ENOENT:
         continue  # Don't print anything for missing files.
       raise
-    print 'RESULT %s: %s= %s bytes' % (filename, filename, size)
+    results_collector.add_result(filename, filename, size, 'bytes')
     totals['size', 'bytes'] += size
 
   # TODO(mcgrathr): This should all be refactored so the mac and win flavors
   # also deliver data structures rather than printing, and the logic for
   # the printing and the summing totals is shared across all three flavors.
   for (identifier, units), value in sorted(totals.iteritems()):
-    print 'RESULT totals-%s: %s= %s %s' % (identifier, identifier,
-                                           value, units)
+    results_collector.add_result(
+        'totals-%s' % identifier, identifier, value, units)
 
   return result
 
@@ -344,7 +379,7 @@ def check_android_binaries(binaries, target_dir, options):
   return result
 
 
-def main_android(options, args):
+def main_android(options, args, results_collector):
   """Print appropriate size information about built Android targets.
 
   Returns the first non-zero exit status of any command it executes,
@@ -361,7 +396,7 @@ def main_android(options, args):
   return check_android_binaries(binaries, target_dir, options)
 
 
-def main_android_webview(options, args):
+def main_android_webview(options, args, results_collector):
   """Print appropriate size information about Android WebViewChromium targets.
 
   Returns the first non-zero exit status of any command it executes,
@@ -375,7 +410,7 @@ def main_android_webview(options, args):
   return check_android_binaries(binaries, target_dir, options)
 
 
-def main_android_cronet(options, args):
+def main_android_cronet(options, args, results_collector):
   """Print appropriate size information about Android Cronet targets.
 
   Returns the first non-zero exit status of any command it executes,
@@ -394,7 +429,7 @@ def main_android_cronet(options, args):
   return check_android_binaries(binaries, target_dir, options)
 
 
-def main_win(options, args):
+def main_win(options, args, results_collector):
   """Print appropriate size information about built Windows targets.
 
   Returns the first non-zero exit status of any command it executes,
@@ -459,6 +494,7 @@ def main():
                            default=default_platform,
                            help='specify platform (%s) [default: %%default]'
                                 % ', '.join(platforms))
+  option_parser.add_option('--json', help='Path to JSON output file')
 
   options, args = option_parser.parse_args()
 
@@ -471,7 +507,15 @@ def main():
     msg = 'Use the --platform= option to specify a supported platform:\n'
     sys.stderr.write(msg + '    ' + ' '.join(platforms) + '\n')
     return 2
-  return real_main(options, args)
+
+  results_collector = ResultsCollector()
+  rc = real_main(options, args, results_collector)
+
+  if options.json:
+    with open(options.json, 'w') as f:
+      json.dump(results_collector.results, f)
+
+  return rc
 
 
 if '__main__' == __name__:

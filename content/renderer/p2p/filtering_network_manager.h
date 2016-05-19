@@ -5,6 +5,7 @@
 #ifndef CONTENT_RENDERER_P2P_FILTERING_NETWORK_MANAGER_H_
 #define CONTENT_RENDERER_P2P_FILTERING_NETWORK_MANAGER_H_
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
@@ -41,11 +42,12 @@ class FilteringNetworkManager : public rtc::NetworkManagerBase,
   CONTENT_EXPORT FilteringNetworkManager(
       rtc::NetworkManager* network_manager,
       const GURL& requesting_origin,
-      scoped_ptr<media::MediaPermission> media_permission);
+      media::MediaPermission* media_permission);
 
   CONTENT_EXPORT ~FilteringNetworkManager() override;
 
-  // Check mic/camera permission. This is called by P2PPortAllocatorFactory.
+  // Check mic/camera permission.
+  // This is called by PeerConnectionDependencyFactory.
   CONTENT_EXPORT void Initialize();
 
   // rtc::NetworkManager:
@@ -93,7 +95,7 @@ class FilteringNetworkManager : public rtc::NetworkManagerBase,
   // The class is created by the signaling thread but used by the worker thread.
   base::ThreadChecker thread_checker_;
 
-  scoped_ptr<media::MediaPermission> media_permission_;
+  media::MediaPermission* media_permission_;
 
   int pending_permission_checks_ = 0;
 

@@ -28,12 +28,18 @@ GeolocationInfoBarDelegateAndroid::GeolocationInfoBarDelegateAndroid(
     const std::string& display_languages,
     const PermissionSetCallback& callback)
     : PermissionInfobarDelegate(requesting_frame,
+                                content::PermissionType::GEOLOCATION,
                                 CONTENT_SETTINGS_TYPE_GEOLOCATION,
                                 callback),
       requesting_frame_(requesting_frame),
       display_languages_(display_languages) {}
 
 GeolocationInfoBarDelegateAndroid::~GeolocationInfoBarDelegateAndroid() {}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+GeolocationInfoBarDelegateAndroid::GetIdentifier() const {
+  return GEOLOCATION_INFOBAR_DELEGATE_ANDROID;
+}
 
 int GeolocationInfoBarDelegateAndroid::GetIconId() const {
   return IDR_ANDROID_INFOBAR_GEOLOCATION;

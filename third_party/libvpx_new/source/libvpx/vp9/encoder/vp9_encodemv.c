@@ -138,7 +138,8 @@ static int update_mv(vpx_writer *w, const unsigned int ct[2], vpx_prob *cur_p,
                      vpx_prob upd_p) {
   const vpx_prob new_p = get_binary_prob(ct[0], ct[1]) | 1;
   const int update = cost_branch256(ct, *cur_p) + vp9_cost_zero(upd_p) >
-                     cost_branch256(ct, new_p) + vp9_cost_one(upd_p) + 7 * 256;
+                     cost_branch256(ct, new_p) + vp9_cost_one(upd_p) +
+                         (7 << VP9_PROB_COST_SHIFT);
   vpx_write(w, update, upd_p);
   if (update) {
     *cur_p = new_p;
@@ -206,7 +207,7 @@ void vp9_encode_mv(VP9_COMP* cpi, vpx_writer* w,
   const MV diff = {mv->row - ref->row,
                    mv->col - ref->col};
   const MV_JOINT_TYPE j = vp9_get_mv_joint(&diff);
-  usehp = usehp && vp9_use_mv_hp(ref);
+  usehp = usehp && use_mv_hp(ref);
 
   vp9_write_token(w, vp9_mv_joint_tree, mvctx->joints, &mv_joint_encodings[j]);
   if (mv_joint_vertical(j))
@@ -230,13 +231,13 @@ void vp9_build_nmv_cost_table(int *mvjoint, int *mvcost[2],
   build_nmv_component_cost_table(mvcost[1], &ctx->comps[1], usehp);
 }
 
-static void inc_mvs(const MB_MODE_INFO *mbmi, const MB_MODE_INFO_EXT *mbmi_ext,
+static void inc_mvs(const MODE_INFO *mi, const MB_MODE_INFO_EXT *mbmi_ext,
                     const int_mv mvs[2],
                     nmv_context_counts *counts) {
   int i;
 
-  for (i = 0; i < 1 + has_second_ref(mbmi); ++i) {
-    const MV *ref = &mbmi_ext->ref_mvs[mbmi->ref_frame[i]][0].as_mv;
+  for (i = 0; i < 1 + has_second_ref(mi); ++i) {
+    const MV *ref = &mbmi_ext->ref_mvs[mi->ref_frame[i]][0].as_mv;
     const MV diff = {mvs[i].as_mv.row - ref->row,
                      mvs[i].as_mv.col - ref->col};
     vp9_inc_mv(&diff, counts);
@@ -246,24 +247,23 @@ static void inc_mvs(const MB_MODE_INFO *mbmi, const MB_MODE_INFO_EXT *mbmi_ext,
 void vp9_update_mv_count(ThreadData *td) {
   const MACROBLOCKD *xd = &td->mb.e_mbd;
   const MODE_INFO *mi = xd->mi[0];
-  const MB_MODE_INFO *const mbmi = &mi->mbmi;
   const MB_MODE_INFO_EXT *mbmi_ext = td->mb.mbmi_ext;
 
-  if (mbmi->sb_type < BLOCK_8X8) {
-    const int num_4x4_w = num_4x4_blocks_wide_lookup[mbmi->sb_type];
-    const int num_4x4_h = num_4x4_blocks_high_lookup[mbmi->sb_type];
+  if (mi->sb_type < BLOCK_8X8) {
+    const int num_4x4_w = num_4x4_blocks_wide_lookup[mi->sb_type];
+    const int num_4x4_h = num_4x4_blocks_high_lookup[mi->sb_type];
     int idx, idy;
 
     for (idy = 0; idy < 2; idy += num_4x4_h) {
       for (idx = 0; idx < 2; idx += num_4x4_w) {
         const int i = idy * 2 + idx;
         if (mi->bmi[i].as_mode == NEWMV)
-          inc_mvs(mbmi, mbmi_ext, mi->bmi[i].as_mv, &td->counts->mv);
+          inc_mvs(mi, mbmi_ext, mi->bmi[i].as_mv, &td->counts->mv);
       }
     }
   } else {
-    if (mbmi->mode == NEWMV)
-      inc_mvs(mbmi, mbmi_ext, mbmi->mv, &td->counts->mv);
+    if (mi->mode == NEWMV)
+      inc_mvs(mi, mbmi_ext, mi->mv, &td->counts->mv);
   }
 }
 

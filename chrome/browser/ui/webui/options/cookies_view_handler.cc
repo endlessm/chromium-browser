@@ -5,9 +5,11 @@
 #include "chrome/browser/ui/webui/options/cookies_view_handler.h"
 
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browsing_data/browsing_data_appcache_helper.h"
@@ -153,7 +155,7 @@ void CookiesViewHandler::TreeNodesAdded(ui::TreeModel* model,
   else
     args.AppendString(model_util_->GetTreeNodeId(parent_node));
   args.AppendInteger(start);
-  args.Append(children.Pass());
+  args.Append(std::move(children));
   web_ui()->CallJavascriptFunction("CookiesView.onTreeItemAdded", args);
 }
 
@@ -273,7 +275,7 @@ void CookiesViewHandler::SendChildren(const CookieTreeNode* parent) {
     args.Append(base::Value::CreateNullValue());
   else
     args.AppendString(model_util_->GetTreeNodeId(parent));
-  args.Append(children.Pass());
+  args.Append(std::move(children));
 
   web_ui()->CallJavascriptFunction("CookiesView.loadChildren", args);
 }

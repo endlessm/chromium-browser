@@ -54,9 +54,8 @@ WebInspector.Spectrum = function()
     var contrastRatioSVG = this._colorElement.createSVGChild("svg", "spectrum-contrast-container fill");
     this._contrastRatioLine = contrastRatioSVG.createSVGChild("path", "spectrum-contrast-line");
 
-    var toolbar = new WebInspector.Toolbar(this.contentElement);
-    toolbar.element.classList.add("spectrum-eye-dropper");
-    this._colorPickerButton = new WebInspector.ToolbarButton(WebInspector.UIString("Toggle color picker"), "eyedropper-toolbar-item");
+    var toolbar = new WebInspector.Toolbar("spectrum-eye-dropper", this.contentElement);
+    this._colorPickerButton = new WebInspector.ToolbarToggle(WebInspector.UIString("Toggle color picker"), "eyedropper-toolbar-item");
     this._colorPickerButton.setToggled(true);
     this._colorPickerButton.addEventListener("click", this._toggleColorPicker.bind(this, undefined));
     toolbar.appendToolbarItem(this._colorPickerButton);
@@ -116,16 +115,14 @@ WebInspector.Spectrum = function()
     appendSwitcherIcon(paletteSwitcher);
     paletteSwitcher.addEventListener("click", this._togglePalettePanel.bind(this, true));
 
-    this._deleteIconToolbar = new WebInspector.Toolbar();
-    this._deleteIconToolbar.element.classList.add("delete-color-toolbar");
+    this._deleteIconToolbar = new WebInspector.Toolbar("delete-color-toolbar");
     this._deleteButton = new WebInspector.ToolbarButton("", "garbage-collect-toolbar-item");
     this._deleteIconToolbar.appendToolbarItem(this._deleteButton);
 
     var overlay = this.contentElement.createChild("div", "spectrum-overlay fill");
     overlay.addEventListener("click", this._togglePalettePanel.bind(this, false));
 
-    this._addColorToolbar = new WebInspector.Toolbar();
-    this._addColorToolbar.element.classList.add("add-color-toolbar");
+    this._addColorToolbar = new WebInspector.Toolbar("add-color-toolbar");
     var addColorButton = new WebInspector.ToolbarButton(WebInspector.UIString("Add to palette"), "add-toolbar-item");
     addColorButton.addEventListener("click", this._addColorToCustomPalette.bind(this));
     this._addColorToolbar.appendToolbarItem(addColorButton);
@@ -206,7 +203,7 @@ WebInspector.Spectrum.prototype = {
         this._palettePanel.removeChildren();
         var title = this._palettePanel.createChild("div", "palette-title");
         title.textContent = WebInspector.UIString("Color Palettes");
-        var toolbar = new WebInspector.Toolbar(this._palettePanel);
+        var toolbar = new WebInspector.Toolbar("", this._palettePanel);
         var closeButton = new WebInspector.ToolbarButton("Return to color picker", "delete-toolbar-item");
         closeButton.addEventListener("click", this._togglePalettePanel.bind(this, false));
         toolbar.appendToolbarItem(closeButton);
@@ -230,7 +227,7 @@ WebInspector.Spectrum.prototype = {
 
     _focus: function()
     {
-        if (WebInspector.currentFocusElement() !== this.contentElement)
+        if (this.isShowing() && WebInspector.currentFocusElement() !== this.contentElement)
             WebInspector.setCurrentFocusElement(this.contentElement);
     },
 
@@ -272,9 +269,8 @@ WebInspector.Spectrum.prototype = {
                 shadow.style.background = palette.colors[i];
                 shadow = colorElement.createChild("div", "spectrum-palette-color spectrum-palette-color-shadow");
                 shadow.style.background = palette.colors[i];
-                var controller = new WebInspector.LongClickController(colorElement);
-                controller.enable();
-                controller.addEventListener(WebInspector.LongClickController.Events.LongClick, this._showLightnessShades.bind(this, colorElement, palette.colors[i]));
+                colorElement.title = WebInspector.UIString(palette.colors[i] + ". Long-click to show alternate shades.");
+                new WebInspector.LongClickController(colorElement, this._showLightnessShades.bind(this, colorElement, palette.colors[i]));
             }
             this._paletteContainer.appendChild(colorElement);
         }
@@ -298,7 +294,7 @@ WebInspector.Spectrum.prototype = {
     /**
      * @param {!Element} colorElement
      * @param {string} colorText
-     * @param {!WebInspector.Event} event
+     * @param {!Event} event
      */
     _showLightnessShades: function(colorElement, colorText, event)
     {
@@ -320,8 +316,7 @@ WebInspector.Spectrum.prototype = {
         this._shadesContainer.classList.remove("hidden");
         this._shadesContainer.removeChildren();
         this._shadesContainer.animate([{ transform: "scaleY(0)", opacity: "0" }, { transform: "scaleY(1)", opacity: "1" }], { duration: 200, easing: "cubic-bezier(0.4, 0, 0.2, 1)" });
-        var anchorBox = colorElement.boxInWindow();
-        this._shadesContainer.style.top = colorElement.offsetTop + "px";
+        this._shadesContainer.style.top = colorElement.offsetTop + colorElement.parentElement.offsetTop + "px";
         this._shadesContainer.style.left = colorElement.offsetLeft + "px";
         colorElement.classList.add("spectrum-shades-shown");
 
@@ -373,8 +368,6 @@ WebInspector.Spectrum.prototype = {
         this._dragElement = element;
         this._dragHotSpotX = e.pageX - (index % WebInspector.Spectrum._itemsPerPaletteRow) * WebInspector.Spectrum._colorChipSize;
         this._dragHotSpotY = e.pageY - (index / WebInspector.Spectrum._itemsPerPaletteRow | 0) * WebInspector.Spectrum._colorChipSize;
-
-        this._deleteIconToolbar.element.classList.add("dragging");
         return true;
     },
 
@@ -390,6 +383,7 @@ WebInspector.Spectrum.prototype = {
         var offsetY = e.pageY - (newIndex / WebInspector.Spectrum._itemsPerPaletteRow | 0) * WebInspector.Spectrum._colorChipSize;
 
         var isDeleting = this._isDraggingToBin(e);
+        this._deleteIconToolbar.element.classList.add("dragging");
         this._deleteIconToolbar.element.classList.toggle("delete-color-toolbar-active", isDeleting);
         var dragElementTransform = "translateX(" + (offsetX - this._dragHotSpotX) + "px) translateY(" + (offsetY - this._dragHotSpotY) + "px)";
         this._dragElement.style.transform = isDeleting ? dragElementTransform + " scale(0.8)" : dragElementTransform;
@@ -437,7 +431,6 @@ WebInspector.Spectrum.prototype = {
 
         this._deleteIconToolbar.element.classList.remove("dragging");
         this._deleteIconToolbar.element.classList.remove("delete-color-toolbar-active");
-        this._deleteButton.setToggled(false);
     },
 
     _loadPalettes: function()
@@ -1007,7 +1000,7 @@ WebInspector.Spectrum.PaletteGenerator.prototype = {
             resolve(null);
         }
 
-        stylesheet.requestContent(parseContent.bind(this));
+        stylesheet.requestContent().then(parseContent.bind(this));
     }
 }
 

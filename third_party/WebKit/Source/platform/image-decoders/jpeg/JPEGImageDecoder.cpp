@@ -35,7 +35,6 @@
  * version of this file under any of the LGPL, the MPL or the GPL.
  */
 
-#include "config.h"
 #include "platform/image-decoders/jpeg/JPEGImageDecoder.h"
 
 #include "platform/PlatformInstrumentation.h"
@@ -82,12 +81,14 @@ const unsigned scaleDenominator = 8;
 namespace blink {
 
 struct decoder_error_mgr {
+    DISALLOW_NEW();
     struct jpeg_error_mgr pub; // "public" fields for IJG library
     int num_corrupt_warnings;  // Counts corrupt warning messages
     jmp_buf setjmp_buffer;     // For handling catastropic errors
 };
 
 struct decoder_source_mgr {
+    DISALLOW_NEW();
     struct jpeg_source_mgr pub; // "public" fields for IJG library
     JPEGImageReader* reader;
 };
@@ -289,8 +290,9 @@ static yuv_subsampling yuvSubsampling(const jpeg_decompress_struct& info)
     return YUV_UNKNOWN;
 }
 
-class JPEGImageReader {
+class JPEGImageReader final {
     USING_FAST_MALLOC(JPEGImageReader);
+    WTF_MAKE_NONCOPYABLE(JPEGImageReader);
 public:
     JPEGImageReader(JPEGImageDecoder* decoder)
         : m_decoder(decoder)
@@ -376,7 +378,7 @@ public:
         }
 
         const char* segment;
-        const unsigned bytes = m_data->getSomeData(segment, m_nextReadPosition);
+        const size_t bytes = m_data->getSomeData(segment, m_nextReadPosition);
         if (bytes == 0) {
             // We had to suspend. When we resume, we will need to start from the restart position.
             m_needsRestart = true;
@@ -647,11 +649,19 @@ public:
         qcms_profile* inputProfile = qcms_profile_from_memory(colorProfile.data(), colorProfile.size());
         if (!inputProfile)
             return;
+
         // We currently only support color profiles for RGB profiled images.
         ASSERT(rgbData == qcms_profile_get_color_space(inputProfile));
-        qcms_data_type dataFormat = hasAlpha ? QCMS_DATA_RGBA_8 : QCMS_DATA_RGB_8;
+
+        if (qcms_profile_match(inputProfile, deviceProfile)) {
+            qcms_profile_release(inputProfile);
+            return;
+        }
+
         // FIXME: Don't force perceptual intent if the image profile contains an intent.
+        qcms_data_type dataFormat = hasAlpha ? QCMS_DATA_RGBA_8 : QCMS_DATA_RGB_8;
         m_transform = qcms_transform_create(inputProfile, dataFormat, deviceProfile, dataFormat, QCMS_INTENT_PERCEPTUAL);
+
         qcms_profile_release(inputProfile);
     }
 #endif
@@ -696,9 +706,9 @@ private:
     // Input reading: True if we need to back up to m_restartPosition.
     bool m_needsRestart;
     // If libjpeg needed to restart, this is the position to restart from.
-    unsigned m_restartPosition;
+    size_t m_restartPosition;
     // This is the position where we will read from, unless there is a restart.
-    unsigned m_nextReadPosition;
+    size_t m_nextReadPosition;
     // This is how we know to update the restart position. It is the last value
     // we set to next_input_byte. libjpeg will update next_input_byte when it
     // has found the next restart position, so if it no longer matches this
@@ -836,7 +846,7 @@ bool JPEGImageDecoder::decodeToYUV()
 
 void JPEGImageDecoder::setImagePlanes(PassOwnPtr<ImagePlanes> imagePlanes)
 {
-    m_imagePlanes = imagePlanes;
+    m_imagePlanes = std::move(imagePlanes);
 }
 
 template <J_COLOR_SPACE colorSpace> void setPixel(ImageFrame& buffer, ImageFrame::PixelData* pixel, JSAMPARRAY samples, int column)
@@ -1066,4 +1076,4 @@ void JPEGImageDecoder::decode(bool onlySize)
         m_reader.clear();
 }
 
-}
+} // namespace blink

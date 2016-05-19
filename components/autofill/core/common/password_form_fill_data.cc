@@ -4,6 +4,8 @@
 
 #include "components/autofill/core/common/password_form_fill_data.h"
 
+#include <tuple>
+
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/common/form_field_data.h"
 
@@ -15,17 +17,17 @@ UsernamesCollectionKey::~UsernamesCollectionKey() {}
 
 bool UsernamesCollectionKey::operator<(
     const UsernamesCollectionKey& other) const {
-  if (username != other.username)
-    return username < other.username;
-  if (password != other.password)
-    return password < other.password;
-  return realm < other.realm;
+  return std::tie(username, password, realm) <
+         std::tie(other.username, other.password, other.realm);
 }
 
 PasswordFormFillData::PasswordFormFillData()
     : wait_for_username(false),
       is_possible_change_password_form(false) {
 }
+
+PasswordFormFillData::PasswordFormFillData(const PasswordFormFillData& other) =
+    default;
 
 PasswordFormFillData::~PasswordFormFillData() {
 }
@@ -64,7 +66,7 @@ void InitPasswordFormFillData(
 
   // Copy additional username/value pairs.
   for (const auto& it : matches) {
-    if (it.second != preferred_match) {
+    if (it.second.get() != preferred_match) {
       PasswordAndRealm value;
       value.password = it.second->password_value;
       if (it.second->is_public_suffix_match ||

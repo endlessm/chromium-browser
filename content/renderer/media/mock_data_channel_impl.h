@@ -5,10 +5,12 @@
 #ifndef CONTENT_RENDERER_MEDIA_MOCK_DATA_CHANNEL_IMPL_H_
 #define CONTENT_RENDERER_MEDIA_MOCK_DATA_CHANNEL_IMPL_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/macros.h"
-#include "third_party/libjingle/source/talk/app/webrtc/peerconnectioninterface.h"
+#include "third_party/webrtc/api/peerconnectioninterface.h"
 
 namespace content {
 

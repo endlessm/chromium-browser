@@ -1,9 +1,4 @@
 {
-    "AsyncSetAsDefault": [
-        {
-            "group_name": "Enabled"
-        }
-    ],
     "AutofillClassifier": [
         {
             "group_name": "Enabled"
@@ -20,11 +15,20 @@
             "params": {
                 "limit": "3"
             }
+        },
+        {
+            "group_name": "Enabled"
         }
     ],
     "AutomaticTabDiscarding": [
         {
-            "group_name": "Enabled"
+            "enable_featuress": [
+                "AutomaticTabDiscarding"
+            ],
+            "group_name": "Enabled_Once_5",
+            "params": {
+                "MinimumProtectionTime": "300"
+            }
         }
     ],
     "BrowserBlacklist": [
@@ -44,12 +48,23 @@
     ],
     "ChromeDashboard": [
         {
+            "group_name": "Enabled"
+        },
+        {
             "group_name": "Default"
         }
     ],
     "ChromotingQUIC": [
         {
             "group_name": "Enabled"
+        }
+    ],
+    "DataReductionProxyConfigService": [
+        {
+            "group_name": "Enabled",
+            "params": {
+                "minimum_refresh_interval_on_success_msec": "21600000"
+            }
         }
     ],
     "EnableGoogleCachedCopyTextExperiment": [
@@ -97,6 +112,11 @@
             "group_name": "Enabled"
         }
     ],
+    "LocalNTPSuggestionsService": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "MaterialDesignDownloads": [
         {
             "group_name": "Enabled"
@@ -131,6 +151,21 @@
             "group_name": "Enabled"
         }
     ],
+    "OfferUploadCreditCards": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
+    "PageRevisitInstrumentation": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
+    "PasswordBranding": [
+        {
+            "group_name": "SmartLockBrandingSavePromptOnly"
+        }
+    ],
     "PasswordGeneration": [
         {
             "group_name": "Disabled"
@@ -138,13 +173,15 @@
     ],
     "QUIC": [
         {
-            "group_name": "Enabled",
-            "params": {
-                "alternate_protocol_probability_threshold": "0.01"
-            }
+            "group_name": "Enabled"
         }
     ],
     "RefreshTokenDeviceId": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
+    "RenderingPipelineThrottling": [
         {
             "group_name": "Enabled"
         }
@@ -180,7 +217,7 @@
     ],
     "SRTPromptFieldTrial": [
         {
-            "group_name": "Default"
+            "group_name": "On"
         }
     ],
     "SafeBrowsingReportPhishingErrorLink": [
@@ -194,6 +231,29 @@
             "group_name": "Disabled"
         }
     ],
+    "SafeBrowsingUnverifiedDownloads": [
+        {
+            "group_name": "DisableByParameterMostSbTypes2",
+            "params": {
+                "blacklist": ".exe-,.zip-",
+                "block_sb_types": "true",
+                "whitelist": ".rar,.svg,.url,.xml,.zip"
+            }
+        }
+    ],
+    "SafeBrowsingUpdateFrequency": [
+        {
+            "group_name": "UpdateTime15m",
+            "params": {
+                "NextUpdateIntervalInMinutes": "15"
+            }
+        }
+    ],
+    "SchedulerExpensiveTaskBlocking": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "SdchPersistence": [
         {
             "group_name": "Enabled"
@@ -202,6 +262,16 @@
     "SettingsEnforcement": [
         {
             "group_name": "enforce_always_with_extensions_and_dse"
+        }
+    ],
+    "SpdyEnableDependencies": [
+        {
+            "group_name": "Enable"
+        }
+    ],
+    "StrictSecureCookies": [
+        {
+            "group_name": "Enabled"
         }
     ],
     "SyncHttpContentCompression": [
@@ -217,9 +287,9 @@
             "group_name": "Enabled"
         }
     ],
-    "UseDelayAgnosticAEC": [
+    "TriggeredResetFieldTrial": [
         {
-            "group_name": "DefaultEnabled"
+            "group_name": "On"
         }
     ],
     "VarationsServiceControl": [
@@ -230,6 +300,11 @@
             }
         }
     ],
+    "WebFontsIntervention": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "WebRTC-LocalIPPermissionCheck": [
         {
             "group_name": "Enabled"
@@ -237,6 +312,14 @@
     ],
     "WebRTC-PeerConnectionDTLS1.2": [
         {
+            "group_name": "Enabled"
+        }
+    ],
+    "use-new-media-cache": [
+        {
+            "enable_features": [
+                "use-new-media-cache"
+            ],
             "group_name": "Enabled"
         }
     ]

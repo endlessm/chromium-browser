@@ -61,6 +61,7 @@
 #include "SkShader.h"
 #include "SkStream.h"
 #include "SkSurface.h"
+#include "SkTemplates.h"
 #include "SkTDArray.h"
 #include "Test.h"
 
@@ -514,8 +515,11 @@ static void AssertCanvasStatesEqual(skiatest::Reporter* reporter, const TestData
     REPORTER_ASSERT_MESSAGE(reporter, bounds1 == bounds2,
                             testStep->assertMessage());
 
+#ifdef SK_SUPPORT_LEGACY_DRAWFILTER
     REPORTER_ASSERT_MESSAGE(reporter, canvas1->getDrawFilter() ==
         canvas2->getDrawFilter(), testStep->assertMessage());
+#endif
+
     SkIRect deviceBounds1, deviceBounds2;
     REPORTER_ASSERT_MESSAGE(reporter,
         canvas1->getClipDeviceBounds(&deviceBounds1) ==
@@ -635,8 +639,8 @@ static void test_newraster(skiatest::Reporter* reporter) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(10, 10);
     const size_t minRowBytes = info.minRowBytes();
     const size_t size = info.getSafeSize(minRowBytes);
-    SkAutoMalloc storage(size);
-    SkPMColor* baseAddr = static_cast<SkPMColor*>(storage.get());
+    SkAutoTMalloc<SkPMColor> storage(size);
+    SkPMColor* baseAddr = storage.get();
     sk_bzero(baseAddr, size);
 
     SkCanvas* canvas = SkCanvas::NewRasterDirect(info, baseAddr, minRowBytes);
@@ -729,7 +733,7 @@ public:
     MockFilterCanvas(SkCanvas* canvas) : INHERITED(canvas) { }
 
 protected:
-    void onFilterPaint(SkPaint *paint, Type type) const override { }
+    bool onFilter(SkTCopyOnFirstWrite<SkPaint>*, Type) const override { return true; }
 
 private:
     typedef SkPaintFilterCanvas INHERITED;

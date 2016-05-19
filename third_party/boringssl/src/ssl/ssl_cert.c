@@ -139,7 +139,7 @@ int SSL_get_ex_data_X509_STORE_CTX_idx(void) {
 }
 
 CERT *ssl_cert_new(void) {
-  CERT *ret = (CERT *)OPENSSL_malloc(sizeof(CERT));
+  CERT *ret = OPENSSL_malloc(sizeof(CERT));
   if (ret == NULL) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
     return NULL;
@@ -150,7 +150,7 @@ CERT *ssl_cert_new(void) {
 }
 
 CERT *ssl_cert_dup(CERT *cert) {
-  CERT *ret = (CERT *)OPENSSL_malloc(sizeof(CERT));
+  CERT *ret = OPENSSL_malloc(sizeof(CERT));
   if (ret == NULL) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
     return NULL;
@@ -166,27 +166,8 @@ CERT *ssl_cert_dup(CERT *cert) {
       OPENSSL_PUT_ERROR(SSL, ERR_R_DH_LIB);
       goto err;
     }
-    if (cert->dh_tmp->priv_key) {
-      BIGNUM *b = BN_dup(cert->dh_tmp->priv_key);
-      if (!b) {
-        OPENSSL_PUT_ERROR(SSL, ERR_R_BN_LIB);
-        goto err;
-      }
-      ret->dh_tmp->priv_key = b;
-    }
-    if (cert->dh_tmp->pub_key) {
-      BIGNUM *b = BN_dup(cert->dh_tmp->pub_key);
-      if (!b) {
-        OPENSSL_PUT_ERROR(SSL, ERR_R_BN_LIB);
-        goto err;
-      }
-      ret->dh_tmp->pub_key = b;
-    }
   }
   ret->dh_tmp_cb = cert->dh_tmp_cb;
-
-  ret->ecdh_nid = cert->ecdh_nid;
-  ret->ecdh_tmp_cb = cert->ecdh_tmp_cb;
 
   if (cert->x509 != NULL) {
     ret->x509 = X509_up_ref(cert->x509);

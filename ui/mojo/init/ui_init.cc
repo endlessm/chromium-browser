@@ -4,11 +4,13 @@
 
 #include "ui/mojo/init/ui_init.h"
 
+#include "base/macros.h"
 #include "base/memory/singleton.h"
+#include "build/build_config.h"
 #include "ui/mojo/init/screen_mojo.h"
 
 #if defined(OS_ANDROID)
-#include "ui/events/gesture_detection/gesture_configuration.h"
+#include "ui/events/gesture_detection/gesture_configuration.h"  // nogncheck
 #endif
 
 namespace ui {
@@ -41,7 +43,7 @@ class GestureConfigurationMojo : public ui::GestureConfiguration {
 
 UIInit::UIInit(const std::vector<gfx::Display>& displays)
     : screen_(new ScreenMojo(displays)) {
-  gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, screen_.get());
+  gfx::Screen::SetScreenInstance(screen_.get());
 #if defined(OS_ANDROID)
   gesture_configuration_.reset(new GestureConfigurationMojo);
   ui::GestureConfiguration::SetInstance(gesture_configuration_.get());
@@ -49,7 +51,7 @@ UIInit::UIInit(const std::vector<gfx::Display>& displays)
 }
 
 UIInit::~UIInit() {
-  gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, nullptr);
+  gfx::Screen::SetScreenInstance(nullptr);
 #if defined(OS_ANDROID)
   ui::GestureConfiguration::SetInstance(nullptr);
 #endif

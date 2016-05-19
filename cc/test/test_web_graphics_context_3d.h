@@ -5,12 +5,16 @@
 #ifndef CC_TEST_TEST_WEB_GRAPHICS_CONTEXT_3D_H_
 #define CC_TEST_TEST_WEB_GRAPHICS_CONTEXT_3D_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/containers/hash_tables.h"
-#include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -271,8 +275,10 @@ class TestWebGraphicsContext3D {
                                            GLuint io_surface_id,
                                            GLuint plane) {}
 
-  virtual unsigned insertSyncPoint();
+  virtual GLuint64 insertFenceSync();
+  virtual void genSyncToken(GLuint64 fence_sync, GLbyte* sync_token);
   virtual void waitSyncToken(const GLbyte* sync_token);
+  virtual void verifySyncTokens(GLbyte** sync_tokens, GLsizei count);
 
   const gpu::SyncToken& last_waited_sync_token() const {
     return last_waited_sync_token_;
@@ -314,6 +320,9 @@ class TestWebGraphicsContext3D {
   void set_have_post_sub_buffer(bool have) {
     test_capabilities_.gpu.post_sub_buffer = have;
   }
+  void set_have_commit_overlay_planes(bool have) {
+    test_capabilities_.gpu.commit_overlay_planes = have;
+  }
   void set_have_discard_framebuffer(bool have) {
     test_capabilities_.gpu.discard_framebuffer = have;
   }
@@ -337,6 +346,9 @@ class TestWebGraphicsContext3D {
   }
   void set_support_texture_rectangle(bool support) {
     test_capabilities_.gpu.texture_rectangle = support;
+  }
+  void set_support_texture_half_float_linear(bool support) {
+    test_capabilities_.gpu.texture_half_float_linear = support;
   }
 
   // When this context is lost, all contexts in its share group are also lost.
@@ -395,7 +407,7 @@ class TestWebGraphicsContext3D {
     GLuint BoundTexture(GLenum target);
 
    private:
-    typedef base::hash_map<GLenum, GLuint> TargetTextureMap;
+    using TargetTextureMap = std::unordered_map<GLenum, GLuint>;
     TargetTextureMap bound_textures_;
   };
 
@@ -404,7 +416,7 @@ class TestWebGraphicsContext3D {
     ~Buffer();
 
     GLenum target;
-    scoped_ptr<uint8[]> pixels;
+    scoped_ptr<uint8_t[]> pixels;
     size_t size;
 
    private:
@@ -415,7 +427,7 @@ class TestWebGraphicsContext3D {
     Image();
     ~Image();
 
-    scoped_ptr<uint8[]> pixels;
+    scoped_ptr<uint8_t[]> pixels;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(Image);
@@ -430,10 +442,10 @@ class TestWebGraphicsContext3D {
     unsigned next_image_id;
     unsigned next_texture_id;
     unsigned next_renderbuffer_id;
-    base::ScopedPtrHashMap<unsigned, scoped_ptr<Buffer>> buffers;
-    base::hash_set<unsigned> images;
+    std::unordered_map<unsigned, scoped_ptr<Buffer>> buffers;
+    std::unordered_set<unsigned> images;
     OrderedTextureMap textures;
-    base::hash_set<unsigned> renderbuffer_set;
+    std::unordered_set<unsigned> renderbuffer_set;
 
    private:
     friend class base::RefCountedThreadSafe<Namespace>;
@@ -458,13 +470,13 @@ class TestWebGraphicsContext3D {
   int current_used_transfer_buffer_usage_bytes_;
   int max_used_transfer_buffer_usage_bytes_;
   base::Closure context_lost_callback_;
-  base::hash_set<unsigned> used_textures_;
+  std::unordered_set<unsigned> used_textures_;
   unsigned next_program_id_;
-  base::hash_set<unsigned> program_set_;
+  std::unordered_set<unsigned> program_set_;
   unsigned next_shader_id_;
-  base::hash_set<unsigned> shader_set_;
+  std::unordered_set<unsigned> shader_set_;
   unsigned next_framebuffer_id_;
-  base::hash_set<unsigned> framebuffer_set_;
+  std::unordered_set<unsigned> framebuffer_set_;
   unsigned current_framebuffer_;
   std::vector<TestWebGraphicsContext3D*> shared_contexts_;
   int max_texture_size_;
@@ -475,7 +487,7 @@ class TestWebGraphicsContext3D {
   TestContextSupport* test_support_;
   gfx::Rect update_rect_;
   UpdateType last_update_type_;
-  unsigned next_insert_sync_point_;
+  GLuint64 next_insert_fence_sync_;
   gpu::SyncToken last_waited_sync_token_;
   int unpack_alignment_;
 

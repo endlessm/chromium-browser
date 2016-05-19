@@ -7,6 +7,8 @@
 
 #import <Cocoa/Cocoa.h>
 #include <IOSurface/IOSurface.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <list>
 #include <map>
 #include <set>
@@ -15,9 +17,11 @@
 #include <vector>
 
 #include "base/mac/scoped_nsobject.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "cc/surfaces/surface_id.h"
 #include "content/browser/compositor/browser_compositor_view_mac.h"
 #include "content/browser/compositor/delegated_frame_host.h"
 #include "content/browser/renderer_host/input/mouse_wheel_rails_filter_mac.h"
@@ -126,6 +130,9 @@ class Layer;
 
   // Underline information of the |markedText_|.
   std::vector<blink::WebCompositionUnderline> underlines_;
+
+  // Replacement range information received from |setMarkedText:|.
+  gfx::Range setMarkedTextReplacementRange_;
 
   // Indicates if doCommandBySelector method receives any edit command when
   // handling a key down event.
@@ -303,7 +310,6 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       const std::vector<gfx::Rect>& character_bounds) override;
   void RenderProcessGone(base::TerminationStatus status,
                          int error_code) override;
-  void RenderWidgetHostGone() override;
   void Destroy() override;
   void SetTooltipText(const base::string16& tooltip_text) override;
   void SelectionChanged(const base::string16& text,
@@ -323,7 +329,7 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   void BeginFrameSubscription(
       scoped_ptr<RenderWidgetHostViewFrameSubscriber> subscriber) override;
   void EndFrameSubscription() override;
-  void OnSwapCompositorFrame(uint32 output_surface_id,
+  void OnSwapCompositorFrame(uint32_t output_surface_id,
                              scoped_ptr<cc::CompositorFrame> frame) override;
   void ClearCompositorFrame() override;
   BrowserAccessibilityManager* CreateBrowserAccessibilityManager(
@@ -347,10 +353,16 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   scoped_ptr<SyntheticGestureTarget> CreateSyntheticGestureTarget() override;
 
   uint32_t GetSurfaceIdNamespace() override;
-  uint32_t SurfaceIdNamespaceAtPoint(const gfx::Point& point,
+  uint32_t SurfaceIdNamespaceAtPoint(cc::SurfaceHittestDelegate* delegate,
+                                     const gfx::Point& point,
                                      gfx::Point* transformed_point) override;
+  // Returns true when we can do SurfaceHitTesting for the event type.
+  bool ShouldRouteEvent(const blink::WebInputEvent& event) const;
   void ProcessMouseEvent(const blink::WebMouseEvent& event) override;
   void ProcessMouseWheelEvent(const blink::WebMouseWheelEvent& event) override;
+  void TransformPointToLocalCoordSpace(const gfx::Point& point,
+                                       cc::SurfaceId original_surface,
+                                       gfx::Point* transformed_point) override;
 
   // IPC::Sender implementation.
   bool Send(IPC::Message* message) override;
@@ -517,6 +529,9 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // Transition from being in the Suspended state to being in the Destroyed
   // state, if appropriate (see BrowserCompositorViewState for details).
   void DestroySuspendedBrowserCompositorViewIfNeeded();
+
+  // Exposed for testing.
+  cc::SurfaceId SurfaceIdForTesting() const override;
 
  private:
   friend class RenderWidgetHostViewMacTest;

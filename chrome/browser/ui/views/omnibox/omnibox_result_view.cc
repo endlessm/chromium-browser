@@ -4,19 +4,23 @@
 
 // For WinDDK ATL compatibility, these ATL headers must come first.
 #include "build/build_config.h"
+
 #if defined(OS_WIN)
 #include <atlbase.h>  // NOLINT
 #include <atlwin.h>  // NOLINT
 #endif
 
+#include "base/macros.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_result_view.h"
+
+#include <limits.h>
 
 #include <algorithm>  // NOLINT
 
 #include "base/i18n/bidi_line_iterator.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "chrome/browser/ui/views/layout_constants.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_popup_contents_view.h"
 #include "chrome/grit/generated_resources.h"
@@ -26,7 +30,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/canvas.h"
@@ -75,12 +79,6 @@ struct TranslationTable {
     OmniboxResultView::HOVERED, OmniboxResultView::URL },
   { NativeTheme::kColorId_ResultsTableSelectedUrl,
     OmniboxResultView::SELECTED, OmniboxResultView::URL },
-  { NativeTheme::kColorId_ResultsTableNormalDivider,
-    OmniboxResultView::NORMAL, OmniboxResultView::DIVIDER },
-  { NativeTheme::kColorId_ResultsTableHoveredDivider,
-    OmniboxResultView::HOVERED, OmniboxResultView::DIVIDER },
-  { NativeTheme::kColorId_ResultsTableSelectedDivider,
-    OmniboxResultView::SELECTED, OmniboxResultView::DIVIDER },
 };
 
 struct TextStyle {
@@ -257,7 +255,7 @@ SkColor OmniboxResultView::GetColor(
   }
 
   NOTREACHED();
-  return SK_ColorRED;
+  return gfx::kPlaceholderColor;
 }
 
 void OmniboxResultView::SetMatch(const AutocompleteMatch& match) {
@@ -477,7 +475,7 @@ scoped_ptr<gfx::RenderText> OmniboxResultView::CreateRenderText(
   render_text->SetElideBehavior(gfx::ELIDE_TAIL);
   render_text->SetFontList(font_list_);
   render_text->SetText(text);
-  return render_text.Pass();
+  return render_text;
 }
 
 scoped_ptr<gfx::RenderText> OmniboxResultView::CreateClassifiedRenderText(
@@ -521,7 +519,7 @@ scoped_ptr<gfx::RenderText> OmniboxResultView::CreateClassifiedRenderText(
     }
     render_text->ApplyColor(GetColor(GetState(), color_kind), current_range);
   }
-  return render_text.Pass();
+  return render_text;
 }
 
 int OmniboxResultView::GetMatchContentsWidth() const {
@@ -773,7 +771,7 @@ scoped_ptr<gfx::RenderText> OmniboxResultView::CreateAnswerLine(
     AppendAnswerText(destination.get(), space + text_field->text(),
                      text_field->type());
   }
-  return destination.Pass();
+  return destination;
 }
 
 void OmniboxResultView::AppendAnswerText(gfx::RenderText* destination,

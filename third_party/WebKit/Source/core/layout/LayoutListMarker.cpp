@@ -22,13 +22,13 @@
  *
  */
 
-#include "config.h"
 #include "core/layout/LayoutListMarker.h"
 
 #include "core/fetch/ImageResource.h"
 #include "core/layout/LayoutAnalyzer.h"
 #include "core/layout/LayoutListItem.h"
 #include "core/layout/ListMarkerText.h"
+#include "core/layout/api/LineLayoutBlockFlow.h"
 #include "core/paint/ListMarkerPainter.h"
 #include "core/paint/PaintLayer.h"
 #include "platform/fonts/Font.h"
@@ -41,9 +41,8 @@ LayoutListMarker::LayoutListMarker(LayoutListItem* item)
     : LayoutBox(nullptr)
     , m_listItem(item)
 {
-    // init LayoutObject attributes
-    setInline(true); // our object is Inline
-    setReplaced(true); // pretend to be replaced
+    setInline(true);
+    setIsAtomicInlineLevel(true);
 }
 
 LayoutListMarker::~LayoutListMarker()
@@ -65,15 +64,15 @@ LayoutListMarker* LayoutListMarker::createAnonymous(LayoutListItem* item)
     return layoutObject;
 }
 
-IntSize LayoutListMarker::imageBulletSize() const
+LayoutSize LayoutListMarker::imageBulletSize() const
 {
     ASSERT(isImage());
 
     // FIXME: This is a somewhat arbitrary default width. Generated images for markers really won't
     // become particularly useful until we support the CSS3 marker pseudoclass to allow control over
     // the width and height of the marker box.
-    int bulletWidth = style()->fontMetrics().ascent() / 2;
-    IntSize defaultBulletSize(bulletWidth, bulletWidth);
+    LayoutUnit bulletWidth = style()->fontMetrics().ascent() / LayoutUnit(2);
+    LayoutSize defaultBulletSize(bulletWidth, bulletWidth);
     return calculateImageIntrinsicDimensions(m_image.get(), defaultBulletSize, DoNotScaleByEffectiveZoom);
 }
 
@@ -121,8 +120,8 @@ LayoutRect LayoutListMarker::localSelectionRect() const
         ? inlineBoxWrapper()->logicalBottom() - root.selectionBottom()
         : root.selectionTop() - inlineBoxWrapper()->logicalTop();
     return blockStyle->isHorizontalWritingMode()
-        ? LayoutRect(0, newLogicalTop, size().width(), root.selectionHeight())
-        : LayoutRect(newLogicalTop, 0, root.selectionHeight(), size().height());
+        ? LayoutRect(LayoutUnit(), newLogicalTop, size().width(), root.selectionHeight())
+        : LayoutRect(newLogicalTop, LayoutUnit(), root.selectionHeight(), size().height());
 }
 
 void LayoutListMarker::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
@@ -142,18 +141,18 @@ void LayoutListMarker::layout()
         setHeight(imageSize.height());
     } else {
         setLogicalWidth(minPreferredLogicalWidth());
-        setLogicalHeight(style()->fontMetrics().height());
+        setLogicalHeight(LayoutUnit(style()->fontMetrics().height()));
     }
 
-    setMarginStart(0);
-    setMarginEnd(0);
+    setMarginStart(LayoutUnit());
+    setMarginEnd(LayoutUnit());
 
     Length startMargin = style()->marginStart();
     Length endMargin = style()->marginEnd();
     if (startMargin.isFixed())
-        setMarginStart(startMargin.value());
+        setMarginStart(LayoutUnit(startMargin.value()));
     if (endMargin.isFixed())
-        setMarginEnd(endMargin.value());
+        setMarginEnd(LayoutUnit(endMargin.value()));
 
     clearNeedsLayout();
 }
@@ -164,7 +163,7 @@ void LayoutListMarker::imageChanged(WrappedImagePtr o, const IntRect*)
     if (o != m_image->data())
         return;
 
-    LayoutSize imageSize = isImage() ? LayoutSize(imageBulletSize()) : LayoutSize();
+    LayoutSize imageSize = isImage() ? imageBulletSize() : LayoutSize();
     if (size() != imageSize || m_image->errorOccurred())
         setNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(LayoutInvalidationReason::ImageChanged);
     else
@@ -204,14 +203,14 @@ void LayoutListMarker::updateContent()
 LayoutUnit LayoutListMarker::getWidthOfTextWithSuffix() const
 {
     if (m_text.isEmpty())
-        return 0;
+        return LayoutUnit();
     const Font& font = style()->font();
-    LayoutUnit itemWidth = font.width(m_text);
+    LayoutUnit itemWidth = LayoutUnit(font.width(m_text));
     // TODO(wkorman): Look into constructing a text run for both text and suffix
     // and painting them together.
     UChar suffix[2] = { ListMarkerText::suffix(style()->listStyleType(), m_listItem->value()), ' ' };
     TextRun run = constructTextRun(font, suffix, 2, styleRef(), style()->direction());
-    LayoutUnit suffixSpaceWidth = font.width(run);
+    LayoutUnit suffixSpaceWidth = LayoutUnit(font.width(run));
     return itemWidth + suffixSpaceWidth;
 }
 
@@ -230,12 +229,12 @@ void LayoutListMarker::computePreferredLogicalWidths()
 
     const Font& font = style()->font();
 
-    LayoutUnit logicalWidth = 0;
+    LayoutUnit logicalWidth;
     switch (listStyleCategory()) {
     case ListStyleCategory::None:
         break;
     case ListStyleCategory::Symbol:
-        logicalWidth = (font.fontMetrics().ascent() * 2 / 3 + 1) / 2 + 2;
+        logicalWidth = LayoutUnit((font.fontMetrics().ascent() * 2 / 3 + 1) / 2 + 2);
         break;
     case ListStyleCategory::Language:
         logicalWidth = getWidthOfTextWithSuffix();
@@ -254,16 +253,16 @@ void LayoutListMarker::updateMargins()
 {
     const FontMetrics& fontMetrics = style()->fontMetrics();
 
-    LayoutUnit marginStart = 0;
-    LayoutUnit marginEnd = 0;
+    LayoutUnit marginStart;
+    LayoutUnit marginEnd;
 
     if (isInside()) {
         if (isImage()) {
-            marginEnd = cMarkerPaddingPx;
+            marginEnd = LayoutUnit(cMarkerPaddingPx);
         } else {
             switch (listStyleCategory()) {
             case ListStyleCategory::Symbol:
-                marginStart = -1;
+                marginStart = LayoutUnit(-1);
                 marginEnd = fontMetrics.ascent() - minPreferredLogicalWidth() + 1;
                 break;
             default:
@@ -280,7 +279,7 @@ void LayoutListMarker::updateMargins()
                 case ListStyleCategory::None:
                     break;
                 case ListStyleCategory::Symbol:
-                    marginStart = -offset - cMarkerPaddingPx - 1;
+                    marginStart = LayoutUnit(-offset - cMarkerPaddingPx - 1);
                     break;
                 default:
                     marginStart = m_text.isEmpty() ? LayoutUnit() : -minPreferredLogicalWidth();
@@ -289,7 +288,7 @@ void LayoutListMarker::updateMargins()
             marginEnd = -marginStart - minPreferredLogicalWidth();
         } else {
             if (isImage()) {
-                marginEnd = cMarkerPaddingPx;
+                marginEnd = LayoutUnit(cMarkerPaddingPx);
             } else {
                 int offset = fontMetrics.ascent() * 2 / 3;
                 switch (listStyleCategory()) {
@@ -299,7 +298,7 @@ void LayoutListMarker::updateMargins()
                     marginEnd = offset + cMarkerPaddingPx + 1 - minPreferredLogicalWidth();
                     break;
                 default:
-                    marginEnd = 0;
+                    marginEnd = LayoutUnit();
                 }
             }
             marginStart = -marginEnd - minPreferredLogicalWidth();
@@ -402,7 +401,7 @@ bool LayoutListMarker::isInside() const
 IntRect LayoutListMarker::getRelativeMarkerRect() const
 {
     if (isImage()) {
-        IntSize imageSize = imageBulletSize();
+        IntSize imageSize = flooredIntSize(imageBulletSize());
         return IntRect(0, 0, imageSize.width(), imageSize.height());
     }
 
@@ -445,12 +444,12 @@ LayoutRect LayoutListMarker::selectionRectForPaintInvalidation(const LayoutBoxMo
 {
     ASSERT(!needsLayout());
 
-    if (selectionState() == SelectionNone || !inlineBoxWrapper())
+    if (getSelectionState() == SelectionNone || !inlineBoxWrapper())
         return LayoutRect();
 
     RootInlineBox& root = inlineBoxWrapper()->root();
-    LayoutRect rect(0, root.selectionTop() - location().y(), size().width(), root.selectionHeight());
-    mapRectToPaintInvalidationBacking(paintInvalidationContainer, rect, 0);
+    LayoutRect rect(LayoutUnit(), root.selectionTop() - location().y(), size().width(), root.selectionHeight());
+    mapToVisibleRectInAncestorSpace(paintInvalidationContainer, rect, nullptr);
     // FIXME: groupedMapping() leaks the squashing abstraction.
     if (paintInvalidationContainer->layer()->groupedMapping())
         PaintLayer::mapRectToPaintBackingCoordinates(paintInvalidationContainer, rect);

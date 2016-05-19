@@ -5,6 +5,7 @@
 #ifndef CHROME_RENDERER_EXTENSIONS_RENDERER_PERMISSIONS_POLICY_DELEGATE_H_
 #define CHROME_RENDERER_EXTENSIONS_RENDERER_PERMISSIONS_POLICY_DELEGATE_H_
 
+#include "base/macros.h"
 #include "extensions/common/permissions/permissions_data.h"
 
 namespace extensions {
@@ -21,7 +22,6 @@ class RendererPermissionsPolicyDelegate
   bool CanExecuteScriptOnPage(const Extension* extension,
                               const GURL& document_url,
                               int tab_id,
-                              int process_id,
                               std::string* error) override;
 
  private:

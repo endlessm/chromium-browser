@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/ui/idle_app_name_notification_view.h"
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -21,11 +22,7 @@ const char kTestAppName[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 class IdleAppNameNotificationViewTest : public BrowserWithTestWindowTest {
  public:
   IdleAppNameNotificationViewTest()
-      : BrowserWithTestWindowTest(
-            Browser::TYPE_TABBED,
-            chrome::HOST_DESKTOP_TYPE_ASH,
-            false) {
-  }
+      : BrowserWithTestWindowTest(Browser::TYPE_TABBED, false) {}
 
   ~IdleAppNameNotificationViewTest() override {}
 

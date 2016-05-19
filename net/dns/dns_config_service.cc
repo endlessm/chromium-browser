@@ -48,7 +48,8 @@ NameServerClassifier::NameServersType NameServerClassifier::GetNameServersType(
   for (std::vector<IPEndPoint>::const_iterator it = nameservers.begin();
        it != nameservers.end();
        ++it) {
-    type = MergeNameServersTypes(type, GetNameServerType(it->address()));
+    type =
+        MergeNameServersTypes(type, GetNameServerType(it->address().bytes()));
   }
   return type;
 }
@@ -106,6 +107,8 @@ DnsConfig::DnsConfig()
       edns0(false),
       use_local_ipv6(false) {}
 
+DnsConfig::DnsConfig(const DnsConfig& other) = default;
+
 DnsConfig::~DnsConfig() {}
 
 bool DnsConfig::Equals(const DnsConfig& d) const {
@@ -138,7 +141,7 @@ void DnsConfig::CopyIgnoreHosts(const DnsConfig& d) {
   use_local_ipv6 = d.use_local_ipv6;
 }
 
-base::Value* DnsConfig::ToValue() const {
+scoped_ptr<base::Value> DnsConfig::ToValue() const {
   scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
 
   base::ListValue* list = new base::ListValue();
@@ -161,7 +164,7 @@ base::Value* DnsConfig::ToValue() const {
   dict->SetBoolean("use_local_ipv6", use_local_ipv6);
   dict->SetInteger("num_hosts", hosts.size());
 
-  return dict.release();
+  return std::move(dict);
 }
 
 DnsConfigService::DnsConfigService()

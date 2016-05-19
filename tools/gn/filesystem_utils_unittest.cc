@@ -3,8 +3,11 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/platform_thread.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "tools/gn/filesystem_utils.h"
@@ -204,7 +207,7 @@ TEST(FilesystemUtils, NormalizePath) {
   NormalizePath(&input);
   EXPECT_EQ("../bar", input);
 
-  input = "/../foo";  // Don't go aboe the root dir.
+  input = "/../foo";  // Don't go above the root dir.
   NormalizePath(&input);
   EXPECT_EQ("/foo", input);
 
@@ -241,6 +244,134 @@ TEST(FilesystemUtils, NormalizePath) {
   input = "//foo/bar/";
   NormalizePath(&input);
   EXPECT_EQ("//foo/bar/", input);
+
+#if defined(OS_WIN)
+  // Go above and outside of the source root.
+  input = "//../foo";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("/C:/source/foo", input);
+
+  input = "//../foo";
+  NormalizePath(&input, "C:\\source\\root");
+  EXPECT_EQ("/C:/source/foo", input);
+
+  input = "//../";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("/C:/source/", input);
+
+  input = "//../foo.txt";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("/C:/source/foo.txt", input);
+
+  input = "//../foo/bar/";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("/C:/source/foo/bar/", input);
+
+  // Go above and back into the source root. This should return a system-
+  // absolute path. We could arguably return this as a source-absolute path,
+  // but that would require additional handling to account for a rare edge
+  // case.
+  input = "//../root/foo";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("/C:/source/root/foo", input);
+
+  input = "//../root/foo/bar/";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("/C:/source/root/foo/bar/", input);
+
+  // Stay inside the source root
+  input = "//foo/bar";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("//foo/bar", input);
+
+  input = "//foo/bar/";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("//foo/bar/", input);
+
+  // The path should not go above the system root. Note that on Windows, this
+  // will consume the drive (C:).
+  input = "//../../../../../foo/bar";
+  NormalizePath(&input, "/C:/source/root");
+  EXPECT_EQ("/foo/bar", input);
+
+  // Test when the source root is the letter drive.
+  input = "//../foo";
+  NormalizePath(&input, "/C:");
+  EXPECT_EQ("/foo", input);
+
+  input = "//../foo";
+  NormalizePath(&input, "C:");
+  EXPECT_EQ("/foo", input);
+
+  input = "//../foo";
+  NormalizePath(&input, "/");
+  EXPECT_EQ("/foo", input);
+
+  input = "//../";
+  NormalizePath(&input, "\\C:");
+  EXPECT_EQ("/", input);
+
+  input = "//../foo.txt";
+  NormalizePath(&input, "/C:");
+  EXPECT_EQ("/foo.txt", input);
+#else
+  // Go above and outside of the source root.
+  input = "//../foo";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("/source/foo", input);
+
+  input = "//../";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("/source/", input);
+
+  input = "//../foo.txt";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("/source/foo.txt", input);
+
+  input = "//../foo/bar/";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("/source/foo/bar/", input);
+
+  // Go above and back into the source root. This should return a system-
+  // absolute path. We could arguably return this as a source-absolute path,
+  // but that would require additional handling to account for a rare edge
+  // case.
+  input = "//../root/foo";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("/source/root/foo", input);
+
+  input = "//../root/foo/bar/";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("/source/root/foo/bar/", input);
+
+  // Stay inside the source root
+  input = "//foo/bar";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("//foo/bar", input);
+
+  input = "//foo/bar/";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("//foo/bar/", input);
+
+  // The path should not go above the system root.
+  input = "//../../../../../foo/bar";
+  NormalizePath(&input, "/source/root");
+  EXPECT_EQ("/foo/bar", input);
+
+  // Test when the source root is the system root.
+  input = "//../foo/bar/";
+  NormalizePath(&input, "/");
+  EXPECT_EQ("/foo/bar/", input);
+
+  input = "//../";
+  NormalizePath(&input, "/");
+  EXPECT_EQ("/", input);
+
+  input = "//../foo.txt";
+  NormalizePath(&input, "/");
+  EXPECT_EQ("/foo.txt", input);
+
+#endif
 }
 
 TEST(FilesystemUtils, RebasePath) {
@@ -424,6 +555,60 @@ TEST(FilesystemUtils, SourceDirForPath) {
   EXPECT_EQ("/source/foo/",
             SourceDirForPath(empty, base::FilePath("/source/foo")).value());
 #endif
+}
+
+TEST(FilesystemUtils, ContentsEqual) {
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  std::string data = "foo";
+
+  base::FilePath file_path = temp_dir.path().AppendASCII("foo.txt");
+  base::WriteFile(file_path, data.c_str(), static_cast<int>(data.size()));
+
+  EXPECT_TRUE(ContentsEqual(file_path, data));
+
+  // Different length and contents.
+  data += "bar";
+  EXPECT_FALSE(ContentsEqual(file_path, data));
+
+  // The same length, different contents.
+  EXPECT_FALSE(ContentsEqual(file_path, "bar"));
+}
+
+TEST(FilesystemUtils, WriteFileIfChanged) {
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  std::string data = "foo";
+
+  // Write if file doesn't exist. Create also directory.
+  base::FilePath file_path =
+      temp_dir.path().AppendASCII("bar").AppendASCII("foo.txt");
+  EXPECT_TRUE(WriteFileIfChanged(file_path, data, nullptr));
+
+  base::File::Info file_info;
+  ASSERT_TRUE(base::GetFileInfo(file_path, &file_info));
+  base::Time last_modified = file_info.last_modified;
+
+#if defined(OS_MACOSX)
+  // Modification times are in seconds in HFS on Mac.
+  base::TimeDelta sleep_time = base::TimeDelta::FromSeconds(1);
+#else
+  base::TimeDelta sleep_time = base::TimeDelta::FromMilliseconds(1);
+#endif
+  base::PlatformThread::Sleep(sleep_time);
+
+  // Don't write if contents is the same.
+  EXPECT_TRUE(WriteFileIfChanged(file_path, data, nullptr));
+  ASSERT_TRUE(base::GetFileInfo(file_path, &file_info));
+  EXPECT_EQ(last_modified, file_info.last_modified);
+
+  // Write if contents changed.
+  EXPECT_TRUE(WriteFileIfChanged(file_path, "bar", nullptr));
+  std::string file_data;
+  ASSERT_TRUE(base::ReadFileToString(file_path, &file_data));
+  EXPECT_EQ("bar", file_data);
 }
 
 TEST(FilesystemUtils, GetToolchainDirs) {

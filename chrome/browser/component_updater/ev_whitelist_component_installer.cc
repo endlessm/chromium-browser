@@ -5,12 +5,14 @@
 #include "chrome/browser/component_updater/ev_whitelist_component_installer.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/version.h"
 #include "components/component_updater/component_updater_paths.h"
@@ -52,7 +54,7 @@ void LoadWhitelistFromDisk(const base::FilePath& whitelist_path,
     return;
   }
 
-  VLOG(0) << "EV whitelist: Sucessfully loaded.";
+  VLOG(1) << "EV whitelist: Successfully loaded.";
   packed_ct_ev_whitelist::SetEVCertsWhitelist(new_whitelist);
 }
 
@@ -93,7 +95,7 @@ void EVWhitelistComponentInstallerTraits::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
     scoped_ptr<base::DictionaryValue> manifest) {
-  VLOG(0) << "Component ready, version " << version.GetString() << " in "
+  VLOG(1) << "Component ready, version " << version.GetString() << " in "
           << install_dir.value();
 
   if (!content::BrowserThread::PostBlockingPoolTask(
@@ -134,7 +136,7 @@ void RegisterEVWhitelistComponent(ComponentUpdateService* cus,
       new EVWhitelistComponentInstallerTraits());
   // |cus| will take ownership of |installer| during installer->Register(cus).
   DefaultComponentInstaller* installer =
-      new DefaultComponentInstaller(traits.Pass());
+      new DefaultComponentInstaller(std::move(traits));
   installer->Register(cus, base::Closure());
 
   content::BrowserThread::PostAfterStartupTask(

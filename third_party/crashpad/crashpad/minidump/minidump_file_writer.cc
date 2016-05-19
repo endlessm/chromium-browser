@@ -14,6 +14,8 @@
 
 #include "minidump/minidump_file_writer.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "minidump/minidump_crashpad_info_writer.h"
 #include "minidump/minidump_exception_writer.h"
@@ -25,7 +27,9 @@
 #include "minidump/minidump_system_info_writer.h"
 #include "minidump/minidump_thread_id_map.h"
 #include "minidump/minidump_thread_writer.h"
+#include "minidump/minidump_unloaded_module_writer.h"
 #include "minidump/minidump_writer_util.h"
+#include "snapshot/exception_snapshot.h"
 #include "snapshot/process_snapshot.h"
 #include "util/file/file_writer.h"
 #include "util/numeric/safe_assignment.h"
@@ -67,11 +71,11 @@ void MinidumpFileWriter::InitializeFromSnapshot(
   const SystemSnapshot* system_snapshot = process_snapshot->System();
   auto system_info = make_scoped_ptr(new MinidumpSystemInfoWriter());
   system_info->InitializeFromSnapshot(system_snapshot);
-  AddStream(system_info.Pass());
+  AddStream(std::move(system_info));
 
   auto misc_info = make_scoped_ptr(new MinidumpMiscInfoWriter());
   misc_info->InitializeFromSnapshot(process_snapshot);
-  AddStream(misc_info.Pass());
+  AddStream(std::move(misc_info));
 
   auto memory_list = make_scoped_ptr(new MinidumpMemoryListWriter());
   auto thread_list = make_scoped_ptr(new MinidumpThreadListWriter());
@@ -79,18 +83,26 @@ void MinidumpFileWriter::InitializeFromSnapshot(
   MinidumpThreadIDMap thread_id_map;
   thread_list->InitializeFromSnapshot(process_snapshot->Threads(),
                                       &thread_id_map);
-  AddStream(thread_list.Pass());
+  AddStream(std::move(thread_list));
 
   const ExceptionSnapshot* exception_snapshot = process_snapshot->Exception();
   if (exception_snapshot) {
     auto exception = make_scoped_ptr(new MinidumpExceptionWriter());
     exception->InitializeFromSnapshot(exception_snapshot, thread_id_map);
-    AddStream(exception.Pass());
+    AddStream(std::move(exception));
   }
 
   auto module_list = make_scoped_ptr(new MinidumpModuleListWriter());
   module_list->InitializeFromSnapshot(process_snapshot->Modules());
-  AddStream(module_list.Pass());
+  AddStream(std::move(module_list));
+
+  auto unloaded_modules = process_snapshot->UnloadedModules();
+  if (!unloaded_modules.empty()) {
+    auto unloaded_module_list =
+        make_scoped_ptr(new MinidumpUnloadedModuleListWriter());
+    unloaded_module_list->InitializeFromSnapshot(unloaded_modules);
+    AddStream(std::move(unloaded_module_list));
+  }
 
   auto crashpad_info = make_scoped_ptr(new MinidumpCrashpadInfoWriter());
   crashpad_info->InitializeFromSnapshot(process_snapshot);
@@ -98,7 +110,7 @@ void MinidumpFileWriter::InitializeFromSnapshot(
   // Since the MinidumpCrashpadInfo stream is an extension, it’s safe to not add
   // it to the minidump file if it wouldn’t carry any useful information.
   if (crashpad_info->IsUseful()) {
-    AddStream(crashpad_info.Pass());
+    AddStream(std::move(crashpad_info));
   }
 
   std::vector<const MemoryMapRegionSnapshot*> memory_map_snapshot =
@@ -106,19 +118,21 @@ void MinidumpFileWriter::InitializeFromSnapshot(
   if (!memory_map_snapshot.empty()) {
     auto memory_info_list = make_scoped_ptr(new MinidumpMemoryInfoListWriter());
     memory_info_list->InitializeFromSnapshot(memory_map_snapshot);
-    AddStream(memory_info_list.Pass());
+    AddStream(std::move(memory_info_list));
   }
 
   std::vector<HandleSnapshot> handles_snapshot = process_snapshot->Handles();
   if (!handles_snapshot.empty()) {
     auto handle_data_writer = make_scoped_ptr(new MinidumpHandleDataWriter());
     handle_data_writer->InitializeFromSnapshot(handles_snapshot);
-    AddStream(handle_data_writer.Pass());
+    AddStream(std::move(handle_data_writer));
   }
 
   memory_list->AddFromSnapshot(process_snapshot->ExtraMemory());
+  if (exception_snapshot)
+    memory_list->AddFromSnapshot(exception_snapshot->ExtraMemory());
 
-  AddStream(memory_list.Pass());
+  AddStream(std::move(memory_list));
 }
 
 void MinidumpFileWriter::SetTimestamp(time_t timestamp) {

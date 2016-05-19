@@ -11,20 +11,21 @@
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_impl_io_data.h"
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/host_zoom_map.h"
 
 class NetPrefObserver;
 class PrefService;
 
-class ShortcutsBackend;
 class TrackedPreferenceValidationDelegate;
 
 #if defined(OS_CHROMEOS)
@@ -63,14 +64,14 @@ class PrefServiceSyncable;
 }
 
 namespace user_prefs {
-class refRegistrySyncable;
+class PrefRegistrySyncable;
 }
 
 // The default profile implementation.
 class ProfileImpl : public Profile {
  public:
   // Value written to prefs when the exit type is EXIT_NORMAL. Public for tests.
-  static const char* const kPrefExitTypeNormal;
+  static const char kPrefExitTypeNormal[];
 
   ~ProfileImpl() override;
 
@@ -181,11 +182,6 @@ class ProfileImpl : public Profile {
   void EnsureSessionServiceCreated();
 #endif
 
-
-  void EnsureRequestContextCreated() {
-    GetRequestContext();
-  }
-
   // Updates the ProfileInfoCache with data from this profile.
   void UpdateProfileSupervisedUserIdCache();
   void UpdateProfileNameCache();
@@ -240,7 +236,6 @@ class ProfileImpl : public Profile {
 #endif
   scoped_ptr<NetPrefObserver> net_pref_observer_;
   scoped_ptr<ssl_config::SSLConfigServiceManager> ssl_config_service_manager_;
-  scoped_refptr<ShortcutsBackend> shortcuts_backend_;
 
   // Exit type the last time the profile was opened. This is set only once from
   // prefs.

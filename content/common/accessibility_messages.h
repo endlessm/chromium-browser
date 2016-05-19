@@ -5,7 +5,6 @@
 // IPC messages for accessibility.
 // Multiply-included message file, hence no include guard.
 
-#include "base/basictypes.h"
 #include "content/common/ax_content_node_data.h"
 #include "content/common/content_export.h"
 #include "content/common/view_message_enums.h"
@@ -50,6 +49,7 @@ IPC_STRUCT_TRAITS_BEGIN(content::AXContentTreeData)
   IPC_STRUCT_TRAITS_MEMBER(doctype)
   IPC_STRUCT_TRAITS_MEMBER(loaded)
   IPC_STRUCT_TRAITS_MEMBER(loading_progress)
+  IPC_STRUCT_TRAITS_MEMBER(focus_id)
   IPC_STRUCT_TRAITS_MEMBER(sel_anchor_object_id)
   IPC_STRUCT_TRAITS_MEMBER(sel_anchor_offset)
   IPC_STRUCT_TRAITS_MEMBER(sel_focus_object_id)

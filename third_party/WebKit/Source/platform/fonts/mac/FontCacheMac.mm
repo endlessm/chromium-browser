@@ -27,7 +27,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "config.h"
 #import "platform/fonts/FontCache.h"
 
 #import <AppKit/AppKit.h>
@@ -35,15 +34,15 @@
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/fonts/FontDescription.h"
 #include "platform/fonts/FontFaceCreationParams.h"
-#include  "platform/fonts/FontPlatformData.h"
+#include "platform/fonts/FontPlatformData.h"
 #include "platform/fonts/SimpleFontData.h"
 #include "platform/fonts/mac/FontFamilyMatcherMac.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebTraceLocation.h"
-#include <wtf/Functional.h>
-#include <wtf/MainThread.h>
-#include <wtf/StdLibExtras.h>
+#include "wtf/Functional.h"
+#include "wtf/MainThread.h"
+#include "wtf/StdLibExtras.h"
 
 // Forward declare Mac SPIs.
 // Request for public API: rdar://13803570
@@ -53,6 +52,15 @@
 @end
 
 namespace blink {
+
+// Unfortunately, these chosen font names require a bit of experimentation and
+// researching on the respective platforms as to what works best and is widely
+// available. They may require further tuning after OS updates. Mozilla's
+// choices in the gfxPlatformMac::GetCommonFallbackFonts method collects some of
+// the outcome of this experimentation.
+const char* kColorEmojiFontsMac[] = { "Apple Color Emoji" };
+const char* kTextEmojiFontsMac[] = { "Hiragino Kaku Gothic ProN", "Zapf Dingbats", "Apple Symbols" };
+const char* kSymbolsAndMathFontsMac[] = { "Menlo", "Arial Unicode MS" };
 
 static void invalidateFontCache()
 {
@@ -159,8 +167,14 @@ PassRefPtr<SimpleFontData> FontCache::fallbackFontForCharacter(const FontDescrip
     substituteFontTraits = [fontManager traitsOfFont:substituteFont];
     substituteFontWeight = [fontManager weightOfFont:substituteFont];
 
+    // TODO(eae): Remove once skia supports bold emoji. See https://bugs.chromium.org/p/skia/issues/detail?id=4904
+    // Bold emoji look the same as normal emoji, so syntheticBold isn't needed.
+    bool syntheticBold = isAppKitFontWeightBold(weight) &&
+        !isAppKitFontWeightBold(substituteFontWeight) &&
+        ![substituteFont.familyName isEqual:@"Apple Color Emoji"];
+
     FontPlatformData alternateFont(substituteFont, platformData.size(),
-        isAppKitFontWeightBold(weight) && !isAppKitFontWeightBold(substituteFontWeight),
+        syntheticBold,
         (traits & NSFontItalicTrait) && !(substituteFontTraits & NSFontItalicTrait),
         platformData.orientation());
 
@@ -185,14 +199,15 @@ PassRefPtr<SimpleFontData> FontCache::getLastResortFallbackFont(const FontDescri
     return getFontData(fontDescription, lucidaGrandeStr, false, shouldRetain);
 }
 
-FontPlatformData* FontCache::createFontPlatformData(const FontDescription& fontDescription, const FontFaceCreationParams& creationParams, float fontSize)
+PassOwnPtr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription,
+    const FontFaceCreationParams& creationParams, float fontSize)
 {
     NSFontTraitMask traits = fontDescription.style() ? NSFontItalicTrait : 0;
     float size = fontSize;
 
     NSFont* nsFont = MatchNSFontFamily(creationParams.family(), traits, fontDescription.weight(), size);
     if (!nsFont)
-        return 0;
+        return nullptr;
 
     NSFontManager *fontManager = [NSFontManager sharedFontManager];
     NSFontTraitMask actualTraits = 0;
@@ -202,7 +217,12 @@ FontPlatformData* FontCache::createFontPlatformData(const FontDescription& fontD
 
     NSFont *platformFont = useHinting() ? [nsFont screenFont] : [nsFont printerFont];
     NSInteger appKitWeight = toAppKitFontWeight(fontDescription.weight());
-    bool syntheticBold = (isAppKitFontWeightBold(appKitWeight) && !isAppKitFontWeightBold(actualWeight)) || fontDescription.isSyntheticBold();
+
+    // TODO(eae): Remove once skia supports bold emoji. See https://bugs.chromium.org/p/skia/issues/detail?id=4904
+    // Bold emoji look the same as normal emoji, so syntheticBold isn't needed.
+    bool syntheticBold = [platformFont.familyName isEqual:@"Apple Color Emoji"] ? false :
+        (isAppKitFontWeightBold(appKitWeight) && !isAppKitFontWeightBold(actualWeight)) || fontDescription.isSyntheticBold();
+
     bool syntheticItalic = ((traits & NSFontItalicTrait) && !(actualTraits & NSFontItalicTrait)) || fontDescription.isSyntheticItalic();
 
     // FontPlatformData::typeface() is null in the case of Chromium out-of-process font loading failing.
@@ -213,7 +233,30 @@ FontPlatformData* FontCache::createFontPlatformData(const FontDescription& fontD
     if (!platformData->typeface()) {
         return nullptr;
     }
-    return platformData.leakPtr();
+    return platformData.release();
+}
+
+const Vector<AtomicString> FontCache::platformFontListForFallbackPriority(FontFallbackPriority fallbackPriority) const
+{
+    Vector<AtomicString> returnVector;
+    switch (fallbackPriority) {
+    case FontFallbackPriority::EmojiEmoji:
+        for (size_t i = 0; i < WTF_ARRAY_LENGTH(kColorEmojiFontsMac); ++i)
+            returnVector.append(kColorEmojiFontsMac[i]);
+        break;
+    case FontFallbackPriority::EmojiText:
+        for (size_t i = 0; i < WTF_ARRAY_LENGTH(kTextEmojiFontsMac); ++i)
+            returnVector.append(kTextEmojiFontsMac[i]);
+        break;
+    case FontFallbackPriority::Math:
+    case FontFallbackPriority::Symbols:
+        for (size_t i = 0; i < WTF_ARRAY_LENGTH(kSymbolsAndMathFontsMac); ++i)
+            returnVector.append(kSymbolsAndMathFontsMac[i]);
+        break;
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return returnVector;
 }
 
 } // namespace blink

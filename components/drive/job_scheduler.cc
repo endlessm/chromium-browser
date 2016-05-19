@@ -4,17 +4,19 @@
 
 #include "components/drive/job_scheduler.h"
 
+#include <stddef.h>
 #include <algorithm>
+#include <utility>
 
 #include "base/files/file_util.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
 #include "components/drive/drive_pref_names.h"
 #include "components/drive/event_logger.h"
+#include "components/prefs/pref_service.h"
 #include "google_apis/drive/drive_api_parser.h"
 
 namespace drive {
@@ -138,7 +140,8 @@ google_apis::CancelCallback RunResumeUploadFile(
 
 // Collects information about sizes of files copied or moved from or to Drive
 // Otherwise does nothing. Temporary for crbug.com/229650.
-void CollectCopyHistogramSample(const std::string& histogram_name, int64 size) {
+void CollectCopyHistogramSample(const std::string& histogram_name,
+                                int64_t size) {
   base::HistogramBase* const counter =
       base::Histogram::FactoryGet(histogram_name,
                                   1,
@@ -335,7 +338,7 @@ void JobScheduler::Search(const std::string& search_query,
 }
 
 void JobScheduler::GetChangeList(
-    int64 start_changestamp,
+    int64_t start_changestamp,
     const google_apis::ChangeListCallback& callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
@@ -575,7 +578,7 @@ void JobScheduler::AddNewDirectory(
 
 JobID JobScheduler::DownloadFile(
     const base::FilePath& virtual_path,
-    int64 expected_file_size,
+    int64_t expected_file_size,
     const base::FilePath& local_cache_path,
     const std::string& resource_id,
     const ClientContext& context,
@@ -611,7 +614,7 @@ JobID JobScheduler::DownloadFile(
 
 void JobScheduler::UploadNewFile(
     const std::string& parent_resource_id,
-    int64 expected_file_size,
+    int64_t expected_file_size,
     const base::FilePath& drive_file_path,
     const base::FilePath& local_file_path,
     const std::string& title,
@@ -655,7 +658,7 @@ void JobScheduler::UploadNewFile(
 
 void JobScheduler::UploadExistingFile(
     const std::string& resource_id,
-    int64 expected_file_size,
+    int64_t expected_file_size,
     const base::FilePath& drive_file_path,
     const base::FilePath& local_file_path,
     const std::string& content_type,
@@ -933,7 +936,7 @@ void JobScheduler::OnGetFileListJobDone(
   DCHECK(!callback.is_null());
 
   if (OnJobDone(job_id, error))
-    callback.Run(error, file_list.Pass());
+    callback.Run(error, std::move(file_list));
 }
 
 void JobScheduler::OnGetChangeListJobDone(
@@ -945,7 +948,7 @@ void JobScheduler::OnGetChangeListJobDone(
   DCHECK(!callback.is_null());
 
   if (OnJobDone(job_id, error))
-    callback.Run(error, change_list.Pass());
+    callback.Run(error, std::move(change_list));
 }
 
 void JobScheduler::OnGetFileResourceJobDone(
@@ -957,7 +960,7 @@ void JobScheduler::OnGetFileResourceJobDone(
   DCHECK(!callback.is_null());
 
   if (OnJobDone(job_id, error))
-    callback.Run(error, entry.Pass());
+    callback.Run(error, std::move(entry));
 }
 
 void JobScheduler::OnGetAboutResourceJobDone(
@@ -969,7 +972,7 @@ void JobScheduler::OnGetAboutResourceJobDone(
   DCHECK(!callback.is_null());
 
   if (OnJobDone(job_id, error))
-    callback.Run(error, about_resource.Pass());
+    callback.Run(error, std::move(about_resource));
 }
 
 void JobScheduler::OnGetShareUrlJobDone(
@@ -993,7 +996,7 @@ void JobScheduler::OnGetAppListJobDone(
   DCHECK(!callback.is_null());
 
   if (OnJobDone(job_id, error))
-    callback.Run(error, app_list.Pass());
+    callback.Run(error, std::move(app_list));
 }
 
 void JobScheduler::OnEntryActionJobDone(
@@ -1053,7 +1056,7 @@ void JobScheduler::OnUploadCompletionJobDone(
   }
 
   if (OnJobDone(job_id, error))
-    callback.Run(error, entry.Pass());
+    callback.Run(error, std::move(entry));
 }
 
 void JobScheduler::OnResumeUploadFileDone(
@@ -1076,10 +1079,12 @@ void JobScheduler::OnResumeUploadFileDone(
   }
 
   if (OnJobDone(job_id, error))
-    callback.Run(error, entry.Pass());
+    callback.Run(error, std::move(entry));
 }
 
-void JobScheduler::UpdateProgress(JobID job_id, int64 progress, int64 total) {
+void JobScheduler::UpdateProgress(JobID job_id,
+                                  int64_t progress,
+                                  int64_t total) {
   JobEntry* job_entry = job_map_.Lookup(job_id);
   DCHECK(job_entry);
 

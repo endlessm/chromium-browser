@@ -4,15 +4,19 @@
 
 #include "chrome/browser/prefs/command_line_pref_store.h"
 
+#include <stddef.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ash/ash_switches.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
@@ -190,7 +194,7 @@ void CommandLinePrefStore::ApplySSLSwitches() {
     list_value->AppendStrings(base::SplitString(
         command_line_->GetSwitchValueASCII(switches::kCipherSuiteBlacklist),
         ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL));
-    SetValue(ssl_config::prefs::kCipherSuiteBlacklist, list_value.Pass(),
+    SetValue(ssl_config::prefs::kCipherSuiteBlacklist, std::move(list_value),
              WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   }
 }

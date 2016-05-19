@@ -33,22 +33,26 @@
 
 #include "platform/PlatformExport.h"
 #include "platform/PlatformWheelEvent.h"
+#include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/FloatSize.h"
 #include "platform/heap/Handle.h"
+#include "platform/scroll/ScrollAnimatorCompositorCoordinator.h"
 #include "platform/scroll/ScrollTypes.h"
 #include "wtf/Forward.h"
 
 namespace blink {
 
-class FloatPoint;
+class CompositorAnimationTimeline;
 class ScrollableArea;
 class Scrollbar;
 
-class PLATFORM_EXPORT ScrollAnimatorBase {
+class PLATFORM_EXPORT ScrollAnimatorBase : public ScrollAnimatorCompositorCoordinator {
 public:
-    static PassOwnPtr<ScrollAnimatorBase> create(ScrollableArea*);
+    static PassOwnPtrWillBeRawPtr<ScrollAnimatorBase> create(ScrollableArea*);
 
     virtual ~ScrollAnimatorBase();
+
+    virtual void dispose() { }
 
     // Computes a scroll destination for the given parameters.  The returned
     // ScrollResultOneDimensional will have didScroll set to false if already at
@@ -59,27 +63,35 @@ public:
 
     virtual void scrollToOffsetWithoutAnimation(const FloatPoint&);
 
-    ScrollableArea* scrollableArea() const { return m_scrollableArea; }
-
-    virtual void setIsActive() { }
-
 #if OS(MACOSX)
     virtual void handleWheelEventPhase(PlatformWheelEventPhase) { }
 #endif
 
     void setCurrentPosition(const FloatPoint&);
     FloatPoint currentPosition() const;
+    virtual FloatPoint desiredTargetPosition() const { return currentPosition(); }
 
-    virtual void cancelAnimations() { }
-    virtual void serviceScrollAnimations() { }
-    virtual bool hasRunningAnimation() const { return false; }
+    // Returns how much of pixelDelta will be used by the underlying scrollable
+    // area.
+    virtual float computeDeltaToConsume(ScrollbarOrientation, float pixelDelta) const;
+
+
+    // ScrollAnimatorCompositorCoordinator implementation.
+    ScrollableArea* scrollableArea() const override { return m_scrollableArea; }
+    void tickAnimation(double monotonicTime) override { };
+    void cancelAnimation() override { }
+    void takeoverCompositorAnimation() override { }
+    void updateCompositorAnimations() override { };
+    void notifyCompositorAnimationFinished(int groupId) override { };
+    void notifyCompositorAnimationAborted(int groupId) override { };
+    void layerForCompositedScrollingDidChange(CompositorAnimationTimeline*) override { };
 
     virtual void contentAreaWillPaint() const { }
     virtual void mouseEnteredContentArea() const { }
     virtual void mouseExitedContentArea() const { }
     virtual void mouseMovedInContentArea() const { }
-    virtual void mouseEnteredScrollbar(Scrollbar*) const { }
-    virtual void mouseExitedScrollbar(Scrollbar*) const { }
+    virtual void mouseEnteredScrollbar(Scrollbar&) const { }
+    virtual void mouseExitedScrollbar(Scrollbar&) const { }
     virtual void willStartLiveResize() { }
     virtual void updateAfterLayout() { }
     virtual void contentsResized() const { }
@@ -89,28 +101,29 @@ public:
 
     virtual void finishCurrentScrollAnimations() { }
 
-    virtual void didAddVerticalScrollbar(Scrollbar*) { }
-    virtual void willRemoveVerticalScrollbar(Scrollbar*) { }
-    virtual void didAddHorizontalScrollbar(Scrollbar*) { }
-    virtual void willRemoveHorizontalScrollbar(Scrollbar*) { }
+    virtual void didAddVerticalScrollbar(Scrollbar&) { }
+    virtual void willRemoveVerticalScrollbar(Scrollbar&) { }
+    virtual void didAddHorizontalScrollbar(Scrollbar&) { }
+    virtual void willRemoveHorizontalScrollbar(Scrollbar&) { }
 
-    virtual bool shouldScrollbarParticipateInHitTesting(Scrollbar*) { return true; }
+    virtual bool shouldScrollbarParticipateInHitTesting(Scrollbar&) { return true; }
 
     virtual void notifyContentAreaScrolled(const FloatSize&) { }
 
     virtual bool setScrollbarsVisibleForTesting(bool) { return false; }
+
+    DECLARE_VIRTUAL_TRACE();
+
 protected:
     explicit ScrollAnimatorBase(ScrollableArea*);
 
     virtual void notifyPositionChanged();
 
-    GC_PLUGIN_IGNORE("509911")
-    ScrollableArea* m_scrollableArea;
+    float clampScrollPosition(ScrollbarOrientation, float) const;
+
+    RawPtrWillBeMember<ScrollableArea> m_scrollableArea;
     float m_currentPosX; // We avoid using a FloatPoint in order to reduce
     float m_currentPosY; // subclass code complexity.
-
-private:
-    float clampScrollPosition(ScrollbarOrientation, float);
 };
 
 } // namespace blink

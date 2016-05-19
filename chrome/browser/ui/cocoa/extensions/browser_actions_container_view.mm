@@ -5,8 +5,8 @@
 #import "chrome/browser/ui/cocoa/extensions/browser_actions_container_view.h"
 
 #include <algorithm>
+#include <utility>
 
-#include "base/basictypes.h"
 #import "chrome/browser/ui/cocoa/view_id_util.h"
 #include "grit/theme_resources.h"
 #include "ui/base/cocoa/appkit_utils.h"
@@ -122,6 +122,10 @@ const CGFloat kMinimumContainerWidth = 3.0;
   }
 }
 
+- (BOOL)trackingEnabled {
+  return trackingArea_.get() != nullptr;
+}
+
 - (void)keyDown:(NSEvent*)theEvent {
   // If this is the overflow container, we handle three key events: left, right,
   // and space. Left and right navigate the actions within the container, and
@@ -168,11 +172,15 @@ const CGFloat kMinimumContainerWidth = 3.0;
 
 - (void)setHighlight:(scoped_ptr<ui::NinePartImageIds>)highlight {
   if (highlight || highlight_) {
-    highlight_ = highlight.Pass();
+    highlight_ = std::move(highlight);
     // We don't allow resizing when the container is highlighting.
     resizable_ = highlight.get() == nullptr;
     [self setNeedsDisplay:YES];
   }
+}
+
+- (BOOL)isHighlighting {
+  return highlight_.get() != nullptr;
 }
 
 - (void)setIsOverflow:(BOOL)isOverflow {

@@ -4,13 +4,15 @@
 
 #include "chrome/browser/ssl/captive_portal_blocking_page.h"
 
+#include <utility>
+
 #include "base/i18n/rtl.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/captive_portal/captive_portal_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/cert_report_helper.h"
@@ -18,11 +20,12 @@
 #include "chrome/common/pref_names.h"
 #include "components/captive_portal/captive_portal_detector.h"
 #include "components/certificate_reporting/error_reporter.h"
+#include "components/prefs/pref_service.h"
+#include "components/security_interstitials/core/controller_client.h"
 #include "components/url_formatter/url_formatter.h"
 #include "components/wifi/wifi_service.h"
 #include "content/public/browser/web_contents.h"
 #include "grit/generated_resources.h"
-#include "net/base/net_util.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/network_interfaces.h"
 #include "net/ssl/ssl_info.h"
@@ -62,7 +65,7 @@ CaptivePortalBlockingPage::CaptivePortalBlockingPage(
 
   if (ssl_cert_reporter) {
     cert_report_helper_.reset(new CertReportHelper(
-        ssl_cert_reporter.Pass(), web_contents, request_url, ssl_info,
+        std::move(ssl_cert_reporter), web_contents, request_url, ssl_info,
         certificate_reporting::ErrorReport::INTERSTITIAL_CAPTIVE_PORTAL, false,
         nullptr));
   }
@@ -183,7 +186,7 @@ void CaptivePortalBlockingPage::PopulateInterstitialStrings(
   if (cert_report_helper_)
     cert_report_helper_->PopulateExtendedReportingOption(load_time_data);
   else
-    load_time_data->SetBoolean(interstitials::kDisplayCheckBox, false);
+    load_time_data->SetBoolean(security_interstitials::kDisplayCheckBox, false);
 }
 
 void CaptivePortalBlockingPage::CommandReceived(const std::string& command) {
@@ -196,7 +199,7 @@ void CaptivePortalBlockingPage::CommandReceived(const std::string& command) {
   bool command_is_num = base::StringToInt(command, &command_num);
   DCHECK(command_is_num) << command;
   // Any command other than "open the login page" is ignored.
-  if (command_num == CMD_OPEN_LOGIN) {
+  if (command_num == security_interstitials::CMD_OPEN_LOGIN) {
     RecordUMA(OPEN_LOGIN_PAGE);
     CaptivePortalTabHelper::OpenLoginTabForWebContents(web_contents(), true);
   }

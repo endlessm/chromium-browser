@@ -5,11 +5,12 @@
 #ifndef REMOTING_TEST_TEST_VIDEO_RENDERER_H_
 #define REMOTING_TEST_TEST_VIDEO_RENDERER_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "remoting/client/video_renderer.h"
 #include "remoting/protocol/session_config.h"
+#include "remoting/protocol/video_renderer.h"
 #include "remoting/protocol/video_stub.h"
 
 namespace base {
@@ -31,7 +32,8 @@ struct RGBValue;
 // used from a thread running a message loop and this class will use that
 // message loop to execute the done callbacks passed by the caller of
 // ProcessVideoPacket.
-class TestVideoRenderer : public VideoRenderer, public protocol::VideoStub {
+class TestVideoRenderer : public protocol::VideoRenderer,
+                          public protocol::VideoStub {
  public:
   TestVideoRenderer();
   ~TestVideoRenderer() override;
@@ -39,6 +41,7 @@ class TestVideoRenderer : public VideoRenderer, public protocol::VideoStub {
   // VideoRenderer interface.
   void OnSessionConfig(const protocol::SessionConfig& config) override;
   protocol::VideoStub* GetVideoStub() override;
+  protocol::FrameConsumer* GetFrameConsumer() override;
 
   // protocol::VideoStub interface.
   void ProcessVideoPacket(scoped_ptr<VideoPacket> video_packet,

@@ -7,24 +7,21 @@
 #include <string>
 
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
+#include "base/strings/string_number_conversions.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/variations/variations_associated_data.h"
 
 namespace password_bubble_experiment {
 
 const char kBrandingExperimentName[] = "PasswordBranding";
+const char kSmartBubbleExperimentName[] = "PasswordSmartBubble";
+const char kSmartBubbleThresholdParam[] = "dismissal_count";
 const char kSmartLockBrandingGroupName[] = "SmartLockBranding";
 const char kSmartLockBrandingSavePromptOnlyGroupName[] =
     "SmartLockBrandingSavePromptOnly";
-
-void RecordBubbleClosed(
-    PrefService* prefs,
-    password_manager::metrics_util::UIDismissalReason reason) {
-  // TODO(vasilii): store the statistics and consider merging with
-  // password_manager_metrics_util.*.
-}
 
 void RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(
@@ -32,6 +29,13 @@ void RegisterPrefs(PrefRegistrySimple* registry) {
 
   registry->RegisterBooleanPref(
       password_manager::prefs::kWasAutoSignInFirstRunExperienceShown, false);
+}
+
+int GetSmartBubbleDismissalThreshold() {
+  std::string param = variations::GetVariationParamValue(
+      kSmartBubbleExperimentName, kSmartBubbleThresholdParam);
+  int threshold = 0;
+  return base::StringToInt(param, &threshold) ? threshold : 0;
 }
 
 bool IsSmartLockUser(const sync_driver::SyncService* sync_service) {
@@ -49,12 +53,17 @@ SmartLockBranding GetSmartLockBrandingState(
   if (group_name == kSmartLockBrandingGroupName)
     return SmartLockBranding::FULL;
   if (group_name == kSmartLockBrandingSavePromptOnlyGroupName)
-    return SmartLockBranding::SAVE_BUBBLE_ONLY;
+    return SmartLockBranding::SAVE_PROMPT_ONLY;
   return SmartLockBranding::NONE;
 }
 
 bool IsSmartLockBrandingEnabled(const sync_driver::SyncService* sync_service) {
   return GetSmartLockBrandingState(sync_service) == SmartLockBranding::FULL;
+}
+
+bool IsSmartLockBrandingSavePromptEnabled(
+    const sync_driver::SyncService* sync_service) {
+  return GetSmartLockBrandingState(sync_service) != SmartLockBranding::NONE;
 }
 
 bool ShouldShowSavePromptFirstRunExperience(
@@ -77,6 +86,11 @@ bool ShouldShowAutoSignInPromptFirstRunExperience(PrefService* prefs) {
 }
 
 void RecordAutoSignInPromptFirstRunExperienceWasShown(PrefService* prefs) {
+  prefs->SetBoolean(
+      password_manager::prefs::kWasAutoSignInFirstRunExperienceShown, true);
+}
+
+void TurnOffAutoSignin(PrefService* prefs) {
   prefs->SetBoolean(
       password_manager::prefs::kWasAutoSignInFirstRunExperienceShown, true);
 }

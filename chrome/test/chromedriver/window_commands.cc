@@ -4,6 +4,8 @@
 
 #include "chrome/test/chromedriver/window_commands.h"
 
+#include <stddef.h>
+
 #include <list>
 #include <string>
 
@@ -31,6 +33,8 @@
 #include "chrome/test/chromedriver/util.h"
 
 namespace {
+
+const std::string kUnreachableWebDataURL = "data:text/html,chromewebdata";
 
 Status GetMouseButton(const base::DictionaryValue& params,
                       MouseButton* button) {
@@ -402,13 +406,7 @@ Status ExecuteGetTitle(
     WebView* web_view,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
-  const char kGetTitleScript[] =
-      "function() {"
-      "  if (document.title)"
-      "    return document.title;"
-      "  else"
-      "    return document.URL;"
-      "}";
+  const char kGetTitleScript[] = "function() {  return document.title;}";
   base::ListValue args;
   return web_view->CallFunction(std::string(), kGetTitleScript, args, value);
 }
@@ -455,12 +453,19 @@ Status ExecuteGetCurrentUrl(
   Status status = GetUrl(web_view, std::string(), &url);
   if (status.IsError())
     return status;
-  if (!session->GetCurrentFrameId().empty()) {
-    // TODO(samuong): remove this after we release ChromeDriver 2.21.
-    LOG(WARNING) << "As of ChromeDriver 2.21, GetCurrentUrl now returns the "
-                    "URL of the top-level browsing, not the current frame. See "
-                    "https://code.google.com/p/chromedriver/issues/"
-                    "detail?id=1249 for details and workarounds.";
+  if (url == kUnreachableWebDataURL) {
+    // https://bugs.chromium.org/p/chromedriver/issues/detail?id=1272
+    const BrowserInfo* browser_info = session->chrome->GetBrowserInfo();
+    bool is_kitkat_webview = browser_info->browser_name == "webview" &&
+                             browser_info->major_version <= 30 &&
+                             browser_info->is_android;
+    if (!is_kitkat_webview) {
+      // Page.getNavigationHistory isn't implemented in WebView for KitKat and
+      // older Android releases.
+      status = web_view->GetUrl(&url);
+      if (status.IsError())
+        return status;
+    }
   }
   value->reset(new base::StringValue(url));
   return Status(kOk);

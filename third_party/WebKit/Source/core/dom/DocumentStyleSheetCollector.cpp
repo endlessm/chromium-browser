@@ -24,7 +24,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/DocumentStyleSheetCollector.h"
 
 #include "core/css/CSSStyleSheet.h"
@@ -69,4 +68,4 @@ ImportedDocumentStyleSheetCollector::ImportedDocumentStyleSheetCollector(Documen
 {
 }
 
-}
+} // namespace blink

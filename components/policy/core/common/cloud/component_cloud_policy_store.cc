@@ -4,9 +4,13 @@
 
 #include "components/policy/core/common/cloud/component_cloud_policy_store.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/callback.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -134,8 +138,8 @@ void ComponentCloudPolicyStore::Load() {
       scoped_ptr<em::PolicyFetchResponse> proto(new em::PolicyFetchResponse);
       em::ExternalPolicyData payload;
       if (!proto->ParseFromString(it->second) ||
-          !ValidateProto(
-              proto.Pass(), constants.policy_type, id, &payload, NULL)) {
+          !ValidateProto(std::move(proto), constants.policy_type, id, &payload,
+                         NULL)) {
         Delete(ns);
         continue;
       }
@@ -250,8 +254,8 @@ bool ComponentCloudPolicyStore::ValidatePolicy(
     PolicyNamespace* ns,
     em::ExternalPolicyData* payload) {
   em::PolicyData policy_data;
-  if (!ValidateProto(
-          proto.Pass(), std::string(), std::string(), payload, &policy_data)) {
+  if (!ValidateProto(std::move(proto), std::string(), std::string(), payload,
+                     &policy_data)) {
     return false;
   }
 
@@ -279,7 +283,7 @@ bool ComponentCloudPolicyStore::ValidateProto(
 
   scoped_ptr<ComponentCloudPolicyValidator> validator(
       ComponentCloudPolicyValidator::Create(
-          proto.Pass(), scoped_refptr<base::SequencedTaskRunner>()));
+          std::move(proto), scoped_refptr<base::SequencedTaskRunner>()));
   validator->ValidateUsername(username_, true);
   validator->ValidateDMToken(dm_token_,
                              ComponentCloudPolicyValidator::DM_TOKEN_REQUIRED);

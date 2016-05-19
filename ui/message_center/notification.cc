@@ -8,20 +8,22 @@
 #include "ui/message_center/notification_delegate.h"
 #include "ui/message_center/notification_types.h"
 
-namespace {
-unsigned g_next_serial_number_ = 0;
-}
-
 namespace message_center {
+
+namespace {
+
+unsigned g_next_serial_number_ = 0;
+
+}  // namespace
 
 NotificationItem::NotificationItem(const base::string16& title,
                                    const base::string16& message)
- : title(title),
-   message(message) {
+    : title(title),
+      message(message) {
 }
 
 ButtonInfo::ButtonInfo(const base::string16& title)
- : title(title) {
+    : title(title) {
 }
 
 RichNotificationData::RichNotificationData()
@@ -32,6 +34,10 @@ RichNotificationData::RichNotificationData()
       progress(0),
       should_make_spoken_feedback_for_popup_updates(true),
       clickable(true),
+#if defined(OS_CHROMEOS)
+      pinned(false),
+#endif  // defined(OS_CHROMEOS)
+      renotify(false),
       silent(false) {}
 
 RichNotificationData::RichNotificationData(const RichNotificationData& other)
@@ -47,7 +53,11 @@ RichNotificationData::RichNotificationData(const RichNotificationData& other)
       should_make_spoken_feedback_for_popup_updates(
           other.should_make_spoken_feedback_for_popup_updates),
       clickable(other.clickable),
+#if defined(OS_CHROMEOS)
+      pinned(other.pinned),
+#endif  // defined(OS_CHROMEOS)
       vibration_pattern(other.vibration_pattern),
+      renotify(other.renotify),
       silent(other.silent) {}
 
 RichNotificationData::~RichNotificationData() {}
@@ -173,7 +183,7 @@ scoped_ptr<Notification> Notification::CreateSystemNotification(
       RichNotificationData(),
       new HandleNotificationClickedDelegate(click_callback)));
   notification->SetSystemPriority();
-  return notification.Pass();
+  return notification;
 }
 
 }  // namespace message_center

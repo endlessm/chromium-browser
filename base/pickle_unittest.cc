@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/pickle.h"
 #include "base/strings/string16.h"
@@ -19,11 +23,10 @@ const bool testbool1 = false;
 const bool testbool2 = true;
 const int testint = 2093847192;
 const long testlong = 1093847192;
-const uint16 testuint16 = 32123;
-const uint32 testuint32 = 1593847192;
-const int64 testint64 = -0x7E8CA9253104BDFCLL;
-const uint64 testuint64 = 0xCE8CA9253104BDF7ULL;
-const size_t testsizet = 0xFEDC7654;
+const uint16_t testuint16 = 32123;
+const uint32_t testuint32 = 1593847192;
+const int64_t testint64 = -0x7E8CA9253104BDFCLL;
+const uint64_t testuint64 = 0xCE8CA9253104BDF7ULL;
 const float testfloat = 3.1415926935f;
 const double testdouble = 2.71828182845904523;
 const std::string teststring("Hello world");  // note non-aligned string length
@@ -53,25 +56,21 @@ void VerifyResult(const Pickle& pickle) {
   EXPECT_TRUE(iter.ReadLong(&outlong));
   EXPECT_EQ(testlong, outlong);
 
-  uint16 outuint16;
+  uint16_t outuint16;
   EXPECT_TRUE(iter.ReadUInt16(&outuint16));
   EXPECT_EQ(testuint16, outuint16);
 
-  uint32 outuint32;
+  uint32_t outuint32;
   EXPECT_TRUE(iter.ReadUInt32(&outuint32));
   EXPECT_EQ(testuint32, outuint32);
 
-  int64 outint64;
+  int64_t outint64;
   EXPECT_TRUE(iter.ReadInt64(&outint64));
   EXPECT_EQ(testint64, outint64);
 
-  uint64 outuint64;
+  uint64_t outuint64;
   EXPECT_TRUE(iter.ReadUInt64(&outuint64));
   EXPECT_EQ(testuint64, outuint64);
-
-  size_t outsizet;
-  EXPECT_TRUE(iter.ReadSizeT(&outsizet));
-  EXPECT_EQ(testsizet, outsizet);
 
   float outfloat;
   EXPECT_TRUE(iter.ReadFloat(&outfloat));
@@ -115,13 +114,11 @@ TEST(PickleTest, EncodeDecode) {
   EXPECT_TRUE(pickle.WriteBool(testbool1));
   EXPECT_TRUE(pickle.WriteBool(testbool2));
   EXPECT_TRUE(pickle.WriteInt(testint));
-  EXPECT_TRUE(
-      pickle.WriteLongUsingDangerousNonPortableLessPersistableForm(testlong));
+  EXPECT_TRUE(pickle.WriteLong(testlong));
   EXPECT_TRUE(pickle.WriteUInt16(testuint16));
   EXPECT_TRUE(pickle.WriteUInt32(testuint32));
   EXPECT_TRUE(pickle.WriteInt64(testint64));
   EXPECT_TRUE(pickle.WriteUInt64(testuint64));
-  EXPECT_TRUE(pickle.WriteSizeT(testsizet));
   EXPECT_TRUE(pickle.WriteFloat(testfloat));
   EXPECT_TRUE(pickle.WriteDouble(testdouble));
   EXPECT_TRUE(pickle.WriteString(teststring));
@@ -141,24 +138,26 @@ TEST(PickleTest, EncodeDecode) {
   VerifyResult(pickle3);
 }
 
-// Tests that reading/writing a size_t works correctly when the source process
+// Tests that reading/writing a long works correctly when the source process
 // is 64-bit.  We rely on having both 32- and 64-bit trybots to validate both
 // arms of the conditional in this test.
-TEST(PickleTest, SizeTFrom64Bit) {
+TEST(PickleTest, LongFrom64Bit) {
   Pickle pickle;
-  // Under the hood size_t is always written as a 64-bit value, so simulate a
-  // 64-bit size_t even on 32-bit architectures by explicitly writing a uint64.
-  EXPECT_TRUE(pickle.WriteUInt64(testuint64));
+  // Under the hood long is always written as a 64-bit value, so simulate a
+  // 64-bit long even on 32-bit architectures by explicitly writing an int64_t.
+  EXPECT_TRUE(pickle.WriteInt64(testint64));
 
   PickleIterator iter(pickle);
-  size_t outsizet;
-  if (sizeof(size_t) < sizeof(uint64)) {
-    // ReadSizeT() should return false when the original written value can't be
-    // represented as a size_t.
-    EXPECT_FALSE(iter.ReadSizeT(&outsizet));
+  long outlong;
+  if (sizeof(long) < sizeof(int64_t)) {
+    // ReadLong() should return false when the original written value can't be
+    // represented as a long.
+#if GTEST_HAS_DEATH_TEST
+    EXPECT_DEATH(ignore_result(iter.ReadLong(&outlong)), "");
+#endif
   } else {
-    EXPECT_TRUE(iter.ReadSizeT(&outsizet));
-    EXPECT_EQ(testuint64, outsizet);
+    EXPECT_TRUE(iter.ReadLong(&outlong));
+    EXPECT_EQ(testint64, outlong);
   }
 }
 
@@ -398,10 +397,10 @@ TEST(PickleTest, Resize) {
 
   // construct a message that will be exactly the size of one payload unit,
   // note that any data will have a 4-byte header indicating the size
-  const size_t payload_size_after_header = unit - sizeof(uint32);
+  const size_t payload_size_after_header = unit - sizeof(uint32_t);
   Pickle pickle;
-  pickle.WriteData(data_ptr,
-      static_cast<int>(payload_size_after_header - sizeof(uint32)));
+  pickle.WriteData(
+      data_ptr, static_cast<int>(payload_size_after_header - sizeof(uint32_t)));
   size_t cur_payload = payload_size_after_header;
 
   // note: we assume 'unit' is a power of 2
@@ -409,7 +408,7 @@ TEST(PickleTest, Resize) {
   EXPECT_EQ(pickle.payload_size(), payload_size_after_header);
 
   // fill out a full page (noting data header)
-  pickle.WriteData(data_ptr, static_cast<int>(unit - sizeof(uint32)));
+  pickle.WriteData(data_ptr, static_cast<int>(unit - sizeof(uint32_t)));
   cur_payload += unit;
   EXPECT_EQ(unit * 2, pickle.capacity_after_header());
   EXPECT_EQ(cur_payload, pickle.payload_size());
@@ -430,7 +429,7 @@ struct CustomHeader : Pickle::Header {
 }  // namespace
 
 TEST(PickleTest, HeaderPadding) {
-  const uint32 kMagic = 0x12345678;
+  const uint32_t kMagic = 0x12345678;
 
   Pickle pickle(sizeof(CustomHeader));
   pickle.WriteInt(kMagic);
@@ -442,7 +441,7 @@ TEST(PickleTest, HeaderPadding) {
   int result;
   ASSERT_TRUE(iter.ReadInt(&result));
 
-  EXPECT_EQ(static_cast<uint32>(result), kMagic);
+  EXPECT_EQ(static_cast<uint32_t>(result), kMagic);
 }
 
 TEST(PickleTest, EqualsOperator) {
@@ -522,6 +521,147 @@ TEST(PickleTest, DeepCopyResize) {
 
   // Check that there isn't any extraneous capacity.
   EXPECT_EQ(pickle.capacity_after_header(), pickle2.capacity_after_header());
+}
+
+namespace {
+
+// Publicly exposes the ClaimBytes interface for testing.
+class TestingPickle : public Pickle {
+ public:
+  TestingPickle() {}
+
+  void* ClaimBytes(size_t num_bytes) { return Pickle::ClaimBytes(num_bytes); }
+};
+
+}  // namespace
+
+// Checks that claimed bytes are zero-initialized.
+TEST(PickleTest, ClaimBytesInitialization) {
+  static const int kChunkSize = 64;
+  TestingPickle pickle;
+  const char* bytes = static_cast<const char*>(pickle.ClaimBytes(kChunkSize));
+  for (size_t i = 0; i < kChunkSize; ++i) {
+    EXPECT_EQ(0, bytes[i]);
+  }
+}
+
+// Checks that ClaimBytes properly advances the write offset.
+TEST(PickleTest, ClaimBytes) {
+  std::string data("Hello, world!");
+
+  TestingPickle pickle;
+  pickle.WriteUInt32(data.size());
+  void* bytes = pickle.ClaimBytes(data.size());
+  pickle.WriteInt(42);
+  memcpy(bytes, data.data(), data.size());
+
+  PickleIterator iter(pickle);
+  uint32_t out_data_length;
+  EXPECT_TRUE(iter.ReadUInt32(&out_data_length));
+  EXPECT_EQ(data.size(), out_data_length);
+
+  const char* out_data = nullptr;
+  EXPECT_TRUE(iter.ReadBytes(&out_data, out_data_length));
+  EXPECT_EQ(data, std::string(out_data, out_data_length));
+
+  int out_value;
+  EXPECT_TRUE(iter.ReadInt(&out_value));
+  EXPECT_EQ(42, out_value);
+}
+
+// Checks that PickleSizer and Pickle agree on the size of things.
+TEST(PickleTest, PickleSizer) {
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteBool(true);
+    sizer.AddBool();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteInt(42);
+    sizer.AddInt();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteLong(42);
+    sizer.AddLong();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteUInt16(42);
+    sizer.AddUInt16();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteUInt32(42);
+    sizer.AddUInt32();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteInt64(42);
+    sizer.AddInt64();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteUInt64(42);
+    sizer.AddUInt64();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteFloat(42.0f);
+    sizer.AddFloat();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteDouble(42.0);
+    sizer.AddDouble();
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteString(teststring);
+    sizer.AddString(teststring);
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteString16(teststring16);
+    sizer.AddString16(teststring16);
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteData(testdata, testdatalen);
+    sizer.AddData(testdatalen);
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
+  {
+    TestingPickle pickle;
+    base::PickleSizer sizer;
+    pickle.WriteBytes(testdata, testdatalen);
+    sizer.AddBytes(testdatalen);
+    EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
+  }
 }
 
 }  // namespace base

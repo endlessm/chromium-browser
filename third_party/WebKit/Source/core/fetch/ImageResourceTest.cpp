@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/fetch/ImageResource.h"
 
 #include "core/fetch/ImageResourceClient.h"
@@ -36,7 +35,6 @@
 #include "core/fetch/MockImageResourceClient.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "core/fetch/ResourceLoader.h"
-#include "core/fetch/ResourcePtr.h"
 #include "core/fetch/UniqueIdentifier.h"
 #include "platform/SharedBuffer.h"
 #include "platform/exported/WrappedResourceResponse.h"
@@ -47,8 +45,7 @@
 #include "public/platform/WebURL.h"
 #include "public/platform/WebURLResponse.h"
 #include "public/platform/WebUnitTestSupport.h"
-
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -91,13 +88,13 @@ TEST(ImageResourceTest, MultipartImage)
     URLTestHelpers::registerMockedURLLoad(testURL, "cancelTest.html", "text/html");
 
     // Emulate starting a real load, but don't expect any "real" WebURLLoaderClient callbacks.
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(testURL), nullptr);
+    RefPtrWillBeRawPtr<ImageResource> cachedImage = ImageResource::create(ResourceRequest(testURL), nullptr);
     cachedImage->setIdentifier(createUniqueIdentifier());
     cachedImage->load(fetcher, ResourceLoaderOptions());
     Platform::current()->unitTestSupport()->unregisterMockedURL(testURL);
 
     MockImageResourceClient client(cachedImage);
-    EXPECT_EQ(Resource::Pending, cachedImage->status());
+    EXPECT_EQ(Resource::Pending, cachedImage->getStatus());
 
     // Send the multipart response. No image or data buffer is created.
     // Note that the response must be routed through ResourceLoader to
@@ -135,7 +132,7 @@ TEST(ImageResourceTest, MultipartImage)
     ASSERT_FALSE(cachedImage->image()->isNull());
     ASSERT_EQ(cachedImage->image()->width(), 1);
     ASSERT_EQ(cachedImage->image()->height(), 1);
-    ASSERT_EQ(client.imageChangedCount(), 2);
+    ASSERT_EQ(client.imageChangedCount(), 1);
     ASSERT_TRUE(client.notifyFinishedCalled());
 }
 
@@ -147,23 +144,23 @@ TEST(ImageResourceTest, CancelOnDetach)
     ResourceFetcher* fetcher = ResourceFetcher::create(nullptr);
 
     // Emulate starting a real load.
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(testURL), nullptr);
+    RefPtrWillBeRawPtr<ImageResource> cachedImage = ImageResource::create(ResourceRequest(testURL), nullptr);
     cachedImage->setIdentifier(createUniqueIdentifier());
 
     cachedImage->load(fetcher, ResourceLoaderOptions());
     memoryCache()->add(cachedImage.get());
 
     MockImageResourceClient client(cachedImage);
-    EXPECT_EQ(Resource::Pending, cachedImage->status());
+    EXPECT_EQ(Resource::Pending, cachedImage->getStatus());
 
     // The load should still be alive, but a timer should be started to cancel the load inside removeClient().
     client.removeAsClient();
-    EXPECT_EQ(Resource::Pending, cachedImage->status());
+    EXPECT_EQ(Resource::Pending, cachedImage->getStatus());
     EXPECT_NE(reinterpret_cast<Resource*>(0), memoryCache()->resourceForURL(testURL));
 
     // Trigger the cancel timer, ensure the load was cancelled and the resource was evicted from the cache.
     blink::testing::runPendingTasks();
-    EXPECT_EQ(Resource::LoadError, cachedImage->status());
+    EXPECT_EQ(Resource::LoadError, cachedImage->getStatus());
     EXPECT_EQ(reinterpret_cast<Resource*>(0), memoryCache()->resourceForURL(testURL));
 
     Platform::current()->unitTestSupport()->unregisterMockedURL(testURL);
@@ -171,7 +168,7 @@ TEST(ImageResourceTest, CancelOnDetach)
 
 TEST(ImageResourceTest, DecodedDataRemainsWhileHasClients)
 {
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(), nullptr);
+    RefPtrWillBeRawPtr<ImageResource> cachedImage = ImageResource::create(ResourceRequest(), nullptr);
     cachedImage->setLoading(true);
 
     MockImageResourceClient client(cachedImage);
@@ -204,7 +201,7 @@ TEST(ImageResourceTest, DecodedDataRemainsWhileHasClients)
 
 TEST(ImageResourceTest, UpdateBitmapImages)
 {
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(), nullptr);
+    RefPtrWillBeRawPtr<ImageResource> cachedImage = ImageResource::create(ResourceRequest(), nullptr);
     cachedImage->setLoading(true);
 
     MockImageResourceClient client(cachedImage);
@@ -218,6 +215,47 @@ TEST(ImageResourceTest, UpdateBitmapImages)
     ASSERT_TRUE(cachedImage->hasImage());
     ASSERT_FALSE(cachedImage->image()->isNull());
     ASSERT_EQ(client.imageChangedCount(), 2);
+    ASSERT_TRUE(client.notifyFinishedCalled());
+    ASSERT_TRUE(cachedImage->image()->isBitmapImage());
+}
+
+TEST(ImageResourceTest, ReloadIfLoFi)
+{
+    KURL testURL(ParsedURLString, "http://www.test.com/cancelTest.html");
+    URLTestHelpers::registerMockedURLLoad(testURL, "cancelTest.html", "text/html");
+    RefPtrWillBeRawPtr<ImageResource> cachedImage = ImageResource::create(ResourceRequest(testURL), nullptr);
+    cachedImage->setLoading(true);
+
+    MockImageResourceClient client(cachedImage);
+    ResourceFetcher* fetcher = ResourceFetcher::create(nullptr);
+
+    // Send the image response.
+    Vector<unsigned char> jpeg = jpegImage();
+    ResourceResponse resourceResponse(KURL(), "image/jpeg", jpeg.size(), nullAtom, String());
+    resourceResponse.addHTTPHeaderField("chrome-proxy", "q=low");
+
+    cachedImage->responseReceived(resourceResponse, nullptr);
+    cachedImage->appendData(reinterpret_cast<const char*>(jpeg.data()), jpeg.size());
+    cachedImage->finish();
+    ASSERT_FALSE(cachedImage->errorOccurred());
+    ASSERT_TRUE(cachedImage->hasImage());
+    ASSERT_FALSE(cachedImage->image()->isNull());
+    ASSERT_EQ(client.imageChangedCount(), 2);
+    ASSERT_TRUE(client.notifyFinishedCalled());
+    ASSERT_TRUE(cachedImage->image()->isBitmapImage());
+
+    cachedImage->reloadIfLoFi(fetcher);
+    ASSERT_FALSE(cachedImage->errorOccurred());
+    ASSERT_FALSE(cachedImage->resourceBuffer());
+    ASSERT_FALSE(cachedImage->hasImage());
+    ASSERT_EQ(client.imageChangedCount(), 3);
+
+    cachedImage->responseReceived(resourceResponse, nullptr);
+    cachedImage->appendData(reinterpret_cast<const char*>(jpeg.data()), jpeg.size());
+    cachedImage->finish();
+    ASSERT_FALSE(cachedImage->errorOccurred());
+    ASSERT_TRUE(cachedImage->hasImage());
+    ASSERT_FALSE(cachedImage->image()->isNull());
     ASSERT_TRUE(client.notifyFinishedCalled());
     ASSERT_TRUE(cachedImage->image()->isBitmapImage());
 }

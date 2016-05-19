@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//build/config/sysroot.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 if (is_mac) {
@@ -127,8 +128,17 @@ component("printing") {
     configs += [ ":cups" ]
 
     if (is_linux) {
+      # rebase_path does not accept an empty string
+      if (use_sysroot) {
+        cups_sysroot = rebase_path(sysroot)
+      } else {
+        cups_sysroot = ""
+      }
       cups_version = exec_script("cups_config_helper.py",
-                                 [ "--api-version" ],
+                                 [
+                                   "--api-version",
+                                   cups_sysroot,
+                                 ],
                                  "trim string")
 
       if (cups_version == "1.6" || cups_version == "1.7") {
@@ -192,15 +202,6 @@ component("printing") {
   }
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
-# The _run targets exist only for compatibility w/ GYP.
-group("printing_unittests_run") {
-  testonly = true
-  deps = [
-    ":printing_unittests",
-  ]
-}
-
 test("printing_unittests") {
   sources = [
     "emf_win_unittest.cc",
@@ -219,7 +220,6 @@ test("printing_unittests") {
 
   deps = [
     ":printing",
-    "//base/allocator",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
     "//testing/gtest",
@@ -247,7 +247,18 @@ if (use_cups) {
       libs = [ "cups" ]
       lib_dirs = [ "$mac_sdk_path/usr/lib" ]
     } else {
-      libs = exec_script("cups_config_helper.py", [ "--libs-for-gn" ], "value")
+      # rebase_path does not accept an empty string
+      if (use_sysroot) {
+        cups_sysroot = rebase_path(sysroot)
+      } else {
+        cups_sysroot = ""
+      }
+      libs = exec_script("cups_config_helper.py",
+                         [
+                           "--libs-for-gn",
+                           cups_sysroot,
+                         ],
+                         "value")
     }
   }
 }

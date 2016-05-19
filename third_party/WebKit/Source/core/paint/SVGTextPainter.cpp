@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/SVGTextPainter.h"
 
 #include "core/layout/svg/LayoutSVGText.h"
@@ -19,13 +18,13 @@ void SVGTextPainter::paint(const PaintInfo& paintInfo)
 
     PaintInfo blockInfo(paintInfo);
     blockInfo.updateCullRect(m_layoutSVGText.localToParentTransform());
-    TransformRecorder transformRecorder(*blockInfo.context, m_layoutSVGText, m_layoutSVGText.localToParentTransform());
+    TransformRecorder transformRecorder(blockInfo.context, m_layoutSVGText, m_layoutSVGText.localToParentTransform());
 
     BlockPainter(m_layoutSVGText).paint(blockInfo, LayoutPoint());
 
     // Paint the outlines, if any
     if (paintInfo.phase == PaintPhaseForeground) {
-        blockInfo.phase = PaintPhaseSelfOutline;
+        blockInfo.phase = PaintPhaseOutline;
         BlockPainter(m_layoutSVGText).paint(blockInfo, LayoutPoint());
     }
 }

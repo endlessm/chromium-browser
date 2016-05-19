@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/track/TextTrackCue.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -137,11 +136,11 @@ unsigned TextTrackCue::cueIndex()
     return m_cueIndex;
 }
 
-bool TextTrackCue::dispatchEventInternal(PassRefPtrWillBeRawPtr<Event> event)
+DispatchEventResult TextTrackCue::dispatchEventInternal(PassRefPtrWillBeRawPtr<Event> event)
 {
     // When a TextTrack's mode is disabled: no cues are active, no events fired.
     if (!track() || track()->mode() == TextTrack::disabledKeyword())
-        return false;
+        return DispatchEventResult::CanceledBeforeDispatch;
 
     return EventTarget::dispatchEventInternal(event);
 }

@@ -14,14 +14,15 @@
 #ifndef NET_URL_REQUEST_URL_REQUEST_CONTEXT_BUILDER_H_
 #define NET_URL_REQUEST_URL_REQUEST_CONTEXT_BUILDER_H_
 
+#include <stdint.h>
 #include <string>
-#include <vector>
+#include <unordered_map>
+#include <utility>
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "build/build_config.h"
 #include "net/base/net_export.h"
 #include "net/base/network_delegate.h"
@@ -52,8 +53,12 @@ class NET_EXPORT URLRequestContextBuilder {
  public:
   struct NET_EXPORT HttpCacheParams {
     enum Type {
+      // In-memory cache.
       IN_MEMORY,
+      // Disk cache using "default" backend.
       DISK,
+      // Disk cache using "simple" backend (SimpleBackendImpl).
+      DISK_SIMPLE,
     };
 
     HttpCacheParams();
@@ -77,18 +82,25 @@ class NET_EXPORT URLRequestContextBuilder {
     // These fields mirror those in HttpNetworkSession::Params;
     bool ignore_certificate_errors;
     HostMappingRules* host_mapping_rules;
-    uint16 testing_fixed_http_port;
-    uint16 testing_fixed_https_port;
-    NextProtoVector next_protos;
-    std::string trusted_spdy_proxy;
-    bool use_alternative_services;
+    uint16_t testing_fixed_http_port;
+    uint16_t testing_fixed_https_port;
+    bool enable_spdy31;
+    bool enable_http2;
+    bool parse_alternative_services;
+    bool enable_alternative_service_with_different_host;
     bool enable_quic;
-    bool quic_store_server_configs_in_properties;
+    std::string quic_user_agent_id;
+    int quic_max_server_configs_stored_in_properties;
     bool quic_delay_tcp_race;
     int quic_max_number_of_lossy_connections;
+    std::unordered_set<std::string> quic_host_whitelist;
+    bool quic_prefer_aes;
     float quic_packet_loss_threshold;
+    int quic_idle_connection_timeout_seconds;
     QuicTagVector quic_connection_options;
-    std::string ssl_session_cache_shard;
+    bool quic_close_sessions_on_ip_change;
+    bool quic_migrate_sessions_on_network_change;
+    bool quic_migrate_sessions_early;
   };
 
   URLRequestContextBuilder();
@@ -106,10 +118,10 @@ class NET_EXPORT URLRequestContextBuilder {
   // set, will be used to construct a ProxyService.
   void set_proxy_config_service(
       scoped_ptr<ProxyConfigService> proxy_config_service) {
-    proxy_config_service_ = proxy_config_service.Pass();
+    proxy_config_service_ = std::move(proxy_config_service);
   }
   void set_proxy_service(scoped_ptr<ProxyService> proxy_service) {
-    proxy_service_ = proxy_service.Pass();
+    proxy_service_ = std::move(proxy_service);
   }
 
   // Call these functions to specify hard-coded Accept-Language
@@ -149,24 +161,23 @@ class NET_EXPORT URLRequestContextBuilder {
 
   // By default host_resolver is constructed with CreateDefaultResolver.
   void set_host_resolver(scoped_ptr<HostResolver> host_resolver) {
-    host_resolver_ = host_resolver.Pass();
+    host_resolver_ = std::move(host_resolver);
   }
 
   // Uses BasicNetworkDelegate by default. Note that calling Build will unset
   // any custom delegate in builder, so this must be called each time before
   // Build is called.
   void set_network_delegate(scoped_ptr<NetworkDelegate> delegate) {
-    network_delegate_ = delegate.Pass();
+    network_delegate_ = std::move(delegate);
   }
 
-  // Adds additional auth handler factories to be used in addition to what is
-  // provided in the default |HttpAuthHandlerRegistryFactory|. The auth |scheme|
-  // and |factory| are provided. The builder takes ownership of the factory and
-  // Build() must be called after this method.
-  void add_http_auth_handler_factory(const std::string& scheme,
-                                     HttpAuthHandlerFactory* factory) {
-    extra_http_auth_handlers_.push_back(SchemeFactory(scheme, factory));
-  }
+  // Sets a specific HttpAuthHandlerFactory to be used by the URLRequestContext
+  // rather than the default |HttpAuthHandlerRegistryFactory|. The builder
+  // takes ownership of the factory and will eventually transfer it to the new
+  // URLRequestContext. Note that since Build will transfer ownership, the
+  // custom factory will be unset and this must be called before the next Build
+  // to set another custom one.
+  void SetHttpAuthHandlerFactory(scoped_ptr<HttpAuthHandlerFactory> factory);
 
   // By default HttpCache is enabled with a default constructed HttpCacheParams.
   void EnableHttpCache(const HttpCacheParams& params);
@@ -183,7 +194,6 @@ class NET_EXPORT URLRequestContextBuilder {
     transport_security_persister_path_ = transport_security_persister_path;
   }
 
-  // Adjust |http_network_session_params_.next_protos| to enable SPDY and QUIC.
   void SetSpdyAndQuicEnabled(bool spdy_enabled,
                              bool quic_enabled);
 
@@ -193,15 +203,14 @@ class NET_EXPORT URLRequestContextBuilder {
         quic_connection_options;
   }
 
-  void set_ssl_session_cache_shard(const std::string& ssl_session_cache_shard) {
-    http_network_session_params_.ssl_session_cache_shard =
-        ssl_session_cache_shard;
+  void set_quic_user_agent_id(const std::string& quic_user_agent_id) {
+    http_network_session_params_.quic_user_agent_id = quic_user_agent_id;
   }
 
-  void set_quic_store_server_configs_in_properties(
-      bool quic_store_server_configs_in_properties) {
-    http_network_session_params_.quic_store_server_configs_in_properties =
-        quic_store_server_configs_in_properties;
+  void set_quic_max_server_configs_stored_in_properties(
+      int quic_max_server_configs_stored_in_properties) {
+    http_network_session_params_.quic_max_server_configs_stored_in_properties =
+        quic_max_server_configs_stored_in_properties;
   }
 
   void set_quic_delay_tcp_race(bool quic_delay_tcp_race) {
@@ -219,6 +228,38 @@ class NET_EXPORT URLRequestContextBuilder {
         quic_packet_loss_threshold;
   }
 
+  void set_quic_idle_connection_timeout_seconds(
+      int quic_idle_connection_timeout_seconds) {
+    http_network_session_params_.quic_idle_connection_timeout_seconds =
+        quic_idle_connection_timeout_seconds;
+  }
+
+  void set_quic_host_whitelist(
+      const std::unordered_set<std::string>& quic_host_whitelist) {
+    http_network_session_params_.quic_host_whitelist = quic_host_whitelist;
+  }
+
+  void set_quic_close_sessions_on_ip_change(
+      bool quic_close_sessions_on_ip_change) {
+    http_network_session_params_.quic_close_sessions_on_ip_change =
+        quic_close_sessions_on_ip_change;
+  }
+
+  void set_quic_migrate_sessions_on_network_change(
+      bool quic_migrate_sessions_on_network_change) {
+    http_network_session_params_.quic_migrate_sessions_on_network_change =
+        quic_migrate_sessions_on_network_change;
+  }
+
+  void set_quic_prefer_aes(bool quic_prefer_aes) {
+    http_network_session_params_.quic_prefer_aes = quic_prefer_aes;
+  }
+
+  void set_quic_migrate_sessions_early(bool quic_migrate_sessions_early) {
+    http_network_session_params_.quic_migrate_sessions_early =
+        quic_migrate_sessions_early;
+  }
+
   void set_throttling_enabled(bool throttling_enabled) {
     throttling_enabled_ = throttling_enabled;
   }
@@ -230,7 +271,7 @@ class NET_EXPORT URLRequestContextBuilder {
   void SetCertVerifier(scoped_ptr<CertVerifier> cert_verifier);
 
   void SetInterceptors(
-      ScopedVector<URLRequestInterceptor> url_request_interceptors);
+      std::vector<scoped_ptr<URLRequestInterceptor>> url_request_interceptors);
 
   // Override the default in-memory cookie store and channel id service.
   // |cookie_store| must not be NULL. |channel_id_service| may be NULL to
@@ -263,14 +304,6 @@ class NET_EXPORT URLRequestContextBuilder {
   scoped_ptr<URLRequestContext> Build();
 
  private:
-  struct NET_EXPORT SchemeFactory {
-    SchemeFactory(const std::string& scheme, HttpAuthHandlerFactory* factory);
-    ~SchemeFactory();
-
-    std::string scheme;
-    HttpAuthHandlerFactory* factory;
-  };
-
   std::string accept_language_;
   std::string user_agent_;
   // Include support for data:// requests.
@@ -300,9 +333,9 @@ class NET_EXPORT URLRequestContextBuilder {
   scoped_ptr<NetworkDelegate> network_delegate_;
   scoped_refptr<CookieStore> cookie_store_;
   scoped_ptr<FtpTransactionFactory> ftp_transaction_factory_;
-  std::vector<SchemeFactory> extra_http_auth_handlers_;
+  scoped_ptr<HttpAuthHandlerFactory> http_auth_handler_factory_;
   scoped_ptr<CertVerifier> cert_verifier_;
-  ScopedVector<URLRequestInterceptor> url_request_interceptors_;
+  std::vector<scoped_ptr<URLRequestInterceptor>> url_request_interceptors_;
   scoped_ptr<HttpServerProperties> http_server_properties_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestContextBuilder);

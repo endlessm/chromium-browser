@@ -4,9 +4,12 @@
 
 #include "chrome/browser/permissions/permission_context_base.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/browser/permissions/permission_uma_util.h"
@@ -15,6 +18,7 @@
 #include "chrome/common/pref_names.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/browser/website_settings_registry.h"
+#include "components/prefs/pref_service.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
@@ -37,13 +41,15 @@ const char PermissionContextBase::kPermissionsKillSwitchBlockedValue[] =
 
 PermissionContextBase::PermissionContextBase(
     Profile* profile,
-    const ContentSettingsType permission_type)
+    const content::PermissionType permission_type,
+    const ContentSettingsType content_settings_type)
     : profile_(profile),
       permission_type_(permission_type),
+      content_settings_type_(content_settings_type),
       weak_factory_(this) {
 #if defined(OS_ANDROID)
-  permission_queue_controller_.reset(
-      new PermissionQueueController(profile_, permission_type_));
+  permission_queue_controller_.reset(new PermissionQueueController(
+      profile_, permission_type_, content_settings_type_));
 #endif
 }
 
@@ -55,7 +61,6 @@ void PermissionContextBase::RequestPermission(
     content::WebContents* web_contents,
     const PermissionRequestID& id,
     const GURL& requesting_frame,
-    bool user_gesture,
     const BrowserPermissionCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -64,18 +69,49 @@ void PermissionContextBase::RequestPermission(
     // Log to the developer console.
     web_contents->GetMainFrame()->AddMessageToConsole(
         content::CONSOLE_MESSAGE_LEVEL_LOG,
-        base::StringPrintf("%s permission has been blocked.",
+        base::StringPrintf(
+            "%s permission has been blocked.",
             PermissionUtil::GetPermissionString(permission_type_).c_str()));
     // The kill switch is enabled for this permission; Block all requests.
     callback.Run(CONTENT_SETTING_BLOCK);
     return;
   }
 
-  DecidePermission(web_contents,
-                   id,
-                   requesting_frame.GetOrigin(),
-                   web_contents->GetLastCommittedURL().GetOrigin(),
-                   user_gesture,
+  GURL requesting_origin = requesting_frame.GetOrigin();
+  GURL embedding_origin = web_contents->GetLastCommittedURL().GetOrigin();
+
+  if (!requesting_origin.is_valid() || !embedding_origin.is_valid()) {
+    std::string type_name =
+        content_settings::WebsiteSettingsRegistry::GetInstance()
+            ->Get(content_settings_type_)
+            ->name();
+
+    DVLOG(1) << "Attempt to use " << type_name
+             << " from an invalid URL: " << requesting_origin << ","
+             << embedding_origin << " (" << type_name
+             << " is not supported in popups)";
+    NotifyPermissionSet(id, requesting_origin, embedding_origin, callback,
+                        false /* persist */, CONTENT_SETTING_BLOCK);
+    return;
+  }
+
+  ContentSetting content_setting =
+      GetPermissionStatus(requesting_origin, embedding_origin);
+  if (content_setting == CONTENT_SETTING_ALLOW) {
+    HostContentSettingsMapFactory::GetForProfile(profile_)->UpdateLastUsage(
+        requesting_origin, embedding_origin, content_settings_type_);
+  }
+  if (content_setting == CONTENT_SETTING_ALLOW ||
+      content_setting == CONTENT_SETTING_BLOCK) {
+    NotifyPermissionSet(id, requesting_origin, embedding_origin, callback,
+                        false /* persist */, content_setting);
+    return;
+  }
+
+  PermissionUmaUtil::PermissionRequested(permission_type_, requesting_origin,
+                                         embedding_origin, profile_);
+
+  DecidePermission(web_contents, id, requesting_origin, embedding_origin,
                    callback);
 }
 
@@ -93,10 +129,8 @@ ContentSetting PermissionContextBase::GetPermissionStatus(
   }
 
   return HostContentSettingsMapFactory::GetForProfile(profile_)
-      ->GetContentSetting(requesting_origin,
-                          embedding_origin,
-                          permission_type_,
-                          std::string());
+      ->GetContentSetting(requesting_origin, embedding_origin,
+                          content_settings_type_, std::string());
 }
 
 void PermissionContextBase::ResetPermission(
@@ -105,7 +139,7 @@ void PermissionContextBase::ResetPermission(
   HostContentSettingsMapFactory::GetForProfile(profile_)->SetContentSetting(
       ContentSettingsPattern::FromURLNoWildcard(requesting_origin),
       ContentSettingsPattern::FromURLNoWildcard(embedding_origin),
-      permission_type_, std::string(), CONTENT_SETTING_DEFAULT);
+      content_settings_type_, std::string(), CONTENT_SETTING_DEFAULT);
 }
 
 void PermissionContextBase::CancelPermissionRequest(
@@ -130,47 +164,8 @@ void PermissionContextBase::DecidePermission(
     const PermissionRequestID& id,
     const GURL& requesting_origin,
     const GURL& embedding_origin,
-    bool user_gesture,
     const BrowserPermissionCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  if (!requesting_origin.is_valid() || !embedding_origin.is_valid()) {
-    std::string type_name =
-        content_settings::WebsiteSettingsRegistry::GetInstance()
-            ->Get(permission_type_)
-            ->name();
-
-    DVLOG(1) << "Attempt to use " << type_name
-             << " from an invalid URL: " << requesting_origin << ","
-             << embedding_origin << " (" << type_name
-             << " is not supported in popups)";
-    NotifyPermissionSet(id, requesting_origin, embedding_origin, callback,
-                        false /* persist */, CONTENT_SETTING_BLOCK);
-    return;
-  }
-
-  if (IsRestrictedToSecureOrigins() &&
-      !content::IsOriginSecure(requesting_origin)) {
-    NotifyPermissionSet(id, requesting_origin, embedding_origin, callback,
-                        false /* persist */, CONTENT_SETTING_BLOCK);
-    return;
-  }
-
-  ContentSetting content_setting =
-      HostContentSettingsMapFactory::GetForProfile(profile_)
-          ->GetContentSettingAndMaybeUpdateLastUsage(
-              requesting_origin, embedding_origin, permission_type_,
-              std::string());
-
-  if (content_setting == CONTENT_SETTING_ALLOW ||
-      content_setting == CONTENT_SETTING_BLOCK) {
-    NotifyPermissionSet(id, requesting_origin, embedding_origin, callback,
-                        false /* persist */, content_setting);
-    return;
-  }
-
-  PermissionUmaUtil::PermissionRequested(
-      permission_type_, requesting_origin, embedding_origin, profile_);
 
 #if !defined(OS_ANDROID)
   PermissionBubbleManager* bubble_manager =
@@ -181,7 +176,7 @@ void PermissionContextBase::DecidePermission(
     return;
   scoped_ptr<PermissionBubbleRequest> request_ptr(
       new PermissionBubbleRequestImpl(
-          requesting_origin, user_gesture, permission_type_,
+          requesting_origin, permission_type_,
           profile_->GetPrefs()->GetString(prefs::kAcceptLanguages),
           base::Bind(&PermissionContextBase::PermissionDecided,
                      weak_factory_.GetWeakPtr(), id, requesting_origin,
@@ -191,7 +186,7 @@ void PermissionContextBase::DecidePermission(
   PermissionBubbleRequest* request = request_ptr.get();
 
   bool inserted =
-      pending_bubbles_.add(id.ToString(), request_ptr.Pass()).second;
+      pending_bubbles_.add(id.ToString(), std::move(request_ptr)).second;
   DCHECK(inserted) << "Duplicate id " << id.ToString();
   bubble_manager->AddRequest(request);
 #else
@@ -261,7 +256,7 @@ void PermissionContextBase::NotifyPermissionSet(
   if (content_setting == CONTENT_SETTING_DEFAULT) {
     content_setting =
         HostContentSettingsMapFactory::GetForProfile(profile_)
-            ->GetDefaultContentSetting(permission_type_, nullptr);
+            ->GetDefaultContentSetting(content_settings_type_, nullptr);
   }
 
   DCHECK_NE(content_setting, CONTENT_SETTING_DEFAULT);
@@ -285,13 +280,13 @@ void PermissionContextBase::UpdateContentSetting(
   HostContentSettingsMapFactory::GetForProfile(profile_)->SetContentSetting(
       ContentSettingsPattern::FromURLNoWildcard(requesting_origin),
       ContentSettingsPattern::FromURLNoWildcard(embedding_origin),
-      permission_type_, std::string(), content_setting);
+      content_settings_type_, std::string(), content_setting);
 }
 
 bool PermissionContextBase::IsPermissionKillSwitchOn() const {
-  const std::string param =
-      variations::GetVariationParamValue(kPermissionsKillSwitchFieldStudy,
-          PermissionUtil::GetPermissionString(permission_type_));
+  const std::string param = variations::GetVariationParamValue(
+      kPermissionsKillSwitchFieldStudy,
+      PermissionUtil::GetPermissionString(permission_type_));
 
   return param == kPermissionsKillSwitchBlockedValue;
 }

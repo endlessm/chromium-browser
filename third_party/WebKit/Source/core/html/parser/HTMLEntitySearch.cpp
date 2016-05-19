@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLEntitySearch.h"
 
 #include "core/html/parser/HTMLEntityTable.h"
@@ -125,4 +124,4 @@ void HTMLEntitySearch::advance(UChar nextCharacter)
     m_mostRecentMatch = m_first;
 }
 
-}
+} // namespace blink

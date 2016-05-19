@@ -4,11 +4,14 @@
 
 #include "content/browser/frame_host/render_frame_proxy_host.h"
 
+#include <utility>
+
 #include "base/lazy_instance.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/frame_host/cross_process_frame_connector.h"
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/frame_tree_node.h"
+#include "content/browser/frame_host/navigator.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/frame_host/render_widget_host_view_child_frame.h"
@@ -25,7 +28,7 @@ namespace content {
 namespace {
 
 // The (process id, routing id) pair that identifies one RenderFrameProxy.
-typedef std::pair<int32, int32> RenderFrameProxyHostID;
+typedef std::pair<int32_t, int32_t> RenderFrameProxyHostID;
 typedef base::hash_map<RenderFrameProxyHostID, RenderFrameProxyHost*>
     RoutingIDFrameProxyMap;
 base::LazyInstance<RoutingIDFrameProxyMap> g_routing_id_frame_proxy_map =
@@ -122,13 +125,13 @@ RenderWidgetHostView* RenderFrameProxyHost::GetRenderWidgetHostView() {
 void RenderFrameProxyHost::TakeFrameHostOwnership(
     scoped_ptr<RenderFrameHostImpl> render_frame_host) {
   CHECK(render_frame_host_ == nullptr);
-  render_frame_host_ = render_frame_host.Pass();
+  render_frame_host_ = std::move(render_frame_host);
   render_frame_host_->set_render_frame_proxy_host(this);
 }
 
 scoped_ptr<RenderFrameHostImpl> RenderFrameProxyHost::PassFrameHostOwnership() {
   render_frame_host_->set_render_frame_proxy_host(NULL);
-  return render_frame_host_.Pass();
+  return std::move(render_frame_host_);
 }
 
 bool RenderFrameProxyHost::Send(IPC::Message *msg) {
@@ -146,6 +149,8 @@ bool RenderFrameProxyHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(FrameHostMsg_OpenURL, OnOpenURL)
     IPC_MESSAGE_HANDLER(FrameHostMsg_RouteMessageEvent, OnRouteMessageEvent)
     IPC_MESSAGE_HANDLER(FrameHostMsg_DidChangeOpener, OnDidChangeOpener)
+    IPC_MESSAGE_HANDLER(FrameHostMsg_AdvanceFocus, OnAdvanceFocus)
+    IPC_MESSAGE_HANDLER(FrameHostMsg_FrameFocused, OnFrameFocused)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -243,9 +248,25 @@ void RenderFrameProxyHost::OnDetach() {
 
 void RenderFrameProxyHost::OnOpenURL(
     const FrameHostMsg_OpenURL_Params& params) {
-  // TODO(creis): Verify that we are in the same BrowsingInstance as the current
-  // RenderFrameHost.  See NavigatorImpl::RequestOpenURL.
-  frame_tree_node_->current_frame_host()->OpenURL(params, site_instance_.get());
+  GURL validated_url(params.url);
+  GetProcess()->FilterURL(false, &validated_url);
+
+  // Verify that we are in the same BrowsingInstance as the current
+  // RenderFrameHost.
+  RenderFrameHostImpl* current_rfh = frame_tree_node_->current_frame_host();
+  if (!site_instance_->IsRelatedSiteInstance(current_rfh->GetSiteInstance()))
+    return;
+
+  // Since this navigation targeted a specific RenderFrameProxy, it should stay
+  // in the current tab.
+  DCHECK_EQ(CURRENT_TAB, params.disposition);
+
+  // TODO(alexmos, creis): Figure out whether |params.user_gesture| needs to be
+  // passed in as well.
+  frame_tree_node_->navigator()->RequestTransferURL(
+      current_rfh, validated_url, site_instance_.get(), std::vector<GURL>(),
+      params.referrer, ui::PAGE_TRANSITION_LINK, GlobalRequestID(),
+      params.should_replace_current_entry);
 }
 
 void RenderFrameProxyHost::OnRouteMessageEvent(
@@ -320,9 +341,39 @@ void RenderFrameProxyHost::OnRouteMessageEvent(
   }
 }
 
-void RenderFrameProxyHost::OnDidChangeOpener(int32 opener_routing_id) {
+void RenderFrameProxyHost::OnDidChangeOpener(int32_t opener_routing_id) {
   frame_tree_node_->render_manager()->DidChangeOpener(opener_routing_id,
                                                       GetSiteInstance());
+}
+
+void RenderFrameProxyHost::OnAdvanceFocus(blink::WebFocusType type,
+                                          int32_t source_routing_id) {
+  RenderFrameHostImpl* target_rfh =
+      frame_tree_node_->render_manager()->current_frame_host();
+
+  // Translate the source RenderFrameHost in this process to its equivalent
+  // RenderFrameProxyHost in the target process.  This is needed for continuing
+  // the focus traversal from correct place in a parent frame after one of its
+  // child frames finishes its traversal.
+  RenderFrameHostImpl* source_rfh =
+      RenderFrameHostImpl::FromID(GetProcess()->GetID(), source_routing_id);
+  int32_t source_proxy_routing_id = MSG_ROUTING_NONE;
+  if (source_rfh) {
+    RenderFrameProxyHost* source_proxy =
+        source_rfh->frame_tree_node()
+            ->render_manager()
+            ->GetRenderFrameProxyHost(target_rfh->GetSiteInstance());
+    if (source_proxy)
+      source_proxy_routing_id = source_proxy->GetRoutingID();
+  }
+
+  target_rfh->Send(new FrameMsg_AdvanceFocus(target_rfh->GetRoutingID(), type,
+                                             source_proxy_routing_id));
+}
+
+void RenderFrameProxyHost::OnFrameFocused() {
+  frame_tree_node_->frame_tree()->SetFocusedFrame(frame_tree_node_,
+                                                  GetSiteInstance());
 }
 
 }  // namespace content

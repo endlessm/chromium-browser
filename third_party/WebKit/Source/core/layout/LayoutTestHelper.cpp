@@ -2,33 +2,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/layout/LayoutTestHelper.h"
 
-#include "core/loader/EmptyClients.h"
-#include "platform/graphics/GraphicsLayer.h"
-#include "platform/graphics/GraphicsLayerFactory.h"
+#include "core/frame/FrameHost.h"
+#include "core/html/HTMLIFrameElement.h"
+#include "platform/graphics/test/FakeGraphicsLayerFactory.h"
+#include "platform/scroll/ScrollbarTheme.h"
 
 namespace blink {
 
-class FakeGraphicsLayerFactory : public GraphicsLayerFactory {
-public:
-    PassOwnPtr<GraphicsLayer> createGraphicsLayer(GraphicsLayerClient* client) override
-    {
-        return adoptPtr(new GraphicsLayer(client));
-    }
-};
+namespace {
 
 class FakeChromeClient : public EmptyChromeClient {
 public:
     static PassOwnPtrWillBeRawPtr<FakeChromeClient> create() { return adoptPtrWillBeNoop(new FakeChromeClient); }
 
-    virtual GraphicsLayerFactory* graphicsLayerFactory() const
+    GraphicsLayerFactory* graphicsLayerFactory() const override
     {
-        static FakeGraphicsLayerFactory* factory = adoptPtr(new FakeGraphicsLayerFactory).leakPtr();
-        return factory;
+        return FakeGraphicsLayerFactory::instance();
     }
 };
+
+} // namespace
+
+RenderingTest::RenderingTest(PassOwnPtrWillBeRawPtr<FrameLoaderClient> frameLoaderClient)
+    : m_frameLoaderClient(frameLoaderClient) { }
 
 void RenderingTest::SetUp()
 {
@@ -36,7 +34,11 @@ void RenderingTest::SetUp()
     fillWithEmptyClients(pageClients);
     DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<FakeChromeClient>, chromeClient, (FakeChromeClient::create()));
     pageClients.chromeClient = chromeClient.get();
-    m_pageHolder = DummyPageHolder::create(IntSize(800, 600), &pageClients, nullptr, settingOverrider());
+    m_pageHolder = DummyPageHolder::create(IntSize(800, 600), &pageClients, m_frameLoaderClient.release(), settingOverrider());
+
+    Settings::setMockScrollbarsEnabled(true);
+    RuntimeEnabledFeatures::setOverlayScrollbarsEnabled(true);
+    EXPECT_TRUE(ScrollbarTheme::theme().usesOverlayScrollbars());
 
     // This ensures that the minimal DOM tree gets attached
     // correctly for tests that don't call setBodyInnerHTML.
@@ -45,10 +47,35 @@ void RenderingTest::SetUp()
 
 void RenderingTest::TearDown()
 {
+    if (m_subframe) {
+        m_subframe->detach(FrameDetachType::Remove);
+        static_cast<SingleChildFrameLoaderClient*>(document().frame()->client())->setChild(nullptr);
+        document().frame()->host()->decrementSubframeCount();
+    }
+
     // We need to destroy most of the Blink structure here because derived tests may restore
     // RuntimeEnabledFeatures setting during teardown, which happens before our destructor
     // getting invoked, breaking the assumption that REF can't change during Blink lifetime.
     m_pageHolder = nullptr;
+}
+
+Document& RenderingTest::setupChildIframe(const AtomicString& iframeElementId, const String& htmlContentOfIframe)
+{
+
+    HTMLIFrameElement& iframe = *toHTMLIFrameElement(document().getElementById(iframeElementId));
+    m_childFrameLoaderClient = FrameLoaderClientWithParent::create(document().frame());
+    m_subframe = LocalFrame::create(m_childFrameLoaderClient.get(), document().frame()->host(), &iframe);
+    m_subframe->setView(FrameView::create(m_subframe.get(), IntSize(500, 500)));
+    m_subframe->init();
+    m_subframe->view()->setParentVisible(true);
+    m_subframe->view()->setSelfVisible(true);
+    static_cast<SingleChildFrameLoaderClient*>(document().frame()->client())->setChild(m_subframe.get());
+    document().frame()->host()->incrementSubframeCount();
+    Document& frameDocument = *iframe.contentDocument();
+
+    frameDocument.setBaseURLOverride(KURL(ParsedURLString, "http://test.com"));
+    frameDocument.body()->setInnerHTML(htmlContentOfIframe, ASSERT_NO_EXCEPTION);
+    return frameDocument;
 }
 
 } // namespace blink

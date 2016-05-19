@@ -5,9 +5,8 @@
 #ifndef BASE_NUMERICS_SAFE_CONVERSIONS_IMPL_H_
 #define BASE_NUMERICS_SAFE_CONVERSIONS_IMPL_H_
 
-#include <limits>
-
-#include "base/template_util.h"
+#include <limits.h>
+#include <stdint.h>
 
 namespace base {
 namespace internal {

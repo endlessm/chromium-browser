@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <limits.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <iostream>
 #include <string>
@@ -10,7 +11,7 @@
 
 #include "base/command_line.h"
 #include "base/strings/string_split.h"
-#include "third_party/re2/re2/re2.h"
+#include "third_party/re2/src/re2/re2.h"
 #include "tools/ipc_fuzzer/message_lib/message_file.h"
 #include "tools/ipc_fuzzer/message_lib/message_names.h"
 

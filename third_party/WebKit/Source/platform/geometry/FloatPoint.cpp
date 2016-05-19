@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/geometry/FloatPoint.h"
 
 #include "SkPoint.h"
@@ -32,6 +31,7 @@
 #include "platform/geometry/DoublePoint.h"
 #include "platform/geometry/LayoutPoint.h"
 #include "platform/geometry/LayoutSize.h"
+#include "wtf/text/WTFString.h"
 #include <limits>
 #include <math.h>
 
@@ -114,4 +114,11 @@ bool findIntersection(const FloatPoint& p1, const FloatPoint& p2, const FloatPoi
     return true;
 }
 
+#ifndef NDEBUG
+String FloatPoint::toString() const
+{
+    return String::format("%f,%f", x(), y());
 }
+#endif
+
+} // namespace blink

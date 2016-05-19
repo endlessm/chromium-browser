@@ -15,7 +15,6 @@
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_item_view.h"
 #include "ash/system/tray/tray_utils.h"
-#include "ash/system/user/accounts_detailed_view.h"
 #include "ash/system/user/rounded_image_view.h"
 #include "ash/system/user/user_view.h"
 #include "base/logging.h"
@@ -108,21 +107,8 @@ views::View* TrayUser::CreateDefaultView(user::LoginStatus status) {
   if (user_index_ >= logged_in_users)
     return nullptr;
 
-  user_ = new tray::UserView(this, status, user_index_, false);
+  user_ = new tray::UserView(this, status, user_index_);
   return user_;
-}
-
-views::View* TrayUser::CreateDetailedView(user::LoginStatus status) {
-  const AccountId account_id = Shell::GetInstance()
-                                   ->session_state_delegate()
-                                   ->GetUserInfo(0)
-                                   ->GetAccountId();
-  tray::UserAccountsDelegate* delegate =
-      Shell::GetInstance()->system_tray_delegate()->GetUserAccountsDelegate(
-          account_id);
-  if (!delegate)
-    return nullptr;
-  return new tray::AccountsDetailedView(this, status, delegate);
 }
 
 void TrayUser::DestroyTrayView() {
@@ -133,9 +119,6 @@ void TrayUser::DestroyTrayView() {
 
 void TrayUser::DestroyDefaultView() {
   user_ = nullptr;
-}
-
-void TrayUser::DestroyDetailedView() {
 }
 
 void TrayUser::UpdateAfterLoginStatusChange(user::LoginStatus status) {
@@ -289,12 +272,7 @@ void TrayUser::UpdateAvatarImage(user::LoginStatus status) {
 }
 
 void TrayUser::UpdateLayoutOfItem() {
-  RootWindowController* controller = GetRootWindowController(
-      system_tray()->GetWidget()->GetNativeWindow()->GetRootWindow());
-  if (controller && controller->shelf()) {
-    UpdateAfterShelfAlignmentChange(
-        controller->GetShelfLayoutManager()->GetAlignment());
-  }
+  UpdateAfterShelfAlignmentChange(system_tray()->shelf_alignment());
 }
 
 }  // namespace ash

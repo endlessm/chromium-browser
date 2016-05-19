@@ -14,8 +14,7 @@
 
 BookmarkBubbleSignInDelegate::BookmarkBubbleSignInDelegate(Browser* browser)
     : browser_(browser),
-      profile_(browser->profile()),
-      desktop_type_(browser->host_desktop_type()) {
+      profile_(browser->profile()) {
   BrowserList::AddObserver(this);
 }
 
@@ -25,7 +24,8 @@ BookmarkBubbleSignInDelegate::~BookmarkBubbleSignInDelegate() {
 
 void BookmarkBubbleSignInDelegate::OnSignInLinkClicked() {
   EnsureBrowser();
-  chrome::ShowBrowserSignin(browser_, signin_metrics::SOURCE_BOOKMARK_BUBBLE);
+  chrome::ShowBrowserSignin(
+      browser_, signin_metrics::AccessPoint::ACCESS_POINT_BOOKMARK_BUBBLE);
 }
 
 void BookmarkBubbleSignInDelegate::OnBrowserRemoved(Browser* browser) {
@@ -36,11 +36,9 @@ void BookmarkBubbleSignInDelegate::OnBrowserRemoved(Browser* browser) {
 void BookmarkBubbleSignInDelegate::EnsureBrowser() {
   if (!browser_) {
     Profile* original_profile = profile_->GetOriginalProfile();
-    browser_ = chrome::FindLastActiveWithProfile(original_profile,
-                                                 desktop_type_);
+    browser_ = chrome::FindLastActiveWithProfile(original_profile);
     if (!browser_) {
-      browser_ = new Browser(Browser::CreateParams(original_profile,
-                                                   desktop_type_));
+      browser_ = new Browser(Browser::CreateParams(original_profile));
     }
   }
 }

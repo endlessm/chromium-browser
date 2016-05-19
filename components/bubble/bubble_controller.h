@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_BUBBLE_BUBBLE_CONTROLLER_H_
 #define COMPONENTS_BUBBLE_BUBBLE_CONTROLLER_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
@@ -13,6 +14,10 @@
 class BubbleDelegate;
 class BubbleManager;
 class BubbleUi;
+
+namespace content {
+class RenderFrameHost;
+}
 
 // BubbleController is responsible for the lifetime of the delegate and its UI.
 class BubbleController : public base::SupportsWeakPtr<BubbleController> {
@@ -47,8 +52,11 @@ class BubbleController : public base::SupportsWeakPtr<BubbleController> {
   // Returns true if the bubble should be closed.
   bool ShouldClose(BubbleCloseReason reason) const;
 
+  // Returns true if |frame| owns this bubble.
+  bool OwningFrameIs(const content::RenderFrameHost* frame) const;
+
   // Cleans up the delegate and its UI.
-  void DoClose();
+  void DoClose(BubbleCloseReason reason);
 
   BubbleManager* manager_;
   scoped_ptr<BubbleDelegate> delegate_;

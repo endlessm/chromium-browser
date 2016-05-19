@@ -5,6 +5,9 @@
 #ifndef NET_QUIC_CRYPTO_QUIC_DECRYPTER_H_
 #define NET_QUIC_CRYPTO_QUIC_DECRYPTER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "net/base/net_export.h"
 #include "net/quic/quic_protocol.h"
 
@@ -47,7 +50,8 @@ class NET_EXPORT_PRIVATE QuicDecrypter {
   // to form the nonce.
   // TODO(wtc): add a way for DecryptPacket to report decryption failure due
   // to non-authentic inputs, as opposed to other reasons for failure.
-  virtual bool DecryptPacket(QuicPacketNumber packet_number,
+  virtual bool DecryptPacket(QuicPathId path_id,
+                             QuicPacketNumber packet_number,
                              const base::StringPiece& associated_data,
                              const base::StringPiece& ciphertext,
                              char* output,
@@ -58,7 +62,7 @@ class NET_EXPORT_PRIVATE QuicDecrypter {
   virtual const char* cipher_name() const = 0;
   // The ID of the cipher. Return 0x03000000 ORed with the 'cryptographic suite
   // selector'.
-  virtual uint32 cipher_id() const = 0;
+  virtual uint32_t cipher_id() const = 0;
 
   // For use by unit tests only.
   virtual base::StringPiece GetKey() const = 0;

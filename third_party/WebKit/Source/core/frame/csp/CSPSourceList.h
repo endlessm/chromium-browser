@@ -8,6 +8,7 @@
 #include "core/CoreExport.h"
 #include "core/frame/csp/CSPSource.h"
 #include "platform/Crypto.h"
+#include "platform/heap/Handle.h"
 #include "platform/network/ContentSecurityPolicyParsers.h"
 #include "wtf/HashSet.h"
 #include "wtf/text/WTFString.h"
@@ -28,6 +29,7 @@ public:
     bool matches(const KURL&, ContentSecurityPolicy::RedirectStatus = ContentSecurityPolicy::DidNotRedirect) const;
     bool allowInline() const;
     bool allowEval() const;
+    bool allowDynamic() const;
     bool allowNonce(const String&) const;
     bool allowHash(const CSPHashValue&) const;
     uint8_t hashAlgorithmsUsed() const;
@@ -47,18 +49,21 @@ private:
     void addSourceStar();
     void addSourceUnsafeInline();
     void addSourceUnsafeEval();
+    void addSourceUnsafeDynamic();
     void addSourceNonce(const String& nonce);
     void addSourceHash(const ContentSecurityPolicyHashAlgorithm&, const DigestValue& hash);
 
     bool hasSourceMatchInList(const KURL&, ContentSecurityPolicy::RedirectStatus) const;
 
-    ContentSecurityPolicy* m_policy;
+    // TODO(Oilpan): consider moving ContentSecurityPolicy auxilliary objects to the heap.
+    RawPtrWillBeUntracedMember<ContentSecurityPolicy> m_policy;
     Vector<CSPSource> m_list;
     String m_directiveName;
     bool m_allowSelf;
     bool m_allowStar;
     bool m_allowInline;
     bool m_allowEval;
+    bool m_allowDynamic;
     HashSet<String> m_nonces;
     HashSet<CSPHashValue> m_hashes;
     uint8_t m_hashAlgorithmsUsed;

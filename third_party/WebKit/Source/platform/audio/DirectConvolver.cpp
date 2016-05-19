@@ -26,10 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
-#if ENABLE(WEB_AUDIO)
-
 #include "platform/audio/DirectConvolver.h"
 
 #if OS(MACOSX)
@@ -39,7 +35,7 @@
 #include "platform/audio/VectorMath.h"
 #include "wtf/CPU.h"
 
-#if (CPU(X86) || CPU(X86_64)) && !(OS(MACOSX) || USE(WEBAUDIO_IPP))
+#if (CPU(X86) || CPU(X86_64)) && !OS(MACOSX)
 #include <emmintrin.h>
 #endif
 
@@ -49,9 +45,6 @@ using namespace VectorMath;
 
 DirectConvolver::DirectConvolver(size_t inputBlockSize)
     : m_inputBlockSize(inputBlockSize)
-#if USE(WEBAUDIO_IPP)
-    , m_overlayBuffer(inputBlockSize)
-#endif // USE(WEBAUDIO_IPP)
     , m_buffer(inputBlockSize * 2)
 {
 }
@@ -76,19 +69,6 @@ void DirectConvolver::process(AudioFloatArray* convolutionKernel, const float* s
     if (!isCopyGood)
         return;
 
-#if USE(WEBAUDIO_IPP)
-    float* outputBuffer = m_buffer.data();
-    float* overlayBuffer = m_overlayBuffer.data();
-    bool isCopyGood2 = overlayBuffer && m_overlayBuffer.size() >= kernelSize && m_buffer.size() == m_inputBlockSize * 2;
-    ASSERT(isCopyGood2);
-    if (!isCopyGood2)
-        return;
-
-    ippsConv_32f(static_cast<const Ipp32f*>(sourceP), framesToProcess, static_cast<Ipp32f*>(kernelP), kernelSize, static_cast<Ipp32f*>(outputBuffer));
-
-    vadd(outputBuffer, 1, overlayBuffer, 1, destP, 1, framesToProcess);
-    memcpy(overlayBuffer, outputBuffer + m_inputBlockSize, sizeof(float) * kernelSize);
-#else
     float* inputP = m_buffer.data() + m_inputBlockSize;
 
     // Copy samples to 2nd half of input buffer.
@@ -419,17 +399,12 @@ void DirectConvolver::process(AudioFloatArray* convolutionKernel, const float* s
 
     // Copy 2nd half of input buffer to 1st half.
     memcpy(m_buffer.data(), inputP, sizeof(float) * framesToProcess);
-#endif
 }
 
 void DirectConvolver::reset()
 {
     m_buffer.zero();
-#if USE(WEBAUDIO_IPP)
-    m_overlayBuffer.zero();
-#endif // USE(WEBAUDIO_IPP)
 }
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

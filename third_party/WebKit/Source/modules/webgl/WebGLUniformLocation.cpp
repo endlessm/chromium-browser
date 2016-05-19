@@ -24,8 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "modules/webgl/WebGLUniformLocation.h"
 
 namespace blink {
@@ -65,4 +63,4 @@ DEFINE_TRACE(WebGLUniformLocation)
     visitor->trace(m_program);
 }
 
-}
+} // namespace blink

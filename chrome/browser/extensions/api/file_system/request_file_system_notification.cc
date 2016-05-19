@@ -4,12 +4,14 @@
 
 #include "chrome/browser/extensions/api/file_system/request_file_system_notification.h"
 
+#include <utility>
+
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
-#include "chrome/browser/extensions/app_icon_loader_impl.h"
+#include "chrome/browser/extensions/extension_app_icon_loader.h"
 #include "chrome/grit/generated_resources.h"
 #include "extensions/common/extension.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -63,7 +65,7 @@ scoped_ptr<Notification> CreateAutoGrantedNotification(
                                  notification_id),
       data, delegate));
 
-  return notification.Pass();
+  return notification;
 }
 
 }  // namespace
@@ -83,18 +85,18 @@ void RequestFileSystemNotification::ShowAutoGrantedNotification(
           extension, volume, writable,
           request_file_system_notification.get() /* delegate */));
   if (notification.get())
-    request_file_system_notification->Show(notification.Pass());
+    request_file_system_notification->Show(std::move(notification));
 }
 
-void RequestFileSystemNotification::SetAppImage(const std::string& id,
-                                                const gfx::ImageSkia& image) {
+void RequestFileSystemNotification::OnAppImageUpdated(
+    const std::string& id, const gfx::ImageSkia& image) {
   extension_icon_.reset(new gfx::Image(image));
 
   // If there is a pending notification, then show it now.
   if (pending_notification_.get()) {
     pending_notification_->set_icon(*extension_icon_.get());
     g_browser_process->message_center()->AddNotification(
-        pending_notification_.Pass());
+        std::move(pending_notification_));
   }
 }
 
@@ -102,7 +104,7 @@ RequestFileSystemNotification::RequestFileSystemNotification(
     Profile* profile,
     const extensions::Extension& extension)
     : icon_loader_(
-          new extensions::AppIconLoaderImpl(profile, kIconSize, this)) {
+          new extensions::ExtensionAppIconLoader(profile, kIconSize, this)) {
   icon_loader_->FetchImage(extension.id());
 }
 
@@ -119,5 +121,5 @@ void RequestFileSystemNotification::Show(
 
   pending_notification_->set_icon(*extension_icon_.get());
   g_browser_process->message_center()->AddNotification(
-      pending_notification_.Pass());
+      std::move(pending_notification_));
 }

@@ -4,7 +4,11 @@
 
 #include "base/trace_event/trace_buffer.h"
 
-#include "base/memory/scoped_vector.h"
+#include <utility>
+#include <vector>
+
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/trace_event/trace_event_impl.h"
 
 namespace base {
@@ -38,7 +42,7 @@ class TraceBufferRingBuffer : public TraceBuffer {
     if (*index >= chunks_.size())
       chunks_.resize(*index + 1);
 
-    TraceBufferChunk* chunk = chunks_[*index];
+    TraceBufferChunk* chunk = chunks_[*index].release();
     chunks_[*index] = NULL;  // Put NULL in the slot of a in-flight chunk.
     if (chunk)
       chunk->Reset(current_chunk_seq_++);
@@ -55,7 +59,7 @@ class TraceBufferRingBuffer : public TraceBuffer {
     DCHECK(chunk);
     DCHECK_LT(index, chunks_.size());
     DCHECK(!chunks_[index]);
-    chunks_[index] = chunk.release();
+    chunks_[index] = std::move(chunk);
     recyclable_chunks_queue_[queue_tail_] = index;
     queue_tail_ = NextQueueIndex(queue_tail_);
   }
@@ -74,7 +78,7 @@ class TraceBufferRingBuffer : public TraceBuffer {
   TraceEvent* GetEventByHandle(TraceEventHandle handle) override {
     if (handle.chunk_index >= chunks_.size())
       return NULL;
-    TraceBufferChunk* chunk = chunks_[handle.chunk_index];
+    TraceBufferChunk* chunk = chunks_[handle.chunk_index].get();
     if (!chunk || chunk->seq() != handle.chunk_seq)
       return NULL;
     return chunk->GetEventAt(handle.event_index);
@@ -90,22 +94,9 @@ class TraceBufferRingBuffer : public TraceBuffer {
       if (chunk_index >= chunks_.size())  // Skip uninitialized chunks.
         continue;
       DCHECK(chunks_[chunk_index]);
-      return chunks_[chunk_index];
+      return chunks_[chunk_index].get();
     }
     return NULL;
-  }
-
-  scoped_ptr<TraceBuffer> CloneForIteration() const override {
-    scoped_ptr<ClonedTraceBuffer> cloned_buffer(new ClonedTraceBuffer());
-    for (size_t queue_index = queue_head_; queue_index != queue_tail_;
-         queue_index = NextQueueIndex(queue_index)) {
-      size_t chunk_index = recyclable_chunks_queue_[queue_index];
-      if (chunk_index >= chunks_.size())  // Skip uninitialized chunks.
-        continue;
-      TraceBufferChunk* chunk = chunks_[chunk_index];
-      cloned_buffer->chunks_.push_back(chunk ? chunk->Clone().release() : NULL);
-    }
-    return cloned_buffer.Pass();
   }
 
   void EstimateTraceMemoryOverhead(
@@ -121,43 +112,6 @@ class TraceBufferRingBuffer : public TraceBuffer {
   }
 
  private:
-  class ClonedTraceBuffer : public TraceBuffer {
-   public:
-    ClonedTraceBuffer() : current_iteration_index_(0) {}
-
-    // The only implemented method.
-    const TraceBufferChunk* NextChunk() override {
-      return current_iteration_index_ < chunks_.size()
-                 ? chunks_[current_iteration_index_++]
-                 : NULL;
-    }
-
-    scoped_ptr<TraceBufferChunk> GetChunk(size_t* index) override {
-      NOTIMPLEMENTED();
-      return scoped_ptr<TraceBufferChunk>();
-    }
-    void ReturnChunk(size_t index, scoped_ptr<TraceBufferChunk>) override {
-      NOTIMPLEMENTED();
-    }
-    bool IsFull() const override { return false; }
-    size_t Size() const override { return 0; }
-    size_t Capacity() const override { return 0; }
-    TraceEvent* GetEventByHandle(TraceEventHandle handle) override {
-      return NULL;
-    }
-    scoped_ptr<TraceBuffer> CloneForIteration() const override {
-      NOTIMPLEMENTED();
-      return scoped_ptr<TraceBuffer>();
-    }
-    void EstimateTraceMemoryOverhead(
-        TraceEventMemoryOverhead* overhead) override {
-      NOTIMPLEMENTED();
-    }
-
-    size_t current_iteration_index_;
-    ScopedVector<TraceBufferChunk> chunks_;
-  };
-
   bool QueueIsEmpty() const { return queue_head_ == queue_tail_; }
 
   size_t QueueSize() const {
@@ -181,14 +135,14 @@ class TraceBufferRingBuffer : public TraceBuffer {
   }
 
   size_t max_chunks_;
-  ScopedVector<TraceBufferChunk> chunks_;
+  std::vector<scoped_ptr<TraceBufferChunk>> chunks_;
 
   scoped_ptr<size_t[]> recyclable_chunks_queue_;
   size_t queue_head_;
   size_t queue_tail_;
 
   size_t current_iteration_index_;
-  uint32 current_chunk_seq_;
+  uint32_t current_chunk_seq_;
 
   DISALLOW_COPY_AND_ASSIGN(TraceBufferRingBuffer);
 };
@@ -212,7 +166,7 @@ class TraceBufferVector : public TraceBuffer {
     ++in_flight_chunk_count_;
     // + 1 because zero chunk_seq is not allowed.
     return scoped_ptr<TraceBufferChunk>(
-        new TraceBufferChunk(static_cast<uint32>(*index) + 1));
+        new TraceBufferChunk(static_cast<uint32_t>(*index) + 1));
   }
 
   void ReturnChunk(size_t index, scoped_ptr<TraceBufferChunk> chunk) override {
@@ -253,11 +207,6 @@ class TraceBufferVector : public TraceBuffer {
     return NULL;
   }
 
-  scoped_ptr<TraceBuffer> CloneForIteration() const override {
-    NOTIMPLEMENTED();
-    return scoped_ptr<TraceBuffer>();
-  }
-
   void EstimateTraceMemoryOverhead(
       TraceEventMemoryOverhead* overhead) override {
     const size_t chunks_ptr_vector_allocated_size =
@@ -286,11 +235,11 @@ class TraceBufferVector : public TraceBuffer {
 
 }  // namespace
 
-TraceBufferChunk::TraceBufferChunk(uint32 seq) : next_free_(0), seq_(seq) {}
+TraceBufferChunk::TraceBufferChunk(uint32_t seq) : next_free_(0), seq_(seq) {}
 
 TraceBufferChunk::~TraceBufferChunk() {}
 
-void TraceBufferChunk::Reset(uint32 new_seq) {
+void TraceBufferChunk::Reset(uint32_t new_seq) {
   for (size_t i = 0; i < next_free_; ++i)
     chunk_[i].Reset();
   next_free_ = 0;
@@ -302,14 +251,6 @@ TraceEvent* TraceBufferChunk::AddTraceEvent(size_t* event_index) {
   DCHECK(!IsFull());
   *event_index = next_free_++;
   return &chunk_[*event_index];
-}
-
-scoped_ptr<TraceBufferChunk> TraceBufferChunk::Clone() const {
-  scoped_ptr<TraceBufferChunk> cloned_chunk(new TraceBufferChunk(seq_));
-  cloned_chunk->next_free_ = next_free_;
-  for (size_t i = 0; i < next_free_; ++i)
-    cloned_chunk->chunk_[i].CopyFrom(chunk_[i]);
-  return cloned_chunk.Pass();
 }
 
 void TraceBufferChunk::EstimateTraceMemoryOverhead(

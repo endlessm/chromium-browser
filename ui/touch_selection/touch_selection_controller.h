@@ -5,6 +5,7 @@
 #ifndef UI_TOUCH_SELECTION_TOUCH_SELECTION_CONTROLLER_H_
 #define UI_TOUCH_SELECTION_TOUCH_SELECTION_CONTROLLER_H_
 
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "ui/base/touch/selection_bound.h"
 #include "ui/gfx/geometry/point_f.h"
@@ -100,6 +101,10 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
   // showing the selection or insertion handles from subsequent bounds changes.
   bool WillHandleLongPressEvent(base::TimeTicks event_time,
                                 const gfx::PointF& location);
+
+  // To be called before forwarding a gesture scroll begin event to prevent
+  // long-press drag.
+  void OnScrollBeginEvent();
 
   // Allow showing the selection handles from the most recent selection bounds
   // update (if valid), or a future valid bounds update.

@@ -240,7 +240,9 @@ def SetUpArch():
              'X8664': 'x86_64-none-nacl-gnu',
              'ARM': 'armv7a-none-nacl-gnueabihf',
              'MIPS32': 'mipsel-none-nacl-gnu'},
-        'linux': {'X8632': 'i686-linux-gnu'},
+        'linux':
+            {'X8632': 'i686-linux-gnu',
+             'X8664': 'x86_64-linux-gnux32'},
         'mac': {'X8632': 'i686-apple-darwin'}}
   env.set('TRIPLE', triple_map[env.getone('TARGET_OS')][base_arch])
 
@@ -277,11 +279,18 @@ def SetUpArch():
   # currently offers no optimized path for reading the thread pointer.
   if env.getone('TARGET_OS') != 'nacl' or env.getbool('NONSFI_NACL'):
     env.append('LLC_FLAGS_ARCH', '-mtls-use-call')
-  # For Subzero, determine -target and -sandbox options.
-  env.append('SZ_FLAGS_ARCH', '--sandbox=' +
-             ('1' if env.getone('TARGET_OS') == 'nacl' else '0'))
+  # For Subzero, determine -target, -sandbox, and -nonsfi options.
+  is_sandbox = '0'
+  is_nonsfi = '0'
+  if env.getone('TARGET_OS') == 'nacl':
+    if env.getbool('NONSFI_NACL'):
+      is_nonsfi = '1'
+    else:
+      is_sandbox = '1'
+  env.append('SZ_FLAGS_ARCH', '--sandbox=' + is_sandbox)
+  env.append('SZ_FLAGS_ARCH', '--nonsfi=' + is_nonsfi)
   env.append('SZ_FLAGS_ARCH', '--target=' + base_arch.lower())
-  if base_arch != 'X8632':
+  if base_arch not in ('X8632', 'X8664'):
     env.set('SZ_UNSUPPORTED', '1')
     # Hard-fail on an unsupported architecture.
     if env.getbool('USE_SZ'):
@@ -486,11 +495,16 @@ def RunHostLD(infile, outfile):
                       infile])
   lib_dir = (env.getone('BASE_LIB_NATIVE')
              + 'x86-32-%s/lib' % env.getone('TARGET_OS'))
+  # TODO(stichnot): Consider making fully linked executable smaller by packaging
+  # the .o files into an archive, and/or building the .o files with
+  # -function-sections and linking with -gc-sections.
   args = ['gcc', '-m32', infile, '-o', outfile,
           os.path.join(lib_dir, 'unsandboxed_irt.o'),
           os.path.join(lib_dir, 'irt_random.o'),
           os.path.join(lib_dir, 'irt_query_list.o'),
-          '-lpthread']
+          os.path.join(lib_dir, 'szrt.o'),
+          os.path.join(lib_dir, 'szrt_ll.o'),
+          '-lm', '-lpthread']
   if env.getone('TARGET_OS') == 'linux':
     args.append('-lrt')  # For clock_gettime()
   driver_tools.Run(args)

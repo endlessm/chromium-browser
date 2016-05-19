@@ -5,7 +5,6 @@
 #ifndef PPAPI_PROXY_PPAPI_MESSAGE_UTILS_H_
 #define PPAPI_PROXY_PPAPI_MESSAGE_UTILS_H_
 
-#include "base/basictypes.h"
 #include "base/pickle.h"
 #include "base/tuple.h"
 #include "ipc/ipc_message.h"
@@ -23,7 +22,7 @@ struct TupleTypeMatch1 {
   static const bool kValue = false;
 };
 template <class A>
-struct TupleTypeMatch1<base::Tuple<A>, A> {
+struct TupleTypeMatch1<std::tuple<A>, A> {
   static const bool kValue = true;
 };
 
@@ -32,7 +31,7 @@ struct TupleTypeMatch2 {
   static const bool kValue = false;
 };
 template <class A, class B>
-struct TupleTypeMatch2<base::Tuple<A, B>, A, B> {
+struct TupleTypeMatch2<std::tuple<A, B>, A, B> {
   static const bool kValue = true;
 };
 
@@ -41,7 +40,7 @@ struct TupleTypeMatch3 {
   static const bool kValue = false;
 };
 template <class A, class B, class C>
-struct TupleTypeMatch3<base::Tuple<A, B, C>, A, B, C> {
+struct TupleTypeMatch3<std::tuple<A, B, C>, A, B, C> {
   static const bool kValue = true;
 };
 
@@ -50,7 +49,7 @@ struct TupleTypeMatch4 {
   static const bool kValue = false;
 };
 template <class A, class B, class C, class D>
-struct TupleTypeMatch4<base::Tuple<A, B, C, D>, A, B, C, D> {
+struct TupleTypeMatch4<std::tuple<A, B, C, D>, A, B, C, D> {
   static const bool kValue = true;
 };
 
@@ -59,7 +58,7 @@ struct TupleTypeMatch5 {
   static const bool kValue = false;
 };
 template <class A, class B, class C, class D, class E>
-struct TupleTypeMatch5<base::Tuple<A, B, C, D, E>, A, B, C, D, E> {
+struct TupleTypeMatch5<std::tuple<A, B, C, D, E>, A, B, C, D, E> {
   static const bool kValue = true;
 };
 

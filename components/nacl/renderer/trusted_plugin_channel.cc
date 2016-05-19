@@ -23,12 +23,9 @@ TrustedPluginChannel::TrustedPluginChannel(
     : nexe_load_manager_(nexe_load_manager),
       is_helper_nexe_(is_helper_nexe) {
   channel_ = IPC::SyncChannel::Create(
-      handle,
-      IPC::Channel::MODE_CLIENT,
-      this,
-      content::RenderThread::Get()->GetIOMessageLoopProxy(),
-      true,
-      shutdown_event).Pass();
+      handle, IPC::Channel::MODE_CLIENT, this,
+      content::RenderThread::Get()->GetIOMessageLoopProxy(), true,
+      shutdown_event);
 }
 
 TrustedPluginChannel::~TrustedPluginChannel() {
@@ -43,7 +40,7 @@ bool TrustedPluginChannel::OnMessageReceived(const IPC::Message& msg) {
   IPC_BEGIN_MESSAGE_MAP(TrustedPluginChannel, msg)
     IPC_MESSAGE_HANDLER(NaClRendererMsg_ReportExitStatus, OnReportExitStatus);
     IPC_MESSAGE_HANDLER(NaClRendererMsg_ReportLoadStatus, OnReportLoadStatus);
-    IPC_MESSAGE_UNHANDLED(handled = false);
+    IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
 }

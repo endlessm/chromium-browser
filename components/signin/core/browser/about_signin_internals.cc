@@ -4,16 +4,19 @@
 
 #include "components/signin/core/browser/about_signin_internals.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/hash.h"
 #include "base/i18n/time_formatting.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_client.h"
@@ -21,6 +24,7 @@
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/signin/core/common/signin_switches.h"
+#include "net/base/backoff_entry.h"
 
 using base::Time;
 using namespace signin_internals_util;
@@ -270,6 +274,7 @@ void AboutSigninInternals::NotifyObservers() {
                              signin_manager_,
                              signin_error_controller_,
                              token_service_,
+                             cookie_manager_service_,
                              product_version);
 
   // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
@@ -284,11 +289,9 @@ void AboutSigninInternals::NotifyObservers() {
 }
 
 scoped_ptr<base::DictionaryValue> AboutSigninInternals::GetSigninStatus() {
-  return signin_status_.ToValue(account_tracker_,
-                                signin_manager_,
-                                signin_error_controller_,
-                                token_service_,
-                                client_->GetProductVersion()).Pass();
+  return signin_status_.ToValue(
+      account_tracker_, signin_manager_, signin_error_controller_,
+      token_service_, cookie_manager_service_, client_->GetProductVersion());
 }
 
 void AboutSigninInternals::OnAccessTokenRequested(
@@ -498,6 +501,7 @@ scoped_ptr<base::DictionaryValue> AboutSigninInternals::SigninStatus::ToValue(
     SigninManagerBase* signin_manager,
     SigninErrorController* signin_error_controller,
     ProfileOAuth2TokenService* token_service,
+    GaiaCookieManagerService* cookie_manager_service_,
     const std::string& product_version) {
   // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
   // fixed.
@@ -512,8 +516,6 @@ scoped_ptr<base::DictionaryValue> AboutSigninInternals::SigninStatus::ToValue(
   // A summary of signin related info first.
   base::ListValue* basic_info = AddSection(signin_info, "Basic Information");
   AddSectionEntry(basic_info, "Chrome Version", product_version);
-  AddSectionEntry(basic_info, "Webview Based Signin?",
-      switches::IsEnableWebviewBasedSignin() == true ? "On" : "Off");
   AddSectionEntry(basic_info, "New Profile Management?",
       switches::IsNewProfileManagement() == true ? "On" : "Off");
   AddSectionEntry(basic_info, "Account Consistency?",
@@ -574,6 +576,42 @@ scoped_ptr<base::DictionaryValue> AboutSigninInternals::SigninStatus::ToValue(
                     timed_signin_fields[i - TIMED_FIELDS_BEGIN].first,
                     timed_signin_fields[i - TIMED_FIELDS_BEGIN].second);
   }
+
+  const net::BackoffEntry* cookie_manager_backoff_entry =
+      cookie_manager_service_->GetBackoffEntry();
+
+  if (cookie_manager_backoff_entry->ShouldRejectRequest()) {
+    Time next_retry_time = Time::NowFromSystemTime() +
+        cookie_manager_backoff_entry->GetTimeUntilRelease();
+
+    std::string next_retry_time_as_str =
+        base::UTF16ToUTF8(
+            base::TimeFormatShortDateAndTime(next_retry_time));
+
+    AddSectionEntry(detailed_info,
+                    "Cookie Manager Next Retry",
+                    next_retry_time_as_str,
+                    "");
+  }
+
+  const net::BackoffEntry* token_service_backoff_entry = token_service->
+      GetDelegateBackoffEntry();
+
+  if (token_service_backoff_entry &&
+      token_service_backoff_entry->ShouldRejectRequest()) {
+    Time next_retry_time = Time::NowFromSystemTime() +
+        token_service_backoff_entry->GetTimeUntilRelease();
+
+    std::string next_retry_time_as_str =
+        base::UTF16ToUTF8(
+            base::TimeFormatShortDateAndTime(next_retry_time));
+
+    AddSectionEntry(detailed_info,
+                  "Token Service Next Retry",
+                  next_retry_time_as_str,
+                  "");
+  }
+
 #endif // !defined(OS_CHROMEOS)
 
   // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
@@ -634,5 +672,5 @@ scoped_ptr<base::DictionaryValue> AboutSigninInternals::SigninStatus::ToValue(
     account_info->Append(entry);
   }
 
-  return signin_status.Pass();
+  return signin_status;
 }

@@ -5,15 +5,17 @@
 #include "chrome/browser/ui/webui/voice_search_ui.h"
 
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
@@ -30,6 +32,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
@@ -197,15 +200,11 @@ class VoiceSearchDomHandler : public WebUIMessageHandler {
     }
     base::ListValue* raw_list = list.get();
     content::BrowserThread::PostTask(
-        content::BrowserThread::FILE,
-        FROM_HERE,
-        base::Bind(
-            &AddSharedModulePlatformsOnFileThread,
-            raw_list,
-            path,
-            base::Bind(&VoiceSearchDomHandler::ReturnVoiceSearchInfo,
-                       weak_factory_.GetWeakPtr(),
-                       base::Passed(list.Pass()))));
+        content::BrowserThread::FILE, FROM_HERE,
+        base::Bind(&AddSharedModulePlatformsOnFileThread, raw_list, path,
+                   base::Bind(&VoiceSearchDomHandler::ReturnVoiceSearchInfo,
+                              weak_factory_.GetWeakPtr(),
+                              base::Passed(std::move(list)))));
   }
 
   // Adds information regarding the system and chrome version info to list.

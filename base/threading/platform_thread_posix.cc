@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sched.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 
@@ -16,6 +18,7 @@
 #include "base/threading/platform_thread_internal_posix.h"
 #include "base/threading/thread_id_name_manager.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/build_config.h"
 
 #if defined(OS_LINUX)
 #include <sys/syscall.h>
@@ -26,7 +29,6 @@
 namespace base {
 
 void InitThreading();
-void InitOnThread();
 void TerminateOnThread();
 size_t GetDefaultThreadStackSize(const pthread_attr_t& attributes);
 
@@ -42,8 +44,6 @@ struct ThreadParams {
 };
 
 void* ThreadFunc(void* params) {
-  base::InitOnThread();
-
   PlatformThread::Delegate* delegate = nullptr;
 
   {
@@ -53,8 +53,12 @@ void* ThreadFunc(void* params) {
     if (!thread_params->joinable)
       base::ThreadRestrictions::SetSingletonAllowed(false);
 
-    if (thread_params->priority != ThreadPriority::NORMAL)
-      PlatformThread::SetCurrentThreadPriority(thread_params->priority);
+#if !defined(OS_NACL)
+    // Threads on linux/android may inherit their priority from the thread
+    // where they were created. This explicitly sets the priority of all new
+    // threads.
+    PlatformThread::SetCurrentThreadPriority(thread_params->priority);
+#endif
   }
 
   ThreadIdNameManager::GetInstance()->RegisterThread(
@@ -136,9 +140,9 @@ PlatformThreadId PlatformThread::CurrentId() {
   return pthread_self();
 #elif defined(OS_NACL) && !defined(__GLIBC__)
   // Pointers are 32-bits in NaCl.
-  return reinterpret_cast<int32>(pthread_self());
+  return reinterpret_cast<int32_t>(pthread_self());
 #elif defined(OS_POSIX)
-  return reinterpret_cast<int64>(pthread_self());
+  return reinterpret_cast<int64_t>(pthread_self());
 #endif
 }
 

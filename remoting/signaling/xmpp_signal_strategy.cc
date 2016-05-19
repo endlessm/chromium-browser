@@ -4,11 +4,13 @@
 
 #include "remoting/signaling/xmpp_signal_strategy.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
@@ -43,6 +45,9 @@ namespace remoting {
 XmppSignalStrategy::XmppServerConfig::XmppServerConfig()
     : port(kDefaultXmppPort), use_tls(true) {
 }
+
+XmppSignalStrategy::XmppServerConfig::XmppServerConfig(
+    const XmppServerConfig& other) = default;
 
 XmppSignalStrategy::XmppServerConfig::~XmppServerConfig() {
 }
@@ -285,7 +290,7 @@ void XmppSignalStrategy::Core::StartTls() {
 
   scoped_ptr<net::ClientSocketHandle> socket_handle(
       new net::ClientSocketHandle());
-  socket_handle->SetSocket(socket_.Pass());
+  socket_handle->SetSocket(std::move(socket_));
 
   cert_verifier_ = net::CertVerifier::CreateDefault();
   transport_security_state_.reset(new net::TransportSecurityState());
@@ -294,7 +299,7 @@ void XmppSignalStrategy::Core::StartTls() {
   context.transport_security_state = transport_security_state_.get();
 
   socket_ = socket_factory_->CreateSSLClientSocket(
-      socket_handle.Pass(),
+      std::move(socket_handle),
       net::HostPortPair(xmpp_server_config_.host, kDefaultHttpsPort),
       net::SSLConfig(), context);
 
@@ -310,7 +315,7 @@ void XmppSignalStrategy::Core::OnHandshakeDone(
   DCHECK(thread_checker_.CalledOnValidThread());
 
   jid_ = jid;
-  stream_parser_ = parser.Pass();
+  stream_parser_ = std::move(parser);
   stream_parser_->SetCallbacks(
       base::Bind(&Core::OnStanza, base::Unretained(this)),
       base::Bind(&Core::OnParserError, base::Unretained(this)));
@@ -522,7 +527,7 @@ void XmppSignalStrategy::RemoveListener(Listener* listener) {
   core_->RemoveListener(listener);
 }
 bool XmppSignalStrategy::SendStanza(scoped_ptr<buzz::XmlElement> stanza) {
-  return core_->SendStanza(stanza.Pass());
+  return core_->SendStanza(std::move(stanza));
 }
 
 std::string XmppSignalStrategy::GetNextId() {

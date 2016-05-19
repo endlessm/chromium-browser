@@ -5,9 +5,12 @@
 #ifndef COMPONENTS_SYNC_DRIVER_DEVICE_INFO_SYNC_SERVICE_H_
 #define COMPONENTS_SYNC_DRIVER_DEVICE_INFO_SYNC_SERVICE_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
@@ -49,13 +52,8 @@ class DeviceInfoSyncService : public syncer::SyncableService,
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
 
-  // Called to update local device backup time.
-  void UpdateLocalDeviceBackupTime(base::Time backup_time);
-  // Gets the most recently set local device backup time.
-  base::Time GetLocalDeviceBackupTime() const;
-
  private:
-  // Create SyncData from local DeviceInfo and |local_device_backup_time_|.
+  // Create SyncData from local DeviceInfo.
   syncer::SyncData CreateLocalData(const DeviceInfo* info);
   // Create SyncData from EntitySpecifics.
   static syncer::SyncData CreateLocalData(
@@ -70,25 +68,6 @@ class DeviceInfoSyncService : public syncer::SyncableService,
   void DeleteSyncData(const std::string& client_id);
   // Notify all registered observers.
   void NotifyObservers();
-
-  // Updates backup time in place in |sync_data| if it is different than
-  // the one stored in |local_device_backup_time_|.
-  // Returns true if backup time was updated.
-  bool UpdateBackupTime(syncer::SyncData* sync_data);
-
-  // |local_device_backup_time_| accessors.
-  int64 local_device_backup_time() const { return local_device_backup_time_; }
-  bool has_local_device_backup_time() const {
-    return local_device_backup_time_ >= 0;
-  }
-  void set_local_device_backup_time(int64 value) {
-    local_device_backup_time_ = value;
-  }
-  void clear_local_device_backup_time() { local_device_backup_time_ = -1; }
-
-  // Local device last set backup time (in proto format).
-  // -1 if the value hasn't been specified
-  int64 local_device_backup_time_;
 
   // |local_device_info_provider_| isn't owned.
   const LocalDeviceInfoProvider* const local_device_info_provider_;

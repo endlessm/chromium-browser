@@ -5,17 +5,7 @@
 {
   'variables': {
     'content_shell_product_name': 'Content Shell',
-    # The "19" is so that sites that sniff for version think that this is
-    # something reasonably current; the "77.34.5" is a hint that this isn't a
-    # standard Chrome.
-    'content_shell_version': '19.77.34.5',
-    'conditions': [
-      ['OS=="linux"', {
-       'use_custom_freetype%': 1,
-      }, {
-       'use_custom_freetype%': 0,
-      }],
-    ],
+    'content_shell_version': '99.77.34.5',
   },
   'targets': [
     {
@@ -49,7 +39,7 @@
         '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations',
         '../cc/blink/cc_blink.gyp:cc_blink',
         '../cc/cc.gyp:cc',
-        '../components/components.gyp:crash_component_breakpad_mac_to_be_deleted',
+        '../components/components.gyp:crash_component_breakpad_to_be_deleted',
         '../components/components.gyp:devtools_discovery',
         '../components/components.gyp:devtools_http_handler',
         '../components/components.gyp:web_cache_renderer',
@@ -65,6 +55,7 @@
         '../media/media.gyp:media',
         '../net/net.gyp:net',
         '../net/net.gyp:net_resources',
+        '../ppapi/ppapi_internal.gyp:blink_test_plugin',
         '../skia/skia.gyp:skia',
         '../storage/storage_browser.gyp:storage',
         '../third_party/WebKit/public/blink.gyp:blink',
@@ -91,6 +82,11 @@
         'shell/android/shell_jni_registrar.h',
         'shell/android/shell_manager.cc',
         'shell/android/shell_manager.h',
+        'shell/app/blink_test_platform_support.h',
+        'shell/app/blink_test_platform_support_android.cc',
+        'shell/app/blink_test_platform_support_linux.cc',
+        'shell/app/blink_test_platform_support_mac.mm',
+        'shell/app/blink_test_platform_support_win.cc',
         'shell/app/paths_mac.h',
         'shell/app/paths_mac.mm',
         'shell/app/shell_crash_reporter_client.cc',
@@ -99,8 +95,8 @@
         'shell/app/shell_main_delegate.h',
         'shell/app/shell_main_delegate_mac.h',
         'shell/app/shell_main_delegate_mac.mm',
-        'shell/browser/blink_test_controller.cc',
-        'shell/browser/blink_test_controller.h',
+        'shell/browser/layout_test/blink_test_controller.cc',
+        'shell/browser/layout_test/blink_test_controller.h',
         'shell/browser/layout_test/layout_test_android.cc',
         'shell/browser/layout_test/layout_test_android.h',
         'shell/browser/layout_test/layout_test_bluetooth_adapter_provider.cc',
@@ -135,8 +131,10 @@
         'shell/browser/layout_test/layout_test_resource_dispatcher_host_delegate.h',
         'shell/browser/layout_test/layout_test_url_request_context_getter.cc',
         'shell/browser/layout_test/layout_test_url_request_context_getter.h',
-        'shell/browser/notify_done_forwarder.cc',
-        'shell/browser/notify_done_forwarder.h',
+        'shell/browser/layout_test/notify_done_forwarder.cc',
+        'shell/browser/layout_test/notify_done_forwarder.h',
+        'shell/browser/layout_test/test_info_extractor.cc',
+        'shell/browser/layout_test/test_info_extractor.h',
         'shell/browser/shell.cc',
         'shell/browser/shell.h',
         'shell/browser/shell_access_token_store.cc',
@@ -237,11 +235,6 @@
         },
       },
       'conditions': [
-        ['OS=="win" and win_use_allocator_shim==1', {
-          'dependencies': [
-            '../base/allocator/allocator.gyp:allocator',
-          ],
-        }],
         ['OS=="win"', {
           'resource_include_dirs': [
             '<(SHARED_INTERMEDIATE_DIR)/content/app/strings',
@@ -264,6 +257,7 @@
         ['OS=="linux"', {
           'dependencies': [
             '../build/linux/system.gyp:fontconfig',
+            '../third_party/freetype2/freetype2.gyp:freetype2',
           ],
         }],
         ['use_x11 == 1', {
@@ -277,19 +271,15 @@
             '../mojo/mojo_base.gyp:libmojo_system_java',
             'content_shell_jni_headers',
           ],
-          'dependencies!': [
-            'copy_test_netscape_plugin',
-          ],
         }],  # OS=="android"
         ['os_posix == 1 and OS != "mac"', {
           'dependencies': [
             '../components/components.gyp:breakpad_host',
           ],
         }],
-        ['(OS=="linux" or OS=="android") and use_allocator!="none"', {
-          'dependencies': [
-            # This is needed by content/app/content_main_runner.cc
-            '../base/allocator/allocator.gyp:allocator',
+        ['debug_devtools==1', {
+          'defines': [
+            'DEBUG_DEVTOOLS=1',
           ],
         }],
         ['use_aura==1', {
@@ -323,23 +313,12 @@
             ['exclude', 'shell/browser/shell_views.cc'],
           ],
         }],  # use_aura==1
-        # The test plugin relies on X11.
-        ['OS=="linux" and use_x11==0', {
-          'dependencies!': [
-            'copy_test_netscape_plugin',
-          ],
-        }],
         ['chromeos==1', {
           'dependencies': [
             '../chromeos/chromeos.gyp:chromeos',
             '../ui/wm/wm.gyp:wm_test_support',
            ],
         }], # chromeos==1
-        ['use_custom_freetype==1', {
-          'dependencies': [
-             '../third_party/freetype2/freetype2.gyp:freetype2',
-          ],
-        }],
         ['enable_plugins==0', {
           'sources!': [
             'shell/browser/shell_plugin_service_filter.cc',
@@ -481,11 +460,6 @@
         },
       },
       'conditions': [
-        ['OS=="win" and win_use_allocator_shim==1', {
-          'dependencies': [
-            '../base/allocator/allocator.gyp:allocator',
-          ],
-        }],
         ['OS=="win"', {
           'sources': [
             'shell/app/shell.rc',
@@ -499,19 +473,21 @@
               },
             },
           },
-        }],  # OS=="win"
-        ['OS == "win"', {
           'dependencies': [
             '../sandbox/sandbox.gyp:sandbox',
           ],
+          'conditions': [
+            ['win_console_app==1', {
+              'defines': ['WIN_CONSOLE_APP'],
+            }, { # else win_console_app==0
+              'msvs_settings': {
+                'VCLinkerTool': {
+                  'SubSystem': '2',  # Set /SUBSYSTEM:WINDOWS
+                },
+              },
+            }],
+          ],
         }],  # OS=="win"
-        ['OS=="win" and asan==0', {
-          'msvs_settings': {
-            'VCLinkerTool': {
-              'SubSystem': '2',  # Set /SUBSYSTEM:WINDOWS
-            },
-          },
-        }],  # OS=="win" and asan==0
         ['OS=="mac"', {
           'product_name': '<(content_shell_product_name)',
           'dependencies!': [
@@ -564,88 +540,80 @@
         'content_shell',
       ],
     },
-
     {
       'target_name': 'test_netscape_plugin',
-      'type': 'loadable_module',
-      'sources': [
-        'shell/tools/plugin/PluginObject.cpp',
-        'shell/tools/plugin/PluginObject.h',
-        'shell/tools/plugin/PluginObjectMac.mm',
-        'shell/tools/plugin/PluginTest.cpp',
-        'shell/tools/plugin/PluginTest.h',
-        'shell/tools/plugin/TestObject.cpp',
-        'shell/tools/plugin/Tests/DocumentOpenInDestroyStream.cpp',
-        'shell/tools/plugin/Tests/EvaluateJSAfterRemovingPluginElement.cpp',
-        'shell/tools/plugin/Tests/FormValue.cpp',
-        'shell/tools/plugin/Tests/GetURLNotifyWithURLThatFailsToLoad.cpp',
-        'shell/tools/plugin/Tests/GetURLWithJavaScriptURL.cpp',
-        'shell/tools/plugin/Tests/GetURLWithJavaScriptURLDestroyingPlugin.cpp',
-        'shell/tools/plugin/Tests/GetUserAgentWithNullNPPFromNPPNew.cpp',
-        'shell/tools/plugin/Tests/LeakWindowScriptableObject.cpp',
-        'shell/tools/plugin/Tests/LogNPPSetWindow.cpp',
-        'shell/tools/plugin/Tests/NPDeallocateCalledBeforeNPShutdown.cpp',
-        'shell/tools/plugin/Tests/NPPNewFails.cpp',
-        'shell/tools/plugin/Tests/NPRuntimeCallsWithNullNPP.cpp',
-        'shell/tools/plugin/Tests/NPRuntimeObjectFromDestroyedPlugin.cpp',
-        'shell/tools/plugin/Tests/NPRuntimeRemoveProperty.cpp',
-        'shell/tools/plugin/Tests/NullNPPGetValuePointer.cpp',
-        'shell/tools/plugin/Tests/PassDifferentNPPStruct.cpp',
-        'shell/tools/plugin/Tests/PluginScriptableNPObjectInvokeDefault.cpp',
-        'shell/tools/plugin/Tests/PluginScriptableObjectOverridesAllProperties.cpp',
-        'shell/tools/plugin/main.cpp',
-        'shell/tools/plugin/test_object.h',
-      ],
-      'include_dirs': [
-        '<(DEPTH)',
-        '<(DEPTH)/content/shell/tools/plugin/',
-      ],
-      'dependencies': [
-        '../base/base.gyp:base',
-        '../third_party/npapi/npapi.gyp:npapi',
-      ],
       'conditions': [
-        ['OS=="mac"', {
-          'mac_bundle': 1,
-          'product_extension': 'plugin',
-          'link_settings': {
-            'libraries': [
-              '$(SDKROOT)/System/Library/Frameworks/Carbon.framework',
-              '$(SDKROOT)/System/Library/Frameworks/Cocoa.framework',
-              '$(SDKROOT)/System/Library/Frameworks/QuartzCore.framework',
-            ]
-          },
-          'xcode_settings': {
-            'GCC_SYMBOLS_PRIVATE_EXTERN': 'NO',
-            'INFOPLIST_FILE': 'shell/tools/plugin/mac/Info.plist',
-          },
-        }],
-        ['os_posix == 1 and OS != "mac"', {
-          'cflags': [
-            '-fvisibility=default',
+        ['OS != "win" and OS != "mac"', {
+          'type': 'none',
+        }, {  # OS=="win" or OS=="mac"
+          'type': 'loadable_module',
+          'sources': [
+            'shell/tools/plugin/PluginObject.cpp',
+            'shell/tools/plugin/PluginObject.h',
+            'shell/tools/plugin/PluginTest.cpp',
+            'shell/tools/plugin/PluginTest.h',
+            'shell/tools/plugin/TestObject.cpp',
+            'shell/tools/plugin/Tests/EvaluateJSAfterRemovingPluginElement.cpp',
+            'shell/tools/plugin/Tests/FormValue.cpp',
+            'shell/tools/plugin/Tests/GetUserAgentWithNullNPPFromNPPNew.cpp',
+            'shell/tools/plugin/Tests/LeakWindowScriptableObject.cpp',
+            'shell/tools/plugin/Tests/LogNPPSetWindow.cpp',
+            'shell/tools/plugin/Tests/NPDeallocateCalledBeforeNPShutdown.cpp',
+            'shell/tools/plugin/Tests/NPPNewFails.cpp',
+            'shell/tools/plugin/Tests/NPRuntimeCallsWithNullNPP.cpp',
+            'shell/tools/plugin/Tests/NPRuntimeObjectFromDestroyedPlugin.cpp',
+            'shell/tools/plugin/Tests/NPRuntimeRemoveProperty.cpp',
+            'shell/tools/plugin/Tests/NullNPPGetValuePointer.cpp',
+            'shell/tools/plugin/Tests/PassDifferentNPPStruct.cpp',
+            'shell/tools/plugin/Tests/PluginScriptableNPObjectInvokeDefault.cpp',
+            'shell/tools/plugin/Tests/PluginScriptableObjectOverridesAllProperties.cpp',
+            'shell/tools/plugin/main.cpp',
+            'shell/tools/plugin/test_object.h',
           ],
-        }],
-        ['use_x11 == 1', {
-          'dependencies': [ '../build/linux/system.gyp:x11' ],
-        }],
-        ['OS=="win"', {
+          'include_dirs': [
+            '<(DEPTH)',
+            '<(DEPTH)/content/shell/tools/plugin/',
+          ],
+          'dependencies': [
+            '../base/base.gyp:base',
+            '../third_party/npapi/npapi.gyp:npapi',
+          ],
           'conditions': [
-            ['MSVS_VERSION < "2015"', {
-              'defines': [
-                # This seems like a hack, but this is what Safari Win does.
-                # Luckily it is no longer needed/allowed with VS 2015.
-                'snprintf=_snprintf',
+            ['OS=="mac"', {
+              'mac_bundle': 1,
+              'product_extension': 'plugin',
+              'link_settings': {
+                'libraries': [
+                  '$(SDKROOT)/System/Library/Frameworks/Carbon.framework',
+                  '$(SDKROOT)/System/Library/Frameworks/Cocoa.framework',
+                  '$(SDKROOT)/System/Library/Frameworks/QuartzCore.framework',
+                ]
+              },
+              'xcode_settings': {
+                'GCC_SYMBOLS_PRIVATE_EXTERN': 'NO',
+                'INFOPLIST_FILE': 'shell/tools/plugin/mac/Info.plist',
+              },
+            }],
+            ['OS=="win"', {
+              'conditions': [
+                ['MSVS_VERSION < "2015"', {
+                  'defines': [
+                    # This seems like a hack, but this is what Safari Win does.
+                    # Luckily it is no longer needed/allowed with VS 2015.
+                    'snprintf=_snprintf',
+                  ],
+                }],
               ],
+              'sources': [
+                'shell/tools/plugin/win/TestNetscapePlugin.def',
+                'shell/tools/plugin/win/TestNetscapePlugin.rc',
+              ],
+              # The .rc file requires that the name of the dll is np_test_netscape_plugin.dll.
+              'product_name': 'np_test_netscape_plugin',
+              # Disable c4267 warnings until we fix size_t to int truncations.
+              'msvs_disabled_warnings': [ 4267, ],
             }],
           ],
-          'sources': [
-            'shell/tools/plugin/win/TestNetscapePlugin.def',
-            'shell/tools/plugin/win/TestNetscapePlugin.rc',
-          ],
-          # The .rc file requires that the name of the dll is np_test_netscape_plugin.dll.
-          'product_name': 'np_test_netscape_plugin',
-          # Disable c4267 warnings until we fix size_t to int truncations.
-          'msvs_disabled_warnings': [ 4267, ],
         }],
       ],
     },
@@ -666,12 +634,6 @@
           'copies': [{
             'destination': '<(PRODUCT_DIR)/plugins/',
             'files': ['<(PRODUCT_DIR)/test_netscape_plugin.plugin/'],
-          }],
-        }],
-        ['os_posix == 1 and OS != "mac"', {
-          'copies': [{
-            'destination': '<(PRODUCT_DIR)/plugins',
-            'files': ['<(PRODUCT_DIR)/libtest_netscape_plugin.so'],
           }],
         }],
       ],
@@ -737,6 +699,14 @@
             },
           ],
           'copies': [
+            {
+              # PPAPI test plugins are loaded relative to DIR_MODULE. On OS X,
+              # that corresponds to Content Shell Framework.framework.
+              'destination': '<(PRODUCT_DIR)/$(CONTENTS_FOLDER_PATH)',
+              'files': [
+                '<(PRODUCT_DIR)/blink_test_plugin.plugin',
+              ],
+            },
             {
               'destination': '<(PRODUCT_DIR)/$(CONTENTS_FOLDER_PATH)/Resources',
               'files': [
@@ -943,7 +913,7 @@
               }],
             ],
           },
-          'includes': [ 
+          'includes': [
             '../build/android/v8_external_startup_data_arch_suffix.gypi',
             '../build/java_apk.gypi',
           ],

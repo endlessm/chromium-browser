@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/MediaValuesDynamic.h"
 
 #include "core/css/CSSHelper.h"
@@ -57,17 +56,12 @@ bool MediaValuesDynamic::computeLength(double value, CSSPrimitiveValue::UnitType
         result);
 }
 
-bool MediaValuesDynamic::isSafeToSendToAnotherThread() const
-{
-    return false;
-}
-
-int MediaValuesDynamic::viewportWidth() const
+double MediaValuesDynamic::viewportWidth() const
 {
     return calculateViewportWidth(m_frame);
 }
 
-int MediaValuesDynamic::viewportHeight() const
+double MediaValuesDynamic::viewportHeight() const
 {
     return calculateViewportHeight(m_frame);
 }
@@ -153,4 +147,4 @@ DEFINE_TRACE(MediaValuesDynamic)
     MediaValues::trace(visitor);
 }
 
-} // namespace
+} // namespace blink

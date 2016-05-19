@@ -25,7 +25,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/LayoutSVGShape.h"
 
 #include "core/layout/HitTestResult.h"
@@ -38,6 +37,7 @@
 #include "core/paint/SVGShapePainter.h"
 #include "core/svg/SVGGeometryElement.h"
 #include "core/svg/SVGLengthContext.h"
+#include "core/svg/SVGPathElement.h"
 #include "platform/geometry/FloatPoint.h"
 #include "platform/graphics/StrokeData.h"
 #include "wtf/MathExtras.h"
@@ -63,6 +63,14 @@ void LayoutSVGShape::createPath()
     *m_path = toSVGGeometryElement(element())->asPath();
     if (m_rareData.get())
         m_rareData->m_cachedNonScalingStrokePath.clear();
+}
+
+float LayoutSVGShape::dashScaleFactor() const
+{
+    if (!isSVGPathElement(element())
+        || !styleRef().svgStyle().strokeDashArray()->size())
+        return 1;
+    return toSVGPathElement(*element()).pathLengthScaleFactor();
 }
 
 void LayoutSVGShape::updateShapeFromElement()
@@ -92,7 +100,7 @@ bool LayoutSVGShape::shapeDependentStrokeContains(const FloatPoint& point)
 {
     ASSERT(m_path);
     StrokeData strokeData;
-    SVGLayoutSupport::applyStrokeStyleToStrokeData(strokeData, styleRef(), *this);
+    SVGLayoutSupport::applyStrokeStyleToStrokeData(strokeData, styleRef(), *this, dashScaleFactor());
 
     if (hasNonScalingStroke()) {
         AffineTransform nonScalingTransform = nonScalingStrokeTransform();
@@ -140,12 +148,9 @@ void LayoutSVGShape::updateLocalTransform()
 {
     SVGGraphicsElement* graphicsElement = toSVGGraphicsElement(element());
     if (graphicsElement->hasAnimatedLocalTransform()) {
-        if (m_localTransform)
-            m_localTransform->setTransform(graphicsElement->calculateAnimatedLocalTransform());
-        else
-            m_localTransform = adoptPtr(new AffineTransform(graphicsElement->calculateAnimatedLocalTransform()));
+        m_localTransform.setTransform(graphicsElement->calculateAnimatedLocalTransform());
     } else {
-        m_localTransform = 0;
+        m_localTransform = AffineTransform();
     }
 }
 
@@ -226,7 +231,7 @@ bool LayoutSVGShape::nodeAtFloatPoint(HitTestResult& result, const FloatPoint& p
     if (nodeAtFloatPointInternal(result.hitTestRequest(), localPoint, hitRules)) {
         const LayoutPoint& localLayoutPoint = roundedLayoutPoint(localPoint);
         updateHitTestResult(result, localLayoutPoint);
-        if (!result.addNodeToListBasedTestResult(element(), localLayoutPoint))
+        if (result.addNodeToListBasedTestResult(element(), localLayoutPoint) == StopHitTesting)
             return true;
     }
 
@@ -261,7 +266,7 @@ FloatRect LayoutSVGShape::calculateStrokeBoundingBox() const
 
     if (style()->svgStyle().hasStroke()) {
         StrokeData strokeData;
-        SVGLayoutSupport::applyStrokeStyleToStrokeData(strokeData, styleRef(), *this);
+        SVGLayoutSupport::applyStrokeStyleToStrokeData(strokeData, styleRef(), *this, dashScaleFactor());
         if (hasNonScalingStroke()) {
             AffineTransform nonScalingTransform = nonScalingStrokeTransform();
             if (nonScalingTransform.isInvertible()) {
@@ -306,4 +311,4 @@ LayoutSVGShapeRareData& LayoutSVGShape::ensureRareData() const
     return *m_rareData.get();
 }
 
-}
+} // namespace blink

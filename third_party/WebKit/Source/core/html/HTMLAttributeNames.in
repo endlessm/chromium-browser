@@ -97,6 +97,7 @@ dir
 direction
 dirname
 disabled
+disableremoteplayback
 download
 draggable
 webkitdropzone
@@ -291,6 +292,7 @@ selected
 shape
 size
 sizes
+slot
 span
 spellcheck
 src

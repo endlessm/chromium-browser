@@ -17,6 +17,7 @@ class GrBatchAtlas;
 class GrIndexBuffer;
 class GrPath;
 class GrRenderTarget;
+class GrSingleOwner;
 class GrStencilAttachment;
 class GrStrokeInfo;
 class GrVertexBuffer;
@@ -35,7 +36,7 @@ class SkTypeface;
  */
 class GrResourceProvider : protected GrTextureProvider {
 public:
-    GrResourceProvider(GrGpu* gpu, GrResourceCache* cache);
+    GrResourceProvider(GrGpu* gpu, GrResourceCache* cache, GrSingleOwner* owner);
 
     template <typename T> T* findAndRefTByUniqueKey(const GrUniqueKey& key) {
         return static_cast<T*>(this->findAndRefResourceByUniqueKey(key));
@@ -112,6 +113,7 @@ public:
     };
     GrIndexBuffer* createIndexBuffer(size_t size, BufferUsage, uint32_t flags);
     GrVertexBuffer* createVertexBuffer(size_t size, BufferUsage, uint32_t flags);
+    GrTransferBuffer* createTransferBuffer(size_t size, TransferType, uint32_t flags);
 
     GrTexture* createApproxTexture(const GrSurfaceDesc& desc, uint32_t flags) {
         SkASSERT(0 == flags || kNoPendingIO_Flag == flags);
@@ -144,6 +146,15 @@ public:
     GrStencilAttachment* attachStencilAttachment(GrRenderTarget* rt);
 
     const GrCaps* caps() { return this->gpu()->caps(); }
+
+     /**
+      * Wraps an existing texture with a GrRenderTarget object. This is useful when the provided
+      * texture has a format that cannot be textured from by Skia, but we want to raster to it.
+      *
+      * @return GrRenderTarget object or NULL on failure.
+      */
+     GrRenderTarget* wrapBackendTextureAsRenderTarget(const GrBackendTextureDesc& desc,
+                                                      GrWrapOwnership = kBorrow_GrWrapOwnership);
 
 private:
     const GrIndexBuffer* createInstancedIndexBuffer(const uint16_t* pattern,

@@ -9,14 +9,14 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "extensions/browser/blacklist_state.h"
 #include "extensions/browser/extension_scoped_prefs.h"
 #include "extensions/browser/install_flag.h"
@@ -452,12 +452,6 @@ class ExtensionPrefs : public ExtensionScopedPrefs, public KeyedService {
   // information.
   scoped_ptr<ExtensionsInfo> GetAllDelayedInstallInfo() const;
 
-  // Returns true if the extension is an ephemeral app.
-  bool IsEphemeralApp(const std::string& extension_id) const;
-
-  // Promotes an ephemeral app to a regular installed app.
-  void OnEphemeralAppPromoted(const std::string& extension_id);
-
   // Returns true if the user repositioned the app on the app launcher via drag
   // and drop.
   bool WasAppDraggedByUser(const std::string& extension_id) const;
@@ -514,8 +508,6 @@ class ExtensionPrefs : public ExtensionScopedPrefs, public KeyedService {
   PrefService* pref_service() const { return prefs_; }
 
   // The underlying AppSorting.
-  // TODO(treib,kalman): This should be private, and all callers should go
-  // through the ExtensionSystem instead.
   AppSorting* app_sorting() const;
 
   // Schedules garbage collection of an extension's on-disk data on the next
@@ -630,19 +622,9 @@ class ExtensionPrefs : public ExtensionScopedPrefs, public KeyedService {
                             int reasons,
                             DisableReasonChange change);
 
-  // Fix missing preference entries in the extensions that are were introduced
-  // in a later Chrome version.
-  void FixMissingPrefs(const ExtensionIdList& extension_ids);
-
   // Installs the persistent extension preferences into |prefs_|'s extension
   // pref store. Does nothing if extensions_disabled_ is true.
   void InitPrefStore();
-
-  // Migrates the permissions data in the pref store.
-  void MigratePermissions(const ExtensionIdList& extension_ids);
-
-  // Migrates the disable reasons from a single enum to a bit mask.
-  void MigrateDisableReasons(const ExtensionIdList& extension_ids);
 
   // Checks whether there is a state pref for the extension and if so, whether
   // it matches |check_state|.

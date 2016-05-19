@@ -40,14 +40,6 @@ enum ForceCopyMode {
 };
 extern SkImage* SkNewImageFromRasterBitmap(const SkBitmap&, ForceCopyMode = kNo_ForceCopyMode);
 
-static inline size_t SkImageMinRowBytes(const SkImageInfo& info) {
-    size_t minRB = info.minRowBytes();
-    if (kIndex_8_SkColorType != info.colorType()) {
-        minRB = SkAlign4(minRB);
-    }
-    return minRB;
-}
-
 // Given an image created from SkNewImageFromBitmap, return its pixelref. This
 // may be called to see if the surface and the image share the same pixelref,
 // in which case the surface may need to perform a copy-on-write.
@@ -64,6 +56,6 @@ extern void SkTextureImageApplyBudgetedDecision(SkImage* textureImage);
 // surface needs to perform a copy-on-write
 extern void SkTextureImageSetTexture(SkImage* image, GrTexture* texture);
 
-GrTexture* GrDeepCopyTexture(GrTexture* src, bool isBudgeted);
+GrTexture* GrDeepCopyTexture(GrTexture* src, SkBudgeted);
 
 #endif

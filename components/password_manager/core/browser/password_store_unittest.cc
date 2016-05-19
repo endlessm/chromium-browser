@@ -7,15 +7,19 @@
 // instead). We could special-case it, but it is easier to just have empty
 // passwords. This will not be needed anymore if crbug.com/466638 is fixed.
 
-#include "base/basictypes.h"
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/password_manager/core/browser/affiliated_match_helper.h"
 #include "components/password_manager/core/browser/affiliation_service.h"
 #include "components/password_manager/core/browser/mock_affiliated_match_helper.h"
@@ -66,13 +70,6 @@ class MockPasswordStoreConsumer : public PasswordStoreConsumer {
   void OnGetPasswordStoreResults(ScopedVector<PasswordForm> results) override {
     OnGetPasswordStoreResultsConstRef(results.get());
   }
-};
-
-class MockPasswordStoreObserver
-    : public password_manager::PasswordStore::Observer {
- public:
-  MOCK_METHOD1(OnLoginsChanged,
-               void(const password_manager::PasswordStoreChangeList& changes));
 };
 
 class StartSyncFlareMock {
@@ -173,8 +170,7 @@ TEST_F(PasswordStoreTest, IgnoreOldWwwGoogleLogins) {
   // Build the forms vector and add the forms to the store.
   ScopedVector<PasswordForm> all_forms;
   for (size_t i = 0; i < arraysize(form_data); ++i) {
-    all_forms.push_back(
-        CreatePasswordFormFromDataForTesting(form_data[i]).Pass());
+    all_forms.push_back(CreatePasswordFormFromDataForTesting(form_data[i]));
     store->AddLogin(*all_forms.back());
   }
   base::MessageLoop::current()->RunUntilIdle();
@@ -219,13 +215,13 @@ TEST_F(PasswordStoreTest, IgnoreOldWwwGoogleLogins) {
                   UnorderedPasswordFormElementsAre(bar_example_expected)))
       .RetiresOnSaturation();
 
-  store->GetLogins(www_google, PasswordStore::ALLOW_PROMPT, &consumer);
-  store->GetLogins(accounts_google, PasswordStore::ALLOW_PROMPT, &consumer);
-  store->GetLogins(bar_example, PasswordStore::ALLOW_PROMPT, &consumer);
+  store->GetLogins(www_google, &consumer);
+  store->GetLogins(accounts_google, &consumer);
+  store->GetLogins(bar_example, &consumer);
 
   base::MessageLoop::current()->RunUntilIdle();
 
-  store->Shutdown();
+  store->ShutdownOnUIThread();
   base::MessageLoop::current()->RunUntilIdle();
 }
 
@@ -244,7 +240,7 @@ TEST_F(PasswordStoreTest, StartSyncFlare) {
     store->AddLogin(form);
     base::MessageLoop::current()->RunUntilIdle();
   }
-  store->Shutdown();
+  store->ShutdownOnUIThread();
   base::MessageLoop::current()->RunUntilIdle();
 }
 
@@ -294,7 +290,7 @@ TEST_F(PasswordStoreTest, GetLoginImpl) {
   ASSERT_TRUE(returned_form);
   EXPECT_EQ(*test_form, *returned_form);
 
-  store->Shutdown();
+  store->ShutdownOnUIThread();
   base::MessageLoop::current()->RunUntilIdle();
 }
 
@@ -344,7 +340,7 @@ TEST_F(PasswordStoreTest, UpdateLoginPrimaryKeyFields) {
 
   MockPasswordStoreConsumer mock_consumer;
   ScopedVector<autofill::PasswordForm> expected_forms;
-  expected_forms.push_back(new_form.Pass());
+  expected_forms.push_back(std::move(new_form));
   EXPECT_CALL(mock_consumer,
               OnGetPasswordStoreResultsConstRef(
                   UnorderedPasswordFormElementsAre(expected_forms.get())));
@@ -352,7 +348,7 @@ TEST_F(PasswordStoreTest, UpdateLoginPrimaryKeyFields) {
   base::MessageLoop::current()->RunUntilIdle();
 
   store->RemoveObserver(&mock_observer);
-  store->Shutdown();
+  store->ShutdownOnUIThread();
   base::MessageLoop::current()->RunUntilIdle();
 }
 
@@ -391,7 +387,7 @@ TEST_F(PasswordStoreTest, RemoveLoginsCreatedBetweenCallbackIsCalled) {
   testing::Mock::VerifyAndClearExpectations(&mock_observer);
 
   store->RemoveObserver(&mock_observer);
-  store->Shutdown();
+  store->ShutdownOnUIThread();
   base::MessageLoop::current()->RunUntilIdle();
 }
 
@@ -461,8 +457,8 @@ TEST_F(PasswordStoreTest, GetLoginsWithoutAffiliations) {
   EXPECT_CALL(mock_consumer,
               OnGetPasswordStoreResultsConstRef(
                   UnorderedPasswordFormElementsAre(expected_results.get())));
-  store->GetLogins(observed_form, PasswordStore::ALLOW_PROMPT, &mock_consumer);
-  store->Shutdown();
+  store->GetLogins(observed_form, &mock_consumer);
+  store->ShutdownOnUIThread();
   base::MessageLoop::current()->RunUntilIdle();
 }
 
@@ -579,8 +575,8 @@ TEST_F(PasswordStoreTest, GetLoginsWithAffiliations) {
               OnGetPasswordStoreResultsConstRef(
                   UnorderedPasswordFormElementsAre(expected_results.get())));
 
-  store->GetLogins(observed_form, PasswordStore::ALLOW_PROMPT, &mock_consumer);
-  store->Shutdown();
+  store->GetLogins(observed_form, &mock_consumer);
+  store->ShutdownOnUIThread();
   base::MessageLoop::current()->RunUntilIdle();
 }
 
@@ -797,7 +793,7 @@ TEST_F(PasswordStoreTest, MAYBE_UpdatePasswordsStoredForAffiliatedWebsites) {
           OnGetPasswordStoreResultsConstRef(UnorderedPasswordFormElementsAre(
               expected_credentials_after_update.get())));
       store->GetAutofillableLogins(&mock_consumer);
-      store->Shutdown();
+      store->ShutdownOnUIThread();
       base::MessageLoop::current()->RunUntilIdle();
     }
   }

@@ -5,8 +5,8 @@
 #ifndef SYNC_INTERNAL_API_PUBLIC_ATTACHMENTS_ATTACHMENT_SERVICE_PROXY_H_
 #define SYNC_INTERNAL_API_PUBLIC_ATTACHMENTS_ATTACHMENT_SERVICE_PROXY_H_
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
@@ -48,6 +48,8 @@ class SYNC_EXPORT AttachmentServiceProxy : public AttachmentService {
       const scoped_refptr<base::SequencedTaskRunner>& wrapped_task_runner,
       const base::WeakPtr<syncer::AttachmentService>& wrapped);
 
+  AttachmentServiceProxy(const AttachmentServiceProxy& other);
+
   ~AttachmentServiceProxy() override;
 
   void GetOrDownloadAttachments(const AttachmentIdList& attachment_ids,
@@ -72,7 +74,7 @@ class SYNC_EXPORT AttachmentServiceProxy : public AttachmentService {
                            public base::RefCountedThreadSafe<Core> {
    public:
     // Construct an AttachmentServiceProxyCore that forwards calls to |wrapped|.
-    Core(const base::WeakPtr<syncer::AttachmentService>& wrapped);
+    explicit Core(const base::WeakPtr<syncer::AttachmentService>& wrapped);
 
     // AttachmentService implementation.
     void GetOrDownloadAttachments(
@@ -81,10 +83,11 @@ class SYNC_EXPORT AttachmentServiceProxy : public AttachmentService {
     void UploadAttachments(const AttachmentIdList& attachment_ids) override;
 
    protected:
-    friend class base::RefCountedThreadSafe<Core>;
     ~Core() override;
 
    private:
+    friend class base::RefCountedThreadSafe<Core>;
+
     base::WeakPtr<AttachmentService> wrapped_;
 
     DISALLOW_COPY_AND_ASSIGN(Core);

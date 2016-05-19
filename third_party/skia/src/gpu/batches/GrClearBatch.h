@@ -28,18 +28,31 @@ public:
     const char* name() const override { return "Clear"; }
 
     uint32_t renderTargetUniqueID() const override { return fRenderTarget.get()->getUniqueID(); }
+    GrRenderTarget* renderTarget() const override { return fRenderTarget.get(); }
 
     SkString dumpInfo() const override {
         SkString string;
-        string.printf("Color: 0x%08x, Rect [L: %d, T: %d, R: %d, B: %d], RT: 0x%p",
+        string.printf("Color: 0x%08x, Rect [L: %d, T: %d, R: %d, B: %d], RT: %d",
                       fColor, fRect.fLeft, fRect.fTop, fRect.fRight, fRect.fBottom,
-                      fRenderTarget.get());
+                      fRenderTarget.get()->getUniqueID());
         return string;
     }
 
 private:
     bool onCombineIfPossible(GrBatch* t, const GrCaps& caps) override {
-        // We could combine clears. TBD how much complexity to put here.
+        // This could be much more complicated. Currently we look at cases where the new clear
+        // contains the old clear, or when the new clear is a subset of the old clear and is the
+        // same color.
+        GrClearBatch* cb = t->cast<GrClearBatch>();
+        SkASSERT(cb->fRenderTarget == fRenderTarget);
+        if (cb->fRect.contains(fRect)) {
+            fRect = cb->fRect;
+            fBounds = cb->fBounds;
+            fColor = cb->fColor;
+            return true;
+        } else if (cb->fColor == fColor && fRect.contains(cb->fRect)) {
+            return true;
+        }
         return false;
     }
 
@@ -71,6 +84,7 @@ public:
     const char* name() const override { return "ClearStencilClip"; }
 
     uint32_t renderTargetUniqueID() const override { return fRenderTarget.get()->getUniqueID(); }
+    GrRenderTarget* renderTarget() const override { return fRenderTarget.get(); }
 
     SkString dumpInfo() const override {
         SkString string;

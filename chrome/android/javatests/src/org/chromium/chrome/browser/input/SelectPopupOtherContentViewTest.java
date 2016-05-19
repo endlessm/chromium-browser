@@ -4,8 +4,10 @@
 
 package org.chromium.chrome.browser.input;
 
+import android.test.suitebuilder.annotation.LargeTest;
+
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.WebContentsFactory;
@@ -37,7 +39,11 @@ public class SelectPopupOtherContentViewTest extends ChromeActivityTestCaseBase<
             + "</select>"
             + "</body></html>");
 
-    private class PopupShowingCriteria implements Criteria {
+    private class PopupShowingCriteria extends Criteria {
+        public PopupShowingCriteria() {
+            super("The select popup did not show up on click.");
+        }
+
         @Override
         public boolean isSatisfied() {
             ContentViewCore contentViewCore = getActivity().getCurrentContentViewCore();
@@ -58,11 +64,9 @@ public class SelectPopupOtherContentViewTest extends ChromeActivityTestCaseBase<
      * Tests that the showing select popup does not get closed because an unrelated ContentView
      * gets destroyed.
      *
-     * @LargeTest
-     * @Feature({"Browser"})
-     * BUG 172967
-    */
-    @DisabledTest
+     */
+    @LargeTest
+    @Feature({"Browser"})
     public void testPopupNotClosedByOtherContentView()
             throws InterruptedException, Exception, Throwable {
         // Load the test page.
@@ -72,8 +76,7 @@ public class SelectPopupOtherContentViewTest extends ChromeActivityTestCaseBase<
 
         // Once clicked, the popup should show up.
         DOMUtils.clickNode(this, viewCore, "select");
-        assertTrue("The select popup did not show up on click.",
-                CriteriaHelper.pollForCriteria(new PopupShowingCriteria()));
+        CriteriaHelper.pollForCriteria(new PopupShowingCriteria());
 
         // Now create and destroy a different ContentView.
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 
 #include "core/html/shadow/MeterShadowElement.h"
 
@@ -136,4 +135,4 @@ void MeterValueElement::setWidthPercentage(double width)
     setInlineStyleProperty(CSSPropertyWidth, width, CSSPrimitiveValue::UnitType::Percentage);
 }
 
-}
+} // namespace blink

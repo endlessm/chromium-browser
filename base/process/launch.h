@@ -7,16 +7,19 @@
 #ifndef BASE_PROCESS_LAUNCH_H_
 #define BASE_PROCESS_LAUNCH_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "base/base_export.h"
-#include "base/basictypes.h"
 #include "base/environment.h"
+#include "base/macros.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/strings/string_piece.h"
+#include "build/build_config.h"
 
 #if defined(OS_POSIX)
 #include "base/posix/file_descriptor_shuffle.h"
@@ -56,6 +59,7 @@ struct BASE_EXPORT LaunchOptions {
 #endif  // defined(OS_POSIX)
 
   LaunchOptions();
+  LaunchOptions(const LaunchOptions&);
   ~LaunchOptions();
 
   // If true, wait for the process to complete.

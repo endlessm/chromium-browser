@@ -5,16 +5,21 @@
 #include "components/scheduler/renderer/renderer_scheduler.h"
 
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/message_loop/message_loop.h"
+#include "base/metrics/field_trial.h"
 #include "base/time/default_tick_clock.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_impl.h"
 #include "components/scheduler/child/scheduler_tqm_delegate_impl.h"
-#include "components/scheduler/child/virtual_time_tqm_delegate.h"
 #include "components/scheduler/common/scheduler_switches.h"
 #include "components/scheduler/renderer/renderer_scheduler_impl.h"
 
 namespace scheduler {
+namespace {
+const base::Feature kExpensiveTaskBlockingPolicyFeature{
+    "SchedulerExpensiveTaskBlocking", base::FEATURE_DISABLED_BY_DEFAULT};
+}
 
 RendererScheduler::RendererScheduler() {
 }
@@ -34,15 +39,22 @@ scoped_ptr<RendererScheduler> RendererScheduler::Create() {
       TRACE_DISABLED_BY_DEFAULT("renderer.scheduler.debug"));
 
   base::MessageLoop* message_loop = base::MessageLoop::current();
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kEnableVirtualizedTime)) {
-    return make_scoped_ptr(new RendererSchedulerImpl(
-        VirtualTimeTqmDelegate::Create(message_loop, base::TimeTicks::Now())));
-  } else {
-    return make_scoped_ptr(
-        new RendererSchedulerImpl(SchedulerTqmDelegateImpl::Create(
-            message_loop, make_scoped_ptr(new base::DefaultTickClock()))));
+  scoped_ptr<RendererSchedulerImpl> scheduler(
+      new RendererSchedulerImpl(SchedulerTqmDelegateImpl::Create(
+          message_loop, make_scoped_ptr(new base::DefaultTickClock()))));
+
+  // Runtime features are not currently available in html_viewer.
+  if (base::FeatureList::GetInstance()) {
+    bool blocking_allowed =
+        base::FeatureList::IsEnabled(kExpensiveTaskBlockingPolicyFeature);
+    // Also check the old style FieldTrial API for perf waterfall compatibility.
+    const std::string group_name = base::FieldTrialList::FindFullName(
+        kExpensiveTaskBlockingPolicyFeature.name);
+    blocking_allowed |= base::StartsWith(group_name, "Enabled",
+                                         base::CompareCase::INSENSITIVE_ASCII);
+    scheduler->SetExpensiveTaskBlockingAllowed(blocking_allowed);
   }
+  return make_scoped_ptr<RendererScheduler>(scheduler.release());
 }
 
 // static

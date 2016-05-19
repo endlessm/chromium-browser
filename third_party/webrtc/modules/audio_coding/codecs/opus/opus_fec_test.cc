@@ -8,9 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
+
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/audio_coding/codecs/opus/include/opus_interface.h"
+#include "webrtc/base/format_macros.h"
+#include "webrtc/modules/audio_coding/codecs/opus/opus_interface.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 using ::std::string;
@@ -21,7 +23,7 @@ using ::testing::TestWithParam;
 namespace webrtc {
 
 // Define coding parameter as <channels, bit_rate, filename, extension>.
-typedef tuple<int, int, string, string> coding_param;
+typedef tuple<size_t, int, string, string> coding_param;
 typedef struct mode mode;
 
 struct mode {
@@ -47,7 +49,7 @@ class OpusFecTest : public TestWithParam<coding_param> {
   int sampling_khz_;
   size_t block_length_sample_;
 
-  int channels_;
+  size_t channels_;
   int bit_rate_;
 
   size_t data_pointer_;
@@ -60,15 +62,15 @@ class OpusFecTest : public TestWithParam<coding_param> {
 
   string in_filename_;
 
-  rtc::scoped_ptr<int16_t[]> in_data_;
-  rtc::scoped_ptr<int16_t[]> out_data_;
-  rtc::scoped_ptr<uint8_t[]> bit_stream_;
+  std::unique_ptr<int16_t[]> in_data_;
+  std::unique_ptr<int16_t[]> out_data_;
+  std::unique_ptr<uint8_t[]> bit_stream_;
 };
 
 void OpusFecTest::SetUp() {
   channels_ = get<0>(GetParam());
   bit_rate_ = get<1>(GetParam());
-  printf("Coding %d channel signal at %d bps.\n", channels_, bit_rate_);
+  printf("Coding %" PRIuS " channel signal at %d bps.\n", channels_, bit_rate_);
 
   in_filename_ = test::ResourcePath(get<2>(GetParam()), get<3>(GetParam()));
 

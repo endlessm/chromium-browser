@@ -7,6 +7,7 @@
 
 #include "SkBitmap.h"
 #include "SkRect.h"
+#include "SkTemplates.h"
 #include "Test.h"
 
 static const char* boolStr(bool value) {
@@ -420,8 +421,8 @@ DEF_TEST(BitmapCopy, reporter) {
                 // raw buffer pointer.
                 const size_t bufSize = subH *
                     SkColorTypeMinRowBytes(src.colorType(), subW) * 2;
-                SkAutoMalloc autoBuf (bufSize);
-                uint8_t* buf = static_cast<uint8_t*>(autoBuf.get());
+                SkAutoTMalloc<uint8_t> autoBuf (bufSize);
+                uint8_t* buf = autoBuf.get();
 
                 SkBitmap bufBm; // Attach buf to this bitmap.
                 bool successExpected;
@@ -634,97 +635,80 @@ DEF_TEST(BitmapReadPixels, reporter) {
 #if SK_SUPPORT_GPU
 
 #include "GrContext.h"
-#include "GrContextFactory.h"
 #include "SkGr.h"
 #include "SkColorPriv.h"
 /** Tests calling copyTo on a texture backed bitmap. Tests that all BGRA_8888/RGBA_8888 combinations
     of src and dst work. This test should be removed when SkGrPixelRef is removed. */
-DEF_GPUTEST(BitmapCopy_Texture, reporter, factory) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(BitmapCopy_Texture, reporter, ctx) {
+    static const SkPMColor kData[] = {
+        0xFF112233, 0xAF224499,
+        0xEF004466, 0x80773311
+    };
 
-    for (int glCtxType = 0; glCtxType < GrContextFactory::kGLContextTypeCnt; ++glCtxType) {
-        GrContextFactory::GLContextType type =
-            static_cast<GrContextFactory::GLContextType>(glCtxType);
+    uint32_t swizData[SK_ARRAY_COUNT(kData)];
+    for (size_t i = 0; i < SK_ARRAY_COUNT(kData); ++i) {
+        swizData[i] = SkSwizzle_RB(kData[i]);
+    }
 
-        if (!GrContextFactory::IsRenderingGLContext(type)) {
-            continue;
-        }
+    static const GrPixelConfig kSrcConfigs[] = {
+        kRGBA_8888_GrPixelConfig,
+        kBGRA_8888_GrPixelConfig,
+    };
 
-        GrContext* ctx = factory->get(type);
+    for (size_t srcC = 0; srcC < SK_ARRAY_COUNT(kSrcConfigs); ++srcC) {
+        for (int rt = 0; rt < 2; ++rt) {
+            GrSurfaceDesc desc;
+            desc.fConfig = kSrcConfigs[srcC];
+            desc.fFlags = rt ? kRenderTarget_GrSurfaceFlag : kNone_GrSurfaceFlags;
+            desc.fWidth = 2;
+            desc.fHeight = 2;
+            desc.fOrigin = kTopLeft_GrSurfaceOrigin;
 
-        if (!ctx) {
-            continue;
-        }
+            const void* srcData = (kSkia8888_GrPixelConfig == desc.fConfig) ? kData : swizData;
 
-        static const SkPMColor kData[] = {
-            0xFF112233, 0xAF224499,
-            0xEF004466, 0x80773311
-        };
+            SkAutoTUnref<GrTexture> texture(
+                ctx->textureProvider()->createTexture(desc, SkBudgeted::kNo, srcData, 0));
 
-        uint32_t swizData[SK_ARRAY_COUNT(kData)];
-        for (size_t i = 0; i < SK_ARRAY_COUNT(kData); ++i) {
-            swizData[i] = SkSwizzle_RB(kData[i]);
-        }
+            if (!texture) {
+                continue;
+            }
 
-        static const GrPixelConfig kSrcConfigs[] = {
-            kRGBA_8888_GrPixelConfig,
-            kBGRA_8888_GrPixelConfig,
-        };
-
-        for (size_t srcC = 0; srcC < SK_ARRAY_COUNT(kSrcConfigs); ++srcC) {
-            for (int rt = 0; rt < 2; ++rt) {
-                GrSurfaceDesc desc;
-                desc.fConfig = kSrcConfigs[srcC];
-                desc.fFlags = rt ? kRenderTarget_GrSurfaceFlag : kNone_GrSurfaceFlags;
-                desc.fWidth = 2;
-                desc.fHeight = 2;
-                desc.fOrigin = kTopLeft_GrSurfaceOrigin;
-
-                const void* srcData = (kSkia8888_GrPixelConfig == desc.fConfig) ? kData : swizData;
-
-                SkAutoTUnref<GrTexture> texture(
-                    ctx->textureProvider()->createTexture(desc, false, srcData, 0));
-
-                if (!texture) {
-                    continue;
+            SkBitmap srcBmp;
+            GrWrapTextureInBitmap(texture, 2, 2, false, &srcBmp);
+            if (srcBmp.isNull()) {
+                ERRORF(reporter, "Could not wrap texture in bitmap.");
+                continue;
+            }
+            static const SkColorType kDstCTs[] = { kRGBA_8888_SkColorType, kBGRA_8888_SkColorType };
+            for (size_t dCT = 0; dCT < SK_ARRAY_COUNT(kDstCTs); ++dCT) {
+                SkBitmap dstBmp;
+                if (!srcBmp.copyTo(&dstBmp, kDstCTs[dCT])) {
+                    ERRORF(reporter, "CopyTo failed.");
                 }
-
-                SkBitmap srcBmp;
-                GrWrapTextureInBitmap(texture, 2, 2, false, &srcBmp);
-                if (srcBmp.isNull()) {
-                    ERRORF(reporter, "Could not wrap texture in bitmap.");
-                    continue;
+                if (dstBmp.colorType() != kDstCTs[dCT]) {
+                    ERRORF(reporter, "SkBitmap::CopyTo did not respect passed in color type.");
                 }
-                static const SkColorType kDstCTs[] = { kRGBA_8888_SkColorType, kBGRA_8888_SkColorType };
-                for (size_t dCT = 0; dCT < SK_ARRAY_COUNT(kDstCTs); ++dCT) {
-                    SkBitmap dstBmp;
-                    if (!srcBmp.copyTo(&dstBmp, kDstCTs[dCT])) {
-                        ERRORF(reporter, "CopyTo failed.");
-                    }
-                    if (dstBmp.colorType() != kDstCTs[dCT]) {
-                        ERRORF(reporter, "SkBitmap::CopyTo did not respect passed in color type.");
-                    }
-                    SkAutoLockPixels alp(dstBmp);
-                    uint8_t* dstBmpPixels = static_cast<uint8_t*>(dstBmp.getPixels());
-                    const uint32_t* refData;
-    #if defined(SK_PMCOLOR_IS_RGBA)
-                    refData = (kRGBA_8888_SkColorType == dstBmp.colorType()) ? kData : swizData;
-    #elif defined(SK_PMCOLOR_IS_BGRA)
-                    refData = (kBGRA_8888_SkColorType == dstBmp.colorType()) ? kData : swizData;
-    #else 
-        #error "PM Color must be BGRA or RGBA to use GPU backend."
-    #endif
-                    bool foundError = false;
-                    for (int y = 0; y < 2 && !foundError; ++y) {
-                        uint32_t* dstBmpRow = reinterpret_cast<uint32_t*>(dstBmpPixels);
-                        for (int x = 0; x < 2 && !foundError; ++x) {
-                            if (refData[2 * y + x] != dstBmpRow[x]) {
-                                ERRORF(reporter, "Expected pixel 0x%08x, found 0x%08x.",
-                                       refData[2 * y + x], dstBmpRow[x]);
-                                foundError = true;
-                            }
+                SkAutoLockPixels alp(dstBmp);
+                uint8_t* dstBmpPixels = static_cast<uint8_t*>(dstBmp.getPixels());
+                const uint32_t* refData;
+#if defined(SK_PMCOLOR_IS_RGBA)
+                refData = (kRGBA_8888_SkColorType == dstBmp.colorType()) ? kData : swizData;
+#elif defined(SK_PMCOLOR_IS_BGRA)
+                refData = (kBGRA_8888_SkColorType == dstBmp.colorType()) ? kData : swizData;
+#else 
+    #error "PM Color must be BGRA or RGBA to use GPU backend."
+#endif
+                bool foundError = false;
+                for (int y = 0; y < 2 && !foundError; ++y) {
+                    uint32_t* dstBmpRow = reinterpret_cast<uint32_t*>(dstBmpPixels);
+                    for (int x = 0; x < 2 && !foundError; ++x) {
+                        if (refData[2 * y + x] != dstBmpRow[x]) {
+                            ERRORF(reporter, "Expected pixel 0x%08x, found 0x%08x.",
+                                   refData[2 * y + x], dstBmpRow[x]);
+                            foundError = true;
                         }
-                        dstBmpPixels += dstBmp.rowBytes();
                     }
+                    dstBmpPixels += dstBmp.rowBytes();
                 }
             }
         }

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/forms/DateTimeLocalInputType.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -106,6 +105,12 @@ String DateTimeLocalInputType::localizeValue(const String& proposedValue) const
     Locale::FormatType formatType = shouldHaveSecondField(date) ? Locale::FormatTypeMedium : Locale::FormatTypeShort;
     String localized = element().locale().formatDateTime(date, formatType);
     return localized.isEmpty() ? proposedValue : localized;
+}
+
+void DateTimeLocalInputType::warnIfValueIsInvalid(const String& value) const
+{
+    if (value != element().sanitizeValue(value))
+        addWarningToConsole("The specified value %s does not conform to the required format.  The format is \"yyyy-MM-ddThh:mm\" followed by optional \":ss\" or \":ss.SSS\".", value);
 }
 
 #if ENABLE(INPUT_MULTIPLE_FIELDS_UI)

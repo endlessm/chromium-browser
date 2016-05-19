@@ -22,6 +22,8 @@
       'sources': [
         'connection.cc',
         'connection.h',
+        'connection_memory_dump_provider.cc',
+        'connection_memory_dump_provider.h',
         'error_delegate_util.cc',
         'error_delegate_util.h',
         'init_status.h',
@@ -107,15 +109,6 @@
         '..',
       ],
       'conditions': [
-        ['os_posix==1 and OS!="mac" and OS!="ios"', {
-          'conditions': [
-            ['use_allocator!="none"', {
-              'dependencies': [
-                '../base/allocator/allocator.gyp:allocator',
-              ],
-            }],
-          ],
-        }],
         ['OS == "android"', {
           'dependencies': [
             '../testing/android/native_test.gyp:native_test_native_code',

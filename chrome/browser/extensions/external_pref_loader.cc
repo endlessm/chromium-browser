@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/external_pref_loader.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -15,6 +17,7 @@
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -85,7 +88,7 @@ scoped_ptr<base::DictionaryValue> ExtractExtensionPrefs(
   }
 
   scoped_ptr<base::DictionaryValue> ext_dictionary =
-      base::DictionaryValue::From(extensions.Pass());
+      base::DictionaryValue::From(std::move(extensions));
   if (ext_dictionary) {
     return ext_dictionary;
   }
@@ -133,9 +136,8 @@ void ExternalPrefLoader::StartLoading() {
       ProfileSyncService* service =
           ProfileSyncServiceFactory::GetForProfile(profile_);
       DCHECK(service);
-      if (service->CanSyncStart() &&
-          (service->HasSyncSetupCompleted() ||
-           browser_defaults::kSyncAutoStarts)) {
+      if (service->CanSyncStart() && (service->IsFirstSetupComplete() ||
+                                      browser_defaults::kSyncAutoStarts)) {
         service->AddObserver(this);
       } else {
         PostLoadAndRemoveObservers();

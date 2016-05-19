@@ -5,6 +5,8 @@
 #include "chrome/browser/media/midi_permission_context.h"
 
 #include "base/bind.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
@@ -96,8 +98,7 @@ TEST_F(MidiPermissionContextTests, TestInsecureRequestingUrl) {
       web_contents()->GetMainFrame()->GetRoutingID(),
       -1);
   permission_context.RequestPermission(
-      web_contents(),
-      id, url, true,
+      web_contents(), id, url,
       base::Bind(&TestPermissionContext::TrackPermissionDecision,
                  base::Unretained(&permission_context)));
 

@@ -5,14 +5,16 @@
 #include "components/google/core/browser/google_url_tracker.h"
 
 #include <string>
+#include <utility>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/thread_task_runner_handle.h"
 #include "components/google/core/browser/google_pref_names.h"
 #include "components/google/core/browser/google_url_tracker_client.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/testing_pref_service.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_test_util.h"
@@ -156,7 +158,7 @@ void GoogleURLTrackerTest::SetUp() {
   client_ = new TestGoogleURLTrackerClient(&prefs_);
   scoped_ptr<GoogleURLTrackerClient> client(client_);
   google_url_tracker_.reset(new GoogleURLTracker(
-      client.Pass(), GoogleURLTracker::UNIT_TEST_MODE));
+      std::move(client), GoogleURLTracker::UNIT_TEST_MODE));
 }
 
 void GoogleURLTrackerTest::TearDown() {

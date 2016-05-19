@@ -5,9 +5,11 @@
 #include "content/browser/indexed_db/indexed_db_internals_ui.h"
 
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/threading/platform_thread.h"
 #include "base/values.h"
 #include "content/browser/indexed_db/indexed_db_context_impl.h"
@@ -212,9 +214,11 @@ void IndexedDBInternalsUI::DownloadOriginDataOnIndexedDBThread(
     const scoped_refptr<IndexedDBContextImpl> context,
     const GURL& origin_url) {
   DCHECK(context->TaskRunner()->RunsTasksOnCurrentThread());
+  // This runs on the IndexedDB task runner to prevent script from reopening
+  // the origin while we are zipping.
 
   // Make sure the database hasn't been deleted since the page was loaded.
-  if (!context->IsInOriginSet(origin_url))
+  if (!context->HasOrigin(origin_url))
     return;
 
   context->ForceClose(origin_url,
@@ -233,9 +237,6 @@ void IndexedDBInternalsUI::DownloadOriginDataOnIndexedDBThread(
   base::FilePath zip_path =
       temp_path.AppendASCII(origin_id).AddExtension(FILE_PATH_LITERAL("zip"));
 
-  // This happens on the "webkit" thread (which is really just the IndexedDB
-  // thread) as a simple way to avoid another script reopening the origin
-  // while we are zipping.
   std::vector<base::FilePath> paths = context->GetStoragePaths(origin_url);
   zip::ZipWithFilterCallback(context->data_path(), zip_path,
                              base::Bind(AllowWhitelistedPaths, paths));
@@ -258,7 +259,7 @@ void IndexedDBInternalsUI::ForceCloseOriginOnIndexedDBThread(
   DCHECK(context->TaskRunner()->RunsTasksOnCurrentThread());
 
   // Make sure the database hasn't been deleted since the page was loaded.
-  if (!context->IsInOriginSet(origin_url))
+  if (!context->HasOrigin(origin_url))
     return;
 
   context->ForceClose(origin_url,
@@ -311,7 +312,7 @@ void IndexedDBInternalsUI::OnDownloadDataReady(
                                      origin_url,
                                      temp_path,
                                      connection_count));
-  dlm->DownloadUrl(dl_params.Pass());
+  dlm->DownloadUrl(std::move(dl_params));
 }
 
 // The entire purpose of this class is to delete the temp file after

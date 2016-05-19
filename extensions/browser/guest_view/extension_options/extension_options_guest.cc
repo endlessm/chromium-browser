@@ -4,6 +4,8 @@
 
 #include "extensions/browser/guest_view/extension_options/extension_options_guest.h"
 
+#include <utility>
+
 #include "base/values.h"
 #include "components/crx_file/id_util.h"
 #include "components/guest_view/browser/guest_view_event.h"
@@ -19,6 +21,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/guest_view/extension_options/extension_options_constants.h"
 #include "extensions/browser/guest_view/extension_options/extension_options_guest_delegate.h"
+#include "extensions/browser/view_type_utils.h"
 #include "extensions/common/api/extension_options_internal.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
@@ -108,7 +111,9 @@ void ExtensionOptionsGuest::CreateWebContents(
       content::SiteInstance::CreateForURL(browser_context(), extension_url);
   WebContents::CreateParams params(browser_context(), options_site_instance);
   params.guest_delegate = this;
-  callback.Run(WebContents::Create(params));
+  WebContents* wc = WebContents::Create(params);
+  SetViewType(wc, VIEW_TYPE_EXTENSION_GUEST);
+  callback.Run(wc);
 }
 
 void ExtensionOptionsGuest::DidInitialize(
@@ -122,8 +127,8 @@ void ExtensionOptionsGuest::DidInitialize(
 
 void ExtensionOptionsGuest::GuestViewDidStopLoading() {
   scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
-  DispatchEventToView(new GuestViewEvent(
-      extension_options_internal::OnLoad::kEventName, args.Pass()));
+  DispatchEventToView(make_scoped_ptr(new GuestViewEvent(
+      extension_options_internal::OnLoad::kEventName, std::move(args))));
 }
 
 const char* ExtensionOptionsGuest::GetAPINamespace() const {
@@ -143,9 +148,9 @@ void ExtensionOptionsGuest::OnPreferredSizeChanged(const gfx::Size& pref_size) {
   // Convert the size from physical pixels to logical pixels.
   options.width = PhysicalPixelsToLogicalPixels(pref_size.width());
   options.height = PhysicalPixelsToLogicalPixels(pref_size.height());
-  DispatchEventToView(new GuestViewEvent(
+  DispatchEventToView(make_scoped_ptr(new GuestViewEvent(
       extension_options_internal::OnPreferredSizeChanged::kEventName,
-      options.ToValue()));
+      options.ToValue())));
 }
 
 bool ExtensionOptionsGuest::ShouldHandleFindRequestsForEmbedder() const {
@@ -175,9 +180,9 @@ WebContents* ExtensionOptionsGuest::OpenURLFromTab(
 }
 
 void ExtensionOptionsGuest::CloseContents(WebContents* source) {
-  DispatchEventToView(
+  DispatchEventToView(make_scoped_ptr(
       new GuestViewEvent(extension_options_internal::OnClose::kEventName,
-                         make_scoped_ptr(new base::DictionaryValue())));
+                         make_scoped_ptr(new base::DictionaryValue()))));
 }
 
 bool ExtensionOptionsGuest::HandleContextMenu(
@@ -226,7 +231,7 @@ void ExtensionOptionsGuest::DidNavigateMainFrame(
         ui_zoom::ZoomController::ZOOM_MODE_ISOLATED);
     SetGuestZoomLevelToMatchEmbedder();
 
-    if (params.url.GetOrigin() != options_page_.GetOrigin()) {
+    if (!url::IsSameOriginWith(params.url, options_page_)) {
       bad_message::ReceivedBadMessage(web_contents()->GetRenderProcessHost(),
                                       bad_message::EOG_BAD_ORIGIN);
     }

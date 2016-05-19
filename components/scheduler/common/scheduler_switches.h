@@ -8,7 +8,7 @@
 namespace scheduler {
 namespace switches {
 
-extern const char kEnableVirtualizedTime[];
+extern const char kDisableBackgroundTimerThrottling[];
 
 }  // namespace switches
 }  // namespace scheduler

@@ -4,6 +4,8 @@
 
 #include "content/browser/compositor/gpu_surfaceless_browser_compositor_output_surface.h"
 
+#include <utility>
+
 #include "cc/output/compositor_frame.h"
 #include "cc/output/output_surface_client.h"
 #include "content/browser/compositor/browser_compositor_overlay_candidate_validator.h"
@@ -31,7 +33,7 @@ GpuSurfacelessBrowserCompositorOutputSurface::
     : GpuBrowserCompositorOutputSurface(context,
                                         worker_context,
                                         vsync_manager,
-                                        overlay_candidate_validator.Pass()),
+                                        std::move(overlay_candidate_validator)),
       internalformat_(internalformat),
       gpu_memory_buffer_manager_(gpu_memory_buffer_manager) {
   capabilities_.uses_default_gl_framebuffer = false;
@@ -87,8 +89,9 @@ void GpuSurfacelessBrowserCompositorOutputSurface::BindFramebuffer() {
 
 void GpuSurfacelessBrowserCompositorOutputSurface::Reshape(
     const gfx::Size& size,
-    float scale_factor) {
-  GpuBrowserCompositorOutputSurface::Reshape(size, scale_factor);
+    float scale_factor,
+    bool alpha) {
+  GpuBrowserCompositorOutputSurface::Reshape(size, scale_factor, alpha);
   DCHECK(output_surface_);
   output_surface_->Reshape(SurfaceSize(), scale_factor);
 }

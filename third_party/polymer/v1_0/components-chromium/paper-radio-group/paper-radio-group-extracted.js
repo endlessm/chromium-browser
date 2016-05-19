@@ -70,7 +70,8 @@ Polymer({
           if (this.allowEmptySelection) {
             value = '';
           } else {
-            oldItem.checked = true;
+            if (oldItem)
+              oldItem.checked = true;
             return;
           }
         }
@@ -95,7 +96,7 @@ Polymer({
         newIndex = (newIndex - 1 + length) % length;
       } while (this.items[newIndex].disabled)
 
-      this.select(this._indexToValue(newIndex));
+      this._itemActivate(this._indexToValue(newIndex), this.items[newIndex]);
     },
 
     /**
@@ -110,6 +111,6 @@ Polymer({
         newIndex = (newIndex + 1 + length) % length;
       } while (this.items[newIndex].disabled)
 
-      this.select(this._indexToValue(newIndex));
+      this._itemActivate(this._indexToValue(newIndex), this.items[newIndex]);
     },
   });

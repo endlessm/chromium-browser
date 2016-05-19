@@ -4,6 +4,7 @@
 
 #include "chrome/browser/notifications/notification_conversion_helper.h"
 
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_test_util.h"
@@ -64,7 +65,7 @@ class NotificationConversionHelperTest : public testing::Test {
         base::UTF8ToUTF16("Notifier's Name"), GURL(), "id1", optional_fields,
         delegate));
 
-    return notification.Pass();
+    return notification;
   }
 
  private:

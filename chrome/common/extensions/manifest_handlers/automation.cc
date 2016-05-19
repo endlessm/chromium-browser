@@ -4,6 +4,8 @@
 
 #include "chrome/common/extensions/manifest_handlers/automation.h"
 
+#include <utility>
+
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/common/extensions/api/manifest_types.h"
 #include "chrome/grit/generated_resources.h"
@@ -40,7 +42,7 @@ class AutomationManifestPermission : public ManifestPermission {
  public:
   explicit AutomationManifestPermission(
       scoped_ptr<const AutomationInfo> automation_info)
-      : automation_info_(automation_info.Pass()) {}
+      : automation_info_(std::move(automation_info)) {}
 
   // extensions::ManifestPermission overrides.
   std::string name() const override;
@@ -89,12 +91,11 @@ PermissionIDSet AutomationManifestPermission::GetPermissions() const {
         automation_info_->matches, &regular_hosts, &permissions);
     std::set<std::string> hosts =
         permission_message_util::GetDistinctHosts(regular_hosts, true, true);
-    if (!hosts.empty()) {
-      permission_message_util::AddHostPermissions(
-          &permissions, hosts, automation_info_->interact
-                                   ? permission_message_util::kReadWrite
-                                   : permission_message_util::kReadOnly);
-    }
+    APIPermission::ID permission_id = automation_info_->interact
+                                          ? APIPermission::kHostReadWrite
+                                          : APIPermission::kHostReadOnly;
+    for (const auto& host : hosts)
+      permissions.insert(permission_id, base::UTF8ToUTF16(host));
   }
   return permissions;
 }
@@ -108,7 +109,7 @@ bool AutomationManifestPermission::FromValue(const base::Value* value) {
 }
 
 scoped_ptr<base::Value> AutomationManifestPermission::ToValue() const {
-  return AutomationInfo::ToValue(*automation_info_).Pass();
+  return AutomationInfo::ToValue(*automation_info_);
 }
 
 ManifestPermission* AutomationManifestPermission::Diff(
@@ -276,7 +277,7 @@ scoped_ptr<AutomationInfo> AutomationInfo::FromValue(
 
 // static
 scoped_ptr<base::Value> AutomationInfo::ToValue(const AutomationInfo& info) {
-  return AsManifestType(info)->ToValue().Pass();
+  return AsManifestType(info)->ToValue();
 }
 
 // static
@@ -285,7 +286,7 @@ scoped_ptr<Automation> AutomationInfo::AsManifestType(
   scoped_ptr<Automation> automation(new Automation);
   if (!info.desktop && !info.interact && info.matches.size() == 0) {
     automation->as_boolean.reset(new bool(true));
-    return automation.Pass();
+    return automation;
   }
 
   Automation::Object* as_object = new Automation::Object;
@@ -295,7 +296,7 @@ scoped_ptr<Automation> AutomationInfo::AsManifestType(
     as_object->matches.reset(info.matches.ToStringVector().release());
   }
   automation->as_object.reset(as_object);
-  return automation.Pass();
+  return automation;
 }
 
 AutomationInfo::AutomationInfo() : desktop(false), interact(false) {

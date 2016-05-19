@@ -10,6 +10,8 @@
 #include "ash/media_delegate.h"
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
@@ -198,8 +200,7 @@ void ChromeShellDelegate::Observe(int type,
       // we should execute the startup code.
       // If there are browsers open in the desktop, we create a browser window
       // and open a new tab page, if session restore is not on.
-      BrowserList* desktop_list = BrowserList::GetInstance(
-          chrome::HOST_DESKTOP_TYPE_NATIVE);
+      BrowserList* desktop_list = BrowserList::GetInstance();
       if (desktop_list->empty()) {
         // We pass a dummy command line here, because the browser is launched in
         // silent-mode by the metro viewer process, which causes the
@@ -224,8 +225,7 @@ void ChromeShellDelegate::Observe(int type,
         }
 
         chrome::ScopedTabbedBrowserDisplayer displayer(
-            ProfileManager::GetActiveUserProfile(),
-            chrome::HOST_DESKTOP_TYPE_ASH);
+            ProfileManager::GetActiveUserProfile());
         chrome::AddTabAt(displayer.browser(), GURL(), -1, true);
       }
       break;

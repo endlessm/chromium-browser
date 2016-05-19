@@ -21,7 +21,6 @@
  *
  */
 
-#include "config.h"
 #include "platform/text/BidiCharacterRun.h"
 
 #include "wtf/Partitions.h"
@@ -45,7 +44,7 @@ void* BidiCharacterRun::operator new(size_t sz)
 #ifndef NDEBUG
     bidiRunCounter().increment();
 #endif
-    return partitionAlloc(Partitions::layoutPartition(), sz);
+    return partitionAlloc(Partitions::layoutPartition(), sz, WTF_HEAP_PROFILER_TYPE_NAME(BidiCharacterRun));
 }
 
 void BidiCharacterRun::operator delete(void* ptr)
@@ -56,4 +55,4 @@ void BidiCharacterRun::operator delete(void* ptr)
     partitionFree(ptr);
 }
 
-}
+} // namespace blink

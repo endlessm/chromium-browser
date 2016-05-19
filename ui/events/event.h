@@ -5,11 +5,13 @@
 #ifndef UI_EVENTS_EVENT_H_
 #define UI_EVENTS_EVENT_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/compiler_specific.h"
 #include "base/event_types.h"
 #include "base/gtest_prod_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "ui/events/event_constants.h"
@@ -27,6 +29,9 @@ class Transform;
 
 namespace ui {
 class EventTarget;
+class MouseEvent;
+class PointerEvent;
+class TouchEvent;
 enum class DomCode;
 
 class EVENTS_EXPORT Event {
@@ -87,11 +92,10 @@ class EVENTS_EXPORT Event {
   // the time the event was created.
   bool IsShiftDown() const { return (flags_ & EF_SHIFT_DOWN) != 0; }
   bool IsControlDown() const { return (flags_ & EF_CONTROL_DOWN) != 0; }
-  bool IsCapsLockDown() const { return (flags_ & EF_CAPS_LOCK_DOWN) != 0; }
   bool IsAltDown() const { return (flags_ & EF_ALT_DOWN) != 0; }
-  bool IsAltGrDown() const { return (flags_ & EF_ALTGR_DOWN) != 0; }
   bool IsCommandDown() const { return (flags_ & EF_COMMAND_DOWN) != 0; }
-  bool IsRepeat() const { return (flags_ & EF_IS_REPEAT) != 0; }
+  bool IsAltGrDown() const { return (flags_ & EF_ALTGR_DOWN) != 0; }
+  bool IsCapsLockOn() const { return (flags_ & EF_CAPS_LOCK_ON) != 0; }
 
   bool IsKeyEvent() const {
     return type_ == ET_KEY_PRESSED || type_ == ET_KEY_RELEASED;
@@ -113,6 +117,12 @@ class EVENTS_EXPORT Event {
            type_ == ET_TOUCH_PRESSED ||
            type_ == ET_TOUCH_MOVED ||
            type_ == ET_TOUCH_CANCELLED;
+  }
+
+  bool IsPointerEvent() const {
+    return type_ == ET_POINTER_DOWN || type_ == ET_POINTER_MOVED ||
+           type_ == ET_POINTER_UP || type_ == ET_POINTER_CANCELLED ||
+           type_ == ET_POINTER_ENTERED || type_ == ET_POINTER_EXITED;
   }
 
   bool IsGestureEvent() const {
@@ -191,13 +201,28 @@ class EVENTS_EXPORT Event {
 
   bool IsLocatedEvent() const {
     return IsMouseEvent() || IsScrollEvent() || IsTouchEvent() ||
-           IsGestureEvent();
+           IsGestureEvent() || IsPointerEvent();
   }
 
   // Convenience methods to cast |this| to a GestureEvent. IsGestureEvent()
   // must be true as a precondition to calling these methods.
   GestureEvent* AsGestureEvent();
   const GestureEvent* AsGestureEvent() const;
+
+  // Convenience methods to cast |this| to a MouseEvent. IsMouseEvent()
+  // must be true as a precondition to calling these methods.
+  MouseEvent* AsMouseEvent();
+  const MouseEvent* AsMouseEvent() const;
+
+  // Convenience methods to cast |this| to a PointerEvent. IsPointerEvent()
+  // must be true as a precondition to calling these methods.
+  PointerEvent* AsPointerEvent();
+  const PointerEvent* AsPointerEvent() const;
+
+  // Convenience methods to cast |this| to a TouchEvent. IsTouchEvent()
+  // must be true as a precondition to calling these methods.
+  TouchEvent* AsTouchEvent();
+  const TouchEvent* AsTouchEvent() const;
 
   // Returns true if the event has a valid |native_event_|.
   bool HasNativeEvent() const;
@@ -326,56 +351,55 @@ class EVENTS_EXPORT LocatedEvent : public Event {
 
 // Structure for handling common fields between touch and mouse to support
 // PointerEvents API.
-class EVENTS_EXPORT PointerDetails {
+struct EVENTS_EXPORT PointerDetails {
  public:
   PointerDetails() {}
   explicit PointerDetails(EventPointerType pointer_type)
-      : pointer_type_(pointer_type) {}
+      : pointer_type(pointer_type),
+        force(std::numeric_limits<float>::quiet_NaN()) {}
   PointerDetails(EventPointerType pointer_type,
                  float radius_x,
                  float radius_y,
                  float force,
                  float tilt_x,
                  float tilt_y)
-      : pointer_type_(pointer_type),
-        radius_x_(radius_x),
-        radius_y_(radius_y),
-        force_(force),
-        tilt_x_(tilt_x),
-        tilt_y_(tilt_y) {}
+      : pointer_type(pointer_type),
+        // If we aren't provided with a radius on one axis, use the
+        // information from the other axis.
+        radius_x(radius_x > 0 ? radius_x : radius_y),
+        radius_y(radius_y > 0 ? radius_y : radius_x),
+        force(force),
+        tilt_x(tilt_x),
+        tilt_y(tilt_y) {}
 
-  EventPointerType pointer_type() const { return pointer_type_; };
-
-  // If we aren't provided with a radius on one axis, use the
-  // information from the other axis.
-  float radius_x() const { return radius_x_ > 0 ? radius_x_ : radius_y_; }
-  float radius_y() const { return radius_y_ > 0 ? radius_y_ : radius_x_; }
-  float force() const { return force_; }
-  float tilt_x() const { return tilt_x_; }
-  float tilt_y() const { return tilt_y_; }
-
- private:
-  // For the mutators of the members on this class.
-  friend class TouchEvent;
-  friend class MouseEvent;
+  bool operator==(const PointerDetails& other) const {
+    return pointer_type == other.pointer_type &&
+           radius_x == other.radius_x &&
+           radius_y == other.radius_y &&
+           (force == other.force ||
+            (std::isnan(force) && std::isnan(other.force))) &&
+           tilt_x == other.tilt_x &&
+           tilt_y == other.tilt_y;
+  }
 
   // The type of pointer device.
-  EventPointerType pointer_type_ = EventPointerType::POINTER_TYPE_UNKNOWN;
+  EventPointerType pointer_type = EventPointerType::POINTER_TYPE_UNKNOWN;
 
   // Radius of the X (major) axis of the touch ellipse. 0.0 if unknown.
-  float radius_x_ = 0.0;
+  float radius_x = 0.0;
 
   // Radius of the Y (minor) axis of the touch ellipse. 0.0 if unknown.
-  float radius_y_ = 0.0;
+  float radius_y = 0.0;
 
-  // Force (pressure) of the touch. Normalized to be [0, 1]. Default to be 0.0.
-  float force_ = 0.0;
+  // Force (pressure) of the touch. Normalized to be [0, 1] except NaN means
+  // pressure is not supported by the input device.
+  float force = 0.0;
 
-  // Angle of tilt of the X (major) axis. 0.0 if unknown.
-  float tilt_x_ = 0.0;
-
-  // Angle of tilt of the Y (minor) axis. 0.0 if unknown.
-  float tilt_y_ = 0.0;
+  // Tilt of a pen/stylus from surface normal as plane angle in degrees, values
+  // lie in [-90,90]. A positive tilt_x is to the right and a positive tilt_y
+  // is towards the user. 0.0 if unknown.
+  float tilt_x = 0.0;
+  float tilt_y = 0.0;
 };
 
 class EVENTS_EXPORT MouseEvent : public LocatedEvent {
@@ -442,6 +466,13 @@ class EVENTS_EXPORT MouseEvent : public LocatedEvent {
     return button_flags() != 0;
   }
 
+  // Returns the flags for the mouse buttons.
+  int button_flags() const {
+    return flags() & (EF_LEFT_MOUSE_BUTTON | EF_MIDDLE_MOUSE_BUTTON |
+                      EF_RIGHT_MOUSE_BUTTON | EF_BACK_MOUSE_BUTTON |
+                      EF_FORWARD_MOUSE_BUTTON);
+  }
+
   // Compares two mouse down events and returns true if the second one should
   // be considered a repeat of the first.
   static bool IsRepeatedClickEvent(
@@ -473,13 +504,6 @@ class EVENTS_EXPORT MouseEvent : public LocatedEvent {
  private:
   FRIEND_TEST_ALL_PREFIXES(EventTest, DoubleClickRequiresRelease);
   FRIEND_TEST_ALL_PREFIXES(EventTest, SingleClickRightLeft);
-
-  // Returns the flags for the mouse buttons.
-  int button_flags() const {
-    return flags() & (EF_LEFT_MOUSE_BUTTON | EF_MIDDLE_MOUSE_BUTTON |
-                      EF_RIGHT_MOUSE_BUTTON | EF_BACK_MOUSE_BUTTON |
-                      EF_FORWARD_MOUSE_BUTTON);
-  }
 
   // Returns the repeat count based on the previous mouse click, if it is
   // recent enough and within a small enough distance.
@@ -579,17 +603,12 @@ class EVENTS_EXPORT TouchEvent : public LocatedEvent {
   // The id of the pointer this event modifies.
   int touch_id() const { return touch_id_; }
   // A unique identifier for this event.
-  uint32 unique_event_id() const { return unique_event_id_; }
+  uint32_t unique_event_id() const { return unique_event_id_; }
 
   float rotation_angle() const { return rotation_angle_; }
 
   void set_may_cause_scrolling(bool causes) { may_cause_scrolling_ = causes; }
   bool may_cause_scrolling() const { return may_cause_scrolling_; }
-
-  // TODO(robert.bradford): ozone_platform_egltest.cc could use
-  // UpdateForRootTransform() instead: crbug.com/519337
-  void set_radius_x(const float r) { pointer_details_.radius_x_ = r; }
-  void set_radius_y(const float r) { pointer_details_.radius_y_ = r; }
 
   void set_should_remove_native_touch_id_mapping(
       bool should_remove_native_touch_id_mapping) {
@@ -609,6 +628,9 @@ class EVENTS_EXPORT TouchEvent : public LocatedEvent {
 
   // Event details common to MouseEvent and TouchEvent.
   const PointerDetails& pointer_details() const { return pointer_details_; }
+  void set_pointer_details(const PointerDetails& pointer_details) {
+    pointer_details_ = pointer_details;
+  }
 
  private:
   // Adjusts rotation_angle_ to within the acceptable range.
@@ -619,7 +641,7 @@ class EVENTS_EXPORT TouchEvent : public LocatedEvent {
   const int touch_id_;
 
   // A unique identifier for the touch event.
-  const uint32 unique_event_id_;
+  const uint32_t unique_event_id_;
 
   // Clockwise angle (in degrees) of the major axis from the X axis. Must be
   // less than 180 and non-negative.
@@ -638,6 +660,22 @@ class EVENTS_EXPORT TouchEvent : public LocatedEvent {
 
   // Structure for holding pointer details for implementing PointerEvents API.
   PointerDetails pointer_details_;
+};
+
+class EVENTS_EXPORT PointerEvent : public LocatedEvent {
+ public:
+  static const int32_t kMousePointerId;
+
+  explicit PointerEvent(const PointerEvent& pointer_event);
+  explicit PointerEvent(const MouseEvent& mouse_event);
+  explicit PointerEvent(const TouchEvent& touch_event);
+
+  int32_t pointer_id() const { return pointer_id_; }
+  const PointerDetails& pointer_details() const { return details_; }
+
+ private:
+  int32_t pointer_id_;
+  PointerDetails details_;
 };
 
 // An interface that individual platforms can use to store additional data on
@@ -756,15 +794,17 @@ class EVENTS_EXPORT KeyEvent : public Event {
   // as GetUnmodifiedText().
   base::char16 GetText() const;
 
+  // True if this is a character event, false if this is a keystroke event.
+  bool is_char() const { return is_char_; }
+
+  bool is_repeat() const { return (flags() & EF_IS_REPEAT) != 0; }
+
   // Gets the associated (Windows-based) KeyboardCode for this key event.
   // Historically, this has also been used to obtain the character associated
   // with a character event, because both use the Window message 'wParam' field.
   // This should be avoided; if necessary for backwards compatibility, use
   // GetConflatedWindowsKeyCode().
   KeyboardCode key_code() const { return key_code_; }
-
-  // True if this is a character event, false if this is a keystroke event.
-  bool is_char() const { return is_char_; }
 
   // This is only intended to be used externally by classes that are modifying
   // events in an EventRewriter.
@@ -779,7 +819,7 @@ class EVENTS_EXPORT KeyEvent : public Event {
   // For a keystroke event, returns the same value as key_code().
   // For a character event, returns the same value as GetCharacter().
   // This exists for backwards compatibility with Windows key events.
-  uint16 GetConflatedWindowsKeyCode() const;
+  uint16_t GetConflatedWindowsKeyCode() const;
 
   // Returns true for [Alt]+<num-pad digit> Unicode alt key codes used by Win.
   // TODO(msw): Additional work may be needed for analogues on other platforms.
@@ -808,7 +848,7 @@ class EVENTS_EXPORT KeyEvent : public Event {
 
   KeyboardCode key_code_;
 
-  // DOM KeyboardEvent |code| (e.g. DomCode::KEY_A, DomCode::SPACE).
+  // DOM KeyboardEvent |code| (e.g. DomCode::US_A, DomCode::SPACE).
   // http://www.w3.org/TR/DOM-Level-3-Events-code/
   //
   // This value represents the physical position in the keyboard and can be

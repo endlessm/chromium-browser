@@ -90,6 +90,7 @@
             '../ui/gfx/gfx.gyp:gfx_geometry',
             '../url/url.gyp:url_lib',
             'keyed_service_core',
+            'variations',
           ],
           'include_dirs': [
             '..',
@@ -126,6 +127,7 @@
     }, {  # OS==ios
       'targets': [
         {
+          # GN version: //components/sessions
           'target_name': 'sessions_ios',
           'type': 'static_library',
           'dependencies': [
@@ -137,6 +139,7 @@
             '../ui/gfx/gfx.gyp:gfx_geometry',
             '../url/url.gyp:url_lib',
             'keyed_service_core',
+            'variations',
           ],
           'include_dirs': [
             '..',
@@ -147,10 +150,10 @@
           'sources': [
             '<@(sessions_core_sources)',
 
-            'sessions/ios/ios_live_tab.cc',
             'sessions/ios/ios_live_tab.h',
-            'sessions/ios/ios_serialized_navigation_builder.cc',
+            'sessions/ios/ios_live_tab.mm',
             'sessions/ios/ios_serialized_navigation_builder.h',
+            'sessions/ios/ios_serialized_navigation_builder.mm',
             'sessions/ios/ios_serialized_navigation_driver.cc',
             'sessions/ios/ios_serialized_navigation_driver.h',
           ],

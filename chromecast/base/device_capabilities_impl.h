@@ -5,6 +5,8 @@
 #ifndef CHROMECAST_BASE_DEVICE_CAPABILITIES_IMPL_H_
 #define CHROMECAST_BASE_DEVICE_CAPABILITIES_IMPL_H_
 
+#include <string>
+
 #include "base/containers/scoped_ptr_hash_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -28,6 +30,7 @@ class DeviceCapabilitiesImpl : public DeviceCapabilities {
   Validator* GetValidator(const std::string& key) const override;
   bool BluetoothSupported() const override;
   bool DisplaySupported() const override;
+  bool HiResAudioSupported() const override;
   scoped_ptr<base::Value> GetCapability(const std::string& path) const override;
   scoped_refptr<Data> GetData() const override;
   void SetCapability(const std::string& path,

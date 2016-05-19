@@ -5,12 +5,15 @@
 #ifndef IPC_IPC_CHANNEL_PROXY_H_
 #define IPC_IPC_CHANNEL_PROXY_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/non_thread_safe.h"
+#include "build/build_config.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_endpoint.h"
@@ -94,6 +97,11 @@ class IPC_EXPORT ChannelProxy : public Endpoint, public base::NonThreadSafe {
       Listener* listener,
       const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner);
 
+  // Constructs a ChannelProxy without initializing it.
+  ChannelProxy(
+      Listener* listener,
+      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner);
+
   ~ChannelProxy() override;
 
   // Initializes the channel proxy. Only call this once to initialize a channel
@@ -156,9 +164,6 @@ class IPC_EXPORT ChannelProxy : public Endpoint, public base::NonThreadSafe {
   // to the internal state.
   ChannelProxy(Context* context);
 
-  ChannelProxy(
-      Listener* listener,
-      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner);
 
   // Used internally to hold state that is referenced on the IPC thread.
   class Context : public base::RefCountedThreadSafe<Context>,

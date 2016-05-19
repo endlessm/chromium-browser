@@ -4,6 +4,9 @@
 
 #include "ios/chrome/browser/metrics/ios_chrome_metrics_service_client.h"
 
+#include <stdint.h>
+
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -12,8 +15,6 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/process/process_metrics.h"
 #include "base/rand_util.h"
 #include "base/strings/string16.h"
@@ -32,6 +33,8 @@
 #include "components/metrics/ui/screen_info_metrics_provider.h"
 #include "components/metrics/url_constants.h"
 #include "components/omnibox/browser/omnibox_metrics_provider.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_status_metrics_provider.h"
 #include "components/variations/variations_associated_data.h"
 #include "components/version_info/version_info.h"
@@ -39,7 +42,7 @@
 #include "ios/chrome/browser/chrome_paths.h"
 #include "ios/chrome/browser/google/google_brand.h"
 #include "ios/chrome/browser/metrics/ios_chrome_stability_metrics_provider.h"
-#include "ios/chrome/browser/metrics/ios_stability_metrics_provider.h"
+#include "ios/chrome/browser/metrics/mobile_session_shutdown_metrics_provider.h"
 #include "ios/chrome/browser/signin/ios_chrome_signin_status_metrics_provider_delegate.h"
 #include "ios/chrome/browser/tab_parenting_global_observer.h"
 #include "ios/chrome/browser/ui/browser_otr_state.h"
@@ -95,7 +98,7 @@ scoped_ptr<IOSChromeMetricsServiceClient> IOSChromeMetricsServiceClient::Create(
       new IOSChromeMetricsServiceClient(state_manager));
   client->Initialize();
 
-  return client.Pass();
+  return client;
 }
 
 // static
@@ -122,7 +125,7 @@ bool IOSChromeMetricsServiceClient::IsOffTheRecordSessionActive() {
   return ::IsOffTheRecordSessionActive();
 }
 
-int32 IOSChromeMetricsServiceClient::GetProduct() {
+int32_t IOSChromeMetricsServiceClient::GetProduct() {
   return metrics::ChromeUserMetricsExtension::CHROME;
 }
 
@@ -248,14 +251,9 @@ void IOSChromeMetricsServiceClient::Initialize() {
           SigninStatusMetricsProvider::CreateInstance(make_scoped_ptr(
               new IOSChromeSigninStatusMetricsProviderDelegate))));
 
-  scoped_ptr<metrics::MetricsProvider> ios_stability_metrics_provider(
-      new IOSStabilityMetricsProvider(metrics_service_.get()));
-  if (ios_stability_metrics_provider) {
-    metrics_service_->RegisterMetricsProvider(
-        ios_stability_metrics_provider.Pass());
-  } else {
-    NOTREACHED() << "No IOSStabilityMetricsProvider registered.";
-  }
+  metrics_service_->RegisterMetricsProvider(
+      scoped_ptr<metrics::MetricsProvider>(
+          new MobileSessionShutdownMetricsProvider(metrics_service_.get())));
 }
 
 void IOSChromeMetricsServiceClient::OnInitTaskGotDriveMetrics() {

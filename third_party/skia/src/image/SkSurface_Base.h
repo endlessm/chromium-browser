@@ -9,6 +9,7 @@
 #define SkSurface_Base_DEFINED
 
 #include "SkCanvas.h"
+#include "SkImagePriv.h"
 #include "SkSurface.h"
 #include "SkSurfacePriv.h"
 
@@ -42,7 +43,7 @@ public:
      *  must faithfully represent the current contents, even if the surface
      *  is changed after this called (e.g. it is drawn to via its canvas).
      */
-    virtual SkImage* onNewImageSnapshot(Budgeted) = 0;
+    virtual SkImage* onNewImageSnapshot(SkBudgeted, ForceCopyMode) = 0;
 
     /**
      *  Default implementation:
@@ -74,8 +75,13 @@ public:
      */
     virtual void onRestoreBackingMutability() {}
 
+    /**
+     * Issue any pending surface IO to the current backend 3D API and resolve any surface MSAA.
+     */
+    virtual void onPrepareForExternalIO() {}
+
     inline SkCanvas* getCachedCanvas();
-    inline SkImage* getCachedImage(Budgeted);
+    inline SkImage* refCachedImage(SkBudgeted, ForceUnique);
 
     bool hasCachedImage() const { return fCachedImage != nullptr; }
 
@@ -108,12 +114,23 @@ SkCanvas* SkSurface_Base::getCachedCanvas() {
     return fCachedCanvas;
 }
 
-SkImage* SkSurface_Base::getCachedImage(Budgeted budgeted) {
-    if (nullptr == fCachedImage) {
-        fCachedImage = this->onNewImageSnapshot(budgeted);
-        SkASSERT(!fCachedCanvas || fCachedCanvas->getSurfaceBase() == this);
+SkImage* SkSurface_Base::refCachedImage(SkBudgeted budgeted, ForceUnique unique) {
+    SkImage* snap = fCachedImage;
+    if (kYes_ForceUnique == unique && snap && !snap->unique()) {
+        snap = nullptr;
     }
-    return fCachedImage;
+    if (snap) {
+        return SkRef(snap);
+    }
+    ForceCopyMode fcm = (kYes_ForceUnique == unique) ? kYes_ForceCopyMode :
+                                                       kNo_ForceCopyMode;
+    snap = this->onNewImageSnapshot(budgeted, fcm);
+    if (kNo_ForceUnique == unique) {
+        SkASSERT(!fCachedImage);
+        fCachedImage = SkSafeRef(snap);
+    }
+    SkASSERT(!fCachedCanvas || fCachedCanvas->getSurfaceBase() == this);
+    return snap;
 }
 
 #endif

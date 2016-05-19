@@ -97,6 +97,8 @@ typedef enum {
   TX_TYPES = 4
 } TX_TYPE;
 
+#define EXT_TX_SIZES       3  // number of sizes that use extended transforms
+
 typedef enum {
   VP9_LAST_FLAG = 1 << 0,
   VP9_GOLD_FLAG = 1 << 1,
@@ -108,29 +110,6 @@ typedef enum {
   PLANE_TYPE_UV = 1,
   PLANE_TYPES
 } PLANE_TYPE;
-
-typedef enum {
-  TWO_COLORS,
-  THREE_COLORS,
-  FOUR_COLORS,
-  FIVE_COLORS,
-  SIX_COLORS,
-  SEVEN_COLORS,
-  EIGHT_COLORS,
-  PALETTE_SIZES
-} PALETTE_SIZE;
-
-typedef enum {
-  PALETTE_COLOR_ONE,
-  PALETTE_COLOR_TWO,
-  PALETTE_COLOR_THREE,
-  PALETTE_COLOR_FOUR,
-  PALETTE_COLOR_FIVE,
-  PALETTE_COLOR_SIX,
-  PALETTE_COLOR_SEVEN,
-  PALETTE_COLOR_EIGHT,
-  PALETTE_COLORS
-} PALETTE_COLOR;
 
 #define DC_PRED    0       // Average of above and left pixels
 #define V_PRED     1       // Vertical

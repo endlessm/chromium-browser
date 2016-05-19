@@ -5,6 +5,7 @@
 #ifndef REMOTING_HOST_IT2ME_IT2ME_HOST_H_
 #define REMOTING_HOST_IT2ME_IT2ME_HOST_H_
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -42,7 +43,6 @@ enum It2MeHostState {
   kRequestedAccessCode,
   kReceivedAccessCode,
   kConnected,
-  kDisconnecting,
   kError,
   kInvalidDomainError
 };
@@ -74,8 +74,7 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
   // Creates It2Me host structures and starts the host.
   virtual void Connect();
 
-  // Disconnects the host, ready for tear-down.
-  // Also called internally, from the network thread.
+  // Disconnects and shuts down the host.
   virtual void Disconnect();
 
   // TODO (weitaosu): Remove RequestNatPolicy from It2MeHost.
@@ -84,7 +83,7 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
 
   // remoting::HostStatusObserver implementation.
   void OnAccessDenied(const std::string& jid) override;
-  void OnClientAuthenticated(const std::string& jid) override;
+  void OnClientConnected(const std::string& jid) override;
   void OnClientDisconnected(const std::string& jid) override;
 
   void SetStateForTesting(It2MeHostState state,
@@ -128,23 +127,18 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
                            const base::TimeDelta& lifetime,
                            const std::string& error_message);
 
-  // Shuts down |host_| on the network thread and posts ShutdownOnUiThread()
-  // to shut down UI thread resources.
-  void ShutdownOnNetworkThread();
-
-  // Shuts down |desktop_environment_factory_| and |policy_watcher_| on
-  // the UI thread.
-  void ShutdownOnUiThread();
-
   // Called when initial policies are read, and when they change.
   void OnPolicyUpdate(scoped_ptr<base::DictionaryValue> policies);
 
   // Called when malformed policies are detected.
   void OnPolicyError();
 
-  // Handlers for NAT traversal and host domain policies.
+  // Handlers for NAT traversal and domain policies.
   void UpdateNatPolicy(bool nat_traversal_enabled);
   void UpdateHostDomainPolicy(const std::string& host_domain);
+  void UpdateClientDomainPolicy(const std::string& client_domain);
+
+  void Shutdown();
 
   // Caller supplied fields.
   scoped_ptr<ChromotingHostContext> host_context_;
@@ -172,7 +166,8 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
   // Host the current nat traversal policy setting.
   bool nat_traversal_enabled_;
 
-  // The host domain policy setting.
+  // The client and host domain policy setting.
+  std::string required_client_domain_;
   std::string required_host_domain_;
 
   // Indicates whether or not a policy has ever been read. This is to ensure

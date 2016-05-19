@@ -8,7 +8,6 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/sha1.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
@@ -21,6 +20,7 @@ namespace {
 const base::FilePath::CharType kMHTMLExtension[] = FILE_PATH_LITERAL("mhtml");
 const base::FilePath::CharType kDefaultFileName[] =
     FILE_PATH_LITERAL("offline_page");
+const int kTitleLengthMax = 80;
 const char kMHTMLFileNameExtension[] = ".mhtml";
 const char kFileNameComponentsSeparator[] = "-";
 const char kReplaceChars[] = " ";
@@ -36,10 +36,12 @@ std::string OfflinePageMHTMLArchiver::GetFileNameExtension() {
 base::FilePath OfflinePageMHTMLArchiver::GenerateFileName(
     const GURL& url,
     const std::string& title) {
-  std::string url_hash = base::SHA1HashString(url.spec());
+  std::string title_part(title.substr(0, kTitleLengthMax));
+  std::string url_hash(base::SHA1HashString(url.spec()));
   base::Base64Encode(url_hash, &url_hash);
-  std::string suggested_name(url.host() + kFileNameComponentsSeparator + title +
-                             kFileNameComponentsSeparator + url_hash);
+  std::string suggested_name(url.host() + kFileNameComponentsSeparator +
+                             title_part + kFileNameComponentsSeparator +
+                             url_hash);
 
   // Substitute spaces out from title.
   base::ReplaceChars(suggested_name, kReplaceChars, kReplaceWith,
@@ -115,7 +117,7 @@ void OfflinePageMHTMLArchiver::GenerateMHTML(
 void OfflinePageMHTMLArchiver::OnGenerateMHTMLDone(
     const GURL& url,
     const base::FilePath& file_path,
-    int64 file_size) {
+    int64_t file_size) {
   if (file_size < 0) {
     ReportFailure(ArchiverResult::ERROR_ARCHIVE_CREATION_FAILED);
   } else {

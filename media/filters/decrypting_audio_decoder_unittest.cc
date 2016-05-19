@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/decoder_buffer.h"
@@ -32,8 +35,8 @@ const int kSampleRate = 44100;
 // Make sure the kFakeAudioFrameSize is a valid frame size for all audio decoder
 // configs used in this test.
 const int kFakeAudioFrameSize = 48;
-const uint8 kFakeKeyId[] = { 0x4b, 0x65, 0x79, 0x20, 0x49, 0x44 };
-const uint8 kFakeIv[DecryptConfig::kDecryptionKeySize] = { 0 };
+const uint8_t kFakeKeyId[] = {0x4b, 0x65, 0x79, 0x20, 0x49, 0x44};
+const uint8_t kFakeIv[DecryptConfig::kDecryptionKeySize] = {0};
 const int kDecodingDelay = 3;
 
 // Create a fake non-empty encrypted buffer.
@@ -64,8 +67,6 @@ class DecryptingAudioDecoderTest : public testing::Test {
       : decoder_(new DecryptingAudioDecoder(
             message_loop_.task_runner(),
             new MediaLog(),
-            base::Bind(&DecryptingAudioDecoderTest::RequestCdmNotification,
-                       base::Unretained(this)),
             base::Bind(&DecryptingAudioDecoderTest::OnWaitingForDecryptionKey,
                        base::Unretained(this)))),
         cdm_context_(new StrictMock<MockCdmContext>()),
@@ -77,7 +78,6 @@ class DecryptingAudioDecoderTest : public testing::Test {
         decoded_frame_list_() {}
 
   virtual ~DecryptingAudioDecoderTest() {
-    EXPECT_CALL(*this, RequestCdmNotification(_)).Times(testing::AnyNumber());
     Destroy();
   }
 
@@ -96,29 +96,18 @@ class DecryptingAudioDecoderTest : public testing::Test {
                                                     kNoTimestamp());
     decoded_frame_list_.push_back(decoded_frame_);
 
-    decoder_->Initialize(config, NewExpectedBoolCB(success),
+    decoder_->Initialize(config, cdm_context_.get(), NewExpectedBoolCB(success),
                          base::Bind(&DecryptingAudioDecoderTest::FrameReady,
                                     base::Unretained(this)));
     message_loop_.RunUntilIdle();
   }
 
-  enum CdmType { NO_CDM, CDM_WITHOUT_DECRYPTOR, CDM_WITH_DECRYPTOR };
+  enum CdmType { CDM_WITHOUT_DECRYPTOR, CDM_WITH_DECRYPTOR };
 
   void SetCdmType(CdmType cdm_type) {
-    const bool has_cdm = cdm_type != NO_CDM;
     const bool has_decryptor = cdm_type == CDM_WITH_DECRYPTOR;
-
-    EXPECT_CALL(*this, RequestCdmNotification(_))
-        .WillOnce(RunCallback<0>(has_cdm ? cdm_context_.get() : nullptr,
-                                 base::Bind(&DecryptingAudioDecoderTest::CdmSet,
-                                            base::Unretained(this))));
-
-    if (has_cdm) {
-      EXPECT_CALL(*cdm_context_, GetDecryptor())
-          .WillRepeatedly(Return(has_decryptor ? decryptor_.get() : nullptr));
-    }
-
-    EXPECT_CALL(*this, CdmSet(has_decryptor));
+    EXPECT_CALL(*cdm_context_, GetDecryptor())
+        .WillRepeatedly(Return(has_decryptor ? decryptor_.get() : nullptr));
   }
 
   void Initialize() {
@@ -145,7 +134,7 @@ class DecryptingAudioDecoderTest : public testing::Test {
         .WillOnce(RunCallback<1>(true));
     EXPECT_CALL(*decryptor_, RegisterNewKeyCB(Decryptor::kAudio, _))
               .WillOnce(SaveArg<1>(&key_added_cb_));
-    decoder_->Initialize(new_config, NewExpectedBoolCB(true),
+    decoder_->Initialize(new_config, nullptr, NewExpectedBoolCB(true),
                          base::Bind(&DecryptingAudioDecoderTest::FrameReady,
                                     base::Unretained(this)));
   }
@@ -261,12 +250,8 @@ class DecryptingAudioDecoderTest : public testing::Test {
     message_loop_.RunUntilIdle();
   }
 
-  MOCK_METHOD1(RequestCdmNotification, void(const CdmReadyCB&));
-
   MOCK_METHOD1(FrameReady, void(const scoped_refptr<AudioBuffer>&));
   MOCK_METHOD1(DecodeDone, void(AudioDecoder::Status));
-
-  MOCK_METHOD1(CdmSet, void(bool));
 
   MOCK_METHOD0(OnWaitingForDecryptionKey, void(void));
 
@@ -320,14 +305,6 @@ TEST_F(DecryptingAudioDecoderTest, Initialize_UnsupportedAudioConfig) {
   EXPECT_CALL(*decryptor_, InitializeAudioDecoder(_, _))
       .WillOnce(RunCallback<1>(false));
 
-  AudioDecoderConfig config(kCodecVorbis, kSampleFormatPlanarF32,
-                            CHANNEL_LAYOUT_STEREO, kSampleRate,
-                            EmptyExtraData(), true);
-  InitializeAndExpectResult(config, false);
-}
-
-TEST_F(DecryptingAudioDecoderTest, Initialize_NoCdm) {
-  SetCdmType(NO_CDM);
   AudioDecoderConfig config(kCodecVorbis, kSampleFormatPlanarF32,
                             CHANNEL_LAYOUT_STEREO, kSampleRate,
                             EmptyExtraData(), true);

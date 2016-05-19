@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "content/shell/browser/shell_browser_context.h"
 #include "ui/aura/env.h"
 #include "ui/gfx/screen.h"
@@ -38,8 +39,7 @@ void ViewsContentClientMainPartsDesktopAura::PreMainMessageLoopRun() {
   ViewsContentClientMainPartsAura::PreMainMessageLoopRun();
 
   aura::Env::CreateInstance(true);
-  gfx::Screen::SetScreenInstance(
-      gfx::SCREEN_TYPE_NATIVE, views::CreateDesktopScreen());
+  gfx::Screen::SetScreenInstance(views::CreateDesktopScreen());
 
   views_content_client()->task().Run(browser_context(), NULL);
 }

@@ -21,9 +21,9 @@ CrtcController::CrtcController(const scoped_refptr<DrmDevice>& drm,
 
 CrtcController::~CrtcController() {
   if (!is_disabled_) {
-    const ScopedVector<HardwareDisplayPlane>& all_planes =
+    const std::vector<scoped_ptr<HardwareDisplayPlane>>& all_planes =
         drm_->plane_manager()->planes();
-    for (auto* plane : all_planes) {
+    for (const auto& plane : all_planes) {
       if (plane->owning_crtc() == crtc_) {
         plane->set_owning_crtc(0);
         plane->set_in_use(false);
@@ -114,9 +114,10 @@ bool CrtcController::SchedulePageFlip(
   return true;
 }
 
-std::vector<uint32_t> CrtcController::GetCompatibleHardwarePlaneIds(
-    const OverlayPlane& plane) const {
-  return drm_->plane_manager()->GetCompatibleHardwarePlaneIds(plane, crtc_);
+bool CrtcController::IsFormatSupported(uint32_t fourcc_format,
+                                       uint32_t z_order) const {
+  return drm_->plane_manager()->IsFormatSupported(fourcc_format, z_order,
+                                                  crtc_);
 }
 
 void CrtcController::OnPageFlipEvent(unsigned int frame,

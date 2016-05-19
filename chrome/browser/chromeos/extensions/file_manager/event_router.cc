@@ -4,11 +4,13 @@
 
 #include "chrome/browser/chromeos/extensions/file_manager/event_router.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -22,7 +24,7 @@
 #include "chrome/browser/chromeos/file_manager/open_util.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/extensions/api/file_system/file_system_api.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -38,6 +40,8 @@
 #include "components/drive/file_change.h"
 #include "components/drive/file_system_interface.h"
 #include "components/drive/service/drive_service_interface.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
@@ -61,7 +65,7 @@ namespace file_manager {
 namespace {
 
 // Frequency of sending onFileTransferUpdated.
-const int64 kProgressEventFrequencyInMilliseconds = 1000;
+const int64_t kProgressEventFrequencyInMilliseconds = 1000;
 
 // Maximim size of detailed change info on directory change event. If the size
 // exceeds the maximum size, the detailed info is omitted and the force refresh
@@ -69,7 +73,7 @@ const int64 kProgressEventFrequencyInMilliseconds = 1000;
 const size_t kDirectoryChangeEventMaxDetailInfoSize = 1000;
 
 // This time(millisecond) is used for confirm following event exists.
-const int64 kFileTransferEventDelayTimeInMilliseconds = 300;
+const int64_t kFileTransferEventDelayTimeInMilliseconds = 300;
 
 // Checks if the Recovery Tool is running. This is a temporary solution.
 // TODO(mtomasz): Replace with crbug.com/341902 solution.
@@ -98,8 +102,9 @@ void BroadcastEvent(Profile* profile,
                     extensions::events::HistogramValue histogram_value,
                     const std::string& event_name,
                     scoped_ptr<base::ListValue> event_args) {
-  extensions::EventRouter::Get(profile)->BroadcastEvent(make_scoped_ptr(
-      new extensions::Event(histogram_value, event_name, event_args.Pass())));
+  extensions::EventRouter::Get(profile)
+      ->BroadcastEvent(make_scoped_ptr(new extensions::Event(
+          histogram_value, event_name, std::move(event_args))));
 }
 
 // Sends an event named |event_name| with arguments |event_args| to an extension
@@ -112,7 +117,7 @@ void DispatchEventToExtension(
     scoped_ptr<base::ListValue> event_args) {
   extensions::EventRouter::Get(profile)->DispatchEventToExtension(
       extension_id, make_scoped_ptr(new extensions::Event(
-                        histogram_value, event_name, event_args.Pass())));
+                        histogram_value, event_name, std::move(event_args))));
 }
 
 file_manager_private::MountCompletedStatus
@@ -237,7 +242,7 @@ std::string FileErrorToErrorName(base::File::Error error_code) {
 // |last_time|.
 bool ShouldSendProgressEvent(bool always, base::Time* last_time) {
   const base::Time now = base::Time::Now();
-  const int64 delta = (now - *last_time).InMilliseconds();
+  const int64_t delta = (now - *last_time).InMilliseconds();
   // delta < 0 may rarely happen if system clock is synced and rewinded.
   // To be conservative, we don't skip in that case.
   if (!always && 0 <= delta && delta < kProgressEventFrequencyInMilliseconds) {
@@ -264,7 +269,7 @@ bool ShouldShowNotificationForVolume(
   // Do not attempt to open File Manager while the login is in progress or
   // the screen is locked or running in kiosk app mode and make sure the file
   // manager is opened only for the active user.
-  if (chromeos::LoginDisplayHostImpl::default_host() ||
+  if (chromeos::LoginDisplayHost::default_host() ||
       chromeos::ScreenLocker::default_screen_locker() ||
       chrome::IsRunningInForcedAppMode() ||
       profile != ProfileManager::GetActiveUserProfile()) {
@@ -354,8 +359,9 @@ class JobEventRouterImpl : public JobEventRouter {
       extensions::events::HistogramValue histogram_value,
       const std::string& event_name,
       scoped_ptr<base::ListValue> event_args) override {
-    ::file_manager::DispatchEventToExtension(
-        profile_, extension_id, histogram_value, event_name, event_args.Pass());
+    ::file_manager::DispatchEventToExtension(profile_, extension_id,
+                                             histogram_value, event_name,
+                                             std::move(event_args));
   }
 
  private:
@@ -570,7 +576,7 @@ void EventRouter::OnCopyProgress(
     storage::FileSystemOperation::CopyProgressType type,
     const GURL& source_url,
     const GURL& destination_url,
-    int64 size) {
+    int64_t size) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   file_manager_private::CopyProgressStatus status;

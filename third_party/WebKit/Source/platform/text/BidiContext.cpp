@@ -19,7 +19,6 @@
  *
  */
 
-#include "config.h"
 #include "platform/text/BidiContext.h"
 
 #include "wtf/StdLibExtras.h"
@@ -36,16 +35,16 @@ struct SameSizeAsBidiContext : public RefCounted<SameSizeAsBidiContext> {
 
 static_assert(sizeof(BidiContext) == sizeof(SameSizeAsBidiContext), "BidiContext should stay small");
 
-inline PassRefPtr<BidiContext> BidiContext::createUncached(unsigned char level, Direction direction, bool override, BidiEmbeddingSource source, BidiContext* parent)
+inline PassRefPtr<BidiContext> BidiContext::createUncached(unsigned char level, CharDirection direction, bool override, BidiEmbeddingSource source, BidiContext* parent)
 {
     return adoptRef(new BidiContext(level, direction, override, source, parent));
 }
 
-PassRefPtr<BidiContext> BidiContext::create(unsigned char level, Direction direction, bool override, BidiEmbeddingSource source, BidiContext* parent)
+PassRefPtr<BidiContext> BidiContext::create(unsigned char level, CharDirection direction, bool override, BidiEmbeddingSource source, BidiContext* parent)
 {
     ASSERT(direction == (level % 2 ? RightToLeft : LeftToRight));
 
-    if (parent)
+    if (parent || level >= 2)
         return createUncached(level, direction, override, source, parent);
 
     ASSERT(level <= 1);

@@ -232,6 +232,13 @@ Process LaunchProcess(const string16& cmdline,
         return Process();
       }
 
+      // Ensure the handles can be inherited.
+      for (HANDLE handle : *options.handles_to_inherit) {
+        BOOL result = SetHandleInformation(handle, HANDLE_FLAG_INHERIT,
+                                           HANDLE_FLAG_INHERIT);
+        PCHECK(result);
+      }
+
       if (!startup_info_wrapper.InitializeProcThreadAttributeList(1)) {
         DPLOG(ERROR);
         return Process();
@@ -272,8 +279,10 @@ Process LaunchProcess(const string16& cmdline,
 
     // If this code is run under a debugger, the launched process is
     // automatically associated with a job object created by the debugger.
-    // The CREATE_BREAKAWAY_FROM_JOB flag is used to prevent this.
-    flags |= CREATE_BREAKAWAY_FROM_JOB;
+    // The CREATE_BREAKAWAY_FROM_JOB flag is used to prevent this on Windows
+    // releases that do not support nested jobs.
+    if (win::GetVersion() < win::VERSION_WIN8)
+      flags |= CREATE_BREAKAWAY_FROM_JOB;
   }
 
   if (options.force_breakaway_from_job_)
@@ -300,7 +309,7 @@ Process LaunchProcess(const string16& cmdline,
     DestroyEnvironmentBlock(enviroment_block);
     if (!launched) {
       DPLOG(ERROR) << "Command line:" << std::endl << UTF16ToUTF8(cmdline)
-                   << std::endl;;
+                   << std::endl;
       return Process();
     }
   } else {
@@ -309,7 +318,7 @@ Process LaunchProcess(const string16& cmdline,
                        inherit_handles, flags, NULL, NULL,
                        startup_info, &temp_process_info)) {
       DPLOG(ERROR) << "Command line:" << std::endl << UTF16ToUTF8(cmdline)
-                   << std::endl;;
+                   << std::endl;
       return Process();
     }
   }

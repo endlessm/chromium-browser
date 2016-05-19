@@ -34,8 +34,17 @@
 
           /**
            * A pixel value that will be added to the position calculated for the
-           * given `horizontalAlign`. Use a negative value to offset to the
-           * left, or a positive value to offset to the right.
+           * given `horizontalAlign`, in the direction of alignment. You can think
+           * of it as increasing or decreasing the distance to the side of the
+           * screen given by `horizontalAlign`.
+           *
+           * If `horizontalAlign` is "left", this offset will increase or decrease
+           * the distance to the left side of the screen: a negative offset will
+           * move the dropdown to the left; a positive one, to the right.
+           *
+           * Conversely if `horizontalAlign` is "right", this offset will increase
+           * or decrease the distance to the right side of the screen: a negative
+           * offset will move the dropdown to the right; a positive one, to the left.
            */
           horizontalOffset: {
             type: Number,
@@ -45,8 +54,17 @@
 
           /**
            * A pixel value that will be added to the position calculated for the
-           * given `verticalAlign`. Use a negative value to offset towards the
-           * top, or a positive value to offset towards the bottom.
+           * given `verticalAlign`, in the direction of alignment. You can think
+           * of it as increasing or decreasing the distance to the side of the
+           * screen given by `verticalAlign`.
+           *
+           * If `verticalAlign` is "top", this offset will increase or decrease
+           * the distance to the top side of the screen: a negative offset will
+           * move the dropdown upwards; a positive one, downwards.
+           *
+           * Conversely if `verticalAlign` is "bottom", this offset will increase
+           * or decrease the distance to the bottom side of the screen: a negative
+           * offset will move the dropdown downwards; a positive one, upwards.
            */
           verticalOffset: {
             type: Number,
@@ -140,9 +158,17 @@
 
         /**
          * The element that should be focused when the dropdown opens.
+         * @deprecated
          */
         get _focusTarget() {
           return this.focusTarget || this.containedElement;
+        },
+
+        /**
+         * Whether the text direction is RTL
+         */
+        _isRTL: function() {
+          return window.getComputedStyle(this).direction == 'rtl';
         },
 
         /**
@@ -176,7 +202,10 @@
         get _horizontalAlignTargetValue() {
           var target;
 
-          if (this.horizontalAlign === 'right') {
+          // In RTL, the direction flips, so what is "right" in LTR becomes "left".
+          var isRTL = this._isRTL();
+          if ((!isRTL && this.horizontalAlign === 'right') ||
+              (isRTL && this.horizontalAlign === 'left')) {
             target = document.documentElement.clientWidth - this._positionRect.right;
           } else {
             target = this._positionRect.left;
@@ -205,6 +234,18 @@
         },
 
         /**
+         * The horizontal align value, accounting for the RTL/LTR text direction.
+         */
+        get _localeHorizontalAlign() {
+          // In RTL, "left" becomes "right".
+          if (this._isRTL()) {
+            return this.horizontalAlign === 'right' ? 'left' : 'right';
+          } else {
+            return this.horizontalAlign;
+          }
+        },
+
+        /**
          * Called when the value of `opened` changes.
          *
          * @param {boolean} opened True if the dropdown is opened.
@@ -216,10 +257,6 @@
             this.cancelAnimation();
             this._prepareDropdown();
             Polymer.IronOverlayBehaviorImpl._openedChanged.apply(this, arguments);
-          }
-
-          if (this.opened) {
-            this._focusContent();
           }
         },
 
@@ -275,7 +312,7 @@
           var scrollTop;
           var scrollLeft;
 
-          if (containedElement) {
+          if (this.opened && containedElement) {
             scrollTop = containedElement.scrollTop;
             scrollLeft = containedElement.scrollLeft;
           }
@@ -286,7 +323,7 @@
 
           Polymer.IronOverlayBehaviorImpl._onIronResize.apply(this, arguments);
 
-          if (containedElement) {
+          if (this.opened && containedElement) {
             containedElement.scrollTop = scrollTop;
             containedElement.scrollLeft = scrollLeft;
           }
@@ -352,7 +389,7 @@
             return;
           }
 
-          this.style[this.horizontalAlign] =
+          this.style[this._localeHorizontalAlign] =
             this._horizontalAlignTargetValue + 'px';
 
           this.style[this.verticalAlign] =
@@ -371,16 +408,15 @@
         },
 
         /**
-         * Focuses the configured focus target.
+         * Apply focus to focusTarget or containedElement
          */
-        _focusContent: function() {
-          // NOTE(cdata): This is async so that it can attempt the focus after
-          // `display: none` is removed from the element.
-          this.async(function() {
-            if (this._focusTarget) {
-              this._focusTarget.focus();
-            }
-          });
+        _applyFocus: function () {
+          var focusTarget = this.focusTarget || this.containedElement;
+          if (focusTarget && this.opened && !this.noAutoFocus) {
+            focusTarget.focus();
+          } else {
+            Polymer.IronOverlayBehaviorImpl._applyFocus.apply(this, arguments);
+          }
         }
       });
     })();

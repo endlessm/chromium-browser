@@ -4,14 +4,15 @@
 
 #include "chrome/browser/component_updater/widevine_cdm_component_installer.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/base_paths.h"
 #include "base/bind.h"
-#include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -50,9 +51,6 @@ const uint8_t kSha2Hash[] = {0xe8, 0xce, 0xcf, 0x42, 0x06, 0xd0, 0x93, 0x49,
                              0x6d, 0xd9, 0x89, 0xe1, 0x41, 0x04, 0x86, 0x4a,
                              0x8f, 0xbd, 0x86, 0x12, 0xb9, 0x58, 0x9b, 0xfb,
                              0x4f, 0xbb, 0x1b, 0xa9, 0xd3, 0x85, 0x37, 0xef};
-
-// File name of the Widevine CDM component manifest on different platforms.
-const char kWidevineCdmManifestName[] = "WidevineCdm";
 
 // File name of the Widevine CDM adapter version file. The CDM adapter shares
 // the same version number with Chromium version.
@@ -317,7 +315,7 @@ void WidevineCdmComponentInstallerTraits::GetHash(
 }
 
 std::string WidevineCdmComponentInstallerTraits::GetName() const {
-  return kWidevineCdmManifestName;
+  return kWidevineCdmDisplayName;
 }
 
 void WidevineCdmComponentInstallerTraits::UpdateCdmAdapter(
@@ -372,7 +370,7 @@ void RegisterWidevineCdmComponent(ComponentUpdateService* cus) {
       new WidevineCdmComponentInstallerTraits);
   // |cus| will take ownership of |installer| during installer->Register(cus).
   DefaultComponentInstaller* installer =
-      new DefaultComponentInstaller(traits.Pass());
+      new DefaultComponentInstaller(std::move(traits));
   installer->Register(cus, base::Closure());
 #endif  // defined(WIDEVINE_CDM_AVAILABLE) && defined(WIDEVINE_CDM_IS_COMPONENT)
 }

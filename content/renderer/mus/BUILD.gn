@@ -1,0 +1,32 @@
+# Copyright 2015 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+source_set("mus") {
+  sources = [
+    "compositor_mus_connection.cc",
+    "compositor_mus_connection.h",
+    "render_widget_mus_connection.cc",
+    "render_widget_mus_connection.h",
+    "render_widget_window_tree_client_factory.cc",
+    "render_widget_window_tree_client_factory.h",
+  ]
+
+  configs += [ "//content:content_implementation" ]
+
+  deps = [
+    "//base",
+    "//cc",
+    "//components/mus/public/cpp",
+    "//components/mus/public/interfaces",
+    "//content/common:mojo_bindings",
+    "//content/public/common:common_sources",
+    "//mojo/common",
+    "//mojo/converters/blink",
+    "//mojo/converters/geometry",
+    "//mojo/converters/surfaces",
+    "//mojo/shell/public/cpp",
+    "//third_party/WebKit/public:blink",
+    "//ui/events:events_base",
+  ]
+}

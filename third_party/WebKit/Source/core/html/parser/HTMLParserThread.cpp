@@ -28,11 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/parser/HTMLParserThread.h"
 
-#include "platform/Task.h"
 #include "platform/ThreadSafeFunctional.h"
+#include "platform/WaitableEvent.h"
+#include "platform/heap/SafePoint.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebTraceLocation.h"
 #include "wtf/PassOwnPtr.h"
@@ -66,15 +66,19 @@ void HTMLParserThread::shutdown()
     ASSERT(s_sharedThread);
     // currentThread will always be non-null in production, but can be null in Chromium unit tests.
     if (Platform::current()->currentThread() && s_sharedThread->isRunning()) {
-        s_sharedThread->postTask(threadSafeBind(&HTMLParserThread::cleanupHTMLParserThread, AllowCrossThreadAccess(s_sharedThread)));
+        OwnPtr<WaitableEvent> waitableEvent(adoptPtr(new WaitableEvent()));
+        s_sharedThread->postTask(threadSafeBind(&HTMLParserThread::cleanupHTMLParserThread, AllowCrossThreadAccess(s_sharedThread), AllowCrossThreadAccess(waitableEvent.get())));
+        SafePointScope scope(BlinkGC::HeapPointersOnStack);
+        waitableEvent->wait();
     }
     delete s_sharedThread;
     s_sharedThread = 0;
 }
 
-void HTMLParserThread::cleanupHTMLParserThread()
+void HTMLParserThread::cleanupHTMLParserThread(WaitableEvent* waitableEvent)
 {
     m_thread->shutdown();
+    waitableEvent->signal();
 }
 
 HTMLParserThread* HTMLParserThread::shared()
@@ -98,7 +102,7 @@ bool HTMLParserThread::isRunning()
 
 void HTMLParserThread::postTask(PassOwnPtr<Closure> closure)
 {
-    platformThread().taskRunner()->postTask(BLINK_FROM_HERE, new Task(closure));
+    platformThread().taskRunner()->postTask(BLINK_FROM_HERE, closure);
 }
 
 } // namespace blink

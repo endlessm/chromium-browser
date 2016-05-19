@@ -133,6 +133,12 @@ iframe.widget {
     background-color: rgba(255, 255, 0, 0.8);
 }
 
+.-theme-with-dark-background .highlighted-search-result,
+:host-context(.-theme-with-dark-background) .highlighted-search-result {
+    background-color: hsl(133, 100%, 30%);
+    color: #333;
+}
+
 .link {
     cursor: pointer;
     text-decoration: underline;
@@ -144,6 +150,15 @@ input,
 select {
     font-family: inherit;
     font-size: inherit;
+    color: inherit;
+}
+
+input {
+    background-color: white;
+}
+
+:host-context(.-theme-with-dark-background) input[type="checkbox"] {
+    -webkit-filter: invert(80%);
 }
 
 input[type="search"]:focus,
@@ -185,10 +200,14 @@ input[type="text"]:focus {
     text-decoration: none !important;
 }
 
+.error-input {
+    outline: auto 2px red !important;
+}
+
 .chrome-select {
     -webkit-appearance: none;
     -webkit-user-select: none;
-    border: 1px solid rgba(0, 0, 0, 0.25);
+    border: 1px solid rgb(160, 160, 160);
     border-radius: 2px;
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08),
     inset 0 1px 2px rgba(255, 255, 255, 0.75);
@@ -235,4 +254,21 @@ body.inactive select.chrome-select,
     box-shadow: 0 1px 0 rgba(80, 80, 80, 0.08),
     inset 0 1px 2px rgba(255, 255, 255, 0.75);
     color: #aaa;
+}
+
+:not(.platform-mac).-theme-with-dark-background ::-webkit-scrollbar,
+:host-context(:not(.platform-mac).-theme-with-dark-background) ::-webkit-scrollbar {
+    width: 14px;
+}
+
+:not(.platform-mac).-theme-with-dark-background ::-webkit-scrollbar-track,
+:host-context(:not(.platform-mac).-theme-with-dark-background) ::-webkit-scrollbar-track {
+    -webkit-box-shadow: inset 0 0 1px rgba(255,255,255,0.3);
+}
+
+:not(.platform-mac).-theme-with-dark-background ::-webkit-scrollbar-thumb,
+:host-context(:not(.platform-mac).-theme-with-dark-background) .-theme-with-dark-background ::-webkit-scrollbar-thumb {
+    border-radius: 2px;
+    background-color: #333;
+    -webkit-box-shadow: inset 0 0 1px rgba(255,255,255,0.5);
 }

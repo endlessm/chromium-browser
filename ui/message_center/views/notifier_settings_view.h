@@ -8,6 +8,7 @@
 #include <set>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/message_center/message_center_export.h"
 #include "ui/message_center/notifier_settings.h"
@@ -106,8 +107,9 @@ class MESSAGE_CENTER_EXPORT NotifierSettingsView
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // Overridden from views::MenuButtonListener:
-  void OnMenuButtonClicked(views::View* source,
-                           const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
   views::ImageButton* title_arrow_;
   views::Label* title_label_;

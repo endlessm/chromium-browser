@@ -11,6 +11,7 @@
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
 #include "sql/connection.h"
@@ -50,6 +51,7 @@ class ShortcutsDatabase : public base::RefCountedThreadSafe<ShortcutsDatabase> {
                 int transition,
                 int type,
                 const base::string16& keyword);
+      MatchCore(const MatchCore& other);
       ~MatchCore();
 
       base::string16 fill_into_edit;
@@ -73,6 +75,7 @@ class ShortcutsDatabase : public base::RefCountedThreadSafe<ShortcutsDatabase> {
              int number_of_hits);
     // Required for STL, we don't use this directly.
     Shortcut();
+    Shortcut(const Shortcut& other);
     ~Shortcut();
 
     std::string id;  // Unique guid for the shortcut.

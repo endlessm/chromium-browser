@@ -27,7 +27,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/LayoutListBox.h"
 
 #include "core/HTMLNames.h"
@@ -97,14 +96,14 @@ unsigned LayoutListBox::size() const
 
 LayoutUnit LayoutListBox::defaultItemHeight() const
 {
-    return style()->fontMetrics().height() + defaultPaddingBottom;
+    return LayoutUnit(style()->fontMetrics().height() + defaultPaddingBottom);
 }
 
 LayoutUnit LayoutListBox::itemHeight() const
 {
     HTMLSelectElement* select = selectElement();
     if (!select)
-        return 0;
+        return LayoutUnit();
     Element* baseItem = ElementTraversal::firstChild(*select);
     if (!baseItem)
         return defaultItemHeight();
@@ -141,7 +140,7 @@ void LayoutListBox::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, L
 {
     LayoutBlockFlow::computeIntrinsicLogicalWidths(minLogicalWidth, maxLogicalWidth);
     if (style()->width().hasPercent())
-        minLogicalWidth = 0;
+        minLogicalWidth = LayoutUnit();
 }
 
 void LayoutListBox::scrollToRect(const LayoutRect& rect)

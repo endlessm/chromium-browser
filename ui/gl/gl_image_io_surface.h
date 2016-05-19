@@ -6,8 +6,10 @@
 #define UI_GL_GL_IMAGE_IO_SURFACE_H_
 
 #include <IOSurface/IOSurface.h>
+#include <stdint.h>
 
 #include "base/mac/scoped_cftyperef.h"
+#include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/generic_shared_memory_id.h"
@@ -53,6 +55,8 @@ class GL_EXPORT GLImageIOSurface : public GLImage {
 
   static void SetLayerForWidget(gfx::AcceleratedWidget widget, CALayer* layer);
 
+  static unsigned GetInternalFormatForTesting(gfx::BufferFormat format);
+
  protected:
   ~GLImageIOSurface() override;
 
@@ -63,6 +67,15 @@ class GL_EXPORT GLImageIOSurface : public GLImage {
   base::ScopedCFTypeRef<IOSurfaceRef> io_surface_;
   gfx::GenericSharedMemoryId io_surface_id_;
   base::ThreadChecker thread_checker_;
+
+  // GL state to support 420v IOSurface conversion to RGB.
+  unsigned framebuffer_ = 0;
+  unsigned vertex_shader_ = 0;
+  unsigned fragment_shader_ = 0;
+  unsigned program_ = 0;
+  int size_location_ = -1;
+  unsigned vertex_buffer_ = 0;
+  unsigned yuv_textures_[2] = {};
 
   DISALLOW_COPY_AND_ASSIGN(GLImageIOSurface);
 };

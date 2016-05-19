@@ -5,10 +5,13 @@
 #ifndef CHROME_BROWSER_CHROMEOS_INPUT_METHOD_INPUT_METHOD_MANAGER_IMPL_H_
 #define CHROME_BROWSER_CHROMEOS_INPUT_METHOD_INPUT_METHOD_MANAGER_IMPL_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
@@ -150,9 +153,13 @@ class InputMethodManagerImpl : public InputMethodManager,
   void AddObserver(InputMethodManager::Observer* observer) override;
   void AddCandidateWindowObserver(
       InputMethodManager::CandidateWindowObserver* observer) override;
+  void AddImeMenuObserver(
+      InputMethodManager::ImeMenuObserver* observer) override;
   void RemoveObserver(InputMethodManager::Observer* observer) override;
   void RemoveCandidateWindowObserver(
       InputMethodManager::CandidateWindowObserver* observer) override;
+  void RemoveImeMenuObserver(
+      InputMethodManager::ImeMenuObserver* observer) override;
   scoped_ptr<InputMethodDescriptors> GetSupportedInputMethods() const override;
   void ActivateInputMethodMenuItem(const std::string& key) override;
   bool IsISOLevel5ShiftUsedByCurrentInputMethod() const override;
@@ -170,6 +177,8 @@ class InputMethodManagerImpl : public InputMethodManager,
 
   scoped_refptr<InputMethodManager::State> GetActiveIMEState() override;
   void SetState(scoped_refptr<InputMethodManager::State> state) override;
+
+  void ImeMenuActivationChanged(bool is_active) override;
 
   // Sets |candidate_window_controller_|.
   void SetCandidateWindowControllerForTesting(
@@ -229,6 +238,10 @@ class InputMethodManagerImpl : public InputMethodManager,
   // Record input method usage histograms.
   void RecordInputMethodUsage(const std::string& input_method_id);
 
+  // Notifies the current input method or the list of active input method IDs
+  // changed.
+  void NotifyImeMenuListChanged();
+
   scoped_ptr<InputMethodDelegate> delegate_;
 
   // The current UI session status.
@@ -237,6 +250,7 @@ class InputMethodManagerImpl : public InputMethodManager,
   // A list of objects that monitor the manager.
   base::ObserverList<InputMethodManager::Observer> observers_;
   base::ObserverList<CandidateWindowObserver> candidate_window_observers_;
+  base::ObserverList<ImeMenuObserver> ime_menu_observers_;
 
   scoped_refptr<StateImpl> state_;
 

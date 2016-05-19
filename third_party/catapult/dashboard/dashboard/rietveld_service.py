@@ -10,16 +10,27 @@ import mimetypes
 import urllib
 
 import httplib2
-from oauth2client import client
 
 from google.appengine.ext import ndb
 
-_EMAIL_SCOPE = 'https://www.googleapis.com/auth/userinfo.email'
-PROJECTHOSTING_SCOPE = 'https://www.googleapis.com/auth/projecthosting'
+from dashboard import utils
 
 _DESCRIPTION = """This patch was automatically uploaded by the Chrome Perf
 Dashboard (https://chromeperf.appspot.com). It is being used to run a perf
 bisect try job. It should not be submitted."""
+
+
+class ResponseObject(object):
+  """Class for Response Object.
+
+  This class holds attributes similar to response object returned by
+  google.appengine.api.urlfetch. This is used to convert response object
+  returned by httplib2.Http.request.
+  """
+
+  def __init__(self, status_code, content):
+    self.status_code = int(status_code)
+    self.content = content
 
 
 class RietveldConfig(ndb.Model):
@@ -28,6 +39,8 @@ class RietveldConfig(ndb.Model):
   The data is stored only in the App Engine datastore (and the cloud console)
   and not the code because it contains sensitive information like private keys.
   """
+  # TODO(qyearsley): Remove RietveldConfig and store the server URL in
+  # datastore.
   client_email = ndb.TextProperty()
   service_account_key = ndb.TextProperty()
 
@@ -37,12 +50,6 @@ class RietveldConfig(ndb.Model):
   # The protocol and domain of the Internal Rietveld host which is used
   # to create issues for internal only tests.
   internal_server_url = ndb.TextProperty()
-
-
-def Credentials(config, scope):
-  """Returns a credentials object used to authenticate a Http object."""
-  return client.SignedJwtAssertionCredentials(
-      config.client_email, config.service_account_key, scope)
 
 
 def GetDefaultRietveldConfig():
@@ -71,27 +78,27 @@ class RietveldService(object):
       self._config = GetDefaultRietveldConfig()
     return self._config
 
-  def _Http(self):
-    if not self._http:
-      self._http = httplib2.Http()
-      creds = Credentials(self.Config(), _EMAIL_SCOPE)
-      creds.authorize(self._http)
-    return self._http
-
-  def _XsrfToken(self):
-    """Requests a XSRF token from Rietveld."""
-    return self._MakeRequest(
-        'xsrf_token', headers={'X-Requesting-XSRF-Token': 1})[1]
-
-  def _MakeRequest(self, path, *args, **kwwargs):
+  def MakeRequest(self, path, *args, **kwargs):
     """Makes a request to the Rietveld server."""
     if self.internal_only:
       server_url = self.Config().internal_server_url
     else:
       server_url = self.Config().server_url
     url = '%s/%s' % (server_url, path)
-    response, content = self._Http().request(url, *args, **kwwargs)
-    return (response, content)
+    response, content = self._Http().request(url, *args, **kwargs)
+    return ResponseObject(response.get('status'), content)
+
+  def _Http(self):
+    if not self._http:
+      self._http = httplib2.Http()
+      credentials = utils.ServiceAccountCredentials()
+      credentials.authorize(self._http)
+    return self._http
+
+  def _XsrfToken(self):
+    """Requests a XSRF token from Rietveld."""
+    return self.MakeRequest(
+        'xsrf_token', headers={'X-Requesting-XSRF-Token': 1}).content
 
   def _EncodeMultipartFormData(self, fields, files):
     """Encode form fields for multipart/form-data.
@@ -169,26 +176,26 @@ class RietveldService(object):
     uploaded_diff_file = [('data', 'data.diff', patch)]
     ctype, body = self._EncodeMultipartFormData(
         form_fields, uploaded_diff_file)
-    response, content = self._MakeRequest(
+    response = self.MakeRequest(
         'upload', method='POST', body=body, headers={'content-type': ctype})
-    if response.get('status') != '200':
-      logging.error('Error %s uploading to /upload', response.get('status'))
-      logging.error(content)
+    if response.status_code != 200:
+      logging.error('Error %s uploading to /upload', response.status_code)
+      logging.error(response.content)
       return (None, None)
 
     # There should always be 3 lines in the request, but sometimes Rietveld
     # returns 2 lines. Log the content so we can debug further.
-    logging.info('Response from Rietveld /upload:\n%s', content)
-    if not content.startswith('Issue created.'):
-      logging.error('Unexpected response: %s', content)
+    logging.info('Response from Rietveld /upload:\n%s', response.content)
+    if not response.content.startswith('Issue created.'):
+      logging.error('Unexpected response: %s', response.content)
       return (None, None)
-    lines = content.splitlines()
+    lines = response.content.splitlines()
     if len(lines) < 2:
-      logging.error('Unexpected response %s', content)
+      logging.error('Unexpected response %s', response.content)
       return (None, None)
 
     msg = lines[0]
-    issue_id = msg[msg.rfind('/')+1:]
+    issue_id = msg[msg.rfind('/') + 1:]
     patchset_id = lines[1].strip()
     patches = [x.split(' ', 1) for x in lines[2:]]
     request_path = '%d/upload_content/%d/%d' % (
@@ -202,20 +209,20 @@ class RietveldService(object):
     ]
     uploaded_diff_file = [('data', config_path, base_content)]
     ctype, body = self._EncodeMultipartFormData(form_fields, uploaded_diff_file)
-    response, content = self._MakeRequest(
+    response = self.MakeRequest(
         request_path, method='POST', body=body, headers={'content-type': ctype})
-    if response.get('status') != '200':
+    if response.status_code != 200:
       logging.error(
-          'Error %s uploading to %s', response.get('status'), request_path)
-      logging.error(content)
+          'Error %s uploading to %s', response.status_code, request_path)
+      logging.error(response.content)
       return (None, None)
 
     request_path = '%s/upload_complete/%s' % (issue_id, patchset_id)
-    response, content = self._MakeRequest(request_path, method='POST')
-    if response.get('status') != '200':
+    response = self.MakeRequest(request_path, method='POST')
+    if response.status_code != 200:
       logging.error(
-          'Error %s uploading to %s', response.get('status'), request_path)
-      logging.error(content)
+          'Error %s uploading to %s', response.status_code, request_path)
+      logging.error(response.content)
       return (None, None)
     return issue_id, patchset_id
 
@@ -242,12 +249,12 @@ class RietveldService(object):
         'clobber': 'False',
     }
     request_path = '%s/try/%s' % (issue_id, patchset_id)
-    response, content = self._MakeRequest(
+    response = self.MakeRequest(
         request_path, method='POST', body=urllib.urlencode(args))
-    if response.get('status') != '200':
-      status = response.get('status')
+    if response.status_code != 200:
       logging.error(
-          'Error %s POSTing to /%s/try/%s', status, issue_id, patchset_id)
-      logging.error(content)
+          'Error %s POSTing to /%s/try/%s', response.status_code, issue_id,
+          patchset_id)
+      logging.error(response.content)
       return False
     return True

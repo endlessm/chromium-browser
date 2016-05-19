@@ -81,11 +81,6 @@ void GpuDataManagerImpl::RegisterSwiftShaderPath(
   private_->RegisterSwiftShaderPath(path);
 }
 
-bool GpuDataManagerImpl::ShouldUseWarp() const {
-  base::AutoLock auto_lock(lock_);
-  return private_->ShouldUseWarp();
-}
-
 void GpuDataManagerImpl::AddObserver(
     GpuDataManagerObserver* observer) {
   base::AutoLock auto_lock(lock_);
@@ -256,7 +251,8 @@ unsigned int GpuDataManagerImpl::GetDisplayCount() const {
   return private_->GetDisplayCount();
 }
 
-bool GpuDataManagerImpl::UpdateActiveGpu(uint32 vendor_id, uint32 device_id) {
+bool GpuDataManagerImpl::UpdateActiveGpu(uint32_t vendor_id,
+                                         uint32_t device_id) {
   base::AutoLock auto_lock(lock_);
   return private_->UpdateActiveGpu(vendor_id, device_id);
 }

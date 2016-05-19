@@ -15,10 +15,12 @@
 #ifndef UTIL_GTL_LINKED_HASH_MAP_H_
 #define UTIL_GTL_LINKED_HASH_MAP_H_
 
+#include <stddef.h>
+
 #include <list>
+#include <unordered_map>
 #include <utility>
 
-#include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/macros.h"
 
@@ -28,11 +30,11 @@
 //
 // We also keep a map<Key, list::iterator> for find.  Since std::list is a
 // doubly-linked list, the iterators should remain stable.
-template<class Key, class Value>
+template <class Key, class Value, class Hash = std::hash<Key>>
 class linked_hash_map {
  private:
   typedef std::list<std::pair<Key, Value> > ListType;
-  typedef base::hash_map<Key, typename ListType::iterator> MapType;
+  typedef std::unordered_map<Key, typename ListType::iterator, Hash> MapType;
 
  public:
   typedef typename ListType::iterator iterator;

@@ -29,12 +29,13 @@ public class Website implements Serializable {
     private CameraInfo mCameraInfo;
     private CookieInfo mCookieInfo;
     private GeolocationInfo mGeolocationInfo;
+    private KeygenInfo mKeygenInfo;
     private MicrophoneInfo mMicrophoneInfo;
     private MidiInfo mMidiInfo;
     private ContentSettingException mJavaScriptException;
     private ContentSettingException mPopupException;
     private ProtectedMediaIdentifierInfo mProtectedMediaIdentifierInfo;
-    private PushNotificationInfo mPushNotificationInfo;
+    private NotificationInfo mNotificationInfo;
     private LocalStorageInfo mLocalStorageInfo;
     private final List<StorageInfo> mStorageInfo = new ArrayList<StorageInfo>();
     private int mStorageInfoCallbacksLeft;
@@ -129,6 +130,37 @@ public class Website implements Serializable {
     public void setGeolocationPermission(ContentSetting value) {
         if (mGeolocationInfo != null) {
             mGeolocationInfo.setContentSetting(value);
+        }
+    }
+
+    /**
+     * Sets the KeygenInfo object for this Website.
+     */
+    public void setKeygenInfo(KeygenInfo info) {
+        mKeygenInfo = info;
+        WebsiteAddress embedder = WebsiteAddress.create(info.getEmbedder());
+        if (embedder != null) {
+            mSummary = embedder.getTitle();
+        }
+    }
+
+    public KeygenInfo getKeygenInfo() {
+        return mKeygenInfo;
+    }
+
+    /**
+     * Returns what permission governs keygen access.
+     */
+    public ContentSetting getKeygenPermission() {
+        return mKeygenInfo != null ? mKeygenInfo.getContentSetting() : null;
+    }
+
+    /**
+     * Configure keygen access setting for this site.
+     */
+    public void setKeygenPermission(ContentSetting value) {
+        if (mKeygenInfo != null) {
+            mKeygenInfo.setContentSetting(value);
         }
     }
 
@@ -248,29 +280,29 @@ public class Website implements Serializable {
     }
 
     /**
-     * Sets Push Notification access permission information class.
+     * Sets Notification access permission information class.
      */
-    public void setPushNotificationInfo(PushNotificationInfo info) {
-        mPushNotificationInfo = info;
+    public void setNotificationInfo(NotificationInfo info) {
+        mNotificationInfo = info;
     }
 
-    public PushNotificationInfo getPushNotificationInfo() {
-        return mPushNotificationInfo;
-    }
-
-    /**
-     * Returns what setting governs push notification access.
-     */
-    public ContentSetting getPushNotificationPermission() {
-        return mPushNotificationInfo != null ? mPushNotificationInfo.getContentSetting() : null;
+    public NotificationInfo getNotificationInfo() {
+        return mNotificationInfo;
     }
 
     /**
-     * Configure push notification setting for this site.
+     * Returns what setting governs notification access.
      */
-    public void setPushNotificationPermission(ContentSetting value) {
-        if (mPushNotificationInfo != null) {
-            mPushNotificationInfo.setContentSetting(value);
+    public ContentSetting getNotificationPermission() {
+        return mNotificationInfo != null ? mNotificationInfo.getContentSetting() : null;
+    }
+
+    /**
+     * Configure notification setting for this site.
+     */
+    public void setNotificationPermission(ContentSetting value) {
+        if (mNotificationInfo != null) {
+            mNotificationInfo.setContentSetting(value);
         }
     }
 

@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_EXCLUSIVE_ACCESS_CONTEXT_H_
 #define CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_EXCLUSIVE_ACCESS_CONTEXT_H_
 
+#include "build/build_config.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_bubble_type.h"
 
 class GURL;
@@ -36,9 +37,13 @@ class ExclusiveAccessContext {
   // Currently only supported on Mac.
   virtual void UpdateFullscreenWithToolbar(bool with_toolbar);
 
+  // Toggles the toolbar state to be hidden or shown in fullscreen. Updates
+  // the preference accordingly. Only supported on Mac.
+  virtual void ToggleFullscreenToolbar();
+
   // Returns true if the window is fullscreen with additional UI elements. See
   // EnterFullscreen |with_toolbar|.
-  virtual bool IsFullscreenWithToolbar() const = 0;
+  virtual bool IsFullscreenWithToolbar() const;
 
   // Enters fullscreen and update exit bubble.
   // On Mac, the tab strip and toolbar will be shown if |with_toolbar| is true,
@@ -54,6 +59,10 @@ class ExclusiveAccessContext {
   virtual void UpdateExclusiveAccessExitBubbleContent(
       const GURL& url,
       ExclusiveAccessBubbleType bubble_type) = 0;
+
+  // Informs the exclusive access system of some user input, which may update
+  // internal timers and/or re-display the bubble.
+  virtual void OnExclusiveAccessUserInput() = 0;
 
 #if defined(OS_WIN)
   // Sets state for entering or exiting Win8 Metro snap mode.
@@ -71,10 +80,10 @@ class ExclusiveAccessContext {
   // hide/unhide its download shelf widget when it is instructed to enter/exit
   // fullscreen mode.
   // Displays the download shelf associated with currently active window.
-  virtual void UnhideDownloadShelf();
+  virtual void UnhideDownloadShelf() = 0;
 
   // Hides download shelf associated with currently active window.
-  virtual void HideDownloadShelf();
+  virtual void HideDownloadShelf() = 0;
 };
 
 #endif  // CHROME_BROWSER_UI_EXCLUSIVE_ACCESS_EXCLUSIVE_ACCESS_CONTEXT_H_

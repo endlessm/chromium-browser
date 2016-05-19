@@ -5,10 +5,11 @@
 #ifndef CONTENT_RENDERER_MEDIA_RTC_VIDEO_DECODER_FACTORY_H_
 #define CONTENT_RENDERER_MEDIA_RTC_VIDEO_DECODER_FACTORY_H_
 
+#include "base/macros.h"
 #include "base/threading/thread.h"
 #include "content/common/content_export.h"
-#include "third_party/libjingle/source/talk/media/webrtc/webrtcvideodecoderfactory.h"
-#include "third_party/webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
+#include "third_party/webrtc/media/engine/webrtcvideodecoderfactory.h"
+#include "third_party/webrtc/modules/video_coding/include/video_codec_interface.h"
 
 namespace webrtc {
 class VideoDecoder;

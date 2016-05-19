@@ -6,7 +6,7 @@
 
 #include "base/logging.h"
 #include "net/quic/iovector.h"
-#include "net/quic/quic_ack_listener_interface.h"
+#include "net/quic/quic_bug_tracker.h"
 #include "net/quic/quic_flags.h"
 #include "net/quic/quic_flow_controller.h"
 #include "net/quic/quic_session.h"
@@ -48,11 +48,11 @@ ReliableQuicStream::PendingData::PendingData(
     QuicAckListenerInterface* ack_listener_in)
     : data(data_in), offset(0), ack_listener(ack_listener_in) {}
 
-ReliableQuicStream::PendingData::~PendingData() {
-}
+ReliableQuicStream::PendingData::~PendingData() {}
 
 ReliableQuicStream::ReliableQuicStream(QuicStreamId id, QuicSession* session)
-    : sequencer_(this, session->connection()->clock()),
+    : queued_data_bytes_(0),
+      sequencer_(this, session->connection()->clock()),
       id_(id),
       session_(session),
       stream_bytes_read_(0),
@@ -79,8 +79,7 @@ ReliableQuicStream::ReliableQuicStream(QuicStreamId id, QuicSession* session)
   SetFromConfig();
 }
 
-ReliableQuicStream::~ReliableQuicStream() {
-}
+ReliableQuicStream::~ReliableQuicStream() {}
 
 void ReliableQuicStream::SetFromConfig() {
   if (session_->config()->HasClientSentConnectionOption(kFSTR, perspective_)) {
@@ -91,14 +90,7 @@ void ReliableQuicStream::SetFromConfig() {
 void ReliableQuicStream::OnStreamFrame(const QuicStreamFrame& frame) {
   DCHECK_EQ(frame.stream_id, id_);
 
-  bool flag_value = FLAGS_quic_fix_fin_accounting;
-  if (!flag_value) {
-    if (read_side_closed_) {
-      DVLOG(1) << ENDPOINT << "Ignoring frame " << frame.stream_id;
-      // The subclass does not want to read data:  blackhole the data.
-      return;
-    }
-  }
+  DCHECK(!(read_side_closed_ && write_side_closed_));
 
   if (frame.fin) {
     fin_received_ = true;
@@ -107,16 +99,14 @@ void ReliableQuicStream::OnStreamFrame(const QuicStreamFrame& frame) {
     }
   }
 
-  if (flag_value) {
-    if (read_side_closed_) {
-      DVLOG(1) << ENDPOINT << "Ignoring data in frame " << frame.stream_id;
-      // The subclass does not want to read data:  blackhole the data.
-      return;
-    }
+  if (read_side_closed_) {
+    DVLOG(1) << ENDPOINT << "Ignoring data in frame " << frame.stream_id;
+    // The subclass does not want to read data:  blackhole the data.
+    return;
   }
 
   // This count includes duplicate data received.
-  size_t frame_payload_size = frame.data.size();
+  size_t frame_payload_size = frame.frame_length;
   stream_bytes_read_ += frame_payload_size;
 
   // Flow control is interested in tracking highest received offset.
@@ -125,8 +115,9 @@ void ReliableQuicStream::OnStreamFrame(const QuicStreamFrame& frame) {
     // violation of flow control.
     if (flow_controller_.FlowControlViolation() ||
         connection_flow_controller_->FlowControlViolation()) {
-      session_->connection()->SendConnectionClose(
-          QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA);
+      session_->connection()->SendConnectionCloseWithDetails(
+          QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
+          "Flow control violation after increasing offset");
       return;
     }
   }
@@ -156,7 +147,7 @@ void ReliableQuicStream::OnStreamReset(const QuicRstStreamFrame& frame) {
 }
 
 void ReliableQuicStream::OnConnectionClosed(QuicErrorCode error,
-                                            bool /*from_peer*/) {
+                                            ConnectionCloseSource /*source*/) {
   if (read_side_closed_ && write_side_closed_) {
     return;
   }
@@ -187,10 +178,6 @@ void ReliableQuicStream::Reset(QuicRstStreamErrorCode error) {
   rst_sent_ = true;
 }
 
-void ReliableQuicStream::CloseConnection(QuicErrorCode error) {
-  session()->connection()->SendConnectionClose(error);
-}
-
 void ReliableQuicStream::CloseConnectionWithDetails(QuicErrorCode error,
                                                     const string& details) {
   session()->connection()->SendConnectionCloseWithDetails(error, details);
@@ -201,12 +188,12 @@ void ReliableQuicStream::WriteOrBufferData(
     bool fin,
     QuicAckListenerInterface* ack_listener) {
   if (data.empty() && !fin) {
-    LOG(DFATAL) << "data.empty() && !fin";
+    QUIC_BUG << "data.empty() && !fin";
     return;
   }
 
   if (fin_buffered_) {
-    LOG(DFATAL) << "Fin already buffered";
+    QUIC_BUG << "Fin already buffered";
     return;
   }
   if (write_side_closed_) {
@@ -227,7 +214,8 @@ void ReliableQuicStream::WriteOrBufferData(
   if (consumed_data.bytes_consumed < data.length() ||
       (fin && !consumed_data.fin_consumed)) {
     StringPiece remainder(data.substr(consumed_data.bytes_consumed));
-    queued_data_.push_back(PendingData(remainder.as_string(), ack_listener));
+    queued_data_bytes_ += remainder.size();
+    queued_data_.emplace_back(remainder.as_string(), ack_listener);
   }
 }
 
@@ -243,9 +231,8 @@ void ReliableQuicStream::OnCanWrite() {
         pending_data->offset >= pending_data->data.size()) {
       // This should be impossible because offset tracks the amount of
       // pending_data written thus far.
-      LOG(DFATAL) << "Pending offset is beyond available data. offset: "
-                  << pending_data->offset
-                  << " vs: " << pending_data->data.size();
+      QUIC_BUG << "Pending offset is beyond available data. offset: "
+               << pending_data->offset << " vs: " << pending_data->data.size();
       return;
     }
     size_t remaining_len = pending_data->data.size() - pending_data->offset;
@@ -253,6 +240,7 @@ void ReliableQuicStream::OnCanWrite() {
         const_cast<char*>(pending_data->data.data()) + pending_data->offset,
         remaining_len};
     QuicConsumedData consumed_data = WritevData(&iov, 1, fin, ack_listener);
+    queued_data_bytes_ -= consumed_data.bytes_consumed;
     if (consumed_data.bytes_consumed == remaining_len &&
         fin == consumed_data.fin_consumed) {
       queued_data_.pop_front();
@@ -277,7 +265,7 @@ void ReliableQuicStream::MaybeSendBlocked() {
   // WINDOW_UPDATE arrives.
   if (connection_flow_controller_->IsBlocked() &&
       !flow_controller_.IsBlocked()) {
-    session_->MarkConnectionLevelWriteBlocked(id(), EffectivePriority());
+    session_->MarkConnectionLevelWriteBlocked(id());
   }
 }
 
@@ -304,6 +292,11 @@ QuicConsumedData ReliableQuicStream::WritevData(
         min(send_window, connection_flow_controller_->SendWindowSize());
   }
 
+  if (FLAGS_quic_cede_correctly && session_->ShouldYield(id())) {
+    session_->MarkConnectionLevelWriteBlocked(id());
+    return QuicConsumedData(0, false);
+  }
+
   if (send_window == 0 && !fin_with_zero_data) {
     // Quick return if nothing can be sent.
     MaybeSendBlocked();
@@ -325,6 +318,12 @@ QuicConsumedData ReliableQuicStream::WritevData(
 
   AddBytesSent(consumed_data.bytes_consumed);
 
+  // The write may have generated a write error causing this stream to be
+  // closed. If so, simply return without marking the stream write blocked.
+  if (write_side_closed_) {
+    return consumed_data;
+  }
+
   if (consumed_data.bytes_consumed == write_length) {
     if (!fin_with_zero_data) {
       MaybeSendBlocked();
@@ -336,10 +335,10 @@ QuicConsumedData ReliableQuicStream::WritevData(
       }
       CloseWriteSide();
     } else if (fin && !consumed_data.fin_consumed) {
-      session_->MarkConnectionLevelWriteBlocked(id(), EffectivePriority());
+      session_->MarkConnectionLevelWriteBlocked(id());
     }
   } else {
-    session_->MarkConnectionLevelWriteBlocked(id(), EffectivePriority());
+    session_->MarkConnectionLevelWriteBlocked(id());
   }
   return consumed_data;
 }
@@ -383,10 +382,6 @@ QuicVersion ReliableQuicStream::version() const {
 }
 
 void ReliableQuicStream::StopReading() {
-  if (!FLAGS_quic_implement_stop_reading) {
-    CloseReadSide();
-    return;
-  }
   DVLOG(1) << ENDPOINT << "Stop reading from stream " << id();
   sequencer_.StopReading();
 }
@@ -429,7 +424,7 @@ void ReliableQuicStream::OnWindowUpdateFrame(
 
 bool ReliableQuicStream::MaybeIncreaseHighestReceivedOffset(
     QuicStreamOffset new_offset) {
-  uint64 increment =
+  uint64_t increment =
       new_offset - flow_controller_.highest_received_byte_offset();
   if (!flow_controller_.UpdateHighestReceivedOffset(new_offset)) {
     return false;

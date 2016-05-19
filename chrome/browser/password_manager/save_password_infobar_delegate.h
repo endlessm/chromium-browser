@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_PASSWORD_MANAGER_SAVE_PASSWORD_INFOBAR_DELEGATE_H_
 #define CHROME_BROWSER_PASSWORD_MANAGER_SAVE_PASSWORD_INFOBAR_DELEGATE_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/timer/elapsed_timer.h"
 #include "chrome/browser/password_manager/password_manager_infobar_delegate.h"
@@ -39,14 +39,14 @@ class SavePasswordInfoBarDelegate : public PasswordManagerInfoBarDelegate {
   static void Create(
       content::WebContents* web_contents,
       scoped_ptr<password_manager::PasswordFormManager> form_to_save,
-      const std::string& uma_histogram_suffix,
-      password_manager::CredentialSourceType source_type);
+      const std::string& uma_histogram_suffix);
 
   ~SavePasswordInfoBarDelegate() override;
 
   base::string16 GetFirstRunExperienceMessage();
 
   // ConfirmInfoBarDelegate:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   void InfoBarDismissed() override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;
@@ -58,7 +58,6 @@ class SavePasswordInfoBarDelegate : public PasswordManagerInfoBarDelegate {
       content::WebContents* web_contents,
       scoped_ptr<password_manager::PasswordFormManager> form_to_save,
       const std::string& uma_histogram_suffix,
-      password_manager::CredentialSourceType source_type,
       bool is_smartlock_branding_enabled,
       bool should_show_first_run_experience);
 

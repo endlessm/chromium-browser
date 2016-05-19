@@ -7,7 +7,7 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_FONTMAP_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_FONTMAP_H_
 
-#include "../fxedit/fx_edit.h"
+#include "fpdfsdk/include/fxedit/fx_edit.h"
 #include "public/fpdf_sysfontinfo.h"
 
 class CPDF_Document;
@@ -80,10 +80,11 @@ class CPWL_FontMap : public IFX_Edit_FontMap {
                            uint8_t nCharset);
 
  protected:
-  void Initial(const FX_CHAR* fontname = NULL);
-  CPDF_Document* GetDocument();
-  CPDF_Font* FindFontSameCharset(CFX_ByteString& sFontAlias, int32_t nCharset);
-  void AddedFont(CPDF_Font* pFont, const CFX_ByteString& sFontAlias);
+  virtual void Initialize();
+  virtual CPDF_Document* GetDocument();
+  virtual CPDF_Font* FindFontSameCharset(CFX_ByteString& sFontAlias,
+                                         int32_t nCharset);
+  virtual void AddedFont(CPDF_Font* pFont, const CFX_ByteString& sFontAlias);
 
   FX_BOOL KnowWord(int32_t nFontIndex, FX_WORD word);
 
@@ -126,9 +127,10 @@ class CPWL_DocFontMap : public CPWL_FontMap {
                   CPDF_Document* pAttachedDoc);
   ~CPWL_DocFontMap() override;
 
-  virtual CPDF_Document* GetDocument();
-
  private:
+  // CPWL_FontMap:
+  CPDF_Document* GetDocument() override;
+
   CPDF_Document* m_pAttachedDoc;
 };
 

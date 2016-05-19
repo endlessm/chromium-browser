@@ -6,10 +6,12 @@
 
 #include "sync/protocol/proto_value_conversions.h"
 
+#include <stdint.h>
+
+#include <algorithm>
 #include <string>
 
 #include "base/base64.h"
-#include "base/basictypes.h"
 #include "base/i18n/time_formatting.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
@@ -49,7 +51,7 @@ namespace {
 
 // Basic Type -> Value functions.
 
-scoped_ptr<base::StringValue> MakeInt64Value(int64 x) {
+scoped_ptr<base::StringValue> MakeInt64Value(int64_t x) {
   return make_scoped_ptr(new base::StringValue(base::Int64ToString(x)));
 }
 
@@ -76,10 +78,6 @@ scoped_ptr<base::ListValue> MakeRepeatedValue(const F& fields,
     list->Append(converter_fn(*it));
   }
   return list;
-}
-
-base::string16 TimestampToString(int64 tm) {
-  return base::TimeFormatShortDateAndTime(syncer::ProtoTimeToTime(tm));
 }
 
 }  // namespace
@@ -410,7 +408,6 @@ scoped_ptr<base::DictionaryValue> DeviceInfoSpecificsToValue(
   SET_ENUM(device_type, GetDeviceTypeString);
   SET_STR(sync_user_agent);
   SET_STR(chrome_version);
-  SET_TIME_STR(backup_timestamp);
   SET_STR(signin_scoped_device_id);
   return value;
 }

@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGAnimatedIntegerOptionalInteger.h"
 
 #include "core/svg/SVGElement.h"
@@ -73,4 +71,4 @@ bool SVGAnimatedIntegerOptionalInteger::needsSynchronizeAttribute()
         || m_secondInteger->needsSynchronizeAttribute();
 }
 
-}
+} // namespace blink

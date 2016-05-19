@@ -4,7 +4,10 @@
 
 #include "content/renderer/media/user_media_client_impl.h"
 
+#include <stddef.h>
+
 #include <utility>
+#include <vector>
 
 #include "base/hash.h"
 #include "base/location.h"
@@ -27,6 +30,7 @@
 #include "content/renderer/media/webrtc_logging.h"
 #include "content/renderer/media/webrtc_uma_histograms.h"
 #include "content/renderer/render_thread_impl.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebMediaConstraints.h"
 #include "third_party/WebKit/public/platform/WebMediaDeviceInfo.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
@@ -37,23 +41,64 @@
 namespace content {
 namespace {
 
-void CopyStreamConstraints(const blink::WebMediaConstraints& constraints,
-                           StreamOptions::Constraints* mandatory,
-                           StreamOptions::Constraints* optional) {
-  blink::WebVector<blink::WebMediaConstraint> mandatory_constraints;
-  constraints.getMandatoryConstraints(mandatory_constraints);
-  for (size_t i = 0; i < mandatory_constraints.size(); i++) {
-    mandatory->push_back(StreamOptions::Constraint(
-        mandatory_constraints[i].m_name.utf8(),
-        mandatory_constraints[i].m_value.utf8()));
+void CopyVector(const blink::WebVector<blink::WebString>& source,
+                std::vector<std::string>* destination) {
+  for (const auto& web_string : source) {
+    destination->push_back(web_string.utf8());
   }
+}
 
-  blink::WebVector<blink::WebMediaConstraint> optional_constraints;
-  constraints.getOptionalConstraints(optional_constraints);
-  for (size_t i = 0; i < optional_constraints.size(); i++) {
-    optional->push_back(StreamOptions::Constraint(
-        optional_constraints[i].m_name.utf8(),
-        optional_constraints[i].m_value.utf8()));
+void CopyFirstString(const blink::WebVector<blink::WebString>& source,
+                     std::string* destination) {
+  if (!source.isEmpty())
+    *destination = source[0].utf8();
+}
+
+void CopyBlinkRequestToStreamControls(const blink::WebUserMediaRequest& request,
+                                      StreamControls* controls) {
+  if (request.isNull()) {
+    return;
+  }
+  if (!request.audioConstraints().isNull()) {
+    const blink::WebMediaTrackConstraintSet& audio_basic =
+        request.audioConstraints().basic();
+    CopyFirstString(audio_basic.mediaStreamSource.exact(),
+                    &controls->audio.stream_source);
+    CopyVector(audio_basic.deviceId.exact(), &(controls->audio.device_ids));
+    // Optionals. They may be either in ideal or in advanced.exact.
+    CopyVector(audio_basic.deviceId.ideal(),
+               &controls->audio.alternate_device_ids);
+    for (const auto& constraint : request.audioConstraints().advanced()) {
+      CopyVector(constraint.deviceId.exact(),
+                 &controls->audio.alternate_device_ids);
+      CopyVector(constraint.deviceId.ideal(),
+                 &controls->audio.alternate_device_ids);
+    }
+    if (audio_basic.hotwordEnabled.hasExact()) {
+      controls->hotword_enabled = audio_basic.hotwordEnabled.exact();
+    } else {
+      for (const auto& audio_advanced : request.audioConstraints().advanced()) {
+        if (audio_advanced.hotwordEnabled.hasExact()) {
+          controls->hotword_enabled = audio_advanced.hotwordEnabled.exact();
+          break;
+        }
+      }
+    }
+  }
+  if (!request.videoConstraints().isNull()) {
+    const blink::WebMediaTrackConstraintSet& video_basic =
+        request.videoConstraints().basic();
+    CopyFirstString(video_basic.mediaStreamSource.exact(),
+                    &(controls->video.stream_source));
+    CopyVector(video_basic.deviceId.exact(), &(controls->video.device_ids));
+    CopyVector(video_basic.deviceId.ideal(),
+               &(controls->video.alternate_device_ids));
+    for (const auto& constraint : request.videoConstraints().advanced()) {
+      CopyVector(constraint.deviceId.exact(),
+                 &controls->video.alternate_device_ids);
+      CopyVector(constraint.deviceId.ideal(),
+                 &controls->video.alternate_device_ids);
+    }
   }
 }
 
@@ -111,7 +156,7 @@ UserMediaClientImpl::UserMediaClientImpl(
     scoped_ptr<MediaStreamDispatcher> media_stream_dispatcher)
     : RenderFrameObserver(render_frame),
       dependency_factory_(dependency_factory),
-      media_stream_dispatcher_(media_stream_dispatcher.Pass()),
+      media_stream_dispatcher_(std::move(media_stream_dispatcher)),
       weak_factory_(this) {
   DCHECK(dependency_factory_);
   DCHECK(media_stream_dispatcher_.get());
@@ -138,7 +183,7 @@ void UserMediaClientImpl::requestUserMedia(
   }
 
   int request_id = g_next_request_id++;
-  StreamOptions options;
+  StreamControls controls;
   GURL security_origin;
   bool enable_automatic_output_device_selection = false;
 
@@ -146,72 +191,80 @@ void UserMediaClientImpl::requestUserMedia(
   // if it isNull.
   if (user_media_request.isNull()) {
     // We are in a test.
-    options.audio_requested = true;
-    options.video_requested = true;
+    controls.audio.requested = true;
+    controls.video.requested = true;
   } else {
     if (user_media_request.audio()) {
-      options.audio_requested = true;
-      CopyStreamConstraints(user_media_request.audioConstraints(),
-                            &options.mandatory_audio,
-                            &options.optional_audio);
-
+      controls.audio.requested = true;
       // Check if this input device should be used to select a matching output
       // device for audio rendering.
-      std::string enable;
-      if (options.GetFirstAudioConstraintByName(
-              kMediaStreamRenderToAssociatedSink, &enable, NULL) &&
-          base::LowerCaseEqualsASCII(enable, "true")) {
-        enable_automatic_output_device_selection = true;
+      enable_automatic_output_device_selection = true;  // On by default.
+      for (const auto& advanced_constraint :
+           user_media_request.audioConstraints().advanced()) {
+        if (advanced_constraint.renderToAssociatedSink.hasExact()) {
+          enable_automatic_output_device_selection =
+              advanced_constraint.renderToAssociatedSink.exact();
+          break;
+        }
       }
     }
     if (user_media_request.video()) {
-      options.video_requested = true;
-      CopyStreamConstraints(user_media_request.videoConstraints(),
-                            &options.mandatory_video,
-                            &options.optional_video);
+      controls.video.requested = true;
     }
+    CopyBlinkRequestToStreamControls(user_media_request, &controls);
 
-    security_origin = GURL(user_media_request.securityOrigin().toString());
+    security_origin =
+        blink::WebStringToGURL(user_media_request.securityOrigin().toString());
     DCHECK(render_frame()->GetWebFrame() ==
                static_cast<blink::WebFrame*>(
                    user_media_request.ownerDocument().frame()));
   }
 
   DVLOG(1) << "UserMediaClientImpl::requestUserMedia(" << request_id << ", [ "
-           << "audio=" << (options.audio_requested)
+           << "audio=" << (controls.audio.requested)
            << " select associated sink: "
            << enable_automatic_output_device_selection
-           << ", video=" << (options.video_requested) << " ], "
+           << ", video=" << (controls.video.requested) << " ], "
            << security_origin.spec() << ")";
 
-  std::string audio_device_id;
-  bool mandatory_audio;
-  options.GetFirstAudioConstraintByName(kMediaStreamSourceInfoId,
-                                        &audio_device_id, &mandatory_audio);
-  std::string video_device_id;
-  bool mandatory_video;
-  options.GetFirstVideoConstraintByName(kMediaStreamSourceInfoId,
-                                        &video_device_id, &mandatory_video);
+  blink::WebString audio_device_id;
+  bool mandatory_audio = false;
+  if (!user_media_request.isNull() && user_media_request.audio()) {
+    mandatory_audio =
+        user_media_request.audioConstraints().getMandatoryConstraintValue(
+            base::UTF8ToUTF16(kMediaStreamSourceInfoId), audio_device_id);
+    if (!mandatory_audio) {
+      user_media_request.audioConstraints().getOptionalConstraintValue(
+          base::UTF8ToUTF16(kMediaStreamSourceInfoId), audio_device_id);
+    }
+  }
+
+  blink::WebString video_device_id;
+  bool mandatory_video = false;
+  if (!user_media_request.isNull() && user_media_request.video()) {
+    mandatory_video =
+        user_media_request.videoConstraints().getMandatoryConstraintValue(
+            base::UTF8ToUTF16(kMediaStreamSourceInfoId), video_device_id);
+    if (!mandatory_video) {
+      user_media_request.videoConstraints().getOptionalConstraintValue(
+          base::UTF8ToUTF16(kMediaStreamSourceInfoId), video_device_id);
+    }
+  }
 
   WebRtcLogMessage(base::StringPrintf(
       "MSI::requestUserMedia. request_id=%d"
       ", audio source id=%s mandatory= %s "
       ", video source id=%s mandatory= %s",
-      request_id,
-      audio_device_id.c_str(),
-      mandatory_audio ? "true":"false",
-      video_device_id.c_str(),
-      mandatory_video ? "true":"false"));
+      request_id, audio_device_id.utf8().c_str(),
+      mandatory_audio ? "true" : "false", video_device_id.utf8().c_str(),
+      mandatory_video ? "true" : "false"));
 
   user_media_requests_.push_back(
       new UserMediaRequestInfo(request_id, user_media_request,
                                enable_automatic_output_device_selection));
 
   media_stream_dispatcher_->GenerateStream(
-      request_id,
-      weak_factory_.GetWeakPtr(),
-      options,
-      security_origin);
+      request_id, weak_factory_.GetWeakPtr(), controls, security_origin);
 }
 
 void UserMediaClientImpl::cancelUserMediaRequest(
@@ -240,8 +293,10 @@ void UserMediaClientImpl::requestMediaDevices(
   // underlying pointer is null). In order to use this function in a test we
   // need to check if it isNull.
   GURL security_origin;
-  if (!media_devices_request.isNull())
-    security_origin = GURL(media_devices_request.securityOrigin().toString());
+  if (!media_devices_request.isNull()) {
+    security_origin = blink::WebStringToGURL(
+        media_devices_request.securityOrigin().toString());
+  }
 
   DVLOG(1) << "UserMediaClientImpl::requestMediaDevices("
            << audio_input_request_id
@@ -371,9 +426,7 @@ void UserMediaClientImpl::OnStreamGenerated(
 
   web_stream->initialize(webkit_id, audio_track_vector,
                          video_track_vector);
-  web_stream->setExtraData(
-      new MediaStream(
-          *web_stream));
+  web_stream->setExtraData(new MediaStream());
 
   // Wait for the tracks to be started successfully or to fail.
   request_info->CallbackOnTracksStarted(
@@ -811,6 +864,9 @@ void UserMediaClientImpl::DelayedGetUserMediaRequestFailed(
       return;
     case MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN:
       request_info.requestFailedUASpecific("MediaDeviceFailedDueToShutdown");
+      return;
+    case MEDIA_DEVICE_KILL_SWITCH_ON:
+      request_info.requestFailedUASpecific("MediaDeviceKillSwitchOn");
       return;
   }
   NOTREACHED();

@@ -45,7 +45,7 @@ function checkFormatAndType()
 {
     debug("");
     debug("check format / type");
-    var invalidFormat = [gl.DEPTH_COMPONENT, gl.DEPTH_STENCIL, gl.R8, gl.RGBA4];
+    var invalidFormat = [gl.DEPTH_COMPONENT, gl.DEPTH_STENCIL, gl.R8, gl.RGBA4, gl.LUMINANCE, gl.LUMINANCE_ALPHA];
     var invalidType = [gl.UNSIGNED_INT_24_8];
     for (var ff = 0; ff < invalidFormat.length; ++ff) {
         var format = invalidFormat[ff];
@@ -67,7 +67,6 @@ function checkFormatAndType()
         {format: gl.RGBA,         type: gl.UNSIGNED_SHORT_5_5_5_1},
         {format: gl.RGBA,         type: gl.UNSIGNED_SHORT_4_4_4_4},
         {format: gl.ALPHA,        type: gl.UNSIGNED_BYTE},
-        {format: gl.LUMINANCE,    type: gl.UNSIGNED_BYTE},
         {format: gl.RED,          type: gl.UNSIGNED_BYTE},
         {format: gl.RGBA_INTEGER, type: gl.UNSIGNED_INT},
         {format: gl.RGBA_INTEGER, type: gl.INT}
@@ -146,77 +145,6 @@ function validatePixelPackBufferAndParameters(canvasWidth, canvasHeight)
     gl.deleteBuffer(buffer);
 }
 
-function calculatePaddingBytes(bytesPerPixel, packAlignment, width)
-{
-    var padding = 0;
-    switch (packAlignment) {
-    case 1:
-    case 2:
-    case 4:
-    case 8:
-        padding = (bytesPerPixel * width) % packAlignment;
-        if (padding > 0)
-            padding = packAlignment - padding;
-        return padding;
-    default:
-        testFailed("should not reach here");
-        return;
-    }
-}
-
-function runTestIteration(packAlignment, width, height)
-{
-    debug("Testing PACK_ALIGNMENT = " + packAlignment + ", width = " + width + ", height = " + height);
-    gl.clearColor(expectedColor[0] / 255.0, expectedColor[1] / 255.0, expectedColor[2] / 255.0, expectedColor[3] / 255.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    var bytesPerPixel = 4; // see readPixels' parameters below, the format is gl.RGBA, type is gl.UNSIGNED_BYTE
-    var padding = calculatePaddingBytes(bytesPerPixel, packAlignment, width);
-    gl.pixelStorei(gl.PACK_ALIGNMENT, packAlignment);
-    wtu.glErrorShouldBe(gl, gl.NO_ERROR);
-
-    var size = bytesPerPixel * width * height + padding * (height - 1);
-    if (size < 0)
-        size = 0;
-    var buffer = gl.createBuffer();
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, size, gl.STATIC_DRAW);
-    var offset = 0;
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, offset);
-    wtu.glErrorShouldBe(gl, gl.NO_ERROR);
-
-    if (!size)
-        return;
-    var arrBuffer = new ArrayBuffer(size);
-    gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, arrBuffer);
-    var array = new Uint8Array(arrBuffer);
-
-    // Check the last pixel of the last row.
-    var bytesPerRow = width * bytesPerPixel + padding;
-    var pos = bytesPerRow * (height - 1) + (width - 1) * bytesPerPixel;
-    for (var i = 0; i < bytesPerPixel; ++i)
-        pixel[i] = array[pos + i];
-    shouldBe("pixel", "expectedColor");
-}
-
-function testPackAlignment()
-{
-    debug("");
-    debug("Verify that reading pixels to PIXEL_PACK buffer works fine with various PACK_ALIGNMENT values.");
-
-    runTestIteration(1, 1, 2);
-    runTestIteration(2, 1, 2);
-    runTestIteration(4, 1, 2);
-    runTestIteration(8, 1, 2);
-    runTestIteration(4, 2, 2);
-    runTestIteration(8, 2, 2);
-    runTestIteration(4, 3, 2);
-    runTestIteration(8, 3, 2);
-    runTestIteration(1, 0, 0);
-    runTestIteration(4, 1, 1);
-    runTestIteration(8, 1, 1);
-}
-
 debug("");
 debug("Canvas.getContext");
 
@@ -233,9 +161,8 @@ if (!gl) {
   testPassed("context exists");
 
   debug("");
-  description('ReadPixels Into PIXEL_PACK Buffer');
+  description('ReadPixels into PIXEL_PACK buffer');
   validatePixelPackBufferAndParameters(4, 4);
-  testPackAlignment();
 }
 
 debug("");

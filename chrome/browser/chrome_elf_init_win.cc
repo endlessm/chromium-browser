@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
@@ -99,7 +101,7 @@ void InitializeChromeElf() {
   // Report all successful blacklist interceptions.
   ReportSuccessfulBlocks();
 
-  // Schedule another task to report all sucessful interceptions later.
+  // Schedule another task to report all successful interceptions later.
   // This time delay should be long enough to catch any dlls that attempt to
   // inject after Chrome has started up.
   content::BrowserThread::PostDelayedTask(

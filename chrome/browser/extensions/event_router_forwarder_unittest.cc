@@ -4,11 +4,14 @@
 
 #include "chrome/browser/extensions/event_router_forwarder.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_monitor_device_source.h"
 #include "base/test/thread_test_helper.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
@@ -60,7 +63,7 @@ static void BroadcastEventToRenderers(EventRouterForwarder* event_router,
                                       const GURL& url) {
   scoped_ptr<base::ListValue> args(new base::ListValue());
   event_router->BroadcastEventToRenderers(histogram_value, event_name,
-                                          args.Pass(), url);
+                                          std::move(args), url);
 }
 
 static void DispatchEventToRenderers(EventRouterForwarder* event_router,
@@ -71,7 +74,7 @@ static void DispatchEventToRenderers(EventRouterForwarder* event_router,
                                      const GURL& url) {
   scoped_ptr<base::ListValue> args(new base::ListValue());
   event_router->DispatchEventToRenderers(histogram_value, event_name,
-                                         args.Pass(), profile,
+                                         std::move(args), profile,
                                          use_profile_to_restrict_events, url);
 }
 
@@ -82,7 +85,7 @@ static void BroadcastEventToExtension(EventRouterForwarder* event_router,
                                       const GURL& url) {
   scoped_ptr<base::ListValue> args(new base::ListValue());
   event_router->BroadcastEventToExtension(extension, histogram_value,
-                                          event_name, args.Pass(), url);
+                                          event_name, std::move(args), url);
 }
 
 static void DispatchEventToExtension(EventRouterForwarder* event_router,
@@ -94,7 +97,7 @@ static void DispatchEventToExtension(EventRouterForwarder* event_router,
                                      const GURL& url) {
   scoped_ptr<base::ListValue> args(new base::ListValue());
   event_router->DispatchEventToExtension(extension, histogram_value, event_name,
-                                         args.Pass(), profile,
+                                         std::move(args), profile,
                                          use_profile_to_restrict_events, url);
 }
 
@@ -111,7 +114,7 @@ class EventRouterForwarderTest : public testing::Test {
 #endif
     scoped_ptr<base::PowerMonitorSource> power_monitor_source(
       new base::PowerMonitorDeviceSource());
-    dummy.reset(new base::PowerMonitor(power_monitor_source.Pass()));
+    dummy.reset(new base::PowerMonitor(std::move(power_monitor_source)));
   }
 
   void SetUp() override {

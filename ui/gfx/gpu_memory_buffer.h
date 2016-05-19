@@ -5,6 +5,9 @@
 #ifndef UI_GFX_GPU_MEMORY_BUFFER_H_
 #define UI_GFX_GPU_MEMORY_BUFFER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/memory/shared_memory.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "build/build_config.h"
@@ -15,6 +18,8 @@
 
 #if defined(USE_OZONE)
 #include "ui/gfx/native_pixmap_handle_ozone.h"
+#elif defined(OS_MACOSX)
+#include "ui/gfx/mac/io_surface.h"
 #endif
 
 extern "C" typedef struct _ClientBuffer* ClientBuffer;
@@ -34,6 +39,7 @@ using GpuMemoryBufferId = GenericSharedMemoryId;
 
 struct GFX_EXPORT GpuMemoryBufferHandle {
   GpuMemoryBufferHandle();
+  ~GpuMemoryBufferHandle();
   bool is_null() const { return type == EMPTY_BUFFER; }
   GpuMemoryBufferType type;
   GpuMemoryBufferId id;
@@ -42,11 +48,13 @@ struct GFX_EXPORT GpuMemoryBufferHandle {
   int32_t stride;
 #if defined(USE_OZONE)
   NativePixmapHandle native_pixmap_handle;
+#elif defined(OS_MACOSX)
+  ScopedRefCountedIOSurfaceMachPort mach_port;
 #endif
 };
 
 base::trace_event::MemoryAllocatorDumpGuid GFX_EXPORT
-GetGpuMemoryBufferGUIDForTracing(uint64 tracing_process_id,
+GetGpuMemoryBufferGUIDForTracing(uint64_t tracing_process_id,
                                  GpuMemoryBufferId buffer_id);
 
 // This interface typically correspond to a type of shared memory that is also
@@ -69,6 +77,13 @@ class GFX_EXPORT GpuMemoryBuffer {
   // Unmaps the buffer. It's illegal to use any pointer returned by memory()
   // after this has been called.
   virtual void Unmap() = 0;
+
+  // Returns true if the buffer is currently being read from by the system's
+  // window server, and should not be written to.
+  // TODO(ccameron): This is specific to the Mac OS WindowServer process, and
+  // should be merged with synchronization mechanisms from other platforms, if
+  // possible.
+  virtual bool IsInUseByMacOSWindowServer() const;
 
   // Returns the size for the buffer.
   virtual Size GetSize() const = 0;

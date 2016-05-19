@@ -5,15 +5,18 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_OMNIBOX_OMNIBOX_VIEW_VIEWS_H_
 #define CHROME_BROWSER_UI_VIEWS_OMNIBOX_OMNIBOX_VIEW_VIEWS_H_
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/ui/toolbar/chrome_toolbar_model.h"
+#include "build/build_config.h"
 #include "components/omnibox/browser/omnibox_view.h"
+#include "components/security_state/security_state_model.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/range/range.h"
 #include "ui/views/controls/textfield/textfield.h"
@@ -27,6 +30,10 @@ class CommandUpdater;
 class LocationBarView;
 class OmniboxPopupView;
 class Profile;
+
+namespace content {
+class WebContents;
+}  // namespace content
 
 namespace gfx {
 class RenderText;
@@ -143,7 +150,7 @@ class OmniboxViewViews
   void OnInlineAutocompleteTextCleared() override;
   void OnRevertTemporaryText() override;
   void OnBeforePossibleChange() override;
-  bool OnAfterPossibleChange() override;
+  bool OnAfterPossibleChange(bool allow_keyword_ui_change) override;
   gfx::NativeView GetNativeView() const override;
   gfx::NativeView GetRelativeWindowForPopup() const override;
   void SetGrayTextAutocompletion(const base::string16& input) override;
@@ -151,7 +158,7 @@ class OmniboxViewViews
   int GetWidth() const override;
   bool IsImeShowingPopup() const override;
   void ShowImeIfNeeded() override;
-  void OnMatchOpened(const AutocompleteMatch& match) override;
+  void OnMatchOpened(AutocompleteMatch::Type match_type) override;
   int GetOmniboxTextLength() const override;
   void EmphasizeURLComponents() override;
 
@@ -206,7 +213,7 @@ class OmniboxViewViews
 
   scoped_ptr<OmniboxPopupView> popup_view_;
 
-  SecurityStateModel::SecurityLevel security_level_;
+  security_state::SecurityStateModel::SecurityLevel security_level_;
 
   // Selection persisted across temporary text changes, like popup suggestions.
   gfx::Range saved_temporary_selection_;

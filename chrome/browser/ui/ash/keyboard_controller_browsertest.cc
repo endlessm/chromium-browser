@@ -4,6 +4,7 @@
 
 #include "ash/shell.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -157,10 +158,10 @@ IN_PROC_BROWSER_TEST_F(VirtualKeyboardAppWindowTest,
                        DisableOverscrollForImeWindow) {
   scoped_refptr<extensions::Extension> extension =
       extensions::ExtensionBuilder()
-          .SetManifest(extensions::DictionaryBuilder()
-                           .Set("name", "test extension")
-                           .Set("version", "1")
-                           .Set("manifest_version", 2))
+          .SetManifest(std::move(extensions::DictionaryBuilder()
+                                     .Set("name", "test extension")
+                                     .Set("version", "1")
+                                     .Set("manifest_version", 2)))
           .Build();
 
   extensions::AppWindow::CreateParams non_ime_params;

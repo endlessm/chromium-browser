@@ -31,8 +31,6 @@
 #ifndef WebMimeRegistry_h
 #define WebMimeRegistry_h
 
-#include "WebCommon.h"
-
 namespace blink {
 
 class WebString;
@@ -45,7 +43,7 @@ public:
     virtual SupportsType supportsImageMIMEType(const WebString& mimeType) = 0;
     virtual SupportsType supportsImagePrefixedMIMEType(const WebString& mimeType) = 0;
     virtual SupportsType supportsJavaScriptMIMEType(const WebString& mimeType) = 0;
-    virtual SupportsType supportsMediaMIMEType(const WebString& mimeType, const WebString& codecs, const WebString& keySystem) = 0;
+    virtual SupportsType supportsMediaMIMEType(const WebString& mimeType, const WebString& codecs) = 0;
 
     virtual bool supportsMediaSourceMIMEType(const WebString& mimeType, const WebString& codecs) = 0;
 
@@ -53,7 +51,6 @@ public:
 
     virtual WebString mimeTypeForExtension(const WebString& fileExtension) = 0;
     virtual WebString wellKnownMimeTypeForExtension(const WebString& fileExtension) = 0;
-    virtual WebString mimeTypeFromFile(const WebString& filePath) = 0;
 
 protected:
     ~WebMimeRegistry() { }

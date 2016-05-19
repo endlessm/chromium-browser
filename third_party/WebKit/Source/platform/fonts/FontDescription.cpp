@@ -27,7 +27,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/fonts/FontDescription.h"
 
 #include "platform/RuntimeEnabledFeatures.h"
@@ -38,6 +37,7 @@
 namespace blink {
 
 struct SameSizeAsFontDescription {
+    DISALLOW_NEW();
     FontFamily familyList;
     RefPtr<FontFeatureSettings> m_featureSettings;
     AtomicString locale;
@@ -163,22 +163,19 @@ float FontDescription::effectiveFontSize() const
     return floorf(computedOrAdjustedSize * FontCacheKey::precisionMultiplier()) / FontCacheKey::precisionMultiplier();
 }
 
-FontCacheKey FontDescription::cacheKey(const FontFaceCreationParams& creationParams, FontTraits desiredTraits, bool loading, unsigned version) const
+FontCacheKey FontDescription::cacheKey(const FontFaceCreationParams& creationParams, FontTraits desiredTraits) const
 {
     FontTraits fontTraits = desiredTraits.bitfield() ? desiredTraits : traits();
 
     unsigned options =
-        version << 8 | // bit 9-15
-        static_cast<unsigned>(loading ? 1 : 0) << 7 | // bit 8
         static_cast<unsigned>(m_fields.m_syntheticItalic) << 6 | // bit 7
         static_cast<unsigned>(m_fields.m_syntheticBold) << 5 | // bit 6
         static_cast<unsigned>(m_fields.m_textRendering) << 3 | // bits 4-5
         static_cast<unsigned>(m_fields.m_orientation) << 1 | // bit 2-3
         static_cast<unsigned>(m_fields.m_subpixelTextPosition); // bit 1
 
-    return FontCacheKey(creationParams, effectiveFontSize(), options | fontTraits.bitfield() << 16);
+    return FontCacheKey(creationParams, effectiveFontSize(), options | fontTraits.bitfield() << 8);
 }
-
 
 void FontDescription::setDefaultTypesettingFeatures(TypesettingFeatures typesettingFeatures)
 {

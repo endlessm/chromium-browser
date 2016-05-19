@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/power/extension_event_observer.h"
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/macros.h"
@@ -62,7 +64,7 @@ class ExtensionEventObserverTest : public ::testing::Test {
   void SetUp() override {
     ::testing::Test::SetUp();
 
-    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, test_screen_.get());
+    gfx::Screen::SetScreenInstance(test_screen_.get());
 
     // Must be called from ::testing::Test::SetUp.
     ASSERT_TRUE(profile_manager_->SetUp());
@@ -79,7 +81,7 @@ class ExtensionEventObserverTest : public ::testing::Test {
   void TearDown() override {
     profile_ = NULL;
     profile_manager_->DeleteAllTestingProfiles();
-    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, nullptr);
+    gfx::Screen::SetScreenInstance(nullptr);
     ::testing::Test::TearDown();
   }
 
@@ -88,19 +90,21 @@ class ExtensionEventObserverTest : public ::testing::Test {
                                                  bool uses_gcm) {
     scoped_refptr<extensions::Extension> app =
         extensions::ExtensionBuilder()
-            .SetManifest(
-                 extensions::DictionaryBuilder()
-                     .Set("name", name)
-                     .Set("version", "1.0.0")
-                     .Set("manifest_version", 2)
-                     .Set("app",
-                          extensions::DictionaryBuilder().Set(
-                              "background",
-                              extensions::DictionaryBuilder().Set(
-                                  "scripts", extensions::ListBuilder().Append(
-                                                 "background.js"))))
-                     .Set("permissions", extensions::ListBuilder().Append(
-                                             uses_gcm ? "gcm" : "")))
+            .SetManifest(std::move(
+                extensions::DictionaryBuilder()
+                    .Set("name", name)
+                    .Set("version", "1.0.0")
+                    .Set("manifest_version", 2)
+                    .Set("app",
+                         std::move(extensions::DictionaryBuilder().Set(
+                             "background",
+                             std::move(extensions::DictionaryBuilder().Set(
+                                 "scripts",
+                                 std::move(extensions::ListBuilder().Append(
+                                     "background.js")))))))
+                    .Set("permissions",
+                         std::move(extensions::ListBuilder().Append(
+                             uses_gcm ? "gcm" : "")))))
             .Build();
 
     created_apps_.push_back(app);
@@ -242,7 +246,7 @@ TEST_F(ExtensionEventObserverTest, NetworkRequestsMayDelaySuspend) {
 
   // Test that network requests started while there is no pending push message
   // are ignored.
-  const uint64 kNonPushRequestId = 5170725;
+  const uint64_t kNonPushRequestId = 5170725;
   extension_event_observer_->OnNetworkRequestStarted(host, kNonPushRequestId);
   power_manager_client_->SendSuspendImminent();
 
@@ -252,7 +256,7 @@ TEST_F(ExtensionEventObserverTest, NetworkRequestsMayDelaySuspend) {
   // Test that network requests started while a push message is pending delay
   // the suspend even after the push message has been acked.
   const int kPushMessageId = 178674;
-  const uint64 kNetworkRequestId = 78917089;
+  const uint64_t kNetworkRequestId = 78917089;
   power_manager_client_->SendDarkSuspendImminent();
   extension_event_observer_->OnBackgroundEventDispatched(
       host, extensions::api::gcm::OnMessage::kEventName, kPushMessageId);
@@ -284,7 +288,7 @@ TEST_F(ExtensionEventObserverTest, DeletedExtensionHostDoesNotBlockSuspend) {
   EXPECT_TRUE(test_api_->WillDelaySuspendForExtensionHost(host));
 
   const int kPushId = 156178;
-  const uint64 kNetworkId = 791605;
+  const uint64_t kNetworkId = 791605;
   extension_event_observer_->OnBackgroundEventDispatched(
       host, extensions::api::gcm::OnMessage::kEventName, kPushId);
   extension_event_observer_->OnNetworkRequestStarted(host, kNetworkId);

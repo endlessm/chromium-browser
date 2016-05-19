@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/SVGDiscardElement.h"
 
 #include "core/SVGNames.h"
@@ -55,4 +54,4 @@ bool SVGDiscardElement::hasValidAttributeName()
     return true;
 }
 
-}
+} // namespace blink

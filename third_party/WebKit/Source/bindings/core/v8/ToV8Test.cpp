@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "bindings/core/v8/ToV8.h"
 
 #include "bindings/core/v8/V8Binding.h"
@@ -10,8 +9,8 @@
 #include "core/testing/GarbageCollectedScriptWrappable.h"
 #include "core/testing/RefCountedScriptWrappable.h"
 #include "platform/heap/Heap.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/Vector.h"
-#include <gtest/gtest.h>
 #include <limits>
 
 #define TEST_TOV8(expected, value) testToV8(expected, value, __FILE__, __LINE__)
@@ -302,6 +301,17 @@ TEST_F(ToV8Test, basicTypeHeapVectors)
     boolVector.append(true);
     boolVector.append(false);
     TEST_TOV8("true,true,false", boolVector);
+}
+
+TEST_F(ToV8Test, withScriptState)
+{
+    ScriptValue value(m_scope.scriptState(), v8::Number::New(m_scope.isolate(), 1234.0));
+
+    v8::Local<v8::Value> actual = toV8(value, m_scope.scriptState());
+    EXPECT_FALSE(actual.IsEmpty());
+
+    double actualAsNumber = actual.As<v8::Number>()->Value();
+    EXPECT_EQ(1234.0, actualAsNumber);
 }
 
 } // namespace

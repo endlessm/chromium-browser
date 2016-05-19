@@ -5,14 +5,18 @@
 #include "ui/views/controls/textfield/textfield.h"
 
 #include <string>
+#include <utility>
 
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/cursor/cursor.h"
+#include "ui/base/default_style.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/drag_utils.h"
 #include "ui/base/ime/input_method.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/base/touch/selection_bound.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/compositor/canvas_painter.h"
@@ -237,6 +241,11 @@ int GetViewsCommand(const ui::TextEditCommandAuraLinux& command, bool rtl) {
 }
 #endif
 
+const gfx::FontList& GetDefaultFontList() {
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  return rb.GetFontListWithDelta(ui::kLabelFontSizeDelta);
+}
+
 }  // namespace
 
 // static
@@ -282,6 +291,7 @@ Textfield::Textfield()
       weak_ptr_factory_(this) {
   set_context_menu_controller(this);
   set_drag_controller(this);
+  GetRenderText()->SetFontList(GetDefaultFontList());
   SetBorder(scoped_ptr<Border>(new FocusableBorder()));
   SetFocusable(true);
 
@@ -563,7 +573,7 @@ void Textfield::ExecuteCommand(int command_id) {
 }
 
 void Textfield::SetFocusPainter(scoped_ptr<Painter> focus_painter) {
-  focus_painter_ = focus_painter.Pass();
+  focus_painter_ = std::move(focus_painter);
 }
 
 bool Textfield::HasTextBeingDragged() {
@@ -1088,8 +1098,8 @@ void Textfield::WriteDragDataForView(View* sender,
   label.SetSubpixelRenderingEnabled(false);
   gfx::Size size(label.GetPreferredSize());
   gfx::NativeView native_view = GetWidget()->GetNativeView();
-  gfx::Display display = gfx::Screen::GetScreenFor(native_view)->
-      GetDisplayNearestWindow(native_view);
+  gfx::Display display =
+      gfx::Screen::GetScreen()->GetDisplayNearestWindow(native_view);
   size.SetToMin(gfx::Size(display.size().width(), height()));
   label.SetBoundsRect(gfx::Rect(size));
   scoped_ptr<gfx::Canvas> canvas(
@@ -1496,7 +1506,7 @@ gfx::Rect Textfield::GetCaretBounds() const {
   return rect;
 }
 
-bool Textfield::GetCompositionCharacterBounds(uint32 index,
+bool Textfield::GetCompositionCharacterBounds(uint32_t index,
                                               gfx::Rect* rect) const {
   DCHECK(rect);
   if (!HasCompositionText())

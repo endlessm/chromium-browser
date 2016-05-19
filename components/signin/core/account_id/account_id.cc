@@ -6,13 +6,23 @@
 
 #include <functional>
 
+#include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
 #include "base/memory/singleton.h"
+#include "base/values.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 
 namespace {
 
 // Known account types.
 const char kGoogle[] = "google";
+
+// Serialization keys
+const char kGaiaIdKey[] = "gaia_id";
+const char kEmailKey[] = "email";
+
+// Prefix for GetGaiaIdKey().
+const char kKeyGaiaIdPrefix[] = "g-";
 
 struct GoogleStringSingleton {
   GoogleStringSingleton() : google(kGoogle) {}
@@ -39,8 +49,8 @@ AccountId::AccountId() {}
 
 AccountId::AccountId(const std::string& gaia_id, const std::string& user_email)
     : gaia_id_(gaia_id), user_email_(user_email) {
-  // TODO (alemate): DCHECK(!email.empty());
-  // TODO (alemate): check gaia_id is not empty once it is required.
+  // TODO(alemate): DCHECK(!email.empty());
+  // TODO(alemate): check gaia_id is not empty once it is required.
 }
 
 AccountId::AccountId(const AccountId& other)
@@ -58,7 +68,7 @@ bool AccountId::operator!=(const AccountId& other) const {
 }
 
 bool AccountId::operator<(const AccountId& right) const {
-  // TODO (alemate): update this once all AccountId members are filled.
+  // TODO(alemate): update this once all AccountId members are filled.
   return user_email_ < right.user_email_;
 }
 
@@ -87,6 +97,11 @@ const std::string& AccountId::GetUserEmail() const {
   return user_email_;
 }
 
+const std::string AccountId::GetGaiaIdKey() const {
+  CHECK(!gaia_id_.empty());
+  return std::string(kKeyGaiaIdPrefix) + gaia_id_;
+}
+
 void AccountId::SetGaiaId(const std::string& gaia_id) {
   DCHECK(!gaia_id.empty());
   gaia_id_ = gaia_id;
@@ -99,7 +114,7 @@ void AccountId::SetUserEmail(const std::string& email) {
 
 // static
 AccountId AccountId::FromUserEmail(const std::string& email) {
-  // TODO (alemate): DCHECK(!email.empty());
+  // TODO(alemate): DCHECK(!email.empty());
   return AccountId(std::string() /* gaia_id */, email);
 }
 
@@ -115,6 +130,47 @@ AccountId AccountId::FromUserEmailGaiaId(const std::string& email,
   return AccountId(gaia_id, email);
 }
 
+std::string AccountId::Serialize() const {
+  base::DictionaryValue value;
+  value.SetString(kGaiaIdKey, gaia_id_);
+  value.SetString(kEmailKey, user_email_);
+
+  std::string serialized;
+  base::JSONWriter::Write(value, &serialized);
+  return serialized;
+}
+
+// static
+bool AccountId::Deserialize(const std::string& serialized,
+                            AccountId* account_id) {
+  base::JSONReader reader;
+  scoped_ptr<const base::Value> value(reader.Read(serialized));
+  const base::DictionaryValue* dictionary_value = NULL;
+
+  if (!value || !value->GetAsDictionary(&dictionary_value))
+    return false;
+
+  std::string gaia_id;
+  std::string user_email;
+
+  const bool found_gaia_id = dictionary_value->GetString(kGaiaIdKey, &gaia_id);
+  const bool found_user_email =
+      dictionary_value->GetString(kEmailKey, &user_email);
+
+  if (!found_gaia_id)
+    LOG(ERROR) << "gaia_id is not found in '" << serialized << "'";
+
+  if (!found_user_email)
+    LOG(ERROR) << "user_email is not found in '" << serialized << "'";
+
+  if (!found_gaia_id && !found_user_email)
+    return false;
+
+  *account_id = FromUserEmailGaiaId(user_email, gaia_id);
+
+  return true;
+}
+
 const AccountId& EmptyAccountId() {
   return AccountId::EmptyAccountId::GetInstance()->user_id;
 }
@@ -125,4 +181,4 @@ std::size_t hash<AccountId>::operator()(const AccountId& user_id) const {
   return hash<std::string>()(user_id.GetUserEmail());
 }
 
-}  // namespace BASE_HASH_NAMESPAC
+}  // namespace BASE_HASH_NAMESPACE

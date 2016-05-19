@@ -36,11 +36,13 @@ PUBLIC_API_OWNERS = (
 AUTHORS_FILE_NAME = 'AUTHORS'
 
 DOCS_PREVIEW_URL = 'https://skia.org/?cl='
+GOLD_TRYBOT_URL = ('https://gold.skia.org/search2?unt=true'
+                   '&query=source_type%3Dgm&master=false&issue=')
 
 # Path to CQ bots feature is described in https://bug.skia.org/4364
 PATH_PREFIX_TO_EXTRA_TRYBOTS = {
     # pylint: disable=line-too-long
-    'cmake/': 'client.skia.compile:Build-Mac10.9-Clang-x86_64-Release-CMake-Trybot,Build-Ubuntu-GCC-x86_64-Release-CMake-Trybot',
+    'cmake/': 'client.skia.compile:Build-Mac-Clang-x86_64-Release-CMake-Trybot,Build-Ubuntu-GCC-x86_64-Release-CMake-Trybot',
     # pylint: disable=line-too-long
     'src/opts/': 'client.skia:Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-SKNX_NO_SIMD-Trybot',
 
@@ -83,6 +85,7 @@ def _PythonChecks(input_api, output_api):
       'R0201',  # Method could be a function.
       'E1003',  # Using class name in super.
       'W0613',  # Unused argument.
+      'W0105',  # String statement has no effect.
   )
   # Run Pylint on only the modified python files. Unfortunately it still runs
   # Pylint on the whole file instead of just the modified lines.
@@ -347,6 +350,7 @@ def PostUploadHook(cl, change, output_api):
   """git cl upload will call this hook after the issue is created/modified.
 
   This hook does the following:
+  * Adds a link to the CL's Gold trybot results.
   * Adds a link to preview docs changes if there are any docs changes in the CL.
   * Adds 'NOTRY=true' if the CL contains only docs changes.
   * Adds 'NOTREECHECKS=true' for non master branch changes since they do not
@@ -376,6 +380,15 @@ def PostUploadHook(cl, change, output_api):
   if issue and rietveld_obj:
     original_description = rietveld_obj.get_description(issue)
     new_description = original_description
+
+    # Add GOLD_TRYBOT_URL if it does not exist yet.
+    if not re.search(r'^GOLD_TRYBOT_URL=', new_description, re.M | re.I):
+      new_description += '\nGOLD_TRYBOT_URL= %s%s' % (GOLD_TRYBOT_URL, issue)
+      results.append(
+          output_api.PresubmitNotifyResult(
+              'Added link to Gold trybot runs to the CL\'s description.\n'
+              'Note: Results may take sometime to be populated after trybots '
+              'complete.'))
 
     # If the change includes only doc changes then add NOTRY=true in the
     # CL's description if it does not exist yet.

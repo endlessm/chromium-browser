@@ -97,58 +97,13 @@ WebInspector.FormatterScriptMapping.FormatData = function(projectId, path, mappi
 
 /**
  * @constructor
- * @param {!WebInspector.Workspace} workspace
- * @param {string} id
- * @extends {WebInspector.ContentProviderBasedProjectDelegate}
- */
-WebInspector.FormatterProjectDelegate = function(workspace, id)
-{
-    WebInspector.ContentProviderBasedProjectDelegate.call(this, workspace, id, WebInspector.projectTypes.Formatter);
-}
-
-WebInspector.FormatterProjectDelegate.prototype = {
-    /**
-     * @override
-     * @return {string}
-     */
-    displayName: function()
-    {
-        return "formatter";
-    },
-
-    /**
-     * @param {string} name
-     * @param {string} sourceURL
-     * @param {!WebInspector.ResourceType} contentType
-     * @param {string} content
-     * @return {string}
-     */
-    _addFormatted: function(name, sourceURL, contentType, content)
-    {
-        var contentProvider = new WebInspector.StaticContentProvider(contentType, content);
-        return this.addContentProvider(sourceURL, name + ":formatted", sourceURL, contentProvider);
-    },
-
-    /**
-     * @param {string} path
-     */
-    _removeFormatted: function(path)
-    {
-        this.removeFile(path);
-    },
-
-    __proto__: WebInspector.ContentProviderBasedProjectDelegate.prototype
-}
-
-/**
- * @constructor
  * @implements {WebInspector.SourcesView.EditorAction}
  * @implements {WebInspector.TargetManager.Observer}
  */
 WebInspector.ScriptFormatterEditorAction = function()
 {
     this._projectId = "formatter:";
-    this._projectDelegate = new WebInspector.FormatterProjectDelegate(WebInspector.workspace, this._projectId);
+    this._project = new WebInspector.ContentProviderBasedProject(WebInspector.workspace, this._projectId, WebInspector.projectTypes.Formatter, "formatter");
 
     /** @type {!Map.<!WebInspector.Script, !WebInspector.UISourceCode>} */
     this._uiSourceCodes = new Map();
@@ -202,7 +157,7 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
         var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
         this._updateButton(uiSourceCode);
 
-        var path = uiSourceCode.project().id() + ":" + uiSourceCode.path();
+        var path = uiSourceCode.project().id() + ":" + uiSourceCode.url();
         var networkURL = WebInspector.networkMapping.networkURL(uiSourceCode);
         if (this._isFormatableScript(uiSourceCode) && networkURL && this._pathsToFormatOnLoad.has(path) && !this._formattedPaths.get(path))
             this._formatUISourceCodeScript(uiSourceCode);
@@ -244,7 +199,6 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
         this._sourcesView.addEventListener(WebInspector.SourcesView.Events.EditorClosed, this._editorClosed.bind(this));
 
         this._button = new WebInspector.ToolbarButton(WebInspector.UIString("Pretty print"), "format-toolbar-item");
-        this._button.setToggled(false);
         this._button.addEventListener("click", this._toggleFormatScriptSource, this);
         this._updateButton(sourcesView.currentUISourceCode());
 
@@ -262,16 +216,14 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
         var supportedProjectTypes = [WebInspector.projectTypes.Network, WebInspector.projectTypes.Debugger, WebInspector.projectTypes.ContentScripts];
         if (supportedProjectTypes.indexOf(uiSourceCode.project().type()) === -1)
             return false;
-        var contentType = uiSourceCode.contentType();
-        return contentType === WebInspector.resourceTypes.Script || contentType === WebInspector.resourceTypes.Document;
+        return uiSourceCode.contentType().hasScripts();
     },
 
     _toggleFormatScriptSource: function()
     {
         var uiSourceCode = this._sourcesView.currentUISourceCode();
-        if (!this._isFormatableScript(uiSourceCode))
-            return;
-        this._formatUISourceCodeScript(uiSourceCode);
+        if (this._isFormatableScript(uiSourceCode))
+            this._formatUISourceCodeScript(uiSourceCode);
     },
 
     /**
@@ -311,7 +263,7 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
             this._uiSourceCodes.remove(formatData.scripts[i]);
             WebInspector.debuggerWorkspaceBinding.popSourceMapping(formatData.scripts[i]);
         }
-        this._projectDelegate._removeFormatted(formattedUISourceCode.path());
+        this._project.removeFile(formattedUISourceCode.url());
     },
 
     /**
@@ -336,7 +288,7 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
             else {
                 this._formattedPaths.remove(formatData.projectId + ":" + formatData.path);
                 this._formatData.remove(uiSourceCodes[i]);
-                this._projectDelegate._removeFormatted(uiSourceCodes[i].path());
+                this._project.removeFile(uiSourceCodes[i].url());
             }
         }
     },
@@ -374,7 +326,7 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
             }
             return scripts.filter(isInlineScript);
         }
-        if (uiSourceCode.contentType() === WebInspector.resourceTypes.Script) {
+        if (uiSourceCode.contentType().isScript()) {
             var rawLocations = WebInspector.debuggerWorkspaceBinding.uiLocationToRawLocations(uiSourceCode, 0, 0);
             return rawLocations.map(function(rawLocation) { return rawLocation.script(); });
         }
@@ -386,7 +338,7 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
      */
     _formatUISourceCodeScript: function(uiSourceCode)
     {
-        var formattedPath = this._formattedPaths.get(uiSourceCode.project().id() + ":" + uiSourceCode.path());
+        var formattedPath = this._formattedPaths.get(uiSourceCode.project().id() + ":" + uiSourceCode.url());
         if (formattedPath) {
             var uiSourceCodePath = formattedPath;
             var formattedUISourceCode = this._workspace.uiSourceCode(this._projectId, uiSourceCodePath);
@@ -396,7 +348,7 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
             return;
         }
 
-        uiSourceCode.requestContent(contentLoaded.bind(this));
+        uiSourceCode.requestContent().then(contentLoaded.bind(this));
 
         /**
          * @this {WebInspector.ScriptFormatterEditorAction}
@@ -404,7 +356,7 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
          */
         function contentLoaded(content)
         {
-            var highlighterType = WebInspector.SourcesView.uiSourceCodeHighlighterType(uiSourceCode);
+            var highlighterType = WebInspector.NetworkProject.uiSourceCodeMimeType(uiSourceCode);
             WebInspector.Formatter.format(uiSourceCode.contentType(), highlighterType, content || "", innerCallback.bind(this));
         }
 
@@ -416,18 +368,12 @@ WebInspector.ScriptFormatterEditorAction.prototype = {
         function innerCallback(formattedContent, formatterMapping)
         {
             var scripts = this._scriptsForUISourceCode(uiSourceCode);
-            var name;
-            if (uiSourceCode.contentType() === WebInspector.resourceTypes.Document)
-                name = uiSourceCode.displayName();
-            else
-                name = uiSourceCode.name() || (scripts.length ? scripts[0].scriptId : "");
-
-            var networkURL = WebInspector.networkMapping.networkURL(uiSourceCode);
-            formattedPath = this._projectDelegate._addFormatted(name, networkURL, uiSourceCode.contentType(), formattedContent);
-            var formattedUISourceCode = /** @type {!WebInspector.UISourceCode} */ (this._workspace.uiSourceCode(this._projectId, formattedPath));
-            var formatData = new WebInspector.FormatterScriptMapping.FormatData(uiSourceCode.project().id(), uiSourceCode.path(), formatterMapping, scripts);
+            var contentProvider = new WebInspector.StaticContentProvider(uiSourceCode.contentType(), formattedContent);
+            var formattedUISourceCode = this._project.addContentProvider(uiSourceCode.url() + ":formatted", contentProvider);
+            var formattedPath = formattedUISourceCode.url();
+            var formatData = new WebInspector.FormatterScriptMapping.FormatData(uiSourceCode.project().id(), uiSourceCode.url(), formatterMapping, scripts);
             this._formatData.set(formattedUISourceCode, formatData);
-            var path = uiSourceCode.project().id() + ":" + uiSourceCode.path();
+            var path = uiSourceCode.project().id() + ":" + uiSourceCode.url();
             this._formattedPaths.set(path, formattedPath);
             this._pathsToFormatOnLoad.add(path);
             for (var i = 0; i < scripts.length; ++i) {

@@ -19,12 +19,14 @@
 #ifndef UI_GFX_IMAGE_IMAGE_H_
 #define UI_GFX_IMAGE_IMAGE_H_
 
+#include <stddef.h>
+
+#include <map>
 #include <vector>
 
-#include "base/basictypes.h"
-#include "base/containers/scoped_ptr_map.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "ui/gfx/gfx_export.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -53,8 +55,8 @@ class GFX_EXPORT Image {
     kImageRepPNG,
   };
 
-  typedef base::ScopedPtrMap<RepresentationType, scoped_ptr<internal::ImageRep>>
-      RepresentationMap;
+  using RepresentationMap =
+      std::map<RepresentationType, scoped_ptr<internal::ImageRep>>;
 
   // Creates an empty image with no representations.
   Image();
@@ -181,7 +183,8 @@ class GFX_EXPORT Image {
   internal::ImageRep* GetRepresentation(
       RepresentationType rep_type, bool must_exist) const;
 
-  // Stores a representation into the map.
+  // Stores a representation into the map. A representation of that type must
+  // not already be in the map.
   void AddRepresentation(scoped_ptr<internal::ImageRep> rep) const;
 
   // Internal class that holds all the representations. This allows the Image to

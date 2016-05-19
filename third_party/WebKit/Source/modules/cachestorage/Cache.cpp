@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/cachestorage/Cache.h"
 
 #include "bindings/core/v8/CallbackPromiseAdapter.h"
@@ -21,6 +20,9 @@
 #include "modules/fetch/GlobalFetch.h"
 #include "modules/fetch/Request.h"
 #include "modules/fetch/Response.h"
+#include "platform/HTTPNames.h"
+#include "platform/Histogram.h"
+#include "platform/RuntimeEnabledFeatures.h"
 #include "public/platform/WebPassOwnPtr.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerCache.h"
 
@@ -30,7 +32,7 @@ namespace {
 
 void checkCacheQueryOptions(const CacheQueryOptions& options, ExecutionContext* context)
 {
-    if (options.ignoreSearch())
+    if (!RuntimeEnabledFeatures::cacheIgnoreSearchOptionEnabled() && options.ignoreSearch())
         context->addConsoleMessage(ConsoleMessage::create(JSMessageSource, WarningMessageLevel, "Cache.match() does not support 'ignoreSearch' option yet. See http://crbug.com/520784"));
     if (options.ignoreMethod())
         context->addConsoleMessage(ConsoleMessage::create(JSMessageSource, WarningMessageLevel, "Cache.match() does not support 'ignoreMethod' option yet. See http://crbug.com/482256"));
@@ -158,6 +160,61 @@ private:
     Persistent<ScriptPromiseResolver> m_resolver;
 };
 
+// Used for UMA. Append only.
+enum class ResponseType {
+    BasicType,
+    CORSType,
+    DefaultType,
+    ErrorType,
+    OpaqueType,
+    OpaqueRedirectType,
+    EnumMax,
+};
+
+void RecordResponseTypeForAdd(const Member<Response>& response)
+{
+    ResponseType type = ResponseType::EnumMax;
+    switch (response->response()->type()) {
+    case FetchResponseData::BasicType:
+        type = ResponseType::BasicType;
+        break;
+    case FetchResponseData::CORSType:
+        type = ResponseType::CORSType;
+        break;
+    case FetchResponseData::DefaultType:
+        type = ResponseType::DefaultType;
+        break;
+    case FetchResponseData::ErrorType:
+        type = ResponseType::ErrorType;
+        break;
+    case FetchResponseData::OpaqueType:
+        type = ResponseType::OpaqueType;
+        break;
+    case FetchResponseData::OpaqueRedirectType:
+        type = ResponseType::OpaqueRedirectType;
+        break;
+    }
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(EnumerationHistogram, responseTypeHistogram, new EnumerationHistogram("ServiceWorkerCache.Cache.AddResponseType", static_cast<int>(ResponseType::EnumMax)));
+    responseTypeHistogram.count(static_cast<int>(type));
+};
+
+bool varyHeaderContainsAsterisk(const Response* response)
+{
+    const FetchHeaderList* headers = response->headers()->headerList();
+    for (size_t i = 0; i < headers->size(); ++i) {
+        const FetchHeaderList::Header& header = headers->entry(i);
+        if (header.first == "vary") {
+            Vector<String> fields;
+            header.second.split(',', fields);
+            for (size_t j = 0; j < fields.size(); ++j) {
+                if (fields[j].stripWhiteSpace() == "*")
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 // TODO(nhiroki): Unfortunately, we have to go through V8 to wait for the fetch
@@ -174,6 +231,21 @@ public:
     {
         NonThrowableExceptionState exceptionState;
         HeapVector<Member<Response>> responses = toMemberNativeArray<Response, V8Response>(value.v8Value(), m_requests.size(), scriptState()->isolate(), exceptionState);
+
+        for (const auto& response : responses) {
+            if (!response->ok()) {
+                ScriptPromise rejection = ScriptPromise::reject(scriptState(), V8ThrowException::createTypeError(scriptState()->isolate(), "Request failed"));
+                return ScriptValue(scriptState(), rejection.v8Value());
+            }
+            if (varyHeaderContainsAsterisk(response)) {
+                ScriptPromise rejection = ScriptPromise::reject(scriptState(), V8ThrowException::createTypeError(scriptState()->isolate(), "Vary header contains *"));
+                return ScriptValue(scriptState(), rejection.v8Value());
+            }
+        }
+
+        for (const auto& response : responses)
+            RecordResponseTypeForAdd(response);
+
         ScriptPromise putPromise = m_cache->putImpl(scriptState(), m_requests, responses);
         return ScriptValue(scriptState(), putPromise.v8Value());
     }
@@ -393,7 +465,7 @@ ScriptPromise Cache::keys(ScriptState* scriptState, const RequestInfo& request, 
 WebServiceWorkerCache::QueryParams Cache::toWebQueryParams(const CacheQueryOptions& options)
 {
     WebServiceWorkerCache::QueryParams webQueryParams;
-    webQueryParams.ignoreSearch = options.ignoreSearch();
+    webQueryParams.ignoreSearch = options.ignoreSearch() && RuntimeEnabledFeatures::cacheIgnoreSearchOptionEnabled();
     webQueryParams.ignoreMethod = options.ignoreMethod();
     webQueryParams.ignoreVary = options.ignoreVary();
     webQueryParams.cacheName = options.cacheName();
@@ -455,7 +527,7 @@ ScriptPromise Cache::addAllImpl(ScriptState* scriptState, const HeapVector<Membe
     for (size_t i = 0; i < requests.size(); ++i) {
         if (!requests[i]->url().protocolIsInHTTPFamily())
             return ScriptPromise::reject(scriptState, V8ThrowException::createTypeError(scriptState->isolate(), "Add/AddAll does not support schemes other than \"http\" or \"https\""));
-        if (requests[i]->method() != "GET")
+        if (requests[i]->method() != HTTPNames::GET)
             return ScriptPromise::reject(scriptState, V8ThrowException::createTypeError(scriptState->isolate(), "Add/AddAll only supports the GET request method."));
         requestInfos[i].setRequest(requests[i]);
 
@@ -491,23 +563,21 @@ ScriptPromise Cache::putImpl(ScriptState* scriptState, const HeapVector<Member<R
             barrierCallback->onError("Request scheme '" + url.protocol() + "' is unsupported");
             return promise;
         }
-        if (requests[i]->method() != "GET") {
+        if (requests[i]->method() != HTTPNames::GET) {
             barrierCallback->onError("Request method '" + requests[i]->method() + "' is unsupported");
             return promise;
         }
-        if (requests[i]->hasBody() && requests[i]->bodyUsed()) {
-            barrierCallback->onError("Request body is already used");
-            return promise;
-        }
-        if (responses[i]->hasBody() && responses[i]->bodyUsed()) {
-            barrierCallback->onError("Response body is already used");
+        ASSERT(!requests[i]->hasBody());
+
+        if (varyHeaderContainsAsterisk(responses[i])) {
+            barrierCallback->onError("Vary header contains *");
             return promise;
         }
 
-        if (requests[i]->hasBody())
-            requests[i]->setBodyPassed();
-        if (responses[i]->hasBody())
-            responses[i]->setBodyPassed();
+        if (responses[i]->isBodyLocked() || responses[i]->bodyUsed()) {
+            barrierCallback->onError("Response body is already used");
+            return promise;
+        }
 
         BodyStreamBuffer* buffer = responses[i]->internalBodyBuffer();
         if (buffer) {

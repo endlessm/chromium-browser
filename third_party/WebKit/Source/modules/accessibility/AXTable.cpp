@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/accessibility/AXTable.h"
 
 #include "core/dom/ElementTraversal.h"
@@ -170,7 +169,7 @@ bool AXTable::isDataTable() const
     if (!firstBody)
         return false;
 
-    int numCols = firstBody->numColumns();
+    int numCols = firstBody->numEffectiveColumns();
     int numRows = firstBody->numRows();
 
     // If there's only one cell, it's not a good AXTable candidate.
@@ -359,6 +358,7 @@ void AXTable::clearChildren()
 
 void AXTable::addChildren()
 {
+    ASSERT(!isDetached());
     if (!isAXTable()) {
         AXLayoutObject::addChildren();
         return;
@@ -422,7 +422,7 @@ void AXTable::addChildren()
     }
 
     // make the columns based on the number of columns in the first body
-    unsigned length = initialTableSection->numColumns();
+    unsigned length = initialTableSection->numEffectiveColumns();
     for (unsigned i = 0; i < length; ++i) {
         AXTableColumn* column = toAXTableColumn(axCache.getOrCreate(ColumnRole));
         column->setColumnIndex((int)i);
@@ -483,19 +483,6 @@ void AXTable::rowHeaders(AXObjectVector& headers)
     unsigned rowCount = m_rows.size();
     for (unsigned r = 0; r < rowCount; r++)
         toAXTableRow(m_rows[r].get())->headerObjectsForRow(headers);
-}
-
-void AXTable::cells(AXObject::AXObjectVector& cells)
-{
-    if (!m_layoutObject)
-        return;
-
-    updateChildrenIfNecessary();
-
-    int numRows = m_rows.size();
-    for (int row = 0; row < numRows; ++row) {
-        cells.appendVector(m_rows[row]->children());
-    }
 }
 
 unsigned AXTable::columnCount()
@@ -566,30 +553,6 @@ bool AXTable::computeAccessibilityIsIgnored(IgnoredReasons* ignoredReasons) cons
         return AXLayoutObject::computeAccessibilityIsIgnored(ignoredReasons);
 
     return false;
-}
-
-String AXTable::deprecatedTitle(TextUnderElementMode mode) const
-{
-    if (!isAXTable())
-        return AXLayoutObject::deprecatedTitle(mode);
-
-    String title;
-    if (!m_layoutObject)
-        return title;
-
-    // see if there is a caption
-    Node* tableElement = m_layoutObject->node();
-    if (isHTMLTableElement(tableElement)) {
-        HTMLTableCaptionElement* caption = toHTMLTableElement(tableElement)->caption();
-        if (caption)
-            title = caption->innerText();
-    }
-
-    // try the standard
-    if (title.isEmpty())
-        title = AXLayoutObject::deprecatedTitle(mode);
-
-    return title;
 }
 
 DEFINE_TRACE(AXTable)

@@ -6,26 +6,32 @@
 #define CHROME_BROWSER_PERMISSIONS_PERMISSION_UMA_UTIL_H_
 
 #include "base/logging.h"
-#include "components/content_settings/core/common/content_settings_types.h"
+#include "base/macros.h"
 
 class GURL;
 class Profile;
 
+namespace content {
+enum class PermissionType;
+}  // namespace content
+
 // Provides a convenient way of logging UMA for permission related operations.
 class PermissionUmaUtil {
  public:
-  static void PermissionRequested(ContentSettingsType permission,
+  static void PermissionRequested(content::PermissionType permission,
                                   const GURL& requesting_origin,
                                   const GURL& embedding_origin,
                                   Profile* profile);
-  static void PermissionGranted(ContentSettingsType permission,
+  static void PermissionGranted(content::PermissionType permission,
                                 const GURL& requesting_origin);
-  static void PermissionDenied(ContentSettingsType permission,
+  static void PermissionDenied(content::PermissionType permission,
                                const GURL& requesting_origin);
-  static void PermissionDismissed(ContentSettingsType permission,
+  static void PermissionDismissed(content::PermissionType permission,
                                   const GURL& requesting_origin);
-  static void PermissionIgnored(ContentSettingsType permission,
+  static void PermissionIgnored(content::PermissionType permission,
                                 const GURL& requesting_origin);
+  static void PermissionRevoked(content::PermissionType permission,
+                                const GURL& revoked_origin);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(PermissionUmaUtil);

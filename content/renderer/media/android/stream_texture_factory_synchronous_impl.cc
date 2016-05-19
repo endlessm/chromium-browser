@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
@@ -34,13 +35,13 @@ class StreamTextureProxyImpl
   ~StreamTextureProxyImpl() override;
 
   // StreamTextureProxy implementation:
-  void BindToLoop(int32 stream_id,
+  void BindToLoop(int32_t stream_id,
                   cc::VideoFrameProvider::Client* client,
                   scoped_refptr<base::SingleThreadTaskRunner> loop) override;
   void Release() override;
 
  private:
-  void BindOnThread(int32 stream_id);
+  void BindOnThread(int32_t stream_id);
   void OnFrameAvailable();
 
   // Protects access to |client_| and |loop_|.
@@ -84,7 +85,7 @@ void StreamTextureProxyImpl::Release() {
 }
 
 void StreamTextureProxyImpl::BindToLoop(
-    int32 stream_id,
+    int32_t stream_id,
     cc::VideoFrameProvider::Client* client,
     scoped_refptr<base::SingleThreadTaskRunner> loop) {
   DCHECK(loop.get());
@@ -108,7 +109,7 @@ void StreamTextureProxyImpl::BindToLoop(
                             stream_id));
 }
 
-void StreamTextureProxyImpl::BindOnThread(int32 stream_id) {
+void StreamTextureProxyImpl::BindOnThread(int32_t stream_id) {
   surface_texture_ = context_provider_->GetSurfaceTexture(stream_id);
   if (!surface_texture_.get()) {
     LOG(ERROR) << "Failed to get SurfaceTexture for stream.";
@@ -150,18 +151,13 @@ void StreamTextureProxyImpl::OnFrameAvailable() {
 // static
 scoped_refptr<StreamTextureFactorySynchronousImpl>
 StreamTextureFactorySynchronousImpl::Create(
-    const CreateContextProviderCallback& try_create_callback,
-    int frame_id) {
-  return new StreamTextureFactorySynchronousImpl(try_create_callback, frame_id);
+    const CreateContextProviderCallback& try_create_callback) {
+  return new StreamTextureFactorySynchronousImpl(try_create_callback);
 }
 
 StreamTextureFactorySynchronousImpl::StreamTextureFactorySynchronousImpl(
-    const CreateContextProviderCallback& try_create_callback,
-    int frame_id)
-    : create_context_provider_callback_(try_create_callback),
-      context_provider_(create_context_provider_callback_.Run()),
-      frame_id_(frame_id),
-      observer_(NULL) {}
+    const CreateContextProviderCallback& try_create_callback)
+    : create_context_provider_callback_(try_create_callback) {}
 
 StreamTextureFactorySynchronousImpl::~StreamTextureFactorySynchronousImpl() {}
 
@@ -173,13 +169,16 @@ StreamTextureProxy* StreamTextureFactorySynchronousImpl::CreateProxy() {
   if (!context_provider_.get())
     return NULL;
 
-  if (observer_ && !had_proxy)
-    context_provider_->AddObserver(observer_);
+  if (!observers_.empty() && !had_proxy) {
+    for (auto& observer : observers_)
+      context_provider_->AddObserver(observer);
+  }
   return new StreamTextureProxyImpl(context_provider_.get());
 }
 
-void StreamTextureFactorySynchronousImpl::EstablishPeer(int32 stream_id,
-                                                        int player_id) {
+void StreamTextureFactorySynchronousImpl::EstablishPeer(int32_t stream_id,
+                                                        int player_id,
+                                                        int frame_id) {
   DCHECK(context_provider_.get());
   scoped_refptr<gfx::SurfaceTexture> surface_texture =
       context_provider_->GetSurfaceTexture(stream_id);
@@ -187,7 +186,7 @@ void StreamTextureFactorySynchronousImpl::EstablishPeer(int32 stream_id,
     SurfaceTexturePeer::GetInstance()->EstablishSurfaceTexturePeer(
         base::GetCurrentProcessHandle(),
         surface_texture,
-        frame_id_,
+        frame_id,
         player_id);
   }
 }
@@ -200,8 +199,8 @@ unsigned StreamTextureFactorySynchronousImpl::CreateStreamTexture(
   unsigned stream_id = 0;
   GLES2Interface* gl = context_provider_->ContextGL();
   gl->GenTextures(1, texture_id);
-  stream_id = gl->CreateStreamTextureCHROMIUM(*texture_id);
-
+  gl->ShallowFlushCHROMIUM();
+  stream_id = context_provider_->CreateStreamTexture(*texture_id);
   gl->GenMailboxCHROMIUM(texture_mailbox->name);
   gl->ProduceTextureDirectCHROMIUM(
       *texture_id, texture_target, texture_mailbox->name);
@@ -209,7 +208,7 @@ unsigned StreamTextureFactorySynchronousImpl::CreateStreamTexture(
 }
 
 void StreamTextureFactorySynchronousImpl::SetStreamTextureSize(
-    int32 stream_id,
+    int32_t stream_id,
     const gfx::Size& size) {}
 
 gpu::gles2::GLES2Interface* StreamTextureFactorySynchronousImpl::ContextGL() {
@@ -219,16 +218,16 @@ gpu::gles2::GLES2Interface* StreamTextureFactorySynchronousImpl::ContextGL() {
 
 void StreamTextureFactorySynchronousImpl::AddObserver(
     StreamTextureFactoryContextObserver* obs) {
-  DCHECK(!observer_);
-  observer_ = obs;
+  DCHECK(observers_.find(obs) == observers_.end());
+  observers_.insert(obs);
   if (context_provider_.get())
     context_provider_->AddObserver(obs);
 }
 
 void StreamTextureFactorySynchronousImpl::RemoveObserver(
     StreamTextureFactoryContextObserver* obs) {
-  DCHECK_EQ(observer_, obs);
-  observer_ = NULL;
+  DCHECK(observers_.find(obs) != observers_.end());
+  observers_.erase(obs);
   if (context_provider_.get())
     context_provider_->RemoveObserver(obs);
 }

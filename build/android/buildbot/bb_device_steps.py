@@ -17,6 +17,7 @@ import bb_utils
 import bb_annotations
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import devil_chromium
 import provision_devices
 from devil.android import device_utils
 from pylib import constants
@@ -629,14 +630,17 @@ def RunStackToolSteps(options):
   Stack tool is run for logcat dump, optionally for ASAN.
   """
   bb_annotations.PrintNamedStep('Run stack tool with logcat dump')
-  logcat_file = os.path.join(CHROME_OUT_DIR, options.target, 'full_log.txt')
+  build_dir = os.path.join(CHROME_OUT_DIR, options.target)
+  logcat_file = os.path.join(build_dir, 'full_log.txt')
   RunCmd([os.path.join(CHROME_SRC_DIR, 'third_party', 'android_platform',
           'development', 'scripts', 'stack'),
+          '--output-directory', build_dir,
           '--more-info', logcat_file])
   if options.asan_symbolize:
     bb_annotations.PrintNamedStep('Run stack tool for ASAN')
     RunCmd([
         os.path.join(CHROME_SRC_DIR, 'build', 'android', 'asan_symbolize.py'),
+        '--output-directory', build_dir,
         '-l', logcat_file])
 
 
@@ -741,6 +745,8 @@ def GetDeviceStepsOptParser():
 def main(argv):
   parser = GetDeviceStepsOptParser()
   options, args = parser.parse_args(argv[1:])
+
+  devil_chromium.Initialize()
 
   if args:
     return sys.exit('Unused args %s' % args)

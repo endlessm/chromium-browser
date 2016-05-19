@@ -16,7 +16,6 @@
 #include "native_client/src/include/nacl_macros.h"
 
 #include "native_client/src/public/nacl_app.h"
-#include "native_client/src/public/secure_service.h"
 
 #include "native_client/src/shared/gio/gio.h"
 #include "native_client/src/shared/platform/nacl_check.h"
@@ -25,7 +24,6 @@
 #include "native_client/src/shared/platform/nacl_sync.h"
 #include "native_client/src/shared/platform/nacl_sync_checked.h"
 #include "native_client/src/shared/platform/nacl_time.h"
-#include "native_client/src/shared/srpc/nacl_srpc.h"
 
 #include "native_client/src/trusted/desc/nacl_desc_base.h"
 #include "native_client/src/trusted/desc/nacl_desc_conn_cap.h"
@@ -51,10 +49,6 @@
 #include "native_client/src/trusted/service_runtime/sel_addrspace.h"
 #include "native_client/src/trusted/service_runtime/sel_ldr.h"
 #include "native_client/src/trusted/service_runtime/sel_memory.h"
-#include "native_client/src/trusted/service_runtime/sel_ldr_thread_interface.h"
-#include "native_client/src/trusted/simple_service/nacl_simple_rservice.h"
-#include "native_client/src/trusted/simple_service/nacl_simple_service.h"
-#include "native_client/src/trusted/threading/nacl_thread_interface.h"
 #include "native_client/src/trusted/validator/rich_file_info.h"
 
 static int IsEnvironmentVariableSet(char const *env_name) {
@@ -169,12 +163,6 @@ int NaClAppWithEmptySyscallTableCtor(struct NaClApp *nap) {
   nap->dynamic_mapcache_size = 0;
   nap->dynamic_mapcache_ret = 0;
 
-  nap->service_port = NULL;
-  nap->service_address = NULL;
-  nap->secure_service_port = NULL;
-  nap->secure_service_address = NULL;
-  nap->bootstrap_channel = NULL;
-  nap->secure_service = NULL;
   nap->main_exe_prevalidated = 0;
 
   if (!NaClResourceNaClAppInit(&nap->resources, nap)) {
@@ -746,125 +734,6 @@ void NaClAppInitialDescriptorHookup(struct NaClApp *nap) {
   NaClLog(4, "... done.\n");
 }
 
-void NaClCreateServiceSocket(struct NaClApp *nap) {
-  struct NaClDesc *secure_pair[2];
-  struct NaClDesc *pair[2];
-
-  NaClLog(3, "Entered NaClCreateServiceSocket\n");
-
-  if (NACL_FI_ERROR_COND("NaClCreateServiceSocket__secure_boundsock",
-                         0 != NaClCommonDescMakeBoundSock(secure_pair))) {
-    NaClLog(LOG_FATAL, "Cound not create secure service socket\n");
-  }
-  NaClLog(4,
-          "got bound socket at 0x%08"NACL_PRIxPTR", "
-          "addr at 0x%08"NACL_PRIxPTR"\n",
-          (uintptr_t) secure_pair[0],
-          (uintptr_t) secure_pair[1]);
-
-  NaClDescSafeUnref(nap->secure_service_port);
-  nap->secure_service_port = secure_pair[0];
-
-  NaClDescSafeUnref(nap->secure_service_address);
-  nap->secure_service_address = secure_pair[1];
-
-  if (NACL_FI_ERROR_COND("NaClCreateServiceSocket__boundsock",
-                         0 != NaClCommonDescMakeBoundSock(pair))) {
-    NaClLog(LOG_FATAL, "Cound not create service socket\n");
-  }
-  NaClLog(4,
-          "got bound socket at 0x%08"NACL_PRIxPTR", "
-          "addr at 0x%08"NACL_PRIxPTR"\n",
-          (uintptr_t) pair[0],
-          (uintptr_t) pair[1]);
-  NaClAppSetDesc(nap, NACL_SERVICE_PORT_DESCRIPTOR, pair[0]);
-  NaClAppSetDesc(nap, NACL_SERVICE_ADDRESS_DESCRIPTOR, pair[1]);
-
-  NaClDescSafeUnref(nap->service_port);
-
-  nap->service_port = pair[0];
-  NaClDescRef(nap->service_port);
-
-  NaClDescSafeUnref(nap->service_address);
-
-  nap->service_address = pair[1];
-  NaClDescRef(nap->service_address);
-
-  NaClLog(4, "Leaving NaClCreateServiceSocket\n");
-}
-
-/*
- * Import the |inherited_desc| descriptor as an IMC handle, save a
- * reference to it at nap->bootstrap_channel, then send the
- * service_address over that channel.
- */
-void NaClSetUpBootstrapChannel(struct NaClApp  *nap,
-                               NaClHandle      inherited_desc) {
-  struct NaClDescImcDesc      *channel;
-  struct NaClImcTypedMsgHdr   hdr;
-  struct NaClDesc             *descs[2];
-  ssize_t                     rv;
-
-  NaClLog(4,
-          "NaClSetUpBootstrapChannel(0x%08"NACL_PRIxPTR", %"NACL_PRIdPTR")\n",
-          (uintptr_t) nap,
-          (uintptr_t) inherited_desc);
-
-  channel = (struct NaClDescImcDesc *) malloc(sizeof *channel);
-  if (NULL == channel) {
-    NaClLog(LOG_FATAL, "NaClSetUpBootstrapChannel: no memory\n");
-  }
-  if (!NaClDescImcDescCtor(channel, inherited_desc)) {
-    NaClLog(LOG_FATAL,
-            ("NaClSetUpBootstrapChannel: cannot construct IMC descriptor"
-             " object for inherited descriptor %"NACL_PRIdPTR"\n"),
-            (uintptr_t) inherited_desc);
-    return;
-  }
-  if (NULL == nap->secure_service_address) {
-    NaClLog(LOG_FATAL,
-            "NaClSetUpBootstrapChannel: secure service address not set\n");
-    return;
-  }
-  if (NULL == nap->service_address) {
-    NaClLog(LOG_FATAL,
-            "NaClSetUpBootstrapChannel: service address not set\n");
-    return;
-  }
-  /*
-   * service_address and service_port are set together.
-   */
-  descs[0] = nap->secure_service_address;
-  descs[1] = nap->service_address;
-
-  hdr.iov = (struct NaClImcMsgIoVec *) NULL;
-  hdr.iov_length = 0;
-  hdr.ndescv = descs;
-  hdr.ndesc_length = NACL_ARRAY_SIZE(descs);
-
-  rv = (*NACL_VTBL(NaClDesc, channel)->SendMsg)((struct NaClDesc *) channel,
-                                                &hdr, 0);
-  NaClXMutexLock(&nap->mu);
-  if (NULL != nap->bootstrap_channel) {
-    NaClLog(LOG_FATAL,
-            "NaClSetUpBootstrapChannel: cannot have two bootstrap channels\n");
-  }
-  nap->bootstrap_channel = (struct NaClDesc *) channel;
-  channel = NULL;
-  NaClXMutexUnlock(&nap->mu);
-
-  NaClLog(1,
-          ("NaClSetUpBootstrapChannel: descriptor %"NACL_PRIdPTR
-           ", error %"NACL_PRIdS"\n"),
-          (uintptr_t) inherited_desc,
-          rv);
-  if (NACL_FI_ERROR_COND("NaClSetUpBootstrapChannel__SendMsg", 0 != rv)) {
-    NaClLog(LOG_FATAL,
-            "NaClSetUpBootstrapChannel: SendMsg failed, rv = %"NACL_PRIdS"\n",
-            rv);
-  }
-}
-
 enum NaClModuleInitializationState NaClGetInitState(struct NaClApp *nap) {
   enum NaClModuleInitializationState state;
   NaClXMutexLock(&nap->mu);
@@ -881,21 +750,6 @@ void NaClSetInitState(struct NaClApp *nap,
   nap->module_initialization_state = state;
   NaClXCondVarBroadcast(&nap->cv);
   NaClXMutexUnlock(&nap->mu);
-}
-
-NaClErrorCode NaClWaitForLoadModuleCommand(struct NaClApp *nap) {
-  NaClErrorCode status;
-
-  NaClLog(4, "NaClWaitForLoadModuleCommand started\n");
-  NaClXMutexLock(&nap->mu);
-  while (nap->module_initialization_state < NACL_MODULE_LOADED) {
-    NaClXCondVarWait(&nap->cv, &nap->mu);
-  }
-  status = nap->module_load_status;
-  NaClXMutexUnlock(&nap->mu);
-  NaClLog(4, "NaClWaitForLoadModuleCommand finished\n");
-
-  return status;
 }
 
 void NaClRememberLoadStatus(struct NaClApp *nap, NaClErrorCode status) {
@@ -915,65 +769,6 @@ NaClErrorCode NaClGetLoadStatus(struct NaClApp *nap) {
   NaClXMutexUnlock(&nap->mu);
   return status;
 }
-
-NaClErrorCode NaClWaitForStartModuleCommand(struct NaClApp *nap) {
-  NaClErrorCode status;
-
-  NaClLog(4, "NaClWaitForStartModuleCommand started\n");
-  NaClXMutexLock(&nap->mu);
-  while (nap->module_initialization_state < NACL_MODULE_STARTED) {
-    NaClXCondVarWait(&nap->cv, &nap->mu);
-  }
-  status = nap->module_load_status;
-  NaClXMutexUnlock(&nap->mu);
-  NaClLog(4, "NaClWaitForStartModuleCommand finished\n");
-
-  return status;
-}
-
-void NaClBlockIfCommandChannelExists(struct NaClApp *nap) {
-  if (NULL != nap->secure_service) {
-    for (;;) {
-      struct nacl_abi_timespec req;
-      req.tv_sec = 1000;
-      req.tv_nsec = 0;
-      NaClNanosleep(&req, (struct nacl_abi_timespec *) NULL);
-    }
-  }
-}
-
-void NaClSecureCommandChannel(struct NaClApp *nap) {
-  struct NaClSecureService *secure_command_server;
-
-  NaClLog(4, "Entered NaClSecureCommandChannel\n");
-
-  secure_command_server = (struct NaClSecureService *) malloc(
-      sizeof *secure_command_server);
-  if (NACL_FI_ERROR_COND("NaClSecureCommandChannel__malloc",
-                         NULL == secure_command_server)) {
-    NaClLog(LOG_FATAL, "Out of memory for secure command channel\n");
-  }
-  if (NACL_FI_ERROR_COND("NaClSecureCommandChannel__NaClSecureServiceCtor",
-                         !NaClSecureServiceCtor(secure_command_server,
-                                                nap,
-                                                nap->secure_service_port,
-                                                nap->secure_service_address))) {
-    NaClLog(LOG_FATAL, "NaClSecureServiceCtor failed\n");
-  }
-  nap->secure_service = secure_command_server;
-
-  NaClLog(4, "NaClSecureCommandChannel: starting service thread\n");
-  if (NACL_FI_ERROR_COND(
-          "NaClSecureCommandChannel__NaClSimpleServiceStartServiceThread",
-          !NaClSimpleServiceStartServiceThread((struct NaClSimpleService *)
-                                               secure_command_server))) {
-    NaClLog(LOG_FATAL,
-            "Could not start secure command channel service thread\n");
-  }
-
-  NaClLog(4, "Leaving NaClSecureCommandChannel\n");
-}
-
 
 void NaClAppLoadModule(struct NaClApp   *nap,
                        struct NaClDesc  *nexe,
@@ -1109,20 +904,6 @@ void NaClAppStartModule(struct NaClApp  *nap,
   }
 
   NaClSetInitState(nap, NACL_MODULE_STARTED);
-}
-
-void NaClAppShutdown(struct NaClApp     *nap,
-                     int                exit_status) {
-  NaClLog(4, "NaClAppShutdown: nap 0x%"NACL_PRIxPTR
-          ", exit_status %d\n", (uintptr_t) nap, exit_status);
-
-  NaClXMutexLock(&nap->mu);
-  nap->exit_status = exit_status;
-  NaClXMutexUnlock(&nap->mu);
-  if (NULL != nap->debug_stub_callbacks) {
-    nap->debug_stub_callbacks->process_exit_hook();
-  }
-  NaClExit(0);
 }
 
 /*

@@ -5,6 +5,8 @@
 #ifndef BLIMP_NET_STREAM_PACKET_READER_H_
 #define BLIMP_NET_STREAM_PACKET_READER_H_
 
+#include <stddef.h>
+
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -33,8 +35,8 @@ class BLIMP_NET_EXPORT StreamPacketReader : public PacketReader {
   ~StreamPacketReader() override;
 
   // PacketReader implementation.
-  int ReadPacket(const scoped_refptr<net::GrowableIOBuffer>& buf,
-                 const net::CompletionCallback& cb) override;
+  void ReadPacket(const scoped_refptr<net::GrowableIOBuffer>& buf,
+                  const net::CompletionCallback& cb) override;
 
  private:
   enum class ReadState {

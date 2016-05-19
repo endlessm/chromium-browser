@@ -9,6 +9,7 @@
 #include "ash/first_run/desktop_cleaner.h"
 #include "ash/wm/overlay_event_filter.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 
 namespace ash {
 
@@ -22,11 +23,7 @@ class FirstRunHelperImpl : public FirstRunHelper,
 
   // Overriden from FirstRunHelper.
   views::Widget* GetOverlayWidget() override;
-  void OpenAppList() override;
-  void CloseAppList() override;
-  gfx::Rect GetLauncherBounds() override;
   gfx::Rect GetAppListButtonBounds() override;
-  gfx::Rect GetAppListBounds() override;
   void OpenTrayBubble() override;
   void CloseTrayBubble() override;
   bool IsTrayBubbleOpened() override;

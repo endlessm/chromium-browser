@@ -4,7 +4,10 @@
 
 #include "content/browser/devtools/protocol/emulation_handler.h"
 
+#include <utility>
+
 #include "base/strings/string_number_conversions.h"
+#include "build/build_config.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/geolocation/geolocation_service_context.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
@@ -19,6 +22,19 @@ namespace emulation {
 using Response = DevToolsProtocolClient::Response;
 
 namespace {
+
+blink::WebScreenOrientationType WebScreenOrientationTypeFromString(
+    const std::string& type) {
+  if (type == screen_orientation::kTypePortraitPrimary)
+    return blink::WebScreenOrientationPortraitPrimary;
+  if (type == screen_orientation::kTypePortraitSecondary)
+    return blink::WebScreenOrientationPortraitSecondary;
+  if (type == screen_orientation::kTypeLandscapePrimary)
+    return blink::WebScreenOrientationLandscapePrimary;
+  if (type == screen_orientation::kTypeLandscapeSecondary)
+    return blink::WebScreenOrientationLandscapeSecondary;
+  return blink::WebScreenOrientationUndefined;
+}
 
 ui::GestureProviderConfigType TouchEmulationConfigurationToType(
     const std::string& protocol_value) {
@@ -37,20 +53,13 @@ ui::GestureProviderConfigType TouchEmulationConfigurationToType(
 
 }  // namespace
 
-EmulationHandler::EmulationHandler(page::PageHandler* page_handler)
+EmulationHandler::EmulationHandler()
     : touch_emulation_enabled_(false),
       device_emulation_enabled_(false),
-      page_handler_(page_handler),
-      host_(nullptr)
-{
-  page_handler->SetScreencastListener(this);
+      host_(nullptr) {
 }
 
 EmulationHandler::~EmulationHandler() {
-}
-
-void EmulationHandler::ScreencastEnabledChanged() {
-   UpdateTouchEventEmulationState();
 }
 
 void EmulationHandler::SetRenderFrameHost(RenderFrameHostImpl* host) {
@@ -88,7 +97,7 @@ Response EmulationHandler::SetGeolocationOverride(
   } else {
     geoposition->error_code = Geoposition::ERROR_CODE_POSITION_UNAVAILABLE;
   }
-  geolocation_context->SetOverride(geoposition.Pass());
+  geolocation_context->SetOverride(std::move(geoposition));
   return Response::OK();
 }
 
@@ -136,9 +145,11 @@ Response EmulationHandler::SetDeviceMetricsOverride(
     const int* screen_width,
     const int* screen_height,
     const int* position_x,
-    const int* position_y) {
+    const int* position_y,
+    const scoped_ptr<base::DictionaryValue>& screen_orientation) {
   const static int max_size = 10000000;
   const static double max_scale = 10;
+  const static int max_orientation_angle = 360;
 
   if (!host_)
     return Response::InternalError("Could not connect to view");
@@ -172,6 +183,30 @@ Response EmulationHandler::SetDeviceMetricsOverride(
         base::DoubleToString(max_scale));
   }
 
+  blink::WebScreenOrientationType orientationType =
+      blink::WebScreenOrientationUndefined;
+  int orientationAngle = 0;
+  if (screen_orientation) {
+    std::string orientationTypeString;
+    if (!screen_orientation->GetString("type", &orientationTypeString)) {
+      return Response::InvalidParams(
+          "Screen orientation type must be a string");
+    }
+    orientationType = WebScreenOrientationTypeFromString(orientationTypeString);
+    if (orientationType == blink::WebScreenOrientationUndefined)
+      return Response::InvalidParams("Invalid screen orientation type value");
+
+    if (!screen_orientation->GetInteger("angle", &orientationAngle)) {
+      return Response::InvalidParams(
+          "Screen orientation angle must be a number");
+    }
+    if (orientationAngle < 0 || orientationAngle >= max_orientation_angle) {
+      return Response::InvalidParams(
+          "Screen orientation angle must be non-negative, less than " +
+          base::IntToString(max_orientation_angle));
+    }
+  }
+
   blink::WebDeviceEmulationParams params;
   params.screenPosition = mobile ? blink::WebDeviceEmulationParams::Mobile :
       blink::WebDeviceEmulationParams::Desktop;
@@ -186,6 +221,8 @@ Response EmulationHandler::SetDeviceMetricsOverride(
   params.offset = blink::WebFloatPoint(
       optional_offset_x ? *optional_offset_x : 0.f,
       optional_offset_y ? *optional_offset_y : 0.f);
+  params.screenOrientationType = orientationType;
+  params.screenOrientationAngle = orientationAngle;
 
   if (device_emulation_enabled_ && params == device_emulation_params_)
     return Response::OK();
@@ -216,8 +253,7 @@ void EmulationHandler::UpdateTouchEventEmulationState() {
       host_ ? host_->GetRenderWidgetHost() : nullptr;
   if (!widget_host)
     return;
-  bool enabled = touch_emulation_enabled_ ||
-      page_handler_->screencast_enabled();
+  bool enabled = touch_emulation_enabled_;
   ui::GestureProviderConfigType config_type =
       TouchEmulationConfigurationToType(touch_emulation_configuration_);
   widget_host->SetTouchEventEmulationEnabled(enabled, config_type);

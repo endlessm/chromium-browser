@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "base/version.h"
 #include "chrome/browser/extensions/sync_bundle.h"
@@ -110,17 +111,13 @@ class ExtensionSyncService : public syncer::SyncableService,
       const extensions::ExtensionSyncData& extension_sync_data);
 
   // Collects the ExtensionSyncData for all installed apps or extensions.
-  // If |include_everything| is true, includes all installed extensions,
-  // otherwise only those that have the NeedsSync pref set, i.e. which have
-  // local changes that need to be pushed.
   std::vector<extensions::ExtensionSyncData> GetLocalSyncDataList(
-      syncer::ModelType type, bool include_everything) const;
+      syncer::ModelType type) const;
 
   // Helper for GetLocalSyncDataList.
   void FillSyncDataList(
       const extensions::ExtensionSet& extensions,
       syncer::ModelType type,
-      bool include_everything,
       std::vector<extensions::ExtensionSyncData>* sync_data_list) const;
 
   // Returns whether the given extension should be synced by this class.

@@ -4,6 +4,8 @@
 
 #include "content/shell/browser/shell_url_request_context_getter.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
@@ -13,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/worker_pool.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/common/content_switches.h"
@@ -64,17 +67,17 @@ void InstallProtocolHandlers(net::URLRequestJobFactoryImpl* job_factory,
 ShellURLRequestContextGetter::ShellURLRequestContextGetter(
     bool ignore_certificate_errors,
     const base::FilePath& base_path,
-    base::MessageLoop* io_loop,
-    base::MessageLoop* file_loop,
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> file_task_runner,
     ProtocolHandlerMap* protocol_handlers,
     URLRequestInterceptorScopedVector request_interceptors,
     net::NetLog* net_log)
     : ignore_certificate_errors_(ignore_certificate_errors),
       base_path_(base_path),
-      io_loop_(io_loop),
-      file_loop_(file_loop),
+      io_task_runner_(std::move(io_task_runner)),
+      file_task_runner_(std::move(file_task_runner)),
       net_log_(net_log),
-      request_interceptors_(request_interceptors.Pass()) {
+      request_interceptors_(std::move(request_interceptors)) {
   // Must first be created on the UI thread.
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -96,14 +99,14 @@ ShellURLRequestContextGetter::CreateNetworkDelegate() {
 
 scoped_ptr<net::ProxyConfigService>
 ShellURLRequestContextGetter::GetProxyConfigService() {
-  return net::ProxyService::CreateSystemProxyConfigService(
-      io_loop_->task_runner(), file_loop_->task_runner());
+  return net::ProxyService::CreateSystemProxyConfigService(io_task_runner_,
+                                                           file_task_runner_);
 }
 
 scoped_ptr<net::ProxyService> ShellURLRequestContextGetter::GetProxyService() {
   // TODO(jam): use v8 if possible, look at chrome code.
   return net::ProxyService::CreateUsingSystemProxyResolver(
-      proxy_config_service_.Pass(), 0, url_request_context_->net_log());
+      std::move(proxy_config_service_), 0, url_request_context_->net_log());
 }
 
 net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
@@ -190,23 +193,22 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
     }
     if (command_line.HasSwitch(switches::kHostResolverRules)) {
       scoped_ptr<net::MappedHostResolver> mapped_host_resolver(
-          new net::MappedHostResolver(host_resolver.Pass()));
+          new net::MappedHostResolver(std::move(host_resolver)));
       mapped_host_resolver->SetRulesFromString(
           command_line.GetSwitchValueASCII(switches::kHostResolverRules));
-      host_resolver = mapped_host_resolver.Pass();
+      host_resolver = std::move(mapped_host_resolver);
     }
 
     // Give |storage_| ownership at the end in case it's |mapped_host_resolver|.
-    storage_->set_host_resolver(host_resolver.Pass());
+    storage_->set_host_resolver(std::move(host_resolver));
     network_session_params.host_resolver =
         url_request_context_->host_resolver();
 
     storage_->set_http_network_session(
         make_scoped_ptr(new net::HttpNetworkSession(network_session_params)));
-    storage_->set_http_transaction_factory(make_scoped_ptr(
-        new net::HttpCache(storage_->http_network_session(),
-                           main_backend.Pass(),
-                           true /* set_up_quic_server_info */)));
+    storage_->set_http_transaction_factory(make_scoped_ptr(new net::HttpCache(
+        storage_->http_network_session(), std::move(main_backend),
+        true /* set_up_quic_server_info */)));
 
     scoped_ptr<net::URLRequestJobFactoryImpl> job_factory(
         new net::URLRequestJobFactoryImpl());
@@ -227,17 +229,17 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
 
     // Set up interceptors in the reverse order.
     scoped_ptr<net::URLRequestJobFactory> top_job_factory =
-        job_factory.Pass();
+        std::move(job_factory);
     for (URLRequestInterceptorScopedVector::reverse_iterator i =
              request_interceptors_.rbegin();
          i != request_interceptors_.rend();
          ++i) {
       top_job_factory.reset(new net::URLRequestInterceptingJobFactory(
-          top_job_factory.Pass(), make_scoped_ptr(*i)));
+          std::move(top_job_factory), make_scoped_ptr(*i)));
     }
     request_interceptors_.weak_clear();
 
-    storage_->set_job_factory(top_job_factory.Pass());
+    storage_->set_job_factory(std::move(top_job_factory));
   }
 
   return url_request_context_.get();

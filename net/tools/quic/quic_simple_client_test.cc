@@ -4,7 +4,6 @@
 
 #include "net/tools/quic/quic_simple_client.h"
 
-#include "base/basictypes.h"
 #include "base/strings/string_util.h"
 #include "net/quic/test_tools/crypto_test_utils.h"
 #include "net/quic/test_tools/quic_test_utils.h"
@@ -13,7 +12,6 @@
 using net::test::CryptoTestUtils;
 
 namespace net {
-namespace tools {
 namespace test {
 
 TEST(QuicSimpleClientTest, Initialize) {
@@ -27,5 +25,4 @@ TEST(QuicSimpleClientTest, Initialize) {
 }
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net

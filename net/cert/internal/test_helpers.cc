@@ -26,18 +26,10 @@ void PrintTo(const Input& data, ::std::ostream* os) {
   *os << "[" << b64 << "]";
 }
 
-bool operator==(const Input& a, const Input& b) {
-  return a.Equals(b);
-}
-
 }  // namespace der
 
-der::Input InputFromString(const std::string* s) {
-  return der::Input(reinterpret_cast<const uint8_t*>(s->data()), s->size());
-}
-
 der::Input SequenceValueFromString(const std::string* s) {
-  der::Parser parser(InputFromString(s));
+  der::Parser parser((der::Input(s)));
   der::Input data;
   if (!parser.ReadTag(der::kSequence, &data)) {
     ADD_FAILURE();

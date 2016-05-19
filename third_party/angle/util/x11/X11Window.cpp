@@ -8,6 +8,7 @@
 
 #include "x11/X11Window.h"
 
+#include "common/debug.h"
 #include "system_utils.h"
 #include "Timer.h"
 
@@ -152,8 +153,23 @@ static void AddX11KeyStateToEvent(Event *event, unsigned int state)
 
 X11Window::X11Window()
     : WM_DELETE_WINDOW(None),
+      WM_PROTOCOLS(None),
+      TEST_EVENT(None),
       mDisplay(nullptr),
-      mWindow(0)
+      mWindow(0),
+      mRequestedVisualId(-1),
+      mVisible(false)
+{
+}
+
+X11Window::X11Window(int visualId)
+    : WM_DELETE_WINDOW(None),
+      WM_PROTOCOLS(None),
+      TEST_EVENT(None),
+      mDisplay(nullptr),
+      mWindow(0),
+      mRequestedVisualId(visualId),
+      mVisible(false)
 {
 }
 
@@ -176,7 +192,28 @@ bool X11Window::initialize(const std::string &name, size_t width, size_t height)
         int screen = DefaultScreen(mDisplay);
         Window root = RootWindow(mDisplay, screen);
 
-        Visual *visual = DefaultVisual(mDisplay, screen);
+        Visual *visual;
+        if (mRequestedVisualId == -1)
+        {
+            visual = DefaultVisual(mDisplay, screen);
+        }
+        else
+        {
+            XVisualInfo visualTemplate;
+            visualTemplate.visualid = mRequestedVisualId;
+
+            int numVisuals       = 0;
+            XVisualInfo *visuals = XGetVisualInfo(mDisplay, VisualIDMask, &visualTemplate, &numVisuals);
+            if (numVisuals <= 0)
+            {
+                return false;
+            }
+            ASSERT(numVisuals == 1);
+
+            visual = visuals[0].visual;
+            XFree(visuals);
+        }
+
         int depth = DefaultDepth(mDisplay, screen);
         Colormap colormap = XCreateColormap(mDisplay, root, visual, AllocNone);
 
@@ -312,6 +349,11 @@ bool X11Window::resize(int width, int height)
 
 void X11Window::setVisible(bool isVisible)
 {
+    if (mVisible == isVisible)
+    {
+        return;
+    }
+
     if (isVisible)
     {
         XMapWindow(mDisplay, mWindow);
@@ -328,6 +370,7 @@ void X11Window::setVisible(bool isVisible)
         XUnmapWindow(mDisplay, mWindow);
         XFlush(mDisplay);
     }
+    mVisible = isVisible;
 }
 
 void X11Window::signalTestEvent()

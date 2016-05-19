@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/events/TouchEventContext.h"
 
 #include "core/dom/TouchList.h"
@@ -63,4 +62,4 @@ DEFINE_TRACE(TouchEventContext)
     visitor->trace(m_changedTouches);
 }
 
-}
+} // namespace blink

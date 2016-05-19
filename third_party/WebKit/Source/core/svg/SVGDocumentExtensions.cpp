@@ -19,14 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGDocumentExtensions.h"
 
-#include "core/animation/AnimationStack.h"
-#include "core/animation/ElementAnimations.h"
-#include "core/animation/InterpolationEnvironment.h"
-#include "core/animation/InvalidatableInterpolation.h"
-#include "core/animation/SVGInterpolation.h"
 #include "core/dom/Document.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "core/layout/svg/SVGResourcesCache.h"
@@ -99,11 +93,6 @@ void SVGDocumentExtensions::serviceOnAnimationFrame(Document& document, double m
     document.accessSVGExtensions().serviceAnimations(monotonicAnimationStartTime);
 }
 
-static bool isSVGAttributeHandle(const PropertyHandle& propertyHandle)
-{
-    return propertyHandle.isSVGAttribute();
-}
-
 void SVGDocumentExtensions::serviceAnimations(double monotonicAnimationStartTime)
 {
     if (RuntimeEnabledFeatures::smilEnabled()) {
@@ -117,21 +106,8 @@ void SVGDocumentExtensions::serviceAnimations(double monotonicAnimationStartTime
     webAnimationsPendingSVGElements.swap(m_webAnimationsPendingSVGElements);
 
     // TODO(alancutter): Make SVG animation effect application a separate document lifecycle phase from servicing animations to be responsive to Javascript manipulation of exposed animation objects.
-    for (auto& svgElement : webAnimationsPendingSVGElements) {
-        ActiveInterpolationsMap activeInterpolationsMap = AnimationStack::activeInterpolations(
-            &svgElement->elementAnimations()->animationStack(), nullptr, nullptr, KeyframeEffect::DefaultPriority, isSVGAttributeHandle);
-        for (auto& entry : activeInterpolationsMap) {
-            const QualifiedName& attribute = entry.key.svgAttribute();
-            const Interpolation& interpolation = *entry.value.first();
-            if (interpolation.isInvalidatableInterpolation()) {
-                InterpolationEnvironment environment(*svgElement, svgElement->propertyFromAttribute(attribute)->baseValueBase());
-                InvalidatableInterpolation::applyStack(entry.value, environment);
-            } else {
-                // TODO(alancutter): Remove this old code path once animations have completely migrated to InterpolationTypes.
-                toSVGInterpolation(interpolation).apply(*svgElement);
-            }
-        }
-    }
+    for (auto& svgElement : webAnimationsPendingSVGElements)
+        svgElement->applyActiveWebAnimations();
 
     ASSERT(m_webAnimationsPendingSVGElements.isEmpty());
 }
@@ -172,20 +148,9 @@ void SVGDocumentExtensions::dispatchSVGLoadEventToOutermostSVGElements()
     }
 }
 
-static void reportMessage(Document* document, MessageLevel level, const String& message)
-{
-    if (document->frame())
-        document->addConsoleMessage(ConsoleMessage::create(RenderingMessageSource, level, message));
-}
-
-void SVGDocumentExtensions::reportWarning(const String& message)
-{
-    reportMessage(m_document, WarningMessageLevel, "Warning: " + message);
-}
-
 void SVGDocumentExtensions::reportError(const String& message)
 {
-    reportMessage(m_document, ErrorMessageLevel, "Error: " + message);
+    m_document->addConsoleMessage(ConsoleMessage::create(RenderingMessageSource, ErrorMessageLevel,  "Error: " + message));
 }
 
 void SVGDocumentExtensions::addPendingResource(const AtomicString& id, Element* element)
@@ -403,4 +368,4 @@ DEFINE_TRACE(SVGDocumentExtensions)
 #endif
 }
 
-}
+} // namespace blink

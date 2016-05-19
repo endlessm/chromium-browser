@@ -5,6 +5,8 @@
 #ifndef EXTENSIONS_COMMON_PERMISSIONS_API_PERMISSION_SET_H_
 #define EXTENSIONS_COMMON_PERMISSIONS_API_PERMISSION_SET_H_
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
 #include <vector>
@@ -115,6 +117,7 @@ class PermissionIDSet {
   using const_iterator = std::set<PermissionID>::const_iterator;
 
   PermissionIDSet();
+  PermissionIDSet(const PermissionIDSet& other);
   virtual ~PermissionIDSet();
 
   // Adds the given permission, and an optional parameter, to the set.

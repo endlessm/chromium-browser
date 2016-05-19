@@ -6,8 +6,12 @@
 
 #include "chrome/browser/safe_browsing/threat_details.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/threat_details_cache.h"
 #include "chrome/browser/safe_browsing/threat_details_history.h"
@@ -15,16 +19,17 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "net/url_request/url_request_context_getter.h"
 
 using content::BrowserThread;
 using content::NavigationEntry;
+using content::RenderFrameHost;
 using content::WebContents;
 
 // Keep in sync with KMaxNodes in renderer/safe_browsing/threat_dom_details
-static const uint32 kMaxDomNodes = 500;
+static const uint32_t kMaxDomNodes = 500;
 
 namespace safe_browsing {
 
@@ -109,9 +114,10 @@ ThreatDetails::ThreatDetails(SafeBrowsingUIManager* ui_manager,
 
 ThreatDetails::~ThreatDetails() {}
 
-bool ThreatDetails::OnMessageReceived(const IPC::Message& message) {
+bool ThreatDetails::OnMessageReceived(const IPC::Message& message,
+                                      RenderFrameHost* render_frame_host) {
   bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(ThreatDetails, message)
+  IPC_BEGIN_MESSAGE_MAP_WITH_PARAM(ThreatDetails, message, render_frame_host)
     IPC_MESSAGE_HANDLER(SafeBrowsingHostMsg_ThreatDOMDetails,
                         OnReceivedThreatDOMDetails)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -168,7 +174,15 @@ void ThreatDetails::AddUrl(const GURL& url,
          it != children->end(); ++it) {
       ClientSafeBrowsingReportRequest::Resource* child_resource =
           FindOrCreateResource(*it);
-      url_resource->add_child_ids(child_resource->id());
+      bool duplicate_child = false;
+      for (auto child_id : url_resource->child_ids()) {
+        if (child_id == child_resource->id()) {
+          duplicate_child = true;
+          break;
+        }
+      }
+      if (!duplicate_child)
+        url_resource->add_child_ids(child_resource->id());
     }
   }
 }
@@ -182,21 +196,20 @@ void ThreatDetails::StartCollection() {
     report_->set_type(GetReportTypeFromSBThreatType(resource_.threat_type));
   }
 
-  GURL page_url = web_contents()->GetURL();
-  if (IsReportableUrl(page_url))
-    report_->set_page_url(page_url.spec());
-
   GURL referrer_url;
-  NavigationEntry* nav_entry = web_contents()->GetController().GetActiveEntry();
+  NavigationEntry* nav_entry = resource_.GetNavigationEntryForResource();
   if (nav_entry) {
-    referrer_url = nav_entry->GetReferrer().url;
-    if (IsReportableUrl(referrer_url)) {
-      report_->set_referrer_url(referrer_url.spec());
-    }
-  }
+    GURL page_url = nav_entry->GetURL();
+    if (IsReportableUrl(page_url))
+      report_->set_page_url(page_url.spec());
 
-  // Add the nodes, starting from the page url.
-  AddUrl(page_url, GURL(), std::string(), NULL);
+    referrer_url = nav_entry->GetReferrer().url;
+    if (IsReportableUrl(referrer_url))
+      report_->set_referrer_url(referrer_url.spec());
+
+    // Add the nodes, starting from the page url.
+    AddUrl(page_url, GURL(), std::string(), NULL);
+  }
 
   // Add the resource_url and its original url, if non-empty and different.
   if (!resource_.original_url.is_empty() &&
@@ -224,13 +237,17 @@ void ThreatDetails::StartCollection() {
   }
 
   // Add the referrer url.
-  if (nav_entry && !referrer_url.is_empty())
+  if (!referrer_url.is_empty())
     AddUrl(referrer_url, GURL(), std::string(), NULL);
 
-  // Get URLs of frames, scripts etc from the DOM.
-  // OnReceivedThreatDOMDetails will be called when the renderer replies.
-  content::RenderViewHost* view = web_contents()->GetRenderViewHost();
-  view->Send(new SafeBrowsingMsg_GetThreatDOMDetails(view->GetRoutingID()));
+  if (!resource_.IsMainPageLoadBlocked()) {
+    // Get URLs of frames, scripts etc from the DOM.
+    // OnReceivedThreatDOMDetails will be called when the renderer replies.
+    // TODO(mattm): In theory, if the user proceeds through the warning DOM
+    // detail collection could be started once the page loads.
+    web_contents()->SendToAllFrames(
+        new SafeBrowsingMsg_GetThreatDOMDetails(MSG_ROUTING_NONE));
+  }
 }
 
 // When the renderer is done, this is called.

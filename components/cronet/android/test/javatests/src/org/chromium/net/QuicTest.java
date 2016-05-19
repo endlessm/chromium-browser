@@ -10,6 +10,7 @@ import android.test.suitebuilder.annotation.SmallTest;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
+import org.chromium.net.CronetTestBase.OnlyRunNativeCronet;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -23,8 +24,8 @@ import java.util.HashMap;
  */
 public class QuicTest extends CronetTestBase {
     private static final String TAG = "cr.QuicTest";
-    private static final String[] CERTS_USED = {"quic_test.example.com.crt"};
     private CronetTestFramework mTestFramework;
+    private CronetEngine.Builder mBuilder;
 
     @Override
     protected void setUp() throws Exception {
@@ -33,25 +34,28 @@ public class QuicTest extends CronetTestBase {
         System.loadLibrary("cronet_tests");
         QuicTestServer.startQuicTestServer(getContext());
 
-        CronetEngine.Builder builder = new CronetEngine.Builder(getContext());
-        builder.enableQUIC(true);
-        builder.addQuicHint(QuicTestServer.getServerHost(), QuicTestServer.getServerPort(),
+        mBuilder = new CronetEngine.Builder(getContext());
+        mBuilder.enableQUIC(true);
+        mBuilder.addQuicHint(QuicTestServer.getServerHost(), QuicTestServer.getServerPort(),
                 QuicTestServer.getServerPort());
 
         JSONObject quicParams = new JSONObject()
                                         .put("connection_options", "PACE,IW10,FOO,DEADBEEF")
-                                        .put("store_server_configs_in_properties", true)
+                                        .put("host_whitelist", "test.example.com")
+                                        .put("max_server_configs_stored_in_properties", 2)
                                         .put("delay_tcp_race", true)
                                         .put("max_number_of_lossy_connections", 10)
-                                        .put("packet_loss_threshold", 0.5);
+                                        .put("packet_loss_threshold", 0.5)
+                                        .put("idle_connection_timeout_seconds", 300)
+                                        .put("close_sessions_on_ip_change", false)
+                                        .put("migrate_sessions_on_network_change", true)
+                                        .put("migrate_sessions_early", true);
         JSONObject experimentalOptions = new JSONObject().put("QUIC", quicParams);
-        builder.setExperimentalOptions(experimentalOptions.toString());
+        mBuilder.setExperimentalOptions(experimentalOptions.toString());
 
-        builder.setMockCertVerifierForTesting(MockCertVerifier.createMockCertVerifier(CERTS_USED));
-        builder.setStoragePath(CronetTestFramework.getTestStorage(getContext()));
-        builder.enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISK_NO_HTTP, 1000 * 1024);
-
-        mTestFramework = startCronetTestFrameworkWithUrlAndCronetEngineBuilder(null, builder);
+        mBuilder.setMockCertVerifierForTesting(QuicTestServer.createMockCertVerifier());
+        mBuilder.setStoragePath(CronetTestFramework.getTestStorage(getContext()));
+        mBuilder.enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISK_NO_HTTP, 1000 * 1024);
     }
 
     @Override
@@ -63,11 +67,12 @@ public class QuicTest extends CronetTestBase {
     @SmallTest
     @Feature({"Cronet"})
     @SuppressWarnings("deprecation")
+    @OnlyRunNativeCronet
     public void testQuicLoadUrl_LegacyAPI() throws Exception {
-        long urlRequestContextAdapter = ((ChromiumUrlRequestFactory) mTestFramework.mRequestFactory)
-                                                .getRequestContext()
-                                                .getUrlRequestContextAdapter();
-        NativeTestServer.registerHostResolverProc(urlRequestContextAdapter, true);
+        String[] commandLineArgs = {
+                CronetTestFramework.LIBRARY_INIT_KEY, CronetTestFramework.LibraryInitType.LEGACY};
+        mTestFramework = new CronetTestFramework(null, commandLineArgs, getContext(), mBuilder);
+        registerHostResolver(mTestFramework, true);
         String quicURL = QuicTestServer.getServerURL() + "/simple.txt";
 
         HashMap<String, String> headers = new HashMap<String, String>();
@@ -90,11 +95,10 @@ public class QuicTest extends CronetTestBase {
 
     @LargeTest
     @Feature({"Cronet"})
+    @OnlyRunNativeCronet
     public void testQuicLoadUrl() throws Exception {
-        long urlRequestContextAdapter = ((CronetUrlRequestContext) mTestFramework.mCronetEngine)
-                                                .getUrlRequestContextAdapter();
-        NativeTestServer.registerHostResolverProc(urlRequestContextAdapter, false);
-
+        mTestFramework = startCronetTestFrameworkWithUrlAndCronetEngineBuilder(null, mBuilder);
+        registerHostResolver(mTestFramework);
         String quicURL = QuicTestServer.getServerURL() + "/simple.txt";
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
 
@@ -114,7 +118,6 @@ public class QuicTest extends CronetTestBase {
         // The total received bytes should be larger than the content length, to account for
         // headers.
         assertTrue(callback.mResponseInfo.getReceivedBytesCount() > expectedContent.length());
-
         // This test takes a long time, since the update will only be scheduled
         // after kUpdatePrefsDelayMs in http_server_properties_manager.cc.
         while (true) {
@@ -137,14 +140,15 @@ public class QuicTest extends CronetTestBase {
         builder.setStoragePath(CronetTestFramework.getTestStorage(getContext()));
         builder.enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISK, 1000 * 1024);
         builder.enableQUIC(true);
-        builder.setMockCertVerifierForTesting(MockCertVerifier.createMockCertVerifier(CERTS_USED));
-        CronetEngine newEngine = new CronetUrlRequestContext(builder);
-        long newUrlRequestContextAdapter =
-                ((CronetUrlRequestContext) newEngine).getUrlRequestContextAdapter();
-        NativeTestServer.registerHostResolverProc(newUrlRequestContextAdapter, false);
+        JSONObject quicParams = new JSONObject().put("host_whitelist", "test.example.com");
+        JSONObject experimentalOptions = new JSONObject().put("QUIC", quicParams);
+        builder.setExperimentalOptions(experimentalOptions.toString());
+        builder.setMockCertVerifierForTesting(QuicTestServer.createMockCertVerifier());
+        mTestFramework = startCronetTestFrameworkWithUrlAndCronetEngineBuilder(null, builder);
+        registerHostResolver(mTestFramework);
         TestUrlRequestCallback callback2 = new TestUrlRequestCallback();
-        requestBuilder =
-                new UrlRequest.Builder(quicURL, callback2, callback2.getExecutor(), newEngine);
+        requestBuilder = new UrlRequest.Builder(
+                quicURL, callback2, callback2.getExecutor(), mTestFramework.mCronetEngine);
         requestBuilder.build().start();
         callback2.blockForDone();
         assertEquals(200, callback2.mResponseInfo.getHttpStatusCode());

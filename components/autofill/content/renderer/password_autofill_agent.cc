@@ -4,6 +4,9 @@
 
 #include "components/autofill/content/renderer/password_autofill_agent.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/i18n/case_conversion.h"
@@ -12,6 +15,7 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/autofill/content/common/autofill_messages.h"
 #include "components/autofill/content/renderer/form_autofill_util.h"
 #include "components/autofill/content/renderer/password_form_conversion_utils.h"
@@ -26,6 +30,7 @@
 #include "content/public/renderer/navigation_state.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/web/WebAutofillClient.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
@@ -34,7 +39,6 @@
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebNode.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "ui/base/page_transition_types.h"
@@ -729,26 +733,32 @@ void PasswordAutofillAgent::UpdateStateForTextChange(
     password_info_iter->second.username_was_edited = true;
   }
 
-  DCHECK_EQ(element.document().frame(), render_frame()->GetWebFrame());
+  blink::WebFrame* const element_frame = element.document().frame();
+  // The element's frame might have been detached in the meantime (see
+  // http://crbug.com/585363, comments 5 and 6), in which case frame() will
+  // return null. This was hardly caused by form submission (unless the user
+  // is supernaturally quick), so it is OK to drop the ball here.
+  if (!element_frame)
+    return;
+  DCHECK_EQ(element_frame, render_frame()->GetWebFrame());
+
+  // Some login forms have event handlers that put a hash of the password into
+  // a hidden field and then clear the password (http://crbug.com/28910,
+  // http://crbug.com/391693). This method gets called before any of those
+  // handlers run, so save away a copy of the password in case it gets lost.
+  // To honor the user having explicitly cleared the password, even an empty
+  // password will be saved here.
+  scoped_ptr<PasswordForm> password_form;
+  if (element.form().isNull()) {
+    password_form = CreatePasswordFormFromUnownedInputElements(
+        *element_frame, &nonscript_modified_values_, &form_predictions_);
+  } else {
+    password_form = CreatePasswordFormFromWebForm(
+        element.form(), &nonscript_modified_values_, &form_predictions_);
+  }
+  ProvisionallySavePassword(std::move(password_form), RESTRICTION_NONE);
 
   if (element.isPasswordField()) {
-    // Some login forms have event handlers that put a hash of the password into
-    // a hidden field and then clear the password (http://crbug.com/28910,
-    // http://crbug.com/391693). This method gets called before any of those
-    // handlers run, so save away a copy of the password in case it gets lost.
-    // To honor the user having explicitly cleared the password, even an empty
-    // password will be saved here.
-    scoped_ptr<PasswordForm> password_form;
-    if (element.form().isNull()) {
-      password_form = CreatePasswordFormFromUnownedInputElements(
-          *element.document().frame(), &nonscript_modified_values_,
-          &form_predictions_);
-    } else {
-      password_form = CreatePasswordFormFromWebForm(
-          element.form(), &nonscript_modified_values_, &form_predictions_);
-    }
-    ProvisionallySavePassword(password_form.Pass(), RESTRICTION_NONE);
-
     PasswordToLoginMap::iterator iter = password_to_username_.find(element);
     if (iter != password_to_username_.end()) {
       web_input_to_password_info_[iter->second].password_was_edited_last = true;
@@ -1131,7 +1141,7 @@ void PasswordAutofillAgent::WillSendSubmitEvent(
   // already have been updated in TextDidChangeInTextField.
   scoped_ptr<PasswordForm> password_form = CreatePasswordFormFromWebForm(
       form, &nonscript_modified_values_, &form_predictions_);
-  ProvisionallySavePassword(password_form.Pass(),
+  ProvisionallySavePassword(std::move(password_form),
                             RESTRICTION_NON_EMPTY_PASSWORD);
 }
 
@@ -1414,7 +1424,6 @@ bool PasswordAutofillAgent::ShowSuggestionPopup(
     DCHECK(iter != web_input_to_password_info_.end());
     selected_element = iter->second.password_field;
   }
-  gfx::Rect bounding_box(selected_element.boundsInViewportSpace());
 
   blink::WebInputElement username;
   if (!show_on_password_field || !user_input.isPasswordField()) {
@@ -1424,12 +1433,6 @@ bool PasswordAutofillAgent::ShowSuggestionPopup(
       web_element_to_password_info_key_.find(user_input);
   DCHECK(key_it != web_element_to_password_info_key_.end());
 
-  float scale =
-      render_frame()->GetRenderView()->GetWebView()->pageScaleFactor();
-  gfx::RectF bounding_box_scaled(bounding_box.x() * scale,
-                                 bounding_box.y() * scale,
-                                 bounding_box.width() * scale,
-                                 bounding_box.height() * scale);
   int options = 0;
   if (show_all)
     options |= SHOW_ALL;
@@ -1438,9 +1441,15 @@ bool PasswordAutofillAgent::ShowSuggestionPopup(
   base::string16 username_string(
       username.isNull() ? base::string16()
                         : static_cast<base::string16>(user_input.value()));
+
   Send(new AutofillHostMsg_ShowPasswordSuggestions(
-      routing_id(), key_it->second, field.text_direction, username_string,
-      options, bounding_box_scaled));
+           routing_id(),
+           key_it->second,
+           field.text_direction,
+           username_string,
+           options,
+           render_frame()->GetRenderView()->ElementBoundsInWindow(
+               selected_element)));
   username_query_prefix_ = username_string;
   return CanShowSuggestion(fill_data, username_string, show_all);
 }
@@ -1494,7 +1503,7 @@ void PasswordAutofillAgent::ProvisionallySavePassword(
                          password_form->new_password_value.empty())) {
     return;
   }
-  provisionally_saved_form_ = password_form.Pass();
+  provisionally_saved_form_ = std::move(password_form);
 }
 
 bool PasswordAutofillAgent::ProvisionallySavedPasswordIsValid() {

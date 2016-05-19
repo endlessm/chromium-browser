@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "ppapi/c/dev/ppb_text_input_dev.h"
 #include "ppapi/c/ppb_text_input_controller.h"
 #include "ppapi/shared_impl/var.h"
@@ -15,8 +16,9 @@ namespace thunk {
 
 namespace {
 
-#define STATIC_ASSERT_ENUM(a, b) \
-  static_assert(int(a) == int(b), "mismatching enum values: " #a)
+#define STATIC_ASSERT_ENUM(a, b)                            \
+  static_assert(static_cast<int>(a) == static_cast<int>(b), \
+                "mismatching enum: " #a)
 
 STATIC_ASSERT_ENUM(PP_TEXTINPUT_TYPE_DEV_NONE, PP_TEXTINPUT_TYPE_NONE);
 STATIC_ASSERT_ENUM(PP_TEXTINPUT_TYPE_DEV_TEXT, PP_TEXTINPUT_TYPE_TEXT);

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/webaudio/AudioContext.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -10,13 +9,12 @@
 #include "bindings/core/v8/ScriptPromiseResolver.h"
 #include "core/dom/DOMException.h"
 #include "core/dom/ExceptionCode.h"
+#include "modules/webaudio/AudioBufferCallback.h"
 #include "platform/audio/AudioUtilities.h"
 
 #if DEBUG_AUDIONODE_REFERENCES
 #include <stdio.h>
 #endif
-
-#if ENABLE(WEB_AUDIO)
 
 namespace blink {
 
@@ -154,6 +152,9 @@ ScriptPromise AudioContext::closeContext(ScriptState* scriptState)
                 "Cannot close a context that is being closed or has already been closed."));
     }
 
+    // Save the current sample rate for any subsequent decodeAudioData calls.
+    setClosedContextSampleRate(sampleRate());
+
     m_closeResolver = ScriptPromiseResolver::create(scriptState);
     ScriptPromise promise = m_closeResolver->promise();
 
@@ -198,4 +199,3 @@ void AudioContext::stopRendering()
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

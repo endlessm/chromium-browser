@@ -4,7 +4,8 @@
 
 #include "components/metrics/daily_event.h"
 
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
+#include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace metrics {

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/ash/chrome_screenshot_grabber.h"
 
+#include <stddef.h>
+
 #include "ash/shell.h"
 #include "ash/system/system_notifier.h"
 #include "base/base64.h"
@@ -11,9 +13,10 @@
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/i18n/time_formatting.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
@@ -21,6 +24,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/user_metrics.h"
 #include "grit/ash_strings.h"

@@ -21,6 +21,9 @@ public:
 protected:
     bool onGetPixels(const SkImageInfo& info, void* pixels, size_t rowBytes, SkPMColor ctable[],
                      int* ctableCount) override;
+    bool onComputeScaledDimensions(SkScalar scale, SupportedSizes*) override;
+    bool onGenerateScaledPixels(const SkISize&, const SkIPoint&, const SkPixmap&) override;
+
 #if SK_SUPPORT_GPU
     GrTexture* onGenerateTexture(GrContext*, const SkIRect*) override;
 #endif
@@ -78,6 +81,46 @@ bool SkPictureImageGenerator::onGetPixels(const SkImageInfo& info, void* pixels,
     return true;
 }
 
+bool SkPictureImageGenerator::onComputeScaledDimensions(SkScalar scale,
+                                                        SupportedSizes* sizes) {
+    SkASSERT(scale > 0 && scale <= 1);
+    const int w = this->getInfo().width();
+    const int h = this->getInfo().height();
+    const int sw = SkScalarRoundToInt(scale * w);
+    const int sh = SkScalarRoundToInt(scale * h);
+    if (sw > 0 && sh > 0) {
+        sizes->fSizes[0].set(sw, sh);
+        sizes->fSizes[1].set(sw, sh);
+        return true;
+    }
+    return false;
+}
+
+bool SkPictureImageGenerator::onGenerateScaledPixels(const SkISize& scaledSize,
+                                                     const SkIPoint& scaledOrigin,
+                                                     const SkPixmap& scaledPixels) {
+    int w = scaledSize.width();
+    int h = scaledSize.height();
+
+    const SkScalar scaleX = SkIntToScalar(w) / this->getInfo().width();
+    const SkScalar scaleY = SkIntToScalar(h) / this->getInfo().height();
+    SkMatrix matrix = SkMatrix::MakeScale(scaleX, scaleY);
+    matrix.postTranslate(-SkIntToScalar(scaledOrigin.x()), -SkIntToScalar(scaledOrigin.y()));
+
+    SkBitmap bitmap;
+    if (!bitmap.installPixels(scaledPixels)) {
+        return false;
+    }
+
+    bitmap.eraseColor(SK_ColorTRANSPARENT);
+    SkCanvas canvas(bitmap, SkSurfaceProps(0, kUnknown_SkPixelGeometry));
+    matrix.preConcat(fMatrix);
+    canvas.drawPicture(fPicture, &matrix, fPaint.getMaybeNull());
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 SkImageGenerator* SkImageGenerator::NewFromPicture(const SkISize& size, const SkPicture* picture,
                                                    const SkMatrix* matrix, const SkPaint* paint) {
     return SkPictureImageGenerator::Create(size, picture, matrix, paint);
@@ -95,8 +138,7 @@ GrTexture* SkPictureImageGenerator::onGenerateTexture(GrContext* ctx, const SkIR
     //
     // TODO: respect the usage, by possibly creating a different (pow2) surface
     //
-    SkAutoTUnref<SkSurface> surface(SkSurface::NewRenderTarget(ctx,
-                                                               SkSurface::kYes_Budgeted,
+    SkAutoTUnref<SkSurface> surface(SkSurface::NewRenderTarget(ctx, SkBudgeted::kYes,
                                                                surfaceInfo));
     if (!surface.get()) {
         return nullptr;

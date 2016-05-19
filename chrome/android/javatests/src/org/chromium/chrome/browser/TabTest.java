@@ -4,19 +4,22 @@
 
 package org.chromium.chrome.browser;
 
+import android.app.Activity;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.ssl.ConnectionSecurityLevel;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.chrome.test.util.ApplicationTestUtils;
+import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.content.browser.test.util.CallbackHelper;
+import org.chromium.content.browser.test.util.Criteria;
+import org.chromium.content.browser.test.util.CriteriaHelper;
 
 /**
  * Tests for Tab class.
@@ -47,6 +50,16 @@ public class TabTest extends ChromeActivityTestCaseBase<ChromeActivity> {
         mTab = getActivity().getActivityTab();
         mTab.addObserver(mTabObserver);
         mOnTitleUpdatedHelper = new CallbackHelper();
+    }
+
+    @SmallTest
+    @Feature({"Tab"})
+    public void testTabContext() throws Throwable {
+        assertFalse("The tab context cannot be an activity",
+                mTab.getContentViewCore().getContext() instanceof Activity);
+        assertNotSame("The tab context's theme should have been updated",
+                mTab.getContentViewCore().getContext().getTheme(),
+                getActivity().getApplication().getTheme());
     }
 
     @SmallTest
@@ -95,14 +108,24 @@ public class TabTest extends ChromeActivityTestCaseBase<ChromeActivity> {
             }
         });
 
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return mTab.isHidden();
+            }
+        });
         assertTrue(mTab.needsReload());
-        assertTrue(mTab.isHidden());
         assertFalse(mTab.isShowingSadTab());
 
         ApplicationTestUtils.launchChrome(getInstrumentation().getTargetContext());
 
         // The tab should be restored and visible.
-        assertFalse(mTab.isHidden());
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                return !mTab.isHidden();
+            }
+        });
         assertFalse(mTab.needsReload());
         assertFalse(mTab.isShowingSadTab());
     }

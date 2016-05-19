@@ -5,7 +5,6 @@
 #ifndef InspectorEmulationAgent_h
 #define InspectorEmulationAgent_h
 
-#include "core/InspectorFrontend.h"
 #include "core/inspector/InspectorBaseAgent.h"
 
 namespace blink {
@@ -15,38 +14,41 @@ class WebViewImpl;
 
 using ErrorString = String;
 
-class InspectorEmulationAgent final : public InspectorBaseAgent<InspectorEmulationAgent, InspectorFrontend::Emulation>, public InspectorBackendDispatcher::EmulationCommandHandler {
+class InspectorEmulationAgent final : public InspectorBaseAgent<InspectorEmulationAgent, protocol::Frontend::Emulation>, public protocol::Dispatcher::EmulationCommandHandler {
     WTF_MAKE_NONCOPYABLE(InspectorEmulationAgent);
 public:
-    static PassOwnPtrWillBeRawPtr<InspectorEmulationAgent> create(WebLocalFrameImpl*);
+    class Client {
+    public:
+        virtual ~Client() {}
+
+        virtual void setCPUThrottlingRate(double rate) {}
+    };
+
+    static PassOwnPtrWillBeRawPtr<InspectorEmulationAgent> create(WebLocalFrameImpl*, Client*);
     ~InspectorEmulationAgent() override;
 
-    void viewportChanged();
-
-    // InspectorBackendDispatcher::EmulationCommandHandler implementation.
-    void resetScrollAndPageScaleFactor(ErrorString*) override;
-    void setPageScaleFactor(ErrorString*, double pageScaleFactor) override;
-    void setScriptExecutionDisabled(ErrorString*, bool) override;
-    void setTouchEmulationEnabled(ErrorString*, bool enabled, const String* configuration) override;
-    void setEmulatedMedia(ErrorString*, const String&) override;
+    // protocol::Dispatcher::EmulationCommandHandler implementation.
+    void resetPageScaleFactor(ErrorString*) override;
+    void setPageScaleFactor(ErrorString*, double in_pageScaleFactor) override;
+    void setScriptExecutionDisabled(ErrorString*, bool in_value) override;
+    void setTouchEmulationEnabled(ErrorString*, bool in_enabled, const protocol::Maybe<String>& in_configuration) override;
+    void setEmulatedMedia(ErrorString*, const String& in_media) override;
+    void setCPUThrottlingRate(ErrorString*, double in_rate) override;
 
     // InspectorBaseAgent overrides.
     void disable(ErrorString*) override;
     void restore() override;
-    void discardAgent() override;
-    void didCommitLoadForLocalFrame(LocalFrame*) override;
 
     DECLARE_VIRTUAL_TRACE();
 
 private:
-    explicit InspectorEmulationAgent(WebLocalFrameImpl*);
+    InspectorEmulationAgent(WebLocalFrameImpl*, Client*);
     WebViewImpl* webViewImpl();
 
     RawPtrWillBeMember<WebLocalFrameImpl> m_webLocalFrameImpl;
+    Client* m_client;
 };
 
-
 } // namespace blink
-
 
 #endif // !defined(InspectorEmulationAgent_h)

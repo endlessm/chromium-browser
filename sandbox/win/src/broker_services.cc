@@ -5,6 +5,7 @@
 #include "sandbox/win/src/broker_services.h"
 
 #include <AclAPI.h>
+#include <stddef.h>
 
 #include "base/logging.h"
 #include "base/macros.h"
@@ -17,8 +18,8 @@
 #include "base/win/windows_version.h"
 #include "sandbox/win/src/app_container.h"
 #include "sandbox/win/src/process_mitigations.h"
-#include "sandbox/win/src/sandbox_policy_base.h"
 #include "sandbox/win/src/sandbox.h"
+#include "sandbox/win/src/sandbox_policy_base.h"
 #include "sandbox/win/src/target_process.h"
 #include "sandbox/win/src/win2k_threadpool.h"
 #include "sandbox/win/src/win_utils.h"
@@ -329,13 +330,14 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
 
   // Initialize the startup information from the policy.
   base::win::StartupInformation startup_info;
-  // The liftime of |mitigations| and |inherit_handle_list| have to be at least
-  // as long as |startup_info| because |UpdateProcThreadAttribute| requires that
+  // The liftime of |mitigations|, |inherit_handle_list| and
+  // |child_process_creation| have to be at least as long as
+  // |startup_info| because |UpdateProcThreadAttribute| requires that
   // its |lpValue| parameter persist until |DeleteProcThreadAttributeList| is
   // called; StartupInformation's destructor makes such a call.
   DWORD64 mitigations;
-
   std::vector<HANDLE> inherited_handle_list;
+  DWORD child_process_creation = PROCESS_CREATION_CHILD_PROCESS_RESTRICTED;
 
   base::string16 desktop = policy_base->GetAlternateDesktop();
   if (!desktop.empty()) {
@@ -353,10 +355,17 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
       ++attribute_count;
 
     size_t mitigations_size;
-    ConvertProcessMitigationsToPolicy(policy->GetProcessMitigations(),
+    ConvertProcessMitigationsToPolicy(policy_base->GetProcessMitigations(),
                                       &mitigations, &mitigations_size);
     if (mitigations)
       ++attribute_count;
+
+    bool restrict_child_process_creation = false;
+    if (base::win::GetVersion() >= base::win::VERSION_WIN10_TH2 &&
+        policy_base->GetJobLevel() <= JOB_LIMITED_USER) {
+      restrict_child_process_creation = true;
+      ++attribute_count;
+    }
 
     HANDLE stdout_handle = policy_base->GetStdoutHandle();
     HANDLE stderr_handle = policy_base->GetStderrHandle();
@@ -368,10 +377,11 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
     if (stderr_handle != stdout_handle && stderr_handle != INVALID_HANDLE_VALUE)
       inherited_handle_list.push_back(stderr_handle);
 
-    const HandleList& policy_handle_list = policy_base->GetHandlesBeingShared();
+    const base::HandlesToInheritVector& policy_handle_list =
+        policy_base->GetHandlesBeingShared();
 
-    for (auto handle : policy_handle_list)
-      inherited_handle_list.push_back(handle->Get());
+    for (HANDLE handle : policy_handle_list)
+      inherited_handle_list.push_back(handle);
 
     if (inherited_handle_list.size())
       ++attribute_count;
@@ -389,6 +399,14 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
       if (!startup_info.UpdateProcThreadAttribute(
                PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY, &mitigations,
                mitigations_size)) {
+        return SBOX_ERROR_PROC_THREAD_ATTRIBUTES;
+      }
+    }
+
+    if (restrict_child_process_creation) {
+      if (!startup_info.UpdateProcThreadAttribute(
+              PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY,
+              &child_process_creation, sizeof(child_process_creation))) {
         return SBOX_ERROR_PROC_THREAD_ATTRIBUTES;
       }
     }
@@ -415,24 +433,7 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
   if (NULL == thread_pool_)
     thread_pool_ = new Win2kThreadPool();
 
-  // We need to temporarily mark all inherited handles as closeable. The handle
-  // tracker may have marked the handles we're passing to the child as
-  // non-closeable, but the child is getting new copies that it's allowed to
-  // close. We're about to mark these handles as closeable for this process
-  // (when we close them below in ClearSharedHandles()) but that will be too
-  // late -- there will already another copy in the child that's non-closeable.
-  // After launching we restore the non-closability of these handles. We don't
-  // have any way here to affect *only* the child's copy, as the process
-  // launching mechanism takes care of doing the duplication-with-the-same-value
-  // into the child.
-  std::vector<DWORD> inherited_handle_information(inherited_handle_list.size());
-  for (size_t i = 0; i < inherited_handle_list.size(); ++i) {
-    const HANDLE& inherited_handle = inherited_handle_list[i];
-    ::GetHandleInformation(inherited_handle, &inherited_handle_information[i]);
-    ::SetHandleInformation(inherited_handle, HANDLE_FLAG_PROTECT_FROM_CLOSE, 0);
-  }
-
-  // Create the TargetProces object and spawn the target suspended. Note that
+  // Create the TargetProcess object and spawn the target suspended. Note that
   // Brokerservices does not own the target object. It is owned by the Policy.
   base::win::ScopedProcessInformation process_info;
   TargetProcess* target =
@@ -441,15 +442,6 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
 
   DWORD win_result = target->Create(exe_path, command_line, inherit_handles,
                                     startup_info, &process_info);
-
-  // Restore the previous handle protection values.
-  for (size_t i = 0; i < inherited_handle_list.size(); ++i) {
-    ::SetHandleInformation(inherited_handle_list[i],
-                           HANDLE_FLAG_PROTECT_FROM_CLOSE,
-                           inherited_handle_information[i]);
-  }
-
-  policy_base->ClearSharedHandles();
 
   if (ERROR_SUCCESS != win_result) {
     SpawnCleanup(target, win_result);

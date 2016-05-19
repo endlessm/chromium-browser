@@ -164,10 +164,6 @@
 #define HAVE_ARM_NEON_INTRINSICS 1
 #endif
 
-#if defined(__ARM_ARCH_7S__)
-#define WTF_CPU_APPLE_ARMV7S 1
-#endif
-
 #endif /* ARM */
 
 /* CPU(ARM64) - AArch64 64-bit */
@@ -176,9 +172,12 @@
 #define WTF_CPU_64BIT 1
 #endif
 
-/* This defines CPU(64BIT). */
-#if defined(__mips__) && (_MIPS_SIM == _ABI64)
+/* CPU(MIPS), CPU(MIPS64) */
+#if defined(__mips__) && (__mips == 64)
+#define WTF_CPU_MIPS64 1
 #define WTF_CPU_64BIT 1
+#elif defined(__mips__)
+#define WTF_CPU_MIPS 1
 #endif
 
 #if !defined(WTF_CPU_64BIT)

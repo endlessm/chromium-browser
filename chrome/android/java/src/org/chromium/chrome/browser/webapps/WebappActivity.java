@@ -10,8 +10,9 @@ import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.StrictMode;
+import android.os.SystemClock;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -22,24 +23,34 @@ import android.widget.TextView;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ApplicationStatus;
+import org.chromium.base.Log;
+import org.chromium.base.StreamUtil;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.blink_public.platform.WebDisplayMode;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.TabState;
 import org.chromium.chrome.browser.document.DocumentUtils;
 import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
 import org.chromium.chrome.browser.metrics.WebappUma;
-import org.chromium.chrome.browser.ssl.ConnectionSecurityLevel;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabDelegateFactory;
 import org.chromium.chrome.browser.tab.TabObserver;
+import org.chromium.chrome.browser.tab.TopControlsVisibilityDelegate;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.util.UrlUtilities;
+import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.content.browser.ScreenOrientationProvider;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.PageTransition;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Displays a webapp in a nearly UI-less Chrome (InfoBars still appear).
@@ -62,6 +73,8 @@ public class WebappActivity extends FullScreenActivity {
     private Integer mBrandColor;
 
     private WebappUma mWebappUma;
+
+    private Bitmap mLargestFavicon;
 
     /**
      * Construct all the variables that shouldn't change.  We do it here both to clarify when the
@@ -103,7 +116,7 @@ public class WebappActivity extends FullScreenActivity {
 
         getActivityTab().addObserver(createTabObserver());
         getActivityTab().getTabWebContentsDelegateAndroid().setDisplayMode(
-                (int) WebDisplayMode.Standalone);
+                WebDisplayMode.Standalone);
     }
 
     @Override
@@ -126,7 +139,10 @@ public class WebappActivity extends FullScreenActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (getActivityTab() != null) getActivityTab().saveInstanceState(outState);
+        if (getActivityTab() != null) {
+            outState.putInt(BUNDLE_TAB_ID, getActivityTab().getId());
+            outState.putString(BUNDLE_TAB_URL, getActivityTab().getUrl());
+        }
     }
 
     @Override
@@ -139,9 +155,35 @@ public class WebappActivity extends FullScreenActivity {
     public void onStopWithNative() {
         super.onStopWithNative();
         mDirectoryManager.cancelCleanup();
-        if (getActivityTab() != null) getActivityTab().saveState(getActivityDirectory());
+        if (getActivityTab() != null) saveState(getActivityDirectory());
         if (getFullscreenManager() != null) {
             getFullscreenManager().setPersistentFullscreenMode(false);
+        }
+    }
+
+    /**
+     * Saves the tab data out to a file.
+     */
+    void saveState(File activityDirectory) {
+        File tabFile = getTabFile(activityDirectory, getActivityTab().getId());
+
+        FileOutputStream foutput = null;
+        // Temporarily allowing disk access while fixing. TODO: http://crbug.com/525781
+        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+        StrictMode.allowThreadDiskWrites();
+        try {
+            long time = SystemClock.elapsedRealtime();
+            foutput = new FileOutputStream(tabFile);
+            TabState.saveState(foutput, getActivityTab().getState(), false);
+            RecordHistogram.recordTimesHistogram("Android.StrictMode.WebappSaveState",
+                    SystemClock.elapsedRealtime() - time, TimeUnit.MILLISECONDS);
+        } catch (FileNotFoundException exception) {
+            Log.e(TAG, "Failed to save out tab state.", exception);
+        } catch (IOException exception) {
+            Log.e(TAG, "Failed to save out tab state.", exception);
+        } finally {
+            StreamUtil.closeQuietly(foutput);
+            StrictMode.setThreadPolicy(oldPolicy);
         }
     }
 
@@ -253,7 +295,7 @@ public class WebappActivity extends FullScreenActivity {
             }
             mWebappUma.recordSplashscreenIconType(splashScreenIconType);
             mWebappUma.recordSplashscreenIconSize(
-                    Math.round((float) displayIcon.getWidth()
+                    Math.round(displayIcon.getWidth()
                             / getResources().getDisplayMetrics().density));
         }
 
@@ -287,6 +329,7 @@ public class WebappActivity extends FullScreenActivity {
 
     protected TabObserver createTabObserver() {
         return new EmptyTabObserver() {
+
             @Override
             public void onSSLStateUpdated(Tab tab) {
                 updateUrlBar();
@@ -313,9 +356,16 @@ public class WebappActivity extends FullScreenActivity {
             }
 
             @Override
-            public void onFaviconUpdated(Tab tab) {
+            public void onFaviconUpdated(Tab tab, Bitmap icon) {
                 if (!isWebappDomain()) return;
-                updateTaskDescription();
+                // No need to cache the favicon if there is an icon declared in app manifest.
+                if (mWebappInfo.icon() != null) return;
+                if (icon == null) return;
+                if (mLargestFavicon == null || icon.getWidth() > mLargestFavicon.getWidth()
+                        || icon.getHeight() > mLargestFavicon.getHeight()) {
+                    mLargestFavicon = icon;
+                    updateTaskDescription();
+                }
             }
 
             @Override
@@ -391,7 +441,7 @@ public class WebappActivity extends FullScreenActivity {
         if (mWebappInfo.icon() != null) {
             icon = mWebappInfo.icon();
         } else if (getActivityTab() != null) {
-            icon = getActivityTab().getFavicon();
+            icon = mLargestFavicon;
         }
 
         if (mBrandColor == null && mWebappInfo.hasValidThemeColor()) {
@@ -485,17 +535,37 @@ public class WebappActivity extends FullScreenActivity {
         return null;
     }
 
-    // Implements {@link FullScreenActivityTab.TopControlsVisibilityDelegate}.
     @Override
-    public boolean shouldShowTopControls(String url, int securityLevel) {
-        boolean visible = false;  // do not show top controls when URL is not ready yet.
-        if (!TextUtils.isEmpty(url)) {
-            boolean isSameWebsite =
-                    UrlUtilities.sameDomainOrHost(mWebappInfo.uri().toString(), url, true);
-            visible = !isSameWebsite || securityLevel == ConnectionSecurityLevel.SECURITY_ERROR
-                    || securityLevel == ConnectionSecurityLevel.SECURITY_WARNING;
-        }
+    protected TabDelegateFactory createTabDelegateFactory() {
+        return new FullScreenDelegateFactory() {
+            @Override
+            public TopControlsVisibilityDelegate createTopControlsVisibilityDelegate(Tab tab) {
+                return new TopControlsVisibilityDelegate(tab) {
+                    @Override
+                    public boolean isShowingTopControlsEnabled() {
+                        if (!super.isShowingTopControlsEnabled()) return false;
+                        return shouldShowTopControls(mTab.getUrl(), mTab.getSecurityLevel());
+                    }
 
+                    @Override
+                    public boolean isHidingTopControlsEnabled() {
+                        return !isShowingTopControlsEnabled();
+                    }
+                };
+            }
+        };
+    }
+
+    public boolean shouldShowTopControls(String url, int securityLevel) {
+        // Do not show top controls when URL is not ready yet.
+        boolean visible = false;
+        if (TextUtils.isEmpty(url)) return false;
+
+        boolean isSameWebsite = UrlUtilities.sameDomainOrHost(
+                mWebappInfo.uri().toString(), url, true);
+        visible = !isSameWebsite
+                || securityLevel == ConnectionSecurityLevel.SECURITY_ERROR
+                || securityLevel == ConnectionSecurityLevel.SECURITY_WARNING;
         return visible;
     }
 

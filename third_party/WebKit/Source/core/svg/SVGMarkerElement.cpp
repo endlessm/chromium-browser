@@ -19,8 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGMarkerElement.h"
 
 #include "core/SVGNames.h"
@@ -43,10 +41,10 @@ template<> const SVGEnumerationStringEntries& getStaticStringEntries<SVGMarkerUn
 inline SVGMarkerElement::SVGMarkerElement(Document& document)
     : SVGElement(SVGNames::markerTag, document)
     , SVGFitToViewBox(this)
-    , m_refX(SVGAnimatedLength::create(this, SVGNames::refXAttr, SVGLength::create(SVGLengthMode::Width), AllowNegativeLengths))
-    , m_refY(SVGAnimatedLength::create(this, SVGNames::refYAttr, SVGLength::create(SVGLengthMode::Height), AllowNegativeLengths))
-    , m_markerWidth(SVGAnimatedLength::create(this, SVGNames::markerWidthAttr, SVGLength::create(SVGLengthMode::Width), ForbidNegativeLengths))
-    , m_markerHeight(SVGAnimatedLength::create(this, SVGNames::markerHeightAttr, SVGLength::create(SVGLengthMode::Height), ForbidNegativeLengths))
+    , m_refX(SVGAnimatedLength::create(this, SVGNames::refXAttr, SVGLength::create(SVGLengthMode::Width)))
+    , m_refY(SVGAnimatedLength::create(this, SVGNames::refYAttr, SVGLength::create(SVGLengthMode::Height)))
+    , m_markerWidth(SVGAnimatedLength::create(this, SVGNames::markerWidthAttr, SVGLength::create(SVGLengthMode::Width)))
+    , m_markerHeight(SVGAnimatedLength::create(this, SVGNames::markerHeightAttr, SVGLength::create(SVGLengthMode::Height)))
     , m_orientAngle(SVGAnimatedAngle::create(this))
     , m_markerUnits(SVGAnimatedEnumeration<SVGMarkerUnitsType>::create(this, SVGNames::markerUnitsAttr, SVGMarkerUnitsStrokeWidth))
 {
@@ -118,18 +116,14 @@ void SVGMarkerElement::childrenChanged(const ChildrenChange& change)
 
 void SVGMarkerElement::setOrientToAuto()
 {
-    m_orientAngle->baseValue()->orientType()->setEnumValue(SVGMarkerOrientAuto);
-    invalidateSVGAttributes();
-    svgAttributeChanged(SVGNames::orientAttr);
+    setAttribute(SVGNames::orientAttr, "auto");
 }
 
 void SVGMarkerElement::setOrientToAngle(PassRefPtrWillBeRawPtr<SVGAngleTearOff> angle)
 {
     ASSERT(angle);
     RefPtrWillBeRawPtr<SVGAngle> target = angle->target();
-    m_orientAngle->baseValue()->newValueSpecifiedUnits(target->unitType(), target->valueInSpecifiedUnits());
-    invalidateSVGAttributes();
-    svgAttributeChanged(SVGNames::orientAttr);
+    setAttribute(SVGNames::orientAttr, AtomicString(target->valueAsString()));
 }
 
 LayoutObject* SVGMarkerElement::createLayoutObject(const ComputedStyle&)

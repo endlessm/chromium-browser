@@ -5,9 +5,12 @@
 #include "chrome/browser/notifications/notification_ui_manager_android.h"
 
 #include <utility>
+#include <vector>
 
+#include "base/android/context_utils.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -18,6 +21,7 @@
 #include "content/public/common/persistent_notification_status.h"
 #include "content/public/common/platform_notification_data.h"
 #include "jni/NotificationUIManager_jni.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/image/image.h"
 
@@ -25,6 +29,33 @@ using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
 using base::android::ConvertUTF16ToJavaString;
 using base::android::ConvertUTF8ToJavaString;
+
+namespace {
+
+ScopedJavaLocalRef<jobjectArray> ConvertToJavaBitmaps(
+    const std::vector<message_center::ButtonInfo>& buttons) {
+  std::vector<SkBitmap> skbitmaps;
+  for (const message_center::ButtonInfo& button : buttons)
+    skbitmaps.push_back(button.icon.AsBitmap());
+
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jclass> clazz =
+      base::android::GetClass(env, "android/graphics/Bitmap");
+  jobjectArray array = env->NewObjectArray(skbitmaps.size(), clazz.obj(),
+                                           nullptr /* initialElement */);
+  base::android::CheckException(env);
+
+  for (size_t i = 0; i < skbitmaps.size(); ++i) {
+    if (!skbitmaps[i].drawsNothing()) {
+      env->SetObjectArrayElement(
+          array, i, gfx::ConvertToJavaBitmap(&(skbitmaps[i])).obj());
+    }
+  }
+
+  return ScopedJavaLocalRef<jobjectArray>(env, array);
+}
+
+}  // namespace
 
 // Called by the Java side when a notification event has been received, but the
 // NotificationUIManager has not been initialized yet. Enforce initialization of
@@ -37,6 +68,12 @@ static void InitializeNotificationUIManager(JNIEnv* env,
 // static
 NotificationUIManager* NotificationUIManager::Create(PrefService* local_state) {
   return new NotificationUIManagerAndroid();
+}
+
+// static
+NotificationUIManager*
+NotificationUIManager::CreateNativeNotificationManager() {
+  return nullptr;
 }
 
 NotificationUIManagerAndroid::NotificationUIManagerAndroid() {
@@ -52,58 +89,52 @@ NotificationUIManagerAndroid::~NotificationUIManagerAndroid() {
                                      java_object_.obj());
 }
 
-bool NotificationUIManagerAndroid::OnNotificationClicked(
+void NotificationUIManagerAndroid::OnNotificationClicked(
     JNIEnv* env,
-    jobject java_object,
+    const JavaParamRef<jobject>& java_object,
     jlong persistent_notification_id,
-    jstring java_origin,
-    jstring java_tag,
+    const JavaParamRef<jstring>& java_origin,
+    const JavaParamRef<jstring>& java_profile_id,
+    jboolean incognito,
+    const JavaParamRef<jstring>& java_tag,
     jint action_index) {
   GURL origin(ConvertJavaStringToUTF8(env, java_origin));
   std::string tag = ConvertJavaStringToUTF8(env, java_tag);
+  std::string profile_id = ConvertJavaStringToUTF8(env, java_profile_id);
 
   regenerated_notification_infos_[persistent_notification_id] =
       std::make_pair(origin.spec(), tag);
 
-  // TODO(peter): Rather than assuming that the last used profile is the
-  // appropriate one for this notification, the used profile should be
-  // stored as part of the notification's data. See https://crbug.com/437574.
-  PlatformNotificationServiceImpl::GetInstance()->OnPersistentNotificationClick(
-      ProfileManager::GetLastUsedProfile(),
-      persistent_notification_id,
-      origin,
-      action_index);
-
-  return true;
+  PlatformNotificationServiceImpl::GetInstance()
+      ->ProcessPersistentNotificationOperation(
+          PlatformNotificationServiceImpl::NOTIFICATION_CLICK, profile_id,
+          incognito, origin, persistent_notification_id, action_index);
 }
 
-bool NotificationUIManagerAndroid::OnNotificationClosed(
+void NotificationUIManagerAndroid::OnNotificationClosed(
     JNIEnv* env,
-    jobject java_object,
+    const JavaParamRef<jobject>& java_object,
     jlong persistent_notification_id,
-    jstring java_origin,
-    jstring java_tag,
+    const JavaParamRef<jstring>& java_origin,
+    const JavaParamRef<jstring>& java_profile_id,
+    jboolean incognito,
+    const JavaParamRef<jstring>& java_tag,
     jboolean by_user) {
   GURL origin(ConvertJavaStringToUTF8(env, java_origin));
+  std::string profile_id = ConvertJavaStringToUTF8(env, java_profile_id);
   std::string tag = ConvertJavaStringToUTF8(env, java_tag);
 
   // The notification was closed by the platform, so clear all local state.
   regenerated_notification_infos_.erase(persistent_notification_id);
-
-  // TODO(peter): Rather than assuming that the last used profile is the
-  // appropriate one for this notification, the used profile should be
-  // stored as part of the notification's data. See https://crbug.com/437574.
-  PlatformNotificationServiceImpl::GetInstance()->OnPersistentNotificationClose(
-      ProfileManager::GetLastUsedProfile(),
-      persistent_notification_id,
-      origin,
-      by_user);
-
-  return true;
+  PlatformNotificationServiceImpl::GetInstance()
+      ->ProcessPersistentNotificationOperation(
+          PlatformNotificationServiceImpl::NOTIFICATION_CLOSE, profile_id,
+          incognito, origin, persistent_notification_id, -1);
 }
 
 void NotificationUIManagerAndroid::Add(const Notification& notification,
                                        Profile* profile) {
+  DCHECK(profile);
   JNIEnv* env = AttachCurrentThread();
 
   // The Android notification UI manager only supports Web Notifications, which
@@ -129,11 +160,10 @@ void NotificationUIManagerAndroid::Add(const Notification& notification,
   ScopedJavaLocalRef<jstring> body = ConvertUTF16ToJavaString(
       env, notification.message());
 
-  ScopedJavaLocalRef<jobject> icon;
-
-  SkBitmap icon_bitmap = notification.icon().AsBitmap();
-  if (!icon_bitmap.isNull())
-    icon = gfx::ConvertToJavaBitmap(&icon_bitmap);
+  ScopedJavaLocalRef<jobject> notification_icon;
+  SkBitmap notification_icon_bitmap = notification.icon().AsBitmap();
+  if (!notification_icon_bitmap.drawsNothing())
+    notification_icon = gfx::ConvertToJavaBitmap(&notification_icon_bitmap);
 
   std::vector<base::string16> action_titles_vector;
   for (const message_center::ButtonInfo& button : notification.buttons())
@@ -141,21 +171,21 @@ void NotificationUIManagerAndroid::Add(const Notification& notification,
   ScopedJavaLocalRef<jobjectArray> action_titles =
       base::android::ToJavaArrayOfStrings(env, action_titles_vector);
 
+  ScopedJavaLocalRef<jobjectArray> action_icons =
+      ConvertToJavaBitmaps(notification.buttons());
+
   ScopedJavaLocalRef<jintArray> vibration_pattern =
       base::android::ToJavaIntArray(env, notification.vibration_pattern());
 
+  ScopedJavaLocalRef<jstring> profile_id =
+      ConvertUTF8ToJavaString(env, profile->GetPath().BaseName().value());
+
   Java_NotificationUIManager_displayNotification(
-      env,
-      java_object_.obj(),
-      persistent_notification_id,
-      origin.obj(),
-      tag.obj(),
-      title.obj(),
-      body.obj(),
-      icon.obj(),
-      vibration_pattern.obj(),
-      notification.silent(),
-      action_titles.obj());
+      env, java_object_.obj(), persistent_notification_id, origin.obj(),
+      profile_id.obj(), profile->IsOffTheRecord(), tag.obj(), title.obj(),
+      body.obj(), notification_icon.obj(), vibration_pattern.obj(),
+      notification.timestamp().ToJavaTime(), notification.renotify(),
+      notification.silent(), action_titles.obj(), action_icons.obj());
 
   regenerated_notification_infos_[persistent_notification_id] =
       std::make_pair(origin_url.spec(), notification.tag());

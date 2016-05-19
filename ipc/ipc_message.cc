@@ -5,6 +5,8 @@
 #include "ipc/ipc_message.h"
 
 #include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "base/atomic_sequence_num.h"
 #include "base/logging.h"
@@ -50,7 +52,7 @@ Message::~Message() {
 Message::Message() : base::Pickle(sizeof(Header)) {
   header()->routing = header()->type = 0;
   header()->flags = GetRefNumUpper24();
-#if defined(OS_MACOSX)
+#if USE_ATTACHMENT_BROKER
   header()->num_brokered_attachments = 0;
 #endif
 #if defined(OS_POSIX)
@@ -66,7 +68,7 @@ Message::Message(int32_t routing_id, uint32_t type, PriorityValue priority)
   header()->type = type;
   DCHECK((priority & 0xffffff00) == 0);
   header()->flags = priority | GetRefNumUpper24();
-#if defined(OS_MACOSX)
+#if USE_ATTACHMENT_BROKER
   header()->num_brokered_attachments = 0;
 #endif
 #if defined(OS_POSIX)
@@ -180,7 +182,7 @@ void Message::FindNext(const char* range_start,
   bool have_entire_pickle =
       static_cast<size_t>(range_end - range_start) >= pickle_size;
 
-#if USE_ATTACHMENT_BROKER && defined(OS_MACOSX) && !defined(OS_IOS)
+#if USE_ATTACHMENT_BROKER
   // TODO(dskiba): determine message_size when entire pickle is not available
 
   if (!have_entire_pickle)
@@ -238,11 +240,13 @@ bool Message::AddPlaceholderBrokerableAttachmentWithId(
   return attachment_set()->AddAttachment(attachment);
 }
 
-bool Message::WriteAttachment(scoped_refptr<MessageAttachment> attachment) {
+bool Message::WriteAttachment(
+    scoped_refptr<base::Pickle::Attachment> attachment) {
   bool brokerable;
   size_t index;
-  bool success =
-      attachment_set()->AddAttachment(attachment, &index, &brokerable);
+  bool success = attachment_set()->AddAttachment(
+      make_scoped_refptr(static_cast<MessageAttachment*>(attachment.get())),
+      &index, &brokerable);
   DCHECK(success);
 
   // Write the type of descriptor.
@@ -252,7 +256,7 @@ bool Message::WriteAttachment(scoped_refptr<MessageAttachment> attachment) {
   // keep the current descriptor as extra decoding state when deserialising.
   WriteInt(static_cast<int>(index));
 
-#if USE_ATTACHMENT_BROKER && defined(OS_MACOSX) && !defined(OS_IOS)
+#if USE_ATTACHMENT_BROKER
   if (brokerable)
     header()->num_brokered_attachments++;
 #endif
@@ -262,7 +266,7 @@ bool Message::WriteAttachment(scoped_refptr<MessageAttachment> attachment) {
 
 bool Message::ReadAttachment(
     base::PickleIterator* iter,
-    scoped_refptr<MessageAttachment>* attachment) const {
+    scoped_refptr<base::Pickle::Attachment>* attachment) const {
   bool brokerable;
   if (!iter->ReadBool(&brokerable))
     return false;

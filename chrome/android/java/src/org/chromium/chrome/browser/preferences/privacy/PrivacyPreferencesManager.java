@@ -13,9 +13,10 @@ import android.preference.PreferenceManager;
 import org.chromium.base.CommandLine;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.device.DeviceClassManager;
-import org.chromium.chrome.browser.preferences.NetworkPredictionOptions;
+import org.chromium.chrome.browser.physicalweb.PhysicalWeb;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 
 /**
@@ -31,13 +32,17 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
     private static final String PREF_METRICS_REPORTING = "metrics_reporting";
     private static final String PREF_CELLULAR_EXPERIMENT = "cellular_experiment";
     private static final String ALLOW_PRERENDER_OLD = "allow_prefetch";
+    private static final String PREF_PHYSICAL_WEB = "physical_web";
+    private static final int PHYSICAL_WEB_OFF = 0;
+    private static final int PHYSICAL_WEB_ON = 1;
+    private static final int PHYSICAL_WEB_ONBOARDING = 2;
 
     private static PrivacyPreferencesManager sInstance;
 
     private final Context mContext;
     private final SharedPreferences mSharedPreferences;
 
-    private boolean mCrashUploadingEnabled;
+    private boolean mCrashUploadingCommandLineDisabled;
     private final String mCrashDumpNeverUpload;
     private final String mCrashDumpWifiOnlyUpload;
     private final String mCrashDumpAlwaysUpload;
@@ -46,7 +51,13 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
     PrivacyPreferencesManager(Context context) {
         mContext = context;
         mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
-        mCrashUploadingEnabled = true;
+
+        // Crash dump uploading preferences.
+        // We default the command line flag to disable uploads unless altered on deferred startup
+        // to prevent unwanted uploads at startup. If the command line flag to enable uploading is
+        // turned on, the other options for when to upload (depending on user/network preferences
+        // apply.
+        mCrashUploadingCommandLineDisabled = true;
         mCrashDumpNeverUpload = context.getString(R.string.crash_dump_never_upload_value);
         mCrashDumpWifiOnlyUpload = context.getString(R.string.crash_dump_only_with_wifi_value);
         mCrashDumpAlwaysUpload = context.getString(R.string.crash_dump_always_upload_value);
@@ -91,7 +102,7 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
         // Nothing to do if the user or this migration code has already set the new
         // preference.
         if (!predictionOptionIsBoolean
-                && prefService.networkPredictionOptionsHasUserSetting()) {
+                && prefService.obsoleteNetworkPredictionOptionsHasUserSetting()) {
             return;
         }
 
@@ -114,37 +125,37 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
 
         if (!(prefBandwidthDefault.equals(prefBandwidth))
                 || (prefBandwidthNoCellular != prefBandwidthNoCellularDefault)) {
-            NetworkPredictionOptions newValue = NetworkPredictionOptions.DEFAULT;
+            boolean newValue = true;
             // Observe PREF_BANDWIDTH on mobile network capable devices.
             if (isMobileNetworkCapable()) {
                 if (mSharedPreferences.contains(PREF_BANDWIDTH_OLD)) {
                     BandwidthType prefetchBandwidthTypePref = BandwidthType.getBandwidthFromTitle(
                             prefBandwidth);
                     if (BandwidthType.NEVER_PRERENDER.equals(prefetchBandwidthTypePref)) {
-                        newValue = NetworkPredictionOptions.NETWORK_PREDICTION_NEVER;
+                        newValue = false;
                     } else if (BandwidthType.PRERENDER_ON_WIFI.equals(prefetchBandwidthTypePref)) {
-                        newValue = NetworkPredictionOptions.NETWORK_PREDICTION_WIFI_ONLY;
+                        newValue = true;
                     } else if (BandwidthType.ALWAYS_PRERENDER.equals(prefetchBandwidthTypePref)) {
-                        newValue = NetworkPredictionOptions.NETWORK_PREDICTION_ALWAYS;
+                        newValue = true;
                     }
                 }
             // Observe PREF_BANDWIDTH_NO_CELLULAR on devices without mobile network.
             } else {
                 if (mSharedPreferences.contains(PREF_BANDWIDTH_NO_CELLULAR_OLD)) {
                     if (prefBandwidthNoCellular) {
-                        newValue = NetworkPredictionOptions.NETWORK_PREDICTION_WIFI_ONLY;
+                        newValue = true;
                     } else {
-                        newValue = NetworkPredictionOptions.NETWORK_PREDICTION_NEVER;
+                        newValue = false;
                     }
                 }
             }
             // But disable after all if kNetworkPredictionEnabled was disabled by the user.
-            if (prefService.networkPredictionEnabledHasUserSetting()
-                    && !prefService.getNetworkPredictionEnabledUserPrefValue()) {
-                newValue = NetworkPredictionOptions.NETWORK_PREDICTION_NEVER;
+            if (prefService.obsoleteNetworkPredictionEnabledHasUserSetting()
+                    && !prefService.obsoleteGetNetworkPredictionEnabledUserPrefValue()) {
+                newValue = false;
             }
             // Save new value in Chrome PrefService.
-            prefService.setNetworkPredictionOptions(newValue);
+            prefService.setNetworkPredictionEnabled(newValue);
         }
 
         // Delete old sharedPreferences.
@@ -208,7 +219,7 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
     public boolean shouldPrerender() {
         if (!DeviceClassManager.enablePrerendering()) return false;
         migrateNetworkPredictionPreferences();
-        return PrefServiceBridge.getInstance().canPredictNetworkActions();
+        return PrefServiceBridge.getInstance().canPrefetchAndPrerender();
     }
 
     /**
@@ -287,11 +298,14 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
     }
 
     /**
-     * Provides a way to disable crash uploading entirely, regardless of the preferences.
-     * Used by tests that trigger crashers intentionally, so these crashers are not uploaded.
+     * Provides a way to remove disabling crash uploading entirely.
+     * Enable crash uploading based on user's preference when an overriding flag
+     * does not exist in commandline.
+     * Used to differentiate from tests that trigger crashers intentionally, so these crashers are
+     * not uploaded.
      */
-    public void disableCrashUploading() {
-        mCrashUploadingEnabled = false;
+    public void enablePotentialCrashUploading() {
+        mCrashUploadingCommandLineDisabled = false;
     }
 
     /**
@@ -350,20 +364,50 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
      */
     @Override
     public boolean isUploadPermitted() {
-        return mCrashUploadingEnabled && isNetworkAvailable() && (allowUploadCrashDump()
-                || CommandLine.getInstance().hasSwitch(ChromeSwitches.FORCE_CRASH_DUMP_UPLOAD));
+        return !mCrashUploadingCommandLineDisabled && isNetworkAvailable()
+                && (allowUploadCrashDump() || CommandLine.getInstance().hasSwitch(
+                        ChromeSwitches.FORCE_CRASH_DUMP_UPLOAD));
+    }
+
+    /**
+     * Check whether to allow UMA uploading.
+     *
+     * TODO(asvitkine): This is temporary split up from isUploadPermitted() above with
+     * the |mCrashUploadingCommandLineDisabled| check removed, in order to diagnose if
+     * that check is responsible for decreased UMA uploads in M49. http://crbug.com/602703
+     *
+     * This function should not result in a native call as it can be called in circumstances where
+     * natives are not guaranteed to be loaded.
+     *
+     * @return whether to allow UMA uploading.
+     */
+    @Override
+    public boolean isUmaUploadPermitted() {
+        return isNetworkAvailable() && allowUploadCrashDump();
+    }
+
+    /**
+     * Check whether not to disable uploading crash dump by command line flag.
+     * If command line flag disables crash dump uploading, do not retry, but also do not delete.
+     * TODO(jchinlee): this is not quite a boolean. Depending on other refactoring, change to enum.
+     *
+     * @return whether experimental flag doesn't disable uploading crash dump.
+     */
+    @Override
+    public boolean isUploadCommandLineDisabled() {
+        return mCrashUploadingCommandLineDisabled;
     }
 
     /**
      * Check whether the user allows uploading.
-     * This doesn't take network condition into consideration.
+     * This doesn't take network condition or experimental state (i.e. disabling upload) into
+     * consideration.
      * A crash dump may be retried if this check passes.
      *
      * @return whether user's preference allows uploading crash dump.
      */
     @Override
     public boolean isUploadUserPermitted() {
-        if (!mCrashUploadingEnabled) return false;
         if (isCellularExperimentEnabled()) return isUsageAndCrashReportingEnabled();
 
         if (isMobileNetworkCapable()) {
@@ -385,5 +429,44 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
     @Override
     public boolean isUploadLimited() {
         return isCellularExperimentEnabled() && !isWiFiOrEthernetNetwork();
+    }
+
+    /**
+     * Sets the Physical Web preference, which enables background scanning for bluetooth beacons
+     * and displays a notification when beacons are found.
+     *
+     * @param enabled A boolean indicating whether to notify on nearby beacons.
+     */
+    public void setPhysicalWebEnabled(boolean enabled) {
+        int state = enabled ? PHYSICAL_WEB_ON : PHYSICAL_WEB_OFF;
+        boolean isOnboarding = isPhysicalWebOnboarding();
+        mSharedPreferences.edit().putInt(PREF_PHYSICAL_WEB, state).apply();
+        if (enabled) {
+            if (!isOnboarding) {
+                PhysicalWeb.startPhysicalWeb((ChromeApplication) mContext);
+            }
+        } else {
+            PhysicalWeb.stopPhysicalWeb((ChromeApplication) mContext);
+        }
+    }
+
+    /**
+     * Check whether the user is still in the Physical Web onboarding flow.
+     *
+     * @return boolean {@code true} if onboarding is not yet complete.
+     */
+    public boolean isPhysicalWebOnboarding() {
+        int state = mSharedPreferences.getInt(PREF_PHYSICAL_WEB, PHYSICAL_WEB_ONBOARDING);
+        return (state == PHYSICAL_WEB_ONBOARDING);
+    }
+
+    /**
+     * Check whether Physical Web is configured to notify on nearby beacons.
+     *
+     * @return boolean {@code true} if the feature is enabled.
+     */
+    public boolean isPhysicalWebEnabled() {
+        int state = mSharedPreferences.getInt(PREF_PHYSICAL_WEB, PHYSICAL_WEB_ONBOARDING);
+        return (state == PHYSICAL_WEB_ON);
     }
 }

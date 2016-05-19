@@ -5,6 +5,9 @@
 #ifndef NET_QUIC_TEST_TOOLS_QUIC_SENT_PACKET_MANAGER_PEER_H_
 #define NET_QUIC_TEST_TOOLS_QUIC_SENT_PACKET_MANAGER_PEER_H_
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "net/quic/quic_protocol.h"
 #include "net/quic/quic_sent_packet_manager.h"
 
@@ -19,8 +22,8 @@ class QuicSentPacketManagerPeer {
   static size_t GetMaxTailLossProbes(
       QuicSentPacketManager* sent_packet_manager);
 
-  static void SetMaxTailLossProbes(
-      QuicSentPacketManager* sent_packet_manager, size_t max_tail_loss_probes);
+  static void SetMaxTailLossProbes(QuicSentPacketManager* sent_packet_manager,
+                                   size_t max_tail_loss_probes);
 
   static bool GetEnableHalfRttTailLossProbe(
       QuicSentPacketManager* sent_packet_manager);
@@ -33,7 +36,7 @@ class QuicSentPacketManagerPeer {
   static void SetPerspective(QuicSentPacketManager* sent_packet_manager,
                              Perspective perspective);
 
-  static const SendAlgorithmInterface* GetSendAlgorithm(
+  static SendAlgorithmInterface* GetSendAlgorithm(
       const QuicSentPacketManager& sent_packet_manager);
 
   static void SetSendAlgorithm(QuicSentPacketManager* sent_packet_manager,
@@ -75,6 +78,12 @@ class QuicSentPacketManagerPeer {
 
   static QuicSentPacketManager::NetworkChangeVisitor* GetNetworkChangeVisitor(
       const QuicSentPacketManager* sent_packet_manager);
+
+  static void SetConsecutiveRtoCount(QuicSentPacketManager* sent_packet_manager,
+                                     size_t count);
+
+  static void SetConsecutiveTlpCount(QuicSentPacketManager* sent_packet_manager,
+                                     size_t count);
 
   static QuicSustainedBandwidthRecorder& GetBandwidthRecorder(
       QuicSentPacketManager* sent_packet_manager);

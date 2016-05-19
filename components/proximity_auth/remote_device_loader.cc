@@ -4,8 +4,10 @@
 
 #include "components/proximity_auth/remote_device_loader.h"
 
+#include <utility>
+
+#include "base/base64url.h"
 #include "base/bind.h"
-#include "components/proximity_auth/cryptauth/base64url.h"
 #include "components/proximity_auth/cryptauth/secure_message_delegate.h"
 #include "components/proximity_auth/logging/logging.h"
 #include "components/proximity_auth/proximity_auth_pref_manager.h"
@@ -21,7 +23,7 @@ RemoteDeviceLoader::RemoteDeviceLoader(
     : remaining_unlock_keys_(unlock_keys),
       user_id_(user_id),
       user_private_key_(user_private_key),
-      secure_message_delegate_(secure_message_delegate.Pass()),
+      secure_message_delegate_(std::move(secure_message_delegate)),
       pref_manager_(pref_manager),
       weak_ptr_factory_(this) {}
 
@@ -73,7 +75,9 @@ void RemoteDeviceLoader::OnPSKDerived(
   std::string bluetooth_address = unlock_key.bluetooth_address();
   if (bluetooth_address.empty() && pref_manager_) {
     std::string b64_public_key;
-    Base64UrlEncode(unlock_key.public_key(), &b64_public_key);
+    base::Base64UrlEncode(unlock_key.public_key(),
+                          base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                          &b64_public_key);
     bluetooth_address = pref_manager_->GetDeviceAddress(b64_public_key);
     PA_LOG(INFO) << "The BLE address of " << unlock_key.friendly_device_name()
                  << " is " << bluetooth_address;

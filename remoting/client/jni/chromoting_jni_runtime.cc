@@ -9,7 +9,6 @@
 #include "base/android/jni_string.h"
 #include "base/android/library_loader/library_loader_hooks.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/memory/singleton.h"
 #include "base/stl_util.h"
@@ -38,11 +37,7 @@ bool RegisterChromotingJniRuntime(JNIEnv* env) {
 // Implementation of stubs defined in JniInterface_jni.h. These are the entry
 // points for JNI calls from Java into C++.
 
-static void LoadNative(JNIEnv* env,
-                       const JavaParamRef<jclass>& clazz,
-                       const JavaParamRef<jobject>& context) {
-  base::android::InitApplicationContext(env, context);
-
+static void LoadNative(JNIEnv* env, const JavaParamRef<jclass>& clazz) {
   // The google_apis functions check the command-line arguments to make sure no
   // runtime API keys have been specified by the environment. Unfortunately, we
   // neither launch Chromium nor have a command line, so we need to prevent
@@ -84,16 +79,18 @@ static void Connect(JNIEnv* env,
                     const JavaParamRef<jstring>& hostPubkey,
                     const JavaParamRef<jstring>& pairId,
                     const JavaParamRef<jstring>& pairSecret,
-                    const JavaParamRef<jstring>& capabilities) {
+                    const JavaParamRef<jstring>& capabilities,
+                    const JavaParamRef<jstring>& flags) {
   remoting::ChromotingJniRuntime::GetInstance()->ConnectToHost(
-      ConvertJavaStringToUTF8(env, username).c_str(),
-      ConvertJavaStringToUTF8(env, authToken).c_str(),
-      ConvertJavaStringToUTF8(env, hostJid).c_str(),
-      ConvertJavaStringToUTF8(env, hostId).c_str(),
-      ConvertJavaStringToUTF8(env, hostPubkey).c_str(),
-      ConvertJavaStringToUTF8(env, pairId).c_str(),
-      ConvertJavaStringToUTF8(env, pairSecret).c_str(),
-      ConvertJavaStringToUTF8(env, capabilities).c_str());
+      ConvertJavaStringToUTF8(env, username),
+      ConvertJavaStringToUTF8(env, authToken),
+      ConvertJavaStringToUTF8(env, hostJid),
+      ConvertJavaStringToUTF8(env, hostId),
+      ConvertJavaStringToUTF8(env, hostPubkey),
+      ConvertJavaStringToUTF8(env, pairId),
+      ConvertJavaStringToUTF8(env, pairSecret),
+      ConvertJavaStringToUTF8(env, capabilities),
+      ConvertJavaStringToUTF8(env, flags));
 }
 
 static void Disconnect(JNIEnv* env, const JavaParamRef<jclass>& clazz) {
@@ -257,25 +254,20 @@ ChromotingJniRuntime::~ChromotingJniRuntime() {
   base::android::DetachFromVM();
 }
 
-void ChromotingJniRuntime::ConnectToHost(const char* username,
-                                  const char* auth_token,
-                                  const char* host_jid,
-                                  const char* host_id,
-                                  const char* host_pubkey,
-                                  const char* pairing_id,
-                                  const char* pairing_secret,
-                                  const char* capabilities) {
+void ChromotingJniRuntime::ConnectToHost(const std::string& username,
+                                         const std::string& auth_token,
+                                         const std::string& host_jid,
+                                         const std::string& host_id,
+                                         const std::string& host_pubkey,
+                                         const std::string& pairing_id,
+                                         const std::string& pairing_secret,
+                                         const std::string& capabilities,
+                                         const std::string& flags) {
   DCHECK(ui_task_runner_->BelongsToCurrentThread());
   DCHECK(!session_.get());
-  session_ = new ChromotingJniInstance(this,
-                                       username,
-                                       auth_token,
-                                       host_jid,
-                                       host_id,
-                                       host_pubkey,
-                                       pairing_id,
-                                       pairing_secret,
-                                       capabilities);
+  session_ = new ChromotingJniInstance(this, username, auth_token, host_jid,
+                                       host_id, host_pubkey, pairing_id,
+                                       pairing_secret, capabilities, flags);
 }
 
 void ChromotingJniRuntime::DisconnectFromHost() {

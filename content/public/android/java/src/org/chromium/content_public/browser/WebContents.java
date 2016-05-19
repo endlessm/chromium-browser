@@ -4,8 +4,11 @@
 
 package org.chromium.content_public.browser;
 
+import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.os.Parcelable;
 
+import org.chromium.base.ObserverList;
 import org.chromium.base.VisibleForTesting;
 
 /**
@@ -121,9 +124,18 @@ public interface WebContents extends Parcelable {
     void onShow();
 
     /**
-     * Stops all media players for this WebContents.
+     * Suspends all media players for this WebContents.  Note: There may still
+     * be activities generating audio, so setAudioMuted() should also be called
+     * to ensure all audible activity is silenced.
      */
-    void releaseMediaPlayers();
+    void suspendAllMediaPlayers();
+
+    /**
+     * Sets whether all audio output from this WebContents is muted.
+     *
+     * @param mute Set to true to mute the WebContents, false to unmute.
+     */
+    void setAudioMuted(boolean mute);
 
     /**
      * Get the Background color from underlying RenderWidgetHost for this WebContent.
@@ -321,8 +333,33 @@ public interface WebContents extends Parcelable {
     void removeObserver(WebContentsObserver observer);
 
     /**
+     * @return The list of observers.
+     */
+    @VisibleForTesting
+    ObserverList.RewindableIterator<WebContentsObserver> getObserversForTesting();
+
+    /**
+     * Called when context menu gets opened.
+     */
+    void onContextMenuOpened();
+
+    /**
+     * Called when context menu gets closed. Note that closing context menu that is
+     * not triggered by WebContents will still call this. However, it will have no effect
+     * if onContextMenuOpened() isn't called in advance.
+     */
+    void onContextMenuClosed();
+
+    /**
      * @return The character encoding for the current visible page.
      */
     @VisibleForTesting
     String getEncoding();
+
+    public void getContentBitmapAsync(Bitmap.Config config, float scale, Rect srcRect,
+            ContentBitmapCallback callback);
+    /**
+     * Reloads all the Lo-Fi images in this WebContents.
+     */
+    public void reloadLoFiImages();
 }

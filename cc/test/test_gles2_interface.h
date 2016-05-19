@@ -137,8 +137,11 @@ class TestGLES2Interface : public gpu::gles2::GLES2InterfaceStub {
                   const void* data,
                   GLenum usage) override;
 
-  GLuint InsertSyncPointCHROMIUM() override;
-
+  GLuint64 InsertFenceSyncCHROMIUM() override;
+  void GenSyncTokenCHROMIUM(GLuint64 fence_sync, GLbyte* sync_token) override;
+  void GenUnverifiedSyncTokenCHROMIUM(GLuint64 fence_sync,
+                                      GLbyte* sync_token) override;
+  void VerifySyncTokensCHROMIUM(GLbyte** sync_tokens, GLsizei count) override;
   void WaitSyncTokenCHROMIUM(const GLbyte* sync_token) override;
 
   void BeginQueryEXT(GLenum target, GLuint id) override;
@@ -157,7 +160,10 @@ class TestGLES2Interface : public gpu::gles2::GLES2InterfaceStub {
   GLuint CreateAndConsumeTextureCHROMIUM(GLenum target,
                                          const GLbyte* mailbox) override;
 
-  void ResizeCHROMIUM(GLuint width, GLuint height, float device_scale) override;
+  void ResizeCHROMIUM(GLuint width,
+                      GLuint height,
+                      float device_scale,
+                      GLboolean has_alpha) override;
   void LoseContextCHROMIUM(GLenum current, GLenum other) override;
   GLenum GetGraphicsResetStatusKHR() override;
 

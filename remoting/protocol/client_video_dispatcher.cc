@@ -4,11 +4,15 @@
 
 #include "remoting/protocol/client_video_dispatcher.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "net/socket/stream_socket.h"
+#include "remoting/base/compound_buffer.h"
 #include "remoting/base/constants.h"
 #include "remoting/proto/video.pb.h"
+#include "remoting/protocol/message_pipe.h"
 #include "remoting/protocol/message_serialization.h"
 #include "remoting/protocol/video_stub.h"
 
@@ -26,24 +30,21 @@ struct ClientVideoDispatcher::PendingFrame {
 ClientVideoDispatcher::ClientVideoDispatcher(VideoStub* video_stub)
     : ChannelDispatcherBase(kVideoChannelName),
       video_stub_(video_stub),
-      parser_(base::Bind(&ClientVideoDispatcher::ProcessVideoPacket,
-                         base::Unretained(this)),
-              reader()),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
+ClientVideoDispatcher::~ClientVideoDispatcher() {}
 
-ClientVideoDispatcher::~ClientVideoDispatcher() {
-}
-
-void ClientVideoDispatcher::ProcessVideoPacket(
-    scoped_ptr<VideoPacket> video_packet,
-    const base::Closure& done) {
-  base::ScopedClosureRunner done_runner(done);
+void ClientVideoDispatcher::OnIncomingMessage(
+    scoped_ptr<CompoundBuffer> message) {
+  scoped_ptr<VideoPacket> video_packet =
+      ParseMessage<VideoPacket>(message.get());
+  if (!video_packet)
+    return;
 
   int frame_id = video_packet->frame_id();
 
   if (!video_packet->has_frame_id()) {
-    video_stub_->ProcessVideoPacket(video_packet.Pass(), done_runner.Release());
+    video_stub_->ProcessVideoPacket(std::move(video_packet),
+                                    base::Bind(&base::DoNothing));
     return;
   }
 
@@ -51,7 +52,7 @@ void ClientVideoDispatcher::ProcessVideoPacket(
       pending_frames_.insert(pending_frames_.end(), PendingFrame(frame_id));
 
   video_stub_->ProcessVideoPacket(
-      video_packet.Pass(),
+      std::move(video_packet),
       base::Bind(&ClientVideoDispatcher::OnPacketDone,
                  weak_factory_.GetWeakPtr(), pending_frame));
 }
@@ -67,7 +68,7 @@ void ClientVideoDispatcher::OnPacketDone(
   while (!pending_frames_.empty() && pending_frames_.front().done) {
     VideoAck ack_message;
     ack_message.set_frame_id(pending_frames_.front().frame_id);
-    writer()->Write(SerializeAndFrameMessage(ack_message), base::Closure());
+    message_pipe()->Send(&ack_message, base::Closure());
     pending_frames_.pop_front();
   }
 }

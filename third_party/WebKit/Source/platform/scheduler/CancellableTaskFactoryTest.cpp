@@ -2,16 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/scheduler/CancellableTaskFactory.h"
 
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
 namespace {
 
-class TestCancellableTaskFactory : public CancellableTaskFactory {
+class TestCancellableTaskFactory final : public CancellableTaskFactory {
 public:
     explicit TestCancellableTaskFactory(PassOwnPtr<Closure> closure)
         : CancellableTaskFactory(closure)

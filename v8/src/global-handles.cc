@@ -78,6 +78,7 @@ class GlobalHandles::Node {
 #endif
 
   void Initialize(int index, Node** first_free) {
+    object_ = reinterpret_cast<Object*>(kGlobalHandleZapValue);
     index_ = static_cast<uint8_t>(index);
     DCHECK(static_cast<int>(index_) == index);
     set_state(FREE);
@@ -250,9 +251,9 @@ class GlobalHandles::Node {
   }
 
   void MakeWeak(void* parameter, WeakCallback weak_callback) {
-    DCHECK(weak_callback != NULL);
+    DCHECK(weak_callback != nullptr);
     DCHECK(IsInUse());
-    CHECK(object_ != NULL);
+    CHECK_NE(object_, reinterpret_cast<Object*>(kGlobalHandleZapValue));
     set_state(WEAK);
     set_weakness_type(NORMAL_WEAK);
     set_parameter(parameter);
@@ -264,7 +265,7 @@ class GlobalHandles::Node {
                 v8::WeakCallbackType type) {
     DCHECK(phantom_callback != nullptr);
     DCHECK(IsInUse());
-    CHECK(object_ != nullptr);
+    CHECK_NE(object_, reinterpret_cast<Object*>(kGlobalHandleZapValue));
     set_state(WEAK);
     switch (type) {
       case v8::WeakCallbackType::kParameter:
@@ -533,10 +534,10 @@ class GlobalHandles::PendingPhantomCallbacksSecondPassTask
   }
 
   void RunInternal() override {
-    isolate_->heap()->CallGCPrologueCallbacks(
+    isolate()->heap()->CallGCPrologueCallbacks(
         GCType::kGCTypeProcessWeakCallbacks, kNoGCCallbackFlags);
-    InvokeSecondPassPhantomCallbacks(&pending_phantom_callbacks_, isolate_);
-    isolate_->heap()->CallGCEpilogueCallbacks(
+    InvokeSecondPassPhantomCallbacks(&pending_phantom_callbacks_, isolate());
+    isolate()->heap()->CallGCEpilogueCallbacks(
         GCType::kGCTypeProcessWeakCallbacks, kNoGCCallbackFlags);
   }
 
@@ -816,8 +817,6 @@ void GlobalHandles::InvokeSecondPassPhantomCallbacks(
   while (callbacks->length() != 0) {
     auto callback = callbacks->RemoveLast();
     DCHECK(callback.node() == nullptr);
-    // No second pass callback required.
-    if (callback.callback() == nullptr) continue;
     // Fire second pass callback
     callback.Invoke(isolate);
   }
@@ -923,6 +922,7 @@ void GlobalHandles::UpdateListOfNewSpaceNodes() {
 int GlobalHandles::DispatchPendingPhantomCallbacks(
     bool synchronous_second_pass) {
   int freed_nodes = 0;
+  List<PendingPhantomCallback> second_pass_callbacks;
   {
     // The initial pass callbacks must simply clear the nodes.
     for (auto i = pending_phantom_callbacks_.begin();
@@ -931,24 +931,25 @@ int GlobalHandles::DispatchPendingPhantomCallbacks(
       // Skip callbacks that have already been processed once.
       if (callback->node() == nullptr) continue;
       callback->Invoke(isolate());
+      if (callback->callback()) second_pass_callbacks.Add(*callback);
       freed_nodes++;
     }
   }
-  if (pending_phantom_callbacks_.length() > 0) {
+  pending_phantom_callbacks_.Clear();
+  if (second_pass_callbacks.length() > 0) {
     if (FLAG_optimize_for_size || FLAG_predictable || synchronous_second_pass) {
       isolate()->heap()->CallGCPrologueCallbacks(
           GCType::kGCTypeProcessWeakCallbacks, kNoGCCallbackFlags);
-      InvokeSecondPassPhantomCallbacks(&pending_phantom_callbacks_, isolate());
+      InvokeSecondPassPhantomCallbacks(&second_pass_callbacks, isolate());
       isolate()->heap()->CallGCEpilogueCallbacks(
           GCType::kGCTypeProcessWeakCallbacks, kNoGCCallbackFlags);
     } else {
       auto task = new PendingPhantomCallbacksSecondPassTask(
-          &pending_phantom_callbacks_, isolate());
+          &second_pass_callbacks, isolate());
       V8::GetCurrentPlatform()->CallOnForegroundThread(
           reinterpret_cast<v8::Isolate*>(isolate()), task);
     }
   }
-  pending_phantom_callbacks_.Clear();
   return freed_nodes;
 }
 
@@ -983,7 +984,7 @@ int GlobalHandles::PostGarbageCollectionProcessing(
   int freed_nodes = 0;
   bool synchronous_second_pass =
       (gc_callback_flags &
-       (kGCCallbackFlagForced |
+       (kGCCallbackFlagForced | kGCCallbackFlagCollectAllAvailableGarbage |
         kGCCallbackFlagSynchronousPhantomCallbackProcessing)) != 0;
   freed_nodes += DispatchPendingPhantomCallbacks(synchronous_second_pass);
   if (initial_post_gc_processing_count != post_gc_processing_count_) {

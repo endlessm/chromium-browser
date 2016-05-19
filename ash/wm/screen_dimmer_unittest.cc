@@ -8,7 +8,6 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/dim_window.h"
-#include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 //#include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/test/test_windows.h"
@@ -64,7 +63,13 @@ TEST_F(ScreenDimmerTest, DimAndUndim) {
   ASSERT_EQ(nullptr, GetDimWindowLayer());
 }
 
-TEST_F(ScreenDimmerTest, ResizeLayer) {
+#if defined(OS_WIN) && !defined(USE_ASH)
+// TODO(msw): Times out on Windows. http://crbug.com/584038
+#define MAYBE_ResizeLayer DISABLED_ResizeLayer
+#else
+#define MAYBE_ResizeLayer ResizeLayer
+#endif
+TEST_F(ScreenDimmerTest, MAYBE_ResizeLayer) {
   // The dimming layer should be initially sized to cover the root window.
   dimmer_->SetDimming(true);
   ui::Layer* dimming_layer = GetDimWindowLayer();

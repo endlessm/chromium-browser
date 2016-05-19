@@ -4,6 +4,7 @@
 
 #include "chrome/browser/media/router/media_router_metrics.h"
 
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 
 namespace media_router {
@@ -11,8 +12,45 @@ namespace media_router {
 // static
 void MediaRouterMetrics::RecordMediaRouterDialogOrigin(
     MediaRouterDialogOpenOrigin origin) {
-  UMA_HISTOGRAM_ENUMERATION("MediaRouter.Icon.Click.Location",
-                            origin, media_router::TOTAL_COUNT);
+  DCHECK_NE(static_cast<int>(origin),
+            static_cast<int>(MediaRouterDialogOpenOrigin::TOTAL_COUNT));
+  UMA_HISTOGRAM_ENUMERATION(
+      "MediaRouter.Icon.Click.Location", static_cast<int>(origin),
+      static_cast<int>(MediaRouterDialogOpenOrigin::TOTAL_COUNT));
+}
+
+// static
+void MediaRouterMetrics::RecordMediaRouteProviderWakeReason(
+    MediaRouteProviderWakeReason reason) {
+  DCHECK_NE(static_cast<int>(reason),
+            static_cast<int>(MediaRouteProviderWakeReason::TOTAL_COUNT));
+  UMA_HISTOGRAM_ENUMERATION(
+      "MediaRouter.Provider.WakeReason", static_cast<int>(reason),
+      static_cast<int>(MediaRouteProviderWakeReason::TOTAL_COUNT));
+}
+
+// static
+void MediaRouterMetrics::RecordMediaRouterDialogPaint(
+    const base::TimeDelta delta) {
+  UMA_HISTOGRAM_TIMES("MediaRouter.Ui.Dialog.Paint",
+                      delta);
+}
+
+// static
+void MediaRouterMetrics::RecordMediaRouterDialogLoaded(
+    const base::TimeDelta delta) {
+  UMA_HISTOGRAM_TIMES("MediaRouter.Ui.Dialog.LoadedWithData",
+                      delta);
+}
+
+// static
+void MediaRouterMetrics::RecordMediaRouterInitialUserAction(
+    MediaRouterUserAction action) {
+  DCHECK_NE(static_cast<int>(action),
+            static_cast<int>(MediaRouterUserAction::TOTAL_COUNT));
+  UMA_HISTOGRAM_ENUMERATION(
+      "MediaRouter.Ui.FirstAction", static_cast<int>(action),
+      static_cast<int>(MediaRouterUserAction::TOTAL_COUNT));
 }
 
 }  // namespace media_router

@@ -6,17 +6,19 @@
 #define ASH_SHELF_OVERFLOW_BUTTON_H_
 
 #include "ash/shelf/shelf_types.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/controls/button/custom_button.h"
 
 namespace ash {
 
+class ShelfLayoutManager;
+
 // Shelf overflow chevron button.
 class OverflowButton : public views::CustomButton {
  public:
-  explicit OverflowButton(views::ButtonListener* listener);
+  OverflowButton(views::ButtonListener* listener, ShelfLayoutManager* shelf);
   ~OverflowButton() override;
 
   void OnShelfAlignmentChanged();
@@ -33,6 +35,7 @@ class OverflowButton : public views::CustomButton {
   gfx::ImageSkia right_image_;
   // Bottom image is owned by the resource bundle.
   const gfx::ImageSkia* bottom_image_;
+  ShelfLayoutManager* shelf_;
 
   DISALLOW_COPY_AND_ASSIGN(OverflowButton);
 };

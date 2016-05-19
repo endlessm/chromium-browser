@@ -4,7 +4,9 @@
 
 #include "chrome/browser/ui/views/website_settings/permissions_bubble_view.h"
 
-#include "base/prefs/pref_service.h"
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -18,7 +20,9 @@
 #include "chrome/browser/ui/website_settings/permission_bubble_request.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "components/url_formatter/elide_url.h"
+#include "grit/components_strings.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/combobox_model.h"
@@ -40,12 +44,9 @@
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/layout/layout_constants.h"
 
 namespace {
-
-// Spacing constant for outer margin. This is added to the
-// bubble margin itself to equalize the margins at 13px.
-const int kBubbleOuterMargin = 5;
 
 // Spacing between major items should be 9px.
 const int kItemMajorSpacing = 9;
@@ -55,9 +56,6 @@ const int kButtonBorderSize = 2;
 
 // (Square) pixel size of icon.
 const int kIconSize = 18;
-
-// Number of pixels to indent the permission request labels.
-const int kPermissionIndentSpacing = 12;
 
 }  // namespace
 
@@ -85,7 +83,9 @@ class PermissionCombobox : public views::MenuButton,
   void GetAccessibleState(ui::AXViewState* state) override;
 
   // MenuButtonListener:
-  void OnMenuButtonClicked(View* source, const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
   // Callback when a permission's setting is changed.
   void PermissionChanged(const WebsiteSettingsUI::PermissionInfo& permission);
@@ -101,7 +101,7 @@ PermissionCombobox::PermissionCombobox(Listener* listener,
                                        int index,
                                        const GURL& url,
                                        ContentSetting setting)
-    : MenuButton(nullptr, base::string16(), this, true),
+    : MenuButton(base::string16(), this, true),
       index_(index),
       listener_(listener),
       model_(new PermissionMenuModel(
@@ -120,8 +120,9 @@ void PermissionCombobox::GetAccessibleState(ui::AXViewState* state) {
   state->value = GetText();
 }
 
-void PermissionCombobox::OnMenuButtonClicked(View* source,
-                                             const gfx::Point& point) {
+void PermissionCombobox::OnMenuButtonClicked(views::MenuButton* source,
+                                             const gfx::Point& point,
+                                             const ui::Event* event) {
   menu_runner_.reset(
       new views::MenuRunner(model_.get(), views::MenuRunner::HAS_MNEMONICS));
 
@@ -170,6 +171,7 @@ class PermissionsBubbleDelegateView : public views::BubbleDelegateView,
   const gfx::FontList& GetTitleFontList() const override;
   base::string16 GetWindowTitle() const override;
   void OnWidgetDestroying(views::Widget* widget) override;
+  gfx::Size GetPreferredSize() const override;
   void GetAccessibleState(ui::AXViewState* state) override;
 
   // ButtonListener:
@@ -187,7 +189,7 @@ class PermissionsBubbleDelegateView : public views::BubbleDelegateView,
   PermissionBubbleViewViews* owner_;
   views::Button* allow_;
   views::Button* deny_;
-  base::string16 hostname_;
+  base::string16 display_origin_;
   scoped_ptr<PermissionMenuModel> menu_button_model_;
   std::vector<PermissionCombobox*> customize_comboboxes_;
 
@@ -207,16 +209,14 @@ PermissionsBubbleDelegateView::PermissionsBubbleDelegateView(
       deny_(nullptr) {
   DCHECK(!requests.empty());
 
-  RemoveAllChildViews(true);
-  customize_comboboxes_.clear();
   set_close_on_esc(true);
   set_close_on_deactivate(false);
 
-  SetLayoutManager(new views::BoxLayout(
-      views::BoxLayout::kVertical, kBubbleOuterMargin, 0, kItemMajorSpacing));
+  SetLayoutManager(new views::BoxLayout(views::BoxLayout::kVertical, 0, 0,
+                                        kItemMajorSpacing));
 
-  hostname_ = url_formatter::FormatUrlForSecurityDisplay(
-      requests[0]->GetRequestingHostname(), languages);
+  display_origin_ = url_formatter::FormatUrlForSecurityDisplay(
+      requests[0]->GetOrigin(), languages);
 
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   for (size_t index = 0; index < requests.size(); index++) {
@@ -235,10 +235,9 @@ PermissionsBubbleDelegateView::PermissionsBubbleDelegateView(
     row_layout->StartRow(0, 0);
 
     views::View* label_container = new views::View();
-    label_container->SetLayoutManager(
-        new views::BoxLayout(views::BoxLayout::kHorizontal,
-                             kPermissionIndentSpacing,
-                             0, kBubbleOuterMargin));
+    label_container->SetLayoutManager(new views::BoxLayout(
+        views::BoxLayout::kHorizontal, views::kCheckboxIndent, 0,
+        views::kItemLabelSpacing));
     views::ImageView* icon = new views::ImageView();
     gfx::VectorIconId vector_id = requests[index]->GetVectorIconId();
     if (vector_id != gfx::VectorIconId::VECTOR_ICON_NONE) {
@@ -258,9 +257,7 @@ PermissionsBubbleDelegateView::PermissionsBubbleDelegateView(
 
     if (requests.size() > 1) {
       PermissionCombobox* combobox = new PermissionCombobox(
-          this,
-          index,
-          requests[index]->GetRequestingHostname(),
+          this, index, requests[index]->GetOrigin(),
           accept_state[index] ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK);
       row_layout->AddView(combobox);
       customize_comboboxes_.push_back(combobox);
@@ -287,8 +284,6 @@ PermissionsBubbleDelegateView::PermissionsBubbleDelegateView(
     ok_button->SetStyle(views::Button::STYLE_BUTTON);
     button_layout->AddView(ok_button);
     allow_ = ok_button;
-
-    button_layout->AddPaddingRow(0, kBubbleOuterMargin);
     return;
   }
 
@@ -311,8 +306,6 @@ PermissionsBubbleDelegateView::PermissionsBubbleDelegateView(
   deny_button->SetStyle(views::Button::STYLE_BUTTON);
   button_layout->AddView(deny_button);
   deny_ = deny_button;
-
-  button_layout->AddPaddingRow(0, kBubbleOuterMargin);
 }
 
 PermissionsBubbleDelegateView::~PermissionsBubbleDelegateView() {
@@ -340,7 +333,7 @@ const gfx::FontList& PermissionsBubbleDelegateView::GetTitleFontList() const {
 
 base::string16 PermissionsBubbleDelegateView::GetWindowTitle() const {
   return l10n_util::GetStringFUTF16(IDS_PERMISSIONS_BUBBLE_PROMPT,
-                                    hostname_);
+                                    display_origin_);
 }
 
 void PermissionsBubbleDelegateView::SizeToContents() {
@@ -353,6 +346,12 @@ void PermissionsBubbleDelegateView::OnWidgetDestroying(views::Widget* widget) {
     owner_->Closing();
     owner_ = nullptr;
   }
+}
+
+gfx::Size PermissionsBubbleDelegateView::GetPreferredSize() const {
+  // TODO(estade): bubbles should default to this width.
+  const int kWidth = 320 - GetInsets().width();
+  return gfx::Size(kWidth, GetHeightForWidth(kWidth));
 }
 
 void PermissionsBubbleDelegateView::GetAccessibleState(ui::AXViewState* state) {

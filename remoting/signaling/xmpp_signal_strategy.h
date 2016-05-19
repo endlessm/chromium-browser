@@ -8,6 +8,7 @@
 #include "remoting/signaling/signal_strategy.h"
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 
@@ -24,6 +25,7 @@ class XmppSignalStrategy : public SignalStrategy {
   // XMPP Server configuration for XmppSignalStrategy.
   struct XmppServerConfig {
     XmppServerConfig();
+    XmppServerConfig(const XmppServerConfig& other);
     ~XmppServerConfig();
 
     std::string host;

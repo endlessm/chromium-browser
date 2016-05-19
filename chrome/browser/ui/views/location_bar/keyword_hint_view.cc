@@ -4,9 +4,12 @@
 
 #include "chrome/browser/ui/views/location_bar/keyword_hint_view.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
@@ -18,9 +21,10 @@
 #include "components/search_engines/template_url_service.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -39,6 +43,7 @@ class TabKeyBubbleView : public IconLabelBubbleView {
   // IconLabelBubbleView:
   SkColor GetTextColor() const override;
   SkColor GetBorderColor() const override;
+  bool ShouldShowBackground() const override;
 
   SkColor text_color_;
 
@@ -48,7 +53,10 @@ class TabKeyBubbleView : public IconLabelBubbleView {
 TabKeyBubbleView::TabKeyBubbleView(const gfx::FontList& font_list,
                                    SkColor text_color,
                                    SkColor background_color)
-    : IconLabelBubbleView(0, font_list, SK_ColorRED, background_color, false),
+    : IconLabelBubbleView(0,
+                          font_list,
+                          background_color,
+                          false),
       text_color_(text_color) {
   SetLabel(l10n_util::GetStringUTF16(IDS_APP_TAB_KEY));
 }
@@ -61,6 +69,10 @@ SkColor TabKeyBubbleView::GetTextColor() const {
 
 SkColor TabKeyBubbleView::GetBorderColor() const {
   return text_color_;
+}
+
+bool TabKeyBubbleView::ShouldShowBackground() const {
+  return true;
 }
 
 }  // namespace

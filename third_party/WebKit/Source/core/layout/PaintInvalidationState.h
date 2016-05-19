@@ -16,7 +16,17 @@ class LayoutBoxModelObject;
 class LayoutObject;
 class LayoutSVGModelObject;
 class LayoutView;
+class PaintLayer;
 
+// PaintInvalidationState is an optimization used during the paint
+// invalidation phase.
+//
+// This class is extremely close to LayoutState so see the documentation
+// of LayoutState for the class existence and performance benefits.
+//
+// The main difference with LayoutState is that it was customized for the
+// needs of the paint invalidation systems (keeping visual rectangles
+// instead of layout specific information).
 class PaintInvalidationState {
     DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     WTF_MAKE_NONCOPYABLE(PaintInvalidationState);
@@ -31,7 +41,7 @@ public:
 
     const LayoutRect& clipRect() const { return m_clipRect; }
     const LayoutSize& paintOffset() const { return m_paintOffset; }
-    const AffineTransform& svgTransform() const { ASSERT(m_svgTransform); return *m_svgTransform; }
+    const AffineTransform& svgTransform() const { return m_svgTransform; }
 
     bool cachedOffsetsEnabled() const { return m_cachedOffsetsEnabled; }
     bool isClipped() const { return m_clipped; }
@@ -53,6 +63,13 @@ public:
     void pushDelayedPaintInvalidationTarget(LayoutObject& obj) { m_pendingDelayedPaintInvalidations.append(&obj); }
     Vector<LayoutObject*>& pendingDelayedPaintInvalidationTargets() { return m_pendingDelayedPaintInvalidations; }
 
+    // Disable view clipping and scroll offset adjustment for paint invalidation of FrameView scrollbars.
+    // TODO(wangxianzhu): Remove this when root-layer-scrolls launches.
+    bool viewClippingAndScrollOffsetDisabled() const { return m_viewClippingAndScrollOffsetDisabled; }
+    void setViewClippingAndScrollOffsetDisabled(bool b) { m_viewClippingAndScrollOffsetDisabled = b; }
+
+    PaintLayer& enclosingSelfPaintingLayer(const LayoutObject&) const;
+
 private:
     PaintInvalidationState(const LayoutView&, Vector<LayoutObject*>& pendingDelayedPaintInvalidations, PaintInvalidationState* ownerPaintInvalidationState);
 
@@ -65,20 +82,26 @@ private:
     mutable bool m_cachedOffsetsEnabled;
     bool m_forcedSubtreeInvalidationWithinContainer;
     bool m_forcedSubtreeInvalidationRectUpdateWithinContainer;
+    bool m_viewClippingAndScrollOffsetDisabled;
 
     LayoutRect m_clipRect;
 
     // x/y offset from paint invalidation container. Includes relative positioning and scroll offsets.
     LayoutSize m_paintOffset;
 
+    // The current paint invalidation container.
+    //
+    // It is the enclosing composited object.
     const LayoutBoxModelObject& m_paintInvalidationContainer;
 
     // Transform from the initial viewport coordinate system of an outermost
     // SVG root to the userspace _before_ the relevant element. Combining this
     // with |m_paintOffset| yields the "final" offset.
-    OwnPtr<AffineTransform> m_svgTransform;
+    AffineTransform m_svgTransform;
 
     Vector<LayoutObject*>& m_pendingDelayedPaintInvalidations;
+
+    PaintLayer& m_enclosingSelfPaintingLayer;
 };
 
 } // namespace blink

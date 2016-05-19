@@ -323,8 +323,23 @@ void TestGLES2Interface::BufferData(GLenum target,
   test_context_->bufferData(target, size, data, usage);
 }
 
-GLuint TestGLES2Interface::InsertSyncPointCHROMIUM() {
-  return test_context_->insertSyncPoint();
+GLuint64 TestGLES2Interface::InsertFenceSyncCHROMIUM() {
+  return test_context_->insertFenceSync();
+}
+
+void TestGLES2Interface::GenSyncTokenCHROMIUM(GLuint64 fence_sync,
+                                              GLbyte* sync_token) {
+  test_context_->genSyncToken(fence_sync, sync_token);
+}
+
+void TestGLES2Interface::GenUnverifiedSyncTokenCHROMIUM(GLuint64 fence_sync,
+                                                        GLbyte* sync_token) {
+  test_context_->genSyncToken(fence_sync, sync_token);
+}
+
+void TestGLES2Interface::VerifySyncTokensCHROMIUM(GLbyte** sync_tokens,
+                                                  GLsizei count) {
+  test_context_->verifySyncTokens(sync_tokens, count);
 }
 
 void TestGLES2Interface::WaitSyncTokenCHROMIUM(const GLbyte* sync_token) {
@@ -379,7 +394,8 @@ GLuint TestGLES2Interface::CreateAndConsumeTextureCHROMIUM(
 
 void TestGLES2Interface::ResizeCHROMIUM(GLuint width,
                                         GLuint height,
-                                        float device_scale) {
+                                        float device_scale,
+                                        GLboolean has_alpha) {
   test_context_->reshapeWithScaleFactor(width, height, device_scale);
 }
 

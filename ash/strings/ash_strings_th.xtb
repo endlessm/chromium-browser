@@ -1,13 +1,16 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="th">
+<translation id="1012876632442809908">อุปกรณ์ USB-C (พอร์ตด้านหน้า)</translation>
 <translation id="1013923882670373915">อุปกรณ์บลูทูธ "<ph name="DEVICE_NAME" />" ต้องการสิทธิ์ในการจับคู่ โปรดป้อนรหัส PIN นี้บนอุปกรณ์นั้น: <ph name="PINCODE" /></translation>
 <translation id="1021311941847921177">มีการเปลี่ยนแปลงทางลัดที่ใช้สลับไปยังวิธีการป้อนข้อมูลถัดไป โปรดใช้ <ph name="NEW_SHORTCUT" /> แทน <ph name="OLD_SHORTCUT" /></translation>
 <translation id="112308213915226829">ซ่อนชั้นวางโดยอัตโนมัติ</translation>
 <translation id="1195412055398077112">โอเวอร์สแกน</translation>
+<translation id="1252999807265626933">กำลังชาร์จจาก<ph name="POWER_SOURCE" /></translation>
 <translation id="1270290102613614947">ปิดใช้แป้นพิมพ์บนหน้าจออยู่</translation>
 <translation id="1272079795634619415">หยุด</translation>
 <translation id="1279938420744323401"><ph name="DISPLAY_NAME" /> (<ph name="ANNOTATION" />)</translation>
+<translation id="1293264513303784526">อุปกรณ์ USB-C (พอร์ตด้านซ้าย)</translation>
 <translation id="1330145147221172764">เปิดใช้แป้นพิมพ์บนหน้าจอ</translation>
 <translation id="1343000272198685031">ช่องเสียบไมโครโฟน</translation>
 <translation id="1346748346194534595">ขวา</translation>
@@ -18,6 +21,7 @@
 <translation id="1484102317210609525"><ph name="DEVICE_NAME" /> (HDMI/DP)</translation>
 <translation id="1510238584712386396">ตัวเรียกใช้งาน</translation>
 <translation id="15373452373711364">เคอร์เซอร์เมาส์ขนาดใหญ่</translation>
+<translation id="1550523713251050646">คลิกเพื่อดูตัวเลือกเพิ่มเติม</translation>
 <translation id="1602076796624386989">เปิดใช้งานข้อมูลมือถือ</translation>
 <translation id="1621499497873603021">เวลาที่เหลือกว่าแบตเตอรี่จะหมด, <ph name="TIME_LEFT" /></translation>
 <translation id="164969095109328410">อุปกรณ์ Chrome</translation>
@@ -25,13 +29,13 @@
 <translation id="1747827819627189109">เปิดใช้แป้นพิมพ์บนหน้าจออยู่</translation>
 <translation id="1812696562331527143">วิธีการป้อนข้อมูลของคุณเปลี่ยนแปลงเป็น <ph name="INPUT_METHOD_ID" />* (<ph name="BEGIN_LINK" />บุคคลที่สาม<ph name="END_LINK" />)
 กด Shift + Alt เพื่อสลับ</translation>
+<translation id="1864454756846565995">อุปกรณ์ USB-C (พอร์ตด้านหลัง)</translation>
 <translation id="1882897271359938046">กำลังแสดงผลไปที่ <ph name="DISPLAY_NAME" /></translation>
 <translation id="1919743966458266018">มีการเปลี่ยนแปลงทางลัดที่ใช้เปิดตัวจัดการงาน โปรดใช้ <ph name="NEW_SHORTCUT" /> แทน <ph name="OLD_SHORTCUT" /></translation>
 <translation id="1923539912171292317">การคลิกอัตโนมัติ</translation>
 <translation id="1938872420421548906">Shift+Alt</translation>
 <translation id="1957803754585243749">0°</translation>
 <translation id="1969011864782743497"><ph name="DEVICE_NAME" /> (USB)</translation>
-<translation id="1987317783729300807">บัญชี</translation>
 <translation id="2127372758936585790">ที่ชาร์จพลังงานต่ำ</translation>
 <translation id="2204305834655267233">ข้อมูลเครือข่าย</translation>
 <translation id="2208323208084708176">โหมดเดสก์ท็อปแบบรวม</translation>
@@ -48,6 +52,7 @@
 <translation id="252373100621549798">หน้าจอที่ไม่รู้จัก</translation>
 <translation id="2532589005999780174">โหมดคอนทราสต์สูง</translation>
 <translation id="2562916301614567480">เครือข่ายส่วนบุคคล</translation>
+<translation id="2661637000095600270">ไม่สามารถมิเรอร์การแสดงผลเนื่องจากไม่พบความละเอียดที่สนับสนุน ได้เข้าสู่โหมดเดสก์ท็อปแบบขยายแทนแล้ว คลิกเพื่อส่งรายงานความคิดเห็น</translation>
 <translation id="2692809339924654275"><ph name="BLUETOOTH" />: กำลังเชื่อมต่อ...</translation>
 <translation id="2700058918926273959">เซสชันจะสิ้นสุดใน <ph name="SESSION_TIME_REMAINING" /> ระบบจะให้คุณออกจากระบบ</translation>
 <translation id="2727977024730340865">เสียบอยู่กับที่ชาร์จพลังงานต่ำ การชาร์จแบตเตอรี่อาจไม่น่าเชื่อถือ</translation>
@@ -56,6 +61,7 @@
 <translation id="2805756323405976993">แอป</translation>
 <translation id="2819276065543622893">คุณจะออกจากระบบในตอนนี้</translation>
 <translation id="2825619548187458965">ชั้นวาง</translation>
+<translation id="2844169650293029770">อุปกรณ์ USB-C (พอร์ตด้านหน้าซ้าย)</translation>
 <translation id="2872961005593481000">ปิด</translation>
 <translation id="2942516765047364088">ตำแหน่งของชั้นวาง</translation>
 <translation id="2946640296642327832">เปิดใช้งานบลูทูธ</translation>
@@ -75,7 +81,8 @@
 <translation id="3147142846278915599">Launcher (กำลังซิงค์แอป...)</translation>
 <translation id="3157169093162779309">เปิดใช้ล็อกการหมุน</translation>
 <translation id="3294437725009624529">ผู้มาเยือน</translation>
-<translation id="3433830597744061105">จัดการบัญชี</translation>
+<translation id="3371140690572404006">อุปกรณ์ USB-C (พอร์ตด้านหน้าขวา)</translation>
+<translation id="3445925074670675829">อุปกรณ์ USB-C</translation>
 <translation id="3473479545200714844">แว่นขยายหน้าจอ</translation>
 <translation id="3573179567135747900">เปลี่ยนกลับเป็น "<ph name="FROM_LOCALE" />" (จำเป็นต้องรีสตาร์ต)</translation>
 <translation id="3595596368722241419">แบตเตอรี่เต็ม</translation>
@@ -101,13 +108,12 @@
 <translation id="3963445509666917109">ลำโพง (ภายใน)</translation>
 <translation id="3967919079500697218">ความสามารถในการบันทึกภาพหน้าจอถูกปิดใช้โดยผู้ดูแลระบบ</translation>
 <translation id="397105322502079400">กำลังคำนวณ...</translation>
+<translation id="3995138139523574647">อุปกรณ์ USB-C (พอร์ตด้านหลังขวา)</translation>
 <translation id="4053612967614057854">ปิดใช้แป้นพิมพ์บนหน้าจอ</translation>
-<translation id="4066708417179825777"><ph name="PRIMARY_ACCOUNT" /> (หลัก)</translation>
 <translation id="412065659894267608">อีก <ph name="HOUR" />ชม. <ph name="MINUTE" />นาทีจึงจะเต็ม</translation>
 <translation id="4250680216510889253">ไม่มี</translation>
 <translation id="4279490309300973883">กำลังแสดงผล</translation>
 <translation id="4321179778687042513">ctrl</translation>
-<translation id="4379753398862151997">จอภาพเอ๋ย เราร่วมงานกันไม่ได้ (จอภาพนั้นไม่ได้รับการสนับสนุน)</translation>
 <translation id="4421231901400348175">กำลังแชร์การควบคุมหน้าจอกับ <ph name="HELPER_NAME" /> ผ่านความช่วยเหลือระยะไกล</translation>
 <translation id="4430019312045809116">ระดับเสียง</translation>
 <translation id="4527045527269911712">อุปกรณ์บลูทูธ "<ph name="DEVICE_NAME" />" ต้องการสิทธิ์ในการจับคู่</translation>
@@ -127,6 +133,8 @@
 <translation id="5168181903108465623">เครื่องส่งพร้อมใช้งาน</translation>
 <translation id="5222676887888702881">ออกจากระบบ</translation>
 <translation id="5238774010593222950">ไม่สามารถลงชื่อเข้าใช้บัญชีอื่น</translation>
+<translation id="532063867737390965">การตั้งค่าเครือข่ายนี้ปิดใช้โดยผู้ดูแลระบบ</translation>
+<translation id="5331975486040154427">อุปกรณ์ USB-C (พอร์ตด้านหลังซ้าย)</translation>
 <translation id="544691375626129091">เพิ่มผู้ใช้ที่มีทั้งหมดลงในเซสชันนี้แล้ว</translation>
 <translation id="5507786745520522457">ตั้งค่าข้อมูลมือถือ</translation>
 <translation id="5543001071567407895">SMS</translation>
@@ -153,8 +161,10 @@
 <translation id="6047696787498798094">การแชร์หน้าจอจะหยุดเมื่อคุณสลับไปเป็นผู้ใช้อีกรายหนึ่ง ต้องการดำเนินการต่อไหม</translation>
 <translation id="6062360702481658777">คุณจะออกจากระบบโดยอัตโนมัติใน <ph name="LOGOUT_TIME_LEFT" /></translation>
 <translation id="607652042414456612">ค้นพบคอมพิวเตอร์ของคุณอยู่ใกล้กับอุปกรณ์บลูทูธและจะปรากฏเป็น "<ph name="NAME" />" พร้อมด้วยที่อยู่ <ph name="ADDRESS" /></translation>
+<translation id="6106745654298855237">กำลังชาร์จ<ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">แสดงแป้นพิมพ์บนหน้าจอ</translation>
 <translation id="6165508094623778733">เรียนรู้เพิ่มเติม</translation>
+<translation id="6203030746557259519">หน้าจอเสมือน</translation>
 <translation id="6247708409970142803"><ph name="PERCENTAGE" />%</translation>
 <translation id="6248847161401822652">กด Control Shift Q สองครั้งเพื่อออก</translation>
 <translation id="6310121235600822547"><ph name="DISPLAY_NAME" /> หมุนเวียนเป็น <ph name="ROTATION" /></translation>
@@ -164,6 +174,7 @@
 <translation id="6426039856985689743">ปิดการใช้งานข้อมูลมือถือ</translation>
 <translation id="6452181791372256707">ปฏิเสธ</translation>
 <translation id="6459472438155181876">ขยายหน้าจอไปยัง <ph name="DISPLAY_NAME" /></translation>
+<translation id="6490471652906364588">อุปกรณ์ USB-C (พอร์ตด้านขวา)</translation>
 <translation id="6501401484702599040">กำลังแคสต์หน้าจอไปยัง <ph name="RECEIVER_NAME" /></translation>
 <translation id="6550675742724504774">ตัวเลือก</translation>
 <translation id="6585808820553845416">เซสชันจะสิ้นสุดใน <ph name="SESSION_TIME_REMAINING" /></translation>
@@ -171,10 +182,8 @@
 <translation id="6650933572246256093">อุปกรณ์บลูทูธ "<ph name="DEVICE_NAME" />" ต้องการสิทธิ์ในการจับคู่ โปรดป้อนรหัสผ่านนี้บนอุปกรณ์นั้น: <ph name="PASSKEY" /></translation>
 <translation id="6713285437468012787">อุปกรณ์บลูทูธ "<ph name="DEVICE_NAME" />" ได้รับการจับคู่และขณะนี้พร้อมให้บริการแก่ผู้ใช้ทุกคนแล้ว คุณสามารถลบการจับคู่นี้โดยใช้การตั้งค่า</translation>
 <translation id="6785414152754474415">มีแบตเตอรี่ <ph name="PERCENTAGE" />% และกำลังชาร์จ</translation>
-<translation id="6803622936009808957">ไม่สามารถแสดงผลคู่ขนานได้เนื่องจากไม่พบความละเอียดที่สนับสนุน เข้าสู่เดสก์ท็อปแบบขยายแทน</translation>
 <translation id="683971173229319003">Search+L</translation>
 <translation id="68610848741840742">ChromeVox (การตอบสนองด้วยเสียง)</translation>
-<translation id="6895424601869865703">เพิ่มบัญชีสำหรับ <ph name="GIVEN_NAME" /></translation>
 <translation id="6911468394164995108">เชื่อมต่อเครือข่ายอื่น...</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6979158407327259162">Google ไดรฟ์</translation>
@@ -185,6 +194,7 @@
 <translation id="7052914147756339792">ตั้งค่าวอลเปเปอร์...</translation>
 <translation id="7097613348211027502">เปิดใช้ ChromeVox (การตอบสนองด้วยเสียง) อยู่
 กด Ctrl+Alt+Z เพื่อปิด</translation>
+<translation id="7098389117866926363">อุปกรณ์ USB-C (พอร์ตด้านหลังซ้าย)</translation>
 <translation id="714034171374937760">Chromebase</translation>
 <translation id="7168224885072002358">เปลี่ยนกลับไปเป็นความละเอียดเดิมภายใน <ph name="TIMEOUT_SECONDS" /></translation>
 <translation id="7209101170223508707">CAPS LOCK เปิดอยู่
@@ -198,6 +208,7 @@
 <translation id="7573962313813535744">โหมดเชื่อมต่อแท่นชาร์จ</translation>
 <translation id="7593891976182323525">ค้นหาหรือ Shift</translation>
 <translation id="7649070708921625228">ช่วยเหลือ</translation>
+<translation id="7692480393933218409">กำลังชาร์จอุปกรณ์ USB-C ที่เชื่อมต่ออยู่</translation>
 <translation id="7814236020522506259"><ph name="HOUR" /> กับ <ph name="MINUTE" /></translation>
 <translation id="7823564328645135659">เปลี่ยนภาษาจาก "<ph name="FROM_LOCALE" />" เป็น "<ph name="TO_LOCALE" />" หลังจากซิงค์การตั้งค่าของคุณ</translation>
 <translation id="785750925697875037">ดูบัญชีมือถือ</translation>
@@ -223,7 +234,9 @@
 <translation id="8828714802988429505">90°</translation>
 <translation id="8850991929411075241">Search+Esc</translation>
 <translation id="8878886163241303700">กำลังขยายหน้าจอ</translation>
+<translation id="8938800817013097409">อุปกรณ์ USB-C (พอร์ตด้านหลังขวา)</translation>
 <translation id="8940956008527784070">แบตเตอรี่ต่ำ (<ph name="PERCENTAGE" />%)</translation>
+<translation id="9008540565042607572">จอภาพเอ๋ย เราร่วมงานกันไม่ได้ (ระบบไม่สนับสนุนจอภาพนั้น คลิกเพื่อส่งรายงานความคิดเห็น)</translation>
 <translation id="9074739597929991885">บลูทูธ</translation>
 <translation id="9080206825613744995">ใช้ไมโครโฟนอยู่</translation>
 <translation id="9089416786594320554">วิธีการป้อนข้อมูล</translation>

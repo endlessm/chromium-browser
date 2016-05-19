@@ -2,69 +2,88 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "../../../testing/embedder_test.h"
-#include "../../include/jsapi/fxjs_v8.h"
-#include "core/include/fpdfapi/fpdf_parser.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/base/nonstd_unique_ptr.h"
+#include "testing/js_embedder_test.h"
 
 namespace {
 
-const wchar_t kScript[] = L"fred = 7";
+const double kExpected0 = 6.0;
+const double kExpected1 = 7.0;
+const double kExpected2 = 8.0;
+
+const wchar_t kScript0[] = L"fred = 6";
+const wchar_t kScript1[] = L"fred = 7";
+const wchar_t kScript2[] = L"fred = 8";
 
 }  // namespace
 
-class FXJSV8Embeddertest : public EmbedderTest {
+class FXJSV8EmbedderTest : public JSEmbedderTest {
  public:
-  FXJSV8Embeddertest()
-      : m_pArrayBufferAllocator(new FXJS_ArrayBufferAllocator) {
-    v8::Isolate::CreateParams params;
-    params.array_buffer_allocator = m_pArrayBufferAllocator.get();
-    m_pIsolate = v8::Isolate::New(params);
+  void ExecuteInCurrentContext(const wchar_t* script) {
+    FXJSErr error;
+    int sts = FXJS_Execute(isolate(), nullptr, script, &error);
+    EXPECT_EQ(0, sts);
   }
-
-  ~FXJSV8Embeddertest() override { m_pIsolate->Dispose(); }
-
-  void SetUp() override {
-    EmbedderTest::SetExternalIsolate(m_pIsolate);
-    EmbedderTest::SetUp();
-
-    v8::Isolate::Scope isolate_scope(m_pIsolate);
-    v8::HandleScope handle_scope(m_pIsolate);
-    FXJS_PerIsolateData::SetUp(m_pIsolate);
-    FXJS_InitializeRuntime(m_pIsolate, nullptr, &m_pPersistentContext,
-                           &m_StaticObjects);
+  void CheckAssignmentInCurrentContext(double expected) {
+    v8::Local<v8::Object> This = FXJS_GetThisObj(isolate());
+    v8::Local<v8::Value> fred = FXJS_GetObjectElement(isolate(), This, L"fred");
+    EXPECT_TRUE(fred->IsNumber());
+    EXPECT_EQ(expected, fred->ToNumber(isolate()->GetCurrentContext())
+                            .ToLocalChecked()
+                            ->Value());
   }
-
-  void TearDown() override {
-    FXJS_ReleaseRuntime(m_pIsolate, &m_pPersistentContext, &m_StaticObjects);
-    m_pPersistentContext.Reset();
-    FXJS_Release();
-    EmbedderTest::TearDown();
-  }
-
-  v8::Isolate* isolate() { return m_pIsolate; }
-  v8::Local<v8::Context> GetV8Context() {
-    return m_pPersistentContext.Get(m_pIsolate);
-  }
-
- private:
-  nonstd::unique_ptr<FXJS_ArrayBufferAllocator> m_pArrayBufferAllocator;
-  v8::Isolate* m_pIsolate;
-  v8::Global<v8::Context> m_pPersistentContext;
-  std::vector<v8::Global<v8::Object>*> m_StaticObjects;
 };
 
-TEST_F(FXJSV8Embeddertest, Getters) {
+TEST_F(FXJSV8EmbedderTest, Getters) {
   v8::Isolate::Scope isolate_scope(isolate());
+#ifdef PDF_ENABLE_XFA
+  v8::Locker locker(isolate());
+#endif  // PDF_ENABLE_XFA
   v8::HandleScope handle_scope(isolate());
   v8::Context::Scope context_scope(GetV8Context());
 
-  FXJSErr error;
-  int sts = FXJS_Execute(isolate(), nullptr, kScript, &error);
-  EXPECT_EQ(0, sts);
+  ExecuteInCurrentContext(kScript1);
+  CheckAssignmentInCurrentContext(kExpected1);
+}
 
-  v8::Local<v8::Object> This = FXJS_GetThisObj(isolate());
-  v8::Local<v8::Value> fred = FXJS_GetObjectElement(isolate(), This, L"fred");
-  EXPECT_TRUE(fred->IsNumber());
+TEST_F(FXJSV8EmbedderTest, MultipleRutimes) {
+  v8::Isolate::Scope isolate_scope(isolate());
+#ifdef PDF_ENABLE_XFA
+  v8::Locker locker(isolate());
+#endif  // PDF_ENABLE_XFA
+  v8::HandleScope handle_scope(isolate());
+
+  v8::Global<v8::Context> global_context1;
+  std::vector<v8::Global<v8::Object>*> static_objects1;
+  FXJS_InitializeRuntime(isolate(), nullptr, &global_context1,
+                         &static_objects1);
+
+  v8::Global<v8::Context> global_context2;
+  std::vector<v8::Global<v8::Object>*> static_objects2;
+  FXJS_InitializeRuntime(isolate(), nullptr, &global_context2,
+                         &static_objects2);
+
+  v8::Context::Scope context_scope(GetV8Context());
+  ExecuteInCurrentContext(kScript0);
+  CheckAssignmentInCurrentContext(kExpected0);
+
+  {
+    v8::Local<v8::Context> context1 =
+        v8::Local<v8::Context>::New(isolate(), global_context1);
+    v8::Context::Scope context_scope(context1);
+    ExecuteInCurrentContext(kScript1);
+    CheckAssignmentInCurrentContext(kExpected1);
+  }
+  FXJS_ReleaseRuntime(isolate(), &global_context1, &static_objects1);
+
+  {
+    v8::Local<v8::Context> context2 =
+        v8::Local<v8::Context>::New(isolate(), global_context2);
+    v8::Context::Scope context_scope(context2);
+    ExecuteInCurrentContext(kScript2);
+    CheckAssignmentInCurrentContext(kExpected2);
+  }
+  FXJS_ReleaseRuntime(isolate(), &global_context2, &static_objects2);
+
+  CheckAssignmentInCurrentContext(kExpected0);
 }

@@ -2,20 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "bindings/core/v8/ScriptSourceCode.h"
 
 namespace blink {
 
 ScriptSourceCode::ScriptSourceCode()
-    : m_resource(0)
-    , m_startPosition(TextPosition::minimumPosition())
+    : m_startPosition(TextPosition::minimumPosition())
 {
 }
 
 ScriptSourceCode::ScriptSourceCode(const String& source, const KURL& url, const TextPosition& startPosition)
+    : ScriptSourceCode(CompressibleString(source.impl()), url, startPosition)
+{
+}
+
+ScriptSourceCode::ScriptSourceCode(const CompressibleString& source, const KURL& url, const TextPosition& startPosition)
     : m_source(source)
-    , m_resource(0)
     , m_url(url)
     , m_startPosition(startPosition)
 {
@@ -47,6 +49,7 @@ ScriptSourceCode::~ScriptSourceCode()
 
 DEFINE_TRACE(ScriptSourceCode)
 {
+    visitor->trace(m_resource);
     visitor->trace(m_streamer);
 }
 
@@ -65,10 +68,10 @@ String ScriptSourceCode::sourceMapUrl() const
     if (!m_resource)
         return String();
     const ResourceResponse& response = m_resource->response();
-    String sourceMapUrl = response.httpHeaderField("SourceMap");
+    String sourceMapUrl = response.httpHeaderField(HTTPNames::SourceMap);
     if (sourceMapUrl.isEmpty()) {
         // Try to get deprecated header.
-        sourceMapUrl = response.httpHeaderField("X-SourceMap");
+        sourceMapUrl = response.httpHeaderField(HTTPNames::X_SourceMap);
     }
     return sourceMapUrl;
 }
@@ -83,7 +86,7 @@ void ScriptSourceCode::treatNullSourceAsEmpty()
     // the empty script. Consequently, we need to disambiguate between such null string occurrences.
     // Do that by converting the latter case's null strings into empty ones.
     if (m_source.isNull())
-        m_source = "";
+        m_source = CompressibleString();
 }
 
 } // namespace blink

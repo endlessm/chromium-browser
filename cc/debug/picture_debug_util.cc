@@ -4,6 +4,9 @@
 
 #include "cc/debug/picture_debug_util.h"
 
+#include <stddef.h>
+
+#include <limits>
 #include <vector>
 
 #include "base/base64.h"
@@ -24,9 +27,10 @@ class BitmapSerializer : public SkPixelSerializer {
  protected:
   bool onUseEncodedData(const void* data, size_t len) override { return true; }
 
-  SkData* onEncodePixels(const SkImageInfo& info,
-                         const void* pixels,
-                         size_t row_bytes) override {
+  SkData* onEncode(const SkPixmap& pixmap) override {
+    const SkImageInfo& info = pixmap.info();
+    const void* pixels = pixmap.addr();
+    size_t row_bytes = pixmap.rowBytes();
     const int kJpegQuality = 80;
     std::vector<unsigned char> data;
 

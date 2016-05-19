@@ -5,13 +5,17 @@
 #ifndef CONTENT_COMMON_GPU_IMAGE_TRANSPORT_SURFACE_H_
 #define CONTENT_COMMON_GPU_IMAGE_TRANSPORT_SURFACE_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_message.h"
@@ -22,10 +26,6 @@
 #include "ui/gfx/swap_result.h"
 #include "ui/gl/gl_surface.h"
 
-#if defined(OS_MACOSX)
-struct AcceleratedSurfaceMsg_BufferPresented_Params;
-struct GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params;
-#endif
 
 namespace gfx {
 class GLSurface;
@@ -41,6 +41,10 @@ class GLES2Decoder;
 namespace content {
 class GpuChannelManager;
 class GpuCommandBufferStub;
+#if defined(OS_MACOSX)
+struct BufferPresentedParams;
+struct AcceleratedSurfaceBuffersSwappedParams;
+#endif
 
 // The GPU process is agnostic as to how it displays results. On some platforms
 // it renders directly to window. On others it renders offscreen and transports
@@ -60,8 +64,7 @@ class ImageTransportSurface {
   ImageTransportSurface();
 
 #if defined(OS_MACOSX)
-  virtual void OnBufferPresented(
-      const AcceleratedSurfaceMsg_BufferPresented_Params& params) = 0;
+  virtual void BufferPresented(const BufferPresentedParams& params) = 0;
 #endif
   virtual void SetLatencyInfo(
       const std::vector<ui::LatencyInfo>& latency_info) = 0;
@@ -70,7 +73,8 @@ class ImageTransportSurface {
   static scoped_refptr<gfx::GLSurface> CreateSurface(
       GpuChannelManager* manager,
       GpuCommandBufferStub* stub,
-      const gfx::GLSurfaceHandle& handle);
+      const gfx::GLSurfaceHandle& handle,
+      gfx::GLSurface::Format format);
 
 #if defined(OS_MACOSX)
   CONTENT_EXPORT static void SetAllowOSMesaForTesting(bool allow);
@@ -92,32 +96,30 @@ class ImageTransportSurface {
   static scoped_refptr<gfx::GLSurface> CreateNativeSurface(
       GpuChannelManager* manager,
       GpuCommandBufferStub* stub,
-      const gfx::GLSurfaceHandle& handle);
+      const gfx::GLSurfaceHandle& handle,
+      gfx::GLSurface::Format format);
 
   DISALLOW_COPY_AND_ASSIGN(ImageTransportSurface);
 };
 
 class ImageTransportHelper
-    : public IPC::Listener,
-      public base::SupportsWeakPtr<ImageTransportHelper> {
+    : public base::SupportsWeakPtr<ImageTransportHelper> {
  public:
   // Takes weak pointers to objects that outlive the helper.
   ImageTransportHelper(ImageTransportSurface* surface,
                        GpuChannelManager* manager,
                        GpuCommandBufferStub* stub,
                        gfx::PluginWindowHandle handle);
-  ~ImageTransportHelper() override;
+  ~ImageTransportHelper();
 
-  bool Initialize();
-
-  // IPC::Listener implementation:
-  bool OnMessageReceived(const IPC::Message& message) override;
+  bool Initialize(gfx::GLSurface::Format format);
 
   // Helper send functions. Caller fills in the surface specific params
   // like size and surface id. The helper fills in the rest.
 #if defined(OS_MACOSX)
+  void BufferPresented(const BufferPresentedParams& params);
   void SendAcceleratedSurfaceBuffersSwapped(
-      GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params params);
+      AcceleratedSurfaceBuffersSwappedParams params);
 #endif
 
   // Make the surface's context current.
@@ -132,12 +134,6 @@ class ImageTransportHelper
  private:
   gpu::gles2::GLES2Decoder* Decoder();
 
-  // IPC::Message handlers.
-#if defined(OS_MACOSX)
-  void OnBufferPresented(
-      const AcceleratedSurfaceMsg_BufferPresented_Params& params);
-#endif
-
   // Backbuffer resize callback.
   void Resize(gfx::Size size, float scale_factor);
 
@@ -148,7 +144,7 @@ class ImageTransportHelper
   GpuChannelManager* manager_;
 
   base::WeakPtr<GpuCommandBufferStub> stub_;
-  int32 route_id_;
+  int32_t route_id_;
   gfx::PluginWindowHandle handle_;
 
   DISALLOW_COPY_AND_ASSIGN(ImageTransportHelper);
@@ -165,16 +161,24 @@ class PassThroughImageTransportSurface
                                    gfx::GLSurface* surface);
 
   // GLSurface implementation.
-  bool Initialize() override;
+  bool Initialize(gfx::GLSurface::Format format) override;
   void Destroy() override;
   gfx::SwapResult SwapBuffers() override;
+  void SwapBuffersAsync(const SwapCompletionCallback& callback) override;
   gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
+  void PostSubBufferAsync(int x,
+                          int y,
+                          int width,
+                          int height,
+                          const SwapCompletionCallback& callback) override;
+  gfx::SwapResult CommitOverlayPlanes() override;
+  void CommitOverlayPlanesAsync(
+      const SwapCompletionCallback& callback) override;
   bool OnMakeCurrent(gfx::GLContext* context) override;
 
   // ImageTransportSurface implementation.
 #if defined(OS_MACOSX)
-  void OnBufferPresented(
-      const AcceleratedSurfaceMsg_BufferPresented_Params& params) override;
+  void BufferPresented(const BufferPresentedParams& params) override;
 #endif
   gfx::Size GetSize() override;
   void SetLatencyInfo(
@@ -186,8 +190,14 @@ class PassThroughImageTransportSurface
   // If updated vsync parameters can be determined, send this information to
   // the browser.
   virtual void SendVSyncUpdateIfAvailable();
-  void SwapBuffersCallBack(std::vector<ui::LatencyInfo>* latency_info_ptr,
-                           gfx::SwapResult result);
+
+  scoped_ptr<std::vector<ui::LatencyInfo>> StartSwapBuffers();
+  void FinishSwapBuffers(scoped_ptr<std::vector<ui::LatencyInfo>> latency_info,
+                         gfx::SwapResult result);
+  void FinishSwapBuffersAsync(
+      scoped_ptr<std::vector<ui::LatencyInfo>> latency_info,
+      GLSurface::SwapCompletionCallback callback,
+      gfx::SwapResult result);
 
   ImageTransportHelper* GetHelper() { return helper_.get(); }
 

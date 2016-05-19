@@ -13,6 +13,7 @@
 #include "base/containers/hash_tables.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
@@ -41,7 +42,8 @@ class SafeBrowsingDatabaseFactory {
       bool enable_download_whitelist,
       bool enable_extension_blacklist,
       bool enable_ip_blacklist,
-      bool enable_unwanted_software_list) = 0;
+      bool enable_unwanted_software_list,
+      bool enable_module_whitelist) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingDatabaseFactory);
@@ -72,7 +74,8 @@ class SafeBrowsingDatabase {
       bool enable_download_whitelist,
       bool enable_extension_blacklist,
       bool enable_ip_blacklist,
-      bool enable_unwanted_software_list);
+      bool enable_unwanted_software_list,
+      bool enable_module_whitelist);
 
   // Makes the passed |factory| the factory used to instantiate
   // a SafeBrowsingDatabase. This is used for tests.
@@ -98,6 +101,16 @@ class SafeBrowsingDatabase {
       std::vector<SBPrefix>* prefix_hits,
       std::vector<SBFullHashResult>* cache_hits) = 0;
 
+  // Returns false if none of the hashes in |full_hashes| are in the browse
+  // database or all were already cached as a miss.  If it returns true,
+  // |prefix_hits| contains sorted unique matching hash prefixes which had no
+  // cached results and |cache_hits| contains any matching cached gethash
+  // results.  This function is safe to call from any thread.
+  virtual bool ContainsBrowseHashes(
+      const std::vector<SBFullHash>& full_hashes,
+      std::vector<SBPrefix>* prefix_hits,
+      std::vector<SBFullHashResult>* cache_hits) = 0;
+
   // Returns true iff the given url is on the unwanted software blacklist.
   // Returns false if |url| is not in the browse database or already was cached
   // as a miss.  If it returns true, |prefix_hits| contains sorted unique
@@ -106,6 +119,18 @@ class SafeBrowsingDatabase {
   // call from any thread.
   virtual bool ContainsUnwantedSoftwareUrl(
       const GURL& url,
+      std::vector<SBPrefix>* prefix_hits,
+      std::vector<SBFullHashResult>* cache_hits) = 0;
+
+  // Returns true iff any of the given hashes are on the unwanted software
+  // blacklist.
+  // Returns false if none of the hashes in |full_hashes| are in the browse
+  // database or all were already cached as a miss.  If it returns true,
+  // |prefix_hits| contains sorted unique matching hash prefixes which had no
+  // cached results and |cache_hits| contains any matching cached gethash
+  // results.  This function is safe to call from any thread.
+  virtual bool ContainsUnwantedSoftwareHashes(
+      const std::vector<SBFullHash>& full_hashes,
       std::vector<SBPrefix>* prefix_hits,
       std::vector<SBFullHashResult>* cache_hits) = 0;
 
@@ -135,6 +160,9 @@ class SafeBrowsingDatabase {
   // Returns true if |url| is on the off-domain inclusion whitelist.
   virtual bool ContainsInclusionWhitelistedUrl(const GURL& url) = 0;
 
+  // Returns true if the given module is on the module whitelist.
+  virtual bool ContainsModuleWhitelistedString(const std::string& str) = 0;
+
   // Populates |prefix_hits| with any prefixes in |prefixes| that have matches
   // in the database, returning true if there were any matches.
   //
@@ -146,6 +174,14 @@ class SafeBrowsingDatabase {
   // Returns true iff the given IP is currently on the csd malware IP blacklist.
   // This function is safe to call from any thread.
   virtual bool ContainsMalwareIP(const std::string& ip_address) = 0;
+
+  // Populates |prefix_hits| with any prefixes in |prefixes| that have matches
+  // in the database. Returns true iff there were any matches.
+  //
+  // This function can ONLY by accessed from the creation thread.
+  virtual bool ContainsResourceUrlPrefixes(
+      const std::vector<SBPrefix>& prefixes,
+      std::vector<SBPrefix>* prefix_hits) = 0;
 
   // A database transaction should look like:
   //
@@ -169,8 +205,9 @@ class SafeBrowsingDatabase {
   // UpdateFinished().  If it returns false, the caller MUST NOT call
   // the other functions.
   virtual bool UpdateStarted(std::vector<SBListChunkRanges>* lists) = 0;
-  virtual void InsertChunks(const std::string& list_name,
-                            const std::vector<SBChunkData*>& chunks) = 0;
+  virtual void InsertChunks(
+      const std::string& list_name,
+      const std::vector<scoped_ptr<SBChunkData>>& chunks) = 0;
   virtual void DeleteChunks(
       const std::vector<SBChunkDelete>& chunk_deletes) = 0;
   virtual void UpdateFinished(bool update_succeeded) = 0;
@@ -237,6 +274,13 @@ class SafeBrowsingDatabase {
   static base::FilePath UnwantedSoftwareDBFilename(
       const base::FilePath& db_filename);
 
+  // Filename for the module whitelist database.
+  static base::FilePath ModuleWhitelistDBFilename(
+      const base::FilePath& db_filename);
+
+  static base::FilePath ResourceBlacklistDBFilename(
+      const base::FilePath& db_filename);
+
   // Get the prefixes matching the download |urls|.
   static void GetDownloadUrlPrefixes(const std::vector<GURL>& urls,
                                      std::vector<SBPrefix>* prefixes);
@@ -280,6 +324,10 @@ class SafeBrowsingDatabase {
     FAILURE_UNWANTED_SOFTWARE_PREFIX_SET_READ = 32,
     FAILURE_UNWANTED_SOFTWARE_PREFIX_SET_WRITE = 33,
     FAILURE_UNWANTED_SOFTWARE_PREFIX_SET_DELETE = 34,
+    FAILURE_RESOURCE_BLACKLIST_UPDATE_BEGIN = 35,
+    FAILURE_RESOURCE_BLACKLIST_UPDATE_FINISH = 36,
+    FAILURE_RESOURCE_BLACKLIST_DELETE = 37,
+    FAILURE_MODULE_WHITELIST_DELETE = 38,
 
     // Memory space for histograms is determined by the max.  ALWAYS
     // ADD NEW VALUES BEFORE THIS ONE.
@@ -309,7 +357,9 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
       SafeBrowsingStore* inclusion_whitelist_store,
       SafeBrowsingStore* extension_blacklist_store,
       SafeBrowsingStore* ip_blacklist_store,
-      SafeBrowsingStore* unwanted_software_store);
+      SafeBrowsingStore* unwanted_software_store,
+      SafeBrowsingStore* module_whitelist_store,
+      SafeBrowsingStore* resource_blacklist_store);
 
   ~SafeBrowsingDatabaseNew() override;
 
@@ -319,8 +369,15 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
   bool ContainsBrowseUrl(const GURL& url,
                          std::vector<SBPrefix>* prefix_hits,
                          std::vector<SBFullHashResult>* cache_hits) override;
+  bool ContainsBrowseHashes(const std::vector<SBFullHash>& full_hashes,
+                         std::vector<SBPrefix>* prefix_hits,
+                         std::vector<SBFullHashResult>* cache_hits) override;
   bool ContainsUnwantedSoftwareUrl(
       const GURL& url,
+      std::vector<SBPrefix>* prefix_hits,
+      std::vector<SBFullHashResult>* cache_hits) override;
+  bool ContainsUnwantedSoftwareHashes(
+      const std::vector<SBFullHash>& full_hashes,
       std::vector<SBPrefix>* prefix_hits,
       std::vector<SBFullHashResult>* cache_hits) override;
   bool ContainsDownloadUrlPrefixes(const std::vector<SBPrefix>& prefixes,
@@ -329,12 +386,17 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
   bool ContainsDownloadWhitelistedUrl(const GURL& url) override;
   bool ContainsDownloadWhitelistedString(const std::string& str) override;
   bool ContainsInclusionWhitelistedUrl(const GURL& url) override;
+  bool ContainsModuleWhitelistedString(const std::string& str) override;
   bool ContainsExtensionPrefixes(const std::vector<SBPrefix>& prefixes,
                                  std::vector<SBPrefix>* prefix_hits) override;
   bool ContainsMalwareIP(const std::string& ip_address) override;
+  bool ContainsResourceUrlPrefixes(const std::vector<SBPrefix>& prefixes,
+                                   std::vector<SBPrefix>* prefix_hits) override;
+
   bool UpdateStarted(std::vector<SBListChunkRanges>* lists) override;
-  void InsertChunks(const std::string& list_name,
-                    const std::vector<SBChunkData*>& chunks) override;
+  void InsertChunks(
+      const std::string& list_name,
+      const std::vector<scoped_ptr<SBChunkData>>& chunks) override;
   void DeleteChunks(const std::vector<SBChunkDelete>& chunk_deletes) override;
   void UpdateFinished(bool update_succeeded) override;
   void CacheHashResults(const std::vector<SBPrefix>& prefixes,
@@ -386,6 +448,7 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
       CSD,
       DOWNLOAD,
       INCLUSION,
+      MODULE,
     };
     enum class PrefixSetId {
       BROWSE,
@@ -426,6 +489,7 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
     SBWhitelist csd_whitelist_;
     SBWhitelist download_whitelist_;
     SBWhitelist inclusion_whitelist_;
+    SBWhitelist module_whitelist_;
 
     // The IP blacklist should be small.  At most a couple hundred IPs.
     IPBlacklist ip_blacklist_;
@@ -527,13 +591,6 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
                             PrefixSetId prefix_set_id,
                             std::vector<SBPrefix>* prefix_hits,
                             std::vector<SBFullHashResult>* cache_hits);
-
-  // Exposed for testing of PrefixSetContainsUrlHashes() on the
-  // PrefixSet backing kMalwareList.
-  bool ContainsBrowseUrlHashesForTesting(
-      const std::vector<SBFullHash>& full_hashes,
-      std::vector<SBPrefix>* prefix_hits,
-      std::vector<SBFullHashResult>* cache_hits);
 
   bool PrefixSetContainsUrlHashes(const std::vector<SBFullHash>& full_hashes,
                                   PrefixSetId prefix_set_id,
@@ -656,6 +713,10 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
   //   - |ip_blacklist_store_|: For IP blacklist.
   //   - |unwanted_software_store_|: For unwanted software list (format
   //     identical to browsing lists).
+  //   - |module_whitelist_store_|: For module whitelist. This list only
+  //     contains 256 bit hashes.
+  //   - |resource_blacklist_store_|: For script resource list (format identical
+  //     to browsing lists).
   //
   // The stores themselves will be modified throughout the existence of this
   // database, but shouldn't ever be swapped out (hence the const scoped_ptr --
@@ -670,6 +731,8 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
   const scoped_ptr<SafeBrowsingStore> extension_blacklist_store_;
   const scoped_ptr<SafeBrowsingStore> ip_blacklist_store_;
   const scoped_ptr<SafeBrowsingStore> unwanted_software_store_;
+  const scoped_ptr<SafeBrowsingStore> module_whitelist_store_;
+  const scoped_ptr<SafeBrowsingStore> resource_blacklist_store_;
 
   // Used to schedule resetting the database because of corruption. This factory
   // and the WeakPtrs it issues should only be used on the database's main

@@ -33,6 +33,7 @@
 
 #include "../platform/WebColor.h"
 #include "../platform/WebDisplayMode.h"
+#include "../platform/WebFocusType.h"
 #include "../platform/WebPageVisibilityState.h"
 #include "../platform/WebString.h"
 #include "../platform/WebVector.h"
@@ -50,13 +51,16 @@ class WebCredentialManagerClient;
 class WebDragData;
 class WebFrame;
 class WebHitTestResult;
+class WebLocalFrame;
 class WebPageImportanceSignals;
 class WebPageOverlay;
 class WebPrerendererClient;
+class WebRemoteFrame;
 class WebSettings;
 class WebSpellCheckClient;
 class WebString;
 class WebViewClient;
+class WebViewScheduler;
 struct WebActiveWheelFlingParameters;
 struct WebDeviceEmulationParams;
 struct WebFloatPoint;
@@ -104,21 +108,6 @@ public:
     // encoding may cause the main frame to reload.
     virtual WebString pageEncoding() const = 0;
     virtual void setPageEncoding(const WebString&) = 0;
-
-    // Makes the WebView transparent.  This is useful if you want to have
-    // some custom background rendered behind it.
-    virtual bool isTransparent() const = 0;
-    virtual void setIsTransparent(bool) = 0;
-
-    // Sets the base color used for this WebView's background. This is in effect
-    // the default background color used for pages with no background-color
-    // style in effect, or used as the alpha-blended basis for any pages with
-    // translucent background-color style. (For pages with opaque
-    // background-color style, this property is effectively ignored).
-    // Setting this takes effect for the currently loaded page, if any, and
-    // persists across subsequent navigations. Defaults to white prior to the
-    // first call to this method.
-    virtual void setBaseBackgroundColor(WebColor) = 0;
 
     // Controls whether pressing Tab key advances focus to links.
     virtual bool tabsToLinks() const = 0;
@@ -190,6 +179,11 @@ public:
     // Advance the focus of the WebView forward to the next element or to the
     // previous element in the tab sequence (if reverse is true).
     virtual void advanceFocus(bool reverse) { }
+
+    // Advance the focus from the frame |from| to the next in sequence
+    // (determined by WebFocusType) focusable element in frame |to|. Used when
+    // focus needs to advance to/from a cross-process frame.
+    virtual void advanceFocusAcrossFrames(WebFocusType, WebRemoteFrame* from, WebLocalFrame* to) { }
 
     // Animate a scale into the specified rect where multiple targets were
     // found from previous tap gesture.
@@ -278,9 +272,6 @@ public:
     // Sets the display mode of the web app.
     virtual void setDisplayMode(WebDisplayMode) = 0;
 
-    // The ratio of the current device's screen DPI to the target device's screen DPI.
-    virtual float deviceScaleFactor() const = 0;
-
     // Sets the ratio as computed by computePageScaleConstraints.
     // TODO(oshima): Remove this once the device scale factor implementation is fully
     // migrated to use zooming mechanism.
@@ -292,7 +283,7 @@ public:
 
     // Set and reset the device color profile.
     virtual void setDeviceColorProfile(const WebVector<char>&) = 0;
-    virtual void resetDeviceColorProfile() = 0;
+    virtual void resetDeviceColorProfileForTesting() = 0;
 
     // Auto-Resize -----------------------------------------------------------
 
@@ -391,6 +382,9 @@ public:
     // Shows a context menu for the currently focused element.
     virtual void showContextMenu() = 0;
 
+    // Notify that context menu has been closed.
+    virtual void didCloseContextMenu() = 0;
+
 
     // SmartClip support ---------------------------------------------------
     virtual void extractSmartClipData(WebRect initRect, WebString& text, WebString& html, WebRect& resultRect) = 0;
@@ -412,8 +406,10 @@ public:
     BLINK_EXPORT static void updateVisitedLinkState(unsigned long long hash);
 
     // Tells all WebView instances to update the visited state for all
-    // their links.
-    BLINK_EXPORT static void resetVisitedLinkState();
+    // their links. Use invalidateVisitedLinkHashes to inform that the visitedlink
+    // table was changed and the salt was changed too. And all cached visitedlink
+    // hashes need to be recalculated.
+    BLINK_EXPORT static void resetVisitedLinkState(bool invalidateVisitedLinkHashes);
 
 
     // Custom colors -------------------------------------------------------
@@ -437,9 +433,16 @@ public:
     // Cancels an active fling, returning true if a fling was active.
     virtual bool endActiveFlingAnimation() = 0;
 
+    // Returns true if there's an active fling animation.
+    virtual bool isFlinging() const = 0;
+
     virtual void setShowPaintRects(bool) = 0;
     virtual void setShowFPSCounter(bool) = 0;
     virtual void setShowScrollBottleneckRects(bool) = 0;
+
+    // Scheduling -----------------------------------------------------------
+
+    virtual WebViewScheduler* scheduler() const = 0;
 
     // Visibility -----------------------------------------------------------
 

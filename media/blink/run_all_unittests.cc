@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
 #include "base/rand_util.h"
@@ -68,29 +70,16 @@ class TestBlinkPlatformSupport : NON_EXPORTED_BASE(public blink::Platform) {
  public:
   ~TestBlinkPlatformSupport() override;
 
-  void cryptographicallyRandomValues(unsigned char* buffer,
-                                     size_t length) override;
-  const unsigned char* getTraceCategoryEnabledFlag(
-      const char* categoryName) override;
   blink::WebThread* currentThread() override { return &m_currentThread; }
+  void registerMemoryDumpProvider(blink::WebMemoryDumpProvider*,
+                                  const char* name) override {}
+  void unregisterMemoryDumpProvider(blink::WebMemoryDumpProvider*) override {}
 
  private:
   CurrentThreadMock m_currentThread;
 };
 
 TestBlinkPlatformSupport::~TestBlinkPlatformSupport() {}
-
-void TestBlinkPlatformSupport::cryptographicallyRandomValues(
-    unsigned char* buffer,
-    size_t length) {
-  base::RandBytes(buffer, length);
-}
-
-const unsigned char* TestBlinkPlatformSupport::getTraceCategoryEnabledFlag(
-    const char* categoryName) {
-  static const unsigned char tracingIsDisabled = 0;
-  return &tracingIsDisabled;
-}
 
 class BlinkMediaTestSuite : public base::TestSuite {
  public:

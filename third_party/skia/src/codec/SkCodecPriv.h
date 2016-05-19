@@ -11,25 +11,13 @@
 #include "SkColorPriv.h"
 #include "SkColorTable.h"
 #include "SkImageInfo.h"
-#include "SkSwizzler.h"
 #include "SkTypes.h"
-#include "SkUtils.h"
 
-/*
- *
- * Helper routine for alpha result codes
- *
- */
-#define INIT_RESULT_ALPHA                       \
-    uint8_t zeroAlpha = 0;                      \
-    uint8_t maxAlpha = 0xFF;
-
-#define UPDATE_RESULT_ALPHA(alpha)              \
-    zeroAlpha |= (alpha);                       \
-    maxAlpha  &= (alpha);
-
-#define COMPUTE_RESULT_ALPHA                    \
-    SkSwizzler::GetResult(zeroAlpha, maxAlpha);
+#ifdef SK_PRINT_CODEC_MESSAGES
+    #define SkCodecPrintf SkDebugf
+#else
+    #define SkCodecPrintf(...)
+#endif
 
 // FIXME: Consider sharing with dm, nanbench, and tools.
 inline float get_scale_from_sample_size(int sampleSize) {
@@ -92,11 +80,16 @@ inline bool is_coord_necessary(int srcCoord, int sampleFactor, int scaledDim) {
 }
 
 inline bool valid_alpha(SkAlphaType dstAlpha, SkAlphaType srcAlpha) {
-    // Check for supported alpha types
+    if (kUnknown_SkAlphaType == dstAlpha) {
+        return false;
+    }
+
     if (srcAlpha != dstAlpha) {
         if (kOpaque_SkAlphaType == srcAlpha) {
-            // If the source is opaque, we must decode to opaque
-            return false;
+            // If the source is opaque, we can support any.
+            SkCodecPrintf("Warning: an opaque image should be decoded as opaque "
+                          "- it is being decoded as non-opaque, which will draw slower\n");
+            return true;
         }
 
         // The source is not opaque
@@ -116,13 +109,19 @@ inline bool valid_alpha(SkAlphaType dstAlpha, SkAlphaType srcAlpha) {
 /*
  * Most of our codecs support the same conversions:
  * - profileType must be the same
- * - opaque only to opaque (and 565 only if opaque)
+ * - opaque to any alpha type
+ * - 565 only if opaque
  * - premul to unpremul and vice versa
  * - always support N32
  * - otherwise match the src color type
  */
 inline bool conversion_possible(const SkImageInfo& dst, const SkImageInfo& src) {
-    if (dst.profileType() != src.profileType()) {
+    // FIXME: skbug.com/4895
+    // Currently, we treat both kLinear and ksRGB encoded images as if they are kLinear.
+    // This makes sense while we do not have proper support for ksRGB.  This is also
+    // the reason why we always allow the client to request kLinear.
+    if (dst.profileType() != src.profileType() &&
+            kLinear_SkColorProfileType != dst.profileType()) {
         return false;
     }
 
@@ -136,7 +135,12 @@ inline bool conversion_possible(const SkImageInfo& dst, const SkImageInfo& src) 
         case kN32_SkColorType:
             return true;
         case kRGB_565_SkColorType:
-            return src.alphaType() == kOpaque_SkAlphaType;
+            return kOpaque_SkAlphaType == dst.alphaType();
+        case kGray_8_SkColorType:
+            if (kOpaque_SkAlphaType != dst.alphaType()) {
+                return false;
+            }
+            // Fall through
         default:
             return dst.colorType() == src.colorType();
     }
@@ -246,11 +250,5 @@ inline uint32_t get_int(uint8_t* buffer, uint32_t i) {
     return result;
 #endif
 }
-
-#ifdef SK_PRINT_CODEC_MESSAGES
-    #define SkCodecPrintf SkDebugf
-#else
-    #define SkCodecPrintf(...)
-#endif
 
 #endif // SkCodecPriv_DEFINED

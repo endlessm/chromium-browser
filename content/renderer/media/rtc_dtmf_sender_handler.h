@@ -7,13 +7,14 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "content/common/content_export.h"
 #include "third_party/WebKit/public/platform/WebRTCDTMFSenderHandler.h"
 #include "third_party/WebKit/public/platform/WebRTCDTMFSenderHandlerClient.h"
-#include "third_party/libjingle/source/talk/app/webrtc/dtmfsenderinterface.h"
+#include "third_party/webrtc/api/dtmfsenderinterface.h"
 
 namespace content {
 

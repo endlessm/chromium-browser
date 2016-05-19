@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_MUS_SURFACES_SURFACES_CONTEXT_PROVIDER_H_
 #define COMPONENTS_MUS_SURFACES_SURFACES_CONTEXT_PROVIDER_H_
 
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/non_thread_safe.h"
@@ -72,7 +74,7 @@ class SurfacesContextProvider : public cc::ContextProvider,
 
   SurfacesContextProviderDelegate* delegate_;
   gfx::AcceleratedWidget widget_;
-  scoped_ptr<CommandBufferLocal> command_buffer_local_;
+  CommandBufferLocal* command_buffer_local_;
 
   base::Lock context_lock_;
 

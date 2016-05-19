@@ -5,9 +5,11 @@
 #include "chrome/browser/chromeos/printer_detector/printer_detector.h"
 
 #include <stdint.h>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
@@ -53,7 +55,7 @@ const char kNoPrinterProviderNotificationID[] =
 
 // Base class used for printer USB interfaces
 // (https://www.usb.org/developers/defined_class).
-const uint8 kPrinterInterfaceClass = 7;
+const uint8_t kPrinterInterfaceClass = 7;
 
 enum PrinterServiceEvent {
   PRINTER_ADDED,
@@ -64,7 +66,7 @@ enum PrinterServiceEvent {
   PRINTER_SERVICE_EVENT_MAX,
 };
 
-base::string16 GetNotificationTitle(uint16 vendor_id, uint16 product_id) {
+base::string16 GetNotificationTitle(uint16_t vendor_id, uint16_t product_id) {
   const char* vendor_name = device::UsbIds::GetVendorName(vendor_id);
   if (vendor_name) {
     return l10n_util::GetStringFUTF16(IDS_PRINTER_DETECTED_NOTIFICATION_TITLE,
@@ -142,9 +144,9 @@ class PrinterProviderExistsNotificationDelegate : public NotificationDelegate {
 class SearchPrinterAppNotificationDelegate : public NotificationDelegate {
  public:
   SearchPrinterAppNotificationDelegate(content::BrowserContext* browser_context,
-                                       uint16 vendor_id,
+                                       uint16_t vendor_id,
                                        const std::string& vendor_id_str,
-                                       uint16 product_id,
+                                       uint16_t product_id,
                                        const std::string& product_id_str)
       : browser_context_(browser_context),
         vendor_id_(vendor_id),
@@ -175,16 +177,16 @@ class SearchPrinterAppNotificationDelegate : public NotificationDelegate {
         webstore_widget_private_api::OnShowWidget::kEventName,
         webstore_widget_private_api::OnShowWidget::Create(options)));
     event_router->DispatchEventToExtension(extension_misc::kWebstoreWidgetAppId,
-                                           event.Pass());
+                                           std::move(event));
   }
 
  private:
   ~SearchPrinterAppNotificationDelegate() override = default;
 
   content::BrowserContext* browser_context_;
-  uint16 vendor_id_;
+  uint16_t vendor_id_;
   std::string vendor_id_str_;
-  uint16 product_id_;
+  uint16_t product_id_;
   std::string product_id_str_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchPrinterAppNotificationDelegate);

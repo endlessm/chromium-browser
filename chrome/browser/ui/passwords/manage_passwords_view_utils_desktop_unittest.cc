@@ -8,7 +8,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/mock_entropy_provider.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/profile_sync_service_mock.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
@@ -49,7 +49,7 @@ class ManagePasswordsViewUtilDesktopTest : public testing::Test {
 
   void SetUp() override {
     ProfileSyncServiceFactory::GetInstance()->SetTestingFactoryAndUse(
-        &profile_, &ProfileSyncServiceMock::BuildMockProfileSyncService);
+        &profile_, &BuildMockProfileSyncService);
   };
 
   Profile* profile() { return &profile_; }
@@ -74,7 +74,7 @@ class ManagePasswordsViewUtilDesktopTest : public testing::Test {
     ProfileSyncServiceMock* sync_service = static_cast<ProfileSyncServiceMock*>(
         ProfileSyncServiceFactory::GetInstance()->GetForProfile(&profile_));
     EXPECT_CALL(*sync_service, IsSyncActive()).WillRepeatedly(Return(true));
-    EXPECT_CALL(*sync_service, HasSyncSetupCompleted())
+    EXPECT_CALL(*sync_service, IsFirstSetupComplete())
         .WillRepeatedly(Return(true));
     EXPECT_CALL(*sync_service, GetActiveDataTypes())
         .WillRepeatedly(Return(syncer::UserSelectableTypes()));

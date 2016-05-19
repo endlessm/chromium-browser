@@ -4,18 +4,28 @@
 
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
 
+#include <stddef.h>
+
 #include "base/containers/hash_tables.h"
 #include "base/environment.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/process/process_info.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/sys_info.h"
 #include "base/threading/platform_thread.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/startup_metric_utils/browser/pref_names.h"
+#include "components/version_info/version_info.h"
 
 #if defined(OS_WIN)
 #include <winternl.h>
+#include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 #endif
 
@@ -30,16 +40,19 @@ volatile bool g_non_browser_ui_displayed = false;
 base::LazyInstance<base::TimeTicks>::Leaky g_process_creation_ticks =
     LAZY_INSTANCE_INITIALIZER;
 
-base::LazyInstance<base::TimeTicks>::Leaky g_main_entry_point_ticks =
+base::LazyInstance<base::TimeTicks>::Leaky g_browser_main_entry_point_ticks =
+    LAZY_INSTANCE_INITIALIZER;
+
+base::LazyInstance<base::TimeTicks>::Leaky g_renderer_main_entry_point_ticks =
     LAZY_INSTANCE_INITIALIZER;
 
 // Only used by RecordMainEntryTimeHistogram(), should go away with it (do not
 // add new uses of this), see crbug.com/317481 for discussion on why it was kept
 // as-is for now.
-base::LazyInstance<base::Time>::Leaky g_main_entry_point_time =
+base::LazyInstance<base::Time>::Leaky g_browser_main_entry_point_time =
     LAZY_INSTANCE_INITIALIZER;
 
-StartupTemperature g_startup_temperature = UNCERTAIN_STARTUP_TEMPERATURE;
+StartupTemperature g_startup_temperature = UNDETERMINED_STARTUP_TEMPERATURE;
 
 #if defined(OS_WIN)
 
@@ -87,82 +100,15 @@ struct SYSTEM_PROCESS_INFORMATION_EX {
 // The signature of the NtQuerySystemInformation function.
 typedef NTSTATUS (WINAPI *NtQuerySystemInformationPtr)(
     SYSTEM_INFORMATION_CLASS, PVOID, ULONG, PULONG);
-
-// Gets the hard fault count of the current process, returning it via
-// |hard_fault_count|. Returns true on success, false otherwise. Also returns
-// whether or not the system call was even possible for the current OS version
-// via |has_os_support|.
-bool GetHardFaultCountForCurrentProcess(uint32_t* hard_fault_count,
-                                        bool* has_os_support) {
-  DCHECK(hard_fault_count);
-  DCHECK(has_os_support);
-
-  if (base::win::GetVersion() < base::win::VERSION_WIN7) {
-    *has_os_support = false;
-    return false;
-  }
-  // At this point the OS supports the required system call.
-  *has_os_support = true;
-
-  // Get the function pointer.
-  NtQuerySystemInformationPtr query_sys_info =
-      reinterpret_cast<NtQuerySystemInformationPtr>(
-          ::GetProcAddress(GetModuleHandle(L"ntdll.dll"),
-                           "NtQuerySystemInformation"));
-  if (query_sys_info == nullptr)
-    return false;
-
-  // The output of this system call depends on the number of threads and
-  // processes on the entire system, and this can change between calls. Retry
-  // a small handful of times growing the buffer along the way.
-  // NOTE: The actual required size depends entirely on the number of processes
-  //       and threads running on the system. The initial guess suffices for
-  //       ~100s of processes and ~1000s of threads.
-  std::vector<uint8_t> buffer(32 * 1024);
-  for (size_t tries = 0; tries < 3; ++tries) {
-    ULONG return_length = 0;
-    NTSTATUS status = query_sys_info(
-        SystemProcessInformation,
-        buffer.data(),
-        static_cast<ULONG>(buffer.size()),
-        &return_length);
-    // Insufficient space in the buffer.
-    if (return_length > buffer.size()) {
-      buffer.resize(return_length);
-      continue;
-    }
-    if (NT_SUCCESS(status) && return_length <= buffer.size())
-      break;
-    return false;
-  }
-
-  // Look for the struct housing information for the current process.
-  DWORD proc_id = ::GetCurrentProcessId();
-  size_t index = 0;
-  while (index < buffer.size()) {
-    DCHECK_LE(index + sizeof(SYSTEM_PROCESS_INFORMATION_EX), buffer.size());
-    SYSTEM_PROCESS_INFORMATION_EX* proc_info =
-        reinterpret_cast<SYSTEM_PROCESS_INFORMATION_EX*>(buffer.data() + index);
-    if (reinterpret_cast<DWORD>(proc_info->UniqueProcessId) == proc_id) {
-      *hard_fault_count = proc_info->HardFaultCount;
-      return true;
-    }
-    // The list ends when NextEntryOffset is zero. This also prevents busy
-    // looping if the data is in fact invalid.
-    if (proc_info->NextEntryOffset <= 0)
-      return false;
-    index += proc_info->NextEntryOffset;
-  }
-
-  return false;
-}
-
 #endif  // defined(OS_WIN)
 
+#define UMA_HISTOGRAM_TIME_IN_MINUTES_MONTH_RANGE(name, sample) \
+  UMA_HISTOGRAM_CUSTOM_COUNTS(name, sample, 1,                  \
+                              base::TimeDelta::FromDays(30).InMinutes(), 50)
 
 // Helper macro for splitting out an UMA histogram based on cold or warm start.
 // |type| is the histogram type, and corresponds to an UMA macro like
-// UMA_HISTOGRAM_LONG_TIMES. It must be itself be a macro that only takes two
+// UMA_HISTOGRAM_LONG_TIMES. It must itself be a macro that only takes two
 // parameters.
 // |basename| is the basename of the histogram. A histogram of this name will
 // always be recorded to. If the startup is either cold or warm then a value
@@ -170,17 +116,32 @@ bool GetHardFaultCountForCurrentProcess(uint32_t* hard_fault_count,
 // ".ColdStart" or ".WarmStart", as appropriate.
 // |value_expr| is an expression evaluating to the value to be recorded. This
 // will be evaluated exactly once and cached, so side effects are not an issue.
-#define UMA_HISTOGRAM_WITH_STARTUP_TEMPERATURE(type, basename, value_expr) \
-  {                                                                        \
-    const auto kValue = value_expr;                                        \
-    /* Always record to the base histogram. */                             \
-    type(basename, kValue);                                                \
-    /* Record to the cold/warm suffixed histogram as appropriate. */       \
-    if (g_startup_temperature == COLD_STARTUP_TEMPERATURE) {               \
-      type(basename ".ColdStartup", kValue);                               \
-    } else if (g_startup_temperature == WARM_STARTUP_TEMPERATURE) {        \
-      type(basename ".WarmStartup", kValue);                               \
-    }                                                                      \
+// A metric logged using this macro must have an affected-histogram entry in the
+// definition of the StartupTemperature suffix in histograms.xml.
+// This macro must only be used in code that runs after |g_startup_temperature|
+// has been initialized.
+#define UMA_HISTOGRAM_WITH_STARTUP_TEMPERATURE(type, basename, value_expr)    \
+  {                                                                           \
+    const auto kValue = value_expr;                                           \
+    /* Always record to the base histogram. */                                \
+    type(basename, kValue);                                                   \
+    /* Record to the cold/warm/lukewarm suffixed histogram as appropriate. */ \
+    switch (g_startup_temperature) {                                          \
+      case COLD_STARTUP_TEMPERATURE:                                          \
+        type(basename ".ColdStartup", kValue);                                \
+        break;                                                                \
+      case WARM_STARTUP_TEMPERATURE:                                          \
+        type(basename ".WarmStartup", kValue);                                \
+        break;                                                                \
+      case LUKEWARM_STARTUP_TEMPERATURE:                                      \
+        type(basename ".LukewarmStartup", kValue);                            \
+        break;                                                                \
+      case UNDETERMINED_STARTUP_TEMPERATURE:                                  \
+        break;                                                                \
+      case STARTUP_TEMPERATURE_COUNT:                                         \
+        NOTREACHED();                                                         \
+        break;                                                                \
+    }                                                                         \
   }
 
 #define UMA_HISTOGRAM_AND_TRACE_WITH_STARTUP_TEMPERATURE(                     \
@@ -196,57 +157,102 @@ bool GetHardFaultCountForCurrentProcess(uint32_t* hard_fault_count,
         g_startup_temperature);                                               \
   }
 
+// Returns the system uptime on process launch.
+base::TimeDelta GetSystemUptimeOnProcessLaunch() {
+  // Process launch time is not available on Android.
+  if (g_process_creation_ticks.Get().is_null())
+    return base::TimeDelta();
+
+  // base::SysInfo::Uptime returns the time elapsed between system boot and now.
+  // Substract the time elapsed between process launch and now to get the time
+  // elapsed between system boot and process launch.
+  return base::SysInfo::Uptime() -
+         (base::TimeTicks::Now() - g_process_creation_ticks.Get());
+}
+
+void RecordSystemUptimeHistogram() {
+  const base::TimeDelta system_uptime_on_process_launch =
+      GetSystemUptimeOnProcessLaunch();
+  if (system_uptime_on_process_launch.is_zero())
+    return;
+
+  UMA_HISTOGRAM_WITH_STARTUP_TEMPERATURE(UMA_HISTOGRAM_LONG_TIMES_100,
+                                         "Startup.SystemUptime",
+                                         GetSystemUptimeOnProcessLaunch());
+}
+
 // On Windows, records the number of hard-faults that have occurred in the
-// current chrome.exe process since it was started. This is a nop on other
-// platforms.
-// crbug.com/476923
-// TODO(chrisha): If this proves useful, use it to split startup stats in two.
-void RecordHardFaultHistogram(bool is_first_run) {
+// current chrome.exe process since it was started. A version of the histograms
+// recorded in this method suffixed by |same_version_startup_count| will also be
+// recorded (unless |same_version_startup_count| is 0 which indicates it's
+// unknown). This is a nop on other platforms.
+void RecordHardFaultHistogram(int same_version_startup_count) {
 #if defined(OS_WIN)
   uint32_t hard_fault_count = 0;
-  bool has_os_support = false;
-  bool success = GetHardFaultCountForCurrentProcess(
-      &hard_fault_count, &has_os_support);
 
-  // Log whether or not the system call was successful, assuming the OS was
-  // detected to support it.
-  if (has_os_support) {
-    UMA_HISTOGRAM_BOOLEAN(
-        "Startup.BrowserMessageLoopStartHardFaultCount.Success",
-        success);
-  }
-
-  // Don't log a histogram value if unable to get the hard fault count.
-  if (!success)
+  // Don't record histograms if unable to get the hard fault count.
+  if (!GetHardFaultCountForCurrentProcess(&hard_fault_count))
     return;
+
+  std::string same_version_startup_count_suffix;
+  if (same_version_startup_count != 0) {
+    // Histograms below will be suffixed by |same_version_startup_count| up to
+    // |kMaxSameVersionCountRecorded|, higher counts will be grouped in the
+    // ".Over" suffix. Make sure to reflect changes to
+    // kMaxSameVersionCountRecorded in the "SameVersionStartupCounts" histogram
+    // suffix.
+    const int kMaxSameVersionCountRecorded = 9;
+    same_version_startup_count_suffix.push_back('.');
+    DCHECK_GE(same_version_startup_count, 1);
+    if (same_version_startup_count <= kMaxSameVersionCountRecorded) {
+      same_version_startup_count_suffix.append(
+          base::IntToString(same_version_startup_count));
+    } else {
+      same_version_startup_count_suffix.append("Over");
+    }
+  }
 
   // Hard fault counts are expected to be in the thousands range,
   // corresponding to faulting in ~10s of MBs of code ~10s of KBs at a time.
   // (Observed to vary from 1000 to 10000 on various test machines and
   // platforms.)
-  if (is_first_run) {
-    UMA_HISTOGRAM_CUSTOM_COUNTS(
-        "Startup.BrowserMessageLoopStartHardFaultCount.FirstRun",
-        hard_fault_count,
-        0, 40000, 50);
-  } else {
-    UMA_HISTOGRAM_CUSTOM_COUNTS(
-        "Startup.BrowserMessageLoopStartHardFaultCount",
-        hard_fault_count,
-        0, 40000, 50);
+  const char kHardFaultCountHistogram[] =
+      "Startup.BrowserMessageLoopStartHardFaultCount";
+  UMA_HISTOGRAM_CUSTOM_COUNTS(kHardFaultCountHistogram, hard_fault_count, 1,
+                              40000, 50);
+  // Also record the hard fault count histogram suffixed by the number of
+  // startups this specific version has been through.
+  // Factory properties copied from UMA_HISTOGRAM_CUSTOM_COUNTS macro.
+  if (!same_version_startup_count_suffix.empty()) {
+    base::Histogram::FactoryGet(
+        kHardFaultCountHistogram + same_version_startup_count_suffix, 1, 40000,
+        50, base::HistogramBase::kUmaTargetedHistogramFlag)
+        ->Add(hard_fault_count);
   }
 
   // Determine the startup type based on the number of observed hard faults.
-  DCHECK_EQ(UNCERTAIN_STARTUP_TEMPERATURE, g_startup_temperature);
+  DCHECK_EQ(UNDETERMINED_STARTUP_TEMPERATURE, g_startup_temperature);
   if (hard_fault_count < WARM_START_HARD_FAULT_COUNT_THRESHOLD) {
     g_startup_temperature = WARM_STARTUP_TEMPERATURE;
   } else if (hard_fault_count >= COLD_START_HARD_FAULT_COUNT_THRESHOLD) {
     g_startup_temperature = COLD_STARTUP_TEMPERATURE;
+  } else {
+    g_startup_temperature = LUKEWARM_STARTUP_TEMPERATURE;
   }
 
   // Record the startup 'temperature'.
-  UMA_HISTOGRAM_ENUMERATION(
-      "Startup.Temperature", g_startup_temperature, STARTUP_TEMPERATURE_MAX);
+  const char kStartupTemperatureHistogram[] = "Startup.Temperature";
+  UMA_HISTOGRAM_ENUMERATION(kStartupTemperatureHistogram, g_startup_temperature,
+                            STARTUP_TEMPERATURE_COUNT);
+  // As well as its suffixed twin.
+  // Factory properties copied from UMA_HISTOGRAM_ENUMERATION macro.
+  if (!same_version_startup_count_suffix.empty()) {
+    base::LinearHistogram::FactoryGet(
+        kStartupTemperatureHistogram + same_version_startup_count_suffix, 1,
+        STARTUP_TEMPERATURE_COUNT, STARTUP_TEMPERATURE_COUNT + 1,
+        base::HistogramBase::kUmaTargetedHistogramFlag)
+        ->Add(g_startup_temperature);
+  }
 #endif  // defined(OS_WIN)
 }
 
@@ -298,11 +304,11 @@ base::TimeTicks StartupTimeToTimeTicks(const base::Time& time) {
 void RecordMainEntryTimeHistogram() {
   const int kLowWordMask = 0xFFFFFFFF;
   const int kLower31BitsMask = 0x7FFFFFFF;
-  DCHECK(!g_main_entry_point_time.Get().is_null());
+  DCHECK(!g_browser_main_entry_point_time.Get().is_null());
   const base::TimeDelta browser_main_entry_time_absolute =
-      g_main_entry_point_time.Get() - base::Time::UnixEpoch();
+      g_browser_main_entry_point_time.Get() - base::Time::UnixEpoch();
 
-  const uint64 browser_main_entry_time_raw_ms =
+  const uint64_t browser_main_entry_time_raw_ms =
       browser_main_entry_time_absolute.InMilliseconds();
 
   const base::TimeDelta browser_main_entry_time_raw_ms_high_word =
@@ -314,10 +320,27 @@ void RecordMainEntryTimeHistogram() {
           (browser_main_entry_time_raw_ms >> 1) & kLower31BitsMask);
 
   // A timestamp is a 64 bit value, yet histograms can only store 32 bits.
+  // TODO(gabadie): Once startup_with_url.* benchmarks are replaced by
+  //    startup_with_url2.*, remove this dirty hack (crbug.com/539287).
   LOCAL_HISTOGRAM_TIMES("Startup.BrowserMainEntryTimeAbsoluteHighWord",
       browser_main_entry_time_raw_ms_high_word);
   LOCAL_HISTOGRAM_TIMES("Startup.BrowserMainEntryTimeAbsoluteLowWord",
       browser_main_entry_time_raw_ms_low_word);
+}
+
+// Record renderer main entry time histogram.
+void RecordRendererMainEntryHistogram() {
+  const base::TimeTicks& browser_main_entry_point_ticks =
+      g_browser_main_entry_point_ticks.Get();
+  const base::TimeTicks& renderer_main_entry_point_ticks =
+      g_renderer_main_entry_point_ticks.Get();
+
+  if (!browser_main_entry_point_ticks.is_null() &&
+      !renderer_main_entry_point_ticks.is_null()) {
+    UMA_HISTOGRAM_AND_TRACE_WITH_STARTUP_TEMPERATURE(
+        UMA_HISTOGRAM_LONG_TIMES_100, "Startup.BrowserMainToRendererMain",
+        browser_main_entry_point_ticks, renderer_main_entry_point_ticks);
+  }
 }
 
 // Environment variable that stores the timestamp when the executable's main()
@@ -329,7 +352,7 @@ const char kChromeMainTicksEnvVar[] = "CHROME_MAIN_TICKS";
 base::TimeTicks ExeMainEntryPointTicks() {
   scoped_ptr<base::Environment> env(base::Environment::Create());
   std::string ticks_string;
-  int64 time_int = 0;
+  int64_t time_int = 0;
   if (env->GetVar(kChromeMainTicksEnvVar, &ticks_string) &&
       base::StringToInt64(ticks_string, &time_int)) {
     return base::TimeTicks::FromInternalValue(time_int);
@@ -337,7 +360,153 @@ base::TimeTicks ExeMainEntryPointTicks() {
   return base::TimeTicks();
 }
 
+void AddStartupEventsForTelemetry()
+{
+  DCHECK(!g_browser_main_entry_point_ticks.Get().is_null());
+
+  TRACE_EVENT_INSTANT_WITH_TIMESTAMP0(
+      "startup", "Startup.BrowserMainEntryPoint", 0,
+      g_browser_main_entry_point_ticks.Get().ToInternalValue());
+
+  if (!g_process_creation_ticks.Get().is_null())
+  {
+    TRACE_EVENT_INSTANT_WITH_TIMESTAMP0(
+        "startup", "Startup.BrowserProcessCreation", 0,
+        g_process_creation_ticks.Get().ToInternalValue());
+  }
+}
+
+// Logs the Startup.TimeSinceLastStartup histogram. Obtains the timestamp of the
+// last startup from |pref_service| and overwrites it with the timestamp of the
+// current startup. If the startup temperature has been set by
+// RecordBrowserMainMessageLoopStart, the time since last startup is also logged
+// to an histogram suffixed with the startup temperature.
+void RecordTimeSinceLastStartup(PrefService* pref_service) {
+#if defined(OS_MACOSX) || defined(OS_WIN) || defined(OS_LINUX)
+  DCHECK(pref_service);
+
+  // Get the timestamp of the current startup.
+  const base::Time process_start_time =
+      base::CurrentProcessInfo::CreationTime();
+
+  // Get the timestamp of the last startup from |pref_service|.
+  const int64_t last_startup_timestamp_internal =
+      pref_service->GetInt64(prefs::kLastStartupTimestamp);
+  if (last_startup_timestamp_internal != 0) {
+    // Log the Startup.TimeSinceLastStartup histogram.
+    const base::Time last_startup_timestamp =
+        base::Time::FromInternalValue(last_startup_timestamp_internal);
+    const base::TimeDelta time_since_last_startup =
+        process_start_time - last_startup_timestamp;
+    const int minutes_since_last_startup = time_since_last_startup.InMinutes();
+
+    // Ignore negative values, which can be caused by system clock changes.
+    if (minutes_since_last_startup >= 0) {
+      UMA_HISTOGRAM_WITH_STARTUP_TEMPERATURE(
+          UMA_HISTOGRAM_TIME_IN_MINUTES_MONTH_RANGE,
+          "Startup.TimeSinceLastStartup", minutes_since_last_startup);
+    }
+  }
+
+  // Write the timestamp of the current startup in |pref_service|.
+  pref_service->SetInt64(prefs::kLastStartupTimestamp,
+                         process_start_time.ToInternalValue());
+#endif  // defined(OS_MACOSX) || defined(OS_WIN) || defined(OS_LINUX)
+}
+
+// Logs the Startup.SameVersionStartupCount histogram. Relies on |pref_service|
+// to know information about the previous startups and store information for
+// future ones. Returns the number of startups with the same version count that
+// was logged.
+int RecordSameVersionStartupCount(PrefService* pref_service) {
+  DCHECK(pref_service);
+
+  const std::string current_version = version_info::GetVersionNumber();
+
+  int startups_with_current_version = 0;
+  if (current_version == pref_service->GetString(prefs::kLastStartupVersion)) {
+    startups_with_current_version =
+        pref_service->GetInteger(prefs::kSameVersionStartupCount);
+    ++startups_with_current_version;
+    pref_service->SetInteger(prefs::kSameVersionStartupCount,
+                             startups_with_current_version);
+  } else {
+    startups_with_current_version = 1;
+    pref_service->SetString(prefs::kLastStartupVersion, current_version);
+    pref_service->SetInteger(prefs::kSameVersionStartupCount, 1);
+  }
+
+  UMA_HISTOGRAM_COUNTS_100("Startup.SameVersionStartupCount",
+                           startups_with_current_version);
+  return startups_with_current_version;
+}
+
 }  // namespace
+
+#if defined(OS_WIN)
+bool GetHardFaultCountForCurrentProcess(uint32_t* hard_fault_count) {
+  DCHECK(hard_fault_count);
+
+  if (base::win::GetVersion() < base::win::VERSION_WIN7)
+    return false;
+
+  // Get the function pointer.
+  static const NtQuerySystemInformationPtr query_sys_info =
+      reinterpret_cast<NtQuerySystemInformationPtr>(::GetProcAddress(
+          GetModuleHandle(L"ntdll.dll"), "NtQuerySystemInformation"));
+  if (query_sys_info == nullptr)
+    return false;
+
+  // The output of this system call depends on the number of threads and
+  // processes on the entire system, and this can change between calls. Retry
+  // a small handful of times growing the buffer along the way.
+  // NOTE: The actual required size depends entirely on the number of processes
+  //       and threads running on the system. The initial guess suffices for
+  //       ~100s of processes and ~1000s of threads.
+  std::vector<uint8_t> buffer(32 * 1024);
+  for (size_t tries = 0; tries < 3; ++tries) {
+    ULONG return_length = 0;
+    NTSTATUS status =
+        query_sys_info(SystemProcessInformation, buffer.data(),
+                       static_cast<ULONG>(buffer.size()), &return_length);
+    // Insufficient space in the buffer.
+    if (return_length > buffer.size()) {
+      buffer.resize(return_length);
+      continue;
+    }
+    if (NT_SUCCESS(status) && return_length <= buffer.size())
+      break;
+    return false;
+  }
+
+  // Look for the struct housing information for the current process.
+  DWORD proc_id = ::GetCurrentProcessId();
+  size_t index = 0;
+  while (index < buffer.size()) {
+    DCHECK_LE(index + sizeof(SYSTEM_PROCESS_INFORMATION_EX), buffer.size());
+    SYSTEM_PROCESS_INFORMATION_EX* proc_info =
+        reinterpret_cast<SYSTEM_PROCESS_INFORMATION_EX*>(buffer.data() + index);
+    if (base::win::HandleToUint32(proc_info->UniqueProcessId) == proc_id) {
+      *hard_fault_count = proc_info->HardFaultCount;
+      return true;
+    }
+    // The list ends when NextEntryOffset is zero. This also prevents busy
+    // looping if the data is in fact invalid.
+    if (proc_info->NextEntryOffset <= 0)
+      return false;
+    index += proc_info->NextEntryOffset;
+  }
+
+  return false;
+}
+#endif  // defined(OS_WIN)
+
+void RegisterPrefs(PrefRegistrySimple* registry) {
+  DCHECK(registry);
+  registry->RegisterInt64Pref(prefs::kLastStartupTimestamp, 0);
+  registry->RegisterStringPref(prefs::kLastStartupVersion, std::string());
+  registry->RegisterIntegerPref(prefs::kSameVersionStartupCount, 0);
+}
 
 bool WasNonBrowserUIDisplayed() {
   return g_non_browser_ui_displayed;
@@ -354,15 +523,15 @@ void RecordStartupProcessCreationTime(const base::Time& time) {
 }
 
 void RecordMainEntryPointTime(const base::Time& time) {
-  DCHECK(g_main_entry_point_ticks.Get().is_null());
-  g_main_entry_point_ticks.Get() = StartupTimeToTimeTicks(time);
-  DCHECK(!g_main_entry_point_ticks.Get().is_null());
+  DCHECK(g_browser_main_entry_point_ticks.Get().is_null());
+  g_browser_main_entry_point_ticks.Get() = StartupTimeToTimeTicks(time);
+  DCHECK(!g_browser_main_entry_point_ticks.Get().is_null());
 
   // TODO(jeremy): Remove this with RecordMainEntryTimeHistogram() when
   // resolving crbug.com/317481.
-  DCHECK(g_main_entry_point_time.Get().is_null());
-  g_main_entry_point_time.Get() = time;
-  DCHECK(!g_main_entry_point_time.Get().is_null());
+  DCHECK(g_browser_main_entry_point_time.Get().is_null());
+  g_browser_main_entry_point_time.Get() = time;
+  DCHECK(!g_browser_main_entry_point_time.Get().is_null());
 }
 
 void RecordExeMainEntryPointTime(const base::Time& time) {
@@ -373,8 +542,18 @@ void RecordExeMainEntryPointTime(const base::Time& time) {
 }
 
 void RecordBrowserMainMessageLoopStart(const base::TimeTicks& ticks,
-                                       bool is_first_run) {
-  RecordHardFaultHistogram(is_first_run);
+                                       bool is_first_run,
+                                       PrefService* pref_service) {
+  int same_version_startup_count = 0;
+  if (pref_service)
+    same_version_startup_count = RecordSameVersionStartupCount(pref_service);
+  // Keep RecordHardFaultHistogram() first as much as possible as many other
+  // histograms depend on it setting |g_startup_temperature|.
+  RecordHardFaultHistogram(same_version_startup_count);
+  AddStartupEventsForTelemetry();
+  if (pref_service)
+    RecordTimeSinceLastStartup(pref_service);
+  RecordSystemUptimeHistogram();
   RecordMainEntryTimeHistogram();
 
   const base::TimeTicks& process_creation_ticks =
@@ -400,12 +579,12 @@ void RecordBrowserMainMessageLoopStart(const base::TimeTicks& ticks,
     UMA_HISTOGRAM_AND_TRACE_WITH_STARTUP_TEMPERATURE(
         UMA_HISTOGRAM_LONG_TIMES,
         "Startup.BrowserMessageLoopStartTimeFromMainEntry.FirstRun",
-        g_main_entry_point_ticks.Get(), ticks);
+        g_browser_main_entry_point_ticks.Get(), ticks);
   } else {
     UMA_HISTOGRAM_AND_TRACE_WITH_STARTUP_TEMPERATURE(
         UMA_HISTOGRAM_LONG_TIMES,
         "Startup.BrowserMessageLoopStartTimeFromMainEntry",
-        g_main_entry_point_ticks.Get(), ticks);
+        g_browser_main_entry_point_ticks.Get(), ticks);
   }
 
   // Record timings between process creation, the main() in the executable being
@@ -421,13 +600,13 @@ void RecordBrowserMainMessageLoopStart(const base::TimeTicks& ticks,
       // chrome.exe:main() to chrome.dll:main().
       UMA_HISTOGRAM_AND_TRACE_WITH_STARTUP_TEMPERATURE(
           UMA_HISTOGRAM_LONG_TIMES, "Startup.LoadTime.ExeMainToDllMain",
-          exe_main_ticks, g_main_entry_point_ticks.Get());
+          exe_main_ticks, g_browser_main_entry_point_ticks.Get());
 
       // Process create to chrome.dll:main(). Reported as a histogram only as
       // the other two events above are sufficient for tracing purposes.
       UMA_HISTOGRAM_WITH_STARTUP_TEMPERATURE(
           UMA_HISTOGRAM_LONG_TIMES, "Startup.LoadTime.ProcessCreateToDllMain",
-          g_main_entry_point_ticks.Get() - process_creation_ticks);
+          g_browser_main_entry_point_ticks.Get() - process_creation_ticks);
     }
   }
 }
@@ -455,6 +634,13 @@ void RecordBrowserOpenTabsDelta(const base::TimeDelta& delta) {
                                          "Startup.BrowserOpenTabs", delta);
 }
 
+void RecordRendererMainEntryTime(const base::TimeTicks& ticks) {
+  // Record the renderer main entry time, but don't log the UMA metric
+  // immediately because the startup temperature is not known yet.
+  if (g_renderer_main_entry_point_ticks.Get().is_null())
+    g_renderer_main_entry_point_ticks.Get() = ticks;
+}
+
 void RecordFirstWebContentsMainFrameLoad(const base::TimeTicks& ticks) {
   static bool is_first_call = true;
   if (!is_first_call || ticks.is_null())
@@ -468,45 +654,22 @@ void RecordFirstWebContentsMainFrameLoad(const base::TimeTicks& ticks) {
       g_process_creation_ticks.Get(), ticks);
 }
 
-void RecordDeprecatedFirstWebContentsMainFrameLoad(
-    const base::TimeTicks& ticks) {
-  static bool is_first_call = true;
-  if (!is_first_call || ticks.is_null())
-    return;
-  is_first_call = false;
-  if (WasNonBrowserUIDisplayed() || g_process_creation_ticks.Get().is_null())
-    return;
-
-  UMA_HISTOGRAM_WITH_STARTUP_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100, "Startup.FirstWebContents.MainFrameLoad",
-      ticks - g_process_creation_ticks.Get());
-}
-
 void RecordFirstWebContentsNonEmptyPaint(const base::TimeTicks& ticks) {
   static bool is_first_call = true;
   if (!is_first_call || ticks.is_null())
     return;
   is_first_call = false;
+
+  // Log Startup.BrowserMainToRendererMain now that the first renderer main
+  // entry time and the startup temperature are known.
+  RecordRendererMainEntryHistogram();
+
   if (WasNonBrowserUIDisplayed() || g_process_creation_ticks.Get().is_null())
     return;
 
   UMA_HISTOGRAM_AND_TRACE_WITH_STARTUP_TEMPERATURE(
       UMA_HISTOGRAM_LONG_TIMES_100, "Startup.FirstWebContents.NonEmptyPaint2",
       g_process_creation_ticks.Get(), ticks);
-}
-
-void RecordDeprecatedFirstWebContentsNonEmptyPaint(
-    const base::TimeTicks& ticks) {
-  static bool is_first_call = true;
-  if (!is_first_call || ticks.is_null())
-    return;
-  is_first_call = false;
-  if (WasNonBrowserUIDisplayed() || g_process_creation_ticks.Get().is_null())
-    return;
-
-  UMA_HISTOGRAM_WITH_STARTUP_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100, "Startup.FirstWebContents.NonEmptyPaint",
-      ticks - g_process_creation_ticks.Get());
 }
 
 void RecordFirstWebContentsMainNavigationStart(const base::TimeTicks& ticks) {
@@ -539,7 +702,7 @@ void RecordFirstWebContentsMainNavigationFinished(
 }
 
 base::TimeTicks MainEntryPointTicks() {
-  return g_main_entry_point_ticks.Get();
+  return g_browser_main_entry_point_ticks.Get();
 }
 
 StartupTemperature GetStartupTemperature() {

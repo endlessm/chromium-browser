@@ -5,6 +5,7 @@
 #include "net/dns/address_sorter_posix.h"
 
 #include <netinet/in.h>
+#include <utility>
 
 #if defined(OS_MACOSX) || defined(OS_BSD)
 #include <sys/socket.h>  // Must be included before ifaddrs.h.
@@ -16,9 +17,10 @@
 #endif
 
 #include <algorithm>
+#include <vector>
 
 #include "base/logging.h"
-#include "base/memory/scoped_vector.h"
+#include "base/memory/scoped_ptr.h"
 #include "net/base/net_errors.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/udp/datagram_client_socket.h"
@@ -186,8 +188,8 @@ struct DestinationInfo {
 
 // Returns true iff |dst_a| should precede |dst_b| in the address list.
 // RFC 3484, section 6.
-bool CompareDestinations(const DestinationInfo* dst_a,
-                         const DestinationInfo* dst_b) {
+bool CompareDestinations(const scoped_ptr<DestinationInfo>& dst_a,
+                         const scoped_ptr<DestinationInfo>& dst_b) {
   // Rule 1: Avoid unusable destinations.
   // Unusable destinations are already filtered out.
   DCHECK(dst_a->src);
@@ -257,11 +259,11 @@ AddressSorterPosix::~AddressSorterPosix() {
 void AddressSorterPosix::Sort(const AddressList& list,
                               const CallbackType& callback) const {
   DCHECK(CalledOnValidThread());
-  ScopedVector<DestinationInfo> sort_list;
+  std::vector<scoped_ptr<DestinationInfo>> sort_list;
 
   for (size_t i = 0; i < list.size(); ++i) {
     scoped_ptr<DestinationInfo> info(new DestinationInfo());
-    info->address = list[i].address();
+    info->address = list[i].address().bytes();
     info->scope = GetScope(ipv4_scope_table_, info->address);
     info->precedence = GetPolicyValue(precedence_table_, info->address);
     info->label = GetPolicyValue(label_table_, info->address);
@@ -291,20 +293,20 @@ void AddressSorterPosix::Sort(const AddressList& list,
       continue;
     }
 
-    SourceAddressInfo& src_info = source_map_[src.address()];
+    SourceAddressInfo& src_info = source_map_[src.address().bytes()];
     if (src_info.scope == SCOPE_UNDEFINED) {
       // If |source_info_| is out of date, |src| might be missing, but we still
       // want to sort, even though the HostCache will be cleared soon.
-      FillPolicy(src.address(), &src_info);
+      FillPolicy(src.address().bytes(), &src_info);
     }
     info->src = &src_info;
 
     if (info->address.size() == src.address().size()) {
-      info->common_prefix_length = std::min(
-          CommonPrefixLength(info->address, src.address()),
-          info->src->prefix_length);
+      info->common_prefix_length =
+          std::min(CommonPrefixLength(info->address, src.address().bytes()),
+                   info->src->prefix_length);
     }
-    sort_list.push_back(info.Pass());
+    sort_list.push_back(std::move(info));
   }
 
   std::stable_sort(sort_list.begin(), sort_list.end(), CompareDestinations);
@@ -355,7 +357,7 @@ void AddressSorterPosix::OnIPAddressChanged() {
     IPEndPoint src;
     if (!src.FromSockAddr(ifa->ifa_addr, ifa->ifa_addr->sa_len))
       continue;
-    SourceAddressInfo& info = source_map_[src.address()];
+    SourceAddressInfo& info = source_map_[src.address().bytes()];
     // Note: no known way to fill in |native| and |home|.
     info.native = info.home = info.deprecated = false;
     if (ifa->ifa_addr->sa_family == AF_INET6) {
@@ -373,12 +375,12 @@ void AddressSorterPosix::OnIPAddressChanged() {
     if (ifa->ifa_netmask) {
       IPEndPoint netmask;
       if (netmask.FromSockAddr(ifa->ifa_netmask, ifa->ifa_addr->sa_len)) {
-        info.prefix_length = MaskPrefixLength(netmask.address());
+        info.prefix_length = MaskPrefixLength(netmask.address().bytes());
       } else {
         LOG(WARNING) << "FromSockAddr failed on netmask";
       }
     }
-    FillPolicy(src.address(), &info);
+    FillPolicy(src.address().bytes(), &info);
   }
   freeifaddrs(addrs);
   close(ioctl_socket);

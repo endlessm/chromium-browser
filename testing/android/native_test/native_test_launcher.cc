@@ -13,8 +13,8 @@
 #include <signal.h>
 
 #include "base/android/base_jni_registrar.h"
+#include "base/android/context_utils.h"
 #include "base/android/fifo_utils.h"
-#include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/at_exit.h"
@@ -76,8 +76,8 @@ static void RunTests(JNIEnv* env,
   base::CommandLine::Init(arraysize(kInitialArgv), kInitialArgv);
 
   // Set the application context in base.
-  base::android::InitApplicationContext(env, app_context);
   base::android::RegisterJni(env);
+  base::android::InitApplicationContext(env, app_context);
 
   std::vector<std::string> args;
 

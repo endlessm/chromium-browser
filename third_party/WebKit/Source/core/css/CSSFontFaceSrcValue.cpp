@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSFontFaceSrcValue.h"
 
 #include "core/css/CSSMarkup.h"
@@ -35,6 +34,7 @@
 #include "core/fetch/FontResource.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "core/loader/MixedContentChecker.h"
+#include "platform/CrossOriginAttributeValue.h"
 #include "platform/fonts/FontCache.h"
 #include "platform/fonts/FontCustomPlatformData.h"
 #include "platform/weborigin/SecurityPolicy.h"
@@ -72,7 +72,7 @@ String CSSFontFaceSrcValue::customCSSText() const
 
 bool CSSFontFaceSrcValue::hasFailedOrCanceledSubresources() const
 {
-    return m_fetched && m_fetched->loadFailedOrCanceled();
+    return m_fetched && m_fetched->resource()->loadFailedOrCanceled();
 }
 
 static void setCrossOriginAccessControl(FetchRequest& request, SecurityOrigin* securityOrigin)
@@ -82,13 +82,7 @@ static void setCrossOriginAccessControl(FetchRequest& request, SecurityOrigin* s
     if (request.url().isLocalFile())
         return;
 
-    StoredCredentials allowCredentials = DoNotAllowStoredCredentials;
-    bool sameOriginRequest = securityOrigin->canRequestNoSuborigin(request.url());
-    // Include credentials for same origin requests (and assume that
-    // redirects out of origin will be handled per Fetch spec.)
-    if (sameOriginRequest)
-        allowCredentials = AllowStoredCredentials;
-    request.setCrossOriginAccessControl(securityOrigin, allowCredentials, ClientDidNotRequestCredentials);
+    request.setCrossOriginAccessControl(securityOrigin, CrossOriginAttributeAnonymous);
 }
 
 FontResource* CSSFontFaceSrcValue::fetch(Document* document)
@@ -99,13 +93,16 @@ FontResource* CSSFontFaceSrcValue::fetch(Document* document)
         SecurityOrigin* securityOrigin = document->securityOrigin();
         setCrossOriginAccessControl(request, securityOrigin);
         request.mutableResourceRequest().setHTTPReferrer(SecurityPolicy::generateReferrer(m_referrer.referrerPolicy, request.url(), m_referrer.referrer));
-        m_fetched = FontResource::fetch(request, document->fetcher());
+        RefPtrWillBeRawPtr<FontResource> resource = FontResource::fetch(request, document->fetcher());
+        if (!resource)
+            return nullptr;
+        m_fetched = FontResourceHelper::create(resource.release());
     } else {
         // FIXME: CSSFontFaceSrcValue::fetch is invoked when @font-face rule
         // is processed by StyleResolver / StyleEngine.
         restoreCachedResourceIfNeeded(document);
     }
-    return m_fetched.get();
+    return m_fetched->resource();
 }
 
 void CSSFontFaceSrcValue::restoreCachedResourceIfNeeded(Document* document)
@@ -119,9 +116,9 @@ void CSSFontFaceSrcValue::restoreCachedResourceIfNeeded(Document* document)
 
     FetchRequest request(ResourceRequest(resourceURL), FetchInitiatorTypeNames::css);
     request.setContentSecurityCheck(m_shouldCheckContentSecurityPolicy);
-    MixedContentChecker::shouldBlockFetch(document->frame(), m_fetched->lastResourceRequest(),
-        m_fetched->lastResourceRequest().url(), MixedContentChecker::SendReport);
-    document->fetcher()->requestLoadStarted(m_fetched.get(), request, ResourceFetcher::ResourceLoadingFromCache);
+    MixedContentChecker::shouldBlockFetch(document->frame(), m_fetched->resource()->lastResourceRequest(),
+        m_fetched->resource()->lastResourceRequest().url(), MixedContentChecker::SendReport);
+    document->fetcher()->requestLoadStarted(m_fetched->resource(), request, ResourceFetcher::ResourceLoadingFromCache);
 }
 
 bool CSSFontFaceSrcValue::equals(const CSSFontFaceSrcValue& other) const
@@ -129,4 +126,4 @@ bool CSSFontFaceSrcValue::equals(const CSSFontFaceSrcValue& other) const
     return m_isLocal == other.m_isLocal && m_format == other.m_format && m_resource == other.m_resource;
 }
 
-}
+} // namespace blink

@@ -5,31 +5,40 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_INTERFACE_PTR_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_INTERFACE_PTR_H_
 
-#include <algorithm>
+#include <stdint.h>
+#include <utility>
 
+#include "base/logging.h"
+#include "base/macros.h"
 #include "mojo/public/cpp/bindings/callback.h"
 #include "mojo/public/cpp/bindings/interface_ptr_info.h"
-#include "mojo/public/cpp/bindings/lib/interface_ptr_internal.h"
+#include "mojo/public/cpp/bindings/lib/interface_ptr_state.h"
 #include "mojo/public/cpp/environment/environment.h"
-#include "mojo/public/cpp/system/macros.h"
 
 namespace mojo {
+
+class AssociatedGroup;
 
 // A pointer to a local proxy of a remote Interface implementation. Uses a
 // message pipe to communicate with the remote implementation, and automatically
 // closes the pipe and deletes the proxy on destruction. The pointer must be
 // bound to a message pipe before the interface methods can be called.
 //
-// This class is thread hostile, as is the local proxy it manages. All calls to
-// this class or the proxy should be from the same thread that created it. If
-// you need to move the proxy to a different thread, extract the
-// InterfacePtrInfo (containing just the message pipe and any version
-// information) using PassInterface(), pass it to a different thread, and
-// create and bind a new InterfacePtr from that thread.
+// This class is thread hostile, as is the local proxy it manages, while bound
+// to a message pipe. All calls to this class or the proxy should be from the
+// same thread that bound it. If you need to move the proxy to a different
+// thread, extract the InterfacePtrInfo (containing just the message pipe and
+// any version information) using PassInterface(), pass it to a different
+// thread, and create and bind a new InterfacePtr from that thread. If an
+// InterfacePtr is not bound to a message pipe, it may be bound or destroyed on
+// any thread.
 template <typename Interface>
 class InterfacePtr {
-  MOJO_MOVE_ONLY_TYPE(InterfacePtr)
+  DISALLOW_COPY_AND_ASSIGN_WITH_MOVE_FOR_BIND(InterfacePtr)
+
  public:
+  using GenericInterface = typename Interface::GenericInterface;
+
   // Constructs an unbound InterfacePtr.
   InterfacePtr() {}
   InterfacePtr(decltype(nullptr)) {}
@@ -66,11 +75,11 @@ class InterfacePtr {
   // has the same effect as reset(). In this case, the InterfacePtr is not
   // considered as bound.
   void Bind(
-      InterfacePtrInfo<Interface> info,
+      InterfacePtrInfo<GenericInterface> info,
       const MojoAsyncWaiter* waiter = Environment::GetDefaultAsyncWaiter()) {
     reset();
     if (info.is_valid())
-      internal_state_.Bind(info.Pass(), waiter);
+      internal_state_.Bind(std::move(info), waiter);
   }
 
   // Returns whether or not this InterfacePtr is bound to a message pipe.
@@ -112,13 +121,19 @@ class InterfacePtr {
     internal_state_.Swap(&doomed);
   }
 
+  // Whether there are any associated interfaces running on the pipe currently.
+  bool HasAssociatedInterfaces() const {
+    return internal_state_.HasAssociatedInterfaces();
+  }
+
   // Blocks the current thread until the next incoming response callback arrives
   // or an error occurs. Returns |true| if a response arrived, or |false| in
   // case of error.
   //
-  // This method may only be called after the InterfacePtr has been bound to a
-  // message pipe.
+  // This method may only be called if the InterfacePtr has been bound to a
+  // message pipe and there are no associated interfaces running.
   bool WaitForIncomingResponse() {
+    CHECK(!HasAssociatedInterfaces());
     return internal_state_.WaitForIncomingResponse();
   }
 
@@ -140,26 +155,44 @@ class InterfacePtr {
   // to setup an InterfacePtr again. This method may be used to move the proxy
   // to a different thread (see class comments for details).
   //
-  // It is an error to call PassInterface() while there are pending responses.
-  // TODO: fix this restriction, it's not always obvious when there is a
-  // pending response.
-  InterfacePtrInfo<Interface> PassInterface() {
-    MOJO_DCHECK(!internal_state_.has_pending_callbacks());
+  // It is an error to call PassInterface() while:
+  //   - there are pending responses; or
+  //     TODO: fix this restriction, it's not always obvious when there is a
+  //     pending response.
+  //   - there are associated interfaces running.
+  //     TODO(yzshen): For now, users need to make sure there is no one holding
+  //     on to associated interface endpoint handles at both sides of the
+  //     message pipe in order to call this method. We need a way to forcefully
+  //     invalidate associated interface endpoint handles.
+  InterfacePtrInfo<GenericInterface> PassInterface() {
+    CHECK(!HasAssociatedInterfaces());
+    CHECK(!internal_state_.has_pending_callbacks());
     State state;
     internal_state_.Swap(&state);
 
     return state.PassInterface();
   }
 
+  // Returns the associated group that this object belongs to. Returns null if:
+  //   - this object is not bound; or
+  //   - the interface doesn't have methods to pass associated interface
+  //     pointers or requests.
+  AssociatedGroup* associated_group() {
+    return internal_state_.associated_group();
+  }
+
   // DO NOT USE. Exposed only for internal use and for testing.
-  internal::InterfacePtrState<Interface>* internal_state() {
+  internal::InterfacePtrState<Interface, Interface::PassesAssociatedKinds_>*
+  internal_state() {
     return &internal_state_;
   }
 
   // Allow InterfacePtr<> to be used in boolean expressions, but not
   // implicitly convertible to a real bool (which is dangerous).
  private:
-  typedef internal::InterfacePtrState<Interface> InterfacePtr::*Testable;
+  typedef internal::InterfacePtrState<Interface,
+                                      Interface::PassesAssociatedKinds_>
+      InterfacePtr::*Testable;
 
  public:
   operator Testable() const {
@@ -175,7 +208,8 @@ class InterfacePtr {
   template <typename T>
   bool operator!=(const InterfacePtr<T>& other) const = delete;
 
-  typedef internal::InterfacePtrState<Interface> State;
+  typedef internal::InterfacePtrState<Interface,
+                                      Interface::PassesAssociatedKinds_> State;
   mutable State internal_state_;
 };
 
@@ -188,8 +222,8 @@ InterfacePtr<Interface> MakeProxy(
     const MojoAsyncWaiter* waiter = Environment::GetDefaultAsyncWaiter()) {
   InterfacePtr<Interface> ptr;
   if (info.is_valid())
-    ptr.Bind(info.Pass(), waiter);
-  return ptr.Pass();
+    ptr.Bind(std::move(info), waiter);
+  return std::move(ptr);
 }
 
 }  // namespace mojo

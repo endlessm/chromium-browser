@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/plugins/plugin_finder.h"
@@ -76,6 +77,7 @@ class NPAPIRemovalInfoBarDelegate : public ConfirmInfoBarDelegate {
   ~NPAPIRemovalInfoBarDelegate() override;
 
   // ConfirmInfobarDelegate:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   int GetIconId() const override;
   base::string16 GetMessageText() const override;
   int GetButtons() const override;
@@ -148,6 +150,11 @@ NPAPIRemovalInfoBarDelegate::NPAPIRemovalInfoBarDelegate(
 }
 
 NPAPIRemovalInfoBarDelegate::~NPAPIRemovalInfoBarDelegate() {
+}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+NPAPIRemovalInfoBarDelegate::GetIdentifier() const {
+  return NPAPI_REMOVAL_INFOBAR_DELEGATE;
 }
 
 int NPAPIRemovalInfoBarDelegate::GetIconId() const {
@@ -274,9 +281,9 @@ bool ChromePluginServiceFilter::IsPluginAvailable(
       return false;
     const GURL& origin = it->second.second;
     if (!origin.is_empty() &&
-        (policy_url.scheme() != origin.scheme() ||
-         policy_url.host() != origin.host() ||
-         policy_url.port() != origin.port())) {
+        (policy_url.scheme_piece() != origin.scheme_piece() ||
+         policy_url.host_piece() != origin.host_piece() ||
+         policy_url.port_piece() != origin.port_piece())) {
       return false;
     }
   }
@@ -454,6 +461,9 @@ ChromePluginServiceFilter::OverriddenPlugin::~OverriddenPlugin() {
 
 ChromePluginServiceFilter::ProcessDetails::ProcessDetails() {
 }
+
+ChromePluginServiceFilter::ProcessDetails::ProcessDetails(
+    const ProcessDetails& other) = default;
 
 ChromePluginServiceFilter::ProcessDetails::~ProcessDetails() {
 }

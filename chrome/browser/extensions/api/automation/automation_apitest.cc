@@ -8,6 +8,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/automation_internal/automation_event_router.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -124,6 +125,13 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, Location) {
       << message_;
 }
 
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, BoundsForRange) {
+  StartEmbeddedTestServer();
+  ASSERT_TRUE(RunExtensionSubtest("automation/tests/tabs",
+                                  "bounds_for_range.html"))
+      << message_;
+}
+
 IN_PROC_BROWSER_TEST_F(AutomationApiTest, TabsAutomationBooleanPermissions) {
   StartEmbeddedTestServer();
   ASSERT_TRUE(RunExtensionSubtest(
@@ -150,6 +158,31 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, Desktop) {
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/desktop", "desktop.html"))
       << message_;
 }
+
+#if defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopInitialFocus) {
+  ASSERT_TRUE(
+      RunExtensionSubtest("automation/tests/desktop", "initial_focus.html"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopFocusWeb) {
+  ASSERT_TRUE(
+      RunExtensionSubtest("automation/tests/desktop", "focus_web.html"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopFocusViews) {
+  AutomationManagerAura::GetInstance()->Enable(browser()->profile());
+  // Trigger the shelf subtree to be computed.
+  ash::Shell::GetInstance()->accelerator_controller()->PerformActionIfEnabled(
+      ash::FOCUS_SHELF);
+
+  ASSERT_TRUE(
+      RunExtensionSubtest("automation/tests/desktop", "focus_views.html"))
+      << message_;
+}
+#endif
 
 IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopNotRequested) {
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/tabs",

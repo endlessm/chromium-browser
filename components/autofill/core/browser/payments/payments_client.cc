@@ -4,6 +4,8 @@
 
 #include "components/autofill/core/browser/payments/payments_client.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -13,6 +15,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/payments/payments_request.h"
@@ -132,7 +135,7 @@ scoped_ptr<base::DictionaryValue> BuildAddressDictionary(
   if (!address_line3.empty())
     address_lines->AppendString(address_line3);
   if (!address_lines->empty())
-    postal_address->Set("address_line", address_lines.Pass());
+    postal_address->Set("address_line", std::move(address_lines));
 
   const base::string16 city =
       profile.GetInfo(AutofillType(ADDRESS_HOME_CITY), app_locale);
@@ -153,7 +156,7 @@ scoped_ptr<base::DictionaryValue> BuildAddressDictionary(
   if (!country_code.empty())
     postal_address->SetString("country_name_code", country_code);
 
-  address->Set("postal_address", postal_address.Pass());
+  address->Set("postal_address", std::move(postal_address));
 
   const base::string16 phone_number =
       profile.GetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER), app_locale);
@@ -236,11 +239,11 @@ class GetUploadDetailsRequest : public PaymentsRequest {
     base::DictionaryValue request_dict;
     scoped_ptr<base::DictionaryValue> context(new base::DictionaryValue());
     context->SetString("language_code", app_locale_);
-    request_dict.Set("context", context.Pass());
+    request_dict.Set("context", std::move(context));
 
     std::string request_content;
     base::JSONWriter::Write(request_dict, &request_content);
-    VLOG(3) << "getsavecarddetails request body: " << request_content;
+    VLOG(3) << "getdetailsforsavecard request body: " << request_content;
     return request_content;
   }
 
@@ -258,7 +261,7 @@ class GetUploadDetailsRequest : public PaymentsRequest {
   void RespondToDelegate(PaymentsClientDelegate* delegate,
                          AutofillClient::PaymentsRpcResult result) override {
     delegate->OnDidGetUploadDetails(result, context_token_,
-                                    legal_message_.Pass());
+                                    std::move(legal_message_));
   }
 
  private:
@@ -289,7 +292,7 @@ class UploadCardRequest : public PaymentsRequest {
     const std::string& app_locale = request_details_.app_locale;
     scoped_ptr<base::DictionaryValue> context(new base::DictionaryValue());
     context->SetString("language_code", app_locale);
-    request_dict.Set("context", context.Pass());
+    request_dict.Set("context", std::move(context));
 
     request_dict.SetString("cardholder_name",
                            request_details_.card.GetInfo(
@@ -299,7 +302,7 @@ class UploadCardRequest : public PaymentsRequest {
     for (const AutofillProfile& profile : request_details_.profiles) {
       addresses->Append(BuildAddressDictionary(profile, app_locale));
     }
-    request_dict.Set("address", addresses.Pass());
+    request_dict.Set("address", std::move(addresses));
 
     request_dict.SetString("context_token", request_details_.context_token);
 
@@ -347,6 +350,8 @@ PaymentsClient::UnmaskRequestDetails::UnmaskRequestDetails() {}
 PaymentsClient::UnmaskRequestDetails::~UnmaskRequestDetails() {}
 
 PaymentsClient::UploadRequestDetails::UploadRequestDetails() {}
+PaymentsClient::UploadRequestDetails::UploadRequestDetails(
+    const UploadRequestDetails& other) = default;
 PaymentsClient::UploadRequestDetails::~UploadRequestDetails() {}
 
 PaymentsClient::PaymentsClient(net::URLRequestContextGetter* context_getter,
@@ -382,7 +387,7 @@ void PaymentsClient::UploadCard(
 
 void PaymentsClient::IssueRequest(scoped_ptr<PaymentsRequest> request,
                                   bool authenticate) {
-  request_ = request.Pass();
+  request_ = std::move(request);
   has_retried_authorization_ = false;
   InitializeUrlFetcher();
 
@@ -423,7 +428,7 @@ void PaymentsClient::OnURLFetchComplete(const net::URLFetcher* source) {
 
   // |url_fetcher_|, which is aliased to |source|, might continue to be used in
   // this method, but should be freed once control leaves the method.
-  scoped_ptr<net::URLFetcher> scoped_url_fetcher(url_fetcher_.Pass());
+  scoped_ptr<net::URLFetcher> scoped_url_fetcher(std::move(url_fetcher_));
   scoped_ptr<base::DictionaryValue> response_dict;
   int response_code = source->GetResponseCode();
   std::string data;
@@ -442,7 +447,7 @@ void PaymentsClient::OnURLFetchComplete(const net::URLFetcher* source) {
         response_dict.reset(
             static_cast<base::DictionaryValue*>(message_value.release()));
         response_dict->GetString("error.code", &error_code);
-        request_->ParseResponse(response_dict.Pass());
+        request_->ParseResponse(std::move(response_dict));
       }
 
       if (base::LowerCaseEqualsASCII(error_code, "internal"))

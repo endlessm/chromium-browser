@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/renderer/autofill/password_generation_test_utils.h"
@@ -553,7 +554,7 @@ TEST_F(PasswordAutofillAgentTest, InitialAutocompleteForEmptyAction) {
 
   // Set the expected form origin and action URLs.
   UpdateOriginForHTML(kEmptyActionFormHTML);
-  fill_data_.action = fill_data_.origin;
+  fill_data_.action = GURL();
 
   // Simulate the browser sending back the login info, it triggers the
   // autocomplete.
@@ -1400,7 +1401,7 @@ TEST_F(PasswordAutofillAgentTest,
 TEST_F(PasswordAutofillAgentTest,
        RememberLastNonEmptyUsernameAndPasswordOnSubmit_New) {
   const char kNewPasswordFormHTML[] =
-      "<FORM name='LoginTestForm'>"
+      "<FORM name='LoginTestForm' action='http://www.bidule.com'>"
       "  <INPUT type='text' id='username' autocomplete='username'/>"
       "  <INPUT type='password' id='password' autocomplete='new-password'/>"
       "  <INPUT type='submit' value='Login'/>"
@@ -1823,8 +1824,7 @@ TEST_F(PasswordAutofillAgentTest, PasswordGenerationTriggered_TypedPassword) {
 
   SetNotBlacklistedMessage(password_generation_, kFormHTML);
   SetAccountCreationFormsDetectedMessage(password_generation_,
-                                         GetMainFrame()->document(),
-                                         0);
+                                         GetMainFrame()->document(), 0, 2);
 
   SimulateUsernameChange("NewGuy");
   SimulatePasswordChange("NewPassword");
@@ -1844,8 +1844,7 @@ TEST_F(PasswordAutofillAgentTest,
 
   SetNotBlacklistedMessage(password_generation_, kFormHTML);
   SetAccountCreationFormsDetectedMessage(password_generation_,
-                                         GetMainFrame()->document(),
-                                         0);
+                                         GetMainFrame()->document(), 0, 2);
 
   base::string16 password = base::ASCIIToUTF16("NewPass22");
   AutofillMsg_GeneratedPasswordAccepted msg(0, password);
@@ -1884,8 +1883,7 @@ TEST_F(PasswordAutofillAgentTest, PasswordGenerationSupersedesAutofill) {
   SetNotBlacklistedMessage(password_generation_,
                            kSignupFormHTML);
   SetAccountCreationFormsDetectedMessage(password_generation_,
-                                         GetMainFrame()->document(),
-                                         0);
+                                         GetMainFrame()->document(), 0, 1);
 
   // Simulate the field being clicked to start typing. This should trigger
   // generation but not password autofill.
@@ -2293,6 +2291,38 @@ TEST_F(PasswordAutofillAgentTest, ShowSuggestionForNonUsernameFieldForms) {
   CheckSuggestions(std::string(), false);
   SimulateElementClick("password2");
   CheckSuggestions(std::string(), false);
+}
+
+TEST_F(PasswordAutofillAgentTest,
+       UsernameChangedAfterPasswordInput_InPageNavigation) {
+  LoadHTML(kNoFormHTML);
+  UpdateUsernameAndPasswordElements();
+
+  SimulateUsernameChange("Bob");
+  SimulatePasswordChange("mypassword");
+  SimulateUsernameChange("Alice");
+
+  // Hide form elements to simulate successful login.
+  username_element_.setAttribute("style", "display:none;");
+  password_element_.setAttribute("style", "display:none;");
+
+  password_autofill_agent_->AJAXSucceeded();
+
+  ExpectInPageNavigationWithUsernameAndPasswords("Alice", "mypassword", "");
+}
+
+TEST_F(PasswordAutofillAgentTest,
+       UsernameChangedAfterPasswordInput_FormSubmitted) {
+  SimulateUsernameChange("Bob");
+  SimulatePasswordChange("mypassword");
+  SimulateUsernameChange("Alice");
+
+  static_cast<content::RenderFrameObserver*>(password_autofill_agent_)
+      ->WillSendSubmitEvent(username_element_.form());
+  static_cast<content::RenderFrameObserver*>(password_autofill_agent_)
+      ->WillSubmitForm(username_element_.form());
+
+  ExpectFormSubmittedWithUsernameAndPasswords("Alice", "mypassword", "");
 }
 
 }  // namespace autofill

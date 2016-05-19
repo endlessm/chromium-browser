@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/events/AnimationPlayerEvent.h"
 
 namespace blink {
@@ -33,6 +32,13 @@ AnimationPlayerEvent::AnimationPlayerEvent(const AtomicString& type, const Anima
 
 AnimationPlayerEvent::~AnimationPlayerEvent()
 {
+}
+
+double AnimationPlayerEvent::currentTime(bool& isNull) const
+{
+    double result = currentTime();
+    isNull = std::isnan(result);
+    return result;
 }
 
 double AnimationPlayerEvent::currentTime() const

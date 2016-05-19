@@ -5,10 +5,12 @@
 #include "chromeos/network/prohibited_technologies_handler.h"
 
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/json/json_reader.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -76,11 +78,12 @@ class ProhibitedTechnologiesHandlerTest : public testing::Test {
   void PreparePolicies() {
     scoped_ptr<base::ListValue> val(new base::ListValue());
     val->AppendString("WiFi");
-    global_config_disable_wifi.Set("DisableNetworkTypes", val.Pass());
+    global_config_disable_wifi.Set("DisableNetworkTypes", std::move(val));
     val.reset(new base::ListValue());
     val->AppendString("WiFi");
     val->AppendString("Cellular");
-    global_config_disable_wifi_and_cell.Set("DisableNetworkTypes", val.Pass());
+    global_config_disable_wifi_and_cell.Set("DisableNetworkTypes",
+                                            std::move(val));
   }
 
   void TearDown() override {

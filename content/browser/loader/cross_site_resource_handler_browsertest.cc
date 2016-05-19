@@ -4,6 +4,7 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -96,7 +97,8 @@ class TestResourceDispatcherHostDelegate
     CallbackRunningResourceThrottle(net::URLRequest* request,
                                     TestResourceDispatcherHostDelegate* tracker,
                                     const RequestDeferredHook& run_on_start)
-        : request_(request),
+        : resumed_(false),
+          request_(request),
           tracker_(tracker),
           run_on_start_(run_on_start),
           weak_factory_(this) {}
@@ -115,9 +117,12 @@ class TestResourceDispatcherHostDelegate
     ~CallbackRunningResourceThrottle() override {
       // If the request is deleted without being cancelled, its status will
       // indicate it succeeded, so have to check if the request is still pending
-      // as well.
+      // as well. If the request never even started, the throttle will never
+      // resume it. Check this condition as well to allow for early
+      // cancellation.
       tracker_->OnTrackedRequestDestroyed(!request_->is_pending() &&
-                                          request_->status().is_success());
+                                          request_->status().is_success() &&
+                                          resumed_);
     }
 
     // ResourceThrottle implementation:
@@ -126,7 +131,12 @@ class TestResourceDispatcherHostDelegate
     }
 
    private:
-    void Resume() { controller()->Resume(); }
+    void Resume() {
+      resumed_ = true;
+      controller()->Resume();
+    }
+
+    bool resumed_;
     net::URLRequest* request_;
     TestResourceDispatcherHostDelegate* tracker_;
     RequestDeferredHook run_on_start_;
@@ -239,10 +249,8 @@ void SimulateMaliciousFrameDetachOnUIThread(int render_process_id,
 
 // Regression test for https://crbug.com/538784 -- ensures that one can't
 // sidestep CrossSiteResourceHandler by detaching a frame mid-request.
-//
-// TODO(nick): Disabled until we re-land the fix for https://crbug.com/538784.
 IN_PROC_BROWSER_TEST_F(CrossSiteResourceHandlerTest,
-                       DISABLED_NoDeliveryToDetachedFrame) {
+                       NoDeliveryToDetachedFrame) {
   GURL attacker_page = embedded_test_server()->GetURL(
       "evil.com", "/cross_site_iframe_factory.html?evil(evil)");
   EXPECT_TRUE(NavigateToURL(shell(), attacker_page));

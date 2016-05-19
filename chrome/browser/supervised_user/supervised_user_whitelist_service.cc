@@ -4,6 +4,8 @@
 
 #include "chrome/browser/supervised_user/supervised_user_whitelist_service.h"
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/command_line.h"
@@ -11,8 +13,6 @@
 #include "base/metrics/histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_split.h"
 #include "base/values.h"
 #include "chrome/browser/component_updater/supervised_user_whitelist_installer.h"
@@ -20,6 +20,8 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "sync/api/sync_change.h"
 #include "sync/api/sync_data.h"
 #include "sync/api/sync_error.h"
@@ -67,25 +69,8 @@ void SupervisedUserWhitelistService::Init() {
                  weak_ptr_factory_.GetWeakPtr()));
 
   // Register whitelists specified on the command line.
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
-  std::string command_line_whitelists = command_line->GetSwitchValueASCII(
-      switches::kInstallSupervisedUserWhitelists);
-  for (const base::StringPiece& whitelist : base::SplitStringPiece(
-           command_line_whitelists, ",",
-           base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
-    std::string id;
-    std::string name;
-    size_t separator = whitelist.find(':');
-    if (separator != base::StringPiece::npos) {
-      whitelist.substr(0, separator).CopyToString(&id);
-      whitelist.substr(separator + 1).CopyToString(&name);
-    } else {
-      whitelist.CopyToString(&id);
-    }
-
-    RegisterWhitelist(id, name, FROM_COMMAND_LINE);
-  }
+  for (const auto& whitelist : GetWhitelistsFromCommandLine())
+    RegisterWhitelist(whitelist.first, whitelist.second, FROM_COMMAND_LINE);
 }
 
 void SupervisedUserWhitelistService::AddSiteListsChangedCallback(
@@ -97,12 +82,42 @@ void SupervisedUserWhitelistService::AddSiteListsChangedCallback(
   callback.Run(whitelists);
 }
 
+// static
+std::map<std::string, std::string>
+SupervisedUserWhitelistService::GetWhitelistsFromCommandLine() {
+  std::map<std::string, std::string> whitelists;
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
+  std::string command_line_whitelists = command_line->GetSwitchValueASCII(
+      switches::kInstallSupervisedUserWhitelists);
+  std::vector<base::StringPiece> string_pieces =
+      base::SplitStringPiece(command_line_whitelists, ",",
+                             base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+  for (const base::StringPiece& whitelist : string_pieces) {
+    std::string id;
+    std::string name;
+    size_t separator = whitelist.find(':');
+    if (separator != base::StringPiece::npos) {
+      whitelist.substr(0, separator).CopyToString(&id);
+      whitelist.substr(separator + 1).CopyToString(&name);
+    } else {
+      whitelist.CopyToString(&id);
+    }
+
+    const bool result = whitelists.insert(std::make_pair(id, name)).second;
+    DCHECK(result);
+  }
+
+  return whitelists;
+}
+
 void SupervisedUserWhitelistService::LoadWhitelistForTesting(
     const std::string& id,
+    const base::string16& title,
     const base::FilePath& path) {
   bool result = registered_whitelists_.insert(id).second;
   DCHECK(result);
-  OnWhitelistReady(id, path);
+  OnWhitelistReady(id, title, path);
 }
 
 void SupervisedUserWhitelistService::UnloadWhitelist(const std::string& id) {
@@ -316,6 +331,7 @@ void SupervisedUserWhitelistService::NotifyWhitelistsChanged() {
 
 void SupervisedUserWhitelistService::OnWhitelistReady(
     const std::string& id,
+    const base::string16& title,
     const base::FilePath& whitelist_path) {
   // If we did not register the whitelist or it has been unregistered in the
   // mean time, ignore it.
@@ -323,7 +339,7 @@ void SupervisedUserWhitelistService::OnWhitelistReady(
     return;
 
   SupervisedUserSiteList::Load(
-      whitelist_path,
+      id, title, whitelist_path,
       base::Bind(&SupervisedUserWhitelistService::OnWhitelistLoaded,
                  weak_ptr_factory_.GetWeakPtr(), id, base::TimeTicks::Now()));
 }

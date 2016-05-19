@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/views/exclusive_access_bubble_views.h"
 
-#include "base/i18n/case_conversion.h"
+#include <utility>
+
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
@@ -45,9 +48,12 @@ namespace {
 // Space between the site info label and the buttons / link.
 const int kMiddlePaddingPx = 30;
 
-// Opacity of the background (out of 255). Only used with
+const int kOuterPaddingHorizPx = 40;
+const int kOuterPaddingVertPx = 8;
+
+// Partially-transparent background color. Only used with
 // IsSimplifiedFullscreenUIEnabled.
-const unsigned char kBackgroundOpacity = 180;
+const SkColor kBackgroundColor = SkColorSetARGB(0xcc, 0x28, 0x2c, 0x32);
 
 class ButtonView : public views::View {
  public:
@@ -96,7 +102,14 @@ class InstructionView : public views::View {
                   SkColor foreground_color,
                   SkColor background_color);
 
+  void SetText(const base::string16& text);
+
  private:
+  views::Label* before_key_;
+  views::Label* key_name_label_;
+  views::View* key_name_;
+  views::Label* after_key_;
+
   DISALLOW_COPY_AND_ASSIGN(InstructionView);
 };
 
@@ -104,52 +117,68 @@ InstructionView::InstructionView(const base::string16& text,
                                  const gfx::FontList& font_list,
                                  SkColor foreground_color,
                                  SkColor background_color) {
-  // Parse |text|, looking for pipe-delimited segment.
-  std::vector<base::string16> segments =
-      base::SplitString(text, base::ASCIIToUTF16("|"), base::TRIM_WHITESPACE,
-                        base::SPLIT_WANT_ALL);
-  // Expect 1 or 3 pieces (either no pipe-delimited segments, or one).
-  DCHECK(segments.size() == 1 || segments.size() == 3);
-
   // Spacing around the escape key name.
   const int kKeyNameMarginHorizPx = 7;
-  const int kKeyNameBorderPx = 2;
+  const int kKeyNameBorderPx = 1;
   const int kKeyNameCornerRadius = 2;
-  const int kKeyNamePaddingPx = 7;
+  const int kKeyNamePaddingPx = 5;
 
   // The |between_child_spacing| is the horizontal margin of the key name.
   views::BoxLayout* layout = new views::BoxLayout(views::BoxLayout::kHorizontal,
                                                   0, 0, kKeyNameMarginHorizPx);
   SetLayoutManager(layout);
 
-  views::Label* before_key = new views::Label(segments[0], font_list);
-  before_key->SetEnabledColor(foreground_color);
-  before_key->SetBackgroundColor(background_color);
-  AddChildView(before_key);
+  before_key_ = new views::Label(base::string16(), font_list);
+  before_key_->SetEnabledColor(foreground_color);
+  before_key_->SetBackgroundColor(background_color);
+  AddChildView(before_key_);
 
-  if (segments.size() < 3)
-    return;
+  key_name_label_ = new views::Label(base::string16(), font_list);
+  key_name_label_->SetEnabledColor(foreground_color);
+  key_name_label_->SetBackgroundColor(background_color);
 
-  base::string16 key = base::i18n::ToUpper(segments[1]);
-  views::Label* key_name_label = new views::Label(key, font_list);
-  key_name_label->SetEnabledColor(foreground_color);
-  key_name_label->SetBackgroundColor(background_color);
-
-  views::View* key_name = new views::View;
+  key_name_ = new views::View;
   views::BoxLayout* key_name_layout = new views::BoxLayout(
-      views::BoxLayout::kHorizontal, kKeyNamePaddingPx, kKeyNamePaddingPx, 0);
-  key_name->SetLayoutManager(key_name_layout);
-  key_name->AddChildView(key_name_label);
+      views::BoxLayout::kHorizontal, kKeyNamePaddingPx, 0, 0);
+  key_name_layout->set_minimum_cross_axis_size(
+      key_name_label_->GetPreferredSize().height() + kKeyNamePaddingPx * 2);
+  key_name_->SetLayoutManager(key_name_layout);
+  key_name_->AddChildView(key_name_label_);
   // The key name has a border around it.
   scoped_ptr<views::Border> border(views::Border::CreateRoundedRectBorder(
       kKeyNameBorderPx, kKeyNameCornerRadius, foreground_color));
-  key_name->SetBorder(border.Pass());
-  AddChildView(key_name);
+  key_name_->SetBorder(std::move(border));
+  AddChildView(key_name_);
 
-  views::Label* after_key = new views::Label(segments[2], font_list);
-  after_key->SetEnabledColor(foreground_color);
-  after_key->SetBackgroundColor(background_color);
-  AddChildView(after_key);
+  after_key_ = new views::Label(base::string16(), font_list);
+  after_key_->SetEnabledColor(foreground_color);
+  after_key_->SetBackgroundColor(background_color);
+  AddChildView(after_key_);
+
+  SetText(text);
+}
+
+void InstructionView::SetText(const base::string16& text) {
+  // Parse |text|, looking for pipe-delimited segment.
+  std::vector<base::string16> segments =
+      base::SplitString(text, base::ASCIIToUTF16("|"), base::TRIM_WHITESPACE,
+                        base::SPLIT_WANT_ALL);
+  // Expect 1 or 3 pieces (either no pipe-delimited segments, or one).
+  DCHECK(segments.size() <= 1 || segments.size() == 3);
+
+  before_key_->SetText(segments.size() ? segments[0] : base::string16());
+
+  if (segments.size() < 3) {
+    key_name_->SetVisible(false);
+    after_key_->SetVisible(false);
+    return;
+  }
+
+  before_key_->SetText(segments[0]);
+  key_name_label_->SetText(segments[1]);
+  key_name_->SetVisible(true);
+  after_key_->SetVisible(true);
+  after_key_->SetText(segments[2]);
 }
 
 }  // namespace
@@ -213,10 +242,11 @@ ExclusiveAccessBubbleViews::ExclusiveAccessView::ExclusiveAccessView(
   if (ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled())
     shadow_type = views::BubbleBorder::NO_ASSETS;
 
-  ui::NativeTheme* theme = ui::NativeTheme::instance();
+  // TODO(estade): don't use this static instance. See http://crbug.com/558162
+  ui::NativeTheme* theme = ui::NativeTheme::GetInstanceForWeb();
   SkColor background_color =
       ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()
-          ? SkColorSetA(SK_ColorBLACK, kBackgroundOpacity)
+          ? kBackgroundColor
           : theme->GetSystemColor(ui::NativeTheme::kColorId_BubbleBackground);
   SkColor foreground_color =
       ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()
@@ -226,22 +256,21 @@ ExclusiveAccessBubbleViews::ExclusiveAccessView::ExclusiveAccessView(
   scoped_ptr<views::BubbleBorder> bubble_border(new views::BubbleBorder(
       views::BubbleBorder::NONE, shadow_type, background_color));
   set_background(new views::BubbleBackground(bubble_border.get()));
-  SetBorder(bubble_border.Pass());
+  SetBorder(std::move(bubble_border));
   SetFocusable(false);
 
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  const gfx::FontList& medium_font_list =
+  const gfx::FontList& font_list =
       rb.GetFontList(ui::ResourceBundle::MediumFont);
 
   if (!ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()) {
-    message_label_ = new views::Label(base::string16(), medium_font_list);
+    message_label_ = new views::Label(base::string16(), font_list);
     message_label_->SetEnabledColor(foreground_color);
     message_label_->SetBackgroundColor(background_color);
   }
 
-  exit_instruction_ =
-      new InstructionView(bubble_->GetInstructionText(), medium_font_list,
-                          foreground_color, background_color);
+  exit_instruction_ = new InstructionView(base::string16(), font_list,
+                                          foreground_color, background_color);
 
   link_ = new views::Link();
   link_->SetFocusable(false);
@@ -250,7 +279,7 @@ ExclusiveAccessBubbleViews::ExclusiveAccessView::ExclusiveAccessView(
   link_->SetText(l10n_util::GetStringUTF16(IDS_EXIT_FULLSCREEN_MODE));
 #endif
   link_->set_listener(this);
-  link_->SetFontList(medium_font_list);
+  link_->SetFontList(font_list);
   link_->SetPressedColor(foreground_color);
   link_->SetEnabledColor(foreground_color);
   link_->SetBackgroundColor(background_color);
@@ -258,16 +287,22 @@ ExclusiveAccessBubbleViews::ExclusiveAccessView::ExclusiveAccessView(
 
   button_view_ = new ButtonView(this, kPaddingPx);
 
+  int outer_padding_horiz = kOuterPaddingHorizPx;
+  int outer_padding_vert = kOuterPaddingVertPx;
   if (!ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()) {
     DCHECK(message_label_);
     AddChildView(message_label_);
+
+    outer_padding_horiz = kPaddingPx;
+    outer_padding_vert = kPaddingPx;
   }
   AddChildView(button_view_);
   AddChildView(exit_instruction_);
   AddChildView(link_);
 
-  views::BoxLayout* layout = new views::BoxLayout(
-      views::BoxLayout::kHorizontal, kPaddingPx, kPaddingPx, kMiddlePaddingPx);
+  views::BoxLayout* layout =
+      new views::BoxLayout(views::BoxLayout::kHorizontal, outer_padding_horiz,
+                           outer_padding_vert, kMiddlePaddingPx);
   SetLayoutManager(layout);
 
   UpdateContent(url, bubble_type);
@@ -319,11 +354,12 @@ void ExclusiveAccessBubbleViews::ExclusiveAccessView::UpdateContent(
         bubble_type ==
             EXCLUSIVE_ACCESS_BUBBLE_TYPE_EXTENSION_FULLSCREEN_EXIT_INSTRUCTION) {
       accelerator = browser_fullscreen_exit_accelerator_;
-    } else if (bubble_type ==
-               EXCLUSIVE_ACCESS_BUBBLE_TYPE_FULLSCREEN_EXIT_INSTRUCTION) {
-      accelerator = l10n_util::GetStringUTF16(IDS_APP_ESC_KEY);
     } else {
-      link_visible = false;
+      accelerator = l10n_util::GetStringUTF16(IDS_APP_ESC_KEY);
+      if (bubble_type !=
+          EXCLUSIVE_ACCESS_BUBBLE_TYPE_FULLSCREEN_EXIT_INSTRUCTION) {
+        link_visible = false;
+      }
     }
 #if !defined(OS_CHROMEOS)
     if (link_visible) {
@@ -334,6 +370,7 @@ void ExclusiveAccessBubbleViews::ExclusiveAccessView::UpdateContent(
     }
 #endif
     link_->SetVisible(link_visible);
+    exit_instruction_->SetText(bubble_->GetInstructionText(accelerator));
     exit_instruction_->SetVisible(!link_visible);
     button_view_->SetVisible(false);
   }
@@ -351,7 +388,7 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
       bubble_view_context_(context),
       popup_(nullptr),
       animation_(new gfx::SlideAnimation(this)),
-      animated_attribute_(ANIMATED_ATTRIBUTE_BOUNDS) {
+      animated_attribute_(ExpectedAnimationAttribute()) {
   // With the simplified fullscreen UI flag, initially hide the bubble;
   // otherwise, initially show it.
   double initial_value =
@@ -361,8 +398,8 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
   // Create the contents view.
   ui::Accelerator accelerator(ui::VKEY_UNKNOWN, ui::EF_NONE);
   bool got_accelerator =
-      bubble_view_context_->GetBubbleAssociatedWidget()->GetAccelerator(
-          IDC_FULLSCREEN, &accelerator);
+      bubble_view_context_->GetAcceleratorProvider()
+          ->GetAcceleratorForCommandId(IDC_FULLSCREEN, &accelerator);
   DCHECK(got_accelerator);
   view_ = new ExclusiveAccessView(this, accelerator.GetShortcutText(), url,
                                   bubble_type_);
@@ -375,8 +412,7 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
   params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.parent =
-      bubble_view_context_->GetBubbleAssociatedWidget()->GetNativeView();
+  params.parent = bubble_view_context_->GetBubbleParentView();
   // The simplified UI just shows a notice; clicks should go through to the
   // underlying window.
   params.accept_events =
@@ -384,6 +420,7 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
   popup_->Init(params);
   popup_->SetContentsView(view_);
   gfx::Size size = GetPopupRect(true).size();
+  // Bounds are in screen coordinates.
   popup_->SetBounds(GetPopupRect(false));
   // We set layout manager to nullptr to prevent the widget from sizing its
   // contents to the same size as itself. This prevents the widget contents from
@@ -401,7 +438,7 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
                      bubble_view_context_->GetExclusiveAccessManager()
                          ->fullscreen_controller()));
 
-  UpdateForImmersiveState();
+  UpdateMouseWatcher();
 }
 
 ExclusiveAccessBubbleViews::~ExclusiveAccessBubbleViews() {
@@ -453,6 +490,14 @@ views::View* ExclusiveAccessBubbleViews::GetView() {
   return view_;
 }
 
+ExclusiveAccessBubbleViews::AnimatedAttribute
+ExclusiveAccessBubbleViews::ExpectedAnimationAttribute() {
+  return ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled() ||
+                 bubble_view_context_->IsImmersiveModeEnabled()
+             ? ANIMATED_ATTRIBUTE_OPACITY
+             : ANIMATED_ATTRIBUTE_BOUNDS;
+}
+
 void ExclusiveAccessBubbleViews::UpdateMouseWatcher() {
   bool should_watch_mouse = false;
   if (popup_->IsVisible())
@@ -471,11 +516,7 @@ void ExclusiveAccessBubbleViews::UpdateMouseWatcher() {
 }
 
 void ExclusiveAccessBubbleViews::UpdateForImmersiveState() {
-  AnimatedAttribute expected_animated_attribute =
-      ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled() ||
-              bubble_view_context_->IsImmersiveModeEnabled()
-          ? ANIMATED_ATTRIBUTE_OPACITY
-          : ANIMATED_ATTRIBUTE_BOUNDS;
+  AnimatedAttribute expected_animated_attribute = ExpectedAnimationAttribute();
   if (animated_attribute_ != expected_animated_attribute) {
     // If an animation is currently in progress, skip to the end because
     // switching the animated attribute midway through the animation looks
@@ -536,17 +577,10 @@ void ExclusiveAccessBubbleViews::AnimationEnded(
 gfx::Rect ExclusiveAccessBubbleViews::GetPopupRect(
     bool ignore_animation_state) const {
   gfx::Size size(view_->GetPreferredSize());
-  // NOTE: don't use the bounds of the root_view_. On linux GTK changing window
-  // size is async. Instead we use the size of the screen.
-  gfx::Screen* screen = gfx::Screen::GetScreenFor(
-      bubble_view_context_->GetBubbleAssociatedWidget()->GetNativeView());
-  gfx::Rect screen_bounds =
-      screen->GetDisplayNearestWindow(
-                  bubble_view_context_->GetBubbleAssociatedWidget()
-                      ->GetNativeView()).bounds();
-  int x = screen_bounds.x() + (screen_bounds.width() - size.width()) / 2;
+  gfx::Rect widget_bounds = bubble_view_context_->GetClientAreaBoundsInScreen();
+  int x = widget_bounds.x() + (widget_bounds.width() - size.width()) / 2;
 
-  int top_container_bottom = screen_bounds.y();
+  int top_container_bottom = widget_bounds.y();
   if (bubble_view_context_->IsImmersiveModeEnabled()) {
     // Skip querying the top container height in non-immersive fullscreen
     // because:
@@ -561,7 +595,10 @@ gfx::Rect ExclusiveAccessBubbleViews::GetPopupRect(
         bubble_view_context_->GetTopContainerBoundsInScreen().bottom();
   }
   // |desired_top| is the top of the bubble area including the shadow.
-  int desired_top = kPopupTopPx - view_->border()->GetInsets().top();
+  int popup_top = ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled()
+                      ? kSimplifiedPopupTopPx
+                      : kPopupTopPx;
+  int desired_top = popup_top - view_->border()->GetInsets().top();
   int y = top_container_bottom + desired_top;
 
   if (!ignore_animation_state &&
@@ -576,12 +613,7 @@ gfx::Rect ExclusiveAccessBubbleViews::GetPopupRect(
 }
 
 gfx::Point ExclusiveAccessBubbleViews::GetCursorScreenPoint() {
-  gfx::Point cursor_pos =
-      gfx::Screen::GetScreenFor(
-          bubble_view_context_->GetBubbleAssociatedWidget()->GetNativeView())
-          ->GetCursorScreenPoint();
-  views::View::ConvertPointFromScreen(GetBrowserRootView(), &cursor_pos);
-  return cursor_pos;
+  return bubble_view_context_->GetCursorPointInParent();
 }
 
 bool ExclusiveAccessBubbleViews::WindowContainsPoint(gfx::Point pos) {

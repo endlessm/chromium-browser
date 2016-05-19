@@ -4,13 +4,16 @@
 
 #include "components/gcm_driver/gcm_profile_service.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "components/gcm_driver/gcm_driver_constants.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 
 #if defined(OS_ANDROID)
 #include "base/sequenced_task_runner.h"
@@ -109,7 +112,7 @@ void GCMProfileService::IdentityObserver::StartAccountTracker(
       new gaia::AccountTracker(identity_provider_, request_context));
 
   gcm_account_tracker_.reset(
-      new GCMAccountTracker(gaia_account_tracker.Pass(), driver_));
+      new GCMAccountTracker(std::move(gaia_account_tracker), driver_));
 
   gcm_account_tracker_->Start();
 }
@@ -144,8 +147,8 @@ GCMProfileService::GCMProfileService(
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner,
     scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner)
     : request_context_(request_context),
-      profile_identity_provider_(identity_provider.Pass()) {
-  driver_ = CreateGCMDriverDesktop(gcm_client_factory.Pass(), prefs,
+      profile_identity_provider_(std::move(identity_provider)) {
+  driver_ = CreateGCMDriverDesktop(std::move(gcm_client_factory), prefs,
                                    path.Append(gcm_driver::kGCMStoreDirname),
                                    request_context_, channel, ui_task_runner,
                                    io_task_runner, blocking_task_runner);
@@ -169,8 +172,7 @@ void GCMProfileService::Shutdown() {
   }
 }
 
-void GCMProfileService::SetDriverForTesting(const base::Closure& login_callback,
-                                            GCMDriver* driver) {
+void GCMProfileService::SetDriverForTesting(GCMDriver* driver) {
   driver_.reset(driver);
 #if !defined(OS_ANDROID)
   if (identity_observer_) {

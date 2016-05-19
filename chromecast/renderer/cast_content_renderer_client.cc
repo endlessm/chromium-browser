@@ -4,13 +4,16 @@
 
 #include "chromecast/renderer/cast_content_renderer_client.h"
 
+#include <stdint.h>
 #include <sys/sysinfo.h>
 
 #include "base/command_line.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chromecast/base/chromecast_switches.h"
 #include "chromecast/crash/cast_crash_keys.h"
 #include "chromecast/media/base/media_caps.h"
@@ -24,6 +27,7 @@
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/render_view_observer.h"
 #include "third_party/WebKit/public/platform/WebColor.h"
+#include "third_party/WebKit/public/web/WebFrameWidget.h"
 #include "third_party/WebKit/public/web/WebSettings.h"
 #include "third_party/WebKit/public/web/WebView.h"
 
@@ -145,7 +149,8 @@ void CastContentRendererClient::RenderViewCreated(
     content::RenderView* render_view) {
   blink::WebView* webview = render_view->GetWebView();
   if (webview) {
-    webview->setBaseBackgroundColor(kColorBlack);
+    blink::WebFrameWidget* web_frame_widget = render_view->GetWebFrameWidget();
+    web_frame_widget->setBaseBackgroundColor(kColorBlack);
 
     // The following settings express consistent behaviors across Cast
     // embedders, though Android has enabled by default for mobile browsers.
@@ -185,7 +190,7 @@ CastContentRendererClient::CreateMediaRendererFactory(
 
   return scoped_ptr<::media::RendererFactory>(
       new chromecast::media::ChromecastMediaRendererFactory(
-          gpu_factories, media_log, render_frame->GetRoutingID()));
+          gpu_factories, render_frame->GetRoutingID()));
 }
 #endif
 

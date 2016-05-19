@@ -6,11 +6,14 @@
 
 #include "base/process/memory.h"
 
+#include <stddef.h>
+
 #include <limits>
 
 #include "base/compiler_specific.h"
 #include "base/debug/alias.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_WIN)
@@ -145,12 +148,6 @@ TEST(ProcessMemoryTest, MacTerminateOnHeapCorruption) {
     !(defined(OS_WIN) && !defined(ALLOCATOR_SHIM)) && \
     !defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
 
-#if defined(USE_TCMALLOC)
-extern "C" {
-int tc_set_new_mode(int mode);
-}
-#endif  // defined(USE_TCMALLOC)
-
 namespace {
 const char *kOomRegex = "Out of memory";
 }  // namespace
@@ -167,12 +164,6 @@ class OutOfMemoryTest : public testing::Test {
     insecure_test_size_(std::numeric_limits<int>::max()),
     signed_test_size_(std::numeric_limits<ssize_t>::max()) {
   }
-
-#if defined(USE_TCMALLOC)
-  void SetUp() override { tc_set_new_mode(1); }
-
-  void TearDown() override { tc_set_new_mode(0); }
-#endif  // defined(USE_TCMALLOC)
 
  protected:
   void* value_;

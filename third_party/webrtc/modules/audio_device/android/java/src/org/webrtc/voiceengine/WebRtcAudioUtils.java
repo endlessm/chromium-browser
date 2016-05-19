@@ -40,7 +40,6 @@ public final class WebRtcAudioUtils {
   // bad and where it makes sense to avoid using it and instead rely on the
   // native WebRTC version instead. The device name is given by Build.MODEL.
   private static final String[] BLACKLISTED_AEC_MODELS = new String[] {
-      "Nexus 5",
       "D6503",      // Sony Xperia Z2 D6503
       "ONE A2005",  // OnePlus 2
   };
@@ -51,7 +50,6 @@ public final class WebRtcAudioUtils {
   private static final String[] BLACKLISTED_NS_MODELS = new String[] {
       "Nexus 10",
       "Nexus 9",
-      "Nexus 5",
       "ONE A2005",  // OnePlus 2
   };
 
@@ -142,6 +140,11 @@ public final class WebRtcAudioUtils {
   public static boolean runningOnJellyBeanMR1OrHigher() {
     // November 2012: Android 4.2. API Level 17.
     return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1;
+  }
+
+  public static boolean runningOnJellyBeanMR2OrHigher() {
+    // July 24, 2013: Android 4.3. API Level 18.
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2;
   }
 
   public static boolean runningOnLollipopOrHigher() {

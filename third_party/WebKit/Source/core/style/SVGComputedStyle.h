@@ -30,7 +30,6 @@
 #include "core/style/StyleDifference.h"
 #include "platform/Length.h"
 #include "platform/graphics/GraphicsTypes.h"
-#include "platform/graphics/Path.h"
 
 namespace blink {
 
@@ -90,6 +89,7 @@ public:
     static const AtomicString& initialMarkerEndResource() { return nullAtom; }
     static EMaskType initialMaskType() { return MT_LUMINANCE; }
     static EPaintOrder initialPaintOrder() { return PaintOrderNormal; }
+    static StylePath* initialD() { return StylePath::emptyPath(); }
     static Length initialCx() { return Length(Fixed); }
     static Length initialCy() { return Length(Fixed); }
     static Length initialX() { return Length(Fixed); }
@@ -115,6 +115,11 @@ public:
     void setTextAnchor(ETextAnchor val) { svg_inherited_flags.textAnchor = val; }
     void setMaskType(EMaskType val) { svg_noninherited_flags.f.maskType = val; }
     void setPaintOrder(EPaintOrder val) { svg_inherited_flags.paintOrder = (int)val; }
+    void setD(PassRefPtr<StylePath> d)
+    {
+        if (!(layout->d == d))
+            layout.access()->d = d;
+    }
     void setCx(const Length& obj)
     {
         if (!(layout->cx == obj))
@@ -333,6 +338,7 @@ public:
     const Color& floodColor() const { return misc->floodColor; }
     const Color& lightingColor() const { return misc->lightingColor; }
     const Length& baselineShiftValue() const { return misc->baselineShiftValue; }
+    StylePath* d() const { return layout->d.get(); }
     const Length& cx() const { return layout->cx; }
     const Length& cy() const { return layout->cy; }
     const Length& x() const { return layout->x; }
@@ -356,6 +362,22 @@ public:
     const SVGPaintType& visitedLinkStrokePaintType() const { return stroke->visitedLinkPaintType; }
     const Color& visitedLinkStrokePaintColor() const { return stroke->visitedLinkPaintColor; }
     const String& visitedLinkStrokePaintUri() const { return stroke->visitedLinkPaintUri; }
+
+    bool isFillColorCurrentColor() const
+    {
+        return fillPaintType() == SVG_PAINTTYPE_CURRENTCOLOR
+            || visitedLinkFillPaintType() == SVG_PAINTTYPE_CURRENTCOLOR
+            || fillPaintType() == SVG_PAINTTYPE_URI_CURRENTCOLOR
+            || visitedLinkFillPaintType() == SVG_PAINTTYPE_URI_CURRENTCOLOR;
+    }
+
+    bool isStrokeColorCurrentColor() const
+    {
+        return strokePaintType() == SVG_PAINTTYPE_CURRENTCOLOR
+            || visitedLinkStrokePaintType() == SVG_PAINTTYPE_CURRENTCOLOR
+            || strokePaintType() == SVG_PAINTTYPE_URI_CURRENTCOLOR
+            || visitedLinkStrokePaintType() == SVG_PAINTTYPE_URI_CURRENTCOLOR;
+    }
 
     // convenience
     bool hasClipper() const { return !clipperResource().isEmpty(); }

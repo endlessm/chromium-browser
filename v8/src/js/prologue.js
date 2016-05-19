@@ -171,53 +171,41 @@ function PostNatives(utils) {
   var expose_list = [
     "ArrayToString",
     "ErrorToString",
-    "FunctionSourceString",
     "GetIterator",
     "GetMethod",
-    "InnerArrayEvery",
-    "InnerArrayFilter",
-    "InnerArrayForEach",
-    "InnerArrayIndexOf",
-    "InnerArrayJoin",
-    "InnerArrayLastIndexOf",
-    "InnerArrayMap",
-    "InnerArrayReduce",
-    "InnerArrayReduceRight",
-    "InnerArrayReverse",
-    "InnerArraySome",
-    "InnerArraySort",
-    "InnerArrayToLocaleString",
     "IsNaN",
     "MakeError",
     "MakeTypeError",
     "MapEntries",
     "MapIterator",
     "MapIteratorNext",
-    "MathMax",
-    "MathMin",
     "MaxSimple",
     "MinSimple",
-    "ObjectIsFrozen",
     "ObjectDefineProperty",
     "ObserveArrayMethods",
     "ObserveObjectMethods",
-    "OwnPropertyKeys",
-    "SameValueZero",
+    "PromiseChain",
+    "PromiseDeferred",
+    "PromiseResolved",
     "SetIterator",
     "SetIteratorNext",
     "SetValues",
     "SymbolToString",
-    "ToNameArray",
     "ToPositiveInteger",
     // From runtime:
     "is_concat_spreadable_symbol",
     "iterator_symbol",
     "promise_status_symbol",
     "promise_value_symbol",
+    "object_freeze",
+    "object_is_frozen",
+    "object_is_sealed",
     "reflect_apply",
     "reflect_construct",
     "regexp_flags_symbol",
     "to_string_tag_symbol",
+    "object_to_string",
+    "species_symbol",
   ];
 
   var filtered_exports = {};
@@ -245,8 +233,6 @@ function PostExperimentals(utils) {
     imports_from_experimental(exports_container);
   }
 
-  utils.InitializeRNG();
-  utils.InitializeRNG = UNDEFINED;
   utils.CreateDoubleResultArray();
   utils.CreateDoubleResultArray = UNDEFINED;
 
@@ -262,8 +248,6 @@ function PostDebug(utils) {
     imports(exports_container);
   }
 
-  utils.InitializeRNG();
-  utils.InitializeRNG = UNDEFINED;
   utils.CreateDoubleResultArray();
   utils.CreateDoubleResultArray = UNDEFINED;
 
@@ -289,7 +273,7 @@ function InitializeBuiltinTypedArrays(utils, rng_state, rempio2result) {
 
 // -----------------------------------------------------------------------
 
-%OptimizeObjectForAddingMultipleProperties(utils, 15);
+%OptimizeObjectForAddingMultipleProperties(utils, 14);
 
 utils.Import = Import;
 utils.ImportNow = ImportNow;

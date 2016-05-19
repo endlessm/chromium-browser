@@ -4,7 +4,9 @@
 
 #include "components/autofill/core/browser/form_group.h"
 
+#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "components/autofill/core/common/autofill_l10n_util.h"
 
 namespace autofill {
 
@@ -16,10 +18,20 @@ void FormGroup::GetMatchingTypes(const base::string16& text,
     return;
   }
 
+  base::string16 canonicalized_text =
+      AutofillProfile::CanonicalizeProfileString(text);
+  if (canonicalized_text.empty())
+    return;
+
+  // TODO(crbug.com/574086): Investigate whether to use |app_locale| in case
+  // insensitive comparisons.
+  l10n::CaseInsensitiveCompare compare;
   ServerFieldTypeSet types;
   GetSupportedTypes(&types);
   for (const auto& type : types) {
-    if (GetInfo(AutofillType(type), app_locale) == text)
+    if (compare.StringsEqual(canonicalized_text,
+                             AutofillProfile::CanonicalizeProfileString(
+                                 GetInfo(AutofillType(type), app_locale))))
       matching_types->insert(type);
   }
 }

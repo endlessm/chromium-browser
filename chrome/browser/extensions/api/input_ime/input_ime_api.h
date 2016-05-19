@@ -9,10 +9,13 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/scoped_observer.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/input_method/input_method_engine_base.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/event_router.h"
@@ -20,59 +23,83 @@
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/common/extension.h"
 #include "ui/base/ime/ime_engine_handler_interface.h"
-#include "ui/base/ime/ime_engine_observer.h"
+#include "ui/base/ime/text_input_flags.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/extensions/api/input_ime/input_ime_api_chromeos.h"
+#elif defined(OS_LINUX) || defined(OS_WIN)
+#include "chrome/browser/extensions/api/input_ime/input_ime_api_nonchromeos.h"
+#endif  // defined(OS_CHROMEOS)
 
 class Profile;
 
 namespace ui {
 class IMEEngineHandlerInterface;
-class IMEEngineObserver;
+
+class ImeObserver : public input_method::InputMethodEngineBase::Observer {
+ public:
+  ImeObserver(const std::string& extension_id, Profile* profile);
+
+  ~ImeObserver() override {}
+
+  // input_method::InputMethodEngineBase::Observer overrides.
+  void OnActivate(const std::string& component_id) override;
+  void OnFocus(const IMEEngineHandlerInterface::InputContext& context) override;
+  void OnBlur(int context_id) override;
+  void OnKeyEvent(
+      const std::string& component_id,
+      const input_method::InputMethodEngineBase::KeyboardEvent& event,
+      IMEEngineHandlerInterface::KeyEventDoneCallback& key_data) override;
+  void OnReset(const std::string& component_id) override;
+  void OnDeactivated(const std::string& component_id) override;
+  void OnCompositionBoundsChanged(
+      const std::vector<gfx::Rect>& bounds) override;
+  bool IsInterestedInKeyEvent() const override;
+  void OnSurroundingTextChanged(const std::string& component_id,
+                                const std::string& text,
+                                int cursor_pos,
+                                int anchor_pos,
+                                int offset_pos) override;
+
+ protected:
+  // Helper function used to forward the given event to the |profile_|'s event
+  // router, which dipatches the event the extension with |extension_id_|.
+  virtual void DispatchEventToExtension(
+      extensions::events::HistogramValue histogram_value,
+      const std::string& event_name,
+      scoped_ptr<base::ListValue> args) = 0;
+
+  // Returns the type of the current screen.
+  virtual std::string GetCurrentScreenType() = 0;
+
+  // Returns true if the extension is ready to accept key event, otherwise
+  // returns false.
+  bool ShouldForwardKeyEvent() const;
+
+  // Returns true if there are any listeners on the given event.
+  bool HasListener(const std::string& event_name) const;
+
+  // Functions used to convert InputContext struct to string
+  std::string ConvertInputContextType(
+      IMEEngineHandlerInterface::InputContext input_context);
+  bool ConvertInputContextAutoCorrect(
+      IMEEngineHandlerInterface::InputContext input_context);
+  bool ConvertInputContextAutoComplete(
+      IMEEngineHandlerInterface::InputContext input_context);
+  bool ConvertInputContextSpellCheck(
+      IMEEngineHandlerInterface::InputContext input_context);
+
+  std::string extension_id_;
+  Profile* profile_;
+
+  DISALLOW_COPY_AND_ASSIGN(ImeObserver);
+};
+
 }  // namespace ui
 
 namespace extensions {
+class InputImeEventRouter;
 class ExtensionRegistry;
-struct InputComponentInfo;
-
-class InputImeEventRouter {
- public:
-  explicit InputImeEventRouter(Profile* profile);
-  ~InputImeEventRouter();
-
-  bool RegisterImeExtension(
-      const std::string& extension_id,
-      const std::vector<extensions::InputComponentInfo>& input_components);
-  void UnregisterAllImes(const std::string& extension_id);
-
-  ui::IMEEngineHandlerInterface* GetEngine(const std::string& extension_id,
-                                           const std::string& component_id);
-  ui::IMEEngineHandlerInterface* GetActiveEngine(
-      const std::string& extension_id);
-
-  // Called when a key event was handled.
-  void OnKeyEventHandled(const std::string& extension_id,
-                         const std::string& request_id,
-                         bool handled);
-
-  std::string AddRequest(
-      const std::string& component_id,
-      ui::IMEEngineHandlerInterface::KeyEventDoneCallback& key_data);
-
- private:
-  typedef std::map<
-      std::string,
-      std::pair<std::string,
-                ui::IMEEngineHandlerInterface::KeyEventDoneCallback>>
-      RequestMap;
-
-  // The engine map from extension_id to an engine.
-  std::map<std::string, ui::IMEEngineHandlerInterface*> engine_map_;
-
-  unsigned int next_request_id_;
-  RequestMap request_map_;
-  Profile* profile_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputImeEventRouter);
-};
 
 class InputImeEventRouterFactory {
  public:
@@ -89,112 +116,7 @@ class InputImeEventRouterFactory {
   DISALLOW_COPY_AND_ASSIGN(InputImeEventRouterFactory);
 };
 
-class InputImeSetCompositionFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.setComposition",
-                             INPUT_IME_SETCOMPOSITION)
-
- protected:
-  ~InputImeSetCompositionFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeClearCompositionFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.clearComposition",
-                             INPUT_IME_CLEARCOMPOSITION)
-
- protected:
-  ~InputImeClearCompositionFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeCommitTextFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.commitText", INPUT_IME_COMMITTEXT)
-
- protected:
-  ~InputImeCommitTextFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeSetCandidateWindowPropertiesFunction
-    : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.setCandidateWindowProperties",
-                             INPUT_IME_SETCANDIDATEWINDOWPROPERTIES)
-
- protected:
-  ~InputImeSetCandidateWindowPropertiesFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeSetCandidatesFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.setCandidates", INPUT_IME_SETCANDIDATES)
-
- protected:
-  ~InputImeSetCandidatesFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeSetCursorPositionFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.setCursorPosition",
-                             INPUT_IME_SETCURSORPOSITION)
-
- protected:
-  ~InputImeSetCursorPositionFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeSetMenuItemsFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.setMenuItems", INPUT_IME_SETMENUITEMS)
-
- protected:
-  ~InputImeSetMenuItemsFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeUpdateMenuItemsFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.updateMenuItems",
-                             INPUT_IME_UPDATEMENUITEMS)
-
- protected:
-  ~InputImeUpdateMenuItemsFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeDeleteSurroundingTextFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.deleteSurroundingText",
-                             INPUT_IME_DELETESURROUNDINGTEXT)
- protected:
-  ~InputImeDeleteSurroundingTextFunction() override {}
-
-  // ExtensionFunction:
-  bool RunSync() override;
-};
-
-class InputImeKeyEventHandledFunction : public AsyncExtensionFunction {
+class InputImeKeyEventHandledFunction : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("input.ime.keyEventHandled",
                              INPUT_IME_KEYEVENTHANDLED)
@@ -202,32 +124,31 @@ class InputImeKeyEventHandledFunction : public AsyncExtensionFunction {
  protected:
   ~InputImeKeyEventHandledFunction() override {}
 
-  // ExtensionFunction:
-  bool RunAsync() override;
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
 };
 
-class InputImeSendKeyEventsFunction : public AsyncExtensionFunction {
+class InputImeSetCompositionFunction : public UIThreadExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.sendKeyEvents",
-                             INPUT_IME_SENDKEYEVENTS)
+  DECLARE_EXTENSION_FUNCTION("input.ime.setComposition",
+                             INPUT_IME_SETCOMPOSITION)
 
  protected:
-  ~InputImeSendKeyEventsFunction() override {}
+  ~InputImeSetCompositionFunction() override {}
 
-  // ExtensionFunction:
-  bool RunAsync() override;
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
 };
 
-class InputImeHideInputViewFunction : public AsyncExtensionFunction {
+class InputImeCommitTextFunction : public UIThreadExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("input.ime.hideInputView",
-                             INPUT_IME_HIDEINPUTVIEW)
+  DECLARE_EXTENSION_FUNCTION("input.ime.commitText", INPUT_IME_COMMITTEXT)
 
  protected:
-  ~InputImeHideInputViewFunction() override {}
+  ~InputImeCommitTextFunction() override {}
 
-  // ExtensionFunction:
-  bool RunAsync() override;
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
 };
 
 class InputImeAPI : public BrowserContextKeyedAPI,
@@ -266,6 +187,8 @@ class InputImeAPI : public BrowserContextKeyedAPI,
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
       extension_registry_observer_;
 };
+
+InputImeEventRouter* GetInputImeEventRouter(Profile* profile);
 
 }  // namespace extensions
 

@@ -6,6 +6,7 @@
 #define CHROME_RENDERER_EXTENSIONS_AUTOMATION_INTERNAL_CUSTOM_BINDINGS_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/common/extensions/api/automation.h"
 #include "extensions/renderer/object_backed_native_handler.h"
 #include "ipc/ipc_message.h"
@@ -27,6 +28,11 @@ struct TreeCache {
 
   gfx::Vector2d location_offset;
   ui::AXTree tree;
+};
+
+struct TreeChangeObserver {
+  int id;
+  api::automation::TreeChangeObserverFilter filter;
 };
 
 // The native component of custom bindings for the chrome.automationInternal
@@ -74,6 +80,19 @@ class AutomationInternalCustomBindings : public ObjectBackedNativeHandler,
   void DestroyAccessibilityTree(
       const v8::FunctionCallbackInfo<v8::Value>& args);
 
+  void AddTreeChangeObserver(const v8::FunctionCallbackInfo<v8::Value>& args);
+
+  void RemoveTreeChangeObserver(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+
+  void GetFocus(const v8::FunctionCallbackInfo<v8::Value>& args);
+
+  // Given an initial TreeCache, return the TreeCache and node of the focused
+  // node within this tree or a focused descendant tree.
+  bool GetFocusInternal(TreeCache* top_cache,
+                        TreeCache** out_cache,
+                        ui::AXNode** out_node);
+
   void RouteTreeIDFunction(const std::string& name,
                            void (*callback)(v8::Isolate* isolate,
                                             v8::ReturnValue<v8::Value> result,
@@ -91,57 +110,25 @@ class AutomationInternalCustomBindings : public ObjectBackedNativeHandler,
                        v8::ReturnValue<v8::Value> result,
                        ui::AXNode* node,
                        const std::string& attribute_name));
+  void RouteNodeIDPlusRangeFunction(
+      const std::string& name,
+      void (*callback)(v8::Isolate* isolate,
+                       v8::ReturnValue<v8::Value> result,
+                       TreeCache* cache,
+                       ui::AXNode* node,
+                       int start,
+                       int end));
 
   //
   // Access the cached accessibility trees and properties of their nodes.
   //
 
-  // Args: int ax_tree_id, int node_id, Returns: int parent_node_id.
-  void GetParentID(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, Returns: int child_count.
-  void GetChildCount(const v8::FunctionCallbackInfo<v8::Value>& args);
-
   // Args: int ax_tree_id, int node_id, Returns: int child_id.
   void GetChildIDAtIndex(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, Returns: int index_in_parent.
-  void GetIndexInParent(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Args: int ax_tree_id, int node_id
   // Returns: JS object with a string key for each state flag that's set.
   void GetState(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, Returns: string role_name
-  void GetRole(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id
-  // Returns: JS object with {left, top, width, height}
-  void GetLocation(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, string attribute_name
-  // Returns: string attribute_value.
-  void GetStringAttribute(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, string attribute_name
-  // Returns: bool attribute_value.
-  void GetBoolAttribute(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, string attribute_name
-  // Returns: int attribute_value.
-  void GetIntAttribute(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, string attribute_name
-  // Returns: float attribute_value.
-  void GetFloatAttribute(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, string attribute_name
-  // Returns: JS array of int attribute_values.
-  void GetIntListAttribute(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Args: int ax_tree_id, int node_id, string attribute_name
-  // Returns: string attribute_value.
-  void GetHtmlAttribute(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   //
   // Helper functions.
@@ -151,7 +138,12 @@ class AutomationInternalCustomBindings : public ObjectBackedNativeHandler,
   void OnAccessibilityEvent(const ExtensionMsg_AccessibilityEventParams& params,
                             bool is_active_profile);
 
+  void UpdateOverallTreeChangeObserverFilter();
+
   // AXTreeDelegate implementation.
+  void OnNodeDataWillChange(ui::AXTree* tree,
+                            const ui::AXNodeData& old_node_data,
+                            const ui::AXNodeData& new_node_data) override;
   void OnTreeDataChanged(ui::AXTree* tree) override;
   void OnNodeWillBeDeleted(ui::AXTree* tree, ui::AXNode* node) override;
   void OnSubtreeWillBeDeleted(ui::AXTree* tree, ui::AXNode* node) override;
@@ -160,15 +152,21 @@ class AutomationInternalCustomBindings : public ObjectBackedNativeHandler,
   void OnAtomicUpdateFinished(ui::AXTree* tree,
                               bool root_changed,
                               const std::vector<Change>& changes) override;
-
   void SendTreeChangeEvent(api::automation::TreeChangeType change_type,
                            ui::AXTree* tree,
                            ui::AXNode* node);
+  void SendChildTreeIDEvent(ui::AXTree* tree, ui::AXNode* node);
+  void SendNodesRemovedEvent(ui::AXTree* tree, const std::vector<int>& ids);
 
   base::hash_map<int, TreeCache*> tree_id_to_tree_cache_map_;
   base::hash_map<ui::AXTree*, TreeCache*> axtree_to_tree_cache_map_;
   scoped_refptr<AutomationMessageFilter> message_filter_;
   bool is_active_profile_;
+  std::vector<TreeChangeObserver> tree_change_observers_;
+  api::automation::TreeChangeObserverFilter
+      tree_change_observer_overall_filter_;
+  std::vector<int> deleted_node_ids_;
+  std::vector<int> text_changed_node_ids_;
 
   DISALLOW_COPY_AND_ASSIGN(AutomationInternalCustomBindings);
 };

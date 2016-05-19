@@ -4,6 +4,8 @@
 
 #include "extensions/renderer/extension_helper.h"
 
+#include <stddef.h>
+
 #include "content/public/renderer/render_view.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_messages.h"
@@ -45,6 +47,7 @@ void ExtensionHelper::DraggableRegionsChanged(blink::WebFrame* frame) {
   std::vector<DraggableRegion> regions;
   for (size_t i = 0; i < webregions.size(); ++i) {
     DraggableRegion region;
+    render_view()->convertViewportToWindow(&webregions[i].bounds);
     region.bounds = webregions[i].bounds;
     region.draggable = webregions[i].draggable;
     regions.push_back(region);

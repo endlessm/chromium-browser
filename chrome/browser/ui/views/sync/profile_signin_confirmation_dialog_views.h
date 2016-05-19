@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_SYNC_PROFILE_SIGNIN_CONFIRMATION_DIALOG_VIEWS_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/sync/profile_signin_confirmation_helper.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/label_button.h"
@@ -50,13 +51,16 @@ class ProfileSigninConfirmationDialogViews : public views::DialogDelegateView,
   views::View* CreateExtraView() override;
   bool Accept() override;
   bool Cancel() override;
-  void OnClosed() override;
   ui::ModalType GetModalType() const override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
 
+  // views::WidgetDelegate::
+  void WindowClosing() override;
+
   // views::StyledLabelListener:
-  void StyledLabelLinkClicked(const gfx::Range& range,
+  void StyledLabelLinkClicked(views::StyledLabel* label,
+                              const gfx::Range& range,
                               int event_flags) override;
 
   // views::ButtonListener:

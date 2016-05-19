@@ -44,6 +44,7 @@
         '<(DEPTH)/base/base.gyp:test_support_base',
         '<(DEPTH)/content/content_shell_and_tests.gyp:test_support_content',
         'blink_platform.gyp:blink_platform',
+        'blink_platform_test_support',
       ],
       'defines': [
         'INSIDE_BLINK',
@@ -53,17 +54,6 @@
         '<@(platform_heap_test_files)',
       ],
       'conditions': [
-        ['os_posix==1 and OS!="mac" and OS!="android" and OS!="ios" and use_allocator!="none"', {
-          'dependencies': [
-            '<(DEPTH)/base/base.gyp:base',
-            '<(DEPTH)/base/allocator/allocator.gyp:allocator',
-          ]
-        }],
-        ['OS=="win" and component!="shared_library" and win_use_allocator_shim==1', {
-          'dependencies': [
-            '<(DEPTH)/base/allocator/allocator.gyp:allocator',
-          ]
-        }],
         ['OS=="android"', {
           'type': 'shared_library',
           'dependencies': [
@@ -82,10 +72,15 @@
         '../wtf/wtf.gyp:wtf',
         '../wtf/wtf_tests.gyp:wtf_unittest_helpers',
         '<(DEPTH)/base/base.gyp:test_support_base',
+        '<(DEPTH)/cc/cc.gyp:cc',
+        '<(DEPTH)/cc/cc_tests.gyp:cc_test_support',
+        '<(DEPTH)/cc/blink/cc_blink.gyp:cc_blink',
+        '<(DEPTH)/mojo/mojo_edk.gyp:mojo_common_test_support',
         '<(DEPTH)/skia/skia.gyp:skia',
         '<(DEPTH)/third_party/harfbuzz-ng/harfbuzz.gyp:harfbuzz-ng',
+        '<(DEPTH)/ui/gfx/gfx.gyp:gfx',
+        '<(DEPTH)/ui/gfx/gfx.gyp:gfx_geometry',
         '<(DEPTH)/url/url.gyp:url_lib',
-        'blink_platform.gyp:blink_common',
         'blink_platform.gyp:blink_platform',
       ],
       'defines': [
@@ -99,12 +94,6 @@
         '<@(platform_test_files)',
       ],
       'conditions': [
-        ['os_posix==1 and OS!="mac" and OS!="android" and OS!="ios" and use_allocator!="none"', {
-          'dependencies': [
-            '<(DEPTH)/base/base.gyp:base',
-            '<(DEPTH)/base/allocator/allocator.gyp:allocator',
-          ]
-        }],
         ['OS=="android" and gtest_target_type == "shared_library"', {
           'type': 'shared_library',
           'dependencies': [
@@ -119,13 +108,35 @@
       'type': 'static_library',
       'dependencies': [
         '../config.gyp:config',
+        '../wtf/wtf.gyp:wtf',
+        'blink_platform.gyp:blink_common',
         'blink_platform.gyp:blink_platform',
+        '<(DEPTH)/device/battery/battery.gyp:device_battery_mojo_bindings',
+        '<(DEPTH)/mojo/mojo_base.gyp:mojo_environment_chromium',
+        '<(DEPTH)/mojo/mojo_edk.gyp:mojo_system_impl',
+        '<(DEPTH)/testing/gmock.gyp:gmock',
       ],
       'defines': [
         'INSIDE_BLINK',
       ],
+      'include_dirs': [
+        '<(SHARED_INTERMEDIATE_DIR)/blink',
+      ],
       'sources': [
         '<@(platform_test_support_files)',
+      ],
+      # Disable c4267 warnings until we fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267 ],
+      'conditions': [
+        ['OS == "android"', {
+          'dependencies': [
+            '<(DEPTH)/device/battery/battery.gyp:device_battery_java',
+          ],
+        }, {  # OS != "android"
+          'dependencies': [
+            '<(DEPTH)/device/battery/battery.gyp:device_battery',
+          ],
+        }],
       ],
     },
   ],

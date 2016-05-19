@@ -4,6 +4,9 @@
 
 #include "components/search_engines/util.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <string>
@@ -11,8 +14,8 @@
 
 #include "base/logging.h"
 #include "base/memory/scoped_vector.h"
-#include "base/prefs/pref_service.h"
 #include "base/time/time.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"
@@ -142,7 +145,7 @@ void RemoveDuplicatePrepopulateIDs(
 // If not found, returns NULL.
 TemplateURL* GetTemplateURLByID(
     const TemplateURLService::TemplateURLVector& template_urls,
-    int64 id) {
+    int64_t id) {
   for (TemplateURLService::TemplateURLVector::const_iterator i(
        template_urls.begin()); i != template_urls.end(); ++i) {
     if ((*i)->id() == id) {
@@ -179,6 +182,9 @@ void MergeIntoPrepopulatedEngineData(const TemplateURL* original_turl,
 
 ActionsFromPrepopulateData::ActionsFromPrepopulateData() {}
 
+ActionsFromPrepopulateData::ActionsFromPrepopulateData(
+    const ActionsFromPrepopulateData& other) = default;
+
 ActionsFromPrepopulateData::~ActionsFromPrepopulateData() {}
 
 // This is invoked when the version of the prepopulate data changes.
@@ -202,8 +208,8 @@ void MergeEnginesFromPrepopulateData(
   for (std::vector<TemplateURL*>::iterator i = actions.removed_engines.begin();
        i < actions.removed_engines.end(); ++i) {
     scoped_ptr<TemplateURL> template_url(*i);
-    TemplateURLService::TemplateURLVector::iterator j =
-        std::find(template_urls->begin(), template_urls->end(), template_url);
+    TemplateURLService::TemplateURLVector::iterator j = std::find(
+        template_urls->begin(), template_urls->end(), template_url.get());
     DCHECK(j != template_urls->end());
     DCHECK(!default_search_provider ||
            (*j)->prepopulate_id() != default_search_provider->prepopulate_id());

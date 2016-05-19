@@ -4,6 +4,9 @@
 
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
 
+#include <utility>
+
+#include "build/build_config.h"
 #include "device/bluetooth/test/mock_bluetooth_advertisement.h"
 
 namespace device {
@@ -59,7 +62,7 @@ void MockBluetoothAdapter::StartDiscoverySessionWithFilter(
 
 void MockBluetoothAdapter::AddMockDevice(
     scoped_ptr<MockBluetoothDevice> mock_device) {
-  mock_devices_.push_back(mock_device.Pass());
+  mock_devices_.push_back(std::move(mock_device));
 }
 
 BluetoothAdapter::ConstDeviceList MockBluetoothAdapter::GetConstMockDevices() {

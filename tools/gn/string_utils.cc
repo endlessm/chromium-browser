@@ -4,6 +4,10 @@
 
 #include "tools/gn/string_utils.h"
 
+#include <stddef.h>
+#include <cctype>
+
+#include "base/strings/string_number_conversions.h"
 #include "tools/gn/err.h"
 #include "tools/gn/input_file.h"
 #include "tools/gn/parser.h"
@@ -23,12 +27,13 @@ Err ErrInsideStringToken(const Token& token, size_t offset, size_t size,
   int int_offset = static_cast<int>(offset);
   Location begin_loc(token.location().file(),
                      token.location().line_number(),
-                     token.location().char_offset() + int_offset + 1,
+                     token.location().column_number() + int_offset + 1,
                      token.location().byte() + int_offset + 1);
   Location end_loc(
       token.location().file(),
       token.location().line_number(),
-      token.location().char_offset() + int_offset + 1 + static_cast<int>(size),
+      token.location().column_number() + int_offset + 1 +
+          static_cast<int>(size),
       token.location().byte() + int_offset + 1 + static_cast<int>(size));
   return Err(LocationRange(begin_loc, end_loc), msg, help);
 }
@@ -129,7 +134,7 @@ bool AppendInterpolatedIdentifier(Scope* scope,
 
 // Handles string interpolations: $identifier and ${expression}
 //
-// |*i| is the index into |input| of the $. This will be updated to point to
+// |*i| is the index into |input| after the $. This will be updated to point to
 // the last character consumed on success. The token is the original string
 // to blame on failure.
 //
@@ -141,13 +146,7 @@ bool AppendStringInterpolation(Scope* scope,
                                size_t* i,
                                std::string* output,
                                Err* err) {
-  size_t dollars_index = *i;
-  (*i)++;
-  if (*i == size) {
-    *err = ErrInsideStringToken(token, dollars_index, 1, "$ at end of string.",
-        "I was expecting an identifier or {...} after the $.");
-    return false;
-  }
+  size_t dollars_index = *i - 1;
 
   if (input[*i] == '{') {
     // Bracketed expression.
@@ -201,6 +200,40 @@ bool AppendStringInterpolation(Scope* scope,
                                       end_offset, output, err);
 }
 
+// Handles a hex literal: $0xFF
+//
+// |*i| is the index into |input| after the $. This will be updated to point to
+// the last character consumed on success. The token is the original string
+// to blame on failure.
+//
+// On failure, returns false and sets the error. On success, appends the
+// char with the given hex value to |*output|.
+bool AppendHexByte(Scope* scope,
+                   const Token& token,
+                   const char* input, size_t size,
+                   size_t* i,
+                   std::string* output,
+                   Err* err) {
+  size_t dollars_index = *i - 1;
+  // "$0" is already known to exist.
+  if (*i + 3 >= size || input[*i + 1] != 'x' || !std::isxdigit(input[*i + 2]) ||
+      !std::isxdigit(input[*i + 3])) {
+    *err = ErrInsideStringToken(
+        token, dollars_index, *i - dollars_index + 1,
+        "Invalid hex character. Hex values must look like 0xFF.");
+    return false;
+  }
+  int value = 0;
+  if (!base::HexStringToInt(base::StringPiece(&input[*i + 2], 2), &value)) {
+    *err = ErrInsideStringToken(token, dollars_index, *i - dollars_index + 1,
+                                "Could not convert hex value.");
+    return false;
+  }
+  *i += 3;
+  output->push_back(value);
+  return true;
+}
+
 }  // namespace
 
 bool ExpandStringLiteral(Scope* scope,
@@ -233,7 +266,16 @@ bool ExpandStringLiteral(Scope* scope,
       }
       output.push_back(input[i]);
     } else if (input[i] == '$') {
-      if (!AppendStringInterpolation(scope, literal, input, size, &i,
+      i++;
+      if (i == size) {
+        *err = ErrInsideStringToken(literal, i - 1, 1, "$ at end of string.",
+            "I was expecting an identifier, 0xFF, or {...} after the $.");
+        return false;
+      }
+      if (input[i] == '0') {
+        if (!AppendHexByte(scope, literal, input, size, &i, &output, err))
+          return false;
+      } else if (!AppendStringInterpolation(scope, literal, input, size, &i,
                                      &output, err))
         return false;
     } else {
@@ -243,15 +285,61 @@ bool ExpandStringLiteral(Scope* scope,
   return true;
 }
 
-std::string RemovePrefix(const std::string& str, const std::string& prefix) {
-  CHECK(str.size() >= prefix.size() &&
-        str.compare(0, prefix.size(), prefix) == 0);
-  return str.substr(prefix.size());
+size_t EditDistance(const base::StringPiece& s1,
+                    const base::StringPiece& s2,
+                    size_t max_edit_distance) {
+  // The algorithm implemented below is the "classic"
+  // dynamic-programming algorithm for computing the Levenshtein
+  // distance, which is described here:
+  //
+  //   http://en.wikipedia.org/wiki/Levenshtein_distance
+  //
+  // Although the algorithm is typically described using an m x n
+  // array, only one row plus one element are used at a time, so this
+  // implementation just keeps one vector for the row.  To update one entry,
+  // only the entries to the left, top, and top-left are needed.  The left
+  // entry is in row[x-1], the top entry is what's in row[x] from the last
+  // iteration, and the top-left entry is stored in previous.
+  size_t m = s1.size();
+  size_t n = s2.size();
+
+  std::vector<size_t> row(n + 1);
+  for (size_t i = 1; i <= n; ++i)
+    row[i] = i;
+
+  for (size_t y = 1; y <= m; ++y) {
+    row[0] = y;
+    size_t best_this_row = row[0];
+
+    size_t previous = y - 1;
+    for (size_t x = 1; x <= n; ++x) {
+      size_t old_row = row[x];
+      row[x] = std::min(previous + (s1[y - 1] == s2[x - 1] ? 0u : 1u),
+                        std::min(row[x - 1], row[x]) + 1u);
+      previous = old_row;
+      best_this_row = std::min(best_this_row, row[x]);
+    }
+
+    if (max_edit_distance && best_this_row > max_edit_distance)
+      return max_edit_distance + 1;
+  }
+
+  return row[n];
 }
 
-void TrimTrailingSlash(std::string* str) {
-  if (!str->empty()) {
-    DCHECK((*str)[str->size() - 1] == '/');
-    str->resize(str->size() - 1);
+base::StringPiece SpellcheckString(
+    const base::StringPiece& text,
+    const std::vector<base::StringPiece>& words) {
+  const size_t kMaxValidEditDistance = 3u;
+
+  size_t min_distance = kMaxValidEditDistance + 1u;
+  base::StringPiece result;
+  for (base::StringPiece word : words) {
+    size_t distance = EditDistance(word, text, kMaxValidEditDistance);
+    if (distance < min_distance) {
+      min_distance = distance;
+      result = word;
+    }
   }
+  return result;
 }

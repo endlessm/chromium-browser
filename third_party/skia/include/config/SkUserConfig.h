@@ -58,13 +58,6 @@
 //#define SK_DEBUG_GLYPH_CACHE
 //#define SK_DEBUG_PATH
 
-/*  If, in debugging mode, Skia needs to stop (presumably to invoke a debugger)
-    it will call SK_CRASH(). If this is not defined it, it is defined in
-    SkPostConfig.h to write to an illegal address
- */
-//#define SK_CRASH() *(int *)(uintptr_t)0 = 0
-
-
 /*  preconfig will have attempted to determine the endianness of the system,
     but you can change these mutually exclusive flags here.
  */
@@ -152,5 +145,13 @@
  * define should be removed entirely.
  */
 //#define SK_PDF_USE_PATHOPS_CLIPPING
+
+/* Skia makes use of histogram logging macros to trace the frequency of
+ * events. By default, Skia provides no-op versions of these macros.
+ * Skia consumers can provide their own definitions of these macros to
+ * integrate with their histogram collection backend.
+ */
+//#define SK_HISTOGRAM_BOOLEAN(name, value)
+//#define SK_HISTOGRAM_ENUMERATION(name, value, boundary_value)
 
 #endif

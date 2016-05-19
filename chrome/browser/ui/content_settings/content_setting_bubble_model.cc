@@ -4,9 +4,10 @@
 
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -30,6 +31,7 @@
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "components/prefs/pref_service.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
@@ -96,21 +98,28 @@ const content::MediaStreamDevice& GetMediaDeviceById(
 
 }  // namespace
 
-ContentSettingTitleAndLinkModel::ContentSettingTitleAndLinkModel(
+// ContentSettingSimpleBubbleModel ---------------------------------------------
+
+ContentSettingSimpleBubbleModel::ContentSettingSimpleBubbleModel(
     Delegate* delegate,
     WebContents* web_contents,
     Profile* profile,
     ContentSettingsType content_type)
-    : ContentSettingBubbleModel(web_contents, profile, content_type),
-        delegate_(delegate) {
+    : ContentSettingBubbleModel(delegate, web_contents, profile),
+        content_type_(content_type) {
   // Notifications do not have a bubble.
   DCHECK_NE(content_type, CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
   SetTitle();
   SetManageLink();
-  SetLearnMoreLink();
+  SetCustomLink();
 }
 
-void ContentSettingTitleAndLinkModel::SetTitle() {
+ContentSettingSimpleBubbleModel*
+    ContentSettingSimpleBubbleModel::AsSimpleBubbleModel() {
+  return this;
+}
+
+void ContentSettingSimpleBubbleModel::SetTitle() {
   TabSpecificContentSettings* content_settings = NULL;
   if (web_contents()) {
     content_settings =
@@ -148,7 +157,7 @@ void ContentSettingTitleAndLinkModel::SetTitle() {
     set_title(l10n_util::GetStringUTF8(title_id));
 }
 
-void ContentSettingTitleAndLinkModel::SetManageLink() {
+void ContentSettingSimpleBubbleModel::SetManageLink() {
   static const ContentSettingsTypeIdEntry kLinkIDs[] = {
     {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_LINK},
     {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_LINK},
@@ -158,7 +167,6 @@ void ContentSettingTitleAndLinkModel::SetManageLink() {
     {CONTENT_SETTINGS_TYPE_GEOLOCATION, IDS_GEOLOCATION_BUBBLE_MANAGE_LINK},
     {CONTENT_SETTINGS_TYPE_MIXEDSCRIPT, IDS_LEARN_MORE},
     {CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS, IDS_HANDLERS_BUBBLE_MANAGE_LINK},
-    {CONTENT_SETTINGS_TYPE_MEDIASTREAM, IDS_MEDIASTREAM_BUBBLE_MANAGE_LINK},
     {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_PPAPI_BROKER_BUBBLE_MANAGE_LINK},
     {CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS, IDS_BLOCKED_DOWNLOADS_LINK},
     {CONTENT_SETTINGS_TYPE_MIDI_SYSEX, IDS_MIDI_SYSEX_BUBBLE_MANAGE_LINK},
@@ -167,52 +175,12 @@ void ContentSettingTitleAndLinkModel::SetManageLink() {
       GetIdForContentType(kLinkIDs, arraysize(kLinkIDs), content_type())));
 }
 
-void ContentSettingTitleAndLinkModel::OnManageLinkClicked() {
-  if (delegate_)
-    delegate_->ShowContentSettingsPage(content_type());
+void ContentSettingSimpleBubbleModel::OnManageLinkClicked() {
+  if (delegate())
+    delegate()->ShowContentSettingsPage(content_type());
 }
 
-void ContentSettingTitleAndLinkModel::SetLearnMoreLink() {
-  static const ContentSettingsTypeIdEntry kLearnMoreIDs[] = {
-    {CONTENT_SETTINGS_TYPE_PLUGINS, IDS_LEARN_MORE},
-  };
-  int learn_more_id =
-      GetIdForContentType(kLearnMoreIDs, arraysize(kLearnMoreIDs),
-                          content_type());
-  if (learn_more_id)
-    set_learn_more_link(l10n_util::GetStringUTF8(learn_more_id));
-}
-
-void ContentSettingTitleAndLinkModel::OnLearnMoreLinkClicked() {
-  if (delegate_)
-    delegate_->ShowLearnMorePage(content_type());
-}
-
-class ContentSettingTitleLinkAndCustomModel
-    : public ContentSettingTitleAndLinkModel {
- public:
-  ContentSettingTitleLinkAndCustomModel(Delegate* delegate,
-                                        WebContents* web_contents,
-                                        Profile* profile,
-                                        ContentSettingsType content_type);
-  ~ContentSettingTitleLinkAndCustomModel() override {}
-
- private:
-  void SetCustomLink();
-  void OnCustomLinkClicked() override {}
-};
-
-ContentSettingTitleLinkAndCustomModel::ContentSettingTitleLinkAndCustomModel(
-    Delegate* delegate,
-    WebContents* web_contents,
-    Profile* profile,
-    ContentSettingsType content_type)
-    : ContentSettingTitleAndLinkModel(
-          delegate, web_contents, profile, content_type) {
-  SetCustomLink();
-}
-
-void ContentSettingTitleLinkAndCustomModel::SetCustomLink() {
+void ContentSettingSimpleBubbleModel::SetCustomLink() {
   static const ContentSettingsTypeIdEntry kCustomIDs[] = {
     {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_INFO},
     {CONTENT_SETTINGS_TYPE_PLUGINS, IDS_BLOCKED_PLUGINS_LOAD_ALL},
@@ -224,8 +192,12 @@ void ContentSettingTitleLinkAndCustomModel::SetCustomLink() {
     set_custom_link(l10n_util::GetStringUTF8(custom_link_id));
 }
 
-class ContentSettingSingleRadioGroup
-    : public ContentSettingTitleLinkAndCustomModel {
+void ContentSettingSimpleBubbleModel::OnCustomLinkClicked() {
+}
+
+// ContentSettingSingleRadioGroup ----------------------------------------------
+
+class ContentSettingSingleRadioGroup : public ContentSettingSimpleBubbleModel {
  public:
   ContentSettingSingleRadioGroup(Delegate* delegate,
                                  WebContents* web_contents,
@@ -251,8 +223,8 @@ ContentSettingSingleRadioGroup::ContentSettingSingleRadioGroup(
     WebContents* web_contents,
     Profile* profile,
     ContentSettingsType content_type)
-    : ContentSettingTitleLinkAndCustomModel(delegate, web_contents, profile,
-                                            content_type),
+    : ContentSettingSimpleBubbleModel(delegate, web_contents, profile,
+                                      content_type),
       block_setting_(CONTENT_SETTING_BLOCK),
       selected_item_(0) {
   SetRadioGroup();
@@ -411,6 +383,8 @@ void ContentSettingSingleRadioGroup::OnRadioClicked(int radio_index) {
   selected_item_ = radio_index;
 }
 
+// ContentSettingCookiesBubbleModel --------------------------------------------
+
 class ContentSettingCookiesBubbleModel : public ContentSettingSingleRadioGroup {
  public:
   ContentSettingCookiesBubbleModel(Delegate* delegate,
@@ -454,6 +428,8 @@ void ContentSettingCookiesBubbleModel::OnCustomLinkClicked() {
   delegate()->ShowCollectedCookiesDialog(web_contents());
 }
 
+// ContentSettingPluginBubbleModel ---------------------------------------------
+
 class ContentSettingPluginBubbleModel : public ContentSettingSingleRadioGroup {
  public:
   ContentSettingPluginBubbleModel(Delegate* delegate,
@@ -463,6 +439,7 @@ class ContentSettingPluginBubbleModel : public ContentSettingSingleRadioGroup {
   ~ContentSettingPluginBubbleModel() override;
 
  private:
+  void OnLearnMoreLinkClicked() override;
   void OnCustomLinkClicked() override;
 };
 
@@ -496,14 +473,19 @@ ContentSettingPluginBubbleModel::ContentSettingPluginBubbleModel(
       add_list_item(plugin_item);
     }
   }
+
+  set_learn_more_link(l10n_util::GetStringUTF8(IDS_LEARN_MORE));
 }
 
 ContentSettingPluginBubbleModel::~ContentSettingPluginBubbleModel() {
-  if (settings_changed()) {
-    // If the user elected to allow all plugins then run plugins at this time.
-    if (selected_item() == kAllowButtonIndex)
-      OnCustomLinkClicked();
-  }
+  // If the user elected to allow all plugins then run plugins at this time.
+  if (settings_changed() && selected_item() == kAllowButtonIndex)
+    OnCustomLinkClicked();
+}
+
+void ContentSettingPluginBubbleModel::OnLearnMoreLinkClicked() {
+  if (delegate())
+    delegate()->ShowLearnMorePage(CONTENT_SETTINGS_TYPE_PLUGINS);
 }
 
 void ContentSettingPluginBubbleModel::OnCustomLinkClicked() {
@@ -522,6 +504,8 @@ void ContentSettingPluginBubbleModel::OnCustomLinkClicked() {
       set_load_plugins_link_enabled(false);
 }
 
+// ContentSettingPopupBubbleModel ----------------------------------------------
+
 class ContentSettingPopupBubbleModel : public ContentSettingSingleRadioGroup {
  public:
   ContentSettingPopupBubbleModel(Delegate* delegate,
@@ -532,7 +516,7 @@ class ContentSettingPopupBubbleModel : public ContentSettingSingleRadioGroup {
  private:
   void OnListItemClicked(int index) override;
 
-  int32 item_id_from_item_index(int index) const {
+  int32_t item_id_from_item_index(int index) const {
     return bubble_content().list_items[index].item_id;
   }
 };
@@ -547,10 +531,10 @@ ContentSettingPopupBubbleModel::ContentSettingPopupBubbleModel(
                                      CONTENT_SETTINGS_TYPE_POPUPS) {
   if (web_contents) {
     // Build blocked popup list.
-    std::map<int32, GURL> blocked_popups =
+    std::map<int32_t, GURL> blocked_popups =
         PopupBlockerTabHelper::FromWebContents(web_contents)
             ->GetBlockedPopupRequests();
-    for (const std::pair<int32, GURL>& blocked_popup : blocked_popups) {
+    for (const std::pair<int32_t, GURL>& blocked_popup : blocked_popups) {
       std::string title(blocked_popup.second.spec());
       // The pop-up may not have a valid URL.
       if (title.empty())
@@ -570,23 +554,19 @@ void ContentSettingPopupBubbleModel::OnListItemClicked(int index) {
   }
 }
 
+// ContentSettingMediaStreamBubbleModel ----------------------------------------
+
 ContentSettingMediaStreamBubbleModel::ContentSettingMediaStreamBubbleModel(
     Delegate* delegate,
     WebContents* web_contents,
     Profile* profile)
-    : ContentSettingTitleAndLinkModel(
-          delegate, web_contents, profile, CONTENT_SETTINGS_TYPE_MEDIASTREAM),
+    : ContentSettingBubbleModel(delegate, web_contents, profile),
       selected_item_(0),
       state_(TabSpecificContentSettings::MICROPHONE_CAMERA_NOT_ACCESSED) {
-  // TODO(msramek): Every bubble is tied to a particular content setting.
-  // The media bubble has three states - mic only, camera only, and both.
-  // However, it is always tied to the deprecated MEDIASTREAM setting. Refactor
-  // this so that it refers to the MIC setting for microphone and CAMERA
-  // setting for camera to reduce the duplication of code in practically every
-  // method. Furthermore, it should be possible not to tie the bubble to any
-  // particular content setting type, as we still need the bubble for both
-  // camera and microphone, but should not use the deprecated MEDIASTREAM
-  // setting.
+  // TODO(msramek): The media bubble has three states - mic only, camera only,
+  // and both. There is a lot of duplicated code which does the same thing
+  // for camera and microphone separately. Consider refactoring it to avoid
+  // duplication.
 
   DCHECK(profile);
   // Initialize the content settings associated with the individual radio
@@ -627,26 +607,30 @@ ContentSettingMediaStreamBubbleModel::~ContentSettingMediaStreamBubbleModel() {
   }
 }
 
-bool ContentSettingMediaStreamBubbleModel::MicrophoneAccessed() const {
-  return (state_ & TabSpecificContentSettings::MICROPHONE_ACCESSED) != 0;
-}
-
-bool ContentSettingMediaStreamBubbleModel::CameraAccessed() const {
-  return (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) != 0;
+ContentSettingMediaStreamBubbleModel*
+    ContentSettingMediaStreamBubbleModel::AsMediaStreamBubbleModel() {
+  return this;
 }
 
 void ContentSettingMediaStreamBubbleModel::OnManageLinkClicked() {
   if (!delegate())
     return;
 
-  if (MicrophoneAccessed()) {
-    delegate()->ShowContentSettingsPage(CameraAccessed()
-        ? CONTENT_SETTINGS_TYPE_MEDIASTREAM
-        : CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
+  if (MicrophoneAccessed() && CameraAccessed()) {
+    delegate()->ShowMediaSettingsPage();
   } else {
-    delegate()->ShowContentSettingsPage(
-        CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
+    delegate()->ShowContentSettingsPage(CameraAccessed()
+        ? CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA
+        : CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
   }
+}
+
+bool ContentSettingMediaStreamBubbleModel::MicrophoneAccessed() const {
+  return (state_ & TabSpecificContentSettings::MICROPHONE_ACCESSED) != 0;
+}
+
+bool ContentSettingMediaStreamBubbleModel::CameraAccessed() const {
+  return (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) != 0;
 }
 
 void ContentSettingMediaStreamBubbleModel::SetTitle() {
@@ -842,12 +826,19 @@ void ContentSettingMediaStreamBubbleModel::SetMediaMenus() {
 void ContentSettingMediaStreamBubbleModel::SetManageLink() {
   // By default, the manage link refers to both media types. We only need
   // to change the link text if only one media type was accessed.
-  if (CameraAccessed() && MicrophoneAccessed())
+  int link_id;
+  if (CameraAccessed() && MicrophoneAccessed()) {
+    link_id = IDS_MEDIASTREAM_BUBBLE_MANAGE_LINK;
+  } else if (CameraAccessed()) {
+    link_id = IDS_MEDIASTREAM_CAMERA_BUBBLE_MANAGE_LINK;
+  } else if (MicrophoneAccessed()) {
+    link_id = IDS_MEDIASTREAM_MICROPHONE_BUBBLE_MANAGE_LINK;
+  } else {
+    NOTREACHED();
     return;
+  }
 
-  set_manage_link(l10n_util::GetStringUTF8(MicrophoneAccessed()
-      ? IDS_MEDIASTREAM_MICROPHONE_BUBBLE_MANAGE_LINK
-      : IDS_MEDIASTREAM_CAMERA_BUBBLE_MANAGE_LINK));
+  set_manage_link(l10n_util::GetStringUTF8(link_id));
 }
 
 void ContentSettingMediaStreamBubbleModel::SetCustomLink() {
@@ -878,8 +869,10 @@ void ContentSettingMediaStreamBubbleModel::OnMediaMenuClicked(
   set_selected_device(GetMediaDeviceById(selected_device_id, devices));
 }
 
+// ContentSettingDomainListBubbleModel -----------------------------------------
+
 class ContentSettingDomainListBubbleModel
-    : public ContentSettingTitleAndLinkModel {
+    : public ContentSettingSimpleBubbleModel {
  public:
   ContentSettingDomainListBubbleModel(Delegate* delegate,
                                       WebContents* web_contents,
@@ -898,7 +891,7 @@ ContentSettingDomainListBubbleModel::ContentSettingDomainListBubbleModel(
     WebContents* web_contents,
     Profile* profile,
     ContentSettingsType content_type)
-    : ContentSettingTitleAndLinkModel(
+    : ContentSettingSimpleBubbleModel(
         delegate, web_contents, profile, content_type) {
   DCHECK_EQ(CONTENT_SETTINGS_TYPE_GEOLOCATION, content_type) <<
       "SetDomains currently only supports geolocation content type";
@@ -964,8 +957,10 @@ void ContentSettingDomainListBubbleModel::OnCustomLinkClicked() {
   }
 }
 
+// ContentSettingMixedScriptBubbleModel ----------------------------------------
+
 class ContentSettingMixedScriptBubbleModel
-    : public ContentSettingTitleLinkAndCustomModel {
+    : public ContentSettingSimpleBubbleModel {
  public:
   ContentSettingMixedScriptBubbleModel(Delegate* delegate,
                                        WebContents* web_contents,
@@ -981,10 +976,11 @@ ContentSettingMixedScriptBubbleModel::ContentSettingMixedScriptBubbleModel(
     Delegate* delegate,
     WebContents* web_contents,
     Profile* profile)
-    : ContentSettingTitleLinkAndCustomModel(delegate,
-                                            web_contents,
-                                            profile,
-                                            CONTENT_SETTINGS_TYPE_MIXEDSCRIPT) {
+    : ContentSettingSimpleBubbleModel(
+          delegate,
+          web_contents,
+          profile,
+          CONTENT_SETTINGS_TYPE_MIXEDSCRIPT) {
   content_settings::RecordMixedScriptAction(
       content_settings::MIXED_SCRIPT_ACTION_DISPLAYED_BUBBLE);
   set_custom_link_enabled(true);
@@ -1004,12 +1000,14 @@ void ContentSettingMixedScriptBubbleModel::OnCustomLinkClicked() {
       web_contents()->GetLastCommittedURL());
 }
 
+// ContentSettingRPHBubbleModel ------------------------------------------------
+
 ContentSettingRPHBubbleModel::ContentSettingRPHBubbleModel(
     Delegate* delegate,
     WebContents* web_contents,
     Profile* profile,
     ProtocolHandlerRegistry* registry)
-    : ContentSettingTitleAndLinkModel(delegate,
+    : ContentSettingSimpleBubbleModel(delegate,
                                       web_contents,
                                       profile,
                                       CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS),
@@ -1134,8 +1132,10 @@ void ContentSettingRPHBubbleModel::ClearOrSetPreviousHandler() {
   }
 }
 
+// ContentSettingMidiSysExBubbleModel ------------------------------------------
+
 class ContentSettingMidiSysExBubbleModel
-    : public ContentSettingTitleAndLinkModel {
+    : public ContentSettingSimpleBubbleModel {
  public:
   ContentSettingMidiSysExBubbleModel(Delegate* delegate,
                                      WebContents* web_contents,
@@ -1152,7 +1152,7 @@ ContentSettingMidiSysExBubbleModel::ContentSettingMidiSysExBubbleModel(
     Delegate* delegate,
     WebContents* web_contents,
     Profile* profile)
-    : ContentSettingTitleAndLinkModel(delegate,
+    : ContentSettingSimpleBubbleModel(delegate,
                                       web_contents,
                                       profile,
                                       CONTENT_SETTINGS_TYPE_MIDI_SYSEX) {
@@ -1218,6 +1218,8 @@ void ContentSettingMidiSysExBubbleModel::OnCustomLinkClicked() {
   }
 }
 
+// ContentSettingBubbleModel ---------------------------------------------------
+
 // static
 ContentSettingBubbleModel*
     ContentSettingBubbleModel::CreateContentSettingBubbleModel(
@@ -1235,10 +1237,6 @@ ContentSettingBubbleModel*
   if (content_type == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
     return new ContentSettingDomainListBubbleModel(delegate, web_contents,
                                                    profile, content_type);
-  }
-  if (content_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM) {
-    return new ContentSettingMediaStreamBubbleModel(delegate, web_contents,
-                                                    profile);
   }
   if (content_type == CONTENT_SETTINGS_TYPE_PLUGINS) {
     return new ContentSettingPluginBubbleModel(delegate, web_contents, profile);
@@ -1269,12 +1267,12 @@ ContentSettingBubbleModel*
 }
 
 ContentSettingBubbleModel::ContentSettingBubbleModel(
+    Delegate* delegate,
     WebContents* web_contents,
-    Profile* profile,
-    ContentSettingsType content_type)
+    Profile* profile)
     : web_contents_(web_contents),
       profile_(profile),
-      content_type_(content_type),
+      delegate_(delegate),
       setting_is_managed_(false) {
   registrar_.Add(this, content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
                  content::Source<WebContents>(web_contents));
@@ -1291,9 +1289,15 @@ ContentSettingBubbleModel::RadioGroup::~RadioGroup() {}
 
 ContentSettingBubbleModel::DomainList::DomainList() {}
 
+ContentSettingBubbleModel::DomainList::DomainList(const DomainList& other) =
+    default;
+
 ContentSettingBubbleModel::DomainList::~DomainList() {}
 
 ContentSettingBubbleModel::MediaMenu::MediaMenu() : disabled(false) {}
+
+ContentSettingBubbleModel::MediaMenu::MediaMenu(const MediaMenu& other) =
+    default;
 
 ContentSettingBubbleModel::MediaMenu::~MediaMenu() {}
 
@@ -1317,4 +1321,16 @@ void ContentSettingBubbleModel::Observe(
     DCHECK_EQ(profile_, content::Source<Profile>(source).ptr());
     profile_ = NULL;
   }
+}
+
+ContentSettingSimpleBubbleModel*
+    ContentSettingBubbleModel::AsSimpleBubbleModel() {
+  // In general, bubble models might not inherit from the simple bubble model.
+  return nullptr;
+}
+
+ContentSettingMediaStreamBubbleModel*
+    ContentSettingBubbleModel::AsMediaStreamBubbleModel() {
+  // In general, bubble models might not inherit from the media bubble model.
+  return nullptr;
 }

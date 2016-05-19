@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/modules/v8/V8DeviceMotionEvent.h"
 
 #include "bindings/core/v8/V8Binding.h"
@@ -119,9 +118,9 @@ void V8DeviceMotionEvent::initDeviceMotionEventMethodCustom(const v8::FunctionCa
     if (!type.prepare())
         return;
     v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
-    bool bubbles;
+    bool bubbles = false;
     V8_CALL(bubbles, info[1], BooleanValue(context), return);
-    bool cancelable;
+    bool cancelable = false;
     V8_CALL(cancelable, info[2], BooleanValue(context), return);
     DeviceMotionData::Acceleration* acceleration = readAccelerationArgument(info[3], isolate);
     DeviceMotionData::Acceleration* accelerationIncludingGravity = readAccelerationArgument(info[4], isolate);

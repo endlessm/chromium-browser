@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/TableRowPainter.h"
 
 #include "core/layout/LayoutTableCell.h"
@@ -18,23 +17,26 @@ void TableRowPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paint
 {
     ASSERT(m_layoutTableRow.hasSelfPaintingLayer());
 
+    // TODO(wangxianzhu): This painting order is inconsistent with other outlines. crbug.com/577282.
     paintOutlineForRowIfNeeded(paintInfo, paintOffset);
-    for (LayoutTableCell* cell = m_layoutTableRow.firstCell(); cell; cell = cell->nextCell()) {
-        // Paint the row background behind the cell.
-        if (paintInfo.phase == PaintPhaseBlockBackground || paintInfo.phase == PaintPhaseChildBlockBackground) {
-            if (m_layoutTableRow.hasBackground())
-                TableCellPainter(*cell).paintBackgroundsBehindCell(paintInfo, paintOffset, &m_layoutTableRow, DisplayItem::TableCellBackgroundFromRow);
-        }
+    if (paintInfo.phase == PaintPhaseSelfOutlineOnly)
+        return;
 
-        if (!cell->hasSelfPaintingLayer())
-            cell->paint(paintInfo, paintOffset);
+    PaintInfo paintInfoForCells = paintInfo.forDescendants();
+    bool shouldPaintRowBackground = shouldPaintSelfBlockBackground(paintInfo.phase) && m_layoutTableRow.hasBackground();
+    bool shouldPaintCells = paintInfo.phase != PaintPhaseSelfBlockBackgroundOnly;
+    for (LayoutTableCell* cell = m_layoutTableRow.firstCell(); cell; cell = cell->nextCell()) {
+        if (shouldPaintRowBackground)
+            TableCellPainter(*cell).paintBackgroundsBehindCell(paintInfoForCells, paintOffset, &m_layoutTableRow, DisplayItem::TableCellBackgroundFromRow);
+        if (shouldPaintCells && !cell->hasSelfPaintingLayer())
+            cell->paint(paintInfoForCells, paintOffset);
     }
 }
 
 void TableRowPainter::paintOutlineForRowIfNeeded(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
     PaintPhase paintPhase = paintInfo.phase;
-    if ((paintPhase == PaintPhaseOutline || paintPhase == PaintPhaseSelfOutline) && m_layoutTableRow.style()->visibility() == VISIBLE) {
+    if (shouldPaintSelfOutline(paintPhase)) {
         LayoutPoint adjustedPaintOffset = paintOffset + m_layoutTableRow.location();
         ObjectPainter(m_layoutTableRow).paintOutline(paintInfo, adjustedPaintOffset);
     }

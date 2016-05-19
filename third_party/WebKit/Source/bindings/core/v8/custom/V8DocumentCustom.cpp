@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/V8Document.h"
 
 #include "bindings/core/v8/ScriptController.h"
@@ -86,7 +85,7 @@ void V8Document::openMethodCustom(const v8::FunctionCallbackInfo<v8::Value>& inf
     }
 
     ExceptionState exceptionState(ExceptionState::ExecutionContext, "open", "Document", info.Holder(), info.GetIsolate());
-    document->open(callingDOMWindow(info.GetIsolate())->document(), exceptionState);
+    document->open(enteredDOMWindow(info.GetIsolate())->document(), exceptionState);
     if (exceptionState.throwIfNeeded())
         return;
 

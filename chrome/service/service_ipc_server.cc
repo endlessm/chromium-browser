@@ -5,6 +5,7 @@
 #include "chrome/service/service_ipc_server.h"
 
 #include "base/metrics/histogram_delta_serialization.h"
+#include "build/build_config.h"
 #include "chrome/common/service_messages.h"
 #include "ipc/ipc_logging.h"
 
@@ -47,7 +48,7 @@ ServiceIPCServer::~ServiceIPCServer() {
 #endif
 }
 
-void ServiceIPCServer::OnChannelConnected(int32 peer_pid) {
+void ServiceIPCServer::OnChannelConnected(int32_t peer_pid) {
   DCHECK(!ipc_client_connected_);
   ipc_client_connected_ = true;
 }
@@ -122,7 +123,10 @@ void ServiceIPCServer::OnGetHistograms() {
         new base::HistogramDeltaSerialization("ServiceProcess"));
   }
   std::vector<std::string> deltas;
-  histogram_delta_serializer_->PrepareAndSerializeDeltas(&deltas);
+  // "false" to PerpareAndSerializeDeltas() indicates to *not* include
+  // histograms held in persistent storage on the assumption that they will be
+  // visible to the recipient through other means.
+  histogram_delta_serializer_->PrepareAndSerializeDeltas(&deltas, false);
   channel_->Send(new ServiceHostMsg_Histograms(deltas));
 }
 

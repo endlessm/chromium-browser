@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/diamond.h"
 #include "src/compiler/js-builtin-reducer.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/objects-inl.h"
+#include "src/type-cache.h"
 #include "src/types.h"
 
 namespace v8 {
@@ -86,45 +86,10 @@ class JSCallReduction {
   Node* node_;
 };
 
-
 JSBuiltinReducer::JSBuiltinReducer(Editor* editor, JSGraph* jsgraph)
-    : AdvancedReducer(editor), jsgraph_(jsgraph) {}
-
-
-// ES6 section 19.2.3.3 Function.prototype.call (thisArg, ...args)
-Reduction JSBuiltinReducer::ReduceFunctionCall(Node* node) {
-  DCHECK_EQ(IrOpcode::kJSCallFunction, node->opcode());
-  CallFunctionParameters const& p = CallFunctionParametersOf(node->op());
-  Handle<JSFunction> apply = Handle<JSFunction>::cast(
-      HeapObjectMatcher(NodeProperties::GetValueInput(node, 0)).Value());
-  // Change context of {node} to the Function.prototype.call context,
-  // to ensure any exception is thrown in the correct context.
-  NodeProperties::ReplaceContextInput(
-      node, jsgraph()->HeapConstant(handle(apply->context(), isolate())));
-  // Remove the target from {node} and use the receiver as target instead, and
-  // the thisArg becomes the new target.  If thisArg was not provided, insert
-  // undefined instead.
-  size_t arity = p.arity();
-  DCHECK_LE(2u, arity);
-  ConvertReceiverMode convert_mode;
-  if (arity == 2) {
-    // The thisArg was not provided, use undefined as receiver.
-    convert_mode = ConvertReceiverMode::kNullOrUndefined;
-    node->ReplaceInput(0, node->InputAt(1));
-    node->ReplaceInput(1, jsgraph()->UndefinedConstant());
-  } else {
-    // Just remove the target, which is the first value input.
-    convert_mode = ConvertReceiverMode::kAny;
-    node->RemoveInput(0);
-    --arity;
-  }
-  // TODO(turbofan): Migrate the call count to the new operator?
-  NodeProperties::ChangeOp(node, javascript()->CallFunction(
-                                     arity, p.language_mode(), VectorSlotPair(),
-                                     convert_mode, p.tail_call_mode()));
-  return Changed(node);
-}
-
+    : AdvancedReducer(editor),
+      jsgraph_(jsgraph),
+      type_cache_(TypeCache::Get()) {}
 
 // ECMA-262, section 15.8.2.11.
 Reduction JSBuiltinReducer::ReduceMathMax(Node* node) {
@@ -143,7 +108,7 @@ Reduction JSBuiltinReducer::ReduceMathMax(Node* node) {
     for (int i = 1; i < r.GetJSCallArity(); i++) {
       Node* const input = r.GetJSCallInput(i);
       value = graph()->NewNode(
-          common()->Select(kMachNone),
+          common()->Select(MachineRepresentation::kNone),
           graph()->NewNode(simplified()->NumberLessThan(), input, value), value,
           input);
     }
@@ -177,6 +142,31 @@ Reduction JSBuiltinReducer::ReduceMathFround(Node* node) {
   return NoChange();
 }
 
+// ES6 section 20.2.2.28 Math.round ( x )
+Reduction JSBuiltinReducer::ReduceMathRound(Node* node) {
+  JSCallReduction r(node);
+  if (r.InputsMatchOne(type_cache_.kIntegerOrMinusZeroOrNaN)) {
+    // Math.round(a:integer \/ -0 \/ NaN) -> a
+    return Replace(r.left());
+  }
+  if (r.InputsMatchOne(Type::Number()) &&
+      machine()->Float64RoundUp().IsSupported()) {
+    // Math.round(a:number) -> Select(Float64LessThan(#0.5, Float64Sub(i, a)),
+    //                                Float64Sub(i, #1.0), i)
+    //   where i = Float64RoundUp(a)
+    Node* value = r.left();
+    Node* integer = graph()->NewNode(machine()->Float64RoundUp().op(), value);
+    Node* real = graph()->NewNode(machine()->Float64Sub(), integer, value);
+    return Replace(graph()->NewNode(
+        common()->Select(MachineRepresentation::kFloat64),
+        graph()->NewNode(machine()->Float64LessThan(),
+                         jsgraph()->Float64Constant(0.5), real),
+        graph()->NewNode(machine()->Float64Sub(), integer,
+                         jsgraph()->Float64Constant(1.0)),
+        integer));
+  }
+  return NoChange();
+}
 
 Reduction JSBuiltinReducer::Reduce(Node* node) {
   Reduction reduction = NoChange();
@@ -185,8 +175,6 @@ Reduction JSBuiltinReducer::Reduce(Node* node) {
   // Dispatch according to the BuiltinFunctionId if present.
   if (!r.HasBuiltinFunctionId()) return NoChange();
   switch (r.GetBuiltinFunctionId()) {
-    case kFunctionCall:
-      return ReduceFunctionCall(node);
     case kMathMax:
       reduction = ReduceMathMax(node);
       break;
@@ -195,6 +183,9 @@ Reduction JSBuiltinReducer::Reduce(Node* node) {
       break;
     case kMathFround:
       reduction = ReduceMathFround(node);
+      break;
+    case kMathRound:
+      reduction = ReduceMathRound(node);
       break;
     default:
       break;
@@ -226,11 +217,6 @@ MachineOperatorBuilder* JSBuiltinReducer::machine() const {
 
 SimplifiedOperatorBuilder* JSBuiltinReducer::simplified() const {
   return jsgraph()->simplified();
-}
-
-
-JSOperatorBuilder* JSBuiltinReducer::javascript() const {
-  return jsgraph()->javascript();
 }
 
 }  // namespace compiler

@@ -5,7 +5,6 @@ import argparse
 import codecs
 import os
 import sys
-import traceback
 import json
 
 from perf_insights import corpus_driver_cmdline
@@ -13,9 +12,7 @@ from perf_insights import corpus_query
 from perf_insights import function_handle
 from perf_insights import map_runner
 from perf_insights import progress_reporter as progress_reporter_module
-from perf_insights.results import json_output_formatter
 from py_vulcanize import generate
-import perf_insights
 import perf_insights_project
 import bs4
 
@@ -62,10 +59,13 @@ def _GetMapFunctionHrefFromPiReport(html_contents):
       map_function_href = element.attrs.get('map-function-href', None)
       if map_function_href is None:
         raise Exception('Report is missing map-function-href attribute')
+      map_function_name = element.attrs.get('map-function-name', None)
+      if map_function_name is None:
+        raise Exception('Report is missing map-function-name attribute')
       pi_report_element_name = element.attrs.get('name', None)
       if pi_report_element_name is None:
         raise Exception('Report is missing name attribute')
-      return map_function_href, pi_report_element_name
+      return map_function_href, map_function_name, pi_report_element_name
   raise Exception('No element that extends pi-ui-r-pi-report was found')
 
 
@@ -76,10 +76,12 @@ def PiReportToHTML(ofile, corpus_driver, pi_report_file, query,
   with open(pi_report_file, 'r') as f:
     pi_report_file_contents = f.read()
 
-  map_function_href, pi_report_element_name = _GetMapFunctionHrefFromPiReport(
-    pi_report_file_contents)
+  map_function_href, map_function_name, pi_report_element_name = (
+      _GetMapFunctionHrefFromPiReport(pi_report_file_contents))
   map_file = project.GetAbsPathFromHRef(map_function_href)
-  map_function_handle = function_handle.FunctionHandle(filename=map_file)
+  module = function_handle.ModuleToLoad(filename=map_file)
+  map_function_handle = function_handle.FunctionHandle([module],
+                                                       map_function_name)
 
   if map_file == None:
     raise Exception('Could not find %s' % map_function_href)
@@ -87,11 +89,11 @@ def PiReportToHTML(ofile, corpus_driver, pi_report_file, query,
   results = _MapTraces(corpus_driver, map_function_handle, query, stop_on_error,
                        jobs, quiet)
   if stop_on_error and results.had_failures:
-    sys.stderr.write('There were mapping errors. Aborting.');
+    sys.stderr.write('There were mapping errors. Aborting.')
     return 255
 
   if json_output:
-    json.dump(results.AsDict(), ofile, indent=2)
+    json.dump([result.AsDict() for result in results], ofile, indent=2)
   else:
     WriteResultsToFile(ofile, project,
                        pi_report_file, pi_report_element_name,
@@ -127,7 +129,7 @@ def WriteResultsToFile(ofile, project,
 
   load_sequence = vulcanizer.CalcLoadSequenceForModules(modules)
 
-  results_string = json.dumps(results.AsDict())
+  results_string = json.dumps([result.AsDict() for result in results])
 
   bootstrap_script = generate.ExtraScript(text_content="""
     document.addEventListener('DOMContentLoaded', function() {

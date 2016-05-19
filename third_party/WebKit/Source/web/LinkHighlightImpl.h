@@ -26,12 +26,12 @@
 #ifndef LinkHighlightImpl_h
 #define LinkHighlightImpl_h
 
+#include "platform/animation/CompositorAnimationPlayer.h"
+#include "platform/animation/CompositorAnimationPlayerClient.h"
 #include "platform/graphics/LinkHighlight.h"
 #include "platform/graphics/Path.h"
 #include "platform/heap/Handle.h"
 #include "public/platform/WebCompositorAnimationDelegate.h"
-#include "public/platform/WebCompositorAnimationPlayer.h"
-#include "public/platform/WebCompositorAnimationPlayerClient.h"
 #include "public/platform/WebContentLayer.h"
 #include "public/platform/WebContentLayerClient.h"
 #include "wtf/Forward.h"
@@ -49,7 +49,7 @@ class WebViewImpl;
 class LinkHighlightImpl final : public LinkHighlight
     , public WebContentLayerClient
     , public WebCompositorAnimationDelegate
-    , public WebCompositorAnimationPlayerClient {
+    , public CompositorAnimationPlayerClient {
 public:
     static PassOwnPtr<LinkHighlightImpl> create(Node*, WebViewImpl*);
     ~LinkHighlightImpl() override;
@@ -60,19 +60,21 @@ public:
     void updateGeometry();
 
     // WebContentLayerClient implementation.
-    void paintContents(WebDisplayItemList*, const WebRect& clipRect, WebContentLayerClient::PaintingControlSetting) override;
+    gfx::Rect paintableRegion() override;
+    void paintContents(WebDisplayItemList*, WebContentLayerClient::PaintingControlSetting) override;
 
     // WebCompositorAnimationDelegate implementation.
     void notifyAnimationStarted(double monotonicTime, int group) override;
     void notifyAnimationFinished(double monotonicTime, int group) override;
+    void notifyAnimationAborted(double monotonicTime, int group) override { }
 
     // LinkHighlight implementation.
     void invalidate() override;
     WebLayer* layer() override;
     void clearCurrentGraphicsLayer() override;
 
-    // WebCompositorAnimationPlayerClient implementation.
-    WebCompositorAnimationPlayer* compositorPlayer() const override;
+    // CompositorAnimationPlayerClient implementation.
+    CompositorAnimationPlayer* compositorPlayer() const override;
 
     GraphicsLayer* currentGraphicsLayerForTesting() const { return m_currentGraphicsLayer; }
 
@@ -82,11 +84,11 @@ private:
     void releaseResources();
     void computeQuads(const Node&, Vector<FloatQuad>&) const;
 
-    void attachLinkHighlightToCompositingLayer(const LayoutBoxModelObject* paintInvalidationContainer);
+    void attachLinkHighlightToCompositingLayer(const LayoutBoxModelObject& paintInvalidationContainer);
     void clearGraphicsLayerLinkHighlightPointer();
     // This function computes the highlight path, and returns true if it has changed
     // size since the last call to this function.
-    bool computeHighlightLayerPathAndPosition(const LayoutBoxModelObject*);
+    bool computeHighlightLayerPathAndPosition(const LayoutBoxModelObject&);
 
     OwnPtr<WebContentLayer> m_contentLayer;
     OwnPtr<WebLayer> m_clipLayer;
@@ -95,7 +97,7 @@ private:
     RefPtrWillBePersistent<Node> m_node;
     WebViewImpl* m_owningWebViewImpl;
     GraphicsLayer* m_currentGraphicsLayer;
-    OwnPtr<WebCompositorAnimationPlayer> m_compositorPlayer;
+    OwnPtr<CompositorAnimationPlayer> m_compositorPlayer;
 
     bool m_geometryNeedsUpdate;
     bool m_isAnimating;

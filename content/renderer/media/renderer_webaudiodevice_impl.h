@@ -5,20 +5,23 @@
 #ifndef CONTENT_RENDERER_MEDIA_RENDERER_WEBAUDIODEVICE_IMPL_H_
 #define CONTENT_RENDERER_MEDIA_RENDERER_WEBAUDIODEVICE_IMPL_H_
 
+#include <stdint.h>
+
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "media/audio/audio_parameters.h"
 #include "media/base/audio_renderer_sink.h"
 #include "third_party/WebKit/public/platform/WebAudioDevice.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
+#include "url/origin.h"
 
 namespace base {
 class SingleThreadTaskRunner;
 }
 
 namespace media {
-class AudioOutputDevice;
 class NullAudioSink;
 }
 
@@ -30,7 +33,8 @@ class RendererWebAudioDeviceImpl
  public:
   RendererWebAudioDeviceImpl(const media::AudioParameters& params,
                              blink::WebAudioDevice::RenderCallback* callback,
-                             int session_id);
+                             int session_id,
+                             const url::Origin& security_origin);
   ~RendererWebAudioDeviceImpl() override;
 
   // blink::WebAudioDevice implementation.
@@ -39,7 +43,9 @@ class RendererWebAudioDeviceImpl
   double sampleRate() override;
 
   // AudioRendererSink::RenderCallback implementation.
-  int Render(media::AudioBus* dest, int audio_delay_milliseconds) override;
+  int Render(media::AudioBus* dest,
+             uint32_t frames_delayed,
+             uint32_t frames_skipped) override;
 
   void OnRenderError() override;
 
@@ -54,7 +60,7 @@ class RendererWebAudioDeviceImpl
   base::ThreadChecker thread_checker_;
 
   // When non-NULL, we are started.  When NULL, we are stopped.
-  scoped_refptr<media::AudioOutputDevice> output_device_;
+  scoped_refptr<media::AudioRendererSink> sink_;
 
   // ID to allow browser to select the correct input device for unified IO.
   int session_id_;
@@ -82,6 +88,9 @@ class RendererWebAudioDeviceImpl
   // A cancelable task that is posted to start the |null_audio_sink_| after a
   // period of silence. We do this on android to save battery consumption.
   base::CancelableClosure start_null_audio_sink_callback_;
+
+  // Security origin, used to check permissions for |output_device_|.
+  url::Origin security_origin_;
 
   DISALLOW_COPY_AND_ASSIGN(RendererWebAudioDeviceImpl);
 };

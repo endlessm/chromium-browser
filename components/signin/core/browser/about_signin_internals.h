@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -161,6 +162,7 @@ class AboutSigninInternals
         SigninManagerBase* signin_manager,
         SigninErrorController* signin_error_controller,
         ProfileOAuth2TokenService* token_service,
+        GaiaCookieManagerService* cookie_manager_service_,
         const std::string& product_version);
   };
 

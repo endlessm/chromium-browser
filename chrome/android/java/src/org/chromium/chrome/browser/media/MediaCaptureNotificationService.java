@@ -38,7 +38,7 @@ public class MediaCaptureNotificationService extends Service {
     private static final String NOTIFICATION_MEDIA_URL_EXTRA = "NotificationMediaUrl";
 
     private static final String WEBRTC_NOTIFICATION_IDS = "WebRTCNotificationIds";
-    private static final String TAG = "cr.MediaCapture";
+    private static final String TAG = "MediaCapture";
 
     private static final int MEDIATYPE_NO_MEDIA = 0;
     private static final int MEDIATYPE_AUDIO_AND_VIDEO = 1;
@@ -274,7 +274,7 @@ public class MediaCaptureNotificationService extends Service {
             URL url = new URL(fullUrl);
             baseUrl = url.getProtocol() + "://" + url.getHost();
         } catch (MalformedURLException e) {
-            Log.w(TAG, "Error parsing the webrtc url " + fullUrl);
+            Log.w(TAG, "Error parsing the webrtc url, %s ", fullUrl);
         }
         intent.putExtra(NOTIFICATION_MEDIA_URL_EXTRA, baseUrl);
         intent.putExtra(NOTIFICATION_MEDIA_TYPE_EXTRA, mediaType);

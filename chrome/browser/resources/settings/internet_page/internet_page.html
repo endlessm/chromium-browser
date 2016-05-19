@@ -3,20 +3,21 @@
 <link rel="import" href="chrome://resources/cr_elements/network/cr_onc_types.html">
 <link rel="import" href="chrome://md-settings/settings_page/settings_animated_pages.html">
 <link rel="import" href="chrome://md-settings/settings_page/settings_subheader.html">
+<link rel="import" href="chrome://md-settings/settings_shared_css.html">
 <link rel="import" href="internet_detail_page.html">
 <link rel="import" href="internet_known_networks_page.html">
 <link rel="import" href="network_summary.html">
 
 <dom-module id="settings-internet-page">
-  <link rel="import" type="css"
-      href="chrome://md-settings/settings_page/settings_page.css">
   <template>
+    <style include="settings-shared"></style>
     <settings-animated-pages id="pages" current-route="{{currentRoute}}"
         section="internet">
       <neon-animatable id="main">
         <network-summary on-show-detail="onShowDetail_"
             default-network="{{defaultNetwork}}"
-            on-show-known-networks="onShowKnownNetworks_">
+            on-show-known-networks="onShowKnownNetworks_"
+            networking-private="[[networkingPrivate]]">
         </network-summary>
       </neon-animatable>
       <neon-animatable id="network-detail">
@@ -25,7 +26,8 @@
         <settings-internet-detail-page
             guid="[[detailGuid]]"
             default-network="[[defaultNetwork]]"
-            on-close="onBackTap_">
+            on-close="onBackTap_"
+            networking-private="[[networkingPrivate]]">
         </settings-internet-detail-page>
       </neon-animatable>
       <neon-animatable id="known-networks">
@@ -34,7 +36,8 @@
         </settings-subheader>
         <settings-internet-known-networks-page
             network-type="[[knownNetworksType]]"
-            on-show-detail="onShowDetail_">
+            on-show-detail="onShowDetail_"
+            networking-private="[[networkingPrivate]]">
         </settings-internet-known-networks-page>
       </neon-animatable>
     </settings-animated-pages>

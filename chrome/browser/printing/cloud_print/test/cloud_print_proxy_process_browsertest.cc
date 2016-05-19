@@ -6,6 +6,9 @@
 // to test launching the browser using the cloud print policy check command
 // line switch.
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
@@ -19,6 +22,7 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/service_process/service_process_control.h"
@@ -129,13 +133,13 @@ class MockServiceIPCServer : public ServiceIPCServer {
         enabled_(true) { }
 
   MOCK_METHOD1(OnMessageReceived, bool(const IPC::Message& message));
-  MOCK_METHOD1(OnChannelConnected, void(int32 peer_pid));
+  MOCK_METHOD1(OnChannelConnected, void(int32_t peer_pid));
   MOCK_METHOD0(OnChannelError, void());
 
   void SetServiceEnabledExpectations();
   void SetWillBeDisabledExpectations();
 
-  void CallServiceOnChannelConnected(int32 peer_pid) {
+  void CallServiceOnChannelConnected(int32_t peer_pid) {
     ServiceIPCServer::OnChannelConnected(peer_pid);
   }
 
@@ -160,32 +164,30 @@ void MockServiceIPCServer::SetServiceEnabledExpectations() {
   EXPECT_CALL(*this, OnMessageReceived(_)).Times(0);
 
   EXPECT_CALL(*this,
-      OnMessageReceived(
-          Property(&IPC::Message::type,
-                   static_cast<int32>(ServiceMsg_GetCloudPrintProxyInfo::ID))))
-      .Times(AnyNumber()).WillRepeatedly(
+              OnMessageReceived(Property(
+                  &IPC::Message::type,
+                  static_cast<int32_t>(ServiceMsg_GetCloudPrintProxyInfo::ID))))
+      .Times(AnyNumber())
+      .WillRepeatedly(
           WithoutArgs(Invoke(this, &MockServiceIPCServer::SendInfo)));
 
-  EXPECT_CALL(*this,
-              OnMessageReceived(
-                  Property(&IPC::Message::type,
-                           static_cast<int32>(ServiceMsg_Shutdown::ID))))
+  EXPECT_CALL(*this, OnMessageReceived(Property(
+                         &IPC::Message::type,
+                         static_cast<int32_t>(ServiceMsg_Shutdown::ID))))
       .Times(1)
-      .WillOnce(
-          DoAll(Assign(&g_good_shutdown, true),
-                WithoutArgs(
-                    Invoke(g_service_process, &ServiceProcess::Shutdown)),
-                Return(true)));
+      .WillOnce(DoAll(
+          Assign(&g_good_shutdown, true),
+          WithoutArgs(Invoke(g_service_process, &ServiceProcess::Shutdown)),
+          Return(true)));
 }
 
 void MockServiceIPCServer::SetWillBeDisabledExpectations() {
   SetServiceEnabledExpectations();
 
   EXPECT_CALL(*this,
-              OnMessageReceived(
-                  Property(&IPC::Message::type,
-                           static_cast<int32>(
-                               ServiceMsg_DisableCloudPrintProxy::ID))))
+              OnMessageReceived(Property(
+                  &IPC::Message::type,
+                  static_cast<int32_t>(ServiceMsg_DisableCloudPrintProxy::ID))))
       .Times(AtLeast(1))
       .WillRepeatedly(DoAll(Assign(&enabled_, false), Return(true)));
 }
@@ -319,16 +321,16 @@ class CloudPrintProxyPolicyStartupTest : public base::MultiProcessTest,
 
   // IPC::Listener implementation
   bool OnMessageReceived(const IPC::Message& message) override { return false; }
-  void OnChannelConnected(int32 peer_pid) override;
+  void OnChannelConnected(int32_t peer_pid) override;
 
   // MultiProcessTest implementation.
   base::CommandLine MakeCmdLine(const std::string& procname) override;
 
   bool LaunchBrowser(const base::CommandLine& command_line, Profile* profile) {
     StartupBrowserCreator browser_creator;
-    return StartupBrowserCreator::ProcessCmdLineImpl(
+    return browser_creator.ProcessCmdLineImpl(
         command_line, base::FilePath(), false, profile,
-        StartupBrowserCreator::Profiles(), &browser_creator);
+        StartupBrowserCreator::Profiles());
   }
 
  protected:
@@ -458,7 +460,7 @@ base::Process CloudPrintProxyPolicyStartupTest::Launch(
   base::Process process = SpawnChild(name);
 #endif
   EXPECT_TRUE(process.IsValid());
-  return process.Pass();
+  return process;
 }
 
 void CloudPrintProxyPolicyStartupTest::WaitForConnect() {
@@ -487,7 +489,7 @@ void CloudPrintProxyPolicyStartupTest::ShutdownAndWaitForExitWithTimeout(
   EXPECT_EQ(exit_code, 0);
 }
 
-void CloudPrintProxyPolicyStartupTest::OnChannelConnected(int32 peer_pid) {
+void CloudPrintProxyPolicyStartupTest::OnChannelConnected(int32_t peer_pid) {
   observer_.Notify();
 }
 
@@ -515,6 +517,6 @@ TEST_F(CloudPrintProxyPolicyStartupTest, StartAndShutdown) {
   base::Process process =
       Launch("CloudPrintMockService_StartEnabledWaitForQuit");
   WaitForConnect();
-  ShutdownAndWaitForExitWithTimeout(process.Pass());
+  ShutdownAndWaitForExitWithTimeout(std::move(process));
   content::RunAllPendingInMessageLoop();
 }

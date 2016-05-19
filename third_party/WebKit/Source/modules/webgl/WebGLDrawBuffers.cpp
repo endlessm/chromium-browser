@@ -23,9 +23,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "modules/webgl/WebGLDrawBuffers.h"
+
 #include "modules/webgl/WebGLFramebuffer.h"
 
 namespace blink {
@@ -72,7 +71,7 @@ void WebGLDrawBuffers::drawBuffersWEBGL(const Vector<GLenum>& buffers)
     const GLenum* bufs = buffers.data();
     if (!scoped.context()->m_framebufferBinding) {
         if (n != 1) {
-            scoped.context()->synthesizeGLError(GL_INVALID_VALUE, "drawBuffersWEBGL", "more than one buffer");
+            scoped.context()->synthesizeGLError(GL_INVALID_OPERATION, "drawBuffersWEBGL", "must provide exactly one buffer");
             return;
         }
         if (bufs[0] != GL_BACK && bufs[0] != GL_NONE) {
@@ -156,14 +155,14 @@ bool WebGLDrawBuffers::satisfiesWebGLRequirements(WebGLRenderingContextBase* web
             context->framebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
         }
         if (supportsDepthStencil) {
-            context->framebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthStencil, 0);
-            context->framebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthStencil, 0);
+            // For ES 2.0 contexts DEPTH_STENCIL is not available natively, so we emulate it
+            // at the command buffer level for WebGL contexts.
+            context->framebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthStencil, 0);
             if (context->checkFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 ok = false;
                 break;
             }
-            context->framebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
-            context->framebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+            context->framebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
         }
     }
 

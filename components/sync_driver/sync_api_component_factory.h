@@ -57,6 +57,14 @@ class SyncService;
 class SyncApiComponentFactory {
  public:
   virtual ~SyncApiComponentFactory() {}
+  // Callback to allow platform-specific datatypes to register themselves as
+  // data type controllers.
+  // |disabled_types| and |enabled_types| control the disable/enable state of
+  // types that are on or off by default (respectively).
+  typedef base::Callback<void(sync_driver::SyncService* sync_service,
+                              syncer::ModelTypeSet disabled_types,
+                              syncer::ModelTypeSet enabled_types)>
+      RegisterDataTypesMethod;
 
   // The various factory methods for the data type model associators
   // and change processors all return this struct.  This is needed
@@ -80,7 +88,9 @@ class SyncApiComponentFactory {
   };
 
   // Creates and registers enabled datatypes with the provided SyncClient.
-  virtual void RegisterDataTypes(sync_driver::SyncClient* sync_client) = 0;
+  virtual void RegisterDataTypes(
+      sync_driver::SyncService* sync_service,
+      const RegisterDataTypesMethod& register_platform_types_method) = 0;
 
   // Instantiates a new DataTypeManager with a SyncBackendHost, a list of data
   // type controllers and a DataTypeManagerObserver.  The return pointer is
@@ -96,7 +106,6 @@ class SyncApiComponentFactory {
   // Creating this in the factory helps us mock it out in testing.
   virtual browser_sync::SyncBackendHost* CreateSyncBackendHost(
       const std::string& name,
-      SyncClient* sync_client,
       invalidation::InvalidationService* invalidator,
       const base::WeakPtr<sync_driver::SyncPrefs>& sync_prefs,
       const base::FilePath& sync_folder) = 0;
@@ -108,10 +117,6 @@ class SyncApiComponentFactory {
   // Legacy datatypes that need to be converted to the SyncableService API.
   virtual SyncComponents CreateBookmarkSyncComponents(
       sync_driver::SyncService* sync_service,
-      sync_driver::DataTypeErrorHandler* error_handler) = 0;
-  virtual SyncComponents CreateTypedUrlSyncComponents(
-      sync_driver::SyncService* sync_service,
-      history::HistoryBackend* history_backend,
       sync_driver::DataTypeErrorHandler* error_handler) = 0;
 
   // Creates attachment service.

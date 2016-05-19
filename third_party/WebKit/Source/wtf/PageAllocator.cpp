@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "wtf/PageAllocator.h"
 
 #include "wtf/AddressSpaceRandomization.h"
@@ -38,6 +37,7 @@
 
 #if OS(POSIX)
 
+#include <errno.h>
 #include <sys/mman.h>
 
 #ifndef MADV_FREE
@@ -50,6 +50,7 @@
 
 // On POSIX memmap uses a nearby address if the hint address is blocked.
 static const bool kHintIsAdvisory = true;
+static uint32_t allocPageErrorCode = 0;
 
 #elif OS(WIN)
 
@@ -57,6 +58,7 @@ static const bool kHintIsAdvisory = true;
 
 // VirtualAlloc will fail if allocation at the hint address is blocked.
 static const bool kHintIsAdvisory = false;
+static uint32_t allocPageErrorCode = ERROR_SUCCESS;
 
 #else
 #error Unknown OS
@@ -77,11 +79,16 @@ static void* systemAllocPages(void* hint, size_t len, PageAccessibilityConfigura
 #if OS(WIN)
     DWORD accessFlag = pageAccessibility == PageAccessible ? PAGE_READWRITE : PAGE_NOACCESS;
     ret = VirtualAlloc(hint, len, MEM_RESERVE | MEM_COMMIT, accessFlag);
+    allocPageErrorCode = !ret ? GetLastError() : ERROR_SUCCESS;
 #else
     int accessFlag = pageAccessibility == PageAccessible ? (PROT_READ | PROT_WRITE) : PROT_NONE;
     ret = mmap(hint, len, accessFlag, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if (ret == MAP_FAILED)
+    if (ret == MAP_FAILED) {
+        allocPageErrorCode = errno;
         ret = 0;
+    } else {
+        allocPageErrorCode = 0;
+    }
 #endif
     return ret;
 }
@@ -260,6 +267,11 @@ void discardSystemPages(void* addr, size_t len)
         RELEASE_ASSERT(ret);
     }
 #endif
+}
+
+uint32_t getAllocPageErrorCode()
+{
+    return allocPageErrorCode;
 }
 
 } // namespace WTF

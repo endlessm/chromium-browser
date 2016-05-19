@@ -4,11 +4,12 @@
 
 #include "chrome/browser/chromeos/policy/device_cloud_policy_initializer.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -26,6 +27,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/cloud/system_policy_request_context.h"
+#include "components/prefs/pref_service.h"
 #include "net/url_request/url_request_context_getter.h"
 
 namespace policy {
@@ -211,7 +213,7 @@ void DeviceCloudPolicyInitializer::EnrollmentCompleted(
   enrollment_handler_.reset();
 
   if (status.status() == EnrollmentStatus::STATUS_SUCCESS) {
-    StartConnection(client.Pass());
+    StartConnection(std::move(client));
   } else {
     // Some attempts to create a client may be blocked because the enrollment
     // was in progress. We give it a try again.
@@ -260,7 +262,7 @@ void DeviceCloudPolicyInitializer::TryToCreateClient() {
 void DeviceCloudPolicyInitializer::StartConnection(
     scoped_ptr<CloudPolicyClient> client) {
   if (!manager_->core()->service())
-    manager_->StartConnection(client.Pass(), install_attributes_);
+    manager_->StartConnection(std::move(client), install_attributes_);
 }
 
 }  // namespace policy

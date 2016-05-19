@@ -513,9 +513,10 @@ GrGLvoid debugGenObjs(GrDebugGL::GrObjTypes type,
                       GrGLuint* ids) {
 
    for (int i = 0; i < n; ++i) {
-        GrFakeRefObj *obj = GrDebugGL::getInstance()->createObj(type);
-        GrAlwaysAssert(obj);
-        ids[i] = obj->getID();
+       GrAlwaysAssert(ids[i] == 0);
+       GrFakeRefObj *obj = GrDebugGL::getInstance()->createObj(type);
+       GrAlwaysAssert(obj);
+       ids[i] = obj->getID();
     }
 }
 
@@ -955,8 +956,9 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     functions->fVertexAttrib2fv = noOpGLVertexAttrib2fv;
     functions->fVertexAttrib3fv = noOpGLVertexAttrib3fv;
     functions->fVertexAttrib4fv = noOpGLVertexAttrib4fv;
-    functions->fVertexAttribPointer = noOpGLVertexAttribPointer;
     functions->fVertexAttribDivisor = noOpGLVertexAttribDivisor;
+    functions->fVertexAttribIPointer = noOpGLVertexAttribIPointer;
+    functions->fVertexAttribPointer = noOpGLVertexAttribPointer;
     functions->fViewport = noOpGLViewport;
     functions->fBindFramebuffer = debugGLBindFramebuffer;
     functions->fBindRenderbuffer = debugGLBindRenderbuffer;
@@ -983,7 +985,7 @@ const GrGLInterface* GrGLCreateDebugInterface() {
                                     noOpGLBindFragDataLocationIndexed;
 
     interface->fExtensions.init(kGL_GrGLStandard, functions->fGetString, functions->fGetStringi,
-                                functions->fGetIntegerv);
+                                functions->fGetIntegerv, nullptr, GR_EGL_NO_DISPLAY);
 
     return interface;
 }

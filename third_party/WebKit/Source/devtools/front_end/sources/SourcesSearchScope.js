@@ -86,7 +86,7 @@ WebInspector.SourcesSearchScope.prototype = {
          */
         function filterOutServiceProjects(project)
         {
-            return !project.isServiceProject() || project.type() === WebInspector.projectTypes.Formatter;
+            return project.type() !== WebInspector.projectTypes.Service;
         }
 
         /**
@@ -148,7 +148,7 @@ WebInspector.SourcesSearchScope.prototype = {
             if (dirtyOnly && !uiSourceCode.isDirty())
                 continue;
             if (this._searchConfig.filePathMatchesFileQuery(uiSourceCode.fullDisplayName()))
-                result.push(uiSourceCode.path());
+                result.push(uiSourceCode.url());
         }
         result.sort(String.naturalOrderComparator);
         return result;
@@ -175,9 +175,13 @@ WebInspector.SourcesSearchScope.prototype = {
 
         var uiSourceCodes = [];
         for (var i = 0; i < files.length; ++i) {
-            var uiSourceCode = project.uiSourceCode(files[i]);
-            if (uiSourceCode)
+            var uiSourceCode = project.uiSourceCodeForURL(files[i]);
+            if (uiSourceCode) {
+                var script = WebInspector.DefaultScriptMapping.scriptForUISourceCode(uiSourceCode);
+                if (script && (script.isInternalScript() || !script.isAnonymousScript()))
+                    continue;
                 uiSourceCodes.push(uiSourceCode);
+            }
         }
         uiSourceCodes.sort(WebInspector.SourcesSearchScope._filesComparator);
         this._searchResultCandidates = this._searchResultCandidates.mergeOrdered(uiSourceCodes, WebInspector.SourcesSearchScope._filesComparator);
@@ -230,7 +234,7 @@ WebInspector.SourcesSearchScope.prototype = {
          */
         function contentUpdated(uiSourceCode)
         {
-            uiSourceCode.requestContent(contentLoaded.bind(this, uiSourceCode));
+            uiSourceCode.requestContent().then(contentLoaded.bind(this, uiSourceCode));
         }
 
         /**

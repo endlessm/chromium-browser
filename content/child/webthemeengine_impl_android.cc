@@ -5,6 +5,7 @@
 #include "content/child/webthemeengine_impl_android.h"
 
 #include "base/logging.h"
+#include "base/sys_info.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/WebKit/public/platform/WebRect.h"
 #include "third_party/WebKit/public/platform/WebSize.h"
@@ -17,8 +18,17 @@ using blink::WebThemeEngine;
 
 namespace content {
 
-static ui::NativeTheme::Part NativeThemePart(
-    WebThemeEngine::Part part) {
+namespace {
+  const int kVersionLollipop = 5;
+
+  int getMajorVersion() {
+    int major, minor, bugfix;
+    base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &bugfix);
+    return major;
+  }
+}
+
+static ui::NativeTheme::Part NativeThemePart(WebThemeEngine::Part part) {
   switch (part) {
     case WebThemeEngine::PartScrollbarDownArrow:
       return ui::NativeTheme::kScrollbarDownArrow;
@@ -59,8 +69,7 @@ static ui::NativeTheme::Part NativeThemePart(
   }
 }
 
-static ui::NativeTheme::State NativeThemeState(
-    WebThemeEngine::State state) {
+static ui::NativeTheme::State NativeThemeState(WebThemeEngine::State state) {
   switch (state) {
     case WebThemeEngine::StateDisabled:
       return ui::NativeTheme::kDisabled;
@@ -159,8 +168,20 @@ static void GetNativeThemeExtraParams(
 
 blink::WebSize WebThemeEngineImpl::getSize(WebThemeEngine::Part part) {
   ui::NativeTheme::ExtraParams extra;
-  return ui::NativeTheme::instance()->GetPartSize(
+  return ui::NativeTheme::GetInstanceForWeb()->GetPartSize(
       NativeThemePart(part), ui::NativeTheme::kNormal, extra);
+}
+
+void WebThemeEngineImpl::getOverlayScrollbarStyle(ScrollbarStyle* style) {
+  if (getMajorVersion() >= kVersionLollipop) {
+    style->thumbThickness = 4;
+    style->scrollbarMargin = 0;
+    style->color = SkColorSetARGB(128, 64, 64, 64);
+  } else {
+    style->thumbThickness = 3;
+    style->scrollbarMargin = 3;
+    style->color = SkColorSetARGB(128, 128, 128, 128);
+  }
 }
 
 void WebThemeEngineImpl::paint(
@@ -172,11 +193,8 @@ void WebThemeEngineImpl::paint(
   ui::NativeTheme::ExtraParams native_theme_extra_params;
   GetNativeThemeExtraParams(
       part, state, extra_params, &native_theme_extra_params);
-  ui::NativeTheme::instance()->Paint(
-      canvas,
-      NativeThemePart(part),
-      NativeThemeState(state),
-      gfx::Rect(rect),
+  ui::NativeTheme::GetInstanceForWeb()->Paint(
+      canvas, NativeThemePart(part), NativeThemeState(state), gfx::Rect(rect),
       native_theme_extra_params);
 }
 }  // namespace content

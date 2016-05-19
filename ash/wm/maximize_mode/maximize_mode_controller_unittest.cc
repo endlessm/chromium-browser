@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <math.h>
-#include <vector>
-
 #include "ash/wm/maximize_mode/maximize_mode_controller.h"
+
+#include <math.h>
+#include <utility>
+#include <vector>
 
 #include "ash/ash_switches.h"
 #include "ash/display/display_manager.h"
@@ -120,7 +121,7 @@ class MaximizeModeControllerTest : public test::AshTestBase {
     scoped_ptr<base::TickClock> tick_clock(
         test_tick_clock_ = new base::SimpleTestTickClock());
     test_tick_clock_->Advance(base::TimeDelta::FromSeconds(1));
-    maximize_mode_controller()->SetTickClockForTest(tick_clock.Pass());
+    maximize_mode_controller()->SetTickClockForTest(std::move(tick_clock));
   }
 
   void AdvanceTickClock(const base::TimeDelta& delta) {
@@ -152,6 +153,10 @@ class MaximizeModeControllerTest : public test::AshTestBase {
 
   bool WasLidOpenedRecently() {
     return maximize_mode_controller()->WasLidOpenedRecently();
+  }
+
+  bool AreEventsBlocked() {
+    return !!maximize_mode_controller()->event_blocker_.get();
   }
 
   base::UserActionTester* user_action_tester() { return &user_action_tester_; }
@@ -447,12 +452,13 @@ TEST_F(MaximizeModeControllerTest, DisplayDisconnectionDuringOverview) {
 TEST_F(MaximizeModeControllerTest, NoMaximizeModeWithDisabledInternalDisplay) {
   DisplayManager* display_manager = Shell::GetInstance()->display_manager();
   UpdateDisplay("200x200, 200x200");
-  const int64 internal_display_id =
+  const int64_t internal_display_id =
       test::DisplayManagerTestApi().SetFirstDisplayAsInternalDisplay();
   ASSERT_FALSE(IsMaximizeModeStarted());
 
   OpenLidToAngle(270.0f);
   EXPECT_TRUE(IsMaximizeModeStarted());
+  EXPECT_TRUE(AreEventsBlocked());
 
   // Deactivate internal display to simulate Docked Mode.
   std::vector<DisplayInfo> secondary_only;
@@ -461,9 +467,11 @@ TEST_F(MaximizeModeControllerTest, NoMaximizeModeWithDisabledInternalDisplay) {
   display_manager->OnNativeDisplaysChanged(secondary_only);
   ASSERT_FALSE(display_manager->IsActiveDisplayId(internal_display_id));
   EXPECT_FALSE(IsMaximizeModeStarted());
+  EXPECT_FALSE(AreEventsBlocked());
 
   OpenLidToAngle(270.0f);
   EXPECT_FALSE(IsMaximizeModeStarted());
+  EXPECT_FALSE(AreEventsBlocked());
 }
 
 class MaximizeModeControllerSwitchesTest : public MaximizeModeControllerTest {

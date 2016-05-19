@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/threading/thread.h"
-#include "media/base/android/media_codec_bridge.h"
+#include "media/base/android/sdk_media_codec_bridge.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "media/base/timestamp_constants.h"
 
@@ -105,16 +105,23 @@ void AudioDecoderJob::ReleaseOutputBuffer(
   render_output = render_output && (size != 0u);
   bool is_audio_underrun = false;
   if (render_output) {
-    int64 head_position = (static_cast<AudioCodecBridge*>(
-        media_codec_bridge_.get()))->PlayOutputBuffer(
-            output_buffer_index, size, offset);
+    bool postpone = false;
+    int64_t head_position;
+    MediaCodecStatus status =
+        (static_cast<AudioCodecBridge*>(media_codec_bridge_.get()))
+            ->PlayOutputBuffer(output_buffer_index, size, offset, postpone,
+                               &head_position);
+    // TODO(timav,watk): This CHECK maintains the behavior of this call before
+    // we started catching CodecException and returning it as MEDIA_CODEC_ERROR.
+    // It needs to be handled some other way. http://crbug.com/585978
+    CHECK_EQ(status, MEDIA_CODEC_OK);
 
     base::TimeTicks current_time = base::TimeTicks::Now();
 
     size_t new_frames_count = size / bytes_per_frame_;
     frame_count_ += new_frames_count;
     audio_timestamp_helper_->AddFrames(new_frames_count);
-    int64 frames_to_play = frame_count_ - head_position;
+    int64_t frames_to_play = frame_count_ - head_position;
     DCHECK_GE(frames_to_play, 0);
 
     const base::TimeDelta last_buffered =
@@ -161,10 +168,12 @@ MediaDecoderJob::MediaDecoderJobStatus
   if (!media_codec_bridge_)
     return STATUS_FAILURE;
 
-  if (!(static_cast<AudioCodecBridge*>(media_codec_bridge_.get()))->Start(
-      audio_codec_, config_sampling_rate_, num_channels_, &audio_extra_data_[0],
-      audio_extra_data_.size(), audio_codec_delay_ns_, audio_seek_preroll_ns_,
-      true, GetMediaCrypto().obj())) {
+  if (!(static_cast<AudioCodecBridge*>(media_codec_bridge_.get()))
+           ->ConfigureAndStart(audio_codec_, config_sampling_rate_,
+                               num_channels_, &audio_extra_data_[0],
+                               audio_extra_data_.size(), audio_codec_delay_ns_,
+                               audio_seek_preroll_ns_, true,
+                               GetMediaCrypto())) {
     media_codec_bridge_.reset();
     return STATUS_FAILURE;
   }
@@ -189,7 +198,12 @@ void AudioDecoderJob::OnOutputFormatChanged() {
   DCHECK(media_codec_bridge_);
 
   int old_sampling_rate = output_sampling_rate_;
-  output_sampling_rate_ = media_codec_bridge_->GetOutputSamplingRate();
+  MediaCodecStatus status =
+      media_codec_bridge_->GetOutputSamplingRate(&output_sampling_rate_);
+  // TODO(timav,watk): This CHECK maintains the behavior of this call before
+  // we started catching CodecException and returning it as MEDIA_CODEC_ERROR.
+  // It needs to be handled some other way. http://crbug.com/585978
+  CHECK_EQ(status, MEDIA_CODEC_OK);
   if (output_sampling_rate_ != old_sampling_rate)
     ResetTimestampHelper();
 }

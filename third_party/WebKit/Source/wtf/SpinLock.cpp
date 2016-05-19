@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "wtf/SpinLock.h"
 
 #include "wtf/Atomics.h"
@@ -32,6 +31,15 @@
 #define YIELD_PROCESSOR __asm__ __volatile__("pause")
 #elif CPU(ARM) || CPU(ARM64)
 #define YIELD_PROCESSOR __asm__ __volatile__("yield")
+#elif CPU(MIPS)
+// The MIPS32 docs state that the PAUSE instruction is a no-op on older
+// architectures (first added in MIPS32r2). To avoid assembler errors when
+// targeting pre-r2, we must encode the instruction manually.
+#define YIELD_PROCESSOR __asm__ __volatile__(".word 0x00000140")
+#elif CPU(MIPS64) && __mips_isa_rev >= 2
+// Don't bother doing using .word here since r2 is the lowest supported mips64
+// that Chromium supports.
+#define YIELD_PROCESSOR __asm__ __volatile__("pause")
 #endif
 #endif
 
@@ -51,7 +59,7 @@
 
 namespace WTF {
 
-void slowSpinLockLock(int volatile* lock)
+void SpinLock::lockSlow()
 {
     // The value of kYieldProcessorTries is cargo culted from TCMalloc, Windows
     // critical section defaults, and various other recommendations.
@@ -62,14 +70,14 @@ void slowSpinLockLock(int volatile* lock)
             for (int count = 0; count < kYieldProcessorTries; ++count) {
                 // Let the Processor know we're spinning.
                 YIELD_PROCESSOR;
-                if (!*lock && LIKELY(!atomicTestAndSetToOne(lock)))
+                if (!m_lock.load(std::memory_order_relaxed) && LIKELY(!m_lock.exchange(true, std::memory_order_acq_rel)))
                     return;
             }
 
             // Give the OS a chance to schedule something on this core.
             YIELD_THREAD;
-        } while (*lock);
-    } while (UNLIKELY(atomicTestAndSetToOne(lock)));
+        } while (m_lock.load(std::memory_order_relaxed));
+    } while (UNLIKELY(m_lock.exchange(true, std::memory_order_acq_rel)));
 }
 
 } // namespace WTF

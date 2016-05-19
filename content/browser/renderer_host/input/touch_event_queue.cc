@@ -4,7 +4,10 @@
 
 #include "content/browser/renderer_host/input/touch_event_queue.h"
 
+#include <utility>
+
 #include "base/auto_reset.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
@@ -307,7 +310,7 @@ class TouchEventQueue::TouchMoveSlopSuppressor {
     if (suppressing_touchmoves_) {
       if (event.touchesLength > 1) {
         suppressing_touchmoves_ = false;
-      } else if (event.causesScrollingIfUncanceled) {
+      } else if (event.movedBeyondSlopRegion) {
         suppressing_touchmoves_ = false;
       } else {
         // No sane slop region should be larger than 60 DIPs.
@@ -464,6 +467,7 @@ void TouchEventQueue::QueueEvent(const TouchEventWithLatencyInfo& event) {
     // yields identical results, but this avoids unnecessary allocations.
     PreFilterResult filter_result = FilterBeforeForwarding(event.event);
     if (filter_result != FORWARD_TO_RENDERER) {
+      client_->OnFilteringTouchEvent(event.event);
       client_->OnTouchEventAck(event,
                                filter_result == ACK_WITH_NO_CONSUMER_EXISTS
                                    ? INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS
@@ -490,7 +494,7 @@ void TouchEventQueue::QueueEvent(const TouchEventWithLatencyInfo& event) {
 
 void TouchEventQueue::ProcessTouchAck(InputEventAckState ack_result,
                                       const LatencyInfo& latency_info,
-                                      const uint32 unique_touch_event_id) {
+                                      const uint32_t unique_touch_event_id) {
   TRACE_EVENT0("input", "TouchEventQueue::ProcessTouchAck");
 
   // We receive an ack for async touchmove from render.
@@ -534,8 +538,10 @@ void TouchEventQueue::TryForwardNextEventToRenderer() {
   // If there are queued touch events, then try to forward them to the renderer
   // immediately, or ACK the events back to the client if appropriate.
   while (!touch_queue_.empty()) {
-    PreFilterResult filter_result =
-        FilterBeforeForwarding(touch_queue_.front()->coalesced_event().event);
+    const WebTouchEvent& event = touch_queue_.front()->coalesced_event().event;
+    PreFilterResult filter_result = FilterBeforeForwarding(event);
+    if (filter_result != FORWARD_TO_RENDERER)
+      client_->OnFilteringTouchEvent(event);
     switch (filter_result) {
       case ACK_WITH_NO_CONSUMER_EXISTS:
         PopTouchEventToClient(INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS);
@@ -618,7 +624,8 @@ void TouchEventQueue::ForwardNextEventToRenderer() {
 
 void TouchEventQueue::FlushPendingAsyncTouchmove() {
   DCHECK(!dispatching_touch_);
-  scoped_ptr<TouchEventWithLatencyInfo> touch = pending_async_touchmove_.Pass();
+  scoped_ptr<TouchEventWithLatencyInfo> touch =
+      std::move(pending_async_touchmove_);
   touch->event.cancelable = false;
   touch_queue_.push_front(new CoalescedWebTouchEvent(*touch, true));
   SendTouchEventImmediately(touch.get());
@@ -691,7 +698,7 @@ bool TouchEventQueue::IsAckTimeoutEnabled() const {
 }
 
 bool TouchEventQueue::HasPendingAsyncTouchMoveForTesting() const {
-  return pending_async_touchmove_;
+  return !!pending_async_touchmove_;
 }
 
 bool TouchEventQueue::IsTimeoutRunningForTesting() const {
@@ -740,7 +747,7 @@ scoped_ptr<CoalescedWebTouchEvent> TouchEventQueue::PopTouchEvent() {
   DCHECK(!touch_queue_.empty());
   scoped_ptr<CoalescedWebTouchEvent> event(touch_queue_.front());
   touch_queue_.pop_front();
-  return event.Pass();
+  return event;
 }
 
 void TouchEventQueue::SendTouchEventImmediately(

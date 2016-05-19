@@ -6,6 +6,7 @@
 #define UI_VIEWS_CONTROLS_SCROLLBAR_BASE_SCROLL_BAR_H_
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "ui/views/animation/scroll_animator.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/image_button.h"
@@ -114,6 +115,7 @@ class VIEWS_EXPORT BaseScrollBar : public ScrollBar,
 
  private:
   FRIEND_TEST_ALL_PREFIXES(NativeScrollBarTest, ScrollBarFitsToBottom);
+  FRIEND_TEST_ALL_PREFIXES(NativeScrollBarTest, ThumbFullLengthOfTrack);
   int GetThumbSizeForTest();
 
   // Changes to 'pushed' state and starts a timer to scroll repeatedly.

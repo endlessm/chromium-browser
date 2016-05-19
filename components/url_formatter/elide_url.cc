@@ -4,23 +4,26 @@
 
 #include "components/url_formatter/elide_url.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/url_formatter/url_formatter.h"
 #include "net/base/escape.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
 
-#if !defined(OS_ANDROID) || defined(USE_AURA)
+#if !defined(OS_ANDROID)
 #include "ui/gfx/text_elider.h"  // nogncheck
 #include "ui/gfx/text_utils.h"  // nogncheck
-#endif  // !defined(OS_ANDROID) || defined(USE_AURA)
+#endif
 
 namespace {
 
-#if !defined(OS_ANDROID) || defined(USE_AURA)
+#if !defined(OS_ANDROID)
 const base::char16 kDot = '.';
 
 // Build a path from the first |num_components| elements in |path_elements|.
@@ -102,7 +105,7 @@ void SplitHost(const GURL& url,
   }
 }
 
-#endif  // !defined(OS_ANDROID) || defined(USE_AURA)
+#endif  // !defined(OS_ANDROID)
 
 base::string16 FormatUrlForSecurityDisplayInternal(const GURL& url,
                                                    const std::string& languages,
@@ -154,7 +157,7 @@ base::string16 FormatUrlForSecurityDisplayInternal(const GURL& url,
 
 namespace url_formatter {
 
-#if !defined(OS_ANDROID) || defined(USE_AURA)
+#if !defined(OS_ANDROID)
 
 // TODO(pkasting): http://crbug.com/77883 This whole function gets
 // kerning/ligatures/etc. issues potentially wrong by assuming that the width of
@@ -349,12 +352,11 @@ base::string16 ElideHost(const GURL& url,
   if (subdomain_width <= 0)
     return base::string16(gfx::kEllipsisUTF16) + kDot + url_domain;
 
-  const base::string16 elided_subdomain = gfx::ElideText(
-      url_subdomain, font_list, subdomain_width, gfx::ELIDE_HEAD);
-  return elided_subdomain + url_domain;
+  return gfx::ElideText(url_host, font_list, available_pixel_width,
+                        gfx::ELIDE_HEAD);
 }
 
-#endif  // !defined(OS_ANDROID) || defined(USE_AURA)
+#endif  // !defined(OS_ANDROID)
 
 base::string16 FormatUrlForSecurityDisplay(const GURL& url,
                                            const std::string& languages) {

@@ -2,30 +2,36 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "media/mojo/services/mojo_media_client.h"
+#include "media/mojo/services/android_mojo_media_client.h"
 
-#include "base/memory/scoped_ptr.h"
 #include "media/base/android/android_cdm_factory.h"
-#include "media/base/media.h"
+#include "media/mojo/interfaces/provision_fetcher.mojom.h"
+#include "media/mojo/services/mojo_provision_fetcher.h"
+#include "mojo/shell/public/cpp/connect.h"
 
 namespace media {
-namespace internal {
 
-class AndroidMojoMediaClient : public PlatformMojoMediaClient {
- public:
-  AndroidMojoMediaClient() {}
+namespace {
 
-  scoped_ptr<CdmFactory> CreateCdmFactory() override {
-    return make_scoped_ptr(new AndroidCdmFactory());
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AndroidMojoMediaClient);
-};
-
-scoped_ptr<PlatformMojoMediaClient> CreatePlatformMojoMediaClient() {
-  return make_scoped_ptr(new AndroidMojoMediaClient());
+scoped_ptr<ProvisionFetcher> CreateProvisionFetcher(
+    mojo::shell::mojom::InterfaceProvider* interface_provider) {
+  interfaces::ProvisionFetcherPtr provision_fetcher_ptr;
+  mojo::GetInterface(interface_provider, &provision_fetcher_ptr);
+  return make_scoped_ptr(
+      new MojoProvisionFetcher(std::move(provision_fetcher_ptr)));
 }
 
-}  // namespace internal
+}  // namespace
+
+AndroidMojoMediaClient::AndroidMojoMediaClient() {}
+
+AndroidMojoMediaClient::~AndroidMojoMediaClient() {}
+
+// MojoMediaClient overrides.
+scoped_ptr<CdmFactory> AndroidMojoMediaClient::CreateCdmFactory(
+    mojo::shell::mojom::InterfaceProvider* interface_provider) {
+  return make_scoped_ptr(new AndroidCdmFactory(
+      base::Bind(&CreateProvisionFetcher, interface_provider)));
+}
+
 }  // namespace media

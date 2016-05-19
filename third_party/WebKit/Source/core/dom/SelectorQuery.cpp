@@ -24,7 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/SelectorQuery.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -111,6 +110,8 @@ void SelectorDataList::initialize(const CSSSelectorList& selectorList)
     m_selectors.reserveInitialCapacity(selectorCount);
     unsigned index = 0;
     for (const CSSSelector* selector = selectorList.first(); selector; selector = CSSSelectorList::next(*selector), ++index) {
+        if (selector->matchesPseudoElement())
+            continue;
         m_selectors.uncheckedAppend(selector);
         m_usesDeepCombinatorOrShadowPseudo |= selectorList.selectorUsesDeepCombinatorOrShadowPseudo(index);
         m_needsUpdatedDistribution |= selectorList.selectorNeedsUpdatedDistribution(index);
@@ -119,11 +120,13 @@ void SelectorDataList::initialize(const CSSSelectorList& selectorList)
 
 inline bool SelectorDataList::selectorMatches(const CSSSelector& selector, Element& element, const ContainerNode& rootNode) const
 {
-    SelectorChecker selectorChecker(SelectorChecker::QueryingRules);
-    SelectorChecker::SelectorCheckingContext selectorCheckingContext(&element, SelectorChecker::VisitedMatchDisabled);
-    selectorCheckingContext.selector = &selector;
-    selectorCheckingContext.scope = &rootNode;
-    return selectorChecker.match(selectorCheckingContext);
+    SelectorChecker::Init init;
+    init.mode = SelectorChecker::QueryingRules;
+    SelectorChecker checker(init);
+    SelectorChecker::SelectorCheckingContext context(&element, SelectorChecker::VisitedMatchDisabled);
+    context.selector = &selector;
+    context.scope = &rootNode;
+    return checker.match(context);
 }
 
 bool SelectorDataList::matches(Element& targetElement) const
@@ -142,10 +145,13 @@ bool SelectorDataList::matches(Element& targetElement) const
 
 Element* SelectorDataList::closest(Element& targetElement) const
 {
+    unsigned selectorCount = m_selectors.size();
+    if (!selectorCount)
+        return nullptr;
+
     if (m_needsUpdatedDistribution)
         targetElement.updateDistribution();
 
-    unsigned selectorCount = m_selectors.size();
     for (Element* currentElement = &targetElement; currentElement; currentElement = currentElement->parentElement()) {
         for (unsigned i = 0; i < selectorCount; ++i) {
             if (selectorMatches(*m_selectors[i], *currentElement, targetElement))
@@ -452,6 +458,9 @@ const CSSSelector* SelectorDataList::selectorForIdLookup(const CSSSelector& firs
 template <typename SelectorQueryTrait>
 void SelectorDataList::execute(ContainerNode& rootNode, typename SelectorQueryTrait::OutputType& output) const
 {
+    if (m_selectors.isEmpty())
+        return;
+
     if (!canUseFastQuery(rootNode)) {
         if (m_needsUpdatedDistribution)
             rootNode.updateDistribution();
@@ -511,14 +520,14 @@ void SelectorDataList::execute(ContainerNode& rootNode, typename SelectorQueryTr
     findTraverseRootsAndExecute<SelectorQueryTrait>(rootNode, output);
 }
 
-PassOwnPtr<SelectorQuery> SelectorQuery::adopt(CSSSelectorList& selectorList)
+PassOwnPtr<SelectorQuery> SelectorQuery::adopt(CSSSelectorList selectorList)
 {
-    return adoptPtr(new SelectorQuery(selectorList));
+    return adoptPtr(new SelectorQuery(std::move(selectorList)));
 }
 
-SelectorQuery::SelectorQuery(CSSSelectorList& selectorList)
+SelectorQuery::SelectorQuery(CSSSelectorList selectorList)
 {
-    m_selectorList.adopt(selectorList);
+    m_selectorList = std::move(selectorList);
     m_selectors.initialize(m_selectorList);
 }
 
@@ -548,17 +557,10 @@ SelectorQuery* SelectorQueryCache::add(const AtomicString& selectors, const Docu
     if (it != m_entries.end())
         return it->value.get();
 
-    CSSSelectorList selectorList;
-    CSSParser::parseSelector(CSSParserContext(document, nullptr), selectors, selectorList);
+    CSSSelectorList selectorList = CSSParser::parseSelector(CSSParserContext(document, nullptr), nullptr, selectors);
 
     if (!selectorList.first()) {
         exceptionState.throwDOMException(SyntaxError, "'" + selectors + "' is not a valid selector.");
-        return nullptr;
-    }
-
-    // throw a NamespaceError if the selector includes any namespace prefixes.
-    if (selectorList.selectorsNeedNamespaceResolution()) {
-        exceptionState.throwDOMException(NamespaceError, "'" + selectors + "' contains namespaces, which are not supported.");
         return nullptr;
     }
 
@@ -566,7 +568,7 @@ SelectorQuery* SelectorQueryCache::add(const AtomicString& selectors, const Docu
     if (m_entries.size() == maximumSelectorQueryCacheSize)
         m_entries.remove(m_entries.begin());
 
-    return m_entries.add(selectors, SelectorQuery::adopt(selectorList)).storedValue->value.get();
+    return m_entries.add(selectors, SelectorQuery::adopt(std::move(selectorList))).storedValue->value.get();
 }
 
 void SelectorQueryCache::invalidate()
@@ -574,4 +576,4 @@ void SelectorQueryCache::invalidate()
     m_entries.clear();
 }
 
-}
+} // namespace blink

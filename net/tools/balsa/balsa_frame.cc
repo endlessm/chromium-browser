@@ -28,7 +28,6 @@
 #include "net/tools/balsa/balsa_visitor_interface.h"
 #include "net/tools/balsa/buffer_interface.h"
 #include "net/tools/balsa/simple_buffer.h"
-#include "net/tools/balsa/split.h"
 #include "net/tools/balsa/string_piece_utils.h"
 
 #if defined(COMPILER_MSVC)
@@ -405,7 +404,7 @@ bool ParseHTTPFirstLine(const char* begin,
           return false;
         }
         size_t status_code_x_10 = headers->parsed_response_code_ * 10;
-        uint8 c = *parsed_response_code_current - '0';
+        uint8_t c = *parsed_response_code_current - '0';
         if ((headers->parsed_response_code_ > kMaxDiv10) ||
             (std::numeric_limits<size_t>::max() - status_code_x_10) < c) {
           // overflow.
@@ -751,9 +750,9 @@ void ProcessChunkExtensionsManual(base::StringPiece all_extensions,
     SplitStringPiece(extension, '=', &key, &value);
     if (!value.empty()) {
       // Strip quotation marks if they exist.
-      if (!value.empty() && value[0] == '"')
+      if (!value.empty() && value.front() == '"')
         value.remove_prefix(1);
-      if (!value.empty() && value[value.length() - 1] == '"')
+      if (!value.empty() && value.back() == '"')
         value.remove_suffix(1);
     }
 

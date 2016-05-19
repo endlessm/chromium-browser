@@ -32,6 +32,7 @@ ProtectedMediaIdentifierInfoBarDelegateAndroid::
         const PermissionSetCallback& callback)
     : PermissionInfobarDelegate(
           requesting_frame,
+          content::PermissionType::PROTECTED_MEDIA_IDENTIFIER,
           CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER,
           callback),
       requesting_frame_(requesting_frame),
@@ -39,6 +40,11 @@ ProtectedMediaIdentifierInfoBarDelegateAndroid::
 
 ProtectedMediaIdentifierInfoBarDelegateAndroid::
     ~ProtectedMediaIdentifierInfoBarDelegateAndroid() {}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+ProtectedMediaIdentifierInfoBarDelegateAndroid::GetIdentifier() const {
+  return PROTECTED_MEDIA_IDENTIFIER_INFOBAR_DELEGATE_ANDROID;
+}
 
 int ProtectedMediaIdentifierInfoBarDelegateAndroid::GetIconId() const {
   return IDR_ANDROID_INFOBAR_PROTECTED_MEDIA_IDENTIFIER;

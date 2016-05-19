@@ -4,7 +4,10 @@
 
 #include "ui/ozone/demo/surfaceless_gl_renderer.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
@@ -43,7 +46,7 @@ bool SurfacelessGlRenderer::BufferWrapper::Initialize(
                                gfx::BufferUsage::SCANOUT);
   scoped_refptr<gfx::GLImageOzoneNativePixmap> image(
       new gfx::GLImageOzoneNativePixmap(size, GL_RGB));
-  if (!image->Initialize(pixmap.get())) {
+  if (!image->Initialize(pixmap.get(), gfx::BufferFormat::BGRX_8888)) {
     LOG(ERROR) << "Failed to create GLImage";
     return false;
   }
@@ -113,10 +116,9 @@ void SurfacelessGlRenderer::RenderFrame() {
                                  buffers_[back_buffer_]->image(),
                                  gfx::Rect(size_), gfx::RectF(0, 0, 1, 1));
   back_buffer_ ^= 1;
-  if (!surface_->SwapBuffersAsync(
-          base::Bind(&SurfacelessGlRenderer::PostRenderFrameTask,
-                     weak_ptr_factory_.GetWeakPtr())))
-    LOG(FATAL) << "Failed to swap buffers";
+  surface_->SwapBuffersAsync(
+      base::Bind(&SurfacelessGlRenderer::PostRenderFrameTask,
+                 weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SurfacelessGlRenderer::PostRenderFrameTask(gfx::SwapResult result) {

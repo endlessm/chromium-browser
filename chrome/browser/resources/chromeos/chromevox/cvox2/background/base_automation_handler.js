@@ -26,24 +26,24 @@ BaseAutomationHandler = function(node) {
 
   /**
    * Maps an automation event to its listener.
-   * @type {!Object<EventType, function(Object) : void>}
+   * @type {!Object<EventType, function(!AutomationEvent) : void>}
    */
   this.listenerMap_ = {
     alert: this.onAlert,
     focus: this.onFocus,
     hover: this.onEventDefault,
     loadComplete: this.onLoadComplete,
-    menuStart: this.onEventDefault,
-    menuEnd: this.onEventDefault,
-    textChanged: this.onTextOrTextSelectionChanged,
-    textSelectionChanged: this.onTextOrTextSelectionChanged,
+    menuListItemSelected: this.onEventDefault,
+    menuStart: this.onMenuStart,
+    menuEnd: this.onMenuEnd,
+    selection: this.onEventDefault,
+    scrollPositionChanged: this.onScrollPositionChanged,
+    textChanged: this.onTextChanged,
+    textSelectionChanged: this.onTextSelectionChanged,
     valueChanged: this.onValueChanged
   };
 
-  /** @type {boolean} @private */
-  this.isRegistered_ = false;
-
-  /** @type {!Object<string, function(AutomationEvent): void>} @private */
+  /** @type {!Object<string, function(!AutomationEvent): void>} @private */
   this.listeners_ = {};
 
   this.register_();
@@ -62,27 +62,20 @@ BaseAutomationHandler.prototype = {
       this.node_.addEventListener(eventType, listener, true);
       this.listeners_[eventType] = listener;
     }
-
-    this.isRegistered_ = true;
   },
 
   /**
    * Unregisters listeners.
    */
   unregister: function() {
-    if (!this.isRegistered_)
-      throw new Error('Not registered on node ' + this.node_.toString());
-
     for (var eventType in this.listenerMap_) {
       this.node_.removeEventListener(
           eventType, this.listeners_[eventType], true);
     }
-
-    this.isRegistered_ = false;
   },
 
   /**
-   * @return {!function(AutomationEvent): void}
+   * @return {!function(!AutomationEvent): void}
    * @private
    */
   makeListener_: function(callback) {
@@ -111,28 +104,52 @@ BaseAutomationHandler.prototype = {
   },
 
   /**
-   * @param {Object} evt
+   * @param {!AutomationEvent} evt
    */
   onAlert: function(evt) {},
 
   /**
-   * @param {Object} evt
+   * @param {!AutomationEvent} evt
    */
   onFocus: function(evt) {},
 
   /**
-   * @param {Object} evt
+   * @param {!AutomationEvent} evt
    */
   onLoadComplete: function(evt) {},
+
+  /**
+   * @param {!AutomationEvent} evt
+   */
   onEventDefault: function(evt) {},
 
   /**
-   * @param {Object} evt
+   * @param {!AutomationEvent} evt
    */
-  onTextOrTextSelectionChanged: function(evt) {},
+  onMenuStart: function(evt) {},
 
   /**
-   * @param {Object} evt
+   * @param {!AutomationEvent} evt
+   */
+  onMenuEnd: function(evt) {},
+
+  /**
+   * @param {!AutomationEvent} evt
+   */
+  onScrollPositionChanged: function(evt) {},
+
+  /**
+   * @param {!AutomationEvent} evt
+   */
+  onTextChanged: function(evt) {},
+
+  /**
+   * @param {!AutomationEvent} evt
+   */
+  onTextSelectionChanged: function(evt) {},
+
+  /**
+   * @param {!AutomationEvent} evt
    */
   onValueChanged: function(evt) {}
 };

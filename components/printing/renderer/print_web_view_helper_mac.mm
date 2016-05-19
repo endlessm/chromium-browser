@@ -12,20 +12,37 @@
 #include "components/printing/common/print_messages.h"
 #include "printing/metafile_skia_wrapper.h"
 #include "printing/page_size_margins.h"
-#include "skia/ext/platform_device.h"
 #include "third_party/WebKit/public/platform/WebCanvas.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 
 namespace printing {
 
-using blink::WebFrame;
+#if defined(ENABLE_BASIC_PRINTING)
+bool PrintWebViewHelper::PrintPagesNative(blink::WebFrame* frame,
+                                          int page_count) {
+  const PrintMsg_PrintPages_Params& params = *print_pages_params_;
+  const PrintMsg_Print_Params& print_params = params.params;
+
+  std::vector<int> printed_pages = GetPrintedPages(params, page_count);
+  if (printed_pages.empty())
+    return false;
+
+  PrintMsg_PrintPage_Params page_params;
+  page_params.params = print_params;
+  for (int page_number : printed_pages) {
+    page_params.page_number = page_number;
+    PrintPageInternal(page_params, frame);
+  }
+  return true;
+}
+#endif  // defined(ENABLE_BASIC_PRINTING)
 
 void PrintWebViewHelper::PrintPageInternal(
     const PrintMsg_PrintPage_Params& params,
-    WebFrame* frame) {
+    blink::WebFrame* frame) {
   PdfMetafileSkia metafile;
-  if (!metafile.Init())
-    return;
+  CHECK(metafile.Init());
 
   int page_number = params.page_number;
   gfx::Size page_size_in_dpi;
@@ -51,6 +68,7 @@ void PrintWebViewHelper::PrintPageInternal(
   Send(new PrintHostMsg_DidPrintPage(routing_id(), page_params));
 }
 
+#if defined(ENABLE_PRINT_PREVIEW)
 bool PrintWebViewHelper::RenderPreviewPage(
     int page_number,
     const PrintMsg_Print_Params& print_params) {
@@ -63,12 +81,7 @@ bool PrintWebViewHelper::RenderPreviewPage(
 
   if (render_to_draft) {
     draft_metafile.reset(new PdfMetafileSkia());
-    if (!draft_metafile->Init()) {
-      print_preview_context_.set_error(
-          PREVIEW_ERROR_MAC_DRAFT_METAFILE_INIT_FAILED);
-      LOG(ERROR) << "Draft PdfMetafileSkia Init failed";
-      return false;
-    }
+    CHECK(draft_metafile->Init());
     initial_render_metafile = draft_metafile.get();
   }
 
@@ -91,10 +104,11 @@ bool PrintWebViewHelper::RenderPreviewPage(
   }
   return PreviewPageRendered(page_number, draft_metafile.get());
 }
+#endif  // defined(ENABLE_PRINT_PREVIEW)
 
 void PrintWebViewHelper::RenderPage(const PrintMsg_Print_Params& params,
                                     int page_number,
-                                    WebFrame* frame,
+                                    blink::WebFrame* frame,
                                     bool is_preview,
                                     PdfMetafileSkia* metafile,
                                     gfx::Size* page_size,
@@ -118,13 +132,12 @@ void PrintWebViewHelper::RenderPage(const PrintMsg_Print_Params& params,
       params.display_header_footer ? gfx::Rect(*page_size) : content_area;
 
   {
-    skia::PlatformCanvas* canvas = metafile->GetVectorCanvasForNewPage(
+    SkCanvas* canvas = metafile->GetVectorCanvasForNewPage(
         *page_size, canvas_area, scale_factor);
     if (!canvas)
       return;
 
     MetafileSkiaWrapper::SetMetafileOnCanvas(*canvas, metafile);
-    skia::SetIsDraftMode(*canvas, is_print_ready_metafile_sent_);
     skia::SetIsPreviewMetafile(*canvas, is_preview);
 #if defined(ENABLE_PRINT_PREVIEW)
     if (params.display_header_footer) {

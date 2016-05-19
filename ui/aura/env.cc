@@ -71,7 +71,7 @@ bool Env::IsMouseButtonDown() const {
 Env::Env()
     : mouse_button_flags_(0),
       is_touch_down_(false),
-      input_state_lookup_(InputStateLookup::Create().Pass()),
+      input_state_lookup_(InputStateLookup::Create()),
       context_factory_(NULL) {
   DCHECK(lazy_tls_ptr.Pointer()->Get() == NULL);
   lazy_tls_ptr.Pointer()->Set(this);
@@ -84,12 +84,14 @@ Env::~Env() {
 }
 
 void Env::Init(bool create_event_source) {
+  if (!create_event_source)
+    return;
 #if defined(USE_OZONE)
   // The ozone platform can provide its own event source. So initialize the
   // platform before creating the default event source.
   ui::OzonePlatform::InitializeForUI();
 #endif
-  if (create_event_source && !ui::PlatformEventSource::GetInstance())
+  if (!ui::PlatformEventSource::GetInstance())
     event_source_ = ui::PlatformEventSource::CreateDefault();
 }
 

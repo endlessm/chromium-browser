@@ -5,12 +5,13 @@
 #include "chrome/browser/devtools/device/port_forwarding_controller.h"
 
 #include <map>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -21,11 +22,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/dns/host_resolver.h"
 #include "net/socket/tcp_client_socket.h"
 
@@ -53,14 +54,14 @@ class SocketTunnel : public base::NonThreadSafe {
                           int result,
                           scoped_ptr<net::StreamSocket> socket) {
     if (result == net::OK)
-      new SocketTunnel(socket.Pass(), host, port);
+      new SocketTunnel(std::move(socket), host, port);
   }
 
  private:
   SocketTunnel(scoped_ptr<net::StreamSocket> socket,
                const std::string& host,
                int port)
-      : remote_socket_(socket.Pass()),
+      : remote_socket_(std::move(socket)),
         pending_writes_(0),
         pending_destruction_(false) {
     host_resolver_ = net::HostResolver::CreateDefaultResolver(nullptr);
@@ -335,7 +336,7 @@ void PortForwardingController::Connection::SendCommand(
   }
 
   web_socket_->SendFrame(
-      DevToolsProtocol::SerializeCommand(id, method, params.Pass()));
+      DevToolsProtocol::SerializeCommand(id, method, std::move(params)));
 }
 
 bool PortForwardingController::Connection::ProcessResponse(

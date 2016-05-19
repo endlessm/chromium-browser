@@ -15,7 +15,6 @@ using ::testing::_;
 using net::test::CryptoTestUtils;
 
 namespace net {
-namespace tools {
 namespace test {
 
 // TODO(dmz) Remove "Chrome" part of name once net/tools/quic is deleted.
@@ -27,7 +26,6 @@ class QuicChromeServerDispatchPacketTest : public ::testing::Test {
                        CryptoTestUtils::ProofSourceForTesting()),
         dispatcher_(config_,
                     &crypto_config_,
-                    new tools::QuicDispatcher::DefaultPacketWriterFactory(),
                     new net::test::MockConnectionHelper) {
     dispatcher_.InitializeWithWriter(nullptr);
   }
@@ -44,17 +42,15 @@ class QuicChromeServerDispatchPacketTest : public ::testing::Test {
 };
 
 TEST_F(QuicChromeServerDispatchPacketTest, DispatchPacket) {
-  unsigned char valid_packet[] = {
-    // public flags (8 byte connection_id)
-    0x3C,
-    // connection_id
-    0x10, 0x32, 0x54, 0x76,
-    0x98, 0xBA, 0xDC, 0xFE,
-    // packet sequence number
-    0xBC, 0x9A, 0x78, 0x56,
-    0x34, 0x12,
-    // private flags
-    0x00 };
+  unsigned char valid_packet[] = {// public flags (8 byte connection_id)
+                                  0x3C,
+                                  // connection_id
+                                  0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC,
+                                  0xFE,
+                                  // packet sequence number
+                                  0xBC, 0x9A, 0x78, 0x56, 0x34, 0x12,
+                                  // private flags
+                                  0x00};
   QuicEncryptedPacket encrypted_valid_packet(QuicUtils::AsChars(valid_packet),
                                              arraysize(valid_packet), false);
 
@@ -62,6 +58,5 @@ TEST_F(QuicChromeServerDispatchPacketTest, DispatchPacket) {
   DispatchPacket(encrypted_valid_packet);
 }
 
-}  // namespace tools
 }  // namespace test
 }  // namespace net

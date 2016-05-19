@@ -11,6 +11,8 @@ namespace media {
 
 namespace {
 
+bool gpu_memory_buffers_in_use_by_window_server = false;
+
 class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
  public:
   GpuMemoryBufferImpl(const gfx::Size& size, gfx::BufferFormat format)
@@ -44,6 +46,9 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
     DCHECK(mapped_);
     mapped_ = false;
   }
+  bool IsInUseByMacOSWindowServer() const override {
+    return gpu_memory_buffers_in_use_by_window_server;
+  }
   gfx::Size GetSize() const override { return size_; }
   gfx::BufferFormat GetFormat() const override {
     return format_;
@@ -72,7 +77,7 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
   gfx::BufferFormat format_;
   const gfx::Size size_;
   size_t num_planes_;
-  std::vector<uint8> bytes_[kMaxPlanes];
+  std::vector<uint8_t> bytes_[kMaxPlanes];
 };
 
 }  // unnamed namespace
@@ -98,6 +103,11 @@ MockGpuVideoAcceleratorFactories::AllocateGpuMemoryBuffer(
       new GpuMemoryBufferImpl(size, format));
 }
 
+void MockGpuVideoAcceleratorFactories::
+    SetGpuMemoryBuffersInUseByMacOSWindowServer(bool in_use) {
+  gpu_memory_buffers_in_use_by_window_server = in_use;
+}
+
 scoped_ptr<base::SharedMemory>
 MockGpuVideoAcceleratorFactories::CreateSharedMemory(size_t size) {
   return nullptr;
@@ -118,7 +128,8 @@ bool MockGpuVideoAcceleratorFactories::ShouldUseGpuMemoryBuffersForVideoFrames()
   return false;
 }
 
-unsigned MockGpuVideoAcceleratorFactories::ImageTextureTarget() {
+unsigned MockGpuVideoAcceleratorFactories::ImageTextureTarget(
+    gfx::BufferFormat format) {
   return GL_TEXTURE_2D;
 }
 

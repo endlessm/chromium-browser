@@ -4,8 +4,10 @@
 
 #include "content/browser/service_worker/service_worker_dispatcher_host.h"
 
-#include "base/command_line.h"
+#include <utility>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
@@ -24,11 +26,10 @@
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/content_client.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/common/origin_util.h"
 #include "ipc/ipc_message_macros.h"
-#include "net/base/net_util.h"
 #include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerError.h"
 #include "url/gurl.h"
 
@@ -46,9 +47,8 @@ const char kUserDeniedPermissionMessage[] =
     "The user denied permission to use Service Worker.";
 const char kInvalidStateErrorMessage[] = "The object is in an invalid state.";
 
-const uint32 kFilteredMessageClasses[] = {
-  ServiceWorkerMsgStart,
-  EmbeddedWorkerMsgStart,
+const uint32_t kFilteredMessageClasses[] = {
+    ServiceWorkerMsgStart, EmbeddedWorkerMsgStart,
 };
 
 bool AllOriginsMatch(const GURL& url_a, const GURL& url_b, const GURL& url_c) {
@@ -137,10 +137,10 @@ void ServiceWorkerDispatcherHost::OnFilterAdded(IPC::Sender* sender) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnFilterAdded");
   channel_ready_ = true;
-  std::vector<IPC::Message*> messages;
-  pending_messages_.release(&messages);
-  for (size_t i = 0; i < messages.size(); ++i) {
-    BrowserMessageFilter::Send(messages[i]);
+  std::vector<scoped_ptr<IPC::Message>> messages;
+  messages.swap(pending_messages_);
+  for (auto& message : messages) {
+    BrowserMessageFilter::Send(message.release());
   }
 }
 
@@ -182,6 +182,8 @@ bool ServiceWorkerDispatcherHost::OnMessageReceived(
                         OnProviderDestroyed)
     IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_SetVersionId,
                         OnSetHostedVersionId)
+    IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_DeprecatedPostMessageToWorker,
+                        OnDeprecatedPostMessageToWorker)
     IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_PostMessageToWorker,
                         OnPostMessageToWorker)
     IPC_MESSAGE_HANDLER(EmbeddedWorkerHostMsg_WorkerReadyForInspection,
@@ -231,7 +233,7 @@ bool ServiceWorkerDispatcherHost::Send(IPC::Message* message) {
     return true;
   }
 
-  pending_messages_.push_back(message);
+  pending_messages_.push_back(make_scoped_ptr(message));
   return true;
 }
 
@@ -249,7 +251,7 @@ void ServiceWorkerDispatcherHost::RegisterServiceWorkerRegistrationHandle(
 
 ServiceWorkerHandle* ServiceWorkerDispatcherHost::FindServiceWorkerHandle(
     int provider_id,
-    int64 version_id) {
+    int64_t version_id) {
   for (IDMap<ServiceWorkerHandle, IDMapOwnPointer>::iterator iter(&handles_);
        !iter.IsAtEnd(); iter.Advance()) {
     ServiceWorkerHandle* handle = iter.GetCurrentValue();
@@ -279,7 +281,7 @@ ServiceWorkerDispatcherHost::GetOrCreateRegistrationHandle(
       new ServiceWorkerRegistrationHandle(GetContext()->AsWeakPtr(),
                                           provider_host, registration));
   ServiceWorkerRegistrationHandle* new_handle_ptr = new_handle.get();
-  RegisterServiceWorkerRegistrationHandle(new_handle.Pass());
+  RegisterServiceWorkerRegistrationHandle(std::move(new_handle));
   return new_handle_ptr;
 }
 
@@ -367,10 +369,11 @@ void ServiceWorkerDispatcherHost::OnRegisterServiceWorker(
                  request_id));
 }
 
-void ServiceWorkerDispatcherHost::OnUpdateServiceWorker(int thread_id,
-                                                        int request_id,
-                                                        int provider_id,
-                                                        int64 registration_id) {
+void ServiceWorkerDispatcherHost::OnUpdateServiceWorker(
+    int thread_id,
+    int request_id,
+    int provider_id,
+    int64_t registration_id) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnUpdateServiceWorker");
   if (!GetContext()) {
@@ -451,7 +454,7 @@ void ServiceWorkerDispatcherHost::OnUnregisterServiceWorker(
     int thread_id,
     int request_id,
     int provider_id,
-    int64 registration_id) {
+    int64_t registration_id) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnUnregisterServiceWorker");
   if (!GetContext()) {
@@ -579,11 +582,6 @@ void ServiceWorkerDispatcherHost::OnGetRegistration(
     return;
   }
 
-  if (GetContext()->storage()->IsDisabled()) {
-    SendGetRegistrationError(thread_id, request_id, SERVICE_WORKER_ERROR_ABORT);
-    return;
-  }
-
   TRACE_EVENT_ASYNC_BEGIN1(
       "ServiceWorker",
       "ServiceWorkerDispatcherHost::GetRegistration",
@@ -652,12 +650,6 @@ void ServiceWorkerDispatcherHost::OnGetRegistrations(int thread_id,
     return;
   }
 
-  if (GetContext()->storage()->IsDisabled()) {
-    SendGetRegistrationsError(thread_id, request_id,
-                              SERVICE_WORKER_ERROR_ABORT);
-    return;
-  }
-
   TRACE_EVENT_ASYNC_BEGIN0("ServiceWorker",
                            "ServiceWorkerDispatcherHost::GetRegistrations",
                            request_id);
@@ -714,6 +706,26 @@ void ServiceWorkerDispatcherHost::OnPostMessageToWorker(
     return;
   }
 
+  handle->version()->DispatchExtendableMessageEvent(
+      message, sent_message_ports,
+      base::Bind(&ServiceWorkerUtils::NoOpStatusCallback));
+}
+
+void ServiceWorkerDispatcherHost::OnDeprecatedPostMessageToWorker(
+    int handle_id,
+    const base::string16& message,
+    const std::vector<TransferredMessagePort>& sent_message_ports) {
+  TRACE_EVENT0("ServiceWorker",
+               "ServiceWorkerDispatcherHost::OnDeprecatedPostMessageToWorker");
+  if (!GetContext())
+    return;
+
+  ServiceWorkerHandle* handle = handles_.Lookup(handle_id);
+  if (!handle) {
+    bad_message::ReceivedBadMessage(this, bad_message::SWDH_POST_MESSAGE);
+    return;
+  }
+
   handle->version()->DispatchMessageEvent(
       message, sent_message_ports,
       base::Bind(&ServiceWorkerUtils::NoOpStatusCallback));
@@ -738,8 +750,7 @@ void ServiceWorkerDispatcherHost::OnProviderCreated(
   }
 
   scoped_ptr<ServiceWorkerProviderHost> provider_host;
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation) &&
+  if (IsBrowserSideNavigationEnabled() &&
       ServiceWorkerUtils::IsBrowserAssignedProviderId(provider_id)) {
     // PlzNavigate
     // Retrieve the provider host previously created for navigation requests.
@@ -747,11 +758,11 @@ void ServiceWorkerDispatcherHost::OnProviderCreated(
         GetContext()->GetNavigationHandleCore(provider_id);
     if (navigation_handle_core != nullptr)
       provider_host = navigation_handle_core->RetrievePreCreatedHost();
-    if (provider_host == nullptr) {
-      bad_message::ReceivedBadMessage(
-          this, bad_message::SWDH_PROVIDER_CREATED_NO_HOST);
+
+    // If no host is found, the navigation has been cancelled in the meantime.
+    // Just return as the navigation will be stopped in the renderer as well.
+    if (provider_host == nullptr)
       return;
-    }
     DCHECK_EQ(SERVICE_WORKER_PROVIDER_FOR_WINDOW, provider_type);
     provider_host->CompleteNavigationInitialized(render_process_id_, route_id,
                                                  this);
@@ -766,7 +777,7 @@ void ServiceWorkerDispatcherHost::OnProviderCreated(
             render_process_id_, route_id, provider_id, provider_type,
             GetContext()->AsWeakPtr(), this));
   }
-  GetContext()->AddProviderHost(provider_host.Pass());
+  GetContext()->AddProviderHost(std::move(provider_host));
 }
 
 void ServiceWorkerDispatcherHost::OnProviderDestroyed(int provider_id) {
@@ -775,15 +786,22 @@ void ServiceWorkerDispatcherHost::OnProviderDestroyed(int provider_id) {
   if (!GetContext())
     return;
   if (!GetContext()->GetProviderHost(render_process_id_, provider_id)) {
-    bad_message::ReceivedBadMessage(
-        this, bad_message::SWDH_PROVIDER_DESTROYED_NO_HOST);
+    // PlzNavigate: in some cancellation of navigation cases, it is possible
+    // for the pre-created hoist to have been destroyed before being claimed by
+    // the renderer. The provider is then destroyed in the renderer, and no
+    // matching host will be found.
+    if (!IsBrowserSideNavigationEnabled() ||
+        !ServiceWorkerUtils::IsBrowserAssignedProviderId(provider_id)) {
+      bad_message::ReceivedBadMessage(
+          this, bad_message::SWDH_PROVIDER_DESTROYED_NO_HOST);
+    }
     return;
   }
   GetContext()->RemoveProviderHost(render_process_id_, provider_id);
 }
 
-void ServiceWorkerDispatcherHost::OnSetHostedVersionId(
-    int provider_id, int64 version_id) {
+void ServiceWorkerDispatcherHost::OnSetHostedVersionId(int provider_id,
+                                                       int64_t version_id) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnSetHostedVersionId");
   if (!GetContext())
@@ -820,13 +838,13 @@ void ServiceWorkerDispatcherHost::OnSetHostedVersionId(
   GetRegistrationObjectInfoAndVersionAttributes(
       provider_host->AsWeakPtr(), registration, &info, &attrs);
 
-  Send(new ServiceWorkerMsg_AssociateRegistrationWithServiceWorker(
-      kDocumentMainThreadId, provider_id, info, attrs));
+  Send(new ServiceWorkerMsg_AssociateRegistration(kDocumentMainThreadId,
+                                                  provider_id, info, attrs));
 }
 
 ServiceWorkerRegistrationHandle*
 ServiceWorkerDispatcherHost::FindRegistrationHandle(int provider_id,
-                                                    int64 registration_id) {
+                                                    int64_t registration_id) {
   for (RegistrationHandleMap::iterator iter(&registration_handles_);
        !iter.IsAtEnd(); iter.Advance()) {
     ServiceWorkerRegistrationHandle* handle = iter.GetCurrentValue();
@@ -861,7 +879,7 @@ void ServiceWorkerDispatcherHost::RegistrationComplete(
     int request_id,
     ServiceWorkerStatusCode status,
     const std::string& status_message,
-    int64 registration_id) {
+    int64_t registration_id) {
   if (!GetContext())
     return;
 
@@ -899,7 +917,7 @@ void ServiceWorkerDispatcherHost::UpdateComplete(
     int request_id,
     ServiceWorkerStatusCode status,
     const std::string& status_message,
-    int64 registration_id) {
+    int64_t registration_id) {
   if (!GetContext())
     return;
 
@@ -1184,6 +1202,7 @@ void ServiceWorkerDispatcherHost::GetRegistrationsComplete(
     int thread_id,
     int provider_id,
     int request_id,
+    ServiceWorkerStatusCode status,
     const std::vector<scoped_refptr<ServiceWorkerRegistration>>&
         registrations) {
   TRACE_EVENT_ASYNC_END0("ServiceWorker",
@@ -1196,6 +1215,11 @@ void ServiceWorkerDispatcherHost::GetRegistrationsComplete(
       GetContext()->GetProviderHost(render_process_id_, provider_id);
   if (!provider_host)
     return;  // The provider has already been destroyed.
+
+  if (status != SERVICE_WORKER_OK) {
+    SendGetRegistrationsError(thread_id, request_id, status);
+    return;
+  }
 
   std::vector<ServiceWorkerRegistrationObjectInfo> object_infos;
   std::vector<ServiceWorkerVersionAttributes> version_attrs;

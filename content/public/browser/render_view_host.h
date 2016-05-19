@@ -6,6 +6,7 @@
 #define CONTENT_PUBLIC_BROWSER_RENDER_VIEW_HOST_H_
 
 #include "base/callback_forward.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/common/file_chooser_params.h"
 #include "content/public/common/page_zoom.h"
@@ -214,15 +215,6 @@ class CONTENT_EXPORT RenderViewHost : public IPC::Sender {
 
   // Notify the render view host to select the word around the caret.
   virtual void SelectWordAroundCaret() = 0;
-
-#if defined(OS_ANDROID)
-  // Selects and zooms to the find result nearest to the point (x,y)
-  // defined in find-in-page coordinates.
-  virtual void ActivateNearestFindResult(int request_id, float x, float y) = 0;
-
-  // Asks the renderer to send the rects of the current find matches.
-  virtual void RequestFindMatchRects(int current_version) = 0;
-#endif
 
  private:
   // This interface should only be implemented inside content.

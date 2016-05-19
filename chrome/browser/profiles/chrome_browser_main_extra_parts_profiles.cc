@@ -4,11 +4,15 @@
 
 #include "chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.h"
 
+#include <utility>
+
+#include "build/build_config.h"
 #include "chrome/browser/autocomplete/in_memory_url_index_factory.h"
 #include "chrome/browser/autocomplete/shortcuts_backend_factory.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
+#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -27,6 +31,7 @@
 #include "chrome/browser/notifications/extension_welcome_notification_factory.h"
 #include "chrome/browser/notifications/notification_permission_context_factory.h"
 #include "chrome/browser/notifications/notifier_state_tracker_factory.h"
+#include "chrome/browser/ntp_snippets/ntp_snippets_service_factory.h"
 #include "chrome/browser/password_manager/password_manager_setting_migrator_service_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/plugins/plugin_prefs_factory.h"
@@ -59,10 +64,10 @@
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache_factory.h"
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "chrome/browser/web_data_service_factory.h"
+#include "chrome/common/features.h"
 
 #if defined(ENABLE_EXTENSIONS)
 #include "apps/browser_context_keyed_service_factories.h"
-#include "chrome/browser/apps/ephemeral_app_service_factory.h"
 #include "chrome/browser/apps/shortcut_manager_factory.h"
 #include "chrome/browser/extensions/api/networking_private/networking_private_ui_delegate_factory_impl.h"
 #include "chrome/browser/extensions/api/networking_private/networking_private_verify_delegate_factory_impl.h"
@@ -107,10 +112,6 @@
 #endif
 #endif
 
-#if defined(USE_AURA)
-#include "chrome/browser/ui/gesture_prefs_observer_factory_aura.h"
-#endif
-
 #if defined(OS_ANDROID) || defined(OS_CHROMEOS)
 #include "chrome/browser/media/protected_media_identifier_permission_context_factory.h"
 #else
@@ -122,8 +123,9 @@
 #include "chrome/browser/extensions/api/platform_keys/verify_trust_api.h"
 #endif
 
-#if !defined(OS_ANDROID)
-#include "chrome/browser/profile_resetter/automatic_profile_resetter_factory.h"
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/data_usage/data_use_ui_tab_model_factory.h"
+#else
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
 #endif
@@ -137,7 +139,7 @@
 #endif
 
 #if defined(ENABLE_SERVICE_DISCOVERY)
-#include "chrome/browser/local_discovery/privet_notifications_factory.h"
+#include "chrome/browser/printing/cloud_print/privet_notifications_factory.h"
 #endif
 
 namespace chrome {
@@ -173,7 +175,6 @@ EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   extensions::ExtensionManagementFactory::GetInstance();
   chrome_extensions::EnsureBrowserContextKeyedServiceFactoriesBuilt();
   AppShortcutManagerFactory::GetInstance();
-  EphemeralAppServiceFactory::GetInstance();
 #endif
 
 #if defined(ENABLE_APP_LIST)
@@ -184,16 +185,17 @@ EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   AccountTrackerServiceFactory::GetInstance();
   AccountFetcherServiceFactory::GetInstance();
   autofill::PersonalDataManagerFactory::GetInstance();
-#if !defined(OS_ANDROID)
-  AutomaticProfileResetterFactory::GetInstance();
-#endif
-#if defined(ENABLE_BACKGROUND)
+#if BUILDFLAG(ENABLE_BACKGROUND)
   BackgroundContentsServiceFactory::GetInstance();
 #endif
   BookmarkModelFactory::GetInstance();
   BookmarkUndoServiceFactory::GetInstance();
+  BrowsingDataRemoverFactory::GetInstance();
 #if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
   CaptivePortalServiceFactory::GetInstance();
+#endif
+#if defined(OS_ANDROID)
+  chrome::android::DataUseUITabModelFactory::GetInstance();
 #endif
   GeolocationPermissionContextFactory::GetInstance();
 #if defined(OS_ANDROID) || defined(OS_CHROMEOS)
@@ -227,9 +229,6 @@ EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   FaviconServiceFactory::GetInstance();
   FindBarStateFactory::GetInstance();
   GAIAInfoUpdateServiceFactory::GetInstance();
-#if defined(USE_AURA)
-  GesturePrefsObserverFactoryAura::GetInstance();
-#endif
 #if !defined(OS_ANDROID)
   GlobalErrorServiceFactory::GetInstance();
 #endif
@@ -243,7 +242,7 @@ EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   invalidation::ProfileInvalidationProviderFactory::GetInstance();
   InstantServiceFactory::GetInstance();
 #if defined(ENABLE_SERVICE_DISCOVERY)
-  local_discovery::PrivetNotificationServiceFactory::GetInstance();
+  cloud_print::PrivetNotificationServiceFactory::GetInstance();
 #endif
 #if defined(ENABLE_SUPERVISED_USERS)
 #if defined(OS_CHROMEOS)
@@ -262,18 +261,19 @@ EnsureBrowserContextKeyedServiceFactoriesBuilt() {
           new extensions::NetworkingPrivateVerifyDelegateFactoryImpl);
   extensions::NetworkingPrivateDelegateFactory::GetInstance()
       ->SetVerifyDelegateFactory(
-          networking_private_verify_delegate_factory.Pass());
+          std::move(networking_private_verify_delegate_factory));
   scoped_ptr<extensions::NetworkingPrivateUIDelegateFactoryImpl>
       networking_private_ui_delegate_factory(
           new extensions::NetworkingPrivateUIDelegateFactoryImpl);
   extensions::NetworkingPrivateDelegateFactory::GetInstance()
-      ->SetUIDelegateFactory(networking_private_ui_delegate_factory.Pass());
+      ->SetUIDelegateFactory(std::move(networking_private_ui_delegate_factory));
 #endif
 #endif
 #if !defined(OS_ANDROID)
   MediaGalleriesPreferencesFactory::GetInstance();
   NTPResourceCacheFactory::GetInstance();
 #endif
+  NTPSnippetsServiceFactory::GetInstance();
   PasswordStoreFactory::GetInstance();
   PasswordManagerSettingMigratorServiceFactory::GetInstance();
 #if !defined(OS_ANDROID)

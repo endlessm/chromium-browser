@@ -17,8 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/dom/QualifiedName.h"
 
 #include "core/HTMLNames.h"
@@ -140,4 +138,4 @@ void QualifiedName::createStatic(void* targetAddress, StringImpl* name)
     new (targetAddress) QualifiedName(nullAtom, AtomicString(name), nullAtom, true);
 }
 
-}
+} // namespace blink

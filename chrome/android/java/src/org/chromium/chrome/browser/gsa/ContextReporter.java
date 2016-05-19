@@ -30,7 +30,7 @@ import javax.annotation.Nullable;
  * Reports context to GSA for search quality.
  */
 public class ContextReporter {
-    private static final String TAG = "cr.GSA";
+    private static final String TAG = "GSA";
 
     // Values for UMA histogram.
     public static final int STATUS_SUCCESS = 0;
@@ -218,8 +218,8 @@ public class ContextReporter {
     /**
      * Records an appropriate status via UMA given the current sync status.
      */
-    public static void reportSyncStatus(ProfileSyncService syncService) {
-        if (!syncService.isBackendInitialized()) {
+    public static void reportSyncStatus(@Nullable ProfileSyncService syncService) {
+        if (syncService == null || !syncService.isBackendInitialized()) {
             reportStatus(STATUS_SYNC_NOT_INITIALIZED);
         } else if (!syncService.getActiveDataTypes().contains(ModelType.TYPED_URLS)) {
             reportStatus(STATUS_SYNC_NOT_SYNCING_URLS);

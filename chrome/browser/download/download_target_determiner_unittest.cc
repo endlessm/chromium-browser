@@ -2,18 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/at_exit.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/observer_list.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/value_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_extensions.h"
 #include "chrome/browser/download/download_prefs.h"
@@ -25,6 +29,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
+#include "components/prefs/pref_service.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/download_interrupt_reasons.h"
 #include "content/public/browser/render_process_host.h"
@@ -205,7 +210,7 @@ class DownloadTargetDeterminerTest : public ChromeRenderViewHostTestHarness {
 
   // Creates MockDownloadItem and sets up default expectations.
   content::MockDownloadItem* CreateActiveDownloadItem(
-      int32 id,
+      int32_t id,
       const DownloadTestCase& test_case);
 
   // Sets the AutoOpenBasedOnExtension user preference for |path|.
@@ -286,7 +291,7 @@ void DownloadTargetDeterminerTest::TearDown() {
 
 content::MockDownloadItem*
 DownloadTargetDeterminerTest::CreateActiveDownloadItem(
-    int32 id,
+    int32_t id,
     const DownloadTestCase& test_case) {
   content::MockDownloadItem* item =
       new ::testing::NiceMock<content::MockDownloadItem>();
@@ -398,7 +403,7 @@ DownloadTargetDeterminerTest::RunDownloadTargetDeterminer(
                  &target_info));
   run_loop.Run();
   ::testing::Mock::VerifyAndClearExpectations(delegate());
-  return target_info.Pass();
+  return target_info;
 }
 
 void DownloadTargetDeterminerTest::RunTestCasesWithActiveItem(
@@ -873,17 +878,17 @@ TEST_F(DownloadTargetDeterminerTest, TargetDeterminer_InactiveDownload) {
        download_util::NOT_DANGEROUS, "http://example.com/foo.txt", "text/plain",
        FILE_PATH_LITERAL(""),
 
-       FILE_PATH_LITERAL(""), DownloadItem::TARGET_DISPOSITION_OVERWRITE,
+       FILE_PATH_LITERAL("foo.txt"), DownloadItem::TARGET_DISPOSITION_OVERWRITE,
 
-       EXPECT_LOCAL_PATH},
+       EXPECT_CRDOWNLOAD},
 
       {SAVE_AS, content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
        download_util::NOT_DANGEROUS, "http://example.com/foo.txt", "text/plain",
        FILE_PATH_LITERAL(""),
 
-       FILE_PATH_LITERAL(""), DownloadItem::TARGET_DISPOSITION_PROMPT,
+       FILE_PATH_LITERAL("foo.txt"), DownloadItem::TARGET_DISPOSITION_PROMPT,
 
-       EXPECT_LOCAL_PATH}};
+       EXPECT_CRDOWNLOAD}};
 
   for (size_t i = 0; i < arraysize(kInactiveTestCases); ++i) {
     SCOPED_TRACE(testing::Message() << "Running test case " << i);
@@ -892,10 +897,11 @@ TEST_F(DownloadTargetDeterminerTest, TargetDeterminer_InactiveDownload) {
         CreateActiveDownloadItem(i, test_case));
     EXPECT_CALL(*item.get(), GetState())
         .WillRepeatedly(Return(content::DownloadItem::CANCELLED));
-    // Even though one is a SAVE_AS download, no prompt will be displayed to
-    // the user because the download is inactive.
-    EXPECT_CALL(*delegate(), PromptUserForDownloadPath(_, _, _))
-        .Times(0);
+
+    EXPECT_CALL(*delegate(), PromptUserForDownloadPath(_, _, _)).Times(0);
+    EXPECT_CALL(*delegate(), NotifyExtensions(_, _, _)).Times(0);
+    EXPECT_CALL(*delegate(), ReserveVirtualPath(_, _, _, _, _)).Times(0);
+    EXPECT_CALL(*delegate(), DetermineLocalPath(_, _, _)).Times(1);
     RunTestCase(test_case, base::FilePath(), item.get());
   }
 }
@@ -1476,8 +1482,12 @@ TEST_F(DownloadTargetDeterminerTest, TargetDeterminer_ResumedWithPrompt) {
        download_util::NOT_DANGEROUS, "http://example.com/foo.txt", "text/plain",
        FILE_PATH_LITERAL(""),
 
-       FILE_PATH_LITERAL("foo.txt"), DownloadItem::TARGET_DISPOSITION_PROMPT,
-
+       FILE_PATH_LITERAL("foo.txt"),
+#if BUILDFLAG(ANDROID_JAVA_UI)
+       DownloadItem::TARGET_DISPOSITION_OVERWRITE,
+#else
+       DownloadItem::TARGET_DISPOSITION_PROMPT,
+#endif
        EXPECT_CRDOWNLOAD},
 
       {// 1: Save_As Safe
@@ -1485,18 +1495,34 @@ TEST_F(DownloadTargetDeterminerTest, TargetDeterminer_ResumedWithPrompt) {
        download_util::NOT_DANGEROUS, "http://example.com/foo.txt", "text/plain",
        FILE_PATH_LITERAL(""),
 
-       kInitialPath, DownloadItem::TARGET_DISPOSITION_PROMPT,
+       kInitialPath,
+       DownloadItem::TARGET_DISPOSITION_PROMPT,
 
        EXPECT_CRDOWNLOAD},
 
       {// 2: Automatic Dangerous
-       AUTOMATIC, content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
-       download_util::NOT_DANGEROUS, "http://example.com/foo.crx", "",
+       AUTOMATIC,
+#if BUILDFLAG(ANDROID_JAVA_UI)
+       // If we don't prompt user, the file will be treated as dangerous.
+       content::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE,
+       download_util::ALLOW_ON_USER_GESTURE,
+#else
+       content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
+       download_util::NOT_DANGEROUS,
+#endif
+       "http://example.com/foo.crx", "",
        FILE_PATH_LITERAL(""),
 
-       FILE_PATH_LITERAL("foo.crx"), DownloadItem::TARGET_DISPOSITION_PROMPT,
-
-       EXPECT_CRDOWNLOAD},
+       FILE_PATH_LITERAL("foo.crx"),
+#if BUILDFLAG(ANDROID_JAVA_UI)
+       DownloadItem::TARGET_DISPOSITION_OVERWRITE,
+       // Dangerous download will have an unconfirmed intermediate file name.
+       EXPECT_UNCONFIRMED,
+#else
+       DownloadItem::TARGET_DISPOSITION_PROMPT,
+       EXPECT_CRDOWNLOAD,
+#endif
+      },
   };
 
   // The test assumes that .xml files have a danger level of
@@ -1518,7 +1544,12 @@ TEST_F(DownloadTargetDeterminerTest, TargetDeterminer_ResumedWithPrompt) {
     EXPECT_CALL(*delegate(), NotifyExtensions(_, _, _))
         .Times(test_case.test_type == AUTOMATIC ? 1 : 0);
     EXPECT_CALL(*delegate(), ReserveVirtualPath(_, expected_path, false, _, _));
+#if BUILDFLAG(ANDROID_JAVA_UI)
+    EXPECT_CALL(*delegate(), PromptUserForDownloadPath(_, expected_path, _))
+        .Times(0);
+#else
     EXPECT_CALL(*delegate(), PromptUserForDownloadPath(_, expected_path, _));
+#endif
     EXPECT_CALL(*delegate(), DetermineLocalPath(_, expected_path, _));
     EXPECT_CALL(*delegate(), CheckDownloadUrl(_, expected_path, _));
     RunTestCase(test_case, GetPathInDownloadDir(kInitialPath), item.get());
@@ -1704,10 +1735,19 @@ TEST_F(DownloadTargetDeterminerTest,
         FILE_PATH_LITERAL("foo.notarealext"),
         DownloadItem::TARGET_DISPOSITION_OVERWRITE,
 
-        EXPECT_CRDOWNLOAD
-      },
-      ""
-    },
+        EXPECT_CRDOWNLOAD},
+       ""},
+      {{// 5: x-x509-user-cert mime-type.
+        AUTOMATIC, content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
+        download_util::NOT_DANGEROUS, "http://example.com/foo.notarealext",
+        "application/x-x509-user-cert", FILE_PATH_LITERAL(""),
+
+        FILE_PATH_LITERAL("user.crt"),
+        DownloadItem::TARGET_DISPOSITION_OVERWRITE,
+
+        EXPECT_CRDOWNLOAD},
+       ""},
+
   };
 
   ON_CALL(*delegate(), GetFileMimeType(

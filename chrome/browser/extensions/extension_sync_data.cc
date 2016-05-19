@@ -134,6 +134,8 @@ ExtensionSyncData::ExtensionSyncData(const Extension& extension,
   }
 }
 
+ExtensionSyncData::ExtensionSyncData(const ExtensionSyncData& other) = default;
+
 ExtensionSyncData::~ExtensionSyncData() {}
 
 // static
@@ -141,7 +143,7 @@ scoped_ptr<ExtensionSyncData> ExtensionSyncData::CreateFromSyncData(
     const syncer::SyncData& sync_data) {
   scoped_ptr<ExtensionSyncData> data(new ExtensionSyncData);
   if (data->PopulateFromSyncData(sync_data))
-    return data.Pass();
+    return data;
   return nullptr;
 }
 
@@ -155,7 +157,7 @@ scoped_ptr<ExtensionSyncData> ExtensionSyncData::CreateFromSyncChange(
 
   if (sync_change.change_type() == syncer::SyncChange::ACTION_DELETE)
     data->uninstalled_ = true;
-  return data.Pass();
+  return data;
 }
 
 syncer::SyncData ExtensionSyncData::GetSyncData() const {

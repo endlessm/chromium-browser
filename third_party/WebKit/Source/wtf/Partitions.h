@@ -40,11 +40,13 @@ namespace WTF {
 
 class WTF_EXPORT Partitions {
 public:
+    typedef void (*ReportPartitionAllocSizeFunction)(size_t);
+
     // Name of allocator used by tracing for marking sub-allocations while take
     // memory snapshots.
     static const char* const kAllocatedObjectPoolName;
 
-    static void initialize(HistogramEnumerationFunction);
+    static void initialize(ReportPartitionAllocSizeFunction);
     static void shutdown();
     ALWAYS_INLINE static PartitionRootGeneric* bufferPartition()
     {
@@ -60,8 +62,13 @@ public:
 
     ALWAYS_INLINE static PartitionRoot* nodePartition()
     {
+#if ENABLE(OILPAN)
+        ASSERT_NOT_REACHED();
+        return nullptr;
+#else
         ASSERT(s_initialized);
         return m_nodeAllocator.root();
+#endif
     }
     ALWAYS_INLINE static PartitionRoot* layoutPartition()
     {
@@ -72,7 +79,12 @@ public:
     static size_t currentDOMMemoryUsage()
     {
         ASSERT(s_initialized);
+#if ENABLE(OILPAN)
+        ASSERT_NOT_REACHED();
+        return 0;
+#else
         return m_nodeAllocator.root()->totalSizeOfCommittedPages;
+#endif
     }
 
     static size_t totalSizeOfCommittedPages()
@@ -80,7 +92,9 @@ public:
         size_t totalSize = 0;
         totalSize += m_fastMallocAllocator.root()->totalSizeOfCommittedPages;
         totalSize += m_bufferAllocator.root()->totalSizeOfCommittedPages;
+#if !ENABLE(OILPAN)
         totalSize += m_nodeAllocator.root()->totalSizeOfCommittedPages;
+#endif
         totalSize += m_layoutAllocator.root()->totalSizeOfCommittedPages;
         return totalSize;
     }
@@ -91,9 +105,9 @@ public:
 
     static void dumpMemoryStats(bool isLightDump, PartitionStatsDumper*);
 
-    ALWAYS_INLINE static void* bufferMalloc(size_t n)
+    ALWAYS_INLINE static void* bufferMalloc(size_t n, const char* typeName)
     {
-        return partitionAllocGeneric(bufferPartition(), n);
+        return partitionAllocGeneric(bufferPartition(), n, typeName);
     }
     ALWAYS_INLINE static void bufferFree(void* p)
     {
@@ -103,19 +117,19 @@ public:
     {
         return partitionAllocActualSize(bufferPartition(), n);
     }
-    static void* fastMalloc(size_t n)
+    static void* fastMalloc(size_t n, const char* typeName)
     {
-        return partitionAllocGeneric(Partitions::fastMallocPartition(), n);
+        return partitionAllocGeneric(Partitions::fastMallocPartition(), n, typeName);
     }
-    static void* fastZeroedMalloc(size_t n)
+    static void* fastZeroedMalloc(size_t n, const char* typeName)
     {
-        void* result = fastMalloc(n);
+        void* result = fastMalloc(n, typeName);
         memset(result, 0, n);
         return result;
     }
-    static void* fastRealloc(void* p, size_t n)
+    static void* fastRealloc(void* p, size_t n, const char* typeName)
     {
-        return partitionReallocGeneric(Partitions::fastMallocPartition(), p, n);
+        return partitionReallocGeneric(Partitions::fastMallocPartition(), p, n, typeName);
     }
     static void fastFree(void* p)
     {
@@ -125,7 +139,7 @@ public:
     static void handleOutOfMemory();
 
 private:
-    static int s_initializationLock;
+    static SpinLock s_initializationLock;
     static bool s_initialized;
 
     // We have the following four partitions.
@@ -144,9 +158,11 @@ private:
     //   - Fast malloc partition: A partition to allocate all other objects.
     static PartitionAllocatorGeneric m_fastMallocAllocator;
     static PartitionAllocatorGeneric m_bufferAllocator;
+#if !ENABLE(OILPAN)
     static SizeSpecificPartitionAllocator<3328> m_nodeAllocator;
+#endif
     static SizeSpecificPartitionAllocator<1024> m_layoutAllocator;
-    static HistogramEnumerationFunction m_histogramEnumeration;
+    static ReportPartitionAllocSizeFunction m_reportSizeFunction;
 };
 
 } // namespace WTF

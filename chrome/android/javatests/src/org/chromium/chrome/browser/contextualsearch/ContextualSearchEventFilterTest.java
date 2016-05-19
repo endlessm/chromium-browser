@@ -36,6 +36,9 @@ public class ContextualSearchEventFilterTest extends InstrumentationTestCase
     private static final float LAYOUT_WIDTH_DP = 600.f;
     private static final float LAYOUT_HEIGHT_DP = 800.f;
 
+    // A small value used to check whether two floats are almost equal.
+    private static final float EPSILON = 1e-04f;
+
     private float mTouchSlopDp;
     private float mDpToPx;
 
@@ -88,7 +91,7 @@ public class ContextualSearchEventFilterTest extends InstrumentationTestCase
             if (!mShouldLockHorizontalMotionInSearchContentView) {
                 float propagatedEventY = mEventPropagatedToSearchContentView.getY();
                 float offsetY = mContextualSearchPanel.getContentY() * mDpToPx;
-                assertEquals(propagatedEventY - offsetY, e.getY());
+                assertEquals(propagatedEventY - offsetY, e.getY(), EPSILON);
             }
 
             // Propagates the event to the GestureDetector in order to be able to tell
@@ -213,11 +216,11 @@ public class ContextualSearchEventFilterTest extends InstrumentationTestCase
 
         mContextualSearchPanel.setSearchBarHeightForTesting(SEARCH_BAR_HEIGHT_DP);
         mContextualSearchPanel.setHeightForTesting(LAYOUT_HEIGHT_DP);
-        mContextualSearchPanel.setIsFullscreenSizePanelForTesting(true);
+        mContextualSearchPanel.setIsFullWidthSizePanelForTesting(true);
 
         // NOTE(pedrosimonetti): This should be called after calling the method
-        // setIsFullscreenSizePanelForTesting(), otherwise it will crash the test.
-        mContextualSearchPanel.onSizeChanged(LAYOUT_WIDTH_DP, LAYOUT_HEIGHT_DP, false);
+        // setIsFullWidthSizePanelForTesting(), otherwise it will crash the test.
+        mContextualSearchPanel.onSizeChanged(LAYOUT_WIDTH_DP, LAYOUT_HEIGHT_DP);
 
         setSearchContentViewVerticalScroll(0);
 

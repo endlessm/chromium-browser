@@ -5,9 +5,12 @@
 #ifndef MEDIA_AUDIO_AUDIO_OUTPUT_STREAM_SINK_H_
 #define MEDIA_AUDIO_AUDIO_OUTPUT_STREAM_SINK_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "media/audio/audio_io.h"
@@ -39,7 +42,9 @@ class MEDIA_EXPORT AudioOutputStreamSink
   OutputDevice* GetOutputDevice() override;
 
   // AudioSourceCallback implementation.
-  int OnMoreData(AudioBus* dest, uint32 total_bytes_delay) override;
+  int OnMoreData(AudioBus* dest,
+                 uint32_t total_bytes_delay,
+                 uint32_t frames_skipped) override;
   void OnError(AudioOutputStream* stream) override;
 
  private:

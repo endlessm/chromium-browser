@@ -10,8 +10,8 @@
 #include <utility>
 #include <vector>
 
-#include "embedder_test.h"
-#include "test_support.h"
+#include "testing/embedder_test.h"
+#include "testing/test_support.h"
 
 class EmbedderTestTimerHandlingDelegate : public EmbedderTest::Delegate {
  public:
@@ -21,8 +21,8 @@ class EmbedderTestTimerHandlingDelegate : public EmbedderTest::Delegate {
                   int type_in,
                   int icon_in)
         : type(type_in), icon(icon_in) {
-      message = GetWideString(message_in);
-      title = GetWideString(title_in);
+      message = GetPlatformWString(message_in);
+      title = GetPlatformWString(title_in);
     }
 
     std::wstring message;

@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handler.h"
 #include "url/gurl.h"
@@ -26,6 +27,7 @@ enum InputComponentType {
 struct InputComponentInfo {
   // Define out of line constructor/destructor to please Clang.
   InputComponentInfo();
+  InputComponentInfo(const InputComponentInfo& other);
   ~InputComponentInfo();
 
   std::string name;

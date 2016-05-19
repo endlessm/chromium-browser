@@ -7,16 +7,19 @@
 
 #include <oleacc.h>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/win/scoped_comptr.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "ui/accessibility/platform/ax_platform_node_win.h"
 
 namespace content {
 class BrowserAccessibilityWin;
 
 // Manages a tree of BrowserAccessibilityWin objects.
 class CONTENT_EXPORT BrowserAccessibilityManagerWin
-    : public BrowserAccessibilityManager {
+    : public BrowserAccessibilityManager,
+      public ui::IAccessible2UsageObserver {
  public:
   BrowserAccessibilityManagerWin(
       const ui::AXTreeUpdate& initial_tree,
@@ -35,6 +38,9 @@ class CONTENT_EXPORT BrowserAccessibilityManagerWin
 
   // Calls NotifyWinEvent if the parent window's IAccessible pointer is known.
   void MaybeCallNotifyWinEvent(DWORD event, BrowserAccessibility* node);
+
+  // IAccessible2UsageObserver
+  void OnIAccessible2Used() override;
 
   // BrowserAccessibilityManager methods
   void OnWindowFocused() override;
@@ -71,14 +77,6 @@ class CONTENT_EXPORT BrowserAccessibilityManagerWin
   // post a notification directly on it when it reaches its destination.
   // TODO(dmazzoni): remove once http://crbug.com/113483 is fixed.
   BrowserAccessibilityWin* tracked_scroll_object_;
-
-  // A mapping from the Windows-specific unique IDs (unique within the
-  // browser process) to accessibility ids within this page.
-  base::hash_map<long, int32> unique_id_to_ax_id_map_;
-
-  // A mapping from the Windows-specific unique IDs (unique within the
-  // browser process) to the AXTreeID that contains this unique ID.
-  base::hash_map<long, AXTreeIDRegistry::AXTreeID> unique_id_to_ax_tree_id_map_;
 
   // Set to true if we need to fire a focus event on the root as soon as
   // possible.

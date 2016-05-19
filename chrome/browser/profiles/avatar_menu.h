@@ -5,11 +5,13 @@
 #ifndef CHROME_BROWSER_PROFILES_AVATAR_MENU_H_
 #define CHROME_BROWSER_PROFILES_AVATAR_MENU_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/profiles/profile_info_cache_observer.h"
@@ -27,6 +29,7 @@ class AvatarMenuActions;
 class AvatarMenuObserver;
 class Browser;
 class Profile;
+class ProfileAttributesStorage;
 class ProfileInfoInterface;
 class ProfileList;
 class SupervisedUserService;
@@ -45,6 +48,7 @@ class AvatarMenu :
   // Represents an item in the menu.
   struct Item {
     Item(size_t menu_index, size_t profile_index, const gfx::Image& icon);
+    Item(const Item& other);
     ~Item();
 
     // The icon to be displayed next to the item.
@@ -88,7 +92,7 @@ class AvatarMenu :
 
   // Constructor. |observer| can be NULL. |browser| can be NULL and a new one
   // will be created if an action requires it.
-  AvatarMenu(ProfileInfoInterface* profile_cache,
+  AvatarMenu(ProfileAttributesStorage* profile_storage,
              AvatarMenuObserver* observer,
              Browser* browser);
   ~AvatarMenu() override;

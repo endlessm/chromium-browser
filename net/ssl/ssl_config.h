@@ -11,13 +11,14 @@
 #include "net/base/net_export.h"
 #include "net/cert/x509_certificate.h"
 #include "net/socket/next_proto.h"
+#include "net/ssl/ssl_private_key.h"
 
 namespace net {
 
-// Various TLS/SSL ProtocolVersion values encoded as uint16
+// Various TLS/SSL ProtocolVersion values encoded as uint16_t
 //      struct {
-//          uint8 major;
-//          uint8 minor;
+//          uint8_t major;
+//          uint8_t minor;
 //      } ProtocolVersion;
 // The most significant byte is |major|, and the least significant byte
 // is |minor|.
@@ -46,6 +47,7 @@ NET_EXPORT extern const uint16_t kDefaultSSLVersionFallbackMin;
 struct NET_EXPORT SSLConfig {
   // Default to revocation checking.
   SSLConfig();
+  SSLConfig(const SSLConfig& other);
   ~SSLConfig();
 
   // Returns true if |cert| is one of the certs in |allowed_bad_certs|.
@@ -83,14 +85,14 @@ struct NET_EXPORT SSLConfig {
   // (Use the SSL_PROTOCOL_VERSION_xxx enumerators defined above.)
   // SSL 2.0 and SSL 3.0 are not supported. If version_max < version_min, it
   // means no protocol versions are enabled.
-  uint16 version_min;
-  uint16 version_max;
+  uint16_t version_min;
+  uint16_t version_max;
 
   // version_fallback_min contains the minimum version that is acceptable to
   // fallback to. Versions before this may be tried to see whether they would
   // have succeeded and thus to give a better message to the user, but the
   // resulting connection won't be used in these cases.
-  uint16 version_fallback_min;
+  uint16_t version_fallback_min;
 
   // Presorted list of cipher suites which should be explicitly prevented from
   // being used in addition to those disabled by the net built-in policy.
@@ -108,12 +110,12 @@ struct NET_EXPORT SSLConfig {
   // The ciphers listed in |disabled_cipher_suites| will be removed in addition
   // to the above list.
   //
-  // Though cipher suites are sent in TLS as "uint8 CipherSuite[2]", in
+  // Though cipher suites are sent in TLS as "uint8_t CipherSuite[2]", in
   // big-endian form, they should be declared in host byte order, with the
-  // first uint8 occupying the most significant byte.
+  // first uint8_t occupying the most significant byte.
   // Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
-  std::vector<uint16> disabled_cipher_suites;
+  std::vector<uint16_t> disabled_cipher_suites;
 
   // Enables deprecated cipher suites. These cipher suites are selected under a
   // fallback to distinguish servers which require them from servers which
@@ -198,6 +200,7 @@ struct NET_EXPORT SSLConfig {
   NextProtoVector renego_allowed_for_protos;
 
   scoped_refptr<X509Certificate> client_cert;
+  scoped_refptr<SSLPrivateKey> client_private_key;
 };
 
 }  // namespace net

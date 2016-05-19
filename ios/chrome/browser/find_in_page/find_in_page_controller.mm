@@ -50,7 +50,7 @@ const NSTimeInterval kRecurringPumpDelay = .01;
 // |completionHandler| can be nil.
 - (void)startPumpingWithCompletionHandler:(ProceduralBlock)completionHandler;
 // Gives find in page more time to complete. Calls |completionHandler| with
-// a BOOL indicating if the find operation was successfull. |completionHandler|
+// a BOOL indicating if the find operation was successful. |completionHandler|
 // can be nil.
 - (void)pumpFindStringInPageWithCompletionHandler:
     (void (^)(BOOL))completionHandler;
@@ -290,6 +290,12 @@ const NSTimeInterval kRecurringPumpDelay = .01;
 }
 
 - (void)restoreSearchTerm {
+  // Pasteboards always return nil in background:
+  if ([[UIApplication sharedApplication] applicationState] !=
+      UIApplicationStateActive) {
+    return;
+  }
+
   NSString* term = [self findPasteboard].string;
   [[self findInPageModel] updateQuery:(term ? term : @"") matches:0];
 }

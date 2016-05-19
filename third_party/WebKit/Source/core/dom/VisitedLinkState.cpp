@@ -26,13 +26,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/VisitedLinkState.h"
 
 #include "core/HTMLNames.h"
-#include "core/XLinkNames.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/html/HTMLAnchorElement.h"
+#include "core/svg/SVGURIReference.h"
 #include "public/platform/Platform.h"
 
 namespace blink {
@@ -43,7 +42,7 @@ static inline const AtomicString& linkAttribute(const Element& element)
     if (element.isHTMLElement())
         return element.fastGetAttribute(HTMLNames::hrefAttr);
     ASSERT(element.isSVGElement());
-    return element.getAttribute(XLinkNames::hrefAttr);
+    return SVGURIReference::legacyHrefString(toSVGElement(element));
 }
 
 static inline LinkHash linkHashForElement(const Element& element, const AtomicString& attribute = AtomicString())
@@ -59,13 +58,18 @@ VisitedLinkState::VisitedLinkState(const Document& document)
 {
 }
 
-void VisitedLinkState::invalidateStyleForAllLinks()
+void VisitedLinkState::invalidateStyleForAllLinks(bool invalidateVisitedLinkHashes)
 {
     if (m_linksCheckedForVisitedState.isEmpty())
         return;
     for (Node& node : NodeTraversal::startsAt(document().firstChild())) {
-        if (node.isLink())
-            node.setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::VisitedLink));
+        if (node.isLink()) {
+            if (invalidateVisitedLinkHashes && isHTMLAnchorElement(node))
+                toHTMLAnchorElement(node).invalidateCachedVisitedLinkHash();
+            toElement(node).pseudoStateChanged(CSSSelector::PseudoLink);
+            toElement(node).pseudoStateChanged(CSSSelector::PseudoVisited);
+            toElement(node).pseudoStateChanged(CSSSelector::PseudoAnyLink);
+        }
     }
 }
 
@@ -74,8 +78,11 @@ void VisitedLinkState::invalidateStyleForLink(LinkHash linkHash)
     if (!m_linksCheckedForVisitedState.contains(linkHash))
         return;
     for (Node& node : NodeTraversal::startsAt(document().firstChild())) {
-        if (node.isLink() && linkHashForElement(toElement(node)) == linkHash)
-            node.setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::VisitedLink));
+        if (node.isLink() && linkHashForElement(toElement(node)) == linkHash) {
+            toElement(node).pseudoStateChanged(CSSSelector::PseudoLink);
+            toElement(node).pseudoStateChanged(CSSSelector::PseudoVisited);
+            toElement(node).pseudoStateChanged(CSSSelector::PseudoAnyLink);
+        }
     }
 }
 

@@ -91,20 +91,24 @@ static void checkLimit (const glu::RenderContext& renderCtx, deUint32 pname, int
 
 // Shader utilities
 
-static std::string generateVertexShader (const ShaderSpec& shaderSpec)
+static std::string generateVertexShader (const ShaderSpec& shaderSpec, const std::string& inputPrefix, const std::string& outputPrefix)
 {
 	const bool			usesInout	= glu::glslVersionUsesInOutQualifiers(shaderSpec.version);
 	const char*			in			= usesInout ? "in"		: "attribute";
 	const char*			out			= usesInout ? "out"		: "varying";
 	std::ostringstream	src;
 
+	DE_ASSERT(!inputPrefix.empty() && !outputPrefix.empty());
+
 	src << glu::getGLSLVersionDeclaration(shaderSpec.version) << "\n";
 
 	if (!shaderSpec.globalDeclarations.empty())
 		src << shaderSpec.globalDeclarations << "\n";
 
+	src << in << " highp vec4 a_position;\n";
+
 	for (vector<Symbol>::const_iterator input = shaderSpec.inputs.begin(); input != shaderSpec.inputs.end(); ++input)
-		src << in << " " << glu::declare(input->varType, input->name) << ";\n";
+		src << in << " " << glu::declare(input->varType, inputPrefix + input->name) << ";\n";
 
 	for (vector<Symbol>::const_iterator output = shaderSpec.outputs.begin(); output != shaderSpec.outputs.end(); ++output)
 	{
@@ -116,24 +120,25 @@ static std::string generateVertexShader (const ShaderSpec& shaderSpec)
 			const glu::DataType		intBaseType	= vecSize > 1 ? glu::getDataTypeIntVec(vecSize) : glu::TYPE_INT;
 			const glu::VarType		intType		(intBaseType, glu::PRECISION_HIGHP);
 
-			src << "flat " << out << " " << glu::declare(intType, "o_" + output->name) << ";\n";
+			src << "flat " << out << " " << glu::declare(intType, outputPrefix + output->name) << ";\n";
 		}
 		else
-			src << "flat " << out << " " << glu::declare(output->varType, output->name) << ";\n";
+			src << "flat " << out << " " << glu::declare(output->varType, outputPrefix + output->name) << ";\n";
 	}
 
 	src << "\n"
 		<< "void main (void)\n"
 		<< "{\n"
-		<< "	gl_Position = vec4(0.0);\n"
+		<< "	gl_Position = a_position;\n"
 		<< "	gl_PointSize = 1.0;\n\n";
 
-	// Declare necessary output variables (bools).
+	// Declare & fetch local input variables
+	for (vector<Symbol>::const_iterator input = shaderSpec.inputs.begin(); input != shaderSpec.inputs.end(); ++input)
+		src << "\t" << glu::declare(input->varType, input->name) << " = " << inputPrefix << input->name << ";\n";
+
+	// Declare local output variables
 	for (vector<Symbol>::const_iterator output = shaderSpec.outputs.begin(); output != shaderSpec.outputs.end(); ++output)
-	{
-		if (glu::isDataTypeBoolOrBVec(output->varType.getBasicType()))
-			src << "\t" << glu::declare(output->varType, output->name) << ";\n";
-	}
+		src << "\t" << glu::declare(output->varType, output->name) << ";\n";
 
 	// Operation - indented to correct level.
 	{
@@ -152,8 +157,10 @@ static std::string generateVertexShader (const ShaderSpec& shaderSpec)
 			const int				vecSize		= glu::getDataTypeScalarSize(output->varType.getBasicType());
 			const glu::DataType		intBaseType	= vecSize > 1 ? glu::getDataTypeIntVec(vecSize) : glu::TYPE_INT;
 
-			src << "\to_" << output->name << " = " << glu::getDataTypeName(intBaseType) << "(" << output->name << ");\n";
+			src << "\t" << outputPrefix << output->name << " = " << glu::getDataTypeName(intBaseType) << "(" << output->name << ");\n";
 		}
+		else
+			src << "\t" << outputPrefix << output->name << " = " << output->name << ";\n";
 	}
 
 	src << "}\n";
@@ -161,9 +168,10 @@ static std::string generateVertexShader (const ShaderSpec& shaderSpec)
 	return src.str();
 }
 
-static std::string generateGeometryShader (const ShaderSpec& shaderSpec)
+static std::string generateGeometryShader (const ShaderSpec& shaderSpec, const std::string& inputPrefix, const std::string& outputPrefix)
 {
 	DE_ASSERT(glu::glslVersionUsesInOutQualifiers(shaderSpec.version));
+	DE_ASSERT(!inputPrefix.empty() && !outputPrefix.empty());
 
 	std::ostringstream	src;
 
@@ -179,7 +187,7 @@ static std::string generateGeometryShader (const ShaderSpec& shaderSpec)
 		<< "layout(points, max_vertices = 1) out;\n";
 
 	for (vector<Symbol>::const_iterator input = shaderSpec.inputs.begin(); input != shaderSpec.inputs.end(); ++input)
-		src << "flat in " << glu::declare(input->varType, "geom_" + input->name) << "[];\n";
+		src << "flat in " << glu::declare(input->varType, inputPrefix + input->name) << "[];\n";
 
 	for (vector<Symbol>::const_iterator output = shaderSpec.outputs.begin(); output != shaderSpec.outputs.end(); ++output)
 	{
@@ -191,10 +199,10 @@ static std::string generateGeometryShader (const ShaderSpec& shaderSpec)
 			const glu::DataType		intBaseType	= vecSize > 1 ? glu::getDataTypeIntVec(vecSize) : glu::TYPE_INT;
 			const glu::VarType		intType		(intBaseType, glu::PRECISION_HIGHP);
 
-			src << "flat out " << glu::declare(intType, "o_" + output->name) << ";\n";
+			src << "flat out " << glu::declare(intType, outputPrefix + output->name) << ";\n";
 		}
 		else
-			src << "flat out " << glu::declare(output->varType, output->name) << ";\n";
+			src << "flat out " << glu::declare(output->varType, outputPrefix + output->name) << ";\n";
 	}
 
 	src << "\n"
@@ -204,14 +212,11 @@ static std::string generateGeometryShader (const ShaderSpec& shaderSpec)
 
 	// Fetch input variables
 	for (vector<Symbol>::const_iterator input = shaderSpec.inputs.begin(); input != shaderSpec.inputs.end(); ++input)
-		src << "\t" << glu::declare(input->varType, input->name) << " = geom_" << input->name << "[0];\n";
+		src << "\t" << glu::declare(input->varType, input->name) << " = " << inputPrefix << input->name << "[0];\n";
 
-	// Declare necessary output variables (bools).
+	// Declare local output variables.
 	for (vector<Symbol>::const_iterator output = shaderSpec.outputs.begin(); output != shaderSpec.outputs.end(); ++output)
-	{
-		if (glu::isDataTypeBoolOrBVec(output->varType.getBasicType()))
-			src << "\t" << glu::declare(output->varType, output->name) << ";\n";
-	}
+		src << "\t" << glu::declare(output->varType, output->name) << ";\n";
 
 	src << "\n";
 
@@ -232,8 +237,10 @@ static std::string generateGeometryShader (const ShaderSpec& shaderSpec)
 			const int				vecSize		= glu::getDataTypeScalarSize(output->varType.getBasicType());
 			const glu::DataType		intBaseType	= vecSize > 1 ? glu::getDataTypeIntVec(vecSize) : glu::TYPE_INT;
 
-			src << "\to_" << output->name << " = " << glu::getDataTypeName(intBaseType) << "(" << output->name << ");\n";
+			src << "\t" << outputPrefix << output->name << " = " << glu::getDataTypeName(intBaseType) << "(" << output->name << ");\n";
 		}
+		else
+			src << "\t" << outputPrefix << output->name << " = " << output->name << ";\n";
 	}
 
 	src << "	EmitVertex();\n"
@@ -260,7 +267,7 @@ static std::string generateEmptyFragmentSource (glu::GLSLVersion version)
 	return src.str();
 }
 
-static std::string generatePassthroughVertexShader (const ShaderSpec& shaderSpec, const char* inputPrefix, const char* outputPrefix)
+static std::string generatePassthroughVertexShader (const ShaderSpec& shaderSpec, const std::string& inputPrefix, const std::string& outputPrefix)
 {
 	// flat qualifier is not present in earlier versions?
 	DE_ASSERT(glu::glslVersionUsesInOutQualifiers(shaderSpec.version));
@@ -288,24 +295,15 @@ static std::string generatePassthroughVertexShader (const ShaderSpec& shaderSpec
 	return src.str();
 }
 
-static std::string generateFragmentShader (const ShaderSpec& shaderSpec, bool useIntOutputs, const std::map<std::string, int>& outLocationMap)
+static void generateFragShaderOutputDecl (std::ostream& src, const ShaderSpec& shaderSpec, bool useIntOutputs, const std::map<std::string, int>& outLocationMap, const std::string& outputPrefix)
 {
 	DE_ASSERT(glu::glslVersionUsesInOutQualifiers(shaderSpec.version));
-
-	std::ostringstream	src;
-	src << glu::getGLSLVersionDeclaration(shaderSpec.version) << "\n";
-
-	if (!shaderSpec.globalDeclarations.empty())
-		src << shaderSpec.globalDeclarations << "\n";
-
-	for (vector<Symbol>::const_iterator input = shaderSpec.inputs.begin(); input != shaderSpec.inputs.end(); ++input)
-		src << "flat in " << glu::declare(input->varType, input->name) << ";\n";
 
 	for (int outNdx = 0; outNdx < (int)shaderSpec.outputs.size(); ++outNdx)
 	{
 		const Symbol&				output		= shaderSpec.outputs[outNdx];
 		const int					location	= de::lookup(outLocationMap, output.name);
-		const std::string			outVarName	= "o_" + output.name;
+		const std::string			outVarName	= outputPrefix + output.name;
 		glu::VariableDeclaration	decl		(output.varType, outVarName, glu::STORAGE_OUT, glu::INTERPOLATION_LAST, glu::Layout(location));
 
 		TCU_CHECK_INTERNAL(output.varType.isBasicType());
@@ -344,18 +342,63 @@ static std::string generateFragmentShader (const ShaderSpec& shaderSpec, bool us
 			}
 		}
 		else
-			src << glu::VariableDeclaration(output.varType, output.name, glu::STORAGE_OUT, glu::INTERPOLATION_LAST, location) << ";\n";
+			src << decl << ";\n";
 	}
+}
+
+static void generateFragShaderOutAssign (std::ostream& src, const ShaderSpec& shaderSpec, bool useIntOutputs, const std::string& valuePrefix, const std::string& outputPrefix)
+{
+	for (vector<Symbol>::const_iterator output = shaderSpec.outputs.begin(); output != shaderSpec.outputs.end(); ++output)
+	{
+		if (useIntOutputs && glu::isDataTypeFloatOrVec(output->varType.getBasicType()))
+			src << "	o_" << output->name << " = floatBitsToUint(" << valuePrefix << output->name << ");\n";
+		else if (glu::isDataTypeMatrix(output->varType.getBasicType()))
+		{
+			const int	numVecs		= glu::getDataTypeMatrixNumColumns(output->varType.getBasicType());
+
+			for (int vecNdx = 0; vecNdx < numVecs; ++vecNdx)
+				if (useIntOutputs)
+					src << "\t" << outputPrefix << output->name << "_" << vecNdx << " = floatBitsToUint(" << valuePrefix << output->name << "[" << vecNdx << "]);\n";
+				else
+					src << "\t" << outputPrefix << output->name << "_" << vecNdx << " = " << valuePrefix << output->name << "[" << vecNdx << "];\n";
+		}
+		else if (glu::isDataTypeBoolOrBVec(output->varType.getBasicType()))
+		{
+			const int				vecSize		= glu::getDataTypeScalarSize(output->varType.getBasicType());
+			const glu::DataType		intBaseType	= vecSize > 1 ? glu::getDataTypeIntVec(vecSize) : glu::TYPE_INT;
+
+			src << "\t" << outputPrefix << output->name << " = " << glu::getDataTypeName(intBaseType) << "(" << valuePrefix << output->name << ");\n";
+		}
+		else
+			src << "\t" << outputPrefix << output->name << " = " << valuePrefix << output->name << ";\n";
+	}
+}
+
+static std::string generateFragmentShader (const ShaderSpec& shaderSpec, bool useIntOutputs, const std::map<std::string, int>& outLocationMap, const std::string& inputPrefix, const std::string& outputPrefix)
+{
+	DE_ASSERT(glu::glslVersionUsesInOutQualifiers(shaderSpec.version));
+
+	std::ostringstream	src;
+
+	src << glu::getGLSLVersionDeclaration(shaderSpec.version) << "\n";
+
+	if (!shaderSpec.globalDeclarations.empty())
+		src << shaderSpec.globalDeclarations << "\n";
+
+	for (vector<Symbol>::const_iterator input = shaderSpec.inputs.begin(); input != shaderSpec.inputs.end(); ++input)
+		src << "flat in " << glu::declare(input->varType, inputPrefix + input->name) << ";\n";
+
+	generateFragShaderOutputDecl(src, shaderSpec, useIntOutputs, outLocationMap, outputPrefix);
 
 	src << "\nvoid main (void)\n{\n";
 
+	// Declare & fetch local input variables
+	for (vector<Symbol>::const_iterator input = shaderSpec.inputs.begin(); input != shaderSpec.inputs.end(); ++input)
+		src << "\t" << glu::declare(input->varType, input->name) << " = " << inputPrefix << input->name << ";\n";
+
+	// Declare output variables
 	for (vector<Symbol>::const_iterator output = shaderSpec.outputs.begin(); output != shaderSpec.outputs.end(); ++output)
-	{
-		if ((useIntOutputs && glu::isDataTypeFloatOrVec(output->varType.getBasicType())) ||
-			glu::isDataTypeBoolOrBVec(output->varType.getBasicType()) ||
-			glu::isDataTypeMatrix(output->varType.getBasicType()))
-			src << "\t" << glu::declare(output->varType, output->name) << ";\n";
-	}
+		src << "\t" << glu::declare(output->varType, output->name) << ";\n";
 
 	// Operation - indented to correct level.
 	{
@@ -366,28 +409,43 @@ static std::string generateFragmentShader (const ShaderSpec& shaderSpec, bool us
 			src << "\t" << line << "\n";
 	}
 
+	generateFragShaderOutAssign(src, shaderSpec, useIntOutputs, "", outputPrefix);
+
+	src << "}\n";
+
+	return src.str();
+}
+
+static std::string generatePassthroughFragmentShader (const ShaderSpec& shaderSpec, bool useIntOutputs, const std::map<std::string, int>& outLocationMap, const std::string& inputPrefix, const std::string& outputPrefix)
+{
+	DE_ASSERT(glu::glslVersionUsesInOutQualifiers(shaderSpec.version));
+
+	std::ostringstream	src;
+
+	src << glu::getGLSLVersionDeclaration(shaderSpec.version) << "\n";
+
+	if (!shaderSpec.globalDeclarations.empty())
+		src << shaderSpec.globalDeclarations << "\n";
+
 	for (vector<Symbol>::const_iterator output = shaderSpec.outputs.begin(); output != shaderSpec.outputs.end(); ++output)
 	{
-		if (useIntOutputs && glu::isDataTypeFloatOrVec(output->varType.getBasicType()))
-			src << "	o_" << output->name << " = floatBitsToUint(" << output->name << ");\n";
-		else if (glu::isDataTypeMatrix(output->varType.getBasicType()))
-		{
-			const int			numVecs			= glu::getDataTypeMatrixNumColumns(output->varType.getBasicType());
-
-			for (int vecNdx = 0; vecNdx < numVecs; ++vecNdx)
-				if (useIntOutputs)
-					src << "\to_" << output->name << "_" << vecNdx << " = floatBitsToUint(" << output->name << "[" << vecNdx << "]);\n";
-				else
-					src << "\to_" << output->name << "_" << vecNdx << " = " << output->name << "[" << vecNdx << "];\n";
-		}
-		else if (glu::isDataTypeBoolOrBVec(output->varType.getBasicType()))
+		if (glu::isDataTypeBoolOrBVec(output->varType.getBasicType()))
 		{
 			const int				vecSize		= glu::getDataTypeScalarSize(output->varType.getBasicType());
 			const glu::DataType		intBaseType	= vecSize > 1 ? glu::getDataTypeIntVec(vecSize) : glu::TYPE_INT;
+			const glu::VarType		intType		(intBaseType, glu::PRECISION_HIGHP);
 
-			src << "\to_" << output->name << " = " << glu::getDataTypeName(intBaseType) << "(" << output->name << ");\n";
+			src << "flat in " << glu::declare(intType, inputPrefix + output->name) << ";\n";
 		}
+		else
+			src << "flat in " << glu::declare(output->varType, inputPrefix + output->name) << ";\n";
 	}
+
+	generateFragShaderOutputDecl(src, shaderSpec, useIntOutputs, outLocationMap, outputPrefix);
+
+	src << "\nvoid main (void)\n{\n";
+
+	generateFragShaderOutAssign(src, shaderSpec, useIntOutputs, inputPrefix, outputPrefix);
 
 	src << "}\n";
 
@@ -413,234 +471,41 @@ void ShaderExecutor::useProgram (void)
 	m_renderCtx.getFunctions().useProgram(getProgram());
 }
 
-// VertexProcessorExecutor (base class for vertex and geometry executors)
+// FragmentOutExecutor
 
-class VertexProcessorExecutor : public ShaderExecutor
+struct FragmentOutputLayout
+{
+	std::vector<const Symbol*>		locationSymbols;		//! Symbols by location
+	std::map<std::string, int>		locationMap;			//! Map from symbol name to start location
+};
+
+class FragmentOutExecutor : public ShaderExecutor
 {
 public:
-								VertexProcessorExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec, const glu::ProgramSources& sources);
-								~VertexProcessorExecutor(void);
-
-	bool						isOk					(void) const				{ return m_program.isOk();			}
-	void						log						(tcu::TestLog& dst) const	{ dst << m_program;					}
-	deUint32					getProgram				(void) const				{ return m_program.getProgram();	}
+								FragmentOutExecutor		(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
+								~FragmentOutExecutor	(void);
 
 	void						execute					(int numValues, const void* const* inputs, void* const* outputs);
 
 protected:
-	glu::ShaderProgram			m_program;
+	const FragmentOutputLayout	m_outputLayout;
 };
 
-template<typename Iterator>
-struct SymbolNameIterator
+static FragmentOutputLayout computeFragmentOutputLayout (const std::vector<Symbol>& symbols)
 {
-	Iterator symbolIter;
-
-	SymbolNameIterator (Iterator symbolIter_) : symbolIter(symbolIter_) {}
-
-	inline SymbolNameIterator&	operator++	(void)								{ ++symbolIter; return *this;				}
-
-	inline bool					operator==	(const SymbolNameIterator& other)	{ return symbolIter == other.symbolIter;	}
-	inline bool					operator!=	(const SymbolNameIterator& other)	{ return symbolIter != other.symbolIter;	}
-
-	inline std::string operator* (void) const
-	{
-		if (glu::isDataTypeBoolOrBVec(symbolIter->varType.getBasicType()))
-			return "o_" + symbolIter->name;
-		else
-			return symbolIter->name;
-	}
-};
-
-template<typename Iterator>
-inline glu::TransformFeedbackVaryings<SymbolNameIterator<Iterator> > getTFVaryings (Iterator begin, Iterator end)
-{
-	return glu::TransformFeedbackVaryings<SymbolNameIterator<Iterator> >(SymbolNameIterator<Iterator>(begin), SymbolNameIterator<Iterator>(end));
-}
-
-VertexProcessorExecutor::VertexProcessorExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec, const glu::ProgramSources& sources)
-	: ShaderExecutor	(renderCtx, shaderSpec)
-	, m_program			(renderCtx,
-						 glu::ProgramSources(sources) << getTFVaryings(shaderSpec.outputs.begin(), shaderSpec.outputs.end())
-													  << glu::TransformFeedbackMode(GL_INTERLEAVED_ATTRIBS))
-{
-}
-
-VertexProcessorExecutor::~VertexProcessorExecutor (void)
-{
-}
-
-template<typename Iterator>
-static int computeTotalScalarSize (Iterator begin, Iterator end)
-{
-	int size = 0;
-	for (Iterator cur = begin; cur != end; ++cur)
-		size += cur->varType.getScalarSize();
-	return size;
-}
-
-void VertexProcessorExecutor::execute (int numValues, const void* const* inputs, void* const* outputs)
-{
-	const glw::Functions&					gl					= m_renderCtx.getFunctions();
-	const bool								useTFObject			= isContextTypeES(m_renderCtx.getType()) || (isContextTypeGLCore(m_renderCtx.getType()) && m_renderCtx.getType().getMajorVersion() >= 4);
-	vector<glu::VertexArrayBinding>			vertexArrays;
-	de::UniquePtr<glu::TransformFeedback>	transformFeedback	(useTFObject ? new glu::TransformFeedback(m_renderCtx) : DE_NULL);
-	glu::Buffer								outputBuffer		(m_renderCtx);
-	const int								outputBufferStride	= computeTotalScalarSize(m_outputs.begin(), m_outputs.end())*(int)sizeof(deUint32);
-
-	// Setup inputs.
-	for (int inputNdx = 0; inputNdx < (int)m_inputs.size(); inputNdx++)
-	{
-		const Symbol&		symbol		= m_inputs[inputNdx];
-		const void*			ptr			= inputs[inputNdx];
-		const glu::DataType	basicType	= symbol.varType.getBasicType();
-		const int			vecSize		= glu::getDataTypeScalarSize(basicType);
-
-		if (glu::isDataTypeFloatOrVec(basicType))
-			vertexArrays.push_back(glu::va::Float(symbol.name, vecSize, numValues, 0, (const float*)ptr));
-		else if (glu::isDataTypeIntOrIVec(basicType))
-			vertexArrays.push_back(glu::va::Int32(symbol.name, vecSize, numValues, 0, (const deInt32*)ptr));
-		else if (glu::isDataTypeUintOrUVec(basicType))
-			vertexArrays.push_back(glu::va::Uint32(symbol.name, vecSize, numValues, 0, (const deUint32*)ptr));
-		else if (glu::isDataTypeMatrix(basicType))
-		{
-			int		numRows	= glu::getDataTypeMatrixNumRows(basicType);
-			int		numCols	= glu::getDataTypeMatrixNumColumns(basicType);
-			int		stride	= numRows * numCols * (int)sizeof(float);
-
-			for (int colNdx = 0; colNdx < numCols; ++colNdx)
-				vertexArrays.push_back(glu::va::Float(symbol.name, colNdx, numRows, numValues, stride, ((const float*)ptr) + colNdx * numRows));
-		}
-		else
-			DE_ASSERT(false);
-	}
-
-	// Setup TF outputs.
-	if (useTFObject)
-		gl.bindTransformFeedback(GL_TRANSFORM_FEEDBACK, **transformFeedback);
-	gl.bindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER, *outputBuffer);
-	gl.bufferData(GL_TRANSFORM_FEEDBACK_BUFFER, outputBufferStride*numValues, DE_NULL, GL_STREAM_READ);
-	gl.bindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, *outputBuffer);
-	GLU_EXPECT_NO_ERROR(gl.getError(), "Error in TF setup");
-
-	// Draw with rasterization disabled.
-	gl.beginTransformFeedback(GL_POINTS);
-	gl.enable(GL_RASTERIZER_DISCARD);
-	glu::draw(m_renderCtx, m_program.getProgram(), (int)vertexArrays.size(), vertexArrays.empty() ? DE_NULL : &vertexArrays[0],
-			  glu::pr::Points(numValues));
-	gl.disable(GL_RASTERIZER_DISCARD);
-	gl.endTransformFeedback();
-	GLU_EXPECT_NO_ERROR(gl.getError(), "Error in draw");
-
-	// Read back data.
-	{
-		const void*	srcPtr		= gl.mapBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0, outputBufferStride*numValues, GL_MAP_READ_BIT);
-		int			curOffset	= 0; // Offset in buffer in bytes.
-
-		GLU_EXPECT_NO_ERROR(gl.getError(), "glMapBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER)");
-		TCU_CHECK(srcPtr != DE_NULL);
-
-		for (int outputNdx = 0; outputNdx < (int)m_outputs.size(); outputNdx++)
-		{
-			const Symbol&		symbol		= m_outputs[outputNdx];
-			void*				dstPtr		= outputs[outputNdx];
-			const int			scalarSize	= symbol.varType.getScalarSize();
-
-			for (int ndx = 0; ndx < numValues; ndx++)
-				deMemcpy((deUint32*)dstPtr + scalarSize*ndx, (const deUint8*)srcPtr + curOffset + ndx*outputBufferStride, scalarSize*(int)sizeof(deUint32));
-
-			curOffset += scalarSize*(int)sizeof(deUint32);
-		}
-
-		gl.unmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
-		GLU_EXPECT_NO_ERROR(gl.getError(), "glUnmapBuffer()");
-	}
-
-	if (useTFObject)
-		gl.bindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
-	gl.bindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER, 0);
-	GLU_EXPECT_NO_ERROR(gl.getError(), "Restore state");
-}
-
-// VertexShaderExecutor
-
-class VertexShaderExecutor : public VertexProcessorExecutor
-{
-public:
-								VertexShaderExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
-};
-
-VertexShaderExecutor::VertexShaderExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
-	: VertexProcessorExecutor	(renderCtx, shaderSpec,
-								 glu::ProgramSources() << glu::VertexSource(generateVertexShader(shaderSpec))
-													   << glu::FragmentSource(generateEmptyFragmentSource(shaderSpec.version)))
-{
-}
-
-// GeometryShaderExecutor
-
-class CheckGeomSupport
-{
-public:
-	inline CheckGeomSupport (const glu::RenderContext& renderCtx)
-	{
-		if (renderCtx.getType().getAPI().getProfile() == glu::PROFILE_ES)
-			checkExtension(renderCtx, "GL_EXT_geometry_shader");
-	}
-};
-
-class GeometryShaderExecutor : private CheckGeomSupport, public VertexProcessorExecutor
-{
-public:
-								GeometryShaderExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
-};
-
-GeometryShaderExecutor::GeometryShaderExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
-	: CheckGeomSupport			(renderCtx)
-	, VertexProcessorExecutor	(renderCtx, shaderSpec,
-								 glu::ProgramSources() << glu::VertexSource(generatePassthroughVertexShader(shaderSpec, "", "geom_"))
-													   << glu::GeometrySource(generateGeometryShader(shaderSpec))
-													   << glu::FragmentSource(generateEmptyFragmentSource(shaderSpec.version)))
-{
-}
-
-// FragmentShaderExecutor
-
-class FragmentShaderExecutor : public ShaderExecutor
-{
-public:
-								FragmentShaderExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
-								~FragmentShaderExecutor	(void);
-
-	bool						isOk					(void) const				{ return m_program.isOk();			}
-	void						log						(tcu::TestLog& dst) const	{ dst << m_program;					}
-	deUint32					getProgram				(void) const				{ return m_program.getProgram();	}
-
-	void						execute					(int numValues, const void* const* inputs, void* const* outputs);
-
-protected:
-	std::vector<const Symbol*>	m_outLocationSymbols;
-	std::map<std::string, int>	m_outLocationMap;
-	glu::ShaderProgram			m_program;
-};
-
-static std::map<std::string, int> generateLocationMap (const std::vector<Symbol>& symbols, std::vector<const Symbol*>& locationSymbols)
-{
-	std::map<std::string, int>	ret;
-	int							location	= 0;
-
-	locationSymbols.clear();
+	FragmentOutputLayout	ret;
+	int						location	= 0;
 
 	for (std::vector<Symbol>::const_iterator it = symbols.begin(); it != symbols.end(); ++it)
 	{
 		const int	numLocations	= glu::getDataTypeNumLocations(it->varType.getBasicType());
 
-		TCU_CHECK_INTERNAL(!de::contains(ret, it->name));
-		de::insert(ret, it->name, location);
+		TCU_CHECK_INTERNAL(!de::contains(ret.locationMap, it->name));
+		de::insert(ret.locationMap, it->name, location);
 		location += numLocations;
 
 		for (int ndx = 0; ndx < numLocations; ++ndx)
-			locationSymbols.push_back(&*it);
+			ret.locationSymbols.push_back(&*it);
 	}
 
 	return ret;
@@ -652,17 +517,13 @@ inline bool hasFloatRenderTargets (const glu::RenderContext& renderCtx)
 	return glu::isContextTypeGLCore(type);
 }
 
-FragmentShaderExecutor::FragmentShaderExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
-	: ShaderExecutor		(renderCtx, shaderSpec)
-	, m_outLocationSymbols	()
-	, m_outLocationMap		(generateLocationMap(m_outputs, m_outLocationSymbols))
-	, m_program				(renderCtx,
-							 glu::ProgramSources() << glu::VertexSource(generatePassthroughVertexShader(shaderSpec, "a_", ""))
-												   << glu::FragmentSource(generateFragmentShader(shaderSpec, !hasFloatRenderTargets(renderCtx), m_outLocationMap)))
+FragmentOutExecutor::FragmentOutExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
+	: ShaderExecutor	(renderCtx, shaderSpec)
+	, m_outputLayout	(computeFragmentOutputLayout(m_outputs))
 {
 }
 
-FragmentShaderExecutor::~FragmentShaderExecutor (void)
+FragmentOutExecutor::~FragmentOutExecutor (void)
 {
 }
 
@@ -702,7 +563,7 @@ static tcu::TextureFormat getRenderbufferFormatForOutput (const glu::VarType& ou
 	return tcu::TextureFormat(channelOrderMap[numComps-1], channelType);
 }
 
-void FragmentShaderExecutor::execute (int numValues, const void* const* inputs, void* const* outputs)
+void FragmentOutExecutor::execute (int numValues, const void* const* inputs, void* const* outputs)
 {
 	const glw::Functions&			gl					= m_renderCtx.getFunctions();
 	const bool						useIntOutputs		= !hasFloatRenderTargets(m_renderCtx);
@@ -711,7 +572,7 @@ void FragmentShaderExecutor::execute (int numValues, const void* const* inputs, 
 	const int						framebufferH		= (numValues / framebufferW) + ((numValues % framebufferW != 0) ? 1 : 0);
 
 	glu::Framebuffer				framebuffer			(m_renderCtx);
-	glu::RenderbufferVector			renderbuffers		(m_renderCtx, m_outLocationSymbols.size());
+	glu::RenderbufferVector			renderbuffers		(m_renderCtx, m_outputLayout.locationSymbols.size());
 
 	vector<glu::VertexArrayBinding>	vertexArrays;
 	vector<tcu::Vec2>				positions			(numValues);
@@ -763,9 +624,9 @@ void FragmentShaderExecutor::execute (int numValues, const void* const* inputs, 
 	// Construct framebuffer.
 	gl.bindFramebuffer(GL_FRAMEBUFFER, *framebuffer);
 
-	for (int outNdx = 0; outNdx < (int)m_outLocationSymbols.size(); ++outNdx)
+	for (int outNdx = 0; outNdx < (int)m_outputLayout.locationSymbols.size(); ++outNdx)
 	{
-		const Symbol&	output			= *m_outLocationSymbols[outNdx];
+		const Symbol&	output			= *m_outputLayout.locationSymbols[outNdx];
 		const deUint32	renderbuffer	= renderbuffers[outNdx];
 		const deUint32	format			= glu::getInternalFormat(getRenderbufferFormatForOutput(output.varType, useIntOutputs));
 
@@ -778,8 +639,8 @@ void FragmentShaderExecutor::execute (int numValues, const void* const* inputs, 
 	TCU_CHECK(gl.checkFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
 	{
-		vector<deUint32> drawBuffers(m_outLocationSymbols.size());
-		for (int ndx = 0; ndx < (int)m_outLocationSymbols.size(); ndx++)
+		vector<deUint32> drawBuffers(m_outputLayout.locationSymbols.size());
+		for (int ndx = 0; ndx < (int)m_outputLayout.locationSymbols.size(); ndx++)
 			drawBuffers[ndx] = GL_COLOR_ATTACHMENT0+ndx;
 		gl.drawBuffers((int)drawBuffers.size(), &drawBuffers[0]);
 		GLU_EXPECT_NO_ERROR(gl.getError(), "glDrawBuffers()");
@@ -787,7 +648,7 @@ void FragmentShaderExecutor::execute (int numValues, const void* const* inputs, 
 
 	// Render
 	gl.viewport(0, 0, framebufferW, framebufferH);
-	glu::draw(m_renderCtx, m_program.getProgram(), (int)vertexArrays.size(), &vertexArrays[0],
+	glu::draw(m_renderCtx, this->getProgram(), (int)vertexArrays.size(), &vertexArrays[0],
 			  glu::pr::Points(numValues));
 	GLU_EXPECT_NO_ERROR(gl.getError(), "Error in draw");
 
@@ -806,7 +667,7 @@ void FragmentShaderExecutor::execute (int numValues, const void* const* inputs, 
 			deUint32*					dstPtrBase		= static_cast<deUint32*>(outputs[outNdx]);
 			const tcu::TextureFormat	format			= getRenderbufferFormatForOutput(output.varType, useIntOutputs);
 			const tcu::TextureFormat	readFormat		(tcu::TextureFormat::RGBA, format.type);
-			const int					outLocation		= de::lookup(m_outLocationMap, output.name);
+			const int					outLocation		= de::lookup(m_outputLayout.locationMap, output.name);
 
 			tmpBuf.setStorage(readFormat, framebufferW, framebufferH);
 
@@ -833,6 +694,103 @@ void FragmentShaderExecutor::execute (int numValues, const void* const* inputs, 
 
 	// \todo [2013-08-07 pyry] Clear draw buffers & viewport?
 	gl.bindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// VertexShaderExecutor
+
+class VertexShaderExecutor : public FragmentOutExecutor
+{
+public:
+								VertexShaderExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
+								~VertexShaderExecutor	(void);
+
+	bool						isOk					(void) const				{ return m_program.isOk();			}
+	void						log						(tcu::TestLog& dst) const	{ dst << m_program;					}
+	deUint32					getProgram				(void) const				{ return m_program.getProgram();	}
+
+protected:
+	const glu::ShaderProgram	m_program;
+};
+
+VertexShaderExecutor::VertexShaderExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
+	: FragmentOutExecutor	(renderCtx, shaderSpec)
+	, m_program				(renderCtx,
+							 glu::ProgramSources() << glu::VertexSource(generateVertexShader(shaderSpec, "a_", "vtx_out_"))
+												   << glu::FragmentSource(generatePassthroughFragmentShader(shaderSpec, !hasFloatRenderTargets(renderCtx), m_outputLayout.locationMap, "vtx_out_", "o_")))
+{
+}
+
+VertexShaderExecutor::~VertexShaderExecutor (void)
+{
+}
+
+// GeometryShaderExecutor
+
+class GeometryShaderExecutor : public FragmentOutExecutor
+{
+public:
+	static GeometryShaderExecutor*	create					(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
+
+									~GeometryShaderExecutor	(void);
+
+	bool							isOk					(void) const				{ return m_program.isOk();			}
+	void							log						(tcu::TestLog& dst) const	{ dst << m_program;					}
+	deUint32						getProgram				(void) const				{ return m_program.getProgram();	}
+
+protected:
+	const glu::ShaderProgram		m_program;
+
+private:
+									GeometryShaderExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
+};
+
+GeometryShaderExecutor* GeometryShaderExecutor::create (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
+{
+	if (glu::glslVersionIsES(shaderSpec.version) && shaderSpec.version <= glu::GLSL_VERSION_310_ES)
+		checkExtension(renderCtx, "GL_EXT_geometry_shader");
+
+	return new GeometryShaderExecutor(renderCtx, shaderSpec);
+}
+
+GeometryShaderExecutor::GeometryShaderExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
+	: FragmentOutExecutor	(renderCtx, shaderSpec)
+	, m_program				(renderCtx,
+							 glu::ProgramSources() << glu::VertexSource(generatePassthroughVertexShader(shaderSpec, "a_", "vtx_out_"))
+												   << glu::GeometrySource(generateGeometryShader(shaderSpec, "vtx_out_", "geom_out_"))
+												   << glu::FragmentSource(generatePassthroughFragmentShader(shaderSpec, !hasFloatRenderTargets(renderCtx), m_outputLayout.locationMap, "geom_out_", "o_")))
+{
+}
+
+GeometryShaderExecutor::~GeometryShaderExecutor (void)
+{
+}
+
+// FragmentShaderExecutor
+
+class FragmentShaderExecutor : public FragmentOutExecutor
+{
+public:
+								FragmentShaderExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
+								~FragmentShaderExecutor	(void);
+
+	bool						isOk					(void) const				{ return m_program.isOk();			}
+	void						log						(tcu::TestLog& dst) const	{ dst << m_program;					}
+	deUint32					getProgram				(void) const				{ return m_program.getProgram();	}
+
+protected:
+	const glu::ShaderProgram	m_program;
+};
+
+FragmentShaderExecutor::FragmentShaderExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
+	: FragmentOutExecutor	(renderCtx, shaderSpec)
+	, m_program				(renderCtx,
+							 glu::ProgramSources() << glu::VertexSource(generatePassthroughVertexShader(shaderSpec, "a_", "vtx_out_"))
+												   << glu::FragmentSource(generateFragmentShader(shaderSpec, !hasFloatRenderTargets(renderCtx), m_outputLayout.locationMap, "vtx_out_", "o_")))
+{
+}
+
+FragmentShaderExecutor::~FragmentShaderExecutor (void)
+{
 }
 
 // Shared utilities for compute and tess executors
@@ -1295,44 +1253,46 @@ static std::string generateVertexShaderForTess (glu::GLSLVersion version)
 	return src.str();
 }
 
-class CheckTessSupport
+void checkTessSupport (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec, glu::ShaderType stage)
 {
-public:
-	enum Stage
-	{
-		STAGE_CONTROL = 0,
-		STAGE_EVAL,
-	};
+	const int numBlockRequired = 2; // highest binding is always 1 (output) i.e. count == 2
 
-	inline CheckTessSupport (const glu::RenderContext& renderCtx, Stage stage)
-	{
-		const int numBlockRequired = 2; // highest binding is always 1 (output) i.e. count == 2
+	if (glu::glslVersionIsES(shaderSpec.version) && shaderSpec.version <= glu::GLSL_VERSION_310_ES)
+		checkExtension(renderCtx, "GL_EXT_tessellation_shader");
 
-		if (renderCtx.getType().getAPI().getProfile() == glu::PROFILE_ES)
-			checkExtension(renderCtx, "GL_EXT_tessellation_shader");
-
-		if (stage == STAGE_CONTROL)
-			checkLimit(renderCtx, GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS, numBlockRequired);
-		else if (stage == STAGE_EVAL)
-			checkLimit(renderCtx, GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS, numBlockRequired);
-		else
-			DE_ASSERT(false);
-	}
-};
+	if (stage == glu::SHADERTYPE_TESSELLATION_CONTROL)
+		checkLimit(renderCtx, GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS, numBlockRequired);
+	else if (stage == glu::SHADERTYPE_TESSELLATION_EVALUATION)
+		checkLimit(renderCtx, GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS, numBlockRequired);
+	else
+		DE_ASSERT(false);
+}
 
 // TessControlExecutor
 
-class TessControlExecutor : private CheckTessSupport, public BufferIoExecutor
+class TessControlExecutor : public BufferIoExecutor
 {
 public:
-						TessControlExecutor			(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
-						~TessControlExecutor		(void);
+	static TessControlExecutor*	create						(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
 
-	void				execute						(int numValues, const void* const* inputs, void* const* outputs);
+								~TessControlExecutor		(void);
+
+	void						execute						(int numValues, const void* const* inputs, void* const* outputs);
+
 
 protected:
-	static std::string	generateTessControlShader	(const ShaderSpec& shaderSpec);
+	static std::string			generateTessControlShader	(const ShaderSpec& shaderSpec);
+
+private:
+								TessControlExecutor			(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
 };
+
+TessControlExecutor* TessControlExecutor::create (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
+{
+	checkTessSupport(renderCtx, shaderSpec, glu::SHADERTYPE_TESSELLATION_CONTROL);
+
+	return new TessControlExecutor(renderCtx, shaderSpec);
+}
 
 std::string TessControlExecutor::generateTessControlShader (const ShaderSpec& shaderSpec)
 {
@@ -1340,7 +1300,7 @@ std::string TessControlExecutor::generateTessControlShader (const ShaderSpec& sh
 
 	src << glu::getGLSLVersionDeclaration(shaderSpec.version) << "\n";
 
-	if (shaderSpec.version == glu::GLSL_VERSION_310_ES)
+	if (glu::glslVersionIsES(shaderSpec.version) && shaderSpec.version <= glu::GLSL_VERSION_310_ES)
 		src << "#extension GL_EXT_tessellation_shader : require\n";
 
 	if (!shaderSpec.globalDeclarations.empty())
@@ -1374,7 +1334,7 @@ static std::string generateEmptyTessEvalShader (glu::GLSLVersion version)
 
 	src << glu::getGLSLVersionDeclaration(version) << "\n";
 
-	if (version == glu::GLSL_VERSION_310_ES)
+	if (glu::glslVersionIsES(version) && version <= glu::GLSL_VERSION_310_ES)
 		src << "#extension GL_EXT_tessellation_shader : require\n\n";
 
 	src << "layout(triangles, ccw) in;\n";
@@ -1387,8 +1347,7 @@ static std::string generateEmptyTessEvalShader (glu::GLSLVersion version)
 }
 
 TessControlExecutor::TessControlExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
-	: CheckTessSupport	(renderCtx, STAGE_CONTROL)
-	, BufferIoExecutor	(renderCtx, shaderSpec, glu::ProgramSources()
+	: BufferIoExecutor	(renderCtx, shaderSpec, glu::ProgramSources()
 							<< glu::VertexSource(generateVertexShaderForTess(shaderSpec.version))
 							<< glu::TessellationControlSource(generateTessControlShader(shaderSpec))
 							<< glu::TessellationEvaluationSource(generateEmptyTessEvalShader(shaderSpec.version))
@@ -1424,17 +1383,29 @@ void TessControlExecutor::execute (int numValues, const void* const* inputs, voi
 
 // TessEvaluationExecutor
 
-class TessEvaluationExecutor : private CheckTessSupport, public BufferIoExecutor
+class TessEvaluationExecutor : public BufferIoExecutor
 {
 public:
-						TessEvaluationExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
-						~TessEvaluationExecutor	(void);
+	static TessEvaluationExecutor*	create					(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
 
-	void				execute					(int numValues, const void* const* inputs, void* const* outputs);
+									~TessEvaluationExecutor	(void);
+
+	void							execute					(int numValues, const void* const* inputs, void* const* outputs);
+
 
 protected:
-	static std::string	generateTessEvalShader	(const ShaderSpec& shaderSpec);
+	static std::string				generateTessEvalShader	(const ShaderSpec& shaderSpec);
+
+private:
+									TessEvaluationExecutor	(const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec);
 };
+
+TessEvaluationExecutor* TessEvaluationExecutor::create (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
+{
+	checkTessSupport(renderCtx, shaderSpec, glu::SHADERTYPE_TESSELLATION_EVALUATION);
+
+	return new TessEvaluationExecutor(renderCtx, shaderSpec);
+}
 
 static std::string generatePassthroughTessControlShader (glu::GLSLVersion version)
 {
@@ -1442,7 +1413,7 @@ static std::string generatePassthroughTessControlShader (glu::GLSLVersion versio
 
 	src << glu::getGLSLVersionDeclaration(version) << "\n";
 
-	if (version == glu::GLSL_VERSION_310_ES)
+	if (glu::glslVersionIsES(version) && version <= glu::GLSL_VERSION_310_ES)
 		src << "#extension GL_EXT_tessellation_shader : require\n\n";
 
 	src << "layout(vertices = 1) out;\n\n";
@@ -1466,7 +1437,7 @@ std::string TessEvaluationExecutor::generateTessEvalShader (const ShaderSpec& sh
 
 	src << glu::getGLSLVersionDeclaration(shaderSpec.version) << "\n";
 
-	if (shaderSpec.version == glu::GLSL_VERSION_310_ES)
+	if (glu::glslVersionIsES(shaderSpec.version) && shaderSpec.version <= glu::GLSL_VERSION_310_ES)
 		src << "#extension GL_EXT_tessellation_shader : require\n";
 
 	if (!shaderSpec.globalDeclarations.empty())
@@ -1480,7 +1451,7 @@ std::string TessEvaluationExecutor::generateTessEvalShader (const ShaderSpec& sh
 
 	src << "void main (void)\n{\n"
 		<< "\tgl_Position = vec4(gl_TessCoord.x, 0.0, 0.0, 1.0);\n"
-		<< "\thighp uint invocationId = uint(gl_PrimitiveID) + (gl_TessCoord.x > 0.5 ? 1u : 0u);\n";
+		<< "\thighp uint invocationId = uint(gl_PrimitiveID)*2u + (gl_TessCoord.x > 0.5 ? 1u : 0u);\n";
 
 	generateExecBufferIo(src, shaderSpec, "invocationId");
 
@@ -1490,8 +1461,7 @@ std::string TessEvaluationExecutor::generateTessEvalShader (const ShaderSpec& sh
 }
 
 TessEvaluationExecutor::TessEvaluationExecutor (const glu::RenderContext& renderCtx, const ShaderSpec& shaderSpec)
-	: CheckTessSupport	(renderCtx, STAGE_EVAL)
-	, BufferIoExecutor	(renderCtx, shaderSpec, glu::ProgramSources()
+	: BufferIoExecutor	(renderCtx, shaderSpec, glu::ProgramSources()
 							<< glu::VertexSource(generateVertexShaderForTess(shaderSpec.version))
 							<< glu::TessellationControlSource(generatePassthroughTessControlShader(shaderSpec.version))
 							<< glu::TessellationEvaluationSource(generateTessEvalShader(shaderSpec))
@@ -1523,7 +1493,7 @@ void TessEvaluationExecutor::execute (int numValues, const void* const* inputs, 
 
 	// Render patches
 	gl.patchParameteri(GL_PATCH_VERTICES, 2);
-	gl.drawArrays(GL_PATCHES, 0, 2*alignedValues);
+	gl.drawArrays(GL_PATCHES, 0, alignedValues);
 
 	// Read back data
 	readOutputBuffer(outputs, numValues);
@@ -1535,12 +1505,12 @@ ShaderExecutor* createExecutor (const glu::RenderContext& renderCtx, glu::Shader
 {
 	switch (shaderType)
 	{
-		case glu::SHADERTYPE_VERTEX:					return new VertexShaderExecutor		(renderCtx, shaderSpec);
-		case glu::SHADERTYPE_TESSELLATION_CONTROL:		return new TessControlExecutor		(renderCtx, shaderSpec);
-		case glu::SHADERTYPE_TESSELLATION_EVALUATION:	return new TessEvaluationExecutor	(renderCtx, shaderSpec);
-		case glu::SHADERTYPE_GEOMETRY:					return new GeometryShaderExecutor	(renderCtx, shaderSpec);
-		case glu::SHADERTYPE_FRAGMENT:					return new FragmentShaderExecutor	(renderCtx, shaderSpec);
-		case glu::SHADERTYPE_COMPUTE:					return new ComputeShaderExecutor	(renderCtx, shaderSpec);
+		case glu::SHADERTYPE_VERTEX:					return new VertexShaderExecutor			(renderCtx, shaderSpec);
+		case glu::SHADERTYPE_TESSELLATION_CONTROL:		return TessControlExecutor::create		(renderCtx, shaderSpec);
+		case glu::SHADERTYPE_TESSELLATION_EVALUATION:	return TessEvaluationExecutor::create	(renderCtx, shaderSpec);
+		case glu::SHADERTYPE_GEOMETRY:					return GeometryShaderExecutor::create	(renderCtx, shaderSpec);
+		case glu::SHADERTYPE_FRAGMENT:					return new FragmentShaderExecutor		(renderCtx, shaderSpec);
+		case glu::SHADERTYPE_COMPUTE:					return new ComputeShaderExecutor		(renderCtx, shaderSpec);
 		default:
 			throw tcu::InternalError("Unsupported shader type");
 	}

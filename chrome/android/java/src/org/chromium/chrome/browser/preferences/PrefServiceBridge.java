@@ -10,6 +10,7 @@ import android.preference.PreferenceManager;
 import android.util.Log;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.browser.ContentSettingsType;
 import org.chromium.chrome.browser.preferences.website.ContentSetting;
@@ -115,18 +116,14 @@ public final class PrefServiceBridge {
         if (currentVersion < 1) {
             nativeMigrateJavascriptPreference();
         }
-        // Step 2 intentionally skipped.
-        if (currentVersion < 3) {
-            nativeMigrateLocationPreference();
-            nativeMigrateProtectedMediaPreference();
-        }
+        // Steps 2,3 intentionally skipped.
         if (currentVersion < 4) {
             // For a brief period (M44 Beta), it was possible for users to disable images via Site
             // Settings. Now that this option has been removed, ensure that users are not stuck with
             // images disabled.
             setContentSettingEnabled(ContentSettingsType.CONTENT_SETTINGS_TYPE_IMAGES, true);
         }
-        preferences.edit().putInt(MIGRATION_PREF_KEY, MIGRATION_CURRENT_VERSION).commit();
+        preferences.edit().putInt(MIGRATION_PREF_KEY, MIGRATION_CURRENT_VERSION).apply();
     }
 
     /**
@@ -207,16 +204,16 @@ public final class PrefServiceBridge {
      */
     @CalledByNative
     public static String getAndroidPermissionForContentSetting(int contentSettingType) {
-        switch(contentSettingType) {
-            case ContentSettingsType.CONTENT_SETTINGS_TYPE_GEOLOCATION:
-                return android.Manifest.permission.ACCESS_FINE_LOCATION;
-            case ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
-                return android.Manifest.permission.RECORD_AUDIO;
-            case ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
-                return android.Manifest.permission.CAMERA;
-            default:
-                return null;
+        if (contentSettingType == ContentSettingsType.CONTENT_SETTINGS_TYPE_GEOLOCATION) {
+            return android.Manifest.permission.ACCESS_FINE_LOCATION;
         }
+        if (contentSettingType == ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC) {
+            return android.Manifest.permission.RECORD_AUDIO;
+        }
+        if (contentSettingType == ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA) {
+            return android.Manifest.permission.CAMERA;
+        }
+        return null;
     }
 
     public boolean isAcceptCookiesEnabled() {
@@ -261,10 +258,10 @@ public final class PrefServiceBridge {
     }
 
     /**
-     * @return whether push notifications are enabled.
+     * @return whether notifications are enabled.
      */
-    public boolean isPushNotificationsEnabled() {
-        return nativeGetPushNotificationsEnabled();
+    public boolean isNotificationsEnabled() {
+        return nativeGetNotificationsEnabled();
     }
 
     /**
@@ -369,6 +366,13 @@ public final class PrefServiceBridge {
      */
     public void setJavaScriptEnabled(boolean enabled) {
         setContentSettingEnabled(ContentSettingsType.CONTENT_SETTINGS_TYPE_JAVASCRIPT, enabled);
+    }
+
+    /**
+     * @return the last account id associated with sync.
+     */
+    public String getSyncLastAccountId() {
+        return nativeGetSyncLastAccountId();
     }
 
     /**
@@ -512,40 +516,40 @@ public final class PrefServiceBridge {
 
     /**
      * @return whether there is a user set value for kNetworkPredictionEnabled.  This should only be
-     * used for preference migration.
+     * used for preference migration. See http://crbug.com/334602
      */
-    public boolean networkPredictionEnabledHasUserSetting() {
-        return nativeNetworkPredictionEnabledHasUserSetting();
+    public boolean obsoleteNetworkPredictionEnabledHasUserSetting() {
+        return nativeObsoleteNetworkPredictionEnabledHasUserSetting();
     }
 
     /**
      * @return whether there is a user set value for kNetworkPredictionOptions.  This should only be
-     * used for preference migration.
+     * used for preference migration. See http://crbug.com/334602
      */
-    public boolean networkPredictionOptionsHasUserSetting() {
-        return nativeNetworkPredictionOptionsHasUserSetting();
+    public boolean obsoleteNetworkPredictionOptionsHasUserSetting() {
+        return nativeObsoleteNetworkPredictionOptionsHasUserSetting();
     }
 
     /**
      * @return the user set value for kNetworkPredictionEnabled. This should only be used for
-     * preference migration.
+     * preference migration. See http://crbug.com/334602
      */
-    public boolean getNetworkPredictionEnabledUserPrefValue() {
-        return nativeGetNetworkPredictionEnabledUserPrefValue();
+    public boolean obsoleteGetNetworkPredictionEnabledUserPrefValue() {
+        return nativeObsoleteGetNetworkPredictionEnabledUserPrefValue();
     }
 
     /**
      * @return Network predictions preference.
      */
-    public NetworkPredictionOptions getNetworkPredictionOptions() {
-        return NetworkPredictionOptions.intToEnum(nativeGetNetworkPredictionOptions());
+    public boolean getNetworkPredictionEnabled() {
+        return nativeGetNetworkPredictionEnabled();
     }
 
     /**
      * Sets network predictions preference.
      */
-    public void setNetworkPredictionOptions(NetworkPredictionOptions option) {
-        nativeSetNetworkPredictionOptions(option.enumToInt());
+    public void setNetworkPredictionEnabled(boolean enabled) {
+        nativeSetNetworkPredictionEnabled(enabled);
     }
 
     /**
@@ -560,8 +564,8 @@ public final class PrefServiceBridge {
      * connection type.
      * @return Whether network predictions are allowed.
      */
-    public boolean canPredictNetworkActions() {
-        return nativeCanPredictNetworkActions();
+    public boolean canPrefetchAndPrerender() {
+        return nativeCanPrefetchAndPrerender();
     }
 
     /**
@@ -635,17 +639,59 @@ public final class PrefServiceBridge {
     }
 
     /**
+     * Checks the state of deletion preference for a certain browsing data type.
+     * @param dataType The requested browsing data type (from the shared enum
+     *      {@link org.chromium.chrome.browser.BrowsingDataType}).
+     * @return The state of the corresponding deletion preference.
+     */
+    public boolean getBrowsingDataDeletionPreference(int dataType) {
+        return nativeGetBrowsingDataDeletionPreference(dataType);
+    }
+
+    /**
+     * Sets the state of deletion preference for a certain browsing data type.
+     * @param dataType The requested browsing data type (from the shared enum
+     *      {@link org.chromium.chrome.browser.BrowsingDataType}).
+     * @param value The state to be set.
+     */
+    public void setBrowsingDataDeletionPreference(int dataType, boolean value) {
+        nativeSetBrowsingDataDeletionPreference(dataType, value);
+    }
+
+    /**
+     * Gets the time period for which browsing data will be deleted.
+     * @return The currently selected browsing data deletion time period (from the shared enum
+     *      {@link org.chromium.chrome.browser.TimePeriod}).
+     */
+    public int getBrowsingDataDeletionTimePeriod() {
+        return nativeGetBrowsingDataDeletionTimePeriod();
+    }
+
+    /**
+     * Sets the time period for which browsing data will be deleted.
+     * @param timePeriod The selected browsing data deletion time period (from the shared enum
+     *      {@link org.chromium.chrome.browser.TimePeriod}).
+     */
+    public void setBrowsingDataDeletionTimePeriod(int timePeriod) {
+        nativeSetBrowsingDataDeletionTimePeriod(timePeriod);
+    }
+
+    /**
      * Clear the specified types of browsing data asynchronously.
      * |listener| is an object to be notified when clearing completes.
      * It can be null, but many operations (e.g. navigation) are
      * ill-advised while browsing data is being cleared.
+     * @param listener A listener to call back when the clearing is finished.
+     * @param dataTypes An array of browsing data types to delete, represented as values from
+     *      the shared enum {@link org.chromium.chrome.browser.BrowsingDataType}.
+     * @param timePeriod The time period for which to delete the data, represented as a value from
+     *      the shared enum {@link org.chromium.chrome.browser.TimePeriod}.
      */
-    public void clearBrowsingData(OnClearBrowsingDataListener listener,
-            boolean history, boolean cache, boolean cookiesAndSiteData,
-            boolean passwords, boolean formData) {
+    public void clearBrowsingData(
+            OnClearBrowsingDataListener listener, int[] dataTypes, int timePeriod) {
         assert mClearBrowsingDataListener == null;
         mClearBrowsingDataListener = listener;
-        nativeClearBrowsingData(history, cache, cookiesAndSiteData, passwords, formData);
+        nativeClearBrowsingData(dataTypes, timePeriod);
     }
 
     /*
@@ -683,8 +729,8 @@ public final class PrefServiceBridge {
         nativeSetPasswordManagerAutoSigninEnabled(enabled);
     }
 
-    public void setPushNotificationsEnabled(boolean allow) {
-        nativeSetPushNotificationsEnabled(allow);
+    public void setNotificationsEnabled(boolean allow) {
+        nativeSetNotificationsEnabled(allow);
     }
 
     public void setAllowLocationEnabled(boolean allow) {
@@ -846,10 +892,10 @@ public final class PrefServiceBridge {
     }
 
     /**
-     * @return whether ForceGoogleSafeSearch is set
+     * @return whether SafeSites for supervised users is enabled.
      */
-    public boolean isForceGoogleSafeSearch() {
-        return nativeGetForceGoogleSafeSearch();
+    public boolean isSupervisedUserSafeSitesEnabled() {
+        return nativeGetSupervisedUserSafeSitesEnabled();
     }
 
     /**
@@ -912,6 +958,26 @@ public final class PrefServiceBridge {
         return nativeHasSetMetricsReporting();
     }
 
+    /**
+     * @param clicked Whether the update menu item was clicked. The preference is stored to
+     *                facilitate logging whether Chrome was updated after a click on the menu item.
+     */
+    public void setClickedUpdateMenuItem(boolean clicked) {
+        nativeSetClickedUpdateMenuItem(clicked);
+    }
+
+    /**
+     * @return Whether the update menu item was clicked.
+     */
+    public boolean getClickedUpdateMenuItem() {
+        return nativeGetClickedUpdateMenuItem();
+    }
+
+    @VisibleForTesting
+    public void setSupervisedUserId(String supervisedUserId) {
+        nativeSetSupervisedUserId(supervisedUserId);
+    }
+
     private native boolean nativeGetAcceptCookiesEnabled();
     private native boolean nativeGetAcceptCookiesManaged();
     private native boolean nativeGetBlockThirdPartyCookiesEnabled();
@@ -947,16 +1013,17 @@ public final class PrefServiceBridge {
     private native boolean nativeGetIncognitoModeManaged();
     private native boolean nativeGetPrintingEnabled();
     private native boolean nativeGetPrintingManaged();
-    private native boolean nativeGetForceGoogleSafeSearch();
+    private native boolean nativeGetSupervisedUserSafeSitesEnabled();
     private native void nativeSetTranslateEnabled(boolean enabled);
     private native void nativeSetAutoDetectEncodingEnabled(boolean enabled);
     private native void nativeResetTranslateDefaults();
     private native void nativeMigrateJavascriptPreference();
-    private native void nativeMigrateLocationPreference();
-    private native void nativeMigrateProtectedMediaPreference();
     private native void nativeSetJavaScriptAllowed(String pattern, int setting);
-    private native void nativeClearBrowsingData(boolean history, boolean cache,
-            boolean cookiesAndSiteData, boolean passwords, boolean formData);
+    private native boolean nativeGetBrowsingDataDeletionPreference(int dataType);
+    private native void nativeSetBrowsingDataDeletionPreference(int dataType, boolean value);
+    private native int nativeGetBrowsingDataDeletionTimePeriod();
+    private native void nativeSetBrowsingDataDeletionTimePeriod(int timePeriod);
+    private native void nativeClearBrowsingData(int[] dataTypes, int timePeriod);
     private native boolean nativeCanDeleteBrowsingHistory();
     private native void nativeSetAllowCookiesEnabled(boolean allow);
     private native void nativeSetBlockThirdPartyCookiesEnabled(boolean enabled);
@@ -966,13 +1033,13 @@ public final class PrefServiceBridge {
     private native void nativeSetPasswordManagerAutoSigninEnabled(boolean enabled);
     private native void nativeSetProtectedMediaIdentifierEnabled(boolean enabled);
     private native boolean nativeGetAllowLocationEnabled();
-    private native boolean nativeGetPushNotificationsEnabled();
+    private native boolean nativeGetNotificationsEnabled();
     private native void nativeSetAllowLocationEnabled(boolean allow);
-    private native void nativeSetPushNotificationsEnabled(boolean allow);
+    private native void nativeSetNotificationsEnabled(boolean allow);
     private native void nativeSetPasswordEchoEnabled(boolean enabled);
     private native void nativeSetPopupException(String pattern, int setting);
     private native void nativeSetCrashReporting(boolean reporting);
-    private native boolean nativeCanPredictNetworkActions();
+    private native boolean nativeCanPrefetchAndPrerender();
     private native AboutVersionStrings nativeGetAboutVersionStrings();
     private native void nativeSetContextualSearchPreference(String preference);
     private native String nativeGetContextualSearchPreference();
@@ -987,14 +1054,15 @@ public final class PrefServiceBridge {
     private native void nativeSetSafeBrowsingEnabled(boolean enabled);
     private native boolean nativeGetSafeBrowsingManaged();
     private native boolean nativeGetNetworkPredictionManaged();
-    private native boolean nativeNetworkPredictionEnabledHasUserSetting();
-    private native boolean nativeNetworkPredictionOptionsHasUserSetting();
-    private native boolean nativeGetNetworkPredictionEnabledUserPrefValue();
-    private native int nativeGetNetworkPredictionOptions();
-    private native void nativeSetNetworkPredictionOptions(int option);
+    private native boolean nativeObsoleteNetworkPredictionEnabledHasUserSetting();
+    private native boolean nativeObsoleteNetworkPredictionOptionsHasUserSetting();
+    private native boolean nativeObsoleteGetNetworkPredictionEnabledUserPrefValue();
+    private native boolean nativeGetNetworkPredictionEnabled();
+    private native void nativeSetNetworkPredictionEnabled(boolean enabled);
     private native void nativeSetResolveNavigationErrorEnabled(boolean enabled);
     private native void nativeSetEulaAccepted();
     private native void nativeResetAcceptLanguages(String defaultLocale);
+    private native String nativeGetSyncLastAccountId();
     private native String nativeGetSyncLastAccountName();
     private native String nativeGetSupervisedUserCustodianName();
     private native String nativeGetSupervisedUserCustodianEmail();
@@ -1006,4 +1074,7 @@ public final class PrefServiceBridge {
     private native boolean nativeGetMetricsReportingEnabled();
     private native void nativeSetMetricsReportingEnabled(boolean enabled);
     private native boolean nativeHasSetMetricsReporting();
+    private native void nativeSetClickedUpdateMenuItem(boolean clicked);
+    private native boolean nativeGetClickedUpdateMenuItem();
+    private native void nativeSetSupervisedUserId(String supervisedUserId);
 }

@@ -23,8 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/events/GenericEventQueue.h"
 
 #include "core/events/Event.h"
@@ -133,4 +131,4 @@ bool GenericEventQueue::hasPendingEvents() const
     return m_pendingEvents.size();
 }
 
-}
+} // namespace blink

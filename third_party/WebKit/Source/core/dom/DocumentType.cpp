@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/DocumentType.h"
 
 #include "core/dom/Document.h"
@@ -36,17 +35,12 @@ DocumentType::DocumentType(Document* document, const String& name, const String&
 {
 }
 
-KURL DocumentType::baseURI() const
-{
-    return KURL();
-}
-
 String DocumentType::nodeName() const
 {
     return name();
 }
 
-Node::NodeType DocumentType::nodeType() const
+Node::NodeType DocumentType::getNodeType() const
 {
     return DOCUMENT_TYPE_NODE;
 }
@@ -74,4 +68,4 @@ void DocumentType::removedFrom(ContainerNode* insertionPoint)
     Node::removedFrom(insertionPoint);
 }
 
-}
+} // namespace blink

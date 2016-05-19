@@ -5,6 +5,8 @@
 #ifndef EXTENSIONS_BROWSER_API_WEB_REQUEST_WEB_REQUEST_API_H_
 #define EXTENSIONS_BROWSER_API_WEB_REQUEST_WEB_REQUEST_API_H_
 
+#include <stdint.h>
+
 #include <list>
 #include <map>
 #include <set>
@@ -12,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_util.h"
@@ -54,6 +57,7 @@ class URLRequest;
 namespace extensions {
 
 class InfoMap;
+class WebRequestEventDetails;
 class WebRequestRulesRegistry;
 class WebRequestEventRouterDelegate;
 
@@ -111,6 +115,7 @@ class ExtensionWebRequestEventRouter
   // filter what network events an extension cares about.
   struct RequestFilter {
     RequestFilter();
+    RequestFilter(const RequestFilter& other);
     ~RequestFilter();
 
     // Returns false if there was an error initializing. If it is a user error,
@@ -122,22 +127,6 @@ class ExtensionWebRequestEventRouter
     std::vector<content::ResourceType> types;
     int tab_id;
     int window_id;
-  };
-
-  // Internal representation of the extraInfoSpec parameter on webRequest
-  // events, used to specify extra information to be included with network
-  // events.
-  struct ExtraInfoSpec {
-    enum Flags {
-      REQUEST_HEADERS = 1<<0,
-      RESPONSE_HEADERS = 1<<1,
-      BLOCKING = 1<<2,
-      ASYNC_BLOCKING = 1<<3,
-      REQUEST_BODY = 1<<4,
-    };
-
-    static bool InitFromValue(const base::ListValue& value,
-                              int* extra_info_spec);
   };
 
   // Contains an extension's response to a blocking event.
@@ -261,10 +250,6 @@ class ExtensionWebRequestEventRouter
   void OnURLRequestDestroyed(void* browser_context,
                              const net::URLRequest* request);
 
-  // See https://crbug.com/289715.
-  void OnURLRequestJobOrphaned(void* browser_context,
-                               const net::URLRequest* request);
-
   // Called when an event listener handles a blocking event and responds.
   void OnEventHandled(void* browser_context,
                       const std::string& extension_id,
@@ -337,11 +322,15 @@ class ExtensionWebRequestEventRouter
   // destroyed safely.
   void ClearPendingCallbacks(const net::URLRequest* request);
 
-  bool DispatchEvent(
+  bool DispatchEvent(void* browser_context,
+                     net::URLRequest* request,
+                     const std::vector<const EventListener*>& listeners,
+                     scoped_ptr<WebRequestEventDetails> event_details);
+
+  void DispatchEventToListeners(
       void* browser_context,
-      net::URLRequest* request,
-      const std::vector<const EventListener*>& listeners,
-      const base::ListValue& args);
+      scoped_ptr<std::vector<EventListener>> listeners,
+      scoped_ptr<WebRequestEventDetails> event_details);
 
   // Returns a list of event listeners that care about the given event, based
   // on their filter parameters. |extra_info_spec| will contain the combined
@@ -428,11 +417,10 @@ class ExtensionWebRequestEventRouter
                             uint64_t request_id,
                             extensions::RequestStage request_stage);
 
-  // Extracts from |request| information for the keys requestId, url, method,
-  // frameId, tabId, type, and timeStamp and writes these into |out| to be
-  // passed on to extensions.
-  void ExtractRequestInfo(const net::URLRequest* request,
-                          base::DictionaryValue* out);
+  // Returns event details for a given request.
+  scoped_ptr<WebRequestEventDetails> CreateEventDetails(
+      const net::URLRequest* request,
+      int extra_info_spec);
 
   // Sets the flag that |event_type| has been signaled for |request_id|.
   // Returns the value of the flag before setting it.

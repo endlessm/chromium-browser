@@ -4,6 +4,8 @@
 
 #include "device/usb/usb_device_filter.h"
 
+#include <utility>
+
 #include "base/values.h"
 #include "device/usb/usb_descriptors.h"
 #include "device/usb/usb_device.h"
@@ -27,6 +29,8 @@ UsbDeviceFilter::UsbDeviceFilter()
       interface_subclass_set_(false),
       interface_protocol_set_(false) {
 }
+
+UsbDeviceFilter::UsbDeviceFilter(const UsbDeviceFilter& other) = default;
 
 UsbDeviceFilter::~UsbDeviceFilter() {
 }
@@ -106,7 +110,7 @@ scoped_ptr<base::Value> UsbDeviceFilter::ToValue() const {
     }
   }
 
-  return obj.Pass();
+  return std::move(obj);
 }
 
 // static

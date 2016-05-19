@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/memory/discardable_shared_memory.h"
 #include "base/process/process_metrics.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -27,7 +28,7 @@ class TestDiscardableSharedMemory : public DiscardableSharedMemory {
 };
 
 TEST(DiscardableSharedMemoryTest, CreateAndMap) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory;
   bool rv = memory.CreateAndMap(kDataSize);
@@ -37,7 +38,7 @@ TEST(DiscardableSharedMemoryTest, CreateAndMap) {
 }
 
 TEST(DiscardableSharedMemoryTest, CreateFromHandle) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory1;
   bool rv = memory1.CreateAndMap(kDataSize);
@@ -55,7 +56,7 @@ TEST(DiscardableSharedMemoryTest, CreateFromHandle) {
 }
 
 TEST(DiscardableSharedMemoryTest, LockAndUnlock) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory1;
   bool rv = memory1.CreateAndMap(kDataSize);
@@ -67,7 +68,7 @@ TEST(DiscardableSharedMemoryTest, LockAndUnlock) {
   EXPECT_FALSE(memory1.IsMemoryLocked());
 
   // Lock and unlock memory.
-  auto lock_rv = memory1.Lock(0, 0);
+  DiscardableSharedMemory::LockResult lock_rv = memory1.Lock(0, 0);
   EXPECT_EQ(DiscardableSharedMemory::SUCCESS, lock_rv);
   memory1.SetNow(Time::FromDoubleT(2));
   memory1.Unlock(0, 0);
@@ -109,7 +110,7 @@ TEST(DiscardableSharedMemoryTest, LockAndUnlock) {
 }
 
 TEST(DiscardableSharedMemoryTest, Purge) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory1;
   bool rv = memory1.CreateAndMap(kDataSize);
@@ -144,14 +145,14 @@ TEST(DiscardableSharedMemoryTest, Purge) {
   EXPECT_TRUE(rv);
 
   // Lock should fail as memory has been purged.
-  auto lock_rv = memory2.Lock(0, 0);
+  DiscardableSharedMemory::LockResult lock_rv = memory2.Lock(0, 0);
   EXPECT_EQ(DiscardableSharedMemory::FAILED, lock_rv);
 
   ASSERT_FALSE(memory2.IsMemoryResident());
 }
 
 TEST(DiscardableSharedMemoryTest, LastUsed) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory1;
   bool rv = memory1.CreateAndMap(kDataSize);
@@ -171,7 +172,7 @@ TEST(DiscardableSharedMemoryTest, LastUsed) {
 
   EXPECT_EQ(memory2.last_known_usage(), Time::FromDoubleT(1));
 
-  auto lock_rv = memory2.Lock(0, 0);
+  DiscardableSharedMemory::LockResult lock_rv = memory2.Lock(0, 0);
   EXPECT_EQ(DiscardableSharedMemory::SUCCESS, lock_rv);
 
   // This should fail as memory is locked.
@@ -219,7 +220,7 @@ TEST(DiscardableSharedMemoryTest, LastUsed) {
 }
 
 TEST(DiscardableSharedMemoryTest, LockShouldAlwaysFailAfterSuccessfulPurge) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory1;
   bool rv = memory1.CreateAndMap(kDataSize);
@@ -241,14 +242,14 @@ TEST(DiscardableSharedMemoryTest, LockShouldAlwaysFailAfterSuccessfulPurge) {
   EXPECT_TRUE(rv);
 
   // Lock should fail as memory has been purged.
-  auto lock_rv = memory2.Lock(0, 0);
+  DiscardableSharedMemory::LockResult lock_rv = memory2.Lock(0, 0);
   EXPECT_EQ(DiscardableSharedMemory::FAILED, lock_rv);
 }
 
 TEST(DiscardableSharedMemoryTest, LockAndUnlockRange) {
-  const uint32 kDataSize = 32;
+  const uint32_t kDataSize = 32;
 
-  uint32 data_size_in_bytes = kDataSize * base::GetPageSize();
+  uint32_t data_size_in_bytes = kDataSize * base::GetPageSize();
 
   TestDiscardableSharedMemory memory1;
   bool rv = memory1.CreateAndMap(data_size_in_bytes);
@@ -272,7 +273,8 @@ TEST(DiscardableSharedMemoryTest, LockAndUnlockRange) {
 
   // Lock first page again.
   memory2.SetNow(Time::FromDoubleT(3));
-  auto lock_rv = memory2.Lock(0, base::GetPageSize());
+  DiscardableSharedMemory::LockResult lock_rv =
+      memory2.Lock(0, base::GetPageSize());
   EXPECT_NE(DiscardableSharedMemory::FAILED, lock_rv);
 
   // Unlock first page.
@@ -307,7 +309,7 @@ TEST(DiscardableSharedMemoryTest, LockAndUnlockRange) {
 }
 
 TEST(DiscardableSharedMemoryTest, MappedSize) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory;
   bool rv = memory.CreateAndMap(kDataSize);
@@ -322,7 +324,7 @@ TEST(DiscardableSharedMemoryTest, MappedSize) {
 }
 
 TEST(DiscardableSharedMemoryTest, Close) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory;
   bool rv = memory.CreateAndMap(kDataSize);
@@ -337,7 +339,25 @@ TEST(DiscardableSharedMemoryTest, Close) {
   memory.Unlock(0, 0);
 
   // Lock and unlock memory.
-  auto lock_rv = memory.Lock(0, 0);
+  DiscardableSharedMemory::LockResult lock_rv = memory.Lock(0, 0);
+  EXPECT_EQ(DiscardableSharedMemory::SUCCESS, lock_rv);
+  memory.SetNow(Time::FromDoubleT(2));
+  memory.Unlock(0, 0);
+}
+
+TEST(DiscardableSharedMemoryTest, ZeroSize) {
+  TestDiscardableSharedMemory memory;
+  bool rv = memory.CreateAndMap(0);
+  ASSERT_TRUE(rv);
+
+  EXPECT_LE(0u, memory.mapped_size());
+
+  // Memory is initially locked. Unlock it.
+  memory.SetNow(Time::FromDoubleT(1));
+  memory.Unlock(0, 0);
+
+  // Lock and unlock memory.
+  DiscardableSharedMemory::LockResult lock_rv = memory.Lock(0, 0);
   EXPECT_EQ(DiscardableSharedMemory::SUCCESS, lock_rv);
   memory.SetNow(Time::FromDoubleT(2));
   memory.Unlock(0, 0);
@@ -348,7 +368,7 @@ TEST(DiscardableSharedMemoryTest, Close) {
 // defined and MADV_REMOVE is supported.
 #if defined(DISCARDABLE_SHARED_MEMORY_ZERO_FILL_ON_DEMAND_PAGES_AFTER_PURGE)
 TEST(DiscardableSharedMemoryTest, ZeroFilledPagesAfterPurge) {
-  const uint32 kDataSize = 1024;
+  const uint32_t kDataSize = 1024;
 
   TestDiscardableSharedMemory memory1;
   bool rv = memory1.CreateAndMap(kDataSize);
@@ -379,7 +399,7 @@ TEST(DiscardableSharedMemoryTest, ZeroFilledPagesAfterPurge) {
 
   // Check that reading memory after it has been purged is returning
   // zero-filled pages.
-  uint8 expected_data[kDataSize] = {};
+  uint8_t expected_data[kDataSize] = {};
   EXPECT_EQ(memcmp(memory2.memory(), expected_data, kDataSize), 0);
 }
 #endif

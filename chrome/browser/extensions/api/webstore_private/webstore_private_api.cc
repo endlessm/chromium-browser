@@ -4,11 +4,14 @@
 
 #include "chrome/browser/extensions/api/webstore_private/webstore_private_api.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -24,14 +27,15 @@
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/app_list/app_list_util.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "components/crx_file/id_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/browser/extension_util.h"
 #include "extensions/common/extension.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request.h"
@@ -93,12 +97,6 @@ scoped_ptr<WebstoreInstaller::Approval> PendingApprovals::PopApproval(
   return scoped_ptr<WebstoreInstaller::Approval>();
 }
 
-chrome::HostDesktopType GetHostDesktopTypeForWebContents(
-    content::WebContents* contents) {
-  return chrome::GetHostDesktopTypeForNativeWindow(
-      contents->GetTopLevelNativeWindow());
-}
-
 api::webstore_private::Result WebstoreInstallHelperResultToApiResult(
     WebstoreInstallHelper::Delegate::InstallHelperResultCode result) {
   switch (result) {
@@ -122,8 +120,6 @@ const char kWebstoreLogin[] = "extensions.webstore_login";
 
 // Error messages that can be returned by the API.
 const char kAlreadyInstalledError[] = "This item is already installed";
-const char kCannotSpecifyIconDataAndUrlError[] =
-    "You cannot specify both icon data and an icon url";
 const char kInvalidBundleError[] = "Invalid bundle";
 const char kInvalidIconUrlError[] = "Invalid icon url";
 const char kInvalidIdError[] = "Invalid id";
@@ -190,11 +186,6 @@ WebstorePrivateBeginInstallWithManifest3Function::Run() {
                                     kInvalidIdError));
   }
 
-  if (details().icon_data && details().icon_url) {
-    return RespondNow(BuildResponse(api::webstore_private::RESULT_ICON_ERROR,
-                                    kCannotSpecifyIconDataAndUrlError));
-  }
-
   GURL icon_url;
   if (details().icon_url) {
     icon_url = source_url().Resolve(*details().icon_url);
@@ -207,8 +198,10 @@ WebstorePrivateBeginInstallWithManifest3Function::Run() {
 
   InstallTracker* tracker = InstallTracker::Get(browser_context());
   DCHECK(tracker);
-  if (util::IsExtensionInstalledPermanently(details().id, browser_context()) ||
-      tracker->GetActiveInstall(details().id)) {
+  bool is_installed =
+      extensions::ExtensionRegistry::Get(browser_context())->GetExtensionById(
+          details().id, extensions::ExtensionRegistry::EVERYTHING) != nullptr;
+  if (is_installed || tracker->GetActiveInstall(details().id)) {
     return RespondNow(BuildResponse(
         api::webstore_private::RESULT_ALREADY_INSTALLED,
         kAlreadyInstalledError));
@@ -285,10 +278,13 @@ void WebstorePrivateBeginInstallWithManifest3Function::OnWebstoreParseSuccess(
     return;
   }
   install_prompt_.reset(new ExtensionInstallPrompt(web_contents));
-  install_prompt_->ConfirmWebstoreInstall(
-      this, dummy_extension_.get(), &icon_,
+  install_prompt_->ShowDialog(
+      base::Bind(&WebstorePrivateBeginInstallWithManifest3Function::
+                     OnInstallPromptDone,
+                 this),
+      dummy_extension_.get(), &icon_,
       ExtensionInstallPrompt::GetDefaultShowDialogCallback());
-  // Control flow finishes up in InstallUIProceed or InstallUIAbort.
+  // Control flow finishes up in OnInstallPromptDone.
 }
 
 void WebstorePrivateBeginInstallWithManifest3Function::OnWebstoreParseFailure(
@@ -304,26 +300,36 @@ void WebstorePrivateBeginInstallWithManifest3Function::OnWebstoreParseFailure(
   Release();
 }
 
-void WebstorePrivateBeginInstallWithManifest3Function::InstallUIProceed() {
+void WebstorePrivateBeginInstallWithManifest3Function::OnInstallPromptDone(
+    ExtensionInstallPrompt::Result result) {
+  if (result == ExtensionInstallPrompt::Result::ACCEPTED) {
+    HandleInstallProceed();
+  } else {
+    HandleInstallAbort(result == ExtensionInstallPrompt::Result::USER_CANCELED);
+  }
+
+  // Matches the AddRef in Run().
+  Release();
+}
+
+void WebstorePrivateBeginInstallWithManifest3Function::HandleInstallProceed() {
   // This gets cleared in CrxInstaller::ConfirmInstall(). TODO(asargent) - in
   // the future we may also want to add time-based expiration, where a whitelist
   // entry is only valid for some number of minutes.
   scoped_ptr<WebstoreInstaller::Approval> approval(
       WebstoreInstaller::Approval::CreateWithNoInstallPrompt(
-          chrome_details_.GetProfile(),
-          details().id,
-          parsed_manifest_.Pass(),
-          false));
-  approval->use_app_installed_bubble = details().app_install_bubble;
-  approval->enable_launcher = details().enable_launcher;
+          chrome_details_.GetProfile(), details().id,
+          std::move(parsed_manifest_), false));
+  approval->use_app_installed_bubble = !!details().app_install_bubble;
+  approval->enable_launcher = !!details().enable_launcher;
   // If we are enabling the launcher, we should not show the app list in order
   // to train the user to open it themselves at least once.
-  approval->skip_post_install_ui = details().enable_launcher;
+  approval->skip_post_install_ui = !!details().enable_launcher;
   approval->dummy_extension = dummy_extension_.get();
   approval->installing_icon = gfx::ImageSkia::CreateFrom1xBitmap(icon_);
   if (details().authuser)
     approval->authuser = *details().authuser;
-  g_pending_approvals.Get().PushApproval(approval.Pass());
+  g_pending_approvals.Get().PushApproval(std::move(approval));
 
   DCHECK(scoped_active_install_.get());
   scoped_active_install_->CancelDeregister();
@@ -335,12 +341,9 @@ void WebstorePrivateBeginInstallWithManifest3Function::InstallUIProceed() {
       dummy_extension_.get(), "WebStoreInstall");
 
   Respond(BuildResponse(api::webstore_private::RESULT_SUCCESS, std::string()));
-
-  // Matches the AddRef in Run().
-  Release();
 }
 
-void WebstorePrivateBeginInstallWithManifest3Function::InstallUIAbort(
+void WebstorePrivateBeginInstallWithManifest3Function::HandleInstallAbort(
     bool user_initiated) {
   // The web store install histograms are a subset of the install histograms.
   // We need to record both histograms here since CrxInstaller::InstallUIAbort
@@ -356,9 +359,6 @@ void WebstorePrivateBeginInstallWithManifest3Function::InstallUIAbort(
 
   Respond(BuildResponse(api::webstore_private::RESULT_USER_CANCELLED,
                         kUserCancelledError));
-
-  // Matches the AddRef in Run().
-  Release();
 }
 
 ExtensionFunction::ResponseValue
@@ -398,9 +398,8 @@ WebstorePrivateCompleteInstallFunction::Run() {
   if (!crx_file::id_util::IdIsValid(params->expected_id))
     return RespondNow(Error(kInvalidIdError));
 
-  approval_ =
-      g_pending_approvals.Get().PopApproval(chrome_details_.GetProfile(),
-                                            params->expected_id).Pass();
+  approval_ = g_pending_approvals.Get().PopApproval(
+      chrome_details_.GetProfile(), params->expected_id);
   if (!approval_) {
     return RespondNow(Error(kNoPreviousBeginInstallWithManifestError,
                             params->expected_id));
@@ -409,8 +408,7 @@ WebstorePrivateCompleteInstallFunction::Run() {
   scoped_active_install_.reset(new ScopedActiveInstall(
       InstallTracker::Get(browser_context()), params->expected_id));
 
-  AppListService* app_list_service = AppListService::Get(
-      GetHostDesktopTypeForWebContents(GetAssociatedWebContents()));
+  AppListService* app_list_service = AppListService::Get();
 
   if (approval_->enable_launcher) {
     app_list_service->EnableAppList(chrome_details_.GetProfile(),
@@ -426,38 +424,15 @@ WebstorePrivateCompleteInstallFunction::Run() {
         approval_->enable_launcher);
   }
 
-  // If the target extension has already been installed ephemerally and is
-  // up to date, it can be promoted to a regular installed extension and
-  // downloading from the Web Store is not necessary.
-  const Extension* extension = ExtensionRegistry::Get(browser_context())->
-      GetExtensionById(params->expected_id, ExtensionRegistry::EVERYTHING);
-  if (extension && approval_->dummy_extension.get() &&
-      util::IsEphemeralApp(extension->id(), browser_context()) &&
-      extension->version()->CompareTo(*approval_->dummy_extension->version()) >=
-          0) {
-    install_ui::ShowPostInstallUIForApproval(
-        browser_context(), *approval_, extension);
-
-    ExtensionService* extension_service =
-        ExtensionSystem::Get(browser_context())->extension_service();
-    extension_service->PromoteEphemeralApp(extension, false);
-    OnInstallSuccess(extension->id());
-    VLOG(1) << "Install success, sending response";
-    return RespondNow(NoArguments());
-  }
-
   // Balanced in OnExtensionInstallSuccess() or OnExtensionInstallFailure().
   AddRef();
 
   // The extension will install through the normal extension install flow, but
   // the whitelist entry will bypass the normal permissions install dialog.
   scoped_refptr<WebstoreInstaller> installer = new WebstoreInstaller(
-      chrome_details_.GetProfile(),
-      this,
-      chrome_details_.GetAssociatedWebContents(),
-      params->expected_id,
-      approval_.Pass(),
-      WebstoreInstaller::INSTALL_SOURCE_OTHER);
+      chrome_details_.GetProfile(), this,
+      chrome_details_.GetAssociatedWebContents(), params->expected_id,
+      std::move(approval_), WebstoreInstaller::INSTALL_SOURCE_OTHER);
   installer->Start();
 
   return RespondLater();
@@ -544,7 +519,10 @@ void WebstorePrivateInstallBundleFunction::OnFetchComplete(
   BundleInstaller::ItemList items;
   for (const auto& entry : params_->contents) {
     // Skip already-installed items.
-    if (util::IsExtensionInstalledPermanently(entry->id, browser_context()) ||
+    bool is_installed =
+        extensions::ExtensionRegistry::Get(browser_context())->GetExtensionById(
+            entry->id, extensions::ExtensionRegistry::EVERYTHING) != nullptr;
+    if (is_installed ||
         InstallTracker::Get(browser_context())->GetActiveInstall(entry->id)) {
       continue;
     }
@@ -603,9 +581,7 @@ WebstorePrivateEnableAppLauncherFunction::
 
 ExtensionFunction::ResponseAction
 WebstorePrivateEnableAppLauncherFunction::Run() {
-  AppListService* app_list_service = AppListService::Get(
-      GetHostDesktopTypeForWebContents(
-          chrome_details_.GetAssociatedWebContents()));
+  AppListService* app_list_service = AppListService::Get();
   app_list_service->EnableAppList(chrome_details_.GetProfile(),
                                   AppListService::ENABLE_VIA_WEBSTORE_LINK);
   return RespondNow(NoArguments());

@@ -23,8 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "modules/geolocation/GeolocationController.h"
 
 #include "core/page/Page.h"
@@ -92,7 +90,7 @@ void GeolocationController::addObserver(Geolocation* observer, bool enableHighAc
     if (m_client) {
         if (enableHighAccuracy)
             m_client->setEnableHighAccuracy(true);
-        if (wasEmpty && page() && page()->visibilityState() == PageVisibilityStateVisible)
+        if (wasEmpty && page() && page()->isPageVisible())
             startUpdatingIfNeeded();
     }
 }
@@ -172,7 +170,7 @@ void GeolocationController::pageVisibilityChanged()
     if (m_observers.isEmpty() || !m_client)
         return;
 
-    if (page() && page()->visibilityState() == PageVisibilityStateVisible)
+    if (page() && page()->isPageVisible())
         startUpdatingIfNeeded();
     else
         stopUpdatingIfNeeded();

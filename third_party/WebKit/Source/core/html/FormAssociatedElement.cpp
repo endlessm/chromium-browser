@@ -22,7 +22,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/FormAssociatedElement.h"
 
 #include "core/HTMLNames.h"
@@ -268,6 +267,11 @@ String FormAssociatedElement::customValidationMessage() const
 String FormAssociatedElement::validationMessage() const
 {
     return customError() ? m_customValidationMessage : String();
+}
+
+String FormAssociatedElement::validationSubMessage() const
+{
+    return String();
 }
 
 void FormAssociatedElement::setCustomValidity(const String& error)

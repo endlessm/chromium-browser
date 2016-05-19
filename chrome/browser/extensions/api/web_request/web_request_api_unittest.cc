@@ -2,19 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <queue>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_member.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
@@ -31,6 +33,7 @@
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/about_handler/about_protocol_handler.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/prefs/pref_member.h"
 #include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -44,7 +47,6 @@
 #include "extensions/common/features/feature.h"
 #include "net/base/auth.h"
 #include "net/base/elements_upload_data_stream.h"
-#include "net/base/net_util.h"
 #include "net/base/request_priority.h"
 #include "net/base/upload_bytes_element_reader.h"
 #include "net/base/upload_file_element_reader.h"
@@ -74,6 +76,7 @@ using helpers::CharListToString;
 using helpers::EventResponseDelta;
 using helpers::EventResponseDeltas;
 using helpers::EventResponseDeltas;
+using helpers::ExtraInfoSpec;
 using helpers::InDecreasingExtensionInstallationTimeOrder;
 using helpers::MergeCancelOfResponses;
 using helpers::MergeOnBeforeRequestResponses;
@@ -91,7 +94,7 @@ static void EventHandledOnIOThread(
     const std::string& extension_id,
     const std::string& event_name,
     const std::string& sub_event_name,
-    uint64 request_id,
+    uint64_t request_id,
     ExtensionWebRequestEventRouter::EventResponse* response) {
   ExtensionWebRequestEventRouter::GetInstance()->OnEventHandled(
       profile, extension_id, event_name, sub_event_name, request_id,
@@ -228,13 +231,11 @@ TEST_F(ExtensionWebRequestTest, BlockingEventPrecedenceRedirect) {
   base::WeakPtrFactory<TestIPCSender> ipc_sender_factory(&ipc_sender_);
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension1_id, extension1_id, events::FOR_TEST, kEventName,
-      kEventName + "/1", filter,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING, 0, 0,
+      kEventName + "/1", filter, ExtraInfoSpec::BLOCKING, 0, 0,
       ipc_sender_factory.GetWeakPtr());
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension2_id, extension2_id, events::FOR_TEST, kEventName,
-      kEventName + "/2", filter,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING, 0, 0,
+      kEventName + "/2", filter, ExtraInfoSpec::BLOCKING, 0, 0,
       ipc_sender_factory.GetWeakPtr());
 
   net::URLRequestJobFactoryImpl job_factory;
@@ -367,13 +368,11 @@ TEST_F(ExtensionWebRequestTest, BlockingEventPrecedenceCancel) {
   base::WeakPtrFactory<TestIPCSender> ipc_sender_factory(&ipc_sender_);
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension1_id, extension1_id, events::FOR_TEST, kEventName,
-      kEventName + "/1", filter,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING, 0, 0,
+      kEventName + "/1", filter, ExtraInfoSpec::BLOCKING, 0, 0,
       ipc_sender_factory.GetWeakPtr());
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension2_id, extension2_id, events::FOR_TEST, kEventName,
-      kEventName + "/2", filter,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING, 0, 0,
+      kEventName + "/2", filter, ExtraInfoSpec::BLOCKING, 0, 0,
       ipc_sender_factory.GetWeakPtr());
 
   GURL request_url("about:blank");
@@ -438,8 +437,7 @@ TEST_F(ExtensionWebRequestTest, SimulateChancelWhileBlocked) {
   base::WeakPtrFactory<TestIPCSender> ipc_sender_factory(&ipc_sender_);
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension_id, extension_id, events::FOR_TEST, kEventName,
-      kEventName + "/1", filter,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING, 0, 0,
+      kEventName + "/1", filter, ExtraInfoSpec::BLOCKING, 0, 0,
       ipc_sender_factory.GetWeakPtr());
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension_id, extension_id, events::FOR_TEST, kEventName2,
@@ -497,8 +495,7 @@ bool GenerateInfoSpec(const std::string& values, int* result) {
        base::SplitString(values, ",", base::KEEP_WHITESPACE,
                          base::SPLIT_WANT_NONEMPTY))
     list_value.Append(new base::StringValue(cur));
-  return ExtensionWebRequestEventRouter::ExtraInfoSpec::InitFromValue(
-      list_value, result);
+  return ExtraInfoSpec::InitFromValue(list_value, result);
 }
 
 }  // namespace
@@ -518,21 +515,16 @@ void ExtensionWebRequestTest::FireURLRequestWithData(
                                          content_type,
                                          true /* overwrite */);
   }
-  ScopedVector<net::UploadElementReader> element_readers;
-  element_readers.push_back(new net::UploadBytesElementReader(
-      &(bytes_1[0]), bytes_1.size()));
-  element_readers.push_back(
-      new net::UploadFileElementReader(
-                                       base::ThreadTaskRunnerHandle::Get()
-                                       .get(),
-                                       base::FilePath(),
-                                       0,
-                                       0,
-                                       base::Time()));
-  element_readers.push_back(
-      new net::UploadBytesElementReader(&(bytes_2[0]), bytes_2.size()));
+  std::vector<scoped_ptr<net::UploadElementReader>> element_readers;
+  element_readers.push_back(make_scoped_ptr(
+      new net::UploadBytesElementReader(&(bytes_1[0]), bytes_1.size())));
+  element_readers.push_back(make_scoped_ptr(new net::UploadFileElementReader(
+      base::ThreadTaskRunnerHandle::Get().get(), base::FilePath(), 0, 0,
+      base::Time())));
+  element_readers.push_back(make_scoped_ptr(
+      new net::UploadBytesElementReader(&(bytes_2[0]), bytes_2.size())));
   request->set_upload(make_scoped_ptr(
-      new net::ElementsUploadDataStream(element_readers.Pass(), 0)));
+      new net::ElementsUploadDataStream(std::move(element_readers), 0)));
   ipc_sender_.PushTask(base::Bind(&base::DoNothing));
   request->Start();
 }
@@ -705,6 +697,83 @@ TEST_F(ExtensionWebRequestTest, AccessRequestBodyData) {
   EXPECT_EQ(i, ipc_sender_.sent_end());
 }
 
+// Tests whether requestBody is only present on the events that requested it.
+TEST_F(ExtensionWebRequestTest, MinimalAccessRequestBodyData) {
+  const std::string kEventName(web_request::OnBeforeRequest::kEventName);
+  ExtensionWebRequestEventRouter::RequestFilter filter;
+  const std::string extension_id1("1");
+  const std::string extension_id2("2");
+  int extra_info_spec_body = 0;
+  int extra_info_spec_empty = 0;
+  ASSERT_TRUE(GenerateInfoSpec("requestBody", &extra_info_spec_body));
+  base::WeakPtrFactory<TestIPCSender> ipc_sender_factory(&ipc_sender_);
+
+  bool kExpected[] = {
+    true,
+    false,
+    false,
+    true,
+  };
+
+  // Extension 1 with requestBody spec.
+  ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
+      &profile_, extension_id1, extension_id1, events::FOR_TEST, kEventName,
+      kEventName + "/1", filter, extra_info_spec_body, 0, 0,
+      ipc_sender_factory.GetWeakPtr());
+
+  // Extension 1 without requestBody spec.
+  ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
+      &profile_, extension_id1, extension_id1, events::FOR_TEST, kEventName,
+      kEventName + "/2", filter, extra_info_spec_empty, 0, 0,
+      ipc_sender_factory.GetWeakPtr());
+
+  // Extension 2, without requestBody spec.
+  ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
+      &profile_, extension_id2, extension_id2, events::FOR_TEST, kEventName,
+      kEventName + "/1", filter, extra_info_spec_empty, 0, 0,
+      ipc_sender_factory.GetWeakPtr());
+
+  // Extension 2, with requestBody spec.
+  ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
+      &profile_, extension_id2, extension_id2, events::FOR_TEST, kEventName,
+      kEventName + "/2", filter, extra_info_spec_body, 0, 0,
+      ipc_sender_factory.GetWeakPtr());
+
+  // Only one request is sent, but more than one event will be triggered.
+  for (size_t i = 1; i < arraysize(kExpected); ++i)
+    ipc_sender_.PushTask(base::Bind(&base::DoNothing));
+
+  const std::vector<char> part_of_body(1);
+  FireURLRequestWithData("POST", nullptr, part_of_body, part_of_body);
+
+  base::MessageLoop::current()->RunUntilIdle();
+
+  // Clean-up
+  ExtensionWebRequestEventRouter::GetInstance()->RemoveEventListener(
+      &profile_, extension_id1, kEventName + "/1", 0, 0);
+  ExtensionWebRequestEventRouter::GetInstance()->RemoveEventListener(
+      &profile_, extension_id2, kEventName + "/2", 0, 0);
+  ExtensionWebRequestEventRouter::GetInstance()->RemoveEventListener(
+      &profile_, extension_id1, kEventName + "/1", 0, 0);
+  ExtensionWebRequestEventRouter::GetInstance()->RemoveEventListener(
+      &profile_, extension_id2, kEventName + "/2", 0, 0);
+
+  TestIPCSender::SentMessages::const_iterator i = ipc_sender_.sent_begin();
+
+  for (size_t test = 0; test < arraysize(kExpected); ++test, ++i) {
+    SCOPED_TRACE(testing::Message("iteration number ") << test);
+    EXPECT_NE(i, ipc_sender_.sent_end());
+    IPC::Message* message = i->get();
+    const base::DictionaryValue* details = nullptr;
+    ExtensionMsg_MessageInvoke::Param param;
+    GetPartOfMessageArguments(message, &details, &param);
+    ASSERT_TRUE(details != nullptr);
+    EXPECT_EQ(kExpected[test], details->HasKey(keys::kRequestBodyKey));
+  }
+
+  EXPECT_EQ(i, ipc_sender_.sent_end());
+}
+
 TEST_F(ExtensionWebRequestTest, NoAccessRequestBodyData) {
   // We verify that URLRequest body is NOT accessible to OnBeforeRequest
   // listeners when the type of the request is different from POST or PUT, or
@@ -838,21 +907,19 @@ TEST_P(ExtensionWebRequestHeaderModificationTest, TestModifications) {
   // higher precedence than extension 1.
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension1_id, extension1_id, events::FOR_TEST, kEventName,
-      kEventName + "/1", filter,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING, 0, 0,
+      kEventName + "/1", filter, ExtraInfoSpec::BLOCKING, 0, 0,
       ipc_sender_factory.GetWeakPtr());
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension2_id, extension2_id, events::FOR_TEST, kEventName,
-      kEventName + "/2", filter,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING, 0, 0,
+      kEventName + "/2", filter, ExtraInfoSpec::BLOCKING, 0, 0,
       ipc_sender_factory.GetWeakPtr());
 
   // Install one extension that observes the final headers.
   ExtensionWebRequestEventRouter::GetInstance()->AddEventListener(
       &profile_, extension3_id, extension3_id, events::FOR_TEST,
       keys::kOnSendHeadersEvent, std::string(keys::kOnSendHeadersEvent) + "/3",
-      filter, ExtensionWebRequestEventRouter::ExtraInfoSpec::REQUEST_HEADERS, 0,
-      0, ipc_sender_factory.GetWeakPtr());
+      filter, ExtraInfoSpec::REQUEST_HEADERS, 0, 0,
+      ipc_sender_factory.GetWeakPtr());
 
   GURL request_url("http://doesnotexist/does_not_exist.html");
   scoped_ptr<net::URLRequest> request(context_->CreateRequest(
@@ -1002,30 +1069,29 @@ TEST_F(ExtensionWebRequestTest, InitFromValue) {
   TestInitFromValue(
       "requestHeaders",
       true,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::REQUEST_HEADERS);
+      ExtraInfoSpec::REQUEST_HEADERS);
   TestInitFromValue(
       "responseHeaders",
       true,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::RESPONSE_HEADERS);
+      ExtraInfoSpec::RESPONSE_HEADERS);
   TestInitFromValue(
       "blocking",
       true,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING);
+      ExtraInfoSpec::BLOCKING);
   TestInitFromValue(
       "asyncBlocking",
       true,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::ASYNC_BLOCKING);
+      ExtraInfoSpec::ASYNC_BLOCKING);
   TestInitFromValue(
       "requestBody",
       true,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::REQUEST_BODY);
+      ExtraInfoSpec::REQUEST_BODY);
 
   // Multiple valid values are bitwise-or'ed.
   TestInitFromValue(
       "requestHeaders,blocking",
       true,
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::REQUEST_HEADERS |
-      ExtensionWebRequestEventRouter::ExtraInfoSpec::BLOCKING);
+      ExtraInfoSpec::REQUEST_HEADERS | ExtraInfoSpec::BLOCKING);
 
   // Any invalid values lead to a bad parse.
   TestInitFromValue("invalidValue", false, 0);
@@ -1943,7 +2009,7 @@ TEST(ExtensionWebRequestHelpersTest,
       deltas, headers1.get(), &new_headers1, &warning_set, &net_log);
 
   EXPECT_TRUE(new_headers1->HasHeader("Foo"));
-  void* iter = NULL;
+  size_t iter = 0;
   std::string cookie_string;
   std::set<std::string> expected_cookies;
   expected_cookies.insert("name=value; domain=google.com; secure");
@@ -2023,7 +2089,7 @@ TEST(ExtensionWebRequestHelpersTest, TestMergeOnHeadersReceivedResponses) {
   EXPECT_TRUE(allowed_unsafe_redirect_url1.is_empty());
   std::multimap<std::string, std::string> expected1;
   expected1.insert(std::pair<std::string, std::string>("Key2", "Value3"));
-  void* iter = NULL;
+  size_t iter = 0;
   std::string name;
   std::string value;
   std::multimap<std::string, std::string> actual1;
@@ -2055,7 +2121,7 @@ TEST(ExtensionWebRequestHelpersTest, TestMergeOnHeadersReceivedResponses) {
                                   &net_log);
   ASSERT_TRUE(new_headers2.get());
   EXPECT_TRUE(allowed_unsafe_redirect_url2.is_empty());
-  iter = NULL;
+  iter = 0;
   std::multimap<std::string, std::string> actual2;
   while (new_headers2->EnumerateHeaderLines(&iter, &name, &value)) {
     actual2.insert(std::pair<std::string, std::string>(name, value));
@@ -2105,7 +2171,7 @@ TEST(ExtensionWebRequestHelpersTest,
   expected1.insert(std::pair<std::string, std::string>("Key1", "Value1"));
   expected1.insert(std::pair<std::string, std::string>("Key1", "Value3"));
   expected1.insert(std::pair<std::string, std::string>("Key2", "Value4"));
-  void* iter = NULL;
+  size_t iter = 0;
   std::string name;
   std::string value;
   std::multimap<std::string, std::string> actual1;

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/frame/browser_view_layout.h"
 
+#include "base/macros.h"
 #include "base/observer_list.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -11,6 +12,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/search/search_model.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/download/download_shelf_view.h"
@@ -20,11 +22,10 @@
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/infobars/infobar_container_view.h"
-#include "chrome/browser/ui/views/layout_constants.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/base/hit_test.h"
-#include "ui/base/resource/material_design/material_design_controller.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/scrollbar_size.h"
@@ -318,23 +319,21 @@ int BrowserViewLayout::NonClientHitTest(const gfx::Point& point) {
 
 void BrowserViewLayout::Layout(views::View* browser_view) {
   vertical_layout_rect_ = browser_view->GetLocalBounds();
-  int top = delegate_->GetTopInsetInBrowserView(false);
-  top = LayoutTabStripRegion(top);
+  int top = LayoutTabStripRegion(delegate_->GetTopInsetInBrowserView(false));
   if (delegate_->IsTabStripVisible()) {
-    // Set the position of the background image in tabs and the new tab button.
-    int x = tab_strip_->GetMirroredX() +
-        browser_view_->GetMirroredX() +
-        delegate_->GetThemeBackgroundXInset();
-    // By passing true here, we position the tab background to vertically align
-    // with the frame background image of a restored-mode frame, even in a
-    // maximized window.  Then in the frame code, we position the frame so the
-    // portion of the image that's behind the restored-mode tabstrip is always
-    // behind the tabstrip.  Together these ensure that the tab and frame images
-    // are always aligned, and that their relative alignment with the toolbar
-    // image is always the same, so themes which try to align all three will
-    // look correct in both restored and maximized windows.
-    int y = browser_view_->y() + delegate_->GetTopInsetInBrowserView(true);
-    tab_strip_->SetBackgroundOffset(gfx::Point(x, y));
+    // By passing true to GetTopInsetInBrowserView(), we position the tab
+    // background to vertically align with the frame background image of a
+    // restored-mode frame, even in a maximized window.  Then in the frame code,
+    // we position the frame so the portion of the image that's behind the
+    // restored-mode tabstrip is always behind the tabstrip.  Together these
+    // ensure that the tab and frame images are always aligned, and that their
+    // relative alignment with the toolbar image is always the same, so themes
+    // which try to align all three will look correct in both restored and
+    // maximized windows.
+    tab_strip_->SetBackgroundOffset(gfx::Point(
+        tab_strip_->GetMirroredX() + browser_view_->GetMirroredX() +
+            delegate_->GetThemeBackgroundXInset(),
+        browser_view_->y() + delegate_->GetTopInsetInBrowserView(true)));
   }
   top = LayoutToolbar(top);
 

@@ -9,10 +9,15 @@
 
 #include <map>
 
-#include "FormFiller.h"
+#include "fpdfsdk/include/fsdk_define.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Edit.h"
 
 class CFFL_FormFiller;
 class CFFL_PrivateData;
+class CPDFDoc_Environment;
+class CPDFSDK_Annot;
+class CPDFSDK_PageView;
+class CPDFSDK_Widget;
 
 class CFFL_IFormFiller : public IPWL_Filler_Notify {
  public:
@@ -27,7 +32,7 @@ class CFFL_IFormFiller : public IPWL_Filler_Notify {
   virtual void OnDraw(CPDFSDK_PageView* pPageView,
                       CPDFSDK_Annot* pAnnot,
                       CFX_RenderDevice* pDevice,
-                      CPDF_Matrix* pUser2Device,
+                      CFX_Matrix* pUser2Device,
                       FX_DWORD dwFlags);
 
   virtual void OnCreate(CPDFSDK_Annot* pAnnot);
@@ -112,6 +117,28 @@ class CFFL_IFormFiller : public IPWL_Filler_Notify {
                   FX_BOOL& bReset,
                   FX_BOOL& bExit,
                   FX_UINT nFlag);
+#ifdef PDF_ENABLE_XFA
+  void OnClick(CPDFSDK_Widget* pWidget,
+               CPDFSDK_PageView* pPageView,
+               FX_BOOL& bReset,
+               FX_BOOL& bExit,
+               FX_UINT nFlag);
+  void OnFull(CPDFSDK_Widget* pWidget,
+              CPDFSDK_PageView* pPageView,
+              FX_BOOL& bReset,
+              FX_BOOL& bExit,
+              FX_UINT nFlag);
+  void OnPreOpen(CPDFSDK_Widget* pWidget,
+                 CPDFSDK_PageView* pPageView,
+                 FX_BOOL& bReset,
+                 FX_BOOL& bExit,
+                 FX_UINT nFlag);
+  void OnPostOpen(CPDFSDK_Widget* pWidget,
+                  CPDFSDK_PageView* pPageView,
+                  FX_BOOL& bReset,
+                  FX_BOOL& bExit,
+                  FX_UINT nFlag);
+#endif  // PDF_ENABLE_XFA
 
  private:
   using CFFL_Widget2Filler = std::map<CPDFSDK_Annot*, CFFL_FormFiller*>;
@@ -131,7 +158,17 @@ class CFFL_IFormFiller : public IPWL_Filler_Notify {
                          FX_BOOL& bRC,
                          FX_BOOL& bExit,
                          FX_DWORD nFlag) override;
-
+#ifdef PDF_ENABLE_XFA
+  void OnPopupPreOpen(void* pPrivateData,
+                      FX_BOOL& bExit,
+                      FX_DWORD nFlag) override;
+  void OnPopupPostOpen(void* pPrivateData,
+                       FX_BOOL& bExit,
+                       FX_DWORD nFlag) override;
+  void SetFocusAnnotTab(CPDFSDK_Annot* pWidget,
+                        FX_BOOL bSameField,
+                        FX_BOOL bNext);
+#endif  // PDF_ENABLE_XFA
   void UnRegisterFormFiller(CPDFSDK_Annot* pAnnot);
 
   CPDFDoc_Environment* m_pApp;

@@ -5,6 +5,7 @@
 #ifndef REMOTING_PROTOCOL_CLIENT_EVENT_DISPATCHER_H_
 #define REMOTING_PROTOCOL_CLIENT_EVENT_DISPATCHER_H_
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "remoting/protocol/channel_dispatcher_base.h"
 #include "remoting/protocol/input_stub.h"
@@ -26,6 +27,8 @@ class ClientEventDispatcher : public ChannelDispatcherBase, public InputStub {
   void InjectTouchEvent(const TouchEvent& event) override;
 
  private:
+  void OnIncomingMessage(scoped_ptr<CompoundBuffer> message) override;
+
   DISALLOW_COPY_AND_ASSIGN(ClientEventDispatcher);
 };
 

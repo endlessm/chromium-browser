@@ -18,10 +18,16 @@
  *
  */
 
-#include "config.h"
 #include "core/events/UIEventWithKeyState.h"
 
 namespace blink {
+
+UIEventWithKeyState::UIEventWithKeyState(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtrWillBeRawPtr<AbstractView> view,
+    int detail, PlatformEvent::Modifiers modifiers, double platformTimeStamp, InputDeviceCapabilities* sourceCapabilities)
+    : UIEvent(type, canBubble, cancelable, platformTimeStamp, view, detail, sourceCapabilities)
+    , m_modifiers(modifiers)
+{
+}
 
 UIEventWithKeyState::UIEventWithKeyState(const AtomicString& type, const EventModifierInit& initializer)
     : UIEvent(type, initializer)
@@ -115,7 +121,7 @@ bool UIEventWithKeyState::getModifierState(const String& keyIdentifier) const
         { "NumLock", PlatformEvent::NumLockOn },
         { "Symbol", PlatformEvent::SymbolKey },
     };
-    for (size_t i = 0; i < arraysize(kIdentifiers); ++i) {
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(kIdentifiers); ++i) {
         if (keyIdentifier == kIdentifiers[i].identifier)
             return m_modifiers & kIdentifiers[i].mask;
     }

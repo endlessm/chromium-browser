@@ -49,7 +49,7 @@ private:
 
     void chromeDestroyed() override;
     void invalidateRect(const IntRect&) override;
-    void scheduleAnimation() override;
+    void scheduleAnimation(Widget*) override;
 
     void animationTimerFired(Timer<SVGImageChromeClient>*);
 
@@ -59,6 +59,6 @@ private:
 
 DEFINE_TYPE_CASTS(SVGImageChromeClient, ChromeClient, client, client->isSVGImageChromeClient(), client.isSVGImageChromeClient());
 
-}
+} // namespace blink
 
 #endif // SVGImageChromeClient_h

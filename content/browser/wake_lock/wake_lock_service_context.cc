@@ -4,7 +4,10 @@
 
 #include "content/browser/wake_lock/wake_lock_service_context.h"
 
+#include <utility>
+
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "content/browser/power_save_blocker_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/power_save_blocker.h"
@@ -24,7 +27,7 @@ void WakeLockServiceContext::CreateService(
     int render_frame_id,
     mojo::InterfaceRequest<WakeLockService> request) {
   new WakeLockServiceImpl(weak_factory_.GetWeakPtr(), render_process_id,
-                          render_frame_id, request.Pass());
+                          render_frame_id, std::move(request));
 }
 
 void WakeLockServiceContext::RenderFrameDeleted(
@@ -53,7 +56,7 @@ void WakeLockServiceContext::CancelWakeLock(int render_process_id,
 }
 
 bool WakeLockServiceContext::HasWakeLockForTests() const {
-  return wake_lock_;
+  return !!wake_lock_;
 }
 
 void WakeLockServiceContext::CreateWakeLock() {
@@ -62,8 +65,7 @@ void WakeLockServiceContext::CreateWakeLock() {
       PowerSaveBlocker::kPowerSaveBlockPreventDisplaySleep,
       PowerSaveBlocker::kReasonOther, "Wake Lock API");
 
-  //TODO(mfomitchev): Support PowerSaveBlocker on Aura - crbug.com/546718.
-#if defined(OS_ANDROID) && !defined(USE_AURA)
+#if defined(OS_ANDROID)
   // On Android, additionaly associate the blocker with this WebContents.
   DCHECK(web_contents());
 

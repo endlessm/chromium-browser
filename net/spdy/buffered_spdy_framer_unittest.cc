@@ -14,7 +14,7 @@ namespace {
 class TestBufferedSpdyVisitor : public BufferedSpdyFramerVisitorInterface {
  public:
   explicit TestBufferedSpdyVisitor(SpdyMajorVersion spdy_version)
-      : buffered_spdy_framer_(spdy_version, true),
+      : buffered_spdy_framer_(spdy_version),
         error_count_(0),
         setting_count_(0),
         syn_frame_count_(0),
@@ -100,7 +100,7 @@ class TestBufferedSpdyVisitor : public BufferedSpdyFramerVisitorInterface {
 
   void OnSettings(bool clear_persisted) override {}
 
-  void OnSetting(SpdySettingsIds id, uint8 flags, uint32 value) override {
+  void OnSetting(SpdySettingsIds id, uint8_t flags, uint32_t value) override {
     setting_count_++;
   }
 
@@ -116,11 +116,6 @@ class TestBufferedSpdyVisitor : public BufferedSpdyFramerVisitorInterface {
     goaway_last_accepted_stream_id_ = last_accepted_stream_id;
     goaway_status_ = status;
     goaway_debug_data_.assign(debug_data.data(), debug_data.size());
-  }
-
-  bool OnCredentialFrameData(const char*, size_t) {
-    LOG(FATAL) << "Unexpected OnCredentialFrameData call.";
-    return false;
   }
 
   void OnDataFrameHeader(const SpdyFrame* frame) {
@@ -146,8 +141,6 @@ class TestBufferedSpdyVisitor : public BufferedSpdyFramerVisitorInterface {
   bool OnUnknownFrame(SpdyStreamId stream_id, int frame_type) override {
     return true;
   }
-
-  void OnCredential(const SpdyFrame& frame) {}
 
   // Convenience function which runs a framer simulation with particular input.
   void SimulateInFramer(const unsigned char* input, size_t size) {
@@ -233,7 +226,7 @@ TEST_P(BufferedSpdyFramerTest, ReadSynStreamHeaderBlock) {
   SpdyHeaderBlock headers;
   headers["aa"] = "vv";
   headers["bb"] = "ww";
-  BufferedSpdyFramer framer(spdy_version(), true);
+  BufferedSpdyFramer framer(spdy_version());
   scoped_ptr<SpdyFrame> control_frame(
       framer.CreateSynStream(1,                        // stream_id
                              0,                        // associated_stream_id
@@ -262,7 +255,7 @@ TEST_P(BufferedSpdyFramerTest, ReadSynReplyHeaderBlock) {
   SpdyHeaderBlock headers;
   headers["alpha"] = "beta";
   headers["gamma"] = "delta";
-  BufferedSpdyFramer framer(spdy_version(), true);
+  BufferedSpdyFramer framer(spdy_version());
   scoped_ptr<SpdyFrame> control_frame(
       framer.CreateSynReply(1,                        // stream_id
                             CONTROL_FLAG_NONE,
@@ -290,7 +283,7 @@ TEST_P(BufferedSpdyFramerTest, ReadHeadersHeaderBlock) {
   SpdyHeaderBlock headers;
   headers["alpha"] = "beta";
   headers["gamma"] = "delta";
-  BufferedSpdyFramer framer(spdy_version(), true);
+  BufferedSpdyFramer framer(spdy_version());
   scoped_ptr<SpdyFrame> control_frame(
       framer.CreateHeaders(1,                        // stream_id
                            CONTROL_FLAG_NONE,
@@ -316,7 +309,7 @@ TEST_P(BufferedSpdyFramerTest, ReadPushPromiseHeaderBlock) {
   SpdyHeaderBlock headers;
   headers["alpha"] = "beta";
   headers["gamma"] = "delta";
-  BufferedSpdyFramer framer(spdy_version(), true);
+  BufferedSpdyFramer framer(spdy_version());
   scoped_ptr<SpdyFrame> control_frame(
       framer.CreatePushPromise(1, 2, &headers));
   EXPECT_TRUE(control_frame.get() != NULL);
@@ -338,7 +331,7 @@ TEST_P(BufferedSpdyFramerTest, ReadPushPromiseHeaderBlock) {
 TEST_P(BufferedSpdyFramerTest, GoAwayDebugData) {
   if (spdy_version() < HTTP2)
     return;
-  BufferedSpdyFramer framer(spdy_version(), true);
+  BufferedSpdyFramer framer(spdy_version());
   scoped_ptr<SpdyFrame> goaway_frame(
       framer.CreateGoAway(2u, GOAWAY_FRAME_SIZE_ERROR, "foo"));
 

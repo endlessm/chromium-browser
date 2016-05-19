@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/editing/EphemeralRange.h"
 
 #include "core/dom/Document.h"
@@ -48,6 +47,7 @@ EphemeralRangeTemplate<Strategy>::EphemeralRangeTemplate(const Range* range)
 {
     if (!range)
         return;
+    ASSERT(range->inDocument());
     m_startPosition = fromPositionInDOMTree<Strategy>(range->startPosition());
     m_endPosition = fromPositionInDOMTree<Strategy>(range->endPosition());
 #if ENABLE(ASSERT)
@@ -145,6 +145,6 @@ PassRefPtrWillBeRawPtr<Range> createRange(const EphemeralRange& range)
 }
 
 template class CORE_TEMPLATE_EXPORT EphemeralRangeTemplate<EditingStrategy>;
-template class CORE_TEMPLATE_EXPORT EphemeralRangeTemplate<EditingInComposedTreeStrategy>;
+template class CORE_TEMPLATE_EXPORT EphemeralRangeTemplate<EditingInFlatTreeStrategy>;
 
 } // namespace blink

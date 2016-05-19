@@ -5,18 +5,17 @@
 #ifndef CHROME_BROWSER_UI_BOOKMARKS_BOOKMARK_BUBBLE_SIGN_IN_DELEGATE_H_
 #define CHROME_BROWSER_UI_BOOKMARKS_BOOKMARK_BUBBLE_SIGN_IN_DELEGATE_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "chrome/browser/ui/bookmarks/bookmark_bubble_delegate.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/browser_list_observer.h"
-#include "chrome/browser/ui/host_desktop.h"
+#include "chrome/browser/ui/sync/bubble_sync_promo_delegate.h"
 
 class Browser;
 class Profile;
 
 // Delegate of the bookmark bubble to load the sign in page in a browser
 // when the sign in link is clicked.
-class BookmarkBubbleSignInDelegate : public BookmarkBubbleDelegate,
+class BookmarkBubbleSignInDelegate : public BubbleSyncPromoDelegate,
                                      public chrome::BrowserListObserver {
  public:
   explicit BookmarkBubbleSignInDelegate(Browser* browser);
@@ -24,7 +23,7 @@ class BookmarkBubbleSignInDelegate : public BookmarkBubbleDelegate,
  private:
   ~BookmarkBubbleSignInDelegate() override;
 
-  // BookmarkBubbleDelegate:
+  // BubbleSyncPromoDelegate:
   void OnSignInLinkClicked() override;
 
   // chrome::BrowserListObserver:
@@ -38,9 +37,6 @@ class BookmarkBubbleSignInDelegate : public BookmarkBubbleDelegate,
 
   // The profile associated with |browser_|.
   Profile* profile_;
-
-  // The host desktop of |browser_|.
-  chrome::HostDesktopType desktop_type_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkBubbleSignInDelegate);
 };

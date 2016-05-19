@@ -5,6 +5,8 @@
 #ifndef IOS_WEB_PUBLIC_WEB_STATE_WEB_STATE_OBSERVER_H_
 #define IOS_WEB_PUBLIC_WEB_STATE_WEB_STATE_OBSERVER_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -86,7 +88,7 @@ class WebStateObserver {
   virtual void FaviconUrlUpdated(const std::vector<FaviconURL>& candidates) {}
 
   // Notifies the observer that the credential manager API was invoked from
-  // |source_url| to request a credential from the browser. If |suppress_ui|
+  // |source_url| to request a credential from the browser. If |unmediated|
   // is true, the browser MUST NOT show any UI to the user. If this means that
   // no credential will be returned to the page, so be it. Otherwise, the
   // browser may show the user any UI that is necessary to get a Credential and
@@ -96,7 +98,7 @@ class WebStateObserver {
   // provide the specified |request_id|.
   virtual void CredentialsRequested(int request_id,
                                     const GURL& source_url,
-                                    bool suppress_ui,
+                                    bool unmediated,
                                     const std::vector<std::string>& federations,
                                     bool is_user_initiated) {}
 

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/macros.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/supports_user_data.h"
 #include "chrome/browser/profiles/profile.h"
@@ -54,7 +55,7 @@ class BrowserTabRestorer : public sessions::TabRestoreServiceObserver,
 
 BrowserTabRestorer::~BrowserTabRestorer() {
   tab_restore_service_->RemoveObserver(this);
-  BrowserList::GetInstance(browser_->host_desktop_type())->RemoveObserver(this);
+  BrowserList::GetInstance()->RemoveObserver(this);
 }
 
 // static
@@ -74,7 +75,7 @@ BrowserTabRestorer::BrowserTabRestorer(Browser* browser)
   DCHECK(tab_restore_service_);
   DCHECK(!tab_restore_service_->IsLoaded());
   tab_restore_service_->AddObserver(this);
-  BrowserList::GetInstance(browser->host_desktop_type())->AddObserver(this);
+  BrowserList::GetInstance()->AddObserver(this);
   browser_->profile()->SetUserData(kBrowserTabRestorerKey, this);
   tab_restore_service_->LoadTabsFromLastSession();
 }
@@ -107,8 +108,7 @@ void RestoreTab(Browser* browser) {
     return;
 
   if (service->IsLoaded()) {
-    service->RestoreMostRecentEntry(browser->live_tab_context(),
-                                    browser->host_desktop_type());
+    service->RestoreMostRecentEntry(browser->live_tab_context());
     return;
   }
 

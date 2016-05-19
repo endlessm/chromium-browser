@@ -17,6 +17,7 @@
 #include "SkTypes.h"
 
 class SkData;
+class SkPngChunkReader;
 class SkSampler;
 
 /**
@@ -25,21 +26,70 @@ class SkSampler;
 class SkCodec : SkNoncopyable {
 public:
     /**
+     *  Minimum number of bytes that must be buffered in SkStream input.
+     *
+     *  An SkStream passed to NewFromStream must be able to use this many
+     *  bytes to determine the image type. Then the same SkStream must be
+     *  passed to the correct decoder to read from the beginning.
+     *
+     *  This can be accomplished by implementing peek() to support peeking
+     *  this many bytes, or by implementing rewind() to be able to rewind()
+     *  after reading this many bytes.
+     */
+    static size_t MinBufferedBytesNeeded();
+
+    /**
      *  If this stream represents an encoded image that we know how to decode,
      *  return an SkCodec that can decode it. Otherwise return NULL.
+     *
+     *  As stated above, this call must be able to peek or read
+     *  MinBufferedBytesNeeded to determine the correct format, and then start
+     *  reading from the beginning. First it will attempt to peek, and it
+     *  assumes that if less than MinBufferedBytesNeeded bytes (but more than
+     *  zero) are returned, this is because the stream is shorter than this,
+     *  so falling back to reading would not provide more data. If peek()
+     *  returns zero bytes, this call will instead attempt to read(). This
+     *  will require that the stream can be rewind()ed.
+     *
+     *  If SkPngChunkReader is not NULL, take a ref and pass it to libpng if
+     *  the image is a png.
+     *
+     *  If the SkPngChunkReader is not NULL then:
+     *      If the image is not a PNG, the SkPngChunkReader will be ignored.
+     *      If the image is a PNG, the SkPngChunkReader will be reffed.
+     *      If the PNG has unknown chunks, the SkPngChunkReader will be used
+     *      to handle these chunks.  SkPngChunkReader will be called to read
+     *      any unknown chunk at any point during the creation of the codec
+     *      or the decode.  Note that if SkPngChunkReader fails to read a
+     *      chunk, this could result in a failure to create the codec or a
+     *      failure to decode the image.
+     *      If the PNG does not contain unknown chunks, the SkPngChunkReader
+     *      will not be used or modified.
      *
      *  If NULL is returned, the stream is deleted immediately. Otherwise, the
      *  SkCodec takes ownership of it, and will delete it when done with it.
      */
-    static SkCodec* NewFromStream(SkStream*);
+    static SkCodec* NewFromStream(SkStream*, SkPngChunkReader* = NULL);
 
     /**
      *  If this data represents an encoded image that we know how to decode,
      *  return an SkCodec that can decode it. Otherwise return NULL.
      *
+     *  If the SkPngChunkReader is not NULL then:
+     *      If the image is not a PNG, the SkPngChunkReader will be ignored.
+     *      If the image is a PNG, the SkPngChunkReader will be reffed.
+     *      If the PNG has unknown chunks, the SkPngChunkReader will be used
+     *      to handle these chunks.  SkPngChunkReader will be called to read
+     *      any unknown chunk at any point during the creation of the codec
+     *      or the decode.  Note that if SkPngChunkReader fails to read a
+     *      chunk, this could result in a failure to create the codec or a
+     *      failure to decode the image.
+     *      If the PNG does not contain unknown chunks, the SkPngChunkReader
+     *      will not be used or modified.
+     *
      *  Will take a ref if it returns a codec, else will not affect the data.
      */
-    static SkCodec* NewFromData(SkData*);
+    static SkCodec* NewFromData(SkData*, SkPngChunkReader* = NULL);
 
     virtual ~SkCodec();
 
@@ -227,16 +277,66 @@ public:
      */
     Result getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes);
 
+    struct YUVSizeInfo {
+        SkISize fYSize;
+        SkISize fUSize;
+        SkISize fVSize;
+
+        /**
+         * While the widths of the Y, U, and V planes are not restricted, the
+         * implementation requires that the width of the memory allocated for
+         * each plane be a multiple of DCTSIZE (which is always 8).
+         *
+         * This struct allows us to inform the client how many "widthBytes"
+         * that we need.  Note that we use the new idea of "widthBytes"
+         * because this idea is distinct from "rowBytes" (used elsewhere in
+         * Skia).  "rowBytes" allow the last row of the allocation to not
+         * include any extra padding, while, in this case, every single row of
+         * the allocation must be at least "widthBytes".
+         */
+        size_t fYWidthBytes;
+        size_t fUWidthBytes;
+        size_t fVWidthBytes;
+    };
+
     /**
-     *  Some images may initially report that they have alpha due to the format
-     *  of the encoded data, but then never use any colors which have alpha
-     *  less than 100%. This function can be called *after* decoding to
-     *  determine if such an image truly had alpha. Calling it before decoding
-     *  is undefined.
-     *  FIXME: see skbug.com/3582.
+     *  If decoding to YUV is supported, this returns true.  Otherwise, this
+     *  returns false and does not modify any of the parameters.
+     *
+     *  @param sizeInfo   Output parameter indicating the sizes and required
+     *                    allocation widths of the Y, U, and V planes.
+     *  @param colorSpace Output parameter.  If non-NULL this is set to kJPEG,
+     *                    otherwise this is ignored.
      */
-    bool reallyHasAlpha() const {
-        return this->onReallyHasAlpha();
+    bool queryYUV8(YUVSizeInfo* sizeInfo, SkYUVColorSpace* colorSpace) const {
+        if (nullptr == sizeInfo) {
+            return false;
+        }
+
+        return this->onQueryYUV8(sizeInfo, colorSpace);
+    }
+
+    /**
+     *  Returns kSuccess, or another value explaining the type of failure.
+     *  This always attempts to perform a full decode.  If the client only
+     *  wants size, it should call queryYUV8().
+     *
+     *  @param sizeInfo   Needs to exactly match the values returned by the
+     *                    query, except the WidthBytes may be larger than the
+     *                    recommendation (but not smaller).
+     *  @param planes     Memory for each of the Y, U, and V planes.
+     */
+    Result getYUV8Planes(const YUVSizeInfo& sizeInfo, void* planes[3]) {
+        if (nullptr == planes || nullptr == planes[0] || nullptr == planes[1] ||
+                nullptr == planes[2]) {
+            return kInvalidInput;
+        }
+
+        if (!this->rewindIfNeeded()) {
+            return kCouldNotRewind;
+        }
+
+        return this->onGetYUV8Planes(sizeInfo, planes);
     }
 
     /**
@@ -375,6 +475,8 @@ public:
     /**
      *  An enum representing the order in which scanlines will be returned by
      *  the scanline decoder.
+     *
+     *  This is undefined before startScanlineDecode() is called.
      */
     SkScanlineOrder getScanlineOrder() const { return this->onGetScanlineOrder(); }
 
@@ -390,9 +492,9 @@ public:
     int nextScanline() const { return this->outputScanline(fCurrScanline); }
 
     /**
-     * Returns the output y-coordinate of the row that corresponds to an input
-     * y-coordinate.  The input y-coordinate represents where the scanline
-     * is located in the encoded data.
+     *  Returns the output y-coordinate of the row that corresponds to an input
+     *  y-coordinate.  The input y-coordinate represents where the scanline
+     *  is located in the encoded data.
      *
      *  This will equal inputScanline, except in the case of strangely
      *  encoded image types (bottom-up bmps, interlaced gifs).
@@ -402,7 +504,7 @@ public:
 protected:
     SkCodec(const SkImageInfo&, SkStream*);
 
-    virtual SkISize onGetScaledDimensions(float /* desiredScale */) const {
+    virtual SkISize onGetScaledDimensions(float /*desiredScale*/) const {
         // By default, scaling is not supported.
         return this->getInfo().dimensions();
     }
@@ -429,12 +531,18 @@ protected:
                                SkPMColor ctable[], int* ctableCount,
                                int* rowsDecoded) = 0;
 
-    virtual bool onGetValidSubset(SkIRect* /* desiredSubset */) const {
-        // By default, subsets are not supported.
+    virtual bool onQueryYUV8(YUVSizeInfo*, SkYUVColorSpace*) const {
         return false;
     }
 
-    virtual bool onReallyHasAlpha() const { return false; }
+    virtual Result onGetYUV8Planes(const YUVSizeInfo&, void*[3] /*planes*/) {
+        return kUnimplemented;
+    }
+
+    virtual bool onGetValidSubset(SkIRect* /*desiredSubset*/) const {
+        // By default, subsets are not supported.
+        return false;
+    }
 
     /**
      *  If the stream was previously read, attempt to rewind.
@@ -462,15 +570,14 @@ protected:
      * scanlines.  This allows the subclass to indicate what value to fill with.
      *
      * @param colorType Destination color type.
-     * @param alphaType Destination alpha type.
      * @return          The value with which to fill uninitialized pixels.
      *
      * Note that we can interpret the return value as an SkPMColor, a 16-bit 565 color,
      * an 8-bit gray color, or an 8-bit index into a color table, depending on the color
      * type.
      */
-    uint32_t getFillValue(SkColorType colorType, SkAlphaType alphaType) const {
-        return this->onGetFillValue(colorType, alphaType);
+    uint32_t getFillValue(SkColorType colorType) const {
+        return this->onGetFillValue(colorType);
     }
 
     /**
@@ -478,13 +585,13 @@ protected:
      * types that we support.  Note that for color types that do not use the full 32-bits,
      * we will simply take the low bits of the fill value.
      *
-     * kN32_SkColorType: Transparent or Black
+     * kN32_SkColorType: Transparent or Black, depending on the src alpha type
      * kRGB_565_SkColorType: Black
      * kGray_8_SkColorType: Black
      * kIndex_8_SkColorType: First color in color table
      */
-    virtual uint32_t onGetFillValue(SkColorType /*colorType*/, SkAlphaType alphaType) const {
-        return kOpaque_SkAlphaType == alphaType ? SK_ColorBLACK : SK_ColorTRANSPARENT;
+    virtual uint32_t onGetFillValue(SkColorType /*colorType*/) const {
+        return kOpaque_SkAlphaType == fSrcInfo.alphaType() ? SK_ColorBLACK : SK_ColorTRANSPARENT;
     }
 
     /**
@@ -504,13 +611,21 @@ protected:
     virtual SkScanlineOrder onGetScanlineOrder() const { return kTopDown_SkScanlineOrder; }
 
     /**
-     *  Update the next scanline. Used by interlaced png.
+     *  Update the current scanline. Used by interlaced png.
      */
-    void updateNextScanline(int newY) { fCurrScanline = newY; }
+    void updateCurrScanline(int newY) { fCurrScanline = newY; }
 
     const SkImageInfo& dstInfo() const { return fDstInfo; }
 
     const SkCodec::Options& options() const { return fOptions; }
+
+    /**
+     *  Returns the number of scanlines that have been decoded so far.
+     *  This is unaffected by the SkScanlineOrder.
+     *
+     *  Returns -1 if we have not started a scanline decode.
+     */
+    int currScanline() const { return fCurrScanline; }
 
     virtual int onOutputScanline(int inputScanline) const;
 
@@ -542,18 +657,7 @@ private:
         return kUnimplemented;
     }
 
-    // Naive default version just calls onGetScanlines on temp memory.
-    virtual bool onSkipScanlines(int countLines) {
-        // FIXME (msarett): Make this a pure virtual and always override this.
-        SkAutoMalloc storage(fDstInfo.minRowBytes());
-
-        // Note that we pass 0 to rowBytes so we continue to use the same memory.
-        // Also note that while getScanlines checks that rowBytes is big enough,
-        // onGetScanlines bypasses that check.
-        // Calling the virtual method also means we do not double count
-        // countLines.
-        return countLines == this->onGetScanlines(storage.get(), countLines, 0);
-    }
+    virtual bool onSkipScanlines(int /*countLines*/) { return false; }
 
     virtual int onGetScanlines(void* /*dst*/, int /*countLines*/, size_t /*rowBytes*/) { return 0; }
 
@@ -585,5 +689,6 @@ private:
     virtual SkSampler* getSampler(bool /*createIfNecessary*/) { return nullptr; }
 
     friend class SkSampledCodec;
+    friend class SkIcoCodec;
 };
 #endif // SkCodec_DEFINED

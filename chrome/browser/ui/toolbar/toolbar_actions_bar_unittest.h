@@ -5,12 +5,15 @@
 #ifndef CHROME_BROWSER_UI_TOOLBAR_TOOLBAR_ACTIONS_BAR_UNITTEST_H_
 #define CHROME_BROWSER_UI_TOOLBAR_TOOLBAR_ACTIONS_BAR_UNITTEST_H_
 
+#include <stddef.h>
+
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_action_test_util.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "extensions/common/feature_switch.h"
+#include "ui/base/material_design/material_design_controller.h"
 
 class ExtensionAction;
 class ToolbarActionsBar;
@@ -28,7 +31,9 @@ class Extension;
 // TODO(devlin): Since this *does* use the real platform containers, in theory,
 // we can move all the BrowserActionsBarBrowserTests to be unittests. See about
 // doing this.
-class ToolbarActionsBarUnitTest : public BrowserWithTestWindowTest {
+class ToolbarActionsBarUnitTest :
+    public BrowserWithTestWindowTest,
+    public testing::WithParamInterface<ui::MaterialDesignController::Mode> {
  public:
   ToolbarActionsBarUnitTest();
   ~ToolbarActionsBarUnitTest() override;

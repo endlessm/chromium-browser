@@ -4,9 +4,11 @@
 
 #include "components/mus/ws/test_change_tracker.h"
 
+#include <stddef.h>
+
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "components/mus/public/cpp/util.h"
+#include "components/mus/common/util.h"
 #include "mojo/common/common_type_converters.h"
 
 using mojo::Array;
@@ -29,7 +31,7 @@ std::string RectToString(const mojo::Rect& rect) {
 }
 
 std::string DirectionToString(mojom::OrderDirection direction) {
-  return direction == mojom::ORDER_DIRECTION_ABOVE ? "above" : "below";
+  return direction == mojom::OrderDirection::ABOVE ? "above" : "below";
 }
 
 std::string ChangeToDescription1(const Change& change) {
@@ -42,7 +44,12 @@ std::string ChangeToDescription1(const Change& change) {
                                 WindowIdToString(change.window_id).c_str());
 
     case CHANGE_TYPE_UNEMBED:
-      return "OnUnembed";
+      return base::StringPrintf("OnUnembed window=%s",
+                                WindowIdToString(change.window_id).c_str());
+
+    case CHANGE_TYPE_LOST_CAPTURE:
+      return base::StringPrintf("OnLostCapture window=%s",
+                                WindowIdToString(change.window_id).c_str());
 
     case CHANGE_TYPE_NODE_ADD_TRANSIENT_WINDOW:
       return base::StringPrintf("AddTransientWindow parent = %s child = %s",
@@ -104,12 +111,22 @@ std::string ChangeToDescription1(const Change& change) {
                                 change.property_key.c_str(),
                                 change.property_value.c_str());
 
-    case CHANGE_TYPE_DELEGATE_EMBED:
-      return base::StringPrintf("DelegateEmbed url=%s",
-                                change.embed_url.data());
-
     case CHANGE_TYPE_FOCUSED:
       return base::StringPrintf("Focused id=%s",
+                                WindowIdToString(change.window_id).c_str());
+
+    case CHANGE_TYPE_CURSOR_CHANGED:
+      return base::StringPrintf("CursorChanged id=%s cursor_id=%d",
+                                WindowIdToString(change.window_id).c_str(),
+                                change.cursor_id);
+    case CHANGE_TYPE_ON_CHANGE_COMPLETED:
+      return base::StringPrintf("ChangeCompleted id=%d sucess=%s",
+                                change.change_id,
+                                change.bool_value ? "true" : "false");
+
+    case CHANGE_TYPE_ON_TOP_LEVEL_CREATED:
+      return base::StringPrintf("TopLevelCreated id=%d window_id=%s",
+                                change.change_id,
                                 WindowIdToString(change.window_id).c_str());
   }
   return std::string();
@@ -136,9 +153,12 @@ std::string SingleChangeToDescription(const std::vector<Change>& changes) {
 }
 
 std::string SingleWindowDescription(const std::vector<TestWindow>& windows) {
-  if (windows.size() != 1u)
-    return "more than one changes and expected only one";
-  return windows[0].ToString();
+  if (windows.empty())
+    return "no windows";
+  std::string result;
+  for (const TestWindow& window : windows)
+    result += window.ToString();
+  return result;
 }
 
 std::string ChangeWindowDescription(const std::vector<Change>& changes) {
@@ -174,8 +194,9 @@ Change::Change()
       window_id2(0),
       window_id3(0),
       event_action(0),
-      direction(mojom::ORDER_DIRECTION_ABOVE),
-      bool_value(false) {}
+      direction(mojom::OrderDirection::ABOVE),
+      bool_value(false),
+      change_id(0u) {}
 
 Change::~Change() {}
 
@@ -216,9 +237,10 @@ void TestChangeTracker::OnWindowBoundsChanged(Id window_id,
   AddChange(change);
 }
 
-void TestChangeTracker::OnUnembed() {
+void TestChangeTracker::OnUnembed(Id window_id) {
   Change change;
   change.type = CHANGE_TYPE_UNEMBED;
+  change.window_id = window_id;
   AddChange(change);
 }
 
@@ -237,6 +259,13 @@ void TestChangeTracker::OnTransientWindowRemoved(Id window_id,
   change.type = CHANGE_TYPE_NODE_REMOVE_TRANSIENT_WINDOW_FROM_PARENT;
   change.window_id = window_id;
   change.window_id2 = transient_window_id;
+  AddChange(change);
+}
+
+void TestChangeTracker::OnLostCapture(Id window_id) {
+  Change change;
+  change.type = CHANGE_TYPE_LOST_CAPTURE;
+  change.window_id = window_id;
   AddChange(change);
 }
 
@@ -302,7 +331,7 @@ void TestChangeTracker::OnWindowInputEvent(Id window_id,
   Change change;
   change.type = CHANGE_TYPE_INPUT_EVENT;
   change.window_id = window_id;
-  change.event_action = event->action;
+  change.event_action = static_cast<int32_t>(event->action);
   AddChange(change);
 }
 
@@ -327,10 +356,30 @@ void TestChangeTracker::OnWindowFocused(Id window_id) {
   AddChange(change);
 }
 
-void TestChangeTracker::DelegateEmbed(const String& url) {
+void TestChangeTracker::OnWindowPredefinedCursorChanged(
+    Id window_id,
+    mojom::Cursor cursor_id) {
   Change change;
-  change.type = CHANGE_TYPE_DELEGATE_EMBED;
-  change.embed_url = url;
+  change.type = CHANGE_TYPE_CURSOR_CHANGED;
+  change.window_id = window_id;
+  change.cursor_id = static_cast<int32_t>(cursor_id);
+  AddChange(change);
+}
+
+void TestChangeTracker::OnChangeCompleted(uint32_t change_id, bool success) {
+  Change change;
+  change.type = CHANGE_TYPE_ON_CHANGE_COMPLETED;
+  change.change_id = change_id;
+  change.bool_value = success;
+  AddChange(change);
+}
+
+void TestChangeTracker::OnTopLevelCreated(uint32_t change_id,
+                                          mojom::WindowDataPtr window_data) {
+  Change change;
+  change.type = CHANGE_TYPE_ON_TOP_LEVEL_CREATED;
+  change.change_id = change_id;
+  change.window_id = window_data->window_id;
   AddChange(change);
 }
 

@@ -23,10 +23,9 @@
  * SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
 #include "core/html/shadow/DateTimeNumericFieldElement.h"
 
+#if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
 #include "core/CSSPropertyNames.h"
 #include "core/CSSValueKeywords.h"
 #include "core/events/KeyboardEvent.h"
@@ -66,7 +65,7 @@ DateTimeNumericFieldElement::DateTimeNumericFieldElement(Document& document, Fie
     // We show a direction-neutral string such as "--" as a placeholder. It
     // should follow the direction of numeric values.
     if (localeForOwner().isRTL()) {
-        Direction dir = direction(formatValue(this->maximum())[0]);
+        CharDirection dir = direction(formatValue(this->maximum())[0]);
         if (dir == LeftToRight || dir == EuropeanNumber || dir == ArabicNumber) {
             setInlineStyleProperty(CSSPropertyUnicodeBidi, CSSValueBidiOverride);
             setInlineStyleProperty(CSSPropertyDirection, CSSValueLtr);

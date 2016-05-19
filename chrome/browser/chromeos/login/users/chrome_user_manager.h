@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_USERS_CHROME_USER_MANAGER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_USERS_CHROME_USER_MANAGER_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/task_runner.h"
 #include "chrome/browser/chromeos/login/users/affiliation.h"
@@ -18,8 +18,7 @@ namespace chromeos {
 class ChromeUserManager : public user_manager::UserManagerBase,
                           public UserManagerInterface {
  public:
-  ChromeUserManager(scoped_refptr<base::TaskRunner> task_runner,
-                    scoped_refptr<base::TaskRunner> blocking_task_runner);
+  explicit ChromeUserManager(scoped_refptr<base::TaskRunner> task_runner);
   ~ChromeUserManager() override;
 
   // Returns current ChromeUserManager or NULL if instance hasn't been

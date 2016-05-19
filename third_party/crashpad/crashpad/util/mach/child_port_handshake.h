@@ -19,8 +19,8 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/files/scoped_file.h"
+#include "base/macros.h"
 #include "util/mach/child_port_types.h"
 
 namespace crashpad {
@@ -138,7 +138,7 @@ class ChildPortHandshakeTest;
 //!     // Obtain a receive right from the parent process.
 //!     base::mac::ScopedMachReceiveRight receive_right(
 //!         ChildPortHandshake::RunServerForFD(
-//!             server_write_fd.Pass(),
+//!             std::move(server_write_fd),
 //!             ChildPortHandshake::PortRightType::kReceiveRight));
 //!   }
 //! \endcode

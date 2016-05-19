@@ -4,7 +4,10 @@
 
 #include "extensions/utility/unpacker.h"
 
+#include <stddef.h>
+
 #include <set>
+#include <utility>
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
@@ -132,7 +135,7 @@ scoped_ptr<base::DictionaryValue> Unpacker::ReadManifest() {
     return NULL;
   }
 
-  return base::DictionaryValue::From(root.Pass());
+  return base::DictionaryValue::From(std::move(root));
 }
 
 bool Unpacker::ReadAllMessageCatalogs(const std::string& default_locale) {
@@ -184,9 +187,8 @@ bool Unpacker::Run() {
   // Decode any images that the browser needs to display.
   std::set<base::FilePath> image_paths =
       ExtensionsClient::Get()->GetBrowserImagePaths(extension.get());
-  for (std::set<base::FilePath>::iterator it = image_paths.begin();
-       it != image_paths.end(); ++it) {
-    if (!AddDecodedImage(*it))
+  for (const base::FilePath& path : image_paths) {
+    if (!AddDecodedImage(path))
       return false;  // Error was already reported.
   }
 

@@ -43,6 +43,7 @@ class GlyphBuffer;
 class SimpleFontData;
 
 struct ShapeCacheEntry {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     ShapeCacheEntry()
     {
         m_shapeResult = nullptr;
@@ -51,10 +52,12 @@ struct ShapeCacheEntry {
 };
 
 class ShapeCache {
+    USING_FAST_MALLOC(ShapeCache);
     WTF_MAKE_NONCOPYABLE(ShapeCache);
 private:
     // Used to optimize small strings as hash table keys. Avoids malloc'ing an out-of-line StringImpl.
     class SmallStringKey {
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     public:
         static unsigned capacity() { return s_capacity; }
 
@@ -114,12 +117,14 @@ private:
     };
 
     struct SmallStringKeyHash {
+        STATIC_ONLY(SmallStringKeyHash);
         static unsigned hash(const SmallStringKey& key) { return key.hash(); }
         static bool equal(const SmallStringKey& a, const SmallStringKey& b) { return a == b; }
         static const bool safeToCompareToEmptyOrDeleted = true; // Empty and deleted values have lengths that are not equal to any valid length.
     };
 
     struct SmallStringKeyHashTraits : WTF::SimpleClassHashTraits<SmallStringKey> {
+        STATIC_ONLY(SmallStringKeyHashTraits);
         static const bool hasIsEmptyValueFunction = true;
         static bool isEmptyValue(const SmallStringKey& key) { return key.isHashTableEmptyValue(); }
         static const unsigned minimumTableSize = 16;
@@ -128,7 +133,7 @@ private:
     friend bool operator==(const SmallStringKey&, const SmallStringKey&);
 
 public:
-    ShapeCache(): m_weakFactory(this) { }
+    ShapeCache(): m_weakFactory(this), m_version(0) { }
 
     ShapeCacheEntry* add(const TextRun& run, ShapeCacheEntry entry)
     {
@@ -136,6 +141,14 @@ public:
             return 0;
 
         return addSlowCase(run, entry);
+    }
+
+    void clearIfVersionChanged(unsigned version)
+    {
+        if (version != m_version) {
+            clear();
+            m_version = version;
+        }
     }
 
     void clear()
@@ -147,6 +160,18 @@ public:
     unsigned size() const
     {
         return m_singleCharMap.size() + m_shortStringMap.size();
+    }
+
+    size_t byteSize() const
+    {
+        size_t selfByteSize = 0;
+        for (auto cacheEntry : m_singleCharMap) {
+            selfByteSize += cacheEntry.value.m_shapeResult->byteSize();
+        }
+        for (auto cacheEntry : m_shortStringMap) {
+            selfByteSize += cacheEntry.value.m_shapeResult->byteSize();
+        }
+        return selfByteSize;
     }
 
     WeakPtr<ShapeCache> weakPtr()
@@ -209,6 +234,7 @@ private:
     SingleCharMap m_singleCharMap;
     SmallStringMap m_shortStringMap;
     WeakPtrFactory<ShapeCache> m_weakFactory;
+    unsigned m_version;
 };
 
 inline bool operator==(const ShapeCache::SmallStringKey& a, const ShapeCache::SmallStringKey& b)

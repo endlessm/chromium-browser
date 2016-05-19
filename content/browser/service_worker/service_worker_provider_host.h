@@ -5,10 +5,14 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_PROVIDER_HOST_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_PROVIDER_HOST_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <set>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/service_worker/service_worker_registration.h"
@@ -47,8 +51,6 @@ class CONTENT_EXPORT ServiceWorkerProviderHost
     : public NON_EXPORTED_BASE(ServiceWorkerRegistration::Listener),
       public base::SupportsWeakPtr<ServiceWorkerProviderHost> {
  public:
-  using GetClientInfoCallback =
-      base::Callback<void(const ServiceWorkerClientInfo&)>;
   using GetRegistrationForReadyCallback =
       base::Callback<void(ServiceWorkerRegistration* reigstration)>;
 
@@ -131,7 +133,7 @@ class CONTENT_EXPORT ServiceWorkerProviderHost
 
   // Returns false if the version is not in the expected STARTING in our
   // process state. That would be indicative of a bad IPC message.
-  bool SetHostedVersionId(int64 versions_id);
+  bool SetHostedVersionId(int64_t versions_id);
 
   // Returns a handler for a request, the handler may return NULL if
   // the request doesn't require special handling.
@@ -166,24 +168,10 @@ class CONTENT_EXPORT ServiceWorkerProviderHost
   bool IsContextAlive();
 
   // Dispatches message event to the document.
-  void PostMessage(
+  void PostMessageToClient(
       ServiceWorkerVersion* version,
       const base::string16& message,
       const std::vector<TransferredMessagePort>& sent_message_ports);
-
-  // Activates the WebContents associated with
-  // { render_process_id_, route_id_ }.
-  // Runs the |callback| with the updated ServiceWorkerClientInfo in parameter.
-  void Focus(const GetClientInfoCallback& callback);
-
-  // Asks the renderer to send back the document information.
-  void GetWindowClientInfo(const GetClientInfoCallback& callback) const;
-
-  // Same as above but has to be called from the UI thread.
-  // It is taking the process and frame ids in parameter because |this| is meant
-  // to live on the IO thread.
-  static ServiceWorkerClientInfo GetWindowClientInfoOnUI(int render_process_id,
-                                                         int render_frame_id);
 
   // Adds reference of this host's process to the |pattern|, the reference will
   // be removed in destructor.
@@ -266,6 +254,8 @@ class CONTENT_EXPORT ServiceWorkerProviderHost
                            UpdateAfter24Hours);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
                            UpdateForceBypassCache);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
+                           ServiceWorkerDataRequestAnnotation);
 
   struct OneShotGetReadyCallback {
     GetRegistrationForReadyCallback callback;

@@ -22,13 +22,12 @@ scoped_refptr<scheduler::TaskQueue> FakeRendererScheduler::DefaultTaskRunner() {
   return nullptr;
 }
 
-scoped_refptr<base::SingleThreadTaskRunner>
+scoped_refptr<scheduler::TaskQueue>
 FakeRendererScheduler::CompositorTaskRunner() {
   return nullptr;
 }
 
-scoped_refptr<base::SingleThreadTaskRunner>
-FakeRendererScheduler::LoadingTaskRunner() {
+scoped_refptr<scheduler::TaskQueue> FakeRendererScheduler::LoadingTaskRunner() {
   return nullptr;
 }
 
@@ -123,13 +122,5 @@ void FakeRendererScheduler::ResumeTimerQueue() {
 
 void FakeRendererScheduler::SetTimerQueueSuspensionWhenBackgroundedEnabled(
     bool enabled) {}
-
-double FakeRendererScheduler::CurrentTimeSeconds() const {
-  return 0.0;
-}
-
-double FakeRendererScheduler::MonotonicallyIncreasingTimeSeconds() const {
-  return 0.0;
-}
 
 }  // namespace content

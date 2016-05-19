@@ -8,10 +8,12 @@
 #define CORE_SRC_FPDFAPI_FPDF_PAGE_PAGEINT_H_
 
 #include <map>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "core/include/fpdfapi/fpdf_page.h"
 #include "core/include/fpdfapi/fpdf_pageobj.h"
-#include "third_party/base/nonstd_unique_ptr.h"
 
 class CPDF_AllStates;
 class CPDF_ParseOptions;
@@ -20,6 +22,8 @@ class CPDF_ParseOptions;
 
 class CPDF_StreamParser {
  public:
+  enum SyntaxType { EndOfData, Number, Keyword, Name, Others };
+
   CPDF_StreamParser(const uint8_t* pData, FX_DWORD dwSize);
   ~CPDF_StreamParser();
 
@@ -27,19 +31,16 @@ class CPDF_StreamParser {
                                 CPDF_Dictionary* pDict,
                                 CPDF_Object* pCSObj,
                                 FX_BOOL bDecode);
-  typedef enum { EndOfData, Number, Keyword, Name, Others } SyntaxType;
-
   SyntaxType ParseNextElement();
   uint8_t* GetWordBuf() { return m_WordBuffer; }
-  FX_DWORD GetWordSize() { return m_WordSize; }
+  FX_DWORD GetWordSize() const { return m_WordSize; }
   CPDF_Object* GetObject() {
     CPDF_Object* pObj = m_pLastObj;
     m_pLastObj = NULL;
     return pObj;
   }
-  FX_DWORD GetPos() { return m_Pos; }
+  FX_DWORD GetPos() const { return m_Pos; }
   void SetPos(FX_DWORD pos) { m_Pos = pos; }
-
   CPDF_Object* ReadNextObject(FX_BOOL bAllowNestedArray = FALSE,
                               FX_BOOL bInArray = FALSE);
   void SkipPathObject();
@@ -65,85 +66,11 @@ class CPDF_StreamParser {
  private:
   bool PositionIsInBounds() const;
 };
-typedef enum {
-  PDFOP_CloseFillStrokePath = 0,
-  PDFOP_FillStrokePath,
-  PDFOP_CloseEOFillStrokePath,
-  PDFOP_EOFillStrokePath,
-  PDFOP_BeginMarkedContent_Dictionary,
-  PDFOP_BeginImage,
-  PDFOP_BeginMarkedContent,
-  PDFOP_BeginText,
-  PDFOP_BeginSectionUndefined,
-  PDFOP_CurveTo_123,
-  PDFOP_ConcatMatrix,
-  PDFOP_SetColorSpace_Fill,
-  PDFOP_SetColorSpace_Stroke,
-  PDFOP_SetDash,
-  PDFOP_SetCharWidth,
-  PDFOP_SetCachedDevice,
-  PDFOP_ExecuteXObject,
-  PDFOP_MarkPlace_Dictionary,
-  PDFOP_EndImage,
-  PDFOP_EndMarkedContent,
-  PDFOP_EndText,
-  PDFOP_EndSectionUndefined,
-  PDFOP_FillPath,
-  PDFOP_FillPathOld,
-  PDFOP_EOFillPath,
-  PDFOP_SetGray_Fill,
-  PDFOP_SetGray_Stroke,
-  PDFOP_SetExtendGraphState,
-  PDFOP_ClosePath,
-  PDFOP_SetFlat,
-  PDFOP_BeginImageData,
-  PDFOP_SetLineJoin,
-  PDFOP_SetLineCap,
-  PDFOP_SetCMYKColor_Fill,
-  PDFOP_SetCMYKColor_Stroke,
-  PDFOP_LineTo,
-  PDFOP_MoveTo,
-  PDFOP_SetMiterLimit,
-  PDFOP_MarkPlace,
-  PDFOP_EndPath,
-  PDFOP_SaveGraphState,
-  PDFOP_RestoreGraphState,
-  PDFOP_Rectangle,
-  PDFOP_SetRGBColor_Fill,
-  PDFOP_SetRGBColor_Stroke,
-  PDFOP_SetRenderIntent,
-  PDFOP_CloseStrokePath,
-  PDFOP_StrokePath,
-  PDFOP_SetColor_Fill,
-  PDFOP_SetColor_Stroke,
-  PDFOP_SetColorPS_Fill,
-  PDFOP_SetColorPS_Stroke,
-  PDFOP_ShadeFill,
-  PDFOP_SetCharSpace,
-  PDFOP_MoveTextPoint,
-  PDFOP_MoveTextPoint_SetLeading,
-  PDFOP_SetFont,
-  PDFOP_ShowText,
-  PDFOP_ShowText_Positioning,
-  PDFOP_SetTextLeading,
-  PDFOP_SetTextMatrix,
-  PDFOP_SetTextRenderMode,
-  PDFOP_SetTextRise,
-  PDFOP_SetWordSpace,
-  PDFOP_SetHorzScale,
-  PDFOP_MoveToNextLine,
-  PDFOP_CurveTo_23,
-  PDFOP_SetLineWidth,
-  PDFOP_Clip,
-  PDFOP_EOClip,
-  PDFOP_CurveTo_13,
-  PDFOP_NextLineShowText,
-  PDFOP_NextLineShowText_Space,
-  PDFOP_Invalid
-} PDFOP;
+
 #define PARAM_BUF_SIZE 16
-typedef struct {
-  int m_Type;
+struct ContentParam {
+  enum Type { OBJECT = 0, NUMBER, NAME };
+  Type m_Type;
   union {
     struct {
       FX_BOOL m_bInteger;
@@ -158,7 +85,7 @@ typedef struct {
       char m_Buffer[32];
     } m_Name;
   };
-} _ContentParam;
+};
 #define _FPDF_MAX_FORM_LEVEL_ 30
 #define _FPDF_MAX_TYPE3_FORM_LEVEL_ 4
 #define _FPDF_MAX_OBJECT_STACK_SIZE_ 512
@@ -167,8 +94,8 @@ class CPDF_StreamContentParser {
   CPDF_StreamContentParser(CPDF_Document* pDoc,
                            CPDF_Dictionary* pPageResources,
                            CPDF_Dictionary* pParentResources,
-                           CFX_AffineMatrix* pmtContentToUser,
-                           CPDF_PageObjects* pObjList,
+                           CFX_Matrix* pmtContentToUser,
+                           CPDF_PageObjectHolder* pObjectHolder,
                            CPDF_Dictionary* pResources,
                            CFX_FloatRect* pBBox,
                            CPDF_ParseOptions* pOptions,
@@ -176,7 +103,7 @@ class CPDF_StreamContentParser {
                            int level);
   ~CPDF_StreamContentParser();
 
-  CPDF_PageObjects* GetObjectList() const { return m_pObjectList; }
+  CPDF_PageObjectHolder* GetPageObjectHolder() const { return m_pObjectHolder; }
   CPDF_AllStates* GetCurStates() const { return m_pCurStates.get(); }
   FX_BOOL IsColored() const { return m_bColored; }
   const FX_FLOAT* GetType3Data() const { return m_Type3Data; }
@@ -191,7 +118,7 @@ class CPDF_StreamContentParser {
   FX_FLOAT GetNumber(FX_DWORD index);
   FX_FLOAT GetNumber16(FX_DWORD index);
   int GetInteger(FX_DWORD index) { return (int32_t)(GetNumber(index)); }
-  FX_BOOL OnOperator(const FX_CHAR* op);
+  void OnOperator(const FX_CHAR* op);
   void BigCaseCaller(int index);
   FX_DWORD GetParsePos() { return m_pSyntax->GetPos(); }
   void AddTextObject(CFX_ByteString* pText,
@@ -225,11 +152,9 @@ class CPDF_StreamContentParser {
                                const CFX_ByteString& name);
 
  protected:
-  struct OpCode {
-    FX_DWORD m_OpId;
-    void (CPDF_StreamContentParser::*m_OpHandler)();
-  };
-  static const OpCode g_OpCodes[];
+  using OpCodes =
+      std::unordered_map<FX_DWORD, void (CPDF_StreamContentParser::*)()>;
+  static OpCodes InitializeOpCodes();
 
   void Handle_CloseFillStrokePath();
   void Handle_FillStrokePath();
@@ -239,7 +164,6 @@ class CPDF_StreamContentParser {
   void Handle_BeginImage();
   void Handle_BeginMarkedContent();
   void Handle_BeginText();
-  void Handle_BeginSectionUndefined();
   void Handle_CurveTo_123();
   void Handle_ConcatMatrix();
   void Handle_SetColorSpace_Fill();
@@ -252,7 +176,6 @@ class CPDF_StreamContentParser {
   void Handle_EndImage();
   void Handle_EndMarkedContent();
   void Handle_EndText();
-  void Handle_EndSectionUndefined();
   void Handle_FillPath();
   void Handle_FillPathOld();
   void Handle_EOFillPath();
@@ -310,21 +233,20 @@ class CPDF_StreamContentParser {
   CPDF_Dictionary* m_pPageResources;
   CPDF_Dictionary* m_pParentResources;
   CPDF_Dictionary* m_pResources;
-  CPDF_PageObjects* m_pObjectList;
+  CPDF_PageObjectHolder* m_pObjectHolder;
   int m_Level;
-  CFX_AffineMatrix m_mtContentToUser;
+  CFX_Matrix m_mtContentToUser;
   CFX_FloatRect m_BBox;
   CPDF_ParseOptions m_Options;
-  _ContentParam m_ParamBuf1[PARAM_BUF_SIZE];
+  ContentParam m_ParamBuf[PARAM_BUF_SIZE];
   FX_DWORD m_ParamStartPos;
   FX_DWORD m_ParamCount;
   CPDF_StreamParser* m_pSyntax;
-  nonstd::unique_ptr<CPDF_AllStates> m_pCurStates;
+  std::unique_ptr<CPDF_AllStates> m_pCurStates;
   CPDF_ContentMark m_CurContentMark;
-  CFX_PtrArray m_ClipTextList;
+  CFX_ArrayTemplate<CPDF_TextObject*> m_ClipTextList;
   CPDF_TextObject* m_pLastTextObject;
   FX_FLOAT m_DefFontSize;
-  int m_CompatCount;
   FX_PATHPOINT* m_pPathPoints;
   int m_PathPointCount;
   int m_PathAllocSize;
@@ -344,7 +266,7 @@ class CPDF_StreamContentParser {
   FX_BOOL m_bColored;
   FX_FLOAT m_Type3Data[6];
   FX_BOOL m_bResourceMissing;
-  CFX_PtrArray m_StateStack;
+  std::vector<std::unique_ptr<CPDF_AllStates>> m_StateStack;
 };
 class CPDF_ContentParser {
  public:
@@ -353,31 +275,36 @@ class CPDF_ContentParser {
   CPDF_ContentParser();
   ~CPDF_ContentParser();
 
-  ParseStatus GetStatus() { return m_Status; }
+  ParseStatus GetStatus() const { return m_Status; }
   void Start(CPDF_Page* pPage, CPDF_ParseOptions* pOptions);
   void Start(CPDF_Form* pForm,
              CPDF_AllStates* pGraphicStates,
-             CFX_AffineMatrix* pParentMatrix,
+             CFX_Matrix* pParentMatrix,
              CPDF_Type3Char* pType3Char,
              CPDF_ParseOptions* pOptions,
              int level);
   void Continue(IFX_Pause* pPause);
 
- protected:
-  void Clear();
+ private:
+  enum InternalStage {
+    STAGE_GETCONTENT = 1,
+    STAGE_PARSE,
+    STAGE_CHECKCLIP,
+  };
+
   ParseStatus m_Status;
-  CPDF_PageObjects* m_pObjects;
+  InternalStage m_InternalStage;
+  CPDF_PageObjectHolder* m_pObjectHolder;
   FX_BOOL m_bForm;
   CPDF_ParseOptions m_Options;
   CPDF_Type3Char* m_pType3Char;
-  int m_InternalStage;
-  CPDF_StreamAcc* m_pSingleStream;
-  CPDF_StreamAcc** m_pStreamArray;
   FX_DWORD m_nStreams;
+  std::unique_ptr<CPDF_StreamAcc> m_pSingleStream;
+  std::vector<std::unique_ptr<CPDF_StreamAcc>> m_StreamArray;
   uint8_t* m_pData;
   FX_DWORD m_Size;
-  class CPDF_StreamContentParser* m_pParser;
   FX_DWORD m_CurrentOffset;
+  std::unique_ptr<CPDF_StreamContentParser> m_pParser;
 };
 class CPDF_AllStates : public CPDF_GraphicStates {
  public:
@@ -386,7 +313,7 @@ class CPDF_AllStates : public CPDF_GraphicStates {
   void Copy(const CPDF_AllStates& src);
   void ProcessExtGS(CPDF_Dictionary* pGS, CPDF_StreamContentParser* pParser);
   void SetLineDash(CPDF_Array*, FX_FLOAT, FX_FLOAT scale);
-  CFX_AffineMatrix m_TextMatrix, m_CTM, m_ParentMatrix;
+  CFX_Matrix m_TextMatrix, m_CTM, m_ParentMatrix;
   FX_FLOAT m_TextX, m_TextY, m_TextLineX, m_TextLineY;
   FX_FLOAT m_TextLeading, m_TextRise, m_TextHorzScale;
 };
@@ -402,12 +329,12 @@ class CPDF_DocPageData {
                              CPDF_FontEncoding* pEncoding);
   void ReleaseFont(CPDF_Dictionary* pFontDict);
   CPDF_ColorSpace* GetColorSpace(CPDF_Object* pCSObj,
-                                 CPDF_Dictionary* pResources);
+                                 const CPDF_Dictionary* pResources);
   CPDF_ColorSpace* GetCopiedColorSpace(CPDF_Object* pCSObj);
   void ReleaseColorSpace(CPDF_Object* pColorSpace);
   CPDF_Pattern* GetPattern(CPDF_Object* pPatternObj,
                            FX_BOOL bShading,
-                           const CFX_AffineMatrix* matrix);
+                           const CFX_Matrix* matrix);
   void ReleasePattern(CPDF_Object* pPatternObj);
   CPDF_Image* GetImage(CPDF_Object* pImageStream);
   void ReleaseImage(CPDF_Object* pImageStream);
@@ -524,5 +451,8 @@ class CPDF_PatternCS : public CPDF_ColorSpace {
   CPDF_ColorSpace* m_pBaseCS;
   CPDF_CountedColorSpace* m_pCountedBaseCS;
 };
+
+void PDF_ReplaceAbbr(CPDF_Object* pObj);
+bool IsPathOperator(const uint8_t* buf, size_t len);
 
 #endif  // CORE_SRC_FPDFAPI_FPDF_PAGE_PAGEINT_H_

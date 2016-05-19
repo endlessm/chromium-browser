@@ -50,7 +50,7 @@ bool FakeGCMDriver::IsConnected() const {
 }
 
 void FakeGCMDriver::GetGCMStatistics(const GetGCMStatisticsCallback& callback,
-                                     bool clear_logs) {
+                                     ClearActivityLogs clear_logs) {
 }
 
 void FakeGCMDriver::SetGCMRecording(const GetGCMStatisticsCallback& callback,
@@ -72,6 +72,11 @@ void FakeGCMDriver::UnregisterImpl(const std::string& app_id) {
 void FakeGCMDriver::SendImpl(const std::string& app_id,
                              const std::string& receiver_id,
                              const OutgoingMessage& message) {
+}
+
+void FakeGCMDriver::RecordDecryptionFailure(
+    const std::string& app_id,
+    GCMEncryptionProvider::DecryptionResult result) {
 }
 
 void FakeGCMDriver::SetAccountTokens(

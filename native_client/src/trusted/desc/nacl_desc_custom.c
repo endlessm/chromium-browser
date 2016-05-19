@@ -4,7 +4,7 @@
  * found in the LICENSE file.
  */
 
-#include "native_client/src/trusted/desc/nacl_desc_custom.h"
+#include "native_client/src/public/nacl_desc_custom.h"
 
 #include "native_client/src/shared/platform/nacl_check.h"
 #include "native_client/src/trusted/desc/nacl_desc_base.h"
@@ -69,7 +69,6 @@ static const struct NaClDescVtbl kNaClDescCustomVtbl = {
     NaClDescCustomDtor,  /* diff */
   },
   NaClDescMapNotImplemented,
-  NACL_DESC_UNMAP_NOT_IMPLEMENTED
   NaClDescReadNotImplemented,
   NaClDescWriteNotImplemented,
   NaClDescSeekNotImplemented,

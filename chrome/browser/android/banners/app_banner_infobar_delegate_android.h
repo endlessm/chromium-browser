@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ANDROID_BANNERS_APP_BANNER_INFOBAR_DELEGATE_ANDROID_H_
 
 #include "base/android/scoped_java_ref.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/android/banners/app_banner_data_fetcher_android.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
@@ -48,17 +49,18 @@ class AppBannerInfoBarDelegateAndroid : public ConfirmInfoBarDelegate {
   ~AppBannerInfoBarDelegateAndroid() override;
 
   // Called when the AppBannerInfoBar's button needs to be updated.
-  void UpdateInstallState(JNIEnv* env, jobject obj);
+  void UpdateInstallState(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& obj);
 
   // Called when the installation Intent has been handled and focus has been
   // returned to Chrome.
   void OnInstallIntentReturned(JNIEnv* env,
-                               jobject obj,
+                               const base::android::JavaParamRef<jobject>& obj,
                                jboolean jis_installing);
 
   // Called when the InstallerDelegate task has finished.
   void OnInstallFinished(JNIEnv* env,
-                         jobject obj,
+                         const base::android::JavaParamRef<jobject>& obj,
                          jboolean success);
 
  private:
@@ -67,6 +69,7 @@ class AppBannerInfoBarDelegateAndroid : public ConfirmInfoBarDelegate {
                           const std::string& platform);
 
   // ConfirmInfoBarDelegate:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   gfx::Image GetIcon() const override;
   void InfoBarDismissed() override;
   base::string16 GetMessageText() const override;

@@ -55,19 +55,20 @@ source_set("browser") {
     "autofill_regex_constants.h",
     "autofill_scanner.cc",
     "autofill_scanner.h",
-    "autofill_server_field_info.h",
     "autofill_sync_constants.cc",
     "autofill_sync_constants.h",
     "autofill_type.cc",
     "autofill_type.h",
     "autofill_wallet_data_type_controller.cc",
     "autofill_wallet_data_type_controller.h",
-    "autofill_xml_parser.cc",
-    "autofill_xml_parser.h",
     "card_unmask_delegate.cc",
     "card_unmask_delegate.h",
     "contact_info.cc",
     "contact_info.h",
+    "country_data.cc",
+    "country_data.h",
+    "country_names.cc",
+    "country_names.h",
     "credit_card.cc",
     "credit_card.h",
     "credit_card_field.cc",
@@ -77,6 +78,8 @@ source_set("browser") {
     "dialog_section.h",
     "email_field.cc",
     "email_field.h",
+    "field_candidates.cc",
+    "field_candidates.h",
     "field_types.h",
     "form_field.cc",
     "form_field.h",
@@ -84,6 +87,8 @@ source_set("browser") {
     "form_group.h",
     "form_structure.cc",
     "form_structure.h",
+    "legal_message_line.cc",
+    "legal_message_line.h",
     "name_field.cc",
     "name_field.h",
     "options_util.cc",
@@ -142,19 +147,36 @@ source_set("browser") {
     "webdata/autofill_webdata_service_observer.h",
   ]
 
+  if (is_ios) {
+    sources += [
+      "autofill_field_trial_ios.cc",
+      "autofill_field_trial_ios.h",
+      "keyboard_accessory_metrics_logger.h",
+      "keyboard_accessory_metrics_logger.mm",
+    ]
+  }
+
+  if (is_ios || is_android) {
+    sources += [
+      "autofill_save_card_infobar_delegate_mobile.cc",
+      "autofill_save_card_infobar_delegate_mobile.h",
+      "autofill_save_card_infobar_mobile.h",
+    ]
+  }
+
   configs += [ "//build/config:precompiled_headers" ]
 
   deps = [
     "//base",
     "//base:i18n",
-    "//base:prefs",
+    "//components/autofill/core/browser/proto",
     "//components/autofill/core/common",
-    "//components/compression",
     "//components/data_use_measurement/core",
     "//components/infobars/core",
     "//components/keyed_service/core",
     "//components/os_crypt",
     "//components/pref_registry",
+    "//components/prefs",
     "//components/rappor",
     "//components/resources",
     "//components/signin/core/browser",
@@ -172,7 +194,7 @@ source_set("browser") {
     "//third_party/icu",
     "//third_party/libaddressinput:util",
     "//third_party/libphonenumber",
-    "//third_party/libjingle",
+    "//third_party/re2",
     "//ui/base",
     "//ui/gfx",
     "//ui/gfx/geometry",
@@ -207,16 +229,19 @@ source_set("test_support") {
     "test_personal_data_manager.h",
   ]
 
-  deps = [
+  public_deps = [
     ":browser",
+  ]
+
+  deps = [
     "//base",
-    "//base:prefs",
-    "//base:prefs_test_support",
     "//base/test:test_support",
     "//components/autofill/core/browser",
+    "//components/autofill/core/browser/proto",
     "//components/autofill/core/common",
     "//components/os_crypt",
     "//components/pref_registry",
+    "//components/prefs:test_support",
     "//components/rappor",
     "//components/rappor:test_support",
     "//components/signin/core/browser",
@@ -224,6 +249,7 @@ source_set("test_support") {
     "//google_apis:test_support",
     "//skia",
     "//testing/gtest",
+    "//ui/gfx:test_support",
     "//ui/gfx/geometry",
   ]
 }
@@ -246,12 +272,14 @@ source_set("unit_tests") {
     "autofill_metrics_unittest.cc",
     "autofill_profile_unittest.cc",
     "autofill_type_unittest.cc",
-    "autofill_xml_parser_unittest.cc",
     "contact_info_unittest.cc",
+    "country_names_unittest.cc",
     "credit_card_field_unittest.cc",
     "credit_card_unittest.cc",
+    "field_candidates_unittest.cc",
     "form_field_unittest.cc",
     "form_structure_unittest.cc",
+    "legal_message_line_unittest.cc",
     "name_field_unittest.cc",
     "options_util_unittest.cc",
     "password_generator_unittest.cc",
@@ -272,12 +300,10 @@ source_set("unit_tests") {
     ":browser",
     ":test_support",
     "//base",
-    "//base:prefs",
-    "//base:prefs_test_support",
     "//base/test:test_support",
     "//components/autofill/core/common",
-    "//components/compression",
     "//components/os_crypt",
+    "//components/prefs:test_support",
     "//components/rappor:test_support",
     "//components/resources",
     "//components/signin/core/browser",
@@ -299,7 +325,6 @@ source_set("unit_tests") {
     "//testing/gtest",
     "//third_party/libaddressinput:util",
     "//third_party/libphonenumber",
-    "//third_party/libjingle",
     "//ui/base",
     "//url",
   ]

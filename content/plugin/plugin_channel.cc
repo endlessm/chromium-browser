@@ -4,6 +4,8 @@
 
 #include "content/plugin/plugin_channel.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/process/process_handle.h"
@@ -253,7 +255,6 @@ bool PluginChannel::OnControlMessageReceived(const IPC::Message& msg) {
                                     OnDestroyInstance)
     IPC_MESSAGE_HANDLER(PluginMsg_GenerateRouteID, OnGenerateRouteID)
     IPC_MESSAGE_HANDLER(PluginProcessMsg_ClearSiteData, OnClearSiteData)
-    IPC_MESSAGE_HANDLER(PluginHostMsg_DidAbortLoading, OnDidAbortLoading)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   DCHECK(handled);
@@ -305,8 +306,8 @@ void PluginChannel::OnGenerateRouteID(int* route_id) {
 }
 
 void PluginChannel::OnClearSiteData(const std::string& site,
-                                    uint64 flags,
-                                    uint64 max_age) {
+                                    uint64_t flags,
+                                    uint64_t max_age) {
   bool success = false;
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   base::FilePath path = command_line->GetSwitchValuePath(switches::kPluginPath);
@@ -325,15 +326,6 @@ void PluginChannel::OnClearSiteData(const std::string& site,
     }
   }
   Send(new PluginProcessHostMsg_ClearSiteDataResult(success));
-}
-
-void PluginChannel::OnDidAbortLoading(int render_view_id) {
-  for (size_t i = 0; i < plugin_stubs_.size(); ++i) {
-    if (plugin_stubs_[i]->webplugin()->host_render_view_routing_id() ==
-            render_view_id) {
-      plugin_stubs_[i]->delegate()->instance()->CloseStreams();
-    }
-  }
 }
 
 }  // namespace content

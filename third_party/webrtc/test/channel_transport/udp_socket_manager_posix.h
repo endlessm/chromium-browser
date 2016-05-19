@@ -17,15 +17,12 @@
 #include <list>
 #include <map>
 
+#include "webrtc/base/platform_thread.h"
 #include "webrtc/system_wrappers/include/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/include/thread_wrapper.h"
 #include "webrtc/test/channel_transport/udp_socket_manager_wrapper.h"
 #include "webrtc/test/channel_transport/udp_socket_wrapper.h"
 
 namespace webrtc {
-
-class ConditionVariableWrapper;
-
 namespace test {
 
 class UdpSocketPosix;
@@ -75,7 +72,7 @@ protected:
 private:
     typedef std::list<UdpSocketWrapper*> SocketList;
     typedef std::list<SOCKET> FdList;
-    rtc::scoped_ptr<ThreadWrapper> _thread;
+    rtc::PlatformThread _thread;
     CriticalSectionWrapper* _critSectList;
 
     fd_set _readFds;

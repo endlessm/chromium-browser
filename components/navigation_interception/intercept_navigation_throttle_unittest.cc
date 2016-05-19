@@ -62,13 +62,11 @@ class InterceptNavigationThrottleTest
         content::NavigationHandle::CreateNavigationHandleForTesting(
             url, main_rfh());
     test_handle->RegisterThrottleForTesting(
-        scoped_ptr<NavigationThrottle>(
-            new InterceptNavigationThrottle(
-                test_handle.get(),
-                base::Bind(
-                    &MockInterceptCallbackReceiver::ShouldIgnoreNavigation,
-                    base::Unretained(mock_callback_receiver_.get()))))
-            .Pass());
+        scoped_ptr<NavigationThrottle>(new InterceptNavigationThrottle(
+            test_handle.get(),
+            base::Bind(&MockInterceptCallbackReceiver::ShouldIgnoreNavigation,
+                       base::Unretained(mock_callback_receiver_.get())),
+            true)));
     return test_handle->CallWillStartRequestForTesting(
         is_post, content::Referrer(), false, ui::PAGE_TRANSITION_LINK, false);
   }
@@ -78,13 +76,11 @@ class InterceptNavigationThrottleTest
         content::NavigationHandle::CreateNavigationHandleForTesting(
             GURL(kTestUrl),  main_rfh());
     test_handle->RegisterThrottleForTesting(
-        scoped_ptr<NavigationThrottle>(
-            new InterceptNavigationThrottle(
-                test_handle.get(),
-                base::Bind(
-                    &MockInterceptCallbackReceiver::ShouldIgnoreNavigation,
-                    base::Unretained(mock_callback_receiver_.get()))))
-            .Pass());
+        scoped_ptr<NavigationThrottle>(new InterceptNavigationThrottle(
+            test_handle.get(),
+            base::Bind(&MockInterceptCallbackReceiver::ShouldIgnoreNavigation,
+                       base::Unretained(mock_callback_receiver_.get())),
+            true)));
     test_handle->CallWillStartRequestForTesting(
         true, content::Referrer(), false, ui::PAGE_TRANSITION_LINK, false);
     return test_handle->CallWillRedirectRequestForTesting(GURL(kTestUrl), false,

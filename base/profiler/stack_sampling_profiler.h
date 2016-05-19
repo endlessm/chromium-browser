@@ -5,12 +5,15 @@
 #ifndef BASE_PROFILER_STACK_SAMPLING_PROFILER_H_
 #define BASE_PROFILER_STACK_SAMPLING_PROFILER_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/base_export.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/synchronization/waitable_event.h"
@@ -110,6 +113,7 @@ class BASE_EXPORT StackSamplingProfiler {
   // CallStackProfile represents a set of samples.
   struct BASE_EXPORT CallStackProfile {
     CallStackProfile();
+    CallStackProfile(const CallStackProfile& other);
     ~CallStackProfile();
 
     std::vector<Module> modules;

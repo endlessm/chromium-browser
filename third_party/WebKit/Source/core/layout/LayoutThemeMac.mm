@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#import "config.h"
 #import "core/layout/LayoutThemeMac.h"
 
 #import "core/CSSValueKeywords.h"
@@ -32,6 +31,7 @@
 #import "core/style/ShadowList.h"
 #import "platform/LayoutTestSupport.h"
 #import "platform/PlatformResourceLoader.h"
+#import "platform/Theme.h"
 #import "platform/graphics/BitmapImage.h"
 #import "platform/mac/ColorMac.h"
 #import "platform/mac/LocalCurrentGraphicsContext.h"
@@ -47,7 +47,7 @@
 
 // The methods in this file are specific to the Mac OS X platform.
 
-@interface LayoutThemeNotificationObserver : NSObject
+@interface BlinkLayoutThemeNotificationObserver : NSObject
 {
     blink::LayoutTheme *_theme;
 }
@@ -57,7 +57,7 @@
 
 @end
 
-@implementation LayoutThemeNotificationObserver
+@implementation BlinkLayoutThemeNotificationObserver
 
 - (id)initWithTheme:(blink::LayoutTheme *)theme
 {
@@ -81,11 +81,11 @@
 @end
 
 
-@interface WebCoreTextFieldCell : NSTextFieldCell
+@interface BlinkTextFieldCell : NSTextFieldCell
 - (CFDictionaryRef)_coreUIDrawOptionsWithFrame:(NSRect)cellFrame inView:(NSView *)controlView includeFocus:(BOOL)includeFocus;
 @end
 
-@implementation WebCoreTextFieldCell
+@implementation BlinkTextFieldCell
 - (CFDictionaryRef)_coreUIDrawOptionsWithFrame:(NSRect)cellFrame inView:(NSView *)controlView includeFocus:(BOOL)includeFocus
 {
     // FIXME: This is a post-Lion-only workaround for <rdar://problem/11385461>. When that bug is resolved, we should remove this code.
@@ -95,21 +95,18 @@
 }
 @end
 
-@interface RTCMFlippedView : NSView
-{}
-
-- (BOOL)isFlipped;
-- (NSText *)currentEditor;
-
+@interface BlinkFlippedView : NSView
 @end
 
-@implementation RTCMFlippedView
+@implementation BlinkFlippedView
 
-- (BOOL)isFlipped {
-    return [[NSGraphicsContext currentContext] isFlipped];
+- (BOOL)isFlipped
+{
+    return YES;
 }
 
-- (NSText *)currentEditor {
+- (NSText *)currentEditor
+{
     return nil;
 }
 
@@ -120,8 +117,9 @@ namespace blink {
 using namespace HTMLNames;
 
 LayoutThemeMac::LayoutThemeMac()
-    : m_notificationObserver(AdoptNS, [[LayoutThemeNotificationObserver alloc] initWithTheme:this])
-    , m_painter(*this)
+    : LayoutTheme(platformTheme())
+    , m_notificationObserver(AdoptNS, [[BlinkLayoutThemeNotificationObserver alloc] initWithTheme:this])
+    , m_painter(*this, platformTheme())
 {
     [[NSNotificationCenter defaultCenter] addObserver:m_notificationObserver.get()
                                              selector:@selector(systemColorsDidChange:)
@@ -477,19 +475,19 @@ void LayoutThemeMac::addVisualOverflow(const LayoutObject& object, IntRect& rect
 {
     ControlPart part = object.style()->appearance();
 
-#if USE(NEW_THEME)
-    switch (part) {
-    case CheckboxPart:
-    case RadioPart:
-    case PushButtonPart:
-    case SquareButtonPart:
-    case ButtonPart:
-    case InnerSpinButtonPart:
-        return LayoutTheme::addVisualOverflow(object, rect);
-    default:
-        break;
+    if (hasPlatformTheme()) {
+        switch (part) {
+        case CheckboxPart:
+        case RadioPart:
+        case PushButtonPart:
+        case SquareButtonPart:
+        case ButtonPart:
+        case InnerSpinButtonPart:
+            return LayoutTheme::addVisualOverflow(object, rect);
+        default:
+            break;
+        }
     }
-#endif
 
     float zoomLevel = object.style()->effectiveZoom();
 
@@ -812,7 +810,6 @@ void LayoutThemeMac::adjustMenuListStyle(ComputedStyle& style, Element* e) const
     setFontFromControlSize(style, controlSize);
 }
 
-static const int paddingBeforeSeparator = 4;
 static const int baseBorderRadius = 5;
 static const int styledPopupPaddingLeft = 8;
 static const int styledPopupPaddingTop = 1;
@@ -836,7 +833,7 @@ int LayoutThemeMac::popupInternalPaddingRight(const ComputedStyle& style) const
     if (style.appearance() == MenulistButtonPart) {
         float fontScale = style.fontSize() / baseFontSize;
         float arrowWidth = menuListBaseArrowWidth * fontScale;
-        return static_cast<int>(ceilf(arrowWidth + (menuListArrowPaddingLeft + menuListArrowPaddingRight + paddingBeforeSeparator) * style.effectiveZoom()));
+        return static_cast<int>(ceilf(arrowWidth + (menuListArrowPaddingLeft + menuListArrowPaddingRight) * style.effectiveZoom()));
     }
     return 0;
 }
@@ -1061,7 +1058,7 @@ NSSearchFieldCell* LayoutThemeMac::search() const
 NSTextFieldCell* LayoutThemeMac::textField() const
 {
     if (!m_textField) {
-        m_textField.adoptNS([[WebCoreTextFieldCell alloc] initTextCell:@""]);
+        m_textField.adoptNS([[BlinkTextFieldCell alloc] initTextCell:@""]);
         [m_textField.get() setBezeled:YES];
         [m_textField.get() setEditable:YES];
         [m_textField.get() setFocusRingType:NSFocusRingTypeExterior];
@@ -1069,7 +1066,7 @@ NSTextFieldCell* LayoutThemeMac::textField() const
         [m_textField.get() setDrawsBackground:YES];
         [m_textField.get() setBackgroundColor:[NSColor whiteColor]];
 #else
-        // Post-Lion, WebCore can be in charge of paintinng the background
+        // Post-Lion, Blink can be in charge of paintinng the background
         // thanks to the workaround in place for <rdar://problem/11385461>,
         // which is implemented above as _coreUIDrawOptionsWithFrame.
         [m_textField.get() setDrawsBackground:NO];
@@ -1089,7 +1086,7 @@ String LayoutThemeMac::fileListNameForWidth(Locale& locale, const FileList* file
         strToTruncate = locale.queryString(WebLocalizedString::FileButtonNoFileSelectedLabel);
     } else if (fileList->length() == 1) {
         File* file = fileList->item(0);
-        if (file->userVisibility() == File::IsUserVisible)
+        if (file->getUserVisibility() == File::IsUserVisible)
             strToTruncate = [[NSFileManager defaultManager] displayNameAtPath:(fileList->item(0)->path())];
         else
             strToTruncate = file->name();
@@ -1103,11 +1100,11 @@ String LayoutThemeMac::fileListNameForWidth(Locale& locale, const FileList* file
 
 NSView* FlippedView()
 {
-    static NSView* view = [[RTCMFlippedView alloc] init];
+    static NSView* view = [[BlinkFlippedView alloc] init];
     return view;
 }
 
-LayoutTheme& LayoutTheme::theme()
+LayoutTheme& LayoutTheme::nativeTheme()
 {
     DEFINE_STATIC_REF(LayoutTheme, layoutTheme, (LayoutThemeMac::create()));
     return *layoutTheme;
@@ -1161,7 +1158,6 @@ String LayoutThemeMac::extraFullScreenStyleSheet()
 String LayoutThemeMac::extraDefaultStyleSheet()
 {
     return LayoutTheme::extraDefaultStyleSheet() +
-        loadResourceAsASCIIString("themeChromium.css") +
         loadResourceAsASCIIString("themeInputMultipleFields.css") +
         loadResourceAsASCIIString("themeMac.css");
 }

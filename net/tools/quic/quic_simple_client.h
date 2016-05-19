@@ -8,27 +8,29 @@
 #ifndef NET_TOOLS_QUIC_QUIC_SIMPLE_CLIENT_H_
 #define NET_TOOLS_QUIC_QUIC_SIMPLE_CLIENT_H_
 
+#include <stddef.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_piece.h"
+#include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/http/http_response_headers.h"
 #include "net/log/net_log.h"
+#include "net/quic/quic_chromium_packet_reader.h"
 #include "net/quic/quic_config.h"
-#include "net/quic/quic_packet_reader.h"
 #include "net/quic/quic_spdy_stream.h"
 #include "net/tools/quic/quic_client_base.h"
 
 namespace net {
 
 struct HttpRequestInfo;
-class QuicConnectionHelper;
+class QuicChromiumConnectionHelper;
 class UDPClientSocket;
 
-namespace tools {
 
 namespace test {
 class QuicClientPeer;
@@ -36,7 +38,7 @@ class QuicClientPeer;
 
 class QuicSimpleClient : public QuicClientBase,
                          public QuicSpdyStream::Visitor,
-                         public QuicPacketReader::Visitor {
+                         public QuicChromiumPacketReader::Visitor {
  public:
   class ResponseListener {
    public:
@@ -124,10 +126,10 @@ class QuicSimpleClient : public QuicClientBase,
       const base::CommandLine::StringVector& url_list);
 
   // Migrate to a new socket during an active connection.
-  bool MigrateSocket(const IPAddressNumber& new_host);
+  bool MigrateSocket(const IPAddress& new_host);
 
-  // QuicPacketReader::Visitor
-  void OnReadError(int result) override;
+  // QuicChromiumPacketReader::Visitor
+  void OnReadError(int result, const DatagramClientSocket* socket) override;
   bool OnPacket(const QuicEncryptedPacket& packet,
                 IPEndPoint local_address,
                 IPEndPoint peer_address) override;
@@ -140,11 +142,11 @@ class QuicSimpleClient : public QuicClientBase,
   // Otherwise, deletes the data.  Takes ownerership of |data_to_resend|.
   void MaybeAddQuicDataToResend(QuicDataToResend* data_to_resend);
 
-  void set_bind_to_address(IPAddressNumber address) {
+  void set_bind_to_address(const IPAddress& address) {
     bind_to_address_ = address;
   }
 
-  IPAddressNumber bind_to_address() const { return bind_to_address_; }
+  const IPAddress& bind_to_address() const { return bind_to_address_; }
 
   void set_local_port(int local_port) { local_port_ = local_port; }
 
@@ -164,11 +166,11 @@ class QuicSimpleClient : public QuicClientBase,
   const std::string& latest_response_body() const;
 
  protected:
-  virtual QuicConnectionHelper* CreateQuicConnectionHelper();
+  virtual QuicChromiumConnectionHelper* CreateQuicConnectionHelper();
   virtual QuicPacketWriter* CreateQuicPacketWriter();
 
  private:
-  friend class net::tools::test::QuicClientPeer;
+  friend class net::test::QuicClientPeer;
 
   // Specific QuicClient class for storing data to resend.
   class ClientQuicDataToResend : public QuicDataToResend {
@@ -212,15 +214,13 @@ class QuicSimpleClient : public QuicClientBase,
   IPEndPoint client_address_;
 
   // If initialized, the address to bind to.
-  IPAddressNumber bind_to_address_;
+  IPAddress bind_to_address_;
+
   // Local port to bind to. Initialize to 0.
   int local_port_;
 
   // UDP socket connected to the server.
   scoped_ptr<UDPClientSocket> socket_;
-
-  // Helper to be used by created connections.
-  scoped_ptr<QuicConnectionHelper> helper_;
 
   // Listens for full responses.
   scoped_ptr<ResponseListener> response_listener_;
@@ -255,7 +255,7 @@ class QuicSimpleClient : public QuicClientBase,
   // The log used for the sockets.
   NetLog net_log_;
 
-  scoped_ptr<QuicPacketReader> packet_reader_;
+  scoped_ptr<QuicChromiumPacketReader> packet_reader_;
 
   bool packet_reader_started_;
 
@@ -264,7 +264,6 @@ class QuicSimpleClient : public QuicClientBase,
   DISALLOW_COPY_AND_ASSIGN(QuicSimpleClient);
 };
 
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_QUIC_SIMPLE_CLIENT_H_

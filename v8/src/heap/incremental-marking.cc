@@ -12,6 +12,7 @@
 #include "src/heap/mark-compact-inl.h"
 #include "src/heap/objects-visiting.h"
 #include "src/heap/objects-visiting-inl.h"
+#include "src/tracing/trace-event.h"
 #include "src/v8.h"
 
 namespace v8 {
@@ -22,7 +23,6 @@ IncrementalMarking::StepActions IncrementalMarking::IdleStepActions() {
                      IncrementalMarking::FORCE_MARKING,
                      IncrementalMarking::DO_NOT_FORCE_COMPLETION);
 }
-
 
 IncrementalMarking::IncrementalMarking(Heap* heap)
     : heap_(heap),
@@ -46,40 +46,26 @@ IncrementalMarking::IncrementalMarking(Heap* heap)
       incremental_marking_finalization_rounds_(0),
       request_type_(COMPLETE_MARKING) {}
 
-
-bool IncrementalMarking::BaseRecordWrite(HeapObject* obj, Object** slot,
-                                         Object* value) {
+bool IncrementalMarking::BaseRecordWrite(HeapObject* obj, Object* value) {
   HeapObject* value_heap_obj = HeapObject::cast(value);
   MarkBit value_bit = Marking::MarkBitFrom(value_heap_obj);
-  if (Marking::IsWhite(value_bit)) {
-    MarkBit obj_bit = Marking::MarkBitFrom(obj);
-    if (Marking::IsBlack(obj_bit)) {
-      MemoryChunk* chunk = MemoryChunk::FromAddress(obj->address());
-      if (chunk->IsFlagSet(MemoryChunk::HAS_PROGRESS_BAR)) {
-        if (chunk->IsLeftOfProgressBar(slot)) {
-          WhiteToGreyAndPush(value_heap_obj, value_bit);
-          RestartIfNotMarking();
-        } else {
-          return false;
-        }
-      } else {
-        BlackToGreyAndUnshift(obj, obj_bit);
-        RestartIfNotMarking();
-        return false;
-      }
-    } else {
-      return false;
-    }
-  }
-  if (!is_compacting_) return false;
+  DCHECK(!Marking::IsImpossible(value_bit));
+
   MarkBit obj_bit = Marking::MarkBitFrom(obj);
-  return Marking::IsBlack(obj_bit);
+  DCHECK(!Marking::IsImpossible(obj_bit));
+  bool is_black = Marking::IsBlack(obj_bit);
+
+  if (is_black && Marking::IsWhite(value_bit)) {
+    WhiteToGreyAndPush(value_heap_obj, value_bit);
+    RestartIfNotMarking();
+  }
+  return is_compacting_ && is_black;
 }
 
 
 void IncrementalMarking::RecordWriteSlow(HeapObject* obj, Object** slot,
                                          Object* value) {
-  if (BaseRecordWrite(obj, slot, value) && slot != NULL) {
+  if (BaseRecordWrite(obj, value) && slot != NULL) {
     // Object is not going to be rescanned we need to record the slot.
     heap_->mark_compact_collector()->RecordSlot(obj, slot, value);
   }
@@ -104,11 +90,21 @@ void IncrementalMarking::RecordWriteFromCode(HeapObject* obj, Object** slot,
   marking->RecordWrite(obj, slot, *slot);
 }
 
+// static
+void IncrementalMarking::RecordWriteOfCodeEntryFromCode(JSFunction* host,
+                                                        Object** slot,
+                                                        Isolate* isolate) {
+  DCHECK(host->IsJSFunction());
+  IncrementalMarking* marking = isolate->heap()->incremental_marking();
+  Code* value = Code::cast(
+      Code::GetObjectFromEntryAddress(reinterpret_cast<Address>(slot)));
+  marking->RecordWriteOfCodeEntry(host, slot, value);
+}
 
 void IncrementalMarking::RecordCodeTargetPatch(Code* host, Address pc,
                                                HeapObject* value) {
   if (IsMarking()) {
-    RelocInfo rinfo(pc, RelocInfo::CODE_TARGET, 0, host);
+    RelocInfo rinfo(heap_->isolate(), pc, RelocInfo::CODE_TARGET, 0, host);
     RecordWriteIntoCode(host, &rinfo, value);
   }
 }
@@ -119,7 +115,7 @@ void IncrementalMarking::RecordCodeTargetPatch(Address pc, HeapObject* value) {
     Code* host = heap_->isolate()
                      ->inner_pointer_to_code_cache()
                      ->GcSafeFindCodeForInnerPointer(pc);
-    RelocInfo rinfo(pc, RelocInfo::CODE_TARGET, 0, host);
+    RelocInfo rinfo(heap_->isolate(), pc, RelocInfo::CODE_TARGET, 0, host);
     RecordWriteIntoCode(host, &rinfo, value);
   }
 }
@@ -128,7 +124,7 @@ void IncrementalMarking::RecordCodeTargetPatch(Address pc, HeapObject* value) {
 void IncrementalMarking::RecordWriteOfCodeEntrySlow(JSFunction* host,
                                                     Object** slot,
                                                     Code* value) {
-  if (BaseRecordWrite(host, slot, value)) {
+  if (BaseRecordWrite(host, value)) {
     DCHECK(slot != NULL);
     heap_->mark_compact_collector()->RecordCodeEntrySlot(
         host, reinterpret_cast<Address>(slot), value);
@@ -139,24 +135,9 @@ void IncrementalMarking::RecordWriteOfCodeEntrySlow(JSFunction* host,
 void IncrementalMarking::RecordWriteIntoCodeSlow(HeapObject* obj,
                                                  RelocInfo* rinfo,
                                                  Object* value) {
-  MarkBit value_bit = Marking::MarkBitFrom(HeapObject::cast(value));
-  if (Marking::IsWhite(value_bit)) {
-    MarkBit obj_bit = Marking::MarkBitFrom(obj);
-    if (Marking::IsBlack(obj_bit)) {
-      BlackToGreyAndUnshift(obj, obj_bit);
-      RestartIfNotMarking();
-    }
-    // Object is either grey or white.  It will be scanned if survives.
-    return;
-  }
-
-  if (is_compacting_) {
-    MarkBit obj_bit = Marking::MarkBitFrom(obj);
-    if (Marking::IsBlack(obj_bit)) {
+  if (BaseRecordWrite(obj, value)) {
       // Object is not going to be rescanned.  We need to record the slot.
-      heap_->mark_compact_collector()->RecordRelocSlot(rinfo,
-                                                       Code::cast(value));
-    }
+      heap_->mark_compact_collector()->RecordRelocSlot(rinfo, value);
   }
 }
 
@@ -393,7 +374,6 @@ void IncrementalMarking::SetNewSpacePageFlags(MemoryChunk* chunk,
   } else {
     chunk->ClearFlag(MemoryChunk::POINTERS_FROM_HERE_ARE_INTERESTING);
   }
-  chunk->SetFlag(MemoryChunk::SCAN_ON_SCAVENGE);
 }
 
 
@@ -464,7 +444,16 @@ void IncrementalMarking::ActivateIncrementalWriteBarrier() {
 
 
 bool IncrementalMarking::ShouldActivateEvenWithoutIdleNotification() {
+#ifndef DEBUG
+  static const intptr_t kActivationThreshold = 8 * MB;
+#else
+  // TODO(gc) consider setting this to some low level so that some
+  // debug tests run with incremental marking and some without.
+  static const intptr_t kActivationThreshold = 0;
+#endif
+  // Don't switch on for very small heaps.
   return CanBeActivated() &&
+         heap_->PromotedSpaceSizeOfObjects() > kActivationThreshold &&
          heap_->HeapIsFullEnoughToStartIncrementalMarking(
              heap_->old_generation_allocation_limit());
 }
@@ -474,21 +463,12 @@ bool IncrementalMarking::WasActivated() { return was_activated_; }
 
 
 bool IncrementalMarking::CanBeActivated() {
-#ifndef DEBUG
-  static const intptr_t kActivationThreshold = 8 * MB;
-#else
-  // TODO(gc) consider setting this to some low level so that some
-  // debug tests run with incremental marking and some without.
-  static const intptr_t kActivationThreshold = 0;
-#endif
   // Only start incremental marking in a safe state: 1) when incremental
   // marking is turned on, 2) when we are currently not in a GC, and
   // 3) when we are currently not serializing or deserializing the heap.
-  // Don't switch on for very small heaps.
   return FLAG_incremental_marking && heap_->gc_state() == Heap::NOT_IN_GC &&
          heap_->deserialization_complete() &&
-         !heap_->isolate()->serializer_enabled() &&
-         heap_->PromotedSpaceSizeOfObjects() > kActivationThreshold;
+         !heap_->isolate()->serializer_enabled();
 }
 
 
@@ -555,6 +535,7 @@ void IncrementalMarking::Start(const char* reason) {
 
   HistogramTimerScope incremental_marking_scope(
       heap_->isolate()->counters()->gc_incremental_marking_start());
+  TRACE_EVENT0("v8", "V8.GCIncrementalMarkingStart");
   ResetStepCounters();
 
   was_activated_ = true;
@@ -568,7 +549,7 @@ void IncrementalMarking::Start(const char* reason) {
     state_ = SWEEPING;
   }
 
-  heap_->new_space()->AddInlineAllocationObserver(&observer_);
+  heap_->new_space()->AddAllocationObserver(&observer_);
 
   incremental_marking_job()->Start(heap_);
 }
@@ -624,7 +605,6 @@ void IncrementalMarking::StartMarking() {
 
 
 void IncrementalMarking::MarkRoots() {
-  DCHECK(FLAG_finalize_marking_incrementally);
   DCHECK(!finalize_marking_completed_);
   DCHECK(IsMarking());
 
@@ -634,7 +614,6 @@ void IncrementalMarking::MarkRoots() {
 
 
 void IncrementalMarking::MarkObjectGroups() {
-  DCHECK(FLAG_finalize_marking_incrementally);
   DCHECK(!finalize_marking_completed_);
   DCHECK(IsMarking());
 
@@ -647,10 +626,112 @@ void IncrementalMarking::MarkObjectGroups() {
 }
 
 
-void IncrementalMarking::FinalizeIncrementally() {
-  DCHECK(FLAG_finalize_marking_incrementally);
+void IncrementalMarking::ProcessWeakCells() {
   DCHECK(!finalize_marking_completed_);
   DCHECK(IsMarking());
+
+  Object* the_hole_value = heap()->the_hole_value();
+  Object* weak_cell_obj = heap()->encountered_weak_cells();
+  Object* weak_cell_head = Smi::FromInt(0);
+  WeakCell* prev_weak_cell_obj = NULL;
+  while (weak_cell_obj != Smi::FromInt(0)) {
+    WeakCell* weak_cell = reinterpret_cast<WeakCell*>(weak_cell_obj);
+    // We do not insert cleared weak cells into the list, so the value
+    // cannot be a Smi here.
+    HeapObject* value = HeapObject::cast(weak_cell->value());
+    // Remove weak cells with live objects from the list, they do not need
+    // clearing.
+    if (MarkCompactCollector::IsMarked(value)) {
+      // Record slot, if value is pointing to an evacuation candidate.
+      Object** slot = HeapObject::RawField(weak_cell, WeakCell::kValueOffset);
+      heap_->mark_compact_collector()->RecordSlot(weak_cell, slot, *slot);
+      // Remove entry somewhere after top.
+      if (prev_weak_cell_obj != NULL) {
+        prev_weak_cell_obj->set_next(weak_cell->next());
+      }
+      weak_cell_obj = weak_cell->next();
+      weak_cell->clear_next(the_hole_value);
+    } else {
+      if (weak_cell_head == Smi::FromInt(0)) {
+        weak_cell_head = weak_cell;
+      }
+      prev_weak_cell_obj = weak_cell;
+      weak_cell_obj = weak_cell->next();
+    }
+  }
+  // Top may have changed.
+  heap()->set_encountered_weak_cells(weak_cell_head);
+}
+
+
+bool ShouldRetainMap(Map* map, int age) {
+  if (age == 0) {
+    // The map has aged. Do not retain this map.
+    return false;
+  }
+  Object* constructor = map->GetConstructor();
+  if (!constructor->IsHeapObject() ||
+      Marking::IsWhite(Marking::MarkBitFrom(HeapObject::cast(constructor)))) {
+    // The constructor is dead, no new objects with this map can
+    // be created. Do not retain this map.
+    return false;
+  }
+  return true;
+}
+
+
+void IncrementalMarking::RetainMaps() {
+  // Do not retain dead maps if flag disables it or there is
+  // - memory pressure (reduce_memory_footprint_),
+  // - GC is requested by tests or dev-tools (abort_incremental_marking_).
+  bool map_retaining_is_disabled = heap()->ShouldReduceMemory() ||
+                                   heap()->ShouldAbortIncrementalMarking() ||
+                                   FLAG_retain_maps_for_n_gc == 0;
+  ArrayList* retained_maps = heap()->retained_maps();
+  int length = retained_maps->Length();
+  // The number_of_disposed_maps separates maps in the retained_maps
+  // array that were created before and after context disposal.
+  // We do not age and retain disposed maps to avoid memory leaks.
+  int number_of_disposed_maps = heap()->number_of_disposed_maps_;
+  for (int i = 0; i < length; i += 2) {
+    DCHECK(retained_maps->Get(i)->IsWeakCell());
+    WeakCell* cell = WeakCell::cast(retained_maps->Get(i));
+    if (cell->cleared()) continue;
+    int age = Smi::cast(retained_maps->Get(i + 1))->value();
+    int new_age;
+    Map* map = Map::cast(cell->value());
+    MarkBit map_mark = Marking::MarkBitFrom(map);
+    if (i >= number_of_disposed_maps && !map_retaining_is_disabled &&
+        Marking::IsWhite(map_mark)) {
+      if (ShouldRetainMap(map, age)) {
+        MarkObject(heap(), map);
+      }
+      Object* prototype = map->prototype();
+      if (age > 0 && prototype->IsHeapObject() &&
+          Marking::IsWhite(Marking::MarkBitFrom(HeapObject::cast(prototype)))) {
+        // The prototype is not marked, age the map.
+        new_age = age - 1;
+      } else {
+        // The prototype and the constructor are marked, this map keeps only
+        // transition tree alive, not JSObjects. Do not age the map.
+        new_age = age;
+      }
+    } else {
+      new_age = FLAG_retain_maps_for_n_gc;
+    }
+    // Compact the array and update the age.
+    if (new_age != age) {
+      retained_maps->Set(i + 1, Smi::FromInt(new_age));
+    }
+  }
+}
+
+
+void IncrementalMarking::FinalizeIncrementally() {
+  DCHECK(!finalize_marking_completed_);
+  DCHECK(IsMarking());
+
+  double start = heap_->MonotonicallyIncreasingTimeInMs();
 
   int old_marking_deque_top =
       heap_->mark_compact_collector()->marking_deque()->top();
@@ -659,12 +740,33 @@ void IncrementalMarking::FinalizeIncrementally() {
   // objects to reduce the marking load in the final pause.
   // 1) We scan and mark the roots again to find all changes to the root set.
   // 2) We mark the object groups.
+  // 3) Age and retain maps embedded in optimized code.
+  // 4) Remove weak cell with live values from the list of weak cells, they
+  // do not need processing during GC.
   MarkRoots();
   MarkObjectGroups();
+  if (incremental_marking_finalization_rounds_ == 0) {
+    // Map retaining is needed for perfromance, not correctness,
+    // so we can do it only once at the beginning of the finalization.
+    RetainMaps();
+  }
+  ProcessWeakCells();
 
   int marking_progress =
       abs(old_marking_deque_top -
           heap_->mark_compact_collector()->marking_deque()->top());
+
+  double end = heap_->MonotonicallyIncreasingTimeInMs();
+  double delta = end - start;
+  heap_->tracer()->AddMarkingTime(delta);
+  heap_->tracer()->AddIncrementalMarkingFinalizationStep(delta);
+  if (FLAG_trace_incremental_marking) {
+    PrintF(
+        "[IncrementalMarking] Finalize incrementally round %d, "
+        "spent %d ms, marking progress %d.\n",
+        static_cast<int>(delta), incremental_marking_finalization_rounds_,
+        marking_progress);
+  }
 
   ++incremental_marking_finalization_rounds_;
   if ((incremental_marking_finalization_rounds_ >=
@@ -693,8 +795,14 @@ void IncrementalMarking::UpdateMarkingDequeAfterScavenge() {
     HeapObject* obj = array[current];
     DCHECK(obj->IsHeapObject());
     current = ((current + 1) & mask);
-    if (heap_->InNewSpace(obj)) {
+    // Only pointers to from space have to be updated.
+    if (heap_->InFromSpace(obj)) {
       MapWord map_word = obj->map_word();
+      // There may be objects on the marking deque that do not exist anymore,
+      // e.g. left trimmed objects or objects from the root set (frames).
+      // If these object are dead at scavenging time, their marking deque
+      // entries will not point to forwarding addresses. Hence, we can discard
+      // them.
       if (map_word.IsForwardingAddress()) {
         HeapObject* dest = map_word.ToForwardingAddress();
         array[new_top] = dest;
@@ -753,16 +861,21 @@ void IncrementalMarking::MarkObject(Heap* heap, HeapObject* obj) {
 
 intptr_t IncrementalMarking::ProcessMarkingDeque(intptr_t bytes_to_process) {
   intptr_t bytes_processed = 0;
-  Map* filler_map = heap_->one_pointer_filler_map();
+  Map* one_pointer_filler_map = heap_->one_pointer_filler_map();
+  Map* two_pointer_filler_map = heap_->two_pointer_filler_map();
   MarkingDeque* marking_deque =
       heap_->mark_compact_collector()->marking_deque();
   while (!marking_deque->IsEmpty() && bytes_processed < bytes_to_process) {
     HeapObject* obj = marking_deque->Pop();
 
-    // Explicitly skip one word fillers. Incremental markbit patterns are
-    // correct only for objects that occupy at least two words.
+    // Explicitly skip one and two word fillers. Incremental markbit patterns
+    // are correct only for objects that occupy at least two words.
+    // Moreover, slots filtering for left-trimmed arrays works only when
+    // the distance between the old array start and the new array start
+    // is greater than two if both starts are marked.
     Map* map = obj->map();
-    if (map == filler_map) continue;
+    if (map == one_pointer_filler_map || map == two_pointer_filler_map)
+      continue;
 
     int size = obj->SizeFromMap(map);
     unscanned_bytes_of_large_object_ = 0;
@@ -794,7 +907,7 @@ void IncrementalMarking::Hurry() {
   if (state() == MARKING) {
     double start = 0.0;
     if (FLAG_trace_incremental_marking || FLAG_print_cumulative_gc_stat) {
-      start = base::OS::TimeCurrentMillis();
+      start = heap_->MonotonicallyIncreasingTimeInMs();
       if (FLAG_trace_incremental_marking) {
         PrintF("[IncrementalMarking] Hurry\n");
       }
@@ -804,7 +917,7 @@ void IncrementalMarking::Hurry() {
     ProcessMarkingDeque();
     state_ = COMPLETE;
     if (FLAG_trace_incremental_marking || FLAG_print_cumulative_gc_stat) {
-      double end = base::OS::TimeCurrentMillis();
+      double end = heap_->MonotonicallyIncreasingTimeInMs();
       double delta = end - start;
       heap_->tracer()->AddMarkingTime(delta);
       if (FLAG_trace_incremental_marking) {
@@ -845,23 +958,13 @@ void IncrementalMarking::Stop() {
     PrintF("[IncrementalMarking] Stopping.\n");
   }
 
-  heap_->new_space()->RemoveInlineAllocationObserver(&observer_);
+  heap_->new_space()->RemoveAllocationObserver(&observer_);
   IncrementalMarking::set_should_hurry(false);
   ResetStepCounters();
   if (IsMarking()) {
     PatchIncrementalMarkingRecordWriteStubs(heap_,
                                             RecordWriteStub::STORE_BUFFER_ONLY);
     DeactivateIncrementalWriteBarrier();
-
-    if (is_compacting_) {
-      LargeObjectIterator it(heap_->lo_space());
-      for (HeapObject* obj = it.Next(); obj != NULL; obj = it.Next()) {
-        Page* p = Page::FromAddress(obj->address());
-        if (p->IsFlagSet(Page::RESCAN_ON_EVACUATION)) {
-          p->ClearFlag(Page::RESCAN_ON_EVACUATION);
-        }
-      }
-    }
   }
   heap_->isolate()->stack_guard()->ClearGC();
   state_ = STOPPED;
@@ -871,22 +974,11 @@ void IncrementalMarking::Stop() {
 
 void IncrementalMarking::Finalize() {
   Hurry();
-  state_ = STOPPED;
-  is_compacting_ = false;
-
-  heap_->new_space()->RemoveInlineAllocationObserver(&observer_);
-  IncrementalMarking::set_should_hurry(false);
-  ResetStepCounters();
-  PatchIncrementalMarkingRecordWriteStubs(heap_,
-                                          RecordWriteStub::STORE_BUFFER_ONLY);
-  DeactivateIncrementalWriteBarrier();
-  DCHECK(heap_->mark_compact_collector()->marking_deque()->IsEmpty());
-  heap_->isolate()->stack_guard()->ClearGC();
+  Stop();
 }
 
 
 void IncrementalMarking::FinalizeMarking(CompletionAction action) {
-  DCHECK(FLAG_finalize_marking_incrementally);
   DCHECK(!finalize_marking_completed_);
   if (FLAG_trace_incremental_marking) {
     PrintF(
@@ -1066,7 +1158,8 @@ intptr_t IncrementalMarking::Step(intptr_t allocated_bytes,
   {
     HistogramTimerScope incremental_marking_scope(
         heap_->isolate()->counters()->gc_incremental_marking());
-    double start = base::OS::TimeCurrentMillis();
+    TRACE_EVENT0("v8", "V8.GCIncrementalMarking");
+    double start = heap_->MonotonicallyIncreasingTimeInMs();
 
     // The marking speed is driven either by the allocation rate or by the rate
     // at which we are having to check the color of objects in the write
@@ -1087,7 +1180,7 @@ intptr_t IncrementalMarking::Step(intptr_t allocated_bytes,
     if (state_ == SWEEPING) {
       if (heap_->mark_compact_collector()->sweeping_in_progress() &&
           (heap_->mark_compact_collector()->IsSweepingCompleted() ||
-           !heap_->concurrent_sweeping_enabled())) {
+           !FLAG_concurrent_sweeping)) {
         heap_->mark_compact_collector()->EnsureSweepingCompleted();
       }
       if (!heap_->mark_compact_collector()->sweeping_in_progress()) {
@@ -1099,8 +1192,7 @@ intptr_t IncrementalMarking::Step(intptr_t allocated_bytes,
       if (heap_->mark_compact_collector()->marking_deque()->IsEmpty()) {
         if (completion == FORCE_COMPLETION ||
             IsIdleMarkingDelayCounterLimitReached()) {
-          if (FLAG_finalize_marking_incrementally &&
-              !finalize_marking_completed_) {
+          if (!finalize_marking_completed_) {
             FinalizeMarking(action);
           } else {
             MarkingComplete(action);
@@ -1117,7 +1209,7 @@ intptr_t IncrementalMarking::Step(intptr_t allocated_bytes,
     // with marking.
     SpeedUp();
 
-    double end = base::OS::TimeCurrentMillis();
+    double end = heap_->MonotonicallyIncreasingTimeInMs();
     double duration = (end - start);
     // Note that we report zero bytes here when sweeping was in progress or
     // when we just started incremental marking. In these cases we did not

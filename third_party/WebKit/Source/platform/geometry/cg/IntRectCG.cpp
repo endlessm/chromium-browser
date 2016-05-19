@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/geometry/IntRect.h"
 
 #include <ApplicationServices/ApplicationServices.h>
@@ -44,4 +43,4 @@ IntRect enclosingIntRect(const CGRect& rect)
     return IntRect(l, t, r - l, b - t);
 }
 
-}
+} // namespace blink

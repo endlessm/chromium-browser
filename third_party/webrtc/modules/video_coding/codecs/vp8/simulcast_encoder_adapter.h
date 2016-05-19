@@ -12,6 +12,7 @@
 #ifndef WEBRTC_MODULES_VIDEO_CODING_CODECS_VP8_SIMULCAST_ENCODER_ADAPTER_H_
 #define WEBRTC_MODULES_VIDEO_CODING_CODECS_VP8_SIMULCAST_ENCODER_ADAPTER_H_
 
+#include <string>
 #include <vector>
 
 #include "webrtc/base/scoped_ptr.h"
@@ -59,6 +60,7 @@ class SimulcastEncoderAdapter : public VP8Encoder {
 
   int GetTargetFramerate() override;
   bool SupportsNativeHandle() const override;
+  const char* ImplementationName() const override;
 
  private:
   struct StreamInfo {
@@ -71,8 +73,8 @@ class SimulcastEncoderAdapter : public VP8Encoder {
           send_stream(true) {}
     StreamInfo(VideoEncoder* encoder,
                EncodedImageCallback* callback,
-               unsigned short width,
-               unsigned short height,
+               uint16_t width,
+               uint16_t height,
                bool send_stream)
         : encoder(encoder),
           callback(callback),
@@ -83,8 +85,8 @@ class SimulcastEncoderAdapter : public VP8Encoder {
     // Deleted by SimulcastEncoderAdapter::Release().
     VideoEncoder* encoder;
     EncodedImageCallback* callback;
-    unsigned short width;
-    unsigned short height;
+    uint16_t width;
+    uint16_t height;
     bool key_frame_request;
     bool send_stream;
   };
@@ -109,13 +111,13 @@ class SimulcastEncoderAdapter : public VP8Encoder {
   bool Initialized() const;
 
   rtc::scoped_ptr<VideoEncoderFactory> factory_;
-  rtc::scoped_ptr<Config> screensharing_extra_options_;
+  rtc::scoped_ptr<TemporalLayersFactory> screensharing_tl_factory_;
   VideoCodec codec_;
   std::vector<StreamInfo> streaminfos_;
   EncodedImageCallback* encoded_complete_callback_;
+  std::string implementation_name_;
 };
 
 }  // namespace webrtc
 
 #endif  // WEBRTC_MODULES_VIDEO_CODING_CODECS_VP8_SIMULCAST_ENCODER_ADAPTER_H_
-

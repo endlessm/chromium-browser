@@ -5,17 +5,21 @@
 #ifndef CHROME_BROWSER_DOWNLOAD_DOWNLOAD_REQUEST_LIMITER_H_
 #define CHROME_BROWSER_DOWNLOAD_DOWNLOAD_REQUEST_LIMITER_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/web_contents_observer.h"
 
 class HostContentSettingsMap;
@@ -105,9 +109,9 @@ class DownloadRequestLimiter
     void DidNavigateMainFrame(
         const content::LoadCommittedDetails& details,
         const content::FrameNavigateParams& params) override;
-    // Invoked when a user gesture occurs (mouse click, enter or space). This
-    // may result in invoking Remove on DownloadRequestLimiter.
-    void DidGetUserGesture() override;
+    // Invoked when a user gesture occurs (mouse click, mouse scroll, tap, or
+    // key down). This may result in invoking Remove on DownloadRequestLimiter.
+    void DidGetUserInteraction(const blink::WebInputEvent::Type type) override;
     void WebContentsDestroyed() override;
 
     // Asks the user if they really want to allow the download.
@@ -182,8 +186,8 @@ class DownloadRequestLimiter
   DownloadStatus GetDownloadStatus(content::WebContents* tab);
 
   // Check if download can proceed and notifies the callback on UI thread.
-  void CanDownload(int render_process_host_id,
-                   int render_view_id,
+  void CanDownload(const content::ResourceRequestInfo::WebContentsGetter&
+                       web_contents_getter,
                    const GURL& url,
                    const std::string& request_method,
                    const Callback& callback);
@@ -215,11 +219,12 @@ class DownloadRequestLimiter
                        const Callback& callback);
 
   // Invoked when decision to download has been made.
-  void OnCanDownloadDecided(int render_process_host_id,
-                            int render_view_id,
-                            const std::string& request_method,
-                            const Callback& orig_callback,
-                            bool allow);
+  void OnCanDownloadDecided(
+      const content::ResourceRequestInfo::WebContentsGetter&
+          web_contents_getter,
+      const std::string& request_method,
+      const Callback& orig_callback,
+      bool allow);
 
   // Removes the specified TabDownloadState from the internal map and deletes
   // it. This has the effect of resetting the status for the tab to

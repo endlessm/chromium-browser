@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_DECLARATIVE_CONTENT_CHROME_CONTENT_RULES_REGISTRY_H_
 #define CHROME_BROWSER_EXTENSIONS_API_DECLARATIVE_CONTENT_CHROME_CONTENT_RULES_REGISTRY_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <set>
 #include <string>
@@ -12,9 +14,9 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "chrome/browser/extensions/api/declarative_content/content_action.h"
 #include "chrome/browser/extensions/api/declarative_content/content_condition.h"
 #include "chrome/browser/extensions/api/declarative_content/content_predicate_evaluator.h"
@@ -54,7 +56,7 @@ class ChromeContentRulesRegistry
       public ContentPredicateEvaluator::Delegate {
  public:
   using PredicateEvaluatorsFactory =
-      base::Callback<ScopedVector<ContentPredicateEvaluator>(
+      base::Callback<std::vector<scoped_ptr<ContentPredicateEvaluator>>(
           ContentPredicateEvaluator::Delegate*)>;
 
   // For testing, |cache_delegate| can be NULL. In that case it constructs the
@@ -103,14 +105,14 @@ class ChromeContentRulesRegistry
   struct ContentRule {
    public:
     ContentRule(const Extension* extension,
-                ScopedVector<const ContentCondition> conditions,
-                ScopedVector<const ContentAction> actions,
+                std::vector<scoped_ptr<const ContentCondition>> conditions,
+                std::vector<scoped_ptr<const ContentAction>> actions,
                 int priority);
     ~ContentRule();
 
     const Extension* extension;
-    ScopedVector<const ContentCondition> conditions;
-    ScopedVector<const ContentAction> actions;
+    std::vector<scoped_ptr<const ContentCondition>> conditions;
+    std::vector<scoped_ptr<const ContentAction>> actions;
     int priority;
 
    private:
@@ -173,7 +175,7 @@ class ChromeContentRulesRegistry
 
   // The evaluators responsible for creating predicates and tracking
   // predicate-related state.
-  ScopedVector<ContentPredicateEvaluator> evaluators_;
+  std::vector<scoped_ptr<ContentPredicateEvaluator>> evaluators_;
 
   // Specifies what to do with evaluation requests.
   EvaluationDisposition evaluation_disposition_;

@@ -4,6 +4,9 @@
 
 #include "chrome/browser/devtools/global_confirm_info_bar.h"
 
+#include <utility>
+
+#include "base/macros.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -22,6 +25,7 @@ class GlobalConfirmInfoBar::DelegateProxy : public ConfirmInfoBarDelegate {
   friend class GlobalConfirmInfoBar;
 
   // ConfirmInfoBarDelegate overrides
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   base::string16 GetMessageText() const override;
   int GetButtons() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
@@ -46,6 +50,12 @@ GlobalConfirmInfoBar::DelegateProxy::DelegateProxy(
 }
 
 GlobalConfirmInfoBar::DelegateProxy::~DelegateProxy() {
+}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+GlobalConfirmInfoBar::DelegateProxy::GetIdentifier() const {
+  return global_info_bar_ ? global_info_bar_->delegate_->GetIdentifier()
+                          : INVALID;
 }
 
 base::string16 GlobalConfirmInfoBar::DelegateProxy::GetMessageText() const {
@@ -123,7 +133,8 @@ void GlobalConfirmInfoBar::DelegateProxy::Detach() {
 // static
 base::WeakPtr<GlobalConfirmInfoBar> GlobalConfirmInfoBar::Show(
     scoped_ptr<ConfirmInfoBarDelegate> delegate) {
-  GlobalConfirmInfoBar* info_bar = new GlobalConfirmInfoBar(delegate.Pass());
+  GlobalConfirmInfoBar* info_bar =
+      new GlobalConfirmInfoBar(std::move(delegate));
   return info_bar->weak_factory_.GetWeakPtr();
 }
 
@@ -133,7 +144,7 @@ void GlobalConfirmInfoBar::Close() {
 
 GlobalConfirmInfoBar::GlobalConfirmInfoBar(
     scoped_ptr<ConfirmInfoBarDelegate> delegate)
-    : delegate_(delegate.Pass()),
+    : delegate_(std::move(delegate)),
       browser_tab_strip_tracker_(this, nullptr, nullptr),
       weak_factory_(this) {
    browser_tab_strip_tracker_.Init(
@@ -157,12 +168,14 @@ void GlobalConfirmInfoBar::TabInsertedAt(content::WebContents* web_contents,
       InfoBarService::FromWebContents(web_contents);
   // WebContents from the tab strip must have the infobar service.
   DCHECK(infobar_service);
+  if (proxies_.find(infobar_service) != proxies_.end())
+      return;
 
   scoped_ptr<GlobalConfirmInfoBar::DelegateProxy> proxy(
       new GlobalConfirmInfoBar::DelegateProxy(weak_factory_.GetWeakPtr()));
   GlobalConfirmInfoBar::DelegateProxy* proxy_ptr = proxy.get();
   infobars::InfoBar* added_bar = infobar_service->AddInfoBar(
-      infobar_service->CreateConfirmInfoBar(proxy.Pass()));
+      infobar_service->CreateConfirmInfoBar(std::move(proxy)));
 
   proxy_ptr->info_bar_ = added_bar;
   DCHECK(added_bar);

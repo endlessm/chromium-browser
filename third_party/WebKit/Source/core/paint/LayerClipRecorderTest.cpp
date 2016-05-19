@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/paint/LayerClipRecorder.h"
 
 #include "core/layout/LayoutTestHelper.h"
@@ -13,7 +12,7 @@
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/GraphicsLayer.h"
 #include "platform/graphics/paint/PaintController.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 namespace {
@@ -25,7 +24,7 @@ public:
 
 protected:
     LayoutView& layoutView() { return *m_layoutView; }
-    PaintController& rootPaintController() { return *layoutView().layer()->graphicsLayerBacking()->paintController(); }
+    PaintController& rootPaintController() { return layoutView().layer()->graphicsLayerBacking()->paintController(); }
 
 private:
     void SetUp() override
@@ -84,5 +83,5 @@ TEST_F(LayerClipRecorderTest, Empty)
     EXPECT_EQ((size_t)0, rootPaintController().displayItemList().size());
 }
 
-}
-}
+} // namespace
+} // namespace blink

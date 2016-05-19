@@ -4,10 +4,13 @@
 
 #include "chrome/browser/speech/tts_controller_impl.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/speech/tts_platform.h"
 
@@ -53,6 +56,8 @@ VoiceData::VoiceData()
     : gender(TTS_GENDER_NONE),
       remote(false),
       native(false) {}
+
+VoiceData::VoiceData(const VoiceData& other) = default;
 
 VoiceData::~VoiceData() {}
 

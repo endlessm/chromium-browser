@@ -51,9 +51,16 @@ AppCacheURLRequestJob::AppCacheURLRequestJob(
   DCHECK(storage_);
 }
 
-void AppCacheURLRequestJob::DeliverAppCachedResponse(
-    const GURL& manifest_url, int64 group_id, int64 cache_id,
-    const AppCacheEntry& entry, bool is_fallback) {
+AppCacheURLRequestJob::~AppCacheURLRequestJob() {
+  if (storage_)
+    storage_->CancelDelegateCallbacks(this);
+}
+
+void AppCacheURLRequestJob::DeliverAppCachedResponse(const GURL& manifest_url,
+                                                     int64_t group_id,
+                                                     int64_t cache_id,
+                                                     const AppCacheEntry& entry,
+                                                     bool is_fallback) {
   DCHECK(!has_delivery_orders());
   DCHECK(entry.has_response_id());
   delivery_type_ = APPCACHED_DELIVERY;
@@ -162,7 +169,7 @@ void AppCacheURLRequestJob::BeginExecutableHandlerDelivery() {
   storage_->LoadCache(cache_id_, this);
 }
 
-void AppCacheURLRequestJob::OnCacheLoaded(AppCache* cache, int64 cache_id) {
+void AppCacheURLRequestJob::OnCacheLoaded(AppCache* cache, int64_t cache_id) {
   DCHECK_EQ(cache_id_, cache_id);
   DCHECK(!has_been_killed());
 
@@ -191,7 +198,7 @@ void AppCacheURLRequestJob::OnCacheLoaded(AppCache* cache, int64 cache_id) {
   // Read the script data, truncating if its too large.
   // NOTE: we just issue one read and don't bother chaining if the resource
   // is very (very) large, close enough for now.
-  const int64 kLimit = 500 * 1000;
+  const int64_t kLimit = 500 * 1000;
   handler_source_buffer_ = new net::GrowableIOBuffer();
   handler_source_buffer_->SetCapacity(kLimit);
   handler_source_reader_.reset(storage_->CreateResponseReader(
@@ -270,13 +277,9 @@ void AppCacheURLRequestJob::BeginErrorDelivery(const char* message) {
   BeginDelivery();
 }
 
-AppCacheURLRequestJob::~AppCacheURLRequestJob() {
-  if (storage_)
-    storage_->CancelDelegateCallbacks(this);
-}
-
 void AppCacheURLRequestJob::OnResponseInfoLoaded(
-      AppCacheResponseInfo* response_info, int64 response_id) {
+    AppCacheResponseInfo* response_info,
+    int64_t response_id) {
   DCHECK(is_delivering_appcache_response());
   if (response_info) {
     info_ = response_info;
@@ -341,7 +344,6 @@ void AppCacheURLRequestJob::SetupRangeResponse() {
 void AppCacheURLRequestJob::OnReadComplete(int result) {
   DCHECK(is_delivering_appcache_response());
   if (result == 0) {
-    NotifyDone(net::URLRequestStatus());
     AppCacheHistograms::CountResponseRetrieval(
         true, is_main_resource_, manifest_url_.GetOrigin());
   } else if (result < 0) {
@@ -349,13 +351,10 @@ void AppCacheURLRequestJob::OnReadComplete(int result) {
       storage_->service()->CheckAppCacheResponse(manifest_url_, cache_id_,
                                                  entry_.response_id());
     }
-    NotifyDone(net::URLRequestStatus(net::URLRequestStatus::FAILED, result));
     AppCacheHistograms::CountResponseRetrieval(
         false, is_main_resource_, manifest_url_.GetOrigin());
-  } else {
-    SetStatus(net::URLRequestStatus());  // Clear the IO_PENDING status
   }
-  NotifyReadComplete(result);
+  ReadRawDataComplete(result);
 }
 
 // net::URLRequestJob overrides ------------------------------------------------
@@ -424,18 +423,14 @@ int AppCacheURLRequestJob::GetResponseCode() const {
   return http_info()->headers->response_code();
 }
 
-bool AppCacheURLRequestJob::ReadRawData(net::IOBuffer* buf,
-                                        int buf_size,
-                                        int* bytes_read) {
+int AppCacheURLRequestJob::ReadRawData(net::IOBuffer* buf, int buf_size) {
   DCHECK(is_delivering_appcache_response());
   DCHECK_NE(buf_size, 0);
-  DCHECK(bytes_read);
   DCHECK(!reader_->IsReadPending());
   reader_->ReadData(buf, buf_size,
                     base::Bind(&AppCacheURLRequestJob::OnReadComplete,
                                base::Unretained(this)));
-  SetStatus(net::URLRequestStatus(net::URLRequestStatus::IO_PENDING, 0));
-  return false;
+  return net::ERR_IO_PENDING;
 }
 
 void AppCacheURLRequestJob::SetExtraRequestHeaders(

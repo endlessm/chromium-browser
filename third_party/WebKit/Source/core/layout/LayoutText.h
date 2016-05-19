@@ -173,6 +173,8 @@ public:
     bool isAllCollapsibleWhitespace() const;
     bool isRenderedCharacter(int offsetInNode) const;
 
+    // TODO(eae): Rename and change to only handle the word measurements use
+    // case once the simple code path has been removed. crbug.com/404597
     bool canUseSimpleFontCodePath() const { return m_canUseSimpleFontCodePath; }
 
     void removeAndDestroyTextBoxes();
@@ -194,7 +196,7 @@ protected:
 
     virtual InlineTextBox* createTextBox(int start, unsigned short length); // Subclassed by SVG.
 
-    void invalidateDisplayItemClients(const LayoutBoxModelObject& paintInvalidationContainer, PaintInvalidationReason, const LayoutRect* paintInvalidationRect) const override;
+    void invalidateDisplayItemClients(const LayoutBoxModelObject& paintInvalidationContainer, PaintInvalidationReason) const override;
 
 private:
     void computePreferredLogicalWidths(float leadWidth);

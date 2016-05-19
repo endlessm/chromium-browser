@@ -10,7 +10,7 @@
 #include <dwrite.h>
 
 #include "core/include/fxge/fx_ge_win32.h"
-#include "dwrite_int.h"
+#include "core/src/fxge/win32/dwrite_int.h"
 
 typedef HRESULT(__stdcall* FuncType_DWriteCreateFactory)(
     __in DWRITE_FACTORY_TYPE,
@@ -18,14 +18,14 @@ typedef HRESULT(__stdcall* FuncType_DWriteCreateFactory)(
     __out IUnknown**);
 template <typename InterfaceType>
 inline void SafeRelease(InterfaceType** currentObject) {
-  if (*currentObject != NULL) {
+  if (*currentObject) {
     (*currentObject)->Release();
     *currentObject = NULL;
   }
 }
 template <typename InterfaceType>
 inline InterfaceType* SafeAcquire(InterfaceType* newObject) {
-  if (newObject != NULL) {
+  if (newObject) {
     newObject->AddRef();
   }
   return newObject;
@@ -65,7 +65,7 @@ class CDwFontFileLoader final : public IDWriteFontFileLoader {
                       OUT IDWriteFontFileStream** fontFileStream);
 
   static IDWriteFontFileLoader* GetLoader() {
-    if (instance_ == NULL) {
+    if (!instance_) {
       instance_ = new CDwFontFileLoader();
     }
     return instance_;
@@ -206,7 +206,7 @@ failed:
 FX_BOOL CDWriteExt::DwRendingString(void* renderTarget,
                                     CFX_ClipRgn* pClipRgn,
                                     FX_RECT& stringRect,
-                                    CFX_AffineMatrix* pMatrix,
+                                    CFX_Matrix* pMatrix,
                                     void* font,
                                     FX_FLOAT font_size,
                                     FX_ARGB text_color,
@@ -216,7 +216,7 @@ FX_BOOL CDWriteExt::DwRendingString(void* renderTarget,
                                     FX_FLOAT baselineOriginY,
                                     void* glyph_offsets,
                                     FX_FLOAT* glyph_advances) {
-  if (renderTarget == NULL) {
+  if (!renderTarget) {
     return TRUE;
   }
   CDwGdiTextRenderer* pTextRenderer = (CDwGdiTextRenderer*)renderTarget;

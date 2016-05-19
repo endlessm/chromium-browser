@@ -5,8 +5,9 @@
 #include "content/browser/frame_host/frame_tree_node.h"
 
 #include <queue>
+#include <utility>
 
-#include "base/command_line.h"
+#include "base/macros.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/stl_util.h"
 #include "content/browser/frame_host/frame_tree.h"
@@ -17,7 +18,8 @@
 #include "content/common/frame_messages.h"
 #include "content/common/site_isolation_policy.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/browser_side_navigation_policy.h"
+#include "third_party/WebKit/public/web/WebSandboxFlags.h"
 
 namespace content {
 
@@ -25,9 +27,9 @@ namespace {
 
 // This is a global map between frame_tree_node_ids and pointers to
 // FrameTreeNodes.
-typedef base::hash_map<int, FrameTreeNode*> FrameTreeNodeIDMap;
+typedef base::hash_map<int, FrameTreeNode*> FrameTreeNodeIdMap;
 
-base::LazyInstance<FrameTreeNodeIDMap> g_frame_tree_node_id_map =
+base::LazyInstance<FrameTreeNodeIdMap> g_frame_tree_node_id_map =
     LAZY_INSTANCE_INITIALIZER;
 
 // These values indicate the loading progress status. The minimum progress
@@ -62,8 +64,8 @@ int FrameTreeNode::next_frame_tree_node_id_ = 1;
 // static
 FrameTreeNode* FrameTreeNode::GloballyFindByID(int frame_tree_node_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  FrameTreeNodeIDMap* nodes = g_frame_tree_node_id_map.Pointer();
-  FrameTreeNodeIDMap::iterator it = nodes->find(frame_tree_node_id);
+  FrameTreeNodeIdMap* nodes = g_frame_tree_node_id_map.Pointer();
+  FrameTreeNodeIdMap::iterator it = nodes->find(frame_tree_node_id);
   return it == nodes->end() ? nullptr : it->second;
 }
 
@@ -76,7 +78,7 @@ FrameTreeNode::FrameTreeNode(
     RenderFrameHostManager::Delegate* manager_delegate,
     blink::WebTreeScopeType scope,
     const std::string& name,
-    blink::WebSandboxFlags sandbox_flags,
+    const std::string& unique_name,
     const blink::WebFrameOwnerProperties& frame_owner_properties)
     : frame_tree_(frame_tree),
       navigator_(navigator),
@@ -90,19 +92,23 @@ FrameTreeNode::FrameTreeNode(
       opener_(nullptr),
       opener_observer_(nullptr),
       has_committed_real_load_(false),
-      replication_state_(scope, name, sandbox_flags),
-      // Effective sandbox flags also need to be set, since initial sandbox
-      // flags should apply to the initial empty document in the frame.
-      effective_sandbox_flags_(sandbox_flags),
+      replication_state_(
+          scope,
+          name,
+          unique_name,
+          blink::WebSandboxFlags::None,
+          false /* should enforce strict mixed content checking */),
+      pending_sandbox_flags_(blink::WebSandboxFlags::None),
       frame_owner_properties_(frame_owner_properties),
       loading_progress_(kLoadingProgressNotStarted) {
-  std::pair<FrameTreeNodeIDMap::iterator, bool> result =
+  std::pair<FrameTreeNodeIdMap::iterator, bool> result =
       g_frame_tree_node_id_map.Get().insert(
           std::make_pair(frame_tree_node_id_, this));
   CHECK(result.second);
 }
 
 FrameTreeNode::~FrameTreeNode() {
+  children_.clear();
   frame_tree_->FrameRemoved(this);
   FOR_EACH_OBSERVER(Observer, observers_, OnFrameTreeNodeDestroyed(this));
 
@@ -124,9 +130,9 @@ bool FrameTreeNode::IsMainFrame() const {
   return frame_tree_->root() == this;
 }
 
-void FrameTreeNode::AddChild(scoped_ptr<FrameTreeNode> child,
-                             int process_id,
-                             int frame_routing_id) {
+FrameTreeNode* FrameTreeNode::AddChild(scoped_ptr<FrameTreeNode> child,
+                                       int process_id,
+                                       int frame_routing_id) {
   // Child frame must always be created in the same process as the parent.
   CHECK_EQ(process_id, render_manager_.current_host()->GetProcess()->GetID());
   child->set_parent(this);
@@ -147,7 +153,8 @@ void FrameTreeNode::AddChild(scoped_ptr<FrameTreeNode> child,
   if (SiteIsolationPolicy::AreCrossProcessFramesPossible())
     render_manager_.CreateProxiesForChildFrame(child.get());
 
-  children_.push_back(child.Pass());
+  children_.push_back(std::move(child));
+  return children_.back().get();
 }
 
 void FrameTreeNode::RemoveChild(FrameTreeNode* child) {
@@ -155,7 +162,7 @@ void FrameTreeNode::RemoveChild(FrameTreeNode* child) {
     if (iter->get() == child) {
       // Subtle: we need to make sure the node is gone from the tree before
       // observers are notified of its deletion.
-      scoped_ptr<FrameTreeNode> node_to_delete(iter->Pass());
+      scoped_ptr<FrameTreeNode> node_to_delete(std::move(*iter));
       children_.erase(iter);
       node_to_delete.reset();
       return;
@@ -164,7 +171,7 @@ void FrameTreeNode::RemoveChild(FrameTreeNode* child) {
 }
 
 void FrameTreeNode::ResetForNewProcess() {
-  current_url_ = GURL();
+  current_frame_host()->set_last_committed_url(GURL());
 
   // Remove child nodes from the tree, then delete them. This destruction
   // operation will notify observers.
@@ -189,7 +196,7 @@ void FrameTreeNode::SetOpener(FrameTreeNode* opener) {
 void FrameTreeNode::SetCurrentURL(const GURL& url) {
   if (!has_committed_real_load_ && url != GURL(url::kAboutBlankURL))
     has_committed_real_load_ = true;
-  current_url_ = url;
+  current_frame_host()->set_last_committed_url(url);
 }
 
 void FrameTreeNode::SetCurrentOrigin(const url::Origin& origin) {
@@ -198,10 +205,35 @@ void FrameTreeNode::SetCurrentOrigin(const url::Origin& origin) {
   replication_state_.origin = origin;
 }
 
-void FrameTreeNode::SetFrameName(const std::string& name) {
-  if (name != replication_state_.name)
-    render_manager_.OnDidUpdateName(name);
+void FrameTreeNode::SetFrameName(const std::string& name,
+                                 const std::string& unique_name) {
+  if (name == replication_state_.name) {
+    // |unique_name| shouldn't change unless |name| changes.
+    DCHECK_EQ(unique_name, replication_state_.unique_name);
+    return;
+  }
+  render_manager_.OnDidUpdateName(name, unique_name);
   replication_state_.name = name;
+  replication_state_.unique_name = unique_name;
+}
+
+void FrameTreeNode::SetEnforceStrictMixedContentChecking(bool should_enforce) {
+  if (should_enforce ==
+      replication_state_.should_enforce_strict_mixed_content_checking) {
+    return;
+  }
+  render_manager_.OnEnforceStrictMixedContentChecking(should_enforce);
+  replication_state_.should_enforce_strict_mixed_content_checking =
+      should_enforce;
+}
+
+void FrameTreeNode::SetPendingSandboxFlags(
+    blink::WebSandboxFlags sandbox_flags) {
+  pending_sandbox_flags_ = sandbox_flags;
+
+  // Subframes should always inherit their parent's sandbox flags.
+  if (parent())
+    pending_sandbox_flags_ |= parent()->effective_sandbox_flags();
 }
 
 bool FrameTreeNode::IsDescendantOf(FrameTreeNode* other) const {
@@ -237,8 +269,7 @@ bool FrameTreeNode::IsLoading() const {
 
   DCHECK(current_frame_host);
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     if (navigation_request_)
       return true;
 
@@ -255,50 +286,59 @@ bool FrameTreeNode::IsLoading() const {
 
 bool FrameTreeNode::CommitPendingSandboxFlags() {
   bool did_change_flags =
-      effective_sandbox_flags_ != replication_state_.sandbox_flags;
-  effective_sandbox_flags_ = replication_state_.sandbox_flags;
+      pending_sandbox_flags_ != replication_state_.sandbox_flags;
+  replication_state_.sandbox_flags = pending_sandbox_flags_;
   return did_change_flags;
 }
 
 void FrameTreeNode::CreatedNavigationRequest(
     scoped_ptr<NavigationRequest> navigation_request) {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
-  ResetNavigationRequest(false);
+  CHECK(IsBrowserSideNavigationEnabled());
+
+  bool was_previously_loading = frame_tree()->IsLoading();
+
+  // There's no need to reset the state: there's still an ongoing load, and the
+  // RenderFrameHostManager will take care of updates to the speculative
+  // RenderFrameHost in DidCreateNavigationRequest below.
+  if (was_previously_loading)
+    ResetNavigationRequest(true);
+
+  navigation_request_ = std::move(navigation_request);
+  render_manager()->DidCreateNavigationRequest(*navigation_request_);
 
   // Force the throbber to start to keep it in sync with what is happening in
   // the UI. Blink doesn't send throb notifications for JavaScript URLs, so it
   // is not done here either.
-  if (!navigation_request->common_params().url.SchemeIs(
+  if (!navigation_request_->common_params().url.SchemeIs(
           url::kJavaScriptScheme)) {
     // TODO(fdegans): Check if this is a same-document navigation and set the
     // proper argument.
-    DidStartLoading(true);
+    DidStartLoading(true, was_previously_loading);
   }
-
-  navigation_request_ = navigation_request.Pass();
-
-  render_manager()->DidCreateNavigationRequest(*navigation_request_);
 }
 
-void FrameTreeNode::ResetNavigationRequest(bool is_commit) {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+void FrameTreeNode::ResetNavigationRequest(bool keep_state) {
+  CHECK(IsBrowserSideNavigationEnabled());
   if (!navigation_request_)
     return;
+  bool was_renderer_initiated = !navigation_request_->browser_initiated();
   navigation_request_.reset();
 
-  // During commit, the clean up of a speculative RenderFrameHost is done in
-  // RenderFrameHostManager::DidNavigateFrame. The load is also still being
-  // tracked.
-  if (is_commit)
+  if (keep_state)
     return;
 
-  // If the reset corresponds to a cancelation, the RenderFrameHostManager
-  // should clean up any speculative RenderFrameHost it created for the
-  // navigation.
+  // The RenderFrameHostManager should clean up any speculative RenderFrameHost
+  // it created for the navigation. Also register that the load stopped.
   DidStopLoading();
   render_manager_.CleanUpNavigation();
+
+  // If the navigation is renderer-initiated, the renderer should also be
+  // informed that the navigation stopped.
+  if (was_renderer_initiated) {
+    current_frame_host()->Send(
+        new FrameMsg_Stop(current_frame_host()->GetRoutingID()));
+  }
+
 }
 
 bool FrameTreeNode::has_started_loading() const {
@@ -309,7 +349,8 @@ void FrameTreeNode::reset_loading_progress() {
   loading_progress_ = kLoadingProgressNotStarted;
 }
 
-void FrameTreeNode::DidStartLoading(bool to_different_document) {
+void FrameTreeNode::DidStartLoading(bool to_different_document,
+                                    bool was_previously_loading) {
   // Any main frame load to a new document should reset the load progress since
   // it will replace the current page and any frames. The WebContents will
   // be notified when DidChangeLoadProgress is called.
@@ -317,7 +358,7 @@ void FrameTreeNode::DidStartLoading(bool to_different_document) {
     frame_tree_->ResetLoadProgress();
 
   // Notify the WebContents.
-  if (!frame_tree_->IsLoading())
+  if (!was_previously_loading)
     navigator()->GetDelegate()->DidStartLoading(this, to_different_document);
 
   // Set initial load progress and update overall progress. This will notify
@@ -367,10 +408,8 @@ void FrameTreeNode::DidChangeLoadProgress(double load_progress) {
 }
 
 bool FrameTreeNode::StopLoading() {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled())
     ResetNavigationRequest(false);
-  }
 
   // TODO(nasko): see if child frames should send IPCs in site-per-process
   // mode.
@@ -384,6 +423,29 @@ bool FrameTreeNode::StopLoading() {
 void FrameTreeNode::DidFocus() {
   last_focus_time_ = base::TimeTicks::Now();
   FOR_EACH_OBSERVER(Observer, observers_, OnFrameTreeNodeFocused(this));
+}
+
+void FrameTreeNode::BeforeUnloadCanceled() {
+  // TODO(clamy): Support BeforeUnload in subframes.
+  if (!IsMainFrame())
+    return;
+
+  RenderFrameHostImpl* current_frame_host =
+      render_manager_.current_frame_host();
+  DCHECK(current_frame_host);
+  current_frame_host->ResetLoadingState();
+
+  if (IsBrowserSideNavigationEnabled()) {
+    RenderFrameHostImpl* speculative_frame_host =
+        render_manager_.speculative_frame_host();
+    if (speculative_frame_host)
+      speculative_frame_host->ResetLoadingState();
+  } else {
+    RenderFrameHostImpl* pending_frame_host =
+        render_manager_.pending_frame_host();
+    if (pending_frame_host)
+      pending_frame_host->ResetLoadingState();
+  }
 }
 
 }  // namespace content

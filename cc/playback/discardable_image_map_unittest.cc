@@ -4,6 +4,8 @@
 
 #include "cc/playback/discardable_image_map.h"
 
+#include <stddef.h>
+
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/values.h"
@@ -12,6 +14,7 @@
 #include "cc/test/fake_display_list_recording_source.h"
 #include "cc/test/skia_common.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkGraphics.h"
 #include "third_party/skia/include/core/SkImageGenerator.h"
 #include "ui/gfx/geometry/rect.h"
@@ -21,10 +24,10 @@ namespace cc {
 namespace {
 
 struct PositionDrawImage {
-  PositionDrawImage(const SkImage* image, const gfx::RectF& image_rect)
+  PositionDrawImage(const SkImage* image, const gfx::Rect& image_rect)
       : image(image), image_rect(image_rect) {}
   const SkImage* image;
-  gfx::RectF image_rect;
+  gfx::Rect image_rect;
 };
 
 }  // namespace
@@ -38,7 +41,7 @@ class DiscardableImageMapTest : public testing::Test {
     image_map.GetDiscardableImagesInRect(rect, 1.f, &draw_images);
 
     std::vector<size_t> indices;
-    image_map.images_rtree_.Search(gfx::RectF(rect), &indices);
+    image_map.images_rtree_.Search(rect, &indices);
     std::vector<PositionDrawImage> position_draw_images;
     for (size_t index : indices) {
       position_draw_images.push_back(
@@ -56,6 +59,7 @@ class DiscardableImageMapTest : public testing::Test {
 TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectTest) {
   gfx::Rect visible_rect(2048, 2048);
   FakeContentLayerClient content_layer_client;
+  content_layer_client.set_bounds(visible_rect.size());
 
   // Discardable pixel refs are found in the following grids:
   // |---|---|---|---|
@@ -103,7 +107,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectTest) {
         EXPECT_EQ(1u, images.size()) << x << " " << y;
         EXPECT_TRUE(images[0].image == discardable_image[y][x].get())
             << x << " " << y;
-        EXPECT_EQ(gfx::RectF(x * 512 + 6, y * 512 + 6, 500, 500),
+        EXPECT_EQ(gfx::Rect(x * 512 + 6, y * 512 + 6, 500, 500),
                   images[0].image_rect);
       } else {
         EXPECT_EQ(0u, images.size()) << x << " " << y;
@@ -116,14 +120,14 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectTest) {
       GetDiscardableImagesInRect(image_map, gfx::Rect(512, 512, 2048, 2048));
   EXPECT_EQ(4u, images.size());
   EXPECT_TRUE(images[0].image == discardable_image[1][2].get());
-  EXPECT_EQ(gfx::RectF(2 * 512 + 6, 512 + 6, 500, 500), images[0].image_rect);
+  EXPECT_EQ(gfx::Rect(2 * 512 + 6, 512 + 6, 500, 500), images[0].image_rect);
   EXPECT_TRUE(images[1].image == discardable_image[2][1].get());
-  EXPECT_EQ(gfx::RectF(512 + 6, 2 * 512 + 6, 500, 500), images[1].image_rect);
+  EXPECT_EQ(gfx::Rect(512 + 6, 2 * 512 + 6, 500, 500), images[1].image_rect);
   EXPECT_TRUE(images[2].image == discardable_image[2][3].get());
-  EXPECT_EQ(gfx::RectF(3 * 512 + 6, 2 * 512 + 6, 500, 500),
+  EXPECT_EQ(gfx::Rect(3 * 512 + 6, 2 * 512 + 6, 500, 500),
             images[2].image_rect);
   EXPECT_TRUE(images[3].image == discardable_image[3][2].get());
-  EXPECT_EQ(gfx::RectF(2 * 512 + 6, 3 * 512 + 6, 500, 500),
+  EXPECT_EQ(gfx::Rect(2 * 512 + 6, 3 * 512 + 6, 500, 500),
             images[3].image_rect);
 }
 
@@ -132,6 +136,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectNonZeroLayer) {
   // Make sure visible rect fits into the layer size.
   gfx::Size layer_size(visible_rect.right(), visible_rect.bottom());
   FakeContentLayerClient content_layer_client;
+  content_layer_client.set_bounds(layer_size);
 
   // Discardable pixel refs are found in the following grids:
   // |---|---|---|---|
@@ -158,7 +163,6 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectNonZeroLayer) {
 
   FakeDisplayListRecordingSource recording_source;
   Region invalidation(visible_rect);
-  recording_source.set_pixel_record_distance(0);
   recording_source.SetGenerateDiscardableImagesMetadata(true);
   recording_source.UpdateAndExpandInvalidation(
       &content_layer_client, &invalidation, layer_size, visible_rect, 1,
@@ -180,7 +184,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectNonZeroLayer) {
         EXPECT_EQ(1u, images.size()) << x << " " << y;
         EXPECT_TRUE(images[0].image == discardable_image[y][x].get())
             << x << " " << y;
-        EXPECT_EQ(gfx::RectF(1024 + x * 512 + 6, y * 512 + 6, 500, 500),
+        EXPECT_EQ(gfx::Rect(1024 + x * 512 + 6, y * 512 + 6, 500, 500),
                   images[0].image_rect);
       } else {
         EXPECT_EQ(0u, images.size()) << x << " " << y;
@@ -193,16 +197,16 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectNonZeroLayer) {
         image_map, gfx::Rect(1024 + 512, 512, 2048, 2048));
     EXPECT_EQ(4u, images.size());
     EXPECT_TRUE(images[0].image == discardable_image[1][2].get());
-    EXPECT_EQ(gfx::RectF(1024 + 2 * 512 + 6, 512 + 6, 500, 500),
+    EXPECT_EQ(gfx::Rect(1024 + 2 * 512 + 6, 512 + 6, 500, 500),
               images[0].image_rect);
     EXPECT_TRUE(images[1].image == discardable_image[2][1].get());
-    EXPECT_EQ(gfx::RectF(1024 + 512 + 6, 2 * 512 + 6, 500, 500),
+    EXPECT_EQ(gfx::Rect(1024 + 512 + 6, 2 * 512 + 6, 500, 500),
               images[1].image_rect);
     EXPECT_TRUE(images[2].image == discardable_image[2][3].get());
-    EXPECT_EQ(gfx::RectF(1024 + 3 * 512 + 6, 2 * 512 + 6, 500, 500),
+    EXPECT_EQ(gfx::Rect(1024 + 3 * 512 + 6, 2 * 512 + 6, 500, 500),
               images[2].image_rect);
     EXPECT_TRUE(images[3].image == discardable_image[3][2].get());
-    EXPECT_EQ(gfx::RectF(1024 + 2 * 512 + 6, 3 * 512 + 6, 500, 500),
+    EXPECT_EQ(gfx::Rect(1024 + 2 * 512 + 6, 3 * 512 + 6, 500, 500),
               images[3].image_rect);
   }
 
@@ -232,6 +236,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectNonZeroLayer) {
 TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectOnePixelQuery) {
   gfx::Rect visible_rect(2048, 2048);
   FakeContentLayerClient content_layer_client;
+  content_layer_client.set_bounds(visible_rect.size());
 
   // Discardable pixel refs are found in the following grids:
   // |---|---|---|---|
@@ -279,7 +284,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectOnePixelQuery) {
         EXPECT_EQ(1u, images.size()) << x << " " << y;
         EXPECT_TRUE(images[0].image == discardable_image[y][x].get())
             << x << " " << y;
-        EXPECT_EQ(gfx::RectF(x * 512 + 6, y * 512 + 6, 500, 500),
+        EXPECT_EQ(gfx::Rect(x * 512 + 6, y * 512 + 6, 500, 500),
                   images[0].image_rect);
       } else {
         EXPECT_EQ(0u, images.size()) << x << " " << y;
@@ -291,6 +296,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectOnePixelQuery) {
 TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectMassiveImage) {
   gfx::Rect visible_rect(2048, 2048);
   FakeContentLayerClient content_layer_client;
+  content_layer_client.set_bounds(visible_rect.size());
 
   skia::RefPtr<SkImage> discardable_image;
   discardable_image = CreateDiscardableImage(gfx::Size(1 << 25, 1 << 25));
@@ -316,7 +322,34 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectMassiveImage) {
       GetDiscardableImagesInRect(image_map, gfx::Rect(0, 0, 1, 1));
   EXPECT_EQ(1u, images.size());
   EXPECT_TRUE(images[0].image == discardable_image.get());
-  EXPECT_EQ(gfx::RectF(0, 0, 1 << 25, 1 << 25), images[0].image_rect);
+  EXPECT_EQ(gfx::Rect(0, 0, 1 << 25, 1 << 25), images[0].image_rect);
+}
+
+TEST_F(DiscardableImageMapTest, PaintDestroyedWhileImageIsDrawn) {
+  gfx::Rect visible_rect(2048, 2048);
+  FakeContentLayerClient content_layer_client;
+  content_layer_client.set_bounds(visible_rect.size());
+
+  skia::RefPtr<SkImage> discardable_image;
+  discardable_image = CreateDiscardableImage(gfx::Size(10, 10));
+
+  DiscardableImageMap image_map;
+  {
+    DiscardableImageMap::ScopedMetadataGenerator generator(&image_map,
+                                                           visible_rect.size());
+    {
+      scoped_ptr<SkPaint> paint(new SkPaint());
+      generator.canvas()->saveLayer(gfx::RectToSkRect(visible_rect),
+                                    paint.get());
+    }
+    generator.canvas()->drawImage(discardable_image.get(), 0, 0, nullptr);
+    generator.canvas()->restore();
+  }
+
+  std::vector<PositionDrawImage> images =
+      GetDiscardableImagesInRect(image_map, gfx::Rect(0, 0, 1, 1));
+  EXPECT_EQ(1u, images.size());
+  EXPECT_TRUE(images[0].image == discardable_image.get());
 }
 
 }  // namespace cc

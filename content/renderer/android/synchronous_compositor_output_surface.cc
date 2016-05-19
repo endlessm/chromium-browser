@@ -6,6 +6,7 @@
 
 #include "base/auto_reset.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "cc/output/compositor_frame.h"
 #include "cc/output/context_provider.h"
 #include "cc/output/output_surface_client.h"
@@ -44,7 +45,7 @@ class SynchronousCompositorOutputSurface::SoftwareDevice
       NOTREACHED() << "BeginPaint with no canvas set";
       return &null_canvas_;
     }
-    LOG_IF(WARNING, surface_->frame_holder_.get())
+    LOG_IF(WARNING, surface_->did_swap_)
         << "Mutliple calls to BeginPaint per frame";
     return surface_->current_sw_canvas_;
   }
@@ -71,15 +72,14 @@ SynchronousCompositorOutputSurface::SynchronousCompositorOutputSurface(
       registry_(registry),
       registered_(false),
       sync_client_(nullptr),
-      next_hardware_draw_needs_damage_(false),
       current_sw_canvas_(nullptr),
       memory_policy_(0u),
+      did_swap_(false),
       frame_swap_message_queue_(frame_swap_message_queue) {
   thread_checker_.DetachFromThread();
   DCHECK(registry_);
   capabilities_.adjust_deadline_for_parent = false;
   capabilities_.delegated_rendering = true;
-  capabilities_.max_frames_pending = 1;
   memory_policy_.priority_cutoff_when_visible =
       gpu::MemoryAllocation::CUTOFF_ALLOW_NICE_TO_HAVE;
 }
@@ -90,6 +90,11 @@ void SynchronousCompositorOutputSurface::SetSyncClient(
     SynchronousCompositorOutputSurfaceClient* compositor) {
   DCHECK(CalledOnValidThread());
   sync_client_ = compositor;
+}
+
+void SynchronousCompositorOutputSurface::DidLoseOutputSurface() {
+  // Android WebView does not handle context loss.
+  LOG(FATAL) << "Renderer compositor context loss";
 }
 
 bool SynchronousCompositorOutputSurface::BindToClient(
@@ -112,17 +117,19 @@ void SynchronousCompositorOutputSurface::DetachFromClient() {
   cc::OutputSurface::DetachFromClient();
 }
 
-void SynchronousCompositorOutputSurface::Reshape(
-    const gfx::Size& size, float scale_factor) {
+void SynchronousCompositorOutputSurface::Reshape(const gfx::Size& size,
+                                                 float scale_factor,
+                                                 bool has_alpha) {
   // Intentional no-op: surface size is controlled by the embedder.
 }
 
 void SynchronousCompositorOutputSurface::SwapBuffers(
     cc::CompositorFrame* frame) {
   DCHECK(CalledOnValidThread());
-  frame_holder_.reset(new cc::CompositorFrame);
-  frame->AssignTo(frame_holder_.get());
+  DCHECK(sync_client_);
+  sync_client_->SwapBuffers(frame);
   client_->DidSwapBuffers();
+  did_swap_ = true;
 }
 
 void SynchronousCompositorOutputSurface::Invalidate() {
@@ -131,8 +138,7 @@ void SynchronousCompositorOutputSurface::Invalidate() {
     sync_client_->Invalidate();
 }
 
-scoped_ptr<cc::CompositorFrame>
-SynchronousCompositorOutputSurface::DemandDrawHw(
+void SynchronousCompositorOutputSurface::DemandDrawHw(
     const gfx::Size& surface_size,
     const gfx::Transform& transform,
     const gfx::Rect& viewport,
@@ -144,14 +150,13 @@ SynchronousCompositorOutputSurface::DemandDrawHw(
   DCHECK(context_provider_.get());
 
   surface_size_ = surface_size;
-  InvokeComposite(transform, viewport, clip, viewport_rect_for_tile_priority,
-                  transform_for_tile_priority, true);
-
-  return frame_holder_.Pass();
+  client_->SetExternalTilePriorityConstraints(viewport_rect_for_tile_priority,
+                                              transform_for_tile_priority);
+  const bool software_draw = false;
+  InvokeComposite(transform, viewport, clip, software_draw);
 }
 
-scoped_ptr<cc::CompositorFrame>
-SynchronousCompositorOutputSurface::DemandDrawSw(SkCanvas* canvas) {
+void SynchronousCompositorOutputSurface::DemandDrawSw(SkCanvas* canvas) {
   DCHECK(CalledOnValidThread());
   DCHECK(canvas);
   DCHECK(!current_sw_canvas_);
@@ -165,68 +170,23 @@ SynchronousCompositorOutputSurface::DemandDrawSw(SkCanvas* canvas) {
   gfx::Transform transform(gfx::Transform::kSkipInitialization);
   transform.matrix() = canvas->getTotalMatrix();  // Converts 3x3 matrix to 4x4.
 
-  surface_size_ = gfx::Size(canvas->getDeviceSize().width(),
-                            canvas->getDeviceSize().height());
-
-  // Pass in the cached hw viewport and transform for tile priority to avoid
-  // tile thrashing when the WebView is alternating between hardware and
-  // software draws.
-  InvokeComposite(transform,
-                  clip,
-                  clip,
-                  cached_hw_viewport_rect_for_tile_priority_,
-                  cached_hw_transform_for_tile_priority_,
-                  false);
-
-  return frame_holder_.Pass();
+  surface_size_ = gfx::Size(canvas->getBaseLayerSize().width(),
+                            canvas->getBaseLayerSize().height());
+  const bool software_draw = true;
+  InvokeComposite(transform, clip, clip, software_draw);
 }
 
 void SynchronousCompositorOutputSurface::InvokeComposite(
     const gfx::Transform& transform,
     const gfx::Rect& viewport,
     const gfx::Rect& clip,
-    const gfx::Rect& viewport_rect_for_tile_priority,
-    const gfx::Transform& transform_for_tile_priority,
-    bool hardware_draw) {
-  DCHECK(!frame_holder_.get());
-
+    bool software_draw) {
   gfx::Transform adjusted_transform = transform;
   adjusted_transform.matrix().postTranslate(-viewport.x(), -viewport.y(), 0);
-  SetExternalDrawConstraints(adjusted_transform, viewport, clip,
-                             viewport_rect_for_tile_priority,
-                             transform_for_tile_priority, !hardware_draw);
-  if (!hardware_draw || next_hardware_draw_needs_damage_) {
-    next_hardware_draw_needs_damage_ = false;
-    SetNeedsRedrawRect(gfx::Rect(viewport.size()));
-  }
+  did_swap_ = false;
+  client_->OnDraw(adjusted_transform, viewport, clip, software_draw);
 
-  client_->OnDraw();
-
-  // After software draws (which might move the viewport arbitrarily), restore
-  // the previous hardware viewport to allow CC's tile manager to prioritize
-  // properly.
-  if (hardware_draw) {
-    cached_hw_transform_ = adjusted_transform;
-    cached_hw_viewport_ = viewport;
-    cached_hw_clip_ = clip;
-    cached_hw_viewport_rect_for_tile_priority_ =
-        viewport_rect_for_tile_priority;
-    cached_hw_transform_for_tile_priority_ = transform_for_tile_priority;
-  } else {
-    bool resourceless_software_draw = false;
-    SetExternalDrawConstraints(cached_hw_transform_,
-                               cached_hw_viewport_,
-                               cached_hw_clip_,
-                               cached_hw_viewport_rect_for_tile_priority_,
-                               cached_hw_transform_for_tile_priority_,
-                               resourceless_software_draw);
-    // This draw may have reset all damage, which would lead to subsequent
-    // incorrect hardware draw, so explicitly set damage for next hardware
-    // draw as well.
-    next_hardware_draw_needs_damage_ = true;
-  }
-
-  if (frame_holder_.get())
+  if (did_swap_)
     client_->DidSwapBuffersComplete();
 }
 
@@ -264,7 +224,7 @@ void SynchronousCompositorOutputSurface::SetTreeActivationCallback(
 }
 
 void SynchronousCompositorOutputSurface::GetMessagesToDeliver(
-    ScopedVector<IPC::Message>* messages) {
+    std::vector<scoped_ptr<IPC::Message>>* messages) {
   DCHECK(CalledOnValidThread());
   scoped_ptr<FrameSwapMessageQueue::SendMessageScope> send_message_scope =
       frame_swap_message_queue_->AcquireSendMessageScope();

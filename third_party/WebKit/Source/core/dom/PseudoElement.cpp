@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/PseudoElement.h"
 
 #include "core/dom/FirstLetterPseudoElement.h"
@@ -178,7 +177,7 @@ Node* PseudoElement::findAssociatedNode() const
     // The ::backdrop element is parented to the LayoutView, not to the node
     // that it's associated with. We need to make sure ::backdrop sends the
     // events to the parent node correctly.
-    if (pseudoId() == BACKDROP)
+    if (getPseudoId() == BACKDROP)
         return parentOrShadowHostNode();
 
     ASSERT(layoutObject());
@@ -194,4 +193,4 @@ Node* PseudoElement::findAssociatedNode() const
     return ancestor->node();
 }
 
-} // namespace
+} // namespace blink

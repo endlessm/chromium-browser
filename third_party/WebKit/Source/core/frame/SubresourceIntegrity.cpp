@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/SubresourceIntegrity.h"
 
 #include "core/HTMLNames.h"
@@ -83,11 +82,11 @@ HashAlgorithm SubresourceIntegrity::getPrioritizedHashFunction(HashAlgorithm alg
         break;
     case HashAlgorithmSha384:
         weakerAlgorithms = weakerThanSha384;
-        length = ARRAY_SIZE(weakerThanSha384);
+        length = WTF_ARRAY_LENGTH(weakerThanSha384);
         break;
     case HashAlgorithmSha512:
         weakerAlgorithms = weakerThanSha512;
-        length = ARRAY_SIZE(weakerThanSha512);
+        length = WTF_ARRAY_LENGTH(weakerThanSha512);
         break;
     default:
         ASSERT_NOT_REACHED();

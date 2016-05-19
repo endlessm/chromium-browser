@@ -9,13 +9,14 @@ App Engine environment. See:
   https://cloud.google.com/appengine/docs/python/tools/appengineconfig
 """
 
-import logging
 import os
-import sys
 
 from google.appengine.ext import vendor
 
 import dashboard
+
+# The names used below are special constant names which other code depends on.
+# pylint: disable=invalid-name
 
 appstats_SHELL_OK = True
 
@@ -23,6 +24,7 @@ appstats_SHELL_OK = True
 remoteapi_CUSTOM_ENVIRONMENT_AUTHENTICATION = (
     'LOAS_PEER_USERNAME', ['chromeos-peng-performance'])
 
+# pylint: enable=invalid-name
 
 def _AddThirdPartyLibraries():
   """Registers the third party libraries with App Engine.

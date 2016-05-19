@@ -5,6 +5,10 @@
 #ifndef COMPONENTS_MUS_WS_SERVER_WINDOW_OBSERVER_H_
 #define COMPONENTS_MUS_WS_SERVER_WINDOW_OBSERVER_H_
 
+#include <stdint.h>
+
+#include <vector>
+
 #include "components/mus/public/interfaces/mus_constants.mojom.h"
 
 namespace gfx {
@@ -27,7 +31,7 @@ class ServerWindowObserver {
  public:
   // Invoked when a window is about to be destroyed; before any of the children
   // have been removed and before the window has been removed from its parent.
-  virtual void OnWillDestroyWindow(ServerWindow* window) {}
+  virtual void OnWindowDestroying(ServerWindow* window) {}
 
   // Invoked at the end of the window's destructor (after it has been removed
   // from the hierarchy.
@@ -45,9 +49,10 @@ class ServerWindowObserver {
                                      const gfx::Rect& old_bounds,
                                      const gfx::Rect& new_bounds) {}
 
-  virtual void OnWindowClientAreaChanged(ServerWindow* window,
-                                         const gfx::Insets& old_client_area,
-                                         const gfx::Insets& new_client_area) {}
+  virtual void OnWindowClientAreaChanged(
+      ServerWindow* window,
+      const gfx::Insets& new_client_area,
+      const std::vector<gfx::Rect>& new_additional_client_areas) {}
 
   virtual void OnWindowReordered(ServerWindow* window,
                                  ServerWindow* relative,
@@ -55,6 +60,9 @@ class ServerWindowObserver {
 
   virtual void OnWillChangeWindowVisibility(ServerWindow* window) {}
   virtual void OnWindowVisibilityChanged(ServerWindow* window) {}
+
+  virtual void OnWindowPredefinedCursorChanged(ServerWindow* window,
+                                               int32_t cursor_id) {}
 
   virtual void OnWindowTextInputStateChanged(ServerWindow* window,
                                              const ui::TextInputState& state) {}

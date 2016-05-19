@@ -22,6 +22,7 @@
 #include "content/public/common/content_constants.h"
 #include "content/public/common/url_constants.h"
 #include "ppapi/proxy/ppapi_messages.h"
+#include "third_party/kasko/kasko_features.h"
 #include "url/gurl.h"
 
 #if defined(ENABLE_PLUGINS)
@@ -29,6 +30,11 @@
 #endif
 
 namespace content {
+
+class ScopedAllowWaitForDebugURL {
+ private:
+  base::ThreadRestrictions::ScopedAllowWait wait;
+};
 
 namespace {
 
@@ -42,7 +48,7 @@ const char kAsanCorruptHeapBlock[] = "/browser-corrupt-heap-block";
 const char kAsanCorruptHeap[] = "/browser-corrupt-heap";
 #endif
 
-#if defined(KASKO)
+#if BUILDFLAG(ENABLE_KASKO)
 // Define the Kasko debug URLs.
 const char kKaskoCrashDomain[] = "kasko";
 const char kKaskoSendReport[] = "/send-report";
@@ -66,7 +72,7 @@ void HandlePpapiFlashDebugURL(const GURL& url) {
 }
 
 bool IsKaskoDebugURL(const GURL& url) {
-#if defined(KASKO)
+#if BUILDFLAG(ENABLE_KASKO)
   return (url.is_valid() && url.SchemeIs(kChromeUIScheme) &&
           url.DomainIs(kKaskoCrashDomain) &&
           url.path() == kKaskoSendReport);
@@ -76,12 +82,27 @@ bool IsKaskoDebugURL(const GURL& url) {
 }
 
 void HandleKaskoDebugURL() {
-#if defined(KASKO)
+#if BUILDFLAG(ENABLE_KASKO)
+  // Signature of the exported crash key setting function.
+  using SetCrashKeyValueImplPtr = void(__cdecl *)(const wchar_t*,
+                                                  const wchar_t*);
   // Signature of an enhanced crash reporting function.
-  typedef void(__cdecl * ReportCrashWithProtobufPtr)(EXCEPTION_POINTERS*,
+  using ReportCrashWithProtobufPtr = void(__cdecl *)(EXCEPTION_POINTERS*,
                                                      const char*);
 
   HMODULE exe_hmodule = ::GetModuleHandle(NULL);
+
+  // First, set a crash key using the exported function reserved for Kasko
+  // clients (SyzyASAN for now).
+  SetCrashKeyValueImplPtr set_crash_key_value_impl =
+      reinterpret_cast<SetCrashKeyValueImplPtr>(
+          ::GetProcAddress(exe_hmodule, "SetCrashKeyValueImpl"));
+  if (set_crash_key_value_impl)
+    set_crash_key_value_impl(L"kasko-set-crash-key-value-impl", L"true");
+  else
+    NOTREACHED();
+
+  // Next, invoke a crash report via Kasko.
   ReportCrashWithProtobufPtr report_crash_with_protobuf =
       reinterpret_cast<ReportCrashWithProtobufPtr>(
           ::GetProcAddress(exe_hmodule, "ReportCrashWithProtobuf"));
@@ -148,13 +169,12 @@ bool HandleAsanDebugURL(const GURL& url) {
   return true;
 }
 
+void HangCurrentThread() {
+  ScopedAllowWaitForDebugURL allow_wait;
+  base::WaitableEvent(false, false).Wait();
+}
 
 }  // namespace
-
-class ScopedAllowWaitForDebugURL {
- private:
-  base::ThreadRestrictions::ScopedAllowWait wait;
-};
 
 bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
   // Ensure that the user explicitly navigated to this URL, unless
@@ -183,8 +203,16 @@ bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
   }
 
   if (url == GURL(kChromeUIBrowserUIHang)) {
-    ScopedAllowWaitForDebugURL allow_wait;
-    base::WaitableEvent(false, false).Wait();
+    HangCurrentThread();
+    return true;
+  }
+
+  if (url == GURL(kChromeUIDelayedBrowserUIHang)) {
+    // Webdriver-safe url to hang the ui thread. Webdriver waits for the onload
+    // event in javascript which needs a little more time to fire.
+    BrowserThread::PostDelayedTask(BrowserThread::UI, FROM_HERE,
+                                   base::Bind(&HangCurrentThread),
+                                   base::TimeDelta::FromSeconds(2));
     return true;
   }
 

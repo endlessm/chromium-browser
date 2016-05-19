@@ -6,8 +6,7 @@
 [
     Constructor(DOMString type, optional ExtendableEventInit eventInitDict),
     Exposed=ServiceWorker,
-    TypeChecking=Interface,
     RuntimeEnabled=ForeignFetch,
 ] interface InstallEvent : ExtendableEvent {
-  [CallWith=ExecutionContext, RaisesException] void registerForeignFetchScopes(sequence<USVString> subScopes);
+  [CallWith=ExecutionContext, RaisesException] void registerForeignFetchScopes(sequence<USVString> subScopes, (USVString or sequence<USVString>) origins);
 };

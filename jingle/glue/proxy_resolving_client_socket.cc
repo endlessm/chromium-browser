@@ -4,7 +4,8 @@
 
 #include "jingle/glue/proxy_resolving_client_socket.h"
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
@@ -82,12 +83,12 @@ ProxyResolvingClientSocket::ProxyResolvingClientSocket(
         reference_params->testing_fixed_http_port;
     session_params.testing_fixed_https_port =
         reference_params->testing_fixed_https_port;
-    session_params.next_protos = reference_params->next_protos;
-    session_params.trusted_spdy_proxy = reference_params->trusted_spdy_proxy;
-    session_params.forced_spdy_exclusions =
-        reference_params->forced_spdy_exclusions;
-    session_params.use_alternative_services =
-        reference_params->use_alternative_services;
+    session_params.enable_spdy31 = reference_params->enable_spdy31;
+    session_params.enable_http2 = reference_params->enable_http2;
+    session_params.parse_alternative_services =
+        reference_params->parse_alternative_services;
+    session_params.enable_alternative_service_with_different_host =
+        reference_params->enable_alternative_service_with_different_host;
   }
 
   network_session_.reset(new net::HttpNetworkSession(session_params));
@@ -115,14 +116,14 @@ int ProxyResolvingClientSocket::Write(
   return net::ERR_SOCKET_NOT_CONNECTED;
 }
 
-int ProxyResolvingClientSocket::SetReceiveBufferSize(int32 size) {
+int ProxyResolvingClientSocket::SetReceiveBufferSize(int32_t size) {
   if (transport_.get() && transport_->socket())
     return transport_->socket()->SetReceiveBufferSize(size);
   NOTREACHED();
   return net::ERR_SOCKET_NOT_CONNECTED;
 }
 
-int ProxyResolvingClientSocket::SetSendBufferSize(int32 size) {
+int ProxyResolvingClientSocket::SetSendBufferSize(int32_t size) {
   if (transport_.get() && transport_->socket())
     return transport_->socket()->SetSendBufferSize(size);
   NOTREACHED();

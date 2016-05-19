@@ -5,6 +5,8 @@
 #ifndef CC_TEST_FAKE_CONTENT_LAYER_CLIENT_H_
 #define CC_TEST_FAKE_CONTENT_LAYER_CLIENT_H_
 
+#include <stddef.h>
+
 #include <utility>
 #include <vector>
 
@@ -28,6 +30,7 @@ class FakeContentLayerClient : public ContentLayerClient {
     ImageData(const SkImage* image,
               const gfx::Transform& transform,
               const SkPaint& paint);
+    ImageData(const ImageData& other);
     ~ImageData();
     skia::RefPtr<const SkImage> image;
     gfx::Point point;
@@ -38,11 +41,15 @@ class FakeContentLayerClient : public ContentLayerClient {
   FakeContentLayerClient();
   ~FakeContentLayerClient() override;
 
+  gfx::Rect PaintableRegion() override;
   scoped_refptr<DisplayItemList> PaintContentsToDisplayList(
-      const gfx::Rect& clip,
       PaintingControlSetting painting_control) override;
   bool FillsBoundsCompletely() const override;
   size_t GetApproximateUnsharedMemoryUsage() const override;
+
+  void set_display_list_use_cached_picture(bool use_cached_picture) {
+    display_list_use_cached_picture_ = use_cached_picture;
+  }
 
   void set_fill_with_nonsolid_color(bool nonsolid) {
     fill_with_nonsolid_color_ = nonsolid;
@@ -80,16 +87,24 @@ class FakeContentLayerClient : public ContentLayerClient {
     reported_memory_usage_ = reported_memory_usage;
   }
 
+  void set_bounds(gfx::Size bounds) {
+    bounds_ = bounds;
+    bounds_set_ = true;
+  }
+
  private:
   typedef std::vector<std::pair<gfx::RectF, SkPaint>> RectPaintVector;
   typedef std::vector<ImageData> ImageVector;
 
+  bool display_list_use_cached_picture_;
   bool fill_with_nonsolid_color_;
   RectPaintVector draw_rects_;
   ImageVector draw_images_;
   SkCanvas* last_canvas_;
   PaintingControlSetting last_painting_control_;
   size_t reported_memory_usage_;
+  gfx::Size bounds_;
+  bool bounds_set_;
 };
 
 }  // namespace cc

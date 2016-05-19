@@ -4,14 +4,20 @@
 
 #include "ui/views/controls/textfield/textfield.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/i18n/rtl.h"
+#include "base/macros.h"
 #include "base/pickle.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
@@ -20,13 +26,13 @@
 #include "ui/base/ime/input_method_delegate.h"
 #include "ui/base/ime/input_method_factory.h"
 #include "ui/base/ime/text_input_client.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/events/event.h"
 #include "ui/events/event_processor.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/gfx/render_text.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
@@ -49,10 +55,6 @@
 
 #if defined(USE_X11)
 #include "ui/events/event_utils.h"
-#endif
-
-#if defined(OS_MACOSX) && !defined(USE_AURA)
-#include "ui/events/test/event_generator.h"
 #endif
 
 using base::ASCIIToUTF16;
@@ -145,8 +147,10 @@ void MockInputMethod::DispatchKeyEvent(ui::KeyEvent* key) {
   // Checks whether the key event is from EventGenerator on Windows which will
   // generate key event for WM_CHAR.
   // The MockInputMethod will insert char on WM_KEYDOWN so ignore WM_CHAR here.
-  if (key->is_char() && key->HasNativeEvent())
+  if (key->is_char() && key->HasNativeEvent()) {
+    key->SetHandled();
     return;
+  }
 
   bool handled = !IsTextInputTypeNone() && HasComposition();
   ClearStates();
@@ -436,13 +440,10 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
     // don't want parallel tests to steal active status either, so fake it.
 #if defined(OS_MACOSX) && !defined(USE_AURA)
     fake_activation_ = test::WidgetTest::FakeWidgetIsActiveAlways();
-
-    // This is only used on Mac. See comment regarding |event_generator_| below.
+#endif
     event_generator_.reset(
         new ui::test::EventGenerator(GetContext(), widget_->GetNativeWindow()));
-#endif
   }
-
   ui::MenuModel* GetContextMenuModel() {
     test_api_->UpdateContextMenu();
     return test_api_->context_menu_contents();
@@ -467,17 +468,7 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
 
  protected:
   void SendKeyPress(ui::KeyboardCode key_code, int flags) {
-#if defined(OS_MACOSX) && !defined(USE_AURA)
-    // The Mac EventGenerator hooks in before IME. It sends events first to an
-    // NSResponder, which is necessary to interpret keyboard events into
-    // appropriate editing commands.
     event_generator_->PressKey(key_code, flags);
-#else
-    // TODO(shuchen): making EventGenerator support input method and using
-    // EventGenerator here. crbug.com/512315.
-    ui::KeyEvent event(ui::ET_KEY_PRESSED, key_code, flags);
-    input_method_->DispatchKeyEvent(&event);
-#endif
   }
 
   void SendKeyEvent(ui::KeyboardCode key_code,
@@ -493,10 +484,11 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
     if (TestingNativeMac())
       std::swap(control, command);
 
-    int flags = (alt ? ui::EF_ALT_DOWN : 0) | (shift ? ui::EF_SHIFT_DOWN : 0) |
+    int flags = (shift ? ui::EF_SHIFT_DOWN : 0) |
                 (control ? ui::EF_CONTROL_DOWN : 0) |
+                (alt ? ui::EF_ALT_DOWN : 0) |
                 (command ? ui::EF_COMMAND_DOWN : 0) |
-                (caps_lock ? ui::EF_CAPS_LOCK_DOWN : 0);
+                (caps_lock ? ui::EF_CAPS_LOCK_ON : 0);
 
     SendKeyPress(key_code, flags);
   }
@@ -669,11 +661,7 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
  private:
   ui::ClipboardType copied_to_clipboard_;
   scoped_ptr<test::WidgetTest::FakeActivation> fake_activation_;
-
-#if defined(OS_MACOSX) && !defined(USE_AURA)
   scoped_ptr<ui::test::EventGenerator> event_generator_;
-#endif
-
   DISALLOW_COPY_AND_ASSIGN(TextfieldTest);
 };
 
@@ -738,6 +726,10 @@ TEST_F(TextfieldTest, KeysWithModifiersTest) {
   SendKeyPress(ui::VKEY_2, command);
   SendKeyPress(ui::VKEY_3, 0);
   SendKeyPress(ui::VKEY_4, 0);
+  SendKeyPress(ui::VKEY_OEM_PLUS, ctrl);
+  SendKeyPress(ui::VKEY_OEM_PLUS, ctrl | shift);
+  SendKeyPress(ui::VKEY_OEM_MINUS, ctrl);
+  SendKeyPress(ui::VKEY_OEM_MINUS, ctrl | shift);
 
   if (TestingNativeCrOs())
     EXPECT_STR_EQ("TeTEx34", textfield_->text());
@@ -1896,7 +1888,7 @@ TEST_F(TextfieldTest, TextCursorDisplayTest) {
 }
 
 TEST_F(TextfieldTest, TextCursorDisplayInRTLTest) {
-  std::string locale = l10n_util::GetApplicationLocale("");
+  std::string locale = base::i18n::GetConfiguredLocale();
   base::i18n::SetICUDefaultLocale("he");
 
   InitTextfield();
@@ -2043,7 +2035,7 @@ TEST_F(TextfieldTest, HitOutsideTextAreaTest) {
 }
 
 TEST_F(TextfieldTest, HitOutsideTextAreaInRTLTest) {
-  std::string locale = l10n_util::GetApplicationLocale("");
+  std::string locale = base::i18n::GetConfiguredLocale();
   base::i18n::SetICUDefaultLocale("he");
 
   InitTextfield();
@@ -2106,7 +2098,7 @@ TEST_F(TextfieldTest, OverflowTest) {
 }
 
 TEST_F(TextfieldTest, OverflowInRTLTest) {
-  std::string locale = l10n_util::GetApplicationLocale("");
+  std::string locale = base::i18n::GetConfiguredLocale();
   base::i18n::SetICUDefaultLocale("he");
 
   InitTextfield();
@@ -2140,11 +2132,11 @@ TEST_F(TextfieldTest, GetCompositionCharacterBoundsTest) {
   InitTextfield();
   ui::CompositionText composition;
   composition.text = UTF8ToUTF16("abc123");
-  const uint32 char_count = static_cast<uint32>(composition.text.length());
+  const uint32_t char_count = static_cast<uint32_t>(composition.text.length());
   ui::TextInputClient* client = textfield_;
 
   // Compare the composition character bounds with surrounding cursor bounds.
-  for (uint32 i = 0; i < char_count; ++i) {
+  for (uint32_t i = 0; i < char_count; ++i) {
     composition.selection = gfx::Range(i);
     client->SetCompositionText(composition);
     gfx::Point cursor_origin = GetCursorBounds().origin();
@@ -2193,7 +2185,7 @@ TEST_F(TextfieldTest, GetCompositionCharacterBounds_ComplexText) {
   // Make sure GetCompositionCharacterBounds never fails for index.
   gfx::Rect rects[kUtf16CharsCount];
   gfx::Rect prev_cursor = GetCursorBounds();
-  for (uint32 i = 0; i < kUtf16CharsCount; ++i)
+  for (uint32_t i = 0; i < kUtf16CharsCount; ++i)
     EXPECT_TRUE(client->GetCompositionCharacterBounds(i, &rects[i]));
 
   // Here we might expect the following results but it actually depends on how

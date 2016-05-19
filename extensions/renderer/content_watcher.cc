@@ -4,6 +4,8 @@
 
 #include "extensions/renderer/content_watcher.h"
 
+#include <stddef.h>
+
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/render_view_visitor.h"
 #include "extensions/common/extension_messages.h"
@@ -95,7 +97,7 @@ void ContentWatcher::NotifyBrowserOfChange(
   std::set<base::StringPiece> transitive_selectors;
   for (blink::WebFrame* frame = top_frame; frame;
        frame = frame->traverseNext(/*wrap=*/false)) {
-    if (top_origin.canAccess(frame->document().securityOrigin())) {
+    if (top_origin.canAccess(frame->securityOrigin())) {
       std::map<blink::WebFrame*, std::set<std::string> >::const_iterator
           frame_selectors = matching_selectors_.find(frame);
       if (frame_selectors != matching_selectors_.end()) {

@@ -120,8 +120,7 @@ WebInspector.TextPrompt.prototype = {
         this._boundSelectStart = this._selectStart.bind(this);
         this._boundRemoveSuggestionAids = this._removeSuggestionAids.bind(this);
         this._proxyElement = element.ownerDocument.createElement("span");
-        var shadowRoot = WebInspector.createShadowRootWithCoreStyles(this._proxyElement);
-        shadowRoot.appendChild(WebInspector.Widget.createStyleElement("ui/textPrompt.css"));
+        var shadowRoot = WebInspector.createShadowRootWithCoreStyles(this._proxyElement, "ui/textPrompt.css");
         this._contentElement = shadowRoot.createChild("div");
         this._contentElement.createChild("content");
         this._proxyElement.style.display = this._proxyElementDisplay;
@@ -157,6 +156,19 @@ WebInspector.TextPrompt.prototype = {
     text: function()
     {
         return this._element.textContent;
+    },
+
+    /**
+     * @return {string}
+     */
+    userEnteredText: function()
+    {
+        var text = this.text();
+        if (this.autoCompleteElement) {
+            var addition = this.autoCompleteElement.textContent;
+            text = text.substring(0, text.length - addition.length);
+        }
+        return text;
     },
 
     /**
@@ -269,6 +281,9 @@ WebInspector.TextPrompt.prototype = {
      */
     onKeyDown: function(event)
     {
+        if (isEnterKey(event))
+            return;
+
         var handled = false;
         delete this._needUpdateAutocomplete;
 
@@ -400,7 +415,7 @@ WebInspector.TextPrompt.prototype = {
 
         var wordPrefixRange = selectionRange.startContainer.rangeOfWord(selectionRange.startOffset, this._completionStopCharacters, this._element, "backward");
         this._waitingForCompletions = true;
-        this._loadCompletions(/** @type {!Element} */ (this._proxyElement), this.text(), selectionRange.startOffset, wordPrefixRange, force || false, this._completionsReady.bind(this, selection, wordPrefixRange, !!reverse));
+        this._loadCompletions(/** @type {!Element} */ (this._proxyElement), this.text(), selectionRange.startOffset, wordPrefixRange, force || false, this._completionsReady.bind(this, selection, wordPrefixRange, !!reverse, !!force));
     },
 
     disableDefaultSuggestionForEmptyInput: function()
@@ -455,18 +470,43 @@ WebInspector.TextPrompt.prototype = {
     },
 
     /**
+     * @param {string} prefix
+     * @return {!WebInspector.SuggestBox.Suggestions}
+     */
+    additionalCompletions: function(prefix)
+    {
+        return [];
+    },
+
+    /**
      * @param {!Selection} selection
      * @param {!Range} originalWordPrefixRange
      * @param {boolean} reverse
+     * @param {boolean} force
      * @param {!Array.<string>} completions
      * @param {number=} selectedIndex
      */
-    _completionsReady: function(selection, originalWordPrefixRange, reverse, completions, selectedIndex)
+    _completionsReady: function(selection, originalWordPrefixRange, reverse, force, completions, selectedIndex)
     {
-        if (!this._waitingForCompletions || !completions.length) {
+        var prefix = originalWordPrefixRange.toString();
+
+        // Filter out dupes.
+        var store = new Set();
+        completions = completions.filter(item => !store.has(item) && !!store.add(item));
+        var annotatedCompletions = completions.map(item => ({title: item}));
+
+        if (prefix || force) {
+            if (prefix)
+                annotatedCompletions = annotatedCompletions.concat(this.additionalCompletions(prefix));
+            else
+                annotatedCompletions = this.additionalCompletions(prefix).concat(annotatedCompletions);
+        }
+
+        if (!this._waitingForCompletions || !annotatedCompletions.length) {
             this.hideSuggestBox();
             return;
         }
+
         delete this._waitingForCompletions;
 
         var selectionRange = selection.getRangeAt(0);
@@ -475,7 +515,7 @@ WebInspector.TextPrompt.prototype = {
         fullWordRange.setStart(originalWordPrefixRange.startContainer, originalWordPrefixRange.startOffset);
         fullWordRange.setEnd(selectionRange.endContainer, selectionRange.endOffset);
 
-        if (originalWordPrefixRange.toString() + selectionRange.toString() !== fullWordRange.toString())
+        if (prefix + selectionRange.toString() !== fullWordRange.toString())
             return;
 
         selectedIndex = (this._disableDefaultSuggestionForEmptyInput && !this.text()) ? -1 : (selectedIndex || 0);
@@ -484,7 +524,7 @@ WebInspector.TextPrompt.prototype = {
         this._userEnteredText = fullWordRange.toString();
 
         if (this._suggestBox)
-            this._suggestBox.updateSuggestions(this._boxForAnchorAtStart(selection, fullWordRange), completions, selectedIndex, !this.isCaretAtEndOfPrompt(), this._userEnteredText);
+            this._suggestBox.updateSuggestions(this._boxForAnchorAtStart(selection, fullWordRange), annotatedCompletions, selectedIndex, !this.isCaretAtEndOfPrompt(), this._userEnteredText);
 
         if (selectedIndex === -1)
             return;
@@ -493,7 +533,7 @@ WebInspector.TextPrompt.prototype = {
         this._commonPrefix = this._buildCommonPrefix(completions, wordPrefixLength);
 
         if (this.isCaretAtEndOfPrompt()) {
-            var completionText = completions[selectedIndex];
+            var completionText = annotatedCompletions[selectedIndex].title;
             var prefixText = this._userEnteredRange.toString();
             var suffixText = completionText.substring(wordPrefixLength);
             this._userEnteredRange.deleteContents();
@@ -543,15 +583,10 @@ WebInspector.TextPrompt.prototype = {
     /**
      * @param {string} completionText
      * @param {boolean=} isIntermediateSuggestion
-     * @param {!Range=} originalPrefixRange
      */
-    _applySuggestion: function(completionText, isIntermediateSuggestion, originalPrefixRange)
+    _applySuggestion: function(completionText, isIntermediateSuggestion)
     {
-        var wordPrefixLength;
-        if (originalPrefixRange)
-            wordPrefixLength = originalPrefixRange.toString().length;
-        else
-            wordPrefixLength = this._userEnteredText ? this._userEnteredText.length : 0;
+        var wordPrefixLength = this._userEnteredText ? this._userEnteredText.length : 0;
 
         this._userEnteredRange.deleteContents();
         this._element.normalize();
@@ -741,7 +776,7 @@ WebInspector.TextPrompt.prototype = {
      */
     tabKeyPressed: function(event)
     {
-        this._completeCommonPrefix();
+        this.acceptAutoComplete();
 
         // Consume the key.
         return true;
@@ -779,6 +814,8 @@ WebInspector.TextPromptWithHistory = function(completions, stopCharacters)
      * @type {number}
      */
     this._historyOffset = 1;
+
+    this._addCompletionsFromHistory = true;
 }
 
 WebInspector.TextPromptWithHistory.prototype = {
@@ -792,12 +829,44 @@ WebInspector.TextPromptWithHistory.prototype = {
     },
 
     /**
+     * @override
+     * @param {string} prefix
+     * @return {!WebInspector.SuggestBox.Suggestions}
+     */
+    additionalCompletions: function(prefix)
+    {
+        if (!this._addCompletionsFromHistory || !this.isCaretAtEndOfPrompt())
+            return [];
+        var result = [];
+        var text = this.text();
+        var set = new Set();
+        for (var i = this._data.length - 1; i >= 0 && result.length < 50; --i) {
+            var item = this._data[i];
+            if (!item.startsWith(text))
+                continue;
+            if (set.has(item))
+                continue;
+            set.add(item);
+            result.push({title: item.substring(text.length - prefix.length), className: "additional"});
+        }
+        return result;
+    },
+
+    /**
      * @param {!Array.<string>} data
      */
     setHistoryData: function(data)
     {
         this._data = [].concat(data);
         this._historyOffset = 1;
+    },
+
+    /**
+     * @param {boolean} value
+     */
+    setAddCompletionsFromHistory: function(value)
+    {
+        this._addCompletionsFromHistory = value;
     },
 
     /**

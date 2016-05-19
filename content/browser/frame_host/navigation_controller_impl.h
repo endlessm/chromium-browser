@@ -5,11 +5,15 @@
 #ifndef CONTENT_BROWSER_FRAME_HOST_NAVIGATION_CONTROLLER_IMPL_H_
 #define CONTENT_BROWSER_FRAME_HOST_NAVIGATION_CONTROLLER_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/frame_host/navigation_controller_delegate.h"
@@ -73,8 +77,8 @@ class CONTENT_EXPORT NavigationControllerImpl
   const SessionStorageNamespaceMap& GetSessionStorageNamespaceMap()
       const override;
   SessionStorageNamespace* GetDefaultSessionStorageNamespace() override;
-  void SetMaxRestoredPageID(int32 max_id) override;
-  int32 GetMaxRestoredPageID() const override;
+  void SetMaxRestoredPageID(int32_t max_id) override;
+  int32_t GetMaxRestoredPageID() const override;
   bool NeedsReload() const override;
   void SetNeedsReload() override;
   void CancelPendingReload() override;
@@ -82,6 +86,7 @@ class CONTENT_EXPORT NavigationControllerImpl
   bool IsInitialNavigation() const override;
   bool IsInitialBlankNavigation() const override;
   void Reload(bool check_for_repost) override;
+  void ReloadToRefreshContent(bool check_for_repost) override;
   void ReloadIgnoringCache(bool check_for_repost) override;
   void ReloadOriginalRequestURL(bool check_for_repost) override;
   void ReloadDisableLoFi(bool check_for_repost) override;
@@ -108,17 +113,15 @@ class CONTENT_EXPORT NavigationControllerImpl
 
   // Return the index of the entry with the corresponding instance and page_id,
   // or -1 if not found.
-  int GetEntryIndexWithPageID(SiteInstance* instance,
-                              int32 page_id) const;
+  int GetEntryIndexWithPageID(SiteInstance* instance, int32_t page_id) const;
 
   // Return the index of the entry with the given unique id, or -1 if not found.
   int GetEntryIndexWithUniqueID(int nav_entry_id) const;
 
   // Return the entry with the corresponding instance and page_id, or null if
   // not found.
-  NavigationEntryImpl* GetEntryWithPageID(
-      SiteInstance* instance,
-      int32 page_id) const;
+  NavigationEntryImpl* GetEntryWithPageID(SiteInstance* instance,
+                                          int32_t page_id) const;
 
   // Return the entry with the given unique id, or null if not found.
   NavigationEntryImpl* GetEntryWithUniqueID(int nav_entry_id) const;
@@ -269,9 +272,11 @@ class CONTENT_EXPORT NavigationControllerImpl
   // anything if some random subframe is loaded. It will return true if anything
   // changed, or false if not.
   //
-  // The functions taking |did_replace_entry| will fill into the given variable
-  // whether the last entry has been replaced or not.
-  // See LoadCommittedDetails.did_replace_entry.
+  // The NewPage and NewSubframe functions take in |replace_entry| to pass to
+  // InsertOrReplaceEntry, in case the newly created NavigationEntry is meant to
+  // replace the current one (e.g., for location.replace or successful loads
+  // after net errors), in contrast to updating a NavigationEntry in place
+  // (e.g., for history.replaceState).
   void RendererDidNavigateToNewPage(
       RenderFrameHostImpl* rfh,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
@@ -284,7 +289,8 @@ class CONTENT_EXPORT NavigationControllerImpl
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params);
   void RendererDidNavigateNewSubframe(
       RenderFrameHostImpl* rfh,
-      const FrameHostMsg_DidCommitProvisionalLoad_Params& params);
+      const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
+      bool replace_entry);
   bool RendererDidNavigateAutoSubframe(
       RenderFrameHostImpl* rfh,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params);
@@ -398,7 +404,7 @@ class CONTENT_EXPORT NavigationControllerImpl
   // The max restored page ID in this controller, if it was restored.  We must
   // store this so that WebContentsImpl can tell any renderer in charge of one
   // of the restored entries to update its max page ID.
-  int32 max_restored_page_id_;
+  int32_t max_restored_page_id_;
 
   // Manages the SSL security UI.
   SSLManager ssl_manager_;

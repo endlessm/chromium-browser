@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import json
 import os
 import re
 import sys
@@ -15,9 +16,10 @@ import mock
 
 import vinn
 
+def _EscapeJsString(s):
+  return json.dumps(s)
 
-@unittest.skipIf(sys.platform.startswith('win'),
-                 'd8 not yet supported on Windows.')
+
 class VinnUnittest(unittest.TestCase):
 
   @classmethod
@@ -109,7 +111,7 @@ class VinnUnittest(unittest.TestCase):
 
   def testDuplicateSourcePaths(self):
     output = vinn.ExecuteJsString(
-      "loadHTML('/load_simple_html.html');",
+      "HTMLImportsLoader.loadHTML('/load_simple_html.html');",
       source_paths=[self.test_data_dir]*100)
     self.assertIn(
         'load_simple_html.html is loaded', output)
@@ -311,8 +313,6 @@ class VinnUnittest(unittest.TestCase):
     self.assertTrue(b_duration > c_duration)
 
 
-@unittest.skipIf(sys.platform.startswith('win'),
-                 'd8 not yet supported on Windows.')
 class PathUtilUnittest(unittest.TestCase):
   def testPathUtil(self):
     path_util_js_test = os.path.abspath(os.path.join(
@@ -321,10 +321,11 @@ class PathUtilUnittest(unittest.TestCase):
     os.path.join(os.path.dirname(__file__), 'path_utils.js'))
 
     test_loading_js = """
-    load('%s');
-    load('%s');
+    load(%s);
+    load(%s);
     runTests();
-    """ % (path_utils_js_dir, path_util_js_test)
+    """ % (_EscapeJsString(path_utils_js_dir),
+           _EscapeJsString(path_util_js_test))
 
     res = vinn.RunJsString(test_loading_js)
     self.assertEquals(res.returncode, 0)
@@ -355,8 +356,6 @@ def _GenerateLineByLineDiff(actual, expected):
   return '\n'.join(results)
 
 
-@unittest.skipIf(sys.platform.startswith('win'),
-                 'd8 not yet supported on Windows.')
 class HTMLGeneratorTest(unittest.TestCase):
 
   def AssertStringEquals(self, actual, expected):
@@ -372,26 +371,27 @@ class HTMLGeneratorTest(unittest.TestCase):
       with open(temp_file_name, 'w') as f:
         f.write(html_text)
       return vinn.ExecuteJsString(
-          'write(generateJsFromHTML(read("%s")));' % temp_file_name)
+          'write(generateJsFromHTML(read(%s)));' %
+          _EscapeJsString(temp_file_name))
     finally:
       shutil.rmtree(tmp_dir)
 
   def testGenerateJsForD8RunnerSimpleHTMLImport(self):
     html = '<link rel="import" href="/base/math.html">'
-    expected_js = "loadHTML('/base/math.html');"
+    expected_js = "global.HTMLImportsLoader.loadHTML('/base/math.html');"
     self.AssertStringEquals(self.GetGeneratedJs(html), expected_js)
 
   def testGenerateJSForD8RunnerImportMultilineHTMLImport(self):
     html = """
           <link rel="import"
           href="/base/math.html">"""
-    expected_js = "\nloadHTML('/base/math.html');"
+    expected_js = "\nglobal.HTMLImportsLoader.loadHTML('/base/math.html');"
     self.AssertStringEquals(self.GetGeneratedJs(html),
                             expected_js)
 
   def testGenerateJsForD8RunnerImportSimpleScriptWithSrc(self):
     html = '<script src="/base/math.js"></script>'
-    expected_js = "loadScript('/base/math.js');"
+    expected_js = "global.HTMLImportsLoader.loadScript('/base/math.js');"
     self.AssertStringEquals(self.GetGeneratedJs(html),
                             expected_js)
 
@@ -400,7 +400,7 @@ class HTMLGeneratorTest(unittest.TestCase):
                   type="text/javascript"
                   src="/base/math.js">
                   </script>"""
-    expected_js = """loadScript('/base/math.js');
+    expected_js = """global.HTMLImportsLoader.loadScript('/base/math.js');
 
 
                   """
@@ -423,17 +423,17 @@ class HTMLGeneratorTest(unittest.TestCase):
   href="/base/random.html">
 """
     expected_js = ("""
-loadHTML('/base.html');loadHTML('/base64.html');
-loadHTML('/base/math.html');
-loadScript('/base/3d.js');
+global.HTMLImportsLoader.loadHTML('/base.html');global.HTMLImportsLoader.loadHTML('/base64.html');
+global.HTMLImportsLoader.loadHTML('/base/math.html');
+global.HTMLImportsLoader.loadScript('/base/3d.js');
 
 
 
             """ + """
 
-loadScript('/base/math.js');
+global.HTMLImportsLoader.loadScript('/base/math.js');
 
-loadHTML('/base/random.html');""")
+global.HTMLImportsLoader.loadHTML('/base/random.html');""")
     self.AssertStringEquals(self.GetGeneratedJs(html),
                             expected_js)
 
@@ -475,7 +475,7 @@ var x = 100;
                ];
     </script>
     """
-    expected_js = """loadScript('/base.js');
+    expected_js = """global.HTMLImportsLoader.loadScript('/base.js');
 var html_lines = [
                 '<script>',
                 '< /script>',
@@ -523,11 +523,11 @@ found in the LICENSE file.
 
 
 
-loadHTML('/base/math.html');var x = 1;
-loadScript('/base/computer.js');
+global.HTMLImportsLoader.loadHTML('/base/math.html');var x = 1;
+global.HTMLImportsLoader.loadScript('/base/computer.js');
           var linux = os.system;  // line number of this is 9
         """ + """
-loadHTML('/base/physics.html');
+global.HTMLImportsLoader.loadHTML('/base/physics.html');
 
 
               var html_lines = [
@@ -544,7 +544,7 @@ loadHTML('/base/physics.html');
               }
         """ + """
 
-loadHTML('/base/this_is_line_28.html');
+global.HTMLImportsLoader.loadHTML('/base/this_is_line_28.html');
 
           var i = '<link rel="import" href="/base/math.html">';
          """

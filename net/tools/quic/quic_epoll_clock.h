@@ -5,8 +5,8 @@
 #ifndef NET_TOOLS_QUIC_QUIC_EPOLL_CLOCK_H_
 #define NET_TOOLS_QUIC_QUIC_EPOLL_CLOCK_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "net/quic/quic_clock.h"
 #include "net/quic/quic_time.h"
 
@@ -14,7 +14,6 @@ namespace net {
 
 class EpollServer;
 
-namespace tools {
 
 // Clock to efficiently retrieve an approximately accurate time from an
 // EpollServer.
@@ -41,7 +40,6 @@ class QuicEpollClock : public QuicClock {
   DISALLOW_COPY_AND_ASSIGN(QuicEpollClock);
 };
 
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_QUIC_EPOLL_CLOCK_H_

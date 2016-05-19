@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
 #include "ui/gfx/geometry/rect.h"
@@ -35,16 +36,29 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
  public:
   GLSurface();
 
+  // Minimum bit depth of surface.
+  enum Format {
+    SURFACE_ARGB8888,
+    SURFACE_RGB565,
+    SURFACE_OSMESA_BGRA,
+    SURFACE_OSMESA_RGBA,
+    SURFACE_SURFACELESS,
+    SURFACE_DEFAULT = SURFACE_ARGB8888
+  };
+
   // (Re)create the surface. TODO(apatrick): This is an ugly hack to allow the
   // EGL surface associated to be recreated without destroying the associated
   // context. The implementation of this function for other GLSurface derived
   // classes is in a pending changelist.
   virtual bool Initialize();
+  virtual bool Initialize(GLSurface::Format format);
 
   // Destroys the surface.
   virtual void Destroy() = 0;
 
-  virtual bool Resize(const gfx::Size& size, float scale_factor);
+  virtual bool Resize(const gfx::Size& size,
+                      float scale_factor,
+                      bool has_alpha);
 
   // Recreate the surface without changing the size.
   virtual bool Recreate();
@@ -70,6 +84,12 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
   // Returns whether or not the surface supports PostSubBuffer.
   virtual bool SupportsPostSubBuffer();
 
+  // Returns whether or not the surface supports CommitOverlayPlanes.
+  virtual bool SupportsCommitOverlayPlanes();
+
+  // Returns whether SwapBuffersAsync() is supported.
+  virtual bool SupportsAsyncSwap();
+
   // Returns the internal frame buffer object name if the surface is backed by
   // FBO. Otherwise returns 0.
   virtual unsigned int GetBackingFrameBufferObject();
@@ -80,7 +100,7 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
   // surface is displayed on screen. The callback can be used to delay sending
   // SwapBufferAck till that data is available. The callback should be run on
   // the calling thread (i.e. same thread SwapBuffersAsync is called)
-  virtual bool SwapBuffersAsync(const SwapCompletionCallback& callback);
+  virtual void SwapBuffersAsync(const SwapCompletionCallback& callback);
 
   // Copy part of the backbuffer to the frontbuffer.
   virtual gfx::SwapResult PostSubBuffer(int x, int y, int width, int height);
@@ -90,11 +110,23 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
   // callback can be used to delay sending SwapBufferAck till that data is
   // available. The callback should be run on the calling thread (i.e. same
   // thread PostSubBufferAsync is called)
-  virtual bool PostSubBufferAsync(int x,
+  virtual void PostSubBufferAsync(int x,
                                   int y,
                                   int width,
                                   int height,
                                   const SwapCompletionCallback& callback);
+
+  // Show overlay planes but don't swap the front and back buffers. This acts
+  // like SwapBuffers from the point of view of the client, but is cheaper when
+  // overlays account for all the damage.
+  virtual gfx::SwapResult CommitOverlayPlanes();
+
+  // Show overlay planes but don't swap the front and back buffers. On some
+  // platforms, we want to send SwapBufferAck only after the overlays are
+  // displayed on screen. The callback can be used to delay sending
+  // SwapBufferAck till that data is available. The callback should be run on
+  // the calling thread (i.e. same thread CommitOverlayPlanesAsync is called).
+  virtual void CommitOverlayPlanesAsync(const SwapCompletionCallback& callback);
 
   // Initialize GL bindings.
   static bool InitializeOneOff();
@@ -123,13 +155,14 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
   virtual void* GetConfig();
 
   // Get the GL pixel format of the surface, if available.
-  virtual unsigned GetFormat();
+  virtual GLSurface::Format GetFormat();
 
   // Get access to a helper providing time of recent refresh and period
   // of screen refresh. If unavailable, returns NULL.
   virtual VSyncProvider* GetVSyncProvider();
 
-  // Schedule an overlay plane to be shown at swap time.
+  // Schedule an overlay plane to be shown at swap time, or on the next
+  // CommitOverlayPlanes call.
   // |z_order| specifies the stacking order of the plane relative to the
   // main framebuffer located at index 0. For the case where there is no
   // main framebuffer, overlays may be scheduled at 0, taking its place.
@@ -151,10 +184,20 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
                                const RectF& contents_rect,
                                float opacity,
                                unsigned background_color,
-                               const SizeF& size,
-                               const Transform& transform);
+                               unsigned edge_aa_mask,
+                               const RectF& rect,
+                               bool is_clipped,
+                               const RectF& clip_rect,
+                               const Transform& transform,
+                               int sorting_content_id);
 
   virtual bool IsSurfaceless() const;
+
+  virtual bool FlipsVertically() const;
+
+  // Returns true if SwapBuffers or PostSubBuffers causes a flip, such that
+  // the next buffer may be 2 frames old.
+  virtual bool BuffersFlipped() const;
 
   // Create a GL surface that renders directly to a view.
   static scoped_refptr<GLSurface> CreateViewGLSurface(
@@ -203,21 +246,28 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
  public:
   explicit GLSurfaceAdapter(GLSurface* surface);
 
-  bool Initialize() override;
+  bool Initialize(GLSurface::Format format) override;
   void Destroy() override;
-  bool Resize(const gfx::Size& size, float scale_factor) override;
+  bool Resize(const gfx::Size& size,
+              float scale_factor,
+              bool has_alpha) override;
   bool Recreate() override;
   bool DeferDraws() override;
   bool IsOffscreen() override;
   gfx::SwapResult SwapBuffers() override;
-  bool SwapBuffersAsync(const SwapCompletionCallback& callback) override;
+  void SwapBuffersAsync(const SwapCompletionCallback& callback) override;
   gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
-  bool PostSubBufferAsync(int x,
+  void PostSubBufferAsync(int x,
                           int y,
                           int width,
                           int height,
                           const SwapCompletionCallback& callback) override;
+  gfx::SwapResult CommitOverlayPlanes() override;
+  void CommitOverlayPlanesAsync(
+      const SwapCompletionCallback& callback) override;
   bool SupportsPostSubBuffer() override;
+  bool SupportsCommitOverlayPlanes() override;
+  bool SupportsAsyncSwap() override;
   gfx::Size GetSize() override;
   void* GetHandle() override;
   unsigned int GetBackingFrameBufferObject() override;
@@ -227,7 +277,7 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
   void* GetShareHandle() override;
   void* GetDisplay() override;
   void* GetConfig() override;
-  unsigned GetFormat() override;
+  GLSurface::Format GetFormat() override;
   VSyncProvider* GetVSyncProvider() override;
   bool ScheduleOverlayPlane(int z_order,
                             OverlayTransform transform,
@@ -235,6 +285,8 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
                             const Rect& bounds_rect,
                             const RectF& crop_rect) override;
   bool IsSurfaceless() const override;
+  bool FlipsVertically() const override;
+  bool BuffersFlipped() const override;
 
   GLSurface* surface() const { return surface_.get(); }
 

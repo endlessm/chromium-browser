@@ -5,11 +5,13 @@
 #ifndef UI_APP_LIST_SEARCH_HISTORY_DATA_H_
 #define UI_APP_LIST_SEARCH_HISTORY_DATA_H_
 
+#include <stddef.h>
+
 #include <deque>
 #include <map>
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -38,6 +40,7 @@ class APP_LIST_EXPORT HistoryData : public base::SupportsWeakPtr<HistoryData> {
   // Defines data to be associated with a query.
   struct APP_LIST_EXPORT Data {
     Data();
+    Data(const Data& other);
     ~Data();
 
     // Primary result associated with the query.

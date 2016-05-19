@@ -9,14 +9,14 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/safe_browsing/test_database_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/prefs/testing_pref_service.h"
+#include "components/safe_browsing_db/test_database_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -137,34 +137,70 @@ TEST_F(UnverifiedDownloadPolicyTest, Whitelist) {
       switches::kDisallowUncheckedDangerousDownloads);
 
   base::FilePath test_file_path(FILE_PATH_LITERAL("foo.exe"));
+  std::vector<base::FilePath::StringType> test_extensions;
 
   CompletionCallback completion_callback;
-  CheckUnverifiedDownloadPolicy(GURL(), test_file_path,
+  CheckUnverifiedDownloadPolicy(GURL(), test_file_path, test_extensions,
                                 completion_callback.GetCallback());
   EXPECT_EQ(UnverifiedDownloadPolicy::DISALLOWED,
             completion_callback.WaitForResult());
 
   // Not http/s and hence isn't covered by the whitelist.
   CheckUnverifiedDownloadPolicy(GURL("ftp://supported.example.com/foo/bar"),
-                                test_file_path,
+                                test_file_path, test_extensions,
                                 completion_callback.GetCallback());
   EXPECT_EQ(UnverifiedDownloadPolicy::DISALLOWED,
             completion_callback.WaitForResult());
 
   CheckUnverifiedDownloadPolicy(GURL("http://supported.example.com/foo/bar"),
-                                test_file_path,
+                                test_file_path, test_extensions,
                                 completion_callback.GetCallback());
   EXPECT_EQ(UnverifiedDownloadPolicy::ALLOWED,
             completion_callback.WaitForResult());
 
   CheckUnverifiedDownloadPolicy(GURL("http://unsupported.example.com/foo/bar"),
-                                test_file_path,
+                                test_file_path, test_extensions,
                                 completion_callback.GetCallback());
   EXPECT_EQ(UnverifiedDownloadPolicy::DISALLOWED,
             completion_callback.WaitForResult());
 
   CheckUnverifiedDownloadPolicy(GURL("https://supported.example.com/foo/bar"),
-                                test_file_path,
+                                test_file_path, test_extensions,
+                                completion_callback.GetCallback());
+  EXPECT_EQ(UnverifiedDownloadPolicy::ALLOWED,
+            completion_callback.WaitForResult());
+}
+
+TEST_F(UnverifiedDownloadPolicyTest, AlternateExtensions) {
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kDisallowUncheckedDangerousDownloads);
+  CompletionCallback completion_callback;
+
+  base::FilePath test_file_path(FILE_PATH_LITERAL("foo.txt"));
+  std::vector<base::FilePath::StringType> test_extensions;
+
+  CheckUnverifiedDownloadPolicy(GURL(), test_file_path, test_extensions,
+                                completion_callback.GetCallback());
+  EXPECT_EQ(UnverifiedDownloadPolicy::ALLOWED,
+            completion_callback.WaitForResult());
+
+  test_extensions.push_back(FILE_PATH_LITERAL(".exe"));
+  CheckUnverifiedDownloadPolicy(GURL(), test_file_path, test_extensions,
+                                completion_callback.GetCallback());
+  EXPECT_EQ(UnverifiedDownloadPolicy::DISALLOWED,
+            completion_callback.WaitForResult());
+
+  test_extensions.clear();
+  test_extensions.push_back(FILE_PATH_LITERAL(".txt"));
+  test_extensions.push_back(FILE_PATH_LITERAL(".exe"));
+  CheckUnverifiedDownloadPolicy(GURL(), test_file_path, test_extensions,
+                                completion_callback.GetCallback());
+  EXPECT_EQ(UnverifiedDownloadPolicy::DISALLOWED,
+            completion_callback.WaitForResult());
+
+  test_extensions.clear();
+  test_extensions.push_back(FILE_PATH_LITERAL("e"));
+  CheckUnverifiedDownloadPolicy(GURL(), test_file_path, test_extensions,
                                 completion_callback.GetCallback());
   EXPECT_EQ(UnverifiedDownloadPolicy::ALLOWED,
             completion_callback.WaitForResult());
@@ -179,10 +215,11 @@ TEST_F(UnverifiedDownloadPolicyTest, ServiceDisabled) {
   base::RunLoop().RunUntilIdle();
 
   base::FilePath test_file_path(FILE_PATH_LITERAL("foo.exe"));
+  std::vector<base::FilePath::StringType> test_extensions;
 
   CompletionCallback completion_callback;
   CheckUnverifiedDownloadPolicy(GURL("http://supported.example.com/foo/bar"),
-                                test_file_path,
+                                test_file_path, test_extensions,
                                 completion_callback.GetCallback());
   EXPECT_EQ(UnverifiedDownloadPolicy::ALLOWED,
             completion_callback.WaitForResult());

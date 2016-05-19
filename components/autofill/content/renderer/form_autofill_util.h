@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_AUTOFILL_CONTENT_RENDERER_FORM_AUTOFILL_UTIL_H_
 #define COMPONENTS_AUTOFILL_CONTENT_RENDERER_FORM_AUTOFILL_UTIL_H_
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/strings/string16.h"
@@ -30,7 +32,6 @@ namespace autofill {
 
 struct FormData;
 struct FormFieldData;
-struct WebElementDescriptor;
 
 namespace form_util {
 
@@ -229,9 +230,6 @@ bool IsWebpageEmpty(const blink::WebFrame* frame);
 // This function checks whether the children of |element|
 // are of the type <script>, <meta>, or <title>.
 bool IsWebElementEmpty(const blink::WebElement& element);
-
-// Return a gfx::RectF that is the bounding box for |element| scaled by |scale|.
-gfx::RectF GetScaledBoundingBox(float scale, blink::WebElement* element);
 
 // Previews |suggestion| in |input_element| and highlights the suffix of
 // |suggestion| not included in the |input_element| text. |input_element| must

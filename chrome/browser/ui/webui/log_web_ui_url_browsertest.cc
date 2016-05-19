@@ -4,9 +4,12 @@
 
 #include "chrome/browser/ui/webui/log_web_ui_url.h"
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/hash.h"
+#include "base/macros.h"
 #include "base/test/histogram_tester.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -16,6 +19,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
+#include "grit/components_strings.h"
 #include "grit/generated_resources.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -46,7 +50,7 @@ IN_PROC_BROWSER_TEST_F(LogWebUIUrlTest, TestHistoryFrame) {
 
   ui_test_utils::NavigateToURL(browser(), history_frame_url);
 
-  uint32 history_frame_url_hash = base::Hash(history_frame_url.spec());
+  uint32_t history_frame_url_hash = base::Hash(history_frame_url.spec());
   EXPECT_THAT(GetSamples(), ElementsAre(Bucket(history_frame_url_hash, 1)));
 
   chrome::Reload(browser(), CURRENT_TAB);
@@ -69,13 +73,13 @@ IN_PROC_BROWSER_TEST_F(LogWebUIUrlTest, TestUberPage) {
 
   std::string scheme(content::kChromeUIScheme);
   GURL uber_url(scheme + "://" + chrome::kChromeUIUberHost);
-  uint32 uber_url_hash = base::Hash(uber_url.spec());
+  uint32_t uber_url_hash = base::Hash(uber_url.spec());
 
   GURL uber_frame_url(chrome::kChromeUIUberFrameURL);
-  uint32 uber_frame_url_hash = base::Hash(uber_frame_url.spec());
+  uint32_t uber_frame_url_hash = base::Hash(uber_frame_url.spec());
 
   GURL history_frame_url(chrome::kChromeUIHistoryFrameURL);
-  uint32 history_frame_url_hash = base::Hash(history_frame_url.spec());
+  uint32_t history_frame_url_hash = base::Hash(history_frame_url.spec());
 
   EXPECT_THAT(GetSamples(), ElementsAre(Bucket(history_frame_url_hash, 1),
                                         Bucket(uber_frame_url_hash, 1),
@@ -103,7 +107,7 @@ IN_PROC_BROWSER_TEST_F(LogWebUIUrlTest, TestUberPage) {
   }
 
   GURL extensions_frame_url(chrome::kChromeUIExtensionsFrameURL);
-  uint32 extensions_frame_url_hash = base::Hash(extensions_frame_url.spec());
+  uint32_t extensions_frame_url_hash = base::Hash(extensions_frame_url.spec());
 
   EXPECT_THAT(GetSamples(), ElementsAre(Bucket(extensions_frame_url_hash, 1),
                                         Bucket(history_frame_url_hash, 2),

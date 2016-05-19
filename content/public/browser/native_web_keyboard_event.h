@@ -5,7 +5,6 @@
 #ifndef CONTENT_PUBLIC_BROWSER_NATIVE_WEB_KEYBOARD_EVENT_H_
 #define CONTENT_PUBLIC_BROWSER_NATIVE_WEB_KEYBOARD_EVENT_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
@@ -26,7 +25,7 @@ struct CONTENT_EXPORT NativeWebKeyboardEvent :
   NativeWebKeyboardEvent();
 
   explicit NativeWebKeyboardEvent(gfx::NativeEvent native_event);
-#if defined(OS_ANDROID) && !defined(USE_AURA)
+#if defined(OS_ANDROID)
   NativeWebKeyboardEvent(blink::WebInputEvent::Type type,
                          int modifiers,
                          double time_secs,

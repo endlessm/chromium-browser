@@ -4,6 +4,8 @@
 
 #include "components/invalidation/public/object_id_invalidation_map.h"
 
+#include <stddef.h>
+
 #include "base/json/json_string_value_serializer.h"
 
 namespace syncer {
@@ -19,6 +21,9 @@ ObjectIdInvalidationMap ObjectIdInvalidationMap::InvalidateAll(
 }
 
 ObjectIdInvalidationMap::ObjectIdInvalidationMap() {}
+
+ObjectIdInvalidationMap::ObjectIdInvalidationMap(
+    const ObjectIdInvalidationMap& other) = default;
 
 ObjectIdInvalidationMap::~ObjectIdInvalidationMap() {}
 
@@ -88,7 +93,7 @@ scoped_ptr<base::ListValue> ObjectIdInvalidationMap::ToValue() const {
       value->Append(it2->ToValue().release());
     }
   }
-  return value.Pass();
+  return value;
 }
 
 bool ObjectIdInvalidationMap::ResetFromValue(const base::ListValue& value) {

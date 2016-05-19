@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
-#include "HttpEquiv.h"
+#include "core/loader/HttpEquiv.h"
 
 #include "core/dom/Document.h"
 #include "core/dom/StyleEngine.h"
@@ -75,7 +74,7 @@ void HttpEquiv::processHttpEquivDefaultStyle(Document& document, const AtomicStr
     // -dwh
     document.styleEngine().setSelectedStylesheetSetName(content);
     document.styleEngine().setPreferredStylesheetSetName(content);
-    document.styleResolverChanged();
+    document.styleEngine().resolverChanged(FullStyleUpdate);
 }
 
 void HttpEquiv::processHttpEquivRefresh(Document& document, const AtomicString& content)
@@ -117,4 +116,4 @@ void HttpEquiv::processHttpEquivXFrameOptions(Document& document, const AtomicSt
         frame->navigate(document, SecurityOrigin::urlWithUniqueSecurityOrigin(), true, UserGestureStatus::None);
 }
 
-}
+} // namespace blink

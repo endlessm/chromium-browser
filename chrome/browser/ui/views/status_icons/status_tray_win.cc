@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/threading/thread.h"
@@ -191,8 +192,7 @@ LRESULT CALLBACK StatusTrayWin::WndProc(HWND hwnd,
       case WM_CONTEXTMENU:
         // Walk our icons, find which one was clicked on, and invoke its
         // HandleClickEvent() method.
-        gfx::Point cursor_pos(
-            gfx::Screen::GetNativeScreen()->GetCursorScreenPoint());
+        gfx::Point cursor_pos(gfx::Screen::GetScreen()->GetCursorScreenPoint());
         win_icon->HandleClickEvent(cursor_pos, lparam == WM_LBUTTONDOWN);
         return TRUE;
     }

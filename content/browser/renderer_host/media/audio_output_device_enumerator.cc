@@ -17,22 +17,25 @@ namespace {
 
 AudioOutputDeviceEnumeration EnumerateDevicesOnDeviceThread(
     media::AudioManager* audio_manager) {
-  DCHECK(audio_manager->GetWorkerTaskRunner()->BelongsToCurrentThread());
+  DCHECK(audio_manager->GetTaskRunner()->BelongsToCurrentThread());
 
   AudioOutputDeviceEnumeration snapshot;
   media::AudioDeviceNames device_names;
   audio_manager->GetAudioOutputDeviceNames(&device_names);
 
+  snapshot.has_actual_devices = !device_names.empty();
+
   // If no devices in enumeration, return a list with a default device
-  if (device_names.empty()) {
-    snapshot.push_back({media::AudioManagerBase::kDefaultDeviceId,
-                        media::AudioManager::GetDefaultDeviceName(),
-                        audio_manager->GetDefaultOutputStreamParameters()});
+  if (!snapshot.has_actual_devices) {
+    snapshot.devices.push_back(
+        {media::AudioManagerBase::kDefaultDeviceId,
+         media::AudioManager::GetDefaultDeviceName(),
+         audio_manager->GetDefaultOutputStreamParameters()});
     return snapshot;
   }
 
   for (const media::AudioDeviceName& name : device_names) {
-    snapshot.push_back(
+    snapshot.devices.push_back(
         {name.unique_id, name.device_name,
          name.unique_id == media::AudioManagerBase::kDefaultDeviceId
              ? audio_manager->GetDefaultOutputStreamParameters()
@@ -42,6 +45,19 @@ AudioOutputDeviceEnumeration EnumerateDevicesOnDeviceThread(
 }
 
 }  // namespace
+
+AudioOutputDeviceEnumeration::AudioOutputDeviceEnumeration(
+    const std::vector<AudioOutputDeviceInfo>& devices,
+    bool has_actual_devices)
+    : devices(devices), has_actual_devices(has_actual_devices) {}
+
+AudioOutputDeviceEnumeration::AudioOutputDeviceEnumeration()
+    : has_actual_devices(false) {}
+
+AudioOutputDeviceEnumeration::AudioOutputDeviceEnumeration(
+    const AudioOutputDeviceEnumeration& other) = default;
+
+AudioOutputDeviceEnumeration::~AudioOutputDeviceEnumeration() {}
 
 AudioOutputDeviceEnumerator::AudioOutputDeviceEnumerator(
     media::AudioManager* audio_manager,
@@ -101,7 +117,7 @@ void AudioOutputDeviceEnumerator::DoEnumerateDevices() {
   is_enumeration_ongoing_ = true;
   seq_last_enumeration_ = NewEventSequence();
   base::PostTaskAndReplyWithResult(
-      audio_manager_->GetWorkerTaskRunner().get(), FROM_HERE,
+      audio_manager_->GetTaskRunner().get(), FROM_HERE,
       base::Bind(&EnumerateDevicesOnDeviceThread, audio_manager_),
       base::Bind(&AudioOutputDeviceEnumerator::DevicesEnumerated,
                  weak_factory_.GetWeakPtr()));

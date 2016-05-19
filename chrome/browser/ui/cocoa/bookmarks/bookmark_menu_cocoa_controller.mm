@@ -43,6 +43,8 @@ const NSUInteger kMaximumMenuPixelsWide = 300;
 
 + (NSString*)tooltipForNode:(const BookmarkNode*)node {
   NSString* title = base::SysUTF16ToNSString(node->GetTitle());
+  if (node->is_folder())
+    return title;
   std::string urlString = node->url().possibly_invalid_spec();
   NSString* url = base::SysUTF8ToNSString(urlString);
   return cocoa_l10n_util::TooltipForURLAndTitle(url, title);
@@ -88,13 +90,9 @@ const NSUInteger kMaximumMenuPixelsWide = 300;
 
 // Open the URL of the given BookmarkNode in the current tab.
 - (void)openURLForNode:(const BookmarkNode*)node {
-  Browser* browser =
-      chrome::FindTabbedBrowser(bridge_->GetProfile(),
-                                true,
-                                chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser* browser = chrome::FindTabbedBrowser(bridge_->GetProfile(), true);
   if (!browser) {
-    browser = new Browser(Browser::CreateParams(
-        bridge_->GetProfile(), chrome::HOST_DESKTOP_TYPE_NATIVE));
+    browser = new Browser(Browser::CreateParams(bridge_->GetProfile()));
   }
   WindowOpenDisposition disposition =
       ui::WindowOpenDispositionFromNSEvent([NSApp currentEvent]);
@@ -112,13 +110,9 @@ const NSUInteger kMaximumMenuPixelsWide = 300;
   const BookmarkNode* node = [self nodeForIdentifier:identifier];
   DCHECK(node);
 
-  Browser* browser =
-      chrome::FindTabbedBrowser(bridge_->GetProfile(),
-                                true,
-                                chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser* browser = chrome::FindTabbedBrowser(bridge_->GetProfile(), true);
   if (!browser) {
-    browser = new Browser(Browser::CreateParams(
-        bridge_->GetProfile(), chrome::HOST_DESKTOP_TYPE_NATIVE));
+    browser = new Browser(Browser::CreateParams(bridge_->GetProfile()));
   }
   DCHECK(browser);
 

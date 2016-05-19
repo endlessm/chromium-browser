@@ -38,6 +38,7 @@ typedef struct noise_estimate {
   int count;
   int last_w;
   int last_h;
+  int num_frames_estimate;
 } NOISE_ESTIMATE;
 
 struct VP9_COMP;
@@ -45,6 +46,8 @@ struct VP9_COMP;
 void vp9_noise_estimate_init(NOISE_ESTIMATE *const ne,
                              int width,
                              int height);
+
+NOISE_LEVEL vp9_noise_estimate_extract_level(NOISE_ESTIMATE *const ne);
 
 void vp9_update_noise_estimate(struct VP9_COMP *const cpi);
 

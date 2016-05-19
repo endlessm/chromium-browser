@@ -26,8 +26,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/layout/svg/SVGLayoutTreeAsText.h"
 
 #include "core/layout/LayoutTreeAsText.h"
@@ -56,7 +54,6 @@
 #include "core/svg/SVGLineElement.h"
 #include "core/svg/SVGLinearGradientElement.h"
 #include "core/svg/SVGPathElement.h"
-#include "core/svg/SVGPathUtilities.h"
 #include "core/svg/SVGPatternElement.h"
 #include "core/svg/SVGPointList.h"
 #include "core/svg/SVGPolyElement.h"
@@ -175,7 +172,7 @@ String SVGEnumerationToString(Enum value)
     return String();
 }
 
-}
+} // namespace
 
 static TextStream& operator<<(TextStream& ts, const SVGUnitTypes::SVGUnitType& unitType)
 {
@@ -366,10 +363,7 @@ static TextStream& operator<<(TextStream& ts, const LayoutSVGShape& shape)
     } else if (isSVGPolyElement(*svgElement)) {
         writeNameAndQuotedValue(ts, "points", toSVGPolyElement(*svgElement).points()->currentValue()->valueAsString());
     } else if (isSVGPathElement(*svgElement)) {
-        String pathString;
-        // FIXME: We should switch to UnalteredParsing here - this will affect the path dumping output of dozens of tests.
-        buildStringFromByteStream(toSVGPathElement(*svgElement).pathByteStream(), pathString, NormalizedParsing);
-        writeNameAndQuotedValue(ts, "data", pathString);
+        writeNameAndQuotedValue(ts, "data", toSVGPathElement(*svgElement).path()->currentValue()->valueAsString());
     } else {
         ASSERT_NOT_REACHED();
     }
@@ -402,10 +396,10 @@ static inline void writeSVGInlineTextBox(TextStream& ts, SVGInlineTextBox* textB
     if (fragments.isEmpty())
         return;
 
-    LineLayoutSVGInlineText textLineLayout = LineLayoutSVGInlineText(textBox->lineLayoutItem());
+    LineLayoutSVGInlineText textLineLayout = LineLayoutSVGInlineText(textBox->getLineLayoutItem());
 
     const SVGComputedStyle& svgStyle = textLineLayout.style()->svgStyle();
-    String text = textBox->lineLayoutItem().text();
+    String text = textBox->getLineLayoutItem().text();
 
     unsigned fragmentsSize = fragments.size();
     for (unsigned i = 0; i < fragmentsSize; ++i) {

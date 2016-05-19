@@ -5,7 +5,9 @@
 #import "ui/accessibility/platform/ax_platform_node_mac.h"
 
 #import <Cocoa/Cocoa.h>
+#include <stddef.h>
 
+#include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ui/accessibility/ax_node_data.h"
 #import "ui/accessibility/platform/ax_platform_node_delegate.h"
@@ -22,6 +24,7 @@ typedef std::map<ui::AXRole, NSString*> RoleMap;
 
 RoleMap BuildRoleMap() {
   const MapEntry roles[] = {
+      {ui::AX_ROLE_ABBR, NSAccessibilityGroupRole},
       {ui::AX_ROLE_ALERT, NSAccessibilityGroupRole},
       {ui::AX_ROLE_ALERT_DIALOG, NSAccessibilityGroupRole},
       {ui::AX_ROLE_ANNOTATION, NSAccessibilityUnknownRole},
@@ -42,7 +45,7 @@ RoleMap BuildRoleMap() {
       {ui::AX_ROLE_COMPLEMENTARY, NSAccessibilityGroupRole},
       {ui::AX_ROLE_CONTENT_INFO, NSAccessibilityGroupRole},
       {ui::AX_ROLE_DATE, @"AXDateField"},
-      {ui::AX_ROLE_DATE_TIME, NSAccessibilityTextFieldRole},
+      {ui::AX_ROLE_DATE_TIME, @"AXDateField"},
       {ui::AX_ROLE_DEFINITION, NSAccessibilityGroupRole},
       {ui::AX_ROLE_DESCRIPTION_LIST_DETAIL, NSAccessibilityGroupRole},
       {ui::AX_ROLE_DESCRIPTION_LIST, NSAccessibilityListRole},

@@ -34,7 +34,7 @@ class CmaMessageFilterProxy : public IPC::MessageFilter {
     MediaDelegate();
     ~MediaDelegate();
 
-    ::media::PipelineStatusCB state_changed_cb;
+    base::Closure flush_cb;
     MediaPipelineClient client;
   };
 
@@ -100,9 +100,10 @@ class CmaMessageFilterProxy : public IPC::MessageFilter {
                        base::SharedMemoryHandle shared_memory_handle,
                        base::FileDescriptor socket_handle);
   void OnPipeRead(int id, TrackId track_id);
-  void OnMediaStateChanged(int id, ::media::PipelineStatus status);
+  void OnFlushDone(int id);
   void OnTrackStateChanged(int id, TrackId track_id,
                            ::media::PipelineStatus status);
+  void OnWaitForKey(int id, TrackId track_id);
   void OnEos(int id, TrackId track_id);
   void OnTimeUpdate(int id,
                     base::TimeDelta time,

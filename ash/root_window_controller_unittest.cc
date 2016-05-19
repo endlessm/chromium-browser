@@ -214,13 +214,12 @@ TEST_F(RootWindowControllerTest, MoveWindows_Basic) {
   EXPECT_EQ("0,0 600x597",
             maximized->GetNativeView()->GetBoundsInRootWindow().ToString());
 
-  // Set fullscreen to true. In that case the 3px inset becomes invisible so
-  // the maximized window can also use the area fully.
+  // Set fullscreen to true, but maximized window's size won't change because
+  // it's not visible. see crbug.com/504299.
   fullscreen->SetFullscreen(true);
   EXPECT_EQ(root_windows[0], maximized->GetNativeView()->GetRootWindow());
-  EXPECT_EQ("0,0 600x600",
-            maximized->GetWindowBoundsInScreen().ToString());
-  EXPECT_EQ("0,0 600x600",
+  EXPECT_EQ("0,0 600x597", maximized->GetWindowBoundsInScreen().ToString());
+  EXPECT_EQ("0,0 600x597",
             maximized->GetNativeView()->GetBoundsInRootWindow().ToString());
 
   EXPECT_EQ(root_windows[0], minimized->GetNativeView()->GetRootWindow());
@@ -831,19 +830,19 @@ TEST_F(VirtualKeyboardRootWindowControllerTest, RestoreWorkspaceAfterLogin) {
       root_window->bounds(), 100));
   keyboard_window->Show();
 
-  gfx::Rect before = ash::Shell::GetScreen()->GetPrimaryDisplay().work_area();
+  gfx::Rect before = gfx::Screen::GetScreen()->GetPrimaryDisplay().work_area();
 
   // Notify keyboard bounds changing.
   controller->NotifyKeyboardBoundsChanging(keyboard_container->bounds());
 
   if (!keyboard::IsKeyboardOverscrollEnabled()) {
-    gfx::Rect after = ash::Shell::GetScreen()->GetPrimaryDisplay().work_area();
+    gfx::Rect after = gfx::Screen::GetScreen()->GetPrimaryDisplay().work_area();
     EXPECT_LT(after, before);
   }
 
   // Mock a login user profile change to reinitialize the keyboard.
   ash::Shell::GetInstance()->OnLoginUserProfilePrepared();
-  EXPECT_EQ(ash::Shell::GetScreen()->GetPrimaryDisplay().work_area(), before);
+  EXPECT_EQ(gfx::Screen::GetScreen()->GetPrimaryDisplay().work_area(), before);
 }
 
 // Ensure that system modal dialogs do not block events targeted at the virtual

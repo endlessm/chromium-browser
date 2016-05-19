@@ -9,10 +9,12 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
 #include "base/stl_util.h"
+#include "build/build_config.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "components/password_manager/core/browser/login_model.h"
@@ -61,11 +63,13 @@ class PasswordManager : public LoginModel {
 
   // Called by a PasswordFormManager when it decides a form can be autofilled
   // on the page.
-  void Autofill(password_manager::PasswordManagerDriver* driver,
-                const autofill::PasswordForm& form_for_autofill,
-                const autofill::PasswordFormMap& best_matches,
-                const autofill::PasswordForm& preferred_match,
-                bool wait_for_username) const;
+  void Autofill(
+      password_manager::PasswordManagerDriver* driver,
+      const autofill::PasswordForm& form_for_autofill,
+      const autofill::PasswordFormMap& best_matches,
+      const std::vector<scoped_ptr<autofill::PasswordForm>>& federated_matches,
+      const autofill::PasswordForm& preferred_match,
+      bool wait_for_username) const;
 
   // Called by a PasswordFormManager when it decides a HTTP auth dialog can be
   // autofilled.
@@ -85,6 +89,14 @@ class PasswordManager : public LoginModel {
       password_manager::PasswordManagerDriver* driver,
       const autofill::PasswordForm& form,
       bool password_is_generated);
+
+  // Update the generation element and whether generation was triggered
+  // manually.
+  void SetGenerationElementAndReasonForForm(
+      password_manager::PasswordManagerDriver* driver,
+      const autofill::PasswordForm& form,
+      const base::string16& generation_element,
+      bool is_manually_triggered);
 
   // TODO(isherman): This should not be public, but is currently being used by
   // the LoginPrompt code.

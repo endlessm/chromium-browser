@@ -321,8 +321,22 @@ enum TextUnderlinePosition {
     TextUnderlinePositionUnder
 };
 
-enum EPageBreak {
-    PBAUTO, PBALWAYS, PBAVOID
+enum EBreak {
+    BreakAuto,
+    BreakAvoid,
+    BreakAvoidColumn,
+    BreakAvoidPage,
+    // Values below are only allowed for break-after and break-before. Values above are also
+    // allowed for break-inside (in addition to break-after and break-before).
+    BreakValueLastAllowedForBreakInside = BreakAvoidPage,
+    BreakColumn,
+    BreakLeft,
+    BreakPage,
+    BreakRecto,
+    BreakRight,
+    BreakVerso,
+    BreakValueLastAllowedForBreakAfterAndBefore = BreakVerso,
+    BreakAlways // Only needed by {page,-webkit-column}-break-{after,before} shorthands.
 };
 
 enum EEmptyCell {
@@ -485,6 +499,17 @@ inline TouchAction& operator&= (TouchAction& a, TouchAction b) { return a = a & 
 
 enum EIsolation { IsolationAuto, IsolationIsolate };
 
+static const size_t ContainmentBits = 3;
+enum Containment {
+    ContainsNone = 0x0,
+    ContainsLayout = 0x1,
+    ContainsStyle = 0x2,
+    ContainsPaint = 0x4,
+    ContainsStrict = ContainsLayout | ContainsStyle | ContainsPaint,
+};
+inline Containment operator| (Containment a, Containment b) { return Containment(int(a) | int(b)); }
+inline Containment& operator|= (Containment& a, Containment b) { return a = a | b; }
+
 enum ItemPosition {
     ItemPositionAuto,
     ItemPositionStretch,
@@ -503,7 +528,7 @@ enum ItemPosition {
 
 enum OverflowAlignment {
     OverflowAlignmentDefault,
-    OverflowAlignmentTrue,
+    OverflowAlignmentUnsafe,
     OverflowAlignmentSafe
 };
 
@@ -513,7 +538,7 @@ enum ItemPositionType {
 };
 
 enum ContentPosition {
-    ContentPositionAuto,
+    ContentPositionNormal,
     ContentPositionBaseline,
     ContentPositionLastBaseline,
     ContentPositionCenter,

@@ -32,9 +32,11 @@
 #include "platform/graphics/Color.h"
 #include "platform/graphics/GraphicsTypes.h"
 #include "platform/graphics/ImageAnimationPolicy.h"
+#include "platform/graphics/ImageObserver.h"
 #include "platform/graphics/ImageOrientation.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "wtf/Assertions.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefCounted.h"
 #include "wtf/RefPtr.h"
@@ -53,14 +55,12 @@ class Length;
 class SharedBuffer;
 class Image;
 
-// This class gets notified when an image creates or destroys decoded frames and when it advances animation frames.
-class ImageObserver;
-
 class PLATFORM_EXPORT Image : public RefCounted<Image> {
     friend class GeneratedImage;
     friend class CrossfadeGeneratedImage;
     friend class GradientGeneratedImage;
     friend class GraphicsContext;
+    WTF_MAKE_NONCOPYABLE(Image);
 
 public:
     virtual ~Image();
@@ -70,7 +70,15 @@ public:
 
     virtual bool isSVGImage() const { return false; }
     virtual bool isBitmapImage() const { return false; }
-    virtual bool currentFrameKnownToBeOpaque() = 0;
+
+    // To increase accuracy of currentFrameKnownToBeOpaque() it may,
+    // for applicable image types, be told to pre-cache metadata for
+    // the current frame. Since this may initiate a deferred image
+    // decoding, PreCacheMetadata requires a InspectorPaintImageEvent
+    // during call.
+    enum MetadataMode { UseCurrentMetadata, PreCacheMetadata };
+    virtual bool currentFrameKnownToBeOpaque(MetadataMode = UseCurrentMetadata) = 0;
+
     virtual bool currentFrameIsComplete() { return false; }
     virtual bool currentFrameIsLazyDecoded() { return false; }
     virtual bool isTextureBacked();
@@ -82,15 +90,13 @@ public:
     static Image* nullImage();
     bool isNull() const { return size().isEmpty(); }
 
-    virtual void setContainerSize(const IntSize&) { }
     virtual bool usesContainerSize() const { return false; }
-    virtual bool hasRelativeWidth() const { return false; }
-    virtual bool hasRelativeHeight() const { return false; }
+    virtual bool hasRelativeSize() const { return false; }
 
     // Computes (extracts) the intrinsic dimensions and ratio from the Image. The intrinsic ratio
     // will be the 'viewport' of the image. (Same as the dimensions for a raster image. For SVG
     // images it can be the dimensions defined by the 'viewBox'.)
-    virtual void computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio);
+    virtual void computeIntrinsicDimensions(FloatSize& intrinsicSize, FloatSize& intrinsicRatio);
 
     virtual IntSize size() const = 0;
     IntRect rect() const { return IntRect(IntPoint(), size()); }
@@ -136,9 +142,9 @@ public:
     virtual PassRefPtr<SkImage> imageForCurrentFrame() = 0;
     virtual PassRefPtr<Image> imageForDefaultFrame();
 
-    virtual void drawPattern(GraphicsContext*, const FloatRect&,
+    virtual void drawPattern(GraphicsContext&, const FloatRect&,
         const FloatSize&, const FloatPoint& phase, SkXfermode::Mode,
-        const FloatRect&, const IntSize& repeatSpacing = IntSize());
+        const FloatRect&, const FloatSize& repeatSpacing = FloatSize());
 
     enum ImageClampingMode {
         ClampImageToSourceRect,
@@ -150,13 +156,18 @@ public:
 protected:
     Image(ImageObserver* = 0);
 
-    void drawTiled(GraphicsContext*, const FloatRect& dstRect, const FloatPoint& srcPoint, const FloatSize& tileSize,
-        SkXfermode::Mode, const IntSize& repeatSpacing);
-    void drawTiled(GraphicsContext*, const FloatRect& dstRect, const FloatRect& srcRect, const FloatSize& tileScaleFactor, TileRule hRule, TileRule vRule, SkXfermode::Mode);
+    void drawTiled(GraphicsContext&, const FloatRect& dstRect, const FloatPoint& srcPoint, const FloatSize& tileSize,
+        SkXfermode::Mode, const FloatSize& repeatSpacing);
+    void drawTiled(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, const FloatSize& tileScaleFactor, TileRule hRule, TileRule vRule, SkXfermode::Mode);
 
 private:
     RefPtr<SharedBuffer> m_encodedImageData;
-    ImageObserver* m_imageObserver;
+    // TODO(Oilpan): consider having Image on the Oilpan heap and
+    // turn this into a Member<>.
+    //
+    // The observer (an ImageResource) is an untraced member, with the ImageResource
+    // being responsible of clearing itself out.
+    RawPtrWillBeUntracedMember<ImageObserver> m_imageObserver;
 };
 
 #define DEFINE_IMAGE_TYPE_CASTS(typeName) \

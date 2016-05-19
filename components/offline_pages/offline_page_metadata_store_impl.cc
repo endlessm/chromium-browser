@@ -5,17 +5,18 @@
 #include "components/offline_pages/offline_page_metadata_store_impl.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "components/leveldb_proto/proto_database_impl.h"
 #include "components/offline_pages/offline_page_item.h"
 #include "components/offline_pages/proto/offline_pages.pb.h"
@@ -144,16 +145,21 @@ void OfflinePageMetadataStoreImpl::LoadDone(
   if (success) {
     for (const auto& entry : *entries) {
       OfflinePageItem item;
+      // We don't want to fail the entire database if one item is corrupt,
+      // so log error and keep going.
       if (!OfflinePageItemFromEntry(entry, &item)) {
-        status = DATA_PARSING_FAILED;
-        result.clear();
-        break;
+        LOG(ERROR) << "failed to parse entry: " << entry.url() << " skipping.";
+        continue;
       }
       result.push_back(item);
     }
-
   } else {
     status = STORE_LOAD_FAILED;
+  }
+
+  // If we couldn't load _anything_ report a parse failure.
+  if (entries->size() > 0 && result.size() == 0) {
+    status = DATA_PARSING_FAILED;
   }
 
   NotifyLoadResult(callback, status, result);
@@ -189,21 +195,23 @@ void OfflinePageMetadataStoreImpl::AddOrUpdateOfflinePage(
       std::make_pair(base::Int64ToString(offline_page_item.bookmark_id),
                      offline_page_proto));
 
-  UpdateEntries(entries_to_save.Pass(), keys_to_remove.Pass(), callback);
+  UpdateEntries(std::move(entries_to_save), std::move(keys_to_remove),
+                callback);
 }
 
 void OfflinePageMetadataStoreImpl::RemoveOfflinePages(
-    const std::vector<int64>& bookmark_ids,
+    const std::vector<int64_t>& bookmark_ids,
     const UpdateCallback& callback) {
   scoped_ptr<ProtoDatabase<OfflinePageEntry>::KeyEntryVector> entries_to_save(
       new ProtoDatabase<OfflinePageEntry>::KeyEntryVector());
   scoped_ptr<std::vector<std::string>> keys_to_remove(
       new std::vector<std::string>());
 
-  for (int64 id : bookmark_ids)
+  for (int64_t id : bookmark_ids)
     keys_to_remove->push_back(base::Int64ToString(id));
 
-  UpdateEntries(entries_to_save.Pass(), keys_to_remove.Pass(), callback);
+  UpdateEntries(std::move(entries_to_save), std::move(keys_to_remove),
+                callback);
 }
 
 void OfflinePageMetadataStoreImpl::UpdateEntries(
@@ -216,16 +224,15 @@ void OfflinePageMetadataStoreImpl::UpdateEntries(
     // Callback is invoked through message loop to avoid improper retry and
     // simplify testing.
     DVLOG(1) << "Offline pages database not available in UpdateEntries.";
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::Bind(callback, false));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                  base::Bind(callback, false));
     return;
   }
 
   database_->UpdateEntries(
-      entries_to_save.Pass(), keys_to_remove.Pass(),
+      std::move(entries_to_save), std::move(keys_to_remove),
       base::Bind(&OfflinePageMetadataStoreImpl::UpdateDone,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 callback));
+                 weak_ptr_factory_.GetWeakPtr(), callback));
 }
 
 void OfflinePageMetadataStoreImpl::UpdateDone(

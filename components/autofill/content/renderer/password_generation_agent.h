@@ -5,10 +5,13 @@
 #ifndef COMPONENTS_AUTOFILL_CONTENT_RENDERER_PASSWORD_GENERATION_AGENT_H_
 #define COMPONENTS_AUTOFILL_CONTENT_RENDERER_PASSWORD_GENERATION_AGENT_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <utility>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/renderer/render_frame_observer.h"
@@ -23,6 +26,7 @@ namespace autofill {
 
 struct FormData;
 struct PasswordForm;
+struct PasswordFormGenerationData;
 class PasswordAutofillAgent;
 
 // This class is responsible for controlling communication for password
@@ -66,6 +70,7 @@ class PasswordGenerationAgent : public content::RenderFrameObserver {
     AccountCreationFormData(
         linked_ptr<PasswordForm> form,
         std::vector<blink::WebInputElement> password_elements);
+    AccountCreationFormData(const AccountCreationFormData& other);
     ~AccountCreationFormData();
   };
 
@@ -77,8 +82,8 @@ class PasswordGenerationAgent : public content::RenderFrameObserver {
   // Message handlers.
   void OnFormNotBlacklisted(const PasswordForm& form);
   void OnPasswordAccepted(const base::string16& password);
-  void OnAccountCreationFormsDetected(
-      const std::vector<autofill::FormData>& forms);
+  void OnFormsEligibleForGenerationFound(
+      const std::vector<autofill::PasswordFormGenerationData>& forms);
 
   // Helper function that will try and populate |password_elements_| and
   // |possible_account_creation_form_|.
@@ -98,6 +103,10 @@ class PasswordGenerationAgent : public content::RenderFrameObserver {
   // Hides a password generation popup if one exists.
   void HidePopup();
 
+  // Sets |generation_element_| to the focused password field and shows a
+  // generation popup at this field.
+  void OnUserTriggeredGeneratePassword();
+
   // Stores forms that are candidates for account creation.
   AccountCreationFormDataList possible_account_creation_forms_;
 
@@ -107,9 +116,9 @@ class PasswordGenerationAgent : public content::RenderFrameObserver {
   std::vector<GURL> not_blacklisted_password_form_origins_;
 
   // Stores each password form for which the Autofill server classifies one of
-  // the form's fields as an ACCOUNT_CREATION_PASSWORD. These forms will
-  // not be sent if the feature is disabled.
-  std::vector<autofill::FormData> generation_enabled_forms_;
+  // the form's fields as an ACCOUNT_CREATION_PASSWORD or NEW_PASSWORD. These
+  // forms will not be sent if the feature is disabled.
+  std::vector<autofill::PasswordFormGenerationData> generation_enabled_forms_;
 
   // Data for form which generation is allowed on.
   scoped_ptr<AccountCreationFormData> generation_form_data_;
@@ -120,6 +129,9 @@ class PasswordGenerationAgent : public content::RenderFrameObserver {
   // If the password field at |generation_element_| contains a generated
   // password.
   bool password_is_generated_;
+
+  // True if password generation was manually triggered.
+  bool is_manually_triggered_;
 
   // True if a password was generated and the user edited it. Used for UMA
   // stats.

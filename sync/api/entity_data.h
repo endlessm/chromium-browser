@@ -5,6 +5,7 @@
 #ifndef SYNC_API_ENTITY_DATA_H_
 #define SYNC_API_ENTITY_DATA_H_
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,18 @@
 #include "sync/protocol/sync.pb.h"
 
 namespace syncer_v2 {
+
+struct EntityData;
+
+struct SYNC_EXPORT EntityDataTraits {
+  static void SwapValue(EntityData* dest, EntityData* src);
+  static bool HasValue(const EntityData& value);
+  static const EntityData& DefaultValue();
+};
+
+typedef syncer::ProtoValuePtr<EntityData, EntityDataTraits> EntityDataPtr;
+typedef std::vector<EntityDataPtr> EntityDataList;
+typedef std::map<std::string, EntityDataPtr> EntityDataMap;
 
 // A light-weight container for sync entity data which represents either
 // local data created on the ModelTypeService side or remote data created
@@ -28,7 +41,7 @@ struct SYNC_EXPORT EntityData {
   // Typically this is a server assigned sync ID, although for a local change
   // that represents a new entity this field might be either empty or contain
   // a temporary client sync ID.
-  std::string server_id;
+  std::string id;
 
   // A hash based on the client tag and model type.
   // Used for various map lookups. Should always be available.
@@ -54,9 +67,13 @@ struct SYNC_EXPORT EntityData {
   sync_pb::UniquePosition unique_position;
 
   // True if EntityData represents deleted entity; otherwise false.
-  // Note that EntityData would be considered to represent a deletion if it
+  // Note that EntityData would be considered to represent a deletion if its
   // specifics hasn't been set.
-  bool is_deleted() { return specifics.ByteSize() == 0; }
+  bool is_deleted() const { return specifics.ByteSize() == 0; }
+
+  // Transfers this struct's data to EntityDataPtr.
+  // The return value must be assigned into another EntityDataPtr.
+  EntityDataPtr PassToPtr() WARN_UNUSED_RESULT;
 
  private:
   friend struct EntityDataTraits;
@@ -65,14 +82,6 @@ struct SYNC_EXPORT EntityData {
 
   DISALLOW_COPY_AND_ASSIGN(EntityData);
 };
-
-struct SYNC_EXPORT EntityDataTraits {
-  static void SwapValue(EntityData* dest, EntityData* src);
-  static bool HasValue(const EntityData& value);
-  static const EntityData& DefaultValue();
-};
-
-typedef syncer::ProtoValuePtr<EntityData, EntityDataTraits> EntityDataPtr;
 
 }  // namespace syncer_v2
 

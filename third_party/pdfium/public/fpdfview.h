@@ -5,7 +5,7 @@
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 // NOTE: External docs refer to this file as "fpdfview.h", so do not rename
-// despite lack of consitency with other public files.
+// despite lack of consistency with other public files.
 
 #ifndef PUBLIC_FPDFVIEW_H_
 #define PUBLIC_FPDFVIEW_H_
@@ -14,33 +14,48 @@
 #include <windows.h>
 #endif
 
-// Data types
-typedef void* FPDF_MODULEMGR;
+#ifdef PDF_ENABLE_XFA
+// TODO: remove the #define when XFA is officially in pdfium
+#define PDF_USE_XFA
+#endif  // PDF_ENABLE_XFA
 
 // PDF types
-typedef void* FPDF_DOCUMENT;
-typedef void* FPDF_PAGE;
-typedef void* FPDF_PAGEOBJECT;  // Page object(text, path, etc)
-typedef void* FPDF_PATH;
-typedef void* FPDF_CLIPPATH;
-typedef void* FPDF_BITMAP;
-typedef void* FPDF_FONT;
-typedef void* FPDF_TEXTPAGE;
-typedef void* FPDF_SCHHANDLE;
-typedef void* FPDF_PAGELINK;
-typedef void* FPDF_HMODULE;
-typedef void* FPDF_DOCSCHHANDLE;
-typedef void* FPDF_BOOKMARK;
-typedef void* FPDF_DEST;
 typedef void* FPDF_ACTION;
+typedef void* FPDF_BITMAP;
+typedef void* FPDF_BOOKMARK;
+typedef void* FPDF_CLIPPATH;
+typedef void* FPDF_DEST;
+typedef void* FPDF_DOCSCHHANDLE;
+typedef void* FPDF_DOCUMENT;
+typedef void* FPDF_FONT;
+typedef void* FPDF_HMODULE;
 typedef void* FPDF_LINK;
+typedef void* FPDF_MODULEMGR;
+typedef void* FPDF_PAGE;
+typedef void* FPDF_PAGELINK;
+typedef void* FPDF_PAGEOBJECT;  // Page object(text, path, etc)
 typedef void* FPDF_PAGERANGE;
+typedef void* FPDF_PATH;
+typedef void* FPDF_SCHHANDLE;
+typedef void* FPDF_TEXTPAGE;
+
+#ifdef PDF_ENABLE_XFA
+typedef void* FPDF_STRINGHANDLE;
+typedef void* FPDF_WIDGET;
+#endif  // PDF_ENABLE_XFA
 
 // Basic data types
 typedef int FPDF_BOOL;
 typedef int FPDF_ERROR;
 typedef unsigned long FPDF_DWORD;
 typedef float FS_FLOAT;
+
+#ifdef PDF_ENABLE_XFA
+typedef void* FPDF_LPVOID;
+typedef void const* FPDF_LPCVOID;
+typedef char const* FPDF_LPCSTR;
+typedef int FPDF_RESULT;
+#endif
 
 // Duplex types
 typedef enum _FPDF_DUPLEXTYPE_ {
@@ -62,6 +77,17 @@ typedef const char* FPDF_BYTESTRING;
 // bytes (except surrogation), with the low byte first.
 typedef const unsigned short* FPDF_WIDESTRING;
 
+#ifdef PDF_ENABLE_XFA
+// Structure for a byte string.
+// Note, a byte string commonly means a UTF-16LE formated string.
+typedef struct _FPDF_BSTR {
+  // String buffer.
+  char* str;
+  // Length of the string, in bytes.
+  int len;
+} FPDF_BSTR;
+#endif  // PDF_ENABLE_XFA
+
 // For Windows programmers: In most cases it's OK to treat FPDF_WIDESTRING as a
 // Windows unicode string, however, special care needs to be taken if you
 // expect to process Unicode larger than 0xffff.
@@ -69,7 +95,6 @@ typedef const unsigned short* FPDF_WIDESTRING;
 // For Linux/Unix programmers: most compiler/library environments use 4 bytes
 // for a Unicode character, and you have to convert between FPDF_WIDESTRING and
 // system wide string by yourself.
-
 #ifdef _WIN32_WCE
 typedef const unsigned short* FPDF_STRING;
 #else
@@ -217,6 +242,10 @@ DLLEXPORT FPDF_DOCUMENT STDCALL FPDF_LoadDocument(FPDF_STRING file_path,
 //          The loaded document can be closed by FPDF_CloseDocument.
 //          If this function fails, you can use FPDF_GetLastError() to retrieve
 //          the reason why it failed.
+// Notes:
+//          If PDFium is built with the XFA module, the application should call
+//          FPDF_LoadXFA() function after the PDF document loaded to support XFA
+//          fields defined in the fpdfformfill.h file.
 DLLEXPORT FPDF_DOCUMENT STDCALL FPDF_LoadMemDocument(const void* data_buf,
                                                      int size,
                                                      FPDF_BYTESTRING password);
@@ -242,6 +271,86 @@ typedef struct {
   void* m_Param;
 } FPDF_FILEACCESS;
 
+#ifdef PDF_ENABLE_XFA
+/**
+ * @brief Structure for file reading or writing (I/O).
+ *
+ * @note This is a handler and should be implemented by callers.
+ */
+typedef struct _FPDF_FILEHANDLER {
+  /**
+   * @brief User-defined data.
+   * @note Callers can use this field to track controls.
+   */
+  FPDF_LPVOID clientData;
+  /**
+   * @brief Callback function to release the current file stream object.
+   *
+   * @param[in] clientData    Pointer to user-defined data.
+   *
+   * @return None.
+   */
+  void (*Release)(FPDF_LPVOID clientData);
+  /**
+   * @brief Callback function to retrieve the current file stream size.
+   *
+   * @param[in] clientData    Pointer to user-defined data.
+   *
+   * @return Size of file stream.
+   */
+  FPDF_DWORD (*GetSize)(FPDF_LPVOID clientData);
+  /**
+   * @brief Callback function to read data from the current file stream.
+   *
+   * @param[in]   clientData  Pointer to user-defined data.
+   * @param[in]   offset      Offset position starts from the beginning of file
+   * stream. This parameter indicates reading position.
+   * @param[in]   buffer      Memory buffer to store data which are read from
+   * file stream. This parameter should not be <b>NULL</b>.
+   * @param[in]   size        Size of data which should be read from file
+   * stream, in bytes. The buffer indicated by the parameter <i>buffer</i>
+   * should be enough to store specified data.
+   *
+   * @return 0 for success, other value for failure.
+   */
+  FPDF_RESULT (*ReadBlock)(FPDF_LPVOID clientData, FPDF_DWORD offset, FPDF_LPVOID buffer, FPDF_DWORD size);
+  /**
+   * @brief   Callback function to write data into the current file stream.
+   *
+   * @param[in]   clientData  Pointer to user-defined data.
+   * @param[in]   offset      Offset position starts from the beginning of file
+   * stream. This parameter indicates writing position.
+   * @param[in]   buffer      Memory buffer contains data which is written into
+   * file stream. This parameter should not be <b>NULL</b>.
+   * @param[in]   size        Size of data which should be written into file
+   * stream, in bytes.
+   *
+   * @return 0 for success, other value for failure.
+   */
+  FPDF_RESULT (*WriteBlock)(FPDF_LPVOID clientData, FPDF_DWORD offset, FPDF_LPCVOID buffer, FPDF_DWORD size);
+  /**
+   * @brief   Callback function to flush all internal accessing buffers.
+   *
+   * @param[in]   clientData  Pointer to user-defined data.
+   *
+   * @return 0 for success, other value for failure.
+   */
+  FPDF_RESULT (*Flush)(FPDF_LPVOID clientData);
+  /**
+   * @brief   Callback function to change file size.
+   *
+   * @details This function is called under writing mode usually. Implementer
+   * can determine whether to realize it based on application requests.
+   *
+   * @param[in]   clientData  Pointer to user-defined data.
+   * @param[in]   size        New size of file stream, in bytes.
+   *
+   * @return 0 for success, other value for failure.
+   */
+  FPDF_RESULT (*Truncate)(FPDF_LPVOID clientData, FPDF_DWORD size);
+} FPDF_FILEHANDLER, *FPDF_LPFILEHANDLER;
+
+#endif
 // Function: FPDF_LoadCustomDocument
 //          Load PDF document from a custom access descriptor.
 // Parameters:
@@ -254,6 +363,10 @@ typedef struct {
 //          document is closed.
 //
 //          The loaded document can be closed with FPDF_CloseDocument.
+// Notes:
+//          If PDFium is built with the XFA module, the application should call
+//          FPDF_LoadXFA() function after the PDF document loaded to support XFA
+//          fields defined in the fpdfformfill.h file.
 DLLEXPORT FPDF_DOCUMENT STDCALL
 FPDF_LoadCustomDocument(FPDF_FILEACCESS* pFileAccess, FPDF_BYTESTRING password);
 
@@ -271,13 +384,17 @@ FPDF_LoadCustomDocument(FPDF_FILEACCESS* pFileAccess, FPDF_BYTESTRING password);
 DLLEXPORT FPDF_BOOL STDCALL FPDF_GetFileVersion(FPDF_DOCUMENT doc,
                                                 int* fileVersion);
 
-#define FPDF_ERR_SUCCESS 0   // No error.
-#define FPDF_ERR_UNKNOWN 1   // Unknown error.
-#define FPDF_ERR_FILE 2      // File not found or could not be opened.
-#define FPDF_ERR_FORMAT 3    // File not in PDF format or corrupted.
-#define FPDF_ERR_PASSWORD 4  // Password required or incorrect password.
-#define FPDF_ERR_SECURITY 5  // Unsupported security scheme.
-#define FPDF_ERR_PAGE 6      // Page not found or content error.
+#define FPDF_ERR_SUCCESS 0    // No error.
+#define FPDF_ERR_UNKNOWN 1    // Unknown error.
+#define FPDF_ERR_FILE 2       // File not found or could not be opened.
+#define FPDF_ERR_FORMAT 3     // File not in PDF format or corrupted.
+#define FPDF_ERR_PASSWORD 4   // Password required or incorrect password.
+#define FPDF_ERR_SECURITY 5   // Unsupported security scheme.
+#define FPDF_ERR_PAGE 6       // Page not found or content error.
+#ifdef PDF_ENABLE_XFA
+#define FPDF_ERR_XFALOAD 7    // Load XFA error.
+#define FPDF_ERR_XFALAYOUT 8  // Layout XFA error.
+#endif  // PDF_ENABLE_XFA
 
 // Function: FPDF_GetLastError
 //          Get last error code when a function fails.
@@ -799,6 +916,22 @@ DLLEXPORT FPDF_DEST STDCALL FPDF_GetNamedDest(FPDF_DOCUMENT document,
                                               int index,
                                               void* buffer,
                                               long* buflen);
+
+#ifdef PDF_ENABLE_XFA
+// Function: FPDF_BStr_Init
+//          Helper function to initialize a byte string.
+DLLEXPORT FPDF_RESULT STDCALL FPDF_BStr_Init(FPDF_BSTR* str);
+
+// Function: FPDF_BStr_Set
+//          Helper function to set string data.
+DLLEXPORT FPDF_RESULT STDCALL FPDF_BStr_Set(FPDF_BSTR* str,
+                                            FPDF_LPCSTR bstr,
+                                            int length);
+
+// Function: FPDF_BStr_Clear
+//          Helper function to clear a byte string.
+DLLEXPORT FPDF_RESULT STDCALL FPDF_BStr_Clear(FPDF_BSTR* str);
+#endif  // PDF_ENABLE_XFA
 
 #ifdef __cplusplus
 }

@@ -2,24 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/RecordingImageBufferSurface.h"
 
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/ImageBuffer.h"
 #include "platform/graphics/ImageBufferClient.h"
 #include "platform/graphics/UnacceleratedImageBufferSurface.h"
+#include "platform/testing/TestingPlatformSupport.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebTraceLocation.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/RefPtr.h"
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 
 using testing::Test;
 
@@ -236,24 +236,13 @@ namespace {
 // for the current thread. The Mock thread is capable of queuing a single non-delayed task
 // and registering a single task observer. The run loop exits immediately after running
 // the single task.
-class AutoInstallCurrentThreadPlatformMock {
+
+class CurrentThreadPlatformMock : public TestingPlatformSupport {
 public:
-    AutoInstallCurrentThreadPlatformMock()
-    {
-        m_oldPlatform = Platform::current();
-        Platform::initialize(&m_mockPlatform);
-    }
+    CurrentThreadPlatformMock() { }
+    WebThread* currentThread() override { return &m_currentThread; }
 
-    ~AutoInstallCurrentThreadPlatformMock()
-    {
-        Platform::initialize(m_oldPlatform);
-    }
-
-    void enterRunLoop()
-    {
-        m_mockPlatform.enterRunLoop();
-    }
-
+    void enterRunLoop() { m_currentThread.enterRunLoop(); }
 private:
     class MockWebTaskRunner : public WebTaskRunner {
     public:
@@ -272,6 +261,18 @@ private:
         {
             ASSERT_NOT_REACHED();
             return nullptr;
+        }
+
+        double virtualTimeSeconds() const override
+        {
+            ASSERT_NOT_REACHED();
+            return 0.0;
+        }
+
+        double monotonicallyIncreasingVirtualTimeSeconds() const override
+        {
+            ASSERT_NOT_REACHED();
+            return 0.0;
         }
 
         Task* m_task;
@@ -335,39 +336,15 @@ private:
         TaskObserver* m_taskObserver;
     };
 
-    class CurrentThreadPlatformMock : public Platform {
-    public:
-        CurrentThreadPlatformMock() { }
-        virtual void cryptographicallyRandomValues(unsigned char* buffer, size_t length)
-        {
-            RELEASE_ASSERT_NOT_REACHED();
-        }
-        WebThread* currentThread() override { return &m_currentThread; }
-
-        void enterRunLoop() { m_currentThread.enterRunLoop(); }
-    private:
-        CurrentThreadMock m_currentThread;
-    };
-
-    CurrentThreadPlatformMock m_mockPlatform;
-    Platform* m_oldPlatform;
+    CurrentThreadMock m_currentThread;
 };
 
 } // anonymous namespace
 
-#define DEFINE_TEST_TASK_WRAPPER_CLASS(TEST_METHOD)                                               \
-class TestWrapperTask_ ## TEST_METHOD : public WebTaskRunner::Task {                           \
-    public:                                                                                       \
-        TestWrapperTask_ ## TEST_METHOD(RecordingImageBufferSurfaceTest* test) : m_test(test) { } \
-        void run() override { m_test->TEST_METHOD(); }                                    \
-    private:                                                                                      \
-        RecordingImageBufferSurfaceTest* m_test;                                                  \
-};
-
 #define CALL_TEST_TASK_WRAPPER(TEST_METHOD)                                                               \
     {                                                                                                     \
-        AutoInstallCurrentThreadPlatformMock ctpm;                                                        \
-        Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new TestWrapperTask_ ## TEST_METHOD(this)); \
+        CurrentThreadPlatformMock ctpm;                                                                   \
+        Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, bind(&RecordingImageBufferSurfaceTest::TEST_METHOD, this)); \
         ctpm.enterRunLoop();                                      \
     }
 
@@ -381,22 +358,18 @@ TEST_F(RecordingImageBufferSurfaceTest, testNoFallbackWithClear)
     testNoFallbackWithClear();
 }
 
-DEFINE_TEST_TASK_WRAPPER_CLASS(testNonAnimatedCanvasUpdate)
 TEST_F(RecordingImageBufferSurfaceTest, testNonAnimatedCanvasUpdate)
 {
     CALL_TEST_TASK_WRAPPER(testNonAnimatedCanvasUpdate)
     expectDisplayListEnabled(true);
 }
 
-DEFINE_TEST_TASK_WRAPPER_CLASS(testAnimatedWithoutClear)
 TEST_F(RecordingImageBufferSurfaceTest, testAnimatedWithoutClear)
 {
     CALL_TEST_TASK_WRAPPER(testAnimatedWithoutClear)
     expectDisplayListEnabled(false);
 }
 
-DEFINE_TEST_TASK_WRAPPER_CLASS(testFrameFinalizedByTaskObserver1)
-DEFINE_TEST_TASK_WRAPPER_CLASS(testFrameFinalizedByTaskObserver2)
 TEST_F(RecordingImageBufferSurfaceTest, testFrameFinalizedByTaskObserver)
 {
     CALL_TEST_TASK_WRAPPER(testFrameFinalizedByTaskObserver1)
@@ -405,14 +378,12 @@ TEST_F(RecordingImageBufferSurfaceTest, testFrameFinalizedByTaskObserver)
     expectDisplayListEnabled(false);
 }
 
-DEFINE_TEST_TASK_WRAPPER_CLASS(testAnimatedWithClear)
 TEST_F(RecordingImageBufferSurfaceTest, testAnimatedWithClear)
 {
     CALL_TEST_TASK_WRAPPER(testAnimatedWithClear)
     expectDisplayListEnabled(true);
 }
 
-DEFINE_TEST_TASK_WRAPPER_CLASS(testClearRect)
 TEST_F(RecordingImageBufferSurfaceTest, testClearRect)
 {
     CALL_TEST_TASK_WRAPPER(testClearRect);

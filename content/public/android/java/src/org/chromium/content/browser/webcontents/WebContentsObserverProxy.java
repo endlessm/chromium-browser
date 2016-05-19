@@ -7,6 +7,7 @@ package org.chromium.content.browser.webcontents;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ObserverList.RewindableIterator;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.MainDex;
@@ -61,6 +62,14 @@ class WebContentsObserverProxy extends WebContentsObserver {
         return !mObservers.isEmpty();
     }
 
+    /**
+     * @return The list of proxied observers.
+     */
+    @VisibleForTesting
+    public ObserverList.RewindableIterator<WebContentsObserver> getObserversForTesting() {
+        return mObservers.rewindableIterator();
+    }
+
     @Override
     @CalledByNative
     public void renderViewReady() {
@@ -74,6 +83,15 @@ class WebContentsObserverProxy extends WebContentsObserver {
     public void renderProcessGone(boolean wasOomProtected) {
         for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
             mObserversIterator.next().renderProcessGone(wasOomProtected);
+        }
+    }
+
+    @Override
+    @CalledByNative
+    public void didFinishNavigation(
+            boolean isMainFrame, boolean isErrorPage, boolean hasCommitted) {
+        for (mObserversIterator.rewind(); mObserversIterator.hasNext();) {
+            mObserversIterator.next().didFinishNavigation(isMainFrame, isErrorPage, hasCommitted);
         }
     }
 

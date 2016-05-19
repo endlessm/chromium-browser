@@ -7,7 +7,7 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_LABEL_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_LABEL_H_
 
-#include "PWL_Wnd.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 class IFX_Edit;
 
@@ -32,7 +32,7 @@ class CPWL_Label : public CPWL_Wnd {
   FX_FLOAT GetFontSize() const override;
   void OnCreated() override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   void GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) override;
   void RePosChildWnd() override;
 

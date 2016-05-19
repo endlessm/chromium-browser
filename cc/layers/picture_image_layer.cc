@@ -4,6 +4,8 @@
 
 #include "cc/layers/picture_image_layer.h"
 
+#include <stddef.h>
+
 #include "cc/layers/picture_image_layer_impl.h"
 #include "cc/playback/display_item_list_settings.h"
 #include "cc/playback/drawing_display_item.h"
@@ -44,13 +46,16 @@ void PictureImageLayer::SetImage(skia::RefPtr<const SkImage> image) {
   if (image_.get() == image.get())
     return;
 
-  image_ = image.Pass();
+  image_ = std::move(image);
   UpdateDrawsContent(HasDrawableContent());
   SetNeedsDisplay();
 }
 
+gfx::Rect PictureImageLayer::PaintableRegion() {
+  return gfx::Rect(bounds());
+}
+
 scoped_refptr<DisplayItemList> PictureImageLayer::PaintContentsToDisplayList(
-    const gfx::Rect& clip,
     ContentLayerClient::PaintingControlSetting painting_control) {
   DCHECK(image_);
   DCHECK_GT(image_->width(), 0);
@@ -61,10 +66,11 @@ scoped_refptr<DisplayItemList> PictureImageLayer::PaintContentsToDisplayList(
   DisplayItemListSettings settings;
   settings.use_cached_picture = true;
   scoped_refptr<DisplayItemList> display_list =
-      DisplayItemList::Create(clip, settings);
+      DisplayItemList::Create(PaintableRegion(), settings);
 
   SkPictureRecorder recorder;
-  SkCanvas* canvas = recorder.beginRecording(gfx::RectToSkRect(clip));
+  SkCanvas* canvas =
+      recorder.beginRecording(gfx::RectToSkRect(PaintableRegion()));
 
   SkScalar content_to_layer_scale_x =
       SkFloatToScalar(static_cast<float>(bounds().width()) / image_->width());
@@ -79,8 +85,8 @@ scoped_refptr<DisplayItemList> PictureImageLayer::PaintContentsToDisplayList(
 
   skia::RefPtr<SkPicture> picture =
       skia::AdoptRef(recorder.endRecordingAsPicture());
-  auto* item = display_list->CreateAndAppendItem<DrawingDisplayItem>();
-  item->SetNew(picture.Pass());
+  display_list->CreateAndAppendItem<DrawingDisplayItem>(PaintableRegion(),
+                                                        std::move(picture));
 
   display_list->Finalize();
   return display_list;

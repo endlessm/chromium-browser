@@ -4,8 +4,11 @@
 
 #include "ui/compositor/test/in_process_context_factory.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/threading/thread.h"
 #include "cc/output/compositor_frame.h"
 #include "cc/output/context_provider.h"
@@ -60,10 +63,15 @@ class DirectOutputSurface : public cc::OutputSurface {
       context_provider_->ContextSupport()->PartialSwapBuffers(
           frame->gl_frame_data->sub_buffer_rect);
     }
-    uint32_t sync_point =
-        context_provider_->ContextGL()->InsertSyncPointCHROMIUM();
-    context_provider_->ContextSupport()->SignalSyncPoint(
-        sync_point, base::Bind(&OutputSurface::OnSwapBuffersComplete,
+    gpu::gles2::GLES2Interface* gl = context_provider_->ContextGL();
+    const uint64_t fence_sync = gl->InsertFenceSyncCHROMIUM();
+    gl->ShallowFlushCHROMIUM();
+
+    gpu::SyncToken sync_token;
+    gl->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+
+    context_provider_->ContextSupport()->SignalSyncToken(
+        sync_token, base::Bind(&OutputSurface::OnSwapBuffersComplete,
                                weak_ptr_factory_.GetWeakPtr()));
     client_->DidSwapBuffers();
   }
@@ -148,7 +156,7 @@ void InProcessContextFactory::CreateOutputSurface(
   if (surface_manager_) {
     scoped_ptr<cc::OnscreenDisplayClient> display_client(
         new cc::OnscreenDisplayClient(
-            real_output_surface.Pass(), surface_manager_,
+            std::move(real_output_surface), surface_manager_,
             GetSharedBitmapManager(), GetGpuMemoryBufferManager(),
             compositor->GetRendererSettings(), compositor->task_runner()));
     scoped_ptr<cc::SurfaceDisplayOutputSurface> surface_output_surface(
@@ -158,12 +166,12 @@ void InProcessContextFactory::CreateOutputSurface(
     display_client->set_surface_output_surface(surface_output_surface.get());
     surface_output_surface->set_display_client(display_client.get());
 
-    compositor->SetOutputSurface(surface_output_surface.Pass());
+    compositor->SetOutputSurface(std::move(surface_output_surface));
 
     delete per_compositor_data_[compositor.get()];
     per_compositor_data_[compositor.get()] = display_client.release();
   } else {
-    compositor->SetOutputSurface(real_output_surface.Pass());
+    compositor->SetOutputSurface(std::move(real_output_surface));
   }
 }
 
@@ -203,8 +211,9 @@ bool InProcessContextFactory::DoesCreateTestContexts() {
   return context_factory_for_test_;
 }
 
-uint32 InProcessContextFactory::GetImageTextureTarget(gfx::BufferFormat format,
-                                                      gfx::BufferUsage usage) {
+uint32_t InProcessContextFactory::GetImageTextureTarget(
+    gfx::BufferFormat format,
+    gfx::BufferUsage usage) {
   return GL_TEXTURE_2D;
 }
 

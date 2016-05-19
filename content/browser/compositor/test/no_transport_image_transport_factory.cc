@@ -4,6 +4,9 @@
 
 #include "content/browser/compositor/test/no_transport_image_transport_factory.h"
 
+#include <utility>
+
+#include "build/build_config.h"
 #include "cc/output/context_provider.h"
 #include "cc/surfaces/surface_manager.h"
 #include "content/browser/gpu/compositor_util.h"
@@ -15,15 +18,14 @@
 namespace content {
 
 NoTransportImageTransportFactory::NoTransportImageTransportFactory()
-    : surface_manager_(UseSurfacesEnabled() ? new cc::SurfaceManager : nullptr),
+    : surface_manager_(new cc::SurfaceManager),
       // The context factory created here is for unit tests, thus passing in
       // true in constructor.
       context_factory_(
-          new ui::InProcessContextFactory(true, surface_manager_.get())) {
-}
+          new ui::InProcessContextFactory(true, surface_manager_.get())) {}
 
 NoTransportImageTransportFactory::~NoTransportImageTransportFactory() {
-  scoped_ptr<GLHelper> lost_gl_helper = gl_helper_.Pass();
+  scoped_ptr<GLHelper> lost_gl_helper = std::move(gl_helper_);
   FOR_EACH_OBSERVER(
       ImageTransportFactoryObserver, observer_list_, OnLostResources());
 }

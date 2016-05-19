@@ -35,6 +35,7 @@ class ContextualSearchRequest {
     private static final String GWS_QUERY_PARAM = "q";
     private static final String CTXS_PARAM_PATTERN = "(ctxs=[^&]+)";
     private static final String CTXR_PARAM = "ctxr";
+    private static final String CTXS_TWO_REQUEST_PROTOCOL = "2";
     private static final String CTXSL_TRANS_PARAM = "ctxsl_trans";
     private static final String CTXSL_TRANS_PARAM_VALUE = "1";
     @VisibleForTesting static final String TLITE_SOURCE_LANGUAGE_PARAM = "tlitesl";
@@ -161,6 +162,15 @@ class ContextualSearchRequest {
     }
 
     /**
+     * Adds translation parameters that will trigger auto-detection of the source language.
+     * @param targetLanguage The language the that the user prefers.
+     */
+    void forceAutoDetectTranslation(String targetLanguage) {
+        // Use the empty string for the source language in order to trigger auto-detect.
+        forceTranslation("", targetLanguage);
+    }
+
+    /**
      * @return Whether translation was forced for this request.
      */
     @VisibleForTesting
@@ -178,10 +188,10 @@ class ContextualSearchRequest {
      *         {@code query} and {@code alternateTerm} inserted as parameters and contextual
      *         search and prefetch parameters conditionally set.
      */
-    private Uri getUriTemplate(String query, @Nullable String alternateTerm,
+    protected Uri getUriTemplate(String query, @Nullable String alternateTerm,
             boolean shouldPrefetch) {
         return Uri.parse(TemplateUrlService.getInstance().getUrlForContextualSearchQuery(
-                query, alternateTerm, shouldPrefetch));
+                query, alternateTerm, shouldPrefetch, CTXS_TWO_REQUEST_PROTOCOL));
     }
 
     /**
@@ -198,25 +208,22 @@ class ContextualSearchRequest {
     /**
      * Makes the given {@code Uri} into a similar Uri that triggers a Translate one-box.
      * @param baseUri The base Uri to build off of.
-     * @param sourceLanguage The language of the original search term.
-     * @param targetLanguage The language the that the user prefers.
+     * @param sourceLanguage The language of the original search term, or an empty string to
+     *        auto-detect the source language.
+     * @param targetLanguage The language that the user prefers, or an empty string to
+     *        use server-side heuristics for the target language.
      * @return A {@link Uri} that has additional parameters for Translate appropriately set.
      */
     private Uri makeTranslateUri(Uri baseUri, String sourceLanguage, String targetLanguage) {
-        Uri resultUri = baseUri;
-        if (!sourceLanguage.isEmpty() || !targetLanguage.isEmpty()) {
-            Uri.Builder builder = baseUri.buildUpon();
-            if (!sourceLanguage.isEmpty()) {
-                builder.appendQueryParameter(TLITE_SOURCE_LANGUAGE_PARAM, sourceLanguage);
-            }
-            if (!targetLanguage.isEmpty()) {
-                builder.appendQueryParameter(TLITE_TARGET_LANGUAGE_PARAM, targetLanguage);
-            }
-            builder.appendQueryParameter(
-                    TLITE_QUERY_PARAM, baseUri.getQueryParameter(GWS_QUERY_PARAM));
-            builder.appendQueryParameter(CTXSL_TRANS_PARAM, CTXSL_TRANS_PARAM_VALUE);
-            resultUri = builder.build();
+        Uri.Builder builder = baseUri.buildUpon();
+        builder.appendQueryParameter(CTXSL_TRANS_PARAM, CTXSL_TRANS_PARAM_VALUE);
+        if (!sourceLanguage.isEmpty()) {
+            builder.appendQueryParameter(TLITE_SOURCE_LANGUAGE_PARAM, sourceLanguage);
         }
-        return resultUri;
+        if (!targetLanguage.isEmpty()) {
+            builder.appendQueryParameter(TLITE_TARGET_LANGUAGE_PARAM, targetLanguage);
+        }
+        builder.appendQueryParameter(TLITE_QUERY_PARAM, baseUri.getQueryParameter(GWS_QUERY_PARAM));
+        return builder.build();
     }
 }

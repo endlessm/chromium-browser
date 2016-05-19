@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/features.gni")
 import("//remoting/remoting_srcs.gni")
 
 source_set("protocol") {
@@ -27,14 +28,31 @@ source_set("protocol") {
     "//remoting/base",
     "//remoting/codec",
     "//remoting/signaling",
+    "//third_party/libyuv",
   ]
 
-  if (is_nacl) {
-    sources -= [
-      "chromium_port_allocator.cc",
-      "chromium_port_allocator_factory.cc",
-      "chromium_socket_factory.cc",
-    ]
+  if (!is_nacl) {
+    sources +=
+        rebase_path(remoting_srcs_gypi_values.remoting_protocol_nonnacl_sources,
+                    ".",
+                    "//remoting")
+
+    if (enable_webrtc) {
+      deps += [
+        # TODO(GYP): crbug.com/481633. We should probably not have to depend on
+        # libjingle_webrtc; that should be pulled in automatically by
+        # libpeerconnection instead.
+        "//third_party/libjingle:libjingle_webrtc",
+        "//third_party/libjingle:libpeerconnection",
+      ]
+    } else {
+      sources -= [
+        "webrtc_connection_to_client.cc",
+        "webrtc_transport.cc",
+        "webrtc_video_capturer_adapter.cc",
+        "webrtc_video_stream.cc",
+      ]
+    }
   }
 }
 
@@ -44,14 +62,20 @@ source_set("test_support") {
   sources = [
     "fake_authenticator.cc",
     "fake_authenticator.h",
+    "fake_connection_to_client.cc",
+    "fake_connection_to_client.h",
     "fake_connection_to_host.cc",
     "fake_connection_to_host.h",
     "fake_datagram_socket.cc",
     "fake_datagram_socket.h",
+    "fake_desktop_capturer.cc",
+    "fake_desktop_capturer.h",
     "fake_session.cc",
     "fake_session.h",
     "fake_stream_socket.cc",
     "fake_stream_socket.h",
+    "fake_video_renderer.cc",
+    "fake_video_renderer.h",
     "protocol_mock_objects.cc",
     "protocol_mock_objects.h",
   ]
@@ -68,6 +92,7 @@ source_set("unit_tests") {
   sources = [
     "authenticator_test_base.cc",
     "authenticator_test_base.h",
+    "capture_scheduler_unittest.cc",
     "channel_multiplexer_unittest.cc",
     "channel_socket_adapter_unittest.cc",
     "chromium_socket_factory_unittest.cc",
@@ -76,8 +101,10 @@ source_set("unit_tests") {
     "clipboard_filter_unittest.cc",
     "connection_tester.cc",
     "connection_tester.h",
-    "connection_to_client_unittest.cc",
+    "connection_unittest.cc",
     "content_description_unittest.cc",
+    "http_ice_config_request_unittest.cc",
+    "ice_transport_unittest.cc",
     "input_event_tracker_unittest.cc",
     "input_filter_unittest.cc",
     "jingle_messages_unittest.cc",
@@ -91,10 +118,12 @@ source_set("unit_tests") {
     "port_range_unittest.cc",
     "ppapi_module_stub.cc",
     "pseudotcp_adapter_unittest.cc",
-    "quic_channel_factory_unittest.cc",
+    "session_config_unittest.cc",
     "ssl_hmac_channel_authenticator_unittest.cc",
     "third_party_authenticator_unittest.cc",
     "v2_authenticator_unittest.cc",
+    "video_frame_pump_unittest.cc",
+    "webrtc_transport_unittest.cc",
   ]
 
   deps = [

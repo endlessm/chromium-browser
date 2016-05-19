@@ -5,7 +5,7 @@
 #ifndef CC_OUTPUT_SOFTWARE_RENDERER_H_
 #define CC_OUTPUT_SOFTWARE_RENDERER_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "cc/base/cc_export.h"
 #include "cc/output/compositor_frame.h"
 #include "cc/output/direct_renderer.h"
@@ -43,8 +43,7 @@ class CC_EXPORT SoftwareRenderer : public DirectRenderer {
  protected:
   void BindFramebufferToOutputSurface(DrawingFrame* frame) override;
   bool BindFramebufferToTexture(DrawingFrame* frame,
-                                const ScopedResource* texture,
-                                const gfx::Rect& target_rect) override;
+                                const ScopedResource* texture) override;
   void SetScissorTestRect(const gfx::Rect& scissor_rect) override;
   void PrepareSurfaceForPass(DrawingFrame* frame,
                              SurfaceInitializationMode initialization_mode,
@@ -92,9 +91,9 @@ class CC_EXPORT SoftwareRenderer : public DirectRenderer {
   void DrawUnsupportedQuad(const DrawingFrame* frame,
                            const DrawQuad* quad);
   bool ShouldApplyBackgroundFilters(const RenderPassDrawQuad* quad) const;
-  SkBitmap ApplyImageFilter(SkImageFilter* filter,
-                            const RenderPassDrawQuad* quad,
-                            const SkBitmap* to_filter) const;
+  skia::RefPtr<SkImage> ApplyImageFilter(SkImageFilter* filter,
+                                         const RenderPassDrawQuad* quad,
+                                         const SkBitmap* to_filter) const;
   gfx::Rect GetBackdropBoundingBoxForRenderPassQuad(
       const DrawingFrame* frame,
       const RenderPassDrawQuad* quad,

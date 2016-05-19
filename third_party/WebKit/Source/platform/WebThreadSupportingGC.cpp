@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/WebThreadSupportingGC.h"
 
 #include "platform/heap/SafePoint.h"
@@ -54,6 +53,9 @@ void WebThreadSupportingGC::initialize()
 
 void WebThreadSupportingGC::shutdown()
 {
+#if defined(LEAK_SANITIZER)
+    ThreadState::current()->releaseStaticPersistentNodes();
+#endif
     // Ensure no posted tasks will run from this point on.
     m_gcTaskRunner.clear();
 

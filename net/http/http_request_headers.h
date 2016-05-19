@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "net/base/net_export.h"
 #include "net/log/net_log.h"
@@ -76,10 +76,12 @@ class NET_EXPORT HttpRequestHeaders {
   static const char kProxyConnection[];
   static const char kRange[];
   static const char kReferer[];
-  static const char kUserAgent[];
   static const char kTransferEncoding[];
+  static const char kTokenBinding[];
+  static const char kUserAgent[];
 
   HttpRequestHeaders();
+  HttpRequestHeaders(const HttpRequestHeaders& other);
   ~HttpRequestHeaders();
 
   bool IsEmpty() const { return headers_.empty(); }

@@ -2,15 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "mojo/message_pump/handle_watcher.h"
+#include <stdint.h>
 
 #include <string>
+#include <utility>
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
+#include "mojo/message_pump/handle_watcher.h"
 #include "mojo/message_pump/message_pump_mojo.h"
 #include "mojo/public/cpp/test_support/test_support.h"
 #include "mojo/public/cpp/test_support/test_utils.h"
@@ -31,7 +34,7 @@ scoped_ptr<base::MessageLoop> CreateMessageLoop(MessageLoopConfig config) {
     loop.reset(new base::MessageLoop());
   else
     loop.reset(new base::MessageLoop(MessagePumpMojo::Create()));
-  return loop.Pass();
+  return loop;
 }
 
 void OnWatcherSignaled(const base::Closure& callback, MojoResult /* result */) {
@@ -90,7 +93,7 @@ void NeverReached(MojoResult result) {
 }
 
 TEST_P(HandleWatcherPerftest, StartStop) {
-  const uint64_t kIterations = 1000;
+  const uint64_t kIterations = 100000;
   MessagePipe pipe;
   HandleWatcher watcher;
 
@@ -103,7 +106,8 @@ TEST_P(HandleWatcherPerftest, StartStop) {
 }
 
 TEST_P(HandleWatcherPerftest, StartAllThenStop_1000Handles) {
-  const uint64_t kIterations = 1000;
+  const uint64_t kIterations = 100;
+  const uint64_t kHandles = 1000;
 
   struct TestData {
     MessagePipe pipe;
@@ -112,28 +116,30 @@ TEST_P(HandleWatcherPerftest, StartAllThenStop_1000Handles) {
   ScopedVector<TestData> data_vector;
   // Create separately from the start/stop loops to avoid affecting the
   // benchmark.
-  for (uint64_t i = 0; i < kIterations; i++) {
+  for (uint64_t i = 0; i < kHandles; i++) {
     scoped_ptr<TestData> test_data(new TestData);
     ASSERT_TRUE(test_data->pipe.handle0.is_valid());
-    data_vector.push_back(test_data.Pass());
+    data_vector.push_back(std::move(test_data));
   }
 
   ScopedPerfTimer timer("StartAllThenStop_1000Handles", GetMessageLoopName(),
-                        kIterations);
-  for (uint64_t i = 0; i < kIterations; i++) {
-    TestData* test_data = data_vector[i];
-    test_data->watcher.Start(
-        test_data->pipe.handle0.get(), MOJO_HANDLE_SIGNAL_READABLE,
-        MOJO_DEADLINE_INDEFINITE, base::Bind(&NeverReached));
-  }
-  for (uint64_t i = 0; i < kIterations; i++) {
-    TestData* test_data = data_vector[i];
-    test_data->watcher.Stop();
+                        kIterations * kHandles);
+  for (uint64_t iter = 0; iter < kIterations; iter++) {
+    for (uint64_t i = 0; i < kHandles; i++) {
+      TestData* test_data = data_vector[i];
+      test_data->watcher.Start(
+          test_data->pipe.handle0.get(), MOJO_HANDLE_SIGNAL_READABLE,
+          MOJO_DEADLINE_INDEFINITE, base::Bind(&NeverReached));
+    }
+    for (uint64_t i = 0; i < kHandles; i++) {
+      TestData* test_data = data_vector[i];
+      test_data->watcher.Stop();
+    }
   }
 }
 
 TEST_P(HandleWatcherPerftest, StartAndSignal) {
-  const uint64_t kIterations = 1000;
+  const uint64_t kIterations = 10000;
   const std::string kMessage = "hello";
   MessagePipe pipe;
   HandleWatcher watcher;
@@ -157,7 +163,7 @@ TEST_P(HandleWatcherPerftest, StartAndSignal) {
 }
 
 TEST_P(HandleWatcherPerftest, StartAndSignal_1000Waiting) {
-  const uint64_t kIterations = 1000;
+  const uint64_t kIterations = 10000;
   const uint64_t kWaitingHandles = 1000;
   const std::string kMessage = "hello";
   MessagePipe pipe;
@@ -175,7 +181,7 @@ TEST_P(HandleWatcherPerftest, StartAndSignal_1000Waiting) {
     test_data->watcher.Start(
         test_data->pipe.handle0.get(), MOJO_HANDLE_SIGNAL_READABLE,
         MOJO_DEADLINE_INDEFINITE, base::Bind(&NeverReached));
-    data_vector.push_back(test_data.Pass());
+    data_vector.push_back(std::move(test_data));
   }
 
   ScopedPerfTimer timer("StartAndSignal_1000Waiting", GetMessageLoopName(),

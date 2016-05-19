@@ -4,10 +4,10 @@
 
 #include "chrome/browser/extensions/api/commands/command_service.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/lazy_instance.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,6 +21,7 @@
 #include "chrome/common/extensions/manifest_handlers/ui_overrides_handler.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_function_registry.h"
@@ -288,9 +289,8 @@ bool CommandService::AddKeybindingPref(
   scoped_ptr<base::DictionaryValue> suggested_key_prefs(
       new base::DictionaryValue);
   suggested_key_prefs->Set(command_name, command_keys.release());
-  MergeSuggestedKeyPrefs(extension_id,
-                         ExtensionPrefs::Get(profile_),
-                         suggested_key_prefs.Pass());
+  MergeSuggestedKeyPrefs(extension_id, ExtensionPrefs::Get(profile_),
+                         std::move(suggested_key_prefs));
 
   // Fetch the newly-updated command, and notify the observers.
   FOR_EACH_OBSERVER(
@@ -315,7 +315,6 @@ void CommandService::OnExtensionWillBeInstalled(
     content::BrowserContext* browser_context,
     const Extension* extension,
     bool is_update,
-    bool from_ephemeral,
     const std::string& old_name) {
   UpdateKeybindings(extension);
 }
@@ -676,9 +675,8 @@ void CommandService::UpdateExtensionSuggestedCommandPrefs(
   }
 
   // Merge into current prefs, if present.
-  MergeSuggestedKeyPrefs(extension->id(),
-                         ExtensionPrefs::Get(profile_),
-                         suggested_key_prefs.Pass());
+  MergeSuggestedKeyPrefs(extension->id(), ExtensionPrefs::Get(profile_),
+                         std::move(suggested_key_prefs));
 }
 
 void CommandService::RemoveDefunctExtensionSuggestedCommandPrefs(

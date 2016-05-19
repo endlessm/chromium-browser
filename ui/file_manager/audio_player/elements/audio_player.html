@@ -5,17 +5,21 @@
   -->
 
 <link rel="import" href="chrome://resources/polymer/v1_0/polymer/polymer.html">
+<link rel="import" href="track_info_panel.html">
 <link rel="import" href="track_list.html">
 <link rel="import" href="control_panel.html">
 
 <dom-module id="audio-player">
   <link rel="import" type="css" href="audio_player.css">
   <template>
+    <track-info-panel id="trackInfo"
+        expanded="{{trackInfoExpanded}}"></track-info-panel>
     <track-list id="trackList"
-        expanded$="[[expanded]]"
+        expanded$="[[playlistExpanded]]"
         shuffle="[[shuffle]]"
         current-track-index="{{currentTrackIndex}}"
-        on-replay="onReplayCurrentTrack"></track-list>
+        on-replay="onReplayCurrentTrack"
+        on-play="onPlayCurrentTrack"></track-list>
     <control-panel id="audioController"
         playing="{{playing}}"
         time="{{time}}"
@@ -23,7 +27,8 @@
         shuffle="{{shuffle}}"
         repeat="{{repeat}}"
         volume="{{volume}}"
-        expanded="{{expanded}}"
+        playlist-expanded="{{playlistExpanded}}"
+        aria-labels="[[ariaLabels]]"
         on-next-clicked="onControllerNextClicked"
         on-previous-clicked="onControllerPreviousClicked"></control-panel>
     <audio id="audio"

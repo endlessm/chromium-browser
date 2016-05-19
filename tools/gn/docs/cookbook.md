@@ -64,7 +64,7 @@ action("foo") {
   args = [ "--la_dee_da" ]
 }
 
-executable('foo.exe') {
+executable("foo.exe") {
   ...
   deps = [ ":foo" ]  # Depend on the action to make sure it runs.
 }
@@ -72,6 +72,36 @@ executable('foo.exe') {
 
 Rules in GYP become `action_foreach` in GN which work like actions but
 iterate over a set of sources.
+
+### Copies
+
+GYP
+
+```
+'copies': [
+  {
+    'destination': '<(PRODUCT_DIR)/',
+    'files': [
+      '../build/win/dbghelp_xp/dbghelp.dll',
+    ],
+  },
+],
+```
+
+Unlike GYP, where copies are part of a target, GN copies are
+separate targets that you then depend on via deps from other targets:
+
+```
+copy("bar") {
+  sources = [ "../path/to/secret.dll" ]
+  outputs = [ "$root_out_dir/{{source_file_part}}" ]
+}
+
+component("base") {
+  ...
+  deps = [ "bar" }  # Depend on the copy to make sure it runs.
+}
+```
 
 ## Platform checking
 
@@ -190,7 +220,7 @@ places are noted in the table below.
 | `msan` (0/1)                                    | `is_msan` (true/false)                     | `//build/config/sanitizers/sanitizers.gni`     |
 | `SDKROOT` (Mac)                                 | `sysroot`                                  | `//build/config/sysroot.gni`                   |
 | `sysroot`                                       | `sysroot`                                  | `//build/config/sysroot.gni`                   |
-| `target_arch` ("ia32"/"x64"/"arm"/"mipsel")     | `target_arch` ("x86"/"x64"/"arm"/"mipsel") | (global)                                       |
+| `target_arch` ("ia32"/"x64"/"arm"/"mipsel")     | `target_cpu` ("x86"/"x64"/"arm"/"mipsel")  | (global)                                       |
 | `toolkit_views` (0/1)                           | `toolkit_views`                            | `//build/config/ui.gni`                        |
 | `tsan` (0/1)                                    | `is_tsan` (true/false)                     | `//build/config/sanitizers/sanitizers.gni`     |
 | `windows_sdk_path`                              | `windows_sdk_path`                         | (internal to `//build/config/win/BUILD.gn`)    |
@@ -211,10 +241,10 @@ places are noted in the table below.
 | `enable_chromevox_next` (0/1)           | `enable_chromevox_next` (true/false)           | `//build/config/features.gni` |
 | `enable_extensions` (0/1)               | `enable_extensions` (true/false)               | `//build/config/features.gni` |
 | `enable_google_now` (0/1)               | `enable_google_now` (true/false)               | `//build/config/features.gni` |
-| `enable_hidpi` (0/1)                    | `enable_hidpi` (true/false)                    | `//build/config/ui.gni`       |
+| `enable_hidpi` (0/1)                    | `enable_hidpi` (true/false)                    | `//ui/base/ui_features.gni`   |
 | `enable_managed_users` (0/1)            | `enable_managed_users` (true/false)            | `//build/config/features.gni` |
 | `enable_mdns` (0/1)                     | `enable_mdns` (true/false)                     | `//build/config/features.gni` |
-| `enable_one_click_signin` (0/1)         | `enable_one_click_signin` (true/false)         | `//build/config/features.gni` |
+| `enable_one_click_signin` (0/1)         | `enable_one_click_signin` (true/false)         | `//chrome/common/features.gni` |
 | `enable_pepper_cdms` (0/1)              | `enable_pepper_cdms` (true/false)              | `//build/config/features.gni` |
 | `enable_plugins` (0/1)                  | `enable_plugins` (true/false)                  | `//build/config/features.gni` |
 | `enable_plugin_installation` (0/1)      | `enable_plugin_installation` (true/false)      | `//build/config/features.gni` |
@@ -228,7 +258,6 @@ places are noted in the table below.
 | `enable_task_manager` (0/1)             | `enable_task_manager` (true/false)             | `//build/config/features.gni` |
 | `enable_themes` (0/1)                   | `enable_themes` (true/false)                   | `//build/config/features.gni` |
 | `enable_webrtc` (0/1)                   | `enable_webrtc` (true/false)                   | `//build/config/features.gni` |
-| `enable_wifi_bootstrapping` (0/1)       | `enable_wifi_bootstrapping` (true/false)       | `//build/config/features.gni` |
 | `image_loader_extension` (0/1)          | `enable_image_loader_extension` (true/false)   | `//build/config/features.gni` |
 | `input_speech` (0/1)                    | `enable_speech_input` (true/false)             | `//build/config/features.gni` |
 | `notifications` (0/1)                   | `enable_notifications` (true/false)            | `//build/config/features.gni` |
@@ -257,7 +286,6 @@ places are noted in the table below.
 | `use_udev` (0/1)                        | `use_udev` (true/false)                        | `//build/config/features.gni` |
 | `use_x11` (0/1)                         | `use_x11` (true/false)                         | `//build/config/ui.gni`       |
 | `use_xi2_mt` (0/1)                      | `use_xi2_mt` (true/false)                      | `//build/config/ui.gni`       |
-| `win_pdf_metafile_for_printing` (0/1)   | `win_pdf_metafile_for_printing` (true/false)   | `//build/config/features.gni` |
 | `win_use_allocator_shim` (0/1)          |                                                | (See "Allocator" below)       |
 
 ### Common target conversion

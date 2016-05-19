@@ -56,6 +56,8 @@
 
 #include <openssl/ssl.h>
 
+#include <limits.h>
+
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/mem.h>
@@ -79,18 +81,22 @@ int SSL_use_certificate(SSL *ssl, X509 *x) {
   return ssl_set_cert(ssl->cert, x);
 }
 
-int SSL_use_certificate_ASN1(SSL *ssl, const uint8_t *d, int len) {
-  X509 *x;
-  int ret;
-
-  x = d2i_X509(NULL, &d, (long)len);
-  if (x == NULL) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+int SSL_use_certificate_ASN1(SSL *ssl, const uint8_t *der, size_t der_len) {
+  if (der_len > LONG_MAX) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
     return 0;
   }
 
-  ret = SSL_use_certificate(ssl, x);
-  X509_free(x);
+  const uint8_t *p = der;
+  X509 *x509 = d2i_X509(NULL, &p, (long)der_len);
+  if (x509 == NULL || p != der + der_len) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+    X509_free(x509);
+    return 0;
+  }
+
+  int ret = SSL_use_certificate(ssl, x509);
+  X509_free(x509);
   return ret;
 }
 
@@ -165,19 +171,22 @@ int SSL_use_PrivateKey(SSL *ssl, EVP_PKEY *pkey) {
   return ret;
 }
 
-int SSL_use_PrivateKey_ASN1(int type, SSL *ssl, const uint8_t *d, long len) {
-  int ret;
-  const uint8_t *p;
-  EVP_PKEY *pkey;
-
-  p = d;
-  pkey = d2i_PrivateKey(type, NULL, &p, (long)len);
-  if (pkey == NULL) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+int SSL_use_PrivateKey_ASN1(int type, SSL *ssl, const uint8_t *der,
+                            size_t der_len) {
+  if (der_len > LONG_MAX) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
     return 0;
   }
 
-  ret = SSL_use_PrivateKey(ssl, pkey);
+  const uint8_t *p = der;
+  EVP_PKEY *pkey = d2i_PrivateKey(type, NULL, &p, (long)der_len);
+  if (pkey == NULL || p != der + der_len) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+    EVP_PKEY_free(pkey);
+    return 0;
+  }
+
+  int ret = SSL_use_PrivateKey(ssl, pkey);
   EVP_PKEY_free(pkey);
   return ret;
 }
@@ -227,18 +236,23 @@ static int ssl_set_cert(CERT *c, X509 *x) {
   return 1;
 }
 
-int SSL_CTX_use_certificate_ASN1(SSL_CTX *ctx, int len, const uint8_t *d) {
-  X509 *x;
-  int ret;
-
-  x = d2i_X509(NULL, &d, (long)len);
-  if (x == NULL) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+int SSL_CTX_use_certificate_ASN1(SSL_CTX *ctx, size_t der_len,
+                                 const uint8_t *der) {
+  if (der_len > LONG_MAX) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
     return 0;
   }
 
-  ret = SSL_CTX_use_certificate(ctx, x);
-  X509_free(x);
+  const uint8_t *p = der;
+  X509 *x509 = d2i_X509(NULL, &p, (long)der_len);
+  if (x509 == NULL || p != der + der_len) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+    X509_free(x509);
+    return 0;
+  }
+
+  int ret = SSL_CTX_use_certificate(ctx, x509);
+  X509_free(x509);
   return ret;
 }
 
@@ -287,20 +301,22 @@ int SSL_CTX_use_PrivateKey(SSL_CTX *ctx, EVP_PKEY *pkey) {
   return ssl_set_pkey(ctx->cert, pkey);
 }
 
-int SSL_CTX_use_PrivateKey_ASN1(int type, SSL_CTX *ctx, const uint8_t *d,
-                                long len) {
-  int ret;
-  const uint8_t *p;
-  EVP_PKEY *pkey;
-
-  p = d;
-  pkey = d2i_PrivateKey(type, NULL, &p, (long)len);
-  if (pkey == NULL) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+int SSL_CTX_use_PrivateKey_ASN1(int type, SSL_CTX *ctx, const uint8_t *der,
+                                size_t der_len) {
+  if (der_len > LONG_MAX) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
     return 0;
   }
 
-  ret = SSL_CTX_use_PrivateKey(ctx, pkey);
+  const uint8_t *p = der;
+  EVP_PKEY *pkey = d2i_PrivateKey(type, NULL, &p, (long)der_len);
+  if (pkey == NULL || p != der + der_len) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_ASN1_LIB);
+    EVP_PKEY_free(pkey);
+    return 0;
+  }
+
+  int ret = SSL_CTX_use_PrivateKey(ctx, pkey);
   EVP_PKEY_free(pkey);
   return ret;
 }
@@ -385,20 +401,19 @@ enum ssl_private_key_result_t ssl_private_key_decrypt(
                                           in_len);
   }
 
-  if (ssl_private_key_type(ssl) != EVP_PKEY_RSA) {
+  RSA *rsa = EVP_PKEY_get0_RSA(ssl->cert->privatekey);
+  if (rsa == NULL) {
     /* Decrypt operations are only supported for RSA keys. */
     OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
     return ssl_private_key_failure;
   }
 
-  enum ssl_private_key_result_t ret = ssl_private_key_failure;
-  RSA *rsa = ssl->cert->privatekey->pkey.rsa;
   /* Decrypt with no padding. PKCS#1 padding will be removed as part
    * of the timing-sensitive code by the caller. */
-  if (RSA_decrypt(rsa, out_len, out, max_out, in, in_len, RSA_NO_PADDING)) {
-    ret = ssl_private_key_success;
+  if (!RSA_decrypt(rsa, out_len, out, max_out, in, in_len, RSA_NO_PADDING)) {
+    return ssl_private_key_failure;
   }
-  return ret;
+  return ssl_private_key_success;
 }
 
 enum ssl_private_key_result_t ssl_private_key_decrypt_complete(

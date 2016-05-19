@@ -4,14 +4,16 @@
 
 #include "chrome/browser/ui/app_list/search/suggestions/suggestions_search_provider.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/sync/profile_sync_service_mock.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/browser/ui/app_list/app_list_test_util.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/suggestions/proto/suggestions.pb.h"
@@ -55,7 +57,7 @@ class SuggestionsSearchProviderTest : public AppListTestBase {
   void SetUp() override {
     AppListTestBase::SetUp();
 
-    profile_.reset(ProfileSyncServiceMock::MakeSignedInTestingProfile());
+    profile_ = MakeSignedInTestingProfile();
     suggestions_search_.reset(
         new SuggestionsSearchProvider(profile_.get(), NULL));
 

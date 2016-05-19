@@ -1,0 +1,441 @@
+// Copyright 2015 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#include "chrome/browser/ui/views/website_settings/chooser_bubble_ui_view.h"
+
+#include <stddef.h>
+
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include "base/macros.h"
+#include "base/strings/string16.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/views/exclusive_access_bubble_views.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/top_container_view.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "chrome/browser/ui/views/location_bar/location_icon_view.h"
+#include "chrome/browser/ui/website_settings/chooser_bubble_controller.h"
+#include "chrome/common/pref_names.h"
+#include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
+#include "ui/accessibility/ax_view_state.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/paint_vector_icon.h"
+#include "ui/gfx/text_constants.h"
+#include "ui/gfx/vector_icons_public.h"
+#include "ui/views/bubble/bubble_delegate.h"
+#include "ui/views/bubble/bubble_frame_view.h"
+#include "ui/views/controls/button/label_button.h"
+#include "ui/views/controls/button/label_button_border.h"
+#include "ui/views/controls/separator.h"
+#include "ui/views/controls/styled_label.h"
+#include "ui/views/controls/styled_label_listener.h"
+#include "ui/views/controls/table/table_view.h"
+#include "ui/views/controls/table/table_view_observer.h"
+#include "ui/views/layout/box_layout.h"
+#include "ui/views/layout/grid_layout.h"
+#include "ui/views/layout/layout_constants.h"
+
+namespace {
+
+// Chooser permission bubble width
+const int kChooserPermissionBubbleWidth = 300;
+
+// Chooser permission bubble height
+const int kChooserPermissionBubbleHeight = 200;
+
+}  // namespace
+
+scoped_ptr<BubbleUi> ChooserBubbleController::BuildBubbleUi() {
+  return make_scoped_ptr(new ChooserBubbleUiView(browser_, this));
+}
+
+class ChooserTableModel;
+
+///////////////////////////////////////////////////////////////////////////////
+// View implementation for the chooser bubble.
+class ChooserBubbleUiViewDelegate : public views::BubbleDelegateView,
+                                    public views::ButtonListener,
+                                    public views::StyledLabelListener,
+                                    public views::TableViewObserver {
+ public:
+  ChooserBubbleUiViewDelegate(views::View* anchor_view,
+                              views::BubbleBorder::Arrow anchor_arrow,
+                              ChooserBubbleUiView* owner,
+                              ChooserBubbleController* controller);
+  ~ChooserBubbleUiViewDelegate() override;
+
+  void Close();
+
+  // views::BubbleDelegateView:
+  bool ShouldShowWindowTitle() const override;
+  base::string16 GetWindowTitle() const override;
+  void OnWidgetDestroying(views::Widget* widget) override;
+
+  // views::ButtonListener:
+  void ButtonPressed(views::Button* button, const ui::Event& event) override;
+
+  // views::StyledLabelListener:
+  void StyledLabelLinkClicked(views::StyledLabel* label,
+                              const gfx::Range& range,
+                              int event_flags) override;
+
+  // views::TableViewObserver:
+  void OnSelectionChanged() override;
+
+  // Updates the anchor's arrow and view. Also repositions the bubble so it's
+  // displayed in the correct location.
+  void UpdateAnchor(views::View* anchor_view,
+                    views::BubbleBorder::Arrow anchor_arrow);
+
+ private:
+  friend ChooserBubbleUiView;
+
+  ChooserBubbleUiView* owner_;
+  ChooserBubbleController* controller_;
+
+  views::LabelButton* connect_button_;
+  views::TableView* table_view_;
+  ChooserTableModel* chooser_table_model_;
+  bool button_pressed_;
+
+  DISALLOW_COPY_AND_ASSIGN(ChooserBubbleUiViewDelegate);
+};
+
+ui::TableColumn ChooserTableColumn(int id, const std::string& title) {
+  ui::TableColumn column;
+  column.id = id;
+  column.title = base::ASCIIToUTF16(title.c_str());
+  return column;
+}
+
+class ChooserTableModel : public ui::TableModel,
+                          public ChooserBubbleController::Observer {
+ public:
+  explicit ChooserTableModel(ChooserBubbleController* controller);
+
+  // ui::TableModel:
+  int RowCount() override;
+  base::string16 GetText(int row, int column_id) override;
+  void SetObserver(ui::TableModelObserver* observer) override;
+
+  // ChooserBubbleController::Observer:
+  void OnOptionsInitialized() override;
+  void OnOptionAdded(size_t index) override;
+  void OnOptionRemoved(size_t index) override;
+
+  void Update();
+  void SetConnectButton(views::LabelButton* connect_button);
+
+ private:
+  ui::TableModelObserver* observer_;
+  ChooserBubbleController* controller_;
+  views::LabelButton* connect_button_;
+};
+
+ChooserBubbleUiViewDelegate::ChooserBubbleUiViewDelegate(
+    views::View* anchor_view,
+    views::BubbleBorder::Arrow anchor_arrow,
+    ChooserBubbleUiView* owner,
+    ChooserBubbleController* controller)
+    : views::BubbleDelegateView(anchor_view, anchor_arrow),
+      owner_(owner),
+      controller_(controller),
+      button_pressed_(false) {
+  // TODO(juncai): try using DialogClientView to build the chooser UI view since
+  // they look similar.
+  // https://crbug.com/587545
+  // ------------------------------------
+  // | Chooser bubble title             |
+  // | -------------------------------- |
+  // | | option 0                     | |
+  // | | option 1                     | |
+  // | | option 2                     | |
+  // | |                              | |
+  // | |                              | |
+  // | |                              | |
+  // | -------------------------------- |
+  // |           [ Connect ] [ Cancel ] |
+  // |----------------------------------|
+  // | Not seeing your device? Get help |
+  // ------------------------------------
+
+  views::GridLayout* layout = new views::GridLayout(this);
+  SetLayoutManager(layout);
+
+  views::ColumnSet* column_set = layout->AddColumnSet(0);
+  column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
+                        views::GridLayout::USE_PREF, 0, 0);
+
+  // Lay out the table view.
+  layout->StartRow(0, 0);
+  std::vector<ui::TableColumn> table_columns;
+  table_columns.push_back(ChooserTableColumn(
+      0, "" /* Empty string makes the column title invisible */));
+  chooser_table_model_ = new ChooserTableModel(controller_);
+  table_view_ = new views::TableView(chooser_table_model_, table_columns,
+                                     views::TEXT_ONLY, true);
+  table_view_->set_select_on_remove(false);
+  chooser_table_model_->SetObserver(table_view_);
+  table_view_->SetObserver(this);
+  table_view_->SetEnabled(controller_->NumOptions() > 0);
+  layout->AddView(table_view_->CreateParentIfNecessary(), 1, 1,
+                  views::GridLayout::FILL, views::GridLayout::FILL,
+                  kChooserPermissionBubbleWidth,
+                  kChooserPermissionBubbleHeight);
+
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
+
+  // Lay out the Connect/Cancel buttons.
+  layout->StartRow(0, 0);
+  views::View* button_row = new views::View();
+  views::BoxLayout* button_layout = new views::BoxLayout(
+      views::BoxLayout::kHorizontal, 0, 0, views::kRelatedButtonHSpacing);
+  button_layout->set_main_axis_alignment(
+      views::BoxLayout::MAIN_AXIS_ALIGNMENT_END);
+  button_row->SetLayoutManager(button_layout);
+
+  base::string16 connect_text =
+      l10n_util::GetStringUTF16(IDS_CHOOSER_BUBBLE_CONNECT_BUTTON_TEXT);
+  connect_button_ = new views::LabelButton(this, connect_text);
+  connect_button_->SetStyle(views::Button::STYLE_BUTTON);
+  // Disable the connect button at the beginning since no device selected yet.
+  connect_button_->SetEnabled(false);
+  button_row->AddChildView(connect_button_);
+  chooser_table_model_->SetConnectButton(connect_button_);
+
+  base::string16 cancel_text =
+      l10n_util::GetStringUTF16(IDS_CHOOSER_BUBBLE_CANCEL_BUTTON_TEXT);
+  views::LabelButton* cancel_button = new views::LabelButton(this, cancel_text);
+  cancel_button->SetStyle(views::Button::STYLE_BUTTON);
+  button_row->AddChildView(cancel_button);
+  layout->AddView(button_row);
+
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
+
+  // Lay out the separator.
+  layout->StartRow(0, 0);
+  layout->AddView(new views::Separator(views::Separator::HORIZONTAL));
+
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
+
+  // Lay out the styled label.
+  layout->StartRow(0, 0);
+  base::string16 link =
+      l10n_util::GetStringUTF16(IDS_CHOOSER_BUBBLE_GET_HELP_LINK_TEXT);
+  size_t offset;
+  base::string16 text = l10n_util::GetStringFUTF16(
+      IDS_CHOOSER_BUBBLE_FOOTNOTE_TEXT, link, &offset);
+  views::StyledLabel* label = new views::StyledLabel(text, this);
+  label->AddStyleRange(gfx::Range(offset, offset + link.length()),
+                       views::StyledLabel::RangeStyleInfo::CreateForLink());
+  layout->AddView(label);
+}
+
+ChooserBubbleUiViewDelegate::~ChooserBubbleUiViewDelegate() {
+  RemoveAllChildViews(true);
+  if (owner_)
+    owner_->Close();
+  chooser_table_model_->SetObserver(nullptr);
+}
+
+void ChooserBubbleUiViewDelegate::Close() {
+  if (!button_pressed_)
+    controller_->Close();
+  owner_ = nullptr;
+  GetWidget()->Close();
+}
+
+bool ChooserBubbleUiViewDelegate::ShouldShowWindowTitle() const {
+  return true;
+}
+
+base::string16 ChooserBubbleUiViewDelegate::GetWindowTitle() const {
+  return l10n_util::GetStringUTF16(IDS_CHOOSER_BUBBLE_PROMPT);
+}
+
+void ChooserBubbleUiViewDelegate::OnWidgetDestroying(views::Widget* widget) {
+  views::BubbleDelegateView::OnWidgetDestroying(widget);
+  if (owner_) {
+    owner_->Close();
+    owner_ = nullptr;
+  }
+}
+
+void ChooserBubbleUiViewDelegate::ButtonPressed(views::Button* button,
+                                                const ui::Event& event) {
+  button_pressed_ = true;
+
+  if (button == connect_button_)
+    controller_->Select(table_view_->selection_model().active());
+  else
+    controller_->Cancel();
+
+  if (owner_) {
+    owner_->Close();
+    owner_ = nullptr;
+  }
+}
+
+void ChooserBubbleUiViewDelegate::StyledLabelLinkClicked(
+    views::StyledLabel* label,
+    const gfx::Range& range,
+    int event_flags) {
+  controller_->OpenHelpCenterUrl();
+}
+
+void ChooserBubbleUiViewDelegate::OnSelectionChanged() {
+  connect_button_->SetEnabled(!table_view_->selection_model().empty());
+}
+
+void ChooserBubbleUiViewDelegate::UpdateAnchor(
+    views::View* anchor_view,
+    views::BubbleBorder::Arrow anchor_arrow) {
+  if (GetAnchorView() == anchor_view && arrow() == anchor_arrow)
+    return;
+
+  set_arrow(anchor_arrow);
+
+  // Update the border in the bubble: will either add or remove the arrow.
+  views::BubbleFrameView* frame =
+      views::BubbleDelegateView::GetBubbleFrameView();
+  views::BubbleBorder::Arrow adjusted_arrow = anchor_arrow;
+  if (base::i18n::IsRTL())
+    adjusted_arrow = views::BubbleBorder::horizontal_mirror(adjusted_arrow);
+  frame->SetBubbleBorder(scoped_ptr<views::BubbleBorder>(
+      new views::BubbleBorder(adjusted_arrow, shadow(), color())));
+
+  // Reposition the bubble based on the updated arrow and view.
+  SetAnchorView(anchor_view);
+}
+
+ChooserTableModel::ChooserTableModel(ChooserBubbleController* controller)
+    : observer_(nullptr), controller_(controller) {
+  controller_->set_observer(this);
+}
+
+int ChooserTableModel::RowCount() {
+  // When there are no devices, the table contains a message saying there
+  // are no devices, so the number of rows is always at least 1.
+  return std::max(static_cast<int>(controller_->NumOptions()), 1);
+}
+
+base::string16 ChooserTableModel::GetText(int row, int column_id) {
+  int num_options = static_cast<int>(controller_->NumOptions());
+  if (num_options == 0) {
+    DCHECK_EQ(0, row);
+    return l10n_util::GetStringUTF16(
+        IDS_CHOOSER_BUBBLE_NO_DEVICES_FOUND_PROMPT);
+  }
+
+  DCHECK_GE(row, 0);
+  DCHECK_LT(row, num_options);
+  return controller_->GetOption(static_cast<size_t>(row));
+}
+
+void ChooserTableModel::SetObserver(ui::TableModelObserver* observer) {
+  observer_ = observer;
+}
+
+void ChooserTableModel::OnOptionsInitialized() {
+  if (observer_) {
+    observer_->OnModelChanged();
+    Update();
+  }
+}
+
+void ChooserTableModel::OnOptionAdded(size_t index) {
+  if (observer_) {
+    observer_->OnItemsAdded(static_cast<int>(index), 1);
+    Update();
+  }
+}
+
+void ChooserTableModel::OnOptionRemoved(size_t index) {
+  if (observer_) {
+    observer_->OnItemsRemoved(static_cast<int>(index), 1);
+    Update();
+  }
+}
+
+void ChooserTableModel::Update() {
+  views::TableView* table_view = static_cast<views::TableView*>(observer_);
+
+  if (controller_->NumOptions() == 0) {
+    observer_->OnModelChanged();
+    table_view->SetEnabled(false);
+  } else {
+    table_view->SetEnabled(true);
+  }
+}
+
+void ChooserTableModel::SetConnectButton(views::LabelButton* connect_button) {
+  connect_button_ = connect_button;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// ChooserBubbleUiView
+
+ChooserBubbleUiView::ChooserBubbleUiView(Browser* browser,
+                                         ChooserBubbleController* controller)
+    : browser_(browser),
+      controller_(controller),
+      chooser_bubble_ui_view_delegate_(nullptr) {
+  DCHECK(browser_);
+  DCHECK(controller_);
+}
+
+ChooserBubbleUiView::~ChooserBubbleUiView() {}
+
+void ChooserBubbleUiView::Show(BubbleReference bubble_reference) {
+  chooser_bubble_ui_view_delegate_ = new ChooserBubbleUiViewDelegate(
+      GetAnchorView(), GetAnchorArrow(), this, controller_);
+
+  // Set |parent_window| because some valid anchors can become hidden.
+  views::Widget* widget = views::Widget::GetWidgetForNativeWindow(
+      browser_->window()->GetNativeWindow());
+  chooser_bubble_ui_view_delegate_->set_parent_window(widget->GetNativeView());
+
+  views::BubbleDelegateView::CreateBubble(chooser_bubble_ui_view_delegate_)
+      ->Show();
+
+  chooser_bubble_ui_view_delegate_->chooser_table_model_->Update();
+}
+
+void ChooserBubbleUiView::Close() {
+  if (chooser_bubble_ui_view_delegate_) {
+    chooser_bubble_ui_view_delegate_->Close();
+    chooser_bubble_ui_view_delegate_ = nullptr;
+  }
+}
+
+void ChooserBubbleUiView::UpdateAnchorPosition() {
+  if (chooser_bubble_ui_view_delegate_) {
+    chooser_bubble_ui_view_delegate_->UpdateAnchor(GetAnchorView(),
+                                                   GetAnchorArrow());
+  }
+}
+
+views::View* ChooserBubbleUiView::GetAnchorView() {
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser_);
+
+  if (browser_->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR))
+    return browser_view->GetLocationBarView()->location_icon_view();
+
+  if (browser_view->IsFullscreenBubbleVisible())
+    return browser_view->exclusive_access_bubble()->GetView();
+
+  return browser_view->top_container();
+}
+
+views::BubbleBorder::Arrow ChooserBubbleUiView::GetAnchorArrow() {
+  if (browser_->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR))
+    return views::BubbleBorder::TOP_LEFT;
+  return views::BubbleBorder::NONE;
+}

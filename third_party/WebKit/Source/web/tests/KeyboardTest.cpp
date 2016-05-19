@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/editing/EditingBehavior.h"
 #include "core/editing/Editor.h"
 #include "core/events/EventTarget.h"
@@ -37,8 +35,8 @@
 #include "core/frame/Settings.h"
 #include "platform/KeyboardCodes.h"
 #include "public/web/WebInputEvent.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "web/WebInputEventConversion.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 

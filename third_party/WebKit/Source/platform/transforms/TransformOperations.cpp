@@ -19,13 +19,13 @@
  *
  */
 
-#include "config.h"
 #include "platform/transforms/TransformOperations.h"
 
 #include "platform/animation/AnimationUtilities.h"
 #include "platform/geometry/FloatBox.h"
 #include "platform/transforms/IdentityTransformOperation.h"
 #include "platform/transforms/InterpolatedTransformOperation.h"
+#include "platform/transforms/Matrix3DTransformOperation.h"
 #include "platform/transforms/RotateTransformOperation.h"
 #include <algorithm>
 
@@ -91,11 +91,18 @@ TransformOperations TransformOperations::blendByMatchingOperations(const Transfo
     return result;
 }
 
-TransformOperations TransformOperations::blendByUsingMatrixInterpolation(const TransformOperations& from, double progress) const
+PassRefPtr<TransformOperation> TransformOperations::blendByUsingMatrixInterpolation(const TransformOperations& from, double progress) const
 {
-    TransformOperations result;
-    result.operations().append(InterpolatedTransformOperation::create(from, *this, progress));
-    return result;
+    if (dependsOnBoxSize() || from.dependsOnBoxSize())
+        return InterpolatedTransformOperation::create(from, *this, progress);
+
+    // Evaluate blended matrix here to avoid creating a nested data structure of unbounded depth.
+    TransformationMatrix fromTransform;
+    TransformationMatrix toTransform;
+    from.apply(FloatSize(), fromTransform);
+    apply(FloatSize(), toTransform);
+    toTransform.blend(fromTransform, progress);
+    return Matrix3DTransformOperation::create(toTransform);
 }
 
 TransformOperations TransformOperations::blend(const TransformOperations& from, double progress) const
@@ -107,7 +114,9 @@ TransformOperations TransformOperations::blend(const TransformOperations& from, 
     if (!from.size() || !size() || from.operationsMatch(*this))
         return blendByMatchingOperations(from, progress);
 
-    return blendByUsingMatrixInterpolation(from, progress);
+    TransformOperations result;
+    result.operations().append(blendByUsingMatrixInterpolation(from, progress));
+    return result;
 }
 
 static void findCandidatesInPlane(double px, double py, double nz, double* candidates, int* numCandidates)

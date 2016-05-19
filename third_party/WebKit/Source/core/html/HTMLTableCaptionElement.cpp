@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLTableCaptionElement.h"
 
 #include "core/CSSPropertyNames.h"
@@ -49,4 +48,4 @@ void HTMLTableCaptionElement::collectStyleForPresentationAttribute(const Qualifi
     }
 }
 
-}
+} // namespace blink

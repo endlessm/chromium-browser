@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
@@ -251,12 +251,12 @@ v8::Local<v8::Value> ModuleSystem::RequireForJsInner(
 
   v8::Local<v8::Object> modules(v8::Local<v8::Object>::Cast(modules_value));
   v8::Local<v8::Value> exports;
-  if (!GetProperty(v8_context, modules, module_name, &exports) ||
+  if (!GetPrivateProperty(v8_context, modules, module_name, &exports) ||
       !exports->IsUndefined())
     return handle_scope.Escape(exports);
 
   exports = LoadModule(*v8::String::Utf8Value(module_name));
-  SetProperty(v8_context, modules, module_name, exports);
+  SetPrivateProperty(v8_context, modules, module_name, exports);
   return handle_scope.Escape(exports);
 }
 
@@ -273,8 +273,7 @@ v8::Local<v8::Value> ModuleSystem::CallModuleMethod(
     const std::string& module_name,
     const std::string& method_name,
     std::vector<v8::Local<v8::Value>>* args) {
-  return CallModuleMethod(
-      module_name, method_name, args->size(), vector_as_array(args));
+  return CallModuleMethod(module_name, method_name, args->size(), args->data());
 }
 
 v8::Local<v8::Value> ModuleSystem::CallModuleMethod(
@@ -338,8 +337,7 @@ void ModuleSystem::RegisterNativeHandler(
     const std::string& name,
     scoped_ptr<NativeHandler> native_handler) {
   ClobberExistingNativeHandler(name);
-  native_handler_map_[name] =
-      linked_ptr<NativeHandler>(native_handler.release());
+  native_handler_map_[name] = std::move(native_handler);
 }
 
 void ModuleSystem::OverrideNativeHandlerForTest(const std::string& name) {
@@ -670,7 +668,8 @@ v8::Local<v8::Value> ModuleSystem::LoadModule(const std::string& module_name) {
     return v8::Undefined(GetIsolate());
   }
 
-  exports->ForceSet(v8_key, function, v8::ReadOnly);
+  exports->DefineOwnProperty(v8_context, v8_key, function, v8::ReadOnly)
+      .FromJust();
 
   v8::Local<v8::Object> natives(NewInstance());
   CHECK(!natives.IsEmpty());  // this can fail if v8 has issues
@@ -747,7 +746,7 @@ void ModuleSystem::OnModuleLoaded(
 void ModuleSystem::ClobberExistingNativeHandler(const std::string& name) {
   NativeHandlerMap::iterator existing_handler = native_handler_map_.find(name);
   if (existing_handler != native_handler_map_.end()) {
-    clobbered_native_handlers_.push_back(existing_handler->second);
+    clobbered_native_handlers_.push_back(std::move(existing_handler->second));
     native_handler_map_.erase(existing_handler);
   }
 }

@@ -2,12 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/fetch/FetchBlobDataConsumerHandle.h"
 
 #include "core/dom/ExecutionContext.h"
 #include "core/fetch/ResourceLoaderOptions.h"
-#include "core/loader/ThreadableLoader.h"
+#include "core/loader/MockThreadableLoader.h"
 #include "core/loader/ThreadableLoaderClient.h"
 #include "core/testing/DummyPageHolder.h"
 #include "modules/fetch/DataConsumerHandleTestUtil.h"
@@ -17,11 +16,10 @@
 #include "platform/network/ResourceRequest.h"
 #include "platform/network/ResourceResponse.h"
 #include "platform/testing/UnitTestHelpers.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
-
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 #include <string.h>
 
 namespace blink {
@@ -53,18 +51,7 @@ using Checkpoint = StrictMock<::testing::MockFunction<void(int)>>;
 
 class MockLoaderFactory : public FetchBlobDataConsumerHandle::LoaderFactory {
 public:
-    MOCK_METHOD5(create, PassRefPtr<ThreadableLoader>(ExecutionContext&, ThreadableLoaderClient*, const ResourceRequest&, const ThreadableLoaderOptions&, const ResourceLoaderOptions&));
-};
-
-class MockThreadableLoader : public ThreadableLoader {
-public:
-    static PassRefPtr<MockThreadableLoader> create() { return adoptRef(new StrictMock<MockThreadableLoader>); }
-
-    MOCK_METHOD1(overrideTimeout, void(unsigned long));
-    MOCK_METHOD0(cancel, void());
-
-protected:
-    MockThreadableLoader() = default;
+    MOCK_METHOD4(create, PassRefPtr<ThreadableLoader>(ExecutionContext&, ThreadableLoaderClient*, const ThreadableLoaderOptions&, const ResourceLoaderOptions&));
 };
 
 PassRefPtr<BlobDataHandle> createBlobDataHandle(const char* s)
@@ -110,11 +97,11 @@ TEST_F(FetchBlobDataConsumerHandleTest, CreateLoader)
 
     InSequence s;
     EXPECT_CALL(checkpoint, Call(1));
-    EXPECT_CALL(*factory, create(Ref(document()), _, _, _, _)).WillOnce(DoAll(
-        SaveArg<2>(&request),
-        SaveArg<3>(&options),
-        SaveArg<4>(&resourceLoaderOptions),
+    EXPECT_CALL(*factory, create(Ref(document()), _, _, _)).WillOnce(DoAll(
+        SaveArg<2>(&options),
+        SaveArg<3>(&resourceLoaderOptions),
         Return(loader.get())));
+    EXPECT_CALL(*loader, start(_)).WillOnce(SaveArg<0>(&request));
     EXPECT_CALL(checkpoint, Call(2));
     EXPECT_CALL(*loader, cancel());
 
@@ -154,7 +141,8 @@ TEST_F(FetchBlobDataConsumerHandleTest, CancelLoaderWhenStopped)
 
     InSequence s;
     EXPECT_CALL(checkpoint, Call(1));
-    EXPECT_CALL(*factory, create(Ref(document()), _, _, _, _)).WillOnce(Return(loader.get()));
+    EXPECT_CALL(*factory, create(Ref(document()), _, _, _)).WillOnce(Return(loader.get()));
+    EXPECT_CALL(*loader, start(_));
     EXPECT_CALL(checkpoint, Call(2));
     EXPECT_CALL(*loader, cancel());
     EXPECT_CALL(checkpoint, Call(3));
@@ -182,7 +170,8 @@ TEST_F(FetchBlobDataConsumerHandleTest, CancelLoaderWhenDestinationDetached)
 
     InSequence s;
     EXPECT_CALL(checkpoint, Call(1));
-    EXPECT_CALL(*factory, create(Ref(document()), _, _, _, _)).WillOnce(Return(loader.get()));
+    EXPECT_CALL(*factory, create(Ref(document()), _, _, _)).WillOnce(Return(loader.get()));
+    EXPECT_CALL(*loader, start(_));
     EXPECT_CALL(checkpoint, Call(2));
     EXPECT_CALL(checkpoint, Call(3));
     EXPECT_CALL(*loader, cancel());
@@ -216,7 +205,8 @@ TEST_F(FetchBlobDataConsumerHandleTest, ReadTest)
 
     InSequence s;
     EXPECT_CALL(checkpoint, Call(1));
-    EXPECT_CALL(*factory, create(Ref(document()), _, _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*factory, create(Ref(document()), _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*loader, start(_));
     EXPECT_CALL(checkpoint, Call(2));
     EXPECT_CALL(*loader, cancel());
 
@@ -253,7 +243,8 @@ TEST_F(FetchBlobDataConsumerHandleTest, TwoPhaseReadTest)
 
     InSequence s;
     EXPECT_CALL(checkpoint, Call(1));
-    EXPECT_CALL(*factory, create(Ref(document()), _, _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*factory, create(Ref(document()), _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*loader, start(_));
     EXPECT_CALL(checkpoint, Call(2));
     EXPECT_CALL(*loader, cancel());
 
@@ -290,7 +281,8 @@ TEST_F(FetchBlobDataConsumerHandleTest, LoadErrorTest)
 
     InSequence s;
     EXPECT_CALL(checkpoint, Call(1));
-    EXPECT_CALL(*factory, create(Ref(document()), _, _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*factory, create(Ref(document()), _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*loader, start(_));
     EXPECT_CALL(checkpoint, Call(2));
 
     RefPtr<BlobDataHandle> blobDataHandle = createBlobDataHandle("Once upon a time");
@@ -318,7 +310,8 @@ TEST_F(FetchBlobDataConsumerHandleTest, BodyLoadErrorTest)
 
     InSequence s;
     EXPECT_CALL(checkpoint, Call(1));
-    EXPECT_CALL(*factory, create(Ref(document()), _, _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*factory, create(Ref(document()), _, _, _)).WillOnce(DoAll(SaveArg<1>(&client), Return(loader.get())));
+    EXPECT_CALL(*loader, start(_));
     EXPECT_CALL(checkpoint, Call(2));
     EXPECT_CALL(*loader, cancel());
 

@@ -32,6 +32,8 @@ static_library("user_prefs_tracked") {
     "tracked_preference.h",
     "tracked_preference_helper.cc",
     "tracked_preference_helper.h",
+    "tracked_preference_histogram_names.cc",
+    "tracked_preference_histogram_names.h",
     "tracked_preference_validation_delegate.h",
     "tracked_preferences_migration.cc",
     "tracked_preferences_migration.h",
@@ -52,9 +54,9 @@ static_library("user_prefs_tracked") {
 
   deps = [
     "//base:base",
-    "//base:prefs",
-    "//crypto:crypto",
     "//components/pref_registry",
+    "//components/prefs",
+    "//crypto:crypto",
   ]
 }
 
@@ -87,8 +89,7 @@ source_set("unit_tests") {
     ":user_prefs_tracked",
     ":user_prefs_tracked_test_support",
     "//base:base",
-    "//base:prefs",
-    "//base:prefs_test_support",
+    "//components/prefs:test_support",
     "//testing/gtest",
   ]
 }

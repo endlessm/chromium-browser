@@ -12,6 +12,14 @@
 
 class Profile;
 
+namespace autofill {
+class AutofillWebDataService;
+}
+
+namespace password_manager {
+class PasswordStore;
+}
+
 namespace sync_driver {
 class SyncApiComponentFactory;
 class SyncService;
@@ -21,43 +29,55 @@ namespace browser_sync {
 
 class ChromeSyncClient : public sync_driver::SyncClient {
  public:
-  ChromeSyncClient(
-      Profile* profile,
-      scoped_ptr<sync_driver::SyncApiComponentFactory> component_factory);
+  explicit ChromeSyncClient(Profile* profile);
   ~ChromeSyncClient() override;
 
   // SyncClient implementation.
-  void Initialize(sync_driver::SyncService* sync_service) override;
+  void Initialize() override;
   sync_driver::SyncService* GetSyncService() override;
   PrefService* GetPrefService() override;
   bookmarks::BookmarkModel* GetBookmarkModel() override;
   favicon::FaviconService* GetFaviconService() override;
   history::HistoryService* GetHistoryService() override;
-  scoped_refptr<password_manager::PasswordStore> GetPasswordStore() override;
-  sync_driver::ClearBrowsingDataCallback GetClearBrowsingDataCallback()
-      override;
   base::Closure GetPasswordStateChangedCallback() override;
+  sync_driver::SyncApiComponentFactory::RegisterDataTypesMethod
+  GetRegisterPlatformTypesCallback() override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
   invalidation::InvalidationService* GetInvalidationService() override;
-  scoped_refptr<autofill::AutofillWebDataService> GetWebDataService() override;
   BookmarkUndoService* GetBookmarkUndoServiceIfExists() override;
   scoped_refptr<syncer::ExtensionsActivity> GetExtensionsActivity() override;
   sync_sessions::SyncSessionsClient* GetSyncSessionsClient() override;
   base::WeakPtr<syncer::SyncableService> GetSyncableServiceForType(
+      syncer::ModelType type) override;
+  base::WeakPtr<syncer_v2::ModelTypeService> GetModelTypeServiceForType(
       syncer::ModelType type) override;
   scoped_refptr<syncer::ModelSafeWorker> CreateModelWorkerForGroup(
       syncer::ModelSafeGroup group,
       syncer::WorkerLoopDestructionObserver* observer) override;
   sync_driver::SyncApiComponentFactory* GetSyncApiComponentFactory() override;
 
-  // Helper for testing rollback.
+  // Helpers for overriding getters in tests.
   void SetBrowsingDataRemoverObserverForTesting(
       BrowsingDataRemover::Observer* observer);
+  void SetSyncApiComponentFactoryForTesting(
+      scoped_ptr<sync_driver::SyncApiComponentFactory> component_factory);
 
  private:
-  Profile* const profile_;
+  // Register data types which are enabled on desktop platforms only.
+  // |disabled_types| and |enabled_types| correspond only to those types
+  // being explicitly disabled/enabled by the command line.
+  void RegisterDesktopDataTypes(sync_driver::SyncService* sync_service,
+                                syncer::ModelTypeSet disabled_types,
+                                syncer::ModelTypeSet enabled_types);
 
-  void ClearBrowsingData(base::Time start, base::Time end);
+  // Register data types which are enabled on Android platforms only.
+  // |disabled_types| and |enabled_types| correspond only to those types
+  // being explicitly disabled/enabled by the command line.
+  void RegisterAndroidDataTypes(sync_driver::SyncService* sync_service,
+                                syncer::ModelTypeSet disabled_types,
+                                syncer::ModelTypeSet enabled_types);
+
+  Profile* const profile_;
 
   // The sync api component factory in use by this client.
   scoped_ptr<sync_driver::SyncApiComponentFactory> component_factory_;
@@ -69,17 +89,13 @@ class ChromeSyncClient : public sync_driver::SyncClient {
 
   scoped_ptr<sync_sessions::SyncSessionsClient> sync_sessions_client_;
 
-  // TODO(zea): this is a member only because Typed URLs needs access to
-  // the UserShare and Cryptographer outside of the UI thread. Remove this
-  // once that's no longer the case.
-  // Note: not owned.
-  sync_driver::SyncService* sync_service_;
-
   // Generates and monitors the ExtensionsActivity object used by sync.
   ExtensionsActivityMonitor extensions_activity_monitor_;
 
   // Used in integration tests.
   BrowsingDataRemover::Observer* browsing_data_remover_observer_;
+
+  base::WeakPtrFactory<ChromeSyncClient> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeSyncClient);
 };

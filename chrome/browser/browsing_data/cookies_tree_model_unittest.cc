@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browsing_data/mock_browsing_data_appcache_helper.h"
 #include "chrome/browser/browsing_data/mock_browsing_data_cache_storage_helper.h"
@@ -26,6 +25,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_types.h"
@@ -353,7 +353,7 @@ class CookiesTreeModelTest : public testing::Test {
     CookieTreeRootNode* root = static_cast<CookieTreeRootNode*>(
         cookies_model->GetRoot());
     std::string retval = GetNodesOfChildren(root, type);
-    if (retval.length() && retval[retval.length() - 1] == ',')
+    if (!retval.empty() && retval.back() == ',')
       retval.erase(retval.length() - 1);
     return retval;
   }
@@ -1614,7 +1614,7 @@ TEST_F(CookiesTreeModelTest, CanonicalizeCookieSource) {
 
   cookies_model.UpdateSearchResults(
       base::string16(base::ASCIIToUTF16("file://")));
-  EXPECT_EQ("A", GetDisplayedCookies(&cookies_model));
+  EXPECT_EQ("", GetDisplayedCookies(&cookies_model));
   CheckContentSettingsUrlForHostNodes(
       cookies_model.GetRoot(), CookieTreeNode::DetailedInfo::TYPE_ROOT,
       cookie_settings, GURL("file:///test/tmp.html"));
@@ -1639,6 +1639,30 @@ TEST_F(CookiesTreeModelTest, CanonicalizeCookieSource) {
   CheckContentSettingsUrlForHostNodes(
       cookies_model.GetRoot(), CookieTreeNode::DetailedInfo::TYPE_ROOT,
       cookie_settings, GURL("http://example4.com"));
+}
+
+TEST_F(CookiesTreeModelTest, CookiesFilterWithoutSource) {
+  // CanonicalCookies don't persist their source_ field. This is a regression
+  // test for crbug.com/601582.
+  LocalDataContainer* container =
+      new LocalDataContainer(mock_browsing_data_cookie_helper_.get(),
+                             mock_browsing_data_database_helper_.get(),
+                             mock_browsing_data_local_storage_helper_.get(),
+                             mock_browsing_data_session_storage_helper_.get(),
+                             mock_browsing_data_appcache_helper_.get(),
+                             mock_browsing_data_indexed_db_helper_.get(),
+                             mock_browsing_data_file_system_helper_.get(),
+                             mock_browsing_data_quota_helper_.get(),
+                             mock_browsing_data_channel_id_helper_.get(),
+                             mock_browsing_data_service_worker_helper_.get(),
+                             mock_browsing_data_cache_storage_helper_.get(),
+                             mock_browsing_data_flash_lso_helper_.get());
+  CookiesTreeModel cookies_model(container, special_storage_policy(), false);
+
+  mock_browsing_data_cookie_helper_->
+      AddCookieSamples(GURL(), "A=1");
+  mock_browsing_data_cookie_helper_->Notify();
+  EXPECT_EQ("A", GetDisplayedCookies(&cookies_model));
 }
 
 }  // namespace

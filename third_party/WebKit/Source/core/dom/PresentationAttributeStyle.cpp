@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/PresentationAttributeStyle.h"
 
 #include "core/css/StylePropertySet.h"
@@ -39,6 +38,7 @@
 #include "wtf/HashFunctions.h"
 #include "wtf/HashMap.h"
 #include "wtf/text/CString.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -151,7 +151,7 @@ static unsigned computePresentationAttributeCacheHash(const PresentationAttribut
         return 0;
     ASSERT(key.attributesAndValues.size());
     unsigned attributeHash = StringHasher::hashMemory(key.attributesAndValues.data(), key.attributesAndValues.size() * sizeof(key.attributesAndValues[0]));
-    return WTF::pairIntHash(key.tagName->existingHash(), attributeHash);
+    return WTF::hashInts(key.tagName->existingHash(), attributeHash);
 }
 
 PassRefPtrWillBeRawPtr<StylePropertySet> computePresentationAttributeStyle(Element& element)

@@ -4,19 +4,18 @@
 
 #include "ash/host/ash_window_tree_host_x11.h"
 
-#include <X11/extensions/Xfixes.h>
-#include <X11/extensions/XInput2.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
-
+#include <X11/extensions/XInput2.h>
+#include <X11/extensions/Xfixes.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ash/host/ash_window_tree_host_init_params.h"
 #include "ash/host/ash_window_tree_host_unified.h"
 #include "ash/host/root_window_transformer.h"
 #include "ash/ime/input_method_event_handler.h"
-#include "base/basictypes.h"
 #include "base/sys_info.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -113,7 +112,7 @@ void AshWindowTreeHostX11::UnConfineCursor() {
 
 void AshWindowTreeHostX11::SetRootWindowTransformer(
     scoped_ptr<RootWindowTransformer> transformer) {
-  transformer_helper_.SetRootWindowTransformer(transformer.Pass());
+  transformer_helper_.SetRootWindowTransformer(std::move(transformer));
   if (pointer_barriers_) {
     UnConfineCursor();
     ConfineCursorToRootWindow();
@@ -207,7 +206,7 @@ bool AshWindowTreeHostX11::CanDispatchEvent(const ui::PlatformEvent& event) {
     case ui::ET_TOUCH_RELEASED: {
 #if defined(OS_CHROMEOS)
       XIDeviceEvent* xiev = static_cast<XIDeviceEvent*>(xev->xcookie.data);
-      int64 touch_display_id =
+      int64_t touch_display_id =
           ui::DeviceDataManager::GetInstance()->GetTargetDisplayForTouchDevice(
               xiev->deviceid);
       // If we don't have record of display id for this touch device, check
@@ -219,7 +218,7 @@ bool AshWindowTreeHostX11::CanDispatchEvent(const ui::PlatformEvent& event) {
             !bounds().Contains(ui::EventLocationFromNative(xev)))
           return false;
       } else {
-        gfx::Screen* screen = gfx::Screen::GetScreenFor(window());
+        gfx::Screen* screen = gfx::Screen::GetScreen();
         gfx::Display display = screen->GetDisplayNearestWindow(window());
         return touch_display_id == display.id();
       }
@@ -289,13 +288,6 @@ void AshWindowTreeHostX11::SetCrOSTapPaused(bool state) {
     }
   }
 }
-#endif
-
-AshWindowTreeHost* AshWindowTreeHost::Create(
-    const AshWindowTreeHostInitParams& init_params) {
-  if (init_params.offscreen)
-    return new AshWindowTreeHostUnified(init_params.initial_bounds);
-  return new AshWindowTreeHostX11(init_params.initial_bounds);
-}
+#endif  // defined(OS_CHROMEOS)
 
 }  // namespace ash

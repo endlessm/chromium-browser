@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/SVGTextQuery.h"
 
 #include "core/layout/LayoutBlockFlow.h"
@@ -31,6 +30,7 @@
 #include "platform/FloatConversion.h"
 #include "wtf/MathExtras.h"
 #include "wtf/Vector.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -88,7 +88,7 @@ static void collectTextBoxesInFlowBox(InlineFlowBox* flowBox, Vector<SVGInlineTe
     for (InlineBox* child = flowBox->firstChild(); child; child = child->nextOnLine()) {
         if (child->isInlineFlowBox()) {
             // Skip generated content.
-            if (!child->layoutObject().node())
+            if (!child->getLineLayoutItem().node())
                 continue;
 
             collectTextBoxesInFlowBox(toInlineFlowBox(child), textBoxes);
@@ -105,7 +105,7 @@ typedef bool ProcessTextFragmentCallback(QueryData*, const SVGTextFragment&);
 static bool queryTextBox(QueryData* queryData, const SVGInlineTextBox* textBox, ProcessTextFragmentCallback fragmentCallback)
 {
     queryData->textBox = textBox;
-    queryData->textLineLayout = LineLayoutSVGInlineText(textBox->lineLayoutItem());
+    queryData->textLineLayout = LineLayoutSVGInlineText(textBox->getLineLayoutItem());
 
     queryData->isVerticalText = !queryData->textLineLayout.style()->isHorizontalWritingMode();
 
@@ -331,11 +331,10 @@ static FloatPoint calculateGlyphPositionWithoutTransform(const QueryData* queryD
 static FloatPoint calculateGlyphPosition(const QueryData* queryData, const SVGTextFragment& fragment, int offsetInFragment)
 {
     FloatPoint glyphPosition = calculateGlyphPositionWithoutTransform(queryData, fragment, offsetInFragment);
-    AffineTransform fragmentTransform;
-    fragment.buildFragmentTransform(fragmentTransform, SVGTextFragment::TransformIgnoringTextLength);
-    if (!fragmentTransform.isIdentity())
+    if (fragment.isTransformed()) {
+        AffineTransform fragmentTransform = fragment.buildFragmentTransform(SVGTextFragment::TransformIgnoringTextLength);
         glyphPosition = fragmentTransform.mapPoint(glyphPosition);
-
+    }
     return glyphPosition;
 }
 
@@ -414,15 +413,13 @@ static bool rotationOfCharacterCallback(QueryData* queryData, const SVGTextFragm
     if (!mapStartEndPositionsIntoFragmentCoordinates(queryData, fragment, startPosition, endPosition))
         return false;
 
-    AffineTransform fragmentTransform;
-    fragment.buildFragmentTransform(fragmentTransform, SVGTextFragment::TransformIgnoringTextLength);
-    if (fragmentTransform.isIdentity()) {
+    if (!fragment.isTransformed()) {
         data->rotation = 0;
     } else {
+        AffineTransform fragmentTransform = fragment.buildFragmentTransform(SVGTextFragment::TransformIgnoringTextLength);
         fragmentTransform.scale(1 / fragmentTransform.xScale(), 1 / fragmentTransform.yScale());
         data->rotation = narrowPrecisionToFloat(rad2deg(atan2(fragmentTransform.b(), fragmentTransform.a())));
     }
-
     return true;
 }
 
@@ -487,10 +484,10 @@ static inline void calculateGlyphBoundaries(const QueryData* queryData, const SV
             extent.move(-glyphSize.width(), 0);
     }
 
-    AffineTransform fragmentTransform;
-    fragment.buildFragmentTransform(fragmentTransform, SVGTextFragment::TransformIgnoringTextLength);
-
-    extent = fragmentTransform.mapRect(extent);
+    if (fragment.isTransformed()) {
+        AffineTransform fragmentTransform = fragment.buildFragmentTransform(SVGTextFragment::TransformIgnoringTextLength);
+        extent = fragmentTransform.mapRect(extent);
+    }
 }
 
 static inline FloatRect calculateFragmentBoundaries(LineLayoutSVGInlineText textLineLayout, const SVGTextFragment& fragment)
@@ -498,11 +495,7 @@ static inline FloatRect calculateFragmentBoundaries(LineLayoutSVGInlineText text
     float scalingFactor = textLineLayout.scalingFactor();
     ASSERT(scalingFactor);
     float baseline = textLineLayout.scaledFont().fontMetrics().floatAscent() / scalingFactor;
-
-    AffineTransform fragmentTransform;
-    FloatRect fragmentRect(fragment.x, fragment.y - baseline, fragment.width, fragment.height);
-    fragment.buildFragmentTransform(fragmentTransform);
-    return fragmentTransform.mapRect(fragmentRect);
+    return fragment.boundingBox(baseline);
 }
 
 static bool extentOfCharacterCallback(QueryData* queryData, const SVGTextFragment& fragment)
@@ -615,4 +608,4 @@ int SVGTextQuery::characterNumberAtPosition(const FloatPoint& position) const
     return data.characterNumberWithin(m_queryRootLayoutObject);
 }
 
-}
+} // namespace blink

@@ -5,6 +5,7 @@
 #include "content/browser/download/download_file_impl.h"
 
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
@@ -34,29 +35,29 @@ const int kInitialRenameRetryDelayMs = 200;
 int DownloadFile::number_active_objects_ = 0;
 
 DownloadFileImpl::DownloadFileImpl(
-    scoped_ptr<DownloadSaveInfo> save_info,
+    const DownloadSaveInfo& save_info,
     const base::FilePath& default_download_directory,
     const GURL& url,
     const GURL& referrer_url,
     bool calculate_hash,
+    base::File file,
     scoped_ptr<ByteStreamReader> stream,
     const net::BoundNetLog& bound_net_log,
     base::WeakPtr<DownloadDestinationObserver> observer)
-    : file_(save_info->file_path,
+    : file_(save_info.file_path,
             url,
             referrer_url,
-            save_info->offset,
+            save_info.offset,
             calculate_hash,
-            save_info->hash_state,
-            save_info->file.Pass(),
+            save_info.hash_state,
+            std::move(file),
             bound_net_log),
       default_download_directory_(default_download_directory),
-      stream_reader_(stream.Pass()),
+      stream_reader_(std::move(stream)),
       bytes_seen_(0),
       bound_net_log_(bound_net_log),
       observer_(observer),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
 DownloadFileImpl::~DownloadFileImpl() {
   DCHECK_CURRENTLY_ON(BrowserThread::FILE);
@@ -228,7 +229,7 @@ bool DownloadFileImpl::InProgress() const {
   return file_.in_progress();
 }
 
-int64 DownloadFileImpl::CurrentSpeed() const {
+int64_t DownloadFileImpl::CurrentSpeed() const {
   return rate_estimator_.GetCountPerSecond();
 }
 
@@ -280,7 +281,10 @@ void DownloadFileImpl::StreamActive() {
               stream_reader_->GetStatus());
           SendUpdate();
           base::TimeTicks close_start(base::TimeTicks::Now());
-          file_.Finish();
+          if (reason == DOWNLOAD_INTERRUPT_REASON_NONE)
+            file_.Finish();
+          else
+            file_.FinishWithError();
           base::TimeTicks now(base::TimeTicks::Now());
           disk_writes_time_ += (now - close_start);
           RecordFileBandwidth(

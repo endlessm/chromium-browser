@@ -4,6 +4,9 @@
 
 #include "chrome/browser/ui/views/settings_api_bubble_helper_views.h"
 
+#include <utility>
+
+#include "build/build_config.h"
 #include "chrome/browser/extensions/ntp_overridden_bubble_delegate.h"
 #include "chrome/browser/extensions/settings_api_bubble_delegate.h"
 #include "chrome/browser/extensions/settings_api_helpers.h"
@@ -11,7 +14,6 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/extensions/extension_message_bubble_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/settings_api_bubble_helper_views.h"
 #include "chrome/browser/ui/views/toolbar/app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/home_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
@@ -35,7 +37,7 @@ void ShowSettingsApiBubble(SettingsApiOverrideType type,
     return;
 
   ExtensionMessageBubbleView* bubble = new ExtensionMessageBubbleView(
-      anchor_view, arrow, settings_api_bubble.Pass());
+      anchor_view, arrow, std::move(settings_api_bubble));
   views::BubbleDelegateView::CreateBubble(bubble);
   bubble->Show();
 }
@@ -59,13 +61,13 @@ void MaybeShowExtensionControlledHomeNotification(Browser* browser) {
 void MaybeShowExtensionControlledSearchNotification(
     Profile* profile,
     content::WebContents* web_contents,
-    const AutocompleteMatch& match) {
+    AutocompleteMatch::Type match_type) {
 #if !defined(OS_WIN)
   return;
 #endif
 
-  if (AutocompleteMatch::IsSearchType(match.type) &&
-      match.type != AutocompleteMatchType::SEARCH_OTHER_ENGINE) {
+  if (AutocompleteMatch::IsSearchType(match_type) &&
+      match_type != AutocompleteMatchType::SEARCH_OTHER_ENGINE) {
     Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
     ToolbarView* toolbar =
         BrowserView::GetBrowserViewForBrowser(browser)->toolbar();
@@ -109,7 +111,7 @@ void MaybeShowExtensionControlledNewTabPage(
       BrowserView::GetBrowserViewForBrowser(browser)
           ->toolbar()
           ->app_menu_button(),
-      views::BubbleBorder::TOP_RIGHT, ntp_overridden_bubble.Pass());
+      views::BubbleBorder::TOP_RIGHT, std::move(ntp_overridden_bubble));
   views::BubbleDelegateView::CreateBubble(bubble);
   bubble->Show();
 }

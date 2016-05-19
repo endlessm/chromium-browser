@@ -5,8 +5,10 @@
 #include "chrome/browser/printing/printing_message_filter.h"
 
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/printer_query.h"
@@ -34,7 +36,6 @@
 
 #if defined(OS_ANDROID)
 #include "base/strings/string_number_conversions.h"
-#include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/printing/print_view_manager_basic.h"
 #endif
 
@@ -93,9 +94,6 @@ void PrintingMessageFilter::OverrideThreadForMessage(
 bool PrintingMessageFilter::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PrintingMessageFilter, message)
-#if defined(OS_WIN)
-    IPC_MESSAGE_HANDLER(PrintHostMsg_DuplicateSection, OnDuplicateSection)
-#endif
 #if defined(OS_ANDROID)
     IPC_MESSAGE_HANDLER(PrintHostMsg_AllocateTempFileForPrinting,
                         OnAllocateTempFileForPrinting)
@@ -115,17 +113,6 @@ bool PrintingMessageFilter::OnMessageReceived(const IPC::Message& message) {
   IPC_END_MESSAGE_MAP()
   return handled;
 }
-
-#if defined(OS_WIN)
-void PrintingMessageFilter::OnDuplicateSection(
-    base::SharedMemoryHandle renderer_handle,
-    base::SharedMemoryHandle* browser_handle) {
-  // Duplicate the handle in this process right now so the memory is kept alive
-  // (even if it is not mapped)
-  base::SharedMemory shared_buf(renderer_handle, true, PeerHandle());
-  shared_buf.GiveToProcess(base::GetCurrentProcessHandle(), browser_handle);
-}
-#endif
 
 #if defined(OS_ANDROID)
 void PrintingMessageFilter::OnAllocateTempFileForPrinting(
@@ -302,7 +289,7 @@ void PrintingMessageFilter::OnUpdatePrintSettings(
     printer_query = queue_->CreatePrinterQuery(host_id, routing_id);
   }
   printer_query->SetSettings(
-      new_settings.Pass(),
+      std::move(new_settings),
       base::Bind(&PrintingMessageFilter::OnUpdatePrintSettingsReply, this,
                  printer_query, reply_msg));
 }
@@ -336,7 +323,7 @@ void PrintingMessageFilter::OnUpdatePrintSettingsReply(
 }
 
 #if defined(ENABLE_PRINT_PREVIEW)
-void PrintingMessageFilter::OnCheckForCancel(int32 preview_ui_id,
+void PrintingMessageFilter::OnCheckForCancel(int32_t preview_ui_id,
                                              int preview_request_id,
                                              bool* cancel) {
   PrintPreviewUI::GetCurrentPrintPreviewStatus(preview_ui_id,

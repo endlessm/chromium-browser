@@ -42,6 +42,9 @@ Event.prototype.isMetaOrCtrlForTest;
 /** @type {string} */
 Event.prototype.code;
 
+/** @type {function():!Array<!EventTarget>|undefined} */
+Event.prototype.deepPath;
+
 /**
  * @type {number}
  */
@@ -311,6 +314,10 @@ Adb.Device;
 Adb.PortForwardingConfig;
 /** @typedef {!{port: string, address: string}} */
 Adb.PortForwardingRule;
+/** @typedef {{ports: !Object<string, number>, browserId: string}} */
+Adb.DevicePortForwardingStatus;
+/** @typedef {!Object<string, !Adb.DevicePortForwardingStatus>} */
+Adb.PortForwardingStatus;
 
 /**
  * @constructor

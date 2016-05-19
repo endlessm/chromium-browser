@@ -2,20 +2,26 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-source_set("bitmap_uploader") {
+component("bitmap_uploader") {
   sources = [
     "bitmap_uploader.cc",
     "bitmap_uploader.h",
   ]
 
-  defines = [ "GL_GLEXT_PROTOTYPES" ]
+  defines = [
+    "BITMAP_UPLOADER_IMPLEMENTATION",
+    "GL_GLEXT_PROTOTYPES",
+  ]
 
   deps = [
     "//base",
-    "//components/mus/public/interfaces",
     "//components/mus/public/cpp",
+    "//components/mus/public/interfaces",
     "//gpu",
     "//mojo/converters/surfaces",
     "//mojo/public/c/gles2",
+    "//mojo/public/c/system:for_component",
+    "//mojo/shell/public/cpp",
+    "//mojo/shell/public/interfaces",
   ]
 }

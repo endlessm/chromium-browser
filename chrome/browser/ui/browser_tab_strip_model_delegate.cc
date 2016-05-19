@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/browser_tab_strip_model_delegate.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
@@ -55,8 +57,7 @@ Browser* BrowserTabStripModelDelegate::CreateNewStripWithContents(
   DCHECK(browser_->CanSupportWindowFeature(Browser::FEATURE_TABSTRIP));
 
   // Create an empty new browser window the same size as the old one.
-  Browser::CreateParams params(browser_->profile(),
-                               browser_->host_desktop_type());
+  Browser::CreateParams params(browser_->profile());
   params.initial_bounds = window_bounds;
   params.initial_show_state =
       maximize ? ui::SHOW_STATE_MAXIMIZED : ui::SHOW_STATE_NORMAL;

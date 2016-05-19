@@ -5,10 +5,12 @@
 #include "content/browser/renderer_host/pepper/pepper_udp_socket_message_filter.h"
 
 #include <cstring>
+#include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "build/build_config.h"
 #include "content/browser/renderer_host/pepper/browser_ppapi_host_impl.h"
 #include "content/browser/renderer_host/pepper/pepper_socket_utils.h"
 #include "content/public/browser/browser_thread.h"
@@ -58,6 +60,9 @@ PepperUDPSocketMessageFilter::PendingSend::PendingSend(
     : address(address), port(port), buffer(buffer), context(context) {
 }
 
+PepperUDPSocketMessageFilter::PendingSend::PendingSend(
+    const PendingSend& other) = default;
+
 PepperUDPSocketMessageFilter::PendingSend::~PendingSend() {
 }
 
@@ -65,8 +70,7 @@ PepperUDPSocketMessageFilter::PepperUDPSocketMessageFilter(
     BrowserPpapiHostImpl* host,
     PP_Instance instance,
     bool private_api)
-    : host_(host),
-      socket_options_(0),
+    : socket_options_(0),
       rcvbuf_size_(0),
       sndbuf_size_(0),
       multicast_ttl_(0),
@@ -361,7 +365,7 @@ int32_t PepperUDPSocketMessageFilter::OnMsgJoinGroup(
     return PP_ERROR_FAILED;
 
   net::IPAddressNumber group;
-  uint16 port;
+  uint16_t port;
 
   if (!NetAddressPrivateImpl::NetAddressToIPEndPoint(addr, &group, &port))
     return PP_ERROR_ADDRESS_INVALID;
@@ -382,7 +386,7 @@ int32_t PepperUDPSocketMessageFilter::OnMsgLeaveGroup(
     return PP_ERROR_FAILED;
 
   net::IPAddressNumber group;
-  uint16 port;
+  uint16_t port;
 
   if (!NetAddressPrivateImpl::NetAddressToIPEndPoint(addr, &group, &port))
     return PP_ERROR_ADDRESS_INVALID;
@@ -405,7 +409,7 @@ void PepperUDPSocketMessageFilter::DoBind(
       NULL, net::NetLog::Source()));
 
   net::IPAddressNumber address;
-  uint16 port;
+  uint16_t port;
   if (!NetAddressPrivateImpl::NetAddressToIPEndPoint(addr, &address, &port)) {
     SendBindError(context, PP_ERROR_ADDRESS_INVALID);
     return;
@@ -491,7 +495,8 @@ void PepperUDPSocketMessageFilter::DoBind(
 
   PP_NetAddress_Private net_address = NetAddressPrivateImpl::kInvalidNetAddress;
   if (!NetAddressPrivateImpl::IPEndPointToNetAddress(
-          bound_address.address(), bound_address.port(), &net_address)) {
+          bound_address.address().bytes(), bound_address.port(),
+          &net_address)) {
     SendBindError(context, PP_ERROR_ADDRESS_INVALID);
     return;
   }
@@ -502,7 +507,7 @@ void PepperUDPSocketMessageFilter::DoBind(
       base::Bind(&PepperUDPSocketMessageFilter::OnBindComplete, this,
                  base::Passed(&socket), context, net_address));
 #else
-  OnBindComplete(socket.Pass(), context, net_address);
+  OnBindComplete(std::move(socket), context, net_address);
 #endif
 }
 
@@ -585,7 +590,7 @@ void PepperUDPSocketMessageFilter::DoSendTo(
   }
 
   net::IPAddressNumber address;
-  uint16 port;
+  uint16_t port;
   if (!NetAddressPrivateImpl::NetAddressToIPEndPoint(addr, &address, &port)) {
     SendSendToError(context, PP_ERROR_ADDRESS_INVALID);
     return;
@@ -643,7 +648,8 @@ void PepperUDPSocketMessageFilter::OnRecvFromCompleted(int net_result) {
   PP_NetAddress_Private addr = NetAddressPrivateImpl::kInvalidNetAddress;
   if (pp_result >= 0 &&
       !NetAddressPrivateImpl::IPEndPointToNetAddress(
-          recvfrom_address_.address(), recvfrom_address_.port(), &addr)) {
+          recvfrom_address_.address().bytes(), recvfrom_address_.port(),
+          &addr)) {
     pp_result = PP_ERROR_ADDRESS_INVALID;
   }
 

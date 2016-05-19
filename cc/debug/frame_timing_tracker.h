@@ -5,11 +5,13 @@
 #ifndef CC_DEBUG_FRAME_TIMING_TRACKER_H_
 #define CC_DEBUG_FRAME_TIMING_TRACKER_H_
 
+#include <stdint.h>
+
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
-#include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "cc/base/cc_export.h"
@@ -33,7 +35,7 @@ class CC_EXPORT FrameTimingTracker {
   };
 
   using CompositeTimingSet =
-      base::hash_map<int64_t, std::vector<CompositeTimingEvent>>;
+      std::unordered_map<int64_t, std::vector<CompositeTimingEvent>>;
 
   struct CC_EXPORT MainFrameTimingEvent {
     MainFrameTimingEvent(int frame_id,
@@ -47,7 +49,7 @@ class CC_EXPORT FrameTimingTracker {
   };
 
   using MainFrameTimingSet =
-      base::hash_map<int64_t, std::vector<MainFrameTimingEvent>>;
+      std::unordered_map<int64_t, std::vector<MainFrameTimingEvent>>;
 
   static scoped_ptr<FrameTimingTracker> Create(
       LayerTreeHostImpl* layer_tree_host_impl);

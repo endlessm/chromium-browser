@@ -4,6 +4,9 @@
 
 #include "chromeos/process_proxy/process_output_watcher.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -23,10 +26,10 @@ namespace {
 // byte. If the most significant bit is '0', the character is a valid ASCII
 // and it's byte size is 1.
 // The method returns 1 if the provided byte is invalid leading byte.
-size_t UTF8SizeFromLeadingByte(uint8 leading_byte) {
+size_t UTF8SizeFromLeadingByte(uint8_t leading_byte) {
   size_t byte_count = 0;
-  uint8 mask = 1 << 7;
-  uint8 error_mask = 1 << (7 - CBU8_MAX_LENGTH);
+  uint8_t mask = 1 << 7;
+  uint8_t error_mask = 1 << (7 - CBU8_MAX_LENGTH);
   while (leading_byte & mask) {
     if (mask & error_mask)
       return 1;
@@ -34,6 +37,12 @@ size_t UTF8SizeFromLeadingByte(uint8 leading_byte) {
     ++byte_count;
   }
   return byte_count ? byte_count : 1;
+}
+
+void RelayToTaskRunner(
+    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+    const base::Closure& callback) {
+  task_runner->PostTask(FROM_HERE, callback);
 }
 
 }  // namespace
@@ -86,19 +95,11 @@ void ProcessOutputWatcher::ReadFromFd(int fd) {
                         read_buffer_capacity_ - read_buffer_size_));
 
   if (bytes_read > 0) {
-    ReportOutput(PROCESS_OUTPUT_TYPE_OUT, bytes_read);
-
-    // Delay next read to make the process less likely to flood IPC channel
-    // when output is reported to terminal extension via terminalPrivate API
-    // (which is the only client of this code).
-    // TODO(tbarzic): Properly fix this!! Provide a mechanism for clients to
-    //     ack reported output and continue watching the process when ack is
-    //     received. https://crbug.com/398901
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::Bind(&ProcessOutputWatcher::WatchProcessOutput,
-                              weak_factory_.GetWeakPtr()),
-        base::TimeDelta::FromMilliseconds(10));
-
+    ReportOutput(
+        PROCESS_OUTPUT_TYPE_OUT, bytes_read,
+        base::Bind(&RelayToTaskRunner, base::ThreadTaskRunnerHandle::Get(),
+                   base::Bind(&ProcessOutputWatcher::WatchProcessOutput,
+                              weak_factory_.GetWeakPtr())));
     return;
   }
 
@@ -107,7 +108,7 @@ void ProcessOutputWatcher::ReadFromFd(int fd) {
 
   // If there is nothing on the output the watched process has exited (slave end
   // of pty is closed).
-  on_read_callback_.Run(PROCESS_OUTPUT_TYPE_EXIT, "");
+  on_read_callback_.Run(PROCESS_OUTPUT_TYPE_EXIT, "", base::Closure());
 
   // Cancel pending |WatchProcessOutput| calls.
   weak_factory_.InvalidateWeakPtrs();
@@ -150,11 +151,13 @@ size_t ProcessOutputWatcher::OutputSizeWithoutIncompleteUTF8() {
 }
 
 void ProcessOutputWatcher::ReportOutput(ProcessOutputType type,
-                                        size_t new_bytes_count) {
+                                        size_t new_bytes_count,
+                                        const base::Closure& callback) {
   read_buffer_size_ += new_bytes_count;
   size_t output_to_report = OutputSizeWithoutIncompleteUTF8();
 
-  on_read_callback_.Run(type, std::string(read_buffer_, output_to_report));
+  on_read_callback_.Run(type, std::string(read_buffer_, output_to_report),
+                        callback);
 
   // Move the bytes that were left behind to the beginning of the buffer and
   // update the buffer size accordingly.

@@ -5,6 +5,8 @@
 #ifndef NET_SPDY_HPACK_STATIC_TABLE_H_
 #define NET_SPDY_HPACK_STATIC_TABLE_H_
 
+#include <stddef.h>
+
 #include "net/spdy/hpack/hpack_header_table.h"
 
 namespace net {
@@ -32,13 +34,17 @@ class NET_EXPORT_PRIVATE HpackStaticTable {
   const HpackHeaderTable::EntryTable& GetStaticEntries() const {
     return static_entries_;
   }
-  const HpackHeaderTable::OrderedEntrySet& GetStaticIndex() const {
+  const HpackHeaderTable::UnorderedEntrySet& GetStaticIndex() const {
     return static_index_;
+  }
+  const HpackHeaderTable::NameToEntryMap& GetStaticNameIndex() const {
+    return static_name_index_;
   }
 
  private:
   HpackHeaderTable::EntryTable static_entries_;
-  HpackHeaderTable::OrderedEntrySet static_index_;
+  HpackHeaderTable::UnorderedEntrySet static_index_;
+  HpackHeaderTable::NameToEntryMap static_name_index_;
 };
 
 }  // namespace net

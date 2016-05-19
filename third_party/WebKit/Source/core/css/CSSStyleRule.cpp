@@ -19,7 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/CSSStyleRule.h"
 
 #include "core/css/CSSSelector.h"
@@ -96,14 +95,13 @@ String CSSStyleRule::selectorText() const
 void CSSStyleRule::setSelectorText(const String& selectorText)
 {
     CSSParserContext context(parserContext(), 0);
-    CSSSelectorList selectorList;
-    CSSParser::parseSelector(context, selectorText, selectorList);
+    CSSSelectorList selectorList = CSSParser::parseSelector(context, parentStyleSheet() ? parentStyleSheet()->contents() : nullptr, selectorText);
     if (!selectorList.isValid())
         return;
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_styleRule->wrapperAdoptSelectorList(selectorList);
+    m_styleRule->wrapperAdoptSelectorList(std::move(selectorList));
 
     if (hasCachedSelectorText()) {
         selectorTextCache().remove(this);

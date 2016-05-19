@@ -2,22 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <map>
 #include <utility>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/guid.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/autofill/autofill_dialog_controller_impl.h"
@@ -36,12 +38,14 @@
 #include "components/autofill/content/browser/risk/proto/fingerprint.pb.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
+#include "components/autofill/core/browser/country_names.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/user_prefs/user_prefs.h"
@@ -281,8 +285,8 @@ class TestAutofillDialogController
   void ShowNewCreditCardBubble(
       scoped_ptr<CreditCard> new_card,
       scoped_ptr<AutofillProfile> billing_profile) override {
-    mock_new_card_bubble_controller_->Show(new_card.Pass(),
-                                           billing_profile.Pass());
+    mock_new_card_bubble_controller_->Show(std::move(new_card),
+                                           std::move(billing_profile));
   }
 
   // AutofillDialogControllerImpl calls this method before showing the dialog
@@ -310,7 +314,9 @@ class TestAutofillDialogController
 
 class AutofillDialogControllerTest : public ChromeRenderViewHostTestHarness {
  protected:
-  AutofillDialogControllerTest(): form_structure_(NULL) {}
+  AutofillDialogControllerTest() : form_structure_(NULL) {
+    CountryNames::SetLocaleString("en-US");
+  }
 
   // testing::Test implementation:
   void SetUp() override {

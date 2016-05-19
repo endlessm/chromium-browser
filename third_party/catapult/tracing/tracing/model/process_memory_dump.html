@@ -5,10 +5,10 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/units/time_stamp.html">
 <link rel="import" href="/tracing/model/attribute.html">
 <link rel="import" href="/tracing/model/container_memory_dump.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <script>
 'use strict';
@@ -47,7 +47,16 @@ tr.exportTo('tr.model', function() {
     this.process = process;
     this.globalMemoryDump = globalMemoryDump;
 
+    // Process memory totals (optional object) with the following fields (also
+    // optional):
+    //   - residentBytes: Total resident bytes (number)
+    //   - peakResidentBytes: Peak resident bytes (number)
+    //   - arePeakResidentBytesResettable: Flag whether peak resident bytes are
+    //     resettable (boolean)
+    //   - platformSpecific: Map from OS-specific total names (string) to sizes
+    //     (number)
     this.totals = undefined;
+
     this.vmRegions_ = undefined;
 
     // Map from allocator names to heap dumps.
@@ -62,7 +71,7 @@ tr.exportTo('tr.model', function() {
 
     get userFriendlyName() {
       return 'Process memory dump at ' +
-          tr.b.u.TimeStamp.format(this.start);
+          tr.v.Unit.byName.timeStampInMs.format(this.start);
     },
 
     get containerName() {
@@ -76,8 +85,7 @@ tr.exportTo('tr.model', function() {
     },
 
     get vmRegions() {
-      throw new Error(
-          'VM regions must be accessed through the mostRecentVmRegions field');
+      return this.vmRegions_;
     },
 
     set vmRegions(vmRegions) {
@@ -173,7 +181,7 @@ tr.exportTo('tr.model', function() {
       // Force rebuilding the memory allocator dump index (if we've just added
       // a new memory allocator dump).
       if (hasDiscountedFromAllocatorDumps)
-        this.memoryAllocatorDumps = this.memoryAllocatorDumps;
+        this.forceRebuildingMemoryAllocatorDumpByFullNameIndex();
     },
 
     discountTracingOverheadFromVmRegions: function(opt_model) {
@@ -274,6 +282,7 @@ tr.exportTo('tr.model', function() {
   VMRegion.PROTECTION_FLAG_READ = 4;
   VMRegion.PROTECTION_FLAG_WRITE = 2;
   VMRegion.PROTECTION_FLAG_EXECUTE = 1;
+  VMRegion.PROTECTION_FLAG_MAYSHARE = 128;
 
   VMRegion.prototype = {
     get protectionFlagsToString() {
@@ -282,7 +291,9 @@ tr.exportTo('tr.model', function() {
       return (
           (this.protectionFlags & VMRegion.PROTECTION_FLAG_READ ? 'r' : '-') +
           (this.protectionFlags & VMRegion.PROTECTION_FLAG_WRITE ? 'w' : '-') +
-          (this.protectionFlags & VMRegion.PROTECTION_FLAG_EXECUTE ? 'x' : '-')
+          (this.protectionFlags & VMRegion.PROTECTION_FLAG_EXECUTE ?
+              'x' : '-') +
+          (this.protectionFlags & VMRegion.PROTECTION_FLAG_MAYSHARE ? 's' : 'p')
       );
     }
   };
@@ -318,7 +329,7 @@ tr.exportTo('tr.model', function() {
         dict.sharedDirtyResident,
         dict.proportionalResident,
         dict.swapped);
-  }
+  };
 
   tr.model.EventRegistry.register(
       ProcessMemoryDump,

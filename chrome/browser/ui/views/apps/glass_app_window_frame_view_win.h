@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_APPS_GLASS_APP_WINDOW_FRAME_VIEW_WIN_H_
 #define CHROME_BROWSER_UI_VIEWS_APPS_GLASS_APP_WINDOW_FRAME_VIEW_WIN_H_
 
+#include "base/macros.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/window/non_client_view.h"
 
@@ -21,7 +22,11 @@ class GlassAppWindowFrameViewWin : public views::NonClientFrameView {
                                       views::Widget* widget);
   ~GlassAppWindowFrameViewWin() override;
 
+  // The insets to the client area due to the glass frame.
   gfx::Insets GetGlassInsets() const;
+
+  // Additional insets to the client area.
+  gfx::Insets GetClientAreaInsets() const;
 
  private:
   // views::NonClientFrameView implementation.

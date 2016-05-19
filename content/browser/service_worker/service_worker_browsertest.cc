@@ -2,19 +2,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+#include <map>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/macros.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/string16.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "content/browser/fileapi/chrome_blob_storage_context.h"
 #include "content/browser/service_worker/embedded_worker_instance.h"
 #include "content/browser/service_worker/embedded_worker_registry.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_observer.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
+#include "content/browser/service_worker/service_worker_fetch_dispatcher.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/browser/service_worker/service_worker_version.h"
@@ -23,19 +35,24 @@
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/referrer.h"
 #include "content/public/common/security_style.h"
 #include "content/public/common/ssl_status.h"
+#include "content/public/common/web_preferences.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_content_browser_client.h"
+#include "content/test/test_content_browser_client.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -113,7 +130,8 @@ void ReceiveFetchResult(BrowserThread::ID run_quit_thread,
                         FetchResult* out_result,
                         ServiceWorkerStatusCode actual_status,
                         ServiceWorkerFetchEventResult actual_result,
-                        const ServiceWorkerResponse& actual_response) {
+                        const ServiceWorkerResponse& actual_response,
+                        const scoped_refptr<ServiceWorkerVersion>& worker) {
   out_result->status = actual_status;
   out_result->result = actual_result;
   out_result->response = actual_response;
@@ -126,7 +144,7 @@ void ReceiveFetchResult(BrowserThread::ID run_quit_thread,
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, quit);
 }
 
-ServiceWorkerVersion::FetchCallback CreateResponseReceiver(
+ServiceWorkerFetchDispatcher::FetchCallback CreateResponseReceiver(
     BrowserThread::ID run_quit_thread,
     const base::Closure& quit,
     ChromeBlobStorageContext* blob_context,
@@ -181,7 +199,7 @@ class WorkerActivatedObserver
     RunOnIOThread(base::Bind(&WorkerActivatedObserver::InitOnIOThread, this));
   }
   // ServiceWorkerContextObserver overrides.
-  void OnVersionStateChanged(int64 version_id,
+  void OnVersionStateChanged(int64_t version_id,
                              ServiceWorkerVersion::Status) override {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     const ServiceWorkerVersion* version = context_->GetLiveVersion(version_id);
@@ -208,15 +226,61 @@ class WorkerActivatedObserver
 scoped_ptr<net::test_server::HttpResponse> VerifyServiceWorkerHeaderInRequest(
     const net::test_server::HttpRequest& request) {
   EXPECT_EQ(request.relative_url, "/service_worker/generated_sw.js");
-  std::map<std::string, std::string>::const_iterator it =
-      request.headers.find("Service-Worker");
+  auto it = request.headers.find("Service-Worker");
   EXPECT_TRUE(it != request.headers.end());
   EXPECT_EQ("script", it->second);
 
   scoped_ptr<net::test_server::BasicHttpResponse> http_response(
       new net::test_server::BasicHttpResponse());
   http_response->set_content_type("text/javascript");
-  return http_response.Pass();
+  return std::move(http_response);
+}
+
+scoped_ptr<net::test_server::HttpResponse> VerifySaveDataHeaderInRequest(
+    const net::test_server::HttpRequest& request) {
+  auto it = request.headers.find("Save-Data");
+  EXPECT_NE(request.headers.end(), it);
+  EXPECT_EQ("on", it->second);
+
+  scoped_ptr<net::test_server::BasicHttpResponse> http_response(
+      new net::test_server::BasicHttpResponse());
+  http_response->set_content_type("text/javascript");
+  return std::move(http_response);
+}
+
+scoped_ptr<net::test_server::HttpResponse> VerifySaveDataHeaderNotInRequest(
+    const net::test_server::HttpRequest& request) {
+  auto it = request.headers.find("Save-Data");
+  EXPECT_EQ(request.headers.end(), it);
+  return make_scoped_ptr(new net::test_server::BasicHttpResponse());
+}
+
+scoped_ptr<net::test_server::HttpResponse>
+VerifySaveDataNotInAccessControlRequestHeader(
+    const net::test_server::HttpRequest& request) {
+  // Save-Data should be present.
+  auto it = request.headers.find("Save-Data");
+  EXPECT_NE(request.headers.end(), it);
+  EXPECT_EQ("on", it->second);
+
+  scoped_ptr<net::test_server::BasicHttpResponse> http_response(
+      new net::test_server::BasicHttpResponse());
+  if (request.method == net::test_server::METHOD_OPTIONS) {
+    // Access-Control-Request-Headers should contain 'X-Custom-Header' and not
+    // contain 'Save-Data'.
+    auto acrh_iter = request.headers.find("Access-Control-Request-Headers");
+    EXPECT_NE(request.headers.end(), acrh_iter);
+    EXPECT_NE(std::string::npos, acrh_iter->second.find("x-custom-header"));
+    EXPECT_EQ(std::string::npos, acrh_iter->second.find("save-data"));
+    http_response->AddCustomHeader("Access-Control-Allow-Headers",
+                                   acrh_iter->second);
+    http_response->AddCustomHeader("Access-Control-Allow-Methods", "GET");
+    http_response->AddCustomHeader("Access-Control-Allow-Origin", "*");
+  } else {
+    http_response->AddCustomHeader("Access-Control-Allow-Origin", "*");
+    http_response->set_content("PASS");
+  }
+  return std::move(http_response);
 }
 
 // The ImportsBustMemcache test requires that the imported script
@@ -257,12 +321,12 @@ void CreateLongLivedResourceInterceptors(
   interceptor.reset(new LongLivedResourceInterceptor(
       "importScripts('long_lived_import.js');"));
   net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
-      worker_url, interceptor.Pass());
+      worker_url, std::move(interceptor));
 
   interceptor.reset(new LongLivedResourceInterceptor(
       "// the imported script does nothing"));
   net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
-      import_url, interceptor.Pass());
+      import_url, std::move(interceptor));
 }
 
 void CountScriptResources(
@@ -299,11 +363,6 @@ void CountScriptResources(
 class ServiceWorkerBrowserTest : public ContentBrowserTest {
  protected:
   using self = ServiceWorkerBrowserTest;
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(
-        switches::kEnableExperimentalWebPlatformFeatures);
-  }
 
   void SetUpOnMainThread() override {
     ASSERT_TRUE(embedded_test_server()->Start());
@@ -448,9 +507,11 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
                                        &fetch_result));
     fetch_run_loop.Run();
     ASSERT_TRUE(prepare_result);
+    ASSERT_TRUE(fetch_dispatcher_);
     *result = fetch_result.result;
     *response = fetch_result.response;
-    *blob_data_handle = fetch_result.blob_data_handle.Pass();
+    *blob_data_handle = std::move(fetch_result.blob_data_handle);
+    fetch_dispatcher_.reset();
     ASSERT_EQ(SERVICE_WORKER_OK, fetch_result.status);
   }
 
@@ -470,6 +531,10 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
         pattern,
         wrapper()->context()->storage()->NewRegistrationId(),
         wrapper()->context()->AsWeakPtr());
+    // Set the update check time to avoid triggering updates in the middle of
+    // tests.
+    registration_->set_last_update_check(base::Time::Now());
+
     version_ = new ServiceWorkerVersion(
         registration_.get(),
         embedded_test_server()->GetURL(worker_url),
@@ -499,7 +564,7 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
         embedded_test_server()->GetURL("/service_worker/host"));
     host->AssociateRegistration(registration_.get(),
                                 false /* notify_controllerchange */);
-    wrapper()->context()->AddProviderHost(host.Pass());
+    wrapper()->context()->AddProviderHost(std::move(host));
   }
 
   void AddWaitingWorkerOnIOThread(const std::string& worker_url) {
@@ -538,7 +603,7 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
     ASSERT_EQ(expected_status, status);
   }
 
-  void StoreRegistration(int64 version_id,
+  void StoreRegistration(int64_t version_id,
                          ServiceWorkerStatusCode expected_status) {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::UI));
     ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
@@ -554,7 +619,7 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
                              this, status));
   }
 
-  void FindRegistrationForId(int64 id,
+  void FindRegistrationForId(int64_t id,
                              const GURL& origin,
                              ServiceWorkerStatusCode expected_status) {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -570,7 +635,7 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
 
   void FindRegistrationForIdOnIOThread(const base::Closure& done,
                                        ServiceWorkerStatusCode* result,
-                                       int64 id,
+                                       int64_t id,
                                        const GURL& origin) {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     wrapper()->context()->storage()->FindRegistrationForId(
@@ -585,7 +650,7 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
         registration_.get(), version_.get(), status);
   }
 
-  void RemoveLiveRegistrationOnIOThread(int64 id) {
+  void RemoveLiveRegistrationOnIOThread(int64_t id) {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     wrapper()->context()->RemoveLiveRegistration(id);
   }
@@ -600,13 +665,24 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
                          ServiceWorkerStatusCode* result) {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     version_->SetStatus(ServiceWorkerVersion::INSTALLING);
-    version_->DispatchInstallEvent(
+    version_->RunAfterStartWorker(
+        base::Bind(&self::DispatchInstallEventOnIOThread, this, done, result),
         CreateReceiver(BrowserThread::UI, done, result));
+  }
+
+  void DispatchInstallEventOnIOThread(const base::Closure& done,
+                                      ServiceWorkerStatusCode* result) {
+    ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    int request_id =
+        version_->StartRequest(ServiceWorkerMetrics::EventType::INSTALL,
+                               CreateReceiver(BrowserThread::UI, done, result));
+    version_->DispatchSimpleEvent<ServiceWorkerHostMsg_InstallEventFinished>(
+        request_id, ServiceWorkerMsg_InstallEvent(request_id));
   }
 
   void StoreOnIOThread(const base::Closure& done,
                        ServiceWorkerStatusCode* result,
-                       int64 version_id) {
+                       int64_t version_id) {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     ServiceWorkerVersion* version =
         wrapper()->context()->GetLiveVersion(version_id);
@@ -620,26 +696,35 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     version_->SetStatus(ServiceWorkerVersion::ACTIVATING);
     registration_->SetActiveVersion(version_.get());
-    version_->DispatchActivateEvent(
+    version_->RunAfterStartWorker(
+        base::Bind(&self::DispatchActivateEventOnIOThread, this, done, result),
         CreateReceiver(BrowserThread::UI, done, result));
+  }
+
+  void DispatchActivateEventOnIOThread(const base::Closure& done,
+                                       ServiceWorkerStatusCode* result) {
+    ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    int request_id =
+        version_->StartRequest(ServiceWorkerMetrics::EventType::INSTALL,
+                               CreateReceiver(BrowserThread::UI, done, result));
+    version_->DispatchSimpleEvent<ServiceWorkerHostMsg_ActivateEventFinished>(
+        request_id, ServiceWorkerMsg_ActivateEvent(request_id));
   }
 
   void FetchOnIOThread(const base::Closure& done,
                        bool* prepare_result,
                        FetchResult* result) {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
-    ServiceWorkerFetchRequest request(
-        embedded_test_server()->GetURL("/service_worker/empty.html"),
-        "GET",
-        ServiceWorkerHeaderMap(),
-        Referrer(),
-        false);
+    scoped_ptr<ServiceWorkerFetchRequest> request(new ServiceWorkerFetchRequest(
+        embedded_test_server()->GetURL("/service_worker/empty.html"), "GET",
+        ServiceWorkerHeaderMap(), Referrer(), false));
     version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
-    version_->DispatchFetchEvent(
-        request,
+    fetch_dispatcher_.reset(new ServiceWorkerFetchDispatcher(
+        std::move(request), version_.get(),
         CreatePrepareReceiver(prepare_result),
-        CreateResponseReceiver(
-            BrowserThread::UI, done, blob_context_.get(), result));
+        CreateResponseReceiver(BrowserThread::UI, done, blob_context_.get(),
+                               result)));
+    fetch_dispatcher_->Run();
   }
 
   void StopOnIOThread(const base::Closure& done,
@@ -652,6 +737,7 @@ class ServiceWorkerVersionBrowserTest : public ServiceWorkerBrowserTest {
   scoped_refptr<ServiceWorkerRegistration> registration_;
   scoped_refptr<ServiceWorkerVersion> version_;
   scoped_refptr<ChromeBlobStorageContext> blob_context_;
+  scoped_ptr<ServiceWorkerFetchDispatcher> fetch_dispatcher_;
 };
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, StartAndStop) {
@@ -787,13 +873,13 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, Activate_Rejected) {
   ActivateTestHelper("/service_worker/worker_activate_rejected.js",
-                     SERVICE_WORKER_ERROR_ACTIVATE_WORKER_FAILED);
+                     SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED);
 }
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
                        InstallWithWaitUntil_Rejected) {
   InstallTestHelper("/service_worker/worker_install_rejected.js",
-                    SERVICE_WORKER_ERROR_INSTALL_WORKER_FAILED);
+                    SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED);
 }
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
@@ -811,7 +897,7 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
                           base::Bind(&self::InstallOnIOThread, this,
                                      install_run_loop.QuitClosure(), &status));
   install_run_loop.Run();
-  ASSERT_EQ(SERVICE_WORKER_ERROR_INSTALL_WORKER_FAILED, status);
+  ASSERT_EQ(SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED, status);
 
   const base::string16 expected =
       base::ASCIIToUTF16("Rejecting oninstall event");
@@ -893,7 +979,9 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, TimeoutWorkerInEvent) {
                          base::TimeDelta::FromMilliseconds(100));
   install_run_loop.Run();
 
-  EXPECT_EQ(SERVICE_WORKER_ERROR_INSTALL_WORKER_FAILED, status);
+  // Terminating a worker, even one in an infinite loop, is treated as if
+  // waitUntil was rejected in the renderer code.
+  EXPECT_EQ(SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED, status);
 }
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, FetchEvent_Response) {
@@ -944,6 +1032,174 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
   EXPECT_EQ(0, response.status_code);
 
   ASSERT_FALSE(blob_data_handle);
+}
+
+class MockContentBrowserClient : public TestContentBrowserClient {
+ public:
+  MockContentBrowserClient()
+      : TestContentBrowserClient(), data_saver_enabled_(false) {}
+
+  ~MockContentBrowserClient() override {}
+
+  void set_data_saver_enabled(bool enabled) { data_saver_enabled_ = enabled; }
+
+  // ContentBrowserClient overrides:
+  bool IsDataSaverEnabled(BrowserContext* context) override {
+    return data_saver_enabled_;
+  }
+
+  void OverrideWebkitPrefs(RenderViewHost* render_view_host,
+                           WebPreferences* prefs) override {
+    prefs->data_saver_enabled = data_saver_enabled_;
+  }
+
+ private:
+  bool data_saver_enabled_;
+};
+
+IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, FetchWithSaveData) {
+  embedded_test_server()->RegisterRequestHandler(
+      base::Bind(&VerifySaveDataHeaderInRequest));
+  MockContentBrowserClient content_browser_client;
+  content_browser_client.set_data_saver_enabled(true);
+  ContentBrowserClient* old_client =
+      SetBrowserClientForTesting(&content_browser_client);
+  InstallTestHelper("/service_worker/fetch_in_install.js", SERVICE_WORKER_OK);
+  SetBrowserClientForTesting(old_client);
+}
+
+IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
+                       RequestWorkerScriptWithSaveData) {
+  embedded_test_server()->RegisterRequestHandler(
+      base::Bind(&VerifySaveDataHeaderInRequest));
+  MockContentBrowserClient content_browser_client;
+  content_browser_client.set_data_saver_enabled(true);
+  ContentBrowserClient* old_client =
+      SetBrowserClientForTesting(&content_browser_client);
+  InstallTestHelper("/service_worker/generated_sw.js", SERVICE_WORKER_OK);
+  SetBrowserClientForTesting(old_client);
+}
+
+IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, FetchWithoutSaveData) {
+  embedded_test_server()->RegisterRequestHandler(
+      base::Bind(&VerifySaveDataHeaderNotInRequest));
+  MockContentBrowserClient content_browser_client;
+  ContentBrowserClient* old_client =
+      SetBrowserClientForTesting(&content_browser_client);
+  InstallTestHelper("/service_worker/fetch_in_install.js", SERVICE_WORKER_OK);
+  SetBrowserClientForTesting(old_client);
+}
+
+IN_PROC_BROWSER_TEST_F(ServiceWorkerBrowserTest, FetchPageWithSaveData) {
+  const char kPageUrl[] = "/service_worker/handle_fetch.html";
+  const char kWorkerUrl[] = "/service_worker/add_save_data_to_title.js";
+  MockContentBrowserClient content_browser_client;
+  content_browser_client.set_data_saver_enabled(true);
+  ContentBrowserClient* old_client =
+      SetBrowserClientForTesting(&content_browser_client);
+  shell()->web_contents()->GetRenderViewHost()->OnWebkitPreferencesChanged();
+  scoped_refptr<WorkerActivatedObserver> observer =
+      new WorkerActivatedObserver(wrapper());
+  observer->Init();
+  public_context()->RegisterServiceWorker(
+      embedded_test_server()->GetURL(kPageUrl),
+      embedded_test_server()->GetURL(kWorkerUrl),
+      base::Bind(&ExpectResultAndRun, true, base::Bind(&base::DoNothing)));
+  observer->Wait();
+
+  const base::string16 title1 = base::ASCIIToUTF16("save-data=on");
+  TitleWatcher title_watcher1(shell()->web_contents(), title1);
+  NavigateToURL(shell(), embedded_test_server()->GetURL(kPageUrl));
+  EXPECT_EQ(title1, title_watcher1.WaitAndGetTitle());
+
+  SetBrowserClientForTesting(old_client);
+  shell()->Close();
+
+  base::RunLoop run_loop;
+  public_context()->UnregisterServiceWorker(
+      embedded_test_server()->GetURL(kPageUrl),
+      base::Bind(&ExpectResultAndRun, true, run_loop.QuitClosure()));
+  run_loop.Run();
+}
+
+// Tests that when data saver is enabled and a cross-origin fetch by a webpage
+// is intercepted by a serviceworker, and the serviceworker does a fetch, the
+// preflight request does not have save-data in Access-Control-Request-Headers.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerBrowserTest, CrossOriginFetchWithSaveData) {
+  const char kPageUrl[] = "/service_worker/fetch_cross_origin.html";
+  const char kWorkerUrl[] = "/service_worker/fetch_event_pass_through.js";
+  net::EmbeddedTestServer cross_origin_server;
+  cross_origin_server.ServeFilesFromSourceDirectory("content/test/data");
+  cross_origin_server.RegisterRequestHandler(
+      base::Bind(&VerifySaveDataNotInAccessControlRequestHeader));
+  cross_origin_server.Start();
+
+  MockContentBrowserClient content_browser_client;
+  content_browser_client.set_data_saver_enabled(true);
+  ContentBrowserClient* old_client =
+      SetBrowserClientForTesting(&content_browser_client);
+  shell()->web_contents()->GetRenderViewHost()->OnWebkitPreferencesChanged();
+  scoped_refptr<WorkerActivatedObserver> observer =
+      new WorkerActivatedObserver(wrapper());
+  observer->Init();
+  public_context()->RegisterServiceWorker(
+      embedded_test_server()->GetURL(kPageUrl),
+      embedded_test_server()->GetURL(kWorkerUrl),
+      base::Bind(&ExpectResultAndRun, true, base::Bind(&base::DoNothing)));
+  observer->Wait();
+
+  const base::string16 title = base::ASCIIToUTF16("PASS");
+  TitleWatcher title_watcher(shell()->web_contents(), title);
+  NavigateToURL(shell(),
+                embedded_test_server()->GetURL(base::StringPrintf(
+                    "%s?%s", kPageUrl,
+                    cross_origin_server.GetURL("/cross_origin_request.html")
+                        .spec()
+                        .c_str())));
+  EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
+
+  SetBrowserClientForTesting(old_client);
+  shell()->Close();
+
+  base::RunLoop run_loop;
+  public_context()->UnregisterServiceWorker(
+      embedded_test_server()->GetURL(kPageUrl),
+      base::Bind(&ExpectResultAndRun, true, run_loop.QuitClosure()));
+  run_loop.Run();
+}
+
+IN_PROC_BROWSER_TEST_F(ServiceWorkerBrowserTest,
+                       FetchPageWithSaveDataPassThroughOnFetch) {
+  const char kPageUrl[] = "/service_worker/pass_through_fetch.html";
+  const char kWorkerUrl[] = "/service_worker/fetch_event_pass_through.js";
+  MockContentBrowserClient content_browser_client;
+  content_browser_client.set_data_saver_enabled(true);
+  ContentBrowserClient* old_client =
+      SetBrowserClientForTesting(&content_browser_client);
+  shell()->web_contents()->GetRenderViewHost()->OnWebkitPreferencesChanged();
+  scoped_refptr<WorkerActivatedObserver> observer =
+      new WorkerActivatedObserver(wrapper());
+  observer->Init();
+  public_context()->RegisterServiceWorker(
+      embedded_test_server()->GetURL(kPageUrl),
+      embedded_test_server()->GetURL(kWorkerUrl),
+      base::Bind(&ExpectResultAndRun, true, base::Bind(&base::DoNothing)));
+  observer->Wait();
+
+  embedded_test_server()->RegisterRequestHandler(
+      base::Bind(&VerifySaveDataHeaderInRequest));
+
+  NavigateToURLBlockUntilNavigationsComplete(
+      shell(), embedded_test_server()->GetURL(kPageUrl), 1);
+
+  SetBrowserClientForTesting(old_client);
+  shell()->Close();
+
+  base::RunLoop run_loop;
+  public_context()->UnregisterServiceWorker(
+      embedded_test_server()->GetURL(kPageUrl),
+      base::Bind(&ExpectResultAndRun, true, run_loop.QuitClosure()));
+  run_loop.Run();
 }
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerBrowserTest, Reload) {
@@ -1086,7 +1342,7 @@ class ServiceWorkerBlackBoxBrowserTest : public ServiceWorkerBrowserTest {
   void FindRegistrationOnIO(const GURL& document_url,
                             ServiceWorkerStatusCode* status,
                             const base::Closure& continuation) {
-    wrapper()->FindRegistrationForDocument(
+    wrapper()->FindReadyRegistrationForDocument(
         document_url,
         base::Bind(&ServiceWorkerBlackBoxBrowserTest::FindRegistrationOnIO2,
                    this, status, continuation));
@@ -1240,7 +1496,6 @@ class ServiceWorkerVersionBrowserV8CacheTest
       version_->RemoveListener(this);
   }
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ServiceWorkerBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kV8CacheOptions, "code");
   }
   void SetUpRegistrationAndListenerOnIOThread(const std::string& worker_url) {

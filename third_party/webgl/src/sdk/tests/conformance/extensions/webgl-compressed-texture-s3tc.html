@@ -93,6 +93,7 @@ var img_8x8_rgba_dxt5 = new Uint8Array([
 ]);
 
 var wtu = WebGLTestUtils;
+var contextVersion = wtu.getDefault3DContextVersion();
 var canvas = document.getElementById("canvas");
 var gl = wtu.create3DContext(canvas, {antialias: false});
 var program = wtu.setupTexturedQuad(gl);
@@ -149,7 +150,12 @@ function runSupportedTest(extensionEnabled) {
 function runTestDisabled() {
     debug("Testing binding enum with extension disabled");
 
-    shouldBe('gl.getParameter(gl.COMPRESSED_TEXTURE_FORMATS)', '[]');
+    supportedFormats = gl.getParameter(gl.COMPRESSED_TEXTURE_FORMATS);
+    if (contextVersion < 2) {
+        shouldBe("supportedFormats", "[]");
+    } else {
+        shouldBe("supportedFormats.length", "10");
+    }
 }
 
 function formatExists(format, supportedFormats) {
@@ -182,8 +188,12 @@ function runTestExtension() {
     }
 
     supportedFormats = gl.getParameter(gl.COMPRESSED_TEXTURE_FORMATS);
-    // There should be exactly 4 formats
-    shouldBe("supportedFormats.length", "4");
+    // There should be exactly 4 formats for WebGL 1.0 and 14 formats for WebGL 2.0.
+    if (contextVersion < 2) {
+        shouldBe("supportedFormats.length", "4");
+    } else {
+        shouldBe("supportedFormats.length", "14");
+    }
 
     // check that all 4 formats exist
     for (var name in validFormats.length) {
@@ -449,7 +459,12 @@ function testDXTTexture(test) {
     gl.generateMipmap(gl.TEXTURE_2D);
     wtu.glErrorShouldBe(gl, gl.INVALID_OPERATION, "trying to generate mipmaps from compressed texture");
     wtu.clearAndDrawUnitQuad(gl);
-    compareRect(width, height, test.channels, width, height, uncompressedData, data, format);
+    compareRect(width, height, test.channels, width, height, uncompressedData, data, format, "NEAREST");
+    // Test again with linear filtering.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    wtu.clearAndDrawUnitQuad(gl);
+    compareRect(width, height, test.channels, width, height, uncompressedData, data, format, "LINEAR");
 
     gl.compressedTexImage2D(gl.TEXTURE_2D, 0, format, width, height, 1, data);
     wtu.glErrorShouldBe(gl, gl.INVALID_VALUE, "non 0 border");
@@ -543,8 +558,16 @@ function testDXTTexture(test) {
             copyRect(uncompressedData, 0, 0, xoff, yoff, 4, 4, stride);
             gl.compressedTexSubImage2D(gl.TEXTURE_2D, 0, xoff, yoff, 4, 4, format, subData);
             wtu.glErrorShouldBe(gl, gl.NO_ERROR, "uploading compressed texture");
+            // First test NEAREST filtering.
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
             wtu.clearAndDrawUnitQuad(gl);
-            compareRect(width, height, test.channels, width, height, uncompressedData, data, format);
+            compareRect(width, height, test.channels, width, height, uncompressedData, data, format, "NEAREST");
+            // Next test LINEAR filtering.
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            wtu.clearAndDrawUnitQuad(gl);
+            compareRect(width, height, test.channels, width, height, uncompressedData, data, format, "LINEAR");
         }
     }
 }
@@ -580,7 +603,7 @@ function makeImage(imageWidth, imageHeight, dataWidth, data, alpha) {
 function compareRect(
         actualWidth, actualHeight, actualChannels,
         dataWidth, dataHeight, expectedData,
-        testData, testFormat) {
+        testData, testFormat, filteringMode) {
     var actual = new Uint8Array(actualWidth * actualHeight * 4);
     gl.readPixels(
             0, 0, actualWidth, actualHeight, gl.RGBA, gl.UNSIGNED_BYTE, actual);
@@ -621,12 +644,8 @@ function compareRect(
         }
     }
     if (!failed) {
-        testPassed("texture rendered correctly");
+        testPassed("texture rendered correctly with " + filteringMode + " filtering");
     }
-}
-
-function testPVRTCTextures() {
-    testFailed("PVRTC test not yet implemented");
 }
 
 debug("");

@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <linux/videodev2.h>
+#include <string.h>
 #include <sys/mman.h>
 
 #include "base/big_endian.h"
@@ -231,6 +232,14 @@ void V4L2JpegDecodeAccelerator::Decode(
   DVLOG(1) << "Decode(): input_id=" << bitstream_buffer.id()
            << ", size=" << bitstream_buffer.size();
   DCHECK(io_task_runner_->BelongsToCurrentThread());
+
+  if (bitstream_buffer.id() < 0) {
+    LOG(ERROR) << "Invalid bitstream_buffer, id: " << bitstream_buffer.id();
+    if (base::SharedMemory::IsHandleValid(bitstream_buffer.handle()))
+      base::SharedMemory::CloseHandle(bitstream_buffer.handle());
+    PostNotifyError(bitstream_buffer.id(), INVALID_ARGUMENT);
+    return;
+  }
 
   if (video_frame->format() != media::PIXEL_FORMAT_I420) {
     PostNotifyError(bitstream_buffer.id(), UNSUPPORTED_JPEG);

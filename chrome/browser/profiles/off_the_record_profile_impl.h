@@ -7,6 +7,8 @@
 
 #include <string>
 
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/off_the_record_profile_io_data.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -114,9 +116,9 @@ class OffTheRecordProfileImpl : public Profile {
   // Allows a profile to track changes in zoom levels in its parent profile.
   void TrackZoomLevelsFromParent();
 
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if defined(OS_ANDROID)
   void UseSystemProxy();
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
+#endif  // defined(OS_ANDROID)
 
   PrefProxyConfigTracker* CreateProxyConfigTracker();
   // Callback function for tracking parent's zoom level changes.

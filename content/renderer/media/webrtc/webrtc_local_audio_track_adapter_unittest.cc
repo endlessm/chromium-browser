@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "content/renderer/media/mock_media_constraint_factory.h"
 #include "content/renderer/media/webrtc/webrtc_local_audio_track_adapter.h"
 #include "content/renderer/media/webrtc_audio_capturer.h"
 #include "content/renderer/media/webrtc_local_audio_track.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/libjingle/source/talk/app/webrtc/mediastreaminterface.h"
+#include "third_party/webrtc/api/mediastreaminterface.h"
 
 using ::testing::_;
 using ::testing::AnyNumber;
@@ -24,7 +26,7 @@ class MockWebRtcAudioSink : public webrtc::AudioTrackSinkInterface {
   MOCK_METHOD5(OnData, void(const void* audio_data,
                             int bits_per_sample,
                             int sample_rate,
-                            int number_of_channels,
+                            size_t number_of_channels,
                             size_t number_of_frames));
 };
 

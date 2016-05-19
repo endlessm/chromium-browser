@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/dom/ActiveDOMObject.h"
 
 #include "core/dom/ExecutionContext.h"
@@ -67,11 +66,6 @@ void ActiveDOMObject::suspendIfNeeded()
 #endif
     if (ExecutionContext* context = executionContext())
         context->suspendActiveDOMObjectIfNeeded(this);
-}
-
-bool ActiveDOMObject::hasPendingActivity() const
-{
-    return false;
 }
 
 void ActiveDOMObject::suspend()

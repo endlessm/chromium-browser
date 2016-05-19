@@ -4,6 +4,10 @@
 
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -18,6 +22,7 @@
 #include "content/browser/indexed_db/indexed_db_leveldb_coding.h"
 #include "content/browser/indexed_db/indexed_db_value.h"
 #include "content/browser/indexed_db/leveldb/leveldb_factory.h"
+#include "content/browser/quota/mock_quota_manager_proxy.h"
 #include "content/public/test/mock_special_storage_policy.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "net/url_request/url_request_test_util.h"
@@ -89,13 +94,9 @@ class TestableIndexedDBBackingStore : public IndexedDBBackingStore {
       return scoped_refptr<TestableIndexedDBBackingStore>();
 
     scoped_refptr<TestableIndexedDBBackingStore> backing_store(
-        new TestableIndexedDBBackingStore(indexed_db_factory,
-                                          origin_url,
-                                          blob_path,
-                                          request_context,
-                                          db.Pass(),
-                                          comparator.Pass(),
-                                          task_runner));
+        new TestableIndexedDBBackingStore(
+            indexed_db_factory, origin_url, blob_path, request_context,
+            std::move(db), std::move(comparator), task_runner));
 
     *status = backing_store->SetUpMetadata();
     if (!status->ok())
@@ -109,14 +110,14 @@ class TestableIndexedDBBackingStore : public IndexedDBBackingStore {
     return writes_;
   }
   void ClearWrites() { writes_.clear(); }
-  const std::vector<int64>& removals() const { return removals_; }
+  const std::vector<int64_t>& removals() const { return removals_; }
   void ClearRemovals() { removals_.clear(); }
 
  protected:
   ~TestableIndexedDBBackingStore() override {}
 
   bool WriteBlobFile(
-      int64 database_id,
+      int64_t database_id,
       const Transaction::WriteDescriptor& descriptor,
       Transaction::ChainedBlobWriter* chained_blob_writer) override {
     if (KeyPrefix::IsValidDatabaseId(database_id_)) {
@@ -136,7 +137,7 @@ class TestableIndexedDBBackingStore : public IndexedDBBackingStore {
     return true;
   }
 
-  bool RemoveBlobFile(int64 database_id, int64 key) const override {
+  bool RemoveBlobFile(int64_t database_id, int64_t key) const override {
     if (database_id_ != database_id ||
         !KeyPrefix::IsValidDatabaseId(database_id)) {
       return false;
@@ -162,17 +163,17 @@ class TestableIndexedDBBackingStore : public IndexedDBBackingStore {
                               origin_url,
                               blob_path,
                               request_context,
-                              db.Pass(),
-                              comparator.Pass(),
+                              std::move(db),
+                              std::move(comparator),
                               task_runner),
         database_id_(0) {}
 
-  int64 database_id_;
+  int64_t database_id_;
   std::vector<Transaction::WriteDescriptor> writes_;
 
   // This is modified in an overridden virtual function that is properly const
   // in the real implementation, therefore must be mutable here.
-  mutable std::vector<int64> removals_;
+  mutable std::vector<int64_t> removals_;
 
   DISALLOW_COPY_AND_ASSIGN(TestableIndexedDBBackingStore);
 };
@@ -235,12 +236,12 @@ class IndexedDBBackingStoreTest : public testing::Test {
     const GURL origin("http://localhost:81");
     task_runner_ = new base::TestSimpleTaskRunner();
     special_storage_policy_ = new MockSpecialStoragePolicy();
+    quota_manager_proxy_ = new MockQuotaManagerProxy(nullptr, nullptr);
     special_storage_policy_->SetAllUnlimited(true);
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-    idb_context_ = new IndexedDBContextImpl(temp_dir_.path(),
-                                            special_storage_policy_.get(),
-                                            NULL,
-                                            task_runner_.get());
+    idb_context_ = new IndexedDBContextImpl(
+        temp_dir_.path(), special_storage_policy_.get(),
+        quota_manager_proxy_.get(), task_runner_.get());
     idb_factory_ = new TestIDBFactory(idb_context_.get());
     backing_store_ =
         idb_factory_->OpenBackingStoreForTest(origin, &url_request_context_);
@@ -266,6 +267,10 @@ class IndexedDBBackingStoreTest : public testing::Test {
     m_key1 = IndexedDBKey(99, blink::WebIDBKeyTypeNumber);
     m_key2 = IndexedDBKey(ASCIIToUTF16("key2"));
     m_key3 = IndexedDBKey(ASCIIToUTF16("key3"));
+  }
+
+  void TearDown() override {
+    quota_manager_proxy_->SimulateQuotaManagerDestroyed();
   }
 
   // This just checks the data that survive getting stored and recalled, e.g.
@@ -295,7 +300,7 @@ class IndexedDBBackingStoreTest : public testing::Test {
       const std::vector<IndexedDBBlobInfo>& reads) const {
     if (backing_store_->writes().size() != reads.size())
       return false;
-    std::set<int64> ids;
+    std::set<int64_t> ids;
     for (size_t i = 0; i < backing_store_->writes().size(); ++i)
       ids.insert(backing_store_->writes()[i].key());
     if (ids.size() != backing_store_->writes().size())
@@ -345,6 +350,7 @@ class IndexedDBBackingStoreTest : public testing::Test {
   base::ScopedTempDir temp_dir_;
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
   scoped_refptr<MockSpecialStoragePolicy> special_storage_policy_;
+  scoped_refptr<MockQuotaManagerProxy> quota_manager_proxy_;
   scoped_refptr<IndexedDBContextImpl> idb_context_;
   scoped_refptr<TestIDBFactory> idb_factory_;
   net::TestURLRequestContext url_request_context_;
@@ -753,12 +759,12 @@ TEST_F(IndexedDBBackingStoreTest, LiveBlobJournal) {
 // Make sure that using very high ( more than 32 bit ) values for database_id
 // and object_store_id still work.
 TEST_F(IndexedDBBackingStoreTest, HighIds) {
-  const int64 high_database_id = 1ULL << 35;
-  const int64 high_object_store_id = 1ULL << 39;
+  const int64_t high_database_id = 1ULL << 35;
+  const int64_t high_object_store_id = 1ULL << 39;
   // index_ids are capped at 32 bits for storage purposes.
-  const int64 high_index_id = 1ULL << 29;
+  const int64_t high_index_id = 1ULL << 29;
 
-  const int64 invalid_high_index_id = 1ULL << 37;
+  const int64_t invalid_high_index_id = 1ULL << 37;
 
   const IndexedDBKey& index_key = m_key2;
   std::string index_key_raw;
@@ -845,10 +851,11 @@ TEST_F(IndexedDBBackingStoreTest, HighIds) {
 // Make sure that other invalid ids do not crash.
 TEST_F(IndexedDBBackingStoreTest, InvalidIds) {
   // valid ids for use when testing invalid ids
-  const int64 database_id = 1;
-  const int64 object_store_id = 1;
-  const int64 index_id = kMinimumIndexId;
-  const int64 invalid_low_index_id = 19;  // index_ids must be > kMinimumIndexId
+  const int64_t database_id = 1;
+  const int64_t object_store_id = 1;
+  const int64_t index_id = kMinimumIndexId;
+  const int64_t invalid_low_index_id =
+      19;  // index_ids must be > kMinimumIndexId
 
   IndexedDBValue result_value;
 
@@ -933,17 +940,16 @@ TEST_F(IndexedDBBackingStoreTest, InvalidIds) {
 
 TEST_F(IndexedDBBackingStoreTest, CreateDatabase) {
   const base::string16 database_name(ASCIIToUTF16("db1"));
-  int64 database_id;
-  const base::string16 version(ASCIIToUTF16("old_string_version"));
-  const int64 int_version = 9;
+  int64_t database_id;
+  const int64_t version = 9;
 
-  const int64 object_store_id = 99;
+  const int64_t object_store_id = 99;
   const base::string16 object_store_name(ASCIIToUTF16("object_store1"));
   const bool auto_increment = true;
   const IndexedDBKeyPath object_store_key_path(
       ASCIIToUTF16("object_store_key"));
 
-  const int64 index_id = 999;
+  const int64_t index_id = 999;
   const base::string16 index_name(ASCIIToUTF16("index1"));
   const bool unique = true;
   const bool multi_entry = true;
@@ -951,7 +957,7 @@ TEST_F(IndexedDBBackingStoreTest, CreateDatabase) {
 
   {
     leveldb::Status s = backing_store_->CreateIDBDatabaseMetaData(
-        database_name, version, int_version, &database_id);
+        database_name, version, &database_id);
     EXPECT_TRUE(s.ok());
     EXPECT_GT(database_id, 0);
 
@@ -995,7 +1001,6 @@ TEST_F(IndexedDBBackingStoreTest, CreateDatabase) {
 
     // database.name is not filled in by the implementation.
     EXPECT_EQ(version, database.version);
-    EXPECT_EQ(int_version, database.int_version);
     EXPECT_EQ(database_id, database.id);
 
     s = backing_store_->GetObjectStores(database.id, &database.object_stores);
@@ -1018,25 +1023,22 @@ TEST_F(IndexedDBBackingStoreTest, CreateDatabase) {
 }
 
 TEST_F(IndexedDBBackingStoreTest, GetDatabaseNames) {
-  const base::string16 string_version(ASCIIToUTF16("string_version"));
-
   const base::string16 db1_name(ASCIIToUTF16("db1"));
-  const int64 db1_version = 1LL;
-  int64 db1_id;
+  const int64_t db1_version = 1LL;
+  int64_t db1_id;
 
-  // Database records with DEFAULT_INT_VERSION represent stale data,
+  // Database records with DEFAULT_VERSION represent stale data,
   // and should not be enumerated.
   const base::string16 db2_name(ASCIIToUTF16("db2"));
-  const int64 db2_version = IndexedDBDatabaseMetadata::DEFAULT_INT_VERSION;
-  int64 db2_id;
+  const int64_t db2_version = IndexedDBDatabaseMetadata::DEFAULT_VERSION;
+  int64_t db2_id;
 
-  leveldb::Status s = backing_store_->CreateIDBDatabaseMetaData(
-      db1_name, string_version, db1_version, &db1_id);
+  leveldb::Status s =
+      backing_store_->CreateIDBDatabaseMetaData(db1_name, db1_version, &db1_id);
   EXPECT_TRUE(s.ok());
   EXPECT_GT(db1_id, 0LL);
 
-  s = backing_store_->CreateIDBDatabaseMetaData(
-      db2_name, string_version, db2_version, &db2_id);
+  s = backing_store_->CreateIDBDatabaseMetaData(db2_name, db2_version, &db2_id);
   EXPECT_TRUE(s.ok());
   EXPECT_GT(db2_id, db1_id);
 

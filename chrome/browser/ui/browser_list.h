@@ -5,12 +5,13 @@
 #ifndef CHROME_BROWSER_UI_BROWSER_LIST_H_
 #define CHROME_BROWSER_UI_BROWSER_LIST_H_
 
+#include <stddef.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/observer_list.h"
-#include "chrome/browser/ui/host_desktop.h"
 
 class Browser;
 class Profile;
@@ -23,8 +24,7 @@ namespace chrome {
 class BrowserListObserver;
 }
 
-// Maintains a list of Browser objects present in a given HostDesktop (see
-// HostDesktopType).
+// Maintains a list of Browser objects.
 class BrowserList {
  public:
   typedef std::vector<Browser*> BrowserVector;
@@ -55,7 +55,7 @@ class BrowserList {
     return last_active_browsers_.rend();
   }
 
-  static BrowserList* GetInstance(chrome::HostDesktopType type);
+  static BrowserList* GetInstance();
 
   // Adds or removes |browser| from the list it is associated with. The browser
   // object should be valid BEFORE these calls (for the benefit of observers),
@@ -136,9 +136,7 @@ class BrowserList {
   static base::LazyInstance<
       base::ObserverList<chrome::BrowserListObserver>>::Leaky observers_;
 
-  // Nothing fancy, since we only have two HDTs.
-  static BrowserList* native_instance_;
-  static BrowserList* ash_instance_;
+  static BrowserList* instance_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserList);
 };

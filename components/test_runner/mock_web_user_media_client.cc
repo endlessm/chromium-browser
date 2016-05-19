@@ -4,9 +4,10 @@
 
 #include "components/test_runner/mock_web_user_media_client.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "base/macros.h"
-#include "components/test_runner/mock_constraints.h"
 #include "components/test_runner/web_test_delegate.h"
 #include "third_party/WebKit/public/platform/WebMediaConstraints.h"
 #include "third_party/WebKit/public/platform/WebMediaDeviceInfo.h"
@@ -144,28 +145,13 @@ void MockWebUserMediaClient::requestUserMedia(
         return;
     }
 
-    WebMediaConstraints constraints = request.audioConstraints();
-    WebString failed_constraint;
-    if (!constraints.isNull() &&
-        !MockConstraints::VerifyConstraints(constraints, &failed_constraint)) {
-      delegate_->PostTask(new UserMediaRequestConstraintFailedTask(
-          this, request, failed_constraint));
-      return;
-    }
-    constraints = request.videoConstraints();
-    if (!constraints.isNull() &&
-        !MockConstraints::VerifyConstraints(constraints, &failed_constraint)) {
-      delegate_->PostTask(new UserMediaRequestConstraintFailedTask(
-          this, request, failed_constraint));
-      return;
-    }
-
     WebMediaStream stream;
     stream.initialize(WebVector<WebMediaStreamTrack>(),
                       WebVector<WebMediaStreamTrack>());
     stream.setExtraData(new MockExtraData());
 
-    if (request.audio()) {
+    if (request.audio() &&
+        !delegate_->AddMediaStreamAudioSourceAndTrack(&stream)) {
       WebMediaStreamSource source;
       source.initialize("MockAudioDevice#1",
                         WebMediaStreamSource::TypeAudio,
@@ -177,7 +163,8 @@ void MockWebUserMediaClient::requestUserMedia(
       stream.addTrack(web_track);
     }
 
-    if (request.video() && !delegate_->AddMediaStreamSourceAndTrack(&stream)) {
+    if (request.video() &&
+        !delegate_->AddMediaStreamVideoSourceAndTrack(&stream)) {
       WebMediaStreamSource source;
       source.initialize("MockVideoDevice#1",
                         WebMediaStreamSource::TypeVideo,

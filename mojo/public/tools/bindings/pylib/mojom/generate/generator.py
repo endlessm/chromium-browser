@@ -20,10 +20,6 @@ def ExpectedArraySize(kind):
 def StudlyCapsToCamel(studly):
   return studly[0].lower() + studly[1:]
 
-def CamelCaseToAllCaps(camel_case):
-  return '_'.join(
-      word for word in re.split(r'([A-Z][^A-Z]+)', camel_case) if word).upper()
-
 def UnderToCamel(under):
   """Converts underscore_separated strings to CamelCase strings."""
   return ''.join(word.capitalize() for word in under.split('_'))
@@ -40,9 +36,13 @@ def WriteFile(contents, full_path):
 class Generator(object):
   # Pass |output_dir| to emit files to disk. Omit |output_dir| to echo all
   # files to stdout.
-  def __init__(self, module, output_dir=None):
+  def __init__(self, module, output_dir=None, typemap=None, variant=None,
+               bytecode_path=None):
     self.module = module
     self.output_dir = output_dir
+    self.typemap = typemap or {}
+    self.variant = variant
+    self.bytecode_path = bytecode_path
 
   def GetStructsFromMethods(self):
     result = []

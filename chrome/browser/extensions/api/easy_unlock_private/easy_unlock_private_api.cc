@@ -4,8 +4,10 @@
 
 #include "chrome/browser/extensions/api/easy_unlock_private/easy_unlock_private_api.h"
 
+#include <utility>
 #include <vector>
 
+#include "base/base64url.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
@@ -17,6 +19,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/easy_unlock_private/easy_unlock_private_connection_manager.h"
 #include "chrome/browser/extensions/api/easy_unlock_private/easy_unlock_private_crypto_delegate.h"
 #include "chrome/browser/profiles/profile.h"
@@ -30,7 +33,6 @@
 #include "components/proximity_auth/ble/bluetooth_low_energy_connection_finder.h"
 #include "components/proximity_auth/bluetooth_throttler_impl.h"
 #include "components/proximity_auth/bluetooth_util.h"
-#include "components/proximity_auth/cryptauth/base64url.h"
 #include "components/proximity_auth/cryptauth/cryptauth_device_manager.h"
 #include "components/proximity_auth/cryptauth/cryptauth_enrollment_manager.h"
 #include "components/proximity_auth/cryptauth/cryptauth_enrollment_utils.h"
@@ -42,6 +44,7 @@
 #include "components/proximity_auth/screenlock_bridge.h"
 #include "components/proximity_auth/screenlock_state.h"
 #include "components/proximity_auth/switches.h"
+#include "components/signin/core/account_id/account_id.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
@@ -349,14 +352,12 @@ bool EasyUnlockPrivateGetStringsFunction::RunSync() {
   strings->SetString(
       "setupErrorFindingPhone",
       l10n_util::GetStringUTF16(IDS_EASY_UNLOCK_SETUP_ERROR_FINDING_PHONE));
-  strings->SetString(
-      "setupErrorSyncPhoneState",
-       l10n_util::GetStringUTF16(
-           IDS_EASY_UNLOCK_SETUP_ERROR_SYNC_PHONE_STATE_FAILED));
-  strings->SetString(
-      "setupErrorConnectingToPhone",
-      l10n_util::GetStringFUTF16(
-          IDS_EASY_UNLOCK_SETUP_ERROR_CONNECTING_TO_PHONE, device_type));
+  strings->SetString("setupErrorSyncPhoneState",
+                     l10n_util::GetStringUTF16(
+                         IDS_EASY_UNLOCK_SETUP_ERROR_SYNC_PHONE_STATE_FAILED));
+  strings->SetString("setupErrorConnectingToPhone",
+                     l10n_util::GetStringUTF16(
+                         IDS_EASY_UNLOCK_SETUP_ERROR_CONNECTING_TO_PHONE));
 
   SetResult(strings.release());
   return true;
@@ -602,10 +603,12 @@ void EasyUnlockPrivateGetPermitAccessFunction::GetKeyPairForExperiment(
       EasyUnlockService::Get(profile)
           ->proximity_auth_client()
           ->GetCryptAuthEnrollmentManager();
-  proximity_auth::Base64UrlEncode(enrollment_manager->GetUserPublicKey(),
-                                  user_public_key);
-  proximity_auth::Base64UrlEncode(enrollment_manager->GetUserPrivateKey(),
-                                  user_private_key);
+  base::Base64UrlEncode(enrollment_manager->GetUserPublicKey(),
+                        base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                        user_public_key);
+  base::Base64UrlEncode(enrollment_manager->GetUserPrivateKey(),
+                        base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                        user_private_key);
 }
 
 void EasyUnlockPrivateGetPermitAccessFunction::
@@ -749,7 +752,7 @@ void EasyUnlockPrivateGetRemoteDevicesFunction::ReturnDevicesForExperiment() {
 
   remote_devices_.reset(new base::ListValue());
   if (expected_devices_count_ == 0) {
-    SetResult(remote_devices_.Pass());
+    SetResult(std::move(remote_devices_));
     SendResponse(true);
     return;
   }
@@ -758,7 +761,7 @@ void EasyUnlockPrivateGetRemoteDevicesFunction::ReturnDevicesForExperiment() {
   // not try the classic Bluetooth protocol.
   for (const auto& unlock_key : unlock_keys) {
     if (unlock_key.bluetooth_address().empty()) {
-      SetResult(remote_devices_.Pass());
+      SetResult(std::move(remote_devices_));
       SendResponse(true);
       return;
     }
@@ -781,8 +784,12 @@ void EasyUnlockPrivateGetRemoteDevicesFunction::OnPSKDerivedForDevice(
     const cryptauth::ExternalDeviceInfo& device,
     const std::string& persistent_symmetric_key) {
   std::string b64_public_key, b64_psk;
-  proximity_auth::Base64UrlEncode(device.public_key(), &b64_public_key);
-  proximity_auth::Base64UrlEncode(persistent_symmetric_key, &b64_psk);
+  base::Base64UrlEncode(device.public_key(),
+                        base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                        &b64_public_key);
+  base::Base64UrlEncode(persistent_symmetric_key,
+                        base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                        &b64_psk);
 
   // Fill in the JSON dictionary containing a single unlock key's data.
   scoped_ptr<base::DictionaryValue> device_dictionary(
@@ -797,15 +804,15 @@ void EasyUnlockPrivateGetRemoteDevicesFunction::OnPSKDerivedForDevice(
   permit_license->SetString("id", b64_public_key);
   permit_license->SetString("type", "license");
   permit_license->SetString("data", b64_public_key);
-  device_dictionary->Set("permitRecord", permit_license.Pass());
+  device_dictionary->Set("permitRecord", std::move(permit_license));
 
-  remote_devices_->Append(device_dictionary.Pass());
+  remote_devices_->Append(std::move(device_dictionary));
 
   // If all PSKs are derived, then return from the API call.
   PA_LOG(INFO) << "Derived PSK for " << b64_public_key << ": "
                << remote_devices_->GetSize() << "/" << expected_devices_count_;
   if (remote_devices_->GetSize() == expected_devices_count_) {
-    SetResult(remote_devices_.Pass());
+    SetResult(std::move(remote_devices_));
     SendResponse(true);
   }
 }
@@ -835,7 +842,7 @@ bool EasyUnlockPrivateGetSignInChallengeFunction::RunAsync() {
       return false;
     }
     key_manager->SignUsingTpmKey(
-        EasyUnlockService::Get(profile)->GetUserEmail(),
+        EasyUnlockService::Get(profile)->GetAccountId(),
         std::string(params->nonce.begin(), params->nonce.end()),
         base::Bind(&EasyUnlockPrivateGetSignInChallengeFunction::OnDone, this,
                    challenge));
@@ -887,22 +894,22 @@ bool EasyUnlockPrivateGetUserInfoFunction::RunSync() {
   EasyUnlockService* service =
       EasyUnlockService::Get(Profile::FromBrowserContext(browser_context()));
   std::vector<linked_ptr<easy_unlock_private::UserInfo> > users;
-  std::string user_id = service->GetUserEmail();
-  if (!user_id.empty()) {
+  const AccountId& account_id = service->GetAccountId();
+  if (account_id.is_valid()) {
     users.push_back(
         linked_ptr<easy_unlock_private::UserInfo>(
             new easy_unlock_private::UserInfo()));
-    users[0]->user_id = user_id;
+    users[0]->user_id = account_id.GetUserEmail();
     users[0]->logged_in = service->GetType() == EasyUnlockService::TYPE_REGULAR;
     users[0]->data_ready = users[0]->logged_in ||
                            service->GetRemoteDevices() != NULL;
 
     EasyUnlockService::UserSettings user_settings =
-        EasyUnlockService::GetUserSettings(user_id);
+        EasyUnlockService::GetUserSettings(account_id);
     users[0]->require_close_proximity = user_settings.require_close_proximity;
 
     users[0]->device_user_id = proximity_auth::CalculateDeviceUserId(
-        EasyUnlockService::GetDeviceId(), user_id);
+        EasyUnlockService::GetDeviceId(), account_id.GetUserEmail());
 
     users[0]->ble_discovery_enabled =
         base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -951,7 +958,7 @@ void EasyUnlockPrivateGetConnectionInfoFunction::OnConnectionInfo(
   results->AppendInteger(connection_info.rssi);
   results->AppendInteger(connection_info.transmit_power);
   results->AppendInteger(connection_info.max_transmit_power);
-  SetResultList(results.Pass());
+  SetResultList(std::move(results));
   SendResponse(true);
 }
 
@@ -1066,7 +1073,7 @@ void EasyUnlockPrivateFindSetupConnectionFunction::OnConnectionFound(
   bool persistent = false;
   int connection_id =
       GetConnectionManager(browser_context())
-          ->AddConnection(extension(), connection.Pass(), persistent);
+          ->AddConnection(extension(), std::move(connection), persistent);
   results_ = easy_unlock_private::FindSetupConnection::Results::Create(
       connection_id, device_address);
   SendResponse(true);

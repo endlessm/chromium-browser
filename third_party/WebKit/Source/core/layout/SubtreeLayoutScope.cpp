@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/layout/SubtreeLayoutScope.h"
 
 #include "core/frame/FrameView.h"
@@ -71,4 +70,4 @@ void SubtreeLayoutScope::recordObjectMarkedForLayout(LayoutObject* layoutObject)
 #endif
 }
 
-}
+} // namespace blink

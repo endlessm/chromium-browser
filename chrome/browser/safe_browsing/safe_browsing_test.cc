@@ -16,9 +16,12 @@
 
 #include <vector>
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/environment.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -32,7 +35,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/safe_browsing/database_manager.h"
 #include "chrome/browser/safe_browsing/local_database_manager.h"
 #include "chrome/browser/safe_browsing/local_safebrowsing_test_server.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
@@ -41,6 +43,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/safe_browsing_db/database_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_utils.h"
@@ -48,6 +51,7 @@
 #include "net/dns/host_resolver.h"
 #include "net/log/net_log.h"
 #include "net/test/python_utils.h"
+#include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_status.h"
@@ -254,7 +258,7 @@ class SafeBrowsingServerTest : public InProcessBrowserTest {
     return local_database_manager()->safe_browsing_task_runner_;
   }
 
-  const net::SpawnedTestServer& test_server() const {
+  const net::SpawnedTestServer& spawned_test_server() const {
     return *test_server_;
   }
 
@@ -540,8 +544,9 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServerTest,
     }
 
     // Fetches URLs to verify and waits till server responses with data.
-    EXPECT_EQ(net::URLRequestStatus::SUCCESS,
-              safe_browsing_helper->FetchUrlsToVerify(test_server(), step));
+    EXPECT_EQ(
+        net::URLRequestStatus::SUCCESS,
+        safe_browsing_helper->FetchUrlsToVerify(spawned_test_server(), step));
 
     std::vector<PhishingUrl> phishing_urls;
     EXPECT_TRUE(ParsePhishingUrls(safe_browsing_helper->response_data(),
@@ -569,15 +574,17 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServerTest,
     }
     // TODO(lzheng): We should verify the fetched database with local
     // database to make sure they match.
-    EXPECT_EQ(net::URLRequestStatus::SUCCESS,
-              safe_browsing_helper->FetchDBToVerify(test_server(), step));
+    EXPECT_EQ(
+        net::URLRequestStatus::SUCCESS,
+        safe_browsing_helper->FetchDBToVerify(spawned_test_server(), step));
     EXPECT_GT(safe_browsing_helper->response_data().size(), 0U);
     last_step = step;
   }
 
   // Verifies with server if test is done and waits till server responses.
   EXPECT_EQ(net::URLRequestStatus::SUCCESS,
-            safe_browsing_helper->VerifyTestComplete(test_server(), last_step));
+            safe_browsing_helper->VerifyTestComplete(spawned_test_server(),
+                                                     last_step));
   EXPECT_EQ("yes", safe_browsing_helper->response_data());
 }
 

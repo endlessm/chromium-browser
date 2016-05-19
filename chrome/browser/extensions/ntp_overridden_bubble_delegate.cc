@@ -43,7 +43,7 @@ bool NtpOverriddenBubbleDelegate::ShouldIncludeExtension(
   if (!ExtensionWebUI::HandleChromeURLOverride(&url, profile()))
     return false;  // No override for newtab found.
 
-  if (extension->id() != url.host())
+  if (extension->id() != url.host_piece())
     return false;
 
   if (HasBubbleInfoBeenAcknowledged(extension->id()))
@@ -127,6 +127,10 @@ void NtpOverriddenBubbleDelegate::LogAction(
       "ExtensionOverrideBubble.NtpOverriddenUserSelection",
       action,
       ExtensionMessageBubbleController::ACTION_BOUNDARY);
+}
+
+const char* NtpOverriddenBubbleDelegate::GetKey() {
+  return "NtpOverriddenBubbleDelegate";
 }
 
 }  // namespace extensions

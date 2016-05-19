@@ -30,6 +30,9 @@ AXAuraObjWrapper* AXWidgetObjWrapper::GetParent() {
 
 void AXWidgetObjWrapper::GetChildren(
     std::vector<AXAuraObjWrapper*>* out_children) {
+  if (!widget_->IsVisible() || !widget_->GetRootView()->visible())
+    return;
+
   out_children->push_back(
       AXAuraObjCache::GetInstance()->GetOrCreate(widget_->GetRootView()));
 }
@@ -42,7 +45,7 @@ void AXWidgetObjWrapper::Serialize(ui::AXNodeData* out_node_data) {
   out_node_data->state = 0;
 }
 
-int32 AXWidgetObjWrapper::GetID() {
+int32_t AXWidgetObjWrapper::GetID() {
   return AXAuraObjCache::GetInstance()->GetID(widget_);
 }
 
@@ -51,7 +54,7 @@ void AXWidgetObjWrapper::OnWidgetDestroying(Widget* widget) {
 }
 
 void AXWidgetObjWrapper::OnWillRemoveView(Widget* widget, View* view) {
-  AXAuraObjCache::GetInstance()->Remove(view);
+  AXAuraObjCache::GetInstance()->RemoveViewSubtree(view);
 }
 
 }  // namespace views

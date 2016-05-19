@@ -6,6 +6,7 @@
 #define UI_VIEWS_WINDOW_DIALOG_DELEGATE_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "ui/accessibility/ax_enums.h"
 #include "ui/base/models/dialog_model.h"
@@ -107,9 +108,6 @@ class VIEWS_EXPORT DialogDelegate : public ui::DialogModel,
 
   // Returns whether this particular dialog should use the new dialog style.
   virtual bool UseNewStyleForThisDialog() const;
-
-  // Called when the window has been closed.
-  virtual void OnClosed() {}
 
   // A helper for accessing the DialogClientView object contained by this
   // delegate's Window.

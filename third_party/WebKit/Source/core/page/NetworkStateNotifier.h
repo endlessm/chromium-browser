@@ -47,9 +47,10 @@ public:
     };
 
     NetworkStateNotifier()
-        : m_isOnLine(true)
+        : m_initialized(false)
+        , m_isOnLine(true)
         , m_type(WebConnectionTypeOther)
-        , m_maxBandwidthMbps(std::numeric_limits<double>::infinity())
+        , m_maxBandwidthMbps(kInvalidMaxBandwidth)
         , m_testUpdatesOnly(false)
     {
     }
@@ -58,6 +59,7 @@ public:
     bool onLine() const
     {
         MutexLocker locker(m_mutex);
+        ASSERT(m_initialized);
         return m_isOnLine;
     }
 
@@ -67,13 +69,36 @@ public:
     WebConnectionType connectionType() const
     {
         MutexLocker locker(m_mutex);
+        ASSERT(m_initialized);
         return m_type;
+    }
+
+    // Can be called on any thread.
+    bool isCellularConnectionType() const
+    {
+        switch (connectionType()) {
+        case WebConnectionTypeCellular2G:
+        case WebConnectionTypeCellular3G:
+        case WebConnectionTypeCellular4G:
+            return true;
+        case WebConnectionTypeBluetooth:
+        case WebConnectionTypeEthernet:
+        case WebConnectionTypeWifi:
+        case WebConnectionTypeWimax:
+        case WebConnectionTypeOther:
+        case WebConnectionTypeNone:
+        case WebConnectionTypeUnknown:
+            return false;
+        }
+        ASSERT_NOT_REACHED();
+        return false;
     }
 
     // Can be called on any thread.
     double maxBandwidth() const
     {
         MutexLocker locker(m_mutex);
+        ASSERT(m_initialized);
         return m_maxBandwidthMbps;
     }
 
@@ -109,6 +134,8 @@ private:
         Vector<size_t> zeroedObservers; // Indices in observers that are 0.
     };
 
+    const int kInvalidMaxBandwidth = -1;
+
     void setWebConnectionImpl(WebConnectionType, double maxBandwidthMbps);
     void setMaxBandwidthImpl(double maxBandwidthMbps);
 
@@ -127,6 +154,7 @@ private:
     void collectZeroedObservers(ObserverList*, ExecutionContext*);
 
     mutable Mutex m_mutex;
+    bool m_initialized;
     bool m_isOnLine;
     WebConnectionType m_type;
     double m_maxBandwidthMbps;

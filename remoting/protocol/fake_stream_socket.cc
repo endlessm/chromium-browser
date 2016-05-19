@@ -4,30 +4,23 @@
 
 #include "remoting/protocol/fake_stream_socket.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace remoting {
 namespace protocol {
 
 FakeStreamSocket::FakeStreamSocket()
-    : async_write_(false),
-      write_pending_(false),
-      write_limit_(0),
-      next_write_error_(net::OK),
-      next_read_error_(net::OK),
-      read_buffer_size_(0),
-      input_pos_(0),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      weak_factory_(this) {
-}
+    : task_runner_(base::ThreadTaskRunnerHandle::Get()), weak_factory_(this) {}
 
 FakeStreamSocket::~FakeStreamSocket() {
   EXPECT_TRUE(task_runner_->BelongsToCurrentThread());
@@ -157,8 +150,6 @@ void FakeStreamSocket::DoWrite(const scoped_refptr<net::IOBuffer>& buf,
 
 FakeStreamChannelFactory::FakeStreamChannelFactory()
     : task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      asynchronous_create_(false),
-      fail_create_(false),
       weak_factory_(this) {
 }
 
@@ -169,11 +160,24 @@ FakeStreamSocket* FakeStreamChannelFactory::GetFakeChannel(
   return channels_[name].get();
 }
 
+void FakeStreamChannelFactory::PairWith(
+    FakeStreamChannelFactory* peer_factory) {
+  peer_factory_ = peer_factory->weak_factory_.GetWeakPtr();
+  peer_factory->peer_factory_ = weak_factory_.GetWeakPtr();
+}
+
 void FakeStreamChannelFactory::CreateChannel(
     const std::string& name,
     const ChannelCreatedCallback& callback) {
   scoped_ptr<FakeStreamSocket> channel(new FakeStreamSocket());
   channels_[name] = channel->GetWeakPtr();
+  channel->set_async_write(async_write_);
+
+  if (peer_factory_) {
+    FakeStreamSocket* peer_channel = peer_factory_->GetFakeChannel(name);
+    if (peer_channel)
+      channel->PairWith(peer_channel);
+  }
 
   if (fail_create_)
     channel.reset();
@@ -183,7 +187,7 @@ void FakeStreamChannelFactory::CreateChannel(
         &FakeStreamChannelFactory::NotifyChannelCreated,
         weak_factory_.GetWeakPtr(), base::Passed(&channel), name, callback));
   } else {
-    NotifyChannelCreated(channel.Pass(), name, callback);
+    NotifyChannelCreated(std::move(channel), name, callback);
   }
 }
 
@@ -192,7 +196,7 @@ void FakeStreamChannelFactory::NotifyChannelCreated(
     const std::string& name,
     const ChannelCreatedCallback& callback) {
   if (channels_.find(name) != channels_.end())
-    callback.Run(owned_channel.Pass());
+    callback.Run(std::move(owned_channel));
 }
 
 void FakeStreamChannelFactory::CancelChannelCreation(const std::string& name) {

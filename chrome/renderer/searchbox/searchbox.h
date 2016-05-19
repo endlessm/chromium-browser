@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "chrome/common/instant_types.h"
 #include "chrome/common/ntp_logging_events.h"
@@ -111,9 +111,7 @@ class SearchBox : public content::RenderViewObserver,
   void Focus();
 
   // Sends ChromeViewHostMsg_SearchBoxNavigate to the browser.
-  void NavigateToURL(const GURL& url,
-                     WindowOpenDisposition disposition,
-                     bool is_most_visited_item_url);
+  void NavigateToURL(const GURL& url, WindowOpenDisposition disposition);
 
   // Sends ChromeViewHostMsg_SearchBoxPaste to the browser.
   void Paste(const base::string16& text);
@@ -140,7 +138,6 @@ class SearchBox : public content::RenderViewObserver,
   bool is_key_capture_enabled() const { return is_key_capture_enabled_; }
   bool display_instant_results() const { return display_instant_results_; }
   const base::string16& query() const { return query_; }
-  int start_margin() const { return start_margin_; }
   const InstantSuggestion& suggestion() const { return suggestion_; }
 
  private:
@@ -154,7 +151,6 @@ class SearchBox : public content::RenderViewObserver,
   void OnFocusChanged(OmniboxFocusState new_focus_state,
                       OmniboxFocusChangeReason reason);
   void OnHistorySyncCheckResult(bool sync_history);
-  void OnMarginChange(int margin);
   void OnMostVisitedChanged(
       const std::vector<InstantMostVisitedItem>& items);
   void OnPromoInformationReceived(bool is_app_launcher_enabled);
@@ -184,7 +180,6 @@ class SearchBox : public content::RenderViewObserver,
   ThemeBackgroundInfo theme_info_;
   base::string16 query_;
   EmbeddedSearchRequestParams embedded_search_request_params_;
-  int start_margin_;
   InstantSuggestion suggestion_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchBox);

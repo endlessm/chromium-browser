@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/presentation/PresentationConnection.h"
 
 #include "bindings/core/v8/ScriptPromiseResolver.h"
@@ -14,11 +13,13 @@
 #include "core/events/MessageEvent.h"
 #include "core/fileapi/FileReaderLoader.h"
 #include "core/fileapi/FileReaderLoaderClient.h"
+#include "core/frame/Deprecation.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/UseCounter.h"
 #include "modules/EventTargetModules.h"
 #include "modules/presentation/Presentation.h"
 #include "modules/presentation/PresentationConnectionAvailableEvent.h"
+#include "modules/presentation/PresentationConnectionCloseEvent.h"
 #include "modules/presentation/PresentationController.h"
 #include "modules/presentation/PresentationRequest.h"
 #include "public/platform/modules/presentation/WebPresentationConnectionClient.h"
@@ -59,6 +60,25 @@ const AtomicString& connectionStateToString(WebPresentationConnectionState state
 
     ASSERT_NOT_REACHED();
     return terminatedValue;
+}
+
+const AtomicString& connectionCloseReasonToString(WebPresentationConnectionCloseReason reason)
+{
+    DEFINE_STATIC_LOCAL(const AtomicString, errorValue, ("error", AtomicString::ConstructFromLiteral));
+    DEFINE_STATIC_LOCAL(const AtomicString, closedValue, ("closed", AtomicString::ConstructFromLiteral));
+    DEFINE_STATIC_LOCAL(const AtomicString, wentAwayValue, ("wentaway", AtomicString::ConstructFromLiteral));
+
+    switch (reason) {
+    case WebPresentationConnectionCloseReason::Error:
+        return errorValue;
+    case WebPresentationConnectionCloseReason::Closed:
+        return closedValue;
+    case WebPresentationConnectionCloseReason::WentAway:
+        return wentAwayValue;
+    }
+
+    ASSERT_NOT_REACHED();
+    return errorValue;
 }
 
 void throwPresentationDisconnectedError(ExceptionState& exceptionState)
@@ -166,7 +186,13 @@ ExecutionContext* PresentationConnection::executionContext() const
 bool PresentationConnection::addEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, const EventListenerOptions& options)
 {
     if (eventType == EventTypeNames::statechange)
-        UseCounter::count(executionContext(), UseCounter::PresentationConnectionStateChangeEventListener);
+        Deprecation::countDeprecation(executionContext(), UseCounter::PresentationConnectionStateChangeEventListener);
+    else if (eventType == EventTypeNames::connect)
+        UseCounter::count(executionContext(), UseCounter::PresentationConnectionConnectEventListener);
+    else if (eventType == EventTypeNames::close)
+        UseCounter::count(executionContext(), UseCounter::PresentationConnectionCloseEventListener);
+    else if (eventType == EventTypeNames::terminate)
+        UseCounter::count(executionContext(), UseCounter::PresentationConnectionTerminateEventListener);
     else if (eventType == EventTypeNames::message)
         UseCounter::count(executionContext(), UseCounter::PresentationConnectionMessageEventListener);
 
@@ -314,6 +340,17 @@ void PresentationConnection::didReceiveBinaryMessage(const uint8_t* data, size_t
     ASSERT_NOT_REACHED();
 }
 
+void PresentationConnection::close()
+{
+    if (m_state != WebPresentationConnectionState::Connected)
+        return;
+    WebPresentationClient* client = presentationClient(executionContext());
+    if (client)
+        client->closeSession(m_url, m_id);
+
+    tearDown();
+}
+
 void PresentationConnection::terminate()
 {
     if (m_state != WebPresentationConnectionState::Connected)
@@ -322,15 +359,7 @@ void PresentationConnection::terminate()
     if (client)
         client->terminateSession(m_url, m_id);
 
-    // Cancel current Blob loading if any.
-    if (m_blobLoader) {
-        m_blobLoader->cancel();
-        m_blobLoader.clear();
-    }
-
-    // Clear message queue.
-    Deque<OwnPtr<Message>> empty;
-    m_messages.swap(empty);
+    tearDown();
 }
 
 bool PresentationConnection::matches(WebPresentationConnectionClient* client) const
@@ -345,6 +374,27 @@ void PresentationConnection::didChangeState(WebPresentationConnectionState state
 
     m_state = state;
     dispatchEvent(Event::create(EventTypeNames::statechange));
+    switch (m_state) {
+    case WebPresentationConnectionState::Connected:
+        dispatchEvent(Event::create(EventTypeNames::connect));
+        return;
+    case WebPresentationConnectionState::Terminated:
+        dispatchEvent(Event::create(EventTypeNames::terminate));
+        return;
+    // Closed state is handled in |didClose()|.
+    case WebPresentationConnectionState::Closed:
+        return;
+    }
+    ASSERT_NOT_REACHED();
+}
+
+void PresentationConnection::didClose(WebPresentationConnectionCloseReason reason, const String& message)
+{
+    if (m_state == WebPresentationConnectionState::Closed)
+        return;
+
+    m_state = WebPresentationConnectionState::Closed;
+    dispatchEvent(PresentationConnectionCloseEvent::create(EventTypeNames::close, connectionCloseReasonToString(reason), message));
 }
 
 void PresentationConnection::didFinishLoadingBlob(PassRefPtr<DOMArrayBuffer> buffer)
@@ -371,9 +421,17 @@ void PresentationConnection::didFailLoadingBlob(FileError::ErrorCode errorCode)
     handleMessageQueue();
 }
 
-bool PresentationConnection::isDisconnected() const
+void PresentationConnection::tearDown()
 {
-    return m_state == WebPresentationConnectionState::Closed || m_state == WebPresentationConnectionState::Terminated;
+    // Cancel current Blob loading if any.
+    if (m_blobLoader) {
+        m_blobLoader->cancel();
+        m_blobLoader.clear();
+    }
+
+    // Clear message queue.
+    Deque<OwnPtr<Message>> empty;
+    m_messages.swap(empty);
 }
 
 } // namespace blink

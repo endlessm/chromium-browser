@@ -154,17 +154,23 @@ DisplayChangeObserver::~DisplayChangeObserver() {
 ui::MultipleDisplayState DisplayChangeObserver::GetStateForDisplayIds(
     const ui::DisplayConfigurator::DisplayStateList& display_states) const {
   UpdateInternalDisplayId(display_states);
-  if (display_states.size() != 2)
-    return ui::MULTIPLE_DISPLAY_STATE_DUAL_EXTENDED;
-  DisplayIdPair pair = CreateDisplayIdPair(display_states[0]->display_id(),
-                                           display_states[1]->display_id());
-  DisplayLayout layout = Shell::GetInstance()->display_manager()->
-      layout_store()->GetRegisteredDisplayLayout(pair);
+  if (display_states.size() == 1)
+    return ui::MULTIPLE_DISPLAY_STATE_SINGLE;
+  DisplayIdList list =
+      GenerateDisplayIdList(display_states.begin(), display_states.end(),
+                            [](const ui::DisplaySnapshot* display_state) {
+                              return display_state->display_id();
+                            });
+
+  const DisplayLayout& layout = Shell::GetInstance()
+                                    ->display_manager()
+                                    ->layout_store()
+                                    ->GetRegisteredDisplayLayout(list);
   return layout.mirrored ? ui::MULTIPLE_DISPLAY_STATE_DUAL_MIRROR :
                            ui::MULTIPLE_DISPLAY_STATE_DUAL_EXTENDED;
 }
 
-bool DisplayChangeObserver::GetResolutionForDisplayId(int64 display_id,
+bool DisplayChangeObserver::GetResolutionForDisplayId(int64_t display_id,
                                                       gfx::Size* size) const {
   DisplayMode mode;
   if (!Shell::GetInstance()->display_manager()->GetSelectedModeForDisplayId(
@@ -180,7 +186,7 @@ void DisplayChangeObserver::OnDisplayModeChanged(
   UpdateInternalDisplayId(display_states);
 
   std::vector<DisplayInfo> displays;
-  std::set<int64> ids;
+  std::set<int64_t> ids;
   for (const ui::DisplaySnapshot* state : display_states) {
     const ui::DisplayMode* mode_info = state->current_mode();
     if (!mode_info)
@@ -218,19 +224,28 @@ void DisplayChangeObserver::OnDisplayModeChanged(
     }
     gfx::Rect display_bounds(state->origin(), mode_info->size());
 
-    std::string name =
-        state->type() == ui::DISPLAY_CONNECTION_TYPE_INTERNAL
-            ? l10n_util::GetStringUTF8(IDS_ASH_INTERNAL_DISPLAY_NAME)
-            : state->display_name();
+    std::string name;
+    switch (state->type()) {
+      case ui::DISPLAY_CONNECTION_TYPE_INTERNAL:
+        name = l10n_util::GetStringUTF8(IDS_ASH_INTERNAL_DISPLAY_NAME);
+        break;
+      case ui::DISPLAY_CONNECTION_TYPE_VIRTUAL:
+        name = l10n_util::GetStringUTF8(IDS_ASH_VIRTUAL_DISPLAY_NAME);
+        break;
+      default:
+        name = state->display_name();
+    }
+
     if (name.empty())
       name = l10n_util::GetStringUTF8(IDS_ASH_STATUS_TRAY_UNKNOWN_DISPLAY_NAME);
 
     bool has_overscan = state->has_overscan();
-    int64 id = state->display_id();
+    int64_t id = state->display_id();
     ids.insert(id);
 
     displays.push_back(DisplayInfo(id, name, has_overscan));
     DisplayInfo& new_info = displays.back();
+    new_info.set_sys_path(state->sys_path());
     new_info.set_device_scale_factor(device_scale_factor);
     new_info.SetBounds(display_bounds);
     new_info.set_native(true);
@@ -275,11 +290,9 @@ void DisplayChangeObserver::OnDisplayModeChangeFailed(
 }
 
 void DisplayChangeObserver::OnAppTerminating() {
-#if defined(USE_ASH)
   // Stop handling display configuration events once the shutdown
   // process starts. crbug.com/177014.
   Shell::GetInstance()->display_configurator()->PrepareForExit();
-#endif
 }
 
 // static

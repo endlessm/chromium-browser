@@ -46,21 +46,19 @@ WebInspector.JavaScriptCompiler.prototype = {
         var target = this._findTarget();
         if (!target)
             return;
-        var debuggerModel = WebInspector.DebuggerModel.fromTarget(target);
-        if (!debuggerModel)
-            return;
+        var runtimeModel = target.runtimeModel;
         var currentExecutionContext = WebInspector.context.flavor(WebInspector.ExecutionContext);
         if (!currentExecutionContext)
             return;
 
         this._compiling = true;
         var code = this._sourceFrame.textEditor.text();
-        debuggerModel.compileScript(code, "", false, currentExecutionContext.id, compileCallback.bind(this, target));
+        runtimeModel.compileScript(code, "", false, currentExecutionContext.id, compileCallback.bind(this, target));
 
         /**
          * @param {!WebInspector.Target} target
-         * @param {!DebuggerAgent.ScriptId=} scriptId
-         * @param {?DebuggerAgent.ExceptionDetails=} exceptionDetails
+         * @param {!RuntimeAgent.ScriptId=} scriptId
+         * @param {?RuntimeAgent.ExceptionDetails=} exceptionDetails
          * @this {WebInspector.JavaScriptCompiler}
          */
         function compileCallback(target, scriptId, exceptionDetails)
@@ -73,7 +71,7 @@ WebInspector.JavaScriptCompiler.prototype = {
             }
             if (!exceptionDetails)
                 return;
-            this._sourceFrame.uiSourceCode().addMessage(WebInspector.UISourceCode.Message.Level.Error, exceptionDetails.text, exceptionDetails.line - 1, exceptionDetails.column + 1);
+            this._sourceFrame.uiSourceCode().addLineMessage(WebInspector.UISourceCode.Message.Level.Error, exceptionDetails.text, exceptionDetails.line - 1, exceptionDetails.column + 1);
             this._compilationFinishedForTest();
         }
     },

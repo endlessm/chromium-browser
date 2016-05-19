@@ -4,6 +4,8 @@
 
 #include "content/renderer/media/webrtc/mock_peer_connection_dependency_factory.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/renderer/media/mock_peer_connection_impl.h"
@@ -13,9 +15,9 @@
 #include "content/renderer/media/webrtc_audio_capturer.h"
 #include "content/renderer/media/webrtc_local_audio_track.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
-#include "third_party/libjingle/source/talk/app/webrtc/mediastreaminterface.h"
-#include "third_party/libjingle/source/talk/media/base/videocapturer.h"
+#include "third_party/webrtc/api/mediastreaminterface.h"
 #include "third_party/webrtc/base/scoped_ref_ptr.h"
+#include "third_party/webrtc/media/base/videocapturer.h"
 
 using webrtc::AudioSourceInterface;
 using webrtc::AudioTrackInterface;
@@ -156,17 +158,9 @@ class MockRtcVideoCapturer : public WebRtcVideoCapturerAdapter {
 };
 
 MockVideoRenderer::MockVideoRenderer()
-    : width_(0),
-      height_(0),
-      num_(0) {}
+    : num_(0) {}
 
 MockVideoRenderer::~MockVideoRenderer() {}
-
-bool MockVideoRenderer::SetSize(int width, int height, int reserved) {
-  width_ = width;
-  height_ = height;
-  return true;
-}
 
 bool MockVideoRenderer::RenderFrame(const cricket::VideoFrame* frame) {
   ++num_;
@@ -174,8 +168,8 @@ bool MockVideoRenderer::RenderFrame(const cricket::VideoFrame* frame) {
 }
 
 MockAudioSource::MockAudioSource(
-    const webrtc::MediaConstraintsInterface* constraints)
-    : state_(MediaSourceInterface::kLive),
+    const webrtc::MediaConstraintsInterface* constraints, bool remote)
+    : remote_(remote), state_(MediaSourceInterface::kLive),
       optional_constraints_(constraints->GetOptional()),
       mandatory_constraints_(constraints->GetMandatory()) {
 }
@@ -196,8 +190,12 @@ webrtc::MediaSourceInterface::SourceState MockAudioSource::state() const {
   return state_;
 }
 
-MockVideoSource::MockVideoSource()
-    : state_(MediaSourceInterface::kInitializing) {
+bool MockAudioSource::remote() const {
+  return remote_;
+}
+
+MockVideoSource::MockVideoSource(bool remote)
+    : state_(MediaSourceInterface::kInitializing), remote_(remote) {
 }
 
 MockVideoSource::~MockVideoSource() {}
@@ -210,11 +208,13 @@ cricket::VideoCapturer* MockVideoSource::GetVideoCapturer() {
   return capturer_.get();
 }
 
-void MockVideoSource::AddSink(cricket::VideoRenderer* output) {
+void MockVideoSource::AddSink(
+    rtc::VideoSinkInterface<cricket::VideoFrame>* output) {
   NOTIMPLEMENTED();
 }
 
-void MockVideoSource::RemoveSink(cricket::VideoRenderer* output) {
+void MockVideoSource::RemoveSink(
+    rtc::VideoSinkInterface<cricket::VideoFrame>* output) {
   NOTIMPLEMENTED();
 }
 
@@ -268,6 +268,10 @@ webrtc::MediaSourceInterface::SourceState MockVideoSource::state() const {
   return state_;
 }
 
+bool MockVideoSource::remote() const {
+  return remote_;
+}
+
 const cricket::VideoOptions* MockVideoSource::options() const {
   NOTIMPLEMENTED();
   return NULL;
@@ -308,7 +312,7 @@ void MockWebRtcVideoTrack::AddRenderer(VideoRendererInterface* renderer) {
 }
 
 void MockWebRtcVideoTrack::RemoveRenderer(VideoRendererInterface* renderer) {
-  DCHECK_EQ(renderer_, renderer);
+  DCHECK(renderer_ == renderer);
   renderer_ = NULL;
 }
 
@@ -447,7 +451,7 @@ scoped_refptr<webrtc::AudioSourceInterface>
 MockPeerConnectionDependencyFactory::CreateLocalAudioSource(
     const webrtc::MediaConstraintsInterface* constraints) {
   last_audio_source_ =
-      new rtc::RefCountedObject<MockAudioSource>(constraints);
+      new rtc::RefCountedObject<MockAudioSource>(constraints, false);
   return last_audio_source_;
 }
 
@@ -461,7 +465,7 @@ scoped_refptr<webrtc::VideoSourceInterface>
 MockPeerConnectionDependencyFactory::CreateVideoSource(
     cricket::VideoCapturer* capturer,
     const blink::WebMediaConstraints& constraints) {
-  last_video_source_ = new rtc::RefCountedObject<MockVideoSource>();
+  last_video_source_ = new rtc::RefCountedObject<MockVideoSource>(false);
   last_video_source_->SetVideoCapturer(capturer);
   return last_video_source_;
 }
@@ -493,11 +497,10 @@ MockPeerConnectionDependencyFactory::CreateLocalVideoTrack(
     const std::string& id,
     cricket::VideoCapturer* capturer) {
   scoped_refptr<MockVideoSource> source =
-      new rtc::RefCountedObject<MockVideoSource>();
+      new rtc::RefCountedObject<MockVideoSource>(false);
   source->SetVideoCapturer(capturer);
 
-  return
-      new rtc::RefCountedObject<MockWebRtcVideoTrack>(id, source.get());
+  return new rtc::RefCountedObject<MockWebRtcVideoTrack>(id, source.get());
 }
 
 SessionDescriptionInterface*

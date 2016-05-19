@@ -14,6 +14,7 @@
 #ifndef FPDFSDK_INCLUDE_JSAPI_FXJS_V8_H_
 #define FPDFSDK_INCLUDE_JSAPI_FXJS_V8_H_
 
+#include <v8-util.h>
 #include <v8.h>
 
 #include <vector>
@@ -27,6 +28,12 @@ class CFXJS_ObjDefinition;
 class IJS_Context;  // A description of the event that caused JS execution.
 class IJS_Runtime;  // A native runtime, typically owns the v8::Context.
 
+#ifdef PDF_ENABLE_XFA
+// FXJS_V8 places no interpreation on this calass; it merely passes it
+// along to XFA.
+class CFXJSE_RuntimeData;
+#endif  // PDF_ENABLE_XFA
+
 enum FXJSOBJTYPE {
   FXJSOBJTYPE_DYNAMIC = 0,  // Created by native method and returned to JS.
   FXJSOBJTYPE_STATIC,       // Created by init and hung off of global object.
@@ -39,15 +46,78 @@ struct FXJSErr {
   unsigned linnum;
 };
 
+// Global weak map to save dynamic objects.
+class V8TemplateMapTraits : public v8::StdMapTraits<void*, v8::Object> {
+ public:
+  typedef v8::GlobalValueMap<void*, v8::Object, V8TemplateMapTraits> MapType;
+  typedef void WeakCallbackDataType;
+
+  static WeakCallbackDataType* WeakCallbackParameter(
+      MapType* map,
+      void* key,
+      const v8::Local<v8::Object>& value) {
+    return key;
+  }
+  static MapType* MapFromWeakCallbackInfo(
+      const v8::WeakCallbackInfo<WeakCallbackDataType>&);
+
+  static void* KeyFromWeakCallbackInfo(
+      const v8::WeakCallbackInfo<WeakCallbackDataType>& data) {
+    return data.GetParameter();
+  }
+  static const v8::PersistentContainerCallbackType kCallbackType =
+      v8::kWeakWithInternalFields;
+  static void DisposeWeak(
+      const v8::WeakCallbackInfo<WeakCallbackDataType>& data) {}
+  static void OnWeakCallback(
+      const v8::WeakCallbackInfo<WeakCallbackDataType>& data) {}
+  static void Dispose(v8::Isolate* isolate,
+                      v8::Global<v8::Object> value,
+                      void* key);
+  static void DisposeCallbackData(WeakCallbackDataType* callbackData) {}
+};
+
+class V8TemplateMap {
+ public:
+  typedef v8::GlobalValueMap<void*, v8::Object, V8TemplateMapTraits> MapType;
+
+  void set(void* key, v8::Local<v8::Object> handle) {
+    ASSERT(!m_map.Contains(key));
+    m_map.Set(key, handle);
+  }
+  explicit V8TemplateMap(v8::Isolate* isolate) : m_map(isolate) {}
+  friend class V8TemplateMapTraits;
+
+ private:
+  MapType m_map;
+};
+
 class FXJS_PerIsolateData {
  public:
   static void SetUp(v8::Isolate* pIsolate);
   static FXJS_PerIsolateData* Get(v8::Isolate* pIsolate);
+  void CreateDynamicObjsMap(v8::Isolate* pIsolate) {
+    if (!m_pDynamicObjsMap)
+      m_pDynamicObjsMap = new V8TemplateMap(pIsolate);
+  }
+  void ReleaseDynamicObjsMap() {
+    delete m_pDynamicObjsMap;
+    m_pDynamicObjsMap = nullptr;
+  }
 
   std::vector<CFXJS_ObjDefinition*> m_ObjectDefnArray;
+#ifdef PDF_ENABLE_XFA
+  CFXJSE_RuntimeData* m_pFXJSERuntimeData;
+#endif  // PDF_ENABLE_XFA
+  V8TemplateMap* m_pDynamicObjsMap;
 
  protected:
-  FXJS_PerIsolateData() {}
+#ifndef PDF_ENABLE_XFA
+  FXJS_PerIsolateData() : m_pDynamicObjsMap(nullptr) {}
+#else  // PDF_ENABLE_XFA
+  FXJS_PerIsolateData()
+      : m_pFXJSERuntimeData(nullptr), m_pDynamicObjsMap(nullptr) {}
+#endif  // PDF_ENABLE_XFA
 };
 
 extern const wchar_t kFXJSValueNameString[];
@@ -119,7 +189,7 @@ void FXJS_DefineGlobalMethod(v8::Isolate* pIsolate,
                              v8::FunctionCallback pMethodCall);
 void FXJS_DefineGlobalConst(v8::Isolate* pIsolate,
                             const wchar_t* sConstName,
-                            v8::Local<v8::Value> pDefault);
+                            v8::FunctionCallback pConstGetter);
 
 // Called after FXJS_Define* calls made.
 void FXJS_InitializeRuntime(
@@ -132,6 +202,13 @@ void FXJS_ReleaseRuntime(v8::Isolate* pIsolate,
                          std::vector<v8::Global<v8::Object>*>* pStaticObjects);
 IJS_Runtime* FXJS_GetRuntimeFromIsolate(v8::Isolate* pIsolate);
 
+#ifdef PDF_ENABLE_XFA
+// Called as part of FXJS_InitializeRuntime, exposed so PDF can make its
+// own contexts compatible with XFA or vice versa.
+void FXJS_SetRuntimeForV8Context(v8::Local<v8::Context> v8Context,
+                                 IJS_Runtime* pIRuntime);
+#endif  // PDF_ENABLE_XFA
+
 // Called after FXJS_InitializeRuntime call made.
 int FXJS_Execute(v8::Isolate* pIsolate,
                  IJS_Context* pJSContext,
@@ -140,7 +217,8 @@ int FXJS_Execute(v8::Isolate* pIsolate,
 
 v8::Local<v8::Object> FXJS_NewFxDynamicObj(v8::Isolate* pIsolate,
                                            IJS_Runtime* pJSContext,
-                                           int nObjDefnID);
+                                           int nObjDefnID,
+                                           bool bStatic = false);
 v8::Local<v8::Object> FXJS_GetThisObj(v8::Isolate* pIsolate);
 int FXJS_GetObjDefnID(v8::Local<v8::Object> pObj);
 const wchar_t* FXJS_GetTypeof(v8::Local<v8::Value> pObj);

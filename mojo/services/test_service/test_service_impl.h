@@ -5,13 +5,15 @@
 #ifndef SERVICES_TEST_SERVICE_TEST_SERVICE_IMPL_H_
 #define SERVICES_TEST_SERVICE_TEST_SERVICE_IMPL_H_
 
+#include <stdint.h>
+
 #include "base/memory/scoped_ptr.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/cpp/system/macros.h"
 #include "mojo/services/test_service/test_service.mojom.h"
 
 namespace mojo {
-class ApplicationImpl;
+class Connector;
 namespace test {
 
 class TrackedService;
@@ -19,7 +21,7 @@ class TestServiceApplication;
 
 class TestServiceImpl : public TestService {
  public:
-  TestServiceImpl(ApplicationImpl* app_impl,
+  TestServiceImpl(Connector* connector,
                   TestServiceApplication* application,
                   InterfaceRequest<TestService> request);
   ~TestServiceImpl() override;
@@ -33,7 +35,7 @@ class TestServiceImpl : public TestService {
 
  private:
   TestServiceApplication* const application_;
-  ApplicationImpl* const app_impl_;
+  Connector* const connector_;
   TestTimeServicePtr time_service_;
   scoped_ptr<TrackedService> tracking_;
   StrongBinding<TestService> binding_;

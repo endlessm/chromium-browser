@@ -31,22 +31,24 @@
 #ifndef ShapeResult_h
 #define ShapeResult_h
 
-#include "platform/geometry/FloatPoint.h"
+#include "platform/PlatformExport.h"
 #include "platform/geometry/FloatRect.h"
-#include "platform/text/TextRun.h"
+#include "platform/text/TextDirection.h"
 #include "wtf/HashSet.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
+#include "wtf/RefCounted.h"
 #include "wtf/Vector.h"
 
 namespace blink {
 
 class Font;
-class GlyphBuffer;
 class SimpleFontData;
-class HarfBuzzShaper;
+class TextRun;
 struct GlyphData;
 
 class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
+    WTF_MAKE_NONCOPYABLE(ShapeResult);
 public:
     static PassRefPtr<ShapeResult> create(const Font* font,
         unsigned numCharacters, TextDirection direction)
@@ -57,35 +59,24 @@ public:
         const TextRun&, float positionOffset, unsigned count);
     ~ShapeResult();
 
-    float width() { return m_width; }
-    FloatRect bounds() { return m_glyphBoundingBox; }
+    float width() const { return m_width; }
+    const FloatRect& bounds() const { return m_glyphBoundingBox; }
     unsigned numCharacters() const { return m_numCharacters; }
     void fallbackFonts(HashSet<const SimpleFontData*>*) const;
+    bool hasVerticalOffsets() const { return m_hasVerticalOffsets; }
 
-    static int offsetForPosition(Vector<RefPtr<ShapeResult>>&,
-        const TextRun&, float targetX);
-    static float fillGlyphBuffer(Vector<RefPtr<ShapeResult>>&,
-        GlyphBuffer*, const TextRun&, unsigned from, unsigned to);
-    static float fillGlyphBufferForTextEmphasis(Vector<RefPtr<ShapeResult>>&,
-        GlyphBuffer*, const TextRun&, const GlyphData* emphasisData,
-        unsigned from, unsigned to);
-    static FloatRect selectionRect(Vector<RefPtr<ShapeResult>>&,
-        TextDirection, float totalWidth, const FloatPoint&, int height,
-        unsigned from, unsigned to);
+    // For memory reporting.
+    size_t byteSize();
+
+    int offsetForPosition(float targetX) const;
 
 protected:
     struct RunInfo;
+#if COMPILER(MSVC)
+    friend struct ::WTF::OwnedPtrDeleter<RunInfo>;
+#endif
 
     ShapeResult(const Font*, unsigned numCharacters, TextDirection);
-
-    int offsetForPosition(float targetX);
-    template<TextDirection>
-    float fillGlyphBufferForRun(GlyphBuffer*, const RunInfo*,
-        float initialAdvance, unsigned from, unsigned to, unsigned runOffset);
-
-    float fillGlyphBufferForTextEmphasisRun(GlyphBuffer*, const RunInfo*,
-        const TextRun&, const GlyphData*, float initialAdvance,
-        unsigned from, unsigned to, unsigned runOffset);
 
     float m_width;
     FloatRect m_glyphBoundingBox;
@@ -93,14 +84,18 @@ protected:
     RefPtr<SimpleFontData> m_primaryFont;
 
     unsigned m_numCharacters;
-    unsigned m_numGlyphs : 31;
+    unsigned m_numGlyphs : 30;
 
     // Overall direction for the TextRun, dictates which order each individual
     // sub run (represented by RunInfo structs in the m_runs vector) can have a
     // different text direction.
     unsigned m_direction : 1;
 
+    // Tracks whether any runs contain glyphs with a y-offset != 0.
+    unsigned m_hasVerticalOffsets : 1;
+
     friend class HarfBuzzShaper;
+    friend class ShapeResultBuffer;
 };
 
 } // namespace blink

@@ -4,8 +4,11 @@
 
 #include "media/capture/content/screen_capture_device_core.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_number_conversions.h"
@@ -42,10 +45,8 @@ void ScreenCaptureDeviceCore::AllocateAndStart(
     return;
   }
 
-  if (!(params.requested_format.pixel_format == PIXEL_FORMAT_I420 &&
-        params.requested_format.pixel_storage == PIXEL_STORAGE_CPU) &&
-      !(params.requested_format.pixel_format == PIXEL_FORMAT_ARGB &&
-        params.requested_format.pixel_storage == PIXEL_STORAGE_TEXTURE)) {
+  if (params.requested_format.pixel_format != PIXEL_FORMAT_I420 ||
+      params.requested_format.pixel_storage != PIXEL_STORAGE_CPU) {
     client->OnError(
         FROM_HERE,
         base::StringPrintf(
@@ -55,7 +56,7 @@ void ScreenCaptureDeviceCore::AllocateAndStart(
   }
 
   oracle_proxy_ = new ThreadSafeCaptureOracle(
-      client.Pass(), params, capture_machine_->IsAutoThrottlingEnabled());
+      std::move(client), params, capture_machine_->IsAutoThrottlingEnabled());
 
   capture_machine_->Start(
       oracle_proxy_, params,
@@ -86,7 +87,7 @@ void ScreenCaptureDeviceCore::CaptureStarted(bool success) {
 
 ScreenCaptureDeviceCore::ScreenCaptureDeviceCore(
     scoped_ptr<VideoCaptureMachine> capture_machine)
-    : state_(kIdle), capture_machine_(capture_machine.Pass()) {
+    : state_(kIdle), capture_machine_(std::move(capture_machine)) {
   DCHECK(capture_machine_.get());
 }
 

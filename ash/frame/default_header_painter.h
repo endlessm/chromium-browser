@@ -7,9 +7,9 @@
 
 #include "ash/ash_export.h"
 #include "ash/frame/header_painter.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"  // override
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/animation/animation_delegate.h"
@@ -47,7 +47,6 @@ class ASH_EXPORT DefaultHeaderPainter : public HeaderPainter,
   int GetHeaderHeightForPainting() const override;
   void SetHeaderHeightForPainting(int height) override;
   void SchedulePaintForTitle() override;
-  void UpdateLeftViewXInset(int left_view_x_inset) override;
 
   // Sets the left header view for the header. Passing NULL removes the view.
   void UpdateLeftHeaderView(views::View* left_header_view);
@@ -73,9 +72,6 @@ class ASH_EXPORT DefaultHeaderPainter : public HeaderPainter,
   // Paints the header/content separator.
   void PaintHeaderContentSeparator(gfx::Canvas* canvas);
 
-  // Layout the left header view.
-  void LayoutLeftHeaderView();
-
   // Whether light caption images should be used. This is the case when the
   // background of the frame is dark.
   bool ShouldUseLightImages();
@@ -84,7 +80,7 @@ class ASH_EXPORT DefaultHeaderPainter : public HeaderPainter,
   void UpdateAllButtonImages();
 
   // Updates the size button's images.
-  void UpdateSizeButtonImages(bool use_light_images);
+  void UpdateSizeButtonImages();
 
   // Returns the header bounds in the coordinates of |view_|. The header is
   // assumed to be positioned at the top left corner of |view_| and to have the
@@ -100,7 +96,6 @@ class ASH_EXPORT DefaultHeaderPainter : public HeaderPainter,
   views::Widget* frame_;
   views::View* view_;
   views::View* left_header_view_;  // May be NULL.
-  int left_view_x_inset_;
   SkColor active_frame_color_;
   SkColor inactive_frame_color_;
   FrameCaptionButtonContainerView* caption_button_container_;

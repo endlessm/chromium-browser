@@ -5,8 +5,10 @@
 #ifndef UI_EVENTS_GESTURE_DETECTION_FILTERED_GESTURE_PROVIDER_H_
 #define UI_EVENTS_GESTURE_DETECTION_FILTERED_GESTURE_PROVIDER_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "ui/events/gesture_detection/gesture_event_data_packet.h"
 #include "ui/events/gesture_detection/gesture_provider.h"
 #include "ui/events/gesture_detection/touch_disposition_gesture_filter.h"
@@ -32,17 +34,14 @@ class GESTURE_DETECTION_EXPORT FilteredGestureProvider
     // |event| and cease further propagation.
     bool succeeded;
 
-    // Whether |event| produced scrolling motion, either the start of a scroll,
-    // subsequent scroll movement or a fling event.
-    // TODO(jdduke): Figure out a way to guarantee that this bit propagates with
-    // the processed touch event as it moves downstream.
-    bool did_generate_scroll;
+    // Whether |event| occurred beyond the touch slop region.
+    bool moved_beyond_slop_region;
   };
   TouchHandlingResult OnTouchEvent(const MotionEvent& event) WARN_UNUSED_RESULT;
 
   // To be called upon asynchronous and synchronous ack of an event that was
   // forwarded after a successful call to |OnTouchEvent()|.
-  void OnTouchEventAck(uint32 unique_event_id, bool event_consumed);
+  void OnTouchEventAck(uint32_t unique_event_id, bool event_consumed);
 
   // Methods delegated to |gesture_provider_|.
   void ResetDetection();
@@ -64,7 +63,7 @@ class GESTURE_DETECTION_EXPORT FilteredGestureProvider
   ui::TouchDispositionGestureFilter gesture_filter_;
 
   bool handling_event_;
-  bool last_touch_event_did_generate_scroll_;
+  bool any_touch_moved_beyond_slop_region_;
   ui::GestureEventDataPacket pending_gesture_packet_;
 
   DISALLOW_COPY_AND_ASSIGN(FilteredGestureProvider);

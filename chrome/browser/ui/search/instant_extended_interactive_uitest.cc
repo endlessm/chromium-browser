@@ -2,20 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <sstream>
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
@@ -57,6 +60,7 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/omnibox/browser/search_provider.h"
+#include "components/prefs/pref_service.h"
 #include "components/search/search.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
@@ -73,6 +77,7 @@
 #include "content/public/test/test_utils.h"
 #include "net/base/network_change_notifier.h"
 #include "net/http/http_status_code.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher_impl.h"
 #include "net/url_request/url_request_status.h"
@@ -145,14 +150,14 @@ class InstantExtendedTest : public InProcessBrowserTest,
   void SetUpInProcessBrowserTestFixture() override {
     search::EnableQueryExtractionForTesting();
     ASSERT_TRUE(https_test_server().Start());
-    GURL instant_url = https_test_server().GetURL(
-        "files/instant_extended.html?strk=1&");
-    GURL ntp_url = https_test_server().GetURL(
-        "files/instant_extended_ntp.html?strk=1&");
+    GURL instant_url =
+        https_test_server().GetURL("/instant_extended.html?strk=1&");
+    GURL ntp_url =
+        https_test_server().GetURL("/instant_extended_ntp.html?strk=1&");
     InstantTestBase::Init(instant_url, ntp_url, false);
   }
 
-  int64 GetHistogramCount(const char* name) {
+  int64_t GetHistogramCount(const char* name) {
     base::HistogramBase* histogram =
         base::StatisticsRecorder::FindHistogram(name);
     if (!histogram) {
@@ -257,10 +262,10 @@ class InstantExtendedPrefetchTest : public InstantExtendedTest {
   void SetUpInProcessBrowserTestFixture() override {
     search::EnableQueryExtractionForTesting();
     ASSERT_TRUE(https_test_server().Start());
-    GURL instant_url = https_test_server().GetURL(
-        "files/instant_extended.html?strk=1&");
-    GURL ntp_url = https_test_server().GetURL(
-        "files/instant_extended_ntp.html?strk=1&");
+    GURL instant_url =
+        https_test_server().GetURL("/instant_extended.html?strk=1&");
+    GURL ntp_url =
+        https_test_server().GetURL("/instant_extended_ntp.html?strk=1&");
     InstantTestBase::Init(instant_url, ntp_url, true);
   }
 
@@ -315,10 +320,10 @@ class InstantPolicyTest : public ExtensionBrowserTest, public InstantTestBase {
  protected:
   void SetUpInProcessBrowserTestFixture() override {
     ASSERT_TRUE(https_test_server().Start());
-    GURL instant_url = https_test_server().GetURL(
-        "files/instant_extended.html?strk=1&");
-    GURL ntp_url = https_test_server().GetURL(
-        "files/instant_extended_ntp.html?strk=1&");
+    GURL instant_url =
+        https_test_server().GetURL("/instant_extended.html?strk=1&");
+    GURL ntp_url =
+        https_test_server().GetURL("/instant_extended_ntp.html?strk=1&");
     InstantTestBase::Init(instant_url, ntp_url, false);
   }
 
@@ -427,34 +432,6 @@ IN_PROC_BROWSER_TEST_F(InstantExtendedTest,
   // Should not have reused the tab.
   active_tab = browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_THAT(active_tab->GetURL().spec(), HasSubstr("q=puppies"));
-}
-
-#if defined(OS_LINUX) && defined(ADDRESS_SANITIZER)
-// Flaky crashes at shutdown on Linux Asan; http://crbug.com/517886.
-#define MAYBE_OmniboxMarginSetForSearchURLs \
-  DISABLED_OmniboxMarginSetForSearchURLs
-#else
-#define MAYBE_OmniboxMarginSetForSearchURLs OmniboxMarginSetForSearchURLs
-#endif
-IN_PROC_BROWSER_TEST_F(InstantExtendedTest,
-                       MAYBE_OmniboxMarginSetForSearchURLs) {
-  ASSERT_NO_FATAL_FAILURE(SetupInstant(browser()));
-  FocusOmnibox();
-
-  // Create an observer to wait for the instant tab to support Instant.
-  content::WindowedNotificationObserver observer(
-      chrome::NOTIFICATION_INSTANT_TAB_SUPPORT_DETERMINED,
-      content::NotificationService::AllSources());
-
-  SetOmniboxText("flowers");
-  browser()->window()->GetLocationBar()->AcceptInput();
-  observer.Wait();
-
-  const std::string& url =
-      browser()->tab_strip_model()->GetActiveWebContents()->GetURL().spec();
-  // Make sure we actually used search_url, not instant_url.
-  ASSERT_THAT(url, HasSubstr("&is_search"));
-  EXPECT_THAT(url, HasSubstr("&es_sm="));
 }
 
 // Test to verify that switching tabs should not dispatch onmostvisitedchanged
@@ -807,12 +784,7 @@ IN_PROC_BROWSER_TEST_F(InstantExtendedTest,
 }
 
 // http://crbug.com/518106
-#if defined(OS_WIN)
-#define MAYBE_SetPrefetchQuery DISABLED_SetPrefetchQuery
-#else
-#define MAYBE_SetPrefetchQuery SetPrefetchQuery
-#endif
-IN_PROC_BROWSER_TEST_F(InstantExtendedPrefetchTest, MAYBE_SetPrefetchQuery) {
+IN_PROC_BROWSER_TEST_F(InstantExtendedPrefetchTest, DISABLED_SetPrefetchQuery) {
   // Skip the test if suggest support is disabled, since this is generally due
   // to policy and can't be overridden.
   if (!browser()->profile()->GetPrefs()->GetBoolean(
@@ -983,9 +955,9 @@ IN_PROC_BROWSER_TEST_F(InstantExtendedTest, MAYBE_ShowURL) {
 
 // Check that clicking on a result sends the correct referrer.
 IN_PROC_BROWSER_TEST_F(InstantExtendedTest, Referrer) {
-  ASSERT_TRUE(test_server()->Start());
-  GURL result_url =
-      test_server()->GetURL("files/referrer_policy/referrer-policy-log.html");
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL result_url = embedded_test_server()->GetURL(
+      "/referrer_policy/referrer-policy-log.html");
   ASSERT_NO_FATAL_FAILURE(SetupInstant(browser()));
   FocusOmnibox();
 

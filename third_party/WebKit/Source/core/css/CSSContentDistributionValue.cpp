@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/CSSContentDistributionValue.h"
 
 #include "core/css/CSSValueList.h"
@@ -41,4 +40,4 @@ bool CSSContentDistributionValue::equals(const CSSContentDistributionValue& othe
     return m_distribution == other.m_distribution && m_position == other.m_position && m_overflow == other.m_overflow;
 }
 
-}
+} // namespace blink

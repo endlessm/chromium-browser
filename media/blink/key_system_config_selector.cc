@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "key_system_config_selector.h"
+#include "media/blink/key_system_config_selector.h"
+
+#include <stddef.h>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/logging.h"
@@ -13,6 +16,7 @@
 #include "media/base/media_permission.h"
 #include "media/base/mime_util.h"
 #include "media/blink/webmediaplayer_util.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebMediaKeySystemConfiguration.h"
 #include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebString.h"
@@ -273,31 +277,45 @@ KeySystemConfigSelector::KeySystemConfigSelector(
 KeySystemConfigSelector::~KeySystemConfigSelector() {
 }
 
+bool IsSupportedClearMediaFormat(const std::string& container_mime_type,
+                                 const std::string& codecs) {
+  std::vector<std::string> codec_vector;
+  media::ParseCodecString(codecs, &codec_vector, false);
+  media::SupportsType support_result =
+      media::IsSupportedEncryptedMediaFormat(container_mime_type, codec_vector);
+  switch (support_result) {
+    case media::IsSupported:
+      return true;
+    case media::MayBeSupported:
+      // If no codecs were specified, the best possible result is
+      // MayBeSupported, indicating support for the container.
+      return codec_vector.empty();
+    case media::IsNotSupported:
+      return false;
+  }
+  NOTREACHED();
+  return false;
+}
+
+// TODO(sandersd): Move contentType parsing from Blink to here so that invalid
+// parameters can be rejected. http://crbug.com/417561
 bool KeySystemConfigSelector::IsSupportedContentType(
     const std::string& key_system,
     EmeMediaType media_type,
     const std::string& container_mime_type,
     const std::string& codecs,
     KeySystemConfigSelector::ConfigState* config_state) {
-  // TODO(sandersd): Move contentType parsing from Blink to here so that invalid
-  // parameters can be rejected. http://crbug.com/417561
+  // Check that |container_mime_type| and |codecs| are supported by Chrome. This
+  // is done primarily to validate extended codecs, but it also ensures that the
+  // CDM cannot support codecs that Chrome does not (which could complicate the
+  // robustness algorithm).
+  if (!IsSupportedClearMediaFormat(container_mime_type, codecs))
+    return false;
+
+  // TODO(servolk): Converting |container_mime_type| to lower-case could be
+  // moved to KeySystemsImpl::GetContentTypeConfigRule, plus we could add some
+  // upper-case container name test cases in media/base/key_systems_unittest.cc.
   std::string container_lower = base::ToLowerASCII(container_mime_type);
-
-  // Check that |container_mime_type| is supported by Chrome.
-  if (!media::IsSupportedMediaMimeType(container_lower))
-    return false;
-
-  // Check that |codecs| are supported by Chrome. This is done primarily to
-  // validate extended codecs, but it also ensures that the CDM cannot support
-  // codecs that Chrome does not (which could complicate the robustness
-  // algorithm).
-  std::vector<std::string> codec_vector;
-  media::ParseCodecString(codecs, &codec_vector, false);
-  if (!codec_vector.empty() &&
-      (media::IsSupportedStrictMediaMimeType(container_lower, codec_vector) !=
-       media::IsSupported)) {
-    return false;
-  }
 
   // Check that |container_mime_type| and |codecs| are supported by the CDM.
   // This check does not handle extended codecs, so extended codec information
@@ -707,7 +725,7 @@ void KeySystemConfigSelector::SelectConfig(
   request->are_secure_codecs_supported = are_secure_codecs_supported;
   request->succeeded_cb = succeeded_cb;
   request->not_supported_cb = not_supported_cb;
-  SelectConfigInternal(request.Pass());
+  SelectConfigInternal(std::move(request));
 }
 
 void KeySystemConfigSelector::SelectConfigInternal(
@@ -748,7 +766,8 @@ void KeySystemConfigSelector::SelectConfigInternal(
         {
           // Note: the GURL must not be constructed inline because
           // base::Passed(&request) sets |request| to null.
-          GURL security_origin(request->security_origin.toString());
+          GURL security_origin(
+              blink::WebStringToGURL(request->security_origin.toString()));
           media_permission_->RequestPermission(
               MediaPermission::PROTECTED_MEDIA_IDENTIFIER, security_origin,
               base::Bind(&KeySystemConfigSelector::OnPermissionResult,
@@ -780,7 +799,7 @@ void KeySystemConfigSelector::OnPermissionResult(
     bool is_permission_granted) {
   request->was_permission_requested = true;
   request->is_permission_granted = is_permission_granted;
-  SelectConfigInternal(request.Pass());
+  SelectConfigInternal(std::move(request));
 }
 
 }  // namespace media

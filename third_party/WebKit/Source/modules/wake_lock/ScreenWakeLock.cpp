@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/wake_lock/ScreenWakeLock.h"
 
 #include "core/frame/LocalFrame.h"
@@ -105,8 +104,7 @@ void ScreenWakeLock::notifyClient()
     if (!m_client)
         return;
 
-    bool visible = page() && page()->visibilityState() == PageVisibilityStateVisible;
-    m_client->requestKeepScreenAwake(m_keepAwake && visible);
+    m_client->requestKeepScreenAwake(m_keepAwake && page() && page()->isPageVisible());
 }
 
 } // namespace blink

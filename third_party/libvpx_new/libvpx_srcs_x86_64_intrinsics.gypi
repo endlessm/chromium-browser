@@ -33,10 +33,10 @@
         '<(libvpx_source)/vp8/encoder/x86/vp8_enc_stubs_sse2.c',
         '<(libvpx_source)/vp8/encoder/x86/vp8_quantize_sse2.c',
         '<(libvpx_source)/vp9/common/x86/vp9_idct_intrin_sse2.c',
-        '<(libvpx_source)/vp9/encoder/x86/vp9_avg_intrin_sse2.c',
         '<(libvpx_source)/vp9/encoder/x86/vp9_dct_sse2.c',
         '<(libvpx_source)/vp9/encoder/x86/vp9_denoiser_sse2.c',
         '<(libvpx_source)/vp9/encoder/x86/vp9_quantize_sse2.c',
+        '<(libvpx_source)/vpx_dsp/x86/avg_intrin_sse2.c',
         '<(libvpx_source)/vpx_dsp/x86/fwd_txfm_sse2.c',
         '<(libvpx_source)/vpx_dsp/x86/halfpix_variance_sse2.c',
         '<(libvpx_source)/vpx_dsp/x86/inv_txfm_sse2.c',
@@ -57,6 +57,7 @@
       'sources': [
         '<(libvpx_source)/vp8/encoder/x86/quantize_ssse3.c',
         '<(libvpx_source)/vp9/encoder/x86/vp9_dct_ssse3.c',
+        '<(libvpx_source)/vp9/encoder/x86/vp9_frame_scale_ssse3.c',
         '<(libvpx_source)/vpx_dsp/x86/vpx_subpixel_8t_intrin_ssse3.c',
       ],
       'cflags': [ '-mssse3', ],
@@ -92,6 +93,24 @@
           },
         }],
       ],
+    },
+    {
+      'target_name': 'libvpx_intrinsics_avx',
+      'type': 'static_library',
+      'include_dirs': [
+        'source/config/<(OS_CATEGORY)/<(target_arch_full)',
+        '<(libvpx_source)',
+      ],
+      'sources': [
+        '<(libvpx_source)/vp9/encoder/x86/vp9_diamond_search_sad_avx.c',
+      ],
+      'cflags': [ '-mavx', ],
+      'xcode_settings': { 'OTHER_CFLAGS': [ '-mavx' ] },
+      'msvs_settings': {
+        'VCCLCompilerTool': {
+          'EnableEnhancedInstructionSet': '3', # /arch:AVX
+        },
+      },
     },
     {
       'target_name': 'libvpx_intrinsics_avx2',

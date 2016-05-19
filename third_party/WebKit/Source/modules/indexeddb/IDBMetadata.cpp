@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/indexeddb/IDBMetadata.h"
 
 #include "public/platform/modules/indexeddb/WebIDBMetadata.h"
@@ -13,7 +12,6 @@ IDBDatabaseMetadata::IDBDatabaseMetadata(const WebIDBMetadata& webMetadata)
     : name(webMetadata.name)
     , id(webMetadata.id)
     , version(webMetadata.version)
-    , intVersion(webMetadata.intVersion)
     , maxObjectStoreId(webMetadata.maxObjectStoreId)
 {
     for (size_t i = 0; i < webMetadata.objectStores.size(); ++i) {

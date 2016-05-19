@@ -5,18 +5,20 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_BINDING_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_BINDING_H_
 
+#include <utility>
+
+#include "base/macros.h"
 #include "mojo/public/c/environment/async_waiter.h"
 #include "mojo/public/cpp/bindings/callback.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
 #include "mojo/public/cpp/bindings/interface_ptr_info.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
-#include "mojo/public/cpp/bindings/lib/filter_chain.h"
-#include "mojo/public/cpp/bindings/lib/message_header_validator.h"
-#include "mojo/public/cpp/bindings/lib/router.h"
-#include "mojo/public/cpp/environment/logging.h"
+#include "mojo/public/cpp/bindings/lib/binding_state.h"
 #include "mojo/public/cpp/system/core.h"
 
 namespace mojo {
+
+class AssociatedGroup;
 
 // Represents the binding of an interface implementation to a message pipe.
 // When the |Binding| object is destroyed, the binding between the message pipe
@@ -56,13 +58,20 @@ namespace mojo {
 // implementation runs on. If writing library code that has to work on different
 // types of threads callers may need to provide different waiter
 // implementations.
+//
+// This class is thread hostile while bound to a message pipe. All calls to this
+// class must be from the thread that bound it. The interface implementation's
+// methods will be called from the thread that bound this. If a Binding is not
+// bound to a message pipe, it may be bound or destroyed on any thread.
 template <typename Interface>
 class Binding {
  public:
+  using GenericInterface = typename Interface::GenericInterface;
+
   // Constructs an incomplete binding that will use the implementation |impl|.
   // The binding may be completed with a subsequent call to the |Bind| method.
   // Does not take ownership of |impl|, which must outlive the binding.
-  explicit Binding(Interface* impl) : impl_(impl) { stub_.set_sink(impl_); }
+  explicit Binding(Interface* impl) : internal_state_(impl) {}
 
   // Constructs a completed binding of message pipe |handle| to implementation
   // |impl|. Does not take ownership of |impl|, which must outlive the binding.
@@ -71,7 +80,7 @@ class Binding {
           ScopedMessagePipeHandle handle,
           const MojoAsyncWaiter* waiter = Environment::GetDefaultAsyncWaiter())
       : Binding(impl) {
-    Bind(handle.Pass(), waiter);
+    Bind(std::move(handle), waiter);
   }
 
   // Constructs a completed binding of |impl| to a new message pipe, passing the
@@ -92,7 +101,7 @@ class Binding {
   // |impl|, which must outlive the binding. See class comment for definition of
   // |waiter|.
   Binding(Interface* impl,
-          InterfaceRequest<Interface> request,
+          InterfaceRequest<GenericInterface> request,
           const MojoAsyncWaiter* waiter = Environment::GetDefaultAsyncWaiter())
       : Binding(impl) {
     Bind(request.PassMessagePipe(), waiter);
@@ -100,9 +109,14 @@ class Binding {
 
   // Tears down the binding, closing the message pipe and leaving the interface
   // implementation unbound.
-  ~Binding() {
-    if (internal_router_)
-      Close();
+  ~Binding() {}
+
+  // Returns an InterfacePtr bound to one end of a pipe whose other end is
+  // bound to |this|.
+  InterfacePtr<Interface> CreateInterfacePtrAndBind() {
+    InterfacePtr<Interface> interface_ptr;
+    Bind(&interface_ptr);
+    return interface_ptr;
   }
 
   // Completes a binding that was constructed with only an interface
@@ -111,16 +125,7 @@ class Binding {
   void Bind(
       ScopedMessagePipeHandle handle,
       const MojoAsyncWaiter* waiter = Environment::GetDefaultAsyncWaiter()) {
-    MOJO_DCHECK(!internal_router_);
-    internal::FilterChain filters;
-    filters.Append<internal::MessageHeaderValidator>();
-    filters.Append<typename Interface::RequestValidator_>();
-
-    internal_router_ =
-        new internal::Router(handle.Pass(), filters.Pass(), waiter);
-    internal_router_->set_incoming_receiver(&stub_);
-    internal_router_->set_connection_error_handler(
-        [this]() { connection_error_handler_.Run(); });
+    internal_state_.Bind(std::move(handle), waiter);
   }
 
   // Completes a binding that was constructed with only an interface
@@ -133,10 +138,10 @@ class Binding {
       InterfacePtr<Interface>* ptr,
       const MojoAsyncWaiter* waiter = Environment::GetDefaultAsyncWaiter()) {
     MessagePipe pipe;
-    ptr->Bind(
-        InterfacePtrInfo<Interface>(pipe.handle0.Pass(), Interface::Version_),
-        waiter);
-    Bind(pipe.handle1.Pass(), waiter);
+    ptr->Bind(InterfacePtrInfo<Interface>(std::move(pipe.handle0),
+                                          Interface::Version_),
+              waiter);
+    Bind(std::move(pipe.handle1), waiter);
   }
 
   // Completes a binding that was constructed with only an interface
@@ -144,9 +149,14 @@ class Binding {
   // binding it to the previously specified implementation. See class comment
   // for definition of |waiter|.
   void Bind(
-      InterfaceRequest<Interface> request,
+      InterfaceRequest<GenericInterface> request,
       const MojoAsyncWaiter* waiter = Environment::GetDefaultAsyncWaiter()) {
     Bind(request.PassMessagePipe(), waiter);
+  }
+
+  // Whether there are any associated interfaces running on the pipe currently.
+  bool HasAssociatedInterfaces() const {
+    return internal_state_.HasAssociatedInterfaces();
   }
 
   // Stops processing incoming messages until
@@ -154,84 +164,91 @@ class Binding {
   // Outgoing messages are still sent.
   //
   // No errors are detected on the message pipe while paused.
+  //
+  // This method may only be called if the object has been bound to a message
+  // pipe and there are no associated interfaces running.
   void PauseIncomingMethodCallProcessing() {
-    MOJO_DCHECK(internal_router_);
-    internal_router_->PauseIncomingMethodCallProcessing();
+    CHECK(!HasAssociatedInterfaces());
+    internal_state_.PauseIncomingMethodCallProcessing();
   }
   void ResumeIncomingMethodCallProcessing() {
-    MOJO_DCHECK(internal_router_);
-    internal_router_->ResumeIncomingMethodCallProcessing();
+    internal_state_.ResumeIncomingMethodCallProcessing();
   }
 
   // Blocks the calling thread until either a call arrives on the previously
   // bound message pipe, the deadline is exceeded, or an error occurs. Returns
   // true if a method was successfully read and dispatched.
+  //
+  // This method may only be called if the object has been bound to a message
+  // pipe and there are no associated interfaces running.
   bool WaitForIncomingMethodCall(
       MojoDeadline deadline = MOJO_DEADLINE_INDEFINITE) {
-    MOJO_DCHECK(internal_router_);
-    return internal_router_->WaitForIncomingMessage(deadline);
+    CHECK(!HasAssociatedInterfaces());
+    return internal_state_.WaitForIncomingMethodCall(deadline);
   }
 
   // Closes the message pipe that was previously bound. Put this object into a
   // state where it can be rebound to a new pipe.
-  void Close() {
-    MOJO_DCHECK(internal_router_);
-    internal_router_->CloseMessagePipe();
-    DestroyRouter();
-  }
+  void Close() { internal_state_.Close(); }
 
   // Unbinds the underlying pipe from this binding and returns it so it can be
   // used in another context, such as on another thread or with a different
   // implementation. Put this object into a state where it can be rebound to a
   // new pipe.
-  InterfaceRequest<Interface> Unbind() {
-    InterfaceRequest<Interface> request =
-        MakeRequest<Interface>(internal_router_->PassMessagePipe());
-    DestroyRouter();
-    // TODO(vtl): The |.Pass()| below is only needed due to an MSVS bug; remove
-    // it once that's fixed.
-    return request.Pass();
+  //
+  // This method may only be called if the object has been bound to a message
+  // pipe and there are no associated interfaces running.
+  //
+  // TODO(yzshen): For now, users need to make sure there is no one holding
+  // on to associated interface endpoint handles at both sides of the
+  // message pipe in order to call this method. We need a way to forcefully
+  // invalidate associated interface endpoint handles.
+  InterfaceRequest<GenericInterface> Unbind() {
+    CHECK(!HasAssociatedInterfaces());
+    return internal_state_.Unbind();
   }
 
   // Sets an error handler that will be called if a connection error occurs on
   // the bound message pipe.
+  //
+  // This method may only be called after this Binding has been bound to a
+  // message pipe. The error handler will be reset when this Binding is unbound
+  // or closed.
   void set_connection_error_handler(const Closure& error_handler) {
-    connection_error_handler_ = error_handler;
+    DCHECK(is_bound());
+    internal_state_.set_connection_error_handler(error_handler);
   }
 
   // Returns the interface implementation that was previously specified. Caller
   // does not take ownership.
-  Interface* impl() { return impl_; }
+  Interface* impl() { return internal_state_.impl(); }
 
   // Indicates whether the binding has been completed (i.e., whether a message
   // pipe has been bound to the implementation).
-  bool is_bound() const { return !!internal_router_; }
+  bool is_bound() const { return internal_state_.is_bound(); }
 
   // Returns the value of the handle currently bound to this Binding which can
   // be used to make explicit Wait/WaitMany calls. Requires that the Binding be
   // bound. Ownership of the handle is retained by the Binding, it is not
   // transferred to the caller.
-  MessagePipeHandle handle() const {
-    MOJO_DCHECK(is_bound());
-    return internal_router_->handle();
+  MessagePipeHandle handle() const { return internal_state_.handle(); }
+
+  // Returns the associated group that this object belongs to. Returns null if:
+  //   - this object is not bound; or
+  //   - the interface doesn't have methods to pass associated interface
+  //     pointers or requests.
+  AssociatedGroup* associated_group() {
+    return internal_state_.associated_group();
   }
 
   // Exposed for testing, should not generally be used.
-  internal::Router* internal_router() { return internal_router_; }
+  void EnableTestingMode() { internal_state_.EnableTestingMode(); }
 
  private:
-  void DestroyRouter() {
-    internal_router_->set_connection_error_handler(Closure());
-    delete internal_router_;
-    internal_router_ = nullptr;
-  }
+  internal::BindingState<Interface, Interface::PassesAssociatedKinds_>
+      internal_state_;
 
-  internal::Router* internal_router_ = nullptr;
-  typename Interface::Stub_ stub_;
-  Interface* impl_;
-  Closure connection_error_handler_;
-
-  MOJO_DISALLOW_COPY_AND_ASSIGN(Binding);
+  DISALLOW_COPY_AND_ASSIGN(Binding);
 };
 
 }  // namespace mojo

@@ -6,6 +6,7 @@
 
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -128,6 +129,10 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearSilentWebm) {
 #if defined(USE_PROPRIETARY_CODECS)
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearMp4) {
   PlayVideo("bear.mp4", GetParam());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearHighBitDepthMp4) {
+  PlayVideo("bear-320x180-hi10p.mp4", GetParam());
 }
 
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearSilentMp4) {
@@ -256,6 +261,10 @@ IN_PROC_BROWSER_TEST_F(MediaTest, Yuv420pH264) {
 
 IN_PROC_BROWSER_TEST_F(MediaTest, Yuv420pRec709H264) {
   RunColorFormatTest("yuv420p_rec709.mp4", kEnded);
+}
+
+IN_PROC_BROWSER_TEST_F(MediaTest, Yuv420pHighBitDepth) {
+  RunColorFormatTest("yuv420p_hi10p.mp4", kEnded);
 }
 
 IN_PROC_BROWSER_TEST_F(MediaTest, Yuvj420pH264) {

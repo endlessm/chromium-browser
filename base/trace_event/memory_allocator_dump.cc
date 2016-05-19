@@ -28,7 +28,8 @@ MemoryAllocatorDump::MemoryAllocatorDump(const std::string& absolute_name,
     : absolute_name_(absolute_name),
       process_memory_dump_(process_memory_dump),
       attributes_(new TracedValue),
-      guid_(guid) {
+      guid_(guid),
+      flags_(Flags::DEFAULT) {
   // The |absolute_name| cannot be empty.
   DCHECK(!absolute_name.empty());
 
@@ -57,7 +58,7 @@ MemoryAllocatorDump::~MemoryAllocatorDump() {
 
 void MemoryAllocatorDump::AddScalar(const char* name,
                                     const char* units,
-                                    uint64 value) {
+                                    uint64_t value) {
   SStringPrintf(&string_conversion_buffer_, "%" PRIx64, value);
   attributes_->BeginDictionary(name);
   attributes_->SetString("type", kTypeScalar);
@@ -90,6 +91,8 @@ void MemoryAllocatorDump::AsValueInto(TracedValue* value) const {
   value->BeginDictionaryWithCopiedName(absolute_name_);
   value->SetString("guid", guid_.ToString());
   value->SetValue("attrs", *attributes_);
+  if (flags_)
+    value->SetInteger("flags", flags_);
   value->EndDictionary();  // "allocator_name/heap_subheap": { ... }
 }
 

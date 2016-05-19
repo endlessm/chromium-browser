@@ -21,9 +21,6 @@ QuicCryptoNegotiatedParameters::QuicCryptoNegotiatedParameters()
 
 QuicCryptoNegotiatedParameters::~QuicCryptoNegotiatedParameters() {}
 
-QuicCryptoProof::QuicCryptoProof() : certs(nullptr) {}
-QuicCryptoProof::~QuicCryptoProof() {}
-
 CrypterPair::CrypterPair() {}
 
 CrypterPair::~CrypterPair() {}
@@ -39,8 +36,7 @@ const char QuicCryptoConfig::kForwardSecureLabel[] =
     "QUIC forward secure key expansion";
 
 QuicCryptoConfig::QuicCryptoConfig()
-    : common_cert_sets(CommonCertSets::GetInstanceQUIC()) {
-}
+    : common_cert_sets(CommonCertSets::GetInstanceQUIC()) {}
 
 QuicCryptoConfig::~QuicCryptoConfig() {}
 

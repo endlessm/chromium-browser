@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <vector>
 
+#include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_sync_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -44,6 +46,8 @@ const char kPrefPageOrdinal[] = "page_ordinal";
 // ChromeAppSorting::AppOrdinals
 
 ChromeAppSorting::AppOrdinals::AppOrdinals() {}
+
+ChromeAppSorting::AppOrdinals::AppOrdinals(const AppOrdinals& other) = default;
 
 ChromeAppSorting::AppOrdinals::~AppOrdinals() {}
 

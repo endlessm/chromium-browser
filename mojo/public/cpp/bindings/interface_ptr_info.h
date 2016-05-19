@@ -5,6 +5,9 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_INTERFACE_PTR_INFO_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_INTERFACE_PTR_INFO_H_
 
+#include <stdint.h>
+#include <utility>
+
 #include "mojo/public/cpp/system/macros.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 
@@ -20,10 +23,10 @@ class InterfacePtrInfo {
   InterfacePtrInfo() : version_(0u) {}
 
   InterfacePtrInfo(ScopedMessagePipeHandle handle, uint32_t version)
-      : handle_(handle.Pass()), version_(version) {}
+      : handle_(std::move(handle)), version_(version) {}
 
   InterfacePtrInfo(InterfacePtrInfo&& other)
-      : handle_(other.handle_.Pass()), version_(other.version_) {
+      : handle_(std::move(other.handle_)), version_(other.version_) {
     other.version_ = 0u;
   }
 
@@ -31,7 +34,7 @@ class InterfacePtrInfo {
 
   InterfacePtrInfo& operator=(InterfacePtrInfo&& other) {
     if (this != &other) {
-      handle_ = other.handle_.Pass();
+      handle_ = std::move(other.handle_);
       version_ = other.version_;
       other.version_ = 0u;
     }
@@ -41,9 +44,11 @@ class InterfacePtrInfo {
 
   bool is_valid() const { return handle_.is_valid(); }
 
-  ScopedMessagePipeHandle PassHandle() { return handle_.Pass(); }
+  ScopedMessagePipeHandle PassHandle() { return std::move(handle_); }
   const ScopedMessagePipeHandle& handle() const { return handle_; }
-  void set_handle(ScopedMessagePipeHandle handle) { handle_ = handle.Pass(); }
+  void set_handle(ScopedMessagePipeHandle handle) {
+    handle_ = std::move(handle);
+  }
 
   uint32_t version() const { return version_; }
   void set_version(uint32_t version) { version_ = version; }

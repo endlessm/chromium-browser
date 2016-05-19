@@ -25,7 +25,7 @@ public:
     static SkShader* Create(const SkPicture*, TileMode, TileMode, const SkMatrix*,
                                    const SkRect*);
 
-    size_t contextSize() const override;
+    size_t contextSize(const ContextRec&) const override;
 
     SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkPictureShader)
@@ -62,7 +62,6 @@ private:
 
         ShadeProc asAShadeProc(void** ctx) override;
         void shadeSpan(int x, int y, SkPMColor dstC[], int count) override;
-        void shadeSpan16(int x, int y, uint16_t dstC[], int count) override;
 
     private:
         PictureShaderContext(const SkPictureShader&, const ContextRec&, SkShader* bitmapShader);

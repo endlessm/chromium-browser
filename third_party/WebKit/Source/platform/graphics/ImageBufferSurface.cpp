@@ -28,17 +28,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "platform/graphics/ImageBufferSurface.h"
 
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/ImageBuffer.h"
 #include "platform/graphics/StaticBitmapImage.h"
-#include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkDevice.h"
 #include "third_party/skia/include/core/SkImage.h"
-#include "third_party/skia/include/core/SkPicture.h"
+
+class SkPicture;
 
 namespace blink {
 
@@ -67,21 +64,21 @@ void ImageBufferSurface::clear()
         } else {
             canvas()->clear(SK_ColorTRANSPARENT);
         }
-        didDraw(FloatRect(FloatPoint(0, 0), size()));
+        didDraw(FloatRect(FloatPoint(0, 0), FloatSize(size())));
     }
 }
 
-void ImageBufferSurface::draw(GraphicsContext* context, const FloatRect& destRect, const FloatRect& srcRect, SkXfermode::Mode op)
+void ImageBufferSurface::draw(GraphicsContext& context, const FloatRect& destRect, const FloatRect& srcRect, SkXfermode::Mode op)
 {
-    RefPtr<SkImage> snapshot = newImageSnapshot(PreferNoAcceleration);
+    RefPtr<SkImage> snapshot = newImageSnapshot(PreferNoAcceleration, SnapshotReasonPaint);
     if (!snapshot)
         return;
 
     RefPtr<Image> image = StaticBitmapImage::create(snapshot.release());
-    context->drawImage(image.get(), destRect, srcRect, op);
+    context.drawImage(image.get(), destRect, srcRect, op);
 }
 
-void ImageBufferSurface::flush()
+void ImageBufferSurface::flush(FlushReason)
 {
     canvas()->flush();
 }

@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/trace_event/trace_sampling_thread.h"
+#include <stddef.h>
+
+#include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_impl.h"
 #include "base/trace_event/trace_log.h"
+#include "base/trace_event/trace_sampling_thread.h"
 
 namespace base {
 namespace trace_event {
@@ -52,8 +55,9 @@ void TraceSamplingThread::DefaultSamplingCallback(
   ExtractCategoryAndName(combined, &category_group, &name);
   TRACE_EVENT_API_ADD_TRACE_EVENT(
       TRACE_EVENT_PHASE_SAMPLE,
-      TraceLog::GetCategoryGroupEnabled(category_group), name, 0, 0, NULL, NULL,
-      NULL, NULL, 0);
+      TraceLog::GetCategoryGroupEnabled(category_group), name,
+      trace_event_internal::kGlobalScope, trace_event_internal::kNoId, 0,
+      NULL, NULL, NULL, NULL, 0);
 }
 
 void TraceSamplingThread::GetSamples() {

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/AnimationStack.h"
 
 #include "core/animation/AnimationClock.h"
@@ -12,7 +11,7 @@
 #include "core/animation/LegacyStyleInterpolation.h"
 #include "core/animation/animatable/AnimatableDouble.h"
 #include "core/testing/DummyPageHolder.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -41,9 +40,9 @@ protected:
         timeline->serviceAnimations(TimingUpdateForAnimationFrame);
     }
 
-    const HeapVector<Member<SampledEffect>>& effects()
+    size_t sampledEffectCount()
     {
-        return element->ensureElementAnimations().animationStack().m_effects;
+        return element->ensureElementAnimations().animationStack().m_sampledEffects.size();
     }
 
     EffectModel* makeEffectModel(CSSPropertyID id, PassRefPtr<AnimatableValue> value)
@@ -99,7 +98,7 @@ TEST_F(AnimationAnimationStackTest, NewAnimations)
 {
     play(makeKeyframeEffect(makeEffectModel(CSSPropertyFontSize, AnimatableDouble::create(1))), 15);
     play(makeKeyframeEffect(makeEffectModel(CSSPropertyZIndex, AnimatableDouble::create(2))), 10);
-    HeapVector<Member<InertEffect>> newAnimations;
+    HeapVector<Member<const InertEffect>> newAnimations;
     InertEffect* inert1 = makeInertEffect(makeEffectModel(CSSPropertyFontSize, AnimatableDouble::create(3)));
     InertEffect* inert2 = makeInertEffect(makeEffectModel(CSSPropertyZIndex, AnimatableDouble::create(4)));
     newAnimations.append(inert1);
@@ -133,4 +132,41 @@ TEST_F(AnimationAnimationStackTest, ClearedEffectsRemoved)
     EXPECT_EQ(0u, result.size());
 }
 
+TEST_F(AnimationAnimationStackTest, ForwardsFillDiscarding)
+{
+    play(makeKeyframeEffect(makeEffectModel(CSSPropertyFontSize, AnimatableDouble::create(1))), 2);
+    play(makeKeyframeEffect(makeEffectModel(CSSPropertyFontSize, AnimatableDouble::create(2))), 6);
+    play(makeKeyframeEffect(makeEffectModel(CSSPropertyFontSize, AnimatableDouble::create(3))), 4);
+    document->compositorPendingAnimations().update();
+    ActiveInterpolationsMap interpolations;
+
+    updateTimeline(11);
+    Heap::collectAllGarbage();
+    interpolations = AnimationStack::activeInterpolations(&element->elementAnimations()->animationStack(), nullptr, nullptr, KeyframeEffect::DefaultPriority);
+    EXPECT_EQ(1u, interpolations.size());
+    EXPECT_TRUE(interpolationValue(interpolations, CSSPropertyFontSize)->equals(AnimatableDouble::create(3).get()));
+    EXPECT_EQ(3u, sampledEffectCount());
+
+    updateTimeline(13);
+    Heap::collectAllGarbage();
+    interpolations = AnimationStack::activeInterpolations(&element->elementAnimations()->animationStack(), nullptr, nullptr, KeyframeEffect::DefaultPriority);
+    EXPECT_EQ(1u, interpolations.size());
+    EXPECT_TRUE(interpolationValue(interpolations, CSSPropertyFontSize)->equals(AnimatableDouble::create(3).get()));
+    EXPECT_EQ(3u, sampledEffectCount());
+
+    updateTimeline(15);
+    Heap::collectAllGarbage();
+    interpolations = AnimationStack::activeInterpolations(&element->elementAnimations()->animationStack(), nullptr, nullptr, KeyframeEffect::DefaultPriority);
+    EXPECT_EQ(1u, interpolations.size());
+    EXPECT_TRUE(interpolationValue(interpolations, CSSPropertyFontSize)->equals(AnimatableDouble::create(3).get()));
+    EXPECT_EQ(2u, sampledEffectCount());
+
+    updateTimeline(17);
+    Heap::collectAllGarbage();
+    interpolations = AnimationStack::activeInterpolations(&element->elementAnimations()->animationStack(), nullptr, nullptr, KeyframeEffect::DefaultPriority);
+    EXPECT_EQ(1u, interpolations.size());
+    EXPECT_TRUE(interpolationValue(interpolations, CSSPropertyFontSize)->equals(AnimatableDouble::create(3).get()));
+    EXPECT_EQ(1u, sampledEffectCount());
 }
+
+} // namespace blink

@@ -94,7 +94,7 @@ def GetTestName(test):
 def FilterTestSuite(suite, gtest_filter):
   """Returns a new filtered tests suite based on the given gtest filter.
 
-  See http://code.google.com/p/googletest/wiki/AdvancedGuide
+  See https://github.com/google/googletest/blob/master/googletest/docs/AdvancedGuide.md
   for gtest_filter specification.
   """
   return unittest.TestSuite(FilterTests(GetTestsFromSuite(suite), gtest_filter))
@@ -118,7 +118,7 @@ def FilterTests(all_tests, gtest_filter):
 def FilterTestNames(all_tests, gtest_filter):
   """Filter a list of test names based on the given gtest filter.
 
-  See http://code.google.com/p/googletest/wiki/AdvancedGuide
+  See https://github.com/google/googletest/blob/master/googletest/docs/AdvancedGuide.md
   for gtest_filter specification.
 
   Args:
@@ -132,22 +132,18 @@ def FilterTestNames(all_tests, gtest_filter):
   positive_patterns = ['*']
   if pattern_groups[0]:
     positive_patterns = pattern_groups[0].split(':')
-  negative_patterns = None
+  negative_patterns = []
   if len(pattern_groups) > 1:
     negative_patterns = pattern_groups[1].split(':')
 
   tests = []
-  for test in all_tests:
-    # Test name must by matched by one positive pattern.
-    for pattern in positive_patterns:
-      if fnmatch.fnmatch(test, pattern):
-        break
-    else:
-      continue
-    # Test name must not be matched by any negative patterns.
-    for pattern in negative_patterns or []:
-      if fnmatch.fnmatch(test, pattern):
-        break
-    else:
-      tests += [test]
+  test_set = set()
+  for pattern in positive_patterns:
+    pattern_tests = [
+        test for test in all_tests
+        if (fnmatch.fnmatch(test, pattern)
+            and not any(fnmatch.fnmatch(test, p) for p in negative_patterns)
+            and test not in test_set)]
+    tests.extend(pattern_tests)
+    test_set.update(pattern_tests)
   return tests

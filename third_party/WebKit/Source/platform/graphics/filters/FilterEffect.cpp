@@ -21,7 +21,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/graphics/filters/FilterEffect.h"
 
 #include "platform/graphics/filters/Filter.h"
@@ -135,6 +134,20 @@ TextStream& FilterEffect::externalRepresentation(TextStream& ts, int) const
     return ts;
 }
 
+FloatRect FilterEffect::applyEffectBoundaries(const FloatRect& rect) const
+{
+    FloatRect clippedRect = rect;
+    if (hasX())
+        clippedRect.setX(effectBoundaries().x());
+    if (hasY())
+        clippedRect.setY(effectBoundaries().y());
+    if (hasWidth())
+        clippedRect.setWidth(effectBoundaries().width());
+    if (hasHeight())
+        clippedRect.setHeight(effectBoundaries().height());
+    return clippedRect;
+}
+
 FloatRect FilterEffect::determineFilterPrimitiveSubregion(DetermineSubregionFlags flags)
 {
     Filter* filter = this->filter();
@@ -160,15 +173,7 @@ FloatRect FilterEffect::determineFilterPrimitiveSubregion(DetermineSubregionFlag
             filter->mapLocalRectToAbsoluteRect(subregion)));
     }
 
-    FloatRect boundaries = effectBoundaries();
-    if (hasX())
-        subregion.setX(boundaries.x());
-    if (hasY())
-        subregion.setY(boundaries.y());
-    if (hasWidth())
-        subregion.setWidth(boundaries.width());
-    if (hasHeight())
-        subregion.setHeight(boundaries.height());
+    subregion = applyEffectBoundaries(subregion);
 
     setFilterPrimitiveSubregion(subregion);
 
@@ -196,7 +201,7 @@ PassRefPtr<SkImageFilter> FilterEffect::createImageFilterWithoutValidation(SkiaI
 PassRefPtr<SkImageFilter> FilterEffect::createTransparentBlack(SkiaImageFilterBuilder& builder) const
 {
     SkAutoTUnref<SkColorFilter> filter(SkColorFilter::CreateModeFilter(0, SkXfermode::kClear_Mode));
-    SkImageFilter::CropRect rect = getCropRect(builder.cropOffset());
+    SkImageFilter::CropRect rect = getCropRect();
     return adoptRef(SkColorFilterImageFilter::Create(filter, nullptr, &rect));
 }
 
@@ -210,34 +215,24 @@ bool FilterEffect::hasConnectedInput() const
     return false;
 }
 
-SkImageFilter::CropRect FilterEffect::getCropRect(const FloatSize& cropOffset) const
+SkImageFilter::CropRect FilterEffect::getCropRect() const
 {
     FloatRect rect;
     uint32_t flags = 0;
     if (!hasConnectedInput() && !filter()->filterRegion().isEmpty()) {
         rect = filter()->filterRegion();
         flags = SkImageFilter::CropRect::kHasAll_CropEdge;
-        rect.move(cropOffset);
     }
-    FloatRect boundaries = effectBoundaries();
-    boundaries.move(cropOffset);
-    if (hasX()) {
-        rect.setX(boundaries.x());
-        flags |= SkImageFilter::CropRect::kHasLeft_CropEdge;
-    }
-    if (hasY()) {
-        rect.setY(boundaries.y());
-        flags |= SkImageFilter::CropRect::kHasTop_CropEdge;
-    }
-    if (hasWidth()) {
-        rect.setWidth(boundaries.width());
-        flags |= SkImageFilter::CropRect::kHasWidth_CropEdge;
-    }
-    if (hasHeight()) {
-        rect.setHeight(boundaries.height());
-        flags |= SkImageFilter::CropRect::kHasHeight_CropEdge;
-    }
+
+    rect = applyEffectBoundaries(rect);
+
     rect.scale(filter()->scale());
+
+    flags |= hasX() ? SkImageFilter::CropRect::kHasLeft_CropEdge : 0;
+    flags |= hasY() ? SkImageFilter::CropRect::kHasTop_CropEdge : 0;
+    flags |= hasWidth() ? SkImageFilter::CropRect::kHasWidth_CropEdge : 0;
+    flags |= hasHeight() ? SkImageFilter::CropRect::kHasHeight_CropEdge : 0;
+
     return SkImageFilter::CropRect(rect, flags);
 }
 

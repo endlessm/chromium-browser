@@ -38,6 +38,7 @@
 #include "core/EventNames.h"
 #include "core/EventTargetNames.h"
 #include "core/EventTypeNames.h"
+#include "core/events/EventDispatchResult.h"
 #include "core/events/EventListenerMap.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Allocator.h"
@@ -45,8 +46,8 @@
 
 namespace blink {
 
-class LocalDOMWindow;
 class Event;
+class LocalDOMWindow;
 class ExceptionState;
 class MessagePort;
 class Node;
@@ -125,6 +126,7 @@ public:
     virtual ExecutionContext* executionContext() const = 0;
 
     virtual Node* toNode();
+    virtual const LocalDOMWindow* toDOMWindow() const;
     virtual LocalDOMWindow* toDOMWindow();
     virtual MessagePort* toMessagePort();
 
@@ -137,7 +139,7 @@ public:
     bool removeEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>, EventListenerOptions&);
     virtual void removeAllEventListeners();
 
-    bool dispatchEvent(PassRefPtrWillBeRawPtr<Event>);
+    DispatchEventResult dispatchEvent(PassRefPtrWillBeRawPtr<Event>);
 
     // dispatchEventForBindings is intended to only be called from
     // javascript originated calls. This method will validate and may adjust
@@ -155,7 +157,9 @@ public:
     EventListenerVector* getEventListeners(const AtomicString& eventType);
     Vector<AtomicString> eventTypes();
 
-    bool fireEventListeners(Event*);
+    DispatchEventResult fireEventListeners(Event*);
+
+    static DispatchEventResult dispatchEventResult(const Event&);
 
     DEFINE_INLINE_VIRTUAL_TRACE() { }
 
@@ -166,7 +170,7 @@ protected:
 
     virtual bool addEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>, const EventListenerOptions&);
     virtual bool removeEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>, const EventListenerOptions&);
-    virtual bool dispatchEventInternal(PassRefPtrWillBeRawPtr<Event>);
+    virtual DispatchEventResult dispatchEventInternal(PassRefPtrWillBeRawPtr<Event>);
 
     // Subclasses should likely not override these themselves; instead, they should subclass EventTargetWithInlineData.
     virtual EventTargetData* eventTargetData() = 0;

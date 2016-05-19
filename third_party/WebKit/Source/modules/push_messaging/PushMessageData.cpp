@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/push_messaging/PushMessageData.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -19,6 +18,11 @@ namespace blink {
 
 PushMessageData* PushMessageData::create(const String& messageString)
 {
+    // The standard supports both an empty but valid message and a null message.
+    // In case the message is explicitly null, return a null pointer which will
+    // be set in the PushEvent.
+    if (messageString.isNull())
+        return nullptr;
     return PushMessageData::create(ArrayBufferOrArrayBufferViewOrUSVString::fromUSVString(messageString));
 }
 
@@ -38,11 +42,7 @@ PushMessageData* PushMessageData::create(const ArrayBufferOrArrayBufferViewOrUSV
     }
 
     ASSERT(messageData.isNull());
-    return new PushMessageData();
-}
-
-PushMessageData::PushMessageData()
-{
+    return nullptr;
 }
 
 PushMessageData::PushMessageData(const char* data, unsigned bytesSize)
@@ -78,7 +78,7 @@ ScriptValue PushMessageData::json(ScriptState* scriptState, ExceptionState& exce
     ScriptState::Scope scope(scriptState);
     v8::Local<v8::String> dataString = v8String(isolate, text());
 
-    v8::TryCatch block;
+    v8::TryCatch block(isolate);
     v8::Local<v8::Value> parsed;
     if (!v8Call(v8::JSON::Parse(isolate, dataString), parsed, block)) {
         exceptionState.rethrowV8Exception(block.Exception());

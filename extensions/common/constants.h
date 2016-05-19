@@ -5,7 +5,6 @@
 #ifndef EXTENSIONS_COMMON_CONSTANTS_H_
 #define EXTENSIONS_COMMON_CONSTANTS_H_
 
-#include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "ui/base/layout.h"
 
@@ -126,7 +125,7 @@ enum AppLaunchSource {
   SOURCE_KEYBOARD,
   SOURCE_EXTENSIONS_PAGE,
   SOURCE_MANAGEMENT_API,
-  SOURCE_EPHEMERAL_APP_UNUSED,
+  SOURCE_EPHEMERAL_APP_DEPRECATED,
   SOURCE_BACKGROUND,
   SOURCE_KIOSK,
   SOURCE_CHROME_INTERNAL,
@@ -189,24 +188,6 @@ enum ExtensionIcons {
   EXTENSION_ICON_BITTY = 16,
   EXTENSION_ICON_INVALID = 0,
 };
-
-// List of sizes for extension icons that can be defined in the manifest.
-extern const int kExtensionIconSizes[];
-extern const size_t kNumExtensionIconSizes;
-
-struct IconRepresentationInfo {
-  // Size in pixels.
-  const int size;
-  // Size as a string that will be used to retrieve representation value from
-  // ExtensionAction SetIcon function arguments.
-  const char* const size_string;
-  // Scale factor for which the representation should be used.
-  const ui::ScaleFactor scale;
-};
-
-// The icon representations for extension actions.
-extern const IconRepresentationInfo kExtensionActionIconSizes[];
-const size_t kNumExtensionActionIconSizes = 2u;
 
 // The extension id of the PDF extension.
 extern const char kPdfExtensionId[];

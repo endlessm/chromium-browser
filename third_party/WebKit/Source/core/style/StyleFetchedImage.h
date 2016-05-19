@@ -25,7 +25,6 @@
 #define StyleFetchedImage_h
 
 #include "core/fetch/ImageResourceClient.h"
-#include "core/fetch/ResourcePtr.h"
 #include "core/style/StyleImage.h"
 
 namespace blink {
@@ -35,10 +34,11 @@ class ImageResource;
 
 class StyleFetchedImage final : public StyleImage, private ImageResourceClient {
     USING_FAST_MALLOC_WILL_BE_REMOVED(StyleFetchedImage);
+    WILL_BE_USING_PRE_FINALIZER(StyleFetchedImage, dispose);
 public:
-    static PassRefPtrWillBeRawPtr<StyleFetchedImage> create(ImageResource* image, Document* document)
+    static PassRefPtrWillBeRawPtr<StyleFetchedImage> create(ImageResource* image, Document* document, const KURL& url)
     {
-        return adoptRefWillBeNoop(new StyleFetchedImage(image, document));
+        return adoptRefWillBeNoop(new StyleFetchedImage(image, document, url));
     }
     ~StyleFetchedImage() override;
 
@@ -47,33 +47,34 @@ public:
     PassRefPtrWillBeRawPtr<CSSValue> cssValue() const override;
     PassRefPtrWillBeRawPtr<CSSValue> computedCSSValue() const override;
 
-    bool canRender(const LayoutObject&, float multiplier) const override;
+    bool canRender() const override;
     bool isLoaded() const override;
     bool errorOccurred() const override;
     LayoutSize imageSize(const LayoutObject*, float multiplier) const override;
-    bool imageHasRelativeWidth() const override;
-    bool imageHasRelativeHeight() const override;
-    void computeIntrinsicDimensions(const LayoutObject*, Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
+    bool imageHasRelativeSize() const override;
+    void computeIntrinsicDimensions(const LayoutObject*, FloatSize& intrinsicSize, FloatSize& intrinsicRatio) override;
     bool usesImageContainerSize() const override;
-    void setContainerSizeForLayoutObject(const LayoutObject*, const IntSize&, float) override;
     void addClient(LayoutObject*) override;
     void removeClient(LayoutObject*) override;
     void notifyFinished(Resource*) override;
     String debugName() const override { return "StyleFetchedImage"; }
-    PassRefPtr<Image> image(const LayoutObject*, const IntSize&) const override;
+    PassRefPtr<Image> image(const LayoutObject*, const IntSize&, float zoom) const override;
     bool knownToBeOpaque(const LayoutObject*) const override;
     ImageResource* cachedImage() const override;
 
     DECLARE_VIRTUAL_TRACE();
 
 private:
-    StyleFetchedImage(ImageResource*, Document*);
+    StyleFetchedImage(ImageResource*, Document*, const KURL&);
 
-    ResourcePtr<ImageResource> m_image;
+    void dispose();
+
+    RefPtrWillBeMember<ImageResource> m_image;
     RawPtrWillBeMember<Document> m_document;
+    const KURL m_url;
 };
 
 DEFINE_STYLE_IMAGE_TYPE_CASTS(StyleFetchedImage, isImageResource());
 
-}
+} // namespace blink
 #endif

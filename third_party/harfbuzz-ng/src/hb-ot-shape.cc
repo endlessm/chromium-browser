@@ -145,7 +145,7 @@ _hb_ot_shaper_face_data_destroy (hb_ot_shaper_face_data_t *data)
 struct hb_ot_shaper_font_data_t {};
 
 hb_ot_shaper_font_data_t *
-_hb_ot_shaper_font_data_create (hb_font_t *font)
+_hb_ot_shaper_font_data_create (hb_font_t *font HB_UNUSED)
 {
   return (hb_ot_shaper_font_data_t *) HB_SHAPER_DATA_SUCCEEDED;
 }
@@ -267,13 +267,14 @@ hb_form_clusters (hb_buffer_t *buffer)
       buffer->cluster_level != HB_BUFFER_CLUSTER_LEVEL_MONOTONE_GRAPHEMES)
     return;
 
-  /* Loop duplicated in hb_ensure_native_direction(). */
+  /* Loop duplicated in hb_ensure_native_direction(), and in _hb-coretext.cc */
   unsigned int base = 0;
   unsigned int count = buffer->len;
   hb_glyph_info_t *info = buffer->info;
   for (unsigned int i = 1; i < count; i++)
   {
-    if (likely (!HB_UNICODE_GENERAL_CATEGORY_IS_MARK (_hb_glyph_info_get_general_category (&info[i]))))
+    if (likely (!HB_UNICODE_GENERAL_CATEGORY_IS_MARK (_hb_glyph_info_get_general_category (&info[i])) &&
+		!_hb_glyph_info_is_joiner (&info[i])))
     {
       buffer->merge_clusters (base, i);
       base = i;
@@ -584,8 +585,6 @@ hb_ot_substitute_complex (hb_ot_shape_context_t *c)
 
   c->plan->substitute (c->font, buffer);
 
-  hb_ot_layout_substitute_finish (c->font, buffer);
-
   return;
 }
 
@@ -635,10 +634,6 @@ zero_mark_widths_by_unicode (hb_buffer_t *buffer, bool adjust_offsets)
 static inline void
 zero_mark_widths_by_gdef (hb_buffer_t *buffer, bool adjust_offsets)
 {
-  /* This one is a hack; Technically GDEF can mark ASCII glyphs as marks, but we don't listen. */
-  if (!(buffer->scratch_flags & HB_BUFFER_SCRATCH_FLAG_HAS_NON_ASCII))
-    return;
-
   unsigned int count = buffer->len;
   hb_glyph_info_t *info = buffer->info;
   for (unsigned int i = 0; i < count; i++)
@@ -662,6 +657,7 @@ hb_ot_position_default (hb_ot_shape_context_t *c)
   {
     for (unsigned int i = 0; i < count; i++)
       pos[i].x_advance = c->font->get_glyph_h_advance (info[i].codepoint);
+    /* The nil glyph_h_origin() func returns 0, so no need to apply it. */
     if (c->font->has_glyph_h_origin_func ())
       for (unsigned int i = 0; i < count; i++)
 	c->font->subtract_glyph_h_origin (info[i].codepoint,
@@ -671,12 +667,12 @@ hb_ot_position_default (hb_ot_shape_context_t *c)
   else
   {
     for (unsigned int i = 0; i < count; i++)
+    {
       pos[i].y_advance = c->font->get_glyph_v_advance (info[i].codepoint);
-    if (c->font->has_glyph_v_origin_func ())
-      for (unsigned int i = 0; i < count; i++)
-	c->font->subtract_glyph_v_origin (info[i].codepoint,
-					  &pos[i].x_offset,
-					  &pos[i].y_offset);
+      c->font->subtract_glyph_v_origin (info[i].codepoint,
+					&pos[i].x_offset,
+					&pos[i].y_offset);
+    }
   }
   if (c->buffer->scratch_flags & HB_BUFFER_SCRATCH_FLAG_HAS_SPACE_FALLBACK)
     _hb_ot_shape_fallback_spaces (c->plan, c->font, c->buffer);
@@ -685,9 +681,12 @@ hb_ot_position_default (hb_ot_shape_context_t *c)
 static inline bool
 hb_ot_position_complex (hb_ot_shape_context_t *c)
 {
+  hb_ot_layout_position_start (c->font, c->buffer);
+
   bool ret = false;
   unsigned int count = c->buffer->len;
-  bool has_positioning = hb_ot_layout_has_positioning (c->face);
+  bool has_positioning = (bool) hb_ot_layout_has_positioning (c->face);
+
   /* If the font has no GPOS, AND, no fallback positioning will
    * happen, AND, direction is forward, then when zeroing mark
    * widths, we shift the mark with it, such that the mark
@@ -726,6 +725,7 @@ hb_ot_position_complex (hb_ot_shape_context_t *c)
 
     /* Change glyph origin to what GPOS expects (horizontal), apply GPOS, change it back. */
 
+    /* The nil glyph_h_origin() func returns 0, so no need to apply it. */
     if (c->font->has_glyph_h_origin_func ())
       for (unsigned int i = 0; i < count; i++)
 	c->font->add_glyph_h_origin (info[i].codepoint,
@@ -734,6 +734,7 @@ hb_ot_position_complex (hb_ot_shape_context_t *c)
 
     c->plan->position (c->font, c->buffer);
 
+    /* The nil glyph_h_origin() func returns 0, so no need to apply it. */
     if (c->font->has_glyph_h_origin_func ())
       for (unsigned int i = 0; i < count; i++)
 	c->font->subtract_glyph_h_origin (info[i].codepoint,
@@ -760,21 +761,22 @@ hb_ot_position_complex (hb_ot_shape_context_t *c)
       break;
   }
 
+  /* Finishing off GPOS has to follow a certain order. */
+  hb_ot_layout_position_finish_advances (c->font, c->buffer);
+  hb_ot_zero_width_default_ignorables (c);
+  hb_ot_layout_position_finish_offsets (c->font, c->buffer);
+
   return ret;
 }
 
 static inline void
 hb_ot_position (hb_ot_shape_context_t *c)
 {
-  hb_ot_layout_position_start (c->font, c->buffer);
+  c->buffer->clear_positions ();
 
   hb_ot_position_default (c);
 
   hb_bool_t fallback = !hb_ot_position_complex (c);
-
-  hb_ot_zero_width_default_ignorables (c);
-
-  hb_ot_layout_position_finish (c->font, c->buffer);
 
   if (fallback && c->plan->shaper->fallback_position)
     _hb_ot_shape_fallback_position (c->plan, c->font, c->buffer);
@@ -852,6 +854,8 @@ _hb_ot_shape (hb_shape_plan_t    *shape_plan,
 
 
 /**
+ * hb_ot_shape_plan_collect_lookups:
+ *
  * Since: 0.9.7
  **/
 void
@@ -885,6 +889,8 @@ add_char (hb_font_t          *font,
 
 
 /**
+ * hb_ot_shape_glyphs_closure:
+ *
  * Since: 0.9.2
  **/
 void

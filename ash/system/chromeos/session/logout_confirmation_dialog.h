@@ -5,8 +5,8 @@
 #ifndef ASH_SYSTEM_CHROMEOS_SESSION_LOGOUT_CONFIRMATION_DIALOG_H_
 #define ASH_SYSTEM_CHROMEOS_SESSION_LOGOUT_CONFIRMATION_DIALOG_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "ui/views/window/dialog_delegate.h"
@@ -30,13 +30,15 @@ class LogoutConfirmationDialog : public views::DialogDelegateView {
 
   void Update(base::TimeTicks logout_time);
 
+  // Called when |controller_| is no longer valid.
+  void ControllerGone();
+
   // views::DialogDelegateView:
   bool Accept() override;
   ui::ModalType GetModalType() const override;
   base::string16 GetWindowTitle() const override;
   base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
-  void OnClosed() override;
-  void DeleteDelegate() override;
+  void WindowClosing() override;
 
  private:
   void UpdateLabel();

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be found
 // in the LICENSE file.
 
-#include "config.h"
 #include "web/WebViewFrameWidget.h"
 
 #include "web/WebLocalFrameImpl.h"
@@ -107,7 +106,7 @@ void WebViewFrameWidget::themeChanged()
     return m_webView->themeChanged();
 }
 
-bool WebViewFrameWidget::handleInputEvent(const WebInputEvent& event)
+WebInputEventResult WebViewFrameWidget::handleInputEvent(const WebInputEvent& event)
 {
     return m_webView->handleInputEvent(event);
 }
@@ -264,6 +263,26 @@ void WebViewFrameWidget::updateTopControlsState(WebTopControlsState constraints,
 void WebViewFrameWidget::setVisibilityState(WebPageVisibilityState visibilityState, bool isInitialState)
 {
     return m_webView->setVisibilityState(visibilityState, isInitialState);
+}
+
+void WebViewFrameWidget::setIsTransparent(bool isTransparent)
+{
+    m_webView->setIsTransparent(isTransparent);
+}
+
+bool WebViewFrameWidget::isTransparent() const
+{
+    return m_webView->isTransparent();
+}
+
+void WebViewFrameWidget::setBaseBackgroundColor(WebColor color)
+{
+    m_webView->setBaseBackgroundColor(color);
+}
+
+void WebViewFrameWidget::scheduleAnimation()
+{
+    m_webView->scheduleAnimation();
 }
 
 } // namespace blink

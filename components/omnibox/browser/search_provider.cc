@@ -4,8 +4,10 @@
 
 #include "components/omnibox/browser/search_provider.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "base/base64.h"
 #include "base/bind.h"
@@ -33,7 +35,7 @@
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_formatter.h"
-#include "components/variations/net/variations_http_header_provider.h"
+#include "components/variations/net/variations_http_headers.h"
 #include "grit/components_strings.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
@@ -891,7 +893,7 @@ scoped_ptr<net::URLFetcher> SearchProvider::CreateSuggestFetcher(
   fetcher->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES);
   // Add Chrome experiment state to the request headers.
   net::HttpRequestHeaders headers;
-  variations::VariationsHttpHeaderProvider::GetInstance()->AppendHeaders(
+  variations::AppendVariationHeaders(
       fetcher->GetOriginalURL(), client()->IsOffTheRecord(), false, &headers);
   fetcher->SetExtraRequestHeaders(headers.ToString());
   fetcher->Start();
@@ -926,9 +928,12 @@ void SearchProvider::ConvertResultsToAutocompleteMatches() {
     base::string16 answer_contents;
     base::string16 answer_type;
     scoped_ptr<SuggestionAnswer> answer;
+    base::string16 trimmed_verbatim_lower =
+        base::i18n::ToLower(trimmed_verbatim);
     for (ACMatches::iterator it = matches_.begin(); it != matches_.end();
          ++it) {
-      if (it->answer && it->fill_into_edit == trimmed_verbatim) {
+      if (it->answer &&
+          base::i18n::ToLower(it->fill_into_edit) == trimmed_verbatim_lower) {
         answer_contents = it->answer_contents;
         answer_type = it->answer_type;
         answer = SuggestionAnswer::copy(it->answer.get());
@@ -939,7 +944,7 @@ void SearchProvider::ConvertResultsToAutocompleteMatches() {
     SearchSuggestionParser::SuggestResult verbatim(
         trimmed_verbatim, AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
         trimmed_verbatim, base::string16(), base::string16(), answer_contents,
-        answer_type, answer.Pass(), std::string(), std::string(), false,
+        answer_type, std::move(answer), std::string(), std::string(), false,
         verbatim_relevance, relevance_from_server, false, trimmed_verbatim);
     AddMatchToMap(verbatim, std::string(), did_not_accept_default_suggestion,
                   false, keyword_url != NULL, &map);

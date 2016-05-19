@@ -4,10 +4,14 @@
 
 #include "ui/views/corewm/tooltip_controller.h"
 
+#include <stddef.h>
+
+#include <utility>
 #include <vector>
 
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/screen_position_client.h"
@@ -93,7 +97,7 @@ aura::Window* GetTooltipTarget(const ui::MouseEvent& event,
       gfx::Point screen_loc(event.location());
       aura::client::GetScreenPositionClient(event_target->GetRootWindow())->
           ConvertPointToScreen(event_target, &screen_loc);
-      gfx::Screen* screen = gfx::Screen::GetScreenFor(event_target);
+      gfx::Screen* screen = gfx::Screen::GetScreen();
       aura::Window* target = screen->GetWindowAtScreenPoint(screen_loc);
       if (!target)
         return NULL;
@@ -124,7 +128,7 @@ TooltipController::TooltipController(scoped_ptr<Tooltip> tooltip)
     : tooltip_window_(NULL),
       tooltip_id_(NULL),
       tooltip_window_at_mouse_press_(NULL),
-      tooltip_(tooltip.Pass()),
+      tooltip_(std::move(tooltip)),
       tooltips_enabled_(true) {
   tooltip_timer_.Start(FROM_HERE,
       base::TimeDelta::FromMilliseconds(kTooltipTimeoutMs),
@@ -136,9 +140,8 @@ TooltipController::~TooltipController() {
     tooltip_window_->RemoveObserver(this);
 }
 
-int TooltipController::GetMaxWidth(const gfx::Point& location,
-                                   gfx::NativeView context) const {
-  return tooltip_->GetMaxWidth(location, context);
+int TooltipController::GetMaxWidth(const gfx::Point& location) const {
+  return tooltip_->GetMaxWidth(location);
 }
 
 void TooltipController::UpdateTooltip(aura::Window* target) {
@@ -229,6 +232,10 @@ void TooltipController::OnMouseEvent(ui::MouseEvent* event) {
       // Hide the tooltip for click, release, drag, wheel events.
       if (tooltip_->IsVisible())
         tooltip_->Hide();
+
+      // Don't reshow the tooltip during scroll.
+      if (tooltip_timer_.IsRunning())
+        tooltip_timer_.Reset();
       break;
     default:
       break;

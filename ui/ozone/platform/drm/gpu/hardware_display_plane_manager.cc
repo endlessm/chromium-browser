@@ -7,6 +7,7 @@
 #include <drm_fourcc.h>
 
 #include <set>
+#include <utility>
 
 #include "base/logging.h"
 #include "ui/gfx/geometry/rect.h"
@@ -108,7 +109,7 @@ bool HardwareDisplayPlaneManager::Initialize(DrmDevice* drm) {
       // plane is updated via cursor specific DRM API. Hence, we dont keep
       // track of Cursor plane here to avoid re-using it for any other purpose.
       if (plane->type() != HardwareDisplayPlane::kCursor)
-        planes_.push_back(plane.Pass());
+        planes_.push_back(std::move(plane));
     }
   }
 
@@ -123,16 +124,19 @@ bool HardwareDisplayPlaneManager::Initialize(DrmDevice* drm) {
             CreatePlane(resources->crtcs[i] - 1, (1 << i)));
         if (dummy_plane->Initialize(drm, std::vector<uint32_t>(), true,
                                     false)) {
-          planes_.push_back(dummy_plane.Pass());
+          planes_.push_back(std::move(dummy_plane));
         }
       }
     }
   }
 
   std::sort(planes_.begin(), planes_.end(),
-            [](HardwareDisplayPlane* l, HardwareDisplayPlane* r) {
+            [](const scoped_ptr<HardwareDisplayPlane>& l,
+               const scoped_ptr<HardwareDisplayPlane>& r) {
               return l->plane_id() < r->plane_id();
             });
+
+  PopulateSupportedFormats();
   return true;
 }
 
@@ -148,7 +152,7 @@ HardwareDisplayPlane* HardwareDisplayPlaneManager::FindNextUnusedPlane(
     uint32_t crtc_index,
     const OverlayPlane& overlay) const {
   for (size_t i = *index; i < planes_.size(); ++i) {
-    auto plane = planes_[i];
+    auto plane = planes_[i].get();
     if (!plane->in_use() && IsCompatible(plane, overlay, crtc_index)) {
       *index = i + 1;
       return plane;
@@ -178,6 +182,18 @@ bool HardwareDisplayPlaneManager::IsCompatible(HardwareDisplayPlane* plane,
   // rely on the sorting we do based on plane ids ?
 
   return true;
+}
+
+void HardwareDisplayPlaneManager::PopulateSupportedFormats() {
+  std::set<uint32_t> supported_formats;
+
+  for (const auto& plane : planes_) {
+    const std::vector<uint32_t>& formats = plane->supported_formats();
+    supported_formats.insert(formats.begin(), formats.end());
+  }
+
+  supported_formats_.reserve(supported_formats.size());
+  supported_formats_.assign(supported_formats.begin(), supported_formats.end());
 }
 
 void HardwareDisplayPlaneManager::ResetCurrentPlaneList(
@@ -278,23 +294,42 @@ bool HardwareDisplayPlaneManager::AssignOverlayPlanes(
   return true;
 }
 
-std::vector<uint32_t>
-HardwareDisplayPlaneManager::GetCompatibleHardwarePlaneIds(
-    const OverlayPlane& plane,
-    uint32_t crtc_id) const {
+const std::vector<uint32_t>& HardwareDisplayPlaneManager::GetSupportedFormats()
+    const {
+  return supported_formats_;
+}
+
+bool HardwareDisplayPlaneManager::IsFormatSupported(uint32_t fourcc_format,
+                                                    uint32_t z_order,
+                                                    uint32_t crtc_id) const {
+  bool format_supported = false;
   int crtc_index = LookupCrtcIndex(crtc_id);
   if (crtc_index < 0) {
     LOG(ERROR) << "Cannot find crtc " << crtc_id;
-    return std::vector<uint32_t>();
+    return format_supported;
   }
 
-  std::vector<uint32_t> plane_ids;
-  for (auto* hardware_plane : planes_) {
-    if (IsCompatible(hardware_plane, plane, crtc_index))
-      plane_ids.push_back(hardware_plane->plane_id());
+  // We dont have a way to query z_order of a plane. This is a temporary
+  // solution till driver exposes z_order property.
+  uint32_t plane_z_order = 0;
+  for (const auto& hardware_plane : planes_) {
+    if (plane_z_order > z_order)
+      break;
+
+    if (!hardware_plane->CanUseForCrtc(crtc_index))
+      continue;
+
+    if (plane_z_order == z_order) {
+      if (hardware_plane->IsSupportedFormat(fourcc_format))
+        format_supported = true;
+
+      break;
+    } else {
+      plane_z_order++;
+    }
   }
 
-  return plane_ids;
+  return format_supported;
 }
 
 }  // namespace ui

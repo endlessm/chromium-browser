@@ -11,32 +11,31 @@
 #include <vector>
 
 #include "testing/gmock/include/gmock/gmock.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
+#include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/modules/video_coding/codecs/vp8/simulcast_encoder_adapter.h"
 #include "webrtc/modules/video_coding/codecs/vp8/simulcast_unittest.h"
-#include "webrtc/modules/video_coding/codecs/vp8/vp8_factory.h"
 
 namespace webrtc {
 namespace testing {
 
-static VP8Encoder* CreateTestEncoderAdapter() {
-  VP8EncoderFactoryConfig::set_use_simulcast_adapter(true);
-  return VP8Encoder::Create();
-}
-
 class TestSimulcastEncoderAdapter : public TestVp8Simulcast {
  public:
   TestSimulcastEncoderAdapter()
-     : TestVp8Simulcast(CreateTestEncoderAdapter(),
-                        VP8Decoder::Create()) {}
+      : TestVp8Simulcast(new SimulcastEncoderAdapter(new Vp8EncoderFactory()),
+                         VP8Decoder::Create()) {}
+
  protected:
-  virtual void SetUp() {
-    TestVp8Simulcast::SetUp();
-  }
-  virtual void TearDown() {
-    TestVp8Simulcast::TearDown();
-    VP8EncoderFactoryConfig::set_use_simulcast_adapter(false);
-  }
+  class Vp8EncoderFactory : public VideoEncoderFactory {
+   public:
+    VideoEncoder* Create() override { return VP8Encoder::Create(); }
+
+    void Destroy(VideoEncoder* encoder) override { delete encoder; }
+
+    virtual ~Vp8EncoderFactory() {}
+  };
+
+  virtual void SetUp() { TestVp8Simulcast::SetUp(); }
+  virtual void TearDown() { TestVp8Simulcast::TearDown(); }
 };
 
 TEST_F(TestSimulcastEncoderAdapter, TestKeyFrameRequestsOnAllStreams) {
@@ -97,8 +96,7 @@ TEST_F(TestSimulcastEncoderAdapter, TestSpatioTemporalLayers321PatternEncoder) {
 
 // TODO(ronghuawu): Enable this test when SkipEncodingUnusedStreams option is
 // implemented for SimulcastEncoderAdapter.
-TEST_F(TestSimulcastEncoderAdapter,
-    DISABLED_TestSkipEncodingUnusedStreams) {
+TEST_F(TestSimulcastEncoderAdapter, DISABLED_TestSkipEncodingUnusedStreams) {
   TestVp8Simulcast::TestSkipEncodingUnusedStreams();
 }
 
@@ -127,23 +125,17 @@ class MockVideoEncoder : public VideoEncoder {
     return 0;
   }
 
-  int32_t Release() override {
-    return 0;
-  }
+  int32_t Release() override { return 0; }
 
   int32_t SetRates(uint32_t newBitRate, uint32_t frameRate) override {
     return 0;
   }
 
-  MOCK_METHOD2(SetChannelParameters,
-      int32_t(uint32_t packetLoss, int64_t rtt));
+  MOCK_METHOD2(SetChannelParameters, int32_t(uint32_t packetLoss, int64_t rtt));
 
-  bool SupportsNativeHandle() const override {
-    return supports_native_handle_;
-  }
+  bool SupportsNativeHandle() const override { return supports_native_handle_; }
 
-  virtual ~MockVideoEncoder() {
-  }
+  virtual ~MockVideoEncoder() {}
 
   const VideoCodec& codec() const { return codec_; }
 
@@ -161,6 +153,8 @@ class MockVideoEncoder : public VideoEncoder {
     supports_native_handle_ = enabled;
   }
 
+  MOCK_CONST_METHOD0(ImplementationName, const char*());
+
  private:
   bool supports_native_handle_ = false;
   VideoCodec codec_;
@@ -171,6 +165,10 @@ class MockVideoEncoderFactory : public VideoEncoderFactory {
  public:
   VideoEncoder* Create() override {
     MockVideoEncoder* encoder = new MockVideoEncoder();
+    const char* encoder_name = encoder_names_.empty()
+                                   ? "codec_implementation_name"
+                                   : encoder_names_[encoders_.size()];
+    ON_CALL(*encoder, ImplementationName()).WillByDefault(Return(encoder_name));
     encoders_.push_back(encoder);
     return encoder;
   }
@@ -180,9 +178,13 @@ class MockVideoEncoderFactory : public VideoEncoderFactory {
   virtual ~MockVideoEncoderFactory() {}
 
   const std::vector<MockVideoEncoder*>& encoders() const { return encoders_; }
+  void SetEncoderNames(const std::vector<const char*>& encoder_names) {
+    encoder_names_ = encoder_names;
+  }
 
  private:
   std::vector<MockVideoEncoder*> encoders_;
+  std::vector<const char*> encoder_names_;
 };
 
 class TestSimulcastEncoderAdapterFakeHelper {
@@ -200,7 +202,8 @@ class TestSimulcastEncoderAdapterFakeHelper {
     EXPECT_TRUE(!factory_->encoders().empty());
     for (size_t i = 0; i < factory_->encoders().size(); ++i) {
       EXPECT_CALL(*factory_->encoders()[i],
-                  SetChannelParameters(packetLoss, rtt)).Times(1);
+                  SetChannelParameters(packetLoss, rtt))
+          .Times(1);
     }
   }
 
@@ -249,8 +252,7 @@ class TestSimulcastEncoderAdapterFake : public ::testing::Test,
 
   void SetupCodec() {
     TestVp8Simulcast::DefaultSettings(
-      &codec_,
-      static_cast<const int*>(kTestTemporalLayerProfile));
+        &codec_, static_cast<const int*>(kTestTemporalLayerProfile));
     EXPECT_EQ(0, adapter_->InitEncode(&codec_, 1, 1200));
     adapter_->RegisterEncodeCompleteCallback(this);
   }
@@ -287,10 +289,11 @@ class TestSimulcastEncoderAdapterFake : public ::testing::Test,
               target.codecSpecific.VP8.frameDroppingOn);
     EXPECT_EQ(ref.codecSpecific.VP8.keyFrameInterval,
               target.codecSpecific.VP8.keyFrameInterval);
+    EXPECT_EQ(ref.codecSpecific.VP8.tl_factory,
+              target.codecSpecific.VP8.tl_factory);
     EXPECT_EQ(ref.qpMax, target.qpMax);
     EXPECT_EQ(0, target.numberOfSimulcastStreams);
     EXPECT_EQ(ref.mode, target.mode);
-    EXPECT_EQ(ref.extra_options, target.extra_options);
 
     // No need to compare simulcastStream as numberOfSimulcastStreams should
     // always be 0.
@@ -403,6 +406,20 @@ TEST_F(TestSimulcastEncoderAdapterFake, SupportsNativeHandleForSingleStreams) {
   EXPECT_TRUE(adapter_->SupportsNativeHandle());
   helper_->factory()->encoders()[0]->set_supports_native_handle(false);
   EXPECT_FALSE(adapter_->SupportsNativeHandle());
+}
+
+TEST_F(TestSimulcastEncoderAdapterFake, SupportsImplementationName) {
+  EXPECT_STREQ("SimulcastEncoderAdapter", adapter_->ImplementationName());
+  TestVp8Simulcast::DefaultSettings(
+      &codec_, static_cast<const int*>(kTestTemporalLayerProfile));
+  std::vector<const char*> encoder_names;
+  encoder_names.push_back("codec1");
+  encoder_names.push_back("codec2");
+  encoder_names.push_back("codec3");
+  helper_->factory()->SetEncoderNames(encoder_names);
+  EXPECT_EQ(0, adapter_->InitEncode(&codec_, 1, 1200));
+  EXPECT_STREQ("SimulcastEncoderAdapter (codec1, codec2, codec3)",
+               adapter_->ImplementationName());
 }
 
 TEST_F(TestSimulcastEncoderAdapterFake,

@@ -31,7 +31,6 @@
 #include "core/css/CSSPrimitiveValue.h"
 #include "core/fetch/ImageResource.h"
 #include "core/fetch/ImageResourceClient.h"
-#include "core/fetch/ResourcePtr.h"
 #include "platform/graphics/Image.h"
 
 namespace blink {
@@ -42,6 +41,7 @@ class LayoutObject;
 
 class CORE_EXPORT CSSCrossfadeValue final : public CSSImageGeneratorValue {
     friend class CrossfadeSubimageObserverProxy;
+    WILL_BE_USING_PRE_FINALIZER(CSSCrossfadeValue, dispose);
 public:
     static PassRefPtrWillBeRawPtr<CSSCrossfadeValue> create(PassRefPtrWillBeRawPtr<CSSValue> fromValue, PassRefPtrWillBeRawPtr<CSSValue> toValue, PassRefPtrWillBeRawPtr<CSSPrimitiveValue> percentageValue)
     {
@@ -67,22 +67,12 @@ public:
 
     PassRefPtrWillBeRawPtr<CSSCrossfadeValue> valueWithURLsMadeAbsolute();
 
-    // Promptly remove as a ImageResource client.
-    EAGERLY_FINALIZE();
-#if ENABLE(OILPAN)
-    DECLARE_EAGER_FINALIZATION_OPERATOR_NEW();
-#endif
     DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    CSSCrossfadeValue(PassRefPtrWillBeRawPtr<CSSValue> fromValue, PassRefPtrWillBeRawPtr<CSSValue> toValue, PassRefPtrWillBeRawPtr<CSSPrimitiveValue> percentageValue)
-        : CSSImageGeneratorValue(CrossfadeClass)
-        , m_fromValue(fromValue)
-        , m_toValue(toValue)
-        , m_percentageValue(percentageValue)
-        , m_cachedFromImage(nullptr)
-        , m_cachedToImage(nullptr)
-        , m_crossfadeSubimageObserver(this) { }
+    CSSCrossfadeValue(PassRefPtrWillBeRawPtr<CSSValue> fromValue, PassRefPtrWillBeRawPtr<CSSValue> toValue, PassRefPtrWillBeRawPtr<CSSPrimitiveValue> percentageValue);
+
+    void dispose();
 
     class CrossfadeSubimageObserverProxy final : public ImageResourceClient {
         DISALLOW_NEW();
@@ -111,8 +101,8 @@ private:
     RefPtrWillBeMember<CSSValue> m_toValue;
     RefPtrWillBeMember<CSSPrimitiveValue> m_percentageValue;
 
-    ResourcePtr<ImageResource> m_cachedFromImage;
-    ResourcePtr<ImageResource> m_cachedToImage;
+    RefPtrWillBeMember<ImageResource> m_cachedFromImage;
+    RefPtrWillBeMember<ImageResource> m_cachedToImage;
 
     RefPtr<Image> m_generatedImage;
 

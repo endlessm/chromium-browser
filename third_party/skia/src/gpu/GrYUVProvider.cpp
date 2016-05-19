@@ -8,7 +8,7 @@
 #include "GrContext.h"
 #include "GrDrawContext.h"
 #include "GrYUVProvider.h"
-#include "effects/GrYUVtoRGBEffect.h"
+#include "effects/GrYUVEffect.h"
 
 #include "SkCachedData.h"
 #include "SkRefCnt.h"
@@ -98,7 +98,7 @@ GrTexture* GrYUVProvider::refAsTexture(GrContext* ctx, const GrSurfaceDesc& desc
         bool needsExactTexture = (yuvDesc.fWidth  != yuvInfo.fSize[0].fWidth) ||
                                  (yuvDesc.fHeight != yuvInfo.fSize[0].fHeight);
         if (needsExactTexture) {
-            yuvTextures[i].reset(ctx->textureProvider()->createTexture(yuvDesc, true));
+            yuvTextures[i].reset(ctx->textureProvider()->createTexture(yuvDesc, SkBudgeted::kYes));
         } else {
             yuvTextures[i].reset(ctx->textureProvider()->createApproxTexture(yuvDesc));
         }
@@ -112,7 +112,8 @@ GrTexture* GrYUVProvider::refAsTexture(GrContext* ctx, const GrSurfaceDesc& desc
     GrSurfaceDesc rtDesc = desc;
     rtDesc.fFlags = rtDesc.fFlags | kRenderTarget_GrSurfaceFlag;
 
-    SkAutoTUnref<GrTexture> result(ctx->textureProvider()->createTexture(rtDesc, true, nullptr, 0));
+    SkAutoTUnref<GrTexture> result(ctx->textureProvider()->createTexture(rtDesc, SkBudgeted::kYes,
+                                                                         nullptr, 0));
     if (!result) {
         return nullptr;
     }
@@ -121,13 +122,14 @@ GrTexture* GrYUVProvider::refAsTexture(GrContext* ctx, const GrSurfaceDesc& desc
     SkASSERT(renderTarget);
 
     GrPaint paint;
-    SkAutoTUnref<GrFragmentProcessor> yuvToRgbProcessor(
-                                        GrYUVtoRGBEffect::Create(yuvTextures[0],
-                                                                 yuvTextures[1],
-                                                                 yuvTextures[2],
-                                                                 yuvInfo.fSize,
-                                                                 yuvInfo.fColorSpace));
+    SkAutoTUnref<const GrFragmentProcessor> yuvToRgbProcessor(
+                                        GrYUVEffect::CreateYUVToRGB(yuvTextures[0],
+                                                                    yuvTextures[1],
+                                                                    yuvTextures[2],
+                                                                    yuvInfo.fSize,
+                                                                    yuvInfo.fColorSpace));
     paint.addColorFragmentProcessor(yuvToRgbProcessor);
+    paint.setPorterDuffXPFactory(SkXfermode::kSrc_Mode);
     const SkRect r = SkRect::MakeIWH(yuvInfo.fSize[0].fWidth, yuvInfo.fSize[0].fHeight);
 
     SkAutoTUnref<GrDrawContext> drawContext(ctx->drawContext(renderTarget));

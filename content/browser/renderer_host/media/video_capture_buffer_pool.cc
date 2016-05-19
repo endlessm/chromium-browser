@@ -6,8 +6,8 @@
 
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/stl_util.h"
+#include "build/build_config.h"
 #include "content/browser/gpu/browser_gpu_memory_buffer_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/gfx/buffer_format_util.h"
@@ -65,7 +65,8 @@ class GpuMemoryBufferBufferHandle final
     : public VideoCaptureBufferPool::BufferHandle {
  public:
   GpuMemoryBufferBufferHandle(const gfx::Size& dimensions,
-                              ScopedVector<gfx::GpuMemoryBuffer>* gmbs)
+                              std::vector<
+                                scoped_ptr<gfx::GpuMemoryBuffer>>* gmbs)
       : dimensions_(dimensions), gmbs_(gmbs) {
     DCHECK(gmbs);
   }
@@ -93,7 +94,7 @@ class GpuMemoryBufferBufferHandle final
 
  private:
   const gfx::Size dimensions_;
-  ScopedVector<gfx::GpuMemoryBuffer>* const gmbs_;
+  std::vector<scoped_ptr<gfx::GpuMemoryBuffer>>* const gmbs_;
 };
 
 // Tracker specifics for SharedMemory.
@@ -155,7 +156,7 @@ class VideoCaptureBufferPool::GpuMemoryBufferTracker final : public Tracker {
  private:
   gfx::Size dimensions_;
   // Owned references to GpuMemoryBuffers.
-  ScopedVector<gfx::GpuMemoryBuffer> gpu_memory_buffers_;
+  std::vector<scoped_ptr<gfx::GpuMemoryBuffer>> gpu_memory_buffers_;
 };
 
 VideoCaptureBufferPool::SharedMemTracker::SharedMemTracker() : Tracker() {}
@@ -260,14 +261,14 @@ bool VideoCaptureBufferPool::GpuMemoryBufferTracker::ShareToProcess2(
 scoped_ptr<VideoCaptureBufferPool::Tracker>
 VideoCaptureBufferPool::Tracker::CreateTracker(
     media::VideoPixelStorage storage) {
-  DCHECK(storage == media::PIXEL_STORAGE_GPUMEMORYBUFFER ||
-         storage == media::PIXEL_STORAGE_CPU ||
-         storage == media::PIXEL_STORAGE_TEXTURE);
-
-  if (storage == media::PIXEL_STORAGE_GPUMEMORYBUFFER)
-    return make_scoped_ptr(new GpuMemoryBufferTracker());
-  else
-    return make_scoped_ptr(new SharedMemTracker());
+  switch (storage) {
+    case media::PIXEL_STORAGE_GPUMEMORYBUFFER:
+      return make_scoped_ptr(new GpuMemoryBufferTracker());
+    case media::PIXEL_STORAGE_CPU:
+      return make_scoped_ptr(new SharedMemTracker());
+  }
+  NOTREACHED();
+  return scoped_ptr<VideoCaptureBufferPool::Tracker>();
 }
 
 VideoCaptureBufferPool::Tracker::~Tracker() {}

@@ -19,7 +19,6 @@
  *
  */
 
-#include "config.h"
 #include "core/layout/LayoutTextControlMultiLine.h"
 
 #include "core/html/HTMLTextAreaElement.h"
@@ -103,4 +102,4 @@ LayoutObject* LayoutTextControlMultiLine::layoutSpecialExcludedChild(bool relayo
     return placeholderLayoutObject;
 }
 
-}
+} // namespace blink

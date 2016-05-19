@@ -5,6 +5,7 @@
 #include "ui/gl/gl_fence.h"
 
 #include "base/compiler_specific.h"
+#include "build/build_config.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_fence_arb.h"
@@ -61,6 +62,15 @@ GLFence* GLFence::Create() {
 
   DCHECK_EQ(!!fence.get(), GLFence::IsSupported());
   return fence.release();
+}
+
+bool GLFence::ResetSupported() {
+  // Resetting a fence to its original state isn't supported by default.
+  return false;
+}
+
+void GLFence::ResetState() {
+  NOTIMPLEMENTED();
 }
 
 }  // namespace gfx

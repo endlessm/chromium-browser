@@ -10,6 +10,7 @@
 #include "ash/system/chromeos/network/network_detailed_view.h"
 #include "ash/system/tray/view_click_listener.h"
 #include "ash/system/user/login_status.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/chromeos/network/network_list_delegate.h"
@@ -26,6 +27,7 @@ class NetworkListViewBase;
 
 namespace views {
 class BubbleDelegateView;
+class ImageButton;
 }
 
 namespace ash {
@@ -54,9 +56,6 @@ class NetworkStateListDetailedView
   void Init() override;
   DetailedViewType GetViewType() const override;
   void Update() override;
-
-  // Called by the WiFi Scanning Throbber when pressed.
-  bool ThrobberPressed(views::View* sender, const ui::Event& event);
 
  protected:
   // Overridden from ButtonListener.
@@ -124,7 +123,7 @@ class NetworkStateListDetailedView
   bool wifi_scanning_;
 
   // Child views.
-  TrayPopupHeaderButton* info_icon_;
+  views::ImageButton* info_icon_;
   TrayPopupHeaderButton* button_wifi_;
   TrayPopupHeaderButton* button_mobile_;
   TrayPopupLabelButton* other_wifi_;

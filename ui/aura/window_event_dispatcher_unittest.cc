@@ -4,11 +4,16 @@
 
 #include "ui/aura/window_event_dispatcher.h"
 
+#include <stddef.h>
+
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/event_client.h"
@@ -137,15 +142,22 @@ TEST_F(WindowEventDispatcherTest, OnHostMouseEvent) {
 }
 
 TEST_F(WindowEventDispatcherTest, RepostEvent) {
-  // Test RepostEvent in RootWindow. It only works for Mouse Press.
+  // Test RepostEvent in RootWindow. It only works for Mouse Press and touch
+  // press.
   EXPECT_FALSE(Env::GetInstance()->IsMouseButtonDown());
   gfx::Point point(10, 10);
   ui::MouseEvent event(ui::ET_MOUSE_PRESSED, point, point,
                        ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
                        ui::EF_LEFT_MOUSE_BUTTON);
-  host()->dispatcher()->RepostEvent(event);
+  host()->dispatcher()->RepostEvent(&event);
   RunAllPendingInMessageLoop();
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
+
+  ui::TouchEvent touch_pressed_event(
+    ui::ET_TOUCH_PRESSED, gfx::Point(10, 10), 0, ui::EventTimeForNow());
+  host()->dispatcher()->RepostEvent(&touch_pressed_event);
+  RunAllPendingInMessageLoop();
+  EXPECT_TRUE(Env::GetInstance()->is_touch_down());
 }
 
 // Check that we correctly track the state of the mouse buttons in response to
@@ -629,7 +641,7 @@ TEST_F(WindowEventDispatcherTest, MAYBE(RepostTargetsCaptureWindow)) {
   const ui::MouseEvent press_event(
       ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(), ui::EventTimeForNow(),
       ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
-  host()->dispatcher()->RepostEvent(press_event);
+  host()->dispatcher()->RepostEvent(&press_event);
   RunAllPendingInMessageLoop();  // Necessitated by RepostEvent().
   // Mouse moves/enters may be generated. We only care about a pressed.
   EXPECT_TRUE(EventTypesToString(recorder.events()).find("MOUSE_PRESSED") !=
@@ -1414,7 +1426,7 @@ TEST_F(WindowEventDispatcherTest, RepostTapdownGestureTest) {
                          0,
                          ui::EventTimeForNow(),
                          details);
-  host()->dispatcher()->RepostEvent(event);
+  host()->dispatcher()->RepostEvent(&event);
   RunAllPendingInMessageLoop();
   // TODO(rbyers): Currently disabled - crbug.com/170987
   EXPECT_FALSE(EventTypesToString(recorder.events()).find("GESTURE_TAP_DOWN") !=
@@ -1452,7 +1464,7 @@ class RepostGestureEventRecorder : public EventFilterRecorder {
       if (!reposted_) {
         EXPECT_NE(repost_target_, event->target());
         reposted_ = true;
-        repost_target_->GetHost()->dispatcher()->RepostEvent(*event);
+        repost_target_->GetHost()->dispatcher()->RepostEvent(event);
         // Ensure that the reposted gesture event above goes to the
         // repost_target_;
         repost_source_->GetRootWindow()->RemoveChild(repost_source_);
@@ -1715,7 +1727,7 @@ class DontResetHeldEventWindowDelegate : public test::TestWindowDelegate {
       ui::MouseEvent mouse_event(ui::ET_MOUSE_PRESSED, gfx::Point(10, 10),
                                  gfx::Point(10, 10), ui::EventTimeForNow(),
                                  ui::EF_SHIFT_DOWN, 0);
-      root_->GetHost()->dispatcher()->RepostEvent(mouse_event);
+      root_->GetHost()->dispatcher()->RepostEvent(&mouse_event);
     }
   }
 
@@ -1740,7 +1752,7 @@ TEST_F(WindowEventDispatcherTest, DontResetHeldEvent) {
   ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, gfx::Point(10, 10),
                          gfx::Point(10, 10), ui::EventTimeForNow(),
                          ui::EF_SHIFT_DOWN, 0);
-  root_window()->GetHost()->dispatcher()->RepostEvent(pressed);
+  root_window()->GetHost()->dispatcher()->RepostEvent(&pressed);
   ui::MouseEvent pressed2(ui::ET_MOUSE_PRESSED, gfx::Point(10, 10),
                           gfx::Point(10, 10), ui::EventTimeForNow(), 0, 0);
   // Dispatch an event to flush event scheduled by way of RepostEvent().
@@ -1801,7 +1813,7 @@ TEST_F(WindowEventDispatcherTest, DeleteHostFromHeldMouseEvent) {
   ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, gfx::Point(10, 10),
                          gfx::Point(10, 10), ui::EventTimeForNow(),
                          ui::EF_SHIFT_DOWN, 0);
-  h2->dispatcher()->RepostEvent(pressed);
+  h2->dispatcher()->RepostEvent(&pressed);
   // RunAllPendingInMessageLoop() to make sure the |pressed| is run.
   RunAllPendingInMessageLoop();
   EXPECT_TRUE(delegate.got_mouse_event());
@@ -2041,7 +2053,7 @@ class WindowEventDispatcherTestWithMessageLoop
   // Used to avoid a copying |event| when binding to a closure.
   static void RepostEventHelper(WindowEventDispatcher* dispatcher,
                                 scoped_ptr<ui::MouseEvent> event) {
-    dispatcher->RepostEvent(*event);
+    dispatcher->RepostEvent(event.get());
   }
 
   scoped_ptr<Window> window_;
@@ -2202,7 +2214,7 @@ TEST_F(WindowEventDispatcherTestInHighDPI,
       new ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(10, 10),
                          gfx::Point(10, 10), ui::EventTimeForNow(),
                          ui::EF_RIGHT_MOUSE_BUTTON, ui::EF_RIGHT_MOUSE_BUTTON));
-  host()->dispatcher()->RepostEvent(*mouse);
+  host()->dispatcher()->RepostEvent(mouse.get());
   EXPECT_EQ(0, handler.num_mouse_events());
 
   base::RunLoop run_loop;
@@ -2226,7 +2238,7 @@ class SelfDestructDelegate : public test::TestWindowDelegate {
   void OnMouseEvent(ui::MouseEvent* event) override { window_.reset(); }
 
   void set_window(scoped_ptr<aura::Window> window) {
-    window_ = window.Pass();
+    window_ = std::move(window);
   }
   bool has_window() const { return !!window_.get(); }
 
@@ -2257,7 +2269,7 @@ TEST_F(WindowEventDispatcherTest, SynthesizedLocatedEvent) {
   SelfDestructDelegate delegate;
   scoped_ptr<aura::Window> window(CreateTestWindowWithDelegate(
       &delegate, 1, gfx::Rect(50, 50, 100, 100), root_window()));
-  delegate.set_window(window.Pass());
+  delegate.set_window(std::move(window));
   EXPECT_TRUE(delegate.has_window());
 
   generator.MoveMouseTo(100, 100);
@@ -2276,7 +2288,7 @@ TEST_F(WindowEventDispatcherTest, DestroyWindowOnCaptureChanged) {
   Window* window_first_raw = window_first.get();
   window_first->Show();
   window_first->SetCapture();
-  delegate.set_window(window_first.Pass());
+  delegate.set_window(std::move(window_first));
   EXPECT_TRUE(delegate.has_window());
 
   scoped_ptr<aura::Window> window_second(
@@ -2621,7 +2633,7 @@ TEST_F(WindowEventDispatcherTest, TouchMovesMarkedWhenCausingScroll) {
       ui::ET_TOUCH_RELEASED, location + gfx::Vector2d(200, 200), 0,
       ui::EventTimeForNow() + base::TimeDelta::FromSeconds(1));
   DispatchEventUsingWindowDispatcher(&release);
-  EXPECT_FALSE(recorder.LastTouchMayCauseScrolling());
+  EXPECT_TRUE(recorder.LastTouchMayCauseScrolling());
   EXPECT_TRUE(recorder.HasReceivedEvent(ui::ET_TOUCH_RELEASED));
   EXPECT_TRUE(recorder.HasReceivedEvent(ui::ET_GESTURE_SCROLL_END));
 

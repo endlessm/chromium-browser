@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/fileapi/FileReaderLoader.h"
 
 #include "core/dom/DOMArrayBuffer.h"
@@ -104,9 +102,9 @@ void FileReaderLoader::startInternal(ExecutionContext& executionContext, const S
     // FIXME: Should this really be 'internal'? Do we know anything about the actual request that generated this fetch?
     request.setRequestContext(WebURLRequest::RequestContextInternal);
 
-    request.setHTTPMethod("GET");
+    request.setHTTPMethod(HTTPNames::GET);
     if (m_hasRange)
-        request.setHTTPHeaderField("Range", AtomicString(String::format("bytes=%d-%d", m_rangeStart, m_rangeEnd)));
+        request.setHTTPHeaderField(HTTPNames::Range, AtomicString(String::format("bytes=%d-%d", m_rangeStart, m_rangeEnd)));
 
     ThreadableLoaderOptions options;
     options.preflightPolicy = ConsiderPreflight;
@@ -119,10 +117,12 @@ void FileReaderLoader::startInternal(ExecutionContext& executionContext, const S
     ResourceLoaderOptions resourceLoaderOptions;
     resourceLoaderOptions.allowCredentials = AllowStoredCredentials;
 
-    if (m_client)
-        m_loader = ThreadableLoader::create(executionContext, this, request, options, resourceLoaderOptions);
-    else
+    if (m_client) {
+        m_loader = ThreadableLoader::create(executionContext, this, options, resourceLoaderOptions);
+        m_loader->start(request);
+    } else {
         ThreadableLoader::loadResourceSynchronously(executionContext, request, *this, options, resourceLoaderOptions);
+    }
 }
 
 void FileReaderLoader::start(ExecutionContext* executionContext, PassRefPtr<BlobDataHandle> blobData)

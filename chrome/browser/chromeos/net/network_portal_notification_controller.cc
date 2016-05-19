@@ -4,19 +4,20 @@
 
 #include "chrome/browser/chromeos/net/network_portal_notification_controller.h"
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "ash/shell.h"
 #include "ash/system/system_notifier.h"
 #include "ash/system/tray/system_tray_notifier.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -39,6 +40,7 @@
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/network_type_pattern.h"
 #include "components/captive_portal/captive_portal_detector.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 #include "extensions/browser/api/networking_config/networking_config_service.h"
 #include "extensions/browser/api/networking_config/networking_config_service_factory.h"
@@ -93,8 +95,7 @@ const extensions::Extension* LookupExtensionForRawSsid(
   if (!profile || !networking_config_service)
     return nullptr;
   std::string extension_id;
-  std::string hex_ssid =
-      base::HexEncode(vector_as_array(&raw_ssid), raw_ssid.size());
+  std::string hex_ssid = base::HexEncode(raw_ssid.data(), raw_ssid.size());
   extension_id =
       networking_config_service->LookupExtensionIdForHexSsid(hex_ssid);
   if (extension_id.empty())
@@ -181,8 +182,7 @@ void NetworkPortalNotificationControllerDelegate::Click() {
   } else {
     if (!profile)
       return;
-    chrome::ScopedTabbedBrowserDisplayer displayer(
-        profile, chrome::HOST_DESKTOP_TYPE_ASH);
+    chrome::ScopedTabbedBrowserDisplayer displayer(profile);
     GURL url(captive_portal::CaptivePortalDetector::kDefaultURL);
     chrome::ShowSingletonTab(displayer.browser(), url);
   }
@@ -353,7 +353,7 @@ NetworkPortalNotificationController::CreateDefaultCaptivePortalNotification(
           base::UTF8ToUTF16(network->name())),
       icon, base::string16(), GURL(), notifier_id, data, delegate.get()));
   notification->SetSystemPriority();
-  return notification.Pass();
+  return notification;
 }
 
 scoped_ptr<message_center::Notification> NetworkPortalNotificationController::
@@ -403,7 +403,7 @@ scoped_ptr<message_center::Notification> NetworkPortalNotificationController::
       notificationText, icon, base::string16() /* display_source */, GURL(),
       notifier_id, data, delegate.get()));
   notification->SetSystemPriority();
-  return notification.Pass();
+  return notification;
 }
 
 scoped_ptr<Notification> NetworkPortalNotificationController::GetNotification(

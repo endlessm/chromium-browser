@@ -4,6 +4,7 @@
 
 #include "content/public/test/test_file_error_injector.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/compiler_specific.h"
@@ -27,18 +28,18 @@ class DownloadFileWithErrors: public DownloadFileImpl {
   typedef base::Callback<void(const GURL& url)> ConstructionCallback;
   typedef base::Callback<void(const GURL& url)> DestructionCallback;
 
-  DownloadFileWithErrors(
-      scoped_ptr<DownloadSaveInfo> save_info,
-      const base::FilePath& default_download_directory,
-      const GURL& url,
-      const GURL& referrer_url,
-      bool calculate_hash,
-      scoped_ptr<ByteStreamReader> stream,
-      const net::BoundNetLog& bound_net_log,
-      base::WeakPtr<DownloadDestinationObserver> observer,
-      const TestFileErrorInjector::FileErrorInfo& error_info,
-      const ConstructionCallback& ctor_callback,
-      const DestructionCallback& dtor_callback);
+  DownloadFileWithErrors(const DownloadSaveInfo& save_info,
+                         const base::FilePath& default_download_directory,
+                         const GURL& url,
+                         const GURL& referrer_url,
+                         bool calculate_hash,
+                         base::File file,
+                         scoped_ptr<ByteStreamReader> byte_stream,
+                         const net::BoundNetLog& bound_net_log,
+                         base::WeakPtr<DownloadDestinationObserver> observer,
+                         const TestFileErrorInjector::FileErrorInfo& error_info,
+                         const ConstructionCallback& ctor_callback,
+                         const DestructionCallback& dtor_callback);
 
   ~DownloadFileWithErrors() override;
 
@@ -100,23 +101,30 @@ static void RenameErrorCallback(
 }
 
 DownloadFileWithErrors::DownloadFileWithErrors(
-    scoped_ptr<DownloadSaveInfo> save_info,
+    const DownloadSaveInfo& save_info,
     const base::FilePath& default_download_directory,
     const GURL& url,
     const GURL& referrer_url,
     bool calculate_hash,
-    scoped_ptr<ByteStreamReader> stream,
+    base::File file,
+    scoped_ptr<ByteStreamReader> byte_stream,
     const net::BoundNetLog& bound_net_log,
     base::WeakPtr<DownloadDestinationObserver> observer,
     const TestFileErrorInjector::FileErrorInfo& error_info,
     const ConstructionCallback& ctor_callback,
     const DestructionCallback& dtor_callback)
-        : DownloadFileImpl(
-            save_info.Pass(), default_download_directory, url, referrer_url,
-            calculate_hash, stream.Pass(), bound_net_log, observer),
-          source_url_(url),
-          error_info_(error_info),
-          destruction_callback_(dtor_callback) {
+    : DownloadFileImpl(save_info,
+                       default_download_directory,
+                       url,
+                       referrer_url,
+                       calculate_hash,
+                       std::move(file),
+                       std::move(byte_stream),
+                       bound_net_log,
+                       observer),
+      source_url_(url),
+      error_info_(error_info),
+      destruction_callback_(dtor_callback) {
   // DownloadFiles are created on the UI thread and are destroyed on the FILE
   // thread. Schedule the ConstructionCallback on the FILE thread so that if a
   // DownloadItem schedules a DownloadFile to be destroyed and creates another
@@ -256,12 +264,13 @@ class DownloadFileWithErrorsFactory : public DownloadFileFactory {
 
   // DownloadFileFactory interface.
   DownloadFile* CreateFile(
-      scoped_ptr<DownloadSaveInfo> save_info,
+      const DownloadSaveInfo& save_info,
       const base::FilePath& default_download_directory,
       const GURL& url,
       const GURL& referrer_url,
       bool calculate_hash,
-      scoped_ptr<ByteStreamReader> stream,
+      base::File file,
+      scoped_ptr<ByteStreamReader> byte_stream,
       const net::BoundNetLog& bound_net_log,
       base::WeakPtr<DownloadDestinationObserver> observer) override;
 
@@ -290,12 +299,13 @@ DownloadFileWithErrorsFactory::~DownloadFileWithErrorsFactory() {
 }
 
 DownloadFile* DownloadFileWithErrorsFactory::CreateFile(
-    scoped_ptr<DownloadSaveInfo> save_info,
+    const DownloadSaveInfo& save_info,
     const base::FilePath& default_download_directory,
     const GURL& url,
     const GURL& referrer_url,
     bool calculate_hash,
-    scoped_ptr<ByteStreamReader> stream,
+    base::File file,
+    scoped_ptr<ByteStreamReader> byte_stream,
     const net::BoundNetLog& bound_net_log,
     base::WeakPtr<DownloadDestinationObserver> observer) {
   if (injected_errors_.find(url.spec()) == injected_errors_.end()) {
@@ -310,16 +320,9 @@ DownloadFile* DownloadFileWithErrorsFactory::CreateFile(
   }
 
   return new DownloadFileWithErrors(
-      save_info.Pass(),
-      default_download_directory,
-      url,
-      referrer_url,
-      calculate_hash,
-      stream.Pass(),
-      bound_net_log,
-      observer,
-      injected_errors_[url.spec()],
-      construction_callback_,
+      save_info, default_download_directory, url, referrer_url, calculate_hash,
+      std::move(file), std::move(byte_stream), bound_net_log, observer,
+      injected_errors_[url.spec()], construction_callback_,
       destruction_callback_);
 }
 
@@ -354,7 +357,7 @@ TestFileErrorInjector::TestFileErrorInjector(
       created_factory_);
 
   download_manager_->SetDownloadFileFactoryForTesting(
-      download_file_factory.Pass());
+      std::move(download_file_factory));
 }
 
 TestFileErrorInjector::~TestFileErrorInjector() {

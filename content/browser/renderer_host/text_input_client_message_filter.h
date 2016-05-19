@@ -5,6 +5,9 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_TEXT_INPUT_CLIENT_MESSAGE_FILTER_H_
 #define CONTENT_BROWSER_RENDERER_HOST_TEXT_INPUT_CLIENT_MESSAGE_FILTER_H_
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "content/common/mac/attributed_string_coder.h"
 #include "content/public/browser/browser_message_filter.h"
 
@@ -35,7 +38,7 @@ class CONTENT_EXPORT TextInputClientMessageFilter
   void OnGotStringAtPoint(
       const mac::AttributedStringCoder::EncodedString& encoded_string,
       const gfx::Point& point);
-  void OnGotCharacterIndexForPoint(size_t index);
+  void OnGotCharacterIndexForPoint(uint32_t index);
   void OnGotFirstRectForRange(const gfx::Rect& rect);
   void OnGotStringFromRange(
       const mac::AttributedStringCoder::EncodedString& string,

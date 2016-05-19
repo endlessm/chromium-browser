@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/ash/chrome_shell_delegate.h"
 
+#include <stddef.h>
+
 #include "ash/content/gpu_support_impl.h"
 #include "ash/session/session_state_delegate.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -24,19 +27,18 @@
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/grit/chromium_strings.h"
-#include "components/signin/core/common/profile_management_switches.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/display/display_configuration_observer.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #endif
@@ -102,13 +104,6 @@ bool ChromeShellDelegate::IsRunningInForcedAppMode() const {
   return chrome::IsRunningInForcedAppMode();
 }
 
-bool ChromeShellDelegate::IsMultiAccountEnabled() const {
-#if defined(OS_CHROMEOS)
-  return switches::IsEnableAccountConsistency();
-#endif
-  return false;
-}
-
 bool ChromeShellDelegate::CanShowWindowForUser(aura::Window* window) const {
   return ::CanShowWindowForUser(window, base::Bind(&GetActiveBrowserContext));
 }
@@ -172,12 +167,10 @@ base::string16 ChromeShellDelegate::GetProductName() const {
 
 void ChromeShellDelegate::OpenKeyboardShortcutHelpPage() const {
   Profile* profile = ProfileManager::GetActiveUserProfile();
-  Browser* browser =
-      chrome::FindTabbedBrowser(profile, false, chrome::HOST_DESKTOP_TYPE_ASH);
+  Browser* browser = chrome::FindTabbedBrowser(profile, false);
 
   if (!browser) {
-    browser = new Browser(
-        Browser::CreateParams(profile, chrome::HOST_DESKTOP_TYPE_ASH));
+    browser = new Browser(Browser::CreateParams(profile));
     browser->window()->Show();
   }
 

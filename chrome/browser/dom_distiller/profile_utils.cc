@@ -4,6 +4,8 @@
 
 #include "chrome/browser/dom_distiller/profile_utils.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/dom_distiller/dom_distiller_service_factory.h"
@@ -11,6 +13,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "components/dom_distiller/content/browser/distiller_javascript_utils.h"
 #include "components/dom_distiller/content/browser/distiller_ui_handle.h"
 #include "components/dom_distiller/content/browser/dom_distiller_viewer_source.h"
@@ -21,9 +24,9 @@
 #include "chrome/browser/ui/webui/print_preview/print_preview_distiller.h"
 #endif  // defined(ENABLE_PRINT_PREVIEW)
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/android/dom_distiller/distiller_ui_handle_android.h"
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 void RegisterDomDistillerViewerSource(Profile* profile) {
   bool enabled_distiller = base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -42,10 +45,10 @@ void RegisterDomDistillerViewerSource(Profile* profile) {
             profile, dom_distiller_service_factory);
     scoped_ptr<dom_distiller::DistillerUIHandle> ui_handle;
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
     ui_handle.reset(
         new dom_distiller::android::DistillerUIHandleAndroid());
-#endif  // defined(OS_ANDROID)
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
     // Set the JavaScript world ID.
     if (!dom_distiller::DistillerJavaScriptWorldIdIsSet()) {
@@ -54,9 +57,8 @@ void RegisterDomDistillerViewerSource(Profile* profile) {
     }
 
     content::URLDataSource::Add(
-        profile,
-        new dom_distiller::DomDistillerViewerSource(
-            lazy_service, dom_distiller::kDomDistillerScheme,
-            ui_handle.Pass()));
+        profile, new dom_distiller::DomDistillerViewerSource(
+                     lazy_service, dom_distiller::kDomDistillerScheme,
+                     std::move(ui_handle)));
   }
 }

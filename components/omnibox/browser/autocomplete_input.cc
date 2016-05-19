@@ -4,6 +4,7 @@
 
 #include "components/omnibox/browser/autocomplete_input.h"
 
+#include "base/macros.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -12,8 +13,8 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/url_formatter/url_formatter.h"
-#include "net/base/net_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "net/base/url_util.h"
 #include "url/url_canon_ip.h"
 #include "url/url_util.h"
 
@@ -133,6 +134,8 @@ AutocompleteInput::AutocompleteInput(
     }
   }
 }
+
+AutocompleteInput::AutocompleteInput(const AutocompleteInput& other) = default;
 
 AutocompleteInput::~AutocompleteInput() {
 }

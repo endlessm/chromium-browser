@@ -41,6 +41,7 @@ class TIntermLoop;
 class TInfoSink;
 class TInfoSinkBase;
 class TIntermRaw;
+class TIntermBranch;
 
 class TSymbolTable;
 
@@ -96,6 +97,7 @@ class TIntermNode : angle::NonCopyable
     virtual TIntermSymbol *getAsSymbolNode() { return 0; }
     virtual TIntermLoop *getAsLoopNode() { return 0; }
     virtual TIntermRaw *getAsRawNode() { return 0; }
+    virtual TIntermBranch *getAsBranchNode() { return 0; }
 
     // Replace a child node. Return true if |original| is a child
     // node and it is replaced; otherwise, return false.
@@ -173,14 +175,13 @@ class TIntermLoop : public TIntermNode
 {
   public:
     TIntermLoop(TLoopType type,
-                TIntermNode *init, TIntermTyped *cond, TIntermTyped *expr,
-                TIntermNode *body)
-        : mType(type),
-          mInit(init),
-          mCond(cond),
-          mExpr(expr),
-          mBody(body),
-          mUnrollFlag(false) { }
+                TIntermNode *init,
+                TIntermTyped *cond,
+                TIntermTyped *expr,
+                TIntermAggregate *body)
+        : mType(type), mInit(init), mCond(cond), mExpr(expr), mBody(body), mUnrollFlag(false)
+    {
+    }
 
     TIntermLoop *getAsLoopNode() override { return this; }
     void traverse(TIntermTraverser *it) override;
@@ -190,7 +191,7 @@ class TIntermLoop : public TIntermNode
     TIntermNode *getInit() { return mInit; }
     TIntermTyped *getCondition() { return mCond; }
     TIntermTyped *getExpression() { return mExpr; }
-    TIntermNode *getBody() { return mBody; }
+    TIntermAggregate *getBody() { return mBody; }
 
     void setUnrollFlag(bool flag) { mUnrollFlag = flag; }
     bool getUnrollFlag() const { return mUnrollFlag; }
@@ -200,7 +201,7 @@ class TIntermLoop : public TIntermNode
     TIntermNode *mInit;  // for-loop initialization
     TIntermTyped *mCond; // loop exit condition
     TIntermTyped *mExpr; // for-loop expression
-    TIntermNode *mBody;  // loop body
+    TIntermAggregate *mBody;  // loop body
 
     bool mUnrollFlag; // Whether the loop should be unrolled or not.
 };
@@ -216,6 +217,7 @@ class TIntermBranch : public TIntermNode
           mExpression(e) { }
 
     void traverse(TIntermTraverser *it) override;
+    TIntermBranch *getAsBranchNode() override { return this; }
     bool replaceChildNode(TIntermNode *original, TIntermNode *replacement) override;
 
     TOperator getFlowOp() { return mFlowOp; }
@@ -294,19 +296,25 @@ class TIntermRaw : public TIntermTyped
     TString mRawText;
 };
 
+// Constant folded node.
+// Note that nodes may be constant folded and not be constant expressions with the EvqConst
+// qualifier. This happens for example when the following expression is processed:
+// "true ? 1.0 : non_constant"
+// Other nodes than TIntermConstantUnion may also be constant expressions.
+//
 class TIntermConstantUnion : public TIntermTyped
 {
   public:
-    TIntermConstantUnion(TConstantUnion *unionPointer, const TType &type)
-        : TIntermTyped(type),
-          mUnionArrayPointer(unionPointer) { }
+    TIntermConstantUnion(const TConstantUnion *unionPointer, const TType &type)
+        : TIntermTyped(type), mUnionArrayPointer(unionPointer)
+    {
+    }
 
     TIntermTyped *deepCopy() const override { return new TIntermConstantUnion(*this); }
 
     bool hasSideEffects() const override { return false; }
 
     const TConstantUnion *getUnionArrayPointer() const { return mUnionArrayPointer; }
-    TConstantUnion *getUnionArrayPointer() { return mUnionArrayPointer; }
 
     int getIConst(size_t index) const
     {
@@ -325,7 +333,7 @@ class TIntermConstantUnion : public TIntermTyped
         return mUnionArrayPointer ? mUnionArrayPointer[index].getBConst() : false;
     }
 
-    void replaceConstantUnion(TConstantUnion *safeConstantUnion)
+    void replaceConstantUnion(const TConstantUnion *safeConstantUnion)
     {
         // Previous union pointer freed on pool deallocation.
         mUnionArrayPointer = safeConstantUnion;
@@ -339,10 +347,13 @@ class TIntermConstantUnion : public TIntermTyped
     TConstantUnion *foldUnaryWithDifferentReturnType(TOperator op, TInfoSink &infoSink);
     TConstantUnion *foldUnaryWithSameReturnType(TOperator op, TInfoSink &infoSink);
 
+    static TConstantUnion *FoldAggregateConstructor(TIntermAggregate *aggregate,
+                                                    TInfoSink &infoSink);
     static TConstantUnion *FoldAggregateBuiltIn(TIntermAggregate *aggregate, TInfoSink &infoSink);
 
   protected:
-    TConstantUnion *mUnionArrayPointer;
+    // Same data may be shared between multiple constant unions, so it can't be modified.
+    const TConstantUnion *mUnionArrayPointer;
 
   private:
     typedef float(*FloatTypeUnaryFunc) (float);

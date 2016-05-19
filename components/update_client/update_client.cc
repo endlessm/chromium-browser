@@ -13,7 +13,6 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -48,11 +47,15 @@ CrxUpdateItem::CrxUpdateItem()
       diff_extra_code1(0) {
 }
 
+CrxUpdateItem::CrxUpdateItem(const CrxUpdateItem& other) = default;
+
 CrxUpdateItem::~CrxUpdateItem() {
 }
 
 CrxComponent::CrxComponent() : allow_background_download(true) {
 }
+
+CrxComponent::CrxComponent(const CrxComponent& other) = default;
 
 CrxComponent::~CrxComponent() {
 }
@@ -70,7 +73,7 @@ UpdateClientImpl::UpdateClientImpl(
     CrxDownloader::Factory crx_downloader_factory)
     : is_stopped_(false),
       config_(config),
-      ping_manager_(ping_manager.Pass()),
+      ping_manager_(std::move(ping_manager)),
       update_engine_(
           new UpdateEngine(config,
                            update_checker_factory,
@@ -109,7 +112,7 @@ void UpdateClientImpl::Install(const std::string& id,
                                              crx_data_callback, callback));
 
   // Install tasks are run concurrently and never queued up.
-  RunTask(task.Pass());
+  RunTask(std::move(task));
 }
 
 void UpdateClientImpl::Update(const std::vector<std::string>& ids,
@@ -125,7 +128,7 @@ void UpdateClientImpl::Update(const std::vector<std::string>& ids,
   // If no other tasks are running at the moment, run this update task.
   // Otherwise, queue the task up.
   if (tasks_.empty()) {
-    RunTask(task.Pass());
+    RunTask(std::move(task));
   } else {
     task_queue_.push(task.release());
   }
@@ -162,7 +165,7 @@ void UpdateClientImpl::OnTaskComplete(
   // Pick up a task from the queue if the queue has pending tasks and no other
   // task is running.
   if (tasks_.empty() && !task_queue_.empty()) {
-    RunTask(scoped_ptr<Task>(task_queue_.front()).Pass());
+    RunTask(scoped_ptr<Task>(task_queue_.front()));
     task_queue_.pop();
   }
 }
@@ -226,10 +229,27 @@ void UpdateClientImpl::Stop() {
   }
 }
 
+void UpdateClientImpl::SendUninstallPing(const std::string& id,
+                                         const Version& version,
+                                         int reason) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  // The implementation of PingManager::SendPing contains a self-deleting
+  // object responsible for sending the ping.
+  CrxUpdateItem item;
+  item.state = CrxUpdateItem::State::kUninstalled;
+  item.id = id;
+  item.previous_version = version;
+  item.next_version = base::Version("0");
+  item.extra_code1 = reason;
+
+  ping_manager_->SendPing(&item);
+}
+
 scoped_refptr<UpdateClient> UpdateClientFactory(
     const scoped_refptr<Configurator>& config) {
-  scoped_ptr<PingManager> ping_manager(new PingManager(*config));
-  return new UpdateClientImpl(config, ping_manager.Pass(),
+  scoped_ptr<PingManager> ping_manager(new PingManager(config));
+  return new UpdateClientImpl(config, std::move(ping_manager),
                               &UpdateChecker::Create, &CrxDownloader::Create);
 }
 

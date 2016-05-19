@@ -5,16 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "SkTypes.h"
-#if SK_SUPPORT_GPU
-#include "GrContextFactory.h"
-#endif
 #include "SkCanvas.h"
 #include "SkImage.h"
 #include "SkShader.h"
 #include "SkSurface.h"
-
+#include "SkTypes.h"
 #include "Test.h"
+
+#if SK_SUPPORT_GPU
+#include "GrContext.h"
+#endif
 
 void testBitmapEquality(skiatest::Reporter* reporter, SkBitmap& bm1, SkBitmap& bm2) {
     SkAutoLockPixels lockBm1(bm1);
@@ -116,9 +116,9 @@ void gpuToGpu(skiatest::Reporter* reporter, GrContext* context) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(5, 5);
 
     SkAutoTUnref<SkSurface> sourceSurface(
-        SkSurface::NewRenderTarget(context, SkSurface::kNo_Budgeted, info));
+        SkSurface::NewRenderTarget(context, SkBudgeted::kNo, info));
     SkAutoTUnref<SkSurface> destinationSurface(
-        SkSurface::NewRenderTarget(context, SkSurface::kNo_Budgeted, info));
+        SkSurface::NewRenderTarget(context, SkBudgeted::kNo, info));
 
     runShaderTest(reporter, sourceSurface.get(), destinationSurface.get(), info);
 }
@@ -127,7 +127,7 @@ void gpuToRaster(skiatest::Reporter* reporter, GrContext* context) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(5, 5);
 
     SkAutoTUnref<SkSurface> sourceSurface(SkSurface::NewRenderTarget(context,
-        SkSurface::kNo_Budgeted, info));
+        SkBudgeted::kNo, info));
     SkAutoTUnref<SkSurface> destinationSurface(SkSurface::NewRaster(info));
 
     runShaderTest(reporter, sourceSurface.get(), destinationSurface.get(), info);
@@ -138,34 +138,20 @@ void rasterToGpu(skiatest::Reporter* reporter, GrContext* context) {
 
     SkAutoTUnref<SkSurface> sourceSurface(SkSurface::NewRaster(info));
     SkAutoTUnref<SkSurface> destinationSurface(SkSurface::NewRenderTarget(context,
-        SkSurface::kNo_Budgeted, info));
+        SkBudgeted::kNo, info));
 
     runShaderTest(reporter, sourceSurface.get(), destinationSurface.get(), info);
 }
 
-DEF_GPUTEST(ImageNewShader_GPU, reporter, factory) {
-    for (int i = 0; i < GrContextFactory::kGLContextTypeCnt; ++i) {
-        GrContextFactory::GLContextType glCtxType = (GrContextFactory::GLContextType) i;
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageNewShader_GPU, reporter, context) {
+    //  GPU -> GPU
+    gpuToGpu(reporter, context);
 
-        if (!GrContextFactory::IsRenderingGLContext(glCtxType)) {
-            continue;
-        }
+    //  GPU -> RASTER
+    gpuToRaster(reporter, context);
 
-        GrContext* context = factory->get(glCtxType);
-
-        if (nullptr == context) {
-            continue;
-        }
-
-        //  GPU -> GPU
-        gpuToGpu(reporter, context);
-
-        //  GPU -> RASTER
-        gpuToRaster(reporter, context);
-
-        //  RASTER -> GPU
-        rasterToGpu(reporter, context);
-    }
+    //  RASTER -> GPU
+    rasterToGpu(reporter, context);
 }
 
 #endif

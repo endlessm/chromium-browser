@@ -5,6 +5,7 @@
 #ifndef EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_PERMISSION_HELPER_H_
 #define EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_PERMISSION_HELPER_H_
 
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/user_metrics_action.h"
 #include "components/guest_view/common/guest_view_constants.h"
@@ -42,6 +43,7 @@ class WebViewPermissionHelper
     PermissionResponseInfo(const PermissionResponseCallback& callback,
                            WebViewPermissionType permission_type,
                            bool allowed_by_default);
+    PermissionResponseInfo(const PermissionResponseInfo& other);
     ~PermissionResponseInfo();
   };
 
@@ -73,7 +75,6 @@ class WebViewPermissionHelper
   // Requests Geolocation Permission from the embedder.
   void RequestGeolocationPermission(int bridge_id,
                                     const GURL& requesting_frame,
-                                    bool user_gesture,
                                     const base::Callback<void(bool)>& callback);
   void CancelGeolocationPermissionRequest(int bridge_id);
 

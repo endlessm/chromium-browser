@@ -14,6 +14,8 @@
 
 #include "client/settings.h"
 
+#include <stdint.h>
+
 #include <limits>
 
 #include "base/logging.h"
@@ -235,7 +237,7 @@ Settings::ScopedLockedFileHandle Settings::OpenForWritingAndReadSettings(
       return ScopedLockedFileHandle();
   }
 
-  return handle.Pass();
+  return handle;
 }
 
 bool Settings::ReadSettings(FileHandle handle,

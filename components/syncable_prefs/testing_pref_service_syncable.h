@@ -5,8 +5,8 @@
 #ifndef COMPONENTS_SYNCABLE_PREFS_TESTING_PREF_SERVICE_SYNCABLE_H_
 #define COMPONENTS_SYNCABLE_PREFS_TESTING_PREF_SERVICE_SYNCABLE_H_
 
-#include "base/basictypes.h"
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 
 namespace user_prefs {

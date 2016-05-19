@@ -4,6 +4,10 @@
 
 #include "remoting/client/plugin/pepper_video_renderer_2d.h"
 
+#include <stdint.h>
+
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/strings/string_util.h"
@@ -110,6 +114,12 @@ protocol::VideoStub* PepperVideoRenderer2D::GetVideoStub() {
   return software_video_renderer_->GetVideoStub();
 }
 
+protocol::FrameConsumer* PepperVideoRenderer2D::GetFrameConsumer() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  return software_video_renderer_->GetFrameConsumer();
+}
+
 scoped_ptr<webrtc::DesktopFrame> PepperVideoRenderer2D::AllocateFrame(
     const webrtc::DesktopSize& size) {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -183,7 +193,7 @@ void PepperVideoRenderer2D::DrawFrame(scoped_ptr<webrtc::DesktopFrame> frame,
   Flush();
 }
 
-FrameConsumer::PixelFormat PepperVideoRenderer2D::GetPixelFormat() {
+protocol::FrameConsumer::PixelFormat PepperVideoRenderer2D::GetPixelFormat() {
   return FORMAT_BGRA;
 }
 
@@ -199,7 +209,7 @@ void PepperVideoRenderer2D::Flush() {
   // |flushing_frames_done_callbacks_| so the callbacks are called when flush is
   // finished.
   DCHECK(flushing_frames_done_callbacks_.empty());
-  flushing_frames_done_callbacks_ = pending_frames_done_callbacks_.Pass();
+  flushing_frames_done_callbacks_ = std::move(pending_frames_done_callbacks_);
 
   // Flush the updated areas to the screen.
   int error = graphics2d_.Flush(

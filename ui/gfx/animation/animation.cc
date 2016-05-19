@@ -4,14 +4,11 @@
 
 #include "ui/gfx/animation/animation.h"
 
+#include "build/build_config.h"
 #include "ui/gfx/animation/animation_container.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/geometry/rect.h"
-
-#if defined(OS_WIN)
-#include "base/win/windows_version.h"
-#endif
 
 namespace gfx {
 
@@ -91,25 +88,21 @@ void Animation::SetContainer(AnimationContainer* container) {
     container_->Start(this);
 }
 
+#if !defined(OS_WIN)
 // static
 bool Animation::ShouldRenderRichAnimation() {
-#if defined(OS_WIN)
-  if (base::win::GetVersion() >= base::win::VERSION_VISTA) {
-    BOOL result;
-    // Get "Turn off all unnecessary animations" value.
-    if (::SystemParametersInfo(SPI_GETCLIENTAREAANIMATION, 0, &result, 0)) {
-      // There seems to be a typo in the MSDN document (as of May 2009):
-      //   http://msdn.microsoft.com/en-us/library/ms724947(VS.85).aspx
-      // The document states that the result is TRUE when animations are
-      // _disabled_, but in fact, it is TRUE when they are _enabled_.
-      return !!result;
-    }
-  }
-  return !::GetSystemMetrics(SM_REMOTESESSION);
-#else
+  // Defined in platform specific file for Windows.
   return true;
-#endif
 }
+#endif
+
+#if !defined(OS_WIN) && !defined(OS_MACOSX)
+// static
+bool Animation::ScrollAnimationsEnabledBySystem() {
+  // Defined in platform specific files for Windows and OSX.
+  return true;
+}
+#endif
 
 bool Animation::ShouldSendCanceledFromStop() {
   return false;

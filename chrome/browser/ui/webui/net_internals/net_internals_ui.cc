@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/webui/net_internals/net_internals_ui.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <list>
 #include <string>
@@ -17,9 +19,9 @@
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_member.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -27,9 +29,11 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
+#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/io_thread.h"
@@ -48,6 +52,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_store.h"
 #include "components/net_log/chrome_net_log.h"
 #include "components/onc/onc_constants.h"
+#include "components/prefs/pref_member.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
@@ -59,7 +64,6 @@
 #include "content/public/browser/web_ui_message_handler.h"
 #include "grit/net_internals_resources.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/dns/host_cache.h"
 #include "net/dns/host_resolver.h"
@@ -522,9 +526,11 @@ void NetInternalsMessageHandler::OnRendererReady(const base::ListValue* list) {
 
 void NetInternalsMessageHandler::OnClearBrowserCache(
     const base::ListValue* list) {
-  BrowsingDataRemover* remover = BrowsingDataRemover::CreateForUnboundedRange(
-      Profile::FromWebUI(web_ui()));
-  remover->Remove(BrowsingDataRemover::REMOVE_CACHE,
+  BrowsingDataRemover* remover =
+      BrowsingDataRemoverFactory::GetForBrowserContext(
+          Profile::FromWebUI(web_ui()));
+  remover->Remove(BrowsingDataRemover::Unbounded(),
+                  BrowsingDataRemover::REMOVE_CACHE,
                   BrowsingDataHelper::UNPROTECTED_WEB);
   // BrowsingDataRemover deletes itself.
 }

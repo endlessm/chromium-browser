@@ -8,22 +8,17 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "net/tools/balsa/balsa_enums.h"
 #include "net/tools/balsa/balsa_headers.h"
 
 namespace net {
-namespace tools {
 namespace test {
 
 class HttpConstants {
  public:
-  enum Version {
-    HTTP_UNKNOWN = 0,
-    HTTP_0_9,
-    HTTP_1_0,
-    HTTP_1_1
-  };
+  enum Version { HTTP_UNKNOWN = 0, HTTP_0_9, HTTP_1_0, HTTP_1_1 };
 
   enum Method {
     UNKNOWN_METHOD = 0,
@@ -127,7 +122,6 @@ class HTTPMessage {
 };
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_TEST_TOOLS_TEST_TOOLS_HTTP_MESSAGE_H_

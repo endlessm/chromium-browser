@@ -4,6 +4,8 @@
 
 #include "content/renderer/history_serialization.h"
 
+#include <stddef.h>
+
 #include "content/common/page_state_serialization.h"
 #include "content/public/common/page_state.h"
 #include "content/renderer/history_entry.h"
@@ -204,7 +206,7 @@ scoped_ptr<HistoryEntry> PageStateToHistoryEntry(const PageState& page_state) {
   scoped_ptr<HistoryEntry> entry(new HistoryEntry());
   RecursivelyGenerateHistoryItem(state.top, entry->root_history_node());
 
-  return entry.Pass();
+  return entry;
 }
 
 }  // namespace content

@@ -4,6 +4,8 @@
 
 #include "ash/wm/maximize_mode/maximize_mode_controller.h"
 
+#include <utility>
+
 #include "ash/accelerators/accelerator_controller.h"
 #include "ash/accelerators/accelerator_table.h"
 #include "ash/ash_switches.h"
@@ -288,38 +290,48 @@ void MaximizeModeController::HandleHingeRotation(
   if (lid_open_past_180_ && is_angle_stable &&
       lid_angle <= kExitMaximizeModeAngle) {
     lid_open_past_180_ = false;
-    if (!base::CommandLine::ForCurrentProcess()->
-            HasSwitch(switches::kAshEnableTouchViewTesting)) {
-      LeaveMaximizeMode();
-    }
-    event_blocker_.reset();
+    LeaveMaximizeMode();
   } else if (!lid_open_past_180_ && !lid_is_closed_ &&
              lid_angle >= kEnterMaximizeModeAngle &&
              (is_angle_stable || !WasLidOpenedRecently())) {
     lid_open_past_180_ = true;
-    if (!base::CommandLine::ForCurrentProcess()->
-            HasSwitch(switches::kAshEnableTouchViewTesting)) {
-      EnterMaximizeMode();
-    }
-    // Always reset first to avoid creation before destruction of a previous
-    // object.
-    event_blocker_.reset();
-#if defined(USE_X11)
-    event_blocker_.reset(new ScopedDisableInternalMouseAndKeyboardX11);
-#elif defined(USE_OZONE)
-    event_blocker_.reset(new ScopedDisableInternalMouseAndKeyboardOzone);
-#endif
+    EnterMaximizeMode();
   }
 }
 #endif  // OS_CHROMEOS
 
 void MaximizeModeController::EnterMaximizeMode() {
+  // Always reset first to avoid creation before destruction of a previous
+  // object.
+  event_blocker_.reset();
+#if defined(USE_X11)
+  event_blocker_.reset(new ScopedDisableInternalMouseAndKeyboardX11);
+#elif defined(USE_OZONE)
+  event_blocker_.reset(new ScopedDisableInternalMouseAndKeyboardOzone);
+#endif
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshEnableTouchViewTesting)) {
+    // We don't let accelerometer updates interfere with the maximize mode
+    // status as set by the touch-view-testing keyboard shortcut.
+    return;
+  }
+
   if (IsMaximizeModeWindowManagerEnabled())
     return;
   EnableMaximizeModeWindowManager(true);
 }
 
 void MaximizeModeController::LeaveMaximizeMode() {
+  event_blocker_.reset();
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshEnableTouchViewTesting)) {
+    // We don't let accelerometer updates interfere with the maximize mode
+    // status as set by the touch-view-testing keyboard shortcut.
+    return;
+  }
+
   if (!IsMaximizeModeWindowManagerEnabled())
     return;
   EnableMaximizeModeWindowManager(false);
@@ -406,7 +418,7 @@ bool MaximizeModeController::WasLidOpenedRecently() const {
 void MaximizeModeController::SetTickClockForTest(
     scoped_ptr<base::TickClock> tick_clock) {
   DCHECK(tick_clock_);
-  tick_clock_ = tick_clock.Pass();
+  tick_clock_ = std::move(tick_clock);
 }
 
 }  // namespace ash

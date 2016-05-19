@@ -8,10 +8,8 @@
 
 namespace net {
 
-QuicAlarm::QuicAlarm(Delegate* delegate)
-    : delegate_(delegate),
-      deadline_(QuicTime::Zero()) {
-}
+QuicAlarm::QuicAlarm(QuicArenaScopedPtr<Delegate> delegate)
+    : delegate_(std::move(delegate)), deadline_(QuicTime::Zero()) {}
 
 QuicAlarm::~QuicAlarm() {}
 
@@ -33,7 +31,7 @@ void QuicAlarm::Update(QuicTime deadline, QuicTime::Delta granularity) {
     return;
   }
   if (std::abs(deadline.Subtract(deadline_).ToMicroseconds()) <
-          granularity.ToMicroseconds()) {
+      granularity.ToMicroseconds()) {
     return;
   }
   Cancel();
@@ -51,9 +49,11 @@ void QuicAlarm::Fire() {
 
   deadline_ = QuicTime::Zero();
   QuicTime deadline = delegate_->OnAlarm();
-  // delegate_->OnAlarm() might call Set(), in which case  deadline_ will
-  // already contain the new value, so don't overwrite it.
-  if (!deadline_.IsInitialized() && deadline.IsInitialized()) {
+  // delegate_->OnAlarm() might call Set(), in which case deadline_
+  // will already contain the new value, so don't overwrite it.  Also,
+  // OnAlarm() might delete |this| so check |deadline| before
+  // |deadline_|.
+  if (deadline.IsInitialized() && !deadline_.IsInitialized()) {
     Set(deadline);
   }
 }

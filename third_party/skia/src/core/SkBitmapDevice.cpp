@@ -55,6 +55,8 @@ static bool valid_for_bitmap_device(const SkImageInfo& info,
             break;
         case kN32_SkColorType:
             break;
+        case kRGBA_F16_SkColorType:
+            break;
         default:
             return false;
     }
@@ -95,7 +97,7 @@ SkBitmapDevice* SkBitmapDevice::Create(const SkImageInfo& origInfo,
         if (!bitmap.setInfo(info)) {
             return nullptr;
         }
-    } else if (bitmap.info().isOpaque()) {
+    } else if (info.isOpaque()) {
         // If this bitmap is opaque, we don't have any sensible default color,
         // so we just return uninitialized pixels.
         if (!bitmap.tryAllocPixels(info)) {

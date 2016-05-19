@@ -41,10 +41,16 @@ GPERF_TEMPLATE = """
 %%{
 %(license)s
 
-#include "config.h"
 #include "%(class_name)s.h"
 #include "core/css/HashTools.h"
 #include <string.h>
+
+#ifdef _MSC_VER
+// Disable the warnings from casting a 64-bit pointer to 32-bit long
+// warning C4302: 'type cast': truncation from 'char (*)[28]' to 'long'
+// warning C4311: 'type cast': pointer truncation from 'char (*)[18]' to 'long'
+#pragma warning(disable : 4302 4311)
+#endif
 
 namespace blink {
 static const char valueListStringPool[] = {

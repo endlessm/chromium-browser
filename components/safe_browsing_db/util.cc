@@ -4,7 +4,11 @@
 
 #include "components/safe_browsing_db/util.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/strings/string_util.h"
+#include "base/trace_event/trace_event.h"
 #include "crypto/sha2.h"
 #include "net/base/escape.h"
 #include "url/gurl.h"
@@ -33,8 +37,10 @@ SBCachedFullHashResult::SBCachedFullHashResult(
     const base::Time& in_expire_after)
     : expire_after(in_expire_after) {}
 
-SBCachedFullHashResult::~SBCachedFullHashResult() {}
+SBCachedFullHashResult::SBCachedFullHashResult(
+    const SBCachedFullHashResult& other) = default;
 
+SBCachedFullHashResult::~SBCachedFullHashResult() {}
 
 // Listnames that browser can process.
 const char kMalwareList[] = "goog-malware-shavar";
@@ -46,17 +52,13 @@ const char kExtensionBlacklist[] = "goog-badcrxids-digestvar";
 const char kIPBlacklist[] = "goog-badip-digest256";
 const char kUnwantedUrlList[] = "goog-unwanted-shavar";
 const char kInclusionWhitelist[] = "goog-csdinclusionwhite-sha256";
+const char kModuleWhitelist[] = "goog-whitemodule-digest256";
+const char kResourceBlacklist[] = "goog-badresource-shavar";
 
-const char* kAllLists[9] = {
-    kMalwareList,
-    kPhishingList,
-    kBinUrlList,
-    kCsdWhiteList,
-    kDownloadWhiteList,
-    kExtensionBlacklist,
-    kIPBlacklist,
-    kUnwantedUrlList,
-    kInclusionWhitelist,
+const char* kAllLists[11] = {
+    kMalwareList,        kPhishingList,       kBinUrlList,  kCsdWhiteList,
+    kDownloadWhiteList,  kExtensionBlacklist, kIPBlacklist, kUnwantedUrlList,
+    kInclusionWhitelist, kModuleWhitelist, kResourceBlacklist,
 };
 
 ListType GetListId(const base::StringPiece& name) {
@@ -79,6 +81,10 @@ ListType GetListId(const base::StringPiece& name) {
     id = UNWANTEDURL;
   } else if (name == kInclusionWhitelist) {
     id = INCLUSIONWHITELIST;
+  } else if (name == kModuleWhitelist) {
+    id = MODULEWHITELIST;
+  } else if (name == kResourceBlacklist) {
+    id = RESOURCEBLACKLIST;
   } else {
     id = INVALID;
   }
@@ -114,6 +120,11 @@ bool GetListName(ListType list_id, std::string* list) {
     case INCLUSIONWHITELIST:
       *list = kInclusionWhitelist;
       break;
+    case MODULEWHITELIST:
+      *list = kModuleWhitelist;
+    case RESOURCEBLACKLIST:
+      *list = kResourceBlacklist;
+      break;
     default:
       return false;
   }
@@ -143,45 +154,54 @@ std::string SBFullHashToString(const SBFullHash& hash) {
 
 std::string Unescape(const std::string& url) {
   std::string unescaped_str(url);
-  std::string old_unescaped_str;
   const int kMaxLoopIterations = 1024;
+  size_t old_size = 0;
   int loop_var = 0;
   do {
-    old_unescaped_str = unescaped_str;
+    old_size = unescaped_str.size();
     unescaped_str = net::UnescapeURLComponent(
-        old_unescaped_str, net::UnescapeRule::SPOOFING_AND_CONTROL_CHARS |
-                               net::UnescapeRule::SPACES |
-                               net::UnescapeRule::URL_SPECIAL_CHARS);
-  } while (unescaped_str != old_unescaped_str && ++loop_var <=
-           kMaxLoopIterations);
+        unescaped_str, net::UnescapeRule::SPOOFING_AND_CONTROL_CHARS |
+                           net::UnescapeRule::SPACES |
+                           net::UnescapeRule::URL_SPECIAL_CHARS);
+  } while (old_size != unescaped_str.size() &&
+           ++loop_var <= kMaxLoopIterations);
 
   return unescaped_str;
 }
 
 std::string Escape(const std::string& url) {
   std::string escaped_str;
+  // The escaped string is larger so allocate double the length to reduce the
+  // chance of the string being grown.
+  escaped_str.reserve(url.length() * 2);
   const char* kHexString = "0123456789ABCDEF";
   for (size_t i = 0; i < url.length(); i++) {
     unsigned char c = static_cast<unsigned char>(url[i]);
     if (c <= ' ' || c > '~' || c == '#' || c == '%') {
-      escaped_str.push_back('%');
-      escaped_str.push_back(kHexString[c >> 4]);
-      escaped_str.push_back(kHexString[c & 0xf]);
+      escaped_str += '%';
+      escaped_str += kHexString[c >> 4];
+      escaped_str += kHexString[c & 0xf];
     } else {
-      escaped_str.push_back(c);
+      escaped_str += c;
     }
   }
 
   return escaped_str;
 }
 
-std::string RemoveConsecutiveChars(const std::string& str, const char c) {
-  std::string output(str);
-  std::string string_to_find;
-  std::string::size_type loc = 0;
-  string_to_find.append(2, c);
-  while ((loc = output.find(string_to_find, loc)) != std::string::npos) {
-    output.erase(loc, 1);
+std::string RemoveConsecutiveChars(base::StringPiece str, const char c) {
+  std::string output;
+  // Output is at most the length of the original string.
+  output.reserve(str.size());
+
+  size_t i = 0;
+  while (i < str.size()) {
+    output.append(1, str[i++]);
+    if (str[i - 1] == c) {
+      while (i < str.size() && str[i] == c) {
+        i++;
+      }
+    }
   }
 
   return output;
@@ -224,22 +244,21 @@ void CanonicalizeUrl(const GURL& url,
                         &parsed);
 
   // 3. In hostname, remove all leading and trailing dots.
-  const std::string host =
-      (parsed.host.len > 0)
-          ? url_unescaped_str.substr(parsed.host.begin, parsed.host.len)
-          : std::string();
-  std::string host_without_end_dots;
-  base::TrimString(host, ".", &host_without_end_dots);
+  base::StringPiece host;
+  if (parsed.host.len > 0)
+    host.set(url_unescaped_str.data() + parsed.host.begin, parsed.host.len);
+
+  base::StringPiece host_without_end_dots =
+      base::TrimString(host, ".", base::TrimPositions::TRIM_ALL);
 
   // 4. In hostname, replace consecutive dots with a single dot.
   std::string host_without_consecutive_dots(RemoveConsecutiveChars(
       host_without_end_dots, '.'));
 
   // 5. In path, replace runs of consecutive slashes with a single slash.
-  std::string path =
-      (parsed.path.len > 0)
-          ? url_unescaped_str.substr(parsed.path.begin, parsed.path.len)
-          : std::string();
+  base::StringPiece path;
+  if (parsed.path.len > 0)
+    path.set(url_unescaped_str.data() + parsed.path.begin, parsed.path.len);
   std::string path_without_consecutive_slash(RemoveConsecutiveChars(path, '/'));
 
   url::Replacements<char> hp_replacements;
@@ -285,6 +304,40 @@ void CanonicalizeUrl(const GURL& url,
   if (canonicalized_query && final_parsed.query.len > 0) {
     *canonicalized_query = escaped_canon_url_str.substr(
         final_parsed.query.begin, final_parsed.query.len);
+  }
+}
+
+void UrlToFullHashes(const GURL& url,
+                     bool include_whitelist_hashes,
+                     std::vector<SBFullHash>* full_hashes) {
+  // Include this function in traces because it's not cheap so it should be
+  // called sparingly.
+  TRACE_EVENT2("loader", "safe_browsing::UrlToFullHashes", "url", url.spec(),
+               "include_whitelist_hashes", include_whitelist_hashes);
+  std::vector<std::string> hosts;
+  if (url.HostIsIPAddress()) {
+    hosts.push_back(url.host());
+  } else {
+    GenerateHostsToCheck(url, &hosts);
+  }
+
+  std::vector<std::string> paths;
+  GeneratePathsToCheck(url, &paths);
+
+  for (const std::string& host : hosts) {
+    for (const std::string& path : paths) {
+      full_hashes->push_back(
+          SBFullHashForString(host + path));
+
+      // We may have /foo as path-prefix in the whitelist which should
+      // also match with /foo/bar and /foo?bar.  Hence, for every path
+      // that ends in '/' we also add the path without the slash.
+      if (include_whitelist_hashes && path.size() > 1 &&
+          path[path.size() - 1] == '/') {
+        full_hashes->push_back(SBFullHashForString(
+            host + path.substr(0, path.size() - 1)));
+      }
+    }
   }
 }
 

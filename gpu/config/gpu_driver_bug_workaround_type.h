@@ -10,8 +10,12 @@
 #include "gpu/gpu_export.h"
 
 #define GPU_DRIVER_BUG_WORKAROUNDS(GPU_OP)                   \
+  GPU_OP(AVDA_DONT_COPY_PICTURES,                            \
+         avda_dont_copy_pictures)                            \
   GPU_OP(AVOID_EGL_IMAGE_TARGET_TEXTURE_REUSE,               \
          avoid_egl_image_target_texture_reuse)               \
+  GPU_OP(BROKEN_EGL_IMAGE_REF_COUNTING,                      \
+         broken_egl_image_ref_counting)                      \
   GPU_OP(CLEAR_ALPHA_IN_READPIXELS,                          \
          clear_alpha_in_readpixels)                          \
   GPU_OP(CLEAR_UNIFORMS_BEFORE_FIRST_PROGRAM_USE,            \
@@ -34,10 +38,6 @@
          disable_discard_framebuffer)                        \
   GPU_OP(DISABLE_EXT_DRAW_BUFFERS,                           \
          disable_ext_draw_buffers)                           \
-  GPU_OP(DISABLE_EXT_SRGB,                                   \
-         disable_ext_srgb)                                   \
-  GPU_OP(DISABLE_GL_PATH_RENDERING,                          \
-         disable_gl_path_rendering)                          \
   GPU_OP(DISABLE_GL_RGB_FORMAT,                              \
          disable_gl_rgb_format)                              \
   GPU_OP(DISABLE_MSAA_ON_NON_WEBGL_CONTEXTS,                 \
@@ -106,6 +106,8 @@
          needs_glsl_built_in_function_emulation)             \
   GPU_OP(NEEDS_OFFSCREEN_BUFFER_WORKAROUND,                  \
          needs_offscreen_buffer_workaround)                  \
+  GPU_OP(PACK_PARAMETERS_WORKAROUND_WITH_PACK_BUFFER,        \
+         pack_parameters_workaround_with_pack_buffer)        \
   GPU_OP(REGENERATE_STRUCT_NAMES,                            \
          regenerate_struct_names)                            \
   GPU_OP(REMOVE_POW_WITH_CONSTANT_EXPONENT,                  \
@@ -120,6 +122,8 @@
          set_texture_filter_before_generating_mipmap)        \
   GPU_OP(SIMULATE_OUT_OF_MEMORY_ON_LARGE_TEXTURES,           \
          simulate_out_of_memory_on_large_textures)           \
+  GPU_OP(SURFACE_TEXTURE_CANT_DETACH,                        \
+         surface_texture_cant_detach)                        \
   GPU_OP(SWIZZLE_RGBA_FOR_ASYNC_READPIXELS,                  \
          swizzle_rgba_for_async_readpixels)                  \
   GPU_OP(TEXSUBIMAGE_FASTER_THAN_TEXIMAGE,                   \
@@ -146,6 +150,10 @@
          wake_up_gpu_before_drawing)                         \
   GPU_OP(UNBIND_EGL_CONTEXT_TO_FLUSH_DRIVER_CACHES,          \
          unbind_egl_context_to_flush_driver_caches)          \
+  GPU_OP(SET_ZERO_LEVEL_BEFORE_GENERATING_MIPMAP,            \
+         set_zero_level_before_generating_mipmap)            \
+  GPU_OP(DISABLE_DIRECT_COMPOSITION,                         \
+         disable_direct_composition)                         \
 
 namespace gpu {
 

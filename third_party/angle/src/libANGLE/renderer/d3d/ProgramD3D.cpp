@@ -20,6 +20,7 @@
 #include "libANGLE/renderer/d3d/RendererD3D.h"
 #include "libANGLE/renderer/d3d/ShaderD3D.h"
 #include "libANGLE/renderer/d3d/ShaderExecutableD3D.h"
+#include "libANGLE/renderer/d3d/VaryingPacking.h"
 #include "libANGLE/renderer/d3d/VertexDataManager.h"
 
 namespace rx
@@ -100,6 +101,12 @@ struct AttributeSorter
     const ProgramD3D::SemanticIndexArray *originalIndices;
 };
 
+// true if varying x has a higher priority in packing than y
+bool ComparePackedVarying(const PackedVarying &x, const PackedVarying &y)
+{
+    return gl::CompareShaderVar(*x.varying, *y.varying);
+}
+
 std::vector<PackedVarying> MergeVaryings(const gl::Shader &vertexShader,
                                          const gl::Shader &fragmentShader,
                                          const std::vector<std::string> &tfVaryings)
@@ -120,7 +127,20 @@ std::vector<PackedVarying> MergeVaryings(const gl::Shader &vertexShader,
         {
             if (output.name == input.name)
             {
-                packedVaryings.push_back(PackedVarying(input));
+                if (output.isStruct())
+                {
+                    ASSERT(!output.isArray());
+                    for (const auto &field : output.fields)
+                    {
+                        ASSERT(!field.isStruct() && !field.isArray());
+                        packedVaryings.push_back(
+                            PackedVarying(field, input.interpolation, input.name));
+                    }
+                }
+                else
+                {
+                    packedVaryings.push_back(PackedVarying(input, input.interpolation));
+                }
                 packed = true;
                 break;
             }
@@ -133,13 +153,21 @@ std::vector<PackedVarying> MergeVaryings(const gl::Shader &vertexShader,
             {
                 if (tfVarying == output.name)
                 {
-                    packedVaryings.push_back(PackedVarying(output));
-                    packedVaryings.back().vertexOnly = true;
+                    // Transform feedback for varying structs is underspecified.
+                    // See Khronos bug 9856.
+                    // TODO(jmadill): Figure out how to be spec-compliant here.
+                    if (!output.isStruct())
+                    {
+                        packedVaryings.push_back(PackedVarying(output, output.interpolation));
+                        packedVaryings.back().vertexOnly = true;
+                    }
                     break;
                 }
             }
         }
     }
+
+    std::sort(packedVaryings.begin(), packedVaryings.end(), ComparePackedVarying);
 
     return packedVaryings;
 }
@@ -178,6 +206,16 @@ void GetUniformBlockInfo(const std::vector<VarT> &fields,
                 encoder->encodeType(field.type, field.arraySize, isRowMajorMatrix);
         }
     }
+}
+
+template <typename T>
+static inline void SetIfDirty(T *dest, const T &source, bool *dirtyFlag)
+{
+    ASSERT(dest != NULL);
+    ASSERT(dirtyFlag != NULL);
+
+    *dirtyFlag = *dirtyFlag || (memcmp(dest, &source, sizeof(T)) != 0);
+    *dest      = source;
 }
 
 template <typename T>
@@ -291,6 +329,8 @@ gl::PrimitiveType GetGeometryShaderTypeFromDrawMode(GLenum drawMode)
 
 }  // anonymous namespace
 
+// D3DUniform Implementation
+
 D3DUniform::D3DUniform(GLenum typeIn,
                        const std::string &nameIn,
                        unsigned int arraySizeIn,
@@ -338,6 +378,123 @@ bool D3DUniform::isReferencedByFragmentShader() const
 {
     return psRegisterIndex != GL_INVALID_INDEX;
 }
+
+// D3DVarying Implementation
+
+D3DVarying::D3DVarying() : semanticIndex(0), componentCount(0), outputSlot(0)
+{
+}
+
+D3DVarying::D3DVarying(const std::string &semanticNameIn,
+                       unsigned int semanticIndexIn,
+                       unsigned int componentCountIn,
+                       unsigned int outputSlotIn)
+    : semanticName(semanticNameIn),
+      semanticIndex(semanticIndexIn),
+      componentCount(componentCountIn),
+      outputSlot(outputSlotIn)
+{
+}
+
+// ProgramD3DMetadata Implementation
+
+ProgramD3DMetadata::ProgramD3DMetadata(int rendererMajorShaderModel,
+                                       const std::string &shaderModelSuffix,
+                                       bool usesInstancedPointSpriteEmulation,
+                                       bool usesViewScale,
+                                       const ShaderD3D *vertexShader,
+                                       const ShaderD3D *fragmentShader)
+    : mRendererMajorShaderModel(rendererMajorShaderModel),
+      mShaderModelSuffix(shaderModelSuffix),
+      mUsesInstancedPointSpriteEmulation(usesInstancedPointSpriteEmulation),
+      mUsesViewScale(usesViewScale),
+      mVertexShader(vertexShader),
+      mFragmentShader(fragmentShader)
+{
+}
+
+int ProgramD3DMetadata::getRendererMajorShaderModel() const
+{
+    return mRendererMajorShaderModel;
+}
+
+bool ProgramD3DMetadata::usesBroadcast(const gl::Data &data) const
+{
+    return (mFragmentShader->usesFragColor() && data.clientVersion < 3);
+}
+
+bool ProgramD3DMetadata::usesFragDepth(const gl::Program::Data &programData) const
+{
+    return mFragmentShader->usesFragDepth();
+}
+
+bool ProgramD3DMetadata::usesPointCoord() const
+{
+    return mFragmentShader->usesPointCoord();
+}
+
+bool ProgramD3DMetadata::usesFragCoord() const
+{
+    return mFragmentShader->usesFragCoord();
+}
+
+bool ProgramD3DMetadata::usesPointSize() const
+{
+    return mVertexShader->usesPointSize();
+}
+
+bool ProgramD3DMetadata::usesInsertedPointCoordValue() const
+{
+    return !usesPointSize() && usesPointCoord() && mRendererMajorShaderModel >= 4;
+}
+
+bool ProgramD3DMetadata::usesViewScale() const
+{
+    return mUsesViewScale;
+}
+
+bool ProgramD3DMetadata::addsPointCoordToVertexShader() const
+{
+    // Instanced PointSprite emulation requires that gl_PointCoord is present in the vertex shader
+    // VS_OUTPUT structure to ensure compatibility with the generated PS_INPUT of the pixel shader.
+    // GeometryShader PointSprite emulation does not require this additional entry because the
+    // GS_OUTPUT of the Geometry shader contains the pointCoord value and already matches the
+    // PS_INPUT of the generated pixel shader. The Geometry Shader point sprite implementation needs
+    // gl_PointSize to be in VS_OUTPUT and GS_INPUT. Instanced point sprites doesn't need
+    // gl_PointSize in VS_OUTPUT.
+    return (mUsesInstancedPointSpriteEmulation && usesPointCoord()) ||
+           usesInsertedPointCoordValue();
+}
+
+bool ProgramD3DMetadata::usesTransformFeedbackGLPosition() const
+{
+    // gl_Position only needs to be outputted from the vertex shader if transform feedback is
+    // active. This isn't supported on D3D11 Feature Level 9_3, so we don't output gl_Position from
+    // the vertex shader in this case. This saves us 1 output vector.
+    return !(mRendererMajorShaderModel >= 4 && mShaderModelSuffix != "");
+}
+
+bool ProgramD3DMetadata::usesSystemValuePointSize() const
+{
+    return !mUsesInstancedPointSpriteEmulation && usesPointSize();
+}
+
+bool ProgramD3DMetadata::usesMultipleFragmentOuts() const
+{
+    return mFragmentShader->usesMultipleRenderTargets();
+}
+
+GLint ProgramD3DMetadata::getMajorShaderVersion() const
+{
+    return mVertexShader->getData().getShaderVersion();
+}
+
+const ShaderD3D *ProgramD3DMetadata::getFragmentShader() const
+{
+    return mFragmentShader;
+}
+
+// ProgramD3D Implementation
 
 ProgramD3D::VertexExecutable::VertexExecutable(const gl::InputLayout &inputLayout,
                                                const Signature &signature,
@@ -504,7 +661,7 @@ GLenum ProgramD3D::getSamplerTextureType(gl::SamplerType type, unsigned int samp
     return GL_TEXTURE_2D;
 }
 
-GLint ProgramD3D::getUsedSamplerRange(gl::SamplerType type) const
+GLuint ProgramD3D::getUsedSamplerRange(gl::SamplerType type) const
 {
     switch (type)
     {
@@ -514,7 +671,7 @@ GLint ProgramD3D::getUsedSamplerRange(gl::SamplerType type) const
             return mUsedVertexSamplerRange;
         default:
             UNREACHABLE();
-            return 0;
+            return 0u;
     }
 }
 
@@ -663,19 +820,16 @@ LinkResult ProgramD3D::load(gl::InfoLog &infoLog, gl::BinaryInputStream *stream)
         mD3DUniformBlocks.push_back(uniformBlock);
     }
 
-    const unsigned int transformFeedbackVaryingCount = stream->readInt<unsigned int>();
-    mTransformFeedbackLinkedVaryings.resize(transformFeedbackVaryingCount);
-    for (unsigned int varyingIndex = 0; varyingIndex < transformFeedbackVaryingCount;
-         varyingIndex++)
+    const unsigned int streamOutVaryingCount = stream->readInt<unsigned int>();
+    mStreamOutVaryings.resize(streamOutVaryingCount);
+    for (unsigned int varyingIndex = 0; varyingIndex < streamOutVaryingCount; ++varyingIndex)
     {
-        gl::LinkedVarying &varying = mTransformFeedbackLinkedVaryings[varyingIndex];
+        D3DVarying *varying = &mStreamOutVaryings[varyingIndex];
 
-        stream->readString(&varying.name);
-        stream->readInt(&varying.type);
-        stream->readInt(&varying.size);
-        stream->readString(&varying.semanticName);
-        stream->readInt(&varying.semanticIndex);
-        stream->readInt(&varying.semanticIndexCount);
+        stream->readString(&varying->semanticName);
+        stream->readInt(&varying->semanticIndex);
+        stream->readInt(&varying->componentCount);
+        stream->readInt(&varying->outputSlot);
     }
 
     stream->readString(&mVertexHLSL);
@@ -721,7 +875,7 @@ LinkResult ProgramD3D::load(gl::InfoLog &infoLog, gl::BinaryInputStream *stream)
         ShaderExecutableD3D *shaderExecutable = nullptr;
 
         gl::Error error = mRenderer->loadExecutable(
-            vertexShaderFunction, vertexShaderSize, SHADER_VERTEX, mTransformFeedbackLinkedVaryings,
+            vertexShaderFunction, vertexShaderSize, SHADER_VERTEX, mStreamOutVaryings,
             (mData.getTransformFeedbackBufferMode() == GL_SEPARATE_ATTRIBS), &shaderExecutable);
         if (error.isError())
         {
@@ -760,7 +914,7 @@ LinkResult ProgramD3D::load(gl::InfoLog &infoLog, gl::BinaryInputStream *stream)
         ShaderExecutableD3D *shaderExecutable    = nullptr;
 
         gl::Error error = mRenderer->loadExecutable(
-            pixelShaderFunction, pixelShaderSize, SHADER_PIXEL, mTransformFeedbackLinkedVaryings,
+            pixelShaderFunction, pixelShaderSize, SHADER_PIXEL, mStreamOutVaryings,
             (mData.getTransformFeedbackBufferMode() == GL_SEPARATE_ATTRIBS), &shaderExecutable);
         if (error.isError())
         {
@@ -792,10 +946,9 @@ LinkResult ProgramD3D::load(gl::InfoLog &infoLog, gl::BinaryInputStream *stream)
         const unsigned char *geometryShaderFunction = binary + stream->offset();
         bool splitAttribs                           = (mData.getTransformFeedbackBufferMode() == GL_SEPARATE_ATTRIBS);
 
-        gl::Error error =
-            mRenderer->loadExecutable(geometryShaderFunction, geometryShaderSize, SHADER_GEOMETRY,
-                                      mTransformFeedbackLinkedVaryings, splitAttribs,
-                                      &mGeometryExecutables[geometryExeIndex]);
+        gl::Error error = mRenderer->loadExecutable(
+            geometryShaderFunction, geometryShaderSize, SHADER_GEOMETRY, mStreamOutVaryings,
+            splitAttribs, &mGeometryExecutables[geometryExeIndex]);
         if (error.isError())
         {
             return LinkResult(false, error);
@@ -868,17 +1021,13 @@ gl::Error ProgramD3D::save(gl::BinaryOutputStream *stream)
         stream->writeInt(uniformBlock.vsRegisterIndex);
     }
 
-    stream->writeInt(mTransformFeedbackLinkedVaryings.size());
-    for (size_t i = 0; i < mTransformFeedbackLinkedVaryings.size(); i++)
+    stream->writeInt(mStreamOutVaryings.size());
+    for (const auto &varying : mStreamOutVaryings)
     {
-        const gl::LinkedVarying &varying = mTransformFeedbackLinkedVaryings[i];
-
-        stream->writeString(varying.name);
-        stream->writeInt(varying.type);
-        stream->writeInt(varying.size);
         stream->writeString(varying.semanticName);
         stream->writeInt(varying.semanticIndex);
-        stream->writeInt(varying.semanticIndexCount);
+        stream->writeInt(varying.componentCount);
+        stream->writeInt(varying.outputSlot);
     }
 
     stream->writeString(mVertexHLSL);
@@ -962,14 +1111,17 @@ gl::Error ProgramD3D::save(gl::BinaryOutputStream *stream)
     return gl::Error(GL_NO_ERROR);
 }
 
+void ProgramD3D::setBinaryRetrievableHint(bool /* retrievable */)
+{
+}
+
 gl::Error ProgramD3D::getPixelExecutableForFramebuffer(const gl::Framebuffer *fbo,
                                                        ShaderExecutableD3D **outExecutable)
 {
     mPixelShaderOutputFormatCache.clear();
 
     const FramebufferD3D *fboD3D = GetImplAs<FramebufferD3D>(fbo);
-    const gl::AttachmentList &colorbuffers =
-        fboD3D->getColorAttachmentsForRender(mRenderer->getWorkarounds());
+    const gl::AttachmentList &colorbuffers = fboD3D->getColorAttachmentsForRender();
 
     for (size_t colorAttachment = 0; colorAttachment < colorbuffers.size(); ++colorAttachment)
     {
@@ -1013,7 +1165,7 @@ gl::Error ProgramD3D::getPixelExecutableForOutputLayout(const std::vector<GLenum
     gl::InfoLog *currentInfoLog = infoLog ? infoLog : &tempInfoLog;
 
     gl::Error error = mRenderer->compileToExecutable(
-        *currentInfoLog, finalPixelHLSL, SHADER_PIXEL, mTransformFeedbackLinkedVaryings,
+        *currentInfoLog, finalPixelHLSL, SHADER_PIXEL, mStreamOutVaryings,
         (mData.getTransformFeedbackBufferMode() == GL_SEPARATE_ATTRIBS), mPixelWorkarounds,
         &pixelExecutable);
     if (error.isError())
@@ -1062,7 +1214,7 @@ gl::Error ProgramD3D::getVertexExecutableForInputLayout(const gl::InputLayout &i
     gl::InfoLog *currentInfoLog = infoLog ? infoLog : &tempInfoLog;
 
     gl::Error error = mRenderer->compileToExecutable(
-        *currentInfoLog, finalVertexHLSL, SHADER_VERTEX, mTransformFeedbackLinkedVaryings,
+        *currentInfoLog, finalVertexHLSL, SHADER_VERTEX, mStreamOutVaryings,
         (mData.getTransformFeedbackBufferMode() == GL_SEPARATE_ATTRIBS), mVertexWorkarounds,
         &vertexExecutable);
     if (error.isError())
@@ -1096,9 +1248,8 @@ gl::Error ProgramD3D::getGeometryExecutableForPrimitiveType(const gl::Data &data
         *outExecutable = nullptr;
     }
 
-    // We only uses a geometry shader for point sprite emulation, or for fixing the provoking
-    // vertex problem. Otherwise, return a null shader.
-    if (drawMode != GL_POINTS && !mUsesFlatInterpolation)
+    // Return a null shader if the current rendering doesn't use a geometry shader
+    if (!usesGeometryShader(drawMode))
     {
         return gl::Error(GL_NO_ERROR);
     }
@@ -1115,13 +1266,14 @@ gl::Error ProgramD3D::getGeometryExecutableForPrimitiveType(const gl::Data &data
     }
 
     std::string geometryHLSL = mDynamicHLSL->generateGeometryShaderHLSL(
-        geometryShaderType, data, mData, mGeometryShaderPreamble);
+        geometryShaderType, data, mData, mRenderer->presentPathFastEnabled(),
+        mGeometryShaderPreamble);
 
     gl::InfoLog tempInfoLog;
     gl::InfoLog *currentInfoLog = infoLog ? infoLog : &tempInfoLog;
 
     gl::Error error = mRenderer->compileToExecutable(
-        *currentInfoLog, geometryHLSL, SHADER_GEOMETRY, mTransformFeedbackLinkedVaryings,
+        *currentInfoLog, geometryHLSL, SHADER_GEOMETRY, mStreamOutVaryings,
         (mData.getTransformFeedbackBufferMode() == GL_SEPARATE_ATTRIBS), D3DCompilerWorkarounds(),
         &mGeometryExecutables[geometryShaderType]);
 
@@ -1161,20 +1313,21 @@ LinkResult ProgramD3D::compileProgramExecutables(const gl::Data &data, gl::InfoL
     }
 
     // Auto-generate the geometry shader here, if we expect to be using point rendering in D3D11.
+    ShaderExecutableD3D *pointGS = nullptr;
     if (usesGeometryShader(GL_POINTS))
     {
-        getGeometryExecutableForPrimitiveType(data, GL_POINTS, nullptr, &infoLog);
+        getGeometryExecutableForPrimitiveType(data, GL_POINTS, &pointGS, &infoLog);
     }
 
-#if ANGLE_SHADER_DEBUG_INFO == ANGLE_ENABLED
     const ShaderD3D *vertexShaderD3D = GetImplAs<ShaderD3D>(mData.getAttachedVertexShader());
-    if (usesGeometryShader() && mGeometryExecutable)
+
+    if (usesGeometryShader(GL_POINTS) && pointGS)
     {
         // Geometry shaders are currently only used internally, so there is no corresponding shader
         // object at the interface level. For now the geometry shader debug info is prepended to
         // the vertex shader.
         vertexShaderD3D->appendDebugInfo("// GEOMETRY SHADER BEGIN\n\n");
-        vertexShaderD3D->appendDebugInfo(mGeometryExecutable->getDebugInfo());
+        vertexShaderD3D->appendDebugInfo(pointGS->getDebugInfo());
         vertexShaderD3D->appendDebugInfo("\nGEOMETRY SHADER END\n\n\n");
     }
 
@@ -1189,11 +1342,9 @@ LinkResult ProgramD3D::compileProgramExecutables(const gl::Data &data, gl::InfoL
             GetImplAs<ShaderD3D>(mData.getAttachedFragmentShader());
         fragmentShaderD3D->appendDebugInfo(defaultPixelExecutable->getDebugInfo());
     }
-#endif
 
-    bool linkSuccess =
-        (defaultVertexExecutable && defaultPixelExecutable &&
-         (!usesGeometryShader(GL_POINTS) || mGeometryExecutables[gl::PRIMITIVE_POINTS]));
+    bool linkSuccess = (defaultVertexExecutable && defaultPixelExecutable &&
+                        (!usesGeometryShader(GL_POINTS) || pointGS));
     return LinkResult(linkSuccess, gl::Error(GL_NO_ERROR));
 }
 
@@ -1236,27 +1387,52 @@ LinkResult ProgramD3D::link(const gl::Data &data, gl::InfoLog &infoLog)
         MergeVaryings(*vertexShader, *fragmentShader, mData.getTransformFeedbackVaryingNames());
 
     // Map the varyings to the register file
-    unsigned int registerCount = 0;
-    if (!mDynamicHLSL->packVaryings(*data.caps, infoLog, &packedVaryings,
-                                    mData.getTransformFeedbackVaryingNames(), &registerCount))
+    VaryingPacking varyingPacking(data.caps->maxVaryingVectors);
+    if (!varyingPacking.packVaryings(infoLog, packedVaryings,
+                                     mData.getTransformFeedbackVaryingNames()))
     {
         return LinkResult(false, gl::Error(GL_NO_ERROR));
     }
 
-    std::vector<gl::LinkedVarying> linkedVaryings;
-    if (!mDynamicHLSL->generateShaderLinkHLSL(data, mData, infoLog, registerCount, &mPixelHLSL,
-                                              &mVertexHLSL, packedVaryings, &linkedVaryings,
-                                              &mPixelShaderKey, &mUsesFragDepth))
+    ProgramD3DMetadata metadata(mRenderer->getMajorShaderModel(), mRenderer->getShaderModelSuffix(),
+                                usesInstancedPointSpriteEmulation(),
+                                mRenderer->presentPathFastEnabled(), vertexShaderD3D,
+                                fragmentShaderD3D);
+
+    varyingPacking.enableBuiltins(SHADER_VERTEX, metadata);
+    varyingPacking.enableBuiltins(SHADER_PIXEL, metadata);
+
+    if (static_cast<GLuint>(varyingPacking.getRegisterCount()) > data.caps->maxVaryingVectors)
+    {
+        infoLog << "No varying registers left to support gl_FragCoord/gl_PointCoord";
+        return LinkResult(false, gl::Error(GL_NO_ERROR));
+    }
+
+    // TODO(jmadill): Implement more sophisticated component packing in D3D9.
+    // We can fail here because we use one semantic per GLSL varying. D3D11 can pack varyings
+    // intelligently, but D3D9 assumes one semantic per register.
+    if (mRenderer->getRendererClass() == RENDERER_D3D9 &&
+        varyingPacking.getMaxSemanticIndex() > data.caps->maxVaryingVectors)
+    {
+        infoLog << "Cannot pack these varyings on D3D9.";
+        return LinkResult(false, gl::Error(GL_NO_ERROR));
+    }
+
+    if (!mDynamicHLSL->generateShaderLinkHLSL(data, mData, metadata, varyingPacking, &mPixelHLSL,
+                                              &mVertexHLSL))
     {
         return LinkResult(false, gl::Error(GL_NO_ERROR));
     }
 
     mUsesPointSize = vertexShaderD3D->usesPointSize();
+    mDynamicHLSL->getPixelShaderOutputKey(data, mData, metadata, &mPixelShaderKey);
+    mUsesFragDepth = metadata.usesFragDepth(mData);
 
     // Cache if we use flat shading
+    mUsesFlatInterpolation = false;
     for (const auto &varying : packedVaryings)
     {
-        if (varying.varying->interpolation == sh::INTERPOLATION_FLAT)
+        if (varying.interpolation == sh::INTERPOLATION_FLAT)
         {
             mUsesFlatInterpolation = true;
             break;
@@ -1265,15 +1441,15 @@ LinkResult ProgramD3D::link(const gl::Data &data, gl::InfoLog &infoLog)
 
     if (mRenderer->getMajorShaderModel() >= 4)
     {
-        mGeometryShaderPreamble = mDynamicHLSL->generateGeometryShaderPreamble(
-            data, mData, registerCount, packedVaryings);
+        varyingPacking.enableBuiltins(SHADER_GEOMETRY, metadata);
+        mGeometryShaderPreamble = mDynamicHLSL->generateGeometryShaderPreamble(varyingPacking);
     }
 
     initSemanticIndex();
 
     defineUniformsAndAssignRegisters();
 
-    gatherTransformFeedbackVaryings(linkedVaryings);
+    gatherTransformFeedbackVaryings(varyingPacking);
 
     LinkResult result = compileProgramExecutables(data, infoLog);
     if (result.error.isError() || !result.linkSuccess)
@@ -1384,7 +1560,7 @@ void ProgramD3D::initializeUniformStorage()
 
 gl::Error ProgramD3D::applyUniforms(GLenum drawMode)
 {
-    updateSamplerMapping();
+    ASSERT(!mDirtySamplerMapping);
 
     gl::Error error = mRenderer->applyUniforms(*this, drawMode, mD3DUniforms);
     if (error.isError())
@@ -1756,16 +1932,6 @@ void ProgramD3D::defineUniform(GLenum shaderType,
 }
 
 template <typename T>
-static inline void SetIfDirty(T *dest, const T &source, bool *dirtyFlag)
-{
-    ASSERT(dest != NULL);
-    ASSERT(dirtyFlag != NULL);
-
-    *dirtyFlag = *dirtyFlag || (memcmp(dest, &source, sizeof(T)) != 0);
-    *dest      = source;
-}
-
-template <typename T>
 void ProgramD3D::setUniform(GLint location, GLsizei countIn, const T *v, GLenum targetUniformType)
 {
     const int components        = gl::VariableComponentCount(targetUniformType);
@@ -1897,8 +2063,8 @@ size_t ProgramD3D::getUniformBlockInfo(const sh::InterfaceBlock &interfaceBlock)
         encoder = &hlslEncoder;
     }
 
-    GetUniformBlockInfo(interfaceBlock.fields, "", encoder, interfaceBlock.isRowMajorLayout,
-                        &mBlockInfo);
+    GetUniformBlockInfo(interfaceBlock.fields, interfaceBlock.fieldPrefix(), encoder,
+                        interfaceBlock.isRowMajorLayout, &mBlockInfo);
 
     return encoder->getBlockSize();
 }
@@ -1990,7 +2156,7 @@ void ProgramD3D::reset()
     std::fill(mSemanticIndexes, mSemanticIndexes + ArraySize(mSemanticIndexes), -1);
     std::fill(mAttributesByLayout, mAttributesByLayout + ArraySize(mAttributesByLayout), -1);
 
-    mTransformFeedbackLinkedVaryings.clear();
+    mStreamOutVaryings.clear();
 
     mGeometryShaderPreamble.clear();
 }
@@ -2072,19 +2238,66 @@ void ProgramD3D::updateCachedInputLayout(const gl::State &state)
     }
 }
 
-void ProgramD3D::gatherTransformFeedbackVaryings(
-    const std::vector<gl::LinkedVarying> &linkedVaryings)
+void ProgramD3D::gatherTransformFeedbackVaryings(const VaryingPacking &varyingPacking)
 {
+    const auto &builtins = varyingPacking.builtins(SHADER_VERTEX);
+
+    const std::string &varyingSemantic =
+        GetVaryingSemantic(mRenderer->getMajorShaderModel(), usesPointSize());
+
     // Gather the linked varyings that are used for transform feedback, they should all exist.
-    mTransformFeedbackLinkedVaryings.clear();
-    for (const std::string &tfVaryingName : mData.getTransformFeedbackVaryingNames())
+    mStreamOutVaryings.clear();
+
+    const auto &tfVaryingNames = mData.getTransformFeedbackVaryingNames();
+    for (unsigned int outputSlot = 0; outputSlot < static_cast<unsigned int>(tfVaryingNames.size());
+         ++outputSlot)
     {
-        for (const gl::LinkedVarying &linkedVarying : linkedVaryings)
+        const auto &tfVaryingName = tfVaryingNames[outputSlot];
+        if (tfVaryingName == "gl_Position")
         {
-            if (tfVaryingName == linkedVarying.name)
+            if (builtins.glPosition.enabled)
             {
-                mTransformFeedbackLinkedVaryings.push_back(linkedVarying);
-                break;
+                mStreamOutVaryings.push_back(D3DVarying(builtins.glPosition.semantic,
+                                                        builtins.glPosition.index, 4, outputSlot));
+            }
+        }
+        else if (tfVaryingName == "gl_FragCoord")
+        {
+            if (builtins.glFragCoord.enabled)
+            {
+                mStreamOutVaryings.push_back(D3DVarying(builtins.glFragCoord.semantic,
+                                                        builtins.glFragCoord.index, 4, outputSlot));
+            }
+        }
+        else if (tfVaryingName == "gl_PointSize")
+        {
+            if (builtins.glPointSize.enabled)
+            {
+                mStreamOutVaryings.push_back(D3DVarying("PSIZE", 0, 1, outputSlot));
+            }
+        }
+        else
+        {
+            for (const PackedVaryingRegister &registerInfo : varyingPacking.getRegisterList())
+            {
+                const auto &varying   = *registerInfo.packedVarying->varying;
+                GLenum transposedType = gl::TransposeMatrixType(varying.type);
+                int componentCount = gl::VariableColumnCount(transposedType);
+                ASSERT(!varying.isBuiltIn());
+
+                // Transform feedback for varying structs is underspecified.
+                // See Khronos bug 9856.
+                // TODO(jmadill): Figure out how to be spec-compliant here.
+                if (registerInfo.packedVarying->isStructField() || varying.isStruct())
+                    continue;
+
+                // There can be more than one register assigned to a particular varying, and each
+                // register needs its own stream out entry.
+                if (tfVaryingName == varying.name)
+                {
+                    mStreamOutVaryings.push_back(D3DVarying(
+                        varyingSemantic, registerInfo.semanticIndex, componentCount, outputSlot));
+                }
             }
         }
     }

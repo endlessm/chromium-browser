@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_MEDIA_ROUTER_MEDIA_ROUTER_FACTORY_H_
 
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 namespace content {
@@ -29,6 +30,9 @@ class MediaRouterFactory : public BrowserContextKeyedServiceFactory {
   ~MediaRouterFactory() override;
 
   // BrowserContextKeyedServiceFactory interface.
+  content::BrowserContext* GetBrowserContextToUse(
+      content::BrowserContext* context) const override;
+
   KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const override;
 

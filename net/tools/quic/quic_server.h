@@ -11,24 +11,24 @@
 #ifndef NET_TOOLS_QUIC_QUIC_SERVER_H_
 #define NET_TOOLS_QUIC_QUIC_SERVER_H_
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/ip_endpoint.h"
 #include "net/quic/crypto/quic_crypto_server_config.h"
+#include "net/quic/quic_chromium_connection_helper.h"
 #include "net/quic/quic_config.h"
-#include "net/quic/quic_connection_helper.h"
 #include "net/quic/quic_framer.h"
 #include "net/tools/epoll_server/epoll_server.h"
 #include "net/tools/quic/quic_default_packet_writer.h"
 
 namespace net {
-namespace tools {
 
 namespace test {
 class QuicServerPeer;
 }  // namespace test
 
-class ProcessPacketInterface;
 class QuicDispatcher;
 class QuicPacketReader;
 
@@ -62,6 +62,10 @@ class QuicServer : public EpollCallbackInterface {
     crypto_config_.set_strike_register_no_startup_period();
   }
 
+  void SetChloMultiplier(size_t multiplier) {
+    crypto_config_.set_chlo_multiplier(multiplier);
+  }
+
   bool overflow_supported() { return overflow_supported_; }
 
   QuicPacketCount packets_dropped() { return packets_dropped_; }
@@ -74,9 +78,7 @@ class QuicServer : public EpollCallbackInterface {
   virtual QuicDispatcher* CreateQuicDispatcher();
 
   const QuicConfig& config() const { return config_; }
-  const QuicCryptoServerConfig& crypto_config() const {
-    return crypto_config_;
-  }
+  const QuicCryptoServerConfig& crypto_config() const { return crypto_config_; }
   const QuicVersionVector& supported_versions() const {
     return supported_versions_;
   }
@@ -85,7 +87,7 @@ class QuicServer : public EpollCallbackInterface {
   QuicDispatcher* dispatcher() { return dispatcher_.get(); }
 
  private:
-  friend class net::tools::test::QuicServerPeer;
+  friend class net::test::QuicServerPeer;
 
   // Initialize the internal state of the server.
   void Initialize();
@@ -130,7 +132,6 @@ class QuicServer : public EpollCallbackInterface {
   DISALLOW_COPY_AND_ASSIGN(QuicServer);
 };
 
-}  // namespace tools
 }  // namespace net
 
 #endif  // NET_TOOLS_QUIC_QUIC_SERVER_H_

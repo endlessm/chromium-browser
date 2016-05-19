@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/LengthStyleInterpolation.h"
 
 #include "core/animation/LengthPropertyFunctions.h"
@@ -121,7 +120,7 @@ static Length lengthFromInterpolableValue(const InterpolableValue& value, Interp
     return Length(0, Fixed);
 }
 
-}
+} // namespace
 
 PassRefPtrWillBeRawPtr<CSSPrimitiveValue> LengthStyleInterpolation::fromInterpolableValue(const InterpolableValue& value, InterpolationRange range)
 {
@@ -180,4 +179,4 @@ void LengthStyleInterpolation::apply(StyleResolverState& state) const
     applyInterpolableValue(m_id, *m_cachedValue, m_range, state);
 }
 
-}
+} // namespace blink

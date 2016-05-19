@@ -8,6 +8,7 @@
 #include "testing/embedder_test.h"
 #include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/test_support.h"
 
 class FPDFDocEmbeddertest : public EmbedderTest {};
 
@@ -98,4 +99,29 @@ TEST_F(FPDFDocEmbeddertest, Bookmarks) {
             CFX_WideString::FromUTF16LE(buf, 13));
 
   EXPECT_EQ(nullptr, FPDFBookmark_GetNextSibling(document(), sibling));
+}
+
+TEST_F(FPDFDocEmbeddertest, FindBookmarks) {
+  // Open a file with two bookmarks.
+  EXPECT_TRUE(OpenDocument("bookmarks.pdf"));
+
+  // Find the first one, based on its known title.
+  std::unique_ptr<unsigned short, pdfium::FreeDeleter> title =
+      GetFPDFWideString(L"A Good Beginning");
+  FPDF_BOOKMARK child = FPDFBookmark_Find(document(), title.get());
+  EXPECT_NE(nullptr, child);
+
+  // Check that the string matches.
+  unsigned short buf[128];
+  EXPECT_EQ(34, FPDFBookmark_GetTitle(child, buf, sizeof(buf)));
+  EXPECT_EQ(CFX_WideString(L"A Good Beginning"),
+            CFX_WideString::FromUTF16LE(buf, 16));
+
+  // Check that it is them same as the one returned by GetFirstChild.
+  EXPECT_EQ(child, FPDFBookmark_GetFirstChild(document(), nullptr));
+
+  // Try to find one using a non-existent title.
+  std::unique_ptr<unsigned short, pdfium::FreeDeleter> bad_title =
+      GetFPDFWideString(L"A BAD Beginning");
+  EXPECT_EQ(nullptr, FPDFBookmark_Find(document(), bad_title.get()));
 }

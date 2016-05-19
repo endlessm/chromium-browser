@@ -9,10 +9,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
-#include "chrome/browser/ui/toolbar/toolbar_model_impl.h"
+#include "components/toolbar/toolbar_model_impl.h"
 #include "content/public/browser/cert_store.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_constants.h"
 #include "content/public/common/ssl_status.h"
 #include "jni/ToolbarModel_jni.h"
 #include "net/cert/x509_certificate.h"
@@ -20,32 +21,35 @@
 using base::android::ScopedJavaLocalRef;
 
 ToolbarModelAndroid::ToolbarModelAndroid(JNIEnv* env, jobject jdelegate)
-    : toolbar_model_(new ToolbarModelImpl(this)),
-      weak_java_delegate_(env, jdelegate) {
-}
+    : toolbar_model_(new ToolbarModelImpl(this, content::kMaxURLDisplayChars)),
+      weak_java_delegate_(env, jdelegate) {}
 
 ToolbarModelAndroid::~ToolbarModelAndroid() {
 }
 
-void ToolbarModelAndroid::Destroy(JNIEnv* env, jobject obj) {
+void ToolbarModelAndroid::Destroy(JNIEnv* env,
+                                  const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-ScopedJavaLocalRef<jstring> ToolbarModelAndroid::GetText(JNIEnv* env,
-                                                         jobject obj) {
+ScopedJavaLocalRef<jstring> ToolbarModelAndroid::GetText(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   return base::android::ConvertUTF16ToJavaString(env,
                                                  toolbar_model_->GetText());
 }
 
 ScopedJavaLocalRef<jstring> ToolbarModelAndroid::GetCorpusChipText(
     JNIEnv* env,
-    jobject obj) {
+    const JavaParamRef<jobject>& obj) {
   return base::android::ConvertUTF16ToJavaString(
       env,
       toolbar_model_->GetCorpusNameForMobile());
 }
 
-jboolean ToolbarModelAndroid::WouldReplaceURL(JNIEnv* env, jobject obj) {
+jboolean ToolbarModelAndroid::WouldReplaceURL(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   return toolbar_model_->WouldReplaceURL();
 }
 

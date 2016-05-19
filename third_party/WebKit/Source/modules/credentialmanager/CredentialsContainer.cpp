@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/credentialmanager/CredentialsContainer.h"
 
 #include "bindings/core/v8/Dictionary.h"
@@ -28,13 +27,13 @@
 
 namespace blink {
 
-static void rejectDueToCredentialManagerError(ScriptPromiseResolver* resolver, WebCredentialManagerError* reason)
+static void rejectDueToCredentialManagerError(ScriptPromiseResolver* resolver, WebCredentialManagerError reason)
 {
-    switch (reason->errorType) {
-    case WebCredentialManagerError::ErrorTypeDisabled:
+    switch (reason) {
+    case WebCredentialManagerDisabledError:
         resolver->reject(DOMException::create(InvalidStateError, "The credential manager is disabled."));
         break;
-    case WebCredentialManagerError::ErrorTypeUnknown:
+    case WebCredentialManagerUnknownError:
     default:
         resolver->reject(DOMException::create(NotReadableError, "An unknown error occured while talking to the credential manager."));
         break;
@@ -52,7 +51,7 @@ public:
         m_resolver->resolve();
     }
 
-    void onError(WebCredentialManagerError* reason) override
+    void onError(WebCredentialManagerError reason) override
     {
         rejectDueToCredentialManagerError(m_resolver, reason);
     }
@@ -67,8 +66,9 @@ public:
     explicit RequestCallbacks(ScriptPromiseResolver* resolver) : m_resolver(resolver) { }
     ~RequestCallbacks() override { }
 
-    void onSuccess(WebCredential* credential) override
+    void onSuccess(WebPassOwnPtr<WebCredential> webCredential) override
     {
+        OwnPtr<WebCredential> credential = webCredential.release();
         if (!credential) {
             m_resolver->resolve();
             return;
@@ -76,12 +76,12 @@ public:
 
         ASSERT(credential->isPasswordCredential() || credential->isFederatedCredential());
         if (credential->isPasswordCredential())
-            m_resolver->resolve(PasswordCredential::create(static_cast<WebPasswordCredential*>(credential)));
+            m_resolver->resolve(PasswordCredential::create(static_cast<WebPasswordCredential*>(credential.get())));
         else
-            m_resolver->resolve(FederatedCredential::create(static_cast<WebFederatedCredential*>(credential)));
+            m_resolver->resolve(FederatedCredential::create(static_cast<WebFederatedCredential*>(credential.get())));
     }
 
-    void onError(WebCredentialManagerError* reason) override
+    void onError(WebCredentialManagerError reason) override
     {
         rejectDueToCredentialManagerError(m_resolver, reason);
     }
@@ -126,18 +126,22 @@ ScriptPromise CredentialsContainer::get(ScriptState* scriptState, const Credenti
 
     Vector<KURL> providers;
     if (options.hasFederated() && options.federated().hasProviders()) {
-        for (const auto& string : options.federated().providers()) {
+        // TODO(mkwst): CredentialRequestOptions::federated() needs to return a reference, not a value.
+        // Because it returns a temporary value now, a for loop that directly references the value
+        // generates code that holds a reference to a value that no longer exists by the time the loop
+        // starts looping. In order to avoid this crazyness for the moment, we're making a copy of the
+        // vector. https://crbug.com/587088
+        const Vector<String> providerStrings = options.federated().providers();
+        for (const auto& string : providerStrings) {
             KURL url = KURL(KURL(), string);
             if (url.isValid())
                 providers.append(url);
         }
     }
 
-    UseCounter::count(scriptState->executionContext(),
-                      options.suppressUI() ? UseCounter::CredentialManagerGetWithoutUI
-                                           : UseCounter::CredentialManagerGetWithUI);
+    UseCounter::count(scriptState->executionContext(), options.unmediated() ? UseCounter::CredentialManagerGetWithoutUI : UseCounter::CredentialManagerGetWithUI);
 
-    CredentialManagerClient::from(scriptState->executionContext())->dispatchGet(options.suppressUI(), providers, new RequestCallbacks(resolver));
+    CredentialManagerClient::from(scriptState->executionContext())->dispatchGet(options.unmediated(), options.password(), providers, new RequestCallbacks(resolver));
     return promise;
 }
 

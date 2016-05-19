@@ -4,19 +4,20 @@
 
 #include "components/invalidation/impl/invalidator_storage.h"
 
+#include <stddef.h>
+
 #include <string>
 #include <utility>
 
 #include "base/base64.h"
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/values.h"
 #include "components/invalidation/impl/invalidation_prefs.h"
 #include "components/invalidation/impl/unacked_invalidation_set.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "google/cacheinvalidation/types.pb.h"
 
 namespace {
@@ -47,7 +48,7 @@ scoped_ptr<base::ListValue> UnackedInvalidationStorageMapToValue(
        it != map.end(); ++it) {
     value->Append(it->second.ToValue().release());
   }
-  return value.Pass();
+  return value;
 }
 
 }  // namespace

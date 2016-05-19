@@ -4,6 +4,8 @@
 
 #include "media/test/pipeline_integration_test_base.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/memory/scoped_vector.h"
 #include "media/base/cdm_context.h"
@@ -39,7 +41,7 @@ const char kNullAudioHash[] = "0.00,0.00,0.00,0.00,0.00,0.00,";
 PipelineIntegrationTestBase::PipelineIntegrationTestBase()
     : hashing_enabled_(false),
       clockless_playback_(false),
-      pipeline_(new Pipeline(message_loop_.task_runner(), new MediaLog())),
+      pipeline_(new PipelineImpl(message_loop_.task_runner(), new MediaLog())),
       ended_(false),
       pipeline_status_(PIPELINE_OK),
       last_video_frame_format_(PIXEL_FORMAT_UNKNOWN),
@@ -61,15 +63,14 @@ void PipelineIntegrationTestBase::OnSeeked(base::TimeDelta seek_time,
   pipeline_status_ = status;
 }
 
-void PipelineIntegrationTestBase::OnStatusCallback(
-    PipelineStatus status) {
+void PipelineIntegrationTestBase::OnStatusCallback(PipelineStatus status) {
   pipeline_status_ = status;
   message_loop_.PostTask(FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
 }
 
 void PipelineIntegrationTestBase::DemuxerEncryptedMediaInitDataCB(
     EmeInitDataType type,
-    const std::vector<uint8>& init_data) {
+    const std::vector<uint8_t>& init_data) {
   DCHECK(!init_data.empty());
   CHECK(!encrypted_media_init_data_cb_.is_null());
   encrypted_media_init_data_cb_.Run(type, init_data);
@@ -173,6 +174,25 @@ bool PipelineIntegrationTestBase::Seek(base::TimeDelta seek_time) {
   return (pipeline_status_ == PIPELINE_OK);
 }
 
+bool PipelineIntegrationTestBase::Suspend() {
+  pipeline_->Suspend(base::Bind(&PipelineIntegrationTestBase::OnStatusCallback,
+                                base::Unretained(this)));
+  message_loop_.Run();
+  return (pipeline_status_ == PIPELINE_OK);
+}
+
+bool PipelineIntegrationTestBase::Resume(base::TimeDelta seek_time) {
+  ended_ = false;
+
+  EXPECT_CALL(*this, OnBufferingStateChanged(BUFFERING_HAVE_ENOUGH))
+      .WillOnce(InvokeWithoutArgs(&message_loop_, &base::MessageLoop::QuitNow));
+  pipeline_->Resume(CreateRenderer(), seek_time,
+                    base::Bind(&PipelineIntegrationTestBase::OnSeeked,
+                               base::Unretained(this), seek_time));
+  message_loop_.Run();
+  return (pipeline_status_ == PIPELINE_OK);
+}
+
 void PipelineIntegrationTestBase::Stop() {
   DCHECK(pipeline_->IsRunning());
   pipeline_->Stop(base::MessageLoop::QuitWhenIdleClosure());
@@ -203,8 +223,7 @@ bool PipelineIntegrationTestBase::WaitUntilCurrentTimeIsAfter(
   message_loop_.PostDelayedTask(
       FROM_HERE,
       base::Bind(&PipelineIntegrationTestBase::QuitAfterCurrentTimeTask,
-                 base::Unretained(this),
-                 wait_time),
+                 base::Unretained(this), wait_time),
       base::TimeDelta::FromMilliseconds(10));
   message_loop_.Run();
   return (pipeline_status_ == PIPELINE_OK);
@@ -231,13 +250,11 @@ void PipelineIntegrationTestBase::CreateDemuxer(const std::string& filename) {
 scoped_ptr<Renderer> PipelineIntegrationTestBase::CreateRenderer() {
   ScopedVector<VideoDecoder> video_decoders;
 #if !defined(MEDIA_DISABLE_LIBVPX)
-  video_decoders.push_back(
-      new VpxVideoDecoder(message_loop_.task_runner()));
+  video_decoders.push_back(new VpxVideoDecoder());
 #endif  // !defined(MEDIA_DISABLE_LIBVPX)
 
 #if !defined(MEDIA_DISABLE_FFMPEG)
-  video_decoders.push_back(
-      new FFmpegVideoDecoder(message_loop_.task_runner()));
+  video_decoders.push_back(new FFmpegVideoDecoder());
 #endif
 
   // Simulate a 60Hz rendering sink.
@@ -250,7 +267,7 @@ scoped_ptr<Renderer> PipelineIntegrationTestBase::CreateRenderer() {
   // Disable frame dropping if hashing is enabled.
   scoped_ptr<VideoRenderer> video_renderer(new VideoRendererImpl(
       message_loop_.task_runner(), message_loop_.task_runner().get(),
-      video_sink_.get(), video_decoders.Pass(), false, nullptr,
+      video_sink_.get(), std::move(video_decoders), false, nullptr,
       new MediaLog()));
 
   if (!clockless_playback_) {
@@ -266,16 +283,12 @@ scoped_ptr<Renderer> PipelineIntegrationTestBase::CreateRenderer() {
       new FFmpegAudioDecoder(message_loop_.task_runner(), new MediaLog()));
 #endif
 
-  audio_decoders.push_back(
-      new OpusAudioDecoder(message_loop_.task_runner()));
+  audio_decoders.push_back(new OpusAudioDecoder(message_loop_.task_runner()));
 
   // Don't allow the audio renderer to resample buffers if hashing is enabled.
   if (!hashing_enabled_) {
     AudioParameters out_params(AudioParameters::AUDIO_PCM_LOW_LATENCY,
-                               CHANNEL_LAYOUT_STEREO,
-                               44100,
-                               16,
-                               512);
+                               CHANNEL_LAYOUT_STEREO, 44100, 16, 512);
     hardware_config_.UpdateOutputConfig(out_params);
   }
 
@@ -284,7 +297,7 @@ scoped_ptr<Renderer> PipelineIntegrationTestBase::CreateRenderer() {
       (clockless_playback_)
           ? static_cast<AudioRendererSink*>(clockless_audio_sink_.get())
           : audio_sink_.get(),
-      audio_decoders.Pass(), hardware_config_, new MediaLog()));
+      std::move(audio_decoders), hardware_config_, new MediaLog()));
   if (hashing_enabled_) {
     if (clockless_playback_)
       clockless_audio_sink_->StartAudioHashForTesting();
@@ -293,9 +306,8 @@ scoped_ptr<Renderer> PipelineIntegrationTestBase::CreateRenderer() {
   }
 
   scoped_ptr<RendererImpl> renderer_impl(
-      new RendererImpl(message_loop_.task_runner(),
-                       audio_renderer.Pass(),
-                       video_renderer.Pass()));
+      new RendererImpl(message_loop_.task_runner(), std::move(audio_renderer),
+                       std::move(video_renderer)));
 
   // Prevent non-deterministic buffering state callbacks from firing (e.g., slow
   // machine, valgrind).
@@ -304,7 +316,7 @@ scoped_ptr<Renderer> PipelineIntegrationTestBase::CreateRenderer() {
   if (clockless_playback_)
     renderer_impl->EnableClocklessVideoPlaybackForTesting();
 
-  return renderer_impl.Pass();
+  return std::move(renderer_impl);
 }
 
 void PipelineIntegrationTestBase::OnVideoFramePaint(

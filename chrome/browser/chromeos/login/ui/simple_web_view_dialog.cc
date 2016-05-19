@@ -6,6 +6,7 @@
 
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -14,19 +15,22 @@
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ssl/security_state_model.h"
+#include "chrome/browser/ssl/chrome_security_state_model_client.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model_delegate.h"
-#include "chrome/browser/ui/toolbar/toolbar_model_impl.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/toolbar/reload_button.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/password_manager/core/browser/password_manager.h"
+#include "components/security_state/security_state_model.h"
+#include "components/toolbar/toolbar_model_impl.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_constants.h"
+#include "grit/components_strings.h"
 #include "ipc/ipc_message.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/theme_provider.h"
@@ -106,15 +110,14 @@ class StubBubbleModelDelegate : public ContentSettingBubbleModelDelegate {
   StubBubbleModelDelegate() {}
   ~StubBubbleModelDelegate() override {}
 
+ private:
   // ContentSettingBubbleModelDelegate implementation:
   void ShowCollectedCookiesDialog(content::WebContents* web_contents) override {
   }
-
   void ShowContentSettingsPage(ContentSettingsType type) override {}
-
+  void ShowMediaSettingsPage() override {}
   void ShowLearnMorePage(ContentSettingsType type) override {}
 
- private:
   DISALLOW_COPY_AND_ASSIGN(StubBubbleModelDelegate);
 };
 
@@ -162,8 +165,10 @@ void SimpleWebViewDialog::StartLoad(const GURL& url) {
 void SimpleWebViewDialog::Init() {
   // Create the security state model that the toolbar model needs.
   if (web_view_->GetWebContents())
-    SecurityStateModel::CreateForWebContents(web_view_->GetWebContents());
-  toolbar_model_.reset(new ToolbarModelImpl(this));
+    ChromeSecurityStateModelClient::CreateForWebContents(
+        web_view_->GetWebContents());
+  toolbar_model_.reset(
+      new ToolbarModelImpl(this, content::kMaxURLDisplayChars));
 
   set_background(views::Background::CreateSolidBackground(kDialogColor));
 
@@ -191,7 +196,7 @@ void SimpleWebViewDialog::Init() {
                                       this, true);
 
   // Reload button.
-  reload_ = new ReloadButton(command_updater_.get());
+  reload_ = new ReloadButton(profile_, command_updater_.get());
   reload_->set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON |
                                        ui::EF_MIDDLE_MOUSE_BUTTON);
   reload_->set_tag(IDC_RELOAD);
@@ -304,7 +309,7 @@ SimpleWebViewDialog::GetContentSettingBubbleModelDelegate() {
 void SimpleWebViewDialog::ShowWebsiteSettings(
     content::WebContents* web_contents,
     const GURL& url,
-    const SecurityStateModel::SecurityInfo& security_info) {
+    const security_state::SecurityStateModel::SecurityInfo& security_info) {
   NOTIMPLEMENTED();
   // TODO (markusheintz@): implement this
 }
@@ -355,7 +360,7 @@ void SimpleWebViewDialog::ExecuteCommandWithDisposition(
 }
 
 void SimpleWebViewDialog::LoadImages() {
-  ui::ThemeProvider* tp = GetThemeProvider();
+  const ui::ThemeProvider* tp = GetThemeProvider();
 
   back_->SetImage(views::CustomButton::STATE_NORMAL,
                   tp->GetImageSkiaNamed(IDR_BACK));

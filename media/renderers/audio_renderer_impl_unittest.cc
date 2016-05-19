@@ -2,9 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media/renderers/audio_renderer_impl.h"
+
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/format_macros.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -16,7 +21,6 @@
 #include "media/base/media_util.h"
 #include "media/base/mock_filters.h"
 #include "media/base/test_helpers.h"
-#include "media/renderers/audio_renderer_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using ::base::TimeDelta;
@@ -52,9 +56,12 @@ static int kChannels = ChannelLayoutToChannelCount(kChannelLayout);
 // Use a different output sample rate so the AudioBufferConverter is invoked.
 static int kInputSamplesPerSecond = 5000;
 static int kOutputSamplesPerSecond = 10000;
+static double kOutputMicrosPerFrame =
+    static_cast<double>(base::Time::kMicrosecondsPerSecond) /
+    kOutputSamplesPerSecond;
 
 ACTION_P(EnterPendingDecoderInitStateAction, test) {
-  test->EnterPendingDecoderInitState(arg1);
+  test->EnterPendingDecoderInitState(arg2);
 }
 
 class AudioRendererImplTest : public ::testing::Test {
@@ -96,10 +103,8 @@ class AudioRendererImplTest : public ::testing::Test {
     decoders.push_back(decoder_);
     sink_ = new FakeAudioRendererSink();
     renderer_.reset(new AudioRendererImpl(message_loop_.task_runner(),
-                                          sink_.get(),
-                                          decoders.Pass(),
-                                          hardware_config_,
-                                          new MediaLog()));
+                                          sink_.get(), std::move(decoders),
+                                          hardware_config_, new MediaLog()));
     renderer_->tick_clock_.reset(tick_clock_);
     tick_clock_->Advance(base::TimeDelta::FromSeconds(1));
   }
@@ -109,8 +114,8 @@ class AudioRendererImplTest : public ::testing::Test {
   }
 
   void ExpectUnsupportedAudioDecoder() {
-    EXPECT_CALL(*decoder_, Initialize(_, _, _))
-        .WillOnce(DoAll(SaveArg<2>(&output_cb_), RunCallback<1>(false)));
+    EXPECT_CALL(*decoder_, Initialize(_, _, _, _))
+        .WillOnce(DoAll(SaveArg<3>(&output_cb_), RunCallback<2>(false)));
   }
 
   void OnStatistics(const PipelineStatistics& stats) {
@@ -124,7 +129,7 @@ class AudioRendererImplTest : public ::testing::Test {
   void InitializeRenderer(const PipelineStatusCB& pipeline_status_cb) {
     EXPECT_CALL(*this, OnWaitingForDecryptionKey()).Times(0);
     renderer_->Initialize(
-        &demuxer_stream_, pipeline_status_cb, SetCdmReadyCB(),
+        &demuxer_stream_, pipeline_status_cb, nullptr,
         base::Bind(&AudioRendererImplTest::OnStatistics,
                    base::Unretained(this)),
         base::Bind(&AudioRendererImplTest::OnBufferingStateChange,
@@ -136,8 +141,8 @@ class AudioRendererImplTest : public ::testing::Test {
   }
 
   void Initialize() {
-    EXPECT_CALL(*decoder_, Initialize(_, _, _))
-        .WillOnce(DoAll(SaveArg<2>(&output_cb_), RunCallback<1>(true)));
+    EXPECT_CALL(*decoder_, Initialize(_, _, _, _))
+        .WillOnce(DoAll(SaveArg<3>(&output_cb_), RunCallback<2>(true)));
     InitializeWithStatus(PIPELINE_OK);
 
     next_timestamp_.reset(new AudioTimestampHelper(kInputSamplesPerSecond));
@@ -155,7 +160,8 @@ class AudioRendererImplTest : public ::testing::Test {
   }
 
   void InitializeAndDestroy() {
-    EXPECT_CALL(*decoder_, Initialize(_, _, _)).WillOnce(RunCallback<1>(true));
+    EXPECT_CALL(*decoder_, Initialize(_, _, _, _))
+        .WillOnce(RunCallback<2>(true));
 
     WaitableMessageLoopEvent event;
     InitializeRenderer(event.GetPipelineStatusCB());
@@ -168,7 +174,7 @@ class AudioRendererImplTest : public ::testing::Test {
   }
 
   void InitializeAndDestroyDuringDecoderInit() {
-    EXPECT_CALL(*decoder_, Initialize(_, _, _))
+    EXPECT_CALL(*decoder_, Initialize(_, _, _, _))
         .WillOnce(EnterPendingDecoderInitStateAction(this));
 
     WaitableMessageLoopEvent event;
@@ -295,16 +301,16 @@ class AudioRendererImplTest : public ::testing::Test {
   // buffer. Returns true if and only if all of |requested_frames| were able
   // to be consumed.
   bool ConsumeBufferedData(OutputFrames requested_frames,
-                           base::TimeDelta delay) {
+                           uint32_t delay_frames) {
     scoped_ptr<AudioBus> bus =
         AudioBus::Create(kChannels, requested_frames.value);
     int frames_read = 0;
-    EXPECT_TRUE(sink_->Render(bus.get(), delay.InMilliseconds(), &frames_read));
+    EXPECT_TRUE(sink_->Render(bus.get(), delay_frames, &frames_read));
     return frames_read == requested_frames.value;
   }
 
   bool ConsumeBufferedData(OutputFrames requested_frames) {
-    return ConsumeBufferedData(requested_frames, base::TimeDelta());
+    return ConsumeBufferedData(requested_frames, 0);
   }
 
   base::TimeTicks ConvertMediaTime(base::TimeDelta timestamp,
@@ -714,6 +720,16 @@ TEST_F(AudioRendererImplTest, RenderingDelayedForEarlyStartTime) {
     ASSERT_NE(0.0f, bus->channel(0)[i]);
 }
 
+TEST_F(AudioRendererImplTest, RenderingDelayDoesNotOverflow) {
+  Initialize();
+
+  // Choose a first timestamp as far into the future as possible. Without care
+  // this can cause an overflow in rendering arithmetic.
+  Preroll(base::TimeDelta(), base::TimeDelta::Max(), PIPELINE_OK);
+  StartTicking();
+  EXPECT_TRUE(ConsumeBufferedData(OutputFrames(1)));
+}
+
 TEST_F(AudioRendererImplTest, ImmediateEndOfStream) {
   Initialize();
   {
@@ -867,9 +883,12 @@ TEST_F(AudioRendererImplTest, TimeSourceBehavior) {
   EXPECT_FALSE(is_time_moving);
 
   // Consume some buffered data with a small delay.
-  base::TimeDelta delay_time = base::TimeDelta::FromMilliseconds(50);
+  uint32_t delay_frames = 500;
+  base::TimeDelta delay_time = base::TimeDelta::FromMicroseconds(
+      std::round(delay_frames * kOutputMicrosPerFrame));
+
   frames_to_consume.value = frames_buffered().value / 16;
-  EXPECT_TRUE(ConsumeBufferedData(frames_to_consume, delay_time));
+  EXPECT_TRUE(ConsumeBufferedData(frames_to_consume, delay_frames));
 
   // Verify time is adjusted for the current delay.
   current_time = tick_clock_->NowTicks() + delay_time;

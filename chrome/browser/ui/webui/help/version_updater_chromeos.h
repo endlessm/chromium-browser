@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_HELP_VERSION_UPDATER_CHROMEOS_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/webui/help/version_updater.h"
 #include "chromeos/dbus/update_engine_client.h"
@@ -19,7 +20,8 @@ class VersionUpdaterCros : public VersionUpdater,
                            public chromeos::UpdateEngineClient::Observer {
  public:
   // VersionUpdater implementation.
-  void CheckForUpdate(const StatusCallback& callback) override;
+  void CheckForUpdate(const StatusCallback& callback,
+                      const PromoteCallback&) override;
   void RelaunchBrowser() const override;
   void SetChannel(const std::string& channel,
                   bool is_powerwash_allowed) override;

@@ -29,6 +29,8 @@
 
 #include "platform/PlatformExport.h"
 #include "public/platform/WebCommon.h"
+#include "wtf/Allocator.h"
+#include "wtf/Forward.h"
 
 #if OS(MACOSX)
 typedef struct CGSize CGSize;
@@ -41,6 +43,7 @@ typedef struct CGSize CGSize;
 namespace blink {
 
 class PLATFORM_EXPORT IntSize {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     IntSize() : m_width(0), m_height(0) { }
     IntSize(int width, int height) : m_width(width), m_height(height) { }
@@ -122,6 +125,10 @@ public:
     explicit IntSize(const NSSize &); // don't do this implicitly since it's lossy
     operator NSSize() const;
 #endif
+#endif
+
+#ifndef NDEBUG
+    String toString() const;
 #endif
 
 private:

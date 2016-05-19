@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/trace_event/trace_event.h"
 #include "skia/ext/event_tracer_impl.h"
 #include "third_party/skia/include/utils/SkEventTracer.h"
@@ -46,8 +48,9 @@ SkEventTracer::Handle
                                          const uint64_t* argValues,
                                          uint8_t flags) {
   base::trace_event::TraceEventHandle handle = TRACE_EVENT_API_ADD_TRACE_EVENT(
-      phase, categoryEnabledFlag, name, id, numArgs, argNames, argTypes,
-      (const long long unsigned int*)argValues, NULL, flags);
+      phase, categoryEnabledFlag, name, trace_event_internal::kGlobalScope, id,
+      numArgs, argNames, argTypes, (const long long unsigned int*)argValues,
+      NULL, flags);
       SkEventTracer::Handle result;
       memcpy(&result, &handle, sizeof(result));
       return result;

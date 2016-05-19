@@ -310,7 +310,11 @@ llvm-sb-configure() {
   case ${arch} in
     i686)
       targets=x86
-      subzero_targets=X8632
+      # Since LLVM is built only once to cover both x86-32 and x86-64, and
+      # Subzero is built as part of that, we need to enable both targets in the
+      # pnacl-sz.nexe build.  TODO(stichnot): Fix this and make smaller Subzero
+      # translator binaries.
+      subzero_targets=X8632,X8664
       ;;
     x86_64)
       targets=x86
@@ -416,10 +420,9 @@ llvm-sb-install() {
     local arches=${arch}
     if [[ "${arch}" == "universal" ]]; then
       arches="${SBTC_ARCHES_ALL}"
-    elif [[ "${arch}" == "i686" && "${toolname}" == "pnacl-llc" ]]; then
+    elif [[ "${arch}" == "i686" ]]; then
       # LLVM does not separate the i686 and x86_64 backends.
-      # Translate twice to get both nexes, but only for pnacl-llc.
-      # We do not yet have an x86-64 backend for pnacl-sz.
+      # Translate twice to get both nexes.
       arches="i686 x86_64"
     fi
     if [[ "${arch}" == "i686" ]]; then
@@ -841,7 +844,7 @@ feature-version-file-install() {
   #
   # If you are adding a test that depends on a toolchain change, you
   # can increment this version number manually.
-  echo 12 > "${install_root}/FEATURE_VERSION"
+  echo 18 > "${install_root}/FEATURE_VERSION"
 }
 
 #@ driver-install-translator - Install driver scripts for translator component

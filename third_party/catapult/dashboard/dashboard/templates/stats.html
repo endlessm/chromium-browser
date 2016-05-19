@@ -2,6 +2,7 @@
 <html>
 <head>
   <link type="text/css" rel="stylesheet" href="/dashboard/static/base.css">
+  <link rel="import" href="/dashboard/elements/nav-bar.html">
   <link rel="import" href="/components/polymer/polymer.html">
 
   <script src="/jquery/jquery-2.1.4.min.js"></script>
@@ -53,7 +54,7 @@
   </style>
 </head>
 <body>
-  {% include 'nav.html' %}
+  <nav-bar></nav-bar>
   <h1>Chrome Performance Statistics</h1>
   {% if waiting %}
     Waiting ({{processed}} of {{total}})...

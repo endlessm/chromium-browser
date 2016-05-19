@@ -8,6 +8,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "base/mac/scoped_nsobject.h"
+#include "base/macros.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
 
 @class MenuController;
@@ -77,5 +78,12 @@ class RenderViewContextMenuMac : public RenderViewContextMenu {
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewContextMenuMac);
 };
+
+// The ChromeSwizzleServicesMenuUpdater filters Services menu items in the
+// contextual menus and elsewhere using swizzling.
+@interface ChromeSwizzleServicesMenuUpdater : NSObject
+// Return filtered entries, for testing.
++ (void)storeFilteredEntriesForTestingInArray:(NSMutableArray*)array;
+@end
 
 #endif  // CHROME_BROWSER_UI_COCOA_RENDERER_CONTEXT_MENU_RENDER_VIEW_CONTEXT_MENU_MAC_H_

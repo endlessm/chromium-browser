@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "web/WebRemoteFrameImpl.h"
 
 #include "core/frame/FrameView.h"
-#include "core/frame/RemoteFrame.h"
 #include "core/frame/Settings.h"
+#include "core/html/HTMLFrameOwnerElement.h"
+#include "core/layout/LayoutObject.h"
 #include "core/page/Page.h"
 #include "platform/heap/Handle.h"
 #include "public/platform/WebFloatRect.h"
@@ -28,7 +28,7 @@ WebRemoteFrame* WebRemoteFrame::create(WebTreeScopeType scope, WebRemoteFrameCli
     return WebRemoteFrameImpl::create(scope, client);
 }
 
-WebRemoteFrame* WebRemoteFrameImpl::create(WebTreeScopeType scope, WebRemoteFrameClient* client)
+WebRemoteFrameImpl* WebRemoteFrameImpl::create(WebTreeScopeType scope, WebRemoteFrameClient* client)
 {
     WebRemoteFrameImpl* frame = new WebRemoteFrameImpl(scope, client);
 #if ENABLE(OILPAN)
@@ -50,6 +50,7 @@ DEFINE_TRACE(WebRemoteFrameImpl)
     visitor->trace(m_ownersForChildren);
     visitor->template registerWeakMembers<WebFrame, &WebFrame::clearWeakFrames>(this);
     WebFrame::traceFrames(visitor, this);
+    WebFrameImplBase::trace(visitor);
 }
 #endif
 
@@ -250,12 +251,6 @@ void WebRemoteFrameImpl::collectGarbage()
     ASSERT_NOT_REACHED();
 }
 
-bool WebRemoteFrameImpl::checkIfRunInsecureContent(const WebURL&) const
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
 v8::Local<v8::Value> WebRemoteFrameImpl::executeScriptAndReturnValue(
     const WebScriptSource&)
 {
@@ -307,13 +302,6 @@ void WebRemoteFrameImpl::loadRequest(const WebURLRequest&)
 }
 
 void WebRemoteFrameImpl::loadHistoryItem(const WebHistoryItem&, WebHistoryLoadType, WebURLRequest::CachePolicy)
-{
-    ASSERT_NOT_REACHED();
-}
-
-void WebRemoteFrameImpl::loadData(
-    const WebData&, const WebString& mimeType, const WebString& textEncoding,
-    const WebURL& baseURL, const WebURL& unreachableURL, bool replace)
 {
     ASSERT_NOT_REACHED();
 }
@@ -374,11 +362,6 @@ unsigned WebRemoteFrameImpl::unloadListenerCount() const
 {
     ASSERT_NOT_REACHED();
     return 0;
-}
-
-void WebRemoteFrameImpl::replaceSelection(const WebString&)
-{
-    ASSERT_NOT_REACHED();
 }
 
 void WebRemoteFrameImpl::insertText(const WebString&)
@@ -448,11 +431,6 @@ bool WebRemoteFrameImpl::isContinuousSpellCheckingEnabled() const
 }
 
 void WebRemoteFrameImpl::requestTextChecking(const WebElement&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-void WebRemoteFrameImpl::replaceMisspelledRange(const WebString&)
 {
     ASSERT_NOT_REACHED();
 }
@@ -597,98 +575,11 @@ void WebRemoteFrameImpl::printPagesWithBoundaries(WebCanvas*, const WebSize&)
     ASSERT_NOT_REACHED();
 }
 
-bool WebRemoteFrameImpl::find(
-    int identifier, const WebString& searchText, const WebFindOptions&,
-    bool wrapWithinFrame, WebRect* selectionRect)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-void WebRemoteFrameImpl::stopFinding(bool clearSelection)
-{
-    ASSERT_NOT_REACHED();
-}
-
-void WebRemoteFrameImpl::scopeStringMatches(
-    int identifier, const WebString& searchText, const WebFindOptions&,
-    bool reset)
-{
-    ASSERT_NOT_REACHED();
-}
-
-void WebRemoteFrameImpl::cancelPendingScopingEffort()
-{
-    ASSERT_NOT_REACHED();
-}
-
-void WebRemoteFrameImpl::increaseMatchCount(int count, int identifier)
-{
-    ASSERT_NOT_REACHED();
-}
-
-void WebRemoteFrameImpl::resetMatchCount()
-{
-    ASSERT_NOT_REACHED();
-}
-
-int WebRemoteFrameImpl::findMatchMarkersVersion() const
-{
-    ASSERT_NOT_REACHED();
-    return 0;
-}
-
-WebFloatRect WebRemoteFrameImpl::activeFindMatchRect()
-{
-    ASSERT_NOT_REACHED();
-    return WebFloatRect();
-}
-
-void WebRemoteFrameImpl::findMatchRects(WebVector<WebFloatRect>&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-int WebRemoteFrameImpl::selectNearestFindMatch(const WebFloatPoint&, WebRect* selectionRect)
-{
-    ASSERT_NOT_REACHED();
-    return 0;
-}
-
-void WebRemoteFrameImpl::setTickmarks(const WebVector<WebRect>&)
-{
-    ASSERT_NOT_REACHED();
-}
-
 void WebRemoteFrameImpl::dispatchMessageEventWithOriginCheck(
     const WebSecurityOrigin& intendedTargetOrigin,
     const WebDOMEvent&)
 {
     ASSERT_NOT_REACHED();
-}
-
-WebString WebRemoteFrameImpl::contentAsText(size_t maxChars) const
-{
-    ASSERT_NOT_REACHED();
-    return WebString();
-}
-
-WebString WebRemoteFrameImpl::contentAsMarkup() const
-{
-    ASSERT_NOT_REACHED();
-    return WebString();
-}
-
-WebString WebRemoteFrameImpl::layoutTreeAsText(LayoutAsTextControls toShow) const
-{
-    ASSERT_NOT_REACHED();
-    return WebString();
-}
-
-WebString WebRemoteFrameImpl::markerTextForListItem(const WebElement&) const
-{
-    ASSERT_NOT_REACHED();
-    return WebString();
 }
 
 WebRect WebRemoteFrameImpl::selectionBoundsRect() const
@@ -709,7 +600,7 @@ WebString WebRemoteFrameImpl::layerTreeAsText(bool showDebugInfo) const
     return WebString();
 }
 
-WebLocalFrame* WebRemoteFrameImpl::createLocalChild(WebTreeScopeType scope, const WebString& name, WebSandboxFlags sandboxFlags, WebFrameClient* client, WebFrame* previousSibling, const WebFrameOwnerProperties& frameOwnerProperties)
+WebLocalFrame* WebRemoteFrameImpl::createLocalChild(WebTreeScopeType scope, const WebString& name, const WebString& uniqueName, WebSandboxFlags sandboxFlags, WebFrameClient* client, WebFrame* previousSibling, const WebFrameOwnerProperties& frameOwnerProperties)
 {
     WebLocalFrameImpl* child = toWebLocalFrameImpl(WebLocalFrame::create(scope, client));
     WillBeHeapHashMap<WebFrame*, OwnPtrWillBeMember<FrameOwner>>::AddResult result =
@@ -719,28 +610,27 @@ WebLocalFrame* WebRemoteFrameImpl::createLocalChild(WebTreeScopeType scope, cons
     // result in the browser observing two navigations to about:blank (one from the initial
     // frame creation, and one from swapping it into the remote process). FrameLoader might
     // need a special initialization function for this case to avoid that duplicate navigation.
-    child->initializeCoreFrame(frame()->host(), result.storedValue->value.get(), name, nullAtom);
+    child->initializeCoreFrame(frame()->host(), result.storedValue->value.get(), name, uniqueName);
     // Partially related with the above FIXME--the init() call may trigger JS dispatch. However,
     // if the parent is remote, it should never be detached synchronously...
     ASSERT(child->frame());
     return child;
 }
 
-
-void WebRemoteFrameImpl::initializeCoreFrame(FrameHost* host, FrameOwner* owner, const AtomicString& name)
+void WebRemoteFrameImpl::initializeCoreFrame(FrameHost* host, FrameOwner* owner, const AtomicString& name, const AtomicString& uniqueName)
 {
     setCoreFrame(RemoteFrame::create(m_frameClient.get(), host, owner));
     frame()->createView();
-    m_frame->tree().setName(name, nullAtom);
+    m_frame->tree().setPrecalculatedName(name, uniqueName);
 }
 
-WebRemoteFrame* WebRemoteFrameImpl::createRemoteChild(WebTreeScopeType scope, const WebString& name, WebSandboxFlags sandboxFlags, WebRemoteFrameClient* client)
+WebRemoteFrame* WebRemoteFrameImpl::createRemoteChild(WebTreeScopeType scope, const WebString& name, const WebString& uniqueName, WebSandboxFlags sandboxFlags, WebRemoteFrameClient* client)
 {
     WebRemoteFrameImpl* child = toWebRemoteFrameImpl(WebRemoteFrame::create(scope, client));
     WillBeHeapHashMap<WebFrame*, OwnPtrWillBeMember<FrameOwner>>::AddResult result =
         m_ownersForChildren.add(child, RemoteBridgeFrameOwner::create(nullptr, static_cast<SandboxFlags>(sandboxFlags), WebFrameOwnerProperties()));
     appendChild(child);
-    child->initializeCoreFrame(frame()->host(), result.storedValue->value.get(), name);
+    child->initializeCoreFrame(frame()->host(), result.storedValue->value.get(), name, uniqueName);
     return child;
 }
 
@@ -770,6 +660,20 @@ void WebRemoteFrameImpl::setReplicatedOrigin(const WebSecurityOrigin& origin) co
 {
     ASSERT(frame());
     frame()->securityContext()->setReplicatedOrigin(origin);
+
+    // If the origin of a remote frame changed, the accessibility object for the owner
+    // element now points to a different child.
+    //
+    // TODO(dmazzoni, dcheng): there's probably a better way to solve this.
+    // Run SitePerProcessAccessibilityBrowserTest.TwoCrossSiteNavigations to
+    // ensure an alternate fix works.  http://crbug.com/566222
+    FrameOwner* owner = frame()->owner();
+    if (owner && owner->isLocal()) {
+        HTMLElement* ownerElement = toHTMLFrameOwnerElement(owner);
+        AXObjectCache* cache = ownerElement->document().existingAXObjectCache();
+        if (cache)
+            cache->childrenChanged(ownerElement);
+    }
 }
 
 void WebRemoteFrameImpl::setReplicatedSandboxFlags(WebSandboxFlags flags) const
@@ -778,10 +682,16 @@ void WebRemoteFrameImpl::setReplicatedSandboxFlags(WebSandboxFlags flags) const
     frame()->securityContext()->enforceSandboxFlags(static_cast<SandboxFlags>(flags));
 }
 
-void WebRemoteFrameImpl::setReplicatedName(const WebString& name) const
+void WebRemoteFrameImpl::setReplicatedName(const WebString& name, const WebString& uniqueName) const
 {
     ASSERT(frame());
-    frame()->tree().setName(name, nullAtom);
+    frame()->tree().setPrecalculatedName(name, uniqueName);
+}
+
+void WebRemoteFrameImpl::setReplicatedShouldEnforceStrictMixedContentChecking(bool shouldEnforce) const
+{
+    ASSERT(frame());
+    frame()->securityContext()->setShouldEnforceStrictMixedContentChecking(shouldEnforce);
 }
 
 void WebRemoteFrameImpl::DispatchLoadEventForFrameOwner() const
@@ -803,6 +713,14 @@ void WebRemoteFrameImpl::didStopLoading()
             toWebLocalFrameImpl(parent()->toWebLocalFrame());
         parentFrame->frame()->loader().checkCompleted();
     }
+}
+
+bool WebRemoteFrameImpl::isIgnoredForHitTest() const
+{
+    HTMLFrameOwnerElement* owner = frame()->deprecatedLocalOwner();
+    if (!owner || !owner->layoutObject())
+        return false;
+    return owner->layoutObject()->style()->pointerEvents() == PE_NONE;
 }
 
 WebRemoteFrameImpl::WebRemoteFrameImpl(WebTreeScopeType scope, WebRemoteFrameClient* client)

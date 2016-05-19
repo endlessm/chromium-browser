@@ -4,16 +4,18 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/formfiller/FFL_FormFiller.h"
-#include "../../include/formfiller/FFL_CBA_Fontmap.h"
+#include "fpdfsdk/include/formfiller/FFL_FormFiller.h"
+
+#include "fpdfsdk/include/formfiller/FFL_CBA_Fontmap.h"
+#include "fpdfsdk/include/fsdk_common.h"
+#include "fpdfsdk/include/fsdk_mgr.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
 
 #define GetRed(rgb) ((uint8_t)(rgb))
 #define GetGreen(rgb) ((uint8_t)(((FX_WORD)(rgb)) >> 8))
 #define GetBlue(rgb) ((uint8_t)((rgb) >> 16))
 
 #define FFL_HINT_ELAPSE 800
-
-/* ------------------------- CFFL_FormFiller ------------------------- */
 
 CFFL_FormFiller::CFFL_FormFiller(CPDFDoc_Environment* pApp,
                                  CPDFSDK_Annot* pAnnot)
@@ -50,8 +52,8 @@ CPDF_Rect CFFL_FormFiller::GetWindowRect(CPDFSDK_PageView* pPageView) {
 
 FX_RECT CFFL_FormFiller::GetViewBBox(CPDFSDK_PageView* pPageView,
                                      CPDFSDK_Annot* pAnnot) {
-  ASSERT(pPageView != NULL);
-  ASSERT(pAnnot != NULL);
+  ASSERT(pPageView);
+  ASSERT(pAnnot);
 
   CPDF_Rect rcAnnot = m_pWidget->GetRect();
 
@@ -74,12 +76,12 @@ FX_RECT CFFL_FormFiller::GetViewBBox(CPDFSDK_PageView* pPageView,
 void CFFL_FormFiller::OnDraw(CPDFSDK_PageView* pPageView,
                              CPDFSDK_Annot* pAnnot,
                              CFX_RenderDevice* pDevice,
-                             CPDF_Matrix* pUser2Device,
+                             CFX_Matrix* pUser2Device,
                              FX_DWORD dwFlags) {
   ASSERT(pAnnot->GetPDFAnnot()->GetSubType() == "Widget");
 
   if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, FALSE)) {
-    CPDF_Matrix mt = GetCurMatrix();
+    CFX_Matrix mt = GetCurMatrix();
     mt.Concat(*pUser2Device);
     pWnd->DrawAppearance(pDevice, &mt);
   } else {
@@ -92,7 +94,7 @@ void CFFL_FormFiller::OnDraw(CPDFSDK_PageView* pPageView,
 void CFFL_FormFiller::OnDrawDeactive(CPDFSDK_PageView* pPageView,
                                      CPDFSDK_Annot* pAnnot,
                                      CFX_RenderDevice* pDevice,
-                                     CPDF_Matrix* pUser2Device,
+                                     CFX_Matrix* pUser2Device,
                                      FX_DWORD dwFlags) {
   CPDFSDK_Widget* pWidget = (CPDFSDK_Widget*)pAnnot;
   pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
@@ -110,7 +112,7 @@ void CFFL_FormFiller::OnMouseEnter(CPDFSDK_PageView* pPageView,
 void CFFL_FormFiller::OnMouseExit(CPDFSDK_PageView* pPageView,
                                   CPDFSDK_Annot* pAnnot) {
   EndTimer();
-  ASSERT(m_pWidget != NULL);
+  ASSERT(m_pWidget);
 }
 
 FX_BOOL CFFL_FormFiller::OnLButtonDown(CPDFSDK_PageView* pPageView,
@@ -217,7 +219,7 @@ FX_BOOL CFFL_FormFiller::OnKeyDown(CPDFSDK_Annot* pAnnot,
                                    FX_UINT nFlags) {
   if (IsValid()) {
     CPDFSDK_PageView* pPageView = GetCurPageView();
-    ASSERT(pPageView != NULL);
+    ASSERT(pPageView);
 
     if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, FALSE)) {
       return pWnd->OnKeyDown(nKeyCode, nFlags);
@@ -232,7 +234,7 @@ FX_BOOL CFFL_FormFiller::OnChar(CPDFSDK_Annot* pAnnot,
                                 FX_UINT nFlags) {
   if (IsValid()) {
     CPDFSDK_PageView* pPageView = GetCurPageView();
-    ASSERT(pPageView != NULL);
+    ASSERT(pPageView);
 
     if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, FALSE)) {
       return pWnd->OnChar(nChar, nFlags);
@@ -244,7 +246,7 @@ FX_BOOL CFFL_FormFiller::OnChar(CPDFSDK_Annot* pAnnot,
 
 void CFFL_FormFiller::SetFocusForAnnot(CPDFSDK_Annot* pAnnot, FX_UINT nFlag) {
   CPDFSDK_Widget* pWidget = (CPDFSDK_Widget*)pAnnot;
-  CPDF_Page* pPage = pWidget->GetPDFPage();
+  UnderlyingPageType* pPage = pWidget->GetUnderlyingPage();
   CPDFSDK_Document* pDoc = m_pApp->GetSDKDocument();
   CPDFSDK_PageView* pPageView = pDoc->GetPageView(pPage);
   if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, TRUE))
@@ -274,8 +276,10 @@ void CFFL_FormFiller::KillFocusForAnnot(CPDFSDK_Annot* pAnnot, FX_UINT nFlag) {
     case FIELDTYPE_CHECKBOX:
     case FIELDTYPE_RADIOBUTTON:
       bDestroyPDFWindow = TRUE;
+      break;
     default:
       bDestroyPDFWindow = FALSE;
+      break;
   }
   EscapeFiller(pPageView, bDestroyPDFWindow);
 }
@@ -285,7 +289,7 @@ FX_BOOL CFFL_FormFiller::IsValid() const {
 }
 
 PWL_CREATEPARAM CFFL_FormFiller::GetCreateParam() {
-  ASSERT(m_pApp != NULL);
+  ASSERT(m_pApp);
 
   PWL_CREATEPARAM cp;
   cp.pParentWnd = NULL;
@@ -399,24 +403,22 @@ void CFFL_FormFiller::DestroyPDFWindow(CPDFSDK_PageView* pPageView) {
   m_Maps.erase(it);
 }
 
-CPDF_Matrix CFFL_FormFiller::GetWindowMatrix(void* pAttachedData) {
+CFX_Matrix CFFL_FormFiller::GetWindowMatrix(void* pAttachedData) {
   if (CFFL_PrivateData* pPrivateData = (CFFL_PrivateData*)pAttachedData) {
     if (pPrivateData->pPageView) {
-      CPDF_Matrix mtPageView;
+      CFX_Matrix mtPageView;
       pPrivateData->pPageView->GetCurrentMatrix(mtPageView);
-      CPDF_Matrix mt = GetCurMatrix();
+      CFX_Matrix mt = GetCurMatrix();
       mt.Concat(mtPageView);
 
       return mt;
     }
   }
-  return CPDF_Matrix(1, 0, 0, 1, 0, 0);
+  return CFX_Matrix(1, 0, 0, 1, 0, 0);
 }
 
-CPDF_Matrix CFFL_FormFiller::GetCurMatrix() {
-  CPDF_Matrix mt;
-
-  ASSERT(m_pWidget != NULL);
+CFX_Matrix CFFL_FormFiller::GetCurMatrix() {
+  CFX_Matrix mt;
 
   CPDF_Rect rcDA;
   m_pWidget->GetPDFAnnot()->GetRect(rcDA);
@@ -424,17 +426,17 @@ CPDF_Matrix CFFL_FormFiller::GetCurMatrix() {
   switch (m_pWidget->GetRotate()) {
     default:
     case 0:
-      mt = CPDF_Matrix(1, 0, 0, 1, 0, 0);
+      mt = CFX_Matrix(1, 0, 0, 1, 0, 0);
       break;
     case 90:
-      mt = CPDF_Matrix(0, 1, -1, 0, rcDA.right - rcDA.left, 0);
+      mt = CFX_Matrix(0, 1, -1, 0, rcDA.right - rcDA.left, 0);
       break;
     case 180:
-      mt = CPDF_Matrix(-1, 0, 0, -1, rcDA.right - rcDA.left,
-                       rcDA.top - rcDA.bottom);
+      mt = CFX_Matrix(-1, 0, 0, -1, rcDA.right - rcDA.left,
+                      rcDA.top - rcDA.bottom);
       break;
     case 270:
-      mt = CPDF_Matrix(0, -1, 1, 0, 0, rcDA.top - rcDA.bottom);
+      mt = CFX_Matrix(0, -1, 1, 0, 0, rcDA.top - rcDA.bottom);
       break;
   }
   mt.e += rcDA.left;
@@ -444,7 +446,7 @@ CPDF_Matrix CFFL_FormFiller::GetCurMatrix() {
 }
 
 CFX_WideString CFFL_FormFiller::LoadPopupMenuString(int nIndex) {
-  ASSERT(m_pApp != NULL);
+  ASSERT(m_pApp);
 
   return L"";
 }
@@ -462,7 +464,7 @@ CPDF_Rect CFFL_FormFiller::GetPDFWindowRect() const {
 }
 
 CPDFSDK_PageView* CFFL_FormFiller::GetCurPageView() {
-  CPDF_Page* pPage = m_pAnnot->GetPDFPage();
+  UnderlyingPageType* pPage = m_pAnnot->GetUnderlyingPage();
   CPDFSDK_Document* pSDKDoc = m_pApp->GetSDKDocument();
   return pSDKDoc ? pSDKDoc->GetPageView(pPage) : nullptr;
 }
@@ -478,7 +480,7 @@ CPDF_Rect CFFL_FormFiller::GetFocusBox(CPDFSDK_PageView* pPageView) {
 }
 
 CPDF_Rect CFFL_FormFiller::FFLtoPWL(const CPDF_Rect& rect) {
-  CPDF_Matrix mt;
+  CFX_Matrix mt;
   mt.SetReverse(GetCurMatrix());
 
   CPDF_Rect temp = rect;
@@ -488,7 +490,7 @@ CPDF_Rect CFFL_FormFiller::FFLtoPWL(const CPDF_Rect& rect) {
 }
 
 CPDF_Rect CFFL_FormFiller::PWLtoFFL(const CPDF_Rect& rect) {
-  CPDF_Matrix mt = GetCurMatrix();
+  CFX_Matrix mt = GetCurMatrix();
 
   CPDF_Rect temp = rect;
   mt.TransformRect(temp);
@@ -497,7 +499,7 @@ CPDF_Rect CFFL_FormFiller::PWLtoFFL(const CPDF_Rect& rect) {
 }
 
 CPDF_Point CFFL_FormFiller::FFLtoPWL(const CPDF_Point& point) {
-  CPDF_Matrix mt;
+  CFX_Matrix mt;
   mt.SetReverse(GetCurMatrix());
 
   CPDF_Point pt = point;
@@ -507,7 +509,7 @@ CPDF_Point CFFL_FormFiller::FFLtoPWL(const CPDF_Point& point) {
 }
 
 CPDF_Point CFFL_FormFiller::PWLtoFFL(const CPDF_Point& point) {
-  CPDF_Matrix mt = GetCurMatrix();
+  CFX_Matrix mt = GetCurMatrix();
 
   CPDF_Point pt = point;
   mt.Transform(pt.x, pt.y);
@@ -563,6 +565,12 @@ FX_BOOL CFFL_FormFiller::IsDataChanged(CPDFSDK_PageView* pPageView) {
 
 void CFFL_FormFiller::SaveData(CPDFSDK_PageView* pPageView) {}
 
+#ifdef PDF_ENABLE_XFA
+FX_BOOL CFFL_FormFiller::IsFieldFull(CPDFSDK_PageView* pPageView) {
+  return FALSE;
+}
+#endif  // PDF_ENABLE_XFA
+
 void CFFL_FormFiller::SetChangeMark() {
   m_pApp->FFI_OnChange();
 }
@@ -613,11 +621,9 @@ void CFFL_FormFiller::InvalidateRect(double left,
                                      double top,
                                      double right,
                                      double bottom) {
-  CPDF_Page* pPage = m_pWidget->GetPDFPage();
+  UnderlyingPageType* pPage = m_pWidget->GetUnderlyingPage();
   m_pApp->FFI_Invalidate(pPage, left, top, right, bottom);
 }
-
-/* ------------------------- CFFL_Button ------------------------- */
 
 CFFL_Button::CFFL_Button(CPDFDoc_Environment* pApp, CPDFSDK_Annot* pWidget)
     : CFFL_FormFiller(pApp, pWidget), m_bMouseIn(FALSE), m_bMouseDown(FALSE) {}
@@ -638,7 +644,7 @@ void CFFL_Button::OnMouseExit(CPDFSDK_PageView* pPageView,
   FX_RECT rect = GetViewBBox(pPageView, pAnnot);
   InvalidateRect(rect.left, rect.top, rect.right, rect.bottom);
   EndTimer();
-  ASSERT(m_pWidget != NULL);
+  ASSERT(m_pWidget);
 }
 
 FX_BOOL CFFL_Button::OnLButtonDown(CPDFSDK_PageView* pPageView,
@@ -676,7 +682,7 @@ FX_BOOL CFFL_Button::OnMouseMove(CPDFSDK_PageView* pPageView,
                                  CPDFSDK_Annot* pAnnot,
                                  FX_UINT nFlags,
                                  const CPDF_Point& point) {
-  ASSERT(m_pApp != NULL);
+  ASSERT(m_pApp);
 
   return TRUE;
 }
@@ -684,38 +690,38 @@ FX_BOOL CFFL_Button::OnMouseMove(CPDFSDK_PageView* pPageView,
 void CFFL_Button::OnDraw(CPDFSDK_PageView* pPageView,
                          CPDFSDK_Annot* pAnnot,
                          CFX_RenderDevice* pDevice,
-                         CPDF_Matrix* pUser2Device,
+                         CFX_Matrix* pUser2Device,
                          FX_DWORD dwFlags) {
-  ASSERT(pPageView != NULL);
+  ASSERT(pPageView);
   CPDFSDK_Widget* pWidget = (CPDFSDK_Widget*)pAnnot;
   CPDF_FormControl* pCtrl = pWidget->GetFormControl();
   CPDF_FormControl::HighlightingMode eHM = pCtrl->GetHighlightingMode();
 
-  if (eHM == CPDF_FormControl::Push) {
-    if (m_bMouseDown) {
-      if (pWidget->IsWidgetAppearanceValid(CPDF_Annot::Down))
-        pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Down, NULL);
-      else
-        pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal,
-                                NULL);
-    } else if (m_bMouseIn) {
-      if (pWidget->IsWidgetAppearanceValid(CPDF_Annot::Rollover))
-        pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Rollover,
-                                NULL);
-      else
-        pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal,
-                                NULL);
-    } else {
-      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
-    }
-  } else
+  if (eHM != CPDF_FormControl::Push) {
     pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+    return;
+  }
+
+  if (m_bMouseDown) {
+    if (pWidget->IsWidgetAppearanceValid(CPDF_Annot::Down))
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Down, NULL);
+    else
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+  } else if (m_bMouseIn) {
+    if (pWidget->IsWidgetAppearanceValid(CPDF_Annot::Rollover))
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Rollover,
+                              NULL);
+    else
+      pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+  } else {
+    pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
+  }
 }
 
 void CFFL_Button::OnDrawDeactive(CPDFSDK_PageView* pPageView,
                                  CPDFSDK_Annot* pAnnot,
                                  CFX_RenderDevice* pDevice,
-                                 CPDF_Matrix* pUser2Device,
+                                 CFX_Matrix* pUser2Device,
                                  FX_DWORD dwFlags) {
   OnDraw(pPageView, pAnnot, pDevice, pUser2Device, dwFlags);
 }

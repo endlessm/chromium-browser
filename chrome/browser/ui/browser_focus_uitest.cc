@@ -2,13 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -71,7 +75,7 @@ class BrowserFocusTest : public InProcessBrowserTest {
  public:
   // InProcessBrowserTest overrides:
   void SetUpOnMainThread() override {
-     ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
   }
 
   bool IsViewFocused(ViewID vid) {
@@ -119,6 +123,13 @@ class BrowserFocusTest : public InProcessBrowserTest {
       }
 #endif
 
+      if (reverse) {
+        ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+            browser(), key, false, reverse, false, false,
+            content::NOTIFICATION_ALL,
+            content::NotificationService::AllSources()));
+      }
+
       for (size_t j = 0; j < arraysize(kExpectedIDs); ++j) {
         SCOPED_TRACE(base::StringPrintf("focus inner loop %" PRIuS, j));
         const size_t index = reverse ? arraysize(kExpectedIDs) - 1 - j : j;
@@ -147,9 +158,23 @@ class BrowserFocusTest : public InProcessBrowserTest {
           browser(), key, false, reverse, false, false,
           chrome::NOTIFICATION_FOCUS_RETURNED_TO_BROWSER,
           content::Source<Browser>(browser())));
+      EXPECT_TRUE(
+          IsViewFocused(reverse ? VIEW_ID_OMNIBOX : VIEW_ID_LOCATION_ICON));
+
+      ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+          browser(), key, false, reverse, false, false,
+          content::NOTIFICATION_ALL,
+          content::NotificationService::AllSources()));
 #endif
       content::RunAllPendingInMessageLoop();
-      EXPECT_TRUE(IsViewFocused(VIEW_ID_OMNIBOX));
+      EXPECT_TRUE(
+          IsViewFocused(reverse ? VIEW_ID_LOCATION_ICON : VIEW_ID_OMNIBOX));
+      if (reverse) {
+        ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+            browser(), key, false, false, false, false,
+            content::NOTIFICATION_ALL,
+            content::NotificationService::AllSources()));
+      }
     }
   }
 };
@@ -352,9 +377,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest,
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
 
   // Open a new browser window.
-  Browser* browser2 =
-      new Browser(Browser::CreateParams(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  Browser* browser2 = new Browser(Browser::CreateParams(browser()->profile()));
+
   ASSERT_TRUE(browser2);
   chrome::AddTabAt(browser2, GURL(), -1, true);
   browser2->window()->Show();
@@ -711,6 +735,31 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_FocusOnNavigate) {
     forward_nav_observer.Wait();
   }
 
+  EXPECT_FALSE(IsViewFocused(VIEW_ID_OMNIBOX));
+}
+
+// Ensure that crbug.com/567445 does not regress. This test checks that the
+// Omnibox does not get focused when loading about:blank in a case where it's
+// not the startup URL, e.g. when a page opens a popup to about:blank, with a
+// null opener, and then navigates it. This is a potential security issue; see
+// comments in |WebContentsImpl::FocusLocationBarByDefault|.
+IN_PROC_BROWSER_TEST_F(BrowserFocusTest, AboutBlankNavigationLocationTest) {
+  const GURL url1(embedded_test_server()->GetURL("/title1.html"));
+  ui_test_utils::NavigateToURL(browser(), url1);
+
+  TabStripModel* tab_strip = browser()->tab_strip_model();
+  WebContents* web_contents = tab_strip->GetActiveWebContents();
+
+  const GURL url2(embedded_test_server()->GetURL("/title2.html"));
+  const std::string spoof("var w = window.open('about:blank'); w.opener = null;"
+                          "w.document.location = '" + url2.spec() + "';");
+
+  ASSERT_TRUE(content::ExecuteScript(web_contents, spoof));
+  EXPECT_EQ(url1, web_contents->GetVisibleURL());
+  // After running the spoof code, |GetActiveWebContents| returns the new tab,
+  // not the same as |web_contents|.
+  ASSERT_NO_FATAL_FAILURE(content::WaitForLoadStop(
+      browser()->tab_strip_model()->GetActiveWebContents()));
   EXPECT_FALSE(IsViewFocused(VIEW_ID_OMNIBOX));
 }
 

@@ -58,8 +58,8 @@ bool UsageReportsBufferBackend::Init() {
 }
 
 void UsageReportsBufferBackend::AddVisit(const std::string& id,
-    int64 timestamp_ms,
-    bool typed_visit) {
+                                         int64_t timestamp_ms,
+                                         bool typed_visit) {
   if (!db_.get()) {
     LOG(WARNING) << "AddVisit db not initilized.";
     return;
@@ -81,7 +81,7 @@ scoped_ptr<std::vector<UsageReport> >
 UsageReportsBufferBackend::GetUsageReportsBatch(int batch_size) {
   scoped_ptr<std::vector<UsageReport> > reports(new std::vector<UsageReport>());
   if (!db_.get()) {
-    return reports.Pass();
+    return reports;
   }
   reports->reserve(batch_size);
   leveldb::ReadOptions options;
@@ -96,7 +96,7 @@ UsageReportsBufferBackend::GetUsageReportsBatch(int batch_size) {
     }
     db_iter->Next();
   }
-  return reports.Pass();
+  return reports;
 }
 
 void UsageReportsBufferBackend::Remove(

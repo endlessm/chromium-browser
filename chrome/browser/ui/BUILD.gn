@@ -5,6 +5,7 @@
 import("//build/config/crypto.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
+import("//chrome/common/features.gni")
 
 gypi_values = exec_script("//build/gypi_to_gn.py",
                           [ rebase_path("../../chrome_browser_ui.gypi") ],
@@ -19,8 +20,6 @@ config("ui_warnings") {
 }
 
 source_set("ui") {
-  output_name = "browser_ui"
-
   sources = []
   defines = []
   libs = []
@@ -45,7 +44,7 @@ source_set("ui") {
   deps = [
     # NOTE: New dependencies should generally be added in the OS!="ios"
     # dependencies block below, rather than here.
-    "//base/allocator",
+    "//base",
     "//chrome:extra_resources",
     "//chrome:resources",
     "//chrome:strings",
@@ -58,13 +57,21 @@ source_set("ui") {
     "//components/certificate_reporting:encrypted_cert_logger_proto",
     "//components/dom_distiller/webui",
     "//components/flags_ui",
+    "//components/guest_view/browser",
+    "//components/history/core/browser",
     "//components/invalidation/impl",
+    "//components/keyed_service/content",
+    "//components/keyed_service/core",
     "//components/omnibox/common",
     "//components/onc",
     "//components/password_manager/core/browser",
     "//components/resources",
+    "//components/signin/core/browser",
     "//components/strings",
+    "//components/sync_driver",
     "//components/toolbar",
+    "//components/translate/core/browser",
+    "//components/ui/zoom",
     "//components/update_client",
     "//components/version_ui",
     "//content/public/common",
@@ -87,6 +94,10 @@ source_set("ui") {
     "//ui/strings",
   ]
 
+  if (enable_extensions) {
+    deps += [ "//extensions/browser" ]
+  }
+
   if (!is_ios) {
     sources += rebase_path(gypi_values.chrome_browser_ui_non_ios_sources,
                            ".",
@@ -99,8 +110,9 @@ source_set("ui") {
       "//chrome/browser/ui/views",
       "//chrome/browser/ui/webui/engagement:mojo_bindings",
       "//chrome/browser/ui/webui/omnibox:mojo_bindings",
+      "//chrome/browser/ui/webui/plugins:mojo_bindings",
       "//chrome/common/net",
-      "//chrome/installer/util",
+      "//chrome/installer/util:with_no_strings",
       "//components/autofill/content/browser:risk_proto",
       "//components/bubble:bubble",
       "//components/crash/core/browser",
@@ -111,13 +123,14 @@ source_set("ui") {
       "//components/url_formatter",
       "//device/nfc",
       "//media",
+      "//mojo/edk/system",
       "//net:net_with_v8",
+      "//net:stale_while_revalidate_experiment_domains",
       "//storage/browser",
       "//storage/common",
       "//third_party/WebKit/public:resources",
       "//third_party/adobe/flash:flapper_version_h",
       "//third_party/leveldatabase",
-      "//third_party/mojo/src/mojo/edk/system",
       "//third_party/libjingle",
       "//third_party/re2",
       "//ui/base/ime",
@@ -133,7 +146,7 @@ source_set("ui") {
     deps += [ "//net" ]
   }
 
-  if ((!is_android || use_aura) && !is_ios) {
+  if (!android_java_ui && !is_ios) {
     sources += rebase_path(gypi_values.chrome_browser_ui_non_mobile_sources,
                            ".",
                            "//chrome")
@@ -142,6 +155,7 @@ source_set("ui") {
                     ".",
                     "//chrome")
     deps += [
+      "//chrome/common:features",
       "//components/copresence",
       "//components/feedback/proto",
       "//components/proximity_auth/webui",
@@ -152,6 +166,10 @@ source_set("ui") {
     if (is_android) {
       deps -= [ "//third_party/libusb" ]
     }
+  }
+
+  if (use_aura) {
+    defines += [ "MOJO_RUNNER_CLIENT" ]
   }
 
   if (enable_basic_printing || enable_print_preview) {
@@ -193,9 +211,11 @@ source_set("ui") {
     sources += rebase_path(gypi_values.chrome_browser_ui_chromeos_sources,
                            ".",
                            "//chrome")
-    deps += [ "//chrome/browser/chromeos" ]
-  } else {
-    defines += [ "FRAME_AVATAR_BUTTON=1" ]
+    deps += [
+      "//chrome/browser/chromeos",
+      "//components/arc",
+      "//ui/base/ime",
+    ]
   }
   if (use_cups) {
     configs += [ "//printing:cups" ]
@@ -203,11 +223,16 @@ source_set("ui") {
   if (use_ash) {
     sources +=
         rebase_path(gypi_values.chrome_browser_ui_ash_sources, ".", "//chrome")
+    sources += [
+      "ash/keyboard_ui_service.cc",
+      "ash/keyboard_ui_service.h",
+    ]
     deps += [
       "//ash",
       "//ash:ash_with_content",
       "//ash/strings",
       "//components/user_manager",
+      "//ui/keyboard:mojom",
     ]
     if (!is_chromeos) {
       sources += rebase_path(gypi_values.chrome_browser_ui_ash_non_chromeos,
@@ -252,12 +277,6 @@ source_set("ui") {
                              ".",
                              "//chrome")
     }
-    if (is_android) {
-      sources +=
-          rebase_path(gypi_values.chrome_browser_ui_views_android_sources,
-                      ".",
-                      "//chrome")
-    }
   } else {
     # !toolkit_views
     if (!is_ios) {
@@ -282,6 +301,8 @@ source_set("ui") {
         # This is not explicitly excluded in GYP, but I think the static
         # library linking rules means it's never referenced when compiling in
         # non-Views mode on Mac. It appears not to link in that case.
+        "views/frame/avatar_button_manager.cc",
+        "views/frame/avatar_button_manager.h",
         "views/profiles/new_avatar_button.cc",
         "views/profiles/new_avatar_button.h",
       ]
@@ -299,6 +320,7 @@ source_set("ui") {
       "//ui/keyboard:resources",
       "//ui/wm",
     ]
+    defines += [ "MOJO_SHELL_CLIENT" ]
     if (!is_chromeos) {
       sources += rebase_path(gypi_values.chrome_browser_ui_aura_non_chromeos,
                              ".",
@@ -322,19 +344,19 @@ source_set("ui") {
   }
 
   if (is_android) {
-    deps += [
-      "//chrome/browser:jni_headers",
-      "//crypto:platform",
-    ]
+    deps += [ "//crypto:platform" ]
 
-    defines += [ "CHROME_BUILD_ID=" + android_chrome_build_id ]
+    defines += [ "CHROME_BUILD_ID=\"$android_chrome_build_id\"" ]
 
-    if (!use_aura) {
+    if (android_java_ui) {
       sources +=
-          rebase_path(gypi_values.chrome_browser_ui_android_non_aura_sources,
+          rebase_path(gypi_values.chrome_browser_ui_android_java_ui_sources,
                       ".",
                       "//chrome")
-      deps += [ "//components/web_contents_delegate_android" ]
+      deps += [
+        "//chrome/browser:jni_headers",
+        "//components/web_contents_delegate_android",
+      ]
       deps -= [ "//ui/events" ]
     }
   }
@@ -387,13 +409,15 @@ source_set("ui") {
       "//ui/views/controls/webview",
     ]
     deps += [
-      "//chrome/browser/metro_utils",
       "//chrome/installer/util:strings",
+      "//components/search_engines",
       "//google_update",
-      "//third_party/wtl",
       "//third_party/iaccessible2",
       "//third_party/isimpledom",
+      "//third_party/wtl",
       "//ui/app_list",
+      "//ui/base/ime",
+      "//ui/events:dom_keycode_converter",
     ]
     if (!is_chrome_branded) {
       deps -= [ "//google_update" ]
@@ -415,6 +439,10 @@ source_set("ui") {
     sources += rebase_path(gypi_values.chrome_browser_ui_desktop_linux_sources,
                            ".",
                            "//chrome")
+    deps += [
+      "//ui/base/ime",
+      "//ui/events:dom_keycode_converter",
+    ]
   }
   if (is_linux) {  # Both desktop Linux and ChromeOS.
     sources += rebase_path(gypi_values.chrome_browser_ui_linux_sources,
@@ -446,6 +474,11 @@ source_set("ui") {
     sources += rebase_path(gypi_values.chrome_browser_ui_app_list_sources,
                            ".",
                            "//chrome")
+    if (is_chromeos) {
+      sources += rebase_path(gypi_values.chrome_browser_ui_chromeos_arc_sources,
+                             ".",
+                             "//chrome")
+    }
     deps += [ "//ui/app_list" ]
   } else {
     sources += rebase_path(gypi_values.chrome_browser_ui_non_app_list_sources,
@@ -457,7 +490,7 @@ source_set("ui") {
         rebase_path(gypi_values.chrome_browser_ui_autofill_dialog_sources,
                     ".",
                     "//chrome")
-    if ((!is_android || use_aura) && !is_ios) {
+    if (!android_java_ui && !is_ios) {
       sources += rebase_path(
               gypi_values.chrome_browser_ui_autofill_dialog_non_mobile_sources,
               ".",
@@ -521,7 +554,7 @@ if (is_mac) {
 
   action("generate_localizer") {
     script = "//chrome/tools/build/mac/generate_localizer"
-    sources = []
+    sources = rebase_path(nib_gypi_values.mac_translated_xibs, ".", "//chrome")
     table_path = "$target_gen_dir/ui_localizer_table.h"
     outputs = [
       table_path,
@@ -539,8 +572,8 @@ source_set("test_support") {
 
   sources = [
     "browser.h",
-    "cocoa/extensions/browser_action_test_util_mac.mm",
-    "cocoa/find_bar/find_bar_host_unittest_util_cocoa.mm",
+    "cocoa/cocoa_test_helper.h",
+    "cocoa/cocoa_test_helper.mm",
     "cocoa/run_loop_testing.h",
     "cocoa/run_loop_testing.mm",
     "exclusive_access/fullscreen_controller_state_test.cc",
@@ -570,6 +603,11 @@ source_set("test_support") {
     sources += [
       "views/find_bar_host_unittest_util_views.cc",
       "views/toolbar/browser_action_test_util_views.cc",
+    ]
+  } else {
+    sources += [
+      "cocoa/extensions/browser_action_test_util_mac.mm",
+      "cocoa/find_bar/find_bar_host_unittest_util_cocoa.mm",
     ]
   }
 

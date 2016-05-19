@@ -4,10 +4,13 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "codec_int.h"
+#include "core/src/fxcodec/codec/codec_int.h"
+
+#include <algorithm>
+#include <memory>
+
 #include "core/include/fxcodec/fx_codec.h"
 #include "core/include/fxcodec/fx_codec_flate.h"
-#include "third_party/base/nonstd_unique_ptr.h"
 #include "third_party/zlib_v128/zlib.h"
 
 extern "C" {
@@ -34,7 +37,7 @@ static void FPDFAPI_FlateCompress(unsigned char* dest_buf,
 void* FPDFAPI_FlateInit(void* (*alloc_func)(void*, unsigned int, unsigned int),
                         void (*free_func)(void*, void*)) {
   z_stream* p = (z_stream*)alloc_func(0, 1, sizeof(z_stream));
-  if (p == NULL) {
+  if (!p) {
     return NULL;
   }
   FXSYS_memset(p, 0, sizeof(z_stream));
@@ -563,7 +566,8 @@ void TIFF_PredictLine(uint8_t* dest_buf,
                       int Colors,
                       int Columns) {
   if (BitsPerComponent == 1) {
-    int row_bits = FX_MIN(BitsPerComponent * Colors * Columns, row_size * 8);
+    int row_bits = std::min(BitsPerComponent * Colors * Columns,
+                            pdfium::base::checked_cast<int>(row_size * 8));
     int index_pre = 0;
     int col_pre = 0;
     for (int i = 1; i < row_bits; i++) {
@@ -639,7 +643,7 @@ void FlateUncompress(const uint8_t* src_buf,
   if (!context)
     return;
 
-  nonstd::unique_ptr<uint8_t, FxFreeDeleter> guess_buf(
+  std::unique_ptr<uint8_t, FxFreeDeleter> guess_buf(
       FX_Alloc(uint8_t, guess_size + 1));
   guess_buf.get()[guess_size] = '\0';
 
@@ -835,7 +839,7 @@ FX_BOOL CCodec_FlateScanlineDecoder::v_Rewind() {
     FPDFAPI_FlateEnd(m_pFlate);
   }
   m_pFlate = FPDFAPI_FlateInit(my_alloc_func, my_free_func);
-  if (m_pFlate == NULL) {
+  if (!m_pFlate) {
     return FALSE;
   }
   FPDFAPI_FlateInput(m_pFlate, m_SrcBuf, m_SrcSize);
@@ -933,7 +937,7 @@ FX_DWORD CCodec_FlateModule::FlateOrLZWDecode(FX_BOOL bLZW,
   }
   if (bLZW) {
     {
-      nonstd::unique_ptr<CLZWDecoder> decoder(new CLZWDecoder);
+      std::unique_ptr<CLZWDecoder> decoder(new CLZWDecoder);
       dest_size = (FX_DWORD)-1;
       offset = src_size;
       int err = decoder->Decode(NULL, dest_size, src_buf, offset, bEarlyChange);
@@ -942,7 +946,7 @@ FX_DWORD CCodec_FlateModule::FlateOrLZWDecode(FX_BOOL bLZW,
       }
     }
     {
-      nonstd::unique_ptr<CLZWDecoder> decoder(new CLZWDecoder);
+      std::unique_ptr<CLZWDecoder> decoder(new CLZWDecoder);
       dest_buf = FX_Alloc(uint8_t, dest_size + 1);
       dest_buf[dest_size] = '\0';
       decoder->Decode(dest_buf, dest_size, src_buf, offset, bEarlyChange);

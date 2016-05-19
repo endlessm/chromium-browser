@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file./*
 
-#include "config.h"
 #include "core/editing/PositionWithAffinity.h"
 
 namespace blink {
@@ -34,6 +33,6 @@ bool PositionWithAffinityTemplate<Strategy>::operator==(const PositionWithAffini
 }
 
 template class CORE_TEMPLATE_EXPORT PositionWithAffinityTemplate<EditingStrategy>;
-template class CORE_TEMPLATE_EXPORT PositionWithAffinityTemplate<EditingInComposedTreeStrategy>;
+template class CORE_TEMPLATE_EXPORT PositionWithAffinityTemplate<EditingInFlatTreeStrategy>;
 
 } // namespace blink

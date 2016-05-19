@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -16,7 +17,6 @@ class Point;
 
 namespace ui {
 
-class DrmGpuPlatformSupportHost;
 class DrmWindowHost;
 
 // Responsible for keeping the mapping between the allocated widgets and

@@ -31,7 +31,6 @@
 // we need to place this directive before any data or functions are defined.
 #pragma GCC diagnostic ignored "-Wmissing-format-attribute"
 
-#include "config.h"
 #include "wtf/Assertions.h"
 
 #include "wtf/Compiler.h"
@@ -358,7 +357,7 @@ void ScopedLogger::print(const char* format, ...)
 
 ScopedLogger*& ScopedLogger::current()
 {
-    AtomicallyInitializedStaticReference(ThreadSpecific<ScopedLogger*>, ref, new ThreadSpecific<ScopedLogger*>);
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<ScopedLogger*>, ref, new ThreadSpecific<ScopedLogger*>);
     return *ref;
 }
 
@@ -427,4 +426,3 @@ void WTFLogAlways(const char* format, ...)
     vprintf_stderr_with_trailing_newline(format, args);
     va_end(args);
 }
-

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/MIMETypeRegistry.h"
 
 #include "platform/plugins/PluginData.h"
@@ -119,6 +118,25 @@ bool MIMETypeRegistry::isJavaAppletMIMEType(const String& mimeType)
     return mimeType.startsWith("application/x-java-applet", TextCaseInsensitive)
         || mimeType.startsWith("application/x-java-bean", TextCaseInsensitive)
         || mimeType.startsWith("application/x-java-vm", TextCaseInsensitive);
+}
+
+bool MIMETypeRegistry::isSupportedStyleSheetMIMEType(const String& mimeType)
+{
+    return equalIgnoringCase(mimeType, "text/css");
+}
+
+bool MIMETypeRegistry::isSupportedFontMIMEType(const String& mimeType)
+{
+    static const unsigned fontLen = 5;
+    if (!mimeType.startsWith("font/", TextCaseInsensitive))
+        return false;
+    String subType = mimeType.substring(fontLen).lower();
+    return subType == "woff" || subType == "woff2" || subType == "otf" || subType == "ttf" || subType == "sfnt";
+}
+
+bool MIMETypeRegistry::isSupportedTextTrackMIMEType(const String& mimeType)
+{
+    return equalIgnoringCase(mimeType, "text/vtt");
 }
 
 } // namespace blink

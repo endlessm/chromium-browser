@@ -7,7 +7,7 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_service.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/browser/google/google_url_tracker_factory.h"
@@ -15,14 +15,13 @@
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/search/search.h"
-#include "chrome/browser/themes/theme_service.h"
-#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/google/core/browser/google_url_tracker.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
+#include "components/prefs/pref_service.h"
 #include "components/search/search.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
@@ -85,10 +84,8 @@ base::string16 UIThreadSearchTermsData::GetRlzParameterValue(
     // value has been cached. This normally would mean that at most one omnibox
     // search might not send the RLZ data but this is not really a problem.
     rlz_lib::AccessPoint access_point = rlz::RLZTracker::ChromeOmnibox();
-#if !defined(OS_IOS)
     if (from_app_list)
       access_point = rlz::RLZTracker::ChromeAppList();
-#endif
     rlz::RLZTracker::GetAccessPointRlz(access_point, &rlz_string);
   }
 #endif
@@ -126,11 +123,6 @@ std::string UIThreadSearchTermsData::GetSuggestRequestIdentifier() const {
   return "chrome-ext-ansg";
 }
 
-bool UIThreadSearchTermsData::IsShowingSearchTermsOnSearchResultsPages() const {
-  return search::IsInstantExtendedAPIEnabled() &&
-         search::IsQueryExtractionEnabled();
-}
-
 std::string UIThreadSearchTermsData::InstantExtendedEnabledParam(
     bool for_search) const {
   return search::InstantExtendedEnabledParam(for_search);
@@ -139,33 +131,6 @@ std::string UIThreadSearchTermsData::InstantExtendedEnabledParam(
 std::string UIThreadSearchTermsData::ForceInstantResultsParam(
     bool for_prerender) const {
   return search::ForceInstantResultsParam(for_prerender);
-}
-
-int UIThreadSearchTermsData::OmniboxStartMargin() const {
-  InstantService* instant_service =
-      InstantServiceFactory::GetForProfile(profile_);
-  // Android and iOS have no InstantService.
-  return instant_service ? instant_service->omnibox_start_margin()
-                         : search::kDisableStartMargin;
-}
-
-std::string UIThreadSearchTermsData::NTPIsThemedParam() const {
-  DCHECK(!BrowserThread::IsThreadInitialized(BrowserThread::UI) ||
-         BrowserThread::CurrentlyOn(BrowserThread::UI));
-#if defined(ENABLE_THEMES)
-  if (!search::IsInstantExtendedAPIEnabled())
-    return std::string();
-
-  // TODO(dhollowa): Determine fraction of custom themes that don't affect the
-  // NTP background and/or color.
-  ThemeService* theme_service = ThemeServiceFactory::GetForProfile(profile_);
-  // NTP is considered themed if the theme is not default and not native (GTK+).
-  if (theme_service && !theme_service->UsingDefaultTheme() &&
-      !theme_service->UsingSystemTheme())
-    return "es_th=1&";
-#endif  // defined(ENABLE_THEMES)
-
-  return std::string();
 }
 
 // It's acutally OK to call this method on any thread, but it's currently placed

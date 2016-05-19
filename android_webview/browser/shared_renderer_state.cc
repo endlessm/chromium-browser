@@ -4,6 +4,8 @@
 
 #include "android_webview/browser/shared_renderer_state.h"
 
+#include <utility>
+
 #include "android_webview/browser/browser_view_renderer.h"
 #include "android_webview/browser/child_frame.h"
 #include "android_webview/browser/deferred_gpu_command_service.h"
@@ -166,19 +168,19 @@ gfx::Vector2d SharedRendererState::GetScrollOffsetOnRT() {
 void SharedRendererState::SetCompositorFrameOnUI(scoped_ptr<ChildFrame> frame) {
   base::AutoLock lock(lock_);
   DCHECK(!child_frame_.get());
-  child_frame_ = frame.Pass();
+  child_frame_ = std::move(frame);
 }
 
 scoped_ptr<ChildFrame> SharedRendererState::PassCompositorFrameOnRT() {
   base::AutoLock lock(lock_);
   hardware_renderer_has_frame_ =
       hardware_renderer_has_frame_ || child_frame_.get();
-  return child_frame_.Pass();
+  return std::move(child_frame_);
 }
 
 scoped_ptr<ChildFrame> SharedRendererState::PassUncommittedFrameOnUI() {
   base::AutoLock lock(lock_);
-  return child_frame_.Pass();
+  return std::move(child_frame_);
 }
 
 void SharedRendererState::PostExternalDrawConstraintsToChildCompositorOnRT(
@@ -212,22 +214,25 @@ bool SharedRendererState::IsInsideHardwareRelease() const {
 }
 
 void SharedRendererState::InsertReturnedResourcesOnRT(
-    const cc::ReturnedResourceArray& resources) {
+    const cc::ReturnedResourceArray& resources,
+    unsigned int compositor_id) {
   base::AutoLock lock(lock_);
-  returned_resources_.insert(
-      returned_resources_.end(), resources.begin(), resources.end());
+  cc::ReturnedResourceArray& returned_resources =
+      returned_resources_map_[compositor_id];
+  returned_resources.insert(returned_resources.end(), resources.begin(),
+                            resources.end());
 }
 
 void SharedRendererState::SwapReturnedResourcesOnUI(
-    cc::ReturnedResourceArray* resources) {
-  DCHECK(resources->empty());
+    std::map<unsigned int, cc::ReturnedResourceArray>* returned_resource_map) {
+  DCHECK(returned_resource_map->empty());
   base::AutoLock lock(lock_);
-  resources->swap(returned_resources_);
+  returned_resource_map->swap(returned_resources_map_);
 }
 
 bool SharedRendererState::ReturnedResourcesEmptyOnUI() const {
   base::AutoLock lock(lock_);
-  return returned_resources_.empty();
+  return returned_resources_map_.empty();
 }
 
 void SharedRendererState::DrawGL(AwDrawGLInfo* draw_info) {
@@ -295,7 +300,7 @@ void SharedRendererState::DrawGL(AwDrawGLInfo* draw_info) {
     return;
   }
 
-  hardware_renderer_->DrawGL(state_restore.stencil_enabled(), draw_info);
+  hardware_renderer_->DrawGL(draw_info, state_restore);
   DeferredGpuCommandService::GetInstance()->PerformIdleWork(false);
 }
 

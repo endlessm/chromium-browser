@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGSetElement.h"
 
 #include "core/SVGNames.h"
@@ -39,4 +38,4 @@ void SVGSetElement::updateAnimationMode()
     // See: http://www.w3.org/TR/SVG/single-page.html#animate-SetElement
 }
 
-}
+} // namespace blink

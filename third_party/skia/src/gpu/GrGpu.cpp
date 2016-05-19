@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2010 Google Inc.
  *
@@ -20,6 +19,7 @@
 #include "GrRenderTargetPriv.h"
 #include "GrStencilAttachment.h"
 #include "GrSurfacePriv.h"
+#include "GrTransferBuffer.h"
 #include "GrVertexBuffer.h"
 #include "GrVertices.h"
 
@@ -88,7 +88,7 @@ static GrSurfaceOrigin resolve_origin(GrSurfaceOrigin origin, bool renderTarget)
     }
 }
 
-GrTexture* GrGpu::createTexture(const GrSurfaceDesc& origDesc, bool budgeted,
+GrTexture* GrGpu::createTexture(const GrSurfaceDesc& origDesc, SkBudgeted budgeted,
                                 const void* srcData, size_t rowBytes) {
     GrSurfaceDesc desc = origDesc;
 
@@ -120,8 +120,9 @@ GrTexture* GrGpu::createTexture(const GrSurfaceDesc& origDesc, bool budgeted,
         }
     }
 
-    GrGpuResource::LifeCycle lifeCycle = budgeted ? GrGpuResource::kCached_LifeCycle :
-                                                    GrGpuResource::kUncached_LifeCycle;
+    GrGpuResource::LifeCycle lifeCycle = SkBudgeted::kYes == budgeted ?
+                                            GrGpuResource::kCached_LifeCycle :
+                                            GrGpuResource::kUncached_LifeCycle;
 
     desc.fSampleCnt = SkTMin(desc.fSampleCnt, this->caps()->maxSampleCount());
     // Attempt to catch un- or wrongly initialized sample counts;
@@ -159,6 +160,17 @@ GrTexture* GrGpu::createTexture(const GrSurfaceDesc& origDesc, bool budgeted,
 
 GrTexture* GrGpu::wrapBackendTexture(const GrBackendTextureDesc& desc, GrWrapOwnership ownership) {
     this->handleDirtyContext();
+    if (!this->caps()->isConfigTexturable(desc.fConfig)) {
+        return nullptr;
+    }
+    if ((desc.fFlags & kRenderTarget_GrBackendTextureFlag) &&
+        !this->caps()->isConfigRenderable(desc.fConfig, desc.fSampleCnt > 0)) {
+        return nullptr;
+    }
+    int maxSize = this->caps()->maxTextureSize();
+    if (desc.fWidth > maxSize || desc.fHeight > maxSize) {
+        return nullptr;
+    }
     GrTexture* tex = this->onWrapBackendTexture(desc, ownership);
     if (nullptr == tex) {
         return nullptr;
@@ -175,8 +187,27 @@ GrTexture* GrGpu::wrapBackendTexture(const GrBackendTextureDesc& desc, GrWrapOwn
 
 GrRenderTarget* GrGpu::wrapBackendRenderTarget(const GrBackendRenderTargetDesc& desc,
                                                GrWrapOwnership ownership) {
+    if (!this->caps()->isConfigRenderable(desc.fConfig, desc.fSampleCnt > 0)) {
+        return nullptr;
+    }
     this->handleDirtyContext();
     return this->onWrapBackendRenderTarget(desc, ownership);
+}
+
+GrRenderTarget* GrGpu::wrapBackendTextureAsRenderTarget(const GrBackendTextureDesc& desc,
+                                                        GrWrapOwnership ownership) {
+    this->handleDirtyContext();
+    if (!(desc.fFlags & kRenderTarget_GrBackendTextureFlag)) {
+      return nullptr;
+    }
+    if (!this->caps()->isConfigRenderable(desc.fConfig, desc.fSampleCnt > 0)) {
+        return nullptr;
+    }
+    int maxSize = this->caps()->maxTextureSize();
+    if (desc.fWidth > maxSize || desc.fHeight > maxSize) {
+        return nullptr;
+    }
+    return this->onWrapBackendTextureAsRenderTarget(desc, ownership);
 }
 
 GrVertexBuffer* GrGpu::createVertexBuffer(size_t size, bool dynamic) {
@@ -195,6 +226,12 @@ GrIndexBuffer* GrGpu::createIndexBuffer(size_t size, bool dynamic) {
         ib->resourcePriv().removeScratchKey();
     }
     return ib;
+}
+
+GrTransferBuffer* GrGpu::createTransferBuffer(size_t size, TransferType type) {
+    this->handleDirtyContext();
+    GrTransferBuffer* tb = this->onCreateTransferBuffer(size, type);
+    return tb;
 }
 
 void GrGpu::clear(const SkIRect& rect,
@@ -252,7 +289,7 @@ bool GrGpu::getReadPixelsInfo(GrSurface* srcSurface, int width, int height, size
 
     return true;
 }
-bool GrGpu::getWritePixelsInfo(GrSurface* dstSurface, int width, int height, size_t rowBytes,
+bool GrGpu::getWritePixelsInfo(GrSurface* dstSurface, int width, int height,
                                GrPixelConfig srcConfig, DrawPreference* drawPreference,
                                WritePixelTempDrawInfo* tempDrawInfo) {
     SkASSERT(drawPreference);
@@ -264,13 +301,16 @@ bool GrGpu::getWritePixelsInfo(GrSurface* dstSurface, int width, int height, siz
         return false;
     }
 
-    if (this->caps()->useDrawInsteadOfPartialRenderTargetWrite() &&
-        SkToBool(dstSurface->asRenderTarget()) &&
-        (width < dstSurface->width() || height < dstSurface->height())) {
-        ElevateDrawPreference(drawPreference, kRequireDraw_DrawPreference);
+    if (SkToBool(dstSurface->asRenderTarget())) {
+        if (this->caps()->useDrawInsteadOfAllRenderTargetWrites()) {
+            ElevateDrawPreference(drawPreference, kRequireDraw_DrawPreference);
+        } else if (this->caps()->useDrawInsteadOfPartialRenderTargetWrite() &&
+                   (width < dstSurface->width() || height < dstSurface->height())) {
+            ElevateDrawPreference(drawPreference, kRequireDraw_DrawPreference);
+        }
     }
 
-    if (!this->onGetWritePixelsInfo(dstSurface, width, height, rowBytes, srcConfig, drawPreference,
+    if (!this->onGetWritePixelsInfo(dstSurface, width, height, srcConfig, drawPreference,
                                     tempDrawInfo)) {
         return false;
     }
@@ -317,13 +357,28 @@ bool GrGpu::writePixels(GrSurface* surface,
                         int left, int top, int width, int height,
                         GrPixelConfig config, const void* buffer,
                         size_t rowBytes) {
-    if (!buffer) {
+    if (!buffer || !surface) {
         return false;
     }
 
     this->handleDirtyContext();
     if (this->onWritePixels(surface, left, top, width, height, config, buffer, rowBytes)) {
         fStats.incTextureUploads();
+        return true;
+    }
+    return false;
+}
+
+bool GrGpu::transferPixels(GrSurface* surface,
+                           int left, int top, int width, int height,
+                           GrPixelConfig config, GrTransferBuffer* buffer,
+                           size_t offset, size_t rowBytes) {
+    SkASSERT(buffer);
+
+    this->handleDirtyContext();
+    if (this->onTransferPixels(surface, left, top, width, height, config,
+                               buffer, offset, rowBytes)) {
+        fStats.incTransfersToTexture();
         return true;
     }
     return false;
@@ -350,3 +405,4 @@ void GrGpu::draw(const DrawArgs& args, const GrVertices& vertices) {
         fStats.incNumDraws();
     } while ((verts = iter.next()));
 }
+

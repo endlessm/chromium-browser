@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_persistence.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/values.h"
@@ -18,12 +21,18 @@ namespace base {
 class StatisticsRecorderTest : public testing::Test {
  protected:
   void SetUp() override {
+    // Get this first so it never gets created in persistent storage and will
+    // not appear in the StatisticsRecorder after it is re-initialized.
+    GetCreateHistogramResultHistogram();
     // Each test will have a clean state (no Histogram / BucketRanges
     // registered).
     InitializeStatisticsRecorder();
   }
 
-  void TearDown() override { UninitializeStatisticsRecorder(); }
+  void TearDown() override {
+    UninitializeStatisticsRecorder();
+    delete ReleasePersistentHistogramMemoryAllocatorForTesting();
+  }
 
   void InitializeStatisticsRecorder() {
     statistics_recorder_ = new StatisticsRecorder();
@@ -72,7 +81,7 @@ TEST_F(StatisticsRecorderTest, NotInitialized) {
   DeleteHistogram(histogram);
 
   // RegisterOrDeleteDuplicateRanges is a no-op.
-  BucketRanges* ranges = new BucketRanges(3);;
+  BucketRanges* ranges = new BucketRanges(3);
   ranges->ResetChecksum();
   EXPECT_EQ(ranges,
             StatisticsRecorder::RegisterOrDeleteDuplicateRanges(ranges));
@@ -83,9 +92,9 @@ TEST_F(StatisticsRecorderTest, NotInitialized) {
 TEST_F(StatisticsRecorderTest, RegisterBucketRanges) {
   std::vector<const BucketRanges*> registered_ranges;
 
-  BucketRanges* ranges1 = new BucketRanges(3);;
+  BucketRanges* ranges1 = new BucketRanges(3);
   ranges1->ResetChecksum();
-  BucketRanges* ranges2 = new BucketRanges(4);;
+  BucketRanges* ranges2 = new BucketRanges(4);
   ranges2->ResetChecksum();
 
   // Register new ranges.
@@ -109,7 +118,7 @@ TEST_F(StatisticsRecorderTest, RegisterBucketRanges) {
   EXPECT_EQ(0, ranges1->range(2));
 
   // Register ranges with same values.
-  BucketRanges* ranges3 = new BucketRanges(3);;
+  BucketRanges* ranges3 = new BucketRanges(3);
   ranges3->ResetChecksum();
   EXPECT_EQ(ranges1,  // returning ranges1
             StatisticsRecorder::RegisterOrDeleteDuplicateRanges(ranges3));
@@ -311,6 +320,23 @@ TEST_F(StatisticsRecorderTest, ToJSON) {
   // No data should be returned.
   json = StatisticsRecorder::ToJSON(query);
   EXPECT_TRUE(json.empty());
+}
+
+TEST_F(StatisticsRecorderTest, IterationTest) {
+  StatisticsRecorder::Histograms registered_histograms;
+  LOCAL_HISTOGRAM_COUNTS("TestHistogram.IterationTest1", 30);
+  SetPersistentHistogramMemoryAllocator(
+      new LocalPersistentMemoryAllocator(64 << 10, 0, std::string()));
+  LOCAL_HISTOGRAM_COUNTS("TestHistogram.IterationTest2", 30);
+
+  StatisticsRecorder::HistogramIterator i1 = StatisticsRecorder::begin(true);
+  EXPECT_NE(StatisticsRecorder::end(), i1);
+  EXPECT_NE(StatisticsRecorder::end(), ++i1);
+  EXPECT_EQ(StatisticsRecorder::end(), ++i1);
+
+  StatisticsRecorder::HistogramIterator i2 = StatisticsRecorder::begin(false);
+  EXPECT_NE(StatisticsRecorder::end(), i2);
+  EXPECT_EQ(StatisticsRecorder::end(), ++i2);
 }
 
 namespace {

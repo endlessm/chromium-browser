@@ -4,12 +4,15 @@
 
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 
+#include <stddef.h>
+
 #include <set>
 
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/common/custom_handlers/protocol_handler.h"
 #include "chrome/common/pref_names.h"
@@ -36,12 +39,12 @@ void AssertInterceptedIO(
     net::URLRequestJobFactory* interceptor) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   net::URLRequestContext context;
-  scoped_ptr<net::URLRequest> request(context.CreateRequest(
-      url, net::DEFAULT_PRIORITY, NULL));
-  scoped_refptr<net::URLRequestJob> job =
+  scoped_ptr<net::URLRequest> request(
+      context.CreateRequest(url, net::DEFAULT_PRIORITY, nullptr));
+  scoped_ptr<net::URLRequestJob> job(
       interceptor->MaybeCreateJobWithProtocolHandler(
-          url.scheme(), request.get(), context.network_delegate());
-  ASSERT_TRUE(job.get() != NULL);
+          url.scheme(), request.get(), context.network_delegate()));
+  ASSERT_TRUE(job.get());
 }
 
 void AssertIntercepted(
@@ -147,8 +150,8 @@ class FakeDelegate : public ProtocolHandlerRegistry::Delegate {
     registered_protocols_.erase(protocol);
   }
 
-  ShellIntegration::DefaultProtocolClientWorker* CreateShellWorker(
-      ShellIntegration::DefaultWebClientObserver* observer,
+  shell_integration::DefaultProtocolClientWorker* CreateShellWorker(
+      shell_integration::DefaultWebClientObserver* observer,
       const std::string& protocol) override;
 
   ProtocolHandlerRegistry::DefaultClientObserver* CreateShellObserver(
@@ -199,13 +202,13 @@ class FakeClientObserver
         delegate_(registry_delegate) {}
 
   void SetDefaultWebClientUIState(
-      ShellIntegration::DefaultWebClientUIState state) override {
+      shell_integration::DefaultWebClientUIState state) override {
     ProtocolHandlerRegistry::DefaultClientObserver::SetDefaultWebClientUIState(
         state);
-    if (state == ShellIntegration::STATE_IS_DEFAULT) {
+    if (state == shell_integration::STATE_IS_DEFAULT) {
       delegate_->FakeRegisterWithOS(worker_->protocol());
     }
-    if (state != ShellIntegration::STATE_PROCESSING) {
+    if (state != shell_integration::STATE_PROCESSING) {
       base::MessageLoop::current()->QuitWhenIdle();
     }
   }
@@ -215,22 +218,26 @@ class FakeClientObserver
 };
 
 class FakeProtocolClientWorker
-    : public ShellIntegration::DefaultProtocolClientWorker {
+    : public shell_integration::DefaultProtocolClientWorker {
  public:
-  FakeProtocolClientWorker(ShellIntegration::DefaultWebClientObserver* observer,
-                           const std::string& protocol,
-                           bool force_failure)
-      : ShellIntegration::DefaultProtocolClientWorker(observer, protocol),
+  FakeProtocolClientWorker(
+      shell_integration::DefaultWebClientObserver* observer,
+      const std::string& protocol,
+      bool force_failure)
+      : shell_integration::DefaultProtocolClientWorker(
+            observer,
+            protocol,
+            /*delete_observer*/ true),
         force_failure_(force_failure) {}
 
  private:
   ~FakeProtocolClientWorker() override {}
 
   void CheckIsDefault() override {
-    ShellIntegration::DefaultWebClientState state =
-        ShellIntegration::IS_DEFAULT;
+    shell_integration::DefaultWebClientState state =
+        shell_integration::IS_DEFAULT;
     if (force_failure_)
-      state = ShellIntegration::NOT_DEFAULT;
+      state = shell_integration::NOT_DEFAULT;
 
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
@@ -238,7 +245,7 @@ class FakeProtocolClientWorker
                    state));
   }
 
-  void SetAsDefault(bool interactive_permitted) override {
+  void SetAsDefault() override {
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         base::Bind(&FakeProtocolClientWorker::OnSetAsDefaultAttemptComplete,
@@ -254,8 +261,8 @@ ProtocolHandlerRegistry::DefaultClientObserver*
   return new FakeClientObserver(registry, this);
 }
 
-ShellIntegration::DefaultProtocolClientWorker* FakeDelegate::CreateShellWorker(
-    ShellIntegration::DefaultWebClientObserver* observer,
+shell_integration::DefaultProtocolClientWorker* FakeDelegate::CreateShellWorker(
+    shell_integration::DefaultWebClientObserver* observer,
     const std::string& protocol) {
   return new FakeProtocolClientWorker(observer, protocol, force_os_failure_);
 }

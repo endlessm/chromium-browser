@@ -4,6 +4,10 @@
 
 #include "tools/gn/target.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+
 #include "base/bind.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -11,7 +15,11 @@
 #include "tools/gn/deps_iterator.h"
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/scheduler.h"
+#include "tools/gn/source_file_type.h"
 #include "tools/gn/substitution_writer.h"
+#include "tools/gn/tool.h"
+#include "tools/gn/toolchain.h"
+#include "tools/gn/trace.h"
 
 namespace {
 
@@ -66,9 +74,15 @@ Err MakeStaticLibDepsError(const Target* from, const Target* to) {
 //
 // Pass a pointer to an empty set for the first invocation. This will be used
 // to avoid duplicate checking.
+//
+// Checking of object files is optional because it is much slower. This allows
+// us to check targets for normal outputs, and then as a second pass check
+// object files (since we know it will be an error otherwise). This allows
+// us to avoid computing all object file names in the common case.
 bool EnsureFileIsGeneratedByDependency(const Target* target,
                                        const OutputFile& file,
                                        bool check_private_deps,
+                                       bool consider_object_files,
                                        std::set<const Target*>* seen_targets) {
   if (seen_targets->find(target) != seen_targets->end())
     return false;  // Already checked this one and it's not found.
@@ -82,11 +96,24 @@ bool EnsureFileIsGeneratedByDependency(const Target* target,
       return true;
   }
 
+  // Check binary target intermediate files if requested.
+  if (consider_object_files && target->IsBinary()) {
+    std::vector<OutputFile> source_outputs;
+    for (const SourceFile& source : target->sources()) {
+      Toolchain::ToolType tool_type;
+      if (!target->GetOutputFilesForSource(source, &tool_type, &source_outputs))
+        continue;
+      if (std::find(source_outputs.begin(), source_outputs.end(), file) !=
+          source_outputs.end())
+        return true;
+    }
+  }
+
   // Check all public dependencies (don't do data ones since those are
   // runtime-only).
   for (const auto& pair : target->public_deps()) {
     if (EnsureFileIsGeneratedByDependency(pair.ptr, file, false,
-                                          seen_targets))
+                                          consider_object_files, seen_targets))
       return true;  // Found a path.
   }
 
@@ -94,11 +121,67 @@ bool EnsureFileIsGeneratedByDependency(const Target* target,
   if (check_private_deps) {
     for (const auto& pair : target->private_deps()) {
       if (EnsureFileIsGeneratedByDependency(pair.ptr, file, false,
+                                            consider_object_files,
                                             seen_targets))
         return true;  // Found a path.
     }
   }
   return false;
+}
+
+// check_this indicates if the given target should be matched against the
+// patterns. It should be set to false for the first call since assert_no_deps
+// shouldn't match the target itself.
+//
+// visited should point to an empty set, this will be used to prevent
+// multiple visits.
+//
+// *failure_path_str will be filled with a string describing the path of the
+// dependency failure, and failure_pattern will indicate the pattern in
+// assert_no that matched the target.
+//
+// Returns true if everything is OK. failure_path_str and failure_pattern_index
+// will be unchanged in this case.
+bool RecursiveCheckAssertNoDeps(const Target* target,
+                                bool check_this,
+                                const std::vector<LabelPattern>& assert_no,
+                                std::set<const Target*>* visited,
+                                std::string* failure_path_str,
+                                const LabelPattern** failure_pattern) {
+  static const char kIndentPath[] = "  ";
+
+  if (visited->find(target) != visited->end())
+    return true;  // Already checked this target.
+  visited->insert(target);
+
+  if (check_this) {
+    // Check this target against the given list of patterns.
+    for (const LabelPattern& pattern : assert_no) {
+      if (pattern.Matches(target->label())) {
+        // Found a match.
+        *failure_pattern = &pattern;
+        *failure_path_str =
+            kIndentPath + target->label().GetUserVisibleName(false);
+        return false;
+      }
+    }
+  }
+
+  // Recursively check dependencies.
+  for (const auto& pair : target->GetDeps(Target::DEPS_ALL)) {
+    if (pair.ptr->output_type() == Target::EXECUTABLE)
+      continue;
+    if (!RecursiveCheckAssertNoDeps(pair.ptr, true, assert_no, visited,
+                                    failure_path_str, failure_pattern)) {
+      // To reconstruct the path, prepend the current target to the error.
+      std::string prepend_path =
+          kIndentPath + target->label().GetUserVisibleName(false) + " ->\n";
+      failure_path_str->insert(0, prepend_path);
+      return false;
+    }
+  }
+
+  return true;
 }
 
 }  // namespace
@@ -156,21 +239,43 @@ bool Target::OnResolved(Err* err) {
   DCHECK(output_type_ != UNKNOWN);
   DCHECK(toolchain_) << "Toolchain should have been set before resolving.";
 
-  // Copy our own dependent configs to the list of configs applying to us.
+  ScopedTrace trace(TraceItem::TRACE_ON_RESOLVED, label());
+  trace.SetToolchain(settings()->toolchain_label());
+
+  // Copy this target's own dependent and public configs to the list of configs
+  // applying to it.
   configs_.Append(all_dependent_configs_.begin(), all_dependent_configs_.end());
   MergePublicConfigsFrom(this, &configs_);
+
+  // Copy public configs from all dependencies into the list of configs
+  // applying to this target (configs_).
+  PullDependentTargetConfigs();
+
+  // Copies public dependencies' public configs to this target's public
+  // configs. These configs have already been applied to this target by
+  // PullDependentTargetConfigs above, along with the public configs from
+  // private deps. This step re-exports them as public configs for targets that
+  // depend on this one.
+  for (const auto& dep : public_deps_) {
+    public_configs_.Append(dep.ptr->public_configs().begin(),
+                           dep.ptr->public_configs().end());
+  }
 
   // Copy our own libs and lib_dirs to the final set. This will be from our
   // target and all of our configs. We do this specially since these must be
   // inherited through the dependency tree (other flags don't work this way).
+  //
+  // This needs to happen after we pull dependent target configs for the
+  // public config's libs to be included here. And it needs to happen
+  // before pulling the dependent target libs so the libs are in the correct
+  // order (local ones first, then the dependency's).
   for (ConfigValuesIterator iter(this); !iter.done(); iter.Next()) {
     const ConfigValues& cur = iter.cur();
     all_lib_dirs_.append(cur.lib_dirs().begin(), cur.lib_dirs().end());
     all_libs_.append(cur.libs().begin(), cur.libs().end());
   }
 
-  PullDependentTargets();
-  PullPublicConfigs();
+  PullDependentTargetLibs();
   PullRecursiveHardDeps();
   if (!ResolvePrecompiledHeaders(err))
     return false;
@@ -184,10 +289,20 @@ bool Target::OnResolved(Err* err) {
       return false;
     if (!CheckNoNestedStaticLibs(err))
       return false;
+    if (!CheckAssertNoDeps(err))
+      return false;
     CheckSourcesGenerated();
   }
 
   return true;
+}
+
+bool Target::IsBinary() const {
+  return output_type_ == EXECUTABLE ||
+         output_type_ == SHARED_LIBRARY ||
+         output_type_ == LOADABLE_MODULE ||
+         output_type_ == STATIC_LIBRARY ||
+         output_type_ == SOURCE_SET;
 }
 
 bool Target::IsLinkable() const {
@@ -198,6 +313,9 @@ bool Target::IsFinal() const {
   return output_type_ == EXECUTABLE ||
          output_type_ == SHARED_LIBRARY ||
          output_type_ == LOADABLE_MODULE ||
+         output_type_ == ACTION ||
+         output_type_ == ACTION_FOREACH ||
+         output_type_ == COPY_FILES ||
          (output_type_ == STATIC_LIBRARY && complete_static_lib_);
 }
 
@@ -259,10 +377,45 @@ bool Target::SetToolchain(const Toolchain* toolchain, Err* err) {
   return false;
 }
 
-void Target::PullDependentTarget(const Target* dep, bool is_public) {
+bool Target::GetOutputFilesForSource(const SourceFile& source,
+                                     Toolchain::ToolType* computed_tool_type,
+                                     std::vector<OutputFile>* outputs) const {
+  outputs->clear();
+  *computed_tool_type = Toolchain::TYPE_NONE;
+
+  SourceFileType file_type = GetSourceFileType(source);
+  if (file_type == SOURCE_UNKNOWN)
+    return false;
+  if (file_type == SOURCE_O) {
+    // Object files just get passed to the output and not compiled.
+    outputs->push_back(OutputFile(settings()->build_settings(), source));
+    return true;
+  }
+
+  *computed_tool_type = toolchain_->GetToolTypeForSourceType(file_type);
+  if (*computed_tool_type == Toolchain::TYPE_NONE)
+    return false;  // No tool for this file (it's a header file or something).
+  const Tool* tool = toolchain_->GetTool(*computed_tool_type);
+  if (!tool)
+    return false;  // Tool does not apply for this toolchain.file.
+
+  // Figure out what output(s) this compiler produces.
+  SubstitutionWriter::ApplyListToCompilerAsOutputFile(
+      this, source, tool->outputs(), outputs);
+  return !outputs->empty();
+}
+
+void Target::PullDependentTargetConfigsFrom(const Target* dep) {
   MergeAllDependentConfigsFrom(dep, &configs_, &all_dependent_configs_);
   MergePublicConfigsFrom(dep, &configs_);
+}
 
+void Target::PullDependentTargetConfigs() {
+  for (const auto& pair : GetDeps(DEPS_LINKED))
+    PullDependentTargetConfigsFrom(pair.ptr);
+}
+
+void Target::PullDependentTargetLibsFrom(const Target* dep, bool is_public) {
   // Direct dependent libraries.
   if (dep->output_type() == STATIC_LIBRARY ||
       dep->output_type() == SHARED_LIBRARY ||
@@ -302,37 +455,22 @@ void Target::PullDependentTarget(const Target* dep, bool is_public) {
   }
 }
 
-void Target::PullDependentTargets() {
+void Target::PullDependentTargetLibs() {
   for (const auto& dep : public_deps_)
-    PullDependentTarget(dep.ptr, true);
+    PullDependentTargetLibsFrom(dep.ptr, true);
   for (const auto& dep : private_deps_)
-    PullDependentTarget(dep.ptr, false);
-}
-
-void Target::PullPublicConfigs() {
-  // Pull public configs from each of our dependency's public deps.
-  for (const auto& dep : public_deps_)
-    PullPublicConfigsFrom(dep.ptr);
-}
-
-void Target::PullPublicConfigsFrom(const Target* from) {
-  public_configs_.Append(from->public_configs().begin(),
-                         from->public_configs().end());
+    PullDependentTargetLibsFrom(dep.ptr, false);
 }
 
 void Target::PullRecursiveHardDeps() {
   for (const auto& pair : GetDeps(DEPS_LINKED)) {
+    // Direct hard dependencies.
     if (pair.ptr->hard_dep())
       recursive_hard_deps_.insert(pair.ptr);
 
-    // Android STL doesn't like insert(begin, end) so do it manually.
-    // TODO(brettw) this can be changed to
-    // insert(iter.target()->begin(), iter.target()->end())
-    // when Android uses a better STL.
-    for (std::set<const Target*>::const_iterator cur =
-             pair.ptr->recursive_hard_deps().begin();
-         cur != pair.ptr->recursive_hard_deps().end(); ++cur)
-      recursive_hard_deps_.insert(*cur);
+    // Recursive hard dependencies of all dependencies.
+    recursive_hard_deps_.insert(pair.ptr->recursive_hard_deps().begin(),
+                                pair.ptr->recursive_hard_deps().end());
   }
 }
 
@@ -392,6 +530,13 @@ void Target::FillOutputFiles() {
               SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
                   this, tool, tool->depend_output());
         }
+      }
+      if (tool->runtime_link_output().empty()) {
+        runtime_link_output_file_ = link_output_file_;
+      } else {
+          runtime_link_output_file_ =
+              SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
+                  this, tool, tool->runtime_link_output());
       }
       break;
     case UNKNOWN:
@@ -523,6 +668,27 @@ bool Target::CheckNoNestedStaticLibs(Err* err) const {
   return true;
 }
 
+bool Target::CheckAssertNoDeps(Err* err) const {
+  if (assert_no_deps_.empty())
+    return true;
+
+  std::set<const Target*> visited;
+  std::string failure_path_str;
+  const LabelPattern* failure_pattern = nullptr;
+
+  if (!RecursiveCheckAssertNoDeps(this, false, assert_no_deps_, &visited,
+                                  &failure_path_str, &failure_pattern)) {
+    *err = Err(defined_from(), "assert_no_deps failed.",
+        label().GetUserVisibleName(false) +
+        " has an assert_no_deps entry:\n  " +
+        failure_pattern->Describe() +
+        "\nwhich fails for the dependency path:\n" +
+        failure_path_str);
+    return false;
+  }
+  return true;
+}
+
 void Target::CheckSourcesGenerated() const {
   // Checks that any inputs or sources to this target that are in the build
   // directory are generated by a target that this one transitively depends on
@@ -534,6 +700,8 @@ void Target::CheckSourcesGenerated() const {
     CheckSourceGenerated(file);
   for (const SourceFile& file : inputs_)
     CheckSourceGenerated(file);
+  // TODO(agrieve): Check all_libs_ here as well (those that are source files).
+  // http://crbug.com/571731
 }
 
 void Target::CheckSourceGenerated(const SourceFile& source) const {
@@ -546,6 +714,13 @@ void Target::CheckSourceGenerated(const SourceFile& source) const {
   // can be filtered out of this list.
   OutputFile out_file(settings()->build_settings(), source);
   std::set<const Target*> seen_targets;
-  if (!EnsureFileIsGeneratedByDependency(this, out_file, true, &seen_targets))
-    g_scheduler->AddUnknownGeneratedInput(this, source);
+  if (!EnsureFileIsGeneratedByDependency(this, out_file, true, false,
+                                         &seen_targets)) {
+    // Check object files (much slower and very rare) only if the "normal"
+    // output check failed.
+    seen_targets.clear();
+    if (!EnsureFileIsGeneratedByDependency(this, out_file, true, true,
+                                           &seen_targets))
+      g_scheduler->AddUnknownGeneratedInput(this, source);
+  }
 }

@@ -62,46 +62,6 @@
 
   'targets': [
     {
-      # GN version: //third_party/WebKit/Source/core/inspector:protocol_sources
-      'target_name': 'inspector_protocol_sources',
-      'type': 'none',
-      'dependencies': [
-        'generate_inspector_protocol_version'
-      ],
-      'actions': [
-        {
-          'action_name': 'generateInspectorProtocolBackendSources',
-          'inputs': [
-            # The python script in action below.
-            'inspector/CodeGeneratorInspector.py',
-            # The helper script imported by CodeGeneratorInspector.py.
-            'inspector/CodeGeneratorInspectorStrings.py',
-            # Input file for the script.
-            '../devtools/protocol.json',
-          ],
-          'outputs': [
-            '<(blink_core_output_dir)/InspectorBackendDispatcher.cpp',
-            '<(blink_core_output_dir)/InspectorBackendDispatcher.h',
-            '<(blink_core_output_dir)/InspectorFrontend.cpp',
-            '<(blink_core_output_dir)/InspectorFrontend.h',
-            '<(blink_core_output_dir)/InspectorTypeBuilder.cpp',
-            '<(blink_core_output_dir)/InspectorTypeBuilder.h',
-          ],
-          'variables': {
-            'generator_include_dirs': [
-            ],
-          },
-          'action': [
-            'python',
-            'inspector/CodeGeneratorInspector.py',
-            '../devtools/protocol.json',
-            '--output_dir', '<(blink_core_output_dir)',
-          ],
-          'message': 'Generating Inspector protocol backend sources from protocol.json',
-        },
-      ]
-    },
-    {
       # GN version: //third_party/WebKit/Source/core/inspector:instrumentation_sources
       'target_name': 'inspector_instrumentation_sources',
       'type': 'none',
@@ -133,35 +93,6 @@
       ]
     },
     {
-      # GN version: //third_party/WebKit/Source/core/inspector:protocol_version
-      'target_name': 'generate_inspector_protocol_version',
-      'type': 'none',
-      'actions': [
-         {
-          'action_name': 'generateInspectorProtocolVersion',
-          'inputs': [
-            'inspector/generate-inspector-protocol-version',
-            '../devtools/protocol.json',
-          ],
-          'outputs': [
-            '<(blink_core_output_dir)/InspectorProtocolVersion.h',
-          ],
-          'variables': {
-            'generator_include_dirs': [
-            ],
-          },
-          'action': [
-            'python',
-            'inspector/generate-inspector-protocol-version',
-            '-o',
-            '<@(_outputs)',
-            '<@(_inputs)'
-          ],
-          'message': 'Validate inspector protocol for backwards compatibility and generate version file',
-        }
-      ]
-    },
-    {
       # GN version: //third_party/WebKit/Source/core:core_generated
       'target_name': 'webcore_generated',
       'type': 'static_library',
@@ -169,7 +100,6 @@
       'dependencies': [
         'webcore_prerequisites',
         'core_generated.gyp:make_core_generated',
-        'inspector_protocol_sources',
         'inspector_instrumentation_sources',
         '../bindings/core/v8/generated.gyp:bindings_core_v8_generated',
         # FIXME: don't depend on bindings_modules http://crbug.com/358074
@@ -220,11 +150,6 @@
           # XPathGrammar.cpp.cpp.
           'msvs_disabled_warnings': [ 4065, 4267, 4701, 4702 ],
         }],
-        ['OS in ("linux", "android") and "WTF_USE_WEBAUDIO_IPP=1" in feature_defines', {
-          'cflags': [
-            '<!@(pkg-config --cflags-only-I ipp)',
-          ],
-        }],
       ],
     },
     {
@@ -234,7 +159,6 @@
       'target_name': 'webcore_prerequisites',
       'type': 'none',
       'dependencies': [
-        'inspector_protocol_sources',
         'inspector_instrumentation_sources',
         'core_generated.gyp:make_core_generated',
         '../bindings/core/v8/generated.gyp:bindings_core_v8_generated',
@@ -323,57 +247,6 @@
           'sources/': [
             ['exclude', 'accessibility/'],
           ],
-        }],
-        ['OS in ("linux", "android") and "WTF_USE_WEBAUDIO_IPP=1" in feature_defines', {
-          'direct_dependent_settings': {
-            'cflags': [
-              '<!@(pkg-config --cflags-only-I ipp)',
-            ],
-          },
-        }],
-        ['OS=="mac"', {
-          'direct_dependent_settings': {
-            'defines': [
-              # Chromium's version of WebCore includes the following Objective-C
-              # classes. The system-provided WebCore framework may also provide
-              # these classes. Because of the nature of Objective-C binding
-              # (dynamically at runtime), it's possible for the
-              # Chromium-provided versions to interfere with the system-provided
-              # versions.  This may happen when a system framework attempts to
-              # use core.framework, such as when converting an HTML-flavored
-              # string to an NSAttributedString.  The solution is to force
-              # Objective-C class names that would conflict to use alternate
-              # names.
-              #
-              # This list will hopefully shrink but may also grow.  Its
-              # performance is monitored by the "Check Objective-C Rename"
-              # postbuild step, and any suspicious-looking symbols not handled
-              # here or whitelisted in that step will cause a build failure.
-              #
-              # If this is unhandled, the console will receive log messages
-              # such as:
-              # com.google.Chrome[] objc[]: Class ScrollbarPrefsObserver is implemented in both .../Google Chrome.app/Contents/Versions/.../Google Chrome Helper.app/Contents/MacOS/../../../Google Chrome Framework.framework/Google Chrome Framework and /System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore. One of the two will be used. Which one is undefined.
-              'WebCoreTextFieldCell=ChromiumWebCoreObjCWebCoreTextFieldCell',
-            ],
-            'postbuilds': [
-              {
-                # This step ensures that any Objective-C names that aren't
-                # redefined to be "safe" above will cause a build failure.
-                'postbuild_name': 'Check Objective-C Rename',
-                'variables': {
-                  'class_whitelist_regex':
-                      'ChromiumWebCoreObjC|TCMVisibleView|RTCMFlippedView|ScrollerStyleObserver|LayoutThemeNotificationObserver',
-                  'category_whitelist_regex':
-                      'WebCoreFocusRingDrawing|WebCoreTheme',
-                },
-                'action': [
-                  '../build/scripts/check_objc_rename.sh',
-                  '<(class_whitelist_regex)',
-                  '<(category_whitelist_regex)',
-                ],
-              },
-            ],
-          },
         }],
         ['"WTF_USE_WEBAUDIO_FFMPEG=1" in feature_defines', {
           # This directory needs to be on the include path for multiple sub-targets of webcore.
@@ -472,13 +345,11 @@
         ['OS=="win" and buildtype=="Official"', {
           'msvs_shard': 5,
         }],
-        ['use_default_render_theme==0 and OS != "android"', {
+        ['OS=="win"', {
           'sources!': [
-            'layout/LayoutThemeDefault.cpp',
-            'layout/LayoutThemeDefault.h',
+            'layout/LayoutThemeFontProviderDefault.cpp',
           ],
-        }],
-        ['OS!="win"', {
+        },{ # OS!="win"
           'sources!': [
             'layout/LayoutThemeFontProviderWin.cpp',
             'layout/LayoutThemeWin.cpp',
@@ -490,31 +361,16 @@
             ['include', '<(DEPTH)/third_party/WebKit/Source/build/win/Precompile.cpp'],
           ],
         }],
-        ['OS=="mac"', {
-          'sources!': [
-            # LayoutThemeFontProvider is used by LayoutThemeDefault.
-            'layout/LayoutThemeFontProvider.cpp',
-            'layout/LayoutThemeFontProvider.h',
-          ],
-        },{ # OS!="mac"
+        ['OS!="mac"', {
           'sources!': [
             'layout/LayoutThemeMac.h',
             'layout/LayoutThemeMac.mm',
           ],
         }],
-        ['OS == "android" and target_arch == "ia32" and gcc_version == 46', {
-          # Due to a bug in gcc 4.6 in android NDK, we get warnings about uninitialized variable.
-          'cflags': ['-Wno-uninitialized'],
-        }],
         ['OS != "linux"', {
           'sources!': [
             'layout/LayoutThemeLinux.cpp',
             'layout/LayoutThemeLinux.h',
-          ],
-        }],
-        ['OS != "linux" and OS != "android"', {
-          'sources!': [
-            'layout/LayoutThemeFontProviderLinux.cpp',
           ],
         }],
         ['OS!="android"', {
@@ -565,8 +421,6 @@
             ['include', 'platform/mac/WebCoreTextRenderer\\.mm$'],
             ['include', 'platform/text/mac/ShapeArabic\\.c$'],
             ['include', 'platform/text/mac/String(Impl)?Mac\\.mm$'],
-            # Use USE_NEW_THEME on Mac.
-            ['include', 'platform/Theme\\.cpp$'],
           ],
         }, { # OS!="mac"
           'sources!': [
@@ -576,12 +430,6 @@
         ['OS=="win" and chromium_win_pch==1', {
           'sources/': [
             ['include', '<(DEPTH)/third_party/WebKit/Source/build/win/Precompile.cpp'],
-          ],
-        }],
-        ['use_default_render_theme==0 and OS != "android"', {
-          'sources!': [
-            'paint/ThemePainterDefault.cpp',
-            'paint/ThemePainterDefault.h',
           ],
         }],
       ],
@@ -623,27 +471,6 @@
           '<@(webcore_include_dirs)',
         ],
       },
-      'conditions': [
-        ['OS=="linux" and "WTF_USE_WEBAUDIO_IPP=1" in feature_defines', {
-          'link_settings': {
-            'ldflags': [
-              '<!@(pkg-config --libs-only-L ipp)',
-            ],
-            'libraries': [
-              '-lipps -lippcore',
-            ],
-          },
-        }],
-        # Use IPP static libraries for x86 Android.
-        ['OS=="android" and "WTF_USE_WEBAUDIO_IPP=1" in feature_defines', {
-          'link_settings': {
-            'libraries': [
-               '<!@(pkg-config --libs ipp|sed s/-L//)/libipps_l.a',
-               '<!@(pkg-config --libs ipp|sed s/-L//)/libippcore_l.a',
-            ]
-          },
-        }],
-      ],
     },
     {
       # GN version: //third_party/WebKit/Source/core:testing
@@ -697,7 +524,6 @@
 
         # webcore_generated dependency
         'core_generated.gyp:make_core_generated',
-        'inspector_protocol_sources',
         'inspector_instrumentation_sources',
         '../bindings/core/v8/generated.gyp:bindings_core_v8_generated',
         # FIXME: don't depend on bindings_modules http://crbug.com/358074
@@ -706,6 +532,8 @@
         '../platform/platform_generated.gyp:make_platform_generated',
 
         '../wtf/wtf.gyp:wtf',
+        '<(DEPTH)/base/base.gyp:base',
+        '<(DEPTH)/cc/cc.gyp:cc',
         '<(DEPTH)/gin/gin.gyp:gin',
         '<(DEPTH)/skia/skia.gyp:skia',
         '<(DEPTH)/third_party/libxml/libxml.gyp:libxml',
@@ -720,6 +548,7 @@
       'export_dependent_settings': [
         '../platform/blink_platform.gyp:blink_platform',
         '../wtf/wtf.gyp:wtf',
+        '<(DEPTH)/base/base.gyp:base',
         '<(DEPTH)/skia/skia.gyp:skia',
         '<(DEPTH)/third_party/npapi/npapi.gyp:npapi',
         '<(DEPTH)/third_party/qcms/qcms.gyp:qcms',
@@ -765,14 +594,6 @@
             'testing/v8',
           ],
           'conditions': [
-            ['use_default_render_theme==0 and OS != "android"', {
-              'sources!': [
-                'layout/LayoutThemeDefault.cpp',
-                'layout/LayoutThemeDefault.h',
-                'paint/ThemePainterDefault.cpp',
-                'paint/ThemePainterDefault.h',
-              ],
-            }],
             ['OS=="win"', {
               # In generated bindings code: 'switch contains default but no
               # case'.
@@ -792,6 +613,9 @@
                   },
                 },
               },
+              'sources!': [
+                'layout/LayoutThemeFontProviderDefault.cpp',
+              ],
             }, {
               'sources!': [
                 'layout/LayoutThemeFontProviderWin.cpp',
@@ -808,16 +632,6 @@
               ],
             }],
             ['OS=="mac"', {
-              'sources!': [
-                # LayoutThemeSkia is not used on mac since LayoutThemeMac
-                # does not reference the Skia code that is used by Windows, Linux and Android.
-                'layout/LayoutThemeSkia.cpp',
-                'layout/LayoutThemeSkia.h',
-
-                # LayoutThemeFontProvider is used by LayoutThemeSkia.
-                'layout/LayoutThemeFontProvider.cpp',
-                'layout/LayoutThemeFontProvider.h',
-              ],
               'link_settings': {
                 'libraries': [
                   '$(SDKROOT)/System/Library/Frameworks/Carbon.framework',
@@ -830,19 +644,10 @@
                 'layout/LayoutThemeMac.mm',
               ],
             }],
-            ['OS == "android" and target_arch == "ia32" and gcc_version == 46', {
-              # Due to a bug in gcc 4.6 in android NDK, we get warnings about uninitialized variable.
-              'cflags': ['-Wno-uninitialized'],
-            }],
             ['OS != "linux"', {
               'sources!': [
                 'layout/LayoutThemeLinux.cpp',
                 'layout/LayoutThemeLinux.h',
-              ],
-            }],
-            ['OS != "linux" and OS != "android"', {
-              'sources!': [
-                'layout/LayoutThemeFontProviderLinux.cpp',
               ],
             }],
             ['OS=="android"', {
@@ -858,25 +663,6 @@
               ],
             }],
           ],
-        }],
-        ['OS=="linux" and "WTF_USE_WEBAUDIO_IPP=1" in feature_defines', {
-          'link_settings': {
-            'ldflags': [
-              '<!@(pkg-config --libs-only-L ipp)',
-            ],
-            'libraries': [
-              '-lipps -lippcore',
-            ],
-          },
-        }],
-        # Use IPP static libraries for x86 Android.
-        ['OS=="android" and "WTF_USE_WEBAUDIO_IPP=1" in feature_defines', {
-          'link_settings': {
-            'libraries': [
-               '<!@(pkg-config --libs ipp|sed s/-L//)/libipps_l.a',
-               '<!@(pkg-config --libs ipp|sed s/-L//)/libippcore_l.a',
-            ]
-          },
         }],
       ],
     },

@@ -4,13 +4,14 @@
 
 #include "chrome/browser/download/save_package_file_picker.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/i18n/file_util_icu.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_member.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/platform_util.h"
@@ -18,6 +19,8 @@
 #include "chrome/browser/ui/chrome_select_file_policy.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_member.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/save_page_type.h"
@@ -138,7 +141,8 @@ SavePackageFilePicker::SavePackageFilePicker(
   int file_type_index = 0;
   ui::SelectFileDialog::FileTypeInfo file_type_info;
 
-  file_type_info.support_drive = true;
+  file_type_info.allowed_paths =
+      ui::SelectFileDialog::FileTypeInfo::NATIVE_OR_DRIVE_PATH;
 
   if (can_save_as_complete_) {
     // The option index is not zero-based. Put a dummy entry.

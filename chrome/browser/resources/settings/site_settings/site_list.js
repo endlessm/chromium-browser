@@ -30,6 +30,14 @@ Polymer({
     },
 
     /**
+     * The current active route.
+     */
+    currentRoute: {
+      type: Object,
+      notify: true,
+    },
+
+    /**
      * The origin that was selected by the user in the dropdown list.
      */
     selectedOrigin: {
@@ -47,17 +55,22 @@ Polymer({
     },
 
     /**
-     * The ID of the category this widget is displaying data for.
-     * See site_settings/constants.js for possible values.
+     * Whether this list is for the All Sites category.
      */
-    category: Number,
+    allSites: {
+      type: Boolean,
+      value: false,
+    },
 
     /**
       * The type of category this widget is displaying data for. Normally
       * either ALLOW or BLOCK, representing which sites are allowed or blocked
       * respectively.
       */
-    categorySubtype: Number,
+    categorySubtype: {
+      type: Number,
+      value: -1,
+    },
 
     /**
      * Represents the state of the main toggle shown for the category. For
@@ -67,6 +80,7 @@ Polymer({
     categoryEnabled: {
       type: Boolean,
       observer: 'onDataChanged_',
+      value: true,
     },
 
     /**
@@ -105,11 +119,48 @@ Polymer({
     },
   },
 
-  ready: function() {
+  observers: [
+    'initialize_(prefs.profile.content_settings.exceptions.*,' +
+        'category, categorySubtype, allSites)'
+  ],
+
+  /**
+   * One-time initialization routines for this class.
+   * @private
+   */
+  initialize_: function() {
     CrSettingsPrefs.initialized.then(function() {
       this.setUpActionMenu_();
-      this.populateList_();
+      this.ensureOpened_();
     }.bind(this));
+
+    this.populateList_();
+  },
+
+  /**
+   * Ensures the widget is |opened| when needed when displayed initially.
+   */
+  ensureOpened_: function() {
+    // Allowed list is always shown opened by default and All Sites is presented
+    // all in one list (nothing closed by default).
+    if (this.allSites ||
+        this.categorySubtype == settings.PermissionValues.ALLOW) {
+      this.$.category.opened = true;
+      return;
+    }
+
+    // Block list should only be shown opened if there is nothing to show in
+    // the allowed list.
+    var pref = this.getPref(
+        this.computeCategoryExceptionsPrefName(this.category));
+    var sites = pref.value;
+    for (var origin in sites) {
+      var site = /** @type {{setting: number}} */(sites[origin]);
+      if (site.setting == settings.PermissionValues.ALLOW)
+        return;
+    }
+
+    this.$.category.opened = true;
   },
 
   /**
@@ -138,18 +189,70 @@ Polymer({
    * @private
    */
   populateList_: function() {
-    var newList = [];
+    if (this.allSites) {
+      this.sites_ = this.toSiteArray_(this.getAllSitesList_());
+    } else {
+      var sites = new Set();
+      this.sites_ = this.toSiteArray_(
+          this.appendSiteList(sites, this.category, this.categorySubtype));
+    }
+  },
+
+  /**
+   * Retrieves a set of all known sites (any category/setting).
+   * @private
+   */
+  getAllSitesList_: function() {
+    var sites = new Set();
+    for (var type in settings.ContentSettingsTypes) {
+      sites = this.appendSiteList(sites,
+                                  settings.ContentSettingsTypes[type],
+                                  settings.PermissionValues.ALLOW);
+      sites = this.appendSiteList(sites,
+                                  settings.ContentSettingsTypes[type],
+                                  settings.PermissionValues.BLOCK);
+    }
+    return sites;
+  },
+
+  /**
+   * Appends to |list| the sites for a given category and subtype.
+   * @param {!Set<string>} list The site list to add to.
+   * @param {number} category The category to look up.
+   * @param {number} categorySubtype The category subtype to look up.
+   * @return {!Set<string>} The list of sites found.
+   */
+  appendSiteList: function(list, category, categorySubtype) {
     var pref = this.getPref(
-        this.computeCategoryExceptionsPrefName(this.category));
+        this.computeCategoryExceptionsPrefName(category));
     var sites = pref.value;
     for (var origin in sites) {
-      if (sites[origin].setting == this.categorySubtype) {
+      var site = /** @type {{setting: number}} */(sites[origin]);
+      if (site.setting == categorySubtype) {
         var tokens = origin.split(',');
-        newList.push({url: tokens[0]});
+        list.add(tokens[0]);
       }
     }
+    return list;
+  },
 
-    this.sites_ = newList;
+  /**
+   * Converts a set of sites to an ordered array, sorted by site name then
+   * protocol.
+   * @param {!Set<string>} sites A set of sites to sort and convert to an array.
+   * @private
+   */
+  toSiteArray_: function(sites) {
+    var list = [...sites];
+    list.sort(function(a, b) {
+      var url1 = /** @type {{host: string}} */(new URL(a));
+      var url2 = /** @type {{host: string}} */(new URL(b));
+      var result = url1.host.localeCompare(url2.host);
+      if (result == 0)
+        return url1.protocol.localeCompare(url2.protocol);
+      return result;
+    });
+    return list;
   },
 
   /**
@@ -169,20 +272,40 @@ Polymer({
    * @private
    */
   onOriginTap_: function(event) {
-    this.selectedOrigin = event.model.item.url;
+    this.selectedOrigin = event.model.item;
+    var categorySelected =
+        this.allSites ?
+        'all-sites' :
+        'site-settings-category-' + this.computeCategoryTextId(this.category);
+    this.currentRoute = {
+      page: this.currentRoute.page,
+      section: 'privacy',
+      subpage: ['site-settings', categorySelected, 'site-details'],
+    };
   },
 
   /**
    * A handler for activating one of the menu action items.
+   * @param {!{model: !{item: string},
+   *           target: !{selectedItems: !{textContent: string}}}} event
    * @private
    */
   onActionMenuIronSelect_: function(event) {
-    // TODO(finnur): Implement.
+    var origin = event.model.item;
+    var action = event.target.selectedItems[0].textContent;
+    if (action == this.i18n_.resetAction) {
+      this.resetCategoryPermissionForOrigin(origin, this.category);
+    } else {
+      var value = (action == this.i18n_.allowAction) ?
+          settings.PermissionValues.ALLOW :
+          settings.PermissionValues.BLOCK;
+      this.setCategoryPermissionForOrigin(origin, value, this.category);
+    }
   },
 
   /**
    * Returns the appropriate header value for display.
-   * @param {array<string>} siteList The list of all sites to display for this
+   * @param {Array<string>} siteList The list of all sites to display for this
    *     category subtype.
    * @param {boolean} toggleState The state of the global toggle for this
    *     category.
@@ -213,7 +336,7 @@ Polymer({
 
   /**
    * Returns whether to show the site list.
-   * @param {array} siteList The list of all sites to display for this category
+   * @param {Array} siteList The list of all sites to display for this category
    *     subtype.
    * @param {boolean} toggleState The state of the global toggle for this
    *     category.

@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLTitleElement.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -92,4 +91,4 @@ void HTMLTitleElement::setText(const String &value)
         appendChild(document().createTextNode(value.impl()), IGNORE_EXCEPTION);
 }
 
-}
+} // namespace blink

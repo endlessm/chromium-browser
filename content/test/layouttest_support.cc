@@ -4,8 +4,13 @@
 
 #include "content/public/test/layouttest_support.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/callback.h"
 #include "base/lazy_instance.h"
+#include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "components/test_runner/test_common.h"
 #include "components/test_runner/web_frame_test_proxy.h"
 #include "components/test_runner/web_test_proxy.h"
@@ -26,7 +31,6 @@
 #include "content/renderer/renderer_blink_platform_impl.h"
 #include "content/shell/common/shell_switches.h"
 #include "device/bluetooth/bluetooth_adapter.h"
-#include "third_party/WebKit/public/platform/WebBatteryStatus.h"
 #include "third_party/WebKit/public/platform/WebGamepads.h"
 #include "third_party/WebKit/public/platform/modules/device_orientation/WebDeviceMotionData.h"
 #include "third_party/WebKit/public/platform/modules/device_orientation/WebDeviceOrientationData.h"
@@ -36,13 +40,14 @@
 #if defined(OS_MACOSX)
 #include "content/browser/frame_host/popup_menu_helper_mac.h"
 #elif defined(OS_WIN)
-#include "content/common/font_warmup_win.h"
+#include "content/child/font_warmup_win.h"
+#include "content/public/common/dwrite_font_platform_win.h"
 #include "third_party/WebKit/public/web/win/WebFontRendering.h"
 #include "third_party/skia/include/ports/SkFontMgr.h"
+#include "third_party/skia/include/ports/SkTypeface_win.h"
 #include "ui/gfx/win/direct_write.h"
 #endif
 
-using blink::WebBatteryStatus;
 using blink::WebDeviceMotionData;
 using blink::WebDeviceOrientationData;
 using blink::WebGamepad;
@@ -99,7 +104,8 @@ void RegisterSideloadedTypefaces(SkFontMgr* fontmgr) {
        i != files.end();
        ++i) {
     SkTypeface* typeface = fontmgr->createFromFile(i->c_str());
-    DoPreSandboxWarmupForTypeface(typeface);
+    if (!ShouldUseDirectWriteFontProxyFieldTrial())
+      DoPreSandboxWarmupForTypeface(typeface);
     blink::WebFontRendering::addSideloadedFontForTesting(typeface);
   }
 }
@@ -143,9 +149,8 @@ void FetchManifest(blink::WebView* view, const GURL& url,
 void SetMockGamepadProvider(scoped_ptr<RendererGamepadProvider> provider) {
   RenderThreadImpl::current()
       ->blink_platform_impl()
-      ->SetPlatformEventObserverForTesting(
-          blink::WebPlatformEventTypeGamepad,
-          provider.Pass());
+      ->SetPlatformEventObserverForTesting(blink::WebPlatformEventTypeGamepad,
+                                           std::move(provider));
 }
 
 void SetMockDeviceLightData(const double data) {
@@ -160,18 +165,16 @@ void SetMockDeviceOrientationData(const WebDeviceOrientationData& data) {
   RendererBlinkPlatformImpl::SetMockDeviceOrientationDataForTesting(data);
 }
 
-void MockBatteryStatusChanged(const WebBatteryStatus& status) {
-  RenderThreadImpl::current()
-      ->blink_platform_impl()
-      ->MockBatteryStatusChangedForTesting(status);
-}
-
 void EnableRendererLayoutTestMode() {
   RenderThreadImpl::current()->set_layout_test_mode(true);
 
 #if defined(OS_WIN)
-  if (gfx::win::ShouldUseDirectWrite())
-    RegisterSideloadedTypefaces(GetPreSandboxWarmupFontMgr());
+  if (gfx::win::ShouldUseDirectWrite()) {
+    if (ShouldUseDirectWriteFontProxyFieldTrial())
+      RegisterSideloadedTypefaces(SkFontMgr_New_DirectWrite());
+    else
+      RegisterSideloadedTypefaces(GetPreSandboxWarmupFontMgr());
+  }
 #endif
 }
 
@@ -221,7 +224,7 @@ void SetDeviceColorProfile(RenderView* render_view, const std::string& name) {
 
   std::vector<char> color_profile;
 
-  struct TestColorProfile {
+  struct TestColorProfile { // A whacked (aka color spin) profile.
     char* data() {
       static unsigned char color_profile_data[] = {
         0x00,0x00,0x01,0xea,0x54,0x45,0x53,0x54,0x00,0x00,0x00,0x00,
@@ -339,7 +342,7 @@ void SetDeviceColorProfile(RenderView* render_view, const std::string& name) {
 
   if (name == "sRGB") {
     color_profile.assign(name.data(), name.data() + name.size());
-  } else if (name == "test") {
+  } else if (name == "test" || name == "whacked") {
     TestColorProfile test;
     color_profile.assign(test.data(), test.data() + test.size());
   } else if (name == "adobeRGB") {
@@ -361,7 +364,7 @@ void SetBluetoothAdapter(int render_process_id,
       render_process_host_impl->GetBluetoothDispatcherHost();
 
   if (dispatcher_host != NULL)
-    dispatcher_host->SetBluetoothAdapterForTesting(adapter.Pass());
+    dispatcher_host->SetBluetoothAdapterForTesting(std::move(adapter));
 }
 
 void SetGeofencingMockProvider(bool service_available) {
@@ -399,18 +402,12 @@ void DisableAutoResizeMode(RenderView* render_view, const WebSize& new_size) {
       DisableAutoResizeForTesting(new_size);
 }
 
-struct ToLower {
-  base::char16 operator()(base::char16 c) { return tolower(c); }
-};
-
 // Returns True if node1 < node2.
 bool HistoryEntryCompareLess(HistoryEntry::HistoryNode* node1,
                              HistoryEntry::HistoryNode* node2) {
   base::string16 target1 = node1->item().target();
   base::string16 target2 = node2->item().target();
-  std::transform(target1.begin(), target1.end(), target1.begin(), ToLower());
-  std::transform(target2.begin(), target2.end(), target2.begin(), ToLower());
-  return target1 < target2;
+  return base::CompareCaseInsensitiveASCII(target1, target2) < 0;
 }
 
 std::string DumpHistoryItem(HistoryEntry::HistoryNode* node,

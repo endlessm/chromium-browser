@@ -5,6 +5,8 @@
 #ifndef NET_PROXY_PROXY_LIST_H_
 #define NET_PROXY_PROXY_LIST_H_
 
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
@@ -27,6 +29,7 @@ class ProxyServer;
 class NET_EXPORT_PRIVATE ProxyList {
  public:
   ProxyList();
+  ProxyList(const ProxyList& other);
   ~ProxyList();
 
   // Initializes the proxy list to a string containing one or more proxy servers

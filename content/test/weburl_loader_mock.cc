@@ -8,6 +8,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "content/child/web_url_loader_impl.h"
 #include "content/test/weburl_loader_mock_factory.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebData.h"
 #include "third_party/WebKit/public/platform/WebURLError.h"
 #include "third_party/WebKit/public/platform/WebURLLoaderClient.h"
@@ -66,7 +67,8 @@ void WebURLLoaderMock::ServeAsynchronousRequest(
 blink::WebURLRequest WebURLLoaderMock::ServeRedirect(
     const blink::WebURLRequest& request,
     const blink::WebURLResponse& redirectResponse) {
-  GURL redirectURL(redirectResponse.httpHeaderField("Location"));
+  GURL redirectURL(
+      blink::WebStringToGURL(redirectResponse.httpHeaderField("Location")));
 
   net::RedirectInfo redirectInfo;
   redirectInfo.new_method = request.httpMethod().utf8();
@@ -111,7 +113,7 @@ void WebURLLoaderMock::loadSynchronously(const blink::WebURLRequest& request,
   }
   DCHECK(static_cast<const GURL&>(request.url()).SchemeIs("data"))
       << "loadSynchronously shouldn't be falling back: "
-      << request.url().spec().data();
+      << request.url().string().utf8();
   using_default_loader_ = true;
   default_loader_->loadSynchronously(request, response, error, data);
 }
@@ -125,7 +127,7 @@ void WebURLLoaderMock::loadAsynchronously(const blink::WebURLRequest& request,
   }
   DCHECK(static_cast<const GURL&>(request.url()).SchemeIs("data"))
       << "loadAsynchronously shouldn't be falling back: "
-      << request.url().spec().data();
+      << request.url().string().utf8();
   using_default_loader_ = true;
   default_loader_->loadAsynchronously(request, client);
 }

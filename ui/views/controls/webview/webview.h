@@ -5,7 +5,9 @@
 #ifndef UI_VIEWS_CONTROLS_WEBVIEW_WEBVIEW_H_
 #define UI_VIEWS_CONTROLS_WEBVIEW_WEBVIEW_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -131,12 +133,13 @@ class WEBVIEW_EXPORT WebView : public View,
   void WebContentsDestroyed() override;
   void DidShowFullscreenWidget(int routing_id) override;
   void DidDestroyFullscreenWidget(int routing_id) override;
-  void DidToggleFullscreenModeForTab(bool entered_fullscreen) override;
+  void DidToggleFullscreenModeForTab(bool entered_fullscreen,
+                                     bool will_cause_resize) override;
   void DidAttachInterstitialPage() override;
   void DidDetachInterstitialPage() override;
   // Workaround for MSVC++ linker bug/feature that requires
   // instantiation of the inline IPC::Listener methods in all translation units.
-  void OnChannelConnected(int32 peer_id) override {}
+  void OnChannelConnected(int32_t peer_id) override {}
   void OnChannelError() override {}
   void OnBadMessageReceived(const IPC::Message& message) override {}
   void OnWebContentsFocused() override;

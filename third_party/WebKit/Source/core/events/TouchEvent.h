@@ -49,10 +49,10 @@ public:
         TouchList* targetTouches, TouchList* changedTouches,
         const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView> view,
         PlatformEvent::Modifiers modifiers, bool cancelable, bool causesScrollingIfUncanceled,
-        double uiCreateTime = 0)
+        double platformTimeStamp)
     {
         return adoptRefWillBeNoop(new TouchEvent(touches, targetTouches, changedTouches, type, view,
-            modifiers, cancelable, causesScrollingIfUncanceled, uiCreateTime));
+            modifiers, cancelable, causesScrollingIfUncanceled, platformTimeStamp));
     }
 
     static PassRefPtrWillBeRawPtr<TouchEvent> create(const AtomicString& type, const TouchEventInit& initializer)
@@ -92,7 +92,7 @@ private:
         TouchList* changedTouches, const AtomicString& type,
         PassRefPtrWillBeRawPtr<AbstractView>, PlatformEvent::Modifiers,
         bool cancelable, bool causesScrollingIfUncanceled,
-        double uiCreateTime = 0);
+        double platformTimeStamp);
     TouchEvent(const AtomicString&, const TouchEventInit&);
 
     RefPtrWillBeMember<TouchList> m_touches;
@@ -108,7 +108,7 @@ public:
 private:
     explicit TouchEventDispatchMediator(PassRefPtrWillBeRawPtr<TouchEvent>);
     TouchEvent& event() const;
-    bool dispatchEvent(EventDispatcher&) const override;
+    DispatchEventResult dispatchEvent(EventDispatcher&) const override;
 };
 
 DEFINE_EVENT_TYPE_CASTS(TouchEvent);

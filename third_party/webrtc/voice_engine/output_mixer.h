@@ -11,6 +11,7 @@
 #ifndef WEBRTC_VOICE_ENGINE_OUTPUT_MIXER_H_
 #define WEBRTC_VOICE_ENGINE_OUTPUT_MIXER_H_
 
+#include "webrtc/base/criticalsection.h"
 #include "webrtc/common_audio/resampler/include/push_resampler.h"
 #include "webrtc/common_types.h"
 #include "webrtc/modules/audio_conference_mixer/include/audio_conference_mixer.h"
@@ -23,7 +24,6 @@
 namespace webrtc {
 
 class AudioProcessing;
-class CriticalSectionWrapper;
 class FileWrapper;
 class VoEMediaProcess;
 
@@ -63,7 +63,7 @@ public:
     int32_t SetAnonymousMixabilityStatus(MixerParticipant& participant,
                                          bool mixable);
 
-    int GetMixedAudio(int sample_rate_hz, int num_channels,
+    int GetMixedAudio(int sample_rate_hz, size_t num_channels,
                       AudioFrame* audioFrame);
 
     // VoEVolumeControl
@@ -102,17 +102,15 @@ public:
 
 private:
     OutputMixer(uint32_t instanceId);
-    void APMProcessReverseStream();
     int InsertInbandDtmfTone();
 
     // uses
     Statistics* _engineStatisticsPtr;
     AudioProcessing* _audioProcessingModulePtr;
 
-    // owns
-    CriticalSectionWrapper& _callbackCritSect;
+    rtc::CriticalSection _callbackCritSect;
     // protect the _outputFileRecorderPtr and _outputFileRecording
-    CriticalSectionWrapper& _fileCritSect;
+    rtc::CriticalSection _fileCritSect;
     AudioConferenceMixer& _mixerModule;
     AudioFrame _audioFrame;
     // Converts mixed audio to the audio device output rate.

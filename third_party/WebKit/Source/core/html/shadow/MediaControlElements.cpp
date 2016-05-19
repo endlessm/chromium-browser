@@ -27,13 +27,11 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/shadow/MediaControlElements.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/InputTypeNames.h"
 #include "core/dom/ClientRect.h"
-#include "core/dom/DOMTokenList.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/events/MouseEvent.h"
 #include "core/frame/LocalFrame.h"
@@ -44,8 +42,8 @@
 #include "core/layout/LayoutSlider.h"
 #include "core/layout/LayoutTheme.h"
 #include "core/layout/LayoutVideo.h"
+#include "platform/Histogram.h"
 #include "platform/RuntimeEnabledFeatures.h"
-#include "public/platform/Platform.h"
 
 namespace blink {
 
@@ -230,8 +228,8 @@ void* MediaControlOverlayEnclosureElement::preDispatchEventHandler(Event* event)
     // (if the other requirements are right) even if JavaScript is doing its own handling of the event.
     // Doing it in preDispatchEventHandler prevents any interference from JavaScript.
     // Note that we can't simply test for click, since JS handling of touch events can prevent their translation to click events.
-    if (event && (event->type() == EventTypeNames::click || event->type() == EventTypeNames::touchstart) && mediaElement().hasRemoteRoutes() && !mediaElement().shouldShowControls())
-        mediaControls().showOverlayCastButton();
+    if (event && (event->type() == EventTypeNames::click || event->type() == EventTypeNames::touchstart))
+        mediaControls().showOverlayCastButtonIfNeeded();
     return MediaControlDivElement::preDispatchEventHandler(event);
 }
 
@@ -625,7 +623,8 @@ bool MediaControlCastButtonElement::keepEventInNode(Event* event)
 void MediaControlCastButtonElement::recordMetrics(CastOverlayMetrics metric)
 {
     ASSERT(m_isOverlayButton);
-    Platform::current()->histogramEnumeration("Cast.Sender.Overlay", static_cast<int>(metric), static_cast<int>(CastOverlayMetrics::Count));
+    DEFINE_STATIC_LOCAL(EnumerationHistogram, overlayHistogram, ("Cast.Sender.Overlay", static_cast<int>(CastOverlayMetrics::Count)));
+    overlayHistogram.count(static_cast<int>(metric));
 }
 
 // ----------------------------

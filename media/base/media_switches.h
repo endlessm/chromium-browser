@@ -7,6 +7,7 @@
 #ifndef MEDIA_BASE_MEDIA_SWITCHES_H_
 #define MEDIA_BASE_MEDIA_SWITCHES_H_
 
+#include "base/feature_list.h"
 #include "build/build_config.h"
 #include "media/base/media_export.h"
 
@@ -15,6 +16,9 @@ namespace switches {
 MEDIA_EXPORT extern const char kAudioBufferSize[];
 
 MEDIA_EXPORT extern const char kVideoThreads[];
+
+MEDIA_EXPORT extern const char kEnableMediaSuspend[];
+MEDIA_EXPORT extern const char kDisableMediaSuspend[];
 
 #if defined(OS_ANDROID)
 MEDIA_EXPORT extern const char kDisableMediaThreadForMediaPlayback[];
@@ -47,8 +51,6 @@ MEDIA_EXPORT extern const char kWaveOutBuffers[];
 MEDIA_EXPORT extern const char kUseCras[];
 #endif
 
-MEDIA_EXPORT extern const char kEnableAudioHangMonitor[];
-
 MEDIA_EXPORT extern const char kUseFakeDeviceForMediaStream[];
 MEDIA_EXPORT extern const char kUseFileForFakeVideoCapture[];
 MEDIA_EXPORT extern const char kUseFileForFakeAudioCapture[];
@@ -62,5 +64,13 @@ MEDIA_EXPORT extern const char kVideoUnderflowThresholdMs[];
 MEDIA_EXPORT extern const char kDisableRTCSmoothnessAlgorithm[];
 
 }  // namespace switches
+
+namespace media {
+
+// All features in alphabetical order. The features should be documented
+// alongside the definition of their values in the .cc file.
+MEDIA_EXPORT extern const base::Feature kUseNewMediaCache;
+
+}  // namespace media
 
 #endif  // MEDIA_BASE_MEDIA_SWITCHES_H_

@@ -4,6 +4,8 @@
 
 #include "net/ftp/ftp_ctrl_response_buffer.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
@@ -17,6 +19,8 @@ namespace net {
 const int FtpCtrlResponse::kInvalidStatusCode = -1;
 
 FtpCtrlResponse::FtpCtrlResponse() : status_code(kInvalidStatusCode) {}
+
+FtpCtrlResponse::FtpCtrlResponse(const FtpCtrlResponse& other) = default;
 
 FtpCtrlResponse::~FtpCtrlResponse() {}
 
@@ -87,8 +91,8 @@ scoped_ptr<base::Value> NetLogFtpCtrlResponseCallback(
 
   scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("status_code", response->status_code);
-  dict->Set("lines", lines.Pass());
-  return dict.Pass();
+  dict->Set("lines", std::move(lines));
+  return std::move(dict);
 }
 
 }  // namespace
@@ -109,6 +113,9 @@ FtpCtrlResponseBuffer::ParsedLine::ParsedLine()
       is_complete(false),
       status_code(FtpCtrlResponse::kInvalidStatusCode) {
 }
+
+FtpCtrlResponseBuffer::ParsedLine::ParsedLine(const ParsedLine& other) =
+    default;
 
 // static
 FtpCtrlResponseBuffer::ParsedLine FtpCtrlResponseBuffer::ParseLine(

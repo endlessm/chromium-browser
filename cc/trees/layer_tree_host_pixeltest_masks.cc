@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "build/build_config.h"
 #include "cc/layers/content_layer_client.h"
 #include "cc/layers/picture_image_layer.h"
@@ -32,8 +34,9 @@ class MaskContentLayerClient : public ContentLayerClient {
   bool FillsBoundsCompletely() const override { return false; }
   size_t GetApproximateUnsharedMemoryUsage() const override { return 0; }
 
+  gfx::Rect PaintableRegion() override { return gfx::Rect(bounds_); }
+
   scoped_refptr<DisplayItemList> PaintContentsToDisplayList(
-      const gfx::Rect& clip,
       PaintingControlSetting picture_control) override {
     SkPictureRecorder recorder;
     skia::RefPtr<SkCanvas> canvas = skia::SharePtr(
@@ -56,12 +59,9 @@ class MaskContentLayerClient : public ContentLayerClient {
     }
 
     scoped_refptr<DisplayItemList> display_list =
-        DisplayItemList::Create(clip, DisplayItemListSettings());
-    auto* item = display_list->CreateAndAppendItem<DrawingDisplayItem>();
-
-    skia::RefPtr<SkPicture> picture =
-        skia::AdoptRef(recorder.endRecordingAsPicture());
-    item->SetNew(picture.Pass());
+        DisplayItemList::Create(PaintableRegion(), DisplayItemListSettings());
+    display_list->CreateAndAppendItem<DrawingDisplayItem>(
+        PaintableRegion(), skia::AdoptRef(recorder.endRecordingAsPicture()));
 
     display_list->Finalize();
     return display_list;
@@ -111,11 +111,11 @@ TEST_P(LayerTreeHostMasksPixelTest, ImageMaskOfLayer) {
   MaskContentLayerClient client(mask_bounds);
   scoped_refptr<DisplayItemList> mask_display_list =
       client.PaintContentsToDisplayList(
-          gfx::Rect(mask_bounds), ContentLayerClient::PAINTING_BEHAVIOR_NORMAL);
+          ContentLayerClient::PAINTING_BEHAVIOR_NORMAL);
   mask_display_list->Raster(canvas, nullptr, gfx::Rect(mask_bounds), 1.0f);
   skia::RefPtr<const SkImage> image =
       skia::AdoptRef(surface->newImageSnapshot());
-  mask->SetImage(image.Pass());
+  mask->SetImage(std::move(image));
 
   scoped_refptr<SolidColorLayer> green = CreateSolidColorLayerWithBorder(
       gfx::Rect(25, 25, 50, 50), kCSSGreen, 1, SK_ColorBLACK);
@@ -311,8 +311,8 @@ class CheckerContentLayerClient : public ContentLayerClient {
   ~CheckerContentLayerClient() override {}
   bool FillsBoundsCompletely() const override { return false; }
   size_t GetApproximateUnsharedMemoryUsage() const override { return 0; }
+  gfx::Rect PaintableRegion() override { return gfx::Rect(bounds_); }
   scoped_refptr<DisplayItemList> PaintContentsToDisplayList(
-      const gfx::Rect& clip,
       PaintingControlSetting picture_control) override {
     SkPictureRecorder recorder;
     skia::RefPtr<SkCanvas> canvas = skia::SharePtr(
@@ -334,12 +334,9 @@ class CheckerContentLayerClient : public ContentLayerClient {
     }
 
     scoped_refptr<DisplayItemList> display_list =
-        DisplayItemList::Create(clip, DisplayItemListSettings());
-    auto* item = display_list->CreateAndAppendItem<DrawingDisplayItem>();
-
-    skia::RefPtr<SkPicture> picture =
-        skia::AdoptRef(recorder.endRecordingAsPicture());
-    item->SetNew(picture.Pass());
+        DisplayItemList::Create(PaintableRegion(), DisplayItemListSettings());
+    display_list->CreateAndAppendItem<DrawingDisplayItem>(
+        PaintableRegion(), skia::AdoptRef(recorder.endRecordingAsPicture()));
 
     display_list->Finalize();
     return display_list;
@@ -358,8 +355,8 @@ class CircleContentLayerClient : public ContentLayerClient {
   ~CircleContentLayerClient() override {}
   bool FillsBoundsCompletely() const override { return false; }
   size_t GetApproximateUnsharedMemoryUsage() const override { return 0; }
+  gfx::Rect PaintableRegion() override { return gfx::Rect(bounds_); }
   scoped_refptr<DisplayItemList> PaintContentsToDisplayList(
-      const gfx::Rect& clip,
       PaintingControlSetting picture_control) override {
     SkPictureRecorder recorder;
     skia::RefPtr<SkCanvas> canvas = skia::SharePtr(
@@ -375,11 +372,9 @@ class CircleContentLayerClient : public ContentLayerClient {
                        paint);
 
     scoped_refptr<DisplayItemList> display_list =
-        DisplayItemList::Create(clip, DisplayItemListSettings());
-    auto* item = display_list->CreateAndAppendItem<DrawingDisplayItem>();
-    skia::RefPtr<SkPicture> picture =
-        skia::AdoptRef(recorder.endRecordingAsPicture());
-    item->SetNew(picture.Pass());
+        DisplayItemList::Create(PaintableRegion(), DisplayItemListSettings());
+    display_list->CreateAndAppendItem<DrawingDisplayItem>(
+        PaintableRegion(), skia::AdoptRef(recorder.endRecordingAsPicture()));
 
     display_list->Finalize();
     return display_list;

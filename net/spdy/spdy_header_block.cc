@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/values.h"
 #include "net/http/http_log_util.h"
 
@@ -18,6 +19,7 @@ using std::dec;
 using std::hex;
 using std::max;
 using std::min;
+using std::string;
 
 namespace net {
 namespace {
@@ -112,6 +114,9 @@ SpdyHeaderBlock::StringPieceProxy::StringPieceProxy(
       lookup_result_(lookup_result),
       key_(key) {}
 
+SpdyHeaderBlock::StringPieceProxy::StringPieceProxy(
+    const StringPieceProxy& other) = default;
+
 SpdyHeaderBlock::StringPieceProxy::~StringPieceProxy() {}
 
 SpdyHeaderBlock::StringPieceProxy& SpdyHeaderBlock::StringPieceProxy::operator=(
@@ -162,7 +167,20 @@ bool SpdyHeaderBlock::operator==(const SpdyHeaderBlock& other) const {
 }
 
 bool SpdyHeaderBlock::operator!=(const SpdyHeaderBlock& other) const {
-  return !(*this == other);
+  return !(operator==(other));
+}
+
+string SpdyHeaderBlock::DebugString() const {
+  if (empty()) {
+    return "{}";
+  }
+  string output = "\n{\n";
+  for (auto it = begin(); it != end(); ++it) {
+    output +=
+        "  " + it->first.as_string() + ":" + it->second.as_string() + "\n";
+  }
+  output.append("}\n");
+  return output;
 }
 
 void SpdyHeaderBlock::clear() {
@@ -223,7 +241,7 @@ scoped_ptr<base::Value> SpdyHeaderBlockNetLogCallback(
             capture_mode, it->first.as_string(), it->second.as_string())));
   }
   dict->Set("headers", headers_dict);
-  return dict.Pass();
+  return std::move(dict);
 }
 
 bool SpdyHeaderBlockFromNetLogParam(
@@ -242,7 +260,7 @@ bool SpdyHeaderBlockFromNetLogParam(
 
   for (base::DictionaryValue::Iterator it(*header_dict); !it.IsAtEnd();
        it.Advance()) {
-    std::string value;
+    string value;
     if (!it.value().GetAsString(&value)) {
       headers->clear();
       return false;

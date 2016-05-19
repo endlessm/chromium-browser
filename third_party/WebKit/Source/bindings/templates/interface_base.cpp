@@ -1,6 +1,4 @@
 {% include 'copyright_block.txt' %}
-#include "config.h"
-{% filter conditional(conditional_string) %}
 #include "{{v8_class_or_partial}}.h"
 
 {% for filename in cpp_includes if filename != '%s.h' % cpp_class_or_partial %}
@@ -8,8 +6,6 @@
 {% endfor %}
 
 namespace blink {
-{% set to_active_dom_object = '%s::toActiveDOMObject' % v8_class
-                              if is_active_dom_object else '0' %}
 {% set visit_dom_wrapper = '%s::visitDOMWrapper' % v8_class
                            if has_visit_dom_wrapper else '0' %}
 {% set parent_wrapper_type_info = '&V8%s::wrapperTypeInfo' % parent_interface
@@ -26,7 +22,7 @@ namespace blink {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wglobal-constructors"
 #endif
-{{wrapper_type_info_const}}WrapperTypeInfo {{v8_class}}::wrapperTypeInfo = { gin::kEmbedderBlink, {{dom_template}}, {{v8_class}}::refObject, {{v8_class}}::derefObject, {{v8_class}}::trace, {{to_active_dom_object}}, {{visit_dom_wrapper}}, {{v8_class}}::preparePrototypeAndInterfaceObject, {{v8_class}}::installConditionallyEnabledProperties, "{{interface_name}}", {{parent_wrapper_type_info}}, WrapperTypeInfo::{{wrapper_type_prototype}}, WrapperTypeInfo::{{wrapper_class_id}}, WrapperTypeInfo::{{event_target_inheritance}}, WrapperTypeInfo::{{lifetime}}, WrapperTypeInfo::{{gc_type}} };
+{{wrapper_type_info_const}}WrapperTypeInfo {{v8_class}}::wrapperTypeInfo = { gin::kEmbedderBlink, {{dom_template}}, {{v8_class}}::refObject, {{v8_class}}::derefObject, {{v8_class}}::trace, {{visit_dom_wrapper}}, {{v8_class}}::preparePrototypeAndInterfaceObject, {{v8_class}}::installConditionallyEnabledProperties, "{{interface_name}}", {{parent_wrapper_type_info}}, WrapperTypeInfo::{{wrapper_type_prototype}}, WrapperTypeInfo::{{wrapper_class_id}}, WrapperTypeInfo::{{event_target_inheritance}}, WrapperTypeInfo::{{lifetime}}, WrapperTypeInfo::{{gc_type}} };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
 #pragma clang diagnostic pop
 #endif
@@ -63,7 +59,7 @@ static bool {{cpp_class}}CreateDataProperty(v8::Local<v8::Name> name, v8::Local<
     {{cpp_class}}* impl = {{v8_class}}::toImpl(info.Holder());
     v8::String::Utf8Value attributeName(name);
     ExceptionState exceptionState(ExceptionState::SetterContext, *attributeName, "{{interface_name}}", info.Holder(), info.GetIsolate());
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), impl->frame(), exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessTo(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), impl, exceptionState)) {
         exceptionState.throwIfNeeded();
         return false;
     }
@@ -72,10 +68,9 @@ static bool {{cpp_class}}CreateDataProperty(v8::Local<v8::Name> name, v8::Local<
     return v8CallBoolean(v8::Local<v8::Object>::Cast(info.This())->CreateDataProperty(info.GetIsolate()->GetCurrentContext(), name, v8Value));
 }
 
-{% if has_constructor_attributes %}
+{% if needs_constructor_setter_callback %}
 static void {{cpp_class}}ConstructorAttributeSetterCallback(v8::Local<v8::Name>, v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info)
 {
-    TRACE_EVENT_SET_SAMPLING_STATE("blink", "DOMSetter");
     do {
         v8::Local<v8::Value> data = info.Data();
         ASSERT(data->IsExternal());
@@ -87,7 +82,6 @@ static void {{cpp_class}}ConstructorAttributeSetterCallback(v8::Local<v8::Name>,
             break;
         {{cpp_class}}CreateDataProperty(v8String(info.GetIsolate(), wrapperTypeInfo->interfaceName), v8Value, info);
     } while (false); // do ... while (false) just for use of break
-    TRACE_EVENT_SET_SAMPLING_STATE("v8", "V8Execution");
 }
 
 {% endif %}
@@ -128,11 +122,11 @@ static void {{cpp_class}}ConstructorAttributeSetterCallback(v8::Local<v8::Name>,
 {##############################################################################}
 {% block security_check_functions %}
 {% if has_access_check_callbacks %}
-bool securityCheck(v8::Local<v8::Context> accessingContext, v8::Local<v8::Object> accessedObject)
+bool securityCheck(v8::Local<v8::Context> accessingContext, v8::Local<v8::Object> accessedObject, v8::Local<v8::Value> data)
 {
     // TODO(jochen): Take accessingContext into account.
     {{cpp_class}}* impl = {{v8_class}}::toImpl(accessedObject);
-    return BindingSecurity::shouldAllowAccessToFrame(v8::Isolate::GetCurrent(), callingDOMWindow(v8::Isolate::GetCurrent()), impl->frame(), DoNotReportSecurityError);
+    return BindingSecurity::shouldAllowAccessTo(v8::Isolate::GetCurrent(), callingDOMWindow(v8::Isolate::GetCurrent()), impl, DoNotReportSecurityError);
 }
 
 {% endif %}
@@ -226,9 +220,7 @@ const V8DOMConfiguration::AttributeConfiguration {{v8_class}}Attributes[] = {
                attribute.runtime_enabled_function) and
           attribute.is_data_type_property and
           attribute.should_be_exposed_to_script %}
-    {% filter conditional(attribute.conditional_string) %}
     {{attribute_configuration(attribute)}},
-    {% endfilter %}
     {% endfor %}
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
@@ -247,9 +239,7 @@ const V8DOMConfiguration::AccessorConfiguration {{v8_class}}Accessors[] = {
                attribute.runtime_enabled_function) and
           not attribute.is_data_type_property and
           attribute.should_be_exposed_to_script %}
-    {% filter conditional(attribute.conditional_string) %}
     {{attribute_configuration(attribute)}},
-    {% endfilter %}
     {% endfor %}
 };
 
@@ -261,9 +251,7 @@ const V8DOMConfiguration::AccessorConfiguration {{v8_class}}Accessors[] = {
 {% if method_configuration_methods %}
 const V8DOMConfiguration::MethodConfiguration {{v8_class}}Methods[] = {
     {% for method in method_configuration_methods %}
-    {% filter conditional(method.conditional_string) %}
     {{method_configuration(method)}},
-    {% endfilter %}
     {% endfor %}
 };
 
@@ -299,12 +287,12 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
            if parent_interface else 'v8::Local<v8::FunctionTemplate>()' %}
     {% if runtime_enabled_function %}
     if (!{{runtime_enabled_function}}())
-        defaultSignature = V8DOMConfiguration::installDOMClassTemplate(isolate, functionTemplate, "{{interface_name}}", {{parent_template}}, {{v8_class}}::internalFieldCount, 0, 0, 0, 0, 0, 0);
+        defaultSignature = V8DOMConfiguration::installDOMClassTemplate(isolate, functionTemplate, {{v8_class}}::wrapperTypeInfo.interfaceName, {{parent_template}}, {{v8_class}}::internalFieldCount, 0, 0, 0, 0, 0, 0);
     else
     {% endif %}
     {% set runtime_enabled_indent = 4 if runtime_enabled_function else 0 %}
     {% filter indent(runtime_enabled_indent, true) %}
-    defaultSignature = V8DOMConfiguration::installDOMClassTemplate(isolate, functionTemplate, "{{interface_name}}", {{parent_template}}, {{v8_class}}::internalFieldCount,
+    defaultSignature = V8DOMConfiguration::installDOMClassTemplate(isolate, functionTemplate, {{v8_class}}::wrapperTypeInfo.interfaceName, {{parent_template}}, {{v8_class}}::internalFieldCount,
         {# Test needed as size 0 arrays definitions are not allowed per standard
            (so objects have distinct addresses), which is enforced by MSVC.
            8.5.1 Aggregates [dcl.init.aggr]
@@ -336,6 +324,14 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
     ALLOW_UNUSED_LOCAL(instanceTemplate);
     v8::Local<v8::ObjectTemplate> prototypeTemplate = functionTemplate->PrototypeTemplate();
     ALLOW_UNUSED_LOCAL(prototypeTemplate);
+    {% if not is_partial %}
+    {# TODO(yukishiino): We should set the class string to the platform object
+       (|instanceTemplate|), too.  The reason that we don\'t set it is that
+       it prevents minor GC to collect unreachable DOM objects (a layout test
+       fast/dom/minor-dom-gc.html fails if we set the class string).
+       See also http://heycam.github.io/webidl/#es-platform-objects #}
+    V8DOMConfiguration::setClassString(isolate, prototypeTemplate, {{v8_class}}::wrapperTypeInfo.interfaceName);
+    {% endif %}
     {% if custom_registration_methods %}
     ExecutionContext* context = currentExecutionContext(isolate);
     ALLOW_UNUSED_LOCAL(context);
@@ -352,22 +348,32 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
     {% endif %}
     {% endfilter %}{# runtime_enabled() #}
     {% endif %}
+    {% set runtime_enabled_features = dict() %}
     {% for attribute in attributes
        if attribute.runtime_enabled_function and
           not attribute.exposed_test %}
-    {% filter conditional(attribute.conditional_string) %}
-    if ({{attribute.runtime_enabled_function}}()) {
-        {% if attribute.is_data_type_property %}
-        const V8DOMConfiguration::AttributeConfiguration attributeConfiguration = \
-        {{attribute_configuration(attribute)}};
-        V8DOMConfiguration::installAttribute(isolate, instanceTemplate, prototypeTemplate, attributeConfiguration);
-        {% else %}
-        const V8DOMConfiguration::AccessorConfiguration accessorConfiguration = \
-        {{attribute_configuration(attribute)}};
-        V8DOMConfiguration::installAccessor(isolate, instanceTemplate, prototypeTemplate, functionTemplate, defaultSignature, accessorConfiguration);
+        {% if attribute.runtime_enabled_function not in runtime_enabled_features %}
+            {% set unused = runtime_enabled_features.update({attribute.runtime_enabled_function: []}) %}
         {% endif %}
+        {% set unused = runtime_enabled_features.get(attribute.runtime_enabled_function).append(attribute) %}
+    {% endfor %}
+    {% for runtime_enabled_feature in runtime_enabled_features | sort %}
+    if ({{runtime_enabled_feature}}()) {
+        {% set distinct_attributes = [] %}
+        {% for attribute in runtime_enabled_features.get(runtime_enabled_feature) | sort
+           if attribute.name not in distinct_attributes %}
+        {% set unused = distinct_attributes.append(attribute.name) %}
+        {% if attribute.is_data_type_property %}
+        const V8DOMConfiguration::AttributeConfiguration attribute{{attribute.name}}Configuration = \
+        {{attribute_configuration(attribute)}};
+        V8DOMConfiguration::installAttribute(isolate, instanceTemplate, prototypeTemplate, attribute{{attribute.name}}Configuration);
+        {% else %}
+        const V8DOMConfiguration::AccessorConfiguration accessor{{attribute.name}}Configuration = \
+        {{attribute_configuration(attribute)}};
+        V8DOMConfiguration::installAccessor(isolate, instanceTemplate, prototypeTemplate, functionTemplate, defaultSignature, accessor{{attribute.name}}Configuration);
+        {% endif %}
+        {% endfor %}
     }
-    {% endfilter %}
     {% endfor %}
     {% if constants %}
     {{install_constants() | indent}}
@@ -397,7 +403,6 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
     {% endif %}
     {% for method in custom_registration_methods %}
     {# install_custom_signature #}
-    {% filter conditional(method.conditional_string) %}
     {% filter exposed(method.overloads.exposed_test_all
                       if method.overloads else
                       method.exposed_test) %}
@@ -412,7 +417,6 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
     {% endif %}{# is_do_not_check_security #}
     {% endfilter %}{# runtime_enabled() #}
     {% endfilter %}{# exposed() #}
-    {% endfilter %}{# conditional() #}
     {% endfor %}
     {# Special interfaces #}
     {% if not is_partial %}
@@ -424,9 +428,6 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
     {% if is_global or interface_name == 'HTMLDocument' %}
     functionTemplate->SetHiddenPrototype(true);
     {% endif %}
-
-    // Custom toString template
-    functionTemplate->Set(v8AtomicString(isolate, "toString"), V8PerIsolateData::from(isolate)->toStringTemplate());
     {% endif %}
 }
 
@@ -442,7 +443,6 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
 {##############################################################################}
 {% block prepare_prototype_and_interface_object %}{% endblock %}
 {##############################################################################}
-{% block to_active_dom_object %}{% endblock %}
 {% block ref_object_and_deref_object %}{% endblock %}
 {% for method in methods if method.is_implemented_in_private_script and method.visible %}
 {{method_implemented_in_private_script(method)}}
@@ -455,4 +455,3 @@ static void install{{v8_class}}Template(v8::Local<v8::FunctionTemplate> function
 {% endfor %}
 {% block partial_interface %}{% endblock %}
 } // namespace blink
-{% endfilter %}

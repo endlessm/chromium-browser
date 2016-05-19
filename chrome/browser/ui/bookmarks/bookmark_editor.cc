@@ -4,9 +4,12 @@
 
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "grit/components_strings.h"
 
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
@@ -120,6 +123,8 @@ BookmarkEditor::EditDetails BookmarkEditor::EditDetails::AddFolder(
   details.index = index;
   return details;
 }
+
+BookmarkEditor::EditDetails::EditDetails(const EditDetails& other) = default;
 
 BookmarkEditor::EditDetails::~EditDetails() {}
 

@@ -25,7 +25,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/TextLinkColors.h"
 
 #include "core/css/CSSColorValue.h"
@@ -68,7 +67,7 @@ Color TextLinkColors::colorFromCSSValue(const CSSValue& value, Color currentColo
     switch (valueID) {
     case 0:
         return Color();
-    case CSSValueWebkitText:
+    case CSSValueInternalQuirkInherit:
         return textColor();
     case CSSValueWebkitLink:
         return forVisitedLink ? visitedLinkColor() : linkColor();
@@ -84,4 +83,4 @@ Color TextLinkColors::colorFromCSSValue(const CSSValue& value, Color currentColo
     }
 }
 
-}
+} // namespace blink

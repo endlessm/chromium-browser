@@ -8,10 +8,9 @@
 #include "base/guid.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chromecast/base/cast_sys_info_util.h"
 #include "chromecast/base/chromecast_switches.h"
 #include "chromecast/base/path_utils.h"
@@ -31,6 +30,8 @@
 #include "components/metrics/profiler/profiler_metrics_provider.h"
 #include "components/metrics/ui/screen_info_metrics_provider.h"
 #include "components/metrics/url_constants.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/common/content_switches.h"
 
 #if defined(OS_LINUX)
@@ -137,7 +138,7 @@ scoped_ptr< ::metrics::ClientInfo> CastMetricsServiceClient::LoadClientInfo() {
       // Force old client id to be regenerated. See b/9487011.
       client_info->client_id = base::GenerateGUID();
       pref_service_->SetBoolean(prefs::kMetricsIsNewClientID, true);
-      return client_info.Pass();
+      return client_info;
     }
     // else the device was just FDR'ed, pass through.
   }
@@ -145,7 +146,7 @@ scoped_ptr< ::metrics::ClientInfo> CastMetricsServiceClient::LoadClientInfo() {
   // Use "forced" client ID if available.
   if (!force_client_id_.empty() && base::IsValidGUID(force_client_id_)) {
     client_info->client_id = force_client_id_;
-    return client_info.Pass();
+    return client_info;
   }
 
   if (force_client_id_.empty()) {
@@ -211,9 +212,13 @@ std::string CastMetricsServiceClient::GetVersionString() {
   version_string.append("-K");
   version_string.append(base::IntToString(build_number));
 
-  int is_official_build =
+  const ::metrics::SystemProfileProto::Channel channel = GetChannel();
+  CHECK(!CAST_IS_DEBUG_BUILD() ||
+        channel != ::metrics::SystemProfileProto::CHANNEL_STABLE);
+  const bool is_official_build =
       build_number > 0 &&
-      GetChannel() != ::metrics::SystemProfileProto::CHANNEL_UNKNOWN;
+      !CAST_IS_DEBUG_BUILD() &&
+      channel != ::metrics::SystemProfileProto::CHANNEL_UNKNOWN;
   if (!is_official_build)
     version_string.append("-devel");
 
@@ -298,7 +303,9 @@ void CastMetricsServiceClient::OnApplicationNotIdle() {
 
 void CastMetricsServiceClient::ProcessExternalEvents(const base::Closure& cb) {
 #if defined(OS_LINUX)
-  external_metrics_->ProcessExternalEvents(cb);
+  external_metrics_->ProcessExternalEvents(
+      base::Bind(&ExternalMetrics::ProcessExternalEvents,
+                 base::Unretained(platform_metrics_), cb));
 #else
   cb.Run();
 #endif  // defined(OS_LINUX)

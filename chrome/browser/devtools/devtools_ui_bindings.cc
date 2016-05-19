@@ -4,15 +4,19 @@
 
 #include "chrome/browser/devtools/devtools_ui_bindings.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/devtools/devtools_file_watcher.h"
 #include "chrome/browser/devtools/devtools_protocol.h"
@@ -22,7 +26,6 @@
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -33,6 +36,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "components/ui/zoom/page_zoom.h"
 #include "content/public/browser/devtools_external_agent_proxy.h"
@@ -100,11 +104,11 @@ base::DictionaryValue* CreateFileSystemValue(
 }
 
 Browser* FindBrowser(content::WebContents* web_contents) {
-  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
-    int tab_index = it->tab_strip_model()->GetIndexOfWebContents(
+  for (auto* browser : *BrowserList::GetInstance()) {
+    int tab_index = browser->tab_strip_model()->GetIndexOfWebContents(
         web_contents);
     if (tab_index != TabStripModel::kNoTab)
-      return *it;
+      return browser;
   }
   return NULL;
 }
@@ -121,6 +125,7 @@ class DevToolsConfirmInfoBarDelegate : public ConfirmInfoBarDelegate {
   ~DevToolsConfirmInfoBarDelegate() override;
 
  private:
+  infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   base::string16 GetMessageText() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;
@@ -143,6 +148,11 @@ DevToolsConfirmInfoBarDelegate::DevToolsConfirmInfoBarDelegate(
 DevToolsConfirmInfoBarDelegate::~DevToolsConfirmInfoBarDelegate() {
   if (!callback_.is_null())
     callback_.Run(false);
+}
+
+infobars::InfoBarDelegate::InfoBarIdentifier
+DevToolsConfirmInfoBarDelegate::GetIdentifier() const {
+  return DEV_TOOLS_CONFIRM_INFOBAR_DELEGATE;
 }
 
 base::string16 DevToolsConfirmInfoBarDelegate::GetMessageText() const {
@@ -286,6 +296,7 @@ class DevToolsUIBindings::FrontendWebContentsObserver
   void DidStartNavigationToPendingEntry(
       const GURL& url,
       content::NavigationController::ReloadType reload_type) override;
+  void DocumentAvailableInMainFrame() override;
   void DocumentOnLoadCompletedInMainFrame() override;
   void DidNavigateMainFrame(
       const content::LoadCommittedDetails& details,
@@ -335,6 +346,11 @@ void DevToolsUIBindings::FrontendWebContentsObserver::
           web_contents()->GetMainFrame(),
           base::Bind(&DevToolsUIBindings::HandleMessageFromDevToolsFrontend,
                      base::Unretained(devtools_bindings_))));
+}
+
+void DevToolsUIBindings::FrontendWebContentsObserver::
+    DocumentAvailableInMainFrame() {
+  devtools_bindings_->DocumentAvailableInMainFrame();
 }
 
 void DevToolsUIBindings::FrontendWebContentsObserver::
@@ -484,6 +500,7 @@ DevToolsUIBindings::DevToolsUIBindings(content::WebContents* web_contents)
       delegate_(new DefaultBindingsDelegate(web_contents_)),
       devices_updates_enabled_(false),
       frontend_loaded_(false),
+      reattaching_(false),
       weak_factory_(this) {
   g_instances.Get().push_back(this);
   frontend_contents_observer_.reset(new FrontendWebContentsObserver(this));
@@ -805,6 +822,11 @@ void DevToolsUIBindings::DevicesDiscoveryConfigUpdated() {
           prefs::kDevToolsPortForwardingConfig)->GetValue());
 }
 
+void DevToolsUIBindings::SendPortForwardingStatus(const base::Value& status) {
+  CallClientFunction("DevToolsAPI.devicesPortForwardingStatusChanged", &status,
+                     nullptr, nullptr);
+}
+
 void DevToolsUIBindings::SetDevicesUpdatesEnabled(bool enabled) {
   if (devices_updates_enabled_ == enabled)
     return;
@@ -824,10 +846,16 @@ void DevToolsUIBindings::SetDevicesUpdatesEnabled(bool enabled) {
     pref_change_registrar_.Add(prefs::kDevToolsPortForwardingConfig,
         base::Bind(&DevToolsUIBindings::DevicesDiscoveryConfigUpdated,
                    base::Unretained(this)));
+    port_status_serializer_.reset(new PortForwardingStatusSerializer(
+        base::Bind(&DevToolsUIBindings::SendPortForwardingStatus,
+                   base::Unretained(this)),
+        profile_));
     DevicesDiscoveryConfigUpdated();
   } else {
     remote_targets_handler_.reset();
+    port_status_serializer_.reset();
     pref_change_registrar_.RemoveAll();
+    SendPortForwardingStatus(base::DictionaryValue());
   }
 }
 
@@ -947,7 +975,7 @@ void DevToolsUIBindings::OnURLFetchComplete(const net::URLFetcher* source) {
   response.SetInteger("statusCode", rh ? rh->response_code() : 200);
   response.Set("headers", headers);
 
-  void* iterator = NULL;
+  size_t iterator = 0;
   std::string name;
   std::string value;
   while (rh && rh->EnumerateHeaderLines(&iterator, &name, &value))
@@ -1071,7 +1099,7 @@ void DevToolsUIBindings::ShowDevToolsConfirmInfoBar(
   }
   scoped_ptr<DevToolsConfirmInfoBarDelegate> delegate(
       new DevToolsConfirmInfoBarDelegate(callback, message));
-  GlobalConfirmInfoBar::Show(delegate.Pass());
+  GlobalConfirmInfoBar::Show(std::move(delegate));
 }
 
 void DevToolsUIBindings::AddDevToolsExtensionsToClient() {
@@ -1116,8 +1144,7 @@ void DevToolsUIBindings::AttachTo(
 
 void DevToolsUIBindings::Reattach() {
   DCHECK(agent_host_.get());
-  agent_host_->DetachClient();
-  agent_host_->AttachClient(this);
+  reattaching_ = true;
 }
 
 void DevToolsUIBindings::Detach() {
@@ -1161,6 +1188,14 @@ void DevToolsUIBindings::CallClientFunction(const std::string& function_name,
   javascript.append(");");
   web_contents_->GetMainFrame()->ExecuteJavaScript(
       base::UTF8ToUTF16(javascript));
+}
+
+void DevToolsUIBindings::DocumentAvailableInMainFrame() {
+  if (!reattaching_)
+    return;
+  reattaching_ = false;
+  agent_host_->DetachClient();
+  agent_host_->AttachClient(this);
 }
 
 void DevToolsUIBindings::DocumentOnLoadCompletedInMainFrame() {

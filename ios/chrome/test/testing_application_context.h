@@ -36,13 +36,20 @@ class TestingApplicationContext : public ApplicationContext {
   net::URLRequestContextGetter* GetSystemURLRequestContext() override;
   const std::string& GetApplicationLocale() override;
   ios::ChromeBrowserStateManager* GetChromeBrowserStateManager() override;
+  metrics_services_manager::MetricsServicesManager* GetMetricsServicesManager()
+      override;
   metrics::MetricsService* GetMetricsService() override;
   variations::VariationsService* GetVariationsService() override;
-  policy::BrowserPolicyConnector* GetBrowserPolicyConnector() override;
-  policy::PolicyService* GetPolicyService() override;
   rappor::RapporService* GetRapporService() override;
   net_log::ChromeNetLog* GetNetLog() override;
   network_time::NetworkTimeTracker* GetNetworkTimeTracker() override;
+  IOSChromeIOThread* GetIOSChromeIOThread() override;
+  gcm::GCMDriver* GetGCMDriver() override;
+  web_resource::PromoResourceService* GetPromoResourceService() override;
+  component_updater::ComponentUpdateService* GetComponentUpdateService()
+      override;
+  CRLSetFetcher* GetCRLSetFetcher() override;
+  safe_browsing::SafeBrowsingService* GetSafeBrowsingService() override;
 
  private:
   base::ThreadChecker thread_checker_;

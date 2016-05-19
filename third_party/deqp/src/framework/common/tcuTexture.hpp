@@ -52,12 +52,15 @@ public:
 		RGB,
 		RGBA,
 		ARGB,
+		BGR,
 		BGRA,
 
 		sR,
 		sRG,
 		sRGB,
 		sRGBA,
+		sBGR,
+		sBGRA,
 
 		D,
 		S,
@@ -75,16 +78,25 @@ public:
 		UNORM_INT16,
 		UNORM_INT24,
 		UNORM_INT32,
+		UNORM_BYTE_44,
 		UNORM_SHORT_565,
 		UNORM_SHORT_555,
 		UNORM_SHORT_4444,
 		UNORM_SHORT_5551,
 		UNORM_INT_101010,
+		SNORM_INT_1010102_REV,
 		UNORM_INT_1010102_REV,
+		UNSIGNED_BYTE_44,
+		UNSIGNED_SHORT_565,
+		UNSIGNED_SHORT_4444,
+		UNSIGNED_SHORT_5551,
+		SIGNED_INT_1010102_REV,
 		UNSIGNED_INT_1010102_REV,
 		UNSIGNED_INT_11F_11F_10F_REV,
 		UNSIGNED_INT_999_E5_REV,
+		UNSIGNED_INT_16_8_8,
 		UNSIGNED_INT_24_8,
+		UNSIGNED_INT_24_8_REV,
 		SIGNED_INT8,
 		SIGNED_INT16,
 		SIGNED_INT32,
@@ -94,6 +106,7 @@ public:
 		UNSIGNED_INT32,
 		HALF_FLOAT,
 		FLOAT,
+		FLOAT64,
 		FLOAT_UNSIGNED_INT_24_8_REV,
 
 		CHANNELTYPE_LAST
@@ -114,7 +127,7 @@ public:
 	{
 	}
 
-	int getPixelSize (void) const;
+	int getPixelSize (void) const; //!< Deprecated, use tcu::getPixelSize(fmt)
 
 	bool operator== (const TextureFormat& other) const { return !(*this != other); }
 	bool operator!= (const TextureFormat& other) const
@@ -122,6 +135,9 @@ public:
 		return (order != other.order || type != other.type);
 	}
 } DE_WARN_UNUSED_TYPE;
+
+bool	isValid			(TextureFormat format);
+int		getPixelSize	(TextureFormat format);
 
 /*--------------------------------------------------------------------*//*!
  * \brief Texture swizzle
@@ -400,8 +416,8 @@ public:
 	void						setStorage			(const TextureFormat& format, int width, int heigth, int depth = 1);
 	void						setSize				(int width, int height, int depth = 1);
 
-	PixelBufferAccess			getAccess			(void)			{ return PixelBufferAccess(m_format, m_size, calculatePackedPitch(m_format, m_size), getPtr());			}
-	ConstPixelBufferAccess		getAccess			(void) const	{ return ConstPixelBufferAccess(m_format, m_size, calculatePackedPitch(m_format, m_size), getPtr());	}
+	PixelBufferAccess			getAccess			(void)			{ return isEmpty() ? PixelBufferAccess() : PixelBufferAccess(m_format, m_size, calculatePackedPitch(m_format, m_size), getPtr());			}
+	ConstPixelBufferAccess		getAccess			(void) const	{ return isEmpty() ? ConstPixelBufferAccess() : ConstPixelBufferAccess(m_format, m_size, calculatePackedPitch(m_format, m_size), getPtr());	}
 
 private:
 	void*						getPtr				(void)			{ return m_data.getPtr(); }

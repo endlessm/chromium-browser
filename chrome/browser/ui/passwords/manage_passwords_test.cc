@@ -4,23 +4,23 @@
 
 #include "chrome/browser/ui/passwords/manage_passwords_test.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
+#include "chrome/browser/ui/passwords/passwords_client_ui_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
-#include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/stub_password_manager_client.h"
 #include "components/password_manager/core/browser/stub_password_manager_driver.h"
-#include "testing/gtest/include/gtest/gtest.h"
 
 ManagePasswordsTest::ManagePasswordsTest() {
 }
@@ -47,60 +47,51 @@ void ManagePasswordsTest::ExecuteManagePasswordsCommand() {
 void ManagePasswordsTest::SetupManagingPasswords() {
   base::string16 kTestUsername = base::ASCIIToUTF16("test_username");
   autofill::PasswordFormMap map;
-  map.insert(kTestUsername,
-             make_scoped_ptr(new autofill::PasswordForm(*test_form())));
-  GetController()->OnPasswordAutofilled(map, map.begin()->second->origin);
+  map.insert(std::make_pair(
+      kTestUsername,
+      make_scoped_ptr(new autofill::PasswordForm(*test_form()))));
+  GetController()->OnPasswordAutofilled(map, map.begin()->second->origin,
+                                        nullptr);
 }
 
 void ManagePasswordsTest::SetupPendingPassword() {
   password_manager::StubPasswordManagerClient client;
+  password_manager::StubLogManager log_manager;
   password_manager::StubPasswordManagerDriver driver;
-  password_manager::PasswordManager password_manager(&client);
+
   scoped_ptr<password_manager::PasswordFormManager> test_form_manager(
       new password_manager::PasswordFormManager(
-          &password_manager, &client, driver.AsWeakPtr(), *test_form(), false));
+          nullptr, &client, driver.AsWeakPtr(), *test_form(), false));
   test_form_manager->SimulateFetchMatchingLoginsFromPasswordStore();
   ScopedVector<autofill::PasswordForm> best_matches;
-  test_form_manager->OnGetPasswordStoreResults(best_matches.Pass());
-  GetController()->OnPasswordSubmitted(test_form_manager.Pass());
+  test_form_manager->OnGetPasswordStoreResults(std::move(best_matches));
+  GetController()->OnPasswordSubmitted(std::move(test_form_manager));
 }
 
 void ManagePasswordsTest::SetupAutomaticPassword() {
   password_manager::StubPasswordManagerClient client;
+  password_manager::StubLogManager log_manager;
   password_manager::StubPasswordManagerDriver driver;
-  password_manager::PasswordManager password_manager(&client);
+
   scoped_ptr<password_manager::PasswordFormManager> test_form_manager(
       new password_manager::PasswordFormManager(
-          &password_manager, &client, driver.AsWeakPtr(), *test_form(), false));
-  GetController()->OnAutomaticPasswordSave(test_form_manager.Pass());
-}
-
-void ManagePasswordsTest::SetupChooseCredentials(
-    ScopedVector<autofill::PasswordForm> local_credentials,
-    ScopedVector<autofill::PasswordForm> federated_credentials,
-    const GURL& origin) {
-  base::string16 kTestUsername = base::ASCIIToUTF16("test_username");
-  autofill::PasswordFormMap map;
-  map.insert(kTestUsername,
-             make_scoped_ptr(new autofill::PasswordForm(*test_form())));
-  GetController()->OnChooseCredentials(
-      local_credentials.Pass(), federated_credentials.Pass(), origin,
-      base::Bind(&ManagePasswordsTest::OnChooseCredential, this));
+          nullptr, &client, driver.AsWeakPtr(), *test_form(), false));
+  GetController()->OnAutomaticPasswordSave(std::move(test_form_manager));
 }
 
 void ManagePasswordsTest::SetupAutoSignin(
     ScopedVector<autofill::PasswordForm> local_credentials) {
-  GetController()->OnAutoSignin(local_credentials.Pass());
+  GetController()->OnAutoSignin(std::move(local_credentials));
 }
 
 scoped_ptr<base::HistogramSamples> ManagePasswordsTest::GetSamples(
     const char* histogram) {
   // Ensure that everything has been properly recorded before pulling samples.
   content::RunAllPendingInMessageLoop();
-  return histogram_tester_.GetHistogramSamplesSinceCreation(histogram).Pass();
+  return histogram_tester_.GetHistogramSamplesSinceCreation(histogram);
 }
 
-ManagePasswordsUIController* ManagePasswordsTest::GetController() {
-  return ManagePasswordsUIController::FromWebContents(
+PasswordsClientUIDelegate* ManagePasswordsTest::GetController() {
+  return PasswordsClientUIDelegateFromWebContents(
       browser()->tab_strip_model()->GetActiveWebContents());
 }

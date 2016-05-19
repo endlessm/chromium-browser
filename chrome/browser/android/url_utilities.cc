@@ -46,6 +46,15 @@ static jboolean SameDomainOrHost(JNIEnv* env,
                                                             filter);
 }
 
+static jboolean SameHost(JNIEnv* env,
+                         const JavaParamRef<jclass>& clazz,
+                         const JavaParamRef<jstring>& url_1_str,
+                         const JavaParamRef<jstring>& url_2_str) {
+  GURL url_1 = ConvertJavaStringToGURL(env, url_1_str);
+  GURL url_2 = ConvertJavaStringToGURL(env, url_2_str);
+  return url_1.host_piece() == url_2.host_piece();
+}
+
 static ScopedJavaLocalRef<jstring> GetDomainAndRegistry(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz,
@@ -115,6 +124,36 @@ static ScopedJavaLocalRef<jstring> FixupUrl(
   return fixed_url.is_valid()
              ? base::android::ConvertUTF8ToJavaString(env, fixed_url.spec())
              : ScopedJavaLocalRef<jstring>();
+}
+
+static jboolean UrlsMatchIgnoringFragments(JNIEnv* env,
+                                           const JavaParamRef<jclass>& clazz,
+                                           const JavaParamRef<jstring>& url,
+                                           const JavaParamRef<jstring>& url2) {
+  GURL gurl = ConvertJavaStringToGURL(env, url);
+  GURL gurl2 = ConvertJavaStringToGURL(env, url2);
+  if (gurl.is_empty())
+    return gurl2.is_empty();
+  if (!gurl.is_valid() || !gurl2.is_valid())
+    return false;
+
+  GURL::Replacements replacements;
+  replacements.SetRefStr("");
+  return gurl.ReplaceComponents(replacements) ==
+         gurl2.ReplaceComponents(replacements);
+}
+
+static jboolean UrlsFragmentsDiffer(JNIEnv* env,
+                                    const JavaParamRef<jclass>& clazz,
+                                    const JavaParamRef<jstring>& url,
+                                    const JavaParamRef<jstring>& url2) {
+  GURL gurl = ConvertJavaStringToGURL(env, url);
+  GURL gurl2 = ConvertJavaStringToGURL(env, url2);
+  if (gurl.is_empty())
+    return !gurl2.is_empty();
+  if (!gurl.is_valid() || !gurl2.is_valid())
+    return true;
+  return gurl.ref() != gurl2.ref();
 }
 
 // Register native methods

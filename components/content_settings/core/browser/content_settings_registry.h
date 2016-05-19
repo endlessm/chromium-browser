@@ -5,11 +5,11 @@
 #ifndef COMPONENTS_CONTENT_SETTINGS_CORE_BROWSER_CONTENT_SETTINGS_REGISTRY_H_
 #define COMPONENTS_CONTENT_SETTINGS_CORE_BROWSER_CONTENT_SETTINGS_REGISTRY_H_
 
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "base/containers/scoped_ptr_map.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
@@ -29,8 +29,7 @@ class WebsiteSettingsRegistry;
 // const.
 class ContentSettingsRegistry {
  public:
-  using Map =
-      base::ScopedPtrMap<ContentSettingsType, scoped_ptr<ContentSettingsInfo>>;
+  using Map = std::map<ContentSettingsType, scoped_ptr<ContentSettingsInfo>>;
   using const_iterator = MapValueIterator<typename Map::const_iterator,
                                           const ContentSettingsInfo*>;
 
@@ -61,7 +60,9 @@ class ContentSettingsRegistry {
                 ContentSetting initial_default_value,
                 WebsiteSettingsInfo::SyncStatus sync_status,
                 const std::vector<std::string>& whitelisted_schemes,
-                const std::set<ContentSetting>& valid_settings);
+                const std::set<ContentSetting>& valid_settings,
+                WebsiteSettingsInfo::ScopingType scoping_type,
+                ContentSettingsInfo::IncognitoBehavior incognito_behavior);
 
   Map content_settings_info_;
   WebsiteSettingsRegistry* website_settings_registry_;

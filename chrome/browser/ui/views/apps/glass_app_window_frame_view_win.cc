@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/apps/glass_app_window_frame_view_win.h"
 
+#include "base/win/windows_version.h"
 #include "extensions/browser/app_window/native_app_window.h"
 #include "ui/base/hit_test.h"
 #include "ui/gfx/win/dpi.h"
@@ -29,17 +30,35 @@ GlassAppWindowFrameViewWin::~GlassAppWindowFrameViewWin() {
 }
 
 gfx::Insets GlassAppWindowFrameViewWin::GetGlassInsets() const {
-  // If 1 is not subtracted, they are too big. There is possibly some reason
-  // for that.
-  // Also make sure the insets don't go below 1, as bad things happen when they
-  // do.
-  int caption_height = std::max(0,
-      gfx::win::GetSystemMetricsInDIP(SM_CYSMICON) +
-          gfx::win::GetSystemMetricsInDIP(SM_CYSIZEFRAME) - 1);
-  int frame_size =
-      std::max(1, gfx::win::GetSystemMetricsInDIP(SM_CXSIZEFRAME) - 1);
-  return gfx::Insets(
-      frame_size + caption_height, frame_size, frame_size, frame_size);
+  int caption_height = gfx::win::GetSystemMetricsInDIP(SM_CYSIZEFRAME) +
+                       gfx::win::GetSystemMetricsInDIP(SM_CYCAPTION);
+
+  int frame_size = base::win::GetVersion() < base::win::VERSION_WIN10
+                       ? gfx::win::GetSystemMetricsInDIP(SM_CXSIZEFRAME)
+                       : 0;
+
+  return gfx::Insets(caption_height, frame_size, frame_size, frame_size);
+}
+
+gfx::Insets GlassAppWindowFrameViewWin::GetClientAreaInsets() const {
+  gfx::Insets insets;
+  if (base::win::GetVersion() < base::win::VERSION_WIN10) {
+    // This tells Windows that most of the window is a client area, meaning
+    // Chrome will draw it. Windows still fills in the glass bits because of the
+    // DwmExtendFrameIntoClientArea call in |UpdateDWMFrame|.
+    // Without this 1 pixel offset on the right and bottom:
+    //   * windows paint in a more standard way, and
+    //   * we get weird black bars at the top when maximized in multiple monitor
+    //     configurations.
+    int border_thickness = 1;
+    insets.Set(0, 0, border_thickness, border_thickness);
+  } else {
+    // On Windows 10 we use a 1 pixel non client border which is too thin as a
+    // resize target. This inset extends the resize region.
+    int resize_border = gfx::win::GetSystemMetricsInDIP(SM_CXSIZEFRAME);
+    insets.Set(0, resize_border, resize_border, resize_border);
+  }
+  return insets;
 }
 
 gfx::Rect GlassAppWindowFrameViewWin::GetBoundsForClientView() const {
@@ -59,14 +78,15 @@ gfx::Rect GlassAppWindowFrameViewWin::GetWindowBoundsForClientBounds(
     return bounds();
 
   gfx::Insets insets = GetGlassInsets();
-  // Our bounds are not the same as the window's due to the offset added by
-  // AppWindowDesktopWindowTreeHostWin::GetClientAreaInsets. So account for it
-  // here.
-  insets += gfx::Insets(0, 0, 1, 1);
-  return gfx::Rect(client_bounds.x() - insets.left(),
-                   client_bounds.y() - insets.top(),
-                   client_bounds.width() + insets.left() + insets.right(),
-                   client_bounds.height() + insets.top() + insets.bottom());
+  insets += GetClientAreaInsets();
+  gfx::Rect window_bounds(
+      client_bounds.x() - insets.left(), client_bounds.y() - insets.top(),
+      client_bounds.width() + insets.left() + insets.right(),
+      client_bounds.height() + insets.top() + insets.bottom());
+
+  // Prevent the window size from being 0x0 during initialization.
+  window_bounds.Union(gfx::Rect(0, 0, 1, 1));
+  return window_bounds;
 }
 
 int GlassAppWindowFrameViewWin::NonClientHitTest(const gfx::Point& point) {

@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/parser/CSSTokenizer.h"
 
 #include "core/css/parser/CSSParserTokenRange.h"
 #include "core/css/parser/MediaQueryBlockWatcher.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "wtf/Partitions.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -50,7 +49,7 @@ void compareTokens(const CSSParserToken& expected, const CSSParserToken& actual)
         break;
     case HashToken:
         ASSERT_EQ(String(expected.value()), String(actual.value()));
-        ASSERT_EQ(expected.hashTokenType(), actual.hashTokenType());
+        ASSERT_EQ(expected.getHashTokenType(), actual.getHashTokenType());
         break;
     default:
         break;
@@ -500,4 +499,4 @@ TEST(CSSTokenizerBlockTest, Basic)
     }
 }
 
-} // namespace
+} // namespace blink

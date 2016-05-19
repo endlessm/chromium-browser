@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_MANIFEST_MANIFEST_ICON_SELECTOR_H_
 #define CHROME_BROWSER_MANIFEST_MANIFEST_ICON_SELECTOR_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "content/public/common/manifest.h"
 #include "url/gurl.h"
 
@@ -40,8 +40,7 @@ class ManifestIconSelector {
   static GURL FindBestMatchingIcon(
       const std::vector<content::Manifest::Icon>& icons,
       int ideal_icon_size_in_dp,
-      int minimum_icon_size_in_dp,
-      const gfx::Screen* screen);
+      int minimum_icon_size_in_dp);
 
  private:
   ManifestIconSelector(int ideal_icon_size_in_px,

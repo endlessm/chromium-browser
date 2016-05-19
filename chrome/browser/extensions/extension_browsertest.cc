@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/extension_browsertest.h"
 
+#include <stddef.h>
+#include <utility>
 #include <vector>
 
 #include "base/command_line.h"
@@ -14,6 +16,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/browsertest_util.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/crx_installer.h"
@@ -43,6 +46,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
@@ -62,6 +66,7 @@ using extensions::ExtensionCreator;
 using extensions::ExtensionRegistry;
 using extensions::FeatureSwitch;
 using extensions::Manifest;
+using extensions::ScopedTestDialogAutoConfirm;
 
 ExtensionBrowserTest::ExtensionBrowserTest()
     : loaded_(false),
@@ -378,39 +383,6 @@ base::FilePath ExtensionBrowserTest::PackExtensionWithOptions(
   return crx_path;
 }
 
-// This class is used to simulate an installation abort by the user.
-class MockAbortExtensionInstallPrompt : public ExtensionInstallPrompt {
- public:
-  MockAbortExtensionInstallPrompt() : ExtensionInstallPrompt(NULL) {
-  }
-
-  // Simulate a user abort on an extension installation.
-  void ConfirmInstall(Delegate* delegate,
-                      const Extension* extension,
-                      const ShowDialogCallback& show_dialog_callback) override {
-    delegate->InstallUIAbort(true);
-    base::MessageLoopForUI::current()->QuitWhenIdle();
-  }
-
-  void OnInstallSuccess(const Extension* extension, SkBitmap* icon) override {}
-
-  void OnInstallFailure(const extensions::CrxInstallError& error) override {}
-};
-
-class MockAutoConfirmExtensionInstallPrompt : public ExtensionInstallPrompt {
- public:
-  explicit MockAutoConfirmExtensionInstallPrompt(
-      content::WebContents* web_contents)
-    : ExtensionInstallPrompt(web_contents) {}
-
-  // Proceed without confirmation prompt.
-  void ConfirmInstall(Delegate* delegate,
-                      const Extension* extension,
-                      const ShowDialogCallback& show_dialog_callback) override {
-    delegate->InstallUIProceed();
-  }
-};
-
 const Extension* ExtensionBrowserTest::UpdateExtensionWaitForIdle(
     const std::string& id,
     const base::FilePath& path,
@@ -422,7 +394,6 @@ const Extension* ExtensionBrowserTest::UpdateExtensionWaitForIdle(
                                   Manifest::INTERNAL,
                                   browser(),
                                   Extension::NO_FLAGS,
-                                  false,
                                   false);
 }
 
@@ -431,7 +402,7 @@ const Extension* ExtensionBrowserTest::InstallExtensionFromWebstore(
     int expected_change) {
   return InstallOrUpdateExtension(
       std::string(), path, INSTALL_UI_TYPE_AUTO_CONFIRM, expected_change,
-      Manifest::INTERNAL, browser(), Extension::FROM_WEBSTORE, true, false);
+      Manifest::INTERNAL, browser(), Extension::FROM_WEBSTORE, true);
 }
 
 const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
@@ -446,8 +417,7 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
                                   Manifest::INTERNAL,
                                   browser(),
                                   Extension::NO_FLAGS,
-                                  true,
-                                  false);
+                                  true);
 }
 
 const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
@@ -464,8 +434,7 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
                                   Manifest::INTERNAL,
                                   browser,
                                   creation_flags,
-                                  true,
-                                  false);
+                                  true);
 }
 
 const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
@@ -481,8 +450,7 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
                                   install_source,
                                   browser(),
                                   Extension::NO_FLAGS,
-                                  true,
-                                  false);
+                                  true);
 }
 
 const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
@@ -493,8 +461,7 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
     Manifest::Location install_source,
     Browser* browser,
     Extension::InitFromValueFlags creation_flags,
-    bool install_immediately,
-    bool is_ephemeral) {
+    bool install_immediately) {
   ExtensionService* service =
       extensions::ExtensionSystem::Get(profile())->extension_service();
   ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
@@ -502,15 +469,16 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
   size_t num_before = registry->enabled_extensions().size();
 
   {
-    scoped_ptr<ExtensionInstallPrompt> install_ui;
+    scoped_ptr<ScopedTestDialogAutoConfirm> prompt_auto_confirm;
     if (ui_type == INSTALL_UI_TYPE_CANCEL) {
-      install_ui.reset(new MockAbortExtensionInstallPrompt());
+      prompt_auto_confirm.reset(new ScopedTestDialogAutoConfirm(
+          ScopedTestDialogAutoConfirm::CANCEL));
     } else if (ui_type == INSTALL_UI_TYPE_NORMAL) {
-      install_ui.reset(new ExtensionInstallPrompt(
-          browser->tab_strip_model()->GetActiveWebContents()));
+      prompt_auto_confirm.reset(new ScopedTestDialogAutoConfirm(
+          ScopedTestDialogAutoConfirm::NONE));
     } else if (ui_type == INSTALL_UI_TYPE_AUTO_CONFIRM) {
-      install_ui.reset(new MockAutoConfirmExtensionInstallPrompt(
-          browser->tab_strip_model()->GetActiveWebContents()));
+      prompt_auto_confirm.reset(new ScopedTestDialogAutoConfirm(
+          ScopedTestDialogAutoConfirm::ACCEPT));
     }
 
     // TODO(tessamac): Update callers to always pass an unpacked extension
@@ -522,13 +490,17 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
     if (crx_path.empty())
       return NULL;
 
+    scoped_ptr<ExtensionInstallPrompt> install_ui;
+    if (prompt_auto_confirm) {
+      install_ui.reset(new ExtensionInstallPrompt(
+         browser->tab_strip_model()->GetActiveWebContents()));
+    }
     scoped_refptr<extensions::CrxInstaller> installer(
-        extensions::CrxInstaller::Create(service, install_ui.Pass()));
+        extensions::CrxInstaller::Create(service, std::move(install_ui)));
     installer->set_expected_id(id);
     installer->set_creation_flags(creation_flags);
     installer->set_install_source(install_source);
     installer->set_install_immediately(install_immediately);
-    installer->set_is_ephemeral(is_ephemeral);
     if (!installer->is_gallery_install()) {
       installer->set_off_store_install_allow_reason(
           extensions::CrxInstaller::OffStoreInstallAllowedInTest);

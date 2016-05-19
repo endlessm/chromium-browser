@@ -60,7 +60,7 @@ class FontFace : public RefCountedWillBeGarbageCollectedFinalized<FontFace>, pub
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(FontFace);
 public:
-    enum LoadStatus { Unloaded, Loading, Loaded, Error };
+    enum LoadStatusType { Unloaded, Loading, Loaded, Error };
 
     static PassRefPtrWillBeRawPtr<FontFace> create(ExecutionContext*, const AtomicString& family, StringOrArrayBufferOrArrayBufferView&, const FontFaceDescriptors&);
     static PassRefPtrWillBeRawPtr<FontFace> create(Document*, const StyleRuleFontFace*);
@@ -89,8 +89,8 @@ public:
 
     ScriptPromise load(ScriptState*);
 
-    LoadStatus loadStatus() const { return m_status; }
-    void setLoadStatus(LoadStatus);
+    LoadStatusType loadStatus() const { return m_status; }
+    void setLoadStatus(LoadStatusType);
     void setError(DOMException* = nullptr);
     DOMException* error() const { return m_error; }
     FontTraits traits() const;
@@ -121,7 +121,7 @@ private:
     FontFace(ExecutionContext*, const AtomicString& family, const FontFaceDescriptors&);
 
     void initCSSFontFace(Document*, PassRefPtrWillBeRawPtr<CSSValue> src);
-    void initCSSFontFace(const unsigned char* data, unsigned size);
+    void initCSSFontFace(const unsigned char* data, size_t);
     void setPropertyFromString(const Document*, const String&, CSSPropertyID, ExceptionState* = 0);
     bool setPropertyFromStyle(const StylePropertySet&, CSSPropertyID);
     bool setPropertyValue(PassRefPtrWillBeRawPtr<CSSValue>, CSSPropertyID);
@@ -139,7 +139,8 @@ private:
     RefPtrWillBeMember<CSSValue> m_unicodeRange;
     RefPtrWillBeMember<CSSValue> m_variant;
     RefPtrWillBeMember<CSSValue> m_featureSettings;
-    LoadStatus m_status;
+    RefPtrWillBeMember<CSSValue> m_display;
+    LoadStatusType m_status;
     PersistentWillBeMember<DOMException> m_error;
 
     PersistentWillBeMember<LoadedProperty> m_loadedProperty;

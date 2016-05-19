@@ -5,7 +5,10 @@
 #ifndef COURGETTE_DISASSEMBLER_ELF_32_H_
 #define COURGETTE_DISASSEMBLER_ELF_32_H_
 
-#include "base/basictypes.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "courgette/assembly_program.h"
 #include "courgette/disassembler.h"
@@ -56,13 +59,13 @@ class DisassemblerElf32 : public Disassembler {
     }
 
     // Computes the relative jump's offset from the op in p.
-    virtual CheckBool ComputeRelativeTarget(const uint8* op_pointer) = 0;
+    virtual CheckBool ComputeRelativeTarget(const uint8_t* op_pointer) = 0;
 
     // Emits the courgette instruction corresponding to the RVA type.
     virtual CheckBool EmitInstruction(AssemblyProgram* program,
                                       RVA target_rva) = 0;
 
-    virtual uint16 op_size() const = 0;
+    virtual uint16_t op_size() const = 0;
 
     static bool IsLessThan(TypedRVA *a, TypedRVA *b) {
       return a->rva() < b->rva();
@@ -109,12 +112,8 @@ class DisassemblerElf32 : public Disassembler {
     return section_header_table_ + id;
   }
 
-  const uint8 *SectionBody(int id) const {
+  const uint8_t* SectionBody(int id) const {
     return OffsetToPointer(SectionHeader(id)->sh_offset);
-  }
-
-  Elf32_Word SectionBodySize(int id) const {
-    return SectionHeader(id)->sh_size;
   }
 
   // Misc Segment Helpers
@@ -126,26 +125,6 @@ class DisassemblerElf32 : public Disassembler {
   const Elf32_Phdr *ProgramSegmentHeader(int id) const {
     assert(id >= 0 && id < ProgramSegmentHeaderCount());
     return program_header_table_ + id;
-  }
-
-  // The virtual memory address at which this program segment will be loaded
-  Elf32_Addr ProgramSegmentMemoryBegin(int id) const {
-    return ProgramSegmentHeader(id)->p_vaddr;
-  }
-
-  // The number of virtual memory bytes for this program segment
-  Elf32_Word ProgramSegmentMemorySize(int id) const {
-    return ProgramSegmentHeader(id)->p_memsz;
-  }
-
-  // Pointer into the source file for this program segment
-  Elf32_Addr ProgramSegmentFileOffset(int id) const {
-    return ProgramSegmentHeader(id)->p_offset;
-  }
-
-  // Number of file bytes for this program segment. Is <= ProgramMemorySize.
-  Elf32_Word ProgramSegmentFileSize(int id) const {
-    return ProgramSegmentHeader(id)->p_filesz;
   }
 
   // Misc address space helpers

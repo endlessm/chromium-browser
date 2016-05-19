@@ -46,9 +46,7 @@ WebInspector.ScriptSnippetModel = function(workspace)
     this._mappingForTarget = new Map();
     this._snippetStorage = new WebInspector.SnippetStorage("script", "Script snippet #");
     this._lastSnippetEvaluationIndexSetting = WebInspector.settings.createSetting("lastSnippetEvaluationIndex", 0);
-    this._projectId = WebInspector.projectTypes.Snippets + ":";
-    this._projectDelegate = new WebInspector.SnippetsProjectDelegate(workspace, this, this._projectId);
-    this._project = this._workspace.project(this._projectId);
+    this._project = new WebInspector.SnippetsProject(workspace, this);
     this._loadSnippets();
     WebInspector.targetManager.observeTargets(this);
 }
@@ -105,7 +103,7 @@ WebInspector.ScriptSnippetModel.prototype = {
 
     /**
      * @param {string} content
-     * @return {string}
+     * @return {!WebInspector.UISourceCode}
      */
     createScriptSnippet: function(content)
     {
@@ -116,22 +114,17 @@ WebInspector.ScriptSnippetModel.prototype = {
 
     /**
      * @param {!WebInspector.Snippet} snippet
-     * @return {string}
+     * @return {!WebInspector.UISourceCode}
      */
     _addScriptSnippet: function(snippet)
     {
-        var path = this._projectDelegate.addSnippet(snippet.name, new WebInspector.SnippetContentProvider(snippet));
-        var uiSourceCode = this._workspace.uiSourceCode(this._projectId, path);
-        if (!uiSourceCode) {
-            console.assert(uiSourceCode);
-            return "";
-        }
+        var uiSourceCode = this._project.addSnippet(snippet.name, new WebInspector.SnippetContentProvider(snippet));
         uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this);
         this._snippetIdForUISourceCode.set(uiSourceCode, snippet.id);
         var breakpointLocations = this._removeBreakpoints(uiSourceCode);
         this._restoreBreakpoints(uiSourceCode, breakpointLocations);
         this._uiSourceCodeForSnippetId[snippet.id] = uiSourceCode;
-        return path;
+        return uiSourceCode;
     },
 
     /**
@@ -144,11 +137,11 @@ WebInspector.ScriptSnippetModel.prototype = {
     },
 
     /**
-     * @param {string} path
+     * @param {string} url
      */
-    deleteScriptSnippet: function(path)
+    deleteScriptSnippet: function(url)
     {
-        var uiSourceCode = this._workspace.uiSourceCode(this._projectId, path);
+        var uiSourceCode = this._project.uiSourceCodeForURL(url);
         if (!uiSourceCode)
             return;
         var snippetId = this._snippetIdForUISourceCode.get(uiSourceCode) || "";
@@ -158,7 +151,7 @@ WebInspector.ScriptSnippetModel.prototype = {
         this._releaseSnippetScript(uiSourceCode);
         delete this._uiSourceCodeForSnippetId[snippet.id];
         this._snippetIdForUISourceCode.remove(uiSourceCode);
-        this._projectDelegate.removeFile(snippet.name);
+        this._project.removeFile(snippet.name);
     },
 
     /**
@@ -226,18 +219,18 @@ WebInspector.ScriptSnippetModel.prototype = {
         this._restoreBreakpoints(uiSourceCode, breakpointLocations);
 
         var target = executionContext.target();
-        var debuggerModel = executionContext.debuggerModel;
+        var runtimeModel = target.runtimeModel;
         var evaluationIndex = this._nextEvaluationIndex();
         var mapping = this._mappingForTarget.get(target);
         mapping._setEvaluationIndex(evaluationIndex, uiSourceCode);
         var evaluationUrl = mapping._evaluationSourceURL(uiSourceCode);
         var expression = uiSourceCode.workingCopy();
         WebInspector.console.show();
-        debuggerModel.compileScript(expression, "", true, executionContext.id, compileCallback.bind(this));
+        runtimeModel.compileScript(expression, "", true, executionContext.id, compileCallback.bind(this));
 
         /**
-         * @param {!DebuggerAgent.ScriptId=} scriptId
-         * @param {?DebuggerAgent.ExceptionDetails=} exceptionDetails
+         * @param {!RuntimeAgent.ScriptId=} scriptId
+         * @param {?RuntimeAgent.ExceptionDetails=} exceptionDetails
          * @this {WebInspector.ScriptSnippetModel}
          */
         function compileCallback(scriptId, exceptionDetails)
@@ -251,7 +244,7 @@ WebInspector.ScriptSnippetModel.prototype = {
                 return;
             }
 
-            mapping._addScript(debuggerModel.scriptForId(scriptId), uiSourceCode);
+            mapping._addScript(executionContext.debuggerModel.scriptForId(scriptId), uiSourceCode);
             var breakpointLocations = this._removeBreakpoints(uiSourceCode);
             this._restoreBreakpoints(uiSourceCode, breakpointLocations);
 
@@ -260,19 +253,19 @@ WebInspector.ScriptSnippetModel.prototype = {
     },
 
     /**
-     * @param {!DebuggerAgent.ScriptId} scriptId
+     * @param {!RuntimeAgent.ScriptId} scriptId
      * @param {!WebInspector.ExecutionContext} executionContext
      * @param {?string=} sourceURL
      */
     _runScript: function(scriptId, executionContext, sourceURL)
     {
         var target = executionContext.target();
-        executionContext.debuggerModel.runScript(scriptId, executionContext.id, "console", false, runCallback.bind(this, target));
+        target.runtimeModel.runScript(scriptId, executionContext.id, "console", false, true, runCallback.bind(this, target));
 
         /**
          * @param {!WebInspector.Target} target
          * @param {?RuntimeAgent.RemoteObject} result
-         * @param {?DebuggerAgent.ExceptionDetails=} exceptionDetails
+         * @param {?RuntimeAgent.ExceptionDetails=} exceptionDetails
          * @this {WebInspector.ScriptSnippetModel}
          */
         function runCallback(target, result, exceptionDetails)
@@ -308,7 +301,7 @@ WebInspector.ScriptSnippetModel.prototype = {
 
     /**
      * @param {!WebInspector.Target} target
-     * @param {?DebuggerAgent.ExceptionDetails=} exceptionDetails
+     * @param {?RuntimeAgent.ExceptionDetails=} exceptionDetails
      * @param {?string=} sourceURL
      */
     _printRunOrCompileScriptResultFailure: function(target, exceptionDetails, sourceURL)
@@ -324,7 +317,7 @@ WebInspector.ScriptSnippetModel.prototype = {
             exceptionDetails.column,
             undefined,
             undefined,
-            exceptionDetails.stackTrace);
+            exceptionDetails.stack);
         target.consoleModel.addMessage(consoleMessage);
     },
 
@@ -560,11 +553,11 @@ WebInspector.SnippetContentProvider.prototype = {
 
     /**
      * @override
-     * @param {function(?string)} callback
+     * @return {!Promise<?string>}
      */
-    requestContent: function(callback)
+    requestContent: function()
     {
-        callback(this._snippet.content);
+        return Promise.resolve(/** @type {?string} */(this._snippet.content));
     },
 
     /**
@@ -591,26 +584,25 @@ WebInspector.SnippetContentProvider.prototype = {
 
 /**
  * @constructor
- * @extends {WebInspector.ContentProviderBasedProjectDelegate}
+ * @extends {WebInspector.ContentProviderBasedProject}
  * @param {!WebInspector.Workspace} workspace
  * @param {!WebInspector.ScriptSnippetModel} model
- * @param {string} id
  */
-WebInspector.SnippetsProjectDelegate = function(workspace, model, id)
+WebInspector.SnippetsProject = function(workspace, model)
 {
-    WebInspector.ContentProviderBasedProjectDelegate.call(this, workspace, id, WebInspector.projectTypes.Snippets);
+    WebInspector.ContentProviderBasedProject.call(this, workspace, "snippets:", WebInspector.projectTypes.Snippets, "");
     this._model = model;
 }
 
-WebInspector.SnippetsProjectDelegate.prototype = {
+WebInspector.SnippetsProject.prototype = {
     /**
      * @param {string} name
      * @param {!WebInspector.ContentProvider} contentProvider
-     * @return {string}
+     * @return {!WebInspector.UISourceCode}
      */
     addSnippet: function(name, contentProvider)
     {
-        return this.addContentProvider("", name, name, contentProvider);
+        return this.addContentProvider(name, contentProvider);
     },
 
     /**
@@ -624,13 +616,13 @@ WebInspector.SnippetsProjectDelegate.prototype = {
 
     /**
      * @override
-     * @param {string} path
+     * @param {!WebInspector.UISourceCode} uiSourceCode
      * @param {string} newContent
      * @param {function(?string)} callback
      */
-    setFileContent: function(path, newContent, callback)
+    setFileContent: function(uiSourceCode, newContent, callback)
     {
-        this._model._setScriptSnippetContent(path, newContent);
+        this._model._setScriptSnippetContent(uiSourceCode.url(), newContent);
         callback("");
     },
 
@@ -645,38 +637,37 @@ WebInspector.SnippetsProjectDelegate.prototype = {
 
     /**
      * @override
-     * @param {string} path
+     * @param {string} url
      * @param {string} newName
      * @param {function(boolean, string=)} callback
      */
-    performRename: function(path, newName, callback)
+    performRename: function(url, newName, callback)
     {
-        this._model.renameScriptSnippet(path, newName, callback);
+        this._model.renameScriptSnippet(url, newName, callback);
     },
 
     /**
      * @override
-     * @param {string} path
+     * @param {string} url
      * @param {?string} name
      * @param {string} content
-     * @param {function(?string)} callback
+     * @param {function(?WebInspector.UISourceCode)} callback
      */
-    createFile: function(path, name, content, callback)
+    createFile: function(url, name, content, callback)
     {
-        var filePath = this._model.createScriptSnippet(content);
-        callback(filePath);
+        callback(this._model.createScriptSnippet(content));
     },
 
     /**
      * @override
-     * @param {string} path
+     * @param {string} url
      */
-    deleteFile: function(path)
+    deleteFile: function(url)
     {
-        this._model.deleteScriptSnippet(path);
+        this._model.deleteScriptSnippet(url);
     },
 
-    __proto__: WebInspector.ContentProviderBasedProjectDelegate.prototype
+    __proto__: WebInspector.ContentProviderBasedProject.prototype
 }
 
 /**

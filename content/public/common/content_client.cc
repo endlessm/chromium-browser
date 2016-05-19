@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/strings/string_piece.h"
+#include "build/build_config.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/common/user_agent.h"
 #include "ui/gfx/image/image.h"
@@ -61,8 +62,11 @@ ContentUtilityClient* SetUtilityClientForTesting(ContentUtilityClient* u) {
 }
 
 ContentClient::ContentClient()
-    : browser_(NULL), plugin_(NULL), renderer_(NULL), utility_(NULL) {
-}
+    : browser_(NULL),
+      gpu_(NULL),
+      plugin_(NULL),
+      renderer_(NULL),
+      utility_(NULL) {}
 
 ContentClient::~ContentClient() {
 }

@@ -47,7 +47,7 @@ class QuicCryptoServerConfigPeer {
 
   string NewSourceAddressToken(string config_id,
                                SourceAddressTokens previous_tokens,
-                               const IPAddressNumber& ip,
+                               const IPAddress& ip,
                                QuicRandom* rand,
                                QuicWallTime now,
                                CachedNetworkParameters* cached_network_params) {
@@ -59,7 +59,7 @@ class QuicCryptoServerConfigPeer {
   HandshakeFailureReason ValidateSourceAddressTokens(
       string config_id,
       StringPiece srct,
-      const IPAddressNumber& ip,
+      const IPAddress& ip,
       QuicWallTime now,
       CachedNetworkParameters* cached_network_params) {
     SourceAddressTokens tokens;
@@ -187,9 +187,7 @@ class QuicCryptoServerConfigPeer {
 class TestStrikeRegisterClient : public StrikeRegisterClient {
  public:
   explicit TestStrikeRegisterClient(QuicCryptoServerConfig* config)
-      : config_(config),
-        is_known_orbit_called_(false) {
-  }
+      : config_(config), is_known_orbit_called_(false) {}
 
   bool IsKnownOrbit(StringPiece orbit) const override {
     // Ensure that the strike register client lock is not held.
@@ -223,9 +221,37 @@ TEST(QuicCryptoServerConfigTest, ServerConfig) {
                                 CryptoTestUtils::ProofSourceForTesting());
   MockClock clock;
 
-  scoped_ptr<CryptoHandshakeMessage>(
-      server.AddDefaultConfig(rand, &clock,
-                              QuicCryptoServerConfig::ConfigOptions()));
+  scoped_ptr<CryptoHandshakeMessage> message(server.AddDefaultConfig(
+      rand, &clock, QuicCryptoServerConfig::ConfigOptions()));
+
+  // The default configuration should have AES-GCM and at least one ChaCha20
+  // cipher.
+  const QuicTag* aead_tags;
+  size_t aead_len;
+  ASSERT_EQ(QUIC_NO_ERROR, message->GetTaglist(kAEAD, &aead_tags, &aead_len));
+  vector<QuicTag> aead(aead_tags, aead_tags + aead_len);
+  EXPECT_THAT(aead, ::testing::Contains(kAESG));
+  EXPECT_LE(2u, aead.size());
+}
+
+TEST(QuicCryptoServerConfigTest, ServerConfigDisableChaCha) {
+  ValueRestore<bool> old_flag(
+      &FLAGS_quic_crypto_server_config_default_has_chacha20, false);
+  QuicRandom* rand = QuicRandom::GetInstance();
+  QuicCryptoServerConfig server(QuicCryptoServerConfig::TESTING, rand,
+                                CryptoTestUtils::ProofSourceForTesting());
+  MockClock clock;
+
+  scoped_ptr<CryptoHandshakeMessage> message(server.AddDefaultConfig(
+      rand, &clock, QuicCryptoServerConfig::ConfigOptions()));
+
+  // The default configuration should only contain AES-GCM when ChaCha20 has
+  // been disabled.
+  const QuicTag* aead_tags;
+  size_t aead_len;
+  ASSERT_EQ(QUIC_NO_ERROR, message->GetTaglist(kAEAD, &aead_tags, &aead_len));
+  vector<QuicTag> aead(aead_tags, aead_tags + aead_len);
+  EXPECT_THAT(aead, ::testing::ElementsAre(kAESG));
 }
 
 TEST(QuicCryptoServerConfigTest, GetOrbitIsCalledWithoutTheStrikeRegisterLock) {
@@ -248,7 +274,7 @@ class SourceAddressTokenTest : public ::testing::Test {
  public:
   SourceAddressTokenTest()
       : ip4_(Loopback4()),
-        ip4_dual_(ConvertIPv4NumberToIPv6Number(ip4_)),
+        ip4_dual_(ConvertIPv4ToIPv4MappedIPv6(ip4_)),
         ip6_(Loopback6()),
         original_time_(QuicWallTime::Zero()),
         rand_(QuicRandom::GetInstance()),
@@ -276,36 +302,35 @@ class SourceAddressTokenTest : public ::testing::Test {
         server_.AddConfig(override_config_protobuf_.get(), original_time_));
   }
 
-  string NewSourceAddressToken(string config_id, const IPAddressNumber& ip) {
-    return NewSourceAddressToken(config_id, ip, NULL);
+  string NewSourceAddressToken(string config_id, const IPAddress& ip) {
+    return NewSourceAddressToken(config_id, ip, nullptr);
   }
 
   string NewSourceAddressToken(string config_id,
-                               const IPAddressNumber& ip,
+                               const IPAddress& ip,
                                const SourceAddressTokens& previous_tokens) {
     return peer_.NewSourceAddressToken(config_id, previous_tokens, ip, rand_,
-                                       clock_.WallNow(), NULL);
+                                       clock_.WallNow(), nullptr);
   }
 
   string NewSourceAddressToken(string config_id,
-                               const IPAddressNumber& ip,
+                               const IPAddress& ip,
                                CachedNetworkParameters* cached_network_params) {
     SourceAddressTokens previous_tokens;
     return peer_.NewSourceAddressToken(config_id, previous_tokens, ip, rand_,
                                        clock_.WallNow(), cached_network_params);
   }
 
-  HandshakeFailureReason ValidateSourceAddressTokens(
-      string config_id,
-      StringPiece srct,
-      const IPAddressNumber& ip) {
-    return ValidateSourceAddressTokens(config_id, srct, ip, NULL);
+  HandshakeFailureReason ValidateSourceAddressTokens(string config_id,
+                                                     StringPiece srct,
+                                                     const IPAddress& ip) {
+    return ValidateSourceAddressTokens(config_id, srct, ip, nullptr);
   }
 
   HandshakeFailureReason ValidateSourceAddressTokens(
       string config_id,
       StringPiece srct,
-      const IPAddressNumber& ip,
+      const IPAddress& ip,
       CachedNetworkParameters* cached_network_params) {
     return peer_.ValidateSourceAddressTokens(
         config_id, srct, ip, clock_.WallNow(), cached_network_params);
@@ -314,9 +339,9 @@ class SourceAddressTokenTest : public ::testing::Test {
   const string kPrimary = "<primary>";
   const string kOverride = "Config with custom source address token key";
 
-  IPAddressNumber ip4_;
-  IPAddressNumber ip4_dual_;
-  IPAddressNumber ip6_;
+  IPAddress ip4_;
+  IPAddress ip4_dual_;
+  IPAddress ip6_;
 
   MockClock clock_;
   QuicWallTime original_time_;
@@ -408,9 +433,9 @@ TEST_F(SourceAddressTokenTest, SourceAddressTokenMultipleAddresses) {
 
   // Now create a token which is usable for both addresses.
   SourceAddressToken previous_token;
-  IPAddressNumber ip_address = ip6_;
-  if (ip6_.size() == kIPv4AddressSize) {
-    ip_address = ConvertIPv4NumberToIPv6Number(ip_address);
+  IPAddress ip_address = ip6_;
+  if (ip6_.IsIPv4()) {
+    ip_address = ConvertIPv4ToIPv4MappedIPv6(ip_address);
   }
   previous_token.set_ip(IPAddressToPackedString(ip_address));
   previous_token.set_timestamp(now.ToUNIXSeconds());
@@ -433,11 +458,11 @@ TEST(QuicCryptoServerConfigTest, ValidateServerNonce) {
 
   StringPiece message("hello world");
   const size_t key_size = CryptoSecretBoxer::GetKeySize();
-  scoped_ptr<uint8[]> key(new uint8[key_size]);
+  scoped_ptr<uint8_t[]> key(new uint8_t[key_size]);
   memset(key.get(), 0x11, key_size);
 
   CryptoSecretBoxer boxer;
-  boxer.SetKey(StringPiece(reinterpret_cast<char*>(key.get()), key_size));
+  boxer.SetKeys({string(reinterpret_cast<char*>(key.get()), key_size)});
   const string box = boxer.Box(rand, message);
   MockClock clock;
   QuicWallTime now = clock.WallNow();
@@ -462,8 +487,7 @@ class CryptoServerConfigsTest : public ::testing::Test {
         config_(QuicCryptoServerConfig::TESTING,
                 rand_,
                 CryptoTestUtils::ProofSourceForTesting()),
-        test_peer_(&config_) {
-  }
+        test_peer_(&config_) {}
 
   void SetUp() override {
     clock_.AdvanceTime(QuicTime::Delta::FromSeconds(1000));
@@ -546,221 +570,99 @@ TEST_F(CryptoServerConfigsTest, NoConfigs) {
 
 TEST_F(CryptoServerConfigsTest, MakePrimaryFirst) {
   // Make sure that "b" is primary even though "a" comes first.
-  SetConfigs("a", 1100, 1,
-             "b", 900, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      nullptr);
+  SetConfigs("a", 1100, 1, "b", 900, 1, nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, MakePrimarySecond) {
   // Make sure that a remains primary after b is added.
-  SetConfigs("a", 900, 1,
-             "b", 1100, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "b", false,
-      nullptr);
+  SetConfigs("a", 900, 1, "b", 1100, 1, nullptr);
+  test_peer_.CheckConfigs("a", true, "b", false, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, Delete) {
   // Ensure that configs get deleted when removed.
-  SetConfigs("a", 800, 1,
-             "b", 900, 1,
-             "c", 1100, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      "c", false,
-      nullptr);
-  SetConfigs("b", 900, 1,
-             "c", 1100, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "b", true,
-      "c", false,
-      nullptr);
+  SetConfigs("a", 800, 1, "b", 900, 1, "c", 1100, 1, nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, "c", false, nullptr);
+  SetConfigs("b", 900, 1, "c", 1100, 1, nullptr);
+  test_peer_.CheckConfigs("b", true, "c", false, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, DeletePrimary) {
   // Ensure that deleting the primary config works.
-  SetConfigs("a", 800, 1,
-             "b", 900, 1,
-             "c", 1100, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      "c", false,
-      nullptr);
-  SetConfigs("a", 800, 1,
-             "c", 1100, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "c", false,
-      nullptr);
+  SetConfigs("a", 800, 1, "b", 900, 1, "c", 1100, 1, nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, "c", false, nullptr);
+  SetConfigs("a", 800, 1, "c", 1100, 1, nullptr);
+  test_peer_.CheckConfigs("a", true, "c", false, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, FailIfDeletingAllConfigs) {
   // Ensure that configs get deleted when removed.
-  SetConfigs("a", 800, 1,
-             "b", 900, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      nullptr);
+  SetConfigs("a", 800, 1, "b", 900, 1, nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, nullptr);
   SetConfigs(nullptr);
   // Config change is rejected, still using old configs.
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, ChangePrimaryTime) {
   // Check that updates to primary time get picked up.
-  SetConfigs("a", 400, 1,
-             "b", 800, 1,
-             "c", 1200, 1,
-             nullptr);
+  SetConfigs("a", 400, 1, "b", 800, 1, "c", 1200, 1, nullptr);
   test_peer_.SelectNewPrimaryConfig(500);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "b", false,
-      "c", false,
-      nullptr);
-  SetConfigs("a", 1200, 1,
-             "b", 800, 1,
-             "c", 400, 1,
-             nullptr);
+  test_peer_.CheckConfigs("a", true, "b", false, "c", false, nullptr);
+  SetConfigs("a", 1200, 1, "b", 800, 1, "c", 400, 1, nullptr);
   test_peer_.SelectNewPrimaryConfig(500);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", false,
-      "c", true,
-      nullptr);
+  test_peer_.CheckConfigs("a", false, "b", false, "c", true, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, AllConfigsInThePast) {
   // Check that the most recent config is selected.
-  SetConfigs("a", 400, 1,
-             "b", 800, 1,
-             "c", 1200, 1,
-             nullptr);
+  SetConfigs("a", 400, 1, "b", 800, 1, "c", 1200, 1, nullptr);
   test_peer_.SelectNewPrimaryConfig(1500);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", false,
-      "c", true,
-      nullptr);
+  test_peer_.CheckConfigs("a", false, "b", false, "c", true, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, AllConfigsInTheFuture) {
   // Check that the first config is selected.
-  SetConfigs("a", 400, 1,
-             "b", 800, 1,
-             "c", 1200, 1,
-             nullptr);
+  SetConfigs("a", 400, 1, "b", 800, 1, "c", 1200, 1, nullptr);
   test_peer_.SelectNewPrimaryConfig(100);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "b", false,
-      "c", false,
-      nullptr);
+  test_peer_.CheckConfigs("a", true, "b", false, "c", false, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, SortByPriority) {
   // Check that priority is used to decide on a primary config when
   // configs have the same primary time.
-  SetConfigs("a", 900, 1,
-             "b", 900, 2,
-             "c", 900, 3,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "b", false,
-      "c", false,
-      nullptr);
+  SetConfigs("a", 900, 1, "b", 900, 2, "c", 900, 3, nullptr);
+  test_peer_.CheckConfigs("a", true, "b", false, "c", false, nullptr);
   test_peer_.SelectNewPrimaryConfig(800);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "b", false,
-      "c", false,
-      nullptr);
+  test_peer_.CheckConfigs("a", true, "b", false, "c", false, nullptr);
   test_peer_.SelectNewPrimaryConfig(1000);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "b", false,
-      "c", false,
-      nullptr);
+  test_peer_.CheckConfigs("a", true, "b", false, "c", false, nullptr);
 
   // Change priorities and expect sort order to change.
-  SetConfigs("a", 900, 2,
-             "b", 900, 1,
-             "c", 900, 0,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", false,
-      "c", true,
-      nullptr);
+  SetConfigs("a", 900, 2, "b", 900, 1, "c", 900, 0, nullptr);
+  test_peer_.CheckConfigs("a", false, "b", false, "c", true, nullptr);
   test_peer_.SelectNewPrimaryConfig(800);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", false,
-      "c", true,
-      nullptr);
+  test_peer_.CheckConfigs("a", false, "b", false, "c", true, nullptr);
   test_peer_.SelectNewPrimaryConfig(1000);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", false,
-      "c", true,
-      nullptr);
+  test_peer_.CheckConfigs("a", false, "b", false, "c", true, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, AdvancePrimary) {
   // Check that a new primary config is enabled at the right time.
-  SetConfigs("a", 900, 1,
-             "b", 1100, 1,
-             nullptr);
+  SetConfigs("a", 900, 1, "b", 1100, 1, nullptr);
   test_peer_.SelectNewPrimaryConfig(1000);
-  test_peer_.CheckConfigs(
-      "a", true,
-      "b", false,
-      nullptr);
+  test_peer_.CheckConfigs("a", true, "b", false, nullptr);
   test_peer_.SelectNewPrimaryConfig(1101);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, nullptr);
 }
 
 TEST_F(CryptoServerConfigsTest, InvalidConfigs) {
   // Ensure that invalid configs don't change anything.
-  SetConfigs("a", 800, 1,
-             "b", 900, 1,
-             "c", 1100, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      "c", false,
-      nullptr);
-  SetConfigs("a", 800, 1,
-             "c", 1100, 1,
-             "INVALID1", 1000, 1,
-             nullptr);
-  test_peer_.CheckConfigs(
-      "a", false,
-      "b", true,
-      "c", false,
-      nullptr);
+  SetConfigs("a", 800, 1, "b", 900, 1, "c", 1100, 1, nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, "c", false, nullptr);
+  SetConfigs("a", 800, 1, "c", 1100, 1, "INVALID1", 1000, 1, nullptr);
+  test_peer_.CheckConfigs("a", false, "b", true, "c", false, nullptr);
 }
 
 }  // namespace test

@@ -4,8 +4,14 @@
 
 #include "base/android/jni_array.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <limits>
+
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"
+#include "base/macros.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -57,7 +63,8 @@ void CheckIntConversion(
 }
 
 TEST(JniArray, IntConversions) {
-  const int kInts[] = { 0, 1, -1, kint32min, kint32max};
+  const int kInts[] = {0, 1, -1, std::numeric_limits<int32_t>::min(),
+                       std::numeric_limits<int32_t>::max()};
   const size_t kLen = arraysize(kInts);
 
   JNIEnv* env = AttachCurrentThread();
@@ -84,7 +91,8 @@ void CheckLongConversion(JNIEnv* env,
 }
 
 TEST(JniArray, LongConversions) {
-  const int64_t kLongs[] = {0, 1, -1, kint64min, kint64max};
+  const int64_t kLongs[] = {0, 1, -1, std::numeric_limits<int64_t>::min(),
+                            std::numeric_limits<int64_t>::max()};
   const size_t kLen = arraysize(kLongs);
 
   JNIEnv* env = AttachCurrentThread();
@@ -103,6 +111,35 @@ void CheckIntArrayConversion(JNIEnv* env,
     env->GetIntArrayRegion(jints.obj(), i, 1, &value);
     ASSERT_EQ(int_vector[i], value);
   }
+}
+
+void CheckFloatConversion(
+    JNIEnv* env,
+    const float* float_array,
+    const size_t len,
+    const ScopedJavaLocalRef<jfloatArray>& floats) {
+  ASSERT_TRUE(floats.obj());
+
+  jsize java_array_len = env->GetArrayLength(floats.obj());
+  ASSERT_EQ(static_cast<jsize>(len), java_array_len);
+
+  jfloat value;
+  for (size_t i = 0; i < len; ++i) {
+    env->GetFloatArrayRegion(floats.obj(), i, 1, &value);
+    ASSERT_EQ(float_array[i], value);
+  }
+}
+
+TEST(JniArray, FloatConversions) {
+  const float kFloats[] = { 0.0f, 1.0f, -10.0f};
+  const size_t kLen = arraysize(kFloats);
+
+  JNIEnv* env = AttachCurrentThread();
+  CheckFloatConversion(env, kFloats, kLen,
+                       ToJavaFloatArray(env, kFloats, kLen));
+
+  const std::vector<float> vec(kFloats, kFloats + kLen);
+  CheckFloatConversion(env, kFloats, kLen, ToJavaFloatArray(env, vec));
 }
 
 TEST(JniArray, JavaIntArrayToIntVector) {
@@ -258,7 +295,8 @@ TEST(JniArray, JavaArrayOfIntArrayToIntVector) {
   ASSERT_TRUE(array.obj());
 
   // Populate int[][] object.
-  const int kInts0[] = {0, 1, -1, kint32min, kint32max};
+  const int kInts0[] = {0, 1, -1, std::numeric_limits<int32_t>::min(),
+                        std::numeric_limits<int32_t>::max()};
   const size_t kLen0 = arraysize(kInts0);
   ScopedJavaLocalRef<jintArray> int_array0 = ToJavaIntArray(env, kInts0, kLen0);
   env->SetObjectArrayElement(array.obj(), 0, int_array0.obj());

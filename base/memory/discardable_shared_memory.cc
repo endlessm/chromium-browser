@@ -4,10 +4,7 @@
 
 #include "base/memory/discardable_shared_memory.h"
 
-#if defined(OS_POSIX) && !defined(OS_NACL)
-// For madvise() which is available on all POSIX compatible systems.
-#include <sys/mman.h>
-#endif
+#include <stdint.h>
 
 #include <algorithm>
 
@@ -16,13 +13,15 @@
 #include "base/logging.h"
 #include "base/numerics/safe_math.h"
 #include "base/process/process_metrics.h"
+#include "build/build_config.h"
+
+#if defined(OS_POSIX) && !defined(OS_NACL)
+// For madvise() which is available on all POSIX compatible systems.
+#include <sys/mman.h>
+#endif
 
 #if defined(OS_ANDROID)
 #include "third_party/ashmem/ashmem.h"
-#endif
-
-#if defined(OS_WIN)
-#include "base/win/windows_version.h"
 #endif
 
 namespace base {
@@ -38,28 +37,28 @@ typedef uintptr_t UAtomicType;
 // does not have enough precision to contain a timestamp in the standard
 // serialized format.
 template <int>
-Time TimeFromWireFormat(int64 value);
+Time TimeFromWireFormat(int64_t value);
 template <int>
-int64 TimeToWireFormat(Time time);
+int64_t TimeToWireFormat(Time time);
 
 // Serialize to Unix time when using 4-byte wire format.
 // Note: 19 January 2038, this will cease to work.
 template <>
-Time ALLOW_UNUSED_TYPE TimeFromWireFormat<4>(int64 value) {
+Time ALLOW_UNUSED_TYPE TimeFromWireFormat<4>(int64_t value) {
   return value ? Time::UnixEpoch() + TimeDelta::FromSeconds(value) : Time();
 }
 template <>
-int64 ALLOW_UNUSED_TYPE TimeToWireFormat<4>(Time time) {
+int64_t ALLOW_UNUSED_TYPE TimeToWireFormat<4>(Time time) {
   return time > Time::UnixEpoch() ? (time - Time::UnixEpoch()).InSeconds() : 0;
 }
 
 // Standard serialization format when using 8-byte wire format.
 template <>
-Time ALLOW_UNUSED_TYPE TimeFromWireFormat<8>(int64 value) {
+Time ALLOW_UNUSED_TYPE TimeFromWireFormat<8>(int64_t value) {
   return Time::FromInternalValue(value);
 }
 template <>
-int64 ALLOW_UNUSED_TYPE TimeToWireFormat<8>(Time time) {
+int64_t ALLOW_UNUSED_TYPE TimeToWireFormat<8>(Time time) {
   return time.ToInternalValue();
 }
 
@@ -68,7 +67,7 @@ struct SharedState {
 
   explicit SharedState(AtomicType ivalue) { value.i = ivalue; }
   SharedState(LockState lock_state, Time timestamp) {
-    int64 wire_timestamp = TimeToWireFormat<sizeof(AtomicType)>(timestamp);
+    int64_t wire_timestamp = TimeToWireFormat<sizeof(AtomicType)>(timestamp);
     DCHECK_GE(wire_timestamp, 0);
     DCHECK_EQ(lock_state & ~1, 0);
     value.u = (static_cast<UAtomicType>(wire_timestamp) << 1) | lock_state;
@@ -203,7 +202,7 @@ DiscardableSharedMemory::LockResult DiscardableSharedMemory::Lock(
 
   size_t start = offset / base::GetPageSize();
   size_t end = start + length / base::GetPageSize();
-  DCHECK_LT(start, end);
+  DCHECK_LE(start, end);
   DCHECK_LE(end, AlignToPageSize(mapped_size_) / base::GetPageSize());
 
   // Add pages to |locked_page_count_|.
@@ -224,14 +223,6 @@ DiscardableSharedMemory::LockResult DiscardableSharedMemory::Lock(
   if (SharedMemory::IsHandleValid(handle)) {
     if (ashmem_pin_region(
             handle.fd, AlignToPageSize(sizeof(SharedState)) + offset, length)) {
-      return PURGED;
-    }
-  }
-#elif defined(OS_WIN)
-  if (base::win::GetVersion() >= base::win::VERSION_WIN8) {
-    if (!VirtualAlloc(reinterpret_cast<char*>(shared_memory_.memory()) +
-                          AlignToPageSize(sizeof(SharedState)) + offset,
-                      length, MEM_RESET_UNDO, PAGE_READWRITE)) {
       return PURGED;
     }
   }
@@ -262,23 +253,11 @@ void DiscardableSharedMemory::Unlock(size_t offset, size_t length) {
       DPLOG(ERROR) << "ashmem_unpin_region() failed";
     }
   }
-#elif defined(OS_WIN)
-  if (base::win::GetVersion() >= base::win::VERSION_WIN8) {
-    // Note: MEM_RESET is not technically gated on Win8.  However, this Unlock
-    // function needs to match the Lock behaviour (MEM_RESET_UNDO) to properly
-    // implement memory pinning.  It needs to bias towards preserving the
-    // contents of memory between an Unlock and next Lock.
-    if (!VirtualAlloc(reinterpret_cast<char*>(shared_memory_.memory()) +
-                          AlignToPageSize(sizeof(SharedState)) + offset,
-                      length, MEM_RESET, PAGE_READWRITE)) {
-      DPLOG(ERROR) << "VirtualAlloc() MEM_RESET failed in Unlock()";
-    }
-  }
 #endif
 
   size_t start = offset / base::GetPageSize();
   size_t end = start + length / base::GetPageSize();
-  DCHECK_LT(start, end);
+  DCHECK_LE(start, end);
   DCHECK_LE(end, AlignToPageSize(mapped_size_) / base::GetPageSize());
 
   // Remove pages from |locked_page_count_|.
@@ -321,7 +300,7 @@ void DiscardableSharedMemory::Unlock(size_t offset, size_t length) {
 }
 
 void* DiscardableSharedMemory::memory() const {
-  return reinterpret_cast<uint8*>(shared_memory_.memory()) +
+  return reinterpret_cast<uint8_t*>(shared_memory_.memory()) +
          AlignToPageSize(sizeof(SharedState));
 }
 

@@ -37,6 +37,10 @@
 // from browserAccessibility_.
 - (ui::AXRole)internalRole;
 
+// Convenience method to determine if this object should expose its
+// accessible name in AXValue (as opposed to AXTitle/AXDescription).
+- (bool)shouldExposeNameInAXValue;
+
 // Convenience method to get the BrowserAccessibilityDelegate from
 // the manager.
 - (content::BrowserAccessibilityDelegate*)delegate;
@@ -53,6 +57,9 @@
 
 // Swap the children array with the given scoped_nsobject.
 - (void)swapChildren:(base::scoped_nsobject<NSMutableArray>*)other;
+
+// Returns the requested text range from this object's value attribute.
+- (NSString*)valueForRange:(NSRange)range;
 
 // Internally-used method.
 @property(nonatomic, readonly) NSPoint origin;
@@ -73,7 +80,12 @@
 @property(nonatomic, readonly) id disclosedByRow;
 @property(nonatomic, readonly) NSNumber* disclosureLevel;
 @property(nonatomic, readonly) id disclosedRows;
+@property(nonatomic, readonly) NSString* dropEffects;
 @property(nonatomic, readonly) NSNumber* enabled;
+// Returns a text marker that points to the last character in the document that
+// can be selected with Voiceover.
+@property(nonatomic, readonly) id endTextMarker;
+@property(nonatomic, readonly) NSNumber* expanded;
 @property(nonatomic, readonly) NSNumber* focused;
 @property(nonatomic, readonly) NSString* help;
 // isIgnored returns whether or not the accessibility object
@@ -100,8 +112,11 @@
 @property(nonatomic, readonly) NSValue* rowIndexRange;
 @property(nonatomic, readonly) NSArray* rows;
 @property(nonatomic, readonly) NSArray* selectedChildren;
-// The size of this object.
+@property(nonatomic, readonly) id selectedTextMarkerRange;
 @property(nonatomic, readonly) NSValue* size;
+// Returns a text marker that points to the first character in the document that
+// can be selected with Voiceover.
+@property(nonatomic, readonly) id startTextMarker;
 // A string indicating the subrole of this object as far as accessibility
 // is concerned.
 @property(nonatomic, readonly) NSString* subrole;

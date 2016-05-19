@@ -13,7 +13,6 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -352,7 +351,7 @@ scoped_ptr<ComponentUpdateService> ComponentUpdateServiceFactory(
   DCHECK(config);
   auto update_client = update_client::UpdateClientFactory(config);
   return scoped_ptr<ComponentUpdateService>(
-      new CrxUpdateService(config, update_client.Pass()));
+      new CrxUpdateService(config, std::move(update_client)));
 }
 
 }  // namespace component_updater

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/AnimationTimeline.h"
 
 #include "core/animation/AnimationClock.h"
@@ -39,9 +38,11 @@
 #include "core/page/Page.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/TraceEvent.h"
+#include "platform/animation/CompositorAnimationTimeline.h"
+#include "platform/graphics/CompositorFactory.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebCompositorAnimationTimeline.h"
 #include "public/platform/WebCompositorSupport.h"
+#include <algorithm>
 
 namespace blink {
 
@@ -72,21 +73,31 @@ AnimationTimeline::AnimationTimeline(Document* document, PlatformTiming* timing)
     , m_playbackRate(1)
     , m_lastCurrentTimeInternal(0)
 {
+    ThreadState::current()->registerPreFinalizer(this);
     if (!timing)
         m_timing = new AnimationTimelineTiming(this);
     else
         m_timing = timing;
 
-    if (RuntimeEnabledFeatures::compositorAnimationTimelinesEnabled() && Platform::current()->isThreadedAnimationEnabled()) {
-        ASSERT(Platform::current()->compositorSupport());
-        m_compositorTimeline = adoptPtr(Platform::current()->compositorSupport()->createAnimationTimeline());
-    }
+    if (RuntimeEnabledFeatures::compositorAnimationTimelinesEnabled() && Platform::current()->isThreadedAnimationEnabled())
+        m_compositorTimeline = adoptPtr(CompositorFactory::current().createAnimationTimeline());
 
     ASSERT(document);
 }
 
 AnimationTimeline::~AnimationTimeline()
 {
+}
+
+void AnimationTimeline::dispose()
+{
+    // The Animation objects depend on using this AnimationTimeline to
+    // unregister from its underlying compositor timeline. To arrange
+    // for that safely, this dispose() method will return first
+    // during prefinalization, notifying each Animation object of
+    // impending destruction.
+    for (const auto& animation : m_animations)
+        animation->dispose();
 }
 
 bool AnimationTimeline::isActive()
@@ -352,4 +363,4 @@ DEFINE_TRACE(AnimationTimeline)
     visitor->trace(m_animations);
 }
 
-} // namespace
+} // namespace blink

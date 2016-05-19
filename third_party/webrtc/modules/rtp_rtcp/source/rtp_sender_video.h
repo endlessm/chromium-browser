@@ -28,7 +28,6 @@
 
 namespace webrtc {
 class CriticalSectionWrapper;
-struct RtpPacket;
 
 class RTPSenderVideo {
  public:
@@ -41,8 +40,7 @@ class RTPSenderVideo {
 
   static RtpUtility::Payload* CreateVideoPayload(
       const char payloadName[RTP_PAYLOAD_NAME_SIZE],
-      const int8_t payloadType,
-      const uint32_t maxBitRate);
+      const int8_t payloadType);
 
   int32_t SendVideo(const RtpVideoCodecTypes videoType,
                     const FrameType frameType,
@@ -52,24 +50,20 @@ class RTPSenderVideo {
                     const uint8_t* payloadData,
                     const size_t payloadSize,
                     const RTPFragmentationHeader* fragmentation,
-                    const RTPVideoHeader* rtpHdr);
+                    const RTPVideoHeader* video_header);
 
   int32_t SendRTPIntraRequest();
 
   void SetVideoCodecType(RtpVideoCodecTypes type);
-
-  void SetMaxConfiguredBitrateVideo(const uint32_t maxBitrate);
-
-  uint32_t MaxConfiguredBitrateVideo() const;
 
   // FEC
   void SetGenericFECStatus(const bool enable,
                            const uint8_t payloadTypeRED,
                            const uint8_t payloadTypeFEC);
 
-  void GenericFECStatus(bool& enable,
-                        uint8_t& payloadTypeRED,
-                        uint8_t& payloadTypeFEC) const;
+  void GenericFECStatus(bool* enable,
+                        uint8_t* payloadTypeRED,
+                        uint8_t* payloadTypeFEC) const;
 
   void SetFecParameters(const FecProtectionParams* delta_params,
                         const FecProtectionParams* key_params);
@@ -82,7 +76,7 @@ class RTPSenderVideo {
   int SelectiveRetransmissions() const;
   void SetSelectiveRetransmissions(uint8_t settings);
 
-private:
+ private:
   void SendVideoPacket(uint8_t* dataBuffer,
                        const size_t payloadLength,
                        const size_t rtpHeaderLength,
@@ -106,14 +100,13 @@ private:
   const rtc::scoped_ptr<CriticalSectionWrapper> crit_;
 
   RtpVideoCodecTypes _videoType;
-  uint32_t _maxBitrate;
   int32_t _retransmissionSettings GUARDED_BY(crit_);
 
   // FEC
-  ForwardErrorCorrection _fec;
-  bool _fecEnabled GUARDED_BY(crit_);
-  int8_t _payloadTypeRED GUARDED_BY(crit_);
-  int8_t _payloadTypeFEC GUARDED_BY(crit_);
+  ForwardErrorCorrection fec_;
+  bool fec_enabled_ GUARDED_BY(crit_);
+  int8_t red_payload_type_ GUARDED_BY(crit_);
+  int8_t fec_payload_type_ GUARDED_BY(crit_);
   FecProtectionParams delta_fec_params_ GUARDED_BY(crit_);
   FecProtectionParams key_fec_params_ GUARDED_BY(crit_);
   ProducerFec producer_fec_ GUARDED_BY(crit_);

@@ -6,8 +6,8 @@
 #define CONTENT_COMMON_GPU_CLIENT_GL_HELPER_H_
 
 #include "base/atomicops.h"
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/common/content_export.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
@@ -243,9 +243,6 @@ class CONTENT_EXPORT GLHelper {
   GLuint CreateTexture();
   // Deletes a texture.
   void DeleteTexture(GLuint texture_id);
-
-  // Insert a sync point into the GL command buffer.
-  uint32 InsertSyncPoint();
 
   // Inserts a fence sync, flushes, and generates a sync token.
   void GenerateSyncToken(gpu::SyncToken* sync_token);

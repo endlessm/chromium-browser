@@ -6,6 +6,7 @@
 #define ASH_TEST_TEST_LOCK_STATE_CONTROLLER_DELEGATE_H_
 
 #include "ash/wm/lock_state_controller.h"
+#include "base/macros.h"
 
 namespace ash {
 namespace test {
@@ -21,6 +22,7 @@ class TestLockStateControllerDelegate : public LockStateControllerDelegate {
   int num_shutdown_requests() const { return num_shutdown_requests_; }
 
   // LockStateControllerDelegate implementation.
+  bool IsLoading() const override;
   void RequestLockScreen() override;
   void RequestShutdown() override;
 

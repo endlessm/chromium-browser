@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
-#include "UnionTypesTest.h"
+#include "core/testing/UnionTypesTest.h"
 
 #include "wtf/text/StringBuilder.h"
 
@@ -160,4 +159,4 @@ String UnionTypesTest::doubleOrStringOrStringSequenceArg(const DoubleOrStringOrS
     return builder.substring(0, builder.length() - 2) + "]";
 }
 
-}
+} // namespace blink

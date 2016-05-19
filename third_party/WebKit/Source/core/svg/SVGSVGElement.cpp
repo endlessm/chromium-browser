@@ -20,8 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGSVGElement.h"
 
 #include "bindings/core/v8/ScriptEventListener.h"
@@ -33,14 +31,14 @@
 #include "core/dom/StaticNodeList.h"
 #include "core/editing/FrameSelection.h"
 #include "core/events/EventListener.h"
-#include "core/frame/LocalFrame.h"
-#include "core/page/FrameTree.h"
+#include "core/frame/Deprecation.h"
 #include "core/frame/FrameView.h"
-#include "core/frame/UseCounter.h"
+#include "core/frame/LocalFrame.h"
 #include "core/layout/LayoutObject.h"
 #include "core/layout/svg/LayoutSVGModelObject.h"
 #include "core/layout/svg/LayoutSVGRoot.h"
 #include "core/layout/svg/LayoutSVGViewportContainer.h"
+#include "core/page/FrameTree.h"
 #include "core/svg/SVGAngleTearOff.h"
 #include "core/svg/SVGDocumentExtensions.h"
 #include "core/svg/SVGNumberTearOff.h"
@@ -63,10 +61,10 @@ namespace blink {
 inline SVGSVGElement::SVGSVGElement(Document& doc)
     : SVGGraphicsElement(SVGNames::svgTag, doc)
     , SVGFitToViewBox(this)
-    , m_x(SVGAnimatedLength::create(this, SVGNames::xAttr, SVGLength::create(SVGLengthMode::Width), AllowNegativeLengths))
-    , m_y(SVGAnimatedLength::create(this, SVGNames::yAttr, SVGLength::create(SVGLengthMode::Height), AllowNegativeLengths))
-    , m_width(SVGAnimatedLength::create(this, SVGNames::widthAttr, SVGLength::create(SVGLengthMode::Width), ForbidNegativeLengths))
-    , m_height(SVGAnimatedLength::create(this, SVGNames::heightAttr, SVGLength::create(SVGLengthMode::Height), ForbidNegativeLengths))
+    , m_x(SVGAnimatedLength::create(this, SVGNames::xAttr, SVGLength::create(SVGLengthMode::Width)))
+    , m_y(SVGAnimatedLength::create(this, SVGNames::yAttr, SVGLength::create(SVGLengthMode::Height)))
+    , m_width(SVGAnimatedLength::create(this, SVGNames::widthAttr, SVGLength::create(SVGLengthMode::Width)))
+    , m_height(SVGAnimatedLength::create(this, SVGNames::heightAttr, SVGLength::create(SVGLengthMode::Height)))
     , m_useCurrentView(false)
     , m_timeContainer(SMILTimeContainer::create(*this))
     , m_translation(SVGPoint::create())
@@ -197,22 +195,24 @@ bool SVGSVGElement::zoomAndPanEnabled() const
     return currentViewSpec && currentViewSpec->zoomAndPan() == SVGZoomAndPanMagnify;
 }
 
-void SVGSVGElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void SVGSVGElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     if (!nearestViewportElement()) {
         bool setListener = true;
 
         // Only handle events if we're the outermost <svg> element
-        if (name == HTMLNames::onunloadAttr)
+        if (name == HTMLNames::onunloadAttr) {
             document().setWindowAttributeEventListener(EventTypeNames::unload, createAttributeEventListener(document().frame(), name, value, eventParameterName()));
-        else if (name == HTMLNames::onresizeAttr)
+        } else if (name == HTMLNames::onresizeAttr) {
             document().setWindowAttributeEventListener(EventTypeNames::resize, createAttributeEventListener(document().frame(), name, value, eventParameterName()));
-        else if (name == HTMLNames::onscrollAttr)
+        } else if (name == HTMLNames::onscrollAttr) {
             document().setWindowAttributeEventListener(EventTypeNames::scroll, createAttributeEventListener(document().frame(), name, value, eventParameterName()));
-        else if (name == SVGNames::onzoomAttr)
+        } else if (name == SVGNames::onzoomAttr) {
+            Deprecation::countDeprecation(document(), UseCounter::SVGZoomEvent);
             document().setWindowAttributeEventListener(EventTypeNames::zoom, createAttributeEventListener(document().frame(), name, value, eventParameterName()));
-        else
+        } else {
             setListener = false;
+        }
 
         if (setListener)
             return;
@@ -224,7 +224,7 @@ void SVGSVGElement::parseAttribute(const QualifiedName& name, const AtomicString
         document().setWindowAttributeEventListener(EventTypeNames::error, createAttributeEventListener(document().frame(), name, value, eventParameterName()));
     } else if (SVGZoomAndPan::parseAttribute(name, value)) {
     } else {
-        SVGElement::parseAttribute(name, value);
+        SVGElement::parseAttribute(name, oldValue, value);
     }
 }
 
@@ -247,16 +247,16 @@ bool SVGSVGElement::isPresentationAttributeWithSVGDOM(const QualifiedName& attrN
 
 void SVGSVGElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomicString& value, MutableStylePropertySet* style)
 {
-    RefPtrWillBeRawPtr<SVGAnimatedPropertyBase> property = propertyFromAttribute(name);
+    SVGAnimatedPropertyBase* property = propertyFromAttribute(name);
     if (property == m_x) {
-        addSVGLengthPropertyToPresentationAttributeStyle(style, CSSPropertyX, *m_x->currentValue());
+        addPropertyToPresentationAttributeStyle(style, CSSPropertyX, m_x->currentValue()->asCSSPrimitiveValue());
     } else if (property == m_y) {
-        addSVGLengthPropertyToPresentationAttributeStyle(style, CSSPropertyY, *m_y->currentValue());
+        addPropertyToPresentationAttributeStyle(style, CSSPropertyY, m_y->currentValue()->asCSSPrimitiveValue());
     } else if (isOutermostSVGSVGElement() && (property == m_width || property == m_height)) {
         if (property == m_width)
-            addSVGLengthPropertyToPresentationAttributeStyle(style, CSSPropertyWidth, *m_width->currentValue());
+            addPropertyToPresentationAttributeStyle(style, CSSPropertyWidth, m_width->currentValue()->asCSSPrimitiveValue());
         else if (property == m_height)
-            addSVGLengthPropertyToPresentationAttributeStyle(style, CSSPropertyHeight, *m_height->currentValue());
+            addPropertyToPresentationAttributeStyle(style, CSSPropertyHeight, m_height->currentValue()->asCSSPrimitiveValue());
     } else {
         SVGGraphicsElement::collectStyleForPresentationAttribute(name, value, style);
     }
@@ -265,9 +265,8 @@ void SVGSVGElement::collectStyleForPresentationAttribute(const QualifiedName& na
 void SVGSVGElement::svgAttributeChanged(const QualifiedName& attrName)
 {
     bool updateRelativeLengthsOrViewBox = false;
-    bool widthChanged = attrName == SVGNames::widthAttr;
-    bool heightChanged = attrName == SVGNames::heightAttr;
-    if (widthChanged || heightChanged
+    bool widthOrHeightChanged = attrName == SVGNames::widthAttr || attrName == SVGNames::heightAttr;
+    if (widthOrHeightChanged
         || attrName == SVGNames::xAttr
         || attrName == SVGNames::yAttr) {
         updateRelativeLengthsOrViewBox = true;
@@ -277,11 +276,7 @@ void SVGSVGElement::svgAttributeChanged(const QualifiedName& attrName)
         // At the SVG/HTML boundary (aka LayoutSVGRoot), the width and
         // height attributes can affect the replaced size so we need
         // to mark it for updating.
-        //
-        // FIXME: For width/height animated as XML attributes on SVG
-        // roots, there is an attribute synchronization missing. See
-        // http://crbug.com/364807
-        if (widthChanged || heightChanged) {
+        if (widthOrHeightChanged) {
             LayoutObject* layoutObject = this->layoutObject();
             if (layoutObject && layoutObject->isSVGRoot()) {
                 invalidateSVGPresentationAttributeStyle();
@@ -616,7 +611,7 @@ FloatRect SVGSVGElement::currentViewBoxRect() const
 
     // If no viewBox is specified but non-relative width/height values, then we
     // should always synthesize a viewBox if we're embedded through a SVGImage.
-    return FloatRect(FloatPoint(), FloatSize(floatValueForLength(intrinsicWidth(), 0), floatValueForLength(intrinsicHeight(), 0)));
+    return FloatRect(FloatPoint(), FloatSize(intrinsicWidth(), intrinsicHeight()));
 }
 
 FloatSize SVGSVGElement::currentViewportSize() const
@@ -643,22 +638,22 @@ bool SVGSVGElement::hasIntrinsicHeight() const
     return height()->currentValue()->typeWithCalcResolved() != CSSPrimitiveValue::UnitType::Percentage;
 }
 
-Length SVGSVGElement::intrinsicWidth() const
+float SVGSVGElement::intrinsicWidth() const
 {
     if (width()->currentValue()->typeWithCalcResolved() == CSSPrimitiveValue::UnitType::Percentage)
-        return Length(0, Fixed);
+        return 0;
 
     SVGLengthContext lengthContext(this);
-    return Length(width()->currentValue()->value(lengthContext), Fixed);
+    return width()->currentValue()->value(lengthContext);
 }
 
-Length SVGSVGElement::intrinsicHeight() const
+float SVGSVGElement::intrinsicHeight() const
 {
     if (height()->currentValue()->typeWithCalcResolved() == CSSPrimitiveValue::UnitType::Percentage)
-        return Length(0, Fixed);
+        return 0;
 
     SVGLengthContext lengthContext(this);
-    return Length(height()->currentValue()->value(lengthContext), Fixed);
+    return height()->currentValue()->value(lengthContext);
 }
 
 AffineTransform SVGSVGElement::viewBoxToViewTransform(float viewWidth, float viewHeight) const
@@ -688,23 +683,18 @@ void SVGSVGElement::setupInitialView(const String& fragmentIdentifier, Element* 
     bool hadUseCurrentView = m_useCurrentView;
     m_useCurrentView = false;
 
-    if (fragmentIdentifier.startsWith("xpointer(")) {
-        // FIXME: XPointer references are ignored (https://bugs.webkit.org/show_bug.cgi?id=17491)
-        if (layoutObject && hadUseCurrentView)
-            markForLayoutAndParentResourceInvalidation(layoutObject);
-        return;
-    }
-
     if (fragmentIdentifier.startsWith("svgView(")) {
         if (!view)
             view = currentView(); // Create the SVGViewSpec.
 
         view->inheritViewAttributesFromElement(this);
 
-        if (view->parseViewSpec(fragmentIdentifier))
+        if (view->parseViewSpec(fragmentIdentifier)) {
+            UseCounter::count(document(), UseCounter::SVGSVGElementFragmentSVGView);
             m_useCurrentView = true;
-        else
+        } else {
             view->reset();
+        }
 
         if (layoutObject && (hadUseCurrentView || m_useCurrentView))
             markForLayoutAndParentResourceInvalidation(layoutObject);
@@ -745,6 +735,7 @@ void SVGSVGElement::inheritViewAttributes(SVGViewElement* viewElement)
 {
     SVGViewSpec* view = currentView();
     m_useCurrentView = true;
+    UseCounter::count(document(), UseCounter::SVGSVGElementFragmentSVGViewElement);
     view->inheritViewAttributesFromElement(this);
     view->inheritViewAttributesFromElement(viewElement);
 }
@@ -753,7 +744,8 @@ void SVGSVGElement::finishParsingChildren()
 {
     SVGGraphicsElement::finishParsingChildren();
 
-    // The outermost SVGSVGElement SVGLoad event is fired through Document::dispatchWindowLoadEvent.
+    // The outermost SVGSVGElement SVGLoad event is fired through
+    // LocalDOMWindow::dispatchWindowLoadEvent.
     if (isOutermostSVGSVGElement())
         return;
 

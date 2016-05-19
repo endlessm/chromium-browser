@@ -4,7 +4,6 @@
 
 #include "components/mus/gles2/gpu_impl.h"
 
-#include "components/mus/gles2/command_buffer_driver.h"
 #include "components/mus/gles2/command_buffer_impl.h"
 #include "components/mus/gles2/command_buffer_type_conversions.h"
 
@@ -12,15 +11,13 @@ namespace mus {
 
 GpuImpl::GpuImpl(mojo::InterfaceRequest<Gpu> request,
                  const scoped_refptr<GpuState>& state)
-    : binding_(this, request.Pass()), state_(state) {
-}
+    : binding_(this, std::move(request)), state_(state) {}
 
 GpuImpl::~GpuImpl() {}
 
 void GpuImpl::CreateOffscreenGLES2Context(
     mojo::InterfaceRequest<mojom::CommandBuffer> request) {
-  new CommandBufferImpl(request.Pass(), state_,
-                        make_scoped_ptr(new CommandBufferDriver(state_)));
+  new CommandBufferImpl(std::move(request), state_);
 }
 
 void GpuImpl::GetGpuInfo(const GetGpuInfoCallback& callback) {

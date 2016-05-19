@@ -117,8 +117,10 @@ protected:
     void setNamedItemCache(PassOwnPtrWillBeRawPtr<NamedItemCache> cache) const
     {
         ASSERT(!m_namedItemCache);
-        document().registerNodeListWithIdNameCache(this);
-        m_namedItemCache = cache;
+        // Do not repeat registration for the same invalidation type.
+        if (invalidationType() != InvalidateOnIdNameAttrChange)
+            document().registerNodeListWithIdNameCache(this);
+        m_namedItemCache = std::move(cache);
     }
 
     NamedItemCache& namedItemCache() const
@@ -144,7 +146,9 @@ private:
     void unregisterIdNameCacheFromDocument(Document& document) const
     {
         ASSERT(hasValidIdNameCache());
-        document.unregisterNodeListWithIdNameCache(this);
+        // Do not repeat unregistration for the same invalidation type.
+        if (invalidationType() != InvalidateOnIdNameAttrChange)
+            document.unregisterNodeListWithIdNameCache(this);
     }
 
     const unsigned m_overridesItemAfter : 1;

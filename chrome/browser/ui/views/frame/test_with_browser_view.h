@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_FRAME_TEST_WITH_BROWSER_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_FRAME_TEST_WITH_BROWSER_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 
@@ -25,9 +26,7 @@ class ScopedTestingLocalState;
 class TestWithBrowserView : public BrowserWithTestWindowTest {
  public:
   TestWithBrowserView();
-  TestWithBrowserView(Browser::Type browser_type,
-                      chrome::HostDesktopType host_desktop_type,
-                      bool hosted_app);
+  TestWithBrowserView(Browser::Type browser_type, bool hosted_app);
   ~TestWithBrowserView() override;
 
   // BrowserWithTestWindowTest overrides:

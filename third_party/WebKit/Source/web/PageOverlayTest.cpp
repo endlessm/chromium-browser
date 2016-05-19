@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "web/PageOverlay.h"
 
 #include "core/frame/FrameView.h"
@@ -15,6 +14,8 @@
 #include "public/platform/WebCanvas.h"
 #include "public/platform/WebThread.h"
 #include "public/web/WebSettings.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -22,8 +23,6 @@
 #include "web/WebLocalFrameImpl.h"
 #include "web/WebViewImpl.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 
 using testing::_;
 using testing::AtLeast;
@@ -125,15 +124,13 @@ TEST_F(PageOverlayTest, PageOverlay_AcceleratedCompositing)
 
     // Paint the layer with a null canvas to get a display list, and then
     // replay that onto the mock canvas for examination.
-    PaintController* paintController = graphicsLayer->paintController();
-    ASSERT(paintController);
-    GraphicsContext graphicsContext(*paintController);
     IntRect intRect = rect;
-    graphicsLayer->paint(graphicsContext, &intRect);
+    graphicsLayer->paint(&intRect);
 
+    PaintController& paintController = graphicsLayer->paintController();
+    GraphicsContext graphicsContext(paintController);
     graphicsContext.beginRecording(intRect);
-    paintController->commitNewDisplayItems();
-    paintController->paintArtifact().replay(graphicsContext);
+    paintController.paintArtifact().replay(graphicsContext);
     graphicsContext.endRecording()->playback(&canvas);
 }
 

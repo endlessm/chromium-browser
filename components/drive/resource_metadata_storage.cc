@@ -4,14 +4,17 @@
 
 #include "components/drive/resource_metadata_storage.h"
 
+#include <stddef.h>
 #include <map>
 #include <set>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/containers/hash_tables.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/sequenced_task_runner.h"
@@ -189,7 +192,7 @@ void RecordCheckValidityFailure(CheckValidityFailureReason reason) {
 }  // namespace
 
 ResourceMetadataStorage::Iterator::Iterator(scoped_ptr<leveldb::Iterator> it)
-  : it_(it.Pass()) {
+    : it_(std::move(it)) {
   base::ThreadRestrictions::AssertIOAllowed();
   DCHECK(it_);
 
@@ -627,7 +630,7 @@ bool ResourceMetadataStorage::Initialize() {
   UMA_HISTOGRAM_ENUMERATION("Drive.MetadataDBInitResult",
                             init_result,
                             DB_INIT_MAX_VALUE);
-  return resource_map_;
+  return !!resource_map_;
 }
 
 void ResourceMetadataStorage::RecoverCacheInfoFromTrashedResourceMap(
@@ -693,7 +696,7 @@ void ResourceMetadataStorage::RecoverCacheInfoFromTrashedResourceMap(
 }
 
 FileError ResourceMetadataStorage::SetLargestChangestamp(
-    int64 largest_changestamp) {
+    int64_t largest_changestamp) {
   base::ThreadRestrictions::AssertIOAllowed();
 
   ResourceMetadataHeader header;
@@ -707,7 +710,7 @@ FileError ResourceMetadataStorage::SetLargestChangestamp(
 }
 
 FileError ResourceMetadataStorage::GetLargestChangestamp(
-    int64* largest_changestamp) {
+    int64_t* largest_changestamp) {
   base::ThreadRestrictions::AssertIOAllowed();
   ResourceMetadataHeader header;
   FileError error = GetHeader(&header);
@@ -820,7 +823,7 @@ ResourceMetadataStorage::GetIterator() {
 
   scoped_ptr<leveldb::Iterator> it(
       resource_map_->NewIterator(leveldb::ReadOptions()));
-  return make_scoped_ptr(new Iterator(it.Pass()));
+  return make_scoped_ptr(new Iterator(std::move(it)));
 }
 
 FileError ResourceMetadataStorage::GetChild(const std::string& parent_id,

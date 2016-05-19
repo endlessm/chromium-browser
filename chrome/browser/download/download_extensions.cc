@@ -7,10 +7,11 @@
 
 #include "chrome/browser/download/download_extensions.h"
 
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "net/base/mime_util.h"
-#include "net/base/net_util.h"
 
 namespace download_util {
 
@@ -69,6 +70,7 @@ const struct FileType {
 
     // Included for parity with kSafeBrowsingFileTypes.
     {"bin", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
+    {"rtf", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
 
     // Archive file types. Not inherently dangerous, but could contain dangerous
     // files. Included for parity with kSafeBrowsingFileTypes.
@@ -150,6 +152,7 @@ const struct FileType {
     {"uu", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
     {"uue", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
     {"vhd", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
+    {"vhdx", NOT_DANGEROUS, ALLOW_AUTO_OPEN},  // Opens in IE, drops MOTW
     {"vmdk", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
     {"wim", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
     {"wrc", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
@@ -231,6 +234,11 @@ const struct FileType {
     // Windows executables.
     {"dll", DANGEROUS, DISALLOW_AUTO_OPEN},
     {"drv", DANGEROUS, DISALLOW_AUTO_OPEN},
+
+    // Opens in Outlook. Not common, but could be exploited (CVE-2015-6172)
+    {"eml", ALLOW_ON_USER_GESTURE, ALLOW_AUTO_OPEN},
+
+    // Windows executable
     {"exe", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
 
     // Font file, uses Portable Executable or New Executable format. Not
@@ -314,6 +322,9 @@ const struct FileType {
     // Microsoft Management Console Snap-in. Contains executable code.
     {"msc", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
 
+    // Opens in Outlook. Not common, but could be exploited (CVE-2015-6172)
+    {"msg", ALLOW_ON_USER_GESTURE, ALLOW_AUTO_OPEN},
+
     // Microsoft Shell.
     {"msh", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
     {"msh1", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
@@ -340,6 +351,7 @@ const struct FileType {
     // browser.
     {"partial", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
     {"xrm-ms", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"rels", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
     {"svg", NOT_DANGEROUS, ALLOW_AUTO_OPEN},
     {"xml", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
     {"xsl", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
@@ -444,6 +456,10 @@ const struct FileType {
 
     // Microsoft Exchange Public Folder Shortcut.
     {"xnk", ALLOW_ON_USER_GESTURE, ALLOW_AUTO_OPEN},
+
+    // Windows Vista Index Search Data, for local file system.
+    // Used to find files landed surreptitiously w/o UI.
+    {"search-ms", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
 #endif  // OS_WIN
 
   // Java.
@@ -482,6 +498,23 @@ const struct FileType {
 
     // Automator Workflow.
     {"workflow", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+
+    // Executable file extensions for Mac.
+    {"cdr", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"dart", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"dc42", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"diskcopy42", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"dmg", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"dmgpart", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"dvdr", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"img", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"imgpart", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"ndif", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"smi", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"sparsebundle", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"sparseimage", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"toast", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
+    {"udif", ALLOW_ON_USER_GESTURE, DISALLOW_AUTO_OPEN},
 #endif
 
   // Package management formats. OS_WIN package formats are handled above.

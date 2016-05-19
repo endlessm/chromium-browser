@@ -35,9 +35,9 @@ class CSSRule;
 class CSSStyleSheet;
 
 class CORE_EXPORT StyleRuleBase : public RefCountedWillBeGarbageCollectedFinalized<StyleRuleBase> {
-    USING_FAST_MALLOC_WILL_BE_REMOVED(StyleRuleBase);
+    USING_FAST_MALLOC_WITH_TYPE_NAME_WILL_BE_REMOVED(blink::StyleRuleBase);
 public:
-    enum Type {
+    enum RuleType {
         Charset,
         Style,
         Import,
@@ -51,7 +51,7 @@ public:
         Viewport,
     };
 
-    Type type() const { return static_cast<Type>(m_type); }
+    RuleType type() const { return static_cast<RuleType>(m_type); }
 
     bool isCharsetRule() const { return type() == Charset; }
     bool isFontFaceRule() const { return type() == FontFace; }
@@ -90,7 +90,7 @@ public:
     ~StyleRuleBase() { }
 
 protected:
-    StyleRuleBase(Type type) : m_type(type) { }
+    StyleRuleBase(RuleType type) : m_type(type) { }
     StyleRuleBase(const StyleRuleBase& o) : m_type(o.m_type) { }
 
 private:
@@ -102,12 +102,12 @@ private:
 };
 
 class CORE_EXPORT StyleRule : public StyleRuleBase {
-    USING_FAST_MALLOC_WILL_BE_REMOVED(StyleRule);
+    USING_FAST_MALLOC_WITH_TYPE_NAME_WILL_BE_REMOVED(blink::StyleRule);
 public:
     // Adopts the selector list
-    static PassRefPtrWillBeRawPtr<StyleRule> create(CSSSelectorList& selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
+    static PassRefPtrWillBeRawPtr<StyleRule> create(CSSSelectorList selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
     {
-        return adoptRefWillBeNoop(new StyleRule(selectorList, properties));
+        return adoptRefWillBeNoop(new StyleRule(std::move(selectorList), properties));
     }
 
     ~StyleRule();
@@ -116,7 +116,7 @@ public:
     const StylePropertySet& properties() const { return *m_properties; }
     MutableStylePropertySet& mutableProperties();
 
-    void wrapperAdoptSelectorList(CSSSelectorList& selectors) { m_selectorList.adopt(selectors); }
+    void wrapperAdoptSelectorList(CSSSelectorList selectors) { m_selectorList = std::move(selectors); }
 
     PassRefPtrWillBeRawPtr<StyleRule> copy() const { return adoptRefWillBeNoop(new StyleRule(*this)); }
 
@@ -125,7 +125,7 @@ public:
     DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    StyleRule(CSSSelectorList&, PassRefPtrWillBeRawPtr<StylePropertySet>);
+    StyleRule(CSSSelectorList, PassRefPtrWillBeRawPtr<StylePropertySet>);
     StyleRule(const StyleRule&);
 
     RefPtrWillBeMember<StylePropertySet> m_properties; // Cannot be null.
@@ -158,9 +158,9 @@ private:
 class StyleRulePage : public StyleRuleBase {
 public:
     // Adopts the selector list
-    static PassRefPtrWillBeRawPtr<StyleRulePage> create(CSSSelectorList& selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
+    static PassRefPtrWillBeRawPtr<StyleRulePage> create(CSSSelectorList selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
     {
-        return adoptRefWillBeNoop(new StyleRulePage(selectorList, properties));
+        return adoptRefWillBeNoop(new StyleRulePage(std::move(selectorList), properties));
     }
 
     ~StyleRulePage();
@@ -169,14 +169,14 @@ public:
     const StylePropertySet& properties() const { return *m_properties; }
     MutableStylePropertySet& mutableProperties();
 
-    void wrapperAdoptSelectorList(CSSSelectorList& selectors) { m_selectorList.adopt(selectors); }
+    void wrapperAdoptSelectorList(CSSSelectorList selectors) { m_selectorList = std::move(selectors); }
 
     PassRefPtrWillBeRawPtr<StyleRulePage> copy() const { return adoptRefWillBeNoop(new StyleRulePage(*this)); }
 
     DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    StyleRulePage(CSSSelectorList&, PassRefPtrWillBeRawPtr<StylePropertySet>);
+    StyleRulePage(CSSSelectorList, PassRefPtrWillBeRawPtr<StylePropertySet>);
     StyleRulePage(const StyleRulePage&);
 
     RefPtrWillBeMember<StylePropertySet> m_properties; // Cannot be null.
@@ -193,7 +193,7 @@ public:
     DECLARE_TRACE_AFTER_DISPATCH();
 
 protected:
-    StyleRuleGroup(Type, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRule);
+    StyleRuleGroup(RuleType, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRule);
     StyleRuleGroup(const StyleRuleGroup&);
 
 private:

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/imports/HTMLImportLoader.h"
 
 #include "core/dom/Document.h"
@@ -67,9 +66,10 @@ void HTMLImportLoader::dispose()
         m_document->setImportsController(nullptr);
         m_document.clear();
     }
+    clearResource();
 }
 
-void HTMLImportLoader::startLoading(const ResourcePtr<RawResource>& resource)
+void HTMLImportLoader::startLoading(const PassRefPtrWillBeRawPtr<RawResource>& resource)
 {
     setResource(resource);
 }
@@ -79,14 +79,14 @@ void HTMLImportLoader::responseReceived(Resource* resource, const ResourceRespon
     ASSERT_UNUSED(handle, !handle);
     // Resource may already have been loaded with the import loader
     // being added as a client later & now being notified. Fail early.
-    if (resource->loadFailedOrCanceled() || response.httpStatusCode() >= 400 || !response.httpHeaderField("Content-Disposition").isNull()) {
+    if (resource->loadFailedOrCanceled() || response.httpStatusCode() >= 400 || !response.httpHeaderField(HTTPNames::Content_Disposition).isNull()) {
         setState(StateError);
         return;
     }
     setState(startWritingAndParsing(response));
 }
 
-void HTMLImportLoader::dataReceived(Resource*, const char* data, unsigned length)
+void HTMLImportLoader::dataReceived(Resource*, const char* data, size_t length)
 {
     RefPtrWillBeRawPtr<DocumentWriter> protectingWriter(m_writer.get());
     m_writer->addData(data, length);
@@ -106,6 +106,7 @@ void HTMLImportLoader::notifyFinished(Resource* resource)
 
 HTMLImportLoader::State HTMLImportLoader::startWritingAndParsing(const ResourceResponse& response)
 {
+    ASSERT(m_controller);
     ASSERT(!m_imports.isEmpty());
     DocumentInit init = DocumentInit(response.url(), 0, m_controller->master()->contextDocument(), m_controller)
         .withRegistrationContext(m_controller->master()->registrationContext());
@@ -229,6 +230,7 @@ DEFINE_TRACE(HTMLImportLoader)
     visitor->trace(m_writer);
     visitor->trace(m_microtaskQueue);
     DocumentParserClient::trace(visitor);
+    ResourceOwner<RawResource>::trace(visitor);
 }
 
 } // namespace blink

@@ -5,8 +5,9 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_OPTIONS_GEOLOCATION_OPTIONS_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_OPTIONS_GEOLOCATION_OPTIONS_HANDLER_H_
 
-#include "base/prefs/pref_member.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
+#include "components/prefs/pref_member.h"
 
 namespace options {
 

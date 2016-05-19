@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/Theme.h"
 
 namespace blink {
@@ -55,4 +54,4 @@ LengthBox Theme::controlPadding(ControlPart part, const FontDescription&, const 
     }
 }
 
-}
+} // namespace blink

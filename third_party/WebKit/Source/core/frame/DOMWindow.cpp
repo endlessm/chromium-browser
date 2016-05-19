@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/DOMWindow.h"
 
-#include "bindings/core/v8/ScriptCallStackFactory.h"
+#include "bindings/core/v8/ScriptCallStack.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/ExecutionContext.h"
@@ -16,14 +15,16 @@
 #include "core/frame/FrameConsole.h"
 #include "core/frame/LocalDOMWindow.h"
 #include "core/frame/Location.h"
+#include "core/frame/RemoteFrame.h"
 #include "core/frame/Settings.h"
 #include "core/frame/UseCounter.h"
+#include "core/input/EventHandler.h"
 #include "core/inspector/ConsoleMessageStorage.h"
 #include "core/inspector/InspectorInstrumentation.h"
-#include "core/inspector/ScriptCallStack.h"
 #include "core/loader/FrameLoaderClient.h"
 #include "core/loader/MixedContentChecker.h"
 #include "core/page/ChromeClient.h"
+#include "core/page/FocusController.h"
 #include "core/page/Page.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/SecurityOrigin.h"
@@ -163,8 +164,7 @@ bool DOMWindow::isSecureContext() const
     if (!frame())
         return false;
 
-    String unusedErrorMessage;
-    return document()->isSecureContext(unusedErrorMessage, ExecutionContext::StandardSecureContextCheck);
+    return document()->isSecureContext(ExecutionContext::StandardSecureContextCheck);
 }
 
 void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const MessagePortArray* ports, const String& targetOrigin, LocalDOMWindow* source, ExceptionState& exceptionState)
@@ -202,27 +202,25 @@ void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const Mes
     String sourceOrigin = sourceDocument->securityOrigin()->toString();
     String sourceSuborigin = sourceDocument->securityOrigin()->suboriginName();
 
-    // FIXME: MixedContentChecker needs to be refactored for OOPIF.  For now,
-    // create the url using replicated origins for remote frames.
     KURL targetUrl = isLocalDOMWindow() ? document()->url() : KURL(KURL(), frame()->securityContext()->securityOrigin()->toString());
     if (MixedContentChecker::isMixedContent(sourceDocument->securityOrigin(), targetUrl))
         UseCounter::count(frame(), UseCounter::PostMessageFromSecureToInsecure);
     else if (MixedContentChecker::isMixedContent(frame()->securityContext()->securityOrigin(), sourceDocument->url()))
         UseCounter::count(frame(), UseCounter::PostMessageFromInsecureToSecure);
 
+    RefPtrWillBeRawPtr<MessageEvent> event = MessageEvent::create(channels.release(), message, sourceOrigin, String(), source, sourceSuborigin);
     // Give the embedder a chance to intercept this postMessage.  If the
     // target is a remote frame, the message will be forwarded through the
     // browser process.
-    RefPtrWillBeRawPtr<MessageEvent> event = MessageEvent::create(channels.release(), message, sourceOrigin, String(), source, sourceSuborigin);
-    bool didHandleMessageEvent = frame()->client()->willCheckAndDispatchMessageEvent(target.get(), event.get(), source->document()->frame());
-    if (!didHandleMessageEvent) {
-        // Capture stack trace only when inspector front-end is loaded as it may be time consuming.
-        RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = nullptr;
-        if (InspectorInstrumentation::consoleAgentEnabled(sourceDocument))
-            stackTrace = currentScriptCallStack(ScriptCallStack::maxCallStackSizeToCapture);
+    if (frame()->client()->willCheckAndDispatchMessageEvent(target.get(), event.get(), source->document()->frame()))
+        return;
 
-        toLocalDOMWindow(this)->schedulePostMessage(event, source, target.get(), stackTrace.release());
-    }
+    // Capture stack trace only when inspector front-end is loaded as it may be time consuming.
+    RefPtr<ScriptCallStack> stackTrace;
+    if (InspectorInstrumentation::consoleAgentEnabled(sourceDocument))
+        stackTrace = ScriptCallStack::capture();
+
+    toLocalDOMWindow(this)->schedulePostMessage(event, target.get(), stackTrace.release());
 }
 
 // FIXME: Once we're throwing exceptions for cross-origin access violations, we will always sanitize the target
@@ -230,7 +228,7 @@ void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const Mes
 // exactly which details may be exposed to JavaScript.
 //
 // http://crbug.com/17325
-String DOMWindow::sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)
+String DOMWindow::sanitizedCrossDomainAccessErrorMessage(const LocalDOMWindow* callingWindow) const
 {
     if (!callingWindow || !callingWindow->document() || !frame())
         return String();
@@ -241,7 +239,7 @@ String DOMWindow::sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* calling
 
     ASSERT(!callingWindow->document()->securityOrigin()->canAccessCheckSuborigins(frame()->securityContext()->securityOrigin()));
 
-    SecurityOrigin* activeOrigin = callingWindow->document()->securityOrigin();
+    const SecurityOrigin* activeOrigin = callingWindow->document()->securityOrigin();
     String message = "Blocked a frame with origin \"" + activeOrigin->toString() + "\" from accessing a cross-origin frame.";
 
     // FIXME: Evaluate which details from 'crossDomainAccessErrorMessage' may safely be reported to JavaScript.
@@ -249,7 +247,7 @@ String DOMWindow::sanitizedCrossDomainAccessErrorMessage(LocalDOMWindow* calling
     return message;
 }
 
-String DOMWindow::crossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)
+String DOMWindow::crossDomainAccessErrorMessage(const LocalDOMWindow* callingWindow) const
 {
     if (!callingWindow || !callingWindow->document() || !frame())
         return String();
@@ -259,9 +257,12 @@ String DOMWindow::crossDomainAccessErrorMessage(LocalDOMWindow* callingWindow)
         return String();
 
     // FIXME: This message, and other console messages, have extra newlines. Should remove them.
-    SecurityOrigin* activeOrigin = callingWindow->document()->securityOrigin();
-    SecurityOrigin* targetOrigin = frame()->securityContext()->securityOrigin();
-    ASSERT(!activeOrigin->canAccessCheckSuborigins(targetOrigin));
+    const SecurityOrigin* activeOrigin = callingWindow->document()->securityOrigin();
+    const SecurityOrigin* targetOrigin = frame()->securityContext()->securityOrigin();
+    // It's possible for a remote frame to be same origin with respect to a
+    // local frame, but it must still be treated as a disallowed cross-domain
+    // access. See https://crbug.com/601629.
+    ASSERT(frame()->isRemoteFrame() || !activeOrigin->canAccessCheckSuborigins(targetOrigin));
 
     String message = "Blocked a frame with origin \"" + activeOrigin->toString() + "\" from accessing a frame with origin \"" + targetOrigin->toString() + "\". ";
 
@@ -339,6 +340,32 @@ void DOMWindow::close(ExecutionContext* context)
     // state of this window. Scripts may access window.closed
     // before the deferred close operation has gone ahead.
     m_windowIsClosing = true;
+}
+
+void DOMWindow::focus(ExecutionContext* context)
+{
+    if (!frame())
+        return;
+
+    Page* page = frame()->page();
+    if (!page)
+        return;
+
+    ASSERT(context);
+
+    bool allowFocus = context->isWindowInteractionAllowed();
+    if (allowFocus) {
+        context->consumeWindowInteraction();
+    } else {
+        ASSERT(isMainThread());
+        allowFocus = opener() && (opener() != this) && (toDocument(context)->domWindow() == opener());
+    }
+
+    // If we're a top level window, bring the window to the front.
+    if (frame()->isMainFrame() && allowFocus)
+        page->chromeClient().focus();
+
+    page->focusController().focusDocumentView(frame(), true /* notifyEmbedder */);
 }
 
 DEFINE_TRACE(DOMWindow)

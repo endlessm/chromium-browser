@@ -730,6 +730,27 @@
             '<(blink_core_output_dir)',
           ],
         },
+        {
+          'action_name': 'OriginTrials',
+          'inputs': [
+            '<@(scripts_for_in_files)',
+            '../build/scripts/make_origin_trials.py',
+            '../platform/RuntimeEnabledFeatures.in',
+            '../build/scripts/templates/OriginTrials.cpp.tmpl',
+            '../build/scripts/templates/OriginTrials.h.tmpl',
+          ],
+          'outputs': [
+            '<(blink_core_output_dir)/origin_trials/OriginTrials.cpp',
+            '<(blink_core_output_dir)/origin_trials/OriginTrials.h',
+          ],
+          'action': [
+            'python',
+            '../build/scripts/make_origin_trials.py',
+            '../platform/RuntimeEnabledFeatures.in',
+            '--output_dir',
+            '<(blink_core_output_dir)/origin_trials',
+          ],
+        },
       ],
       'rules': [
         {

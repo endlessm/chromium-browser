@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/installer/util/browser_distribution.h"
 
@@ -37,6 +38,8 @@ class ChromiumBinariesDistribution : public BrowserDistribution {
   base::string16 GetLongAppDescription() override;
 
   std::string GetSafeBrowsingName() override;
+
+  base::string16 GetRegistryPath() override;
 
   base::string16 GetUninstallRegPath() override;
 

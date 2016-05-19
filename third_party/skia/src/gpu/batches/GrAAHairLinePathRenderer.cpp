@@ -345,17 +345,14 @@ static int gather_lines_and_quads(const SkPath& path,
                 bounds.roundOut(&ibounds);
                 if (SkIRect::Intersects(devClipBounds, ibounds)) {
                     PREALLOC_PTARRAY(32) q;
-                    // we don't need a direction if we aren't constraining the subdivision
-                    const SkPathPriv::FirstDirection kDummyDir = SkPathPriv::kCCW_FirstDirection;
                     // We convert cubics to quadratics (for now).
                     // In perspective have to do conversion in src space.
                     if (persp) {
                         SkScalar tolScale =
-                            GrPathUtils::scaleToleranceToSrc(SK_Scalar1, m,
-                                                             path.getBounds());
-                        GrPathUtils::convertCubicToQuads(pathPts, tolScale, false, kDummyDir, &q);
+                            GrPathUtils::scaleToleranceToSrc(SK_Scalar1, m, path.getBounds());
+                        GrPathUtils::convertCubicToQuads(pathPts, tolScale, &q);
                     } else {
-                        GrPathUtils::convertCubicToQuads(devPts, SK_Scalar1, false, kDummyDir, &q);
+                        GrPathUtils::convertCubicToQuads(devPts, SK_Scalar1, &q);
                     }
                     for (int i = 0; i < q.count(); i += 3) {
                         SkPoint* qInDevSpace;
@@ -686,33 +683,33 @@ public:
 
     const char* name() const override { return "AAHairlineBatch"; }
 
-    void getInvariantOutputColor(GrInitInvariantOutput* out) const override {
+    void computePipelineOptimizations(GrInitInvariantOutput* color, 
+                                      GrInitInvariantOutput* coverage,
+                                      GrBatchToXPOverrides* overrides) const override {
         // When this is called on a batch, there is only one geometry bundle
-        out->setKnownFourComponents(fGeoData[0].fColor);
-    }
-    void getInvariantOutputCoverage(GrInitInvariantOutput* out) const override {
-        out->setUnknownSingleComponent();
+        color->setKnownFourComponents(fGeoData[0].fColor);
+        coverage->setUnknownSingleComponent();
     }
 
 private:
-    void initBatchTracker(const GrPipelineOptimizations& opt) override {
+    void initBatchTracker(const GrXPOverridesForBatch& overrides) override {
         // Handle any color overrides
-        if (!opt.readsColor()) {
+        if (!overrides.readsColor()) {
             fGeoData[0].fColor = GrColor_ILLEGAL;
         }
-        opt.getOverrideColorIfSet(&fGeoData[0].fColor);
+        overrides.getOverrideColorIfSet(&fGeoData[0].fColor);
 
         // setup batch properties
-        fBatch.fColorIgnored = !opt.readsColor();
+        fBatch.fColorIgnored = !overrides.readsColor();
         fBatch.fColor = fGeoData[0].fColor;
-        fBatch.fUsesLocalCoords = opt.readsLocalCoords();
-        fBatch.fCoverageIgnored = !opt.readsCoverage();
+        fBatch.fUsesLocalCoords = overrides.readsLocalCoords();
+        fBatch.fCoverageIgnored = !overrides.readsCoverage();
         fBatch.fCoverage = fGeoData[0].fCoverage;
     }
 
     SkSTArray<1, Geometry, true>* geoData() { return &fGeoData; }
 
-    void onPrepareDraws(Target*) override;
+    void onPrepareDraws(Target*) const override;
 
     typedef SkTArray<SkPoint, true> PtArray;
     typedef SkTArray<int, true> IntArray;
@@ -790,7 +787,7 @@ private:
     typedef GrVertexBatch INHERITED;
 };
 
-void AAHairlineBatch::onPrepareDraws(Target* target) {
+void AAHairlineBatch::onPrepareDraws(Target* target) const {
     // Setup the viewmatrix and localmatrix for the GrGeometryProcessor.
     SkMatrix invert;
     if (!this->viewMatrix().invert(&invert)) {
@@ -973,9 +970,10 @@ static GrDrawBatch* create_hairline_batch(GrColor color,
 }
 
 bool GrAAHairLinePathRenderer::onDrawPath(const DrawPathArgs& args) {
+    GR_AUDIT_TRAIL_AUTO_FRAME(args.fTarget->getAuditTrail(),"GrAAHairlinePathRenderer::onDrawPath");
     SkIRect devClipBounds;
-    args.fPipelineBuilder->clip().getConservativeBounds(args.fPipelineBuilder->getRenderTarget(),
-                                                        &devClipBounds);
+    GrRenderTarget* rt = args.fPipelineBuilder->getRenderTarget();
+    args.fPipelineBuilder->clip().getConservativeBounds(rt->width(), rt->height(), &devClipBounds);
 
     SkAutoTUnref<GrDrawBatch> batch(create_hairline_batch(args.fColor, *args.fViewMatrix, *args.fPath,
                                                           *args.fStroke, devClipBounds));

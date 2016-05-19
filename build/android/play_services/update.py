@@ -18,12 +18,14 @@ import tempfile
 import zipfile
 
 sys.path.append(os.path.join(os.path.dirname(__file__), os.pardir))
+import devil_chromium
 from devil.utils import cmd_helper
 from play_services import utils
 from pylib import constants
+from pylib.constants import host_paths
 from pylib.utils import logging_utils
 
-sys.path.append(os.path.join(constants.DIR_SOURCE_ROOT, 'build'))
+sys.path.append(os.path.join(host_paths.DIR_SOURCE_ROOT, 'build'))
 import find_depot_tools  # pylint: disable=import-error,unused-import
 import breakpad
 import download_from_google_storage
@@ -32,7 +34,7 @@ import upload_to_google_storage
 
 # Directory where the SHA1 files for the zip and the license are stored
 # It should be managed by git to provided information about new versions.
-SHA1_DIRECTORY = os.path.join(constants.DIR_SOURCE_ROOT, 'build', 'android',
+SHA1_DIRECTORY = os.path.join(host_paths.DIR_SOURCE_ROOT, 'build', 'android',
                               'play_services')
 
 # Default bucket used for storing the files.
@@ -40,7 +42,7 @@ GMS_CLOUD_STORAGE = 'chromium-android-tools/play-services'
 
 # Path to the default configuration file. It exposes the currently installed
 # version of the library in a human readable way.
-CONFIG_DEFAULT_PATH = os.path.join(constants.DIR_SOURCE_ROOT, 'build',
+CONFIG_DEFAULT_PATH = os.path.join(host_paths.DIR_SOURCE_ROOT, 'build',
                                    'android', 'play_services', 'config.json')
 
 LICENSE_FILE_NAME = 'LICENSE'
@@ -93,6 +95,7 @@ def main(raw_args):
   if args.verbose:
     logging.basicConfig(level=logging.DEBUG)
   logging_utils.ColorStreamHandler.MakeDefault(not _IsBotEnvironment())
+  devil_chromium.Initialize()
   return args.func(args)
 
 
@@ -151,7 +154,8 @@ def Download(args):
       logging.info('Skipping, not on an android checkout.')
       return 0
 
-  paths = PlayServicesPaths(args.sdk_root)
+  config = utils.ConfigParser(args.config)
+  paths = PlayServicesPaths(args.sdk_root, config.version_xml_path)
 
   if os.path.isdir(paths.package) and not os.access(paths.package, os.W_OK):
     logging.error('Failed updating the Google Play Services library. '
@@ -167,7 +171,6 @@ def Download(args):
     logging.info('Skipping, the Google Play services library is up to date.')
     return 0
 
-  config = utils.ConfigParser(args.config)
   bucket_path = _VerifyBucketPathFormat(args.bucket,
                                         config.version_number,
                                         args.dry_run)
@@ -260,13 +263,12 @@ def Upload(args):
   # disable breakpad to avoid spamming the logs.
   breakpad.IS_ENABLED = False
 
-  paths = PlayServicesPaths(args.sdk_root)
+  config = utils.ConfigParser(args.config)
+  paths = PlayServicesPaths(args.sdk_root, config.version_xml_path)
 
-  if not args.skip_git and utils.IsRepoDirty(constants.DIR_SOURCE_ROOT):
+  if not args.skip_git and utils.IsRepoDirty(host_paths.DIR_SOURCE_ROOT):
     logging.error('The repo is dirty. Please commit or stash your changes.')
     return -1
-
-  config = utils.ConfigParser(args.config)
 
   new_version_number = utils.GetVersionNumberFromLibraryResources(
       paths.version_xml)
@@ -307,7 +309,7 @@ def Upload(args):
   if not args.skip_git:
     commit_message = ('Update the Google Play services dependency to %s\n'
                       '\n') % new_version_number
-    utils.MakeLocalCommit(constants.DIR_SOURCE_ROOT,
+    utils.MakeLocalCommit(host_paths.DIR_SOURCE_ROOT,
                           [new_lib_zip_sha1, new_license_sha1, config.path],
                           commit_message)
 
@@ -473,7 +475,7 @@ class PlayServicesPaths(object):
 
   '''
 
-  def __init__(self, sdk_root):
+  def __init__(self, sdk_root, version_xml_path):
     relative_package = os.path.join('extras', 'google', 'google_play_services')
     relative_lib = os.path.join(relative_package, 'libproject',
                                 'google-play-services_lib')
@@ -485,7 +487,7 @@ class PlayServicesPaths(object):
     self.source_prop = os.path.join(self.package, 'source.properties')
 
     self.lib = os.path.join(sdk_root, relative_lib)
-    self.version_xml = os.path.join(self.lib, 'res', 'values', 'version.xml')
+    self.version_xml = os.path.join(self.lib, version_xml_path)
 
 
 class DummyGsutil(download_from_google_storage.Gsutil):

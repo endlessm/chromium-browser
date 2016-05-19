@@ -2,7 +2,8 @@ namespace="EventTarget"
 suffix="Modules"
 
 modules/battery/BatteryManager
-modules/bluetooth/BluetoothGATTCharacteristic
+modules/bluetooth/BluetoothDevice
+modules/bluetooth/BluetoothRemoteGATTCharacteristic
 modules/compositorworker/CompositorWorker
 modules/compositorworker/CompositorWorkerGlobalScope
 modules/encryptedmedia/MediaKeySession
@@ -36,8 +37,8 @@ modules/serviceworkers/ServiceWorkerRegistration
 modules/speech/SpeechRecognition
 modules/speech/SpeechSynthesis
 modules/speech/SpeechSynthesisUtterance
-modules/webaudio/AudioContext Conditional=WEB_AUDIO
-modules/webaudio/AudioNode Conditional=WEB_AUDIO
+modules/webaudio/AudioContext
+modules/webaudio/AudioNode
 modules/webmidi/MIDIAccess
 modules/webmidi/MIDIInput
 modules/webmidi/MIDIPort

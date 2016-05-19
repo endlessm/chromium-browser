@@ -95,8 +95,7 @@ WebContents* WebContentsDelegateAndroid::OpenURLFromTab(
         params.browser_initiated_post_data.get() &&
         params.browser_initiated_post_data.get()->size()) {
       post_data = base::android::ToJavaByteArray(
-          env,
-          params.browser_initiated_post_data.get()->front_as<uint8>(),
+          env, params.browser_initiated_post_data.get()->front_as<uint8_t>(),
           params.browser_initiated_post_data.get()->size());
     }
     Java_WebContentsDelegateAndroid_openNewTab(env,
@@ -119,11 +118,6 @@ WebContents* WebContentsDelegateAndroid::OpenURLFromTab(
   load_params.should_replace_current_entry =
       params.should_replace_current_entry;
   load_params.is_renderer_initiated = params.is_renderer_initiated;
-
-  if (params.transferred_global_request_id != content::GlobalRequestID()) {
-    load_params.transferred_global_request_id =
-        params.transferred_global_request_id;
-  }
 
   // Only allows the browser-initiated navigation to use POST.
   if (params.uses_post && !params.is_renderer_initiated) {
@@ -282,9 +276,9 @@ void WebContentsDelegateAndroid::MoveContents(WebContents* source,
 
 bool WebContentsDelegateAndroid::AddMessageToConsole(
     WebContents* source,
-    int32 level,
+    int32_t level,
     const base::string16& message,
-    int32 line_no,
+    int32_t line_no,
     const base::string16& source_id) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
@@ -434,6 +428,12 @@ void WebContentsDelegateAndroid::MoveValidationMessage(
         rwhv->GetRenderWidgetHost(), anchor_in_root_view);
   }
 }
+
+bool WebContentsDelegateAndroid::RequestAppBanner(
+    content::WebContents* web_contents) {
+  return false;
+}
+
 // ----------------------------------------------------------------------------
 // Native JNI methods
 // ----------------------------------------------------------------------------

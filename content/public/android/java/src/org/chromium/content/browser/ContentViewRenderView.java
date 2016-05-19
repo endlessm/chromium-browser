@@ -31,8 +31,6 @@ public class ContentViewRenderView extends FrameLayout {
     private final SurfaceView mSurfaceView;
     protected ContentViewCore mContentViewCore;
 
-    private ContentReadbackHandler mContentReadbackHandler;
-
     /**
      * Constructs a new ContentViewRenderView.
      * This should be called and the {@link ContentViewRenderView} should be added to the view
@@ -93,21 +91,6 @@ public class ContentViewRenderView extends FrameLayout {
         };
         mSurfaceView.getHolder().addCallback(mSurfaceCallback);
         mSurfaceView.setVisibility(VISIBLE);
-
-        mContentReadbackHandler = new ContentReadbackHandler() {
-            @Override
-            protected boolean readyForReadback() {
-                return mNativeContentViewRenderView != 0 && mContentViewCore != null;
-            }
-        };
-        mContentReadbackHandler.initNativeContentReadbackHandler();
-    }
-
-    /**
-     * @return The content readback handler.
-     */
-    public ContentReadbackHandler getContentReadbackHandler() {
-        return mContentReadbackHandler;
     }
 
     /**
@@ -134,8 +117,6 @@ public class ContentViewRenderView extends FrameLayout {
      * native resource can be freed.
      */
     public void destroy() {
-        mContentReadbackHandler.destroy();
-        mContentReadbackHandler = null;
         mSurfaceView.getHolder().removeCallback(mSurfaceCallback);
         nativeDestroy(mNativeContentViewRenderView);
         mNativeContentViewRenderView = 0;
@@ -152,15 +133,6 @@ public class ContentViewRenderView extends FrameLayout {
         } else {
             nativeSetCurrentContentViewCore(mNativeContentViewRenderView, 0);
         }
-    }
-
-    /**
-     * Trigger a redraw of the compositor.  This is only needed if the UI changes something that
-     * does not trigger a redraw itself by updating the layer tree.
-     */
-    public void setNeedsComposite() {
-        if (mNativeContentViewRenderView == 0) return;
-        nativeSetNeedsComposite(mNativeContentViewRenderView);
     }
 
     /**
@@ -208,15 +180,7 @@ public class ContentViewRenderView extends FrameLayout {
         }
     }
 
-    /**
-     * @return Native pointer for the UI resource provider taken from the compositor.
-     */
-    public long getUIResourceProvider() {
-        return nativeGetUIResourceProvider(mNativeContentViewRenderView);
-    }
-
     private native long nativeInit(long rootWindowNativePointer);
-    private native long nativeGetUIResourceProvider(long nativeContentViewRenderView);
     private native void nativeDestroy(long nativeContentViewRenderView);
     private native void nativeSetCurrentContentViewCore(long nativeContentViewRenderView,
             long nativeContentViewCore);
@@ -226,5 +190,4 @@ public class ContentViewRenderView extends FrameLayout {
             int format, int width, int height, Surface surface);
     private native void nativeSetOverlayVideoMode(long nativeContentViewRenderView,
             boolean enabled);
-    private native void nativeSetNeedsComposite(long nativeContentViewRenderView);
 }

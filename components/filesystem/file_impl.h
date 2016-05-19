@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_FILESYSTEM_FILE_IMPL_H_
 #define COMPONENTS_FILESYSTEM_FILE_IMPL_H_
 
+#include <stdint.h>
+
 #include "base/files/file.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
@@ -18,13 +20,29 @@ class FilePath;
 
 namespace filesystem {
 
+class LockTable;
+
 class FileImpl : public File {
  public:
   FileImpl(mojo::InterfaceRequest<File> request,
            const base::FilePath& path,
-           uint32 flags);
-  FileImpl(mojo::InterfaceRequest<File> request, base::File file);
+           uint32_t flags,
+           LockTable* lock_table);
+  FileImpl(mojo::InterfaceRequest<File> request,
+           const base::FilePath& path,
+           base::File file,
+           LockTable* lock_table);
   ~FileImpl() override;
+
+  // Returns whether the underlying file handle is valid.
+  bool IsValid() const;
+
+  // Attempts to perform the native operating system's locking operations on
+  // the internal File handle
+  base::File::Error RawLockFile();
+  base::File::Error RawUnlockFile();
+
+  const base::FilePath& path() const { return path_; }
 
   // |File| implementation:
   void Close(const CloseCallback& callback) override;
@@ -48,11 +66,15 @@ class FileImpl : public File {
   void Dup(mojo::InterfaceRequest<File> file,
            const DupCallback& callback) override;
   void Flush(const FlushCallback& callback) override;
+  void Lock(const LockCallback& callback) override;
+  void Unlock(const UnlockCallback& callback) override;
   void AsHandle(const AsHandleCallback& callback) override;
 
  private:
   mojo::StrongBinding<File> binding_;
   base::File file_;
+  base::FilePath path_;
+  LockTable* lock_table_;
 
   DISALLOW_COPY_AND_ASSIGN(FileImpl);
 };

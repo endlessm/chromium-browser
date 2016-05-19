@@ -4,18 +4,20 @@
 
 #include "chrome/browser/chromeos/platform_keys/key_permissions.h"
 
+#include <utility>
+
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/values.h"
 #include "chrome/common/pref_names.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "extensions/browser/state_store.h"
 #include "policy/policy_constants.h"
 
@@ -293,7 +295,7 @@ KeyPermissions::PermissionsForExtension::KeyEntriesToState() {
     }
     new_state->Append(new_entry.release());
   }
-  return new_state.Pass();
+  return std::move(new_state);
 }
 
 KeyPermissions::PermissionsForExtension::KeyEntry*
@@ -373,14 +375,15 @@ void KeyPermissions::CreatePermissionObjectAndPassToCallback(
     const std::string& extension_id,
     const PermissionsCallback& callback,
     scoped_ptr<base::Value> value) {
-  callback.Run(make_scoped_ptr(new PermissionsForExtension(
-      extension_id, value.Pass(), profile_prefs_, profile_policies_, this)));
+  callback.Run(make_scoped_ptr(
+      new PermissionsForExtension(extension_id, std::move(value),
+                                  profile_prefs_, profile_policies_, this)));
 }
 
 void KeyPermissions::SetPlatformKeysOfExtension(const std::string& extension_id,
                                                 scoped_ptr<base::Value> value) {
   extensions_state_store_->SetExtensionValue(
-      extension_id, kStateStorePlatformKeys, value.Pass());
+      extension_id, kStateStorePlatformKeys, std::move(value));
 }
 
 const base::DictionaryValue* KeyPermissions::GetPrefsEntry(

@@ -16,12 +16,10 @@
 #include "SkColor.h"
 #include "SkDevice.h"
 #include "SkGraphics.h"
-#include "SkImageDecoder.h"
 #include "SkImageEncoder.h"
 #include "SkOSFile.h"
 #include "SkPicture.h"
 #include "SkRTConf.h"
-#include "SkRunnable.h"
 #include "SkStream.h"
 #include "SkString.h"
 #include "SkTArray.h"
@@ -142,7 +140,7 @@ struct SkpSkGrThreadedTestRunner {
     skiatest::Reporter* fReporter;
 };
 
-class SkpSkGrThreadedRunnable : public SkRunnable {
+class SkpSkGrThreadedRunnable {
 public:
     SkpSkGrThreadedRunnable(void (*testFun)(SkpSkGrThreadState*), int dirNo, const char* str,
             SkpSkGrThreadedTestRunner* runner) {
@@ -153,7 +151,7 @@ public:
         fTestFun = testFun;
     }
 
-    void run() override {
+    void operator()() {
         SkGraphics::SetTLSFontCacheLimit(1 * 1024 * 1024);
         (*fTestFun)(&fState);
     }
@@ -169,10 +167,8 @@ SkpSkGrThreadedTestRunner::~SkpSkGrThreadedTestRunner() {
 }
 
 void SkpSkGrThreadedTestRunner::render() {
-    // TODO: we don't really need to be using SkRunnables here anymore.
-    // We can just write the code we'd run right in the for loop.
-    sk_parallel_for(fRunnables.count(), [&](int i) {
-        fRunnables[i]->run();
+    SkTaskGroup().batch(fRunnables.count(), [&](int i) {
+        fRunnables[i]();
     });
 }
 
@@ -403,7 +399,7 @@ void TestResult::testOne() {
             wStream.write(&bytes[0], length);
             wStream.flush();
         }
-        pic = SkPicture::CreateFromStream(&stream, &SkImageDecoder::DecodeMemory);
+        pic = SkPicture::CreateFromStream(&stream);
         if (!pic) {
             SkDebugf("unable to decode %s\n", fFilename);
             goto finish;

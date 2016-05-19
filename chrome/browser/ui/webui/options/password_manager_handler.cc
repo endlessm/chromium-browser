@@ -6,11 +6,12 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/prefs/pref_service.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
@@ -20,8 +21,11 @@
 #include "components/autofill/core/common/password_form.h"
 #include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
+#include "components/password_manager/core/browser/password_manager_constants.h"
 #include "components/password_manager/core/browser/password_ui_utils.h"
 #include "components/password_manager/core/common/experiments.h"
+#include "components/prefs/pref_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
@@ -30,7 +34,6 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/origin_util.h"
-#include "net/base/net_util.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_WIN) && defined(USE_ASH)
@@ -44,13 +47,14 @@ namespace {
 // chrome/browser/resources/options/password_manager_list.js.
 const char kOriginField[] = "origin";
 const char kShownUrlField[] = "shownUrl";
+const char kIsAndroidUriField[] = "isAndroidUri";
 const char kIsSecureField[] = "isSecure";
 const char kUsernameField[] = "username";
 const char kPasswordField[] = "password";
 const char kFederationField[] = "federation";
 
-// Copies from |form| to |entry| the origin, shown origin and whether the
-// origin is secure or not.
+// Copies from |form| to |entry| the origin, shown origin, whether the origin is
+// Android URI, and whether the origin is secure.
 void CopyOriginInfoOfPasswordForm(const autofill::PasswordForm& form,
                                   const std::string& languages,
                                   base::DictionaryValue* entry) {
@@ -59,8 +63,10 @@ void CopyOriginInfoOfPasswordForm(const autofill::PasswordForm& form,
       url_formatter::FormatUrl(
           form.origin, languages, url_formatter::kFormatUrlOmitNothing,
           net::UnescapeRule::SPACES, nullptr, nullptr, nullptr));
-  entry->SetString(kShownUrlField,
-                   password_manager::GetShownOrigin(form, languages));
+  bool is_android_uri = false;
+  entry->SetString(kShownUrlField, password_manager::GetShownOrigin(
+                                       form, languages, &is_android_uri));
+  entry->SetBoolean(kIsAndroidUriField, is_android_uri);
   entry->SetBoolean(kIsSecureField, content::IsOriginSecure(form.origin));
 }
 
@@ -88,8 +94,8 @@ void PasswordManagerHandler::GetLocalizedValues(
   static const OptionsStringResource resources[] = {
       {"autoSigninTitle", IDS_PASSWORDS_AUTO_SIGNIN_TITLE},
       {"autoSigninDescription", IDS_PASSWORDS_AUTO_SIGNIN_DESCRIPTION},
-      {"savedPasswordsTitle", IDS_PASSWORDS_SHOW_PASSWORDS_TAB_TITLE},
-      {"passwordExceptionsTitle", IDS_PASSWORDS_EXCEPTIONS_TAB_TITLE},
+      {"savedPasswordsTitle", IDS_PASSWORD_MANAGER_SHOW_PASSWORDS_TAB_TITLE},
+      {"passwordExceptionsTitle", IDS_PASSWORD_MANAGER_EXCEPTIONS_TAB_TITLE},
       {"passwordSearchPlaceholder", IDS_PASSWORDS_PAGE_SEARCH_PASSWORDS},
       {"passwordShowButton", IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON},
       {"passwordHideButton", IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON},
@@ -111,11 +117,12 @@ void PasswordManagerHandler::GetLocalizedValues(
 
   localized_strings->SetString("passwordManagerLearnMoreURL",
                                chrome::kPasswordManagerLearnMoreURL);
-  localized_strings->SetString("passwordsManagePasswordsLink",
-                               chrome::kPasswordManagerAccountDashboardURL);
+  localized_strings->SetString(
+      "passwordsManagePasswordsLink",
+      password_manager::kPasswordManagerAccountDashboardURL);
 
   std::string management_hostname =
-      GURL(chrome::kPasswordManagerAccountDashboardURL).host();
+      GURL(password_manager::kPasswordManagerAccountDashboardURL).host();
   base::string16 link_text = base::UTF8ToUTF16(management_hostname);
   size_t offset;
   base::string16 full_text = l10n_util::GetStringFUTF16(
@@ -124,8 +131,7 @@ void PasswordManagerHandler::GetLocalizedValues(
   localized_strings->SetString("passwordsManagePasswordsBeforeLinkText",
                                full_text.substr(0, offset));
   localized_strings->SetString("passwordsManagePasswordsLinkText",
-                               full_text.substr(offset,
-                                                link_text.size()));
+                               full_text.substr(offset, link_text.size()));
   localized_strings->SetString("passwordsManagePasswordsAfterLinkText",
                                full_text.substr(offset + link_text.size()));
 
@@ -216,12 +222,12 @@ void PasswordManagerHandler::HandleUpdatePasswordLists(
 }
 
 void PasswordManagerHandler::SetPasswordList(
-    const ScopedVector<autofill::PasswordForm>& password_list,
+    const std::vector<scoped_ptr<autofill::PasswordForm>>& password_list,
     bool show_passwords) {
   base::ListValue entries;
   languages_ = GetProfile()->GetPrefs()->GetString(prefs::kAcceptLanguages);
   base::string16 placeholder(base::ASCIIToUTF16("        "));
-  for (const autofill::PasswordForm* saved_password : password_list) {
+  for (const auto& saved_password : password_list) {
     scoped_ptr<base::DictionaryValue> entry(new base::DictionaryValue);
     CopyOriginInfoOfPasswordForm(*saved_password, languages_, entry.get());
 
@@ -234,12 +240,12 @@ void PasswordManagerHandler::SetPasswordList(
           kPasswordField,
           base::string16(saved_password->password_value.length(), ' '));
     }
-    const GURL& federation_url = saved_password->federation_url;
-    if (!federation_url.is_empty()) {
+    if (!saved_password->federation_origin.unique()) {
       entry->SetString(
           kFederationField,
-          l10n_util::GetStringFUTF16(IDS_PASSWORDS_VIA_FEDERATION,
-                                     base::UTF8ToUTF16(federation_url.host())));
+          l10n_util::GetStringFUTF16(
+              IDS_PASSWORDS_VIA_FEDERATION,
+              base::UTF8ToUTF16(saved_password->federation_origin.host())));
     }
 
     entries.Append(entry.release());
@@ -250,9 +256,10 @@ void PasswordManagerHandler::SetPasswordList(
 }
 
 void PasswordManagerHandler::SetPasswordExceptionList(
-    const ScopedVector<autofill::PasswordForm>& password_exception_list) {
+    const std::vector<scoped_ptr<autofill::PasswordForm>>&
+        password_exception_list) {
   base::ListValue entries;
-  for (const autofill::PasswordForm* exception : password_exception_list) {
+  for (const auto& exception : password_exception_list) {
     scoped_ptr<base::DictionaryValue> entry(new base::DictionaryValue);
     CopyOriginInfoOfPasswordForm(*exception, languages_, entry.get());
     entries.Append(entry.release());

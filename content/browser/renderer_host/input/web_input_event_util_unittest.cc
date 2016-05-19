@@ -7,9 +7,12 @@
 #define _USE_MATH_DEFINES
 #endif
 
+#include <stddef.h>
+
 #include <cmath>
 
 #include "content/browser/renderer_host/input/web_input_event_util.h"
+#include "content/common/input/synthetic_web_input_event_builders.h"
 #include "content/common/input/web_input_event_traits.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/blink/blink_event_util.h"

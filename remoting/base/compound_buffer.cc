@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "remoting/base/compound_buffer.h"
+
+#include <algorithm>
 #include <functional>
 
 #include "base/logging.h"
 #include "net/base/io_buffer.h"
-#include "remoting/base/compound_buffer.h"
 
 namespace remoting {
 
@@ -16,6 +18,8 @@ CompoundBuffer::DataChunk::DataChunk(
       start(start_value),
       size(size_value) {
 }
+
+CompoundBuffer::DataChunk::DataChunk(const DataChunk& other) = default;
 
 CompoundBuffer::DataChunk::~DataChunk() {}
 
@@ -270,7 +274,7 @@ bool CompoundBufferInputStream::Skip(int count) {
   return count == 0;
 }
 
-int64 CompoundBufferInputStream::ByteCount() const {
+int64_t CompoundBufferInputStream::ByteCount() const {
   return position_;
 }
 

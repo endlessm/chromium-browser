@@ -67,6 +67,7 @@ public:
     bool typeMismatch() const final;
     bool valueMissing() const final;
     String validationMessage() const final;
+    String validationSubMessage() const final;
 
     // Returns the minimum value for type=date, number, or range.  Don't call this for other types.
     double minimum() const;
@@ -112,7 +113,7 @@ public:
 
     String value() const override;
     void setValue(const String&, ExceptionState&, TextFieldEventBehavior = DispatchNoEvent);
-    void setValue(const String&, TextFieldEventBehavior = DispatchNoEvent);
+    void setValue(const String&, TextFieldEventBehavior = DispatchNoEvent) override;
     void setValueForUser(const String&);
     // Checks if the specified string would be a valid value.
     // We should not call this for types with no string value such as CHECKBOX and RADIO.
@@ -223,7 +224,7 @@ public:
     void selectColorInColorChooser(const Color&);
     void endColorChooser();
 
-    String defaultToolTip() const;
+    String defaultToolTip() const override;
 
     static const int maximumLength;
 
@@ -305,8 +306,7 @@ private:
 
     void accessKeyAction(bool sendMouseEvents) final;
 
-    void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     bool isPresentationAttribute(const QualifiedName&) const final;
     void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) final;
     void finishParsingChildren() final;

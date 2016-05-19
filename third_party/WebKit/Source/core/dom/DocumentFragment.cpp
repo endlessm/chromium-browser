@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/DocumentFragment.h"
 
 #include "core/dom/Document.h"
@@ -44,7 +43,7 @@ String DocumentFragment::nodeName() const
     return "#document-fragment";
 }
 
-Node::NodeType DocumentFragment::nodeType() const
+Node::NodeType DocumentFragment::getNodeType() const
 {
     return DOCUMENT_FRAGMENT_NODE;
 }

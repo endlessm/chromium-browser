@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/ReplaceNodeWithSpanCommand.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -66,12 +65,12 @@ static void swapInNodePreservingAttributesAndChildren(HTMLElement* newElement, H
     parentNode->removeChild(&elementToReplace, ASSERT_NO_EXCEPTION);
 }
 
-void ReplaceNodeWithSpanCommand::doApply()
+void ReplaceNodeWithSpanCommand::doApply(EditingState*)
 {
     if (!m_elementToReplace->inDocument())
         return;
     if (!m_spanElement)
-        m_spanElement = toHTMLSpanElement(createHTMLElement(m_elementToReplace->document(), spanTag).get());
+        m_spanElement = HTMLSpanElement::create(m_elementToReplace->document());
     swapInNodePreservingAttributesAndChildren(m_spanElement.get(), *m_elementToReplace);
 }
 

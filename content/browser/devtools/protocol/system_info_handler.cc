@@ -4,10 +4,16 @@
 
 #include "content/browser/devtools/protocol/system_info_handler.h"
 
+#include <stdint.h>
+#include <utility>
+
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/public/browser/gpu_data_manager.h"
+#include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
+#include "gpu/config/gpu_switches.h"
 
 namespace content {
 namespace devtools {
@@ -26,7 +32,7 @@ class AuxGPUInfoEnumerator : public gpu::GPUInfo::Enumerator {
       : dictionary_(dictionary),
         in_aux_attributes_(false) { }
 
-  void AddInt64(const char* name, int64 value) override {
+  void AddInt64(const char* name, int64_t value) override {
     if (in_aux_attributes_)
       dictionary_->SetDouble(name, value);
   }
@@ -146,7 +152,9 @@ void SystemInfoHandler::SetClient(scoped_ptr<Client> client) {
 Response SystemInfoHandler::GetInfo(DevToolsCommandId command_id) {
   std::string reason;
   if (!GpuDataManager::GetInstance()->GpuAccessAllowed(&reason) ||
-      GpuDataManager::GetInstance()->IsEssentialGpuInfoAvailable()) {
+      GpuDataManager::GetInstance()->IsEssentialGpuInfoAvailable() ||
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kGpuTestingNoCompleteInfoCollection)) {
     // The GpuDataManager already has all of the information needed to make
     // GPU-based blacklisting decisions. Post a task to give it to the
     // client asynchronously.
@@ -193,11 +201,12 @@ void SystemInfoHandler::SendGetInfoResponse(DevToolsCommandId command_id) {
   AuxGPUInfoEnumerator enumerator(aux_attributes.get());
   gpu_info.EnumerateFields(&enumerator);
 
-  scoped_refptr<GPUInfo> gpu = GPUInfo::Create()
-      ->set_devices(devices)
-      ->set_aux_attributes(aux_attributes.Pass())
-      ->set_feature_status(make_scoped_ptr(GetFeatureStatus()))
-      ->set_driver_bug_workarounds(GetDriverBugWorkarounds());
+  scoped_refptr<GPUInfo> gpu =
+      GPUInfo::Create()
+          ->set_devices(devices)
+          ->set_aux_attributes(std::move(aux_attributes))
+          ->set_feature_status(make_scoped_ptr(GetFeatureStatus()))
+          ->set_driver_bug_workarounds(GetDriverBugWorkarounds());
 
   client_->SendGetInfoResponse(
       command_id,

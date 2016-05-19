@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
 #include "content/browser/service_worker/embedded_worker_registry.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
@@ -25,7 +25,6 @@ namespace content {
 
 namespace {
 
-const int kRenderProcessId = 88;  // A dummy ID for testing.
 const int kRenderFrameId = 44;  // A dummy ID for testing.
 
 void VerifyStateChangedMessage(int expected_handle_id,
@@ -71,11 +70,10 @@ class ServiceWorkerHandleTest : public testing::Test {
       : browser_thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {}
 
   void SetUp() override {
-    helper_.reset(
-        new EmbeddedWorkerTestHelper(base::FilePath(), kRenderProcessId));
+    helper_.reset(new EmbeddedWorkerTestHelper(base::FilePath()));
 
     dispatcher_host_ = new TestingServiceWorkerDispatcherHost(
-        kRenderProcessId, helper_->context_wrapper(),
+        helper_->mock_render_process_id(), helper_->context_wrapper(),
         &resource_context_, helper_.get());
 
     const GURL pattern("http://www.example.com/");
@@ -105,10 +103,12 @@ class ServiceWorkerHandleTest : public testing::Test {
     ASSERT_EQ(SERVICE_WORKER_OK, status);
 
     provider_host_.reset(new ServiceWorkerProviderHost(
-        kRenderProcessId, kRenderFrameId, 1, SERVICE_WORKER_PROVIDER_FOR_WINDOW,
-        helper_->context()->AsWeakPtr(), dispatcher_host_.get()));
+        helper_->mock_render_process_id(), kRenderFrameId, 1,
+        SERVICE_WORKER_PROVIDER_FOR_WINDOW, helper_->context()->AsWeakPtr(),
+        dispatcher_host_.get()));
 
-    helper_->SimulateAddProcessToPattern(pattern, kRenderProcessId);
+    helper_->SimulateAddProcessToPattern(pattern,
+                                         helper_->mock_render_process_id());
   }
 
   void TearDown() override {
@@ -146,16 +146,13 @@ TEST_F(ServiceWorkerHandleTest, OnVersionStateChanged) {
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(SERVICE_WORKER_OK, status);
 
-  // ...dispatch install event.
-  status = SERVICE_WORKER_ERROR_FAILED;
+  // ...update state to installing...
   version_->SetStatus(ServiceWorkerVersion::INSTALLING);
-  version_->DispatchInstallEvent(CreateReceiverOnCurrentThread(&status));
-  base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(SERVICE_WORKER_OK, status);
 
+  // ...and update state to installed.
   version_->SetStatus(ServiceWorkerVersion::INSTALLED);
 
-  ASSERT_EQ(4UL, ipc_sink()->message_count());
+  ASSERT_EQ(3UL, ipc_sink()->message_count());
   ASSERT_EQ(0L, dispatcher_host_->bad_message_received_count_);
 
   // We should be sending 1. StartWorker,
@@ -165,13 +162,10 @@ TEST_F(ServiceWorkerHandleTest, OnVersionStateChanged) {
   VerifyStateChangedMessage(handle->handle_id(),
                             blink::WebServiceWorkerStateInstalling,
                             ipc_sink()->GetMessageAt(1));
-  // 3. SendMessageToWorker (to send InstallEvent), and
-  EXPECT_EQ(EmbeddedWorkerContextMsg_MessageToWorker::ID,
-            ipc_sink()->GetMessageAt(2)->type());
-  // 4. StateChanged (state == Installed).
+  // 3. StateChanged (state == Installed).
   VerifyStateChangedMessage(handle->handle_id(),
                             blink::WebServiceWorkerStateInstalled,
-                            ipc_sink()->GetMessageAt(3));
+                            ipc_sink()->GetMessageAt(2));
 }
 
 }  // namespace content

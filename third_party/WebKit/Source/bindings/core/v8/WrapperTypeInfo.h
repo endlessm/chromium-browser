@@ -39,7 +39,6 @@
 
 namespace blink {
 
-class ActiveDOMObject;
 class EventTarget;
 class ScriptWrappable;
 
@@ -55,9 +54,8 @@ typedef v8::Local<v8::FunctionTemplate> (*DomTemplateFunction)(v8::Isolate*);
 typedef void (*RefObjectFunction)(ScriptWrappable*);
 typedef void (*DerefObjectFunction)(ScriptWrappable*);
 typedef void (*TraceFunction)(Visitor*, ScriptWrappable*);
-typedef ActiveDOMObject* (*ToActiveDOMObjectFunction)(v8::Local<v8::Object>);
 typedef void (*ResolveWrapperReachabilityFunction)(v8::Isolate*, ScriptWrappable*, const v8::Persistent<v8::Object>&);
-typedef void (*PreparePrototypeAndInterfaceObjectFunction)(v8::Isolate*, v8::Local<v8::Object>, v8::Local<v8::Function>, v8::Local<v8::FunctionTemplate>);
+typedef void (*PreparePrototypeAndInterfaceObjectFunction)(v8::Local<v8::Context>, v8::Local<v8::Object>, v8::Local<v8::Function>, v8::Local<v8::FunctionTemplate>);
 typedef void (*InstallConditionallyEnabledPropertiesFunction)(v8::Local<v8::Object>, v8::Isolate*);
 
 inline void setObjectGroup(v8::Isolate* isolate, ScriptWrappable* scriptWrappable, const v8::Persistent<v8::Object>& wrapper)
@@ -171,23 +169,16 @@ struct WrapperTypeInfo {
         return traceFunction(visitor, scriptWrappable);
     }
 
-    void preparePrototypeAndInterfaceObject(v8::Isolate* isolate, v8::Local<v8::Object> prototypeObject, v8::Local<v8::Function> interfaceObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) const
+    void preparePrototypeAndInterfaceObject(v8::Local<v8::Context> context, v8::Local<v8::Object> prototypeObject, v8::Local<v8::Function> interfaceObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) const
     {
         if (preparePrototypeAndInterfaceObjectFunction)
-            preparePrototypeAndInterfaceObjectFunction(isolate, prototypeObject, interfaceObject, interfaceTemplate);
+            preparePrototypeAndInterfaceObjectFunction(context, prototypeObject, interfaceObject, interfaceTemplate);
     }
 
     void installConditionallyEnabledProperties(v8::Local<v8::Object> prototypeObject, v8::Isolate* isolate) const
     {
         if (installConditionallyEnabledPropertiesFunction)
             installConditionallyEnabledPropertiesFunction(prototypeObject, isolate);
-    }
-
-    ActiveDOMObject* toActiveDOMObject(v8::Local<v8::Object> object) const
-    {
-        if (!toActiveDOMObjectFunction)
-            return 0;
-        return toActiveDOMObjectFunction(object);
     }
 
     EventTarget* toEventTarget(v8::Local<v8::Object>) const;
@@ -207,7 +198,6 @@ struct WrapperTypeInfo {
     const RefObjectFunction refObjectFunction;
     const DerefObjectFunction derefObjectFunction;
     const TraceFunction traceFunction;
-    const ToActiveDOMObjectFunction toActiveDOMObjectFunction;
     const ResolveWrapperReachabilityFunction visitDOMWrapperFunction;
     PreparePrototypeAndInterfaceObjectFunction preparePrototypeAndInterfaceObjectFunction;
     const InstallConditionallyEnabledPropertiesFunction installConditionallyEnabledPropertiesFunction;

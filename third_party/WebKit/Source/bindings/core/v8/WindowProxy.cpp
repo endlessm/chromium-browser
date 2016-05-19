@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "bindings/core/v8/WindowProxy.h"
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
@@ -54,6 +53,7 @@
 #include "core/loader/DocumentLoader.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
+#include "platform/Histogram.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/ScriptForbiddenScope.h"
 #include "platform/TraceEvent.h"
@@ -335,10 +335,13 @@ void WindowProxy::createContext()
     m_scriptState = ScriptState::create(context, m_world);
 
     double contextCreationDurationInMilliseconds = (currentTime() - contextCreationStartInSeconds) * 1000;
-    const char* histogramName = "WebCore.WindowProxy.createContext.MainWorld";
-    if (!m_world->isMainWorld())
-        histogramName = "WebCore.WindowProxy.createContext.IsolatedWorld";
-    Platform::current()->histogramCustomCounts(histogramName, contextCreationDurationInMilliseconds, 0, 10000, 50);
+    if (!m_world->isMainWorld()) {
+        DEFINE_STATIC_LOCAL(CustomCountHistogram, isolatedWorldHistogram, ("WebCore.WindowProxy.createContext.IsolatedWorld", 0, 10000, 50));
+        isolatedWorldHistogram.count(contextCreationDurationInMilliseconds);
+    } else {
+        DEFINE_STATIC_LOCAL(CustomCountHistogram, mainWorldHistogram, ("WebCore.WindowProxy.createContext.MainWorld", 0, 10000, 50));
+        mainWorldHistogram.count(contextCreationDurationInMilliseconds);
+    }
 }
 
 static v8::Local<v8::Object> toInnerGlobalObject(v8::Local<v8::Context> context)
@@ -418,15 +421,14 @@ void WindowProxy::updateDocumentProperty()
     checkDocumentWrapper(m_document.newLocal(m_isolate), frame->document());
 
     ASSERT(documentWrapper->IsObject());
-    // TODO(bashi): Avoid using ForceSet(). When we use accessors to implement
-    // attributes, we may be able to remove updateDocumentProperty().
+    // TODO(jochen): Don't replace the accessor with a data value. We need a way to tell v8 that the accessor's return value won't change after this point.
     if (!v8CallBoolean(context->Global()->ForceSet(context, v8AtomicString(m_isolate, "document"), documentWrapper, static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete))))
         return;
 
     // We also stash a reference to the document on the inner global object so that
     // LocalDOMWindow objects we obtain from JavaScript references are guaranteed to have
     // live Document objects.
-    V8HiddenValue::setHiddenValue(m_isolate, toInnerGlobalObject(context), V8HiddenValue::document(m_isolate), documentWrapper);
+    V8HiddenValue::setHiddenValue(m_scriptState.get(), toInnerGlobalObject(context), V8HiddenValue::document(m_isolate), documentWrapper);
 }
 
 void WindowProxy::updateActivityLogger()

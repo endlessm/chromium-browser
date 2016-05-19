@@ -4,6 +4,8 @@
 
 #include "ui/chromeos/touch_exploration_controller.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/default_tick_clock.h"
@@ -37,7 +39,7 @@ TouchExplorationController::TouchExplorationController(
     : root_window_(root_window),
       delegate_(delegate),
       state_(NO_FINGERS_DOWN),
-      gesture_provider_(new GestureProviderAura(this)),
+      gesture_provider_(new GestureProviderAura(this, this)),
       prev_state_(NO_FINGERS_DOWN),
       VLOG_on_(true),
       tick_clock_(NULL) {
@@ -378,7 +380,7 @@ ui::EventRewriteStatus TouchExplorationController::InDoubleTapPending(
     new_event->set_location_f(last_touch_exploration_->location_f());
     new_event->set_root_location_f(last_touch_exploration_->location_f());
     new_event->set_flags(event.flags());
-    *rewritten_event = new_event.Pass();
+    *rewritten_event = std::move(new_event);
     SET_STATE(NO_FINGERS_DOWN);
     return ui::EVENT_REWRITE_REWRITTEN;
   }
@@ -402,7 +404,7 @@ ui::EventRewriteStatus TouchExplorationController::InTouchReleasePending(
     new_event->set_location_f(last_touch_exploration_->location_f());
     new_event->set_root_location_f(last_touch_exploration_->location_f());
     new_event->set_flags(event.flags());
-    *rewritten_event = new_event.Pass();
+    *rewritten_event = std::move(new_event);
     SET_STATE(NO_FINGERS_DOWN);
     return ui::EVENT_REWRITE_REWRITTEN;
   }
@@ -424,7 +426,7 @@ ui::EventRewriteStatus TouchExplorationController::InTouchExploration(
     new_event->set_location_f(last_touch_exploration_->location_f());
     new_event->set_root_location_f(last_touch_exploration_->location_f());
     new_event->set_flags(event.flags());
-    *rewritten_event = new_event.Pass();
+    *rewritten_event = std::move(new_event);
     SET_STATE(TOUCH_EXPLORE_SECOND_PRESS);
     return ui::EVENT_REWRITE_REWRITTEN;
   } else if (type == ui::ET_TOUCH_RELEASED || type == ui::ET_TOUCH_CANCELLED) {
@@ -481,7 +483,7 @@ ui::EventRewriteStatus TouchExplorationController::InCornerPassthrough(
   new_event->set_location_f(event.location_f());
   new_event->set_root_location_f(event.location_f());
   new_event->set_flags(event.flags());
-  *rewritten_event = new_event.Pass();
+  *rewritten_event = std::move(new_event);
 
   if (current_touch_ids_.size() == 0)
     SET_STATE(NO_FINGERS_DOWN);
@@ -503,7 +505,7 @@ ui::EventRewriteStatus TouchExplorationController::InOneFingerPassthrough(
   new_event->set_location_f(event.location_f() - passthrough_offset_);
   new_event->set_root_location_f(event.location_f() - passthrough_offset_);
   new_event->set_flags(event.flags());
-  *rewritten_event = new_event.Pass();
+  *rewritten_event = std::move(new_event);
   if (current_touch_ids_.size() == 0) {
     SET_STATE(NO_FINGERS_DOWN);
   }
@@ -526,7 +528,7 @@ ui::EventRewriteStatus TouchExplorationController::InTouchExploreSecondPress(
     new_event->set_location_f(last_touch_exploration_->location_f());
     new_event->set_root_location_f(last_touch_exploration_->location_f());
     new_event->set_flags(event.flags());
-    *rewritten_event = new_event.Pass();
+    *rewritten_event = std::move(new_event);
     SET_STATE(WAIT_FOR_NO_FINGERS);
     return ui::EVENT_REWRITE_REWRITTEN;
   } else if (type == ui::ET_TOUCH_MOVED) {
@@ -555,7 +557,7 @@ ui::EventRewriteStatus TouchExplorationController::InTouchExploreSecondPress(
       new_event->set_location_f(last_touch_exploration_->location_f());
       new_event->set_root_location_f(last_touch_exploration_->location_f());
       new_event->set_flags(event.flags());
-      *rewritten_event = new_event.Pass();
+      *rewritten_event = std::move(new_event);
       SET_STATE(WAIT_FOR_NO_FINGERS);
       return ui::EVENT_REWRITE_REWRITTEN;
     }
@@ -581,7 +583,7 @@ ui::EventRewriteStatus TouchExplorationController::InTouchExploreSecondPress(
     new_event->set_location_f(last_touch_exploration_->location_f());
     new_event->set_root_location_f(last_touch_exploration_->location_f());
     new_event->set_flags(event.flags());
-    *rewritten_event = new_event.Pass();
+    *rewritten_event = std::move(new_event);
     SET_STATE(TOUCH_EXPLORATION);
     EnterTouchToMouseMode();
     return ui::EVENT_REWRITE_REWRITTEN;
@@ -786,8 +788,8 @@ void TouchExplorationController::DispatchEvent(ui::Event* event) {
 // certain touch events are added to the vector accessible via
 // GetAndResetPendingGestures(). We only care about swipes (which are created
 // synchronously), so we ignore this callback.
-void TouchExplorationController::OnGestureEvent(ui::GestureEvent* gesture) {
-}
+void TouchExplorationController::OnGestureEvent(ui::GestureConsumer* consumer,
+                                                ui::GestureEvent* gesture) {}
 
 void TouchExplorationController::ProcessGestureEvents() {
   scoped_ptr<ScopedVector<ui::GestureEvent> > gestures(
@@ -1031,7 +1033,7 @@ void TouchExplorationController::SetState(State new_state,
         gesture_provider_.reset(NULL);
       break;
     case NO_FINGERS_DOWN:
-      gesture_provider_.reset(new GestureProviderAura(this));
+      gesture_provider_.reset(new GestureProviderAura(this, this));
       if (sound_timer_.IsRunning())
         sound_timer_.Stop();
       tap_timer_.Stop();

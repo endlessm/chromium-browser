@@ -22,7 +22,6 @@
       'common',
       '../sync/sync.gyp:sync',
     ],
-    'allocator_target': '../base/allocator/allocator.gyp:allocator',
     'grit_out_dir': '<(SHARED_INTERMEDIATE_DIR)/chrome',
     'protoc_out_dir': '<(SHARED_INTERMEDIATE_DIR)/protoc_out',
     'conditions': [
@@ -104,6 +103,7 @@
     'chrome_browser_ui.gypi',
     'chrome_common.gypi',
     'chrome_installer_util.gypi',
+    'chrome_features.gypi',
   ],
   'conditions': [
     ['OS!="ios"', {
@@ -325,7 +325,7 @@
           'dependencies': [
             'chrome_resources.gyp:chrome_strings',
             '../base/base.gyp:base',
-            '../ui/base/ui_base.gyp:ui_base',
+            '../ui/base/ui_base.gyp:ui_data_pack',
             '../ui/gfx/gfx.gyp:gfx',
             '../ui/gfx/gfx.gyp:gfx_geometry',
           ],
@@ -419,6 +419,7 @@
           ],
         },
         {
+          # GN version: //chrome/tools/crash_service
           'target_name': 'crash_service',
           'type': 'executable',
           'dependencies': [
@@ -460,7 +461,6 @@
       'includes': [
         'chrome_watcher/chrome_watcher.gypi',
         'chrome_process_finder.gypi',
-        'metro_utils.gypi',
       ],
     }],  # OS=="win"
     ['OS=="win" and target_arch=="ia32"',
@@ -487,6 +487,7 @@
           },
         },
         {
+          # GN version: //chrome/tools/crash_service:crash_service_win64
           'target_name': 'crash_service_win64',
           'type': 'executable',
           'product_name': 'crash_service64',
@@ -531,14 +532,16 @@
           'type': 'none',
           'dependencies': [
             'activity_type_ids_java',
+            'browsing_data_time_period_java',
+            'browsing_data_type_java',
             'chrome_locale_paks',
             'chrome_resources.gyp:chrome_strings',
             'chrome_strings_grd',
             'chrome_version_java',
             'content_setting_java',
             'content_settings_type_java',
-            'connection_security_levels_java',
             'connectivity_check_result_java',
+            'data_use_ui_message_enum_java',
             'document_tab_model_info_proto_java',
             'infobar_action_type_java',
             'most_visited_tile_type_java',
@@ -546,24 +549,33 @@
             'profile_account_management_metrics_java',
             'resource_id_java',
             'shortcut_source_java',
+            'signin_metrics_enum_java',
             'tab_load_status_java',
+            'website_settings_action_java',
             '../base/base.gyp:base',
+            '../base/base.gyp:base_build_config_gen',
             '../build/android/java_google_api_keys.gyp:google_api_keys_java',
             '../chrome/android/chrome_apk.gyp:custom_tabs_service_aidl',
+            '../components/components.gyp:autocomplete_match_java',
             '../components/components.gyp:autocomplete_match_type_java',
             '../components/components.gyp:bookmarks_java',
             '../components/components.gyp:dom_distiller_core_java',
-            '../components/components.gyp:enhanced_bookmarks_java_enums_srcjar',
             '../components/components.gyp:gcm_driver_java',
+            '../components/components.gyp:infobar_delegate_java',
             '../components/components.gyp:invalidation_java',
+            '../components/components.gyp:investigated_scenario_java',
             '../components/components.gyp:navigation_interception_java',
-            '../components/components.gyp:offline_pages_enums_java',
+            '../components/components.gyp:offline_page_feature_enums_java',
+            '../components/components.gyp:offline_page_model_enums_java',
             '../components/components.gyp:precache_java',
             '../components/components.gyp:safe_json_java',
+            '../components/components.gyp:security_state_enums_java',
             '../components/components.gyp:service_tab_launcher_java',
             '../components/components.gyp:signin_core_browser_java',
             '../components/components.gyp:variations_java',
             '../components/components.gyp:web_contents_delegate_android_java',
+            '../components/components.gyp:web_restrictions_java',
+            '../components/components_strings.gyp:components_strings',
             '../content/content.gyp:content_java',
             '../media/media.gyp:media_java',
             '../printing/printing.gyp:printing_java',
@@ -580,12 +592,16 @@
             '../third_party/cacheinvalidation/cacheinvalidation.gyp:cacheinvalidation_javalib',
             '../third_party/gif_player/gif_player.gyp:gif_player_java',
             '../third_party/jsr-305/jsr-305.gyp:jsr_305_javalib',
+            '../third_party/leakcanary/leakcanary.gyp:leakcanary_java',
             '../ui/android/ui_android.gyp:ui_java',
           ],
           'variables': {
             'variables': {
               'android_branding_res_dirs%': ['<(java_in_dir)/res_chromium'],
             },
+            'jar_excluded_classes': [
+              '*/BuildConfig.class',
+            ],
             'java_in_dir': '../chrome/android/java',
             'has_java_resources': 1,
             'R_package': 'org.chromium.chrome',
@@ -595,6 +611,7 @@
             'res_extra_dirs': [
               '<@(android_branding_res_dirs)',
               '<(SHARED_INTERMEDIATE_DIR)/chrome/java/res',
+              '<(SHARED_INTERMEDIATE_DIR)/components/strings/java/res',
             ],
             'res_extra_files': [
               '<!@(find <(android_branding_res_dirs) -type f)',
@@ -661,6 +678,33 @@
           'type': 'none',
           'variables': {
             'source_file': 'browser/ui/android/website_settings_popup_android.h',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
+        },
+        {
+          # GN: //chrome:signin_metrics_enum_javagen
+          'target_name': 'signin_metrics_enum_java',
+          'type': 'none',
+          'variables': {
+            'source_file': '../components/signin/core/browser/signin_metrics.h',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
+        },
+        {
+          # GN: //chrome:website_settings_action_javagen
+          'target_name': 'website_settings_action_java',
+          'type': 'none',
+          'variables': {
+            'source_file': 'browser/ui/website_settings/website_settings.h',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
+        },
+        {
+          # GN: //chrome:data_use_ui_message_enum_javagen
+          'target_name': 'data_use_ui_message_enum_java',
+          'type': 'none',
+          'variables': {
+            'source_file': 'browser/android/data_usage/data_use_tab_ui_manager_android.cc',
           },
           'includes': [ '../build/android/java_cpp_enum.gypi' ],
         },
@@ -737,8 +781,6 @@
             'service/service_process.h',
             'service/service_process_prefs.cc',
             'service/service_process_prefs.h',
-            'service/service_utility_process_host.cc',
-            'service/service_utility_process_host.h',
           ],
           'include_dirs': [
             '..',
@@ -757,49 +799,18 @@
                 'service/cloud_print/print_system_dummy.cc',
               ],
             }],
-            ['OS!="win"', {
-              'sources!': [
+            ['OS=="win"', {
+              'sources': [
                 'service/service_utility_process_host.cc',
                 'service/service_utility_process_host.h',
               ],
+              'deps': [
+                # TODO(fdoray): Remove this once the PreRead field trial has
+                # expired. crbug.com/577698
+                '../components/components.gyp:startup_metric_utils_common',
+              ],
             }],
           ],
-        },
-      ],
-    }],
-    ['kasko==1', {
-      'variables': {
-        'kasko_exe_dir': '<(DEPTH)/third_party/kasko',
-      },
-      'targets': [
-        {
-          'target_name': 'kasko_dll',
-          'type': 'none',
-          'outputs': [
-            '<(PRODUCT_DIR)/kasko.dll',
-            '<(PRODUCT_DIR)/kasko.dll.pdb',
-          ],
-          'copies': [
-            {
-              'destination': '<(PRODUCT_DIR)',
-              'files': [
-                '<(kasko_exe_dir)/kasko.dll',
-                '<(kasko_exe_dir)/kasko.dll.pdb',
-              ],
-            },
-          ],
-          'direct_dependent_settings': {
-            'msvs_settings': {
-              'VCLinkerTool': {
-                'AdditionalDependencies': [
-                  'kasko.dll.lib',
-                ],
-                'AdditionalLibraryDirectories': [
-                  '<(DEPTH)/third_party/kasko'
-                ],
-              },
-            },
-          },
         },
       ],
     }],

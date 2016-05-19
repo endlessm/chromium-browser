@@ -5,6 +5,8 @@
 #ifndef CHROME_TEST_CHROMEDRIVER_CAPABILITIES_H_
 #define CHROME_TEST_CHROMEDRIVER_CAPABILITIES_H_
 
+#include <stddef.h>
+
 #include <map>
 #include <set>
 #include <string>
@@ -30,6 +32,7 @@ class Switches {
  public:
   typedef base::FilePath::StringType NativeString;
   Switches();
+  Switches(const Switches& other);
   ~Switches();
 
   void SetSwitch(const std::string& name);

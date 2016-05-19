@@ -4,18 +4,18 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Caret.h"
-#include "../../include/pdfwindow/PWL_Edit.h"
-#include "../../include/pdfwindow/PWL_EditCtrl.h"
-#include "../../include/pdfwindow/PWL_FontMap.h"
-#include "../../include/pdfwindow/PWL_ScrollBar.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Edit.h"
+
 #include "core/include/fxcrt/fx_safe_types.h"
 #include "core/include/fxcrt/fx_xml.h"
-
-/* ---------------------------- CPWL_Edit ------------------------------ */
+#include "fpdfsdk/include/pdfwindow/PWL_Caret.h"
+#include "fpdfsdk/include/pdfwindow/PWL_EditCtrl.h"
+#include "fpdfsdk/include/pdfwindow/PWL_FontMap.h"
+#include "fpdfsdk/include/pdfwindow/PWL_ScrollBar.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
+#include "public/fpdf_fwlevent.h"
+#include "third_party/base/stl_util.h"
 
 CPWL_Edit::CPWL_Edit()
     : m_pFillerNotify(NULL), m_pSpellCheck(NULL), m_bFocus(FALSE) {
@@ -82,7 +82,7 @@ void CPWL_Edit::RePosChildWnd() {
 
   if (m_pEditCaret && !HasFlag(PES_TEXTOVERFLOW))
     m_pEditCaret->SetClipRect(CPWL_Utils::InflateRect(
-        GetClientRect(), 1.0f));  //+1 for caret beside border
+        GetClientRect(), 1.0f));  // +1 for caret beside border
 
   CPWL_EditCtrl::RePosChildWnd();
 }
@@ -101,12 +101,12 @@ CPDF_Rect CPWL_Edit::GetClientRect() const {
 }
 
 void CPWL_Edit::SetAlignFormatH(PWL_EDIT_ALIGNFORMAT_H nFormat,
-                                FX_BOOL bPaint /* = TRUE*/) {
+                                FX_BOOL bPaint) {
   m_pEdit->SetAlignmentH((int32_t)nFormat, bPaint);
 }
 
 void CPWL_Edit::SetAlignFormatV(PWL_EDIT_ALIGNFORMAT_V nFormat,
-                                FX_BOOL bPaint /* = TRUE*/) {
+                                FX_BOOL bPaint) {
   m_pEdit->SetAlignmentV((int32_t)nFormat, bPaint);
 }
 
@@ -239,7 +239,7 @@ void CPWL_Edit::SetParamByFlag() {
   } else {
     if (m_pEditCaret) {
       m_pEditCaret->SetClipRect(CPWL_Utils::InflateRect(
-          GetClientRect(), 1.0f));  //+1 for caret beside border
+          GetClientRect(), 1.0f));  // +1 for caret beside border
     }
   }
 
@@ -370,7 +370,7 @@ void CPWL_Edit::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {
 }
 
 void CPWL_Edit::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                   CPDF_Matrix* pUser2Device) {
+                                   CFX_Matrix* pUser2Device) {
   CPWL_Wnd::DrawThisAppearance(pDevice, pUser2Device);
 
   CPDF_Rect rcClient = GetClientRect();
@@ -520,24 +520,21 @@ FX_BOOL CPWL_Edit::OnRButtonUp(const CPDF_Point& point, FX_DWORD nFlag) {
   if (!hPopup)
     return FALSE;
 
-  CFX_ByteStringArray sSuggestWords;
+  std::vector<CFX_ByteString> sSuggestWords;
   CPDF_Point ptPopup = point;
 
   if (!IsReadOnly()) {
     if (HasFlag(PES_SPELLCHECK) && !swLatin.IsEmpty()) {
       if (m_pSpellCheck) {
         CFX_ByteString sLatin = CFX_ByteString::FromUnicode(swLatin);
-
         if (!m_pSpellCheck->CheckWord(sLatin)) {
           m_pSpellCheck->SuggestWords(sLatin, sSuggestWords);
 
-          int32_t nSuggest = sSuggestWords.GetSize();
-
+          int32_t nSuggest = pdfium::CollectionSize<int32_t>(sSuggestWords);
           for (int32_t nWord = 0; nWord < nSuggest; nWord++) {
             pSH->AppendMenuItem(hPopup, WM_PWLEDIT_SUGGEST + nWord,
                                 sSuggestWords[nWord].UTF8Decode());
           }
-
           if (nSuggest > 0)
             pSH->AppendMenuItem(hPopup, 0, L"");
 
@@ -1126,43 +1123,39 @@ CPVT_WordRange CPWL_Edit::GetSameWordsRange(const CPVT_WordPlace& place,
 
     if (bLatin) {
       while (pIterator->NextWord()) {
-        if (pIterator->GetWord(wordinfo) &&
-            FX_EDIT_ISLATINWORD(wordinfo.Word)) {
-          wpEnd = pIterator->GetAt();
-          continue;
-        } else
+        if (!pIterator->GetWord(wordinfo) ||
+            !FX_EDIT_ISLATINWORD(wordinfo.Word)) {
           break;
-      };
+        }
+
+        wpEnd = pIterator->GetAt();
+      }
     } else if (bArabic) {
       while (pIterator->NextWord()) {
-        if (pIterator->GetWord(wordinfo) && PWL_ISARABICWORD(wordinfo.Word)) {
-          wpEnd = pIterator->GetAt();
-          continue;
-        } else
+        if (!pIterator->GetWord(wordinfo) || !PWL_ISARABICWORD(wordinfo.Word))
           break;
-      };
+
+        wpEnd = pIterator->GetAt();
+      }
     }
 
     pIterator->SetAt(place);
 
     if (bLatin) {
       do {
-        if (pIterator->GetWord(wordinfo) &&
-            FX_EDIT_ISLATINWORD(wordinfo.Word)) {
-          continue;
-        } else {
-          wpStart = pIterator->GetAt();
+        if (!pIterator->GetWord(wordinfo) ||
+            !FX_EDIT_ISLATINWORD(wordinfo.Word)) {
           break;
         }
+
+        wpStart = pIterator->GetAt();
       } while (pIterator->PrevWord());
     } else if (bArabic) {
       do {
-        if (pIterator->GetWord(wordinfo) && PWL_ISARABICWORD(wordinfo.Word)) {
-          continue;
-        } else {
-          wpStart = pIterator->GetAt();
+        if (!pIterator->GetWord(wordinfo) || !PWL_ISARABICWORD(wordinfo.Word))
           break;
-        }
+
+        wpStart = pIterator->GetAt();
       } while (pIterator->PrevWord());
     }
 
@@ -1173,20 +1166,20 @@ CPVT_WordRange CPWL_Edit::GetSameWordsRange(const CPVT_WordPlace& place,
 }
 
 void CPWL_Edit::GeneratePageObjects(
-    CPDF_PageObjects* pPageObjects,
+    CPDF_PageObjectHolder* pObjectHolder,
     const CPDF_Point& ptOffset,
     CFX_ArrayTemplate<CPDF_TextObject*>& ObjArray) {
   IFX_Edit::GeneratePageObjects(
-      pPageObjects, m_pEdit, ptOffset, NULL,
+      pObjectHolder, m_pEdit, ptOffset, NULL,
       CPWL_Utils::PWLColorToFXColor(GetTextColor(), GetTransparency()),
       ObjArray);
 }
 
-void CPWL_Edit::GeneratePageObjects(CPDF_PageObjects* pPageObjects,
+void CPWL_Edit::GeneratePageObjects(CPDF_PageObjectHolder* pObjectHolder,
                                     const CPDF_Point& ptOffset) {
   CFX_ArrayTemplate<CPDF_TextObject*> ObjArray;
   IFX_Edit::GeneratePageObjects(
-      pPageObjects, m_pEdit, ptOffset, NULL,
+      pObjectHolder, m_pEdit, ptOffset, NULL,
       CPWL_Utils::PWLColorToFXColor(GetTextColor(), GetTransparency()),
       ObjArray);
 }

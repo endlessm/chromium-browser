@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_DEV_MODE_BUBBLE_DELEGATE_H_
 #define CHROME_BROWSER_EXTENSIONS_DEV_MODE_BUBBLE_DELEGATE_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/macros.h"
@@ -40,9 +42,8 @@ class DevModeBubbleDelegate
   bool ShouldLimitToEnabledExtensions() const override;
   void LogExtensionCount(size_t count) override;
   void LogAction(ExtensionMessageBubbleController::BubbleAction) override;
-  std::set<Profile*>* GetProfileSet() override;
-
-  static void ClearProfileListForTesting();
+  const char* GetKey() override;
+  bool ClearProfileSetAfterAction() override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DevModeBubbleDelegate);

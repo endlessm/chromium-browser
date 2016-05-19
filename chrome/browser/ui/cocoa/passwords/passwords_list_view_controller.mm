@@ -9,13 +9,13 @@
 #include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/string16.h"
-#include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/chrome_style.h"
 #import "chrome/browser/ui/cocoa/passwords/base_passwords_content_view_controller.h"
 #import "chrome/browser/ui/cocoa/passwords/password_item_views.h"
+#import "chrome/browser/ui/cocoa/passwords/passwords_bubble_utils.h"
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
-#include "grit/components_strings.h"
+#include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "ui/base/cocoa/controls/hyperlink_button_cell.h"
@@ -23,41 +23,9 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image.h"
 #include "ui/resources/grit/ui_resources.h"
-
-using namespace password_manager::mac::ui;
+#include "url/origin.h"
 
 namespace {
-
-// Constants shared with toolkit-views layout_constants.h.
-const CGFloat kItemLabelSpacing = 10;
-const CGFloat kRelatedControlVerticalSpacing = 8;
-const CGFloat kDesiredRowWidth = kDesiredBubbleWidth - 2 * kFramePadding;
-
-NSFont* LabelFont() {
-  return [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
-}
-
-NSSize LabelSize(int resourceID) {
-  return [l10n_util::GetNSString(resourceID)
-      sizeWithAttributes:@{NSFontAttributeName : LabelFont()}];
-}
-
-std::pair<CGFloat, CGFloat> GetResizedColumns(
-    CGFloat maxWidth, std::pair<CGFloat, CGFloat> columnsWidth) {
-  // Free space can be negative.
-  CGFloat freeSpace =
-      maxWidth - (columnsWidth.first + columnsWidth.second + kItemLabelSpacing);
-  if (freeSpace >= 0) {
-    return std::make_pair(columnsWidth.first + freeSpace / 2,
-                          columnsWidth.second + freeSpace / 2);
-  }
-  // Make sure that the sizes are nonnegative.
-  CGFloat firstColumnPercent =
-      columnsWidth.first / (columnsWidth.first + columnsWidth.second);
-  return std::make_pair(
-      columnsWidth.first + freeSpace * firstColumnPercent,
-      columnsWidth.second + freeSpace * (1 - firstColumnPercent));
-}
 
 CGFloat ManagePasswordItemWidth() {
   const CGFloat undoExplanationWidth =
@@ -65,17 +33,6 @@ CGFloat ManagePasswordItemWidth() {
   const CGFloat undoLinkWidth = LabelSize(IDS_MANAGE_PASSWORDS_UNDO).width;
   return std::max(kDesiredRowWidth,
                   undoExplanationWidth + kItemLabelSpacing + undoLinkWidth);
-}
-
-void InitLabel(NSTextField* textField, const base::string16& text) {
-  [textField setStringValue:base::SysUTF16ToNSString(text)];
-  [textField setEditable:NO];
-  [textField setSelectable:NO];
-  [textField setDrawsBackground:NO];
-  [textField setBezeled:NO];
-  [textField setFont:LabelFont()];
-  [[textField cell] setLineBreakMode:NSLineBreakByTruncatingTail];
-  [textField sizeToFit];
 }
 
 NSTextField* Label(const base::string16& text) {
@@ -89,21 +46,8 @@ NSTextField* UsernameLabel(const base::string16& text) {
   return Label(text);
 }
 
-NSSecureTextField* PasswordLabel(const base::string16& text) {
-  base::scoped_nsobject<NSSecureTextField> textField(
-      [[NSSecureTextField alloc] initWithFrame:NSZeroRect]);
-  InitLabel(textField, text);
-  return textField.autorelease();
-}
-
 NSTextField* FederationLabel(const base::string16& text) {
   return Label(text);
-}
-
-base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
-  return form.username_value.empty()
-             ? l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_EMPTY_LOGIN)
-             : form.username_value;
 }
 
 }  // namespace
@@ -116,9 +60,7 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     base::scoped_nsobject<HyperlinkButtonCell> cell([[HyperlinkButtonCell alloc]
         initTextCell:l10n_util::GetNSString(IDS_MANAGE_PASSWORDS_UNDO)]);
     [cell setControlSize:NSSmallControlSize];
-    [cell setShouldUnderline:NO];
-    [cell setUnderlineOnHover:NO];
-    [cell setTextColor:gfx::SkColorToCalibratedNSColor(
+    [cell setTextColor:skia::SkColorToCalibratedNSColor(
                            chrome_style::GetLinkColor())];
     [undoButton_ setCell:cell.get()];
     [undoButton_ sizeToFit];
@@ -195,12 +137,12 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     usernameField_.reset([UsernameLabel(GetDisplayUsername(form)) retain]);
     [self addSubview:usernameField_];
 
-    if (form.federation_url.is_empty()) {
+    if (form.federation_origin.unique()) {
       passwordField_.reset([PasswordLabel(form.password_value) retain]);
     } else {
       base::string16 text = l10n_util::GetStringFUTF16(
           IDS_PASSWORDS_VIA_FEDERATION,
-          base::UTF8ToUTF16(form.federation_url.host()));
+          base::UTF8ToUTF16(form.federation_origin.host()));
       passwordField_.reset([FederationLabel(text) retain]);
     }
     [self addSubview:passwordField_];
@@ -266,12 +208,12 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     usernameField_.reset([UsernameLabel(GetDisplayUsername(form)) retain]);
     [self addSubview:usernameField_];
 
-    if (form.federation_url.is_empty()) {
+    if (form.federation_origin.unique()) {
       passwordField_.reset([PasswordLabel(form.password_value) retain]);
     } else {
       base::string16 text = l10n_util::GetStringFUTF16(
           IDS_PASSWORDS_VIA_FEDERATION,
-          base::UTF8ToUTF16(form.federation_url.host()));
+          base::UTF8ToUTF16(form.federation_origin.host()));
       passwordField_.reset([FederationLabel(text) retain]);
     }
     [self addSubview:passwordField_];
@@ -284,8 +226,7 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
 - (void)layoutWithFirstColumn:(CGFloat)firstWidth
                  secondColumn:(CGFloat)secondWidth {
   std::pair<CGFloat, CGFloat> sizes = GetResizedColumns(
-      kDesiredRowWidth,
-      std::make_pair(firstWidth, secondWidth));
+      kDesiredRowWidth, std::make_pair(firstWidth, secondWidth));
   [usernameField_
       setFrameSize:NSMakeSize(sizes.first, NSHeight([usernameField_ frame]))];
   [passwordField_
@@ -344,7 +285,9 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     delegate_ = delegate;
     passwordForm_ = passwordForm;
     if ([delegate_ model]->state() ==
-        password_manager::ui::PENDING_PASSWORD_STATE)
+            password_manager::ui::PENDING_PASSWORD_STATE ||
+        [delegate_ model]->state() ==
+            password_manager::ui::PENDING_PASSWORD_UPDATE_STATE)
       state_ = MANAGE_PASSWORD_ITEM_STATE_PENDING;
     else
       state_ = MANAGE_PASSWORD_ITEM_STATE_MANAGE;

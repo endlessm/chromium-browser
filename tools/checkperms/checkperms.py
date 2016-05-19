@@ -176,6 +176,8 @@ IGNORED_FILENAMES = (
 #
 # Case-insensitive, lower-case only.
 IGNORED_PATHS = (
+  'base/third_party/libevent/autogen.sh',
+  'base/third_party/libevent/test/test.sh',
   'native_client_sdk/src/build_tools/sdk_tools/third_party/fancy_urllib/'
       '__init__.py',
   'out/',
@@ -188,8 +190,6 @@ IGNORED_PATHS = (
   'third_party/lcov-1.9/contrib/galaxy/gen_makefile.sh',
   'third_party/lcov/contrib/galaxy/conglomerate_functions.pl',
   'third_party/lcov/contrib/galaxy/gen_makefile.sh',
-  'third_party/libevent/autogen.sh',
-  'third_party/libevent/test/test.sh',
   'third_party/libxml/linux/xml2-config',
   'third_party/libxml/src/ltmain.sh',
   'third_party/mesa/',
@@ -302,9 +302,8 @@ def check_file(root_path, rel_path):
   try:
     bit = has_executable_bit(full_path)
   except OSError:
-    # It's faster to catch exception than call os.path.islink(). Chromium
-    # tree happens to have invalid symlinks under
-    # third_party/openssl/openssl/test/.
+    # It's faster to catch exception than call os.path.islink(). The Chromium
+    # tree may have invalid symlinks.
     return None
 
   if must_be_executable(rel_path):

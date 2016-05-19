@@ -57,13 +57,13 @@ protected:
     IntRect absoluteBoundsForLocalRect(Node*, const LayoutRect&) const;
     bool shouldRepaintCaret(Node&) const;
     bool shouldRepaintCaret(const LayoutView*) const;
-    void paintCaret(Node*, GraphicsContext*, const LayoutPoint&) const;
+    void paintCaret(Node*, GraphicsContext&, const LayoutPoint&) const;
 
     const LayoutRect& localCaretRectWithoutUpdate() const { return m_caretLocalRect; }
 
     void setCaretVisibility(CaretVisibility visibility) { m_caretVisibility = visibility; }
     bool caretIsVisible() const { return m_caretVisibility == Visible; }
-    CaretVisibility caretVisibility() const { return m_caretVisibility; }
+    CaretVisibility getCaretVisibility() const { return m_caretVisibility; }
 
     static LayoutBlock* caretLayoutObject(Node*);
     static void invalidateLocalCaretRect(Node*, const LayoutRect&);

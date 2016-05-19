@@ -60,6 +60,7 @@ public:
 #endif
 
     const TextCheckingRequestData& data() const override;
+    bool isValid() const;
     void didSucceed(const Vector<TextCheckingResult>&) override;
     void didCancel() override;
 
@@ -89,7 +90,6 @@ public:
     ~SpellCheckRequester();
     DECLARE_TRACE();
 
-    bool isAsynchronousEnabled() const;
     bool isCheckable(Range*) const;
 
     void requestCheckingFor(PassRefPtrWillBeRawPtr<SpellCheckRequest>);
@@ -104,6 +104,10 @@ public:
     {
         return m_lastProcessedSequence;
     }
+
+    // Exposed for leak detector only, see comment for corresponding
+    // SpellChecker method.
+    void prepareForLeakDetection();
 
 private:
     friend class SpellCheckRequest;

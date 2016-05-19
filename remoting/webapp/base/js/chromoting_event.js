@@ -89,7 +89,10 @@ remoting.ChromotingEvent = function(type) {
   this.xmpp_error;
   /** @type {remoting.ChromotingEvent.SessionEntryPoint} */
   this.session_entry_point;
-  /** @type {number} */
+  /**
+   * Elapsed time since last host list refresh in milliseconds.
+   * @type {number}
+   */
   this.host_status_update_elapsed_time;
   /** @type {remoting.ChromotingEvent.AuthMethod} */
   this.auth_method;
@@ -97,7 +100,11 @@ remoting.ChromotingEvent = function(type) {
   this.raw_plugin_error;
   /** @type {remoting.ChromotingEvent.SessionSummary} */
   this.previous_session;
-
+  /**
+   * Elapsed time since the last host heartbeat in milliseconds.
+   * @type {number}
+   */
+  this.host_last_heartbeat_elapsed_time;
   this.init_();
 };
 
@@ -313,6 +320,7 @@ remoting.ChromotingEvent.ConnectionError = {
   NACL_DISABLED: 15,
   MAX_SESSION_LENGTH: 16,
   HOST_CONFIGURATION_ERROR: 17,
+  NACL_PLUGIN_CRASHED: 18,
 };
 
 /** @enum {number} */

@@ -4,14 +4,17 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_bypass_stats.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/test/histogram_tester.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_configurator.h"
@@ -22,9 +25,11 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
+#include "components/prefs/testing_pref_service.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
+#include "net/base/proxy_delegate.h"
 #include "net/base/request_priority.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_response_headers.h"
@@ -82,17 +87,17 @@ class DataReductionProxyBypassStatsTest : public testing::Test {
 
     // Create a test job that will fill in the given response headers for the
     // |fake_request|.
-    scoped_refptr<net::URLRequestTestJob> test_job(new net::URLRequestTestJob(
+    scoped_ptr<net::URLRequestTestJob> test_job(new net::URLRequestTestJob(
         fake_request.get(), context_.network_delegate(), response_headers,
         std::string(), true));
 
     // Configure the interceptor to use the test job to handle the next request.
-    test_job_interceptor_->set_main_intercept_job(test_job.get());
+    test_job_interceptor_->set_main_intercept_job(std::move(test_job));
     fake_request->Start();
     test_context_->RunUntilIdle();
 
     EXPECT_TRUE(fake_request->response_headers() != NULL);
-    return fake_request.Pass();
+    return fake_request;
   }
 
   bool IsUnreachable() const {
@@ -326,7 +331,7 @@ TEST_F(DataReductionProxyBypassStatsTest, RecordMissingViaHeaderBytes) {
       "DataReductionProxy.MissingViaHeader.Bytes.4xx";
   const std::string kOtherHistogramName =
       "DataReductionProxy.MissingViaHeader.Bytes.Other";
-  const int64 kResponseContentLength = 100;
+  const int64_t kResponseContentLength = 100;
 
   struct TestCase {
     bool was_proxy_used;
@@ -557,6 +562,8 @@ class DataReductionProxyBypassStatsEndToEndTest : public testing::Test {
             .Build();
     drp_test_context_->AttachToURLRequestContext(&context_storage_);
     context_.set_client_socket_factory(&mock_socket_factory_);
+    proxy_delegate_ = drp_test_context_->io_data()->CreateProxyDelegate();
+    context_.set_proxy_delegate(proxy_delegate_.get());
   }
 
   // Create and execute a fake request using the data reduction proxy stack.
@@ -695,6 +702,7 @@ class DataReductionProxyBypassStatsEndToEndTest : public testing::Test {
   net::MockClientSocketFactory mock_socket_factory_;
   net::TestURLRequestContext context_;
   net::URLRequestContextStorage context_storage_;
+  scoped_ptr<net::ProxyDelegate> proxy_delegate_;
   scoped_ptr<DataReductionProxyTestContext> drp_test_context_;
 };
 

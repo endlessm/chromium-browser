@@ -34,7 +34,6 @@ class CONTENT_EXPORT SimpleWebMimeRegistryImpl :
       const blink::WebString&) override;
   blink::WebMimeRegistry::SupportsType supportsMediaMIMEType(
       const blink::WebString&,
-      const blink::WebString&,
       const blink::WebString&) override;
   bool supportsMediaSourceMIMEType(const blink::WebString&,
                                    const blink::WebString&) override;
@@ -43,7 +42,6 @@ class CONTENT_EXPORT SimpleWebMimeRegistryImpl :
   blink::WebString mimeTypeForExtension(const blink::WebString&) override;
   blink::WebString wellKnownMimeTypeForExtension(
       const blink::WebString&) override;
-  blink::WebString mimeTypeFromFile(const blink::WebString&) override;
 };
 
 }  // namespace content

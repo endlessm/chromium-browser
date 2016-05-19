@@ -276,12 +276,12 @@ void idct16x16_12(const tran_low_t *in, uint8_t *out, int stride) {
 }
 
 void idct16x16_10_ref(const tran_low_t *in, uint8_t *out, int stride,
-                      int tx_type) {
+                      int /*tx_type*/) {
   idct16x16_10(in, out, stride);
 }
 
 void idct16x16_12_ref(const tran_low_t *in, uint8_t *out, int stride,
-                      int tx_type) {
+                      int /*tx_type*/) {
   idct16x16_12(in, out, stride);
 }
 
@@ -293,6 +293,7 @@ void iht16x16_12(const tran_low_t *in, uint8_t *out, int stride, int tx_type) {
   vp9_highbd_iht16x16_256_add_c(in, out, stride, tx_type, 12);
 }
 
+#if HAVE_SSE2
 void idct16x16_10_add_10_c(const tran_low_t *in, uint8_t *out, int stride) {
   vpx_highbd_idct16x16_10_add_c(in, out, stride, 10);
 }
@@ -301,7 +302,6 @@ void idct16x16_10_add_12_c(const tran_low_t *in, uint8_t *out, int stride) {
   vpx_highbd_idct16x16_10_add_c(in, out, stride, 12);
 }
 
-#if HAVE_SSE2
 void idct16x16_256_add_10_sse2(const tran_low_t *in, uint8_t *out, int stride) {
   vpx_highbd_idct16x16_256_add_sse2(in, out, stride, 10);
 }
@@ -778,7 +778,7 @@ class InvTrans16x16DCT
   virtual void TearDown() { libvpx_test::ClearSystemState(); }
 
  protected:
-  void RunFwdTxfm(int16_t *in, tran_low_t *out, int stride) {}
+  void RunFwdTxfm(int16_t * /*in*/, tran_low_t * /*out*/, int /*stride*/) {}
   void RunInvTxfm(tran_low_t *out, uint8_t *dst, int stride) {
     inv_txfm_(out, dst, stride);
   }

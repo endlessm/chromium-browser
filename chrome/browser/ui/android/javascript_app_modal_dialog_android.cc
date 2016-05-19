@@ -6,6 +6,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/app_modal/chrome_javascript_native_dialog_factory.h"
 #include "components/app_modal/app_modal_dialog_queue.h"
 #include "components/app_modal/javascript_app_modal_dialog.h"
@@ -108,7 +109,10 @@ void JavascriptAppModalDialogAndroid::AcceptAppModalDialog() {
 }
 
 void JavascriptAppModalDialogAndroid::DidAcceptAppModalDialog(
-    JNIEnv* env, jobject, jstring prompt, bool should_suppress_js_dialogs) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>&,
+    const JavaParamRef<jstring>& prompt,
+    bool should_suppress_js_dialogs) {
   base::string16 prompt_text =
       base::android::ConvertJavaStringToUTF16(env, prompt);
   dialog_->OnAccept(prompt_text, should_suppress_js_dialogs);
@@ -125,7 +129,9 @@ bool JavascriptAppModalDialogAndroid::IsShowing() const {
 }
 
 void JavascriptAppModalDialogAndroid::DidCancelAppModalDialog(
-    JNIEnv* env, jobject, bool should_suppress_js_dialogs) {
+    JNIEnv* env,
+    const JavaParamRef<jobject>&,
+    bool should_suppress_js_dialogs) {
   dialog_->OnCancel(should_suppress_js_dialogs);
   delete this;
 }

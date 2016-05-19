@@ -4,17 +4,20 @@
 
 #include "components/mus/public/cpp/window.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <set>
 #include <string>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "components/mus/common/transient_window_utils.h"
 #include "components/mus/public/cpp/lib/window_private.h"
 #include "components/mus/public/cpp/lib/window_tree_client_impl.h"
 #include "components/mus/public/cpp/window_observer.h"
 #include "components/mus/public/cpp/window_surface.h"
 #include "components/mus/public/cpp/window_tracker.h"
-#include "mojo/application/public/cpp/service_provider_impl.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -143,12 +146,12 @@ class ScopedSetBoundsNotifier {
 // Some operations are only permitted in the connection that created the window.
 bool OwnsWindow(WindowTreeConnection* connection, Window* window) {
   return !connection ||
-         static_cast<WindowTreeClientImpl*>(connection)
-             ->OwnsWindow(window->id());
+         static_cast<WindowTreeClientImpl*>(connection)->OwnsWindow(window);
 }
 
 bool IsConnectionRoot(Window* window) {
-  return window->connection() && window->connection()->GetRoot() == window;
+  return window->connection() &&
+         window->connection()->GetRoots().count(window) > 0;
 }
 
 bool OwnsWindowOrIsRoot(Window* window) {
@@ -167,7 +170,7 @@ void Window::Destroy() {
     return;
 
   if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)->DestroyWindow(id_);
+    tree_client()->DestroyWindow(this);
   while (!children_.empty()) {
     Window* child = children_.front();
     if (!OwnsWindow(connection_, child)) {
@@ -188,20 +191,26 @@ void Window::SetBounds(const gfx::Rect& bounds) {
   if (bounds_ == bounds)
     return;
   if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetBounds(this, bounds_, bounds);
+    tree_client()->SetBounds(this, bounds_, bounds);
   LocalSetBounds(bounds_, bounds);
 }
 
-void Window::SetClientArea(const gfx::Insets& client_area) {
+gfx::Rect Window::GetBoundsInRoot() const {
+  gfx::Vector2d offset;
+  for (const Window* w = parent(); w != nullptr; w = w->parent())
+    offset += w->bounds().OffsetFromOrigin();
+  return bounds() + offset;
+}
+
+void Window::SetClientArea(
+    const gfx::Insets& client_area,
+    const std::vector<gfx::Rect>& additional_client_areas) {
   if (!OwnsWindowOrIsRoot(this))
     return;
 
-  if (connection_) {
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetClientArea(id_, client_area);
-  }
-  LocalSetClientArea(client_area);
+  if (connection_)
+    tree_client()->SetClientArea(id_, client_area, additional_client_areas);
+  LocalSetClientArea(client_area, additional_client_areas);
 }
 
 void Window::SetVisible(bool value) {
@@ -209,19 +218,37 @@ void Window::SetVisible(bool value) {
     return;
 
   if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)->SetVisible(id_, value);
+    tree_client()->SetVisible(this, value);
   LocalSetVisible(value);
 }
 
+void Window::SetPredefinedCursor(mus::mojom::Cursor cursor_id) {
+  if (cursor_id_ == cursor_id)
+    return;
+
+  if (connection_)
+    tree_client()->SetPredefinedCursor(id_, cursor_id);
+  LocalSetPredefinedCursor(cursor_id);
+}
+
+bool Window::IsDrawn() const {
+  if (!visible_)
+    return false;
+  return parent_ ? parent_->IsDrawn() : drawn_;
+}
+
 scoped_ptr<WindowSurface> Window::RequestSurface(mojom::SurfaceType type) {
-  mojom::SurfacePtr surface;
-  mojom::SurfaceClientPtr client;
-  mojo::InterfaceRequest<mojom::SurfaceClient> client_request =
-      GetProxy(&client);
-  static_cast<WindowTreeClientImpl*>(connection_)
-      ->RequestSurface(id_, type, GetProxy(&surface), client.Pass());
-  return make_scoped_ptr(
-      new WindowSurface(surface.PassInterface(), client_request.Pass()));
+  scoped_ptr<WindowSurfaceBinding> surface_binding;
+  scoped_ptr<WindowSurface> surface = WindowSurface::Create(&surface_binding);
+  AttachSurface(type, std::move(surface_binding));
+  return surface;
+}
+
+void Window::AttachSurface(mojom::SurfaceType type,
+                           scoped_ptr<WindowSurfaceBinding> surface_binding) {
+  tree_client()->AttachSurface(
+      id_, type, std::move(surface_binding->surface_request_),
+      mojo::MakeProxy(std::move(surface_binding->surface_client_)));
 }
 
 void Window::ClearSharedProperty(const std::string& name) {
@@ -230,12 +257,6 @@ void Window::ClearSharedProperty(const std::string& name) {
 
 bool Window::HasSharedProperty(const std::string& name) const {
   return properties_.count(name) > 0;
-}
-
-bool Window::IsDrawn() const {
-  if (!visible_)
-    return false;
-  return parent_ ? parent_->IsDrawn() : drawn_;
 }
 
 void Window::AddObserver(WindowObserver* observer) {
@@ -258,9 +279,12 @@ void Window::AddChild(Window* child) {
   //             embeddee in an embedder-embeddee relationship.
   if (connection_)
     CHECK_EQ(child->connection(), connection_);
+  // Roots can not be added as children of other windows.
+  if (tree_client() && tree_client()->IsRoot(child))
+    return;
   LocalAddChild(child);
   if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)->AddChild(child->id(), id_);
+    tree_client()->AddChild(this, child->id());
 }
 
 void Window::RemoveChild(Window* child) {
@@ -269,50 +293,27 @@ void Window::RemoveChild(Window* child) {
   if (connection_)
     CHECK_EQ(child->connection(), connection_);
   LocalRemoveChild(child);
-  if (connection_) {
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->RemoveChild(child->id(), id_);
-  }
-}
-
-void Window::AddTransientWindow(Window* transient_window) {
   if (connection_)
-    CHECK_EQ(transient_window->connection(), connection_);
-  LocalAddTransientWindow(transient_window);
-  if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->AddTransientWindow(this, transient_window->id());
-}
-
-void Window::RemoveTransientWindow(Window* transient_window) {
-  if (connection_)
-    CHECK_EQ(transient_window->connection(), connection_);
-  LocalRemoveTransientWindow(transient_window);
-  if (connection_) {
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->RemoveTransientWindowFromParent(transient_window);
-  }
-}
-
-void Window::MoveToFront() {
-  if (!parent_ || parent_->children_.back() == this)
-    return;
-  Reorder(parent_->children_.back(), mojom::ORDER_DIRECTION_ABOVE);
-}
-
-void Window::MoveToBack() {
-  if (!parent_ || parent_->children_.front() == this)
-    return;
-  Reorder(parent_->children_.front(), mojom::ORDER_DIRECTION_BELOW);
+    tree_client()->RemoveChild(this, child->id());
 }
 
 void Window::Reorder(Window* relative, mojom::OrderDirection direction) {
   if (!LocalReorder(relative, direction))
     return;
-  if (connection_) {
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->Reorder(id_, relative->id(), direction);
-  }
+  if (connection_)
+    tree_client()->Reorder(this, relative->id(), direction);
+}
+
+void Window::MoveToFront() {
+  if (!parent_ || parent_->children_.back() == this)
+    return;
+  Reorder(parent_->children_.back(), mojom::OrderDirection::ABOVE);
+}
+
+void Window::MoveToBack() {
+  if (!parent_ || parent_->children_.front() == this)
+    return;
+  Reorder(parent_->children_.front(), mojom::OrderDirection::BELOW);
 }
 
 bool Window::Contains(Window* child) const {
@@ -327,6 +328,22 @@ bool Window::Contains(Window* child) const {
       return true;
   }
   return false;
+}
+
+void Window::AddTransientWindow(Window* transient_window) {
+  if (connection_)
+    CHECK_EQ(transient_window->connection(), connection_);
+  LocalAddTransientWindow(transient_window);
+  if (connection_)
+    tree_client()->AddTransientWindow(this, transient_window->id());
+}
+
+void Window::RemoveTransientWindow(Window* transient_window) {
+  if (connection_)
+    CHECK_EQ(transient_window->connection(), connection_);
+  LocalRemoveTransientWindow(transient_window);
+  if (connection_)
+    tree_client()->RemoveTransientWindowFromParent(transient_window);
 }
 
 Window* Window::GetChildById(Id id) {
@@ -344,62 +361,62 @@ Window* Window::GetChildById(Id id) {
 }
 
 void Window::SetTextInputState(mojo::TextInputStatePtr state) {
-  if (connection_) {
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetWindowTextInputState(id_, state.Pass());
-  }
+  if (connection_)
+    tree_client()->SetWindowTextInputState(id_, std::move(state));
 }
 
 void Window::SetImeVisibility(bool visible, mojo::TextInputStatePtr state) {
   // SetImeVisibility() shouldn't be used if the window is not editable.
-  DCHECK(state.is_null() || state->type != mojo::TEXT_INPUT_TYPE_NONE);
-  if (connection_) {
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetImeVisibility(id_, visible, state.Pass());
-  }
+  DCHECK(state.is_null() || state->type != mojo::TextInputType::NONE);
+  if (connection_)
+    tree_client()->SetImeVisibility(id_, visible, std::move(state));
 }
 
-void Window::SetPreferredSize(const gfx::Size& size) {
-  if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetPreferredSize(id_, size);
+bool Window::HasCapture() const {
+  return connection_ && connection_->GetCaptureWindow() == this;
 }
 
-void Window::SetShowState(mojom::ShowState show_state) {
+void Window::SetCapture() {
   if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetShowState(id_, show_state);
+    tree_client()->SetCapture(this);
 }
 
-void Window::SetResizeBehavior(mojom::ResizeBehavior resize_behavior) {
+void Window::ReleaseCapture() {
   if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetResizeBehavior(id_, resize_behavior);
+    tree_client()->ReleaseCapture(this);
 }
 
 void Window::SetFocus() {
-  if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)->SetFocus(id_);
+  if (connection_ && IsDrawn())
+    tree_client()->SetFocus(this);
 }
 
 bool Window::HasFocus() const {
   return connection_ && connection_->GetFocusedWindow() == this;
 }
 
+void Window::SetCanFocus(bool can_focus) {
+  if (connection_)
+    tree_client()->SetCanFocus(id_, can_focus);
+}
+
 void Window::Embed(mus::mojom::WindowTreeClientPtr client) {
-  Embed(client.Pass(), mus::mojom::WindowTree::ACCESS_POLICY_DEFAULT,
+  Embed(std::move(client), mus::mojom::WindowTree::kAccessPolicyDefault,
         base::Bind(&EmptyEmbedCallback));
 }
 
 void Window::Embed(mus::mojom::WindowTreeClientPtr client,
                    uint32_t policy_bitmask,
                    const EmbedCallback& callback) {
-  if (PrepareForEmbed()) {
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->Embed(id_, client.Pass(), policy_bitmask, callback);
-  } else {
+  if (PrepareForEmbed())
+    tree_client()->Embed(id_, std::move(client), policy_bitmask, callback);
+  else
     callback.Run(false, 0);
-  }
+}
+
+void Window::RequestClose() {
+  if (tree_client())
+    tree_client()->RequestClose(this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -410,25 +427,23 @@ namespace {
 mojom::ViewportMetricsPtr CreateEmptyViewportMetrics() {
   mojom::ViewportMetricsPtr metrics = mojom::ViewportMetrics::New();
   metrics->size_in_pixels = mojo::Size::New();
-  // TODO(vtl): The |.Pass()| below is only needed due to an MSVS bug; remove it
-  // once that's fixed.
-  return metrics.Pass();
+  return metrics;
 }
 
 }  // namespace
 
-Window::Window()
-    : connection_(nullptr),
-      id_(static_cast<Id>(-1)),
-      parent_(nullptr),
-      stacking_target_(nullptr),
-      transient_parent_(nullptr),
-      viewport_metrics_(CreateEmptyViewportMetrics()),
-      visible_(true),
-      drawn_(false) {}
+Window::Window() : Window(nullptr, static_cast<Id>(-1)) {}
 
 Window::~Window() {
   FOR_EACH_OBSERVER(WindowObserver, observers_, OnWindowDestroying(this));
+
+  if (HasFocus()) {
+    // The focused window is being removed. When this happens the server
+    // advances focus. We don't want to randomly pick a Window to get focus, so
+    // we update local state only, and wait for the next focus change from the
+    // server.
+    tree_client()->LocalSetFocus(nullptr);
+  }
 
   // Remove from transient parent.
   if (transient_parent_)
@@ -454,11 +469,6 @@ Window::~Window() {
     DCHECK(children_.empty() || children_.front() != child);
   }
 
-  // TODO(beng): It'd be better to do this via a destruction observer in the
-  //             WindowTreeClientImpl.
-  if (connection_)
-    static_cast<WindowTreeClientImpl*>(connection_)->RemoveWindow(id_);
-
   // Clear properties.
   for (auto& pair : prop_map_) {
     if (pair.second.deallocator)
@@ -468,8 +478,10 @@ Window::~Window() {
 
   FOR_EACH_OBSERVER(WindowObserver, observers_, OnWindowDestroyed(this));
 
-  if (connection_ && connection_->GetRoot() == this)
-    static_cast<WindowTreeClientImpl*>(connection_)->OnRootDestroyed(this);
+  // Invoke after observers so that can clean up any internal state observers
+  // may have changed.
+  if (tree_client())
+    tree_client()->OnWindowDestroyed(this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -481,9 +493,15 @@ Window::Window(WindowTreeConnection* connection, Id id)
       parent_(nullptr),
       stacking_target_(nullptr),
       transient_parent_(nullptr),
+      input_event_handler_(nullptr),
       viewport_metrics_(CreateEmptyViewportMetrics()),
       visible_(false),
+      cursor_id_(mojom::Cursor::CURSOR_NULL),
       drawn_(false) {}
+
+WindowTreeClientImpl* Window::tree_client() {
+  return static_cast<WindowTreeClientImpl*>(connection_);
+}
 
 void Window::SetSharedPropertyInternal(const std::string& name,
                                        const std::vector<uint8_t>* value) {
@@ -491,25 +509,24 @@ void Window::SetSharedPropertyInternal(const std::string& name,
     return;
 
   if (connection_) {
-    mojo::Array<uint8_t> transport_value;
+    mojo::Array<uint8_t> transport_value(nullptr);
     if (value) {
       transport_value.resize(value->size());
       if (value->size())
         memcpy(&transport_value.front(), &(value->front()), value->size());
     }
     // TODO: add test coverage of this (450303).
-    static_cast<WindowTreeClientImpl*>(connection_)
-        ->SetProperty(this, name, transport_value.Pass());
+    tree_client()->SetProperty(this, name, std::move(transport_value));
   }
   LocalSetSharedProperty(name, value);
 }
 
-int64 Window::SetLocalPropertyInternal(const void* key,
-                                       const char* name,
-                                       PropertyDeallocator deallocator,
-                                       int64 value,
-                                       int64 default_value) {
-  int64 old = GetLocalPropertyInternal(key, default_value);
+int64_t Window::SetLocalPropertyInternal(const void* key,
+                                         const char* name,
+                                         PropertyDeallocator deallocator,
+                                         int64_t value,
+                                         int64_t default_value) {
+  int64_t old = GetLocalPropertyInternal(key, default_value);
   if (value == default_value) {
     prop_map_.erase(key);
   } else {
@@ -524,8 +541,8 @@ int64 Window::SetLocalPropertyInternal(const void* key,
   return old;
 }
 
-int64 Window::GetLocalPropertyInternal(const void* key,
-                                       int64 default_value) const {
+int64_t Window::GetLocalPropertyInternal(const void* key,
+                                         int64_t default_value) const {
   std::map<const void*, Value>::const_iterator iter = prop_map_.find(key);
   if (iter == prop_map_.end())
     return default_value;
@@ -585,11 +602,17 @@ void Window::LocalSetBounds(const gfx::Rect& old_bounds,
   bounds_ = new_bounds;
 }
 
-void Window::LocalSetClientArea(const gfx::Insets& new_client_area) {
+void Window::LocalSetClientArea(
+    const gfx::Insets& new_client_area,
+    const std::vector<gfx::Rect>& additional_client_areas) {
+  const std::vector<gfx::Rect> old_additional_client_areas =
+      additional_client_areas_;
   const gfx::Insets old_client_area = client_area_;
   client_area_ = new_client_area;
+  additional_client_areas_ = additional_client_areas;
   FOR_EACH_OBSERVER(WindowObserver, observers_,
-                    OnWindowClientAreaChanged(this, old_client_area));
+                    OnWindowClientAreaChanged(this, old_client_area,
+                                              old_additional_client_areas));
 }
 
 void Window::LocalSetViewportMetrics(
@@ -625,6 +648,15 @@ void Window::LocalSetVisible(bool visible) {
                     OnWindowVisibilityChanging(this));
   visible_ = visible;
   NotifyWindowVisibilityChanged(this);
+}
+
+void Window::LocalSetPredefinedCursor(mojom::Cursor cursor_id) {
+  if (cursor_id_ == cursor_id)
+    return;
+
+  cursor_id_ = cursor_id;
+  FOR_EACH_OBSERVER(WindowObserver, observers_,
+                    OnWindowPredefinedCursorChanged(this, cursor_id));
 }
 
 void Window::LocalSetSharedProperty(const std::string& name,
@@ -718,10 +750,8 @@ void Window::NotifyWindowVisibilityChangedUp(Window* target) {
 }
 
 bool Window::PrepareForEmbed() {
-  if (!OwnsWindow(connection_, this) &&
-      !static_cast<WindowTreeClientImpl*>(connection_)->is_embed_root()) {
+  if (!OwnsWindow(connection_, this) && !tree_client()->is_embed_root())
     return false;
-  }
 
   while (!children_.empty())
     RemoveChild(children_[0]);
@@ -761,6 +791,7 @@ bool Window::ReorderImpl(Window* window,
   DCHECK(relative);
   DCHECK_NE(window, relative);
   DCHECK_EQ(window->parent(), relative->parent());
+  DCHECK(window->parent());
 
   if (!AdjustStackingForTransientWindows(&window, &relative, &direction,
                                          window->stacking_target_))
@@ -773,15 +804,15 @@ bool Window::ReorderImpl(Window* window,
       std::find(window->parent_->children_.begin(),
                 window->parent_->children_.end(), relative) -
       window->parent_->children_.begin();
-  if ((direction == mojom::ORDER_DIRECTION_ABOVE && child_i == target_i + 1) ||
-      (direction == mojom::ORDER_DIRECTION_BELOW && child_i + 1 == target_i)) {
+  if ((direction == mojom::OrderDirection::ABOVE && child_i == target_i + 1) ||
+      (direction == mojom::OrderDirection::BELOW && child_i + 1 == target_i)) {
     return false;
   }
 
   if (notifier)
     notifier->NotifyWindowReordering();
 
-  const size_t dest_i = direction == mojom::ORDER_DIRECTION_ABOVE
+  const size_t dest_i = direction == mojom::OrderDirection::ABOVE
                             ? (child_i < target_i ? target_i : target_i + 1)
                             : (child_i < target_i ? target_i - 1 : target_i);
   window->parent_->children_.erase(window->parent_->children_.begin() +

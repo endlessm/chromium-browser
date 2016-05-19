@@ -7,11 +7,10 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/media/desktop_streams_registry.h"
 #include "chrome/browser/media/media_access_handler.h"
 #include "chrome/browser/media/media_stream_capture_indicator.h"
@@ -22,6 +21,8 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/media_capture_devices.h"
 #include "content/public/browser/notification_source.h"
@@ -31,7 +32,6 @@
 #include "content/public/common/media_stream_request.h"
 #include "extensions/common/constants.h"
 #include "media/base/media_switches.h"
-#include "net/base/net_util.h"
 
 #if defined(OS_CHROMEOS)
 #include "ash/shell.h"
@@ -124,7 +124,8 @@ bool MediaCaptureDevicesDispatcher::IsOriginForCasting(const GURL& origin) {
       origin.spec() == "chrome-extension://boadgeojelhgndaghljhdicfkmllpafd/" ||
       // http://crbug.com/457908
       origin.spec() == "chrome-extension://ekpaaapppgpmolpcldedioblbkmijaca/" ||
-      origin.spec() == "chrome-extension://fjhoaacokmgbjemoflkofnenfaiekifl/";
+      // http://crbug.com/574889
+      origin.spec() == "chrome-extension://pkedcjkdefgpdelpbcmbmeomcjbeemfm/";
 }
 
 void MediaCaptureDevicesDispatcher::AddObserver(Observer* observer) {

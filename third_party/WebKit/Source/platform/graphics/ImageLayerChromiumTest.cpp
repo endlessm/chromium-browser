@@ -22,14 +22,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/graphics/Image.h"
 
 #include "platform/graphics/GraphicsLayer.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "wtf/PassOwnPtr.h"
-#include <gtest/gtest.h>
 
 namespace blink {
 
@@ -37,9 +36,9 @@ namespace {
 
 class MockGraphicsLayerClient : public GraphicsLayerClient {
 public:
-    void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect*) const override { }
-
-    String debugName(const GraphicsLayer*) override { return String(); }
+    IntRect computeInterestRect(const GraphicsLayer*, const IntRect&) const { return IntRect(); }
+    void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect&) const override { }
+    String debugName(const GraphicsLayer*) const override { return String(); }
 };
 
 class TestImage : public Image {
@@ -49,7 +48,7 @@ public:
         return adoptRef(new TestImage(size, opaque));
     }
 
-    bool currentFrameKnownToBeOpaque() override
+    bool currentFrameKnownToBeOpaque(MetadataMode = UseCurrentMetadata) override
     {
         return m_image->isOpaque();
     }

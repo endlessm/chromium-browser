@@ -1,10 +1,10 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
+
+#include <vector>
 
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -12,6 +12,7 @@
 #include "chrome/browser/safe_browsing/chunk.pb.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
+#include "components/safe_browsing_db/safebrowsing.pb.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
@@ -328,11 +329,12 @@ class MockProtocolDelegate : public SafeBrowsingProtocolManagerDelegate {
   // gmock does not work with scoped_ptr<> at this time.  Add a local method to
   // mock, then call that from an override.  Beware of object ownership when
   // making changes here.
-  MOCK_METHOD3(AddChunksRaw, void(const std::string& lists,
-                                  const ScopedVector<SBChunkData>& chunks,
-                                  AddChunksCallback));
+  MOCK_METHOD3(AddChunksRaw,
+               void(const std::string& lists,
+                    const std::vector<scoped_ptr<SBChunkData>>& chunks,
+                    AddChunksCallback));
   void AddChunks(const std::string& list,
-                 scoped_ptr<ScopedVector<SBChunkData>> chunks,
+                 scoped_ptr<std::vector<scoped_ptr<SBChunkData>>> chunks,
                  AddChunksCallback callback) override {
     AddChunksRaw(list, *chunks, callback);
   }
@@ -362,7 +364,7 @@ void InvokeGetChunksCallback(
 // SafeBrowsingProtocolManagerDelegate contract.
 void HandleAddChunks(
     const std::string& unused_list,
-    const ScopedVector<SBChunkData>& chunks,
+    const std::vector<scoped_ptr<SBChunkData>>& chunks,
     SafeBrowsingProtocolManagerDelegate::AddChunksCallback callback) {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner(
       base::ThreadTaskRunnerHandle::Get());

@@ -13,6 +13,7 @@
 #include "ipc/ipc_param_traits.h"
 
 namespace base {
+class Pickle;
 class PickleIterator;
 }  // namespace base
 
@@ -23,6 +24,10 @@ class Message;
 // HandleWin is a wrapper around a Windows HANDLE that can be transported
 // across Chrome IPC channels that support attachment brokering. The HANDLE will
 // be duplicated into the destination process.
+//
+// The ownership semantics for the underlying |handle_| are complex. See
+// ipc/mach_port_mac.h (the OSX analog of this class) for an extensive
+// discussion.
 class IPC_EXPORT HandleWin {
  public:
   enum Permissions {
@@ -52,8 +57,10 @@ class IPC_EXPORT HandleWin {
 template <>
 struct IPC_EXPORT ParamTraits<HandleWin> {
   typedef HandleWin param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 

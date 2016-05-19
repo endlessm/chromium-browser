@@ -32,8 +32,8 @@ const char kWindowTreeHostForAcceleratedWidget[] =
     "__AURA_WINDOW_TREE_HOST_ACCELERATED_WIDGET__";
 
 float GetDeviceScaleFactorFromDisplay(Window* window) {
-  gfx::Display display = gfx::Screen::GetScreenFor(window)->
-      GetDisplayNearestWindow(window);
+  gfx::Display display =
+      gfx::Screen::GetScreen()->GetDisplayNearestWindow(window);
   DCHECK(display.is_valid());
   return display.device_scale_factor();
 }
@@ -102,11 +102,22 @@ gfx::Transform WindowTreeHost::GetInverseRootTransform() const {
   return invert;
 }
 
+void WindowTreeHost::SetOutputSurfacePadding(const gfx::Insets& padding) {
+  if (output_surface_padding_ == padding)
+    return;
+
+  output_surface_padding_ = padding;
+  OnHostResized(GetBounds().size());
+}
+
 void WindowTreeHost::UpdateRootWindowSize(const gfx::Size& host_size) {
-  gfx::Rect bounds(host_size);
+  gfx::Rect bounds(output_surface_padding_.left(),
+                   output_surface_padding_.top(), host_size.width(),
+                   host_size.height());
   gfx::RectF new_bounds(ui::ConvertRectToDIP(window()->layer(), bounds));
   window()->layer()->transform().TransformRect(&new_bounds);
-  window()->SetBounds(gfx::Rect(gfx::ToFlooredSize(new_bounds.size())));
+  window()->SetBounds(gfx::Rect(gfx::ToFlooredPoint(new_bounds.origin()),
+                                gfx::ToFlooredSize(new_bounds.size())));
 }
 
 void WindowTreeHost::ConvertPointToNativeScreen(gfx::Point* point) const {
@@ -259,10 +270,13 @@ void WindowTreeHost::OnHostMoved(const gfx::Point& new_location) {
 }
 
 void WindowTreeHost::OnHostResized(const gfx::Size& new_size) {
+  gfx::Size adjusted_size(new_size);
+  adjusted_size.Enlarge(output_surface_padding_.width(),
+                        output_surface_padding_.height());
   // The compositor should have the same size as the native root window host.
   // Get the latest scale from display because it might have been changed.
   compositor_->SetScaleAndSize(GetDeviceScaleFactorFromDisplay(window()),
-                               new_size);
+                               adjusted_size);
 
   gfx::Size layer_size = GetBounds().size();
   // The layer, and the observers should be notified of the
@@ -300,7 +314,7 @@ void WindowTreeHost::MoveCursorToInternal(const gfx::Point& root_location,
   client::CursorClient* cursor_client = client::GetCursorClient(window());
   if (cursor_client) {
     const gfx::Display& display =
-        gfx::Screen::GetScreenFor(window())->GetDisplayNearestWindow(window());
+        gfx::Screen::GetScreen()->GetDisplayNearestWindow(window());
     cursor_client->SetDisplay(display);
   }
   dispatcher()->OnCursorMovedToRootLocation(root_location);

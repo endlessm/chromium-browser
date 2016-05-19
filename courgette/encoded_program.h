@@ -5,10 +5,15 @@
 #ifndef COURGETTE_ENCODED_PROGRAM_H_
 #define COURGETTE_ENCODED_PROGRAM_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "courgette/disassembler.h"
+#include "courgette/label_manager.h"
 #include "courgette/memory_allocator.h"
 #include "courgette/types_elf.h"
 
@@ -43,12 +48,12 @@ class EncodedProgram {
   // Generating an EncodedProgram:
   //
   // (1) The image base can be specified at any time.
-  void set_image_base(uint64 base) { image_base_ = base; }
+  void set_image_base(uint64_t base) { image_base_ = base; }
 
   // (2) Address tables and indexes defined first.
-  CheckBool DefineRel32Label(int index, RVA address) WARN_UNUSED_RESULT;
-  CheckBool DefineAbs32Label(int index, RVA address) WARN_UNUSED_RESULT;
-  void EndLabels();
+  CheckBool DefineLabels(const RVAToLabel& abs32_labels,
+                         const RVAToLabel& rel32_labels) WARN_UNUSED_RESULT;
+
 
   // (3) Add instructions in the order needed to generate bytes of file.
   // NOTE: If any of these methods ever fail, the EncodedProgram instance
@@ -56,7 +61,7 @@ class EncodedProgram {
   CheckBool AddOrigin(RVA rva) WARN_UNUSED_RESULT;
   CheckBool AddCopy(size_t count, const void* bytes) WARN_UNUSED_RESULT;
   CheckBool AddRel32(int label_index) WARN_UNUSED_RESULT;
-  CheckBool AddRel32ARM(uint16 op, int label_index) WARN_UNUSED_RESULT;
+  CheckBool AddRel32ARM(uint16_t op, int label_index) WARN_UNUSED_RESULT;
   CheckBool AddAbs32(int label_index) WARN_UNUSED_RESULT;
   CheckBool AddAbs64(int label_index) WARN_UNUSED_RESULT;
   CheckBool AddPeMakeRelocs(ExecutableType kind) WARN_UNUSED_RESULT;
@@ -104,24 +109,22 @@ class EncodedProgram {
 
   typedef NoThrowBuffer<RVA> RvaVector;
   typedef NoThrowBuffer<size_t> SizeTVector;
-  typedef NoThrowBuffer<uint32> UInt32Vector;
-  typedef NoThrowBuffer<uint8> UInt8Vector;
+  typedef NoThrowBuffer<uint32_t> UInt32Vector;
+  typedef NoThrowBuffer<uint8_t> UInt8Vector;
   typedef NoThrowBuffer<OP> OPVector;
 
   void DebuggingSummary();
-  CheckBool GeneratePeRelocations(SinkStream *buffer,
-                                  uint8 type) WARN_UNUSED_RESULT;
+  CheckBool GeneratePeRelocations(SinkStream* buffer,
+                                  uint8_t type) WARN_UNUSED_RESULT;
   CheckBool GenerateElfRelocations(Elf32_Word pending_elf_relocation_table,
                                    SinkStream *buffer) WARN_UNUSED_RESULT;
-  CheckBool DefineLabelCommon(RvaVector*, int, RVA) WARN_UNUSED_RESULT;
-  void FinishLabelsCommon(RvaVector* addresses);
 
   // Decodes and evaluates courgette ops for ARM rel32 addresses.
   CheckBool EvaluateRel32ARM(OP op, size_t& ix_rel32_ix, RVA& current_rva,
                              SinkStream* output);
 
   // Binary assembly language tables.
-  uint64 image_base_;
+  uint64_t image_base_ = 0;
   RvaVector rel32_rva_;
   RvaVector abs32_rva_;
   OPVector ops_;
@@ -138,5 +141,11 @@ class EncodedProgram {
   DISALLOW_COPY_AND_ASSIGN(EncodedProgram);
 };
 
+// Deserializes program from a stream set to |*output|. Returns C_OK if
+// successful, otherwise assigns |*output| to null and returns an error status.
+Status ReadEncodedProgram(SourceStreamSet* source,
+                          scoped_ptr<EncodedProgram>* output);
+
 }  // namespace courgette
+
 #endif  // COURGETTE_ENCODED_PROGRAM_H_

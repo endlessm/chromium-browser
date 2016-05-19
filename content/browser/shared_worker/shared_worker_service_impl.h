@@ -9,11 +9,13 @@
 
 #include "base/compiler_specific.h"
 #include "base/containers/scoped_ptr_hash_map.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/worker_service.h"
+#include "third_party/WebKit/public/web/WebSharedWorkerCreationErrors.h"
 
 struct ViewHostMsg_CreateWorker_Params;
 
@@ -50,7 +52,7 @@ class CONTENT_EXPORT SharedWorkerServiceImpl
                     SharedWorkerMessageFilter* filter,
                     ResourceContext* resource_context,
                     const WorkerStoragePartitionId& partition_id,
-                    bool* url_mismatch);
+                    blink::WebWorkerCreationError* creation_error);
   void ForwardToWorker(const IPC::Message& message,
                        SharedWorkerMessageFilter* filter);
   void DocumentDetached(unsigned long long document_id,
@@ -72,7 +74,6 @@ class CONTENT_EXPORT SharedWorkerServiceImpl
                      const GURL& url,
                      const base::string16& name,
                      const base::string16& display_name,
-                     unsigned long estimated_size,
                      bool* result,
                      SharedWorkerMessageFilter* filter);
   void AllowFileSystem(int worker_route_id,
@@ -110,7 +111,7 @@ class CONTENT_EXPORT SharedWorkerServiceImpl
   typedef base::ScopedPtrHashMap<ProcessRouteIdPair,
                                  scoped_ptr<SharedWorkerHost>> WorkerHostMap;
   typedef base::ScopedPtrHashMap<int, scoped_ptr<SharedWorkerPendingInstance>>
-      PendingInstaneMap;
+      PendingInstanceMap;
 
   SharedWorkerServiceImpl();
   ~SharedWorkerServiceImpl() override;
@@ -123,7 +124,7 @@ class CONTENT_EXPORT SharedWorkerServiceImpl
   // will be called on IO thread.
   void ReserveRenderProcessToCreateWorker(
       scoped_ptr<SharedWorkerPendingInstance> pending_instance,
-      bool* url_mismatch);
+      blink::WebWorkerCreationError* creation_error);
 
   // Called after the render process is reserved to create Shared Worker in it.
   void RenderProcessReservedCallback(int pending_instance_id,
@@ -163,7 +164,7 @@ class CONTENT_EXPORT SharedWorkerServiceImpl
   static bool (*s_try_increment_worker_ref_count_)(int);
 
   WorkerHostMap worker_hosts_;
-  PendingInstaneMap pending_instances_;
+  PendingInstanceMap pending_instances_;
   int next_pending_instance_id_;
 
   base::ObserverList<WorkerServiceObserver> observers_;

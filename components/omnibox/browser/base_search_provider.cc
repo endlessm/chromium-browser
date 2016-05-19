@@ -4,7 +4,11 @@
 
 #include "components/omnibox/browser/base_search_provider.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/i18n/case_conversion.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
@@ -121,11 +125,11 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
 void BaseSearchProvider::DeleteMatch(const AutocompleteMatch& match) {
   DCHECK(match.deletable);
   if (!match.GetAdditionalInfo(BaseSearchProvider::kDeletionUrlKey).empty()) {
-    deletion_handlers_.push_back(new SuggestionDeletionHandler(
+    deletion_handlers_.push_back(make_scoped_ptr(new SuggestionDeletionHandler(
         match.GetAdditionalInfo(BaseSearchProvider::kDeletionUrlKey),
         client_->GetRequestContext(),
         base::Bind(&BaseSearchProvider::OnDeletionComplete,
-                   base::Unretained(this))));
+                   base::Unretained(this)))));
   }
 
   TemplateURL* template_url =
@@ -147,7 +151,7 @@ void BaseSearchProvider::AddProviderInfo(ProvidersInfo* provider_info) const {
   metrics::OmniboxEventProto_ProviderInfo& new_entry = provider_info->back();
   new_entry.set_provider(AsOmniboxEventProviderType());
   new_entry.set_provider_done(done_);
-  std::vector<uint32> field_trial_hashes;
+  std::vector<uint32_t> field_trial_hashes;
   OmniboxFieldTrial::GetActiveSuggestFieldTrialHashes(&field_trial_hashes);
   for (size_t i = 0; i < field_trial_hashes.size(); ++i) {
     if (field_trial_triggered_)
@@ -261,7 +265,6 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
       new TemplateURLRef::SearchTermsArgs(suggestion.suggestion()));
   match.search_terms_args->original_query = input.text();
   match.search_terms_args->accepted_suggestion = accepted_suggestion;
-  match.search_terms_args->enable_omnibox_start_margin = true;
   match.search_terms_args->suggest_query_params =
       suggestion.suggest_query_params();
   match.search_terms_args->append_extra_query_params =
@@ -368,8 +371,6 @@ void BaseSearchProvider::AddMatchToMap(
       accepted_suggestion, ShouldAppendExtraParams(result));
   if (!match.destination_url.is_valid())
     return;
-  match.search_terms_args->bookmark_bar_pinned =
-      client_->BookmarkBarIsVisible();
   match.RecordAdditionalInfo(kRelevanceFromServerKey,
                              result.relevance_from_server() ? kTrue : kFalse);
   match.RecordAdditionalInfo(kShouldPrefetchKey,
@@ -481,8 +482,9 @@ void BaseSearchProvider::DeleteMatchFromMatches(
 void BaseSearchProvider::OnDeletionComplete(
     bool success, SuggestionDeletionHandler* handler) {
   RecordDeletionResult(success);
-  SuggestionDeletionHandlers::iterator it = std::find(
-      deletion_handlers_.begin(), deletion_handlers_.end(), handler);
-  DCHECK(it != deletion_handlers_.end());
-  deletion_handlers_.erase(it);
+  deletion_handlers_.erase(std::remove_if(
+      deletion_handlers_.begin(), deletion_handlers_.end(),
+      [handler](const scoped_ptr<SuggestionDeletionHandler>& elem) {
+          return elem.get() == handler;
+      }));
 }

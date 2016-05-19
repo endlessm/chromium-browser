@@ -5,7 +5,9 @@
 #include "chrome/browser/ui/views/website_settings/permission_selector_view.h"
 
 #include "base/i18n/rtl.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ui/views/website_settings/website_settings_popup_view.h"
 #include "chrome/browser/ui/website_settings/permission_menu_model.h"
 #include "chrome/browser/ui/website_settings/website_settings_ui.h"
 #include "chrome/grit/generated_resources.h"
@@ -19,15 +21,6 @@
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
-
-namespace {
-
-// Left icon margin.
-const int kPermissionIconMarginLeft = 6;
-// The width of the column that contains the permissions icons.
-const int kPermissionIconColumnWidth = 20;
-
-}  // namespace
 
 namespace internal {
 
@@ -52,7 +45,9 @@ class PermissionMenuButton : public views::MenuButton,
 
  private:
   // Overridden from views::MenuButtonListener.
-  void OnMenuButtonClicked(View* source, const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
   PermissionMenuModel* menu_model_;  // Owned by |PermissionSelectorView|.
   scoped_ptr<views::MenuRunner> menu_runner_;
@@ -69,8 +64,7 @@ class PermissionMenuButton : public views::MenuButton,
 PermissionMenuButton::PermissionMenuButton(const base::string16& text,
                                            PermissionMenuModel* model,
                                            bool show_menu_marker)
-    : MenuButton(NULL, text, this, show_menu_marker),
-      menu_model_(model) {
+    : MenuButton(text, this, show_menu_marker), menu_model_(model) {
   // Update the themed border before the NativeTheme is applied. Usually this
   // happens in a call to LabelButton::OnNativeThemeChanged(). However, if
   // PermissionMenuButton called that from its override, the NativeTheme would
@@ -98,8 +92,9 @@ void PermissionMenuButton::OnNativeThemeChanged(const ui::NativeTheme* theme) {
       ui::NativeTheme::kColorId_LabelDisabledColor));
 }
 
-void PermissionMenuButton::OnMenuButtonClicked(View* source,
-                                               const gfx::Point& point) {
+void PermissionMenuButton::OnMenuButtonClicked(views::MenuButton* source,
+                                               const gfx::Point& point,
+                                               const ui::Event* event) {
   menu_runner_.reset(
       new views::MenuRunner(menu_model_, views::MenuRunner::HAS_MNEMONICS));
 

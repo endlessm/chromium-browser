@@ -4,6 +4,7 @@
 
 #include "ash/system/web_notification/web_notification_tray.h"
 
+#include <utility>
 #include <vector>
 
 #include "ash/display/display_manager.h"
@@ -93,7 +94,8 @@ class WebNotificationTrayTest : public test::AshTestBase {
   ~WebNotificationTrayTest() override {}
 
   void TearDown() override {
-    GetMessageCenter()->RemoveAllNotifications(false);
+    GetMessageCenter()->RemoveAllNotifications(
+        false /* by_user */, message_center::MessageCenter::RemoveType::ALL);
     test::AshTestBase::TearDown();
   }
 
@@ -107,7 +109,7 @@ class WebNotificationTrayTest : public test::AshTestBase {
         base::ASCIIToUTF16("www.test.org"), GURL(),
         message_center::NotifierId(), message_center::RichNotificationData(),
         NULL /* delegate */));
-    GetMessageCenter()->AddNotification(notification.Pass());
+    GetMessageCenter()->AddNotification(std::move(notification));
   }
 
   void UpdateNotification(const std::string& old_id,
@@ -120,7 +122,7 @@ class WebNotificationTrayTest : public test::AshTestBase {
         base::ASCIIToUTF16("www.test.org"), GURL(),
         message_center::NotifierId(), message_center::RichNotificationData(),
         NULL /* delegate */));
-    GetMessageCenter()->UpdateNotification(old_id, notification.Pass());
+    GetMessageCenter()->UpdateNotification(old_id, std::move(notification));
   }
 
   void RemoveNotification(const std::string& id) {
@@ -435,7 +437,7 @@ TEST_F(WebNotificationTrayTest, MAYBE_PopupAndFullscreen) {
   // Move the mouse cursor at the bottom, which shows the shelf.
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
   gfx::Point bottom_right =
-      Shell::GetScreen()->GetPrimaryDisplay().bounds().bottom_right();
+      gfx::Screen::GetScreen()->GetPrimaryDisplay().bounds().bottom_right();
   bottom_right.Offset(-1, -1);
   generator.MoveMouseTo(bottom_right);
   shelf->UpdateAutoHideStateNow();
@@ -443,7 +445,7 @@ TEST_F(WebNotificationTrayTest, MAYBE_PopupAndFullscreen) {
   EXPECT_EQ(bottom, GetPopupWorkAreaBottom());
 
   generator.MoveMouseTo(
-      Shell::GetScreen()->GetPrimaryDisplay().bounds().CenterPoint());
+      gfx::Screen::GetScreen()->GetPrimaryDisplay().bounds().CenterPoint());
   shelf->UpdateAutoHideStateNow();
   EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->auto_hide_state());
   EXPECT_EQ(bottom_auto_hidden, GetPopupWorkAreaBottom());

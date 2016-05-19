@@ -4,6 +4,8 @@
 
 #include "storage/common/blob_storage/blob_item_bytes_response.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <string>
 
@@ -16,6 +18,9 @@ BlobItemBytesResponse::BlobItemBytesResponse()
 
 BlobItemBytesResponse::BlobItemBytesResponse(size_t request_number)
     : request_number(request_number) {}
+
+BlobItemBytesResponse::BlobItemBytesResponse(
+    const BlobItemBytesResponse& other) = default;
 
 BlobItemBytesResponse::~BlobItemBytesResponse() {}
 

@@ -5,6 +5,7 @@
 #ifndef REMOTING_HOST_IT2ME_DESKTOP_ENVIRONMENT_H_
 #define REMOTING_HOST_IT2ME_DESKTOP_ENVIRONMENT_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "remoting/host/basic_desktop_environment.h"
@@ -24,6 +25,7 @@ class It2MeDesktopEnvironment : public BasicDesktopEnvironment {
   friend class It2MeDesktopEnvironmentFactory;
   It2MeDesktopEnvironment(
       scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
       base::WeakPtr<ClientSessionControl> client_session_control,
@@ -47,6 +49,7 @@ class It2MeDesktopEnvironmentFactory : public BasicDesktopEnvironmentFactory {
  public:
   It2MeDesktopEnvironmentFactory(
       scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
   ~It2MeDesktopEnvironmentFactory() override;

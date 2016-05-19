@@ -48,10 +48,16 @@ class OpaqueBrowserFrameViewLayoutDelegate {
 
   virtual bool IsTabStripVisible() const = 0;
   virtual int GetTabStripHeight() const = 0;
+  virtual bool IsToolbarVisible() const = 0;
 
   // Returns the tabstrips preferred size so the frame layout can work around
   // it.
   virtual gfx::Size GetTabstripPreferredSize() const = 0;
+
+  // Returns the width of the portion of the toolbar's leading-edge rounded
+  // corner that is within the client area.  This is only necessary pre-Material
+  // Design.
+  virtual int GetToolbarLeadingCornerClientWidth() const = 0;
 
  protected:
   virtual ~OpaqueBrowserFrameViewLayoutDelegate() {}

@@ -5,6 +5,8 @@
 #include "chrome/browser/safe_browsing/signature_evaluator_mac.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <stdint.h>
+#include <string.h>
 #include <sys/xattr.h>
 
 #include <string>
@@ -201,6 +203,19 @@ TEST_F(MacSignatureEvaluatorTest, ModifiedMainExecTest64) {
   EXPECT_EQ(contained_file.relative_path(), "Contents/MacOS/test-bundle");
   EXPECT_TRUE(contained_file.has_signature());
   EXPECT_TRUE(contained_file.has_image_headers());
+}
+
+TEST_F(MacSignatureEvaluatorTest, ModifiedLocalizationTest) {
+  // We want to ignore modifications made to InfoPlist.strings files.
+  base::FilePath path = testdata_path_.AppendASCII("modified-localization.app");
+
+  std::string requirement(
+      "certificate leaf[subject.CN]=\"untrusted@goat.local\"");
+  MacSignatureEvaluator evaluator(path, requirement);
+  ASSERT_TRUE(evaluator.Initialize());
+
+  ClientIncidentReport_IncidentData_BinaryIntegrityIncident incident;
+  EXPECT_TRUE(evaluator.PerformEvaluation(&incident));
 }
 
 TEST_F(MacSignatureEvaluatorTest, ModifiedBundleAndExecTest) {

@@ -5,15 +5,19 @@
 #ifndef MEDIA_BASE_MEDIA_LOG_H_
 #define MEDIA_BASE_MEDIA_LOG_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <sstream>
 #include <string>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "media/base/media_export.h"
 #include "media/base/media_log_event.h"
-#include "media/base/pipeline.h"
+#include "media/base/pipeline_impl.h"
 #include "media/base/pipeline_status.h"
 
 namespace media {
@@ -53,12 +57,13 @@ class MEDIA_EXPORT MediaLog : public base::RefCountedThreadSafe<MediaLog> {
   scoped_ptr<MediaLogEvent> CreateLoadEvent(const std::string& url);
   scoped_ptr<MediaLogEvent> CreateSeekEvent(float seconds);
   scoped_ptr<MediaLogEvent> CreatePipelineStateChangedEvent(
-      Pipeline::State state);
+      PipelineImpl::State state);
   scoped_ptr<MediaLogEvent> CreatePipelineErrorEvent(PipelineStatus error);
   scoped_ptr<MediaLogEvent> CreateVideoSizeSetEvent(
       size_t width, size_t height);
-  scoped_ptr<MediaLogEvent> CreateBufferedExtentsChangedEvent(
-      int64 start, int64 current, int64 end);
+  scoped_ptr<MediaLogEvent> CreateBufferedExtentsChangedEvent(int64_t start,
+                                                              int64_t current,
+                                                              int64_t end);
 
   // Report a log message at the specified log level.
   void AddLogEvent(MediaLogLevel level, const std::string& message);
@@ -76,7 +81,7 @@ class MEDIA_EXPORT MediaLog : public base::RefCountedThreadSafe<MediaLog> {
 
  private:
   // A unique (to this process) id for this MediaLog.
-  int32 id_;
+  int32_t id_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaLog);
 };

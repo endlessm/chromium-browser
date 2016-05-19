@@ -6,15 +6,19 @@
 #define CHROME_BROWSER_ANDROID_MOST_VISITED_SITES_H_
 
 #include <jni.h>
+#include <stddef.h>
 
 #include <string>
 #include <vector>
 
 #include "base/android/scoped_java_ref.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
+#include "chrome/browser/supervised_user/supervised_user_service.h"
+#include "chrome/browser/supervised_user/supervised_user_service_observer.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/top_sites_observer.h"
 #include "components/suggestions/proto/suggestions.pb.h"
@@ -34,31 +38,41 @@ class Profile;
 
 // Provides the list of most visited sites and their thumbnails to Java.
 class MostVisitedSites : public sync_driver::SyncServiceObserver,
-                         public history::TopSitesObserver {
+                         public history::TopSitesObserver,
+                         public SupervisedUserServiceObserver {
  public:
   explicit MostVisitedSites(Profile* profile);
-  void Destroy(JNIEnv* env, jobject obj);
-  void SetMostVisitedURLsObserver(JNIEnv* env,
-                                  jobject obj,
-                                  jobject j_observer,
-                                  jint num_sites);
+  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
+  void SetMostVisitedURLsObserver(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& j_observer,
+      jint num_sites);
   void GetURLThumbnail(JNIEnv* env,
-                       jobject obj,
-                       jstring url,
-                       jobject j_callback);
+                       const base::android::JavaParamRef<jobject>& obj,
+                       const base::android::JavaParamRef<jstring>& url,
+                       const base::android::JavaParamRef<jobject>& j_callback);
 
-  void BlacklistUrl(JNIEnv* env, jobject obj, jstring j_url);
-  void RecordTileTypeMetrics(JNIEnv* env,
-                             jobject obj,
-                             jintArray jtile_types,
-                             jboolean is_icon_mode);
-  void RecordOpenedMostVisitedItem(JNIEnv* env,
-                                   jobject obj,
-                                   jint index,
-                                   jint tile_type);
+  void AddOrRemoveBlacklistedUrl(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jstring>& j_url,
+      jboolean add_url);
+  void RecordTileTypeMetrics(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jintArray>& jtile_types);
+  void RecordOpenedMostVisitedItem(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint index,
+      jint tile_type);
 
   // sync_driver::SyncServiceObserver implementation.
   void OnStateChanged() override;
+
+  // SupervisedUserServiceObserver implementation.
+  void OnURLFilterChanged() override;
 
   // Registers JNI methods.
   static bool Register(JNIEnv* env);
@@ -69,7 +83,7 @@ class MostVisitedSites : public sync_driver::SyncServiceObserver,
   friend class MostVisitedSitesTest;
 
   // The source of the Most Visited sites.
-  enum MostVisitedSource { TOP_SITES, SUGGESTIONS_SERVICE, POPULAR };
+  enum MostVisitedSource { TOP_SITES, SUGGESTIONS_SERVICE, POPULAR, WHITELIST };
 
   struct Suggestion {
     base::string16 title;
@@ -97,6 +111,8 @@ class MostVisitedSites : public sync_driver::SyncServiceObserver,
     DISALLOW_COPY_AND_ASSIGN(Suggestion);
   };
 
+  using SuggestionsVector = std::vector<scoped_ptr<Suggestion>>;
+
   ~MostVisitedSites() override;
   void QueryMostVisitedURLs();
 
@@ -112,15 +128,27 @@ class MostVisitedSites : public sync_driver::SyncServiceObserver,
   void OnSuggestionsProfileAvailable(
       const suggestions::SuggestionsProfile& suggestions_profile);
 
-  // Takes the personal suggestions and adds popular suggestions if necessary
-  // and reorders the suggestions based on the previously displayed order.
-  void AddPopularSites(ScopedVector<Suggestion>* suggestions);
+  // Takes the personal suggestions and creates whitelist entry point
+  // suggestions if necessary.
+  SuggestionsVector CreateWhitelistEntryPointSuggestions(
+      const SuggestionsVector& personal_suggestions);
 
-  // Workhorse for AddPopularSites above. Implemented as a separate static
+  // Takes the personal and whitelist suggestions and creates popular
+  // suggestions if necessary.
+  SuggestionsVector CreatePopularSitesSuggestions(
+      const SuggestionsVector& personal_suggestions,
+      const SuggestionsVector& whitelist_suggestions);
+
+  // Takes the personal suggestions, creates and merges in whitelist and popular
+  // suggestions if appropriate, and saves the new suggestions.
+  void SaveNewNTPSuggestions(SuggestionsVector* personal_suggestions);
+
+  // Workhorse for SaveNewNTPSuggestions above. Implemented as a separate static
   // method for ease of testing.
-  static ScopedVector<Suggestion> MergeSuggestions(
-      ScopedVector<Suggestion>* personal_suggestions,
-      ScopedVector<Suggestion>* popular_suggestions,
+  static SuggestionsVector MergeSuggestions(
+      SuggestionsVector* personal_suggestions,
+      SuggestionsVector* whitelist_suggestions,
+      SuggestionsVector* popular_suggestions,
       const std::vector<std::string>& old_sites_url,
       const std::vector<bool>& old_sites_is_personal);
 
@@ -135,8 +163,8 @@ class MostVisitedSites : public sync_driver::SyncServiceObserver,
   // |match_urls|/|match_hosts| respectively. Unmatched suggestion indices from
   // |src_suggestions| are returned for ease of insertion later.
   static std::vector<size_t> InsertMatchingSuggestions(
-      ScopedVector<Suggestion>* src_suggestions,
-      ScopedVector<Suggestion>* dst_suggestions,
+      SuggestionsVector* src_suggestions,
+      SuggestionsVector* dst_suggestions,
       const std::vector<std::string>& match_urls,
       const std::vector<std::string>& match_hosts);
 
@@ -147,8 +175,8 @@ class MostVisitedSites : public sync_driver::SyncServiceObserver,
   static size_t InsertAllSuggestions(
       size_t start_position,
       const std::vector<size_t>& insert_positions,
-      ScopedVector<Suggestion>* src_suggestions,
-      ScopedVector<Suggestion>* dst_suggestions);
+      SuggestionsVector* src_suggestions,
+      SuggestionsVector* dst_suggestions);
 
   // Notify the Java side observer about the availability of Most Visited Urls.
   void NotifyMostVisitedURLsObserver();
@@ -207,7 +235,7 @@ class MostVisitedSites : public sync_driver::SyncServiceObserver,
 
   scoped_ptr<PopularSites> popular_sites_;
 
-  ScopedVector<Suggestion> current_suggestions_;
+  SuggestionsVector current_suggestions_;
 
   // For callbacks may be run after destruction.
   base::WeakPtrFactory<MostVisitedSites> weak_ptr_factory_;

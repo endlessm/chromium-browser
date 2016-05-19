@@ -50,6 +50,8 @@
         'copy_target_generator.h',
         'deps_iterator.cc',
         'deps_iterator.h',
+        'eclipse_writer.cc',
+        'eclipse_writer.h',
         'err.cc',
         'err.h',
         'escape.cc',
@@ -96,6 +98,8 @@
         'label_pattern.cc',
         'label_pattern.h',
         'label_ptr.h',
+        'lib_file.cc',
+        'lib_file.h',
         'loader.cc',
         'loader.h',
         'location.cc',
@@ -187,6 +191,12 @@
         'variables.h',
         'visibility.cc',
         'visibility.h',
+        'visual_studio_utils.cc',
+        'visual_studio_utils.h',
+        'visual_studio_writer.cc',
+        'visual_studio_writer.h',
+        'xml_element_writer.cc',
+        'xml_element_writer.h',
       ],
     },
     {
@@ -257,6 +267,9 @@
         'unique_vector_unittest.cc',
         'value_unittest.cc',
         'visibility_unittest.cc',
+        'visual_studio_utils_unittest.cc',
+        'visual_studio_writer_unittest.cc',
+        'xml_element_writer_unittest.cc',
       ],
       'dependencies': [
         'gn_lib',
@@ -265,16 +278,6 @@
         '../../testing/gtest.gyp:gtest',
       ],
     },
-    {
-      'target_name': 'generate_test_gn_data',
-      'type': 'executable',
-      'sources': [
-        'generate_test_gn_data.cc',
-      ],
-      'dependencies': [
-        '../../base/base.gyp:base',
-      ],
-    }
   ],
   'conditions': [
     ['test_isolation_mode != "noop"', {

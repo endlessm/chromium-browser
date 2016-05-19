@@ -4,6 +4,22 @@
             "group_name": "Disabled"
         }
     ],
+    "AsyncDns": [
+        {
+            "group_name": "AsyncDnsA"
+        },
+        {
+            "group_name": "SystemDnsA"
+        },
+        {
+            "group_name": "AsyncDnsNoFallbackA"
+        }
+    ],
+    "AutodetectEncoding": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "AutofillClassifier": [
         {
             "group_name": "Enabled"
@@ -20,6 +36,9 @@
             "params": {
                 "limit": "3"
             }
+        },
+        {
+            "group_name": "Enabled"
         }
     ],
     "ChromotingQUIC": [
@@ -31,15 +50,13 @@
         {
             "group_name": "OptOut",
             "params": {
-                "enabled": "true",
-                "promo_on_limited_taps": "true",
-                "promo_opt_out": "true",
-                "tap_prefetch_limit_for_decided": "50",
-                "tap_prefetch_limit_for_undecided": "20",
-                "tap_resolve_limit_for_decided": "50",
-                "tap_resolve_limit_for_undecided": "20",
-                "tap_triggered_promo_limit": "50"
+                "enabled": "true"
             }
+        }
+    ],
+    "CreditCardScan": [
+        {
+            "group_name": "Enabled"
         }
     ],
     "CustomTabs": [
@@ -83,6 +100,11 @@
             }
         }
     ],
+    "DataReductionProxyFREPromo": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "DataReductionProxyUseQuic": [
         {
             "group_name": "Enabled"
@@ -101,34 +123,12 @@
             "group_name": "Enabled"
         }
     ],
-    "EnhancedBookmarks": [
+    "ImeThread": [
         {
-            "group_name": "EnableEnhancedBookmarks",
-            "params": {
-                "id": "Fake_id_to_trigger_experiment_code"
-            }
-        },
-        {
-            "group_name": "EnableEnhancedBookmarksGrid",
-            "params": {
-                "DefaultViewMode": "Grid",
-                "id": "Fake_id_to_trigger_experiment_code"
-            }
-        },
-        {
-            "group_name": "EnableEnhancedBookmarksList",
-            "params": {
-                "DefaultViewMode": "List",
-                "id": "Fake_id_to_trigger_experiment_code"
-            }
-        }
-    ],
-    "IconNTP": [
-        {
-            "group_name": "Enabled",
-            "params": {
-                "state": "enabled"
-            }
+            "enable_features": [
+                "ImeThread"
+            ],
+            "group_name": "Enabled"
         }
     ],
     "InvalidationsGCMUpstream": [
@@ -152,6 +152,23 @@
             "group_name": "Enabled",
             "params": {
                 "lowPriorityIframes": "true"
+            }
+        }
+    ],
+    "MinidumpDirectoryObserver": [
+        {
+            "group_name": "ObserverExperimentGroup",
+            "params": {
+                "Enabled": "true"
+            }
+        }
+    ],
+    "NTPPopularSites": [
+        {
+            "group_name": "Enabled",
+            "params": {
+                "country": "IN",
+                "version": "4"
             }
         }
     ],
@@ -179,6 +196,31 @@
             }
         }
     ],
+    "OfferUploadCreditCards": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
+    "OfflinePages": [
+        {
+            "group_name": "EnabledAsBookmarks"
+        }
+    ],
+    "PageRevisitInstrumentation": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
+    "PasswordBranding": [
+        {
+            "group_name": "SmartLockBrandingSavePromptOnly"
+        }
+    ],
+    "PhysicalWeb": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "Precache": [
         {
             "group_name": "Enabled"
@@ -194,10 +236,7 @@
     ],
     "QUIC": [
         {
-            "group_name": "Enabled",
-            "params": {
-                "alternate_protocol_probability_threshold": "0.001"
-            }
+            "group_name": "Enabled"
         }
     ],
     "ReaderModeUIFeedback": [
@@ -206,6 +245,11 @@
         },
         {
             "group_name": "DoNotShow"
+        }
+    ],
+    "RenderingPipelineThrottling": [
+        {
+            "group_name": "Enabled"
         }
     ],
     "ReportCertificateErrors": [
@@ -260,9 +304,19 @@
             "group_name": "Disabled"
         }
     ],
+    "SchedulerExpensiveTaskBlocking": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "SdchPersistence": [
         {
             "group_name": "Enabled"
+        }
+    ],
+    "SpdyEnableDependencies": [
+        {
+            "group_name": "Enable"
         }
     ],
     "SpeculativeResourcePrefetching": [
@@ -288,6 +342,11 @@
             "group_name": "v=1:Prefetching=Learning"
         }
     ],
+    "StrictSecureCookies": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "SyncHttpContentCompression": [
         {
             "group_name": "Enabled"
@@ -303,11 +362,55 @@
     ],
     "UMA_EnableCellularLogUpload": [
         {
-            "group_name": "Enabled",
+            "group_name": "Enabled_wo_sampling",
             "params": {
                 "Enabled": "true",
                 "Optimize": "true",
-                "Sample_Probability": "50"
+                "Sample_Probability": "100"
+            }
+        }
+    ],
+    "UpdateMenuItem": [
+        {
+            "group_name": "Enabled",
+            "params": {
+                "enable_update_menu_item": "true"
+            }
+        },
+        {
+            "group_name": "EnabledWithBadge",
+            "params": {
+                "enable_update_badge": "true",
+                "enable_update_menu_item": "true"
+            }
+        },
+        {
+            "group_name": "EnabledWithSummary",
+            "params": {
+                "enable_update_menu_item": "true",
+                "show_summary": "true"
+            }
+        },
+        {
+            "group_name": "EnabledWithCustomSummary",
+            "params": {
+                "custom_summary": "Custom update summary",
+                "enable_update_menu_item": "true",
+                "show_summary": "true"
+            }
+        },
+        {
+            "group_name": "EnabledWithSummaryAndBadge",
+            "params": {
+                "enable_update_badge": "true",
+                "enable_update_menu_item": "true",
+                "show_summary": "true"
+            }
+        },
+        {
+            "group_name": "Default",
+            "params": {
+                "enable_update_menu_item": "false"
             }
         }
     ],
@@ -319,6 +422,11 @@
             }
         }
     ],
+    "WebFontsIntervention": [
+        {
+            "group_name": "Enabled"
+        }
+    ],
     "WebRTC-LocalIPPermissionCheck": [
         {
             "group_name": "Enabled"
@@ -326,6 +434,14 @@
     ],
     "WebRTC-PeerConnectionDTLS1.2": [
         {
+            "group_name": "Enabled"
+        }
+    ],
+    "use-new-media-cache": [
+        {
+            "enable_features": [
+                "use-new-media-cache"
+            ],
             "group_name": "Enabled"
         }
     ]

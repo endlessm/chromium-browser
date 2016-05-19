@@ -5,14 +5,15 @@
 #include "components/autofill/core/browser/credit_card.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <algorithm>
 #include <ostream>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/guid.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -20,6 +21,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/validation.h"
@@ -83,42 +85,27 @@ CreditCard::CreditCard(const std::string& guid, const std::string& origin)
       type_(kGenericCard),
       expiration_month_(0),
       expiration_year_(0),
-      server_status_(OK) {
-}
+      server_status_(OK) {}
 
 CreditCard::CreditCard(const base::string16& card_number,
                        int expiration_month,
                        int expiration_year)
-    : AutofillDataModel(std::string(), std::string()),
-      record_type_(LOCAL_CARD),
-      server_status_(OK) {
+    : CreditCard() {
   SetNumber(card_number);
   SetExpirationMonth(expiration_month);
   SetExpirationYear(expiration_year);
 }
 
 CreditCard::CreditCard(RecordType type, const std::string& server_id)
-    : AutofillDataModel(base::GenerateGUID(), std::string()),
-      record_type_(type),
-      type_(kGenericCard),
-      expiration_month_(0),
-      expiration_year_(0),
-      server_id_(server_id),
-      server_status_(OK) {
+    : CreditCard() {
   DCHECK(type == MASKED_SERVER_CARD || type == FULL_SERVER_CARD);
+  record_type_ = type;
+  server_id_ = server_id;
 }
 
-CreditCard::CreditCard()
-    : AutofillDataModel(base::GenerateGUID(), std::string()),
-      record_type_(LOCAL_CARD),
-      type_(kGenericCard),
-      expiration_month_(0),
-      expiration_year_(0),
-      server_status_(OK) {
-}
+CreditCard::CreditCard() : CreditCard(base::GenerateGUID(), std::string()) {}
 
-CreditCard::CreditCard(const CreditCard& credit_card)
-    : AutofillDataModel(std::string(), std::string()) {
+CreditCard::CreditCard(const CreditCard& credit_card) : CreditCard() {
   operator=(credit_card);
 }
 
@@ -392,7 +379,7 @@ bool CreditCard::SetInfo(const AutofillType& type,
   if (storable_type == CREDIT_CARD_NUMBER)
     SetRawInfo(storable_type, StripSeparators(value));
   else if (storable_type == CREDIT_CARD_EXP_MONTH)
-    SetExpirationMonthFromString(value, app_locale);
+    return SetExpirationMonthFromString(value, app_locale);
   else
     SetRawInfo(storable_type, value);
 
@@ -501,6 +488,15 @@ base::string16 CreditCard::TypeAndLastFourDigits() const {
   return type + base::UTF8ToUTF16("\xC2\xA0\xE2\x8B\xAF") + digits;
 }
 
+base::string16 CreditCard::AbbreviatedExpirationDateForDisplay() const {
+  base::string16 month = ExpirationMonthAsString();
+  base::string16 year = Expiration2DigitYearAsString();
+  return month.empty() || year.empty()
+             ? base::string16()
+             : l10n_util::GetStringFUTF16(
+                   IDS_AUTOFILL_CREDIT_CARD_EXPIRATION_DATE_ABBR, month, year);
+}
+
 void CreditCard::operator=(const CreditCard& credit_card) {
   set_use_count(credit_card.use_count());
   set_use_date(credit_card.use_date());
@@ -602,11 +598,17 @@ bool CreditCard::IsLocalDuplicateOfServerCard(const CreditCard& other) const {
   if (number_.empty())
     return true;
 
-  if (other.record_type() == FULL_SERVER_CARD)
-    return StripSeparators(number_) == StripSeparators(other.number_);
+  return HasSameNumberAs(other);
+}
 
+bool CreditCard::HasSameNumberAs(const CreditCard& other) const {
   // For masked cards, this is the best we can do to compare card numbers.
-  return TypeAndLastFourDigits() == other.TypeAndLastFourDigits();
+  if (record_type() == MASKED_SERVER_CARD ||
+      other.record_type() == MASKED_SERVER_CARD) {
+    return TypeAndLastFourDigits() == other.TypeAndLastFourDigits();
+  }
+
+  return StripSeparators(number_) == StripSeparators(other.number_);
 }
 
 bool CreditCard::operator==(const CreditCard& credit_card) const {
@@ -679,13 +681,17 @@ base::string16 CreditCard::Expiration2DigitYearAsString() const {
   return base::IntToString16(Expiration2DigitYear());
 }
 
-void CreditCard::SetExpirationMonthFromString(const base::string16& text,
+bool CreditCard::SetExpirationMonthFromString(const base::string16& text,
                                               const std::string& app_locale) {
+  base::string16 trimmed;
+  base::TrimWhitespace(text, base::TRIM_ALL, &trimmed);
+
   int month = 0;
-  if (!text.empty() && !ConvertMonth(text, app_locale, &month))
-    return;
+  if (!ConvertMonth(trimmed, app_locale, &month))
+    return false;
 
   SetExpirationMonth(month);
+  return true;
 }
 
 void CreditCard::SetExpirationYearFromString(const base::string16& text) {

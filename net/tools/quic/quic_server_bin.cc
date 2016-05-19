@@ -8,11 +8,11 @@
 #include <iostream>
 
 #include "base/at_exit.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/quic/crypto/proof_source_chromium.h"
 #include "net/quic/quic_protocol.h"
@@ -20,7 +20,7 @@
 #include "net/tools/quic/quic_server.h"
 
 // The port the quic server will listen on.
-int32 FLAGS_port = 6121;
+int32_t FLAGS_port = 6121;
 
 net::ProofSource* CreateProofSource(const base::FilePath& cert_path,
                                     const base::FilePath& key_path) {
@@ -29,7 +29,7 @@ net::ProofSource* CreateProofSource(const base::FilePath& cert_path,
   return proof_source;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   base::AtExitManager exit_manager;
   base::MessageLoopForIO message_loop;
 
@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (line->HasSwitch("quic_in_memory_cache_dir")) {
-    net::tools::QuicInMemoryCache::GetInstance()->InitializeFromDirectory(
+    net::QuicInMemoryCache::GetInstance()->InitializeFromDirectory(
         line->GetSwitchValueASCII("quic_in_memory_cache_dir"));
   }
 
@@ -77,11 +77,11 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  net::IPAddressNumber ip;
-  CHECK(net::ParseIPLiteralToNumber("::", &ip));
+  net::IPAddress ip;
+  CHECK(ip.AssignFromIPLiteral("::"));
 
   net::QuicConfig config;
-  net::tools::QuicServer server(
+  net::QuicServer server(
       CreateProofSource(line->GetSwitchValuePath("certificate_file"),
                         line->GetSwitchValuePath("key_file")),
       config, net::QuicSupportedVersions());

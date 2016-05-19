@@ -30,7 +30,7 @@ class FakeGCMDriver : public GCMDriver {
   bool IsStarted() const override;
   bool IsConnected() const override;
   void GetGCMStatistics(const GetGCMStatisticsCallback& callback,
-                        bool clear_logs) override;
+                        ClearActivityLogs clear_logs) override;
   void SetGCMRecording(const GetGCMStatisticsCallback& callback,
                        bool recording) override;
   void SetAccountTokens(
@@ -54,6 +54,9 @@ class FakeGCMDriver : public GCMDriver {
   void SendImpl(const std::string& app_id,
                 const std::string& receiver_id,
                 const OutgoingMessage& message) override;
+  void RecordDecryptionFailure(const std::string& app_id,
+                               GCMEncryptionProvider::DecryptionResult result)
+      override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(FakeGCMDriver);

@@ -4,18 +4,20 @@
 
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <functional>
 #include <map>
 #include <utility>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "components/prefs/pref_service.h"
 
 // TODO(nona): move this header from this file.
 #include "chrome/grit/generated_resources.h"
@@ -26,7 +28,6 @@
 // For SetHardwareKeyboardLayoutForTesting.
 #include "ui/base/ime/chromeos/fake_input_method_delegate.h"
 #include "ui/base/ime/chromeos/input_method_delegate.h"
-#include "ui/base/ime/chromeos/input_method_whitelist.h"
 
 #include "ui/base/l10n/l10n_util.h"
 
@@ -83,8 +84,8 @@ const struct {
 const char* const kEngineIdMigrationMap[][2] = {
     {"ime:jp:mozc_jp", "nacl_mozc_jp"},
     {"ime:jp:mozc_us", "nacl_mozc_us"},
-    {"ime:ko:hangul_2set", "hangul_2set"},
-    {"ime:ko:hangul", "hangul_2set"},
+    {"ime:ko:hangul_2set", "ko-t-i0-und"},
+    {"ime:ko:hangul", "ko-t-i0-und"},
     {"ime:zh-t:array", "zh-hant-t-i0-array-1992"},
     {"ime:zh-t:cangjie", "zh-hant-t-i0-cangjie-1987"},
     {"ime:zh-t:dayi", "zh-hant-t-i0-dayi-1988"},
@@ -158,6 +159,7 @@ const struct EnglishToResouceId {
     {"xkb:is::ice", IDS_STATUSBAR_LAYOUT_ICELANDIC},
     {"xkb:it::ita", IDS_STATUSBAR_LAYOUT_ITALY},
     {"xkb:jp::jpn", IDS_STATUSBAR_LAYOUT_JAPAN},
+    {"xkb:kz::kaz", IDS_STATUSBAR_LAYOUT_KAZAKH},
     {"xkb:latam::spa", IDS_STATUSBAR_LAYOUT_LATIN_AMERICAN},
     {"xkb:lt::lit", IDS_STATUSBAR_LAYOUT_LITHUANIA},
     {"xkb:lv:apostrophe:lav", IDS_STATUSBAR_LAYOUT_LATVIA},
@@ -188,6 +190,8 @@ const struct EnglishToResouceId {
     {"xkb:us:intl:eng", IDS_STATUSBAR_LAYOUT_USA_INTERNATIONAL},
     {"xkb:us:intl:nld", IDS_STATUSBAR_LAYOUT_USA_INTERNATIONAL},
     {"xkb:us:intl:por", IDS_STATUSBAR_LAYOUT_USA_INTERNATIONAL},
+    {"xkb:us:workman-intl:eng", IDS_STATUSBAR_LAYOUT_USA_WORKMAN_INTERNATIONAL},
+    {"xkb:us:workman:eng", IDS_STATUSBAR_LAYOUT_USA_WORKMAN},
 };
 const size_t kEnglishToResourceIdArraySize =
     arraysize(kEnglishToResourceIdArray);
@@ -201,6 +205,7 @@ const struct InputMethodNameMap {
 } kInputMethodNameMap[] = {
     {"__MSG_INPUTMETHOD_ARRAY__", IDS_IME_NAME_INPUTMETHOD_ARRAY},
     {"__MSG_INPUTMETHOD_CANGJIE__", IDS_IME_NAME_INPUTMETHOD_CANGJIE},
+    {"__MSG_INPUTMETHOD_CANTONESE__", IDS_IME_NAME_INPUTMETHOD_CANTONESE},
     {"__MSG_INPUTMETHOD_DAYI__", IDS_IME_NAME_INPUTMETHOD_DAYI},
     {"__MSG_INPUTMETHOD_HANGUL_2_SET__", IDS_IME_NAME_INPUTMETHOD_HANGUL_2_SET},
     {"__MSG_INPUTMETHOD_HANGUL_3_SET_390__",
@@ -267,6 +272,7 @@ const struct InputMethodNameMap {
     {"__MSG_KEYBOARD_JAPANESE__", IDS_IME_NAME_KEYBOARD_JAPANESE},
     {"__MSG_KEYBOARD_KANNADA_PHONETIC__",
      IDS_IME_NAME_KEYBOARD_KANNADA_PHONETIC},
+    {"__MSG_KEYBOARD_KAZAKH__", IDS_IME_NAME_KEYBOARD_KAZAKH},
     {"__MSG_KEYBOARD_KHMER__", IDS_IME_NAME_KEYBOARD_KHMER},
     {"__MSG_KEYBOARD_LAO__", IDS_IME_NAME_KEYBOARD_LAO},
     {"__MSG_KEYBOARD_LATIN_AMERICAN__", IDS_IME_NAME_KEYBOARD_LATIN_AMERICAN},
@@ -329,6 +335,9 @@ const struct InputMethodNameMap {
     {"__MSG_KEYBOARD_US_EXTENDED__", IDS_IME_NAME_KEYBOARD_US_EXTENDED},
     {"__MSG_KEYBOARD_US_INTERNATIONAL__",
      IDS_IME_NAME_KEYBOARD_US_INTERNATIONAL},
+    {"__MSG_KEYBOARD_US_WORKMAN_INTERNATIONAL__",
+     IDS_IME_NAME_KEYBOARD_US_WORKMAN_INTERNATIONAL},
+    {"__MSG_KEYBOARD_US_WORKMAN__", IDS_IME_NAME_KEYBOARD_US_WORKMAN},
     {"__MSG_KEYBOARD_US__", IDS_IME_NAME_KEYBOARD_US},
     {"__MSG_KEYBOARD_VIETNAMESE_TCVN__", IDS_IME_NAME_KEYBOARD_VIETNAMESE_TCVN},
     {"__MSG_KEYBOARD_VIETNAMESE_TELEX__",
@@ -703,9 +712,12 @@ void InputMethodUtil::UpdateHardwareLayoutCache() {
   hardware_layouts_ = cached_hardware_layouts_;
   MigrateInputMethods(&hardware_layouts_);
 
+  bool has_xkb = false;
   for (size_t i = 0; i < hardware_layouts_.size(); ++i) {
     if (IsLoginKeyboard(hardware_layouts_[i]))
       hardware_login_layouts_.push_back(hardware_layouts_[i]);
+    if (extension_ime_util::IsKeyboardLayoutExtension(hardware_layouts_[i]))
+      has_xkb = true;
   }
 
   if (hardware_login_layouts_.empty()) {
@@ -715,8 +727,20 @@ void InputMethodUtil::UpdateHardwareLayoutCache() {
     // So need to make sure |hardware_login_layouts_| is not empty, and
     // |hardware_layouts_| contains at least one login layout.
     std::string fallback_id = GetFallbackInputMethodDescriptor().id();
-    hardware_layouts_.insert(hardware_layouts_.begin(), fallback_id);
     hardware_login_layouts_.push_back(fallback_id);
+    // If has XKB input method, it means the XKB input method is
+    // non-login-able. Therefore, add the fallback to the hardware layouts.
+    // If has no XKB input method, then it is up to the VPD to set the correct
+    // hardware input methods.
+    // Examples:
+    // 1) Arabic transliteration input method cannot be used to input Latin
+    // characters. So the VPD should be "xkb:us::eng,t13n:ar".
+    // 2) Korean input method can be used to input Latin characters. So the
+    // VPD should be "ime:ko:hangul". See chrome-os-partner:48623.
+    // 3) Russian keyboard cannot be used to input Latin characters, but it is
+    // XKB input method. So the VPD can be "xkb:ru::rus".
+    if (hardware_layouts_.empty() || has_xkb)
+      hardware_layouts_.insert(hardware_layouts_.begin(), fallback_id);
   }
 }
 
@@ -780,9 +804,10 @@ void InputMethodUtil::ResetInputMethods(const InputMethodDescriptors& imes) {
   AppendInputMethods(imes);
 }
 
-void InputMethodUtil::InitXkbInputMethodsForTesting() {
+void InputMethodUtil::InitXkbInputMethodsForTesting(
+    const InputMethodDescriptors& imes) {
   cached_hardware_layouts_.clear();
-  ResetInputMethods(*(InputMethodWhitelist().GetSupportedInputMethods()));
+  ResetInputMethods(imes);
 }
 
 const InputMethodUtil::InputMethodIdToDescriptorMap&

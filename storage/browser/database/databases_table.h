@@ -5,6 +5,8 @@
 #ifndef STORAGE_BROWSER_DATABASE_DATABASES_TABLE_H_
 #define STORAGE_BROWSER_DATABASE_DATABASES_TABLE_H_
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/strings/string16.h"
@@ -18,12 +20,13 @@ namespace storage {
 
 struct STORAGE_EXPORT DatabaseDetails {
   DatabaseDetails();
+  DatabaseDetails(const DatabaseDetails& other);
   ~DatabaseDetails();
 
   std::string origin_identifier;
   base::string16 database_name;
   base::string16 description;
-  int64 estimated_size;
+  int64_t estimated_size;
 };
 
 class STORAGE_EXPORT DatabasesTable {
@@ -31,8 +34,8 @@ class STORAGE_EXPORT DatabasesTable {
   explicit DatabasesTable(sql::Connection* db) : db_(db) { }
 
   bool Init();
-  int64 GetDatabaseID(const std::string& origin_identifier,
-                      const base::string16& database_name);
+  int64_t GetDatabaseID(const std::string& origin_identifier,
+                        const base::string16& database_name);
   bool GetDatabaseDetails(const std::string& origin_identifier,
                           const base::string16& database_name,
                           DatabaseDetails* details);

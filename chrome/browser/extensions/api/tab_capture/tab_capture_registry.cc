@@ -4,7 +4,10 @@
 
 #include "chrome/browser/extensions/api/tab_capture/tab_capture_registry.h"
 
+#include <utility>
+
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/values.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -113,7 +116,8 @@ class TabCaptureRegistry::LiveRequest : public content::WebContentsObserver {
       registry_->DispatchStatusChangeEvent(this);
   }
 
-  void DidToggleFullscreenModeForTab(bool entered_fullscreen) override {
+  void DidToggleFullscreenModeForTab(bool entered_fullscreen,
+                                     bool will_cause_resize) override {
     is_fullscreened_ = entered_fullscreen;
     if (capture_state_ == tab_capture::TAB_CAPTURE_STATE_ACTIVE)
       registry_->DispatchStatusChangeEvent(this);
@@ -326,10 +330,10 @@ void TabCaptureRegistry::DispatchStatusChangeEvent(
   args->Append(info.ToValue().release());
   scoped_ptr<Event> event(new Event(events::TAB_CAPTURE_ON_STATUS_CHANGED,
                                     tab_capture::OnStatusChanged::kEventName,
-                                    args.Pass()));
+                                    std::move(args)));
   event->restrict_to_browser_context = browser_context_;
 
-  router->DispatchEventToExtension(request->extension_id(), event.Pass());
+  router->DispatchEventToExtension(request->extension_id(), std::move(event));
 }
 
 TabCaptureRegistry::LiveRequest* TabCaptureRegistry::FindRequest(

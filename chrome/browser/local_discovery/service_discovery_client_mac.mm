@@ -7,6 +7,8 @@
 #import <arpa/inet.h>
 #import <Foundation/Foundation.h>
 #import <net/if_dl.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "base/debug/dump_without_crashing.h"
 #include "base/memory/singleton.h"
@@ -14,7 +16,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
-#include "net/base/ip_address_number.h"
+#include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 
 using local_discovery::ServiceWatcherImplMac;
@@ -100,7 +102,7 @@ void ParseTxtRecord(NSData* record, std::vector<std::string>* output) {
   const char* const record_end = record_bytes + [record length];
   // TODO(justinlin): More strict bounds checking.
   while (record_bytes < record_end) {
-    uint8 size = *record_bytes++;
+    uint8_t size = *record_bytes++;
     if (size <= 0)
       continue;
 

@@ -60,13 +60,14 @@ SourceMapV3.Offset = function()
 }
 
 /**
- * Implements Source Map V3 model. See http://code.google.com/p/closure-compiler/wiki/SourceMaps
+ * Implements Source Map V3 model. See https://github.com/google/closure-compiler/wiki/Source-Maps
  * for format description.
  * @constructor
+ * @param {string} compiledURL
  * @param {string} sourceMappingURL
  * @param {!SourceMapV3} payload
  */
-WebInspector.SourceMap = function(sourceMappingURL, payload)
+WebInspector.SourceMap = function(compiledURL, sourceMappingURL, payload)
 {
     if (!WebInspector.SourceMap.prototype._base64Map) {
         const base64Digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -75,6 +76,7 @@ WebInspector.SourceMap = function(sourceMappingURL, payload)
             WebInspector.SourceMap.prototype._base64Map[base64Digits.charAt(i)] = i;
     }
 
+    this._compiledURL = compiledURL;
     this._sourceMappingURL = sourceMappingURL;
     this._reverseMappingsBySourceURL = new Map();
     this._mappings = [];
@@ -91,16 +93,7 @@ WebInspector.SourceMap = function(sourceMappingURL, payload)
  */
 WebInspector.SourceMap.load = function(sourceMapURL, compiledURL, callback)
 {
-    var parsedURL = new WebInspector.ParsedURL(sourceMapURL);
-    if (parsedURL.isDataURL()) {
-        var xhr = new XMLHttpRequest();
-        xhr.open("GET", sourceMapURL, false);
-        xhr.send(null);
-        contentLoaded(xhr.status, {}, xhr.responseText);
-        return;
-    }
-
-    WebInspector.ResourceLoader.loadUsingTargetUA(sourceMapURL, null, contentLoaded);
+    WebInspector.multitargetNetworkManager.loadResource(sourceMapURL, contentLoaded);
 
     /**
      * @param {number} statusCode
@@ -119,15 +112,24 @@ WebInspector.SourceMap.load = function(sourceMapURL, compiledURL, callback)
         try {
             var payload = /** @type {!SourceMapV3} */ (JSON.parse(content));
             var baseURL = sourceMapURL.startsWith("data:") ? compiledURL : sourceMapURL;
-            callback(new WebInspector.SourceMap(baseURL, payload));
+            callback(new WebInspector.SourceMap(compiledURL, baseURL, payload));
         } catch(e) {
-            console.error(e.message);
+            console.error(e);
+            WebInspector.console.error("Failed to parse SourceMap: " + sourceMapURL);
             callback(null);
         }
     }
 }
 
 WebInspector.SourceMap.prototype = {
+    /**
+     * @return {string}
+     */
+    compiledURL: function()
+    {
+        return this._compiledURL;
+    },
+
     /**
      * @return {string}
      */
@@ -225,12 +227,7 @@ WebInspector.SourceMap.prototype = {
         var index = mappings.lowerBound(lineNumber, lineComparator);
         if (index >= mappings.length || mappings[index].sourceLineNumber !== lineNumber)
             return null;
-        var minColumn = mappings[index];
-        for (var i = index + 1; i < mappings.length && mappings[i].sourceLineNumber === lineNumber; ++i) {
-            if (minColumn.sourceColumnNumber > mappings[i].sourceColumnNumber)
-                minColumn = mappings[i];
-        }
-        return minColumn;
+        return mappings[index];
 
         /**
          * @param {number} lineNumber
@@ -241,6 +238,14 @@ WebInspector.SourceMap.prototype = {
         {
             return lineNumber - mapping.sourceLineNumber;
         }
+    },
+
+    /**
+     * @return {!Array<!WebInspector.SourceMap.Entry>}
+     */
+    mappings: function()
+    {
+        return this._mappings;
     },
 
     /**
@@ -284,19 +289,19 @@ WebInspector.SourceMap.prototype = {
         var nameIndex = 0;
 
         var sources = [];
-        var originalToCanonicalURLMap = {};
+        var sourceRoot = map.sourceRoot || "";
+        if (sourceRoot && !sourceRoot.endsWith("/"))
+            sourceRoot += "/";
         for (var i = 0; i < map.sources.length; ++i) {
-            var originalSourceURL = map.sources[i];
-            var sourceRoot = map.sourceRoot || "";
-            if (sourceRoot && !sourceRoot.endsWith("/"))
-                sourceRoot += "/";
-            var href = sourceRoot + originalSourceURL;
+            var href = sourceRoot + map.sources[i];
             var url = WebInspector.ParsedURL.completeURL(this._sourceMappingURL, href) || href;
-            originalToCanonicalURLMap[originalSourceURL] = url;
+            var hasSource = map.sourcesContent && map.sourcesContent[i];
+            if (url === this._compiledURL && hasSource)
+                url += WebInspector.UIString(" [sm]");
             sources.push(url);
             this._sources[url] = true;
 
-            if (map.sourcesContent && map.sourcesContent[i])
+            if (hasSource)
                 this._sourceContentByURL[url] = map.sourcesContent[i];
         }
 

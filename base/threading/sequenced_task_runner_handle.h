@@ -6,6 +6,7 @@
 #define BASE_THREADING_SEQUENCED_TASK_RUNNER_HANDLE_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 
 namespace base {
@@ -23,8 +24,8 @@ class BASE_EXPORT SequencedTaskRunnerHandle {
   // Returns true if one of the following conditions is fulfilled:
   // a) The current thread has a ThreadTaskRunnerHandle (which includes any
   //    thread that has a MessageLoop associated with it), or
-  // b) The current thread is a worker thread belonging to a SequencedWorkerPool
-  //    *and* is currently running a sequenced task.
+  // b) The current thread is a worker thread belonging to a
+  //    SequencedWorkerPool.
   static bool IsSet();
 
  private:

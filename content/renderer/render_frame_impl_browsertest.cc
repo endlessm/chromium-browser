@@ -2,25 +2,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/command_line.h"
 #include "base/debug/leak_annotations.h"
+#include "build/build_config.h"
 #include "content/common/frame_messages.h"
 #include "content/common/view_messages.h"
+#include "content/public/renderer/document_state.h"
 #include "content/public/test/frame_load_waiter.h"
 #include "content/public/test/render_view_test.h"
 #include "content/public/test/test_utils.h"
+#include "content/renderer/navigation_state_impl.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_view_impl.h"
 #include "content/test/fake_compositor_dependencies.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
 #include "third_party/WebKit/public/web/WebFrameOwnerProperties.h"
+#include "third_party/WebKit/public/web/WebHistoryItem.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 
 namespace {
-const int32 kSubframeRouteId = 20;
-const int32 kSubframeWidgetRouteId = 21;
-const int32 kFrameProxyRouteId = 22;
+const int32_t kSubframeRouteId = 20;
+const int32_t kSubframeWidgetRouteId = 21;
+const int32_t kFrameProxyRouteId = 22;
 }  // namespace
 
 namespace content {
@@ -34,8 +40,7 @@ class RenderFrameImplTest : public RenderViewTest {
 
   void SetUp() override {
     RenderViewTest::SetUp();
-    EXPECT_TRUE(static_cast<RenderFrameImpl*>(view_->GetMainRenderFrame())
-                    ->is_main_frame_);
+    EXPECT_TRUE(GetMainRenderFrame()->is_main_frame_);
 
     FrameMsg_NewFrame_WidgetParams widget_params;
     widget_params.routing_id = kSubframeWidgetRouteId;
@@ -45,15 +50,18 @@ class RenderFrameImplTest : public RenderViewTest {
 
     LoadHTML("Parent frame <iframe name='frame'></iframe>");
 
+    FrameReplicationState frame_replication_state;
+    frame_replication_state.name = "frame";
+    frame_replication_state.unique_name = "frame-uniqueName";
+
     RenderFrameImpl::FromWebFrame(
         view_->GetMainRenderFrame()->GetWebFrame()->firstChild())
-        ->OnSwapOut(kFrameProxyRouteId, false, FrameReplicationState());
+        ->OnSwapOut(kFrameProxyRouteId, false, frame_replication_state);
 
-    RenderFrameImpl::CreateFrame(kSubframeRouteId, MSG_ROUTING_NONE,
-                                 MSG_ROUTING_NONE, kFrameProxyRouteId,
-                                 MSG_ROUTING_NONE, FrameReplicationState(),
-                                 &compositor_deps_, widget_params,
-                                 blink::WebFrameOwnerProperties());
+    RenderFrameImpl::CreateFrame(
+        kSubframeRouteId, MSG_ROUTING_NONE, MSG_ROUTING_NONE,
+        kFrameProxyRouteId, MSG_ROUTING_NONE, frame_replication_state,
+        &compositor_deps_, widget_params, blink::WebFrameOwnerProperties());
 
     frame_ = RenderFrameImpl::FromRoutingID(kSubframeRouteId);
     EXPECT_FALSE(frame_->is_main_frame_);
@@ -66,6 +74,14 @@ class RenderFrameImplTest : public RenderViewTest {
      __lsan_do_leak_check();
 #endif
      RenderViewTest::TearDown();
+  }
+
+  void SetIsUsingLoFi(RenderFrameImpl* frame, bool is_using_lofi) {
+    frame->is_using_lofi_ = is_using_lofi;
+  }
+
+  RenderFrameImpl* GetMainRenderFrame() {
+    return static_cast<RenderFrameImpl*>(view_->GetMainRenderFrame());
   }
 
   RenderFrameImpl* frame() { return frame_; }
@@ -100,10 +116,12 @@ class RenderFrameTestObserver : public RenderFrameObserver {
 #define MAYBE_SubframeWidget DISABLED_SubframeWidget
 #define MAYBE_FrameResize DISABLED_FrameResize
 #define MAYBE_FrameWasShown DISABLED_FrameWasShown
+#define MAYBE_FrameWasShownAfterWidgetClose DISABLED_FrameWasShownAfterWidgetClose
 #else
 #define MAYBE_SubframeWidget SubframeWidget
 #define MAYBE_FrameResize FrameResize
 #define MAYBE_FrameWasShown FrameWasShown
+#define MAYBE_FrameWasShownAfterWidgetClose FrameWasShownAfterWidgetClose
 #endif
 
 // Verify that a frame with a RenderFrameProxy as a parent has its own
@@ -129,7 +147,7 @@ TEST_F(RenderFrameImplTest, MAYBE_SubframeWidget) {
 // Verify a subframe RenderWidget properly processes its viewport being
 // resized.
 TEST_F(RenderFrameImplTest, MAYBE_FrameResize) {
-  ViewMsg_Resize_Params resize_params;
+  ResizeParams resize_params;
   gfx::Size size(200, 200);
   resize_params.screen_info = blink::WebScreenInfo();
   resize_params.new_size = size;
@@ -154,6 +172,68 @@ TEST_F(RenderFrameImplTest, MAYBE_FrameWasShown) {
 
   EXPECT_FALSE(frame_widget()->is_hidden());
   EXPECT_TRUE(observer.visible());
+}
+
+// Ensure that a RenderFrameImpl does not crash if the RenderView receives
+// a WasShown message after the frame's widget has been closed.
+TEST_F(RenderFrameImplTest, MAYBE_FrameWasShownAfterWidgetClose) {
+  RenderFrameTestObserver observer(frame());
+
+  ViewMsg_Close close_message(0);
+  frame_widget()->OnMessageReceived(close_message);
+
+  ViewMsg_WasShown was_shown_message(0, true, ui::LatencyInfo());
+  static_cast<RenderViewImpl*>(view_)->OnMessageReceived(was_shown_message);
+
+  // This test is primarily checking that this case does not crash, but
+  // observers should still be notified.
+  EXPECT_TRUE(observer.visible());
+}
+
+// Test that LoFi state only updates for new main frame documents. Subframes
+// inherit from the main frame and should not change at commit time.
+TEST_F(RenderFrameImplTest, LoFiNotUpdatedOnSubframeCommits) {
+  SetIsUsingLoFi(GetMainRenderFrame(), true);
+  SetIsUsingLoFi(frame(), true);
+  EXPECT_TRUE(GetMainRenderFrame()->IsUsingLoFi());
+  EXPECT_TRUE(frame()->IsUsingLoFi());
+
+  blink::WebHistoryItem item;
+  item.initialize();
+
+  // The main frame's and subframe's LoFi states should stay the same on
+  // navigations within the page.
+  frame()->didNavigateWithinPage(frame()->GetWebFrame(), item,
+                                 blink::WebStandardCommit);
+  EXPECT_TRUE(frame()->IsUsingLoFi());
+  GetMainRenderFrame()->didNavigateWithinPage(
+      GetMainRenderFrame()->GetWebFrame(), item, blink::WebStandardCommit);
+  EXPECT_TRUE(GetMainRenderFrame()->IsUsingLoFi());
+
+  // The subframe's LoFi state should not be reset on commit.
+  DocumentState* document_state =
+      DocumentState::FromDataSource(frame()->GetWebFrame()->dataSource());
+  static_cast<NavigationStateImpl*>(document_state->navigation_state())
+      ->set_was_within_same_page(false);
+
+  frame()->didCommitProvisionalLoad(frame()->GetWebFrame(), item,
+                                    blink::WebStandardCommit);
+  EXPECT_TRUE(frame()->IsUsingLoFi());
+
+  // The main frame's LoFi state should be reset to off on commit.
+  document_state = DocumentState::FromDataSource(
+      GetMainRenderFrame()->GetWebFrame()->dataSource());
+  static_cast<NavigationStateImpl*>(document_state->navigation_state())
+      ->set_was_within_same_page(false);
+
+  // Calling didCommitProvisionalLoad is not representative of a full navigation
+  // but serves the purpose of testing the LoFi state logic.
+  GetMainRenderFrame()->didCommitProvisionalLoad(
+      GetMainRenderFrame()->GetWebFrame(), item, blink::WebStandardCommit);
+  EXPECT_FALSE(GetMainRenderFrame()->IsUsingLoFi());
+  // The subframe would be deleted here after a cross-document navigation. It
+  // happens to be left around in this test because this does not simulate the
+  // frame detach.
 }
 
 }  // namespace

@@ -34,9 +34,25 @@ template("generate_nmf") {
                              "public_deps",
                              "stage_dependencies",
                              "testonly",
+                             "visibility",
                            ])
 
+    # TODO(phosek): Remove this conditional once
+    # https://bugs.chromium.org/p/nativeclient/issues/detail?id=4339 is
+    # resolved.
+    if (current_cpu == "pnacl") {
+      objdump = rebase_path("${nacl_toolchain_bindir}/x86_64-nacl-objdump")
+    } else {
+      objdump = rebase_path("${nacl_toolprefix}objdump")
+    }
+    if (host_os == "win") {
+      objdump += ".exe"
+    }
+
     script = "//native_client_sdk/src/tools/create_nmf.py"
+    inputs = [
+      objdump,
+    ]
     sources = executables
     outputs = [
       nmf,
@@ -80,7 +96,7 @@ template("generate_nmf") {
     }
     args = [
              "--no-default-libpath",
-             "--objdump=" + rebase_path("${nacl_toolprefix}objdump"),
+             "--objdump=" + objdump,
              "--output=" + rebase_path(nmf, root_build_dir),
            ] + nmfflags + rebase_path(sources, root_build_dir)
     if (is_nacl_glibc && current_cpu == "arm") {
@@ -97,19 +113,24 @@ template("generate_nmf") {
 # Variables:
 #   executable: Non-SFI .nexe executable to generate nmf for
 #   nmf: the name and the path of the output file
+#   nmfflags: additional flags for the nmf generator
 template("generate_nonsfi_test_nmf") {
   assert(defined(invoker.executable), "Must define executable")
   assert(defined(invoker.nmf), "Must define nmf")
 
   action(target_name) {
+    nmfflags = []
+
     forward_variables_from(invoker,
                            [
                              "deps",
                              "data_deps",
                              "executable",
                              "nmf",
+                             "nmfflags",
                              "testonly",
                              "public_deps",
+                             "visibility",
                            ])
 
     script = "//ppapi/tests/create_nonsfi_test_nmf.py"
@@ -131,9 +152,9 @@ template("generate_nonsfi_test_nmf") {
       arch = target_cpu
     }
     args = [
-      "--program=" + rebase_path(executable, root_build_dir),
-      "--arch=${arch}",
-      "--output=" + rebase_path(nmf, root_build_dir),
-    ]
+             "--program=" + rebase_path(executable, root_build_dir),
+             "--arch=${arch}",
+             "--output=" + rebase_path(nmf, root_build_dir),
+           ] + nmfflags
   }
 }

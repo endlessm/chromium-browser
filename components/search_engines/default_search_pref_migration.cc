@@ -4,15 +4,18 @@
 
 #include "components/search_engines/default_search_pref_migration.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/prefs/pref_service.h"
 #include "components/search_engines/default_search_manager.h"
 #include "components/search_engines/search_engines_pref_names.h"
 #include "components/search_engines/template_url_data.h"
@@ -82,7 +85,7 @@ scoped_ptr<TemplateURLData> LoadDefaultSearchProviderFromLegacyPrefs(
 
   std::string id_string = prefs->GetString(prefs::kDefaultSearchProviderID);
   if (!id_string.empty()) {
-    int64 value;
+    int64_t value;
     base::StringToInt64(id_string, &value);
     default_provider_data->id = value;
   }
@@ -95,7 +98,7 @@ scoped_ptr<TemplateURLData> LoadDefaultSearchProviderFromLegacyPrefs(
     default_provider_data->prepopulate_id = value;
   }
 
-  return default_provider_data.Pass();
+  return default_provider_data;
 }
 
 void ClearDefaultSearchProviderFromLegacyPrefs(PrefService* prefs) {

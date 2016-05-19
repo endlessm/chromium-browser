@@ -93,9 +93,9 @@ struct TouchPointLog {
         type(touch.type()),
         location(touch.root_location()),
         timestamp(touch.time_stamp().InMillisecondsF()),
-        radius_x(touch.pointer_details().radius_x()),
-        radius_y(touch.pointer_details().radius_y()),
-        pressure(touch.pointer_details().force()),
+        radius_x(touch.pointer_details().radius_x),
+        radius_y(touch.pointer_details().radius_y),
+        pressure(touch.pointer_details().force),
         tracking_id(GetTrackingId(touch)),
         source_device(touch.source_device_id()) {}
 
@@ -114,7 +114,7 @@ struct TouchPointLog {
     value->SetInteger("tracking_id", tracking_id);
     value->SetInteger("source_device", source_device);
 
-    return value.Pass();
+    return value;
   }
 
   int id;
@@ -157,7 +157,7 @@ class TouchTrace {
     scoped_ptr<base::ListValue> list(new base::ListValue());
     for (const_iterator i = log_.begin(); i != log_.end(); ++i)
       list->Append((*i).GetAsDictionary().release());
-    return list.Pass();
+    return list;
   }
 
   void Reset() {
@@ -194,7 +194,7 @@ class TouchLog {
       if (!traces_[i].log().empty())
         list->Append(traces_[i].GetAsList().release());
     }
-    return list.Pass();
+    return list;
   }
 
   int GetTraceIndex(int touch_id) const {
@@ -370,7 +370,7 @@ scoped_ptr<base::DictionaryValue> TouchHudDebug::GetAllAsDictionary() {
         value->Set(base::Int64ToString(hud->display_id()), list.release());
     }
   }
-  return value.Pass();
+  return value;
 }
 
 void TouchHudDebug::ChangeToNextMode() {

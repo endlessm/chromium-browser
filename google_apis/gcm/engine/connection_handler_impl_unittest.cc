@@ -4,7 +4,9 @@
 
 #include "google_apis/gcm/engine/connection_handler_impl.h"
 
+#include <stdint.h>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/memory/scoped_ptr.h"
@@ -28,8 +30,8 @@ typedef scoped_ptr<google::protobuf::MessageLite> ScopedMessage;
 typedef std::vector<net::MockRead> ReadList;
 typedef std::vector<net::MockWrite> WriteList;
 
-const uint64 kAuthId = 54321;
-const uint64 kAuthToken = 12345;
+const uint64_t kAuthId = 54321;
+const uint64_t kAuthToken = 12345;
 const char kMCSVersion = 41;  // The protocol version.
 const int kMCSPort = 5228;    // The server port.
 const char kDataMsgFrom[] = "data_from";
@@ -44,13 +46,13 @@ const char kDataMsgFromLong2[] =
     "this is a second long from that will result in a message > 128 bytes";
 const char kDataMsgCategoryLong2[] =
     "this is a second long category that will result in a message > 128 bytes";
-const uint8 kInvalidTag = 100;  // An invalid tag.
+const uint8_t kInvalidTag = 100;  // An invalid tag.
 
 // ---- Helpers for building messages. ----
 
 // Encode a protobuf packet with protobuf type |tag| and serialized protobuf
 // bytes |proto| into the MCS message form (tag + varint size + bytes).
-std::string EncodePacket(uint8 tag, const std::string& proto) {
+std::string EncodePacket(uint8_t tag, const std::string& proto) {
   std::string result;
   google::protobuf::io::StringOutputStream string_output_stream(&result);
   {
@@ -242,7 +244,7 @@ void GCMConnectionHandlerImplTest::Connect(
 void GCMConnectionHandlerImplTest::ReadContinuation(
     ScopedMessage* dst_proto,
     ScopedMessage new_proto) {
-  *dst_proto = new_proto.Pass();
+  *dst_proto = std::move(new_proto);
   run_loop_->Quit();
 }
 

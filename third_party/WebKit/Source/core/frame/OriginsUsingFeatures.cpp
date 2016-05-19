@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/frame/OriginsUsingFeatures.h"
 
 #include "bindings/core/v8/ScriptState.h"
@@ -159,6 +158,10 @@ void OriginsUsingFeatures::Value::recordOriginToRappor(const String& origin)
         Platform::current()->recordRappor("PowerfulFeatureUse.Host.GetUserMedia.Insecure", origin);
     if (get(Feature::GetUserMediaSecureOrigin))
         Platform::current()->recordRappor("PowerfulFeatureUse.Host.GetUserMedia.Secure", origin);
+    if (get(Feature::ApplicationCacheManifestSelectInsecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.ApplicationCacheManifestSelect.Insecure", origin);
+    if (get(Feature::ApplicationCacheAPIInsecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.ApplicationCacheAPI.Insecure", origin);
 }
 
 void OriginsUsingFeatures::Value::recordNameToRappor(const String& name)

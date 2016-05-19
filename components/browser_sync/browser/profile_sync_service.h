@@ -9,11 +9,11 @@
 #include <string>
 #include <utility>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -22,9 +22,9 @@
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/signin/core/browser/signin_manager_base.h"
-#include "components/sync_driver/backup_rollback_controller.h"
 #include "components/sync_driver/data_type_controller.h"
 #include "components/sync_driver/data_type_manager.h"
 #include "components/sync_driver/data_type_manager_observer.h"
@@ -64,7 +64,6 @@ namespace browser_sync {
 class BackendMigrator;
 class FaviconCache;
 class SessionsSyncManager;
-class SyncedWindowDelegatesGetter;
 }  // namespace browser_sync
 
 namespace sync_driver {
@@ -159,18 +158,18 @@ class EncryptedData;
 //   types until the user has finished setting up sync. There are two APIs
 //   that control the initial sync download:
 //
-//    * SetSyncSetupCompleted()
+//    * SetFirstSetupComplete()
 //    * SetSetupInProgress()
 //
-//   SetSyncSetupCompleted() should be called once the user has finished setting
+//   SetFirstSetupComplete() should be called once the user has finished setting
 //   up sync at least once on their account. SetSetupInProgress(true) should be
 //   called while the user is actively configuring their account, and then
 //   SetSetupInProgress(false) should be called when configuration is complete.
-//   When SetSyncSetupCompleted() == false, but SetSetupInProgress(true) has
+//   When SetFirstSetupComplete() == false, but SetSetupInProgress(true) has
 //   been called, then the sync engine knows not to download any user data.
 //
 //   When initial sync is complete, the UI code should call
-//   SetSyncSetupCompleted() followed by SetSetupInProgress(false) - this will
+//   SetFirstSetupComplete() followed by SetSetupInProgress(false) - this will
 //   tell the sync engine that setup is completed and it can begin downloading
 //   data from the sync server.
 //
@@ -185,6 +184,7 @@ class ProfileSyncService : public sync_driver::SyncService,
                            public SigninManagerBase::Observer {
  public:
   typedef browser_sync::SyncBackendHost::Status Status;
+  typedef base::Callback<bool(void)> PlatformSyncAllowedProvider;
 
   enum SyncEventCodes  {
     MIN_SYNC_EVENT_CODE = 0,
@@ -218,32 +218,38 @@ class ProfileSyncService : public sync_driver::SyncService,
     SETUP_INCOMPLETE,
     DATATYPES_NOT_INITIALIZED,
     INITIALIZED,
-    BACKUP_USER_DATA,
-    ROLLBACK_USER_DATA,
     UNKNOWN_ERROR,
   };
 
-  enum BackendMode {
-    IDLE,       // No backend.
-    SYNC,       // Backend for syncing.
-    BACKUP,     // Backend for backup.
-    ROLLBACK    // Backend for rollback.
+  // Bundles the arguments for ProfileSyncService construction. This is a
+  // movable struct. Because of the non-POD data members, it needs out-of-line
+  // constructors, so in particular the move constructor needs to be
+  // explicitly defined.
+  struct InitParams {
+    InitParams();
+    ~InitParams();
+    InitParams(InitParams&& other);  // NOLINT
+
+    scoped_ptr<sync_driver::SyncClient> sync_client;
+    scoped_ptr<SigninManagerWrapper> signin_wrapper;
+    ProfileOAuth2TokenService* oauth2_token_service = nullptr;
+    browser_sync::ProfileSyncServiceStartBehavior start_behavior =
+        browser_sync::MANUAL_START;
+    syncer::NetworkTimeUpdateCallback network_time_update_callback;
+    base::FilePath base_directory;
+    scoped_refptr<net::URLRequestContextGetter> url_request_context;
+    std::string debug_identifier;
+    version_info::Channel channel = version_info::Channel::UNKNOWN;
+    scoped_refptr<base::SingleThreadTaskRunner> db_thread;
+    scoped_refptr<base::SingleThreadTaskRunner> file_thread;
+    base::SequencedWorkerPool* blocking_pool = nullptr;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(InitParams);
   };
 
-  // Takes ownership of |factory| and |signin_wrapper|.
-  ProfileSyncService(
-      scoped_ptr<sync_driver::SyncClient> sync_client,
-      scoped_ptr<SigninManagerWrapper> signin_wrapper,
-      ProfileOAuth2TokenService* oauth2_token_service,
-      browser_sync::ProfileSyncServiceStartBehavior start_behavior,
-      const syncer::NetworkTimeUpdateCallback& network_time_update_callback,
-      base::FilePath base_directory,
-      scoped_refptr<net::URLRequestContextGetter> url_request_context,
-      std::string debug_identifier,
-      version_info::Channel channel,
-      scoped_refptr<base::SingleThreadTaskRunner> db_thread,
-      scoped_refptr<base::SingleThreadTaskRunner> file_thread,
-      base::SequencedWorkerPool* blocking_pool);
+  explicit ProfileSyncService(InitParams init_params);
+
   ~ProfileSyncService() override;
 
   // Initializes the object. This must be called at most once, and
@@ -251,7 +257,7 @@ class ProfileSyncService : public sync_driver::SyncService,
   void Initialize();
 
   // sync_driver::SyncService implementation
-  bool HasSyncSetupCompleted() const override;
+  bool IsFirstSetupComplete() const override;
   bool IsSyncAllowed() const override;
   bool IsSyncActive() const override;
   void TriggerRefresh(const syncer::ModelTypeSet& types) override;
@@ -264,7 +270,7 @@ class ProfileSyncService : public sync_driver::SyncService,
   syncer::ModelTypeSet GetPreferredDataTypes() const override;
   void OnUserChoseDatatypes(bool sync_everything,
                             syncer::ModelTypeSet chosen_types) override;
-  void SetSyncSetupCompleted() override;
+  void SetFirstSetupComplete() override;
   bool IsFirstSetupInProgress() const override;
   void SetSetupInProgress(bool setup_in_progress) override;
   bool IsSetupInProgress() const override;
@@ -327,14 +333,6 @@ class ProfileSyncService : public sync_driver::SyncService,
 
   void RegisterAuthNotifications();
   void UnregisterAuthNotifications();
-
-  // Return whether OAuth2 refresh token is loaded and available for the backend
-  // to start up. Virtual to enable mocking in tests.
-  virtual bool IsOAuthRefreshTokenAvailable();
-
-  // Returns the SyncedWindowDelegatesGetter from the embedded sessions manager.
-  virtual browser_sync::SyncedWindowDelegatesGetter*
-  GetSyncedWindowDelegatesGetter() const;
 
   // Returns the SyncableService for syncer::SESSIONS.
   virtual syncer::SyncableService* GetSessionsSyncableService();
@@ -420,7 +418,7 @@ class ProfileSyncService : public sync_driver::SyncService,
   // Returns true if sync is requested to be running by the user.
   // Note that this does not mean that sync WILL be running; e.g. if
   // IsSyncAllowed() is false then sync won't start, and if the user
-  // doesn't confirm their settings (HasSyncSetupCompleted), sync will
+  // doesn't confirm their settings (IsFirstSetupComplete), sync will
   // never become active. Use IsSyncActive to see if sync is running.
   virtual bool IsSyncRequested() const;
 
@@ -432,6 +430,9 @@ class ProfileSyncService : public sync_driver::SyncService,
   // This function can be called from any thread, and the implementation doesn't
   // assume it's running on the UI thread.
   static bool IsSyncAllowedByFlag();
+
+  // Returns whether sync is currently allowed on this platform.
+  bool IsSyncAllowedByPlatform() const;
 
   // Returns whether sync is managed, i.e. controlled by configuration
   // management. If so, the user is not allowed to configure sync.
@@ -556,15 +557,18 @@ class ProfileSyncService : public sync_driver::SyncService,
 
   virtual bool IsDataTypeControllerRunning(syncer::ModelType type) const;
 
-  // Returns the current mode the backend is in.
-  BackendMode backend_mode() const;
-
-  base::Time GetDeviceBackupTimeForTesting() const;
-
   // This triggers a Directory::SaveChanges() call on the sync thread.
   // It should be used to persist data to disk when the process might be
   // killed in the near future.
   void FlushDirectory() const;
+
+  // Returns a serialized NigoriKey proto generated from the bootstrap token in
+  // SyncPrefs. Will return the empty string if no bootstrap token exists.
+  std::string GetCustomPassphraseKey() const;
+
+  // Set the provider for whether sync is currently allowed by the platform.
+  void SetPlatformSyncAllowedProvider(
+      const PlatformSyncAllowedProvider& platform_sync_allowed_provider);
 
   // Needed to test whether the directory is deleted properly.
   base::FilePath GetDirectoryPathForTest() const;
@@ -604,8 +608,6 @@ class ProfileSyncService : public sync_driver::SyncService,
       const std::string& message,
       bool delete_sync_database);
 
-  virtual bool NeedBackup() const;
-
   // This is a cache of the last authentication response we received from the
   // sync server. The UI queries this to display appropriate messaging to the
   // user.
@@ -639,10 +641,9 @@ class ProfileSyncService : public sync_driver::SyncService,
 
   // The initial state of sync, for the Sync.InitialState histogram. Even if
   // this value is CAN_START, sync startup might fail for reasons that we may
-  // want to consider logging in the future, such as sync being disabled via
-  // Google Dashboard (birthday error), a passphrase needed for decryption, or
-  // the version of Chrome being too old. This enum is used to back a UMA
-  // histogram, and should therefore be treated as append-only.
+  // want to consider logging in the future, such as a passphrase needed for
+  // decryption, or the version of Chrome being too old. This enum is used to
+  // back a UMA histogram, and should therefore be treated as append-only.
   enum SyncInitialState {
     CAN_START,                // Sync can attempt to start up.
     NOT_SIGNED_IN,            // There is no signed in user.
@@ -651,6 +652,7 @@ class ProfileSyncService : public sync_driver::SyncService,
                               // is false. Might indicate a stop-and-clear.
     NEEDS_CONFIRMATION,       // The user must confirm sync settings.
     IS_MANAGED,               // Sync is disallowed by enterprise policy.
+    NOT_ALLOWED_BY_PLATFORM,  // Sync is disallowed by the platform.
     SYNC_INITIAL_STATE_LIMIT
   };
 
@@ -714,9 +716,8 @@ class ProfileSyncService : public sync_driver::SyncService,
 
   void ClearUnrecoverableError();
 
-  // Starts up the backend sync components. |mode| specifies the kind of
-  // backend to start, one of SYNC, BACKUP or ROLLBACK.
-  virtual void StartUpSlowBackendComponents(BackendMode mode);
+  // Starts up the backend sync components.
+  virtual void StartUpSlowBackendComponents();
 
   // Collects preferred sync data types from |preference_providers_|.
   syncer::ModelTypeSet GetDataTypesFromPreferenceProviders() const;
@@ -740,9 +741,6 @@ class ProfileSyncService : public sync_driver::SyncService,
                                     bool delete_sync_database,
                                     UnrecoverableErrorReason reason);
 
-  // Returns the type of manager to use according to |backend_mode_|.
-  syncer::SyncManagerFactory::MANAGER_TYPE GetManagerType() const;
-
   // Update UMA for syncing backend.
   void UpdateBackendInitUMA(bool success);
 
@@ -757,22 +755,6 @@ class ProfileSyncService : public sync_driver::SyncService,
 
   // Update first sync time stored in preferences
   void UpdateFirstSyncTimePref();
-
-  // Clear browsing data since first sync during rollback.
-  void ClearBrowsingDataSinceFirstSync();
-
-  // Post background task to check sync backup DB state if needed.
-  void CheckSyncBackupIfNeeded();
-
-  // Callback to receive backup DB check result.
-  void CheckSyncBackupCallback(base::Time backup_time);
-
-  // Callback function to call |startup_controller_|.TryStart() after
-  // backup/rollback finishes;
-  void TryStartSyncAfterBackup();
-
-  // Clean up prefs and backup DB when rollback is not needed.
-  void CleanUpBackup();
 
   // Tell the sync server that this client has disabled sync.
   void RemoveClientFromServer() const;
@@ -839,7 +821,7 @@ class ProfileSyncService : public sync_driver::SyncService,
   base::SequencedWorkerPool* blocking_pool_;
 
   // Indicates if this is the first time sync is being configured.  This value
-  // is equal to !HasSyncSetupCompleted() at the time of OnBackendInitialized().
+  // is equal to !IsFirstSetupComplete() at the time of OnBackendInitialized().
   bool is_first_time_sync_configure_;
 
   // List of available data type controllers.
@@ -965,24 +947,8 @@ class ProfileSyncService : public sync_driver::SyncService,
 
   scoped_ptr<syncer::NetworkResources> network_resources_;
 
+  browser_sync::ProfileSyncServiceStartBehavior start_behavior_;
   scoped_ptr<browser_sync::StartupController> startup_controller_;
-
-  scoped_ptr<sync_driver::BackupRollbackController> backup_rollback_controller_;
-
-  // Mode of current backend.
-  BackendMode backend_mode_;
-
-  // Whether backup is needed before sync starts.
-  bool need_backup_;
-
-  // Whether backup is finished.
-  bool backup_finished_;
-
-  base::Time backup_start_time_;
-
-  // Last time when pre-sync data was saved. NULL pointer means backup data
-  // state is unknown. If time value is null, backup data doesn't exist.
-  scoped_ptr<base::Time> last_backup_time_;
 
   // The full path to the sync data directory.
   base::FilePath directory_path_;
@@ -1008,6 +974,10 @@ class ProfileSyncService : public sync_driver::SyncService,
   // the user. This logic is only enabled on platforms that consume the
   // IsPassphrasePrompted sync preference.
   bool passphrase_prompt_triggered_by_version_;
+
+  // An object that lets us check whether sync is currently allowed on this
+  // platform.
+  PlatformSyncAllowedProvider platform_sync_allowed_provider_;
 
   // Used to ensure that certain operations are performed on the thread that
   // this object was created on.

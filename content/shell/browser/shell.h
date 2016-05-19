@@ -4,10 +4,10 @@
 #ifndef CONTENT_SHELL_BROWSER_SHELL_H_
 #define CONTENT_SHELL_BROWSER_SHELL_H_
 
+#include <stdint.h>
 
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_piece.h"
@@ -60,6 +60,13 @@ class Shell : public WebContentsDelegate,
   void LoadDataWithBaseURL(const GURL& url,
                            const std::string& data,
                            const GURL& base_url);
+
+#if defined(OS_ANDROID)
+  // Android-only path to allow loading long data strings.
+  void LoadDataAsStringWithBaseURL(const GURL& url,
+                                   const std::string& data,
+                                   const GURL& base_url);
+#endif
   void GoBackOrForward(int offset);
   void Reload();
   void Stop();
@@ -136,17 +143,16 @@ class Shell : public WebContentsDelegate,
   JavaScriptDialogManager* GetJavaScriptDialogManager(
       WebContents* source) override;
   scoped_ptr<BluetoothChooser> RunBluetoothChooser(
-      WebContents* web_contents,
-      const BluetoothChooser::EventHandler& event_handler,
-      const GURL& origin) override;
+      RenderFrameHost* frame,
+      const BluetoothChooser::EventHandler& event_handler) override;
 #if defined(OS_MACOSX)
   void HandleKeyboardEvent(WebContents* source,
                            const NativeWebKeyboardEvent& event) override;
 #endif
   bool AddMessageToConsole(WebContents* source,
-                           int32 level,
+                           int32_t level,
                            const base::string16& message,
-                           int32 line_no,
+                           int32_t line_no,
                            const base::string16& source_id) override;
   void RendererUnresponsive(WebContents* source) override;
   void ActivateContents(WebContents* contents) override;
@@ -205,11 +211,18 @@ class Shell : public WebContentsDelegate,
       const WebContents* web_contents) const;
 #endif
 
+  // Helper method for the two public LoadData methods.
+  void LoadDataWithBaseURLInternal(const GURL& url,
+                                   const std::string& data,
+                                   const GURL& base_url,
+                                   bool load_as_string);
+
   gfx::NativeView GetContentView();
 
   void ToggleFullscreenModeForTab(WebContents* web_contents,
                                   bool enter_fullscreen);
   // WebContentsObserver
+  void RenderViewCreated(RenderViewHost* render_view_host) override;
   void TitleWasSet(NavigationEntry* entry, bool explicit_set) override;
 
   void InnerShowDevTools();

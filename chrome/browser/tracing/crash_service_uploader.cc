@@ -4,6 +4,8 @@
 
 #include "chrome/browser/tracing/crash_service_uploader.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -14,6 +16,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/tracing/tracing_switches.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
@@ -91,8 +94,8 @@ void TraceCrashServiceUploader::OnURLFetchComplete(
 
 void TraceCrashServiceUploader::OnURLFetchUploadProgress(
     const net::URLFetcher* source,
-    int64 current,
-    int64 total) {
+    int64_t current,
+    int64_t total) {
   DCHECK(url_fetcher_.get());
 
   LOG(WARNING) << "Upload progress: " << current << " of " << total;
@@ -115,8 +118,8 @@ void TraceCrashServiceUploader::DoUpload(
       content::BrowserThread::FILE, FROM_HERE,
       base::Bind(&TraceCrashServiceUploader::DoUploadOnFileThread,
                  base::Unretained(this), file_contents, upload_mode,
-                 upload_url_, base::Passed(metadata.Pass()), progress_callback,
-                 done_callback));
+                 upload_url_, base::Passed(std::move(metadata)),
+                 progress_callback, done_callback));
 }
 
 void TraceCrashServiceUploader::DoUploadOnFileThread(
@@ -189,7 +192,7 @@ void TraceCrashServiceUploader::DoUploadOnFileThread(
   }
 
   std::string post_data;
-  SetupMultipart(product, version, metadata.Pass(), "trace.json.gz",
+  SetupMultipart(product, version, std::move(metadata), "trace.json.gz",
                  compressed_contents, &post_data);
 
   content::BrowserThread::PostTask(
@@ -271,9 +274,9 @@ bool TraceCrashServiceUploader::Compress(std::string input,
                             8,  // memLevel = 8 is default.
                             Z_DEFAULT_STRATEGY);
   DCHECK_EQ(Z_OK, result);
-  stream.next_in = reinterpret_cast<uint8*>(&input[0]);
+  stream.next_in = reinterpret_cast<uint8_t*>(&input[0]);
   stream.avail_in = input.size();
-  stream.next_out = reinterpret_cast<uint8*>(compressed);
+  stream.next_out = reinterpret_cast<uint8_t*>(compressed);
   stream.avail_out = max_compressed_bytes;
   // Do a one-shot compression. This will return Z_STREAM_END only if |output|
   // is large enough to hold all compressed data.

@@ -28,8 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGPointTearOff.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -72,4 +70,4 @@ PassRefPtrWillBeRawPtr<SVGPointTearOff> SVGPointTearOff::matrixTransform(PassRef
     return SVGPointTearOff::create(SVGPoint::create(point), 0, PropertyIsNotAnimVal);
 }
 
-}
+} // namespace blink

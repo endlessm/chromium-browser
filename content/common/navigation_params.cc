@@ -4,24 +4,24 @@
 
 #include "content/common/navigation_params.h"
 
-#include "base/command_line.h"
-#include "base/memory/ref_counted_memory.h"
+#include "build/build_config.h"
 #include "content/common/service_worker/service_worker_types.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/common/url_constants.h"
 
 namespace content {
 
 // PlzNavigate
 bool ShouldMakeNetworkRequestForURL(const GURL& url) {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+  CHECK(IsBrowserSideNavigationEnabled());
 
-  // Data URLs, Javascript URLs and about:blank should not send a request to the
-  // network stack.
+  // Data URLs, Javascript URLs, about:blank, srcdoc should not send a request
+  // to the network stack.
   // TODO(clamy): same document navigations should not send requests to the
   // network stack. Neither should pushState/popState.
   return !url.SchemeIs(url::kDataScheme) && url != GURL(url::kAboutBlankURL) &&
-         !url.SchemeIs(url::kJavaScriptScheme);
+         !url.SchemeIs(url::kJavaScriptScheme) && !url.is_empty() &&
+         url != GURL(content::kAboutSrcDocURL);
 }
 
 CommonNavigationParams::CommonNavigationParams()
@@ -61,6 +61,9 @@ CommonNavigationParams::CommonNavigationParams(
       navigation_start(navigation_start) {
 }
 
+CommonNavigationParams::CommonNavigationParams(
+    const CommonNavigationParams& other) = default;
+
 CommonNavigationParams::~CommonNavigationParams() {
 }
 
@@ -83,6 +86,9 @@ BeginNavigationParams::BeginNavigationParams(
       has_user_gesture(has_user_gesture),
       skip_service_worker(skip_service_worker),
       request_context_type(request_context_type) {}
+
+BeginNavigationParams::BeginNavigationParams(
+    const BeginNavigationParams& other) = default;
 
 StartNavigationParams::StartNavigationParams()
     : is_post(false),
@@ -112,6 +118,9 @@ StartNavigationParams::StartNavigationParams(
       transferred_request_request_id(transferred_request_request_id) {
 }
 
+StartNavigationParams::StartNavigationParams(
+    const StartNavigationParams& other) = default;
+
 StartNavigationParams::~StartNavigationParams() {
 }
 
@@ -127,6 +136,7 @@ RequestNavigationParams::RequestNavigationParams()
       pending_history_list_offset(-1),
       current_history_list_offset(-1),
       current_history_list_length(0),
+      is_view_source(false),
       should_clear_history_list(false),
       should_create_service_worker(false),
       service_worker_provider_id(kInvalidServiceWorkerProviderId) {}
@@ -137,7 +147,7 @@ RequestNavigationParams::RequestNavigationParams(
     bool can_load_local_resources,
     base::Time request_time,
     const PageState& page_state,
-    int32 page_id,
+    int32_t page_id,
     int nav_entry_id,
     bool is_same_document_history_load,
     bool has_committed_real_load,
@@ -145,6 +155,7 @@ RequestNavigationParams::RequestNavigationParams(
     int pending_history_list_offset,
     int current_history_list_offset,
     int current_history_list_length,
+    bool is_view_source,
     bool should_clear_history_list)
     : is_overriding_user_agent(is_overriding_user_agent),
       redirects(redirects),
@@ -159,9 +170,13 @@ RequestNavigationParams::RequestNavigationParams(
       pending_history_list_offset(pending_history_list_offset),
       current_history_list_offset(current_history_list_offset),
       current_history_list_length(current_history_list_length),
+      is_view_source(is_view_source),
       should_clear_history_list(should_clear_history_list),
       should_create_service_worker(false),
       service_worker_provider_id(kInvalidServiceWorkerProviderId) {}
+
+RequestNavigationParams::RequestNavigationParams(
+    const RequestNavigationParams& other) = default;
 
 RequestNavigationParams::~RequestNavigationParams() {
 }

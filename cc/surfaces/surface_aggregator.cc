@@ -4,11 +4,13 @@
 
 #include "cc/surfaces/surface_aggregator.h"
 
+#include <stddef.h>
+
 #include <map>
 
 #include "base/bind.h"
-#include "base/containers/hash_tables.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/base/math_util.h"
@@ -28,13 +30,12 @@ namespace {
 
 void MoveMatchingRequests(
     RenderPassId id,
-    std::multimap<RenderPassId, CopyOutputRequest*>* copy_requests,
-    ScopedPtrVector<CopyOutputRequest>* output_requests) {
+    std::multimap<RenderPassId, scoped_ptr<CopyOutputRequest>>* copy_requests,
+    std::vector<scoped_ptr<CopyOutputRequest>>* output_requests) {
   auto request_range = copy_requests->equal_range(id);
   for (auto it = request_range.first; it != request_range.second; ++it) {
     DCHECK(it->second);
-    output_requests->push_back(scoped_ptr<CopyOutputRequest>(it->second));
-    it->second = nullptr;
+    output_requests->push_back(std::move(it->second));
   }
   copy_requests->erase(request_range.first, request_range.second);
 }
@@ -49,7 +50,8 @@ SurfaceAggregator::SurfaceAggregator(SurfaceAggregatorClient* client,
       manager_(manager),
       provider_(provider),
       next_render_pass_id_(1),
-      aggregate_only_damaged_(aggregate_only_damaged) {
+      aggregate_only_damaged_(aggregate_only_damaged),
+      weak_factory_(this) {
   DCHECK(manager_);
 }
 
@@ -58,6 +60,10 @@ SurfaceAggregator::~SurfaceAggregator() {
   contained_surfaces_.clear();
   ProcessAddedAndRemovedSurfaces();
 }
+
+SurfaceAggregator::PrewalkResult::PrewalkResult() {}
+
+SurfaceAggregator::PrewalkResult::~PrewalkResult() {}
 
 // Create a clip rect for an aggregated quad from the original clip rect and
 // the clip rect from the surface it's on.
@@ -101,7 +107,7 @@ class SurfaceAggregator::RenderPassIdAllocator {
   }
 
  private:
-  base::hash_map<RenderPassId, int> id_to_index_map_;
+  std::unordered_map<RenderPassId, int, RenderPassIdHash> id_to_index_map_;
   int* next_index_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderPassIdAllocator);
@@ -116,11 +122,10 @@ static void UnrefHelper(base::WeakPtr<SurfaceFactory> surface_factory,
 
 RenderPassId SurfaceAggregator::RemapPassId(RenderPassId surface_local_pass_id,
                                             SurfaceId surface_id) {
-  RenderPassIdAllocator* allocator = render_pass_allocator_map_.get(surface_id);
-  if (!allocator) {
-    allocator = new RenderPassIdAllocator(&next_render_pass_id_);
-    render_pass_allocator_map_.set(surface_id, make_scoped_ptr(allocator));
-  }
+  scoped_ptr<RenderPassIdAllocator>& allocator =
+      render_pass_allocator_map_[surface_id];
+  if (!allocator)
+    allocator.reset(new RenderPassIdAllocator(&next_render_pass_id_));
   allocator->AddKnownPass(surface_local_pass_id);
   return allocator->Remap(surface_local_pass_id);
 }
@@ -178,15 +183,13 @@ void SurfaceAggregator::HandleSurfaceQuad(
   if (!frame_data)
     return;
 
-  std::multimap<RenderPassId, CopyOutputRequest*> copy_requests;
+  std::multimap<RenderPassId, scoped_ptr<CopyOutputRequest>> copy_requests;
   surface->TakeCopyOutputRequests(&copy_requests);
 
   const RenderPassList& render_pass_list = frame_data->render_pass_list;
   if (!valid_surfaces_.count(surface->surface_id())) {
-    for (auto& request : copy_requests) {
+    for (auto& request : copy_requests)
       request.second->SendEmptyResult();
-      delete request.second;
-    }
     return;
   }
 
@@ -231,7 +234,7 @@ void SurfaceAggregator::HandleSurfaceQuad(
                     child_to_parent_map, gfx::Transform(), ClipData(),
                     copy_pass.get(), surface_id);
 
-    dest_pass_list_->push_back(copy_pass.Pass());
+    dest_pass_list_->push_back(std::move(copy_pass));
   }
 
   gfx::Transform surface_transform =
@@ -423,7 +426,7 @@ void SurfaceAggregator::CopyPasses(const DelegatedFrameData* frame_data,
                                    Surface* surface) {
   // The root surface is allowed to have copy output requests, so grab them
   // off its render passes.
-  std::multimap<RenderPassId, CopyOutputRequest*> copy_requests;
+  std::multimap<RenderPassId, scoped_ptr<CopyOutputRequest>> copy_requests;
   surface->TakeCopyOutputRequests(&copy_requests);
 
   const RenderPassList& source_pass_list = frame_data->render_pass_list;
@@ -457,7 +460,7 @@ void SurfaceAggregator::CopyPasses(const DelegatedFrameData* frame_data,
                     child_to_parent_map, gfx::Transform(), ClipData(),
                     copy_pass.get(), surface->surface_id());
 
-    dest_pass_list_->push_back(copy_pass.Pass());
+    dest_pass_list_->push_back(std::move(copy_pass));
   }
 }
 
@@ -494,7 +497,13 @@ void SurfaceAggregator::ProcessAddedAndRemovedSurfaces() {
 // Walk the Surface tree from surface_id. Validate the resources of the current
 // surface and its descendants, check if there are any copy requests, and
 // return the combined damage rect.
-gfx::Rect SurfaceAggregator::PrewalkTree(SurfaceId surface_id) {
+gfx::Rect SurfaceAggregator::PrewalkTree(SurfaceId surface_id,
+                                         PrewalkResult* result) {
+  // This is for debugging a possible use after free.
+  // TODO(jbauman): Remove this once we have enough information.
+  // http://crbug.com/560181
+  base::WeakPtr<SurfaceAggregator> debug_weak_this = weak_factory_.GetWeakPtr();
+
   if (referenced_surfaces_.count(surface_id))
     return gfx::Rect();
   Surface* surface = manager_->GetSurfaceForId(surface_id);
@@ -518,25 +527,18 @@ gfx::Rect SurfaceAggregator::PrewalkTree(SurfaceId surface_id) {
       surface->factory()->RefResources(frame_data->resource_list);
     provider_->ReceiveFromChild(child_id, frame_data->resource_list);
   }
+  CHECK(debug_weak_this.get());
 
   ResourceProvider::ResourceIdSet referenced_resources;
   size_t reserve_size = frame_data->resource_list.size();
-#if defined(COMPILER_MSVC)
   referenced_resources.reserve(reserve_size);
-#elif defined(COMPILER_GCC)
-  // Pre-standard hash-tables only implement resize, which behaves similarly
-  // to reserve for these keys. Resizing to 0 may also be broken (particularly
-  // on stlport).
-  // TODO(jbauman): Replace with reserve when C++11 is supported everywhere.
-  if (reserve_size)
-    referenced_resources.resize(reserve_size);
-#endif
 
   bool invalid_frame = false;
   ResourceProvider::ResourceIdMap empty_map;
   const ResourceProvider::ResourceIdMap& child_to_parent_map =
       provider_ ? provider_->GetChildToParentMap(child_id) : empty_map;
 
+  CHECK(debug_weak_this.get());
   // Each pair in the vector is a child surface and the transform from its
   // target to the root target of this surface.
   std::vector<std::pair<SurfaceId, gfx::Transform>> child_surfaces;
@@ -566,17 +568,16 @@ gfx::Rect SurfaceAggregator::PrewalkTree(SurfaceId surface_id) {
 
   if (invalid_frame)
     return gfx::Rect();
+  CHECK(debug_weak_this.get());
   valid_surfaces_.insert(surface->surface_id());
 
   if (provider_)
     provider_->DeclareUsedResourcesFromChild(child_id, referenced_resources);
-
-  for (const auto& render_pass : frame_data->render_pass_list)
-    has_copy_requests_ |= !render_pass->copy_requests.empty();
+  CHECK(debug_weak_this.get());
 
   gfx::Rect damage_rect;
   if (!frame_data->render_pass_list.empty()) {
-    RenderPass* last_pass = frame_data->render_pass_list.back();
+    RenderPass* last_pass = frame_data->render_pass_list.back().get();
     damage_rect =
         DamageRectForSurface(surface, *last_pass, last_pass->output_rect);
   }
@@ -586,12 +587,72 @@ gfx::Rect SurfaceAggregator::PrewalkTree(SurfaceId surface_id) {
   SurfaceSet::iterator it =
       referenced_surfaces_.insert(surface->surface_id()).first;
   for (const auto& surface_info : child_surfaces) {
-    gfx::Rect surface_damage = PrewalkTree(surface_info.first);
+    gfx::Rect surface_damage = PrewalkTree(surface_info.first, result);
     damage_rect.Union(
         MathUtil::MapEnclosingClippedRect(surface_info.second, surface_damage));
   }
+
+  CHECK(debug_weak_this.get());
+  for (const auto& surface_id : surface_frame->metadata.referenced_surfaces) {
+    if (!contained_surfaces_.count(surface_id)) {
+      result->undrawn_surfaces.insert(surface_id);
+      PrewalkTree(surface_id, result);
+    }
+  }
+
+  CHECK(debug_weak_this.get());
+  if (surface->factory())
+    surface->factory()->WillDrawSurface(surface->surface_id(), damage_rect);
+
+  CHECK(debug_weak_this.get());
+  for (const auto& render_pass : frame_data->render_pass_list)
+    result->has_copy_requests |= !render_pass->copy_requests.empty();
+
   referenced_surfaces_.erase(it);
   return damage_rect;
+}
+
+void SurfaceAggregator::CopyUndrawnSurfaces(PrewalkResult* prewalk_result) {
+  // undrawn_surfaces are Surfaces that were identified by prewalk as being
+  // referenced by a drawn Surface, but aren't contained in a SurfaceDrawQuad.
+  // They need to be iterated over to ensure that any copy requests on them
+  // (or on Surfaces they reference) are executed.
+  std::vector<SurfaceId> surfaces_to_copy(
+      prewalk_result->undrawn_surfaces.begin(),
+      prewalk_result->undrawn_surfaces.end());
+
+  for (size_t i = 0; i < surfaces_to_copy.size(); i++) {
+    SurfaceId surface_id = surfaces_to_copy[i];
+    Surface* surface = manager_->GetSurfaceForId(surface_id);
+    if (!surface)
+      continue;
+    const CompositorFrame* surface_frame = surface->GetEligibleFrame();
+    if (!surface_frame)
+      continue;
+    bool surface_has_copy_requests = false;
+    for (const auto& render_pass :
+         surface_frame->delegated_frame_data->render_pass_list) {
+      surface_has_copy_requests |= !render_pass->copy_requests.empty();
+    }
+    if (!surface_has_copy_requests) {
+      // Children are not necessarily included in undrawn_surfaces (because
+      // they weren't referenced directly from a drawn surface), but may have
+      // copy requests, so make sure to check them as well.
+      for (const auto& child_id : surface_frame->metadata.referenced_surfaces) {
+        // Don't iterate over the child Surface if it was already listed as a
+        // child of a different Surface, or in the case where there's infinite
+        // recursion.
+        if (!prewalk_result->undrawn_surfaces.count(child_id)) {
+          surfaces_to_copy.push_back(child_id);
+          prewalk_result->undrawn_surfaces.insert(child_id);
+        }
+      }
+    } else {
+      SurfaceSet::iterator it = referenced_surfaces_.insert(surface_id).first;
+      CopyPasses(surface_frame->delegated_frame_data.get(), surface);
+      referenced_surfaces_.erase(it);
+    }
+  }
 }
 
 scoped_ptr<CompositorFrame> SurfaceAggregator::Aggregate(SurfaceId surface_id) {
@@ -612,9 +673,11 @@ scoped_ptr<CompositorFrame> SurfaceAggregator::Aggregate(SurfaceId surface_id) {
   dest_pass_list_ = &frame->delegated_frame_data->render_pass_list;
 
   valid_surfaces_.clear();
-  has_copy_requests_ = false;
-  root_damage_rect_ = PrewalkTree(surface_id);
+  PrewalkResult prewalk_result;
+  root_damage_rect_ = PrewalkTree(surface_id, &prewalk_result);
+  has_copy_requests_ = prewalk_result.has_copy_requests;
 
+  CopyUndrawnSurfaces(&prewalk_result);
   SurfaceSet::iterator it = referenced_surfaces_.insert(surface_id).first;
   CopyPasses(root_surface_frame->delegated_frame_data.get(), surface);
   referenced_surfaces_.erase(it);
@@ -641,7 +704,7 @@ scoped_ptr<CompositorFrame> SurfaceAggregator::Aggregate(SurfaceId surface_id) {
   // TODO(jamesr): Aggregate all resource references into the returned frame's
   // resource list.
 
-  return frame.Pass();
+  return frame;
 }
 
 void SurfaceAggregator::ReleaseResources(SurfaceId surface_id) {

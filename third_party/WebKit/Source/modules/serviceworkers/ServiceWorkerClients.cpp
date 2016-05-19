@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/serviceworkers/ServiceWorkerClients.h"
 
 #include "bindings/core/v8/CallbackPromiseAdapter.h"
@@ -14,6 +13,7 @@
 #include "modules/serviceworkers/ServiceWorkerError.h"
 #include "modules/serviceworkers/ServiceWorkerGlobalScopeClient.h"
 #include "modules/serviceworkers/ServiceWorkerWindowClient.h"
+#include "modules/serviceworkers/ServiceWorkerWindowClientCallback.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerClientQueryOptions.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerClientsInfo.h"
 #include "wtf/OwnPtr.h"
@@ -60,6 +60,37 @@ WebServiceWorkerClientType getClientType(const String& type)
     return WebServiceWorkerClientTypeWindow;
 }
 
+class GetCallback : public WebServiceWorkerClientCallbacks {
+public:
+    explicit GetCallback(ScriptPromiseResolver* resolver)
+        : m_resolver(resolver) { }
+    ~GetCallback() override { }
+
+    void onSuccess(WebPassOwnPtr<WebServiceWorkerClientInfo> webClient) override
+    {
+        OwnPtr<WebServiceWorkerClientInfo> client = webClient.release();
+        if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped())
+            return;
+        if (!client) {
+            // Resolve the promise with undefined.
+            m_resolver->resolve();
+            return;
+        }
+        m_resolver->resolve(ServiceWorkerClient::take(m_resolver, client.release()));
+    }
+
+    void onError(const WebServiceWorkerError& error) override
+    {
+        if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped())
+            return;
+        m_resolver->reject(ServiceWorkerError::take(m_resolver.get(), error));
+    }
+
+private:
+    Persistent<ScriptPromiseResolver> m_resolver;
+    WTF_MAKE_NONCOPYABLE(GetCallback);
+};
+
 } // namespace
 
 ServiceWorkerClients* ServiceWorkerClients::create()
@@ -69,6 +100,20 @@ ServiceWorkerClients* ServiceWorkerClients::create()
 
 ServiceWorkerClients::ServiceWorkerClients()
 {
+}
+
+ScriptPromise ServiceWorkerClients::get(ScriptState* scriptState, const String& id)
+{
+    ExecutionContext* executionContext = scriptState->executionContext();
+    // TODO(jungkees): May be null due to worker termination: http://crbug.com/413518.
+    if (!executionContext)
+        return ScriptPromise();
+
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromise promise = resolver->promise();
+
+    ServiceWorkerGlobalScopeClient::from(executionContext)->getClient(id, new GetCallback(resolver));
+    return promise;
 }
 
 ScriptPromise ServiceWorkerClients::matchAll(ScriptState* scriptState, const ClientQueryOptions& options)
@@ -117,7 +162,7 @@ ScriptPromise ServiceWorkerClients::openWindow(ScriptState* scriptState, const S
     }
 
     if (!context->securityOrigin()->canDisplay(parsedUrl)) {
-        resolver->reject(DOMException::create(SecurityError, "'" + parsedUrl.elidedString() + "' cannot be opened."));
+        resolver->reject(V8ThrowException::createTypeError(scriptState->isolate(), "'" + parsedUrl.elidedString() + "' cannot be opened."));
         return promise;
     }
 
@@ -127,7 +172,7 @@ ScriptPromise ServiceWorkerClients::openWindow(ScriptState* scriptState, const S
     }
     context->consumeWindowInteraction();
 
-    ServiceWorkerGlobalScopeClient::from(context)->openWindow(parsedUrl, new CallbackPromiseAdapter<ServiceWorkerWindowClient, ServiceWorkerError>(resolver));
+    ServiceWorkerGlobalScopeClient::from(context)->openWindow(parsedUrl, new NavigateClientCallback(resolver));
     return promise;
 }
 

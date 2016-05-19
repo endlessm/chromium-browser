@@ -4,6 +4,9 @@
 
 #include "media/filters/ffmpeg_video_decoder.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <string>
 
@@ -17,7 +20,6 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/limits.h"
 #include "media/base/media_switches.h"
-#include "media/base/pipeline.h"
 #include "media/base/timestamp_constants.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
@@ -61,7 +63,7 @@ static int GetVideoBufferImpl(struct AVCodecContext* s,
   return decoder->GetVideoBuffer(s, frame, flags);
 }
 
-static void ReleaseVideoBufferImpl(void* opaque, uint8* data) {
+static void ReleaseVideoBufferImpl(void* opaque, uint8_t* data) {
   scoped_refptr<VideoFrame> video_frame;
   video_frame.swap(reinterpret_cast<VideoFrame**>(&opaque));
 }
@@ -72,10 +74,10 @@ bool FFmpegVideoDecoder::IsCodecSupported(VideoCodec codec) {
   return avcodec_find_decoder(VideoCodecToCodecID(codec)) != nullptr;
 }
 
-FFmpegVideoDecoder::FFmpegVideoDecoder(
-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner)
-    : task_runner_(task_runner), state_(kUninitialized),
-      decode_nalus_(false) {}
+FFmpegVideoDecoder::FFmpegVideoDecoder()
+    : state_(kUninitialized), decode_nalus_(false) {
+  thread_checker_.DetachFromThread();
+}
 
 int FFmpegVideoDecoder::GetVideoBuffer(struct AVCodecContext* codec_context,
                                        AVFrame* frame,
@@ -91,7 +93,10 @@ int FFmpegVideoDecoder::GetVideoBuffer(struct AVCodecContext* codec_context,
   if (format == PIXEL_FORMAT_UNKNOWN)
     return AVERROR(EINVAL);
   DCHECK(format == PIXEL_FORMAT_YV12 || format == PIXEL_FORMAT_YV16 ||
-         format == PIXEL_FORMAT_YV24);
+         format == PIXEL_FORMAT_YV24 || format == PIXEL_FORMAT_YUV420P9 ||
+         format == PIXEL_FORMAT_YUV420P10 || format == PIXEL_FORMAT_YUV422P9 ||
+         format == PIXEL_FORMAT_YUV422P10 || format == PIXEL_FORMAT_YUV444P9 ||
+         format == PIXEL_FORMAT_YUV444P10);
 
   gfx::Size size(codec_context->width, codec_context->height);
   const int ret = av_image_check_size(size.width(), size.height(), 0, NULL);
@@ -165,9 +170,10 @@ std::string FFmpegVideoDecoder::GetDisplayName() const {
 
 void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
                                     bool low_delay,
+                                    CdmContext* /* cdm_context */,
                                     const InitCB& init_cb,
                                     const OutputCB& output_cb) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(config.IsValidConfig());
   DCHECK(!output_cb.is_null());
 
@@ -197,7 +203,7 @@ void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
 
 void FFmpegVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
                                 const DecodeCB& decode_cb) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(buffer.get());
   DCHECK(!decode_cb.is_null());
   CHECK_NE(state_, kUninitialized);
@@ -257,15 +263,16 @@ void FFmpegVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
 }
 
 void FFmpegVideoDecoder::Reset(const base::Closure& closure) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   avcodec_flush_buffers(codec_context_.get());
   state_ = kNormal;
-  task_runner_->PostTask(FROM_HERE, closure);
+  // PostTask() to avoid calling |closure| inmediately.
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, closure);
 }
 
 FFmpegVideoDecoder::~FFmpegVideoDecoder() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   if (state_ != kUninitialized)
     ReleaseFFmpegResources();
@@ -284,7 +291,7 @@ bool FFmpegVideoDecoder::FFmpegDecode(
     packet.data = NULL;
     packet.size = 0;
   } else {
-    packet.data = const_cast<uint8*>(buffer->data());
+    packet.data = const_cast<uint8_t*>(buffer->data());
     packet.size = buffer->data_size();
 
     // Let FFmpeg handle presentation timestamp reordering.

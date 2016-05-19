@@ -5,13 +5,16 @@
 #ifndef CHROME_BROWSER_CHROMEOS_INPUT_METHOD_INPUT_METHOD_ENGINE_H_
 #define CHROME_BROWSER_CHROMEOS_INPUT_METHOD_INPUT_METHOD_ENGINE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 #include "base/time/time.h"
+#include "chrome/browser/ui/input_method/input_method_engine_base.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
 #include "ui/base/ime/ime_engine_handler_interface.h"
-#include "ui/base/ime/ime_engine_observer.h"
 #include "url/gurl.h"
 
 class Profile;
@@ -20,7 +23,6 @@ namespace ui {
 class CandidateWindow;
 struct CompositionText;
 class IMEEngineHandlerInterface;
-class IMEEngineObserver;
 class KeyEvent;
 
 namespace ime {
@@ -28,75 +30,120 @@ struct InputMethodMenuItem;
 }  // namespace ime
 }  // namespace ui
 
+namespace input_method {
+class InputMethodEngineBase;
+}
+
 namespace chromeos {
 
-class InputMethodEngine : public ui::IMEEngineHandlerInterface {
+class InputMethodEngine : public ::input_method::InputMethodEngineBase {
  public:
+  enum {
+    MENU_ITEM_MODIFIED_LABEL = 0x0001,
+    MENU_ITEM_MODIFIED_STYLE = 0x0002,
+    MENU_ITEM_MODIFIED_VISIBLE = 0x0004,
+    MENU_ITEM_MODIFIED_ENABLED = 0x0008,
+    MENU_ITEM_MODIFIED_CHECKED = 0x0010,
+    MENU_ITEM_MODIFIED_ICON = 0x0020,
+  };
+
+  enum MenuItemStyle {
+    MENU_ITEM_STYLE_NONE,
+    MENU_ITEM_STYLE_CHECK,
+    MENU_ITEM_STYLE_RADIO,
+    MENU_ITEM_STYLE_SEPARATOR,
+  };
+
+  enum CandidateWindowPosition {
+    WINDOW_POS_CURSOR,
+    WINDOW_POS_COMPOSITTION,
+  };
+
+  struct MenuItem {
+    MenuItem();
+    virtual ~MenuItem();
+
+    std::string id;
+    std::string label;
+    MenuItemStyle style;
+    bool visible;
+    bool enabled;
+    bool checked;
+
+    unsigned int modified;
+    std::vector<MenuItem> children;
+  };
+
+  struct UsageEntry {
+    std::string title;
+    std::string body;
+  };
+
+  struct Candidate {
+    Candidate();
+    virtual ~Candidate();
+
+    std::string value;
+    int id;
+    std::string label;
+    std::string annotation;
+    UsageEntry usage;
+    std::vector<Candidate> candidates;
+  };
+
+  struct CandidateWindowProperty {
+    CandidateWindowProperty();
+    virtual ~CandidateWindowProperty();
+    int page_size;
+    bool is_cursor_visible;
+    bool is_vertical;
+    bool show_window_at_composition;
+
+    // Auxiliary text is typically displayed in the footer of the candidate
+    // window.
+    std::string auxiliary_text;
+    bool is_auxiliary_text_visible;
+  };
+
   InputMethodEngine();
 
   ~InputMethodEngine() override;
 
-  void Initialize(scoped_ptr<ui::IMEEngineObserver> observer,
-                  const char* extension_id,
-                  Profile* profile);
-
   // IMEEngineHandlerInterface overrides.
-  const std::string& GetActiveComponentId() const override;
-  bool SetComposition(int context_id,
-                      const char* text,
-                      int selection_start,
-                      int selection_end,
-                      int cursor,
-                      const std::vector<SegmentInfo>& segments,
-                      std::string* error) override;
-  bool ClearComposition(int context_id, std::string* error) override;
-  bool CommitText(int context_id,
-                  const char* text,
-                  std::string* error) override;
   bool SendKeyEvents(int context_id,
                      const std::vector<KeyboardEvent>& events) override;
-  const CandidateWindowProperty& GetCandidateWindowProperty() const override;
-  void SetCandidateWindowProperty(
-      const CandidateWindowProperty& property) override;
   bool SetCandidateWindowVisible(bool visible, std::string* error) override;
-  bool SetCandidates(int context_id,
-                     const std::vector<Candidate>& candidates,
-                     std::string* error) override;
   bool SetCursorPosition(int context_id,
                          int candidate_id,
                          std::string* error) override;
-  bool SetMenuItems(const std::vector<MenuItem>& items) override;
-  bool UpdateMenuItems(const std::vector<MenuItem>& items) override;
   bool IsActive() const override;
-  bool DeleteSurroundingText(int context_id,
-                             int offset,
-                             size_t number_of_chars,
-                             std::string* error) override;
-
-  // IMEEngineHandlerInterface overrides.
-  void FocusIn(const ui::IMEEngineHandlerInterface::InputContext& input_context)
-      override;
-  void FocusOut() override;
   void Enable(const std::string& component_id) override;
-  void Disable() override;
   void PropertyActivate(const std::string& property_name) override;
-  void Reset() override;
-  void ProcessKeyEvent(const ui::KeyEvent& key_event,
-                       KeyEventDoneCallback& callback) override;
-  void CandidateClicked(uint32 index) override;
-  void SetSurroundingText(const std::string& text,
-                          uint32 cursor_pos,
-                          uint32 anchor_pos,
-                          uint32 offset_pos) override;
+  void CandidateClicked(uint32_t index) override;
   void HideInputView() override;
-  void SetCompositionBounds(const std::vector<gfx::Rect>& bounds) override;
 
-  int GetCotextIdForTesting() { return context_id_; }
+  // This function returns the current property of the candidate window.
+  // The caller can use the returned value as the default property and
+  // modify some of specified items.
+  const CandidateWindowProperty& GetCandidateWindowProperty() const;
 
-  bool IsInterestedInKeyEvent() const override;
+  // Change the property of the candidate window and repaint the candidate
+  // window widget.
+  void SetCandidateWindowProperty(const CandidateWindowProperty& property);
+
+  // Set the list of entries displayed in the candidate window.
+  bool SetCandidates(int context_id,
+                     const std::vector<Candidate>& candidates,
+                     std::string* error);
+
+  // Set the list of items that appears in the language menu when this IME is
+  // active.
+  bool SetMenuItems(const std::vector<MenuItem>& items);
+
+  // Update the state of the menu items.
+  bool UpdateMenuItems(const std::vector<MenuItem>& items);
 
  private:
-  bool CheckProfile() const;
   // Converts MenuItem to InputMethodMenuItem.
   void MenuItemToProperty(const MenuItem& item,
                           ui::ime::InputMethodMenuItem* property);
@@ -104,26 +151,12 @@ class InputMethodEngine : public ui::IMEEngineHandlerInterface {
   // Enables overriding input view page to Virtual Keyboard window.
   void EnableInputView();
 
-  ui::TextInputType current_input_type_;
-
-  // ID that is used for the current input context.  False if there is no focus.
-  int context_id_;
-
-  // Next id that will be assigned to a context.
-  int next_context_id_;
-
-  // The input_component ID in IME extension's manifest.
-  std::string active_component_id_;
-
-  // The IME extension ID.
-  std::string extension_id_;
-
-  // The observer object recieving events for this IME.
-  scoped_ptr<ui::IMEEngineObserver> observer_;
-
-  // The current preedit text, and it's cursor position.
-  scoped_ptr<ui::CompositionText> composition_text_;
-  int composition_cursor_;
+  // input_method::InputMethodEngineBase:
+  void UpdateComposition(const ui::CompositionText& composition_text,
+                         uint32_t cursor_pos,
+                         bool is_visible) override;
+  void CommitTextToInputContext(int context_id,
+                                const std::string& text) override;
 
   // The current candidate window.
   scoped_ptr<ui::CandidateWindow> candidate_window_;
@@ -139,12 +172,6 @@ class InputMethodEngine : public ui::IMEEngineHandlerInterface {
 
   // Mapping of candidate id to index.
   std::map<int, int> candidate_indexes_;
-
-  // Used with SendKeyEvents and ProcessKeyEvent to check if the key event
-  // sent to ProcessKeyEvent is sent by SendKeyEvents.
-  const ui::KeyEvent* sent_key_event_;
-
-  Profile* profile_;
 };
 
 }  // namespace chromeos

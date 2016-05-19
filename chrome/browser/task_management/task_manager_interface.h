@@ -5,8 +5,11 @@
 #ifndef CHROME_BROWSER_TASK_MANAGEMENT_TASK_MANAGER_INTERFACE_H_
 #define CHROME_BROWSER_TASK_MANAGEMENT_TASK_MANAGER_INTERFACE_H_
 
+#include <stddef.h>
 #include <stdint.h>
+#include <utility>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/process/process_handle.h"
@@ -44,6 +47,9 @@ class TaskManagerInterface {
   // possible.
   virtual void ActivateTask(TaskId task_id) = 0;
 
+  // Kills the task with |task_id|.
+  virtual void KillTask(TaskId task_id) = 0;
+
   // returns the CPU usage in percent for the process on which the task with
   // |task_id| is running during the current refresh cycle.
   virtual double GetCpuUsage(TaskId task_id) const = 0;
@@ -51,36 +57,50 @@ class TaskManagerInterface {
   // Returns the current physical/private/shared memory usage of the task with
   // |task_id| in bytes. A value of -1 means no valid value is currently
   // available.
-  virtual int64 GetPhysicalMemoryUsage(TaskId task_id) const = 0;
-  virtual int64 GetPrivateMemoryUsage(TaskId task_id) const = 0;
-  virtual int64 GetSharedMemoryUsage(TaskId task_id) const = 0;
+  virtual int64_t GetPhysicalMemoryUsage(TaskId task_id) const = 0;
+  virtual int64_t GetPrivateMemoryUsage(TaskId task_id) const = 0;
+  virtual int64_t GetSharedMemoryUsage(TaskId task_id) const = 0;
 
   // Returns the GPU memory usage of the task with |task_id| in bytes. A value
   // of -1 means no valid value is currently available.
   // |has_duplicates| will be set to true if this process' GPU resource count is
   // inflated because it is counting other processes' resources.
-  virtual int64 GetGpuMemoryUsage(TaskId task_id,
-                                  bool* has_duplicates) const = 0;
+  virtual int64_t GetGpuMemoryUsage(TaskId task_id,
+                                    bool* has_duplicates) const = 0;
 
   // Returns the number of average idle CPU wakeups per second since the last
   // refresh cycle. A value of -1 means no valid value is currently available.
   virtual int GetIdleWakeupsPerSecond(TaskId task_id) const = 0;
 
-  // Returns the NaCl GDB debug stub port. A value of -1 means no valid value is
-  // currently available.
+  // Returns the NaCl GDB debug stub port. A value of
+  // |nacl::kGdbDebugStubPortUnknown| means no valid value is currently
+  // available. A value of -2 means NaCl is not enabled for this build.
   virtual int GetNaClDebugStubPort(TaskId task_id) const = 0;
 
   // On Windows, gets the current and peak number of GDI and USER handles in
   // use. A value of -1 means no valid value is currently available.
   virtual void GetGDIHandles(TaskId task_id,
-                             int64* current,
-                             int64* peak) const = 0;
+                             int64_t* current,
+                             int64_t* peak) const = 0;
   virtual void GetUSERHandles(TaskId task_id,
-                              int64* current,
-                              int64* peak) const = 0;
+                              int64_t* current,
+                              int64_t* peak) const = 0;
+
+  // On Linux and ChromeOS, gets the number of file descriptors currently open
+  // by the process on which the task with |task_id| is running, or -1 if no
+  // valid value is currently available.
+  virtual int GetOpenFdCount(TaskId task_id) const = 0;
+
+  // Returns whether the task with |task_id| is running on a backgrounded
+  // process.
+  virtual bool IsTaskOnBackgroundedProcess(TaskId task_id) const = 0;
 
   // Returns the title of the task with |task_id|.
   virtual const base::string16& GetTitle(TaskId task_id) const = 0;
+
+  // Returns the canonicalized name of the task with |task_id| that can be used
+  // to represent this task in a Rappor sample via RapporService.
+  virtual const std::string& GetTaskNameForRappor(TaskId task_id) const = 0;
 
   // Returns the name of the profile associated with the browser context of the
   // render view host that the task with |task_id| represents (if that task
@@ -102,18 +122,25 @@ class TaskManagerInterface {
   // cycle for the task with |task_id|. A value of -1 means no valid value is
   // currently available or that task has never been notified of any network
   // usage.
-  virtual int64 GetNetworkUsage(TaskId task_id) const = 0;
+  virtual int64_t GetNetworkUsage(TaskId task_id) const = 0;
+
+  // Returns the total network usage (in bytes per second) during the current
+  // refresh cycle for the process on which the task with |task_id| is running.
+  // This is the sum of all the network usage of the individual tasks (that
+  // can be gotten by the above GetNetworkUsage()). A value of -1 means network
+  // usage calculation refresh is currently not available.
+  virtual int64_t GetProcessTotalNetworkUsage(TaskId task_id) const = 0;
 
   // Returns the Sqlite used memory (in bytes) for the task with |task_id|.
   // A value of -1 means no valid value is currently available.
-  virtual int64 GetSqliteMemoryUsed(TaskId task_id) const = 0;
+  virtual int64_t GetSqliteMemoryUsed(TaskId task_id) const = 0;
 
   // Returns the allocated and used V8 memory (in bytes) for the task with
   // |task_id|. A return value of false means no valid value is currently
   // available.
   virtual bool GetV8Memory(TaskId task_id,
-                           int64* allocated,
-                           int64* used) const = 0;
+                           int64_t* allocated,
+                           int64_t* used) const = 0;
 
   // Gets the Webkit resource cache stats for the task with |task_id|.
   // A return value of false means that task does NOT report WebCache stats.
@@ -157,10 +184,10 @@ class TaskManagerInterface {
   // will return base::TimeDelta::Max() if the task manager is not running.
   base::TimeDelta GetCurrentRefreshTime() const;
 
-  int64 enabled_resources_flags() const { return enabled_resources_flags_; }
+  int64_t enabled_resources_flags() const { return enabled_resources_flags_; }
 
   void set_timer_for_testing(scoped_ptr<base::Timer> timer) {
-    refresh_timer_ = timer.Pass();
+    refresh_timer_ = std::move(timer);
   }
 
  private:
@@ -171,10 +198,10 @@ class TaskManagerInterface {
   void RecalculateRefreshFlags();
 
   // Appends |flags| to the |enabled_resources_flags_|.
-  void ResourceFlagsAdded(int64 flags);
+  void ResourceFlagsAdded(int64_t flags);
 
   // Sets |enabled_resources_flags_| to |flags|.
-  void SetEnabledResourceFlags(int64 flags);
+  void SetEnabledResourceFlags(int64_t flags);
 
   // Schedules the task manager refresh cycles using the given |refresh_time|.
   // It stops any existing refresh schedule.
@@ -187,7 +214,7 @@ class TaskManagerInterface {
   scoped_ptr<base::Timer> refresh_timer_;
 
   // The flags containing the enabled resources types calculations.
-  int64 enabled_resources_flags_;
+  int64_t enabled_resources_flags_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskManagerInterface);
 };

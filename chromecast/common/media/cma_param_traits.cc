@@ -4,6 +4,8 @@
 
 #include "chromecast/common/media/cma_param_traits.h"
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "chromecast/common/media/cma_param_traits_macros.h"
@@ -28,7 +30,8 @@ IPC_ENUM_TRAITS_MAX_VALUE(media::VideoPixelFormat, media::PIXEL_FORMAT_MAX)
 namespace IPC {
 
 void ParamTraits<media::AudioDecoderConfig>::Write(
-    Message* m, const media::AudioDecoderConfig& p) {
+    base::Pickle* m,
+    const media::AudioDecoderConfig& p) {
   WriteParam(m, p.codec());
   WriteParam(m, p.sample_format());
   WriteParam(m, p.channel_layout());
@@ -38,7 +41,7 @@ void ParamTraits<media::AudioDecoderConfig>::Write(
 }
 
 bool ParamTraits<media::AudioDecoderConfig>::Read(
-    const Message* m,
+    const base::Pickle* m,
     base::PickleIterator* iter,
     media::AudioDecoderConfig* r) {
   media::AudioCodec codec;
@@ -46,7 +49,7 @@ bool ParamTraits<media::AudioDecoderConfig>::Read(
   media::ChannelLayout channel_layout;
   int samples_per_second;
   bool is_encrypted;
-  std::vector<uint8> extra_data;
+  std::vector<uint8_t> extra_data;
   if (!ReadParam(m, iter, &codec) || !ReadParam(m, iter, &sample_format) ||
       !ReadParam(m, iter, &channel_layout) ||
       !ReadParam(m, iter, &samples_per_second) ||
@@ -63,7 +66,8 @@ void ParamTraits<media::AudioDecoderConfig>::Log(
 }
 
 void ParamTraits<media::VideoDecoderConfig>::Write(
-    Message* m, const media::VideoDecoderConfig& p) {
+    base::Pickle* m,
+    const media::VideoDecoderConfig& p) {
   WriteParam(m, p.codec());
   WriteParam(m, p.profile());
   WriteParam(m, p.format());
@@ -76,7 +80,7 @@ void ParamTraits<media::VideoDecoderConfig>::Write(
 }
 
 bool ParamTraits<media::VideoDecoderConfig>::Read(
-    const Message* m,
+    const base::Pickle* m,
     base::PickleIterator* iter,
     media::VideoDecoderConfig* r) {
   media::VideoCodec codec;
@@ -87,7 +91,7 @@ bool ParamTraits<media::VideoDecoderConfig>::Read(
   gfx::Rect visible_rect;
   gfx::Size natural_size;
   bool is_encrypted;
-  std::vector<uint8> extra_data;
+  std::vector<uint8_t> extra_data;
   if (!ReadParam(m, iter, &codec) || !ReadParam(m, iter, &profile) ||
       !ReadParam(m, iter, &format) || !ReadParam(m, iter, &color_space) ||
       !ReadParam(m, iter, &coded_size) || !ReadParam(m, iter, &visible_rect) ||

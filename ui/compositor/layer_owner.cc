@@ -4,6 +4,8 @@
 
 #include "ui/compositor/layer_owner.h"
 
+#include <utility>
+
 #include "ui/compositor/layer_owner_delegate.h"
 
 namespace ui {
@@ -24,13 +26,13 @@ void LayerOwner::SetLayer(Layer* layer) {
 scoped_ptr<Layer> LayerOwner::AcquireLayer() {
   if (layer_owner_)
     layer_owner_->owner_ = NULL;
-  return layer_owner_.Pass();
+  return std::move(layer_owner_);
 }
 
 scoped_ptr<Layer> LayerOwner::RecreateLayer() {
   scoped_ptr<ui::Layer> old_layer(AcquireLayer());
   if (!old_layer)
-    return old_layer.Pass();
+    return old_layer;
 
   LayerDelegate* old_delegate = old_layer->delegate();
   old_layer->set_delegate(NULL);
@@ -46,6 +48,7 @@ scoped_ptr<Layer> LayerOwner::RecreateLayer() {
   new_layer->SetFillsBoundsOpaquely(old_layer->fills_bounds_opaquely());
   new_layer->SetFillsBoundsCompletely(old_layer->FillsBoundsCompletely());
   new_layer->SetSubpixelPositionOffset(old_layer->subpixel_position_offset());
+  new_layer->SetTransform(old_layer->GetTargetTransform());
   if (old_layer->type() == LAYER_SOLID_COLOR)
     new_layer->SetColor(old_layer->GetTargetColor());
   SkRegion* alpha_shape = old_layer->alpha_shape();
@@ -79,7 +82,7 @@ scoped_ptr<Layer> LayerOwner::RecreateLayer() {
   if (layer_owner_delegate_)
     layer_owner_delegate_->OnLayerRecreated(old_layer.get(), new_layer);
 
-  return old_layer.Pass();
+  return old_layer;
 }
 
 void LayerOwner::DestroyLayer() {

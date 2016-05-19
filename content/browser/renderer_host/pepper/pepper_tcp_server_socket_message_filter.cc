@@ -4,9 +4,12 @@
 
 #include "content/browser/renderer_host/pepper/pepper_tcp_server_socket_message_filter.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "content/browser/renderer_host/pepper/browser_ppapi_host_impl.h"
 #include "content/browser/renderer_host/pepper/content_browser_pepper_host_factory.h"
 #include "content/browser/renderer_host/pepper/pepper_socket_utils.h"
@@ -14,7 +17,6 @@
 #include "content/public/common/socket_permission_request.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/c/private/ppb_net_address_private.h"
 #include "ppapi/host/dispatch_host_message.h"
@@ -170,7 +172,7 @@ void PepperTCPServerSocketMessageFilter::DoListen(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   net::IPAddressNumber address;
-  uint16 port;
+  uint16_t port;
   if (state_ != STATE_BEFORE_LISTENING ||
       !NetAddressPrivateImpl::NetAddressToIPEndPoint(addr, &address, &port)) {
     SendListenError(context, PP_ERROR_FAILED);
@@ -232,7 +234,7 @@ void PepperTCPServerSocketMessageFilter::OnListenCompleted(
     return;
   }
   if (!NetAddressPrivateImpl::IPEndPointToNetAddress(
-          end_point.address(), end_point.port(), &addr)) {
+          end_point.address().bytes(), end_point.port(), &addr)) {
     SendListenError(context, PP_ERROR_FAILED);
     state_ = STATE_BEFORE_LISTENING;
     return;
@@ -298,12 +300,10 @@ void PepperTCPServerSocketMessageFilter::OnAcceptCompleted(
     return;
   }
   if (!NetAddressPrivateImpl::IPEndPointToNetAddress(
-          ip_end_point_local.address(),
-          ip_end_point_local.port(),
+          ip_end_point_local.address().bytes(), ip_end_point_local.port(),
           &local_addr) ||
       !NetAddressPrivateImpl::IPEndPointToNetAddress(
-          accepted_address_.address(),
-          accepted_address_.port(),
+          accepted_address_.address().bytes(), accepted_address_.port(),
           &remote_addr)) {
     SendAcceptError(context, PP_ERROR_FAILED);
     return;
@@ -312,12 +312,13 @@ void PepperTCPServerSocketMessageFilter::OnAcceptCompleted(
   scoped_ptr<ppapi::host::ResourceHost> host =
       factory_->CreateAcceptedTCPSocket(instance_,
                                         ppapi::TCP_SOCKET_VERSION_PRIVATE,
-                                        accepted_socket_.Pass());
+                                        std::move(accepted_socket_));
   if (!host) {
     SendAcceptError(context, PP_ERROR_NOSPACE);
     return;
   }
-  int pending_resource_id = ppapi_host_->AddPendingResourceHost(host.Pass());
+  int pending_resource_id =
+      ppapi_host_->AddPendingResourceHost(std::move(host));
   if (pending_resource_id) {
     SendAcceptReply(
         context, PP_OK, pending_resource_id, local_addr, remote_addr);

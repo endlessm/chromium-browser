@@ -5,14 +5,14 @@
 #ifndef CHROME_BROWSER_PROFILES_PROFILE_IMPL_IO_DATA_H_
 #define CHROME_BROWSER_PROFILES_PROFILE_IMPL_IO_DATA_H_
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/prefs/pref_store.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/net/chrome_url_request_context_getter.h"
 #include "chrome/browser/profiles/profile_io_data.h"
+#include "components/prefs/pref_store.h"
 #include "content/public/browser/cookie_store_factory.h"
 
 class JsonPrefStore;
@@ -76,7 +76,6 @@ class ProfileImplIOData : public ProfileIOData {
     scoped_refptr<ChromeURLRequestContextGetter> CreateMainRequestContextGetter(
         content::ProtocolHandlerMap* protocol_handlers,
         content::URLRequestInterceptorScopedVector request_interceptors,
-        PrefService* local_state,
         IOThread* io_thread) const;
     scoped_refptr<ChromeURLRequestContextGetter>
         CreateIsolatedAppRequestContextGetter(

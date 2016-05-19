@@ -8,6 +8,7 @@
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/metrics/field_trial.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/dev_mode_bubble_delegate.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
 #include "chrome/browser/extensions/install_verifier.h"
@@ -111,7 +112,7 @@ ExtensionMessageBubbleFactory::GetController() {
   scoped_ptr<extensions::ExtensionMessageBubbleController> controller;
 
   if (g_override_for_testing == OVERRIDE_DISABLED)
-    return controller.Pass();
+    return controller;
 
   // The list of suspicious extensions takes priority over the dev mode bubble
   // and the settings API bubble, since that needs to be shown as soon as we
@@ -128,7 +129,7 @@ ExtensionMessageBubbleFactory::GetController() {
                 browser_->profile()),
             browser_));
     if (controller->ShouldShow())
-      return controller.Pass();
+      return controller;
   }
 
   if (EnableSettingsApiBubble()) {
@@ -139,7 +140,7 @@ ExtensionMessageBubbleFactory::GetController() {
                   browser_->profile(), extensions::BUBBLE_TYPE_STARTUP_PAGES),
                   browser_));
       if (controller->ShouldShow())
-        return controller.Pass();
+        return controller;
     }
   }
 
@@ -150,7 +151,7 @@ ExtensionMessageBubbleFactory::GetController() {
                 browser_->profile()),
             browser_));
     if (controller->ShouldShow())
-      return controller.Pass();
+      return controller;
   }
 
   if (EnableDevModeBubble()) {
@@ -160,11 +161,11 @@ ExtensionMessageBubbleFactory::GetController() {
                 browser_->profile()),
             browser_));
     if (controller->ShouldShow())
-      return controller.Pass();
+      return controller;
   }
 
   controller.reset();
-  return controller.Pass();
+  return controller;
 }
 
 // static

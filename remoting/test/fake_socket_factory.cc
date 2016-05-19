@@ -8,16 +8,20 @@
 #include "remoting/test/fake_socket_factory.h"
 
 #include <math.h>
+#include <stddef.h>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "net/base/io_buffer.h"
 #include "remoting/test/leaky_bucket.h"
 #include "third_party/webrtc/base/asyncpacketsocket.h"
+#include "third_party/webrtc/media/base/rtputils.h"
 
 namespace remoting {
 
@@ -113,6 +117,10 @@ int FakeUdpSocket::SendTo(const void* data, size_t data_size,
                           const rtc::PacketOptions& options) {
   scoped_refptr<net::IOBuffer> buffer = new net::IOBuffer(data_size);
   memcpy(buffer->data(), data, data_size);
+  cricket::ApplyPacketOptions(
+      reinterpret_cast<uint8_t*>(buffer->data()), data_size,
+      options.packet_time_params,
+      (base::TimeTicks::Now() - base::TimeTicks()).InMilliseconds());
   dispatcher_->DeliverPacket(local_address_, address, buffer, data_size);
   return data_size;
 }
@@ -158,6 +166,9 @@ FakePacketSocketFactory::PendingPacket::PendingPacket(
     : from(from), to(to), data(data), data_size(data_size) {
 }
 
+FakePacketSocketFactory::PendingPacket::PendingPacket(
+    const PendingPacket& other) = default;
+
 FakePacketSocketFactory::PendingPacket::~PendingPacket() {
 }
 
@@ -200,12 +211,13 @@ void FakePacketSocketFactory::SetLatency(base::TimeDelta average,
 
 rtc::AsyncPacketSocket* FakePacketSocketFactory::CreateUdpSocket(
     const rtc::SocketAddress& local_address,
-    uint16 min_port, uint16 max_port) {
+    uint16_t min_port,
+    uint16_t max_port) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   int port = -1;
   if (min_port > 0 && max_port > 0) {
-    for (uint16 i = min_port; i <= max_port; ++i) {
+    for (uint16_t i = min_port; i <= max_port; ++i) {
       if (udp_sockets_.find(i) == udp_sockets_.end()) {
         port = i;
         break;
@@ -235,7 +247,8 @@ rtc::AsyncPacketSocket* FakePacketSocketFactory::CreateUdpSocket(
 
 rtc::AsyncPacketSocket* FakePacketSocketFactory::CreateServerTcpSocket(
     const rtc::SocketAddress& local_address,
-    uint16 min_port, uint16 max_port,
+    uint16_t min_port,
+    uint16_t max_port,
     int opts) {
   return nullptr;
 }

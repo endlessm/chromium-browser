@@ -19,6 +19,7 @@
 #include "third_party/WebKit/public/web/WebViewClient.h"
 
 namespace blink {
+class WebFrameWidget;
 class WebMouseEvent;
 }
 
@@ -87,7 +88,7 @@ class WebViewPlugin : public blink::WebPlugin,
 
   v8::Local<v8::Object> v8ScriptableObject(v8::Isolate* isolate) override;
 
-  void layoutIfNeeded() override;
+  void updateAllLifecyclePhases() override;
   void paint(blink::WebCanvas* canvas, const blink::WebRect& rect) override;
 
   // Coordinates are relative to the containing window.
@@ -101,20 +102,14 @@ class WebViewPlugin : public blink::WebPlugin,
   void updateVisibility(bool) override {}
 
   bool acceptsInputEvents() override;
-  bool handleInputEvent(const blink::WebInputEvent& event,
-                        blink::WebCursorInfo& cursor_info) override;
+  blink::WebInputEventResult handleInputEvent(
+      const blink::WebInputEvent& event,
+      blink::WebCursorInfo& cursor_info) override;
 
   void didReceiveResponse(const blink::WebURLResponse& response) override;
   void didReceiveData(const char* data, int data_length) override;
   void didFinishLoading() override;
   void didFailLoading(const blink::WebURLError& error) override;
-
-  // Called in response to WebPluginContainer::loadFrameRequest
-  void didFinishLoadingFrameRequest(const blink::WebURL& url,
-                                    void* notifyData) override {}
-  void didFailLoadingFrameRequest(const blink::WebURL& url,
-                                  void* notify_data,
-                                  const blink::WebURLError& error) override {}
 
   // WebViewClient methods:
   bool acceptsLoadDrops() override;
@@ -134,7 +129,6 @@ class WebViewPlugin : public blink::WebPlugin,
 
   // WebWidgetClient methods:
   void didInvalidateRect(const blink::WebRect&) override;
-  void didUpdateLayoutSize(const blink::WebSize&) override;
   void didChangeCursor(const blink::WebCursorInfo& cursor) override;
   void scheduleAnimation() override;
 
@@ -145,8 +139,7 @@ class WebViewPlugin : public blink::WebPlugin,
   // different parameters. We only care about implementing the WebPlugin
   // version, so we implement this method and call the default in WebFrameClient
   // (which does nothing) to correctly overload it.
-  void didReceiveResponse(blink::WebLocalFrame* frame,
-                          unsigned identifier,
+  void didReceiveResponse(unsigned identifier,
                           const blink::WebURLResponse& response) override;
 
  private:
@@ -172,6 +165,9 @@ class WebViewPlugin : public blink::WebPlugin,
   blink::WebView* web_view_;
 
   // Owned by us, deleted via |close()|.
+  blink::WebFrameWidget* web_frame_widget_;
+
+  // Owned by us, deleted via |close()|.
   blink::WebFrame* web_frame_;
   gfx::Rect rect_;
 
@@ -181,6 +177,7 @@ class WebViewPlugin : public blink::WebPlugin,
   blink::WebString old_title_;
   bool finished_loading_;
   bool focused_;
+  bool is_painting_;
 };
 
 #endif  // COMPONENTS_PLUGINS_RENDERER_WEBVIEW_PLUGIN_H_

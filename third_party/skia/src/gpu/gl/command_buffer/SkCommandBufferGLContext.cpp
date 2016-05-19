@@ -9,6 +9,7 @@
 #include "gl/GrGLInterface.h"
 #include "gl/GrGLAssembleInterface.h"
 #include "gl/command_buffer/SkCommandBufferGLContext.h"
+#include "../ports/SkOSEnvironment.h"
 #include "../ports/SkOSLibrary.h"
 
 #if defined SK_BUILD_FOR_MAC
@@ -32,6 +33,7 @@ typedef void (*__eglMustCastToProperFunctionPointerType)(void);
 #define EGL_DEFAULT_DISPLAY ((EGLNativeDisplayType)0)
 #define EGL_SURFACE_TYPE 0x3033
 #define EGL_PBUFFER_BIT 0x0001
+#define EGL_WINDOW_BIT 0x0004
 #define EGL_RENDERABLE_TYPE 0x3040
 #define EGL_RED_SIZE 0x3024
 #define EGL_GREEN_SIZE 0x3023
@@ -49,6 +51,11 @@ typedef void (*__eglMustCastToProperFunctionPointerType)(void);
 
 #include <EGL/egl.h>
 
+#endif
+
+#ifndef EGL_OPENGL_ES3_BIT
+// Part of EGL 1.5, typical headers are 1.4.
+#define EGL_OPENGL_ES3_BIT 0x0040
 #endif
 
 typedef EGLDisplay (*GetDisplayProc)(EGLNativeDisplayType display_id);
@@ -136,14 +143,15 @@ const GrGLInterface* GrGLCreateCommandBufferInterface() {
     return GrGLAssembleGLESInterface(gLibrary, command_buffer_get_gl_proc);
 }
 
-SkCommandBufferGLContext::SkCommandBufferGLContext()
+SkCommandBufferGLContext::SkCommandBufferGLContext(ContextVersion minContextVersion)
     : fContext(EGL_NO_CONTEXT)
     , fDisplay(EGL_NO_DISPLAY)
     , fSurface(EGL_NO_SURFACE) {
 
     static const EGLint configAttribs[] = {
         EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_RENDERABLE_TYPE,  minContextVersion == kGLES3_ContextVersion ? EGL_OPENGL_ES3_BIT
+                                                                         : EGL_OPENGL_ES2_BIT,
         EGL_RED_SIZE, 8,
         EGL_GREEN_SIZE, 8,
         EGL_BLUE_SIZE, 8,
@@ -157,13 +165,15 @@ SkCommandBufferGLContext::SkCommandBufferGLContext()
         EGL_NONE
     };
 
-    initializeGLContext(nullptr, configAttribs, surfaceAttribs);
+    initializeGLContext(minContextVersion, nullptr, configAttribs, surfaceAttribs);
 }
 
 SkCommandBufferGLContext::SkCommandBufferGLContext(void* nativeWindow, int msaaSampleCount) {
     static const EGLint surfaceAttribs[] = { EGL_NONE };
 
     EGLint configAttribs[] = {
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
         EGL_RED_SIZE,       8,
         EGL_GREEN_SIZE,     8,
         EGL_BLUE_SIZE,      8,
@@ -178,53 +188,81 @@ SkCommandBufferGLContext::SkCommandBufferGLContext(void* nativeWindow, int msaaS
         configAttribs[12] = EGL_NONE;
     }
 
-    initializeGLContext(nativeWindow, configAttribs, surfaceAttribs);
+    initializeGLContext(kGLES2_ContextVersion, nativeWindow, configAttribs, surfaceAttribs);
 }
 
-void SkCommandBufferGLContext::initializeGLContext(void* nativeWindow, const int* configAttribs,
+void SkCommandBufferGLContext::initializeGLContext(ContextVersion minContextVersion,
+                                                   void* nativeWindow, const int* configAttribs,
                                                    const int* surfaceAttribs) {
     LoadCommandBufferOnce();
     if (!gfFunctionsLoadedSuccessfully) {
+        SkDebugf("Command Buffer: Could not load EGL functions.\n");
         return;
     }
 
-    fDisplay = gfGetDisplay(static_cast<EGLNativeDisplayType>(EGL_DEFAULT_DISPLAY));
+    // Make sure CHROMIUM_path_rendering is enabled for NVPR support.
+    sk_setenv("CHROME_COMMAND_BUFFER_GLES2_ARGS", "--enable-gl-path-rendering --enable-unsafe-es3-apis");
+    fDisplay = gfGetDisplay(EGL_DEFAULT_DISPLAY);
     if (EGL_NO_DISPLAY == fDisplay) {
-        SkDebugf("Could not create EGL display!");
+        SkDebugf("Command Buffer: Could not create EGL display.\n");
         return;
     }
 
-    EGLint majorVersion;
-    EGLint minorVersion;
-    gfInitialize(fDisplay, &majorVersion, &minorVersion);
+    if (!gfInitialize(fDisplay, nullptr, nullptr)) {
+        SkDebugf("Command Buffer: Could not initialize EGL display.\n");
+        this->destroyGLContext();
+        return;
+    }
 
-    EGLConfig surfaceConfig = static_cast<EGLConfig>(fConfig);
     EGLint numConfigs;
-    gfChooseConfig(fDisplay, configAttribs, &surfaceConfig, 1, &numConfigs);
+    if (!gfChooseConfig(fDisplay, configAttribs, static_cast<EGLConfig*>(&fConfig), 1,
+                        &numConfigs) || numConfigs < 1) {
+        SkDebugf("Command Buffer: Could not choose EGL config.\n");
+        this->destroyGLContext();
+        return;
+    }
 
     if (nativeWindow) {
-        fSurface = gfCreateWindowSurface(fDisplay, surfaceConfig,
-                                         (EGLNativeWindowType)nativeWindow, surfaceAttribs);
+        fSurface = gfCreateWindowSurface(fDisplay,
+                                         static_cast<EGLConfig>(fConfig),
+                                         (EGLNativeWindowType)nativeWindow,
+                                         surfaceAttribs);
     } else {
-        fSurface = gfCreatePbufferSurface(fDisplay, surfaceConfig, surfaceAttribs);
+        fSurface = gfCreatePbufferSurface(fDisplay,
+                                          static_cast<EGLConfig>(fConfig),
+                                          surfaceAttribs);
+    }
+    if (EGL_NO_SURFACE == fSurface) {
+        SkDebugf("Command Buffer: Could not create EGL surface.\n");
+        this->destroyGLContext();
+        return;
     }
 
     static const EGLint contextAttribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_CONTEXT_CLIENT_VERSION, minContextVersion == kGLES3_ContextVersion ? 3 : 2,
         EGL_NONE
     };
-    fContext = gfCreateContext(fDisplay, surfaceConfig, nullptr, contextAttribs);
+    fContext = gfCreateContext(fDisplay, static_cast<EGLConfig>(fConfig), nullptr, contextAttribs);
+    if (EGL_NO_CONTEXT == fContext) {
+        SkDebugf("Command Buffer: Could not create EGL context.\n");
+        this->destroyGLContext();
+        return;
+    }
 
-    gfMakeCurrent(fDisplay, fSurface, fSurface, fContext);
+    if (!gfMakeCurrent(fDisplay, fSurface, fSurface, fContext)) {
+        SkDebugf("Command Buffer: Could not make EGL context current.\n");
+        this->destroyGLContext();
+        return;
+    }
 
     SkAutoTUnref<const GrGLInterface> gl(GrGLCreateCommandBufferInterface());
     if (nullptr == gl.get()) {
-        SkDebugf("Could not create CommandBuffer GL interface!\n");
+        SkDebugf("Command Buffer: Could not create CommandBuffer GL interface.\n");
         this->destroyGLContext();
         return;
     }
     if (!gl->validate()) {
-        SkDebugf("Could not validate CommandBuffer GL interface!\n");
+        SkDebugf("Command Buffer: Could not validate CommandBuffer GL interface.\n");
         this->destroyGLContext();
         return;
     }
@@ -241,22 +279,28 @@ void SkCommandBufferGLContext::destroyGLContext() {
     if (!gfFunctionsLoadedSuccessfully) {
         return;
     }
-    if (fDisplay) {
-        gfMakeCurrent(fDisplay, 0, 0, 0);
-
-        if (fContext) {
-            gfDestroyContext(fDisplay, fContext);
-            fContext = EGL_NO_CONTEXT;
-        }
-
-        if (fSurface) {
-            gfDestroySurface(fDisplay, fSurface);
-            fSurface = EGL_NO_SURFACE;
-        }
-
-        gfTerminate(fDisplay);
-        fDisplay = EGL_NO_DISPLAY;
+    if (EGL_NO_DISPLAY == fDisplay) {
+        return;
     }
+
+    if (EGL_NO_CONTEXT != fContext) {
+        gfDestroyContext(fDisplay, fContext);
+        fContext = EGL_NO_CONTEXT;
+    }
+    // Call MakeCurrent after destroying the context, so that the EGL implementation knows
+    // that the context is not used anymore after it is released from being current.
+    // This way command buffer does not need to abandon the context before destruction, and no
+    // client-side errors are printed.
+    gfMakeCurrent(fDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+    if (EGL_NO_SURFACE != fSurface) {
+        gfDestroySurface(fDisplay, fSurface);
+        fSurface = EGL_NO_SURFACE;
+    }
+    // The display is likely to be used again for another test, do not call gfTerminate.  Also,
+    // terminating could imply terminating the "host" EGL inside command buffer. This would
+    // terminate also EGL that this thread might use outside of command buffer.
+    fDisplay = EGL_NO_DISPLAY;
 }
 
 void SkCommandBufferGLContext::onPlatformMakeCurrent() const {
@@ -264,7 +308,7 @@ void SkCommandBufferGLContext::onPlatformMakeCurrent() const {
         return;
     }
     if (!gfMakeCurrent(fDisplay, fSurface, fSurface, fContext)) {
-        SkDebugf("Could not set the context.\n");
+        SkDebugf("Command Buffer: Could not make EGL context current.\n");
     }
 }
 
@@ -273,7 +317,7 @@ void SkCommandBufferGLContext::onPlatformSwapBuffers() const {
         return;
     }
     if (!gfSwapBuffers(fDisplay, fSurface)) {
-        SkDebugf("Could not complete gfSwapBuffers.\n");
+        SkDebugf("Command Buffer: Could not complete gfSwapBuffers.\n");
     }
 }
 
@@ -298,14 +342,12 @@ bool SkCommandBufferGLContext::makeCurrent() {
 
 int SkCommandBufferGLContext::getStencilBits() {
     EGLint result = 0;
-    EGLConfig surfaceConfig = static_cast<EGLConfig>(fConfig);
-    gfGetConfigAttrib(fDisplay, surfaceConfig, EGL_STENCIL_SIZE, &result);
+    gfGetConfigAttrib(fDisplay, static_cast<EGLConfig>(fConfig), EGL_STENCIL_SIZE, &result);
     return result;
 }
 
 int SkCommandBufferGLContext::getSampleCount() {
     EGLint result = 0;
-    EGLConfig surfaceConfig = static_cast<EGLConfig>(fConfig);
-    gfGetConfigAttrib(fDisplay, surfaceConfig, EGL_SAMPLES, &result);
+    gfGetConfigAttrib(fDisplay, static_cast<EGLConfig>(fConfig), EGL_SAMPLES, &result);
     return result;
 }

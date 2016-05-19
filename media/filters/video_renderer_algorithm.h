@@ -5,9 +5,13 @@
 #ifndef MEDIA_FILTERS_VIDEO_RENDERER_ALGORITHM_H_
 #define MEDIA_FILTERS_VIDEO_RENDERER_ALGORITHM_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <deque>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "media/base/media_export.h"
@@ -155,6 +159,7 @@ class MEDIA_EXPORT VideoRendererAlgorithm {
   // Metadata container for enqueued frames.  See |frame_queue_| below.
   struct ReadyFrame {
     ReadyFrame(const scoped_refptr<VideoFrame>& frame);
+    ReadyFrame(const ReadyFrame& other);
     ~ReadyFrame();
 
     // For use with std::lower_bound.

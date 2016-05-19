@@ -33,15 +33,15 @@ if (is_nacl_nonsfi) {
 # the setuid sandbox and is its own target.
 
 group("sandbox") {
-  deps = [
+  public_deps = [
     ":sandbox_services",
   ]
 
   if (compile_suid_client || is_nacl_nonsfi) {
-    deps += [ ":suid_sandbox_client" ]
+    public_deps += [ ":suid_sandbox_client" ]
   }
   if (use_seccomp_bpf || is_nacl_nonsfi) {
-    deps += [
+    public_deps += [
       ":seccomp_bpf",
       ":seccomp_bpf_helpers",
     ]
@@ -55,8 +55,6 @@ source_set("sandbox_linux_test_utils") {
     "tests/sandbox_test_runner.h",
     "tests/sandbox_test_runner_function_pointer.cc",
     "tests/sandbox_test_runner_function_pointer.h",
-    "tests/test_utils.cc",
-    "tests/test_utils.h",
     "tests/unit_tests.cc",
     "tests/unit_tests.h",
   ]
@@ -65,7 +63,14 @@ source_set("sandbox_linux_test_utils") {
     "//testing/gtest",
   ]
 
-  if (use_seccomp_bpf) {
+  if (!is_nacl_nonsfi) {
+    sources += [
+      "tests/test_utils.cc",
+      "tests/test_utils.h",
+    ]
+  }
+
+  if (use_seccomp_bpf || is_nacl_nonsfi) {
     sources += [
       "seccomp-bpf/bpf_tester_compatibility_delegate.h",
       "seccomp-bpf/bpf_tests.h",
@@ -112,11 +117,6 @@ source_set("sandbox_linux_unittests_sources") {
   if (use_base_test_suite) {
     deps += [ "//base/test:test_support" ]
     defines = [ "SANDBOX_USES_BASE_TEST_SUITE" ]
-  }
-
-  if (is_linux) {
-    # Don't use this on Android.
-    libs = [ "rt" ]
   }
 
   if (compile_suid_client) {
@@ -192,13 +192,22 @@ action("bpf_dsl_golden") {
       rebase_path(outputs, root_build_dir) + rebase_path(inputs, root_build_dir)
 }
 
-# TODO(GYP): Delete this after we've converted everything to GN.
+# TODO(GYP): Delete these after we've converted everything to GN.
 # The _run targets exist only for compatibility w/ GYP.
 group("sandbox_linux_unittests_run") {
   testonly = true
   deps = [
     ":sandbox_linux_unittests",
   ]
+}
+
+if (is_android) {
+  group("sandbox_linux_unittests_apk_run") {
+    testonly = true
+    deps = [
+      ":sandbox_linux_unittests",
+    ]
+  }
 }
 
 # The main sandboxing test target. "sandbox_linux_unittests" cannot use the
@@ -276,9 +285,9 @@ component("seccomp_bpf_helpers") {
   defines = [ "SANDBOX_IMPLEMENTATION" ]
 
   deps = [
-    "//base",
     ":sandbox_services",
     ":seccomp_bpf",
+    "//base",
   ]
 
   if (is_nacl_nonsfi) {
@@ -369,6 +378,8 @@ component("sandbox_services") {
   }
 
   if (is_nacl_nonsfi) {
+    cflags = [ "-fgnu-inline-asm" ]
+
     sources -= [
       "services/init_process_reaper.cc",
       "services/init_process_reaper.h",

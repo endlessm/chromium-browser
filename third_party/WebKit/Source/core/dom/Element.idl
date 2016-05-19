@@ -25,9 +25,7 @@ enum NativeScrollBehavior { "disable-native-scroll", "perform-before-native-scro
 
 // https://dom.spec.whatwg.org/#interface-element
 
-[
-    TypeChecking=Interface,
-] interface Element : Node {
+interface Element : Node {
     readonly attribute DOMString? namespaceURI;
     readonly attribute DOMString? prefix;
     readonly attribute DOMString localName;
@@ -35,7 +33,7 @@ enum NativeScrollBehavior { "disable-native-scroll", "perform-before-native-scro
 
     [Reflect] attribute DOMString id;
     [Reflect=class] attribute DOMString className;
-    [SameObject, PerWorldBindings] readonly attribute DOMTokenList classList;
+    [SameObject, PerWorldBindings, PutForwards=value] readonly attribute DOMTokenList classList;
 
     [MeasureAs=HasAttributes] boolean hasAttributes();
     [SameObject, PerWorldBindings, ImplementedAs=attributesForBindings] readonly attribute NamedNodeMap attributes;
@@ -73,6 +71,8 @@ enum NativeScrollBehavior { "disable-native-scroll", "perform-before-native-scro
     [RuntimeEnabled=ShadowDOMV1, RaisesException, CallWith=ScriptState, MeasureAs=ElementAttachShadow] ShadowRoot attachShadow(ShadowRootInit shadowRootInitDict);
     NodeList getDestinationInsertionPoints();
     [PerWorldBindings, ImplementedAs=openShadowRoot] readonly attribute ShadowRoot? shadowRoot;
+    [RuntimeEnabled=ShadowDOMV1, Reflect] attribute DOMString slot;
+    [RuntimeEnabled=ShadowDOMV1, ImplementedAs=assignedSlotForBinding] readonly attribute HTMLSlotElement assignedSlot;
 
     // Pointer Lock
     // https://dvcs.w3.org/hg/pointerlock/raw-file/default/index.html#extensions-to-the-element-interface

@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/commands/CreateLinkCommand.h"
 
 #include "core/dom/Text.h"
@@ -37,7 +36,7 @@ CreateLinkCommand::CreateLinkCommand(Document& document, const String& url)
     m_url = url;
 }
 
-void CreateLinkCommand::doApply()
+void CreateLinkCommand::doApply(EditingState* editingState)
 {
     if (endingSelection().isNone())
         return;
@@ -46,13 +45,19 @@ void CreateLinkCommand::doApply()
     anchorElement->setHref(AtomicString(m_url));
 
     if (endingSelection().isRange()) {
-        applyStyledElement(anchorElement.get());
+        applyStyledElement(anchorElement.get(), editingState);
+        if (editingState->isAborted())
+            return;
     } else {
-        insertNodeAt(anchorElement.get(), endingSelection().start());
+        insertNodeAt(anchorElement.get(), endingSelection().start(), editingState);
+        if (editingState->isAborted())
+            return;
         RefPtrWillBeRawPtr<Text> textNode = Text::create(document(), m_url);
-        appendNode(textNode.get(), anchorElement.get());
+        appendNode(textNode.get(), anchorElement.get(), editingState);
+        if (editingState->isAborted())
+            return;
         setEndingSelection(VisibleSelection(positionInParentBeforeNode(*anchorElement), positionInParentAfterNode(*anchorElement), TextAffinity::Downstream, endingSelection().isDirectional()));
     }
 }
 
-}
+} // namespace blink

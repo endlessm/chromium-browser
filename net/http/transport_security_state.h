@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
 #include "net/base/expiring_cache.h"
@@ -109,6 +110,7 @@ class NET_EXPORT TransportSecurityState
   class NET_EXPORT PKPState {
    public:
     PKPState();
+    PKPState(const PKPState& other);
     ~PKPState();
 
     // The absolute time (UTC) when the |spki_hashes| (and other state) were
@@ -179,6 +181,20 @@ class NET_EXPORT TransportSecurityState
    private:
     std::map<std::string, PKPState>::const_iterator iterator_;
     std::map<std::string, PKPState>::const_iterator end_;
+  };
+
+  // An ExpectCTState describes a site that expects valid Certificate
+  // Transparency information to be supplied on every connection to it.
+  class NET_EXPORT ExpectCTState {
+   public:
+    ExpectCTState();
+    ~ExpectCTState();
+
+    // The domain which matched during a search for this DomainState entry.
+    std::string domain;
+    // The URI to which reports should be sent if valid CT info is not
+    // provided.
+    GURL report_uri;
   };
 
   // An interface for asynchronously sending HPKP violation reports.
@@ -267,6 +283,17 @@ class NET_EXPORT TransportSecurityState
                             STSState* sts_result,
                             PKPState* pkp_result) const;
 
+  // Returns true iff there is static (built-in) state for |host| that
+  // references the Google pins.
+  // TODO(rch): Remove this temporary gross layering violation once QUIC 32 is
+  // deployed.
+  bool IsGooglePinnedHost(const std::string& host) const;
+
+  // Returns true and updates |*expect_ct_result| iff there is a static
+  // (built-in) state for |host| with expect_ct=true.
+  bool GetStaticExpectCTState(const std::string& host,
+                              ExpectCTState* expect_ct_result) const;
+
   // Returns true and updates |*result| iff |host| has HSTS (respectively, HPKP)
   // state. If multiple HSTS (respectively, HPKP) entries match |host|,  the
   // most specific match determines the HSTS (respectively, HPKP) return value.
@@ -292,8 +319,10 @@ class NET_EXPORT TransportSecurityState
                const base::Time& expiry,
                bool include_subdomains);
 
-  // Adds explicitly-specified data as if it was processed from an
-  // HPKP header (used for net-internals and unit tests).
+  // Adds explicitly-specified data as if it was processed from an HPKP header.
+  // Note: This method will persist the HPKP if a Delegate is present. Make sure
+  //       that the delegate is nullptr if the persistence is not desired.
+  //       See |SetDelegate| method for more details.
   void AddHPKP(const std::string& host,
                const base::Time& expiry,
                bool include_subdomains,
@@ -399,6 +428,9 @@ class NET_EXPORT TransportSecurityState
 
   // True if static pins should be used.
   bool enable_static_pins_;
+
+  // True if static expect-CT state should be used.
+  bool enable_static_expect_ct_;
 
   // Keeps track of reports that have been sent recently for
   // rate-limiting.

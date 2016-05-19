@@ -16,6 +16,7 @@
 #include "base/json/json_file_value_serializer.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -69,7 +70,7 @@ scoped_ptr<base::DictionaryValue> ReadManifest(
   if (!root->IsType(base::Value::TYPE_DICTIONARY))
     return scoped_ptr<base::DictionaryValue>();
   return scoped_ptr<base::DictionaryValue>(
-             static_cast<base::DictionaryValue*>(root.release())).Pass();
+      static_cast<base::DictionaryValue*>(root.release()));
 }
 
 bool ComponentUnpacker::UnpackInternal() {

@@ -63,6 +63,7 @@
     ['disable_nacl!=1', {
       'targets': [
         {
+          # GN version: //components/nacl/loader
           'target_name': 'nacl',
           'type': 'static_library',
           'variables': {
@@ -87,6 +88,7 @@
           ],
         },
         {
+          # GN version: //components/nacl/browser
           'target_name': 'nacl_browser',
           'type': 'static_library',
           'sources': [
@@ -137,9 +139,17 @@
                 '../sandbox/sandbox.gyp:sandbox_services',
               ]
             }],
+            ['OS=="win"', {
+              'dependencies': [
+                # TODO(fdoray): Remove this once the PreRead field trial has
+                # expired. crbug.com/577698
+                '../components/components.gyp:startup_metric_utils_common',
+              ]
+            }],
           ],
         },
         {
+          # GN version: //components/nacl/renderer
           'target_name': 'nacl_renderer',
           'type': 'static_library',
           'sources': [
@@ -179,6 +189,7 @@
           ],
         },
         {
+          # GN version: //components/nacl/loader:nacl_loader_unittests
           'target_name': 'nacl_loader_unittests',
           'type': '<(gtest_target_type)',
           'sources': [
@@ -198,6 +209,7 @@
         ['OS=="linux"', {
           'targets': [
             {
+              # GN version: //components/nacl/loader:nacl_helper
               'target_name': 'nacl_helper',
               'type': 'executable',
               'include_dirs': [
@@ -221,6 +233,7 @@
                 'ldflags': ['-pie'],
               },
             }, {
+              # GN version: //components/nacl/loader/sandbox_linux
               'target_name': 'nacl_linux',
               'type': 'static_library',
               'include_dirs': [
@@ -246,15 +259,6 @@
                 ['use_glib == 1', {
                   'dependencies': [
                     '../build/linux/system.gyp:glib',
-                  ],
-                }],
-                ['os_posix == 1 and OS != "mac"', {
-                  'conditions': [
-                    ['use_allocator!="none"', {
-                      'dependencies': [
-                        '../base/allocator/allocator.gyp:allocator',
-                      ],
-                    }],
                   ],
                 }],
                 ['use_seccomp_bpf == 0', {
@@ -308,6 +312,7 @@
               },
             },
             {
+              # GN version: //components/nacl/common:switches
               'target_name': 'nacl_switches_win64',
               'type': 'static_library',
               'sources': [
@@ -324,6 +329,7 @@
               },
             },
             {
+              # GN version: //components/nacl/common
               'target_name': 'nacl_common_win64',
               'type': 'static_library',
               'defines': [
@@ -416,6 +422,7 @@
   ],
   'targets': [
     {
+      # GN version: //components/nacl/common:switches
       'target_name': 'nacl_switches',
       'type': 'static_library',
       'sources': [
@@ -427,6 +434,7 @@
       ],
     },
     {
+      # GN version: //components/nacl/common
       'target_name': 'nacl_common',
       'type': 'static_library',
       'sources': [

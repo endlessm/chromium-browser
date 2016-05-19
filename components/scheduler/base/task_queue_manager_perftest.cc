@@ -4,13 +4,15 @@
 
 #include "components/scheduler/base/task_queue_manager.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/threading/thread.h"
 #include "base/time/default_tick_clock.h"
 #include "components/scheduler/base/task_queue_impl.h"
 #include "components/scheduler/base/task_queue_manager_delegate_for_test.h"
 #include "components/scheduler/base/task_queue_selector.h"
-#include "components/scheduler/base/task_queue_sets.h"
+#include "components/scheduler/base/work_queue_sets.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/perf/perf_test.h"
 
@@ -136,6 +138,17 @@ TEST_F(TaskQueueManagerPerfTest, RunTenThousandDelayedTasks_EightQueues) {
   if (!base::ThreadTicks::IsSupported())
     return;
   Initialize(8u);
+
+  max_tasks_in_flight_ = 200;
+  Benchmark("run 10000 delayed tasks with eight queues",
+            base::Bind(&TaskQueueManagerPerfTest::ResetAndCallTestDelayedTask,
+                       base::Unretained(this), 10000));
+}
+
+TEST_F(TaskQueueManagerPerfTest, RunTenThousandDelayedTasks_ThirtyTwoQueues) {
+  if (!base::ThreadTicks::IsSupported())
+    return;
+  Initialize(32u);
 
   max_tasks_in_flight_ = 200;
   Benchmark("run 10000 delayed tasks with eight queues",

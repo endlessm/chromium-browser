@@ -47,12 +47,14 @@ public:
     static PassRefPtrWillBeRawPtr<InputType> create(HTMLInputElement&);
 
 private:
-    WeekInputType(HTMLInputElement& element) : BaseWeekInputType(element) { }
+    explicit WeekInputType(HTMLInputElement& element) : BaseWeekInputType(element) { }
+
     void countUsage() override;
     const AtomicString& formControlType() const override;
     StepRange createStepRange(AnyStepHandling) const override;
     bool parseToDateComponentsInternal(const String&, DateComponents*) const override;
     bool setMillisecondToDateComponents(double, DateComponents*) const override;
+    void warnIfValueIsInvalid(const String&) const override;
 
 #if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
     // BaseMultipleFieldsDateAndTimeInputType functions

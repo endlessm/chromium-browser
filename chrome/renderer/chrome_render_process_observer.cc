@@ -4,14 +4,18 @@
 
 #include "chrome/renderer/chrome_render_process_observer.h"
 
+#include <stddef.h>
 #include <limits>
+#include <set>
+#include <utility>
 #include <vector>
 
-#include "base/allocator/allocator_extension.h"
+#include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
@@ -21,9 +25,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/platform_thread.h"
+#include "build/build_config.h"
 #include "chrome/common/child_process_logging.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/media/media_resource_provider.h"
 #include "chrome/common/net/net_resource_provider.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/resource_usage_reporter.mojom.h"
@@ -37,6 +43,7 @@
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/render_view_visitor.h"
+#include "media/base/media_resources.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_module.h"
@@ -49,11 +56,6 @@
 
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/renderer/extensions/extension_localization_peer.h"
-#endif
-
-#if !defined(OS_IOS)
-#include "chrome/common/media/media_resource_provider.h"
-#include "media/base/media_resources.h"
 #endif
 
 using blink::WebCache;
@@ -72,9 +74,10 @@ class RendererResourceDelegate : public content::ResourceDispatcherDelegate {
       : weak_factory_(this) {
   }
 
-  content::RequestPeer* OnRequestComplete(content::RequestPeer* current_peer,
-                                          content::ResourceType resource_type,
-                                          int error_code) override {
+  scoped_ptr<content::RequestPeer> OnRequestComplete(
+      scoped_ptr<content::RequestPeer> current_peer,
+      content::ResourceType resource_type,
+      int error_code) override {
     // Update the browser about our cache.
     // Rate limit informing the host of our cache stats.
     if (!weak_factory_.HasWeakPtrs()) {
@@ -86,22 +89,23 @@ class RendererResourceDelegate : public content::ResourceDispatcherDelegate {
     }
 
     if (error_code == net::ERR_ABORTED) {
-      return NULL;
+      return current_peer;
     }
 
     // Resource canceled with a specific error are filtered.
     return SecurityFilterPeer::CreateSecurityFilterPeerForDeniedRequest(
-        resource_type, current_peer, error_code);
+        resource_type, std::move(current_peer), error_code);
   }
 
-  content::RequestPeer* OnReceivedResponse(content::RequestPeer* current_peer,
-                                           const std::string& mime_type,
-                                           const GURL& url) override {
+  scoped_ptr<content::RequestPeer> OnReceivedResponse(
+      scoped_ptr<content::RequestPeer> current_peer,
+      const std::string& mime_type,
+      const GURL& url) override {
 #if defined(ENABLE_EXTENSIONS)
     return ExtensionLocalizationPeer::CreateExtensionLocalizationPeer(
-        current_peer, RenderThread::Get(), mime_type, url);
+        std::move(current_peer), RenderThread::Get(), mime_type, url);
 #else
-    return NULL;
+    return current_peer;
 #endif
   }
 
@@ -109,7 +113,12 @@ class RendererResourceDelegate : public content::ResourceDispatcherDelegate {
   void InformHostOfCacheStats() {
     WebCache::UsageStats stats;
     WebCache::getUsageStats(&stats);
-    RenderThread::Get()->Send(new ChromeViewHostMsg_UpdatedCacheStats(stats));
+    RenderThread::Get()->Send(new ChromeViewHostMsg_UpdatedCacheStats(
+        static_cast<uint64_t>(stats.minDeadCapacity),
+        static_cast<uint64_t>(stats.maxDeadCapacity),
+        static_cast<uint64_t>(stats.capacity),
+        static_cast<uint64_t>(stats.liveSize),
+        static_cast<uint64_t>(stats.deadSize)));
   }
 
   base::WeakPtrFactory<RendererResourceDelegate> weak_factory_;
@@ -121,10 +130,12 @@ static const int kWaitForWorkersStatsTimeoutMS = 20;
 
 class ResourceUsageReporterImpl : public ResourceUsageReporter {
  public:
-  ResourceUsageReporterImpl(
-      base::WeakPtr<ChromeRenderProcessObserver> observer,
-      mojo::InterfaceRequest<ResourceUsageReporter> req)
-      : binding_(this, req.Pass()), observer_(observer), weak_factory_(this) {}
+  ResourceUsageReporterImpl(base::WeakPtr<ChromeRenderProcessObserver> observer,
+                            mojo::InterfaceRequest<ResourceUsageReporter> req)
+      : workers_to_go_(0),
+        binding_(this, std::move(req)),
+        observer_(observer),
+        weak_factory_(this) {}
   ~ResourceUsageReporterImpl() override {}
 
  private:
@@ -155,7 +166,7 @@ class ResourceUsageReporterImpl : public ResourceUsageReporter {
 
   void SendResults() {
     if (!callback_.is_null())
-      callback_.Run(usage_data_.Pass());
+      callback_.Run(std::move(usage_data_));
     callback_.reset();
     weak_factory_.InvalidateWeakPtrs();
     workers_to_go_ = 0;
@@ -212,12 +223,14 @@ class ResourceUsageReporterImpl : public ResourceUsageReporter {
   base::WeakPtr<ChromeRenderProcessObserver> observer_;
 
   base::WeakPtrFactory<ResourceUsageReporterImpl> weak_factory_;
+
+  DISALLOW_COPY_AND_ASSIGN(ResourceUsageReporterImpl);
 };
 
 void CreateResourceUsageReporter(
     base::WeakPtr<ChromeRenderProcessObserver> observer,
     mojo::InterfaceRequest<ResourceUsageReporter> request) {
-  new ResourceUsageReporterImpl(observer, request.Pass());
+  new ResourceUsageReporterImpl(observer, std::move(request));
 }
 
 }  // namespace
@@ -255,18 +268,40 @@ ChromeRenderProcessObserver::ChromeRenderProcessObserver()
 
   // Configure modules that need access to resources.
   net::NetModule::SetResourceProvider(chrome_common_net::NetResourceProvider);
-#if !defined(OS_IOS)
   media::SetLocalizedStringProvider(
       chrome_common_media::LocalizedStringProvider);
-#endif
 
-  // Setup initial set of crash dump data for Field Trials in this renderer.
-  variations::SetVariationListCrashKeys();
-  // Listen for field trial activations to report them to the browser.
-  base::FieldTrialList::AddObserver(this);
+  InitFieldTrialObserving(command_line);
 }
 
-ChromeRenderProcessObserver::~ChromeRenderProcessObserver() {
+ChromeRenderProcessObserver::~ChromeRenderProcessObserver() {}
+
+void ChromeRenderProcessObserver::InitFieldTrialObserving(
+    const base::CommandLine& command_line) {
+  // Set up initial set of crash dump data for field trials in this renderer.
+  variations::SetVariationListCrashKeys();
+
+  // Listen for field trial activations to report them to the browser.
+  base::FieldTrialList::AddObserver(this);
+
+  // Some field trials may have been activated before this point. Notify the
+  // browser of these activations now. To detect these, take the set difference
+  // of currently active trials with the initially active trials.
+  base::FieldTrial::ActiveGroups initially_active_trials;
+  base::FieldTrialList::GetActiveFieldTrialGroupsFromString(
+      command_line.GetSwitchValueASCII(switches::kForceFieldTrials),
+      &initially_active_trials);
+  std::set<std::string> initially_active_trials_set;
+  for (const auto& entry : initially_active_trials) {
+    initially_active_trials_set.insert(std::move(entry.trial_name));
+  }
+
+  base::FieldTrial::ActiveGroups current_active_trials;
+  base::FieldTrialList::GetActiveFieldTrialGroups(&current_active_trials);
+  for (const auto& trial : current_active_trials) {
+    if (!ContainsKey(initially_active_trials_set, trial.trial_name))
+      OnFieldTrialGroupFinalized(trial.trial_name, trial.group_name);
+  }
 }
 
 bool ChromeRenderProcessObserver::OnControlMessageReceived(
@@ -315,11 +350,34 @@ void ChromeRenderProcessObserver::OnSetContentSettingRules(
 
 void ChromeRenderProcessObserver::OnSetFieldTrialGroup(
     const std::string& field_trial_name,
-    const std::string& group_name) {
+    const std::string& group_name,
+    base::ProcessId sender_pid) {
+  // Check that the sender's PID doesn't change between messages. We expect
+  // these IPCs to always be delivered from the same browser process, whose pid
+  // should not change.
+  // TODO(asvitkine): Remove this after http://crbug.com/359406 is fixed.
+  static base::ProcessId sender_pid_cached = sender_pid;
+  CHECK_EQ(sender_pid_cached, sender_pid) << sender_pid_cached << "/"
+                                          << sender_pid;
   base::FieldTrial* trial =
       base::FieldTrialList::CreateFieldTrial(field_trial_name, group_name);
-  // TODO(mef): Remove this check after the investigation of 359406 is complete.
-  CHECK(trial) << field_trial_name << ":" << group_name;
+  // TODO(asvitkine): Remove this after http://crbug.com/359406 is fixed.
+  if (!trial) {
+    // Log the --force-fieldtrials= switch value for debugging purposes. Take
+    // its substring starting with the trial name, since otherwise the end of
+    // it can get truncated in the dump.
+    std::string switch_substr = base::CommandLine::ForCurrentProcess()->
+        GetSwitchValueASCII(switches::kForceFieldTrials);
+    size_t index = switch_substr.find(field_trial_name);
+    if (index != std::string::npos) {
+      // If possible, log the string one char before the trial name, as there
+      // may be a leading * to indicate it should be activated.
+      switch_substr = switch_substr.substr(index > 0 ? index - 1 : index);
+    }
+    CHECK(trial) << field_trial_name << ":" << group_name << "=>"
+                 << base::FieldTrialList::FindFullName(field_trial_name)
+                 << " ] " << switch_substr;
+  }
   // Ensure the trial is marked as "used" by calling group() on it if it is
   // marked as activated.
   trial->group();

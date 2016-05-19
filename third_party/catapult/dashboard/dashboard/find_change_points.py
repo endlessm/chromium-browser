@@ -25,7 +25,7 @@ _MAX_WINDOW_SIZE = 50
 
 # Minimum number of points in a segment. This can help filter out erroneous
 # results by ignoring results that were found from looking at too few points.
-_MIN_SEGMENT_SIZE = 6
+MIN_SEGMENT_SIZE = 6
 
 # Minimum absolute difference between medians before and after.
 _MIN_ABSOLUTE_CHANGE = 0
@@ -35,7 +35,7 @@ _MIN_RELATIVE_CHANGE = 0.01
 
 # "Steppiness" is a number between 0 and 1 that indicates how similar the
 # shape is to a perfect step function, where 1 represents a step function.
-_MIN_STEPPINESS = 0.3
+_MIN_STEPPINESS = 0.5
 
 # The "standard deviation" is based on a subset of points in the series.
 # This parameter is the minimum acceptable ratio of the relative change
@@ -70,7 +70,7 @@ class ChangePoint(collections.namedtuple(
 def FindChangePoints(
     series,
     max_window_size=_MAX_WINDOW_SIZE,
-    min_segment_size=_MIN_SEGMENT_SIZE,
+    min_segment_size=MIN_SEGMENT_SIZE,
     min_absolute_change=_MIN_ABSOLUTE_CHANGE,
     min_relative_change=_MIN_RELATIVE_CHANGE,
     min_steppiness=_MIN_STEPPINESS,

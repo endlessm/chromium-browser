@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <string>
-
 #include "content/child/blob_storage/blob_consolidation.h"
+
+#include <stdint.h>
+
+#include <algorithm>
+#include <limits>
+#include <string>
 
 using storage::DataElement;
 using blink::WebThreadSafeData;
@@ -16,9 +20,8 @@ using ReadStatus = BlobConsolidation::ReadStatus;
 BlobConsolidation::ConsolidatedItem::ConsolidatedItem()
     : type(DataElement::TYPE_UNKNOWN),
       offset(0),
-      length(kuint64max),
-      expected_modification_time(0) {
-}
+      length(std::numeric_limits<uint64_t>::max()),
+      expected_modification_time(0) {}
 
 BlobConsolidation::ConsolidatedItem::~ConsolidatedItem() {
 }
@@ -31,6 +34,9 @@ BlobConsolidation::ConsolidatedItem::ConsolidatedItem(DataElement::Type type,
       length(length),
       expected_modification_time(0) {
 }
+
+BlobConsolidation::ConsolidatedItem::ConsolidatedItem(
+    const ConsolidatedItem& other) = default;
 
 BlobConsolidation::BlobConsolidation() : total_memory_(0) {
 }

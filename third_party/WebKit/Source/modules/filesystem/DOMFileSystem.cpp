@@ -28,10 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/filesystem/DOMFileSystem.h"
 
-#include "core/fileapi/FileCallback.h"
+#include "core/fileapi/BlobCallback.h"
 #include "modules/filesystem/DOMFilePath.h"
 #include "modules/filesystem/DirectoryEntry.h"
 #include "modules/filesystem/ErrorCallback.h"
@@ -146,7 +145,7 @@ private:
     Member<FileWriterCallback> m_callback;
 };
 
-}
+} // namespace
 
 void DOMFileSystem::createWriter(const FileEntry* fileEntry, FileWriterCallback* successCallback, ErrorCallback* errorCallback)
 {
@@ -163,7 +162,7 @@ void DOMFileSystem::createWriter(const FileEntry* fileEntry, FileWriterCallback*
     fileSystem()->createFileWriter(createFileSystemURL(fileEntry), fileWriter, callbacks.release());
 }
 
-void DOMFileSystem::createFile(const FileEntry* fileEntry, FileCallback* successCallback, ErrorCallback* errorCallback)
+void DOMFileSystem::createFile(const FileEntry* fileEntry, BlobCallback* successCallback, ErrorCallback* errorCallback)
 {
     KURL fileSystemURL = createFileSystemURL(fileEntry);
     if (!fileSystem()) {

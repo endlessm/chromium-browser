@@ -7,8 +7,8 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/files/file.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "content/common/content_export.h"
@@ -16,8 +16,8 @@
 #include "content/renderer/media/webrtc/stun_field_trial.h"
 #include "content/renderer/p2p/socket_dispatcher.h"
 #include "ipc/ipc_platform_file.h"
-#include "third_party/libjingle/source/talk/app/webrtc/peerconnectioninterface.h"
-#include "third_party/libjingle/source/talk/app/webrtc/videosourceinterface.h"
+#include "third_party/webrtc/api/peerconnectioninterface.h"
+#include "third_party/webrtc/api/videosourceinterface.h"
 #include "third_party/webrtc/p2p/stunprober/stunprober.h"
 
 namespace base {
@@ -89,9 +89,13 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   virtual WebRtcVideoCapturerAdapter* CreateVideoCapturer(
       bool is_screen_capture);
 
-  // Create an instance of WebRtcLocalAudioTrack and store it
+  // Creates an instance of WebRtcLocalAudioTrack and stores it
   // in the extraData field of |track|.
   void CreateLocalAudioTrack(const blink::WebMediaStreamTrack& track);
+
+  // Creates an instance of MediaStreamRemoteAudioTrack and associates with the
+  // |track| object.
+  void CreateRemoteAudioTrack(const blink::WebMediaStreamTrack& track);
 
   // Asks the PeerConnection factory to create a Local VideoTrack object.
   virtual scoped_refptr<webrtc::VideoTrackInterface>
@@ -126,6 +130,12 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
       const std::string& sdp_mid,
       int sdp_mline_index,
       const std::string& sdp);
+
+  // Starts recording an RTC event log.
+  virtual bool StartRtcEventLog(base::PlatformFile file);
+
+  // Starts recording an RTC event log.
+  virtual void StopRtcEventLog();
 
   WebRtcAudioDeviceImpl* GetWebRtcAudioDevice();
 

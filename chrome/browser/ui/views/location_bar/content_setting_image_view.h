@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_CONTENT_SETTING_IMAGE_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_CONTENT_SETTING_IMAGE_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
@@ -27,7 +28,9 @@ class FontList;
 }
 
 namespace views {
+class BubbleDelegateView;
 class ImageView;
+class InkDropDelegate;
 class Label;
 }
 
@@ -39,11 +42,9 @@ class ContentSettingImageView : public IconLabelBubbleView,
                                 public views::WidgetObserver {
  public:
   // ContentSettingImageView takes ownership of its |image_model|.
-  // TODO(estade): remove |text_color| because it isn't necessary for MD.
   ContentSettingImageView(ContentSettingImageModel* image_model,
                           LocationBarView* parent,
                           const gfx::FontList& font_list,
-                          SkColor text_color,
                           SkColor parent_background_color);
   ~ContentSettingImageView() override;
 
@@ -72,21 +73,38 @@ class ContentSettingImageView : public IconLabelBubbleView,
 
   // views::View:
   const char* GetClassName() const override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
+  bool OnKeyPressed(const ui::KeyEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
+  void OnNativeThemeChanged(const ui::NativeTheme* native_theme) override;
 
   // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget* widget) override;
+  void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
 
   void OnClick();
+
+  void UpdateImage();
+
+  // Returns true if a related bubble is showing.
+  bool IsBubbleShowing() const;
 
   LocationBarView* parent_;  // Weak, owns us.
   scoped_ptr<ContentSettingImageModel> content_setting_image_model_;
   gfx::SlideAnimation slide_animator_;
   bool pause_animation_;
   double pause_animation_state_;
-  views::Widget* bubble_widget_;
+  views::BubbleDelegateView* bubble_view_;
+
+  // This is used to check if the bubble was showing during the mouse pressed
+  // event. If this is true then the mouse released event is ignored to prevent
+  // the bubble from reshowing.
+  bool suppress_mouse_released_action_;
+
+  // Animation delegate for the ink drop ripple effect.
+  scoped_ptr<views::InkDropDelegate> ink_drop_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSettingImageView);
 };

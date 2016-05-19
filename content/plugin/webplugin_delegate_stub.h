@@ -8,7 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "build/build_config.h"
 #include "content/child/npapi/npobject_stub.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
@@ -18,8 +20,6 @@
 #include "url/gurl.h"
 
 struct PluginMsg_Init_Params;
-struct PluginMsg_DidReceiveResponseParams;
-struct PluginMsg_FetchURL_Params;
 struct PluginMsg_UpdateGeometry_Param;
 
 namespace blink {
@@ -61,13 +61,6 @@ class WebPluginDelegateStub : public IPC::Listener,
   void OnInit(const PluginMsg_Init_Params& params,
               bool* transparent,
               bool* result);
-  void OnWillSendRequest(int id, const GURL& url, int http_status_code);
-  void OnDidReceiveResponse(const PluginMsg_DidReceiveResponseParams& params);
-  void OnDidReceiveData(int id, const std::vector<char>& buffer,
-                        int data_offset);
-  void OnDidFinishLoading(int id);
-  void OnDidFail(int id);
-  void OnDidFinishLoadWithReason(const GURL& url, int reason, int notify_id);
   void OnSetFocus(bool focused);
   void OnHandleInputEvent(const blink::WebInputEvent* event,
                           bool* handled, WebCursor* cursor);
@@ -75,10 +68,6 @@ class WebPluginDelegateStub : public IPC::Listener,
   void OnDidPaint();
   void OnUpdateGeometry(const PluginMsg_UpdateGeometry_Param& param);
   void OnGetPluginScriptableObject(int* route_id);
-  void OnSendJavaScriptStream(const GURL& url,
-                              const std::string& result,
-                              bool success,
-                              int notify_id);
   void OnGetFormValue(base::string16* value, bool* success);
 
   void OnSetContentAreaFocus(bool has_focus);
@@ -98,18 +87,6 @@ class WebPluginDelegateStub : public IPC::Listener,
                             const gfx::Rect& view_frame);
   void OnImeCompositionCompleted(const base::string16& text);
 #endif
-
-  void OnDidReceiveManualResponse(
-      const GURL& url,
-      const PluginMsg_DidReceiveResponseParams& params);
-  void OnDidReceiveManualData(const std::vector<char>& buffer);
-  void OnDidFinishManualLoading();
-  void OnDidManualLoadFail();
-  void OnHandleURLRequestReply(unsigned long resource_id,
-                               const GURL& url,
-                               int notify_id);
-  void OnHTTPRangeRequestReply(unsigned long resource_id, int range_request_id);
-  void OnFetchURL(const PluginMsg_FetchURL_Params& params);
 
   std::string mime_type_;
   int instance_id_;

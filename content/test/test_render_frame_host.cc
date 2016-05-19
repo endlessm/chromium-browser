@@ -4,7 +4,7 @@
 
 #include "content/test/test_render_frame_host.h"
 
-#include "base/command_line.h"
+#include "base/guid.h"
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/navigation_handle_impl.h"
 #include "content/browser/frame_host/navigation_request.h"
@@ -14,7 +14,7 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/frame_messages.h"
 #include "content/public/browser/stream_handle.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/url_constants.h"
 #include "content/test/browser_side_navigation_test_utils.h"
 #include "content/test/test_navigation_url_loader.h"
@@ -46,8 +46,8 @@ TestRenderFrameHost::TestRenderFrameHost(SiteInstance* site_instance,
                                          RenderWidgetHostDelegate* rwh_delegate,
                                          FrameTree* frame_tree,
                                          FrameTreeNode* frame_tree_node,
-                                         int32 routing_id,
-                                         int32 widget_routing_id,
+                                         int32_t routing_id,
+                                         int32_t widget_routing_id,
                                          int flags)
     : RenderFrameHostImpl(site_instance,
                           render_view_host,
@@ -76,6 +76,7 @@ MockRenderProcessHost* TestRenderFrameHost::GetProcess() {
 
 void TestRenderFrameHost::InitializeRenderFrameIfNeeded() {
   if (!render_view_host()->IsRenderViewLive()) {
+    render_view_host()->GetProcess()->Init();
     RenderViewHostTester::For(render_view_host())->CreateTestRenderView(
         base::string16(), MSG_ROUTING_NONE, MSG_ROUTING_NONE, -1, false);
   }
@@ -83,28 +84,31 @@ void TestRenderFrameHost::InitializeRenderFrameIfNeeded() {
 
 TestRenderFrameHost* TestRenderFrameHost::AppendChild(
     const std::string& frame_name) {
+  std::string frame_unique_name = base::GenerateGUID();
   OnCreateChildFrame(GetProcess()->GetNextRoutingID(),
                      blink::WebTreeScopeType::Document, frame_name,
-                     blink::WebSandboxFlags::None,
+                     frame_unique_name, blink::WebSandboxFlags::None,
                      blink::WebFrameOwnerProperties());
   return static_cast<TestRenderFrameHost*>(
       child_creation_observer_.last_created_frame());
 }
 
+void TestRenderFrameHost::Detach() {
+  OnDetach();
+}
+
 void TestRenderFrameHost::SimulateNavigationStart(const GURL& url) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     SendRendererInitiatedNavigationRequest(url, false);
     return;
   }
 
   OnDidStartLoading(true);
-  OnDidStartProvisionalLoadForFrame(url);
+  OnDidStartProvisionalLoad(url, base::TimeTicks::Now());
 }
 
 void TestRenderFrameHost::SimulateRedirect(const GURL& new_url) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     NavigationRequest* request = frame_tree_node_->navigation_request();
     TestNavigationURLLoader* url_loader =
         static_cast<TestNavigationURLLoader*>(request->loader_for_testing());
@@ -113,24 +117,29 @@ void TestRenderFrameHost::SimulateRedirect(const GURL& new_url) {
     return;
   }
 
-  // Note that this does not simulate
-  // WebContentsImpl::DidGetRedirectForResourceRequest due to the difficulty in
-  // creating fake ResourceRequestDetails on the UI thread.
-  navigation_handle()->DidRedirectNavigation(new_url);
+  navigation_handle()->CallWillRedirectRequestForTesting(new_url, false, GURL(),
+                                                         false);
 }
 
 void TestRenderFrameHost::SimulateNavigationCommit(const GURL& url) {
   if (frame_tree_node()->navigation_request())
     PrepareForCommit();
 
+  bool is_auto_subframe =
+      GetParent() && !frame_tree_node()->has_committed_real_load();
+
   FrameHostMsg_DidCommitProvisionalLoad_Params params;
   params.page_id = ComputeNextPageID();
   params.nav_entry_id = 0;
   params.url = url;
-  params.transition = GetParent() ? ui::PAGE_TRANSITION_MANUAL_SUBFRAME
-                                  : ui::PAGE_TRANSITION_LINK;
+  if (!GetParent())
+    params.transition = ui::PAGE_TRANSITION_LINK;
+  else if (is_auto_subframe)
+    params.transition = ui::PAGE_TRANSITION_AUTO_SUBFRAME;
+  else
+    params.transition = ui::PAGE_TRANSITION_MANUAL_SUBFRAME;
   params.should_update_history = true;
-  params.did_create_new_entry = true;
+  params.did_create_new_entry = !is_auto_subframe;
   params.gesture = NavigationGestureUser;
   params.contents_mime_type = contents_mime_type_;
   params.is_post = false;
@@ -153,8 +162,7 @@ void TestRenderFrameHost::SimulateNavigationCommit(const GURL& url) {
 
 void TestRenderFrameHost::SimulateNavigationError(const GURL& url,
                                                   int error_code) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     NavigationRequest* request = frame_tree_node_->navigation_request();
     CHECK(request);
     // Simulate a beforeUnload ACK from the renderer if the browser is waiting
@@ -179,7 +187,7 @@ void TestRenderFrameHost::SimulateNavigationError(const GURL& url,
 void TestRenderFrameHost::SimulateNavigationErrorPageCommit() {
   CHECK(navigation_handle());
   GURL error_url = GURL(kUnreachableWebDataURL);
-  OnDidStartProvisionalLoadForFrame(error_url);
+  OnDidStartProvisionalLoad(error_url, base::TimeTicks::Now());
   FrameHostMsg_DidCommitProvisionalLoad_Params params;
   params.page_id = ComputeNextPageID();
   params.nav_entry_id = 0;
@@ -197,8 +205,7 @@ void TestRenderFrameHost::SimulateNavigationErrorPageCommit() {
 void TestRenderFrameHost::SimulateNavigationStop() {
   if (is_loading()) {
     OnDidStopLoading();
-  } else if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-                 switches::kEnableBrowserSideNavigation)) {
+  } else if (IsBrowserSideNavigationEnabled()) {
     // Even if the RenderFrameHost is not loading, there may still be an
     // ongoing navigation in the FrameTreeNode. Cancel this one as well.
     frame_tree_node()->ResetNavigationRequest(false);
@@ -264,11 +271,13 @@ void TestRenderFrameHost::SendNavigateWithParameters(
     ui::PageTransition transition,
     int response_code,
     const ModificationCallback& callback) {
+  if (!IsBrowserSideNavigationEnabled())
+    OnDidStartLoading(true);
+
   // DidStartProvisionalLoad may delete the pending entry that holds |url|,
   // so we keep a copy of it to use below.
   GURL url_copy(url);
-  OnDidStartLoading(true);
-  OnDidStartProvisionalLoadForFrame(url_copy);
+  OnDidStartProvisionalLoad(url_copy, base::TimeTicks::Now());
 
   FrameHostMsg_DidCommitProvisionalLoad_Params params;
   params.page_id = page_id;
@@ -325,9 +334,7 @@ void TestRenderFrameHost::NavigateAndCommitRendererInitiated(
   // stack commit.
   if (frame_tree_node()->navigation_request())
     PrepareForCommit();
-  bool browser_side_navigation =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation);
+  bool browser_side_navigation = IsBrowserSideNavigationEnabled();
   CHECK(!browser_side_navigation || is_loading());
   CHECK(!browser_side_navigation || !frame_tree_node()->navigation_request());
   SendNavigate(page_id, 0, did_create_new_entry, url);
@@ -340,8 +347,7 @@ void TestRenderFrameHost::SendRendererInitiatedNavigationRequest(
   // initialized. Do it if it hasn't happened yet.
   InitializeRenderFrameIfNeeded();
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (IsBrowserSideNavigationEnabled()) {
     BeginNavigationParams begin_params("GET", std::string(), net::LOAD_NORMAL,
                                        has_user_gesture, false,
                                        REQUEST_CONTEXT_TYPE_HYPERLINK);
@@ -358,14 +364,17 @@ void TestRenderFrameHost::DidChangeOpener(int opener_routing_id) {
   OnDidChangeOpener(opener_routing_id);
 }
 
+void TestRenderFrameHost::DidEnforceStrictMixedContentChecking() {
+  OnEnforceStrictMixedContentChecking();
+}
+
 void TestRenderFrameHost::PrepareForCommit() {
   PrepareForCommitWithServerRedirect(GURL());
 }
 
 void TestRenderFrameHost::PrepareForCommitWithServerRedirect(
     const GURL& redirect_url) {
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserSideNavigation)) {
+  if (!IsBrowserSideNavigationEnabled()) {
     // Non PlzNavigate
     if (is_waiting_for_beforeunload_ack())
       SendBeforeUnloadACK(true);
@@ -400,7 +409,7 @@ void TestRenderFrameHost::PrepareForCommitWithServerRedirect(
   url_loader->CallOnResponseStarted(response, MakeEmptyStream());
 }
 
-int32 TestRenderFrameHost::ComputeNextPageID() {
+int32_t TestRenderFrameHost::ComputeNextPageID() {
   const NavigationEntryImpl* entry = static_cast<NavigationEntryImpl*>(
       frame_tree_node()->navigator()->GetController()->GetPendingEntry());
   DCHECK(!(entry && entry->site_instance()) ||

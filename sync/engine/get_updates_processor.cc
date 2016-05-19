@@ -4,6 +4,8 @@
 
 #include "sync/engine/get_updates_processor.h"
 
+#include <stddef.h>
+
 #include <map>
 
 #include "base/trace_event/trace_event.h"
@@ -368,6 +370,7 @@ syncer::SyncerError GetUpdatesProcessor::ProcessGetUpdatesResponse(
 void GetUpdatesProcessor::ApplyUpdates(
     ModelTypeSet gu_types,
     sessions::StatusController* status_controller) {
+  status_controller->set_get_updates_request_types(gu_types);
   delegate_.ApplyUpdates(gu_types, status_controller, update_handler_map_);
 }
 

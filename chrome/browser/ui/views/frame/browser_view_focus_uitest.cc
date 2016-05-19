@@ -30,7 +30,7 @@ class BrowserViewFocusTest : public InProcessBrowserTest {
 // Flaky, http://crbug.com/69034.
 IN_PROC_BROWSER_TEST_F(BrowserViewFocusTest, DISABLED_BrowsersRememberFocus) {
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   // First we navigate to our test page.
   GURL url = embedded_test_server()->GetURL(kSimplePage);
@@ -56,9 +56,7 @@ IN_PROC_BROWSER_TEST_F(BrowserViewFocusTest, DISABLED_BrowsersRememberFocus) {
   // of Activate() is not well defined and can vary by window manager.
 #if defined(OS_WIN)
   // Open a new browser window.
-  Browser* browser2 =
-      new Browser(Browser::CreateParams(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  Browser* browser2 = new Browser(Browser::CreateParams(browser()->profile()));
   ASSERT_TRUE(browser2);
   chrome::AddTabAt(browser2, GURL(), -1, true);
   browser2->window()->Show();

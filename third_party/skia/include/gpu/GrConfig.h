@@ -33,7 +33,7 @@
  */
 
 #if !defined(GR_CACHE_STATS)
-  #ifdef SK_DEVELOPER
+  #if defined(SK_DEVELOPER) || defined(SK_DUMP_STATS)
       #define GR_CACHE_STATS  1
   #else
       #define GR_CACHE_STATS  0
@@ -41,7 +41,7 @@
 #endif
 
 #if !defined(GR_GPU_STATS)
-  #ifdef SK_DEVELOPER
+  #if defined(SK_DEVELOPER) || defined(SK_DUMP_STATS)
       #define GR_GPU_STATS    1
   #else
       #define GR_GPU_STATS    0
@@ -186,11 +186,10 @@ typedef unsigned __int64 uint64_t;
 #endif
 
 /**
- * GR_FORCE_GPU_TRACE_DEBUGGING will force gpu tracing/debug markers to be turned on. The trace
- * markers will be printed out instead of making the backend calls to push and pop them.
+ * Set to 1 to enable pixel local storage path rendering on supported devices.
  */
-#if !defined(GR_FORCE_GPU_TRACE_DEBUGGING)
-    #define GR_FORCE_GPU_TRACE_DEBUGGING 0
+#if !defined(GR_ENABLE_PLS_PATH_RENDERING)
+    #define GR_ENABLE_PLS_PATH_RENDERING 0
 #endif
 
 #endif

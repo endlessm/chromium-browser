@@ -4,11 +4,13 @@
 
 #include "chrome/test/chromedriver/chrome_launcher.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "base/base64.h"
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -28,6 +30,7 @@
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/test/chromedriver/chrome/chrome_android_impl.h"
 #include "chrome/test/chromedriver/chrome/chrome_desktop_impl.h"
@@ -113,7 +116,7 @@ Status UnpackAutomationExtension(const base::FilePath& temp_dir,
   return Status(kOk);
 }
 
-Status PrepareCommandLine(uint16 port,
+Status PrepareCommandLine(uint16_t port,
                           const Capabilities& capabilities,
                           base::CommandLine* prepared_command,
                           base::ScopedTempDir* user_data_dir,
@@ -193,9 +196,9 @@ Status WaitForDevToolsAndCheckVersion(
     window_types.reset(new std::set<WebViewInfo::Type>());
   }
 
-  scoped_ptr<DevToolsHttpClient> client(
-      new DevToolsHttpClient(address, context_getter, socket_factory,
-                             device_metrics.Pass(), window_types.Pass()));
+  scoped_ptr<DevToolsHttpClient> client(new DevToolsHttpClient(
+      address, context_getter, socket_factory, std::move(device_metrics),
+      std::move(window_types)));
   base::TimeTicks deadline =
       base::TimeTicks::Now() + base::TimeDelta::FromSeconds(60);
   Status status = client->Init(deadline - base::TimeTicks::Now());
@@ -218,7 +221,7 @@ Status WaitForDevToolsAndCheckVersion(
     client->GetWebViewsInfo(&views_info);
     for (size_t i = 0; i < views_info.GetSize(); ++i) {
       if (views_info.Get(i).type == WebViewInfo::kPage) {
-        *user_client = client.Pass();
+        *user_client = std::move(client);
         return Status(kOk);
       }
     }
@@ -250,7 +253,7 @@ Status CreateBrowserwideDevToolsClientAndConnect(
   // Provide the client regardless of whether it connects, so that Chrome always
   // has a valid |devtools_websocket_client_|. If not connected, no listeners
   // will be notified, and client will just return kDisconnected errors if used.
-  *browser_client = client.Pass();
+  *browser_client = std::move(client);
   // To avoid unnecessary overhead, only connect if tracing is enabled, since
   // the browser-wide client is currently only used for tracing.
   if (!perf_logging_prefs.trace_categories.empty()) {
@@ -287,15 +290,15 @@ Status LaunchRemoteChromeSession(
                  << status.message();
   }
 
-  chrome->reset(new ChromeRemoteImpl(devtools_http_client.Pass(),
-                                     devtools_websocket_client.Pass(),
+  chrome->reset(new ChromeRemoteImpl(std::move(devtools_http_client),
+                                     std::move(devtools_websocket_client),
                                      *devtools_event_listeners));
   return Status(kOk);
 }
 
 Status LaunchDesktopChrome(
     URLRequestContextGetter* context_getter,
-    uint16 port,
+    uint16_t port,
     scoped_ptr<PortReservation> port_reservation,
     const SyncWebSocketFactory& socket_factory,
     const Capabilities& capabilities,
@@ -423,15 +426,10 @@ Status LaunchDesktopChrome(
                  << status.message();
   }
 
-  scoped_ptr<ChromeDesktopImpl> chrome_desktop(
-      new ChromeDesktopImpl(devtools_http_client.Pass(),
-                            devtools_websocket_client.Pass(),
-                            *devtools_event_listeners,
-                            port_reservation.Pass(),
-                            process.Pass(),
-                            command,
-                            &user_data_dir,
-                            &extension_dir));
+  scoped_ptr<ChromeDesktopImpl> chrome_desktop(new ChromeDesktopImpl(
+      std::move(devtools_http_client), std::move(devtools_websocket_client),
+      *devtools_event_listeners, std::move(port_reservation),
+      std::move(process), command, &user_data_dir, &extension_dir));
   for (size_t i = 0; i < extension_bg_pages.size(); ++i) {
     VLOG(0) << "Waiting for extension bg page load: " << extension_bg_pages[i];
     scoped_ptr<WebView> web_view;
@@ -444,13 +442,13 @@ Status LaunchDesktopChrome(
                     status);
     }
   }
-  *chrome = chrome_desktop.Pass();
+  *chrome = std::move(chrome_desktop);
   return Status(kOk);
 }
 
 Status LaunchAndroidChrome(
     URLRequestContextGetter* context_getter,
-    uint16 port,
+    uint16_t port,
     scoped_ptr<PortReservation> port_reservation,
     const SyncWebSocketFactory& socket_factory,
     const Capabilities& capabilities,
@@ -504,11 +502,10 @@ Status LaunchAndroidChrome(
                  << status.message();
   }
 
-  chrome->reset(new ChromeAndroidImpl(devtools_http_client.Pass(),
-                                      devtools_websocket_client.Pass(),
-                                      *devtools_event_listeners,
-                                      port_reservation.Pass(),
-                                      device.Pass()));
+  chrome->reset(new ChromeAndroidImpl(
+      std::move(devtools_http_client), std::move(devtools_websocket_client),
+      *devtools_event_listeners, std::move(port_reservation),
+      std::move(device)));
   return Status(kOk);
 }
 
@@ -529,7 +526,7 @@ Status LaunchChrome(
         capabilities, devtools_event_listeners, chrome);
   }
 
-  uint16 port = 0;
+  uint16_t port = 0;
   scoped_ptr<PortReservation> port_reservation;
   Status port_status(kOk);
 
@@ -541,14 +538,9 @@ Status LaunchChrome(
     if (port_status.IsError())
       return Status(kUnknownError, "cannot reserve port for Chrome",
                     port_status);
-    return LaunchAndroidChrome(context_getter,
-                               port,
-                               port_reservation.Pass(),
-                               socket_factory,
-                               capabilities,
-                               devtools_event_listeners,
-                               device_manager,
-                               chrome);
+    return LaunchAndroidChrome(
+        context_getter, port, std::move(port_reservation), socket_factory,
+        capabilities, devtools_event_listeners, device_manager, chrome);
   } else {
     if (port_server)
       port_status = port_server->ReservePort(&port, &port_reservation);
@@ -557,13 +549,9 @@ Status LaunchChrome(
     if (port_status.IsError())
       return Status(kUnknownError, "cannot reserve port for Chrome",
                     port_status);
-    return LaunchDesktopChrome(context_getter,
-                               port,
-                               port_reservation.Pass(),
-                               socket_factory,
-                               capabilities,
-                               devtools_event_listeners,
-                               chrome);
+    return LaunchDesktopChrome(context_getter, port,
+                               std::move(port_reservation), socket_factory,
+                               capabilities, devtools_event_listeners, chrome);
   }
 }
 
@@ -583,7 +571,7 @@ void ConvertHexadecimalToIDAlphabet(std::string* id) {
 }
 
 std::string GenerateExtensionId(const std::string& input) {
-  uint8 hash[16];
+  uint8_t hash[16];
   crypto::SHA256HashString(input, hash, sizeof(hash));
   std::string output = base::ToLowerASCII(base::HexEncode(hash, sizeof(hash)));
   ConvertHexadecimalToIDAlphabet(&output);
@@ -635,7 +623,7 @@ Status ProcessExtension(const std::string& extension,
     std::string key_len_str = decoded_extension.substr(8, 4);
     if (key_len_str.size() != 4)
       return Status(kUnknownError, "cannot extract public key length");
-    uint32 key_len = *reinterpret_cast<const uint32*>(key_len_str.c_str());
+    uint32_t key_len = *reinterpret_cast<const uint32_t*>(key_len_str.c_str());
     public_key = decoded_extension.substr(16, key_len);
     if (key_len != public_key.size())
       return Status(kUnknownError, "invalid public key length");
@@ -645,7 +633,7 @@ Status ProcessExtension(const std::string& extension,
         crypto::RSAPrivateKey::Create(2048));
     if (!key_pair)
       return Status(kUnknownError, "cannot generate RSA key pair");
-    std::vector<uint8> public_key_vector;
+    std::vector<uint8_t> public_key_vector;
     if (!key_pair->ExportPublicKey(&public_key_vector))
       return Status(kUnknownError, "cannot extract public key");
     public_key =

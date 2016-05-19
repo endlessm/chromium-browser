@@ -304,6 +304,8 @@ struct FPUControlRegister {
 const FPUControlRegister no_fpucreg = { kInvalidFPUControlRegister };
 const FPUControlRegister FCSR = { kFCSRRegister };
 
+// TODO(mips) Define SIMD registers.
+typedef DoubleRegister Simd128Register;
 
 // -----------------------------------------------------------------------------
 // Machine instruction Operands.
@@ -457,30 +459,28 @@ class Assembler : public AssemblerBase {
 
   // Read/Modify the code target address in the branch/call instruction at pc.
   static Address target_address_at(Address pc);
-  static void set_target_address_at(Address pc,
-                                    Address target,
-                                    ICacheFlushMode icache_flush_mode =
-                                        FLUSH_ICACHE_IF_NEEDED);
+  static void set_target_address_at(
+      Isolate* isolate, Address pc, Address target,
+      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
   // On MIPS there is no Constant Pool so we skip that parameter.
   INLINE(static Address target_address_at(Address pc, Address constant_pool)) {
     return target_address_at(pc);
   }
   INLINE(static void set_target_address_at(
-      Address pc, Address constant_pool, Address target,
+      Isolate* isolate, Address pc, Address constant_pool, Address target,
       ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED)) {
-    set_target_address_at(pc, target, icache_flush_mode);
+    set_target_address_at(isolate, pc, target, icache_flush_mode);
   }
   INLINE(static Address target_address_at(Address pc, Code* code)) {
     Address constant_pool = code ? code->constant_pool() : NULL;
     return target_address_at(pc, constant_pool);
   }
-  INLINE(static void set_target_address_at(Address pc,
-                                           Code* code,
-                                           Address target,
-                                           ICacheFlushMode icache_flush_mode =
-                                               FLUSH_ICACHE_IF_NEEDED)) {
+  INLINE(static void set_target_address_at(
+      Isolate* isolate, Address pc, Code* code, Address target,
+      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED)) {
     Address constant_pool = code ? code->constant_pool() : NULL;
-    set_target_address_at(pc, constant_pool, target, icache_flush_mode);
+    set_target_address_at(isolate, pc, constant_pool, target,
+                          icache_flush_mode);
   }
 
   // Return the code target address at a call site from the return address
@@ -493,16 +493,17 @@ class Assembler : public AssemblerBase {
   // This is for calls and branches within generated code.  The serializer
   // has already deserialized the lui/ori instructions etc.
   inline static void deserialization_set_special_target_at(
-      Address instruction_payload, Code* code, Address target) {
+      Isolate* isolate, Address instruction_payload, Code* code,
+      Address target) {
     set_target_address_at(
-        instruction_payload - kInstructionsFor32BitConstant * kInstrSize,
-        code,
+        isolate,
+        instruction_payload - kInstructionsFor32BitConstant * kInstrSize, code,
         target);
   }
 
   // This sets the internal reference at the pc.
   inline static void deserialization_set_target_internal_reference_at(
-      Address pc, Address target,
+      Isolate* isolate, Address pc, Address target,
       RelocInfo::Mode mode = RelocInfo::INTERNAL_REFERENCE);
 
   // Size of an instruction.
@@ -519,14 +520,11 @@ class Assembler : public AssemblerBase {
   // a target is resolved and written.
   static const int kSpecialTargetSize = 0;
 
-  // Number of consecutive instructions used to store 32bit constant.
-  // Before jump-optimizations, this constant was used in
-  // RelocInfo::target_address_address() function to tell serializer address of
-  // the instruction that follows LUI/ORI instruction pair. Now, with new jump
-  // optimization, where jump-through-register instruction that usually
-  // follows LUI/ORI pair is substituted with J/JAL, this constant equals
-  // to 3 instructions (LUI+ORI+J/JAL/JR/JALR).
-  static const int kInstructionsFor32BitConstant = 3;
+  // Number of consecutive instructions used to store 32bit constant. This
+  // constant is used in RelocInfo::target_address_address() function to tell
+  // serializer address of the instruction that follows LUI/ORI instruction
+  // pair.
+  static const int kInstructionsFor32BitConstant = 2;
 
   // Distance between the instruction referring to the address of the call
   // target and the return address.
@@ -752,6 +750,8 @@ class Assembler : public AssemblerBase {
   void rotr(Register rd, Register rt, uint16_t sa);
   void rotrv(Register rd, Register rt, Register rs);
 
+  // Address computing instructions with shift.
+  void lsa(Register rd, Register rt, Register rs, uint8_t sa);
 
   // ------------Memory-instructions-------------
 
@@ -1012,7 +1012,7 @@ class Assembler : public AssemblerBase {
   void RecordGeneratorContinuation();
 
   // Mark address of a debug break slot.
-  void RecordDebugBreakSlot(RelocInfo::Mode mode, int argc = 0);
+  void RecordDebugBreakSlot(RelocInfo::Mode mode);
 
   // Record the AST id of the CallIC being compiled, so that it can be placed
   // in the relocation information.
@@ -1034,7 +1034,7 @@ class Assembler : public AssemblerBase {
 
   // Record a deoptimization reason that can be used by a log or cpu profiler.
   // Use --trace-deopt to enable.
-  void RecordDeoptReason(const int reason, const SourcePosition position);
+  void RecordDeoptReason(const int reason, int raw_position);
 
 
   static int RelocateInternalReference(RelocInfo::Mode rmode, byte* pc,
@@ -1047,9 +1047,6 @@ class Assembler : public AssemblerBase {
   void dq(uint64_t data);
   void dp(uintptr_t data) { dd(data); }
   void dd(Label* label);
-
-  // Emits the address of the code stub's first instruction.
-  void emit_code_stub_address(Code* stub);
 
   PositionsRecorder* positions_recorder() { return &positions_recorder_; }
 
@@ -1208,6 +1205,12 @@ class Assembler : public AssemblerBase {
     return block_buffer_growth_;
   }
 
+  void EmitForbiddenSlotInstruction() {
+    if (IsPrevInstrCompactBranch()) {
+      nop();
+    }
+  }
+
   inline void CheckTrampolinePoolQuick(int extra_instructions = 0);
 
  private:
@@ -1260,6 +1263,11 @@ class Assembler : public AssemblerBase {
   void GrowBuffer();
   inline void emit(Instr x,
                    CompactBranchType is_compact_branch = CompactBranchType::NO);
+  inline void emit(uint64_t x);
+  inline void CheckForEmitInForbiddenSlot();
+  template <typename T>
+  inline void EmitHelper(T x);
+  inline void EmitHelper(Instr x, CompactBranchType is_compact_branch);
 
   // Instruction generation.
   // We have 3 different kind of encoding layout on MIPS.

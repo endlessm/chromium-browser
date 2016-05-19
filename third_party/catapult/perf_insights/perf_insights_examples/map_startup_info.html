@@ -6,21 +6,23 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/perf_insights/function_handle.html">
-<link rel="import" href="/perf_insights/value/value.html">
 <link rel="import" href="/tracing/base/range.html">
-<link rel="import" href="/tracing/extras/chrome/chrome_browser_helper.html">
-<link rel="import" href="/tracing/extras/chrome/chrome_renderer_helper.html">
+<link rel="import" href="/tracing/model/helpers/chrome_browser_helper.html">
+<link rel="import" href="/tracing/model/helpers/chrome_renderer_helper.html">
+<link rel="import" href="/tracing/value/value.html">
 
 <script>
+'use strict';
+
 tr.exportTo('pie', function() {
-  function mapStartupInfo(results, runInfo, model) {
-    var startupIRs = model.interactionRecords.filter(function(ir) {
-      return ir instanceof tr.e.rail.LoadInteractionRecord &&
-             ir.name === 'Startup';
+  function mapStartupInfo(result, model) {
+    var startupIRs = model.userModel.expectations.filter(function(ir) {
+      return ir instanceof tr.model.um.LoadExpectation &&
+             ir.initiatorTitle === tr.model.um.LOAD_SUBTYPE_NAMES.STARTUP;
     });
     // Find the Startup IRs in the browser and renderer processes.
-    var ChromeBrowserHelper = tr.e.audits.ChromeBrowserHelper;
-    var ChromeRendererHelper = tr.e.audits.ChromeRendererHelper;
+    var ChromeBrowserHelper = tr.model.helpers.ChromeBrowserHelper;
+    var ChromeRendererHelper = tr.model.helpers.ChromeRendererHelper;
     var browser_startup = new tr.b.Range();
     var renderer_startup = new tr.b.Range();
     startupIRs.forEach(function(ir) {
@@ -37,15 +39,14 @@ tr.exportTo('pie', function() {
     });
 
     if (browser_startup.isEmpty && renderer_startup.isEmpty) {
-      results.addValue(new pi.v.SkipValue(runInfo, 'startup_info'));
+      result.addPair('startup_info', null);
     } else {
-      results.addValue(new pi.v.DictValue(
-          runInfo,
+      result.addPair(
           'startup_info',
           {
             'browserStartup': browser_startup,
             'rendererStartup': renderer_startup
-          }));
+          });
     }
   }
 

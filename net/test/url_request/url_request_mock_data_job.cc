@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -117,15 +118,12 @@ void URLRequestMockDataJob::Start() {
 URLRequestMockDataJob::~URLRequestMockDataJob() {
 }
 
-bool URLRequestMockDataJob::ReadRawData(IOBuffer* buf,
-                                        int buf_size,
-                                        int* bytes_read) {
-  DCHECK(bytes_read);
-  *bytes_read = static_cast<int>(
-      std::min(static_cast<size_t>(buf_size), data_.length() - data_offset_));
-  memcpy(buf->data(), data_.c_str() + data_offset_, *bytes_read);
-  data_offset_ += *bytes_read;
-  return true;
+int URLRequestMockDataJob::ReadRawData(IOBuffer* buf, int buf_size) {
+  int bytes_read =
+      std::min(static_cast<size_t>(buf_size), data_.length() - data_offset_);
+  memcpy(buf->data(), data_.c_str() + data_offset_, bytes_read);
+  data_offset_ += bytes_read;
+  return bytes_read;
 }
 
 int URLRequestMockDataJob::GetResponseCode() const {
@@ -135,7 +133,8 @@ int URLRequestMockDataJob::GetResponseCode() const {
 }
 
 void URLRequestMockDataJob::ContinueWithCertificate(
-    X509Certificate* client_cert) {
+    X509Certificate* client_cert,
+    SSLPrivateKey* client_private_key) {
   DCHECK(request_client_certificate_);
   NotifyHeadersComplete();
 }

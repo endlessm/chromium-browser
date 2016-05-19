@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/strings/sys_string_conversions.h"
 #import "ios/web/alloc_with_zone_interceptor.h"
 #include "ios/web/public/active_state_manager.h"
 #include "ios/web/public/browser_state.h"
@@ -163,11 +164,12 @@ UIWebView* CreateWebView(CGRect frame) {
 WKWebView* CreateWKWebView(CGRect frame,
                            WKWebViewConfiguration* configuration,
                            BrowserState* browser_state,
-                           NSString* request_group_id,
                            BOOL use_desktop_user_agent) {
-  web::BuildAndRegisterUserAgentForUIWebView(request_group_id,
-                                             use_desktop_user_agent);
-  return CreateWKWebView(frame, configuration, browser_state);
+  WKWebView* web_view = CreateWKWebView(frame, configuration, browser_state);
+  DCHECK(web::GetWebClient());
+  web_view.customUserAgent = base::SysUTF8ToNSString(
+      web::GetWebClient()->GetUserAgent(use_desktop_user_agent));
+  return web_view;
 }
 
 WKWebView* CreateWKWebView(CGRect frame,

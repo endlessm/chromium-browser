@@ -4,9 +4,14 @@
 
 #include "mojo/edk/test/multiprocess_test_helper.h"
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "mojo/edk/embedder/scoped_platform_handle.h"
+#include "mojo/edk/system/test_utils.h"
 #include "mojo/edk/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -25,7 +30,7 @@ bool IsNonBlocking(const PlatformHandle& handle) {
   // FILE_FLAG_OVERLAPPED.
   return true;
 #else
-  return fcntl(handle.fd, F_GETFL) & O_NONBLOCK;
+  return fcntl(handle.handle, F_GETFL) & O_NONBLOCK;
 #endif
 }
 
@@ -87,7 +92,7 @@ TEST_F(MultiprocessTestHelperTest, MAYBE_PassedChannel) {
   helper.StartChild("PassedChannel");
 
   // Take ownership of the handle.
-  ScopedPlatformHandle handle = helper.server_platform_handle.Pass();
+  ScopedPlatformHandle handle = std::move(helper.server_platform_handle);
 
   // The handle should be non-blocking.
   EXPECT_TRUE(IsNonBlocking(handle.get()));
@@ -110,7 +115,7 @@ MOJO_MULTIPROCESS_TEST_CHILD_MAIN(PassedChannel) {
 
   // Take ownership of the handle.
   ScopedPlatformHandle handle =
-      MultiprocessTestHelper::client_platform_handle.Pass();
+      std::move(MultiprocessTestHelper::client_platform_handle);
 
   // The handle should be non-blocking.
   EXPECT_TRUE(IsNonBlocking(handle.get()));

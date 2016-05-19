@@ -31,11 +31,15 @@ enum BubbleType {
 
   // Permissions-related bubbles:
   BUBBLE_TYPE_PERMISSION = 30,  // Displays a permission request to the user.
+  BUBBLE_TYPE_CHOOSER_PERMISSION = 31,  // For chooser permissions.
 
   // Upper boundary for metrics.
   BUBBLE_TYPE_MAX,
 };
 
+// TODO(juncai): Since LogBubbleCloseReason function adds metrics for each
+// close type, we can use only enum, and it may not be necessary to keep the
+// bubble name.
 // Convert from bubble name to ID. The bubble ID will allow collecting the
 // close reason for each bubble type.
 static int GetBubbleId(BubbleReference bubble) {
@@ -50,6 +54,8 @@ static int GetBubbleId(BubbleReference bubble) {
     bubble_type = BUBBLE_TYPE_TRANSLATE;
   else if (bubble->GetName().compare("PermissionBubble") == 0)
     bubble_type = BUBBLE_TYPE_PERMISSION;
+  else if (bubble->GetName().compare("ChooserBubble") == 0)
+    bubble_type = BUBBLE_TYPE_CHOOSER_PERMISSION;
 
   DCHECK_NE(bubble_type, BUBBLE_TYPE_UNKNOWN);
   DCHECK_NE(bubble_type, BUBBLE_TYPE_MAX);
@@ -90,6 +96,9 @@ static void LogBubbleCloseReason(BubbleReference bubble,
       return;
     case BUBBLE_CLOSE_CANCELED:
       UMA_HISTOGRAM_SPARSE_SLOWLY("Bubbles.Close.Canceled", bubble_id);
+      return;
+    case BUBBLE_CLOSE_FRAME_DESTROYED:
+      UMA_HISTOGRAM_SPARSE_SLOWLY("Bubbles.Close.FrameDestroyed", bubble_id);
       return;
   }
 
@@ -133,8 +142,16 @@ void ChromeBubbleManager::ActiveTabChanged(content::WebContents* old_contents,
   Observe(new_contents);
 }
 
+void ChromeBubbleManager::FrameDeleted(
+    content::RenderFrameHost* render_frame_host) {
+  // When a frame is destroyed, bubbles spawned by that frame should default to
+  // being closed, so that they can't traverse any references they hold to the
+  // destroyed frame.
+  CloseBubblesOwnedBy(render_frame_host);
+}
+
 void ChromeBubbleManager::DidToggleFullscreenModeForTab(
-    bool entered_fullscreen) {
+    bool entered_fullscreen, bool will_cause_resize) {
   CloseAllBubbles(BUBBLE_CLOSE_FULLSCREEN_TOGGLED);
   // Any bubble that didn't close should update its anchor position.
   UpdateAllBubbleAnchors();

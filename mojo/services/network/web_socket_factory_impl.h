@@ -6,9 +6,10 @@
 #define MOJO_SERVICES_NETWORK_WEB_SOCKET_FACTORY_IMPL_H_
 
 #include "base/compiler_specific.h"
-#include "mojo/application/public/cpp/app_lifetime_helper.h"
+#include "base/macros.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/services/network/public/interfaces/web_socket_factory.mojom.h"
+#include "mojo/shell/public/cpp/message_loop_ref.h"
 
 namespace mojo {
 class NetworkContext;
@@ -16,7 +17,7 @@ class NetworkContext;
 class WebSocketFactoryImpl : public WebSocketFactory {
  public:
   WebSocketFactoryImpl(NetworkContext* context,
-                       scoped_ptr<AppRefCount> app_refcount,
+                       scoped_ptr<MessageLoopRef> app_refcount,
                        InterfaceRequest<WebSocketFactory> request);
   ~WebSocketFactoryImpl() override;
 
@@ -25,7 +26,7 @@ class WebSocketFactoryImpl : public WebSocketFactory {
 
  private:
   NetworkContext* context_;
-  scoped_ptr<AppRefCount> app_refcount_;
+  scoped_ptr<MessageLoopRef> app_refcount_;
   StrongBinding<WebSocketFactory> binding_;
 
   DISALLOW_COPY_AND_ASSIGN(WebSocketFactoryImpl);

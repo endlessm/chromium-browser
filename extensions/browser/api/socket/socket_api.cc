@@ -4,10 +4,12 @@
 
 #include "extensions/browser/api/socket/socket_api.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/containers/hash_tables.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/resource_context.h"
 #include "extensions/browser/api/dns/host_resolver_wrapper.h"
@@ -23,8 +25,8 @@
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/network_interfaces.h"
+#include "net/base/url_util.h"
 #include "net/log/net_log.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -55,7 +57,7 @@ const char kMulticastSocketTypeError[] = "Only UDP socket supports multicast.";
 const char kSecureSocketTypeError[] = "Only TCP sockets are supported for TLS.";
 const char kSocketNotConnectedError[] = "Socket not connected";
 const char kWildcardAddress[] = "*";
-const uint16 kWildcardPort = 0;
+const uint16_t kWildcardPort = 0;
 
 #if defined(OS_CHROMEOS)
 const char kFirewallFailure[] = "Failed to open firewall port";
@@ -75,7 +77,7 @@ bool SocketAsyncApiFunction::Respond() { return error_.empty(); }
 scoped_ptr<SocketResourceManagerInterface>
 SocketAsyncApiFunction::CreateSocketResourceManager() {
   return scoped_ptr<SocketResourceManagerInterface>(
-             new SocketResourceManager<Socket>()).Pass();
+      new SocketResourceManager<Socket>());
 }
 
 int SocketAsyncApiFunction::AddSocket(Socket* socket) {
@@ -163,7 +165,7 @@ void SocketAsyncApiFunction::OnFirewallHoleOpened(
     return;
   }
 
-  socket->set_firewall_hole(hole.Pass());
+  socket->set_firewall_hole(std::move(hole));
   AsyncWorkCompleted();
 }
 
@@ -268,7 +270,7 @@ bool SocketConnectFunction::Prepare() {
   int port;
   EXTENSION_FUNCTION_VALIDATE(
       args_->GetInteger(2, &port) && port >= 0 && port <= 65535);
-  port_ = static_cast<uint16>(port);
+  port_ = static_cast<uint16_t>(port);
   return true;
 }
 
@@ -356,7 +358,7 @@ bool SocketBindFunction::Prepare() {
   int port;
   EXTENSION_FUNCTION_VALIDATE(
       args_->GetInteger(2, &port) && port >= 0 && port <= 65535);
-  port_ = static_cast<uint16>(port);
+  port_ = static_cast<uint16_t>(port);
   return true;
 }
 
@@ -459,11 +461,12 @@ void SocketAcceptFunction::AsyncWorkStart() {
 }
 
 void SocketAcceptFunction::OnAccept(int result_code,
-                                    net::TCPClientSocket* socket) {
+                                    scoped_ptr<net::TCPClientSocket> socket) {
   base::DictionaryValue* result = new base::DictionaryValue();
   result->SetInteger(kResultCodeKey, result_code);
   if (socket) {
-    Socket* client_socket = new TCPSocket(socket, extension_id(), true);
+    Socket* client_socket =
+        new TCPSocket(std::move(socket), extension_id(), true);
     result->SetInteger(kSocketIdKey, AddSocket(client_socket));
   }
   SetResult(result);
@@ -571,7 +574,7 @@ void SocketRecvFromFunction::AsyncWorkStart() {
 void SocketRecvFromFunction::OnCompleted(int bytes_read,
                                          scoped_refptr<net::IOBuffer> io_buffer,
                                          const std::string& address,
-                                         uint16 port) {
+                                         uint16_t port) {
   base::DictionaryValue* result = new base::DictionaryValue();
   result->SetInteger(kResultCodeKey, bytes_read);
   if (bytes_read > 0) {
@@ -602,7 +605,7 @@ bool SocketSendToFunction::Prepare() {
   int port;
   EXTENSION_FUNCTION_VALIDATE(
       args_->GetInteger(3, &port) && port >= 0 && port <= 65535);
-  port_ = static_cast<uint16>(port);
+  port_ = static_cast<uint16_t>(port);
 
   io_buffer_size_ = data->GetSize();
   io_buffer_ = new net::WrappedIOBuffer(data->GetBuffer());

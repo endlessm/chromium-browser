@@ -16,13 +16,11 @@
 #include "SkDevice.h"
 #include "SkForceLinking.h"
 #include "SkGraphics.h"
-#include "SkImageDecoder.h"
 #include "SkImageEncoder.h"
 #include "SkOSFile.h"
 #include "SkPathOpsDebug.h"
 #include "SkPicture.h"
 #include "SkRTConf.h"
-#include "SkRunnable.h"
 #include "SkTSort.h"
 #include "SkStream.h"
 #include "SkString.h"
@@ -33,8 +31,6 @@
 #include "SkTime.h"
 
 #include <stdlib.h>
-
-__SK_FORCE_IMAGE_DECODER_LINKING;
 
 /* add local exceptions here */
 /* TODO : add command flag interface */
@@ -260,9 +256,9 @@ struct TestRunner {
     SkTDArray<class TestRunnable*> fRunnables;
 };
 
-class TestRunnable : public SkRunnable {
+class TestRunnable {
 public:
-    void run() override {
+    void operator()() {
         SkGraphics::SetTLSFontCacheLimit(1 * 1024 * 1024);
         (*fTestFun)(&fState);
     }
@@ -305,10 +301,8 @@ TestRunner::~TestRunner() {
 }
 
 void TestRunner::render() {
-    // TODO: this doesn't really need to use SkRunnables any more.
-    // We can just write the code to run in the for-loop directly.
-    sk_parallel_for(fRunnables.count(), [&](int i) {
-        fRunnables[i]->run();
+    SkTaskGroup().batch(fRunnables.count(), [&](int i) {
+        (*fRunnables[i])();
     });
 }
 
@@ -473,7 +467,7 @@ void TestResult::testOne() {
             SkDebugf("invalid stream %s\n", path.c_str());
             goto finish;
         }
-        pic = SkPicture::CreateFromStream(&stream, &SkImageDecoder::DecodeMemory);
+        pic = SkPicture::CreateFromStream(&stream);
         if (!pic) {
             SkDebugf("unable to decode %s\n", fFilename);
             goto finish;
@@ -683,7 +677,7 @@ static void testSkpClip(TestState* data) {
         return;
     }
     statusFile.appendf("%s%s", PATH_SLASH, statName.c_str());
-    SkFILE* file = sk_fopen(statusFile.c_str(), kWrite_SkFILE_Flag);
+    FILE* file = sk_fopen(statusFile.c_str(), kWrite_SkFILE_Flag);
     if (!file) {
             SkDebugf("failed to create %s", statusFile.c_str());
             return;

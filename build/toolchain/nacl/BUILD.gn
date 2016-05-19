@@ -24,7 +24,7 @@ nacl_x86_glibc_rev = revisions[0]
 nacl_arm_glibc_rev = revisions[1]
 
 # TODO(mcgrathr): Uncomment this when
-# https://code.google.com/p/chromium/issues/detail?id=555724 is fixed.
+# https://code.google.com/p/chromium/issues/detail?id=395883 is fixed.
 #pnacl_newlib_rev = revisions[2]
 
 template("pnacl_toolchain") {
@@ -33,6 +33,32 @@ template("pnacl_toolchain") {
 
   # TODO(mcgrathr): See above.
   pnacl_newlib_rev = revisions[2]
+
+  # The PNaCl toolchain tools are all wrapper scripts rather than binary
+  # executables.  On POSIX systems, nobody cares what kind of executable
+  # file you are.  But on Windows, scripts (.bat files) cannot be run
+  # directly and need the Windows shell (cmd.exe) specified explicily.
+  # TODO(mcgrathr): Hoist this to top level when
+  # https://code.google.com/p/chromium/issues/detail?id=395883 is fixed.
+  if (host_os == "win") {
+    # NOTE!  The //build/toolchain/gcc_*_wrapper.py scripts recognize
+    # this exact prefix string, so they must be updated if this string
+    # is changed in any way.
+    scriptprefix = "cmd /c call "
+    scriptsuffix = ".bat"
+  } else {
+    scriptprefix = ""
+    scriptsuffix = ""
+  }
+
+  # When the compilers are run via goma or ccache rather than directly by
+  # GN/Ninja, the goma/ccache wrapper handles .bat files but gets confused
+  # by being given the scriptprefix.
+  if (host_os == "win" && !use_goma && cc_wrapper == "") {
+    compiler_scriptprefix = scriptprefix
+  } else {
+    compiler_scriptprefix = ""
+  }
 
   nacl_toolchain(target_name) {
     toolchain_package = "pnacl_newlib"
@@ -43,13 +69,19 @@ template("pnacl_toolchain") {
                     root_build_dir)
 
     is_clang = true
-    cc = toolprefix + "clang"
-    cxx = toolprefix + "clang++"
-    ar = toolprefix + "ar"
-    ld = cxx
+    cc = compiler_scriptprefix + toolprefix + "clang" + scriptsuffix
+    cxx = compiler_scriptprefix + toolprefix + "clang++" + scriptsuffix
+    ar = scriptprefix + toolprefix + "ar" + scriptsuffix
+    readelf = scriptprefix + toolprefix + "readelf" + scriptsuffix
+    nm = scriptprefix + toolprefix + "nm" + scriptsuffix
     if (defined(invoker.strip)) {
-      strip = toolprefix + invoker.strip
+      strip = scriptprefix + toolprefix + invoker.strip + scriptsuffix
     }
+
+    # Note this is not the usual "ld = cxx" because "ld" uses are
+    # never run via goma, so this needs scriptprefix.
+    ld = scriptprefix + toolprefix + "clang++" + scriptsuffix
+
     executable_extension = invoker.executable_extension
   }
 }
@@ -69,9 +101,7 @@ pnacl_toolchain("newlib_pnacl") {
 
 pnacl_toolchain("newlib_pnacl_nonsfi") {
   executable_extension = ""
-  # TODO(mcgrathr): Uncomment this after pnacl-strip has been taught
-  # to grok --strip-unneeded.
-  #strip = "strip"
+  strip = "strip"
 }
 
 template("nacl_glibc_toolchain") {
@@ -89,21 +119,38 @@ template("nacl_glibc_toolchain") {
                                invoker.toolchain_tuple + "-",
                            root_build_dir)
 
+  # TODO(mcgrathr): Hoist this to top level when
+  # https://code.google.com/p/chromium/issues/detail?id=395883 is fixed.
+  if (host_os == "win") {
+    toolsuffix = ".exe"
+  } else {
+    toolsuffix = ""
+  }
+
   nacl_toolchain("glibc_" + toolchain_cpu) {
     is_clang = false
     is_nacl_glibc = true
 
-    cc = toolprefix + "gcc"
-    cxx = toolprefix + "g++"
-    ar = toolprefix + "ar"
+    cc = toolprefix + "gcc" + toolsuffix
+    cxx = toolprefix + "g++" + toolsuffix
+    ar = toolprefix + "ar" + toolsuffix
     ld = cxx
+    readelf = toolprefix + "readelf" + toolsuffix
+    nm = toolprefix + "nm" + toolsuffix
+    strip = toolprefix + "strip" + toolsuffix
   }
 }
 
 nacl_glibc_toolchain("x86") {
   toolchain_package = "nacl_x86_glibc"
   toolchain_revision = nacl_x86_glibc_rev
-  toolchain_tuple = "i686-nacl"
+
+  # Rely on the :compiler_cpu_abi config adding the -m32 flag here rather
+  # than using the i686-nacl binary directly.  This is a because i686-nacl-gcc
+  # is a shell script wrapper around x86_64-nacl-gcc and goma has trouble with
+  # compiler executables that are shell scripts (so the i686 'compiler' is not
+  # currently in goma).
+  toolchain_tuple = "x86_64-nacl"
 }
 
 nacl_glibc_toolchain("x64") {
@@ -131,12 +178,23 @@ template("nacl_clang_toolchain") {
                                invoker.toolchain_tuple + "-",
                            root_build_dir)
 
+  # TODO(mcgrathr): Hoist this to top level when
+  # https://code.google.com/p/chromium/issues/detail?id=395883 is fixed.
+  if (host_os == "win") {
+    toolsuffix = ".exe"
+  } else {
+    toolsuffix = ""
+  }
+
   nacl_toolchain("clang_newlib_" + toolchain_cpu) {
     is_clang = true
-    cc = toolprefix + "clang"
-    cxx = toolprefix + "clang++"
-    ar = toolprefix + "ar"
+    cc = toolprefix + "clang" + toolsuffix
+    cxx = toolprefix + "clang++" + toolsuffix
+    ar = toolprefix + "ar" + toolsuffix
     ld = cxx
+    readelf = toolprefix + "readelf" + toolsuffix
+    nm = toolprefix + "nm" + toolsuffix
+    strip = toolprefix + "strip" + toolsuffix
   }
 }
 
@@ -153,6 +211,14 @@ template("nacl_irt_toolchain") {
                                invoker.toolchain_tuple + "-",
                            root_build_dir)
 
+  # TODO(mcgrathr): Hoist this to top level when
+  # https://code.google.com/p/chromium/issues/detail?id=395883 is fixed.
+  if (host_os == "win") {
+    toolsuffix = ".exe"
+  } else {
+    toolsuffix = ""
+  }
+
   link_irt = rebase_path("//native_client/build/link_irt.py", root_build_dir)
 
   tls_edit_label =
@@ -164,11 +230,12 @@ template("nacl_irt_toolchain") {
 
   nacl_toolchain("irt_" + toolchain_cpu) {
     is_clang = true
-    cc = toolprefix + "clang"
-    cxx = toolprefix + "clang++"
-    ar = toolprefix + "ar"
-    readelf = toolprefix + "readelf"
-    strip = toolprefix + "strip"
+    cc = toolprefix + "clang" + toolsuffix
+    cxx = toolprefix + "clang++" + toolsuffix
+    ar = toolprefix + "ar" + toolsuffix
+    readelf = toolprefix + "readelf" + toolsuffix
+    nm = toolprefix + "nm" + toolsuffix
+    strip = toolprefix + "strip" + toolsuffix
 
     # Always build the IRT with full debugging symbols, regardless of
     # how Chromium itself is being built (or other NaCl executables).
@@ -196,7 +263,8 @@ template("nacl_clang_toolchains") {
 }
 
 nacl_clang_toolchains("x86") {
-  toolchain_tuple = "i686-nacl"
+  # Rely on :compiler_cpu_abi adding -m32.  See nacl_x86_glibc above.
+  toolchain_tuple = "x86_64-nacl"
 }
 
 nacl_clang_toolchains("x64") {

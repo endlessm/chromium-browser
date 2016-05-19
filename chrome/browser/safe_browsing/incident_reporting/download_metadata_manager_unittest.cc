@@ -4,6 +4,8 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/download_metadata_manager.h"
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/bind.h"
@@ -42,7 +44,7 @@ namespace {
 const uint32_t kTestDownloadId = 47;
 const uint32_t kOtherDownloadId = 48;
 const uint32_t kCrazyDowloadId = 655;
-const int64 kTestDownloadTimeMsec = 84;
+const int64_t kTestDownloadTimeMsec = 84;
 const char kTestUrl[] = "http://test.test/foo";
 const uint64_t kTestDownloadLength = 1000;
 const double kTestDownloadEndTimeMs = 1413514824057;
@@ -120,7 +122,7 @@ class DownloadMetadataManagerTestBase : public ::testing::Test {
     request->set_url(url);
     request->mutable_digests();
     request->set_length(kTestDownloadLength);
-    return request.Pass();
+    return request;
   }
 
   // Returns a new DownloadMetdata for the given download id.
@@ -131,7 +133,7 @@ class DownloadMetadataManagerTestBase : public ::testing::Test {
         metadata->mutable_download();
     details->set_download_time_msec(kTestDownloadTimeMsec);
     details->set_allocated_download(MakeTestRequest(kTestUrl).release());
-    return metadata.Pass();
+    return metadata;
   }
 
   // Writes a test DownloadMetadata file for the given download id to the
@@ -155,7 +157,7 @@ class DownloadMetadataManagerTestBase : public ::testing::Test {
       return scoped_ptr<DownloadMetadata>();
     scoped_ptr<DownloadMetadata> result(new DownloadMetadata);
     EXPECT_TRUE(result->ParseFromString(data));
-    return result.Pass();
+    return result;
   }
 
   // Runs all tasks posted to the test thread's message loop.

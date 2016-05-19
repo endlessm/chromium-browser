@@ -55,12 +55,29 @@ WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(
   return result;
 }
 
-WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(float dx,
+WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(float x,
+                                                             float y,
+                                                             float dx,
+                                                             float dy,
+                                                             int modifiers,
+                                                             bool precise) {
+  return Build(x, y, 0, 0, dx, dy, modifiers, precise);
+}
+
+WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(float x,
+                                                             float y,
+                                                             float global_x,
+                                                             float global_y,
+                                                             float dx,
                                                              float dy,
                                                              int modifiers,
                                                              bool precise) {
   WebMouseWheelEvent result;
   result.type = WebInputEvent::MouseWheel;
+  result.globalX = global_x;
+  result.globalY = global_y;
+  result.x = x;
+  result.y = y;
   result.deltaX = dx;
   result.deltaY = dy;
   if (dx)
@@ -167,7 +184,7 @@ void SyntheticWebTouchEvent::ResetPoints() {
   }
   touchesLength = point;
   type = WebInputEvent::Undefined;
-  causesScrollingIfUncanceled = false;
+  movedBeyondSlopRegion = false;
   uniqueTouchEventId = ui::GetNextTouchEventId();
 }
 
@@ -194,7 +211,7 @@ void SyntheticWebTouchEvent::MovePoint(int index, float x, float y) {
   CHECK_LT(index, touchesLengthCap);
   // Always set this bit to avoid otherwise unexpected touchmove suppression.
   // The caller can opt-out explicitly, if necessary.
-  causesScrollingIfUncanceled = true;
+  movedBeyondSlopRegion = true;
   WebTouchPoint& point = touches[index];
   point.position.x = point.screenPosition.x = x;
   point.position.y = point.screenPosition.y = y;

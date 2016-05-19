@@ -4,9 +4,13 @@
 
 #include "ui/message_center/views/notifier_settings_view.h"
 
+#include <stddef.h>
+
 #include <set>
 #include <string>
+#include <utility>
 
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "skia/ext/image_operations.h"
@@ -574,7 +578,7 @@ void NotifierSettingsView::UpdateContentsView(
     base::string16 notifier_group_text = active_group.login_info.empty() ?
         active_group.name : active_group.login_info;
     notifier_group_selector_ =
-        new views::MenuButton(NULL, notifier_group_text, this, true);
+        new views::MenuButton(notifier_group_text, this, true);
     notifier_group_selector_->SetBorder(scoped_ptr<views::Border>(
         new views::LabelButtonAssetBorder(views::Button::STYLE_BUTTON)));
     notifier_group_selector_->SetFocusPainter(nullptr);
@@ -604,7 +608,7 @@ void NotifierSettingsView::UpdateContentsView(
                                                 0,
                                                 settings::kEntrySeparatorColor);
     }
-    entry->SetBorder(entry_border.Pass());
+    entry->SetBorder(std::move(entry_border));
     entry->SetFocusable(true);
     contents_view->AddChildView(entry);
     buttons_.insert(button);
@@ -683,8 +687,9 @@ void NotifierSettingsView::ButtonPressed(views::Button* sender,
     provider_->SetNotifierEnabled((*iter)->notifier(), (*iter)->checked());
 }
 
-void NotifierSettingsView::OnMenuButtonClicked(views::View* source,
-                                               const gfx::Point& point) {
+void NotifierSettingsView::OnMenuButtonClicked(views::MenuButton* source,
+                                               const gfx::Point& point,
+                                               const ui::Event* event) {
   notifier_group_menu_model_.reset(new NotifierGroupMenuModel(provider_));
   notifier_group_menu_runner_.reset(new views::MenuRunner(
       notifier_group_menu_model_.get(), views::MenuRunner::CONTEXT_MENU));

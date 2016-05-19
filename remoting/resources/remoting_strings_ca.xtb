@@ -105,6 +105,7 @@ Per obtenir informació sobre la privadesa, vegeu la Política de privadesa de G
 <translation id="337167041784729019">Mostra les estadístiques</translation>
 <translation id="3385242214819933234">El propietari de l'amfitrió no és vàlid.</translation>
 <translation id="3403830762023901068">La configuració de la política no permet compartir aquest ordinador com a amfitrió de Chromoting. Contacteu amb l'administrador del sistema per obtenir assistència.</translation>
+<translation id="3423542133075182604">Procés de mode remot per a la clau de seguretat</translation>
 <translation id="3581045510967524389">No s'ha pogut connectar a la xarxa. Comproveu que el dispositiu estigui connectat a Internet.</translation>
 <translation id="3596628256176442606">Aquest servei permet les connexions entrants dels clients de Chromoting.</translation>
 <translation id="3606997049964069799">No heu iniciat la sessió a Chromium. Inicieu-hi la sessió i torneu-ho a provar.</translation>
@@ -153,6 +154,7 @@ Host</translation>
 remot de Chrome</translation>
 <translation id="4619978527973181021">Accepta i instal·la</translation>
 <translation id="4647791084836149355">Mostra la visualització de Cardboard</translation>
+<translation id="4703302905453407178">Un component obligatori ha deixat de funcionar. Informeu-ne els desenvolupadors.</translation>
 <translation id="4703799847237267011">La vostra sessió de Chromoting ha finalitzat.</translation>
 <translation id="4736223761657662401">Historial de connexions</translation>
 <translation id="4741792197137897469">L'autenticació ha fallat. Torneu a iniciar la sessió a Chrome.</translation>
@@ -272,7 +274,7 @@ remot de Chrome</translation>
 <translation id="8187079423890319756">Copyright 2013 Els autors de Chromium. Tots els drets reservats.</translation>
 <translation id="8196755618196986400">La vostra adreça electrònica s'inclourà en tots els suggeriments que envieu perquè us puguem escriure i proporcionar-vos més informació.</translation>
 <translation id="8244400547700556338">Més informació</translation>
-<translation id="8261506727792406068">Elimina</translation>
+<translation id="8261506727792406068">Suprimeix</translation>
 <translation id="8355326866731426344">Aquest codi d'accés caducarà d'aquí a <ph name="TIMEOUT" /></translation>
 <translation id="8355485110405946777">Inclou registres de l'aplicació per ajudar-nos a resoldre el vostre problema (els registres poden incloure informació privada).</translation>
 <translation id="837021510621780684">Des d'aquest ordinador</translation>

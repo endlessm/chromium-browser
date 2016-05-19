@@ -7,6 +7,7 @@
 
 #include <deque>
 
+#include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/timer/timer.h"
 #include "components/signin/core/browser/signin_client.h"
@@ -204,6 +205,11 @@ class GaiaCookieManagerService : public KeyedService,
 
   void set_list_accounts_stale_for_testing(bool stale) {
     list_accounts_stale_ = stale;
+  }
+
+  // Returns a non-NULL pointer to its instance of net::BackoffEntry
+  const net::BackoffEntry* GetBackoffEntry() {
+    return &fetcher_backoff_;
   }
 
  private:

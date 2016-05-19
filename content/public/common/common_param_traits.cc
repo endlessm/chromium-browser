@@ -9,14 +9,14 @@
 #include "content/public/common/content_constants.h"
 #include "content/public/common/page_state.h"
 #include "content/public/common/referrer.h"
-#include "content/public/common/url_utils.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 
 namespace IPC {
 
-void ParamTraits<GURL>::Write(Message* m, const GURL& p) {
-  if (p.possibly_invalid_spec().length() > content::GetMaxURLChars()) {
+void ParamTraits<GURL>::Write(base::Pickle* m, const GURL& p) {
+  if (p.possibly_invalid_spec().length() > content::kMaxURLChars) {
     m->WriteString(std::string());
     return;
   }
@@ -36,11 +36,11 @@ void ParamTraits<GURL>::Write(Message* m, const GURL& p) {
   // TODO(brettw) bug 684583: Add encoding for query params.
 }
 
-bool ParamTraits<GURL>::Read(const Message* m,
+bool ParamTraits<GURL>::Read(const base::Pickle* m,
                              base::PickleIterator* iter,
                              GURL* p) {
   std::string s;
-  if (!iter->ReadString(&s) || s.length() > content::GetMaxURLChars()) {
+  if (!iter->ReadString(&s) || s.length() > content::kMaxURLChars) {
     *p = GURL();
     return false;
   }
@@ -56,20 +56,20 @@ void ParamTraits<GURL>::Log(const GURL& p, std::string* l) {
   l->append(p.spec());
 }
 
-void ParamTraits<url::Origin>::Write(Message* m, const url::Origin& p) {
+void ParamTraits<url::Origin>::Write(base::Pickle* m, const url::Origin& p) {
   WriteParam(m, p.unique());
   WriteParam(m, p.scheme());
   WriteParam(m, p.host());
   WriteParam(m, p.port());
 }
 
-bool ParamTraits<url::Origin>::Read(const Message* m,
+bool ParamTraits<url::Origin>::Read(const base::Pickle* m,
                                     base::PickleIterator* iter,
                                     url::Origin* p) {
   bool unique;
   std::string scheme;
   std::string host;
-  uint16 port;
+  uint16_t port;
   if (!ReadParam(m, iter, &unique) || !ReadParam(m, iter, &scheme) ||
       !ReadParam(m, iter, &host) || !ReadParam(m, iter, &port)) {
     *p = url::Origin();
@@ -93,16 +93,17 @@ void ParamTraits<url::Origin>::Log(const url::Origin& p, std::string* l) {
   l->append(p.Serialize());
 }
 
-void ParamTraits<net::HostPortPair>::Write(Message* m, const param_type& p) {
+void ParamTraits<net::HostPortPair>::Write(base::Pickle* m,
+                                           const param_type& p) {
   WriteParam(m, p.host());
   WriteParam(m, p.port());
 }
 
-bool ParamTraits<net::HostPortPair>::Read(const Message* m,
+bool ParamTraits<net::HostPortPair>::Read(const base::Pickle* m,
                                           base::PickleIterator* iter,
                                           param_type* r) {
   std::string host;
-  uint16 port;
+  uint16_t port;
   if (!ReadParam(m, iter, &host) || !ReadParam(m, iter, &port))
     return false;
 
@@ -115,16 +116,16 @@ void ParamTraits<net::HostPortPair>::Log(const param_type& p, std::string* l) {
   l->append(p.ToString());
 }
 
-void ParamTraits<net::IPEndPoint>::Write(Message* m, const param_type& p) {
+void ParamTraits<net::IPEndPoint>::Write(base::Pickle* m, const param_type& p) {
   WriteParam(m, p.address());
   WriteParam(m, p.port());
 }
 
-bool ParamTraits<net::IPEndPoint>::Read(const Message* m,
+bool ParamTraits<net::IPEndPoint>::Read(const base::Pickle* m,
                                         base::PickleIterator* iter,
                                         param_type* p) {
   net::IPAddressNumber address;
-  uint16 port;
+  uint16_t port;
   if (!ReadParam(m, iter, &address) || !ReadParam(m, iter, &port))
     return false;
   if (address.size() &&
@@ -140,12 +141,35 @@ void ParamTraits<net::IPEndPoint>::Log(const param_type& p, std::string* l) {
   LogParam("IPEndPoint:" + p.ToString(), l);
 }
 
-void ParamTraits<content::PageState>::Write(
-    Message* m, const param_type& p) {
+void ParamTraits<net::IPAddress>::Write(base::Pickle* m, const param_type& p) {
+  WriteParam(m, p.bytes());
+}
+
+bool ParamTraits<net::IPAddress>::Read(const base::Pickle* m,
+                                       base::PickleIterator* iter,
+                                       param_type* p) {
+  std::vector<uint8_t> bytes;
+  if (!ReadParam(m, iter, &bytes))
+    return false;
+  if (bytes.size() &&
+      bytes.size() != net::IPAddress::kIPv4AddressSize &&
+      bytes.size() != net::IPAddress::kIPv6AddressSize) {
+    return false;
+  }
+  *p = net::IPAddress(bytes);
+  return true;
+}
+
+void ParamTraits<net::IPAddress>::Log(const param_type& p, std::string* l) {
+    LogParam("IPAddress:" + (p.empty() ? "(empty)" : p.ToString()), l);
+}
+
+void ParamTraits<content::PageState>::Write(base::Pickle* m,
+                                            const param_type& p) {
   WriteParam(m, p.ToEncodedData());
 }
 
-bool ParamTraits<content::PageState>::Read(const Message* m,
+bool ParamTraits<content::PageState>::Read(const base::Pickle* m,
                                            base::PickleIterator* iter,
                                            param_type* r) {
   std::string data;

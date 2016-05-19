@@ -7,6 +7,9 @@
 
 #include "ui/events/gesture_detection/gesture_detector.h"
 
+#include <stddef.h>
+
+#include <algorithm>
 #include <cmath>
 
 #include "base/timer/timer.h"
@@ -57,6 +60,8 @@ GestureDetector::Config::Config()
       two_finger_tap_timeout(base::TimeDelta::FromMilliseconds(700)),
       single_tap_repeat_interval(1),
       velocity_tracker_strategy(VelocityTracker::Strategy::STRATEGY_DEFAULT) {}
+
+GestureDetector::Config::Config(const Config& other) = default;
 
 GestureDetector::Config::~Config() {}
 

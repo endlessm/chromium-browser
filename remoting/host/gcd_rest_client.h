@@ -7,8 +7,8 @@
 
 #include <queue>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/clock.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -45,7 +45,7 @@ class GcdRestClient : public net::URLFetcherDelegate {
 
   // Tests whether is object is currently running a request.  Only one
   // request at a time may be pending.
-  bool HasPendingRequest() { return url_fetcher_; }
+  bool HasPendingRequest() { return !!url_fetcher_; }
 
   // Sends a 'patchState' request to the GCD API.  Constructs and
   // sends an appropriate JSON message M where |patch_details| becomes
@@ -53,7 +53,7 @@ class GcdRestClient : public net::URLFetcherDelegate {
   void PatchState(scoped_ptr<base::DictionaryValue> patch_details,
                   const GcdRestClient::ResultCallback& callback);
 
-  void SetClockForTest(scoped_ptr<base::Clock> clock) { clock_ = clock.Pass(); }
+  void SetClockForTest(scoped_ptr<base::Clock> clock);
 
  private:
   void OnTokenReceived(OAuthTokenGetter::Status status,

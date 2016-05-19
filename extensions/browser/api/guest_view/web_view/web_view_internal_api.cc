@@ -4,6 +4,8 @@
 
 #include "extensions/browser/api/guest_view/web_view/web_view_internal_api.h"
 
+#include <utility>
+
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -50,7 +52,7 @@ const char kViewInstanceIdError[] = "view_instance_id is missing.";
 const char kDuplicatedContentScriptNamesError[] =
     "The given content script name already exists.";
 
-uint32 MaskForKey(const char* key) {
+uint32_t MaskForKey(const char* key) {
   if (strcmp(key, kAppCacheKey) == 0)
     return webview::WEB_VIEW_REMOVE_DATA_MASK_APPCACHE;
   if (strcmp(key, kCacheKey) == 0)
@@ -257,6 +259,62 @@ bool WebViewInternalExtensionFunction::RunAsync() {
   return RunAsyncSafe(guest);
 }
 
+bool WebViewInternalCaptureVisibleRegionFunction::RunAsyncSafe(
+    WebViewGuest* guest) {
+  using api::extension_types::ImageDetails;
+
+  scoped_ptr<web_view_internal::CaptureVisibleRegion::Params> params(
+      web_view_internal::CaptureVisibleRegion::Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  scoped_ptr<ImageDetails> image_details;
+  if (args_->GetSize() > 1) {
+    base::Value* spec = NULL;
+    EXTENSION_FUNCTION_VALIDATE(args_->Get(1, &spec) && spec);
+    image_details = ImageDetails::FromValue(*spec);
+  }
+
+  return CaptureAsync(guest->web_contents(), image_details.get(),
+                      base::Bind(&WebViewInternalCaptureVisibleRegionFunction::
+                                     CopyFromBackingStoreComplete,
+                                 this));
+}
+bool WebViewInternalCaptureVisibleRegionFunction::IsScreenshotEnabled() {
+  // TODO(wjmaclean): Is it ok to always return true here?
+  return true;
+}
+
+void WebViewInternalCaptureVisibleRegionFunction::OnCaptureSuccess(
+    const SkBitmap& bitmap) {
+  std::string base64_result;
+  if (!EncodeBitmap(bitmap, &base64_result)) {
+    OnCaptureFailure(FAILURE_REASON_ENCODING_FAILED);
+    return;
+  }
+
+  SetResult(new base::StringValue(base64_result));
+  SendResponse(true);
+}
+
+void WebViewInternalCaptureVisibleRegionFunction::OnCaptureFailure(
+    FailureReason reason) {
+  const char* reason_description = "internal error";
+  switch (reason) {
+    case FAILURE_REASON_UNKNOWN:
+      reason_description = "unknown error";
+      break;
+    case FAILURE_REASON_ENCODING_FAILED:
+      reason_description = "encoding failed";
+      break;
+    case FAILURE_REASON_VIEW_INVISIBLE:
+      reason_description = "view is invisible";
+      break;
+  }
+  error_ = ErrorUtils::FormatErrorMessage("Failed to capture webview: *",
+                                          reason_description);
+  SendResponse(false);
+}
+
 bool WebViewInternalNavigateFunction::RunAsyncSafe(WebViewGuest* guest) {
   scoped_ptr<web_view_internal::Navigate::Params> params(
       web_view_internal::Navigate::Params::Create(*args_));
@@ -287,9 +345,11 @@ bool WebViewInternalExecuteCodeFunction::Init() {
   if (!args_->GetString(1, &src))
     return false;
 
+  // Set |guest_src_| here, but do not return false if it is invalid.
+  // Instead, let it continue with the normal page load sequence,
+  // which will result in the usual LOAD_ABORT event in the case where
+  // the URL is invalid.
   guest_src_ = GURL(src);
-  if (!guest_src_.is_valid())
-    return false;
 
   base::DictionaryValue* details_value = NULL;
   if (!args_->GetDictionary(2, &details_value))
@@ -298,7 +358,7 @@ bool WebViewInternalExecuteCodeFunction::Init() {
   if (!InjectDetails::Populate(*details_value, details.get()))
     return false;
 
-  details_ = details.Pass();
+  details_ = std::move(details);
 
   if (extension()) {
     set_host_id(HostID(HostID::EXTENSIONS, extension()->id()));
@@ -826,14 +886,14 @@ WebViewInternalClearDataFunction::~WebViewInternalClearDataFunction() {
 // Parses the |dataToRemove| argument to generate the remove mask. Sets
 // |bad_message_| (like EXTENSION_FUNCTION_VALIDATE would if this were a bool
 // method) if 'dataToRemove' is not present.
-uint32 WebViewInternalClearDataFunction::GetRemovalMask() {
+uint32_t WebViewInternalClearDataFunction::GetRemovalMask() {
   base::DictionaryValue* data_to_remove;
   if (!args_->GetDictionary(2, &data_to_remove)) {
     bad_message_ = true;
     return 0;
   }
 
-  uint32 remove_mask = 0;
+  uint32_t remove_mask = 0;
   for (base::DictionaryValue::Iterator i(*data_to_remove); !i.IsAtEnd();
        i.Advance()) {
     bool selected = false;

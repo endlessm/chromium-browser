@@ -10,9 +10,9 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/thread_task_runner_handle.h"
@@ -25,6 +25,7 @@
 #include "components/password_manager/core/browser/webdata/logins_table.h"
 #include "components/password_manager/core/browser/webdata/password_web_data_service_win.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/webdata/common/web_database_service.h"
 #include "content/public/test/test_browser_thread.h"
 #include "crypto/wincrypt_shim.h"
@@ -58,7 +59,7 @@ class MockPasswordStoreConsumer : public PasswordStoreConsumer {
 };
 
 class MockWebDataServiceConsumer : public WebDataServiceConsumer {
-public:
+ public:
   MOCK_METHOD2(OnWebDataServiceRequestDone,
                void(PasswordWebDataService::Handle, const WDTypedResult*));
 };
@@ -137,7 +138,7 @@ class PasswordStoreWinTest : public testing::Test {
 
   void TearDown() override {
     if (store_.get())
-      store_->Shutdown();
+      store_->ShutdownOnUIThread();
     wds_->ShutdownOnUIThread();
     wdbs_->ShutdownDatabase();
     wds_ = nullptr;
@@ -257,7 +258,7 @@ TEST_F(PasswordStoreWinTest, DISABLED_ConvertIE7Login) {
               OnGetPasswordStoreResultsConstRef(
                   UnorderedPasswordFormElementsAre(expected_forms.get())));
 
-  store_->GetLogins(*form, PasswordStore::DISALLOW_PROMPT, &consumer);
+  store_->GetLogins(*form, &consumer);
   base::MessageLoop::current()->Run();
 }
 
@@ -282,10 +283,10 @@ TEST_F(PasswordStoreWinTest, DISABLED_OutstandingWDSQueries) {
       CreatePasswordFormFromDataForTesting(form_data);
 
   MockPasswordStoreConsumer consumer;
-  store_->GetLogins(*form, PasswordStore::DISALLOW_PROMPT, &consumer);
+  store_->GetLogins(*form, &consumer);
 
   // Release the PSW and the WDS before the query can return.
-  store_->Shutdown();
+  store_->ShutdownOnUIThread();
   store_ = nullptr;
   wds_ = nullptr;
 
@@ -351,7 +352,7 @@ TEST_F(PasswordStoreWinTest, DISABLED_MultipleWDSQueriesOnDifferentThreads) {
               OnGetPasswordStoreResultsConstRef(
                   UnorderedPasswordFormElementsAre(expected_forms.get())));
 
-  store_->GetLogins(*form, PasswordStore::DISALLOW_PROMPT, &password_consumer);
+  store_->GetLogins(*form, &password_consumer);
 
   MockWebDataServiceConsumer wds_consumer;
 
@@ -394,7 +395,7 @@ TEST_F(PasswordStoreWinTest, EmptyLogins) {
 
   EXPECT_CALL(consumer, OnGetPasswordStoreResultsConstRef(IsEmpty()));
 
-  store_->GetLogins(*form, PasswordStore::DISALLOW_PROMPT, &consumer);
+  store_->GetLogins(*form, &consumer);
   base::MessageLoop::current()->Run();
 }
 

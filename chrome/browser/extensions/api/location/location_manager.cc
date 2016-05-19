@@ -5,10 +5,12 @@
 #include "chrome/browser/extensions/api/location/location_manager.h"
 
 #include <math.h>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "chrome/common/extensions/api/location.h"
 #include "content/public/browser/browser_thread.h"
@@ -335,10 +337,11 @@ void LocationManager::SendLocationUpdate(
     event_name = location::OnLocationError::kEventName;
   }
 
-  scoped_ptr<Event> event(new Event(histogram_value, event_name, args.Pass()));
+  scoped_ptr<Event> event(
+      new Event(histogram_value, event_name, std::move(args)));
 
   EventRouter::Get(browser_context_)
-      ->DispatchEventToExtension(extension_id, event.Pass());
+      ->DispatchEventToExtension(extension_id, std::move(event));
 }
 
 void LocationManager::OnExtensionLoaded(

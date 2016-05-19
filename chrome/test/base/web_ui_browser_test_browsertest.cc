@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/values.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
@@ -20,7 +21,7 @@
 using content::WebUIMessageHandler;
 
 // According to the interface for EXPECT_FATAL_FAILURE
-// (http://code.google.com/p/googletest/wiki/AdvancedGuide#Catching_Failures)
+// (https://github.com/google/googletest/blob/master/googletest/docs/AdvancedGuide.md#catching-failures)
 // the statement must be statically available. Therefore, we make a static
 // global s_test_ which should point to |this| for the duration of the test run
 // and be cleared afterward.
@@ -29,13 +30,6 @@ class WebUIBrowserExpectFailTest : public WebUIBrowserTest {
   WebUIBrowserExpectFailTest() {
     EXPECT_FALSE(s_test_);
     s_test_ = this;
-  }
-
-  // Disable new downloads UI as it is very very slow. https://crbug.com/526577
-  // TODO(dbeam): remove this once the downloads UI is not slow.
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    WebUIBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(switches::kDisableMaterialDesignDownloads);
   }
 
  protected:

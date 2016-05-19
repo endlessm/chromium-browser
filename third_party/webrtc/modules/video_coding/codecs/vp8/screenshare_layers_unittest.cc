@@ -8,13 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <vector>
+
 #include "gtest/gtest.h"
 #include "vpx/vpx_encoder.h"
 #include "vpx/vp8cx.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
+#include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/modules/video_coding/codecs/vp8/screenshare_layers.h"
-#include "webrtc/modules/video_coding/utility/include/mock/mock_frame_dropper.h"
+#include "webrtc/modules/video_coding/utility/mock/mock_frame_dropper.h"
 
 using ::testing::_;
 using ::testing::NiceMock;
@@ -41,6 +43,8 @@ class ScreenshareLayerTest : public ::testing::Test {
                    CodecSpecificInfoVP8* vp8_info,
                    int* flags) {
     *flags = layers_->EncodeFlags(timestamp);
+    if (*flags == -1)
+      return;
     layers_->PopulateCodecSpecific(base_sync, vp8_info, timestamp);
     ASSERT_NE(-1, frame_size_);
     layers_->FrameEncoded(frame_size_, timestamp, kDefaultQp);

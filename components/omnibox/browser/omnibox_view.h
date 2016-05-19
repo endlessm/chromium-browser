@@ -11,9 +11,12 @@
 #ifndef COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_VIEW_H_
 #define COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_VIEW_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -75,8 +78,10 @@ class OmniboxView {
   // Returns the resource ID of the icon to show for the current text.
   int GetIcon() const;
 
-  // Like GetIcon(), but returns a vector icon identifier.
-  gfx::VectorIconId GetVectorIcon() const;
+  // Like GetIcon(), but returns a vector icon identifier. If |invert| is true,
+  // this returns an icon suitable for display in an inverted (light-on-dark)
+  // color scheme.
+  gfx::VectorIconId GetVectorIcon(bool invert) const;
 
   // The user text is the text the user has manually keyed in.  When present,
   // this is shown in preference to the permanent text; hitting escape will
@@ -178,8 +183,9 @@ class OmniboxView {
   // automatic changes to the textfield that should not affect autocomplete.
   virtual void OnBeforePossibleChange() = 0;
   // OnAfterPossibleChange() returns true if there was a change that caused it
-  // to call UpdatePopup().
-  virtual bool OnAfterPossibleChange() = 0;
+  // to call UpdatePopup().  If |allow_keyword_ui_change| is false, we
+  // prevent alterations to the keyword UI state (enabled vs. disabled).
+  virtual bool OnAfterPossibleChange(bool allow_keyword_ui_change) = 0;
 
   // Returns the gfx::NativeView of the edit view.
   virtual gfx::NativeView GetNativeView() const = 0;
@@ -220,8 +226,8 @@ class OmniboxView {
   // only ever return true on mobile ports.
   virtual bool IsIndicatingQueryRefinement() const;
 
-  // Called after a |match| has been opened.
-  virtual void OnMatchOpened(const AutocompleteMatch& match);
+  // Called after a match has been opened.
+  virtual void OnMatchOpened(AutocompleteMatch::Type match_type);
 
   // Returns |text| with any leading javascript schemas stripped.
   static base::string16 StripJavascriptSchemas(const base::string16& text);

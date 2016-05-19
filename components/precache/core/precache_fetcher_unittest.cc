@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -68,7 +67,7 @@ class TestURLFetcherCallback {
     total_response_bytes_ += response_data.size();
     requested_urls_.insert(url);
 
-    return fetcher.Pass();
+    return fetcher;
   }
 
   const std::multiset<GURL>& requested_urls() const {

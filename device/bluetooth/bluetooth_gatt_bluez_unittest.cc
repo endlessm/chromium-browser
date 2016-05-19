@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -49,8 +53,8 @@ const BluetoothUUID kHeartRateControlPointUUID(
 
 // Compares GATT characteristic/descriptor values. Returns true, if the values
 // are equal.
-bool ValuesEqual(const std::vector<uint8>& value0,
-                 const std::vector<uint8>& value1) {
+bool ValuesEqual(const std::vector<uint8_t>& value0,
+                 const std::vector<uint8_t>& value1) {
   if (value0.size() != value1.size())
     return false;
   for (size_t i = 0; i < value0.size(); ++i)
@@ -117,6 +121,7 @@ class BluetoothGattBlueZTest : public testing::Test {
   void GetAdapter() {
     device::BluetoothAdapterFactory::GetAdapter(base::Bind(
         &BluetoothGattBlueZTest::AdapterCallback, base::Unretained(this)));
+    base::MessageLoop::current()->Run();
     ASSERT_TRUE(adapter_.get() != NULL);
     ASSERT_TRUE(adapter_->IsInitialized());
     ASSERT_TRUE(adapter_->IsPresent());
@@ -124,18 +129,22 @@ class BluetoothGattBlueZTest : public testing::Test {
 
   void AdapterCallback(scoped_refptr<BluetoothAdapter> adapter) {
     adapter_ = adapter;
+    if (base::MessageLoop::current() &&
+        base::MessageLoop::current()->is_running()) {
+      base::MessageLoop::current()->QuitWhenIdle();
+    }
   }
 
   void SuccessCallback() { ++success_callback_count_; }
 
-  void ValueCallback(const std::vector<uint8>& value) {
+  void ValueCallback(const std::vector<uint8_t>& value) {
     ++success_callback_count_;
     last_read_value_ = value;
   }
 
   void GattConnectionCallback(scoped_ptr<BluetoothGattConnection> conn) {
     ++success_callback_count_;
-    gatt_conn_ = conn.Pass();
+    gatt_conn_ = std::move(conn);
   }
 
   void NotifySessionCallback(scoped_ptr<BluetoothGattNotifySession> session) {
@@ -181,7 +190,7 @@ class BluetoothGattBlueZTest : public testing::Test {
 
   int success_callback_count_;
   int error_callback_count_;
-  std::vector<uint8> last_read_value_;
+  std::vector<uint8_t> last_read_value_;
   BluetoothGattService::GattErrorCode last_service_error_;
 };
 
@@ -212,7 +221,7 @@ TEST_F(BluetoothGattBlueZTest, GattConnection) {
             gatt_conn_->GetDeviceAddress());
 
   gatt_conn_->Disconnect();
-  EXPECT_TRUE(device->IsConnected());
+  EXPECT_FALSE(device->IsConnected());
   EXPECT_FALSE(gatt_conn_->IsConnected());
 
   device->CreateGattConnection(
@@ -234,6 +243,7 @@ TEST_F(BluetoothGattBlueZTest, GattConnection) {
 
   EXPECT_EQ(3, success_callback_count_);
   EXPECT_EQ(0, error_callback_count_);
+  EXPECT_FALSE(device->IsConnected());
   ASSERT_TRUE(gatt_conn_.get());
   EXPECT_FALSE(gatt_conn_->IsConnected());
 
@@ -373,10 +383,41 @@ TEST_F(BluetoothGattBlueZTest, ServicesDiscovered) {
   properties->gatt_services.ReplaceValue(
       fake_bluetooth_gatt_service_client_->GetServices());
 
+  EXPECT_TRUE(device->IsGattServicesDiscoveryComplete());
+  EXPECT_EQ(1u, device->GetGattServices().size());
   EXPECT_EQ(1, observer.gatt_services_discovered_count());
   EXPECT_EQ(device, observer.last_device());
   EXPECT_EQ(bluez::FakeBluetoothDeviceClient::kLowEnergyAddress,
             observer.last_device_address());
+
+  // Disconnect from the device:
+  device->Disconnect(base::Bind(&BluetoothGattBlueZTest::SuccessCallback,
+                                base::Unretained(this)),
+                     base::Bind(&BluetoothGattBlueZTest::ErrorCallback,
+                                base::Unretained(this)));
+  fake_bluetooth_gatt_service_client_->HideHeartRateService();
+  properties->connected.ReplaceValue(false);
+
+  EXPECT_FALSE(device->IsConnected());
+  EXPECT_FALSE(device->IsGattServicesDiscoveryComplete());
+  EXPECT_EQ(0u, device->GetGattServices().size());
+
+  // Verify that the device can be connected to again:
+  device->CreateGattConnection(
+      base::Bind(&BluetoothGattBlueZTest::GattConnectionCallback,
+                 base::Unretained(this)),
+      base::Bind(&BluetoothGattBlueZTest::ConnectErrorCallback,
+                 base::Unretained(this)));
+  properties->connected.ReplaceValue(true);
+  EXPECT_TRUE(device->IsConnected());
+
+  // Verify that service discovery can be done again:
+  fake_bluetooth_gatt_service_client_->ExposeHeartRateService(
+      dbus::ObjectPath(bluez::FakeBluetoothDeviceClient::kLowEnergyPath));
+  properties->gatt_services.ReplaceValue(
+      fake_bluetooth_gatt_service_client_->GetServices());
+  EXPECT_TRUE(device->IsGattServicesDiscoveryComplete());
+  EXPECT_EQ(1u, device->GetGattServices().size());
 }
 
 TEST_F(BluetoothGattBlueZTest, GattCharacteristicAddedAndRemoved) {
@@ -637,7 +678,7 @@ TEST_F(BluetoothGattBlueZTest, GattCharacteristicValue) {
   // Issue write request to non-writable characteristics.
   observer.Reset();
 
-  std::vector<uint8> write_value;
+  std::vector<uint8_t> write_value;
   write_value.push_back(0x01);
   BluetoothGattCharacteristic* characteristic = service->GetCharacteristic(
       fake_bluetooth_gatt_characteristic_client_->GetHeartRateMeasurementPath()
@@ -711,7 +752,7 @@ TEST_F(BluetoothGattBlueZTest, GattCharacteristicValue) {
   // Issue some invalid write requests to the characteristic.
   // The value should still not change.
 
-  std::vector<uint8> invalid_write_length;
+  std::vector<uint8_t> invalid_write_length;
   invalid_write_length.push_back(0x01);
   invalid_write_length.push_back(0x00);
   characteristic->WriteRemoteCharacteristic(
@@ -725,7 +766,7 @@ TEST_F(BluetoothGattBlueZTest, GattCharacteristicValue) {
             last_service_error_);
   EXPECT_EQ(0, observer.gatt_characteristic_value_changed_count());
 
-  std::vector<uint8> invalid_write_value;
+  std::vector<uint8_t> invalid_write_value;
   invalid_write_value.push_back(0x02);
   characteristic->WriteRemoteCharacteristic(
       invalid_write_value, base::Bind(&BluetoothGattBlueZTest::SuccessCallback,

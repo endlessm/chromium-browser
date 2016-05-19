@@ -22,7 +22,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/svg/SVGLayoutSupport.h"
 
 #include "core/frame/FrameHost.h"
@@ -44,6 +43,21 @@
 #include "platform/graphics/StrokeData.h"
 
 namespace blink {
+
+struct SearchCandidate {
+    SearchCandidate()
+        : candidateLayoutObject(nullptr)
+        , candidateDistance(std::numeric_limits<float>::max())
+    {
+    }
+    SearchCandidate(LayoutObject* layoutObject, float distance)
+        : candidateLayoutObject(layoutObject)
+        , candidateDistance(distance)
+    {
+    }
+    LayoutObject* candidateLayoutObject;
+    float candidateDistance;
+};
 
 static inline LayoutRect adjustedEnclosingIntRect(const FloatRect& rect,
     const AffineTransform& rootTransform, float strokeWidthForHairlinePadding)
@@ -98,7 +112,7 @@ LayoutRect SVGLayoutSupport::clippedOverflowRectForPaintInvalidation(const Layou
     LayoutRect rect;
     const LayoutSVGRoot& svgRoot = mapRectToSVGRootForPaintInvalidation(object,
         paintInvalidationRect, rect, strokeWidthForHairlinePadding);
-    svgRoot.mapRectToPaintInvalidationBacking(paintInvalidationContainer, rect, paintInvalidationState);
+    svgRoot.mapToVisibleRectInAncestorSpace(paintInvalidationContainer, rect, paintInvalidationState);
     return rect;
 }
 
@@ -121,11 +135,11 @@ const LayoutSVGRoot& SVGLayoutSupport::mapRectToSVGRootForPaintInvalidation(cons
     return svgRoot;
 }
 
-void SVGLayoutSupport::mapLocalToContainer(const LayoutObject* object, const LayoutBoxModelObject* paintInvalidationContainer, TransformState& transformState, bool* wasFixed, const PaintInvalidationState* paintInvalidationState)
+void SVGLayoutSupport::mapLocalToAncestor(const LayoutObject* object, const LayoutBoxModelObject* ancestor, TransformState& transformState, bool* wasFixed, const PaintInvalidationState* paintInvalidationState)
 {
     transformState.applyTransform(object->localToParentTransform());
 
-    if (paintInvalidationState && paintInvalidationState->canMapToContainer(paintInvalidationContainer)) {
+    if (paintInvalidationState && paintInvalidationState->canMapToContainer(ancestor)) {
         // |svgTransform| contains localToBorderBoxTransform mentioned below.
         transformState.applyTransform(paintInvalidationState->svgTransform());
         transformState.move(paintInvalidationState->paintOffset());
@@ -136,12 +150,12 @@ void SVGLayoutSupport::mapLocalToContainer(const LayoutObject* object, const Lay
 
     // At the SVG/HTML boundary (aka LayoutSVGRoot), we apply the localToBorderBoxTransform
     // to map an element from SVG viewport coordinates to CSS box coordinates.
-    // LayoutSVGRoot's mapLocalToContainer method expects CSS box coordinates.
+    // LayoutSVGRoot's mapLocalToAncestor method expects CSS box coordinates.
     if (parent->isSVGRoot())
         transformState.applyTransform(toLayoutSVGRoot(parent)->localToBorderBoxTransform());
 
     MapCoordinatesFlags mode = UseTransforms;
-    parent->mapLocalToContainer(paintInvalidationContainer, transformState, mode, wasFixed, paintInvalidationState);
+    parent->mapLocalToAncestor(ancestor, transformState, mode, wasFixed, paintInvalidationState);
 }
 
 const LayoutObject* SVGLayoutSupport::pushMappingToContainer(const LayoutObject* object, const LayoutBoxModelObject* ancestorToStopAt, LayoutGeometryMap& geometryMap)
@@ -152,7 +166,7 @@ const LayoutObject* SVGLayoutSupport::pushMappingToContainer(const LayoutObject*
 
     // At the SVG/HTML boundary (aka LayoutSVGRoot), we apply the localToBorderBoxTransform
     // to map an element from SVG viewport coordinates to CSS box coordinates.
-    // LayoutSVGRoot's mapLocalToContainer method expects CSS box coordinates.
+    // LayoutSVGRoot's mapLocalToAncestor method expects CSS box coordinates.
     if (parent->isSVGRoot()) {
         TransformationMatrix matrix(object->localToParentTransform());
         matrix.multiply(toLayoutSVGRoot(parent)->localToBorderBoxTransform());
@@ -195,6 +209,9 @@ void SVGLayoutSupport::computeContainerBoundingBoxes(const LayoutObject* contain
 
         // Don't include elements in the union that do not layout.
         if (current->isSVGShape() && toLayoutSVGShape(current)->isShapeEmpty())
+            continue;
+
+        if (current->isSVGText() && !toLayoutSVGText(current)->isObjectBoundingBoxValid())
             continue;
 
         const AffineTransform& transform = current->localToParentTransform();
@@ -373,7 +390,7 @@ DashArray SVGLayoutSupport::resolveSVGDashArray(const SVGDashArray& svgDashArray
     return dashArray;
 }
 
-void SVGLayoutSupport::applyStrokeStyleToStrokeData(StrokeData& strokeData, const ComputedStyle& style, const LayoutObject& object)
+void SVGLayoutSupport::applyStrokeStyleToStrokeData(StrokeData& strokeData, const ComputedStyle& style, const LayoutObject& object, float dashScaleFactor)
 {
     ASSERT(object.node());
     ASSERT(object.node()->isSVGElement());
@@ -387,7 +404,15 @@ void SVGLayoutSupport::applyStrokeStyleToStrokeData(StrokeData& strokeData, cons
     strokeData.setMiterLimit(svgStyle.strokeMiterLimit());
 
     DashArray dashArray = resolveSVGDashArray(*svgStyle.strokeDashArray(), style, lengthContext);
-    strokeData.setLineDash(dashArray, lengthContext.valueForLength(svgStyle.strokeDashOffset(), style));
+    float dashOffset = lengthContext.valueForLength(svgStyle.strokeDashOffset(), style);
+    // Apply scaling from 'pathLength'.
+    if (dashScaleFactor != 1) {
+        ASSERT(dashScaleFactor >= 0);
+        dashOffset *= dashScaleFactor;
+        for (auto& dashItem : dashArray)
+            dashItem *= dashScaleFactor;
+    }
+    strokeData.setLineDash(dashArray, dashOffset);
 }
 
 bool SVGLayoutSupport::isLayoutableTextNode(const LayoutObject* object)
@@ -419,22 +444,18 @@ bool SVGLayoutSupport::isIsolationRequired(const LayoutObject* object)
     return willIsolateBlendingDescendantsForObject(object) && object->hasNonIsolatedBlendingDescendants();
 }
 
-static AffineTransform& currentContentTransformation()
-{
-    DEFINE_STATIC_LOCAL(AffineTransform, s_currentContentTransformation, ());
-    return s_currentContentTransformation;
-}
+AffineTransform::Transform SubtreeContentTransformScope::s_currentContentTransformation = IDENTITY_TRANSFORM;
 
 SubtreeContentTransformScope::SubtreeContentTransformScope(const AffineTransform& subtreeContentTransformation)
+    : m_savedContentTransformation(s_currentContentTransformation)
 {
-    AffineTransform& contentTransformation = currentContentTransformation();
-    m_savedContentTransformation = contentTransformation;
-    contentTransformation = subtreeContentTransformation * contentTransformation;
+    AffineTransform contentTransformation = subtreeContentTransformation * AffineTransform(s_currentContentTransformation);
+    contentTransformation.copyTransformTo(s_currentContentTransformation);
 }
 
 SubtreeContentTransformScope::~SubtreeContentTransformScope()
 {
-    currentContentTransformation() = m_savedContentTransformation;
+    m_savedContentTransformation.copyTransformTo(s_currentContentTransformation);
 }
 
 AffineTransform SVGLayoutSupport::deprecatedCalculateTransformToLayer(const LayoutObject* layoutObject)
@@ -475,10 +496,80 @@ float SVGLayoutSupport::calculateScreenFontSizeScalingFactor(const LayoutObject*
 
     // FIXME: trying to compute a device space transform at record time is wrong. All clients
     // should be updated to avoid relying on this information, and the method should be removed.
-    AffineTransform ctm = deprecatedCalculateTransformToLayer(layoutObject) * currentContentTransformation();
+    AffineTransform ctm = deprecatedCalculateTransformToLayer(layoutObject) * SubtreeContentTransformScope::currentContentTransformation();
     ctm.scale(layoutObject->document().frameHost()->deviceScaleFactor());
 
     return narrowPrecisionToFloat(sqrt((pow(ctm.xScale(), 2) + pow(ctm.yScale(), 2)) / 2));
 }
 
+static inline bool compareCandidateDistance(const SearchCandidate& r1, const SearchCandidate& r2)
+{
+    return r1.candidateDistance < r2.candidateDistance;
 }
+
+static inline float distanceToChildLayoutObject(LayoutObject* child, const FloatPoint& point)
+{
+    const AffineTransform& localToParentTransform = child->localToParentTransform();
+    if (!localToParentTransform.isInvertible())
+        return std::numeric_limits<float>::max();
+    FloatPoint childLocalPoint = localToParentTransform.inverse().mapPoint(point);
+    return child->objectBoundingBox().squaredDistanceTo(childLocalPoint);
+}
+
+static SearchCandidate searchTreeForFindClosestLayoutSVGText(LayoutObject* layoutObject, const FloatPoint& point)
+{
+    // Try to find the closest LayoutSVGText.
+    SearchCandidate closestText;
+    Vector<SearchCandidate> candidates;
+
+    // Find the closest LayoutSVGText on this tree level, and also collect any
+    // containers that could contain LayoutSVGTexts that are closer.
+    for (LayoutObject* child = layoutObject->slowLastChild(); child; child = child->previousSibling()) {
+        if (child->isSVGText()) {
+            float distance = distanceToChildLayoutObject(child, point);
+            if (distance >= closestText.candidateDistance)
+                continue;
+            candidates.clear();
+            closestText.candidateLayoutObject = child;
+            closestText.candidateDistance = distance;
+            continue;
+        }
+
+        if (child->isSVGContainer() && !layoutObject->isSVGHiddenContainer()) {
+            float distance = distanceToChildLayoutObject(child, point);
+            if (distance > closestText.candidateDistance)
+                continue;
+            candidates.append(SearchCandidate(child, distance));
+        }
+    }
+
+    // If a LayoutSVGText was found and there are no potentially closer sub-trees,
+    // just return |closestText|.
+    if (closestText.candidateLayoutObject && candidates.isEmpty())
+        return closestText;
+
+    std::stable_sort(candidates.begin(), candidates.end(), compareCandidateDistance);
+
+    // Find the closest LayoutSVGText in the sub-trees in |candidates|.
+    // If a LayoutSVGText is found that is strictly closer than any previous candidate, then end the search.
+    for (const SearchCandidate& searchCandidate : candidates) {
+        if (closestText.candidateDistance < searchCandidate.candidateDistance)
+            break;
+        LayoutObject* candidateLayoutObject = searchCandidate.candidateLayoutObject;
+        FloatPoint candidateLocalPoint = candidateLayoutObject->localToParentTransform().inverse().mapPoint(point);
+
+        SearchCandidate candidateText = searchTreeForFindClosestLayoutSVGText(candidateLayoutObject, candidateLocalPoint);
+
+        if (candidateText.candidateDistance < closestText.candidateDistance)
+            closestText = candidateText;
+    }
+
+    return closestText;
+}
+
+LayoutObject* SVGLayoutSupport::findClosestLayoutSVGText(LayoutObject* layoutObject, const FloatPoint& point)
+{
+    return searchTreeForFindClosestLayoutSVGText(layoutObject, point).candidateLayoutObject;
+}
+
+} // namespace blink

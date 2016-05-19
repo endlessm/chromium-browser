@@ -23,8 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "core/html/MediaDocument.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
@@ -77,8 +75,10 @@ void MediaDocumentParser::createDocumentStructure()
     rootElement->insertedByParser();
     document()->appendChild(rootElement);
 
-    if (document()->frame())
-        document()->frame()->loader().dispatchDocumentElementAvailable();
+    document()->frame()->loader().dispatchDocumentElementAvailable();
+    document()->frame()->loader().runScriptsAtDocumentElementAvailable();
+    if (isDetached())
+        return; // runScriptsAtDocumentElementAvailable can detach the frame.
 
     RefPtrWillBeRawPtr<HTMLHeadElement> head = HTMLHeadElement::create(*document());
     RefPtrWillBeRawPtr<HTMLMetaElement> meta = HTMLMetaElement::create(*document());
@@ -153,4 +153,4 @@ void MediaDocument::defaultEventHandler(Event* event)
     }
 }
 
-}
+} // namespace blink

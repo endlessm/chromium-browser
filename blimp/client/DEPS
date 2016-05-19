@@ -6,18 +6,21 @@ include_rules = [
   "-content",
   "+gpu",
   "+jni",
+  "+net",
   "+skia",
+  "+third_party/libwebp",
   "+third_party/skia",
+  "+third_party/WebKit/public/web/WebInputEvent.h",
+  "+ui/events",
+  "+ui/events/android",
+  "+ui/events/blink",
+  "+ui/events/gesture_detection",
+  "+ui/events/gestures/blink",
   "+ui/gfx",
   "+ui/gl",
+  "+ui/platform_window",
   "+url",
 
   # TODO(dtrainor): Remove this once Toast uses are removed from Java.
   "!ui/android",
-
-  # TODO(dtrainor): Remove this once the LayerTreeHost settings for Blimp
-  # are finalized or are pushed from the server component.  See
-  # crbug.com/527655.
-  "!content/public/common/content_switches.h",
-  "!ui/native_theme/native_theme_switches.h",
 ]

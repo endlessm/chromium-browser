@@ -1,3 +1,4 @@
+
 /*
  * Copyright 2013 Google Inc.
  *
@@ -23,6 +24,7 @@
 #include "SkMergeImageFilter.h"
 #include "SkMorphologyImageFilter.h"
 #include "SkOffsetImageFilter.h"
+#include "SkPaintImageFilter.h"
 #include "SkPerlinNoiseShader.h"
 #include "SkPicture.h"
 #include "SkPictureImageFilter.h"
@@ -30,7 +32,6 @@
 #include "SkPoint3.h"
 #include "SkReadBuffer.h"
 #include "SkRect.h"
-#include "SkRectShaderImageFilter.h"
 #include "SkSurface.h"
 #include "SkTableColorFilter.h"
 #include "SkTileImageFilter.h"
@@ -38,7 +39,7 @@
 #include "Test.h"
 
 #if SK_SUPPORT_GPU
-#include "GrContextFactory.h"
+#include "GrContext.h"
 #include "SkGpuDevice.h"
 #endif
 
@@ -52,8 +53,8 @@ public:
       : SkImageFilter(0, nullptr), fReporter(reporter), fExpectedMatrix(expectedMatrix) {
     }
 
-    virtual bool onFilterImage(Proxy*, const SkBitmap& src, const Context& ctx,
-                               SkBitmap* result, SkIPoint* offset) const override {
+    bool onFilterImageDeprecated(Proxy*, const SkBitmap& src, const Context& ctx,
+                                 SkBitmap* result, SkIPoint* offset) const override {
         REPORTER_ASSERT(fReporter, ctx.ctm() == fExpectedMatrix);
         return true;
     }
@@ -184,7 +185,7 @@ DEF_TEST(ImageFilter, reporter) {
         SkAutoTUnref<SkImageFilter> gray(make_grayscale(nullptr, nullptr));
         REPORTER_ASSERT(reporter, true == gray->asColorFilter(nullptr));
     }
-    
+
     {
         // Check that a colorfilterimage filter without a crop rect but with an input
         // that is another colorfilterimage can be expressed as a colorfilter (composed).
@@ -319,9 +320,11 @@ static void test_crop_rects(SkImageFilter::Proxy* proxy, skiatest::Reporter* rep
         SkIPoint offset;
         SkString str;
         str.printf("filter %d", static_cast<int>(i));
-        SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeLargest(), nullptr, SkImageFilter::kApprox_SizeConstraint);
-        REPORTER_ASSERT_MESSAGE(reporter, filter->filterImage(proxy, bitmap, ctx,
-                                &result, &offset), str.c_str());
+        SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeWH(100, 100), nullptr);
+        REPORTER_ASSERT_MESSAGE(reporter,
+                                filter->filterImageDeprecated(proxy, bitmap, ctx, 
+                                                              &result, &offset),
+                                str.c_str());
         REPORTER_ASSERT_MESSAGE(reporter, offset.fX == 20 && offset.fY == 30, str.c_str());
     }
 
@@ -364,14 +367,22 @@ static void test_negative_blur_sigma(SkImageFilter::Proxy* proxy, skiatest::Repo
     SkBitmap positiveResult1, negativeResult1;
     SkBitmap positiveResult2, negativeResult2;
     SkIPoint offset;
-    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeLargest(), nullptr, SkImageFilter::kApprox_SizeConstraint);
-    positiveFilter->filterImage(proxy, gradient, ctx, &positiveResult1, &offset);
-    negativeFilter->filterImage(proxy, gradient, ctx, &negativeResult1, &offset);
+    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeWH(32, 32), nullptr);
+    REPORTER_ASSERT(reporter,
+                    positiveFilter->filterImageDeprecated(proxy, gradient, ctx,
+                                                          &positiveResult1, &offset));
+    REPORTER_ASSERT(reporter,
+                    negativeFilter->filterImageDeprecated(proxy, gradient, ctx,
+                                                          &negativeResult1, &offset));
     SkMatrix negativeScale;
     negativeScale.setScale(-SK_Scalar1, SK_Scalar1);
-    SkImageFilter::Context negativeCTX(negativeScale, SkIRect::MakeLargest(), nullptr, SkImageFilter::kApprox_SizeConstraint);
-    positiveFilter->filterImage(proxy, gradient, negativeCTX, &negativeResult2, &offset);
-    negativeFilter->filterImage(proxy, gradient, negativeCTX, &positiveResult2, &offset);
+    SkImageFilter::Context negativeCTX(negativeScale, SkIRect::MakeWH(32, 32), nullptr);
+    REPORTER_ASSERT(reporter,
+                    positiveFilter->filterImageDeprecated(proxy, gradient, negativeCTX,
+                                                          &negativeResult2, &offset));
+    REPORTER_ASSERT(reporter,
+                    negativeFilter->filterImageDeprecated(proxy, gradient, negativeCTX,
+                                                          &positiveResult2, &offset));
     SkAutoLockPixels lockP1(positiveResult1);
     SkAutoLockPixels lockP2(positiveResult2);
     SkAutoLockPixels lockN1(negativeResult1);
@@ -439,14 +450,15 @@ DEF_TEST(ImageFilterDrawTiled, reporter) {
     SkAutoTUnref<SkPicture> picture(recorder.endRecording());
     SkAutoTUnref<SkImageFilter> pictureFilter(SkPictureImageFilter::Create(picture.get()));
     SkAutoTUnref<SkShader> shader(SkPerlinNoiseShader::CreateTurbulence(SK_Scalar1, SK_Scalar1, 1, 0));
+    SkPaint noisePaint;
+    noisePaint.setShader(shader);
 
-    SkAutoTUnref<SkImageFilter> rectShaderFilter(SkRectShaderImageFilter::Create(shader.get()));
+    SkAutoTUnref<SkImageFilter> paintFilter(SkPaintImageFilter::Create(noisePaint));
 
-    SkAutoTUnref<SkShader> greenColorShader(SkShader::CreateColorShader(SK_ColorGREEN));
     SkImageFilter::CropRect leftSideCropRect(SkRect::MakeXYWH(0, 0, 32, 64));
-    SkAutoTUnref<SkImageFilter> rectShaderFilterLeft(SkRectShaderImageFilter::Create(greenColorShader.get(), &leftSideCropRect));
+    SkAutoTUnref<SkImageFilter> paintFilterLeft(SkPaintImageFilter::Create(greenPaint, &leftSideCropRect));
     SkImageFilter::CropRect rightSideCropRect(SkRect::MakeXYWH(32, 0, 32, 64));
-    SkAutoTUnref<SkImageFilter> rectShaderFilterRight(SkRectShaderImageFilter::Create(greenColorShader.get(), &rightSideCropRect));
+    SkAutoTUnref<SkImageFilter> paintFilterRight(SkPaintImageFilter::Create(greenPaint, &rightSideCropRect));
 
     struct {
         const char*    fName;
@@ -471,7 +483,7 @@ DEF_TEST(ImageFilterDrawTiled, reporter) {
                   SkMatrixConvolutionImageFilter::kRepeat_TileMode, false) },
         { "merge", SkMergeImageFilter::Create(nullptr, nullptr, SkXfermode::kSrcOver_Mode) },
         { "merge with disjoint inputs", SkMergeImageFilter::Create(
-              rectShaderFilterLeft, rectShaderFilterRight, SkXfermode::kSrcOver_Mode) },
+              paintFilterLeft, paintFilterRight, SkXfermode::kSrcOver_Mode) },
         { "offset", SkOffsetImageFilter::Create(SK_Scalar1, SK_Scalar1) },
         { "dilate", SkDilateImageFilter::Create(3, 2) },
         { "erode", SkErodeImageFilter::Create(2, 3) },
@@ -480,7 +492,7 @@ DEF_TEST(ImageFilterDrawTiled, reporter) {
         { "matrix", SkImageFilter::CreateMatrixFilter(matrix, kLow_SkFilterQuality) },
         { "blur and offset", SkOffsetImageFilter::Create(five, five, blur.get()) },
         { "picture and blur", SkBlurImageFilter::Create(five, five, pictureFilter.get()) },
-        { "rect shader and blur", SkBlurImageFilter::Create(five, five, rectShaderFilter.get()) },
+        { "paint and blur", SkBlurImageFilter::Create(five, five, paintFilter.get()) },
     };
 
     SkBitmap untiledResult, tiledResult;
@@ -640,6 +652,28 @@ DEF_TEST(ImageFilterComposedBlurFastBounds, reporter) {
     composedFilter->computeFastBounds(boundsSrc, &boundsDst);
 
     REPORTER_ASSERT(reporter, boundsDst == expectedBounds);
+}
+
+DEF_TEST(ImageFilterMergeResultSize, reporter) {
+    SkBitmap greenBM;
+    greenBM.allocN32Pixels(20, 20);
+    greenBM.eraseColor(SK_ColorGREEN);
+    SkAutoTUnref<SkImage> greenImage(SkImage::NewFromBitmap(greenBM));
+    SkAutoTUnref<SkImageFilter> source(SkImageSource::Create(greenImage.get()));
+    SkAutoTUnref<SkImageFilter> merge(SkMergeImageFilter::Create(source.get(), source.get()));
+
+    SkBitmap bitmap;
+    bitmap.allocN32Pixels(1, 1);
+    bitmap.eraseColor(0);
+    const SkImageInfo info = SkImageInfo::MakeN32Premul(100, 100);
+    const SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
+    SkAutoTUnref<SkBaseDevice> device(SkBitmapDevice::Create(info, props));
+    SkImageFilter::DeviceProxy proxy(device);
+    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeXYWH(0, 0, 100, 100), nullptr);
+    SkBitmap result;
+    SkIPoint offset;
+    REPORTER_ASSERT(reporter, merge->filterImageDeprecated(&proxy, bitmap, ctx, &result, &offset));
+    REPORTER_ASSERT(reporter, result.width() == 20 && result.height() == 20);
 }
 
 static void draw_blurred_rect(SkCanvas* canvas) {
@@ -863,7 +897,7 @@ DEF_TEST(ImageFilterCrossProcessPictureImageFilter, reporter) {
     pixel = *bitmap.getAddr32(0, 0);
     // If the security precautions are enabled, the result here should not be green, since the
     // filter draws nothing.
-    REPORTER_ASSERT(reporter, SkPicture::PictureIOSecurityPrecautionsEnabled() 
+    REPORTER_ASSERT(reporter, SkPicture::PictureIOSecurityPrecautionsEnabled()
         ? pixel != SK_ColorGREEN : pixel == SK_ColorGREEN);
 }
 
@@ -882,13 +916,14 @@ DEF_TEST(ImageFilterClippedPictureImageFilter, reporter) {
 
     SkBitmap result;
     SkIPoint offset;
-    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeXYWH(1, 1, 1, 1), nullptr, SkImageFilter::kApprox_SizeConstraint);
+    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeXYWH(1, 1, 1, 1), nullptr);
     SkBitmap bitmap;
     bitmap.allocN32Pixels(2, 2);
     const SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
     SkBitmapDevice device(bitmap, props);
     SkImageFilter::DeviceProxy proxy(&device);
-    REPORTER_ASSERT(reporter, !imageFilter->filterImage(&proxy, bitmap, ctx, &result, &offset));
+    REPORTER_ASSERT(reporter,
+                    !imageFilter->filterImageDeprecated(&proxy, bitmap, ctx, &result, &offset));
 }
 
 DEF_TEST(ImageFilterEmptySaveLayer, reporter) {
@@ -954,7 +989,7 @@ static void test_huge_blur(SkCanvas* canvas, skiatest::Reporter* reporter) {
 
     SkPaint paint;
     paint.setImageFilter(blur);
-    canvas->drawSprite(bitmap, 0, 0, &paint);
+    canvas->drawBitmap(bitmap, 0, 0, &paint);
 }
 
 DEF_TEST(HugeBlurImageFilter, reporter) {
@@ -1044,7 +1079,7 @@ static void test_xfermode_cropped_input(SkCanvas* canvas, skiatest::Reporter* re
 
     SkPaint paint;
     paint.setImageFilter(xfermodeNoFg);
-    canvas->drawSprite(bitmap, 0, 0, &paint);
+    canvas->drawBitmap(bitmap, 0, 0, &paint);   // drawSprite
 
     uint32_t pixel;
     SkImageInfo info = SkImageInfo::Make(1, 1, kBGRA_8888_SkColorType, kUnpremul_SkAlphaType);
@@ -1052,12 +1087,12 @@ static void test_xfermode_cropped_input(SkCanvas* canvas, skiatest::Reporter* re
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 
     paint.setImageFilter(xfermodeNoBg);
-    canvas->drawSprite(bitmap, 0, 0, &paint);
+    canvas->drawBitmap(bitmap, 0, 0, &paint);   // drawSprite
     canvas->readPixels(info, &pixel, 4, 0, 0);
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 
     paint.setImageFilter(xfermodeNoFgNoBg);
-    canvas->drawSprite(bitmap, 0, 0, &paint);
+    canvas->drawBitmap(bitmap, 0, 0, &paint);   // drawSprite
     canvas->readPixels(info, &pixel, 4, 0, 0);
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 }
@@ -1105,7 +1140,7 @@ DEF_TEST(ImageFilterNestedSaveLayer, reporter) {
     canvas.clear(0x0);
     canvas.readPixels(info, &pixel, 4, 25, 25);
     canvas.saveLayer(&bounds1, nullptr);
-    canvas.drawSprite(bitmap, 20, 20, &filterPaint);
+    canvas.drawBitmap(bitmap, 20, 20, &filterPaint);    // drawSprite
     canvas.restore();
 
     canvas.readPixels(info, &pixel, 4, 25, 25);
@@ -1129,12 +1164,15 @@ DEF_TEST(ComposedImageFilterOffset, reporter) {
 
     SkImageFilter::CropRect cropRect(SkRect::MakeXYWH(1, 0, 20, 20));
     SkAutoTUnref<SkImageFilter> offsetFilter(SkOffsetImageFilter::Create(0, 0, nullptr, &cropRect));
-    SkAutoTUnref<SkImageFilter> blurFilter(makeBlur());
-    SkAutoTUnref<SkImageFilter> composedFilter(SkComposeImageFilter::Create(blurFilter, offsetFilter.get()));
+    SkAutoTUnref<SkImageFilter> blurFilter(SkBlurImageFilter::Create(SK_Scalar1, SK_Scalar1,
+                                                                     nullptr, &cropRect));
+    SkAutoTUnref<SkImageFilter> composedFilter(SkComposeImageFilter::Create(blurFilter,
+                                                                            offsetFilter.get()));
     SkBitmap result;
     SkIPoint offset;
-    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeLargest(), nullptr, SkImageFilter::kApprox_SizeConstraint);
-    REPORTER_ASSERT(reporter, composedFilter->filterImage(&proxy, bitmap, ctx, &result, &offset));
+    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeWH(100, 100), nullptr);
+    REPORTER_ASSERT(reporter,
+                    composedFilter->filterImageDeprecated(&proxy, bitmap, ctx, &result, &offset));
     REPORTER_ASSERT(reporter, offset.fX == 1 && offset.fY == 0);
 }
 
@@ -1151,8 +1189,9 @@ DEF_TEST(PartialCropRect, reporter) {
     SkAutoTUnref<SkImageFilter> filter(make_grayscale(nullptr, &cropRect));
     SkBitmap result;
     SkIPoint offset;
-    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeLargest(), nullptr, SkImageFilter::kApprox_SizeConstraint);
-    REPORTER_ASSERT(reporter, filter->filterImage(&proxy, bitmap, ctx, &result, &offset));
+    SkImageFilter::Context ctx(SkMatrix::I(), SkIRect::MakeWH(100, 100), nullptr);
+    REPORTER_ASSERT(reporter,
+                    filter->filterImageDeprecated(&proxy, bitmap, ctx, &result, &offset));
     REPORTER_ASSERT(reporter, offset.fX == 0);
     REPORTER_ASSERT(reporter, offset.fY == 0);
     REPORTER_ASSERT(reporter, result.width() == 20);
@@ -1236,17 +1275,61 @@ DEF_TEST(ImageFilterImageSourceSerialization, reporter) {
     REPORTER_ASSERT(reporter, *bm.getAddr32(0, 0) == SkPreMultiplyColor(SK_ColorGREEN));
 }
 
+static void test_large_blur_input(skiatest::Reporter* reporter, SkCanvas* canvas) {
+    SkBitmap largeBmp;
+    int largeW = 5000;
+    int largeH = 5000;
 #if SK_SUPPORT_GPU
+    // If we're GPU-backed make the bitmap too large to be converted into a texture.
+    if (GrContext* ctx = canvas->getGrContext()) {
+        largeW = ctx->caps()->maxTextureSize() + 1;
+    }
+#endif
 
-DEF_GPUTEST(ImageFilterCropRectGPU, reporter, factory) {
-    GrContext* context = factory->get(static_cast<GrContextFactory::GLContextType>(0));
-    if (nullptr == context) {
+    largeBmp.allocN32Pixels(largeW, largeH);
+    largeBmp.eraseColor(0);
+    if (!largeBmp.getPixels()) {
+        ERRORF(reporter, "Failed to allocate large bmp.");
         return;
     }
+
+    SkAutoTUnref<SkImage> largeImage(SkImage::NewFromBitmap(largeBmp));
+    if (!largeImage) {
+        ERRORF(reporter, "Failed to create large image.");
+        return;
+    }
+
+    SkAutoTUnref<SkImageFilter> largeSource(SkImageSource::Create(largeImage));
+    if (!largeSource) {
+        ERRORF(reporter, "Failed to create large SkImageSource.");
+        return;
+    }
+
+    SkAutoTUnref<SkImageFilter> blur(SkBlurImageFilter::Create(10.f, 10.f, largeSource));
+    if (!blur) {
+        ERRORF(reporter, "Failed to create SkBlurImageFilter.");
+        return;
+    }
+
+    SkPaint paint;
+    paint.setImageFilter(blur);
+
+    // This should not crash (http://crbug.com/570479).
+    canvas->drawRect(SkRect::MakeIWH(largeW, largeH), paint);
+}
+
+DEF_TEST(BlurLargeImage, reporter) {
+    SkAutoTUnref<SkSurface> surface(SkSurface::NewRaster(SkImageInfo::MakeN32Premul(100, 100)));
+    test_large_blur_input(reporter, surface->getCanvas());
+}
+
+#if SK_SUPPORT_GPU
+
+DEF_GPUTEST_FOR_NATIVE_CONTEXT(ImageFilterCropRect_Gpu, reporter, context) {
     const SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
 
     SkAutoTUnref<SkGpuDevice> device(SkGpuDevice::Create(context,
-                                                         SkSurface::kNo_Budgeted,
+                                                         SkBudgeted::kNo,
                                                          SkImageInfo::MakeN32Premul(100, 100),
                                                          0,
                                                          &props,
@@ -1256,15 +1339,11 @@ DEF_GPUTEST(ImageFilterCropRectGPU, reporter, factory) {
     test_crop_rects(&proxy, reporter);
 }
 
-DEF_GPUTEST(HugeBlurImageFilterGPU, reporter, factory) {
-    GrContext* context = factory->get(static_cast<GrContextFactory::GLContextType>(0));
-    if (nullptr == context) {
-        return;
-    }
+DEF_GPUTEST_FOR_NATIVE_CONTEXT(HugeBlurImageFilter_Gpu, reporter, context) {
     const SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
 
     SkAutoTUnref<SkGpuDevice> device(SkGpuDevice::Create(context,
-                                                         SkSurface::kNo_Budgeted,
+                                                         SkBudgeted::kNo,
                                                          SkImageInfo::MakeN32Premul(100, 100),
                                                          0,
                                                          &props,
@@ -1274,15 +1353,11 @@ DEF_GPUTEST(HugeBlurImageFilterGPU, reporter, factory) {
     test_huge_blur(&canvas, reporter);
 }
 
-DEF_GPUTEST(XfermodeImageFilterCroppedInputGPU, reporter, factory) {
-    GrContext* context = factory->get(static_cast<GrContextFactory::GLContextType>(0));
-    if (nullptr == context) {
-        return;
-    }
+DEF_GPUTEST_FOR_NATIVE_CONTEXT(XfermodeImageFilterCroppedInput_Gpu, reporter, context) {
     const SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
 
     SkAutoTUnref<SkGpuDevice> device(SkGpuDevice::Create(context,
-                                                         SkSurface::kNo_Budgeted,
+                                                         SkBudgeted::kNo,
                                                          SkImageInfo::MakeN32Premul(1, 1),
                                                          0,
                                                          &props,
@@ -1292,15 +1367,11 @@ DEF_GPUTEST(XfermodeImageFilterCroppedInputGPU, reporter, factory) {
     test_xfermode_cropped_input(&canvas, reporter);
 }
 
-DEF_GPUTEST(TestNegativeBlurSigmaGPU, reporter, factory) {
-    GrContext* context = factory->get(static_cast<GrContextFactory::GLContextType>(0));
-    if (nullptr == context) {
-        return;
-    }
+DEF_GPUTEST_FOR_NATIVE_CONTEXT(TestNegativeBlurSigma_Gpu, reporter, context) {
     const SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
 
     SkAutoTUnref<SkGpuDevice> device(SkGpuDevice::Create(context,
-                                                         SkSurface::kNo_Budgeted,
+                                                         SkBudgeted::kNo,
                                                          SkImageInfo::MakeN32Premul(1, 1),
                                                          0,
                                                          &props,
@@ -1308,5 +1379,12 @@ DEF_GPUTEST(TestNegativeBlurSigmaGPU, reporter, factory) {
     SkImageFilter::DeviceProxy proxy(device);
 
     test_negative_blur_sigma(&proxy, reporter);
+}
+
+DEF_GPUTEST_FOR_ALL_CONTEXTS(BlurLargeImage_Gpu, reporter, context) {
+    SkAutoTUnref<SkSurface> surface(
+        SkSurface::NewRenderTarget(context, SkBudgeted::kYes,
+                                   SkImageInfo::MakeN32Premul(100, 100)));
+    test_large_blur_input(reporter, surface->getCanvas());
 }
 #endif

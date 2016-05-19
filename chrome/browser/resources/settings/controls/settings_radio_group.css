@@ -4,6 +4,8 @@
 
 :host {
   display: block;
-  margin-bottom: 10px;
-  margin-top: 10px;
+}
+
+paper-radio-group {
+  width: 100%;
 }

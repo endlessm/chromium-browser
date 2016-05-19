@@ -38,6 +38,10 @@
       # stompers from directly corrupting the database.
       # TODO(shess): Upstream the ability to use this define.
       'SQLITE_MMAP_READ_ONLY=1',
+      # By default SQLite pre-allocates 100 pages of pcache data, which will not
+      # be released until the handle is closed.  This is contrary to Chromium's
+      # memory-usage goals.
+      'SQLITE_DEFAULT_PCACHE_INITSZ=0',
       # NOTE(shess): Some defines can affect the amalgamation.  Those should be
       # added to google_generate_amalgamation.sh, and the amalgamation
       # re-generated.  Usually this involves disabling features which include
@@ -79,14 +83,11 @@
             'fdatasync=fdatasync',
           ],
         }],
-        # SQLite wants to track malloc sizes.  On OSX it uses malloc_size(), on
-        # Windows _msize(), elsewhere it handles it manually by enlarging the
-        # malloc and injecting a field.  Enable malloc_usable_size() for Linux.
-        # NOTE(shess): Android does _not_ export malloc_usable_size().
+        # Pull in config.h on Linux.  This allows use of preprocessor macros
+        # which are not available to the build config.
         ['OS == "linux"', {
           'defines': [
-            'HAVE_MALLOC_H',
-            'HAVE_MALLOC_USABLE_SIZE',
+            '_HAVE_SQLITE_CONFIG_H',
           ],
         }],
         ['use_system_sqlite', {
@@ -136,6 +137,7 @@
           'product_name': 'chromium_sqlite3',
           'type': '<(component)',
           'sources': [
+            'amalgamation/config.h',
             'amalgamation/sqlite3.h',
             'amalgamation/sqlite3.c',
           ],
@@ -251,6 +253,12 @@
           'sources': [
             'src/ext/icu/icu.c',
           ],
+          'variables': {
+            'clang_warning_flags_unset': [
+              # icu.c uses assert(!"foo") instead of assert(false && "foo")
+              '-Wstring-conversion',
+            ],
+          },
         },
       ],
     }],

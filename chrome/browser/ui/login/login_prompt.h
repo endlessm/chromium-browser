@@ -7,13 +7,16 @@
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/resource_dispatcher_host_login_delegate.h"
+#include "content/public/browser/resource_request_info.h"
 
 class GURL;
+class LoginInterstitialDelegate;
 
 namespace content {
 class RenderViewHostDelegate;
@@ -56,18 +59,25 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
   static LoginHandler* Create(net::AuthChallengeInfo* auth_info,
                               net::URLRequest* request);
 
+  void SetInterstitialDelegate(
+      const base::WeakPtr<LoginInterstitialDelegate> delegate) {
+    interstitial_delegate_ = delegate;
+  }
+
   // ResourceDispatcherHostLoginDelegate implementation:
   void OnRequestCancelled() override;
 
   // Use this to build a view with password manager support. |password_manager|
   // must not be null.
   void BuildViewWithPasswordManager(
+      const base::string16& authority,
       const base::string16& explanation,
       password_manager::PasswordManager* password_manager,
       const autofill::PasswordForm& observed_form);
 
   // Use this to build a view without password manager support.
-  void BuildViewWithoutPasswordManager(const base::string16& explanation);
+  void BuildViewWithoutPasswordManager(const base::string16& authority,
+                                       const base::string16& explanation);
 
   // Returns the WebContents that needs authentication.
   content::WebContents* GetWebContentsForLogin() const;
@@ -103,7 +113,8 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
   // Implement this to initialize the underlying platform specific view. If
   // |login_model_data| is not null, the contained LoginModel and PasswordForm
   // can be used to register the view.
-  virtual void BuildViewImpl(const base::string16& explanation,
+  virtual void BuildViewImpl(const base::string16& authority,
+                             const base::string16& explanation,
                              LoginModelData* login_model_data) = 0;
 
   // Sets |model_data.model| as |login_model_| and registers |this| as an
@@ -179,8 +190,7 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
   password_manager::PasswordManager* password_manager_;
 
   // Cached from the net::URLRequest, in case it goes NULL on us.
-  int render_process_host_id_;
-  int render_frame_id_;
+  content::ResourceRequestInfo::WebContentsGetter web_contents_getter_;
 
   // If not null, points to a model we need to notify of our own destruction
   // so it doesn't try and access this when its too late.
@@ -189,6 +199,8 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
   // Observes other login handlers so this login handler can respond.
   // This is only accessed on the UI thread.
   scoped_ptr<content::NotificationRegistrar> registrar_;
+
+  base::WeakPtr<LoginInterstitialDelegate> interstitial_delegate_;
 };
 
 // Details to provide the content::NotificationObserver.  Used by the automation

@@ -4,6 +4,10 @@
 
 #include "components/rappor/log_uploader.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
@@ -126,8 +130,8 @@ void LogUploader::StartScheduledUpload() {
 // static
 base::TimeDelta LogUploader::BackOffUploadInterval(base::TimeDelta interval) {
   DCHECK_GT(kBackoffMultiplier, 1.0);
-  interval = base::TimeDelta::FromMicroseconds(static_cast<int64>(
-      kBackoffMultiplier * interval.InMicroseconds()));
+  interval = base::TimeDelta::FromMicroseconds(
+      static_cast<int64_t>(kBackoffMultiplier * interval.InMicroseconds()));
 
   base::TimeDelta max_interval =
       base::TimeDelta::FromSeconds(kMaxBackoffIntervalSeconds);
@@ -139,7 +143,7 @@ void LogUploader::OnURLFetchComplete(const net::URLFetcher* source) {
   // Note however that |source| is aliased to the fetcher, so we should be
   // careful not to delete it too early.
   DCHECK_EQ(current_fetch_.get(), source);
-  scoped_ptr<net::URLFetcher> fetch(current_fetch_.Pass());
+  scoped_ptr<net::URLFetcher> fetch(std::move(current_fetch_));
 
   const net::URLRequestStatus& request_status = source->GetStatus();
 

@@ -41,11 +41,10 @@ typedef unrestricted float GLfloat;
 typedef unrestricted float GLclampf;
 
 [
-    // FIXME: [DoNotCheckConstants] and [TypeChecking=Interface] should be applied
-    // to members and not need to be put on implementing interface
+    // FIXME: [DoNotCheckConstants] should be applied to members and not need to
+    // be put on implementing interface
     // DoNotCheckConstants, // need to put on implementing interface
     NoInterfaceObject, // Always used on target of 'implements'
-    // TypeChecking=Interface, // need to put on implementing interface
     WillBeGarbageCollected,
 ] interface WebGLRenderingContextBase {
 
@@ -502,9 +501,9 @@ typedef unrestricted float GLclampf;
     void compileShader(WebGLShader? shader);
 
     void compressedTexImage2D(GLenum target, GLint level, GLenum internalformat,
-                              GLsizei width, GLsizei height, GLint border, ArrayBufferView? data);
+                              GLsizei width, GLsizei height, GLint border, ArrayBufferView data);
     void compressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
-                                 GLsizei width, GLsizei height, GLenum format, ArrayBufferView? data);
+                                 GLsizei width, GLsizei height, GLenum format, ArrayBufferView data);
 
     void copyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border);
     void copyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
@@ -617,21 +616,24 @@ typedef unrestricted float GLclampf;
     // FIXME: should be union type
     // https://www.khronos.org/bugzilla/show_bug.cgi?id=1172
     void texImage2D(
-        GLenum target, GLint level, GLenum internalformat,
+        GLenum target, GLint level, GLint internalformat,
         GLsizei width, GLsizei height, GLint border,
         GLenum format, GLenum type, ArrayBufferView? pixels);
     void texImage2D(
-        GLenum target, GLint level, GLenum internalformat,
+        GLenum target, GLint level, GLint internalformat,
         GLenum format, GLenum type, ImageData? pixels);
     [RaisesException] void texImage2D(
-        GLenum target, GLint level, GLenum internalformat,
+        GLenum target, GLint level, GLint internalformat,
         GLenum format, GLenum type, HTMLImageElement image);
     [RaisesException] void texImage2D(
-        GLenum target, GLint level, GLenum internalformat,
+        GLenum target, GLint level, GLint internalformat,
         GLenum format, GLenum type, HTMLCanvasElement canvas);
     [RaisesException] void texImage2D(
-        GLenum target, GLint level, GLenum internalformat,
+        GLenum target, GLint level, GLint internalformat,
         GLenum format, GLenum type, HTMLVideoElement video);
+    [RaisesException] void texImage2D(
+        GLenum target, GLint level, GLint internalformat,
+        GLenum format, GLenum type, ImageBitmap bitmap);
 
     void texSubImage2D(
         GLenum target, GLint level, GLint xoffset, GLint yoffset,
@@ -649,6 +651,9 @@ typedef unrestricted float GLclampf;
     [RaisesException] void texSubImage2D(
         GLenum target, GLint level, GLint xoffset, GLint yoffset,
         GLenum format, GLenum type, HTMLVideoElement video);
+    [RaisesException] void texSubImage2D(
+        GLenum target, GLint level, GLint xoffset, GLint yoffset,
+        GLenum format, GLenum type, ImageBitmap bitmap);
 
     void uniform1f(WebGLUniformLocation? location, GLfloat x);
     void uniform1fv(WebGLUniformLocation? location, [FlexibleArrayBufferView] Float32Array v);

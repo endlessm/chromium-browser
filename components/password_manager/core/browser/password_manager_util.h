@@ -5,8 +5,10 @@
 #ifndef COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_MANAGER_UTIL_H_
 #define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_MANAGER_UTIL_H_
 
-#include "base/basictypes.h"
+#include <vector>
+
 #include "base/callback.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "ui/gfx/native_widget_types.h"
@@ -41,6 +43,17 @@ void FindDuplicates(
 // Transforms federated credentials into non zero-click ones.
 void TrimUsernameOnlyCredentials(
     ScopedVector<autofill::PasswordForm>* android_credentials);
+
+// TODO(crbug.com/555132): Remove this when the migration from ScopedVector is
+// finished for PasswordForm.
+std::vector<scoped_ptr<autofill::PasswordForm>> ConvertScopedVector(
+    ScopedVector<autofill::PasswordForm> old_vector);
+
+// A convenience function for testing that |client| has a non-null LogManager
+// and that that LogManager returns true for IsLoggingActive. This function can
+// be removed once PasswordManagerClient::GetLogManager is implemented on iOS
+// and required to always return non-null.
+bool IsLoggingActive(const password_manager::PasswordManagerClient* client);
 
 }  // namespace password_manager_util
 

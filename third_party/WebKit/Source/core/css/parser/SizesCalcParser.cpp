@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/parser/SizesCalcParser.h"
 
 #include "core/css/MediaValues.h"
@@ -106,7 +105,7 @@ bool SizesCalcParser::calcToReversePolishNotation(CSSParserTokenRange range)
                 return false;
             break;
         case FunctionToken:
-            if (!token.valueEqualsIgnoringCase("calc"))
+            if (!token.valueEqualsIgnoringASCIICase("calc"))
                 return false;
             // "calc(" is the same as "("
         case LeftParenthesisToken:

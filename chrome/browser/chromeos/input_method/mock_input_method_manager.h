@@ -5,6 +5,9 @@
 #ifndef CHROME_BROWSER_CHROMEOS_INPUT_METHOD_MOCK_INPUT_METHOD_MANAGER_H_
 #define CHROME_BROWSER_CHROMEOS_INPUT_METHOD_MOCK_INPUT_METHOD_MANAGER_H_
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "ui/base/ime/chromeos/component_extension_ime_manager.h"
 #include "ui/base/ime/chromeos/fake_ime_keyboard.h"
@@ -76,9 +79,13 @@ class MockInputMethodManager : public InputMethodManager {
   void AddObserver(InputMethodManager::Observer* observer) override;
   void AddCandidateWindowObserver(
       InputMethodManager::CandidateWindowObserver* observer) override;
+  void AddImeMenuObserver(
+      InputMethodManager::ImeMenuObserver* observer) override;
   void RemoveObserver(InputMethodManager::Observer* observer) override;
   void RemoveCandidateWindowObserver(
       InputMethodManager::CandidateWindowObserver* observer) override;
+  void RemoveImeMenuObserver(
+      InputMethodManager::ImeMenuObserver* observer) override;
   scoped_ptr<InputMethodDescriptors> GetSupportedInputMethods() const override;
   void ActivateInputMethodMenuItem(const std::string& key) override;
   bool IsISOLevel5ShiftUsedByCurrentInputMethod() const override;
@@ -92,6 +99,7 @@ class MockInputMethodManager : public InputMethodManager {
       Profile* profile) override;
   scoped_refptr<InputMethodManager::State> GetActiveIMEState() override;
   void SetState(scoped_refptr<InputMethodManager::State> state) override;
+  void ImeMenuActivationChanged(bool is_active) override;
 
   // Sets an input method ID which will be returned by GetCurrentInputMethod().
   void SetCurrentInputMethodId(const std::string& input_method_id);

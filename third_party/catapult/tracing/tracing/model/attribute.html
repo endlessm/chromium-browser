@@ -21,8 +21,8 @@ tr.exportTo('tr.model', function() {
   function Attribute(units) {
     this.units = units;
 
-    // AttributeInfo(s) about the attribute (e.g. information about how it was
-    // calculated).
+    // A list of information about the attribute (e.g. about how it was
+    // calculated). The interpretation of the items is domain-specific.
     this.infos = [];
   }
 
@@ -138,7 +138,7 @@ tr.exportTo('tr.model', function() {
     existingParentAttribute.useMergedAttribute(mergedAttribute, opt_model);
 
     return existingParentAttribute;
-  }
+  };
 
   Attribute.fromTraceValue = function(dict, opt_model) {
     throw new Error('Not implemented');
@@ -163,6 +163,16 @@ tr.exportTo('tr.model', function() {
         });
       }
     }
+  };
+
+  Attribute.prototype.cloneWithoutInfos = function() {
+    return new Attribute(this.units);
+  };
+
+  Attribute.prototype.cloneWithInfos = function() {
+    var attr = this.cloneWithoutInfos();
+    attr.infos = this.infos.slice();
+    return attr;
   };
 
   var options = new tr.b.ExtensionRegistryOptions(tr.b.BASIC_REGISTRY_MODE);
@@ -197,9 +207,13 @@ tr.exportTo('tr.model', function() {
       sum += childAttribute.value;
     });
     return new ScalarAttribute(units, sum);
-  }
+  };
 
   ScalarAttribute.prototype.__proto__ = Attribute.prototype;
+
+  ScalarAttribute.prototype.cloneWithoutInfos = function() {
+    return new ScalarAttribute(this.units, this.value);
+  };
 
   Attribute.register(ScalarAttribute, {type: 'scalar'});
 
@@ -215,13 +229,19 @@ tr.exportTo('tr.model', function() {
     return new StringAttribute(dict.units, dict.value);
   };
 
+  StringAttribute.prototype.__proto__ = Attribute.prototype;
+
+  StringAttribute.prototype.cloneWithoutInfos = function() {
+    return new StringAttribute(this.units, this.value);
+  };
+
   Attribute.register(StringAttribute, {type: 'string'});
 
   /**
    * @constructor
    */
   function UnknownAttribute(units, opt_value) {
-    Attribute.call(this, units, opt_value);
+    Attribute.call(this, units);
     this.value = opt_value;
   }
 
@@ -231,54 +251,15 @@ tr.exportTo('tr.model', function() {
 
   UnknownAttribute.prototype.__proto__ = Attribute.prototype;
 
-  /**
-   * @constructor
-   */
-  function AttributeInfo(type, message) {
-    this.type = type;
-    this.message = message;
-  }
-
-  /**
-   * The type of AttributeInfo.
-   * @enum
-   */
-  var AttributeInfoType = {
-    // Generic information (e.g. how the attribute was calculated).
-    INFORMATION: 0,
-
-    // Warning (e.g. inconsistent attribute values provided).
-    WARNING: 1,
-
-    // Attribute source (e.g. attribute refers to an older dump's attribute).
-    LINK: 2,
-
-    // Corresponding memory allocator dump owns another MAD.
-    // TODO(petrcermak): Figure out if there's a better place to store this.
-    MEMORY_OWNER: 3,
-
-    // Corresponding memory allocator dump is owned by another MAD.
-    // TODO(petrcermak): Figure out if there's a better place to store this.
-    MEMORY_OWNED: 4,
-
-    // Overall value (e.g. peak value since start process).
-    OVERALL_VALUE: 5,
-
-    // Recent value (e.g. peak value since the previous memory dump).
-    RECENT_VALUE: 6,
-
-    // The allocator has an associated memory heap dump.
-    // TODO(petrcermak): Move this into the UI.
-    HAS_HEAP_DUMP: 7
+  UnknownAttribute.prototype.cloneWithoutInfos = function() {
+    return new UnknownAttribute(this.units, this.value);
   };
 
   return {
     Attribute: Attribute,
     ScalarAttribute: ScalarAttribute,
     StringAttribute: StringAttribute,
-    UnknownAttribute: UnknownAttribute,
-    AttributeInfo: AttributeInfo,
-    AttributeInfoType: AttributeInfoType
+    UnknownAttribute: UnknownAttribute
   };
 });
 </script>

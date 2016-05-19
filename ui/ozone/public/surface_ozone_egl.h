@@ -5,7 +5,6 @@
 #ifndef UI_OZONE_PUBLIC_SURFACE_OZONE_EGL_H_
 #define UI_OZONE_PUBLIC_SURFACE_OZONE_EGL_H_
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/gfx/overlay_transform.h"
@@ -21,6 +20,21 @@ namespace ui {
 class NativePixmap;
 
 typedef base::Callback<void(gfx::SwapResult)> SwapCompletionCallback;
+
+// Holds callbacks to functions for configuring EGL on platform.
+struct OZONE_BASE_EXPORT EglConfigCallbacks {
+  EglConfigCallbacks();
+  ~EglConfigCallbacks();
+  base::Callback<bool(const int32_t* attribs,
+                      void** /* EGLConfig* */ configs,
+                      int32_t config_size,
+                      int32_t* num_configs)>
+      choose_config;
+  base::Callback<
+      bool(void* /* EGLConfig */ config, int32_t attribute, int32_t* value)>
+      get_config_attribute;
+  base::Callback<const char*()> get_last_error_string;
+};
 
 // The platform-specific part of an EGL surface.
 //
@@ -57,6 +71,11 @@ class OZONE_BASE_EXPORT SurfaceOzoneEGL {
 
   // Returns true if the surface is created on a UDL device.
   virtual bool IsUniversalDisplayLinkDevice();
+
+  // Returns the EGL configuration to use for this surface. The default EGL
+  // configuration will be used if this returns nullptr.
+  virtual void* /* EGLConfig */ GetEGLSurfaceConfig(
+      const EglConfigCallbacks& egl) = 0;
 };
 
 }  // namespace ui

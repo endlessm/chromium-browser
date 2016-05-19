@@ -5,13 +5,14 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/prefs/pref_member.h"
 #include "chrome/browser/command_observer.h"
 #include "chrome/browser/ui/toolbar/app_menu_badge_controller.h"
 #include "chrome/browser/ui/toolbar/back_forward_menu_model.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "components/prefs/pref_member.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/controls/button/menu_button.h"
@@ -39,7 +40,6 @@ class ToolbarView : public views::AccessiblePaneView,
                     public content::NotificationObserver,
                     public CommandObserver,
                     public views::ButtonListener,
-                    public views::WidgetObserver,
                     public views::ViewTargeterDelegate,
                     public AppMenuBadgeController::Delegate {
  public:
@@ -80,9 +80,10 @@ class ToolbarView : public views::AccessiblePaneView,
   // Returns the view to which the Translate bubble should be anchored.
   views::View* GetTranslateBubbleAnchor();
 
-  // Executes |command| registered by |extension|.
-  void ExecuteExtensionCommand(const extensions::Extension* extension,
-                               const extensions::Command& command);
+  // Adds |anchor_view| as an observer of |bubble_widget| to track its
+  // visibility.
+  void OnBubbleCreatedForAnchor(views::View* anchor_view,
+                                views::Widget* bubble_widget);
 
   // Returns the maximum width the browser actions container can have.
   int GetMaxBrowserActionsWidth() const;
@@ -103,8 +104,9 @@ class ToolbarView : public views::AccessiblePaneView,
   void GetAccessibleState(ui::AXViewState* state) override;
 
   // views::MenuButtonListener:
-  void OnMenuButtonClicked(views::View* source,
-                           const gfx::Point& point) override;
+  void OnMenuButtonClicked(views::MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override;
 
   // LocationBarView::Delegate:
   content::WebContents* GetWebContents() override;
@@ -120,16 +122,14 @@ class ToolbarView : public views::AccessiblePaneView,
   void ShowWebsiteSettings(
       content::WebContents* web_contents,
       const GURL& url,
-      const SecurityStateModel::SecurityInfo& security_info) override;
+      const security_state::SecurityStateModel::SecurityInfo& security_info)
+      override;
 
   // CommandObserver:
   void EnabledStateChangedForCommand(int id, bool enabled) override;
 
   // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
-  // views::WidgetObserver:
-  void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
 
   // content::NotificationObserver:
   void Observe(int type,
@@ -144,24 +144,9 @@ class ToolbarView : public views::AccessiblePaneView,
   gfx::Size GetPreferredSize() const override;
   gfx::Size GetMinimumSize() const override;
   void Layout() override;
-  void OnPaint(gfx::Canvas* canvas) override;
   void OnThemeChanged() override;
   const char* GetClassName() const override;
   bool AcceleratorPressed(const ui::Accelerator& acc) override;
-
-  // Whether the toolbar view needs its background painted by the
-  // BrowserNonClientFrameView.
-  bool ShouldPaintBackground() const;
-
-  enum {
-    // The apparent horizontal space between most items, and the vertical
-    // padding above and below them.
-    kStandardSpacing = 3,
-
-    // The top of the toolbar has an edge we have to skip over in addition to
-    // the standard spacing.
-    kVertSpacing = 5,
-  };
 
  protected:
   // AccessiblePaneView:
@@ -185,8 +170,11 @@ class ToolbarView : public views::AccessiblePaneView,
                            AppMenuIconPainter::Severity severity,
                            bool animate) override;
 
-  // Returns the number of pixels above the location bar in non-normal display.
-  int PopupTopSpacing() const;
+  // Used to avoid duplicating the near-identical logic of
+  // ToolbarView::GetPreferredSize() and ToolbarView::GetMinimumSize(). These
+  // two functions call through to GetSizeInternal(), passing themselves as the
+  // function pointer |View::*get_size|.
+  gfx::Size GetSizeInternal(gfx::Size (View::*get_size)() const) const;
 
   // Given toolbar contents of size |size|, returns the total toolbar size.
   gfx::Size SizeForContentSize(gfx::Size size) const;
@@ -209,7 +197,8 @@ class ToolbarView : public views::AccessiblePaneView,
 
   int content_shadow_height() const;
 
-  // Controls
+  // Controls. Most of these can be null, e.g. in popup windows. Only
+  // |location_bar_| is guaranteed to exist.
   BackButton* back_;
   ToolbarButton* forward_;
   ReloadButton* reload_;
@@ -217,6 +206,7 @@ class ToolbarView : public views::AccessiblePaneView,
   LocationBarView* location_bar_;
   BrowserActionsContainer* browser_actions_;
   AppMenuButton* app_menu_button_;
+
   Browser* browser_;
 
   AppMenuBadgeController badge_controller_;
@@ -225,7 +215,7 @@ class ToolbarView : public views::AccessiblePaneView,
   BooleanPrefMember show_home_button_;
 
   // The display mode used when laying out the toolbar.
-  DisplayMode display_mode_;
+  const DisplayMode display_mode_;
 
   content::NotificationRegistrar registrar_;
 

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,7 +22,6 @@
 #include "components/search_engines/template_url_service.h"
 #include "grit/components_strings.h"
 #include "net/base/escape.h"
-#include "net/base/net_util.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {

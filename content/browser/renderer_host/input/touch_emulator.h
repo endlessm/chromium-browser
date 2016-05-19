@@ -5,6 +5,7 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_INPUT_TOUCH_EMULATOR_H_
 #define CONTENT_BROWSER_RENDERER_HOST_INPUT_TOUCH_EMULATOR_H_
 
+#include "base/macros.h"
 #include "content/browser/renderer_host/input/touch_emulator_client.h"
 #include "content/common/cursors/webcursor.h"
 #include "content/common/input/input_event_ack_state.h"
@@ -29,7 +30,7 @@ class CONTENT_EXPORT TouchEmulator : public ui::GestureProviderClient {
 
   // Note that TouchEmulator should always listen to touch events and their acks
   // (even in disabled state) to track native stream presence.
-  bool enabled() const { return gesture_provider_; }
+  bool enabled() const { return !!gesture_provider_; }
 
   // Returns |true| if the event was consumed. Consumed event should not
   // propagate any further.

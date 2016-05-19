@@ -4,9 +4,11 @@
 
 #include "net/url_request/url_request_ftp_job.h"
 
+#include <utility>
+#include <vector>
+
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/run_loop.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_states.h"
@@ -45,7 +47,7 @@ class MockProxyResolverFactory : public ProxyResolverFactory {
     scoped_ptr<MockAsyncProxyResolver> owned_resolver(
         new MockAsyncProxyResolver());
     resolver_ = owned_resolver.get();
-    *resolver = owned_resolver.Pass();
+    *resolver = std::move(owned_resolver);
     return OK;
   }
 
@@ -66,13 +68,13 @@ class FtpTestURLRequestContext : public TestURLRequestContext {
       : TestURLRequestContext(true),
         ftp_protocol_handler_(new FtpProtocolHandler(ftp_transaction_factory)) {
     set_client_socket_factory(socket_factory);
-    context_storage_.set_proxy_service(proxy_service.Pass());
+    context_storage_.set_proxy_service(std::move(proxy_service));
     set_network_delegate(network_delegate);
     scoped_ptr<URLRequestJobFactoryImpl> job_factory =
         make_scoped_ptr(new URLRequestJobFactoryImpl);
     job_factory->SetProtocolHandler("ftp",
                                     make_scoped_ptr(ftp_protocol_handler_));
-    context_storage_.set_job_factory(job_factory.Pass());
+    context_storage_.set_job_factory(std::move(job_factory));
     Init();
   }
 
@@ -81,7 +83,7 @@ class FtpTestURLRequestContext : public TestURLRequestContext {
   }
 
   void set_proxy_service(scoped_ptr<ProxyService> proxy_service) {
-    context_storage_.set_proxy_service(proxy_service.Pass());
+    context_storage_.set_proxy_service(std::move(proxy_service));
   }
 
  private:
@@ -128,6 +130,7 @@ class TestURLRequestFtpJob : public URLRequestFtpJob {
                        FtpTransactionFactory* ftp_factory,
                        FtpAuthCache* ftp_auth_cache)
       : URLRequestFtpJob(request, NULL, ftp_factory, ftp_auth_cache) {}
+  ~TestURLRequestFtpJob() override {}
 
   using URLRequestFtpJob::SetPriority;
   using URLRequestFtpJob::Start;
@@ -135,12 +138,13 @@ class TestURLRequestFtpJob : public URLRequestFtpJob {
   using URLRequestFtpJob::priority;
 
  protected:
-  ~TestURLRequestFtpJob() override {}
 };
 
 class MockFtpTransactionFactory : public FtpTransactionFactory {
  public:
-  FtpTransaction* CreateTransaction() override { return NULL; }
+  scoped_ptr<FtpTransaction> CreateTransaction() override {
+    return scoped_ptr<FtpTransaction>();
+  }
 
   void Suspend(bool suspend) override {}
 };
@@ -172,8 +176,8 @@ class URLRequestFtpJobPriorityTest : public testing::Test {
 // Make sure that SetPriority actually sets the URLRequestFtpJob's
 // priority, both before and after start.
 TEST_F(URLRequestFtpJobPriorityTest, SetPriorityBasic) {
-  scoped_refptr<TestURLRequestFtpJob> job(new TestURLRequestFtpJob(
-      req_.get(), &ftp_factory_, &ftp_auth_cache_));
+  scoped_ptr<TestURLRequestFtpJob> job(
+      new TestURLRequestFtpJob(req_.get(), &ftp_factory_, &ftp_auth_cache_));
   EXPECT_EQ(DEFAULT_PRIORITY, job->priority());
 
   job->SetPriority(LOWEST);
@@ -192,8 +196,8 @@ TEST_F(URLRequestFtpJobPriorityTest, SetPriorityBasic) {
 // Make sure that URLRequestFtpJob passes on its priority to its
 // transaction on start.
 TEST_F(URLRequestFtpJobPriorityTest, SetTransactionPriorityOnStart) {
-  scoped_refptr<TestURLRequestFtpJob> job(new TestURLRequestFtpJob(
-      req_.get(), &ftp_factory_, &ftp_auth_cache_));
+  scoped_ptr<TestURLRequestFtpJob> job(
+      new TestURLRequestFtpJob(req_.get(), &ftp_factory_, &ftp_auth_cache_));
   job->SetPriority(LOW);
 
   EXPECT_FALSE(network_layer_.last_transaction());
@@ -207,8 +211,8 @@ TEST_F(URLRequestFtpJobPriorityTest, SetTransactionPriorityOnStart) {
 // Make sure that URLRequestFtpJob passes on its priority updates to
 // its transaction.
 TEST_F(URLRequestFtpJobPriorityTest, SetTransactionPriority) {
-  scoped_refptr<TestURLRequestFtpJob> job(new TestURLRequestFtpJob(
-      req_.get(), &ftp_factory_, &ftp_auth_cache_));
+  scoped_ptr<TestURLRequestFtpJob> job(
+      new TestURLRequestFtpJob(req_.get(), &ftp_factory_, &ftp_auth_cache_));
   job->SetPriority(LOW);
   job->Start();
   ASSERT_TRUE(network_layer_.last_transaction());
@@ -221,8 +225,8 @@ TEST_F(URLRequestFtpJobPriorityTest, SetTransactionPriority) {
 // Make sure that URLRequestFtpJob passes on its priority updates to
 // newly-created transactions after the first one.
 TEST_F(URLRequestFtpJobPriorityTest, SetSubsequentTransactionPriority) {
-  scoped_refptr<TestURLRequestFtpJob> job(new TestURLRequestFtpJob(
-      req_.get(), &ftp_factory_, &ftp_auth_cache_));
+  scoped_ptr<TestURLRequestFtpJob> job(
+      new TestURLRequestFtpJob(req_.get(), &ftp_factory_, &ftp_auth_cache_));
   job->Start();
 
   job->SetPriority(LOW);
@@ -256,19 +260,19 @@ class URLRequestFtpJobTest : public testing::Test {
 
   void AddSocket(MockRead* reads, size_t reads_size,
                  MockWrite* writes, size_t writes_size) {
-    SequencedSocketData* socket_data =
-        new SequencedSocketData(reads, reads_size, writes, writes_size);
+    scoped_ptr<SequencedSocketData> socket_data(make_scoped_ptr(
+        new SequencedSocketData(reads, reads_size, writes, writes_size)));
     socket_data->set_connect_data(MockConnect(SYNCHRONOUS, OK));
-    socket_factory_.AddSocketDataProvider(socket_data);
+    socket_factory_.AddSocketDataProvider(socket_data.get());
 
-    socket_data_.push_back(socket_data);
+    socket_data_.push_back(std::move(socket_data));
   }
 
   FtpTestURLRequestContext* request_context() { return &request_context_; }
   TestNetworkDelegate* network_delegate() { return &network_delegate_; }
 
  private:
-  ScopedVector<SequencedSocketData> socket_data_;
+  std::vector<scoped_ptr<SequencedSocketData>> socket_data_;
   MockClientSocketFactory socket_factory_;
   TestNetworkDelegate network_delegate_;
   MockFtpTransactionFactory ftp_transaction_factory_;
@@ -318,7 +322,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestOrphanJob) {
   request_context()->set_proxy_service(make_scoped_ptr(new ProxyService(
       make_scoped_ptr(new ProxyConfigServiceFixed(
           ProxyConfig::CreateFromCustomPacURL(GURL("http://foo")))),
-      owned_resolver_factory.Pass(), nullptr)));
+      std::move(owned_resolver_factory), nullptr)));
 
   TestDelegate request_delegate;
   scoped_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -349,7 +353,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestCancelRequest) {
   request_context()->set_proxy_service(make_scoped_ptr(new ProxyService(
       make_scoped_ptr(new ProxyConfigServiceFixed(
           ProxyConfig::CreateFromCustomPacURL(GURL("http://foo")))),
-      owned_resolver_factory.Pass(), nullptr)));
+      std::move(owned_resolver_factory), nullptr)));
 
   TestDelegate request_delegate;
   scoped_ptr<URLRequest> url_request(request_context()->CreateRequest(

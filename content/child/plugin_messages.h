@@ -4,6 +4,8 @@
 //
 // Multiply-included message file, hence no include guard.
 
+#include <stdint.h>
+
 #include "build/build_config.h"
 #include "content/child/plugin_param_traits.h"
 #include "content/common/content_export.h"
@@ -32,39 +34,6 @@ IPC_STRUCT_BEGIN(PluginMsg_Init_Params)
   IPC_STRUCT_MEMBER(std::vector<std::string>, arg_values)
   IPC_STRUCT_MEMBER(bool, load_manually)
   IPC_STRUCT_MEMBER(int, host_render_view_routing_id)
-IPC_STRUCT_END()
-
-IPC_STRUCT_BEGIN(PluginHostMsg_URLRequest_Params)
-  IPC_STRUCT_MEMBER(std::string, url)
-  IPC_STRUCT_MEMBER(std::string, method)
-  IPC_STRUCT_MEMBER(std::string, target)
-  IPC_STRUCT_MEMBER(std::vector<char>, buffer)
-  IPC_STRUCT_MEMBER(int, notify_id)
-  IPC_STRUCT_MEMBER(bool, popups_allowed)
-  IPC_STRUCT_MEMBER(bool, notify_redirects)
-IPC_STRUCT_END()
-
-IPC_STRUCT_BEGIN(PluginMsg_DidReceiveResponseParams)
-  IPC_STRUCT_MEMBER(unsigned long, id)
-  IPC_STRUCT_MEMBER(std::string, mime_type)
-  IPC_STRUCT_MEMBER(std::string, headers)
-  IPC_STRUCT_MEMBER(uint32, expected_length)
-  IPC_STRUCT_MEMBER(uint32, last_modified)
-  IPC_STRUCT_MEMBER(bool, request_is_seekable)
-IPC_STRUCT_END()
-
-IPC_STRUCT_BEGIN(PluginMsg_FetchURL_Params)
-  IPC_STRUCT_MEMBER(unsigned long, resource_id)
-  IPC_STRUCT_MEMBER(int, notify_id)
-  IPC_STRUCT_MEMBER(GURL, url)
-  IPC_STRUCT_MEMBER(GURL, first_party_for_cookies)
-  IPC_STRUCT_MEMBER(std::string, method)
-  IPC_STRUCT_MEMBER(std::vector<char>, post_data)
-  IPC_STRUCT_MEMBER(GURL, referrer)
-  IPC_STRUCT_MEMBER(blink::WebReferrerPolicy, referrer_policy)
-  IPC_STRUCT_MEMBER(bool, notify_redirect)
-  IPC_STRUCT_MEMBER(bool, is_plugin_src_load)
-  IPC_STRUCT_MEMBER(int, render_frame_id)
 IPC_STRUCT_END()
 
 IPC_STRUCT_BEGIN(PluginMsg_UpdateGeometry_Param)
@@ -116,11 +85,6 @@ IPC_SYNC_MESSAGE_ROUTED0_2(PluginMsg_GetFormValue,
                            base::string16 /* value */,
                            bool /* success */)
 
-IPC_MESSAGE_ROUTED3(PluginMsg_DidFinishLoadWithReason,
-                    GURL /* url */,
-                    int /* reason */,
-                    int /* notify_id */)
-
 // Updates the plugin location.
 IPC_MESSAGE_ROUTED1(PluginMsg_UpdateGeometry,
                     PluginMsg_UpdateGeometry_Param)
@@ -140,61 +104,10 @@ IPC_SYNC_MESSAGE_ROUTED1_2(PluginMsg_HandleInputEvent,
 IPC_MESSAGE_ROUTED1(PluginMsg_SetContentAreaFocus,
                     bool /* has_focus */)
 
-IPC_SYNC_MESSAGE_ROUTED3_0(PluginMsg_WillSendRequest,
-                           unsigned long /* id */,
-                           GURL /* url */,
-                           int  /* http_status_code */)
-
-IPC_MESSAGE_ROUTED1(PluginMsg_DidReceiveResponse,
-                    PluginMsg_DidReceiveResponseParams)
-
-IPC_MESSAGE_ROUTED3(PluginMsg_DidReceiveData,
-                    unsigned long /* id */,
-                    std::vector<char> /* buffer */,
-                    int /* data_offset */)
-
-IPC_MESSAGE_ROUTED1(PluginMsg_DidFinishLoading,
-                    unsigned long /* id */)
-
-IPC_MESSAGE_ROUTED1(PluginMsg_DidFail,
-                    unsigned long /* id */)
-
-IPC_MESSAGE_ROUTED4(PluginMsg_SendJavaScriptStream,
-                    GURL /* url */,
-                    std::string /* result */,
-                    bool /* success */,
-                    int /* notify_id */)
-
-IPC_MESSAGE_ROUTED2(PluginMsg_DidReceiveManualResponse,
-                    GURL /* url */,
-                    PluginMsg_DidReceiveResponseParams)
-
-IPC_MESSAGE_ROUTED1(PluginMsg_DidReceiveManualData,
-                    std::vector<char> /* buffer */)
-
-IPC_MESSAGE_ROUTED0(PluginMsg_DidFinishManualLoading)
-
-IPC_MESSAGE_ROUTED0(PluginMsg_DidManualLoadFail)
-
-IPC_MESSAGE_ROUTED3(PluginMsg_HandleURLRequestReply,
-                    unsigned long /* resource_id */,
-                    GURL /* url */,
-                    int /* notify_id */)
-
-IPC_MESSAGE_ROUTED2(PluginMsg_HTTPRangeRequestReply,
-                    unsigned long /* resource_id */,
-                    int /* range_request_id */)
-
 IPC_MESSAGE_CONTROL1(PluginMsg_SignalModalDialogEvent,
                      int /* render_view_id */)
 
 IPC_MESSAGE_CONTROL1(PluginMsg_ResetModalDialogEvent,
-                     int /* render_view_id */)
-
-IPC_MESSAGE_ROUTED1(PluginMsg_FetchURL,
-                    PluginMsg_FetchURL_Params)
-
-IPC_MESSAGE_CONTROL1(PluginHostMsg_DidAbortLoading,
                      int /* render_view_id */)
 
 #if defined(OS_WIN)
@@ -237,12 +150,6 @@ IPC_MESSAGE_ROUTED1(PluginMsg_ImeCompositionCompleted,
 IPC_SYNC_MESSAGE_ROUTED1_0(PluginHostMsg_SetWindow,
                            gfx::PluginWindowHandle /* window */)
 
-IPC_MESSAGE_ROUTED1(PluginHostMsg_URLRequest,
-                    PluginHostMsg_URLRequest_Params)
-
-IPC_MESSAGE_ROUTED1(PluginHostMsg_CancelResource,
-                    int /* id */)
-
 IPC_MESSAGE_ROUTED1(PluginHostMsg_InvalidateRect,
                     gfx::Rect /* rect */)
 
@@ -271,30 +178,13 @@ IPC_SYNC_MESSAGE_ROUTED2_1(PluginHostMsg_GetCookies,
 
 IPC_MESSAGE_ROUTED0(PluginHostMsg_CancelDocumentLoad)
 
-IPC_MESSAGE_ROUTED3(PluginHostMsg_InitiateHTTPRangeRequest,
-                    std::string /* url */,
-                    std::string /* range_info */,
-                    int         /* range_request_id */)
-
 IPC_MESSAGE_ROUTED0(PluginHostMsg_DidStartLoading)
 IPC_MESSAGE_ROUTED0(PluginHostMsg_DidStopLoading)
-
-IPC_MESSAGE_ROUTED2(PluginHostMsg_DeferResourceLoading,
-                    unsigned long /* resource_id */,
-                    bool /* defer */)
 
 IPC_SYNC_MESSAGE_CONTROL1_0(PluginHostMsg_SetException,
                             std::string /* message */)
 
 IPC_MESSAGE_CONTROL0(PluginHostMsg_PluginShuttingDown)
-
-IPC_MESSAGE_ROUTED2(PluginHostMsg_URLRedirectResponse,
-                    bool /* allow */,
-                    int  /* resource_id */)
-
-IPC_SYNC_MESSAGE_ROUTED1_1(PluginHostMsg_CheckIfRunInsecureContent,
-                           GURL /* url */,
-                           bool /* result */)
 
 #if defined(OS_WIN)
 // The modal_loop_pump_messages_event parameter is an event handle which is
@@ -336,9 +226,9 @@ IPC_MESSAGE_ROUTED0(PluginHostMsg_AcceleratedPluginEnabledRendering)
 // IOSurface allocated by this plugin must be implicitly released by
 // the receipt of this message.
 IPC_MESSAGE_ROUTED3(PluginHostMsg_AcceleratedPluginAllocatedIOSurface,
-                    int32 /* width */,
-                    int32 /* height */,
-                    uint32 /* surface_id */)
+                    int32_t /* width */,
+                    int32_t /* height */,
+                    uint32_t /* surface_id */)
 
 // Notifies the renderer process that the plugin produced a new frame
 // of content into its IOSurface, and therefore that the compositor

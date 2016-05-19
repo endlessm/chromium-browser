@@ -8,13 +8,62 @@ cr.define('downloads', function() {
 
     properties: {
       hasDownloads_: {
+        observer: 'hasDownloadsChanged_',
         type: Boolean,
-        value: false,
       },
 
       items_: {
         type: Array,
+        value: function() { return []; },
       },
+    },
+
+    hostAttributes: {
+      loading: true,
+    },
+
+    listeners: {
+      'downloads-list.scroll': 'onListScroll_',
+    },
+
+    observers: [
+      'itemsChanged_(items_.*)',
+    ],
+
+    /** @private */
+    clearAll_: function() {
+      this.set('items_', []);
+    },
+
+    /** @private */
+    hasDownloadsChanged_: function() {
+      if (loadTimeData.getBoolean('allowDeletingHistory'))
+        this.$.toolbar.downloadsShowing = this.hasDownloads_;
+
+      if (this.hasDownloads_) {
+        this.$['downloads-list'].fire('iron-resize');
+      } else {
+        var isSearching = downloads.ActionService.getInstance().isSearching();
+        var messageToShow = isSearching ? 'noSearchResults' : 'noDownloads';
+        this.$['no-downloads'].querySelector('span').textContent =
+            loadTimeData.getString(messageToShow);
+      }
+    },
+
+    /**
+     * @param {number} index
+     * @param {!Array<!downloads.Data>} list
+     * @private
+     */
+    insertItems_: function(index, list) {
+      this.splice.apply(this, ['items_', index, 0].concat(list));
+      this.updateHideDates_(index, index + list.length);
+      this.removeAttribute('loading');
+    },
+
+    /** @private */
+    itemsChanged_: function() {
+      this.hasDownloads_ = this.items_.length > 0;
     },
 
     /**
@@ -30,6 +79,9 @@ cr.define('downloads', function() {
         case 'clear-all-command':
           e.canExecute = this.$.toolbar.canClearAll();
           break;
+        case 'find-command':
+          e.canExecute = true;
+          break;
       }
     },
 
@@ -42,6 +94,17 @@ cr.define('downloads', function() {
         downloads.ActionService.getInstance().clearAll();
       else if (e.command.id == 'undo-command')
         downloads.ActionService.getInstance().undo();
+      else if (e.command.id == 'find-command')
+        this.$.toolbar.onFindCommand();
+    },
+
+    /** @private */
+    onListScroll_: function() {
+      var list = this.$['downloads-list'];
+      if (list.scrollHeight - list.scrollTop - list.offsetHeight <= 100) {
+        // Approaching the end of the scrollback. Attempt to load more items.
+        downloads.ActionService.getInstance().loadMore();
+      }
     },
 
     /** @private */
@@ -50,83 +113,71 @@ cr.define('downloads', function() {
       document.addEventListener('canExecute', this.onCanExecute_.bind(this));
       document.addEventListener('command', this.onCommand_.bind(this));
 
-      // Shows all downloads.
-      downloads.ActionService.getInstance().search('');
+      downloads.ActionService.getInstance().loadMore();
     },
 
     /**
-     * @return {number} The number of downloads shown on the page.
+     * @param {number} index
      * @private
      */
-    size_: function() {
-      return this.items_.length;
+    removeItem_: function(index) {
+      this.splice('items_', index, 1);
+      this.updateHideDates_(index, index);
+      this.onListScroll_();
     },
 
     /**
-     * Called when all items need to be updated.
-     * @param {!Array<!downloads.Data>} list A list of new download data.
+     * @param {number} start
+     * @param {number} end
      * @private
      */
-    updateAll_: function(list) {
-      /** @private {!Object<number>} */
-      this.idToIndex_ = {};
-
-      for (var i = 0; i < list.length; ++i) {
-        var data = list[i];
-
-        this.idToIndex_[data.id] = data.index = i;
-
-        var prev = list[i - 1];
-        data.hideDate = !!prev && prev.date_string == data.date_string;
+    updateHideDates_: function(start, end) {
+      for (var i = start; i <= end; ++i) {
+        var current = this.items_[i];
+        if (!current)
+          continue;
+        var prev = this.items_[i - 1];
+        current.hideDate = !!prev && prev.date_string == current.date_string;
       }
-
-      // TODO(dbeam): this resets the scroll position, which is a huge bummer.
-      // Removing something from the bottom of the list should not scroll you
-      // back to the top. The grand plan is to restructure how the C++ sends the
-      // JS data so that it only gets updates (rather than the most recent set
-      // of items). TL;DR - we can't ship with this bug.
-      this.items_ = list;
-
-      var hasDownloads = this.size_() > 0;
-      if (!hasDownloads) {
-        var isSearching = downloads.ActionService.getInstance().isSearching();
-        var messageToShow = isSearching ? 'noSearchResults' : 'noDownloads';
-        this.$['no-downloads'].querySelector('span').textContent =
-            loadTimeData.getString(messageToShow);
-      }
-      this.hasDownloads_ = hasDownloads;
-
-      if (loadTimeData.getBoolean('allowDeletingHistory'))
-        this.$.toolbar.downloadsShowing = this.hasDownloads_;
-
-      this.$.panel.classList.remove('loading');
     },
 
     /**
+     * @param {number} index
      * @param {!downloads.Data} data
      * @private
      */
-    updateItem_: function(data) {
-      var index = this.idToIndex_[data.id];
+    updateItem_: function(index, data) {
       this.set('items_.' + index, data);
-      this.$['downloads-list'].updateSizeForItem(index);
+      this.updateHideDates_(index, index);
+      var list = /** @type {!IronListElement} */(this.$['downloads-list']);
+      list.updateSizeForItem(index);
     },
   });
 
-  Manager.size = function() {
-    return document.querySelector('downloads-manager').size_();
+  Manager.clearAll = function() {
+    Manager.get().clearAll_();
   };
 
-  Manager.updateAll = function(list) {
-    document.querySelector('downloads-manager').updateAll_(list);
+  /** @return {!downloads.Manager} */
+  Manager.get = function() {
+    return /** @type {!downloads.Manager} */(
+        queryRequiredElement('downloads-manager'));
   };
 
-  Manager.updateItem = function(item) {
-    document.querySelector('downloads-manager').updateItem_(item);
+  Manager.insertItems = function(index, list) {
+    Manager.get().insertItems_(index, list);
   };
 
   Manager.onLoad = function() {
-    document.querySelector('downloads-manager').onLoad_();
+    Manager.get().onLoad_();
+  };
+
+  Manager.removeItem = function(index) {
+    Manager.get().removeItem_(index);
+  };
+
+  Manager.updateItem = function(index, data) {
+    Manager.get().updateItem_(index, data);
   };
 
   return {Manager: Manager};

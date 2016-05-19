@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/browser/renderer_host/overscroll_controller_delegate.h"
@@ -38,8 +39,8 @@ class WebContentsViewDelegate;
 class WebContentsImpl;
 class WebDragDestDelegate;
 
-class WebContentsViewAura
-    : public WebContentsView,
+class CONTENT_EXPORT WebContentsViewAura
+    : NON_EXPORTED_BASE(public WebContentsView),
       public RenderViewHostDelegateView,
       public OverscrollControllerDelegate,
       public aura::WindowDelegate,
@@ -48,6 +49,9 @@ class WebContentsViewAura
  public:
   WebContentsViewAura(WebContentsImpl* web_contents,
                       WebContentsViewDelegate* delegate);
+
+  // Allow the WebContentsViewDelegate to be set explicitly.
+  void SetDelegateForTesting(WebContentsViewDelegate* delegate);
 
  private:
   class WindowObserver;

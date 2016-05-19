@@ -28,11 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/testing/DummyPageHolder.h"
 
-#include "core/frame/LocalDOMWindow.h"
+#include "core/frame/FrameHost.h"
 #include "core/frame/FrameView.h"
+#include "core/frame/LocalDOMWindow.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
 #include "core/loader/EmptyClients.h"
@@ -69,7 +69,7 @@ DummyPageHolder::DummyPageHolder(
         pageClients.dragClient = pageClientsArgument->dragClient;
         pageClients.spellCheckerClient = pageClientsArgument->spellCheckerClient;
     }
-    m_page = adoptPtrWillBeNoop(new Page(pageClients));
+    m_page = Page::create(pageClients);
     Settings& settings = m_page->settings();
     // FIXME: http://crbug.com/363843. This needs to find a better way to
     // not create graphics layers.
@@ -83,6 +83,7 @@ DummyPageHolder::DummyPageHolder(
 
     m_frame = LocalFrame::create(m_frameLoaderClient.get(), &m_page->frameHost(), 0);
     m_frame->setView(FrameView::create(m_frame.get(), initialViewSize));
+    m_frame->view()->page()->frameHost().visualViewport().setSize(initialViewSize);
     m_frame->init();
 }
 

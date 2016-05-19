@@ -2,20 +2,26 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("../../mojo_sdk.gni")
-
-mojo_sdk_source_set("bindings") {
+source_set("bindings") {
   sources = [
     "array.h",
+    "associated_binding.h",
+    "associated_group.h",
+    "associated_interface_ptr.h",
     "associated_interface_ptr_info.h",
     "associated_interface_request.h",
     "binding.h",
+    "binding_set.h",
     "interface_ptr.h",
     "interface_ptr_info.h",
+    "interface_ptr_set.h",
     "interface_request.h",
     "lib/array_internal.cc",
     "lib/array_internal.h",
     "lib/array_serialization.h",
+    "lib/associated_group.cc",
+    "lib/associated_interface_ptr_state.h",
+    "lib/binding_state.h",
     "lib/bindings_internal.h",
     "lib/bindings_serialization.cc",
     "lib/bindings_serialization.h",
@@ -32,7 +38,10 @@ mojo_sdk_source_set("bindings") {
     "lib/filter_chain.h",
     "lib/fixed_buffer.cc",
     "lib/fixed_buffer.h",
-    "lib/interface_ptr_internal.h",
+    "lib/interface_endpoint_client.cc",
+    "lib/interface_endpoint_client.h",
+    "lib/interface_id.h",
+    "lib/interface_ptr_state.h",
     "lib/map_data_internal.h",
     "lib/map_internal.h",
     "lib/map_serialization.h",
@@ -43,11 +52,24 @@ mojo_sdk_source_set("bindings") {
     "lib/message_header_validator.cc",
     "lib/message_header_validator.h",
     "lib/message_internal.h",
+    "lib/multiplex_router.cc",
+    "lib/multiplex_router.h",
     "lib/no_interface.cc",
+    "lib/pickle_buffer.cc",
+    "lib/pickle_buffer.h",
+    "lib/pipe_control_message_handler.cc",
+    "lib/pipe_control_message_handler.h",
+    "lib/pipe_control_message_handler_delegate.h",
+    "lib/pipe_control_message_proxy.cc",
+    "lib/pipe_control_message_proxy.h",
     "lib/router.cc",
     "lib/router.h",
+    "lib/scoped_interface_endpoint_handle.cc",
+    "lib/scoped_interface_endpoint_handle.h",
     "lib/string_serialization.cc",
     "lib/string_serialization.h",
+    "lib/sync_handle_watcher.cc",
+    "lib/sync_handle_watcher.h",
     "lib/union_accessor.h",
     "lib/validate_params.h",
     "lib/validation_errors.cc",
@@ -59,37 +81,39 @@ mojo_sdk_source_set("bindings") {
     "message.h",
     "message_filter.h",
     "no_interface.h",
+    "stl_converters.h",
     "string.h",
     "strong_binding.h",
     "struct_ptr.h",
+    "struct_traits.h",
     "type_converter.h",
   ]
 
   public_deps = [
     ":callback",
+    "//base",
+    "//ipc:param_traits",
+    "//mojo/public/cpp/system",
   ]
 
-  mojo_sdk_public_deps = [
-    "mojo/public/cpp/system",
-  ]
-
-  mojo_sdk_deps = [
-    "mojo/public/cpp/environment",
-    "mojo/public/interfaces/bindings:bindings_cpp_sources",
+  deps = [
+    "//base",
+    "//mojo/public/cpp/environment",
+    "//mojo/public/interfaces/bindings:bindings_cpp_sources",
   ]
 }
 
-mojo_sdk_source_set("callback") {
+source_set("callback") {
   sources = [
     "callback.h",
     "lib/callback_internal.h",
     "lib/shared_data.h",
     "lib/shared_ptr.h",
     "lib/template_util.h",
-    "lib/thread_checker.h",
-    "lib/thread_checker_posix.cc",
-    "lib/thread_checker_posix.h",
   ]
 
-  mojo_sdk_deps = [ "mojo/public/cpp/system" ]
+  deps = [
+    "//base",
+    "//mojo/public/cpp/system",
+  ]
 }

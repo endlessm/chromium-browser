@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/css/CSSVariableData.h"
 
 #include "core/css/parser/CSSParserTokenRange.h"
@@ -25,6 +24,11 @@ template<typename CharacterType> void CSSVariableData::updateTokens(const CSSPar
         }
     }
     ASSERT(currentOffset == m_backingString.getCharacters<CharacterType>() + m_backingString.length());
+}
+
+bool CSSVariableData::operator==(const CSSVariableData& other) const
+{
+    return tokens() == other.tokens();
 }
 
 void CSSVariableData::consumeAndUpdateTokens(const CSSParserTokenRange& range)

@@ -86,7 +86,7 @@ public:
     bool hasError() const { return m_state == StateError; }
     bool shouldBlockScriptExecution() const;
 
-    void startLoading(const ResourcePtr<RawResource>&);
+    void startLoading(const PassRefPtrWillBeRawPtr<RawResource>&);
 
     // Tells the loader that all of the import's stylesheets finished
     // loading.
@@ -102,7 +102,7 @@ private:
 
     // RawResourceClient
     void responseReceived(Resource*, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) override;
-    void dataReceived(Resource*, const char* data, unsigned length) override;
+    void dataReceived(Resource*, const char* data, size_t length) override;
     void notifyFinished(Resource*) override;
     String debugName() const override { return "HTMLImportLoader"; }
 

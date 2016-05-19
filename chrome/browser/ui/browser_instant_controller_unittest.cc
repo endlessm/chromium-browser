@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <string>
+#include <stddef.h>
 
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/field_trial.h"
+#include "base/run_loop.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_observer.h"
@@ -149,6 +150,8 @@ TEST_F(BrowserInstantControllerTest, DefaultSearchProviderChanged) {
     }
 
     // Ensure only the expected tabs(contents) reloaded.
+    base::RunLoop loop;
+    loop.RunUntilIdle();
     EXPECT_EQ(test.should_reload ? 1 : 0, observer->num_reloads())
       << test.description;
 
@@ -191,6 +194,8 @@ TEST_F(BrowserInstantControllerTest, GoogleBaseURLUpdated) {
         << test.description;
 
     // Ensure only the expected tabs(contents) reloaded.
+    base::RunLoop loop;
+    loop.RunUntilIdle();
     EXPECT_EQ(test.should_reload ? 1 : 0, observer->num_reloads())
       << test.description;
 
@@ -205,7 +210,7 @@ TEST_F(BrowserInstantControllerTest, GoogleBaseURLUpdated) {
 
 TEST_F(BrowserInstantControllerTest, BrowserWindowLifecycle) {
   scoped_ptr<BrowserWindow> window(CreateBrowserWindow());
-  Browser::CreateParams params(profile(), chrome::HOST_DESKTOP_TYPE_NATIVE);
+  Browser::CreateParams params(profile());
   params.window = window.get();
   scoped_ptr<Browser> browser(new Browser(params));
   InstantServiceObserver* bic;

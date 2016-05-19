@@ -23,11 +23,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "platform/graphics/filters/FETurbulence.h"
 
+#include "SkPaintImageFilter.h"
 #include "SkPerlinNoiseShader.h"
-#include "SkRectShaderImageFilter.h"
 #include "platform/graphics/filters/Filter.h"
 #include "platform/graphics/filters/SkiaImageFilterBuilder.h"
 #include "platform/text/TextStream.h"
@@ -153,8 +152,10 @@ PassRefPtr<SkImageFilter> FETurbulence::createImageFilter(SkiaImageFilterBuilder
         return createTransparentBlack(builder);
 
     SkAutoTUnref<SkShader> shader(createShader());
-    SkImageFilter::CropRect rect = getCropRect(builder.cropOffset());
-    return adoptRef(SkRectShaderImageFilter::Create(shader, &rect));
+    SkPaint paint;
+    paint.setShader(shader);
+    SkImageFilter::CropRect rect = getCropRect();
+    return adoptRef(SkPaintImageFilter::Create(paint, &rect));
 }
 
 static TextStream& operator<<(TextStream& ts, const TurbulenceType& type)

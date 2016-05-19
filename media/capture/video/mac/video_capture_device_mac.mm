@@ -7,12 +7,18 @@
 #include <IOKit/IOCFPlugIn.h>
 #include <IOKit/usb/IOUSBLib.h>
 #include <IOKit/usb/USBSpec.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <limits>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/mac/scoped_ioobject.h"
 #include "base/mac/scoped_ioplugininterface.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
@@ -96,7 +102,7 @@ typedef struct IOUSBInterfaceDescriptor {
 } IOUSBInterfaceDescriptor;
 
 static void GetBestMatchSupportedResolution(gfx::Size* resolution) {
-  int min_diff = kint32max;
+  int min_diff = std::numeric_limits<int32_t>::max();
   const int desired_area = resolution->GetArea();
   for (size_t i = 0; i < arraysize(kWellSupportedResolutions); ++i) {
     const int area = kWellSupportedResolutions[i]->width *
@@ -372,7 +378,7 @@ void VideoCaptureDeviceMac::AllocateAndStart(
   if (!AVFoundationGlue::IsAVFoundationSupported())
     GetBestMatchSupportedResolution(&resolution);
 
-  client_ = client.Pass();
+  client_ = std::move(client);
   if (device_name_.capture_api_type() == Name::AVFOUNDATION)
     LogMessage("Using AVFoundation for device: " + device_name_.name());
   else
@@ -462,7 +468,7 @@ bool VideoCaptureDeviceMac::Init(
   return true;
 }
 
-void VideoCaptureDeviceMac::ReceiveFrame(const uint8* video_frame,
+void VideoCaptureDeviceMac::ReceiveFrame(const uint8_t* video_frame,
                                          int video_frame_length,
                                          const VideoCaptureFormat& frame_format,
                                          int aspect_numerator,
@@ -539,18 +545,8 @@ void VideoCaptureDeviceMac::ReceiveFrame(const uint8* video_frame,
     return;
   }
 
-  base::TimeTicks aligned_timestamp;
-  if (timestamp == media::kNoTimestamp()) {
-    aligned_timestamp = base::TimeTicks::Now();
-  } else {
-    if (first_timestamp_ == media::kNoTimestamp()) {
-      first_timestamp_ = timestamp;
-      first_aligned_timestamp_ = base::TimeTicks::Now();
-    }
-    aligned_timestamp = first_aligned_timestamp_ + timestamp - first_timestamp_;
-  }
   client_->OnIncomingCapturedData(video_frame, video_frame_length, frame_format,
-                                  0, aligned_timestamp);
+                                  0, base::TimeTicks::Now());
 }
 
 void VideoCaptureDeviceMac::ReceiveError(

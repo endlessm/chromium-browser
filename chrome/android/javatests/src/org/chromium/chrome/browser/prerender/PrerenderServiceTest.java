@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.prerender;
 
+import android.os.Environment;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.widget.EditText;
 
@@ -11,6 +12,7 @@ import org.chromium.base.SysUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseActivityInstrumentationTestCase;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
@@ -20,13 +22,13 @@ import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.document.DocumentActivity;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.util.ActivityUtils;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TouchCommon;
+import org.chromium.net.test.EmbeddedTestServer;
 
 /**
- * A test suite for the ChromeBowserPrerenderService. This makes sure the service initializes the
+ * A test suite for the ChromeBrowserPrerenderService. This makes sure the service initializes the
  * browser process and the UI and also can carry out prerendering related operations without causing
  * any issues with Chrome launching from external intents afterwards.
  */
@@ -38,18 +40,25 @@ public class PrerenderServiceTest extends
         super(PrerenderAPITestActivity.class);
     }
 
-    private static final String GOOGLE_URL =
-            TestHttpServerClient.getUrl("chrome/test/data/android/prerender/google.html");
-    private static final String YOUTUBE_URL =
-            TestHttpServerClient.getUrl("chrome/test/data/android/prerender/youtube.html");
-    private static final String REDIRECT_GOOGLE_URL =
-            TestHttpServerClient.getUrl("chrome/test/data/android/prerender/google_redirect.html");
+    private static final String GOOGLE_PATH = "/chrome/test/data/android/prerender/google.html";
+    private static final String YOUTUBE_PATH = "/chrome/test/data/android/prerender/youtube.html";
+    private static final String REDIRECT_GOOGLE_PATH =
+            "/chrome/test/data/android/prerender/google_redirect.html";
+
+    private EmbeddedTestServer mTestServer;
 
     @Override
     protected void setUp() throws Exception {
         super.setUp();
         setActivityInitialTouchMode(true);
-        TestHttpServerClient.checkServerIsUp();
+        mTestServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+    }
+
+    @Override
+    protected void tearDown() throws Exception {
+        mTestServer.stopAndDestroyServer();
+        super.tearDown();
     }
 
     /**
@@ -58,11 +67,12 @@ public class PrerenderServiceTest extends
      * @throws InterruptedException
      */
     @SmallTest
+    @DisabledTest
     @Feature({"PrerenderService"})
     public void testBindingAndInitializing() throws InterruptedException {
         if (SysUtils.isLowEndDevice()) return;
         ensureBindingAndInitializingUI();
-        loadChromeWithUrl(GOOGLE_URL);
+        loadChromeWithUrl(mTestServer.getURL(GOOGLE_PATH));
     }
 
     /**
@@ -75,11 +85,12 @@ public class PrerenderServiceTest extends
      * @Feature({"PrerenderService"})
      * @SmallTest
      */
+    @DisabledTest
     public void testPrerenderingSameUrl() throws InterruptedException {
         if (SysUtils.isLowEndDevice()) return;
         ensureBindingAndInitializingUI();
-        ensurePrerendering(GOOGLE_URL);
-        loadChromeWithUrl(GOOGLE_URL);
+        ensurePrerendering(mTestServer.getURL(GOOGLE_PATH));
+        loadChromeWithUrl(mTestServer.getURL(GOOGLE_PATH));
     }
 
     /**
@@ -89,12 +100,13 @@ public class PrerenderServiceTest extends
      * @throws InterruptedException
      */
     @SmallTest
+    @DisabledTest
     @Feature({"PrerenderService"})
     public void testPrerenderingDifferentUrl() throws InterruptedException {
         if (SysUtils.isLowEndDevice()) return;
         ensureBindingAndInitializingUI();
-        ensurePrerendering(GOOGLE_URL);
-        loadChromeWithUrl(YOUTUBE_URL);
+        ensurePrerendering(mTestServer.getURL(GOOGLE_PATH));
+        loadChromeWithUrl(mTestServer.getURL(YOUTUBE_PATH));
     }
 
     /**
@@ -103,12 +115,13 @@ public class PrerenderServiceTest extends
      * @throws Exception
      */
     @SmallTest
+    @DisabledTest
     @Feature({"PrerenderService"})
     public void testPrerenderingRedirectUrl() throws Exception {
         if (SysUtils.isLowEndDevice()) return;
         ensureBindingAndInitializingUI();
-        ensurePrerendering(REDIRECT_GOOGLE_URL);
-        assertServiceHasPrerenderedUrl(GOOGLE_URL);
+        ensurePrerendering(mTestServer.getURL(REDIRECT_GOOGLE_PATH));
+        assertServiceHasPrerenderedUrl(mTestServer.getURL(GOOGLE_PATH));
     }
 
     private void ensureBindingAndInitializingUI() {
@@ -131,6 +144,7 @@ public class PrerenderServiceTest extends
     private void loadChromeWithUrl(final String url) throws InterruptedException {
         assertNotNull(getActivity());
         ThreadUtils.runOnUiThreadBlocking(new Runnable(){
+            @Override
             public void run() {
                 ((EditText) getActivity().findViewById(R.id.url_to_load)).setText(url);
             }
@@ -146,15 +160,16 @@ public class PrerenderServiceTest extends
                             }
                         });
         // TODO(yusufo): We should be using the NotificationCenter for checking the page loading.
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return chromeActivity.getActivityTab() != null
                         && chromeActivity.getActivityTab().isLoadingAndRenderingDone();
             }
-        }));
+        });
         assertTrue(chromeActivity.getActivityTab().getUrl().equals(url));
-        ThreadUtils.runOnUiThreadBlocking(new Runnable(){
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
             public void run() {
                 assertFalse(WarmupManager.getInstance().hasAnyPrerenderedUrl());
             }
@@ -162,11 +177,11 @@ public class PrerenderServiceTest extends
     }
 
     private void assertServiceHasPrerenderedUrl(final String url) throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return WarmupManager.getInstance().hasPrerenderedUrl(url);
             }
-        }));
+        });
     }
 }

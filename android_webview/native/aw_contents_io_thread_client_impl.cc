@@ -14,7 +14,6 @@
 #include "base/android/jni_string.h"
 #include "base/android/jni_weak_ref.h"
 #include "base/lazy_instance.h"
-#include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"
 #include "content/public/browser/browser_thread.h"
@@ -82,6 +81,10 @@ class RfhToIoThreadClientMap {
 
 // static
 LazyInstance<RfhToIoThreadClientMap> RfhToIoThreadClientMap::g_instance_ =
+    LAZY_INSTANCE_INITIALIZER;
+
+// static
+LazyInstance<JavaObjectWeakGlobalRef> g_sw_instance_ =
     LAZY_INSTANCE_INITIALIZER;
 
 // static
@@ -254,6 +257,31 @@ void AwContentsIoThreadClientImpl::Associate(
   new ClientMapEntryUpdater(env, web_contents, jclient.obj());
 }
 
+// static
+void AwContentsIoThreadClientImpl::SetServiceWorkerIoThreadClient(
+    const base::android::JavaRef<jobject>& jclient,
+    const base::android::JavaRef<jobject>& browser_context) {
+  // TODO: currently there is only one browser context so it is ok to
+  // store in a global variable, in the future use browser_context to
+  // obtain the correct instance.
+  JavaObjectWeakGlobalRef temp(AttachCurrentThread(), jclient.obj());
+  g_sw_instance_.Get() = temp;
+}
+
+// static
+scoped_ptr<AwContentsIoThreadClient>
+AwContentsIoThreadClient::GetServiceWorkerIoThreadClient() {
+  if (g_sw_instance_.Get().is_empty())
+    return scoped_ptr<AwContentsIoThreadClient>();
+
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> java_delegate = g_sw_instance_.Get().get(env);
+
+  DCHECK(!java_delegate.is_null());
+  return scoped_ptr<AwContentsIoThreadClient>(new AwContentsIoThreadClientImpl(
+      false, java_delegate));
+}
+
 AwContentsIoThreadClientImpl::AwContentsIoThreadClientImpl(
     bool pending_association,
     const JavaRef<jobject>& obj)
@@ -308,7 +336,7 @@ scoped_ptr<AwWebResourceResponse> RunShouldInterceptRequest(
           web_request.jstringArray_header_names.obj(),
           web_request.jstringArray_header_values.obj());
   return scoped_ptr<AwWebResourceResponse>(
-      ret.is_null() ? nullptr : new AwWebResourceResponseImpl(ret)).Pass();
+      ret.is_null() ? nullptr : new AwWebResourceResponseImpl(ret));
 }
 
 scoped_ptr<AwWebResourceResponse> ReturnNull() {
@@ -383,7 +411,7 @@ void AwContentsIoThreadClientImpl::NewDownload(
     const string& user_agent,
     const string& content_disposition,
     const string& mime_type,
-    int64 content_length) {
+    int64_t content_length) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return;
@@ -466,7 +494,7 @@ void AwContentsIoThreadClientImpl::OnReceivedHttpError(
   vector<string> response_header_names;
   vector<string> response_header_values;
   {
-    void* headers_iterator = NULL;
+    size_t headers_iterator = 0;
     string header_name, header_value;
     while (response_headers->EnumerateHeaderLines(
         &headers_iterator, &header_name, &header_value)) {

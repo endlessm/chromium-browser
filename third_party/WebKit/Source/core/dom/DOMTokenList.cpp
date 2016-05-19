@@ -22,7 +22,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/DOMTokenList.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -61,7 +60,7 @@ private:
 
 } // namespace
 
-bool DOMTokenList::validateToken(const String& token, ExceptionState& exceptionState)
+bool DOMTokenList::validateToken(const String& token, ExceptionState& exceptionState) const
 {
     if (token.isEmpty()) {
         exceptionState.throwDOMException(SyntaxError, "The token provided must not be empty.");
@@ -76,7 +75,7 @@ bool DOMTokenList::validateToken(const String& token, ExceptionState& exceptionS
     return true;
 }
 
-bool DOMTokenList::validateTokens(const Vector<String>& tokens, ExceptionState& exceptionState)
+bool DOMTokenList::validateTokens(const Vector<String>& tokens, ExceptionState& exceptionState) const
 {
     for (size_t i = 0; i < tokens.size(); ++i) {
         if (!validateToken(tokens[i], exceptionState))
@@ -84,6 +83,13 @@ bool DOMTokenList::validateTokens(const Vector<String>& tokens, ExceptionState& 
     }
 
     return true;
+}
+
+// https://dom.spec.whatwg.org/#concept-domtokenlist-validation
+bool DOMTokenList::validateTokenValue(const AtomicString&, ExceptionState& exceptionState) const
+{
+    exceptionState.throwTypeError("DOMTokenList has no supported tokens.");
+    return false;
 }
 
 bool DOMTokenList::contains(const AtomicString& token, ExceptionState& exceptionState) const
@@ -116,10 +122,8 @@ void DOMTokenList::add(const Vector<String>& tokens, ExceptionState& exceptionSt
         filteredTokens.append(tokens[i]);
     }
 
-    if (filteredTokens.isEmpty())
-        return;
-
-    setValue(addTokens(value(), filteredTokens));
+    if (!filteredTokens.isEmpty())
+        setValue(addTokens(value(), filteredTokens));
 }
 
 void DOMTokenList::remove(const AtomicString& token, ExceptionState& exceptionState)
@@ -174,6 +178,11 @@ bool DOMTokenList::toggle(const AtomicString& token, bool force, ExceptionState&
         removeInternal(token);
 
     return force;
+}
+
+bool DOMTokenList::supports(const AtomicString& token, ExceptionState& exceptionState)
+{
+    return validateTokenValue(token, exceptionState);
 }
 
 void DOMTokenList::addInternal(const AtomicString& token)
@@ -278,9 +287,29 @@ AtomicString DOMTokenList::removeTokens(const AtomicString& input, const Vector<
     return output.toAtomicString();
 }
 
+void DOMTokenList::setValue(const AtomicString& value)
+{
+    m_value = value;
+    m_tokens.set(value, SpaceSplitString::ShouldNotFoldCase);
+    if (m_observer)
+        m_observer->valueWasSet();
+}
+
+bool DOMTokenList::containsInternal(const AtomicString& token) const
+{
+    return m_tokens.contains(token);
+}
+
 ValueIterable<String>::IterationSource* DOMTokenList::startIteration(ScriptState*, ExceptionState&)
 {
     return new DOMTokenListIterationSource(this);
+}
+
+const AtomicString DOMTokenList::item(unsigned index) const
+{
+    if (index >= length())
+        return AtomicString();
+    return m_tokens[index];
 }
 
 } // namespace blink

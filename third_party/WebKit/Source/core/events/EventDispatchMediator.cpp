@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/events/EventDispatchMediator.h"
 
 #include "core/events/Event.h"
@@ -51,7 +50,7 @@ DEFINE_TRACE(EventDispatchMediator)
     visitor->trace(m_event);
 }
 
-bool EventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
+DispatchEventResult EventDispatchMediator::dispatchEvent(EventDispatcher& dispatcher) const
 {
     ASSERT(m_event.get() == &dispatcher.event());
     return dispatcher.dispatch();

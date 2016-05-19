@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/fonts/shaping/HarfBuzzShaper.h"
 
 #include "platform/Logging.h"
@@ -56,6 +55,8 @@ namespace blink {
 
 template<typename T>
 class HarfBuzzScopedPtr {
+    STACK_ALLOCATED();
+    WTF_MAKE_NONCOPYABLE(HarfBuzzScopedPtr);
 public:
     typedef void (*DestroyFunction)(T*);
 
@@ -632,16 +633,20 @@ void HarfBuzzShaper::insertRunIntoShapeResult(ShapeResult* result,
     hb_buffer_t* harfBuzzBuffer)
 {
     ASSERT(numGlyphs > 0);
-    OwnPtr<ShapeResult::RunInfo> run(runToInsert);
+    OwnPtr<ShapeResult::RunInfo> run(std::move(runToInsert));
+    ASSERT(numGlyphs == run->m_glyphData.size());
 
     const SimpleFontData* currentFontData = run->m_fontData.get();
-    hb_glyph_info_t* glyphInfos = hb_buffer_get_glyph_infos(harfBuzzBuffer, 0);
-    hb_glyph_position_t* glyphPositions = hb_buffer_get_glyph_positions(harfBuzzBuffer, 0);
+    const hb_glyph_info_t* glyphInfos = hb_buffer_get_glyph_infos(harfBuzzBuffer, 0);
+    const hb_glyph_position_t* glyphPositions = hb_buffer_get_glyph_positions(harfBuzzBuffer, 0);
+    const unsigned startCluster = HB_DIRECTION_IS_FORWARD(hb_buffer_get_direction(harfBuzzBuffer))
+        ? glyphInfos[startGlyph].cluster : glyphInfos[startGlyph + numGlyphs - 1].cluster;
 
     float totalAdvance = 0.0f;
     FloatPoint glyphOrigin;
     float offsetX, offsetY;
     float* directionOffset = m_font->fontDescription().isVerticalAnyUpright() ? &offsetY : &offsetX;
+    bool hasVerticalOffsets = !HB_DIRECTION_IS_HORIZONTAL(run->m_direction);
 
     // HarfBuzz returns result in visual order, no need to flip for RTL.
     for (unsigned i = 0; i < numGlyphs; ++i) {
@@ -661,20 +666,10 @@ void HarfBuzzShaper::insertRunIntoShapeResult(ShapeResult* result,
         // The characterIndex of one ShapeResult run is normalized to the run's
         // startIndex and length.  TODO crbug.com/542703: Consider changing that
         // and instead pass the whole run to hb_buffer_t each time.
-        run->m_glyphData.resize(numGlyphs);
-        if (HB_DIRECTION_IS_FORWARD(hb_buffer_get_direction(harfBuzzBuffer))) {
-            run->m_glyphData[i].characterIndex = glyphInfos[startGlyph + i].cluster - glyphInfos[startGlyph].cluster;
-        } else {
-            run->m_glyphData[i].characterIndex = glyphInfos[startGlyph + i].cluster - glyphInfos[startGlyph + numGlyphs - 1].cluster;
-        }
+        run->m_glyphData[i].characterIndex = glyphInfos[startGlyph + i].cluster - startCluster;
 
-        if (isClusterEnd)
+        if (isClusterEnd && !m_textRun.spacingDisabled())
             spacing += adjustSpacing(run.get(), i, currentCharacterIndex, *directionOffset, totalAdvance);
-
-        if (currentFontData->isZeroWidthSpaceGlyph(glyph)) {
-            run->setGlyphAndPositions(i, glyph, 0, 0, 0);
-            continue;
-        }
 
         advance += spacing;
         if (m_textRun.rtl()) {
@@ -686,6 +681,7 @@ void HarfBuzzShaper::insertRunIntoShapeResult(ShapeResult* result,
 
         run->setGlyphAndPositions(i, glyph, advance, offsetX, offsetY);
         totalAdvance += advance;
+        hasVerticalOffsets |= (offsetY != 0);
 
         FloatRect glyphBounds = currentFontData->boundsForGlyph(glyph);
         glyphBounds.move(glyphOrigin.x(), glyphOrigin.y());
@@ -695,6 +691,8 @@ void HarfBuzzShaper::insertRunIntoShapeResult(ShapeResult* result,
     run->m_width = std::max(0.0f, totalAdvance);
     result->m_width += run->m_width;
     result->m_numGlyphs += numGlyphs;
+    ASSERT(result->m_numGlyphs >= numGlyphs); // no overflow
+    result->m_hasVerticalOffsets |= hasVerticalOffsets;
 
     // The runs are stored in result->m_runs in visual order. For LTR, we place
     // the run to be inserted before the next run with a bigger character
@@ -742,6 +740,8 @@ PassRefPtr<ShapeResult> ShapeResult::createForTabulationCharacters(const Font* f
     RefPtr<ShapeResult> result = ShapeResult::create(font, count, textRun.direction());
     result->m_width = run->m_width;
     result->m_numGlyphs = count;
+    ASSERT(result->m_numGlyphs == count); // no overflow
+    result->m_hasVerticalOffsets = fontData->platformData().isVerticalAnyUpright();
     result->m_runs.append(run.release());
     return result.release();
 }

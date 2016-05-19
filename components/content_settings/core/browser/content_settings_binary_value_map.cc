@@ -4,6 +4,8 @@
 
 #include "components/content_settings/core/browser/content_settings_binary_value_map.h"
 
+#include <utility>
+
 #include "base/synchronization/lock.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/common/content_settings.h"
@@ -16,7 +18,7 @@ class RuleIteratorBinary : public RuleIterator {
  public:
   explicit RuleIteratorBinary(bool is_enabled,
                               scoped_ptr<base::AutoLock> auto_lock)
-      : is_done_(is_enabled), auto_lock_(auto_lock.Pass()) {}
+      : is_done_(is_enabled), auto_lock_(std::move(auto_lock)) {}
 
   bool HasNext() const override { return !is_done_; }
 
@@ -39,15 +41,15 @@ BinaryValueMap::BinaryValueMap() {}
 
 BinaryValueMap::~BinaryValueMap() {}
 
-RuleIterator* BinaryValueMap::GetRuleIterator(
+scoped_ptr<RuleIterator> BinaryValueMap::GetRuleIterator(
     ContentSettingsType content_type,
     const ResourceIdentifier& resource_identifier,
     scoped_ptr<base::AutoLock> auto_lock) const {
   if (resource_identifier.empty()) {
-    return new RuleIteratorBinary(IsContentSettingEnabled(content_type),
-                                  auto_lock.Pass());
+    return scoped_ptr<RuleIterator>(new RuleIteratorBinary(
+        IsContentSettingEnabled(content_type), std::move(auto_lock)));
   }
-  return new EmptyRuleIterator();
+  return scoped_ptr<RuleIterator>(new EmptyRuleIterator());
 }
 
 void BinaryValueMap::SetContentSettingDisabled(ContentSettingsType content_type,

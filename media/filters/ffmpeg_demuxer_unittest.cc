@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <deque>
 #include <string>
@@ -9,6 +12,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/threading/thread.h"
 #include "media/base/decrypt_config.h"
@@ -20,6 +24,7 @@
 #include "media/filters/ffmpeg_demuxer.h"
 #include "media/filters/file_data_source.h"
 #include "media/formats/mp4/avc.h"
+#include "media/media_features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using ::testing::AnyNumber;
@@ -42,9 +47,9 @@ MATCHER(IsEndOfStreamBuffer,
   return arg->end_of_stream();
 }
 
-const uint8 kEncryptedMediaInitData[] = {
-  0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-  0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35,
+const uint8_t kEncryptedMediaInitData[] = {
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35,
 };
 
 static void EosOnReadDone(bool* got_eos_buffer,
@@ -60,7 +65,7 @@ static void EosOnReadDone(bool* got_eos_buffer,
   }
 
   EXPECT_TRUE(buffer->data());
-  EXPECT_GT(buffer->data_size(), 0);
+  EXPECT_GT(buffer->data_size(), 0u);
   *got_eos_buffer = false;
 };
 
@@ -79,7 +84,7 @@ class FFmpegDemuxerTest : public testing::Test {
   void CreateDemuxer(const std::string& name) {
     CHECK(!demuxer_);
 
-    EXPECT_CALL(host_, AddBufferedTimeRange(_, _)).Times(AnyNumber());
+    EXPECT_CALL(host_, OnBufferedTimeRangesChanged(_)).Times(AnyNumber());
 
     CreateDataSource(name);
 
@@ -93,38 +98,50 @@ class FFmpegDemuxerTest : public testing::Test {
 
   MOCK_METHOD1(CheckPoint, void(int v));
 
-  void InitializeDemuxerWithTimelineOffset(bool enable_text,
-                                           base::Time timeline_offset) {
-    EXPECT_CALL(host_, SetDuration(_));
+  void InitializeDemuxerInternal(bool enable_text,
+                                 media::PipelineStatus expected_pipeline_status,
+                                 base::Time timeline_offset) {
+    if (expected_pipeline_status == PIPELINE_OK)
+      EXPECT_CALL(host_, SetDuration(_));
     WaitableMessageLoopEvent event;
     demuxer_->Initialize(&host_, event.GetPipelineStatusCB(), enable_text);
     demuxer_->timeline_offset_ = timeline_offset;
-    event.RunAndWaitForStatus(PIPELINE_OK);
-  }
-
-  void InitializeDemuxerText(bool enable_text) {
-    InitializeDemuxerWithTimelineOffset(enable_text, base::Time());
+    event.RunAndWaitForStatus(expected_pipeline_status);
   }
 
   void InitializeDemuxer() {
-    InitializeDemuxerText(false);
+    InitializeDemuxerInternal(/*enable_text=*/false, PIPELINE_OK, base::Time());
   }
 
-  MOCK_METHOD2(OnReadDoneCalled, void(int, int64));
+  void InitializeDemuxerWithText() {
+    InitializeDemuxerInternal(/*enable_text=*/true, PIPELINE_OK, base::Time());
+  }
+
+  void InitializeDemuxerWithTimelineOffset(base::Time timeline_offset) {
+    InitializeDemuxerInternal(/*enable_text=*/false, PIPELINE_OK,
+                              timeline_offset);
+  }
+
+  void InitializeDemuxerAndExpectPipelineStatus(
+      media::PipelineStatus expected_pipeline_status) {
+    InitializeDemuxerInternal(/*enable_text=*/false, expected_pipeline_status,
+                              base::Time());
+  }
+
+  MOCK_METHOD2(OnReadDoneCalled, void(int, int64_t));
 
   struct ReadExpectation {
-    ReadExpectation(int size,
-                    int64 timestamp_us,
+    ReadExpectation(size_t size,
+                    int64_t timestamp_us,
                     const base::TimeDelta& discard_front_padding,
                     bool is_key_frame)
         : size(size),
           timestamp_us(timestamp_us),
           discard_front_padding(discard_front_padding),
-          is_key_frame(is_key_frame) {
-    }
+          is_key_frame(is_key_frame) {}
 
-    int size;
-    int64 timestamp_us;
+    size_t size;
+    int64_t timestamp_us;
     base::TimeDelta discard_front_padding;
     bool is_key_frame;
   };
@@ -155,7 +172,7 @@ class FFmpegDemuxerTest : public testing::Test {
 
   DemuxerStream::ReadCB NewReadCB(const tracked_objects::Location& location,
                                   int size,
-                                  int64 timestamp_us,
+                                  int64_t timestamp_us,
                                   bool is_key_frame) {
     return NewReadCBWithCheckedDiscard(location,
                                        size,
@@ -167,7 +184,7 @@ class FFmpegDemuxerTest : public testing::Test {
   DemuxerStream::ReadCB NewReadCBWithCheckedDiscard(
       const tracked_objects::Location& location,
       int size,
-      int64 timestamp_us,
+      int64_t timestamp_us,
       base::TimeDelta discard_front_padding,
       bool is_key_frame) {
     EXPECT_CALL(*this, OnReadDoneCalled(size, timestamp_us));
@@ -185,7 +202,7 @@ class FFmpegDemuxerTest : public testing::Test {
 
   MOCK_METHOD2(OnEncryptedMediaInitData,
                void(EmeInitDataType init_data_type,
-                    const std::vector<uint8>& init_data));
+                    const std::vector<uint8_t>& init_data));
 
   // Accessor to demuxer internals.
   void set_duration_known(bool duration_known) {
@@ -353,7 +370,7 @@ TEST_F(FFmpegDemuxerTest, Initialize_MultitrackText) {
   DemuxerStream* text_stream = NULL;
   EXPECT_CALL(host_, AddTextStream(_, _))
       .WillOnce(SaveArg<0>(&text_stream));
-  InitializeDemuxerText(true);
+  InitializeDemuxerWithText();
   ASSERT_TRUE(text_stream);
   EXPECT_EQ(DemuxerStream::TEXT, text_stream->type());
 
@@ -377,9 +394,9 @@ TEST_F(FFmpegDemuxerTest, Initialize_Encrypted) {
   EXPECT_CALL(*this,
               OnEncryptedMediaInitData(
                   EmeInitDataType::WEBM,
-                  std::vector<uint8>(kEncryptedMediaInitData,
-                                     kEncryptedMediaInitData +
-                                         arraysize(kEncryptedMediaInitData))))
+                  std::vector<uint8_t>(kEncryptedMediaInitData,
+                                       kEncryptedMediaInitData +
+                                           arraysize(kEncryptedMediaInitData))))
       .Times(Exactly(2));
 
   CreateDemuxer("bear-320x240-av_enc-av.webm");
@@ -426,7 +443,7 @@ TEST_F(FFmpegDemuxerTest, Read_Text) {
   DemuxerStream* text_stream = NULL;
   EXPECT_CALL(host_, AddTextStream(_, _))
       .WillOnce(SaveArg<0>(&text_stream));
-  InitializeDemuxerText(true);
+  InitializeDemuxerWithText();
   ASSERT_TRUE(text_stream);
   EXPECT_EQ(DemuxerStream::TEXT, text_stream->type());
 
@@ -444,12 +461,12 @@ TEST_F(FFmpegDemuxerTest, SeekInitialized_NoVideoStartTime) {
 }
 
 TEST_F(FFmpegDemuxerTest, Read_VideoPositiveStartTime) {
-  const int64 kTimelineOffsetMs = 1352550896000LL;
+  const int64_t kTimelineOffsetMs = 1352550896000LL;
 
   // Test the start time is the first timestamp of the video and audio stream.
   CreateDemuxer("nonzero-start-time.webm");
   InitializeDemuxerWithTimelineOffset(
-      false, base::Time::FromJsTime(kTimelineOffsetMs));
+      base::Time::FromJsTime(kTimelineOffsetMs));
 
   // Attempt a read from the video stream and run the message loop until done.
   DemuxerStream* video = demuxer_->GetStream(DemuxerStream::VIDEO);
@@ -685,7 +702,7 @@ TEST_F(FFmpegDemuxerTest, Read_EndOfStreamText) {
   DemuxerStream* text_stream = NULL;
   EXPECT_CALL(host_, AddTextStream(_, _))
       .WillOnce(SaveArg<0>(&text_stream));
-  InitializeDemuxerText(true);
+  InitializeDemuxerWithText();
   ASSERT_TRUE(text_stream);
   EXPECT_EQ(DemuxerStream::TEXT, text_stream->type());
 
@@ -783,7 +800,7 @@ TEST_F(FFmpegDemuxerTest, SeekText) {
   DemuxerStream* text_stream = NULL;
   EXPECT_CALL(host_, AddTextStream(_, _))
       .WillOnce(SaveArg<0>(&text_stream));
-  InitializeDemuxerText(true);
+  InitializeDemuxerWithText();
   ASSERT_TRUE(text_stream);
   EXPECT_EQ(DemuxerStream::TEXT, text_stream->type());
 
@@ -981,8 +998,9 @@ TEST_P(Mp3SeekFFmpegDemuxerTest, TestFastSeek) {
   event.RunAndWaitForStatus(PIPELINE_OK);
 
   // Verify that seeking to the end read only a small portion of the file.
-  // Slow that read sequentially up to the seek point will fail this check.
-  int64 file_size = 0;
+  // Slow seeks that read sequentially up to the seek point will read too many
+  // bytes and fail this check.
+  int64_t file_size = 0;
   ASSERT_TRUE(data_source_->GetSize(&file_size));
   EXPECT_LT(data_source_->bytes_read_for_testing(), (file_size * .25));
 }
@@ -1110,11 +1128,9 @@ TEST_F(FFmpegDemuxerTest, NaturalSizeWithPASP) {
   EXPECT_EQ(gfx::Size(639, 360), video_config.natural_size());
 }
 
-#endif
-
-#if defined(ENABLE_HEVC_DEMUXING)
 TEST_F(FFmpegDemuxerTest, HEVC_in_MP4_container) {
   CreateDemuxer("bear-hevc-frag.mp4");
+#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
   InitializeDemuxer();
 
   DemuxerStream* video = demuxer_->GetStream(DemuxerStream::VIDEO);
@@ -1125,7 +1141,49 @@ TEST_F(FFmpegDemuxerTest, HEVC_in_MP4_container) {
 
   video->Read(NewReadCB(FROM_HERE, 1042, 200200, false));
   message_loop_.Run();
-}
+#else
+  InitializeDemuxerAndExpectPipelineStatus(DEMUXER_ERROR_NO_SUPPORTED_STREAMS);
 #endif
+}
+
+TEST_F(FFmpegDemuxerTest, Read_AC3_Audio) {
+  CreateDemuxer("bear-ac3-only-frag.mp4");
+#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+  InitializeDemuxer();
+
+  // Attempt a read from the audio stream and run the message loop until done.
+  DemuxerStream* audio = demuxer_->GetStream(DemuxerStream::AUDIO);
+
+  // Read the first two frames and check that we are getting expected data
+  audio->Read(NewReadCB(FROM_HERE, 834, 0, true));
+  message_loop_.Run();
+
+  audio->Read(NewReadCB(FROM_HERE, 836, 34830, true));
+  message_loop_.Run();
+#else
+  InitializeDemuxerAndExpectPipelineStatus(DEMUXER_ERROR_NO_SUPPORTED_STREAMS);
+#endif
+}
+
+TEST_F(FFmpegDemuxerTest, Read_EAC3_Audio) {
+  CreateDemuxer("bear-eac3-only-frag.mp4");
+#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+  InitializeDemuxer();
+
+  // Attempt a read from the audio stream and run the message loop until done.
+  DemuxerStream* audio = demuxer_->GetStream(DemuxerStream::AUDIO);
+
+  // Read the first two frames and check that we are getting expected data
+  audio->Read(NewReadCB(FROM_HERE, 870, 0, true));
+  message_loop_.Run();
+
+  audio->Read(NewReadCB(FROM_HERE, 872, 34830, true));
+  message_loop_.Run();
+#else
+  InitializeDemuxerAndExpectPipelineStatus(DEMUXER_ERROR_NO_SUPPORTED_STREAMS);
+#endif
+}
+
+#endif  // defined(USE_PROPRIETARY_CODECS)
 
 }  // namespace media

@@ -4,11 +4,12 @@
 
 #include "chrome/browser/extensions/api/settings_private/prefs_util.h"
 
-#include "base/prefs/pref_service.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/url_formatter/url_fixer.h"
 #include "extensions/browser/extension_pref_value_map.h"
@@ -61,14 +62,21 @@ const PrefsUtil::TypedPrefMap& PrefsUtil::GetWhitelistedKeys() {
   s_whitelist = new PrefsUtil::TypedPrefMap();
   (*s_whitelist)["alternate_error_pages.enabled"] =
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
+  (*s_whitelist)["autofill.enabled"] =
+      settings_private::PrefType::PREF_TYPE_BOOLEAN;
   (*s_whitelist)["bookmark_bar.show_on_all_tabs"] =
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
   (*s_whitelist)["browser.show_home_button"] =
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
+
+  // Downloads settings.
   (*s_whitelist)["download.default_directory"] =
       settings_private::PrefType::PREF_TYPE_STRING;
   (*s_whitelist)["download.prompt_for_download"] =
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
+  (*s_whitelist)["gdata.disabled"] =
+      settings_private::PrefType::PREF_TYPE_BOOLEAN;
+
   (*s_whitelist)["enable_do_not_track"] =
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
   (*s_whitelist)["homepage"] = settings_private::PrefType::PREF_TYPE_URL;
@@ -78,6 +86,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil::GetWhitelistedKeys() {
       settings_private::PrefType::PREF_TYPE_STRING;
   (*s_whitelist)["net.network_prediction_options"] =
       settings_private::PrefType::PREF_TYPE_NUMBER;
+  (*s_whitelist)["profile.password_manager_enabled"] =
+      settings_private::PrefType::PREF_TYPE_BOOLEAN;
   (*s_whitelist)["safebrowsing.enabled"] =
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
   (*s_whitelist)["safebrowsing.extended_reporting_enabled"] =
@@ -122,6 +132,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil::GetWhitelistedKeys() {
       settings_private::PrefType::PREF_TYPE_NUMBER;
   (*s_whitelist)["profile.default_content_setting_values.geolocation"] =
       settings_private::PrefType::PREF_TYPE_NUMBER;
+  (*s_whitelist)["profile.default_content_setting_values.images"] =
+      settings_private::PrefType::PREF_TYPE_NUMBER;
   (*s_whitelist)["profile.default_content_setting_values.javascript"] =
       settings_private::PrefType::PREF_TYPE_NUMBER;
   (*s_whitelist)["profile.default_content_setting_values.media_stream_camera"] =
@@ -137,6 +149,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil::GetWhitelistedKeys() {
   (*s_whitelist)["profile.content_settings.exceptions.fullscreen"] =
       settings_private::PrefType::PREF_TYPE_DICTIONARY;
   (*s_whitelist)["profile.content_settings.exceptions.geolocation"] =
+      settings_private::PrefType::PREF_TYPE_DICTIONARY;
+  (*s_whitelist)["profile.content_settings.exceptions.images"] =
       settings_private::PrefType::PREF_TYPE_DICTIONARY;
   (*s_whitelist)["profile.content_settings.exceptions.javascript"] =
       settings_private::PrefType::PREF_TYPE_DICTIONARY;
@@ -206,10 +220,23 @@ const PrefsUtil::TypedPrefMap& PrefsUtil::GetWhitelistedKeys() {
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
   (*s_whitelist)["settings.internet.wake_on_wifi_darkconnect"] =
       settings_private::PrefType::PREF_TYPE_BOOLEAN;
+  (*s_whitelist)["settings.enable_screen_lock"] =
+      settings_private::PrefType::PREF_TYPE_BOOLEAN;
+
+  // Input settings.
+  (*s_whitelist)["settings.touchpad.enable_tap_to_click"] =
+      settings_private::PrefType::PREF_TYPE_BOOLEAN;
+  (*s_whitelist)["settings.touchpad.natural_scroll"] =
+      settings_private::PrefType::PREF_TYPE_BOOLEAN;
 #else
   (*s_whitelist)["intl.accept_languages"] =
       settings_private::PrefType::PREF_TYPE_STRING;
 #endif
+
+#if defined(GOOGLE_CHROME_BUILD)
+  (*s_whitelist)["media_router.cloudservices.enabled"] =
+      settings_private::PrefType::PREF_TYPE_BOOLEAN;
+#endif  // defined(GOOGLE_CHROME_BUILD)
 
   return *s_whitelist;
 }
@@ -247,7 +274,7 @@ scoped_ptr<settings_private::PrefObject> PrefsUtil::GetCrosSettingsPref(
   pref_object->value.reset(value->DeepCopy());
 #endif
 
-  return pref_object.Pass();
+  return pref_object;
 }
 
 scoped_ptr<settings_private::PrefObject> PrefsUtil::GetPref(
@@ -275,7 +302,7 @@ scoped_ptr<settings_private::PrefObject> PrefsUtil::GetPref(
         settings_private::PolicyEnforcement::POLICY_ENFORCEMENT_ENFORCED;
     pref_object->policy_source_name.reset(new std::string(
         user_manager::UserManager::Get()->GetPrimaryUser()->email()));
-    return pref_object.Pass();
+    return pref_object;
   }
   if (IsPrefEnterpriseManaged(name)) {
     // Enterprise managed prefs are treated the same as device policy restricted
@@ -284,7 +311,7 @@ scoped_ptr<settings_private::PrefObject> PrefsUtil::GetPref(
         settings_private::PolicySource::POLICY_SOURCE_DEVICE_POLICY;
     pref_object->policy_enforcement =
         settings_private::PolicyEnforcement::POLICY_ENFORCEMENT_ENFORCED;
-    return pref_object.Pass();
+    return pref_object;
   }
 #endif
 
@@ -293,7 +320,7 @@ scoped_ptr<settings_private::PrefObject> PrefsUtil::GetPref(
         settings_private::PolicySource::POLICY_SOURCE_USER_POLICY;
     pref_object->policy_enforcement =
         settings_private::PolicyEnforcement::POLICY_ENFORCEMENT_ENFORCED;
-    return pref_object.Pass();
+    return pref_object;
   }
   if (pref && pref->IsRecommended()) {
     pref_object->policy_source =
@@ -302,7 +329,7 @@ scoped_ptr<settings_private::PrefObject> PrefsUtil::GetPref(
         settings_private::PolicyEnforcement::POLICY_ENFORCEMENT_RECOMMENDED;
     pref_object->recommended_value.reset(
         pref->GetRecommendedValue()->DeepCopy());
-    return pref_object.Pass();
+    return pref_object;
   }
 
 #if defined(OS_CHROMEOS)
@@ -317,7 +344,7 @@ scoped_ptr<settings_private::PrefObject> PrefsUtil::GetPref(
         settings_private::PolicyEnforcement::POLICY_ENFORCEMENT_ENFORCED;
     pref_object->policy_source_name.reset(new std::string(
         user_manager::UserManager::Get()->GetOwnerAccountId().GetUserEmail()));
-    return pref_object.Pass();
+    return pref_object;
   }
 #endif
 
@@ -334,16 +361,16 @@ scoped_ptr<settings_private::PrefObject> PrefsUtil::GetPref(
           settings_private::PolicyEnforcement::POLICY_ENFORCEMENT_ENFORCED;
       pref_object->extension_id.reset(new std::string(extension_id));
       pref_object->policy_source_name.reset(new std::string(extension->name()));
-      return pref_object.Pass();
+      return pref_object;
     }
   }
   if (pref && (!pref->IsUserModifiable() || IsPrefSupervisorControlled(name))) {
     // TODO(stevenjb): Investigate whether either of these should be badged.
     pref_object->read_only.reset(new bool(true));
-    return pref_object.Pass();
+    return pref_object;
   }
 
-  return pref_object.Pass();
+  return pref_object;
 }
 
 PrefsUtil::SetPrefResult PrefsUtil::SetPref(const std::string& pref_name,

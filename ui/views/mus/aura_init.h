@@ -9,14 +9,16 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "skia/ext/refptr.h"
+#include "ui/views/mus/mus_export.h"
 
 namespace font_service {
 class FontLoader;
 }
 
 namespace mojo {
-class ApplicationImpl;
+class Connector;
 }
 
 namespace views {
@@ -24,13 +26,13 @@ class ViewsDelegate;
 
 // Sets up necessary state for aura when run with the viewmanager.
 // |resource_file| is the path to the apk file containing the resources.
-class AuraInit {
+class VIEWS_MUS_EXPORT AuraInit {
  public:
-  AuraInit(mojo::ApplicationImpl* app, const std::string& resource_file);
+  AuraInit(mojo::Connector* connector, const std::string& resource_file);
   ~AuraInit();
 
  private:
-  void InitializeResources(mojo::ApplicationImpl* app);
+  void InitializeResources(mojo::Connector* connector);
 
 #if defined(OS_LINUX) && !defined(OS_ANDROID)
   skia::RefPtr<font_service::FontLoader> font_loader_;

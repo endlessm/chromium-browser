@@ -4,6 +4,9 @@
 
 #include "components/bookmarks/test/test_bookmark_client.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
@@ -17,18 +20,26 @@ TestBookmarkClient::TestBookmarkClient() {}
 
 TestBookmarkClient::~TestBookmarkClient() {}
 
+// static
 scoped_ptr<BookmarkModel> TestBookmarkClient::CreateModel() {
-  scoped_ptr<BookmarkModel> bookmark_model(new BookmarkModel(this));
+  return CreateModelWithClient(make_scoped_ptr(new TestBookmarkClient));
+}
+
+// static
+scoped_ptr<BookmarkModel> TestBookmarkClient::CreateModelWithClient(
+    scoped_ptr<BookmarkClient> client) {
+  scoped_ptr<BookmarkModel> bookmark_model(
+      new BookmarkModel(std::move(client)));
   scoped_ptr<BookmarkLoadDetails> details =
       bookmark_model->CreateLoadDetails(std::string());
   details->LoadExtraNodes();
-  bookmark_model->DoneLoading(details.Pass());
-  return bookmark_model.Pass();
+  bookmark_model->DoneLoading(std::move(details));
+  return bookmark_model;
 }
 
 void TestBookmarkClient::SetExtraNodesToLoad(
     BookmarkPermanentNodeList extra_nodes) {
-  extra_nodes_to_load_ = extra_nodes.Pass();
+  extra_nodes_to_load_ = std::move(extra_nodes);
   // Keep a copy in |extra_nodes_| for the acessor.
   extra_nodes_ = extra_nodes_to_load_.get();
 }
@@ -84,8 +95,8 @@ bool TestBookmarkClient::CanBeEditedByUser(const BookmarkNode* node) {
 // static
 BookmarkPermanentNodeList TestBookmarkClient::LoadExtraNodes(
     BookmarkPermanentNodeList extra_nodes,
-    int64* next_id) {
-  return extra_nodes.Pass();
+    int64_t* next_id) {
+  return extra_nodes;
 }
 
 }  // namespace bookmarks

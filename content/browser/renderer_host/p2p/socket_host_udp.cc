@@ -10,6 +10,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "content/browser/renderer_host/p2p/socket_host_throttler.h"
 #include "content/common/p2p_messages.h"
 #include "content/public/browser/content_browser_client.h"
@@ -17,8 +18,7 @@
 #include "ipc/ipc_sender.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
-#include "third_party/webrtc/base/asyncpacketsocket.h"
+#include "third_party/webrtc/media/base/rtputils.h"
 
 namespace {
 
@@ -75,7 +75,7 @@ P2PSocketHostUdp::PendingPacket::PendingPacket(
     const net::IPEndPoint& to,
     const std::vector<char>& content,
     const rtc::PacketOptions& options,
-    uint64 id)
+    uint64_t id)
     : to(to),
       data(new net::IOBuffer(content.size())),
       size(content.size()),
@@ -83,6 +83,9 @@ P2PSocketHostUdp::PendingPacket::PendingPacket(
       id(id) {
   memcpy(data->data(), &content[0], size);
 }
+
+P2PSocketHostUdp::PendingPacket::PendingPacket(const PendingPacket& other) =
+    default;
 
 P2PSocketHostUdp::PendingPacket::~PendingPacket() {
 }
@@ -133,7 +136,8 @@ bool P2PSocketHostUdp::Init(const net::IPEndPoint& local_address,
 
   int result = socket_->Listen(local_address);
   if (result < 0) {
-    LOG(ERROR) << "bind() failed: " << result;
+    LOG(ERROR) << "bind() to " << local_address.ToString()
+               << " failed: " << result;
     OnError();
     return false;
   }
@@ -232,7 +236,7 @@ void P2PSocketHostUdp::HandleReadResult(int result) {
 void P2PSocketHostUdp::Send(const net::IPEndPoint& to,
                             const std::vector<char>& data,
                             const rtc::PacketOptions& options,
-                            uint64 packet_id) {
+                            uint64_t packet_id) {
   if (!socket_) {
     // The Send message may be sent after the an OnError message was
     // sent by hasn't been processed the renderer.
@@ -292,9 +296,10 @@ void P2PSocketHostUdp::DoSend(const PendingPacket& packet) {
   }
 
   base::TimeTicks send_time = base::TimeTicks::Now();
-
-  packet_processing_helpers::ApplyPacketOptions(
-      packet.data->data(), packet.size, packet.packet_options, 0);
+  cricket::ApplyPacketOptions(reinterpret_cast<uint8_t*>(packet.data->data()),
+                              packet.size,
+                              packet.packet_options.packet_time_params,
+                              (send_time - base::TimeTicks()).InMicroseconds());
   auto callback_binding =
       base::Bind(&P2PSocketHostUdp::OnSend, base::Unretained(this), packet.id,
                  packet.packet_options.packet_id, send_time);

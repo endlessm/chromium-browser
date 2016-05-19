@@ -4,9 +4,12 @@
 
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 
+#include <stdint.h>
 #include <set>
+#include <utility>
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -136,7 +139,7 @@ class CertificateProviderServiceTest : public testing::Test {
         cert_info2_(CreateCertInfo("client_2.pem")) {
     scoped_ptr<TestDelegate> test_delegate(new TestDelegate);
     test_delegate_ = test_delegate.get();
-    service_->SetDelegate(test_delegate.Pass());
+    service_->SetDelegate(std::move(test_delegate));
 
     certificate_provider_ = service_->CreateCertificateProvider();
     EXPECT_TRUE(certificate_provider_);
@@ -422,7 +425,7 @@ TEST_F(CertificateProviderServiceTest, UnloadExtensionDuringGetCertificates) {
 TEST_F(CertificateProviderServiceTest, SignRequest) {
   ProvideDefaultCert();
 
-  scoped_ptr<net::SSLPrivateKey> private_key(
+  scoped_refptr<net::SSLPrivateKey> private_key(
       client_key_store_->FetchClientCertPrivateKey(*cert_info1_.certificate));
 
   ASSERT_TRUE(private_key);
@@ -459,7 +462,7 @@ TEST_F(CertificateProviderServiceTest, SignRequest) {
 TEST_F(CertificateProviderServiceTest, UnloadExtensionDuringSign) {
   ProvideDefaultCert();
 
-  scoped_ptr<net::SSLPrivateKey> private_key(
+  scoped_refptr<net::SSLPrivateKey> private_key(
       client_key_store_->FetchClientCertPrivateKey(*cert_info1_.certificate));
   ASSERT_TRUE(private_key);
 

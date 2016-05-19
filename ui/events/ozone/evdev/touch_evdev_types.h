@@ -5,7 +5,8 @@
 #ifndef UI_EVENTS_OZONE_EVDEV_TOUCH_EVDEV_TYPES_H_
 #define UI_EVENTS_OZONE_EVDEV_TOUCH_EVDEV_TYPES_H_
 
-#include "base/basictypes.h"
+#include <stddef.h>
+
 #include "ui/events/event_constants.h"
 #include "ui/events/ozone/evdev/events_ozone_evdev_export.h"
 
@@ -36,6 +37,7 @@ struct EVENTS_OZONE_EVDEV_EXPORT InProgressTouchEvdev {
   float radius_x = 0;
   float radius_y = 0;
   float pressure = 0;
+  int tool_code = 0;
 };
 
 }  // namespace ui

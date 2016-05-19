@@ -4,6 +4,8 @@
 
 #include "ppapi/proxy/ppapi_command_buffer_proxy.h"
 
+#include <utility>
+
 #include "base/numerics/safe_conversions.h"
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/api_id.h"
@@ -18,14 +20,15 @@ PpapiCommandBufferProxy::PpapiCommandBufferProxy(
     PluginDispatcher* dispatcher,
     const gpu::Capabilities& capabilities,
     const SerializedHandle& shared_state,
-    uint64_t command_buffer_id)
+    gpu::CommandBufferId command_buffer_id)
     : command_buffer_id_(command_buffer_id),
       capabilities_(capabilities),
       resource_(resource),
       dispatcher_(dispatcher),
       next_fence_sync_release_(1),
       pending_fence_sync_release_(0),
-      flushed_fence_sync_release_(0) {
+      flushed_fence_sync_release_(0),
+      validated_fence_sync_release_(0) {
   shared_state_shm_.reset(
       new base::SharedMemory(shared_state.shmem(), false));
   shared_state_shm_->Map(shared_state.size());
@@ -47,13 +50,13 @@ gpu::CommandBuffer::State PpapiCommandBufferProxy::GetLastState() {
   return last_state_;
 }
 
-int32 PpapiCommandBufferProxy::GetLastToken() {
+int32_t PpapiCommandBufferProxy::GetLastToken() {
   ppapi::ProxyLock::AssertAcquiredDebugOnly();
   TryUpdateState();
   return last_state_.token;
 }
 
-void PpapiCommandBufferProxy::Flush(int32 put_offset) {
+void PpapiCommandBufferProxy::Flush(int32_t put_offset) {
   if (last_state_.error != gpu::error::kNoError)
     return;
 
@@ -61,7 +64,7 @@ void PpapiCommandBufferProxy::Flush(int32 put_offset) {
   FlushInternal();
 }
 
-void PpapiCommandBufferProxy::OrderingBarrier(int32 put_offset) {
+void PpapiCommandBufferProxy::OrderingBarrier(int32_t put_offset) {
   if (last_state_.error != gpu::error::kNoError)
     return;
 
@@ -75,7 +78,7 @@ void PpapiCommandBufferProxy::OrderingBarrier(int32 put_offset) {
   pending_fence_sync_release_ = next_fence_sync_release_ - 1;
 }
 
-void PpapiCommandBufferProxy::WaitForTokenInRange(int32 start, int32 end) {
+void PpapiCommandBufferProxy::WaitForTokenInRange(int32_t start, int32_t end) {
   TryUpdateState();
   if (!InRange(start, end, last_state_.token) &&
       last_state_.error == gpu::error::kNoError) {
@@ -94,7 +97,8 @@ void PpapiCommandBufferProxy::WaitForTokenInRange(int32 start, int32 end) {
          last_state_.error != gpu::error::kNoError);
 }
 
-void PpapiCommandBufferProxy::WaitForGetOffsetInRange(int32 start, int32 end) {
+void PpapiCommandBufferProxy::WaitForGetOffsetInRange(int32_t start,
+                                                      int32_t end) {
   TryUpdateState();
   if (!InRange(start, end, last_state_.get_offset) &&
       last_state_.error == gpu::error::kNoError) {
@@ -113,7 +117,7 @@ void PpapiCommandBufferProxy::WaitForGetOffsetInRange(int32 start, int32 end) {
          last_state_.error != gpu::error::kNoError);
 }
 
-void PpapiCommandBufferProxy::SetGetBuffer(int32 transfer_buffer_id) {
+void PpapiCommandBufferProxy::SetGetBuffer(int32_t transfer_buffer_id) {
   if (last_state_.error == gpu::error::kNoError) {
     Send(new PpapiHostMsg_PPBGraphics3D_SetGetBuffer(
          ppapi::API_ID_PPB_GRAPHICS_3D, resource_, transfer_buffer_id));
@@ -122,7 +126,7 @@ void PpapiCommandBufferProxy::SetGetBuffer(int32 transfer_buffer_id) {
 
 scoped_refptr<gpu::Buffer> PpapiCommandBufferProxy::CreateTransferBuffer(
     size_t size,
-    int32* id) {
+    int32_t* id) {
   *id = -1;
 
   if (last_state_.error != gpu::error::kNoError)
@@ -159,20 +163,16 @@ scoped_refptr<gpu::Buffer> PpapiCommandBufferProxy::CreateTransferBuffer(
     }
   }
 
-  return gpu::MakeBufferFromSharedMemory(shared_memory.Pass(), handle.size());
+  return gpu::MakeBufferFromSharedMemory(std::move(shared_memory),
+                                         handle.size());
 }
 
-void PpapiCommandBufferProxy::DestroyTransferBuffer(int32 id) {
+void PpapiCommandBufferProxy::DestroyTransferBuffer(int32_t id) {
   if (last_state_.error != gpu::error::kNoError)
     return;
 
   Send(new PpapiHostMsg_PPBGraphics3D_DestroyTransferBuffer(
       ppapi::API_ID_PPB_GRAPHICS_3D, resource_, id));
-}
-
-uint32 PpapiCommandBufferProxy::CreateStreamTexture(uint32 texture_id) {
-  NOTREACHED();
-  return 0;
 }
 
 void PpapiCommandBufferProxy::SetLock(base::Lock*) {
@@ -184,11 +184,18 @@ bool PpapiCommandBufferProxy::IsGpuChannelLost() {
   return false;
 }
 
+void PpapiCommandBufferProxy::EnsureWorkVisible() {
+  DCHECK_GE(flushed_fence_sync_release_, validated_fence_sync_release_);
+  Send(new PpapiHostMsg_PPBGraphics3D_EnsureWorkVisible(
+      ppapi::API_ID_PPB_GRAPHICS_3D, resource_));
+  validated_fence_sync_release_ = flushed_fence_sync_release_;
+}
+
 gpu::CommandBufferNamespace PpapiCommandBufferProxy::GetNamespaceID() const {
   return gpu::CommandBufferNamespace::GPU_IO;
 }
 
-uint64_t PpapiCommandBufferProxy::GetCommandBufferID() const {
+gpu::CommandBufferId PpapiCommandBufferProxy::GetCommandBufferID() const {
   return command_buffer_id_;
 }
 
@@ -205,7 +212,14 @@ bool PpapiCommandBufferProxy::IsFenceSyncFlushed(uint64_t release) {
 }
 
 bool PpapiCommandBufferProxy::IsFenceSyncFlushReceived(uint64_t release) {
-  return IsFenceSyncFlushed(release);
+  if (!IsFenceSyncFlushed(release))
+    return false;
+
+  if (release <= validated_fence_sync_release_)
+    return true;
+
+  EnsureWorkVisible();
+  return release <= validated_fence_sync_release_;
 }
 
 void PpapiCommandBufferProxy::SignalSyncToken(const gpu::SyncToken& sync_token,
@@ -218,42 +232,12 @@ bool PpapiCommandBufferProxy::CanWaitUnverifiedSyncToken(
   return false;
 }
 
-uint32 PpapiCommandBufferProxy::InsertSyncPoint() {
-  uint32 sync_point = 0;
-  if (last_state_.error == gpu::error::kNoError) {
-    Send(new PpapiHostMsg_PPBGraphics3D_InsertSyncPoint(
-         ppapi::API_ID_PPB_GRAPHICS_3D, resource_, &sync_point));
-  }
-  return sync_point;
+int32_t PpapiCommandBufferProxy::GetExtraCommandBufferData() const {
+  return 0;
 }
 
-uint32 PpapiCommandBufferProxy::InsertFutureSyncPoint() {
-  uint32 sync_point = 0;
-  if (last_state_.error == gpu::error::kNoError) {
-    Send(new PpapiHostMsg_PPBGraphics3D_InsertFutureSyncPoint(
-        ppapi::API_ID_PPB_GRAPHICS_3D, resource_, &sync_point));
-  }
-  return sync_point;
-}
-
-void PpapiCommandBufferProxy::RetireSyncPoint(uint32 sync_point) {
-  if (last_state_.error == gpu::error::kNoError) {
-    Send(new PpapiHostMsg_PPBGraphics3D_RetireSyncPoint(
-        ppapi::API_ID_PPB_GRAPHICS_3D, resource_, sync_point));
-  }
-}
-
-void PpapiCommandBufferProxy::SignalSyncPoint(uint32 sync_point,
-                                              const base::Closure& callback) {
-  NOTREACHED();
-}
-
-void PpapiCommandBufferProxy::SignalQuery(uint32 query,
+void PpapiCommandBufferProxy::SignalQuery(uint32_t query,
                                           const base::Closure& callback) {
-  NOTREACHED();
-}
-
-void PpapiCommandBufferProxy::SetSurfaceVisible(bool visible) {
   NOTREACHED();
 }
 
@@ -261,19 +245,19 @@ gpu::Capabilities PpapiCommandBufferProxy::GetCapabilities() {
   return capabilities_;
 }
 
-int32 PpapiCommandBufferProxy::CreateImage(ClientBuffer buffer,
-                                           size_t width,
-                                           size_t height,
-                                           unsigned internalformat) {
+int32_t PpapiCommandBufferProxy::CreateImage(ClientBuffer buffer,
+                                             size_t width,
+                                             size_t height,
+                                             unsigned internalformat) {
   NOTREACHED();
   return -1;
 }
 
-void PpapiCommandBufferProxy::DestroyImage(int32 id) {
+void PpapiCommandBufferProxy::DestroyImage(int32_t id) {
   NOTREACHED();
 }
 
-int32 PpapiCommandBufferProxy::CreateGpuMemoryBufferImage(
+int32_t PpapiCommandBufferProxy::CreateGpuMemoryBufferImage(
     size_t width,
     size_t height,
     unsigned internalformat,

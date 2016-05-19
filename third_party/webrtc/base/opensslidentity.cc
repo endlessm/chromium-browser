@@ -36,12 +36,6 @@ namespace rtc {
 // Random bits for certificate serial number
 static const int SERIAL_RAND_BITS = 64;
 
-// Certificate validity lifetime
-static const int CERTIFICATE_LIFETIME = 60*60*24*30;  // 30 days, arbitrarily
-// Certificate validity window.
-// This is to compensate for slightly incorrect system clocks.
-static const int CERTIFICATE_WINDOW = -60*60*24;
-
 // Generate a key pair. Caller is responsible for freeing the returned object.
 static EVP_PKEY* MakeKey(const KeyParams& key_params) {
   LOG(LS_INFO) << "Making key pair";
@@ -96,6 +90,7 @@ static X509* MakeCertificate(EVP_PKEY* pkey, const SSLIdentityParams& params) {
   X509* x509 = NULL;
   BIGNUM* serial_number = NULL;
   X509_NAME* name = NULL;
+  time_t epoch_off = 0;  // Time offset since epoch.
 
   if ((x509=X509_new()) == NULL)
     goto error;
@@ -130,8 +125,8 @@ static X509* MakeCertificate(EVP_PKEY* pkey, const SSLIdentityParams& params) {
       !X509_set_issuer_name(x509, name))
     goto error;
 
-  if (!X509_gmtime_adj(X509_get_notBefore(x509), params.not_before) ||
-      !X509_gmtime_adj(X509_get_notAfter(x509), params.not_after))
+  if (!X509_time_adj(X509_get_notBefore(x509), params.not_before, &epoch_off) ||
+      !X509_time_adj(X509_get_notAfter(x509), params.not_after, &epoch_off))
     goto error;
 
   if (!X509_sign(x509, pkey, EVP_sha256()))
@@ -373,6 +368,22 @@ void OpenSSLCertificate::AddReference() const {
 #endif
 }
 
+// Documented in sslidentity.h.
+int64_t OpenSSLCertificate::CertificateExpirationTime() const {
+  ASN1_TIME* expire_time = X509_get_notAfter(x509_);
+  bool long_format;
+
+  if (expire_time->type == V_ASN1_UTCTIME) {
+    long_format = false;
+  } else if (expire_time->type == V_ASN1_GENERALIZEDTIME) {
+    long_format = true;
+  } else {
+    return -1;
+  }
+
+  return ASN1TimeToSec(expire_time->data, expire_time->length, long_format);
+}
+
 OpenSSLIdentity::OpenSSLIdentity(OpenSSLKeyPair* key_pair,
                                  OpenSSLCertificate* certificate)
     : key_pair_(key_pair), certificate_(certificate) {
@@ -397,12 +408,15 @@ OpenSSLIdentity* OpenSSLIdentity::GenerateInternal(
 }
 
 OpenSSLIdentity* OpenSSLIdentity::Generate(const std::string& common_name,
-                                           const KeyParams& key_params) {
+                                           const KeyParams& key_params,
+                                           time_t certificate_lifetime) {
   SSLIdentityParams params;
   params.key_params = key_params;
   params.common_name = common_name;
-  params.not_before = CERTIFICATE_WINDOW;
-  params.not_after = CERTIFICATE_LIFETIME;
+  time_t now = time(NULL);
+  params.not_before = now + kCertificateWindow;
+  params.not_after = now + certificate_lifetime;
+  RTC_DCHECK(params.not_before < params.not_after);
   return GenerateInternal(params);
 }
 

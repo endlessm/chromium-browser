@@ -10,9 +10,10 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_change_registrar.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/signin/easy_unlock_service.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/proximity_auth/cryptauth/cryptauth_device_manager.h"
 #include "components/proximity_auth/screenlock_bridge.h"
 #include "google_apis/gaia/oauth2_token_service.h"
@@ -77,7 +78,7 @@ class EasyUnlockServiceRegular
 
   // EasyUnlockService implementation:
   EasyUnlockService::Type GetType() const override;
-  std::string GetUserEmail() const override;
+  AccountId GetAccountId() const override;
   void LaunchSetup() override;
   const base::DictionaryValue* GetPermitAccess() const override;
   void SetPermitAccess(const base::DictionaryValue& permit) override;
@@ -90,9 +91,9 @@ class EasyUnlockServiceRegular
   TurnOffFlowStatus GetTurnOffFlowStatus() const override;
   std::string GetChallenge() const override;
   std::string GetWrappedSecret() const override;
-  void RecordEasySignInOutcome(const std::string& user_id,
+  void RecordEasySignInOutcome(const AccountId& account_id,
                                bool success) const override;
-  void RecordPasswordLoginEvent(const std::string& user_id) const override;
+  void RecordPasswordLoginEvent(const AccountId& account_id) const override;
   void StartAutoPairing(const AutoPairingResultCallback& callback) override;
   void SetAutoPairingResult(bool success, const std::string& error) override;
   void InitializeInternal() override;
@@ -116,8 +117,7 @@ class EasyUnlockServiceRegular
   void OnScreenDidUnlock(
       proximity_auth::ScreenlockBridge::LockHandler::ScreenType screen_type)
       override;
-  void OnFocusedUserChanged(const std::string& user_id) override;
-
+  void OnFocusedUserChanged(const AccountId& account_id) override;
 
   // Callback when the controlling pref changes.
   void OnPrefsChanged();

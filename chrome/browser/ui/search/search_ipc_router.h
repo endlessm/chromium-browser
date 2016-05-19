@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "chrome/common/instant_types.h"
@@ -45,8 +46,7 @@ class SearchIPCRouter : public content::WebContentsObserver {
     // navigate to URLs that are hidden from the page using Restricted IDs (rid
     // in the API).
     virtual void NavigateToURL(const GURL& url,
-                               WindowOpenDisposition disposition,
-                               bool is_most_visited_item_url) = 0;
+                               WindowOpenDisposition disposition) = 0;
 
     // Called when the SearchBox wants to delete a Most Visited item.
     virtual void OnDeleteMostVisitedItem(const GURL& url) = 0;
@@ -109,7 +109,6 @@ class SearchIPCRouter : public content::WebContentsObserver {
     virtual bool ShouldSendSetPromoInformation() = 0;
     virtual bool ShouldSendSetDisplayInstantResults() = 0;
     virtual bool ShouldSendSetSuggestionToPrefetch() = 0;
-    virtual bool ShouldSendSetOmniboxStartMargin() = 0;
     virtual bool ShouldSendSetInputInProgress(bool is_active_tab) = 0;
     virtual bool ShouldSendOmniboxFocusChanged() = 0;
     virtual bool ShouldSendMostVisitedItems() = 0;
@@ -144,10 +143,6 @@ class SearchIPCRouter : public content::WebContentsObserver {
 
   // Tells the page the suggestion to be prefetched if any.
   void SetSuggestionToPrefetch(const InstantSuggestion& suggestion);
-
-  // Tells the page the left margin of the omnibox. This is used by the page to
-  // align text or assets properly with the omnibox.
-  void SetOmniboxStartMargin(int start_margin);
 
   // Tells the page that user input started or stopped.
   void SetInputInProgress(bool input_in_progress);
@@ -194,8 +189,7 @@ class SearchIPCRouter : public content::WebContentsObserver {
   void OnFocusOmnibox(int page_id, OmniboxFocusState state) const;
   void OnSearchBoxNavigate(int page_id,
                            const GURL& url,
-                           WindowOpenDisposition disposition,
-                           bool is_most_visited_item_url) const;
+                           WindowOpenDisposition disposition) const;
   void OnDeleteMostVisitedItem(int page_seq_no, const GURL& url) const;
   void OnUndoMostVisitedDeletion(int page_seq_no, const GURL& url) const;
   void OnUndoAllMostVisitedDeletions(int page_seq_no) const;

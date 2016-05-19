@@ -4,14 +4,18 @@
 
 #include "chrome/browser/profiles/profile_info_cache_unittest.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_avatar_downloader.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
@@ -21,6 +25,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -125,7 +130,7 @@ TEST_F(ProfileInfoCacheTest, AddProfiles) {
   EXPECT_EQ(0u, GetCache()->GetNumberOfProfiles());
 
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  for (uint32 i = 0; i < 4; ++i) {
+  for (uint32_t i = 0; i < 4; ++i) {
     base::FilePath profile_path =
         GetProfilePath(base::StringPrintf("path_%ud", i));
     base::string16 profile_name =
@@ -158,7 +163,7 @@ TEST_F(ProfileInfoCacheTest, AddProfiles) {
   ResetCache();
 
   EXPECT_EQ(4u, GetCache()->GetNumberOfProfiles());
-  for (uint32 i = 0; i < 4; ++i) {
+  for (uint32_t i = 0; i < 4; ++i) {
     base::FilePath profile_path =
           GetProfilePath(base::StringPrintf("path_%ud", i));
     EXPECT_EQ(i, GetCache()->GetIndexOfProfileWithPath(profile_path));
@@ -549,7 +554,7 @@ TEST_F(ProfileInfoCacheTest, AddStubProfile) {
 }
 
 // High res avatar downloading is only supported on desktop.
-#if !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 TEST_F(ProfileInfoCacheTest, DownloadHighResAvatarTest) {
   // The TestingProfileManager's ProfileInfoCache doesn't download avatars.
   ProfileInfoCache profile_info_cache(g_browser_process->local_state(),
@@ -609,7 +614,7 @@ TEST_F(ProfileInfoCacheTest, DownloadHighResAvatarTest) {
   // Clean up.
   EXPECT_NE(std::string::npos, icon_path.MaybeAsASCII().find(file_name));
   EXPECT_TRUE(base::PathExists(icon_path));
-  EXPECT_TRUE(base::DeleteFile(icon_path, true));
+  EXPECT_TRUE(base::DeleteFile(icon_path, false));
   EXPECT_FALSE(base::PathExists(icon_path));
 }
 
@@ -685,7 +690,7 @@ TEST_F(ProfileInfoCacheTest, MigrateLegacyProfileNamesWithNewAvatarMenu) {
 }
 #endif
 
-#if defined(OS_CHROMEOS) || defined(OS_ANDROID) || defined(OS_IOS)
+#if defined(OS_CHROMEOS) || defined(OS_ANDROID)
 TEST_F(ProfileInfoCacheTest,
        DontMigrateLegacyProfileNamesWithoutNewAvatarMenu) {
   EXPECT_EQ(0U, GetCache()->GetNumberOfProfiles());

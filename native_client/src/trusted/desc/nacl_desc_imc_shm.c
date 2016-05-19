@@ -135,8 +135,6 @@ static uintptr_t NaClDescImcShmMap(struct NaClDesc         *vself,
                                    nacl_off64_t            offset) {
   struct NaClDescImcShm  *self = (struct NaClDescImcShm *) vself;
 
-  int           nacl_imc_prot;
-  int           nacl_imc_flags;
   uintptr_t     addr;
   void          *result;
   nacl_off64_t  tmp_off64;
@@ -175,17 +173,6 @@ static uintptr_t NaClDescImcShmMap(struct NaClDesc         *vself,
    * which will later map back into posix-style prot/flags on *x
    * boxen, and to MapViewOfFileEx arguments on Windows.
    */
-  nacl_imc_prot = 0;
-  if (NACL_ABI_PROT_READ & prot) {
-    nacl_imc_prot |= NACL_PROT_READ;
-  }
-  if (NACL_ABI_PROT_WRITE & prot) {
-    nacl_imc_prot |= NACL_PROT_WRITE;
-  }
-  if (NACL_ABI_PROT_EXEC & prot) {
-    nacl_imc_prot |= NACL_PROT_EXEC;
-  }
-  nacl_imc_flags = NACL_MAP_SHARED;
   if (0 == (NACL_ABI_MAP_FIXED & flags)) {
     /* start_addr is a hint, and we just ignore the hint... */
     if (!NaClFindAddressSpace(&addr, len)) {
@@ -194,7 +181,6 @@ static uintptr_t NaClDescImcShmMap(struct NaClDesc         *vself,
     }
     start_addr = (void *) addr;
   }
-  nacl_imc_flags |= NACL_MAP_FIXED;
 
   tmp_off64 = offset + len;
   /* just NaClRoundAllocPage, but in 64 bits */
@@ -209,53 +195,20 @@ static uintptr_t NaClDescImcShmMap(struct NaClDesc         *vself,
   result = NaClMap(effp,
                    (void *) start_addr,
                    len,
-                   nacl_imc_prot,
-                   nacl_imc_flags,
+                   prot,
+                   NACL_ABI_MAP_SHARED | NACL_ABI_MAP_FIXED,
                    self->h,
                    (off_t) offset);
-  if (NACL_MAP_FAILED == result) {
+  if (NACL_ABI_MAP_FAILED == result) {
     return (uintptr_t) -NACL_ABI_E_MOVE_ADDRESS_SPACE;
   }
   if (0 != (NACL_ABI_MAP_FIXED & flags) && result != (void *) start_addr) {
     NaClLog(LOG_FATAL,
-            ("NaClDescImcShmMap: NACL_MAP_FIXED but got %p instead of %p\n"),
+            "NaClDescImcShmMap: NACL_ABI_MAP_FIXED but got %p instead of %p\n",
             result, start_addr);
   }
   return (uintptr_t) start_addr;
 }
-
-#if NACL_WINDOWS
-static int NaClDescImcShmUnmapUnsafe(struct NaClDesc  *vself,
-                                     void             *start_addr,
-                                     size_t           len) {
-  int       retval;
-  uintptr_t addr;
-  uintptr_t end_addr;
-
-  UNREFERENCED_PARAMETER(vself);
-
-  retval = -NACL_ABI_EINVAL;
-
-  for (addr = (uintptr_t) start_addr, end_addr = addr + len;
-       addr < end_addr;
-       addr += NACL_MAP_PAGESIZE) {
-    int       status;
-
-    /*
-     * On windows, we must unmap "properly", since overmapping will
-     * not tear down existing page mappings.
-     */
-    status = NaClUnmap((void *) addr, NACL_MAP_PAGESIZE);
-    if (0 != status) {
-      NaClLog(LOG_FATAL, "NaClDescImcShmUnmapCommon: NaClUnmap failed\n");
-      goto done;
-    }
-  }
-  retval = 0;
-done:
-  return retval;
-}
-#endif
 
 static int NaClDescImcShmFstat(struct NaClDesc         *vself,
                                struct nacl_abi_stat    *stbp) {
@@ -320,11 +273,6 @@ static struct NaClDescVtbl const kNaClDescImcShmVtbl = {
     NaClDescImcShmDtor,
   },
   NaClDescImcShmMap,
-#if NACL_WINDOWS
-  NaClDescImcShmUnmapUnsafe,
-#else
-  NACL_DESC_UNMAP_NOT_IMPLEMENTED
-#endif
   NaClDescReadNotImplemented,
   NaClDescWriteNotImplemented,
   NaClDescSeekNotImplemented,

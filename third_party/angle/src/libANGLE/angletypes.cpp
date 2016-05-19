@@ -62,7 +62,8 @@ TextureState::TextureState()
       baseLevel(0),
       maxLevel(1000),
       immutableFormat(false),
-      immutableLevels(0)
+      immutableLevels(0),
+      usage(GL_NONE)
 {
 }
 
@@ -133,4 +134,13 @@ bool Box::operator!=(const Box &other) const
     return !(*this == other);
 }
 
+bool operator==(const Extents &lhs, const Extents &rhs)
+{
+    return lhs.width == rhs.width && lhs.height == rhs.height && lhs.depth == rhs.depth;
+}
+
+bool operator!=(const Extents &lhs, const Extents &rhs)
+{
+    return !(lhs == rhs);
+}
 }

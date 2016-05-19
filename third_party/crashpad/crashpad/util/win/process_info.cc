@@ -150,11 +150,11 @@ scoped_ptr<uint8_t[]> QueryObject(
 
   if (!NT_SUCCESS(status)) {
     NTSTATUS_LOG(ERROR, status) << "NtQueryObject";
-    return scoped_ptr<uint8_t[]>();
+    return nullptr;
   }
 
   DCHECK_GE(return_length, minimum_size);
-  return buffer.Pass();
+  return buffer;
 }
 
 }  // namespace
@@ -222,9 +222,9 @@ template <class Traits>
 bool ReadProcessData(HANDLE process,
                      WinVMAddress peb_address_vmaddr,
                      ProcessInfo* process_info) {
-  Traits::Pointer peb_address;
+  typename Traits::Pointer peb_address;
   if (!AssignIfInRange(&peb_address, peb_address_vmaddr)) {
-    LOG(ERROR) << base::StringPrintf("peb address 0x%x out of range",
+    LOG(ERROR) << base::StringPrintf("peb address 0x%llx out of range",
                                      peb_address_vmaddr);
     return false;
   }
@@ -273,8 +273,10 @@ bool ReadProcessData(HANDLE process,
   // Walk the PEB LDR structure (doubly-linked list) to get the list of loaded
   // modules. We use this method rather than EnumProcessModules to get the
   // modules in initialization order rather than memory order.
-  Traits::Pointer last = peb_ldr_data.InInitializationOrderModuleList.Blink;
-  for (Traits::Pointer cur = peb_ldr_data.InInitializationOrderModuleList.Flink;
+  typename Traits::Pointer last =
+      peb_ldr_data.InInitializationOrderModuleList.Blink;
+  for (typename Traits::Pointer cur =
+           peb_ldr_data.InInitializationOrderModuleList.Flink;
        ;
        cur = ldr_data_table_entry.InInitializationOrderLinks.Flink) {
     // |cur| is the pointer to the LIST_ENTRY embedded in the
@@ -587,7 +589,8 @@ bool ProcessInfo::Modules(std::vector<Module>* modules) const {
   return true;
 }
 
-const std::vector<MEMORY_BASIC_INFORMATION64>& ProcessInfo::MemoryInfo() const {
+const ProcessInfo::MemoryBasicInformation64Vector& ProcessInfo::MemoryInfo()
+    const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
   return memory_info_;
 }
@@ -627,11 +630,11 @@ const std::vector<ProcessInfo::Handle>& ProcessInfo::Handles() const {
 
 std::vector<CheckedRange<WinVMAddress, WinVMSize>> GetReadableRangesOfMemoryMap(
     const CheckedRange<WinVMAddress, WinVMSize>& range,
-    const std::vector<MEMORY_BASIC_INFORMATION64>& memory_info) {
+    const ProcessInfo::MemoryBasicInformation64Vector& memory_info) {
   using Range = CheckedRange<WinVMAddress, WinVMSize>;
 
   // Find all the ranges that overlap the target range, maintaining their order.
-  std::vector<MEMORY_BASIC_INFORMATION64> overlapping;
+  ProcessInfo::MemoryBasicInformation64Vector overlapping;
   for (const auto& mi : memory_info) {
     static_assert(base::is_same<decltype(mi.BaseAddress), WinVMAddress>::value,
                   "expected range address to be WinVMAddress");

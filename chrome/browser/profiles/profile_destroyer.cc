@@ -10,6 +10,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/render_process_host.h"
 
@@ -18,9 +19,9 @@ namespace {
 #if defined(OS_ANDROID)
 // Set the render host waiting time to 5s on Android, that's the same
 // as an "Application Not Responding" timeout.
-const int64 kTimerDelaySeconds = 5;
+const int64_t kTimerDelaySeconds = 5;
 #else
-const int64 kTimerDelaySeconds = 1;
+const int64_t kTimerDelaySeconds = 1;
 #endif
 
 }  // namespace
@@ -121,12 +122,13 @@ ProfileDestroyer::~ProfileDestroyer() {
   if (profile_)
     DestroyProfileWhenAppropriate(profile_);
 
+#ifdef NDEBUG
   // Don't wait for pending registrations, if any, these hosts are buggy.
   // Note: this can happen, but if so, it's better to crash here than wait
   // for the host to dereference a deleted Profile. http://crbug.com/248625
   CHECK_EQ(0U, num_hosts_) << "Some render process hosts were not "
                            << "destroyed early enough!";
-
+#endif  // NDEBUG
   DCHECK(pending_destroyers_ != NULL);
   DestroyerSet::iterator iter = pending_destroyers_->find(this);
   DCHECK(iter != pending_destroyers_->end());

@@ -4,7 +4,9 @@
 
 #include "ipc/mojo/ipc_channel_mojo.h"
 
+#include <stddef.h>
 #include <stdint.h>
+#include <utility>
 
 #include "base/base_paths.h"
 #include "base/files/file.h"
@@ -16,6 +18,7 @@
 #include "base/test/test_timeouts.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
+#include "build/build_config.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_test_base.h"
 #include "ipc/ipc_test_channel_listener.h"
@@ -147,7 +150,8 @@ class TestChannelListenerWithExtraExpectations
 };
 
 // Times out on Android; see http://crbug.com/502290
-#if defined(OS_ANDROID)
+// Times out on Linux. crbug.com/585784
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 #define MAYBE_ConnectedFromClient DISABLED_ConnectedFromClient
 #else
 #define MAYBE_ConnectedFromClient ConnectedFromClient
@@ -262,7 +266,8 @@ MULTIPROCESS_IPC_TEST_CLIENT_MAIN(IPCChannelMojoErraticTestClient) {
 }
 
 // Times out on Android; see http://crbug.com/502290
-#if defined(OS_ANDROID)
+// Times out on Linux. crbug.com/585784
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 #define MAYBE_SendFailWithPendingMessages DISABLED_SendFailWithPendingMessages
 #else
 #define MAYBE_SendFailWithPendingMessages SendFailWithPendingMessages
@@ -314,8 +319,8 @@ class HandleSendingHelper {
               mojo::WriteMessageRaw(pipe->self.get(), &content[0],
                                     static_cast<uint32_t>(content.size()),
                                     nullptr, 0, 0));
-    EXPECT_TRUE(
-        IPC::MojoMessageHelper::WriteMessagePipeTo(message, pipe->peer.Pass()));
+    EXPECT_TRUE(IPC::MojoMessageHelper::WriteMessagePipeTo(
+        message, std::move(pipe->peer)));
   }
 
   static void WritePipeThenSend(IPC::Sender* sender, TestingMessagePipe* pipe) {
@@ -375,9 +380,10 @@ class HandleSendingHelper {
   static void ReadReceivedFile(const IPC::Message& message,
                                base::PickleIterator* iter) {
     base::ScopedFD fd;
-    scoped_refptr<IPC::MessageAttachment> attachment;
+    scoped_refptr<base::Pickle::Attachment> attachment;
     EXPECT_TRUE(message.ReadAttachment(iter, &attachment));
-    base::File file(attachment->TakePlatformFile());
+    base::File file(static_cast<IPC::MessageAttachment*>(attachment.get())
+                        ->TakePlatformFile());
     std::string content(GetSendingFileContent().size(), ' ');
     file.Read(0, &content[0], content.size());
     EXPECT_EQ(content, GetSendingFileContent());
@@ -408,7 +414,8 @@ class ListenerThatExpectsMessagePipe : public IPC::Listener {
 };
 
 // Times out on Android; see http://crbug.com/502290
-#if defined(OS_ANDROID)
+// Times out on Linux. crbug.com/585784
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 #define MAYBE_SendMessagePipe DISABLED_SendMessagePipe
 #else
 #define MAYBE_SendMessagePipe SendMessagePipe
@@ -505,7 +512,8 @@ void ParamTraitMessagePipeClient(bool receiving_valid_handle,
 }
 
 // Times out on Android; see http://crbug.com/502290
-#if defined(OS_ANDROID)
+// Times out on Linux. crbug.com/585784
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 #define MAYBE_ParamTraitValidMessagePipe DISABLED_ParamTraitValidMessagePipe
 #else
 #define MAYBE_ParamTraitValidMessagePipe ParamTraitValidMessagePipe
@@ -539,7 +547,8 @@ MULTIPROCESS_IPC_TEST_CLIENT_MAIN(ParamTraitValidMessagePipeClient) {
 }
 
 // Times out on Android; see http://crbug.com/502290
-#if defined(OS_ANDROID)
+// Times out on Linux. crbug.com/585784
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 #define MAYBE_ParamTraitInvalidMessagePipe DISABLED_ParamTraitInvalidMessagePipe
 #else
 #define MAYBE_ParamTraitInvalidMessagePipe ParamTraitInvalidMessagePipe
@@ -570,7 +579,13 @@ MULTIPROCESS_IPC_TEST_CLIENT_MAIN(ParamTraitInvalidMessagePipeClient) {
   return 0;
 }
 
-TEST_F(IPCChannelMojoTest, SendFailAfterClose) {
+// Times out on Linux. crbug.com/585784
+#if defined(OS_LINUX)
+#define MAYBE_SendFailAfterClose DISABLED_SendFailAfterClose
+#else
+#define MAYBE_SendFailAfterClose SendFailAfterClose
+#endif
+TEST_F(IPCChannelMojoTest, MAYBE_SendFailAfterClose) {
   InitWithMojo("IPCChannelMojoTestSendOkClient");
 
   ListenerThatExpectsOK listener;
@@ -639,7 +654,13 @@ class IPCChannelMojoDeadHandleTest : public IPCChannelMojoTestBase {
   }
 };
 
-TEST_F(IPCChannelMojoDeadHandleTest, InvalidClientHandle) {
+// Times out on Linux. crbug.com/585784
+#if defined(OS_LINUX)
+#define MAYBE_InvalidClientHandle DISABLED_InvalidClientHandle
+#else
+#define MAYBE_InvalidClientHandle InvalidClientHandle
+#endif
+TEST_F(IPCChannelMojoDeadHandleTest, MAYBE_InvalidClientHandle) {
   // Any client type is fine as it is going to be killed anyway.
   InitWithMojo("IPCChannelMojoTestDoNothingClient");
 
@@ -702,7 +723,8 @@ class ListenerThatExpectsFile : public IPC::Listener {
 };
 
 // Times out on Android; see http://crbug.com/502290
-#if defined(OS_ANDROID)
+// Times out on Linux. crbug.com/585784
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 #define MAYBE_SendPlatformHandle DISABLED_SendPlatformHandle
 #else
 #define MAYBE_SendPlatformHandle SendPlatformHandle
@@ -765,7 +787,8 @@ class ListenerThatExpectsFileAndPipe : public IPC::Listener {
 };
 
 // Times out on Android; see http://crbug.com/502290
-#if defined(OS_ANDROID)
+// Times out on Linux. crbug.com/585784
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 #define MAYBE_SendPlatformHandleAndPipe DISABLED_SendPlatformHandleAndPipe
 #else
 #define MAYBE_SendPlatformHandleAndPipe SendPlatformHandleAndPipe
@@ -825,7 +848,13 @@ class ListenerThatVerifiesPeerPid : public IPC::Listener {
   }
 };
 
-TEST_F(IPCChannelMojoTest, VerifyGlobalPid) {
+// Times out on Linux. crbug.com/585784
+#if defined(OS_LINUX)
+#define MAYBE_VerifyGlobalPid DISABLED_VerifyGlobalPid
+#else
+#define MAYBE_VerifyGlobalPid VerifyGlobalPid
+#endif
+TEST_F(IPCChannelMojoTest, MAYBE_VerifyGlobalPid) {
   InitWithMojo("IPCChannelMojoTestVerifyGlobalPidClient");
 
   ListenerThatVerifiesPeerPid listener;

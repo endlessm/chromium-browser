@@ -4,6 +4,9 @@
 
 #include "content/child/service_worker/web_service_worker_impl.h"
 
+#include <utility>
+
+#include "base/macros.h"
 #include "content/child/service_worker/service_worker_dispatcher.h"
 #include "content/child/service_worker/service_worker_handle_reference.h"
 #include "content/child/thread_safe_sender.h"
@@ -11,10 +14,12 @@
 #include "content/common/service_worker/service_worker_messages.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerProxy.h"
+#include "third_party/WebKit/public/web/WebRuntimeFeatures.h"
 
 using blink::WebMessagePortChannel;
 using blink::WebMessagePortChannelArray;
 using blink::WebMessagePortChannelClient;
+using blink::WebRuntimeFeatures;
 using blink::WebString;
 
 namespace content {
@@ -40,9 +45,17 @@ void SendPostMessageToWorkerOnMainThread(
     int handle_id,
     const base::string16& message,
     scoped_ptr<WebMessagePortChannelArray> channels) {
-  thread_safe_sender->Send(new ServiceWorkerHostMsg_PostMessageToWorker(
-      handle_id, message,
-      WebMessagePortChannelImpl::ExtractMessagePortIDs(channels.Pass())));
+  if (WebRuntimeFeatures::isServiceWorkerExtendableMessageEventEnabled()) {
+    thread_safe_sender->Send(new ServiceWorkerHostMsg_PostMessageToWorker(
+        handle_id, message,
+        WebMessagePortChannelImpl::ExtractMessagePortIDs(std::move(channels))));
+  } else {
+    thread_safe_sender->Send(
+        new ServiceWorkerHostMsg_DeprecatedPostMessageToWorker(
+            handle_id, message,
+            WebMessagePortChannelImpl::ExtractMessagePortIDs(
+                std::move(channels))));
+  }
 }
 
 }  // namespace
@@ -50,7 +63,7 @@ void SendPostMessageToWorkerOnMainThread(
 WebServiceWorkerImpl::WebServiceWorkerImpl(
     scoped_ptr<ServiceWorkerHandleReference> handle_ref,
     ThreadSafeSender* thread_safe_sender)
-    : handle_ref_(handle_ref.Pass()),
+    : handle_ref_(std::move(handle_ref)),
       state_(handle_ref_->state()),
       thread_safe_sender_(thread_safe_sender),
       proxy_(nullptr) {

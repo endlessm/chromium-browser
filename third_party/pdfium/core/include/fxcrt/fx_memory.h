@@ -7,15 +7,17 @@
 #ifndef CORE_INCLUDE_FXCRT_FX_MEMORY_H_
 #define CORE_INCLUDE_FXCRT_FX_MEMORY_H_
 
-#include "fx_system.h"
+#include "core/include/fxcrt/fx_system.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 // For external C libraries to malloc through PDFium. These may return NULL.
 void* FXMEM_DefaultAlloc(size_t byte_size, int flags);
 void* FXMEM_DefaultRealloc(void* pointer, size_t new_size, int flags);
 void FXMEM_DefaultFree(void* pointer, int flags);
+
 #ifdef __cplusplus
 }  // extern "C"
 

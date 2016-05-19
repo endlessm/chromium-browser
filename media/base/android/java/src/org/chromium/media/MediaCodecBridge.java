@@ -9,8 +9,6 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.MediaCodec;
-import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
 import android.os.Build;
@@ -20,11 +18,9 @@ import android.view.Surface;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.MainDex;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * A wrapper of the MediaCodec class to facilitate exception capturing and
@@ -47,10 +43,6 @@ class MediaCodecBridge {
     private static final int MEDIA_CODEC_ABORT = 8;
     private static final int MEDIA_CODEC_ERROR = 9;
 
-    // Codec direction.  Keep this in sync with media_codec_bridge.h.
-    private static final int MEDIA_CODEC_DECODER = 0;
-    private static final int MEDIA_CODEC_ENCODER = 1;
-
     // Max adaptive playback size to be supplied to the decoder.
     private static final int MAX_ADAPTIVE_PLAYBACK_WIDTH = 1920;
     private static final int MAX_ADAPTIVE_PLAYBACK_HEIGHT = 1080;
@@ -62,6 +54,9 @@ class MediaCodecBridge {
     // after a flush. And we set the presentation timestamp from dequeueOutputBuffer() to be
     // non-decreasing for the remaining frames.
     private static final long MAX_PRESENTATION_TIMESTAMP_SHIFT_US = 100000;
+
+    // We use only one output audio format (PCM16) that has 2 bytes per sample
+    private static final int PCM16_BYTES_PER_SAMPLE = 2;
 
     // TODO(qinmin): Use MediaFormat constants when part of the public API.
     private static final String KEY_CROP_LEFT = "crop-left";
@@ -80,6 +75,7 @@ class MediaCodecBridge {
     private String mMime;
     private boolean mAdaptivePlaybackSupported;
 
+    @MainDex
     private static class DequeueInputResult {
         private final int mStatus;
         private final int mIndex;
@@ -100,37 +96,7 @@ class MediaCodecBridge {
         }
     }
 
-    /**
-     * This class represents supported android codec information.
-     */
-    private static class CodecInfo {
-        private final String mCodecType;  // e.g. "video/x-vnd.on2.vp8".
-        private final String mCodecName;  // e.g. "OMX.google.vp8.decoder".
-        private final int mDirection;
-
-        private CodecInfo(String codecType, String codecName,
-                          int direction) {
-            mCodecType = codecType;
-            mCodecName = codecName;
-            mDirection = direction;
-        }
-
-        @CalledByNative("CodecInfo")
-        private String codecType() {
-            return mCodecType;
-        }
-
-        @CalledByNative("CodecInfo")
-        private String codecName() {
-            return mCodecName;
-        }
-
-        @CalledByNative("CodecInfo")
-        private int direction() {
-            return mDirection;
-        }
-    }
-
+    @MainDex
     private static class DequeueOutputResult {
         private final int mStatus;
         private final int mIndex;
@@ -180,123 +146,46 @@ class MediaCodecBridge {
         }
     }
 
-    /**
-     * Get a list of supported android codec mimes.
-     */
-    @SuppressWarnings("deprecation")
-    @CalledByNative
-    private static CodecInfo[] getCodecsInfo() {
-        // Return the first (highest-priority) codec for each MIME type.
-        Map<String, CodecInfo> encoderInfoMap = new HashMap<String, CodecInfo>();
-        Map<String, CodecInfo> decoderInfoMap = new HashMap<String, CodecInfo>();
-        int count = MediaCodecList.getCodecCount();
-        for (int i = 0; i < count; ++i) {
-            MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
-            int direction =
-                    info.isEncoder() ? MEDIA_CODEC_ENCODER : MEDIA_CODEC_DECODER;
-            String codecString = info.getName();
-            String[] supportedTypes = info.getSupportedTypes();
-            for (int j = 0; j < supportedTypes.length; ++j) {
-                Map<String, CodecInfo> map = info.isEncoder() ? encoderInfoMap : decoderInfoMap;
-                if (!map.containsKey(supportedTypes[j])) {
-                    map.put(supportedTypes[j], new CodecInfo(
-                            supportedTypes[j], codecString, direction));
-                }
-            }
-        }
-        ArrayList<CodecInfo> codecInfos = new ArrayList<CodecInfo>(
-                decoderInfoMap.size() + encoderInfoMap.size());
-        codecInfos.addAll(encoderInfoMap.values());
-        codecInfos.addAll(decoderInfoMap.values());
-        return codecInfos.toArray(new CodecInfo[codecInfos.size()]);
-    }
+    /** A wrapper around a MediaFormat. */
+    @MainDex
+    private static class GetOutputFormatResult {
+        private final int mStatus;
+        // May be null if mStatus is not MEDIA_CODEC_OK.
+        private final MediaFormat mFormat;
 
-    /**
-     * Get a name of default android codec.
-     */
-    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
-    @SuppressWarnings("deprecation")
-    @CalledByNative
-    private static String getDefaultCodecName(String mime, int direction) {
-        String codecName = "";
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
-            try {
-                MediaCodec mediaCodec = null;
-                if (direction == MEDIA_CODEC_ENCODER) {
-                    mediaCodec = MediaCodec.createEncoderByType(mime);
-                } else {
-                    mediaCodec = MediaCodec.createDecoderByType(mime);
-                }
-                codecName = mediaCodec.getName();
-                mediaCodec.release();
-            } catch (Exception e) {
-                Log.w(TAG, "getDefaultCodecName: Failed to create MediaCodec: %s, direction: %d",
-                        mime, direction, e);
-            }
-        }
-        return codecName;
-    }
-
-    /**
-     * Get a list of encoder supported color formats for specified mime type.
-     */
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    @SuppressWarnings("deprecation")
-    @CalledByNative
-    private static int[] getEncoderColorFormatsForMime(String mime) {
-        MediaCodecInfo[] codecs = null;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            MediaCodecList mediaCodecList = new MediaCodecList(MediaCodecList.ALL_CODECS);
-            codecs = mediaCodecList.getCodecInfos();
-        } else {
-            int count = MediaCodecList.getCodecCount();
-            if (count <= 0) {
-                return null;
-            }
-            codecs = new MediaCodecInfo[count];
-            for (int i = 0; i < count; ++i) {
-                MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
-                codecs[i] = info;
-            }
+        private GetOutputFormatResult(int status, MediaFormat format) {
+            mStatus = status;
+            mFormat = format;
         }
 
-        for (int i = 0; i < codecs.length; i++) {
-            if (!codecs[i].isEncoder()) {
-                continue;
-            }
-
-            String[] supportedTypes = codecs[i].getSupportedTypes();
-            for (int j = 0; j < supportedTypes.length; ++j) {
-                if (!supportedTypes[j].equalsIgnoreCase(mime)) {
-                    continue;
-                }
-
-                MediaCodecInfo.CodecCapabilities capabilities =
-                        codecs[i].getCapabilitiesForType(mime);
-                return capabilities.colorFormats;
-            }
-        }
-        return null;
-    }
-
-    @SuppressWarnings("deprecation")
-    private static String getDecoderNameForMime(String mime) {
-        int count = MediaCodecList.getCodecCount();
-        for (int i = 0; i < count; ++i) {
-            MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
-            if (info.isEncoder()) {
-                continue;
-            }
-
-            String[] supportedTypes = info.getSupportedTypes();
-            for (int j = 0; j < supportedTypes.length; ++j) {
-                if (supportedTypes[j].equalsIgnoreCase(mime)) {
-                    return info.getName();
-                }
-            }
+        private boolean formatHasCropValues() {
+            return mFormat.containsKey(KEY_CROP_RIGHT) && mFormat.containsKey(KEY_CROP_LEFT)
+                    && mFormat.containsKey(KEY_CROP_BOTTOM) && mFormat.containsKey(KEY_CROP_TOP);
         }
 
-        return null;
+        @CalledByNative("GetOutputFormatResult")
+        private int status() {
+            return mStatus;
+        }
+
+        @CalledByNative("GetOutputFormatResult")
+        private int width() {
+            return formatHasCropValues()
+                    ? mFormat.getInteger(KEY_CROP_RIGHT) - mFormat.getInteger(KEY_CROP_LEFT) + 1
+                    : mFormat.getInteger(MediaFormat.KEY_WIDTH);
+        }
+
+        @CalledByNative("GetOutputFormatResult")
+        private int height() {
+            return formatHasCropValues()
+                    ? mFormat.getInteger(KEY_CROP_BOTTOM) - mFormat.getInteger(KEY_CROP_TOP) + 1
+                    : mFormat.getInteger(MediaFormat.KEY_HEIGHT);
+        }
+
+        @CalledByNative("GetOutputFormatResult")
+        private int sampleRate() {
+            return mFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+        }
     }
 
     private MediaCodecBridge(
@@ -312,46 +201,23 @@ class MediaCodecBridge {
 
     @CalledByNative
     private static MediaCodecBridge create(String mime, boolean isSecure, int direction) {
-        // Creation of ".secure" codecs sometimes crash instead of throwing exceptions
-        // on pre-JBMR2 devices.
-        if (isSecure && Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
-            return null;
-        }
-        MediaCodec mediaCodec = null;
-        boolean adaptivePlaybackSupported = false;
+        MediaCodecUtil.CodecCreationInfo info = new MediaCodecUtil.CodecCreationInfo();
         try {
-            // |isSecure| only applies to video decoders.
-            if (mime.startsWith("video") && isSecure && direction == MEDIA_CODEC_DECODER) {
-                String decoderName = getDecoderNameForMime(mime);
-                if (decoderName == null) {
-                    return null;
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                    // To work around an issue that we cannot get the codec info from the secure
-                    // decoder, create an insecure decoder first so that we can query its codec
-                    // info. http://b/15587335.
-                    MediaCodec insecureCodec = MediaCodec.createByCodecName(decoderName);
-                    adaptivePlaybackSupported = codecSupportsAdaptivePlayback(insecureCodec, mime);
-                    insecureCodec.release();
-                }
-                mediaCodec = MediaCodec.createByCodecName(decoderName + ".secure");
+            if (direction == MediaCodecUtil.MEDIA_CODEC_ENCODER) {
+                info.mediaCodec = MediaCodec.createEncoderByType(mime);
+                info.supportsAdaptivePlayback = false;
             } else {
-                if (direction == MEDIA_CODEC_ENCODER) {
-                    mediaCodec = MediaCodec.createEncoderByType(mime);
-                } else {
-                    mediaCodec = MediaCodec.createDecoderByType(mime);
-                    adaptivePlaybackSupported = codecSupportsAdaptivePlayback(mediaCodec, mime);
-                }
+                // |isSecure| only applies to video decoders.
+                info = MediaCodecUtil.createDecoder(mime, isSecure);
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to create MediaCodec: %s, isSecure: %s, direction: %d",
                     mime, isSecure, direction, e);
         }
 
-        if (mediaCodec == null) {
-            return null;
-        }
-        return new MediaCodecBridge(mediaCodec, mime, adaptivePlaybackSupported);
+        if (info.mediaCodec == null) return null;
+
+        return new MediaCodecBridge(info.mediaCodec, mime, info.supportsAdaptivePlayback);
     }
 
     @CalledByNative
@@ -434,57 +300,45 @@ class MediaCodecBridge {
         }
     }
 
-    private boolean outputFormatHasCropValues(MediaFormat format) {
-        return format.containsKey(KEY_CROP_RIGHT) && format.containsKey(KEY_CROP_LEFT)
-                && format.containsKey(KEY_CROP_BOTTOM) && format.containsKey(KEY_CROP_TOP);
-    }
-
     @CalledByNative
-    private int getOutputHeight() {
-        MediaFormat format = mMediaCodec.getOutputFormat();
-        return outputFormatHasCropValues(format)
-                ? format.getInteger(KEY_CROP_BOTTOM) - format.getInteger(KEY_CROP_TOP) + 1
-                : format.getInteger(MediaFormat.KEY_HEIGHT);
+    private GetOutputFormatResult getOutputFormat() {
+        MediaFormat format = null;
+        int status = MEDIA_CODEC_OK;
+        try {
+            format = mMediaCodec.getOutputFormat();
+        } catch (IllegalStateException e) {
+            Log.e(TAG, "Failed to get output format", e);
+            status = MEDIA_CODEC_ERROR;
+        }
+        return new GetOutputFormatResult(status, format);
     }
 
-    @CalledByNative
-    private int getOutputWidth() {
-        MediaFormat format = mMediaCodec.getOutputFormat();
-        return outputFormatHasCropValues(format)
-                ? format.getInteger(KEY_CROP_RIGHT) - format.getInteger(KEY_CROP_LEFT) + 1
-                : format.getInteger(MediaFormat.KEY_WIDTH);
-    }
-
-    @CalledByNative
-    private int getOutputSamplingRate() {
-        MediaFormat format = mMediaCodec.getOutputFormat();
-        return format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
-    }
-
+    /** Returns null if MediaCodec throws IllegalStateException. */
     @CalledByNative
     private ByteBuffer getInputBuffer(int index) {
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-            return mMediaCodec.getInputBuffer(index);
+            try {
+                return mMediaCodec.getInputBuffer(index);
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Failed to get input buffer", e);
+                return null;
+            }
         }
         return mInputBuffers[index];
     }
 
+    /** Returns null if MediaCodec throws IllegalStateException. */
     @CalledByNative
     private ByteBuffer getOutputBuffer(int index) {
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-            return mMediaCodec.getOutputBuffer(index);
+            try {
+                return mMediaCodec.getOutputBuffer(index);
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Failed to get output buffer", e);
+                return null;
+            }
         }
         return mOutputBuffers[index];
-    }
-
-    @CalledByNative
-    private int getOutputBuffersCount() {
-        return mOutputBuffers != null ? mOutputBuffers.length : -1;
-    }
-
-    @CalledByNative
-    private int getOutputBuffersCapacity() {
-        return mOutputBuffers != null ? mOutputBuffers[0].capacity() : -1;
     }
 
     @CalledByNative
@@ -492,9 +346,6 @@ class MediaCodecBridge {
             int index, int offset, int size, long presentationTimeUs, int flags) {
         resetLastPresentationTimeIfNeeded(presentationTimeUs);
         try {
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                mMediaCodec.getInputBuffer(index);
-            }
             mMediaCodec.queueInputBuffer(index, offset, size, presentationTimeUs, flags);
         } catch (Exception e) {
             Log.e(TAG, "Failed to queue input buffer", e);
@@ -530,12 +381,12 @@ class MediaCodecBridge {
                     keyId, iv, MediaCodec.CRYPTO_MODE_AES_CTR);
             mMediaCodec.queueSecureInputBuffer(index, offset, cryptoInfo, presentationTimeUs, 0);
         } catch (MediaCodec.CryptoException e) {
-            Log.e(TAG, "Failed to queue secure input buffer", e);
             if (e.getErrorCode() == MediaCodec.CryptoException.ERROR_NO_KEY) {
-                Log.e(TAG, "MediaCodec.CryptoException.ERROR_NO_KEY");
+                Log.d(TAG, "Failed to queue secure input buffer: CryptoException.ERROR_NO_KEY");
                 return MEDIA_CODEC_NO_KEY;
             }
-            Log.e(TAG, "MediaCodec.CryptoException with error code " + e.getErrorCode());
+            Log.e(TAG, "Failed to queue secure input buffer, CryptoException with error code "
+                            + e.getErrorCode());
             return MEDIA_CODEC_ERROR;
         } catch (IllegalStateException e) {
             Log.e(TAG, "Failed to queue secure input buffer, IllegalStateException " + e);
@@ -547,9 +398,6 @@ class MediaCodecBridge {
     @CalledByNative
     private void releaseOutputBuffer(int index, boolean render) {
         try {
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                mMediaCodec.getOutputBuffer(index);
-            }
             mMediaCodec.releaseOutputBuffer(index, render);
         } catch (IllegalStateException e) {
             // TODO(qinmin): May need to report the error to the caller. crbug.com/356498.
@@ -577,6 +425,7 @@ class MediaCodecBridge {
                 status = MEDIA_CODEC_OK;
                 index = indexOrStatus;
             } else if (indexOrStatus == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+                assert Build.VERSION.SDK_INT <= Build.VERSION_CODES.KITKAT;
                 mOutputBuffers = mMediaCodec.getOutputBuffers();
                 status = MEDIA_CODEC_OUTPUT_BUFFERS_CHANGED;
             } else if (indexOrStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -604,9 +453,9 @@ class MediaCodecBridge {
 
     @CalledByNative
     private boolean configureVideo(MediaFormat format, Surface surface, MediaCrypto crypto,
-            int flags) {
+            int flags, boolean allowAdaptivePlayback) {
         try {
-            if (mAdaptivePlaybackSupported) {
+            if (mAdaptivePlaybackSupported && allowAdaptivePlayback) {
                 format.setInteger(MediaFormat.KEY_MAX_WIDTH, MAX_ADAPTIVE_PLAYBACK_WIDTH);
                 format.setInteger(MediaFormat.KEY_MAX_HEIGHT, MAX_ADAPTIVE_PLAYBACK_HEIGHT);
             }
@@ -649,25 +498,6 @@ class MediaCodecBridge {
     private boolean isAdaptivePlaybackSupported(int width, int height) {
         if (!mAdaptivePlaybackSupported) return false;
         return width <= MAX_ADAPTIVE_PLAYBACK_WIDTH && height <= MAX_ADAPTIVE_PLAYBACK_HEIGHT;
-    }
-
-    @TargetApi(Build.VERSION_CODES.KITKAT)
-    private static boolean codecSupportsAdaptivePlayback(MediaCodec mediaCodec, String mime) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT || mediaCodec == null) {
-            return false;
-        }
-        try {
-            MediaCodecInfo info = mediaCodec.getCodecInfo();
-            if (info.isEncoder()) {
-                return false;
-            }
-            MediaCodecInfo.CodecCapabilities capabilities = info.getCapabilitiesForType(mime);
-            return (capabilities != null) && capabilities.isFeatureSupported(
-                    MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Cannot retrieve codec information", e);
-        }
-        return false;
     }
 
     @CalledByNative
@@ -713,8 +543,22 @@ class MediaCodecBridge {
                 // kBytesPerAudioOutputSample in media_codec_bridge.cc.
                 int minBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig,
                         AudioFormat.ENCODING_PCM_16BIT);
+
+                // Set buffer size to be at least 1.5 times the minimum buffer size
+                // (see http://crbug.com/589269).
+                // TODO(timav, qinmin): For MediaSourcePlayer, we starts both audio and
+                // video decoder once we got valid presentation timestamp from the decoder
+                // (prerolling_==false). However, this doesn't guarantee that audiotrack
+                // starts outputing samples, especially with a larger buffersize.
+                // The best solution will be having a large buffer size in AudioTrack, and
+                // sync audio/video start when audiotrack starts output samples
+                // (head position starts progressing).
+                int minBufferSizeInFrames = minBufferSize / PCM16_BYTES_PER_SAMPLE / channelCount;
+                int bufferSize =
+                        (int) (1.5 * minBufferSizeInFrames) * PCM16_BYTES_PER_SAMPLE * channelCount;
+
                 mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig,
-                        AudioFormat.ENCODING_PCM_16BIT, minBufferSize, AudioTrack.MODE_STREAM);
+                        AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM);
                 if (mAudioTrack.getState() == AudioTrack.STATE_UNINITIALIZED) {
                     Log.e(TAG, "Cannot create AudioTrack");
                     mAudioTrack = null;

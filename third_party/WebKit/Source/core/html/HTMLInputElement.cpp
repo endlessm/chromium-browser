@@ -26,13 +26,11 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLInputElement.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/ScriptEventListener.h"
-#include "bindings/core/v8/V8DOMActivityLogger.h"
 #include "core/CSSPropertyNames.h"
 #include "core/HTMLNames.h"
 #include "core/InputTypeNames.h"
@@ -105,7 +103,7 @@ HTMLInputElement::HTMLInputElement(Document& document, HTMLFormElement* form, bo
     : HTMLTextFormControlElement(inputTag, document, form)
     , m_size(defaultSize)
     , m_maxLength(maximumLength)
-    , m_minLength(0)
+    , m_minLength(-1)
     , m_maxResults(-1)
     , m_isChecked(false)
     , m_reflectsCheckedAttribute(true)
@@ -177,8 +175,10 @@ HTMLInputElement::~HTMLInputElement()
     // We should unregister it to avoid accessing a deleted object.
     if (type() == InputTypeNames::radio)
         document().formController().radioButtonGroupScope().removeButton(this);
+
+    // TODO(dtapuska): Make this passive touch listener see crbug.com/584438
     if (m_hasTouchEventHandler && document().frameHost())
-        document().frameHost()->eventHandlerRegistry().didRemoveEventHandler(*this, EventHandlerRegistry::TouchEvent);
+        document().frameHost()->eventHandlerRegistry().didRemoveEventHandler(*this, EventHandlerRegistry::TouchEventBlocking);
 #endif
 }
 
@@ -273,7 +273,14 @@ String HTMLInputElement::validationMessage() const
     if (customError())
         return customValidationMessage();
 
-    return m_inputType->validationMessage();
+    return m_inputType->validationMessage().first;
+}
+
+String HTMLInputElement::validationSubMessage() const
+{
+    if (!willValidate() || customError())
+        return String();
+    return m_inputType->validationMessage().second;
 }
 
 double HTMLInputElement::minimum() const
@@ -352,10 +359,7 @@ void HTMLInputElement::updateFocusAppearance(SelectionBehaviorOnFocus selectionB
             restoreCachedSelection();
             break;
         case SelectionBehaviorOnFocus::None:
-            // |None| is used only for FocusController::setFocusedElement and
-            // Document::setFocusedElement, and they don't call
-            // updateFocusAppearance().
-            ASSERT_NOT_REACHED();
+            return;
         }
         if (document().frame())
             document().frame()->selection().revealSelection();
@@ -424,10 +428,11 @@ void HTMLInputElement::updateTouchEventHandlerRegistry()
     // If the Document is being or has been stopped, don't register any handlers.
     if (document().frameHost() && document().lifecycle().state() < DocumentLifecycle::Stopping) {
         EventHandlerRegistry& registry = document().frameHost()->eventHandlerRegistry();
+        // TODO(dtapuska): Make this passive touch listener see crbug.com/584438
         if (hasTouchEventHandler)
-            registry.didAddEventHandler(*this, EventHandlerRegistry::TouchEvent);
+            registry.didAddEventHandler(*this, EventHandlerRegistry::TouchEventBlocking);
         else
-            registry.didRemoveEventHandler(*this, EventHandlerRegistry::TouchEvent);
+            registry.didRemoveEventHandler(*this, EventHandlerRegistry::TouchEventBlocking);
         m_hasTouchEventHandler = hasTouchEventHandler;
     }
 }
@@ -506,11 +511,11 @@ void HTMLInputElement::updateType()
         ASSERT(elementData());
         AttributeCollection attributes = attributesWithoutUpdate();
         if (const Attribute* height = attributes.find(heightAttr))
-            attributeChanged(heightAttr, height->value());
+            HTMLTextFormControlElement::attributeChanged(heightAttr, height->value(), height->value());
         if (const Attribute* width = attributes.find(widthAttr))
-            attributeChanged(widthAttr, width->value());
+            HTMLTextFormControlElement::attributeChanged(widthAttr, width->value(), width->value());
         if (const Attribute* align = attributes.find(alignAttr))
-            attributeChanged(alignAttr, align->value());
+            HTMLTextFormControlElement::attributeChanged(alignAttr, align->value(), align->value());
     }
 
     if (document().focusedElement() == this)
@@ -671,23 +676,7 @@ void HTMLInputElement::collectStyleForPresentationAttribute(const QualifiedName&
     }
 }
 
-void HTMLInputElement::attributeWillChange(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& newValue)
-{
-    if (name == formactionAttr && inDocument()) {
-        V8DOMActivityLogger* activityLogger = V8DOMActivityLogger::currentActivityLoggerIfIsolatedWorld();
-        if (activityLogger) {
-            Vector<String> argv;
-            argv.append("input");
-            argv.append(formactionAttr.toString());
-            argv.append(oldValue);
-            argv.append(newValue);
-            activityLogger->logEvent("blinkSetAttribute", argv.size(), argv.data());
-        }
-    }
-    HTMLTextFormControlElement::attributeWillChange(name, oldValue, newValue);
-}
-
-void HTMLInputElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void HTMLInputElement::parseAttribute(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& value)
 {
     ASSERT(m_inputType);
     ASSERT(m_inputTypeView);
@@ -696,7 +685,7 @@ void HTMLInputElement::parseAttribute(const QualifiedName& name, const AtomicStr
         removeFromRadioButtonGroup();
         m_name = value;
         addToRadioButtonGroup();
-        HTMLTextFormControlElement::parseAttribute(name, value);
+        HTMLTextFormControlElement::parseAttribute(name, oldValue, value);
     } else if (name == autocompleteAttr) {
         if (equalIgnoringCase(value, "off")) {
             m_autocomplete = Off;
@@ -754,12 +743,10 @@ void HTMLInputElement::parseAttribute(const QualifiedName& name, const AtomicStr
         m_maxResults = !value.isNull() ? std::min(value.toInt(), maxSavedResults) : -1;
         // FIXME: Detaching just for maxResults change is not ideal.  We should figure out the right
         // time to relayout for this change.
-        if (m_maxResults != oldResults && (m_maxResults <= 0 || oldResults <= 0))
+        if ((m_maxResults < 0) != (oldResults < 0))
             lazyReattachIfAttached();
-        setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::fromAttribute(resultsAttr));
         UseCounter::count(document(), UseCounter::ResultsAttribute);
     } else if (name == incrementalAttr) {
-        setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::fromAttribute(incrementalAttr));
         UseCounter::count(document(), UseCounter::IncrementalAttribute);
     } else if (name == minAttr) {
         m_inputTypeView->minOrMaxAttributeChanged();
@@ -782,10 +769,10 @@ void HTMLInputElement::parseAttribute(const QualifiedName& name, const AtomicStr
         setNeedsValidityCheck();
         UseCounter::count(document(), UseCounter::PatternAttribute);
     } else if (name == disabledAttr) {
-        HTMLTextFormControlElement::parseAttribute(name, value);
+        HTMLTextFormControlElement::parseAttribute(name, oldValue, value);
         m_inputTypeView->disabledAttributeChanged();
     } else if (name == readonlyAttr) {
-        HTMLTextFormControlElement::parseAttribute(name, value);
+        HTMLTextFormControlElement::parseAttribute(name, oldValue, value);
         m_inputTypeView->readonlyAttributeChanged();
     } else if (name == listAttr) {
         m_hasNonEmptyList = !value.isEmpty();
@@ -795,10 +782,12 @@ void HTMLInputElement::parseAttribute(const QualifiedName& name, const AtomicStr
         }
         UseCounter::count(document(), UseCounter::ListAttribute);
     } else if (name == webkitdirectoryAttr) {
-        HTMLTextFormControlElement::parseAttribute(name, value);
+        HTMLTextFormControlElement::parseAttribute(name, oldValue, value);
         UseCounter::count(document(), UseCounter::PrefixedDirectoryAttribute);
     } else {
-        HTMLTextFormControlElement::parseAttribute(name, value);
+        if (name == formactionAttr)
+            logUpdateAttributeIfIsolatedWorldAndInDocument("input", formactionAttr, oldValue, value);
+        HTMLTextFormControlElement::parseAttribute(name, oldValue, value);
     }
     m_inputTypeView->attributeChanged();
 }
@@ -1107,6 +1096,10 @@ void HTMLInputElement::setValueInternal(const String& sanitizedValue, TextFieldE
 {
     m_valueIfDirty = sanitizedValue;
     setNeedsValidityCheck();
+    if (m_inputType->isSteppable()) {
+        pseudoStateChanged(CSSSelector::PseudoInRange);
+        pseudoStateChanged(CSSSelector::PseudoOutOfRange);
+    }
     if (document().focusedElement() == this)
         document().frameHost()->chromeClient().didUpdateTextOfFocusedElementByNonUserInput();
 }
@@ -1372,6 +1365,8 @@ const AtomicString& HTMLInputElement::alt() const
 
 int HTMLInputElement::maxLength() const
 {
+    if (!hasAttribute(maxlengthAttr))
+        return -1;
     return m_maxLength;
 }
 
@@ -1520,20 +1515,11 @@ void HTMLInputElement::didChangeForm()
 
 Node::InsertionNotificationRequest HTMLInputElement::insertedInto(ContainerNode* insertionPoint)
 {
-    if (insertionPoint->inDocument()) {
-        V8DOMActivityLogger* activityLogger = V8DOMActivityLogger::currentActivityLoggerIfIsolatedWorld();
-        if (activityLogger) {
-            Vector<String> argv;
-            argv.append("input");
-            argv.append(fastGetAttribute(typeAttr));
-            argv.append(fastGetAttribute(formactionAttr));
-            activityLogger->logEvent("blinkAddElement", argv.size(), argv.data());
-        }
-    }
     HTMLTextFormControlElement::insertedInto(insertionPoint);
     if (insertionPoint->inDocument() && !form())
         addToRadioButtonGroup();
     resetListAttributeTargetObserver();
+    logAddElementIfIsolatedWorldAndInDocument("input", typeAttr, formactionAttr);
     return InsertionShouldCallDidNotifySubtreeInsertions;
 }
 
@@ -1695,27 +1681,23 @@ void HTMLInputElement::updatePlaceholderText()
 void HTMLInputElement::parseMaxLengthAttribute(const AtomicString& value)
 {
     int maxLength;
-    if (!parseHTMLInteger(value, maxLength))
-        maxLength = maximumLength;
-    if (maxLength < 0 || maxLength > maximumLength)
+    if (!parseHTMLInteger(value, maxLength) || maxLength < 0)
+        maxLength = -1;
+    if (maxLength > maximumLength)
         maxLength = maximumLength;
     int oldMaxLength = m_maxLength;
     m_maxLength = maxLength;
     if (oldMaxLength != maxLength)
         updateValueIfNeeded();
-    setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::fromAttribute(maxlengthAttr));
     setNeedsValidityCheck();
 }
 
 void HTMLInputElement::parseMinLengthAttribute(const AtomicString& value)
 {
     int minLength;
-    if (!parseHTMLInteger(value, minLength))
-        minLength = 0;
-    if (minLength < 0)
-        minLength = 0;
+    if (!parseHTMLInteger(value, minLength) || minLength < 0)
+        minLength = -1;
     m_minLength = minLength;
-    setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::fromAttribute(minlengthAttr));
     setNeedsValidityCheck();
 }
 
@@ -1955,4 +1937,4 @@ bool HTMLInputElement::hasFallbackContent() const
 {
     return m_inputTypeView->hasFallbackContent();
 }
-} // namespace
+} // namespace blink

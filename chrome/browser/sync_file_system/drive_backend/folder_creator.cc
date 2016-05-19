@@ -4,6 +4,9 @@
 
 #include "chrome/browser/sync_file_system/drive_backend/folder_creator.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_util.h"
 #include "chrome/browser/sync_file_system/drive_backend/metadata_database.h"
 #include "components/drive/drive_api_util.h"
@@ -107,7 +110,7 @@ void FolderCreator::DidListFolders(
 
   std::string file_id = oldest->file_id();
 
-  status = metadata_database_->UpdateByFileResourceList(candidates.Pass());
+  status = metadata_database_->UpdateByFileResourceList(std::move(candidates));
   if (status != SYNC_STATUS_OK) {
     callback.Run(std::string(), status);
     return;

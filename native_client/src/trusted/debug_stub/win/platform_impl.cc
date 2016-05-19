@@ -27,7 +27,7 @@
   * breakpoints.
   */
 
-static bool UnmapFiles(struct NaClApp* nap, void *ptr, uint32_t len) {
+static bool UnmapFiles(struct NaClApp *nap, void *ptr, uint32_t len) {
   DWORD old_flags;
   uintptr_t max_step;
   uintptr_t user_ptr = NaClSysToUser(nap, reinterpret_cast<uintptr_t>(ptr));
@@ -149,10 +149,10 @@ bool IPlatform::SetMemory(struct NaClApp *nap, uint64_t virt, uint32_t len,
   uint32_t oldFlags = Reprotect(reinterpret_cast<void *>(virt),
                                 len, PAGE_READWRITE);
 
-  if (oldFlags == -1) {
+  if (oldFlags == (DWORD) -1) {
     oldFlags = Reprotect(reinterpret_cast<void *>(virt), len,
                          PAGE_WRITECOPY);
-    if (oldFlags == -1) {
+    if (oldFlags == (DWORD) -1) {
       // Windows XP doesn't support PAGE_EXECUTE_WRITECOPY so we fallback to
       // unmapping files and mapping normal memory instead.
       if (UnmapFiles(nap, reinterpret_cast<void *>(virt), len)) {
@@ -162,7 +162,7 @@ bool IPlatform::SetMemory(struct NaClApp *nap, uint64_t virt, uint32_t len,
     }
   }
 
-  if (oldFlags == -1) return false;
+  if (oldFlags == (DWORD) -1) return false;
 
   memcpy(reinterpret_cast<void*>(virt), src, len);
   FlushInstructionCache(GetCurrentProcess(),

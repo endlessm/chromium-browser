@@ -5,6 +5,9 @@
 #ifndef CONTENT_RENDERER_RENDER_WIDGET_FULLSCREEN_PEPPER_H_
 #define CONTENT_RENDERER_RENDER_WIDGET_FULLSCREEN_PEPPER_H_
 
+#include <stdint.h>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/renderer/mouse_lock_dispatcher.h"
 #include "content/renderer/pepper/fullscreen_container.h"
@@ -25,7 +28,7 @@ class RenderWidgetFullscreenPepper : public RenderWidgetFullscreen,
                                      public FullscreenContainer {
  public:
   static RenderWidgetFullscreenPepper* Create(
-      int32 opener_id,
+      int32_t opener_id,
       CompositorDependencies* compositor_deps,
       PepperPluginInstanceImpl* plugin,
       const GURL& active_url,
@@ -61,14 +64,14 @@ class RenderWidgetFullscreenPepper : public RenderWidgetFullscreen,
   void DidInitiatePaint() override;
   void DidFlushPaint() override;
   void Close() override;
-  void OnResize(const ViewMsg_Resize_Params& params) override;
+  void OnResize(const ResizeParams& params) override;
 
   // RenderWidgetFullscreen API.
   blink::WebWidget* CreateWebWidget() override;
 
   // RenderWidget overrides.
   GURL GetURLForGraphicsContext3D() override;
-  void SetDeviceScaleFactor(float device_scale_factor) override;
+  void OnDeviceScaleFactorChanged() override;
 
  private:
   // URL that is responsible for this widget, passed to ggl::CreateViewContext.

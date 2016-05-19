@@ -18,12 +18,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGPathElement.h"
 
 #include "core/layout/svg/LayoutSVGPath.h"
-#include "core/svg/SVGDocumentExtensions.h"
 #include "core/svg/SVGMPathElement.h"
+#include "core/svg/SVGPathQuery.h"
 #include "core/svg/SVGPathUtilities.h"
 #include "core/svg/SVGPointTearOff.h"
 
@@ -36,13 +35,12 @@ public:
         return adoptRefWillBeNoop(new SVGAnimatedPathLength(contextElement));
     }
 
-    void setBaseValueAsString(const String& value, SVGParsingError& parseError) override
+    SVGParsingError setBaseValueAsString(const String& value) override
     {
-        SVGAnimatedNumber::setBaseValueAsString(value, parseError);
-
-        ASSERT(contextElement());
-        if (parseError == NoError && baseValue()->value() < 0)
-            contextElement()->document().accessSVGExtensions().reportError("A negative value for path attribute <pathLength> is not allowed");
+        SVGParsingError parseStatus = SVGAnimatedNumber::setBaseValueAsString(value);
+        if (parseStatus == SVGParseStatus::NoError && baseValue()->value() < 0)
+            parseStatus = SVGParseStatus::NegativeValue;
+        return parseStatus;
     }
 
 private:
@@ -70,52 +68,116 @@ DEFINE_TRACE(SVGPathElement)
 
 DEFINE_NODE_FACTORY(SVGPathElement)
 
+const StylePath* SVGPathElement::stylePath() const
+{
+    if (LayoutObject* layoutObject = this->layoutObject())
+        return layoutObject->styleRef().svgStyle().d();
+    return m_path->currentValue()->pathValue()->stylePath();
+}
+
+float SVGPathElement::pathLengthScaleFactor() const
+{
+    if (!pathLength()->isSpecified())
+        return 1;
+    float authorPathLength = pathLength()->currentValue()->value();
+    if (authorPathLength < 0)
+        return 1;
+    if (!authorPathLength)
+        return 0;
+    float computedPathLength = stylePath()->length();
+    if (!computedPathLength)
+        return 1;
+    return computedPathLength / authorPathLength;
+}
+
 Path SVGPathElement::asPath() const
 {
-    // If this is a <use> instance, return the referenced path to maximize geometry sharing.
-    if (const SVGElement* element = correspondingElement())
-        return toSVGPathElement(element)->asPath();
+    return stylePath()->path();
+}
 
-    return m_path->currentValue()->path();
+const SVGPathByteStream& SVGPathElement::pathByteStream() const
+{
+    if (layoutObject()) {
+        const SVGComputedStyle& svgStyle = layoutObject()->styleRef().svgStyle();
+        return svgStyle.d()->byteStream();
+    }
+
+    return m_path->currentValue()->byteStream();
 }
 
 float SVGPathElement::getTotalLength()
 {
-    return getTotalLengthOfSVGPathByteStream(pathByteStream());
+    document().updateLayoutIgnorePendingStylesheets();
+    return SVGPathQuery(pathByteStream()).getTotalLength();
 }
 
 PassRefPtrWillBeRawPtr<SVGPointTearOff> SVGPathElement::getPointAtLength(float length)
 {
-    FloatPoint point = getPointAtLengthOfSVGPathByteStream(pathByteStream(), length);
+    document().updateLayoutIgnorePendingStylesheets();
+    FloatPoint point = SVGPathQuery(pathByteStream()).getPointAtLength(length);
     return SVGPointTearOff::create(SVGPoint::create(point), 0, PropertyIsNotAnimVal);
 }
 
 unsigned SVGPathElement::getPathSegAtLength(float length)
 {
-    return getSVGPathSegAtLengthFromSVGPathByteStream(pathByteStream(), length);
+    document().updateLayoutIgnorePendingStylesheets();
+    return SVGPathQuery(pathByteStream()).getPathSegIndexAtLength(length);
+}
+
+bool SVGPathElement::isPresentationAttribute(const QualifiedName& attrName) const
+{
+    if (attrName == SVGNames::dAttr)
+        return true;
+    return SVGGeometryElement::isPresentationAttribute(attrName);
+}
+
+bool SVGPathElement::isPresentationAttributeWithSVGDOM(const QualifiedName& attrName) const
+{
+    if (attrName == SVGNames::dAttr)
+        return true;
+    return SVGGeometryElement::isPresentationAttributeWithSVGDOM(attrName);
 }
 
 void SVGPathElement::svgAttributeChanged(const QualifiedName& attrName)
 {
-    if (attrName == SVGNames::dAttr || attrName == SVGNames::pathLengthAttr) {
+    if (attrName == SVGNames::dAttr) {
         SVGElement::InvalidationGuard invalidationGuard(this);
+        invalidateSVGPresentationAttributeStyle();
+        setNeedsStyleRecalc(LocalStyleChange,
+            StyleChangeReasonForTracing::fromAttribute(attrName));
 
-        LayoutSVGShape* layoutObject = toLayoutSVGShape(this->layoutObject());
+        if (LayoutSVGShape* layoutPath = toLayoutSVGShape(this->layoutObject()))
+            layoutPath->setNeedsShapeUpdate();
 
-        if (attrName == SVGNames::dAttr) {
-            if (layoutObject)
-                layoutObject->setNeedsShapeUpdate();
-
-            invalidateMPathDependencies();
-        }
-
-        if (layoutObject)
-            markForLayoutAndParentResourceInvalidation(layoutObject);
+        invalidateMPathDependencies();
+        if (layoutObject())
+            markForLayoutAndParentResourceInvalidation(layoutObject());
 
         return;
     }
 
+    if (attrName == SVGNames::pathLengthAttr) {
+        SVGElement::InvalidationGuard invalidationGuard(this);
+        if (layoutObject())
+            markForLayoutAndParentResourceInvalidation(layoutObject());
+        return;
+    }
+
     SVGGeometryElement::svgAttributeChanged(attrName);
+}
+
+void SVGPathElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomicString& value, MutableStylePropertySet* style)
+{
+    SVGAnimatedPropertyBase* property = propertyFromAttribute(name);
+    if (property == m_path) {
+        SVGAnimatedPath* path = this->path();
+        // If this is a <use> instance, return the referenced path to maximize geometry sharing.
+        if (const SVGElement* element = correspondingElement())
+            path = toSVGPathElement(element)->path();
+        addPropertyToPresentationAttributeStyle(style, CSSPropertyD, path->currentValue()->pathValue());
+        return;
+    }
+    SVGGeometryElement::collectStyleForPresentationAttribute(name, value, style);
 }
 
 void SVGPathElement::invalidateMPathDependencies()

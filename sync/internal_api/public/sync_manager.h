@@ -5,10 +5,11 @@
 #ifndef SYNC_INTERNAL_API_PUBLIC_SYNC_MANAGER_H_
 #define SYNC_INTERNAL_API_PUBLIC_SYNC_MANAGER_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
@@ -65,7 +66,11 @@ class SyncSessionSnapshot;
 // Contains everything needed to talk to and identify a user account.
 struct SYNC_EXPORT SyncCredentials {
   SyncCredentials();
+  SyncCredentials(const SyncCredentials& other);
   ~SyncCredentials();
+
+  // Account_id of signed in account.
+  std::string account_id;
 
   // The email associated with this account.
   std::string email;
@@ -117,11 +122,10 @@ class SYNC_EXPORT SyncManager {
     // forward dependencies.  But since deletions come before reparent
     // operations, a delete may temporarily orphan a node that is
     // updated later in the list.
-    virtual void OnChangesApplied(
-        ModelType model_type,
-        int64 model_version,
-        const BaseTransaction* trans,
-        const ImmutableChangeRecordList& changes) = 0;
+    virtual void OnChangesApplied(ModelType model_type,
+                                  int64_t model_version,
+                                  const BaseTransaction* trans,
+                                  const ImmutableChangeRecordList& changes) = 0;
 
     // OnChangesComplete gets called when the TransactionComplete event is
     // posted (after OnChangesApplied finishes), after the transaction lock
@@ -143,7 +147,7 @@ class SYNC_EXPORT SyncManager {
   // Like ChangeDelegate, except called only on the sync thread and
   // not while a transaction is held.  For objects that want to know
   // when changes happen, but don't need to process them.
-  class SYNC_EXPORT_PRIVATE ChangeObserver {
+  class SYNC_EXPORT ChangeObserver {
    public:
     // Ids referred to in |changes| may or may not be in the write
     // transaction specified by |write_transaction_id|.  If they're
@@ -161,10 +165,9 @@ class SYNC_EXPORT SyncManager {
     // Even more ideally, we would have sync semantics such that we'd
     // be able to apply changes without being under a transaction.
     // But that's a ways off...
-    virtual void OnChangesApplied(
-        ModelType model_type,
-        int64 write_transaction_id,
-        const ImmutableChangeRecordList& changes) = 0;
+    virtual void OnChangesApplied(ModelType model_type,
+                                  int64_t write_transaction_id,
+                                  const ImmutableChangeRecordList& changes) = 0;
 
     virtual void OnChangesComplete(ModelType model_type) = 0;
 

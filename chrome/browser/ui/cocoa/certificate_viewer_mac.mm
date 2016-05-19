@@ -10,6 +10,7 @@
 
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/macros.h"
 #include "chrome/browser/certificate_viewer.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_mac.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_sheet.h"
@@ -133,8 +134,8 @@ void ShowCertificateViewer(content::WebContents* web_contents,
   panel_.reset([[SFCertificatePanel alloc] init]);
   [panel_ setPolicies:(id) policies.get()];
 
-  constrainedWindow_.reset(
-      new ConstrainedWindowMac(observer_.get(), webContents, self));
+  constrainedWindow_ =
+      CreateAndShowWebModalDialogMac(observer_.get(), webContents, self);
 }
 
 - (NSWindow*)overlayWindow {
@@ -185,6 +186,10 @@ void ShowCertificateViewer(content::WebContents* web_contents,
 }
 
 - (void)updateSheetPosition {
+  // NOOP
+}
+
+- (void)resizeWithNewSize:(NSSize)preferredSize {
   // NOOP
 }
 

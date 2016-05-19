@@ -5,8 +5,9 @@
 #ifndef CONTENT_SHELL_BROWSER_SHELL_BROWSER_MAIN_PARTS_H_
 #define CONTENT_SHELL_BROWSER_SHELL_BROWSER_MAIN_PARTS_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/common/main_function_params.h"
 #include "content/shell/browser/shell_browser_context.h"
@@ -43,6 +44,7 @@ class ShellBrowserMainParts : public BrowserMainParts {
   void PreMainMessageLoopRun() override;
   bool MainMessageLoopRun(int* result_code) override;
   void PostMainMessageLoopRun() override;
+  void PostDestroyThreads() override;
 
   devtools_http_handler::DevToolsHttpHandler* devtools_http_handler() {
     return devtools_http_handler_.get();

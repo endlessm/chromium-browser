@@ -19,6 +19,8 @@ scoped_refptr<ResourceResponse> ResourceResponse::DeepCopy() const {
   new_response->head.mime_type = head.mime_type;
   new_response->head.charset = head.charset;
   new_response->head.security_info = head.security_info;
+  new_response->head.has_major_certificate_errors =
+      head.has_major_certificate_errors;
   new_response->head.content_length = head.content_length;
   new_response->head.encoded_data_length = head.encoded_data_length;
   new_response->head.appcache_id = head.appcache_id;
@@ -49,6 +51,7 @@ scoped_refptr<ResourceResponse> ResourceResponse::DeepCopy() const {
       head.service_worker_start_time;
   new_response->head.service_worker_ready_time =
       head.service_worker_ready_time;
+  new_response->head.is_using_lofi = head.is_using_lofi;
   return new_response;
 }
 

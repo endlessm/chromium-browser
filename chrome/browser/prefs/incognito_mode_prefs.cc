@@ -4,16 +4,21 @@
 
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 
+#include <stdint.h>
+
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_service.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 
 #if defined(OS_WIN)
@@ -26,9 +31,9 @@
 #include "base/win/windows_version.h"
 #endif  // OS_WIN
 
-#if defined(OS_ANDROID)
+#if BUILDFLAG(ANDROID_JAVA_UI)
 #include "chrome/browser/android/chrome_application.h"
-#endif  // OS_ANDROID
+#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 
 using content::BrowserThread;
 
@@ -208,7 +213,7 @@ void IncognitoModePrefs::InitializePlatformParentalControls() {
 bool IncognitoModePrefs::ArePlatformParentalControlsEnabled() {
 #if defined(OS_WIN)
   return PlatformParentalControlsValue::GetInstance()->is_enabled();
-#elif defined(OS_ANDROID)
+#elif BUILDFLAG(ANDROID_JAVA_UI)
   return chrome::android::ChromeApplication::AreParentalControlsEnabled();
 #else
   return false;

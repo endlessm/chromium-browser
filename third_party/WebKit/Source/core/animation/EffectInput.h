@@ -21,8 +21,11 @@ class ExceptionState;
 class CORE_EXPORT EffectInput {
     STATIC_ONLY(EffectInput);
 public:
-    static EffectModel* convert(Element*, const Vector<Dictionary>& keyframeDictionaryVector, ExceptionState&);
+    // TODO(alancutter): Replace Element* parameter with Document&.
     static EffectModel* convert(Element*, const EffectModelOrDictionarySequenceOrDictionary&, ExceptionState&);
+
+private:
+    static EffectModel* convert(Element*, const Vector<Dictionary>& keyframeDictionaryVector, ExceptionState&);
 };
 
 } // namespace blink

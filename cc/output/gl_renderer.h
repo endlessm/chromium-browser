@@ -5,10 +5,12 @@
 #ifndef CC_OUTPUT_GL_RENDERER_H_
 #define CC_OUTPUT_GL_RENDERER_H_
 
+#include <deque>
+#include <vector>
+
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "cc/base/cc_export.h"
-#include "cc/base/scoped_ptr_deque.h"
-#include "cc/base/scoped_ptr_vector.h"
 #include "cc/output/direct_renderer.h"
 #include "cc/output/gl_renderer_draw_cache.h"
 #include "cc/output/program_binding.h"
@@ -63,6 +65,7 @@ class CC_EXPORT GLRenderer : public DirectRenderer {
   void Finish() override;
 
   void SwapBuffers(const CompositorFrameMetadata& metadata) override;
+  void SwapBuffersComplete() override;
 
   virtual bool IsContextLost();
 
@@ -99,8 +102,7 @@ class CC_EXPORT GLRenderer : public DirectRenderer {
 
   void BindFramebufferToOutputSurface(DrawingFrame* frame) override;
   bool BindFramebufferToTexture(DrawingFrame* frame,
-                                const ScopedResource* resource,
-                                const gfx::Rect& target_rect) override;
+                                const ScopedResource* resource) override;
   void SetScissorTestRect(const gfx::Rect& scissor_rect) override;
   void PrepareSurfaceForPass(DrawingFrame* frame,
                              SurfaceInitializationMode initialization_mode,
@@ -173,7 +175,8 @@ class CC_EXPORT GLRenderer : public DirectRenderer {
   skia::RefPtr<SkImage> ApplyBackgroundFilters(
       DrawingFrame* frame,
       const RenderPassDrawQuad* quad,
-      ScopedResource* background_texture);
+      ScopedResource* background_texture,
+      const gfx::RectF& rect);
 
   void DrawRenderPassQuad(DrawingFrame* frame,
                           const RenderPassDrawQuad* quadi,
@@ -232,10 +235,6 @@ class CC_EXPORT GLRenderer : public DirectRenderer {
                         int matrix_location);
   void SetUseProgram(unsigned program);
 
-  bool UseScopedTexture(DrawingFrame* frame,
-                        const ScopedResource* resource,
-                        const gfx::Rect& viewport_rect);
-
   bool MakeContextCurrent();
 
   void InitializeSharedObjects();
@@ -256,13 +255,13 @@ class CC_EXPORT GLRenderer : public DirectRenderer {
   void EnsureBackbuffer() override;
   void EnforceMemoryPolicy();
 
+  void ScheduleCALayers(DrawingFrame* frame);
   void ScheduleOverlays(DrawingFrame* frame);
 
-  typedef ScopedPtrVector<ResourceProvider::ScopedReadLockGL>
-      OverlayResourceLockList;
+  using OverlayResourceLockList =
+      std::vector<scoped_ptr<ResourceProvider::ScopedReadLockGL>>;
   OverlayResourceLockList pending_overlay_resources_;
-  OverlayResourceLockList in_use_overlay_resources_;
-  OverlayResourceLockList previous_swap_overlay_resources_;
+  std::deque<OverlayResourceLockList> swapped_overlay_resources_;
 
   RendererCapabilitiesImpl capabilities_;
 
@@ -499,13 +498,13 @@ class CC_EXPORT GLRenderer : public DirectRenderer {
   int highp_threshold_cache_;
 
   struct PendingAsyncReadPixels;
-  ScopedPtrVector<PendingAsyncReadPixels> pending_async_read_pixels_;
+  std::vector<scoped_ptr<PendingAsyncReadPixels>> pending_async_read_pixels_;
 
   scoped_ptr<ResourceProvider::ScopedWriteLockGL> current_framebuffer_lock_;
 
   class SyncQuery;
-  ScopedPtrDeque<SyncQuery> pending_sync_queries_;
-  ScopedPtrDeque<SyncQuery> available_sync_queries_;
+  std::deque<scoped_ptr<SyncQuery>> pending_sync_queries_;
+  std::deque<scoped_ptr<SyncQuery>> available_sync_queries_;
   scoped_ptr<SyncQuery> current_sync_query_;
   bool use_sync_query_;
   bool use_blend_equation_advanced_;

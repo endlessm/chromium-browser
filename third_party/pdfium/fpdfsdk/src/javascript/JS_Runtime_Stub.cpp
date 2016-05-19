@@ -4,9 +4,10 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/fsdk_mgr.h"  // For CPDFDoc_Environment.
-#include "../../include/javascript/IJavaScript.h"
-#include "third_party/base/nonstd_unique_ptr.h"
+#include <memory>
+
+#include "fpdfsdk/include/fsdk_mgr.h"  // For CPDFDoc_Environment.
+#include "fpdfsdk/include/javascript/IJavaScript.h"
 
 class CJS_ContextStub final : public IJS_Context {
  public:
@@ -136,6 +137,18 @@ class CJS_RuntimeStub final : public IJS_Runtime {
   }
   CPDFSDK_Document* GetReaderDocument() override { return m_pDoc; }
 
+#ifdef PDF_ENABLE_XFA
+  virtual FX_BOOL GetHValueByName(const CFX_ByteStringC&,
+                                  FXJSE_HVALUE) override {
+    return FALSE;
+  }
+
+  virtual FX_BOOL SetHValueByName(const CFX_ByteStringC&,
+                                  FXJSE_HVALUE) override {
+    return FALSE;
+  }
+#endif  // PDF_ENABLE_XFA
+
   int Execute(IJS_Context* cc,
               const wchar_t* script,
               CFX_WideString* info) override {
@@ -144,7 +157,7 @@ class CJS_RuntimeStub final : public IJS_Runtime {
 
  protected:
   CPDFSDK_Document* m_pDoc;
-  nonstd::unique_ptr<CJS_ContextStub> m_pContext;
+  std::unique_ptr<CJS_ContextStub> m_pContext;
 };
 
 // static

@@ -5,6 +5,8 @@
 #ifndef EXTENSIONS_BROWSER_API_SYSTEM_DISPLAY_DISPLAY_INFO_PROVIDER_H_
 #define EXTENSIONS_BROWSER_API_SYSTEM_DISPLAY_DISPLAY_INFO_PROVIDER_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -13,7 +15,6 @@
 
 namespace gfx {
 class Display;
-class Screen;
 }
 
 namespace extensions {
@@ -47,17 +48,20 @@ class DisplayInfoProvider {
                        const api::system_display::DisplayProperties& info,
                        std::string* error) = 0;
 
-  // Get the screen that is always active, which will be used for monitoring
-  // display changes events.
-  virtual gfx::Screen* GetActiveScreen() = 0;
-
   // Enable the unified desktop feature.
   virtual void EnableUnifiedDesktop(bool enable);
 
-  DisplayInfo GetAllDisplaysInfo();
+  // Get display information.
+  virtual DisplayInfo GetAllDisplaysInfo();
 
  protected:
   DisplayInfoProvider();
+
+  // Create a DisplayUnitInfo from a gfx::Display for implementations of
+  // GetAllDisplaysInfo()
+  static api::system_display::DisplayUnitInfo* CreateDisplayUnitInfo(
+      const gfx::Display& display,
+      int64_t primary_display_id);
 
  private:
   static DisplayInfoProvider* Create();

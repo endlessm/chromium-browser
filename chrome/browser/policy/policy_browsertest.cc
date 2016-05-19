@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ash/display/display_manager.h"
@@ -15,10 +18,10 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -29,6 +32,7 @@
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/background/background_contents_service.h"
 #include "chrome/browser/browser_process.h"
@@ -104,10 +108,13 @@
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/core/common/policy_service_impl.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/prefs/pref_service.h"
 #include "components/search/search.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/security_interstitials/core/controller_client.h"
 #include "components/ssl_config/ssl_config_prefs.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/translate/core/browser/language_state.h"
 #include "components/translate/core/browser/translate_infobar_delegate.h"
 #include "components/variations/service/variations_service.h"
@@ -134,6 +141,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_paths.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/process_type.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/url_constants.h"
@@ -143,6 +151,8 @@
 #include "content/public/test/mock_notification_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
+#include "device/bluetooth/bluetooth_adapter_factory.h"
+#include "device/bluetooth/test/mock_bluetooth_adapter.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_prefs.h"
@@ -156,12 +166,11 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_handlers/shared_module_info.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/url_util.h"
 #include "net/http/http_stream_factory.h"
 #include "net/ssl/ssl_config.h"
 #include "net/ssl/ssl_config_service.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/url_request/url_request_failed_job.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
 #include "net/url_request/url_request.h"
@@ -175,6 +184,7 @@
 #include "ui/base/page_transition_types.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 #if defined(OS_CHROMEOS)
 #include "ash/accelerators/accelerator_controller.h"
@@ -191,7 +201,6 @@
 #endif
 
 #if !defined(OS_MACOSX)
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
@@ -428,7 +437,8 @@ bool IsJavascriptEnabled(content::WebContents* contents) {
 }
 
 bool IsNetworkPredictionEnabled(PrefService* prefs) {
-  return chrome_browser_net::CanPrefetchAndPrerenderUI(prefs);
+  return chrome_browser_net::CanPrefetchAndPrerenderUI(prefs) ==
+      chrome_browser_net::NetworkPredictionStatus::ENABLED;
 }
 
 void CopyPluginListAndQuit(std::vector<content::WebPluginInfo>* out,
@@ -707,7 +717,7 @@ class PolicyTest : public InProcessBrowserTest {
     // is tied to the test instead.
     chrome_screenshot_grabber->screenshot_grabber()->AddObserver(&observer_);
     ash::Shell::GetInstance()->accelerator_controller()->SetScreenshotDelegate(
-        chrome_screenshot_grabber.Pass());
+        std::move(chrome_screenshot_grabber));
 
     SetScreenshotPolicy(enabled);
     ash::Shell::GetInstance()->accelerator_controller()->PerformActionIfEnabled(
@@ -2297,8 +2307,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, HomepageLocation) {
 IN_PROC_BROWSER_TEST_F(PolicyTest, IncognitoEnabled) {
   // Verifies that incognito windows can't be opened when disabled by policy.
 
-  const BrowserList* active_browser_list =
-      BrowserList::GetInstance(chrome::GetActiveDesktop());
+  const BrowserList* active_browser_list = BrowserList::GetInstance();
 
   // Disable incognito via policy and verify that incognito windows can't be
   // opened.
@@ -2724,12 +2733,12 @@ uint16_t GetSSLVersionFallbackMin(Profile* profile) {
 IN_PROC_BROWSER_TEST_F(PolicyTest, SSLVersionFallbackMin) {
   PrefService* prefs = g_browser_process->local_state();
 
-  const std::string new_value("tls1.2");
+  const std::string new_value("tls1.1");
   const std::string default_value(
       prefs->GetString(ssl_config::prefs::kSSLVersionFallbackMin));
 
   EXPECT_NE(default_value, new_value);
-  EXPECT_NE(net::SSL_PROTOCOL_VERSION_TLS1_2,
+  EXPECT_EQ(net::SSL_PROTOCOL_VERSION_TLS1_2,
             GetSSLVersionFallbackMin(browser()->profile()));
 
   PolicyMap policies;
@@ -2741,7 +2750,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, SSLVersionFallbackMin) {
                NULL);
   UpdateProviderPolicy(policies);
 
-  EXPECT_EQ(net::SSL_PROTOCOL_VERSION_TLS1_2,
+  EXPECT_EQ(net::SSL_PROTOCOL_VERSION_TLS1_1,
             GetSSLVersionFallbackMin(browser()->profile()));
 }
 
@@ -2915,9 +2924,9 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, SessionLengthLimit) {
   Mock::VerifyAndClearExpectations(&observer);
 }
 
-// Disabled, see http://crbug.com/315308.
+// Disabled, see http://crbug.com/554728.
 IN_PROC_BROWSER_TEST_F(PolicyTest,
-                       DISABLED_PRE_WaitForInitialUserActivityUsatisfied) {
+                       DISABLED_PRE_WaitForInitialUserActivityUnsatisfied) {
   // Indicate that the session started 2 hours ago and no user activity has
   // occurred yet.
   g_browser_process->local_state()->SetInt64(
@@ -2926,9 +2935,9 @@ IN_PROC_BROWSER_TEST_F(PolicyTest,
           .ToInternalValue());
 }
 
-// Disabled, see http://crbug.com/315308.
+// Disabled, see http://crbug.com/554728.
 IN_PROC_BROWSER_TEST_F(PolicyTest,
-                       DISABLED_WaitForInitialUserActivityUsatisfied) {
+                       DISABLED_WaitForInitialUserActivityUnsatisfied) {
   content::MockNotificationObserver observer;
   content::NotificationRegistrar registrar;
   registrar.Add(&observer,
@@ -3267,56 +3276,6 @@ class RestoreOnStartupPolicyTest
             RedirectHostsToTestData, kRestoredURLs, arraysize(kRestoredURLs)));
   }
 
-  void HomepageIsNotNTP() {
-    // Verifies that policy can set the startup pages to the homepage, when
-    // the homepage is not the NTP.
-    PolicyMap policies;
-    policies.Set(
-        key::kRestoreOnStartup,
-        POLICY_LEVEL_MANDATORY,
-        POLICY_SCOPE_USER,
-        POLICY_SOURCE_CLOUD,
-        new base::FundamentalValue(SessionStartupPref::kPrefValueHomePage),
-        NULL);
-    policies.Set(key::kHomepageIsNewTabPage,
-                 POLICY_LEVEL_MANDATORY,
-                 POLICY_SCOPE_USER,
-                 POLICY_SOURCE_CLOUD,
-                 new base::FundamentalValue(false),
-                 NULL);
-    policies.Set(key::kHomepageLocation,
-                 POLICY_LEVEL_MANDATORY,
-                 POLICY_SCOPE_USER,
-                 POLICY_SOURCE_CLOUD,
-                 new base::StringValue(kRestoredURLs[1]),
-                 NULL);
-    provider_.UpdateChromePolicy(policies);
-
-    expected_urls_.push_back(GURL(kRestoredURLs[1]));
-  }
-
-  void HomepageIsNTP() {
-    // Verifies that policy can set the startup pages to the homepage, when
-    // the homepage is the NTP.
-    PolicyMap policies;
-    policies.Set(
-        key::kRestoreOnStartup,
-        POLICY_LEVEL_MANDATORY,
-        POLICY_SCOPE_USER,
-        POLICY_SOURCE_CLOUD,
-        new base::FundamentalValue(SessionStartupPref::kPrefValueHomePage),
-        NULL);
-    policies.Set(key::kHomepageIsNewTabPage,
-                 POLICY_LEVEL_MANDATORY,
-                 POLICY_SCOPE_USER,
-                 POLICY_SOURCE_CLOUD,
-                 new base::FundamentalValue(true),
-                 NULL);
-    provider_.UpdateChromePolicy(policies);
-
-    expected_urls_.push_back(GURL(chrome::kChromeUINewTabURL));
-  }
-
   void ListOfURLs() {
     // Verifies that policy can set the startup pages to a list of URLs.
     base::ListValue urls;
@@ -3403,9 +3362,7 @@ IN_PROC_BROWSER_TEST_P(RestoreOnStartupPolicyTest, RunTest) {
 INSTANTIATE_TEST_CASE_P(
     RestoreOnStartupPolicyTestInstance,
     RestoreOnStartupPolicyTest,
-    testing::Values(&RestoreOnStartupPolicyTest::HomepageIsNotNTP,
-                    &RestoreOnStartupPolicyTest::HomepageIsNTP,
-                    &RestoreOnStartupPolicyTest::ListOfURLs,
+    testing::Values(&RestoreOnStartupPolicyTest::ListOfURLs,
                     &RestoreOnStartupPolicyTest::NTP,
                     &RestoreOnStartupPolicyTest::Last));
 
@@ -3700,14 +3657,60 @@ INSTANTIATE_TEST_CASE_P(MediaStreamDevicesControllerBrowserTestInstance,
                         MediaStreamDevicesControllerBrowserTest,
                         testing::Bool());
 
+class WebBluetoothPolicyTest : public PolicyTest {
+  void SetUpCommandLine(base::CommandLine* command_line)override {
+    // This is needed while Web Bluetooth is an Origin Trial, but can go away
+    // once it ships globally.
+    command_line->AppendSwitch(switches::kEnableWebBluetooth);
+    PolicyTest::SetUpCommandLine(command_line);
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(WebBluetoothPolicyTest, Block) {
+  // Fake the BluetoothAdapter to say it's present.
+  scoped_refptr<device::MockBluetoothAdapter> adapter =
+      new testing::NiceMock<device::MockBluetoothAdapter>;
+  EXPECT_CALL(*adapter, IsPresent()).WillRepeatedly(testing::Return(true));
+  device::BluetoothAdapterFactory::SetAdapterForTesting(adapter);
+
+  // Navigate to a secure context.
+  embedded_test_server()->ServeFilesFromSourceDirectory("content/test/data");
+  ASSERT_TRUE(embedded_test_server()->Start());
+  ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("localhost", "/simple_page.html"));
+  content::WebContents* const web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_THAT(
+      web_contents->GetMainFrame()->GetLastCommittedOrigin().Serialize(),
+      testing::StartsWith("http://localhost:"));
+
+  // Set the policy to block Web Bluetooth.
+  PolicyMap policies;
+  policies.Set(key::kDefaultWebBluetoothGuardSetting, POLICY_LEVEL_MANDATORY,
+               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
+               new base::FundamentalValue(2), nullptr);
+  UpdateProviderPolicy(policies);
+
+  std::string rejection;
+  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
+      web_contents,
+      "navigator.bluetooth.requestDevice({filters: [{name: 'Hello'}]})"
+      "  .then(() => { domAutomationController.send('Success'); },"
+      "        reason => {"
+      "      domAutomationController.send(reason.name + ': ' + reason.message);"
+      "  });",
+      &rejection));
+  EXPECT_THAT(rejection, testing::MatchesRegex("NotFoundError: .*policy.*"));
+}
+
 // Test that when extended reporting opt-in is disabled by policy, the
 // opt-in checkbox does not appear on SSL blocking pages.
 IN_PROC_BROWSER_TEST_F(PolicyTest, SafeBrowsingExtendedReportingOptInAllowed) {
-  net::SpawnedTestServer https_server_expired(
-      net::SpawnedTestServer::TYPE_HTTPS,
-      net::SpawnedTestServer::SSLOptions(
-          net::SpawnedTestServer::SSLOptions::CERT_EXPIRED),
-      base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  net::EmbeddedTestServer https_server_expired(
+      net::EmbeddedTestServer::TYPE_HTTPS);
+  https_server_expired.SetSSLConfig(net::EmbeddedTestServer::CERT_EXPIRED);
+  https_server_expired.ServeFilesFromSourceDirectory("chrome/test/data");
   ASSERT_TRUE(https_server_expired.Start());
 
   // Set the enterprise policy to disallow opt-in.
@@ -3746,21 +3749,20 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, SafeBrowsingExtendedReportingOptInAllowed) {
       // by sending false if it's not present.
       "  window.domAutomationController.send(%d);"
       "}",
-      SecurityInterstitialPage::CMD_TEXT_FOUND,
-      SecurityInterstitialPage::CMD_TEXT_NOT_FOUND,
-      SecurityInterstitialPage::CMD_ERROR);
+      security_interstitials::CMD_TEXT_FOUND,
+      security_interstitials::CMD_TEXT_NOT_FOUND,
+      security_interstitials::CMD_ERROR);
   EXPECT_TRUE(content::ExecuteScriptAndExtractInt(rvh, command, &result));
-  EXPECT_EQ(SecurityInterstitialPage::CMD_TEXT_NOT_FOUND, result);
+  EXPECT_EQ(security_interstitials::CMD_TEXT_NOT_FOUND, result);
 }
 
 // Test that when SSL error overriding is allowed by policy (default), the
 // proceed link appears on SSL blocking pages.
 IN_PROC_BROWSER_TEST_F(PolicyTest, SSLErrorOverridingAllowed) {
-  net::SpawnedTestServer https_server_expired(
-      net::SpawnedTestServer::TYPE_HTTPS,
-      net::SpawnedTestServer::SSLOptions(
-          net::SpawnedTestServer::SSLOptions::CERT_EXPIRED),
-      base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  net::EmbeddedTestServer https_server_expired(
+      net::EmbeddedTestServer::TYPE_HTTPS);
+  https_server_expired.SetSSLConfig(net::EmbeddedTestServer::CERT_EXPIRED);
+  https_server_expired.ServeFilesFromSourceDirectory("chrome/test/data");
   ASSERT_TRUE(https_server_expired.Start());
 
   const PrefService* const prefs = browser()->profile()->GetPrefs();
@@ -3787,11 +3789,10 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, SSLErrorOverridingAllowed) {
 // proceed link does not appear on SSL blocking pages and users should not
 // be able to proceed.
 IN_PROC_BROWSER_TEST_F(PolicyTest, SSLErrorOverridingDisallowed) {
-  net::SpawnedTestServer https_server_expired(
-      net::SpawnedTestServer::TYPE_HTTPS,
-      net::SpawnedTestServer::SSLOptions(
-          net::SpawnedTestServer::SSLOptions::CERT_EXPIRED),
-      base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  net::EmbeddedTestServer https_server_expired(
+      net::EmbeddedTestServer::TYPE_HTTPS);
+  https_server_expired.SetSSLConfig(net::EmbeddedTestServer::CERT_EXPIRED);
+  https_server_expired.ServeFilesFromSourceDirectory("chrome/test/data");
   ASSERT_TRUE(https_server_expired.Start());
 
   const PrefService* const prefs = browser()->profile()->GetPrefs();
@@ -3831,7 +3832,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, SSLErrorOverridingDisallowed) {
   SSLBlockingPage* ssl_delegate =
       static_cast<SSLBlockingPage*>(interstitial_delegate);
   ssl_delegate->CommandReceived(
-      base::IntToString(SecurityInterstitialPage::CMD_PROCEED));
+      base::IntToString(security_interstitials::CMD_PROCEED));
   EXPECT_TRUE(interstitial);
   EXPECT_TRUE(browser()
                   ->tab_strip_model()

@@ -4,6 +4,8 @@
 
 #include "components/crash/content/app/crash_keys_win.h"
 
+#include <stddef.h>
+
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/strings/stringprintf.h"
@@ -129,15 +131,15 @@ TEST_F(CrashKeysWinTest, OfficialLikeKeys) {
   // We expect 7 fixed keys and a "freeboard" of 256 keys for dynamic entries.
   EXPECT_EQ(256U + 7U, info->count);
 
-  EXPECT_EQ(1, CountKeyValueOccurences(info, L"ver", L"1.2.3.4"));
-  EXPECT_EQ(1, CountKeyValueOccurences(info, L"prod", L"SomeProdName"));
-  EXPECT_EQ(1, CountKeyValueOccurences(info, L"plat", L"Win32"));
-  EXPECT_EQ(1, CountKeyValueOccurences(info, L"ptype", L"made_up_type"));
+  EXPECT_EQ(1u, CountKeyValueOccurences(info, L"ver", L"1.2.3.4"));
+  EXPECT_EQ(1u, CountKeyValueOccurences(info, L"prod", L"SomeProdName"));
+  EXPECT_EQ(1u, CountKeyValueOccurences(info, L"plat", L"Win32"));
+  EXPECT_EQ(1u, CountKeyValueOccurences(info, L"ptype", L"made_up_type"));
   std::wstring pid_str(base::StringPrintf(L"%d", ::GetCurrentProcessId()));
-  EXPECT_EQ(1, CountKeyValueOccurences(info, L"pid", pid_str.c_str()));
-  EXPECT_EQ(1, CountKeyValueOccurences(info, L"channel", L"-devm"));
-  EXPECT_EQ(1, CountKeyValueOccurences(info, L"profile-type", L"temporary"));
-  EXPECT_EQ(256, CountKeyValueOccurences(info, L"unspecified-crash-key", L""));
+  EXPECT_EQ(1u, CountKeyValueOccurences(info, L"pid", pid_str.c_str()));
+  EXPECT_EQ(1u, CountKeyValueOccurences(info, L"channel", L"-devm"));
+  EXPECT_EQ(1u, CountKeyValueOccurences(info, L"profile-type", L"temporary"));
+  EXPECT_EQ(256u, CountKeyValueOccurences(info, L"unspecified-crash-key", L""));
 }
 
 }  // namespace breakpad

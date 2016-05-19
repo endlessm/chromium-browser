@@ -8,19 +8,21 @@
 #ifndef CHROME_BROWSER_SAFE_BROWSING_DOWNLOAD_PROTECTION_SERVICE_H_
 #define CHROME_BROWSER_SAFE_BROWSING_DOWNLOAD_PROTECTION_SERVICE_H_
 
+#include <stdint.h>
+
 #include <set>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/callback_list.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "chrome/browser/safe_browsing/database_manager.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
+#include "components/safe_browsing_db/database_manager.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "url/gurl.h"
 
@@ -125,7 +127,7 @@ class DownloadProtectionService {
   }
 
   // Returns the timeout that is used by CheckClientDownload().
-  int64 download_request_timeout_ms() const {
+  int64_t download_request_timeout_ms() const {
     return download_request_timeout_ms_;
   }
 
@@ -137,6 +139,10 @@ class DownloadProtectionService {
   // been formed.
   ClientDownloadRequestSubscription RegisterClientDownloadRequestCallback(
       const ClientDownloadRequestCallback& callback);
+
+  double whitelist_sample_rate() const {
+    return whitelist_sample_rate_;
+  }
 
  protected:
   // Enum to keep track why a particular download verdict was chosen.
@@ -174,7 +180,9 @@ class DownloadProtectionService {
   friend class DownloadProtectionServiceTest;
 
   FRIEND_TEST_ALL_PREFIXES(DownloadProtectionServiceTest,
-                           CheckClientDownloadWhitelistedUrl);
+                           CheckClientDownloadWhitelistedUrlWithoutSampling);
+  FRIEND_TEST_ALL_PREFIXES(DownloadProtectionServiceTest,
+                           CheckClientDownloadWhitelistedUrlWithSampling);
   FRIEND_TEST_ALL_PREFIXES(DownloadProtectionServiceTest,
                            CheckClientDownloadValidateRequest);
   FRIEND_TEST_ALL_PREFIXES(DownloadProtectionServiceTest,
@@ -235,7 +243,7 @@ class DownloadProtectionService {
   // BinaryFeatureExtractor object, may be overridden for testing.
   scoped_refptr<BinaryFeatureExtractor> binary_feature_extractor_;
 
-  int64 download_request_timeout_ms_;
+  int64_t download_request_timeout_ms_;
 
   scoped_ptr<DownloadFeedbackService> feedback_service_;
 
@@ -246,6 +254,9 @@ class DownloadProtectionService {
   // List of 8-byte hashes that are blacklisted manually by flag.
   // Normally empty.
   std::set<std::string> manual_blacklist_hashes_;
+
+  // Rate of whitelisted downloads we sample to send out download ping.
+  double whitelist_sample_rate_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadProtectionService);
 };

@@ -8,9 +8,8 @@
 #include <stddef.h>
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "components/autofill/core/browser/autofill_client.h"
-#include "components/autofill/core/browser/autofill_download_manager.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/field_types.h"
@@ -37,6 +36,40 @@ class AutofillMetrics {
     FILLABLE_FORM_AUTOFILLED_NONE_DID_SHOW_SUGGESTIONS,
     FILLABLE_FORM_AUTOFILLED_NONE_DID_NOT_SHOW_SUGGESTIONS,
     AUTOFILL_FORM_SUBMITTED_STATE_ENUM_SIZE,
+  };
+
+  enum CardUploadDecisionMetric {
+    // All the required conditions were satisfied and the card upload prompt was
+    // triggered.
+    UPLOAD_OFFERED,
+    // No CVC was detected. We don't know whether any addresses were available
+    // nor whether we would have been able to get upload details.
+    UPLOAD_NOT_OFFERED_NO_CVC,
+    // A CVC was detected but no recently created or used address was available.
+    // We don't know whether we would have been able to get upload details.
+    UPLOAD_NOT_OFFERED_NO_ADDRESS,
+    // A CVC and one or more addresses were available but no name was found on
+    // either the card or the adress(es). We don't know whether the address(es)
+    // were otherwise valid nor whether we would have been able to get upload
+    // details.
+    UPLOAD_NOT_OFFERED_NO_NAME,
+    // A CVC, multiple addresses, and a name were available but the adresses had
+    // conflicting zip codes. We don't know whether we would have been able to
+    // get upload details.
+    UPLOAD_NOT_OFFERED_CONFLICTING_ZIPS,
+    // A CVC, one or more addresses, and a name were available but no zip code
+    // was found on any of the adress(es). We don't know whether we would have
+    // been able to get upload details.
+    UPLOAD_NOT_OFFERED_NO_ZIP_CODE,
+    // A CVC, one or more valid addresses, and a name were available but the
+    // request to Payments for upload details failed.
+    UPLOAD_NOT_OFFERED_GET_UPLOAD_DETAILS_FAILED,
+    // A CVC and one or more addresses were available but the names on the card
+    // and/or the addresses didn't match. We don't know whether the address(es)
+    // were otherwise valid nor whether we would have been able to get upload
+    // details.
+    UPLOAD_NOT_OFFERED_CONFLICTING_NAMES,
+    NUM_CARD_UPLOAD_DECISION_METRICS,
   };
 
   enum DeveloperEngagementMetric {
@@ -180,6 +213,39 @@ class AutofillMetrics {
     INFOBAR_IGNORED,    // The user completely ignored the infobar (logged on
                         // tab close).
     NUM_INFO_BAR_METRICS,
+  };
+
+  // Metrics to measure user interaction with the save credit card prompt.
+  //
+  // SAVE_CARD_PROMPT_DISMISS_FOCUS is not stored explicitly, but can be
+  // inferred from the other metrics:
+  // SAVE_CARD_PROMPT_DISMISS_FOCUS = SHOW_REQUESTED - END_* - DISMISS_*
+  enum SaveCardPromptMetric {
+    // Prompt was requested to be shown due to:
+    // CC info being submitted (first show), or
+    // location bar icon being clicked while bubble is hidden (reshows).
+    SAVE_CARD_PROMPT_SHOW_REQUESTED,
+    // The prompt was shown successfully.
+    SAVE_CARD_PROMPT_SHOWN,
+    // The prompt was not shown because the legal message was invalid.
+    SAVE_CARD_PROMPT_END_INVALID_LEGAL_MESSAGE,
+    // The user explicitly accepted the prompt.
+    SAVE_CARD_PROMPT_END_ACCEPTED,
+    // The user explicitly denied the prompt.
+    SAVE_CARD_PROMPT_END_DENIED,
+    // The prompt and icon were removed because of navigation away from the
+    // page that caused the prompt to be shown. The navigation occurred while
+    // the prompt was showing.
+    SAVE_CARD_PROMPT_END_NAVIGATION_SHOWING,
+    // The prompt and icon were removed  because of navigation away from the
+    // page that caused the prompt to be shown. The navigation occurred while
+    // the prompt was hidden.
+    SAVE_CARD_PROMPT_END_NAVIGATION_HIDDEN,
+    // The prompt was dismissed because the user clicked the "Learn more" link.
+    SAVE_CARD_PROMPT_DISMISS_CLICK_LEARN_MORE,
+    // The prompt was dismissed because the user clicked a legal message link.
+    SAVE_CARD_PROMPT_DISMISS_CLICK_LEGAL_MESSAGE,
+    NUM_SAVE_CARD_PROMPT_METRICS,
   };
 
   // Metrics measuring how well we predict field types.  Exactly three such
@@ -437,7 +503,11 @@ class AutofillMetrics {
     NUM_WALLET_REQUIRED_ACTIONS
   };
 
+  static void LogCardUploadDecisionMetric(CardUploadDecisionMetric metric);
   static void LogCreditCardInfoBarMetric(InfoBarMetric metric);
+  static void LogSaveCardPromptMetric(SaveCardPromptMetric metric,
+                                      bool is_uploading,
+                                      bool is_reshow);
   static void LogScanCreditCardPromptMetric(ScanCreditCardPromptMetric metric);
 
   // Should be called when credit card scan is finished. |duration| should be
@@ -450,11 +520,14 @@ class AutofillMetrics {
   static void LogDeveloperEngagementMetric(DeveloperEngagementMetric metric);
 
   static void LogHeuristicTypePrediction(FieldTypeQualityMetric metric,
-                                         ServerFieldType field_type);
+                                         ServerFieldType field_type,
+                                         bool observed_submission);
   static void LogOverallTypePrediction(FieldTypeQualityMetric metric,
-                                       ServerFieldType field_type);
+                                       ServerFieldType field_type,
+                                       bool observed_submission);
   static void LogServerTypePrediction(FieldTypeQualityMetric metric,
-                                      ServerFieldType field_type);
+                                      ServerFieldType field_type,
+                                      bool observed_submission);
 
   static void LogServerQueryMetric(ServerQueryMetric metric);
 
@@ -576,10 +649,12 @@ class AutofillMetrics {
   // Log the index of the selected Autocomplete suggestion in the popup.
   static void LogAutocompleteSuggestionAcceptedIndex(int index);
 
-  // Log how many autofilled fields in a given form were edited before
-  // submission.
-  static void LogNumberOfEditedAutofilledFieldsAtSubmission(
-      size_t num_edited_autofilled_fields);
+  // Log how many autofilled fields in a given form were edited before the
+  // submission or when the user unfocused the form (depending on
+  // |observed_submission|).
+  static void LogNumberOfEditedAutofilledFields(
+      size_t num_edited_autofilled_fields,
+      bool observed_submission);
 
   // This should be called each time a server response is parsed for a form.
   static void LogServerResponseHasDataForForm(bool has_data);
@@ -591,12 +666,6 @@ class AutofillMetrics {
   // This should be called at each form submission to indicate the autofilled
   // state of the form.
   static void LogAutofillFormSubmittedState(AutofillFormSubmittedState state);
-
-  // Log the compression ratio obtained by compressing with gzip. Logs for the
-  // query or upload request, depending on |type|.
-  static void LogPayloadCompressionRatio(
-      int compression_ratio,
-      AutofillDownloadManager::RequestType type);
 
   // Utility to autofill form events in the relevant histograms depending on
   // the presence of server and/or local data.

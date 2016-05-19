@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/VisibleUnits.h"
 
 #include "core/HTMLNames.h"
@@ -40,7 +39,9 @@
 #include "core/editing/TextAffinity.h"
 #include "core/editing/VisiblePosition.h"
 #include "core/editing/iterators/BackwardsCharacterIterator.h"
+#include "core/editing/iterators/BackwardsTextBuffer.h"
 #include "core/editing/iterators/CharacterIterator.h"
+#include "core/editing/iterators/ForwardsTextBuffer.h"
 #include "core/editing/iterators/SimplifiedBackwardsTextIterator.h"
 #include "core/editing/iterators/TextIterator.h"
 #include "core/frame/LocalFrame.h"
@@ -54,6 +55,8 @@
 #include "core/layout/LayoutObject.h"
 #include "core/layout/LayoutTextFragment.h"
 #include "core/layout/LayoutView.h"
+#include "core/layout/api/LineLayoutAPIShim.h"
+#include "core/layout/api/LineLayoutItem.h"
 #include "core/layout/line/InlineIterator.h"
 #include "core/layout/line/InlineTextBox.h"
 #include "core/paint/PaintLayer.h"
@@ -125,7 +128,7 @@ static PositionType canonicalPosition(const PositionType& passedPosition)
     if (node && node->document().documentElement() == node && !node->hasEditableStyle() && node->document().body() && node->document().body()->hasEditableStyle())
         return next.isNotNull() ? next : prev;
 
-    Element* editingRoot = editableRootForPosition(position);
+    Element* editingRoot = rootEditableElementOf(position);
 
     // If the html element is editable, descending into its body will look like
     // a descent from non-editable to editable content since
@@ -133,8 +136,8 @@ static PositionType canonicalPosition(const PositionType& passedPosition)
     if ((editingRoot && editingRoot->document().documentElement() == editingRoot) || position.anchorNode()->isDocumentNode())
         return next.isNotNull() ? next : prev;
 
-    bool prevIsInSameEditableElement = prevNode && editableRootForPosition(prev) == editingRoot;
-    bool nextIsInSameEditableElement = nextNode && editableRootForPosition(next) == editingRoot;
+    bool prevIsInSameEditableElement = prevNode && rootEditableElementOf(prev) == editingRoot;
+    bool nextIsInSameEditableElement = nextNode && rootEditableElementOf(next) == editingRoot;
     if (prevIsInSameEditableElement && !nextIsInSameEditableElement)
         return prev;
 
@@ -159,7 +162,7 @@ Position canonicalPositionOf(const Position& position)
     return canonicalPosition(position);
 }
 
-PositionInComposedTree canonicalPositionOf(const PositionInComposedTree& position)
+PositionInFlatTree canonicalPositionOf(const PositionInFlatTree& position)
 {
     return canonicalPosition(position);
 }
@@ -401,7 +404,7 @@ static const InlineTextBox* logicallyPreviousBox(const VisiblePosition& visibleP
         return previousBox;
 
     while (1) {
-        Node* startNode = startBox->layoutObject().nonPseudoNode();
+        Node* startNode = startBox->getLineLayoutItem().nonPseudoNode();
         if (!startNode)
             break;
 
@@ -442,7 +445,7 @@ static const InlineTextBox* logicallyNextBox(const VisiblePosition& visiblePosit
         return nextBox;
 
     while (1) {
-        Node* startNode =startBox->layoutObject().nonPseudoNode();
+        Node* startNode =startBox->getLineLayoutItem().nonPseudoNode();
         if (!startNode)
             break;
 
@@ -480,10 +483,10 @@ static TextBreakIterator* wordBreakIteratorForMinOffsetBoundary(const VisiblePos
     string.clear();
     if (previousBox) {
         previousBoxLength = previousBox->len();
-        previousBox->lineLayoutItem().text().appendTo(string, previousBox->start(), previousBoxLength);
+        previousBox->getLineLayoutItem().text().appendTo(string, previousBox->start(), previousBoxLength);
         len += previousBoxLength;
     }
-    textBox->lineLayoutItem().text().appendTo(string, textBox->start(), textBox->len());
+    textBox->getLineLayoutItem().text().appendTo(string, textBox->start(), textBox->len());
     len += textBox->len();
 
     return wordBreakIterator(string.data(), len);
@@ -499,10 +502,10 @@ static TextBreakIterator* wordBreakIteratorForMaxOffsetBoundary(const VisiblePos
 
     int len = 0;
     string.clear();
-    textBox->lineLayoutItem().text().appendTo(string, textBox->start(), textBox->len());
+    textBox->getLineLayoutItem().text().appendTo(string, textBox->start(), textBox->len());
     len += textBox->len();
     if (nextBox) {
-        nextBox->lineLayoutItem().text().appendTo(string, nextBox->start(), nextBox->len());
+        nextBox->getLineLayoutItem().text().appendTo(string, nextBox->start(), nextBox->len());
         len += nextBox->len();
     }
 
@@ -569,7 +572,7 @@ static VisiblePosition visualWordPosition(const VisiblePosition& visiblePosition
         } else if (offsetInBox == box->caretMaxOffset()) {
             iter = wordBreakIteratorForMaxOffsetBoundary(visiblePosition, textBox, nextBoxInDifferentBlock, string, leafBoxes);
         } else if (movingIntoNewBox) {
-            iter = wordBreakIterator(textBox->lineLayoutItem().text(), textBox->start(), textBox->len());
+            iter = wordBreakIterator(textBox->getLineLayoutItem().text(), textBox->start(), textBox->len());
             previouslyVisitedBox = box;
         }
 
@@ -665,16 +668,17 @@ static VisiblePositionTemplate<Strategy> previousBoundary(const VisiblePositionT
     const PositionTemplate<Strategy> start = PositionTemplate<Strategy>::editingPositionOf(boundary, 0).parentAnchoredEquivalent();
     const PositionTemplate<Strategy> end = pos.parentAnchoredEquivalent();
 
-    Vector<UChar, 1024> string;
+    ForwardsTextBuffer suffixString;
     unsigned suffixLength = 0;
 
     if (requiresContextForWordBoundary(characterBefore(c))) {
         TextIteratorAlgorithm<Strategy> forwardsIterator(end, PositionTemplate<Strategy>::afterNode(boundary));
         while (!forwardsIterator.atEnd()) {
-            Vector<UChar, 1024> characters;
-            forwardsIterator.text().appendTextTo(characters);
+            // TODO(xiaochengh): Eliminate this intermediate buffer.
+            ForwardsTextBuffer characters;
+            forwardsIterator.copyTextTo(&characters);
             int i = endOfFirstWordBoundaryContext(characters.data(), characters.size());
-            string.append(characters.data(), i);
+            suffixString.pushRange(characters.data(), i);
             suffixLength += i;
             if (static_cast<unsigned>(i) < characters.size())
                 break;
@@ -682,31 +686,43 @@ static VisiblePositionTemplate<Strategy> previousBoundary(const VisiblePositionT
         }
     }
 
+    BackwardsTextBuffer string;
+    string.pushRange(suffixString.data(), suffixString.size());
+
     SimplifiedBackwardsTextIteratorAlgorithm<Strategy> it(start, end);
+    int remainingLength = 0;
     unsigned next = 0;
     bool needMoreContext = false;
     while (!it.atEnd()) {
-        bool inTextSecurityMode = it.node() && it.node()->layoutObject() && it.node()->layoutObject()->style()->textSecurity() != TSNONE;
+        bool inTextSecurityMode = it.isInTextSecurityMode();
         // iterate to get chunks until the searchFunction returns a non-zero
         // value.
         if (!inTextSecurityMode) {
-            it.prependTextTo(string);
+            int runOffset = 0;
+            do {
+                runOffset += it.copyTextTo(&string, runOffset, string.capacity());
+                // TODO(xiaochengh): The following line takes O(string.size()) time,
+                // which makes quadratic overall running time in the worst case.
+                // Should improve it in some way.
+                next = searchFunction(string.data(), string.size(), string.size() - suffixLength, MayHaveMoreContext, needMoreContext);
+            } while (!next && runOffset < it.length());
+            if (next) {
+                remainingLength = it.length() - runOffset;
+                break;
+            }
         } else {
             // Treat bullets used in the text security mode as regular
             // characters when looking for boundaries
-            Vector<UChar, 1024> iteratorString;
-            iteratorString.fill('x', it.length());
-            string.prepend(iteratorString.data(), iteratorString.size());
+            string.pushCharacters('x', it.length());
+            next = 0;
         }
-        next = searchFunction(string.data(), string.size(), string.size() - suffixLength, MayHaveMoreContext, needMoreContext);
-        if (next)
-            break;
         it.advance();
     }
     if (needMoreContext) {
         // The last search returned the beginning of the buffer and asked for
         // more context, but there is no earlier text. Force a search with
         // what's available.
+        // TODO(xiaochengh): Do we have to search the whole string?
         next = searchFunction(string.data(), string.size(), string.size() - suffixLength, DontHaveMoreContext, needMoreContext);
         ASSERT(!needMoreContext);
     }
@@ -715,9 +731,10 @@ static VisiblePositionTemplate<Strategy> previousBoundary(const VisiblePositionT
         return createVisiblePosition(it.atEnd() ? it.startPosition() : pos);
 
     Node* node = it.startContainer();
-    if (node->isTextNode() && static_cast<int>(next) <= node->maxCharacterOffset()) {
+    int boundaryOffset = remainingLength + next;
+    if (node->isTextNode() && boundaryOffset <= node->maxCharacterOffset()) {
         // The next variable contains a usable index into a text node
-        return createVisiblePosition(PositionTemplate<Strategy>(node, next));
+        return createVisiblePosition(PositionTemplate<Strategy>(node, boundaryOffset));
     }
 
     // Use the character iterator to translate the next value into a DOM
@@ -739,17 +756,18 @@ static VisiblePositionTemplate<Strategy> nextBoundary(const VisiblePositionTempl
     Document& d = boundary->document();
     const PositionTemplate<Strategy> start(pos.parentAnchoredEquivalent());
 
-    Vector<UChar, 1024> string;
+    BackwardsTextBuffer prefixString;
     unsigned prefixLength = 0;
 
     if (requiresContextForWordBoundary(characterAfter(c))) {
         SimplifiedBackwardsTextIteratorAlgorithm<Strategy> backwardsIterator(PositionTemplate<Strategy>::firstPositionInNode(&d), start);
         while (!backwardsIterator.atEnd()) {
-            Vector<UChar, 1024> characters;
-            backwardsIterator.prependTextTo(characters);
+            // TODO(xiaochengh): Eliminate this intermediate buffer.
+            BackwardsTextBuffer characters;
+            backwardsIterator.copyTextTo(&characters);
             int length = characters.size();
             int i = startOfLastWordBoundaryContext(characters.data(), length);
-            string.prepend(characters.data() + i, length - i);
+            prefixString.pushRange(characters.data() + i, length - i);
             prefixLength += length - i;
             if (i > 0)
                 break;
@@ -757,35 +775,48 @@ static VisiblePositionTemplate<Strategy> nextBoundary(const VisiblePositionTempl
         }
     }
 
+    ForwardsTextBuffer string;
+    string.pushRange(prefixString.data(), prefixString.size());
+
     const PositionTemplate<Strategy> searchStart = PositionTemplate<Strategy>::editingPositionOf(start.anchorNode(), start.offsetInContainerNode());
     const PositionTemplate<Strategy> searchEnd = PositionTemplate<Strategy>::lastPositionInNode(boundary);
     TextIteratorAlgorithm<Strategy> it(searchStart, searchEnd, TextIteratorEmitsCharactersBetweenAllVisiblePositions);
     const unsigned invalidOffset = static_cast<unsigned>(-1);
     unsigned next = invalidOffset;
+    unsigned offset = prefixLength;
     bool needMoreContext = false;
     while (!it.atEnd()) {
         // Keep asking the iterator for chunks until the search function
         // returns an end value not equal to the length of the string passed to
         // it.
-        bool inTextSecurityMode = it.node() && it.node()->layoutObject() && it.node()->layoutObject()->style()->textSecurity() != TSNONE;
+        bool inTextSecurityMode = it.isInTextSecurityMode();
         if (!inTextSecurityMode) {
-            it.text().appendTextTo(string);
+            int runOffset = 0;
+            do {
+                runOffset += it.copyTextTo(&string, runOffset, string.capacity());
+                next = searchFunction(string.data(), string.size(), offset, MayHaveMoreContext, needMoreContext);
+                if (!needMoreContext) {
+                    // When the search does not need more context, skip all examined
+                    // characters except the last one, in case it is a boundary.
+                    offset = string.size();
+                    U16_BACK_1(string.data(), 0, offset);
+                }
+            } while (next == string.size() && runOffset < it.length());
+            if (next != string.size())
+                break;
         } else {
             // Treat bullets used in the text security mode as regular
             // characters when looking for boundaries
-            Vector<UChar, 1024> iteratorString;
-            iteratorString.fill('x', it.length());
-            string.append(iteratorString.data(), iteratorString.size());
+            string.pushCharacters('x', it.length());
+            next = string.size();
         }
-        next = searchFunction(string.data(), string.size(), prefixLength, MayHaveMoreContext, needMoreContext);
-        if (next != string.size())
-            break;
         it.advance();
     }
     if (needMoreContext) {
         // The last search returned the end of the buffer and asked for more
         // context, but there is no further text. Force a search with what's
         // available.
+        // TODO(xiaochengh): Do we still have to search the whole string?
         next = searchFunction(string.data(), string.size(), prefixLength, DontHaveMoreContext, needMoreContext);
         ASSERT(!needMoreContext);
     }
@@ -819,6 +850,7 @@ static VisiblePositionTemplate<Strategy> nextBoundary(const VisiblePositionTempl
 
 static unsigned startWordBoundary(const UChar* characters, unsigned length, unsigned offset, BoundarySearchContextAvailability mayHaveMoreContext, bool& needMoreContext)
 {
+    TRACE_EVENT0("blink", "startWordBoundary");
     ASSERT(offset);
     if (mayHaveMoreContext && !startOfLastWordBoundaryContext(characters, offset)) {
         needMoreContext = true;
@@ -854,9 +886,9 @@ VisiblePosition startOfWord(const VisiblePosition& c, EWordSide side)
     return startOfWordAlgorithm<EditingStrategy>(c, side);
 }
 
-VisiblePositionInComposedTree startOfWord(const VisiblePositionInComposedTree& c, EWordSide side)
+VisiblePositionInFlatTree startOfWord(const VisiblePositionInFlatTree& c, EWordSide side)
 {
-    return startOfWordAlgorithm<EditingInComposedTreeStrategy>(c, side);
+    return startOfWordAlgorithm<EditingInFlatTreeStrategy>(c, side);
 }
 
 static unsigned endWordBoundary(const UChar* characters, unsigned length, unsigned offset, BoundarySearchContextAvailability mayHaveMoreContext, bool& needMoreContext)
@@ -893,9 +925,9 @@ VisiblePosition endOfWord(const VisiblePosition& c, EWordSide side)
     return endOfWordAlgorithm<EditingStrategy>(c, side);
 }
 
-VisiblePositionInComposedTree endOfWord(const VisiblePositionInComposedTree& c, EWordSide side)
+VisiblePositionInFlatTree endOfWord(const VisiblePositionInFlatTree& c, EWordSide side)
 {
-    return endOfWordAlgorithm<EditingInComposedTreeStrategy>(c, side);
+    return endOfWordAlgorithm<EditingInFlatTreeStrategy>(c, side);
 }
 
 static unsigned previousWordPositionBoundary(const UChar* characters, unsigned length, unsigned offset, BoundarySearchContextAvailability mayHaveMoreContext, bool& needMoreContext)
@@ -964,7 +996,7 @@ static PositionWithAffinityTemplate<Strategy> startPositionForLine(const Positio
             if (!startBox)
                 return PositionWithAffinityTemplate<Strategy>();
 
-            startNode = startBox->layoutObject().nonPseudoNode();
+            startNode = startBox->getLineLayoutItem().nonPseudoNode();
             if (startNode)
                 break;
 
@@ -989,9 +1021,9 @@ static PositionWithAffinity startOfLine(const PositionWithAffinity& currentPosit
     return startOfLineAlgorithm<EditingStrategy>(currentPosition);
 }
 
-static PositionInComposedTreeWithAffinity startOfLine(const PositionInComposedTreeWithAffinity& currentPosition)
+static PositionInFlatTreeWithAffinity startOfLine(const PositionInFlatTreeWithAffinity& currentPosition)
 {
-    return startOfLineAlgorithm<EditingInComposedTreeStrategy>(currentPosition);
+    return startOfLineAlgorithm<EditingInFlatTreeStrategy>(currentPosition);
 }
 
 // FIXME: Rename this function to reflect the fact it ignores bidi levels.
@@ -1000,7 +1032,7 @@ VisiblePosition startOfLine(const VisiblePosition& currentPosition)
     return createVisiblePosition(startOfLine(currentPosition.toPositionWithAffinity()));
 }
 
-VisiblePositionInComposedTree startOfLine(const VisiblePositionInComposedTree& currentPosition)
+VisiblePositionInFlatTree startOfLine(const VisiblePositionInFlatTree& currentPosition)
 {
     return createVisiblePosition(startOfLine(currentPosition.toPositionWithAffinity()));
 }
@@ -1025,9 +1057,9 @@ VisiblePosition logicalStartOfLine(const VisiblePosition& currentPosition)
     return createVisiblePosition(logicalStartOfLineAlgorithm<EditingStrategy>(currentPosition.toPositionWithAffinity()));
 }
 
-VisiblePositionInComposedTree logicalStartOfLine(const VisiblePositionInComposedTree& currentPosition)
+VisiblePositionInFlatTree logicalStartOfLine(const VisiblePositionInFlatTree& currentPosition)
 {
-    return createVisiblePosition(logicalStartOfLineAlgorithm<EditingInComposedTreeStrategy>(currentPosition.toPositionWithAffinity()));
+    return createVisiblePosition(logicalStartOfLineAlgorithm<EditingInFlatTreeStrategy>(currentPosition.toPositionWithAffinity()));
 }
 
 template <typename Strategy>
@@ -1061,7 +1093,7 @@ static VisiblePositionTemplate<Strategy> endPositionForLine(const VisiblePositio
             if (!endBox)
                 return VisiblePositionTemplate<Strategy>();
 
-            endNode = endBox->layoutObject().nonPseudoNode();
+            endNode = endBox->getLineLayoutItem().nonPseudoNode();
             if (endNode)
                 break;
 
@@ -1117,9 +1149,9 @@ VisiblePosition endOfLine(const VisiblePosition& currentPosition)
     return endOfLineAlgorithm<EditingStrategy>(currentPosition);
 }
 
-VisiblePositionInComposedTree endOfLine(const VisiblePositionInComposedTree& currentPosition)
+VisiblePositionInFlatTree endOfLine(const VisiblePositionInFlatTree& currentPosition)
 {
-    return endOfLineAlgorithm<EditingInComposedTreeStrategy>(currentPosition);
+    return endOfLineAlgorithm<EditingInFlatTreeStrategy>(currentPosition);
 }
 
 template <typename Strategy>
@@ -1159,9 +1191,9 @@ VisiblePosition logicalEndOfLine(const VisiblePosition& currentPosition)
     return logicalEndOfLineAlgorithm<EditingStrategy>(currentPosition);
 }
 
-VisiblePositionInComposedTree logicalEndOfLine(const VisiblePositionInComposedTree& currentPosition)
+VisiblePositionInFlatTree logicalEndOfLine(const VisiblePositionInFlatTree& currentPosition)
 {
-    return logicalEndOfLineAlgorithm<EditingInComposedTreeStrategy>(currentPosition);
+    return logicalEndOfLineAlgorithm<EditingInFlatTreeStrategy>(currentPosition);
 }
 
 template <typename Strategy>
@@ -1184,9 +1216,9 @@ bool inSameLine(const PositionWithAffinity& a, const PositionWithAffinity& b)
     return inSameLineAlgorithm<EditingStrategy>(a, b);
 }
 
-bool inSameLine(const PositionInComposedTreeWithAffinity& position1, const PositionInComposedTreeWithAffinity& position2)
+bool inSameLine(const PositionInFlatTreeWithAffinity& position1, const PositionInFlatTreeWithAffinity& position2)
 {
-    return inSameLineAlgorithm<EditingInComposedTreeStrategy>(position1, position2);
+    return inSameLineAlgorithm<EditingInFlatTreeStrategy>(position1, position2);
 }
 
 bool inSameLine(const VisiblePosition& position1, const VisiblePosition& position2)
@@ -1194,7 +1226,7 @@ bool inSameLine(const VisiblePosition& position1, const VisiblePosition& positio
     return inSameLine(position1.toPositionWithAffinity(), position2.toPositionWithAffinity());
 }
 
-bool inSameLine(const VisiblePositionInComposedTree& position1, const VisiblePositionInComposedTree& position2)
+bool inSameLine(const VisiblePositionInFlatTree& position1, const VisiblePositionInFlatTree& position2)
 {
     return inSameLine(position1.toPositionWithAffinity(), position2.toPositionWithAffinity());
 }
@@ -1210,9 +1242,9 @@ bool isStartOfLine(const VisiblePosition& p)
     return isStartOfLineAlgorithm<EditingStrategy>(p);
 }
 
-bool isStartOfLine(const VisiblePositionInComposedTree& p)
+bool isStartOfLine(const VisiblePositionInFlatTree& p)
 {
-    return isStartOfLineAlgorithm<EditingInComposedTreeStrategy>(p);
+    return isStartOfLineAlgorithm<EditingInFlatTreeStrategy>(p);
 }
 
 template <typename Strategy>
@@ -1226,9 +1258,9 @@ bool isEndOfLine(const VisiblePosition& p)
     return isEndOfLineAlgorithm<EditingStrategy>(p);
 }
 
-bool isEndOfLine(const VisiblePositionInComposedTree& p)
+bool isEndOfLine(const VisiblePositionInFlatTree& p)
 {
-    return isEndOfLineAlgorithm<EditingInComposedTreeStrategy>(p);
+    return isEndOfLineAlgorithm<EditingInFlatTreeStrategy>(p);
 }
 
 template <typename Strategy>
@@ -1242,23 +1274,23 @@ bool isLogicalEndOfLine(const VisiblePosition& p)
     return isLogicalEndOfLineAlgorithm<EditingStrategy>(p);
 }
 
-bool isLogicalEndOfLine(const VisiblePositionInComposedTree& p)
+bool isLogicalEndOfLine(const VisiblePositionInFlatTree& p)
 {
-    return isLogicalEndOfLineAlgorithm<EditingInComposedTreeStrategy>(p);
+    return isLogicalEndOfLineAlgorithm<EditingInFlatTreeStrategy>(p);
 }
 
 static inline LayoutPoint absoluteLineDirectionPointToLocalPointInBlock(RootInlineBox* root, LayoutUnit lineDirectionPoint)
 {
     ASSERT(root);
-    LayoutBlockFlow& containingBlock = root->block();
+    LineLayoutBlockFlow containingBlock = root->block();
     FloatPoint absoluteBlockPoint = containingBlock.localToAbsolute(FloatPoint());
     if (containingBlock.hasOverflowClip())
-        absoluteBlockPoint -= containingBlock.scrolledContentOffset();
+        absoluteBlockPoint -= FloatSize(containingBlock.scrolledContentOffset());
 
     if (root->block().isHorizontalWritingMode())
-        return LayoutPoint(lineDirectionPoint - absoluteBlockPoint.x(), root->blockDirectionPointInLine());
+        return LayoutPoint(LayoutUnit(lineDirectionPoint - absoluteBlockPoint.x()), root->blockDirectionPointInLine());
 
-    return LayoutPoint(root->blockDirectionPointInLine(), lineDirectionPoint - absoluteBlockPoint.y());
+    return LayoutPoint(root->blockDirectionPointInLine(), LayoutUnit(lineDirectionPoint - absoluteBlockPoint.y()));
 }
 
 VisiblePosition previousLinePosition(const VisiblePosition& visiblePosition, LayoutUnit lineDirectionPoint, EditableType editableType)
@@ -1298,11 +1330,11 @@ VisiblePosition previousLinePosition(const VisiblePosition& visiblePosition, Lay
     if (root) {
         // FIXME: Can be wrong for multi-column layout and with transforms.
         LayoutPoint pointInLine = absoluteLineDirectionPointToLocalPointInBlock(root, lineDirectionPoint);
-        LayoutObject& layoutObject = root->closestLeafChildForPoint(pointInLine, isEditablePosition(p))->layoutObject();
-        Node* node = layoutObject.node();
+        LineLayoutItem lineLayoutItem = root->closestLeafChildForPoint(pointInLine, isEditablePosition(p))->getLineLayoutItem();
+        Node* node = lineLayoutItem.node();
         if (node && editingIgnoresContent(node))
             return createVisiblePosition(positionInParentBeforeNode(*node));
-        return createVisiblePosition(layoutObject.positionForPoint(pointInLine));
+        return createVisiblePosition(lineLayoutItem.positionForPoint(pointInLine));
     }
 
     // Could not find a previous line. This means we must already be on the first line.
@@ -1354,11 +1386,11 @@ VisiblePosition nextLinePosition(const VisiblePosition& visiblePosition, LayoutU
     if (root) {
         // FIXME: Can be wrong for multi-column layout and with transforms.
         LayoutPoint pointInLine = absoluteLineDirectionPointToLocalPointInBlock(root, lineDirectionPoint);
-        LayoutObject& layoutObject = root->closestLeafChildForPoint(pointInLine, isEditablePosition(p))->layoutObject();
-        Node* node = layoutObject.node();
+        LineLayoutItem lineLayoutItem = root->closestLeafChildForPoint(pointInLine, isEditablePosition(p))->getLineLayoutItem();
+        Node* node = lineLayoutItem.node();
         if (node && editingIgnoresContent(node))
             return createVisiblePosition(positionInParentBeforeNode(*node));
-        return createVisiblePosition(layoutObject.positionForPoint(pointInLine));
+        return createVisiblePosition(lineLayoutItem.positionForPoint(pointInLine));
     }
 
     // Could not find a next line. This means we must already be on the last line.
@@ -1390,9 +1422,9 @@ VisiblePosition startOfSentence(const VisiblePosition& c)
     return startOfSentenceAlgorithm<EditingStrategy>(c);
 }
 
-VisiblePositionInComposedTree startOfSentence(const VisiblePositionInComposedTree& c)
+VisiblePositionInFlatTree startOfSentence(const VisiblePositionInFlatTree& c)
 {
-    return startOfSentenceAlgorithm<EditingInComposedTreeStrategy>(c);
+    return startOfSentenceAlgorithm<EditingInFlatTreeStrategy>(c);
 }
 
 static unsigned endSentenceBoundary(const UChar* characters, unsigned length, unsigned, BoundarySearchContextAvailability, bool&)
@@ -1414,9 +1446,9 @@ VisiblePosition endOfSentence(const VisiblePosition& c)
     return endOfSentenceAlgorithm<EditingStrategy>(c);
 }
 
-VisiblePositionInComposedTree endOfSentence(const VisiblePositionInComposedTree& c)
+VisiblePositionInFlatTree endOfSentence(const VisiblePositionInFlatTree& c)
 {
-    return endOfSentenceAlgorithm<EditingInComposedTreeStrategy>(c);
+    return endOfSentenceAlgorithm<EditingInFlatTreeStrategy>(c);
 }
 
 static unsigned previousSentencePositionBoundary(const UChar* characters, unsigned length, unsigned, BoundarySearchContextAvailability, bool&)
@@ -1508,7 +1540,7 @@ VisiblePositionTemplate<Strategy> startOfParagraphAlgorithm(const VisiblePositio
             node = n;
             offset = 0;
             n = Strategy::previousPostOrder(*n, startBlock);
-        } else if (editingIgnoresContent(n) || isRenderedTableElement(n)) {
+        } else if (editingIgnoresContent(n) || isDisplayInsideTable(n)) {
             node = n;
             type = PositionAnchorType::BeforeAnchor;
             n = n->previousSibling() ? n->previousSibling() : Strategy::previousPostOrder(*n, startBlock);
@@ -1528,9 +1560,9 @@ VisiblePosition startOfParagraph(const VisiblePosition& c, EditingBoundaryCrossi
     return startOfParagraphAlgorithm<EditingStrategy>(c, boundaryCrossingRule);
 }
 
-VisiblePositionInComposedTree startOfParagraph(const VisiblePositionInComposedTree& c, EditingBoundaryCrossingRule boundaryCrossingRule)
+VisiblePositionInFlatTree startOfParagraph(const VisiblePositionInFlatTree& c, EditingBoundaryCrossingRule boundaryCrossingRule)
 {
-    return startOfParagraphAlgorithm<EditingInComposedTreeStrategy>(c, boundaryCrossingRule);
+    return startOfParagraphAlgorithm<EditingInFlatTreeStrategy>(c, boundaryCrossingRule);
 }
 
 template <typename Strategy>
@@ -1584,18 +1616,18 @@ static VisiblePositionTemplate<Strategy> endOfParagraphAlgorithm(const VisiblePo
             ASSERT_WITH_SECURITY_IMPLICATION(n->isTextNode());
             int length = toLayoutText(r)->textLength();
             type = PositionAnchorType::OffsetInAnchor;
+            LayoutText* text = toLayoutText(r);
             if (style.preserveNewline()) {
-                LayoutText* text = toLayoutText(r);
                 int o = n == startNode ? offset : 0;
                 for (int i = o; i < length; ++i) {
                     if ((*text)[i] == '\n')
-                        return createVisiblePosition(PositionTemplate<Strategy>(toText(n), i));
+                        return createVisiblePosition(PositionTemplate<Strategy>(toText(n), i + text->textStartOffset()));
                 }
             }
             node = n;
-            offset = r->caretMaxOffset();
+            offset = r->caretMaxOffset() + text->textStartOffset();
             n = Strategy::next(*n, stayInsideBlock);
-        } else if (Strategy::editingIgnoresContent(n) || isRenderedTableElement(n)) {
+        } else if (Strategy::editingIgnoresContent(n) || isDisplayInsideTable(n)) {
             node = n;
             type = PositionAnchorType::AfterAnchor;
             n = Strategy::nextSkippingChildren(*n, stayInsideBlock);
@@ -1615,9 +1647,9 @@ VisiblePosition endOfParagraph(const VisiblePosition& c, EditingBoundaryCrossing
     return endOfParagraphAlgorithm<EditingStrategy>(c, boundaryCrossingRule);
 }
 
-VisiblePositionInComposedTree endOfParagraph(const VisiblePositionInComposedTree& c, EditingBoundaryCrossingRule boundaryCrossingRule)
+VisiblePositionInFlatTree endOfParagraph(const VisiblePositionInFlatTree& c, EditingBoundaryCrossingRule boundaryCrossingRule)
 {
-    return endOfParagraphAlgorithm<EditingInComposedTreeStrategy>(c, boundaryCrossingRule);
+    return endOfParagraphAlgorithm<EditingInFlatTreeStrategy>(c, boundaryCrossingRule);
 }
 
 // FIXME: isStartOfParagraph(startOfNextParagraph(pos)) is not always true
@@ -1648,9 +1680,9 @@ bool isStartOfParagraph(const VisiblePosition& pos, EditingBoundaryCrossingRule 
     return isStartOfParagraphAlgorithm<EditingStrategy>(pos, boundaryCrossingRule);
 }
 
-bool isStartOfParagraph(const VisiblePositionInComposedTree& pos, EditingBoundaryCrossingRule boundaryCrossingRule)
+bool isStartOfParagraph(const VisiblePositionInFlatTree& pos, EditingBoundaryCrossingRule boundaryCrossingRule)
 {
-    return isStartOfParagraphAlgorithm<EditingInComposedTreeStrategy>(pos, boundaryCrossingRule);
+    return isStartOfParagraphAlgorithm<EditingInFlatTreeStrategy>(pos, boundaryCrossingRule);
 }
 
 template <typename Strategy>
@@ -1664,9 +1696,9 @@ bool isEndOfParagraph(const VisiblePosition& pos, EditingBoundaryCrossingRule bo
     return isEndOfParagraphAlgorithm<EditingStrategy>(pos, boundaryCrossingRule);
 }
 
-bool isEndOfParagraph(const VisiblePositionInComposedTree& pos, EditingBoundaryCrossingRule boundaryCrossingRule)
+bool isEndOfParagraph(const VisiblePositionInFlatTree& pos, EditingBoundaryCrossingRule boundaryCrossingRule)
 {
-    return isEndOfParagraphAlgorithm<EditingInComposedTreeStrategy>(pos, boundaryCrossingRule);
+    return isEndOfParagraphAlgorithm<EditingInFlatTreeStrategy>(pos, boundaryCrossingRule);
 }
 
 VisiblePosition previousParagraphPosition(const VisiblePosition& p, LayoutUnit x)
@@ -1741,9 +1773,9 @@ VisiblePosition startOfDocument(const VisiblePosition& c)
     return startOfDocumentAlgorithm<EditingStrategy>(c);
 }
 
-VisiblePositionInComposedTree startOfDocument(const VisiblePositionInComposedTree& c)
+VisiblePositionInFlatTree startOfDocument(const VisiblePositionInFlatTree& c)
 {
-    return startOfDocumentAlgorithm<EditingInComposedTreeStrategy>(c);
+    return startOfDocumentAlgorithm<EditingInFlatTreeStrategy>(c);
 }
 
 template <typename Strategy>
@@ -1762,9 +1794,9 @@ VisiblePosition endOfDocument(const VisiblePosition& c)
     return endOfDocumentAlgorithm<EditingStrategy>(c);
 }
 
-VisiblePositionInComposedTree endOfDocument(const VisiblePositionInComposedTree& c)
+VisiblePositionInFlatTree endOfDocument(const VisiblePositionInFlatTree& c)
 {
-    return endOfDocumentAlgorithm<EditingInComposedTreeStrategy>(c);
+    return endOfDocumentAlgorithm<EditingInFlatTreeStrategy>(c);
 }
 
 bool isStartOfDocument(const VisiblePosition& p)
@@ -1804,11 +1836,11 @@ bool isEndOfEditableOrNonEditableContent(const VisiblePosition& position)
 
 // TODO(yosin) We should rename |isEndOfEditableOrNonEditableContent()| what
 // this function does, e.g. |isLastVisiblePositionOrEndOfInnerEditor()|.
-bool isEndOfEditableOrNonEditableContent(const VisiblePositionInComposedTree& position)
+bool isEndOfEditableOrNonEditableContent(const VisiblePositionInFlatTree& position)
 {
     if (position.isNull())
         return false;
-    const VisiblePositionInComposedTree nextPosition = nextPositionOf(position);
+    const VisiblePositionInFlatTree nextPosition = nextPositionOf(position);
     if (nextPosition.isNull())
         return true;
     // In DOM version, following condition, the last position of inner editor
@@ -2065,9 +2097,9 @@ InlineBoxPosition computeInlineBoxPosition(const Position& position, TextAffinit
     return computeInlineBoxPositionTemplate<EditingStrategy>(position, affinity);
 }
 
-InlineBoxPosition computeInlineBoxPosition(const PositionInComposedTree& position, TextAffinity affinity)
+InlineBoxPosition computeInlineBoxPosition(const PositionInFlatTree& position, TextAffinity affinity)
 {
-    return computeInlineBoxPositionTemplate<EditingInComposedTreeStrategy>(position, affinity);
+    return computeInlineBoxPositionTemplate<EditingInFlatTreeStrategy>(position, affinity);
 }
 
 InlineBoxPosition computeInlineBoxPosition(const VisiblePosition& position)
@@ -2075,7 +2107,7 @@ InlineBoxPosition computeInlineBoxPosition(const VisiblePosition& position)
     return computeInlineBoxPosition(position.deepEquivalent(), position.affinity());
 }
 
-InlineBoxPosition computeInlineBoxPosition(const VisiblePositionInComposedTree& position)
+InlineBoxPosition computeInlineBoxPosition(const VisiblePositionInFlatTree& position)
 {
     return computeInlineBoxPosition(position.deepEquivalent(), position.affinity());
 }
@@ -2085,9 +2117,9 @@ InlineBoxPosition computeInlineBoxPosition(const Position& position, TextAffinit
     return computeInlineBoxPositionTemplate<EditingStrategy>(position, affinity, primaryDirection);
 }
 
-InlineBoxPosition computeInlineBoxPosition(const PositionInComposedTree& position, TextAffinity affinity, TextDirection primaryDirection)
+InlineBoxPosition computeInlineBoxPosition(const PositionInFlatTree& position, TextAffinity affinity, TextDirection primaryDirection)
 {
-    return computeInlineBoxPositionTemplate<EditingInComposedTreeStrategy>(position, affinity, primaryDirection);
+    return computeInlineBoxPositionTemplate<EditingInFlatTreeStrategy>(position, affinity, primaryDirection);
 }
 
 template <typename Strategy>
@@ -2106,7 +2138,7 @@ LayoutRect localCaretRectOfPositionTemplate(const PositionWithAffinityTemplate<S
     InlineBoxPosition boxPosition = computeInlineBoxPosition(position.position(), position.affinity());
 
     if (boxPosition.inlineBox)
-        layoutObject = &boxPosition.inlineBox->layoutObject();
+        layoutObject = LineLayoutAPIShim::layoutObjectFrom(boxPosition.inlineBox->getLineLayoutItem());
 
     return layoutObject->localCaretRect(boxPosition.inlineBox, boxPosition.offsetInBox);
 }
@@ -2116,9 +2148,9 @@ LayoutRect localCaretRectOfPosition(const PositionWithAffinity& position, Layout
     return localCaretRectOfPositionTemplate<EditingStrategy>(position, layoutObject);
 }
 
-LayoutRect localCaretRectOfPosition(const PositionInComposedTreeWithAffinity& position, LayoutObject*& layoutObject)
+LayoutRect localCaretRectOfPosition(const PositionInFlatTreeWithAffinity& position, LayoutObject*& layoutObject)
 {
-    return localCaretRectOfPositionTemplate<EditingInComposedTreeStrategy>(position, layoutObject);
+    return localCaretRectOfPositionTemplate<EditingInFlatTreeStrategy>(position, layoutObject);
 }
 
 static int boundingBoxLogicalHeight(LayoutObject *o, const IntRect &rect)
@@ -2153,28 +2185,62 @@ VisiblePosition visiblePositionForContentsPoint(const IntPoint& contentsPoint, L
 
 // TODO(yosin): We should use |associatedLayoutObjectOf()| in "VisibleUnits.cpp"
 // where it takes |LayoutObject| from |Position|.
-static LayoutObject* associatedLayoutObjectOf(const Node& node, int offsetInNode)
+// Note about ::first-letter pseudo-element:
+//   When an element has ::first-letter pseudo-element, first letter characters
+//   are taken from |Text| node and first letter characters are considered
+//   as content of <pseudo:first-letter>.
+//   For following HTML,
+//      <style>div::first-letter {color: red}</style>
+//      <div>abc</div>
+//   we have following layout tree:
+//      LayoutBlockFlow {DIV} at (0,0) size 784x55
+//        LayoutInline {<pseudo:first-letter>} at (0,0) size 22x53
+//          LayoutTextFragment (anonymous) at (0,1) size 22x53
+//            text run at (0,1) width 22: "a"
+//        LayoutTextFragment {#text} at (21,30) size 16x17
+//          text run at (21,30) width 16: "bc"
+//  In this case, |Text::layoutObject()| for "abc" returns |LayoutTextFragment|
+//  containing "bc", and it is called remaining part.
+//
+//  Even if |Text| node contains only first-letter characters, e.g. just "a",
+//  remaining part of |LayoutTextFragment|, with |fragmentLength()| == 0, is
+//  appeared in layout tree.
+//
+//  When |Text| node contains only first-letter characters and whitespaces, e.g.
+//  "B\n", associated |LayoutTextFragment| is first-letter part instead of
+//  remaining part.
+//
+//  Punctuation characters are considered as first-letter. For "(1)ab",
+//  "(1)" are first-letter part and "ab" are remaining part.
+LayoutObject* associatedLayoutObjectOf(const Node& node, int offsetInNode)
 {
     ASSERT(offsetInNode >= 0);
     LayoutObject* layoutObject = node.layoutObject();
     if (!node.isTextNode() || !layoutObject || !toLayoutText(layoutObject)->isTextFragment())
         return layoutObject;
     LayoutTextFragment* layoutTextFragment = toLayoutTextFragment(layoutObject);
-    if (layoutTextFragment->isRemainingTextLayoutObject()) {
-        if (static_cast<unsigned>(offsetInNode) >= layoutTextFragment->start())
-            return layoutObject;
-        LayoutObject* firstLetterLayoutObject = layoutTextFragment->firstLetterPseudoElement()->layoutObject();
-        if (!firstLetterLayoutObject)
-            return nullptr;
-        // TODO(yosin): We're not sure when |firstLetterLayoutObject| has
-        // multiple child layout object.
-        ASSERT(firstLetterLayoutObject->slowFirstChild() == firstLetterLayoutObject->slowLastChild());
-        return firstLetterLayoutObject->slowFirstChild();
+    if (!layoutTextFragment->isRemainingTextLayoutObject()) {
+        ASSERT(static_cast<unsigned>(offsetInNode) <= layoutTextFragment->start() + layoutTextFragment->fragmentLength());
+        return layoutTextFragment;
     }
-    // TODO(yosin): We should rename |LayoutTextFramge::length()| instead of
-    // |end()|, once |LayoutTextFramge| has it. See http://crbug.com/545789
-    ASSERT(static_cast<unsigned>(offsetInNode) <= layoutTextFragment->start() + layoutTextFragment->fragmentLength());
-    return layoutTextFragment;
+    if (layoutTextFragment->fragmentLength() && static_cast<unsigned>(offsetInNode) >= layoutTextFragment->start())
+        return layoutObject;
+    LayoutObject* firstLetterLayoutObject = layoutTextFragment->firstLetterPseudoElement()->layoutObject();
+    // TODO(yosin): We're not sure when |firstLetterLayoutObject| has
+    // multiple child layout object.
+    ASSERT(firstLetterLayoutObject->slowFirstChild() == firstLetterLayoutObject->slowLastChild());
+    return firstLetterLayoutObject->slowFirstChild();
+}
+
+int caretMinOffset(const Node* node)
+{
+    LayoutObject* layoutObject = associatedLayoutObjectOf(*node, 0);
+    return layoutObject ? layoutObject->caretMinOffset() : 0;
+}
+
+int caretMaxOffset(const Node* n)
+{
+    return EditingStrategy::caretMaxOffset(*n);
 }
 
 template <typename Strategy>
@@ -2371,7 +2437,7 @@ static bool endsOfNodeAreVisuallyDistinctPositions(Node* node)
         return true;
 
     // There is a VisiblePosition inside an empty inline-block container.
-    return node->layoutObject()->isReplaced() && canHaveChildrenForEditing(node) && toLayoutBox(node->layoutObject())->size().height() != 0 && !node->hasChildren();
+    return node->layoutObject()->isAtomicInlineLevel() && canHaveChildrenForEditing(node) && toLayoutBox(node->layoutObject())->size().height() != 0 && !node->hasChildren();
 }
 
 template <typename Strategy>
@@ -2454,7 +2520,7 @@ static PositionTemplate<Strategy> mostBackwardCaretPosition(const PositionTempla
             return lastVisible.deprecatedComputePosition();
 
         // Return position after tables and nodes which have content that can be ignored.
-        if (Strategy::editingIgnoresContent(currentNode) || isRenderedHTMLTableElement(currentNode)) {
+        if (Strategy::editingIgnoresContent(currentNode) || isDisplayInsideTable(currentNode)) {
             if (currentPos.atEndOfNode())
                 return PositionTemplate<Strategy>::afterNode(currentNode);
             continue;
@@ -2507,7 +2573,7 @@ static PositionTemplate<Strategy> mostBackwardCaretPosition(const PositionTempla
                     otherBox = otherBox->nextLeafChild();
                     if (!otherBox)
                         break;
-                    if (otherBox == lastTextBox || (otherBox->layoutObject() == textLayoutObject && toInlineTextBox(otherBox)->start() > textOffset))
+                    if (otherBox == lastTextBox || (LineLayoutAPIShim::layoutObjectFrom(otherBox->getLineLayoutItem()) == textLayoutObject && toInlineTextBox(otherBox)->start() > textOffset))
                         continuesOnNextLine = false;
                 }
 
@@ -2516,7 +2582,7 @@ static PositionTemplate<Strategy> mostBackwardCaretPosition(const PositionTempla
                     otherBox = otherBox->prevLeafChild();
                     if (!otherBox)
                         break;
-                    if (otherBox == lastTextBox || (otherBox->layoutObject() == textLayoutObject && toInlineTextBox(otherBox)->start() > textOffset))
+                    if (otherBox == lastTextBox || (LineLayoutAPIShim::layoutObjectFrom(otherBox->getLineLayoutItem()) == textLayoutObject && toInlineTextBox(otherBox)->start() > textOffset))
                         continuesOnNextLine = false;
                 }
 
@@ -2533,9 +2599,9 @@ Position mostBackwardCaretPosition(const Position& position, EditingBoundaryCros
     return mostBackwardCaretPosition<EditingStrategy>(position, rule);
 }
 
-PositionInComposedTree mostBackwardCaretPosition(const PositionInComposedTree& position, EditingBoundaryCrossingRule rule)
+PositionInFlatTree mostBackwardCaretPosition(const PositionInFlatTree& position, EditingBoundaryCrossingRule rule)
 {
-    return mostBackwardCaretPosition<EditingInComposedTreeStrategy>(position, rule);
+    return mostBackwardCaretPosition<EditingInFlatTreeStrategy>(position, rule);
 }
 
 template <typename Strategy>
@@ -2600,7 +2666,7 @@ PositionTemplate<Strategy> mostForwardCaretPosition(const PositionTemplate<Strat
             lastVisible = currentPos;
 
         // Return position before tables and nodes which have content that can be ignored.
-        if (Strategy::editingIgnoresContent(currentNode) || isRenderedHTMLTableElement(currentNode)) {
+        if (Strategy::editingIgnoresContent(currentNode) || isDisplayInsideTable(currentNode)) {
             if (currentPos.offsetInLeafNode() <= layoutObject->caretMinOffset())
                 return PositionTemplate<Strategy>::editingPositionOf(currentNode, layoutObject->caretMinOffset());
             continue;
@@ -2638,7 +2704,7 @@ PositionTemplate<Strategy> mostForwardCaretPosition(const PositionTemplate<Strat
                     otherBox = otherBox->nextLeafChild();
                     if (!otherBox)
                         break;
-                    if (otherBox == lastTextBox || (otherBox->layoutObject() == textLayoutObject && toInlineTextBox(otherBox)->start() >= textOffset))
+                    if (otherBox == lastTextBox || (LineLayoutAPIShim::layoutObjectFrom(otherBox->getLineLayoutItem()) == textLayoutObject && toInlineTextBox(otherBox)->start() >= textOffset))
                         continuesOnNextLine = false;
                 }
 
@@ -2647,7 +2713,7 @@ PositionTemplate<Strategy> mostForwardCaretPosition(const PositionTemplate<Strat
                     otherBox = otherBox->prevLeafChild();
                     if (!otherBox)
                         break;
-                    if (otherBox == lastTextBox || (otherBox->layoutObject() == textLayoutObject && toInlineTextBox(otherBox)->start() >= textOffset))
+                    if (otherBox == lastTextBox || (LineLayoutAPIShim::layoutObjectFrom(otherBox->getLineLayoutItem()) == textLayoutObject && toInlineTextBox(otherBox)->start() >= textOffset))
                         continuesOnNextLine = false;
                 }
 
@@ -2665,9 +2731,9 @@ Position mostForwardCaretPosition(const Position& position, EditingBoundaryCross
     return mostForwardCaretPosition<EditingStrategy>(position, rule);
 }
 
-PositionInComposedTree mostForwardCaretPosition(const PositionInComposedTree& position, EditingBoundaryCrossingRule rule)
+PositionInFlatTree mostForwardCaretPosition(const PositionInFlatTree& position, EditingBoundaryCrossingRule rule)
 {
-    return mostForwardCaretPosition<EditingInComposedTreeStrategy>(position, rule);
+    return mostForwardCaretPosition<EditingInFlatTreeStrategy>(position, rule);
 }
 
 // Returns true if the visually equivalent positions around have different
@@ -2730,14 +2796,14 @@ static bool isVisuallyEquivalentCandidateAlgorithm(const PositionTemplate<Strate
         return false;
     }
 
-    if (isRenderedHTMLTableElement(anchorNode) || Strategy::editingIgnoresContent(anchorNode)) {
+    if (isDisplayInsideTable(anchorNode) || Strategy::editingIgnoresContent(anchorNode)) {
         if (!position.atFirstEditingPositionForNode() && !position.atLastEditingPositionForNode())
             return false;
         const Node* parent = Strategy::parent(*anchorNode);
         return parent->layoutObject() && parent->layoutObject()->isSelectable();
     }
 
-    if (anchorNode->document().documentElement() == anchorNode)
+    if (anchorNode->document().documentElement() == anchorNode || anchorNode->isDocumentNode())
         return false;
 
     if (!layoutObject->isSelectable())
@@ -2763,9 +2829,9 @@ bool isVisuallyEquivalentCandidate(const Position& position)
     return isVisuallyEquivalentCandidateAlgorithm<EditingStrategy>(position);
 }
 
-bool isVisuallyEquivalentCandidate(const PositionInComposedTree& position)
+bool isVisuallyEquivalentCandidate(const PositionInFlatTree& position)
 {
-    return isVisuallyEquivalentCandidateAlgorithm<EditingInComposedTreeStrategy>(position);
+    return isVisuallyEquivalentCandidateAlgorithm<EditingInFlatTreeStrategy>(position);
 }
 
 template <typename Strategy>
@@ -2784,9 +2850,9 @@ IntRect absoluteCaretBoundsOf(const VisiblePosition& visiblePosition)
     return absoluteCaretBoundsOfAlgorithm<EditingStrategy>(visiblePosition);
 }
 
-IntRect absoluteCaretBoundsOf(const VisiblePositionInComposedTree& visiblePosition)
+IntRect absoluteCaretBoundsOf(const VisiblePositionInFlatTree& visiblePosition)
 {
-    return absoluteCaretBoundsOfAlgorithm<EditingInComposedTreeStrategy>(visiblePosition);
+    return absoluteCaretBoundsOfAlgorithm<EditingInFlatTreeStrategy>(visiblePosition);
 }
 
 template <typename Strategy>
@@ -2839,9 +2905,9 @@ UChar32 characterAfter(const VisiblePosition& visiblePosition)
     return characterAfterAlgorithm<EditingStrategy>(visiblePosition);
 }
 
-UChar32 characterAfter(const VisiblePositionInComposedTree& visiblePosition)
+UChar32 characterAfter(const VisiblePositionInFlatTree& visiblePosition)
 {
-    return characterAfterAlgorithm<EditingInComposedTreeStrategy>(visiblePosition);
+    return characterAfterAlgorithm<EditingInFlatTreeStrategy>(visiblePosition);
 }
 
 template <typename Strategy>
@@ -2855,9 +2921,9 @@ UChar32 characterBefore(const VisiblePosition& visiblePosition)
     return characterBeforeAlgorithm<EditingStrategy>(visiblePosition);
 }
 
-UChar32 characterBefore(const VisiblePositionInComposedTree& visiblePosition)
+UChar32 characterBefore(const VisiblePositionInFlatTree& visiblePosition)
 {
-    return characterBeforeAlgorithm<EditingInComposedTreeStrategy>(visiblePosition);
+    return characterBeforeAlgorithm<EditingInFlatTreeStrategy>(visiblePosition);
 }
 
 template <typename Strategy>
@@ -2880,22 +2946,22 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(const VisiblePos
         if (!box)
             return primaryDirection == LTR ? previousVisuallyDistinctCandidate(deepPosition) : nextVisuallyDistinctCandidate(deepPosition);
 
-        LayoutObject* layoutObject = &box->layoutObject();
+        LineLayoutItem lineLayoutItem = box->getLineLayoutItem();
 
         while (true) {
-            if ((layoutObject->isReplaced() || layoutObject->isBR()) && offset == box->caretRightmostOffset())
+            if ((lineLayoutItem.isAtomicInlineLevel() || lineLayoutItem.isBR()) && offset == box->caretRightmostOffset())
                 return box->isLeftToRightDirection() ? previousVisuallyDistinctCandidate(deepPosition) : nextVisuallyDistinctCandidate(deepPosition);
 
-            if (!layoutObject->node()) {
+            if (!lineLayoutItem.node()) {
                 box = box->prevLeafChild();
                 if (!box)
                     return primaryDirection == LTR ? previousVisuallyDistinctCandidate(deepPosition) : nextVisuallyDistinctCandidate(deepPosition);
-                layoutObject = &box->layoutObject();
+                lineLayoutItem = box->getLineLayoutItem();
                 offset = box->caretRightmostOffset();
                 continue;
             }
 
-            offset = box->isLeftToRightDirection() ? layoutObject->previousOffset(offset) : layoutObject->nextOffset(offset);
+            offset = box->isLeftToRightDirection() ? lineLayoutItem.previousOffset(offset) : lineLayoutItem.nextOffset(offset);
 
             int caretMinOffset = box->caretMinOffset();
             int caretMaxOffset = box->caretMaxOffset();
@@ -2920,7 +2986,7 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(const VisiblePos
                 // Reposition at the other logical position corresponding to our
                 // edge's visual position and go for another round.
                 box = prevBox;
-                layoutObject = &box->layoutObject();
+                lineLayoutItem = box->getLineLayoutItem();
                 offset = prevBox->caretRightmostOffset();
                 continue;
             }
@@ -2935,7 +3001,7 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(const VisiblePos
                     InlineBox* logicalStart = 0;
                     if (primaryDirection == LTR ? box->root().getLogicalStartBoxWithNode(logicalStart) : box->root().getLogicalEndBoxWithNode(logicalStart)) {
                         box = logicalStart;
-                        layoutObject = &box->layoutObject();
+                        lineLayoutItem = box->getLineLayoutItem();
                         offset = primaryDirection == LTR ? box->caretMinOffset() : box->caretMaxOffset();
                     }
                     break;
@@ -2954,19 +3020,19 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(const VisiblePos
                     break;
 
                 box = prevBox;
-                layoutObject = &box->layoutObject();
+                lineLayoutItem = box->getLineLayoutItem();
                 offset = box->caretRightmostOffset();
                 if (box->direction() == primaryDirection)
                     break;
                 continue;
             }
 
-            while (prevBox && !prevBox->layoutObject().node())
+            while (prevBox && !prevBox->getLineLayoutItem().node())
                 prevBox = prevBox->prevLeafChild();
 
             if (prevBox) {
                 box = prevBox;
-                layoutObject = &box->layoutObject();
+                lineLayoutItem = box->getLineLayoutItem();
                 offset = box->caretRightmostOffset();
                 if (box->bidiLevel() > level) {
                     do {
@@ -2997,13 +3063,13 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(const VisiblePos
                         break;
                     level = box->bidiLevel();
                 }
-                layoutObject = &box->layoutObject();
+                lineLayoutItem = box->getLineLayoutItem();
                 offset = primaryDirection == LTR ? box->caretMinOffset() : box->caretMaxOffset();
             }
             break;
         }
 
-        p = PositionTemplate<Strategy>::editingPositionOf(layoutObject->node(), offset);
+        p = PositionTemplate<Strategy>::editingPositionOf(lineLayoutItem.node(), offset);
 
         if ((isVisuallyEquivalentCandidate(p) && mostForwardCaretPosition(p) != downstreamStart) || p.atStartOfTree() || p.atEndOfTree())
             return p;
@@ -3031,9 +3097,9 @@ VisiblePosition leftPositionOf(const VisiblePosition& visiblePosition)
     return leftPositionOfAlgorithm<EditingStrategy>(visiblePosition);
 }
 
-VisiblePositionInComposedTree leftPositionOf(const VisiblePositionInComposedTree& visiblePosition)
+VisiblePositionInFlatTree leftPositionOf(const VisiblePositionInFlatTree& visiblePosition)
 {
-    return leftPositionOfAlgorithm<EditingInComposedTreeStrategy>(visiblePosition);
+    return leftPositionOfAlgorithm<EditingInFlatTreeStrategy>(visiblePosition);
 }
 
 template <typename Strategy>
@@ -3055,17 +3121,17 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(const VisiblePo
         if (!box)
             return primaryDirection == LTR ? nextVisuallyDistinctCandidate(deepPosition) : previousVisuallyDistinctCandidate(deepPosition);
 
-        LayoutObject* layoutObject = &box->layoutObject();
+        LayoutObject* layoutObject = LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
 
         while (true) {
-            if ((layoutObject->isReplaced() || layoutObject->isBR()) && offset == box->caretLeftmostOffset())
+            if ((layoutObject->isAtomicInlineLevel() || layoutObject->isBR()) && offset == box->caretLeftmostOffset())
                 return box->isLeftToRightDirection() ? nextVisuallyDistinctCandidate(deepPosition) : previousVisuallyDistinctCandidate(deepPosition);
 
             if (!layoutObject->node()) {
                 box = box->nextLeafChild();
                 if (!box)
                     return primaryDirection == LTR ? nextVisuallyDistinctCandidate(deepPosition) : previousVisuallyDistinctCandidate(deepPosition);
-                layoutObject = &box->layoutObject();
+                layoutObject = LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
                 offset = box->caretLeftmostOffset();
                 continue;
             }
@@ -3095,7 +3161,7 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(const VisiblePo
                 // Reposition at the other logical position corresponding to our
                 // edge's visual position and go for another round.
                 box = nextBox;
-                layoutObject = &box->layoutObject();
+                layoutObject = LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
                 offset = nextBox->caretLeftmostOffset();
                 continue;
             }
@@ -3110,7 +3176,7 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(const VisiblePo
                     InlineBox* logicalEnd = 0;
                     if (primaryDirection == LTR ? box->root().getLogicalEndBoxWithNode(logicalEnd) : box->root().getLogicalStartBoxWithNode(logicalEnd)) {
                         box = logicalEnd;
-                        layoutObject = &box->layoutObject();
+                        layoutObject = LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
                         offset = primaryDirection == LTR ? box->caretMaxOffset() : box->caretMinOffset();
                     }
                     break;
@@ -3132,19 +3198,19 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(const VisiblePo
 
                 // For example, abc 123 ^ CBA or 123 ^ CBA abc
                 box = nextBox;
-                layoutObject = &box->layoutObject();
+                layoutObject = LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
                 offset = box->caretLeftmostOffset();
                 if (box->direction() == primaryDirection)
                     break;
                 continue;
             }
 
-            while (nextBox && !nextBox->layoutObject().node())
+            while (nextBox && !nextBox->getLineLayoutItem().node())
                 nextBox = nextBox->nextLeafChild();
 
             if (nextBox) {
                 box = nextBox;
-                layoutObject = &box->layoutObject();
+                layoutObject = LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
                 offset = box->caretLeftmostOffset();
 
                 if (box->bidiLevel() > level) {
@@ -3175,7 +3241,7 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(const VisiblePo
                         break;
                     level = box->bidiLevel();
                 }
-                layoutObject = &box->layoutObject();
+                layoutObject = LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
                 offset = primaryDirection == LTR ? box->caretMaxOffset() : box->caretMinOffset();
             }
             break;
@@ -3209,9 +3275,9 @@ VisiblePosition rightPositionOf(const VisiblePosition& visiblePosition)
     return rightPositionOfAlgorithm<EditingStrategy>(visiblePosition);
 }
 
-VisiblePositionInComposedTree rightPositionOf(const VisiblePositionInComposedTree& visiblePosition)
+VisiblePositionInFlatTree rightPositionOf(const VisiblePositionInFlatTree& visiblePosition)
 {
-    return rightPositionOfAlgorithm<EditingInComposedTreeStrategy>(visiblePosition);
+    return rightPositionOfAlgorithm<EditingInFlatTreeStrategy>(visiblePosition);
 }
 
 template <typename Strategy>
@@ -3236,9 +3302,9 @@ VisiblePosition nextPositionOf(const VisiblePosition& visiblePosition, EditingBo
     return nextPositionOfAlgorithm<EditingStrategy>(visiblePosition, rule);
 }
 
-VisiblePositionInComposedTree nextPositionOf(const VisiblePositionInComposedTree& visiblePosition, EditingBoundaryCrossingRule rule)
+VisiblePositionInFlatTree nextPositionOf(const VisiblePositionInFlatTree& visiblePosition, EditingBoundaryCrossingRule rule)
 {
-    return nextPositionOfAlgorithm<EditingInComposedTreeStrategy>(visiblePosition, rule);
+    return nextPositionOfAlgorithm<EditingInFlatTreeStrategy>(visiblePosition, rule);
 }
 
 template <typename Strategy>
@@ -3299,9 +3365,9 @@ VisiblePosition previousPositionOf(const VisiblePosition& visiblePosition, Editi
     return previousPositionOfAlgorithm<EditingStrategy>(visiblePosition, rule);
 }
 
-VisiblePositionInComposedTree previousPositionOf(const VisiblePositionInComposedTree& visiblePosition, EditingBoundaryCrossingRule rule)
+VisiblePositionInFlatTree previousPositionOf(const VisiblePositionInFlatTree& visiblePosition, EditingBoundaryCrossingRule rule)
 {
-    return previousPositionOfAlgorithm<EditingInComposedTreeStrategy>(visiblePosition, rule);
+    return previousPositionOfAlgorithm<EditingInFlatTreeStrategy>(visiblePosition, rule);
 }
 
 } // namespace blink

@@ -12,44 +12,61 @@
 #include "cc/playback/float_clip_display_item.h"
 #include "cc/playback/transform_display_item.h"
 #include "cc/proto/display_item.pb.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace cc {
+class ImageSerializationProcessor;
 
 // static
-DisplayItem* DisplayItemProtoFactory::AllocateAndConstruct(
-    scoped_refptr<DisplayItemList> list,
-    const proto::DisplayItem& proto) {
+void DisplayItemProtoFactory::AllocateAndConstruct(
+    const gfx::Rect& visual_rect,
+    DisplayItemList* list,
+    const proto::DisplayItem& proto,
+    ImageSerializationProcessor* image_serialization_processor) {
   switch (proto.type()) {
     case proto::DisplayItem::Type_Clip:
-      return list->CreateAndAppendItem<ClipDisplayItem>();
+      list->CreateAndAppendItem<ClipDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_EndClip:
-      return list->CreateAndAppendItem<EndClipDisplayItem>();
+      list->CreateAndAppendItem<EndClipDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_ClipPath:
-      return list->CreateAndAppendItem<ClipPathDisplayItem>();
+      list->CreateAndAppendItem<ClipPathDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_EndClipPath:
-      return list->CreateAndAppendItem<EndClipPathDisplayItem>();
+      list->CreateAndAppendItem<EndClipPathDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_Compositing:
-      return list->CreateAndAppendItem<CompositingDisplayItem>();
+      list->CreateAndAppendItem<CompositingDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_EndCompositing:
-      return list->CreateAndAppendItem<EndCompositingDisplayItem>();
+      list->CreateAndAppendItem<EndCompositingDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_Drawing:
-      return list->CreateAndAppendItem<DrawingDisplayItem>();
+      list->CreateAndAppendItem<DrawingDisplayItem>(
+          visual_rect, proto, image_serialization_processor);
+      return;
     case proto::DisplayItem::Type_Filter:
-      return list->CreateAndAppendItem<FilterDisplayItem>();
+      list->CreateAndAppendItem<FilterDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_EndFilter:
-      return list->CreateAndAppendItem<EndFilterDisplayItem>();
+      list->CreateAndAppendItem<EndFilterDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_FloatClip:
-      return list->CreateAndAppendItem<FloatClipDisplayItem>();
+      list->CreateAndAppendItem<FloatClipDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_EndFloatClip:
-      return list->CreateAndAppendItem<EndFloatClipDisplayItem>();
+      list->CreateAndAppendItem<EndFloatClipDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_Transform:
-      return list->CreateAndAppendItem<TransformDisplayItem>();
+      list->CreateAndAppendItem<TransformDisplayItem>(visual_rect, proto);
+      return;
     case proto::DisplayItem::Type_EndTransform:
-      return list->CreateAndAppendItem<EndTransformDisplayItem>();
+      list->CreateAndAppendItem<EndTransformDisplayItem>(visual_rect, proto);
+      return;
   }
 
   NOTREACHED();
-  return nullptr;
 }
 
 }  // namespace cc

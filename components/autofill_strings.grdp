@@ -11,6 +11,9 @@
       CLEAR FORM
     </message>
   </if>
+  <message name="IDS_AUTOFILL_CLEAR_LOCAL_COPY_BUTTON" desc="The label of the button that clears the local copy of a Wallet Credit Card." formatter_data="android_java">
+    Clear copy
+  </message>
   <message name="IDS_AUTOFILL_WARNING_FORM_DISABLED" desc="Warning text to show when autofill is disabled by the website for a given form.">
     This webpage has disabled automatic filling for this form.
   </message>
@@ -120,8 +123,10 @@
     overall type: <ph name="OVERALL_TYPE">$1<ex>NAME_FIRST</ex></ph>
     server type: <ph name="SERVER_TYPE">$2<ex>NAME_FIRST</ex></ph>
     heuristic type: <ph name="HEURISTIC_TYPE">$3<ex>NAME_FIRST</ex></ph>
-    field signature: <ph name="FIELD_SIGNATURE">$4<ex>12345678</ex></ph>
-    form signature: <ph name="FORM_SIGNATURE">$5<ex>1234567812345678</ex></ph>
+    label: <ph name="LABEL">$4<ex>SOME LABEL</ex></ph>
+    parseable name: <ph name="PARSEABLE_NAME">$5<ex>SOME_NAME</ex></ph>
+    field signature: <ph name="FIELD_SIGNATURE">$6<ex>12345678</ex></ph>
+    form signature: <ph name="FORM_SIGNATURE">$7<ex>1234567812345678</ex></ph>
   </message>
 
   <!-- Autofill dialog: legal documents -->
@@ -131,14 +136,15 @@
 
   <if expr="_google_chrome">
     <message name="IDS_AUTOFILL_OPTIONS_POPUP" desc="The text displayed in the Autofill popup to direct the user to the Autofill settings UI.">
-      Chrome Autofill settings...
-    </message>
+     Chrome Autofill settings...
+   </message>
   </if>
   <if expr="not _google_chrome">
-    <message name="IDS_AUTOFILL_OPTIONS_POPUP" desc="The text displayed in the Autofill popup to direct the user to the Autofill settings UI.">
+    <message name="IDS_AUTOFILL_OPTIONS_POPUP" desc="The label of the text displayed in the Autofill popup to direct the user to the Autofill settings UI.">
       Chromium Autofill settings...
     </message>
   </if>
+
   <message name="IDS_AUTOFILL_OPTIONS_CONTENT_DESCRIPTION" desc="The text verbalised by a screen reader for the button that directs the user to the Autofill settings UI. This string is not displayed.">
     settings
   </message>
@@ -165,41 +171,33 @@
     Use password for:
   </message>
 
-  <!-- Autofill infobar -->
-  <message name="IDS_AUTOFILL_CC_INFOBAR_ACCEPT" desc="Text to show for the Autofill credit card request infobar accept button.">
+  <!-- Autofill save credit card bubble or infobar prompt -->
+  <message name="IDS_AUTOFILL_SAVE_CARD_PROMPT_ACCEPT" desc="Text to show for the Autofill save credit card prompt accept button. The prompt can be either a bubble or an infobar.">
     Save
   </message>
-  <message name="IDS_AUTOFILL_CC_INFOBAR_DENY" desc="Text to show for the Autofill credit card request infobar deny button.">
-    Don't save
-  </message>
-  <if expr="_google_chrome">
-    <message name="IDS_AUTOFILL_CC_INFOBAR_TEXT" desc="Text to show in the Autofill credit card request infobar.">
-      Do you want Chrome to save this credit card information for completing web forms?
-    </message>
-  </if>
-  <if expr="not _google_chrome">
-    <message name="IDS_AUTOFILL_CC_INFOBAR_TEXT" desc="Text to show in the Autofill credit card request infobar.">
-      Do you want Chromium to save this credit card information for completing web forms?
-    </message>
-  </if>
-
-  <!-- Autofill save credit card bubble -->
-  <message name="IDS_AUTOFILL_SAVE_CARD_BUBBLE_ACCEPT" desc="Text to show for the Autofill save credit card bubble accept button.">
-    Save
-  </message>
-  <message name="IDS_AUTOFILL_SAVE_CARD_BUBBLE_DENY" desc="Text to show for the Autofill save credit card bubble deny button.">
+  <message name="IDS_AUTOFILL_SAVE_CARD_PROMPT_DENY" desc="Text to show for the Autofill save credit card prompt deny button. The prompt can be either a bubble or an infobar.">
     No thanks
   </message>
   <if expr="_google_chrome">
-    <message name="IDS_AUTOFILL_SAVE_CARD_BUBBLE_TITLE_LOCAL" desc="Title text for the Autofill save card bubble when the card is to be saved locally.">
+    <message name="IDS_AUTOFILL_SAVE_CARD_PROMPT_TITLE_LOCAL" desc="Title text for the Autofill save card prompt when the card is to be saved locally. The prompt can be either a bubble or an infobar.">
       Do you want Chrome to save this card?
     </message>
   </if>
   <if expr="not _google_chrome">
-    <message name="IDS_AUTOFILL_SAVE_CARD_BUBBLE_TITLE_LOCAL" desc="Title text for the Autofill save card bubble when the card is to be saved locally.">
+    <message name="IDS_AUTOFILL_SAVE_CARD_PROMPT_TITLE_LOCAL" desc="Title text for the Autofill save card prompt when the card is to be saved locally. The prompt can be either a bubble or an infobar.">
       Do you want Chromium to save this card?
     </message>
   </if>
+  <message name="IDS_AUTOFILL_SAVE_CARD_PROMPT_TITLE_TO_CLOUD" desc="Title text for the Autofill save card prompt when the card is to be saved by uploading it to Google Payments. The prompt can be either a bubble or an infobar.">
+    Do you want to save this card to your Google Account?
+  </message>
+  <message name="IDS_AUTOFILL_SAVE_CARD_PROMPT_UPLOAD_EXPLANATION" desc="Explanation of the effect of the Autofill save card prompt when the card is to be saved by uploading it to Google Payments. The prompt can be either a bubble or an infobar.">
+    Pay quickly on sites and apps across devices using cards you have saved with Google.
+  </message>
+
+  <message name="IDS_AUTOFILL_CREDIT_CARD_EXPIRATION_DATE_ABBR" desc="Abbreviated label for credit card expiration date. [CHAR-LIMIT=32]">
+    Exp: <ph name="EXPIRATION_MONTH">$1<ex>06</ex></ph>/<ph name="EXPIRATION_YEAR">$2<ex>17</ex></ph>
+  </message>
 
   <!-- Autofill credit card unmask prompt -->
   <message name="IDS_AUTOFILL_CARD_UNMASK_PROMPT_ERROR_TRY_AGAIN" desc="Error message that encourages the user to try to re-enter their credit card CVC after a previous failed attempt.">
@@ -238,6 +236,54 @@
   </message>
   <message name="IDS_AUTOFILL_CARD_UNMASK_PROMPT_INSTRUCTIONS_EXPIRED_AMEX" desc="Text explaining what the user should do in the card unmasking dialog to update an expired amex card.">
     Enter the expiration date and 4-digit CVC from the front of your card
+  </message>
+  <message name="IDS_AUTOFILL_CARD_UNMASK_PROMPT_STORAGE_CHECKBOX" desc="Text for checkbox in card unmasking dialog that allows user to store a Wallet card on their local device. If checked, the dialog won't show up again for the given credit card." formatter_data="android_java">
+    Keep a copy of this card on this device
+  </message>
+  <if expr="not is_ios">
+    <if expr="_google_chrome">
+      <message name="IDS_AUTOFILL_CARD_UNMASK_PROMPT_STORAGE_TOOLTIP" desc="Text that provides further explanation for checkbox in card unmasking dialog that allows user to store a Wallet card on their local device." formatter_data="android_java">
+        If checked, Chrome will store a copy of your card on this device for faster form filling.
+      </message>
+    </if>
+    <if expr="not _google_chrome">
+      <message name="IDS_AUTOFILL_CARD_UNMASK_PROMPT_STORAGE_TOOLTIP" desc="Text that provides further explanation for checkbox in card unmasking dialog that allows user to store a Wallet card on their local device." formatter_data="android_java">
+        If checked, Chromium will store a copy of your card on this device for faster form filling.
+      </message>
+    </if>
+  </if>
+  <if expr="is_ios">
+    <if expr="_google_chrome">
+      <message name="IDS_AUTOFILL_CARD_UNMASK_PROMPT_STORAGE_TOOLTIP" desc="Text that provides further explanation on iOS for the option in the card unmasking dialog that allows user to store a Wallet card on their local device." formatter_data="android_java">
+        If enabled, Chrome will store a copy of your card on this device for faster form filling.
+      </message>
+    </if>
+    <if expr="not _google_chrome">
+      <message name="IDS_AUTOFILL_CARD_UNMASK_PROMPT_STORAGE_TOOLTIP" desc="Text that provides further explanation on iOS for the option in the card unmasking dialog that allows user to store a Wallet card on their local device." formatter_data="android_java">
+        If enabled, Chromium will store a copy of your card on this device for faster form filling.
+      </message>
+    </if>
+  </if>
+  <message name="IDS_AUTOFILL_CARD_UNMASK_CONFIRM_BUTTON" desc="Text for button that confirms the credit card CVC entry dialog." formatter_data="android_java">
+    Verify
+  </message>
+  <message name="IDS_AUTOFILL_CARD_UNMASK_VERIFICATION_IN_PROGRESS" desc="Message displayed while credit card is being verified." formatter_data="android_java">
+    Verifying card
+  </message>
+  <message name="IDS_AUTOFILL_CARD_UNMASK_VERIFICATION_SUCCESS" desc="Message displayed after successful verification of credit card CVC." formatter_data="android_java">
+    Your card is verified
+  </message>
+  <message name="IDS_AUTOFILL_CARD_UNMASK_INVALID_EXPIRATION_DATE" desc="Error message to show when a user has input an invalid or old expiration date.">
+    The card is expired
+  </message>
+  <message name="IDS_AUTOFILL_CARD_UNMASK_EXPIRATION_DATE_SEPARATOR" desc="Separator for a credit card expiration date, e.g. the slash in 05/16." formatter_data="android_java">
+    /
+  </message>
+  <message name="IDS_AUTOFILL_CARD_UNMASK_NEW_CARD_LINK" desc="Text for link that prompts user to update their credit card after it may have been re-issued." formatter_data="android_java">
+    New card?
+  </message>
+  <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_CVC" desc="The placeholder/label text for credit card verification code in the requestAutocomplete dialog.">
+    CVC
   </message>
 
 </grit-part>

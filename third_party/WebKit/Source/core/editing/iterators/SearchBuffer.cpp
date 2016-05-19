@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/editing/iterators/SearchBuffer.h"
 
 #include "core/dom/Document.h"
@@ -381,8 +380,8 @@ static size_t findPlainTextInternal(CharacterIteratorAlgorithm<Strategy>& it, co
 
     if (buffer.needsMoreContext()) {
         for (SimplifiedBackwardsTextIteratorAlgorithm<Strategy> backwardsIterator(PositionTemplate<Strategy>::firstPositionInNode(it.ownerDocument()), PositionTemplate<Strategy>(it.currentContainer(), it.startOffset())); !backwardsIterator.atEnd(); backwardsIterator.advance()) {
-            Vector<UChar, 1024> characters;
-            backwardsIterator.prependTextTo(characters);
+            BackwardsTextBuffer characters;
+            backwardsIterator.copyTextTo(&characters);
             buffer.prependContext(characters.data(), characters.size());
             if (!buffer.needsMoreContext())
                 break;
@@ -390,7 +389,10 @@ static size_t findPlainTextInternal(CharacterIteratorAlgorithm<Strategy>& it, co
     }
 
     while (!it.atEnd()) {
-        it.appendTextTo(buffer);
+        // TODO(xiaochengh): Should allow copying text to SearchBuffer directly
+        ForwardsTextBuffer characters;
+        it.copyTextTo(&characters);
+        buffer.append(characters.data(), characters.size());
         it.advance(buffer.numberOfCharactersJustAppended());
 tryAgain:
         size_t matchStartOffset;
@@ -415,7 +417,7 @@ tryAgain:
     return matchLength;
 }
 
-static const TextIteratorBehaviorFlags iteratorFlagsForFindPlainText = TextIteratorEntersTextControls | TextIteratorEntersOpenShadowRoots | TextIteratorDoesNotBreakAtReplacedElement;
+static const TextIteratorBehaviorFlags iteratorFlagsForFindPlainText = TextIteratorEntersTextControls | TextIteratorEntersOpenShadowRoots | TextIteratorDoesNotBreakAtReplacedElement | TextIteratorCollapseTrailingSpace;
 
 template <typename Strategy>
 static EphemeralRangeTemplate<Strategy> findPlainTextAlgorithm(const EphemeralRangeTemplate<Strategy>& inputRange, const String& target, FindOptions options)
@@ -447,9 +449,9 @@ EphemeralRange findPlainText(const EphemeralRange& inputRange, const String& tar
     return findPlainTextAlgorithm<EditingStrategy>(inputRange, target, options);
 }
 
-EphemeralRangeInComposedTree findPlainText(const EphemeralRangeInComposedTree& inputRange, const String& target, FindOptions options)
+EphemeralRangeInFlatTree findPlainText(const EphemeralRangeInFlatTree& inputRange, const String& target, FindOptions options)
 {
-    return findPlainTextAlgorithm<EditingInComposedTreeStrategy>(inputRange, target, options);
+    return findPlainTextAlgorithm<EditingInFlatTreeStrategy>(inputRange, target, options);
 }
 
 } // namespace blink

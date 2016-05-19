@@ -4,6 +4,8 @@
 
 #include "extensions/common/extension_resource.h"
 
+#include <stddef.h>
+
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/threading/thread_restrictions.h"
@@ -21,6 +23,8 @@ ExtensionResource::ExtensionResource(const std::string& extension_id,
       relative_path_(relative_path),
       follow_symlinks_anywhere_(false) {
 }
+
+ExtensionResource::ExtensionResource(const ExtensionResource& other) = default;
 
 ExtensionResource::~ExtensionResource() {}
 

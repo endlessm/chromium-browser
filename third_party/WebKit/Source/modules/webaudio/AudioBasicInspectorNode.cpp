@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AudioBasicInspectorNode.h"
-
 #include "modules/webaudio/AbstractAudioContext.h"
 #include "modules/webaudio/AudioNodeInput.h"
 #include "modules/webaudio/AudioNodeOutput.h"
@@ -120,4 +117,3 @@ void AudioBasicInspectorHandler::updatePullStatus()
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

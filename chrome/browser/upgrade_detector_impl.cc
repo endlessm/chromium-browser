@@ -4,6 +4,8 @@
 
 #include "chrome/browser/upgrade_detector_impl.h"
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/bind.h"
@@ -13,18 +15,19 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/network_time/network_time_tracker.h"
+#include "components/prefs/pref_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -54,7 +57,7 @@ const int kNotifyCycleTimeMs = 20 * 60 * 1000;  // 20 minutes.
 const int kNotifyCycleTimeForTestingMs = 500;  // Half a second.
 
 // The number of days after which we identify a build/install as outdated.
-const uint64 kOutdatedBuildAgeInDays = 12 * 7;
+const uint64_t kOutdatedBuildAgeInDays = 12 * 7;
 
 // Return the string that was passed as a value for the
 // kCheckForUpdateIntervalSec switch.
@@ -408,7 +411,7 @@ bool UpgradeDetectorImpl::DetectOutdatedInstall() {
   base::Time network_time;
   base::TimeDelta uncertainty;
   if (!g_browser_process->network_time_tracker()->GetNetworkTime(
-          base::TimeTicks::Now(), &network_time, &uncertainty)) {
+          &network_time, &uncertainty)) {
     // When network time has not been initialized yet, simply rely on the
     // machine's current time.
     network_time = base::Time::Now();

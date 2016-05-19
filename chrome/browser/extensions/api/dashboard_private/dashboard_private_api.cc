@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/dashboard_private/dashboard_private_api.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
@@ -25,8 +27,6 @@ namespace {
 
 // Error messages that can be returned by the API.
 const char kAlreadyInstalledError[] = "This item is already installed";
-const char kCannotSpecifyIconDataAndUrlError[] =
-    "You cannot specify both icon data and an icon url";
 const char kInvalidBundleError[] = "Invalid bundle";
 const char kInvalidIconUrlError[] = "Invalid icon url";
 const char kInvalidIdError[] = "Invalid id";
@@ -65,11 +65,6 @@ DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::Run() {
   if (!crx_file::id_util::IdIsValid(params_->details.id)) {
     return RespondNow(BuildResponse(api::dashboard_private::RESULT_INVALID_ID,
                                     kInvalidIdError));
-  }
-
-  if (params_->details.icon_data && params_->details.icon_url) {
-    return RespondNow(BuildResponse(api::dashboard_private::RESULT_ICON_ERROR,
-                                    kCannotSpecifyIconDataAndUrlError));
   }
 
   GURL icon_url;
@@ -138,10 +133,20 @@ void DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
     Release();
     return;
   }
+  scoped_ptr<ExtensionInstallPrompt::Prompt> prompt(
+      new ExtensionInstallPrompt::Prompt(
+          ExtensionInstallPrompt::DELEGATED_PERMISSIONS_PROMPT));
+  prompt->set_delegated_username(details().delegated_user);
+
   install_prompt_.reset(new ExtensionInstallPrompt(web_contents));
-  install_prompt_->ConfirmPermissionsForDelegatedInstall(
-      this, dummy_extension_.get(), details().delegated_user, &icon);
-  // Control flow finishes up in InstallUIProceed or InstallUIAbort.
+  install_prompt_->ShowDialog(
+      base::Bind(
+          &DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
+              OnInstallPromptDone,
+          this),
+      dummy_extension_.get(), &icon, std::move(prompt),
+      ExtensionInstallPrompt::GetDefaultShowDialogCallback());
+  // Control flow finishes up in OnInstallPromptDone().
 }
 
 void DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
@@ -159,20 +164,16 @@ void DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
 }
 
 void DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
-    InstallUIProceed() {
-  Respond(BuildResponse(api::dashboard_private::RESULT_SUCCESS, std::string()));
+    OnInstallPromptDone(ExtensionInstallPrompt::Result result) {
+  if (result == ExtensionInstallPrompt::Result::ACCEPTED) {
+    Respond(
+        BuildResponse(api::dashboard_private::RESULT_SUCCESS, std::string()));
+  } else {
+    Respond(BuildResponse(api::dashboard_private::RESULT_USER_CANCELLED,
+                          kUserCancelledError));
+  }
 
-  // Matches the AddRef in Run().
-  Release();
-}
-
-void DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
-    InstallUIAbort(bool user_initiated) {
-  Respond(BuildResponse(api::dashboard_private::RESULT_USER_CANCELLED,
-                        kUserCancelledError));
-
-  // Matches the AddRef in Run().
-  Release();
+  Release();  // Matches the AddRef in Run().
 }
 
 ExtensionFunction::ResponseValue

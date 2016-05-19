@@ -11,9 +11,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.StrictMode;
+import android.os.SystemClock;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
@@ -24,9 +25,12 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.FieldTrialList;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.library_loader.ProcessInitException;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.preferences.Preferences;
 import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.preferences.website.SingleCategoryPreferences;
@@ -37,6 +41,7 @@ import org.chromium.chrome.browser.widget.RoundedIconGenerator;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
 
@@ -58,7 +63,7 @@ public class NotificationUIManager {
     // that it was set by us.
     private static final String PLATFORM_TAG_PREFIX = NotificationUIManager.class.getSimpleName();
 
-    private static final int NOTIFICATION_ICON_BG_COLOR = Color.rgb(150, 150, 150);
+    private static final int NOTIFICATION_ICON_BG_COLOR = 0xFF969696;
     private static final int NOTIFICATION_TEXT_SIZE_DP = 28;
 
     // We always use the same request code for pending intents. We use other ways to force
@@ -170,6 +175,10 @@ public class NotificationUIManager {
         long persistentNotificationId =
                 intent.getLongExtra(NotificationConstants.EXTRA_PERSISTENT_NOTIFICATION_ID, -1);
         String origin = intent.getStringExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_ORIGIN);
+        String profileId =
+                intent.getStringExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_PROFILE_ID);
+        boolean incognito = intent.getBooleanExtra(
+                NotificationConstants.EXTRA_NOTIFICATION_INFO_PROFILE_INCOGNITO, false);
         String tag = intent.getStringExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_TAG);
 
         Log.i(TAG, "Dispatching notification event to native: " + persistentNotificationId);
@@ -177,14 +186,16 @@ public class NotificationUIManager {
         if (NotificationConstants.ACTION_CLICK_NOTIFICATION.equals(intent.getAction())) {
             int actionIndex = intent.getIntExtra(
                     NotificationConstants.EXTRA_NOTIFICATION_INFO_ACTION_INDEX, -1);
-            return sInstance.onNotificationClicked(persistentNotificationId, origin, tag,
-                                                   actionIndex);
+            sInstance.onNotificationClicked(
+                    persistentNotificationId, origin, profileId, incognito, tag, actionIndex);
+            return true;
         } else if (NotificationConstants.ACTION_CLOSE_NOTIFICATION.equals(intent.getAction())) {
             // Notification deleteIntent is executed only "when the notification is explicitly
             // dismissed by the user, either with the 'Clear All' button or by swiping it away
             // individually" (though a third-party NotificationListenerService may also trigger it).
-            return sInstance.onNotificationClosed(persistentNotificationId, origin, tag,
-                                                  true /* byUser */);
+            sInstance.onNotificationClosed(
+                    persistentNotificationId, origin, profileId, incognito, tag, true /* byUser */);
+            return true;
         }
 
         Log.e(TAG, "Unrecognized Notification action: " + intent.getAction());
@@ -200,6 +211,21 @@ public class NotificationUIManager {
      * @param incomingIntent The received intent.
      */
     public static void launchNotificationPreferences(Context context, Intent incomingIntent) {
+        // This method handles an intent fired by the Android system. There is no guarantee that the
+        // native library is loaded at this point. The native library is needed for the preferences
+        // activity, and it loads the library, but there are some native calls even before that
+        // activity is started: from RecordUserAction.record and (indirectly) from
+        // UrlUtilities.formatUrlForSecurityDisplay.
+        try {
+            ChromeBrowserInitializer.getInstance(context).handleSynchronousStartup();
+        } catch (ProcessInitException e) {
+            Log.e(TAG, "Failed to start browser process.", e);
+            // The library failed to initialize and nothing in the application can work, so kill
+            // the whole application.
+            System.exit(-1);
+            return;
+        }
+
         // Use the application context because it lives longer. When using he given context, it
         // may be stopped before the preferences intent is handled.
         Context applicationContext = context.getApplicationContext();
@@ -266,7 +292,8 @@ public class NotificationUIManager {
      * @param actionIndex The zero-based index of the action button, or -1 if not applicable.
      */
     private PendingIntent makePendingIntent(String action, long persistentNotificationId,
-                                            String origin, @Nullable String tag, int actionIndex) {
+            String origin, String profileId, boolean incognito, @Nullable String tag,
+            int actionIndex) {
         Uri intentData = makeIntentData(persistentNotificationId, origin, actionIndex);
         Intent intent = new Intent(action, intentData);
         intent.setClass(mAppContext, NotificationService.Receiver.class);
@@ -274,6 +301,8 @@ public class NotificationUIManager {
         intent.putExtra(NotificationConstants.EXTRA_PERSISTENT_NOTIFICATION_ID,
                 persistentNotificationId);
         intent.putExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_ORIGIN, origin);
+        intent.putExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_PROFILE_ID, profileId);
+        intent.putExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_PROFILE_INCOGNITO, incognito);
         intent.putExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_TAG, tag);
         intent.putExtra(NotificationConstants.EXTRA_NOTIFICATION_INFO_ACTION_INDEX, actionIndex);
 
@@ -396,6 +425,8 @@ public class NotificationUIManager {
      *
      * @param persistentNotificationId The persistent id of the notification.
      * @param origin Full text of the origin, including the protocol, owning this notification.
+     * @param profileId Id of the profile that showed the notification.
+     * @param incognito if the session of the profile is an off the record one.
      * @param tag A string identifier for this notification. If the tag is not empty, the new
      *            notification will replace the previous notification with the same tag and origin,
      *            if present. If no matching previous notification is present, the new one will just
@@ -406,59 +437,82 @@ public class NotificationUIManager {
      * @param icon Icon to be displayed in the notification. Valid Bitmap icons will be scaled to
      *             the platforms, whereas a default icon will be generated for invalid Bitmaps.
      * @param vibrationPattern Vibration pattern following the Web Vibration syntax.
+     * @param timestamp The timestamp of the event for which the notification is being shown.
+     * @param renotify Whether the sound, vibration, and lights should be replayed if the
+     *                 notification is replacing another notification.
      * @param silent Whether the default sound, vibration and lights should be suppressed.
      * @param actionTitles Titles of actions to display alongside the notification.
+     * @param actionIcons Icons of actions to display alongside the notification.
      * @see https://developer.android.com/reference/android/app/Notification.html
      */
     @CalledByNative
-    private void displayNotification(long persistentNotificationId, String origin, String tag,
-            String title, String body, Bitmap icon, int[] vibrationPattern, boolean silent,
-            String[] actionTitles) {
+    private void displayNotification(long persistentNotificationId, String origin, String profileId,
+            boolean incognito, String tag, String title, String body, Bitmap icon,
+            int[] vibrationPattern, long timestamp, boolean renotify, boolean silent,
+            String[] actionTitles, Bitmap[] actionIcons) {
+        if (actionTitles.length != actionIcons.length) {
+            throw new IllegalArgumentException("The number of action titles and icons must match.");
+        }
+
         Resources res = mAppContext.getResources();
+
+        // Record whether it's known whether notifications can be shown to the user at all.
+        RecordHistogram.recordEnumeratedHistogram(
+                "Notifications.AppNotificationStatus",
+                NotificationSystemStatusUtil.determineAppNotificationStatus(mAppContext),
+                NotificationSystemStatusUtil.APP_NOTIFICATIONS_STATUS_BOUNDARY);
 
         // Set up a pending intent for going to the settings screen for |origin|.
         Intent settingsIntent = PreferencesLauncher.createIntentForSettingsPage(
                 mAppContext, SingleWebsitePreferences.class.getName());
-        settingsIntent.setData(makeIntentData(persistentNotificationId, origin,
-                                              -1 /* actionIndex */));
+        settingsIntent.setData(
+                makeIntentData(persistentNotificationId, origin, -1 /* actionIndex */));
         settingsIntent.putExtra(Preferences.EXTRA_SHOW_FRAGMENT_ARGUMENTS,
                 SingleWebsitePreferences.createFragmentArgsForSite(origin));
 
         PendingIntent pendingSettingsIntent = PendingIntent.getActivity(mAppContext,
                 PENDING_INTENT_REQUEST_CODE, settingsIntent, PendingIntent.FLAG_UPDATE_CURRENT);
 
-        NotificationBuilder notificationBuilder = createNotificationBuilder()
-                .setTitle(title)
-                .setBody(body)
-                .setLargeIcon(ensureNormalizedIcon(icon, origin))
-                .setSmallIcon(R.drawable.ic_chrome)
-                .setContentIntent(makePendingIntent(
-                        NotificationConstants.ACTION_CLICK_NOTIFICATION,
-                        persistentNotificationId, origin, tag, -1 /* actionIndex */))
-                .setDeleteIntent(makePendingIntent(
-                        NotificationConstants.ACTION_CLOSE_NOTIFICATION,
-                        persistentNotificationId, origin, tag, -1 /* actionIndex */))
-                .setTicker(createTickerText(title, body))
-                .setOrigin(UrlUtilities.formatUrlForSecurityDisplay(
-                        origin, false /* showScheme */));
+        PendingIntent clickIntent = makePendingIntent(
+                NotificationConstants.ACTION_CLICK_NOTIFICATION, persistentNotificationId, origin,
+                profileId, incognito, tag, -1 /* actionIndex */);
+        PendingIntent closeIntent = makePendingIntent(
+                NotificationConstants.ACTION_CLOSE_NOTIFICATION, persistentNotificationId, origin,
+                profileId, incognito, tag, -1 /* actionIndex */);
+
+        NotificationBuilderBase notificationBuilder =
+                createNotificationBuilder()
+                        .setTitle(title)
+                        .setBody(body)
+                        .setLargeIcon(ensureNormalizedIcon(icon, origin))
+                        .setSmallIcon(R.drawable.ic_chrome)
+                        .setContentIntent(clickIntent)
+                        .setDeleteIntent(closeIntent)
+                        .setTicker(createTickerText(title, body))
+                        .setTimestamp(timestamp)
+                        .setRenotify(renotify)
+                        .setOrigin(UrlUtilities.formatUrlForSecurityDisplay(
+                                origin, false /* showScheme */));
 
         for (int actionIndex = 0; actionIndex < actionTitles.length; actionIndex++) {
-            notificationBuilder.addAction(
-                    0 /* actionIcon */, actionTitles[actionIndex],
+            notificationBuilder.addAction(actionIcons[actionIndex], actionTitles[actionIndex],
                     makePendingIntent(NotificationConstants.ACTION_CLICK_NOTIFICATION,
-                                      persistentNotificationId, origin, tag, actionIndex));
+                                                  persistentNotificationId, origin, profileId,
+                                                  incognito, tag, actionIndex));
         }
-        // Site settings button is always the last action button.
-        if (actionTitles.length == 0) {
-            notificationBuilder.addAction(R.drawable.settings_cog,
-                                          res.getString(R.string.page_info_site_settings_button),
-                                          pendingSettingsIntent);
-        } else {
-            // Hide site settings icon and use shorter text when website provided action buttons.
-            notificationBuilder.addAction(0 /* actionIcon */,
-                                          res.getString(R.string.notification_site_settings_button),
-                                          pendingSettingsIntent);
-        }
+
+        // If action buttons are displayed, there isn't room for the full Site Settings button
+        // label and icon, so abbreviate it. This has the unfortunate side-effect of unnecessarily
+        // abbreviating it on Android Wear also (crbug.com/576656). If custom layouts are enabled,
+        // the label and icon provided here only affect Android Wear, so don't abbreviate them.
+        boolean abbreviateSiteSettings = actionTitles.length > 0 && !useCustomLayouts();
+        int settingsIconId = abbreviateSiteSettings ? 0 : R.drawable.settings_cog;
+        CharSequence settingsTitle = abbreviateSiteSettings
+                                     ? res.getString(R.string.notification_site_settings_button)
+                                     : res.getString(R.string.page_info_site_settings_button);
+        // If the settings button is displayed together with the other buttons it has to be the last
+        // one, so add it after the other actions.
+        notificationBuilder.addSettingsAction(settingsIconId, settingsTitle, pendingSettingsIntent);
 
         notificationBuilder.setDefaults(makeDefaults(vibrationPattern.length, silent));
         if (vibrationPattern.length > 0) {
@@ -466,10 +520,20 @@ public class NotificationUIManager {
         }
 
         String platformTag = makePlatformTag(persistentNotificationId, origin, tag);
-        mNotificationManager.notify(platformTag, PLATFORM_ID, notificationBuilder.build());
+        // Temporarily allowing disk access. TODO: Fix. See http://crbug.com/577185
+        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+        StrictMode.allowThreadDiskWrites();
+        try {
+            long time = SystemClock.elapsedRealtime();
+            mNotificationManager.notify(platformTag, PLATFORM_ID, notificationBuilder.build());
+            RecordHistogram.recordTimesHistogram("Android.StrictMode.NotificationUIBuildTime",
+                    SystemClock.elapsedRealtime() - time, TimeUnit.MILLISECONDS);
+        } finally {
+            StrictMode.setThreadPolicy(oldPolicy);
+        }
     }
 
-    private NotificationBuilder createNotificationBuilder() {
+    private NotificationBuilderBase createNotificationBuilder() {
         if (useCustomLayouts()) {
             return new CustomNotificationBuilder(mAppContext);
         }
@@ -541,17 +605,18 @@ public class NotificationUIManager {
      *
      * @return Whether custom layouts should be used.
      */
-    private static boolean useCustomLayouts() {
+    @VisibleForTesting
+    static boolean useCustomLayouts() {
         // Query the field trial state first to ensure correct UMA reporting.
         String groupName = FieldTrialList.findFullName("WebNotificationCustomLayouts");
         CommandLine commandLine = CommandLine.getInstance();
-        if (commandLine.hasSwitch(ChromeSwitches.DISABLE_WEB_NOTIFICATION_CUSTOM_LAYOUTS)) {
-            return false;
-        }
         if (commandLine.hasSwitch(ChromeSwitches.ENABLE_WEB_NOTIFICATION_CUSTOM_LAYOUTS)) {
             return true;
         }
-        return groupName.equals("Enabled");
+        if (commandLine.hasSwitch(ChromeSwitches.DISABLE_WEB_NOTIFICATION_CUSTOM_LAYOUTS)) {
+            return false;
+        }
+        return !groupName.equals("Disabled");
     }
 
     /**
@@ -583,14 +648,15 @@ public class NotificationUIManager {
      *
      * @param persistentNotificationId The persistent id of the notification.
      * @param origin The origin of the notification.
+     * @param profileId Id of the profile that showed the notification.
+     * @param incognito if the profile session was an off the record one.
      * @param tag The tag of the notification. May be NULL.
-     * @return Whether the manager could handle the click event.
      */
-    private boolean onNotificationClicked(long persistentNotificationId, String origin,
-                                          String tag, int actionIndex) {
+    private void onNotificationClicked(long persistentNotificationId, String origin,
+            String profileId, boolean incognito, String tag, int actionIndex) {
         mLastNotificationClickMs = System.currentTimeMillis();
-        return nativeOnNotificationClicked(mNativeNotificationManager, persistentNotificationId,
-                                           origin, tag, actionIndex);
+        nativeOnNotificationClicked(mNativeNotificationManager, persistentNotificationId, origin,
+                profileId, incognito, tag, actionIndex);
     }
 
     /**
@@ -599,20 +665,23 @@ public class NotificationUIManager {
      *
      * @param persistentNotificationId The persistent id of the notification.
      * @param origin The origin of the notification.
+     * @param profileId Id of the profile that showed the notification.
+     * @param incognito if the profile session was an off the record one.
      * @param tag The tag of the notification. May be NULL.
      * @param byUser Whether the notification was closed by a user gesture.
-     * @return Whether the manager could handle the close event.
      */
-    private boolean onNotificationClosed(long persistentNotificationId, String origin,
-                                         String tag, boolean byUser) {
-        return nativeOnNotificationClosed(mNativeNotificationManager, persistentNotificationId,
-                                          origin, tag, byUser);
+    private void onNotificationClosed(long persistentNotificationId, String origin,
+            String profileId, boolean incognito, String tag, boolean byUser) {
+        nativeOnNotificationClosed(mNativeNotificationManager, persistentNotificationId, origin,
+                profileId, incognito, tag, byUser);
     }
 
     private static native void nativeInitializeNotificationUIManager();
 
-    private native boolean nativeOnNotificationClicked(long nativeNotificationUIManagerAndroid,
-            long persistentNotificationId, String origin, String tag, int actionIndex);
-    private native boolean nativeOnNotificationClosed(long nativeNotificationUIManagerAndroid,
-            long persistentNotificationId, String origin, String tag, boolean byUser);
+    private native void nativeOnNotificationClicked(long nativeNotificationUIManagerAndroid,
+            long persistentNotificationId, String origin, String profileId, boolean incognito,
+            String tag, int actionIndex);
+    private native void nativeOnNotificationClosed(long nativeNotificationUIManagerAndroid,
+            long persistentNotificationId, String origin, String profileId, boolean incognito,
+            String tag, boolean byUser);
 }

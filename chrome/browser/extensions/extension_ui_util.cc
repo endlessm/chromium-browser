@@ -4,10 +4,10 @@
 
 #include "chrome/browser/extensions/extension_ui_util.h"
 
-#include "base/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
@@ -31,8 +31,7 @@ namespace ui_util {
 
 bool ShouldDisplayInAppLauncher(const Extension* extension,
                                 content::BrowserContext* context) {
-  return CanDisplayInAppLauncher(extension, context) &&
-         !util::IsEphemeralApp(extension->id(), context);
+  return CanDisplayInAppLauncher(extension, context);
 }
 
 bool CanDisplayInAppLauncher(const Extension* extension,
@@ -44,20 +43,17 @@ bool CanDisplayInAppLauncher(const Extension* extension,
 bool ShouldDisplayInNewTabPage(const Extension* extension,
                                content::BrowserContext* context) {
   return extension->ShouldDisplayInNewTabPage() &&
-      !IsBlockedByPolicy(extension, context) &&
-      !util::IsEphemeralApp(extension->id(), context);
+      !IsBlockedByPolicy(extension, context);
 }
 
 bool ShouldDisplayInExtensionSettings(const Extension* extension,
                                       content::BrowserContext* context) {
-  return extension->ShouldDisplayInExtensionSettings() &&
-      !util::IsEphemeralApp(extension->id(), context);
+  return extension->ShouldDisplayInExtensionSettings();
 }
 
 bool ShouldNotBeVisible(const Extension* extension,
                         content::BrowserContext* context) {
-  return extension->ShouldNotBeVisible() ||
-      util::IsEphemeralApp(extension->id(), context);
+  return extension->ShouldNotBeVisible();
 }
 
 }  // namespace ui_util

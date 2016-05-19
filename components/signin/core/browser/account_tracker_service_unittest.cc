@@ -5,10 +5,10 @@
 #include <algorithm>
 #include <vector>
 
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/scoped_user_pref_update.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/strings/stringprintf.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/scoped_user_pref_update.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/signin/core/browser/account_fetcher_service.h"
 #include "components/signin/core/browser/account_info.h"
 #include "components/signin/core/browser/account_tracker_service.h"
@@ -663,6 +663,50 @@ TEST_F(AccountTrackerServiceTest, SeedAccountInfo) {
   EXPECT_EQ(account_id, infos[0].account_id);
   EXPECT_EQ(gaia_id, infos[0].gaia);
   EXPECT_EQ(email, infos[0].email);
+}
+
+TEST_F(AccountTrackerServiceTest, SeedAccountInfoFull) {
+  AccountTrackerObserver observer;
+  account_tracker()->AddObserver(&observer);
+
+  AccountInfo info;
+  info.gaia = AccountIdToGaiaId("alpha");
+  info.email = AccountIdToEmail("alpha");
+  info.full_name = AccountIdToFullName("alpha");
+  info.account_id = account_tracker()->SeedAccountInfo(info);
+
+  // Validate that seeding an unexisting account works and doesn't send a
+  // notification if the info isn't full.
+  AccountInfo stored_info = account_tracker()->GetAccountInfo(info.account_id);
+  EXPECT_EQ(info.gaia, stored_info.gaia);
+  EXPECT_EQ(info.email, stored_info.email);
+  EXPECT_EQ(info.full_name, stored_info.full_name);
+  EXPECT_TRUE(observer.CheckEvents());
+
+  // Validate that seeding new full informations to an existing account works
+  // and sends a notification.
+  info.given_name = AccountIdToGivenName("alpha");
+  info.hosted_domain = AccountTrackerService::kNoHostedDomainFound;
+  info.locale = AccountIdToLocale("alpha");
+  info.picture_url = AccountIdToPictureURL("alpha");
+  account_tracker()->SeedAccountInfo(info);
+  stored_info = account_tracker()->GetAccountInfo(info.account_id);
+  EXPECT_EQ(info.gaia, stored_info.gaia);
+  EXPECT_EQ(info.email, stored_info.email);
+  EXPECT_EQ(info.given_name, stored_info.given_name);
+  EXPECT_TRUE(
+      observer.CheckEvents(TrackingEvent(UPDATED, info.account_id, info.gaia)));
+
+  // Validate that seeding invalid information to an existing account doesn't
+  // work and doesn't send a notification.
+  info.given_name = AccountIdToGivenName("beta");
+  account_tracker()->SeedAccountInfo(info);
+  stored_info = account_tracker()->GetAccountInfo(info.account_id);
+  EXPECT_EQ(info.gaia, stored_info.gaia);
+  EXPECT_NE(info.given_name, stored_info.given_name);
+  EXPECT_TRUE(observer.CheckEvents());
+
+  account_tracker()->RemoveObserver(&observer);
 }
 
 TEST_F(AccountTrackerServiceTest, UpgradeToFullAccountInfo) {

@@ -2,12 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/allocator.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 import("//third_party/protobuf/proto_library.gni")
 
 assert(is_chromeos, "Non-ChromeOS builds must not depend on //chromeos")
+
+declare_args() {
+  # Use binder. Binder related code is compiled only when true.
+  use_binder = false
+}
 
 gypi_values = exec_script("//build/gypi_to_gn.py",
                           [ rebase_path("chromeos.gyp") ],
@@ -20,29 +24,33 @@ component("chromeos") {
     "//dbus",
   ]
   deps = [
+    ":cryptohome_proto",
+    ":power_manager_proto",
     "//base",
     "//base:i18n",
-    "//base:prefs",
     "//base/third_party/dynamic_annotations",
-    "//chromeos/ime:gencode",
     "//components/device_event_log",
-    "//components/policy/proto",
     "//components/onc",
+    "//components/policy/proto",
+    "//components/prefs",
     "//components/proxy_config",
     "//components/signin/core/account_id",
     "//crypto",
     "//crypto:platform",
     "//google_apis",
-    "//ipc",
     "//third_party/icu",
     "//third_party/libxml",
     "//third_party/protobuf:protobuf_lite",
     "//url",
-    ":cryptohome_proto",
-    ":power_manager_proto",
   ]
   sources = gypi_values.chromeos_sources
   defines = [ "CHROMEOS_IMPLEMENTATION" ]
+  if (use_binder) {
+    if (target_cpu == "arm" || target_cpu == "x86") {
+      defines += [ "BINDER_IPC_32BIT" ]
+    }
+    sources += gypi_values.chromeos_binder_sources
+  }
 }
 
 # TYhis must be a static library instead of a source set because some of the
@@ -110,10 +118,10 @@ static_library("test_support_without_gmock") {
   testonly = true
   configs += [ "//build/config/linux:dbus" ]
   deps = [
-    "//crypto",
     ":chromeos",
     ":cryptohome_proto",
     ":power_manager_proto",
+    "//crypto",
   ]
   sources = [
     "dbus/fake_cros_disks_client.cc",
@@ -133,10 +141,13 @@ test("chromeos_unittests") {
     "//net/third_party/nss/ssl:ssl_config",
   ]
   deps = [
-    "//base:prefs_test_support",
+    ":cryptohome_proto",
+    ":power_manager_proto",
+    ":test_support",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
     "//components/onc",
+    "//components/prefs:test_support",
     "//components/proxy_config",
     "//crypto",
     "//crypto:test_support",
@@ -148,13 +159,13 @@ test("chromeos_unittests") {
     "//testing/gtest",
     "//third_party/icu",
     "//url",
-    ":cryptohome_proto",
-    ":power_manager_proto",
-    ":test_support",
   ]
   sources = gypi_values.chromeos_test_sources
-  if (use_allocator != "none") {
-    deps += [ "//base/allocator" ]
+  if (use_binder) {
+    if (target_cpu == "arm" || target_cpu == "x86") {
+      defines += [ "BINDER_IPC_32BIT" ]
+    }
+    sources += gypi_values.chromeos_binder_test_sources
   }
 }
 

@@ -4,11 +4,13 @@
 
 #include "courgette/disassembler_elf_32.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/memory/scoped_vector.h"
 
@@ -140,6 +142,8 @@ bool DisassemblerElf32::UpdateLength() {
 }
 
 CheckBool DisassemblerElf32::IsValidRVA(RVA rva) const {
+  if (rva == kUnassignedRVA)
+    return false;
 
   // It's valid if it's contained in any program segment
   for (int i = 0; i < ProgramSegmentHeaderCount(); i++) {
@@ -158,31 +162,28 @@ CheckBool DisassemblerElf32::IsValidRVA(RVA rva) const {
   return false;
 }
 
-// Returns RVA for an in memory address, or NULL.
-CheckBool DisassemblerElf32::RVAToFileOffset(Elf32_Addr addr,
-                                                size_t* result) const {
+CheckBool DisassemblerElf32::RVAToFileOffset(RVA rva,
+                                             size_t* result) const {
+  for (int i = 0; i < SectionHeaderCount(); i++) {
+    const Elf32_Shdr *section_header = SectionHeader(i);
+    // These can appear to have a size in the file, but don't.
+    if (section_header->sh_type == SHT_NOBITS)
+      continue;
+    Elf32_Addr begin = section_header->sh_addr;
+    Elf32_Addr end = begin + section_header->sh_size;
 
-  for (int i = 0; i < ProgramSegmentHeaderCount(); i++) {
-    Elf32_Addr begin = ProgramSegmentMemoryBegin(i);
-    Elf32_Addr end = begin + ProgramSegmentMemorySize(i);
-
-    if (addr >= begin  && addr < end) {
-      Elf32_Addr offset = addr - begin;
-
-      if (offset < ProgramSegmentFileSize(i)) {
-        *result = ProgramSegmentFileOffset(i) + offset;
-        return true;
-      }
+    if (rva >= begin && rva < end) {
+      *result = section_header->sh_offset + (rva - begin);
+      return true;
     }
   }
-
   return false;
 }
 
 RVA DisassemblerElf32::FileOffsetToRVA(size_t offset) const {
   // File offsets can be 64 bit values, but we are dealing with 32
   // bit executables and so only need to support 32bit file sizes.
-  uint32 offset32 = (uint32)offset;
+  uint32_t offset32 = (uint32_t)offset;
 
   for (int i = 0; i < SectionHeaderCount(); i++) {
 
@@ -240,7 +241,7 @@ CheckBool DisassemblerElf32::RVAsToOffsets(ScopedVector<TypedRVA>* rvas) {
 
 CheckBool DisassemblerElf32::ParseFile(AssemblyProgram* program) {
   // Walk all the bytes in the file, whether or not in a section.
-  uint32 file_offset = 0;
+  uint32_t file_offset = 0;
 
   std::vector<size_t> abs_offsets;
 
@@ -370,8 +371,7 @@ CheckBool DisassemblerElf32::ParseProgbitsSection(
 
     if (*current_abs_offset != end_abs_offset &&
         file_offset == **current_abs_offset) {
-
-      const uint8* p = OffsetToPointer(file_offset);
+      const uint8_t* p = OffsetToPointer(file_offset);
       RVA target_rva = Read32LittleEndian(p);
 
       if (!program->EmitAbs32(program->FindOrMakeAbs32Label(target_rva)))
@@ -383,8 +383,7 @@ CheckBool DisassemblerElf32::ParseProgbitsSection(
 
     if (*current_rel != end_rel &&
         file_offset == (**current_rel)->get_offset()) {
-
-      uint32 relative_target = (**current_rel)->relative_target();
+      uint32_t relative_target = (**current_rel)->relative_target();
       // This cast is for 64 bit systems, and is only safe because we
       // are working on 32 bit executables.
       RVA target_rva = (RVA)(origin + (file_offset - origin_offset) +
@@ -446,6 +445,8 @@ CheckBool DisassemblerElf32::ParseAbs32Relocs() {
   }
 
   std::sort(abs32_locations_.begin(), abs32_locations_.end());
+  DCHECK(abs32_locations_.empty() ||
+         abs32_locations_.back() != kUnassignedRVA);
   return true;
 }
 
@@ -487,7 +488,9 @@ CheckBool DisassemblerElf32::ParseRel32RelocsFromSections() {
 
     const Elf32_Shdr *section_header = SectionHeader(section_id);
 
-    if (section_header->sh_type != SHT_PROGBITS)
+    // Some debug sections can have sh_type=SHT_PROGBITS but sh_addr=0.
+    if (section_header->sh_type != SHT_PROGBITS ||
+        section_header->sh_addr == 0)
       continue;
 
     if (!ParseRel32RelocsFromSection(section_header))
@@ -497,6 +500,8 @@ CheckBool DisassemblerElf32::ParseRel32RelocsFromSections() {
   std::sort(rel32_locations_.begin(),
             rel32_locations_.end(),
             TypedRVA::IsLessThan);
+  DCHECK(rel32_locations_.empty() ||
+         rel32_locations_.back()->rva() != kUnassignedRVA);
   return true;
 }
 

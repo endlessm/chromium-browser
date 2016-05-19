@@ -5,7 +5,9 @@
 #ifndef COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_IO_DATA_H_
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_IO_DATA_H_
 
+#include <stdint.h>
 #include <string>
+#include <utility>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -19,6 +21,7 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_storage_delegate.h"
 #include "components/data_reduction_proxy/core/common/lofi_decider.h"
+#include "components/data_reduction_proxy/core/common/lofi_ui_service.h"
 
 namespace base {
 class Value;
@@ -37,7 +40,6 @@ class DataReductionProxyConfig;
 class DataReductionProxyConfigServiceClient;
 class DataReductionProxyConfigurator;
 class DataReductionProxyEventCreator;
-class DataReductionProxyExperimentsStats;
 class DataReductionProxyService;
 
 // Contains and initializes all Data Reduction Proxy objects that operate on
@@ -80,6 +82,8 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
       scoped_ptr<net::NetworkDelegate> wrapped_network_delegate,
       bool track_proxy_bypass_statistics);
 
+  scoped_ptr<DataReductionProxyDelegate> CreateProxyDelegate() const;
+
   // Sets user defined preferences for how the Data Reduction Proxy
   // configuration should be set. |at_startup| is true only
   // when DataReductionProxySettings is initialized.
@@ -97,8 +101,8 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   void SetLoFiModeOff();
 
   // Bridge methods to safely call to the UI thread objects.
-  void UpdateContentLengths(int64 data_used,
-                            int64 original_size,
+  void UpdateContentLengths(int64_t data_used,
+                            int64_t original_size,
                             bool data_reduction_proxy_enabled,
                             DataReductionProxyRequestType request_type,
                             const std::string& data_usage_host,
@@ -112,7 +116,7 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   void AddEventAndSecureProxyCheckState(scoped_ptr<base::Value> event,
                                         SecureProxyCheckState state) override;
   void AddAndSetLastBypassEvent(scoped_ptr<base::Value> event,
-                                int64 expiration_ticks) override;
+                                int64_t expiration_ticks) override;
 
   // Returns true if the Data Reduction Proxy is enabled and false otherwise.
   bool IsEnabled() const;
@@ -138,10 +142,6 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
     return config_client_.get();
   }
 
-  DataReductionProxyExperimentsStats* experiments_stats() const {
-    return experiments_stats_.get();
-  }
-
   net::ProxyDelegate* proxy_delegate() const {
     return proxy_delegate_.get();
   }
@@ -165,13 +165,20 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
 
   void set_debug_ui_service(
       scoped_ptr<DataReductionProxyDebugUIService> ui_service) const {
-    debug_ui_service_= ui_service.Pass();
+    debug_ui_service_ = std::move(ui_service);
   }
 
   LoFiDecider* lofi_decider() const { return lofi_decider_.get(); }
 
   void set_lofi_decider(scoped_ptr<LoFiDecider> lofi_decider) const {
-    lofi_decider_ = lofi_decider.Pass();
+    lofi_decider_ = std::move(lofi_decider);
+  }
+
+  LoFiUIService* lofi_ui_service() const { return lofi_ui_service_.get(); }
+
+  // Takes ownership of |lofi_ui_service|.
+  void set_lofi_ui_service(scoped_ptr<LoFiUIService> lofi_ui_service) const {
+    lofi_ui_service_ = std::move(lofi_ui_service);
   }
 
  private:
@@ -191,8 +198,8 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // Records that the data reduction proxy is unreachable or not.
   void SetUnreachable(bool unreachable);
 
-  // Stores an int64 value in preferences storage.
-  void SetInt64Pref(const std::string& pref_path, int64 value);
+  // Stores an int64_t value in preferences storage.
+  void SetInt64Pref(const std::string& pref_path, int64_t value);
 
   // Stores a string value in preferences storage.
   void SetStringPref(const std::string& pref_path, const std::string& value);
@@ -213,6 +220,9 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
 
   // Handles getting if a request is in Lo-Fi mode.
   mutable scoped_ptr<LoFiDecider> lofi_decider_;
+
+  // Handles showing Lo-Fi UI when a Lo-Fi response is received.
+  mutable scoped_ptr<LoFiUIService> lofi_ui_service_;
 
   // Creates Data Reduction Proxy-related events for logging.
   scoped_ptr<DataReductionProxyEventCreator> event_creator_;
@@ -235,9 +245,6 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
 
   // Requests new Data Reduction Proxy configurations from a remote service.
   scoped_ptr<DataReductionProxyConfigServiceClient> config_client_;
-
-  // Used to track stats for experiments.
-  scoped_ptr<DataReductionProxyExperimentsStats> experiments_stats_;
 
   // A net log.
   net::NetLog* net_log_;

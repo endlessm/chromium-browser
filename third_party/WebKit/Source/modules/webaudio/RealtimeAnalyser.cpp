@@ -22,10 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/RealtimeAnalyser.h"
-
 #include "platform/audio/AudioBus.h"
 #include "platform/audio/AudioUtilities.h"
 #include "platform/audio/VectorMath.h"
@@ -55,6 +52,7 @@ RealtimeAnalyser::RealtimeAnalyser()
     , m_smoothingTimeConstant(DefaultSmoothingTimeConstant)
     , m_minDecibels(DefaultMinDecibels)
     , m_maxDecibels(DefaultMaxDecibels)
+    , m_lastAnalysisTime(-1)
 {
     m_analysisFrame = adoptPtr(new FFTFrame(DefaultFFTSize));
 }
@@ -187,17 +185,9 @@ void RealtimeAnalyser::doFFTAnalysis()
     }
 }
 
-void RealtimeAnalyser::getFloatFrequencyData(DOMFloat32Array* destinationArray)
+void RealtimeAnalyser::convertFloatToDb(DOMFloat32Array* destinationArray)
 {
-    ASSERT(isMainThread());
-
-    if (!destinationArray)
-        return;
-
-    doFFTAnalysis();
-
     // Convert from linear magnitude to floating-point decibels.
-    const double minDecibels = m_minDecibels;
     unsigned sourceLength = magnitudeBuffer().size();
     size_t len = std::min(sourceLength, destinationArray->length());
     if (len > 0) {
@@ -206,21 +196,31 @@ void RealtimeAnalyser::getFloatFrequencyData(DOMFloat32Array* destinationArray)
 
         for (unsigned i = 0; i < len; ++i) {
             float linearValue = source[i];
-            double dbMag = !linearValue ? minDecibels : AudioUtilities::linearToDecibels(linearValue);
+            double dbMag = AudioUtilities::linearToDecibels(linearValue);
             destination[i] = float(dbMag);
         }
     }
 }
 
-void RealtimeAnalyser::getByteFrequencyData(DOMUint8Array* destinationArray)
+void RealtimeAnalyser::getFloatFrequencyData(DOMFloat32Array* destinationArray, double currentTime)
 {
     ASSERT(isMainThread());
+    ASSERT(destinationArray);
 
-    if (!destinationArray)
+    if (currentTime <= m_lastAnalysisTime) {
+        convertFloatToDb(destinationArray);
         return;
+    }
 
+    // Time has advanced since the last call; update the FFT data.
+    m_lastAnalysisTime = currentTime;
     doFFTAnalysis();
 
+    convertFloatToDb(destinationArray);
+}
+
+void RealtimeAnalyser::convertToByteData(DOMUint8Array* destinationArray)
+{
     // Convert from linear magnitude to unsigned-byte decibels.
     unsigned sourceLength = magnitudeBuffer().size();
     size_t len = std::min(sourceLength, destinationArray->length());
@@ -233,7 +233,7 @@ void RealtimeAnalyser::getByteFrequencyData(DOMUint8Array* destinationArray)
 
         for (unsigned i = 0; i < len; ++i) {
             float linearValue = source[i];
-            double dbMag = !linearValue ? minDecibels : AudioUtilities::linearToDecibels(linearValue);
+            double dbMag = AudioUtilities::linearToDecibels(linearValue);
 
             // The range m_minDecibels to m_maxDecibels will be scaled to byte values from 0 to UCHAR_MAX.
             double scaledValue = UCHAR_MAX * (dbMag - minDecibels) * rangeScaleFactor;
@@ -249,12 +249,29 @@ void RealtimeAnalyser::getByteFrequencyData(DOMUint8Array* destinationArray)
     }
 }
 
+void RealtimeAnalyser::getByteFrequencyData(DOMUint8Array* destinationArray, double currentTime)
+{
+    ASSERT(isMainThread());
+    ASSERT(destinationArray);
+
+    if (currentTime <= m_lastAnalysisTime) {
+        // FIXME: Is it worth caching the data so we don't have to do the conversion every time?
+        // Perhaps not, since we expect many calls in the same rendering quantum.
+        convertToByteData(destinationArray);
+        return;
+    }
+
+    // Time has advanced since the last call; update the FFT data.
+    m_lastAnalysisTime = currentTime;
+    doFFTAnalysis();
+
+    convertToByteData(destinationArray);
+}
+
 void RealtimeAnalyser::getFloatTimeDomainData(DOMFloat32Array* destinationArray)
 {
     ASSERT(isMainThread());
-
-    if (!destinationArray)
-        return;
+    ASSERT(destinationArray);
 
     unsigned fftSize = this->fftSize();
     size_t len = std::min(fftSize, destinationArray->length());
@@ -281,9 +298,7 @@ void RealtimeAnalyser::getFloatTimeDomainData(DOMFloat32Array* destinationArray)
 void RealtimeAnalyser::getByteTimeDomainData(DOMUint8Array* destinationArray)
 {
     ASSERT(isMainThread());
-
-    if (!destinationArray)
-        return;
+    ASSERT(destinationArray);
 
     unsigned fftSize = this->fftSize();
     size_t len = std::min(fftSize, destinationArray->length());
@@ -318,4 +333,3 @@ void RealtimeAnalyser::getByteTimeDomainData(DOMUint8Array* destinationArray)
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

@@ -4,6 +4,8 @@
 
 #include "android_webview/browser/hardware_renderer.h"
 
+#include <utility>
+
 #include "android_webview/browser/aw_gl_surface.h"
 #include "android_webview/browser/aw_render_thread_context_provider.h"
 #include "android_webview/browser/child_frame.h"
@@ -36,6 +38,7 @@ HardwareRenderer::HardwareRenderer(SharedRendererState* state)
     : shared_renderer_state_(state),
       last_egl_context_(eglGetCurrentContext()),
       gl_surface_(new AwGLSurface),
+      compositor_id_(0),  // Valid compositor id starts at 1.
       output_surface_(NULL) {
   DCHECK(last_egl_context_);
 
@@ -52,7 +55,6 @@ HardwareRenderer::HardwareRenderer(SharedRendererState* state)
   surface_id_allocator_.reset(new cc::SurfaceIdAllocator(1));
   display_.reset(new cc::Display(this, surface_manager_.get(), nullptr, nullptr,
                                  settings));
-  surface_factory_.reset(new cc::SurfaceFactory(surface_manager_.get(), this));
 }
 
 HardwareRenderer::~HardwareRenderer() {
@@ -80,13 +82,13 @@ void HardwareRenderer::CommitFrame() {
     return;
 
   ReturnResourcesInChildFrame();
-  child_frame_ = child_frame.Pass();
+  child_frame_ = std::move(child_frame);
   DCHECK(child_frame_->frame.get());
   DCHECK(!child_frame_->frame->gl_frame_data);
 }
 
-void HardwareRenderer::DrawGL(bool stencil_enabled,
-                              AwDrawGLInfo* draw_info) {
+void HardwareRenderer::DrawGL(AwDrawGLInfo* draw_info,
+                              const ScopedAppGLStateRestore& gl_state) {
   TRACE_EVENT0("android_webview", "HardwareRenderer::DrawGL");
 
   // We need to watch if the current Android context has changed and enforce
@@ -103,8 +105,24 @@ void HardwareRenderer::DrawGL(bool stencil_enabled,
   // kModeProcess. Instead, submit the frame in "kModeDraw" stage to avoid
   // unnecessary kModeProcess.
   if (child_frame_.get() && child_frame_->frame.get()) {
+    if (compositor_id_ != child_frame_->compositor_id) {
+      if (!root_id_.is_null())
+        surface_factory_->Destroy(root_id_);
+      if (!child_id_.is_null())
+        surface_factory_->Destroy(child_id_);
+
+      root_id_ = cc::SurfaceId();
+      child_id_ = cc::SurfaceId();
+
+      // This will return all the resources to the previous compositor.
+      surface_factory_.reset();
+      compositor_id_ = child_frame_->compositor_id;
+      surface_factory_.reset(
+          new cc::SurfaceFactory(surface_manager_.get(), this));
+    }
+
     scoped_ptr<cc::CompositorFrame> child_compositor_frame =
-        child_frame_->frame.Pass();
+        std::move(child_frame_->frame);
 
     // On Android we put our browser layers in physical pixels and set our
     // browser CC device_scale_factor to 1, so suppress the transform between
@@ -124,7 +142,7 @@ void HardwareRenderer::DrawGL(bool stencil_enabled,
     }
 
     surface_factory_->SubmitCompositorFrame(child_id_,
-                                            child_compositor_frame.Pass(),
+                                            std::move(child_compositor_frame),
                                             cc::SurfaceFactory::DrawCallback());
   }
 
@@ -154,7 +172,7 @@ void HardwareRenderer::DrawGL(bool stencil_enabled,
   // Surface and transformed using the given transform.
   scoped_ptr<cc::RenderPass> render_pass = cc::RenderPass::Create();
   render_pass->SetAll(cc::RenderPassId(1, 1), gfx::Rect(viewport), clip,
-                      gfx::Transform(), true);
+                      gfx::Transform(), false);
 
   cc::SharedQuadState* quad_state =
       render_pass->CreateAndAppendSharedQuadState();
@@ -170,16 +188,16 @@ void HardwareRenderer::DrawGL(bool stencil_enabled,
 
   scoped_ptr<cc::DelegatedFrameData> delegated_frame(
       new cc::DelegatedFrameData);
-  delegated_frame->render_pass_list.push_back(render_pass.Pass());
+  delegated_frame->render_pass_list.push_back(std::move(render_pass));
   scoped_ptr<cc::CompositorFrame> frame(new cc::CompositorFrame);
-  frame->delegated_frame_data = delegated_frame.Pass();
+  frame->delegated_frame_data = std::move(delegated_frame);
 
   if (root_id_.is_null()) {
     root_id_ = surface_id_allocator_->GenerateId();
     surface_factory_->Create(root_id_);
     display_->SetSurfaceId(root_id_, 1.f);
   }
-  surface_factory_->SubmitCompositorFrame(root_id_, frame.Pass(),
+  surface_factory_->SubmitCompositorFrame(root_id_, std::move(frame),
                                           cc::SurfaceFactory::DrawCallback());
 
   display_->Resize(viewport);
@@ -191,16 +209,16 @@ void HardwareRenderer::DrawGL(bool stencil_enabled,
     scoped_ptr<ParentOutputSurface> output_surface_holder(
         new ParentOutputSurface(context_provider));
     output_surface_ = output_surface_holder.get();
-    display_->Initialize(output_surface_holder.Pass(), nullptr);
+    display_->Initialize(std::move(output_surface_holder), nullptr);
   }
-  output_surface_->SetExternalStencilTest(stencil_enabled);
+  output_surface_->SetGLState(gl_state);
   display_->SetExternalClip(clip);
   display_->DrawAndSwap();
 }
 
 void HardwareRenderer::ReturnResources(
     const cc::ReturnedResourceArray& resources) {
-  shared_renderer_state_->InsertReturnedResourcesOnRT(resources);
+  ReturnResourcesToCompositor(resources, compositor_id_);
 }
 
 void HardwareRenderer::SetBeginFrameSource(
@@ -221,9 +239,18 @@ void HardwareRenderer::ReturnResourcesInChildFrame() {
         child_frame_->frame->delegated_frame_data->resource_list,
         &resources_to_return);
 
-    ReturnResources(resources_to_return);
+    // The child frame's compositor id is not necessarily same as
+    // compositor_id_.
+    ReturnResourcesToCompositor(resources_to_return,
+                                child_frame_->compositor_id);
   }
   child_frame_.reset();
+}
+
+void HardwareRenderer::ReturnResourcesToCompositor(
+    const cc::ReturnedResourceArray& resources,
+    unsigned int compositor_id) {
+  shared_renderer_state_->InsertReturnedResourcesOnRT(resources, compositor_id);
 }
 
 }  // namespace android_webview

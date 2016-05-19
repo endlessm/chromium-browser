@@ -8,6 +8,7 @@
 #include <set>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
 #include "ui/views/controls/menu/menu_delegate.h"
@@ -101,11 +102,12 @@ class BookmarkMenuController : public bookmarks::BaseBookmarkModelObserver,
                        int id,
                        const gfx::Point& p,
                        ui::MenuSourceType source_type) override;
-  void DropMenuClosed(views::MenuItemView* menu) override;
   bool CanDrag(views::MenuItemView* menu) override;
   void WriteDragData(views::MenuItemView* sender,
                      ui::OSExchangeData* data) override;
   int GetDragOperations(views::MenuItemView* sender) override;
+  void OnMenuClosed(views::MenuItemView* menu,
+                    views::MenuRunner::RunResult result) override;
   views::MenuItemView* GetSiblingMenu(views::MenuItemView* menu,
                                       const gfx::Point& screen_point,
                                       views::MenuAnchorPosition* anchor,

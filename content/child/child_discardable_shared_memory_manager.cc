@@ -4,9 +4,13 @@
 
 #include "content/child/child_discardable_shared_memory_manager.h"
 
+#include <algorithm>
+#include <utility>
+
 #include "base/atomic_sequence_num.h"
 #include "base/bind.h"
 #include "base/debug/crash_logging.h"
+#include "base/macros.h"
 #include "base/memory/discardable_memory.h"
 #include "base/memory/discardable_shared_memory.h"
 #include "base/metrics/histogram.h"
@@ -31,13 +35,13 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
  public:
   DiscardableMemoryImpl(ChildDiscardableSharedMemoryManager* manager,
                         scoped_ptr<DiscardableSharedMemoryHeap::Span> span)
-      : manager_(manager), span_(span.Pass()), is_locked_(true) {}
+      : manager_(manager), span_(std::move(span)), is_locked_(true) {}
 
   ~DiscardableMemoryImpl() override {
     if (is_locked_)
       manager_->UnlockSpan(span_.get());
 
-    manager_->ReleaseSpan(span_.Pass());
+    manager_->ReleaseSpan(std::move(span_));
   }
 
   // Overridden from base::DiscardableMemory:
@@ -105,7 +109,8 @@ ChildDiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(
     size_t size) {
   base::AutoLock lock(lock_);
 
-  DCHECK_NE(size, 0u);
+  // TODO(reveman): Temporary diagnostics for http://crbug.com/577786.
+  CHECK_NE(size, 0u);
 
   UMA_HISTOGRAM_CUSTOM_COUNTS("Memory.DiscardableAllocationSize",
                               size / 1024,  // In KB
@@ -114,7 +119,9 @@ ChildDiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(
                               50);
 
   // Round up to multiple of page size.
-  size_t pages = (size + base::GetPageSize() - 1) / base::GetPageSize();
+  size_t pages =
+      std::max((size + base::GetPageSize() - 1) / base::GetPageSize(),
+               static_cast<size_t>(1));
 
   // Default allocation size in pages.
   size_t allocation_pages = kAllocationSize / base::GetPageSize();
@@ -156,7 +163,8 @@ ChildDiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(
     // at least one span from the free lists.
     MemoryUsageChanged(heap_.GetSize(), heap_.GetSizeOfFreeLists());
 
-    return make_scoped_ptr(new DiscardableMemoryImpl(this, free_span.Pass()));
+    return make_scoped_ptr(
+        new DiscardableMemoryImpl(this, std::move(free_span)));
   }
 
   // Release purged memory to free up the address space before we attempt to
@@ -180,7 +188,7 @@ ChildDiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(
 
   // Create span for allocated memory.
   scoped_ptr<DiscardableSharedMemoryHeap::Span> new_span(heap_.Grow(
-      shared_memory.Pass(), allocation_size_in_bytes, new_id,
+      std::move(shared_memory), allocation_size_in_bytes, new_id,
       base::Bind(&SendDeletedDiscardableSharedMemoryMessage, sender_, new_id)));
   new_span->set_is_locked(true);
 
@@ -193,12 +201,12 @@ ChildDiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(
             reinterpret_cast<size_t>(leftover->shared_memory()->memory()),
         leftover->length() * base::GetPageSize());
     leftover->set_is_locked(false);
-    heap_.MergeIntoFreeLists(leftover.Pass());
+    heap_.MergeIntoFreeLists(std::move(leftover));
   }
 
   MemoryUsageChanged(heap_.GetSize(), heap_.GetSizeOfFreeLists());
 
-  return make_scoped_ptr(new DiscardableMemoryImpl(this, new_span.Pass()));
+  return make_scoped_ptr(new DiscardableMemoryImpl(this, std::move(new_span)));
 }
 
 bool ChildDiscardableSharedMemoryManager::OnMemoryDump(
@@ -269,7 +277,7 @@ void ChildDiscardableSharedMemoryManager::ReleaseSpan(
   if (!span->shared_memory())
     return;
 
-  heap_.MergeIntoFreeLists(span.Pass());
+  heap_.MergeIntoFreeLists(std::move(span));
 
   // Bytes of free memory changed.
   MemoryUsageChanged(heap_.GetSize(), heap_.GetSizeOfFreeLists());
@@ -301,7 +309,7 @@ ChildDiscardableSharedMemoryManager::AllocateLockedDiscardableSharedMemory(
       new base::DiscardableSharedMemory(handle));
   if (!memory->Map(size))
     base::TerminateBecauseOutOfMemory(size);
-  return memory.Pass();
+  return memory;
 }
 
 void ChildDiscardableSharedMemoryManager::MemoryUsageChanged(

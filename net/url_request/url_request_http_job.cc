@@ -11,6 +11,7 @@
 #include "base/compiler_specific.h"
 #include "base/file_version_info.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/profiler/scoped_tracker.h"
@@ -23,11 +24,11 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/network_delegate.h"
 #include "net/base/network_quality_estimator.h"
 #include "net/base/sdch_manager.h"
 #include "net/base/sdch_net_log_params.h"
+#include "net/base/url_util.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_content_disposition.h"
@@ -55,6 +56,16 @@
 
 static const char kAvailDictionaryHeader[] = "Avail-Dictionary";
 
+namespace {
+
+// True if the request method is "safe" (per section 4.2.1 of RFC 7231).
+bool IsMethodSafe(const std::string& method) {
+  return method == "GET" || method == "HEAD" || method == "OPTIONS" ||
+         method == "TRACE";
+}
+
+}  // namespace
+
 namespace net {
 
 class URLRequestHttpJob::HttpFilterContext : public FilterContext {
@@ -68,7 +79,7 @@ class URLRequestHttpJob::HttpFilterContext : public FilterContext {
   base::Time GetRequestTime() const override;
   bool IsCachedContent() const override;
   SdchManager::DictionarySet* SdchDictionariesAdvertised() const override;
-  int64 GetByteReadCount() const override;
+  int64_t GetByteReadCount() const override;
   int GetResponseCode() const override;
   const URLRequestContext* GetURLRequestContext() const override;
   void RecordPacketStats(StatisticSelector statistic) const override;
@@ -117,7 +128,7 @@ URLRequestHttpJob::HttpFilterContext::SdchDictionariesAdvertised() const {
   return job_->dictionaries_advertised_.get();
 }
 
-int64 URLRequestHttpJob::HttpFilterContext::GetByteReadCount() const {
+int64_t URLRequestHttpJob::HttpFilterContext::GetByteReadCount() const {
   return job_->prefilter_bytes_read();
 }
 
@@ -171,8 +182,7 @@ URLRequestHttpJob::URLRequestHttpJob(
     const HttpUserAgentSettings* http_user_agent_settings)
     : URLRequestJob(request, network_delegate),
       priority_(DEFAULT_PRIORITY),
-      response_info_(NULL),
-      response_cookies_save_index_(0),
+      response_info_(nullptr),
       proxy_auth_state_(AUTH_STATE_DONT_NEED_AUTH),
       server_auth_state_(AUTH_STATE_DONT_NEED_AUTH),
       start_callback_(base::Bind(&URLRequestHttpJob::OnStartCompleted,
@@ -181,7 +191,7 @@ URLRequestHttpJob::URLRequestHttpJob(
           base::Bind(&URLRequestHttpJob::NotifyBeforeSendHeadersCallback,
                      base::Unretained(this))),
       read_in_progress_(false),
-      throttling_entry_(NULL),
+      throttling_entry_(nullptr),
       sdch_test_activated_(false),
       sdch_test_control_(false),
       is_cached_content_(false),
@@ -251,8 +261,8 @@ void URLRequestHttpJob::Start() {
       (request_info_.load_flags & LOAD_DO_NOT_SEND_COOKIES) ||
       (request_info_.load_flags & LOAD_DO_NOT_SAVE_COOKIES) ||
       CanEnablePrivacyMode();
-  // Privacy mode could still be disabled in OnCookiesLoaded if we are going
-  // to send previously saved cookies.
+  // Privacy mode could still be disabled in SetCookieHeaderAndStart if we are
+  // going to send previously saved cookies.
   request_info_.privacy_mode = enable_privacy_mode ?
       PRIVACY_MODE_ENABLED : PRIVACY_MODE_DISABLED;
 
@@ -353,7 +363,7 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
     } else {
       const std::string name = "Get-Dictionary";
       std::string url_text;
-      void* iter = NULL;
+      size_t iter = 0;
       // TODO(jar): We need to not fetch dictionaries the first time they are
       // seen, but rather wait until we can justify their usefulness.
       // For now, we will only fetch the first dictionary, which will at least
@@ -365,7 +375,9 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
       if (GetResponseHeaders()->EnumerateHeader(&iter, name, &url_text)) {
         // Resolve suggested URL relative to request url.
         GURL sdch_dictionary_url = request_->url().Resolve(url_text);
-        if (sdch_dictionary_url.is_valid()) {
+        // Don't try to download Dictionary for cached responses. It's either
+        // useless or too late.
+        if (sdch_dictionary_url.is_valid() && !is_cached_content_) {
           rv = sdch_manager->OnGetDictionary(request_->url(),
                                              sdch_dictionary_url);
           if (rv != SDCH_OK) {
@@ -388,7 +400,7 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
     // as though the content is corrupted (when we discover it is not SDCH
     // encoded).
     std::string sdch_response_status;
-    void* iter = NULL;
+    size_t iter = 0;
     while (GetResponseHeaders()->EnumerateHeader(&iter, "X-Sdch-Encode",
                                                  &sdch_response_status)) {
       if (sdch_response_status == "0") {
@@ -412,11 +424,6 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
   }
 
   URLRequestJob::NotifyHeadersComplete();
-}
-
-void URLRequestHttpJob::NotifyDone(const URLRequestStatus& status) {
-  DoneWithRequest(FINISHED);
-  URLRequestJob::NotifyDone(status);
 }
 
 void URLRequestHttpJob::DestroyTransaction() {
@@ -474,7 +481,6 @@ void URLRequestHttpJob::MaybeStartTransactionInternal(int result) {
     std::string source("delegate");
     request_->net_log().AddEvent(NetLog::TYPE_CANCELLED,
                                  NetLog::StringCallback("source", &source));
-    NotifyCanceled();
     NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED, result));
   }
 }
@@ -487,6 +493,17 @@ void URLRequestHttpJob::StartTransactionInternal() {
 
   // If we already have a transaction, then we should restart the transaction
   // with auth provided by auth_credentials_.
+
+  bool invalid_header_values_in_rfc7230 = false;
+  for (HttpRequestHeaders::Iterator it(request_info_.extra_headers);
+       it.GetNext();) {
+    if (!HttpUtil::IsValidHeaderValueRFC7230(it.value())) {
+      invalid_header_values_in_rfc7230 = true;
+      break;
+    }
+  }
+  UMA_HISTOGRAM_BOOLEAN("Net.HttpRequest.ContainsInvalidHeaderValuesInRFC7230",
+                        invalid_header_values_in_rfc7230);
 
   int rv;
 
@@ -596,30 +613,37 @@ void URLRequestHttpJob::AddExtraHeaders() {
       }
     }
 
+    // Advertise "br" encoding only if transferred data is opaque to proxy.
+    bool advertise_brotli = false;
+    const HttpNetworkSession::Params* network_session_params =
+        request()->context()->GetNetworkSessionParams();
+    if (network_session_params && network_session_params->enable_brotli)
+      advertise_brotli = request()->url().SchemeIsCryptographic();
+
     // Supply Accept-Encoding headers first so that it is more likely that they
     // will be in the first transmitted packet. This can sometimes make it
     // easier to filter and analyze the streams to assure that a proxy has not
     // damaged these headers. Some proxies deliberately corrupt Accept-Encoding
     // headers.
-    if (!advertise_sdch) {
-      // Tell the server what compression formats we support (other than SDCH).
+    std::string advertised_encodings = "gzip, deflate";
+    if (advertise_sdch)
+      advertised_encodings += ", sdch";
+    if (advertise_brotli)
+      advertised_encodings += ", br";
+    // Tell the server what compression formats are supported.
+    request_info_.extra_headers.SetHeader(HttpRequestHeaders::kAcceptEncoding,
+                                          advertised_encodings);
+
+    if (dictionaries_advertised_) {
       request_info_.extra_headers.SetHeader(
-          HttpRequestHeaders::kAcceptEncoding, "gzip, deflate");
-    } else {
-      // Include SDCH in acceptable list.
-      request_info_.extra_headers.SetHeader(
-          HttpRequestHeaders::kAcceptEncoding, "gzip, deflate, sdch");
-      if (dictionaries_advertised_) {
-        request_info_.extra_headers.SetHeader(
-            kAvailDictionaryHeader,
-            dictionaries_advertised_->GetDictionaryClientHashList());
-        // Since we're tagging this transaction as advertising a dictionary,
-        // we'll definitely employ an SDCH filter (or tentative sdch filter)
-        // when we get a response. When done, we'll record histograms via
-        // SDCH_DECODE or SDCH_PASSTHROUGH. Hence we need to record packet
-        // arrival times.
-        packet_timing_enabled_ = true;
-      }
+          kAvailDictionaryHeader,
+          dictionaries_advertised_->GetDictionaryClientHashList());
+      // Since we're tagging this transaction as advertising a dictionary,
+      // we'll definitely employ an SDCH filter (or tentative sdch filter)
+      // when we get a response. When done, we'll record histograms via
+      // SDCH_DECODE or SDCH_PASSTHROUGH. Hence we need to record packet
+      // arrival times.
+      packet_timing_enabled_ = true;
     }
   }
 
@@ -637,54 +661,43 @@ void URLRequestHttpJob::AddExtraHeaders() {
 }
 
 void URLRequestHttpJob::AddCookieHeaderAndStart() {
-  // No matter what, we want to report our status as IO pending since we will
-  // be notifying our consumer asynchronously via OnStartCompleted.
-  SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
-
   // If the request was destroyed, then there is no more work to do.
   if (!request_)
     return;
 
   CookieStore* cookie_store = request_->context()->cookie_store();
   if (cookie_store && !(request_info_.load_flags & LOAD_DO_NOT_SEND_COOKIES)) {
-    cookie_store->GetAllCookiesForURLAsync(
-        request_->url(),
-        base::Bind(&URLRequestHttpJob::CheckCookiePolicyAndLoad,
+    CookieOptions options;
+    options.set_include_httponly();
+
+    // TODO(mkwst): If same-site cookies aren't enabled, pretend the request is
+    // same-site regardless, in order to include all cookies. Drop this check
+    // once we decide whether or not we're shipping this feature:
+    // https://crbug.com/459154
+    url::Origin requested_origin(request_->url());
+    if (!network_delegate() ||
+        !network_delegate()->AreExperimentalCookieFeaturesEnabled()) {
+      options.set_include_same_site();
+    } else if (requested_origin.IsSameOriginWith(
+                   url::Origin(request_->first_party_for_cookies())) &&
+               (IsMethodSafe(request_->method()) ||
+                requested_origin.IsSameOriginWith(request_->initiator()))) {
+      options.set_include_same_site();
+    }
+
+    cookie_store->GetCookieListWithOptionsAsync(
+        request_->url(), options,
+        base::Bind(&URLRequestHttpJob::SetCookieHeaderAndStart,
                    weak_factory_.GetWeakPtr()));
   } else {
     DoStartTransaction();
   }
 }
 
-void URLRequestHttpJob::DoLoadCookies() {
-  CookieOptions options;
-  options.set_include_httponly();
-
-  // TODO(mkwst): Drop this `if` once we decide whether or not to ship
-  // first-party cookies: https://crbug.com/459154
-  if (network_delegate() &&
-      network_delegate()->AreExperimentalCookieFeaturesEnabled())
-    options.set_first_party(url::Origin(request_->first_party_for_cookies()));
-  else
-    options.set_include_first_party_only();
-
-  request_->context()->cookie_store()->GetCookiesWithOptionsAsync(
-      request_->url(), options, base::Bind(&URLRequestHttpJob::OnCookiesLoaded,
-                                           weak_factory_.GetWeakPtr()));
-}
-
-void URLRequestHttpJob::CheckCookiePolicyAndLoad(
-    const CookieList& cookie_list) {
-  if (CanGetCookies(cookie_list))
-    DoLoadCookies();
-  else
-    DoStartTransaction();
-}
-
-void URLRequestHttpJob::OnCookiesLoaded(const std::string& cookie_line) {
-  if (!cookie_line.empty()) {
+void URLRequestHttpJob::SetCookieHeaderAndStart(const CookieList& cookie_list) {
+  if (cookie_list.size() && CanGetCookies(cookie_list)) {
     request_info_.extra_headers.SetHeader(
-        HttpRequestHeaders::kCookie, cookie_line);
+        HttpRequestHeaders::kCookie, CookieStore::BuildCookieLine(cookie_list));
     // Disable privacy mode as we are sending cookies anyway.
     request_info_.privacy_mode = PRIVACY_MODE_DISABLED;
   }
@@ -712,103 +725,35 @@ void URLRequestHttpJob::SaveCookiesAndNotifyHeadersComplete(int result) {
     return;
   }
 
-  DCHECK(transaction_.get());
+  std::vector<std::string> response_cookies;
+  FetchResponseCookies(&response_cookies);
 
-  const HttpResponseInfo* response_info = transaction_->GetResponseInfo();
-  DCHECK(response_info);
-
-  response_cookies_.clear();
-  response_cookies_save_index_ = 0;
-
-  FetchResponseCookies(&response_cookies_);
-
-  if (!GetResponseHeaders()->GetDateValue(&response_date_))
-    response_date_ = base::Time();
-
-  // Now, loop over the response cookies, and attempt to persist each.
-  SaveNextCookie();
-}
-
-// If the save occurs synchronously, SaveNextCookie will loop and save the next
-// cookie. If the save is deferred, the callback is responsible for continuing
-// to iterate through the cookies.
-// TODO(erikwright): Modify the CookieStore API to indicate via return value
-// whether it completed synchronously or asynchronously.
-// See http://crbug.com/131066.
-void URLRequestHttpJob::SaveNextCookie() {
-  // No matter what, we want to report our status as IO pending since we will
-  // be notifying our consumer asynchronously via OnStartCompleted.
-  SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
-
-  // Used to communicate with the callback. See the implementation of
-  // OnCookieSaved.
-  scoped_refptr<SharedBoolean> callback_pending = new SharedBoolean(false);
-  scoped_refptr<SharedBoolean> save_next_cookie_running =
-      new SharedBoolean(true);
+  base::Time response_date;
+  if (!GetResponseHeaders()->GetDateValue(&response_date))
+    response_date = base::Time();
 
   if (!(request_info_.load_flags & LOAD_DO_NOT_SAVE_COOKIES) &&
-      request_->context()->cookie_store() && response_cookies_.size() > 0) {
+      request_->context()->cookie_store()) {
     CookieOptions options;
     options.set_include_httponly();
-    options.set_server_time(response_date_);
-    if (network_delegate()->AreExperimentalCookieFeaturesEnabled())
-      options.set_enforce_prefixes();
+    options.set_server_time(response_date);
 
-    CookieStore::SetCookiesCallback callback(base::Bind(
-        &URLRequestHttpJob::OnCookieSaved, weak_factory_.GetWeakPtr(),
-        save_next_cookie_running, callback_pending));
+    if (network_delegate() &&
+        network_delegate()->AreStrictSecureCookiesEnabled()) {
+      options.set_enforce_strict_secure();
+    }
 
-    // Loop through the cookies as long as SetCookieWithOptionsAsync completes
-    // synchronously.
-    while (!callback_pending->data &&
-           response_cookies_save_index_ < response_cookies_.size()) {
-      if (CanSetCookie(
-          response_cookies_[response_cookies_save_index_], &options)) {
-        callback_pending->data = true;
-        request_->context()->cookie_store()->SetCookieWithOptionsAsync(
-            request_->url(), response_cookies_[response_cookies_save_index_],
-            options, callback);
-      }
-      ++response_cookies_save_index_;
+    // Set all cookies, without waiting for them to be set. Any subsequent read
+    // will see the combined result of all cookie operation.
+    for (const std::string& cookie : response_cookies) {
+      if (!CanSetCookie(cookie, &options))
+        continue;
+      request_->context()->cookie_store()->SetCookieWithOptionsAsync(
+          request_->url(), cookie, options, CookieStore::SetCookiesCallback());
     }
   }
 
-  save_next_cookie_running->data = false;
-
-  if (!callback_pending->data) {
-    response_cookies_.clear();
-    response_cookies_save_index_ = 0;
-    SetStatus(URLRequestStatus());  // Clear the IO_PENDING status
-    NotifyHeadersComplete();
-    return;
-  }
-}
-
-// |save_next_cookie_running| is true when the callback is bound and set to
-// false when SaveNextCookie exits, allowing the callback to determine if the
-// save occurred synchronously or asynchronously.
-// |callback_pending| is false when the callback is invoked and will be set to
-// true by the callback, allowing SaveNextCookie to detect whether the save
-// occurred synchronously.
-// See SaveNextCookie() for more information.
-void URLRequestHttpJob::OnCookieSaved(
-    scoped_refptr<SharedBoolean> save_next_cookie_running,
-    scoped_refptr<SharedBoolean> callback_pending,
-    bool cookie_status) {
-  callback_pending->data = false;
-
-  // If we were called synchronously, return.
-  if (save_next_cookie_running->data) {
-    return;
-  }
-
-  // We were called asynchronously, so trigger the next save.
-  // We may have been canceled within OnSetCookie.
-  if (GetStatus().is_success()) {
-    SaveNextCookie();
-  } else {
-    NotifyCanceled();
-  }
+  NotifyHeadersComplete();
 }
 
 void URLRequestHttpJob::FetchResponseCookies(
@@ -816,7 +761,7 @@ void URLRequestHttpJob::FetchResponseCookies(
   const std::string name = "Set-Cookie";
   std::string value;
 
-  void* iter = NULL;
+  size_t iter = 0;
   HttpResponseHeaders* headers = GetResponseHeaders();
   while (headers->EnumerateHeader(&iter, name, &value)) {
     if (!value.empty())
@@ -869,7 +814,7 @@ void URLRequestHttpJob::ProcessStrictTransportSecurityHeader() {
   //   first such header field.
   HttpResponseHeaders* headers = GetResponseHeaders();
   std::string value;
-  if (headers->EnumerateHeader(NULL, "Strict-Transport-Security", &value))
+  if (headers->EnumerateHeader(nullptr, "Strict-Transport-Security", &value))
     security_state->AddHSTSHeader(request_info_.url.host(), value);
 }
 
@@ -919,9 +864,6 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
 
   receive_headers_end_ = base::TimeTicks::Now();
 
-  // Clear the IO_PENDING status
-  SetStatus(URLRequestStatus());
-
   const URLRequestContext* context = request_->context();
 
   if (result == OK) {
@@ -929,6 +871,23 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
       SetProxyServer(transaction_->GetResponseInfo()->proxy_server);
     }
     scoped_refptr<HttpResponseHeaders> headers = GetResponseHeaders();
+
+    if (headers) {
+      size_t iter = 0;
+      std::string name;
+      std::string value;
+      bool invalid_header_values_in_rfc7230 = false;
+      while (headers->EnumerateHeaderLines(&iter, &name, &value)) {
+        if (!HttpUtil::IsValidHeaderValueRFC7230(value)) {
+          invalid_header_values_in_rfc7230 = true;
+          break;
+        }
+      }
+      UMA_HISTOGRAM_BOOLEAN(
+          "Net.HttpResponse.ContainsInvalidHeaderValuesInRFC7230",
+          invalid_header_values_in_rfc7230);
+    }
+
     if (network_delegate()) {
       // Note that |this| may not be deleted until
       // |on_headers_received_callback_| or
@@ -998,19 +957,16 @@ void URLRequestHttpJob::OnHeadersReceivedCallback(int result) {
 void URLRequestHttpJob::OnReadCompleted(int result) {
   read_in_progress_ = false;
 
+  DCHECK_NE(ERR_IO_PENDING, result);
+
   if (ShouldFixMismatchedContentLength(result))
     result = OK;
 
-  if (result == OK) {
-    NotifyDone(URLRequestStatus());
-  } else if (result < 0) {
-    NotifyDone(URLRequestStatus(URLRequestStatus::FAILED, result));
-  } else {
-    // Clear the IO_PENDING status
-    SetStatus(URLRequestStatus());
-  }
+  // EOF or error, done with this job.
+  if (result <= 0)
+    DoneWithRequest(FINISHED);
 
-  NotifyReadComplete(result);
+  ReadRawDataComplete(result);
 }
 
 void URLRequestHttpJob::RestartTransactionWithAuth(
@@ -1020,7 +976,6 @@ void URLRequestHttpJob::RestartTransactionWithAuth(
   // These will be reset in OnStartCompleted.
   response_info_ = NULL;
   receive_headers_end_ = base::TimeTicks();
-  response_cookies_.clear();
 
   ResetTimer();
 
@@ -1109,9 +1064,6 @@ bool URLRequestHttpJob::GetResponseCookies(std::vector<std::string>* cookies) {
   if (!response_info_)
     return false;
 
-  // TODO(darin): Why are we extracting response cookies again?  Perhaps we
-  // should just leverage response_cookies_.
-
   cookies->clear();
   FetchResponseCookies(cookies);
   return true;
@@ -1126,6 +1078,13 @@ int URLRequestHttpJob::GetResponseCode() const {
   return GetResponseHeaders()->response_code();
 }
 
+void URLRequestHttpJob::PopulateNetErrorDetails(
+    NetErrorDetails* details) const {
+  if (!transaction_)
+    return;
+  return transaction_->PopulateNetErrorDetails(details);
+}
+
 Filter* URLRequestHttpJob::SetupFilter() const {
   DCHECK(transaction_.get());
   if (!response_info_)
@@ -1134,7 +1093,7 @@ Filter* URLRequestHttpJob::SetupFilter() const {
   std::vector<Filter::FilterType> encoding_types;
   std::string encoding_type;
   HttpResponseHeaders* headers = GetResponseHeaders();
-  void* iter = NULL;
+  size_t iter = 0;
   while (headers->EnumerateHeader(&iter, "Content-Encoding", &encoding_type)) {
     encoding_types.push_back(Filter::ConvertEncodingToType(encoding_type));
   }
@@ -1240,7 +1199,6 @@ void URLRequestHttpJob::CancelAuth() {
   // These will be reset in OnStartCompleted.
   response_info_ = NULL;
   receive_headers_end_ = base::TimeTicks::Now();
-  response_cookies_.clear();
 
   ResetTimer();
 
@@ -1258,7 +1216,8 @@ void URLRequestHttpJob::CancelAuth() {
 }
 
 void URLRequestHttpJob::ContinueWithCertificate(
-    X509Certificate* client_cert) {
+    X509Certificate* client_cert,
+    SSLPrivateKey* client_private_key) {
   DCHECK(transaction_.get());
 
   DCHECK(!response_info_) << "should not have a response yet";
@@ -1266,11 +1225,8 @@ void URLRequestHttpJob::ContinueWithCertificate(
 
   ResetTimer();
 
-  // No matter what, we want to report our status as IO pending since we will
-  // be notifying our consumer asynchronously via OnStartCompleted.
-  SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
-
-  int rv = transaction_->RestartWithCertificate(client_cert, start_callback_);
+  int rv = transaction_->RestartWithCertificate(client_cert, client_private_key,
+                                                start_callback_);
   if (rv == ERR_IO_PENDING)
     return;
 
@@ -1290,10 +1246,6 @@ void URLRequestHttpJob::ContinueDespiteLastError() {
   receive_headers_end_ = base::TimeTicks();
 
   ResetTimer();
-
-  // No matter what, we want to report our status as IO pending since we will
-  // be notifying our consumer asynchronously via OnStartCompleted.
-  SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
 
   int rv = transaction_->RestartIgnoringLastError(start_callback_);
   if (rv == ERR_IO_PENDING)
@@ -1319,7 +1271,8 @@ bool URLRequestHttpJob::ShouldFixMismatchedContentLength(int rv) const {
   if (rv == ERR_CONTENT_LENGTH_MISMATCH ||
       rv == ERR_INCOMPLETE_CHUNKED_ENCODING) {
     if (request_ && request_->response_headers()) {
-      int64 expected_length = request_->response_headers()->GetContentLength();
+      int64_t expected_length =
+          request_->response_headers()->GetContentLength();
       VLOG(1) << __FUNCTION__ << "() "
               << "\"" << request_->url().spec() << "\""
               << " content-length = " << expected_length
@@ -1334,11 +1287,8 @@ bool URLRequestHttpJob::ShouldFixMismatchedContentLength(int rv) const {
   return false;
 }
 
-bool URLRequestHttpJob::ReadRawData(IOBuffer* buf,
-                                    int buf_size,
-                                    int* bytes_read) {
+int URLRequestHttpJob::ReadRawData(IOBuffer* buf, int buf_size) {
   DCHECK_NE(buf_size, 0);
-  DCHECK(bytes_read);
   DCHECK(!read_in_progress_);
 
   int rv = transaction_->Read(
@@ -1346,23 +1296,15 @@ bool URLRequestHttpJob::ReadRawData(IOBuffer* buf,
       base::Bind(&URLRequestHttpJob::OnReadCompleted, base::Unretained(this)));
 
   if (ShouldFixMismatchedContentLength(rv))
-    rv = 0;
+    rv = OK;
 
-  if (rv >= 0) {
-    *bytes_read = rv;
-    if (!rv)
-      DoneWithRequest(FINISHED);
-    return true;
-  }
+  if (rv == 0 || (rv < 0 && rv != ERR_IO_PENDING))
+    DoneWithRequest(FINISHED);
 
-  if (rv == ERR_IO_PENDING) {
+  if (rv == ERR_IO_PENDING)
     read_in_progress_ = true;
-    SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
-  } else {
-    NotifyDone(URLRequestStatus(URLRequestStatus::FAILED, rv));
-  }
 
-  return false;
+  return rv;
 }
 
 void URLRequestHttpJob::StopCaching() {
@@ -1378,7 +1320,7 @@ bool URLRequestHttpJob::GetFullRequestHeaders(
   return transaction_->GetFullRequestHeaders(headers);
 }
 
-int64 URLRequestHttpJob::GetTotalReceivedBytes() const {
+int64_t URLRequestHttpJob::GetTotalReceivedBytes() const {
   int64_t total_received_bytes =
       total_received_bytes_from_previous_transactions_;
   if (transaction_)

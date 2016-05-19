@@ -40,6 +40,7 @@ static void RunOnTaskRunner(
 }
 
 SerialRunner::Queue::Queue() {}
+SerialRunner::Queue::Queue(const Queue& other) = default;
 SerialRunner::Queue::~Queue() {}
 
 void SerialRunner::Queue::Push(const base::Closure& closure) {
@@ -91,7 +92,7 @@ scoped_ptr<SerialRunner> SerialRunner::Run(
     const Queue& bound_fns, const PipelineStatusCB& done_cb) {
   scoped_ptr<SerialRunner> callback_series(
       new SerialRunner(bound_fns, done_cb));
-  return callback_series.Pass();
+  return callback_series;
 }
 
 void SerialRunner::RunNextInSeries(PipelineStatus last_status) {

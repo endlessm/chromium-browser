@@ -4,6 +4,9 @@
 
 #include "chrome/browser/ui/webui/about_ui.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <string>
 #include <utility>
@@ -17,6 +20,7 @@
 #include "base/format_macros.h"
 #include "base/i18n/number_formatting.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/strings/string_number_conversions.h"
@@ -27,6 +31,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
@@ -42,6 +47,7 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
+#include "components/strings/grit/components_locale_settings.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -517,7 +523,7 @@ std::vector<std::string> GetHtmlTabDescriptorsForDiscardPage() {
     str += "<b>";
     str += it->is_app ? "[App] " : "";
     str += it->is_internal_page ? "[Internal] " : "";
-    str += it->is_playing_audio ? "[Audio] " : "";
+    str += it->is_media ? "[Media] " : "";
     str += it->is_pinned ? "[Pinned] " : "";
     str += it->is_discarded ? "[Discarded] " : "";
     str += "</b>";
@@ -539,7 +545,7 @@ std::vector<std::string> GetHtmlTabDescriptorsForDiscardPage() {
 
 std::string AboutDiscards(const std::string& path) {
   std::string output;
-  int64 web_content_id;
+  int64_t web_content_id;
   memory::TabManager* tab_manager = g_browser_process->GetTabManager();
 
   std::vector<std::string> path_split = base::SplitString(
@@ -741,7 +747,8 @@ std::string AboutSandbox() {
   data.append("</h1>");
 
   // Get expected sandboxing status of renderers.
-  const int status = content::ZygoteHost::GetInstance()->GetSandboxStatus();
+  const int status =
+      content::ZygoteHost::GetInstance()->GetRendererSandboxStatus();
 
   data.append("<table>");
 

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include "ash/content/shell_content_state.h"
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf_widget.h"
@@ -18,6 +20,7 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
@@ -42,6 +45,10 @@
 #include "ui/wm/public/activation_client.h"
 
 namespace {
+
+const char kAAccountIdString[] = "{\"email\":\"A\",\"gaia_id\":\"\"}";
+const char kBAccountIdString[] = "{\"email\":\"B\",\"gaia_id\":\"\"}";
+const char kArrowBAccountIdString[] = "->{\"email\":\"B\",\"gaia_id\":\"\"}";
 
 // TOOD(beng): This implementation seems only superficially different to the
 //             production impl. Evaluate whether or not we can just use that
@@ -1016,7 +1023,8 @@ TEST_F(MultiUserWindowManagerChromeOSTest, AnimationSteps) {
   // new one is becoming visible, the background starts transitionining and the
   // shelf hides.
   StartUserTransitionAnimation(account_id_B);
-  EXPECT_EQ("->B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kArrowBAccountIdString,
+            GetWallpaperUserIdForTest());
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
@@ -1030,7 +1038,8 @@ TEST_F(MultiUserWindowManagerChromeOSTest, AnimationSteps) {
   // which should set the shelf to its users state. Since that isn't there we
   // can only make sure that it stays where it is.
   AdvanceUserTransitionAnimation();
-  EXPECT_EQ("->B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kArrowBAccountIdString,
+            GetWallpaperUserIdForTest());
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
@@ -1042,7 +1051,7 @@ TEST_F(MultiUserWindowManagerChromeOSTest, AnimationSteps) {
   // After the finalize the animation of the wallpaper should be finished.
   AdvanceUserTransitionAnimation();
   EXPECT_FALSE(shelf->IsShelfHiddenBehindBlackBar());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
 }
 
 // Test that the screen coverage is properly determined.
@@ -1088,21 +1097,21 @@ TEST_F(MultiUserWindowManagerChromeOSTest, AnimationStepsMaximizeToNormal) {
   // Start the animation and see that the new background is immediately set.
   StartUserTransitionAnimation(account_id_B);
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
 
   // The next step will not change anything.
   AdvanceUserTransitionAnimation();
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
 
   // The final step will also not have any visible impact.
   AdvanceUserTransitionAnimation();
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
 }
@@ -1148,7 +1157,7 @@ TEST_F(MultiUserWindowManagerChromeOSTest, AnimationStepsNormalToMaximized) {
   // The final step however will switch the background.
   AdvanceUserTransitionAnimation();
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
 }
@@ -1181,42 +1190,42 @@ TEST_F(MultiUserWindowManagerChromeOSTest, AnimationStepsMaximizedToMaximized) {
   // the new user).
   StartUserTransitionAnimation(account_id_B);
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
 
   // The next step will not change anything.
   AdvanceUserTransitionAnimation();
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
 
   // The final step however will hide the old window.
   AdvanceUserTransitionAnimation();
   EXPECT_EQ("H[A], S[B], H[C]", GetStatus());
-  EXPECT_EQ("B", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kBAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(0.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(1.0f, window(1)->layer()->GetTargetOpacity());
 
   // Switching back will do the exact same thing.
   StartUserTransitionAnimation(account_id_A);
   EXPECT_EQ("S[A], H[B], H[C]", GetStatus());
-  EXPECT_EQ("A", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kAAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(1.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(0.0f, window(1)->layer()->GetTargetOpacity());
 
   // The next step will not change anything.
   AdvanceUserTransitionAnimation();
   EXPECT_EQ("S[A], H[B], H[C]", GetStatus());
-  EXPECT_EQ("A", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kAAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(1.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(0.0f, window(1)->layer()->GetTargetOpacity());
 
   // The final step is also not changing anything to the status.
   AdvanceUserTransitionAnimation();
   EXPECT_EQ("S[A], H[B], H[C]", GetStatus());
-  EXPECT_EQ("A", GetWallpaperUserIdForTest());
+  EXPECT_EQ(kAAccountIdString, GetWallpaperUserIdForTest());
   EXPECT_EQ(1.0f, window(0)->layer()->GetTargetOpacity());
   EXPECT_EQ(0.0f, window(1)->layer()->GetTargetOpacity());
 }

@@ -6,6 +6,7 @@
 
 #include "SampleApplication.h"
 #include "EGLWindow.h"
+#include "random_utils.h"
 
 SampleApplication::SampleApplication(const std::string &name,
                                      size_t width,

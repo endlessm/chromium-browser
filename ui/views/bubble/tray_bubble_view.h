@@ -5,6 +5,7 @@
 #ifndef UI_VIEWS_BUBBLE_TRAY_BUBBLE_VIEW_H_
 #define UI_VIEWS_BUBBLE_TRAY_BUBBLE_VIEW_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/views/bubble/bubble_delegate.h"
 #include "ui/views/mouse_watcher.h"
@@ -95,6 +96,7 @@ class VIEWS_EXPORT TrayBubbleView : public views::BubbleDelegateView,
                AnchorAlignment anchor_alignment,
                int min_width,
                int max_width);
+    InitParams(const InitParams& other);
     AnchorType anchor_type;
     AnchorAlignment anchor_alignment;
     int min_width;
@@ -185,7 +187,10 @@ class VIEWS_EXPORT TrayBubbleView : public views::BubbleDelegateView,
   InitParams params_;
   Delegate* delegate_;
   int preferred_width_;
+  // |bubble_border_| and |owned_bubble_border_| point to the same thing, but
+  // the latter ensures we don't leak it before passing off ownership.
   internal::TrayBubbleBorder* bubble_border_;
+  scoped_ptr<views::BubbleBorder> owned_bubble_border_;
   scoped_ptr<internal::TrayBubbleContentMask> bubble_content_mask_;
   bool is_gesture_dragging_;
 

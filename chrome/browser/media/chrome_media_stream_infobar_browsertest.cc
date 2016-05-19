@@ -4,6 +4,7 @@
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -28,7 +29,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/dns/mock_host_resolver.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 
 // MediaStreamPermissionTest ---------------------------------------------------
 
@@ -56,14 +57,13 @@ class MediaStreamPermissionTest : public WebRtcTestBase {
 
   // Returns the URL of the main test page.
   GURL test_page_url() const {
-    const char kMainWebrtcTestHtmlPage[] =
-        "files/webrtc/webrtc_jsep01_test.html";
-    return test_server()->GetURL(kMainWebrtcTestHtmlPage);
+    const char kMainWebrtcTestHtmlPage[] = "/webrtc/webrtc_jsep01_test.html";
+    return embedded_test_server()->GetURL(kMainWebrtcTestHtmlPage);
   }
 
  private:
   content::WebContents* LoadTestPageInBrowser(Browser* browser) {
-    EXPECT_TRUE(test_server()->Start());
+    EXPECT_TRUE(embedded_test_server()->Start());
 
     // Uses the default server.
     GURL url = test_page_url();

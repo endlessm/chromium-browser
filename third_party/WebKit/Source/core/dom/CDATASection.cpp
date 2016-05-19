@@ -19,7 +19,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/dom/CDATASection.h"
 
 #include "core/dom/Document.h"
@@ -41,7 +40,7 @@ String CDATASection::nodeName() const
     return "#cdata-section";
 }
 
-Node::NodeType CDATASection::nodeType() const
+Node::NodeType CDATASection::getNodeType() const
 {
     return CDATA_SECTION_NODE;
 }

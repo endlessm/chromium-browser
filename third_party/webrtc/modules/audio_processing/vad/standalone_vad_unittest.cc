@@ -12,16 +12,16 @@
 
 #include <string.h>
 
+#include <memory>
+
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/test/testsupport/fileutils.h"
-#include "webrtc/test/testsupport/gtest_disable.h"
 
 namespace webrtc {
 
 TEST(StandaloneVadTest, Api) {
-  rtc::scoped_ptr<StandaloneVad> vad(StandaloneVad::Create());
+  std::unique_ptr<StandaloneVad> vad(StandaloneVad::Create());
   int16_t data[kLength10Ms] = {0};
 
   // Valid frame length (for 32 kHz rate), but not what the VAD is expecting.
@@ -55,8 +55,12 @@ TEST(StandaloneVadTest, Api) {
   EXPECT_EQ(kMode, vad->mode());
 }
 
-TEST(StandaloneVadTest, DISABLED_ON_IOS(ActivityDetection)) {
-  rtc::scoped_ptr<StandaloneVad> vad(StandaloneVad::Create());
+#if defined(WEBRTC_IOS)
+TEST(StandaloneVadTest, DISABLED_ActivityDetection) {
+#else
+TEST(StandaloneVadTest, ActivityDetection) {
+#endif
+  std::unique_ptr<StandaloneVad> vad(StandaloneVad::Create());
   const size_t kDataLength = kLength10Ms;
   int16_t data[kDataLength] = {0};
 

@@ -5,6 +5,7 @@
 #include <string>
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -66,7 +67,7 @@ void DurableStorageBrowserTest::SetUpCommandLine(
 void DurableStorageBrowserTest::SetUpOnMainThread() {
   if (embedded_test_server()->Started())
     return;
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
   url_ = embedded_test_server()->GetURL("/durable/durability-permissions.html");
 }
 

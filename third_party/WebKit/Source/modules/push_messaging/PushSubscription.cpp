@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "modules/push_messaging/PushSubscription.h"
 
 #include "bindings/core/v8/CallbackPromiseAdapter.h"
@@ -35,6 +34,7 @@ void PushSubscription::dispose(WebPushSubscription* pushSubscription)
 PushSubscription::PushSubscription(const WebPushSubscription& subscription, ServiceWorkerRegistration* serviceWorkerRegistration)
     : m_endpoint(subscription.endpoint)
     , m_p256dh(DOMArrayBuffer::create(subscription.p256dh.data(), subscription.p256dh.size()))
+    , m_auth(DOMArrayBuffer::create(subscription.auth.data(), subscription.auth.size()))
     , m_serviceWorkerRegistration(serviceWorkerRegistration)
 {
 }
@@ -52,6 +52,8 @@ PassRefPtr<DOMArrayBuffer> PushSubscription::getKey(const AtomicString& name) co
 {
     if (name == "p256dh")
         return m_p256dh;
+    if (name == "auth")
+        return m_auth;
 
     return nullptr;
 }
@@ -78,6 +80,7 @@ ScriptValue PushSubscription::toJSONForBinding(ScriptState* scriptState)
 
         V8ObjectBuilder keys(scriptState);
         keys.add("p256dh", WTF::base64URLEncode(static_cast<const char*>(m_p256dh->data()), m_p256dh->byteLength()));
+        keys.add("auth", WTF::base64URLEncode(static_cast<const char*>(m_auth->data()), m_auth->byteLength()));
 
         result.add("keys", keys);
     }

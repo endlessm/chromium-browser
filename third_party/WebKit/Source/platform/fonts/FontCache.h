@@ -34,6 +34,8 @@
 #include "platform/fonts/FallbackListCompositeKey.h"
 #include "platform/fonts/FontCacheKey.h"
 #include "platform/fonts/FontFaceCreationParams.h"
+#include "platform/fonts/FontFallbackPriority.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/PassRefPtr.h"
@@ -45,7 +47,6 @@
 
 #if OS(WIN)
 #include "SkFontMgr.h"
-struct IDWriteFactory;
 #endif
 
 class SkTypeface;
@@ -59,6 +60,7 @@ class FontDescription;
 class OpenTypeVerticalData;
 class ShapeCache;
 class SimpleFontData;
+class WebProcessMemoryDump;
 
 enum ShouldRetain { Retain, DoNotRetain };
 enum PurgeSeverity { PurgeIfNeeded, ForcePurge };
@@ -84,6 +86,12 @@ public:
     SimpleFontData* getNonRetainedLastResortFallbackFont(const FontDescription&);
     bool isPlatformFontAvailable(const FontDescription&, const AtomicString&);
 
+    // Returns the list of available emoji and symbol fonts.  Does not return a
+    // null pointer and should return at least one available font for each
+    // category. The returned list is lazy initialized by checking a list of
+    // font candidates for local availability.
+    const Vector<AtomicString>* fontListForFallbackPriority(const FontDescription&, FontFallbackPriority);
+
     // Returns the ShapeCache instance associated with the given cache key.
     // Creates a new instance as needed and as such is guaranteed not to return
     // a nullptr. Instances are managed by FontCache and are only guaranteed to
@@ -105,7 +113,7 @@ public:
     static bool useDirectWrite() { return s_useDirectWrite; }
     static float deviceScaleFactor() { return s_deviceScaleFactor; }
     static void setUseDirectWrite(bool useDirectWrite) { s_useDirectWrite = useDirectWrite; }
-    static void setDirectWriteFactory(IDWriteFactory* factory) { s_directWriteFactory = factory; }
+    static void setFontManager(const RefPtr<SkFontMgr>&);
     static void setDeviceScaleFactor(float deviceScaleFactor) { s_deviceScaleFactor = deviceScaleFactor; }
     static void setUseSubpixelPositioning(bool useSubpixelPositioning) { s_useSubpixelPositioning = useSubpixelPositioning; }
     static void addSideloadedFontForTesting(SkTypeface*);
@@ -124,6 +132,8 @@ public:
     typedef uint32_t FontFileKey;
     PassRefPtr<OpenTypeVerticalData> getVerticalData(const FontFileKey&, const FontPlatformData&);
 
+    static void acceptLanguagesChanged(const String&);
+
 #if OS(ANDROID)
     static AtomicString getGenericFamilyNameForScript(const AtomicString& familyName, const FontDescription&);
 #else
@@ -140,6 +150,10 @@ public:
     PassRefPtr<SimpleFontData> fontDataFromFontPlatformData(const FontPlatformData*, ShouldRetain = Retain);
 
     void invalidateShapeCache();
+
+    // Memory reporting
+    void dumpFontPlatformDataCache(WebProcessMemoryDump*);
+    void dumpShapeResultCache(WebProcessMemoryDump*);
 
 private:
     FontCache();
@@ -159,20 +173,25 @@ private:
     FontPlatformData* getFontPlatformData(const FontDescription&, const FontFaceCreationParams&, bool checkingAlternateName = false);
 
     // These methods are implemented by each platform.
-    FontPlatformData* createFontPlatformData(const FontDescription&, const FontFaceCreationParams&, float fontSize);
+    PassOwnPtr<FontPlatformData> createFontPlatformData(const FontDescription&, const FontFaceCreationParams&, float fontSize);
 
     // Implemented on skia platforms.
     PassRefPtr<SkTypeface> createTypeface(const FontDescription&, const FontFaceCreationParams&, CString& name);
 
     PassRefPtr<SimpleFontData> fallbackOnStandardFontStyle(const FontDescription&, UChar32);
 
+    template <FontFallbackPriority fallbackPriority>
+    const Vector<AtomicString>* initAndGetFontListForFallbackPriority(const FontDescription&);
+
+    const Vector<AtomicString> platformFontListForFallbackPriority(FontFallbackPriority) const;
+
     // Don't purge if this count is > 0;
     int m_purgePreventCount;
 
 #if OS(WIN)
-    OwnPtr<SkFontMgr> m_fontManager;
+    RefPtr<SkFontMgr> m_fontManager;
     static bool s_useDirectWrite;
-    static IDWriteFactory* s_directWriteFactory;
+    static SkFontMgr* s_fontManager;
     static float s_deviceScaleFactor;
     static bool s_useSubpixelPositioning;
     static HashMap<String, RefPtr<SkTypeface>>* s_sideloadedFonts;
@@ -190,6 +209,8 @@ private:
 };
 
 class PLATFORM_EXPORT FontCachePurgePreventer {
+    USING_FAST_MALLOC(FontCachePurgePreventer);
+    WTF_MAKE_NONCOPYABLE(FontCachePurgePreventer);
 public:
     FontCachePurgePreventer() { FontCache::fontCache()->disablePurging(); }
     ~FontCachePurgePreventer() { FontCache::fontCache()->enablePurging(); }

@@ -4,10 +4,12 @@
 
 #include "chrome/browser/extensions/api/music_manager_private/device_id.h"
 
-#include <sys/socket.h>  // Must be included before ifaddrs.h.
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <stddef.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>  // Must be included before ifaddrs.h.
 
 #include <map>
 
@@ -15,6 +17,7 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_restrictions.h"

@@ -22,6 +22,7 @@
 #define FormDataEncoder_h
 
 #include "platform/network/EncodedFormData.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 
 namespace WTF {
@@ -31,9 +32,9 @@ class TextEncoding;
 namespace blink {
 
 class PLATFORM_EXPORT FormDataEncoder {
-    WTF_MAKE_NONCOPYABLE(FormDataEncoder);
+    STATIC_ONLY(FormDataEncoder);
 public:
-    static WTF::TextEncoding encodingFromAcceptCharset(const String& acceptCharset, const String& charset, const String& defaultCharset);
+    static WTF::TextEncoding encodingFromAcceptCharset(const String& acceptCharset, const WTF::TextEncoding& fallbackEncoding);
 
     // Helper functions used by HTMLFormElement for multi-part form data
     static Vector<char> generateUniqueBoundaryString();
@@ -46,11 +47,8 @@ public:
     // Helper functions used by HTMLFormElement for non multi-part form data
     static void addKeyValuePairAsFormData(Vector<char>&, const CString& key, const CString& value, EncodedFormData::EncodingType = EncodedFormData::FormURLEncoded);
     static void encodeStringAsFormData(Vector<char>&, const CString&);
-
-private:
-    FormDataEncoder() { }
 };
 
-}
+} // namespace blink
 
 #endif

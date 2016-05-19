@@ -14,7 +14,6 @@
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/win/metro.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_handle.h"
@@ -33,7 +32,6 @@
 #include "ui/gfx/win/dpi.h"
 #include "win8/delegate_execute/chrome_util.h"
 #include "win8/delegate_execute/delegate_execute_util.h"
-#include "win8/viewer/metro_viewer_constants.h"
 
 namespace {
 // Helper function to retrieve the url from IShellItem interface passed in.
@@ -66,44 +64,6 @@ HRESULT GetUrlFromShellItem(IShellItem* shell_item, base::string16* url) {
   *url = static_cast<const wchar_t*>(name);
   AtlTrace("Retrieved url from display name %ls\n", url->c_str());
   return S_OK;
-}
-
-bool LaunchChromeBrowserProcess() {
-  base::FilePath delegate_exe_path;
-  if (!PathService::Get(base::FILE_EXE, &delegate_exe_path))
-    return false;
-
-  // First try and go up a level to find chrome.exe.
-  base::FilePath chrome_exe_path =
-      delegate_exe_path.DirName()
-                       .DirName()
-                       .Append(chrome::kBrowserProcessExecutableName);
-  if (!base::PathExists(chrome_exe_path)) {
-    // Try looking in the current directory if we couldn't find it one up in
-    // order to support developer installs.
-    chrome_exe_path =
-        delegate_exe_path.DirName()
-                         .Append(chrome::kBrowserProcessExecutableName);
-  }
-
-  if (!base::PathExists(chrome_exe_path)) {
-    AtlTrace("Could not locate chrome.exe at: %ls\n",
-             chrome_exe_path.value().c_str());
-    return false;
-  }
-
-  base::CommandLine cl(chrome_exe_path);
-
-  // Prevent a Chrome window from showing up on the desktop.
-  cl.AppendSwitch(switches::kSilentLaunch);
-
-  // Tell Chrome to connect to the Metro viewer process.
-  cl.AppendSwitch(switches::kViewerConnect);
-
-  base::LaunchOptions launch_options;
-  launch_options.start_hidden = true;
-
-  return base::LaunchProcess(cl, launch_options).IsValid();
 }
 
 }  // namespace
@@ -220,18 +180,8 @@ STDMETHODIMP CommandExecuteImpl::GetValue(enum AHE_TYPE* pahe) {
     return E_FAIL;
   }
 
-  EC_HOST_UI_MODE mode = GetLaunchMode();
-  *pahe = (mode == ECHUIM_DESKTOP) ? AHE_DESKTOP : AHE_IMMERSIVE;
-
-  // If we're going to return AHE_IMMERSIVE, then both the browser process and
-  // the metro viewer need to launch and connect before the user can start
-  // browsing.  However we must not launch the metro viewer until we get a
-  // call to CommandExecuteImpl::Execute().  If we wait until then to launch
-  // the browser process as well, it will appear laggy while they connect to
-  // each other, so we pre-launch the browser process now.
-  if (*pahe == AHE_IMMERSIVE && verb_ != win8::kMetroViewerConnectVerb) {
-    LaunchChromeBrowserProcess();
-  }
+  // TODO(scottmg): Can all go eventually https://crbug.com/558054.
+  *pahe = AHE_DESKTOP;
   return S_OK;
 }
 
@@ -421,8 +371,6 @@ EC_HOST_UI_MODE CommandExecuteImpl::GetLaunchMode() {
   static bool launch_mode_determined = false;
   static EC_HOST_UI_MODE launch_mode = ECHUIM_DESKTOP;
 
-  const char* modes[] = { "Desktop", "Immersive", "SysLauncher", "??" };
-
   if (launch_mode_determined)
     return launch_mode;
 
@@ -451,8 +399,6 @@ EC_HOST_UI_MODE CommandExecuteImpl::GetLaunchMode() {
     return launch_mode;
   }
 
-  // From here on, if we can, we will write the outcome
-  // of this function to the registry.
   if (parameters_.HasSwitch(switches::kForceImmersive)) {
     launch_mode = ECHUIM_IMMERSIVE;
     launch_mode_determined = true;
@@ -463,50 +409,9 @@ EC_HOST_UI_MODE CommandExecuteImpl::GetLaunchMode() {
     parameters_ = base::CommandLine(base::CommandLine::NO_PROGRAM);
   }
 
-  base::win::RegKey reg_key;
-  LONG key_result = reg_key.Create(HKEY_CURRENT_USER,
-                                   chrome::kMetroRegistryPath,
-                                   KEY_ALL_ACCESS);
-  if (key_result != ERROR_SUCCESS) {
-    AtlTrace("Failed to open HKCU %ls key, error 0x%x\n",
-             chrome::kMetroRegistryPath,
-             key_result);
-    if (!launch_mode_determined) {
-      // If we cannot open the key and we don't know the
-      // launch mode we default to desktop mode.
-      launch_mode = ECHUIM_DESKTOP;
-      launch_mode_determined = true;
-    }
-    return launch_mode;
-  }
-
-  if (launch_mode_determined) {
-    AtlTrace("Launch mode forced by cmdline to %s\n", modes[launch_mode]);
-    reg_key.WriteValue(chrome::kLaunchModeValue,
-                       static_cast<DWORD>(launch_mode));
-    return launch_mode;
-  }
-
-  if (!base::win::IsChromeMetroSupported()) {
+  if (!launch_mode_determined) {
     launch_mode = ECHUIM_DESKTOP;
     launch_mode_determined = true;
-    return launch_mode;
   }
-
-  // Use the previous mode if available. Else launch in desktop mode.
-  DWORD reg_value;
-  if (reg_key.ReadValueDW(chrome::kLaunchModeValue,
-                          &reg_value) != ERROR_SUCCESS) {
-    launch_mode = ECHUIM_DESKTOP;
-    AtlTrace("Can't read registry, defaulting to %s\n", modes[launch_mode]);
-  } else if (reg_value >= ECHUIM_SYSTEM_LAUNCHER) {
-    AtlTrace("Invalid registry launch mode value %u\n", reg_value);
-    launch_mode = ECHUIM_DESKTOP;
-  } else {
-    launch_mode = static_cast<EC_HOST_UI_MODE>(reg_value);
-    AtlTrace("Launch mode forced by registry to %s\n", modes[launch_mode]);
-  }
-
-  launch_mode_determined = true;
   return launch_mode;
 }

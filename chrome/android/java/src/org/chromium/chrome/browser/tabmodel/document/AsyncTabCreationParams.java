@@ -8,6 +8,8 @@ import android.content.Intent;
 
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.document.DocumentMetricIds;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tabmodel.AsyncTabParams;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 
@@ -15,7 +17,7 @@ import org.chromium.content_public.browser.WebContents;
  * Data that will be used later when a Tab is opened via an intent. Often only the necessary
  * subset of the data will be set. All data is removed once the Tab finishes initializing.
  */
-public class AsyncTabCreationParams {
+public class AsyncTabCreationParams implements AsyncTabParams {
     /** Parameters used for opening a URL in the new Tab. */
     private final LoadUrlParams mLoadUrlParams;
 
@@ -35,7 +37,7 @@ public class AsyncTabCreationParams {
     private int mDocumentStartedBy = DocumentMetricIds.STARTED_BY_UNKNOWN;
 
     /** Whether or not the {@link WebContents} should be initially hidden. */
-    private boolean mIsInitiallyHidden;
+    private boolean mIsAffiliated;
 
     /** Create parameters for creating a Tab asynchronously. */
     public AsyncTabCreationParams(LoadUrlParams loadUrlParams) {
@@ -76,28 +78,32 @@ public class AsyncTabCreationParams {
         return mDocumentStartedBy;
     }
 
+    @Override
     public LoadUrlParams getLoadUrlParams() {
         return mLoadUrlParams;
     }
 
+    @Override
     public Intent getOriginalIntent() {
         return mOriginalIntent;
     }
 
+    @Override
     public Integer getRequestId() {
         return mRequestId;
     }
 
+    @Override
     public WebContents getWebContents() {
         return mWebContents;
     }
 
-    public void setIsInitiallyHidden(boolean initiallyHidden) {
-        mIsInitiallyHidden = initiallyHidden;
+    public void setIsAffiliated(boolean isAffiliated) {
+        mIsAffiliated = isAffiliated;
     }
 
-    public boolean isInitiallyHidden() {
-        return mIsInitiallyHidden;
+    public boolean isAffiliated() {
+        return mIsAffiliated;
     }
 
     private AsyncTabCreationParams(LoadUrlParams loadUrlParams, Intent originalIntent,
@@ -113,5 +119,15 @@ public class AsyncTabCreationParams {
         mRequestId = requestId;
         mWebContents = webContents;
         mOriginalIntent = originalIntent;
+    }
+
+    @Override
+    public Tab getTabToReparent() {
+        return null;
+    }
+
+    @Override
+    public void destroy() {
+        if (mWebContents != null) mWebContents.destroy();
     }
 }

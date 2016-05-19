@@ -5,10 +5,15 @@
 #include "content/gpu/in_process_gpu_thread.h"
 
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "content/common/gpu/gpu_memory_buffer_factory.h"
 #include "content/gpu/gpu_child_thread.h"
 #include "content/gpu/gpu_process.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
+
+#if defined(OS_ANDROID)
+#include "base/android/jni_android.h"
+#endif
 
 namespace content {
 
@@ -34,7 +39,19 @@ InProcessGpuThread::~InProcessGpuThread() {
 }
 
 void InProcessGpuThread::Init() {
-  gpu_process_ = new GpuProcess();
+  base::ThreadPriority io_thread_priority = base::ThreadPriority::NORMAL;
+
+#if defined(OS_ANDROID)
+  // Call AttachCurrentThreadWithName, before any other AttachCurrentThread()
+  // calls. The latter causes Java VM to assign Thread-??? to the thread name.
+  // Please note calls to AttachCurrentThreadWithName after AttachCurrentThread
+  // will not change the thread name kept in Java VM.
+  base::android::AttachCurrentThreadWithName(thread_name());
+  // Up the priority of the |io_thread_| on Android.
+  io_thread_priority = base::ThreadPriority::DISPLAY;
+#endif
+
+  gpu_process_ = new GpuProcess(io_thread_priority);
 
   // The process object takes ownership of the thread object, so do not
   // save and delete the pointer.

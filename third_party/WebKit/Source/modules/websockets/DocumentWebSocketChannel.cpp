@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/websockets/DocumentWebSocketChannel.h"
 
 #include "core/dom/DOMArrayBuffer.h"
@@ -51,11 +50,11 @@
 #include "platform/weborigin/SecurityOrigin.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebSecurityOrigin.h"
-#include "public/platform/WebSocketHandshakeRequestInfo.h"
-#include "public/platform/WebSocketHandshakeResponseInfo.h"
 #include "public/platform/WebString.h"
 #include "public/platform/WebURL.h"
 #include "public/platform/WebVector.h"
+#include "public/platform/modules/websockets/WebSocketHandshakeRequestInfo.h"
+#include "public/platform/modules/websockets/WebSocketHandshakeResponseInfo.h"
 
 using blink::WebSocketHandle;
 
@@ -386,11 +385,6 @@ Document* DocumentWebSocketChannel::document()
     ExecutionContext* context = executionContext();
     ASSERT(context->isDocument());
     return toDocument(context);
-}
-
-void DocumentWebSocketChannel::handleShouldBeDisconnected()
-{
-    RELEASE_ASSERT(!m_handle);
 }
 
 void DocumentWebSocketChannel::didConnect(WebSocketHandle* handle, const WebString& selectedProtocol, const WebString& extensions)

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/autocomplete/keyword_extensions_delegate_impl.h"
 
+#include <stddef.h>
+
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/api/omnibox/omnibox_api.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -160,10 +162,13 @@ void KeywordExtensionsDelegateImpl::Observe(
       if (suggestions.request_id != current_input_id_)
         return;  // This is an old result. Just ignore.
 
+      // ExtractKeywordFromInput() can fail if e.g. this code is triggered by
+      // direct calls from the development console, outside the normal flow of
+      // user input.
       base::string16 keyword, remaining_input;
-      bool result = KeywordProvider::ExtractKeywordFromInput(
-          input, &keyword, &remaining_input);
-      DCHECK(result);
+      if (!KeywordProvider::ExtractKeywordFromInput(input, &keyword,
+                                                    &remaining_input))
+        return;
       const TemplateURL* template_url =
           model->GetTemplateURLForKeyword(keyword);
 

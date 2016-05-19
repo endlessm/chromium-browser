@@ -17,6 +17,9 @@ class CastContentClient : public content::ContentClient {
   ~CastContentClient() override;
 
   // content::ContentClient implementation:
+  void AddAdditionalSchemes(std::vector<url::SchemeWithType>* standard_schemes,
+                            std::vector<url::SchemeWithType>* referrer_schemes,
+                            std::vector<std::string>* saveable_shemes) override;
   std::string GetUserAgent() const override;
   base::string16 GetLocalizedString(int message_id) const override;
   base::StringPiece GetDataResource(

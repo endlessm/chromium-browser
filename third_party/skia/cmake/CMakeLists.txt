@@ -26,6 +26,10 @@ endfunction()
 find_include_dirs(private_includes ../src/*.h ../include/private/*.h)
 find_include_dirs(public_includes ../include/*.h)
 list (REMOVE_ITEM public_includes ${private_includes})  # Easiest way to exclude private.
+file (GLOB default_include_config "../include/config")
+list (REMOVE_ITEM public_includes ${default_include_config})
+set (userconfig_directory ${CMAKE_BINARY_DIR}/include)
+list (APPEND public_includes ${userconfig_directory})
 
 # These guys are third_party but provided by a Skia checkout.
 list (APPEND srcs             ../third_party/etc1/etc1.cpp ../third_party/ktx/ktx.cpp)
@@ -44,12 +48,19 @@ remove_srcs (../src/images/SkForceLinking.cpp)
 # Chrome only?
 remove_srcs (../src/ports/SkFontHost_fontconfig.cpp
              ../src/fonts/SkFontMgr_fontconfig.cpp
-             ../src/ports/SkFontConfigInterface_direct.cpp)
+             ../src/ports/SkFontConfigInterface_direct.cpp
+             ../src/ports/SkFontConfigInterface_direct_factory.cpp
+             ../src/ports/SkFontConfigInterface_direct_google3.cpp
+             ../src/ports/SkFontConfigInterface_direct_google3_factory.cpp)
 # Alternative font managers.
 remove_srcs (../src/ports/SkFontMgr_custom*.cpp)
 
 # Skia sure ships a lot of code no one uses.
 remove_srcs (../src/animator/* ../src/*nacl* ../src/svg/* ../src/views/* ../src/xml/*)
+foreach (include animator svg svg/parser views views/animated xml)
+  file (GLOB globed_include ../include/${include})
+  list (REMOVE_ITEM public_includes ${globed_include})
+endforeach()
 
 # Remove OS-specific source files.
 if (NOT UNIX)
@@ -62,6 +73,7 @@ if (APPLE OR NOT UNIX)
     remove_srcs(../src/gpu/gl/glx/*
                 ../src/images/SkImageDecoder_FactoryDefault.cpp
                 ../src/ports/SkFontMgr_fontconfig*.cpp
+                ../src/ports/SkFontMgr_android*.cpp
                 ../src/*FreeType*)
 endif()
 
@@ -83,6 +95,7 @@ remove_srcs(
     ../src/gpu/gl/command_buffer/*
     ../src/gpu/gl/egl/*
     ../src/gpu/gl/iOS/*
+    ../src/gpu/vk/*
     ../src/opts/SkBitmapProcState_opts_none.cpp
     ../src/opts/SkBlitMask_opts_none.cpp
     ../src/opts/SkBlitRow_opts_none.cpp
@@ -101,13 +114,16 @@ if (WIN32)
 endif()
 
 remove_srcs(../src/gpu/gl/angle/*)  # TODO
-remove_srcs(../src/codec/*)  # TODO: Requires Chromium's libjpeg-turbo, and incompatible giflib.
 
-# Certain files must be compiled with support for SSSE3 or SSE4.1 intrinsics.
+# Certain files must be compiled with support for SSSE3, SSE4.1, AVX, or AVX2 intrinsics.
 file (GLOB_RECURSE ssse3_srcs ../src/*ssse3*.cpp ../src/*SSSE3*.cpp)
 file (GLOB_RECURSE sse41_srcs ../src/*sse4*.cpp ../src/*SSE4*.cpp)
+file (GLOB_RECURSE avx_srcs   ../src/*_avx.cpp)
+file (GLOB_RECURSE avx2_srcs  ../src/*_avx2.cpp)
 set_source_files_properties(${ssse3_srcs} PROPERTIES COMPILE_FLAGS -mssse3)
 set_source_files_properties(${sse41_srcs} PROPERTIES COMPILE_FLAGS -msse4.1)
+set_source_files_properties(${avx_srcs}   PROPERTIES COMPILE_FLAGS -mavx)
+set_source_files_properties(${avx2_srcs}  PROPERTIES COMPILE_FLAGS -mavx2)
 
 # Detect our optional dependencies.
 # If we can't find them, don't build the parts of Skia that use them.
@@ -130,6 +146,9 @@ if (UNIX AND NOT APPLE)
     find_package (PNG)
 endif()
 
+# Do not compile SkRawCodec.
+remove_srcs(../src/codec/*Raw*.cpp)
+
 # TODO: macro away this if (found) ... else() ... endif() stuff.
 
 if (EXPAT_FOUND)
@@ -142,15 +161,20 @@ endif()
 if (GIF_FOUND)
     list (APPEND private_includes ${GIF_INCLUDE_DIRS})
     list (APPEND libs             ${GIF_LIBRARIES})
+    add_definitions(-DSK_CODEC_DECODES_GIF)
 else()
     remove_srcs(../src/images/*gif*)
+    remove_srcs(../src/codec/*Gif*)
 endif()
 
 if (JPEG_FOUND)
     list (APPEND private_includes ${JPEG_INCLUDE_DIRS})
     list (APPEND libs             ${JPEG_LIBRARIES})
+    add_definitions(-DSK_CODEC_DECODES_JPEG)
 else()
     remove_srcs(../src/images/*jpeg*)
+    remove_srcs(../src/images/*Jpeg*)
+    remove_srcs(../src/codec/*Jpeg*)
 endif()
 
 if (LUA_FOUND)
@@ -163,8 +187,14 @@ endif()
 if (PNG_FOUND)
     list (APPEND private_includes ${PNG_INCLUDE_DIRS})
     list (APPEND libs             ${PNG_LIBRARIES})
+    add_definitions(-DPNG_SKIP_SETJMP_CHECK)
+    add_definitions(-DPNG_SKIP_SKIA_OPTS)
+    add_definitions(-DSK_CODEC_DECODES_PNG)
 else()
     remove_srcs(../src/images/*png*)
+    remove_srcs(../src/images/*ico*)
+    remove_srcs(../src/codec/*Png*)
+    remove_srcs(../src/codec/*Ico*)
 endif()
 
 if (ZLIB_FOUND)
@@ -178,8 +208,10 @@ endif()
 if (WEBP_INCLUDE_DIRS AND WEBP_LIBRARIES)
     list (APPEND private_includes ${WEBP_INCLUDE_DIRS})
     list (APPEND libs             ${WEBP_LIBRARIES})
+    add_definitions(-DSK_CODEC_DECODES_WEBP)
 else()
     remove_srcs(../src/images/*webp*)
+    remove_srcs(../src/codec/*Webp*)
 endif()
 
 if (FREETYPE_FOUND)
@@ -201,6 +233,7 @@ if (OSMESA_LIBRARIES AND OSMESA_INCLUDE_DIRS)
     list (APPEND libs             ${OSMESA_LIBRARIES})
     list (APPEND private_includes ${OSMESA_INCLUDE_DIRS})
     list (APPEND public_defines   "-DSK_MESA=1")
+    set (SK_MESA 1)
 else()
     remove_srcs(../src/gpu/gl/mesa/*)
 endif()
@@ -244,6 +277,54 @@ set_target_properties(skia PROPERTIES
 file(GLOB c_headers "../include/c/*.h")
 install(FILES ${c_headers} DESTINATION include)
 install(TARGETS skia DESTINATION lib)
+
+# SkUserConfig.h
+if (CMAKE_BUILD_TYPE STREQUAL Release)
+    set (SK_RELEASE 1)
+else()
+    set (SK_RELEASE 0)
+endif()
+configure_file ("SkUserConfig.h.in" "${userconfig_directory}/SkUserConfig.h")
+
+# skia_link_arguments.txt
+set (link_arguments ${CMAKE_BINARY_DIR}/skia_link_arguments.txt)
+file (WRITE ${link_arguments} "-L${CMAKE_BINARY_DIR}\n")
+file (APPEND ${link_arguments} "-lskia\n")
+file (APPEND ${link_arguments} "-Wl,-rpath,${CMAKE_BINARY_DIR}\n")
+
+# skia_compile_arguments.txt
+set (compile_arguments ${CMAKE_BINARY_DIR}/skia_compile_arguments.txt)
+file (WRITE ${compile_arguments} "--std=c++11\n")
+foreach (include ${public_includes})
+  get_filename_component (abs_include ${include} ABSOLUTE)
+  file (APPEND ${compile_arguments} "-I${abs_include}\n")
+endforeach()
+
+# cmake .
+# cmake --build . --target skia
+# c++ -c @skia_compile_arguments.txt example.cpp
+# c++ example.o @skia_link_arguments.txt
+
+# skia.h
+set (bad_files GrGLConfig_chrome.h SkJSONCPP.h SkParsePaint.h)
+# make `c++ @skia_compile_arguments.txt include/skia.h` work.
+set (skia_h_path ${userconfig_directory}/skia.h)
+file (WRITE ${skia_h_path} "// skia.h generated by CMake.\n")
+file(APPEND ${skia_h_path} "#ifndef skia_DEFINED\n")
+file(APPEND ${skia_h_path} "#define skia_DEFINED\n")
+foreach (include ${public_includes})
+  if (NOT include STREQUAL userconfig_directory)
+    file (APPEND ${skia_h_path} "\n")
+    file (GLOB all_public_headers ${include}/*.h)
+    foreach (public_header ${all_public_headers})
+      get_filename_component (filename_component ${public_header} NAME)
+      if (NOT ";${bad_files};" MATCHES ";${filename_component};")
+        file (APPEND ${skia_h_path} "#include \"${filename_component}\"\n")
+      endif ()
+    endforeach()
+  endif()
+endforeach()
+file(APPEND ${skia_h_path} "\n#endif  // skia_DEFINED\n")
 
 # Now build a simple example app that uses Skia via libskia.so.
 add_executable(example example.cpp)

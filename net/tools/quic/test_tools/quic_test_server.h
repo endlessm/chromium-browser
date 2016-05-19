@@ -7,17 +7,16 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/ip_endpoint.h"
 #include "net/quic/quic_session.h"
 #include "net/tools/quic/quic_dispatcher.h"
 #include "net/tools/quic/quic_server.h"
-#include "net/tools/quic/quic_spdy_server_stream.h"
+#include "net/tools/quic/quic_simple_server_session.h"
+#include "net/tools/quic/quic_simple_server_stream.h"
 
 namespace net {
 
-namespace tools {
 
 namespace test {
 
@@ -32,21 +31,21 @@ class QuicTestServer : public QuicServer {
     virtual ~SessionFactory() {}
 
     // Returns a new session owned by the caller.
-    virtual QuicServerSession* CreateSession(
+    virtual QuicServerSessionBase* CreateSession(
         const QuicConfig& config,
         QuicConnection* connection,
         QuicServerSessionVisitor* visitor,
         const QuicCryptoServerConfig* crypto_config) = 0;
   };
 
-  // Factory for creating QuicServerStreams.
+  // Factory for creating QuicSimpleServerStreams.
   class StreamFactory {
    public:
     virtual ~StreamFactory() {}
 
     // Returns a new stream owned by the caller.
-    virtual QuicSpdyServerStream* CreateStream(QuicStreamId id,
-                                               QuicSpdySession* session) = 0;
+    virtual QuicSimpleServerStream* CreateStream(QuicStreamId id,
+                                                 QuicSpdySession* session) = 0;
   };
 
   class CryptoStreamFactory {
@@ -85,7 +84,7 @@ class QuicTestServer : public QuicServer {
 
 // Test session which sends a GOAWAY immedaitely on creation, before crypto
 // credentials have even been established.
-class ImmediateGoAwaySession : public QuicServerSession {
+class ImmediateGoAwaySession : public QuicSimpleServerSession {
  public:
   ImmediateGoAwaySession(const QuicConfig& config,
                          QuicConnection* connection,
@@ -95,7 +94,6 @@ class ImmediateGoAwaySession : public QuicServerSession {
 
 }  // namespace test
 
-}  // namespace tools
 
 }  // namespace net
 

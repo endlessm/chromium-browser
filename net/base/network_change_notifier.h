@@ -5,9 +5,10 @@
 #ifndef NET_BASE_NETWORK_CHANGE_NOTIFIER_H_
 #define NET_BASE_NETWORK_CHANGE_NOTIFIER_H_
 
+#include <stdint.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/macros.h"
 #include "base/observer_list_threadsafe.h"
 #include "base/time/time.h"
@@ -59,13 +60,18 @@ class NET_EXPORT NetworkChangeNotifier {
   };
 
   // This is the NetInfo v3 set of connection technologies as seen in
-  // http://w3c.github.io/netinfo/. This enum is copied in
-  // NetworkChangeNotifier.java so be sure to change both at once.
+  // http://w3c.github.io/netinfo/. This enum is duplicated in histograms.xml
+  // so be sure to change both at once. Additionally, since this enum is used in
+  // a UMA histogram, it should not be re-ordered and any new values should be
+  // added to the end.
   //
   // A Java counterpart will be generated for this enum.
   // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.net
   enum ConnectionSubtype {
-    SUBTYPE_GSM = 0,
+    SUBTYPE_UNKNOWN = 0,
+    SUBTYPE_NONE,
+    SUBTYPE_OTHER,
+    SUBTYPE_GSM,
     SUBTYPE_IDEN,
     SUBTYPE_CDMA,
     SUBTYPE_1XRTT,
@@ -95,10 +101,7 @@ class NET_EXPORT NetworkChangeNotifier {
     SUBTYPE_WIFI_N,
     SUBTYPE_WIFI_AC,
     SUBTYPE_WIFI_AD,
-    SUBTYPE_UNKNOWN,
-    SUBTYPE_NONE,
-    SUBTYPE_OTHER,
-    SUBTYPE_LAST = SUBTYPE_OTHER
+    SUBTYPE_LAST = SUBTYPE_WIFI_AD
   };
 
   class NET_EXPORT IPAddressObserver {
@@ -291,16 +294,24 @@ class NET_EXPORT NetworkChangeNotifier {
   // TODO(jkarlin): Rename to GetMaxBandwidthMbpsForConnectionSubtype.
   static double GetMaxBandwidthForConnectionSubtype(ConnectionSubtype subtype);
 
+  // Returns true if the platform supports use of APIs based on NetworkHandles.
+  // Public methods that use NetworkHandles are GetNetworkConnectionType(),
+  // GetNetworkConnectionType(), GetDefaultNetwork(), AddNetworkObserver(),
+  // RemoveNetworkObserver(), and all public NetworkObserver methods.
+  static bool AreNetworkHandlesSupported();
+
   // Sets |network_list| to a list of all networks that are currently connected.
   // Only implemented for Android (Lollipop and newer), leaves |network_list|
-  // empty when unimplemented.
+  // empty when unimplemented. Requires NetworkHandles support, see
+  // AreNetworkHandlesSupported().
   static void GetConnectedNetworks(NetworkList* network_list);
 
   // Returns the type of connection |network| uses. Note that this may vary
   // slightly over time (e.g. CONNECTION_2G to CONNECTION_3G). If |network|
   // is no longer connected, it will return CONNECTION_UNKNOWN.
   // Only implemented for Android (Lollipop and newer), returns
-  // CONNECTION_UNKNOWN when unimplemented.
+  // CONNECTION_UNKNOWN when unimplemented. Requires NetworkHandles support,
+  // see AreNetworkHandlesSupported().
   static ConnectionType GetNetworkConnectionType(NetworkHandle network);
 
   // Returns the device's current default network connection. This is the
@@ -310,6 +321,7 @@ class NET_EXPORT NetworkChangeNotifier {
   // there is no default connected network.
   // Only implemented for Android (Lollipop and newer), returns
   // |kInvalidNetworkHandle| when unimplemented.
+  // Requires NetworkHandles support, see AreNetworkHandlesSupported().
   static NetworkHandle GetDefaultNetwork();
 
   // Retrieve the last read DnsConfig. This could be expensive if the system has
@@ -410,6 +422,12 @@ class NET_EXPORT NetworkChangeNotifier {
   // should be called from the network thread to avoid race conditions.
   static void ShutdownHistogramWatcher();
 
+  // Invoked at the time a new user metrics log record is being finalized, on
+  // the main thread. NCN Histograms that want to be logged once per record
+  // should be logged in this method. Platform-specific histograms should be
+  // logged in an overridden implementaton of OnFinalizingMetricsLogRecord.
+  static void FinalizingMetricsLogRecord();
+
   // Log the |NCN.NetworkOperatorMCCMNC| histogram.
   static void LogOperatorCodeHistogram(ConnectionType type);
 
@@ -481,10 +499,15 @@ class NET_EXPORT NetworkChangeNotifier {
   virtual void GetCurrentMaxBandwidthAndConnectionType(
       double* max_bandwidth_mbps,
       ConnectionType* connection_type) const;
+  virtual bool AreNetworkHandlesCurrentlySupported() const;
   virtual void GetCurrentConnectedNetworks(NetworkList* network_list) const;
   virtual ConnectionType GetCurrentNetworkConnectionType(
       NetworkHandle network) const;
   virtual NetworkHandle GetCurrentDefaultNetwork() const;
+
+  // Hook that allows derived implementations to log histograms at the time a
+  // new histogram record is being finalized.
+  virtual void OnFinalizingMetricsLogRecord() {}
 
   // Broadcasts a notification to all registered observers.  Note that this
   // happens asynchronously, even for observers on the current thread, even in

@@ -16,7 +16,6 @@ using net::test::CryptoTestUtils;
 using net::test::MockQuicDispatcher;
 
 namespace net {
-namespace tools {
 namespace test {
 
 namespace {
@@ -29,7 +28,6 @@ class QuicServerDispatchPacketTest : public ::testing::Test {
                        CryptoTestUtils::ProofSourceForTesting()),
         dispatcher_(config_,
                     &crypto_config_,
-                    new QuicDispatcher::DefaultPacketWriterFactory(),
                     new QuicEpollConnectionHelper(&eps_)) {
     dispatcher_.InitializeWithWriter(new QuicDefaultPacketWriter(1234));
   }
@@ -70,5 +68,4 @@ TEST_F(QuicServerDispatchPacketTest, DispatchPacket) {
 
 }  // namespace
 }  // namespace test
-}  // namespace tools
 }  // namespace net

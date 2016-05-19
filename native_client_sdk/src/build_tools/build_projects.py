@@ -30,8 +30,6 @@ LIB_DICT = {
   'win': ['x86_32']
 }
 VALID_TOOLCHAINS = [
-  'bionic',
-  'newlib',
   'clang-newlib',
   'glibc',
   'pnacl',
@@ -149,7 +147,7 @@ def UpdateProjects(pepperdir, project_tree, toolchains,
     if clobber:
       buildbot_common.RemoveDir(dirpath)
     buildbot_common.MakeDir(dirpath)
-    targets = [desc['NAME'] for desc in projects]
+    targets = [desc['NAME'] for desc in projects if 'TARGETS' in desc]
     deps = GetDeps(projects)
 
     # Generate master make for this branch of projects
@@ -213,10 +211,6 @@ def BuildProjectsBranch(pepperdir, branch, deps, clean, config, args=None):
   make_cmd = [make, '-j', jobs]
 
   make_cmd.append('CONFIG='+config)
-  # We always ENABLE_BIONIC in case we need it.  If neither --bionic nor
-  # -t bionic have been provided on the command line, then VALID_TOOLCHAINS
-  # will not contain a bionic target.
-  make_cmd.append('ENABLE_BIONIC=1')
   if not deps:
     make_cmd.append('IGNORE_DEPS=1')
 
@@ -256,8 +250,6 @@ def main(args):
   parser.add_argument('--config',
       help='Choose configuration to build (Debug or Release).  Builds both '
            'by default')
-  parser.add_argument('--bionic',
-      help='Enable bionic projects', action='store_true')
   parser.add_argument('-x', '--experimental',
       help='Build experimental projects', action='store_true')
   parser.add_argument('-t', '--toolchain',
@@ -298,11 +290,9 @@ def main(args):
   if not options.toolchain:
     # Order matters here: the default toolchain for an example's Makefile will
     # be the first toolchain in this list that is available in the example.
-    # e.g. If an example supports newlib and glibc, then the default will be
-    # newlib.
-    options.toolchain = ['pnacl', 'newlib', 'glibc', 'host', 'clang-newlib']
-    if options.experimental or options.bionic:
-      options.toolchain.append('bionic')
+    # e.g. If an example supports clang-newlib and glibc, then the default will
+    # be clang-newlib.
+    options.toolchain = ['pnacl', 'clang-newlib', 'glibc', 'host']
 
   if 'host' in options.toolchain:
     options.toolchain.remove('host')

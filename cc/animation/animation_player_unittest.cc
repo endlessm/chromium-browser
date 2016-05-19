@@ -123,18 +123,18 @@ TEST_F(AnimationPlayerTest, PropertiesMutate) {
   host_->PushPropertiesTo(host_impl_);
 
   EXPECT_FALSE(client_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                         Animation::OPACITY));
+                                         TargetProperty::OPACITY));
   EXPECT_FALSE(client_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                         Animation::TRANSFORM));
+                                         TargetProperty::TRANSFORM));
   EXPECT_FALSE(client_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                         Animation::FILTER));
+                                         TargetProperty::FILTER));
 
   EXPECT_FALSE(client_impl_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                              Animation::OPACITY));
+                                              TargetProperty::OPACITY));
   EXPECT_FALSE(client_impl_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                              Animation::TRANSFORM));
+                                              TargetProperty::TRANSFORM));
   EXPECT_FALSE(client_impl_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                              Animation::FILTER));
+                                              TargetProperty::FILTER));
 
   host_impl_->animation_registrar()->ActivateAnimations();
 
@@ -278,14 +278,14 @@ TEST_F(AnimationPlayerTest, AddRemoveAnimationToNonAttachedPlayer) {
   host_->PushPropertiesTo(host_impl_);
 
   EXPECT_FALSE(client_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                         Animation::OPACITY));
+                                         TargetProperty::OPACITY));
   EXPECT_FALSE(client_impl_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                              Animation::OPACITY));
+                                              TargetProperty::OPACITY));
 
   EXPECT_FALSE(client_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                         Animation::FILTER));
+                                         TargetProperty::FILTER));
   EXPECT_FALSE(client_impl_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                              Animation::FILTER));
+                                              TargetProperty::FILTER));
 
   host_impl_->animation_registrar()->ActivateAnimations();
 
@@ -304,9 +304,9 @@ TEST_F(AnimationPlayerTest, AddRemoveAnimationToNonAttachedPlayer) {
                                             end_opacity);
 
   EXPECT_FALSE(client_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                         Animation::FILTER));
+                                         TargetProperty::FILTER));
   EXPECT_FALSE(client_impl_.IsPropertyMutated(layer_id_, LayerTreeType::ACTIVE,
-                                              Animation::FILTER));
+                                              TargetProperty::FILTER));
 }
 
 TEST_F(AnimationPlayerTest, AddRemoveAnimationCausesSetNeedsCommit) {
@@ -330,6 +330,40 @@ TEST_F(AnimationPlayerTest, AddRemoveAnimationCausesSetNeedsCommit) {
   player_->RemoveAnimation(animation_id);
   EXPECT_TRUE(client_.mutators_need_commit());
   client_.set_mutators_need_commit(false);
+}
+
+// If main-thread player switches to another layer within one frame then
+// impl-thread player must be switched as well.
+TEST_F(AnimationPlayerTest, SwitchToLayer) {
+  host_->AddAnimationTimeline(timeline_);
+  timeline_->AttachPlayer(player_);
+  player_->AttachLayer(layer_id_);
+
+  host_->PushPropertiesTo(host_impl_);
+
+  GetImplTimelineAndPlayerByID();
+
+  EXPECT_EQ(player_, GetPlayerForLayerId(layer_id_));
+  EXPECT_TRUE(player_->element_animations());
+  EXPECT_EQ(player_->layer_id(), layer_id_);
+
+  EXPECT_EQ(player_impl_, GetImplPlayerForLayerId(layer_id_));
+  EXPECT_TRUE(player_impl_->element_animations());
+  EXPECT_EQ(player_impl_->layer_id(), layer_id_);
+
+  const int new_layer_id = NextTestLayerId();
+  player_->DetachLayer();
+  player_->AttachLayer(new_layer_id);
+
+  EXPECT_EQ(player_, GetPlayerForLayerId(new_layer_id));
+  EXPECT_TRUE(player_->element_animations());
+  EXPECT_EQ(player_->layer_id(), new_layer_id);
+
+  host_->PushPropertiesTo(host_impl_);
+
+  EXPECT_EQ(player_impl_, GetImplPlayerForLayerId(new_layer_id));
+  EXPECT_TRUE(player_impl_->element_animations());
+  EXPECT_EQ(player_impl_->layer_id(), new_layer_id);
 }
 
 }  // namespace

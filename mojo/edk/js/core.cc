@@ -4,6 +4,9 @@
 
 #include "mojo/edk/js/core.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "gin/arguments.h"
@@ -21,6 +24,7 @@
 
 namespace mojo {
 namespace edk {
+namespace js {
 
 namespace {
 
@@ -282,8 +286,8 @@ v8::Handle<v8::Value> DoDrainData(gin::Arguments* args,
 }
 
 bool IsHandle(gin::Arguments* args, v8::Handle<v8::Value> val) {
-  gin::Handle<mojo::edk::HandleWrapper> ignore_handle;
-  return gin::Converter<gin::Handle<mojo::edk::HandleWrapper>>::FromV8(
+  gin::Handle<mojo::edk::js::HandleWrapper> ignore_handle;
+  return gin::Converter<gin::Handle<mojo::edk::js::HandleWrapper>>::FromV8(
       args->isolate(), val, &ignore_handle);
 }
 
@@ -375,5 +379,6 @@ v8::Local<v8::Value> Core::GetModule(v8::Isolate* isolate) {
   return templ->NewInstance();
 }
 
+}  // namespace js
 }  // namespace edk
 }  // namespace mojo

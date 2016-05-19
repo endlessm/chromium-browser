@@ -6,24 +6,23 @@
  * @constructor
  * @extends {WebInspector.Widget}
  * @implements {WebInspector.TargetManager.Observer}
- * @param {!WebInspector.Setting} widthSetting
+ * @param {function():number} getWidthCallback
+ * @param {function(number)} setWidthCallback
  */
-WebInspector.MediaQueryInspector = function(widthSetting)
+WebInspector.MediaQueryInspector = function(getWidthCallback, setWidthCallback)
 {
     WebInspector.Widget.call(this, true);
     this.registerRequiredCSS("emulation/mediaQueryInspector.css");
-    this.contentElement.classList.add("media-inspector-view", "media-inspector-view-empty");
+    this.contentElement.classList.add("media-inspector-view");
     this.contentElement.addEventListener("click", this._onMediaQueryClicked.bind(this), false);
     this.contentElement.addEventListener("contextmenu", this._onContextMenu.bind(this), false);
     this._mediaThrottler = new WebInspector.Throttler(0);
 
-    this._widthSetting = widthSetting;
-    this._offset = 0;
+    this._getWidthCallback = getWidthCallback;
+    this._setWidthCallback = setWidthCallback;
     this._scale = 1;
-    this._lastReportedCount = 0;
 
     WebInspector.targetManager.observeTargets(this);
-
     WebInspector.zoomManager.addEventListener(WebInspector.ZoomManager.Events.ZoomChanged, this._renderMediaQueries.bind(this), this);
 }
 
@@ -34,11 +33,6 @@ WebInspector.MediaQueryInspector.Section = {
     Max: 0,
     MinMax: 1,
     Min: 2
-}
-
-WebInspector.MediaQueryInspector.Events = {
-    HeightUpdated: "HeightUpdated",
-    CountUpdated: "CountUpdated"
 }
 
 WebInspector.MediaQueryInspector.prototype = {
@@ -76,25 +70,14 @@ WebInspector.MediaQueryInspector.prototype = {
     },
 
     /**
-     * @param {number} offset
      * @param {number} scale
      */
-    setAxisTransform: function(offset, scale)
+    setAxisTransform: function(scale)
     {
-        if (this._offset === offset && Math.abs(this._scale - scale) < 1e-8)
+        if (Math.abs(this._scale - scale) < 1e-8)
             return;
-        this._offset = offset;
         this._scale = scale;
         this._renderMediaQueries();
-    },
-
-    /**
-     * @param {boolean} enabled
-     */
-    setEnabled: function(enabled)
-    {
-        this._enabled = enabled;
-        this._scheduleMediaQueriesUpdate();
     },
 
     /**
@@ -102,24 +85,24 @@ WebInspector.MediaQueryInspector.prototype = {
      */
     _onMediaQueryClicked: function(event)
     {
-        var mediaQueryMarker = event.target.enclosingNodeOrSelfWithClass("media-inspector-marker");
+        var mediaQueryMarker = event.target.enclosingNodeOrSelfWithClass("media-inspector-bar");
         if (!mediaQueryMarker)
             return;
 
         var model = mediaQueryMarker._model;
         if (model.section() === WebInspector.MediaQueryInspector.Section.Max) {
-            this._widthSetting.set(model.maxWidthExpression().computedLength());
+            this._setWidthCallback(model.maxWidthExpression().computedLength());
             return;
         }
         if (model.section() === WebInspector.MediaQueryInspector.Section.Min) {
-            this._widthSetting.set(model.minWidthExpression().computedLength());
+            this._setWidthCallback(model.minWidthExpression().computedLength());
             return;
         }
-        var currentWidth = this._widthSetting.get();
+        var currentWidth = this._getWidthCallback();
         if (currentWidth !== model.minWidthExpression().computedLength())
-            this._widthSetting.set(model.minWidthExpression().computedLength());
+            this._setWidthCallback(model.minWidthExpression().computedLength());
         else
-            this._widthSetting.set(model.maxWidthExpression().computedLength());
+            this._setWidthCallback(model.maxWidthExpression().computedLength());
     },
 
     /**
@@ -130,7 +113,7 @@ WebInspector.MediaQueryInspector.prototype = {
         if (!this._cssModel || !this._cssModel.isEnabled())
             return;
 
-        var mediaQueryMarker = event.target.enclosingNodeOrSelfWithClass("media-inspector-marker");
+        var mediaQueryMarker = event.target.enclosingNodeOrSelfWithClass("media-inspector-bar");
         if (!mediaQueryMarker)
             return;
 
@@ -140,7 +123,7 @@ WebInspector.MediaQueryInspector.prototype = {
             var uiLocation = WebInspector.cssWorkspaceBinding.rawLocationToUILocation(locations[i]);
             if (!uiLocation)
                 continue;
-            var descriptor = String.sprintf("%s:%d:%d", uiLocation.uiSourceCode.uri(), uiLocation.lineNumber + 1, uiLocation.columnNumber + 1);
+            var descriptor = String.sprintf("%s:%d:%d", uiLocation.uiSourceCode.url(), uiLocation.lineNumber + 1, uiLocation.columnNumber + 1);
             uiLocations.set(descriptor, uiLocation);
         }
 
@@ -164,14 +147,14 @@ WebInspector.MediaQueryInspector.prototype = {
 
     _scheduleMediaQueriesUpdate: function()
     {
-        if (!this._enabled)
+        if (!this.isShowing())
             return;
         this._mediaThrottler.schedule(this._refetchMediaQueries.bind(this));
     },
 
     _refetchMediaQueries: function()
     {
-        if (!this._enabled || !this._cssModel)
+        if (!this.isShowing() || !this._cssModel)
             return Promise.resolve();
 
         return this._cssModel.mediaQueriesPromise()
@@ -234,7 +217,7 @@ WebInspector.MediaQueryInspector.prototype = {
 
     _renderMediaQueries: function()
     {
-        if (!this._cachedQueryModels)
+        if (!this._cachedQueryModels || !this.isShowing())
             return;
 
         var markers = [];
@@ -254,16 +237,6 @@ WebInspector.MediaQueryInspector.prototype = {
             }
         }
 
-        if (markers.length !== this._lastReportedCount) {
-            this._lastReportedCount = markers.length;
-            this.dispatchEventToListeners(WebInspector.MediaQueryInspector.Events.CountUpdated, markers.length);
-        }
-
-        if (!this.isShowing())
-            return;
-
-        var oldChildrenCount = this.contentElement.children.length;
-        var scrollTop = this.contentElement.scrollTop;
         this.contentElement.removeChildren();
 
         var container = null;
@@ -277,10 +250,6 @@ WebInspector.MediaQueryInspector.prototype = {
             bar.classList.toggle("media-inspector-marker-inactive", !marker.active);
             container.appendChild(bar);
         }
-        this.contentElement.scrollTop = scrollTop;
-        this.contentElement.classList.toggle("media-inspector-view-empty", !this.contentElement.children.length);
-        if (this.contentElement.children.length !== oldChildrenCount)
-            this.dispatchEventToListeners(WebInspector.MediaQueryInspector.Events.HeightUpdated);
     },
 
     /**
@@ -293,7 +262,7 @@ WebInspector.MediaQueryInspector.prototype = {
 
     wasShown: function()
     {
-        this._renderMediaQueries();
+        this._scheduleMediaQueriesUpdate();
     },
 
     /**
@@ -303,41 +272,54 @@ WebInspector.MediaQueryInspector.prototype = {
     _createElementFromMediaQueryModel: function(model)
     {
         var zoomFactor = this._zoomFactor();
-        var minWidthValue = model.minWidthExpression() ? model.minWidthExpression().computedLength() : 0;
+        var minWidthValue = model.minWidthExpression() ? model.minWidthExpression().computedLength() / zoomFactor : 0;
+        var maxWidthValue = model.maxWidthExpression() ? model.maxWidthExpression().computedLength() / zoomFactor : 0;
+        var result = createElementWithClass("div", "media-inspector-bar");
 
-        const styleClassPerSection = [
-            "media-inspector-marker-max-width",
-            "media-inspector-marker-min-max-width",
-            "media-inspector-marker-min-width"
-        ];
-        var markerElement = createElementWithClass("div", "media-inspector-marker");
-        var leftPixelValue = minWidthValue ? (minWidthValue - this._offset) / zoomFactor : 0;
-        markerElement.style.left = leftPixelValue + "px";
-        markerElement.classList.add(styleClassPerSection[model.section()]);
-        var widthPixelValue = null;
-        if (model.maxWidthExpression() && model.minWidthExpression())
-            widthPixelValue = (model.maxWidthExpression().computedLength() - minWidthValue) / zoomFactor;
-        else if (model.maxWidthExpression())
-            widthPixelValue = (model.maxWidthExpression().computedLength() - this._offset) / zoomFactor;
-        else
-            markerElement.style.right = "0";
-        if (typeof widthPixelValue === "number")
-            markerElement.style.width = widthPixelValue + "px";
-
-        if (model.minWidthExpression()) {
-            var labelClass = model.section() === WebInspector.MediaQueryInspector.Section.MinMax ? "media-inspector-label-right" : "media-inspector-label-left";
-            var labelContainer = markerElement.createChild("div", "media-inspector-marker-label-container media-inspector-marker-label-container-left");
-            labelContainer.createChild("span", "media-inspector-marker-label " + labelClass).textContent = model.minWidthExpression().value() + model.minWidthExpression().unit();
+        if (model.section() === WebInspector.MediaQueryInspector.Section.Max) {
+            result.createChild("div", "media-inspector-marker-spacer");
+            var markerElement = result.createChild("div", "media-inspector-marker media-inspector-marker-max-width");
+            markerElement.style.width = maxWidthValue + "px";
+            markerElement.title = model.mediaText();
+            appendLabel(markerElement, model.maxWidthExpression(), false, false);
+            appendLabel(markerElement, model.maxWidthExpression(), true, true);
+            result.createChild("div", "media-inspector-marker-spacer");
         }
 
-        if (model.maxWidthExpression()) {
-            var labelClass = model.section() === WebInspector.MediaQueryInspector.Section.MinMax ? "media-inspector-label-left" : "media-inspector-label-right";
-            var labelContainer = markerElement.createChild("div", "media-inspector-marker-label-container media-inspector-marker-label-container-right");
-            labelContainer.createChild("span", "media-inspector-marker-label " + labelClass).textContent = model.maxWidthExpression().value() + model.maxWidthExpression().unit();
+        if (model.section() === WebInspector.MediaQueryInspector.Section.MinMax) {
+            result.createChild("div", "media-inspector-marker-spacer");
+            var leftElement = result.createChild("div", "media-inspector-marker media-inspector-marker-min-max-width");
+            leftElement.style.width = (maxWidthValue - minWidthValue) * 0.5 + "px";
+            leftElement.title = model.mediaText();
+            appendLabel(leftElement, model.minWidthExpression(), true, false);
+            appendLabel(leftElement, model.maxWidthExpression(), false, true);
+            result.createChild("div", "media-inspector-marker-spacer").style.flex = "0 0 " + minWidthValue + "px";
+            var rightElement = result.createChild("div", "media-inspector-marker media-inspector-marker-min-max-width");
+            rightElement.style.width = (maxWidthValue - minWidthValue) * 0.5  + "px";
+            rightElement.title = model.mediaText();
+            appendLabel(rightElement, model.minWidthExpression(), true, false);
+            appendLabel(rightElement, model.maxWidthExpression(), false, true);
+            result.createChild("div", "media-inspector-marker-spacer");
         }
-        markerElement.title = model.mediaText();
 
-        return markerElement;
+        if (model.section() === WebInspector.MediaQueryInspector.Section.Min) {
+            var leftElement = result.createChild("div", "media-inspector-marker media-inspector-marker-min-width media-inspector-marker-min-width-left");
+            leftElement.title = model.mediaText();
+            appendLabel(leftElement, model.minWidthExpression(), false, false);
+            result.createChild("div", "media-inspector-marker-spacer").style.flex = "0 0 " + minWidthValue + "px";
+            var rightElement = result.createChild("div", "media-inspector-marker media-inspector-marker-min-width media-inspector-marker-min-width-right");
+            rightElement.title = model.mediaText();
+            appendLabel(rightElement, model.minWidthExpression(), true, true);
+        }
+
+        function appendLabel(marker, expression, atLeft, leftAlign)
+        {
+            marker.createChild("div", "media-inspector-marker-label-container " + (atLeft ? "media-inspector-marker-label-container-left" : "media-inspector-marker-label-container-right"))
+                .createChild("span", "media-inspector-marker-label " + (leftAlign ? "media-inspector-label-left" : "media-inspector-label-right"))
+                .textContent = expression.value() + expression.unit();
+        }
+
+        return result;
     },
 
     __proto__: WebInspector.Widget.prototype

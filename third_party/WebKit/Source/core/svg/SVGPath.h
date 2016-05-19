@@ -31,13 +31,12 @@
 #ifndef SVGPath_h
 #define SVGPath_h
 
+#include "core/css/CSSPathValue.h"
+#include "core/svg/SVGParsingError.h"
+#include "core/svg/SVGPathByteStream.h"
 #include "core/svg/properties/SVGProperty.h"
 
 namespace blink {
-
-class ExceptionState;
-class Path;
-class SVGPathByteStream;
 
 class SVGPath : public SVGPropertyBase {
 public:
@@ -47,19 +46,21 @@ public:
     {
         return adoptRefWillBeNoop(new SVGPath());
     }
+    static PassRefPtrWillBeRawPtr<SVGPath> create(PassRefPtrWillBeRawPtr<CSSPathValue> pathValue)
+    {
+        return adoptRefWillBeNoop(new SVGPath(pathValue));
+    }
 
     ~SVGPath() override;
 
-    const Path& path() const;
-
-    const SVGPathByteStream& byteStream() const;
-    SVGPathByteStream& mutableByteStream();
+    const SVGPathByteStream& byteStream() const { return m_pathValue->byteStream(); }
+    CSSPathValue* pathValue() const { return m_pathValue.get(); }
 
     // SVGPropertyBase:
     PassRefPtrWillBeRawPtr<SVGPath> clone() const;
     PassRefPtrWillBeRawPtr<SVGPropertyBase> cloneForAnimation(const String&) const override;
     String valueAsString() const override;
-    void setValueAsString(const String&, ExceptionState&);
+    SVGParsingError setValueAsString(const String&);
 
     void add(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement*) override;
     void calculateAnimatedValue(SVGAnimationElement*, float percentage, unsigned repeatCount, PassRefPtrWillBeRawPtr<SVGPropertyBase> fromValue, PassRefPtrWillBeRawPtr<SVGPropertyBase> toValue, PassRefPtrWillBeRawPtr<SVGPropertyBase> toAtEndOfDurationValue, SVGElement*) override;
@@ -67,15 +68,13 @@ public:
 
     static AnimatedPropertyType classType() { return AnimatedPath; }
 
+    DECLARE_VIRTUAL_TRACE();
+
 private:
     SVGPath();
-    explicit SVGPath(PassOwnPtr<SVGPathByteStream>);
+    explicit SVGPath(PassRefPtrWillBeRawPtr<CSSPathValue>);
 
-    SVGPathByteStream& ensureByteStream();
-    void byteStreamWillChange();
-
-    OwnPtr<SVGPathByteStream> m_byteStream;
-    mutable OwnPtr<Path> m_cachedPath;
+    RefPtrWillBeMember<CSSPathValue> m_pathValue;
 };
 
 DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGPath);

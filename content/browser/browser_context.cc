@@ -4,6 +4,12 @@
 
 #include "content/public/browser/browser_context.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
+#include "build/build_config.h"
+
 #if !defined(OS_IOS)
 #include "content/browser/download/download_manager_impl.h"
 #include "content/browser/fileapi/chrome_blob_storage_context.h"
@@ -16,7 +22,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/site_instance.h"
-#include "net/cookies/cookie_monster.h"
 #include "net/cookies/cookie_store.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/channel_id_store.h"
@@ -72,8 +77,7 @@ void SaveSessionStateOnIOThread(
     const scoped_refptr<net::URLRequestContextGetter>& context_getter,
     AppCacheServiceImpl* appcache_service) {
   net::URLRequestContext* context = context_getter->GetURLRequestContext();
-  context->cookie_store()->GetCookieMonster()->
-      SetForceKeepSessionState();
+  context->cookie_store()->SetForceKeepSessionState();
   context->channel_id_service()->GetChannelIDStore()->
       SetForceKeepSessionState();
   appcache_service->set_force_keep_session_state();
@@ -114,16 +118,14 @@ void BrowserContext::GarbageCollectStoragePartitions(
       BrowserContext* browser_context,
       scoped_ptr<base::hash_set<base::FilePath> > active_paths,
       const base::Closure& done) {
-  GetStoragePartitionMap(browser_context)->GarbageCollect(
-      active_paths.Pass(), done);
+  GetStoragePartitionMap(browser_context)
+      ->GarbageCollect(std::move(active_paths), done);
 }
 
 DownloadManager* BrowserContext::GetDownloadManager(
     BrowserContext* context) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!context->GetUserData(kDownloadManagerKeyName)) {
-    ResourceDispatcherHostImpl* rdh = ResourceDispatcherHostImpl::Get();
-    DCHECK(rdh);
     DownloadManager* download_manager =
         new DownloadManagerImpl(
             GetContentClient()->browser()->GetNetLog(), context);
@@ -250,12 +252,13 @@ void BrowserContext::CreateFileBackedBlob(
 void BrowserContext::DeliverPushMessage(
     BrowserContext* browser_context,
     const GURL& origin,
-    int64 service_worker_registration_id,
-    const std::string& data,
+    int64_t service_worker_registration_id,
+    const PushEventPayload& payload,
     const base::Callback<void(PushDeliveryStatus)>& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  PushMessagingRouter::DeliverMessage(
-      browser_context, origin, service_worker_registration_id, data, callback);
+  PushMessagingRouter::DeliverMessage(browser_context, origin,
+                                      service_worker_registration_id, payload,
+                                      callback);
 }
 
 // static

@@ -5,6 +5,7 @@
 #include "chrome/test/chromedriver/session_commands.h"
 
 #include <list>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -66,6 +67,8 @@ InitSessionParams::InitSessionParams(
       port_server(port_server),
       port_manager(port_manager) {}
 
+InitSessionParams::InitSessionParams(const InitSessionParams& other) = default;
+
 InitSessionParams::~InitSessionParams() {}
 
 namespace {
@@ -100,7 +103,7 @@ scoped_ptr<base::DictionaryValue> CreateCapabilities(Chrome* chrome) {
                     desktop->command().GetSwitchValueNative("user-data-dir"));
   }
 
-  return caps.Pass();
+  return caps;
 }
 
 Status CheckSessionCreated(Session* session) {
@@ -643,7 +646,7 @@ Status ExecuteGetAvailableLogTypes(
        ++log) {
     types->AppendString((*log)->type());
   }
-  *value = types.Pass();
+  *value = std::move(types);
   return Status(kOk);
 }
 

@@ -5,11 +5,15 @@
 #ifndef COMPONENTS_GCM_DRIVER_GCM_STATS_RECORDER_IMPL_H_
 #define COMPONENTS_GCM_DRIVER_GCM_STATS_RECORDER_IMPL_H_
 
+#include <stdint.h>
+
 #include <deque>
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/time/time.h"
+#include "components/gcm_driver/crypto/gcm_encryption_provider.h"
 #include "components/gcm_driver/gcm_activity.h"
 #include "google_apis/gcm/engine/connection_factory.h"
 #include "google_apis/gcm/engine/mcs_client.h"
@@ -20,8 +24,8 @@
 namespace gcm {
 
 // Records GCM internal stats and activities for debugging purpose. Recording
-// can be turned on/off by calling SetRecording(...) function. It is turned off
-// by default.
+// can be turned on/off by calling set_is_recording(...) function. It is turned
+// off by default.
 // This class is not thread safe. It is meant to be owned by a gcm client
 // instance.
 class GCMStatsRecorderImpl : public GCMStatsRecorder {
@@ -29,28 +33,24 @@ class GCMStatsRecorderImpl : public GCMStatsRecorder {
   GCMStatsRecorderImpl();
   ~GCMStatsRecorderImpl() override;
 
-  // Indicates whether the recorder is currently recording activities or not.
-  bool is_recording() const {
-    return is_recording_;
-  }
-
-  // Turns recording on/off.
-  void SetRecording(bool recording);
-
   // Set a delegate to receive callback from the recorder.
   void SetDelegate(Delegate* delegate);
 
   // Clear all recorded activities.
   void Clear();
 
+  // Records a message decryption failure caused by |result| for |app_id|.
+  void RecordDecryptionFailure(const std::string& app_id,
+                               GCMEncryptionProvider::DecryptionResult result);
+
   // GCMStatsRecorder implementation:
-  void RecordCheckinInitiated(uint64 android_id) override;
-  void RecordCheckinDelayedDueToBackoff(int64 delay_msec) override;
+  void RecordCheckinInitiated(uint64_t android_id) override;
+  void RecordCheckinDelayedDueToBackoff(int64_t delay_msec) override;
   void RecordCheckinSuccess() override;
   void RecordCheckinFailure(const std::string& status,
                             bool will_retry) override;
   void RecordConnectionInitiated(const std::string& host) override;
-  void RecordConnectionDelayedDueToBackoff(int64 delay_msec) override;
+  void RecordConnectionDelayedDueToBackoff(int64_t delay_msec) override;
   void RecordConnectionSuccess() override;
   void RecordConnectionFailure(int network_error) override;
   void RecordConnectionResetSignaled(
@@ -60,11 +60,10 @@ class GCMStatsRecorderImpl : public GCMStatsRecorder {
   void RecordRegistrationResponse(const std::string& app_id,
                                   const std::string& source,
                                   RegistrationRequest::Status status) override;
-  void RecordRegistrationRetryDelayed(
-      const std::string& app_id,
-      const std::string& source,
-      int64 delay_msec,
-      int retries_left) override;
+  void RecordRegistrationRetryDelayed(const std::string& app_id,
+                                      const std::string& source,
+                                      int64_t delay_msec,
+                                      int retries_left) override;
   void RecordUnregistrationSent(const std::string& app_id,
                                 const std::string& source) override;
   void RecordUnregistrationResponse(
@@ -73,7 +72,7 @@ class GCMStatsRecorderImpl : public GCMStatsRecorder {
       UnregistrationRequest::Status status) override;
   void RecordUnregistrationRetryDelayed(const std::string& app_id,
                                         const std::string& source,
-                                        int64 delay_msec,
+                                        int64_t delay_msec,
                                         int retries_left) override;
   void RecordDataMessageReceived(const std::string& app_id,
                                  const std::string& from,
@@ -94,8 +93,11 @@ class GCMStatsRecorderImpl : public GCMStatsRecorder {
                                const std::string& receiver_id,
                                const std::string& message_id) override;
 
-  // Collect all recorded activities into the struct.
-  void CollectActivities(RecordedActivities* recorder_activities) const;
+  // Collect all recorded activities into |*recorded_activities|.
+  void CollectActivities(RecordedActivities* recorded_activities) const;
+
+  bool is_recording() const { return is_recording_; }
+  void set_is_recording(bool recording) { is_recording_ = recording; }
 
   const std::deque<CheckinActivity>& checkin_activities() const {
     return checkin_activities_;
@@ -111,6 +113,10 @@ class GCMStatsRecorderImpl : public GCMStatsRecorder {
   }
   const std::deque<SendingActivity>& sending_activities() const {
     return sending_activities_;
+  }
+  const std::deque<DecryptionFailureActivity>& decryption_failure_activities()
+      const {
+    return decryption_failure_activities_;
   }
 
  protected:
@@ -149,13 +155,14 @@ class GCMStatsRecorderImpl : public GCMStatsRecorder {
   std::deque<RegistrationActivity> registration_activities_;
   std::deque<ReceivingActivity> receiving_activities_;
   std::deque<SendingActivity> sending_activities_;
+  std::deque<DecryptionFailureActivity> decryption_failure_activities_;
 
   base::TimeTicks last_connection_initiation_time_;
   base::TimeTicks last_connection_success_time_;
   bool data_message_received_since_connected_;
   base::TimeTicks last_received_data_message_burst_start_time_;
   base::TimeTicks last_received_data_message_time_within_burst_;
-  int64 received_data_message_burst_size_;
+  int64_t received_data_message_burst_size_;
 
   DISALLOW_COPY_AND_ASSIGN(GCMStatsRecorderImpl);
 };

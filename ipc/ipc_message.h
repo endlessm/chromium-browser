@@ -5,6 +5,7 @@
 #ifndef IPC_IPC_MESSAGE_H_
 #define IPC_IPC_MESSAGE_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <string>
@@ -13,6 +14,8 @@
 #include "base/memory/ref_counted.h"
 #include "base/pickle.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
+#include "ipc/attachment_broker.h"
 #include "ipc/brokerable_attachment.h"
 #include "ipc/ipc_export.h"
 
@@ -218,13 +221,15 @@ class IPC_EXPORT Message : public base::Pickle {
 
   // WriteAttachment appends |attachment| to the end of the set. It returns
   // false iff the set is full.
-  bool WriteAttachment(scoped_refptr<MessageAttachment> attachment);
+  bool WriteAttachment(
+      scoped_refptr<base::Pickle::Attachment> attachment) override;
   // ReadAttachment parses an attachment given the parsing state |iter| and
   // writes it to |*attachment|. It returns true on success.
-  bool ReadAttachment(base::PickleIterator* iter,
-                      scoped_refptr<MessageAttachment>* attachment) const;
+  bool ReadAttachment(
+      base::PickleIterator* iter,
+      scoped_refptr<base::Pickle::Attachment>* attachment) const override;
   // Returns true if there are any attachment in this message.
-  bool HasAttachments() const;
+  bool HasAttachments() const override;
   // Returns true if there are any MojoHandleAttachments in this message.
   bool HasMojoHandles() const;
   // Whether the message has any brokerable attachments.
@@ -268,7 +273,7 @@ class IPC_EXPORT Message : public base::Pickle {
     int32_t routing;  // ID of the view that this message is destined for
     uint32_t type;    // specifies the user-defined message type
     uint32_t flags;   // specifies control flags for the message
-#if defined(OS_MACOSX)
+#if USE_ATTACHMENT_BROKER
     // The number of brokered attachments included with this message. The
     // ids of the brokered attachment ids are sent immediately after the pickled
     // message, before the next pickled message is sent.

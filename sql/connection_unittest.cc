@@ -2,17 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
-#include "base/files/memory_mapped_file.h"
 #include "base/files/scoped_file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/histogram_tester.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "sql/connection.h"
+#include "sql/connection_memory_dump_provider.h"
 #include "sql/correct_sql_test_base.h"
 #include "sql/meta_table.h"
 #include "sql/statement.h"
@@ -213,14 +216,14 @@ class ScopedUmaskSetter {
 void sqlite_adjust_millis(sql::test::ScopedMockTimeSource* time_mock,
                           sqlite3_context* context,
                           int argc, sqlite3_value** argv) {
-  int64 milliseconds = argc > 0 ? sqlite3_value_int64(argv[0]) : 1000;
+  int64_t milliseconds = argc > 0 ? sqlite3_value_int64(argv[0]) : 1000;
   time_mock->adjust(base::TimeDelta::FromMilliseconds(milliseconds));
   sqlite3_result_int64(context, milliseconds);
 }
 
 // Adjust mock time by |milliseconds| on commit.
 int adjust_commit_hook(sql::test::ScopedMockTimeSource* time_mock,
-                       int64 milliseconds) {
+                       int64_t milliseconds) {
   time_mock->adjust(base::TimeDelta::FromMilliseconds(milliseconds));
   return SQLITE_OK;
 }
@@ -244,7 +247,9 @@ class SQLConnectionTest : public sql::SQLTestBase {
 
   // Handle errors by blowing away the database.
   void RazeErrorCallback(int expected_error, int error, sql::Statement* stmt) {
-    EXPECT_EQ(expected_error, error);
+    // Nothing here needs extended errors at this time.
+    EXPECT_EQ(expected_error, expected_error&0xff);
+    EXPECT_EQ(expected_error, error&0xff);
     db().RazeAndClose();
   }
 };
@@ -925,6 +930,19 @@ TEST_F(SQLConnectionTest, Poison) {
   // The existing statement has become invalid.
   ASSERT_FALSE(valid_statement.is_valid());
   ASSERT_FALSE(valid_statement.Step());
+
+  // Test that poisoning the database during a transaction works (with errors).
+  // RazeErrorCallback() poisons the database, the extra COMMIT causes
+  // CommitTransaction() to throw an error while commiting.
+  db().set_error_callback(base::Bind(&SQLConnectionTest::RazeErrorCallback,
+                                     base::Unretained(this),
+                                     SQLITE_ERROR));
+  db().Close();
+  ASSERT_TRUE(db().Open(db_path()));
+  EXPECT_TRUE(db().BeginTransaction());
+  EXPECT_TRUE(db().Execute("INSERT INTO x VALUES ('x')"));
+  EXPECT_TRUE(db().Execute("COMMIT"));
+  EXPECT_FALSE(db().CommitTransaction());
 }
 
 // Test attaching and detaching databases from the connection.
@@ -1302,89 +1320,11 @@ TEST_F(SQLConnectionTest, TimeUpdateTransaction) {
   EXPECT_EQ(0, samples->sum());
 }
 
-// Make sure that OS file writes to a mmap'ed file are reflected in the memory
-// mapping of a memory-mapped file.  Normally SQLite writes to memory-mapped
-// files using memcpy(), which should stay consistent.  Our SQLite is slightly
-// patched to mmap read only, then write using OS file writes.  If the
-// memory-mapped version doesn't reflect the OS file writes, SQLite's
-// memory-mapped I/O should be disabled on this platform.
-#if !defined(MOJO_APPTEST_IMPL)
-TEST_F(SQLConnectionTest, MmapTest) {
-  // Skip the test for platforms which don't enable memory-mapped I/O in SQLite,
-  // or which don't even support the pragma.  The former seems to apply to iOS,
-  // the latter to older iOS.
-  // TODO(shess): Disable test on iOS?  Disable on USE_SYSTEM_SQLITE?
-  {
-    sql::Statement s(db().GetUniqueStatement("PRAGMA mmap_size"));
-    if (!s.Step() || !s.ColumnInt64(0))
-      return;
-  }
-
-  // The test re-uses the database file to make sure it's representative of a
-  // SQLite file, but will be storing incompatible data.
-  db().Close();
-
-  const uint32 kFlags =
-      base::File::FLAG_OPEN|base::File::FLAG_READ|base::File::FLAG_WRITE;
-  char buf[4096];
-
-  // Create a file with a block of '0', a block of '1', and a block of '2'.
-  {
-    base::File f(db_path(), kFlags);
-    ASSERT_TRUE(f.IsValid());
-    memset(buf, '0', sizeof(buf));
-    ASSERT_EQ(f.Write(0*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
-
-    memset(buf, '1', sizeof(buf));
-    ASSERT_EQ(f.Write(1*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
-
-    memset(buf, '2', sizeof(buf));
-    ASSERT_EQ(f.Write(2*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
-  }
-
-  // mmap the file and verify that everything looks right.
-  {
-    base::MemoryMappedFile m;
-    ASSERT_TRUE(m.Initialize(db_path()));
-
-    memset(buf, '0', sizeof(buf));
-    ASSERT_EQ(0, memcmp(buf, m.data() + 0*sizeof(buf), sizeof(buf)));
-
-    memset(buf, '1', sizeof(buf));
-    ASSERT_EQ(0, memcmp(buf, m.data() + 1*sizeof(buf), sizeof(buf)));
-
-    memset(buf, '2', sizeof(buf));
-    ASSERT_EQ(0, memcmp(buf, m.data() + 2*sizeof(buf), sizeof(buf)));
-
-    // Scribble some '3' into the first page of the file, and verify that it
-    // looks the same in the memory mapping.
-    {
-      base::File f(db_path(), kFlags);
-      ASSERT_TRUE(f.IsValid());
-      memset(buf, '3', sizeof(buf));
-      ASSERT_EQ(f.Write(0*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
-    }
-    ASSERT_EQ(0, memcmp(buf, m.data() + 0*sizeof(buf), sizeof(buf)));
-
-    // Repeat with a single '4' in case page-sized blocks are different.
-    const size_t kOffset = 1*sizeof(buf) + 123;
-    ASSERT_NE('4', m.data()[kOffset]);
-    {
-      base::File f(db_path(), kFlags);
-      ASSERT_TRUE(f.IsValid());
-      buf[0] = '4';
-      ASSERT_EQ(f.Write(kOffset, buf, 1), 1);
-    }
-    ASSERT_EQ('4', m.data()[kOffset]);
-  }
-}
-#endif
-
 TEST_F(SQLConnectionTest, OnMemoryDump) {
   base::trace_event::ProcessMemoryDump pmd(nullptr);
   base::trace_event::MemoryDumpArgs args = {
       base::trace_event::MemoryDumpLevelOfDetail::DETAILED};
-  ASSERT_TRUE(db().OnMemoryDump(args, &pmd));
+  ASSERT_TRUE(db().memory_dump_provider_->OnMemoryDump(args, &pmd));
   EXPECT_GE(pmd.allocator_dumps().size(), 1u);
 }
 
@@ -1460,5 +1400,92 @@ TEST_F(SQLConnectionTest, RegisterIntentToUpload) {
   EXPECT_FALSE(db().RegisterIntentToUpload());
 }
 #endif  // !defined(MOJO_APPTEST_IMPL)
+
+// Test that a fresh database has mmap enabled by default, if mmap'ed I/O is
+// enabled by SQLite.
+TEST_F(SQLConnectionTest, MmapInitiallyEnabled) {
+  {
+    sql::Statement s(db().GetUniqueStatement("PRAGMA mmap_size"));
+
+    // SQLite doesn't have mmap support (perhaps an early iOS release).
+    if (!s.Step())
+      return;
+
+    // If mmap I/O is not on, attempt to turn it on.  If that succeeds, then
+    // Open() should have turned it on.  If mmap support is disabled, 0 is
+    // returned.  If the VFS does not understand SQLITE_FCNTL_MMAP_SIZE (for
+    // instance MojoVFS), -1 is returned.
+    if (s.ColumnInt(0) <= 0) {
+      ASSERT_TRUE(db().Execute("PRAGMA mmap_size = 1048576"));
+      s.Reset(true);
+      ASSERT_TRUE(s.Step());
+      EXPECT_LE(s.ColumnInt(0), 0);
+    }
+  }
+
+  // Test that explicit disable prevents mmap'ed I/O.
+  db().Close();
+  sql::Connection::Delete(db_path());
+  db().set_mmap_disabled();
+  ASSERT_TRUE(db().Open(db_path()));
+  {
+    sql::Statement s(db().GetUniqueStatement("PRAGMA mmap_size"));
+    ASSERT_TRUE(s.Step());
+    EXPECT_LE(s.ColumnInt(0), 0);
+  }
+}
+
+// Test specific operation of the GetAppropriateMmapSize() helper.
+#if defined(OS_IOS)
+TEST_F(SQLConnectionTest, GetAppropriateMmapSize) {
+  ASSERT_EQ(0UL, db().GetAppropriateMmapSize());
+}
+#else
+TEST_F(SQLConnectionTest, GetAppropriateMmapSize) {
+  const size_t kMmapAlot = 25 * 1024 * 1024;
+
+  // If there is no meta table (as for a fresh database), assume that everything
+  // should be mapped.
+  ASSERT_TRUE(!db().DoesTableExist("meta"));
+  ASSERT_GT(db().GetAppropriateMmapSize(), kMmapAlot);
+
+  // Getting the status fails if there is an error.  GetAppropriateMmapSize()
+  // should not call GetMmapStatus() if the table does not exist, but this is an
+  // easy error to setup for testing.
+  int64_t mmap_status;
+  {
+    sql::ScopedErrorIgnorer ignore_errors;
+    ignore_errors.IgnoreError(SQLITE_ERROR);
+    ASSERT_FALSE(MetaTable::GetMmapStatus(&db(), &mmap_status));
+    ASSERT_TRUE(ignore_errors.CheckIgnoredErrors());
+  }
+
+  // When the meta table is first created, it sets up to map everything.
+  MetaTable().Init(&db(), 1, 1);
+  ASSERT_TRUE(db().DoesTableExist("meta"));
+  ASSERT_GT(db().GetAppropriateMmapSize(), kMmapAlot);
+  ASSERT_TRUE(MetaTable::GetMmapStatus(&db(), &mmap_status));
+  ASSERT_EQ(MetaTable::kMmapSuccess, mmap_status);
+
+  // Failure status maps nothing.
+  ASSERT_TRUE(db().Execute("REPLACE INTO meta VALUES ('mmap_status', -2)"));
+  ASSERT_EQ(0UL, db().GetAppropriateMmapSize());
+
+  // Re-initializing the meta table does not re-create the key if the table
+  // already exists.
+  ASSERT_TRUE(db().Execute("DELETE FROM meta WHERE key = 'mmap_status'"));
+  MetaTable().Init(&db(), 1, 1);
+  ASSERT_EQ(MetaTable::kMmapSuccess, mmap_status);
+  ASSERT_TRUE(MetaTable::GetMmapStatus(&db(), &mmap_status));
+  ASSERT_EQ(0, mmap_status);
+
+  // With no key, map everything and create the key.
+  // TODO(shess): This really should be "maps everything after validating it",
+  // but that is more complicated to structure.
+  ASSERT_GT(db().GetAppropriateMmapSize(), kMmapAlot);
+  ASSERT_TRUE(MetaTable::GetMmapStatus(&db(), &mmap_status));
+  ASSERT_EQ(MetaTable::kMmapSuccess, mmap_status);
+}
+#endif
 
 }  // namespace sql

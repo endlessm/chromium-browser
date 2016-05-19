@@ -1,6 +1,7 @@
 # Copyright 2013 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+
 import collections
 import json
 import logging
@@ -13,18 +14,19 @@ from metrics import Metric
 
 
 class StartupMetric(Metric):
-  "A metric for browser startup time."
+  'A metric for browser startup time.'
 
   # Seconds to wait for page loading complete.
   DEFAULT_LOADING_TIMEOUT = 90
 
   HISTOGRAMS_TO_RECORD = {
-    'messageloop_start_time' :
-        'Startup.BrowserMessageLoopStartTimeFromMainEntry',
-    'window_display_time' : 'Startup.BrowserWindowDisplay',
-    'open_tabs_time' : 'Startup.BrowserOpenTabs',
-    'first_non_empty_paint_time' : 'Startup.FirstWebContents.NonEmptyPaint2',
-    'first_main_frame_load_time' : 'Startup.FirstWebContents.MainFrameLoad2'}
+      'messageloop_start_time': (
+          'Startup.BrowserMessageLoopStartTimeFromMainEntry'),
+      'window_display_time': 'Startup.BrowserWindowDisplay',
+      'open_tabs_time': 'Startup.BrowserOpenTabs',
+      'first_non_empty_paint_time': 'Startup.FirstWebContents.NonEmptyPaint2',
+      'first_main_frame_load_time': 'Startup.FirstWebContents.MainFrameLoad2'
+  }
 
   def Start(self, page, tab):
     raise NotImplementedError()
@@ -57,7 +59,7 @@ class StartupMetric(Metric):
       def EvaluateInt(exp):
         val = t.EvaluateJavaScript(exp)
         if not val:
-          logging.warn('%s undefined' % exp)
+          logging.warn('%s undefined', exp)
           return 0
         return int(val)
 
@@ -69,7 +71,7 @@ class StartupMetric(Metric):
         # EvaluateJavaScript(window.performance.timing) doesn't guarantee to
         # return the desired javascript object (crbug/472603). It may return an
         # empty object. However getting individual field works.
-        # The behavior depends on Webkit implementation on different platforms.
+        # The behavior depends on WebKit implementation on different platforms.
         load_event_end = EvaluateInt(
             'window.performance.timing["loadEventEnd"]')
         request_start = EvaluateInt(
@@ -81,7 +83,7 @@ class StartupMetric(Metric):
         # Low memory Android devices may not be able to load more than
         # one tab at a time, so may timeout when the test attempts to
         # access a background tab. Ignore these tabs.
-        logging.error("Tab timed out on JavaScript access")
+        logging.error('Tab timed out on JavaScript access')
 
     # Only measure the foreground tab. We can't measure all tabs on Android
     # because on Android the data of the background tabs is loaded on demand,
@@ -114,8 +116,8 @@ class StartupMetric(Metric):
         # is the exact value for that entry.
         measured_time = result['sum']
       elif 'buckets' in result:
-        measured_time = \
-            (result['buckets'][0]['high'] + result['buckets'][0]['low']) / 2
+        measured_time = (result['buckets'][0]['high'] +
+                         result['buckets'][0]['low']) / 2
 
       results.AddValue(scalar.ScalarValue(
           results.current_page, display_name, 'ms', measured_time))
@@ -123,6 +125,6 @@ class StartupMetric(Metric):
     # Get tab load times.
     browser_main_entry_time_ms = self._GetBrowserMainEntryTime(tab)
     if browser_main_entry_time_ms is None:
-      print "Outdated Chrome version, browser main entry time not supported."
+      print 'Outdated Chrome version, browser main entry time not supported.'
       return
     self._RecordTabLoadTimes(tab, browser_main_entry_time_ms, results)

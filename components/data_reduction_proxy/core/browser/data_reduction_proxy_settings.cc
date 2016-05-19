@@ -4,11 +4,11 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/prefs/pref_member.h"
-#include "base/prefs/pref_service.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
@@ -16,6 +16,8 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
+#include "components/prefs/pref_member.h"
+#include "components/prefs/pref_service.h"
 #include "net/base/network_change_notifier.h"
 
 namespace {
@@ -45,6 +47,7 @@ DataReductionProxySettings::DataReductionProxySettings()
       promo_allowed_(false),
       lo_fi_mode_active_(false),
       lo_fi_load_image_requested_(false),
+      data_reduction_proxy_enabled_pref_name_(),
       prefs_(NULL),
       config_(nullptr) {
   lo_fi_user_requests_for_images_per_session_ =
@@ -63,8 +66,7 @@ DataReductionProxySettings::~DataReductionProxySettings() {
 void DataReductionProxySettings::InitPrefMembers() {
   DCHECK(thread_checker_.CalledOnValidThread());
   spdy_proxy_auth_enabled_.Init(
-      prefs::kDataReductionProxyEnabled,
-      GetOriginalProfilePrefs(),
+      data_reduction_proxy_enabled_pref_name_, GetOriginalProfilePrefs(),
       base::Bind(&DataReductionProxySettings::OnProxyEnabledPrefChange,
                  base::Unretained(this)));
 }
@@ -76,17 +78,21 @@ void DataReductionProxySettings::UpdateConfigValues() {
 }
 
 void DataReductionProxySettings::InitDataReductionProxySettings(
+    const std::string& data_reduction_proxy_enabled_pref_name,
     PrefService* prefs,
     DataReductionProxyIOData* io_data,
     scoped_ptr<DataReductionProxyService> data_reduction_proxy_service) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(!data_reduction_proxy_enabled_pref_name.empty());
   DCHECK(prefs);
   DCHECK(io_data);
   DCHECK(io_data->config());
   DCHECK(data_reduction_proxy_service.get());
+  data_reduction_proxy_enabled_pref_name_ =
+      data_reduction_proxy_enabled_pref_name;
   prefs_ = prefs;
   config_ = io_data->config();
-  data_reduction_proxy_service_ = data_reduction_proxy_service.Pass();
+  data_reduction_proxy_service_ = std::move(data_reduction_proxy_service);
   data_reduction_proxy_service_->AddObserver(this);
   InitPrefMembers();
   UpdateConfigValues();
@@ -139,7 +145,7 @@ void DataReductionProxySettings::SetDataReductionProxyEnabled(bool enabled) {
   }
 }
 
-int64 DataReductionProxySettings::GetDataReductionLastUpdateTime() {
+int64_t DataReductionProxySettings::GetDataReductionLastUpdateTime() {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(data_reduction_proxy_service_->compression_stats());
   return
@@ -362,9 +368,9 @@ DataReductionProxySettings::GetDailyContentLengths(const char* pref_name) {
 
 void DataReductionProxySettings::GetContentLengths(
     unsigned int days,
-    int64* original_content_length,
-    int64* received_content_length,
-    int64* last_update_time) {
+    int64_t* original_content_length,
+    int64_t* received_content_length,
+    int64_t* last_update_time) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(data_reduction_proxy_service_->compression_stats());
 

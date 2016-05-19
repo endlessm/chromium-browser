@@ -361,7 +361,7 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
         }
 
         @Override
-        public void onFaviconUpdated(Tab tab) {
+        public void onFaviconUpdated(Tab tab, Bitmap icon) {
             updateFavicon();
             notifyTabUpdated(tab);
         }

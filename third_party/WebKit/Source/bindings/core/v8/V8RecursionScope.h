@@ -32,7 +32,7 @@
 #define V8RecursionScope_h
 
 #include "bindings/core/v8/V8PerIsolateData.h"
-#include "platform/ScriptForbiddenScope.h"
+#include "core/CoreExport.h"
 #include "wtf/Noncopyable.h"
 #include <v8.h>
 
@@ -55,13 +55,12 @@ namespace blink {
 // happen at the end of the outer-most script stack frame of calls into page script:
 //
 // http://www.whatwg.org/specs/web-apps/current-work/#perform-a-microtask-checkpoint
-class V8RecursionScope {
+class CORE_EXPORT V8RecursionScope {
     STACK_ALLOCATED();
 public:
     explicit V8RecursionScope(v8::Isolate* isolate)
         : m_isolate(isolate)
     {
-        RELEASE_ASSERT(!ScriptForbiddenScope::isScriptForbidden());
         V8PerIsolateData::from(m_isolate)->incrementRecursionLevel();
         // If you want V8 to autorun microtasks, this class needs to have a
         // v8::Isolate::SuppressMicrotaskExecutionScope member.
@@ -95,7 +94,6 @@ public:
             : m_isolate(isolate)
 #endif
         {
-            RELEASE_ASSERT(!ScriptForbiddenScope::isScriptForbidden());
 #if ENABLE(ASSERT)
             V8PerIsolateData::from(m_isolate)->incrementInternalScriptRecursionLevel();
 #endif

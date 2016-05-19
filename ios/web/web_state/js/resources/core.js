@@ -21,8 +21,6 @@ goog.require('__crWeb.message');
 
 /* Beginning of anonymous object. */
 (function() {
-  // TODO(jimblackler): use this namespace as a wrapper for all externally-
-  // visible functions, to be consistent with other JS scripts. crbug.com/380390
   __gCrWeb['core'] = {};
 
   // JavaScript errors are logged on the main application side. The handler is
@@ -220,6 +218,16 @@ goog.require('__crWeb.message');
       }
     }
     return '{}';
+  };
+
+  // Suppresses the next click such that they are not handled by JS click
+  // event handlers.
+  __gCrWeb['suppressNextClick'] = function() {
+    var suppressNextClick = function(evt) {
+      evt.preventDefault();
+      document.removeEventListener('click', suppressNextClick, false);
+    };
+    document.addEventListener('click', suppressNextClick);
   };
 
   // Returns true if the top window or any frames inside contain an input
@@ -434,6 +442,11 @@ goog.require('__crWeb.message');
     return anchor.href;
   };
 
+  __gCrWeb['sendFaviconsToHost'] = function() {
+    __gCrWeb.message.invokeOnHost({'command': 'document.favicons',
+                                   'favicons': __gCrWeb.common.getFavicons()});
+  }
+
   // Tracks whether user is in the middle of scrolling/dragging. If user is
   // scrolling, ignore window.scrollTo() until user stops scrolling.
   var webViewScrollViewIsDragging_ = false;
@@ -445,11 +458,6 @@ goog.require('__crWeb.message');
     if (webViewScrollViewIsDragging_)
       return;
     originalWindowScrollTo(x, y);
-  };
-
-  // Intercept window.close calls.
-  window.close = function() {
-    invokeOnHost_({'command': 'window.close.self'});
   };
 
   window.addEventListener('hashchange', function(evt) {

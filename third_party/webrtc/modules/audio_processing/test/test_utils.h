@@ -14,11 +14,11 @@
 #include <math.h>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "webrtc/base/constructormagic.h"
-#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_audio/channel_buffer.h"
 #include "webrtc/common_audio/wav_file.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
@@ -43,43 +43,72 @@ class RawFile final {
   RTC_DISALLOW_COPY_AND_ASSIGN(RawFile);
 };
 
+// Reads ChannelBuffers from a provided WavReader.
+class ChannelBufferWavReader final {
+ public:
+  explicit ChannelBufferWavReader(std::unique_ptr<WavReader> file);
+
+  // Reads data from the file according to the |buffer| format. Returns false if
+  // a full buffer can't be read from the file.
+  bool Read(ChannelBuffer<float>* buffer);
+
+ private:
+  std::unique_ptr<WavReader> file_;
+  std::vector<float> interleaved_;
+
+  RTC_DISALLOW_COPY_AND_ASSIGN(ChannelBufferWavReader);
+};
+
+// Writes ChannelBuffers to a provided WavWriter.
+class ChannelBufferWavWriter final {
+ public:
+  explicit ChannelBufferWavWriter(std::unique_ptr<WavWriter> file);
+  void Write(const ChannelBuffer<float>& buffer);
+
+ private:
+  std::unique_ptr<WavWriter> file_;
+  std::vector<float> interleaved_;
+
+  RTC_DISALLOW_COPY_AND_ASSIGN(ChannelBufferWavWriter);
+};
+
 void WriteIntData(const int16_t* data,
                   size_t length,
                   WavWriter* wav_file,
                   RawFile* raw_file);
 
 void WriteFloatData(const float* const* data,
-                    int samples_per_channel,
-                    int num_channels,
+                    size_t samples_per_channel,
+                    size_t num_channels,
                     WavWriter* wav_file,
                     RawFile* raw_file);
 
 // Exits on failure; do not use in unit tests.
 FILE* OpenFile(const std::string& filename, const char* mode);
 
-int SamplesFromRate(int rate);
+size_t SamplesFromRate(int rate);
 
 void SetFrameSampleRate(AudioFrame* frame,
                         int sample_rate_hz);
 
 template <typename T>
 void SetContainerFormat(int sample_rate_hz,
-                        int num_channels,
+                        size_t num_channels,
                         AudioFrame* frame,
-                        rtc::scoped_ptr<ChannelBuffer<T> >* cb) {
+                        std::unique_ptr<ChannelBuffer<T> >* cb) {
   SetFrameSampleRate(frame, sample_rate_hz);
   frame->num_channels_ = num_channels;
   cb->reset(new ChannelBuffer<T>(frame->samples_per_channel_, num_channels));
 }
 
-AudioProcessing::ChannelLayout LayoutFromChannels(int num_channels);
+AudioProcessing::ChannelLayout LayoutFromChannels(size_t num_channels);
 
 template <typename T>
-float ComputeSNR(const T* ref, const T* test, int length, float* variance) {
+float ComputeSNR(const T* ref, const T* test, size_t length, float* variance) {
   float mse = 0;
   float mean = 0;
   *variance = 0;
-  for (int i = 0; i < length; ++i) {
+  for (size_t i = 0; i < length; ++i) {
     T error = ref[i] - test[i];
     mse += error * error;
     *variance += ref[i] * ref[i];
@@ -117,6 +146,9 @@ std::vector<T> ParseList(const std::string& to_parse) {
 // appropriate error message has been printed to stdout.
 std::vector<Point> ParseArrayGeometry(const std::string& mic_positions,
                                       size_t num_mics);
+
+// Same as above, but without the num_mics check for when it isn't available.
+std::vector<Point> ParseArrayGeometry(const std::string& mic_positions);
 
 }  // namespace webrtc
 

@@ -8,7 +8,7 @@
 #include "cc/resources/shared_bitmap_manager.h"
 #include "cc/surfaces/surface_id_allocator.h"
 #include "components/mus/public/cpp/window.h"
-#include "mojo/application/public/interfaces/shell.mojom.h"
+#include "mojo/shell/public/interfaces/shell.mojom.h"
 #include "ui/compositor/reflector.h"
 #include "ui/gl/gl_bindings.h"
 
@@ -23,13 +23,14 @@ class FakeReflector : public ui::Reflector {
   void AddMirroringLayer(ui::Layer* layer) override {}
   void RemoveMirroringLayer(ui::Layer* layer) override {}
 };
-}
+
+}  // namespace
 
 SurfaceContextFactory::SurfaceContextFactory(
-    mojo::Shell* shell,
+    mojo::Connector* connector,
     mus::Window* window,
     mus::mojom::SurfaceType surface_type)
-    : surface_binding_(shell, window, surface_type),
+    : surface_binding_(connector, window, surface_type),
       next_surface_id_namespace_(1u) {}
 
 SurfaceContextFactory::~SurfaceContextFactory() {}
@@ -65,8 +66,8 @@ bool SurfaceContextFactory::DoesCreateTestContexts() {
   return false;
 }
 
-uint32 SurfaceContextFactory::GetImageTextureTarget(gfx::BufferFormat format,
-                                                    gfx::BufferUsage usage) {
+uint32_t SurfaceContextFactory::GetImageTextureTarget(gfx::BufferFormat format,
+                                                      gfx::BufferUsage usage) {
   // No GpuMemoryBuffer support, so just return GL_TEXTURE_2D.
   return GL_TEXTURE_2D;
 }

@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_HISTORY_CORE_BROWSER_DOWNLOAD_ROW_H_
 #define COMPONENTS_HISTORY_CORE_BROWSER_DOWNLOAD_ROW_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -30,8 +32,8 @@ struct DownloadRow {
               const base::Time& end,
               const std::string& etag,
               const std::string& last_modified,
-              int64 received,
-              int64 total,
+              int64_t received,
+              int64_t total,
               DownloadState download_state,
               DownloadDangerType danger_type,
               DownloadInterruptReason interrupt_reason,
@@ -39,6 +41,7 @@ struct DownloadRow {
               bool download_opened,
               const std::string& ext_id,
               const std::string& ext_name);
+  DownloadRow(const DownloadRow& other);
   ~DownloadRow();
 
   // The current path to the download (potentially different from final if
@@ -76,11 +79,11 @@ struct DownloadRow {
   std::string last_modified;
 
   // The number of bytes received (so far).
-  int64 received_bytes;
+  int64_t received_bytes;
 
   // The total number of bytes in the download. Is not changed by
   // UpdateDownload().
-  int64 total_bytes;
+  int64_t total_bytes;
 
   // The current state of the download.
   DownloadState state;

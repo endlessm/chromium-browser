@@ -4,16 +4,19 @@
 
 #include "chrome/browser/extensions/api/messaging/native_process_launcher.h"
 
-#include "base/basictypes.h"
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/api/messaging/native_messaging_host_manifest.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/public/browser/browser_thread.h"
@@ -75,8 +78,10 @@ class NativeProcessLauncherImpl : public NativeProcessLauncher {
 
     bool allow_user_level_hosts_;
 
+#if defined(OS_WIN)
     // Handle of the native window corresponding to the extension.
     intptr_t window_handle_;
+#endif // OS_WIN
 
     DISALLOW_COPY_AND_ASSIGN(Core);
   };
@@ -89,9 +94,11 @@ class NativeProcessLauncherImpl : public NativeProcessLauncher {
 NativeProcessLauncherImpl::Core::Core(bool allow_user_level_hosts,
                                       intptr_t window_handle)
     : detached_(false),
-      allow_user_level_hosts_(allow_user_level_hosts),
-      window_handle_(window_handle) {
-}
+      allow_user_level_hosts_(allow_user_level_hosts)
+#if defined(OS_WIN)
+      , window_handle_(window_handle)
+#endif // OS_WIN
+{}
 
 NativeProcessLauncherImpl::Core::~Core() {
   DCHECK(detached_);
@@ -197,7 +204,8 @@ void NativeProcessLauncherImpl::Core::DoLaunchOnThreadPool(
   base::File write_file;
   if (NativeProcessLauncher::LaunchNativeProcess(
           command_line, &process, &read_file, &write_file)) {
-    PostResult(callback, process.Pass(), read_file.Pass(), write_file.Pass());
+    PostResult(callback, std::move(process), std::move(read_file),
+               std::move(write_file));
   } else {
     PostErrorResult(callback, RESULT_FAILED_TO_START);
   }
@@ -213,7 +221,8 @@ void NativeProcessLauncherImpl::Core::CallCallbackOnIOThread(
   if (detached_)
     return;
 
-  callback.Run(result, process.Pass(), read_file.Pass(), write_file.Pass());
+  callback.Run(result, std::move(process), std::move(read_file),
+               std::move(write_file));
 }
 
 void NativeProcessLauncherImpl::Core::PostErrorResult(

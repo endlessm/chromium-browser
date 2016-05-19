@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
 #include <windowsx.h>
 
 #include "ui/events/event_constants.h"
@@ -107,8 +108,8 @@ int KeyStateFlagsFromNative(const base::NativeEvent& native_event) {
   int flags = GetModifiersFromKeyState();
 
   // Check key messages for the extended key flag.
-  if (IsKeyEvent(native_event))
-    flags |= (HIWORD(native_event.lParam) & KF_EXTENDED) ? EF_EXTENDED : 0;
+  if (IsKeyEvent(native_event) && (HIWORD(native_event.lParam) & KF_EXTENDED))
+    flags |= EF_IS_EXTENDED_KEY;
 
   // Most client mouse messages include key state information.
   if (IsClientMouseEvent(native_event)) {
@@ -217,7 +218,16 @@ int EventFlagsFromNative(const base::NativeEvent& native_event) {
 }
 
 base::TimeDelta EventTimeFromNative(const base::NativeEvent& native_event) {
-  return base::TimeDelta::FromMilliseconds(native_event.time);
+  // On Windows, the native input event timestamp (|native_event.time|) is
+  // coming from |GetTickCount()| clock [1], while in platform independent code
+  // path we get timestamps by calling |TimeTicks::Now()|, which, if using high-
+  // resolution timer as underlying implementation, could have different time
+  // origin than |GetTickCount()|. To avoid the mismatching, we use
+  // |TimeTicks::Now()| for event timestamp instead of the native timestamp to
+  // ensure computed input latency and web exposed timestamp is consistent with
+  // other components.
+  // [1] http://blogs.msdn.com/b/oldnewthing/archive/2014/01/22/10491576.aspx
+  return EventTimeForNow();
 }
 
 gfx::Point EventLocationFromNative(const base::NativeEvent& native_event) {
@@ -250,7 +260,9 @@ gfx::Point EventSystemLocationFromNative(
     const base::NativeEvent& native_event) {
   POINT global_point = { static_cast<short>(LOWORD(native_event.lParam)),
                          static_cast<short>(HIWORD(native_event.lParam)) };
-  ClientToScreen(native_event.hwnd, &global_point);
+  // Wheel events have position in screen coordinates.
+  if (!IsMouseWheelEvent(native_event))
+    ClientToScreen(native_event.hwnd, &global_point);
   return gfx::Point(global_point);
 }
 
@@ -259,7 +271,7 @@ KeyboardCode KeyboardCodeFromNative(const base::NativeEvent& native_event) {
 }
 
 DomCode CodeFromNative(const base::NativeEvent& native_event) {
-  const uint16 scan_code = GetScanCodeFromLParam(native_event.lParam);
+  const uint16_t scan_code = GetScanCodeFromLParam(native_event.lParam);
   return CodeForWindowsScanCode(scan_code);
 }
 
@@ -312,24 +324,20 @@ int GetTouchId(const base::NativeEvent& xev) {
   return 0;
 }
 
-float GetTouchRadiusX(const base::NativeEvent& native_event) {
-  NOTIMPLEMENTED();
-  return 1.0;
-}
-
-float GetTouchRadiusY(const base::NativeEvent& native_event) {
-  NOTIMPLEMENTED();
-  return 1.0;
-}
-
 float GetTouchAngle(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return 0.0;
 }
 
-float GetTouchForce(const base::NativeEvent& native_event) {
+PointerDetails GetTouchPointerDetailsFromNative(
+    const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
-  return 0.0;
+  return PointerDetails(EventPointerType::POINTER_TYPE_TOUCH,
+                        /* radius_x */ 1.0,
+                        /* radius_y */ 1.0,
+                        /* force */ 0.f,
+                        /* tilt_x */ 0.f,
+                        /* tilt_y */ 0.f);
 }
 
 bool GetScrollOffsets(const base::NativeEvent& native_event,
@@ -356,17 +364,6 @@ bool GetFlingData(const base::NativeEvent& native_event,
   return false;
 }
 
-int GetModifiersFromACCEL(const ACCEL& accel) {
-  int modifiers = EF_NONE;
-  if (accel.fVirt & FSHIFT)
-    modifiers |= EF_SHIFT_DOWN;
-  if (accel.fVirt & FCONTROL)
-    modifiers |= EF_CONTROL_DOWN;
-  if (accel.fVirt & FALT)
-    modifiers |= EF_ALT_DOWN;
-  return modifiers;
-}
-
 int GetModifiersFromKeyState() {
   int modifiers = EF_NONE;
   if (ui::win::IsShiftPressed())
@@ -375,16 +372,16 @@ int GetModifiersFromKeyState() {
     modifiers |= EF_CONTROL_DOWN;
   if (ui::win::IsAltPressed())
     modifiers |= EF_ALT_DOWN;
-  if (ui::win::IsAltGrPressed())
-    modifiers |= EF_ALTGR_DOWN;
   if (ui::win::IsWindowsKeyPressed())
     modifiers |= EF_COMMAND_DOWN;
-  if (ui::win::IsCapsLockOn())
-    modifiers |= EF_CAPS_LOCK_DOWN;
+  if (ui::win::IsAltGrPressed())
+    modifiers |= EF_ALTGR_DOWN;
   if (ui::win::IsNumLockOn())
-    modifiers |= EF_NUM_LOCK_DOWN;
+    modifiers |= EF_NUM_LOCK_ON;
+  if (ui::win::IsCapsLockOn())
+    modifiers |= EF_CAPS_LOCK_ON;
   if (ui::win::IsScrollLockOn())
-    modifiers |= EF_SCROLL_LOCK_DOWN;
+    modifiers |= EF_SCROLL_LOCK_ON;
   return modifiers;
 }
 
@@ -396,7 +393,7 @@ bool IsMouseEventFromTouch(UINT message) {
 }
 
 // Conversion scan_code and LParam each other.
-// uint16 scan_code:
+// uint16_t scan_code:
 //     ui/events/keycodes/dom/keycode_converter_data.inc
 // 0 - 15bits: represetns the scan code.
 // 28 - 30 bits (0xE000): represents whether this is an extended key or not.
@@ -405,14 +402,14 @@ bool IsMouseEventFromTouch(UINT message) {
 //     http://msdn.microsoft.com/en-us/library/windows/desktop/ms644984.aspx
 // 16 - 23bits: represetns the scan code.
 // 24bit (0x0100): represents whether this is an extended key or not.
-uint16 GetScanCodeFromLParam(LPARAM l_param) {
-  uint16 scan_code = ((l_param >> 16) & 0x00FF);
+uint16_t GetScanCodeFromLParam(LPARAM l_param) {
+  uint16_t scan_code = ((l_param >> 16) & 0x00FF);
   if (l_param & (1 << 24))
     scan_code |= 0xE000;
   return scan_code;
 }
 
-LPARAM GetLParamFromScanCode(uint16 scan_code) {
+LPARAM GetLParamFromScanCode(uint16_t scan_code) {
   LPARAM l_param = static_cast<LPARAM>(scan_code & 0x00FF) << 16;
   if ((scan_code & 0xE000) == 0xE000)
     l_param |= (1 << 24);

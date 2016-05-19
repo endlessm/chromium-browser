@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include <map>
 
-#include "mojo/application/public/cpp/application_connection.h"
-#include "mojo/application/public/cpp/application_delegate.h"
-#include "mojo/application/public/cpp/application_runner.h"
-#include "mojo/application/public/cpp/interface_factory.h"
 #include "mojo/public/c/system/main.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/cpp/system/macros.h"
 #include "mojo/public/interfaces/bindings/tests/versioning_test_service.mojom.h"
+#include "mojo/shell/public/cpp/application_runner.h"
+#include "mojo/shell/public/cpp/interface_factory.h"
+#include "mojo/shell/public/cpp/shell_client.h"
 
 namespace mojo {
 namespace test {
@@ -93,19 +94,19 @@ class HumanResourceDatabaseImpl : public HumanResourceDatabase {
 };
 
 class HumanResourceSystemServer
-    : public ApplicationDelegate,
+    : public ShellClient,
       public InterfaceFactory<HumanResourceDatabase> {
  public:
   HumanResourceSystemServer() {}
 
-  // ApplicationDelegate implementation.
-  bool ConfigureIncomingConnection(ApplicationConnection* connection) override {
-    connection->AddService<HumanResourceDatabase>(this);
+  // mojo::ShellClient implementation.
+  bool AcceptConnection(Connection* connection) override {
+    connection->AddInterface<HumanResourceDatabase>(this);
     return true;
   }
 
   // InterfaceFactory<HumanResourceDatabase> implementation.
-  void Create(ApplicationConnection* connection,
+  void Create(Connection* connection,
               InterfaceRequest<HumanResourceDatabase> request) override {
     // It will be deleted automatically when the underlying pipe encounters a
     // connection error.
@@ -117,9 +118,9 @@ class HumanResourceSystemServer
 }  // namespace test
 }  // namespace mojo
 
-MojoResult MojoMain(MojoHandle application_request) {
+MojoResult MojoMain(MojoHandle request) {
   mojo::ApplicationRunner runner(
       new mojo::test::versioning::HumanResourceSystemServer());
 
-  return runner.Run(application_request);
+  return runner.Run(request);
 }

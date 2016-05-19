@@ -5,17 +5,20 @@
 #ifndef NET_URL_REQUEST_URL_REQUEST_HTTP_JOB_H_
 #define NET_URL_REQUEST_URL_REQUEST_HTTP_JOB_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "net/base/auth.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
 #include "net/base/sdch_manager.h"
 #include "net/cookies/cookie_store.h"
@@ -34,6 +37,7 @@ class HttpResponseInfo;
 class HttpTransaction;
 class HttpUserAgentSettings;
 class ProxyInfo;
+class SSLPrivateKey;
 class UploadDataStream;
 class URLRequestContext;
 
@@ -78,15 +82,11 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
   // Shadows URLRequestJob's version of this method so we can grab cookies.
   void NotifyHeadersComplete();
 
-  // Shadows URLRequestJob's method so we can record histograms.
-  void NotifyDone(const URLRequestStatus& status);
-
   void DestroyTransaction();
 
   void AddExtraHeaders();
   void AddCookieHeaderAndStart();
   void SaveCookiesAndNotifyHeadersComplete(int result);
-  void SaveNextCookie();
   void FetchResponseCookies(std::vector<std::string>* cookies);
 
   // Processes a Backoff header, if one exists.
@@ -121,6 +121,7 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
   bool GetRemoteEndpoint(IPEndPoint* endpoint) const override;
   bool GetResponseCookies(std::vector<std::string>* cookies) override;
   int GetResponseCode() const override;
+  void PopulateNetErrorDetails(NetErrorDetails* details) const override;
   Filter* SetupFilter() const override;
   bool CopyFragmentOnRedirect(const GURL& location) const override;
   bool IsSafeRedirect(const GURL& location) override;
@@ -128,13 +129,14 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
   void GetAuthChallengeInfo(scoped_refptr<AuthChallengeInfo>*) override;
   void SetAuth(const AuthCredentials& credentials) override;
   void CancelAuth() override;
-  void ContinueWithCertificate(X509Certificate* client_cert) override;
+  void ContinueWithCertificate(X509Certificate* client_cert,
+                               SSLPrivateKey* client_private_key) override;
   void ContinueDespiteLastError() override;
   void ResumeNetworkStart() override;
-  bool ReadRawData(IOBuffer* buf, int buf_size, int* bytes_read) override;
+  int ReadRawData(IOBuffer* buf, int buf_size) override;
   void StopCaching() override;
   bool GetFullRequestHeaders(HttpRequestHeaders* headers) const override;
-  int64 GetTotalReceivedBytes() const override;
+  int64_t GetTotalReceivedBytes() const override;
   int64_t GetTotalSentBytes() const override;
   void DoneReading() override;
   void DoneReadingRedirectResponse() override;
@@ -160,16 +162,8 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
   void DoneWithRequest(CompletionCause reason);
 
   // Callback functions for Cookie Monster
-  void DoLoadCookies();
-  void CheckCookiePolicyAndLoad(const CookieList& cookie_list);
-  void OnCookiesLoaded(const std::string& cookie_line);
+  void SetCookieHeaderAndStart(const CookieList& cookie_list);
   void DoStartTransaction();
-
-  // See the implementation for a description of save_next_cookie_running and
-  // callback_pending.
-  void OnCookieSaved(scoped_refptr<SharedBoolean> save_next_cookie_running,
-                     scoped_refptr<SharedBoolean> callback_pending,
-                     bool cookie_status);
 
   // Some servers send the body compressed, but specify the content length as
   // the uncompressed size. If this is the case, we return true in order
@@ -186,10 +180,6 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
 
   HttpRequestInfo request_info_;
   const HttpResponseInfo* response_info_;
-
-  std::vector<std::string> response_cookies_;
-  size_t response_cookies_save_index_;
-  base::Time response_date_;
 
   // Auth states for proxy and origin server.
   AuthState proxy_auth_state_;
@@ -237,7 +227,7 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
 
   // The number of bytes that have been accounted for in packets (where some of
   // those packets may possibly have had their time of arrival recorded).
-  int64 bytes_observed_in_packets_;
+  int64_t bytes_observed_in_packets_;
 
   // The request time may not be available when we are being destroyed, so we
   // snapshot it early on.

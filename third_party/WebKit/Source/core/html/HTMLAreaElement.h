@@ -52,19 +52,19 @@ private:
     explicit HTMLAreaElement(Document&);
     ~HTMLAreaElement();
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&, const AtomicString&) override;
     bool isKeyboardFocusable() const override;
     bool isMouseFocusable() const override;
     bool layoutObjectIsFocusable() const override;
     void updateFocusAppearance(SelectionBehaviorOnFocus) override;
     void setFocus(bool) override;
 
-    enum Shape { Default, Poly, Rect, Circle, Unknown };
+    enum Shape { Default, Poly, Rect, Circle };
     Path getRegion(const LayoutSize&) const;
     void invalidateCachedRegion();
 
     OwnPtr<Path> m_region;
-    Vector<Length> m_coords;
+    Vector<double> m_coords;
     LayoutSize m_lastSize;
     Shape m_shape;
 };

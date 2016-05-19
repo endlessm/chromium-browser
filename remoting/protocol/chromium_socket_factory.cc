@@ -4,9 +4,13 @@
 
 #include "remoting/protocol/chromium_socket_factory.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/time/time.h"
 #include "jingle/glue/utils.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
@@ -15,6 +19,7 @@
 #include "remoting/protocol/socket_util.h"
 #include "third_party/webrtc/base/asyncpacketsocket.h"
 #include "third_party/webrtc/base/nethelpers.h"
+#include "third_party/webrtc/media/base/rtputils.h"
 
 namespace remoting {
 namespace protocol {
@@ -36,7 +41,8 @@ class UdpPacketSocket : public rtc::AsyncPacketSocket {
   ~UdpPacketSocket() override;
 
   bool Init(const rtc::SocketAddress& local_address,
-            uint16 min_port, uint16 max_port);
+            uint16_t min_port,
+            uint16_t max_port);
 
   // rtc::AsyncPacketSocket interface.
   rtc::SocketAddress GetLocalAddress() const override;
@@ -115,17 +121,18 @@ UdpPacketSocket::~UdpPacketSocket() {
 }
 
 bool UdpPacketSocket::Init(const rtc::SocketAddress& local_address,
-                           uint16 min_port, uint16 max_port) {
+                           uint16_t min_port,
+                           uint16_t max_port) {
   net::IPEndPoint local_endpoint;
   if (!jingle_glue::SocketAddressToIPEndPoint(
           local_address, &local_endpoint)) {
     return false;
   }
 
-  for (uint32 port = min_port; port <= max_port; ++port) {
+  for (uint32_t port = min_port; port <= max_port; ++port) {
     socket_.reset(new net::UDPServerSocket(nullptr, net::NetLog::Source()));
     int result = socket_->Listen(
-        net::IPEndPoint(local_endpoint.address(), static_cast<uint16>(port)));
+        net::IPEndPoint(local_endpoint.address(), static_cast<uint16_t>(port)));
     if (result == net::OK) {
       break;
     } else {
@@ -189,7 +196,12 @@ int UdpPacketSocket::SendTo(const void* data, size_t data_size,
     return EWOULDBLOCK;
   }
 
-  send_queue_.push_back(PendingPacket(data, data_size, endpoint));
+  PendingPacket packet(data, data_size, endpoint);
+  cricket::ApplyPacketOptions(
+      reinterpret_cast<uint8_t*>(packet.data->data()), data_size,
+      options.packet_time_params,
+      (base::TimeTicks::Now() - base::TimeTicks()).InMilliseconds());
+  send_queue_.push_back(packet);
   send_queue_size_ += data_size;
 
   DoSend();
@@ -360,18 +372,19 @@ ChromiumPacketSocketFactory::~ChromiumPacketSocketFactory() {
 }
 
 rtc::AsyncPacketSocket* ChromiumPacketSocketFactory::CreateUdpSocket(
-      const rtc::SocketAddress& local_address,
-      uint16 min_port, uint16 max_port) {
+    const rtc::SocketAddress& local_address,
+    uint16_t min_port,
+    uint16_t max_port) {
   scoped_ptr<UdpPacketSocket> result(new UdpPacketSocket());
   if (!result->Init(local_address, min_port, max_port))
     return nullptr;
   return result.release();
 }
 
-rtc::AsyncPacketSocket*
-ChromiumPacketSocketFactory::CreateServerTcpSocket(
+rtc::AsyncPacketSocket* ChromiumPacketSocketFactory::CreateServerTcpSocket(
     const rtc::SocketAddress& local_address,
-    uint16 min_port, uint16 max_port,
+    uint16_t min_port,
+    uint16_t max_port,
     int opts) {
   // We don't use TCP sockets for remoting connections.
   NOTIMPLEMENTED();

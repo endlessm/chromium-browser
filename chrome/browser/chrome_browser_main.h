@@ -5,11 +5,12 @@
 #ifndef CHROME_BROWSER_CHROME_BROWSER_MAIN_H_
 #define CHROME_BROWSER_CHROME_BROWSER_MAIN_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/profiler/stack_sampling_profiler.h"
 #include "base/tracked_objects.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_browser_field_trials.h"
 #include "chrome/browser/chrome_process_singleton.h"
 #include "chrome/browser/first_run/first_run.h"
@@ -23,7 +24,6 @@ class BrowserProcessImpl;
 class ChromeBrowserMainExtraParts;
 class FieldTrialSynchronizer;
 class MetricsService;
-class MojoRunnerState;
 class PrefService;
 class ProcessPowerCollector;
 class Profile;
@@ -191,10 +191,6 @@ class ChromeBrowserMainParts : public content::BrowserMainParts {
 
   // Members needed across shutdown methods.
   bool restart_last_session_;
-
-#if defined(MOJO_RUNNER_CLIENT)
-  scoped_ptr<MojoRunnerState> mojo_runner_state_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(ChromeBrowserMainParts);
 };

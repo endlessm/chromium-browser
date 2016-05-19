@@ -4,9 +4,12 @@
 
 #include "components/rappor/rappor_prefs.h"
 
+#include <stdint.h>
+
 #include "base/base64.h"
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
 #include "base/test/histogram_tester.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/rappor/byte_vector_utils.h"
 #include "components/rappor/proto/rappor_metric.pb.h"
 #include "components/rappor/rappor_pref_names.h"

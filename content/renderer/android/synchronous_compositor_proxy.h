@@ -5,14 +5,19 @@
 #ifndef CONTENT_RENDERER_ANDROID_SYNCHRONOUS_COMPOSITOR_PROXY_H_
 #define CONTENT_RENDERER_ANDROID_SYNCHRONOUS_COMPOSITOR_PROXY_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/macros.h"
 #include "content/common/input/input_event_ack_state.h"
 #include "content/renderer/android/synchronous_compositor_external_begin_frame_source.h"
 #include "content/renderer/android/synchronous_compositor_output_surface.h"
 #include "content/renderer/input/input_handler_manager_client.h"
-#include "content/renderer/input/synchronous_input_handler_proxy.h"
+#include "ui/events/blink/synchronous_input_handler_proxy.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/geometry/size_f.h"
+
+class SkCanvas;
 
 namespace IPC {
 class Message;
@@ -33,22 +38,27 @@ class SynchronousCompositorOutputSurface;
 struct SyncCompositorCommonBrowserParams;
 struct SyncCompositorCommonRendererParams;
 struct SyncCompositorDemandDrawHwParams;
+struct SyncCompositorDemandDrawSwParams;
+struct SyncCompositorSetSharedMemoryParams;
 
 class SynchronousCompositorProxy
-    : public SynchronousInputHandler,
+    : public ui::SynchronousInputHandler,
       public SynchronousCompositorExternalBeginFrameSourceClient,
       public SynchronousCompositorOutputSurfaceClient {
  public:
+  // Called by browser side.
+  static void SetSkCanvasForDraw(SkCanvas* canvas);
+
   SynchronousCompositorProxy(
       int routing_id,
       IPC::Sender* sender,
       SynchronousCompositorOutputSurface* output_surface,
       SynchronousCompositorExternalBeginFrameSource* begin_frame_source,
-      SynchronousInputHandlerProxy* input_handler_proxy,
+      ui::SynchronousInputHandlerProxy* input_handler_proxy,
       InputHandlerManagerClient::Handler* handler);
   ~SynchronousCompositorProxy() override;
 
-  // SynchronousInputHandler overrides.
+  // ui::SynchronousInputHandler overrides.
   void SetNeedsSynchronousAnimateInput() override;
   void UpdateRootLayerState(const gfx::ScrollOffset& total_scroll_offset,
                             const gfx::ScrollOffset& max_scroll_offset,
@@ -62,15 +72,18 @@ class SynchronousCompositorProxy
 
   // SynchronousCompositorOutputSurfaceClient overrides.
   void Invalidate() override;
+  void SwapBuffers(cc::CompositorFrame* frame) override;
 
   void OnMessageReceived(const IPC::Message& message);
   bool Send(IPC::Message* message);
   void DidOverscroll(const DidOverscrollParams& did_overscroll_params);
 
  private:
+  struct SharedMemoryWithSize;
+
   void ProcessCommonParams(
       const SyncCompositorCommonBrowserParams& common_params);
-  void PopulateCommonParams(SyncCompositorCommonRendererParams* params);
+  void PopulateCommonParams(SyncCompositorCommonRendererParams* params) const;
 
   // IPC handlers.
   void HandleInputEvent(
@@ -81,15 +94,29 @@ class SynchronousCompositorProxy
   void BeginFrame(const SyncCompositorCommonBrowserParams& common_params,
                   const cc::BeginFrameArgs& args,
                   SyncCompositorCommonRendererParams* common_renderer_params);
-  void OnComputeScroll(
-      const SyncCompositorCommonBrowserParams& common_params,
-      base::TimeTicks animation_time,
-      SyncCompositorCommonRendererParams* common_renderer_params);
+  void OnComputeScroll(const SyncCompositorCommonBrowserParams& common_params,
+                       base::TimeTicks animation_time);
   void DemandDrawHw(const SyncCompositorCommonBrowserParams& common_params,
                     const SyncCompositorDemandDrawHwParams& params,
-                    SyncCompositorCommonRendererParams* common_renderer_params,
-                    cc::CompositorFrame* frame);
+                    IPC::Message* reply_message);
+  void SetSharedMemory(
+      const SyncCompositorCommonBrowserParams& common_params,
+      const SyncCompositorSetSharedMemoryParams& params,
+      bool* success,
+      SyncCompositorCommonRendererParams* common_renderer_params);
+  void ZeroSharedMemory();
+  void DemandDrawSw(const SyncCompositorCommonBrowserParams& common_params,
+                    const SyncCompositorDemandDrawSwParams& params,
+                    IPC::Message* reply_message);
 
+  void SwapBuffersHw(cc::CompositorFrame* frame);
+  void SendDemandDrawHwReply(cc::CompositorFrame* frame,
+                             IPC::Message* reply_message);
+  void DoDemandDrawSw(const SyncCompositorDemandDrawSwParams& params);
+  void SwapBuffersSw(cc::CompositorFrame* frame);
+  void SendDemandDrawSwReply(bool success,
+                             cc::CompositorFrame* frame,
+                             IPC::Message* reply_message);
   void DidActivatePendingTree();
   void DeliverMessages();
   void SendAsyncRendererStateIfNeeded();
@@ -98,14 +125,19 @@ class SynchronousCompositorProxy
   IPC::Sender* const sender_;
   SynchronousCompositorOutputSurface* const output_surface_;
   SynchronousCompositorExternalBeginFrameSource* const begin_frame_source_;
-  SynchronousInputHandlerProxy* const input_handler_proxy_;
+  ui::SynchronousInputHandlerProxy* const input_handler_proxy_;
   InputHandlerManagerClient::Handler* const input_handler_;
+  const bool use_in_process_zero_copy_software_draw_;
   bool inside_receive_;
+  IPC::Message* hardware_draw_reply_;
+  IPC::Message* software_draw_reply_;
 
   // From browser.
   size_t bytes_limit_;
+  scoped_ptr<SharedMemoryWithSize> software_draw_shm_;
 
-  uint32_t version_;
+  // To browser.
+  mutable uint32_t version_;  // Mustable so PopulateCommonParams can be const.
   gfx::ScrollOffset total_scroll_offset_;  // Modified by both.
   gfx::ScrollOffset max_scroll_offset_;
   gfx::SizeF scrollable_size_;
@@ -113,9 +145,9 @@ class SynchronousCompositorProxy
   float min_page_scale_factor_;
   float max_page_scale_factor_;
   bool need_animate_scroll_;
-  bool need_invalidate_;
+  uint32_t need_invalidate_count_;
   bool need_begin_frame_;
-  bool did_activate_pending_tree_;
+  uint32_t did_activate_pending_tree_count_;
 
   DISALLOW_COPY_AND_ASSIGN(SynchronousCompositorProxy);
 };

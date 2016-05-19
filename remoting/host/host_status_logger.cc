@@ -36,10 +36,9 @@ void HostStatusLogger::LogSessionStateChange(const std::string& jid,
   AddHostFieldsToLogEntry(entry.get());
   entry->AddModeField(log_to_server_.mode());
 
-  if (connected) {
-    DCHECK_EQ(connection_route_type_.count(jid), 1u);
+  if (connected && connection_route_type_.count(jid) > 0)
     AddConnectionTypeToLogEntry(entry.get(), connection_route_type_[jid]);
-  }
+
   log_to_server_.Log(*entry.get());
 }
 
@@ -60,7 +59,7 @@ void HostStatusLogger::OnClientRouteChange(
     const protocol::TransportRoute& route) {
   // Store connection type for the video channel. It is logged later
   // when client authentication is finished.
-  if (channel_name == kVideoChannelName || channel_name == kQuicChannelName) {
+  if (channel_name == kVideoChannelName) {
     connection_route_type_[jid] = route.type;
   }
 }

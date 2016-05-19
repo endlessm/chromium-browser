@@ -48,7 +48,7 @@ Tips for troopers
   - Monitoring alerts, including prober, collectd, and others
   - Disconnected build slaves
 
-- These alerts generally do not auto-dismiss ([issue here](https://code.google.com/p/skia/issues/detail?id=4292)):
+- These alerts generally do not auto-dismiss ([issue here](https://bug.skia.org/4292)):
   - Build slaves that failed a step
   - Disconnected devices (these are detected as the "wait for device" step failing)
 
@@ -72,7 +72,7 @@ Tips for troopers
   useful for questions regarding bots managed by the Chrome Infra team and to
   get visibility into upstream failures that cause problems for us.
 
-- To log in to a Linux buildbot in GCE, use `gcloud compute default@<machine
+- To log in to a Linux buildbot in GCE, use `gcloud compute ssh default@<machine
   name>`. Choose the zone listed for the
   [GCE VM](https://pantheon.corp.google.com/project/31977622648/compute/instances)
   (or specify it using the `--zone` command-line flag).

@@ -4,11 +4,14 @@
 
 #include "components/webcrypto/jwk.h"
 
+#include <stddef.h>
+
 #include <set>
 
 #include "base/base64url.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
@@ -94,7 +97,7 @@ scoped_ptr<base::ListValue> CreateJwkKeyOpsFromWebCryptoUsages(
     if (usages & kJwkWebCryptoUsageMap[i].webcrypto_usage)
       jwk_key_ops->AppendString(kJwkWebCryptoUsageMap[i].jwk_key_op);
   }
-  return jwk_key_ops.Pass();
+  return jwk_key_ops;
 }
 
 // Composes a Web Crypto usage mask from an array of JWK key_ops values.

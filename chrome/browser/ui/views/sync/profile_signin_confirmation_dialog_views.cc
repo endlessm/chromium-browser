@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/views/sync/profile_signin_confirmation_dialog_views.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/strings/utf_string_conversions.h"
@@ -132,10 +134,6 @@ bool ProfileSigninConfirmationDialogViews::Cancel() {
   return true;
 }
 
-void ProfileSigninConfirmationDialogViews::OnClosed() {
-  Cancel();
-}
-
 ui::ModalType ProfileSigninConfirmationDialogViews::GetModalType() const {
   return ui::MODAL_TYPE_WINDOW;
 }
@@ -148,7 +146,7 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
 
   const SkColor kPromptBarBackgroundColor =
       ui::GetSigninConfirmationPromptBarColor(
-          ui::kSigninConfirmationPromptBarBackgroundAlpha);
+          GetNativeTheme(), ui::kSigninConfirmationPromptBarBackgroundAlpha);
 
   // Create the prompt label.
   size_t offset;
@@ -170,12 +168,9 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
   // Create the prompt bar.
   views::View* prompt_bar = new views::View;
   prompt_bar->SetBorder(views::Border::CreateSolidSidedBorder(
-      1,
-      0,
-      1,
-      0,
+      1, 0, 1, 0,
       ui::GetSigninConfirmationPromptBarColor(
-          ui::kSigninConfirmationPromptBarBorderAlpha)));
+          GetNativeTheme(), ui::kSigninConfirmationPromptBarBorderAlpha)));
   prompt_bar->set_background(views::Background::CreateSolidBackground(
       kPromptBarBackgroundColor));
 
@@ -231,7 +226,12 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
       kPreferredWidth, explanation_label_->GetHeightForWidth(kPreferredWidth));
 }
 
+void ProfileSigninConfirmationDialogViews::WindowClosing() {
+  Cancel();
+}
+
 void ProfileSigninConfirmationDialogViews::StyledLabelLinkClicked(
+    views::StyledLabel* label,
     const gfx::Range& range,
     int event_flags) {
   chrome::NavigateParams params(

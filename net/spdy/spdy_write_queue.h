@@ -7,7 +7,7 @@
 
 #include <deque>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "net/base/net_export.h"
@@ -75,6 +75,7 @@ class NET_EXPORT_PRIVATE SpdyWriteQueue {
     PendingWrite(SpdyFrameType frame_type,
                  SpdyBufferProducer* frame_producer,
                  const base::WeakPtr<SpdyStream>& stream);
+    PendingWrite(const PendingWrite& other);
     ~PendingWrite();
   };
 

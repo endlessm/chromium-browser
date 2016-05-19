@@ -5,10 +5,15 @@
 #ifndef ANDROID_WEBVIEW_BROWSER_BROWSER_VIEW_RENDERER_H_
 #define ANDROID_WEBVIEW_BROWSER_BROWSER_VIEW_RENDERER_H_
 
+#include <stddef.h>
+
+#include <map>
+
 #include "android_webview/browser/parent_compositor_draw_constraints.h"
 #include "android_webview/browser/shared_renderer_state.h"
 #include "base/callback.h"
 #include "base/cancelable_callback.h"
+#include "base/macros.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/browser/android/synchronous_compositor.h"
 #include "content/public/browser/android/synchronous_compositor_client.h"
@@ -102,6 +107,7 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient {
       content::SynchronousCompositor* compositor) override;
   void DidDestroyCompositor(
       content::SynchronousCompositor* compositor) override;
+  void DidBecomeCurrent(content::SynchronousCompositor* compositor) override;
   void PostInvalidate() override;
   void DidUpdateContent() override;
   void UpdateRootLayerState(const gfx::Vector2dF& total_scroll_offset_dip,
@@ -151,6 +157,7 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient {
 
   void UpdateMemoryPolicy();
 
+  unsigned int GetCompositorID(content::SynchronousCompositor* compositor);
   // For debug tracing or logging. Return the string representation of this
   // view renderer's state.
   std::string ToString() const;
@@ -160,7 +167,12 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient {
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
   bool disable_page_visibility_;
 
+  // The current compositor that's owned by the current RVH.
   content::SynchronousCompositor* compositor_;
+  // A map from compositor's per-WebView unique ID to the compositor's raw
+  // pointer. A raw pointer here is fine because the entry will be erased when
+  // a compositor is destroyed.
+  std::map<size_t, content::SynchronousCompositor*> compositor_map_;
 
   bool is_paused_;
   bool view_visible_;
@@ -200,6 +212,8 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient {
   // spot over a period of time).
   // TODO(miletus): Make overscroll_rounding_error_ a gfx::ScrollOffset.
   gfx::Vector2dF overscroll_rounding_error_;
+
+  unsigned int next_compositor_id_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserViewRenderer);
 };

@@ -171,20 +171,27 @@ class NetEq {
   // The speech type is written to |type|, if |type| is not NULL.
   // Returns kOK on success, or kFail in case of an error.
   virtual int GetAudio(size_t max_length, int16_t* output_audio,
-                       size_t* samples_per_channel, int* num_channels,
+                       size_t* samples_per_channel, size_t* num_channels,
                        NetEqOutputType* type) = 0;
 
-  // Associates |rtp_payload_type| with |codec| and stores the information in
-  // the codec database. Returns 0 on success, -1 on failure.
+  // Associates |rtp_payload_type| with |codec| and |codec_name|, and stores the
+  // information in the codec database. Returns 0 on success, -1 on failure.
+  // The name is only used to provide information back to the caller about the
+  // decoders. Hence, the name is arbitrary, and may be empty.
   virtual int RegisterPayloadType(NetEqDecoder codec,
+                                  const std::string& codec_name,
                                   uint8_t rtp_payload_type) = 0;
 
   // Provides an externally created decoder object |decoder| to insert in the
   // decoder database. The decoder implements a decoder of type |codec| and
-  // associates it with |rtp_payload_type|. The decoder will produce samples
-  // at the rate |sample_rate_hz|. Returns kOK on success, kFail on failure.
+  // associates it with |rtp_payload_type| and |codec_name|. The decoder will
+  // produce samples at the rate |sample_rate_hz|. Returns kOK on success, kFail
+  // on failure.
+  // The name is only used to provide information back to the caller about the
+  // decoders. Hence, the name is arbitrary, and may be empty.
   virtual int RegisterExternalDecoder(AudioDecoder* decoder,
                                       NetEqDecoder codec,
+                                      const std::string& codec_name,
                                       uint8_t rtp_payload_type,
                                       int sample_rate_hz) = 0;
 
@@ -250,6 +257,11 @@ class NetEq {
   // Gets the RTP timestamp for the last sample delivered by GetAudio().
   // Returns true if the RTP timestamp is valid, otherwise false.
   virtual bool GetPlayoutTimestamp(uint32_t* timestamp) = 0;
+
+  // Returns the sample rate in Hz of the audio produced in the last GetAudio
+  // call. If GetAudio has not been called yet, the configured sample rate
+  // (Config::sample_rate_hz) is returned.
+  virtual int last_output_sample_rate_hz() const = 0;
 
   // Not implemented.
   virtual int SetTargetNumberOfChannels() = 0;

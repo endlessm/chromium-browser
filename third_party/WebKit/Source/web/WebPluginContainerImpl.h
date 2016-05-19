@@ -55,7 +55,6 @@ class ResourceError;
 class ResourceResponse;
 class TouchEvent;
 class WebPlugin;
-class WebPluginLoadObserver;
 class WheelEvent;
 class Widget;
 struct WebPrintParams;
@@ -63,6 +62,7 @@ struct WebPrintPresetOptions;
 
 class WebPluginContainerImpl final : public PluginView, public WebPluginContainer, public LocalFrameLifecycleObserver {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(WebPluginContainerImpl);
+    WILL_BE_USING_PRE_FINALIZER(WebPluginContainerImpl, dispose);
 public:
     static PassRefPtrWillBeRawPtr<WebPluginContainerImpl> create(HTMLPlugInElement* element, WebPlugin* webPlugin)
     {
@@ -77,12 +77,12 @@ public:
     bool supportsInputMethod() const override;
     bool canProcessDrag() const override;
     bool wantsWheelEvents() override;
-    void layoutIfNeeded() override;
+    void updateAllLifecyclePhases() override;
     void invalidatePaintIfNeeded() override { issuePaintInvalidations(); }
 
     // Widget methods
     void setFrameRect(const IntRect&) override;
-    void paint(GraphicsContext*, const CullRect&) const override;
+    void paint(GraphicsContext&, const CullRect&) const override;
     void invalidateRect(const IntRect&) override;
     void setFocus(bool, WebFocusType) override;
     void show() override;
@@ -91,23 +91,24 @@ public:
     void frameRectsChanged() override;
     void setParentVisible(bool) override;
     void setParent(Widget*) override;
-    void widgetPositionsUpdated() override;
+    void widgetGeometryMayHaveChanged() override;
     bool isPluginContainer() const override { return true; }
     void eventListenersRemoved() override;
 
     // WebPluginContainer methods
     WebElement element() override;
+    void dispatchProgressEvent(const WebString& type, bool lengthComputable, unsigned long long loaded, unsigned long long total, const WebString& url) override;
     void invalidate() override;
     void invalidateRect(const WebRect&) override;
     void scrollRect(const WebRect&) override;
-    void setNeedsLayout() override;
+    void scheduleAnimation() override;
     void reportGeometry() override;
     void allowScriptObjects() override;
     void clearScriptObjects() override;
     NPObject* scriptableObjectForElement() override;
     v8::Local<v8::Object> v8ObjectForElement() override;
     WebString executeScriptURL(const WebURL&, bool popupsAllowed) override;
-    void loadFrameRequest(const WebURLRequest&, const WebString& target, bool notifyNeeded, void* notifyData) override;
+    void loadFrameRequest(const WebURLRequest&, const WebString& target) override;
     bool isRectTopmost(const WebRect&) override;
     void requestTouchEventType(TouchEventRequestType) override;
     void setWantsWheelEvents(bool) override;
@@ -138,7 +139,7 @@ public:
     // Sets up printing at the specified WebPrintParams. Returns the number of pages to be printed at these settings.
     int printBegin(const WebPrintParams&) const;
     // Prints the page specified by pageNumber (0-based index) into the supplied canvas.
-    void printPage(int pageNumber, GraphicsContext*, const IntRect& paintRect);
+    void printPage(int pageNumber, GraphicsContext&, const IntRect& paintRect);
     // Ends the print operation.
     void printEnd();
 
@@ -152,20 +153,11 @@ public:
     // Resource load events for the plugin's source data:
     void didReceiveResponse(const ResourceResponse&) override;
     void didReceiveData(const char *data, int dataLength) override;
-    void didFinishLoading() override;
-    void didFailLoading(const ResourceError&) override;
-
-#if !ENABLE(OILPAN)
-    void willDestroyPluginLoadObserver(WebPluginLoadObserver*);
-#endif
+    void didFinishLoading();
+    void didFailLoading(const ResourceError&);
 
     DECLARE_VIRTUAL_TRACE();
     void dispose() override;
-
-#if ENABLE(OILPAN)
-    LocalFrame* pluginFrame() const override { return frame(); }
-    void shouldDisposePlugin() override;
-#endif
 
 private:
     // Sets |windowRect| to the content rect of the plugin in screen space.
@@ -203,9 +195,6 @@ private:
 
     RawPtrWillBeMember<HTMLPlugInElement> m_element;
     WebPlugin* m_webPlugin;
-#if !ENABLE(OILPAN)
-    Vector<WebPluginLoadObserver*> m_pluginLoadObservers;
-#endif
 
     WebLayer* m_webLayer;
 
@@ -214,12 +203,7 @@ private:
     TouchEventRequestType m_touchEventRequestType;
     bool m_wantsWheelEvents;
 
-    bool m_inDispose;
-#if ENABLE(OILPAN)
-    // Oilpan: if true, the plugin container must dispose
-    // of its plugin when being finalized.
-    bool m_shouldDisposePlugin;
-#endif
+    bool m_isDisposed;
 };
 
 DEFINE_TYPE_CASTS(WebPluginContainerImpl, Widget, widget, widget->isPluginContainer(), widget.isPluginContainer());

@@ -34,20 +34,24 @@
  * @extends {WebInspector.Object}
  * @implements {WebInspector.ContentProvider}
  * @param {!WebInspector.Project} project
- * @param {string} parentPath
- * @param {string} name
- * @param {string} originURL
+ * @param {string} url
  * @param {!WebInspector.ResourceType} contentType
  */
-WebInspector.UISourceCode = function(project, parentPath, name, originURL, contentType)
+WebInspector.UISourceCode = function(project, url, contentType)
 {
     this._project = project;
-    this._parentPath = parentPath;
-    this._name = name;
-    this._originURL = originURL;
+    this._url = url;
+
+    var pathComponents = WebInspector.ParsedURL.splitURLIntoPathComponents(url);
+    this._origin = pathComponents[0];
+    this._parentURL = pathComponents.slice(0, -1).join("/");
+    this._name = pathComponents[pathComponents.length - 1];
+
     this._contentType = contentType;
-    /** @type {!Array.<function(?string)>} */
-    this._requestContentCallbacks = [];
+    /** @type {?function(?string)} */
+    this._requestContentCallback = null;
+    /** @type {?Promise<?string>} */
+    this._requestContentPromise = null;
 
     /** @type {!Array.<!WebInspector.Revision>} */
     this.history = [];
@@ -81,17 +85,25 @@ WebInspector.UISourceCode.prototype = {
     /**
      * @return {string}
      */
-    parentPath: function()
+    url: function()
     {
-        return this._parentPath;
+        return this._url;
     },
 
     /**
      * @return {string}
      */
-    path: function()
+    parentURL: function()
     {
-        return this._parentPath ? this._parentPath + "/" + this._name : this._name;
+        return this._parentURL;
+    },
+
+    /**
+     * @return {string}
+     */
+    origin: function()
+    {
+        return this._origin;
     },
 
     /**
@@ -99,7 +111,12 @@ WebInspector.UISourceCode.prototype = {
      */
     fullDisplayName: function()
     {
-        return this._project.displayName() + "/" + (this._parentPath ? this._parentPath + "/" : "") + this.displayName(true);
+        var parentPath = this._parentURL.replace(/^(?:https?|file)\:\/\//, "");
+        try {
+            parentPath = decodeURI(parentPath);
+        } catch (e) {
+        }
+        return parentPath + "/" + this.displayName(true);
     },
 
     /**
@@ -108,29 +125,22 @@ WebInspector.UISourceCode.prototype = {
      */
     displayName: function(skipTrim)
     {
-        var displayName = this.name() || WebInspector.UIString("(index)");
-        return skipTrim ? displayName : displayName.trimEnd(100);
+        if (!this._name)
+            return WebInspector.UIString("(index)");
+        var name = this._name;
+        try {
+            name = decodeURI(name);
+        } catch (e) {
+        }
+        return skipTrim ? name : name.trimEnd(100);
     },
 
     /**
-     * @return {string}
+     * @return {boolean}
      */
-    uri: function()
+    isFromServiceProject: function()
     {
-        var path = this.path();
-        if (!this._project.url())
-            return path;
-        if (!path)
-            return this._project.url();
-        return this._project.url() + "/" + path;
-    },
-
-    /**
-     * @return {string}
-     */
-    originURL: function()
-    {
-        return this._originURL;
+        return WebInspector.Project.isServiceProject(this._project);
     },
 
     /**
@@ -152,37 +162,38 @@ WebInspector.UISourceCode.prototype = {
         /**
          * @param {boolean} success
          * @param {string=} newName
-         * @param {string=} newOriginURL
+         * @param {string=} newURL
          * @param {!WebInspector.ResourceType=} newContentType
          * @this {WebInspector.UISourceCode}
          */
-        function innerCallback(success, newName, newOriginURL, newContentType)
+        function innerCallback(success, newName, newURL, newContentType)
         {
             if (success)
-                this._updateName(/** @type {string} */ (newName), /** @type {string} */ (newOriginURL), /** @type {!WebInspector.ResourceType} */ (newContentType));
+                this._updateName(/** @type {string} */ (newName), /** @type {string} */ (newURL), /** @type {!WebInspector.ResourceType} */ (newContentType));
             callback(success);
         }
     },
 
     remove: function()
     {
-        this._project.deleteFile(this.path());
+        this._project.deleteFile(this.url());
     },
 
     /**
      * @param {string} name
-     * @param {string} originURL
+     * @param {string} url
      * @param {!WebInspector.ResourceType=} contentType
      */
-    _updateName: function(name, originURL, contentType)
+    _updateName: function(name, url, contentType)
     {
-        var oldURI = this.uri();
+        var oldURД = this.url();
+        this._url = this._url.substring(0, this._url.length - this._name.length) + name;
         this._name = name;
-        if (originURL)
-            this._originURL = originURL;
+        if (url)
+            this._url = url;
         if (contentType)
             this._contentType = contentType;
-        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.TitleChanged, oldURI);
+        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.TitleChanged, oldURД);
     },
 
     /**
@@ -191,7 +202,7 @@ WebInspector.UISourceCode.prototype = {
      */
     contentURL: function()
     {
-        return this.originURL();
+        return this.url();
     },
 
     /**
@@ -212,26 +223,20 @@ WebInspector.UISourceCode.prototype = {
     },
 
     /**
-     * @param {function(?Date, ?number)} callback
-     */
-    requestMetadata: function(callback)
-    {
-        this._project.requestMetadata(this, callback);
-    },
-
-    /**
      * @override
-     * @param {function(?string)} callback
+     * @return {!Promise<?string>}
      */
-    requestContent: function(callback)
+    requestContent: function()
     {
-        if (this._content || this._contentLoaded) {
-            callback(this._content);
-            return;
-        }
-        this._requestContentCallbacks.push(callback);
-        if (this._requestContentCallbacks.length === 1)
+        if (this._content || this._contentLoaded)
+            return Promise.resolve(this._content);
+        var promise = this._requestContentPromise;
+        if (!promise) {
+            promise = new Promise(fulfill => this._requestContentCallback = fulfill);
+            this._requestContentPromise = promise;
             this._project.requestFileContent(this, this._fireContentAvailable.bind(this));
+        }
+        return promise;
     },
 
     /**
@@ -323,11 +328,14 @@ WebInspector.UISourceCode.prototype = {
     },
 
     /**
-     * @param {function(?string)} callback
+     * @return {!Promise<?string>}
      */
-    requestOriginalContent: function(callback)
+    requestOriginalContent: function()
     {
+        var callback;
+        var promise = new Promise(fulfill => callback = fulfill);
         this._project.requestFileContent(this, callback);
+        return promise;
     },
 
     /**
@@ -341,9 +349,9 @@ WebInspector.UISourceCode.prototype = {
             wasPersisted = true;
         } else if (this._project.workspace().hasResourceContentTrackingExtensions()) {
             wasPersisted = true;
-        } else if (this._originURL && WebInspector.fileManager.isURLSaved(this._originURL)) {
-            WebInspector.fileManager.save(this._originURL, content, false, function() { });
-            WebInspector.fileManager.close(this._originURL);
+        } else if (this._url && WebInspector.fileManager.isURLSaved(this._url)) {
+            WebInspector.fileManager.save(this._url, content, false, function() { });
+            WebInspector.fileManager.close(this._url);
             wasPersisted = true;
         }
         this._contentCommitted(content, wasPersisted, true);
@@ -376,8 +384,8 @@ WebInspector.UISourceCode.prototype = {
 
     saveAs: function()
     {
-        WebInspector.fileManager.save(this._originURL, this.workingCopy(), true, callback.bind(this));
-        WebInspector.fileManager.close(this._originURL);
+        WebInspector.fileManager.save(this._url, this.workingCopy(), true, callback.bind(this));
+        WebInspector.fileManager.close(this._url);
 
         /**
          * @param {boolean} accepted
@@ -406,6 +414,9 @@ WebInspector.UISourceCode.prototype = {
         this._commitContent(content);
     },
 
+    /**
+     * @return {!Promise}
+     */
     revertToOriginal: function()
     {
         /**
@@ -421,7 +432,7 @@ WebInspector.UISourceCode.prototype = {
         }
 
         WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.RevisionApplied);
-        this.requestOriginalContent(callback.bind(this));
+        return this.requestOriginalContent().then(callback.bind(this));
     },
 
     /**
@@ -444,7 +455,7 @@ WebInspector.UISourceCode.prototype = {
         }
 
         WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.RevisionApplied);
-        this.requestOriginalContent(revert.bind(this));
+        this.requestOriginalContent().then(revert.bind(this));
     },
 
     /**
@@ -518,12 +529,7 @@ WebInspector.UISourceCode.prototype = {
      */
     extension: function()
     {
-        var lastIndexOfDot = this._name.lastIndexOf(".");
-        var extension = lastIndexOfDot !== -1 ? this._name.substr(lastIndexOfDot + 1) : "";
-        var indexOfQuestionMark = extension.indexOf("?");
-        if (indexOfQuestionMark !== -1)
-            extension = extension.substr(0, indexOfQuestionMark);
-        return extension;
+        return WebInspector.TextUtils.extension(this._name);
     },
 
     /**
@@ -560,10 +566,11 @@ WebInspector.UISourceCode.prototype = {
         this._contentLoaded = true;
         this._content = content;
 
-        var callbacks = this._requestContentCallbacks.slice();
-        this._requestContentCallbacks = [];
-        for (var i = 0; i < callbacks.length; ++i)
-            callbacks[i](content);
+        var callback = this._requestContentCallback;
+        this._requestContentCallback = null;
+        this._requestContentPromise = null;
+
+        callback.call(null, content);
     },
 
     /**
@@ -601,9 +608,20 @@ WebInspector.UISourceCode.prototype = {
      * @param {number=} columnNumber
      * @return {!WebInspector.UISourceCode.Message} message
      */
-    addMessage: function(level, text, lineNumber, columnNumber)
+    addLineMessage: function(level, text, lineNumber, columnNumber)
     {
-        var message = new WebInspector.UISourceCode.Message(this, level, text, lineNumber, columnNumber);
+        return this.addMessage(level, text, new WebInspector.TextRange(lineNumber, columnNumber || 0, lineNumber, columnNumber || 0));
+    },
+
+    /**
+     * @param {!WebInspector.UISourceCode.Message.Level} level
+     * @param {string} text
+     * @param {!WebInspector.TextRange} range
+     * @return {!WebInspector.UISourceCode.Message} message
+     */
+    addMessage: function(level, text, range)
+    {
+        var message = new WebInspector.UISourceCode.Message(this, level, text, range);
         this._messages.push(message);
         this.dispatchEventToListeners(WebInspector.UISourceCode.Events.MessageAdded, message);
         return message;
@@ -659,7 +677,7 @@ WebInspector.UILocation.prototype = {
      */
     id: function()
     {
-        return this.uiSourceCode.project().id() + ":" + this.uiSourceCode.uri() + ":" + this.lineNumber + ":" + this.columnNumber;
+        return this.uiSourceCode.project().id() + ":" + this.uiSourceCode.url() + ":" + this.lineNumber + ":" + this.columnNumber;
     },
 
     /**
@@ -667,7 +685,7 @@ WebInspector.UILocation.prototype = {
      */
     toUIString: function()
     {
-        return this.uiSourceCode.uri() + ":" + (this.lineNumber + 1);
+        return this.uiSourceCode.url() + ":" + (this.lineNumber + 1);
     }
 }
 
@@ -710,19 +728,22 @@ WebInspector.Revision.prototype = {
         return this._content || null;
     },
 
+    /**
+     * @return {!Promise}
+     */
     revertToThis: function()
     {
         /**
-         * @param {string} content
+         * @param {?string} content
          * @this {WebInspector.Revision}
          */
         function revert(content)
         {
-            if (this._uiSourceCode._content !== content)
+            if (content && this._uiSourceCode._content !== content)
                 this._uiSourceCode.addRevision(content);
         }
         WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.RevisionApplied);
-        this.requestContent(revert.bind(this));
+        return this.requestContent().then(revert.bind(this));
     },
 
     /**
@@ -731,7 +752,7 @@ WebInspector.Revision.prototype = {
      */
     contentURL: function()
     {
-        return this._uiSourceCode.originURL();
+        return this._uiSourceCode.url();
     },
 
     /**
@@ -745,11 +766,11 @@ WebInspector.Revision.prototype = {
 
     /**
      * @override
-     * @param {function(string)} callback
+     * @return {!Promise<?string>}
      */
-    requestContent: function(callback)
+    requestContent: function()
     {
-        callback(this._content || "");
+        return Promise.resolve(/** @type {?string} */(this._content || ""));
     },
 
     /**
@@ -770,16 +791,14 @@ WebInspector.Revision.prototype = {
  * @param {!WebInspector.UISourceCode} uiSourceCode
  * @param {!WebInspector.UISourceCode.Message.Level} level
  * @param {string} text
- * @param {number} lineNumber
- * @param {number=} columnNumber
+ * @param {!WebInspector.TextRange} range
  */
-WebInspector.UISourceCode.Message = function(uiSourceCode, level, text, lineNumber, columnNumber)
+WebInspector.UISourceCode.Message = function(uiSourceCode, level, text, range)
 {
     this._uiSourceCode = uiSourceCode;
     this._level = level;
     this._text = text;
-    this._lineNumber = lineNumber;
-    this._columnNumber = columnNumber;
+    this._range = range;
 }
 
 /**
@@ -816,11 +835,18 @@ WebInspector.UISourceCode.Message.prototype = {
     },
 
     /**
+     * @return {!WebInspector.TextRange}
+     */
+    range: function() {
+        return this._range;
+    },
+
+    /**
      * @return {number}
      */
     lineNumber: function()
     {
-        return this._lineNumber;
+        return this._range.startLine;
     },
 
     /**
@@ -828,7 +854,7 @@ WebInspector.UISourceCode.Message.prototype = {
      */
     columnNumber: function()
     {
-        return this._columnNumber;
+        return this._range.startColumn;
     },
 
     /**
@@ -837,7 +863,7 @@ WebInspector.UISourceCode.Message.prototype = {
      */
     isEqual: function(another)
     {
-        return this._uiSourceCode === another._uiSourceCode && this.text() === another.text() && this.level() === another.level() && this.lineNumber() === another.lineNumber() && this.columnNumber() === another.columnNumber();
+        return this._uiSourceCode === another._uiSourceCode && this.text() === another.text() && this.level() === another.level() && this.range().equal(another.range());
     },
 
     remove: function()

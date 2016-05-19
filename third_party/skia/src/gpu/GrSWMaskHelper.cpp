@@ -7,17 +7,16 @@
 
 #include "GrSWMaskHelper.h"
 
-#include "GrPipelineBuilder.h"
 #include "GrCaps.h"
 #include "GrDrawTarget.h"
 #include "GrGpu.h"
+#include "GrPipelineBuilder.h"
 
 #include "SkData.h"
 #include "SkDistanceFieldGen.h"
 #include "SkStrokeRec.h"
 
-// TODO: try to remove this #include
-#include "GrContext.h"
+#include "batches/GrRectBatchFactory.h"
 
 namespace {
 
@@ -253,17 +252,11 @@ GrTexture* GrSWMaskHelper::createTexture() {
 
 void GrSWMaskHelper::sendTextureData(GrTexture *texture, const GrSurfaceDesc& desc,
                                      const void *data, size_t rowbytes) {
-    // If we aren't reusing scratch textures we don't need to flush before
-    // writing since no one else will be using 'texture'
-    bool reuseScratch = fContext->caps()->reuseScratchTextures();
-
     // Since we're uploading to it, and it's compressed, 'texture' shouldn't
     // have a render target.
     SkASSERT(nullptr == texture->asRenderTarget());
 
-    texture->writePixels(0, 0, desc.fWidth, desc.fHeight,
-                         desc.fConfig, data, rowbytes,
-                         reuseScratch ? 0 : GrContext::kDontFlush_PixelOpsFlag);
+    texture->writePixels(0, 0, desc.fWidth, desc.fHeight, desc.fConfig, data, rowbytes);
 }
 
 void GrSWMaskHelper::compressTextureData(GrTexture *texture, const GrSurfaceDesc& desc) {
@@ -286,7 +279,7 @@ void GrSWMaskHelper::toTexture(GrTexture *texture) {
     desc.fWidth = fPixels.width();
     desc.fHeight = fPixels.height();
     desc.fConfig = texture->config();
-        
+
     // First see if we should compress this texture before uploading.
     switch (fCompressionMode) {
         case kNone_CompressionMode:
@@ -372,5 +365,7 @@ void GrSWMaskHelper::DrawToTargetWithPathMask(GrTexture* texture,
                                                        GrTextureParams::kNone_FilterMode,
                                                        kDevice_GrCoordSet))->unref();
 
-    target->drawNonAARect(*pipelineBuilder, color, SkMatrix::I(), dstRect, invert);
+    SkAutoTUnref<GrDrawBatch> batch(GrRectBatchFactory::CreateNonAAFill(color, SkMatrix::I(),
+                                                                        dstRect, nullptr, &invert));
+    target->drawBatch(*pipelineBuilder, batch);
 }

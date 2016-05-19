@@ -4,22 +4,22 @@
 
 #include "ui/views/bubble/bubble_delegate.h"
 
+#include "build/build_config.h"
 #include "ui/accessibility/ax_view_state.h"
+#include "ui/base/default_style.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/focus/view_storage.h"
+#include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 
 #if defined(OS_WIN)
 #include "ui/base/win/shell.h"
 #endif
-
-// The defaut margin between the content and the inside border, in pixels.
-static const int kDefaultMargin = 6;
 
 namespace views {
 
@@ -51,25 +51,10 @@ Widget* CreateBubbleWidget(BubbleDelegateView* bubble) {
 const char BubbleDelegateView::kViewClassName[] = "BubbleDelegateView";
 
 BubbleDelegateView::BubbleDelegateView()
-    : close_on_esc_(true),
-      close_on_deactivate_(true),
-      anchor_view_storage_id_(ViewStorage::GetInstance()->CreateStorageID()),
-      anchor_widget_(NULL),
-      arrow_(BubbleBorder::TOP_LEFT),
-      shadow_(BubbleBorder::SMALL_SHADOW),
-      color_explicitly_set_(false),
-      margins_(kDefaultMargin, kDefaultMargin, kDefaultMargin, kDefaultMargin),
-      accept_events_(true),
-      border_accepts_events_(true),
-      adjust_if_offscreen_(true),
-      parent_window_(NULL) {
-  AddAccelerator(ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE));
-  UpdateColorsFromTheme(GetNativeTheme());
-}
+    : BubbleDelegateView(nullptr, BubbleBorder::TOP_LEFT) {}
 
-BubbleDelegateView::BubbleDelegateView(
-    View* anchor_view,
-    BubbleBorder::Arrow arrow)
+BubbleDelegateView::BubbleDelegateView(View* anchor_view,
+                                       BubbleBorder::Arrow arrow)
     : close_on_esc_(true),
       close_on_deactivate_(true),
       anchor_view_storage_id_(ViewStorage::GetInstance()->CreateStorageID()),
@@ -77,12 +62,17 @@ BubbleDelegateView::BubbleDelegateView(
       arrow_(arrow),
       shadow_(BubbleBorder::SMALL_SHADOW),
       color_explicitly_set_(false),
-      margins_(kDefaultMargin, kDefaultMargin, kDefaultMargin, kDefaultMargin),
+      margins_(kPanelVertMargin,
+               kPanelHorizMargin,
+               kPanelVertMargin,
+               kPanelHorizMargin),
       accept_events_(true),
       border_accepts_events_(true),
       adjust_if_offscreen_(true),
-      parent_window_(NULL) {
-  SetAnchorView(anchor_view);
+      parent_window_(NULL),
+      close_reason_(CloseReason::UNKNOWN) {
+  if (anchor_view)
+    SetAnchorView(anchor_view);
   AddAccelerator(ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE));
   UpdateColorsFromTheme(GetNativeTheme());
 }
@@ -131,10 +121,14 @@ View* BubbleDelegateView::GetContentsView() {
 
 NonClientFrameView* BubbleDelegateView::CreateNonClientFrameView(
     Widget* widget) {
-  BubbleFrameView* frame = new BubbleFrameView(margins());
+  BubbleFrameView* frame = new BubbleFrameView(
+      gfx::Insets(kPanelVertMargin, kPanelHorizMargin, 0, kPanelHorizMargin),
+      margins());
   // Note: In CreateBubble, the call to SizeToContents() will cause
   // the relayout that this call requires.
   frame->SetTitleFontList(GetTitleFontList());
+  frame->SetFootnoteView(CreateFootnoteView());
+
   BubbleBorder::Arrow adjusted_arrow = arrow();
   if (base::i18n::IsRTL())
     adjusted_arrow = BubbleBorder::horizontal_mirror(adjusted_arrow);
@@ -149,6 +143,14 @@ void BubbleDelegateView::GetAccessibleState(ui::AXViewState* state) {
 
 const char* BubbleDelegateView::GetClassName() const {
   return kViewClassName;
+}
+
+void BubbleDelegateView::OnWidgetClosing(Widget* widget) {
+  DCHECK(GetBubbleFrameView());
+  if (widget == GetWidget() && close_reason_ == CloseReason::UNKNOWN &&
+      GetBubbleFrameView()->close_button_clicked()) {
+    close_reason_ = CloseReason::CLOSE_BUTTON;
+  }
 }
 
 void BubbleDelegateView::OnWidgetDestroying(Widget* widget) {
@@ -175,8 +177,11 @@ void BubbleDelegateView::OnWidgetVisibilityChanged(Widget* widget,
 
 void BubbleDelegateView::OnWidgetActivationChanged(Widget* widget,
                                                    bool active) {
-  if (close_on_deactivate() && widget == GetWidget() && !active)
+  if (close_on_deactivate() && widget == GetWidget() && !active) {
+    if (close_reason_ == CloseReason::UNKNOWN)
+      close_reason_ = CloseReason::DEACTIVATION;
     GetWidget()->Close();
+  }
 }
 
 void BubbleDelegateView::OnWidgetBoundsChanged(Widget* widget,
@@ -202,6 +207,15 @@ void BubbleDelegateView::OnBeforeBubbleWidgetInit(Widget::InitParams* params,
                                                   Widget* widget) const {
 }
 
+scoped_ptr<View> BubbleDelegateView::CreateFootnoteView() {
+  return nullptr;
+}
+
+void BubbleDelegateView::UseCompactMargins() {
+  const int kCompactMargin = 6;
+  margins_.Set(kCompactMargin, kCompactMargin, kCompactMargin, kCompactMargin);
+}
+
 void BubbleDelegateView::SetAlignment(BubbleBorder::BubbleAlignment alignment) {
   GetBubbleFrameView()->bubble_border()->set_alignment(alignment);
   SizeToContents();
@@ -221,6 +235,7 @@ bool BubbleDelegateView::AcceleratorPressed(
     const ui::Accelerator& accelerator) {
   if (!close_on_esc() || accelerator.key_code() != ui::VKEY_ESCAPE)
     return false;
+  close_reason_ = CloseReason::ESCAPE;
   GetWidget()->Close();
   return true;
 }
@@ -287,9 +302,8 @@ gfx::Rect BubbleDelegateView::GetBubbleBounds() {
 
 const gfx::FontList& BubbleDelegateView::GetTitleFontList() const {
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  return rb.GetFontList(ui::ResourceBundle::MediumFont);
+  return rb.GetFontListWithDelta(ui::kTitleFontSizeDelta);
 }
-
 
 void BubbleDelegateView::UpdateColorsFromTheme(const ui::NativeTheme* theme) {
   if (!color_explicitly_set_)

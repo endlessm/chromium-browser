@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/CSSUnicodeRangeValue.h"
 
 #include "wtf/text/WTFString.h"
@@ -42,4 +41,4 @@ bool CSSUnicodeRangeValue::equals(const CSSUnicodeRangeValue& other) const
     return m_from == other.m_from && m_to == other.m_to;
 }
 
-}
+} // namespace blink

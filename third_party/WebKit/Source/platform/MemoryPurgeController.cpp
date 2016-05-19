@@ -2,29 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/MemoryPurgeController.h"
 
+#include "base/sys_info.h"
 #include "platform/TraceEvent.h"
+#include "platform/graphics/ImageDecodingStore.h"
 #include "public/platform/Platform.h"
 #include "wtf/Partitions.h"
 
-namespace {
-
-// TODO(bashi): Determine appropriate value for this interval.
-const size_t kInactiveTimerIntervalInSecond = 10;
-
-} // namespace
-
 namespace blink {
+
+void MemoryPurgeController::onMemoryPressure(WebMemoryPressureLevel level)
+{
+    if (level == WebMemoryPressureLevelCritical) {
+        // Clear the image cache.
+        ImageDecodingStore::instance().clear();
+    }
+}
 
 DEFINE_TRACE(MemoryPurgeClient)
 {
 }
 
 MemoryPurgeController::MemoryPurgeController()
-    : m_deviceKind(Platform::current()->isLowEndDeviceMode() ? DeviceKind::LowEnd : DeviceKind::NotSpecified)
-    , m_inactiveTimer(this, &MemoryPurgeController::pageInactiveTask)
+    : m_deviceKind(base::SysInfo::IsLowEndDevice() ? DeviceKind::LowEnd : DeviceKind::NotSpecified)
 {
 }
 
@@ -32,27 +33,12 @@ MemoryPurgeController::~MemoryPurgeController()
 {
 }
 
-void MemoryPurgeController::pageBecameActive()
+void MemoryPurgeController::purgeMemory()
 {
-    m_inactiveTimer.stop();
-}
-
-void MemoryPurgeController::pageBecameInactive()
-{
-    if (!m_inactiveTimer.isActive())
-        m_inactiveTimer.startOneShot(kInactiveTimerIntervalInSecond, BLINK_FROM_HERE);
-}
-
-void MemoryPurgeController::pageInactiveTask(Timer<MemoryPurgeController>*)
-{
-    purgeMemory(MemoryPurgeMode::InactiveTab);
-}
-
-void MemoryPurgeController::purgeMemory(MemoryPurgeMode purgeMode)
-{
+    // TODO(bashi): Add UMA
     TRACE_EVENT0("blink", "MemoryPurgeController::purgeMemory");
     for (auto& client : m_clients)
-        client->purgeMemory(purgeMode, m_deviceKind);
+        client->purgeMemory(m_deviceKind);
     WTF::Partitions::decommitFreeableMemory();
 }
 

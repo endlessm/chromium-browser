@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 
 #include "ash/accelerators/accelerator_commands.h"
 #include "ash/accelerators/debug_commands.h"
@@ -24,6 +25,7 @@
 #include "ash/root_window_controller.h"
 #include "ash/rotator/screen_rotation_animator.h"
 #include "ash/rotator/window_rotation.h"
+#include "ash/screen_util.h"
 #include "ash/screenshot_delegate.h"
 #include "ash/session/session_state_delegate.h"
 #include "ash/shelf/shelf.h"
@@ -56,6 +58,7 @@
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/aura/env.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -71,9 +74,9 @@
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/notification.h"
 #include "ui/message_center/notifier_settings.h"
-#include "ui/views/controls/webview/webview.h"
 
 #if defined(OS_CHROMEOS)
+#include "ash/display/display_configuration_controller.h"
 #include "ash/system/chromeos/keyboard_brightness_controller.h"
 #include "base/sys_info.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
@@ -169,7 +172,8 @@ void ShowDeprecatedAcceleratorNotification(const char* const notification_id,
               system_notifier::kNotifierDeprecatedAccelerator),
           message_center::RichNotificationData(),
           new DeprecatedAcceleratorNotificationDelegate));
-  message_center::MessageCenter::Get()->AddNotification(notification.Pass());
+  message_center::MessageCenter::Get()->AddNotification(
+      std::move(notification));
 }
 
 void RecordUmaHistogram(const char* histogram_name,
@@ -375,8 +379,9 @@ void HandleRotateScreen() {
     return;
 
   base::RecordAction(UserMetricsAction("Accel_Rotate_Window"));
-  gfx::Point point = Shell::GetScreen()->GetCursorScreenPoint();
-  gfx::Display display = Shell::GetScreen()->GetDisplayNearestPoint(point);
+  gfx::Point point = gfx::Screen::GetScreen()->GetCursorScreenPoint();
+  gfx::Display display =
+      gfx::Screen::GetScreen()->GetDisplayNearestPoint(point);
   const DisplayInfo& display_info =
       Shell::GetInstance()->display_manager()->GetDisplayInfo(display.id());
   ash::ScreenRotationAnimator(display.id())
@@ -620,20 +625,10 @@ void HandleGetHelp() {
   Shell::GetInstance()->new_window_delegate()->OpenGetHelp();
 }
 
-bool CanHandleSilenceSpokenFeedback() {
-  AccessibilityDelegate* delegate =
-      Shell::GetInstance()->accessibility_delegate();
-  return delegate->IsSpokenFeedbackEnabled();
-}
-
-void HandleSilenceSpokenFeedback() {
-  base::RecordAction(UserMetricsAction("Accel_Silence_Spoken_Feedback"));
-  Shell::GetInstance()->accessibility_delegate()->SilenceSpokenFeedback();
-}
-
 void HandleSwapPrimaryDisplay() {
   base::RecordAction(UserMetricsAction("Accel_Swap_Primary_Display"));
-  Shell::GetInstance()->window_tree_host_manager()->SwapPrimaryDisplay();
+  Shell::GetInstance()->display_configuration_controller()->SetPrimaryDisplayId(
+      ScreenUtil::GetSecondaryDisplay().id(), true /* user_action */);
 }
 
 bool CanHandleCycleUser() {
@@ -682,7 +677,9 @@ void HandleToggleCapsLock() {
 
 void HandleToggleMirrorMode() {
   base::RecordAction(UserMetricsAction("Accel_Toggle_Mirror_Mode"));
-  Shell::GetInstance()->window_tree_host_manager()->ToggleMirrorMode();
+  bool mirror = !Shell::GetInstance()->display_manager()->IsInMirrorMode();
+  Shell::GetInstance()->display_configuration_controller()->SetMirrorMode(
+      mirror, true /* user_action */);
 }
 
 void HandleToggleSpokenFeedback() {
@@ -773,10 +770,8 @@ void AcceleratorController::UnregisterAll(ui::AcceleratorTarget* target) {
 }
 
 bool AcceleratorController::Process(const ui::Accelerator& accelerator) {
-  if (ime_control_delegate_) {
-    return accelerator_manager_->Process(
-        ime_control_delegate_->RemapAccelerator(accelerator));
-  }
+  if (ime_control_delegate_)
+    return accelerator_manager_->Process(accelerator);
   return accelerator_manager_->Process(accelerator);
 }
 
@@ -787,11 +782,8 @@ bool AcceleratorController::IsRegistered(
 
 bool AcceleratorController::IsPreferred(
     const ui::Accelerator& accelerator) const {
-  const ui::Accelerator remapped_accelerator = ime_control_delegate_.get() ?
-      ime_control_delegate_->RemapAccelerator(accelerator) : accelerator;
-
   std::map<ui::Accelerator, AcceleratorAction>::const_iterator iter =
-      accelerators_.find(remapped_accelerator);
+      accelerators_.find(accelerator);
   if (iter == accelerators_.end())
     return false;  // not an accelerator.
 
@@ -800,11 +792,8 @@ bool AcceleratorController::IsPreferred(
 
 bool AcceleratorController::IsReserved(
     const ui::Accelerator& accelerator) const {
-  const ui::Accelerator remapped_accelerator = ime_control_delegate_.get() ?
-      ime_control_delegate_->RemapAccelerator(accelerator) : accelerator;
-
   std::map<ui::Accelerator, AcceleratorAction>::const_iterator iter =
-      accelerators_.find(remapped_accelerator);
+      accelerators_.find(accelerator);
   if (iter == accelerators_.end())
     return false;  // not an accelerator.
 
@@ -831,17 +820,17 @@ AcceleratorController::GetCurrentAcceleratorRestriction() {
 
 void AcceleratorController::SetBrightnessControlDelegate(
     scoped_ptr<BrightnessControlDelegate> brightness_control_delegate) {
-  brightness_control_delegate_ = brightness_control_delegate.Pass();
+  brightness_control_delegate_ = std::move(brightness_control_delegate);
 }
 
 void AcceleratorController::SetImeControlDelegate(
     scoped_ptr<ImeControlDelegate> ime_control_delegate) {
-  ime_control_delegate_ = ime_control_delegate.Pass();
+  ime_control_delegate_ = std::move(ime_control_delegate);
 }
 
 void AcceleratorController::SetScreenshotDelegate(
     scoped_ptr<ScreenshotDelegate> screenshot_delegate) {
-  screenshot_delegate_ = screenshot_delegate.Pass();
+  screenshot_delegate_ = std::move(screenshot_delegate);
 }
 
 bool AcceleratorController::ShouldCloseMenuAndRepostAccelerator(
@@ -1051,8 +1040,6 @@ bool AcceleratorController::CanPerformAction(
       return CanHandleDisableCapsLock(previous_accelerator);
     case LOCK_SCREEN:
       return CanHandleLock();
-    case SILENCE_SPOKEN_FEEDBACK:
-      return CanHandleSilenceSpokenFeedback();
     case SWITCH_TO_PREVIOUS_USER:
     case SWITCH_TO_NEXT_USER:
       return CanHandleCycleUser();
@@ -1063,8 +1050,9 @@ bool AcceleratorController::CanPerformAction(
     case TOUCH_HUD_CLEAR:
     case TOUCH_HUD_MODE_CHANGE:
       return CanHandleTouchHud();
+    case SWAP_PRIMARY_DISPLAY:
+      return gfx::Screen::GetScreen()->GetNumDisplays() > 1;
 #endif
-
     case CYCLE_BACKWARD_MRU:
     case CYCLE_FORWARD_MRU:
     case EXIT:
@@ -1112,7 +1100,6 @@ bool AcceleratorController::CanPerformAction(
     case OPEN_GET_HELP:
     case POWER_PRESSED:
     case POWER_RELEASED:
-    case SWAP_PRIMARY_DISPLAY:
     case TOGGLE_MIRROR_MODE:
     case TOGGLE_SPOKEN_FEEDBACK:
     case TOGGLE_WIFI:
@@ -1350,9 +1337,6 @@ void AcceleratorController::PerformAction(AcceleratorAction action,
       // D-BUS), but we consume them to prevent them from getting
       // passed to apps -- see http://crbug.com/146609.
       break;
-    case SILENCE_SPOKEN_FEEDBACK:
-      HandleSilenceSpokenFeedback();
-      break;
     case SWAP_PRIMARY_DISPLAY:
       HandleSwapPrimaryDisplay();
       break;
@@ -1405,11 +1389,6 @@ void AcceleratorController::PerformAction(AcceleratorAction action,
 
 bool AcceleratorController::ShouldActionConsumeKeyEvent(
     AcceleratorAction action) {
-#if defined(OS_CHROMEOS)
-  if (action == SILENCE_SPOKEN_FEEDBACK)
-    return false;
-#endif
-
   // Adding new exceptions is *STRONGLY* discouraged.
   return true;
 }
@@ -1454,7 +1433,7 @@ void AcceleratorController::SetKeyboardBrightnessControlDelegate(
     scoped_ptr<KeyboardBrightnessControlDelegate>
     keyboard_brightness_control_delegate) {
   keyboard_brightness_control_delegate_ =
-      keyboard_brightness_control_delegate.Pass();
+      std::move(keyboard_brightness_control_delegate);
 }
 
 }  // namespace ash

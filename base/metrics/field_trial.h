@@ -54,6 +54,9 @@
 #ifndef BASE_METRICS_FIELD_TRIAL_H_
 #define BASE_METRICS_FIELD_TRIAL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <string>
@@ -61,8 +64,10 @@
 
 #include "base/base_export.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list_threadsafe.h"
+#include "base/strings/string_piece.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
 
@@ -97,7 +102,7 @@ class BASE_EXPORT FieldTrial : public RefCounted<FieldTrial> {
     // providers that support it. A given instance should always return the same
     // value given the same input |trial_name| and |randomization_seed| values.
     virtual double GetEntropyForTrial(const std::string& trial_name,
-                                      uint32 randomization_seed) const = 0;
+                                      uint32_t randomization_seed) const = 0;
   };
 
   // A pair representing a Field Trial and its selected group.
@@ -108,10 +113,14 @@ class BASE_EXPORT FieldTrial : public RefCounted<FieldTrial> {
 
   // A triplet representing a FieldTrial, its selected group and whether it's
   // active.
-  struct FieldTrialState {
-    std::string trial_name;
-    std::string group_name;
+  struct BASE_EXPORT State {
+    StringPiece trial_name;
+    StringPiece group_name;
     bool activated;
+
+    State();
+    State(const State& other);
+    ~State();
   };
 
   typedef std::vector<ActiveGroup> ActiveGroups;
@@ -250,7 +259,7 @@ class BASE_EXPORT FieldTrial : public RefCounted<FieldTrial> {
   // been disabled. In that case, true is returned and |field_trial_state| is
   // filled in; otherwise, the result is false and |field_trial_state| is left
   // untouched.
-  bool GetState(FieldTrialState* field_trial_state) const;
+  bool GetState(State* field_trial_state);
 
   // Returns the group_name. A winner need not have been chosen.
   std::string group_name_internal() const { return group_name_; }
@@ -312,23 +321,6 @@ class BASE_EXPORT FieldTrial : public RefCounted<FieldTrial> {
 // Only one instance of this class exists.
 class BASE_EXPORT FieldTrialList {
  public:
-  // Specifies whether field trials should be activated (marked as "used"), when
-  // created using |CreateTrialsFromString()|. Has no effect on trials that are
-  // prefixed with |kActivationMarker|, which will always be activated."
-  enum FieldTrialActivationMode {
-    DONT_ACTIVATE_TRIALS,
-    ACTIVATE_TRIALS,
-  };
-
-  // Define a separator character to use when creating a persistent form of an
-  // instance.  This is intended for use as a command line argument, passed to a
-  // second process to mimic our state (i.e., provide the same group name).
-  static const char kPersistentStringSeparator;  // Currently a slash.
-
-  // Define a marker character to be used as a prefix to a trial name on the
-  // command line which forces its activation.
-  static const char kActivationMarker;  // Currently an asterisk.
-
   // Year that is guaranteed to not be expired when instantiating a field trial
   // via |FactoryGetFieldTrial()|.  Set to two years from the build date.
   static int kNoExpirationYear;
@@ -398,7 +390,7 @@ class BASE_EXPORT FieldTrialList {
       const int month,
       const int day_of_month,
       FieldTrial::RandomizationType randomization_type,
-      uint32 randomization_seed,
+      uint32_t randomization_seed,
       int* default_group_number);
 
   // The Find() method can be used to test to see if a named trial was already
@@ -448,19 +440,22 @@ class BASE_EXPORT FieldTrialList {
   static void GetActiveFieldTrialGroups(
       FieldTrial::ActiveGroups* active_groups);
 
+  // Returns the field trials that are marked active in |trials_string|.
+  static void GetActiveFieldTrialGroupsFromString(
+      const std::string& trials_string,
+      FieldTrial::ActiveGroups* active_groups);
+
   // Use a state string (re: StatesToString()) to augment the current list of
   // field trials to include the supplied trials, and using a 100% probability
   // for each trial, force them to have the same group string. This is commonly
   // used in a non-browser process, to carry randomly selected state in a
   // browser process into this non-browser process, but could also be invoked
-  // through a command line argument to the browser process. The created field
-  // trials are all marked as "used" for the purposes of active trial reporting
-  // if |mode| is ACTIVATE_TRIALS, otherwise each trial will be marked as "used"
-  // if it is prefixed with |kActivationMarker|. Trial names in
-  // |ignored_trial_names| are ignored when parsing |prior_trials|.
+  // through a command line argument to the browser process. Created field
+  // trials will be marked "used" for the purposes of active trial reporting
+  // if they are prefixed with |kActivationMarker|. Trial names in
+  // |ignored_trial_names| are ignored when parsing |trials_string|.
   static bool CreateTrialsFromString(
-      const std::string& prior_trials,
-      FieldTrialActivationMode mode,
+      const std::string& trials_string,
       const std::set<std::string>& ignored_trial_names);
 
   // Create a FieldTrial with the given |name| and using 100% probability for
@@ -514,6 +509,8 @@ class BASE_EXPORT FieldTrialList {
   // Lock for access to registered_.
   base::Lock lock_;
   RegistrationMap registered_;
+
+  std::map<std::string, std::string> seen_states_;
 
   // Entropy provider to be used for one-time randomized field trials. If NULL,
   // one-time randomization is not supported.

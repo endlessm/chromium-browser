@@ -6,6 +6,7 @@
 
 #include "chrome/browser/extensions/api/cookies/cookies_api.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -20,7 +21,7 @@
 #include "chrome/browser/extensions/api/cookies/cookies_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_iterator.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/extensions/api/cookies.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
@@ -31,6 +32,7 @@
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_monster.h"
+#include "net/cookies/cookie_store.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 
@@ -178,7 +180,7 @@ void CookiesEventRouter::CookieChanged(
   GURL cookie_domain =
       cookies_helpers::GetURLFromCanonicalCookie(*details->cookie);
   DispatchEvent(profile, events::COOKIES_ON_CHANGED,
-                cookies::OnChanged::kEventName, args.Pass(), cookie_domain);
+                cookies::OnChanged::kEventName, std::move(args), cookie_domain);
 }
 
 void CookiesEventRouter::DispatchEvent(content::BrowserContext* context,
@@ -190,10 +192,10 @@ void CookiesEventRouter::DispatchEvent(content::BrowserContext* context,
   if (!router)
     return;
   scoped_ptr<Event> event(
-      new Event(histogram_value, event_name, event_args.Pass()));
+      new Event(histogram_value, event_name, std::move(event_args)));
   event->restrict_to_browser_context = context;
   event->event_url = cookie_domain;
-  router->BroadcastEvent(event.Pass());
+  router->BroadcastEvent(std::move(event));
 }
 
 CookiesGetFunction::CookiesGetFunction() {
@@ -367,10 +369,8 @@ bool CookiesSetFunction::RunAsync() {
 
 void CookiesSetFunction::SetCookieOnIOThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  net::CookieMonster* cookie_monster =
-      store_browser_context_->GetURLRequestContext()
-          ->cookie_store()
-          ->GetCookieMonster();
+  net::CookieStore* cookie_store =
+      store_browser_context_->GetURLRequestContext()->cookie_store();
 
   base::Time expiration_time;
   if (parsed_args_->details.expiration_date.get()) {
@@ -381,7 +381,12 @@ void CookiesSetFunction::SetCookieOnIOThread() {
         base::Time::FromDoubleT(*parsed_args_->details.expiration_date);
   }
 
-  cookie_monster->SetCookieWithDetailsAsync(
+  bool are_experimental_cookie_features_enabled =
+      store_browser_context_->GetURLRequestContext()
+          ->network_delegate()
+          ->AreExperimentalCookieFeaturesEnabled();
+
+  cookie_store->SetCookieWithDetailsAsync(
       url_, parsed_args_->details.name.get() ? *parsed_args_->details.name
                                              : std::string(),
       parsed_args_->details.value.get() ? *parsed_args_->details.value
@@ -390,7 +395,9 @@ void CookiesSetFunction::SetCookieOnIOThread() {
                                          : std::string(),
       parsed_args_->details.path.get() ? *parsed_args_->details.path
                                        : std::string(),
+      base::Time(),
       expiration_time,
+      base::Time(),
       parsed_args_->details.secure.get() ? *parsed_args_->details.secure.get()
                                          : false,
       parsed_args_->details.http_only.get() ? *parsed_args_->details.http_only
@@ -398,22 +405,18 @@ void CookiesSetFunction::SetCookieOnIOThread() {
       // TODO(mkwst): If we decide to ship First-party-only cookies, we'll need
       // to extend the extension API to support them. For the moment, we'll set
       // all cookies as non-First-party-only.
-      false, store_browser_context_->GetURLRequestContext()
-                 ->network_delegate()
-                 ->AreExperimentalCookieFeaturesEnabled(),
+      false, are_experimental_cookie_features_enabled,
       net::COOKIE_PRIORITY_DEFAULT,
       base::Bind(&CookiesSetFunction::PullCookie, this));
 }
 
 void CookiesSetFunction::PullCookie(bool set_cookie_result) {
   // Pull the newly set cookie.
-  net::CookieMonster* cookie_monster =
-      store_browser_context_->GetURLRequestContext()
-          ->cookie_store()
-          ->GetCookieMonster();
+  net::CookieStore* cookie_store =
+      store_browser_context_->GetURLRequestContext()->cookie_store();
   success_ = set_cookie_result;
   cookies_helpers::GetCookieListFromStore(
-      cookie_monster, url_,
+      cookie_store, url_,
       base::Bind(&CookiesSetFunction::PullCookieCallback, this));
 }
 
@@ -533,8 +536,7 @@ bool CookiesGetAllCookieStoresFunction::RunSync() {
   // Iterate through all browser instances, and for each browser,
   // add its tab IDs to either the regular or incognito tab ID list depending
   // whether the browser is regular or incognito.
-  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
-    Browser* browser = *it;
+  for (auto* browser : *BrowserList::GetInstance()) {
     if (browser->profile() == original_profile) {
       cookies_helpers::AppendToTabIdList(browser, original_tab_ids.get());
     } else if (incognito_tab_ids.get() &&

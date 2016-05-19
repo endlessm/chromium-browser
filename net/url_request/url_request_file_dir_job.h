@@ -7,29 +7,36 @@
 
 #include <string>
 
+#include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/threading/worker_pool.h"
 #include "net/base/directory_lister.h"
+#include "net/base/net_errors.h"
+#include "net/base/net_export.h"
 #include "net/url_request/url_request_job.h"
 
 namespace net {
 
-class URLRequestFileDirJob
-  : public URLRequestJob,
-    public DirectoryLister::DirectoryListerDelegate {
+class NET_EXPORT_PRIVATE URLRequestFileDirJob
+    : public URLRequestJob,
+      public NON_EXPORTED_BASE(DirectoryLister::DirectoryListerDelegate) {
  public:
   URLRequestFileDirJob(URLRequest* request,
                        NetworkDelegate* network_delegate,
                        const base::FilePath& dir_path);
 
-  bool list_complete() const { return list_complete_; }
+  URLRequestFileDirJob(URLRequest* request,
+                       NetworkDelegate* network_delegate,
+                       const base::FilePath& dir_path,
+                       const scoped_refptr<base::TaskRunner>& dir_task_runner);
 
-  virtual void StartAsync();
-
+  void StartAsync();
   // Overridden from URLRequestJob:
   void Start() override;
   void Kill() override;
-  bool ReadRawData(IOBuffer* buf, int buf_size, int* bytes_read) override;
+  int ReadRawData(IOBuffer* buf, int buf_size) override;
   bool GetMimeType(std::string* mime_type) const override;
   bool GetCharset(std::string* charset) override;
 
@@ -37,26 +44,32 @@ class URLRequestFileDirJob
   void OnListFile(const DirectoryLister::DirectoryListerData& data) override;
   void OnListDone(int error) override;
 
- private:
+ protected:
   ~URLRequestFileDirJob() override;
 
+ private:
   void CloseLister();
 
   // When we have data and a read has been pending, this function
   // will fill the response buffer and notify the request
   // appropriately.
-  void CompleteRead();
+  void CompleteRead(Error error);
 
-  // Fills a buffer with the output.
-  bool FillReadBuffer(char* buf, int buf_size, int* bytes_read);
+  int ReadBuffer(char* buf, int buf_size);
 
   DirectoryLister lister_;
   base::FilePath dir_path_;
+
+  const scoped_refptr<base::TaskRunner> dir_task_runner_;
+
   std::string data_;
   bool canceled_;
 
   // Indicates whether we have the complete list of the dir
   bool list_complete_;
+
+  // Indicates the status of the list
+  Error list_complete_result_;
 
   // Indicates whether we have written the HTML header
   bool wrote_header_;
@@ -67,6 +80,7 @@ class URLRequestFileDirJob
   bool read_pending_;
   scoped_refptr<IOBuffer> read_buffer_;
   int read_buffer_length_;
+
   base::WeakPtrFactory<URLRequestFileDirJob> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestFileDirJob);

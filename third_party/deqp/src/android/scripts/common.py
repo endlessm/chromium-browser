@@ -213,7 +213,7 @@ NDK_HOST_OS_NAMES = [
 	"windows",
 	"windows_x86-64",
 	"darwin-x86",
-	"darwin-x86-64",
+	"darwin-x86_64",
 	"linux-x86",
 	"linux-x86_64"
 ]
@@ -241,8 +241,8 @@ NATIVE_LIB_NAME			= "libdeqp.so"
 
 def selectNDKPath ():
 	candidates =  [
-		os.path.expanduser("~/android-ndk-r10c"),
-		"C:/android/android-ndk-r10c",
+		os.path.expanduser("~/android-ndk-r10e"),
+		"C:/android/android-ndk-r10e",
 		os.environ.get("ANDROID_NDK_PATH", None), # If not defined, return None
 	]
 
@@ -262,7 +262,7 @@ def noneSafePathJoin (*components):
 # NDK paths
 ANDROID_NDK_PATH				= selectNDKPath()
 ANDROID_NDK_HOST_OS				= getNDKHostOsName(ANDROID_NDK_PATH)
-ANDROID_NDK_TOOLCHAIN_VERSION	= "r10c" # Toolchain file is selected based on this
+ANDROID_NDK_TOOLCHAIN_VERSION	= "r10e" # Toolchain file is selected based on this
 
 # Native code build settings
 CMAKE_GENERATOR			= selectByOS({
@@ -273,6 +273,7 @@ EXTRA_BUILD_ARGS		= getExtraBuildArgs(CMAKE_GENERATOR)
 
 # SDK paths
 ANDROID_SDK_PATH		= selectFirstExistingDir([
+		os.environ.get("ANDROID_SDK_PATH", None),
 		os.path.expanduser("~/android-sdk-linux"),
 		os.path.expanduser("~/android-sdk-mac_x86"),
 		"C:/android/android-sdk-windows",

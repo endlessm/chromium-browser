@@ -4,6 +4,10 @@
 
 #include "content/common/gpu/media/vaapi_jpeg_decode_accelerator.h"
 
+#include <stddef.h>
+#include <string.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
@@ -76,9 +80,8 @@ VaapiJpegDecodeAccelerator::DecodeRequest::DecodeRequest(
     scoped_ptr<base::SharedMemory> shm,
     const scoped_refptr<media::VideoFrame>& video_frame)
     : bitstream_buffer(bitstream_buffer),
-      shm(shm.Pass()),
-      video_frame(video_frame) {
-}
+      shm(std::move(shm)),
+      video_frame(video_frame) {}
 
 VaapiJpegDecodeAccelerator::DecodeRequest::~DecodeRequest() {
 }
@@ -286,6 +289,15 @@ void VaapiJpegDecodeAccelerator::Decode(
 
   DVLOG(4) << "Mapping new input buffer id: " << bitstream_buffer.id()
            << " size: " << bitstream_buffer.size();
+
+  if (bitstream_buffer.id() < 0) {
+    LOG(ERROR) << "Invalid bitstream_buffer, id: " << bitstream_buffer.id();
+    if (base::SharedMemory::IsHandleValid(bitstream_buffer.handle()))
+      base::SharedMemory::CloseHandle(bitstream_buffer.handle());
+    NotifyErrorFromDecoderThread(bitstream_buffer.id(), INVALID_ARGUMENT);
+    return;
+  }
+
   scoped_ptr<base::SharedMemory> shm(
       new base::SharedMemory(bitstream_buffer.handle(), true));
 
@@ -296,7 +308,7 @@ void VaapiJpegDecodeAccelerator::Decode(
   }
 
   scoped_ptr<DecodeRequest> request(
-      new DecodeRequest(bitstream_buffer, shm.Pass(), video_frame));
+      new DecodeRequest(bitstream_buffer, std::move(shm), video_frame));
 
   decoder_task_runner_->PostTask(
       FROM_HERE, base::Bind(&VaapiJpegDecodeAccelerator::DecodeTask,

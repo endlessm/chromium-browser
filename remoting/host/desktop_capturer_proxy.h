@@ -6,6 +6,7 @@
 #define REMOTING_HOST_DESKTOP_CAPTURER_PROXY_H_
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
@@ -32,6 +33,8 @@ class DesktopCapturerProxy : public webrtc::DesktopCapturer {
 
   // webrtc::DesktopCapturer interface.
   void Start(Callback* callback) override;
+  void SetSharedMemoryFactory(rtc::scoped_ptr<webrtc::SharedMemoryFactory>
+                                  shared_memory_factory) override;
   void Capture(const webrtc::DesktopRegion& rect) override;
 
  private:

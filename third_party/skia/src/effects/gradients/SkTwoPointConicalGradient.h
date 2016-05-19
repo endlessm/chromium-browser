@@ -15,6 +15,7 @@
 // Should only be initialized once via init(). Immutable afterwards.
 struct TwoPtRadial {
     enum {
+        // This value is outside the range SK_FixedMin to SK_FixedMax.
         kDontDrawT  = 0x80000000
     };
 
@@ -45,7 +46,7 @@ public:
                               bool flippedGrad, const Descriptor&);
 
 
-    size_t contextSize() const override;
+    size_t contextSize(const ContextRec&) const override;
 
     class TwoPointConicalGradientContext : public SkGradientShaderBase::GradientShaderBaseContext {
     public:

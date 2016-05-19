@@ -4,8 +4,12 @@
 
 #include "cc/surfaces/surface.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
 
+#include "cc/base/container_util.h"
 #include "cc/output/compositor_frame.h"
 #include "cc/output/copy_output_request.h"
 #include "cc/surfaces/surface_factory.h"
@@ -49,8 +53,8 @@ void Surface::QueueFrame(scoped_ptr<CompositorFrame> frame,
     TakeLatencyInfo(&frame->metadata.latency_info);
   }
 
-  scoped_ptr<CompositorFrame> previous_frame = current_frame_.Pass();
-  current_frame_ = frame.Pass();
+  scoped_ptr<CompositorFrame> previous_frame = std::move(current_frame_);
+  current_frame_ = std::move(frame);
 
   if (current_frame_) {
     factory_->ReceiveFromChild(
@@ -65,12 +69,7 @@ void Surface::QueueFrame(scoped_ptr<CompositorFrame> frame,
 
   std::vector<SurfaceId> new_referenced_surfaces;
   if (current_frame_) {
-    for (auto& render_pass :
-         current_frame_->delegated_frame_data->render_pass_list) {
-      new_referenced_surfaces.insert(new_referenced_surfaces.end(),
-                                     render_pass->referenced_surfaces.begin(),
-                                     render_pass->referenced_surfaces.end());
-    }
+    new_referenced_surfaces = current_frame_->metadata.referenced_surfaces;
   }
 
   if (previous_frame) {
@@ -101,26 +100,38 @@ void Surface::QueueFrame(scoped_ptr<CompositorFrame> frame,
 
 void Surface::RequestCopyOfOutput(scoped_ptr<CopyOutputRequest> copy_request) {
   if (current_frame_ &&
-      !current_frame_->delegated_frame_data->render_pass_list.empty())
-    current_frame_->delegated_frame_data->render_pass_list.back()
-        ->copy_requests.push_back(copy_request.Pass());
-  else
+      !current_frame_->delegated_frame_data->render_pass_list.empty()) {
+    std::vector<scoped_ptr<CopyOutputRequest>>& copy_requests =
+        current_frame_->delegated_frame_data->render_pass_list.back()
+            ->copy_requests;
+
+    if (void* source = copy_request->source()) {
+      // Remove existing CopyOutputRequests made on the Surface by the same
+      // source.
+      auto to_remove =
+          std::remove_if(copy_requests.begin(), copy_requests.end(),
+                         [source](const scoped_ptr<CopyOutputRequest>& x) {
+                           return x->source() == source;
+                         });
+      copy_requests.erase(to_remove, copy_requests.end());
+    }
+    copy_requests.push_back(std::move(copy_request));
+  } else {
     copy_request->SendEmptyResult();
+  }
 }
 
 void Surface::TakeCopyOutputRequests(
-    std::multimap<RenderPassId, CopyOutputRequest*>* copy_requests) {
+    std::multimap<RenderPassId, scoped_ptr<CopyOutputRequest>>* copy_requests) {
   DCHECK(copy_requests->empty());
   if (current_frame_) {
     for (const auto& render_pass :
          current_frame_->delegated_frame_data->render_pass_list) {
-      while (!render_pass->copy_requests.empty()) {
-        scoped_ptr<CopyOutputRequest> request =
-            render_pass->copy_requests.take_back();
-        render_pass->copy_requests.pop_back();
+      for (auto& request : render_pass->copy_requests) {
         copy_requests->insert(
-            std::make_pair(render_pass->id, request.release()));
+            std::make_pair(render_pass->id, std::move(request)));
       }
+      render_pass->copy_requests.clear();
     }
   }
 }
@@ -155,8 +166,8 @@ void Surface::AddDestructionDependency(SurfaceSequence sequence) {
 }
 
 void Surface::SatisfyDestructionDependencies(
-    base::hash_set<SurfaceSequence>* sequences,
-    base::hash_set<uint32_t>* valid_id_namespaces) {
+    std::unordered_set<SurfaceSequence, SurfaceSequenceHash>* sequences,
+    std::unordered_set<uint32_t>* valid_id_namespaces) {
   destruction_dependencies_.erase(
       std::remove_if(destruction_dependencies_.begin(),
                      destruction_dependencies_.end(),

@@ -7,14 +7,15 @@
 #ifndef CORE_INCLUDE_FPDFAPI_FPDF_MODULE_H_
 #define CORE_INCLUDE_FPDFAPI_FPDF_MODULE_H_
 
-#include "../fxcrt/fx_coordinates.h"
-#include "../fxcrt/fx_system.h"
-#include "third_party/base/nonstd_unique_ptr.h"
+#include <memory>
+
+#include "core/include/fxcrt/fx_coordinates.h"
+#include "core/include/fxcrt/fx_system.h"
 
 class CCodec_ModuleMgr;
-class CFX_AffineMatrix;
 class CFX_BitmapDevice;
 class CFX_DIBSource;
+class CFX_Matrix;
 class CPDF_ColorSpace;
 class CPDF_Dictionary;
 class CPDF_DocPageData;
@@ -23,11 +24,8 @@ class CPDF_Document;
 class CPDF_FontGlobals;
 class CPDF_Image;
 class CPDF_Page;
-class CPDF_PageObjects;
 class CPDF_PageRenderCache;
-class CPDF_RenderConfig;
 class CPDF_RenderOptions;
-class CPDF_SecurityHandler;
 class CPDF_Stream;
 class ICodec_FaxModule;
 class ICodec_FlateModule;
@@ -78,9 +76,8 @@ class CPDF_ModuleMgr {
   ~CPDF_ModuleMgr();
 
   CCodec_ModuleMgr* m_pCodecModule;
-  nonstd::unique_ptr<IPDF_RenderModule> m_pRenderModule;
-  nonstd::unique_ptr<IPDF_PageModule> m_pPageModule;
-  FX_BOOL (*m_pDownloadCallback)(const FX_CHAR* module_name);
+  std::unique_ptr<IPDF_RenderModule> m_pRenderModule;
+  std::unique_ptr<IPDF_PageModule> m_pPageModule;
   CFX_PrivateData m_privateData;
 };
 
@@ -89,8 +86,8 @@ class IPDF_PageModule {
   virtual ~IPDF_PageModule() {}
 
   virtual CPDF_DocPageData* CreateDocData(CPDF_Document* pDoc) = 0;
-  virtual void ReleaseDoc(CPDF_Document*) = 0;
-  virtual void ClearDoc(CPDF_Document*) = 0;
+  virtual void ReleaseDoc(CPDF_Document* pDoc) = 0;
+  virtual void ClearDoc(CPDF_Document* pDoc) = 0;
   virtual CPDF_FontGlobals* GetFontGlobals() = 0;
   virtual void ClearStockFont(CPDF_Document* pDoc) = 0;
   virtual void NotifyCJKAvailable() = 0;
@@ -102,12 +99,11 @@ class IPDF_RenderModule {
   virtual ~IPDF_RenderModule() {}
 
   virtual CPDF_DocRenderData* CreateDocData(CPDF_Document* pDoc) = 0;
-  virtual void DestroyDocData(CPDF_DocRenderData*) = 0;
-  virtual void ClearDocData(CPDF_DocRenderData*) = 0;
+  virtual void DestroyDocData(CPDF_DocRenderData* pDocRenderData) = 0;
+  virtual void ClearDocData(CPDF_DocRenderData* pDocRenderData) = 0;
   virtual CPDF_DocRenderData* GetRenderData() = 0;
   virtual CPDF_PageRenderCache* CreatePageCache(CPDF_Page* pPage) = 0;
-  virtual void DestroyPageCache(CPDF_PageRenderCache*) = 0;
-  virtual CPDF_RenderConfig* GetConfig() = 0;
+  virtual void DestroyPageCache(CPDF_PageRenderCache* pCache) = 0;
 };
 
 #endif  // CORE_INCLUDE_FPDFAPI_FPDF_MODULE_H_

@@ -4,13 +4,18 @@
 
 #include "chrome/browser/notifications/notifier_state_tracker.h"
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/bind.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/notifications/desktop_notification_profile_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "ui/message_center/notifier_settings.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -162,10 +167,6 @@ void NotifierStateTracker::OnExtensionUninstalled(
   if (IsNotifierEnabled(notifier_id))
     return;
 
-  // The settings for ephemeral apps will be persisted across cache evictions.
-  if (extensions::util::IsEphemeralApp(extension->id(), profile_))
-    return;
-
   SetNotifierEnabled(notifier_id, true);
 }
 
@@ -181,9 +182,9 @@ void NotifierStateTracker::FirePermissionLevelChangedEvent(
   scoped_ptr<extensions::Event> event(new extensions::Event(
       extensions::events::NOTIFICATIONS_ON_PERMISSION_LEVEL_CHANGED,
       extensions::api::notifications::OnPermissionLevelChanged::kEventName,
-      args.Pass()));
+      std::move(args)));
   extensions::EventRouter::Get(profile_)
-      ->DispatchEventToExtension(notifier_id.id, event.Pass());
+      ->DispatchEventToExtension(notifier_id.id, std::move(event));
 
   // Tell the IO thread that this extension's permission for notifications
   // has changed.

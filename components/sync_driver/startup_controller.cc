@@ -4,6 +4,8 @@
 
 #include "components/sync_driver/startup_controller.h"
 
+#include <string>
+
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/metrics/histogram.h"
@@ -124,14 +126,13 @@ bool StartupController::TryStart() {
   if (!sync_prefs_->IsSyncRequested())
     return false;
 
-  if (signin_->GetEffectiveUsername().empty())
+  if (signin_->GetAccountIdToUse().empty())
     return false;
 
   if (!token_service_)
     return false;
 
-  if (!token_service_->RefreshTokenIsAvailable(
-          signin_->GetAccountIdToUse())) {
+  if (!token_service_->RefreshTokenIsAvailable(signin_->GetAccountIdToUse())) {
     return false;
   }
 
@@ -156,12 +157,9 @@ bool StartupController::TryStart() {
   // fetch account details like encryption state to populate UI. Otherwise,
   // for performance reasons and maximizing parallelism at chrome startup, we
   // defer the heavy lifting for sync init until things have calmed down.
-  if (sync_prefs_->HasSyncSetupCompleted()) {
+  if (sync_prefs_->IsFirstSetupComplete()) {
     // For first time, defer start if data type hasn't requested sync to avoid
-    // stressing browser start. If |first_start_| is false, most likely the
-    // first attempt to start is intercepted by backup. When backup finishes,
-    // TryStart() is called again and we should start immediately to avoid
-    // unnecessary delay.
+    // stressing browser start.
     if (!received_start_request_ && first_start_)
       return StartUp(STARTUP_BACKEND_DEFERRED);
     else

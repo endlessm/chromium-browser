@@ -15,23 +15,25 @@
 #ifndef CRASHPAD_SNAPSHOT_MINIDUMP_PROCESS_SNAPSHOT_MINIDUMP_H_
 #define CRASHPAD_SNAPSHOT_MINIDUMP_PROCESS_SNAPSHOT_MINIDUMP_H_
 
-#include <sys/time.h>
 #include <windows.h>
 #include <dbghelp.h>
+#include <stdint.h>
+#include <sys/time.h>
 
 #include <map>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "minidump/minidump_extensions.h"
 #include "snapshot/exception_snapshot.h"
-#include "snapshot/minidump/module_snapshot_minidump.h"
 #include "snapshot/memory_snapshot.h"
+#include "snapshot/minidump/module_snapshot_minidump.h"
 #include "snapshot/module_snapshot.h"
 #include "snapshot/process_snapshot.h"
 #include "snapshot/system_snapshot.h"
 #include "snapshot/thread_snapshot.h"
+#include "snapshot/unloaded_module_snapshot.h"
 #include "util/file/file_reader.h"
 #include "util/misc/initialization_state_dcheck.h"
 #include "util/misc/uuid.h"
@@ -68,6 +70,7 @@ class ProcessSnapshotMinidump final : public ProcessSnapshot {
   const SystemSnapshot* System() const override;
   std::vector<const ThreadSnapshot*> Threads() const override;
   std::vector<const ModuleSnapshot*> Modules() const override;
+  std::vector<UnloadedModuleSnapshot> UnloadedModules() const override;
   const ExceptionSnapshot* Exception() const override;
   std::vector<const MemoryMapRegionSnapshot*> MemoryMap() const override;
   std::vector<HandleSnapshot> Handles() const override;
@@ -93,6 +96,7 @@ class ProcessSnapshotMinidump final : public ProcessSnapshot {
   std::vector<MINIDUMP_DIRECTORY> stream_directory_;
   std::map<MinidumpStreamType, const MINIDUMP_LOCATION_DESCRIPTOR*> stream_map_;
   PointerVector<internal::ModuleSnapshotMinidump> modules_;
+  std::vector<UnloadedModuleSnapshot> unloaded_modules_;
   MinidumpCrashpadInfo crashpad_info_;
   std::map<std::string, std::string> annotations_simple_map_;
   FileReaderInterface* file_reader_;  // weak

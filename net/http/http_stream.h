@@ -13,12 +13,20 @@
 
 #include <stdint.h>
 
-#include "base/basictypes.h"
+#include <vector>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_error_details.h"
+#include "net/base/net_errors.h"
 #include "net/base/net_export.h"
 #include "net/base/request_priority.h"
 #include "net/base/upload_progress.h"
+
+namespace crypto {
+class ECPrivateKey;
+}
 
 namespace net {
 
@@ -150,11 +158,21 @@ class NET_EXPORT_PRIVATE HttpStream {
   // and does not modify |endpoint| if it is unavailable.
   virtual bool GetRemoteEndpoint(IPEndPoint* endpoint) = 0;
 
+  // Signs the EKM value for Token Binding from the TLS layer using |*key| and
+  // puts the result in |*out|. Returns OK or ERR_FAILED.
+  virtual Error GetSignedEKMForTokenBinding(crypto::ECPrivateKey* key,
+                                            std::vector<uint8_t>* out) = 0;
+
   // In the case of an HTTP error or redirect, flush the response body (usually
   // a simple error or "this page has moved") so that we can re-use the
   // underlying connection. This stream is responsible for deleting itself when
   // draining is complete.
   virtual void Drain(HttpNetworkSession* session) = 0;
+
+  // Get the network error details this stream is encountering.
+  // Fills in |details| if it is available; leaves |details| unchanged if it
+  // is unavailable.
+  virtual void PopulateNetErrorDetails(NetErrorDetails* details) = 0;
 
   // Called when the priority of the parent transaction changes.
   virtual void SetPriority(RequestPriority priority) = 0;

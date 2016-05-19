@@ -4,12 +4,16 @@
 
 #include "media/cast/receiver/cast_receiver_impl.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/trace_event/trace_event.h"
+#include "media/cast/net/rtcp/rtcp_utility.h"
 #include "media/cast/receiver/audio_decoder.h"
 #include "media/cast/receiver/video_decoder.h"
 
@@ -46,9 +50,9 @@ void CastReceiverImpl::ReceivePacket(scoped_ptr<Packet> packet) {
   const uint8_t* const data = &packet->front();
   const size_t length = packet->size();
 
-  uint32 ssrc_of_sender;
-  if (Rtcp::IsRtcpPacket(data, length)) {
-    ssrc_of_sender = Rtcp::GetSsrcOfSender(data, length);
+  uint32_t ssrc_of_sender;
+  if (IsRtcpPacket(data, length)) {
+    ssrc_of_sender = GetSsrcOfSender(data, length);
   } else if (!RtpParser::ParseSsrc(data, length, &ssrc_of_sender)) {
     VLOG(1) << "Invalid RTP packet.";
     return;
@@ -123,17 +127,13 @@ void CastReceiverImpl::DecodeEncodedAudioFrame(
                                           audio_sampling_rate_,
                                           audio_codec_));
   }
-  const uint32 frame_id = encoded_frame->frame_id;
-  const uint32 rtp_timestamp = encoded_frame->rtp_timestamp;
+  const uint32_t frame_id = encoded_frame->frame_id;
+  const RtpTimeTicks rtp_timestamp = encoded_frame->rtp_timestamp;
   const base::TimeTicks playout_time = encoded_frame->reference_time;
   audio_decoder_->DecodeFrame(
-      encoded_frame.Pass(),
-      base::Bind(&CastReceiverImpl::EmitDecodedAudioFrame,
-                 cast_environment_,
-                 callback,
-                 frame_id,
-                 rtp_timestamp,
-                 playout_time));
+      std::move(encoded_frame),
+      base::Bind(&CastReceiverImpl::EmitDecodedAudioFrame, cast_environment_,
+                 callback, frame_id, rtp_timestamp, playout_time));
 }
 
 void CastReceiverImpl::DecodeEncodedVideoFrame(
@@ -150,30 +150,26 @@ void CastReceiverImpl::DecodeEncodedVideoFrame(
   TRACE_EVENT_INSTANT2(
       "cast_perf_test", "PullEncodedVideoFrame",
       TRACE_EVENT_SCOPE_THREAD,
-      "rtp_timestamp", encoded_frame->rtp_timestamp,
+      "rtp_timestamp", encoded_frame->rtp_timestamp.lower_32_bits(),
       "render_time", encoded_frame->reference_time.ToInternalValue());
 
   if (!video_decoder_)
     video_decoder_.reset(new VideoDecoder(cast_environment_, video_codec_));
-  const uint32 frame_id = encoded_frame->frame_id;
-  const uint32 rtp_timestamp = encoded_frame->rtp_timestamp;
+  const uint32_t frame_id = encoded_frame->frame_id;
+  const RtpTimeTicks rtp_timestamp = encoded_frame->rtp_timestamp;
   const base::TimeTicks playout_time = encoded_frame->reference_time;
   video_decoder_->DecodeFrame(
-      encoded_frame.Pass(),
-      base::Bind(&CastReceiverImpl::EmitDecodedVideoFrame,
-                 cast_environment_,
-                 callback,
-                 frame_id,
-                 rtp_timestamp,
-                 playout_time));
+      std::move(encoded_frame),
+      base::Bind(&CastReceiverImpl::EmitDecodedVideoFrame, cast_environment_,
+                 callback, frame_id, rtp_timestamp, playout_time));
 }
 
 // static
 void CastReceiverImpl::EmitDecodedAudioFrame(
     const scoped_refptr<CastEnvironment>& cast_environment,
     const AudioFrameDecodedCallback& callback,
-    uint32 frame_id,
-    uint32 rtp_timestamp,
+    uint32_t frame_id,
+    RtpTimeTicks rtp_timestamp,
     const base::TimeTicks& playout_time,
     scoped_ptr<AudioBus> audio_bus,
     bool is_continuous) {
@@ -189,18 +185,18 @@ void CastReceiverImpl::EmitDecodedAudioFrame(
     playout_event->rtp_timestamp = rtp_timestamp;
     playout_event->frame_id = frame_id;
     playout_event->delay_delta = playout_time - playout_event->timestamp;
-    cast_environment->logger()->DispatchFrameEvent(playout_event.Pass());
+    cast_environment->logger()->DispatchFrameEvent(std::move(playout_event));
   }
 
-  callback.Run(audio_bus.Pass(), playout_time, is_continuous);
+  callback.Run(std::move(audio_bus), playout_time, is_continuous);
 }
 
 // static
 void CastReceiverImpl::EmitDecodedVideoFrame(
     const scoped_refptr<CastEnvironment>& cast_environment,
     const VideoFrameDecodedCallback& callback,
-    uint32 frame_id,
-    uint32 rtp_timestamp,
+    uint32_t frame_id,
+    RtpTimeTicks rtp_timestamp,
     const base::TimeTicks& playout_time,
     const scoped_refptr<VideoFrame>& video_frame,
     bool is_continuous) {
@@ -216,13 +212,13 @@ void CastReceiverImpl::EmitDecodedVideoFrame(
     playout_event->rtp_timestamp = rtp_timestamp;
     playout_event->frame_id = frame_id;
     playout_event->delay_delta = playout_time - playout_event->timestamp;
-    cast_environment->logger()->DispatchFrameEvent(playout_event.Pass());
+    cast_environment->logger()->DispatchFrameEvent(std::move(playout_event));
 
     // Used by chrome/browser/extension/api/cast_streaming/performance_test.cc
     TRACE_EVENT_INSTANT1(
         "cast_perf_test", "FrameDecoded",
         TRACE_EVENT_SCOPE_THREAD,
-        "rtp_timestamp", rtp_timestamp);
+        "rtp_timestamp", rtp_timestamp.lower_32_bits());
   }
 
   callback.Run(video_frame, playout_time, is_continuous);

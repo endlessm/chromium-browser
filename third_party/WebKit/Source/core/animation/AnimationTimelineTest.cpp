@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/AnimationTimeline.h"
 
 #include "core/animation/AnimationClock.h"
@@ -40,9 +39,8 @@
 #include "core/dom/QualifiedName.h"
 #include "core/testing/DummyPageHolder.h"
 #include "platform/weborigin/KURL.h"
-
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -314,8 +312,8 @@ TEST_F(AnimationAnimationTimelineTest, PauseForTesting)
     Animation* animation2 = timeline->play(anim2);
     timeline->pauseAnimationsForTesting(seekTime);
 
-    EXPECT_FLOAT_EQ(seekTime, animation1->currentTime() / 1000.0);
-    EXPECT_FLOAT_EQ(seekTime, animation2->currentTime() / 1000.0);
+    EXPECT_FLOAT_EQ(seekTime, animation1->currentTimeInternal());
+    EXPECT_FLOAT_EQ(seekTime, animation2->currentTimeInternal());
 }
 
 TEST_F(AnimationAnimationTimelineTest, DelayBeforeAnimationStart)
@@ -363,4 +361,4 @@ TEST_F(AnimationAnimationTimelineTest, UseAnimationAfterTimelineDeref)
     animation->setStartTime(0);
 }
 
-}
+} // namespace blink

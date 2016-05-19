@@ -204,7 +204,7 @@ const int showTreeCharacterOffset = 39;
 // preferredLogicalWidthsDirty.
 //
 // See the individual getters below for more details about what each width is.
-class CORE_EXPORT LayoutObject : public ImageResourceClient {
+class CORE_EXPORT LayoutObject : public ImageResourceClient, public DisplayItemClient {
     friend class LayoutObjectChildList;
     WTF_MAKE_NONCOPYABLE(LayoutObject);
 public:
@@ -220,7 +220,8 @@ public:
     // along with extra information about the layout object state (e.g. positioning).
     String decoratedName() const;
 
-    // Returns the decorated name along with the debug information from the associated Node object.
+    // DisplayItemClient methods.
+    LayoutRect visualRect() const override;
     String debugName() const final;
 
     LayoutObject* parent() const { return m_parent; }
@@ -341,10 +342,6 @@ public:
         return hasBoxDecorationBackground() || style()->hasVisualOverflowingEffect();
     }
 
-    // Obtains the nearest enclosing block (including this block) that contributes a first-line style to our inline
-    // children.
-    virtual LayoutBlock* firstLineBlock() const;
-
     // LayoutObject tree manipulation
     //////////////////////////////////////////
     virtual bool canHaveChildren() const { return virtualChildren(); }
@@ -372,6 +369,12 @@ public:
     // Classes inserting anonymous LayoutObjects in the tree are expected to
     // check for the anonymous wrapper case with:
     //                    beforeChild->parent() != this
+    //
+    // The usage of |child/parent/sibling| in this comment actually means
+    // |child/parent/sibling| in a flat tree because a layout tree is generated
+    // from a structure of a flat tree if Shadow DOM is used.
+    // See LayoutTreeBuilderTraversal and FlatTreeTraversal.
+    //
     // See LayoutTable::addChild and LayoutBlock::addChild.
     // TODO(jchaffraix): |newChild| cannot be nullptr and should be a reference.
     virtual void addChild(LayoutObject* newChild, LayoutObject* beforeChild = nullptr);
@@ -648,7 +651,7 @@ public:
     bool isBox() const { return m_bitfields.isBox(); }
     bool isInline() const { return m_bitfields.isInline(); } // inline object
     bool isDragging() const { return m_bitfields.isDragging(); }
-    bool isReplaced() const { return m_bitfields.isReplaced(); } // a "replaced" element (see CSS)
+    bool isAtomicInlineLevel() const { return m_bitfields.isAtomicInlineLevel(); }
     bool isHorizontalWritingMode() const { return m_bitfields.horizontalWritingMode(); }
     bool hasFlippedBlocksWritingMode() const
     {
@@ -666,7 +669,7 @@ public:
         HasBoxDecorationBackgroundKnownToBeObscured,
         HasBoxDecorationBackgroundMayBeVisible,
     };
-    bool hasBoxDecorationBackground() const { return m_bitfields.boxDecorationBackgroundState() != NoBoxDecorationBackground; }
+    bool hasBoxDecorationBackground() const { return m_bitfields.getBoxDecorationBackgroundState() != NoBoxDecorationBackground; }
     bool boxDecorationBackgroundIsKnownToBeObscured() const;
     bool mustInvalidateFillLayersPaintOnHeightChange(const FillLayer&) const;
     bool hasBackground() const { return style()->hasBackground(); }
@@ -701,7 +704,7 @@ public:
 
     bool hasClip() const { return isOutOfFlowPositioned() && !style()->hasAutoClip(); }
     bool hasOverflowClip() const { return m_bitfields.hasOverflowClip(); }
-    bool hasClipOrOverflowClip() const { return hasClip() || hasOverflowClip(); }
+    bool hasClipRelatedProperty() const { return hasClip() || hasOverflowClip() || style()->containsPaint(); }
 
     bool hasTransformRelatedProperty() const { return m_bitfields.hasTransformRelatedProperty(); }
     bool hasMask() const { return style() && style()->hasMask(); }
@@ -729,12 +732,12 @@ public:
 
     Node* node() const
     {
-        return isAnonymous() ? 0 : m_node;
+        return isAnonymous() ? nullptr : m_node;
     }
 
     Node* nonPseudoNode() const
     {
-        return isPseudoElement() ? 0 : node();
+        return isPseudoElement() ? nullptr : node();
     }
 
     void clearNode() { m_node = nullptr; }
@@ -744,11 +747,23 @@ public:
     // :first-letter pseudo elements for which their parent node is returned.
     Node* generatingNode() const { return isPseudoElement() ? node()->parentOrShadowHostNode() : node(); }
 
-    Document& document() const { return m_node->document(); }
+    Document& document() const
+    {
+        ASSERT(m_node || parent()); // crbug.com/402056
+        return m_node ? m_node->document() : parent()->document();
+    }
     LocalFrame* frame() const { return document().frame(); }
 
     virtual LayoutMultiColumnSpannerPlaceholder* spannerPlaceholder() const { return nullptr; }
     bool isColumnSpanAll() const { return style()->columnSpan() == ColumnSpanAll && spannerPlaceholder(); }
+
+    // We include isLayoutButton in this check because buttons are implemented
+    // using flex box but should still support first-line|first-letter.
+    // The flex box and grid specs require that flex box and grid do not
+    // support first-line|first-letter, though.
+    // TODO(cbiesinger): Remove when buttons are implemented with align-items instead
+    // of flex box. crbug.com/226252.
+    bool canHaveFirstLineOrFirstLetterStyle() const { return isLayoutBlockFlow() || isLayoutButton(); }
 
     // This function returns the containing block of the object.
     // Due to CSS being inconsistent, a containing block can be a relatively
@@ -770,13 +785,12 @@ public:
     // It is also used for correctly sizing absolutely positioned elements
     // (point 3 above).
     //
-    // If |paintInvalidationContainer| and |paintInvalidationContainerSkipped|
-    // are not null, on return *paintInvalidationContainerSkipped is true if
-    // the layoutObject returned is an ancestor of |paintInvalidationContainer|.
-    LayoutObject* container(const LayoutBoxModelObject* paintInvalidationContainer = nullptr, bool* paintInvalidationContainerSkipped = nullptr) const;
+    // If |ancestor| and |ancestorSkipped| are not null, on return *ancestorSkipped
+    // is true if the layoutObject returned is an ancestor of |ancestor|.
+    LayoutObject* container(const LayoutBoxModelObject* ancestor = nullptr, bool* ancestorSkipped = nullptr) const;
     LayoutObject* containerCrossingFrameBoundaries() const;
     // Finds the container as if this object is fixed-position.
-    LayoutBlock* containerForFixedPosition(const LayoutBoxModelObject* paintInvalidationContainer = nullptr, bool* paintInvalidationContainerSkipped = nullptr) const;
+    LayoutBlock* containerForFixedPosition(const LayoutBoxModelObject* ancestor = nullptr, bool* ancestorSkipped = nullptr) const;
     // Finds the containing block as if this object is absolute-position.
     LayoutBlock* containingBlockForAbsolutePosition() const;
 
@@ -784,7 +798,8 @@ public:
 
     Element* offsetParent() const;
 
-    void markContainerChainForLayout(bool scheduleRelayout = true, SubtreeLayoutScope* = nullptr);
+    void markContainerChainForLayout(bool scheduleRelayout = true);
+    void markContainerChainForLayout(SubtreeLayoutScope*);
     void setNeedsLayout(LayoutInvalidationReasonForTracing, MarkingBehavior = MarkContainerChain, SubtreeLayoutScope* = nullptr);
     void setNeedsLayoutAndFullPaintInvalidation(LayoutInvalidationReasonForTracing, MarkingBehavior = MarkContainerChain, SubtreeLayoutScope* = nullptr);
     void clearNeedsLayout();
@@ -820,7 +835,7 @@ public:
 
     void setIsText() { m_bitfields.setIsText(true); }
     void setIsBox() { m_bitfields.setIsBox(true); }
-    void setReplaced(bool isReplaced) { m_bitfields.setIsReplaced(isReplaced); }
+    void setIsAtomicInlineLevel(bool isAtomicInlineLevel) { m_bitfields.setIsAtomicInlineLevel(isAtomicInlineLevel); }
     void setHorizontalWritingMode(bool hasHorizontalWritingMode) { m_bitfields.setHorizontalWritingMode(hasHorizontalWritingMode); }
     void setHasOverflowClip(bool hasOverflowClip) { m_bitfields.setHasOverflowClip(hasOverflowClip); }
     void setHasLayer(bool hasLayer) { m_bitfields.setHasLayer(hasLayer); }
@@ -899,6 +914,9 @@ public:
     // and so only should be called when the style is known not to have changed (or from setStyle).
     void setStyleInternal(PassRefPtr<ComputedStyle> style) { m_style = style; }
 
+    void setStyleWithWritingModeOfParent(PassRefPtr<ComputedStyle>);
+    void addChildWithWritingModeOfParent(LayoutObject* newChild, LayoutObject* beforeChild);
+
     void firstLineStyleDidChange(const ComputedStyle& oldStyle, const ComputedStyle& newStyle);
 
     // This function returns an enclosing non-anonymous LayoutBlock for this
@@ -925,25 +943,30 @@ public:
 
     bool canContainFixedPositionObjects() const
     {
-        return isLayoutView() || (hasTransformRelatedProperty() && isLayoutBlock()) || isSVGForeignObject();
+        return isLayoutView() || (hasTransformRelatedProperty() && isLayoutBlock()) || isSVGForeignObject() || style()->containsPaint();
     }
 
     // Convert the given local point to absolute coordinates
     // FIXME: Temporary. If UseTransforms is true, take transforms into account. Eventually localToAbsolute() will always be transform-aware.
     FloatPoint localToAbsolute(const FloatPoint& localPoint = FloatPoint(), MapCoordinatesFlags = 0) const;
+    // If TraverseDocumentBoundaries is not specified, the input quad is assumed to be in the space of the containing frame.
+    // Otherwise it is assumed to be in the space of the local root frame.
     FloatPoint absoluteToLocal(const FloatPoint&, MapCoordinatesFlags = 0) const;
 
     // Convert a local quad to absolute coordinates, taking transforms into account.
     FloatQuad localToAbsoluteQuad(const FloatQuad& quad, MapCoordinatesFlags mode = 0, bool* wasFixed = nullptr) const
     {
-        return localToContainerQuad(quad, 0, mode, wasFixed);
+        return localToAncestorQuad(quad, nullptr, mode, wasFixed);
     }
     // Convert an absolute quad to local coordinates.
+    // If TraverseDocumentBoundaries is not specified, the input quad is assumed to be in the space of the containing frame.
+    // Otherwise it is assumed to be in the space of the local root frame.
     FloatQuad absoluteToLocalQuad(const FloatQuad&, MapCoordinatesFlags mode = 0) const;
 
     // Convert a local quad into the coordinate system of container, taking transforms into account.
-    FloatQuad localToContainerQuad(const FloatQuad&, const LayoutBoxModelObject* paintInvalidationContainer, MapCoordinatesFlags = 0, bool* wasFixed = nullptr) const;
-    FloatPoint localToContainerPoint(const FloatPoint&, const LayoutBoxModelObject* paintInvalidationContainer, MapCoordinatesFlags = 0, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr) const;
+    FloatQuad localToAncestorQuad(const FloatQuad&, const LayoutBoxModelObject* ancestor, MapCoordinatesFlags = 0, bool* wasFixed = nullptr) const;
+    FloatPoint localToAncestorPoint(const FloatPoint&, const LayoutBoxModelObject* ancestor, MapCoordinatesFlags = 0, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr) const;
+    void localToAncestorRects(Vector<LayoutRect>&, const LayoutBoxModelObject* ancestor, const LayoutPoint& preOffset, const LayoutPoint& postOffset) const;
 
     // Convert a local point into the coordinate system of backing coordinates. Also returns the backing layer if needed.
     FloatPoint localToInvalidationBackingPoint(const LayoutPoint&, PaintLayer** backingLayer = nullptr);
@@ -969,8 +992,9 @@ public:
 
     static FloatRect absoluteBoundingBoxRectForRange(const Range*);
 
-    // the rect that will be painted if this object is passed as the paintingRoot
-    IntRect paintingRootRect(IntRect& topLevelRect);
+    // The bounding box (see: absoluteBoundingBoxRect) including all descendant
+    // bounding boxes.
+    IntRect absoluteBoundingBoxRectIncludingDescendants() const;
 
     // This function returns the minimal logical width this object can have
     // without overflowing. This means that all the opportunities for wrapping
@@ -983,7 +1007,7 @@ public:
     // However CSS 3 calls it the "min-content inline size".
     // https://drafts.csswg.org/css-sizing-3/#min-content-inline-size
     // TODO(jchaffraix): We will probably want to rename it to match CSS 3.
-    virtual LayoutUnit minPreferredLogicalWidth() const { return 0; }
+    virtual LayoutUnit minPreferredLogicalWidth() const { return LayoutUnit(); }
 
     // This function returns the maximum logical width this object can have.
     //
@@ -993,7 +1017,7 @@ public:
     // the "max-content inline size".
     // https://drafts.csswg.org/css-sizing-3/#max-content-inline-size
     // TODO(jchaffraix): We will probably want to rename it to match CSS 3.
-    virtual LayoutUnit maxPreferredLogicalWidth() const { return 0; }
+    virtual LayoutUnit maxPreferredLogicalWidth() const { return LayoutUnit(); }
 
     const ComputedStyle* style() const { return m_style.get(); }
     ComputedStyle* mutableStyle() const { return m_style.get(); }
@@ -1035,15 +1059,15 @@ public:
 
     void getTextDecorations(unsigned decorations, AppliedTextDecoration& underline, AppliedTextDecoration& overline, AppliedTextDecoration& linethrough, bool quirksMode = false, bool firstlineStyle = false);
 
-    // Return the LayoutBoxModelObject in the container chain which is responsible for painting this object, or layout view
-    // if painting is root-relative. This is the container that should be passed to the 'forPaintInvalidation'
-    // methods.
-    const LayoutBoxModelObject& containerForPaintInvalidationOnRootedTree() const;
+    // Return the LayoutBoxModelObject in the container chain which
+    // is responsible for painting this object. The function crosses
+    // frames boundaries so the returned value can be in a
+    // different document.
+    //
+    // This is the container that should be passed to
+    // the '*forPaintInvalidation' methods.
+    const LayoutBoxModelObject& containerForPaintInvalidation() const;
 
-    // This method will be deprecated in a long term, replaced by containerForPaintInvalidationOnRootedTree.
-    const LayoutBoxModelObject* containerForPaintInvalidation() const;
-
-    const LayoutBoxModelObject* adjustCompositedContainerForSpecialAncestors(const LayoutBoxModelObject* paintInvalidationContainer) const;
     bool isPaintInvalidationContainer() const;
 
     LayoutRect computePaintInvalidationRect()
@@ -1052,10 +1076,10 @@ public:
     }
 
     // Returns the paint invalidation rect for this LayoutObject in the coordinate space of the paint backing (typically a GraphicsLayer) for |paintInvalidationContainer|.
-    LayoutRect computePaintInvalidationRect(const LayoutBoxModelObject* paintInvalidationContainer, const PaintInvalidationState* = nullptr) const;
+    LayoutRect computePaintInvalidationRect(const LayoutBoxModelObject& paintInvalidationContainer, const PaintInvalidationState* = nullptr) const;
 
     // Returns the rect bounds needed to invalidate the paint of this object, in the coordinate space of the layoutObject backing of |paintInvalidationContainer|
-    LayoutRect boundsRectForPaintInvalidation(const LayoutBoxModelObject* paintInvalidationContainer, const PaintInvalidationState* = nullptr) const;
+    LayoutRect boundsRectForPaintInvalidation(const LayoutBoxModelObject& paintInvalidationContainer, const PaintInvalidationState* = nullptr) const;
 
     // Actually do the paint invalidate of rect r for this object which has been computed in the coordinate space
     // of the GraphicsLayer backing of |paintInvalidationContainer|. Note that this coordinaten space is not the same
@@ -1069,6 +1093,10 @@ public:
     // Walk the tree after layout issuing paint invalidations for layoutObjects that have changed or moved, updating bounds that have changed, and clearing paint invalidation state.
     virtual void invalidateTreeIfNeeded(PaintInvalidationState&);
 
+    // This function only invalidates the visual overflow.
+    //
+    // Note that overflow is a box concept but this function
+    // is only supported for block-flow.
     virtual void invalidatePaintForOverflow();
     void invalidatePaintForOverflowIfNeeded();
 
@@ -1081,9 +1109,10 @@ public:
     virtual LayoutRect absoluteClippedOverflowRect() const;
     virtual LayoutRect clippedOverflowRectForPaintInvalidation(const LayoutBoxModelObject* paintInvalidationContainer, const PaintInvalidationState* = nullptr) const;
 
-    // Given a rect in the object's coordinate space, compute a rect suitable for invalidating paints of
-    // that rect in the coordinate space of paintInvalidationContainer.
-    virtual void mapRectToPaintInvalidationBacking(const LayoutBoxModelObject* paintInvalidationContainer, LayoutRect&, const PaintInvalidationState*) const;
+    // Given a rect in the object's coordinate space, compute a rect in the coordinate space of |ancestor|.  If
+    // intermediate containers have clipping or scrolling of any kind, it is applied; but overflow clipping is *not*
+    // applied for |ancestor| itself. The output rect is suitable for purposes such as paint invalidation.
+    virtual void mapToVisibleRectInAncestorSpace(const LayoutBoxModelObject* ancestor, LayoutRect&, const PaintInvalidationState*) const;
 
     // Return the offset to the column in which the specified point (in flow-thread coordinates)
     // lives. This is used to convert a flow-thread point to a visual point.
@@ -1100,7 +1129,7 @@ public:
 
     // The current selection state for an object.  For blocks, the state refers to the state of the leaf
     // descendants (as described above in the SelectionState enum declaration).
-    SelectionState selectionState() const { return m_bitfields.selectionState(); }
+    SelectionState getSelectionState() const { return m_bitfields.getSelectionState(); }
     virtual void setSelectionState(SelectionState state) { m_bitfields.setSelectionState(state); }
     inline void setSelectionStateIfNeeded(SelectionState);
     bool canUpdateSelectionOnRootLineBoxes() const;
@@ -1113,16 +1142,13 @@ public:
     LayoutRect selectionRectInViewCoordinates() const;
 
     virtual bool canBeSelectionLeaf() const { return false; }
-    bool hasSelectedChildren() const { return selectionState() != SelectionNone; }
+    bool hasSelectedChildren() const { return getSelectionState() != SelectionNone; }
 
     bool isSelectable() const;
     // Obtains the selection colors that should be used when painting a selection.
     Color selectionBackgroundColor() const;
     Color selectionForegroundColor(const GlobalPaintFlags) const;
     Color selectionEmphasisMarkColor(const GlobalPaintFlags) const;
-
-    // Whether or not a given block needs to paint selection gaps.
-    virtual bool shouldPaintSelectionGaps() const { return false; }
 
     /**
      * Returns the local coordinates of the caret within this layout object.
@@ -1186,7 +1212,9 @@ public:
 
     // Map points and quads through elements, potentially via 3d transforms. You should never need to call these directly; use
     // localToAbsolute/absoluteToLocal methods instead.
-    virtual void mapLocalToContainer(const LayoutBoxModelObject* paintInvalidationContainer, TransformState&, MapCoordinatesFlags = ApplyContainerFlip, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr) const;
+    virtual void mapLocalToAncestor(const LayoutBoxModelObject* ancestor, TransformState&, MapCoordinatesFlags = ApplyContainerFlip, bool* wasFixed = nullptr, const PaintInvalidationState* = nullptr) const;
+    // If TraverseDocumentBoundaries is not specified, the input quad is assumed to be in the space of the containing frame.
+    // Otherwise it is assumed to be in the space of the local root frame.
     virtual void mapAbsoluteToLocalPoint(MapCoordinatesFlags, TransformState&) const;
 
     // Pushes state onto LayoutGeometryMap about how to map coordinates from this layoutObject to its container, or ancestorToStopAt (whichever is encountered first).
@@ -1227,7 +1255,7 @@ public:
     // Compute a list of hit-test rectangles per layer rooted at this layoutObject.
     virtual void computeLayerHitTestRects(LayerHitTestRects&) const;
 
-    RespectImageOrientationEnum shouldRespectImageOrientation() const;
+    static RespectImageOrientationEnum shouldRespectImageOrientation(const LayoutObject*);
 
     bool isRelayoutBoundaryForInspector() const;
 
@@ -1235,7 +1263,9 @@ public:
     // this object).
     LayoutRect previousPaintInvalidationRectIncludingCompositedScrolling(const LayoutBoxModelObject& paintInvalidationContainer) const;
     LayoutSize previousPaintInvalidationRectSize() const { return previousPaintInvalidationRect().size(); }
-    void setPreviousPaintInvalidationRect(const LayoutRect& rect) { m_previousPaintInvalidationRect = rect; }
+
+    // Called when the previous paint invalidation rect(s) is no longer valid.
+    virtual void clearPreviousPaintInvalidationRects();
 
     // Only adjusts if the paint invalidation container is not a composited scroller.
     void adjustPreviousPaintInvalidationForScrollIfNeeded(const DoubleSize& scrollDelta);
@@ -1297,17 +1327,8 @@ public:
 
     virtual LayoutRect viewRect() const;
 
-    DisplayItemClient displayItemClient() const { return toDisplayItemClient(this); }
-
-    void invalidateDisplayItemClient(const DisplayItemClientWrapper&) const;
-    void invalidateDisplayItemClientForNonCompositingDescendants() const { invalidateDisplayItemClientForNonCompositingDescendantsOf(*this); }
-    // A normal object should use invalidateDisplayItemClientForNonCompositingDescendants()
-    // to invalidate its descendants which are painted on the same backing. However, for
-    // an object (e.g. LayoutScrollbarPart, custom scroll corner, custom resizer) which is
-    // not hooked up in the layout tree and not able to find its paint backing, it should
-    // let its owning layout object call the following function.
-    // FIXME: should we hook up scrollbar parts in the layout tree? crbug.com/484263.
-    void invalidateDisplayItemClientForNonCompositingDescendantsOf(const LayoutObject&) const;
+    void invalidateDisplayItemClient(const DisplayItemClient&) const;
+    void invalidateDisplayItemClientsIncludingNonCompositingDescendants(const LayoutBoxModelObject* paintInvalidationContainer, PaintInvalidationReason) const;
 
     // Called before anonymousChild.setStyle(). Override to set custom styles for the child.
     virtual void updateAnonymousChildStyle(const LayoutObject& anonymousChild, ComputedStyle& style) const { }
@@ -1323,7 +1344,11 @@ public:
 
         LayoutObject& m_layoutObject;
     };
-    MutableForPainting mutableForPainting() const { return MutableForPainting(*this); }
+    MutableForPainting getMutableForPainting() const { return MutableForPainting(*this); }
+
+    void setIsScrollAnchorObject() { m_bitfields.setIsScrollAnchorObject(true); }
+    // Clears the IsScrollAnchorObject bit, unless any ScrollAnchor still refers to us.
+    void maybeClearIsScrollAnchorObject();
 
 protected:
     enum LayoutObjectType {
@@ -1440,9 +1465,23 @@ protected:
     // of this layoutObject within the current layer that should be used for each result.
     virtual void computeSelfHitTestRects(Vector<LayoutRect>&, const LayoutPoint& layerOffset) const { }
 
+    void setPreviousPaintInvalidationRect(const LayoutRect& rect) { m_previousPaintInvalidationRect = rect; }
+
     virtual PaintInvalidationReason paintInvalidationReason(const LayoutBoxModelObject& paintInvalidationContainer,
         const LayoutRect& oldPaintInvalidationRect, const LayoutPoint& oldPositionFromPaintInvalidationBacking,
         const LayoutRect& newPaintInvalidationRect, const LayoutPoint& newPositionFromPaintInvalidationBacking) const;
+
+    // This function tries to minimize the amount of invalidation
+    // generated by invalidating the "difference" between |oldBounds|
+    // and |newBounds|. This means invalidating the union of the
+    // previous rectangles but not their intersection.
+    //
+    // The use case is when an element only requires a paint
+    // invalidation (which means that its content didn't change)
+    // and its bounds changed but its location didn't.
+    //
+    // If we don't meet the criteria for an incremental paint, the
+    // alternative is a full paint invalidation.
     virtual void incrementallyInvalidatePaint(const LayoutBoxModelObject& paintInvalidationContainer, const LayoutRect& oldBounds, const LayoutRect& newBounds, const LayoutPoint& positionFromPaintInvalidationBacking);
 
     virtual bool hasNonCompositedScrollbars() const { return false; }
@@ -1454,16 +1493,32 @@ protected:
     }
 #endif
 
+    // This function walks the descendants of |this|, following a
+    // layout ordering.
+    //
+    // The ordering is important for PaintInvalidationState, as
+    // it requires to be called following a descendant/container
+    // relationship.
+    //
+    // The function is overridden to handle special children
+    // (e.g. percentage height descendants or reflections).
     virtual void invalidatePaintOfSubtreesIfNeeded(PaintInvalidationState& childPaintInvalidationState);
+
+    // This function generates the invalidation for this object only.
+    // It doesn't recurse into other object, as this is handled
+    // by invalidatePaintOfSubtreesIfNeeded.
     virtual PaintInvalidationReason invalidatePaintIfNeeded(PaintInvalidationState&, const LayoutBoxModelObject& paintInvalidationContainer);
 
     // When this object is invalidated for paint, this method is called to invalidate any DisplayItemClients
     // owned by this object, including the object itself, LayoutText/LayoutInline line boxes, etc.,
     // not including children which will be invalidated normally during invalidateTreeIfNeeded() and
     // parts which are invalidated separately (e.g. scrollbars).
-    // |paintInvalidationRect| can be nullptr if we know it's unchanged and PaintController has cached the
-    // previous value; otherwise we must pass a correct value.
-    virtual void invalidateDisplayItemClients(const LayoutBoxModelObject& paintInvalidationContainer, PaintInvalidationReason, const LayoutRect* paintInvalidationRect) const;
+    // The caller should ensure the enclosing layer has been setNeedsRepaint before calling this function.
+    virtual void invalidateDisplayItemClients(const LayoutBoxModelObject& paintInvalidationContainer, PaintInvalidationReason) const;
+
+    // Sets enclosing layer needsRepaint, then calls invalidateDisplayItemClients().
+    // Should use this version when PaintInvalidationState is available.
+    void invalidateDisplayItemClientsWithPaintInvalidationState(const LayoutBoxModelObject& paintInvalidationContainer, const PaintInvalidationState&, PaintInvalidationReason) const;
 
     void setIsBackgroundAttachmentFixedObject(bool);
 
@@ -1481,6 +1536,11 @@ protected:
     const LayoutRect& previousPaintInvalidationRect() const { return m_previousPaintInvalidationRect; }
 
 private:
+    // This function generates a full invalidation, which
+    // means invalidating both |oldBounds| and |newBounds|.
+    //
+    // This is the default choice when generating an invalidation,
+    // as it is always correct, albeit it may force some extra painting.
     void fullyInvalidatePaint(const LayoutBoxModelObject& paintInvalidationContainer, PaintInvalidationReason, const LayoutRect& oldBounds, const LayoutRect& newBounds);
 
     // Adjusts a paint invalidation rect in the space of |m_previousPaintInvalidationRect| and |m_previousPositionFromPaintInvalidationBacking|
@@ -1501,16 +1561,21 @@ private:
 
     void setNeedsOverflowRecalcAfterStyleChange();
 
+    void markContainerChainForLayout(bool scheduleRelayout, SubtreeLayoutScope*);
+
     // FIXME: This should be 'markContaingBoxChainForOverflowRecalc when we make LayoutBox
     // recomputeOverflow-capable. crbug.com/437012 and crbug.com/434700.
     inline void markContainingBlocksForOverflowRecalc();
 
     inline void markContainerChainForPaintInvalidation();
 
-    inline void invalidateSelectionIfNeeded(const LayoutBoxModelObject&, PaintInvalidationReason);
+    inline void invalidateSelectionIfNeeded(const LayoutBoxModelObject& paintInvalidationContainer, const PaintInvalidationState&, PaintInvalidationReason);
 
     inline void invalidateContainerPreferredLogicalWidths();
 
+    void invalidatePaintIncludingNonSelfPaintingLayerDescendantsInternal(const LayoutBoxModelObject& paintInvalidationContainer);
+
+    // The caller should ensure the enclosing layer has been setNeedsRepaint before calling this function.
     void invalidatePaintOfPreviousPaintInvalidationRect(const LayoutBoxModelObject& paintInvalidationContainer, PaintInvalidationReason);
 
     LayoutRect previousSelectionRectForPaintInvalidation() const;
@@ -1545,9 +1610,8 @@ private:
 
     RefPtr<ComputedStyle> m_style;
 
-    // Oilpan: raw pointer back to the owning Node is considered safe.
-    GC_PLUGIN_IGNORE("http://crbug.com/509911")
-    Node* m_node;
+    // Oilpan: This untraced pointer to the owning Node is considered safe.
+    RawPtrWillBeUntracedMember<Node> m_node;
 
     LayoutObject* m_parent;
     LayoutObject* m_previous;
@@ -1612,7 +1676,7 @@ private:
             , m_isText(false)
             , m_isBox(false)
             , m_isInline(true)
-            , m_isReplaced(false)
+            , m_isAtomicInlineLevel(false)
             , m_horizontalWritingMode(true)
             , m_isDragging(false)
             , m_hasLayer(false)
@@ -1632,6 +1696,7 @@ private:
             , m_alwaysCreateLineBoxesForLayoutInline(false)
             , m_lastBoxDecorationBackgroundObscured(false)
             , m_isBackgroundAttachmentFixedObject(false)
+            , m_isScrollAnchorObject(false)
             , m_positionedState(IsStaticallyPositioned)
             , m_selectionState(SelectionNone)
             , m_boxDecorationBackgroundState(NoBoxDecorationBackground)
@@ -1707,7 +1772,21 @@ private:
         // siblings (think of paragraphs).
         ADD_BOOLEAN_BITFIELD(isInline, IsInline);
 
-        ADD_BOOLEAN_BITFIELD(isReplaced, IsReplaced);
+        // This boolean is set if the element is an atomic inline-level box.
+        //
+        // In CSS, atomic inline-level boxes are laid out on a line but they
+        // are opaque from the perspective of line layout. This means that they
+        // can't be split across lines like normal inline boxes (LayoutInline).
+        // Examples of atomic inline-level elements: inline tables, inline
+        // blocks and replaced inline elements.
+        // See http://www.w3.org/TR/CSS2/visuren.html#inline-boxes.
+        //
+        // Our code is confused about the use of this boolean and confuses it
+        // with being replaced (see LayoutReplaced about this).
+        // TODO(jchaffraix): We should inspect callers and clarify their use.
+        // TODO(jchaffraix): We set this boolean for replaced elements that are
+        // not inline but shouldn't (crbug.com/567964). This should be enforced.
+        ADD_BOOLEAN_BITFIELD(isAtomicInlineLevel, IsAtomicInlineLevel);
         ADD_BOOLEAN_BITFIELD(horizontalWritingMode, HorizontalWritingMode);
         ADD_BOOLEAN_BITFIELD(isDragging, IsDragging);
 
@@ -1754,6 +1833,7 @@ private:
         ADD_BOOLEAN_BITFIELD(lastBoxDecorationBackgroundObscured, LastBoxDecorationBackgroundObscured);
 
         ADD_BOOLEAN_BITFIELD(isBackgroundAttachmentFixedObject, IsBackgroundAttachmentFixedObject);
+        ADD_BOOLEAN_BITFIELD(isScrollAnchorObject, IsScrollAnchorObject);
 
     private:
         // This is the cached 'position' value of this object
@@ -1778,10 +1858,10 @@ private:
         }
         void clearPositionedState() { m_positionedState = StaticPosition; }
 
-        ALWAYS_INLINE SelectionState selectionState() const { return static_cast<SelectionState>(m_selectionState); }
+        ALWAYS_INLINE SelectionState getSelectionState() const { return static_cast<SelectionState>(m_selectionState); }
         ALWAYS_INLINE void setSelectionState(SelectionState selectionState) { m_selectionState = selectionState; }
 
-        ALWAYS_INLINE BoxDecorationBackgroundState boxDecorationBackgroundState() const { return static_cast<BoxDecorationBackgroundState>(m_boxDecorationBackgroundState); }
+        ALWAYS_INLINE BoxDecorationBackgroundState getBoxDecorationBackgroundState() const { return static_cast<BoxDecorationBackgroundState>(m_boxDecorationBackgroundState); }
         ALWAYS_INLINE void setBoxDecorationBackgroundState(BoxDecorationBackgroundState s) const { m_boxDecorationBackgroundState = s; }
 
         PaintInvalidationReason fullPaintInvalidationReason() const { return static_cast<PaintInvalidationReason>(m_fullPaintInvalidationReason); }
@@ -1890,7 +1970,7 @@ inline void LayoutObject::setNeedsLayout(LayoutInvalidationReasonForTracing reas
             "data",
             InspectorLayoutInvalidationTrackingEvent::data(this, reason));
         if (markParents == MarkContainerChain && (!layouter || layouter->root() != this))
-            markContainerChainForLayout(true, layouter);
+            markContainerChainForLayout(layouter);
     }
 }
 
@@ -1927,7 +2007,7 @@ inline void LayoutObject::setChildNeedsLayout(MarkingBehavior markParents, Subtr
     setNormalChildNeedsLayout(true);
     // FIXME: Replace MarkOnlyThis with the SubtreeLayoutScope code path and remove the MarkingBehavior argument entirely.
     if (!alreadyNeededLayout && markParents == MarkContainerChain && (!layouter || layouter->root() != this))
-        markContainerChainForLayout(true, layouter);
+        markContainerChainForLayout(layouter);
 }
 
 inline void LayoutObject::setNeedsPositionedMovementLayout()
@@ -1961,7 +2041,7 @@ inline bool LayoutObject::layerCreationAllowedForSubtree() const
 
 inline void LayoutObject::setSelectionStateIfNeeded(SelectionState state)
 {
-    if (selectionState() == state)
+    if (getSelectionState() == state)
         return;
 
     setSelectionState(state);
@@ -1987,11 +2067,11 @@ inline void LayoutObject::invalidateBackgroundObscurationStatus()
 
 inline bool LayoutObject::boxDecorationBackgroundIsKnownToBeObscured() const
 {
-    if (m_bitfields.boxDecorationBackgroundState() == HasBoxDecorationBackgroundObscurationStatusInvalid) {
+    if (m_bitfields.getBoxDecorationBackgroundState() == HasBoxDecorationBackgroundObscurationStatusInvalid) {
         BoxDecorationBackgroundState state = computeBackgroundIsKnownToBeObscured() ? HasBoxDecorationBackgroundKnownToBeObscured : HasBoxDecorationBackgroundMayBeVisible;
         m_bitfields.setBoxDecorationBackgroundState(state);
     }
-    return m_bitfields.boxDecorationBackgroundState() == HasBoxDecorationBackgroundKnownToBeObscured;
+    return m_bitfields.getBoxDecorationBackgroundState() == HasBoxDecorationBackgroundKnownToBeObscured;
 }
 
 inline void makeMatrixRenderable(TransformationMatrix& matrix, bool has3DRendering)

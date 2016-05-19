@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <map>
+#include <utility>
 
 #include "ash/screen_util.h"
 #include "ash/shelf/shelf.h"
@@ -311,8 +312,7 @@ void PanelLayoutManager::SetShelf(Shelf* shelf) {
   shelf_ = shelf;
   shelf_->AddIconObserver(this);
   if (shelf_->shelf_widget()) {
-    shelf_layout_manager_ = ash::ShelfLayoutManager::ForShelf(
-        shelf_->shelf_widget()->GetNativeWindow());
+    shelf_layout_manager_ = shelf_->shelf_widget()->shelf_layout_manager();
     WillChangeVisibilityState(shelf_layout_manager_->visibility_state());
     shelf_layout_manager_->AddObserver(this);
   }
@@ -544,10 +544,10 @@ void PanelLayoutManager::WillChangeVisibilityState(
   if (!shelf_hidden) {
     if (restore_windows_on_shelf_visible_) {
       scoped_ptr<aura::WindowTracker> restore_windows(
-          restore_windows_on_shelf_visible_.Pass());
-      for (aura::WindowTracker::Windows::const_iterator iter =
-           restore_windows->windows().begin(); iter !=
-           restore_windows->windows().end(); ++iter) {
+          std::move(restore_windows_on_shelf_visible_));
+      for (aura::Window::Windows::const_iterator iter =
+               restore_windows->windows().begin();
+           iter != restore_windows->windows().end(); ++iter) {
         RestorePanel(*iter);
       }
     }
@@ -568,7 +568,7 @@ void PanelLayoutManager::WillChangeVisibilityState(
       wm::GetWindowState(window)->Minimize();
     }
   }
-  restore_windows_on_shelf_visible_ = minimized_windows.Pass();
+  restore_windows_on_shelf_visible_ = std::move(minimized_windows);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -16,6 +16,8 @@ namespace chrome {
 
 namespace android {
 
+class DataUseTabModel;
+
 // TabDataUseTrackingSession maintains the information about a single tracking
 // session within a browser tab.
 struct TabDataUseTrackingSession {
@@ -38,7 +40,7 @@ struct TabDataUseTrackingSession {
 // single browser tab.
 class TabDataUseEntry {
  public:
-  TabDataUseEntry();
+  explicit TabDataUseEntry(DataUseTabModel* tab_model);
 
   TabDataUseEntry(const TabDataUseEntry& other);
 
@@ -53,6 +55,10 @@ class TabDataUseEntry {
   // Ends the active tracking session. Returns false if there is no active
   // tracking session, and true otherwise.
   bool EndTracking();
+
+  // Ends the active tracking session if it is labeled with |label| and returns
+  // true.
+  bool EndTrackingWithLabel(const std::string& label);
 
   // Records that the tab has been closed, in preparation for deletion.
   void OnTabCloseEvent();
@@ -77,27 +83,25 @@ class TabDataUseEntry {
   // time will be null if no tracking session was ever started or ended.
   const base::TimeTicks GetLatestStartOrEndTime() const;
 
+  // Returns the tracking label for the active tracking session. Empty string is
+  // returned if tracking session is not active.
+  const std::string GetActiveTrackingSessionLabel() const;
+
+  bool is_custom_tab_package_match() const {
+    return is_custom_tab_package_match_;
+  }
+
+  void set_custom_tab_package_match(bool is_custom_tab_package_match);
+
  private:
   friend class TabDataUseEntryTest;
-  friend class MockTabDataUseEntryTest;
-  FRIEND_TEST_ALL_PREFIXES(TabDataUseEntryTest, SingleTabSessionCloseEvent);
   FRIEND_TEST_ALL_PREFIXES(TabDataUseEntryTest, MultipleTabSessionCloseEvent);
+  FRIEND_TEST_ALL_PREFIXES(TabDataUseEntryTest, SingleTabSessionCloseEvent);
+  FRIEND_TEST_ALL_PREFIXES(DataUseTabModelTest,
+                           ExpiredInactiveTabEntryRemovaltimeHistogram);
   FRIEND_TEST_ALL_PREFIXES(DataUseTabModelTest, TabCloseEvent);
-  FRIEND_TEST_ALL_PREFIXES(MockTabDataUseEntryTest, CompactTabSessionHistory);
 
   typedef std::deque<TabDataUseTrackingSession> TabSessions;
-
-  // Returns the maximum number of tracking sessions to maintain per tab, for
-  // testing purposes.
-  static size_t GetMaxSessionsPerTabForTests();
-
-  // Returns the expiration duration in seconds for a closed tab entry and an
-  // open tab entry respectively, for testing purposes.
-  static unsigned int GetClosedTabExpirationDurationSecondsForTests();
-  static unsigned int GetOpenTabExpirationDurationSecondsForTests();
-
-  // Virtualized for unit test support.
-  virtual base::TimeTicks Now() const;
 
   // Compacts the history of tracking sessions by removing oldest sessions to
   // keep the size of |sessions_| within |kMaxSessionsPerTab| entries.
@@ -111,6 +115,12 @@ class TabDataUseEntry {
   // Indicates the time the tab was closed. |tab_close_time_| will be null if
   // the tab is still open.
   base::TimeTicks tab_close_time_;
+
+  // True if tracking was started in a custom tab due to package name match.
+  bool is_custom_tab_package_match_;
+
+  // Pointer to the DataUseTabModel that owns |this|.
+  const DataUseTabModel* tab_model_;
 };
 
 }  // namespace android

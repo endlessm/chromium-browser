@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/canvas2d/CanvasPattern.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -62,4 +61,4 @@ void CanvasPattern::setTransform(SVGMatrixTearOff* transform)
     pattern()->setPatternSpaceTransform(transform ? transform->value() : AffineTransform(1, 0, 0, 1, 0, 0));
 }
 
-}
+} // namespace blink

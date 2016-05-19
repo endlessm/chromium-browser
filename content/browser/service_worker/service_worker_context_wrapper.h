@@ -5,14 +5,19 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_CONTEXT_WRAPPER_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_CONTEXT_WRAPPER_H_
 
+#include <stdint.h>
+
+#include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/service_worker_context.h"
+#include "net/url_request/url_request_context_getter_observer.h"
 
 namespace base {
 class FilePath;
@@ -39,9 +44,11 @@ class StoragePartitionImpl;
 // is what is used internally in the service worker lib.
 class CONTENT_EXPORT ServiceWorkerContextWrapper
     : NON_EXPORTED_BASE(public ServiceWorkerContext),
+      public net::URLRequestContextGetterObserver,
       public base::RefCountedThreadSafe<ServiceWorkerContextWrapper> {
  public:
   using StatusCallback = base::Callback<void(ServiceWorkerStatusCode)>;
+  using BoolCallback = base::Callback<void(bool)>;
   using FindRegistrationCallback =
       ServiceWorkerStorage::FindRegistrationCallback;
   using GetRegistrationsInfosCallback =
@@ -59,6 +66,14 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
             storage::SpecialStoragePolicy* special_storage_policy);
   void Shutdown();
 
+  // Must be called on the IO thread.
+  void InitializeResourceContext(
+      ResourceContext* resource_context,
+      scoped_refptr<net::URLRequestContextGetter> request_context_getter);
+
+  // For net::URLRequestContextGetterObserver
+  void OnContextShuttingDown() override;
+
   // Deletes all files on disk and restarts the system asynchronously. This
   // leaves the system in a disabled state until it's done. This should be
   // called on the IO thread.
@@ -74,8 +89,6 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
   // be accessed on the IO thread, and can be null during initialization and
   // shutdown.
   ResourceContext* resource_context();
-
-  void set_resource_context(ResourceContext* resource_context);
 
   // The process manager can be used on either UI or IO.
   ServiceWorkerProcessManager* process_manager() {
@@ -103,12 +116,21 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
   std::vector<ServiceWorkerRegistrationInfo> GetAllLiveRegistrationInfo();
   std::vector<ServiceWorkerVersionInfo> GetAllLiveVersionInfo();
 
-  bool HasWindowProviderHost(const GURL& origin) const;
+  void HasMainFrameProviderHost(const GURL& origin,
+                                const BoolCallback& callback) const;
 
-  // Returns the registration whose scope longest matches |document_url|.
-  // Returns ERROR_NOT_FOUND if it is not found.
-  void FindRegistrationForDocument(const GURL& document_url,
-                                   const FindRegistrationCallback& callback);
+  // Returns the registration whose scope longest matches |document_url|. It is
+  // guaranteed that the returned registration has the activated worker.
+  //
+  //  - If the registration is not found, returns ERROR_NOT_FOUND.
+  //  - If the registration has neither the waiting version nor the active
+  //    version, returns ERROR_NOT_FOUND.
+  //  - If the registration does not have the active version but has the waiting
+  //    version, activates the waiting version and runs |callback| when it is
+  //    activated.
+  void FindReadyRegistrationForDocument(
+      const GURL& document_url,
+      const FindRegistrationCallback& callback);
 
   // Returns the registration for |registration_id|. It is guaranteed that the
   // returned registration has the activated worker.
@@ -148,6 +170,8 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   bool is_incognito() const { return is_incognito_; }
 
+  bool OriginHasForeignFetchRegistrations(const GURL& origin);
+
  private:
   friend class BackgroundSyncManagerTest;
   friend class base::RefCountedThreadSafe<ServiceWorkerContextWrapper>;
@@ -183,6 +207,7 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   void DidGetAllRegistrationsForGetAllOrigins(
       const GetUsageInfoCallback& callback,
+      ServiceWorkerStatusCode status,
       const std::vector<ServiceWorkerRegistrationInfo>& registrations);
 
   void DidCheckHasServiceWorker(const CheckHasServiceWorkerCallback& callback,
@@ -200,7 +225,7 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
   const scoped_refptr<base::ObserverListThreadSafe<
       ServiceWorkerContextObserver>> observer_list_;
   const scoped_ptr<ServiceWorkerProcessManager> process_manager_;
-  // Cleared in Shutdown():
+  // Cleared in ShutdownOnIO():
   scoped_ptr<ServiceWorkerContextCore> context_core_;
 
   // Initialized in Init(); true if the user data directory is empty.
@@ -211,6 +236,8 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   // The ResourceContext associated with this context.
   ResourceContext* resource_context_;
+
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerContextWrapper);
 };

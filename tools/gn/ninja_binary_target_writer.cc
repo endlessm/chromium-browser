@@ -4,6 +4,9 @@
 
 #include "tools/gn/ninja_binary_target_writer.h"
 
+#include <stddef.h>
+#include <string.h>
+
 #include <cstring>
 #include <set>
 #include <sstream>
@@ -88,49 +91,6 @@ struct IncludeWriter {
 
   PathOutput& path_output_;
 };
-
-// Computes the set of output files resulting from compiling the given source
-// file. If the file can be compiled and the tool exists, fills the outputs in
-// and writes the tool type to computed_tool_type. If the file is not
-// compilable, returns false.
-//
-// The target that the source belongs to is passed as an argument. In the case
-// of linking to source sets, this can be different than the target this class
-// is currently writing.
-//
-// The function can succeed with a "NONE" tool type for object files which are
-// just passed to the output. The output will always be overwritten, not
-// appended to.
-bool GetOutputFilesForSource(const Target* target,
-                             const SourceFile& source,
-                             Toolchain::ToolType* computed_tool_type,
-                             std::vector<OutputFile>* outputs) {
-  outputs->clear();
-  *computed_tool_type = Toolchain::TYPE_NONE;
-
-  SourceFileType file_type = GetSourceFileType(source);
-  if (file_type == SOURCE_UNKNOWN)
-    return false;
-  if (file_type == SOURCE_O) {
-    // Object files just get passed to the output and not compiled.
-    outputs->push_back(
-        OutputFile(target->settings()->build_settings(), source));
-    return true;
-  }
-
-  *computed_tool_type =
-      target->toolchain()->GetToolTypeForSourceType(file_type);
-  if (*computed_tool_type == Toolchain::TYPE_NONE)
-    return false;  // No tool for this file (it's a header file or something).
-  const Tool* tool = target->toolchain()->GetTool(*computed_tool_type);
-  if (!tool)
-    return false;  // Tool does not apply for this toolchain.file.
-
-  // Figure out what output(s) this compiler produces.
-  SubstitutionWriter::ApplyListToCompilerAsOutputFile(
-      target, source, tool->outputs(), outputs);
-  return !outputs->empty();
-}
 
 // Returns the language-specific suffix for precompiled header files.
 const char* GetPCHLangSuffixForToolType(Toolchain::ToolType type) {
@@ -253,7 +213,7 @@ void AddSourceSetObjectFiles(const Target* source_set,
   // the tool if there are more than one.
   for (const auto& source : source_set->sources()) {
     Toolchain::ToolType tool_type = Toolchain::TYPE_NONE;
-    if (GetOutputFilesForSource(source_set, source, &tool_type, &tool_outputs))
+    if (source_set->GetOutputFilesForSource(source, &tool_type, &tool_outputs))
       obj_files->push_back(tool_outputs[0]);
 
     used_types.Set(GetSourceFileType(source));
@@ -659,7 +619,7 @@ void NinjaBinaryTargetWriter::WriteSources(
     // Clear the vector but maintain the max capacity to prevent reallocations.
     deps.resize(0);
     Toolchain::ToolType tool_type = Toolchain::TYPE_NONE;
-    if (!GetOutputFilesForSource(target_, source, &tool_type, &tool_outputs)) {
+    if (!target_->GetOutputFilesForSource(source, &tool_type, &tool_outputs)) {
       if (GetSourceFileType(source) == SOURCE_DEF)
         other_files->push_back(source);
       continue;  // No output for this source.
@@ -786,6 +746,15 @@ void NinjaBinaryTargetWriter::WriteLinkerStuff(
     }
   }
 
+  // Libraries specified by paths.
+  const OrderedSet<LibFile>& libs = target_->all_libs();
+  for (size_t i = 0; i < libs.size(); i++) {
+    if (libs[i].is_source_file()) {
+      implicit_deps.push_back(
+          OutputFile(settings_->build_settings(), libs[i].source_file()));
+    }
+  }
+
   // Append implicit dependencies collected above.
   if (!implicit_deps.empty()) {
     out_ << " |";
@@ -810,10 +779,13 @@ void NinjaBinaryTargetWriter::WriteLinkerStuff(
   // End of the link "build" line.
   out_ << std::endl;
 
-  // These go in the inner scope of the link line.
-  WriteLinkerFlags(optional_def_file);
-
-  WriteLibs();
+  // The remaining things go in the inner scope of the link line.
+  if (target_->output_type() == Target::EXECUTABLE ||
+      target_->output_type() == Target::SHARED_LIBRARY ||
+      target_->output_type() == Target::LOADABLE_MODULE) {
+    WriteLinkerFlags(optional_def_file);
+    WriteLibs();
+  }
   WriteOutputExtension();
   WriteSolibs(solibs);
 }
@@ -857,20 +829,25 @@ void NinjaBinaryTargetWriter::WriteLibs() {
   // Libraries that have been recursively pushed through the dependency tree.
   EscapeOptions lib_escape_opts;
   lib_escape_opts.mode = ESCAPE_NINJA_COMMAND;
-  const OrderedSet<std::string> all_libs = target_->all_libs();
+  const OrderedSet<LibFile> all_libs = target_->all_libs();
   const std::string framework_ending(".framework");
   for (size_t i = 0; i < all_libs.size(); i++) {
-    if (base::EndsWith(all_libs[i], framework_ending,
-                       base::CompareCase::INSENSITIVE_ASCII)) {
+    const LibFile& lib_file = all_libs[i];
+    const std::string& lib_value = lib_file.value();
+    if (lib_file.is_source_file()) {
+      out_ << " ";
+      path_output_.WriteFile(out_, lib_file.source_file());
+    } else if (base::EndsWith(lib_value, framework_ending,
+                              base::CompareCase::INSENSITIVE_ASCII)) {
       // Special-case libraries ending in ".framework" to support Mac: Add the
       // -framework switch and don't add the extension to the output.
       out_ << " -framework ";
-      EscapeStringToStream(out_,
-          all_libs[i].substr(0, all_libs[i].size() - framework_ending.size()),
+      EscapeStringToStream(
+          out_, lib_value.substr(0, lib_value.size() - framework_ending.size()),
           lib_escape_opts);
     } else {
       out_ << " " << tool_->lib_switch();
-      EscapeStringToStream(out_, all_libs[i], lib_escape_opts);
+      EscapeStringToStream(out_, lib_value, lib_escape_opts);
     }
   }
   out_ << std::endl;

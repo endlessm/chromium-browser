@@ -44,7 +44,7 @@ class CursorWindowControllerTest : public test::AshTestBase {
     return cursor_window_controller_->GetCursorImageForTest();
   }
 
-  int64 GetCursorDisplayId() const {
+  int64_t GetCursorDisplayId() const {
     return cursor_window_controller_->display_.id();
   }
 
@@ -72,8 +72,8 @@ TEST_F(CursorWindowControllerTest, MoveToDifferentDisplay) {
 
   WindowTreeHostManager* window_tree_host_manager =
       Shell::GetInstance()->window_tree_host_manager();
-  int64 primary_display_id = window_tree_host_manager->GetPrimaryDisplayId();
-  int64 secondary_display_id = ScreenUtil::GetSecondaryDisplay().id();
+  int64_t primary_display_id = window_tree_host_manager->GetPrimaryDisplayId();
+  int64_t secondary_display_id = ScreenUtil::GetSecondaryDisplay().id();
   aura::Window* primary_root =
       window_tree_host_manager->GetRootWindowForDisplayId(primary_display_id);
   aura::Window* secondary_root =
@@ -154,17 +154,19 @@ TEST_F(CursorWindowControllerTest, VisibilityTest) {
 // the DSF becomes 1x as a result of zooming out.
 TEST_F(CursorWindowControllerTest, DSF) {
   UpdateDisplay("1000x500*2");
-  int64 primary_id = Shell::GetScreen()->GetPrimaryDisplay().id();
+  int64_t primary_id = gfx::Screen::GetScreen()->GetPrimaryDisplay().id();
 
   test::ScopedSetInternalDisplayId set_internal(primary_id);
   SetCursorCompositionEnabled(true);
-  ASSERT_EQ(2.0f,
-            Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
+  ASSERT_EQ(
+      2.0f,
+      gfx::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_TRUE(GetCursorImage().HasRepresentation(2.0f));
 
   ASSERT_TRUE(SetDisplayUIScale(primary_id, 2.0f));
-  ASSERT_EQ(1.0f,
-            Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
+  ASSERT_EQ(
+      1.0f,
+      gfx::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_TRUE(GetCursorImage().HasRepresentation(2.0f));
 }
 #endif

@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/svg/SVGFEPointLightElement.h"
 
 #include "core/SVGNames.h"
@@ -38,4 +37,4 @@ PassRefPtr<LightSource> SVGFEPointLightElement::lightSource(Filter* filter) cons
     return PointLightSource::create(filter->resolve3dPoint(position()));
 }
 
-}
+} // namespace blink

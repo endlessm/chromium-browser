@@ -5,8 +5,11 @@
 #ifndef CONTENT_BROWSER_BACKGROUND_SYNC_BACKGROUND_SYNC_REGISTRATION_HANDLE_H_
 #define CONTENT_BROWSER_BACKGROUND_SYNC_BACKGROUND_SYNC_REGISTRATION_HANDLE_H_
 
+#include <stdint.h>
+
 #include "base/callback.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/background_sync/background_sync_registration.h"
 #include "content/browser/background_sync/background_sync_status.h"
@@ -40,19 +43,6 @@ class CONTENT_EXPORT BackgroundSyncRegistrationHandle {
     DCHECK(background_sync_manager_);
     return registration_->sync_state();
   }
-
-  // Unregisters the background sync registration.  Calls |callback|
-  // with BACKGROUND_SYNC_STATUS_OK if it succeeds.
-  void Unregister(int64_t service_worker_id, const StatusCallback& callback);
-
-  // Runs |callback| when the registration associated with |handle_id|
-  // completes.The provided status is BACKGROUND_SYNC_STATUS_OK if the operation
-  // succeeded. The provided state is BACKGROUND_SYNC_STATE_SUCCESS on success,
-  // BACKGRUOND_SYNC_STATE_FAILED on final failure, and
-  // BACKGROUND_SYNC_STATE_UNREGISTERED if the registration was unregistered
-  // before it could complete. NotifyWhenFinished should only be called for
-  // SYNC_ONE_SHOT registrations.
-  void NotifyWhenFinished(const StatusAndStateCallback& callback);
 
   // Returns true if the handle is backed by a BackgroundSyncRegistration in the
   // BackgroundSyncManager.

@@ -14,6 +14,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/autofill/core/common/autofill_switches.h"
 
 namespace autofill {
@@ -94,6 +95,14 @@ size_t GetTextSelectionStart(const base::string16& suggestion,
 
   // Unable to find the |field_contents| in |suggestion| text.
   return base::string16::npos;
+}
+
+bool IsDesktopPlatform() {
+#if defined(OS_ANDROID) || defined(OS_IOS)
+  return false;
+#else
+  return true;
+#endif
 }
 
 }  // namespace autofill

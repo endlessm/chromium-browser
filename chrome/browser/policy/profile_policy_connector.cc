@@ -4,9 +4,12 @@
 
 #include "chrome/browser/policy/profile_policy_connector.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
@@ -129,7 +132,7 @@ void ProfilePolicyConnector::Init(
 }
 
 void ProfilePolicyConnector::InitForTesting(scoped_ptr<PolicyService> service) {
-  policy_service_ = service.Pass();
+  policy_service_ = std::move(service);
 }
 
 void ProfilePolicyConnector::OverrideIsManagedForTesting(bool is_managed) {

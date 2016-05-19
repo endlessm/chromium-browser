@@ -8,21 +8,23 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/common_video/interface/video_frame_buffer.h"
+#include "webrtc/common_video/include/video_frame_buffer.h"
 
-#include "webrtc/base/bind.h"
 #include "webrtc/base/checks.h"
+#include "webrtc/base/keep_ref_until_done.h"
 
 // Aligning pointer to 64 bytes for improved performance, e.g. use SIMD.
 static const int kBufferAlignment = 64;
 
 namespace webrtc {
+
 namespace {
 
-// Used in rtc::Bind to keep a buffer alive until destructor is called.
-static void NoLongerUsedCallback(rtc::scoped_refptr<VideoFrameBuffer> dummy) {}
+int I420DataSize(int height, int stride_y, int stride_u, int stride_v) {
+  return stride_y * height + (stride_u + stride_v) * ((height + 1) / 2);
+}
 
-}  // anonymous namespace
+}  // namespace
 
 uint8_t* VideoFrameBuffer::MutableData(PlaneType type) {
   RTC_NOTREACHED();
@@ -46,7 +48,7 @@ I420Buffer::I420Buffer(int width,
       stride_u_(stride_u),
       stride_v_(stride_v),
       data_(static_cast<uint8_t*>(AlignedMalloc(
-          stride_y * height + (stride_u + stride_v) * ((height + 1) / 2),
+          I420DataSize(height, stride_y, stride_u, stride_v),
           kBufferAlignment))) {
   RTC_DCHECK_GT(width, 0);
   RTC_DCHECK_GT(height, 0);
@@ -56,6 +58,11 @@ I420Buffer::I420Buffer(int width,
 }
 
 I420Buffer::~I420Buffer() {
+}
+
+void I420Buffer::InitializeData() {
+  memset(data_.get(), 0,
+         I420DataSize(height_, stride_y_, stride_u_, stride_v_));
 }
 
 int I420Buffer::width() const {
@@ -238,7 +245,7 @@ rtc::scoped_refptr<VideoFrameBuffer> ShallowCenterCrop(
       y_plane, buffer->stride(kYPlane),
       u_plane, buffer->stride(kUPlane),
       v_plane, buffer->stride(kVPlane),
-      rtc::Bind(&NoLongerUsedCallback, buffer));
+      rtc::KeepRefUntilDone(buffer));
 }
 
 }  // namespace webrtc

@@ -4,9 +4,12 @@
 
 #include "cc/layers/solid_color_layer_impl.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "cc/layers/append_quads_data.h"
+#include "cc/layers/layer_settings.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/quads/solid_color_draw_quad.h"
 #include "cc/test/fake_impl_task_runner_provider.h"
@@ -34,7 +37,7 @@ TEST(SolidColorLayerImplTest, VerifyTilingCompleteAndNoOverlap) {
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
   layer->SetBounds(layer_size);
-  layer->SetHasRenderSurface(true);
+  layer->SetForceRenderSurface(true);
   layer->draw_properties().render_target = layer.get();
 
   AppendQuadsData data;
@@ -61,7 +64,7 @@ TEST(SolidColorLayerImplTest, VerifyCorrectBackgroundColorInQuad) {
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
   layer->SetBounds(layer_size);
   layer->SetBackgroundColor(test_color);
-  layer->SetHasRenderSurface(true);
+  layer->SetForceRenderSurface(true);
   layer->draw_properties().render_target = layer.get();
 
   AppendQuadsData data;
@@ -90,7 +93,7 @@ TEST(SolidColorLayerImplTest, VerifyCorrectOpacityInQuad) {
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
   layer->SetBounds(layer_size);
   layer->draw_properties().opacity = opacity;
-  layer->SetHasRenderSurface(true);
+  layer->SetForceRenderSurface(true);
   layer->draw_properties().render_target = layer.get();
 
   AppendQuadsData data;

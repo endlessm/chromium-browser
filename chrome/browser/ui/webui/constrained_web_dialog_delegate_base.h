@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_CONSTRAINED_WEB_DIALOG_DELEGATE_BASE_H_
 #define CHROME_BROWSER_UI_WEBUI_CONSTRAINED_WEB_DIALOG_DELEGATE_BASE_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "ui/web_dialogs/web_dialog_ui.h"
@@ -23,6 +24,8 @@ class ConstrainedWebDialogDelegateBase
     : public ConstrainedWebDialogDelegate,
       public ui::WebDialogWebContentsDelegate {
  public:
+  // |browser_context| and |delegate| must outlive |this| instance, whereas
+  // |this| will take ownership of |tab_delegate|.
   ConstrainedWebDialogDelegateBase(content::BrowserContext* browser_context,
                                    ui::WebDialogDelegate* delegate,
                                    WebDialogWebContentsDelegate* tab_delegate);
@@ -45,6 +48,9 @@ class ConstrainedWebDialogDelegateBase
   void HandleKeyboardEvent(
       content::WebContents* source,
       const content::NativeWebKeyboardEvent& event) override;
+
+  // Resize the dialog to the given size.
+  virtual void ResizeToGivenSize(const gfx::Size size);
 
  private:
   scoped_ptr<ui::WebDialogDelegate> web_dialog_delegate_;

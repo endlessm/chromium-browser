@@ -5,6 +5,9 @@
 #ifndef CHROME_BROWSER_CHROMEOS_INPUT_METHOD_MOCK_INPUT_METHOD_ENGINE_H_
 #define CHROME_BROWSER_CHROMEOS_INPUT_METHOD_MOCK_INPUT_METHOD_ENGINE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -14,19 +17,11 @@
 namespace ui {
 class IMEEngineHandlerInterface;
 class KeyEvent;
-
-namespace ime {
-struct InputMethodMenuItem;
-}
-}
+}  // namespace ui
 
 namespace chromeos {
 
 class CompositionText;
-
-namespace input_method {
-class CandidateWindow;
-}
 
 class MockInputMethodEngine : public ui::IMEEngineHandlerInterface {
  public:
@@ -35,31 +30,14 @@ class MockInputMethodEngine : public ui::IMEEngineHandlerInterface {
 
   // IMEEngineHandlerInterface overrides.
   const std::string& GetActiveComponentId() const override;
-  bool SetComposition(int context_id,
-                      const char* text,
-                      int selection_start,
-                      int selection_end,
-                      int cursor,
-                      const std::vector<SegmentInfo>& segments,
-                      std::string* error) override;
   bool ClearComposition(int context_id, std::string* error) override;
   bool CommitText(int context_id,
                   const char* text,
                   std::string* error) override;
-  bool SendKeyEvents(int context_id,
-                     const std::vector<KeyboardEvent>& events) override;
-  const CandidateWindowProperty& GetCandidateWindowProperty() const override;
-  void SetCandidateWindowProperty(
-      const CandidateWindowProperty& property) override;
   bool SetCandidateWindowVisible(bool visible, std::string* error) override;
-  bool SetCandidates(int context_id,
-                     const std::vector<Candidate>& candidates,
-                     std::string* error) override;
   bool SetCursorPosition(int context_id,
                          int candidate_id,
                          std::string* error) override;
-  bool SetMenuItems(const std::vector<MenuItem>& items) override;
-  bool UpdateMenuItems(const std::vector<MenuItem>& items) override;
   bool IsActive() const override;
   bool DeleteSurroundingText(int context_id,
                              int offset,
@@ -77,11 +55,11 @@ class MockInputMethodEngine : public ui::IMEEngineHandlerInterface {
   bool IsInterestedInKeyEvent() const override;
   void ProcessKeyEvent(const ui::KeyEvent& key_event,
                        KeyEventDoneCallback& callback) override;
-  void CandidateClicked(uint32 index) override;
+  void CandidateClicked(uint32_t index) override;
   void SetSurroundingText(const std::string& text,
-                          uint32 cursor_pos,
-                          uint32 anchor_pos,
-                          uint32 offset_pos) override;
+                          uint32_t cursor_pos,
+                          uint32_t anchor_pos,
+                          uint32_t offset_pos) override;
   void SetCompositionBounds(const std::vector<gfx::Rect>& bounds) override;
   void HideInputView() override;
 
@@ -91,9 +69,6 @@ class MockInputMethodEngine : public ui::IMEEngineHandlerInterface {
 
  private:
   std::string active_component_id_;
-
-  // The current candidate window property.
-  CandidateWindowProperty candidate_window_property_;
 
   std::string last_activated_property_;
 };

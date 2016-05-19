@@ -9,10 +9,8 @@
 #include <map>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/containers/hash_tables.h"
-#include "base/containers/scoped_ptr_map.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/linked_ptr.h"
@@ -90,15 +88,15 @@ class CONTENT_EXPORT PresentationServiceImpl
   FRIEND_TEST_ALL_PREFIXES(PresentationServiceImplTest,
                            MaxPendingJoinSessionRequests);
   FRIEND_TEST_ALL_PREFIXES(PresentationServiceImplTest,
-                           ListenForSessionStateChange);
+                           ListenForConnectionStateChange);
+  FRIEND_TEST_ALL_PREFIXES(PresentationServiceImplTest,
+                           ListenForConnectionClose);
+
   // Maximum number of pending JoinSession requests at any given time.
   static const int kMaxNumQueuedSessionRequests = 10;
 
   using PresentationSessionMojoCallback =
       mojo::Callback<void(presentation::PresentationSessionInfoPtr)>;
-  using SessionStateCallback =
-      mojo::Callback<void(presentation::PresentationSessionInfoPtr,
-                          presentation::PresentationConnectionState)>;
   using SessionMessagesCallback =
       mojo::Callback<void(mojo::Array<presentation::SessionMessagePtr>)>;
   using SendMessageMojoCallback = mojo::Callback<void(bool)>;
@@ -166,10 +164,10 @@ class CONTENT_EXPORT PresentationServiceImpl
   void SendSessionMessage(presentation::PresentationSessionInfoPtr session_info,
                           presentation::SessionMessagePtr session_message,
                           const SendMessageMojoCallback& callback) override;
-  void CloseSession(
-      const mojo::String& presentation_url,
-      const mojo::String& presentation_id) override;
-  void ListenForSessionStateChange() override;
+  void CloseConnection(const mojo::String& presentation_url,
+                       const mojo::String& presentation_id) override;
+  void Terminate(const mojo::String& presentation_url,
+                 const mojo::String& presentation_id) override;
   void ListenForSessionMessages(
       presentation::PresentationSessionInfoPtr session) override;
 
@@ -195,7 +193,8 @@ class CONTENT_EXPORT PresentationServiceImpl
   // |request_session_id|.
   // If it exists, invoke it with |session| and |error|, then erase it from
   // |pending_join_session_cbs_|.
-  void RunAndEraseJoinSessionMojoCallback(
+  // Returns true if the callback was found.
+  bool RunAndEraseJoinSessionMojoCallback(
       int request_session_id,
       presentation::PresentationSessionInfoPtr session,
       presentation::PresentationErrorPtr error);
@@ -221,6 +220,11 @@ class CONTENT_EXPORT PresentationServiceImpl
       const PresentationError& error);
   void OnSendMessageCallback(bool sent);
 
+  // Calls to |delegate_| to start listening for state changes for |connection|.
+  // State changes will be returned via |OnConnectionStateChanged|.
+  void ListenForConnectionStateChange(
+      const PresentationSessionInfo& connection);
+
   // Passed to embedder's implementation of PresentationServiceDelegate for
   // later invocation when session messages arrive.
   void OnSessionMessages(
@@ -234,9 +238,10 @@ class CONTENT_EXPORT PresentationServiceImpl
   int RegisterJoinSessionCallback(const NewSessionMojoCallback& callback);
 
   // Invoked by the embedder's PresentationServiceDelegate when a
-  // presentation session's state has changed.
-  void OnSessionStateChanged(const PresentationSessionInfo& session_info,
-                             PresentationConnectionState session_state);
+  // PresentationConnection's state has changed.
+  void OnConnectionStateChanged(
+      const PresentationSessionInfo& connection,
+      const PresentationConnectionStateChangeInfo& info);
 
   // Returns true if this object is associated with |render_frame_host|.
   bool FrameMatches(content::RenderFrameHost* render_frame_host) const;
@@ -252,7 +257,7 @@ class CONTENT_EXPORT PresentationServiceImpl
   std::string default_presentation_url_;
 
   using ScreenAvailabilityListenerMap =
-    base::ScopedPtrMap<std::string, scoped_ptr<ScreenAvailabilityListenerImpl>>;
+      std::map<std::string, scoped_ptr<ScreenAvailabilityListenerImpl>>;
   ScreenAvailabilityListenerMap screen_availability_listeners_;
 
   // For StartSession requests.

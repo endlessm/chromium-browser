@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "media/base/media_export.h"
 #include "media/base/pipeline_status.h"
@@ -15,6 +16,7 @@
 
 namespace media {
 
+class CdmContext;
 class DecoderBuffer;
 class VideoDecoderConfig;
 class VideoFrame;
@@ -63,6 +65,9 @@ class MEDIA_EXPORT VideoDecoder {
   // Initialization should fail if |low_delay| is true and the decoder cannot
   // satisfy the requirements above.
   //
+  // |cdm_context| can be used to handle encrypted buffers. May be null if the
+  // stream is not encrypted.
+  //
   // Note:
   // 1) The VideoDecoder will be reinitialized if it was initialized before.
   //    Upon reinitialization, all internal buffered frames will be dropped.
@@ -70,6 +75,7 @@ class MEDIA_EXPORT VideoDecoder {
   // 3) No VideoDecoder calls should be made before |init_cb| is executed.
   virtual void Initialize(const VideoDecoderConfig& config,
                           bool low_delay,
+                          CdmContext* cdm_context,
                           const InitCB& init_cb,
                           const OutputCB& output_cb) = 0;
 

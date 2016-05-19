@@ -7,8 +7,8 @@
 #ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_LISTBOX_H_
 #define FPDFSDK_INCLUDE_PDFWINDOW_PWL_LISTBOX_H_
 
-#include "../fxedit/fx_edit.h"
-#include "PWL_Wnd.h"
+#include "fpdfsdk/include/fxedit/fx_edit.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 class CPDF_ListCtrl;
 class CPWL_List_Notify;
@@ -59,7 +59,7 @@ class CPWL_ListBox : public CPWL_Wnd {
   void OnDestroy() override;
   void GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
-                          CPDF_Matrix* pUser2Device) override;
+                          CFX_Matrix* pUser2Device) override;
   FX_BOOL OnKeyDown(FX_WORD nChar, FX_DWORD nFlag) override;
   FX_BOOL OnChar(FX_WORD nChar, FX_DWORD nFlag) override;
   FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag) override;

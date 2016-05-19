@@ -4,9 +4,12 @@
 
 #include "components/password_manager/core/browser/test_password_store.h"
 
+#include <stddef.h>
+
 #include "base/thread_task_runner_handle.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/statistics_table.h"
+#include "url/origin.h"
 
 namespace password_manager {
 
@@ -79,33 +82,41 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginImpl(
 }
 
 ScopedVector<autofill::PasswordForm> TestPasswordStore::FillMatchingLogins(
-    const autofill::PasswordForm& form,
-    PasswordStore::AuthorizationPromptPolicy prompt_policy) {
+    const autofill::PasswordForm& form) {
   ScopedVector<autofill::PasswordForm> matched_forms;
   std::vector<autofill::PasswordForm> forms =
       stored_passwords_[form.signon_realm];
   for (const auto& stored_form : forms) {
     matched_forms.push_back(new autofill::PasswordForm(stored_form));
   }
-  return matched_forms.Pass();
+  return matched_forms;
 }
 
 void TestPasswordStore::ReportMetricsImpl(const std::string& sync_username,
                                           bool custom_passphrase_sync_enabled) {
 }
 
+PasswordStoreChangeList TestPasswordStore::RemoveLoginsByOriginAndTimeImpl(
+    const url::Origin& origin,
+    base::Time begin,
+    base::Time end) {
+  return PasswordStoreChangeList();
+}
+
 PasswordStoreChangeList TestPasswordStore::RemoveLoginsCreatedBetweenImpl(
     base::Time begin,
     base::Time end) {
-  PasswordStoreChangeList changes;
-  return changes;
+  return PasswordStoreChangeList();
 }
 
 PasswordStoreChangeList TestPasswordStore::RemoveLoginsSyncedBetweenImpl(
     base::Time begin,
     base::Time end) {
-  PasswordStoreChangeList changes;
-  return changes;
+  return PasswordStoreChangeList();
+}
+
+PasswordStoreChangeList TestPasswordStore::DisableAutoSignInForAllLoginsImpl() {
+  return PasswordStoreChangeList();
 }
 
 bool TestPasswordStore::RemoveStatisticsCreatedBetweenImpl(
@@ -134,9 +145,9 @@ void TestPasswordStore::AddSiteStatsImpl(const InteractionsStats& stats) {
 void TestPasswordStore::RemoveSiteStatsImpl(const GURL& origin_domain) {
 }
 
-ScopedVector<InteractionsStats> TestPasswordStore::GetSiteStatsImpl(
+std::vector<scoped_ptr<InteractionsStats>> TestPasswordStore::GetSiteStatsImpl(
     const GURL& origin_domain) {
-  return ScopedVector<InteractionsStats>();
+  return std::vector<scoped_ptr<InteractionsStats>>();
 }
 
 }  // namespace password_manager

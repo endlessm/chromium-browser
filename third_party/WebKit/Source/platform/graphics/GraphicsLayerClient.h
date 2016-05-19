@@ -27,6 +27,7 @@
 #define GraphicsLayerClient_h
 
 #include "platform/PlatformExport.h"
+#include "platform/geometry/LayoutSize.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
@@ -69,10 +70,14 @@ public:
     virtual void notifyFirstTextPaint() { }
     virtual void notifyFirstImagePaint() { }
 
-    virtual void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect* inClip) const = 0;
+    virtual IntRect computeInterestRect(const GraphicsLayer*, const IntRect& previousInterestRect) const = 0;
+    virtual LayoutSize subpixelAccumulation() const { return LayoutSize(); }
+    virtual bool needsRepaint() const { return true; }
+    virtual void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const IntRect& interestRect) const = 0;
+
     virtual bool isTrackingPaintInvalidations() const { return false; }
 
-    virtual String debugName(const GraphicsLayer*) = 0;
+    virtual String debugName(const GraphicsLayer*) const = 0;
 
 #if ENABLE(ASSERT)
     // CompositedLayerMapping overrides this to verify that it is not

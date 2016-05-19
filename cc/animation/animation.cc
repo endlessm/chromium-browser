@@ -20,44 +20,31 @@ static const char* const s_runStateNames[] = {"WAITING_FOR_TARGET_AVAILABILITY",
                                               "RUNNING",
                                               "PAUSED",
                                               "FINISHED",
-                                              "ABORTED"};
+                                              "ABORTED",
+                                              "ABORTED_BUT_NEEDS_COMPLETION"};
 
 static_assert(static_cast<int>(cc::Animation::LAST_RUN_STATE) + 1 ==
                   arraysize(s_runStateNames),
               "RunStateEnumSize should equal the number of elements in "
               "s_runStateNames");
 
-// This should match the TargetProperty enum.
-static const char* const s_targetPropertyNames[] = {"TRANSFORM",
-                                                    "OPACITY",
-                                                    "FILTER",
-                                                    "SCROLL_OFFSET",
-                                                    "BACKGROUND_COLOR"};
-
-static_assert(static_cast<int>(cc::Animation::LAST_TARGET_PROPERTY) + 1 ==
-                  arraysize(s_targetPropertyNames),
-              "TargetPropertyEnumSize should equal the number of elements in "
-              "s_targetPropertyNames");
-
 }  // namespace
 
 namespace cc {
 
-scoped_ptr<Animation> Animation::Create(
-    scoped_ptr<AnimationCurve> curve,
-    int animation_id,
-    int group_id,
-    TargetProperty target_property) {
-  return make_scoped_ptr(new Animation(curve.Pass(),
-                                       animation_id,
-                                       group_id,
-                                       target_property)); }
+scoped_ptr<Animation> Animation::Create(scoped_ptr<AnimationCurve> curve,
+                                        int animation_id,
+                                        int group_id,
+                                        TargetProperty::Type target_property) {
+  return make_scoped_ptr(
+      new Animation(std::move(curve), animation_id, group_id, target_property));
+}
 
 Animation::Animation(scoped_ptr<AnimationCurve> curve,
                      int animation_id,
                      int group_id,
-                     TargetProperty target_property)
-    : curve_(curve.Pass()),
+                     TargetProperty::Type target_property)
+    : curve_(std::move(curve)),
       id_(animation_id),
       group_(group_id),
       target_property_(target_property),
@@ -73,8 +60,7 @@ Animation::Animation(scoped_ptr<AnimationCurve> curve,
       is_controlling_instance_(false),
       is_impl_only_(false),
       affects_active_observers_(true),
-      affects_pending_observers_(true) {
-}
+      affects_pending_observers_(true) {}
 
 Animation::~Animation() {
   if (run_state_ == RUNNING || run_state_ == PAUSED)
@@ -87,11 +73,8 @@ void Animation::SetRunState(RunState run_state,
     return;
 
   char name_buffer[256];
-  base::snprintf(name_buffer,
-                 sizeof(name_buffer),
-                 "%s-%d",
-                 s_targetPropertyNames[target_property_],
-                 group_);
+  base::snprintf(name_buffer, sizeof(name_buffer), "%s-%d",
+                 TargetProperty::GetName(target_property_), group_);
 
   bool is_waiting_to_start =
       run_state_ == WAITING_FOR_TARGET_AVAILABILITY || run_state_ == STARTING;
@@ -271,7 +254,7 @@ scoped_ptr<Animation> Animation::CloneAndInitialize(
   to_return->fill_mode_ = fill_mode_;
   DCHECK(!to_return->is_controlling_instance_);
   to_return->is_controlling_instance_ = true;
-  return to_return.Pass();
+  return to_return;
 }
 
 void Animation::PushPropertiesTo(Animation* other) const {

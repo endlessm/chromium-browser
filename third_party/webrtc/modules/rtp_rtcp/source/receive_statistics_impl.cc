@@ -14,7 +14,7 @@
 
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/rtp_rtcp/source/bitrate.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_utility.h"
+#include "webrtc/modules/rtp_rtcp/source/time_util.h"
 #include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 
 namespace webrtc {
@@ -37,8 +37,6 @@ StreamStatisticianImpl::StreamStatisticianImpl(
       cumulative_loss_(0),
       jitter_q4_transmission_time_offset_(0),
       last_receive_time_ms_(0),
-      last_receive_time_secs_(0),
-      last_receive_time_frac_(0),
       last_received_timestamp_(0),
       last_received_transmission_time_offset_(0),
       received_seq_first_(0),
@@ -79,9 +77,7 @@ void StreamStatisticianImpl::UpdateCounters(const RTPHeader& header,
   // are received, 4 will be ignored.
   if (in_order) {
     // Current time in samples.
-    uint32_t receive_time_secs;
-    uint32_t receive_time_frac;
-    clock_->CurrentNtp(receive_time_secs, receive_time_frac);
+    NtpTime receive_time(*clock_);
 
     // Wrong if we use RetransmitOfOldPacket.
     if (receive_counters_.transmitted.packets > 1 &&
@@ -97,11 +93,10 @@ void StreamStatisticianImpl::UpdateCounters(const RTPHeader& header,
     if (header.timestamp != last_received_timestamp_ &&
         (receive_counters_.transmitted.packets -
          receive_counters_.retransmitted.packets) > 1) {
-      UpdateJitter(header, receive_time_secs, receive_time_frac);
+      UpdateJitter(header, receive_time);
     }
     last_received_timestamp_ = header.timestamp;
-    last_receive_time_secs_ = receive_time_secs;
-    last_receive_time_frac_ = receive_time_frac;
+    last_receive_time_ntp_ = receive_time;
     last_receive_time_ms_ = clock_->TimeInMilliseconds();
   }
 
@@ -113,14 +108,11 @@ void StreamStatisticianImpl::UpdateCounters(const RTPHeader& header,
 }
 
 void StreamStatisticianImpl::UpdateJitter(const RTPHeader& header,
-                                          uint32_t receive_time_secs,
-                                          uint32_t receive_time_frac) {
-  uint32_t receive_time_rtp = RtpUtility::ConvertNTPTimeToRTP(
-      receive_time_secs, receive_time_frac, header.payload_type_frequency);
+                                          NtpTime receive_time) {
+  uint32_t receive_time_rtp =
+      NtpToRtp(receive_time, header.payload_type_frequency);
   uint32_t last_receive_time_rtp =
-      RtpUtility::ConvertNTPTimeToRTP(last_receive_time_secs_,
-                                      last_receive_time_frac_,
-                                      header.payload_type_frequency);
+      NtpToRtp(last_receive_time_ntp_, header.payload_type_frequency);
   int32_t time_diff_samples = (receive_time_rtp - last_receive_time_rtp) -
       (header.timestamp - last_received_timestamp_);
 
@@ -267,6 +259,7 @@ RtcpStatistics StreamStatisticianImpl::CalculateRtcpStatistics() {
   stats.fraction_lost = local_fraction_lost;
 
   // We need a counter for cumulative loss too.
+  // TODO(danilchap): Ensure cumulative loss is below maximum value of 2^24.
   cumulative_loss_ += missing;
   stats.cumulative_lost = cumulative_loss_;
   stats.extended_max_sequence_number =
@@ -319,8 +312,8 @@ void StreamStatisticianImpl::ProcessBitrate() {
 void StreamStatisticianImpl::LastReceiveTimeNtp(uint32_t* secs,
                                                 uint32_t* frac) const {
   CriticalSectionScoped cs(stream_lock_.get());
-  *secs = last_receive_time_secs_;
-  *frac = last_receive_time_frac_;
+  *secs = last_receive_time_ntp_.seconds();
+  *frac = last_receive_time_ntp_.fractions();
 }
 
 bool StreamStatisticianImpl::IsRetransmitOfOldPacket(
@@ -461,14 +454,13 @@ void ReceiveStatisticsImpl::SetMaxReorderingThreshold(
   }
 }
 
-int32_t ReceiveStatisticsImpl::Process() {
+void ReceiveStatisticsImpl::Process() {
   CriticalSectionScoped cs(receive_statistics_lock_.get());
   for (StatisticianImplMap::iterator it = statisticians_.begin();
        it != statisticians_.end(); ++it) {
     it->second->ProcessBitrate();
   }
   last_rate_update_ms_ = clock_->TimeInMilliseconds();
-  return 0;
 }
 
 int64_t ReceiveStatisticsImpl::TimeUntilNextProcess() {
@@ -537,7 +529,7 @@ void NullReceiveStatistics::SetMaxReorderingThreshold(
 
 int64_t NullReceiveStatistics::TimeUntilNextProcess() { return 0; }
 
-int32_t NullReceiveStatistics::Process() { return 0; }
+void NullReceiveStatistics::Process() {}
 
 void NullReceiveStatistics::RegisterRtcpStatisticsCallback(
     RtcpStatisticsCallback* callback) {}

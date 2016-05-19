@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "device/serial/buffer.h"
 #include "net/base/io_buffer.h"
 
@@ -23,7 +22,7 @@ SendBuffer::SendBuffer(
 SendBuffer::~SendBuffer() {}
 
 const char* SendBuffer::GetData() {
-  return vector_as_array(&data_);
+  return data_.data();
 }
 
 uint32_t SendBuffer::GetSize() {
@@ -31,7 +30,7 @@ uint32_t SendBuffer::GetSize() {
 }
 
 void SendBuffer::Done(uint32_t bytes_read) {
-  callback_.Run(bytes_read, device::serial::SEND_ERROR_NONE);
+  callback_.Run(bytes_read, device::serial::SendError::NONE);
 }
 
 void SendBuffer::DoneWithError(uint32_t bytes_read, int32_t error) {
@@ -55,7 +54,7 @@ uint32_t ReceiveBuffer::GetSize() {
 }
 
 void ReceiveBuffer::Done(uint32_t bytes_written) {
-  callback_.Run(bytes_written, device::serial::RECEIVE_ERROR_NONE);
+  callback_.Run(bytes_written, device::serial::ReceiveError::NONE);
 }
 
 void ReceiveBuffer::DoneWithError(uint32_t bytes_written, int32_t error) {

@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/login/user_flow.h"
 #include "chrome/browser/chromeos/login/users/user_manager_interface.h"
@@ -62,11 +63,25 @@ class FakeChromeUserManager : public user_manager::FakeUserManager,
   void RemoveUser(const AccountId& account_id,
                   user_manager::RemoveUserDelegate* delegate) override;
   void RemoveUserFromList(const AccountId& account_id) override;
-  bool FindKnownUserPrefs(const AccountId& account_id,
-                          const base::DictionaryValue** out_value) override;
-  void UpdateKnownUserPrefs(const AccountId& account_id,
-                            const base::DictionaryValue& values,
-                            bool clear) override;
+  void UpdateLoginState(const user_manager::User* active_user,
+                        const user_manager::User* primary_user,
+                        bool is_current_user_owner) const override;
+  bool GetPlatformKnownUserId(const std::string& user_email,
+                              const std::string& gaia_id,
+                              AccountId* out_account_id) const override;
+  const AccountId& GetGuestAccountId() const override;
+  bool IsFirstExecAfterBoot() const override;
+  void AsyncRemoveCryptohome(const AccountId& account_id) const override;
+  bool IsGuestAccountId(const AccountId& account_id) const override;
+  bool IsStubAccountId(const AccountId& account_id) const override;
+  bool IsSupervisedAccountId(const AccountId& account_id) const override;
+  bool HasBrowserRestarted() const override;
+  const gfx::ImageSkia& GetResourceImagekiaNamed(int id) const override;
+  base::string16 GetResourceStringUTF16(int string_id) const override;
+  void ScheduleResolveLocale(const std::string& locale,
+                             const base::Closure& on_resolved_callback,
+                             std::string* out_resolved_locale) const override;
+  bool IsValidDefaultUserImageId(int image_index) const override;
 
   void set_owner_id(const AccountId& owner_account_id) {
     owner_account_id_ = owner_account_id;

@@ -7,6 +7,7 @@
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
+#include "build/build_config.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/security_style_explanations.h"
 #include "content/public/browser/web_contents.h"
@@ -23,6 +24,10 @@ WebContentsDelegate::WebContentsDelegate() {
 WebContents* WebContentsDelegate::OpenURLFromTab(WebContents* source,
                                                  const OpenURLParams& params) {
   return nullptr;
+}
+
+bool WebContentsDelegate::ShouldTransferNavigation() {
+  return true;
 }
 
 bool WebContentsDelegate::IsPopupOrPanel(const WebContents* source) const {
@@ -44,9 +49,9 @@ bool WebContentsDelegate::ShouldPreserveAbortedURLs(WebContents* source) {
 }
 
 bool WebContentsDelegate::AddMessageToConsole(WebContents* source,
-                                              int32 level,
+                                              int32_t level,
                                               const base::string16& message,
-                                              int32 line_no,
+                                              int32_t line_no,
                                               const base::string16& source_id) {
   return false;
 }
@@ -149,9 +154,8 @@ JavaScriptDialogManager* WebContentsDelegate::GetJavaScriptDialogManager(
 }
 
 scoped_ptr<BluetoothChooser> WebContentsDelegate::RunBluetoothChooser(
-    WebContents* web_contents,
-    const BluetoothChooser::EventHandler& event_handler,
-    const GURL& origin) {
+    RenderFrameHost* frame,
+    const BluetoothChooser::EventHandler& event_handler) {
   return nullptr;
 }
 
@@ -252,6 +256,10 @@ SecurityStyle WebContentsDelegate::GetSecurityStyle(
 void WebContentsDelegate::ShowCertificateViewerInDevTools(
     WebContents* web_contents,
     int cert_id) {
+}
+
+bool WebContentsDelegate::RequestAppBanner(content::WebContents* web_contents) {
+  return false;
 }
 
 }  // namespace content

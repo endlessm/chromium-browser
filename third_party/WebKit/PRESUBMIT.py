@@ -8,6 +8,7 @@ See http://dev.chromium.org/developers/how-tos/depottools/presubmit-scripts
 for more details about the presubmit API built into gcl.
 """
 
+import re
 import sys
 
 
@@ -113,11 +114,15 @@ def _CheckTestExpectations(input_api, output_api):
 
 
 def _CheckStyle(input_api, output_api):
+    # Files that follow Chromium's coding style do not include capital letters.
+    re_chromium_style_file = re.compile(r'\b[a-z_]+\.(cc|h)$')
     style_checker_path = input_api.os_path.join(input_api.PresubmitLocalPath(),
         'Tools', 'Scripts', 'check-webkit-style')
     args = ([input_api.python_executable, style_checker_path, '--diff-files']
             + [input_api.os_path.join('..', '..', f.LocalPath())
-               for f in input_api.AffectedFiles()])
+               for f in input_api.AffectedFiles()
+               # Filter out files that follow Chromium's coding style.
+               if not re_chromium_style_file.search(f.LocalPath())])
     results = []
 
     try:
@@ -152,7 +157,7 @@ def _CheckChromiumPlatformMacros(input_api, output_api, source_file_filter=None)
 def _CheckForPrintfDebugging(input_api, output_api):
     """Generally speaking, we'd prefer not to land patches that printf
     debug output."""
-    printf_re = input_api.re.compile(r'^\s*printf\(')
+    printf_re = input_api.re.compile(r'^\s*(printf\(|fprintf\(stderr,)')
     errors = input_api.canned_checks._FindNewViolationsOfRule(
         lambda _, x: not printf_re.search(x),
         input_api, None)
@@ -175,11 +180,11 @@ def _CheckForDangerousTestFunctions(input_api, output_api):
         input_api, None)
     errors = ['  * %s' % violation for violation in errors]
     if errors:
-        return [output_api.PresubmitError(
-                    'You should be using FrameTestHelpers::'
-                    'pumpPendingRequests() instead of '
-                    'serveAsynchronousMockedRequests() in the following '
-                    'locations:\n%s' % '\n'.join(errors))]
+        return [output_api.PresubmitPromptOrNotify(
+            'You should probably be using one of the FrameTestHelpers::'
+            '(re)load* functions instead of '
+            'serveAsynchronousMockedRequests() in the following '
+            'locations:\n%s' % '\n'.join(errors))]
     return []
 
 
@@ -225,6 +230,37 @@ def _CheckForInvalidPreferenceError(input_api, output_api):
                 results.append(output_api.PresubmitError('Found an invalid preference %s in expected result %s:%s' % (error.group(1), f, line_num)))
     return results
 
+
+def _CheckForForbiddenNamespace(input_api, output_api):
+    """Checks that Blink uses Chromium namespaces only in permitted code."""
+    # This list is not exhaustive, but covers likely ones.
+    chromium_namespaces = ["base", "cc", "content", "gfx", "net", "ui"]
+    chromium_classes = ["scoped_ptr", "scoped_refptr"]
+
+    def source_file_filter(path):
+        return input_api.FilterSourceFile(path,
+                                          white_list=[r'third_party/WebKit/Source/.*\.(h|cpp)$'],
+                                          black_list=[r'third_party/WebKit/Source/(platform|wtf|web)/'])
+
+    comment_re = input_api.re.compile(r'^\s*//')
+    result = []
+    for namespace in chromium_namespaces:
+        namespace_re = input_api.re.compile(r'\b{0}::|^\s*using namespace {0};|^\s*namespace {0} \{{'.format(input_api.re.escape(namespace)))
+        uses_namespace_outside_comments = lambda line: namespace_re.search(line) and not comment_re.search(line)
+        errors = input_api.canned_checks._FindNewViolationsOfRule(lambda _, line: not uses_namespace_outside_comments(line),
+                                                                  input_api, source_file_filter)
+        if errors:
+            result += [output_api.PresubmitError('Do not use Chromium namespace {} inside Blink core:\n{}'.format(namespace, '\n'.join(errors)))]
+    for class_name in chromium_classes:
+        class_re = input_api.re.compile(r'\b{0}\b'.format(input_api.re.escape(class_name)))
+        uses_class_outside_comments = lambda line: class_re.search(line) and not comment_re.search(line)
+        errors = input_api.canned_checks._FindNewViolationsOfRule(lambda _, line: not uses_class_outside_comments(line),
+                                                                  input_api, source_file_filter)
+        if errors:
+            result += [output_api.PresubmitError('Do not use Chromium class {} inside Blink core:\n{}'.format(class_name, '\n'.join(errors)))]
+    return result
+
+
 def CheckChangeOnUpload(input_api, output_api):
     results = []
     results.extend(_CommonChecks(input_api, output_api))
@@ -232,6 +268,7 @@ def CheckChangeOnUpload(input_api, output_api):
     results.extend(_CheckForPrintfDebugging(input_api, output_api))
     results.extend(_CheckForDangerousTestFunctions(input_api, output_api))
     results.extend(_CheckForInvalidPreferenceError(input_api, output_api))
+    results.extend(_CheckForForbiddenNamespace(input_api, output_api))
     return results
 
 

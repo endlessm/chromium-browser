@@ -23,7 +23,7 @@
 
 #include "core/CoreExport.h"
 #include "core/dom/Document.h"
-#include "core/svg/SVGAnimatedString.h"
+#include "core/svg/SVGAnimatedHref.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
@@ -36,13 +36,23 @@ public:
 
     bool isKnownAttribute(const QualifiedName&);
 
+    // Use this for accesses to 'href' or 'xlink:href' (in that order) for
+    // elements where both are allowed and don't necessarily inherit from
+    // SVGURIReference.
+    static const AtomicString& legacyHrefString(const SVGElement&);
+
+    // Like above, but for elements that inherit from SVGURIReference. Resolves
+    // against the base URL of the passed Document.
+    KURL legacyHrefURL(const Document&) const;
+
     static AtomicString fragmentIdentifierFromIRIString(const String&, const TreeScope&);
     static Element* targetElementFromIRIString(const String&, const TreeScope&, AtomicString* = 0, Document* = 0);
 
     static inline bool isExternalURIReference(const String& uri, const Document& document)
     {
-        // Fragment-only URIs are always internal
-        if (uri.startsWith('#'))
+        // Fragment-only URIs are always internal if the baseURL is same as the document URL.
+        // This is common case, so check that first to avoid resolving URL (which is relatively expensive). See crbug.com/557979
+        if (document.baseURL() == document.url() && uri.startsWith('#'))
             return false;
 
         // If the URI matches our documents URL, we're dealing with a local reference.
@@ -53,7 +63,7 @@ public:
     const String& hrefString() const { return m_href->currentValue()->value(); }
 
     // JS API
-    SVGAnimatedString* href() const { return m_href.get(); }
+    SVGAnimatedHref* href() const { return m_href.get(); }
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -61,7 +71,7 @@ protected:
     explicit SVGURIReference(SVGElement*);
 
 private:
-    RefPtrWillBeMember<SVGAnimatedString> m_href;
+    RefPtrWillBeMember<SVGAnimatedHref> m_href;
 };
 
 } // namespace blink

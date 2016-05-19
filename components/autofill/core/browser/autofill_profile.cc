@@ -10,11 +10,11 @@
 #include <ostream>
 #include <set>
 
-#include "base/basictypes.h"
 #include "base/guid.h"
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/char_iterator.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sha1.h"
 #include "base/strings/string_util.h"
@@ -543,7 +543,8 @@ bool AutofillProfile::OverwriteWith(const AutofillProfile& profile,
           CanonicalizeProfileString(
               profile.GetRawInfo(ADDRESS_HOME_STREET_ADDRESS)),
           CanonicalizeProfileString(GetRawInfo(ADDRESS_HOME_STREET_ADDRESS))) &&
-      profile.GetRawInfo(ADDRESS_HOME_LINE2) == base::UTF8ToUTF16("")) {
+      !GetRawInfo(ADDRESS_HOME_LINE2).empty() &&
+      profile.GetRawInfo(ADDRESS_HOME_LINE2).empty()) {
     field_types.erase(ADDRESS_HOME_LINE1);
     field_types.erase(ADDRESS_HOME_LINE2);
   }
@@ -598,6 +599,21 @@ bool AutofillProfile::SaveAdditionalInfo(const AutofillProfile& profile,
               app_locale)) {
         continue;
       }
+
+      // Special case for postal codes, where postal codes with/without spaces
+      // in them are considered equivalent.
+      if (field_type == ADDRESS_HOME_ZIP) {
+        base::string16 profile_zip;
+        base::string16 current_zip;
+        base::RemoveChars(profile.GetRawInfo(field_type), ASCIIToUTF16(" "),
+                          &profile_zip);
+        base::RemoveChars(GetRawInfo(field_type), ASCIIToUTF16(" "),
+                          &current_zip);
+        if (!compare.StringsEqual(profile_zip, current_zip))
+          return false;
+        continue;
+      }
+
       // Special case for the address because the comparison uses canonicalized
       // values. Start by comparing the address line by line. If it fails, make
       // sure that the address as a whole is different before returning false.
@@ -843,7 +859,7 @@ base::string16 AutofillProfile::ConstructInferredLabel(
     }
 
     AutofillType autofill_type(*it);
-    const base::string16& field_value = GetInfo(autofill_type, app_locale);
+    base::string16 field_value = GetInfo(autofill_type, app_locale);
     if (field_value.empty())
       continue;
 
@@ -862,7 +878,13 @@ base::string16 AutofillProfile::ConstructInferredLabel(
            remaining_fields.begin();
        it != remaining_fields.end() && num_fields_to_use > 0;
        ++it) {
-    const base::string16& field_value = GetInfo(AutofillType(*it), app_locale);
+    base::string16 field_value;
+    // Special case whole numbers: we want the user-formatted (raw) version, not
+    // the canonicalized version we'll fill into the page.
+    if (*it == PHONE_HOME_WHOLE_NUMBER)
+      field_value = GetRawInfo(*it);
+    else
+      field_value = GetInfo(AutofillType(*it), app_locale);
     if (field_value.empty())
       continue;
 

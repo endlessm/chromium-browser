@@ -12,7 +12,7 @@ found in the LICENSE file.
 <script>
 /**
  * @fileoverview Imports text files in the BattOr format into the
- * Model. This format is output by the BattOr executable.
+ * Model. This format is output by the battor_agent executable and library.
  *
  * This importer assumes the events arrive as a string. The unit tests provide
  * examples of the trace format.
@@ -21,7 +21,7 @@ found in the LICENSE file.
 
 tr.exportTo('tr.e.importer.battor', function() {
   /**
-   * Imports linux perf events into a specified model.
+   * Imports a BattOr power trace into a specified model.
    * @constructor
    */
   function BattorImporter(model, events) {
@@ -29,13 +29,17 @@ tr.exportTo('tr.e.importer.battor', function() {
     this.sampleRate_ = undefined;
     this.model_ = model;
     this.events_ = events;
+    this.explicitSyncMark_ = undefined;
   }
 
   var TestExports = {};
 
-  var battorDataLineRE = /^(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)$/;
+  var battorDataLineRE = new RegExp(
+      '^(\\d+\\.\\d+)\\s+(\\d+\\.\\d+)\\s+(\\d+\\.\\d+)' +
+      '(?:\\s+<(\\S+)>)?$'
+  );
   var battorHeaderLineRE = /^# BattOr/;
-  var sampleRateLineRE = /^# sample_rate=(\d+)Hz/;
+  var sampleRateLineRE = /^# sample_rate (\d+) Hz/;
 
   /**
    * Guesses whether the provided events is a BattOr string.
@@ -52,6 +56,10 @@ tr.exportTo('tr.e.importer.battor', function() {
 
   BattorImporter.prototype = {
     __proto__: tr.importer.Importer.prototype,
+
+    get importerName() {
+      return 'BattorImporter';
+    },
 
     get model() {
       return this.model_;
@@ -75,18 +83,14 @@ tr.exportTo('tr.e.importer.battor', function() {
       var series = new tr.model.PowerSeries(this.model_.device);
       this.importPowerSamples(series);
 
-      // Find the sync markers.
-      var syncMarks = this.model_.getClockSyncRecordsNamed('battor');
-      if (syncMarks.length < 1) {
-        this.model_.importWarning({
-          type: 'clock_sync',
-          message: 'Cannot import BattOr power trace without a sync signal.'
-        });
-        return;
-      }
+      // Find the sync markers that are identified as being for the BattOr.
+      var battorSyncMarks = this.model_.getClockSyncRecordsNamed('battor');
 
       // Try each of the clock sync techinques in order of their accuracy.
-      var shiftTs = this.correlationClockSync(syncMarks, series);
+      var shiftTs = undefined;
+      shiftTs = this.correlationClockSync(battorSyncMarks, series);
+      if (shiftTs === undefined)
+        shiftTs = this.explicitClockSync();
 
       if (shiftTs === undefined) {
         this.model_.importWarning({
@@ -134,15 +138,27 @@ tr.exportTo('tr.e.importer.battor', function() {
             return;
           }
 
+          // Add power sample.
           var time = parseFloat(groups[1]) + minTs;
           var voltage_mV = parseFloat(groups[2]);
           var current_mA = parseFloat(groups[3]);
           series.addPowerSample(time, (voltage_mV * current_mA) / 1000);
+
+          // Found first explicit clock sync - save it.
+          if (groups[4] !== undefined &&
+            this.explicitSyncMark_ === undefined) {
+            var id = groups[4];
+            this.explicitSyncMark_ = {'id' : id, 'ts' : time};
+          }
         }
       }, this);
     },
 
     correlationClockSync: function(syncMarks, series) {
+      // Check for the two markers that surround the sync signal are present.
+      if (syncMarks.length !== 2)
+        return undefined;
+
       // Find the regulator counter for the sync.
       var syncCtr = this.model_.kernel.counters[
           'null.vreg ' + syncMarks[0].args['regulator'] + ' enabled'];
@@ -158,8 +174,8 @@ tr.exportTo('tr.e.importer.battor', function() {
       var syncEvents = [];
       var firstSyncEventTs = undefined;
       syncCtr.series[0].iterateAllEvents(function(event) {
-        if (event.timestamp >= syncMarks[0].ts &&
-            event.timestamp <= syncMarks[1].ts) {
+        if (event.timestamp >= syncMarks[0].start &&
+            event.timestamp <= syncMarks[1].start) {
           if (firstSyncEventTs === undefined)
             firstSyncEventTs = event.timestamp;
           var newEvent = {
@@ -236,8 +252,45 @@ tr.exportTo('tr.e.importer.battor', function() {
       var shiftTs = syncStartTs - corrPeakTs;
 
       return shiftTs;
+    },
+
+    explicitClockSync: function() {
+      // Check to see if an explicit clock sync was found in the BattOr trace.
+      if (this.explicitSyncMark_ === undefined)
+        return undefined;
+
+      // Try to get the matching clock sync record for this explicit sync.
+      var syncMarks = this.model.getClockSyncRecordsNamed(
+                          this.explicitSyncMark_['id']);
+      if (syncMarks.length !== 1) {
+        this.model_.importWarning({
+          type: 'missing_sync_marker',
+          message: 'No single clock sync record found for explicit clock sync.'
+        });
+        return undefined;
+      }
+
+      var clockSync = syncMarks[0];
+
+      // TODO(aschulman) Actual time of sync is assumed to be half-way between
+      // when the sync message was sent and when it was received.  Chromium's
+      // serial I/O library sends bytes within a millisecond, however it seems
+      // to take tens of milliseconds to receive bytes. Therefore, until we
+      // figure out how to receive bytes without this delay, time of sync is
+      // set to the time when the the bytes are sent.
+      var syncTs = clockSync.start;
+      var traceTs = this.explicitSyncMark_['ts'];
+
+      // Shift by the difference between the explicit sync timestamps.
+      return syncTs - traceTs;
+    },
+
+    foundExplicitSyncMark: function() {
+      return this.explicitSyncMark_ !== undefined;
     }
   };
+
+
 
   tr.importer.Importer.register(BattorImporter);
 

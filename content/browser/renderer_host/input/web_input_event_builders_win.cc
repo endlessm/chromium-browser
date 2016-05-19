@@ -24,10 +24,10 @@ WebKeyboardEvent WebKeyboardEventBuilder::Build(HWND hwnd,
                                                 UINT message,
                                                 WPARAM wparam,
                                                 LPARAM lparam,
-                                                DWORD time_ms) {
+                                                double time_stamp) {
   WebKeyboardEvent result;
 
-  result.timeStampSeconds = time_ms / 1000.0;
+  result.timeStampSeconds = time_stamp;
 
   result.windowsKeyCode = static_cast<int>(wparam);
   // Record the scan code (along with other context bits) for this key event.
@@ -94,7 +94,7 @@ WebMouseEvent WebMouseEventBuilder::Build(HWND hwnd,
                                           UINT message,
                                           WPARAM wparam,
                                           LPARAM lparam,
-                                          DWORD time_ms) {
+                                          double time_stamp) {
   WebMouseEvent result;
 
   switch (message) {
@@ -150,7 +150,7 @@ WebMouseEvent WebMouseEventBuilder::Build(HWND hwnd,
     NOTREACHED();
   }
 
-  result.timeStampSeconds = time_ms / 1000.0;
+  result.timeStampSeconds = time_stamp;
 
   // set position fields:
 
@@ -229,12 +229,12 @@ WebMouseWheelEvent WebMouseWheelEventBuilder::Build(HWND hwnd,
                                                     UINT message,
                                                     WPARAM wparam,
                                                     LPARAM lparam,
-                                                    DWORD time_ms) {
+                                                    double time_stamp) {
   WebMouseWheelEvent result;
 
   result.type = WebInputEvent::MouseWheel;
 
-  result.timeStampSeconds = time_ms / 1000.0;
+  result.timeStampSeconds = time_stamp;
 
   result.button = WebMouseEvent::ButtonNone;
 
@@ -288,7 +288,11 @@ WebMouseWheelEvent WebMouseWheelEventBuilder::Build(HWND hwnd,
     result.globalX = static_cast<short>(LOWORD(lparam));
     result.globalY = static_cast<short>(HIWORD(lparam));
 
+    // Currently we leave hasPreciseScrollingDeltas false, even for trackpad
+    // scrolls that generate WM_MOUSEWHEEL, since we don't have a good way to
+    // distinguish these from real mouse wheels (crbug.com/545234).
     wheel_delta = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam));
+
     if (message == WM_MOUSEHWHEEL) {
       horizontal_scroll = true;
       wheel_delta = -wheel_delta;  // Windows is <- -/+ ->, WebKit <- +/- ->.

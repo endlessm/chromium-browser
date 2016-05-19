@@ -5,6 +5,7 @@
 #import "chrome/browser/ui/cocoa/location_bar/zoom_decoration.h"
 
 #include "base/auto_reset.h"
+#include "base/macros.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/browser/zoom_bubble_controller.h"
@@ -12,8 +13,8 @@
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/browser/ui/cocoa/run_loop_testing.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/toolbar/test_toolbar_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/toolbar/test_toolbar_model.h"
 #include "components/ui/zoom/page_zoom.h"
 #include "components/ui/zoom/zoom_controller.h"
 #include "content/public/browser/host_zoom_map.h"

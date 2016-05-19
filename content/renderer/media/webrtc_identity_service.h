@@ -8,8 +8,8 @@
 #include <deque>
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "content/common/content_export.h"
 #include "content/common/media/webrtc_identity_messages.h"
 #include "content/public/renderer/render_process_observer.h"
@@ -69,6 +69,7 @@ class CONTENT_EXPORT WebRTCIdentityService : public RenderProcessObserver {
     RequestInfo(const WebRTCIdentityMsg_RequestIdentity_Params& params,
                 const SuccessCallback& success_callback,
                 const FailureCallback& failure_callback);
+    RequestInfo(const RequestInfo& other);
     ~RequestInfo();
 
     WebRTCIdentityMsg_RequestIdentity_Params params;

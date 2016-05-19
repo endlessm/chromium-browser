@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/workers/WorkerEventQueue.h"
 
 #include "core/dom/ExecutionContext.h"
@@ -150,4 +149,4 @@ void WorkerEventQueue::close()
     m_eventTaskMap.clear();
 }
 
-}
+} // namespace blink

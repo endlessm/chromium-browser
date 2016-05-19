@@ -4,13 +4,15 @@
 
 #include "components/data_usage/core/data_use_aggregator.h"
 
+#include <stddef.h>
 #include <stdint.h>
-
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/time/time.h"
@@ -41,7 +43,7 @@ class TestDataUseAggregator : public DataUseAggregator {
  public:
   TestDataUseAggregator(scoped_ptr<DataUseAnnotator> annotator,
                         scoped_ptr<DataUseAmortizer> amortizer)
-      : DataUseAggregator(annotator.Pass(), amortizer.Pass()) {}
+      : DataUseAggregator(std::move(annotator), std::move(amortizer)) {}
 
   ~TestDataUseAggregator() override {}
 
@@ -93,7 +95,7 @@ class FakeDataUseAnnotator : public DataUseAnnotator {
       scoped_ptr<DataUse> data_use,
       const base::Callback<void(scoped_ptr<DataUse>)>& callback) override {
     data_use->tab_id = tab_id_;
-    callback.Run(data_use.Pass());
+    callback.Run(std::move(data_use));
   }
 
   void set_tab_id(int32_t tab_id) { tab_id_ = tab_id; }
@@ -114,7 +116,7 @@ class DoublingAmortizer : public DataUseAmortizer {
                        const AmortizationCompleteCallback& callback) override {
     data_use->tx_bytes *= 2;
     data_use->rx_bytes *= 2;
-    callback.Run(data_use.Pass());
+    callback.Run(std::move(data_use));
   }
 
   void OnExtraBytes(int64_t extra_tx_bytes, int64_t extra_rx_bytes) override {}
@@ -206,30 +208,23 @@ class ReportingNetworkDelegate : public net::NetworkDelegateImpl {
 class TestObserver : public DataUseAggregator::Observer {
  public:
   explicit TestObserver(DataUseAggregator* data_use_aggregator)
-      : data_use_aggregator_(data_use_aggregator),
-        on_data_use_called_count_(0) {
+      : data_use_aggregator_(data_use_aggregator) {
     data_use_aggregator_->AddObserver(this);
   }
 
   ~TestObserver() override { data_use_aggregator_->RemoveObserver(this); }
 
-  void OnDataUse(
-      const std::vector<const DataUse*>& data_use_sequence) override {
-    ++on_data_use_called_count_;
-    for (const DataUse* data_use : data_use_sequence)
-      observed_data_use_.push_back(*data_use);
+  void OnDataUse(const DataUse& data_use) override {
+    observed_data_use_.push_back(data_use);
   }
 
   const std::vector<DataUse>& observed_data_use() const {
     return observed_data_use_;
   }
 
-  int on_data_use_called_count() const { return on_data_use_called_count_; }
-
  private:
   DataUseAggregator* data_use_aggregator_;
   std::vector<DataUse> observed_data_use_;
-  int on_data_use_called_count_;
 
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
 };
@@ -252,7 +247,7 @@ class DataUseAggregatorTest : public testing::Test {
     // Initialize testing objects.
     FakeDataUseAnnotator* fake_data_use_annotator = annotator.get();
     data_use_aggregator_.reset(
-        new TestDataUseAggregator(annotator.Pass(), amortizer.Pass()));
+        new TestDataUseAggregator(std::move(annotator), std::move(amortizer)));
     test_observer_.reset(new TestObserver(data_use_aggregator_.get()));
     test_network_change_notifier_.reset(
         new TestNetworkChangeNotifier(data_use_aggregator_.get()));
@@ -294,7 +289,7 @@ class DataUseAggregatorTest : public testing::Test {
     request->Start();
     loop_.RunUntilIdle();
 
-    return request.Pass();
+    return request;
   }
 
   ReportingNetworkDelegate* reporting_network_delegate() {
@@ -344,7 +339,7 @@ TEST_F(DataUseAggregatorTest, ReportDataUse) {
     scoped_ptr<DataUseAmortizer> amortizer(
         test_case.use_amortizer ? new DoublingAmortizer() : nullptr);
 
-    Initialize(annotator.Pass(), amortizer.Pass());
+    Initialize(std::move(annotator), std::move(amortizer));
 
     const int32_t kFooTabId = 10;
     const net::NetworkChangeNotifier::ConnectionType kFooConnectionType =

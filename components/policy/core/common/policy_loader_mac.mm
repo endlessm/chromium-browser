@@ -14,6 +14,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/policy/core/common/external_data_fetcher.h"
 #include "components/policy/core/common/mac_util.h"
 #include "components/policy/core/common/policy_bundle.h"
@@ -99,7 +100,7 @@ scoped_ptr<PolicyBundle> PolicyLoaderMac::Load() {
   // Load policy for the registered components.
   LoadPolicyForDomain(POLICY_DOMAIN_EXTENSIONS, "extensions", bundle.get());
 
-  return bundle.Pass();
+  return bundle;
 }
 
 base::Time PolicyLoaderMac::LastModificationTime() {

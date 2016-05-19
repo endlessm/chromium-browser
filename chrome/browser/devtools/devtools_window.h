@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_DEVTOOLS_DEVTOOLS_WINDOW_H_
 #define CHROME_BROWSER_DEVTOOLS_DEVTOOLS_WINDOW_H_
 
+#include "base/macros.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_ui_bindings.h"
@@ -212,6 +213,11 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
 
  private:
   friend class DevToolsWindowTesting;
+  friend class DevToolsWindowCreationObserver;
+
+  using CreationCallback = base::Callback<void(DevToolsWindow*)>;
+  static void AddCreationCallbackForTest(const CreationCallback& callback);
+  static void RemoveCreationCallbackForTest(const CreationCallback& callback);
 
   // DevTools lifecycle typically follows this way:
   // - Toggle/Open: client call;

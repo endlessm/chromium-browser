@@ -26,7 +26,6 @@
 #define WheelEvent_h
 
 #include "core/CoreExport.h"
-#include "core/events/EventDispatchMediator.h"
 #include "core/events/MouseEvent.h"
 #include "core/events/WheelEventInit.h"
 #include "platform/geometry/FloatPoint.h"
@@ -61,10 +60,12 @@ public:
     static PassRefPtrWillBeRawPtr<WheelEvent> create(const FloatPoint& wheelTicks,
         const FloatPoint& rawDelta, unsigned deltaMode, PassRefPtrWillBeRawPtr<AbstractView> view,
         const IntPoint& screenLocation, const IntPoint& windowLocation,
-        PlatformEvent::Modifiers modifiers, unsigned short buttons, bool canScroll, int resendingPluginId, bool hasPreciseScrollingDeltas, RailsMode railsMode)
+        PlatformEvent::Modifiers modifiers, unsigned short buttons, double platformTimeStamp,
+        bool canScroll, int resendingPluginId, bool hasPreciseScrollingDeltas, RailsMode railsMode)
     {
         return adoptRefWillBeNoop(new WheelEvent(wheelTicks, rawDelta, deltaMode, view,
-            screenLocation, windowLocation, modifiers, buttons, canScroll, resendingPluginId, hasPreciseScrollingDeltas, railsMode));
+            screenLocation, windowLocation, modifiers, buttons, platformTimeStamp,
+            canScroll, resendingPluginId,  hasPreciseScrollingDeltas, railsMode));
     }
 
     double deltaX() const { return m_deltaX; } // Positive when scrolling right.
@@ -79,7 +80,7 @@ public:
     bool canScroll() const { return m_canScroll; }
     int resendingPluginId() const { return m_resendingPluginId; }
     bool hasPreciseScrollingDeltas() const { return m_hasPreciseScrollingDeltas; }
-    RailsMode railsMode() const { return m_railsMode; }
+    RailsMode getRailsMode() const { return m_railsMode; }
 
     const AtomicString& interfaceName() const override;
     bool isMouseEvent() const override;
@@ -94,7 +95,8 @@ private:
     WheelEvent(const AtomicString&, const WheelEventInit&);
     WheelEvent(const FloatPoint& wheelTicks, const FloatPoint& rawDelta,
         unsigned, PassRefPtrWillBeRawPtr<AbstractView>, const IntPoint& screenLocation, const IntPoint& windowLocation,
-        PlatformEvent::Modifiers, unsigned short buttons, bool canScroll, int resendingPluginId, bool hasPreciseScrollingDeltas, RailsMode);
+        PlatformEvent::Modifiers, unsigned short buttons, double platformTimeStamp,
+        bool canScroll, int resendingPluginId, bool hasPreciseScrollingDeltas, RailsMode);
 
     IntPoint m_wheelDelta;
     double m_deltaX;
@@ -108,16 +110,6 @@ private:
 };
 
 DEFINE_EVENT_TYPE_CASTS(WheelEvent);
-
-class WheelEventDispatchMediator final : public EventDispatchMediator {
-public:
-    static PassRefPtrWillBeRawPtr<WheelEventDispatchMediator> create(PassRefPtrWillBeRawPtr<WheelEvent>);
-
-private:
-    explicit WheelEventDispatchMediator(PassRefPtrWillBeRawPtr<WheelEvent>);
-    WheelEvent& event() const;
-    bool dispatchEvent(EventDispatcher&) const override;
-};
 
 } // namespace blink
 

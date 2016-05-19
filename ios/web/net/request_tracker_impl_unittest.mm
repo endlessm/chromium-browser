@@ -4,8 +4,11 @@
 
 #include "ios/web/net/request_tracker_impl.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/sys_string_conversions.h"
@@ -121,6 +124,19 @@ namespace {
 // Used and incremented each time a tabId is created.
 int g_count = 0;
 
+// URLRequest::Delegate that does nothing.
+class DummyURLRequestDelegate : public net::URLRequest::Delegate {
+ public:
+  DummyURLRequestDelegate() {}
+  ~DummyURLRequestDelegate() override {}
+
+  void OnResponseStarted(net::URLRequest* request) override {}
+  void OnReadCompleted(net::URLRequest* request, int bytes_read) override {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(DummyURLRequestDelegate);
+};
+
 class RequestTrackerTest : public PlatformTest {
  public:
   RequestTrackerTest()
@@ -131,7 +147,7 @@ class RequestTrackerTest : public PlatformTest {
   ~RequestTrackerTest() override {}
 
   void SetUp() override {
-    DCHECK_CURRENTLY_ON_WEB_THREAD(web::WebThread::UI);
+    DCHECK_CURRENTLY_ON(web::WebThread::UI);
     request_group_id_.reset(
         [[NSString stringWithFormat:@"test%d", g_count++] retain]);
 
@@ -144,7 +160,7 @@ class RequestTrackerTest : public PlatformTest {
   }
 
   void TearDown() override {
-    DCHECK_CURRENTLY_ON_WEB_THREAD(web::WebThread::UI);
+    DCHECK_CURRENTLY_ON(web::WebThread::UI);
     tracker_->Close();
   }
 
@@ -183,7 +199,7 @@ class RequestTrackerTest : public PlatformTest {
   }
 
   NSString* WaitUntilLoop(bool (^condition)(void)) {
-    DCHECK_CURRENTLY_ON_WEB_THREAD(web::WebThread::UI);
+    DCHECK_CURRENTLY_ON(web::WebThread::UI);
     base::Time maxDate = base::Time::Now() + base::TimeDelta::FromSeconds(10);
     while (!condition()) {
       if ([receiver_ error])
@@ -207,14 +223,14 @@ class RequestTrackerTest : public PlatformTest {
   }
 
   void TrimRequest(NSString* tab_id, const GURL& url) {
-    DCHECK_CURRENTLY_ON_WEB_THREAD(web::WebThread::UI);
+    DCHECK_CURRENTLY_ON(web::WebThread::UI);
     receiver_.get()->value_ = 0.0f;
     receiver_.get()->max_ = 0.0f;
     tracker_->StartPageLoad(url, nil);
   }
 
   void EndPage(NSString* tab_id, const GURL& url) {
-    DCHECK_CURRENTLY_ON_WEB_THREAD(web::WebThread::UI);
+    DCHECK_CURRENTLY_ON(web::WebThread::UI);
     tracker_->FinishPageLoad(url, false);
     receiver_.get()->value_ = 0.0f;
     receiver_.get()->max_ = 0.0f;
@@ -239,9 +255,10 @@ class RequestTrackerTest : public PlatformTest {
 
     while (i >= requests_.size()) {
       contexts_.push_back(new net::URLRequestContext());
-      requests_.push_back(contexts_[i]->CreateRequest(url,
-                                                      net::DEFAULT_PRIORITY,
-                                                      NULL).release());
+      requests_.push_back(
+          contexts_[i]
+              ->CreateRequest(url, net::DEFAULT_PRIORITY, &request_delegate_)
+              .release());
 
       if (secure) {
         // Put a valid SSLInfo inside
@@ -261,6 +278,8 @@ class RequestTrackerTest : public PlatformTest {
     EXPECT_TRUE(!secure == !requests_[i]->url().SchemeIsCryptographic());
     return requests_[i];
   }
+
+  DummyURLRequestDelegate request_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(RequestTrackerTest);
 };
@@ -422,12 +441,12 @@ TEST_F(RequestTrackerTest, CaptureHeaders) {
       const_cast<char*>(headers.data())[i] = '\0';
   }
   net::URLRequest* request = GetRequest(0);
+  // TODO(mmenke):  This is really bizarre. Do something more reasonable.
   const_cast<net::HttpResponseInfo&>(request->response_info()).headers =
       new net::HttpResponseHeaders(headers);
-  // |job| will be owned by |request| and released from its destructor.
-  net::URLRequestTestJob* job = new net::URLRequestTestJob(
-      request, request->context()->network_delegate(), headers, "", false);
-  AddInterceptorToRequest(0)->set_main_intercept_job(job);
+  scoped_ptr<net::URLRequestTestJob> job(new net::URLRequestTestJob(
+      request, request->context()->network_delegate(), headers, "", false));
+  AddInterceptorToRequest(0)->set_main_intercept_job(std::move(job));
   request->Start();
 
   tracker_->StartRequest(request);

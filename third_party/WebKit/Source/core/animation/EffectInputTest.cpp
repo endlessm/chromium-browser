@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "core/animation/EffectInput.h"
 
 #include "bindings/core/v8/Dictionary.h"
@@ -13,7 +12,7 @@
 #include "core/dom/Element.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/testing/DummyPageHolder.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 #include <v8.h>
 
 namespace blink {
@@ -52,7 +51,7 @@ TEST_F(AnimationEffectInputTest, SortedOffsets)
     jsKeyframes.append(Dictionary(keyframe1, m_isolate, exceptionState));
     jsKeyframes.append(Dictionary(keyframe2, m_isolate, exceptionState));
 
-    EffectModel* animationEffect = EffectInput::convert(element.get(), jsKeyframes, exceptionState);
+    EffectModel* animationEffect = EffectInput::convert(element.get(), EffectModelOrDictionarySequenceOrDictionary::fromDictionarySequence(jsKeyframes), exceptionState);
     EXPECT_FALSE(exceptionState.hadException());
     const KeyframeEffectModelBase& keyframeEffect = *toKeyframeEffectModelBase(animationEffect);
     EXPECT_EQ(1.0, keyframeEffect.getFrames()[1]->offset());
@@ -72,7 +71,7 @@ TEST_F(AnimationEffectInputTest, UnsortedOffsets)
     jsKeyframes.append(Dictionary(keyframe1, m_isolate, exceptionState));
     jsKeyframes.append(Dictionary(keyframe2, m_isolate, exceptionState));
 
-    EffectInput::convert(element.get(), jsKeyframes, exceptionState);
+    EffectInput::convert(element.get(), EffectModelOrDictionarySequenceOrDictionary::fromDictionarySequence(jsKeyframes), exceptionState);
     EXPECT_TRUE(exceptionState.hadException());
     EXPECT_EQ(InvalidModificationError, exceptionState.code());
 }
@@ -94,7 +93,7 @@ TEST_F(AnimationEffectInputTest, LooslySorted)
     jsKeyframes.append(Dictionary(keyframe2, m_isolate, exceptionState));
     jsKeyframes.append(Dictionary(keyframe3, m_isolate, exceptionState));
 
-    EffectModel* animationEffect = EffectInput::convert(element.get(), jsKeyframes, exceptionState);
+    EffectModel* animationEffect = EffectInput::convert(element.get(), EffectModelOrDictionarySequenceOrDictionary::fromDictionarySequence(jsKeyframes), exceptionState);
     EXPECT_FALSE(exceptionState.hadException());
     const KeyframeEffectModelBase& keyframeEffect = *toKeyframeEffectModelBase(animationEffect);
     EXPECT_EQ(1, keyframeEffect.getFrames()[2]->offset());
@@ -121,7 +120,7 @@ TEST_F(AnimationEffectInputTest, OutOfOrderWithNullOffsets)
     jsKeyframes.append(Dictionary(keyframe3, m_isolate, exceptionState));
     jsKeyframes.append(Dictionary(keyframe4, m_isolate, exceptionState));
 
-    EffectInput::convert(element.get(), jsKeyframes, exceptionState);
+    EffectInput::convert(element.get(), EffectModelOrDictionarySequenceOrDictionary::fromDictionarySequence(jsKeyframes), exceptionState);
     EXPECT_TRUE(exceptionState.hadException());
 }
 
@@ -143,7 +142,7 @@ TEST_F(AnimationEffectInputTest, Invalid)
     jsKeyframes.append(Dictionary(keyframe2, m_isolate, exceptionState));
     jsKeyframes.append(Dictionary(keyframe3, m_isolate, exceptionState));
 
-    EffectInput::convert(element.get(), jsKeyframes, exceptionState);
+    EffectInput::convert(element.get(), EffectModelOrDictionarySequenceOrDictionary::fromDictionarySequence(jsKeyframes), exceptionState);
     EXPECT_TRUE(exceptionState.hadException());
     EXPECT_EQ(InvalidModificationError, exceptionState.code());
 }

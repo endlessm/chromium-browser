@@ -4,15 +4,16 @@
 
 #include "components/metrics/metrics_log.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
 #include "base/base64.h"
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/bucket_ranges.h"
 #include "base/metrics/sample_vector.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "components/metrics/metrics_pref_names.h"
@@ -20,6 +21,8 @@
 #include "components/metrics/proto/chrome_user_metrics_extension.pb.h"
 #include "components/metrics/test_metrics_provider.h"
 #include "components/metrics/test_metrics_service_client.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/variations/active_field_trials.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -28,10 +31,10 @@ namespace metrics {
 namespace {
 
 const char kClientId[] = "bogus client ID";
-const int64 kInstallDate = 1373051956;
-const int64 kInstallDateExpected = 1373050800;  // Computed from kInstallDate.
-const int64 kEnabledDate = 1373001211;
-const int64 kEnabledDateExpected = 1373000400;  // Computed from kEnabledDate.
+const int64_t kInstallDate = 1373051956;
+const int64_t kInstallDateExpected = 1373050800;  // Computed from kInstallDate.
+const int64_t kEnabledDate = 1373001211;
+const int64_t kEnabledDateExpected = 1373000400;  // Computed from kEnabledDate.
 const int kSessionId = 127;
 const variations::ActiveGroupId kFieldTrialIds[] = {
   {37, 43},
@@ -192,7 +195,7 @@ TEST_F(MetricsLogTest, HistogramBucketFields) {
   ranges.set_range(6, 11);
   ranges.set_range(7, 12);
 
-  base::SampleVector samples(&ranges);
+  base::SampleVector samples(1, &ranges);
   samples.Accumulate(3, 1);   // Bucket 1-5.
   samples.Accumulate(6, 1);   // Bucket 5-7.
   samples.Accumulate(8, 1);   // Bucket 8-9. (7-8 skipped)

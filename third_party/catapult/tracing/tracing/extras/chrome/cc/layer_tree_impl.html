@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/extras/chrome/chrome_model_helper.html">
+<link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
 <link rel="import" href="/tracing/extras/chrome/cc/constants.html">
 <link rel="import" href="/tracing/extras/chrome/cc/layer_impl.html">
 <link rel="import" href="/tracing/model/object_instance.html">
@@ -48,19 +48,16 @@ tr.exportTo('tr.e.cc', function() {
         this.tracedInputLatencies = [];
 
         var ownProcess = this.objectInstance.parent;
-        var model = ownProcess.model;
-        if (tr.e.audits.ChromeModelHelper.supportsModel(model))
-          this._initializeTracedInputLatencies(model);
+        var modelHelper = ownProcess.model.getOrCreateHelper(
+            tr.model.helpers.ChromeModelHelper);
+        if (modelHelper)
+          this._initializeTracedInputLatencies(modelHelper);
       }
     },
 
-    _initializeTracedInputLatencies: function(model) {
-      var modelHelper = new tr.e.audits.ChromeModelHelper(model);
-      if (!modelHelper.browserHelper)
-        return;
-
+    _initializeTracedInputLatencies: function(modelHelper) {
       var latencyEvents = modelHelper.browserHelper.getLatencyEventsInRange(
-          model.bounds);
+          modelHelper.model.bounds);
 
       // Convert all ids to InputLatency Async objects.
       latencyEvents.forEach(function(event) {

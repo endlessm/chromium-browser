@@ -173,7 +173,9 @@ static bool isFixedPointDepthTextureFormat (const tcu::TextureFormat& format)
 		switch (format.type)
 		{
 			case tcu::TextureFormat::FLOAT_UNSIGNED_INT_24_8_REV:	return false;
+			case tcu::TextureFormat::UNSIGNED_INT_16_8_8:			return true;
 			case tcu::TextureFormat::UNSIGNED_INT_24_8:				return true;
+			case tcu::TextureFormat::UNSIGNED_INT_24_8_REV:			return true;
 
 			default:
 			{

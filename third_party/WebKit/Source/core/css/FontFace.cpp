@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/css/FontFace.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -59,6 +58,7 @@
 #include "core/frame/Settings.h"
 #include "core/frame/UseCounter.h"
 #include "platform/FontFamilyNames.h"
+#include "platform/Histogram.h"
 #include "platform/SharedBuffer.h"
 
 namespace blink {
@@ -128,6 +128,7 @@ PassRefPtrWillBeRawPtr<FontFace> FontFace::create(Document* document, const Styl
         && fontFace->setPropertyFromStyle(properties, CSSPropertyUnicodeRange)
         && fontFace->setPropertyFromStyle(properties, CSSPropertyFontVariant)
         && fontFace->setPropertyFromStyle(properties, CSSPropertyFontFeatureSettings)
+        && fontFace->setPropertyFromStyle(properties, CSSPropertyFontDisplay)
         && !fontFace->family().isEmpty()
         && fontFace->traits().bitfield()) {
         fontFace->initCSSFontFace(document, src);
@@ -264,6 +265,9 @@ bool FontFace::setPropertyValue(PassRefPtrWillBeRawPtr<CSSValue> value, CSSPrope
     case CSSPropertyFontFeatureSettings:
         m_featureSettings = value;
         break;
+    case CSSPropertyFontDisplay:
+        m_display = value;
+        break;
     default:
         ASSERT_NOT_REACHED();
         return false;
@@ -323,7 +327,7 @@ String FontFace::status() const
     return emptyString();
 }
 
-void FontFace::setLoadStatus(LoadStatus status)
+void FontFace::setLoadStatus(LoadStatusType status)
 {
     m_status = status;
     ASSERT(m_status != Error || m_error);
@@ -528,6 +532,27 @@ FontTraits FontFace::traits() const
     return FontTraits(style, variant, weight, stretch);
 }
 
+static FontDisplay CSSValueToFontDisplay(CSSValue* value)
+{
+    if (value && value->isPrimitiveValue()) {
+        switch (toCSSPrimitiveValue(value)->getValueID()) {
+        case CSSValueAuto:
+            return FontDisplayAuto;
+        case CSSValueBlock:
+            return FontDisplayBlock;
+        case CSSValueSwap:
+            return FontDisplaySwap;
+        case CSSValueFallback:
+            return FontDisplayFallback;
+        case CSSValueOptional:
+            return FontDisplayOptional;
+        default:
+            break;
+        }
+    }
+    return FontDisplayAuto;
+}
+
 static PassOwnPtrWillBeRawPtr<CSSFontFace> createCSSFontFace(FontFace* fontFace, CSSValue* unicodeRange)
 {
     Vector<CSSFontFace::UnicodeRange> ranges;
@@ -563,10 +588,10 @@ void FontFace::initCSSFontFace(Document* document, PassRefPtrWillBeRawPtr<CSSVal
             const Settings* settings = document ? document->settings() : nullptr;
             bool allowDownloading = settings && settings->downloadableBinaryFontsEnabled();
             if (allowDownloading && item->isSupportedFormat() && document) {
-                FontResource* fetched = item->fetch(document);
+                RefPtrWillBeRawPtr<FontResource> fetched = item->fetch(document);
                 if (fetched) {
                     FontLoader* fontLoader = document->styleEngine().fontSelector()->fontLoader();
-                    source = adoptPtrWillBeNoop(new RemoteFontFaceSource(fetched, fontLoader));
+                    source = adoptPtrWillBeNoop(new RemoteFontFaceSource(fetched.release(), fontLoader, CSSValueToFontDisplay(m_display.get())));
                 }
             }
         } else {
@@ -576,9 +601,14 @@ void FontFace::initCSSFontFace(Document* document, PassRefPtrWillBeRawPtr<CSSVal
         if (source)
             m_cssFontFace->addSource(source.release());
     }
+
+    if (m_display) {
+        DEFINE_STATIC_LOCAL(EnumerationHistogram, fontDisplayHistogram, ("WebFont.FontDisplayValue", FontDisplayEnumMax));
+        fontDisplayHistogram.count(CSSValueToFontDisplay(m_display.get()));
+    }
 }
 
-void FontFace::initCSSFontFace(const unsigned char* data, unsigned size)
+void FontFace::initCSSFontFace(const unsigned char* data, size_t size)
 {
     m_cssFontFace = createCSSFontFace(this, m_unicodeRange.get());
     if (m_error)
@@ -601,6 +631,7 @@ DEFINE_TRACE(FontFace)
     visitor->trace(m_unicodeRange);
     visitor->trace(m_variant);
     visitor->trace(m_featureSettings);
+    visitor->trace(m_display);
     visitor->trace(m_error);
     visitor->trace(m_loadedProperty);
     visitor->trace(m_cssFontFace);

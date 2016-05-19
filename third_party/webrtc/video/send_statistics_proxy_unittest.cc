@@ -16,8 +16,15 @@
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "webrtc/system_wrappers/include/metrics.h"
+#include "webrtc/test/histogram.h"
 
 namespace webrtc {
+
+static const uint32_t kFirstSsrc = 17;
+static const uint32_t kSecondSsrc = 42;
+static const uint32_t kFirstRtxSsrc = 18;
+static const uint32_t kSecondRtxSsrc = 43;
 
 class SendStatisticsProxyTest : public ::testing::Test {
  public:
@@ -28,17 +35,18 @@ class SendStatisticsProxyTest : public ::testing::Test {
 
  protected:
   virtual void SetUp() {
-    statistics_proxy_.reset(
-        new SendStatisticsProxy(&fake_clock_, GetTestConfig()));
+    statistics_proxy_.reset(new SendStatisticsProxy(
+        &fake_clock_, GetTestConfig(),
+        VideoEncoderConfig::ContentType::kRealtimeVideo));
     expected_ = VideoSendStream::Stats();
   }
 
   VideoSendStream::Config GetTestConfig() {
     VideoSendStream::Config config(nullptr);
-    config.rtp.ssrcs.push_back(17);
-    config.rtp.ssrcs.push_back(42);
-    config.rtp.rtx.ssrcs.push_back(18);
-    config.rtp.rtx.ssrcs.push_back(43);
+    config.rtp.ssrcs.push_back(kFirstSsrc);
+    config.rtp.ssrcs.push_back(kSecondSsrc);
+    config.rtp.rtx.ssrcs.push_back(kFirstRtxSsrc);
+    config.rtp.rtx.ssrcs.push_back(kSecondRtxSsrc);
     return config;
   }
 
@@ -84,8 +92,8 @@ class SendStatisticsProxyTest : public ::testing::Test {
     }
   }
 
-  rtc::scoped_ptr<SendStatisticsProxy> statistics_proxy_;
   SimulatedClock fake_clock_;
+  rtc::scoped_ptr<SendStatisticsProxy> statistics_proxy_;
   VideoSendStream::Config config_;
   int avg_delay_ms_;
   int max_delay_ms_;
@@ -287,6 +295,36 @@ TEST_F(SendStatisticsProxyTest, SendSideDelay) {
   ExpectEqual(expected_, stats);
 }
 
+TEST_F(SendStatisticsProxyTest, OnEncodedFrameTimeMeasured) {
+  const int kEncodeTimeMs = 11;
+  CpuOveruseMetrics metrics;
+  metrics.encode_usage_percent = 80;
+  statistics_proxy_->OnEncodedFrameTimeMeasured(kEncodeTimeMs, metrics);
+
+  VideoSendStream::Stats stats = statistics_proxy_->GetStats();
+  EXPECT_EQ(kEncodeTimeMs, stats.avg_encode_time_ms);
+  EXPECT_EQ(metrics.encode_usage_percent, stats.encode_usage_percent);
+}
+
+TEST_F(SendStatisticsProxyTest, SwitchContentTypeUpdatesHistograms) {
+  test::ClearHistograms();
+  const int kMinRequiredSamples = 200;
+  const int kWidth = 640;
+  const int kHeight = 480;
+
+  for (int i = 0; i < kMinRequiredSamples; ++i)
+    statistics_proxy_->OnIncomingFrame(kWidth, kHeight);
+
+  // No switch, stats not should be updated.
+  statistics_proxy_->SetContentType(
+      VideoEncoderConfig::ContentType::kRealtimeVideo);
+  EXPECT_EQ(0, test::NumHistogramSamples("WebRTC.Video.InputWidthInPixels"));
+
+  // Switch to screenshare, real-time stats should be updated.
+  statistics_proxy_->SetContentType(VideoEncoderConfig::ContentType::kScreen);
+  EXPECT_EQ(1, test::NumHistogramSamples("WebRTC.Video.InputWidthInPixels"));
+}
+
 TEST_F(SendStatisticsProxyTest, NoSubstreams) {
   uint32_t excluded_ssrc =
       std::max(
@@ -400,6 +438,91 @@ TEST_F(SendStatisticsProxyTest, ClearsBitratesFromInactiveSsrcs) {
             stats.substreams[config_.rtp.ssrcs[0]].retransmit_bitrate_bps);
   EXPECT_EQ(0, stats.substreams[config_.rtp.ssrcs[1]].total_bitrate_bps);
   EXPECT_EQ(0, stats.substreams[config_.rtp.ssrcs[1]].retransmit_bitrate_bps);
+}
+
+TEST_F(SendStatisticsProxyTest, ResetsRtcpCountersOnContentChange) {
+  RtcpPacketTypeCounterObserver* proxy =
+      static_cast<RtcpPacketTypeCounterObserver*>(statistics_proxy_.get());
+  RtcpPacketTypeCounter counters;
+  counters.first_packet_time_ms = fake_clock_.TimeInMilliseconds();
+  proxy->RtcpPacketTypesCounterUpdated(kFirstSsrc, counters);
+  proxy->RtcpPacketTypesCounterUpdated(kSecondSsrc, counters);
+
+  fake_clock_.AdvanceTimeMilliseconds(1000 * metrics::kMinRunTimeInSeconds);
+
+  counters.nack_packets += 1 * metrics::kMinRunTimeInSeconds;
+  counters.fir_packets += 2 * metrics::kMinRunTimeInSeconds;
+  counters.pli_packets += 3 * metrics::kMinRunTimeInSeconds;
+  counters.unique_nack_requests += 4 * metrics::kMinRunTimeInSeconds;
+  counters.nack_requests += 5 * metrics::kMinRunTimeInSeconds;
+
+  proxy->RtcpPacketTypesCounterUpdated(kFirstSsrc, counters);
+  proxy->RtcpPacketTypesCounterUpdated(kSecondSsrc, counters);
+
+  // Changing content type causes histograms to be reported.
+  statistics_proxy_->SetContentType(VideoEncoderConfig::ContentType::kScreen);
+
+  EXPECT_EQ(1, test::NumHistogramSamples(
+                   "WebRTC.Video.NackPacketsReceivedPerMinute"));
+  EXPECT_EQ(
+      1, test::NumHistogramSamples("WebRTC.Video.FirPacketsReceivedPerMinute"));
+  EXPECT_EQ(
+      1, test::NumHistogramSamples("WebRTC.Video.PliPacketsReceivedPerMinute"));
+  EXPECT_EQ(1, test::NumHistogramSamples(
+                   "WebRTC.Video.UniqueNackRequestsReceivedInPercent"));
+
+  const int kRate = 60 * 2;  // Packets per minute with two streams.
+
+  EXPECT_EQ(1 * kRate, test::LastHistogramSample(
+                           "WebRTC.Video.NackPacketsReceivedPerMinute"));
+  EXPECT_EQ(2 * kRate, test::LastHistogramSample(
+                           "WebRTC.Video.FirPacketsReceivedPerMinute"));
+  EXPECT_EQ(3 * kRate, test::LastHistogramSample(
+                           "WebRTC.Video.PliPacketsReceivedPerMinute"));
+  EXPECT_EQ(4 * 100 / 5,
+            test::LastHistogramSample(
+                "WebRTC.Video.UniqueNackRequestsReceivedInPercent"));
+
+  // New start time but same counter values.
+  proxy->RtcpPacketTypesCounterUpdated(kFirstSsrc, counters);
+  proxy->RtcpPacketTypesCounterUpdated(kSecondSsrc, counters);
+
+  fake_clock_.AdvanceTimeMilliseconds(1000 * metrics::kMinRunTimeInSeconds);
+
+  counters.nack_packets += 1 * metrics::kMinRunTimeInSeconds;
+  counters.fir_packets += 2 * metrics::kMinRunTimeInSeconds;
+  counters.pli_packets += 3 * metrics::kMinRunTimeInSeconds;
+  counters.unique_nack_requests += 4 * metrics::kMinRunTimeInSeconds;
+  counters.nack_requests += 5 * metrics::kMinRunTimeInSeconds;
+
+  proxy->RtcpPacketTypesCounterUpdated(kFirstSsrc, counters);
+  proxy->RtcpPacketTypesCounterUpdated(kSecondSsrc, counters);
+
+  SetUp();  // Reset stats proxy also causes histograms to be reported.
+
+  EXPECT_EQ(1, test::NumHistogramSamples(
+                   "WebRTC.Video.Screenshare.NackPacketsReceivedPerMinute"));
+  EXPECT_EQ(1, test::NumHistogramSamples(
+                   "WebRTC.Video.Screenshare.FirPacketsReceivedPerMinute"));
+  EXPECT_EQ(1, test::NumHistogramSamples(
+                   "WebRTC.Video.Screenshare.PliPacketsReceivedPerMinute"));
+  EXPECT_EQ(
+      1, test::NumHistogramSamples(
+             "WebRTC.Video.Screenshare.UniqueNackRequestsReceivedInPercent"));
+
+  EXPECT_EQ(1 * kRate,
+            test::LastHistogramSample(
+                "WebRTC.Video.Screenshare.NackPacketsReceivedPerMinute"));
+  EXPECT_EQ(2 * kRate,
+            test::LastHistogramSample(
+                "WebRTC.Video.Screenshare.FirPacketsReceivedPerMinute"));
+  EXPECT_EQ(3 * kRate,
+            test::LastHistogramSample(
+                "WebRTC.Video.Screenshare.PliPacketsReceivedPerMinute"));
+  EXPECT_EQ(
+      4 * 100 / 5,
+      test::LastHistogramSample(
+          "WebRTC.Video.Screenshare.UniqueNackRequestsReceivedInPercent"));
 }
 
 }  // namespace webrtc

@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/html/track/LoadableTextTrack.h"
 
 #include "core/dom/ElementTraversal.h"
@@ -66,7 +65,7 @@ void LoadableTextTrack::setMode(const AtomicString& mode)
         return;
 #endif
 
-    if (m_trackElement->readyState() == HTMLTrackElement::NONE)
+    if (m_trackElement->getReadyState() == HTMLTrackElement::NONE)
         m_trackElement->scheduleLoad();
 }
 

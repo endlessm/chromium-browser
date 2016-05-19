@@ -15,8 +15,8 @@
       '<(grit_out_dir)/memory_internals_resources.pak',
       '<(grit_out_dir)/net_internals_resources.pak',
       '<(grit_out_dir)/password_manager_internals_resources.pak',
+      '<(grit_out_dir)/policy_resources.pak',
       '<(grit_out_dir)/settings_strings.pak',
-      '<(grit_out_dir)/signin_internals_resources.pak',
       '<(grit_out_dir)/translate_internals_resources.pak',
     ],
     'pak_output': '<(SHARED_INTERMEDIATE_DIR)/repack/resources.pak',
@@ -52,7 +52,6 @@
           '<(grit_out_dir)/quota_internals_resources.pak',
           '<(grit_out_dir)/settings_resources.pak',
           '<(grit_out_dir)/sync_file_system_internals_resources.pak',
-          '<(grit_out_dir)/webrtc_device_provider_resources.pak',
         ],
       }],
       ['enable_extensions==1', {

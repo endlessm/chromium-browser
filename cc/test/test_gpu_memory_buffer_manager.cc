@@ -4,6 +4,9 @@
 
 #include "cc/test/test_gpu_memory_buffer_manager.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "ui/gfx/buffer_format_util.h"
@@ -21,10 +24,11 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
                       size_t stride)
       : size_(size),
         format_(format),
-        shared_memory_(shared_memory.Pass()),
+        shared_memory_(std::move(shared_memory)),
         offset_(offset),
         stride_(stride),
-        mapped_(false) {}
+        mapped_(false),
+        is_in_use_by_window_server_(false) {}
 
   // Overridden from gfx::GpuMemoryBuffer:
   bool Map() override {
@@ -46,6 +50,9 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
     DCHECK(mapped_);
     shared_memory_->Unmap();
     mapped_ = false;
+  }
+  bool IsInUseByMacOSWindowServer() const override {
+    return is_in_use_by_window_server_;
   }
   gfx::Size GetSize() const override { return size_; }
   gfx::BufferFormat GetFormat() const override { return format_; }
@@ -70,6 +77,10 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
     return reinterpret_cast<ClientBuffer>(this);
   }
 
+  void SetIsInUseByMacOSWindowServer(bool value) {
+    is_in_use_by_window_server_ = value;
+  }
+
  private:
   const gfx::Size size_;
   gfx::BufferFormat format_;
@@ -77,6 +88,7 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
   size_t offset_;
   size_t stride_;
   bool mapped_;
+  bool is_in_use_by_window_server_;
 };
 
 }  // namespace
@@ -85,6 +97,13 @@ TestGpuMemoryBufferManager::TestGpuMemoryBufferManager() {
 }
 
 TestGpuMemoryBufferManager::~TestGpuMemoryBufferManager() {
+}
+
+void TestGpuMemoryBufferManager::SetGpuMemoryBufferIsInUseByMacOSWindowServer(
+    gfx::GpuMemoryBuffer* gpu_memory_buffer,
+    bool in_use) {
+  static_cast<GpuMemoryBufferImpl*>(gpu_memory_buffer)
+      ->SetIsInUseByMacOSWindowServer(in_use);
 }
 
 scoped_ptr<gfx::GpuMemoryBuffer>
@@ -96,7 +115,7 @@ TestGpuMemoryBufferManager::AllocateGpuMemoryBuffer(const gfx::Size& size,
   if (!shared_memory->CreateAnonymous(buffer_size))
     return nullptr;
   return make_scoped_ptr<gfx::GpuMemoryBuffer>(new GpuMemoryBufferImpl(
-      size, format, shared_memory.Pass(), 0,
+      size, format, std::move(shared_memory), 0,
       base::checked_cast<int>(
           gfx::RowSizeForBufferFormat(size.width(), format, 0))));
 }

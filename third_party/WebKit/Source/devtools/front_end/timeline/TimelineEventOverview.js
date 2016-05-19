@@ -40,25 +40,12 @@ WebInspector.TimelineEventOverview = function(id, title, model)
     WebInspector.TimelineOverviewBase.call(this);
     this.element.id = "timeline-overview-" + id;
     this.element.classList.add("overview-strip");
-    if (title) {
-        this._placeholder = this.element.createChild("div", "timeline-overview-strip-placeholder");
-        this._placeholder.textContent = title;
-    }
+    if (title)
+        this.element.createChild("div", "timeline-overview-strip-title").textContent = title;
     this._model = model;
 }
 
 WebInspector.TimelineEventOverview.prototype = {
-
-    /**
-     * @override
-     */
-    update: function()
-    {
-        WebInspector.TimelineOverviewBase.prototype.update.call(this);
-        if (this._placeholder)
-            this._placeholder.classList.toggle("hidden", !this._model.isEmpty());
-    },
-
     /**
      * @param {number} begin
      * @param {number} end
@@ -117,7 +104,7 @@ WebInspector.TimelineEventOverview.prototype = {
  */
 WebInspector.TimelineEventOverview.Input = function(model)
 {
-    WebInspector.TimelineEventOverview.call(this, "input", WebInspector.UIString("Input"), model);
+    WebInspector.TimelineEventOverview.call(this, "input", null, model);
 }
 
 WebInspector.TimelineEventOverview.Input.prototype = {
@@ -171,7 +158,7 @@ WebInspector.TimelineEventOverview.Input.prototype = {
  */
 WebInspector.TimelineEventOverview.Network = function(model)
 {
-    WebInspector.TimelineEventOverview.call(this, "network", WebInspector.UIString("Network"), model);
+    WebInspector.TimelineEventOverview.call(this, "network", WebInspector.UIString("NET"), model);
 }
 
 WebInspector.TimelineEventOverview.Network.prototype = {
@@ -183,11 +170,7 @@ WebInspector.TimelineEventOverview.Network.prototype = {
         WebInspector.TimelineEventOverview.prototype.update.call(this);
         var height = this._canvas.height;
         var numBands = categoryBand(WebInspector.TimelineUIUtils.NetworkCategory.Other) + 1;
-        var bandHeight = height / numBands;
-        if (bandHeight % 1) {
-            console.error("Network strip height should be a multiple of the categories number");
-            bandHeight = Math.floor(bandHeight);
-        }
+        var bandHeight = Math.floor(height / numBands);
         var devicePixelRatio = window.devicePixelRatio;
         var timeOffset = this._model.minimumRecordTime();
         var timeSpan = this._model.maximumRecordTime() - timeOffset;
@@ -355,7 +338,7 @@ WebInspector.TimelineEventOverview.CPUActivity.prototype = {
             quantizer.appendInterval(timeOffset + timeSpan + quantTime, idleIndex);  // Kick drawing the last bucket.
             for (var i = categoryOrder.length - 1; i > 0; --i) {
                 paths[i].lineTo(width, height);
-                ctx.fillStyle = categories[categoryOrder[i]].fillColorStop1;
+                ctx.fillStyle = categories[categoryOrder[i]].color;
                 ctx.fill(paths[i]);
             }
         }
@@ -453,10 +436,12 @@ WebInspector.TimelineEventOverview.Responsiveness.prototype = {
  */
 WebInspector.TimelineFilmStripOverview = function(model, tracingModel)
 {
-    WebInspector.TimelineEventOverview.call(this, "filmstrip", "Screenshots", model);
+    WebInspector.TimelineEventOverview.call(this, "filmstrip", null, model);
     this._tracingModel = tracingModel;
     this.reset();
 }
+
+WebInspector.TimelineFilmStripOverview.Padding = 2;
 
 WebInspector.TimelineFilmStripOverview.prototype = {
     /**
@@ -471,28 +456,17 @@ WebInspector.TimelineFilmStripOverview.prototype = {
         if (!frames.length)
             return;
 
-        if (this._imageWidth) {
-            this._drawFrames();
-            return;
-        }
-
-        this._imageByFrame(frames[0])
-            .then(calculateWidth.bind(this))
-            .then(this._drawFrames.bind(this));
-
-        /**
-         * @this {WebInspector.TimelineFilmStripOverview}
-         * @param {!HTMLImageElement} image
-         */
-        function calculateWidth(image)
-        {
-            var naturalHeight = image.naturalHeight;
-            if (!naturalHeight)
+        var drawGeneration = Symbol("drawGeneration");
+        this._drawGeneration = drawGeneration;
+        this._imageByFrame(frames[0]).then(image => {
+            if (this._drawGeneration !== drawGeneration)
                 return;
-            var naturalWidth = image.naturalWidth;
-            this._imageHeight = this._canvas.height - 10
-            this._imageWidth = Math.floor(this._imageHeight * naturalWidth / naturalHeight);
-        }
+            if (!image.naturalHeight)
+                return;
+            var imageHeight = this._canvas.height - 2 * WebInspector.TimelineFilmStripOverview.Padding;
+            var imageWidth = Math.ceil(imageHeight * image.naturalWidth / image.naturalHeight);
+            this._drawFrames(imageWidth, imageHeight);
+        });
     },
 
     /**
@@ -521,43 +495,45 @@ WebInspector.TimelineFilmStripOverview.prototype = {
         }
     },
 
-    _drawFrames: function()
+    /**
+     * @param {number} imageWidth
+     * @param {number} imageHeight
+     */
+    _drawFrames: function(imageWidth, imageHeight)
     {
-        if (!this._filmStripModel || !this._imageWidth)
+        if (!this._filmStripModel || !imageWidth)
             return;
         if (!this._filmStripModel.frames().length)
             return;
+        var padding = WebInspector.TimelineFilmStripOverview.Padding;
         var width = this._canvas.width;
         var zeroTime = this._tracingModel.minimumRecordTime();
         var spanTime = this._tracingModel.maximumRecordTime() - zeroTime;
         var scale = spanTime / width;
         var context = this._canvas.getContext("2d");
-        var currentDrawGeneration = Symbol("drawGeneration");
-        this._lastDrawGeneration = currentDrawGeneration;
+        var drawGeneration = this._drawGeneration;
 
         context.beginPath();
-        for (var x = 0; x < width; x += this._imageWidth + 5) {
-            var time = zeroTime + (x + this._imageWidth / 2) * scale;
+        for (var x = padding; x < width; x += imageWidth + 2 * padding) {
+            var time = zeroTime + (x + imageWidth / 2) * scale;
             var frame = this._frameByTime(time);
-            context.rect(x + 0.5, 3.5, this._imageWidth + 1, this._imageHeight + 1);
-            this._imageByFrame(frame).then(drawFrameImage.bind(this, x, this._imageWidth, this._imageHeight));
+            context.rect(x - 0.5, 0.5, imageWidth + 1, imageHeight + 1);
+            this._imageByFrame(frame).then(drawFrameImage.bind(this, x));
         }
         context.strokeStyle = "#ddd";
         context.stroke();
 
         /**
          * @param {number} x
-         * @param {number} width
-         * @param {number} height
          * @param {!HTMLImageElement} image
          * @this {WebInspector.TimelineFilmStripOverview}
          */
-        function drawFrameImage(x, width, height, image)
+        function drawFrameImage(x, image)
         {
             // Ignore draws deferred from a previous update call.
-            if (this._lastDrawGeneration !== currentDrawGeneration)
+            if (this._drawGeneration !== drawGeneration)
                 return;
-            context.drawImage(image, x + 1, 4, width, height);
+            context.drawImage(image, x, 1, imageWidth, imageHeight);
         }
     },
 
@@ -608,7 +584,7 @@ WebInspector.TimelineFilmStripOverview.prototype = {
         {
             var element = createElementWithClass("div", "frame");
             element.createChild("div", "thumbnail").appendChild(image);
-            element.appendChild(WebInspector.Widget.createStyleElement("timeline/timelinePanel.css"));
+            WebInspector.appendStyle(element, "timeline/timelinePanel.css");
             this._lastFrame = frame;
             this._lastElement = element;
             return element;
@@ -639,7 +615,7 @@ WebInspector.TimelineFilmStripOverview.prototype = {
  */
 WebInspector.TimelineEventOverview.Frames = function(model, frameModel)
 {
-    WebInspector.TimelineEventOverview.call(this, "framerate", "Framerate", model);
+    WebInspector.TimelineEventOverview.call(this, "framerate", WebInspector.UIString("FPS"), model);
     this._frameModel = frameModel;
 }
 
@@ -702,7 +678,7 @@ WebInspector.TimelineEventOverview.Frames.prototype = {
  */
 WebInspector.TimelineEventOverview.Memory = function(model)
 {
-    WebInspector.TimelineEventOverview.call(this, "memory", "Memory", model);
+    WebInspector.TimelineEventOverview.call(this, "memory", WebInspector.UIString("HEAP"), model);
     this._heapSizeLabel = this.element.createChild("div", "memory-graph-label");
 }
 

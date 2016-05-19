@@ -4,12 +4,15 @@
 
 #include "components/translate/core/browser/translate_language_list.h"
 
+#include <stddef.h>
+
 #include <set>
 
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -33,6 +36,7 @@ namespace {
 // excluded because Chrome l10n library does not support it.
 const char* const kDefaultSupportedLanguages[] = {
   "af",     // Afrikaans
+  "am",     // Amharic
   "ar",     // Arabic
   "az",     // Azerbaijani
   "be",     // Belarusian
@@ -41,6 +45,7 @@ const char* const kDefaultSupportedLanguages[] = {
   "bs",     // Bosnian
   "ca",     // Catalan
   "ceb",    // Cebuano
+  "co",     // Corsican
   "cs",     // Czech
   "cy",     // Welsh
   "da",     // Danish
@@ -53,11 +58,14 @@ const char* const kDefaultSupportedLanguages[] = {
   "eu",     // Basque
   "fa",     // Persian
   "fi",     // Finnish
+  "fy",     // Frisian
   "fr",     // French
   "ga",     // Irish
+  "gd",     // Scots Gaelic
   "gl",     // Galician
   "gu",     // Gujarati
   "ha",     // Hausa
+  "haw",    // Hawaiian
   "hi",     // Hindi
   "hr",     // Croatian
   "ht",     // Haitian Creole
@@ -74,7 +82,10 @@ const char* const kDefaultSupportedLanguages[] = {
   "km",     // Khmer
   "kn",     // Kannada
   "ko",     // Korean
+  "ku",     // Kurdish
+  "ky",     // Kyrgyz
   "la",     // Latin
+  "lb",     // Luxembourgish
   "lo",     // Lao
   "lt",     // Lithuanian
   "lv",     // Latvian
@@ -93,12 +104,16 @@ const char* const kDefaultSupportedLanguages[] = {
   "ny",     // Nyanja
   "pa",     // Punjabi
   "pl",     // Polish
+  "ps",     // Pashto
   "pt",     // Portuguese
   "ro",     // Romanian
   "ru",     // Russian
+  "sd",     // Sindhi
   "si",     // Sinhala
   "sk",     // Slovak
   "sl",     // Slovenian
+  "sm",     // Samoan
+  "sn",     // Shona
   "so",     // Somali
   "sq",     // Albanian
   "sr",     // Serbian
@@ -117,6 +132,7 @@ const char* const kDefaultSupportedLanguages[] = {
   "uz",     // Uzbek
   "vi",     // Vietnamese
   "yi",     // Yiddish
+  "xh",     // Xhosa
   "yo",     // Yoruba
   "zh-CN",  // Chinese (Simplified)
   "zh-TW",  // Chinese (Traditional)
@@ -132,14 +148,7 @@ const char kAlphaLanguageQueryName[] = "alpha";
 const char kAlphaLanguageQueryValue[] = "1";
 
 // Represent if the language list updater is disabled.
-// Android does not handle well language updates, leading to bugs
-// like crbug.com/555124
-
-#if defined(OS_ANDROID)
-bool update_is_disabled = true;
-#else
 bool update_is_disabled = false;
-#endif  // OS_ANDROID
 
 // Retry parameter for fetching.
 const int kMaxRetryOn5xx = 5;

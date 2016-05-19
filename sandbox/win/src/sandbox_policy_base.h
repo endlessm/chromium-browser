@@ -6,12 +6,16 @@
 #define SANDBOX_WIN_SRC_SANDBOX_POLICY_BASE_H_
 
 #include <windows.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <list>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/process/launch.h"
 #include "base/strings/string16.h"
 #include "base/win/scoped_handle.h"
 #include "sandbox/win/src/crosscall_server.h"
@@ -29,13 +33,7 @@ class LowLevelPolicy;
 class TargetProcess;
 struct PolicyGlobal;
 
-typedef std::vector<base::win::ScopedHandle*> HandleList;
-
-// We act as a policy dispatcher, implementing the handler for the "ping" IPC,
-// so we have to provide the appropriate handler on the OnMessageReady method.
-// There is a static_cast for the handler, and the compiler only performs the
-// cast if the first base class is Dispatcher.
-class PolicyBase : public Dispatcher, public TargetPolicy {
+class PolicyBase final : public TargetPolicy {
  public:
   PolicyBase();
 
@@ -45,7 +43,8 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   ResultCode SetTokenLevel(TokenLevel initial, TokenLevel lockdown) override;
   TokenLevel GetInitialTokenLevel() const override;
   TokenLevel GetLockdownTokenLevel() const override;
-  ResultCode SetJobLevel(JobLevel job_level, uint32 ui_exceptions) override;
+  ResultCode SetJobLevel(JobLevel job_level, uint32_t ui_exceptions) override;
+  JobLevel GetJobLevel() const override;
   ResultCode SetJobMemoryLimit(size_t memory_limit) override;
   ResultCode SetAlternateDesktop(bool alternate_winstation) override;
   base::string16 GetAlternateDesktop() const override;
@@ -61,6 +60,7 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   MitigationFlags GetProcessMitigations() override;
   ResultCode SetDelayedProcessMitigations(MitigationFlags flags) override;
   MitigationFlags GetDelayedProcessMitigations() const override;
+  void SetDisconnectCsrss() override;
   void SetStrictInterceptions() override;
   ResultCode SetStdoutHandle(HANDLE handle) override;
   ResultCode SetStderrHandle(HANDLE handle) override;
@@ -70,12 +70,7 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   ResultCode AddDllToUnload(const wchar_t* dll_name) override;
   ResultCode AddKernelObjectToClose(const base::char16* handle_type,
                                     const base::char16* handle_name) override;
-  void* AddHandleToShare(HANDLE handle) override;
-
-  // Dispatcher:
-  Dispatcher* OnMessageReady(IPCParams* ipc,
-                             CallbackGeneric* callback) override;
-  bool SetupService(InterceptionManager* manager, int service) override;
+  void AddHandleToShare(HANDLE handle) override;
 
   // Creates a Job object with the level specified in a previous call to
   // SetJobLevel().
@@ -90,7 +85,7 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
 
   const AppContainerAttributes* GetAppContainer() const;
 
-  const PSID GetLowBoxSid() const;
+  PSID GetLowBoxSid() const;
 
   // Adds a target process to the internal list of targets. Internally a
   // call to TargetProcess::Init() is issued.
@@ -107,19 +102,10 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   HANDLE GetStderrHandle();
 
   // Returns the list of handles being shared with the target process.
-  const HandleList& GetHandlesBeingShared();
-
-  // Closes the handles being shared with the target and clears out the list.
-  void ClearSharedHandles();
+  const base::HandlesToInheritVector& GetHandlesBeingShared();
 
  private:
-  ~PolicyBase() override;
-
-  // Test IPC providers.
-  bool Ping(IPCInfo* ipc, void* cookie);
-
-  // Returns a dispatcher from ipc_targets_.
-  Dispatcher* GetDispatcher(int ipc_tag);
+  ~PolicyBase();
 
   // Sets up interceptions for a new target.
   bool SetupAllInterceptions(TargetProcess* target);
@@ -143,7 +129,7 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   TokenLevel lockdown_level_;
   TokenLevel initial_level_;
   JobLevel job_level_;
-  uint32 ui_exceptions_;
+  uint32_t ui_exceptions_;
   size_t memory_limit_;
   bool use_alternate_desktop_;
   bool use_alternate_winstation_;
@@ -156,8 +142,7 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   IntegrityLevel delayed_integrity_level_;
   MitigationFlags mitigations_;
   MitigationFlags delayed_mitigations_;
-  // The array of objects that will answer IPC calls.
-  Dispatcher* ipc_targets_[IPC_LAST_TAG];
+  bool is_csrss_connected_;
   // Object in charge of generating the low level policy.
   LowLevelPolicy* policy_maker_;
   // Memory structure that stores the low level policy.
@@ -172,6 +157,7 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   scoped_ptr<AppContainerAttributes> appcontainer_list_;
   PSID lowbox_sid_;
   base::win::ScopedHandle lowbox_directory_;
+  scoped_ptr<Dispatcher> dispatcher_;
 
   static HDESK alternate_desktop_handle_;
   static HWINSTA alternate_winstation_handle_;
@@ -180,7 +166,7 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
   // Contains the list of handles being shared with the target process.
   // This list contains handles other than the stderr/stdout handles which are
   // shared with the target at times.
-  HandleList handles_to_share_;
+  base::HandlesToInheritVector handles_to_share_;
 
   DISALLOW_COPY_AND_ASSIGN(PolicyBase);
 };

@@ -14,7 +14,6 @@
 #include "chrome/browser/ui/webui/quota_internals/quota_internals_types.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_ui.h"
-#include "net/base/net_util.h"
 
 using content::BrowserContext;
 
@@ -33,7 +32,7 @@ void QuotaInternalsHandler::RegisterMessages() {
                  base::Unretained(this)));
 }
 
-void QuotaInternalsHandler::ReportAvailableSpace(int64 available_space) {
+void QuotaInternalsHandler::ReportAvailableSpace(int64_t available_space) {
   SendMessage("AvailableSpaceUpdated",
               base::FundamentalValue(static_cast<double>(available_space)));
 }

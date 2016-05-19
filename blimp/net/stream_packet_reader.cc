@@ -9,6 +9,7 @@
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
+#include "base/message_loop/message_loop.h"
 #include "base/sys_byteorder.h"
 #include "blimp/net/common.h"
 #include "net/base/io_buffer.h"
@@ -42,7 +43,7 @@ StreamPacketReader::StreamPacketReader(net::StreamSocket* socket)
 
 StreamPacketReader::~StreamPacketReader() {}
 
-int StreamPacketReader::ReadPacket(
+void StreamPacketReader::ReadPacket(
     const scoped_refptr<net::GrowableIOBuffer>& buf,
     const net::CompletionCallback& callback) {
   DCHECK_EQ(ReadState::IDLE, read_state_);
@@ -54,17 +55,17 @@ int StreamPacketReader::ReadPacket(
   read_state_ = ReadState::HEADER;
 
   int result = DoReadLoop(net::OK);
-  if (result == net::ERR_IO_PENDING) {
-    // Store the completion callback to invoke when read completes
-    // asynchronously.
-    callback_ = callback;
-  } else {
+  if (result != net::ERR_IO_PENDING) {
     // Release the payload buffer, since the read operation has completed
     // synchronously.
     payload_buffer_ = nullptr;
-  }
 
-  return result;
+    // Adapt synchronous completion to an asynchronous style.
+    base::MessageLoop::current()->PostTask(FROM_HERE,
+                                           base::Bind(callback, result));
+  } else {
+    callback_ = callback;
+  }
 }
 
 int StreamPacketReader::DoReadLoop(int result) {
@@ -102,15 +103,16 @@ int StreamPacketReader::DoReadHeader(int result) {
   header_buffer_->set_offset(header_buffer_->offset() + result);
   if (static_cast<size_t>(header_buffer_->offset()) < kPacketHeaderSizeBytes) {
     // There is more header to read.
-    return socket_->Read(header_buffer_.get(),
-                         kPacketHeaderSizeBytes - header_buffer_->offset(),
-                         base::Bind(&StreamPacketReader::OnReadComplete,
-                                    weak_factory_.GetWeakPtr()));
+    int result = socket_->Read(
+        header_buffer_.get(), kPacketHeaderSizeBytes - header_buffer_->offset(),
+        base::Bind(&StreamPacketReader::OnReadComplete,
+                   weak_factory_.GetWeakPtr()));
+    return (result != 0 ? result : net::ERR_CONNECTION_CLOSED);
   }
 
   // Finished reading the header. Parse the size and prepare for payload read.
   payload_size_ = base::NetToHost32(
-      *reinterpret_cast<uint32*>(header_buffer_->StartOfBuffer()));
+      *reinterpret_cast<uint32_t*>(header_buffer_->StartOfBuffer()));
   if (payload_size_ > static_cast<size_t>(payload_buffer_->capacity()) ||
       payload_size_ == 0) {
     DLOG(ERROR) << "Illegal payload size: " << payload_size_;
@@ -134,11 +136,17 @@ int StreamPacketReader::DoReadPayload(int result) {
 
   // Finished reading the payload.
   read_state_ = ReadState::IDLE;
-  return payload_size_;
+  return net::OK;
 }
 
 void StreamPacketReader::OnReadComplete(int result) {
   DCHECK_NE(net::ERR_IO_PENDING, result);
+
+  if (result == 0 /* EOF */) {
+    payload_buffer_ = nullptr;
+    base::ResetAndReturn(&callback_).Run(net::ERR_CONNECTION_CLOSED);
+    return;
+  }
 
   // If the read was succesful, then process the result.
   if (result > 0) {

@@ -113,9 +113,11 @@
 #ifndef NET_BASE_REGISTRY_CONTROLLED_DOMAINS_REGISTRY_CONTROLLED_DOMAIN_H_
 #define NET_BASE_REGISTRY_CONTROLLED_DOMAINS_REGISTRY_CONTROLLED_DOMAIN_H_
 
+#include <stddef.h>
+
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/strings/string_piece.h"
 #include "net/base/net_export.h"
 
 class GURL;
@@ -178,7 +180,7 @@ NET_EXPORT std::string GetDomainAndRegistry(const GURL& gurl,
 
 // Like the GURL version, but takes a host (which is canonicalized internally)
 // instead of a full GURL.
-NET_EXPORT std::string GetDomainAndRegistry(const std::string& host,
+NET_EXPORT std::string GetDomainAndRegistry(base::StringPiece host,
                                             PrivateRegistryFilter filter);
 
 // This convenience function returns true if the two GURLs both have hosts
@@ -220,7 +222,7 @@ NET_EXPORT size_t GetRegistryLength(const GURL& gurl,
 
 // Like the GURL version, but takes a host (which is canonicalized internally)
 // instead of a full GURL.
-NET_EXPORT size_t GetRegistryLength(const std::string& host,
+NET_EXPORT size_t GetRegistryLength(base::StringPiece host,
                                     UnknownRegistryFilter unknown_filter,
                                     PrivateRegistryFilter private_filter);
 

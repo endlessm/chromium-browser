@@ -4,6 +4,8 @@
 
 #include "storage/browser/database/database_quota_client.h"
 
+#include <stdint.h>
+
 #include <vector>
 
 #include "base/bind.h"
@@ -13,7 +15,7 @@
 #include "base/task_runner_util.h"
 #include "base/thread_task_runner_handle.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
+#include "net/base/url_util.h"
 #include "storage/browser/database/database_tracker.h"
 #include "storage/browser/database/database_util.h"
 #include "storage/common/database/database_identifier.h"
@@ -24,9 +26,8 @@ namespace storage {
 
 namespace {
 
-int64 GetOriginUsageOnDBThread(
-    DatabaseTracker* db_tracker,
-    const GURL& origin_url) {
+int64_t GetOriginUsageOnDBThread(DatabaseTracker* db_tracker,
+                                 const GURL& origin_url) {
   OriginInfo info;
   if (db_tracker->GetOriginInfo(storage::GetIdentifierFromOrigin(origin_url),
                                 &info))

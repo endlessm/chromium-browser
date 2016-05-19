@@ -4,12 +4,12 @@
 
 #include "chrome/browser/extensions/error_console/error_console.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/lazy_instance.h"
-#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -18,6 +18,7 @@
 #include "chrome/common/extensions/features/feature_channel.h"
 #include "chrome/common/pref_names.h"
 #include "components/crx_file/id_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
@@ -144,7 +145,7 @@ void ErrorConsole::ReportError(scoped_ptr<ExtensionError> error) {
   if (!(mask & (1 << error->type())))
     return;
 
-  const ExtensionError* weak_error = errors_.AddError(error.Pass());
+  const ExtensionError* weak_error = errors_.AddError(std::move(error));
   FOR_EACH_OBSERVER(Observer, observers_, OnErrorAdded(weak_error));
 }
 

@@ -23,14 +23,16 @@ public:
         return adoptRef(new CSSVariableData(range, needsVariableResolution));
     }
 
-    static PassRefPtr<CSSVariableData> createResolved(const Vector<CSSParserToken>& resolvedTokens)
+    static PassRefPtr<CSSVariableData> createResolved(const Vector<CSSParserToken>& resolvedTokens, const CSSVariableData& unresolvedData)
     {
-        return adoptRef(new CSSVariableData(resolvedTokens));
+        return adoptRef(new CSSVariableData(resolvedTokens, unresolvedData.m_backingString));
     }
 
     CSSParserTokenRange tokenRange() { return m_tokens; }
 
-    const Vector<CSSParserToken>& tokens() { return m_tokens; }
+    const Vector<CSSParserToken>& tokens() const { return m_tokens; }
+
+    bool operator==(const CSSVariableData& other) const;
 
     bool needsVariableResolution() const { return m_needsVariableResolution; }
 private:
@@ -40,8 +42,9 @@ private:
     // StylePropertySets contain references to CSSCustomPropertyDeclarations, which
     // point to the unresolved CSSVariableData values that own the backing strings
     // this will potentially reference.
-    CSSVariableData(const Vector<CSSParserToken>& resolvedTokens)
-        : m_tokens(resolvedTokens)
+    CSSVariableData(const Vector<CSSParserToken>& resolvedTokens, String backingString)
+        : m_backingString(backingString)
+        , m_tokens(resolvedTokens)
         , m_needsVariableResolution(false)
     { }
 

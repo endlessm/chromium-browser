@@ -8,7 +8,6 @@
 #include "net/tools/quic/quic_packet_writer_wrapper.h"
 
 namespace net {
-namespace tools {
 namespace test {
 
 // static
@@ -28,13 +27,6 @@ void QuicDispatcherPeer::UseWriter(QuicDispatcher* dispatcher,
 // static
 QuicPacketWriter* QuicDispatcherPeer::GetWriter(QuicDispatcher* dispatcher) {
   return dispatcher->writer_.get();
-}
-
-// static
-void QuicDispatcherPeer::SetPacketWriterFactory(
-    QuicDispatcher* dispatcher,
-    QuicDispatcher::PacketWriterFactory* packet_writer_factory) {
-  dispatcher->packet_writer_factory_.reset(packet_writer_factory);
 }
 
 // static
@@ -64,5 +56,4 @@ const QuicDispatcher::SessionMap& QuicDispatcherPeer::session_map(
 }
 
 }  // namespace test
-}  // namespace tools
 }  // namespace net

@@ -4,6 +4,8 @@
 
 #include "components/error_page/renderer/net_error_helper_core.h"
 
+#include <stddef.h>
+
 #include <map>
 #include <string>
 #include <vector>
@@ -11,12 +13,14 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/histogram_tester.h"
 #include "base/timer/mock_timer.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/error_page/common/error_page_params.h"
 #include "components/error_page/common/net_error_info.h"
 #include "components/test_runner/test_common.h"
@@ -338,7 +342,7 @@ class NetErrorHelperCoreTest : public testing::Test,
     // Checks that the last error page params correspond to kDefaultSuggestions.
     ASSERT_TRUE(last_error_page_params());
     EXPECT_TRUE(last_error_page_params()->suggest_reload);
-    EXPECT_EQ(2u, last_error_page_params()->override_suggestions->GetSize());
+    EXPECT_EQ(1u, last_error_page_params()->override_suggestions->GetSize());
     EXPECT_EQ(GURL(kSearchUrl), last_error_page_params()->search_url);
     EXPECT_EQ(kSuggestedSearchTerms, last_error_page_params()->search_terms);
   }

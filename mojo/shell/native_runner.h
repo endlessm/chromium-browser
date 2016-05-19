@@ -7,8 +7,9 @@
 
 #include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
-#include "mojo/application/public/interfaces/application.mojom.h"
+#include "base/process/process_handle.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
+#include "mojo/shell/public/interfaces/shell_client.mojom.h"
 
 #if defined(OS_WIN)
 #undef DELETE
@@ -21,6 +22,8 @@ class FilePath;
 namespace mojo {
 namespace shell {
 
+class Identity;
+
 // ApplicationManager requires implementations of NativeRunner and
 // NativeRunnerFactory to run native applications.
 class NativeRunner {
@@ -28,21 +31,19 @@ class NativeRunner {
   virtual ~NativeRunner() {}
 
   // Loads the app in the file at |app_path| and runs it on some other
-  // thread/process. If |cleanup| is |DELETE|, this takes ownership of the file.
-  // |app_completed_callback| is posted (to the thread on which |Start()| was
-  // called) after |MojoMain()| completes.
-  // TODO(vtl): |app_path| and |cleanup| should probably be moved to the
-  // factory's Create(). Rationale: The factory may need information from the
-  // file to decide what kind of NativeRunner to make.
-  virtual void Start(const base::FilePath& app_path,
-                     bool start_sandboxed,
-                     InterfaceRequest<Application> application_request,
-                     const base::Closure& app_completed_callback) = 0;
+  // thread/process.
+  virtual void Start(
+      const base::FilePath& app_path,
+      const Identity& target,
+      bool start_sandboxed,
+      InterfaceRequest<mojom::ShellClient> request,
+      const base::Callback<void(base::ProcessId)>& pid_available_callback,
+      const base::Closure& app_completed_callback) = 0;
 
   // Like Start(), but used to initialize the host for a child process started
-  // by someone else. Provides |application_request| via |channel|.
+  // by someone else. Provides |request| via |channel|.
   virtual void InitHost(ScopedHandle channel,
-                        InterfaceRequest<Application> application_request) = 0;
+                        InterfaceRequest<mojom::ShellClient> request) = 0;
 };
 
 class NativeRunnerFactory {

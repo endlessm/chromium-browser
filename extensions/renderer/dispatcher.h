@@ -5,6 +5,8 @@
 #ifndef EXTENSIONS_RENDERER_DISPATCHER_H_
 #define EXTENSIONS_RENDERER_DISPATCHER_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <set>
 #include <string>
@@ -12,6 +14,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/scoped_observer.h"
 #include "base/timer/timer.h"
@@ -105,7 +108,13 @@ class Dispatcher : public content::RenderProcessObserver,
       v8::Local<v8::Context> v8_context,
       const GURL& url);
 
+  // This method is not allowed to run JavaScript code in the frame.
   void DidCreateDocumentElement(blink::WebLocalFrame* frame);
+
+  // These methods may run (untrusted) JavaScript code in the frame, and
+  // cause |render_frame| to become invalid.
+  void RunScriptsAtDocumentStart(content::RenderFrame* render_frame);
+  void RunScriptsAtDocumentEnd(content::RenderFrame* render_frame);
 
   void OnExtensionResponse(int request_id,
                            bool success,
@@ -172,7 +181,7 @@ class Dispatcher : public content::RenderProcessObserver,
   void OnSetSystemFont(const std::string& font_family,
                        const std::string& font_size);
   void OnSetWebViewPartitionID(const std::string& partition_id);
-  void OnShouldSuspend(const std::string& extension_id, uint64 sequence_id);
+  void OnShouldSuspend(const std::string& extension_id, uint64_t sequence_id);
   void OnSuspend(const std::string& extension_id);
   void OnTransferBlobs(const std::vector<std::string>& blob_uuids);
   void OnUnloaded(const std::string& id);

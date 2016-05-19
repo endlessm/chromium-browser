@@ -44,8 +44,11 @@
 #include <string>
 #include <utility>
 
+#include <stddef.h>
+
 #include "base/atomic_ref_count.h"
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/process/process.h"
@@ -228,7 +231,7 @@ class CONTENT_EXPORT AudioRendererHost : public BrowserMessageFilter {
   void TranslateDeviceID(const std::string& device_id,
                          const GURL& gurl_security_origin,
                          const OutputDeviceInfoCB& callback,
-                         const AudioOutputDeviceEnumeration& device_infos);
+                         const AudioOutputDeviceEnumeration& enumeration);
 
   // Helper method to check if the authorization procedure for stream
   // |stream_id| has started.
@@ -259,6 +262,10 @@ class CONTENT_EXPORT AudioRendererHost : public BrowserMessageFilter {
   // is a bool that is true if the authorization process completes successfully.
   // The second element contains the unique ID of the authorized device.
   std::map<int, std::pair<bool, std::string>> authorizations_;
+
+  // The maximum number of simultaneous streams during the lifetime of this
+  // host. Reported as UMA stat at shutdown.
+  size_t max_simultaneous_streams_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioRendererHost);
 };

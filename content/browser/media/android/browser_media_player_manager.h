@@ -7,20 +7,19 @@
 
 #include <map>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/time/time.h"
 #include "content/browser/android/content_video_view.h"
-#include "content/browser/media/android/media_session_observer.h"
 #include "content/common/content_export.h"
-#include "content/common/media/media_player_messages_enums_android.h"
 #include "ipc/ipc_message.h"
 #include "media/base/android/media_player_android.h"
 #include "media/base/android/media_player_manager.h"
 #include "media/base/android/media_url_interceptor.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/gl/android/scoped_java_surface.h"
 #include "url/gurl.h"
 
 namespace media {
@@ -45,7 +44,7 @@ class WebContents;
 // process.
 class CONTENT_EXPORT BrowserMediaPlayerManager
     : public media::MediaPlayerManager,
-      public MediaSessionObserver {
+      public ContentVideoView::Client {
  public:
   // Permits embedders to provide an extended version of the class.
   typedef BrowserMediaPlayerManager* (*Factory)(RenderFrameHost*);
@@ -71,16 +70,13 @@ class CONTENT_EXPORT BrowserMediaPlayerManager
 
   ~BrowserMediaPlayerManager() override;
 
-  // Fullscreen video playback controls.
-  virtual void ExitFullscreen(bool release_media_player);
-  virtual void SetVideoSurface(gfx::ScopedJavaSurface surface);
+  // ContentVideoView::Client implementation.
+  void DidExitFullscreen(bool release_media_player) override;
+  void SetVideoSurface(gfx::ScopedJavaSurface surface) override;
 
   // Called when browser player wants the renderer media element to seek.
   // Any actual seek started by renderer will be handled by browser in OnSeek().
   void OnSeekRequest(int player_id, const base::TimeDelta& time_to_seek);
-
-  // Stops and releases every media managed by this class.
-  void ReleaseAllMediaPlayers();
 
   // media::MediaPlayerManager overrides.
   void OnTimeUpdate(int player_id,
@@ -104,16 +100,13 @@ class CONTENT_EXPORT BrowserMediaPlayerManager
   media::MediaUrlInterceptor* GetMediaUrlInterceptor() override;
   media::MediaPlayerAndroid* GetFullscreenPlayer() override;
   media::MediaPlayerAndroid* GetPlayer(int player_id) override;
-  bool RequestPlay(int player_id, base::TimeDelta duration) override;
+  bool RequestPlay(int player_id, base::TimeDelta duration,
+                   bool has_audio) override;
 #if defined(VIDEO_HOLE)
   void AttachExternalVideoSurface(int player_id, jobject surface);
   void DetachExternalVideoSurface(int player_id);
   void OnFrameInfoUpdated();
 #endif  // defined(VIDEO_HOLE)
-
-  // MediaSessionObserver overrides.
-  void OnSuspend(int player_id) override;
-  void OnResume(int player_id) override;
 
   // Message handlers.
   virtual void OnEnterFullscreen(int player_id);
@@ -124,11 +117,13 @@ class CONTENT_EXPORT BrowserMediaPlayerManager
   virtual void OnPause(int player_id, bool is_media_related_action);
   virtual void OnSetVolume(int player_id, double volume);
   virtual void OnSetPoster(int player_id, const GURL& poster);
-  virtual void OnReleaseResources(int player_id);
+  virtual void OnSuspendAndReleaseResources(int player_id);
   virtual void OnDestroyPlayer(int player_id);
   virtual void OnRequestRemotePlayback(int player_id);
   virtual void OnRequestRemotePlaybackControl(int player_id);
+  virtual bool IsPlayingRemotely(int player_id);
   virtual void ReleaseFullscreenPlayer(media::MediaPlayerAndroid* player);
+
 #if defined(VIDEO_HOLE)
   void OnNotifyExternalSurface(
       int player_id, bool is_request, const gfx::RectF& rect);
@@ -140,11 +135,15 @@ class CONTENT_EXPORT BrowserMediaPlayerManager
 
   WebContents* web_contents() const { return web_contents_; }
 
-  // Adds a given player to the list.
-  void AddPlayer(media::MediaPlayerAndroid* player);
+  // Adds a given player to the list.  Not private to allow embedders
+  // to extend the manager and still utilize the base player management.
+  void AddPlayer(media::MediaPlayerAndroid* player, int delegate_id);
 
   // Removes the player with the specified id.
-  void RemovePlayer(int player_id);
+  void DestroyPlayer(int player_id);
+
+  // Release resources associated to a player.
+  virtual void ReleaseResources(int player_id);
 
   // Replaces a player with the specified id with a given MediaPlayerAndroid
   // object. This will also return the original MediaPlayerAndroid object that
@@ -225,6 +224,10 @@ class CONTENT_EXPORT BrowserMediaPlayerManager
 
   // Object for retrieving resources media players.
   scoped_ptr<media::MediaResourceGetter> media_resource_getter_;
+
+  // Map of player IDs to delegate IDs for use with
+  // MediaWebContentsObserverAndroid.
+  std::map<int, int> player_id_to_delegate_id_map_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<BrowserMediaPlayerManager> weak_ptr_factory_;

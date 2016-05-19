@@ -4,9 +4,12 @@
 
 #include "chrome/browser/download/notification/download_item_notification.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/files/file_util.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_crx_util.h"
 #include "chrome/browser/download/download_item_model.h"
@@ -20,6 +23,7 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/mime_util/mime_util.h"
+#include "components/prefs/pref_service.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -55,7 +59,7 @@ const SkColor kImageBackgroundColor = SK_ColorWHITE;
 
 // Maximum size of preview image. If the image exceeds this size, don't show the
 // preview image.
-const int64 kMaxImagePreviewSize = 10 * 1024 * 1024;  // 10 MB
+const int64_t kMaxImagePreviewSize = 10 * 1024 * 1024;  // 10 MB
 
 std::string ReadNotificationImage(const base::FilePath& file_path) {
   DCHECK(content::BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
@@ -157,6 +161,10 @@ void RecordButtonClickAction(DownloadCommands::Command command) {
     case DownloadCommands::RESUME:
       content::RecordAction(
           UserMetricsAction("DownloadNotification.Button_Resume"));
+      break;
+    case DownloadCommands::COPY_TO_CLIPBOARD:
+      content::RecordAction(
+          UserMetricsAction("DownloadNotification.Button_CopyToClipboard"));
       break;
   }
 }
@@ -369,13 +377,12 @@ void DownloadItemNotification::UpdateNotificationData(
       case content::DownloadItem::IN_PROGRESS: {
         int percent_complete = item_->PercentComplete();
         if (percent_complete >= 0) {
-          notification_->set_type(message_center::NOTIFICATION_TYPE_PROGRESS);
           notification_->set_progress(percent_complete);
         } else {
-          notification_->set_type(
-              message_center::NOTIFICATION_TYPE_BASE_FORMAT);
-          notification_->set_progress(0);
+          // Negative progress value shows an indeterminate progress bar.
+          notification_->set_progress(-1);
         }
+        notification_->set_type(message_center::NOTIFICATION_TYPE_PROGRESS);
         break;
       }
       case content::DownloadItem::COMPLETE:
@@ -407,8 +414,7 @@ void DownloadItemNotification::UpdateNotificationData(
   UpdateNotificationIcon();
 
   std::vector<message_center::ButtonInfo> notification_actions;
-  scoped_ptr<std::vector<DownloadCommands::Command>> actions(
-      GetExtraActions().Pass());
+  scoped_ptr<std::vector<DownloadCommands::Command>> actions(GetExtraActions());
 
   button_actions_.reset(new std::vector<DownloadCommands::Command>);
   for (auto it = actions->begin(); it != actions->end(); it++) {
@@ -636,7 +642,7 @@ DownloadItemNotification::GetExtraActions() const {
       actions->push_back(DownloadCommands::DISCARD);
       actions->push_back(DownloadCommands::KEEP);
     }
-    return actions.Pass();
+    return actions;
   }
 
   switch (item_->GetState()) {
@@ -654,11 +660,13 @@ DownloadItemNotification::GetExtraActions() const {
       break;
     case content::DownloadItem::COMPLETE:
       actions->push_back(DownloadCommands::SHOW_IN_FOLDER);
+      if (!notification_->image().IsEmpty())
+        actions->push_back(DownloadCommands::COPY_TO_CLIPBOARD);
       break;
     case content::DownloadItem::MAX_DOWNLOAD_STATE:
       NOTREACHED();
   }
-  return actions.Pass();
+  return actions;
 }
 
 base::string16 DownloadItemNotification::GetTitle() const {
@@ -737,6 +745,9 @@ base::string16 DownloadItemNotification::GetCommandLabel(
       break;
     case DownloadCommands::LEARN_MORE_SCANNING:
       id = IDS_DOWNLOAD_LINK_LEARN_MORE_SCANNING;
+      break;
+    case DownloadCommands::COPY_TO_CLIPBOARD:
+      id = IDS_DOWNLOAD_NOTIFICATION_COPY_TO_CLIPBOARD;
       break;
     case DownloadCommands::ALWAYS_OPEN_TYPE:
     case DownloadCommands::PLATFORM_OPEN:
@@ -905,8 +916,7 @@ base::string16 DownloadItemNotification::GetStatusString() const {
 }
 
 Browser* DownloadItemNotification::GetBrowser() const {
-  chrome::ScopedTabbedBrowserDisplayer browser_displayer(
-      profile(), chrome::GetActiveDesktop());
+  chrome::ScopedTabbedBrowserDisplayer browser_displayer(profile());
   DCHECK(browser_displayer.browser());
   return browser_displayer.browser();
 }

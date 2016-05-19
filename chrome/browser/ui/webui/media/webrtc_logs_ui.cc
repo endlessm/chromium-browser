@@ -4,22 +4,25 @@
 
 #include "chrome/browser/ui/webui/media/webrtc_logs_ui.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/i18n/time_formatting.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/webrtc_log_list.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "components/upload_list/upload_list.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/web_contents.h"
@@ -192,7 +195,7 @@ void WebRtcLogsDOMHandler::UpdateUI() {
       value_w = base::string16(base::ASCIIToUTF16("(unknown time)"));
     upload->SetString("capture_time", value_w);
 
-    upload_list.Append(upload.Pass());
+    upload_list.Append(std::move(upload));
   }
 
   base::StringValue version(version_info::GetVersionNumber());

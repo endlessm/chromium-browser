@@ -28,11 +28,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "modules/filesystem/FileEntry.h"
 
+#include "core/fileapi/BlobCallback.h"
 #include "core/fileapi/File.h"
-#include "core/fileapi/FileCallback.h"
 #include "modules/filesystem/DOMFileSystem.h"
 #include "modules/filesystem/ErrorCallback.h"
 #include "modules/filesystem/FileWriterCallback.h"
@@ -49,7 +48,7 @@ void FileEntry::createWriter(FileWriterCallback* successCallback, ErrorCallback*
     filesystem()->createWriter(this, successCallback, errorCallback);
 }
 
-void FileEntry::file(FileCallback* successCallback, ErrorCallback* errorCallback)
+void FileEntry::file(BlobCallback* successCallback, ErrorCallback* errorCallback)
 {
     filesystem()->createFile(this, successCallback, errorCallback);
 }
@@ -59,4 +58,4 @@ DEFINE_TRACE(FileEntry)
     Entry::trace(visitor);
 }
 
-} // namespace
+} // namespace blink

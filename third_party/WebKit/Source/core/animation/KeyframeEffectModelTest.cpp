@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/animation/KeyframeEffectModel.h"
 
 #include "core/animation/LegacyStyleInterpolation.h"
@@ -36,7 +35,7 @@
 #include "core/animation/animatable/AnimatableUnknown.h"
 #include "core/css/CSSPrimitiveValue.h"
 #include "core/dom/Element.h"
-#include <gtest/gtest.h>
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace blink {
 
@@ -482,7 +481,7 @@ TEST(AnimationKeyframeEffectModel, ToKeyframeEffectModel)
     EXPECT_TRUE(toAnimatableValueKeyframeEffectModel(baseEffect));
 }
 
-} // namespace
+} // namespace blink
 
 namespace blink {
 

@@ -10,8 +10,10 @@
 
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/common/extensions/api/file_system.h"
@@ -257,8 +259,12 @@ class FileSystemChooseEntryFunction : public FileSystemEntryFunction {
                   ui::SelectFileDialog::Type picker_type);
 
  private:
-  void SetInitialPathOnFileThread(const base::FilePath& suggested_name,
-                                  const base::FilePath& previous_path);
+  void SetInitialPathAndShowPicker(
+      const base::FilePath& previous_path,
+      const base::FilePath& suggested_name,
+      const ui::SelectFileDialog::FileTypeInfo& file_type_info,
+      ui::SelectFileDialog::Type picker_type,
+      bool is_path_non_native_directory);
 
   // FilesSelected and FileSelectionCanceled are called by the file picker.
   void FilesSelected(const std::vector<base::FilePath>& path);

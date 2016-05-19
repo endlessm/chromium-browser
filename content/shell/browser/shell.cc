@@ -4,15 +4,19 @@
 
 #include "content/shell/browser/shell.h"
 
+#include <stddef.h>
+
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -20,14 +24,15 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/bindings_policy.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/renderer_preferences.h"
 #include "content/public/common/webrtc_ip_handling_policy.h"
-#include "content/shell/browser/blink_test_controller.h"
+#include "content/shell/browser/layout_test/blink_test_controller.h"
 #include "content/shell/browser/layout_test/layout_test_bluetooth_chooser_factory.h"
 #include "content/shell/browser/layout_test/layout_test_devtools_frontend.h"
 #include "content/shell/browser/layout_test/layout_test_javascript_dialog_manager.h"
-#include "content/shell/browser/notify_done_forwarder.h"
+#include "content/shell/browser/layout_test/notify_done_forwarder.h"
 #include "content/shell/browser/shell_browser_main_parts.h"
 #include "content/shell/browser/shell_content_browser_client.h"
 #include "content/shell/browser/shell_devtools_frontend.h"
@@ -114,17 +119,20 @@ Shell* Shell::CreateShell(WebContents* web_contents,
 
   shell->PlatformResizeSubViews();
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kRunLayoutTest)) {
+  // Note: Do not make RenderFrameHost or RenderViewHost specific state changes
+  // here, because they will be forgotten after a cross-process navigation. Use
+  // RenderFrameCreated or RenderViewCreated instead.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kRunLayoutTest)) {
     web_contents->GetMutableRendererPrefs()->use_custom_colors = false;
     web_contents->GetRenderViewHost()->SyncRendererPrefs();
   }
 
 #if defined(ENABLE_WEBRTC)
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableWebRtcMultipleRoutes)) {
+  if (command_line->HasSwitch(switches::kForceWebRtcIPHandlingPolicy)) {
     web_contents->GetMutableRendererPrefs()->webrtc_ip_handling_policy =
-        kWebRTCIPHandlingDefaultPublicInterfaceOnly;
+        command_line->GetSwitchValueASCII(
+            switches::kForceWebRtcIPHandlingPolicy);
   }
 #endif
 
@@ -196,8 +204,40 @@ void Shell::LoadURLForFrame(const GURL& url, const std::string& frame_name) {
 
 void Shell::LoadDataWithBaseURL(const GURL& url, const std::string& data,
     const GURL& base_url) {
-  const GURL data_url = GURL("data:text/html;charset=utf-8," + data);
-  NavigationController::LoadURLParams params(data_url);
+  bool load_as_string = false;
+  LoadDataWithBaseURLInternal(url, data, base_url, load_as_string);
+}
+
+#if defined(OS_ANDROID)
+void Shell::LoadDataAsStringWithBaseURL(const GURL& url,
+                                        const std::string& data,
+                                        const GURL& base_url) {
+  bool load_as_string = true;
+  LoadDataWithBaseURLInternal(url, data, base_url, load_as_string);
+}
+#endif
+
+void Shell::LoadDataWithBaseURLInternal(const GURL& url,
+                                        const std::string& data,
+                                        const GURL& base_url,
+                                        bool load_as_string) {
+#if !defined(OS_ANDROID)
+  DCHECK(!load_as_string);  // Only supported on Android.
+#endif
+
+  NavigationController::LoadURLParams params(GURL::EmptyGURL());
+  const std::string data_url_header = "data:text/html;charset=utf-8,";
+  if (load_as_string) {
+    params.url = GURL(data_url_header);
+    std::string data_url_as_string = data_url_header + data;
+#if defined(OS_ANDROID)
+    params.data_url_as_string =
+        base::RefCountedString::TakeString(&data_url_as_string);
+#endif
+  } else {
+    params.url = GURL(data_url_header + data);
+  }
+
   params.load_type = NavigationController::LOAD_TYPE_DATA;
   params.base_url_for_data_url = base_url;
   params.virtual_url_for_data_url = url;
@@ -268,24 +308,27 @@ gfx::NativeView Shell::GetContentView() {
 
 WebContents* Shell::OpenURLFromTab(WebContents* source,
                                    const OpenURLParams& params) {
-  // CURRENT_TAB is the only one we implement for now.
+  // This implementation only handles CURRENT_TAB.
   if (params.disposition != CURRENT_TAB)
-      return NULL;
+    return nullptr;
+
   NavigationController::LoadURLParams load_url_params(params.url);
   load_url_params.source_site_instance = params.source_site_instance;
-  load_url_params.referrer = params.referrer;
-  load_url_params.frame_tree_node_id = params.frame_tree_node_id;
   load_url_params.transition_type = params.transition;
+  load_url_params.frame_tree_node_id = params.frame_tree_node_id;
+  load_url_params.referrer = params.referrer;
+  load_url_params.redirect_chain = params.redirect_chain;
   load_url_params.extra_headers = params.extra_headers;
+  load_url_params.is_renderer_initiated = params.is_renderer_initiated;
   load_url_params.should_replace_current_entry =
       params.should_replace_current_entry;
 
-  if (params.transferred_global_request_id != GlobalRequestID()) {
-    load_url_params.is_renderer_initiated = params.is_renderer_initiated;
-    load_url_params.transferred_global_request_id =
-        params.transferred_global_request_id;
-  } else if (params.is_renderer_initiated) {
-    load_url_params.is_renderer_initiated = true;
+  // Only allows the browser-initiated navigation to use POST.
+  if (params.uses_post && !params.is_renderer_initiated) {
+    load_url_params.load_type =
+        NavigationController::LOAD_TYPE_BROWSER_INITIATED_HTTP_POST;
+    load_url_params.browser_initiated_post_data =
+        params.browser_initiated_post_data;
   }
 
   source->GetController().LoadURLWithParams(load_url_params);
@@ -373,22 +416,21 @@ JavaScriptDialogManager* Shell::GetJavaScriptDialogManager(
 }
 
 scoped_ptr<BluetoothChooser> Shell::RunBluetoothChooser(
-    WebContents* web_contents,
-    const BluetoothChooser::EventHandler& event_handler,
-    const GURL& origin) {
+    RenderFrameHost* frame,
+    const BluetoothChooser::EventHandler& event_handler) {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(switches::kRunLayoutTest)) {
-    return BlinkTestController::Get()->RunBluetoothChooser(
-        web_contents, event_handler, origin);
+    return BlinkTestController::Get()->RunBluetoothChooser(frame,
+                                                           event_handler);
   }
   return nullptr;
 }
 
 bool Shell::AddMessageToConsole(WebContents* source,
-                                int32 level,
+                                int32_t level,
                                 const base::string16& message,
-                                int32 line_no,
+                                int32_t line_no,
                                 const base::string16& source_id) {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kRunLayoutTest);
@@ -425,6 +467,13 @@ gfx::Size Shell::GetShellDefaultSize() {
       kDefaultTestWindowWidthDip, kDefaultTestWindowHeightDip);
   }
   return default_shell_size;
+}
+
+void Shell::RenderViewCreated(RenderViewHost* render_view_host) {
+  // All RenderViewHosts in layout tests should get Mojo bindings.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kRunLayoutTest))
+    render_view_host->AllowBindings(BINDINGS_POLICY_MOJO);
 }
 
 void Shell::TitleWasSet(NavigationEntry* entry, bool explicit_set) {

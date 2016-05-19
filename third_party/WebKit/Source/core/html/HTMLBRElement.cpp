@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/html/HTMLBRElement.h"
 
 #include "core/CSSPropertyNames.h"
@@ -69,4 +68,4 @@ LayoutObject* HTMLBRElement::createLayoutObject(const ComputedStyle& style)
     return new LayoutBR(this);
 }
 
-}
+} // namespace blink

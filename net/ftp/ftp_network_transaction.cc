@@ -17,8 +17,8 @@
 #include "net/base/connection_type_histograms.h"
 #include "net/base/escape.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/port_util.h"
+#include "net/base/url_util.h"
 #include "net/ftp/ftp_request_info.h"
 #include "net/ftp/ftp_util.h"
 #include "net/log/net_log.h"
@@ -319,7 +319,7 @@ LoadState FtpNetworkTransaction::GetLoadState() const {
   return LOAD_STATE_IDLE;
 }
 
-uint64 FtpNetworkTransaction::GetUploadProgress() const {
+uint64_t FtpNetworkTransaction::GetUploadProgress() const {
   return 0;
 }
 
@@ -485,7 +485,7 @@ std::string FtpNetworkTransaction::GetRequestPathForFtpCommand(
   }
   // Make sure that if the path is expected to be a file, it won't end
   // with a trailing slash.
-  if (!is_directory && path.length() > 1 && path[path.length() - 1] == '/')
+  if (!is_directory && path.length() > 1 && path.back() == '/')
     path.erase(path.length() - 1);
   UnescapeRule::Type unescape_rules = UnescapeRule::SPACES |
                                       UnescapeRule::URL_SPECIAL_CHARS;
@@ -886,7 +886,7 @@ int FtpNetworkTransaction::ProcessResponsePWD(const FtpCtrlResponse& response) {
       }
       if (system_type_ == SYSTEM_TYPE_VMS)
         line = FtpUtil::VMSPathToUnix(line);
-      if (line.length() && line[line.length() - 1] == '/')
+      if (!line.empty() && line.back() == '/')
         line.erase(line.length() - 1);
       current_remote_directory_ = line;
       next_state_ = STATE_CTRL_WRITE_TYPE;
@@ -961,7 +961,7 @@ int FtpNetworkTransaction::ProcessResponseEPSV(
           !IsPortAllowedForScheme(port, url::kFtpScheme)) {
         return Stop(ERR_UNSAFE_PORT);
       }
-      data_connection_port_ = static_cast<uint16>(port);
+      data_connection_port_ = static_cast<uint16_t>(port);
       next_state_ = STATE_DATA_CONNECT;
       break;
     }
@@ -999,7 +999,7 @@ int FtpNetworkTransaction::ProcessResponsePASV(
           !IsPortAllowedForScheme(port, url::kFtpScheme)) {
         return Stop(ERR_UNSAFE_PORT);
       }
-      data_connection_port_ = static_cast<uint16>(port);
+      data_connection_port_ = static_cast<uint16_t>(port);
       next_state_ = STATE_DATA_CONNECT;
       break;
     }
@@ -1068,7 +1068,7 @@ int FtpNetworkTransaction::ProcessResponseSIZE(
     case ERROR_CLASS_OK:
       if (response.lines.size() != 1)
         return Stop(ERR_INVALID_RESPONSE);
-      int64 size;
+      int64_t size;
       if (!base::StringToInt64(response.lines[0], &size))
         return Stop(ERR_INVALID_RESPONSE);
       if (size < 0)

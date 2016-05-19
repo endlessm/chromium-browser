@@ -2,11 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/base64.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
@@ -44,7 +48,7 @@ class DevToolsProtocolTest : public ContentBrowserTest,
  protected:
   void SendCommand(const std::string& method,
                    scoped_ptr<base::DictionaryValue> params) {
-    SendCommand(method, params.Pass(), true);
+    SendCommand(method, std::move(params), true);
   }
 
   void SendCommand(const std::string& method,
@@ -126,7 +130,7 @@ class DevToolsProtocolTest : public ContentBrowserTest,
     if (root->GetInteger("id", &id)) {
       result_ids_.push_back(id);
       base::DictionaryValue* result;
-      EXPECT_TRUE(root->GetDictionary("result", &result));
+      ASSERT_TRUE(root->GetDictionary("result", &result));
       result_.reset(result->DeepCopy());
       in_dispatch_ = false;
       if (id && id == waiting_for_command_result_id_) {
@@ -164,7 +168,7 @@ class SyntheticKeyEventTest : public DevToolsProtocolTest {
     params->SetInteger("modifiers", modifier);
     params->SetInteger("windowsVirtualKeyCode", windowsKeyCode);
     params->SetInteger("nativeVirtualKeyCode", nativeKeyCode);
-    SendCommand("Input.dispatchKeyEvent", params.Pass());
+    SendCommand("Input.dispatchKeyEvent", std::move(params));
   }
 };
 
@@ -263,7 +267,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, DISABLED_SynthesizePinchGesture) {
   params->SetInteger("x", old_width / 2);
   params->SetInteger("y", old_height / 2);
   params->SetDouble("scaleFactor", 2.0);
-  SendCommand("Input.synthesizePinchGesture", params.Pass());
+  SendCommand("Input.synthesizePinchGesture", std::move(params));
 
   int new_width;
   ASSERT_TRUE(content::ExecuteScriptAndExtractInt(
@@ -294,7 +298,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, SynthesizeScrollGesture) {
   params->SetInteger("y", 0);
   params->SetInteger("xDistance", 0);
   params->SetInteger("yDistance", -100);
-  SendCommand("Input.synthesizeScrollGesture", params.Pass());
+  SendCommand("Input.synthesizeScrollGesture", std::move(params));
 
   ASSERT_TRUE(content::ExecuteScriptAndExtractInt(
       shell()->web_contents(),
@@ -317,7 +321,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, SynthesizeTapGesture) {
   params->SetInteger("x", 16);
   params->SetInteger("y", 16);
   params->SetString("gestureSourceType", "touch");
-  SendCommand("Input.synthesizeTapGesture", params.Pass());
+  SendCommand("Input.synthesizeTapGesture", std::move(params));
 
   // The link that we just tapped should take us to the bottom of the page. The
   // new value of |document.body.scrollTop| will depend on the screen dimensions
@@ -340,7 +344,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, NavigationPreservesMessages) {
   scoped_ptr<base::DictionaryValue> params(new base::DictionaryValue());
   test_url = GetTestUrl("devtools", "navigation.html");
   params->SetString("url", test_url.spec());
-  SendCommand("Page.navigate", params.Pass(), true);
+  SendCommand("Page.navigate", std::move(params), true);
 
   bool enough_results = result_ids_.size() >= 2u;
   EXPECT_TRUE(enough_results);
@@ -416,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, CrossSitePauseInBeforeUnload) {
 
 IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, InspectDuringFrameSwap) {
   host_resolver()->AddRule("*", "127.0.0.1");
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
   content::SetupCrossSiteRedirector(embedded_test_server());
 
   GURL test_url1 =

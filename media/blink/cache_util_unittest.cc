@@ -4,9 +4,13 @@
 
 #include "media/blink/cache_util.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
 #include "base/format_macros.h"
+#include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -25,7 +29,7 @@ struct GRFUTestCase {
   WebURLResponse::HTTPVersion version;
   int status_code;
   const char* headers;
-  uint32 expected_reasons;
+  uint32_t expected_reasons;
 };
 
 // Create a new WebURLResponse object.

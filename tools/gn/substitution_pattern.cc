@@ -4,6 +4,8 @@
 
 #include "tools/gn/substitution_pattern.h"
 
+#include <stddef.h>
+
 #include "base/strings/string_number_conversions.h"
 #include "tools/gn/build_settings.h"
 #include "tools/gn/err.h"
@@ -25,6 +27,9 @@ SubstitutionPattern::Subrange::~Subrange() {
 
 SubstitutionPattern::SubstitutionPattern() : origin_(nullptr) {
 }
+
+SubstitutionPattern::SubstitutionPattern(const SubstitutionPattern& other) =
+    default;
 
 SubstitutionPattern::~SubstitutionPattern() {
 }

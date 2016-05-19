@@ -4,6 +4,8 @@
 
 #include "content/renderer/background_sync/background_sync_client_impl.h"
 
+#include <utility>
+
 #include "content/child/background_sync/background_sync_provider.h"
 #include "content/child/background_sync/background_sync_type_converters.h"
 #include "content/renderer/service_worker/service_worker_context_client.h"
@@ -17,19 +19,15 @@ namespace content {
 
 // static
 void BackgroundSyncClientImpl::Create(
-    int64 service_worker_registration_id,
     mojo::InterfaceRequest<BackgroundSyncServiceClient> request) {
-  new BackgroundSyncClientImpl(service_worker_registration_id, request.Pass());
+  new BackgroundSyncClientImpl(std::move(request));
 }
 
 BackgroundSyncClientImpl::~BackgroundSyncClientImpl() {}
 
 BackgroundSyncClientImpl::BackgroundSyncClientImpl(
-    int64 service_worker_registration_id,
     mojo::InterfaceRequest<BackgroundSyncServiceClient> request)
-    : service_worker_registration_id_(service_worker_registration_id),
-      binding_(this, request.Pass()),
-      callback_seq_num_(0) {}
+    : binding_(this, std::move(request)), callback_seq_num_(0) {}
 
 void BackgroundSyncClientImpl::Sync(
     int64_t handle_id,
@@ -72,15 +70,15 @@ void BackgroundSyncClientImpl::SyncDidGetRegistration(
   callback = it->second;
   sync_callbacks_.erase(it);
 
-  if (error != BACKGROUND_SYNC_ERROR_NONE) {
-    callback.Run(SERVICE_WORKER_EVENT_STATUS_ABORTED);
+  if (error != BackgroundSyncError::NONE) {
+    callback.Run(ServiceWorkerEventStatus::ABORTED);
     return;
   }
 
   ServiceWorkerContextClient* client =
       ServiceWorkerContextClient::ThreadSpecificInstance();
   if (!client) {
-    callback.Run(SERVICE_WORKER_EVENT_STATUS_ABORTED);
+    callback.Run(ServiceWorkerEventStatus::ABORTED);
     return;
   }
 

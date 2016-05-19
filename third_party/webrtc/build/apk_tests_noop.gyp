@@ -22,6 +22,10 @@
       'type': 'none',
     },
     {
+      'target_name': 'peerconnection_unittests_apk',
+      'type': 'none',
+    },
+    {
       'target_name': 'modules_tests_apk',
       'type': 'none',
     },
@@ -43,10 +47,6 @@
     },
     {
       'target_name': 'tools_unittests_apk',
-      'type': 'none',
-    },
-    {
-      'target_name': 'video_engine_core_unittests_apk',
       'type': 'none',
     },
     {

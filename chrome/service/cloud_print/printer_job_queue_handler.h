@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -25,6 +26,7 @@ namespace cloud_print {
 
 struct JobDetails {
   JobDetails();
+  JobDetails(const JobDetails& other);
   ~JobDetails();
   void Clear();
   static bool ordering(const JobDetails& first, const JobDetails& second);

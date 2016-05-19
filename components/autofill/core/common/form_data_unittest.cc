@@ -4,6 +4,8 @@
 
 #include "components/autofill/core/common/form_data.h"
 
+#include <stddef.h>
+
 #include "base/pickle.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/common/form_field_data.h"
@@ -71,6 +73,20 @@ void SerializeInVersion4Format(const FormData& form_data,
   pickle->WriteBool(form_data.is_form_tag);
 }
 
+void SerializeInVersion5Format(const FormData& form_data,
+                               base::Pickle* pickle) {
+  pickle->WriteInt(5);
+  pickle->WriteString16(form_data.name);
+  pickle->WriteString(form_data.origin.spec());
+  pickle->WriteString(form_data.action.spec());
+  pickle->WriteInt(static_cast<int>(form_data.fields.size()));
+  for (size_t i = 0; i < form_data.fields.size(); ++i) {
+    SerializeFormFieldData(form_data.fields[i], pickle);
+  }
+  pickle->WriteBool(form_data.is_form_tag);
+  pickle->WriteBool(form_data.is_formless_checkout);
+}
+
 // This function serializes the form data into the pickle in incorrect format
 // (no version number).
 void SerializeIncorrectFormat(const FormData& form_data, base::Pickle* pickle) {
@@ -89,6 +105,7 @@ void FillInDummyFormData(FormData* data) {
   data->origin = GURL("origin");
   data->action = GURL("action");
   data->is_form_tag = true;  // Default value.
+  data->is_formless_checkout = false;  // Default value.
 
   FormFieldData field_data;
   field_data.label = base::ASCIIToUTF16("label");
@@ -210,6 +227,21 @@ TEST(FormDataTest, Serialize_v4_Deserialize_vCurrent) {
 
   base::Pickle pickle;
   SerializeInVersion4Format(data, &pickle);
+
+  base::PickleIterator iter(pickle);
+  FormData actual;
+  EXPECT_TRUE(DeserializeFormData(&iter, &actual));
+
+  EXPECT_TRUE(actual.SameFormAs(data));
+}
+
+TEST(FormDataTest, Serialize_v5_Deserialize_vCurrent) {
+  FormData data;
+  FillInDummyFormData(&data);
+  data.is_formless_checkout = true;
+
+  base::Pickle pickle;
+  SerializeInVersion5Format(data, &pickle);
 
   base::PickleIterator iter(pickle);
   FormData actual;

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/svg/SVGAnimatedInteger.h"
 
 #include "core/svg/SVGAnimatedIntegerOptionalInteger.h"
@@ -52,4 +51,4 @@ DEFINE_TRACE(SVGAnimatedInteger)
     SVGAnimatedProperty<SVGInteger>::trace(visitor);
 }
 
-}
+} // namespace blink

@@ -4,6 +4,8 @@
 
 #include "cc/playback/transform_display_item.h"
 
+#include <stddef.h>
+
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event_argument.h"
 #include "cc/proto/display_item.pb.h"
@@ -11,9 +13,20 @@
 #include "third_party/skia/include/core/SkCanvas.h"
 
 namespace cc {
+class ImageSerializationProcessor;
 
-TransformDisplayItem::TransformDisplayItem()
+TransformDisplayItem::TransformDisplayItem(const gfx::Transform& transform)
     : transform_(gfx::Transform::kSkipInitialization) {
+  SetNew(transform);
+}
+
+TransformDisplayItem::TransformDisplayItem(const proto::DisplayItem& proto) {
+  DCHECK_EQ(proto::DisplayItem::Type_Transform, proto.type());
+
+  const proto::TransformDisplayItem& details = proto.transform_item();
+  gfx::Transform transform = ProtoToTransform(details.transform());
+
+  SetNew(transform);
 }
 
 TransformDisplayItem::~TransformDisplayItem() {
@@ -21,25 +34,15 @@ TransformDisplayItem::~TransformDisplayItem() {
 
 void TransformDisplayItem::SetNew(const gfx::Transform& transform) {
   transform_ = transform;
-
-  DisplayItem::SetNew(true /* suitable_for_gpu_raster */, 1 /* op_count */,
-                      0 /* external_memory_usage */);
 }
 
-void TransformDisplayItem::ToProtobuf(proto::DisplayItem* proto) const {
+void TransformDisplayItem::ToProtobuf(
+    proto::DisplayItem* proto,
+    ImageSerializationProcessor* image_serialization_processor) const {
   proto->set_type(proto::DisplayItem::Type_Transform);
 
   proto::TransformDisplayItem* details = proto->mutable_transform_item();
   TransformToProto(transform_, details->mutable_transform());
-}
-
-void TransformDisplayItem::FromProtobuf(const proto::DisplayItem& proto) {
-  DCHECK_EQ(proto::DisplayItem::Type_Transform, proto.type());
-
-  const proto::TransformDisplayItem& details = proto.transform_item();
-  gfx::Transform transform = ProtoToTransform(details.transform());
-
-  SetNew(transform);
 }
 
 void TransformDisplayItem::Raster(SkCanvas* canvas,
@@ -51,25 +54,31 @@ void TransformDisplayItem::Raster(SkCanvas* canvas,
 }
 
 void TransformDisplayItem::AsValueInto(
+    const gfx::Rect& visual_rect,
     base::trace_event::TracedValue* array) const {
-  array->AppendString(base::StringPrintf("TransformDisplayItem transform: [%s]",
-                                         transform_.ToString().c_str()));
+  array->AppendString(base::StringPrintf(
+      "TransformDisplayItem transform: [%s] visualRect: [%s]",
+      transform_.ToString().c_str(), visual_rect.ToString().c_str()));
 }
 
-EndTransformDisplayItem::EndTransformDisplayItem() {
-  DisplayItem::SetNew(true /* suitable_for_gpu_raster */, 0 /* op_count */,
-                      0 /* external_memory_usage */);
+size_t TransformDisplayItem::ExternalMemoryUsage() const {
+  return 0;
+}
+
+EndTransformDisplayItem::EndTransformDisplayItem() {}
+
+EndTransformDisplayItem::EndTransformDisplayItem(
+    const proto::DisplayItem& proto) {
+  DCHECK_EQ(proto::DisplayItem::Type_EndTransform, proto.type());
 }
 
 EndTransformDisplayItem::~EndTransformDisplayItem() {
 }
 
-void EndTransformDisplayItem::ToProtobuf(proto::DisplayItem* proto) const {
+void EndTransformDisplayItem::ToProtobuf(
+    proto::DisplayItem* proto,
+    ImageSerializationProcessor* image_serialization_processor) const {
   proto->set_type(proto::DisplayItem::Type_EndTransform);
-}
-
-void EndTransformDisplayItem::FromProtobuf(const proto::DisplayItem& proto) {
-  DCHECK_EQ(proto::DisplayItem::Type_EndTransform, proto.type());
 }
 
 void EndTransformDisplayItem::Raster(
@@ -80,8 +89,15 @@ void EndTransformDisplayItem::Raster(
 }
 
 void EndTransformDisplayItem::AsValueInto(
+    const gfx::Rect& visual_rect,
     base::trace_event::TracedValue* array) const {
-  array->AppendString("EndTransformDisplayItem");
+  array->AppendString(
+      base::StringPrintf("EndTransformDisplayItem visualRect: [%s]",
+                         visual_rect.ToString().c_str()));
+}
+
+size_t EndTransformDisplayItem::ExternalMemoryUsage() const {
+  return 0;
 }
 
 }  // namespace cc

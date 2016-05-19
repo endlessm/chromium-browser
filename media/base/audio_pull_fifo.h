@@ -6,6 +6,7 @@
 #define MEDIA_BASE_AUDIO_PULL_FIFO_H_
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "media/base/media_export.h"
 
 namespace media {
@@ -39,6 +40,9 @@ class MEDIA_EXPORT AudioPullFifo {
 
   // Empties the FIFO without deallocating any memory.
   void Clear();
+
+  // Returns the size of the fifo in number of frames.
+  int SizeInFrames() const;
 
  private:
   // Attempt to fulfill the request using what is available in the FIFO.

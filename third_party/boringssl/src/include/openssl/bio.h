@@ -308,18 +308,12 @@ OPENSSL_EXPORT BIO *BIO_find_type(BIO *bio, int type);
 OPENSSL_EXPORT void BIO_copy_next_retry(BIO *bio);
 
 
-/* Printf functions.
- *
- * These functions are versions of printf functions that output to a BIO rather
- * than a FILE. */
-#ifdef __GNUC__
-#define __bio_h__attr__ __attribute__
-#else
-#define __bio_h__attr__(x)
-#endif
+/* Printf functions. */
+
+/* BIO_printf behaves like |printf| but outputs to |bio| rather than a |FILE|.
+ * It returns the number of bytes written or a negative number on error. */
 OPENSSL_EXPORT int BIO_printf(BIO *bio, const char *format, ...)
-    __bio_h__attr__((__format__(__printf__, 2, 3)));
-#undef __bio_h__attr__
+    OPENSSL_PRINTF_FORMAT_FUNC(2, 3);
 
 
 /* Utility functions. */
@@ -716,6 +710,11 @@ OPENSSL_EXPORT int BIO_zero_copy_get_write_buf_done(BIO* bio,
 #define BIO_CTRL_SET_CALLBACK	14  /* opt - set callback function */
 #define BIO_CTRL_GET_CALLBACK	15  /* opt - set callback function */
 #define BIO_CTRL_SET_FILENAME	30	/* BIO_s_file special */
+
+/* These are never used, but exist to allow code to compile more easily. */
+#define BIO_CTRL_DUP	100
+#define BIO_CTRL_PUSH	101
+#define BIO_CTRL_POP	102
 
 
 /* Android compatibility section.

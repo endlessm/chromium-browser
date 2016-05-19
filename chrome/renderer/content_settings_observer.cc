@@ -11,13 +11,14 @@
 #include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebContentSettingCallbacks.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/web/WebDataSource.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebFrameClient.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "url/url_constants.h"
 
@@ -43,75 +44,52 @@ using content::NavigationState;
 
 namespace {
 
+// This enum is histogrammed, so do not add, reorder, or remove values.
 enum {
   INSECURE_CONTENT_DISPLAY = 0,
-  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_WWW_GOOGLE,
+  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE,      // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_WWW_GOOGLE,  // deprecated
   INSECURE_CONTENT_DISPLAY_HTML,
   INSECURE_CONTENT_RUN,
-  INSECURE_CONTENT_RUN_HOST_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_WWW_GOOGLE,
-  INSECURE_CONTENT_RUN_TARGET_YOUTUBE,
+  INSECURE_CONTENT_RUN_HOST_GOOGLE,      // deprecated
+  INSECURE_CONTENT_RUN_HOST_WWW_GOOGLE,  // deprecated
+  INSECURE_CONTENT_RUN_TARGET_YOUTUBE,   // deprecated
   INSECURE_CONTENT_RUN_JS,
   INSECURE_CONTENT_RUN_CSS,
   INSECURE_CONTENT_RUN_SWF,
-  INSECURE_CONTENT_DISPLAY_HOST_YOUTUBE,
-  INSECURE_CONTENT_RUN_HOST_YOUTUBE,
-  INSECURE_CONTENT_RUN_HOST_GOOGLEUSERCONTENT,
-  INSECURE_CONTENT_DISPLAY_HOST_MAIL_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_MAIL_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_PLUS_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_PLUS_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_DOCS_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_DOCS_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_SITES_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_SITES_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_PICASAWEB_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_PICASAWEB_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_READER,
-  INSECURE_CONTENT_RUN_HOST_GOOGLE_READER,
-  INSECURE_CONTENT_DISPLAY_HOST_CODE_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_CODE_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_GROUPS_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_GROUPS_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_MAPS_GOOGLE,
-  INSECURE_CONTENT_RUN_HOST_MAPS_GOOGLE,
-  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_SUPPORT,
-  INSECURE_CONTENT_RUN_HOST_GOOGLE_SUPPORT,
-  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_INTL,
-  INSECURE_CONTENT_RUN_HOST_GOOGLE_INTL,
+  INSECURE_CONTENT_DISPLAY_HOST_YOUTUBE,           // deprecated
+  INSECURE_CONTENT_RUN_HOST_YOUTUBE,               // deprecated
+  INSECURE_CONTENT_RUN_HOST_GOOGLEUSERCONTENT,     // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_MAIL_GOOGLE,       // deprecated
+  INSECURE_CONTENT_RUN_HOST_MAIL_GOOGLE,           // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_PLUS_GOOGLE,       // deprecated
+  INSECURE_CONTENT_RUN_HOST_PLUS_GOOGLE,           // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_DOCS_GOOGLE,       // deprecated
+  INSECURE_CONTENT_RUN_HOST_DOCS_GOOGLE,           // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_SITES_GOOGLE,      // deprecated
+  INSECURE_CONTENT_RUN_HOST_SITES_GOOGLE,          // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_PICASAWEB_GOOGLE,  // deprecated
+  INSECURE_CONTENT_RUN_HOST_PICASAWEB_GOOGLE,      // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_READER,     // deprecated
+  INSECURE_CONTENT_RUN_HOST_GOOGLE_READER,         // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_CODE_GOOGLE,       // deprecated
+  INSECURE_CONTENT_RUN_HOST_CODE_GOOGLE,           // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_GROUPS_GOOGLE,     // deprecated
+  INSECURE_CONTENT_RUN_HOST_GROUPS_GOOGLE,         // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_MAPS_GOOGLE,       // deprecated
+  INSECURE_CONTENT_RUN_HOST_MAPS_GOOGLE,           // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_SUPPORT,    // deprecated
+  INSECURE_CONTENT_RUN_HOST_GOOGLE_SUPPORT,        // deprecated
+  INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_INTL,       // deprecated
+  INSECURE_CONTENT_RUN_HOST_GOOGLE_INTL,           // deprecated
   INSECURE_CONTENT_NUM_EVENTS
 };
 
 // Constants for UMA statistic collection.
-static const char kWWWDotGoogleDotCom[] = "www.google.com";
-static const char kMailDotGoogleDotCom[] = "mail.google.com";
-static const char kPlusDotGoogleDotCom[] = "plus.google.com";
-static const char kDocsDotGoogleDotCom[] = "docs.google.com";
-static const char kSitesDotGoogleDotCom[] = "sites.google.com";
-static const char kPicasawebDotGoogleDotCom[] = "picasaweb.google.com";
-static const char kCodeDotGoogleDotCom[] = "code.google.com";
-static const char kGroupsDotGoogleDotCom[] = "groups.google.com";
-static const char kMapsDotGoogleDotCom[] = "maps.google.com";
-static const char kWWWDotYoutubeDotCom[] = "www.youtube.com";
-static const char kDotGoogleUserContentDotCom[] = ".googleusercontent.com";
-static const char kGoogleReaderPathPrefix[] = "/reader/";
-static const char kGoogleSupportPathPrefix[] = "/support/";
-static const char kGoogleIntlPathPrefix[] = "/intl/";
 static const char kDotJS[] = ".js";
 static const char kDotCSS[] = ".css";
 static const char kDotSWF[] = ".swf";
 static const char kDotHTML[] = ".html";
-
-// Constants for mixed-content blocking.
-static const char kGoogleDotCom[] = "google.com";
-
-static bool IsHostInDomain(const std::string& host, const std::string& domain) {
-  return (base::EndsWith(host, domain, base::CompareCase::INSENSITIVE_ASCII) &&
-          (host.length() == domain.length() ||
-           (host.length() > domain.length() &&
-            host[host.length() - domain.length() - 1] == '.')));
-}
 
 GURL GetOriginOrURL(const WebFrame* frame) {
   WebString top_origin = frame->top()->securityOrigin().toString();
@@ -122,7 +100,7 @@ GURL GetOriginOrURL(const WebFrame* frame) {
   // URL is not replicated.
   if (top_origin == "null")
     return frame->top()->document().url();
-  return GURL(top_origin);
+  return blink::WebStringToGURL(top_origin);
 }
 
 ContentSetting GetContentSettingFromRules(
@@ -283,9 +261,10 @@ bool ContentSettingsObserver::allowDatabase(const WebString& name,
 
   bool result = false;
   Send(new ChromeViewHostMsg_AllowDatabase(
-      routing_id(), GURL(frame->securityOrigin().toString()),
-      GURL(frame->top()->securityOrigin().toString()), name, display_name,
-      &result));
+      routing_id(),
+      blink::WebStringToGURL(frame->securityOrigin().toString()),
+      blink::WebStringToGURL(frame->top()->securityOrigin().toString()),
+      name, display_name, &result));
   return result;
 }
 
@@ -308,8 +287,8 @@ void ContentSettingsObserver::requestFileSystemAccessAsync(
 
   Send(new ChromeViewHostMsg_RequestFileSystemAccessAsync(
       routing_id(), current_request_id_,
-      GURL(frame->securityOrigin().toString()),
-      GURL(frame->top()->securityOrigin().toString())));
+      blink::WebStringToGURL(frame->securityOrigin().toString()),
+      blink::WebStringToGURL(frame->top()->securityOrigin().toString())));
 }
 
 bool ContentSettingsObserver::allowImage(bool enabled_per_settings,
@@ -344,8 +323,10 @@ bool ContentSettingsObserver::allowIndexedDB(const WebString& name,
 
   bool result = false;
   Send(new ChromeViewHostMsg_AllowIndexedDB(
-      routing_id(), GURL(frame->securityOrigin().toString()),
-      GURL(frame->top()->securityOrigin().toString()), name, &result));
+      routing_id(),
+      blink::WebStringToGURL(frame->securityOrigin().toString()),
+      blink::WebStringToGURL(frame->top()->securityOrigin().toString()),
+      name, &result));
   return result;
 }
 
@@ -373,7 +354,8 @@ bool ContentSettingsObserver::allowScript(bool enabled_per_settings) {
     ContentSetting setting = GetContentSettingFromRules(
         content_setting_rules_->script_rules,
         frame,
-        GURL(frame->document().securityOrigin().toString()));
+        blink::WebStringToGURL(
+            frame->document().securityOrigin().toString()));
     allow = setting != CONTENT_SETTING_BLOCK;
   }
   allow = allow || IsWhitelistedForContentSettings();
@@ -409,15 +391,18 @@ bool ContentSettingsObserver::allowStorage(bool local) {
   bool result = false;
 
   StoragePermissionsKey key(
-      GURL(frame->document().securityOrigin().toString()), local);
+      blink::WebStringToGURL(frame->document().securityOrigin().toString()),
+      local);
   std::map<StoragePermissionsKey, bool>::const_iterator permissions =
       cached_storage_permissions_.find(key);
   if (permissions != cached_storage_permissions_.end())
     return permissions->second;
 
   Send(new ChromeViewHostMsg_AllowDOMStorage(
-      routing_id(), GURL(frame->securityOrigin().toString()),
-      GURL(frame->top()->securityOrigin().toString()), local, &result));
+      routing_id(),
+      blink::WebStringToGURL(frame->securityOrigin().toString()),
+      blink::WebStringToGURL(frame->top()->securityOrigin().toString()),
+      local, &result));
   cached_storage_permissions_[key] = result;
   return result;
 }
@@ -466,48 +451,8 @@ static void SendInsecureContentSignal(int signal) {
 
 bool ContentSettingsObserver::allowDisplayingInsecureContent(
     bool allowed_per_settings,
-    const blink::WebSecurityOrigin& origin,
     const blink::WebURL& resource_url) {
   SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY);
-
-  std::string origin_host(origin.host().utf8());
-  WebFrame* frame = render_frame()->GetWebFrame();
-  GURL frame_gurl(frame->document().url());
-  if (IsHostInDomain(origin_host, kGoogleDotCom)) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_GOOGLE);
-    if (base::StartsWith(frame_gurl.path(), kGoogleSupportPathPrefix,
-                         base::CompareCase::INSENSITIVE_ASCII)) {
-      SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_SUPPORT);
-    } else if (base::StartsWith(frame_gurl.path(), kGoogleIntlPathPrefix,
-                                base::CompareCase::INSENSITIVE_ASCII)) {
-      SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_INTL);
-    }
-  }
-
-  if (origin_host == kWWWDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_WWW_GOOGLE);
-    if (base::StartsWith(frame_gurl.path(), kGoogleReaderPathPrefix,
-                         base::CompareCase::INSENSITIVE_ASCII))
-      SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_GOOGLE_READER);
-  } else if (origin_host == kMailDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_MAIL_GOOGLE);
-  } else if (origin_host == kPlusDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_PLUS_GOOGLE);
-  } else if (origin_host == kDocsDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_DOCS_GOOGLE);
-  } else if (origin_host == kSitesDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_SITES_GOOGLE);
-  } else if (origin_host == kPicasawebDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_PICASAWEB_GOOGLE);
-  } else if (origin_host == kCodeDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_CODE_GOOGLE);
-  } else if (origin_host == kGroupsDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_GROUPS_GOOGLE);
-  } else if (origin_host == kMapsDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_MAPS_GOOGLE);
-  } else if (origin_host == kWWWDotYoutubeDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_DISPLAY_HOST_YOUTUBE);
-  }
 
   GURL resource_gurl(resource_url);
   if (base::EndsWith(resource_gurl.path(), kDotHTML,
@@ -526,55 +471,7 @@ bool ContentSettingsObserver::allowRunningInsecureContent(
     bool allowed_per_settings,
     const blink::WebSecurityOrigin& origin,
     const blink::WebURL& resource_url) {
-  std::string origin_host(origin.host().utf8());
-  WebFrame* frame = render_frame()->GetWebFrame();
-  GURL frame_gurl(frame->document().url());
-  DCHECK_EQ(frame_gurl.host(), origin_host);
-
-  bool is_google = IsHostInDomain(origin_host, kGoogleDotCom);
-  if (is_google) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_GOOGLE);
-    if (base::StartsWith(frame_gurl.path(), kGoogleSupportPathPrefix,
-                         base::CompareCase::INSENSITIVE_ASCII)) {
-      SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_GOOGLE_SUPPORT);
-    } else if (base::StartsWith(frame_gurl.path(), kGoogleIntlPathPrefix,
-                                base::CompareCase::INSENSITIVE_ASCII)) {
-      SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_GOOGLE_INTL);
-    }
-  }
-
-  if (origin_host == kWWWDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_WWW_GOOGLE);
-    if (base::StartsWith(frame_gurl.path(), kGoogleReaderPathPrefix,
-                         base::CompareCase::INSENSITIVE_ASCII))
-      SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_GOOGLE_READER);
-  } else if (origin_host == kMailDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_MAIL_GOOGLE);
-  } else if (origin_host == kPlusDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_PLUS_GOOGLE);
-  } else if (origin_host == kDocsDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_DOCS_GOOGLE);
-  } else if (origin_host == kSitesDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_SITES_GOOGLE);
-  } else if (origin_host == kPicasawebDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_PICASAWEB_GOOGLE);
-  } else if (origin_host == kCodeDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_CODE_GOOGLE);
-  } else if (origin_host == kGroupsDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_GROUPS_GOOGLE);
-  } else if (origin_host == kMapsDotGoogleDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_MAPS_GOOGLE);
-  } else if (origin_host == kWWWDotYoutubeDotCom) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_YOUTUBE);
-  } else if (base::EndsWith(origin_host, kDotGoogleUserContentDotCom,
-                            base::CompareCase::INSENSITIVE_ASCII)) {
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_HOST_GOOGLEUSERCONTENT);
-  }
-
   GURL resource_gurl(resource_url);
-  if (resource_gurl.host() == kWWWDotYoutubeDotCom)
-    SendInsecureContentSignal(INSECURE_CONTENT_RUN_TARGET_YOUTUBE);
-
   if (base::EndsWith(resource_gurl.path(), kDotJS,
                      base::CompareCase::INSENSITIVE_ASCII))
     SendInsecureContentSignal(INSECURE_CONTENT_RUN_JS);
@@ -591,6 +488,13 @@ bool ContentSettingsObserver::allowRunningInsecureContent(
   }
 
   return true;
+}
+
+void ContentSettingsObserver::didUseKeygen() {
+  WebFrame* frame = render_frame()->GetWebFrame();
+  Send(new ChromeViewHostMsg_DidUseKeygen(
+      routing_id(),
+      blink::WebStringToGURL(frame->securityOrigin().toString())));
 }
 
 void ContentSettingsObserver::didNotAllowPlugins() {

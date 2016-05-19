@@ -4,11 +4,14 @@
 
 #include "components/proximity_auth/unlock_manager.h"
 
+#include <utility>
+
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "components/proximity_auth/fake_secure_context.h"
 #include "components/proximity_auth/logging/logging.h"
 #include "components/proximity_auth/messenger.h"
@@ -114,19 +117,19 @@ class FakeLockHandler : public ScreenlockBridge::LockHandler {
   // LockHandler:
   void ShowBannerMessage(const base::string16& message) override {}
   void ShowUserPodCustomIcon(
-      const std::string& user_email,
+      const AccountId& account_id,
       const ScreenlockBridge::UserPodCustomIconOptions& icon) override {}
-  void HideUserPodCustomIcon(const std::string& user_email) override {}
+  void HideUserPodCustomIcon(const AccountId& account_id) override {}
   void EnableInput() override {}
-  void SetAuthType(const std::string& user_email,
+  void SetAuthType(const AccountId& account_id,
                    AuthType auth_type,
                    const base::string16& auth_value) override {}
-  AuthType GetAuthType(const std::string& user_email) const override {
+  AuthType GetAuthType(const AccountId& account_id) const override {
     return USER_CLICK;
   }
   ScreenType GetScreenType() const override { return LOCK_SCREEN; }
-  void Unlock(const std::string& user_email) override {}
-  void AttemptEasySignin(const std::string& user_email,
+  void Unlock(const AccountId& account_id) override {}
+  void AttemptEasySignin(const AccountId& account_id,
                          const std::string& secret,
                          const std::string& key_label) override {}
 
@@ -137,11 +140,9 @@ class FakeLockHandler : public ScreenlockBridge::LockHandler {
 class TestUnlockManager : public UnlockManager {
  public:
   TestUnlockManager(ProximityAuthSystem::ScreenlockType screenlock_type,
-                    scoped_ptr<ProximityMonitor> proximity_monitor,
                     ProximityAuthClient* proximity_auth_client)
-      : UnlockManager(screenlock_type,
-                      proximity_monitor.Pass(),
-                      proximity_auth_client) {}
+      : UnlockManager(screenlock_type, proximity_auth_client),
+        proximity_monitor_(nullptr) {}
   ~TestUnlockManager() override {}
 
   using UnlockManager::OnAuthAttempted;
@@ -153,6 +154,23 @@ class TestUnlockManager : public UnlockManager {
   using ScreenlockBridge::Observer::OnScreenDidLock;
   using ScreenlockBridge::Observer::OnScreenDidUnlock;
   using ScreenlockBridge::Observer::OnFocusedUserChanged;
+
+  MockProximityMonitor* proximity_monitor() { return proximity_monitor_; }
+
+ private:
+  scoped_ptr<ProximityMonitor> CreateProximityMonitor(
+      const RemoteDevice& remote_device) override {
+    EXPECT_EQ(kTestRemoteDevicePublicKey, remote_device.public_key);
+    scoped_ptr<MockProximityMonitor> proximity_monitor(
+        new NiceMock<MockProximityMonitor>());
+    proximity_monitor_ = proximity_monitor.get();
+    return std::move(proximity_monitor);
+  }
+
+  // Owned by the super class.
+  MockProximityMonitor* proximity_monitor_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestUnlockManager);
 };
 
 // Creates a mock Bluetooth adapter and sets it as the global adapter for
@@ -172,7 +190,6 @@ class ProximityAuthUnlockManagerTest : public testing::Test {
   ProximityAuthUnlockManagerTest()
       : remote_device_(CreateClassicRemoteDeviceForTest()),
         bluetooth_adapter_(CreateAndRegisterMockBluetoothAdapter()),
-        proximity_monitor_(nullptr),
         task_runner_(new base::TestSimpleTaskRunner()),
         thread_task_runner_handle_(task_runner_) {
     ON_CALL(*bluetooth_adapter_, IsPowered()).WillByDefault(Return(true));
@@ -195,8 +212,8 @@ class ProximityAuthUnlockManagerTest : public testing::Test {
     // manager, as otherwise it's impossible to tell whether calls to Stop()
     // occur as a side-effect of the destruction or from the code intended to be
     // under test.
-    if (proximity_monitor_)
-      testing::Mock::VerifyAndClearExpectations(proximity_monitor_);
+    if (proximity_monitor())
+      testing::Mock::VerifyAndClearExpectations(proximity_monitor());
 
     // The UnlockManager must be destroyed before calling
     // chromeos::DBusThreadManager::Shutdown(), as the UnlockManager's
@@ -212,10 +229,8 @@ class ProximityAuthUnlockManagerTest : public testing::Test {
 
   void CreateUnlockManager(
       ProximityAuthSystem::ScreenlockType screenlock_type) {
-    proximity_monitor_ = new NiceMock<MockProximityMonitor>;
-    unlock_manager_.reset(new TestUnlockManager(
-        screenlock_type, make_scoped_ptr(proximity_monitor_),
-        &proximity_auth_client_));
+    unlock_manager_.reset(
+        new TestUnlockManager(screenlock_type, &proximity_auth_client_));
   }
 
   void SimulateUserPresentState() {
@@ -233,6 +248,10 @@ class ProximityAuthUnlockManagerTest : public testing::Test {
 
   void RunPendingTasks() { task_runner_->RunPendingTasks(); }
 
+  MockProximityMonitor* proximity_monitor() {
+    return unlock_manager_ ? unlock_manager_->proximity_monitor() : nullptr;
+  }
+
  protected:
   RemoteDevice remote_device_;
 
@@ -244,8 +263,6 @@ class ProximityAuthUnlockManagerTest : public testing::Test {
   NiceMock<MockMessenger> messenger_;
   scoped_ptr<TestUnlockManager> unlock_manager_;
   FakeSecureContext secure_context_;
-  // Owned by the |unlock_manager_|.
-  MockProximityMonitor* proximity_monitor_;
 
  private:
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
@@ -331,7 +348,7 @@ TEST_F(ProximityAuthUnlockManagerTest,
   unlock_manager_->SetRemoteDeviceLifeCycle(&life_cycle_);
   unlock_manager_->OnRemoteStatusUpdate(kRemoteScreenUnlocked);
 
-  ON_CALL(*proximity_monitor_, IsUnlockAllowed()).WillByDefault(Return(false));
+  ON_CALL(*proximity_monitor(), IsUnlockAllowed()).WillByDefault(Return(false));
   EXPECT_FALSE(unlock_manager_->IsUnlockAllowed());
 }
 
@@ -468,13 +485,10 @@ TEST_F(ProximityAuthUnlockManagerTest, SetRemoteDeviceLifeCycle_WakingUp) {
   unlock_manager_->SetRemoteDeviceLifeCycle(&life_cycle_);
 }
 
-TEST_F(
-    ProximityAuthUnlockManagerTest,
-    SetRemoteDeviceLifeCycle_NullRemoteDeviceLifeCycle_StopsProximityMonitor) {
+TEST_F(ProximityAuthUnlockManagerTest,
+       SetRemoteDeviceLifeCycle_NullRemoteDeviceLifeCycle_NoProximityMonitor) {
   CreateUnlockManager(ProximityAuthSystem::SESSION_LOCK);
   SimulateUserPresentState();
-
-  EXPECT_CALL(*proximity_monitor_, Stop()).Times(AtLeast(1));
   unlock_manager_->SetRemoteDeviceLifeCycle(nullptr);
 }
 
@@ -487,22 +501,24 @@ TEST_F(
   ON_CALL(life_cycle_, GetState())
       .WillByDefault(Return(RemoteDeviceLifeCycle::State::FINDING_CONNECTION));
 
-  EXPECT_CALL(*proximity_monitor_, Stop()).Times(AtLeast(1));
-  unlock_manager_->SetRemoteDeviceLifeCycle(&life_cycle_);
+  EXPECT_CALL(*proximity_monitor(), Stop()).Times(AtLeast(1));
+  unlock_manager_->OnLifeCycleStateChanged();
 }
 
 TEST_F(
     ProximityAuthUnlockManagerTest,
     SetRemoteDeviceLifeCycle_ConnectedRemoteDeviceLifeCycle_StartsProximityMonitor) {
   CreateUnlockManager(ProximityAuthSystem::SESSION_LOCK);
-  SimulateUserPresentState();
+
+  ON_CALL(life_cycle_, GetState())
+      .WillByDefault(Return(RemoteDeviceLifeCycle::State::STOPPED));
+  unlock_manager_->SetRemoteDeviceLifeCycle(&life_cycle_);
 
   ON_CALL(life_cycle_, GetState())
       .WillByDefault(
           Return(RemoteDeviceLifeCycle::State::SECURE_CHANNEL_ESTABLISHED));
-
-  EXPECT_CALL(*proximity_monitor_, Start()).Times(AtLeast(1));
-  unlock_manager_->SetRemoteDeviceLifeCycle(&life_cycle_);
+  EXPECT_CALL(*proximity_monitor(), Start()).Times(AtLeast(1));
+  unlock_manager_->OnLifeCycleStateChanged();
 }
 
 TEST_F(ProximityAuthUnlockManagerTest,
@@ -517,7 +533,7 @@ TEST_F(ProximityAuthUnlockManagerTest,
        OnLifeCycleStateChanged_StartsProximityMonitor) {
   CreateUnlockManager(ProximityAuthSystem::SESSION_LOCK);
   SimulateUserPresentState();
-  EXPECT_CALL(*proximity_monitor_, Start()).Times(AtLeast(1));
+  EXPECT_CALL(*proximity_monitor(), Start()).Times(AtLeast(1));
   unlock_manager_->OnLifeCycleStateChanged();
 }
 
@@ -530,7 +546,7 @@ TEST_F(ProximityAuthUnlockManagerTest,
       .WillByDefault(
           Return(RemoteDeviceLifeCycle::State::AUTHENTICATION_FAILED));
 
-  EXPECT_CALL(*proximity_monitor_, Stop()).Times(AtLeast(1));
+  EXPECT_CALL(*proximity_monitor(), Stop()).Times(AtLeast(1));
   unlock_manager_->OnLifeCycleStateChanged();
 }
 
@@ -630,7 +646,7 @@ TEST_F(ProximityAuthUnlockManagerTest,
   CreateUnlockManager(ProximityAuthSystem::SESSION_LOCK);
   SimulateUserPresentState();
 
-  EXPECT_CALL(*proximity_monitor_, Stop());
+  EXPECT_CALL(*proximity_monitor(), Stop());
   unlock_manager_.get()->OnScreenDidUnlock(
       ScreenlockBridge::LockHandler::LOCK_SCREEN);
 }
@@ -647,7 +663,7 @@ TEST_F(ProximityAuthUnlockManagerTest, OnScreenDidLock_StartsProximityMonitor) {
           Return(RemoteDeviceLifeCycle::State::SECURE_CHANNEL_ESTABLISHED));
   unlock_manager_->OnLifeCycleStateChanged();
 
-  EXPECT_CALL(*proximity_monitor_, Start());
+  EXPECT_CALL(*proximity_monitor(), Start());
   unlock_manager_.get()->OnScreenDidLock(
       ScreenlockBridge::LockHandler::LOCK_SCREEN);
 }
@@ -711,7 +727,7 @@ TEST_F(ProximityAuthUnlockManagerTest, OnAuthAttempted_UnlockNotAllowed) {
   CreateUnlockManager(ProximityAuthSystem::SESSION_LOCK);
   SimulateUserPresentState();
 
-  ON_CALL(*proximity_monitor_, IsUnlockAllowed()).WillByDefault(Return(false));
+  ON_CALL(*proximity_monitor(), IsUnlockAllowed()).WillByDefault(Return(false));
 
   EXPECT_CALL(proximity_auth_client_, FinalizeUnlock(false));
   unlock_manager_->OnAuthAttempted(ScreenlockBridge::LockHandler::USER_CLICK);

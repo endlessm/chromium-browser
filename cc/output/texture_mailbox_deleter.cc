@@ -4,6 +4,8 @@
 
 #include "cc/output/texture_mailbox_deleter.h"
 
+#include <stddef.h>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
@@ -57,14 +59,13 @@ scoped_ptr<SingleReleaseCallback> TextureMailboxDeleter::GetReleaseCallback(
                                                context_provider,
                                                texture_id));
 
-  impl_callbacks_.push_back(impl_callback.Pass());
+  impl_callbacks_.push_back(std::move(impl_callback));
 
   // The raw pointer to the impl-side callback is valid as long as this
   // class is alive. So we guard it with a WeakPtr.
   ReleaseCallback run_impl_callback(
       base::Bind(&TextureMailboxDeleter::RunDeleteTextureOnImplThread,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 impl_callbacks_.back()));
+                 weak_ptr_factory_.GetWeakPtr(), impl_callbacks_.back().get()));
 
   // Provide a callback for the main thread that posts back to the impl
   // thread.
@@ -76,7 +77,7 @@ scoped_ptr<SingleReleaseCallback> TextureMailboxDeleter::GetReleaseCallback(
     main_callback = SingleReleaseCallback::Create(run_impl_callback);
   }
 
-  return main_callback.Pass();
+  return main_callback;
 }
 
 void TextureMailboxDeleter::RunDeleteTextureOnImplThread(
@@ -84,9 +85,9 @@ void TextureMailboxDeleter::RunDeleteTextureOnImplThread(
     const gpu::SyncToken& sync_token,
     bool is_lost) {
   for (size_t i = 0; i < impl_callbacks_.size(); ++i) {
-    if (impl_callbacks_.at(i) == impl_callback) {
+    if (impl_callbacks_[i].get() == impl_callback) {
       // Run the callback, then destroy it here on the impl thread.
-      impl_callbacks_.at(i)->Run(sync_token, is_lost);
+      impl_callbacks_[i]->Run(sync_token, is_lost);
       impl_callbacks_.erase(impl_callbacks_.begin() + i);
       return;
     }

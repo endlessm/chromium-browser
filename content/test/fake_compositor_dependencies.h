@@ -5,6 +5,7 @@
 #ifndef CONTENT_TEST_FAKE_COMPOSITOR_DEPENDENCIES_H_
 #define CONTENT_TEST_FAKE_COMPOSITOR_DEPENDENCIES_H_
 
+#include "base/macros.h"
 #include "cc/test/test_gpu_memory_buffer_manager.h"
 #include "cc/test/test_shared_bitmap_manager.h"
 #include "cc/test/test_task_graph_runner.h"
@@ -39,6 +40,7 @@ class FakeCompositorDependencies : public CompositorDependencies {
   cc::ContextProvider* GetSharedMainThreadContextProvider() override;
   scoped_ptr<cc::BeginFrameSource> CreateExternalBeginFrameSource(
       int routing_id) override;
+  cc::ImageSerializationProcessor* GetImageSerializationProcessor() override;
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
   bool AreImageDecodeTasksEnabled() override;
   bool IsThreadedAnimationEnabled() override;

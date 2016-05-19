@@ -2,24 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/chromeos/input_method/input_method_engine.h"
+
+#include <utility>
+
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/test/histogram_tester.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
-#include "chrome/browser/chromeos/input_method/input_method_engine.h"
 #include "chrome/browser/chromeos/input_method/mock_input_method_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/input_method/input_method_engine_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/ime/chromeos/mock_component_extension_ime_manager_delegate.h"
 #include "ui/base/ime/chromeos/mock_ime_input_context_handler.h"
 #include "ui/base/ime/ime_bridge.h"
 #include "ui/base/ime/ime_engine_handler_interface.h"
-#include "ui/base/ime/ime_engine_observer.h"
 #include "ui/base/ime/text_input_flags.h"
 #include "ui/gfx/geometry/rect.h"
+
+using input_method::InputMethodEngineBase;
 
 namespace chromeos {
 
@@ -58,15 +64,15 @@ void InitInputMethod() {
   ime_list.push_back(ext1);
   delegate->set_ime_list(ime_list);
   comp_ime_manager->Initialize(
-      scoped_ptr<ComponentExtensionIMEManagerDelegate>(delegate).Pass());
+      scoped_ptr<ComponentExtensionIMEManagerDelegate>(delegate));
 
   MockInputMethodManager* manager = new MockInputMethodManager;
   manager->SetComponentExtensionIMEManager(
-      scoped_ptr<ComponentExtensionIMEManager>(comp_ime_manager).Pass());
+      scoped_ptr<ComponentExtensionIMEManager>(comp_ime_manager));
   InitializeForTesting(manager);
 }
 
-class TestObserver : public ui::IMEEngineObserver {
+class TestObserver : public InputMethodEngineBase::Observer {
  public:
   TestObserver() : calls_bitmap_(NONE) {}
   ~TestObserver() override {}
@@ -85,13 +91,14 @@ class TestObserver : public ui::IMEEngineObserver {
   bool IsInterestedInKeyEvent() const override { return true; }
   void OnKeyEvent(
       const std::string& engine_id,
-      const ui::IMEEngineHandlerInterface::KeyboardEvent& event,
+      const InputMethodEngineBase::KeyboardEvent& event,
       ui::IMEEngineHandlerInterface::KeyEventDoneCallback& key_data) override {}
   void OnInputContextUpdate(
       const ui::IMEEngineHandlerInterface::InputContext& context) override {}
-  void OnCandidateClicked(const std::string& engine_id,
-                          int candidate_id,
-                          MouseButtonEvent button) override {}
+  void OnCandidateClicked(
+      const std::string& engine_id,
+      int candidate_id,
+      InputMethodEngineBase::MouseButtonEvent button) override {}
   void OnMenuItemActivated(const std::string& engine_id,
                            const std::string& menu_id) override {}
   void OnSurroundingTextChanged(const std::string& engine_id,
@@ -138,8 +145,8 @@ class InputMethodEngineTest : public testing::Test {
   void CreateEngine(bool whitelisted) {
     engine_.reset(new InputMethodEngine());
     observer_ = new TestObserver();
-    scoped_ptr<ui::IMEEngineObserver> observer_ptr(observer_);
-    engine_->Initialize(observer_ptr.Pass(),
+    scoped_ptr<InputMethodEngineBase::Observer> observer_ptr(observer_);
+    engine_->Initialize(std::move(observer_ptr),
                         whitelisted ? kTestExtensionId : kTestExtensionId2,
                         ProfileManager::GetActiveUserProfile());
   }
@@ -241,7 +248,7 @@ TEST_F(InputMethodEngineTest, TestHistograms) {
   CreateEngine(true);
   FocusIn(ui::TEXT_INPUT_TYPE_TEXT);
   engine_->Enable(kTestImeComponentId);
-  std::vector<ui::IMEEngineHandlerInterface::SegmentInfo> segments;
+  std::vector<InputMethodEngineBase::SegmentInfo> segments;
   int context = engine_->GetCotextIdForTesting();
   std::string error;
   base::HistogramTester histograms;

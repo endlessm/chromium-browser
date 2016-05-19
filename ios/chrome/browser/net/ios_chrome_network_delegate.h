@@ -20,27 +20,12 @@ class PrefMember;
 
 typedef PrefMember<bool> BooleanPrefMember;
 
-namespace domain_reliability {
-class DomainReliabilityMonitor;
-}
-
-namespace policy {
-class URLBlacklistManager;
-}
-
 // IOSChromeNetworkDelegate is the central point from within the Chrome code to
 // add hooks into the network stack.
 class IOSChromeNetworkDelegate : public net::NetworkDelegateImpl {
  public:
   IOSChromeNetworkDelegate();
   ~IOSChromeNetworkDelegate() override;
-
-#if defined(ENABLE_CONFIGURATION_POLICY)
-  void set_url_blacklist_manager(
-      const policy::URLBlacklistManager* url_blacklist_manager) {
-    url_blacklist_manager_ = url_blacklist_manager;
-  }
-#endif
 
   // If |cookie_settings| is null or not set, all cookies are enabled,
   // otherwise the settings are enforced on all observed network requests.
@@ -54,11 +39,6 @@ class IOSChromeNetworkDelegate : public net::NetworkDelegateImpl {
     enable_do_not_track_ = enable_do_not_track;
   }
 
-  void set_domain_reliability_monitor(
-      domain_reliability::DomainReliabilityMonitor* monitor) {
-    domain_reliability_monitor_ = monitor;
-  }
-
   // Binds the pref members to |pref_service| and moves them to the IO thread.
   // This method should be called on the UI thread.
   static void InitializePrefsOnUIThread(BooleanPrefMember* enable_do_not_track,
@@ -69,8 +49,6 @@ class IOSChromeNetworkDelegate : public net::NetworkDelegateImpl {
   int OnBeforeURLRequest(net::URLRequest* request,
                          const net::CompletionCallback& callback,
                          GURL* new_url) override;
-  void OnBeforeRedirect(net::URLRequest* request,
-                        const GURL& new_location) override;
   void OnCompleted(net::URLRequest* request, bool started) override;
   net::NetworkDelegate::AuthRequiredResponse OnAuthRequired(
       net::URLRequest* request,
@@ -92,19 +70,10 @@ class IOSChromeNetworkDelegate : public net::NetworkDelegateImpl {
       const GURL& target_url,
       const GURL& referrer_url) const override;
 
-  void AccumulateContentLength(int64 received_payload_byte_count,
-                               int64 original_payload_byte_count);
-
   scoped_refptr<content_settings::CookieSettings> cookie_settings_;
 
   // Weak, owned by our owner.
   BooleanPrefMember* enable_do_not_track_;
-
-// Weak, owned by our owner.
-#if defined(ENABLE_CONFIGURATION_POLICY)
-  const policy::URLBlacklistManager* url_blacklist_manager_;
-#endif
-  domain_reliability::DomainReliabilityMonitor* domain_reliability_monitor_;
 
   DISALLOW_COPY_AND_ASSIGN(IOSChromeNetworkDelegate);
 };

@@ -10,12 +10,12 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -47,9 +47,9 @@ ManagedBookmarksTracker::GetInitialManagedBookmarks() {
 }
 
 // static
-int64 ManagedBookmarksTracker::LoadInitial(BookmarkNode* folder,
-                                           const base::ListValue* list,
-                                           int64 next_node_id) {
+int64_t ManagedBookmarksTracker::LoadInitial(BookmarkNode* folder,
+                                             const base::ListValue* list,
+                                             int64_t next_node_id) {
   for (size_t i = 0; i < list->GetSize(); ++i) {
     // Extract the data for the next bookmark from the |list|.
     base::string16 title;

@@ -24,7 +24,6 @@
  *
  */
 
-#include "config.h"
 #include "core/events/DOMWindowEventQueue.h"
 
 #include "core/events/Event.h"
@@ -160,4 +159,4 @@ void DOMWindowEventQueue::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
         eventTarget->dispatchEvent(event);
 }
 
-}
+} // namespace blink

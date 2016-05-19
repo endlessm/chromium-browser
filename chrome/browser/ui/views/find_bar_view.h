@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_FIND_BAR_VIEW_H_
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/ui/views/dropdown_bar_view.h"
@@ -37,13 +38,6 @@ class FindBarView : public DropdownBarView,
                     public views::TextfieldController,
                     public views::ViewTargeterDelegate {
  public:
-  // A tag denoting which button the user pressed.
-  enum ButtonTag {
-    FIND_PREVIOUS_TAG = 0,  // The Find Previous button.
-    FIND_NEXT_TAG,          // The Find Next button.
-    CLOSE_TAG,              // The Close button (the 'X').
-  };
-
   explicit FindBarView(FindBarHost* host);
   ~FindBarView() override;
 

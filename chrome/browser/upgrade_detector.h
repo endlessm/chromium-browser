@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UPGRADE_DETECTOR_H_
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "ui/base/idle/idle.h"
@@ -69,10 +70,10 @@ class UpgradeDetector {
 
   bool is_factory_reset_required() const { return is_factory_reset_required_; }
 
-  // Retrieves the right icon ID based on the degree of severity (see
+  // Retrieves the right icon based on the degree of severity (see
   // UpgradeNotificationAnnoyanceLevel, each level has an an accompanying icon
   // to go with it) to display within the app menu.
-  int GetIconResourceID();
+  gfx::Image GetIcon();
 
   UpgradeNotificationAnnoyanceLevel upgrade_notification_stage() const {
     return upgrade_notification_stage_;

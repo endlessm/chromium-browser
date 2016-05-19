@@ -8,8 +8,7 @@
 #include <assert.h>
 #include <limits>
 
-#include "../macros.h"
-#include "../template_util.h"
+#include "third_party/base/macros.h"
 
 namespace pdfium {
 namespace base {

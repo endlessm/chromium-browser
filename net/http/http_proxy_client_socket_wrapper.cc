@@ -4,13 +4,14 @@
 
 #include "net/http/http_proxy_client_socket_wrapper.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/values.h"
-#include "net/base/net_util.h"
 #include "net/base/proxy_delegate.h"
 #include "net/http/http_proxy_client_socket.h"
 #include "net/http/http_response_info.h"
@@ -27,6 +28,7 @@ namespace net {
 HttpProxyClientSocketWrapper::HttpProxyClientSocketWrapper(
     const std::string& group_name,
     RequestPriority priority,
+    ClientSocketPool::RespectLimits respect_limits,
     base::TimeDelta connect_timeout_duration,
     base::TimeDelta proxy_negotiation_timeout_duration,
     TransportClientSocketPool* transport_pool,
@@ -44,6 +46,7 @@ HttpProxyClientSocketWrapper::HttpProxyClientSocketWrapper(
     : next_state_(STATE_NONE),
       group_name_(group_name),
       priority_(priority),
+      respect_limits_(respect_limits),
       connect_timeout_duration_(connect_timeout_duration),
       proxy_negotiation_timeout_duration_(proxy_negotiation_timeout_duration),
       transport_pool_(transport_pool),
@@ -107,7 +110,7 @@ LoadState HttpProxyClientSocketWrapper::GetConnectLoadState() const {
 
 scoped_ptr<HttpResponseInfo>
 HttpProxyClientSocketWrapper::GetAdditionalErrorState() {
-  return error_response_info_.Pass();
+  return std::move(error_response_info_);
 }
 
 const HttpResponseInfo* HttpProxyClientSocketWrapper::GetConnectResponseInfo()
@@ -294,7 +297,7 @@ int HttpProxyClientSocketWrapper::Write(IOBuffer* buf,
   return ERR_SOCKET_NOT_CONNECTED;
 }
 
-int HttpProxyClientSocketWrapper::SetReceiveBufferSize(int32 size) {
+int HttpProxyClientSocketWrapper::SetReceiveBufferSize(int32_t size) {
   // TODO(mmenke):  Should this persist across reconnects?  Seems a little
   //     weird, and not done for normal reconnects.
   if (transport_socket_)
@@ -302,7 +305,7 @@ int HttpProxyClientSocketWrapper::SetReceiveBufferSize(int32 size) {
   return ERR_SOCKET_NOT_CONNECTED;
 }
 
-int HttpProxyClientSocketWrapper::SetSendBufferSize(int32 size) {
+int HttpProxyClientSocketWrapper::SetSendBufferSize(int32_t size) {
   if (transport_socket_)
     return transport_socket_->SetSendBufferSize(size);
   return ERR_SOCKET_NOT_CONNECTED;
@@ -402,7 +405,7 @@ int HttpProxyClientSocketWrapper::DoTransportConnect() {
   next_state_ = STATE_TCP_CONNECT_COMPLETE;
   transport_socket_handle_.reset(new ClientSocketHandle());
   return transport_socket_handle_->Init(
-      group_name_, transport_params_, priority_,
+      group_name_, transport_params_, priority_, respect_limits_,
       base::Bind(&HttpProxyClientSocketWrapper::OnIOComplete,
                  base::Unretained(this)),
       transport_pool_, net_log_);
@@ -434,7 +437,7 @@ int HttpProxyClientSocketWrapper::DoSSLConnect() {
   next_state_ = STATE_SSL_CONNECT_COMPLETE;
   transport_socket_handle_.reset(new ClientSocketHandle());
   return transport_socket_handle_->Init(
-      group_name_, ssl_params_, priority_,
+      group_name_, ssl_params_, priority_, respect_limits_,
       base::Bind(&HttpProxyClientSocketWrapper::OnIOComplete,
                  base::Unretained(this)),
       ssl_pool_, net_log_);
@@ -534,7 +537,7 @@ int HttpProxyClientSocketWrapper::DoSpdyProxyCreateStream() {
   } else {
     // Create a session direct to the proxy itself
     spdy_session = spdy_session_pool_->CreateAvailableSessionFromSocket(
-        key, transport_socket_handle_.Pass(), net_log_, OK,
+        key, std::move(transport_socket_handle_), net_log_, OK,
         /*using_ssl_*/ true);
     DCHECK(spdy_session);
   }
@@ -585,7 +588,7 @@ int HttpProxyClientSocketWrapper::DoRestartWithAuthComplete(int result) {
     // TODO(mmenke): This may still result in waiting in line, if there are
     //               other HIGHEST priority requests. Consider a workaround for
     //               that. Starting the new request before releasing the old
-    //               socket and using LOAD_IGNORE_LIMITS would do the trick,
+    //               socket and using RespectLimits::Disabled would work,
     //               without exceding the the socket pool limits (Since the old
     //               socket would free up the extra socket slot when destroyed).
     priority_ = HIGHEST;

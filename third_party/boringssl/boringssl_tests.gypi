@@ -133,6 +133,34 @@
       'msvs_disabled_warnings': [ 4267, ],
     },
     {
+      'target_name': 'boringssl_ed25519_test',
+      'type': 'executable',
+      'dependencies': [
+        'boringssl.gyp:boringssl',
+      ],
+      'sources': [
+        'src/crypto/curve25519/ed25519_test.cc',
+        '<@(boringssl_test_support_sources)',
+      ],
+      # TODO(davidben): Fix size_t truncations in BoringSSL.
+      # https://crbug.com/429039
+      'msvs_disabled_warnings': [ 4267, ],
+    },
+    {
+      'target_name': 'boringssl_x25519_test',
+      'type': 'executable',
+      'dependencies': [
+        'boringssl.gyp:boringssl',
+      ],
+      'sources': [
+        'src/crypto/curve25519/x25519_test.cc',
+        '<@(boringssl_test_support_sources)',
+      ],
+      # TODO(davidben): Fix size_t truncations in BoringSSL.
+      # https://crbug.com/429039
+      'msvs_disabled_warnings': [ 4267, ],
+    },
+    {
       'target_name': 'boringssl_dh_test',
       'type': 'executable',
       'dependencies': [
@@ -427,6 +455,20 @@
       'msvs_disabled_warnings': [ 4267, ],
     },
     {
+      'target_name': 'boringssl_x509_test',
+      'type': 'executable',
+      'dependencies': [
+        'boringssl.gyp:boringssl',
+      ],
+      'sources': [
+        'src/crypto/x509/x509_test.cc',
+        '<@(boringssl_test_support_sources)',
+      ],
+      # TODO(davidben): Fix size_t truncations in BoringSSL.
+      # https://crbug.com/429039
+      'msvs_disabled_warnings': [ 4267, ],
+    },
+    {
       'target_name': 'boringssl_tab_test',
       'type': 'executable',
       'dependencies': [
@@ -504,6 +546,7 @@
       'boringssl_dsa_test',
       'boringssl_ec_test',
       'boringssl_ecdsa_test',
+      'boringssl_ed25519_test',
       'boringssl_err_test',
       'boringssl_evp_extra_test',
       'boringssl_evp_test',
@@ -524,6 +567,8 @@
       'boringssl_tab_test',
       'boringssl_thread_test',
       'boringssl_v3name_test',
+      'boringssl_x25519_test',
+      'boringssl_x509_test',
     ],
   }
 }

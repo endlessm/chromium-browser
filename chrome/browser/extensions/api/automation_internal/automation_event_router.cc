@@ -10,6 +10,7 @@
 
 #include "base/stl_util.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/extensions/api/automation_internal.h"
 #include "chrome/common/extensions/chrome_extension_messages.h"
@@ -94,13 +95,16 @@ void AutomationEventRouter::DispatchTreeDestroyedEvent(
   scoped_ptr<Event> event(new Event(
       events::AUTOMATION_INTERNAL_ON_ACCESSIBILITY_TREE_DESTROYED,
       api::automation_internal::OnAccessibilityTreeDestroyed::kEventName,
-      args.Pass()));
+      std::move(args)));
   event->restrict_to_browser_context = browser_context;
-  EventRouter::Get(browser_context)->BroadcastEvent(event.Pass());
+  EventRouter::Get(browser_context)->BroadcastEvent(std::move(event));
 }
 
 AutomationEventRouter::AutomationListener::AutomationListener() {
 }
+
+AutomationEventRouter::AutomationListener::AutomationListener(
+    const AutomationListener& other) = default;
 
 AutomationEventRouter::AutomationListener::~AutomationListener() {
 }

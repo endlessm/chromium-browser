@@ -5,12 +5,15 @@
 #ifndef CONTENT_PUBLIC_BROWSER_NAVIGATION_CONTROLLER_H_
 #define CONTENT_PUBLIC_BROWSER_NAVIGATION_CONTROLLER_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/session_storage_namespace.h"
@@ -22,6 +25,7 @@
 namespace base {
 
 class RefCountedMemory;
+class RefCountedString;
 
 }  // namespace base
 
@@ -39,7 +43,7 @@ class WebContents;
 class NavigationController {
  public:
   enum ReloadType {
-    NO_RELOAD,                   // Normal load.
+    NO_RELOAD,                   // Load all from cache as much as possible.
     RELOAD,                      // Normal (cache-validating) reload.
     RELOAD_IGNORING_CACHE,       // Reload bypassing the cache (shift-reload).
     RELOAD_ORIGINAL_REQUEST_URL, // Reload using the original request URL.
@@ -161,6 +165,14 @@ class NavigationController {
     // data loads.
     GURL virtual_url_for_data_url;
 
+#if defined(OS_ANDROID)
+    // Used in LOAD_TYPE_DATA loads only. The real data URI is represented
+    // as a string to circumvent the restriction on GURL size. This is only
+    // needed to pass URLs that exceed the IPC limit (kMaxURLChars). Short
+    // data: URLs can be passed in the |url| field.
+    scoped_refptr<base::RefCountedString> data_url_as_string;
+#endif
+
     // Used in LOAD_TYPE_BROWSER_INITIATED_HTTP_POST loads only. Carries the
     // post data of the load. Ownership is transferred to NavigationController
     // after LoadURLWithParams call.
@@ -181,7 +193,7 @@ class NavigationController {
     // On Android, for a load triggered by an intent, the time Chrome received
     // the original intent that prompted the load (in milliseconds active time
     // since boot).
-    int64 intent_received_timestamp;
+    int64_t intent_received_timestamp;
 
     // When Chrome launches the intent chooser, user can select Chrome itself to
     // open the intent. In this case, we should carry over the user gesture.
@@ -357,6 +369,12 @@ class NavigationController {
   // is showing, initiates a new navigation to its URL.
   virtual void Reload(bool check_for_repost) = 0;
 
+  // Like Reload(), but for refreshing page content and may not need to
+  // validate cache content.
+  // TODO(kinuko): Update the comment once we fix the cache validation
+  // behavior.
+  virtual void ReloadToRefreshContent(bool check_for_repost) = 0;
+
   // Like Reload(), but don't use caches (aka "shift-reload").
   virtual void ReloadIgnoringCache(bool check_for_repost) = 0;
 
@@ -392,11 +410,11 @@ class NavigationController {
 
   // Sets the max restored page ID this NavigationController has seen, if it
   // was restored from a previous session.
-  virtual void SetMaxRestoredPageID(int32 max_id) = 0;
+  virtual void SetMaxRestoredPageID(int32_t max_id) = 0;
 
   // Returns the largest restored page ID seen in this navigation controller,
   // if it was restored from a previous session.  (-1 otherwise)
-  virtual int32 GetMaxRestoredPageID() const = 0;
+  virtual int32_t GetMaxRestoredPageID() const = 0;
 
   // Returns true if a reload happens when activated (SetActive(true) is
   // invoked). This is true for session/tab restore, cloned tabs and tabs that

@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_SYNC_FILE_SYSTEM_SUBTREE_SET_H_
 #define CHROME_BROWSER_SYNC_FILE_SYSTEM_SUBTREE_SET_H_
 
+#include <stddef.h>
+
 #include "base/containers/hash_tables.h"
 #include "base/files/file_path.h"
 
@@ -18,6 +20,7 @@ namespace sync_file_system {
 class SubtreeSet {
  public:
   SubtreeSet();
+  SubtreeSet(const SubtreeSet& other);
   ~SubtreeSet();
 
   // Returns true if the subtree induced by |subtree_root| is disjoint with

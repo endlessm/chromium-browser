@@ -19,12 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
-
 #include "core/svg/SVGRect.h"
 
-#include "bindings/core/v8/ExceptionState.h"
-#include "core/dom/ExceptionCode.h"
 #include "core/svg/SVGAnimationElement.h"
 #include "core/svg/SVGParserUtilities.h"
 #include "wtf/text/StringBuilder.h"
@@ -49,57 +45,50 @@ PassRefPtrWillBeRawPtr<SVGRect> SVGRect::clone() const
 }
 
 template<typename CharType>
-void SVGRect::parse(const CharType*& ptr, const CharType* end, ExceptionState& exceptionState)
+SVGParsingError SVGRect::parse(const CharType*& ptr, const CharType* end)
 {
     const CharType* start = ptr;
+    float x = 0;
+    float y = 0;
+    float width = 0;
+    float height = 0;
+    if (!parseNumber(ptr, end, x)
+        || !parseNumber(ptr, end, y)
+        || !parseNumber(ptr, end, width)
+        || !parseNumber(ptr, end, height, DisallowWhitespace))
+        return SVGParsingError(SVGParseStatus::ExpectedNumber, ptr - start);
 
-    skipOptionalSVGSpaces(ptr, end);
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float width = 0.0f;
-    float height = 0.0f;
-    bool valid = parseNumber(ptr, end, x) && parseNumber(ptr, end, y) && parseNumber(ptr, end, width) && parseNumber(ptr, end, height, DisallowWhitespace);
-
-    if (!valid) {
-        exceptionState.throwDOMException(SyntaxError, "Problem parsing rect \"" + String(start, end - start) + "\"");
-        setInvalid();
-        return;
-    }
-
-    skipOptionalSVGSpaces(ptr, end);
-    if (ptr < end) { // nothing should come after the last, fourth number
-        exceptionState.throwDOMException(SyntaxError, "Problem parsing rect \"" + String(start, end - start) + "\"");
-        setInvalid();
-        return;
+    if (skipOptionalSVGSpaces(ptr, end)) {
+        // Nothing should come after the last, fourth number.
+        return SVGParsingError(SVGParseStatus::TrailingGarbage, ptr - start);
     }
 
     m_value = FloatRect(x, y, width, height);
     m_isValid = true;
+    return SVGParseStatus::NoError;
 }
 
-void SVGRect::setValueAsString(const String& string, ExceptionState& exceptionState)
+SVGParsingError SVGRect::setValueAsString(const String& string)
 {
-    if (string.isNull()) {
-        setInvalid();
-        return;
-    }
+    setInvalid();
+
+    if (string.isNull())
+        return SVGParseStatus::NoError;
+
     if (string.isEmpty()) {
         m_value = FloatRect(0.0f, 0.0f, 0.0f, 0.0f);
         m_isValid = true;
-        return;
+        return SVGParseStatus::NoError;
     }
 
     if (string.is8Bit()) {
         const LChar* ptr = string.characters8();
         const LChar* end = ptr + string.length();
-        parse(ptr, end, exceptionState);
-        return;
+        return parse(ptr, end);
     }
-
     const UChar* ptr = string.characters16();
     const UChar* end = ptr + string.length();
-    parse(ptr, end, exceptionState);
+    return parse(ptr, end);
 }
 
 String SVGRect::valueAsString() const
@@ -151,4 +140,4 @@ void SVGRect::setInvalid()
     m_isValid = false;
 }
 
-}
+} // namespace blink

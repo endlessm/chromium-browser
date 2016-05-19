@@ -4,15 +4,11 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_Icon.h"
-#include "../../include/pdfwindow/PWL_Signature.h"
-#include "../../include/pdfwindow/PWL_Label.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
-
-/* --------------------------------- CPWL_Signature_Image
- * --------------------------------- */
+#include "fpdfsdk/include/pdfwindow/PWL_Icon.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Label.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Signature.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 CPWL_Signature_Image::CPWL_Signature_Image() : m_pImage(NULL) {}
 
@@ -27,7 +23,7 @@ CFX_DIBSource* CPWL_Signature_Image::GetImage() {
 }
 
 void CPWL_Signature_Image::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                              CPDF_Matrix* pUser2Device) {
+                                              CFX_Matrix* pUser2Device) {
   CPWL_Wnd::DrawThisAppearance(pDevice, pUser2Device);
 
   if (m_pImage) {
@@ -57,9 +53,6 @@ void CPWL_Signature_Image::GetScale(FX_FLOAT& fHScale, FX_FLOAT& fVScale) {
   fHScale = rcClient.Width() / fImageW;
   fVScale = rcClient.Height() / fImageH;
 }
-
-/* --------------------------------- CPWL_Signature
- * --------------------------------- */
 
 CPWL_Signature::CPWL_Signature()
     : m_pText(NULL),
@@ -166,37 +159,16 @@ void CPWL_Signature::CreateChildWnd(const PWL_CREATEPARAM& cp) {
 }
 
 void CPWL_Signature::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                        CPDF_Matrix* pUser2Device) {
+                                        CFX_Matrix* pUser2Device) {
   CPWL_Wnd::DrawThisAppearance(pDevice, pUser2Device);
 
-  if (m_bFlagExist)
+  if (m_bFlagExist) {
     CPWL_Utils::DrawIconAppStream(
         pDevice, pUser2Device, PWL_ICONTYPE_FOXIT,
         CPWL_Utils::GetCenterSquare(GetClientRect()),
         CPWL_Color(COLORTYPE_RGB, 0.91f, 0.855f, 0.92f),
         CPWL_Color(COLORTYPE_TRANSPARENT), 255);
-
-  /*
-  CPDF_Rect rcClient = GetClientRect();
-
-  CFX_PathData path;
-
-  path.SetPointCount(2);
-  path.SetPoint(0, rcClient.left, (rcClient.top + rcClient.bottom) * 0.5f,
-  FXPT_MOVETO);
-  path.SetPoint(1, rcClient.right, (rcClient.top + rcClient.bottom) * 0.5f,
-  FXPT_LINETO);
-
-  CFX_GraphStateData gsd;
-  gsd.SetDashCount(2);
-  gsd.m_DashArray[0] = 6.0f;
-  gsd.m_DashArray[1] = 6.0f;
-  gsd.m_DashPhase = 0;
-
-  gsd.m_LineWidth = 10.0f;
-  pDevice->DrawPath(&path, pUser2Device, &gsd, 0, ArgbEncode(255,255,0,0),
-  FXFILL_ALTERNATE);
-  */
+  }
 }
 
 void CPWL_Signature::GetThisAppearanceStream(CFX_ByteTextBuf& sAppStream) {

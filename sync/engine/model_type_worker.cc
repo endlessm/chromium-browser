@@ -4,6 +4,12 @@
 
 #include "sync/engine/model_type_worker.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <utility>
+#include <vector>
+
 #include "base/bind.h"
 #include "base/format_macros.h"
 #include "base/guid.h"
@@ -27,29 +33,19 @@ using syncer::SyncerError;
 
 ModelTypeWorker::ModelTypeWorker(
     ModelType type,
-    const DataTypeState& initial_state,
-    const UpdateResponseDataList& saved_pending_updates,
+    const sync_pb::DataTypeState& initial_state,
     scoped_ptr<Cryptographer> cryptographer,
     NudgeHandler* nudge_handler,
     scoped_ptr<ModelTypeProcessor> model_type_processor)
     : type_(type),
       data_type_state_(initial_state),
-      model_type_processor_(model_type_processor.Pass()),
-      cryptographer_(cryptographer.Pass()),
+      model_type_processor_(std::move(model_type_processor)),
+      cryptographer_(std::move(cryptographer)),
       nudge_handler_(nudge_handler),
       weak_ptr_factory_(this) {
   // Request an initial sync if it hasn't been completed yet.
-  if (!data_type_state_.initial_sync_done) {
+  if (!data_type_state_.initial_sync_done()) {
     nudge_handler_->NudgeForInitialDownload(type_);
-  }
-
-  for (UpdateResponseDataList::const_iterator it =
-           saved_pending_updates.begin();
-       it != saved_pending_updates.end(); ++it) {
-    scoped_ptr<EntityTracker> entity_tracker =
-        EntityTracker::FromUpdateResponse(*it);
-    entity_tracker->ReceivePendingUpdate(*it);
-    entities_.insert(it->client_tag_hash, entity_tracker.Pass());
   }
 
   if (cryptographer_) {
@@ -73,7 +69,7 @@ bool ModelTypeWorker::IsEncryptionRequired() const {
 void ModelTypeWorker::UpdateCryptographer(
     scoped_ptr<Cryptographer> cryptographer) {
   DCHECK(cryptographer);
-  cryptographer_ = cryptographer.Pass();
+  cryptographer_ = std::move(cryptographer);
 
   // Update our state and that of the proxy.
   OnCryptographerUpdated();
@@ -87,13 +83,13 @@ void ModelTypeWorker::UpdateCryptographer(
 void ModelTypeWorker::GetDownloadProgress(
     sync_pb::DataTypeProgressMarker* progress_marker) const {
   DCHECK(CalledOnValidThread());
-  progress_marker->CopyFrom(data_type_state_.progress_marker);
+  progress_marker->CopyFrom(data_type_state_.progress_marker());
 }
 
 void ModelTypeWorker::GetDataTypeContext(
     sync_pb::DataTypeContext* context) const {
   DCHECK(CalledOnValidThread());
-  context->CopyFrom(data_type_state_.type_context);
+  context->CopyFrom(data_type_state_.type_context());
 }
 
 SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
@@ -104,8 +100,8 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
   DCHECK(CalledOnValidThread());
 
   // TODO(rlarocque): Handle data type context conflicts.
-  data_type_state_.type_context = mutated_context;
-  data_type_state_.progress_marker = progress_marker;
+  *data_type_state_.mutable_type_context() = mutated_context;
+  *data_type_state_.mutable_progress_marker() = progress_marker;
 
   UpdateResponseDataList response_datas;
   UpdateResponseDataList pending_updates;
@@ -128,14 +124,15 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
     DCHECK(!client_tag_hash.empty());
 
     // Prepare the message for the model thread.
+    EntityData data;
+    data.id = update_entity->id_string();
+    data.client_tag_hash = client_tag_hash;
+    data.creation_time = syncer::ProtoTimeToTime(update_entity->ctime());
+    data.modification_time = syncer::ProtoTimeToTime(update_entity->mtime());
+    data.non_unique_name = update_entity->name();
+
     UpdateResponseData response_data;
-    response_data.id = update_entity->id_string();
-    response_data.client_tag_hash = client_tag_hash;
     response_data.response_version = update_entity->version();
-    response_data.ctime = syncer::ProtoTimeToTime(update_entity->ctime());
-    response_data.mtime = syncer::ProtoTimeToTime(update_entity->mtime());
-    response_data.non_unique_name = update_entity->name();
-    response_data.deleted = update_entity->deleted();
 
     EntityTracker* entity_tracker = nullptr;
     EntityMap::const_iterator map_it = entities_.find(client_tag_hash);
@@ -143,9 +140,10 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
       scoped_ptr<EntityTracker> scoped_entity_tracker =
           EntityTracker::FromUpdateResponse(response_data);
       entity_tracker = scoped_entity_tracker.get();
-      entities_.insert(client_tag_hash, scoped_entity_tracker.Pass());
+      entities_.insert(
+          std::make_pair(client_tag_hash, std::move(scoped_entity_tracker)));
     } else {
-      entity_tracker = map_it->second;
+      entity_tracker = map_it->second.get();
     }
 
     const sync_pb::EntitySpecifics& specifics = update_entity->specifics();
@@ -153,14 +151,15 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
     if (!specifics.has_encrypted()) {
       // No encryption.
       entity_tracker->ReceiveUpdate(update_entity->version());
-      response_data.specifics = specifics;
+      data.specifics = specifics;
+      response_data.entity = data.PassToPtr();
       response_datas.push_back(response_data);
     } else if (specifics.has_encrypted() && cryptographer_ &&
                cryptographer_->CanDecrypt(specifics.encrypted())) {
       // Encrypted, but we know the key.
-      if (DecryptSpecifics(cryptographer_.get(), specifics,
-                           &response_data.specifics)) {
+      if (DecryptSpecifics(cryptographer_.get(), specifics, &data.specifics)) {
         entity_tracker->ReceiveUpdate(update_entity->version());
+        response_data.entity = data.PassToPtr();
         response_data.encryption_key_name = specifics.encrypted().key_name();
         response_datas.push_back(response_data);
       }
@@ -168,7 +167,8 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
                (!cryptographer_ ||
                 !cryptographer_->CanDecrypt(specifics.encrypted()))) {
       // Can't decrypt right now.  Ask the entity tracker to handle it.
-      response_data.specifics = specifics;
+      data.specifics = specifics;
+      response_data.entity = data.PassToPtr();
       if (entity_tracker->ReceivePendingUpdate(response_data)) {
         // Send to the model thread for safe-keeping across restarts if the
         // tracker decides the update is worth keeping.
@@ -183,8 +183,7 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
                                  response_datas.size(), pending_updates.size());
 
   // Forward these updates to the model thread so it can do the rest.
-  model_type_processor_->OnUpdateReceived(data_type_state_, response_datas,
-                                          pending_updates);
+  model_type_processor_->OnUpdateReceived(data_type_state_, response_datas);
 
   return syncer::SYNCER_OK;
 }
@@ -195,13 +194,13 @@ void ModelTypeWorker::ApplyUpdates(syncer::sessions::StatusController* status) {
   // got a response with changes_remaining == 0.  If this is our first download
   // cycle, we should update our state so the ModelTypeProcessor knows that
   // it's safe to commit items now.
-  if (!data_type_state_.initial_sync_done) {
+  if (!data_type_state_.initial_sync_done()) {
     DVLOG(1) << "Delivering 'initial sync done' ping.";
 
-    data_type_state_.initial_sync_done = true;
+    data_type_state_.set_initial_sync_done(true);
 
     model_type_processor_->OnUpdateReceived(
-        data_type_state_, UpdateResponseDataList(), UpdateResponseDataList());
+        data_type_state_, UpdateResponseDataList());
   }
 }
 
@@ -234,7 +233,7 @@ scoped_ptr<CommitContribution> ModelTypeWorker::GetContribution(
   DCHECK(CalledOnValidThread());
 
   size_t space_remaining = max_entries;
-  std::vector<int64> sequence_numbers;
+  std::vector<int64_t> sequence_numbers;
   google::protobuf::RepeatedPtrField<sync_pb::SyncEntity> commit_entities;
 
   if (!CanCommitItems())
@@ -243,10 +242,10 @@ scoped_ptr<CommitContribution> ModelTypeWorker::GetContribution(
   // TODO(rlarocque): Avoid iterating here.
   for (EntityMap::const_iterator it = entities_.begin();
        it != entities_.end() && space_remaining > 0; ++it) {
-    EntityTracker* entity = it->second;
+    EntityTracker* entity = it->second.get();
     if (entity->HasPendingCommit()) {
       sync_pb::SyncEntity* commit_entity = commit_entities.Add();
-      int64 sequence_number = -1;
+      int64_t sequence_number = -1;
 
       entity->PrepareCommitProto(commit_entity, &sequence_number);
       HelpInitializeCommitEntity(commit_entity);
@@ -260,23 +259,26 @@ scoped_ptr<CommitContribution> ModelTypeWorker::GetContribution(
     return scoped_ptr<CommitContribution>();
 
   return scoped_ptr<CommitContribution>(new NonBlockingTypeCommitContribution(
-      data_type_state_.type_context, commit_entities, sequence_numbers, this));
+      data_type_state_.type_context(), commit_entities, sequence_numbers,
+      this));
 }
 
 void ModelTypeWorker::StorePendingCommit(const CommitRequestData& request) {
-  if (!request.deleted) {
-    DCHECK_EQ(type_, syncer::GetModelTypeFromSpecifics(request.specifics));
+  const EntityData& data = request.entity.value();
+  if (!data.is_deleted()) {
+    DCHECK_EQ(type_, syncer::GetModelTypeFromSpecifics(data.specifics));
   }
 
   EntityTracker* entity;
-  EntityMap::const_iterator map_it = entities_.find(request.client_tag_hash);
+  EntityMap::const_iterator map_it = entities_.find(data.client_tag_hash);
   if (map_it == entities_.end()) {
     scoped_ptr<EntityTracker> scoped_entity =
         EntityTracker::FromCommitRequest(request);
     entity = scoped_entity.get();
-    entities_.insert(request.client_tag_hash, scoped_entity.Pass());
+    entities_.insert(
+        std::make_pair(data.client_tag_hash, std::move(scoped_entity)));
   } else {
-    entity = map_it->second;
+    entity = map_it->second.get();
   }
   entity->RequestCommit(request);
 }
@@ -297,7 +299,7 @@ void ModelTypeWorker::OnCommitResponse(
       continue;
     }
 
-    EntityTracker* entity = map_it->second;
+    EntityTracker* entity = map_it->second.get();
     entity->ReceiveCommitResponse(response_it->id,
                                   response_it->response_version,
                                   response_it->sequence_number);
@@ -314,8 +316,8 @@ base::WeakPtr<ModelTypeWorker> ModelTypeWorker::AsWeakPtr() {
 }
 
 bool ModelTypeWorker::IsTypeInitialized() const {
-  return data_type_state_.initial_sync_done &&
-         !data_type_state_.progress_marker.token().empty();
+  return data_type_state_.initial_sync_done() &&
+         !data_type_state_.progress_marker().token().empty();
 }
 
 bool ModelTypeWorker::CanCommitItems() const {
@@ -379,10 +381,11 @@ void ModelTypeWorker::OnCryptographerUpdated() {
   const std::string& new_key_name = cryptographer_->GetDefaultNigoriKeyName();
 
   // Handle a change in encryption key.
-  if (data_type_state_.encryption_key_name != new_key_name) {
+  if (data_type_state_.encryption_key_name() != new_key_name) {
     DVLOG(1) << ModelTypeToString(type_) << ": Updating encryption key "
-             << data_type_state_.encryption_key_name << " -> " << new_key_name;
-    data_type_state_.encryption_key_name = new_key_name;
+             << data_type_state_.encryption_key_name() << " -> "
+             << new_key_name;
+    data_type_state_.set_encryption_key_name(new_key_name);
     new_encryption_key = true;
   }
 
@@ -390,17 +393,31 @@ void ModelTypeWorker::OnCryptographerUpdated() {
        ++it) {
     if (it->second->HasPendingUpdate()) {
       const UpdateResponseData& saved_pending = it->second->GetPendingUpdate();
+      const EntityData& data = saved_pending.entity.value();
 
       // We assume all pending updates are encrypted items for which we
       // don't have the key.
-      DCHECK(saved_pending.specifics.has_encrypted());
+      DCHECK(data.specifics.has_encrypted());
 
-      if (cryptographer_->CanDecrypt(saved_pending.specifics.encrypted())) {
-        UpdateResponseData decrypted_response = saved_pending;
-        if (DecryptSpecifics(cryptographer_.get(), saved_pending.specifics,
-                             &decrypted_response.specifics)) {
+      if (cryptographer_->CanDecrypt(data.specifics.encrypted())) {
+        EntityData decrypted_data;
+        if (DecryptSpecifics(cryptographer_.get(), data.specifics,
+                             &decrypted_data.specifics)) {
+          // Copy other fields one by one since EntityData doesn't allow
+          // copying.
+          // TODO(stanisc): this code is likely to be removed once we get
+          // rid of pending updates.
+          decrypted_data.id = data.id;
+          decrypted_data.client_tag_hash = data.client_tag_hash;
+          decrypted_data.non_unique_name = data.non_unique_name;
+          decrypted_data.creation_time = data.creation_time;
+          decrypted_data.modification_time = data.modification_time;
+
+          UpdateResponseData decrypted_response;
+          decrypted_response.entity = decrypted_data.PassToPtr();
+          decrypted_response.response_version = saved_pending.response_version;
           decrypted_response.encryption_key_name =
-              saved_pending.specifics.encrypted().key_name();
+              data.specifics.encrypted().key_name();
           response_datas.push_back(decrypted_response);
 
           it->second->ClearPendingUpdate();
@@ -414,8 +431,7 @@ void ModelTypeWorker::OnCryptographerUpdated() {
              << base::StringPrintf("Delivering encryption key and %" PRIuS
                                    " decrypted updates.",
                                    response_datas.size());
-    model_type_processor_->OnUpdateReceived(data_type_state_, response_datas,
-                                            UpdateResponseDataList());
+    model_type_processor_->OnUpdateReceived(data_type_state_, response_datas);
   }
 }
 
@@ -438,4 +454,4 @@ bool ModelTypeWorker::DecryptSpecifics(Cryptographer* cryptographer,
   return true;
 }
 
-}  // namespace syncer
+}  // namespace syncer_v2

@@ -22,8 +22,6 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
 #include "public/platform/WebMediaStreamTrack.h"
 
 #include "platform/mediastream/MediaStreamComponent.h"
@@ -39,7 +37,7 @@ namespace {
 
 class ExtraDataContainer : public MediaStreamComponent::ExtraData {
 public:
-    explicit ExtraDataContainer(PassOwnPtr<WebMediaStreamTrack::ExtraData> extraData) : m_extraData(extraData) { }
+    explicit ExtraDataContainer(PassOwnPtr<WebMediaStreamTrack::ExtraData> extraData) : m_extraData(std::move(extraData)) { }
 
     WebMediaStreamTrack::ExtraData* extraData() { return m_extraData.get(); }
 
@@ -120,11 +118,8 @@ void WebMediaStreamTrack::setExtraData(ExtraData* extraData)
 }
 
 void WebMediaStreamTrack::setSourceProvider(WebAudioSourceProvider* provider)
-{
-#if ENABLE(WEB_AUDIO)
-    ASSERT(!m_private.isNull());
+{    ASSERT(!m_private.isNull());
     m_private->setSourceProvider(provider);
-#endif // ENABLE(WEB_AUDIO)
 }
 
 void WebMediaStreamTrack::assign(const WebMediaStreamTrack& other)

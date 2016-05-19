@@ -242,14 +242,12 @@ void ClearStencil(GLint s) {
 
 void ClientWaitSync(GLuint sync,
                     GLbitfield flags,
-                    GLuint timeout_0,
-                    GLuint timeout_1,
+                    GLuint64 timeout,
                     uint32_t result_shm_id,
                     uint32_t result_shm_offset) {
   gles2::cmds::ClientWaitSync* c = GetCmdSpace<gles2::cmds::ClientWaitSync>();
   if (c) {
-    c->Init(sync, flags, timeout_0, timeout_1, result_shm_id,
-            result_shm_offset);
+    c->Init(sync, flags, timeout, result_shm_id, result_shm_offset);
   }
 }
 
@@ -669,11 +667,12 @@ void FramebufferRenderbuffer(GLenum target,
 void FramebufferTexture2D(GLenum target,
                           GLenum attachment,
                           GLenum textarget,
-                          GLuint texture) {
+                          GLuint texture,
+                          GLint level) {
   gles2::cmds::FramebufferTexture2D* c =
       GetCmdSpace<gles2::cmds::FramebufferTexture2D>();
   if (c) {
-    c->Init(target, attachment, textarget, texture);
+    c->Init(target, attachment, textarget, texture, level);
   }
 }
 
@@ -1881,6 +1880,7 @@ void UniformBlockBinding(GLuint program, GLuint index, GLuint binding) {
 
 void UniformMatrix2fvImmediate(GLint location,
                                GLsizei count,
+                               GLboolean transpose,
                                const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix2fvImmediate::ComputeSize(count);
@@ -1888,12 +1888,13 @@ void UniformMatrix2fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix2fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix2x3fvImmediate(GLint location,
                                  GLsizei count,
+                                 GLboolean transpose,
                                  const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix2x3fvImmediate::ComputeSize(count);
@@ -1901,12 +1902,13 @@ void UniformMatrix2x3fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix2x3fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix2x4fvImmediate(GLint location,
                                  GLsizei count,
+                                 GLboolean transpose,
                                  const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix2x4fvImmediate::ComputeSize(count);
@@ -1914,12 +1916,13 @@ void UniformMatrix2x4fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix2x4fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix3fvImmediate(GLint location,
                                GLsizei count,
+                               GLboolean transpose,
                                const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix3fvImmediate::ComputeSize(count);
@@ -1927,12 +1930,13 @@ void UniformMatrix3fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix3fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix3x2fvImmediate(GLint location,
                                  GLsizei count,
+                                 GLboolean transpose,
                                  const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix3x2fvImmediate::ComputeSize(count);
@@ -1940,12 +1944,13 @@ void UniformMatrix3x2fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix3x2fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix3x4fvImmediate(GLint location,
                                  GLsizei count,
+                                 GLboolean transpose,
                                  const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix3x4fvImmediate::ComputeSize(count);
@@ -1953,12 +1958,13 @@ void UniformMatrix3x4fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix3x4fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix4fvImmediate(GLint location,
                                GLsizei count,
+                               GLboolean transpose,
                                const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix4fvImmediate::ComputeSize(count);
@@ -1966,12 +1972,13 @@ void UniformMatrix4fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix4fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix4x2fvImmediate(GLint location,
                                  GLsizei count,
+                                 GLboolean transpose,
                                  const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix4x2fvImmediate::ComputeSize(count);
@@ -1979,12 +1986,13 @@ void UniformMatrix4x2fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix4x2fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
 void UniformMatrix4x3fvImmediate(GLint location,
                                  GLsizei count,
+                                 GLboolean transpose,
                                  const GLfloat* value) {
   const uint32_t size =
       gles2::cmds::UniformMatrix4x3fvImmediate::ComputeSize(count);
@@ -1992,7 +2000,7 @@ void UniformMatrix4x3fvImmediate(GLint location,
       GetImmediateCmdSpaceTotalSize<gles2::cmds::UniformMatrix4x3fvImmediate>(
           size);
   if (c) {
-    c->Init(location, count, value);
+    c->Init(location, count, transpose, value);
   }
 }
 
@@ -2145,13 +2153,10 @@ void Viewport(GLint x, GLint y, GLsizei width, GLsizei height) {
   }
 }
 
-void WaitSync(GLuint sync,
-              GLbitfield flags,
-              GLuint timeout_0,
-              GLuint timeout_1) {
+void WaitSync(GLuint sync, GLbitfield flags, GLuint64 timeout) {
   gles2::cmds::WaitSync* c = GetCmdSpace<gles2::cmds::WaitSync>();
   if (c) {
-    c->Init(sync, flags, timeout_0, timeout_1);
+    c->Init(sync, flags, timeout);
   }
 }
 
@@ -2201,11 +2206,12 @@ void FramebufferTexture2DMultisampleEXT(GLenum target,
                                         GLenum attachment,
                                         GLenum textarget,
                                         GLuint texture,
+                                        GLint level,
                                         GLsizei samples) {
   gles2::cmds::FramebufferTexture2DMultisampleEXT* c =
       GetCmdSpace<gles2::cmds::FramebufferTexture2DMultisampleEXT>();
   if (c) {
-    c->Init(target, attachment, textarget, texture, samples);
+    c->Init(target, attachment, textarget, texture, level, samples);
   }
 }
 
@@ -2408,10 +2414,13 @@ void UnmapBuffer(GLenum target) {
   }
 }
 
-void ResizeCHROMIUM(GLuint width, GLuint height, GLfloat scale_factor) {
+void ResizeCHROMIUM(GLuint width,
+                    GLuint height,
+                    GLfloat scale_factor,
+                    GLboolean alpha) {
   gles2::cmds::ResizeCHROMIUM* c = GetCmdSpace<gles2::cmds::ResizeCHROMIUM>();
   if (c) {
-    c->Init(width, height, scale_factor);
+    c->Init(width, height, scale_factor, alpha);
   }
 }
 
@@ -2491,8 +2500,7 @@ void TexImageIOSurface2DCHROMIUM(GLenum target,
   }
 }
 
-void CopyTextureCHROMIUM(GLenum target,
-                         GLenum source_id,
+void CopyTextureCHROMIUM(GLenum source_id,
                          GLenum dest_id,
                          GLint internalformat,
                          GLenum dest_type,
@@ -2502,13 +2510,12 @@ void CopyTextureCHROMIUM(GLenum target,
   gles2::cmds::CopyTextureCHROMIUM* c =
       GetCmdSpace<gles2::cmds::CopyTextureCHROMIUM>();
   if (c) {
-    c->Init(target, source_id, dest_id, internalformat, dest_type,
-            unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha);
+    c->Init(source_id, dest_id, internalformat, dest_type, unpack_flip_y,
+            unpack_premultiply_alpha, unpack_unmultiply_alpha);
   }
 }
 
-void CopySubTextureCHROMIUM(GLenum target,
-                            GLenum source_id,
+void CopySubTextureCHROMIUM(GLenum source_id,
                             GLenum dest_id,
                             GLint xoffset,
                             GLint yoffset,
@@ -2522,34 +2529,16 @@ void CopySubTextureCHROMIUM(GLenum target,
   gles2::cmds::CopySubTextureCHROMIUM* c =
       GetCmdSpace<gles2::cmds::CopySubTextureCHROMIUM>();
   if (c) {
-    c->Init(target, source_id, dest_id, xoffset, yoffset, x, y, width, height,
+    c->Init(source_id, dest_id, xoffset, yoffset, x, y, width, height,
             unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha);
   }
 }
 
-void CompressedCopyTextureCHROMIUM(GLenum target,
-                                   GLenum source_id,
-                                   GLenum dest_id) {
+void CompressedCopyTextureCHROMIUM(GLenum source_id, GLenum dest_id) {
   gles2::cmds::CompressedCopyTextureCHROMIUM* c =
       GetCmdSpace<gles2::cmds::CompressedCopyTextureCHROMIUM>();
   if (c) {
-    c->Init(target, source_id, dest_id);
-  }
-}
-
-void CompressedCopySubTextureCHROMIUM(GLenum target,
-                                      GLenum source_id,
-                                      GLenum dest_id,
-                                      GLint xoffset,
-                                      GLint yoffset,
-                                      GLint x,
-                                      GLint y,
-                                      GLsizei width,
-                                      GLsizei height) {
-  gles2::cmds::CompressedCopySubTextureCHROMIUM* c =
-      GetCmdSpace<gles2::cmds::CompressedCopySubTextureCHROMIUM>();
-  if (c) {
-    c->Init(target, source_id, dest_id, xoffset, yoffset, x, y, width, height);
+    c->Init(source_id, dest_id);
   }
 }
 
@@ -2749,14 +2738,6 @@ void LoseContextCHROMIUM(GLenum current, GLenum other) {
   }
 }
 
-void WaitSyncPointCHROMIUM(GLuint sync_point) {
-  gles2::cmds::WaitSyncPointCHROMIUM* c =
-      GetCmdSpace<gles2::cmds::WaitSyncPointCHROMIUM>();
-  if (c) {
-    c->Init(sync_point);
-  }
-}
-
 void InsertFenceSyncCHROMIUM(GLuint64 release_count) {
   gles2::cmds::InsertFenceSyncCHROMIUM* c =
       GetCmdSpace<gles2::cmds::InsertFenceSyncCHROMIUM>();
@@ -2785,7 +2766,17 @@ void GenUnverifiedSyncTokenCHROMIUMImmediate(GLuint64 fence_sync) {
   }
 }
 
-void WaitSyncTokenCHROMIUM(GLuint namespace_id,
+void VerifySyncTokensCHROMIUMImmediate(GLsizei count) {
+  const uint32_t s = 0;
+  gles2::cmds::VerifySyncTokensCHROMIUMImmediate* c =
+      GetImmediateCmdSpaceTotalSize<
+          gles2::cmds::VerifySyncTokensCHROMIUMImmediate>(s);
+  if (c) {
+    c->Init(count);
+  }
+}
+
+void WaitSyncTokenCHROMIUM(GLint namespace_id,
                            GLuint64 command_buffer_id,
                            GLuint64 release_count) {
   gles2::cmds::WaitSyncTokenCHROMIUM* c =
@@ -2836,12 +2827,24 @@ void ScheduleOverlayPlaneCHROMIUM(GLint plane_z_order,
 void ScheduleCALayerCHROMIUM(GLuint contents_texture_id,
                              GLfloat opacity,
                              GLuint background_color,
+                             GLuint edge_aa_mask,
+                             GLboolean is_clipped,
+                             GLint sorting_context_id,
                              GLuint shm_id,
                              GLuint shm_offset) {
   gles2::cmds::ScheduleCALayerCHROMIUM* c =
       GetCmdSpace<gles2::cmds::ScheduleCALayerCHROMIUM>();
   if (c) {
-    c->Init(contents_texture_id, opacity, background_color, shm_id, shm_offset);
+    c->Init(contents_texture_id, opacity, background_color, edge_aa_mask,
+            is_clipped, sorting_context_id, shm_id, shm_offset);
+  }
+}
+
+void CommitOverlayPlanesCHROMIUM() {
+  gles2::cmds::CommitOverlayPlanesCHROMIUM* c =
+      GetCmdSpace<gles2::cmds::CommitOverlayPlanesCHROMIUM>();
+  if (c) {
+    c->Init();
   }
 }
 
@@ -3138,6 +3141,14 @@ void ProgramPathFragmentInputGenCHROMIUM(GLuint program,
   }
 }
 
+void CoverageModulationCHROMIUM(GLenum components) {
+  gles2::cmds::CoverageModulationCHROMIUM* c =
+      GetCmdSpace<gles2::cmds::CoverageModulationCHROMIUM>();
+  if (c) {
+    c->Init(components);
+  }
+}
+
 void BlendBarrierKHR() {
   gles2::cmds::BlendBarrierKHR* c = GetCmdSpace<gles2::cmds::BlendBarrierKHR>();
   if (c) {
@@ -3150,6 +3161,53 @@ void ApplyScreenSpaceAntialiasingCHROMIUM() {
       GetCmdSpace<gles2::cmds::ApplyScreenSpaceAntialiasingCHROMIUM>();
   if (c) {
     c->Init();
+  }
+}
+
+void BindFragDataLocationIndexedEXTBucket(GLuint program,
+                                          GLuint colorNumber,
+                                          GLuint index,
+                                          uint32_t name_bucket_id) {
+  gles2::cmds::BindFragDataLocationIndexedEXTBucket* c =
+      GetCmdSpace<gles2::cmds::BindFragDataLocationIndexedEXTBucket>();
+  if (c) {
+    c->Init(program, colorNumber, index, name_bucket_id);
+  }
+}
+
+void BindFragDataLocationEXTBucket(GLuint program,
+                                   GLuint colorNumber,
+                                   uint32_t name_bucket_id) {
+  gles2::cmds::BindFragDataLocationEXTBucket* c =
+      GetCmdSpace<gles2::cmds::BindFragDataLocationEXTBucket>();
+  if (c) {
+    c->Init(program, colorNumber, name_bucket_id);
+  }
+}
+
+void GetFragDataIndexEXT(GLuint program,
+                         uint32_t name_bucket_id,
+                         uint32_t index_shm_id,
+                         uint32_t index_shm_offset) {
+  gles2::cmds::GetFragDataIndexEXT* c =
+      GetCmdSpace<gles2::cmds::GetFragDataIndexEXT>();
+  if (c) {
+    c->Init(program, name_bucket_id, index_shm_id, index_shm_offset);
+  }
+}
+
+void UniformMatrix4fvStreamTextureMatrixCHROMIUMImmediate(
+    GLint location,
+    GLboolean transpose,
+    const GLfloat* default_value) {
+  const uint32_t size = gles2::cmds::
+      UniformMatrix4fvStreamTextureMatrixCHROMIUMImmediate::ComputeSize();
+  gles2::cmds::UniformMatrix4fvStreamTextureMatrixCHROMIUMImmediate* c =
+      GetImmediateCmdSpaceTotalSize<
+          gles2::cmds::UniformMatrix4fvStreamTextureMatrixCHROMIUMImmediate>(
+          size);
+  if (c) {
+    c->Init(location, transpose, default_value);
   }
 }
 

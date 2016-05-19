@@ -84,7 +84,7 @@
       'include_dirs' : [
         '../include/private',
         '../src/core',
-        '../src/utils/debugger',
+        '../tools/debugger',
         '../debugger',      # To pull SkDebugger.h
         '../src/gpu',       # To pull gl/GrGLUtil.h
         '../src/ports',     # To pull SkFontDescriptor.h
@@ -95,12 +95,14 @@
       ],
       'sources': [
         '../debugger/SkDebugger.cpp',
-        '../src/utils/debugger/SkDebugCanvas.h',
-        '../src/utils/debugger/SkDebugCanvas.cpp',
-        '../src/utils/debugger/SkDrawCommand.h',
-        '../src/utils/debugger/SkDrawCommand.cpp',
-        '../src/utils/debugger/SkObjectParser.h',
-        '../src/utils/debugger/SkObjectParser.cpp',
+        '../tools/debugger/SkDebugCanvas.h',
+        '../tools/debugger/SkDebugCanvas.cpp',
+        '../tools/debugger/SkDrawCommand.h',
+        '../tools/debugger/SkDrawCommand.cpp',
+        '../tools/debugger/SkObjectParser.h',
+        '../tools/debugger/SkObjectParser.cpp',
+        '../tools/debugger/SkOverdrawMode.h',
+        '../tools/debugger/SkOverdrawMode.cpp',
         '../debugger/debuggermain.cpp',
         '../debugger/QT/SkDebuggerGUI.cpp',
         '../debugger/QT/SkDebuggerGUI.h',
@@ -134,6 +136,8 @@
       'dependencies': [
         'debugger_qt_mocs',
         'skia_lib.gyp:skia_lib',
+        'jsoncpp.gyp:jsoncpp',
+        'tools.gyp:url_data_manager',
       ],
       'cflags': [
         # Clang gets confused by QWeakPointer, see http://llvm.org/bugs/show_bug.cgi?id=13127

@@ -2,25 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "components/password_manager/core/browser/password_generation_manager.h"
+
+#include <utility>
 #include <vector>
 
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_field_data.h"
+#include "components/autofill/core/common/password_form_generation_data.h"
 #include "components/password_manager/core/browser/password_autofill_manager.h"
-#include "components/password_manager/core/browser/password_generation_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/stub_password_manager_client.h"
 #include "components/password_manager/core/browser/stub_password_manager_driver.h"
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -34,7 +37,7 @@ namespace {
 
 class TestPasswordManagerDriver : public StubPasswordManagerDriver {
  public:
-  TestPasswordManagerDriver(PasswordManagerClient* client)
+  explicit TestPasswordManagerDriver(PasswordManagerClient* client)
       : password_manager_(client),
         password_generation_manager_(client, this),
         password_autofill_manager_(this, nullptr) {}
@@ -48,21 +51,24 @@ class TestPasswordManagerDriver : public StubPasswordManagerDriver {
   PasswordAutofillManager* GetPasswordAutofillManager() override {
     return &password_autofill_manager_;
   }
-  void AccountCreationFormsFound(
-      const std::vector<autofill::FormData>& forms) override {
-    found_account_creation_forms_.insert(
-        found_account_creation_forms_.begin(), forms.begin(), forms.end());
+  void FormsEligibleForGenerationFound(
+      const std::vector<autofill::PasswordFormGenerationData>& forms) override {
+    found_forms_eligible_for_generation_.insert(
+        found_forms_eligible_for_generation_.begin(), forms.begin(),
+        forms.end());
   }
 
-  const std::vector<autofill::FormData>& GetFoundAccountCreationForms() {
-    return found_account_creation_forms_;
+  const std::vector<autofill::PasswordFormGenerationData>&
+  GetFoundEligibleForGenerationForms() {
+    return found_forms_eligible_for_generation_;
   }
 
  private:
   PasswordManager password_manager_;
   PasswordGenerationManager password_generation_manager_;
   PasswordAutofillManager password_autofill_manager_;
-  std::vector<autofill::FormData> found_account_creation_forms_;
+  std::vector<autofill::PasswordFormGenerationData>
+      found_forms_eligible_for_generation_;
 };
 
 class MockPasswordManagerClient : public StubPasswordManagerClient {
@@ -71,10 +77,12 @@ class MockPasswordManagerClient : public StubPasswordManagerClient {
   MOCK_CONST_METHOD0(IsSavingAndFillingEnabledForCurrentPage, bool());
   MOCK_CONST_METHOD0(IsOffTheRecord, bool());
 
-  MockPasswordManagerClient(scoped_ptr<PrefService> prefs)
-      : prefs_(prefs.Pass()), store_(new TestPasswordStore), driver_(this) {}
+  explicit MockPasswordManagerClient(scoped_ptr<PrefService> prefs)
+      : prefs_(std::move(prefs)),
+        store_(new TestPasswordStore),
+        driver_(this) {}
 
-  ~MockPasswordManagerClient() override { store_->Shutdown(); }
+  ~MockPasswordManagerClient() override { store_->ShutdownOnUIThread(); }
 
   PasswordStore* GetPasswordStore() const override { return store_.get(); }
   PrefService* GetPrefs() override { return prefs_.get(); }
@@ -98,7 +106,7 @@ class PasswordGenerationManagerTest : public testing::Test {
     scoped_ptr<TestingPrefServiceSimple> prefs(new TestingPrefServiceSimple());
     prefs->registry()->RegisterBooleanPref(prefs::kPasswordManagerSavingEnabled,
                                            true);
-    client_.reset(new MockPasswordManagerClient(prefs.Pass()));
+    client_.reset(new MockPasswordManagerClient(std::move(prefs)));
   }
 
   void TearDown() override { client_.reset(); }
@@ -113,9 +121,9 @@ class PasswordGenerationManagerTest : public testing::Test {
     return GetGenerationManager()->IsGenerationEnabled();
   }
 
-  void DetectAccountCreationForms(
+  void DetectFormsEligibleForGeneration(
       const std::vector<autofill::FormStructure*>& forms) {
-    GetGenerationManager()->DetectAccountCreationForms(forms);
+    GetGenerationManager()->DetectFormsEligibleForGeneration(forms);
   }
 
   base::MessageLoop message_loop_;
@@ -153,7 +161,7 @@ TEST_F(PasswordGenerationManagerTest, IsGenerationEnabled) {
   EXPECT_FALSE(IsGenerationEnabled());
 }
 
-TEST_F(PasswordGenerationManagerTest, DetectAccountCreationForms) {
+TEST_F(PasswordGenerationManagerTest, DetectFormsEligibleForGeneration) {
   // Setup so that IsGenerationEnabled() returns true.
   EXPECT_CALL(*client_, IsSavingAndFillingEnabledForCurrentPage())
       .WillRepeatedly(testing::Return(true));
@@ -177,6 +185,8 @@ TEST_F(PasswordGenerationManagerTest, DetectAccountCreationForms) {
   forms.push_back(&form1);
   autofill::FormData account_creation_form;
   account_creation_form.origin = GURL("http://accounts.yahoo.com/");
+  account_creation_form.action = GURL("http://accounts.yahoo.com/signup");
+  account_creation_form.name = ASCIIToUTF16("account_creation_form");
   account_creation_form.fields.push_back(username);
   account_creation_form.fields.push_back(password);
   autofill::FormFieldData confirm_password;
@@ -186,22 +196,52 @@ TEST_F(PasswordGenerationManagerTest, DetectAccountCreationForms) {
   account_creation_form.fields.push_back(confirm_password);
   autofill::FormStructure form2(account_creation_form);
   forms.push_back(&form2);
+  autofill::FormData change_password_form;
+  change_password_form.origin = GURL("http://accounts.yahoo.com/");
+  change_password_form.action = GURL("http://accounts.yahoo.com/change");
+  change_password_form.name = ASCIIToUTF16("change_password_form");
+  change_password_form.fields.push_back(password);
+  change_password_form.fields[0].name = ASCIIToUTF16("new_password");
+  change_password_form.fields.push_back(confirm_password);
+  autofill::FormStructure form3(change_password_form);
+  forms.push_back(&form3);
 
   // Simulate the server response to set the field types.
-  const char* const kServerResponse =
-      "<autofillqueryresponse>"
-      "<field autofilltype=\"9\" />"
-      "<field autofilltype=\"75\" />"
-      "<field autofilltype=\"9\" />"
-      "<field autofilltype=\"76\" />"
-      "<field autofilltype=\"75\" />"
-      "</autofillqueryresponse>";
-  autofill::FormStructure::ParseQueryResponse(kServerResponse, forms, NULL);
+  // The server response numbers mean:
+  // EMAIL_ADDRESS = 9
+  // PASSWORD = 75
+  // ACCOUNT_CREATION_PASSWORD = 76
+  // NEW_PASSWORD = 88
+  autofill::AutofillQueryResponseContents response;
+  response.add_field()->set_autofill_type(9);
+  response.add_field()->set_autofill_type(75);
+  response.add_field()->set_autofill_type(9);
+  response.add_field()->set_autofill_type(76);
+  response.add_field()->set_autofill_type(75);
+  response.add_field()->set_autofill_type(88);
+  response.add_field()->set_autofill_type(88);
 
-  DetectAccountCreationForms(forms);
-  EXPECT_EQ(1u, GetTestDriver()->GetFoundAccountCreationForms().size());
-  EXPECT_EQ(GURL("http://accounts.yahoo.com/"),
-            GetTestDriver()->GetFoundAccountCreationForms()[0].origin);
+  std::string response_string;
+  ASSERT_TRUE(response.SerializeToString(&response_string));
+  autofill::FormStructure::ParseQueryResponse(response_string, forms, NULL);
+
+  DetectFormsEligibleForGeneration(forms);
+  EXPECT_EQ(2u, GetTestDriver()->GetFoundEligibleForGenerationForms().size());
+  EXPECT_EQ(GURL("http://accounts.yahoo.com/signup"),
+            GetTestDriver()->GetFoundEligibleForGenerationForms()[0].action);
+  EXPECT_EQ(account_creation_form.name,
+            GetTestDriver()->GetFoundEligibleForGenerationForms()[0].name);
+  EXPECT_EQ(password.name, GetTestDriver()
+                               ->GetFoundEligibleForGenerationForms()[0]
+                               .generation_field.name);
+  EXPECT_EQ(GURL("http://accounts.yahoo.com/change"),
+            GetTestDriver()->GetFoundEligibleForGenerationForms()[1].action);
+  EXPECT_EQ(ASCIIToUTF16("new_password"),
+            GetTestDriver()
+                ->GetFoundEligibleForGenerationForms()[1]
+                .generation_field.name);
+  EXPECT_EQ(change_password_form.name,
+            GetTestDriver()->GetFoundEligibleForGenerationForms()[1].name);
 }
 
 TEST_F(PasswordGenerationManagerTest, UpdatePasswordSyncStateIncognito) {

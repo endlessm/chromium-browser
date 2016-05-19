@@ -6,6 +6,8 @@
 
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
+#include "content/public/common/browser_plugin_guest_mode.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 
@@ -15,7 +17,8 @@ namespace content {
 bool SiteIsolationPolicy::AreCrossProcessFramesPossible() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
              switches::kSitePerProcess) ||
-         GetContentClient()->IsSupplementarySiteIsolationModeEnabled();
+         GetContentClient()->IsSupplementarySiteIsolationModeEnabled() ||
+         BrowserPluginGuestMode::UseCrossProcessFramesForGuests();
 }
 
 // static
@@ -28,12 +31,13 @@ bool SiteIsolationPolicy::UseDedicatedProcessesForAllSites() {
 bool SiteIsolationPolicy::UseSubframeNavigationEntries() {
   // Enable the new navigation history behavior if any manner of site isolation
   // is active.
-  return AreCrossProcessFramesPossible();
+  // PlzNavigate: also enable the new navigation history behavior.
+  return AreCrossProcessFramesPossible() || IsBrowserSideNavigationEnabled();
 }
 
 // static
 bool SiteIsolationPolicy::IsSwappedOutStateForbidden() {
-  return AreCrossProcessFramesPossible();
+  return true;
 }
 
 }  // namespace content

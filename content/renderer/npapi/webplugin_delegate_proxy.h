@@ -5,25 +5,29 @@
 #ifndef CONTENT_RENDERER_NPAPI_WEBPLUGIN_DELEGATE_PROXY_H_
 #define CONTENT_RENDERER_NPAPI_WEBPLUGIN_DELEGATE_PROXY_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner_helpers.h"
+#include "build/build_config.h"
 #include "content/child/npapi/webplugin_delegate.h"
 #include "content/public/common/webplugininfo.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_sender.h"
+#include "skia/ext/refptr.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
 #if defined(OS_MACOSX)
 #include "base/containers/hash_tables.h"
-#include "base/memory/linked_ptr.h"
 #endif
 
 struct NPObject;
@@ -68,9 +72,6 @@ class WebPluginDelegateProxy
   NPObject* GetPluginScriptableObject() override;
   struct _NPP* GetPluginNPP() override;
   bool GetFormValue(base::string16* value) override;
-  void DidFinishLoadWithReason(const GURL& url,
-                               NPReason reason,
-                               int notify_id) override;
   void SetFocus(bool focused) override;
   bool HandleInputEvent(const blink::WebInputEvent& event,
                         WebCursor::CursorInfo* cursor) override;
@@ -112,39 +113,6 @@ class WebPluginDelegateProxy
   // IPC::Sender implementation:
   bool Send(IPC::Message* msg) override;
 
-  void SendJavaScriptStream(const GURL& url,
-                            const std::string& result,
-                            bool success,
-                            int notify_id) override;
-
-  void DidReceiveManualResponse(const GURL& url,
-                                const std::string& mime_type,
-                                const std::string& headers,
-                                uint32 expected_length,
-                                uint32 last_modified) override;
-  void DidReceiveManualData(const char* buffer, int length) override;
-  void DidFinishManualLoading() override;
-  void DidManualLoadFail() override;
-  WebPluginResourceClient* CreateResourceClient(unsigned long resource_id,
-                                                const GURL& url,
-                                                int notify_id) override;
-  WebPluginResourceClient* CreateSeekableResourceClient(
-      unsigned long resource_id,
-      int range_request_id) override;
-  void FetchURL(unsigned long resource_id,
-                int notify_id,
-                const GURL& url,
-                const GURL& first_party_for_cookies,
-                const std::string& method,
-                const char* buf,
-                unsigned int len,
-                const Referrer& referrer,
-                bool notify_redirects,
-                bool is_plugin_src_load,
-                int origin_pid,
-                int render_frame_id,
-                int render_view_id) override;
-
   gfx::PluginWindowHandle GetPluginWindowHandle();
 
  protected:
@@ -157,7 +125,7 @@ class WebPluginDelegateProxy
     ~SharedBitmap();
 
     scoped_ptr<SharedMemoryBitmap> bitmap;
-    scoped_ptr<SkCanvas> canvas;
+    skia::RefPtr<SkCanvas> canvas;
   };
 
   // Message handlers for messages that proxy WebPlugin methods, which
@@ -166,7 +134,6 @@ class WebPluginDelegateProxy
   void OnCompleteURL(const std::string& url_in, std::string* url_out,
                      bool* result);
   void OnHandleURLRequest(const PluginHostMsg_URLRequest_Params& params);
-  void OnCancelResource(int id);
   void OnInvalidateRect(const gfx::Rect& rect);
   void OnGetWindowScriptNPObject(int route_id, bool* success);
   void OnResolveProxy(const GURL& url, bool* result, std::string* proxy_list);
@@ -182,17 +149,14 @@ class WebPluginDelegateProxy
                                   int range_request_id);
   void OnDidStartLoading();
   void OnDidStopLoading();
-  void OnDeferResourceLoading(unsigned long resource_id, bool defer);
-  void OnURLRedirectResponse(bool allow, int resource_id);
-  void OnCheckIfRunInsecureContent(const GURL& url, bool* result);
 #if defined(OS_MACOSX)
   void OnFocusChanged(bool focused);
   void OnStartIme();
   // Accelerated (Core Animation) plugin implementation.
   void OnAcceleratedPluginEnabledRendering();
-  void OnAcceleratedPluginAllocatedIOSurface(int32 width,
-                                             int32 height,
-                                             uint32 surface_id);
+  void OnAcceleratedPluginAllocatedIOSurface(int32_t width,
+                                             int32_t height,
+                                             uint32_t surface_id);
   void OnAcceleratedPluginSwappedIOSurface();
 #endif
 #if defined(OS_WIN)
@@ -241,13 +205,13 @@ class WebPluginDelegateProxy
 #if !defined(OS_WIN)
   // Creates a process-local memory section and canvas. PlatformCanvas on
   // Windows only works with a DIB, not arbitrary memory.
-  bool CreateLocalBitmap(std::vector<uint8>* memory,
-                         scoped_ptr<SkCanvas>* canvas);
+  bool CreateLocalBitmap(std::vector<uint8_t>* memory,
+                         skia::RefPtr<SkCanvas>* canvas);
 #endif
 
   // Creates a shared memory section and canvas.
   bool CreateSharedBitmap(scoped_ptr<SharedMemoryBitmap>* memory,
-                          scoped_ptr<SkCanvas>* canvas);
+                          skia::RefPtr<SkCanvas>* canvas);
 
   // Called for cleanup during plugin destruction. Normally right before the
   // plugin window gets destroyed, or when the plugin has crashed (at which

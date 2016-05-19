@@ -4,6 +4,9 @@
 
 #include "chrome/browser/ui/webui/extensions/extension_settings_browsertest.h"
 
+#include <stddef.h>
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
@@ -82,6 +85,16 @@ void ExtensionSettingsUIBrowserTest::InstallPackagedApp() {
       test_data_dir_.AppendASCII("packaged_app")));
 }
 
+void ExtensionSettingsUIBrowserTest::InstallHostedApp() {
+  EXPECT_TRUE(InstallUnpackedExtension(
+      test_data_dir_.AppendASCII("hosted_app")));
+}
+
+void ExtensionSettingsUIBrowserTest::InstallPlatformApp() {
+  EXPECT_TRUE(InstallUnpackedExtension(
+      test_data_dir_.AppendASCII("platform_apps").AppendASCII("minimal")));
+}
+
 void ExtensionSettingsUIBrowserTest::AddManagedPolicyProvider() {
   auto* extension_service = extensions::ExtensionSystem::Get(GetProfile());
   extension_service->management_policy()->RegisterProvider(&policy_provider_);
@@ -103,20 +116,6 @@ void ExtensionSettingsUIBrowserTest::ShrinkWebContentsView() {
   CHECK(web_contents);
   ResizeWebContents(web_contents, gfx::Size(400, 400));
 }
-
-class MockAutoConfirmExtensionInstallPrompt : public ExtensionInstallPrompt {
- public:
-  explicit MockAutoConfirmExtensionInstallPrompt(
-      content::WebContents* web_contents)
-    : ExtensionInstallPrompt(web_contents) {}
-
-  // Proceed without confirmation prompt.
-  void ConfirmInstall(Delegate* delegate,
-                      const Extension* extension,
-                      const ShowDialogCallback& show_dialog_callback) override {
-    delegate->InstallUIProceed();
-  }
-};
 
 const Extension* ExtensionSettingsUIBrowserTest::InstallUnpackedExtension(
     const base::FilePath& path) {
@@ -150,9 +149,11 @@ const Extension* ExtensionSettingsUIBrowserTest::InstallExtension(
   service->set_show_extensions_prompts(false);
   size_t num_before = registry->enabled_extensions().size();
   {
-    scoped_ptr<ExtensionInstallPrompt> install_ui;
-    install_ui.reset(new MockAutoConfirmExtensionInstallPrompt(
-        browser()->tab_strip_model()->GetActiveWebContents()));
+    extensions::ScopedTestDialogAutoConfirm auto_confirm(
+        extensions::ScopedTestDialogAutoConfirm::ACCEPT);
+    scoped_ptr<ExtensionInstallPrompt> install_ui(
+        new ExtensionInstallPrompt(
+            browser()->tab_strip_model()->GetActiveWebContents()));
 
     base::FilePath crx_path = path;
     DCHECK(crx_path.Extension() == FILE_PATH_LITERAL(".crx"));
@@ -160,7 +161,7 @@ const Extension* ExtensionSettingsUIBrowserTest::InstallExtension(
       return nullptr;
 
     scoped_refptr<extensions::CrxInstaller> installer(
-        extensions::CrxInstaller::Create(service, install_ui.Pass()));
+        extensions::CrxInstaller::Create(service, std::move(install_ui)));
     installer->set_expected_id(std::string());
     installer->set_is_gallery_install(false);
     installer->set_install_source(extensions::Manifest::INTERNAL);

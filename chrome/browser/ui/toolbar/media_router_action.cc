@@ -36,32 +36,36 @@ media_router::MediaRouter* GetMediaRouter(Browser* browser) {
 
 }  // namespace
 
-MediaRouterAction::MediaRouterAction(Browser* browser)
+MediaRouterAction::MediaRouterAction(Browser* browser,
+                                     ToolbarActionsBar* toolbar_actions_bar)
     : media_router::IssuesObserver(GetMediaRouter(browser)),
-      media_router::LocalMediaRoutesObserver(GetMediaRouter(browser)),
+      media_router::MediaRoutesObserver(GetMediaRouter(browser)),
       media_router_active_icon_(
-          ui::ResourceBundle::GetSharedInstance()
-              .GetImageNamed(IDR_MEDIA_ROUTER_ACTIVE_ICON)),
-      media_router_error_icon_(ui::ResourceBundle::GetSharedInstance()
-                                   .GetImageNamed(IDR_MEDIA_ROUTER_ERROR_ICON)),
-      media_router_idle_icon_(ui::ResourceBundle::GetSharedInstance()
-                                  .GetImageNamed(IDR_MEDIA_ROUTER_IDLE_ICON)),
+          ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+              IDR_MEDIA_ROUTER_ACTIVE_ICON)),
+      media_router_error_icon_(
+          ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+              IDR_MEDIA_ROUTER_ERROR_ICON)),
+      media_router_idle_icon_(
+          ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+              IDR_MEDIA_ROUTER_IDLE_ICON)),
       media_router_warning_icon_(
-          ui::ResourceBundle::GetSharedInstance()
-              .GetImageNamed(IDR_MEDIA_ROUTER_WARNING_ICON)),
+          ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+              IDR_MEDIA_ROUTER_WARNING_ICON)),
       current_icon_(&media_router_idle_icon_),
-      has_local_route_(false),
+      has_local_display_route_(false),
       delegate_(nullptr),
       browser_(browser),
+      toolbar_actions_bar_(toolbar_actions_bar),
       platform_delegate_(MediaRouterActionPlatformDelegate::Create(browser)),
       contextual_menu_(browser),
       tab_strip_model_observer_(this),
       weak_ptr_factory_(this) {
   DCHECK(browser_);
+  DCHECK(toolbar_actions_bar_);
   tab_strip_model_observer_.Add(browser_->tab_strip_model());
 
   RegisterObserver();
-  OnHasLocalRouteUpdated(GetMediaRouter(browser)->HasLocalRoute());
 }
 
 MediaRouterAction::~MediaRouterAction() {
@@ -138,7 +142,8 @@ bool MediaRouterAction::ExecuteAction(bool by_user) {
   if (GetPlatformDelegate()) {
     media_router::MediaRouterMetrics::RecordMediaRouterDialogOrigin(
         GetPlatformDelegate()->CloseOverflowMenuIfOpen() ?
-            media_router::OVERFLOW_MENU : media_router::TOOLBAR);
+        media_router::MediaRouterDialogOpenOrigin::OVERFLOW_MENU :
+        media_router::MediaRouterDialogOpenOrigin::TOOLBAR);
   }
   return true;
 }
@@ -158,8 +163,14 @@ void MediaRouterAction::OnIssueUpdated(const media_router::Issue* issue) {
   MaybeUpdateIcon();
 }
 
-void MediaRouterAction::OnHasLocalRouteUpdated(bool has_local_route) {
-  has_local_route_ = has_local_route;
+void MediaRouterAction::OnRoutesUpdated(
+    const std::vector<media_router::MediaRoute>& routes,
+    const std::vector<media_router::MediaRoute::Id>& joinable_route_ids) {
+  has_local_display_route_ =
+      std::find_if(routes.begin(), routes.end(),
+                   [](const media_router::MediaRoute& route) {
+                     return route.is_local() && route.for_display();
+                   }) != routes.end();
   MaybeUpdateIcon();
 }
 
@@ -189,9 +200,13 @@ void MediaRouterAction::UpdatePopupState() {
   if (!controller)
     return;
 
-  // Immediately keep track of MediaRouterAction in the controller. If it was
-  // already set, this should be a no-op.
-  controller->SetMediaRouterAction(weak_ptr_factory_.GetWeakPtr());
+  // When each browser window is created, its toolbar creates a
+  // MediaRouterAction that is only destroyed when the browser window is torn
+  // down. |controller| will keep track of that instance. If |this| was created
+  // in overflow mode, it will be destroyed when the overflow menu is closed.
+  // If SetMediaRouterAction() was previously called, this is a no-op.
+  if (!toolbar_actions_bar_->in_overflow_mode())
+    controller->SetMediaRouterAction(weak_ptr_factory_.GetWeakPtr());
 
   // Update the button in case the pressed state is out of sync with dialog
   // visibility.
@@ -237,6 +252,6 @@ const gfx::Image* MediaRouterAction::GetCurrentIcon() const {
       return &media_router_warning_icon_;
   }
 
-  return has_local_route_ ?
-      &media_router_active_icon_ : &media_router_idle_icon_;
+  return has_local_display_route_ ? &media_router_active_icon_
+                                  : &media_router_idle_icon_;
 }

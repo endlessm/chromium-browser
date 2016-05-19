@@ -16,13 +16,25 @@
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller_private.h"
 #include "chrome/browser/ui/toolbar/encoding_menu_controller.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #import "ui/base/cocoa/cocoa_base_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 namespace {
+
+void SetToggleState(bool toggled, id item) {
+  DCHECK([item respondsToSelector:@selector(state)] &&
+         [item respondsToSelector:@selector(setState:)]);
+
+  NSInteger old_state = [item state];
+  NSInteger new_state = toggled ? NSOnState : NSOffState;
+  if (old_state != new_state)
+    [item setState:new_state];
+}
 
 // Update a toggle state for an item if modified. The item may be an NSMenuItem
 // or NSButton. Called by -validateUserInterfaceItem:.
@@ -37,11 +49,13 @@ void UpdateToggleStateWithTag(NSInteger tag, id item, NSWindow* window) {
   // On Windows this logic happens in bookmark_bar_view.cc. This simply updates
   // the menu item; it does not display the bookmark bar itself.
   if (tag == IDC_SHOW_BOOKMARK_BAR) {
-    bool toggled = browser->window()->IsBookmarkBarVisible();
-    NSInteger oldState = [item state];
-    NSInteger newState = toggled ? NSOnState : NSOffState;
-    if (oldState != newState)
-      [item setState:newState];
+    SetToggleState(browser->window()->IsBookmarkBarVisible(), item);
+    return;
+  }
+
+  if (tag == IDC_TOGGLE_FULLSCREEN_TOOLBAR) {
+    PrefService* prefs = browser->profile()->GetPrefs();
+    SetToggleState(prefs->GetBoolean(prefs::kHideFullscreenToolbar), item);
     return;
   }
 
@@ -61,11 +75,8 @@ void UpdateToggleStateWithTag(NSInteger tag, id item, NSWindow* window) {
 
   const std::string encoding = current_tab->GetEncoding();
 
-  bool toggled = encoding_controller.IsItemChecked(profile, encoding, tag);
-  NSInteger oldState = [item state];
-  NSInteger newState = toggled ? NSOnState : NSOffState;
-  if (oldState != newState)
-    [item setState:newState];
+  SetToggleState(encoding_controller.IsItemChecked(profile, encoding, tag),
+                 item);
 }
 
 NSString* GetTitleForViewsFullscreenMenuItem(Browser* browser) {
@@ -93,12 +104,11 @@ NSString* GetTitleForFullscreenMenuItem(Browser* browser) {
 NSString* GetTitleForPresentationModeMenuItem(Browser* browser) {
   NSWindow* ns_window = browser->window()->GetNativeWindow();
   if (BrowserWindowController* controller = [ns_window windowController]) {
-      return l10n_util::GetNSString([controller inPresentationMode]
-                                        ? IDS_EXIT_PRESENTATION_MAC
-                                        : IDS_ENTER_PRESENTATION_MAC);
+    return l10n_util::GetNSString([controller inPresentationMode]
+                                      ? IDS_EXIT_PRESENTATION_MAC
+                                      : IDS_ENTER_PRESENTATION_MAC);
   }
-
-  return GetTitleForViewsFullscreenMenuItem(browser);
+  return GetTitleForFullscreenMenuItem(browser);
 }
 
 // Identify the actual Browser to which the command should be dispatched. It
@@ -163,7 +173,12 @@ Browser* FindBrowserForSender(id sender, NSWindow* window) {
     }
     case IDC_PRESENTATION_MODE: {
       if (NSMenuItem* menuItem = base::mac::ObjCCast<NSMenuItem>(item)) {
-        [menuItem setTitle:GetTitleForPresentationModeMenuItem(browser)];
+        if (chrome::mac::SupportsSystemFullscreen()) {
+          [menuItem setHidden:YES];
+          enable = NO;
+        } else {
+          [menuItem setTitle:GetTitleForPresentationModeMenuItem(browser)];
+        }
       }
       break;
     }
@@ -172,13 +187,15 @@ Browser* FindBrowserForSender(id sender, NSWindow* window) {
       [AppController updateSigninItem:item
                            shouldShow:enable
                        currentProfile:original_profile];
+      content::RecordAction(
+          base::UserMetricsAction("Signin_Impression_FromMenu"));
       break;
     }
     case IDC_BOOKMARK_PAGE: {
       // Extensions have the ability to hide the bookmark page menu item.
       // This only affects the bookmark page menu item under the main menu.
-      // The bookmark page menu item under the wrench menu has its
-      // visibility controlled by AppMenuModel.
+      // The bookmark page menu item under the app menu has its visibility
+      // controlled by AppMenuModel.
       bool shouldHide =
           chrome::ShouldRemoveBookmarkThisPageUI(browser->profile());
       NSMenuItem* menuItem = base::mac::ObjCCast<NSMenuItem>(item);
@@ -188,12 +205,27 @@ Browser* FindBrowserForSender(id sender, NSWindow* window) {
     case IDC_BOOKMARK_ALL_TABS: {
       // Extensions have the ability to hide the bookmark all tabs menu
       // item.  This only affects the bookmark page menu item under the main
-      // menu.  The bookmark page menu item under the wrench menu has its
+      // menu.  The bookmark page menu item under the app menu has its
       // visibility controlled by AppMenuModel.
       bool shouldHide =
           chrome::ShouldRemoveBookmarkOpenPagesUI(browser->profile());
       NSMenuItem* menuItem = base::mac::ObjCCast<NSMenuItem>(item);
       [menuItem setHidden:shouldHide];
+      break;
+    }
+    case IDC_TOGGLE_FULLSCREEN_TOOLBAR: {
+      if (!chrome::mac::SupportsSystemFullscreen()) {
+        NSMenuItem* menuItem = base::mac::ObjCCast<NSMenuItem>(item);
+        [menuItem setHidden:YES];
+        enable = NO;
+      }
+      break;
+    }
+    case IDC_SHOW_AS_TAB: {
+      // Hide this menu option if the window is tabbed or is the devtools
+      // window.
+      NSMenuItem* menuItem = base::mac::ObjCCast<NSMenuItem>(item);
+      [menuItem setHidden:browser->is_type_tabbed() || browser->is_devtools()];
       break;
     }
     default:

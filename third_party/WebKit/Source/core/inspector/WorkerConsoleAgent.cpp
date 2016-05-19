@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/inspector/WorkerConsoleAgent.h"
 
 #include "bindings/core/v8/ScriptController.h"
@@ -39,8 +38,8 @@
 
 namespace blink {
 
-WorkerConsoleAgent::WorkerConsoleAgent(InjectedScriptManager* injectedScriptManager, WorkerGlobalScope* workerGlobalScope)
-    : InspectorConsoleAgent(injectedScriptManager)
+WorkerConsoleAgent::WorkerConsoleAgent(V8RuntimeAgent* runtimeAgent, WorkerGlobalScope* workerGlobalScope)
+    : InspectorConsoleAgent(runtimeAgent)
     , m_workerGlobalScope(workerGlobalScope)
 {
 }
@@ -73,12 +72,12 @@ ConsoleMessageStorage* WorkerConsoleAgent::messageStorage()
 
 void WorkerConsoleAgent::enableStackCapturingIfNeeded()
 {
-    ScriptController::setCaptureCallStackForUncaughtExceptions(true);
+    ScriptController::setCaptureCallStackForUncaughtExceptions(m_workerGlobalScope->thread()->isolate(), true);
 }
 
 void WorkerConsoleAgent::disableStackCapturingIfNeeded()
 {
-    ScriptController::setCaptureCallStackForUncaughtExceptions(false);
+    ScriptController::setCaptureCallStackForUncaughtExceptions(m_workerGlobalScope->thread()->isolate(), false);
 }
 
 } // namespace blink

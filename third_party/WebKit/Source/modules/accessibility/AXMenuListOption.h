@@ -47,7 +47,7 @@ private:
     Node* node() const override { return m_element; }
     void detach() override;
     bool isDetached() const override { return !m_element; }
-    AccessibilityRole roleValue() const override { return MenuListOptionRole; }
+    AccessibilityRole roleValue() const override;
     bool canHaveChildren() const override { return false; }
 
     Element* actionElement() const override;
@@ -58,7 +58,7 @@ private:
     void setSelected(bool) override;
     bool canSetSelectedAttribute() const override;
     LayoutRect elementRect() const override;
-    String stringValue() const override;
+    String textAlternative(bool recursive, bool inAriaLabelledByTraversal, AXObjectSet& visited, AXNameFrom&, AXRelatedObjectVector*, NameSources*) const override;
     bool computeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
 
     RawPtrWillBeMember<HTMLOptionElement> m_element;

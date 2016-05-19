@@ -5,6 +5,7 @@
 #ifndef CC_TEST_TEST_GPU_MEMORY_BUFFER_MANAGER_H_
 #define CC_TEST_TEST_GPU_MEMORY_BUFFER_MANAGER_H_
 
+#include "base/macros.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 
 namespace cc {
@@ -13,6 +14,10 @@ class TestGpuMemoryBufferManager : public gpu::GpuMemoryBufferManager {
  public:
   TestGpuMemoryBufferManager();
   ~TestGpuMemoryBufferManager() override;
+
+  void SetGpuMemoryBufferIsInUseByMacOSWindowServer(
+      gfx::GpuMemoryBuffer* gpu_memory_buffer,
+      bool in_use);
 
   // Overridden from gpu::GpuMemoryBufferManager:
   scoped_ptr<gfx::GpuMemoryBuffer> AllocateGpuMemoryBuffer(

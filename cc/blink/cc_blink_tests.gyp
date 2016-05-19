@@ -12,7 +12,9 @@
         '../../base/base.gyp:test_support_base',
         '../../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations',
         '../../skia/skia.gyp:skia',
+        '../../testing/gmock.gyp:gmock',
         '../../testing/gtest.gyp:gtest',
+        '../../third_party/WebKit/public/blink.gyp:blink',
         '../../ui/gfx/gfx.gyp:gfx_geometry',
         '../../ui/gfx/gfx.gyp:gfx_test_support',
         '../cc.gyp:cc',
@@ -22,8 +24,6 @@
       'sources': [
         'test/cc_blink_test_suite.cc',
         'test/run_all_unittests.cc',
-        'web_animation_unittest.cc',
-        'web_float_animation_curve_unittest.cc',
         'web_layer_impl_fixed_bounds_unittest.cc',
       ],
     }

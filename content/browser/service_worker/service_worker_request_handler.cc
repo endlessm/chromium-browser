@@ -5,8 +5,9 @@
 #include "content/browser/service_worker/service_worker_request_handler.h"
 
 #include <string>
+#include <utility>
 
-#include "base/command_line.h"
+#include "base/macros.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_navigation_handle_core.h"
@@ -17,11 +18,11 @@
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/resource_context.h"
+#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/child_process_host.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/common/origin_util.h"
 #include "ipc/ipc_message.h"
-#include "net/base/net_util.h"
+#include "net/base/url_util.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "storage/browser/blob/blob_storage_context.h"
@@ -101,8 +102,7 @@ void ServiceWorkerRequestHandler::InitializeForNavigation(
     RequestContextType request_context_type,
     RequestContextFrameType frame_type,
     scoped_refptr<ResourceRequestBody> body) {
-  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+  CHECK(IsBrowserSideNavigationEnabled());
 
   // Only create a handler when there is a ServiceWorkerNavigationHandlerCore
   // to take ownership of a pre-created SeviceWorkerProviderHost.
@@ -137,7 +137,7 @@ void ServiceWorkerRequestHandler::InitializeForNavigation(
   // transferred to its "final" destination in the OnProviderCreated handler. If
   // the navigation fails, it will be destroyed along with the
   // ServiceWorkerNavigationHandleCore.
-  navigation_handle_core->DidPreCreateProviderHost(provider_host.Pass());
+  navigation_handle_core->DidPreCreateProviderHost(std::move(provider_host));
 }
 
 void ServiceWorkerRequestHandler::InitializeHandler(
@@ -201,8 +201,7 @@ bool ServiceWorkerRequestHandler::IsControlledByServiceWorker(
 
 void ServiceWorkerRequestHandler::PrepareForCrossSiteTransfer(
     int old_process_id) {
-  CHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+  CHECK(!IsBrowserSideNavigationEnabled());
   if (!provider_host_ || !context_)
     return;
   old_process_id_ = old_process_id;
@@ -214,25 +213,30 @@ void ServiceWorkerRequestHandler::PrepareForCrossSiteTransfer(
 
 void ServiceWorkerRequestHandler::CompleteCrossSiteTransfer(
     int new_process_id, int new_provider_id) {
-  CHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+  CHECK(!IsBrowserSideNavigationEnabled());
   if (!host_for_cross_site_transfer_.get() || !context_)
     return;
   DCHECK_EQ(provider_host_.get(), host_for_cross_site_transfer_.get());
   context_->TransferProviderHostIn(new_process_id, new_provider_id,
-                                   host_for_cross_site_transfer_.Pass());
+                                   std::move(host_for_cross_site_transfer_));
   DCHECK_EQ(provider_host_->provider_id(), new_provider_id);
 }
 
 void ServiceWorkerRequestHandler::MaybeCompleteCrossSiteTransferInOldProcess(
     int old_process_id) {
-  CHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBrowserSideNavigation));
+  CHECK(!IsBrowserSideNavigationEnabled());
   if (!host_for_cross_site_transfer_.get() || !context_ ||
       old_process_id_ != old_process_id) {
     return;
   }
   CompleteCrossSiteTransfer(old_process_id_, old_provider_id_);
+}
+
+bool ServiceWorkerRequestHandler::SanityCheckIsSameContext(
+    ServiceWorkerContextWrapper* wrapper) {
+  if (!wrapper)
+    return !context_;
+  return context_.get() == wrapper->context();
 }
 
 ServiceWorkerRequestHandler::~ServiceWorkerRequestHandler() {

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 
@@ -36,6 +37,7 @@ class FakeProfileOAuth2TokenService : public ProfileOAuth2TokenService {
  public:
   struct PendingRequest {
     PendingRequest();
+    PendingRequest(const PendingRequest& other);
     ~PendingRequest();
 
     std::string account_id;

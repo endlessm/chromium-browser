@@ -148,8 +148,9 @@ public:
     virtual void discardBackbufferCHROMIUM() { }
     virtual void ensureBackbufferCHROMIUM() { }
 
-    virtual bool insertSyncPoint(WGC3Dbyte*) { return false; }
-    virtual void waitSyncToken(const WGC3Dbyte*) {}
+    virtual WGC3Duint64 insertFenceSyncCHROMIUM() { return 0; }
+    virtual bool genSyncTokenCHROMIUM(WGC3Duint64, WGC3Dbyte*) { return false; }
+    virtual void waitSyncTokenCHROMIUM(const WGC3Dbyte*) {}
 
     // Copies the contents of the off-screen render target used by the WebGL
     // context to the corresponding texture used by the compositor.
@@ -389,10 +390,10 @@ public:
     virtual void bindUniformLocationCHROMIUM(WebGLId program, WGC3Dint location, const WGC3Dchar* uniform) { }
 
     // GL_CHROMIUM_copy_texture
-    virtual void copyTextureCHROMIUM(WGC3Denum target, WGC3Duint sourceId,
+    virtual void copyTextureCHROMIUM(WGC3Duint sourceId,
         WGC3Duint destId, WGC3Denum internalFormat, WGC3Denum destType,
         WGC3Dboolean unpackFlipY, WGC3Dboolean unpackPremultiplyAlpha, WGC3Dboolean unpackUnmultiplyAlpha) { }
-    virtual void copySubTextureCHROMIUM(WGC3Denum target, WGC3Duint sourceId,
+    virtual void copySubTextureCHROMIUM(WGC3Duint sourceId,
         WGC3Duint destId, WGC3Dint xoffset, WGC3Dint yoffset, WGC3Dint x,
         WGC3Dint y, WGC3Dsizei width, WGC3Dsizei height,
         WGC3Dboolean unpackFlipY, WGC3Dboolean unpackPremultiplyAlpha, WGC3Dboolean unpackUnmultiplyAlpha) { }

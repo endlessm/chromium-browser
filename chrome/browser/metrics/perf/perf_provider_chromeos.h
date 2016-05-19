@@ -5,10 +5,12 @@
 #ifndef CHROME_BROWSER_METRICS_PERF_PERF_PROVIDER_CHROMEOS_H_
 #define CHROME_BROWSER_METRICS_PERF_PERF_PROVIDER_CHROMEOS_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -31,6 +33,8 @@ class PerfProvider : public base::NonThreadSafe,
  public:
   PerfProvider();
   ~PerfProvider() override;
+
+  void Init();
 
   // Stores collected perf data protobufs in |sampled_profiles|. Clears all the
   // stored profile data. Returns true if it wrote to |sampled_profiles|.
@@ -129,14 +133,25 @@ class PerfProvider : public base::NonThreadSafe,
       scoped_ptr<WindowedIncognitoObserver> incognito_observer,
       scoped_ptr<SampledProfile> sampled_profile,
       int result,
-      const std::vector<uint8>& perf_data,
-      const std::vector<uint8>& perf_stat);
+      const std::vector<uint8_t>& perf_data,
+      const std::vector<uint8_t>& perf_stat);
+
+  // Called when a session restore has finished.
+  void OnSessionRestoreDone(int num_tabs_restored);
+
+  // Turns off perf collection. Does not delete any data that was already
+  // collected and stored in |cached_perf_data_|.
+  void Deactivate();
 
   const CollectionParams& collection_params() const {
     return collection_params_;
   }
   const RandomSelector& command_selector() const {
     return command_selector_;
+  }
+
+  const base::OneShotTimer& timer() const {
+    return timer_;
   }
 
  private:
@@ -171,13 +186,6 @@ class PerfProvider : public base::NonThreadSafe,
   // Turns on perf collection. Resets the timer that's used to schedule
   // collections.
   void OnUserLoggedIn();
-
-  // Called when a session restore has finished.
-  void OnSessionRestoreDone(int num_tabs_restored);
-
-  // Turns off perf collection. Does not delete any data that was already
-  // collected and stored in |cached_perf_data_|.
-  void Deactivate();
 
   // Selects a random time in the upcoming profiling interval that begins at
   // |next_profiling_interval_start_|. Schedules |timer_| to invoke

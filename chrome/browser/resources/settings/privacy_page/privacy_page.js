@@ -39,6 +39,10 @@ Polymer({
     },
   },
 
+  ready: function() {
+    this.ContentSettingsTypes = settings.ContentSettingsTypes;
+  },
+
   /** @private */
   onManageCertificatesTap_: function() {
     this.$.pages.setSubpageChain(['manage-certificates']);

@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "core/dom/DocumentLifecycle.h"
 
 #include "platform/RuntimeEnabledFeatures.h"
@@ -40,9 +39,9 @@ static DocumentLifecycle::DeprecatedTransition* s_deprecatedTransitionStack = 0;
 
 // TODO(skyostil): Come up with a better way to store cross-frame lifecycle
 // related data to avoid this being a global setting.
-static unsigned s_preventThrottlingCount = 0;
+static unsigned s_allowThrottlingCount = 0;
 
-DocumentLifecycle::Scope::Scope(DocumentLifecycle& lifecycle, State finalState)
+DocumentLifecycle::Scope::Scope(DocumentLifecycle& lifecycle, LifecycleState finalState)
     : m_lifecycle(lifecycle)
     , m_finalState(finalState)
 {
@@ -53,7 +52,7 @@ DocumentLifecycle::Scope::~Scope()
     m_lifecycle.advanceTo(m_finalState);
 }
 
-DocumentLifecycle::DeprecatedTransition::DeprecatedTransition(State from, State to)
+DocumentLifecycle::DeprecatedTransition::DeprecatedTransition(LifecycleState from, LifecycleState to)
     : m_previous(s_deprecatedTransitionStack)
     , m_from(from)
     , m_to(to)
@@ -66,15 +65,15 @@ DocumentLifecycle::DeprecatedTransition::~DeprecatedTransition()
     s_deprecatedTransitionStack = m_previous;
 }
 
-DocumentLifecycle::PreventThrottlingScope::PreventThrottlingScope(DocumentLifecycle& lifecycle)
+DocumentLifecycle::AllowThrottlingScope::AllowThrottlingScope(DocumentLifecycle& lifecycle)
 {
-    s_preventThrottlingCount++;
+    s_allowThrottlingCount++;
 }
 
-DocumentLifecycle::PreventThrottlingScope::~PreventThrottlingScope()
+DocumentLifecycle::AllowThrottlingScope::~AllowThrottlingScope()
 {
-    ASSERT(s_preventThrottlingCount > 0);
-    s_preventThrottlingCount--;
+    ASSERT(s_allowThrottlingCount > 0);
+    s_allowThrottlingCount--;
 }
 
 DocumentLifecycle::DocumentLifecycle()
@@ -89,7 +88,7 @@ DocumentLifecycle::~DocumentLifecycle()
 
 #if ENABLE(ASSERT)
 
-bool DocumentLifecycle::canAdvanceTo(State nextState) const
+bool DocumentLifecycle::canAdvanceTo(LifecycleState nextState) const
 {
     // We can stop from anywhere.
     if (nextState == Stopping)
@@ -213,9 +212,8 @@ bool DocumentLifecycle::canAdvanceTo(State nextState) const
         if (RuntimeEnabledFeatures::slimmingPaintV2Enabled()) {
             if (nextState == InUpdatePaintProperties)
                 return true;
-        } else {
-            if (nextState == InPaint && RuntimeEnabledFeatures::slimmingPaintSynchronizedPaintingEnabled())
-                return true;
+        } else if (nextState == InPaint) {
+            return true;
         }
         break;
     case InUpdatePaintProperties:
@@ -227,12 +225,10 @@ bool DocumentLifecycle::canAdvanceTo(State nextState) const
             return true;
         break;
     case InPaint:
-        if (nextState == PaintClean && RuntimeEnabledFeatures::slimmingPaintSynchronizedPaintingEnabled())
+        if (nextState == PaintClean)
             return true;
         break;
     case PaintClean:
-        if (!RuntimeEnabledFeatures::slimmingPaintSynchronizedPaintingEnabled())
-            break;
         if (nextState == InStyleRecalc)
             return true;
         if (nextState == InPreLayout)
@@ -252,7 +248,7 @@ bool DocumentLifecycle::canAdvanceTo(State nextState) const
     return false;
 }
 
-bool DocumentLifecycle::canRewindTo(State nextState) const
+bool DocumentLifecycle::canRewindTo(LifecycleState nextState) const
 {
     // This transition is bogus, but we've whitelisted it anyway.
     if (s_deprecatedTransitionStack && m_state == s_deprecatedTransitionStack->from() && nextState == s_deprecatedTransitionStack->to())
@@ -263,19 +259,19 @@ bool DocumentLifecycle::canRewindTo(State nextState) const
         || m_state == LayoutClean
         || m_state == CompositingClean
         || m_state == PaintInvalidationClean
-        || (m_state == PaintClean && RuntimeEnabledFeatures::slimmingPaintSynchronizedPaintingEnabled());
+        || m_state == PaintClean;
 }
 
 #endif
 
-void DocumentLifecycle::advanceTo(State nextState)
+void DocumentLifecycle::advanceTo(LifecycleState nextState)
 {
     ASSERT_WITH_MESSAGE(canAdvanceTo(nextState),
         "Cannot advance document lifecycle from %s to %s.", stateAsDebugString(m_state), stateAsDebugString(nextState));
     m_state = nextState;
 }
 
-void DocumentLifecycle::ensureStateAtMost(State state)
+void DocumentLifecycle::ensureStateAtMost(LifecycleState state)
 {
     ASSERT(state == VisualUpdatePending || state == StyleClean || state == LayoutClean);
     if (m_state <= state)
@@ -287,14 +283,14 @@ void DocumentLifecycle::ensureStateAtMost(State state)
 
 bool DocumentLifecycle::throttlingAllowed() const
 {
-    return !s_preventThrottlingCount;
+    return s_allowThrottlingCount;
 }
 
 #if ENABLE(ASSERT)
 #define DEBUG_STRING_CASE(StateName) \
     case StateName: return #StateName
 
-const char* DocumentLifecycle::stateAsDebugString(const State state)
+const char* DocumentLifecycle::stateAsDebugString(const LifecycleState state)
 {
     switch (state) {
         DEBUG_STRING_CASE(Uninitialized);
@@ -326,4 +322,4 @@ const char* DocumentLifecycle::stateAsDebugString(const State state)
 }
 #endif
 
-}
+} // namespace blink

@@ -4,6 +4,8 @@
 
 #include "components/password_manager/core/browser/password_store_factory_util.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "components/password_manager/core/browser/affiliated_match_helper.h"
 #include "components/password_manager/core/browser/affiliation_service.h"
@@ -38,9 +40,10 @@ void ActivateAffiliationBasedMatching(
       new AffiliationService(db_thread_runner));
   affiliation_service->Initialize(request_context_getter, db_path);
   scoped_ptr<AffiliatedMatchHelper> affiliated_match_helper(
-      new AffiliatedMatchHelper(password_store, affiliation_service.Pass()));
+      new AffiliatedMatchHelper(password_store,
+                                std::move(affiliation_service)));
   affiliated_match_helper->Initialize();
-  password_store->SetAffiliatedMatchHelper(affiliated_match_helper.Pass());
+  password_store->SetAffiliatedMatchHelper(std::move(affiliated_match_helper));
 
   password_store->enable_propagating_password_changes_to_web_credentials(
       IsPropagatingPasswordChangesToWebCredentialsEnabled(
@@ -88,34 +91,10 @@ void TrimOrDeleteAffiliationCacheForStoreAndPath(
   }
 }
 
-scoped_refptr<PasswordStore> GetPasswordStoreFromService(
-    password_manager::PasswordStoreService* service,
-    ServiceAccessType access_type,
-    bool is_off_the_record) {
-  if (access_type == ServiceAccessType::IMPLICIT_ACCESS && is_off_the_record) {
-    NOTREACHED() << "Incognito state does not have a password store associated";
-    return nullptr;
-  }
-
-  return service ? service->GetPasswordStore() : nullptr;
-}
-
 scoped_ptr<LoginDatabase> CreateLoginDatabase(
     const base::FilePath& profile_path) {
   base::FilePath login_db_file_path = profile_path.Append(kLoginDataFileName);
   return make_scoped_ptr(new LoginDatabase(login_db_file_path));
-}
-
-scoped_ptr<KeyedService> BuildServiceInstanceFromStore(
-    scoped_refptr<PasswordStore> store,
-    syncer::SyncableService::StartSyncFlare sync_flare) {
-  DCHECK(store);
-  if (!store->Init(sync_flare)) {
-    NOTREACHED() << "Could not initialize password store.";
-    return nullptr;
-  }
-
-  return make_scoped_ptr(new PasswordStoreService(store));
 }
 
 }  // namespace password_manager

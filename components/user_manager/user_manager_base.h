@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/synchronization/lock.h"
@@ -39,8 +39,7 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
  public:
   // Creates UserManagerBase with |task_runner| for UI thread and
   // |blocking_task_runner| for SequencedWorkerPool.
-  UserManagerBase(scoped_refptr<base::TaskRunner> task_runner,
-                  scoped_refptr<base::TaskRunner> blocking_task_runner);
+  explicit UserManagerBase(scoped_refptr<base::TaskRunner> task_runner);
   ~UserManagerBase() override;
 
   // Registers UserManagerBase preferences.
@@ -106,46 +105,7 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
       UserManager::UserSessionStateObserver* obs) override;
   void NotifyLocalStateChanged() override;
   void ChangeUserChildStatus(User* user, bool is_child) override;
-  bool FindKnownUserPrefs(const AccountId& account_id,
-                          const base::DictionaryValue** out_value) override;
-  void UpdateKnownUserPrefs(const AccountId& account_id,
-                            const base::DictionaryValue& values,
-                            bool clear) override;
-  bool GetKnownUserStringPref(const AccountId& account_id,
-                              const std::string& path,
-                              std::string* out_value) override;
-  void SetKnownUserStringPref(const AccountId& account_id,
-                              const std::string& path,
-                              const std::string& in_value) override;
-  bool GetKnownUserBooleanPref(const AccountId& account_id,
-                               const std::string& path,
-                               bool* out_value) override;
-  void SetKnownUserBooleanPref(const AccountId& account_id,
-                               const std::string& path,
-                               const bool in_value) override;
-  bool GetKnownUserIntegerPref(const AccountId& account_id,
-                               const std::string& path,
-                               int* out_value) override;
-  void SetKnownUserIntegerPref(const AccountId& account_id,
-                               const std::string& path,
-                               int in_value) override;
-  bool GetKnownUserAccountId(const AccountId& authenticated_account_id,
-                             AccountId* out_account_id) override;
-  void UpdateGaiaID(const AccountId& account_id,
-                    const std::string& gaia_id) override;
-  bool FindGaiaID(const AccountId& account_id, std::string* out_value) override;
-  void UpdateUsingSAML(const AccountId& account_id,
-                       const bool using_saml) override;
-  bool FindUsingSAML(const AccountId& account_id) override;
-  void SetKnownUserDeviceId(const AccountId& account_id,
-                            const std::string& device_id) override;
-  std::string GetKnownUserDeviceId(const AccountId& account_id) override;
-  void SetKnownUserGAPSCookie(const AccountId& account_id,
-                              const std::string& gaps_cookie) override;
-  std::string GetKnownUserGAPSCookie(const AccountId& account_id) override;
-  void UpdateReauthReason(const AccountId& account_id,
-                          int reauth_reason) override;
-  bool FindReauthReason(const AccountId& account_id, int* out_value) override;
+  void Initialize() override;
 
   // This method updates "User was added to the device in this session nad is
   // not full initialized yet" flag.
@@ -154,13 +114,13 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // TODO(xiyuan): Figure out a better way to expose this info.
   virtual bool HasPendingBootstrap(const AccountId& account_id) const;
 
-  // Helper function that copies users from |users_list| to |users_vector| and
+  // Helper function that converts users from |users_list| to |users_vector| and
   // |users_set|. Duplicates and users already present in |existing_users| are
   // skipped.
-  static void ParseUserList(const base::ListValue& users_list,
-                            const std::set<AccountId>& existing_users,
-                            std::vector<AccountId>* users_vector,
-                            std::set<AccountId>* users_set);
+  void ParseUserList(const base::ListValue& users_list,
+                     const std::set<AccountId>& existing_users,
+                     std::vector<AccountId>* users_vector,
+                     std::set<AccountId>* users_set);
 
   // Returns true if trusted device policies have successfully been retrieved
   // and ephemeral users are enabled.
@@ -180,9 +140,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
 
   // Returns the locale used by the application.
   virtual const std::string& GetApplicationLocale() const = 0;
-
-  // Returns "Local State" PrefService instance.
-  virtual PrefService* GetLocalState() const = 0;
 
   // Loads |users_| from Local State if the list has not been loaded yet.
   // Subsequent calls have no effect. Must be called on the UI thread.
@@ -283,6 +240,11 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // Should be called when regular user was removed.
   virtual void OnUserRemoved(const AccountId& account_id) = 0;
 
+  // Update the global LoginState.
+  virtual void UpdateLoginState(const User* active_user,
+                                const User* primary_user,
+                                bool is_current_user_owner) const = 0;
+
   // Getters/setters for private members.
 
   virtual void SetCurrentUserIsOwner(bool is_current_user_owner);
@@ -355,8 +317,8 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // Notifies observers that active account_id hash has changed.
   void NotifyActiveUserHashChanged(const std::string& hash);
 
-  // Update the global LoginState.
-  void UpdateLoginState();
+  // Call UpdateLoginState.
+  void CallUpdateLoginState();
 
   // Insert |user| at the front of the LRU user list.
   void SetLRUUser(User* user);
@@ -371,9 +333,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // Updates user account after locale was resolved.
   void DoUpdateAccountLocale(const AccountId& account_id,
                              scoped_ptr<std::string> resolved_locale);
-
-  // Removes all user preferences associated with |account_id|.
-  void RemoveKnownUserPrefs(const AccountId& account_id);
 
   // Indicates stage of loading user from prefs.
   UserLoadStage user_loading_stage_ = STAGE_NOT_LOADED;
@@ -427,9 +386,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
 
   // TaskRunner for UI thread.
   scoped_refptr<base::TaskRunner> task_runner_;
-
-  // TaskRunner for SequencedWorkerPool.
-  scoped_refptr<base::TaskRunner> blocking_task_runner_;
 
   base::WeakPtrFactory<UserManagerBase> weak_factory_;
 

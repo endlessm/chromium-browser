@@ -4,6 +4,8 @@
 
 #include "remoting/client/software_video_renderer.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
@@ -12,11 +14,11 @@
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner_util.h"
 #include "remoting/base/util.h"
-#include "remoting/client/frame_consumer.h"
 #include "remoting/codec/video_decoder.h"
 #include "remoting/codec/video_decoder_verbatim.h"
 #include "remoting/codec/video_decoder_vpx.h"
 #include "remoting/proto/video.pb.h"
+#include "remoting/protocol/frame_consumer.h"
 #include "remoting/protocol/session_config.h"
 #include "third_party/libyuv/include/libyuv/convert_argb.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
@@ -35,8 +37,7 @@ namespace {
 class RgbToBgrVideoDecoderFilter : public VideoDecoder {
  public:
   RgbToBgrVideoDecoderFilter(scoped_ptr<VideoDecoder> parent)
-      : parent_(parent.Pass()) {
-  }
+      : parent_(std::move(parent)) {}
 
   bool DecodePacket(const VideoPacket& packet,
                     webrtc::DesktopFrame* frame) override {
@@ -64,14 +65,14 @@ scoped_ptr<webrtc::DesktopFrame> DoDecodeFrame(
     scoped_ptr<webrtc::DesktopFrame> frame) {
   if (!decoder->DecodePacket(*packet, frame.get()))
     frame.reset();
-  return frame.Pass();
+  return frame;
 }
 
 }  // namespace
 
 SoftwareVideoRenderer::SoftwareVideoRenderer(
     scoped_refptr<base::SingleThreadTaskRunner> decode_task_runner,
-    FrameConsumer* consumer,
+    protocol::FrameConsumer* consumer,
     protocol::PerformanceTracker* perf_tracker)
     : decode_task_runner_(decode_task_runner),
       consumer_(consumer),
@@ -99,16 +100,19 @@ void SoftwareVideoRenderer::OnSessionConfig(
     NOTREACHED() << "Invalid Encoding found: " << codec;
   }
 
-  if (consumer_->GetPixelFormat() == FrameConsumer::FORMAT_RGBA) {
-    scoped_ptr<VideoDecoder> wrapper(
-        new RgbToBgrVideoDecoderFilter(decoder_.Pass()));
-    decoder_ = wrapper.Pass();
+  if (consumer_->GetPixelFormat() == protocol::FrameConsumer::FORMAT_RGBA) {
+    decoder_ =
+        make_scoped_ptr(new RgbToBgrVideoDecoderFilter(std::move(decoder_)));
   }
 }
 
 protocol::VideoStub* SoftwareVideoRenderer::GetVideoStub() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return this;
+}
+
+protocol::FrameConsumer* SoftwareVideoRenderer::GetFrameConsumer() {
+  return consumer_;
 }
 
 void SoftwareVideoRenderer::ProcessVideoPacket(scoped_ptr<VideoPacket> packet,
@@ -173,7 +177,7 @@ void SoftwareVideoRenderer::RenderFrame(
     return;
   }
 
-  consumer_->DrawFrame(frame.Pass(),
+  consumer_->DrawFrame(std::move(frame),
                        base::Bind(&SoftwareVideoRenderer::OnFrameRendered,
                                   weak_factory_.GetWeakPtr(), frame_id, done));
 }

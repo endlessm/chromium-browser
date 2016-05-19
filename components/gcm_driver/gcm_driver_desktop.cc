@@ -11,10 +11,12 @@
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "build/build_config.h"
 #include "components/gcm_driver/gcm_account_mapper.h"
 #include "components/gcm_driver/gcm_app_handler.h"
 #include "components/gcm_driver/gcm_channel_status_syncer.h"
@@ -80,7 +82,7 @@ class GCMDriverDesktop::IOWorker : public GCMClient::Delegate {
   void Send(const std::string& app_id,
             const std::string& receiver_id,
             const OutgoingMessage& message);
-  void GetGCMStatistics(bool clear_logs);
+  void GetGCMStatistics(GCMDriver::ClearActivityLogs clear_logs);
   void SetGCMRecording(bool recording);
 
   void SetAccountTokens(
@@ -104,6 +106,9 @@ class GCMDriverDesktop::IOWorker : public GCMClient::Delegate {
   void DeleteToken(const std::string& app_id,
                    const std::string& authorized_entity,
                    const std::string& scope);
+
+  void RecordDecryptionFailure(const std::string& app_id,
+                               GCMEncryptionProvider::DecryptionResult result);
 
   // For testing purpose. Can be called from UI thread. Use with care.
   GCMClient* gcm_client_for_testing() const { return gcm_client_.get(); }
@@ -196,7 +201,7 @@ void GCMDriverDesktop::IOWorker::OnUnregisterFinished(
   if (gcm_registration_info) {
     ui_thread_->PostTask(
         FROM_HERE,
-        base::Bind(&GCMDriverDesktop::UnregisterFinished,
+        base::Bind(&GCMDriverDesktop::RemoveEncryptionInfoAfterUnregister,
                    service_,
                    gcm_registration_info->app_id,
                    result));
@@ -284,7 +289,7 @@ void GCMDriverDesktop::IOWorker::OnActivityRecorded() {
   DCHECK(io_thread_->RunsTasksOnCurrentThread());
   // When an activity is recorded, get all the stats and refresh the UI of
   // gcm-internals page.
-  GetGCMStatistics(false);
+  GetGCMStatistics(GCMDriver::KEEP_LOGS);
 }
 
 void GCMDriverDesktop::IOWorker::OnConnected(
@@ -343,12 +348,13 @@ void GCMDriverDesktop::IOWorker::Send(const std::string& app_id,
   gcm_client_->Send(app_id, receiver_id, message);
 }
 
-void GCMDriverDesktop::IOWorker::GetGCMStatistics(bool clear_logs) {
+void GCMDriverDesktop::IOWorker::GetGCMStatistics(
+    ClearActivityLogs clear_logs) {
   DCHECK(io_thread_->RunsTasksOnCurrentThread());
   gcm::GCMClient::GCMStatistics stats;
 
   if (gcm_client_.get()) {
-    if (clear_logs)
+    if (clear_logs == GCMDriver::CLEAR_LOGS)
       gcm_client_->ClearActivityLogs();
     stats = gcm_client_->GetStatistics();
   }
@@ -477,7 +483,7 @@ void GCMDriverDesktop::IOWorker::WakeFromSuspendForHeartbeat(bool wake) {
   else
     timer.reset(new base::Timer(true, false));
 
-  gcm_client_->UpdateHeartbeatTimer(timer.Pass());
+  gcm_client_->UpdateHeartbeatTimer(std::move(timer));
 #endif
 }
 
@@ -491,6 +497,13 @@ void GCMDriverDesktop::IOWorker::RemoveHeartbeatInterval(
     const std::string& scope) {
   DCHECK(io_thread_->RunsTasksOnCurrentThread());
   gcm_client_->RemoveHeartbeatInterval(scope);
+}
+
+void GCMDriverDesktop::IOWorker::RecordDecryptionFailure(
+    const std::string& app_id,
+    GCMEncryptionProvider::DecryptionResult result) {
+  DCHECK(io_thread_->RunsTasksOnCurrentThread());
+  gcm_client_->RecordDecryptionFailure(app_id, result);
 }
 
 GCMDriverDesktop::GCMDriverDesktop(
@@ -719,6 +732,17 @@ void GCMDriverDesktop::DoSend(const std::string& app_id,
                  message));
 }
 
+void GCMDriverDesktop::RecordDecryptionFailure(
+    const std::string& app_id,
+    GCMEncryptionProvider::DecryptionResult result) {
+  DCHECK(ui_thread_->RunsTasksOnCurrentThread());
+  io_thread_->PostTask(
+      FROM_HERE,
+      base::Bind(&GCMDriverDesktop::IOWorker::RecordDecryptionFailure,
+                 base::Unretained(io_worker_.get()),
+                 app_id, result));
+}
+
 GCMClient* GCMDriverDesktop::GetGCMClientForTesting() const {
   DCHECK(ui_thread_->RunsTasksOnCurrentThread());
   return io_worker_ ? io_worker_->gcm_client_for_testing() : NULL;
@@ -735,7 +759,7 @@ bool GCMDriverDesktop::IsConnected() const {
 
 void GCMDriverDesktop::GetGCMStatistics(
     const GetGCMStatisticsCallback& callback,
-    bool clear_logs) {
+    ClearActivityLogs clear_logs) {
   DCHECK(ui_thread_->RunsTasksOnCurrentThread());
   DCHECK(!callback.is_null());
 

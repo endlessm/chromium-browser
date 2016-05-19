@@ -5,6 +5,7 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_GPU_MESSAGE_FILTER_H_
 #define CONTENT_BROWSER_RENDERER_HOST_GPU_MESSAGE_FILTER_H_
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "content/common/gpu/gpu_process_launch_causes.h"
@@ -35,10 +36,14 @@ class GpuMessageFilter : public BrowserMessageFilter {
   // Message handlers called on the browser IO thread:
   void OnEstablishGpuChannel(CauseForGpuLaunch,
                              IPC::Message* reply);
+  void OnHasGpuProcess(IPC::Message* reply);
   // Helper callbacks for the message handlers.
   void EstablishChannelCallback(scoped_ptr<IPC::Message> reply,
                                 const IPC::ChannelHandle& channel,
                                 const gpu::GPUInfo& gpu_info);
+  void GetGpuProcessHandlesCallback(
+      scoped_ptr<IPC::Message> reply,
+      const std::list<base::ProcessHandle>& handles);
 
   int gpu_process_id_;
   int render_process_id_;

@@ -33,6 +33,8 @@
 
 #include "platform/PlatformExport.h"
 #include "platform/SharedBuffer.h"
+#include "wtf/Allocator.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
 
@@ -42,7 +44,9 @@ namespace blink {
 // therefore minimizes the cost of memory copying when the decoders
 // repeatedly read from a buffer that is continually growing due to network
 // traffic.
-class PLATFORM_EXPORT FastSharedBufferReader {
+class PLATFORM_EXPORT FastSharedBufferReader final {
+    DISALLOW_NEW();
+    WTF_MAKE_NONCOPYABLE(FastSharedBufferReader);
 public:
     FastSharedBufferReader(PassRefPtr<SharedBuffer> data);
 
@@ -77,7 +81,7 @@ public:
     void clearCache();
 
 private:
-    void getSomeDataInternal(unsigned dataPosition) const;
+    void getSomeDataInternal(size_t dataPosition) const;
 
     RefPtr<SharedBuffer> m_data;
 

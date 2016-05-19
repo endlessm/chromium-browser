@@ -17,7 +17,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/layout/LayoutTableCaption.h"
 
 #include "core/layout/LayoutTable.h"
@@ -58,4 +57,4 @@ LayoutTable* LayoutTableCaption::table() const
     return toLayoutTable(parent());
 }
 
-}
+} // namespace blink

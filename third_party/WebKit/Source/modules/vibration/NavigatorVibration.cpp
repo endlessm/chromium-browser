@@ -17,7 +17,6 @@
  *  Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "modules/vibration/NavigatorVibration.h"
 
 #include "bindings/modules/v8/UnionTypesModules.h"
@@ -146,7 +145,7 @@ void NavigatorVibration::timerStopFired(Timer<NavigatorVibration>* timer)
 
 void NavigatorVibration::pageVisibilityChanged()
 {
-    if (page()->visibilityState() != PageVisibilityStateVisible)
+    if (!page()->isPageVisible())
         cancelVibration();
 }
 
@@ -177,7 +176,7 @@ bool NavigatorVibration::vibrate(Navigator& navigator, const VibrationPattern& p
     if (!page)
         return false;
 
-    if (page->visibilityState() != PageVisibilityStateVisible)
+    if (!page->isPageVisible())
         return false;
 
     return NavigatorVibration::from(*page).vibrate(pattern);

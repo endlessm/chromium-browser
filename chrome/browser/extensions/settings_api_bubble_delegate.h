@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_SETTINGS_API_BUBBLE_DELEGATE_H_
 #define CHROME_BROWSER_EXTENSIONS_SETTINGS_API_BUBBLE_DELEGATE_H_
 
+#include <stddef.h>
+
 #include <string>
 
 #include "base/macros.h"
@@ -39,6 +41,7 @@ class SettingsApiBubbleDelegate
   bool ShouldLimitToEnabledExtensions() const override;
   void LogExtensionCount(size_t count) override;
   void LogAction(ExtensionMessageBubbleController::BubbleAction) override;
+  const char* GetKey() override;
 
  private:
   // The type of settings override this bubble will report on. This can be, for

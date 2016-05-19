@@ -18,7 +18,6 @@
  *
  */
 
-#include "config.h"
 #include "core/html/HTMLFrameOwnerElement.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
@@ -30,6 +29,7 @@
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/layout/LayoutPart.h"
+#include "core/layout/api/LayoutPartItem.h"
 #include "core/loader/FrameLoadRequest.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
@@ -181,16 +181,6 @@ void HTMLFrameOwnerElement::disconnectContentFrame()
     if (RefPtrWillBeRawPtr<Frame> frame = contentFrame()) {
         frame->detach(FrameDetachType::Remove);
     }
-#if ENABLE(OILPAN)
-    // Oilpan: a plugin container must be explicitly disposed before it
-    // is swept and finalized. This is because the underlying plugin needs
-    // to be able to access a fully-functioning frame (and all it refers
-    // to) while it destructs and cleans out its resources.
-    if (m_widget) {
-        m_widget->dispose();
-        m_widget = nullptr;
-    }
-#endif
 }
 
 HTMLFrameOwnerElement::~HTMLFrameOwnerElement()
@@ -226,7 +216,7 @@ bool HTMLFrameOwnerElement::isKeyboardFocusable() const
 
 void HTMLFrameOwnerElement::dispatchLoad()
 {
-    dispatchEvent(Event::create(EventTypeNames::load));
+    dispatchScopedEvent(Event::create(EventTypeNames::load));
 }
 
 Document* HTMLFrameOwnerElement::getSVGDocument(ExceptionState& exceptionState) const
@@ -251,15 +241,16 @@ void HTMLFrameOwnerElement::setWidget(PassRefPtrWillBeRawPtr<Widget> widget)
     m_widget = widget;
 
     LayoutPart* layoutPart = toLayoutPart(layoutObject());
-    if (!layoutPart)
+    LayoutPartItem layoutPartItem = LayoutPartItem(layoutPart);
+    if (layoutPartItem.isNull())
         return;
 
     if (m_widget) {
-        layoutPart->updateOnWidgetChange();
+        layoutPartItem.updateOnWidgetChange();
 
-        ASSERT(document().view() == layoutPart->frameView());
-        ASSERT(layoutPart->frameView());
-        moveWidgetToParentSoon(m_widget.get(), layoutPart->frameView());
+        ASSERT(document().view() == layoutPartItem.frameView());
+        ASSERT(layoutPartItem.frameView());
+        moveWidgetToParentSoon(m_widget.get(), layoutPartItem.frameView());
     }
 
     if (AXObjectCache* cache = document().existingAXObjectCache())

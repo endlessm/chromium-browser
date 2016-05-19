@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 
+#include <memory>
 #include <string>
 
 #include "webrtc/modules/audio_device/audio_device_generic.h"
@@ -20,9 +21,12 @@
 #include "webrtc/system_wrappers/include/file_wrapper.h"
 #include "webrtc/system_wrappers/include/clock.h"
 
+namespace rtc {
+class PlatformThread;
+}  // namespace rtc
+
 namespace webrtc {
 class EventWrapper;
-class ThreadWrapper;
 
 // This is a fake audio device which plays audio from a file as its microphone
 // and plays out into a file.
@@ -178,8 +182,9 @@ class FileAudioDevice : public AudioDeviceGeneric {
   size_t _recordingFramesIn10MS;
   size_t _playoutFramesIn10MS;
 
-  rtc::scoped_ptr<ThreadWrapper> _ptrThreadRec;
-  rtc::scoped_ptr<ThreadWrapper> _ptrThreadPlay;
+  // TODO(pbos): Make plain members instead of pointers and stop resetting them.
+  std::unique_ptr<rtc::PlatformThread> _ptrThreadRec;
+  std::unique_ptr<rtc::PlatformThread> _ptrThreadPlay;
 
   bool _playing;
   bool _recording;

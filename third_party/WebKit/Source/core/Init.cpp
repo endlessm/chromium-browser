@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "Init.h"
 
 #include "bindings/core/v8/ScriptStreamerThread.h"
@@ -55,7 +54,9 @@
 #include "core/workers/WorkerThread.h"
 #include "platform/EventTracer.h"
 #include "platform/FontFamilyNames.h"
+#include "platform/HTTPNames.h"
 #include "platform/weborigin/KURL.h"
+#include "platform/weborigin/SchemeRegistry.h"
 #include "platform/weborigin/SecurityPolicy.h"
 #include "wtf/Partitions.h"
 
@@ -95,6 +96,7 @@ void CoreInitializer::init()
         + FetchInitiatorTypeNames::FetchInitiatorTypeNamesCount
         + FontFamilyNames::FontFamilyNamesCount
         + HTMLTokenizerNames::HTMLTokenizerNamesCount
+        + HTTPNames::HTTPNamesCount
         + InputTypeNames::InputTypeNamesCount
         + MediaFeatureNames::MediaFeatureNamesCount
         + MediaTypeNames::MediaTypeNamesCount;
@@ -116,6 +118,7 @@ void CoreInitializer::init()
     FetchInitiatorTypeNames::init();
     FontFamilyNames::init();
     HTMLTokenizerNames::init();
+    HTTPNames::init();
     InputTypeNames::init();
     MediaFeatureNames::init();
     MediaTypeNames::init();
@@ -127,6 +130,7 @@ void CoreInitializer::init()
 
     EventTracer::initialize();
     KURL::initialize();
+    SchemeRegistry::initialize();
     SecurityPolicy::init();
 
     registerEventFactory();
@@ -139,11 +143,17 @@ void CoreInitializer::init()
     ScriptStreamerThread::init();
 }
 
-void CoreInitializer::shutdown()
+void CoreInitializer::terminateThreads()
 {
     // Make sure we stop the HTMLParserThread before Platform::current() is
     // cleared.
     HTMLParserThread::shutdown();
+
+    WorkerThread::terminateAndWaitForAllWorkers();
+}
+
+void CoreInitializer::shutdown()
+{
 }
 
 } // namespace blink

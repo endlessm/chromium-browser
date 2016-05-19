@@ -22,14 +22,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AsyncAudioDecoder.h"
-
 #include "core/dom/DOMArrayBuffer.h"
+#include "modules/webaudio/AbstractAudioContext.h"
 #include "modules/webaudio/AudioBuffer.h"
 #include "modules/webaudio/AudioBufferCallback.h"
-#include "platform/Task.h"
 #include "platform/ThreadSafeFunctional.h"
 #include "platform/audio/AudioBus.h"
 #include "platform/audio/AudioFileReader.h"
@@ -49,7 +46,7 @@ AsyncAudioDecoder::~AsyncAudioDecoder()
 {
 }
 
-void AsyncAudioDecoder::decodeAsync(DOMArrayBuffer* audioData, float sampleRate, AudioBufferCallback* successCallback, AudioBufferCallback* errorCallback)
+void AsyncAudioDecoder::decodeAsync(DOMArrayBuffer* audioData, float sampleRate, AudioBufferCallback* successCallback, AudioBufferCallback* errorCallback, ScriptPromiseResolver* resolver, AbstractAudioContext* context)
 {
     ASSERT(isMainThread());
     ASSERT(audioData);
@@ -60,31 +57,30 @@ void AsyncAudioDecoder::decodeAsync(DOMArrayBuffer* audioData, float sampleRate,
     RefPtr<DOMArrayBuffer> audioDataRef(audioData);
 
     // The leak references to successCallback and errorCallback are picked up on notifyComplete.
-    m_thread->taskRunner()->postTask(BLINK_FROM_HERE, new Task(threadSafeBind(&AsyncAudioDecoder::decode, AllowCrossThreadAccess(audioDataRef.release().leakRef()), sampleRate, successCallback, errorCallback)));
+    m_thread->taskRunner()->postTask(BLINK_FROM_HERE, threadSafeBind(&AsyncAudioDecoder::decode, AllowCrossThreadAccess(audioDataRef.release().leakRef()), sampleRate, successCallback, errorCallback, resolver, context));
 }
 
-void AsyncAudioDecoder::decode(DOMArrayBuffer* audioData, float sampleRate, AudioBufferCallback* successCallback, AudioBufferCallback* errorCallback)
+void AsyncAudioDecoder::decode(DOMArrayBuffer* audioData, float sampleRate, AudioBufferCallback* successCallback, AudioBufferCallback* errorCallback, ScriptPromiseResolver* resolver, AbstractAudioContext* context)
 {
     RefPtr<AudioBus> bus = createBusFromInMemoryAudioFile(audioData->data(), audioData->byteLength(), false, sampleRate);
 
     // Decoding is finished, but we need to do the callbacks on the main thread.
     // The leaked reference to audioBuffer is picked up in notifyComplete.
-    Platform::current()->mainThread()->taskRunner()->postTask(BLINK_FROM_HERE, threadSafeBind(&AsyncAudioDecoder::notifyComplete, AllowCrossThreadAccess(audioData), successCallback, errorCallback, bus.release().leakRef()));
+    Platform::current()->mainThread()->taskRunner()->postTask(BLINK_FROM_HERE, threadSafeBind(&AsyncAudioDecoder::notifyComplete, AllowCrossThreadAccess(audioData), successCallback, errorCallback, bus.release().leakRef(), resolver, context));
 }
 
-void AsyncAudioDecoder::notifyComplete(DOMArrayBuffer* audioData, AudioBufferCallback* successCallback, AudioBufferCallback* errorCallback, AudioBus* audioBus)
+void AsyncAudioDecoder::notifyComplete(DOMArrayBuffer* audioData, AudioBufferCallback* successCallback, AudioBufferCallback* errorCallback, AudioBus* audioBus, ScriptPromiseResolver* resolver, AbstractAudioContext* context)
 {
+    ASSERT(isMainThread());
+
     // Adopt references, so everything gets correctly dereffed.
     RefPtr<DOMArrayBuffer> audioDataRef = adoptRef(audioData);
     RefPtr<AudioBus> audioBusRef = adoptRef(audioBus);
 
     AudioBuffer* audioBuffer = AudioBuffer::createFromAudioBus(audioBus);
-    if (audioBuffer && successCallback)
-        successCallback->handleEvent(audioBuffer);
-    else if (errorCallback)
-        errorCallback->handleEvent(audioBuffer);
+
+    // Let the context finish the notification.
+    context->handleDecodeAudioData(audioBuffer, resolver, successCallback, errorCallback);
 }
 
 } // namespace blink
-
-#endif // ENABLE(WEB_AUDIO)

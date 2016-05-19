@@ -4,16 +4,20 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/environment_data_collection_win.h"
 
+#include <stdint.h>
+
 #include <set>
 #include <string>
 
 #include "base/i18n/case_conversion.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
+#include "base/win/win_util.h"
 #include "chrome/browser/install_verification/win/module_info.h"
 #include "chrome/browser/install_verification/win/module_verification_common.h"
 #include "chrome/browser/net/service_providers_win.h"
@@ -91,7 +95,7 @@ void CollectRegistryDataForKey(
   std::vector<wchar_t> name_buffer(max_name_len);
   // Read the values.
   if (num_values != 0) {
-    std::vector<uint8> value_buffer(max_value_len != 0 ? max_value_len : 1);
+    std::vector<uint8_t> value_buffer(max_value_len != 0 ? max_value_len : 1);
     DWORD name_size = 0;
     DWORD value_type = REG_NONE;
     DWORD value_size = 0;
@@ -297,6 +301,11 @@ void CollectRegistryData(
   }
 }
 
+void CollectDomainEnrollmentData(
+    ClientIncidentReport_EnvironmentData_OS* os_data) {
+  os_data->set_is_enrolled_to_domain(base::win::IsEnrolledToDomain());
+}
+
 void CollectPlatformProcessData(
     ClientIncidentReport_EnvironmentData_Process* process) {
   CollectDlls(process);
@@ -313,5 +322,6 @@ void CollectPlatformOSData(ClientIncidentReport_EnvironmentData_OS* os_data) {
     CollectRegistryData(kRegKeysToCollect, arraysize(kRegKeysToCollect),
                         os_data->mutable_registry_key());
   }
+  CollectDomainEnrollmentData(os_data);
 }
 }  // namespace safe_browsing

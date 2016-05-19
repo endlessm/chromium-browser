@@ -5,9 +5,14 @@
 #ifndef CC_TEST_SURFACE_HITTEST_TEST_HELPERS_H_
 #define CC_TEST_SURFACE_HITTEST_TEST_HELPERS_H_
 
+#include <map>
+
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "cc/quads/render_pass.h"
 #include "cc/surfaces/surface_factory_client.h"
+#include "cc/surfaces/surface_hittest_delegate.h"
+#include "ui/gfx/geometry/insets.h"
 
 namespace gfx {
 class Transform;
@@ -59,6 +64,34 @@ scoped_ptr<CompositorFrame> CreateCompositorFrameWithRenderPassList(
 
 scoped_ptr<CompositorFrame> CreateCompositorFrame(const gfx::Rect& root_rect,
                                                   RenderPass** render_pass);
+
+class TestSurfaceHittestDelegate : public SurfaceHittestDelegate {
+ public:
+  TestSurfaceHittestDelegate();
+  ~TestSurfaceHittestDelegate();
+
+  int reject_target_overrides() const { return reject_target_overrides_; }
+  int accept_target_overrides() const { return accept_target_overrides_; }
+
+  void AddInsetsForRejectSurface(const SurfaceId& surface_id,
+                                 const gfx::Insets& inset);
+  void AddInsetsForAcceptSurface(const SurfaceId& surface_id,
+                                 const gfx::Insets& inset);
+
+  // SurfaceHittestDelegate implementation.
+  bool RejectHitTarget(const SurfaceDrawQuad* surface_quad,
+                       const gfx::Point& point_in_quad_space) override;
+  bool AcceptHitTarget(const SurfaceDrawQuad* surface_quad,
+                       const gfx::Point& point_in_quad_space) override;
+
+ private:
+  int reject_target_overrides_;
+  int accept_target_overrides_;
+  std::map<SurfaceId, gfx::Insets> insets_for_reject_;
+  std::map<SurfaceId, gfx::Insets> insets_for_accept_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestSurfaceHittestDelegate);
+};
 
 }  // namespace test
 }  // namespace cc

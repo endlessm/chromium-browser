@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_ANDROID_DOCUMENT_DOCUMENT_WEB_CONTENTS_DELEGATE_H_
 #define CHROME_BROWSER_ANDROID_DOCUMENT_DOCUMENT_WEB_CONTENTS_DELEGATE_H_
 
+#include <stdint.h>
+
 #include "components/web_contents_delegate_android/web_contents_delegate_android.h"
 
 // Stub WebContentsDelegateAndroid that is meant to be a temporary substitute
@@ -21,7 +23,10 @@ class DocumentWebContentsDelegate
   ~DocumentWebContentsDelegate() override;
 
   // Attaches this delegate to the given WebContents.
-  void AttachContents(JNIEnv* env, jobject obj, jobject jweb_contents);
+  void AttachContents(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& jweb_contents);
 
   // Registers the JNI calls.
   static bool Register(JNIEnv* env);

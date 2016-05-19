@@ -15,8 +15,10 @@ import android.util.SparseArray;
 import android.view.View;
 import android.widget.TextView;
 
+import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ContentSettingsType;
+import org.chromium.chrome.browser.ResourceId;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.base.WindowAndroid.PermissionCallback;
@@ -33,11 +35,8 @@ public class ConfirmInfoBar extends InfoBar {
     /** Text shown on the secondary button, e.g. "Cancel".*/
     private final String mSecondaryButtonText;
 
-    /** Text shown on the extra button, e.g. "More info". */
-    private final String mTertiaryButtonText;
-
-    /** Notified when one of the buttons is clicked. */
-    private final InfoBarListeners.Confirm mConfirmListener;
+    /** Text shown on the link, e.g. "Learn more". */
+    private final String mLinkText;
 
     private WindowAndroid mWindowAndroid;
 
@@ -48,14 +47,12 @@ public class ConfirmInfoBar extends InfoBar {
      */
     private SparseArray<String> mContentSettingsToPermissionsMap;
 
-    public ConfirmInfoBar(InfoBarListeners.Confirm confirmListener, int iconDrawableId,
-            Bitmap iconBitmap, String message, String linkText, String primaryButtonText,
-            String secondaryButtonText) {
-        super(confirmListener, iconDrawableId, iconBitmap, message);
+    protected ConfirmInfoBar(int iconDrawableId, Bitmap iconBitmap, String message,
+            String linkText, String primaryButtonText, String secondaryButtonText) {
+        super(iconDrawableId, iconBitmap, message);
         mPrimaryButtonText = primaryButtonText;
         mSecondaryButtonText = secondaryButtonText;
-        mTertiaryButtonText = linkText;
-        mConfirmListener = confirmListener;
+        mLinkText = linkText;
     }
 
     /**
@@ -77,7 +74,22 @@ public class ConfirmInfoBar extends InfoBar {
 
     @Override
     public void createContent(InfoBarLayout layout) {
-        layout.setButtons(mPrimaryButtonText, mSecondaryButtonText, mTertiaryButtonText);
+        setButtons(layout, mPrimaryButtonText, mSecondaryButtonText);
+        if (mLinkText != null) layout.setMessageLinkText(mLinkText);
+    }
+
+    /**
+     * If your custom infobar overrides this function, YOU'RE PROBABLY DOING SOMETHING WRONG.
+     *
+     * Adds buttons to the infobar.  This should only be overridden in cases where an infobar
+     * requires adding something other than a button for its secondary View on the bottom row
+     * (almost never).
+     *
+     * @param primaryText Text to display on the primary button.
+     * @param secondaryText Text to display on the secondary button.  May be null.
+     */
+    protected void setButtons(InfoBarLayout layout, String primaryText, String secondaryText) {
+        layout.setButtons(primaryText, secondaryText);
     }
 
     private static boolean hasPermission(Context context, String permission) {
@@ -109,18 +121,18 @@ public class ConfirmInfoBar extends InfoBar {
                 contentSettingsType = mContentSettingsToPermissionsMap.keyAt(i);
             }
         }
-        switch (contentSettingsType) {
-            case ContentSettingsType.CONTENT_SETTINGS_TYPE_GEOLOCATION:
-                return R.string.infobar_missing_location_permission_text;
-            case ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
-                return R.string.infobar_missing_microphone_permission_text;
-            case ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
-                return R.string.infobar_missing_camera_permission_text;
-            default:
-                assert false;
-                return R.string.infobar_missing_multiple_permissions_text;
 
+        if (contentSettingsType == ContentSettingsType.CONTENT_SETTINGS_TYPE_GEOLOCATION) {
+            return R.string.infobar_missing_location_permission_text;
         }
+        if (contentSettingsType == ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC) {
+            return R.string.infobar_missing_microphone_permission_text;
+        }
+        if (contentSettingsType == ContentSettingsType.CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA) {
+            return R.string.infobar_missing_camera_permission_text;
+        }
+        assert false : "Unexpected content setting type received: " + contentSettingsType;
+        return R.string.infobar_missing_multiple_permissions_text;
     }
 
     @Override
@@ -198,11 +210,34 @@ public class ConfirmInfoBar extends InfoBar {
     }
 
     private void onButtonClickedInternal(boolean isPrimaryButton) {
-        if (mConfirmListener != null) {
-            mConfirmListener.onConfirmInfoBarButtonClicked(this, isPrimaryButton);
-        }
-
         int action = isPrimaryButton ? ActionType.OK : ActionType.CANCEL;
         onButtonClicked(action);
+    }
+
+    /**
+     * Creates and begins the process for showing a ConfirmInfoBar.
+     * @param windowAndroid The owning window for the infobar.
+     * @param enumeratedIconId ID corresponding to the icon that will be shown for the infobar.
+     *                         The ID must have been mapped using the ResourceMapper class before
+     *                         passing it to this function.
+     * @param iconBitmap Bitmap to use if there is no equivalent Java resource for
+     *                   enumeratedIconId.
+     * @param message Message to display to the user indicating what the infobar is for.
+     * @param linkText Link text to display in addition to the message.
+     * @param buttonOk String to display on the OK button.
+     * @param buttonCancel String to display on the Cancel button.
+     * @param contentSettings The list of ContentSettingTypes being requested by this infobar.
+     */
+    @CalledByNative
+    private static ConfirmInfoBar create(WindowAndroid windowAndroid, int enumeratedIconId,
+            Bitmap iconBitmap, String message, String linkText, String buttonOk,
+            String buttonCancel, int[] contentSettings) {
+        int drawableId = ResourceId.mapToDrawableId(enumeratedIconId);
+
+        ConfirmInfoBar infoBar = new ConfirmInfoBar(
+                drawableId, iconBitmap, message, linkText, buttonOk, buttonCancel);
+        infoBar.setContentSettings(windowAndroid, contentSettings);
+
+        return infoBar;
     }
 }

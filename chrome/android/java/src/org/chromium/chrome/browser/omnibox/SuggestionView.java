@@ -33,32 +33,33 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxResultItem;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxSuggestionDelegate;
+import org.chromium.chrome.browser.omnibox.OmniboxSuggestion.MatchClassification;
 import org.chromium.chrome.browser.widget.TintedDrawable;
 import org.chromium.ui.base.DeviceFormFactor;
 
-import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Container view for omnibox suggestions made very specific for omnibox suggestions to minimize
  * any unnecessary measures and layouts.
  */
 class SuggestionView extends ViewGroup {
-    private enum SuggestionIconType {
-        BOOKMARK,
-        HISTORY,
-        GLOBE,
-        MAGNIFIER,
-        VOICE
-    }
+    private static final int SUGGESTION_ICON_UNDEFINED = -1;
+    private static final int SUGGESTION_ICON_BOOKMARK = 0;
+    private static final int SUGGESTION_ICON_HISTORY = 1;
+    private static final int SUGGESTION_ICON_GLOBE = 2;
+    private static final int SUGGESTION_ICON_MAGNIFIER = 3;
+    private static final int SUGGESTION_ICON_VOICE = 4;
 
     private static final int FIRST_LINE_TEXT_SIZE_SP = 17;
     private static final int SECOND_LINE_TEXT_SIZE_SP = 14;
 
     private static final long RELAYOUT_DELAY_MS = 20;
 
-    private static final int TITLE_COLOR_STANDARD_FONT_DARK = Color.rgb(51, 51, 51);
-    private static final int TITLE_COLOR_STANDARD_FONT_LIGHT = Color.rgb(255, 255, 255);
-    private static final int URL_COLOR = Color.rgb(85, 149, 254);
+    private static final int TITLE_COLOR_STANDARD_FONT_DARK = 0xFF333333;
+    private static final int TITLE_COLOR_STANDARD_FONT_LIGHT = 0xFFFFFFFF;
+    private static final int URL_COLOR = 0xFF5595FE;
 
     private static final int ANSWER_IMAGE_HORIZONTAL_SPACING_DP = 4;
     private static final int ANSWER_IMAGE_VERTICAL_SPACING_DP = 5;
@@ -286,7 +287,7 @@ class SuggestionView extends ViewGroup {
         // suggestion type they are.
         if (mSuggestion.hasAnswer()) {
             setAnswer(mSuggestion.getAnswer());
-            mContentsView.setSuggestionIcon(SuggestionIconType.MAGNIFIER, colorsChanged);
+            mContentsView.setSuggestionIcon(SUGGESTION_ICON_MAGNIFIER, colorsChanged);
             mContentsView.mTextLine2.setVisibility(VISIBLE);
             setRefinable(true);
             return;
@@ -297,11 +298,11 @@ class SuggestionView extends ViewGroup {
         int suggestionType = mSuggestion.getType();
         if (mSuggestion.isUrlSuggestion()) {
             if (mSuggestion.isStarred()) {
-                mContentsView.setSuggestionIcon(SuggestionIconType.BOOKMARK, colorsChanged);
+                mContentsView.setSuggestionIcon(SUGGESTION_ICON_BOOKMARK, colorsChanged);
             } else if (suggestionType == OmniboxSuggestionType.HISTORY_URL) {
-                mContentsView.setSuggestionIcon(SuggestionIconType.HISTORY, colorsChanged);
+                mContentsView.setSuggestionIcon(SUGGESTION_ICON_HISTORY, colorsChanged);
             } else {
-                mContentsView.setSuggestionIcon(SuggestionIconType.GLOBE, colorsChanged);
+                mContentsView.setSuggestionIcon(SUGGESTION_ICON_GLOBE, colorsChanged);
             }
             boolean urlShown = !TextUtils.isEmpty(mSuggestion.getUrl());
             boolean urlHighlighted = false;
@@ -313,13 +314,13 @@ class SuggestionView extends ViewGroup {
             setSuggestedQuery(suggestionItem, true, urlShown, urlHighlighted);
             setRefinable(!sameAsTyped);
         } else {
-            SuggestionIconType suggestionIcon = SuggestionIconType.MAGNIFIER;
+            int suggestionIcon = SUGGESTION_ICON_MAGNIFIER;
             if (suggestionType == OmniboxSuggestionType.VOICE_SUGGEST) {
-                suggestionIcon = SuggestionIconType.VOICE;
+                suggestionIcon = SUGGESTION_ICON_VOICE;
             } else if ((suggestionType == OmniboxSuggestionType.SEARCH_SUGGEST_PERSONALIZED)
                     || (suggestionType == OmniboxSuggestionType.SEARCH_HISTORY)) {
                 // Show history icon for suggestions based on user queries.
-                suggestionIcon = SuggestionIconType.HISTORY;
+                suggestionIcon = SUGGESTION_ICON_HISTORY;
             }
             mContentsView.setSuggestionIcon(suggestionIcon, colorsChanged);
             setRefinable(!sameAsTyped);
@@ -384,21 +385,42 @@ class SuggestionView extends ViewGroup {
     /**
      * Sets (and highlights) the URL text of the second line of the omnibox suggestion.
      *
-     * @param suggestion The suggestion containing the URL.
+     * @param result The suggestion containing the URL.
      * @return Whether the URL was highlighted based on the user query.
      */
-    private boolean setUrlText(OmniboxResultItem suggestion) {
-        String query = suggestion.getMatchedQuery();
-        String url = suggestion.getSuggestion().getFormattedUrl();
-        int index = url.indexOf(query);
-        Spannable str = SpannableString.valueOf(url);
-        if (index >= 0) {
-            // Bold the part of the URL that matches the user query.
-            str.setSpan(new StyleSpan(android.graphics.Typeface.BOLD),
-                    index, index + query.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
+    private boolean setUrlText(OmniboxResultItem result) {
+        OmniboxSuggestion suggestion = result.getSuggestion();
+        Spannable str = SpannableString.valueOf(suggestion.getDisplayText());
+        boolean hasMatch = applyHighlightToMatchRegions(
+                str, suggestion.getDisplayTextClassifications());
         showDescriptionLine(str, URL_COLOR);
-        return index >= 0;
+        return hasMatch;
+    }
+
+    private boolean applyHighlightToMatchRegions(
+            Spannable str, List<MatchClassification> classifications) {
+        boolean hasMatch = false;
+        for (int i = 0; i < classifications.size(); i++) {
+            MatchClassification classification = classifications.get(i);
+            if ((classification.style & MatchClassificationStyle.MATCH)
+                    == MatchClassificationStyle.MATCH) {
+                int matchStartIndex = classification.offset;
+                int matchEndIndex;
+                if (i == classifications.size() - 1) {
+                    matchEndIndex = str.length();
+                } else {
+                    matchEndIndex = classifications.get(i + 1).offset;
+                }
+                matchStartIndex = Math.min(matchStartIndex, str.length());
+                matchEndIndex = Math.min(matchEndIndex, str.length());
+
+                hasMatch = true;
+                // Bold the part of the URL that matches the user query.
+                str.setSpan(new StyleSpan(android.graphics.Typeface.BOLD),
+                        matchStartIndex, matchEndIndex, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        return hasMatch;
     }
 
     /**
@@ -428,20 +450,21 @@ class SuggestionView extends ViewGroup {
             boolean isUrlQuery, boolean isUrlHighlighted) {
         String userQuery = suggestionItem.getMatchedQuery();
         String suggestedQuery = null;
+        List<MatchClassification> classifications;
         OmniboxSuggestion suggestion = suggestionItem.getSuggestion();
         if (showDescriptionIfPresent && !TextUtils.isEmpty(suggestion.getUrl())
                 && !TextUtils.isEmpty(suggestion.getDescription())) {
             suggestedQuery = suggestion.getDescription();
+            classifications = suggestion.getDescriptionClassifications();
         } else {
             suggestedQuery = suggestion.getDisplayText();
+            classifications = suggestion.getDisplayTextClassifications();
         }
         if (suggestedQuery == null) {
             assert false : "Invalid suggestion sent with no displayable text";
             suggestedQuery = "";
-        } else if (suggestedQuery.equals(suggestion.getUrl())) {
-            // This is a navigation match with the title defaulted to the URL, display formatted URL
-            // so that they continue matching.
-            suggestedQuery = suggestion.getFormattedUrl();
+            classifications = new ArrayList<MatchClassification>();
+            classifications.add(new MatchClassification(0, MatchClassificationStyle.NONE));
         }
 
         if (mSuggestion.getType() == OmniboxSuggestionType.SEARCH_SUGGEST_TAIL) {
@@ -450,13 +473,18 @@ class SuggestionView extends ViewGroup {
             if (fillIntoEdit.startsWith(userQuery)
                     && fillIntoEdit.endsWith(suggestedQuery)
                     && fillIntoEdit.length() < userQuery.length() + suggestedQuery.length()) {
-                String ignoredPrefix = fillIntoEdit.substring(
-                        0, fillIntoEdit.length() - suggestedQuery.length());
                 final String ellipsisPrefix = "\u2026 ";
                 suggestedQuery = ellipsisPrefix + suggestedQuery;
-                if (userQuery.startsWith(ignoredPrefix)) {
-                    userQuery = ellipsisPrefix + userQuery.substring(ignoredPrefix.length());
+
+                // Offset the match classifications by the length of the ellipsis prefix to ensure
+                // the highlighting remains correct.
+                for (int i = 0; i < classifications.size(); i++) {
+                    classifications.set(i, new MatchClassification(
+                            classifications.get(i).offset + ellipsisPrefix.length(),
+                            classifications.get(i).style));
                 }
+                classifications.add(0, new MatchClassification(0, MatchClassificationStyle.NONE));
+
                 if (DeviceFormFactor.isTablet(getContext())) {
                     TextPaint tp = mContentsView.mTextLine1.getPaint();
                     mContentsView.mRequiredWidth =
@@ -473,28 +501,7 @@ class SuggestionView extends ViewGroup {
         }
 
         Spannable str = SpannableString.valueOf(suggestedQuery);
-        int userQueryIndex = isUrlHighlighted ? -1
-                : suggestedQuery.toLowerCase(Locale.getDefault()).indexOf(
-                        userQuery.toLowerCase(Locale.getDefault()));
-        if (userQueryIndex != -1) {
-            int spanStart = 0;
-            int spanEnd = 0;
-            if (isUrlQuery) {
-                spanStart = userQueryIndex;
-                spanEnd = userQueryIndex + userQuery.length();
-            } else {
-                spanStart = userQueryIndex + userQuery.length();
-                spanEnd = str.length();
-            }
-            spanStart = Math.min(spanStart, str.length());
-            spanEnd = Math.min(spanEnd, str.length());
-            if (spanStart != spanEnd) {
-                str.setSpan(
-                        new StyleSpan(android.graphics.Typeface.BOLD),
-                        spanStart, spanEnd,
-                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-        }
+        if (!isUrlHighlighted) applyHighlightToMatchRegions(str, classifications);
         mContentsView.mTextLine1.setText(str, BufferType.SPANNABLE);
     }
 
@@ -569,7 +576,7 @@ class SuggestionView extends ViewGroup {
         private int mTextLeft = Integer.MIN_VALUE;
         private int mTextRight = Integer.MIN_VALUE;
         private Drawable mSuggestionIcon;
-        private SuggestionIconType mSuggestionIconType;
+        private int mSuggestionIconType = SUGGESTION_ICON_UNDEFINED;
 
         private final TextView mTextLine1;
         private final TextView mTextLine2;
@@ -902,21 +909,22 @@ class SuggestionView extends ViewGroup {
             return drawableState;
         }
 
-        private void setSuggestionIcon(SuggestionIconType type, boolean invalidateCurrentIcon) {
+        private void setSuggestionIcon(int type, boolean invalidateCurrentIcon) {
             if (mSuggestionIconType == type && !invalidateCurrentIcon) return;
+            assert type != SUGGESTION_ICON_UNDEFINED;
 
             int drawableId = R.drawable.ic_omnibox_page;
             switch (type) {
-                case BOOKMARK:
+                case SUGGESTION_ICON_BOOKMARK:
                     drawableId = R.drawable.btn_star;
                     break;
-                case MAGNIFIER:
+                case SUGGESTION_ICON_MAGNIFIER:
                     drawableId = R.drawable.ic_suggestion_magnifier;
                     break;
-                case HISTORY:
+                case SUGGESTION_ICON_HISTORY:
                     drawableId = R.drawable.ic_suggestion_history;
                     break;
-                case VOICE:
+                case SUGGESTION_ICON_VOICE:
                     drawableId = R.drawable.btn_mic;
                     break;
                 default:

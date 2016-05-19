@@ -6,8 +6,9 @@
 #define CHROME_BROWSER_UI_WEBUI_OPTIONS_CHROMEOS_KEYBOARD_HANDLER_H_
 
 #include "base/compiler_specific.h"
-#include "base/prefs/pref_member.h"
+#include "base/macros.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
+#include "components/prefs/pref_member.h"
 #include "ui/events/devices/input_device_event_observer.h"
 
 namespace chromeos {

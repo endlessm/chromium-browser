@@ -11,22 +11,18 @@ namespace content {
 class WebContents;
 }
 
-namespace rappor {
-class RapporService;
-}
-
 namespace chrome {
 
 void InitializePageLoadMetricsForWebContents(
     content::WebContents* web_contents);
 
-class PageLoadMetricsEmbedderInterfaceImpl
+class PageLoadMetricsEmbedder
     : public page_load_metrics::PageLoadMetricsEmbedderInterface {
  public:
   // PageLoadMetricsEmbedderInterface:
-  ~PageLoadMetricsEmbedderInterfaceImpl() override;
-  rappor::RapporService* GetRapporService() override;
+  ~PageLoadMetricsEmbedder() override;
   bool IsPrerendering(content::WebContents* web_contents) override;
+  void RegisterObservers(page_load_metrics::PageLoadTracker* tracker) override;
 };
 
 }  // namespace chrome

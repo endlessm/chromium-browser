@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/network/ContentSecurityPolicyParsers.h"
 
 #include "wtf/ASCIICType.h"
@@ -67,4 +66,4 @@ bool isMediaTypeCharacter(UChar c)
     return !isASCIISpace(c) && c != '/';
 }
 
-} // namespace
+} // namespace blink

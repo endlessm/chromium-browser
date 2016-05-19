@@ -34,7 +34,6 @@
 #include "ui/events/ozone/evdev/touch_evdev_types.h"
 #include "ui/events/ozone/evdev/touch_noise/touch_noise_finder.h"
 #include "ui/ozone/public/input_controller.h"
-#include "ui/ozone/public/ozone_platform.h"
 
 namespace {
 
@@ -77,6 +76,13 @@ int32_t AbsCodeToMtCode(int32_t code) {
     default:
       return -1;
   }
+}
+
+ui::EventPointerType GetPointerTypeFromEvent(
+    const ui::InProgressTouchEvdev& event) {
+  return (event.tool_code == BTN_TOOL_PEN)
+             ? ui::EventPointerType::POINTER_TYPE_PEN
+             : ui::EventPointerType::POINTER_TYPE_TOUCH;
 }
 
 const int kTrackingIdForUnusedSlot = -1;
@@ -186,6 +192,7 @@ void TouchEventConverterEvdev::Initialize(const EventDeviceInfo& info) {
     events_[0].radius_x = 0;
     events_[0].radius_y = 0;
     events_[0].pressure = 0;
+    events_[0].tool_code = 0;
   }
 }
 
@@ -311,6 +318,13 @@ void TouchEventConverterEvdev::ProcessKey(const input_event& input) {
     case BTN_TOUCH:
     case BTN_LEFT:
       break;
+    case BTN_TOOL_PEN:
+      if (input.value > 0) {
+        events_[current_slot_].tool_code = input.code;
+      } else {
+        events_[current_slot_].tool_code = 0;
+      }
+      break;
     default:
       NOTIMPLEMENTED() << "invalid code for EV_KEY: " << input.code;
   }
@@ -389,10 +403,13 @@ EventType TouchEventConverterEvdev::GetEventTypeForTouch(
 void TouchEventConverterEvdev::ReportEvent(const InProgressTouchEvdev& event,
                                            EventType event_type,
                                            const base::TimeDelta& timestamp) {
-  dispatcher_->DispatchTouchEvent(TouchEventParams(
-      input_device_.id, event.slot, event_type, gfx::PointF(event.x, event.y),
-      gfx::Vector2dF(event.radius_x, event.radius_y), event.pressure,
-      timestamp));
+  PointerDetails details(GetPointerTypeFromEvent(event), event.radius_x,
+                         event.radius_y, event.pressure,
+                         /* tilt_x */ 0.0f,
+                         /* tilt_y */ 0.0f);
+  dispatcher_->DispatchTouchEvent(
+      TouchEventParams(input_device_.id, event.slot, event_type,
+                       gfx::PointF(event.x, event.y), details, timestamp));
 }
 
 void TouchEventConverterEvdev::ReportEvents(base::TimeDelta delta) {

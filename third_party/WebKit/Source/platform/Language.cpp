@@ -23,7 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "platform/Language.h"
 
 #include "public/platform/Platform.h"
@@ -124,4 +123,4 @@ size_t indexOfBestMatchingLanguageInList(const AtomicString& language, const Vec
     return languageList.size();
 }
 
-}
+} // namespace blink

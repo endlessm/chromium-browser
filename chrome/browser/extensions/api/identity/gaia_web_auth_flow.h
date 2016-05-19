@@ -5,9 +5,9 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_IDENTITY_GAIA_WEB_AUTH_FLOW_H_
 #define CHROME_BROWSER_EXTENSIONS_API_IDENTITY_GAIA_WEB_AUTH_FLOW_H_
 
+#include "base/macros.h"
 #include "chrome/browser/extensions/api/identity/extension_token_key.h"
 #include "chrome/browser/extensions/api/identity/web_auth_flow.h"
-#include "chrome/browser/ui/host_desktop.h"
 #include "extensions/common/manifest_handlers/oauth2_manifest_handler.h"
 #include "google_apis/gaia/ubertoken_fetcher.h"
 
@@ -86,7 +86,6 @@ class GaiaWebAuthFlow : public UbertokenConsumer, public WebAuthFlow::Delegate {
   Delegate* delegate_;
   Profile* profile_;
   std::string account_id_;
-  chrome::HostDesktopType host_desktop_type_;
   std::string redirect_scheme_;
   std::string redirect_path_prefix_;
   GURL auth_url_;

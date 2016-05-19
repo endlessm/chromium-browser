@@ -14,11 +14,11 @@
 
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "net/base/backoff_entry.h"
 #include "net/url_request/url_fetcher_delegate.h"
-
-class PrefService;
 
 namespace net {
 class URLFetcher;
@@ -38,10 +38,10 @@ class AutofillDownloadManager : public net::URLFetcherDelegate {
   class Observer {
    public:
     // Called when field type predictions are successfully received from the
-    // server. |response_xml| contains the server response for the forms
+    // server. |response| contains the server response for the forms
     // represented by |form_signatures|.
     virtual void OnLoadedServerPredictions(
-        const std::string& response_xml,
+        std::string response,
         const std::vector<std::string>& form_signatures) = 0;
 
     // These notifications are used to help with testing.
@@ -60,10 +60,9 @@ class AutofillDownloadManager : public net::URLFetcherDelegate {
     virtual ~Observer() {}
   };
 
-  // |driver| and |pref_service| must outlive this instance.
+  // |driver| must outlive this instance.
   // |observer| - observer to notify on successful completion or error.
   AutofillDownloadManager(AutofillDriver* driver,
-                          PrefService* pref_service,
                           Observer* observer);
   ~AutofillDownloadManager() override;
 
@@ -72,11 +71,7 @@ class AutofillDownloadManager : public net::URLFetcherDelegate {
   // |forms| - array of forms aggregated in this request.
   virtual bool StartQueryRequest(const std::vector<FormStructure*>& forms);
 
-  // Starts an upload request for the given |form|, unless throttled by the
-  // server. The probability of the request going over the wire is
-  // GetPositiveUploadRate() if |form_was_autofilled| is true, or
-  // GetNegativeUploadRate() otherwise. The observer will be called even if
-  // there was no actual trip over the wire.
+  // Starts an upload request for the given |form|.
   // |available_field_types| should contain the types for which we have data
   // stored on the local client.
   // |login_form_signature| may be empty. It is non-empty when the user fills
@@ -85,28 +80,28 @@ class AutofillDownloadManager : public net::URLFetcherDelegate {
   // Note that in this case, |form.FormSignature()| gives the signature for the
   // registration form on which the password was generated, rather than the
   // submitted form's signature.
+  // |observed_submission| indicates whether the upload request is the result of
+  // an observed submission event.
   virtual bool StartUploadRequest(
       const FormStructure& form,
       bool form_was_autofilled,
       const ServerFieldTypeSet& available_field_types,
-      const std::string& login_form_signature);
+      const std::string& login_form_signature,
+      bool observed_submission);
 
  private:
-  friend class AutofillDownloadTest;
-  FRIEND_TEST_ALL_PREFIXES(AutofillDownloadTest, QueryAndUploadTest);
-  FRIEND_TEST_ALL_PREFIXES(AutofillDownloadTest, UploadRequestIsGzipped);
+  friend class AutofillDownloadManagerTest;
+  FRIEND_TEST_ALL_PREFIXES(AutofillDownloadManagerTest, QueryAndUploadTest);
+  FRIEND_TEST_ALL_PREFIXES(AutofillDownloadManagerTest, BackoffLogic_Upload);
+  FRIEND_TEST_ALL_PREFIXES(AutofillDownloadManagerTest, BackoffLogic_Query);
 
   struct FormRequestData;
   typedef std::list<std::pair<std::string, std::string> > QueryRequestCache;
 
-  // Initiates request to Autofill servers to download/upload heuristics.
-  // |form_xml| - form structure XML to upload/download.
-  // |request_data| - form signature hash(es) and indicator if it was a query.
-  // |request_data.query| - if true the data is queried and observer notified
-  //   with new data, if available. If false heuristic data is uploaded to our
-  //   servers.
-  bool StartRequest(const std::string& form_xml,
-                    const FormRequestData& request_data);
+  // Initiates request to Autofill servers to download/upload type predictions.
+  // |request_data| - form signature hash(es), request payload data and request
+  //   type (query or upload).
+  bool StartRequest(const FormRequestData& request_data);
 
   // Each request is page visited. We store last |max_form_cache_size|
   // request, to avoid going over the wire. Set to 16 in constructor. Warning:
@@ -130,21 +125,9 @@ class AutofillDownloadManager : public net::URLFetcherDelegate {
   // net::URLFetcherDelegate implementation:
   void OnURLFetchComplete(const net::URLFetcher* source) override;
 
-  // Probability of the form upload. Between 0 (no upload) and 1 (upload all).
-  // GetPositiveUploadRate() is for matched forms,
-  // GetNegativeUploadRate() for non-matched.
-  double GetPositiveUploadRate() const;
-  double GetNegativeUploadRate() const;
-  void SetPositiveUploadRate(double rate);
-  void SetNegativeUploadRate(double rate);
-
   // The AutofillDriver that this instance will use. Must not be null, and must
   // outlive this instance.
   AutofillDriver* const driver_;  // WEAK
-
-  // The PrefService that this instance will use. Must not be null, and must
-  // outlive this instance.
-  PrefService* const pref_service_;  // WEAK
 
   // The observer to notify when server predictions are successfully received.
   // Must not be null.
@@ -159,19 +142,13 @@ class AutofillDownloadManager : public net::URLFetcherDelegate {
   QueryRequestCache cached_forms_;
   size_t max_form_cache_size_;
 
-  // Time when next query/upload requests are allowed. If 50x HTTP received,
-  // exponential back off is initiated, so this times will be in the future
-  // for awhile.
-  base::Time next_query_request_;
-  base::Time next_upload_request_;
-
-  // |positive_upload_rate_| is for matched forms,
-  // |negative_upload_rate_| for non matched.
-  double positive_upload_rate_;
-  double negative_upload_rate_;
+  // Used for exponential backoff of requests.
+  net::BackoffEntry fetcher_backoff_;
 
   // Needed for unit-test.
   int fetcher_id_for_unittest_;
+
+  base::WeakPtrFactory<AutofillDownloadManager> weak_factory_;
 };
 
 }  // namespace autofill

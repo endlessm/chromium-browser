@@ -4,13 +4,15 @@
 
 #include "chrome/browser/chromeos/proxy_config_service_impl.h"
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/format_macros.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/chromeos/net/proxy_config_handler.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
@@ -26,6 +28,7 @@
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/onc/onc_utils.h"
 #include "components/pref_registry/testing_pref_service_syncable.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/public/test/test_browser_thread.h"
 #include "net/proxy/proxy_config.h"

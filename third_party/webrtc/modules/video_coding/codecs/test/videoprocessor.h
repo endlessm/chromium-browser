@@ -16,7 +16,7 @@
 #include "webrtc/base/checks.h"
 #include "webrtc/common_video/libyuv/include/scaler.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
+#include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/modules/video_coding/codecs/test/packet_manipulator.h"
 #include "webrtc/modules/video_coding/codecs/test/stats.h"
 #include "webrtc/system_wrappers/include/tick_util.h"
@@ -172,7 +172,9 @@ class VideoProcessorImpl : public VideoProcessor {
 
  private:
   // Invoked by the callback when a frame has completed encoding.
-  void FrameEncoded(const webrtc::EncodedImage& encodedImage);
+  void FrameEncoded(webrtc::VideoCodecType codec,
+                    const webrtc::EncodedImage& encodedImage,
+                    const webrtc::RTPFragmentationHeader* fragmentation);
   // Invoked by the callback when a frame has completed decoding.
   void FrameDecoded(const webrtc::VideoFrame& image);
   // Used for getting a 32-bit integer representing time
@@ -243,17 +245,16 @@ class VideoProcessorImpl : public VideoProcessor {
 
   // Callback class required to implement according to the VideoDecoder API.
   class VideoProcessorDecodeCompleteCallback
-    : public webrtc::DecodedImageCallback {
+      : public webrtc::DecodedImageCallback {
    public:
-      explicit VideoProcessorDecodeCompleteCallback(VideoProcessorImpl* vp)
-      : video_processor_(vp) {
+    explicit VideoProcessorDecodeCompleteCallback(VideoProcessorImpl* vp)
+        : video_processor_(vp) {}
+    int32_t Decoded(webrtc::VideoFrame& image) override;
+    int32_t Decoded(webrtc::VideoFrame& image,
+                    int64_t decode_time_ms) override {
+      RTC_NOTREACHED();
+      return -1;
     }
-      int32_t Decoded(webrtc::VideoFrame& image) override;
-      int32_t Decoded(
-          webrtc::VideoFrame& image, int64_t decode_time_ms) override {
-        RTC_NOTREACHED();
-        return -1;
-      }
 
    private:
     VideoProcessorImpl* video_processor_;

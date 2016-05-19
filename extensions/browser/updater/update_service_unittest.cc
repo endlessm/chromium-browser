@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stddef.h>
+
 #include <vector>
 
 #include "base/files/file_util.h"
@@ -47,6 +49,9 @@ class FakeUpdateClient : public update_client::UpdateClient {
   }
   bool IsUpdating(const std::string& id) const override { return false; }
   void Stop() override {}
+  void SendUninstallPing(const std::string& id,
+                         const Version& version,
+                         int reason) override {}
 
  protected:
   friend class base::RefCounted<FakeUpdateClient>;
@@ -178,10 +183,10 @@ TEST_F(UpdateServiceTest, BasicUpdateOperations) {
   ASSERT_TRUE(AddFileToDirectory(temp_dir.path(), bar_html, "world"));
 
   ExtensionBuilder builder;
-  builder.SetManifest(DictionaryBuilder()
-                          .Set("name", "Foo")
-                          .Set("version", "1.0")
-                          .Set("manifest_version", 2));
+  builder.SetManifest(std::move(DictionaryBuilder()
+                                    .Set("name", "Foo")
+                                    .Set("version", "1.0")
+                                    .Set("manifest_version", 2)));
   builder.SetID(crx_file::id_util::GenerateId("whatever"));
   builder.SetPath(temp_dir.path());
 
@@ -198,7 +203,7 @@ TEST_F(UpdateServiceTest, BasicUpdateOperations) {
   ASSERT_NE(nullptr, data);
   ASSERT_EQ(1u, data->size());
 
-  ASSERT_TRUE(data->at(0).version.Equals(*extension1->version()));
+  ASSERT_EQ(data->at(0).version, *extension1->version());
   update_client::CrxInstaller* installer = data->at(0).installer.get();
   ASSERT_NE(installer, nullptr);
 

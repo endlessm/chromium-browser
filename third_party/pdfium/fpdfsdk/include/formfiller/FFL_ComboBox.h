@@ -7,8 +7,8 @@
 #ifndef FPDFSDK_INCLUDE_FORMFILLER_FFL_COMBOBOX_H_
 #define FPDFSDK_INCLUDE_FORMFILLER_FFL_COMBOBOX_H_
 
-#include "FFL_FormFiller.h"
 #include "core/include/fxcrt/fx_string.h"
+#include "fpdfsdk/include/formfiller/FFL_FormFiller.h"
 
 class CBA_FontMap;
 class CPDFSDK_Document;
@@ -54,6 +54,11 @@ class CFFL_ComboBox : public CFFL_FormFiller,
 
   // IPWL_Edit_Notify:
   void OnAddUndo(CPWL_Edit* pEdit) override;
+
+#ifdef PDF_ENABLE_XFA
+  // CFFL_FormFiller:
+  FX_BOOL IsFieldFull(CPDFSDK_PageView* pPageView) override;
+#endif  // PDF_ENABLE_XFA
 
  private:
   CFX_WideString GetSelectExportText();

@@ -5,11 +5,14 @@
 #ifndef REMOTING_HOST_DESKTOP_SESSION_PROXY_H_
 #define REMOTING_HOST_DESKTOP_SESSION_PROXY_H_
 
+#include <stdint.h>
+
 #include <map>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/shared_memory_handle.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
 #include "base/sequenced_task_runner_helpers.h"
@@ -73,7 +76,6 @@ class DesktopSessionProxy
       scoped_refptr<base::SingleThreadTaskRunner> audio_capture_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
       base::WeakPtr<ClientSessionControl> client_session_control,
       base::WeakPtr<DesktopSessionConnector> desktop_session_connector,
       bool virtual_terminal,
@@ -90,7 +92,7 @@ class DesktopSessionProxy
 
   // IPC::Listener implementation.
   bool OnMessageReceived(const IPC::Message& message) override;
-  void OnChannelConnected(int32 peer_pid) override;
+  void OnChannelConnected(int32_t peer_pid) override;
   void OnChannelError() override;
 
   // Connects to the desktop session agent.
@@ -151,8 +153,8 @@ class DesktopSessionProxy
 
   // Registers a new shared buffer created by the desktop process.
   void OnCreateSharedBuffer(int id,
-                            IPC::PlatformFileForTransit handle,
-                            uint32 size);
+                            base::SharedMemoryHandle handle,
+                            uint32_t size);
 
   // Drops a cached reference to the shared buffer.
   void OnReleaseSharedBuffer(int id);
@@ -166,14 +168,6 @@ class DesktopSessionProxy
   // Handles InjectClipboardEvent request from the desktop integration process.
   void OnInjectClipboardEvent(const std::string& serialized_event);
 
-  // Posts OnCaptureCompleted() to |video_capturer_| on the video thread,
-  // passing |frame|.
-  void PostCaptureCompleted(scoped_ptr<webrtc::DesktopFrame> frame);
-
-  // Posts OnMouseCursor() to |mouse_cursor_monitor_| on the video thread,
-  // passing |mouse_cursor|.
-  void PostMouseCursor(scoped_ptr<webrtc::MouseCursor> mouse_cursor);
-
   // Sends a message to the desktop session agent. The message is silently
   // deleted if the channel is broken.
   void SendToDesktop(IPC::Message* message);
@@ -183,11 +177,9 @@ class DesktopSessionProxy
   //   - public methods of this class (with some exceptions) are called on
   //     |caller_task_runner_|.
   //   - background I/O is served on |io_task_runner_|.
-  //   - |video_capturer_| is called back on |video_capture_task_runner_|.
   scoped_refptr<base::SingleThreadTaskRunner> audio_capture_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
-  scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner_;
 
   // Points to the audio capturer receiving captured audio packets.
   base::WeakPtr<IpcAudioCapturer> audio_capturer_;

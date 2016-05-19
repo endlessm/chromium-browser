@@ -4,12 +4,15 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/incident_reporting_service.h"
 
+#include <stdint.h>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/lazy_instance.h"
+#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -17,6 +20,7 @@
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_local.h"
+#include "build/build_config.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident_receiver.h"
@@ -255,9 +259,7 @@ class IncidentReportingServiceTest : public testing::Test {
 
     // Boom (or fizzle).
     return profile_manager_.CreateTestingProfile(
-        profile_name,
-        prefs.Pass(),
-        base::ASCIIToUTF16(profile_name),
+        profile_name, std::move(prefs), base::ASCIIToUTF16(profile_name),
         0,              // avatar_id (unused)
         std::string(),  // supervised_user_id (unused)
         TestingProfile::TestingFactories());
@@ -284,9 +286,8 @@ class IncidentReportingServiceTest : public testing::Test {
     incident->set_path(kTestTrackedPrefPath);
     if (value)
       incident->set_atomic_value(value);
-    return make_scoped_ptr(
-        new safe_browsing::TrackedPreferenceIncident(incident.Pass(),
-                                                     false /* is_personal */));
+    return make_scoped_ptr(new safe_browsing::TrackedPreferenceIncident(
+        std::move(incident), false /* is_personal */));
   }
 
   // Adds a test incident to the service.
@@ -529,7 +530,8 @@ class IncidentReportingServiceTest : public testing::Test {
         FakeDownloadFinder::Create(
             base::Bind(&IncidentReportingServiceTest::OnDownloadFinderDestroyed,
                        base::Unretained(this)),
-            binary_download.Pass(), non_binary_download.Pass(), callback));
+            std::move(binary_download), std::move(non_binary_download),
+            callback));
   }
 
   // A fake StartUpload implementation invoked by the service during operation.
@@ -1385,7 +1387,7 @@ TEST_F(IncidentReportingServiceTest, CleanLegacyPruneState) {
   // Add a profile.
   Profile* profile =
       CreateProfile("profile1", EXTENDED_REPORTING_OPT_IN,
-                    ON_PROFILE_ADDITION_NO_ACTION, incidents_sent.Pass());
+                    ON_PROFILE_ADDITION_NO_ACTION, std::move(incidents_sent));
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();

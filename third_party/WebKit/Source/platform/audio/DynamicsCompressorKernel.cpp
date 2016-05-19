@@ -26,16 +26,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-
-#if ENABLE(WEB_AUDIO)
-
 #include "platform/audio/DynamicsCompressorKernel.h"
-
-#include <algorithm>
 #include "platform/audio/AudioUtilities.h"
 #include "platform/audio/DenormalDisabler.h"
 #include "wtf/MathExtras.h"
+#include <algorithm>
+#include <cmath>
 
 namespace blink {
 
@@ -59,7 +55,7 @@ DynamicsCompressorKernel::DynamicsCompressorKernel(float sampleRate, unsigned nu
     , m_kneeThreshold(uninitializedValue)
     , m_kneeThresholdDb(uninitializedValue)
     , m_ykneeThresholdDb(uninitializedValue)
-    , m_K(uninitializedValue)
+    , m_knee(uninitializedValue)
 {
     setNumberOfChannels(numberOfChannels);
 
@@ -194,9 +190,9 @@ float DynamicsCompressorKernel::updateStaticCurveParameters(float dbThreshold, f
 
         m_ykneeThresholdDb = linearToDecibels(kneeCurve(m_kneeThreshold, k));
 
-        m_K = k;
+        m_knee = k;
     }
-    return m_K;
+    return m_knee;
 }
 
 void DynamicsCompressorKernel::process(const float* sourceChannels[],
@@ -260,11 +256,11 @@ void DynamicsCompressorKernel::process(const float* sourceChannels[],
 
     // All of these coefficients were derived for 4th order polynomial curve fitting where the y values
     // match the evenly spaced x values as follows: (y1 : x == 0, y2 : x == 1, y3 : x == 2, y4 : x == 3)
-    float kA = 0.9999999999999998f*y1 + 1.8432219684323923e-16f*y2 - 1.9373394351676423e-16f*y3 + 8.824516011816245e-18f*y4;
-    float kB = -1.5788320352845888f*y1 + 2.3305837032074286f*y2 - 0.9141194204840429f*y3 + 0.1623677525612032f*y4;
-    float kC = 0.5334142869106424f*y1 - 1.272736789213631f*y2 + 0.9258856042207512f*y3 - 0.18656310191776226f*y4;
-    float kD = 0.08783463138207234f*y1 - 0.1694162967925622f*y2 + 0.08588057951595272f*y3 - 0.00429891410546283f*y4;
-    float kE = -0.042416883008123074f*y1 + 0.1115693827987602f*y2 - 0.09764676325265872f*y3 + 0.028494263462021576f*y4;
+    float a = 0.9999999999999998f * y1 + 1.8432219684323923e-16f * y2 - 1.9373394351676423e-16f * y3 + 8.824516011816245e-18f * y4;
+    float b = -1.5788320352845888f * y1 + 2.3305837032074286f * y2 - 0.9141194204840429f * y3 + 0.1623677525612032f * y4;
+    float c = 0.5334142869106424f * y1 - 1.272736789213631f * y2 + 0.9258856042207512f * y3 - 0.18656310191776226f * y4;
+    float d = 0.08783463138207234f * y1 - 0.1694162967925622f * y2 + 0.08588057951595272f * y3 - 0.00429891410546283f * y4;
+    float e = -0.042416883008123074f * y1 + 0.1115693827987602f * y2 - 0.09764676325265872f * y3 + 0.028494263462021576f * y4;
 
     // x ranges from 0 -> 3       0    1    2   3
     //                           -15  -10  -5   0db
@@ -321,8 +317,7 @@ void DynamicsCompressorKernel::process(const float* sourceChannels[],
 
             // Contain within range: -12 -> 0 then scale to go from 0 -> 3
             float x = compressionDiffDb;
-            x = std::max(-12.0f, x);
-            x = std::min(0.0f, x);
+            x = clampTo(x, -12.0f, 0.0f);
             x = 0.25f * (x + 12);
 
             // Compute adaptive release curve using 4th order polynomial.
@@ -330,7 +325,7 @@ void DynamicsCompressorKernel::process(const float* sourceChannels[],
             float x2 = x * x;
             float x3 = x2 * x;
             float x4 = x2 * x2;
-            float releaseFrames = kA + kB * x + kC * x2 + kD * x3 + kE * x4;
+            float releaseFrames = a + b * x + c * x2 + d * x3 + e * x4;
 
 #define kSpacingDb 5
             float dbPerFrame = kSpacingDb / releaseFrames;
@@ -474,4 +469,3 @@ void DynamicsCompressorKernel::reset()
 
 } // namespace blink
 
-#endif // ENABLE(WEB_AUDIO)

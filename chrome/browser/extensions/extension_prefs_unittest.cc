@@ -4,12 +4,8 @@
 
 #include "chrome/browser/extensions/extension_prefs_unittest.h"
 
-#include "base/basictypes.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
-#include "base/prefs/mock_pref_change_callback.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/scoped_user_pref_update.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -17,6 +13,9 @@
 #include "base/values.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/mock_pref_change_callback.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
@@ -923,9 +922,9 @@ class ExtensionPrefsComponentExtension : public ExtensionPrefsTest {
     // Adding a component extension.
     component_extension_ =
         ExtensionBuilder()
-            .SetManifest(DictionaryBuilder()
-                             .Set(manifest_keys::kName, "a")
-                             .Set(manifest_keys::kVersion, "0.1"))
+            .SetManifest(std::move(DictionaryBuilder()
+                                       .Set(manifest_keys::kName, "a")
+                                       .Set(manifest_keys::kVersion, "0.1")))
             .SetLocation(Manifest::COMPONENT)
             .SetPath(prefs_.extensions_dir().AppendASCII("a"))
             .Build();
@@ -934,9 +933,9 @@ class ExtensionPrefsComponentExtension : public ExtensionPrefsTest {
     // Adding a non component extension.
     no_component_extension_ =
         ExtensionBuilder()
-            .SetManifest(DictionaryBuilder()
-                             .Set(manifest_keys::kName, "b")
-                             .Set(manifest_keys::kVersion, "0.1"))
+            .SetManifest(std::move(DictionaryBuilder()
+                                       .Set(manifest_keys::kName, "b")
+                                       .Set(manifest_keys::kVersion, "0.1")))
             .SetLocation(Manifest::INTERNAL)
             .SetPath(prefs_.extensions_dir().AppendASCII("b"))
             .Build();

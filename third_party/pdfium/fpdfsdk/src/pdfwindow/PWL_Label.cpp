@@ -4,17 +4,13 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/pdfwindow/PDFWindow.h"
-#include "../../include/pdfwindow/PWL_Wnd.h"
-#include "../../include/pdfwindow/PWL_Label.h"
-#include "../../include/pdfwindow/PWL_Utils.h"
-
-/* ---------------------------- CPWL_Label ------------------------------ */
+#include "fpdfsdk/include/pdfwindow/PWL_Label.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Utils.h"
+#include "fpdfsdk/include/pdfwindow/PWL_Wnd.h"
 
 CPWL_Label::CPWL_Label() : m_pEdit(NULL) {
   m_pEdit = IFX_Edit::NewEdit();
-
-  ASSERT(m_pEdit != NULL);
+  ASSERT(m_pEdit);
 }
 
 CPWL_Label::~CPWL_Label() {
@@ -86,7 +82,7 @@ void CPWL_Label::SetParamByFlag() {
 }
 
 void CPWL_Label::DrawThisAppearance(CFX_RenderDevice* pDevice,
-                                    CPDF_Matrix* pUser2Device) {
+                                    CFX_Matrix* pUser2Device) {
   CPWL_Wnd::DrawThisAppearance(pDevice, pUser2Device);
 
   GetClientRect();

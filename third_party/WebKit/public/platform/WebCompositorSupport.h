@@ -27,33 +27,26 @@
 #define WebCompositorSupport_h
 
 #include "WebCommon.h"
-#include "WebCompositorAnimation.h"
-#include "WebCompositorAnimationCurve.h"
 #include "WebFloatPoint.h"
 #include "WebLayerTreeView.h"
 #include "WebScrollbar.h"
 #include "WebScrollbarThemePainter.h"
 
+namespace cc {
+class Layer;
+}
+
 namespace blink {
 
-class WebCompositorAnimationCurve;
-class WebCompositorAnimationPlayer;
-class WebCompositorAnimationTimeline;
 class WebContentLayer;
 class WebContentLayerClient;
 class WebExternalTextureLayer;
 class WebExternalTextureLayerClient;
-class WebFilterAnimationCurve;
-class WebFilterOperations;
-class WebFloatAnimationCurve;
 class WebGraphicsContext3D;
 class WebImageLayer;
 class WebLayer;
 class WebScrollbarLayer;
 class WebScrollbarThemeGeometry;
-class WebScrollOffsetAnimationCurve;
-class WebTransformAnimationCurve;
-class WebTransformOperations;
 
 class WebCompositorSupport {
 public:
@@ -61,6 +54,8 @@ public:
     // Layers -------------------------------------------------------
 
     virtual WebLayer* createLayer() { return nullptr; }
+
+    virtual WebLayer* createLayerFromCCLayer(cc::Layer*) { return nullptr; }
 
     virtual WebContentLayer* createContentLayer(WebContentLayerClient*) { return nullptr; }
 
@@ -72,26 +67,6 @@ public:
     virtual WebScrollbarLayer* createScrollbarLayer(WebScrollbar*, WebScrollbarThemePainter, WebScrollbarThemeGeometry*) { return nullptr; }
 
     virtual WebScrollbarLayer* createSolidColorScrollbarLayer(WebScrollbar::Orientation, int thumbThickness, int trackStart, bool isLeftSideVerticalScrollbar) { return nullptr; }
-
-    // Animation ----------------------------------------------------
-
-    virtual WebCompositorAnimation* createAnimation(const WebCompositorAnimationCurve&, WebCompositorAnimation::TargetProperty, int groupId = 0, int animationId = 0) { return nullptr; }
-
-    virtual WebFilterAnimationCurve* createFilterAnimationCurve() { return nullptr; }
-
-    virtual WebFloatAnimationCurve* createFloatAnimationCurve() { return nullptr; }
-
-    virtual WebScrollOffsetAnimationCurve* createScrollOffsetAnimationCurve(WebFloatPoint targetValue, WebCompositorAnimationCurve::TimingFunctionType) { return nullptr; }
-
-    virtual WebTransformAnimationCurve* createTransformAnimationCurve() { return nullptr; }
-
-    virtual WebTransformOperations* createTransformOperations() { return nullptr; }
-
-    virtual WebFilterOperations* createFilterOperations() { return nullptr; }
-
-    virtual WebCompositorAnimationPlayer* createAnimationPlayer() { return nullptr; }
-
-    virtual WebCompositorAnimationTimeline* createAnimationTimeline() { return nullptr; }
 
 protected:
     virtual ~WebCompositorSupport() { }

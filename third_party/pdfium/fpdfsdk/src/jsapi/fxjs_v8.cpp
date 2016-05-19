@@ -4,7 +4,9 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/jsapi/fxjs_v8.h"
+#include "fpdfsdk/include/jsapi/fxjs_v8.h"
+
+#include <vector>
 
 #include "core/include/fxcrt/fx_basic.h"
 
@@ -125,6 +127,31 @@ void FXJS_ArrayBufferAllocator::Free(void* data, size_t length) {
   free(data);
 }
 
+void V8TemplateMapTraits::Dispose(v8::Isolate* isolate,
+                                  v8::Global<v8::Object> value,
+                                  void* key) {
+  v8::Local<v8::Object> obj = value.Get(isolate);
+  if (obj.IsEmpty())
+    return;
+  int id = FXJS_GetObjDefnID(obj);
+  if (id == -1)
+    return;
+
+  CFXJS_ObjDefinition* pObjDef = CFXJS_ObjDefinition::ForID(isolate, id);
+  if (!pObjDef)
+    return;
+  if (pObjDef->m_pDestructor)
+    pObjDef->m_pDestructor(obj);
+  FXJS_FreePrivate(obj);
+}
+
+V8TemplateMapTraits::MapType* V8TemplateMapTraits::MapFromWeakCallbackInfo(
+    const v8::WeakCallbackInfo<WeakCallbackDataType>& data) {
+  V8TemplateMap* pMap =
+      (FXJS_PerIsolateData::Get(data.GetIsolate()))->m_pDynamicObjsMap;
+  return pMap ? &pMap->m_map : nullptr;
+}
+
 void FXJS_Initialize(unsigned int embedderDataSlot, v8::Isolate* pIsolate) {
   if (g_isolate) {
     ASSERT(g_embedderDataSlot == embedderDataSlot);
@@ -200,7 +227,8 @@ void FXJS_DefineObjMethod(v8::Isolate* pIsolate,
       CFXJS_ObjDefinition::ForID(pIsolate, nObjDefnID);
   pObjDef->GetInstanceTemplate()->Set(
       v8::String::NewFromUtf8(pIsolate, bsMethodName.c_str(),
-                              v8::NewStringType::kNormal).ToLocalChecked(),
+                              v8::NewStringType::kNormal)
+          .ToLocalChecked(),
       v8::FunctionTemplate::New(pIsolate, pMethodCall, v8::Local<v8::Value>(),
                                 pObjDef->GetSignature()),
       v8::ReadOnly);
@@ -218,7 +246,8 @@ void FXJS_DefineObjProperty(v8::Isolate* pIsolate,
       CFXJS_ObjDefinition::ForID(pIsolate, nObjDefnID);
   pObjDef->GetInstanceTemplate()->SetAccessor(
       v8::String::NewFromUtf8(pIsolate, bsPropertyName.c_str(),
-                              v8::NewStringType::kNormal).ToLocalChecked(),
+                              v8::NewStringType::kNormal)
+          .ToLocalChecked(),
       pPropGet, pPropPut);
 }
 
@@ -254,22 +283,24 @@ void FXJS_DefineGlobalMethod(v8::Isolate* pIsolate,
   v8::Isolate::Scope isolate_scope(pIsolate);
   v8::HandleScope handle_scope(pIsolate);
   CFX_ByteString bsMethodName = CFX_WideString(sMethodName).UTF8Encode();
-  GetGlobalObjectTemplate(pIsolate)->Set(
-      v8::String::NewFromUtf8(pIsolate, bsMethodName.c_str(),
-                              v8::NewStringType::kNormal).ToLocalChecked(),
-      v8::FunctionTemplate::New(pIsolate, pMethodCall), v8::ReadOnly);
+  GetGlobalObjectTemplate(pIsolate)
+      ->Set(v8::String::NewFromUtf8(pIsolate, bsMethodName.c_str(),
+                                    v8::NewStringType::kNormal)
+                .ToLocalChecked(),
+            v8::FunctionTemplate::New(pIsolate, pMethodCall), v8::ReadOnly);
 }
 
 void FXJS_DefineGlobalConst(v8::Isolate* pIsolate,
                             const wchar_t* sConstName,
-                            v8::Local<v8::Value> pDefault) {
+                            v8::FunctionCallback pConstGetter) {
   v8::Isolate::Scope isolate_scope(pIsolate);
   v8::HandleScope handle_scope(pIsolate);
   CFX_ByteString bsConst = CFX_WideString(sConstName).UTF8Encode();
-  GetGlobalObjectTemplate(pIsolate)->Set(
-      v8::String::NewFromUtf8(pIsolate, bsConst.c_str(),
-                              v8::NewStringType::kNormal).ToLocalChecked(),
-      pDefault, v8::ReadOnly);
+  GetGlobalObjectTemplate(pIsolate)
+      ->SetAccessorProperty(v8::String::NewFromUtf8(pIsolate, bsConst.c_str(),
+                                                    v8::NewStringType::kNormal)
+                                .ToLocalChecked(),
+                            v8::FunctionTemplate::New(pIsolate, pConstGetter));
 }
 
 void FXJS_InitializeRuntime(
@@ -281,12 +312,19 @@ void FXJS_InitializeRuntime(
     ++g_isolate_ref_count;
 
   v8::Isolate::Scope isolate_scope(pIsolate);
+#ifdef PDF_ENABLE_XFA
+  v8::Locker locker(pIsolate);
+#endif  // PDF_ENABLE_XFA
   v8::HandleScope handle_scope(pIsolate);
   v8::Local<v8::Context> v8Context =
       v8::Context::New(pIsolate, NULL, GetGlobalObjectTemplate(pIsolate));
   v8::Context::Scope context_scope(v8Context);
 
   FXJS_PerIsolateData::SetUp(pIsolate);
+  FXJS_PerIsolateData* pData = FXJS_PerIsolateData::Get(pIsolate);
+  if (!pData)
+    return;
+  pData->CreateDynamicObjsMap(pIsolate);
   v8Context->SetAlignedPointerInEmbedderData(kPerContextDataIndex, pIRuntime);
 
   int maxID = CFXJS_ObjDefinition::MaxID(pIsolate);
@@ -309,10 +347,11 @@ void FXJS_InitializeRuntime(
       CFX_ByteString bs = CFX_WideString(pObjDef->m_ObjName).UTF8Encode();
       v8::Local<v8::String> m_ObjName =
           v8::String::NewFromUtf8(pIsolate, bs.c_str(),
-                                  v8::NewStringType::kNormal,
-                                  bs.GetLength()).ToLocalChecked();
+                                  v8::NewStringType::kNormal, bs.GetLength())
+              .ToLocalChecked();
 
-      v8::Local<v8::Object> obj = FXJS_NewFxDynamicObj(pIsolate, pIRuntime, i);
+      v8::Local<v8::Object> obj =
+          FXJS_NewFxDynamicObj(pIsolate, pIRuntime, i, true);
       v8Context->Global()->Set(v8Context, m_ObjName, obj).FromJust();
       pStaticObjects->at(i) = new v8::Global<v8::Object>(pIsolate, obj);
     }
@@ -324,6 +363,9 @@ void FXJS_ReleaseRuntime(v8::Isolate* pIsolate,
                          v8::Global<v8::Context>* pV8PersistentContext,
                          std::vector<v8::Global<v8::Object>*>* pStaticObjects) {
   v8::Isolate::Scope isolate_scope(pIsolate);
+#ifdef PDF_ENABLE_XFA
+  v8::Locker locker(pIsolate);
+#endif  // PDF_ENABLE_XFA
   v8::HandleScope handle_scope(pIsolate);
   v8::Local<v8::Context> context =
       v8::Local<v8::Context>::New(pIsolate, *pV8PersistentContext);
@@ -356,6 +398,7 @@ void FXJS_ReleaseRuntime(v8::Isolate* pIsolate,
   if (pIsolate == g_isolate && --g_isolate_ref_count > 0)
     return;
 
+  pData->ReleaseDynamicObjsMap();
   for (int i = 0; i < maxID; ++i)
     delete CFXJS_ObjDefinition::ForID(pIsolate, i);
 
@@ -369,6 +412,13 @@ IJS_Runtime* FXJS_GetRuntimeFromIsolate(v8::Isolate* pIsolate) {
       context->GetAlignedPointerFromEmbedderData(kPerContextDataIndex));
 }
 
+#ifdef PDF_ENABLE_XFA
+void FXJS_SetRuntimeForV8Context(v8::Local<v8::Context> v8Context,
+                                 IJS_Runtime* pIRuntime) {
+  v8Context->SetAlignedPointerInEmbedderData(kPerContextDataIndex, pIRuntime);
+}
+#endif  // PDF_ENABLE_XFA
+
 int FXJS_Execute(v8::Isolate* pIsolate,
                  IJS_Context* pJSContext,
                  const wchar_t* script,
@@ -378,10 +428,11 @@ int FXJS_Execute(v8::Isolate* pIsolate,
   CFX_ByteString bsScript = CFX_WideString(script).UTF8Encode();
   v8::Local<v8::Context> context = pIsolate->GetCurrentContext();
   v8::Local<v8::Script> compiled_script;
-  if (!v8::Script::Compile(
-           context, v8::String::NewFromUtf8(
-                        pIsolate, bsScript.c_str(), v8::NewStringType::kNormal,
-                        bsScript.GetLength()).ToLocalChecked())
+  if (!v8::Script::Compile(context,
+                           v8::String::NewFromUtf8(pIsolate, bsScript.c_str(),
+                                                   v8::NewStringType::kNormal,
+                                                   bsScript.GetLength())
+                               .ToLocalChecked())
            .ToLocal(&compiled_script)) {
     v8::String::Utf8Value error(try_catch.Exception());
     // TODO(tsepez): return error via pError->message.
@@ -399,7 +450,8 @@ int FXJS_Execute(v8::Isolate* pIsolate,
 
 v8::Local<v8::Object> FXJS_NewFxDynamicObj(v8::Isolate* pIsolate,
                                            IJS_Runtime* pIRuntime,
-                                           int nObjDefnID) {
+                                           int nObjDefnID,
+                                           bool bStatic) {
   v8::Isolate::Scope isolate_scope(pIsolate);
   v8::Local<v8::Context> context = pIsolate->GetCurrentContext();
   if (nObjDefnID == -1) {
@@ -423,10 +475,15 @@ v8::Local<v8::Object> FXJS_NewFxDynamicObj(v8::Isolate* pIsolate,
   if (!pObjDef->GetInstanceTemplate()->NewInstance(context).ToLocal(&obj))
     return v8::Local<v8::Object>();
 
-  obj->SetAlignedPointerInInternalField(0, new CFXJS_PerObjectData(nObjDefnID));
+  CFXJS_PerObjectData* pPerObjData = new CFXJS_PerObjectData(nObjDefnID);
+  obj->SetAlignedPointerInInternalField(0, pPerObjData);
   if (pObjDef->m_pConstructor)
     pObjDef->m_pConstructor(pIRuntime, obj);
 
+  if (!bStatic && FXJS_PerIsolateData::Get(pIsolate)->m_pDynamicObjsMap) {
+    FXJS_PerIsolateData::Get(pIsolate)
+        ->m_pDynamicObjsMap->set(pPerObjData, obj);
+  }
   return obj;
 }
 
@@ -455,9 +512,10 @@ void FXJS_Error(v8::Isolate* pIsolate, const CFX_WideString& message) {
   // wide-strings isn't handled by v8, so use UTF8 as a common
   // intermediate format.
   CFX_ByteString utf8_message = message.UTF8Encode();
-  pIsolate->ThrowException(
-      v8::String::NewFromUtf8(pIsolate, utf8_message.c_str(),
-                              v8::NewStringType::kNormal).ToLocalChecked());
+  pIsolate->ThrowException(v8::String::NewFromUtf8(pIsolate,
+                                                   utf8_message.c_str(),
+                                                   v8::NewStringType::kNormal)
+                               .ToLocalChecked());
 }
 
 const wchar_t* FXJS_GetTypeof(v8::Local<v8::Value> pObj) {
@@ -532,7 +590,8 @@ v8::Local<v8::String> FXJS_WSToJSString(v8::Isolate* pIsolate,
   if (!pIsolate)
     pIsolate = v8::Isolate::GetCurrent();
   return v8::String::NewFromUtf8(pIsolate, bs.c_str(),
-                                 v8::NewStringType::kNormal).ToLocalChecked();
+                                 v8::NewStringType::kNormal)
+      .ToLocalChecked();
 }
 
 v8::Local<v8::Value> FXJS_GetObjectElement(v8::Isolate* pIsolate,
@@ -542,7 +601,8 @@ v8::Local<v8::Value> FXJS_GetObjectElement(v8::Isolate* pIsolate,
     return v8::Local<v8::Value>();
   v8::Local<v8::Value> val;
   if (!pObj->Get(pIsolate->GetCurrentContext(),
-                 FXJS_WSToJSString(pIsolate, PropertyName)).ToLocal(&val))
+                 FXJS_WSToJSString(pIsolate, PropertyName))
+           .ToLocal(&val))
     return v8::Local<v8::Value>();
   return val;
 }
@@ -565,7 +625,8 @@ void FXJS_PutObjectString(v8::Isolate* pIsolate,
     return;
   pObj->Set(pIsolate->GetCurrentContext(),
             FXJS_WSToJSString(pIsolate, PropertyName),
-            FXJS_WSToJSString(pIsolate, sValue)).FromJust();
+            FXJS_WSToJSString(pIsolate, sValue))
+      .FromJust();
 }
 
 void FXJS_PutObjectNumber(v8::Isolate* pIsolate,
@@ -576,7 +637,8 @@ void FXJS_PutObjectNumber(v8::Isolate* pIsolate,
     return;
   pObj->Set(pIsolate->GetCurrentContext(),
             FXJS_WSToJSString(pIsolate, PropertyName),
-            v8::Int32::New(pIsolate, nValue)).FromJust();
+            v8::Int32::New(pIsolate, nValue))
+      .FromJust();
 }
 
 void FXJS_PutObjectNumber(v8::Isolate* pIsolate,
@@ -587,7 +649,8 @@ void FXJS_PutObjectNumber(v8::Isolate* pIsolate,
     return;
   pObj->Set(pIsolate->GetCurrentContext(),
             FXJS_WSToJSString(pIsolate, PropertyName),
-            v8::Number::New(pIsolate, (double)fValue)).FromJust();
+            v8::Number::New(pIsolate, (double)fValue))
+      .FromJust();
 }
 
 void FXJS_PutObjectNumber(v8::Isolate* pIsolate,
@@ -598,7 +661,8 @@ void FXJS_PutObjectNumber(v8::Isolate* pIsolate,
     return;
   pObj->Set(pIsolate->GetCurrentContext(),
             FXJS_WSToJSString(pIsolate, PropertyName),
-            v8::Number::New(pIsolate, (double)dValue)).FromJust();
+            v8::Number::New(pIsolate, (double)dValue))
+      .FromJust();
 }
 
 void FXJS_PutObjectBoolean(v8::Isolate* pIsolate,
@@ -609,7 +673,8 @@ void FXJS_PutObjectBoolean(v8::Isolate* pIsolate,
     return;
   pObj->Set(pIsolate->GetCurrentContext(),
             FXJS_WSToJSString(pIsolate, PropertyName),
-            v8::Boolean::New(pIsolate, bValue)).FromJust();
+            v8::Boolean::New(pIsolate, bValue))
+      .FromJust();
 }
 
 void FXJS_PutObjectObject(v8::Isolate* pIsolate,
@@ -619,7 +684,8 @@ void FXJS_PutObjectObject(v8::Isolate* pIsolate,
   if (pObj.IsEmpty())
     return;
   pObj->Set(pIsolate->GetCurrentContext(),
-            FXJS_WSToJSString(pIsolate, PropertyName), pPut).FromJust();
+            FXJS_WSToJSString(pIsolate, PropertyName), pPut)
+      .FromJust();
 }
 
 void FXJS_PutObjectNull(v8::Isolate* pIsolate,
@@ -628,8 +694,8 @@ void FXJS_PutObjectNull(v8::Isolate* pIsolate,
   if (pObj.IsEmpty())
     return;
   pObj->Set(pIsolate->GetCurrentContext(),
-            FXJS_WSToJSString(pIsolate, PropertyName),
-            v8::Local<v8::Object>()).FromJust();
+            FXJS_WSToJSString(pIsolate, PropertyName), v8::Local<v8::Object>())
+      .FromJust();
 }
 
 v8::Local<v8::Array> FXJS_NewArray(v8::Isolate* pIsolate) {
@@ -694,9 +760,8 @@ v8::Local<v8::Value> FXJS_NewObject2(v8::Isolate* pIsolate,
   return pObj->Clone();
 }
 
-v8::Local<v8::Value> FXJS_NewString(v8::Isolate* pIsolate,
-                                    const wchar_t* string) {
-  return FXJS_WSToJSString(pIsolate, string);
+v8::Local<v8::Value> FXJS_NewString(v8::Isolate* pIsolate, const wchar_t* str) {
+  return FXJS_WSToJSString(pIsolate, str);
 }
 
 v8::Local<v8::Value> FXJS_NewNull() {
@@ -756,5 +821,3 @@ v8::Local<v8::Array> FXJS_ToArray(v8::Isolate* pIsolate,
 void FXJS_ValueCopy(v8::Local<v8::Value>& pTo, v8::Local<v8::Value> pFrom) {
   pTo = pFrom;
 }
-
-

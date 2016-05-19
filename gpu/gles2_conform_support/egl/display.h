@@ -6,7 +6,10 @@
 #define GPU_GLES2_CONFORM_SUPPORT_EGL_DISPLAY_H_
 
 #include <EGL/egl.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "gpu/command_buffer/client/gles2_cmd_helper.h"
 #include "gpu/command_buffer/client/gpu_control.h"
@@ -29,10 +32,6 @@ class GLES2CmdHelper;
 class GLES2Implementation;
 }  // namespace gles2
 }  // namespace gpu
-
-namespace base {
-class AtExitManager;
-}  // namespace base
 
 namespace egl {
 
@@ -88,18 +87,13 @@ class Display : private gpu::GpuControl {
                                      size_t height,
                                      unsigned internalformat,
                                      unsigned usage) override;
-  uint32 InsertSyncPoint() override;
-  uint32 InsertFutureSyncPoint() override;
-  void RetireSyncPoint(uint32 sync_point) override;
-  void SignalSyncPoint(uint32 sync_point,
-                       const base::Closure& callback) override;
-  void SignalQuery(uint32 query, const base::Closure& callback) override;
-  void SetSurfaceVisible(bool visible) override;
-  uint32 CreateStreamTexture(uint32 texture_id) override;
+  void SignalQuery(uint32_t query, const base::Closure& callback) override;
   void SetLock(base::Lock*) override;
   bool IsGpuChannelLost() override;
+  void EnsureWorkVisible() override;
   gpu::CommandBufferNamespace GetNamespaceID() const override;
-  uint64_t GetCommandBufferID() const override;
+  gpu::CommandBufferId GetCommandBufferID() const override;
+  int32_t GetExtraCommandBufferData() const override;
   uint64_t GenerateFenceSyncRelease() override;
   bool IsFenceSyncRelease(uint64_t release) override;
   bool IsFenceSyncFlushed(uint64_t release) override;
@@ -112,13 +106,6 @@ class Display : private gpu::GpuControl {
   EGLNativeDisplayType display_id_;
 
   bool is_initialized_;
-
-// elg::Display is used for comformance tests and command_buffer_gles.  We only
-// need the exit manager for the command_buffer_gles library.
-// TODO(hendrikw): Find a cleaner solution for this.
-#if defined(COMMAND_BUFFER_GLES_LIB_SUPPORT_ONLY)
-  scoped_ptr<base::AtExitManager> exit_manager_;
-#endif  // COMMAND_BUFFER_GLES_LIB_SUPPORT_ONLY
 
   bool create_offscreen_;
   int create_offscreen_width_;

@@ -5,10 +5,12 @@
 #ifndef UI_BASE_X_SELECTION_OWNER_H_
 #define UI_BASE_X_SELECTION_OWNER_H_
 
+#include <stddef.h>
+
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -65,6 +67,7 @@ class UI_BASE_EXPORT SelectionOwner {
                         int offset,
                         base::TimeTicks timeout,
                         int foreign_window_manager_id);
+    IncrementalTransfer(const IncrementalTransfer& other);
     ~IncrementalTransfer();
 
     // Parameters from the XSelectionRequest. The data is transferred over

@@ -19,6 +19,10 @@ set(DE_INTERNAL_TESTS_SRCS
 	ditTestPackage.hpp
 	ditSeedBuilderTests.hpp
 	ditSeedBuilderTests.cpp
+	ditSRGB8ConversionTest.hpp
+	ditSRGB8ConversionTest.cpp
+	ditTextureFormatTests.cpp
+	ditTextureFormatTests.hpp
 	)
 
 set(DE_INTERNAL_TESTS_LIBS

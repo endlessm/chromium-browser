@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -51,12 +52,12 @@ bool ShouldRequestEarlyExit(const SyncProtocolError& error) {
     case MIGRATION_DONE:
     case THROTTLED:
     case TRANSIENT_ERROR:
+    case PARTIAL_FAILURE:
       return false;
     case NOT_MY_BIRTHDAY:
     case CLIENT_DATA_OBSOLETE:
     case CLEAR_PENDING:
     case DISABLED_BY_ADMIN:
-    case USER_ROLLBACK:
       // If we send terminate sync early then |sync_cycle_ended| notification
       // would not be sent. If there were no actions then |ACTIONABLE_ERROR|
       // notification wouldnt be sent either. Then the UI layer would be left
@@ -67,12 +68,13 @@ bool ShouldRequestEarlyExit(const SyncProtocolError& error) {
       // The notification for this is handled by PostAndProcessHeaders|.
       // Server does no have to send any action for this.
       return true;
-    // Make the default a NOTREACHED. So if a new error is introduced we
-    // think about its expected functionality.
-    default:
+    // Make UNKNOWN_ERROR a NOTREACHED. All the other error should be explicitly
+    // handled.
+    case UNKNOWN_ERROR:
       NOTREACHED();
       return false;
   }
+  return false;
 }
 
 bool IsActionableError(
@@ -105,12 +107,15 @@ ConfigurationParams::ConfigurationParams(
       retry_task(retry_task) {
   DCHECK(!ready_task.is_null());
 }
+ConfigurationParams::ConfigurationParams(const ConfigurationParams& other) =
+    default;
 ConfigurationParams::~ConfigurationParams() {}
 
 ClearParams::ClearParams(const base::Closure& report_success_task)
     : report_success_task(report_success_task) {
   DCHECK(!report_success_task.is_null());
 }
+ClearParams::ClearParams(const ClearParams& other) = default;
 ClearParams::~ClearParams() {}
 
 SyncSchedulerImpl::WaitInterval::WaitInterval()
@@ -231,7 +236,6 @@ void SyncSchedulerImpl::Start(Mode mode, base::Time last_poll_time) {
     SendInitialSnapshot();
   }
 
-  DCHECK(!session_context_->account_name().empty());
   DCHECK(syncer_.get());
 
   if (mode == CLEAR_SERVER_DATA_MODE) {
@@ -420,8 +424,8 @@ void SyncSchedulerImpl::ScheduleInvalidationNudge(
   SDVLOG_LOC(nudge_location, 2)
       << "Scheduling sync because we received invalidation for "
       << ModelTypeToString(model_type);
-  base::TimeDelta nudge_delay =
-      nudge_tracker_.RecordRemoteInvalidation(model_type, invalidation.Pass());
+  base::TimeDelta nudge_delay = nudge_tracker_.RecordRemoteInvalidation(
+      model_type, std::move(invalidation));
   ScheduleNudgeImpl(nudge_delay, nudge_location);
 }
 

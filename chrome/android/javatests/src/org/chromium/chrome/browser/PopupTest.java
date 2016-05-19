@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser;
 
+import android.os.Environment;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.text.TextUtils;
 
@@ -12,13 +13,14 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.infobar.InfoBar;
+import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
-import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TouchCommon;
+import org.chromium.net.test.EmbeddedTestServer;
 
 import java.util.ArrayList;
 
@@ -27,19 +29,21 @@ import java.util.ArrayList;
  * In document mode, this will end up spawning multiple Activities.
  */
 public class PopupTest extends ChromeActivityTestCaseBase<ChromeActivity> {
-    private static final String POPUP_HTML_FILENAME =
-            TestHttpServerClient.getUrl("chrome/test/data/android/popup_test.html");
+    private static final String POPUP_HTML_PATH = "/chrome/test/data/android/popup_test.html";
+
+    private String mPopupHtmlUrl;
+    private EmbeddedTestServer mTestServer;
 
     public PopupTest() {
         super(ChromeActivity.class);
     }
 
     private int getNumInfobarsShowing() {
-        return getActivity().getActivityTab().getInfoBarContainer().getInfoBars().size();
+        return getInfoBars().size();
     }
 
     @Override
-    public void setUp() throws Exception {
+    protected void setUp() throws Exception {
         super.setUp();
 
         ThreadUtils.runOnUiThread(new Runnable() {
@@ -48,6 +52,16 @@ public class PopupTest extends ChromeActivityTestCaseBase<ChromeActivity> {
                 assertTrue(getNumInfobarsShowing() == 0);
             }
         });
+
+        mTestServer = EmbeddedTestServer.createAndStartFileServer(
+                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mPopupHtmlUrl = mTestServer.getURL(POPUP_HTML_PATH);
+    }
+
+    @Override
+    protected void tearDown() throws Exception {
+        mTestServer.stopAndDestroyServer();
+        super.tearDown();
     }
 
     @Override
@@ -58,13 +72,13 @@ public class PopupTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     @MediumTest
     @Feature({"Popup"})
     public void testPopupInfobarAppears() throws Exception {
-        loadUrl(POPUP_HTML_FILENAME);
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        loadUrl(mPopupHtmlUrl);
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return getNumInfobarsShowing() == 1;
             }
-        }));
+        });
     }
 
     @MediumTest
@@ -76,50 +90,51 @@ public class PopupTest extends ChromeActivityTestCaseBase<ChromeActivity> {
                 ? ChromeApplication.getDocumentTabModelSelector()
                 : getActivity().getTabModelSelector();
 
-        loadUrl(POPUP_HTML_FILENAME);
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        loadUrl(mPopupHtmlUrl);
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return getNumInfobarsShowing() == 1;
             }
-        }));
+        });
         assertEquals(1, selector.getTotalTabCount());
-        ArrayList<InfoBar> infobars = selector.getCurrentTab().getInfoBarContainer().getInfoBars();
+        final InfoBarContainer container = selector.getCurrentTab().getInfoBarContainer();
+        ArrayList<InfoBar> infobars = container.getInfoBarsForTesting();
         assertEquals(1, infobars.size());
 
         // Wait until the animations are done, then click the "open popups" button.
         final InfoBar infobar = infobars.get(0);
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
-                return infobar.areControlsEnabled();
+                return !container.isAnimating();
             }
-        }));
-        TouchCommon.singleClickView(infobar.getContentWrapper().findViewById(R.id.button_primary));
+        });
+        TouchCommon.singleClickView(infobar.getView().findViewById(R.id.button_primary));
 
         // Document mode popups appear slowly and sequentially to prevent Android from throwing them
         // away, so use a long timeout.  http://crbug.com/498920.
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 if (getNumInfobarsShowing() != 0) return false;
                 return TextUtils.equals("Popup #3", selector.getCurrentTab().getTitle());
             }
-        }, 7500, CriteriaHelper.DEFAULT_POLLING_INTERVAL));
+        }, 7500, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
 
         assertEquals(4, selector.getTotalTabCount());
         int currentTabId = selector.getCurrentTab().getId();
 
         // Test that revisiting the original page makes popup windows immediately.
-        loadUrl(POPUP_HTML_FILENAME);
-        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
+        loadUrl(mPopupHtmlUrl);
+        CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 if (getNumInfobarsShowing() != 0) return false;
                 if (selector.getTotalTabCount() != 7) return false;
                 return TextUtils.equals("Popup #3", selector.getCurrentTab().getTitle());
             }
-        }, 7500, CriteriaHelper.DEFAULT_POLLING_INTERVAL));
+        }, 7500, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
         assertNotSame(currentTabId, selector.getCurrentTab().getId());
     }
 }

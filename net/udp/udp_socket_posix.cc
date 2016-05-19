@@ -14,6 +14,7 @@
 
 #include "base/callback.h"
 #include "base/debug/alias.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/sparse_histogram.h"
@@ -22,8 +23,8 @@
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
 #include "net/base/network_activity_monitor.h"
+#include "net/base/sockaddr_storage.h"
 #include "net/log/net_log.h"
 #include "net/socket/socket_descriptor.h"
 #include "net/udp/udp_net_log_parameters.h"
@@ -45,7 +46,7 @@ const int kPortEnd = 65535;
 #if defined(OS_MACOSX)
 
 // Returns IPv4 address in network order.
-int GetIPv4AddressFromIndex(int socket, uint32 index, uint32* address){
+int GetIPv4AddressFromIndex(int socket, uint32_t index, uint32_t* address) {
   if (!index) {
     *address = htonl(INADDR_ANY);
     return OK;
@@ -102,7 +103,7 @@ int UDPSocketPosix::Open(AddressFamily address_family) {
   socket_ = CreatePlatformSocket(addr_family_, SOCK_DGRAM, 0);
   if (socket_ == kInvalidSocket)
     return MapSystemError(errno);
-  if (SetNonBlocking(socket_)) {
+  if (!base::SetNonBlocking(socket_)) {
     const int err = MapSystemError(errno);
     Close();
     return err;
@@ -326,10 +327,12 @@ int UDPSocketPosix::Bind(const IPEndPoint& address) {
 
 int UDPSocketPosix::BindToNetwork(
     NetworkChangeNotifier::NetworkHandle network) {
-#if defined(OS_ANDROID)
   DCHECK_NE(socket_, kInvalidSocket);
   DCHECK(CalledOnValidThread());
   DCHECK(!is_connected());
+  if (network == NetworkChangeNotifier::kInvalidNetworkHandle)
+    return ERR_INVALID_ARGUMENT;
+#if defined(OS_ANDROID)
   // Android prior to Lollipop didn't have support for binding sockets to
   // networks.
   if (base::android::BuildInfo::GetInstance()->sdk_int() <
@@ -353,14 +356,20 @@ int UDPSocketPosix::BindToNetwork(
   }
   if (setNetworkForSocket == nullptr)
     return ERR_NOT_IMPLEMENTED;
-  return MapSystemError(setNetworkForSocket(network, socket_));
+  int rv = setNetworkForSocket(network, socket_);
+  // If |network| has since disconnected, |rv| will be ENONET.  Surface this as
+  // ERR_NETWORK_CHANGED, rather than MapSystemError(ENONET) which gives back
+  // the less descriptive ERR_FAILED.
+  if (rv == ENONET)
+    return ERR_NETWORK_CHANGED;
+  return MapSystemError(rv);
 #else
   NOTIMPLEMENTED();
   return ERR_NOT_IMPLEMENTED;
 #endif
 }
 
-int UDPSocketPosix::SetReceiveBufferSize(int32 size) {
+int UDPSocketPosix::SetReceiveBufferSize(int32_t size) {
   DCHECK_NE(socket_, kInvalidSocket);
   DCHECK(CalledOnValidThread());
   int rv = setsockopt(socket_, SOL_SOCKET, SO_RCVBUF,
@@ -368,7 +377,7 @@ int UDPSocketPosix::SetReceiveBufferSize(int32 size) {
   return rv == 0 ? OK : MapSystemError(errno);
 }
 
-int UDPSocketPosix::SetSendBufferSize(int32 size) {
+int UDPSocketPosix::SetSendBufferSize(int32_t size) {
   DCHECK_NE(socket_, kInvalidSocket);
   DCHECK(CalledOnValidThread());
   int rv = setsockopt(socket_, SOL_SOCKET, SO_SNDBUF,
@@ -608,7 +617,7 @@ int UDPSocketPosix::SetMulticastOptions() {
         break;
       }
       case AF_INET6: {
-        uint32 interface_index = multicast_interface_;
+        uint32_t interface_index = multicast_interface_;
         int rv = setsockopt(socket_, IPPROTO_IPV6, IPV6_MULTICAST_IF,
                             reinterpret_cast<const char*>(&interface_index),
                             sizeof(interface_index));
@@ -738,7 +747,7 @@ int UDPSocketPosix::LeaveGroup(const IPAddressNumber& group_address) const {
   }
 }
 
-int UDPSocketPosix::SetMulticastInterface(uint32 interface_index) {
+int UDPSocketPosix::SetMulticastInterface(uint32_t interface_index) {
   DCHECK(CalledOnValidThread());
   if (is_connected())
     return ERR_SOCKET_IS_CONNECTED;

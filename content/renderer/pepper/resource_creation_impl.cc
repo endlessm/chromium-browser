@@ -4,6 +4,7 @@
 
 #include "content/renderer/pepper/resource_creation_impl.h"
 
+#include "build/build_config.h"
 #include "content/common/content_switches_internal.h"
 #include "content/renderer/pepper/ppb_audio_impl.h"
 #include "content/renderer/pepper/ppb_broker_impl.h"
@@ -123,7 +124,7 @@ PP_Resource ResourceCreationImpl::CreateGraphics3DRaw(
     const int32_t* attrib_list,
     gpu::Capabilities* capabilities,
     base::SharedMemoryHandle* shared_state,
-    uint64_t* command_buffer_id) {
+    gpu::CommandBufferId* command_buffer_id) {
   return PPB_Graphics3D_Impl::CreateRaw(instance, share_context, attrib_list,
                                         capabilities, shared_state,
                                         command_buffer_id);

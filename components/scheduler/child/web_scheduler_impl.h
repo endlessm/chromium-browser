@@ -12,10 +12,6 @@
 #include "third_party/WebKit/public/platform/WebScheduler.h"
 #include "third_party/WebKit/public/platform/WebThread.h"
 
-namespace base {
-class SingleThreadTaskRunner;
-}
-
 namespace scheduler {
 
 class ChildScheduler;
@@ -25,11 +21,10 @@ class WebTaskRunnerImpl;
 
 class SCHEDULER_EXPORT WebSchedulerImpl : public blink::WebScheduler {
  public:
-  WebSchedulerImpl(
-      ChildScheduler* child_scheduler,
-      scoped_refptr<SingleThreadIdleTaskRunner> idle_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> loading_task_runner,
-      scoped_refptr<TaskQueue> timer_task_runner);
+  WebSchedulerImpl(ChildScheduler* child_scheduler,
+                   scoped_refptr<SingleThreadIdleTaskRunner> idle_task_runner,
+                   scoped_refptr<TaskQueue> loading_task_runner,
+                   scoped_refptr<TaskQueue> timer_task_runner);
   ~WebSchedulerImpl() override;
 
   // blink::WebScheduler implementation:
@@ -51,11 +46,6 @@ class SCHEDULER_EXPORT WebSchedulerImpl : public blink::WebScheduler {
   void addPendingNavigation() override {}
   void removePendingNavigation() override {}
   void onNavigationStarted() override {}
-
-  // TODO(alexclarke): Remove when possible.
-  void postTimerTaskAt(const blink::WebTraceLocation& location,
-                       blink::WebTaskRunner::Task* task,
-                       double monotonicTime) override;
 
  private:
   static void runIdleTask(scoped_ptr<blink::WebThread::IdleTask> task,

@@ -16,6 +16,11 @@
 namespace rx
 {
 
+static int IgnoreX11Errors(Display *, XErrorEvent *)
+{
+    return 0;
+}
+
 WindowSurfaceGLX::WindowSurfaceGLX(const FunctionsGLX &glx,
                                    DisplayGLX *glxDisplay,
                                    RendererGL *renderer,
@@ -23,16 +28,15 @@ WindowSurfaceGLX::WindowSurfaceGLX(const FunctionsGLX &glx,
                                    Display *display,
                                    glx::Context context,
                                    glx::FBConfig fbConfig)
-    : SurfaceGL(renderer),
+    : SurfaceGLX(renderer),
       mParent(window),
       mWindow(0),
       mDisplay(display),
       mGLX(glx),
-      mGLXDisplay(*glxDisplay),
+      mGLXDisplay(glxDisplay),
       mContext(context),
       mFBConfig(fbConfig),
-      mGLXWindow(0),
-      mMaxSwapInterval(1)
+      mGLXWindow(0)
 {
 }
 
@@ -45,20 +49,41 @@ WindowSurfaceGLX::~WindowSurfaceGLX()
 
     if (mWindow)
     {
+        // When destroying the window, it may happen that the window has already been
+        // destroyed by the application (this happens in Chromium). There is no way to
+        // atomically check that a window exists and to destroy it so instead we call
+        // XDestroyWindow, ignoring any errors.
+        auto oldErrorHandler = XSetErrorHandler(IgnoreX11Errors);
         XDestroyWindow(mDisplay, mWindow);
+        XSync(mDisplay, False);
+        XSetErrorHandler(oldErrorHandler);
     }
 
-    mGLXDisplay.syncXCommands();
+    mGLXDisplay->syncXCommands();
 }
 
 egl::Error WindowSurfaceGLX::initialize()
 {
+    // Check that the window's visual ID is valid, as part of the AMGLE_x11_visual
+    // extension.
+    {
+        XWindowAttributes windowAttributes;
+        XGetWindowAttributes(mDisplay, mParent, &windowAttributes);
+        unsigned long visualId = windowAttributes.visual->visualid;
+
+        if (!mGLXDisplay->isValidWindowVisualId(visualId))
+        {
+            return egl::Error(EGL_BAD_MATCH,
+                              "The visual of native_window doesn't match the visual given with "
+                              "ANGLE_X11_VISUAL_ID");
+        }
+    }
+
     // The visual of the X window, GLX window and GLX context must match,
     // however we received a user-created window that can have any visual
     // and wouldn't work with our GLX context. To work in all cases, we
     // create a child window with the right visual that covers all of its
     // parent.
-
     XVisualInfo *visualInfo = mGLX.getVisualFromFBConfig(mFBConfig);
     if (!visualInfo)
     {
@@ -95,18 +120,13 @@ egl::Error WindowSurfaceGLX::initialize()
                             0, visualInfo->depth, InputOutput, visual, attributeMask, &attributes);
     mGLXWindow = mGLX.createWindow(mFBConfig, mWindow, nullptr);
 
-    if (mGLX.hasExtension("GLX_EXT_swap_control"))
-    {
-        mGLX.queryDrawable(mGLXWindow, GLX_MAX_SWAP_INTERVAL_EXT, &mMaxSwapInterval);
-    }
-
     XMapWindow(mDisplay, mWindow);
     XFlush(mDisplay);
 
     XFree(visualInfo);
     XFreeColormap(mDisplay, colormap);
 
-    mGLXDisplay.syncXCommands();
+    mGLXDisplay->syncXCommands();
 
     return egl::Error(EGL_SUCCESS);
 }
@@ -122,25 +142,16 @@ egl::Error WindowSurfaceGLX::makeCurrent()
 
 egl::Error WindowSurfaceGLX::swap()
 {
-    //TODO(cwallez) set up our own error handler to see if the call failed
-    unsigned int newParentWidth, newParentHeight;
-    if (!getWindowDimensions(mParent, &newParentWidth, &newParentHeight))
-    {
-        // TODO(cwallez) What error type here?
-        return egl::Error(EGL_BAD_CURRENT_SURFACE, "Failed to retrieve the size of the parent window.");
-    }
-
-    if (mParentWidth != newParentWidth || mParentHeight != newParentHeight)
-    {
-        mParentWidth = newParentWidth;
-        mParentHeight = newParentHeight;
-
-        mGLX.waitGL();
-        XResizeWindow(mDisplay, mWindow, mParentWidth, mParentHeight);
-        mGLX.waitX();
-    }
-
+    // We need to swap before resizing as some drivers clobber the back buffer
+    // when the window is resized.
+    mGLXDisplay->setSwapInterval(mGLXWindow, &mSwapControl);
     mGLX.swapBuffers(mGLXWindow);
+
+    egl::Error error = checkForResize();
+    if (error.isError())
+    {
+        return error;
+    }
 
     return egl::Error(EGL_SUCCESS);
 }
@@ -157,7 +168,7 @@ egl::Error WindowSurfaceGLX::querySurfacePointerANGLE(EGLint attribute, void **v
     return egl::Error(EGL_SUCCESS);
 }
 
-egl::Error WindowSurfaceGLX::bindTexImage(EGLint buffer)
+egl::Error WindowSurfaceGLX::bindTexImage(gl::Texture *texture, EGLint buffer)
 {
     UNIMPLEMENTED();
     return egl::Error(EGL_SUCCESS);
@@ -171,12 +182,7 @@ egl::Error WindowSurfaceGLX::releaseTexImage(EGLint buffer)
 
 void WindowSurfaceGLX::setSwapInterval(EGLint interval)
 {
-    if (mGLX.hasExtension("GLX_EXT_swap_control"))
-    {
-        // TODO(cwallez) error checking?
-        const int realInterval = std::min(interval, static_cast<int>(mMaxSwapInterval));
-        mGLX.swapIntervalEXT(mGLXWindow, realInterval);
-    }
+    mSwapControl.targetSwapInterval = interval;
 }
 
 EGLint WindowSurfaceGLX::getWidth() const
@@ -200,6 +206,30 @@ EGLint WindowSurfaceGLX::isPostSubBufferSupported() const
 EGLint WindowSurfaceGLX::getSwapBehavior() const
 {
     return EGL_BUFFER_PRESERVED;
+}
+
+egl::Error WindowSurfaceGLX::checkForResize()
+{
+    // TODO(cwallez) set up our own error handler to see if the call failed
+    unsigned int newParentWidth, newParentHeight;
+    if (!getWindowDimensions(mParent, &newParentWidth, &newParentHeight))
+    {
+        return egl::Error(EGL_BAD_CURRENT_SURFACE,
+                          "Failed to retrieve the size of the parent window.");
+    }
+
+    if (mParentWidth != newParentWidth || mParentHeight != newParentHeight)
+    {
+        mParentWidth  = newParentWidth;
+        mParentHeight = newParentHeight;
+
+        mGLX.waitGL();
+        XResizeWindow(mDisplay, mWindow, mParentWidth, mParentHeight);
+        mGLX.waitX();
+        XSync(mDisplay, False);
+    }
+
+    return egl::Error(EGL_SUCCESS);
 }
 
 bool WindowSurfaceGLX::getWindowDimensions(Window window, unsigned int *width, unsigned int *height) const

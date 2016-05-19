@@ -30,8 +30,8 @@
 #include "ash/test/shell_test_api.h"
 #include "ash/test/test_shelf_delegate.h"
 #include "ash/test/test_shelf_item_delegate.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/i18n/rtl.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/histogram_tester.h"
@@ -40,7 +40,6 @@
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
@@ -240,12 +239,11 @@ TEST_F(ShelfViewIconObserverTest, BoundsChanged) {
 // ShelfView tests.
 
 // A ShelfDelegate test double that will always convert between ShelfIDs and app
-// ids. This does not support pinning and unpinning operations however CanPin()
-// will return true and the return value of IsAppPinned(...) is configurable.
+// ids. This does not support pinning and unpinning operations and the return
+// value of IsAppPinned(...) is configurable.
 class TestShelfDelegateForShelfView : public ShelfDelegate {
  public:
-  explicit TestShelfDelegateForShelfView(ShelfModel* model)
-      : model_(model) {}
+  TestShelfDelegateForShelfView() {}
   ~TestShelfDelegateForShelfView() override {}
 
   void set_is_app_pinned(bool is_pinned) { is_app_pinned_ = is_pinned; }
@@ -276,13 +274,9 @@ class TestShelfDelegateForShelfView : public ShelfDelegate {
     return is_app_pinned_;
   }
 
-  bool CanPin() const override { return true; }
-
   void UnpinAppWithID(const std::string& app_id) override { NOTREACHED(); }
 
  private:
-  ShelfModel* model_;
-
   // Tracks whether apps are pinned or not.
   bool is_app_pinned_ = false;
 
@@ -336,7 +330,7 @@ class ShelfViewTest : public AshTestBase {
  protected:
   void CreateAndSetShelfItemDelegateForID(ShelfID id) {
     scoped_ptr<ShelfItemDelegate> delegate(new TestShelfItemDelegate(NULL));
-    item_manager_->SetShelfItemDelegate(id, delegate.Pass());
+    item_manager_->SetShelfItemDelegate(id, std::move(delegate));
   }
 
   ShelfID AddBrowserShortcut() {
@@ -475,20 +469,80 @@ class ShelfViewTest : public AshTestBase {
     button_host->PointerReleasedOnButton(button, ShelfButtonHost::MOUSE, false);
   }
 
+  void DoDrag(int dist_x,
+              int dist_y,
+              views::View* button,
+              ShelfButtonHost::Pointer pointer,
+              views::View* to) {
+    ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED, gfx::Point(dist_x, dist_y),
+                              to->GetBoundsInScreen().origin(),
+                              ui::EventTimeForNow(), 0, 0);
+    static_cast<ShelfButtonHost*>(shelf_view_)
+        ->PointerDraggedOnButton(button, pointer, drag_event);
+  }
+
+  /*
+   * Trigger ContinueDrag of the shelf
+   * The argument progressively means whether to simulate the drag progress (a
+   * series of changes of the posistion of dragged item), like the normal user
+   * drag behavior.
+   */
+  void ContinueDrag(views::View* button,
+                    ShelfButtonHost::Pointer pointer,
+                    int from_index,
+                    int to_index,
+                    bool progressively) {
+    views::View* to = test_api_->GetButton(to_index);
+    views::View* from = test_api_->GetButton(from_index);
+    int dist_x = to->x() - from->x();
+    int dist_y = to->y() - from->y();
+    if (progressively) {
+      int sgn = dist_x > 0 ? 1 : -1;
+      dist_x = abs(dist_x);
+      for (; dist_x; dist_x -= std::min(10, dist_x))
+        DoDrag(sgn * std::min(10, abs(dist_x)), 0, button, pointer, to);
+    } else {
+      DoDrag(dist_x, dist_y, button, pointer, to);
+    }
+  }
+
+  /*
+   * Simulate drag operation.
+   * Argument progressively means whether to simulate the drag progress (a
+   * series of changes of the posistion of dragged item) like the behavior of
+   * user drags.
+   */
   views::View* SimulateDrag(ShelfButtonHost::Pointer pointer,
                             int button_index,
-                            int destination_index) {
-    ShelfButtonHost* button_host = shelf_view_;
+                            int destination_index,
+                            bool progressively) {
     views::View* button = SimulateButtonPressed(pointer, button_index);
 
-    // Drag.
-    views::View* destination = test_api_->GetButton(destination_index);
-    ui::MouseEvent drag_event(
-        ui::ET_MOUSE_DRAGGED, gfx::Point(destination->x() - button->x(),
-                                         destination->y() - button->y()),
-        destination->GetBoundsInScreen().origin(), ui::EventTimeForNow(), 0, 0);
-    button_host->PointerDraggedOnButton(button, pointer, drag_event);
+    if (!progressively) {
+      ContinueDrag(button, pointer, button_index, destination_index, false);
+    } else if (button_index < destination_index) {
+      for (int cur_index = button_index + 1; cur_index <= destination_index;
+           cur_index++)
+        ContinueDrag(button, pointer, cur_index - 1, cur_index, true);
+    } else if (button_index > destination_index) {
+      for (int cur_index = button_index - 1; cur_index >= destination_index;
+           cur_index--)
+        ContinueDrag(button, pointer, cur_index + 1, cur_index, true);
+    }
     return button;
+  }
+
+  void DragAndVerify(
+      int from,
+      int to,
+      ShelfButtonHost* button_host,
+      const std::vector<std::pair<int, views::View*>>& expected_id_map) {
+    views::View* dragged_button =
+        SimulateDrag(ShelfButtonHost::MOUSE, from, to, true);
+    button_host->PointerReleasedOnButton(dragged_button, ShelfButtonHost::MOUSE,
+                                         false);
+    test_api_->RunMessageLoopUntilAnimationsDone();
+    ASSERT_NO_FATAL_FAILURE(CheckModelIDs(expected_id_map));
   }
 
   void SetupForDragTest(
@@ -624,7 +678,7 @@ class ShelfViewTest : public AshTestBase {
     // Replace ShelfDelegate.
     test::ShellTestApi shell_test_api(Shell::GetInstance());
     shell_test_api.SetShelfDelegate(NULL);
-    shelf_delegate_ = new TestShelfDelegateForShelfView(model_);
+    shelf_delegate_ = new TestShelfDelegateForShelfView();
     shell_test_api.SetShelfDelegate(shelf_delegate_);
     test::ShelfTestAPI(Shelf::ForPrimaryDisplay())
         .SetShelfDelegate(shelf_delegate_);
@@ -653,7 +707,7 @@ const char*
 class ScopedTextDirectionChange {
  public:
   explicit ScopedTextDirectionChange(bool is_rtl) : is_rtl_(is_rtl) {
-    original_locale_ = l10n_util::GetApplicationLocale(std::string());
+    original_locale_ = base::i18n::GetConfiguredLocale();
     if (is_rtl_)
       base::i18n::SetICUDefaultLocale("he");
     CheckTextDirectionIsCorrect();
@@ -943,6 +997,31 @@ TEST_F(ShelfViewTest, AssertNoButtonsOverlap) {
   }
 }
 
+// Making sure the overflow bubble arrow correctly tracks with shelf position.
+TEST_F(ShelfViewTest, OverflowArrowForShelfPosition) {
+  const ShelfAlignment kAlignments[] = {
+      SHELF_ALIGNMENT_BOTTOM, SHELF_ALIGNMENT_LEFT, SHELF_ALIGNMENT_RIGHT,
+      SHELF_ALIGNMENT_TOP};
+
+  // These must match what is expected for each alignment above.
+  const views::BubbleBorder::Arrow kArrows[] = {
+      views::BubbleBorder::BOTTOM_LEFT, views::BubbleBorder::LEFT_TOP,
+      views::BubbleBorder::RIGHT_TOP, views::BubbleBorder::TOP_LEFT};
+
+  for (int i = 0; i < 4; i++) {
+    shelf_view_->shelf_layout_manager()->SetAlignment(kAlignments[i]);
+
+    // Make sure there are enough icons to trigger the overflow in new
+    // orientation.
+    AddButtonsUntilOverflow();
+    test_api_->ShowOverflowBubble();
+    ASSERT_TRUE(test_api_->overflow_bubble() &&
+                test_api_->overflow_bubble()->IsShowing());
+
+    EXPECT_EQ(test_api_->overflow_bubble()->bubble_view()->arrow(), kArrows[i]);
+  }
+}
+
 // Adds button until overflow then removes first added one. Verifies that
 // the last added one changes from invisible to visible and overflow
 // chevron is gone.
@@ -1035,7 +1114,8 @@ TEST_F(ShelfViewTest, ModelChangesWhileDragging) {
 
   // Dragging browser shortcut at index 1.
   EXPECT_TRUE(model_->items()[1].type == TYPE_BROWSER_SHORTCUT);
-  views::View* dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3);
+  views::View* dragged_button =
+      SimulateDrag(ShelfButtonHost::MOUSE, 1, 3, false);
   std::rotate(id_map.begin() + 1,
               id_map.begin() + 2,
               id_map.begin() + 4);
@@ -1045,7 +1125,7 @@ TEST_F(ShelfViewTest, ModelChangesWhileDragging) {
   EXPECT_TRUE(model_->items()[3].type == TYPE_BROWSER_SHORTCUT);
 
   // Dragging changes model order.
-  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3);
+  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3, false);
   std::rotate(id_map.begin() + 1,
               id_map.begin() + 2,
               id_map.begin() + 4);
@@ -1060,7 +1140,7 @@ TEST_F(ShelfViewTest, ModelChangesWhileDragging) {
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
 
   // Deleting an item keeps the remaining intact.
-  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3);
+  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3, false);
   model_->RemoveItemAt(1);
   id_map.erase(id_map.begin() + 1);
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
@@ -1068,7 +1148,7 @@ TEST_F(ShelfViewTest, ModelChangesWhileDragging) {
       dragged_button, ShelfButtonHost::MOUSE, false);
 
   // Adding a shelf item cancels the drag and respects the order.
-  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3);
+  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3, false);
   ShelfID new_id = AddAppShortcut();
   id_map.insert(id_map.begin() + 6,
                 std::make_pair(new_id, GetButtonByID(new_id)));
@@ -1078,7 +1158,7 @@ TEST_F(ShelfViewTest, ModelChangesWhileDragging) {
 
   // Adding a shelf item at the end (i.e. a panel)  canels drag and respects
   // the order.
-  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3);
+  dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3, false);
   new_id = AddPanel();
   id_map.insert(id_map.begin() + 7,
                 std::make_pair(new_id, GetButtonByID(new_id)));
@@ -1096,14 +1176,14 @@ TEST_F(ShelfViewTest, SimultaneousDrag) {
 
   // Start a mouse drag.
   views::View* dragged_button_mouse =
-      SimulateDrag(ShelfButtonHost::MOUSE, 1, 3);
+      SimulateDrag(ShelfButtonHost::MOUSE, 1, 3, false);
   std::rotate(id_map.begin() + 1,
               id_map.begin() + 2,
               id_map.begin() + 4);
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
   // Attempt a touch drag before the mouse drag finishes.
   views::View* dragged_button_touch =
-      SimulateDrag(ShelfButtonHost::TOUCH, 4, 2);
+      SimulateDrag(ShelfButtonHost::TOUCH, 4, 2, false);
 
   // Nothing changes since 2nd drag is ignored.
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
@@ -1114,14 +1194,14 @@ TEST_F(ShelfViewTest, SimultaneousDrag) {
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
 
   // Now start a touch drag.
-  dragged_button_touch = SimulateDrag(ShelfButtonHost::TOUCH, 4, 2);
+  dragged_button_touch = SimulateDrag(ShelfButtonHost::TOUCH, 4, 2, false);
   std::rotate(id_map.begin() + 3,
               id_map.begin() + 4,
               id_map.begin() + 5);
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
 
   // And attempt a mouse drag before the touch drag finishes.
-  dragged_button_mouse = SimulateDrag(ShelfButtonHost::MOUSE, 1, 2);
+  dragged_button_mouse = SimulateDrag(ShelfButtonHost::MOUSE, 1, 2, false);
 
   // Nothing changes since 2nd drag is ignored.
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
@@ -1129,6 +1209,28 @@ TEST_F(ShelfViewTest, SimultaneousDrag) {
   button_host->PointerReleasedOnButton(
       dragged_button_touch, ShelfButtonHost::TOUCH, false);
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
+}
+
+// Check that whether the ash behaves correctly if not draggable
+// item are in front of the shelf.
+TEST_F(ShelfViewTest, DragWithNotDraggableItemInFront) {
+  std::vector<std::pair<ShelfID, views::View*>> id_map;
+  SetupForDragTest(&id_map);
+
+  (static_cast<TestShelfItemDelegate*>(
+       item_manager_->GetShelfItemDelegate(id_map[1].first)))
+      ->set_is_draggable(false);
+  (static_cast<TestShelfItemDelegate*>(
+       item_manager_->GetShelfItemDelegate(id_map[2].first)))
+      ->set_is_draggable(false);
+
+  ASSERT_NO_FATAL_FAILURE(DragAndVerify(3, 1, shelf_view_, id_map));
+  ASSERT_NO_FATAL_FAILURE(DragAndVerify(3, 2, shelf_view_, id_map));
+
+  std::rotate(id_map.begin() + 3, id_map.begin() + 4, id_map.begin() + 5);
+  ASSERT_NO_FATAL_FAILURE(DragAndVerify(4, 1, shelf_view_, id_map));
+  std::rotate(id_map.begin() + 3, id_map.begin() + 5, id_map.begin() + 6);
+  ASSERT_NO_FATAL_FAILURE(DragAndVerify(5, 1, shelf_view_, id_map));
 }
 
 // Check that clicking first on one item and then dragging another works as
@@ -1144,7 +1246,8 @@ TEST_F(ShelfViewTest, ClickOneDragAnother) {
 
   // Dragging browser index at 0 should change the model order correctly.
   EXPECT_TRUE(model_->items()[1].type == TYPE_BROWSER_SHORTCUT);
-  views::View* dragged_button = SimulateDrag(ShelfButtonHost::MOUSE, 1, 3);
+  views::View* dragged_button =
+      SimulateDrag(ShelfButtonHost::MOUSE, 1, 3, false);
   std::rotate(id_map.begin() + 1,
               id_map.begin() + 2,
               id_map.begin() + 4);
@@ -1160,8 +1263,7 @@ TEST_F(ShelfViewTest, ClickingTwiceActivatesOnce) {
   ShelfID browser_shelf_id = model_->items()[browser_index_].id;
   ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
   item_manager_->SetShelfItemDelegate(
-      browser_shelf_id,
-      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+      browser_shelf_id, scoped_ptr<ShelfItemDelegate>(selection_tracker));
 
   // A single click selects the item.
   SimulateClick(browser_index_);
@@ -1186,8 +1288,7 @@ TEST_F(ShelfViewTest, ClickAndMoveSlightly) {
   // the shelf item gets selected.
   ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
   item_manager_->SetShelfItemDelegate(
-      shelf_id,
-      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+      shelf_id, scoped_ptr<ShelfItemDelegate>(selection_tracker));
 
   gfx::Vector2d press_offset(5, 30);
   gfx::Point press_location = gfx::Point() + press_offset;
@@ -1583,8 +1684,7 @@ TEST_F(ShelfViewTest, CheckDragInsertBoundsOfScrolledOverflowBubble) {
   ASSERT_TRUE(test_api_->overflow_bubble() &&
               test_api_->overflow_bubble()->IsShowing());
 
-  int item_width = test_api_->GetButtonSize() +
-      test_api_->GetButtonSpacing();
+  int item_width = test_api_->GetButtonSize() + test_api_->GetButtonSpacing();
   OverflowBubbleView* bubble_view = test_api_->overflow_bubble()->bubble_view();
   test::OverflowBubbleViewTestAPI bubble_view_api(bubble_view);
 
@@ -1793,8 +1893,7 @@ TEST_F(ShelfViewTest,
   ShelfID browser_shelf_id = model_->items()[browser_index_].id;
   ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
   item_manager_->SetShelfItemDelegate(
-      browser_shelf_id,
-      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+      browser_shelf_id, scoped_ptr<ShelfItemDelegate>(selection_tracker));
 
   SimulateClick(browser_index_);
   EXPECT_EQ(1,
@@ -1811,8 +1910,7 @@ TEST_F(ShelfViewTest, Launcher_TaskUserActionsRecordedWhenItemSelected) {
   selection_tracker->set_item_selected_action(
       ShelfItemDelegate::kNewWindowCreated);
   item_manager_->SetShelfItemDelegate(
-      browser_shelf_id,
-      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+      browser_shelf_id, scoped_ptr<ShelfItemDelegate>(selection_tracker));
 
   SimulateClick(browser_index_);
   EXPECT_EQ(1, user_action_tester.GetActionCount("Launcher_LaunchTask"));
@@ -1827,8 +1925,7 @@ TEST_F(ShelfViewTest,
   ShelfID browser_shelf_id = model_->items()[browser_index_].id;
   ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
   item_manager_->SetShelfItemDelegate(
-      browser_shelf_id,
-      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+      browser_shelf_id, scoped_ptr<ShelfItemDelegate>(selection_tracker));
 
   selection_tracker->set_item_selected_action(
       ShelfItemDelegate::kExistingWindowMinimized);

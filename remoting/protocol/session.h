@@ -7,19 +7,26 @@
 
 #include <string>
 
+#include "base/macros.h"
 #include "remoting/protocol/errors.h"
 #include "remoting/protocol/session_config.h"
+#include "remoting/protocol/transport.h"
+
+namespace buzz {
+class XmlElement;
+}  // namespace buzz
 
 namespace remoting {
 namespace protocol {
 
+class Authenicator;
 class StreamChannelFactory;
 class Transport;
 struct TransportRoute;
 
-// Generic interface for Chromotocol connection used by both client and host.
-// Provides access to the connection channels, but doesn't depend on the
-// protocol used for each channel.
+// Session is responsible for initializing and authenticating both incoming and
+// outgoing connections. It uses TransportInfoSink interface to pass
+// transport-info messages to the transport.
 class Session {
  public:
   enum State {
@@ -33,7 +40,7 @@ class Session {
     ACCEPTING,
 
     // Session has been accepted and is pending authentication.
-    CONNECTED,
+    ACCEPTED,
 
     // Session has started authenticating.
     AUTHENTICATING,
@@ -57,12 +64,6 @@ class Session {
     // the session from within the handler if |state| is AUTHENTICATING
     // or CLOSED or FAILED.
     virtual void OnSessionStateChange(State state) = 0;
-
-    // Called whenever route for the channel specified with
-    // |channel_name| changes. Session must not be destroyed by the
-    // handler of this event.
-    virtual void OnSessionRouteChange(const std::string& channel_name,
-                                      const TransportRoute& route) = 0;
   };
 
   Session() {}
@@ -82,14 +83,11 @@ class Session {
   // Returned pointer is valid until connection is closed.
   virtual const SessionConfig& config() = 0;
 
-  // Returns Transport that can be used to create transport channels.
-  virtual Transport* GetTransport() = 0;
+  // Sets Transport to be used by the session. Must be called before the
+  // session becomes AUTHENTICATED. The transport must outlive the session.
+  virtual void SetTransport(Transport* transport) = 0;
 
-  // Channel factory for QUIC-based channels. Returns nullptr when QUIC is
-  // disabled for the session.
-  virtual StreamChannelFactory* GetQuicChannelFactory() = 0;
-
-  // Closes connection. Callbacks are guaranteed not to be called after this
+  // Closes connection. EventHandler is guaranteed not to be called after this
   // method returns. |error| specifies the error code in case when the session
   // is being closed due to an error.
   virtual void Close(ErrorCode error) = 0;

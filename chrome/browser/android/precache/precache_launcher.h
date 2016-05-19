@@ -9,14 +9,15 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_weak_ref.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 
 class PrecacheLauncher {
  public:
   PrecacheLauncher(JNIEnv* env, jobject obj);
-  void Destroy(JNIEnv* env, jobject obj);
-  void Start(JNIEnv* env, jobject obj);
-  void Cancel(JNIEnv* env, jobject obj);
+  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
+  void Start(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
+  void Cancel(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
  private:
   ~PrecacheLauncher();

@@ -5,10 +5,12 @@
 #ifndef CONTENT_CHILD_NPAPI_WEBPLUGIN_H_
 #define CONTENT_CHILD_NPAPI_WEBPLUGIN_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "build/build_config.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gl/gpu_preference.h"
@@ -47,8 +49,6 @@ class WebPlugin {
   // destroyed.
   virtual void WillDestroyWindow(gfx::PluginWindowHandle window) = 0;
 
-  // Cancels a pending request.
-  virtual void CancelResource(unsigned long id) = 0;
   virtual void Invalidate() = 0;
   virtual void InvalidateRect(const gfx::Rect& rect) = 0;
 
@@ -70,48 +70,14 @@ class WebPlugin {
   virtual std::string GetCookies(const GURL& url,
                                  const GURL& first_party_for_cookies) = 0;
 
-  // Handles GetURL/GetURLNotify/PostURL/PostURLNotify requests initiated
-  // by plugins.  If the plugin wants notification of the result, notify_id will
-  // be non-zero.
-  virtual void HandleURLRequest(const char* url,
-                                const char* method,
-                                const char* target,
-                                const char* buf,
-                                unsigned int len,
-                                int notify_id,
-                                bool popups_allowed,
-                                bool notify_redirects) = 0;
-
   // Cancels document load.
   virtual void CancelDocumentLoad() = 0;
-
-  // Initiates a HTTP range request for an existing stream.
-  virtual void InitiateHTTPRangeRequest(const char* url,
-                                        const char* range_info,
-                                        int range_request_id) = 0;
 
   virtual void DidStartLoading() = 0;
   virtual void DidStopLoading() = 0;
 
   // Returns true iff in incognito mode.
   virtual bool IsOffTheRecord() = 0;
-
-  // Called when the WebPluginResourceClient instance is deleted.
-  virtual void ResourceClientDeleted(
-      WebPluginResourceClient* resource_client) {}
-
-  // Defers the loading of the resource identified by resource_id. This is
-  // controlled by the defer parameter.
-  virtual void SetDeferResourceLoading(unsigned long resource_id,
-                                       bool defer) = 0;
-
-  // Handles NPN_URLRedirectResponse calls issued by plugins in response to
-  // HTTP URL redirect notifications.
-  virtual void URLRedirectResponse(bool allow, int resource_id) = 0;
-
-  // Returns true if the new url is a secure transition. This is to catch a
-  // plugin src url transitioning from https to http.
-  virtual bool CheckIfRunInsecureContent(const GURL& url) = 0;
 
 #if defined(OS_WIN)
   // |pump_messages_event| is a event handle which is used in NPP_HandleEvent
@@ -136,9 +102,9 @@ class WebPlugin {
   // Core Animation plugin support. CA plugins always render through
   // the compositor.
   virtual void AcceleratedPluginEnabledRendering() = 0;
-  virtual void AcceleratedPluginAllocatedIOSurface(int32 width,
-                                                   int32 height,
-                                                   uint32 surface_id) = 0;
+  virtual void AcceleratedPluginAllocatedIOSurface(int32_t width,
+                                                   int32_t height,
+                                                   uint32_t surface_id) = 0;
   virtual void AcceleratedPluginSwappedIOSurface() = 0;
 #endif
 };

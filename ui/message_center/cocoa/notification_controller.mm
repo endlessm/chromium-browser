@@ -4,6 +4,8 @@
 
 #import "ui/message_center/cocoa/notification_controller.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 
 #include "base/mac/foundation_util.h"
@@ -39,7 +41,7 @@
   NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:dirtyRect
       xRadius:message_center::kProgressBarCornerRadius
       yRadius:message_center::kProgressBarCornerRadius];
-  [gfx::SkColorToCalibratedNSColor(message_center::kProgressBarBackgroundColor)
+  [skia::SkColorToCalibratedNSColor(message_center::kProgressBarBackgroundColor)
       set];
   [path fill];
 
@@ -49,7 +51,8 @@
   path = [NSBezierPath bezierPathWithRoundedRect:sliceRect
       xRadius:message_center::kProgressBarCornerRadius
       yRadius:message_center::kProgressBarCornerRadius];
-  [gfx::SkColorToCalibratedNSColor(message_center::kProgressBarSliceColor) set];
+  [skia::SkColorToCalibratedNSColor(message_center::kProgressBarSliceColor)
+      set];
   [path fill];
 }
 
@@ -77,7 +80,7 @@
 // drawRect: needs to fill the button with a background, otherwise we don't get
 // subpixel antialiasing.
 - (void)drawRect:(NSRect)dirtyRect {
-  NSColor* color = gfx::SkColorToCalibratedNSColor(
+  NSColor* color = skia::SkColorToCalibratedNSColor(
       message_center::kNotificationBackgroundColor);
   [color set];
   NSRectFill(dirtyRect);
@@ -103,7 +106,7 @@
 
   if (!hovered_)
     return;
-  [gfx::SkColorToCalibratedNSColor(
+  [skia::SkColorToCalibratedNSColor(
       message_center::kHoveredButtonBackgroundColor) set];
   NSRectFill(frame);
 }
@@ -140,7 +143,7 @@
     NSFontAttributeName :
         [title attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL],
     NSForegroundColorAttributeName :
-        gfx::SkColorToCalibratedNSColor(message_center::kRegularTextColor),
+        skia::SkColorToCalibratedNSColor(message_center::kRegularTextColor),
   };
   [[title string] drawWithRect:frame
                        options:(NSStringDrawingUsesLineFragmentOrigin |
@@ -319,7 +322,7 @@
   base::scoped_nsobject<MCNotificationView> rootView(
       [[MCNotificationView alloc] initWithController:self frame:rootFrame]);
   [self configureCustomBox:rootView];
-  [rootView setFillColor:gfx::SkColorToCalibratedNSColor(
+  [rootView setFillColor:skia::SkColorToCalibratedNSColor(
       message_center::kNotificationBackgroundColor)];
   [self setView:rootView];
 
@@ -361,9 +364,10 @@
   DCHECK_EQ(notification->id(), notificationID_);
   notification_ = notification;
 
-  NSRect rootFrame = NSMakeRect(0, 0,
-      message_center::kNotificationPreferredImageWidth,
-      message_center::kNotificationIconSize);
+  message_center::NotificationLayoutParams layoutParams;
+  layoutParams.rootFrame =
+      NSMakeRect(0, 0, message_center::kNotificationPreferredImageWidth,
+                 message_center::kNotificationIconSize);
 
   [smallImage_ setImage:notification_->small_image().AsNSImage()];
 
@@ -397,8 +401,10 @@
                         maxNumberOfLines:message_center::kMaxTitleLines
                              actualLines:&actualTitleLines])];
   [title_ sizeToFit];
-  NSRect titleFrame = [title_ frame];
-  titleFrame.origin.y = NSMaxY(rootFrame) - titlePadding - NSHeight(titleFrame);
+  layoutParams.titleFrame = [title_ frame];
+  layoutParams.titleFrame.origin.y = NSMaxY(layoutParams.rootFrame) -
+                                     titlePadding -
+                                     NSHeight(layoutParams.titleFrame);
 
   // The number of message lines depends on the number of context message lines
   // and the lines within the title, and whether an image exists.
@@ -421,7 +427,7 @@
              forFont:[message_ font]
       maxNumberOfLines:messageLineLimit])];
   [message_ sizeToFit];
-  NSRect messageFrame = [message_ frame];
+  layoutParams.messageFrame = [message_ frame];
 
   // If there are list items, then the message_ view should not be displayed.
   const std::vector<message_center::NotificationItem>& items =
@@ -431,13 +437,14 @@
   // space (size to fit leaves it 15 px tall.
   if (items.size() > 0 || notification_->message().empty()) {
     [message_ setHidden:YES];
-    messageFrame.origin.y = titleFrame.origin.y;
-    messageFrame.size.height = 0;
+    layoutParams.messageFrame.origin.y = layoutParams.titleFrame.origin.y;
+    layoutParams.messageFrame.size.height = 0;
   } else {
     [message_ setHidden:NO];
-    messageFrame.origin.y =
-        NSMinY(titleFrame) - messagePadding - NSHeight(messageFrame);
-    messageFrame.size.height = NSHeight([message_ frame]);
+    layoutParams.messageFrame.origin.y = NSMinY(layoutParams.titleFrame) -
+                                         messagePadding -
+                                         NSHeight(layoutParams.messageFrame);
+    layoutParams.messageFrame.size.height = NSHeight([message_ frame]);
   }
 
   // Set the context message and recalculate the frame.
@@ -458,31 +465,46 @@
   [contextMessage_ setString:base::SysUTF16ToNSString(elided)];
   [contextMessage_ sizeToFit];
 
-  NSRect contextMessageFrame = [contextMessage_ frame];
+  layoutParams.contextMessageFrame = [contextMessage_ frame];
 
   if (notification->context_message().empty() &&
       !notification->UseOriginAsContextMessage()) {
     [contextMessage_ setHidden:YES];
-    contextMessageFrame.origin.y = messageFrame.origin.y;
-    contextMessageFrame.size.height = 0;
+    layoutParams.contextMessageFrame.origin.y =
+        layoutParams.messageFrame.origin.y;
+    layoutParams.contextMessageFrame.size.height = 0;
   } else {
     [contextMessage_ setHidden:NO];
-    contextMessageFrame.origin.y =
-        NSMinY(messageFrame) -
-        contextMessagePadding -
-        NSHeight(contextMessageFrame);
-    contextMessageFrame.size.height = NSHeight([contextMessage_ frame]);
+
+    // If the context message is used as a domain make sure it's placed at the
+    // bottom of the top section.
+    CGFloat contextMessageY = NSMinY(layoutParams.messageFrame) -
+                              contextMessagePadding -
+                              NSHeight(layoutParams.contextMessageFrame);
+    layoutParams.contextMessageFrame.origin.y =
+        notification->UseOriginAsContextMessage()
+            ? std::min(NSMinY([icon_ frame]) + contextMessagePadding,
+                       contextMessageY)
+            : contextMessageY;
+    layoutParams.contextMessageFrame.size.height =
+        NSHeight([contextMessage_ frame]);
   }
-  NSRect settingsButtonFrame = [settingsButton_ frame];
+
+  // Calculate the settings button position. It is dependent on whether the
+  // context message aligns or not with the icon.
+  layoutParams.settingsButtonFrame = [settingsButton_ frame];
+  layoutParams.settingsButtonFrame.origin.y =
+      MIN(NSMinY([icon_ frame]) + message_center::kSmallImagePadding,
+          NSMinY(layoutParams.contextMessageFrame));
 
   // Create the list item views (up to a maximum).
   [listView_ removeFromSuperview];
-  NSRect listFrame = NSZeroRect;
+  layoutParams.listFrame = NSZeroRect;
   if (items.size() > 0) {
-    listFrame = [self currentContentRect];
-    listFrame.origin.y = 0;
-    listFrame.size.height = 0;
-    listView_.reset([[NSView alloc] initWithFrame:listFrame]);
+    layoutParams.listFrame = [self currentContentRect];
+    layoutParams.listFrame.origin.y = 0;
+    layoutParams.listFrame.size.height = 0;
+    listView_.reset([[NSView alloc] initWithFrame:layoutParams.listFrame]);
     [listView_ accessibilitySetOverrideValue:NSAccessibilityListRole
                                     forAttribute:NSAccessibilityRoleAttribute];
     [listView_
@@ -496,8 +518,9 @@
     const int kNumNotifications =
         std::min(items.size(), message_center::kNotificationMaximumItems);
     for (int i = kNumNotifications - 1; i >= 0; --i) {
-      NSTextView* itemView = [self newLabelWithFrame:
-          NSMakeRect(0, y, NSWidth(listFrame), lineHeight)];
+      NSTextView* itemView = [self
+          newLabelWithFrame:NSMakeRect(0, y, NSWidth(layoutParams.listFrame),
+                                       lineHeight)];
       [itemView setFont:font];
 
       // Disable the word-wrap in order to show the text in single line.
@@ -513,7 +536,7 @@
 
       // Use dim color for the title part.
       NSColor* titleColor =
-          gfx::SkColorToCalibratedNSColor(message_center::kRegularTextColor);
+          skia::SkColorToCalibratedNSColor(message_center::kRegularTextColor);
       NSRange titleRange = NSMakeRange(
           0,
           std::min(ellidedText.size(), items[i].title.size()));
@@ -522,7 +545,7 @@
       // Use dim color for the message part if it has not been truncated.
       if (ellidedText.size() > items[i].title.size() + 1) {
         NSColor* messageColor =
-            gfx::SkColorToCalibratedNSColor(message_center::kDimTextColor);
+            skia::SkColorToCalibratedNSColor(message_center::kDimTextColor);
         NSRange messageRange = NSMakeRange(
             items[i].title.size() + 1,
             ellidedText.size() - items[i].title.size() - 1);
@@ -535,24 +558,27 @@
     // TODO(thakis): The spacing is not completely right.
     CGFloat listTopPadding =
         message_center::kTextTopPadding - contextMessageTopGap;
-    listFrame.size.height = y;
-    listFrame.origin.y =
-        NSMinY(contextMessageFrame) - listTopPadding - NSHeight(listFrame);
-    [listView_ setFrame:listFrame];
+    layoutParams.listFrame.size.height = y;
+    layoutParams.listFrame.origin.y = NSMinY(layoutParams.contextMessageFrame) -
+                                      listTopPadding -
+                                      NSHeight(layoutParams.listFrame);
+    [listView_ setFrame:layoutParams.listFrame];
     [[self view] addSubview:listView_];
   }
 
   // Create the progress bar view if needed.
   [progressBarView_ removeFromSuperview];
-  NSRect progressBarFrame = NSZeroRect;
+  layoutParams.progressBarFrame = NSZeroRect;
   if (notification->type() == message_center::NOTIFICATION_TYPE_PROGRESS) {
-    progressBarFrame = [self currentContentRect];
-    progressBarFrame.origin.y = NSMinY(contextMessageFrame) -
+    layoutParams.progressBarFrame = [self currentContentRect];
+    layoutParams.progressBarFrame.origin.y =
+        NSMinY(layoutParams.contextMessageFrame) -
         message_center::kProgressBarTopPadding -
         message_center::kProgressBarThickness;
-    progressBarFrame.size.height = message_center::kProgressBarThickness;
-    progressBarView_.reset(
-        [[MCNotificationProgressBar alloc] initWithFrame:progressBarFrame]);
+    layoutParams.progressBarFrame.size.height =
+        message_center::kProgressBarThickness;
+    progressBarView_.reset([[MCNotificationProgressBar alloc]
+        initWithFrame:layoutParams.progressBarFrame]);
     // Setting indeterminate to NO does not work with custom drawRect.
     [progressBarView_ setIndeterminate:YES];
     [progressBarView_ setStyle:NSProgressIndicatorBarStyle];
@@ -562,23 +588,18 @@
 
   // If the bottom-most element so far is out of the rootView's bounds, resize
   // the view.
-  CGFloat minY = NSMinY(contextMessageFrame);
-  if (listView_ && NSMinY(listFrame) < minY)
-    minY = NSMinY(listFrame);
-  if (progressBarView_ && NSMinY(progressBarFrame) < minY)
-    minY = NSMinY(progressBarFrame);
+  CGFloat minY = NSMinY(layoutParams.contextMessageFrame);
+  if (listView_ && NSMinY(layoutParams.listFrame) < minY)
+    minY = NSMinY(layoutParams.listFrame);
+  if (progressBarView_ && NSMinY(layoutParams.progressBarFrame) < minY)
+    minY = NSMinY(layoutParams.progressBarFrame);
   if (minY < messagePadding) {
     CGFloat delta = messagePadding - minY;
-    rootFrame.size.height += delta;
-    titleFrame.origin.y += delta;
-    messageFrame.origin.y += delta;
-    contextMessageFrame.origin.y += delta;
-    listFrame.origin.y += delta;
-    progressBarFrame.origin.y += delta;
+    [self adjustFrameHeight:&layoutParams delta:delta];
   }
 
   // Add the bottom container view.
-  NSRect frame = rootFrame;
+  NSRect frame = layoutParams.rootFrame;
   frame.size.height = 0;
   [bottomView_ removeFromSuperview];
   bottomView_.reset([[NSView alloc] initWithFrame:frame]);
@@ -614,7 +635,7 @@
     base::scoped_nsobject<NSBox> separator(
         [[AccessibilityIgnoredBox alloc] initWithFrame:separatorFrame]);
     [self configureCustomBox:separator];
-    [separator setFillColor:gfx::SkColorToCalibratedNSColor(
+    [separator setFillColor:skia::SkColorToCalibratedNSColor(
         message_center::kButtonSeparatorColor)];
     y += NSHeight(separatorFrame);
     frame.size.height += NSHeight(separatorFrame);
@@ -638,36 +659,26 @@
 
   [bottomView_ setFrame:frame];
   [[self view] addSubview:bottomView_];
-
-  rootFrame.size.height += NSHeight(frame);
-  titleFrame.origin.y += NSHeight(frame);
-  messageFrame.origin.y += NSHeight(frame);
-  contextMessageFrame.origin.y += NSHeight(frame);
-  listFrame.origin.y += NSHeight(frame);
-  progressBarFrame.origin.y += NSHeight(frame);
+  [self adjustFrameHeight:&layoutParams delta:NSHeight(frame)];
 
   // Make sure that there is a minimum amount of spacing below the icon and
   // the edge of the frame.
-  CGFloat bottomDelta = NSHeight(rootFrame) - NSHeight([icon_ frame]);
+  CGFloat bottomDelta =
+      NSHeight(layoutParams.rootFrame) - NSHeight([icon_ frame]);
   if (bottomDelta > 0 && bottomDelta < message_center::kIconBottomPadding) {
     CGFloat bottomAdjust = message_center::kIconBottomPadding - bottomDelta;
-    rootFrame.size.height += bottomAdjust;
-    titleFrame.origin.y += bottomAdjust;
-    messageFrame.origin.y += bottomAdjust;
-    contextMessageFrame.origin.y += bottomAdjust;
-    listFrame.origin.y += bottomAdjust;
-    progressBarFrame.origin.y += bottomAdjust;
+    [self adjustFrameHeight:&layoutParams delta:bottomAdjust];
   }
 
-  [[self view] setFrame:rootFrame];
-  [title_ setFrame:titleFrame];
-  [message_ setFrame:messageFrame];
-  [contextMessage_ setFrame:contextMessageFrame];
-  [settingsButton_ setFrame:settingsButtonFrame];
-  [listView_ setFrame:listFrame];
-  [progressBarView_ setFrame:progressBarFrame];
+  [[self view] setFrame:layoutParams.rootFrame];
+  [title_ setFrame:layoutParams.titleFrame];
+  [message_ setFrame:layoutParams.messageFrame];
+  [contextMessage_ setFrame:layoutParams.contextMessageFrame];
+  [settingsButton_ setFrame:layoutParams.settingsButtonFrame];
+  [listView_ setFrame:layoutParams.listFrame];
+  [progressBarView_ setFrame:layoutParams.progressBarFrame];
 
-  return rootFrame;
+  return layoutParams.rootFrame;
 }
 
 - (void)close:(id)sender {
@@ -696,6 +707,17 @@
   messageCenter_->ClickOnNotification([self notificationID]);
 }
 
+- (void)adjustFrameHeight:(message_center::NotificationLayoutParams*)frames
+                    delta:(CGFloat)delta {
+  frames->rootFrame.size.height += delta;
+  frames->titleFrame.origin.y += delta;
+  frames->messageFrame.origin.y += delta;
+  frames->contextMessageFrame.origin.y += delta;
+  frames->settingsButtonFrame.origin.y += delta;
+  frames->listFrame.origin.y += delta;
+  frames->progressBarFrame.origin.y += delta;
+}
+
 // Private /////////////////////////////////////////////////////////////////////
 
 - (void)configureCustomBox:(NSBox*)box {
@@ -714,7 +736,7 @@
   base::scoped_nsobject<NSBox> imageBox(
       [[AccessibilityIgnoredBox alloc] initWithFrame:imageFrame]);
   [self configureCustomBox:imageBox];
-  [imageBox setFillColor:gfx::SkColorToCalibratedNSColor(
+  [imageBox setFillColor:skia::SkColorToCalibratedNSColor(
       message_center::kIconBackgroundColor)];
   [imageBox setAutoresizingMask:NSViewMinYMargin];
 
@@ -736,7 +758,7 @@
   base::scoped_nsobject<NSBox> imageBox(
       [[AccessibilityIgnoredBox alloc] initWithFrame:imageFrame]);
   [self configureCustomBox:imageBox];
-  [imageBox setFillColor:gfx::SkColorToCalibratedNSColor(
+  [imageBox setFillColor:skia::SkColorToCalibratedNSColor(
       message_center::kImageBackgroundColor)];
 
   // Images with non-preferred aspect ratios get a border on all sides.
@@ -862,7 +884,7 @@
   contentFrame.size.height = 0;
   title_.reset([self newLabelWithFrame:contentFrame]);
   [title_ setAutoresizingMask:NSViewMinYMargin];
-  [title_ setTextColor:gfx::SkColorToCalibratedNSColor(
+  [title_ setTextColor:skia::SkColorToCalibratedNSColor(
       message_center::kRegularTextColor)];
   [title_ setFont:[NSFont messageFontOfSize:message_center::kTitleFontSize]];
 }
@@ -871,7 +893,7 @@
   contentFrame.size.height = 0;
   message_.reset([self newLabelWithFrame:contentFrame]);
   [message_ setAutoresizingMask:NSViewMinYMargin];
-  [message_ setTextColor:gfx::SkColorToCalibratedNSColor(
+  [message_ setTextColor:skia::SkColorToCalibratedNSColor(
       message_center::kRegularTextColor)];
   [message_ setFont:
       [NSFont messageFontOfSize:message_center::kMessageFontSize]];
@@ -881,7 +903,7 @@
   contentFrame.size.height = 0;
   contextMessage_.reset([self newLabelWithFrame:contentFrame]);
   [contextMessage_ setAutoresizingMask:NSViewMinYMargin];
-  [contextMessage_ setTextColor:gfx::SkColorToCalibratedNSColor(
+  [contextMessage_ setTextColor:skia::SkColorToCalibratedNSColor(
       message_center::kDimTextColor)];
   [contextMessage_ setFont:
       [NSFont messageFontOfSize:message_center::kMessageFontSize]];
@@ -893,7 +915,7 @@
   // The labels MUST draw their background so that subpixel antialiasing can
   // happen on the text.
   [label setDrawsBackground:YES];
-  [label setBackgroundColor:gfx::SkColorToCalibratedNSColor(
+  [label setBackgroundColor:skia::SkColorToCalibratedNSColor(
       message_center::kNotificationBackgroundColor)];
 
   [label setEditable:NO];

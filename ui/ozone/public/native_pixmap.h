@@ -6,6 +6,7 @@
 #define UI_OZONE_PUBLIC_NATIVE_PIXMAP_H_
 
 #include "base/bind.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "ui/gfx/native_pixmap_handle_ozone.h"
 #include "ui/gfx/native_widget_types.h"
@@ -24,10 +25,11 @@ class NativePixmap : public base::RefCountedThreadSafe<NativePixmap> {
  public:
   NativePixmap() {}
 
-  virtual void* /* EGLClientBuffer */ GetEGLClientBuffer() = 0;
-  virtual int GetDmaBufFd() = 0;
-  virtual int GetDmaBufPitch() = 0;
-  virtual gfx::BufferFormat GetBufferFormat() = 0;
+  virtual void* /* EGLClientBuffer */ GetEGLClientBuffer() const = 0;
+  virtual int GetDmaBufFd() const = 0;
+  virtual int GetDmaBufPitch() const = 0;
+  virtual gfx::BufferFormat GetBufferFormat() const = 0;
+  virtual gfx::Size GetBufferSize() const = 0;
 
   // Sets the overlay plane to switch to at the next page flip.
   // |w| specifies the screen to display this overlay plane on.
@@ -47,18 +49,15 @@ class NativePixmap : public base::RefCountedThreadSafe<NativePixmap> {
                                     const gfx::RectF& crop_rect) = 0;
 
   // This represents a callback function pointing to processing unit like VPP to
-  // do post-processing operations on native pixmap with required size and
-  // format.
-  typedef base::Callback<scoped_refptr<NativePixmap>(gfx::Size,
-                                                     gfx::BufferFormat)>
+  // do post-processing operations like scaling and color space conversion on
+  // |source_pixmap| and save processed result to |target_pixmap|.
+  typedef base::Callback<bool(const scoped_refptr<NativePixmap>& source_pixmap,
+                              scoped_refptr<NativePixmap> target_pixmap)>
       ProcessingCallback;
 
   // Set callback function for the pixmap used for post processing.
   virtual void SetProcessingCallback(
       const ProcessingCallback& processing_callback) = 0;
-  virtual scoped_refptr<NativePixmap> GetProcessedPixmap(
-      gfx::Size target_size,
-      gfx::BufferFormat target_format) = 0;
 
   // Export the buffer for sharing across processes.
   // Any file descriptors in the exported handle are owned by the caller.

@@ -5,13 +5,14 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_OPTIONS_STARTUP_PAGES_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_OPTIONS_STARTUP_PAGES_HANDLER_H_
 
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/prefs/pref_change_registrar.h"
-#include "base/prefs/pref_member.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "components/omnibox/browser/autocomplete_controller_delegate.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_member.h"
 #include "ui/base/models/table_model_observer.h"
 
 class AutocompleteController;

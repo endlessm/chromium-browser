@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
 #include "public/web/WebRuntimeFeatures.h"
 
 #include "platform/RuntimeEnabledFeatures.h"
@@ -96,6 +95,11 @@ void WebRuntimeFeatures::forceDisplayList2dCanvas(bool enable)
     RuntimeEnabledFeatures::setForceDisplayList2dCanvasEnabled(enable);
 }
 
+void WebRuntimeFeatures::forceDisable2dCanvasCopyOnWrite(bool enable)
+{
+    RuntimeEnabledFeatures::setForceDisable2dCanvasCopyOnWriteEnabled(enable);
+}
+
 void WebRuntimeFeatures::enableDisplayList2dCanvas(bool enable)
 {
     RuntimeEnabledFeatures::setDisplayList2dCanvasEnabled(enable);
@@ -109,16 +113,6 @@ void WebRuntimeFeatures::enableEncryptedMedia(bool enable)
 bool WebRuntimeFeatures::isEncryptedMediaEnabled()
 {
     return RuntimeEnabledFeatures::encryptedMediaEnabled();
-}
-
-void WebRuntimeFeatures::enablePrefixedEncryptedMedia(bool enable)
-{
-    RuntimeEnabledFeatures::setPrefixedEncryptedMediaEnabled(enable);
-}
-
-bool WebRuntimeFeatures::isPrefixedEncryptedMediaEnabled()
-{
-    return RuntimeEnabledFeatures::prefixedEncryptedMediaEnabled();
 }
 
 void WebRuntimeFeatures::enableExperimentalCanvasFeatures(bool enable)
@@ -171,6 +165,11 @@ void WebRuntimeFeatures::enableMediaSource(bool enable)
     RuntimeEnabledFeatures::setMediaSourceEnabled(enable);
 }
 
+void WebRuntimeFeatures::enableNotificationActionIcons(bool enable)
+{
+    RuntimeEnabledFeatures::setNotificationActionIconsEnabled(enable);
+}
+
 void WebRuntimeFeatures::enableNotificationConstructor(bool enable)
 {
     RuntimeEnabledFeatures::setNotificationConstructorEnabled(enable);
@@ -211,11 +210,6 @@ void WebRuntimeFeatures::enableRequestAutocomplete(bool enable)
     RuntimeEnabledFeatures::setRequestAutocompleteEnabled(enable);
 }
 
-void WebRuntimeFeatures::enableScreenOrientation(bool enable)
-{
-    RuntimeEnabledFeatures::setScreenOrientationEnabled(enable);
-}
-
 void WebRuntimeFeatures::enableScriptedSpeech(bool enable)
 {
     RuntimeEnabledFeatures::setScriptedSpeechEnabled(enable);
@@ -229,16 +223,6 @@ void WebRuntimeFeatures::enableSlimmingPaintV2(bool enable)
 void WebRuntimeFeatures::enableTouch(bool enable)
 {
     RuntimeEnabledFeatures::setTouchEnabled(enable);
-}
-
-void WebRuntimeFeatures::enableTouchIconLoading(bool enable)
-{
-    RuntimeEnabledFeatures::setTouchIconLoadingEnabled(enable);
-}
-
-void WebRuntimeFeatures::enableWebAudio(bool enable)
-{
-    RuntimeEnabledFeatures::setWebAudioEnabled(enable);
 }
 
 void WebRuntimeFeatures::enableWebGLDraftExtensions(bool enable)
@@ -291,11 +275,6 @@ void WebRuntimeFeatures::enableV8IdleTasks(bool enable)
     RuntimeEnabledFeatures::setV8IdleTasksEnabled(enable);
 }
 
-void WebRuntimeFeatures::enableSVG1DOM(bool enable)
-{
-    RuntimeEnabledFeatures::setSVG1DOMEnabled(enable);
-}
-
 void WebRuntimeFeatures::enableReducedReferrerGranularity(bool enable)
 {
     RuntimeEnabledFeatures::setReducedReferrerGranularityEnabled(enable);
@@ -329,6 +308,31 @@ void WebRuntimeFeatures::enableNewMediaPlaybackUi(bool enable)
 void WebRuntimeFeatures::enablePresentationAPI(bool enable)
 {
     RuntimeEnabledFeatures::setPresentationEnabled(enable);
+}
+
+void WebRuntimeFeatures::enableWebFontsIntervention(bool enable)
+{
+    RuntimeEnabledFeatures::setWebFontsInterventionEnabled(enable);
+}
+
+void WebRuntimeFeatures::enableWebFontsInterventionTrigger(bool enable)
+{
+    RuntimeEnabledFeatures::setWebFontsInterventionTriggerEnabled(enable);
+}
+
+void WebRuntimeFeatures::enableScrollAnchoring(bool enable)
+{
+    RuntimeEnabledFeatures::setScrollAnchoringEnabled(enable);
+}
+
+void WebRuntimeFeatures::enableRenderingPipelineThrottling(bool enable)
+{
+    RuntimeEnabledFeatures::setRenderingPipelineThrottlingEnabled(enable);
+}
+
+bool WebRuntimeFeatures::isServiceWorkerExtendableMessageEventEnabled()
+{
+    return RuntimeEnabledFeatures::serviceWorkerExtendableMessageEventEnabled();
 }
 
 } // namespace blink

@@ -23,16 +23,6 @@
 #include "native_client/src/trusted/service_runtime/include/sys/errno.h"
 #include "native_client/src/trusted/service_runtime/include/sys/stat.h"
 
-void NaClDescUnmapUnsafe(struct NaClDesc *desc, void *addr, size_t length) {
-  int rc = (*NACL_VTBL(NaClDesc, desc)->UnmapUnsafe)(desc, addr, length);
-  if (rc != 0) {
-    NaClLog(LOG_FATAL,
-            "NaClDescUnmapUnsafe: UnmapUnsafe() failed: address 0x%p, "
-            "length 0x%" NACL_PRIxS ", rc %d, error %d\n",
-            addr, length, rc, GetLastError());
-  }
-}
-
 int32_t NaClAbiStatHostDescStatXlateCtor(struct nacl_abi_stat   *dst,
                                          nacl_host_stat_t const *src) {
   nacl_abi_mode_t m;

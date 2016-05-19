@@ -4,6 +4,10 @@
 
 #include "ios/web/app/web_main_loop.h"
 
+#include <stddef.h>
+
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
@@ -20,6 +24,7 @@
 #include "ios/web/public/app/web_main_parts.h"
 #include "ios/web/public/web_client.h"
 #include "ios/web/web_thread_impl.h"
+#include "ios/web/webui/url_data_manager_ios.h"
 #include "net/base/network_change_notifier.h"
 
 namespace web {
@@ -77,7 +82,7 @@ void WebMainLoop::MainMessageLoopStart() {
   // TODO(rohitrao): Do we need PowerMonitor on iOS, or can we get rid of it?
   scoped_ptr<base::PowerMonitorSource> power_monitor_source(
       new base::PowerMonitorDeviceSource());
-  power_monitor_.reset(new base::PowerMonitor(power_monitor_source.Pass()));
+  power_monitor_.reset(new base::PowerMonitor(std::move(power_monitor_source)));
   network_change_notifier_.reset(net::NetworkChangeNotifier::Create());
 
   if (parts_) {
@@ -247,6 +252,8 @@ void WebMainLoop::ShutdownThreadsAndCleanUp() {
   // it here (which will block until required operations are complete) gives
   // more head start for those operations to finish.
   WebThreadImpl::ShutdownThreadPool();
+
+  URLDataManagerIOS::DeleteDataSources();
 
   if (parts_) {
     parts_->PostDestroyThreads();

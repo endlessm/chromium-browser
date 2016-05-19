@@ -4,6 +4,8 @@
 
 #include "content/renderer/renderer_blink_platform_impl.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
@@ -49,15 +51,18 @@
 #include "content/public/common/service_registry.h"
 #include "content/public/common/webplugininfo.h"
 #include "content/public/renderer/content_renderer_client.h"
-#include "content/renderer/battery_status/battery_status_dispatcher.h"
+#include "content/public/renderer/media_stream_api.h"
 #include "content/renderer/cache_storage/webserviceworkercachestorage_impl.h"
 #include "content/renderer/device_sensors/device_light_event_pump.h"
 #include "content/renderer/device_sensors/device_motion_event_pump.h"
 #include "content/renderer/device_sensors/device_orientation_absolute_event_pump.h"
 #include "content/renderer/device_sensors/device_orientation_event_pump.h"
+#include "content/renderer/dom_storage/local_storage_namespace.h"
 #include "content/renderer/dom_storage/webstoragenamespace_impl.h"
 #include "content/renderer/gamepad_shared_memory_reader.h"
 #include "content/renderer/media/audio_decoder.h"
+#include "content/renderer/media/canvas_capture_handler.h"
+#include "content/renderer/media/html_video_element_capturer_source.h"
 #include "content/renderer/media/media_recorder_handler.h"
 #include "content/renderer/media/renderer_webaudiodevice_impl.h"
 #include "content/renderer/media/renderer_webmidiaccessor_impl.h"
@@ -72,13 +77,13 @@
 #include "ipc/ipc_sync_message_filter.h"
 #include "media/audio/audio_output_device.h"
 #include "media/base/audio_hardware_config.h"
-#include "media/base/key_systems.h"
 #include "media/base/mime_util.h"
 #include "media/blink/webcontentdecryptionmodule_impl.h"
 #include "media/filters/stream_parser_factory.h"
 #include "storage/common/database/database_identifier.h"
 #include "storage/common/quota/quota_types.h"
-#include "third_party/WebKit/public/platform/WebBatteryStatusListener.h"
+#include "third_party/WebKit/public/platform/FilePathConversion.h"
+#include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebBlobRegistry.h"
 #include "third_party/WebKit/public/platform/WebDeviceLightListener.h"
 #include "third_party/WebKit/public/platform/WebFileInfo.h"
@@ -86,6 +91,7 @@
 #include "third_party/WebKit/public/platform/WebMediaStreamCenter.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamCenterClient.h"
 #include "third_party/WebKit/public/platform/WebPluginListBuilder.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/platform/modules/device_orientation/WebDeviceMotionListener.h"
@@ -95,7 +101,6 @@
 
 #if defined(OS_ANDROID)
 #include "content/renderer/android/synchronous_compositor_factory.h"
-#include "content/renderer/media/android/audio_decoder_android.h"
 #include "gpu/blink/webgraphicscontext3d_in_process_command_buffer_impl.h"
 #endif
 
@@ -138,6 +143,7 @@
 using blink::Platform;
 using blink::WebAudioDevice;
 using blink::WebBlobRegistry;
+using blink::WebCanvasCaptureHandler;
 using blink::WebDatabaseObserver;
 using blink::WebFileInfo;
 using blink::WebFileSystem;
@@ -145,13 +151,17 @@ using blink::WebGamepad;
 using blink::WebGamepads;
 using blink::WebIDBFactory;
 using blink::WebMIDIAccessor;
+using blink::WebMediaPlayer;
 using blink::WebMediaRecorderHandler;
+using blink::WebMediaStream;
 using blink::WebMediaStreamCenter;
 using blink::WebMediaStreamCenterClient;
+using blink::WebMediaStreamTrack;
 using blink::WebMimeRegistry;
 using blink::WebRTCPeerConnectionHandler;
 using blink::WebRTCPeerConnectionHandlerClient;
 using blink::WebStorageNamespace;
+using blink::WebSize;
 using blink::WebString;
 using blink::WebURL;
 using blink::WebVector;
@@ -166,9 +176,6 @@ base::LazyInstance<blink::WebDeviceMotionData>::Leaky
     g_test_device_motion_data = LAZY_INSTANCE_INITIALIZER;
 base::LazyInstance<blink::WebDeviceOrientationData>::Leaky
     g_test_device_orientation_data = LAZY_INSTANCE_INITIALIZER;
-// Set in startListening() when running layout tests, unset in stopListening(),
-// not owned by us.
-blink::WebBatteryStatusListener* g_test_battery_status_listener = nullptr;
 
 }  // namespace
 
@@ -179,13 +186,11 @@ class RendererBlinkPlatformImpl::MimeRegistry
  public:
   blink::WebMimeRegistry::SupportsType supportsMediaMIMEType(
       const blink::WebString& mime_type,
-      const blink::WebString& codecs,
-      const blink::WebString& key_system) override;
+      const blink::WebString& codecs) override;
   bool supportsMediaSourceMIMEType(const blink::WebString& mime_type,
                                    const blink::WebString& codecs) override;
   blink::WebString mimeTypeForExtension(
       const blink::WebString& file_extension) override;
-  blink::WebString mimeTypeFromFile(const blink::WebString& file_path) override;
 };
 
 class RendererBlinkPlatformImpl::FileUtilities : public WebFileUtilitiesImpl {
@@ -208,7 +213,7 @@ class RendererBlinkPlatformImpl::SandboxSupport
 #if defined(OS_MACOSX)
   bool loadFont(NSFont* src_font,
                 CGFontRef* container,
-                uint32* font_id) override;
+                uint32_t* font_id) override;
 #elif defined(OS_POSIX)
   void getFallbackFontForCharacter(
       blink::WebUChar32 character,
@@ -278,27 +283,13 @@ void RendererBlinkPlatformImpl::Shutdown() {
 
 //------------------------------------------------------------------------------
 
-double RendererBlinkPlatformImpl::currentTimeSeconds() {
-  return renderer_scheduler_->CurrentTimeSeconds();
-}
-
-double RendererBlinkPlatformImpl::monotonicallyIncreasingTimeSeconds() {
-  return renderer_scheduler_->MonotonicallyIncreasingTimeSeconds();
-}
-
-//------------------------------------------------------------------------------
-
 blink::WebURLLoader* RendererBlinkPlatformImpl::createURLLoader() {
   ChildThreadImpl* child_thread = ChildThreadImpl::current();
   // There may be no child thread in RenderViewTests.  These tests can still use
   // data URLs to bypass the ResourceDispatcher.
-  scoped_ptr<scheduler::WebTaskRunnerImpl> task_runner(
-      new scheduler::WebTaskRunnerImpl(
-        loading_task_runner_->BelongsToCurrentThread()
-            ? loading_task_runner_ : base::ThreadTaskRunnerHandle::Get()));
   return new content::WebURLLoaderImpl(
       child_thread ? child_thread->resource_dispatcher() : NULL,
-      task_runner.Pass());
+      make_scoped_ptr(currentThread()->taskRunner()->clone()));
 }
 
 blink::WebThread* RendererBlinkPlatformImpl::currentThread() {
@@ -384,7 +375,7 @@ RendererBlinkPlatformImpl::prescientNetworking() {
 }
 
 void RendererBlinkPlatformImpl::cacheMetadata(const blink::WebURL& url,
-                                              int64 response_time,
+                                              int64_t response_time,
                                               const char* data,
                                               size_t size) {
   // Let the browser know we generated cacheable metadata for this resource. The
@@ -421,6 +412,11 @@ void RendererBlinkPlatformImpl::suddenTerminationChanged(bool enabled) {
 }
 
 WebStorageNamespace* RendererBlinkPlatformImpl::createLocalStorageNamespace() {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kMojoLocalStorage)) {
+    return new LocalStorageNamespace(
+        RenderThreadImpl::current()->GetStoragePartitionService());
+  }
   return new WebStorageNamespaceImpl();
 }
 
@@ -452,51 +448,13 @@ WebFileSystem* RendererBlinkPlatformImpl::fileSystem() {
 WebMimeRegistry::SupportsType
 RendererBlinkPlatformImpl::MimeRegistry::supportsMediaMIMEType(
     const WebString& mime_type,
-    const WebString& codecs,
-    const WebString& key_system) {
+    const WebString& codecs) {
   const std::string mime_type_ascii = ToASCIIOrEmpty(mime_type);
-  // Not supporting the container is a flat-out no.
-  if (!media::IsSupportedMediaMimeType(mime_type_ascii))
-    return IsNotSupported;
 
-  if (!key_system.isEmpty()) {
-    // Check whether the key system is supported with the mime_type and codecs.
-
-    // Chromium only supports ASCII parameters.
-    if (!base::IsStringASCII(key_system))
-      return IsNotSupported;
-
-    std::string key_system_ascii =
-        media::GetUnprefixedKeySystemName(base::UTF16ToASCII(
-            base::StringPiece16(key_system)));
-    std::vector<std::string> strict_codecs;
-    media::ParseCodecString(ToASCIIOrEmpty(codecs), &strict_codecs, true);
-
-    if (!media::PrefixedIsSupportedKeySystemWithMediaMimeType(
-            mime_type_ascii, strict_codecs, key_system_ascii)) {
-      return IsNotSupported;
-    }
-
-    // Continue processing the mime_type and codecs.
-  }
-
-  // Check list of strict codecs to see if it is supported.
-  if (media::IsStrictMediaMimeType(mime_type_ascii)) {
-    // Check if the codecs are a perfect match.
-    std::vector<std::string> strict_codecs;
-    media::ParseCodecString(ToASCIIOrEmpty(codecs), &strict_codecs, false);
-    return static_cast<WebMimeRegistry::SupportsType> (
-        media::IsSupportedStrictMediaMimeType(mime_type_ascii, strict_codecs));
-  }
-
-  // If we don't recognize the codec, it's possible we support it.
-  std::vector<std::string> parsed_codecs;
-  media::ParseCodecString(ToASCIIOrEmpty(codecs), &parsed_codecs, true);
-  if (!media::AreSupportedMediaCodecs(parsed_codecs))
-    return MayBeSupported;
-
-  // Otherwise we have a perfect match.
-  return IsSupported;
+  std::vector<std::string> codec_vector;
+  media::ParseCodecString(ToASCIIOrEmpty(codecs), &codec_vector, false);
+  return static_cast<WebMimeRegistry::SupportsType>(
+      media::IsSupportedMediaFormat(mime_type_ascii, codec_vector));
 }
 
 bool RendererBlinkPlatformImpl::MimeRegistry::supportsMediaSourceMIMEType(
@@ -521,21 +479,7 @@ WebString RendererBlinkPlatformImpl::MimeRegistry::mimeTypeForExtension(
   std::string mime_type;
   RenderThread::Get()->Send(
       new MimeRegistryMsg_GetMimeTypeFromExtension(
-          base::FilePath::FromUTF16Unsafe(file_extension).value(), &mime_type));
-  return base::ASCIIToUTF16(mime_type);
-}
-
-WebString RendererBlinkPlatformImpl::MimeRegistry::mimeTypeFromFile(
-    const WebString& file_path) {
-  if (IsPluginProcess())
-    return SimpleWebMimeRegistryImpl::mimeTypeFromFile(file_path);
-
-  // The sandbox restricts our access to the registry, so we need to proxy
-  // these calls over to the browser process.
-  std::string mime_type;
-  RenderThread::Get()->Send(new MimeRegistryMsg_GetMimeTypeFromFile(
-      base::FilePath::FromUTF16Unsafe(file_path),
-      &mime_type));
+          blink::WebStringToFilePath(file_extension).value(), &mime_type));
   return base::ASCIIToUTF16(mime_type);
 }
 
@@ -547,7 +491,7 @@ bool RendererBlinkPlatformImpl::FileUtilities::getFileInfo(
   base::File::Info file_info;
   base::File::Error status = base::File::FILE_ERROR_MAX;
   if (!SendSyncMessageFromAnyThread(new FileUtilitiesMsg_GetFileInfo(
-           base::FilePath::FromUTF16Unsafe(path), &file_info, &status)) ||
+           blink::WebStringToFilePath(path), &file_info, &status)) ||
       status != base::File::FILE_OK) {
     return false;
   }
@@ -571,8 +515,8 @@ bool RendererBlinkPlatformImpl::FileUtilities::SendSyncMessageFromAnyThread(
 
 bool RendererBlinkPlatformImpl::SandboxSupport::loadFont(NSFont* src_font,
                                                          CGFontRef* out,
-                                                         uint32* font_id) {
-  uint32 font_data_size;
+                                                         uint32_t* font_id) {
+  uint32_t font_data_size;
   FontDescriptor src_font_descriptor(src_font);
   base::SharedMemoryHandle font_data;
   if (!RenderThread::Get()->Send(new RenderProcessHostMsg_LoadFont(
@@ -716,7 +660,8 @@ WebAudioDevice* RendererBlinkPlatformImpl::createAudioDevice(
     unsigned channels,
     double sample_rate,
     WebAudioDevice::RenderCallback* callback,
-    const blink::WebString& input_device_id) {
+    const blink::WebString& input_device_id,
+    const blink::WebSecurityOrigin& security_origin) {
   // Use a mock for testing.
   blink::WebAudioDevice* mock_device =
       GetContentClient()->renderer()->OverrideCreateAudioDevice(sample_rate);
@@ -775,20 +720,10 @@ WebAudioDevice* RendererBlinkPlatformImpl::createAudioDevice(
                                 buffer_size);
   params.set_channels_for_discrete(channels);
 
-  return new RendererWebAudioDeviceImpl(params, callback, session_id);
+  return new RendererWebAudioDeviceImpl(
+      params, callback, session_id, static_cast<url::Origin>(security_origin));
 }
 
-#if defined(OS_ANDROID)
-bool RendererBlinkPlatformImpl::loadAudioResource(
-    blink::WebAudioBus* destination_bus,
-    const char* audio_file_data,
-    size_t data_size) {
-  return DecodeAudioFileData(destination_bus,
-                             audio_file_data,
-                             data_size,
-                             thread_safe_sender_);
-}
-#else
 bool RendererBlinkPlatformImpl::loadAudioResource(
     blink::WebAudioBus* destination_bus,
     const char* audio_file_data,
@@ -796,7 +731,6 @@ bool RendererBlinkPlatformImpl::loadAudioResource(
   return DecodeAudioFileData(
       destination_bus, audio_file_data, data_size);
 }
-#endif  // defined(OS_ANDROID)
 
 //------------------------------------------------------------------------------
 
@@ -847,13 +781,12 @@ blink::WebPublicSuffixList* RendererBlinkPlatformImpl::publicSuffixList() {
 blink::WebString RendererBlinkPlatformImpl::signedPublicKeyAndChallengeString(
     unsigned key_size_index,
     const blink::WebString& challenge,
-    const blink::WebURL& url) {
+    const blink::WebURL& url,
+    const blink::WebURL& top_origin) {
   std::string signed_public_key;
   RenderThread::Get()->Send(new RenderProcessHostMsg_Keygen(
-      static_cast<uint32>(key_size_index),
-      challenge.utf8(),
-      GURL(url),
-      &signed_public_key));
+      static_cast<uint32_t>(key_size_index), challenge.utf8(), GURL(url),
+      GURL(top_origin), &signed_public_key));
   return WebString::fromUTF8(signed_public_key);
 }
 
@@ -905,7 +838,7 @@ void RendererBlinkPlatformImpl::sampleGamepads(WebGamepads& gamepads) {
 
 WebMediaRecorderHandler*
 RendererBlinkPlatformImpl::createMediaRecorderHandler() {
-#if !defined(OS_ANDROID) && defined(ENABLE_WEBRTC)
+#if defined(ENABLE_WEBRTC)
   return new content::MediaRecorderHandler();
 #else
   return nullptr;
@@ -968,20 +901,39 @@ bool RendererBlinkPlatformImpl::SetSandboxEnabledForTesting(bool enable) {
 
 //------------------------------------------------------------------------------
 
-blink::WebSpeechSynthesizer* RendererBlinkPlatformImpl::createSpeechSynthesizer(
-    blink::WebSpeechSynthesizerClient* client) {
-  return GetContentClient()->renderer()->OverrideSpeechSynthesizer(client);
+WebCanvasCaptureHandler* RendererBlinkPlatformImpl::createCanvasCaptureHandler(
+    const WebSize& size,
+    double frame_rate,
+    WebMediaStreamTrack* track) {
+#if defined(ENABLE_WEBRTC)
+  return CanvasCaptureHandler::CreateCanvasCaptureHandler(
+      size, frame_rate, RenderThread::Get()->GetIOMessageLoopProxy(), track);
+#else
+  return nullptr;
+#endif  // defined(ENABLE_WEBRTC)
 }
 
 //------------------------------------------------------------------------------
 
-bool RendererBlinkPlatformImpl::processMemorySizesInBytes(
-    size_t* private_bytes,
-    size_t* shared_bytes) {
-  content::RenderThread::Get()->Send(
-      new RenderProcessHostMsg_GetProcessMemorySizes(
-          private_bytes, shared_bytes));
-  return true;
+void RendererBlinkPlatformImpl::createHTMLVideoElementCapturer(
+    WebMediaStream* web_media_stream,
+    WebMediaPlayer* web_media_player) {
+#if defined(ENABLE_WEBRTC)
+  DCHECK(web_media_stream);
+  DCHECK(web_media_player);
+  AddVideoTrackToMediaStream(
+      HtmlVideoElementCapturerSource::CreateFromWebMediaPlayerImpl(
+          web_media_player,
+          content::RenderThread::Get()->GetIOMessageLoopProxy()),
+      false /* is_remote */, false /* is_readonly */, web_media_stream);
+#endif
+}
+
+//------------------------------------------------------------------------------
+
+blink::WebSpeechSynthesizer* RendererBlinkPlatformImpl::createSpeechSynthesizer(
+    blink::WebSpeechSynthesizerClient* client) {
+  return GetContentClient()->renderer()->OverrideSpeechSynthesizer(client);
 }
 
 //------------------------------------------------------------------------------
@@ -1062,7 +1014,7 @@ RendererBlinkPlatformImpl::createOffscreenGraphicsContext3D(
           gpu_channel_host.get(),
           attributes,
           lose_context_when_out_of_memory,
-          GURL(attributes.topDocumentURL),
+          blink::WebStringToGURL(attributes.topDocumentURL),
           limits,
           static_cast<WebGraphicsContext3DCommandBufferImpl*>(share_context)));
 
@@ -1143,7 +1095,7 @@ void RendererBlinkPlatformImpl::SetMockDeviceOrientationDataForTesting(
 
 void RendererBlinkPlatformImpl::vibrate(unsigned int milliseconds) {
   GetConnectedVibrationManagerService()->Vibrate(
-      base::checked_cast<int64>(milliseconds));
+      base::checked_cast<int64_t>(milliseconds));
   vibration_manager_.reset();
 }
 
@@ -1201,34 +1153,37 @@ RendererBlinkPlatformImpl::CreatePlatformEventObserverFromType(
 void RendererBlinkPlatformImpl::SetPlatformEventObserverForTesting(
     blink::WebPlatformEventType type,
     scoped_ptr<PlatformEventObserverBase> observer) {
-  DCHECK(type != blink::WebPlatformEventTypeBattery);
-
   if (platform_event_observers_.Lookup(type))
     platform_event_observers_.Remove(type);
   platform_event_observers_.AddWithID(observer.release(), type);
 }
 
+void RendererBlinkPlatformImpl::connectToRemoteService(
+    const char* name,
+    mojo::ScopedMessagePipeHandle handle) {
+  // In the layout test mode, mock services should be used instead.
+  // TODO(yukishiino): We'd like to inject mock services implemented in
+  // JavaScript.  Remove the following hack once we support JS-bindings
+  // of Mojo and service mocking in JS.
+  if (RenderThreadImpl::current() &&
+      RenderThreadImpl::current()->layout_test_mode())
+    return;
+
+  if (ServiceRegistry* registry = RenderThread::Get()->GetServiceRegistry()) {
+    // registry can be null during testing.
+    registry->ConnectToRemoteService(name, std::move(handle));
+  }
+}
+
 void RendererBlinkPlatformImpl::startListening(
     blink::WebPlatformEventType type,
     blink::WebPlatformEventListener* listener) {
-  if (type == blink::WebPlatformEventTypeBattery) {
-    if (RenderThreadImpl::current() &&
-        RenderThreadImpl::current()->layout_test_mode()) {
-      g_test_battery_status_listener =
-          static_cast<blink::WebBatteryStatusListener*>(listener);
-    } else {
-      battery_status_dispatcher_.reset(new BatteryStatusDispatcher(
-          static_cast<blink::WebBatteryStatusListener*>(listener)));
-    }
-    return;
-  }
-
   PlatformEventObserverBase* observer = platform_event_observers_.Lookup(type);
   if (!observer) {
     observer = CreatePlatformEventObserverFromType(type);
     if (!observer)
       return;
-    platform_event_observers_.AddWithID(observer, static_cast<int32>(type));
+    platform_event_observers_.AddWithID(observer, static_cast<int32_t>(type));
   }
   observer->Start(listener);
 
@@ -1282,12 +1237,6 @@ void RendererBlinkPlatformImpl::SendFakeDeviceEventDataForTesting(
 
 void RendererBlinkPlatformImpl::stopListening(
     blink::WebPlatformEventType type) {
-  if (type == blink::WebPlatformEventTypeBattery) {
-    g_test_battery_status_listener = nullptr;
-    battery_status_dispatcher_.reset();
-    return;
-  }
-
   PlatformEventObserverBase* observer = platform_event_observers_.Lookup(type);
   if (!observer)
     return;
@@ -1312,11 +1261,9 @@ void RendererBlinkPlatformImpl::queryStorageUsageAndQuota(
 
 //------------------------------------------------------------------------------
 
-void RendererBlinkPlatformImpl::MockBatteryStatusChangedForTesting(
-    const blink::WebBatteryStatus& status) {
-  if (!g_test_battery_status_listener)
-    return;
-  g_test_battery_status_listener->updateBatteryStatus(status);
+blink::WebTrialTokenValidator*
+RendererBlinkPlatformImpl::trialTokenValidator() {
+  return &trial_token_validator_;
 }
 
 }  // namespace content

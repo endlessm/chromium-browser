@@ -124,18 +124,19 @@
 
 #include "components/metrics/metrics_service.h"
 
+#include <stddef.h>
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_persistence.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -147,6 +148,7 @@
 #include "base/time/time.h"
 #include "base/tracked_objects.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/metrics/metrics_log.h"
 #include "components/metrics/metrics_log_manager.h"
 #include "components/metrics/metrics_log_uploader.h"
@@ -154,6 +156,8 @@
 #include "components/metrics/metrics_reporting_scheduler.h"
 #include "components/metrics/metrics_service_client.h"
 #include "components/metrics/metrics_state_manager.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/variations/entropy_provider.h"
 #include "components/variations/variations_associated_data.h"
 
@@ -242,15 +246,6 @@ bool ShouldUploadLog() {
 
 }  // namespace
 
-
-SyntheticTrialGroup::SyntheticTrialGroup(uint32 trial, uint32 group) {
-  id.name = trial;
-  id.group = group;
-}
-
-SyntheticTrialGroup::~SyntheticTrialGroup() {
-}
-
 // static
 MetricsService::ShutdownCleanliness MetricsService::clean_shutdown_status_ =
     MetricsService::CLEANLY_SHUTDOWN;
@@ -307,7 +302,7 @@ MetricsService::MetricsService(MetricsStateManager* state_manager,
   DCHECK(local_state_);
 
   // Set the install date if this is our first run.
-  int64 install_date = local_state_->GetInt64(prefs::kInstallDate);
+  int64_t install_date = local_state_->GetInt64(prefs::kInstallDate);
   if (install_date == 0)
     local_state_->SetInt64(prefs::kInstallDate, base::Time::Now().ToTimeT());
 }
@@ -329,6 +324,9 @@ void MetricsService::InitializeMetricsRecordingState() {
           // MetricsReportingScheduler is tied to the lifetime of |this|.
           base::Bind(&MetricsServiceClient::GetStandardUploadInterval,
                      base::Unretained(client_))));
+
+  for (MetricsProvider* provider : metrics_providers_)
+    provider->Init();
 }
 
 void MetricsService::Start() {
@@ -364,11 +362,11 @@ std::string MetricsService::GetClientId() {
   return state_manager_->client_id();
 }
 
-int64 MetricsService::GetInstallDate() {
+int64_t MetricsService::GetInstallDate() {
   return local_state_->GetInt64(prefs::kInstallDate);
 }
 
-int64 MetricsService::GetMetricsReportingEnabledDate() {
+int64_t MetricsService::GetMetricsReportingEnabledDate() {
   return local_state_->GetInt64(prefs::kMetricsReportingEnabledTimestamp);
 }
 
@@ -395,8 +393,8 @@ void MetricsService::EnableRecording() {
   if (!log_manager_.current_log())
     OpenNewLog();
 
-  for (size_t i = 0; i < metrics_providers_.size(); ++i)
-    metrics_providers_[i]->OnRecordingEnabled();
+  for (MetricsProvider* provider : metrics_providers_)
+    provider->OnRecordingEnabled();
 
   base::RemoveActionCallback(action_callback_);
   action_callback_ = base::Bind(&MetricsService::OnUserAction,
@@ -415,8 +413,8 @@ void MetricsService::DisableRecording() {
 
   base::RemoveActionCallback(action_callback_);
 
-  for (size_t i = 0; i < metrics_providers_.size(); ++i)
-    metrics_providers_[i]->OnRecordingDisabled();
+  for (MetricsProvider* provider : metrics_providers_)
+    provider->OnRecordingDisabled();
 
   PushPendingLogsToPersistentStorage();
 }
@@ -531,8 +529,8 @@ void MetricsService::RecordBreakpadHasDebugger(bool has_debugger) {
 }
 
 void MetricsService::ClearSavedStabilityMetrics() {
-  for (size_t i = 0; i < metrics_providers_.size(); ++i)
-    metrics_providers_[i]->ClearSavedStabilityMetrics();
+  for (MetricsProvider* provider : metrics_providers_)
+    provider->ClearSavedStabilityMetrics();
 
   // Reset the prefs that are managed by MetricsService/MetricsLog directly.
   local_state_->SetInteger(prefs::kStabilityCrashCount, 0);
@@ -556,7 +554,7 @@ void MetricsService::PushExternalLog(const std::string& log) {
 // Initialization methods
 
 void MetricsService::InitializeMetricsState() {
-  const int64 buildtime = MetricsLog::GetBuildTime();
+  const int64_t buildtime = MetricsLog::GetBuildTime();
   const std::string version = client_->GetVersionString();
   bool version_changed = false;
   if (local_state_->GetInt64(prefs::kStabilityStatsBuildTime) != buildtime ||
@@ -674,9 +672,9 @@ void MetricsService::GetUptimes(PrefService* pref,
   *uptime = now - first_updated_time_;
   last_updated_time_ = now;
 
-  const int64 incremental_time_secs = incremental_uptime->InSeconds();
+  const int64_t incremental_time_secs = incremental_uptime->InSeconds();
   if (incremental_time_secs > 0) {
-    int64 metrics_uptime = pref->GetInt64(prefs::kUninstallMetricsUptimeSec);
+    int64_t metrics_uptime = pref->GetInt64(prefs::kUninstallMetricsUptimeSec);
     metrics_uptime += incremental_time_secs;
     pref->SetInt64(prefs::kUninstallMetricsUptimeSec, metrics_uptime);
   }
@@ -684,8 +682,8 @@ void MetricsService::GetUptimes(PrefService* pref,
 
 void MetricsService::NotifyOnDidCreateMetricsLog() {
   DCHECK(IsSingleThreaded());
-  for (size_t i = 0; i < metrics_providers_.size(); ++i)
-    metrics_providers_[i]->OnDidCreateMetricsLog();
+  for (MetricsProvider* provider : metrics_providers_)
+    provider->OnDidCreateMetricsLog();
 }
 
 //------------------------------------------------------------------------------
@@ -745,6 +743,13 @@ void MetricsService::CloseCurrentLog() {
     log_manager_.DiscardCurrentLog();
     OpenNewLog();  // Start trivial log to hold our histograms.
   }
+
+  // If a persistent allocator is in use, update its internal histograms (such
+  // as how much memory is being used) before reporting.
+  base::PersistentMemoryAllocator* allocator =
+      base::GetPersistentHistogramMemoryAllocator();
+  if (allocator)
+    allocator->UpdateTrackingHistograms();
 
   // Put incremental data (histogram deltas, and realtime stats deltas) at the
   // end of all log transmissions (initial log handles this separately).
@@ -866,8 +871,8 @@ void MetricsService::SendNextLog() {
 
 bool MetricsService::ProvidersHaveInitialStabilityMetrics() {
   // Check whether any metrics provider has initial stability metrics.
-  for (size_t i = 0; i < metrics_providers_.size(); ++i) {
-    if (metrics_providers_[i]->HasInitialStabilityMetrics())
+  for (MetricsProvider* provider : metrics_providers_) {
+    if (provider->HasInitialStabilityMetrics())
       return true;
   }
 
@@ -887,7 +892,7 @@ bool MetricsService::PrepareInitialStabilityLog() {
     return false;
 
   log_manager_.PauseCurrentLog();
-  log_manager_.BeginLoggingWithLog(initial_stability_log.Pass());
+  log_manager_.BeginLoggingWithLog(std::move(initial_stability_log));
 
   // Note: Some stability providers may record stability stats via histograms,
   //       so this call has to be after BeginLoggingWithLog().
@@ -919,7 +924,7 @@ void MetricsService::PrepareInitialMetricsLog() {
   // Histograms only get written to the current log, so make the new log current
   // before writing them.
   log_manager_.PauseCurrentLog();
-  log_manager_.BeginLoggingWithLog(initial_metrics_log_.Pass());
+  log_manager_.BeginLoggingWithLog(std::move(initial_metrics_log_));
 
   // Note: Some stability providers may record stability stats via histograms,
   //       so this call has to be after BeginLoggingWithLog().
@@ -1014,7 +1019,7 @@ void MetricsService::IncrementPrefValue(const char* path) {
 }
 
 void MetricsService::IncrementLongPrefsValue(const char* path) {
-  int64 value = local_state_->GetInt64(path);
+  int64_t value = local_state_->GetInt64(path);
   local_state_->SetInt64(path, value + 1);
 }
 
@@ -1025,19 +1030,19 @@ bool MetricsService::UmaMetricsProperlyShutdown() {
 }
 
 void MetricsService::AddSyntheticTrialObserver(
-    SyntheticTrialObserver* observer) {
+    variations::SyntheticTrialObserver* observer) {
   synthetic_trial_observer_list_.AddObserver(observer);
   if (!synthetic_trial_groups_.empty())
     observer->OnSyntheticTrialsChanged(synthetic_trial_groups_);
 }
 
 void MetricsService::RemoveSyntheticTrialObserver(
-    SyntheticTrialObserver* observer) {
+    variations::SyntheticTrialObserver* observer) {
   synthetic_trial_observer_list_.RemoveObserver(observer);
 }
 
 void MetricsService::RegisterSyntheticFieldTrial(
-    const SyntheticTrialGroup& trial) {
+    const variations::SyntheticTrialGroup& trial) {
   for (size_t i = 0; i < synthetic_trial_groups_.size(); ++i) {
     if (synthetic_trial_groups_[i].id.name == trial.id.name) {
       if (synthetic_trial_groups_[i].id.group != trial.id.group) {
@@ -1049,16 +1054,21 @@ void MetricsService::RegisterSyntheticFieldTrial(
     }
   }
 
-  SyntheticTrialGroup trial_group = trial;
+  variations::SyntheticTrialGroup trial_group = trial;
   trial_group.start_time = base::TimeTicks::Now();
   synthetic_trial_groups_.push_back(trial_group);
   NotifySyntheticTrialObservers();
 }
 
+void MetricsService::GetCurrentSyntheticFieldTrialsForTesting(
+    std::vector<variations::ActiveGroupId>* synthetic_trials) {
+  GetSyntheticFieldTrialsOlderThan(base::TimeTicks::Now(), synthetic_trials);
+}
+
 void MetricsService::RegisterMetricsProvider(
     scoped_ptr<MetricsProvider> provider) {
   DCHECK_EQ(INITIALIZED, state_);
-  metrics_providers_.push_back(provider.Pass());
+  metrics_providers_.push_back(std::move(provider));
 }
 
 void MetricsService::CheckForClonedInstall(
@@ -1067,17 +1077,18 @@ void MetricsService::CheckForClonedInstall(
 }
 
 void MetricsService::NotifySyntheticTrialObservers() {
-  FOR_EACH_OBSERVER(SyntheticTrialObserver, synthetic_trial_observer_list_,
+  FOR_EACH_OBSERVER(variations::SyntheticTrialObserver,
+                    synthetic_trial_observer_list_,
                     OnSyntheticTrialsChanged(synthetic_trial_groups_));
 }
 
-void MetricsService::GetCurrentSyntheticFieldTrials(
+void MetricsService::GetSyntheticFieldTrialsOlderThan(
+    base::TimeTicks time,
     std::vector<variations::ActiveGroupId>* synthetic_trials) {
   DCHECK(synthetic_trials);
   synthetic_trials->clear();
-  const MetricsLog* current_log = log_manager_.current_log();
   for (size_t i = 0; i < synthetic_trial_groups_.size(); ++i) {
-    if (synthetic_trial_groups_[i].start_time <= current_log->creation_time())
+    if (synthetic_trial_groups_[i].start_time <= time)
       synthetic_trials->push_back(synthetic_trial_groups_[i].id);
   }
 }
@@ -1092,20 +1103,32 @@ scoped_ptr<MetricsLog> MetricsService::CreateLog(MetricsLog::LogType log_type) {
 
 void MetricsService::RecordCurrentEnvironment(MetricsLog* log) {
   std::vector<variations::ActiveGroupId> synthetic_trials;
-  GetCurrentSyntheticFieldTrials(&synthetic_trials);
+  GetSyntheticFieldTrialsOlderThan(log->creation_time(), &synthetic_trials);
   log->RecordEnvironment(metrics_providers_.get(), synthetic_trials,
                          GetInstallDate(), GetMetricsReportingEnabledDate());
 }
 
 void MetricsService::RecordCurrentHistograms() {
   DCHECK(log_manager_.current_log());
-  histogram_snapshot_manager_.PrepareDeltas(
-      base::Histogram::kNoFlags, base::Histogram::kUmaTargetedHistogramFlag);
+  histogram_snapshot_manager_.StartDeltas();
+  // "true" to the begin() call indicates that StatisticsRecorder should include
+  // histograms held in persistent storage.
+  auto end = base::StatisticsRecorder::end();
+  for (auto it = base::StatisticsRecorder::begin(true); it != end; ++it) {
+    if ((*it)->flags() & base::Histogram::kUmaTargetedHistogramFlag)
+      histogram_snapshot_manager_.PrepareDelta(*it);
+  }
+  for (MetricsProvider* provider : metrics_providers_)
+    provider->RecordHistogramSnapshots(&histogram_snapshot_manager_);
+  histogram_snapshot_manager_.FinishDeltas();
 }
 
 void MetricsService::RecordCurrentStabilityHistograms() {
   DCHECK(log_manager_.current_log());
+  // "true" indicates that StatisticsRecorder should include histograms in
+  // persistent storage.
   histogram_snapshot_manager_.PrepareDeltas(
+      base::StatisticsRecorder::begin(true), base::StatisticsRecorder::end(),
       base::Histogram::kNoFlags, base::Histogram::kUmaStabilityHistogramFlag);
 }
 

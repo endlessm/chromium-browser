@@ -7,7 +7,17 @@
 
 #include "content/common/content_export.h"
 
+namespace IPC {
+class Message;
+}
+
+namespace blink {
+class WebMouseEvent;
+}
+
 namespace content {
+
+struct NativeWebKeyboardEvent;
 
 //
 // RenderWidgetHostOwnerDelegate
@@ -17,6 +27,29 @@ namespace content {
 //  RenderWidgetHostImpl classes are disentangled; see http://crbug.com/542477
 //  and http://crbug.com/478281.
 class CONTENT_EXPORT RenderWidgetHostOwnerDelegate {
+ public:
+  // The RenderWidgetHost received an IPC message. Return true if this delegate
+  // handles it.
+  virtual bool OnMessageReceived(const IPC::Message& msg) = 0;
+
+  // The RenderWidgetHost has been initialized.
+  virtual void RenderWidgetDidInit() = 0;
+
+  // The RenderWidgetHost will be setting its loading state.
+  virtual void RenderWidgetWillSetIsLoading(bool is_loading) = 0;
+
+  // The RenderWidgetHost got the focus.
+  virtual void RenderWidgetGotFocus() = 0;
+
+  // The RenderWidgetHost forwarded a mouse event.
+  virtual void RenderWidgetDidForwardMouseEvent(
+      const blink::WebMouseEvent& mouse_event) = 0;
+
+  // The RenderWidgetHost wants to forward a keyboard event; returns whether
+  // it's allowed to do so.
+  virtual bool MayRenderWidgetForwardKeyboardEvent(
+      const NativeWebKeyboardEvent& key_event) = 0;
+
  protected:
   virtual ~RenderWidgetHostOwnerDelegate() {}
 };

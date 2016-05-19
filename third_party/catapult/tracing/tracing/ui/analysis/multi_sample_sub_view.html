@@ -5,11 +5,11 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/units/units.html">
+<link rel="import" href="/tracing/base/multi_dimensional_view.html">
 <link rel="import" href="/tracing/ui/analysis/analysis_sub_view.html">
-<link rel="import" href="/tracing/ui/analysis/stack_frame_tree.html">
 <link rel="import" href="/tracing/ui/base/table.html">
-<link rel="import" href="/tracing/ui/units/scalar_span.html">
+<link rel="import" href="/tracing/value/ui/scalar_span.html">
+<link rel="import" href="/tracing/value/unit.html">
 
 <polymer-element name="tr-ui-a-multi-sample-sub-view"
     extends="tr-ui-a-sub-view">
@@ -53,11 +53,23 @@ found in the LICENSE file.
       ready: function() {
         var viewSelector = tr.ui.b.createSelector(
             this, 'viewOption', 'tracing.ui.analysis.multi_sample_sub_view',
-            'TOPDOWNVIEW',
-            [{label: 'Tree (Top Down)', value: 'TOPDOWNVIEW'},
-             {label: 'Heavy (Bottom Up)', value: 'BOTTOMUPVIEW'}]
-        );
+            tr.b.MultiDimensionalViewType.TOP_DOWN_TREE_VIEW,
+            [
+              {
+                label: 'Top-down (Tree)',
+                value: tr.b.MultiDimensionalViewType.TOP_DOWN_TREE_VIEW
+              },
+              {
+                label: 'Top-down (Heavy)',
+                value: tr.b.MultiDimensionalViewType.TOP_DOWN_HEAVY_VIEW
+              },
+              {
+                label: 'Bottom-up (Heavy)',
+                value: tr.b.MultiDimensionalViewType.BOTTOM_UP_HEAVY_VIEW
+              }
+            ]);
         this.$.control.appendChild(viewSelector);
+        this.$.table.selectionMode = tr.ui.b.TableFormat.SelectionMode.ROW;
       },
 
       get selection() {
@@ -79,23 +91,15 @@ found in the LICENSE file.
       },
 
       createSamplingSummary_: function(selection, viewOption) {
-        var root = new tr.ui.analysis.StackFrameTreeNode(
-            '(root)', undefined /* frame */);
+        var builder = new tr.b.MultiDimensionalViewBuilder(1 /* dimensions */);
         var samples = selection.getEventsOrganizedByBaseType().sample;
 
         samples.forEach(function(sample) {
-          root.addStackTrace(sample.stackTrace, 1);
+          builder.addPath([sample.getUserFriendlyStackTrace().reverse()],
+              1, tr.b.MultiDimensionalViewBuilder.ValueKind.SELF);
         });
 
-        switch (viewOption) {
-          case 'TOPDOWNVIEW':
-            return root;
-          case 'BOTTOMUPVIEW':
-            return root.convertToBottomUpView();
-          default:
-            throw new Error(
-                'Unknown sampling summary view option: \'' + viewOption + '\'');
-        }
+        return builder.buildView(viewOption);
       },
 
       updateContents_: function() {
@@ -115,10 +119,10 @@ found in the LICENSE file.
           this.createSamplesColumn_('Self'),
           {
             title: 'Symbol',
-            value: function(row) { return row.title; },
+            value: function(row) { return row.title[0]; },
             width: '250px',
             cmp: function(a, b) {
-              return a.title.localeCompare(b.title);
+              return a.title[0].localeCompare(b.title[0]);
             },
             showExpandButtons: true
           }
@@ -138,10 +142,10 @@ found in the LICENSE file.
           value: function(row) {
             var percent = row[field] / samplingDataTotal;
 
-            var span = document.createElement('tr-ui-u-scalar-span');
+            var span = document.createElement('tr-v-ui-scalar-span');
             span.value = (percent * 100).toFixed(2);
             span.percentage = percent;
-            span.unit = tr.b.u.Units.unitlessNumber;
+            span.unit = tr.v.Unit.byName.unitlessNumber;
             return span;
 
           }.bind(this),

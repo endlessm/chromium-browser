@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ANDROID_BOTTOMBAR_OVERLAY_PANEL_CONTENT_H_
 
 #include "base/android/jni_android.h"
+#include "base/macros.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/android/contextualsearch/contextual_search_context.h"
 
@@ -27,28 +28,34 @@ class OverlayPanelContent {
   virtual ~OverlayPanelContent();
 
   // Called by the Java OverlayPanelContent when it is being destroyed.
-  void Destroy(JNIEnv* env, jobject obj);
+  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
   // Removes a search URL from history. |search_start_time_ms| represents the
   // time at which |search_url| was committed.
-  void RemoveLastHistoryEntry(JNIEnv* env,
-                              jobject obj,
-                              jstring search_url,
-                              jlong search_start_time_ms);
+  void RemoveLastHistoryEntry(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jstring>& search_url,
+      jlong search_start_time_ms);
 
   // Takes ownership of the WebContents associated with the given
   // |ContentViewCore| which holds the panel content.
-  void SetWebContents(JNIEnv* env, jobject obj, jobject jcontent_view_core,
-                      jobject jweb_contents_delegate);
+  void SetWebContents(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& jcontent_view_core,
+      const base::android::JavaParamRef<jobject>& jweb_contents_delegate);
 
   // Destroys the WebContents.
-  void DestroyWebContents(JNIEnv* env, jobject jobj);
+  void DestroyWebContents(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& jobj);
 
   // Sets the delegate used to convert navigations to intents.
-  void SetInterceptNavigationDelegate(JNIEnv* env,
-                                      jobject obj,
-                                      jobject delegate,
-                                      jobject jweb_contents);
+  void SetInterceptNavigationDelegate(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& delegate,
+      const base::android::JavaParamRef<jobject>& jweb_contents);
 
  private:
   // Our global reference to the Java OverlayPanelContent.

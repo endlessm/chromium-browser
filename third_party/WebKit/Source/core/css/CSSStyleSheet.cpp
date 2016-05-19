@@ -18,7 +18,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "config.h"
 #include "core/css/CSSStyleSheet.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -35,7 +34,7 @@
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/Node.h"
-#include "core/frame/UseCounter.h"
+#include "core/frame/Deprecation.h"
 #include "core/html/HTMLStyleElement.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "core/svg/SVGStyleElement.h"
@@ -86,7 +85,7 @@ static bool isAcceptableCSSStyleSheetParent(Node* parentNode)
         || isHTMLLinkElement(*parentNode)
         || isHTMLStyleElement(*parentNode)
         || isSVGStyleElement(*parentNode)
-        || parentNode->nodeType() == Node::PROCESSING_INSTRUCTION_NODE;
+        || parentNode->getNodeType() == Node::PROCESSING_INSTRUCTION_NODE;
 }
 #endif
 
@@ -314,7 +313,7 @@ unsigned CSSStyleSheet::insertRule(const String& ruleString, unsigned index, Exc
 
 unsigned CSSStyleSheet::insertRule(const String& rule, ExceptionState& exceptionState)
 {
-    UseCounter::countDeprecation(callingExecutionContext(V8PerIsolateData::mainThreadIsolate()), UseCounter::CSSStyleSheetInsertRuleOptionalArg);
+    Deprecation::countDeprecation(currentExecutionContext(V8PerIsolateData::mainThreadIsolate()), UseCounter::CSSStyleSheetInsertRuleOptionalArg);
     return insertRule(rule, 0, exceptionState);
 }
 

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "config.h"
 #include "platform/graphics/paint/ScrollDisplayItem.h"
 
 #include "platform/graphics/GraphicsContext.h"
@@ -19,7 +18,7 @@ void BeginScrollDisplayItem::replay(GraphicsContext& context) const
 
 void BeginScrollDisplayItem::appendToWebDisplayItemList(const IntRect& visualRect, WebDisplayItemList* list) const
 {
-    WebDisplayItemList::ScrollContainerId scrollContainerId = client();
+    WebDisplayItemList::ScrollContainerId scrollContainerId = &client();
     list->appendScrollItem(visualRect, m_currentOffset, scrollContainerId);
 }
 

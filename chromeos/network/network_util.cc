@@ -4,6 +4,9 @@
 
 #include "chromeos/network/network_util.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
@@ -37,7 +40,7 @@ CellularScanResult::~CellularScanResult() {
 
 namespace network_util {
 
-std::string PrefixLengthToNetmask(int32 prefix_length) {
+std::string PrefixLengthToNetmask(int32_t prefix_length) {
   std::string netmask;
   // Return the empty string for invalid inputs.
   if (prefix_length < 0 || prefix_length > 32)
@@ -59,7 +62,7 @@ std::string PrefixLengthToNetmask(int32 prefix_length) {
   return netmask;
 }
 
-int32 NetmaskToPrefixLength(const std::string& netmask) {
+int32_t NetmaskToPrefixLength(const std::string& netmask) {
   int count = 0;
   int prefix_length = 0;
   base::StringTokenizer t(netmask, ".");
@@ -180,7 +183,7 @@ scoped_ptr<base::DictionaryValue> TranslateNetworkStateToONC(
   scoped_ptr<base::DictionaryValue> onc_dictionary =
       TranslateShillServiceToONCPart(*shill_dictionary, onc_source,
                                      &onc::kNetworkWithStateSignature, network);
-  return onc_dictionary.Pass();
+  return onc_dictionary;
 }
 
 scoped_ptr<base::ListValue> TranslateNetworkListToONC(
@@ -198,7 +201,7 @@ scoped_ptr<base::ListValue> TranslateNetworkListToONC(
         TranslateNetworkStateToONC(state);
     network_properties_list->Append(onc_dictionary.release());
   }
-  return network_properties_list.Pass();
+  return network_properties_list;
 }
 
 std::string TranslateONCTypeToShill(const std::string& onc_type) {

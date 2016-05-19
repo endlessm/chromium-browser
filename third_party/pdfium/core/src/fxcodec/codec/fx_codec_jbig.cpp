@@ -4,8 +4,8 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "codec_int.h"
 #include "core/include/fxcodec/fx_codec.h"
+#include "core/src/fxcodec/codec/codec_int.h"
 
 // Holds per-document JBig2 related data.
 class JBig2DocumentContext : public CFX_DestructObject {
@@ -14,7 +14,7 @@ class JBig2DocumentContext : public CFX_DestructObject {
     return &m_SymbolDictCache;
   }
 
-  ~JBig2DocumentContext() {
+  ~JBig2DocumentContext() override {
     for (auto it : m_SymbolDictCache) {
       delete it.second;
     }

@@ -4,6 +4,9 @@
 
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 
+#include <stddef.h>
+
+#include "base/macros.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
@@ -44,6 +47,14 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest, DragBrowserActions) {
       BrowserView::GetBrowserViewForBrowser(browser())
           ->toolbar()->browser_actions();
 
+  // The order of the child views should be the same.
+  EXPECT_EQ(container->GetViewForId(extension_a()->id()),
+            container->child_at(0));
+  EXPECT_EQ(container->GetViewForId(extension_b()->id()),
+            container->child_at(1));
+  EXPECT_EQ(container->GetViewForId(extension_c()->id()),
+            container->child_at(2));
+
   // Simulate a drag and drop to the right.
   ui::OSExchangeData drop_data;
   // Drag extension A from index 0...
@@ -63,6 +74,12 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest, DragBrowserActions) {
   EXPECT_EQ(extension_b()->id(), browser_actions_bar()->GetExtensionId(0));
   EXPECT_EQ(extension_a()->id(), browser_actions_bar()->GetExtensionId(1));
   EXPECT_EQ(extension_c()->id(), browser_actions_bar()->GetExtensionId(2));
+  EXPECT_EQ(container->GetViewForId(extension_b()->id()),
+            container->child_at(0));
+  EXPECT_EQ(container->GetViewForId(extension_a()->id()),
+            container->child_at(1));
+  EXPECT_EQ(container->GetViewForId(extension_c()->id()),
+            container->child_at(2));
 
   const extensions::ExtensionSet& extension_set =
       extensions::ExtensionRegistry::Get(profile())->enabled_extensions();
@@ -92,6 +109,12 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest, DragBrowserActions) {
   EXPECT_EQ(extension_a()->id(), browser_actions_bar()->GetExtensionId(0));
   EXPECT_EQ(extension_b()->id(), browser_actions_bar()->GetExtensionId(1));
   EXPECT_EQ(extension_c()->id(), browser_actions_bar()->GetExtensionId(2));
+  EXPECT_EQ(container->GetViewForId(extension_a()->id()),
+            container->child_at(0));
+  EXPECT_EQ(container->GetViewForId(extension_b()->id()),
+            container->child_at(1));
+  EXPECT_EQ(container->GetViewForId(extension_c()->id()),
+            container->child_at(2));
 
   // Shrink the size of the container so we have an overflow menu.
   toolbar_model()->SetVisibleIconCount(2u);
@@ -138,8 +161,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest, MultipleWindows) {
           browser_actions();
 
   // Create a second browser.
-  Browser* second_browser = new Browser(
-      Browser::CreateParams(profile(), browser()->host_desktop_type()));
+  Browser* second_browser = new Browser(Browser::CreateParams(profile()));
   BrowserActionsContainer* second =
       BrowserView::GetBrowserViewForBrowser(second_browser)->toolbar()->
           browser_actions();

@@ -5,12 +5,15 @@
 #ifndef NET_DNS_HOST_RESOLVER_IMPL_H_
 #define NET_DNS_HOST_RESOLVER_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
+#include "base/strings/string_piece.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
 #include "net/base/ip_address_number.h"
@@ -22,6 +25,7 @@
 
 namespace net {
 
+class AddressList;
 class BoundNetLog;
 class DnsClient;
 class NetLog;
@@ -78,6 +82,8 @@ class NET_EXPORT HostResolverImpl
     // Sets up defaults.
     ProcTaskParams(HostResolverProc* resolver_proc, size_t max_retry_attempts);
 
+    ProcTaskParams(const ProcTaskParams& other);
+
     ~ProcTaskParams();
 
     // The procedure to use for resolving host names. This will be NULL, except
@@ -93,7 +99,7 @@ class NET_EXPORT HostResolverImpl
     base::TimeDelta unresponsive_delay;
 
     // Factor to grow |unresponsive_delay| when we re-re-try.
-    uint32 retry_factor;
+    uint32_t retry_factor;
   };
 
   // Creates a HostResolver as specified by |options|.
@@ -136,7 +142,7 @@ class NET_EXPORT HostResolverImpl
   void CancelRequest(RequestHandle req) override;
   void SetDnsClientEnabled(bool enabled) override;
   HostCache* GetHostCache() override;
-  base::Value* GetDnsConfigAsValue() const override;
+  scoped_ptr<base::Value> GetDnsConfigAsValue() const override;
 
   void set_proc_params_for_test(const ProcTaskParams& proc_params) {
     proc_params_ = proc_params;
@@ -151,7 +157,6 @@ class NET_EXPORT HostResolverImpl
   class Request;
   typedef HostCache::Key Key;
   typedef std::map<Key, Job*> JobMap;
-  typedef ScopedVector<Request> RequestsList;
 
   // Number of consecutive failures of DnsTask (with successful fallback to
   // ProcTask) before the DnsClient is disabled until the next DNS change.
@@ -305,6 +310,18 @@ class NET_EXPORT HostResolverImpl
 
   DISALLOW_COPY_AND_ASSIGN(HostResolverImpl);
 };
+
+// Resolves a local hostname (such as "localhost" or "localhost6") into
+// IP endpoints with the given port. Returns true if |host| is a local
+// hostname and false otherwise. Special IPv6 names (e.g. "localhost6")
+// will resolve to an IPv6 address only, whereas other names will
+// resolve to both IPv4 and IPv6.
+// This function is only exposed so it can be unit-tested.
+// TODO(tfarina): It would be better to change the tests so this function
+// gets exercised indirectly through HostResolverImpl.
+NET_EXPORT_PRIVATE bool ResolveLocalHostname(base::StringPiece host,
+                                             uint16_t port,
+                                             AddressList* address_list);
 
 }  // namespace net
 

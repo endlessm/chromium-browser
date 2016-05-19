@@ -5,13 +5,15 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_EMBEDDED_WORKER_INSTANCE_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_EMBEDDED_WORKER_INSTANCE_H_
 
+#include <stdint.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -74,9 +76,13 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
   class Listener {
    public:
     virtual ~Listener() {}
-    virtual void OnThreadStarted() {}
+
     virtual void OnStarting() {}
+    virtual void OnProcessAllocated() {}
+    virtual void OnStartWorkerMessageSent() {}
+    virtual void OnThreadStarted() {}
     virtual void OnStarted() {}
+
     virtual void OnStopping() {}
     // Received ACK from renderer that the worker context terminated.
     virtual void OnStopped(Status old_status) {}
@@ -94,18 +100,21 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
                                         int line_number,
                                         const GURL& source_url) {}
     // Returns false if the message is not handled by this listener.
-    virtual bool OnMessageReceived(const IPC::Message& message) = 0;
+    CONTENT_EXPORT virtual bool OnMessageReceived(const IPC::Message& message);
   };
 
   ~EmbeddedWorkerInstance();
 
   // Starts the worker. It is invalid to call this when the worker is not in
   // STOPPED status. |callback| is invoked after the worker script has been
-  // started and evaluated, or when an error occurs.
-  void Start(int64 service_worker_version_id,
+  // started and evaluated, or when an error occurs. If |pause_after_download|
+  // is true, the worker pauses after loading until ResumeAfterDownload() is
+  // called.
+  void Start(int64_t service_worker_version_id,
              const GURL& scope,
              const GURL& script_url,
-             const StatusCallback& callback);
+             const StatusCallback& callback,
+             bool pause_after_download = false);
 
   // Stops the worker. It is invalid to call this when the worker is
   // not in STARTING or RUNNING status.
@@ -123,6 +132,9 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
   // status.
   ServiceWorkerStatusCode SendMessage(const IPC::Message& message);
 
+  // Resumes the worker if it paused after download.
+  void ResumeAfterDownload();
+
   // Returns the ServiceRegistry for this worker. It is invalid to call this
   // when the worker is not in STARTING or RUNNING status.
   ServiceRegistry* GetServiceRegistry();
@@ -133,7 +145,7 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
     DCHECK_EQ(STARTING, status());
     return starting_phase_;
   }
-  int process_id() const { return process_id_; }
+  int process_id() const;
   int thread_id() const { return thread_id_; }
   int worker_devtools_agent_route_id() const;
   MessagePortMessageFilter* message_port_message_filter() const;
@@ -143,6 +155,10 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
 
   void set_devtools_attached(bool attached) { devtools_attached_ = attached; }
   bool devtools_attached() const { return devtools_attached_; }
+
+  bool network_accessed_for_script() const {
+    return network_accessed_for_script_;
+  }
 
   // Called when the script load request accessed the network.
   void OnNetworkAccessedForScriptLoad();
@@ -157,9 +173,13 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
 
   void Detach();
 
+  base::WeakPtr<EmbeddedWorkerInstance> AsWeakPtr();
+
  private:
   typedef base::ObserverList<Listener> ListenerList;
   class DevToolsProxy;
+  class StartTask;
+  class WorkerProcessHandle;
   friend class EmbeddedWorkerRegistry;
   FRIEND_TEST_ALL_PREFIXES(EmbeddedWorkerInstanceTest, StartAndStop);
   FRIEND_TEST_ALL_PREFIXES(EmbeddedWorkerInstanceTest, DetachDuringStart);
@@ -170,28 +190,17 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
   EmbeddedWorkerInstance(base::WeakPtr<ServiceWorkerContextCore> context,
                          int embedded_worker_id);
 
-  // Called back from ServiceWorkerProcessManager after Start() passes control
-  // to the UI thread to acquire a reference to the process.
-  static void RunProcessAllocated(
-      base::WeakPtr<EmbeddedWorkerInstance> instance,
-      base::WeakPtr<ServiceWorkerContextCore> context,
-      scoped_ptr<EmbeddedWorkerMsg_StartWorker_Params> params,
-      const EmbeddedWorkerInstance::StatusCallback& callback,
-      ServiceWorkerStatusCode status,
-      int process_id,
-      bool is_new_process);
-  void ProcessAllocated(scoped_ptr<EmbeddedWorkerMsg_StartWorker_Params> params,
-                        const StatusCallback& callback,
-                        int process_id,
-                        bool is_new_process,
-                        ServiceWorkerStatusCode status);
-  // Called back after ProcessAllocated() passes control to the UI thread to
-  // register to WorkerDevToolsManager.
-  void SendStartWorker(scoped_ptr<EmbeddedWorkerMsg_StartWorker_Params> params,
-                       const StatusCallback& callback,
-                       bool is_new_process,
-                       int worker_devtools_agent_route_id,
-                       bool wait_for_debugger);
+  // Called back from StartTask after a process is allocated on the UI thread.
+  void OnProcessAllocated(scoped_ptr<WorkerProcessHandle> handle);
+
+  // Called back from StartTask after the worker is registered to
+  // WorkerDevToolsManager.
+  void OnRegisteredToDevToolsManager(bool is_new_process,
+                                     int worker_devtools_agent_route_id,
+                                     bool wait_for_debugger);
+
+  // Called back from StartTask after a start worker message is sent.
+  void OnStartWorkerMessageSent();
 
   // Called back from Registry when the worker instance has ack'ed that
   // it is ready for inspection.
@@ -224,6 +233,7 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
   // This will change the internal status from STARTING or RUNNING to
   // STOPPED.
   void OnStopped();
+
   // Called when ServiceWorkerDispatcherHost for the worker died while it was
   // running.
   void OnDetached();
@@ -249,8 +259,9 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
   // Resets all running state. After this function is called, |status_| is
   // STOPPED.
   void ReleaseProcess();
-  // Called when the startup sequence failed. Calls ReleaseProcess() and invokes
-  // |callback| with |status|. May destroy |this|.
+
+  // Called back from StartTask when the startup sequence failed. Calls
+  // ReleaseProcess() and invokes |callback| with |status|. May destroy |this|.
   void OnStartFailed(const StatusCallback& callback,
                      ServiceWorkerStatusCode status);
 
@@ -260,8 +271,8 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
   Status status_;
   StartingPhase starting_phase_;
 
-  // Current running information. -1 indicates the worker is not running.
-  int process_id_;
+  // Current running information.
+  scoped_ptr<EmbeddedWorkerInstance::WorkerProcessHandle> process_handle_;
   int thread_id_;
   scoped_ptr<ServiceRegistryImpl> service_registry_;
 
@@ -272,10 +283,10 @@ class CONTENT_EXPORT EmbeddedWorkerInstance {
   // served from HTTPCache or ServiceWorkerDatabase this value is false.
   bool network_accessed_for_script_;
 
-  StatusCallback start_callback_;
   ListenerList listener_list_;
   scoped_ptr<DevToolsProxy> devtools_proxy_;
 
+  scoped_ptr<StartTask> inflight_start_task_;
   base::TimeTicks start_timing_;
 
   base::WeakPtrFactory<EmbeddedWorkerInstance> weak_factory_;

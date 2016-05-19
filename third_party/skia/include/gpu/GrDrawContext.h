@@ -9,23 +9,25 @@
 #define GrDrawContext_DEFINED
 
 #include "GrColor.h"
+#include "GrRenderTarget.h"
 #include "SkRefCnt.h"
 #include "SkSurfaceProps.h"
+#include "../private/GrSingleOwner.h"
 
+class GrAtlasTextContext;
+class GrAuditTrail;
 class GrClip;
 class GrContext;
 class GrDrawBatch;
+class GrDrawPathBatchBase;
 class GrDrawingManager;
 class GrDrawTarget;
 class GrPaint;
 class GrPathProcessor;
-class GrPathRange;
-class GrPathRangeDraw;
 class GrPipelineBuilder;
 class GrRenderTarget;
 class GrStrokeInfo;
 class GrSurface;
-class GrTextContext;
 class SkDrawFilter;
 struct SkIPoint;
 struct SkIRect;
@@ -45,32 +47,22 @@ class SK_API GrDrawContext : public SkRefCnt {
 public:
     ~GrDrawContext() override;
 
-    void copySurface(GrSurface* src, const SkIRect& srcRect, const SkIPoint& dstPoint);
+    bool copySurface(GrSurface* src, const SkIRect& srcRect, const SkIPoint& dstPoint);
 
     // TODO: it is odd that we need both the SkPaint in the following 3 methods.
     // We should extract the text parameters from SkPaint and pass them separately
     // akin to GrStrokeInfo (GrTextInfo?)
-    void drawText(const GrClip&,  const GrPaint&, const SkPaint&,
-                  const SkMatrix& viewMatrix, const char text[], size_t byteLength,
-                  SkScalar x, SkScalar y, const SkIRect& clipBounds);
-    void drawPosText(const GrClip&, const GrPaint&, const SkPaint&,
-                     const SkMatrix& viewMatrix, const char text[], size_t byteLength,
-                     const SkScalar pos[], int scalarsPerPosition,
-                     const SkPoint& offset, const SkIRect& clipBounds);
-    void drawTextBlob(const GrClip&, const SkPaint&,
-                      const SkMatrix& viewMatrix, const SkTextBlob*,
-                      SkScalar x, SkScalar y,
-                      SkDrawFilter*, const SkIRect& clipBounds);
-
-    // drawPathsFromRange is thanks to GrStencilAndCoverTextContext
-    // TODO: remove once path batches can be created external to GrDrawTarget.
-    void drawPathsFromRange(const GrPipelineBuilder*,
-                            const SkMatrix& viewMatrix,
-                            const SkMatrix& localMatrix,
-                            GrColor color,
-                            GrPathRange* range,
-                            GrPathRangeDraw* draw,
-                            int /*GrPathRendering::FillType*/ fill);
+    virtual void drawText(const GrClip&,  const GrPaint&, const SkPaint&,
+                          const SkMatrix& viewMatrix, const char text[], size_t byteLength,
+                          SkScalar x, SkScalar y, const SkIRect& clipBounds);
+    virtual void drawPosText(const GrClip&, const GrPaint&, const SkPaint&,
+                             const SkMatrix& viewMatrix, const char text[], size_t byteLength,
+                             const SkScalar pos[], int scalarsPerPosition,
+                             const SkPoint& offset, const SkIRect& clipBounds);
+    virtual void drawTextBlob(const GrClip&, const SkPaint&,
+                              const SkMatrix& viewMatrix, const SkTextBlob*,
+                              SkScalar x, SkScalar y,
+                              SkDrawFilter*, const SkIRect& clipBounds);
 
     /**
      * Provides a perfomance hint that the render target's contents are allowed
@@ -149,23 +141,6 @@ public:
                    const GrStrokeInfo&);
 
     /**
-     *  Shortcut for drawing an SkPath consisting of nested rrects using a paint.
-     *  Does not support stroking. The result is undefined if outer does not contain
-     *  inner.
-     *
-     *  @param paint        describes how to color pixels.
-     *  @param viewMatrix   transformation matrix
-     *  @param outer        the outer roundrect
-     *  @param inner        the inner roundrect
-     */
-    void drawDRRect(const GrClip&,
-                    const GrPaint&,
-                    const SkMatrix& viewMatrix,
-                    const SkRRect& outer,
-                    const SkRRect& inner);
-
-
-    /**
      * Draws a path.
      *
      * @param paint         describes how to color pixels.
@@ -242,6 +217,27 @@ public:
                   const SkRect& oval,
                   const GrStrokeInfo& strokeInfo);
 
+    /**
+     *  Draw the image stretched differentially to fit into dst.
+     *  center is a rect within the image, and logically divides the image
+     *  into 9 sections (3x3). For example, if the middle pixel of a [5x5]
+     *  image is the "center", then the center-rect should be [2, 2, 3, 3].
+     *
+     *  If the dst is >= the image size, then...
+     *  - The 4 corners are not stretched at all.
+     *  - The sides are stretched in only one axis.
+     *  - The center is stretched in both axes.
+     * Else, for each axis where dst < image,
+     *  - The corners shrink proportionally
+     *  - The sides (along the shrink axis) and center are not drawn
+     */
+    void drawImageNine(const GrClip&,
+                       const GrPaint& paint,
+                       const SkMatrix& viewMatrix,
+                       int imageWidth,
+                       int imageHeight,
+                       const SkIRect& center,
+                       const SkRect& dst);
 
     /**
      * Draws a batch
@@ -251,13 +247,38 @@ public:
      */
     void drawBatch(const GrClip&, const GrPaint&, GrDrawBatch*);
 
-private:
-    friend class GrAtlasTextContext; // for access to drawBatch
-    friend class GrDrawingManager; // for ctor
+    /**
+     * Draws a path batch. This needs to be separate from drawBatch because we install path stencil
+     * settings late.
+     *
+     * TODO: Figure out a better model that allows us to roll this method into drawBatch.
+     */
+    void drawPathBatch(const GrPipelineBuilder&, GrDrawPathBatchBase*);
 
+    int width() const { return fRenderTarget->width(); }
+    int height() const { return fRenderTarget->height(); }
+    int numColorSamples() const { return fRenderTarget->numColorSamples(); }
+
+    GrRenderTarget* accessRenderTarget() { return fRenderTarget; }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Functions intended for internal use only.
+    void internal_drawBatch(const GrPipelineBuilder& pipelineBuilder, GrDrawBatch* batch);
+
+protected:
+    GrDrawContext(GrContext*, GrDrawingManager*, GrRenderTarget*,
+                  const SkSurfaceProps* surfaceProps, GrAuditTrail*, GrSingleOwner*);
+
+    GrDrawingManager* drawingManager() { return fDrawingManager; }
+    GrAuditTrail* auditTrail() { return fAuditTrail; }
+    const SkSurfaceProps& surfaceProps() const { return fSurfaceProps; }
+    
+    SkDEBUGCODE(GrSingleOwner* singleOwner() { return fSingleOwner; })
     SkDEBUGCODE(void validate() const;)
 
-    GrDrawContext(GrDrawingManager*, GrRenderTarget*, const SkSurfaceProps* surfaceProps);
+private:
+    friend class GrAtlasTextBlob; // for access to drawBatch
+    friend class GrDrawingManager; // for ctor
 
     void internalDrawPath(GrPipelineBuilder*,
                           const SkMatrix& viewMatrix,
@@ -272,15 +293,20 @@ private:
 
     GrDrawTarget* getDrawTarget();
 
-    GrDrawingManager* fDrawingManager;
-    GrRenderTarget*   fRenderTarget;
+    GrDrawingManager*                 fDrawingManager;
+    GrRenderTarget*                   fRenderTarget;
 
     // In MDB-mode the drawTarget can be closed by some other drawContext that has picked
     // it up. For this reason, the drawTarget should only ever be accessed via 'getDrawTarget'.
-    GrDrawTarget*     fDrawTarget;
-    GrTextContext*    fTextContext; // lazily gotten from GrContext::DrawingManager
+    GrDrawTarget*                     fDrawTarget;
+    SkAutoTDelete<GrAtlasTextContext> fAtlasTextContext;
+    GrContext*                        fContext;
 
-    SkSurfaceProps    fSurfaceProps;
+    SkSurfaceProps                    fSurfaceProps;
+    GrAuditTrail*                     fAuditTrail;
+
+    // In debug builds we guard against improper thread handling
+    SkDEBUGCODE(mutable GrSingleOwner* fSingleOwner;)
 };
 
 #endif

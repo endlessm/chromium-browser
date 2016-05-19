@@ -4,6 +4,10 @@
 
 #include "components/history/core/browser/top_sites_database.h"
 
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
+
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram.h"
@@ -209,7 +213,7 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
 
   // For generating histogram stats.
   size_t thumbnails_recovered = 0;
-  int64 original_size = 0;
+  int64_t original_size = 0;
   base::GetFileSize(db_path, &original_size);
 
   scoped_ptr<sql::Recovery> recovery = sql::Recovery::Begin(db, db_path);
@@ -225,7 +229,7 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
     // TODO(shess): Prior histograms indicate all failures are in creating the
     // recover virtual table for corrupt.meta.  The table may not exist, or the
     // database may be too far gone.  Either way, unclear how to resolve.
-    sql::Recovery::Rollback(recovery.Pass());
+    sql::Recovery::Rollback(std::move(recovery));
     RecordRecoveryEvent(RECOVERY_EVENT_FAILED_META_VERSION);
     return;
   }
@@ -234,7 +238,7 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
   // that the regular deprecation path cannot.  The effect of this code will be
   // to raze the database.
   if (version <= kDeprecatedVersionNumber) {
-    sql::Recovery::Unrecoverable(recovery.Pass());
+    sql::Recovery::Unrecoverable(std::move(recovery));
     RecordRecoveryEvent(RECOVERY_EVENT_DEPRECATED);
     return;
   }
@@ -244,7 +248,7 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
   // infrequent enough.
   if (version != 2 && version != 3) {
     RecordRecoveryEvent(RECOVERY_EVENT_FAILED_META_WRONG_VERSION);
-    sql::Recovery::Rollback(recovery.Pass());
+    sql::Recovery::Rollback(std::move(recovery));
     return;
   }
 
@@ -252,7 +256,7 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
   sql::MetaTable recover_meta_table;
   if (!recover_meta_table.Init(recovery->db(), kVersionNumber,
                                kVersionNumber)) {
-    sql::Recovery::Rollback(recovery.Pass());
+    sql::Recovery::Rollback(std::move(recovery));
     RecordRecoveryEvent(RECOVERY_EVENT_FAILED_META_INIT);
     return;
   }
@@ -268,15 +272,14 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
     // opened as in-memory.  If the temp database had a filesystem problem and
     // the temp filesystem differs from the main database, then that could fix
     // it.
-    sql::Recovery::Rollback(recovery.Pass());
+    sql::Recovery::Rollback(std::move(recovery));
     RecordRecoveryEvent(RECOVERY_EVENT_FAILED_SCHEMA_INIT);
     return;
   }
 
-  // The |1| is because v2 [thumbnails] has one less column than v3 did.  In the
-  // v2 case the column will get default values.
-  if (!recovery->AutoRecoverTable("thumbnails", 1, &thumbnails_recovered)) {
-    sql::Recovery::Rollback(recovery.Pass());
+  // In the v2 case the missing column will get default values.
+  if (!recovery->AutoRecoverTable("thumbnails", &thumbnails_recovered)) {
+    sql::Recovery::Rollback(std::move(recovery));
     RecordRecoveryEvent(RECOVERY_EVENT_FAILED_AUTORECOVER_THUMBNAILS);
     return;
   }
@@ -284,7 +287,7 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
   // TODO(shess): Inline this?
   FixThumbnailsTable(recovery->db());
 
-  if (!sql::Recovery::Recovered(recovery.Pass())) {
+  if (!sql::Recovery::Recovered(std::move(recovery))) {
     // TODO(shess): Very unclear what this failure would actually mean, and what
     // should be done.  Add histograms to Recovered() implementation to get some
     // insight.
@@ -296,7 +299,7 @@ void RecoverDatabaseOrRaze(sql::Connection* db, const base::FilePath& db_path) {
   // database.  The size should almost always be smaller, unless the input
   // database was empty to start with.  If the percentage results are very low,
   // something is awry.
-  int64 final_size = 0;
+  int64_t final_size = 0;
   if (original_size > 0 && base::GetFileSize(db_path, &final_size) &&
       final_size > 0) {
     UMA_HISTOGRAM_PERCENTAGE("History.TopSitesRecoveredPercentage",
@@ -548,7 +551,7 @@ void TopSitesDatabase::AddPageThumbnail(const MostVisitedURL& url,
   statement.BindBool(7, score.at_top);
   statement.BindInt64(8, score.time_at_snapshot.ToInternalValue());
   statement.BindBool(9, score.load_completed);
-  int64 last_forced = url.last_forced_time.ToInternalValue();
+  int64_t last_forced = url.last_forced_time.ToInternalValue();
   DCHECK((last_forced == 0) == (new_rank != kRankOfForcedURL))
       << "Thumbnail without a forced time stamp has a forced rank, or the "
       << "opposite.";

@@ -4,21 +4,24 @@
 
 #include "chrome/browser/ui/webui/help/help_handler.h"
 
+#include <stddef.h>
+
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_runner_util.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/obsolete_system/obsolete_system.h"
@@ -48,9 +51,7 @@
 #if defined(OS_CHROMEOS)
 #include "base/files/file_util_proxy.h"
 #include "base/i18n/time_formatting.h"
-#include "base/prefs/pref_service.h"
 #include "base/sys_info.h"
-#include "base/task_runner_util.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -64,6 +65,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
 #include "chromeos/system/statistics_provider.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 #endif
 
@@ -277,9 +279,11 @@ void HelpHandler::GetLocalizedValues(base::DictionaryValue* localized_strings) {
     {"commandLine", IDS_VERSION_UI_COMMAND_LINE},
     {"buildDate", IDS_VERSION_UI_BUILD_DATE},
 #endif
+#if defined(OS_MACOSX) || defined(OS_WIN)
+    {"learnMore", IDS_LEARN_MORE},
+#endif
 #if defined(OS_MACOSX)
     {"promote", IDS_ABOUT_CHROME_PROMOTE_UPDATER},
-    {"learnMore", IDS_LEARN_MORE},
 #endif
   };
 
@@ -523,7 +527,8 @@ void HelpHandler::SetChannel(const base::ListValue* args) {
   if (user_manager::UserManager::Get()->IsCurrentUserOwner()) {
     // Check for update after switching release channel.
     version_updater_->CheckForUpdate(base::Bind(&HelpHandler::SetUpdateStatus,
-                                                base::Unretained(this)));
+                                                base::Unretained(this)),
+                                     VersionUpdater::PromoteCallback());
   }
 }
 
@@ -545,12 +550,14 @@ void HelpHandler::RelaunchAndPowerwash(const base::ListValue* args) {
 #endif  // defined(OS_CHROMEOS)
 
 void HelpHandler::RequestUpdate(const base::ListValue* args) {
+  VersionUpdater::PromoteCallback promote_callback;
   version_updater_->CheckForUpdate(
-      base::Bind(&HelpHandler::SetUpdateStatus, base::Unretained(this))
+      base::Bind(&HelpHandler::SetUpdateStatus, base::Unretained(this)),
 #if defined(OS_MACOSX)
-      , base::Bind(&HelpHandler::SetPromotionState, base::Unretained(this))
-#endif
-      );
+      base::Bind(&HelpHandler::SetPromotionState, base::Unretained(this)));
+#else
+      VersionUpdater::PromoteCallback());
+#endif  // OS_MACOSX
 }
 
 void HelpHandler::SetUpdateStatus(VersionUpdater::Status status,
@@ -579,6 +586,9 @@ void HelpHandler::SetUpdateStatus(VersionUpdater::Status status,
     break;
   case VersionUpdater::DISABLED:
     status_str = "disabled";
+    break;
+  case VersionUpdater::DISABLED_BY_ADMIN:
+    status_str = "disabled_by_admin";
     break;
   }
 
@@ -681,4 +691,4 @@ void HelpHandler::OnRegulatoryLabelTextRead(const std::string& text) {
       base::StringValue(base::CollapseWhitespaceASCII(text, true)));
 }
 
-#endif // defined(OS_CHROMEOS)
+#endif  // defined(OS_CHROMEOS)

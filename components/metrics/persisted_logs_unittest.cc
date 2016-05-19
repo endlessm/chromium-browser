@@ -4,15 +4,18 @@
 
 #include "components/metrics/persisted_logs.h"
 
+#include <stddef.h>
+
 #include "base/base64.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/scoped_user_pref_update.h"
-#include "base/prefs/testing_pref_service.h"
+#include "base/macros.h"
 #include "base/rand_util.h"
 #include "base/sha1.h"
 #include "base/values.h"
-#include "components/compression/compression_utils.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/scoped_user_pref_update.h"
+#include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/zlib/google/compression_utils.h"
 
 namespace metrics {
 

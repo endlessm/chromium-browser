@@ -5,6 +5,7 @@
 #include "ui/events/event_utils.h"
 
 #include <Cocoa/Cocoa.h>
+#include <stdint.h>
 
 #include "base/logging.h"
 #import "base/mac/mac_util.h"
@@ -177,24 +178,20 @@ int GetTouchId(const base::NativeEvent& native_event) {
   return 0;
 }
 
-float GetTouchRadiusX(const base::NativeEvent& native_event) {
-  NOTIMPLEMENTED();
-  return 0.f;
-}
-
-float GetTouchRadiusY(const base::NativeEvent& native_event) {
-  NOTIMPLEMENTED();
-  return 0.f;
-}
-
 float GetTouchAngle(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return 0.f;
 }
 
-float GetTouchForce(const base::NativeEvent& native_event) {
+PointerDetails GetTouchPointerDetailsFromNative(
+    const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
-  return 0.f;
+  return PointerDetails(EventPointerType::POINTER_TYPE_UNKNOWN,
+                        /* radius_x */ 1.0,
+                        /* radius_y */ 1.0,
+                        /* force */ 0.f,
+                        /* tilt_x */ 0.f,
+                        /* tilt_y */ 0.f);
 }
 
 bool GetScrollOffsets(const base::NativeEvent& native_event,
@@ -225,17 +222,17 @@ DomCode CodeFromNative(const base::NativeEvent& native_event) {
   return DomCodeFromNSEvent(native_event);
 }
 
-uint32 WindowsKeycodeFromNative(const base::NativeEvent& native_event) {
-  return static_cast<uint32>(KeyboardCodeFromNSEvent(native_event));
+uint32_t WindowsKeycodeFromNative(const base::NativeEvent& native_event) {
+  return static_cast<uint32_t>(KeyboardCodeFromNSEvent(native_event));
 }
 
-uint16 TextFromNative(const base::NativeEvent& native_event) {
+uint16_t TextFromNative(const base::NativeEvent& native_event) {
   NSString* text = @"";
   if ([native_event type] != NSFlagsChanged)
     text = [native_event characters];
 
   // These exceptions are based on web_input_event_builders_mac.mm:
-  uint32 windows_keycode = WindowsKeycodeFromNative(native_event);
+  uint32_t windows_keycode = WindowsKeycodeFromNative(native_event);
   if (windows_keycode == '\r')
     text = @"\r";
   if ([text isEqualToString:@"\x7F"])
@@ -243,18 +240,18 @@ uint16 TextFromNative(const base::NativeEvent& native_event) {
   if (windows_keycode == 9)
     text = @"\x9";
 
-  uint16 return_value;
+  uint16_t return_value;
   [text getCharacters:&return_value];
   return return_value;
 }
 
-uint16 UnmodifiedTextFromNative(const base::NativeEvent& native_event) {
+uint16_t UnmodifiedTextFromNative(const base::NativeEvent& native_event) {
   NSString* text = @"";
   if ([native_event type] != NSFlagsChanged)
     text = [native_event charactersIgnoringModifiers];
 
   // These exceptions are based on web_input_event_builders_mac.mm:
-  uint32 windows_keycode = WindowsKeycodeFromNative(native_event);
+  uint32_t windows_keycode = WindowsKeycodeFromNative(native_event);
   if (windows_keycode == '\r')
     text = @"\r";
   if ([text isEqualToString:@"\x7F"])
@@ -262,7 +259,7 @@ uint16 UnmodifiedTextFromNative(const base::NativeEvent& native_event) {
   if (windows_keycode == 9)
     text = @"\x9";
 
-  uint16 return_value;
+  uint16_t return_value;
   [text getCharacters:&return_value];
   return return_value;
 }

@@ -27,15 +27,22 @@
 
 #include "platform/geometry/LayoutSize.h"
 #include "platform/transforms/TransformOperation.h"
+#include "wtf/Allocator.h"
 #include "wtf/RefPtr.h"
 #include "wtf/Vector.h"
 
 namespace blink {
 class FloatBox;
+
+class PLATFORM_EXPORT EmptyTransformOperations final {
+    DISALLOW_NEW();
+};
+
 class PLATFORM_EXPORT TransformOperations {
-    USING_FAST_MALLOC(TransformOperations);
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     explicit TransformOperations(bool makeIdentity = false);
+    TransformOperations(const EmptyTransformOperations&) { }
 
     bool operator==(const TransformOperations& o) const;
     bool operator!=(const TransformOperations& o) const
@@ -83,7 +90,7 @@ public:
 
     bool blendedBoundsForBox(const FloatBox&, const TransformOperations& from, const double& minProgress, const double& maxProgress, FloatBox* bounds) const;
     TransformOperations blendByMatchingOperations(const TransformOperations& from, const double& progress) const;
-    TransformOperations blendByUsingMatrixInterpolation(const TransformOperations& from, double progress) const;
+    PassRefPtr<TransformOperation> blendByUsingMatrixInterpolation(const TransformOperations& from, double progress) const;
     TransformOperations blend(const TransformOperations& from, double progress) const;
     TransformOperations add(const TransformOperations& addend) const;
     TransformOperations zoom(double factor) const;

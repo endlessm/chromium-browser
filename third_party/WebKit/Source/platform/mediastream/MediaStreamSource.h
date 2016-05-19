@@ -35,6 +35,7 @@
 #include "platform/PlatformExport.h"
 #include "platform/audio/AudioDestinationConsumer.h"
 #include "public/platform/WebMediaConstraints.h"
+#include "wtf/Allocator.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/RefCounted.h"
@@ -53,6 +54,7 @@ public:
     };
 
     class ExtraData {
+        USING_FAST_MALLOC(ExtraData);
     public:
         virtual ~ExtraData() { }
     };
@@ -82,7 +84,7 @@ public:
     void addObserver(Observer*);
 
     ExtraData* extraData() const { return m_extraData.get(); }
-    void setExtraData(PassOwnPtr<ExtraData> extraData) { m_extraData = extraData; }
+    void setExtraData(PassOwnPtr<ExtraData> extraData) { m_extraData = std::move(extraData); }
 
     void setConstraints(WebMediaConstraints constraints) { m_constraints = constraints; }
     WebMediaConstraints constraints() { return m_constraints; }
@@ -95,6 +97,9 @@ public:
     bool removeAudioConsumer(AudioDestinationConsumer*);
     const HeapHashSet<Member<AudioDestinationConsumer>>& audioConsumers() { return m_audioConsumers; }
 
+    // |m_extraData| may hold pointers to GC objects, and it may touch them in destruction.
+    // So this class is eagerly finalized to finalize |m_extraData| promptly.
+    EAGERLY_FINALIZE();
     DECLARE_TRACE();
 
 private:
